@@ -11,13 +11,13 @@ use gravity_decompose::ops::shared::agg::{GroupForm, Register};
 use mcx::GrowIn;
 use types_nodes::primnodes::OUTER_VAR;
 
+use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::cell::{Cell, Nullable};
 use crate::face::kinds::KindId;
 use crate::frame::px::Px;
-use crate::admit::refusal::{Reason, ShapeWhy};
 
-use crate::table::emit_group::bare;
 use crate::ops::agg::hashagg::{Agg, Arg, GroupRec};
+use crate::table::emit_group::bare;
 
 fn shape(node: i32, why: &'static str) -> ! {
     crate::refuse!(node, Reason::Shape { why: ShapeWhy(why) })
@@ -33,60 +33,148 @@ impl<'g, 'p> GroupRec<'g, 'p> {
     }
 
     /// `compile_args` over the row at op `nops` of pipeline `producer` (D1071: a streamed group's op, keyed/stream.rs).
-    pub fn compile_args_at(&mut self, px: &mut Px<'g, 'p>, image_only: bool, (producer, nops): (usize, usize)) {
+    pub fn compile_args_at(
+        &mut self,
+        px: &mut Px<'g, 'p>,
+        image_only: bool,
+        (producer, nops): (usize, usize),
+    ) {
         let (node, gx) = (self.node, px.gx); // D1371: PG's transfn / finalfn order (src/regroup.rs `call_order`)
-        if let Err(why) = crate::ops::group::regroup::call_order(px, self.g, (producer, nops), &|n| crate::effects::raise_free(gx, n)) { shape(node, why) }
+        if let Err(why) =
+            crate::ops::group::regroup::call_order(px, self.g, (producer, nops), &|n| {
+                crate::effects::raise_free(gx, n)
+            })
+        {
+            shape(node, why)
+        }
         // G11: under a pair FILTER the argument is evaluated per row where the FILTER passes (`GroupRec::key_vals`), not per code
-        let filtered = self.g.form == GroupForm::Distinct && crate::table::rec::pair_filter(self.g, node).is_some();
+        let filtered = self.g.form == GroupForm::Distinct
+            && crate::table::rec::pair_filter(self.g, node).is_some();
         let tagged = crate::ops::shared::agg::tagged_multi(self.g);
-        for (i, (s, k)) in self.ksrc.iter_mut().zip(self.g.keys.iter()).enumerate().filter(|(_, (s, _))| s.is_none()) {
+        for (i, (s, k)) in self
+            .ksrc
+            .iter_mut()
+            .zip(self.g.keys.iter())
+            .enumerate()
+            .filter(|(_, (s, _))| s.is_none())
+        {
             let e = k.expr.node();
-            let cell = Cell::of_expr(crate::step::project::out_of(px.gx, e, node), 0, 0, Nullable::Maybe);
-            let filtered = filtered || (tagged && k.resno == 0 && crate::ops::shared::agg::tag_filter(self.g, i).is_some());
+            let cell = Cell::of_expr(
+                crate::step::project::out_of(px.gx, e, node),
+                0,
+                0,
+                Nullable::Maybe,
+            );
+            let filtered = filtered
+                || (tagged
+                    && k.resno == 0
+                    && crate::ops::shared::agg::tag_filter(self.g, i).is_some());
             *s = Some(if image_only && k.kind == KeyKind::Fp128 && !filtered {
-                Arg::Key { id: crate::dict::strategies::percode_key::compile_rw(px, producer, nops, e, k.coll, node, (producer, nops)), cell }
+                Arg::Key {
+                    id: crate::dict::strategies::percode_key::compile_rw(
+                        px,
+                        producer,
+                        nops,
+                        e,
+                        k.coll,
+                        node,
+                        (producer, nops),
+                    ),
+                    cell,
+                }
             } else {
-                Arg::Ex { id: crate::step::expr::compile_key(px, (producer, nops), e, node), cell } // P1c: its forwarded path lanes
+                Arg::Ex {
+                    id: crate::step::expr::compile_key(px, (producer, nops), e, node),
+                    cell,
+                } // P1c: its forwarded path lanes
             });
         }
         for a in self.aggs.iter_mut() {
             use crate::effects::visible::agg::order_free;
-            let ordered = a.d.mods.order != 0 && !order_free(&a.d, false) && !crate::ops::shared::agg::sorted(&a.d);
+            let ordered = a.d.mods.order != 0
+                && !order_free(&a.d, false)
+                && !crate::ops::shared::agg::sorted(&a.d);
             if ordered && !order_free(&a.d, true) {
                 // D346 / D458: no keyed end folds in order; an order-free ORDER BY (V4R-178) folds as if it had none, a
                 // host-sorted DISTINCT's (D1210) is a prefix of its DISTINCT clause, the sort its final makes
-                shape(node, "runs.group D458: an ordered aggregate (gravity_expr's aggorder flag)");
+                shape(
+                    node,
+                    "runs.group D458: an ordered aggregate (gravity_expr's aggorder flag)",
+                );
             }
-            let r = a.d.node.as_aggref().unwrap_or_else(|| crate::refuse!(node, Reason::Bug { payload: "an aggregate that is not an Aggref" }));
+            let r = a.d.node.as_aggref().unwrap_or_else(|| {
+                crate::refuse!(
+                    node,
+                    Reason::Bug {
+                        payload: "an aggregate that is not an Aggref"
+                    }
+                )
+            });
             // aggregates#251: an order-free call's ORDER BY entries that are not bare, evaluated per row and dropped (rec.rs)
-            let keys = r.args.iter().filter_map(|t| t.as_target_entry()).filter(|t| ordered && t.resjunk && t.expr.as_var().is_none() && t.expr.as_const().is_none());
-            self.discard.extend_in(keys.map(|t| (r.aggno, crate::step::expr::compile_at(px, producer, nops, t.expr, None, node))));
-            if !ordered && crate::ops::agg::numeric::strategies::num_keyed::compile(&mut self.nums, a, px, producer, nops, node, image_only) {
+            let keys = r
+                .args
+                .iter()
+                .filter_map(|t| t.as_target_entry())
+                .filter(|t| {
+                    ordered && t.resjunk && t.expr.as_var().is_none() && t.expr.as_const().is_none()
+                });
+            self.discard.extend_in(keys.map(|t| {
+                (
+                    r.aggno,
+                    crate::step::expr::compile_at(px, producer, nops, t.expr, None, node),
+                )
+            }));
+            if !ordered
+                && crate::ops::agg::numeric::strategies::num_keyed::compile(
+                    &mut self.nums,
+                    a,
+                    px,
+                    producer,
+                    nops,
+                    node,
+                    image_only,
+                )
+            {
                 continue; // V4R-38: a num.window tree in place of the datum argument
             }
             let sort_cols = crate::ops::shared::agg::sort_cols(&a.d); // D458: the host sorts by the ORDER BY's resjunk columns too
-            for te in r.args.iter().filter(|&t| sort_cols || crate::ops::agg::trans::args::read_arg(t)) {
+            for te in r
+                .args
+                .iter()
+                .filter(|&t| sort_cols || crate::ops::agg::trans::args::read_arg(t))
+            {
                 let e = te.as_target_entry().map_or(te, |t| t.expr);
                 a.args.push(match bare(e).as_var() {
                     Some(v) if v.varno == OUTER_VAR => Arg::Col(v.varattno),
                     _ => {
                         // T7d: an argument FACTS has no output for (an XML / SQL-value form) is its type's datum for the row
                         let out = crate::step::project::out_of(px.gx, e, node);
-                        Arg::Ex { id: crate::step::expr::compile_at(px, producer, nops, e, None, node), cell: Cell::of_expr(out, 0, 0, Nullable::Maybe) }
+                        Arg::Ex {
+                            id: crate::step::expr::compile_at(px, producer, nops, e, None, node),
+                            cell: Cell::of_expr(out, 0, 0, Nullable::Maybe),
+                        }
                     }
                 }); // alloc: Program
             }
             code_words(node, a, px.mcx());
-            a.filter = a.d.filter.map(|f| crate::step::expr::compile_at(px, producer, nops, f, None, node));
+            a.filter =
+                a.d.filter
+                    .map(|f| crate::step::expr::compile_at(px, producer, nops, f, None, node));
         }
         // V4R-367: the pair aggregates' one FILTER over the producer's row, as a rider's (hashagg_rec.rs `pair_filter`)
         if self.g.form == GroupForm::Distinct {
-            self.pair_filter = crate::table::rec::pair_filter(self.g, node).map(|f| crate::step::expr::compile_at(px, producer, nops, f, None, node));
+            self.pair_filter = crate::table::rec::pair_filter(self.g, node)
+                .map(|f| crate::step::expr::compile_at(px, producer, nops, f, None, node));
             // the tagged form's per-key FILTERs (ops/shared/agg.rs `tag_filter`), as the pair FILTER is
             self.key_filters.clear();
             for (i, k) in self.g.keys.iter().enumerate().filter(|_| tagged) {
-                if let Some(f) = crate::ops::shared::agg::tag_filter(self.g, i).filter(|_| k.resno == 0) {
-                    self.key_filters.push((i, crate::step::expr::compile_at(px, producer, nops, f, None, node)));
+                if let Some(f) =
+                    crate::ops::shared::agg::tag_filter(self.g, i).filter(|_| k.resno == 0)
+                {
+                    self.key_filters.push((
+                        i,
+                        crate::step::expr::compile_at(px, producer, nops, f, None, node),
+                    ));
                 }
             }
         }
@@ -119,7 +207,11 @@ fn code_words(node: i32, a: &mut Agg<'_>, mcx: mcx::Mcx<'_>) {
     if crate::props::class_kind(&a.d) != KindId::ClassMinmaxCode || words(&a.args) {
         return;
     }
-    a.d.reg = if a.d.reg == Register::MinCode { Register::MinVar } else { Register::MaxVar };
+    a.d.reg = if a.d.reg == Register::MinCode {
+        Register::MinVar
+    } else {
+        Register::MaxVar
+    };
     a.class = crate::ops::agg::trans::plain::class_of(&node, &a.d, mcx);
     a.shape = a.class.shape(&a.d);
 }
@@ -129,11 +221,11 @@ mod tests {
     use super::*;
     use crate::cell::At;
     use crate::frame::px::ExId;
+    use gravity_decompose::catalog::typefacts::KeyColl;
     use gravity_decompose::ops::shared::agg::fold_of;
     use gravity_decompose::ops::shared::agg::{AggDecl, NONE};
-    use gravity_decompose::ops::shared::sort::NO_SCALE;
     use gravity_decompose::ops::shared::agg_class::{Class, Ext, Mods, Split};
-    use gravity_decompose::catalog::typefacts::KeyColl;
+    use gravity_decompose::ops::shared::sort::NO_SCALE;
     use gravity_program::{DictRef, ExprLife, ExprOut, Rep};
     use mcx::MemoryContext;
     use types_nodes::primnodes::Aggref;
@@ -146,25 +238,94 @@ mod tests {
     #[test]
     fn a_code_extremum_over_an_expression_folds_as_text() {
         let ctx = MemoryContext::new("d368");
-        let coll = KeyColl { oid: 950, bytes_eq: true, bytes_order: true };
-        let mods = Mods { distinct: 0, order: 0, filter: false, direct: 0, split: Split::Simple, star: false };
-        let cell = Cell::of_expr(ExprOut { rep: Rep::Code { dict: DictRef::lane(0) }, typid: 25, life: ExprLife::Row }, 0, 0, Nullable::Maybe);
-        assert!(matches!(cell.at, At::Value(_)), "an expression's cell is off its lane: `word` would read its value as the word");
-        for (class, fnoid, var) in [(Class::Min(Ext::Text), 2145, Register::MinVar), (Class::Max(Ext::Text), 2129, Register::MaxVar)] {
+        let coll = KeyColl {
+            oid: 950,
+            bytes_eq: true,
+            bytes_order: true,
+        };
+        let mods = Mods {
+            distinct: 0,
+            order: 0,
+            filter: false,
+            direct: 0,
+            split: Split::Simple,
+            star: false,
+        };
+        let cell = Cell::of_expr(
+            ExprOut {
+                rep: Rep::Code {
+                    dict: DictRef::lane(0),
+                },
+                typid: 25,
+                life: ExprLife::Row,
+            },
+            0,
+            0,
+            Nullable::Maybe,
+        );
+        assert!(
+            matches!(cell.at, At::Value(_)),
+            "an expression's cell is off its lane: `word` would read its value as the word"
+        );
+        for (class, fnoid, var) in [
+            (Class::Min(Ext::Text), 2145, Register::MinVar),
+            (Class::Max(Ext::Text), 2129, Register::MaxVar),
+        ] {
             let (reg, trans, final_) = fold_of(class, fnoid, true, true);
-            let node = Node::mk(ctx.mcx(), Aggref { aggfnoid: fnoid, aggtype: 25, ..Default::default() }).unwrap();
-            let d = AggDecl { aggno: 0, fnoid, reg, slot: 1, count_slot: NONE, final_, node, scale: NO_SCALE, filter: None, class, trans, mods, coll, dscale_slot: NONE, dscales: &[] };
+            let node = Node::mk(
+                ctx.mcx(),
+                Aggref {
+                    aggfnoid: fnoid,
+                    aggtype: 25,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            let d = AggDecl {
+                aggno: 0,
+                fnoid,
+                reg,
+                slot: 1,
+                count_slot: NONE,
+                final_,
+                node,
+                scale: NO_SCALE,
+                filter: None,
+                class,
+                trans,
+                mods,
+                coll,
+                dscale_slot: NONE,
+                dscales: &[],
+            };
             let agg = |args: Vec<Arg>| {
                 let c = crate::ops::agg::trans::plain::class_of(&0i32, &d, ctx.mcx());
-                Agg { d, class: c, shape: c.shape(&d), args, filter: None }
+                Agg {
+                    d,
+                    class: c,
+                    shape: c.shape(&d),
+                    args,
+                    filter: None,
+                }
             };
             let mut col = agg(vec![Arg::Col(2)]);
             code_words(3, &mut col, ctx.mcx());
-            assert_eq!((crate::props::class_kind(&col.d), col.d.reg), (KindId::ClassMinmaxCode, reg), "a row column stays a code");
-            for arg in [Arg::Ex { id: ExId(0), cell }, Arg::Key { id: ExId(1), cell }] {
+            assert_eq!(
+                (crate::props::class_kind(&col.d), col.d.reg),
+                (KindId::ClassMinmaxCode, reg),
+                "a row column stays a code"
+            );
+            for arg in [
+                Arg::Ex { id: ExId(0), cell },
+                Arg::Key { id: ExId(1), cell },
+            ] {
                 let mut ex = agg(vec![arg]);
                 code_words(3, &mut ex, ctx.mcx());
-                assert_eq!((crate::props::class_kind(&ex.d), ex.d.reg), (KindId::ClassText, var), "the text register");
+                assert_eq!(
+                    (crate::props::class_kind(&ex.d), ex.d.reg),
+                    (KindId::ClassText, var),
+                    "the text register"
+                );
             }
         }
     }

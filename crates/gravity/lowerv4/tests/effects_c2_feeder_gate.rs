@@ -24,8 +24,15 @@ fn merge_fills<'p>(stmt: &'p PlannedStmt<'p>) -> (i32, i32) {
     let (outer, inner) = join.expect("merge-058 plans a merge join");
     let fill = |side: Option<Node<'p>>| {
         let sort = side.expect("a merge join side");
-        assert_eq!(sort.node_tag(), NodeTag::T_Sort, "merge-058's merge join reads a Sort on each side");
-        sort.as_plan().and_then(|p| p.lefttree).and_then(|s| s.as_plan().map(|p| p.plan_node_id)).expect("the Sort's scan")
+        assert_eq!(
+            sort.node_tag(),
+            NodeTag::T_Sort,
+            "merge-058's merge join reads a Sort on each side"
+        );
+        sort.as_plan()
+            .and_then(|p| p.lefttree)
+            .and_then(|s| s.as_plan().map(|p| p.plan_node_id))
+            .expect("the Sort's scan")
     };
     (fill(outer), fill(inner))
 }
@@ -33,18 +40,28 @@ fn merge_fills<'p>(stmt: &'p PlannedStmt<'p>) -> (i32, i32) {
 #[test]
 fn a_feeder_that_checks_the_gate_is_not_gated() {
     gravity_lowerv4::frame::program::set_gate_stamps(true);
-    let text = std::fs::read_to_string(common::plans_dir().join("regress-full/merge-058.plan")).expect("merge-058.plan");
+    let text = std::fs::read_to_string(common::plans_dir().join("regress-full/merge-058.plan"))
+        .expect("merge-058.plan");
     let ctx = MemoryContext::new("c2 feeder gate");
     let fx = corpus::load(ctx.mcx(), &text).unwrap_or_else(|e| panic!("merge-058: {e}"));
     let (outer, inner) = merge_fills(fx.stmt);
     let never = gravity_decompose::pg_demand::never_run(fx.stmt, ctx.mcx());
-    assert!(never.binary_search(&outer).is_ok() && never.binary_search(&inner).is_ok(), "merge-058: the one-time Result does not cover the scans {outer} and {inner}: {never:?}");
+    assert!(
+        never.binary_search(&outer).is_ok() && never.binary_search(&inner).is_ok(),
+        "merge-058: the one-time Result does not cover the scans {outer} and {inner}: {never:?}"
+    );
     let l = match common::lower_fixture(&text) {
         Some(Ok(l)) => l,
         Some(Err(_)) => panic!("merge-058 is refused"),
         None => panic!("merge-058 does not decompose"),
     };
-    let gated: Vec<i32> = l.descs.pipelines.iter().map(|p| p.pg_gate).filter(|&g| g >= 0).collect();
+    let gated: Vec<i32> = l
+        .descs
+        .pipelines
+        .iter()
+        .map(|p| p.pg_gate)
+        .filter(|&g| g >= 0)
+        .collect();
     assert!(!gated.contains(&outer), "merge-058: the outer Sort's scan {outer} is stamped gated, though the pipeline filling it takes the gate's verdict first: {gated:?}");
     assert!(gated.contains(&inner), "merge-058: the inner Sort's scan {inner} is not stamped gated, though the merge join may never pull its inner: {gated:?}");
 }

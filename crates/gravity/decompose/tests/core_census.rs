@@ -57,15 +57,26 @@ fn run(path: &Path) -> Row {
     let arena = Arena::new(1 << 20);
     CAPTURING.with(|c| c.set(true));
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx).map(|_| ()).map_err(|r| (r.kind.name(), r.reason))
+        decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx)
+            .map(|_| ())
+            .map_err(|r| (r.kind.name(), r.reason))
     }));
     CAPTURING.with(|c| c.set(false));
     let outcome = match result {
-        Err(p) => Outcome::Panic(p.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| p.downcast_ref::<String>().cloned()).unwrap_or_default()),
+        Err(p) => Outcome::Panic(
+            p.downcast_ref::<&str>()
+                .map(|s| s.to_string())
+                .or_else(|| p.downcast_ref::<String>().cloned())
+                .unwrap_or_default(),
+        ),
         Ok(Ok(())) => Outcome::Served,
         Ok(Err((k, r))) => Outcome::Refused(k, r),
     };
-    Row { corpus: corpus_of(path), name: harness::fixture_name(path), outcome }
+    Row {
+        corpus: corpus_of(path),
+        name: harness::fixture_name(path),
+        outcome,
+    }
 }
 
 #[derive(Default)]
@@ -118,7 +129,9 @@ fn corpus_census() {
             Outcome::Refused(k, reason) => match ledger::owner(reason) {
                 Some(o) => {
                     c.ruled += 1;
-                    let e = ruled.entry((k, reason)).or_insert_with(|| (BTreeMap::new(), o));
+                    let e = ruled
+                        .entry((k, reason))
+                        .or_insert_with(|| (BTreeMap::new(), o));
                     *e.0.entry(r.corpus.clone()).or_default() += 1;
                 }
                 None => {
@@ -130,21 +143,53 @@ fn corpus_census() {
     }
     let mut out = String::new();
     let w = table.keys().map(|k| k.len()).max().unwrap_or(6).max(6);
-    writeln!(out, "{:w$}  fixtures  served  by-ruling  unowned  panics", "corpus", w = w).unwrap();
+    writeln!(
+        out,
+        "{:w$}  fixtures  served  by-ruling  unowned  panics",
+        "corpus",
+        w = w
+    )
+    .unwrap();
     let mut total = Cell::default();
     for (name, c) in &table {
-        writeln!(out, "{:w$}  {:8}  {:6}  {:9}  {:7}  {:6}", name, c.fixtures, c.served, c.ruled, c.unowned, c.panics, w = w).unwrap();
+        writeln!(
+            out,
+            "{:w$}  {:8}  {:6}  {:9}  {:7}  {:6}",
+            name,
+            c.fixtures,
+            c.served,
+            c.ruled,
+            c.unowned,
+            c.panics,
+            w = w
+        )
+        .unwrap();
         total.fixtures += c.fixtures;
         total.served += c.served;
         total.ruled += c.ruled;
         total.unowned += c.unowned;
         total.panics += c.panics;
     }
-    writeln!(out, "{:w$}  {:8}  {:6}  {:9}  {:7}  {:6}", "total", total.fixtures, total.served, total.ruled, total.unowned, total.panics, w = w).unwrap();
+    writeln!(
+        out,
+        "{:w$}  {:8}  {:6}  {:9}  {:7}  {:6}",
+        "total",
+        total.fixtures,
+        total.served,
+        total.ruled,
+        total.unowned,
+        total.panics,
+        w = w
+    )
+    .unwrap();
     writeln!(out, "refused by a named ruling ({}):", total.ruled).unwrap();
     for ((k, reason), (per, owner)) in &ruled {
         let n: usize = per.values().sum();
-        let per = per.iter().map(|(c, n)| format!("{c} {n}")).collect::<Vec<_>>().join(", ");
+        let per = per
+            .iter()
+            .map(|(c, n)| format!("{c} {n}"))
+            .collect::<Vec<_>>()
+            .join(", ");
         writeln!(out, "  {k}: {reason} {n} [{per}] -- {owner}").unwrap();
     }
     writeln!(out, "refused unowned ({}):", total.unowned).unwrap();
@@ -162,7 +207,14 @@ fn corpus_census() {
     }
     let mut stats = harness::Stats::new("census");
     stats.loaded = rows.len();
-    stats.check(&manifest_dir().join("tests").join("golden").join("census.txt"), "census.txt", &out);
+    stats.check(
+        &manifest_dir()
+            .join("tests")
+            .join("golden")
+            .join("census.txt"),
+        "census.txt",
+        &out,
+    );
     stats.finish();
 }
 
@@ -173,14 +225,25 @@ fn owner_rows_are_live() {
     let stale: Vec<&str> = ledger::OWNERS
         .iter()
         .map(|(p, _)| *p)
-        .filter(|p| !rows.iter().any(|r| matches!(&r.outcome, Outcome::Refused(_, reason) if reason.starts_with(p))))
+        .filter(|p| {
+            !rows
+                .iter()
+                .any(|r| matches!(&r.outcome, Outcome::Refused(_, reason) if reason.starts_with(p)))
+        })
         .collect();
-    assert!(stale.is_empty() || harness::filter().is_some(), "owner rows no corpus reaches (delete them): {stale:?}");
+    assert!(
+        stale.is_empty() || harness::filter().is_some(),
+        "owner rows no corpus reaches (delete them): {stale:?}"
+    );
 }
 
 /// D793-b: the checkout under test, read at run time (cargo sets CARGO_MANIFEST_DIR for every test process), never
 /// env!()'s path baked in at compile time: a test binary reused from another checkout would read that checkout's files.
 fn manifest_dir() -> &'static std::path::Path {
     static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| std::env::var_os("CARGO_MANIFEST_DIR").map(Into::into).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)"))
+    DIR.get_or_init(|| {
+        std::env::var_os("CARGO_MANIFEST_DIR")
+            .map(Into::into)
+            .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+    })
 }

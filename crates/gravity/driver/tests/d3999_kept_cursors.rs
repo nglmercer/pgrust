@@ -19,7 +19,10 @@ const BLOCKS: u64 = 24;
 const PER_BLOCK: u64 = 10;
 const WIDTH: u16 = 3;
 const SALT: u64 = 0x0d39_9900;
-const KEY: PlanKey = PlanKey { handle: Handle(0x3999), generation: Generation(1) };
+const KEY: PlanKey = PlanKey {
+    handle: Handle(0x3999),
+    generation: Generation(1),
+};
 
 /// The handles the sources keep across unbind (parked or not).
 fn kept(table: &RangeTable) -> usize {
@@ -41,18 +44,39 @@ fn drain(open: &Open<'_>, cursor: &AtomicU64, ordinal: u16) -> Result<u64, Error
 }
 
 /// One parallel statement: its worker slots from (and back to) the depot under `SALT`; keyed, the leader Node parks.
-fn cycle(entry: &mut Entry, program: &Arc<Program>, derive: &mut FakeDerive, key: Option<PlanKey>, flag: &AtomicU8) {
+fn cycle(
+    entry: &mut Entry,
+    program: &Arc<Program>,
+    derive: &mut FakeDerive,
+    key: Option<PlanKey>,
+    flag: &AtomicU8,
+) {
     let mut sink = LegSink::new();
     let mut b = binding(&[100], &NULLS, &mut sink, flag);
-    let mut exec = entry.start(key, program, derive, &mut b, lease(gravity_driver::Grant::of(8 << 20))).unwrap();
+    let mut exec = entry
+        .start(
+            key,
+            program,
+            derive,
+            &mut b,
+            lease(gravity_driver::Grant::of(8 << 20)),
+        )
+        .unwrap();
     exec.set_slot_salt(Some(SALT));
     let open = entry.open_section(&mut exec, &b, derive, 0, WIDTH).unwrap();
     let cursor = AtomicU64::new(0);
     for o in 0..WIDTH {
         drain(&open, &cursor, o).unwrap();
     }
-    entry.close_section(open, &mut b, &CountMerge, true).unwrap();
-    assert_eq!(entry.run(&mut exec, &mut b, gravity_driver::Call::batch(4)).unwrap(), Step::Done);
+    entry
+        .close_section(open, &mut b, &CountMerge, true)
+        .unwrap();
+    assert_eq!(
+        entry
+            .run(&mut exec, &mut b, gravity_driver::Call::batch(4))
+            .unwrap(),
+        Step::Done
+    );
     entry.end(exec, true);
 }
 
@@ -72,9 +96,16 @@ fn the_backstop_and_the_idle_shed_release_every_kept_cursor() {
     assert!(both > base, "the workers in the depot and the leader in the park keep their handles ({both} over {base})");
     gravity_driver::mem::reclaim::reclaim_backstop(0);
     let leader = kept(&table);
-    assert!(leader > base && leader < both, "the backstop releases the depot's sets at once ({leader} of {both})");
+    assert!(
+        leader > base && leader < both,
+        "the backstop releases the depot's sets at once ({leader} of {both})"
+    );
     entry.park().shed_all();
-    assert_eq!(kept(&table), base, "the idle shed releases this backend's park");
+    assert_eq!(
+        kept(&table),
+        base,
+        "the idle shed releases this backend's park"
+    );
     drop(entry);
     DEPOT.trim();
 }

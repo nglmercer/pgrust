@@ -1,6 +1,4 @@
-
-const BASE64: &[u8; 64] =
-    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const BASE64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 const ARMOR_HEADER: &str = "-----BEGIN PGP MESSAGE-----\n";
 const ARMOR_FOOTER: &str = "\n-----END PGP MESSAGE-----\n";
@@ -8,7 +6,7 @@ const ARMOR_FOOTER: &str = "\n-----END PGP MESSAGE-----\n";
 pub const CORRUPT_ARMOR: &str = "Corrupt ascii-armor";
 
 fn base64_encode(src: &[u8]) -> Vec<u8> {
-    let mut dst: Vec<u8> = Vec::with_capacity(src.len().div_ceil( 3) * 4 + src.len() / 57 + 4);
+    let mut dst: Vec<u8> = Vec::with_capacity(src.len().div_ceil(3) * 4 + src.len() / 57 + 4);
     let mut pos: i32 = 2;
     let mut buf: u64 = 0;
     let mut line_chars = 0usize;
@@ -110,12 +108,17 @@ fn crc24(data: &[u8]) -> u32 {
 }
 
 /// pgp-armor.c:163 pg_base64_enc_len: 3 bytes to 4, a linefeed every 76.
-pub fn base64_enc_len(srclen: usize) -> usize {srclen.div_ceil( 3) * 4 + srclen / (76 * 3 / 4)
+pub fn base64_enc_len(srclen: usize) -> usize {
+    srclen.div_ceil(3) * 4 + srclen / (76 * 3 / 4)
 }
 
 /// Bytes pgp_armor_encode appends before the base64 body.
 pub fn armor_header_len(keys: &[Vec<u8>], values: &[Vec<u8>]) -> usize {
-    let lines: usize = keys.iter().zip(values).map(|(k, v)| k.len() + 2 + v.len() + 1).sum();
+    let lines: usize = keys
+        .iter()
+        .zip(values)
+        .map(|(k, v)| k.len() + 2 + v.len() + 1)
+        .sum();
     ARMOR_HEADER.len() + lines + 1
 }
 
@@ -356,6 +359,9 @@ mod tests {
             other => panic!("expected the palloc failure, got {other:?}"),
         }
         src.drain(28..30);
-        assert!(matches!(extract_armor_headers(&src), Err(ArmorError::Corrupt)));
+        assert!(matches!(
+            extract_armor_headers(&src),
+            Err(ArmorError::Corrupt)
+        ));
     }
 }

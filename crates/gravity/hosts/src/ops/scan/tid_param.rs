@@ -10,13 +10,15 @@
 use std::rc::Rc;
 
 use gravity_abi::{Datum as Word, ScanPos};
-use gravity_driver::{box_source, ArenaRef, BindingRef, Cursor, Error, Result, Source, SourceBox, Window};
+use gravity_driver::{
+    box_source, ArenaRef, BindingRef, Cursor, Error, Result, Source, SourceBox, Window,
+};
 use gravity_program::SiteDesc;
 use types_core::Oid;
 
 use crate::ops::scan::bitmap_param::ExecVals;
-use crate::ops::shared::key_fn::KeyFn;
 use crate::ops::scan::tid_sample::{TidRecipe, TidSource};
+use crate::ops::shared::key_fn::KeyFn;
 use crate::recipe::HostRecipe;
 use crate::scratch::NodeScratch;
 
@@ -40,8 +42,22 @@ impl HostRecipe for ParamTidRecipe {
     fn derive(&self, desc: &SiteDesc, a: ArenaRef) -> SourceBox {
         // the site's key cells are the recipe's clause cells, then the input cells
         let n = self.leaf.nkeys();
-        assert!(self.leaf.heap == desc.relation && n + self.inputs.len() == desc.nkeys(), "gravity: computed-value TID recipe does not match its site descriptor");
-        box_source(ParamTid { inner: TidSource::new(self.leaf.clone()), keys: self.keys.clone(), vals: self.vals.clone(), inputs: self.inputs.clone(), words: vec![0; n], nulls: vec![0; n], scratch: NodeScratch::new("GravityParamTid") }, a) // alloc: Node
+        assert!(
+            self.leaf.heap == desc.relation && n + self.inputs.len() == desc.nkeys(),
+            "gravity: computed-value TID recipe does not match its site descriptor"
+        );
+        box_source(
+            ParamTid {
+                inner: TidSource::new(self.leaf.clone()),
+                keys: self.keys.clone(),
+                vals: self.vals.clone(),
+                inputs: self.inputs.clone(),
+                words: vec![0; n],
+                nulls: vec![0; n],
+                scratch: NodeScratch::new("GravityParamTid"),
+            },
+            a,
+        ) // alloc: Node
     }
     fn clone_box(&self) -> Box<dyn HostRecipe> {
         Box::new(self.clone()) // alloc: Program
@@ -69,7 +85,9 @@ impl Source for ParamTid {
     fn seek(&mut self, keys: &[Word], keys_null: &[u8]) -> Result<()> {
         let n = self.words.len();
         if keys.len() < n + self.inputs.len() || keys_null.len() < n + self.inputs.len() {
-            return Err(Error::host("a computed-value TID seek with fewer key words than its recipe and inputs"));
+            return Err(Error::host(
+                "a computed-value TID seek with fewer key words than its recipe and inputs",
+            ));
         }
         // bounded("other: one input cell per outer value the site's computed TID values read, which the statement's quals bound")
         for &(w, id) in self.inputs.iter() {

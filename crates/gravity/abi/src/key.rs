@@ -36,13 +36,25 @@ impl KeyReq {
     /// A hashed key under equality `op` and collation `coll` (a hashed SubPlan's, SetOp's or Agg's, a hash join's clause,
     /// a hashed SAOP's).
     pub const fn hash(op: u32, coll: u32) -> KeyReq {
-        KeyReq { use_: KeyUse::Hash, op, coll, lt: 0, rt: 0 }
+        KeyReq {
+            use_: KeyUse::Hash,
+            op,
+            coll,
+            lt: 0,
+            rt: 0,
+        }
     }
 
     /// A sorted key under ordering operator `op` (strategy 1 `<` or 5 `>` of some btree family), no collation given
     /// (`under` gives one).
     pub const fn sort(op: u32) -> KeyReq {
-        KeyReq { use_: KeyUse::Sort, op, coll: 0, lt: 0, rt: 0 }
+        KeyReq {
+            use_: KeyUse::Sort,
+            op,
+            coll: 0,
+            lt: 0,
+            rt: 0,
+        }
     }
 
     /// This request under input collation `coll`.

@@ -19,6 +19,9 @@ mod tests {
     fn kind_impl_is_the_registered_row() {
         let face: &ExprFace = super::kind_impl(&0i32, KindId::ExprCore);
         assert!(std::ptr::eq(face, crate::frame::iface::expr_face(&0i32)));
-        assert!(std::ptr::eq(face, crate::frame::iface::need_kind::<ExprFace>(&0i32, KindId::ExprCore)));
+        assert!(std::ptr::eq(
+            face,
+            crate::frame::iface::need_kind::<ExprFace>(&0i32, KindId::ExprCore)
+        ));
     }
 }

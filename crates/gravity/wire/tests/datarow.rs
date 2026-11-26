@@ -1,8 +1,8 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::sync::Once;
 
 use datum::varlena::set_varsize_4b;
@@ -17,7 +17,11 @@ use types_core::Oid;
 use types_dest::CommandDest;
 use types_error::PgResult;
 use types_fmgr::{FmgrInfo, FunctionCallInfoBaseData};
-use types_portal::{CachedPlanHandle, ParamListHandle, Portal, PortalCleanupHook, PortalData, PortalStatus, PortalStrategy, QueryCompletion, QueryDescHandle, QueryEnvHandle, StmtListHandle, TuplestoreHandle, CMDTAG_INSERT, CMDTAG_UNKNOWN};
+use types_portal::{
+    CachedPlanHandle, ParamListHandle, Portal, PortalCleanupHook, PortalData, PortalStatus,
+    PortalStrategy, QueryCompletion, QueryDescHandle, QueryEnvHandle, StmtListHandle,
+    TuplestoreHandle, CMDTAG_INSERT, CMDTAG_UNKNOWN,
+};
 use types_resowner::ResourceOwner;
 use types_slot::{SlotData, TupleSlotKind, TupleTableSlot, VirtualTupleTableSlot};
 use types_tuple::{CompactAttribute, FormData_pg_attribute, NameData, TupleDescData, TYPALIGN_INT};
@@ -97,16 +101,24 @@ fn varlena_payload<'a>(p: *const u8) -> &'a [u8] {
 }
 
 /// numeric_send stand-in: the image's payload as the bytea (the binary road must reach the send function unchanged).
-fn numericsend_fn(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut FunctionCallInfoBaseData) -> PgResult<Datum> {
+fn numericsend_fn(
+    _flinfo: Option<&mut FmgrInfo>,
+    fcinfo: &mut FunctionCallInfoBaseData,
+) -> PgResult<Datum> {
     let pay = varlena_payload(fcinfo.arg(0).as_usize() as *const u8);
     let mut img = Vec::with_capacity(4 + pay.len());
     img.extend_from_slice(&set_varsize_4b(4 + pay.len()));
     img.extend_from_slice(pay);
-    Ok(Datum::from_usize(Box::leak(img.into_boxed_slice()).as_ptr() as usize))
+    Ok(Datum::from_usize(
+        Box::leak(img.into_boxed_slice()).as_ptr() as usize,
+    ))
 }
 
 /// numeric_out: PostgreSQL's (the adt_numeric port), counted.
-fn numericout_fn(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut FunctionCallInfoBaseData) -> PgResult<Datum> {
+fn numericout_fn(
+    _flinfo: Option<&mut FmgrInfo>,
+    fcinfo: &mut FunctionCallInfoBaseData,
+) -> PgResult<Datum> {
     NUMERIC_OUT_CALLS.with(|c| c.set(c.get() + 1));
     // detoasted as PostgreSQL's numeric_out does (PG_GETARG_NUMERIC): a 1-byte-header image is copied to an aligned buffer
     let pay = varlena_payload(fcinfo.arg(0).as_usize() as *const u8);
@@ -124,7 +136,10 @@ fn numericout_fn(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut FunctionCallInfoBa
     })
 }
 
-fn int4out_fn(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut FunctionCallInfoBaseData) -> PgResult<Datum> {
+fn int4out_fn(
+    _flinfo: Option<&mut FmgrInfo>,
+    fcinfo: &mut FunctionCallInfoBaseData,
+) -> PgResult<Datum> {
     let mut v = fcinfo.arg(0).as_i32();
     OUTBUF.with(|b| {
         let mut b = b.borrow_mut();
@@ -148,7 +163,10 @@ fn int4out_fn(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut FunctionCallInfoBaseD
 }
 
 /// oidout under PostgreSQL's contract: the cstring fresh in the frame's result context (an unarmed frame raises).
-fn oidout_fn(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut FunctionCallInfoBaseData) -> PgResult<Datum> {
+fn oidout_fn(
+    _flinfo: Option<&mut FmgrInfo>,
+    fcinfo: &mut FunctionCallInfoBaseData,
+) -> PgResult<Datum> {
     let s = fcinfo.arg(0).as_u32().to_string();
     types_fmgr::out_cstring(fcinfo, s.len() + 1, |b| {
         b[..s.len()].copy_from_slice(s.as_bytes());
@@ -156,7 +174,10 @@ fn oidout_fn(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut FunctionCallInfoBaseDa
     })
 }
 
-fn textout_fn(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut FunctionCallInfoBaseData) -> PgResult<Datum> {
+fn textout_fn(
+    _flinfo: Option<&mut FmgrInfo>,
+    fcinfo: &mut FunctionCallInfoBaseData,
+) -> PgResult<Datum> {
     if !TEXT_VARLENA.with(Cell::get) {
         return Ok(fcinfo.arg(0));
     }
@@ -168,11 +189,16 @@ fn textout_fn(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut FunctionCallInfoBaseD
     })
 }
 
-fn int4send_fn(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut FunctionCallInfoBaseData) -> PgResult<Datum> {
+fn int4send_fn(
+    _flinfo: Option<&mut FmgrInfo>,
+    fcinfo: &mut FunctionCallInfoBaseData,
+) -> PgResult<Datum> {
     let mut img = Vec::with_capacity(8);
     img.extend_from_slice(&set_varsize_4b(8));
     img.extend_from_slice(&fcinfo.arg(0).as_i32().to_be_bytes());
-    Ok(Datum::from_usize(Box::leak(img.into_boxed_slice()).as_ptr() as usize))
+    Ok(Datum::from_usize(
+        Box::leak(img.into_boxed_slice()).as_ptr() as usize,
+    ))
 }
 
 fn install() {
@@ -186,8 +212,16 @@ fn install() {
         pqcomm_seams::pq_putbytes::set(|bytes| {
             let mut at = 0;
             while at < bytes.len() {
-                let len = u32::from_be_bytes([bytes[at + 1], bytes[at + 2], bytes[at + 3], bytes[at + 4]]) as usize;
-                SENT.with(|s| s.borrow_mut().push((bytes[at], bytes[at + 5..at + 1 + len].to_vec())));
+                let len = u32::from_be_bytes([
+                    bytes[at + 1],
+                    bytes[at + 2],
+                    bytes[at + 3],
+                    bytes[at + 4],
+                ]) as usize;
+                SENT.with(|s| {
+                    s.borrow_mut()
+                        .push((bytes[at], bytes[at + 5..at + 1 + len].to_vec()))
+                });
                 at += 1 + len;
             }
             Ok(0)
@@ -201,7 +235,9 @@ fn install() {
             }
         });
         mbutils_seams::server_to_client_conversion_needed::set(|| CONVERT.with(|c| c.get()));
-        pquery_seams::fetch_portal_target_list::set(|mcx, _portal| TLIST.with(|t| mcx::slice_in(mcx, &t.borrow())));
+        pquery_seams::fetch_portal_target_list::set(|mcx, _portal| {
+            TLIST.with(|t| mcx::slice_in(mcx, &t.borrow()))
+        });
         lsyscache_seams::get_type_output_info::set(|oid| match oid {
             INT4OID | DOMAINOID => Ok((INT4OUT, false)),
             INT2OID => Ok((INT2OUT, false)),
@@ -230,7 +266,9 @@ fn install() {
                 // never called: int2 / int8 take the node's fast path
                 INT2OUT => Ok(FmgrInfo::new(int4out_fn, INT2OUT, 1, true, false)),
                 INT8OUT => Ok(FmgrInfo::new(int4out_fn, INT8OUT, 1, true, false)),
-                BOOLOUT | FLOAT4OUT | FLOAT8OUT => Ok(FmgrInfo::new(int4out_fn, oid, 1, true, false)),
+                BOOLOUT | FLOAT4OUT | FLOAT8OUT => {
+                    Ok(FmgrInfo::new(int4out_fn, oid, 1, true, false))
+                }
                 TEXTOUT => Ok(FmgrInfo::new(textout_fn, TEXTOUT, 1, true, false)),
                 OIDOUT => Ok(FmgrInfo::new(oidout_fn, OIDOUT, 1, true, false)),
                 NUMERICOUT => Ok(FmgrInfo::new(numericout_fn, NUMERICOUT, 1, true, false)),
@@ -257,15 +295,48 @@ struct Col {
 }
 
 const COLS: [Col; 3] = [
-    Col { name: "id", typid: INT4OID, typmod: -1, typlen: 4, byval: true, origtbl: 16400, origcol: 2 },
-    Col { name: "label", typid: TEXTOID, typmod: -1, typlen: -1, byval: false, origtbl: 16400, origcol: 5 },
-    Col { name: "dom", typid: DOMAINOID, typmod: -1, typlen: 4, byval: true, origtbl: 0, origcol: 0 },
+    Col {
+        name: "id",
+        typid: INT4OID,
+        typmod: -1,
+        typlen: 4,
+        byval: true,
+        origtbl: 16400,
+        origcol: 2,
+    },
+    Col {
+        name: "label",
+        typid: TEXTOID,
+        typmod: -1,
+        typlen: -1,
+        byval: false,
+        origtbl: 16400,
+        origcol: 5,
+    },
+    Col {
+        name: "dom",
+        typid: DOMAINOID,
+        typmod: -1,
+        typlen: 4,
+        byval: true,
+        origtbl: 0,
+        origcol: 0,
+    },
 ];
 
 fn attr(c: &Col, i: i16) -> FormData_pg_attribute {
     let mut attname = NameData::default();
     attname.namestrcpy(c.name);
-    FormData_pg_attribute { attname, attnum: i + 1, atttypid: c.typid, atttypmod: c.typmod, attlen: c.typlen, attbyval: c.byval, attalign: TYPALIGN_INT, ..Default::default() }
+    FormData_pg_attribute {
+        attname,
+        attnum: i + 1,
+        atttypid: c.typid,
+        atttypmod: c.typmod,
+        attlen: c.typlen,
+        attbyval: c.byval,
+        attalign: TYPALIGN_INT,
+        ..Default::default()
+    }
 }
 
 fn make_desc(mcx: Mcx<'_>) -> Rc<TupleDescData<'_>> {
@@ -276,10 +347,22 @@ fn make_desc(mcx: Mcx<'_>) -> Rc<TupleDescData<'_>> {
         compact.push(CompactAttribute::populate_from(&a));
         attrs.push(a);
     }
-    Rc::new(TupleDescData { natts: COLS.len() as i32, tdtypeid: 0, tdtypmod: -1, tdrefcount: -1, constr: None, compact_attrs: compact, attrs })
+    Rc::new(TupleDescData {
+        natts: COLS.len() as i32,
+        tdtypeid: 0,
+        tdtypmod: -1,
+        tdrefcount: -1,
+        constr: None,
+        compact_attrs: compact,
+        attrs,
+    })
 }
 
-fn make_slot<'mcx>(mcx: Mcx<'mcx>, desc: Rc<TupleDescData<'mcx>>, values: &[(Datum, bool)]) -> SlotData<'mcx> {
+fn make_slot<'mcx>(
+    mcx: Mcx<'mcx>,
+    desc: Rc<TupleDescData<'mcx>>,
+    values: &[(Datum, bool)],
+) -> SlotData<'mcx> {
     let mut base = TupleTableSlot::new_in(mcx, TupleSlotKind::Virtual);
     base.set_descriptor(mcx, desc);
     for (i, &(v, isnull)) in values.iter().enumerate() {
@@ -288,7 +371,10 @@ fn make_slot<'mcx>(mcx: Mcx<'mcx>, desc: Rc<TupleDescData<'mcx>>, values: &[(Dat
     }
     base.tts_nvalid = values.len() as i16;
     base.mark_not_empty();
-    SlotData::Virtual(VirtualTupleTableSlot { base, data: PgVec::new_in(mcx) })
+    SlotData::Virtual(VirtualTupleTableSlot {
+        base,
+        data: PgVec::new_in(mcx),
+    })
 }
 
 fn make_portal<'mcx>(mcx: Mcx<'mcx>, formats: &[i16]) -> Portal<'mcx> {
@@ -354,22 +440,60 @@ unsafe extern "C-unwind" fn noop(_ctx: *mut Ctx) -> i64 {
 }
 
 fn program() -> Program {
-    let out: Vec<OutCol> = COLS.iter().map(|c| OutCol::new(c.name, c.typid, c.typmod, c.typlen, c.byval).origin(c.origtbl, c.origcol)).collect();
-    Program::new(PLayout { nsites: 0, out_natts: 3, out_rows: 64, scratch_bytes: 0, exec_bytes: 0 }, &[], &out, WritePlan::SELECT, Code::hand(noop))
+    let out: Vec<OutCol> = COLS
+        .iter()
+        .map(|c| {
+            OutCol::new(c.name, c.typid, c.typmod, c.typlen, c.byval).origin(c.origtbl, c.origcol)
+        })
+        .collect();
+    Program::new(
+        PLayout {
+            nsites: 0,
+            out_natts: 3,
+            out_rows: 64,
+            scratch_bytes: 0,
+            exec_bytes: 0,
+        },
+        &[],
+        &out,
+        WritePlan::SELECT,
+        Code::hand(noop),
+    )
 }
 
 static TEXTS: [&[u8]; 3] = [b"alpha\0", b"\0", b"zed zed zed\0"];
 
 fn rows() -> Vec<[(Datum, bool); 3]> {
     vec![
-        [(Datum::from_i32(1), false), (Datum::from_usize(TEXTS[0].as_ptr() as usize), false), (Datum::from_i32(-7), false)],
-        [(Datum::from_i32(0), false), (Datum::null(), true), (Datum::from_i32(2147483647), false)],
-        [(Datum::null(), true), (Datum::from_usize(TEXTS[2].as_ptr() as usize), false), (Datum::null(), true)],
+        [
+            (Datum::from_i32(1), false),
+            (Datum::from_usize(TEXTS[0].as_ptr() as usize), false),
+            (Datum::from_i32(-7), false),
+        ],
+        [
+            (Datum::from_i32(0), false),
+            (Datum::null(), true),
+            (Datum::from_i32(2147483647), false),
+        ],
+        [
+            (Datum::null(), true),
+            (Datum::from_usize(TEXTS[2].as_ptr() as usize), false),
+            (Datum::null(), true),
+        ],
     ]
 }
 
 fn printtup_bytes(mcx: Mcx<'_>, formats: &[i16]) -> Vec<(u8, Vec<u8>)> {
-    TLIST.with(|t| *t.borrow_mut() = COLS.iter().map(|c| pquery_seams::TargetEntrySummary { resjunk: false, resorigtbl: c.origtbl, resorigcol: c.origcol }).collect());
+    TLIST.with(|t| {
+        *t.borrow_mut() = COLS
+            .iter()
+            .map(|c| pquery_seams::TargetEntrySummary {
+                resjunk: false,
+                resorigtbl: c.origtbl,
+                resorigcol: c.origcol,
+            })
+            .collect()
+    });
     let desc = make_desc(mcx);
     let mut dr = remote_receiver(mcx, formats);
     dr.startup(0, &desc).unwrap();
@@ -419,9 +543,17 @@ fn rowdescription_and_datarows_are_byte_identical_to_printtup() {
     let before = FMGR_INFO_CALLS.with(Cell::get);
     node.prepare(&p, Some(&[1, 0, 1])).unwrap();
     node.prepare(&p, Some(&[1, 0, 1])).unwrap();
-    assert_eq!(FMGR_INFO_CALLS.with(Cell::get), before, "the output functions are resolved once per (program, formats)");
+    assert_eq!(
+        FMGR_INFO_CALLS.with(Cell::get),
+        before,
+        "the output functions are resolved once per (program, formats)"
+    );
     node.prepare(&p, Some(&[0, 0, 0])).unwrap();
-    assert_eq!(FMGR_INFO_CALLS.with(Cell::get), before + 3, "a format change re-resolves");
+    assert_eq!(
+        FMGR_INFO_CALLS.with(Cell::get),
+        before + 3,
+        "a format change re-resolves"
+    );
 }
 
 #[test]
@@ -429,19 +561,42 @@ fn completion_carries_the_tag_and_the_count() {
     let qc = completion(Cmd::Insert, 1);
     assert_eq!((qc.commandTag, qc.nprocessed), (CMDTAG_INSERT, 1));
     assert_eq!(completion(Cmd::Select, 20).nprocessed, 20);
-    assert_eq!(completion(Cmd::Update, 0).commandTag, types_portal::CMDTAG_UPDATE);
-    assert_eq!(completion(Cmd::Delete, 3).commandTag, types_portal::CMDTAG_DELETE);
+    assert_eq!(
+        completion(Cmd::Update, 0).commandTag,
+        types_portal::CMDTAG_UPDATE
+    );
+    assert_eq!(
+        completion(Cmd::Delete, 3).commandTag,
+        types_portal::CMDTAG_DELETE
+    );
 }
 
 #[test]
 fn ten_thousand_text_rows_allocate_nothing() {
     install();
     CONVERT.with(|c| c.set(false));
-    let cols = [OutCol::new("a", INT4OID, -1, 4, true), OutCol::new("b", INT4OID, -1, 4, true)];
-    let p = Arc::new(Program::new(PLayout { nsites: 0, out_natts: 2, out_rows: 64, scratch_bytes: 0, exec_bytes: 0 }, &[], &cols, WritePlan::SELECT, Code::hand(noop)));
+    let cols = [
+        OutCol::new("a", INT4OID, -1, 4, true),
+        OutCol::new("b", INT4OID, -1, 4, true),
+    ];
+    let p = Arc::new(Program::new(
+        PLayout {
+            nsites: 0,
+            out_natts: 2,
+            out_rows: 64,
+            scratch_bytes: 0,
+            exec_bytes: 0,
+        },
+        &[],
+        &cols,
+        WritePlan::SELECT,
+        Code::hand(noop),
+    ));
     let mut node = WireNode::new();
     node.prepare(&p, None).unwrap();
-    let values: Vec<u64> = (0..128).map(|i| Datum::from_i32(i * 7 - 300).as_u64()).collect();
+    let values: Vec<u64> = (0..128)
+        .map(|i| Datum::from_i32(i * 7 - 300).as_u64())
+        .collect();
     let isnull = vec![0u8; 128];
     for _ in 0..3 {
         node.reset().send_rows(&values, &isnull, 64).unwrap();
@@ -461,8 +616,16 @@ fn ten_thousand_text_rows_allocate_nothing() {
     }
     let total = ALLOCS.load(Ordering::Relaxed) - before;
     TRACKED.store(0, Ordering::Relaxed);
-    assert_eq!(total - sent_allocs, 0, "{total} allocations in ~10k rows ({sent_allocs} from the capture sink itself)");
-    assert_eq!(sent_allocs, 64 * (10_000 / 64 + 1), "the capture sink copies every body (one Vec per message), nothing else allocates");
+    assert_eq!(
+        total - sent_allocs,
+        0,
+        "{total} allocations in ~10k rows ({sent_allocs} from the capture sink itself)"
+    );
+    assert_eq!(
+        sent_allocs,
+        64 * (10_000 / 64 + 1),
+        "the capture sink copies every body (one Vec per message), nothing else allocates"
+    );
 }
 
 /// A framed block (`send_rows`, one `pq_putbytes`) is byte for byte the per-row messages (`send_row`, one `pq_putmessage` each):
@@ -471,22 +634,47 @@ fn ten_thousand_text_rows_allocate_nothing() {
 fn a_framed_block_is_the_per_row_messages_byte_for_byte() {
     install();
     CONVERT.with(|c| c.set(false));
-    let cols = [OutCol::new("a", INT2OID, -1, 2, true), OutCol::new("b", INT4OID, -1, 4, true), OutCol::new("c", INT8OID, -1, 8, true)];
-    let p = Arc::new(Program::new(PLayout { nsites: 0, out_natts: 3, out_rows: 64, scratch_bytes: 0, exec_bytes: 0 }, &[], &cols, WritePlan::SELECT, Code::hand(noop)));
+    let cols = [
+        OutCol::new("a", INT2OID, -1, 2, true),
+        OutCol::new("b", INT4OID, -1, 4, true),
+        OutCol::new("c", INT8OID, -1, 8, true),
+    ];
+    let p = Arc::new(Program::new(
+        PLayout {
+            nsites: 0,
+            out_natts: 3,
+            out_rows: 64,
+            scratch_bytes: 0,
+            exec_bytes: 0,
+        },
+        &[],
+        &cols,
+        WritePlan::SELECT,
+        Code::hand(noop),
+    ));
     let mut node = WireNode::new();
     node.prepare(&p, None).unwrap();
     let rows: [[(u64, u8); 3]; 5] = [
         [(1, 0), (2, 0), (3, 0)],
-        [((-32768i16 as u16) as u64, 0), ((i32::MIN as u32) as u64, 0), (i64::MIN as u64, 0)],
+        [
+            ((-32768i16 as u16) as u64, 0),
+            ((i32::MIN as u32) as u64, 0),
+            (i64::MIN as u64, 0),
+        ],
         [(0, 0), (0, 1), (i64::MAX as u64, 0)],
         [(0, 1), (0, 1), (0, 1)],
-        [((32767u16) as u64, 0), ((i32::MAX as u32) as u64, 0), ((-1i64) as u64, 0)],
+        [
+            ((32767u16) as u64, 0),
+            ((i32::MAX as u32) as u64, 0),
+            ((-1i64) as u64, 0),
+        ],
     ];
     let values: Vec<u64> = rows.iter().flatten().map(|c| c.0).collect();
     let isnull: Vec<u8> = rows.iter().flatten().map(|c| c.1).collect();
     take_sent();
     for r in 0..rows.len() {
-        node.send_row(&values[r * 3..r * 3 + 3], &isnull[r * 3..r * 3 + 3]).unwrap();
+        node.send_row(&values[r * 3..r * 3 + 3], &isnull[r * 3..r * 3 + 3])
+            .unwrap();
     }
     let per_row = take_sent();
     node.send_rows(&values, &isnull, rows.len()).unwrap();
@@ -502,24 +690,49 @@ fn a_framed_block_is_the_per_row_messages_byte_for_byte() {
 fn bool_and_float_columns_frame_as_their_output_functions_print() {
     install();
     CONVERT.with(|c| c.set(false));
-    let cols = [OutCol::new("d", BOOLOID, -1, 1, true), OutCol::new("r", FLOAT4OID, -1, 4, true), OutCol::new("f", FLOAT8OID, -1, 8, true)];
-    let p = Arc::new(Program::new(PLayout { nsites: 0, out_natts: 3, out_rows: 64, scratch_bytes: 0, exec_bytes: 0 }, &[], &cols, WritePlan::SELECT, Code::hand(noop)));
+    let cols = [
+        OutCol::new("d", BOOLOID, -1, 1, true),
+        OutCol::new("r", FLOAT4OID, -1, 4, true),
+        OutCol::new("f", FLOAT8OID, -1, 8, true),
+    ];
+    let p = Arc::new(Program::new(
+        PLayout {
+            nsites: 0,
+            out_natts: 3,
+            out_rows: 64,
+            scratch_bytes: 0,
+            exec_bytes: 0,
+        },
+        &[],
+        &cols,
+        WritePlan::SELECT,
+        Code::hand(noop),
+    ));
     let mut node = WireNode::new();
     node.prepare(&p, None).unwrap();
     let f4 = |x: f32| x.to_bits() as u64;
     let f8 = |x: f64| x.to_bits();
     let rows: [([u64; 3], [u8; 3], [&[u8]; 3]); 5] = [
         ([1, f4(0.1), f8(1.5)], [0, 0, 0], [b"t", b"0.1", b"1.5"]),
-        ([0, f4(f32::NAN), f8(f64::INFINITY)], [0, 0, 0], [b"f", b"NaN", b"Infinity"]),
+        (
+            [0, f4(f32::NAN), f8(f64::INFINITY)],
+            [0, 0, 0],
+            [b"f", b"NaN", b"Infinity"],
+        ),
         ([1, f4(-0.0), f8(-0.0)], [0, 0, 0], [b"t", b"-0", b"-0"]),
         ([0, f4(1e30), f8(1e300)], [0, 1, 0], [b"f", b"", b"1e+300"]),
-        ([1, f4(16777216.0), f8(0.30000000000000004)], [0, 0, 0], [b"t", b"1.6777216e+07", b"0.30000000000000004"]),
+        (
+            [1, f4(16777216.0), f8(0.30000000000000004)],
+            [0, 0, 0],
+            [b"t", b"1.6777216e+07", b"0.30000000000000004"],
+        ),
     ];
     let values: Vec<u64> = rows.iter().flat_map(|r| r.0).collect();
     let isnull: Vec<u8> = rows.iter().flat_map(|r| r.1).collect();
     take_sent();
     for r in 0..rows.len() {
-        node.send_row(&values[r * 3..r * 3 + 3], &isnull[r * 3..r * 3 + 3]).unwrap();
+        node.send_row(&values[r * 3..r * 3 + 3], &isnull[r * 3..r * 3 + 3])
+            .unwrap();
     }
     let per_row = take_sent();
     node.send_rows(&values, &isnull, rows.len()).unwrap();
@@ -539,7 +752,6 @@ fn bool_and_float_columns_frame_as_their_output_functions_print() {
     }
 }
 
-
 /// A by-value column whose output function allocates its result (oidout, PostgreSQL's contract) frames through the node's
 /// per-row send context: the frame is armed for every text column, not only varlena / binary / user ones (LAND 09-23:
 /// catalog `SELECT oid ... \gset` raised "caller never armed the frame" with fallback on).
@@ -548,11 +760,24 @@ fn a_by_value_column_whose_output_function_allocates_frames() {
     install();
     CONVERT.with(|c| c.set(false));
     let cols = [OutCol::new("oid", OIDOID, -1, 4, true)];
-    let p = Arc::new(Program::new(PLayout { nsites: 0, out_natts: 1, out_rows: 64, scratch_bytes: 0, exec_bytes: 0 }, &[], &cols, WritePlan::SELECT, Code::hand(noop)));
+    let p = Arc::new(Program::new(
+        PLayout {
+            nsites: 0,
+            out_natts: 1,
+            out_rows: 64,
+            scratch_bytes: 0,
+            exec_bytes: 0,
+        },
+        &[],
+        &cols,
+        WritePlan::SELECT,
+        Code::hand(noop),
+    ));
     let mut node = WireNode::new();
     node.prepare(&p, None).unwrap();
     take_sent();
-    node.send_row(&[Datum::from_u32(16384).as_u64()], &[0]).unwrap();
+    node.send_row(&[Datum::from_u32(16384).as_u64()], &[0])
+        .unwrap();
     let mut want = 1u16.to_be_bytes().to_vec(); // alloc: Cold
     want.extend_from_slice(&5u32.to_be_bytes());
     want.extend_from_slice(b"16384");
@@ -567,8 +792,14 @@ fn pg_numeric_vectors() -> Vec<(adt_numeric::NumericImage, String)> {
         .map(|l| {
             let (input, pg) = l.split_once('\t').expect("input <tab> PostgreSQL's text");
             // a round(x, n) row: the value PostgreSQL printed, read back (numeric_in keeps its digits and its dscale)
-            let expr = if input.starts_with("round(") { pg } else { input };
-            let img = adt_numeric::numeric_in(expr, -1, None).expect("numeric_in").expect("a value");
+            let expr = if input.starts_with("round(") {
+                pg
+            } else {
+                input
+            };
+            let img = adt_numeric::numeric_in(expr, -1, None)
+                .expect("numeric_in")
+                .expect("a value");
             (img, pg.to_string())
         })
         .collect()
@@ -585,7 +816,19 @@ fn short_header(img: &adt_numeric::NumericImage) -> Option<Vec<u8>> {
 }
 
 fn numeric_program(cols: &[OutCol]) -> Arc<Program> {
-    Arc::new(Program::new(PLayout { nsites: 0, out_natts: cols.len() as _, out_rows: 64, scratch_bytes: 0, exec_bytes: 0 }, &[], cols, WritePlan::SELECT, Code::hand(noop)))
+    Arc::new(Program::new(
+        PLayout {
+            nsites: 0,
+            out_natts: cols.len() as _,
+            out_rows: 64,
+            scratch_bytes: 0,
+            exec_bytes: 0,
+        },
+        &[],
+        cols,
+        WritePlan::SELECT,
+        Code::hand(noop),
+    ))
 }
 
 fn datarow(texts: &[Option<&[u8]>]) -> (u8, Vec<u8>) {
@@ -617,8 +860,13 @@ fn numeric_columns_print_as_postgres_does() {
     assert!(vecs.len() >= 120, "{} vectors", vecs.len());
     // the fast path's bound: the scaled integer's digits (the integer part's unless it is "0", plus dscale) at most 38
     let slow = |pg: &str| {
-        let (i, f) = pg.trim_start_matches('-').split_once('.').unwrap_or((pg.trim_start_matches('-'), ""));
-        pg == "NaN" || pg.ends_with("Infinity") || (if i == "0" { 0 } else { i.len() }) + f.len() > 38
+        let (i, f) = pg
+            .trim_start_matches('-')
+            .split_once('.')
+            .unwrap_or((pg.trim_start_matches('-'), ""));
+        pg == "NaN"
+            || pg.ends_with("Infinity")
+            || (if i == "0" { 0 } else { i.len() }) + f.len() > 38
     };
     let mut fast_seen = 0;
     for (img, pg) in &vecs {
@@ -634,16 +882,27 @@ fn numeric_columns_print_as_postgres_does() {
             let sent = take_sent();
             assert_eq!(sent, vec![datarow(&[Some(pg.as_bytes())]); 2], "{pg}");
             let want_calls = slow(pg) as u32;
-            assert_eq!((c1 - c0, c2 - c1), (want_calls, want_calls), "numeric_out calls for {pg}");
+            assert_eq!(
+                (c1 - c0, c2 - c1),
+                (want_calls, want_calls),
+                "numeric_out calls for {pg}"
+            );
             fast_seen += (want_calls == 0) as u32;
         }
     }
     assert!(fast_seen >= 200, "the fast path took {fast_seen} forms");
     // the 10^37 boundary: 38 digits render fast, 39 take numeric_out
-    for (s, calls) in [("10000000000000000000000000000000000000", 0), ("-99999999999999999999999999999999999999", 0), ("100000000000000000000000000000000000000", 1), ("0.00000000000000000000000000000000000001", 0), ("0.000000000000000000000000000000000000001", 1)] {
+    for (s, calls) in [
+        ("10000000000000000000000000000000000000", 0),
+        ("-99999999999999999999999999999999999999", 0),
+        ("100000000000000000000000000000000000000", 1),
+        ("0.00000000000000000000000000000000000001", 0),
+        ("0.000000000000000000000000000000000000001", 1),
+    ] {
         let img = adt_numeric::numeric_in(s, -1, None).unwrap().unwrap();
         let c0 = NUMERIC_OUT_CALLS.with(Cell::get);
-        node.send_rows(&[img.as_bytes().as_ptr() as u64], &[0], 1).unwrap();
+        node.send_rows(&[img.as_bytes().as_ptr() as u64], &[0], 1)
+            .unwrap();
         assert_eq!(NUMERIC_OUT_CALLS.with(Cell::get) - c0, calls, "{s}");
         assert_eq!(take_sent(), vec![datarow(&[Some(s.as_bytes())])]);
     }
@@ -670,7 +929,10 @@ fn every_fast_kind_frames_unchanged_beside_a_numeric() {
     let p = numeric_program(&cols);
     let mut node = WireNode::new();
     node.prepare(&p, None).unwrap();
-    assert!(node.wire_format().is_none(), "a numeric column keeps the legs on the row path");
+    assert!(
+        node.wire_format().is_none(),
+        "a numeric column keeps the legs on the row path"
+    );
     take_sent();
     let text = |s: &str| {
         let mut v = vec![((s.len() as u8 + 1) << 1) | 1];
@@ -678,36 +940,136 @@ fn every_fast_kind_frames_unchanged_beside_a_numeric() {
         v
     };
     let (t1, t2) = (text("alpha"), text(""));
-    let nums = ["-1234.5600", "0.00", "99999999999999999999999999999999999999", "NaN"].map(|s| adt_numeric::numeric_in(s, -1, None).unwrap().unwrap());
+    let nums = [
+        "-1234.5600",
+        "0.00",
+        "99999999999999999999999999999999999999",
+        "NaN",
+    ]
+    .map(|s| adt_numeric::numeric_in(s, -1, None).unwrap().unwrap());
     let f4 = |x: f32| x.to_bits() as u64;
     let rows: Vec<([u64; 8], [u8; 8], [Option<&[u8]>; 8])> = vec![
-        ([(-32768i16 as u16) as u64, (i32::MIN as u32) as u64, i64::MIN as u64, 1, f4(0.1), 1.5f64.to_bits(), t1.as_ptr() as u64, nums[0].as_bytes().as_ptr() as u64], [0; 8],
-            [Some(b"-32768"), Some(b"-2147483648"), Some(b"-9223372036854775808"), Some(b"t"), Some(b"0.1"), Some(b"1.5"), Some(b"alpha"), Some(b"-1234.5600")]),
-        ([0, 0, 0, 0, 0, 0, 0, 0], [1, 0, 1, 0, 1, 0, 1, 1], [None, Some(b"0"), None, Some(b"f"), None, Some(b"0"), None, None]),
-        ([7, 42, i64::MAX as u64, 1, f4(-0.0), f64::INFINITY.to_bits(), t2.as_ptr() as u64, nums[1].as_bytes().as_ptr() as u64], [0; 8],
-            [Some(b"7"), Some(b"42"), Some(b"9223372036854775807"), Some(b"t"), Some(b"-0"), Some(b"Infinity"), Some(b""), Some(b"0.00")]),
-        ([1, 2, 3, 0, f4(1e30), 1e300f64.to_bits(), t1.as_ptr() as u64, nums[2].as_bytes().as_ptr() as u64], [0; 8],
-            [Some(b"1"), Some(b"2"), Some(b"3"), Some(b"f"), Some(b"1e+30"), Some(b"1e+300"), Some(b"alpha"), Some(b"99999999999999999999999999999999999999")]),
+        (
+            [
+                (-32768i16 as u16) as u64,
+                (i32::MIN as u32) as u64,
+                i64::MIN as u64,
+                1,
+                f4(0.1),
+                1.5f64.to_bits(),
+                t1.as_ptr() as u64,
+                nums[0].as_bytes().as_ptr() as u64,
+            ],
+            [0; 8],
+            [
+                Some(b"-32768"),
+                Some(b"-2147483648"),
+                Some(b"-9223372036854775808"),
+                Some(b"t"),
+                Some(b"0.1"),
+                Some(b"1.5"),
+                Some(b"alpha"),
+                Some(b"-1234.5600"),
+            ],
+        ),
+        (
+            [0, 0, 0, 0, 0, 0, 0, 0],
+            [1, 0, 1, 0, 1, 0, 1, 1],
+            [
+                None,
+                Some(b"0"),
+                None,
+                Some(b"f"),
+                None,
+                Some(b"0"),
+                None,
+                None,
+            ],
+        ),
+        (
+            [
+                7,
+                42,
+                i64::MAX as u64,
+                1,
+                f4(-0.0),
+                f64::INFINITY.to_bits(),
+                t2.as_ptr() as u64,
+                nums[1].as_bytes().as_ptr() as u64,
+            ],
+            [0; 8],
+            [
+                Some(b"7"),
+                Some(b"42"),
+                Some(b"9223372036854775807"),
+                Some(b"t"),
+                Some(b"-0"),
+                Some(b"Infinity"),
+                Some(b""),
+                Some(b"0.00"),
+            ],
+        ),
+        (
+            [
+                1,
+                2,
+                3,
+                0,
+                f4(1e30),
+                1e300f64.to_bits(),
+                t1.as_ptr() as u64,
+                nums[2].as_bytes().as_ptr() as u64,
+            ],
+            [0; 8],
+            [
+                Some(b"1"),
+                Some(b"2"),
+                Some(b"3"),
+                Some(b"f"),
+                Some(b"1e+30"),
+                Some(b"1e+300"),
+                Some(b"alpha"),
+                Some(b"99999999999999999999999999999999999999"),
+            ],
+        ),
     ];
     let values: Vec<u64> = rows.iter().flat_map(|r| r.0).collect();
     let isnull: Vec<u8> = rows.iter().flat_map(|r| r.1).collect();
     let want: Vec<_> = rows.iter().map(|r| datarow(&r.2)).collect();
     for r in 0..rows.len() {
-        node.send_row(&values[r * 8..r * 8 + 8], &isnull[r * 8..r * 8 + 8]).unwrap();
+        node.send_row(&values[r * 8..r * 8 + 8], &isnull[r * 8..r * 8 + 8])
+            .unwrap();
     }
     assert_eq!(take_sent(), want, "per row");
     let c0 = NUMERIC_OUT_CALLS.with(Cell::get);
     node.send_rows(&values, &isnull, rows.len()).unwrap();
     assert_eq!(take_sent(), want, "framed");
-    assert_eq!(NUMERIC_OUT_CALLS.with(Cell::get), c0, "no numeric_out in a fast block");
+    assert_eq!(
+        NUMERIC_OUT_CALLS.with(Cell::get),
+        c0,
+        "no numeric_out in a fast block"
+    );
     // one NaN in the block: the block goes row by row, the same bytes, numeric_out for the NaN alone
     let mut v2 = values.clone();
     v2[7] = nums[3].as_bytes().as_ptr() as u64;
     let mut want2 = want.clone();
-    want2[0] = datarow(&[Some(b"-32768"), Some(b"-2147483648"), Some(b"-9223372036854775808"), Some(b"t"), Some(b"0.1"), Some(b"1.5"), Some(b"alpha"), Some(b"NaN")]);
+    want2[0] = datarow(&[
+        Some(b"-32768"),
+        Some(b"-2147483648"),
+        Some(b"-9223372036854775808"),
+        Some(b"t"),
+        Some(b"0.1"),
+        Some(b"1.5"),
+        Some(b"alpha"),
+        Some(b"NaN"),
+    ]);
     node.send_rows(&v2, &isnull, rows.len()).unwrap();
     assert_eq!(take_sent(), want2, "a NaN block");
-    assert_eq!(NUMERIC_OUT_CALLS.with(Cell::get), c0 + 1, "numeric_out for the NaN only");
+    assert_eq!(
+        NUMERIC_OUT_CALLS.with(Cell::get),
+        c0 + 1,
+        "numeric_out for the NaN only"
+    );
     TEXT_VARLENA.with(|c| c.set(false));
 }
 
@@ -722,9 +1084,12 @@ fn a_binary_numeric_column_takes_its_send_function() {
     node.prepare(&p, Some(&[1])).unwrap();
     assert!(node.wire_format().is_none());
     take_sent();
-    let img = adt_numeric::numeric_in("-12.50", -1, None).unwrap().unwrap();
+    let img = adt_numeric::numeric_in("-12.50", -1, None)
+        .unwrap()
+        .unwrap();
     let c0 = NUMERIC_OUT_CALLS.with(Cell::get);
-    node.send_rows(&[img.as_bytes().as_ptr() as u64], &[0], 1).unwrap();
+    node.send_rows(&[img.as_bytes().as_ptr() as u64], &[0], 1)
+        .unwrap();
     assert_eq!(take_sent(), vec![datarow(&[Some(img.payload())])]);
     assert_eq!(NUMERIC_OUT_CALLS.with(Cell::get), c0);
 }
@@ -736,7 +1101,19 @@ fn a_run_over_frame_keep_leaves_no_framing_buffer_behind() {
     install();
     CONVERT.with(|c| c.set(false));
     let cols = [OutCol::new("t", TEXTOID, -1, -1, false)];
-    let p = Arc::new(Program::new(PLayout { nsites: 0, out_natts: 1, out_rows: 64, scratch_bytes: 0, exec_bytes: 0 }, &[], &cols, WritePlan::SELECT, Code::hand(noop)));
+    let p = Arc::new(Program::new(
+        PLayout {
+            nsites: 0,
+            out_natts: 1,
+            out_rows: 64,
+            scratch_bytes: 0,
+            exec_bytes: 0,
+        },
+        &[],
+        &cols,
+        WritePlan::SELECT,
+        Code::hand(noop),
+    ));
     let mut node = WireNode::new();
     node.prepare(&p, None).unwrap();
     take_sent();
@@ -748,16 +1125,32 @@ fn a_run_over_frame_keep_leaves_no_framing_buffer_behind() {
     let big_len = 1 << 20;
     let (big, small) = (image(big_len), image(100));
     // one run of two big blocks: the second reuses the first's buffer
-    node.reset().send_rows(&[big.as_ptr() as u64], &[0], 1).unwrap();
+    node.reset()
+        .send_rows(&[big.as_ptr() as u64], &[0], 1)
+        .unwrap();
     let grown = node.frame_capacity();
-    assert!(grown > big_len, "the big row is framed in the node's buffer ({grown} B)");
+    assert!(
+        grown > big_len,
+        "the big row is framed in the node's buffer ({grown} B)"
+    );
     node.send_rows(&[big.as_ptr() as u64], &[0], 1).unwrap();
-    assert_eq!(node.frame_capacity(), grown, "a run's next block reuses its buffer");
+    assert_eq!(
+        node.frame_capacity(),
+        grown,
+        "a run's next block reuses its buffer"
+    );
     let sent = take_sent();
     assert_eq!(sent.len(), 2);
-    assert!(sent.iter().all(|m| m.1.len() == 2 + 4 + big_len), "the big rows are sent whole");
+    assert!(
+        sent.iter().all(|m| m.1.len() == 2 + 4 + big_len),
+        "the big rows are sent whole"
+    );
     node.end_run();
-    assert!(node.frame_capacity() <= FRAME_KEEP, "a {} B framing buffer kept past the run", node.frame_capacity());
+    assert!(
+        node.frame_capacity() <= FRAME_KEEP,
+        "a {} B framing buffer kept past the run",
+        node.frame_capacity()
+    );
     // runs of small blocks: framed within FRAME_KEEP, kept across runs and reused
     let values = vec![small.as_ptr() as u64; 64];
     let isnull = vec![0u8; 64];
@@ -765,12 +1158,19 @@ fn a_run_over_frame_keep_leaves_no_framing_buffer_behind() {
     node.end_run();
     assert_eq!(take_sent().len(), 64);
     let kept = node.frame_capacity();
-    assert!(kept > 0 && kept <= FRAME_KEEP, "a framed block within FRAME_KEEP keeps its buffer ({kept} B)");
+    assert!(
+        kept > 0 && kept <= FRAME_KEEP,
+        "a framed block within FRAME_KEEP keeps its buffer ({kept} B)"
+    );
     for _ in 0..3 {
         node.reset().send_rows(&values, &isnull, 64).unwrap();
         node.end_run();
         assert_eq!(take_sent().len(), 64);
-        assert_eq!(node.frame_capacity(), kept, "the next runs reuse the kept buffer");
+        assert_eq!(
+            node.frame_capacity(),
+            kept,
+            "the next runs reuse the kept buffer"
+        );
     }
 }
 
@@ -780,7 +1180,9 @@ fn a_run_over_frame_keep_leaves_no_framing_buffer_behind() {
 #[test]
 fn send_row_in_sends_send_rows_bytes() {
     install();
-    let split = |r: &[(Datum, bool)]| -> (Vec<u64>, Vec<u8>) { r.iter().map(|(d, n)| (d.as_u64(), *n as u8)).unzip() };
+    let split = |r: &[(Datum, bool)]| -> (Vec<u64>, Vec<u8>) {
+        r.iter().map(|(d, n)| (d.as_u64(), *n as u8)).unzip()
+    };
     let p = Arc::new(program());
     for formats in [&[0i16, 0, 0][..], &[1, 0, 1][..]] {
         for convert in [false, true] {
@@ -810,7 +1212,11 @@ fn send_row_in_sends_send_rows_bytes() {
     }
     // the fast kinds and a numeric beside them, text format: the fast text, then numeric_out for NaN
     CONVERT.with(|c| c.set(false));
-    let cols = [OutCol::new("a", INT2OID, -1, 2, true), OutCol::new("b", INT8OID, -1, 8, true), OutCol::new("n", NUMERICOID, -1, -1, false)];
+    let cols = [
+        OutCol::new("a", INT2OID, -1, 2, true),
+        OutCol::new("b", INT8OID, -1, 8, true),
+        OutCol::new("n", NUMERICOID, -1, -1, false),
+    ];
     let p = numeric_program(&cols);
     let (mut a, mut b) = (WireNode::new(), WireNode::new());
     a.prepare(&p, None).unwrap();
@@ -819,7 +1225,11 @@ fn send_row_in_sends_send_rows_bytes() {
     let mut row = MemoryContext::new_wholesale("wire-test-row");
     for s in ["-12.50", "NaN", "0.000000000000000000000000000000000000001"] {
         let img = adt_numeric::numeric_in(s, -1, None).unwrap().unwrap();
-        let v = [Datum::from_i32(-7).as_u64(), Datum::from_i64(1 << 40).as_u64(), img.as_bytes().as_ptr() as u64];
+        let v = [
+            Datum::from_i32(-7).as_u64(),
+            Datum::from_i64(1 << 40).as_u64(),
+            img.as_bytes().as_ptr() as u64,
+        ];
         for isnull in [[0u8, 0, 0], [1, 0, 1]] {
             a.send_row(&v, &isnull).unwrap();
             let want = take_sent();

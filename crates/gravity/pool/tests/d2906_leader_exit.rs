@@ -67,18 +67,40 @@ fn a_leader_unwinding_out_of_its_section_waits_for_the_claims_to_stop() {
     }));
     let rt = Runtime::new(RuntimeConfig::new(8));
     let threads = WorkerPool::spawn_std(Arc::clone(&rt)).expect("pool threads");
-    let pool = RuntimePool::new(Arc::clone(&rt), Ambient { interrupts: dying_interrupts, ..Ambient::HARNESS });
+    let pool = RuntimePool::new(
+        Arc::clone(&rt),
+        Ambient {
+            interrupts: dying_interrupts,
+            ..Ambient::HARNESS
+        },
+    );
 
     let r = catch_unwind(AssertUnwindSafe(|| section(&pool)));
     let in_flight = IN_FLIGHT.load(Ordering::Acquire);
     LEADER_GONE.store(true, Ordering::Release);
-    assert!(r.err().is_some_and(|p| p.is::<LeaderExit>()), "the leader's exit unwind reached its caller");
-    assert!(CHECKS.load(Ordering::Acquire) >= 3, "the leader unwound from its interrupt check");
+    assert!(
+        r.err().is_some_and(|p| p.is::<LeaderExit>()),
+        "the leader's exit unwind reached its caller"
+    );
+    assert!(
+        CHECKS.load(Ordering::Acquire) >= 3,
+        "the leader unwound from its interrupt check"
+    );
     let started = STARTED.load(Ordering::Acquire);
-    assert!(started > 0 && started < GRANULES, "the section was mid-run when the leader left ({started} claims started)");
-    assert_eq!(in_flight, 0, "no claim over the leader's state was in flight when its frames went");
+    assert!(
+        started > 0 && started < GRANULES,
+        "the section was mid-run when the leader left ({started} claims started)"
+    );
+    assert_eq!(
+        in_flight, 0,
+        "no claim over the leader's state was in flight when its frames went"
+    );
     std::thread::sleep(std::time::Duration::from_millis(50));
-    assert_eq!(STARTED_AFTER.load(Ordering::Acquire), 0, "no claim started after the leader left");
+    assert_eq!(
+        STARTED_AFTER.load(Ordering::Acquire),
+        0,
+        "no claim started after the leader left"
+    );
     assert_eq!(IN_FLIGHT.load(Ordering::Acquire), 0, "none ran on after it");
 
     // the pool serves the next leader's section whole (its interrupt check never unwinds again)
@@ -91,7 +113,14 @@ fn a_leader_unwinding_out_of_its_section_waits_for_the_claims_to_stop() {
         Ok(())
     };
     let job: &Job<'_> = &job;
-    assert!(pool.run(4, &BlockRange::new(64, ClaimSize::Fixed(1)), job).is_ok(), "the next section answers");
-    assert!(runs.iter().all(|c| c.load(Ordering::Acquire) == 1), "every granule once");
+    assert!(
+        pool.run(4, &BlockRange::new(64, ClaimSize::Fixed(1)), job)
+            .is_ok(),
+        "the next section answers"
+    );
+    assert!(
+        runs.iter().all(|c| c.load(Ordering::Acquire) == 1),
+        "every granule once"
+    );
     threads.shutdown();
 }

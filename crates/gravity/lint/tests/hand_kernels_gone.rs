@@ -60,7 +60,9 @@ fn code_of(line: &str) -> String {
 
 /// The words of `s` (identifier runs).
 fn words(s: &str) -> Vec<&str> {
-    s.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).filter(|w| !w.is_empty()).collect()
+    s.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .filter(|w| !w.is_empty())
+        .collect()
 }
 
 /// What a Rust source line brings back, if anything; `in_kernels` = the line is in the kernels crate.
@@ -80,14 +82,23 @@ fn rust_finding(raw: &str, in_kernels: bool) -> Option<&'static str> {
         }
     }
     if in_kernels {
-        for m in ["crate::cb::", "crate::tpch::", "modcb;", "modtpch;", "modcb{", "modtpch{"] {
+        for m in [
+            "crate::cb::",
+            "crate::tpch::",
+            "modcb;",
+            "modtpch;",
+            "modcb{",
+            "modtpch{",
+        ] {
             if compact.contains(m) {
                 return Some("a cb / tpch module in the kernels crate");
             }
         }
     }
     let w = words(&code);
-    if w.windows(2).any(|p| p[0] == "fn" && (p[1].starts_with("cb_") || p[1].starts_with("tpch_"))) {
+    if w.windows(2)
+        .any(|p| p[0] == "fn" && (p[1].starts_with("cb_") || p[1].starts_with("tpch_")))
+    {
         return Some("a per-query kernel entry or hand program (`fn cb_*` / `fn tpch_*`)");
     }
     let raw_compact: String = raw.chars().filter(|c| !c.is_whitespace()).collect();
@@ -106,7 +117,10 @@ fn toml_finding(raw: &str) -> Option<&'static str> {
     let line = raw.split('#').next().unwrap_or("");
     let t = line.trim();
     for f in FEATURES {
-        if t.starts_with(&format!("{f} =")) || t.starts_with(&format!("{f}=")) || t.starts_with(&format!("\"{f}\" =")) {
+        if t.starts_with(&format!("{f} ="))
+            || t.starts_with(&format!("{f}="))
+            || t.starts_with(&format!("\"{f}\" ="))
+        {
             return Some("a deleted hand-kernel feature declared");
         }
         if line.contains(&format!("\"{f}\"")) || line.contains(&format!("/{f}\"")) {
@@ -136,15 +150,27 @@ fn the_per_query_hand_kernels_stay_deleted() {
     let g = gravity_root();
     let crates = g.parent().unwrap();
     let mut bad: Vec<String> = Vec::new();
-    for p in ["kernels/src/cb", "kernels/src/cb.rs", "kernels/src/tpch", "kernels/src/tpch.rs", "exec/src/shapes/hand.rs", "exec/src/hand_ids.rs"] {
+    for p in [
+        "kernels/src/cb",
+        "kernels/src/cb.rs",
+        "kernels/src/tpch",
+        "kernels/src/tpch.rs",
+        "exec/src/shapes/hand.rs",
+        "exec/src/hand_ids.rs",
+    ] {
         if g.join(p).exists() {
-            bad.push(format!("crates/gravity/{p}: deleted under the user's 09-29 ruling"));
+            bad.push(format!(
+                "crates/gravity/{p}: deleted under the user's 09-29 ruling"
+            ));
         }
     }
     let mut tomls = Vec::new();
     cargo_tomls(&g, &mut tomls);
     cargo_tomls(&crates.join("backend/main"), &mut tomls);
-    assert!(tomls.iter().any(|p| p.ends_with("kernels/Cargo.toml")), "the scan reads the kernels crate's Cargo.toml");
+    assert!(
+        tomls.iter().any(|p| p.ends_with("kernels/Cargo.toml")),
+        "the scan reads the kernels crate's Cargo.toml"
+    );
     for p in &tomls {
         let text = fs::read_to_string(p).unwrap();
         for (i, l) in text.lines().enumerate() {
@@ -155,7 +181,10 @@ fn the_per_query_hand_kernels_stay_deleted() {
     }
     let kernels = g.join("kernels");
     let files = rust_files(&g);
-    assert!(files.iter().any(|p| p.ends_with("kernels/src/lib.rs")), "the scan reads the kernels crate");
+    assert!(
+        files.iter().any(|p| p.ends_with("kernels/src/lib.rs")),
+        "the scan reads the kernels crate"
+    );
     for p in &files {
         if p.file_name().is_some_and(|n| n == THIS) {
             continue;
@@ -168,11 +197,21 @@ fn the_per_query_hand_kernels_stay_deleted() {
         }
     }
     for (name, path) in gravity_lint::asm_loop::KERNELS {
-        if name.starts_with("cb_") || name.starts_with("tpch_") || path.contains("::cb::") || path.contains("::tpch::") {
-            bad.push(format!("asm_loop::KERNELS: {name} ({path}): a deleted hand kernel in the corpus list"));
+        if name.starts_with("cb_")
+            || name.starts_with("tpch_")
+            || path.contains("::cb::")
+            || path.contains("::tpch::")
+        {
+            bad.push(format!(
+                "asm_loop::KERNELS: {name} ({path}): a deleted hand kernel in the corpus list"
+            ));
         }
     }
-    assert!(bad.is_empty(), "the per-query hand kernels are deleted (the user's 09-29 ruling):\n{}", bad.join("\n"));
+    assert!(
+        bad.is_empty(),
+        "the per-query hand kernels are deleted (the user's 09-29 ruling):\n{}",
+        bad.join("\n")
+    );
 }
 
 /// The detector on the forms it must flag, and on the near forms it must not (comments, string literals, the lab kernels'
@@ -191,7 +230,10 @@ fn the_detector_flags_the_deleted_forms_and_nothing_near_them() {
     for l in &flag {
         assert!(rust_finding(l, false).is_some(), "not flagged: {l}");
     }
-    assert!(rust_finding("pub mod cb;", true).is_some() && rust_finding("use crate::tpch::num;", true).is_some());
+    assert!(
+        rust_finding("pub mod cb;", true).is_some()
+            && rust_finding("use crate::tpch::num;", true).is_some()
+    );
     let pass = [
         "//! moved out of the deleted per-query kernel module (`cb::t3`)".to_owned(),
         "    assert_eq!(r.demangled, \"gravity_kernels::cb::frame::run\");".to_owned(),
@@ -203,9 +245,15 @@ fn the_detector_flags_the_deleted_forms_and_nothing_near_them() {
     for l in &pass {
         assert!(rust_finding(l, true).is_none(), "flagged: {l}");
     }
-    assert!(rust_finding("pub mod cb;", false).is_none(), "`mod cb` outside the kernels crate is another module");
+    assert!(
+        rust_finding("pub mod cb;", false).is_none(),
+        "`mod cb` outside the kernels crate is another module"
+    );
     assert!(toml_finding(&format!("hand-shapes = [{q}gravity_program/hand{q}]")).is_some());
-    assert!(toml_finding(&format!("gravity_exec = {{ path = {q}../exec{q}, features = [{q}hand-shapes{q}] }}")).is_some());
+    assert!(toml_finding(&format!(
+        "gravity_exec = {{ path = {q}../exec{q}, features = [{q}hand-shapes{q}] }}"
+    ))
+    .is_some());
     assert!(toml_finding(&format!("tpch = [{q}dep:x{q}]")).is_some());
     assert!(toml_finding(&format!("hand-kernels = [{q}gravity_program/hand{q}]")).is_none());
     assert!(toml_finding(&format!("tpchfloor = [{q}dep:pgrc_write{q}]")).is_none());

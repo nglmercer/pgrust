@@ -12,11 +12,17 @@ fn text(rel: &str) -> String {
 
 /// The program's index sites, each with its worker bit.
 fn index_sites(rel: &str) -> Vec<(u32, bool)> {
-    let l = common::lower_fixture(&text(rel)).expect("decomposes").unwrap_or_else(|r| panic!("{rel} refused: {r:?}"));
-    l.descs.sites.iter().filter_map(|s| match s.kind {
-        SiteKind::IndexSource { worker, .. } => Some((s.index, worker)),
-        _ => None,
-    }).collect()
+    let l = common::lower_fixture(&text(rel))
+        .expect("decomposes")
+        .unwrap_or_else(|r| panic!("{rel} refused: {r:?}"));
+    l.descs
+        .sites
+        .iter()
+        .filter_map(|s| match s.kind {
+            SiteKind::IndexSource { worker, .. } => Some((s.index, worker)),
+            _ => None,
+        })
+        .collect()
 }
 
 /// tpch-003: the customer x orders rows probe lineitem by `l_orderkey = o_orderkey` (a nest whose inner is a bare btree
@@ -25,7 +31,10 @@ fn index_sites(rel: &str) -> Vec<(u32, bool)> {
 fn a_nest_inner_btree_probe_under_an_order_free_end_is_marked() {
     let sites = index_sites("tpch-003.plan");
     assert!(!sites.is_empty(), "tpch-003 has an index site");
-    assert!(sites.iter().all(|s| s.1), "tpch-003's nest inner probe is a worker probe: {sites:?}");
+    assert!(
+        sites.iter().all(|s| s.1),
+        "tpch-003's nest inner probe is a worker probe: {sites:?}"
+    );
 }
 
 /// bench-018: a range over the primary key read by an index scan that drives its pipeline (no nest): never marked.
@@ -33,7 +42,10 @@ fn a_nest_inner_btree_probe_under_an_order_free_end_is_marked() {
 fn a_plain_index_scan_is_not_marked() {
     let sites = index_sites("bench-018.plan");
     assert!(!sites.is_empty(), "bench-018 has an index site");
-    assert!(sites.iter().all(|s| !s.1), "bench-018's index scan is not a worker probe: {sites:?}");
+    assert!(
+        sites.iter().all(|s| !s.1),
+        "bench-018's index scan is not a worker probe: {sites:?}"
+    );
 }
 
 /// bench-130: the inner probe sits under a Memoize of one int4 key (D3014 M2: each worker keeps its own memo table, exec
@@ -42,10 +54,26 @@ fn a_plain_index_scan_is_not_marked() {
 #[test]
 fn a_memoized_inner_is_marked_with_its_key_for_the_leader() {
     let sites = index_sites("bench-130.plan");
-    assert!(!sites.is_empty() && sites.iter().all(|s| s.1), "bench-130's memoized probe is a worker probe: {sites:?}");
-    let l = common::lower_fixture(&text("bench-130.plan")).expect("decomposes").unwrap_or_else(|r| panic!("bench-130 refused: {r:?}"));
-    let memo: Vec<u64> = l.descs.v4.protos.iter().filter(|p| p.kind == gravity_program::protos::ProtoKind::Cache).map(|p| p.arg).collect();
-    assert_eq!(memo, vec![96], "one memo, its one key's operator in the proto's arg (collation 0 in the high half)");
+    assert!(
+        !sites.is_empty() && sites.iter().all(|s| s.1),
+        "bench-130's memoized probe is a worker probe: {sites:?}"
+    );
+    let l = common::lower_fixture(&text("bench-130.plan"))
+        .expect("decomposes")
+        .unwrap_or_else(|r| panic!("bench-130 refused: {r:?}"));
+    let memo: Vec<u64> = l
+        .descs
+        .v4
+        .protos
+        .iter()
+        .filter(|p| p.kind == gravity_program::protos::ProtoKind::Cache)
+        .map(|p| p.arg)
+        .collect();
+    assert_eq!(
+        memo,
+        vec![96],
+        "one memo, its one key's operator in the proto's arg (collation 0 in the high half)"
+    );
 }
 
 /// tpch-008 (D3014 phase 3): the filtered orders rows probe one hash table, probe lineitem by a nest step, then probe a
@@ -55,6 +83,12 @@ fn a_memoized_inner_is_marked_with_its_key_for_the_leader() {
 #[test]
 fn a_nest_ahead_of_an_outer_first_probe_is_marked() {
     let sites = index_sites("tpch-008.plan");
-    assert!(sites.len() >= 3, "tpch-008 has its three nest inner index sites: {sites:?}");
-    assert!(sites.iter().all(|s| s.1), "tpch-008's nest inner probes are worker probes: {sites:?}");
+    assert!(
+        sites.len() >= 3,
+        "tpch-008 has its three nest inner index sites: {sites:?}"
+    );
+    assert!(
+        sites.iter().all(|s| s.1),
+        "tpch-008's nest inner probes are worker probes: {sites:?}"
+    );
 }

@@ -1,9 +1,14 @@
-#![cfg(feature = "wasmtime-oracle")]//! The IR half of the one key hash equals the runtime half bit for bit (lowerv4 M0): `gravity_expr::emit::hash` against
+#![cfg(feature = "wasmtime-oracle")]
+//! The IR half of the one key hash equals the runtime half bit for bit (lowerv4 M0): `gravity_expr::emit::hash` against
 //! `gravity_abi::hash` on the interpreter, TPDE and wasm, over images of 0..=4 words (random and structured words: zero,
 //! all-ones, the sign bit, top-bits-only, small ints), run-time and lowering-time bit counts, nullable images with their
 //! flags word, and image equality in registers and against stored words.
 use gravity_abi::hash::{route_and_full, Depth, KeyHash};
-use gravity_expr::emit::hash::{emit_home, emit_home_at, emit_home_shift, emit_image, emit_image_eq, emit_image_eq_at, emit_key_hash, emit_part, emit_route_and_full, emit_split, emit_stored, emit_sub, Bits, ImageValues, KeyPart};
+use gravity_expr::emit::hash::{
+    emit_home, emit_home_at, emit_home_shift, emit_image, emit_image_eq, emit_image_eq_at,
+    emit_key_hash, emit_part, emit_route_and_full, emit_split, emit_stored, emit_sub, Bits,
+    ImageValues, KeyPart,
+};
 use gravity_ir::builder::ProgramBuilder;
 use gravity_ir::{ConvOp, Func, IntBinOp, IntCond, Program, Type};
 
@@ -33,9 +38,13 @@ fn program(n: usize) -> (Program, Func) {
     let f = pb.declare_func("keyhash", &[Type::Ptr], &[Type::I64]);
     let mut b = pb.define(f);
     let fr = b.params()[0];
-    let words: Vec<_> = (0..n).map(|i| b.load(Type::I64, fr, 8 * i as i32)).collect();
+    let words: Vec<_> = (0..n)
+        .map(|i| b.load(Type::I64, fr, 8 * i as i32))
+        .collect();
     let [cap, used, pbits, depth, nulls] = [64, 72, 80, 88, 96].map(|o| b.load(Type::I64, fr, o));
-    let image = ImageValues { words: words.clone() };
+    let image = ImageValues {
+        words: words.clone(),
+    };
     let h = emit_key_hash(&mut b, &image);
     let (route, _) = emit_route_and_full(&mut b, &image, n / 2);
     let mut outs = vec![h, route];
@@ -44,9 +53,19 @@ fn program(n: usize) -> (Program, Func) {
     outs.push(emit_sub(&mut b, h, Bits::Dyn(pbits), Bits::Dyn(depth)));
     outs.push(emit_split(&mut b, h, Bits::Dyn(used)));
     outs.push(emit_stored(&mut b, h));
-    outs.push(emit_home(&mut b, h, Bits::Const(CONST_CAP), Bits::of(Depth::new(CONST_USED, 0).unwrap())));
+    outs.push(emit_home(
+        &mut b,
+        h,
+        Bits::Const(CONST_CAP),
+        Bits::of(Depth::new(CONST_USED, 0).unwrap()),
+    ));
     outs.push(emit_part(&mut b, h, Bits::Const(CONST_P)));
-    outs.push(emit_sub(&mut b, h, Bits::Const(CONST_P), Bits::Const(CONST_D)));
+    outs.push(emit_sub(
+        &mut b,
+        h,
+        Bits::Const(CONST_P),
+        Bits::Const(CONST_D),
+    ));
     outs.push(emit_split(&mut b, h, Bits::Const(CONST_USED + 3)));
     let own = emit_image_eq_at(&mut b, &image, fr, 0);
     let other = emit_image_eq_at(&mut b, &image, fr, 32);
@@ -65,7 +84,12 @@ fn program(n: usize) -> (Program, Func) {
             b.icmp(IntCond::Ne, bit, zero)
         })
         .collect();
-    let parts: Vec<KeyPart> = (0..n).map(|i| KeyPart { words: &words[i..i + 1], null: Some(flags[i]) }).collect();
+    let parts: Vec<KeyPart> = (0..n)
+        .map(|i| KeyPart {
+            words: &words[i..i + 1],
+            null: Some(flags[i]),
+        })
+        .collect();
     let nullable = emit_image(&mut b, &parts);
     outs.push(emit_key_hash(&mut b, &nullable));
     // D3326: the home over a shift taken once, for capacity bits of at least 1 (a zero `cap` reads as 1 here)
@@ -88,8 +112,15 @@ fn expect(n: usize, fr: &Frame) -> [u64; 15] {
     let h = KeyHash::of(img);
     let (route, full) = route_and_full(img, n / 2);
     assert_eq!(full, h);
-    let (cap, used, pbits, depth) = (fr.cap as u32, fr.used as u32, fr.pbits as u32, fr.depth as u32);
-    let mut nullable: Vec<u64> = (0..n).map(|i| if fr.nulls >> i & 1 == 1 { 0 } else { img[i] }).collect();
+    let (cap, used, pbits, depth) = (
+        fr.cap as u32,
+        fr.used as u32,
+        fr.pbits as u32,
+        fr.depth as u32,
+    );
+    let mut nullable: Vec<u64> = (0..n)
+        .map(|i| if fr.nulls >> i & 1 == 1 { 0 } else { img[i] })
+        .collect();
     if n > 0 {
         nullable.push(fr.nulls & ((1 << n) - 1));
     }
@@ -128,12 +159,33 @@ impl Wasm {
         let engine = Engine::new(Config::new().wasm_simd(true)).unwrap();
         let mut store = Store::new(&engine, ());
         let memory = Memory::new(&mut store, MemoryType::new(64, None)).unwrap();
-        let table = Table::new(&mut store, TableType::new(RefType::FUNCREF, 16, None), Ref::Func(None)).unwrap();
-        let sp = Global::new(&mut store, GlobalType::new(ValType::I32, Mutability::Var), Val::I32(DATA as i32)).unwrap();
+        let table = Table::new(
+            &mut store,
+            TableType::new(RefType::FUNCREF, 16, None),
+            Ref::Func(None),
+        )
+        .unwrap();
+        let sp = Global::new(
+            &mut store,
+            GlobalType::new(ValType::I32, Mutability::Var),
+            Val::I32(DATA as i32),
+        )
+        .unwrap();
         let module = Module::new(&engine, &bytes).unwrap();
-        let inst = Instance::new(&mut store, &module, &[memory.into(), table.into(), sp.into()]).unwrap();
-        let func = inst.get_func(&mut store, &gravity_wasm::func_export_name(f)).expect("exported");
-        Wasm { store, memory, func }
+        let inst = Instance::new(
+            &mut store,
+            &module,
+            &[memory.into(), table.into(), sp.into()],
+        )
+        .unwrap();
+        let func = inst
+            .get_func(&mut store, &gravity_wasm::func_export_name(f))
+            .expect("exported");
+        Wasm {
+            store,
+            memory,
+            func,
+        }
     }
 
     fn run(&mut self, fr: &mut Frame) {
@@ -141,7 +193,9 @@ impl Wasm {
         let bytes = unsafe { std::slice::from_raw_parts(fr as *const Frame as *const u8, size) };
         self.memory.data_mut(&mut self.store)[DATA..DATA + size].copy_from_slice(bytes);
         let mut r = [wasmtime::Val::I64(-1)];
-        self.func.call(&mut self.store, &[wasmtime::Val::I64(DATA as i64)], &mut r).unwrap();
+        self.func
+            .call(&mut self.store, &[wasmtime::Val::I64(DATA as i64)], &mut r)
+            .unwrap();
         assert_eq!(r[0].i64(), Some(0));
         let back = self.memory.data(&self.store)[DATA..DATA + size].to_vec();
         unsafe { std::ptr::copy_nonoverlapping(back.as_ptr(), fr as *mut Frame as *mut u8, size) };
@@ -157,17 +211,33 @@ fn the_ir_half_is_the_runtime_half_on_every_backend() {
         seed ^= seed << 17;
         seed
     };
-    let structured = [0u64, 1, u64::MAX, 1 << 63, 1 << 48, 7 << 56, 42, (-5i64) as u64, 0x8000_0000, 0xffff_ffff];
+    let structured = [
+        0u64,
+        1,
+        u64::MAX,
+        1 << 63,
+        1 << 48,
+        7 << 56,
+        42,
+        (-5i64) as u64,
+        0x8000_0000,
+        0xffff_ffff,
+    ];
     for n in 0..=4usize {
         let (p, f) = program(n);
         gravity_ir::verify::verify(&p).unwrap_or_else(|e| panic!("verify n={n}: {e:?}"));
-        let tpde = gravity_backend::mapped(&p, f).unwrap_or_else(|e| panic!("tpde: {}", e.message()));
+        let tpde =
+            gravity_backend::mapped(&p, f).unwrap_or_else(|e| panic!("tpde: {}", e.message()));
         let interp = gravity_backend::interp(p.clone(), f).unwrap();
         let mut wasm = Wasm::new(&p, f);
         for case in 0..4000u32 {
             let mut fr = Frame::default();
             for w in fr.words.iter_mut() {
-                *w = if case % 3 == 0 { structured[(next() % structured.len() as u64) as usize] } else { next() };
+                *w = if case % 3 == 0 {
+                    structured[(next() % structured.len() as u64) as usize]
+                } else {
+                    next()
+                };
             }
             fr.other = fr.words;
             if case % 2 == 1 && n > 0 {
@@ -178,7 +248,11 @@ fn the_ir_half_is_the_runtime_half_on_every_backend() {
             let rb = gravity_abi::hash::ROUTE_BITS as u64;
             fr.used = next() % (rb + 1);
             fr.cap = next() % 33;
-            fr.pbits = if case % 4 == 0 { next() % 12 } else { next() % 33 };
+            fr.pbits = if case % 4 == 0 {
+                next() % 12
+            } else {
+                next() % 33
+            };
             fr.depth = next() % ((rb - fr.pbits) / 3 + 1);
             if case % 4 == 0 {
                 fr.depth = fr.depth.max(11);
@@ -209,7 +283,9 @@ fn a_nullable_image_past_64_keys_takes_one_flags_word_per_64_keys() {
     let mut b = pb.define(f);
     let fr = b.params()[0];
     let (one, zero) = (b.iconst(Type::I64, 1), b.iconst(Type::I64, 0));
-    let words: Vec<_> = (0..N).map(|i| b.load(Type::I64, fr, 8 * i as i32)).collect();
+    let words: Vec<_> = (0..N)
+        .map(|i| b.load(Type::I64, fr, 8 * i as i32))
+        .collect();
     let nulls: Vec<_> = (0..N)
         .map(|i| {
             let m = b.load(Type::I64, fr, 8 * (N + i / 64) as i32);
@@ -219,9 +295,18 @@ fn a_nullable_image_past_64_keys_takes_one_flags_word_per_64_keys() {
             b.icmp(IntCond::Ne, bit, zero)
         })
         .collect();
-    let parts: Vec<KeyPart> = (0..N).map(|i| KeyPart { words: &words[i..i + 1], null: Some(nulls[i]) }).collect();
+    let parts: Vec<KeyPart> = (0..N)
+        .map(|i| KeyPart {
+            words: &words[i..i + 1],
+            null: Some(nulls[i]),
+        })
+        .collect();
     let img = emit_image(&mut b, &parts);
-    assert_eq!(img.words.len(), N + 3, "130 image words, then three flags words");
+    assert_eq!(
+        img.words.len(),
+        N + 3,
+        "130 image words, then three flags words"
+    );
     let out = 8 * (N + 3) as i32;
     for (i, &w) in img.words.iter().enumerate() {
         b.store(fr, out + 8 * i as i32, w);
@@ -236,12 +321,30 @@ fn a_nullable_image_past_64_keys_takes_one_flags_word_per_64_keys() {
     let tpde = gravity_backend::mapped(&p, f).unwrap_or_else(|e| panic!("tpde: {}", e.message()));
     let interp = gravity_backend::interp(p.clone(), f).unwrap();
     let mut images = Vec::new();
-    for nulls in [[1u64, 0, 0], [0, 1, 0], [0, 0, 1], [1, 1, 3], [u64::MAX, 0, 2]] {
-        let mut want: Vec<u64> = (0..N).map(|i| if nulls[i / 64] >> (i % 64) & 1 == 1 { 0 } else { 7 + i as u64 }).collect();
+    for nulls in [
+        [1u64, 0, 0],
+        [0, 1, 0],
+        [0, 0, 1],
+        [1, 1, 3],
+        [u64::MAX, 0, 2],
+    ] {
+        let mut want: Vec<u64> = (0..N)
+            .map(|i| {
+                if nulls[i / 64] >> (i % 64) & 1 == 1 {
+                    0
+                } else {
+                    7 + i as u64
+                }
+            })
+            .collect();
         want.extend(nulls);
         want.push(KeyHash::of(&want).to_abi());
         for (name, code) in [("tpde", &tpde), ("interp", &interp)] {
-            let mut fr: Vec<u64> = (0..N as u64).map(|i| 7 + i).chain(nulls).chain([0; N + 4]).collect();
+            let mut fr: Vec<u64> = (0..N as u64)
+                .map(|i| 7 + i)
+                .chain(nulls)
+                .chain([0; N + 4])
+                .collect();
             // SAFETY: the frame holds every word the function reads and writes; it is live for the call.
             assert_eq!(unsafe { code.call(fr.as_mut_ptr().cast()) }, 0);
             assert_eq!(fr[N + 3..], want[..], "{name} nulls {nulls:?}");
@@ -249,5 +352,8 @@ fn a_nullable_image_past_64_keys_takes_one_flags_word_per_64_keys() {
         images.push(want);
     }
     assert_ne!(images[0], images[1], "a NULL in key 0 vs a NULL in key 64");
-    assert_ne!(images[1], images[2], "a NULL in key 64 vs a NULL in key 128");
+    assert_ne!(
+        images[1], images[2],
+        "a NULL in key 64 vs a NULL in key 128"
+    );
 }

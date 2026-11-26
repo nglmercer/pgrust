@@ -3,21 +3,21 @@
 pub mod build;
 pub mod defaults;
 pub mod deform_jit;
+pub mod fkeylist;
+pub mod indexattr;
 pub mod indexlist;
-mod trigdesc;
 pub mod initfile;
 pub mod invalidate;
 pub mod l2core;
 pub mod local;
-pub mod indexattr;
-pub mod fkeylist;
-pub mod statextlist;
 pub mod rowsecurity;
 pub mod rules;
 pub mod schemapg;
+pub mod statextlist;
 pub mod store;
 #[cfg(test)]
 mod tests;
+mod trigdesc;
 
 use core::cell::RefCell;
 use core::mem::ManuallyDrop;
@@ -30,7 +30,6 @@ use types_rel::RelationData;
 pub use build::{formrdesc, RelationBuildDesc};
 pub use defaults::RelationGetDefaultExpr;
 pub use indexlist::RelationGetIndexList;
-pub use trigdesc::RelationGetTriggerDesc;
 pub use initfile::{
     RelationCacheInitFilePostInvalidate, RelationCacheInitFilePreInvalidate,
     RelationCacheInitFileRemove, RelationCacheInitialize, RelationCacheInitializePhase2,
@@ -43,6 +42,7 @@ pub use invalidate::{
 pub use rowsecurity::RelationGetRowSecurityDesc;
 pub use rules::RelationGetRules;
 pub use store::RelationIdGetRelation;
+pub use trigdesc::RelationGetTriggerDesc;
 
 pub const MAX_EOXACT_LIST: usize = 32;
 const INITRELCACHESIZE: usize = 400;
@@ -169,7 +169,10 @@ pub(crate) fn note_stale(st: &mut RelcacheState, old: &Rc<RelationData<'static>>
         return;
     }
     let mcx = st.mcx;
-    let v = st.stale_refs.entry(old.rd_id).or_insert_with(|| PgVec::new_in(mcx));
+    let v = st
+        .stale_refs
+        .entry(old.rd_id)
+        .or_insert_with(|| PgVec::new_in(mcx));
     v.retain(|w| w.strong_count() > 0);
     v.push(Rc::downgrade(old));
 }
@@ -230,7 +233,9 @@ pub(crate) fn relcache_cap() -> usize {
     }
     static ENV: std::sync::OnceLock<Option<usize>> = std::sync::OnceLock::new();
     if let Some(v) = *ENV.get_or_init(|| {
-        std::env::var("PGRUST_RELCACHE_CAP").ok().and_then(|v| v.trim().parse().ok())
+        std::env::var("PGRUST_RELCACHE_CAP")
+            .ok()
+            .and_then(|v| v.trim().parse().ok())
     }) {
         return v;
     }
@@ -246,7 +251,9 @@ pub fn SetRelationCacheTrimAtIdle(on: bool) {
 }
 
 pub(crate) fn trim_at_idle() -> bool {
-    TRIM_AT_IDLE.try_with(core::cell::Cell::get).unwrap_or(false)
+    TRIM_AT_IDLE
+        .try_with(core::cell::Cell::get)
+        .unwrap_or(false)
 }
 
 pub fn TrimRelationCacheAtIdle() -> types_error::PgResult<()> {
@@ -297,9 +304,16 @@ pub fn RelationCacheCensus() -> RelCacheCensus {
     with_state(|st| {
         let entries = st.id_cache.len();
         let nailed = st.id_cache.values().filter(|e| e.nailed).count();
-        let invalid = st.id_cache.values().filter(|e| !e.rel.rd_isvalid.get()).count();
-        let stale_lineages: usize =
-            st.stale_refs.values().map(|v| v.iter().filter(|w| w.strong_count() > 0).count()).sum();
+        let invalid = st
+            .id_cache
+            .values()
+            .filter(|e| !e.rel.rd_isvalid.get())
+            .count();
+        let stale_lineages: usize = st
+            .stale_refs
+            .values()
+            .map(|v| v.iter().filter(|w| w.strong_count() > 0).count())
+            .sum();
         let side_cache_entries = st.rules_cache.len()
             + st.policies_cache.len()
             + st.indexattr_cache.len()
@@ -313,7 +327,14 @@ pub fn RelationCacheCensus() -> RelCacheCensus {
         let est_heap_bytes = (entries + stale_lineages)
             * (rc_hdr + core::mem::size_of::<RelationData<'static>>())
             + entries * (rc_hdr + core::mem::size_of::<types_tuple::TupleDescData<'static>>());
-        RelCacheCensus { entries, nailed, invalid, stale_lineages, side_cache_entries, est_heap_bytes }
+        RelCacheCensus {
+            entries,
+            nailed,
+            invalid,
+            stale_lineages,
+            side_cache_entries,
+            est_heap_bytes,
+        }
     })
 }
 

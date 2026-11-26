@@ -18,16 +18,22 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use common::parts;
+use gravity_abi::breaker::{Breaker, BreakerKind};
 use gravity_abi::ctx::lane;
 use gravity_abi::{Datum, Lane, ScanPos};
-use gravity_driver::{box_source, ArenaBox, ArenaRef, SourceBox, Binding, BorrowedBatch, Cursor, Derive, Entry, Flow, Locker, Merge, LegRef, Result, Sink, SinkLeg, Source, Window, WindowBase, Writer};
-use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
-use gravity_kernels::table::params as par_hashagg;
+use gravity_driver::{
+    box_source, ArenaBox, ArenaRef, Binding, BorrowedBatch, Cursor, Derive, Entry, Flow, LegRef,
+    Locker, Merge, Result, Sink, SinkLeg, Source, SourceBox, Window, WindowBase, Writer,
+};
 use gravity_kernels::par_hashjoin;
+use gravity_kernels::table::params as par_hashagg;
+use gravity_parallel::{
+    run_program, BlockRange, ClaimSize, FixturePool, HashAggPartial, HashBuildPartial,
+    MorselSource, PlainAggPartial, Plan, Pool, RowsUnordered,
+};
 use gravity_program::hand as programs;
-use gravity_parallel::{run_program, BlockRange, ClaimSize, FixturePool, HashAggPartial, HashBuildPartial, MorselSource, Plan, PlainAggPartial, Pool, RowsUnordered};
-use gravity_abi::breaker::{Breaker, BreakerKind};
 use gravity_program::{End, Program, SiteDesc, WritePlan};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 
 const BLOCK: u64 = 8192;
 const CLAIM: u64 = 8;
@@ -57,7 +63,11 @@ const GROUPS: u64 = 100;
 // `t_row` (tc / th) is v1's: k % 100, v = 31·i % 1000, a = 7919·i % 5,000,011.
 
 fn t_row(i: u64) -> (i32, i32, i32) {
-    ((i % GROUPS) as i32, ((i * 31) % 1000) as i32, ((i * 7919) % 5_000_011) as i32)
+    (
+        (i % GROUPS) as i32,
+        ((i * 31) % 1000) as i32,
+        ((i * 7919) % 5_000_011) as i32,
+    )
 }
 
 const SEED: u64 = 0x5EED_0000_0000_0002;
@@ -78,11 +88,19 @@ fn draw(i: u64) -> u64 {
 /// A bijection on `bits`-bit values: three xorshift-multiply rounds, each invertible mod 2^bits
 /// (a right xorshift is invertible at any width; an odd multiplier is a unit mod 2^bits).
 fn bij(x: u64, bits: u32) -> u64 {
-    let m = if bits >= 64 { u64::MAX } else { (1u64 << bits) - 1 };
+    let m = if bits >= 64 {
+        u64::MAX
+    } else {
+        (1u64 << bits) - 1
+    };
     let s1 = (bits / 2).max(1);
     let s2 = (bits / 3).max(1);
     let mut x = (x ^ (SEED & m)) & m;
-    for mul in [0x9E37_79B9_7F4A_7C15u64, 0xBF58_476D_1CE4_E5B9, 0x94D0_49BB_1331_11EB] {
+    for mul in [
+        0x9E37_79B9_7F4A_7C15u64,
+        0xBF58_476D_1CE4_E5B9,
+        0x94D0_49BB_1331_11EB,
+    ] {
         x ^= x >> s1;
         x = x.wrapping_mul(mul | 1) & m;
         x ^= x >> s2;
@@ -118,7 +136,11 @@ fn outer_row(i: u64, outer: u64, inner: u64) -> (i32, i32) {
     let hits = (outer / 100).max(1);
     let rank = perm(i, outer);
     let k = if rank < hits {
-        inner_key(if hits <= inner { perm(rank, inner) } else { rank % inner })
+        inner_key(if hits <= inner {
+            perm(rank, inner)
+        } else {
+            rank % inner
+        })
     } else {
         ((1u64 << KEY_BITS) | (draw(i) & ((1u64 << KEY_BITS) - 1))) as i32
     };
@@ -197,13 +219,31 @@ impl Source for ArraySource {
         for k in 0..self.natts {
             let src = &self.t.cols[self.attnos[k]][r..r + n];
             if self.wide.is_empty() {
-                w.set(k, Lane::byval(src.as_ptr() as *const u8, core::ptr::null(), 4, lane::REGION_ARENA, lane::id(lane::ID_ATTR, k as u32)));
+                w.set(
+                    k,
+                    Lane::byval(
+                        src.as_ptr() as *const u8,
+                        core::ptr::null(),
+                        4,
+                        lane::REGION_ARENA,
+                        lane::id(lane::ID_ATTR, k as u32),
+                    ),
+                );
             } else {
                 let dst = &mut self.wide[k * BLOCK as usize..k * BLOCK as usize + n];
                 for (d, s) in dst.iter_mut().zip(src) {
                     *d = *s as i64 as u64;
                 }
-                w.set(k, Lane::byval(dst.as_ptr() as *const u8, core::ptr::null(), 8, lane::REGION_ARENA, lane::id(lane::ID_ATTR, k as u32)));
+                w.set(
+                    k,
+                    Lane::byval(
+                        dst.as_ptr() as *const u8,
+                        core::ptr::null(),
+                        8,
+                        lane::REGION_ARENA,
+                        lane::id(lane::ID_ATTR, k as u32),
+                    ),
+                );
             }
         }
         w.rows = n as u32;
@@ -256,8 +296,25 @@ impl Derive for ArrayDerive {
         for (k, slot) in attnos.iter_mut().enumerate().take(d.natts()) {
             *slot = d.out_attnos[k] as usize - 1;
         }
-        let wide = if std::env::var("LANE_WIDTH").is_ok_and(|w| w == "8") { vec![0u64; d.natts() * BLOCK as usize] } else { Vec::new() };
-        box_source(ArraySource { t: self.table(d.relation).clone(), natts: d.natts(), attnos, row: 0, end: 0, block: 0, lo: 0, cur: Cursor::new(), wide }, a)
+        let wide = if std::env::var("LANE_WIDTH").is_ok_and(|w| w == "8") {
+            vec![0u64; d.natts() * BLOCK as usize]
+        } else {
+            Vec::new()
+        };
+        box_source(
+            ArraySource {
+                t: self.table(d.relation).clone(),
+                natts: d.natts(),
+                attnos,
+                row: 0,
+                end: 0,
+                block: 0,
+                lo: 0,
+                cur: Cursor::new(),
+                wide,
+            },
+            a,
+        )
     }
 
     fn writer_size_hint(&self) -> usize {
@@ -296,7 +353,10 @@ impl Plan for ArrayPlan {
     }
 
     fn claims_for(&self, p: usize) -> &dyn MorselSource {
-        if matches!(self.program.pipelines[p].claims, gravity_program::ClaimKind::SpillPartitions { .. }) {
+        if matches!(
+            self.program.pipelines[p].claims,
+            gravity_program::ClaimKind::SpillPartitions { .. }
+        ) {
             return &self.parts;
         }
         &self.cursors[p]
@@ -304,17 +364,32 @@ impl Plan for ArrayPlan {
 
     fn merge_for(&self, p: usize) -> &dyn Merge {
         match self.program.pipelines[p].ends_in {
-            End::Breaker(Breaker { kind: BreakerKind::PlainAgg, .. }) => &PLAIN,
-            End::Breaker(Breaker { kind: BreakerKind::HashAgg, .. }) => &HASHAGG,
-            End::Breaker(Breaker { kind: BreakerKind::HashBuild, .. }) => &self.hash_build,
+            End::Breaker(Breaker {
+                kind: BreakerKind::PlainAgg,
+                ..
+            }) => &PLAIN,
+            End::Breaker(Breaker {
+                kind: BreakerKind::HashAgg,
+                ..
+            }) => &HASHAGG,
+            End::Breaker(Breaker {
+                kind: BreakerKind::HashBuild,
+                ..
+            }) => &self.hash_build,
             _ => &ROWS,
         }
     }
 
     fn after_pipeline(&self, p: usize, exec: &mut gravity_driver::Exec) -> Result<()> {
         if let Some(slot) = self.program.pipelines[p].produces() {
-            if self.program.pipelines.iter().any(|q| q.claims == gravity_program::ClaimKind::SpillPartitions { slot }) {
-                self.parts.set_total(exec.node().spill_parts_of(slot) as u64);
+            if self
+                .program
+                .pipelines
+                .iter()
+                .any(|q| q.claims == gravity_program::ClaimKind::SpillPartitions { slot })
+            {
+                self.parts
+                    .set_total(exec.node().spill_parts_of(slot) as u64);
             }
         }
         Ok(())
@@ -343,7 +418,10 @@ impl CheckSink {
     }
 
     fn take(&self) -> (u64, i64) {
-        (self.rows.swap(0, Ordering::Relaxed), self.sum.swap(0, Ordering::Relaxed))
+        (
+            self.rows.swap(0, Ordering::Relaxed),
+            self.sum.swap(0, Ordering::Relaxed),
+        )
     }
 }
 
@@ -363,7 +441,14 @@ impl SinkLeg for CheckSink {
     }
 }
 
-fn run(entry: &mut Entry, program: &Arc<Program>, derive: &mut ArrayDerive, pool: &dyn Pool, width: u16, params: &[Datum]) -> (u64, i64) {
+fn run(
+    entry: &mut Entry,
+    program: &Arc<Program>,
+    derive: &mut ArrayDerive,
+    pool: &dyn Pool,
+    width: u16,
+    params: &[Datum],
+) -> (u64, i64) {
     static ABORT: AtomicU8 = AtomicU8::new(0);
     let nulls = [0u8; 16];
     let blocks = |p: usize| {
@@ -374,10 +459,32 @@ fn run(entry: &mut Entry, program: &Arc<Program>, derive: &mut ArrayDerive, pool
             derive.table(program.sites[site as usize].relation).blocks()
         }
     };
-    let plan = ArrayPlan { program: program.clone(), width, cursors: [BlockRange::new(blocks(0), ClaimSize::Fixed(CLAIM)), BlockRange::new(blocks(1), ClaimSize::Fixed(CLAIM))], parts: gravity_parallel::PartitionRange::deferred(), hash_build: HashBuildPartial };
+    let plan = ArrayPlan {
+        program: program.clone(),
+        width,
+        cursors: [
+            BlockRange::new(blocks(0), ClaimSize::Fixed(CLAIM)),
+            BlockRange::new(blocks(1), ClaimSize::Fixed(CLAIM)),
+        ],
+        parts: gravity_parallel::PartitionRange::deferred(),
+        hash_build: HashBuildPartial,
+    };
     let mut sink = CheckSink::default();
-    let mut b = Binding::new(parts(params, &nulls[..params.len().max(1)], &ABORT), &mut sink);
-    let mut exec = entry.start(None, program, derive, &mut b, std::rc::Rc::new(gravity_driver::Reservation::unadmitted(gravity_driver::Grant::of(8 << 20)))).expect("start");
+    let mut b = Binding::new(
+        parts(params, &nulls[..params.len().max(1)], &ABORT),
+        &mut sink,
+    );
+    let mut exec = entry
+        .start(
+            None,
+            program,
+            derive,
+            &mut b,
+            std::rc::Rc::new(gravity_driver::Reservation::unadmitted(
+                gravity_driver::Grant::of(8 << 20),
+            )),
+        )
+        .expect("start");
     let r = run_program(entry, &mut exec, &mut b, derive, pool, &plan);
     entry.end(exec, r.is_ok());
     r.expect("run");
@@ -412,13 +519,15 @@ fn mix(h: u64) -> u64 {
     h ^ (h >> 31)
 }
 
-fn chunks(v: & [i32], w: usize) -> impl Iterator<Item = & [i32]> {
+fn chunks(v: &[i32], w: usize) -> impl Iterator<Item = &[i32]> {
     v.chunks(v.len().div_ceil(w).max(1))
 }
 
 fn lab_count(a: &[i32], w: usize, thr: i32) -> (u64, i64) {
     let n: u64 = std::thread::scope(|s| {
-        let hs: Vec<_> = chunks(a, w).map(|c| s.spawn(move || c.iter().filter(|&&x| x < thr).count() as u64)).collect();
+        let hs: Vec<_> = chunks(a, w)
+            .map(|c| s.spawn(move || c.iter().filter(|&&x| x < thr).count() as u64))
+            .collect();
         hs.into_iter().map(|h| h.join().unwrap()).sum()
     });
     (1, n as i64)
@@ -438,7 +547,12 @@ fn table_add(t: &mut [Slot], key: i32, v: i64, n: i64) {
     loop {
         let s = &mut t[i];
         if s.used == 0 {
-            *s = Slot { used: 1, key, sum: v, cnt: n };
+            *s = Slot {
+                used: 1,
+                key,
+                sum: v,
+                cnt: n,
+            };
             return;
         }
         if s.key == key {
@@ -479,7 +593,13 @@ fn lab_group(k: &[i32], v: &[i32], w: usize) -> (u64, i64) {
             table_add(&mut all, s.key, s.sum, s.cnt);
         }
     }
-    (all.iter().filter(|s| s.used != 0).count() as u64, all.iter().filter(|s| s.used != 0).map(|s| s.key as i64 + s.sum + s.cnt).sum())
+    (
+        all.iter().filter(|s| s.used != 0).count() as u64,
+        all.iter()
+            .filter(|s| s.used != 0)
+            .map(|s| s.key as i64 + s.sum + s.cnt)
+            .sum(),
+    )
 }
 
 #[derive(Clone, Copy, Default)]
@@ -495,7 +615,11 @@ fn build_insert(t: &mut [Entry2], key: i32, payload: i64) {
     while t[i].used != 0 {
         i = (i + 1) & mask;
     }
-    t[i] = Entry2 { used: 1, key, payload };
+    t[i] = Entry2 {
+        used: 1,
+        key,
+        payload,
+    };
 }
 
 fn lab_join(ik: &[i32], ia: &[i32], ok: &[i32], ob: &[i32], w: usize, cap: usize) -> (u64, i64) {
@@ -546,7 +670,9 @@ fn lab_join(ik: &[i32], ia: &[i32], ok: &[i32], ob: &[i32], w: usize, cap: usize
                 })
             })
             .collect();
-        hs.into_iter().map(|h| h.join().unwrap()).fold((0, 0), |a, b| (a.0 + b.0, a.1 + b.1))
+        hs.into_iter()
+            .map(|h| h.join().unwrap())
+            .fold((0, 0), |a, b| (a.0 + b.0, a.1 + b.1))
     })
 }
 
@@ -554,22 +680,51 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let mode = args.get(1).map(String::as_str).unwrap_or("a");
     let (rows, outer, inner) = match mode {
-        "tsv" => (args.get(3).and_then(|s| s.parse().ok()).unwrap_or(100_000_000u64), args.get(4).and_then(|s| s.parse().ok()).unwrap_or(10_000_000u64), args.get(5).and_then(|s| s.parse().ok()).unwrap_or(1_000_000u64)),
-        _ => (args.get(2).and_then(|s| s.parse().ok()).unwrap_or(100_000_000u64), args.get(3).and_then(|s| s.parse().ok()).unwrap_or(10_000_000u64), args.get(4).and_then(|s| s.parse().ok()).unwrap_or(1_000_000u64)),
+        "tsv" => (
+            args.get(3)
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(100_000_000u64),
+            args.get(4)
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(10_000_000u64),
+            args.get(5)
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(1_000_000u64),
+        ),
+        _ => (
+            args.get(2)
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(100_000_000u64),
+            args.get(3)
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(10_000_000u64),
+            args.get(4)
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(1_000_000u64),
+        ),
     };
     if mode == "tsv" {
         let dir = args.get(2).expect("tsv <dir>");
-        let mut w = std::io::BufWriter::with_capacity(1 << 20, std::fs::File::create(format!("{dir}/t.tsv")).expect("t.tsv"));
+        let mut w = std::io::BufWriter::with_capacity(
+            1 << 20,
+            std::fs::File::create(format!("{dir}/t.tsv")).expect("t.tsv"),
+        );
         for i in 0..rows {
             let (k, v, a) = t_row(i);
             writeln!(w, "{k}\t{v}\t{a}").unwrap();
         }
-        let mut w = std::io::BufWriter::with_capacity(1 << 20, std::fs::File::create(format!("{dir}/inner.tsv")).expect("inner.tsv"));
+        let mut w = std::io::BufWriter::with_capacity(
+            1 << 20,
+            std::fs::File::create(format!("{dir}/inner.tsv")).expect("inner.tsv"),
+        );
         for j in 0..inner {
             let (k, a) = inner_row(j);
             writeln!(w, "{k}\t{a}").unwrap();
         }
-        let mut w = std::io::BufWriter::with_capacity(1 << 20, std::fs::File::create(format!("{dir}/outer.tsv")).expect("outer.tsv"));
+        let mut w = std::io::BufWriter::with_capacity(
+            1 << 20,
+            std::fs::File::create(format!("{dir}/outer.tsv")).expect("outer.tsv"),
+        );
         for i in 0..outer {
             let (k, b) = outer_row(i, outer, inner);
             writeln!(w, "{k}\t{b}").unwrap();
@@ -577,8 +732,14 @@ fn main() {
         println!("wrote {rows} + {inner} + {outer} rows to {dir}");
         return;
     }
-    let widths: Vec<u16> = args.get(5).map(|s| s.split(',').filter_map(|w| w.parse().ok()).collect()).unwrap_or_else(|| vec![1, 4, 8, 12, 16]);
-    let runs: usize = std::env::var("RUNS").ok().and_then(|s| s.parse().ok()).unwrap_or(5);
+    let widths: Vec<u16> = args
+        .get(5)
+        .map(|s| s.split(',').filter_map(|w| w.parse().ok()).collect())
+        .unwrap_or_else(|| vec![1, 4, 8, 12, 16]);
+    let runs: usize = std::env::var("RUNS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(5);
     let t0 = Instant::now();
     let k = fill(rows, |i| t_row(i).0);
     let v = fill(rows, |i| t_row(i).1);
@@ -587,13 +748,32 @@ fn main() {
     let ia = fill(inner, |j| inner_row(j).1);
     let ok = fill(outer, |i| outer_row(i, outer, inner).0);
     let ob = fill(outer, |i| outer_row(i, outer, inner).1);
-    eprintln!("arrays: {rows} rows (k, v, a), join {outer} x {inner}, built in {:.1} s", t0.elapsed().as_secs_f64());
+    eprintln!(
+        "arrays: {rows} rows (k, v, a), join {outer} x {inner}, built in {:.1} s",
+        t0.elapsed().as_secs_f64()
+    );
     let mut derive = ArrayDerive {
         tables: vec![
-            Arc::new(Cols { rel: REL_A, rows, cols: vec![a.clone()] }),
-            Arc::new(Cols { rel: REL_KV, rows, cols: vec![k.clone(), v.clone()] }),
-            Arc::new(Cols { rel: REL_IN, rows: inner, cols: vec![ik.clone(), ia.clone()] }),
-            Arc::new(Cols { rel: REL_OUT, rows: outer, cols: vec![ok.clone(), ob.clone()] }),
+            Arc::new(Cols {
+                rel: REL_A,
+                rows,
+                cols: vec![a.clone()],
+            }),
+            Arc::new(Cols {
+                rel: REL_KV,
+                rows,
+                cols: vec![k.clone(), v.clone()],
+            }),
+            Arc::new(Cols {
+                rel: REL_IN,
+                rows: inner,
+                cols: vec![ik.clone(), ia.clone()],
+            }),
+            Arc::new(Cols {
+                rel: REL_OUT,
+                rows: outer,
+                cols: vec![ok.clone(), ob.clone()],
+            }),
         ],
     };
     let maxw = *widths.iter().max().unwrap_or(&1) as usize;
@@ -601,19 +781,60 @@ fn main() {
     let mut entry = Entry::new(4);
     let count = Arc::new(programs::par_scan_count_with(REL_A, rows));
     let group = Arc::new(programs::par_hashagg_with(REL_KV, 64, rows));
-    let join = Arc::new(programs::par_hashjoin_with(REL_IN, REL_OUT, 64, inner, outer));
-    println!("| shape | rows | W | driver ms | lab ms | driver / lab | driver answer | lab answer |");
+    let join = Arc::new(programs::par_hashjoin_with(
+        REL_IN, REL_OUT, 64, inner, outer,
+    ));
+    println!(
+        "| shape | rows | W | driver ms | lab ms | driver / lab | driver answer | lab answer |"
+    );
     println!("|---|---|---|---|---|---|---|---|");
     let show = |x: (u64, i64)| format!("{} rows, sum {}", x.0, x.1);
     for &w in &widths {
-        let (d, dn) = timed(runs, || run(&mut entry, &count, &mut derive, &pool, w, &[THR as u64]));
+        let (d, dn) = timed(runs, || {
+            run(&mut entry, &count, &mut derive, &pool, w, &[THR as u64])
+        });
         let (l, ln) = timed(runs, || lab_count(&a, w as usize, THR as i32));
-        println!("| count-filter | {rows} | {w} | {d:.1} | {l:.1} | {:.2} | {} | {} |", d / l, show(dn), show(ln));
-        let (d, dn) = timed(runs, || run(&mut entry, &group, &mut derive, &pool, w, &par_hashagg::DEFAULT_PARAMS));
+        println!(
+            "| count-filter | {rows} | {w} | {d:.1} | {l:.1} | {:.2} | {} | {} |",
+            d / l,
+            show(dn),
+            show(ln)
+        );
+        let (d, dn) = timed(runs, || {
+            run(
+                &mut entry,
+                &group,
+                &mut derive,
+                &pool,
+                w,
+                &par_hashagg::DEFAULT_PARAMS,
+            )
+        });
         let (l, ln) = timed(runs, || lab_group(&k, &v, w as usize));
-        println!("| group-by sum,count | {rows} | {w} | {d:.1} | {l:.1} | {:.2} | {} | {} |", d / l, show(dn), show(ln));
-        let (d, dn) = timed(runs, || run(&mut entry, &join, &mut derive, &pool, w, &par_hashjoin::DEFAULT_PARAMS));
-        let (l, ln) = timed(runs, || lab_join(&ik, &ia, &ok, &ob, w as usize, LAB_JOIN_CAP));
-        println!("| hash join | {outer} x {inner} | {w} | {d:.1} | {l:.1} | {:.2} | {} | {} |", d / l, show(dn), show(ln));
+        println!(
+            "| group-by sum,count | {rows} | {w} | {d:.1} | {l:.1} | {:.2} | {} | {} |",
+            d / l,
+            show(dn),
+            show(ln)
+        );
+        let (d, dn) = timed(runs, || {
+            run(
+                &mut entry,
+                &join,
+                &mut derive,
+                &pool,
+                w,
+                &par_hashjoin::DEFAULT_PARAMS,
+            )
+        });
+        let (l, ln) = timed(runs, || {
+            lab_join(&ik, &ia, &ok, &ob, w as usize, LAB_JOIN_CAP)
+        });
+        println!(
+            "| hash join | {outer} x {inner} | {w} | {d:.1} | {l:.1} | {:.2} | {} | {} |",
+            d / l,
+            show(dn),
+            show(ln)
+        );
     }
 }

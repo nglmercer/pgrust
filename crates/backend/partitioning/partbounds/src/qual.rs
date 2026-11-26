@@ -146,7 +146,9 @@ fn make_key_var<'mcx>(mcx: Mcx<'mcx>, key: &PartitionKeyData, i: usize) -> PgRes
 
 // copyObject over a bound Const: the datum image is copied into `mcx`.
 fn copy_const_node<'mcx>(mcx: Mcx<'mcx>, node: Node<'_>) -> PgResult<Node<'mcx>> {
-    let c = node.as_variant::<Const>().expect("partition bound datum is not a Const");
+    let c = node
+        .as_variant::<Const>()
+        .expect("partition bound datum is not a Const");
     let mut copy = *c;
     if !copy.constisnull {
         copy.constvalue = datum_copy(mcx, copy.constvalue, copy.constbyval, copy.constlen as i16)?;
@@ -185,7 +187,14 @@ fn make_bool_expr<'mcx>(
     boolop: BoolExprType,
     args: NodeList<'mcx>,
 ) -> PgResult<Node<'mcx>> {
-    Node::mk(mcx, BoolExpr { boolop, args, location: -1 })
+    Node::mk(
+        mcx,
+        BoolExpr {
+            boolop,
+            args,
+            location: -1,
+        },
+    )
 }
 
 fn make_bool_const<'mcx>(mcx: Mcx<'mcx>, value: bool, isnull: bool) -> PgResult<Node<'mcx>> {
@@ -315,7 +324,10 @@ fn make_partition_op_expr<'mcx>(
             };
             make_opclause(mcx, operoid, arg1, a2, key.partcollation[keynum])
         }
-        other => panic!("make_partition_op_expr: unexpected strategy {}", other as char),
+        other => panic!(
+            "make_partition_op_expr: unexpected strategy {}",
+            other as char
+        ),
     }
 }
 
@@ -426,7 +438,9 @@ fn get_qual_for_list<'mcx>(
         }
     } else {
         for cell in spec.listdatums.iter() {
-            let val = cell.as_variant::<Const>().expect("list bound datum is not a Const");
+            let val = cell
+                .as_variant::<Const>()
+                .expect("list bound datum is not a Const");
             if val.constisnull {
                 list_has_null = true;
             } else {
@@ -535,7 +549,10 @@ unsafe fn detoast_text_to_str<'mcx>(mcx: ::mcx::Mcx<'mcx>, p: *const u8) -> &'mc
     core::str::from_utf8(s).expect("non-UTF-8 relpartbound")
 }
 
-pub fn read_boundspec<'mcx>(mcx: Mcx<'mcx>, relid: Oid) -> PgResult<&'mcx PartitionBoundSpec<'mcx>> {
+pub fn read_boundspec<'mcx>(
+    mcx: Mcx<'mcx>,
+    relid: Oid,
+) -> PgResult<&'mcx PartitionBoundSpec<'mcx>> {
     Ok(read_boundspec_opt(mcx, relid)?
         .unwrap_or_else(|| panic!("missing relpartbound for relation {relid}")))
 }
@@ -563,8 +580,7 @@ pub fn read_boundspec_opt<'mcx>(
         cache_syscache::SysCacheKey::Value(Datum::from_oid(relid)),
     )?
     .ok_or_else(|| cache_lookup_failed(relid))?;
-    let (d, isnull) =
-        cache_syscache::SysCacheGetAttr(RELOID, &tuple, Anum_pg_class_relpartbound)?;
+    let (d, isnull) = cache_syscache::SysCacheGetAttr(RELOID, &tuple, Anum_pg_class_relpartbound)?;
     if isnull {
         cache_syscache::ReleaseSysCache(tuple);
         return Ok(None);
@@ -586,12 +602,18 @@ fn get_range_key_properties<'mcx>(
 ) -> PgResult<(Node<'mcx>, Option<Node<'mcx>>, Option<Node<'mcx>>)> {
     let key_col = make_key_var(mcx, key, keynum)?;
     let lower_val = if ldatum.kind == PartitionRangeDatumKind::Value {
-        Some(copy_const_node(mcx, ldatum.value.expect("PartitionRangeDatum value"))?)
+        Some(copy_const_node(
+            mcx,
+            ldatum.value.expect("PartitionRangeDatum value"),
+        )?)
     } else {
         None
     };
     let upper_val = if udatum.kind == PartitionRangeDatumKind::Value {
-        Some(copy_const_node(mcx, udatum.value.expect("PartitionRangeDatum value"))?)
+        Some(copy_const_node(
+            mcx,
+            udatum.value.expect("PartitionRangeDatum value"),
+        )?)
     } else {
         None
     };
@@ -664,18 +686,27 @@ fn get_qual_for_range<'mcx>(
         return Ok(result);
     }
 
-    let mut result =
-        if !for_default { get_range_nulltest(mcx, key)? } else { NodeList::nil() };
+    let mut result = if !for_default {
+        get_range_nulltest(mcx, key)?
+    } else {
+        NodeList::nil()
+    };
 
     let lowers: Vec<&PartitionRangeDatum<'_>> = spec
         .lowerdatums
         .iter()
-        .map(|n| n.as_variant::<PartitionRangeDatum>().expect("PartitionRangeDatum"))
+        .map(|n| {
+            n.as_variant::<PartitionRangeDatum>()
+                .expect("PartitionRangeDatum")
+        })
         .collect();
     let uppers: Vec<&PartitionRangeDatum<'_>> = spec
         .upperdatums
         .iter()
-        .map(|n| n.as_variant::<PartitionRangeDatum>().expect("PartitionRangeDatum"))
+        .map(|n| {
+            n.as_variant::<PartitionRangeDatum>()
+                .expect("PartitionRangeDatum")
+        })
         .collect();
     let npairs = lowers.len().min(uppers.len());
     let partnatts = key.partnatts as usize;
@@ -684,7 +715,9 @@ fn get_qual_for_range<'mcx>(
     while i < npairs {
         let (key_col, lower_val, upper_val) =
             get_range_key_properties(mcx, key, i, lowers[i], uppers[i])?;
-        let (Some(lv), Some(_uv)) = (lower_val, upper_val) else { break };
+        let (Some(lv), Some(_uv)) = (lower_val, upper_val) else {
+            break;
+        };
         let lc = lv.as_variant::<Const>().expect("Const");
         let uc = upper_val.unwrap().as_variant::<Const>().expect("Const");
         if !range_bound_values_equal(mcx, key, i, lc, uc)? {
@@ -698,7 +731,14 @@ fn get_qual_for_range<'mcx>(
         }
         result.lappend(
             mcx,
-            make_partition_op_expr(mcx, key, i, BTEqualStrategyNumber, key_col, OpArg::Scalar(lv))?,
+            make_partition_op_expr(
+                mcx,
+                key,
+                i,
+                BTEqualStrategyNumber,
+                key_col,
+                OpArg::Scalar(lv),
+            )?,
         )?;
         i += 1;
     }
@@ -727,8 +767,7 @@ fn get_qual_for_range<'mcx>(
                     let strategy = if j - i < current_or_arm {
                         BTEqualStrategyNumber
                     } else if j == partnatts - 1
-                        || ldatum_next
-                            .is_some_and(|d| d.kind == PartitionRangeDatumKind::Minvalue)
+                        || ldatum_next.is_some_and(|d| d.kind == PartitionRangeDatumKind::Minvalue)
                     {
                         BTGreaterEqualStrategyNumber
                     } else {
@@ -980,8 +1019,7 @@ pub fn ConstraintImpliedByRelConstraint<'mcx>(
                 continue;
             }
             debug_assert!(chk.ccenforced);
-            let cexpr =
-                readfuncs::stringToNode(mcx, chk.ccbin.as_ref().expect("ccbin").as_str())?;
+            let cexpr = readfuncs::stringToNode(mcx, chk.ccbin.as_ref().expect("ccbin").as_str())?;
             let cexpr = clauses_seams::eval_const_expressions::call(mcx, cexpr)?;
             let cexpr = planner_seams::canonicalize_qual::call(mcx, cexpr, true)?;
             for n in make_ands_implicit(mcx, cexpr)?.iter() {
@@ -1034,7 +1072,8 @@ pub fn check_default_partition_contents<'mcx>(
     let default_relid = default_rel.rd_id;
     let mut all_parts: Vec<Oid> = Vec::new();
     if default_rel.rd_rel.relkind == RELKIND_PARTITIONED_TABLE {
-        for &oid in pg_inherits::find_all_inheritors(mcx, default_relid, AccessExclusiveLock)?.iter()
+        for &oid in
+            pg_inherits::find_all_inheritors(mcx, default_relid, AccessExclusiveLock)?.iter()
         {
             all_parts.push(oid);
         }
@@ -1117,8 +1156,11 @@ pub fn check_default_partition_contents<'mcx>(
             &mut slot,
         )? {
             per_tuple.reset();
-            let mut slots =
-                execexpr::EvalSlots { scan: Some(&mut slot), inner: None, outer: None };
+            let mut slots = execexpr::EvalSlots {
+                scan: Some(&mut slot),
+                inner: None,
+                outer: None,
+            };
             let r = execexpr::exec_eval_expr(&mut state, &mut slots)?;
             // ExecCheck: NULL passes.
             if !r.isnull && !r.value.as_bool() {
@@ -1214,14 +1256,17 @@ pub fn fc_satisfies_hash_partition(
         ));
     }
     if remainder >= modulus {
-        return Err(hash_param_error("remainder for hash partition must be less than modulus"));
+        return Err(hash_param_error(
+            "remainder for hash partition must be less than modulus",
+        ));
     }
     let flinfo = flinfo.expect("satisfies_hash_partition: NULL flinfo");
     // C's call-form dispatch: get_fn_expr_variadic(fcinfo->flinfo).
     let is_variadic = funcapi::get_fn_expr_variadic(Some(flinfo));
 
-    let stale =
-        flinfo.fn_extra_ref::<ColumnsHashData>().is_none_or( |x| x.relid != parent_id);
+    let stale = flinfo
+        .fn_extra_ref::<ColumnsHashData>()
+        .is_none_or(|x| x.relid != parent_id);
     if stale {
         let mcx = fcinfo.result_mcx();
         let parent = relation_seams::relation_open::call(mcx, parent_id, AccessShareLock)?;
@@ -1322,7 +1367,9 @@ pub fn fc_satisfies_hash_partition(
         parent.close(NoLock)?;
     }
 
-    let my = flinfo.fn_extra_mut::<ColumnsHashData>().expect("just built");
+    let my = flinfo
+        .fn_extra_mut::<ColumnsHashData>()
+        .expect("just built");
     let seed = Datum::from_u64(HASH_PARTITION_SEED);
     let mut row_hash: u64 = 0;
 
@@ -1375,7 +1422,9 @@ pub fn fc_satisfies_hash_partition(
             row_hash = hash_combine64(row_hash, hash);
         }
     }
-    Ok(Datum::from_bool(row_hash % modulus as u64 == remainder as u64))
+    Ok(Datum::from_bool(
+        row_hash % modulus as u64 == remainder as u64,
+    ))
 }
 
 // Custom hash opclasses (SQL-function support procs) allocate by-ref
@@ -1430,9 +1479,7 @@ fn deconstruct_variadic_array<'mcx>(
 #[cold]
 #[inline(never)]
 fn hash_param_error(msg: &'static str) -> Box<PgError> {
-    Box::new(
-        PgError::new(ERROR, msg.to_string()).with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE),
-    )
+    Box::new(PgError::new(ERROR, msg.to_string()).with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE))
 }
 
 #[track_caller]
@@ -1444,8 +1491,12 @@ fn hash_param_error_owned(msg: String) -> Box<PgError> {
 
 use ::types_fmgr::builtin_nonstrict as b;
 
-pub const PARTBOUNDS_BUILTINS: &[FmgrBuiltin] =
-    &[b(F_SATISFIES_HASH_PARTITION, "satisfies_hash_partition", 4, fc_satisfies_hash_partition)];
+pub const PARTBOUNDS_BUILTINS: &[FmgrBuiltin] = &[b(
+    F_SATISFIES_HASH_PARTITION,
+    "satisfies_hash_partition",
+    4,
+    fc_satisfies_hash_partition,
+)];
 
 #[cfg(test)]
 mod detoast_tests {
@@ -1458,10 +1509,7 @@ mod detoast_tests {
     // Mock owner of the detoast seam for this test binary: expects the
     // 18-byte ondisk toast pointer built below and hands back the flat
     // 4B-header text image, as detoast_attr does after toast_fetch_datum.
-    fn mock_detoast<'mcx>(
-        mcx: Mcx<'mcx>,
-        image: &[u8],
-    ) -> PgResult<mcx::PgVec<'mcx, u8>> {
+    fn mock_detoast<'mcx>(mcx: Mcx<'mcx>, image: &[u8]) -> PgResult<mcx::PgVec<'mcx, u8>> {
         assert_eq!(image[0], 0x01, "external toast pointer tag byte");
         assert_eq!(image[1], ::types_tuple::varatt::VARTAG_ONDISK);
         assert_eq!(image.len(), 18, "VARHDRSZ_EXTERNAL + vartag_size(ONDISK)");

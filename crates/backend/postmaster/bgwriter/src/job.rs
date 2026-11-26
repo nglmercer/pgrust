@@ -134,7 +134,10 @@ impl auxjob::AuxDaemon for BgWriterDaemon {
 
     fn install_signal_handlers(&self) {
         use procsignal::ThreadSignalHandler::{Ignore, Simple};
-        procsignal::pqsignal_thread(procsignal::signums::SIGHUP, Simple(interrupt::SignalHandlerForConfigReload));
+        procsignal::pqsignal_thread(
+            procsignal::signums::SIGHUP,
+            Simple(interrupt::SignalHandlerForConfigReload),
+        );
         procsignal::pqsignal_thread(procsignal::signums::SIGINT, Ignore);
         procsignal::pqsignal_thread(
             procsignal::signums::SIGTERM,
@@ -194,7 +197,9 @@ impl auxjob::AuxDaemon for BgWriterDaemon {
                 st.inner.prev_hibernate = can_hibernate;
                 waitevent_seams::pgstat_report_wait_start::call(WAIT_EVENT_BGWRITER_MAIN);
                 CycleOutcome::Sleep(
-                    st.inner.giveback_wait_ms.map_or(delay, |ms| Duration::from_millis(u64::from(ms.max(1)))),
+                    st.inner
+                        .giveback_wait_ms
+                        .map_or(delay, |ms| Duration::from_millis(u64::from(ms.max(1)))),
                 )
             }
             Err(err) => {

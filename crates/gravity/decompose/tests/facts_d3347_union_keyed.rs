@@ -22,7 +22,9 @@ use mcx::MemoryContext;
 const BPCHAR_EQ: u32 = 1054;
 
 fn manifest_dir() -> PathBuf {
-    std::env::var_os("CARGO_MANIFEST_DIR").map(Into::into).expect("CARGO_MANIFEST_DIR unset: run under cargo test")
+    std::env::var_os("CARGO_MANIFEST_DIR")
+        .map(Into::into)
+        .expect("CARGO_MANIFEST_DIR unset: run under cargo test")
 }
 
 fn walk<'a, 'p>(p: &'a PipelineNode<'p>, out: &mut Vec<&'a PipelineNode<'p>>) {
@@ -36,12 +38,15 @@ fn walk<'a, 'p>(p: &'a PipelineNode<'p>, out: &mut Vec<&'a PipelineNode<'p>>) {
 
 /// The fixture's nest forms: the Nests kept, and each keyed probe's first clause operator.
 fn forms(name: &str) -> (usize, Vec<u32>) {
-    let path = manifest_dir().join("tests/d3347").join(format!("{name}.plan"));
+    let path = manifest_dir()
+        .join("tests/d3347")
+        .join(format!("{name}.plan"));
     let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     let ctx = MemoryContext::new("d3347");
     let fx = corpus::load(ctx.mcx(), &text).unwrap_or_else(|e| panic!("{name}: {e}"));
     let arena = Arena::new(1 << 20);
-    let g = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx).unwrap_or_else(|r| panic!("{name}: refused {r}"));
+    let g = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx)
+        .unwrap_or_else(|r| panic!("{name}: refused {r}"));
     let mut ps = Vec::new();
     for p in g.pipelines.iter() {
         walk(p, &mut ps);
@@ -50,8 +55,18 @@ fn forms(name: &str) -> (usize, Vec<u32>) {
     for op in ps.iter().flat_map(|p| p.ops.iter()) {
         match op {
             Op::Join(JoinDesc::Nest { .. }) => nests += 1,
-            Op::Join(JoinDesc::Probe { catalog: true, clauses, .. }) => {
-                keyed.push(clauses.iter().next().and_then(|c| c.as_op_expr()).map_or(0, |o| o.opno));
+            Op::Join(JoinDesc::Probe {
+                catalog: true,
+                clauses,
+                ..
+            }) => {
+                keyed.push(
+                    clauses
+                        .iter()
+                        .next()
+                        .and_then(|c| c.as_op_expr())
+                        .map_or(0, |o| o.opno),
+                );
             }
             _ => {}
         }

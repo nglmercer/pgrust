@@ -6,12 +6,18 @@
 //! error goes to the caller's `ErrSlot`, the status is the ABI's. The integer series, the array
 //! walk over by-value elements and `generate_subscripts` are emitted as IR by the lowerer over
 //! the same state layout (`ar::*`); `array_open` normalises the array image for them.
-#![allow(clippy::missing_safety_doc, clippy::not_unsafe_ptr_arg_deref, clippy::too_many_arguments)]
+#![allow(
+    clippy::missing_safety_doc,
+    clippy::not_unsafe_ptr_arg_deref,
+    clippy::too_many_arguments
+)]
 
 use core::cell::{Cell, RefCell};
 
 use adt_datetime::Interval;
-use adt_jsonb::container::{container_is_array, container_is_object, container_is_scalar, JsonbItem};
+use adt_jsonb::container::{
+    container_is_array, container_is_object, container_is_scalar, JsonbItem,
+};
 use adt_jsonb::iter::{JsonbIterator, WjbToken};
 use adt_numeric::series::GenerateSeriesNumeric;
 use adt_numeric::Num;
@@ -78,7 +84,11 @@ pub fn at_level<R>(level: usize, f: impl FnOnce() -> R) -> R {
 pub fn trim_levels(levels: usize) {
     let keep = HELD.with(|h| {
         let mut h = h.borrow_mut();
-        let keep = h.iter().rposition(|x| x.iter().any(|&b| b)).map_or(0, |i| i + 1).max(levels);
+        let keep = h
+            .iter()
+            .rposition(|x| x.iter().any(|&b| b))
+            .map_or(0, |i| i + 1)
+            .max(levels);
         if h.len() > keep {
             h.truncate(keep);
             if h.capacity() > 4 * keep.max(16) {
@@ -109,7 +119,9 @@ pub fn reserve_slots(n: usize) -> (usize, usize) {
             h.resize_with(level + 1, Vec::new);
         }
         let held = &mut h[level];
-        let base = (0..=held.len()).find(|&b| held.iter().skip(b).take(n).all(|&x| !x)).unwrap_or(held.len());
+        let base = (0..=held.len())
+            .find(|&b| held.iter().skip(b).take(n).all(|&x| !x))
+            .unwrap_or(held.len());
         if held.len() < base + n {
             held.resize(base + n, false);
         }
@@ -168,7 +180,8 @@ pub(crate) fn slot_cx(state: *const u8, reset: bool) -> Mcx<'static> {
 #[cold]
 #[inline(never)]
 fn invalid(msg: &str) -> Box<PgError> {
-    Box::new(PgError::error(msg.to_string()).with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE)) // alloc: Cold
+    Box::new(PgError::error(msg.to_string()).with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE))
+    // alloc: Cold
 }
 
 /// A varlena datum as a plain 4-byte-header image in `mcx` (M5 H-a: always a copy, rebuilt when short or toasted: an
@@ -176,7 +189,9 @@ fn invalid(msg: &str) -> Box<PgError> {
 unsafe fn plain_image<'m>(mcx: Mcx<'m>, d: i64) -> PgResult<&'m [u8]> {
     let p = d as usize as *const u8;
     if varatt::varatt_is_4b_u(p) {
-        return Ok(mcx::slice_in(mcx, core::slice::from_raw_parts(p, varatt::varsize_4b(p)))?.leak());
+        return Ok(
+            mcx::slice_in(mcx, core::slice::from_raw_parts(p, varatt::varsize_4b(p)))?.leak(),
+        );
     }
     if varatt::varatt_is_1b(p) && !varatt::varatt_is_1b_e(p) {
         let total = varatt::varsize_1b(p);
@@ -441,7 +456,11 @@ fn image_item(bytes: &[u8]) -> Item {
     Item::Image(bytes.as_ptr())
 }
 
-unsafe fn finish_mat(e: *mut ErrSlot, state: *mut u8, r: PgResult<PgVec<'static, [Item; 2]>>) -> i64 {
+unsafe fn finish_mat(
+    e: *mut ErrSlot,
+    state: *mut u8,
+    r: PgResult<PgVec<'static, [Item; 2]>>,
+) -> i64 {
     // M5 H-a: each text row made a varlena image once, in the slot's context, so a step hands out a pointer that stands
     // until the slot's next open (across a suspend and a resume), never a per-row arena copy
     let r = r.and_then(|mut rows| {
@@ -659,7 +678,9 @@ fn jsonb_text<'m>(mcx: Mcx<'m>, v: &JsonbItem<'_>) -> PgResult<Item> {
 }
 
 fn jsonb_image<'m>(mcx: Mcx<'m>, v: JsonbItem<'_>) -> PgResult<Item> {
-    Ok(image_item(adt_jsonb::build::item_to_jsonb_image(mcx, v)?.leak()))
+    Ok(image_item(
+        adt_jsonb::build::item_to_jsonb_image(mcx, v)?.leak(),
+    ))
 }
 
 gravity_abi::host! {
@@ -874,7 +895,15 @@ gravity_abi::host! {
     }
 }
 
-pub type OpenFn = unsafe extern "C-unwind" fn(*mut ErrSlot, *mut Ctx, *mut u8, *const i64, *const u8, i64, i64) -> i64;
+pub type OpenFn = unsafe extern "C-unwind" fn(
+    *mut ErrSlot,
+    *mut Ctx,
+    *mut u8,
+    *const i64,
+    *const u8,
+    i64,
+    i64,
+) -> i64;
 pub type StepFn = unsafe extern "C-unwind" fn(*mut ErrSlot, *mut Ctx, *mut u8, *mut i64) -> i64;
 
 /// The library entries by `pg_proc` OID: the open, the step, the output columns, `aux`'s value.
@@ -891,47 +920,220 @@ pub struct Entry {
     pub coll: bool,
 }
 
-const fn en(oid: u32, name: &'static str, open: OpenFn, step: StepFn, cols: u8, aux: i64, strict: bool) -> Entry {
-    Entry { oid, name, open, step, cols, aux, strict, coll: false }
+const fn en(
+    oid: u32,
+    name: &'static str,
+    open: OpenFn,
+    step: StepFn,
+    cols: u8,
+    aux: i64,
+    strict: bool,
+) -> Entry {
+    Entry {
+        oid,
+        name,
+        open,
+        step,
+        cols,
+        aux,
+        strict,
+        coll: false,
+    }
 }
 
 const fn co(oid: u32, name: &'static str, open: OpenFn, step: StepFn, strict: bool) -> Entry {
-    Entry { oid, name, open, step, cols: 1, aux: 0, strict, coll: true }
+    Entry {
+        oid,
+        name,
+        open,
+        step,
+        cols: 1,
+        aux: 0,
+        strict,
+        coll: true,
+    }
 }
 
 /// The Rust-bodied entries (the emitted ones — the integer series, `generate_subscripts`, `unnest`
 /// — are `EMITTED`); oid-ascending.
 pub static ENTRIES: [Entry; 23] = [
-    en(938, "generate_series_timestamp", series_time_open, series_time_step, 1, 0, true),
-    en(939, "generate_series_timestamptz", series_time_open, series_time_step, 1, 1, true),
-    en(1179, "jsonb_path_query_tz", jsonb_path_query_open, mat_step, 1, 1, true),
+    en(
+        938,
+        "generate_series_timestamp",
+        series_time_open,
+        series_time_step,
+        1,
+        0,
+        true,
+    ),
+    en(
+        939,
+        "generate_series_timestamptz",
+        series_time_open,
+        series_time_step,
+        1,
+        1,
+        true,
+    ),
+    en(
+        1179,
+        "jsonb_path_query_tz",
+        jsonb_path_query_open,
+        mat_step,
+        1,
+        1,
+        true,
+    ),
     co(2763, "regexp_matches", regexp_matches_open, mat_step, true),
     co(2764, "regexp_matches", regexp_matches_open, mat_step, true),
-    co(2765, "regexp_split_to_table", regexp_split_open, mat_step, true),
-    co(2766, "regexp_split_to_table", regexp_split_open, mat_step, true),
+    co(
+        2765,
+        "regexp_split_to_table",
+        regexp_split_open,
+        mat_step,
+        true,
+    ),
+    co(
+        2766,
+        "regexp_split_to_table",
+        regexp_split_open,
+        mat_step,
+        true,
+    ),
     en(3208, "jsonb_each", jsonb_each_open, mat_step, 2, 0, true),
-    en(3219, "jsonb_array_elements", jsonb_elements_open, mat_step, 1, 0, true),
-    en(3259, "generate_series_numeric", series_numeric_open, series_numeric_step, 1, 0, true),
-    en(3260, "generate_series_numeric", series_numeric_open, series_numeric_step, 1, 0, true),
-    en(3465, "jsonb_array_elements_text", jsonb_elements_open, mat_step, 1, 1, true),
-    en(3931, "jsonb_object_keys", jsonb_keys_open, mat_step, 1, 0, true),
-    en(3932, "jsonb_each_text", jsonb_each_open, mat_step, 2, 1, true),
-    en(3955, "json_array_elements", json_elements_open, mat_step, 1, 0, true),
-    en(3957, "json_object_keys", json_keys_open, mat_step, 1, 0, true),
+    en(
+        3219,
+        "jsonb_array_elements",
+        jsonb_elements_open,
+        mat_step,
+        1,
+        0,
+        true,
+    ),
+    en(
+        3259,
+        "generate_series_numeric",
+        series_numeric_open,
+        series_numeric_step,
+        1,
+        0,
+        true,
+    ),
+    en(
+        3260,
+        "generate_series_numeric",
+        series_numeric_open,
+        series_numeric_step,
+        1,
+        0,
+        true,
+    ),
+    en(
+        3465,
+        "jsonb_array_elements_text",
+        jsonb_elements_open,
+        mat_step,
+        1,
+        1,
+        true,
+    ),
+    en(
+        3931,
+        "jsonb_object_keys",
+        jsonb_keys_open,
+        mat_step,
+        1,
+        0,
+        true,
+    ),
+    en(
+        3932,
+        "jsonb_each_text",
+        jsonb_each_open,
+        mat_step,
+        2,
+        1,
+        true,
+    ),
+    en(
+        3955,
+        "json_array_elements",
+        json_elements_open,
+        mat_step,
+        1,
+        0,
+        true,
+    ),
+    en(
+        3957,
+        "json_object_keys",
+        json_keys_open,
+        mat_step,
+        1,
+        0,
+        true,
+    ),
     en(3958, "json_each", json_each_open, mat_step, 2, 0, true),
     en(3959, "json_each_text", json_each_open, mat_step, 2, 1, true),
-    en(3969, "json_array_elements_text", json_elements_open, mat_step, 1, 1, true),
-    en(4006, "jsonb_path_query", jsonb_path_query_open, mat_step, 1, 0, true),
-    co(6160, "string_to_table", string_to_table_open, mat_step, false),
-    co(6161, "string_to_table", string_to_table_open, mat_step, false),
-    en(6274, "generate_series_timestamptz", series_time_open, series_time_step, 1, 1, true),
+    en(
+        3969,
+        "json_array_elements_text",
+        json_elements_open,
+        mat_step,
+        1,
+        1,
+        true,
+    ),
+    en(
+        4006,
+        "jsonb_path_query",
+        jsonb_path_query_open,
+        mat_step,
+        1,
+        0,
+        true,
+    ),
+    co(
+        6160,
+        "string_to_table",
+        string_to_table_open,
+        mat_step,
+        false,
+    ),
+    co(
+        6161,
+        "string_to_table",
+        string_to_table_open,
+        mat_step,
+        false,
+    ),
+    en(
+        6274,
+        "generate_series_timestamptz",
+        series_time_open,
+        series_time_step,
+        1,
+        1,
+        true,
+    ),
 ];
 
 /// The entries the lowerer emits as IR over `array_open` / the argument words (no Rust body).
-pub static EMITTED: [(u32, &str); 7] = [(1066, "generate_series_int4"), (1067, "generate_series_int4"), (1068, "generate_series_int8"), (1069, "generate_series_int8"), (1191, "generate_subscripts"), (1192, "generate_subscripts"), (2331, "unnest")];
+pub static EMITTED: [(u32, &str); 7] = [
+    (1066, "generate_series_int4"),
+    (1067, "generate_series_int4"),
+    (1068, "generate_series_int8"),
+    (1069, "generate_series_int8"),
+    (1191, "generate_subscripts"),
+    (1192, "generate_subscripts"),
+    (2331, "unnest"),
+];
 
 pub fn entry_of(oid: u32) -> Option<&'static Entry> {
-    ENTRIES.binary_search_by_key(&oid, |e| e.oid).ok().map(|i| &ENTRIES[i])
+    ENTRIES
+        .binary_search_by_key(&oid, |e| e.oid)
+        .ok()
+        .map(|i| &ENTRIES[i])
 }
 
 /// Every OID the library serves (a row of the tier table with status `srf`).

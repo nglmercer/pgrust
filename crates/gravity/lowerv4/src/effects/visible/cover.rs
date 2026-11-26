@@ -26,17 +26,25 @@ const DEPTH: u8 = 24;
 /// Pipeline `x`, run ahead of PG's order, raises only where PG's statement fails too (the file's head): `None` when not,
 /// else `Some(at_root)`, `at_root` when the cover rests on the root's client reading every row (the caller then serves
 /// the program to such a reader alone: `Px::whole_read`).
-pub(crate) fn raises_covered(gx: &Gx<'_, '_>, arena: gravity_program::ArenaRef, x: usize) -> Option<bool> {
+pub(crate) fn raises_covered(
+    gx: &Gx<'_, '_>,
+    arena: gravity_program::ArenaRef,
+    x: usize,
+) -> Option<bool> {
     if gx.graph.acts {
         return None;
     }
     let at_root = Cell::new(false);
-    (covered(gx, x, 0, &at_root) && !crate::effects::statement_user_code(gx, arena)).then(|| at_root.get())
+    (covered(gx, x, 0, &at_root) && !crate::effects::statement_user_code(gx, arena))
+        .then(|| at_root.get())
 }
 
 /// Pipeline `x` is in a rerun set (PG may run it again, or not at all, per call of its owner).
 pub(crate) fn rerun(gx: &Gx<'_, '_>, x: usize) -> bool {
-    gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(x as u16)))
+    gx.graph
+        .reruns
+        .iter()
+        .any(|r| r.pipelines.contains(&(x as u16)))
 }
 
 /// Every raise pipeline `x`'s run makes, with what feeds it, PG's statement makes too or fails anyway: PG runs `x` to
@@ -57,7 +65,9 @@ fn covered(gx: &Gx<'_, '_>, x: usize, depth: u8, at_root: &Cell<bool>) -> bool {
     pipe_quiet(gx, &ps[x], usize::MAX, &mut feeds)
         && ps[x].desc.consumes.iter().chain(feeds.iter()).all(|&s| {
             let f = crate::ops::mergejoin::lazy_outer::fillers(gx, x, s);
-            !f.is_empty() && f.into_iter().all(|y| y != x && covered(gx, y, depth + 1, at_root))
+            !f.is_empty()
+                && f.into_iter()
+                    .all(|y| y != x && covered(gx, y, depth + 1, at_root))
         })
 }
 
@@ -80,28 +90,60 @@ fn whole(gx: &Gx<'_, '_>, x: usize, from: usize, depth: u8, at_root: &Cell<bool>
         Some((Op::Sort(_), r)) => r,
         _ => ops,
     };
-    let through = |op: &Op<'_>| matches!(op, Op::Filter(_) | Op::Project(_) | Op::GroupRun(_) | Op::SetOp(SetDesc::Iter(_)) | Op::Join(JoinDesc::Nest { .. } | JoinDesc::Merge { jointype: JoinType::JOIN_FULL, .. }));
+    let through = |op: &Op<'_>| {
+        matches!(
+            op,
+            Op::Filter(_)
+                | Op::Project(_)
+                | Op::GroupRun(_)
+                | Op::SetOp(SetDesc::Iter(_))
+                | Op::Join(
+                    JoinDesc::Nest { .. }
+                        | JoinDesc::Merge {
+                            jointype: JoinType::JOIN_FULL,
+                            ..
+                        }
+                )
+        )
+    };
     if !body.iter().all(through) {
         return false;
     }
     if rerun(gx, x) {
         // a recursive term's body: ExecRecursiveUnion reads the term to its end at every generation, all of them where the
         // union runs to its end
-        let driver = (x + 1..ps.len()).find(|&d| ps[d].ops.iter().any(|op| matches!(op, Op::SetOp(SetDesc::Iter(it)) if it.body as usize == x)));
+        let driver = (x + 1..ps.len()).find(|&d| {
+            ps[d]
+                .ops
+                .iter()
+                .any(|op| matches!(op, Op::SetOp(SetDesc::Iter(it)) if it.body as usize == x))
+        });
         return driver.is_some_and(|d| whole(gx, d, 0, depth + 1, at_root));
     }
     if x == root {
         at_root.set(true);
         return true;
     }
-    if let Some(ip) = gx.graph.init_plans.iter().find(|i| i.pipeline as usize == x && !matches!(i.link, SubLink::Cte)) {
-        return matches!(ip.link, SubLink::Expr | SubLink::RowCompare | SubLink::MultiExpr | SubLink::Array) && opened(gx, x, 0);
+    if let Some(ip) = gx
+        .graph
+        .init_plans
+        .iter()
+        .find(|i| i.pipeline as usize == x && !matches!(i.link, SubLink::Cte))
+    {
+        return matches!(
+            ip.link,
+            SubLink::Expr | SubLink::RowCompare | SubLink::MultiExpr | SubLink::Array
+        ) && opened(gx, x, 0);
     }
-    let Some(e) = crate::frame::iface::breaker_of(&p.desc) else { return false };
+    let Some(e) = crate::frame::iface::breaker_of(&p.desc) else {
+        return false;
+    };
     let first = match e.kind {
         BreakerKind::Sort => crate::ops::mergejoin::lazy_outer::full(p),
         BreakerKind::TopK | BreakerKind::PlainAgg => true,
-        BreakerKind::HashAgg => gx.group_at(x).is_some_and(|g| matches!(g.form, GroupForm::Hashed) && g.set.is_none()),
+        BreakerKind::HashAgg => gx
+            .group_at(x)
+            .is_some_and(|g| matches!(g.form, GroupForm::Hashed) && g.set.is_none()),
         BreakerKind::Materialize => false,
         _ => return false,
     };
@@ -128,18 +170,49 @@ fn opened(gx: &Gx<'_, '_>, c: usize, depth: u8) -> bool {
         return false;
     }
     // no LIMIT, gate or probe between the source and the end that may end the pipeline before its source's first pull
-    let plain = |ops: &[Op<'_>]| ops.iter().all(|op| matches!(op, Op::Filter(_) | Op::Project(_)));
+    let plain = |ops: &[Op<'_>]| {
+        ops.iter()
+            .all(|op| matches!(op, Op::Filter(_) | Op::Project(_)))
+    };
     if c == root {
         return plain(&ps[c].ops);
     }
-    if let Some(ip) = gx.graph.init_plans.iter().find(|i| i.pipeline as usize == c && !matches!(i.link, SubLink::Cte)) {
+    if let Some(ip) = gx
+        .graph
+        .init_plans
+        .iter()
+        .find(|i| i.pipeline as usize == c && !matches!(i.link, SubLink::Cte))
+    {
         let r = &ps[root];
-        let bare = |n: types_nodes::Node<'_>| n.as_target_entry().map_or(n, |t| t.expr).as_param().is_some_and(|p| p.paramid == ip.param);
-        return matches!(r.source, Source::Const) && plain(&r.ops) && matches!(r.ops.first(), Some(Op::Project(l)) if l.iter().any(bare));
+        let bare = |n: types_nodes::Node<'_>| {
+            n.as_target_entry()
+                .map_or(n, |t| t.expr)
+                .as_param()
+                .is_some_and(|p| p.paramid == ip.param)
+        };
+        return matches!(r.source, Source::Const)
+            && plain(&r.ops)
+            && matches!(r.ops.first(), Some(Op::Project(l)) if l.iter().any(bare));
     }
     let ops = &ps[c].ops;
     let driver = matches!(ops.first(), Some(Op::SetOp(SetDesc::Iter(_))));
     let plain = plain(&ops[usize::from(driver)..]);
-    let Some(e) = crate::frame::iface::breaker_of(&ps[c].desc).filter(|e| matches!(e.kind, BreakerKind::Sort | BreakerKind::TopK | BreakerKind::PlainAgg | BreakerKind::HashAgg | BreakerKind::Materialize)) else { return false };
-    plain && (c + 1..ps.len()).any(|d| matches!(ps[d].source, Source::Breaker { slot } if slot == e.slot) && gx.life_of(d, e.slot) == Some(LifeId(c as u16)) && opened(gx, d, depth + 1))
+    let Some(e) = crate::frame::iface::breaker_of(&ps[c].desc).filter(|e| {
+        matches!(
+            e.kind,
+            BreakerKind::Sort
+                | BreakerKind::TopK
+                | BreakerKind::PlainAgg
+                | BreakerKind::HashAgg
+                | BreakerKind::Materialize
+        )
+    }) else {
+        return false;
+    };
+    plain
+        && (c + 1..ps.len()).any(|d| {
+            matches!(ps[d].source, Source::Breaker { slot } if slot == e.slot)
+                && gx.life_of(d, e.slot) == Some(LifeId(c as u16))
+                && opened(gx, d, depth + 1)
+        })
 }

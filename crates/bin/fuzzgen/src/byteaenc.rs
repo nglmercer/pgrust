@@ -52,8 +52,18 @@ fn raw(s: String) -> StmtKind {
 /// Hex bodies for `'\xBODY'::bytea` literals, spanning empty / single /
 /// high-bit / multi-byte payloads (the memcmp + length-prefix regimes).
 const HEX_BODIES: &[&str] = &[
-    "", "00", "01", "ff", "00ff", "7f80", "deadbeef", "0102030405",
-    "ff00ff00", "c0ffee00", "000102fdfeff", "8081828384858687",
+    "",
+    "00",
+    "01",
+    "ff",
+    "00ff",
+    "7f80",
+    "deadbeef",
+    "0102030405",
+    "ff00ff00",
+    "c0ffee00",
+    "000102fdfeff",
+    "8081828384858687",
 ];
 
 /// A `'\xBODY'::bytea` literal drawn from the hex pool.
@@ -94,13 +104,21 @@ fn gen_enc(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("byteaenc:enc");
     let shape = g.weights.pick(
         g.rng,
-        &["byteaenc:enc:hex", "byteaenc:enc:b64", "byteaenc:enc:esc", "byteaenc:enc:rt"],
+        &[
+            "byteaenc:enc:hex",
+            "byteaenc:enc:b64",
+            "byteaenc:enc:esc",
+            "byteaenc:enc:rt",
+        ],
     );
     g.fire(shape);
     let sql = match shape {
         "byteaenc:enc:hex" => {
             let b = bva(g);
-            let h = pick_str(g, &["", "00", "12ab", "deadBEEF", "00ff00", "0102030405060708"]);
+            let h = pick_str(
+                g,
+                &["", "00", "12ab", "deadBEEF", "00ff00", "0102030405060708"],
+            );
             format!("SELECT encode({b}, 'hex'), decode('{h}', 'hex')::text;")
         }
         "byteaenc:enc:b64" => {
@@ -115,14 +133,27 @@ fn gen_enc(g: &mut Gen) -> Vec<StmtKind> {
                     "('\\x' || repeat('00ff', 30))::bytea",
                 ],
             );
-            let s = pick_str(g, &["", "AA==", "3q2+7w==", "QUJDREVGRw==", "aGVsbG8gd29ybGQ="]);
+            let s = pick_str(
+                g,
+                &["", "AA==", "3q2+7w==", "QUJDREVGRw==", "aGVsbG8gd29ybGQ="],
+            );
             format!("SELECT encode({b}, 'base64'), decode('{s}', 'base64')::text;")
         }
         "byteaenc:enc:esc" => {
             let b = bva(g);
             // valid escape-form decode inputs: octal escapes + printable +
             // doubled-backslash (a literal backslash byte).
-            let s = pick_str(g, &["", "abc", "\\001\\002\\003", "a\\177z", "x\\\\y", "\\000end"]);
+            let s = pick_str(
+                g,
+                &[
+                    "",
+                    "abc",
+                    "\\001\\002\\003",
+                    "a\\177z",
+                    "x\\\\y",
+                    "\\000end",
+                ],
+            );
             format!("SELECT encode({b}, 'escape'), decode('{s}', 'escape')::text;")
         }
         // round trips in both directions across all three formats.
@@ -147,7 +178,12 @@ fn gen_encerr(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("byteaenc:encerr");
     let shape = g.weights.pick(
         g.rng,
-        &["byteaenc:err:hex", "byteaenc:err:b64", "byteaenc:err:esc", "byteaenc:err:fmt"],
+        &[
+            "byteaenc:err:hex",
+            "byteaenc:err:b64",
+            "byteaenc:err:esc",
+            "byteaenc:err:fmt",
+        ],
     );
     g.fire(shape);
     let sql = match shape {
@@ -164,7 +200,10 @@ fn gen_encerr(g: &mut Gen) -> Vec<StmtKind> {
         // invalid escape: trailing backslash, non-octal after backslash,
         // out-of-range/short octal.
         "byteaenc:err:esc" => {
-            let s = pick_str(g, &["trail\\", "ab\\9", "\\x", "\\40\\9", "\\77\\", "bad\\g"]);
+            let s = pick_str(
+                g,
+                &["trail\\", "ab\\9", "\\x", "\\40\\9", "\\77\\", "bad\\g"],
+            );
             format!("SELECT decode('{s}', 'escape')::text;")
         }
         // unknown codec name (matched 22023).
@@ -183,8 +222,10 @@ fn gen_encerr(g: &mut Gen) -> Vec<StmtKind> {
 /// error arms, over the fixed 4-byte '\xdeadbeef' (len 4, bits 0..31).
 fn gen_getset(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("byteaenc:getset");
-    let shape =
-        g.weights.pick(g.rng, &["byteaenc:gs:byte", "byteaenc:gs:bit", "byteaenc:gs:err"]);
+    let shape = g.weights.pick(
+        g.rng,
+        &["byteaenc:gs:byte", "byteaenc:gs:bit", "byteaenc:gs:err"],
+    );
     g.fire(shape);
     let sql = match shape {
         "byteaenc:gs:byte" => {
@@ -208,13 +249,13 @@ fn gen_getset(g: &mut Gen) -> Vec<StmtKind> {
             let e = pick_str(
                 g,
                 &[
-                    "SELECT get_byte('\\xdeadbeef'::bytea, 4);",        // 22003
-                    "SELECT get_byte('\\xdeadbeef'::bytea, -1);",       // 22003
+                    "SELECT get_byte('\\xdeadbeef'::bytea, 4);",  // 22003
+                    "SELECT get_byte('\\xdeadbeef'::bytea, -1);", // 22003
                     "SELECT set_byte('\\xdeadbeef'::bytea, 4, 0)::text;", // 22003
-                    "SELECT get_bit('\\xdeadbeef'::bytea, 32);",        // 22003
+                    "SELECT get_bit('\\xdeadbeef'::bytea, 32);",  // 22003
                     "SELECT set_bit('\\xdeadbeef'::bytea, 32, 1)::text;", // 22003
-                    "SELECT set_bit('\\xdeadbeef'::bytea, 0, 2)::text;",  // 22003 bad bit
-                    "SELECT get_byte(''::bytea, 0);",                    // 22003 empty
+                    "SELECT set_bit('\\xdeadbeef'::bytea, 0, 2)::text;", // 22003 bad bit
+                    "SELECT get_byte(''::bytea, 0);",             // 22003 empty
                 ],
             );
             e.to_string()
@@ -259,13 +300,27 @@ fn gen_ops(g: &mut Gen) -> Vec<StmtKind> {
         }
         "byteaenc:op:pos" => {
             let a = bva(g);
-            let b = pick_str(g, &["'\\x'::bytea", "'\\xad'::bytea", "'\\xff'::bytea", "'\\xdead'::bytea"]);
+            let b = pick_str(
+                g,
+                &[
+                    "'\\x'::bytea",
+                    "'\\xad'::bytea",
+                    "'\\xff'::bytea",
+                    "'\\xdead'::bytea",
+                ],
+            );
             format!("SELECT position({b} in {a}), position({a} in {a});")
         }
         "byteaenc:op:trim" => {
             let a = pick_str(
                 g,
-                &["'\\x0011220000'", "'\\x000000'", "'\\xaabbaa'", "'\\x'", "'\\xffaaff'"],
+                &[
+                    "'\\x0011220000'",
+                    "'\\x000000'",
+                    "'\\xaabbaa'",
+                    "'\\x'",
+                    "'\\xffaaff'",
+                ],
             );
             let set = pick_str(g, &["'\\x00'", "'\\xaa'", "'\\x00ff'", "'\\x'", "'\\xff'"]);
             let f = pick_str(g, &["ltrim", "rtrim", "btrim"]);
@@ -273,9 +328,7 @@ fn gen_ops(g: &mut Gen) -> Vec<StmtKind> {
         }
         "byteaenc:op:len" => {
             let a = bva(g);
-            format!(
-                "SELECT length({a}), octet_length({a}), bit_count({a}), reverse({a})::text;"
-            )
+            format!("SELECT length({a}), octet_length({a}), bit_count({a}), reverse({a})::text;")
         }
         _ => {
             let a = bva(g);
@@ -298,16 +351,16 @@ fn gen_ops(g: &mut Gen) -> Vec<StmtKind> {
 /// VALUES set (raw unsigned memcmp, shorter-is-less; EXACT on both sides).
 fn gen_cmp(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("byteaenc:cmp");
-    let shape =
-        g.weights.pick(g.rng, &["byteaenc:cmp:ops", "byteaenc:cmp:order", "byteaenc:cmp:fn"]);
+    let shape = g.weights.pick(
+        g.rng,
+        &["byteaenc:cmp:ops", "byteaenc:cmp:order", "byteaenc:cmp:fn"],
+    );
     g.fire(shape);
     let sql = match shape {
         "byteaenc:cmp:ops" => {
             let a = bva(g);
             let b = bva(g);
-            format!(
-                "SELECT {a} < {b}, {a} <= {b}, {a} = {b}, {a} >= {b}, {a} > {b}, {a} <> {b};"
-            )
+            format!("SELECT {a} < {b}, {a} <= {b}, {a} = {b}, {a} >= {b}, {a} > {b}, {a} <> {b};")
         }
         // Total ORDER BY over a fixed set: length-prefix + high-bit bytes
         // stress the shorter-is-less and unsigned-byte ordering rules.
@@ -336,8 +389,10 @@ fn gen_cmp(g: &mut Gen) -> Vec<StmtKind> {
 /// not in the session pins, and a specific RESET never un-pins them).
 fn gen_cast(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("byteaenc:cast");
-    let shape =
-        g.weights.pick(g.rng, &["byteaenc:ca:text", "byteaenc:ca:int", "byteaenc:ca:guc"]);
+    let shape = g.weights.pick(
+        g.rng,
+        &["byteaenc:ca:text", "byteaenc:ca:int", "byteaenc:ca:guc"],
+    );
     g.fire(shape);
     match shape {
         // text -> bytea (raw bytes of the text) and bytea -> text.
@@ -382,7 +437,9 @@ fn gen_cast(g: &mut Gen) -> Vec<StmtKind> {
 /// on the always-available encodings.
 fn gen_conv(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("byteaenc:conv");
-    let shape = g.weights.pick(g.rng, &["byteaenc:cv:roundtrip", "byteaenc:cv:bad"]);
+    let shape = g
+        .weights
+        .pick(g.rng, &["byteaenc:cv:roundtrip", "byteaenc:cv:bad"]);
     g.fire(shape);
     let sql = match shape {
         "byteaenc:cv:roundtrip" => {
@@ -399,9 +456,9 @@ fn gen_conv(g: &mut Gen) -> Vec<StmtKind> {
             let e = pick_str(
                 g,
                 &[
-                    "SELECT convert_from('\\xff'::bytea, 'UTF8');",         // 22021
-                    "SELECT convert_from('\\xc0'::bytea, 'UTF8');",         // 22021 truncated
-                    "SELECT convert_from('\\xeda080'::bytea, 'UTF8');",     // 22021 (surrogate)
+                    "SELECT convert_from('\\xff'::bytea, 'UTF8');", // 22021
+                    "SELECT convert_from('\\xc0'::bytea, 'UTF8');", // 22021 truncated
+                    "SELECT convert_from('\\xeda080'::bytea, 'UTF8');", // 22021 (surrogate)
                     "SELECT convert('\\xff'::bytea, 'UTF8', 'LATIN1')::text;", // 22021 src invalid
                 ],
             );

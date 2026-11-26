@@ -18,8 +18,14 @@ fn pool_bytes(a: Acct) -> i64 {
 #[test]
 fn a_build_buffer_is_the_pools_and_its_kept_runs_go_dead_at_the_idle_release() {
     std::env::set_var("PGRUST_POOL_GRAVITY", "1");
-    assert!(pagepool::switches().gravity, "the switch, read at its first call");
-    assert!(pagepool::init(&pagepool::Config::from_policy()), "the pool reserves its zones");
+    assert!(
+        pagepool::switches().gravity,
+        "the switch, read at its first call"
+    );
+    assert!(
+        pagepool::init(&pagepool::Config::from_policy()),
+        "the pool reserves its zones"
+    );
     let bp = Acct::of(Consumer::BuildPool);
     std::thread::spawn(move || {
         memledger::bind_backend(4801, 9000 + 4801);
@@ -30,11 +36,19 @@ fn a_build_buffer_is_the_pools_and_its_kept_runs_go_dead_at_the_idle_release() {
         assert!(pagepool::owns(b.as_ptr() as *const u8), "the pool's buffer");
         assert!(b.len() >= words);
         let bytes = (b.len() * 8) as i64;
-        assert_eq!(pool_bytes(a) - q0, bytes, "on the calling thread's owner from its take");
+        assert_eq!(
+            pool_bytes(a) - q0,
+            bytes,
+            "on the calling thread's owner from its take"
+        );
         b.iter_mut().for_each(|w| *w = 7);
         let at = b.as_ptr();
         reuse::give(b);
-        assert_eq!((pool_bytes(a) - q0, pool_bytes(bp) - b0), (0, bytes), "kept: the build pool's");
+        assert_eq!(
+            (pool_bytes(a) - q0, pool_bytes(bp) - b0),
+            (0, bytes),
+            "kept: the build pool's"
+        );
         let dead0 = pagepool::stats().dead;
         reuse::set_idle_ms(100);
         let before = reuse::IDLE_RELEASES.load(Relaxed);
@@ -44,12 +58,22 @@ fn a_build_buffer_is_the_pools_and_its_kept_runs_go_dead_at_the_idle_release() {
             std::thread::sleep(Duration::from_millis(10));
         }
         reuse::set_idle_ms(reuse::IDLE_RELEASE_MS);
-        assert!(pagepool::stats().dead >= dead0 + bytes as usize - 2 * (64 << 10), "its whole runs dead in the pool");
-        assert!(pool_bytes(bp) - b0 <= 2 * (64 << 10), "and off the build pool's account");
+        assert!(
+            pagepool::stats().dead >= dead0 + bytes as usize - 2 * (64 << 10),
+            "its whole runs dead in the pool"
+        );
+        assert!(
+            pool_bytes(bp) - b0 <= 2 * (64 << 10),
+            "and off the build pool's account"
+        );
         let back = reuse::take(words);
         assert_eq!(back.as_ptr(), at, "the kept buffer");
         assert_eq!(pagepool::stats().dead, dead0, "its runs live again");
-        assert_eq!((pool_bytes(a) - q0, pool_bytes(bp) - b0), (bytes, 0), "back on the taker");
+        assert_eq!(
+            (pool_bytes(a) - q0, pool_bytes(bp) - b0),
+            (bytes, 0),
+            "back on the taker"
+        );
         drop(back);
         assert_eq!(pool_bytes(a), q0, "off at the drop");
         reuse::release_to(0);

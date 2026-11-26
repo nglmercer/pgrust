@@ -24,8 +24,24 @@ fn lowered(rel: &str, off: &str) -> (Vec<Proto>, Vec<Proto>, Vec<Option<u8>>) {
         None => panic!("{rel}: decompose refused"),
     };
     strategy::set_off(StrategySet::EMPTY);
-    let of = |k: ProtoKind| l.descs.v4.protos.iter().filter(|p| p.kind == k).copied().collect::<Vec<_>>();
-    let sorts = l.descs.pipelines.iter().map(|p| match p.ends_in { End::Breaker(b) if b.kind == BreakerKind::Sort => Some(b.slot), _ => None }).collect();
+    let of = |k: ProtoKind| {
+        l.descs
+            .v4
+            .protos
+            .iter()
+            .filter(|p| p.kind == k)
+            .copied()
+            .collect::<Vec<_>>()
+    };
+    let sorts = l
+        .descs
+        .pipelines
+        .iter()
+        .map(|p| match p.ends_in {
+            End::Breaker(b) if b.kind == BreakerKind::Sort => Some(b.slot),
+            _ => None,
+        })
+        .collect();
     (of(ProtoKind::Arms), of(ProtoKind::SortMerge), sorts)
 }
 
@@ -34,13 +50,36 @@ fn lowered(rel: &str, off: &str) -> (Vec<Proto>, Vec<Proto>, Vec<Option<u8>>) {
 /// (frame/mechs.rs `arms_span`): `arms` of its pipelines end in the sort's slot, arm 0 and the last arm among them.
 fn one_merged_run(rel: &str, arms: u64, off: &str) {
     let (a, m, sorts) = lowered(rel, off);
-    let [a] = a[..] else { panic!("{rel}: one Arms protocol: {a:?}") };
-    let [m] = m[..] else { panic!("{rel}: one SortMerge, declared at arm 0 only: {m:?}") };
-    assert_eq!((a.slot, m.slot, m.pipeline), (m.slot, a.slot, a.pipeline), "{rel}: the arms over the merge's slot, both at arm 0");
+    let [a] = a[..] else {
+        panic!("{rel}: one Arms protocol: {a:?}")
+    };
+    let [m] = m[..] else {
+        panic!("{rel}: one SortMerge, declared at arm 0 only: {m:?}")
+    };
+    assert_eq!(
+        (a.slot, m.slot, m.pipeline),
+        (m.slot, a.slot, a.pipeline),
+        "{rel}: the arms over the merge's slot, both at arm 0"
+    );
     let span = a.pipeline as usize..(a.pipeline as u64 + a.arg) as usize;
-    assert_eq!((sorts[span.start], sorts[span.end - 1]), (Some(a.slot), Some(a.slot)), "{rel}: the span {span:?} starts and ends at an arm");
-    assert_eq!(sorts[span.clone()].iter().filter(|s| **s == Some(a.slot)).count() as u64, arms, "{rel}: {arms} arm pipelines in the span {span:?} end in the sort's slot");
-    assert_eq!(sorts.iter().filter(|s| **s == Some(a.slot)).count() as u64, arms, "{rel}: only the arms produce the slot");
+    assert_eq!(
+        (sorts[span.start], sorts[span.end - 1]),
+        (Some(a.slot), Some(a.slot)),
+        "{rel}: the span {span:?} starts and ends at an arm"
+    );
+    assert_eq!(
+        sorts[span.clone()]
+            .iter()
+            .filter(|s| **s == Some(a.slot))
+            .count() as u64,
+        arms,
+        "{rel}: {arms} arm pipelines in the span {span:?} end in the sort's slot"
+    );
+    assert_eq!(
+        sorts.iter().filter(|s| **s == Some(a.slot)).count() as u64,
+        arms,
+        "{rel}: only the arms produce the slot"
+    );
 }
 
 #[test]

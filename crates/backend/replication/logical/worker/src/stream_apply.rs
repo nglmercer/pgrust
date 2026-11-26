@@ -19,9 +19,7 @@ use fd::{
 };
 use mcx::{Mcx, MemoryContext};
 use types_core::{InvalidTransactionId, InvalidXLogRecPtr, Oid, TransactionId, XLogRecPtr};
-use types_error::{
-    PgResult, DEBUG1, ERRCODE_DATA_CORRUPTED, ERRCODE_PROTOCOL_VIOLATION, ERROR,
-};
+use types_error::{PgResult, DEBUG1, ERRCODE_DATA_CORRUPTED, ERRCODE_PROTOCOL_VIOLATION, ERROR};
 use types_rel::AccessExclusiveLock;
 use walreceiver::client::PgConn;
 
@@ -29,10 +27,10 @@ use crate::apply::{apply_dispatch, begin_replication_step, end_replication_step,
 use crate::parallel::{
     self, pa_allocate_worker, pa_decr_and_wait_stream_block, pa_find_worker,
     pa_incr_pending_stream_count, pa_lock_stream, pa_lock_transaction, pa_send_data,
-    pa_set_fileset_state, pa_set_last_commit_end, pa_set_stream_apply_worker,
-    pa_set_xact_state, pa_start_subtrans, pa_stream_abort, pa_switch_to_partial_serialize,
-    pa_unlock_stream, pa_unlock_transaction, pa_xact_finish, ParallelTransState,
-    PartialFileSetState, Winfo, PARALLEL_STREAM_NCHANGES,
+    pa_set_fileset_state, pa_set_last_commit_end, pa_set_stream_apply_worker, pa_set_xact_state,
+    pa_start_subtrans, pa_stream_abort, pa_switch_to_partial_serialize, pa_unlock_stream,
+    pa_unlock_transaction, pa_xact_finish, ParallelTransState, PartialFileSetState, Winfo,
+    PARALLEL_STREAM_NCHANGES,
 };
 use crate::{
     loc, my_sub, reset_apply_error_context_info, set_apply_error_context_xact,
@@ -238,12 +236,13 @@ pub(crate) fn handle_streamed_transaction(
     if apply_action == LeaderApply {
         return Ok(StreamedHandling::NotStreamed);
     }
-    debug_assert!(
-        apply_action == ParallelApply || STREAM_XID.get() != InvalidTransactionId
-    );
+    debug_assert!(apply_action == ParallelApply || STREAM_XID.get() != InvalidTransactionId);
 
     if buf.len() < 5 {
-        protocol_violation("insufficient data left in message", "handle_streamed_transaction")?;
+        protocol_violation(
+            "insufficient data left in message",
+            "handle_streamed_transaction",
+        )?;
     }
     let current_xid = u32::from_be_bytes(buf[1..5].try_into().expect("4 bytes"));
     if current_xid == InvalidTransactionId {
@@ -326,11 +325,12 @@ pub(crate) fn apply_handle_stream_start(mcx: Mcx<'static>, buf: &[u8]) -> PgResu
     use TransApplyAction::*;
 
     if in_streamed_transaction() {
-        protocol_violation("duplicate STREAM START message", "apply_handle_stream_start")?;
+        protocol_violation(
+            "duplicate STREAM START message",
+            "apply_handle_stream_start",
+        )?;
     }
-    debug_assert!(
-        parallel::am_parallel_apply_worker() || STREAM_XID.get() == InvalidTransactionId
-    );
+    debug_assert!(parallel::am_parallel_apply_worker() || STREAM_XID.get() == InvalidTransactionId);
 
     IN_STREAMED_TRANSACTION.set(true);
 
@@ -401,7 +401,10 @@ pub(crate) fn apply_handle_stream_start(mcx: Mcx<'static>, buf: &[u8]) -> PgResu
         }
 
         LeaderApply => {
-            return elog::elog(ERROR, "unexpected apply action: TRANS_LEADER_APPLY".to_string())
+            return elog::elog(
+                ERROR,
+                "unexpected apply action: TRANS_LEADER_APPLY".to_string(),
+            )
         }
     }
 
@@ -470,7 +473,10 @@ pub(crate) fn apply_handle_stream_stop(mcx: Mcx<'static>, buf: &[u8]) -> PgResul
         }
 
         LeaderApply => {
-            return elog::elog(ERROR, "unexpected apply action: TRANS_LEADER_APPLY".to_string())
+            return elog::elog(
+                ERROR,
+                "unexpected apply action: TRANS_LEADER_APPLY".to_string(),
+            )
         }
     }
 
@@ -508,9 +514,7 @@ fn stream_abort_internal(
     subxact_info_read(mcx, subid(), xid)?;
 
     // Scan from the tail: we're likely aborting the most recent subxact.
-    let subidx = SUBXACTS.with(|s| {
-        s.borrow().iter().rposition(|info| info.xid == subxid)
-    });
+    let subidx = SUBXACTS.with(|s| s.borrow().iter().rposition(|info| info.xid == subxid));
 
     let Some(subidx) = subidx else {
         // Empty subxact: just drop the loaded info.
@@ -626,7 +630,10 @@ pub(crate) fn apply_handle_stream_abort(mcx: Mcx<'static>, buf: &[u8]) -> PgResu
                     return Ok(());
                 }
                 if toplevel_xact {
-                    pa_set_fileset_state(&winfo.borrow().shared, PartialFileSetState::SerializeDone);
+                    pa_set_fileset_state(
+                        &winfo.borrow().shared,
+                        PartialFileSetState::SerializeDone,
+                    );
                     pa_xact_finish(&winfo, InvalidXLogRecPtr)?;
                 }
             }
@@ -699,9 +706,7 @@ fn ensure_last_message(
     if last_fileno != fileno || last_offset != offset {
         return elog::elog(
             ERROR,
-            format!(
-                "unexpected message left in streaming transaction's changes file \"{name}\""
-            ),
+            format!("unexpected message left in streaming transaction's changes file \"{name}\""),
         );
     }
     Ok(())
@@ -825,7 +830,7 @@ pub(crate) fn apply_spooled_messages(
             break;
         }
 
-        if nchanges.is_multiple_of( 1000) {
+        if nchanges.is_multiple_of(1000) {
             let _ = elog::elog(
                 DEBUG1,
                 format!("replayed {nchanges} changes from file \"{name}\""),
@@ -1136,7 +1141,9 @@ fn stream_open_file(
 
 // stream_close_file (worker.c:4373).
 fn stream_close_file() -> PgResult<()> {
-    let fd = STREAM_FD.with(|f| f.borrow_mut().take()).expect("stream file open");
+    let fd = STREAM_FD
+        .with(|f| f.borrow_mut().take())
+        .expect("stream file open");
     // The spool must be durable across chunks; close flushes the buffer.
     fd.file.close()
 }
@@ -1245,9 +1252,9 @@ fn subxact_info_read(mcx: Mcx<'static>, subid: Oid, xid: TransactionId) -> PgRes
     }
 
     let mut subxacts: Vec<SubXactInfo> = Vec::new();
-    subxacts
-        .try_reserve(n)
-        .map_err(|_| mcx::oom_named("subxact_info_read", n * core::mem::size_of::<SubXactInfo>()))?;
+    subxacts.try_reserve(n).map_err(|_| {
+        mcx::oom_named("subxact_info_read", n * core::mem::size_of::<SubXactInfo>())
+    })?;
     for _ in 0..n {
         let mut xidb = [0u8; 4];
         let mut fileb = [0u8; 4];
@@ -1288,10 +1295,15 @@ fn subxact_info_add(xid: TransactionId) -> PgResult<()> {
         return Ok(());
     }
 
-    let (fileno, offset) = STREAM_FD.with(|f| {
-        f.borrow().as_ref().expect("stream file open").file.tell()
+    let (fileno, offset) =
+        STREAM_FD.with(|f| f.borrow().as_ref().expect("stream file open").file.tell());
+    SUBXACTS.with(|s| {
+        s.borrow_mut().push(SubXactInfo {
+            xid,
+            fileno,
+            offset,
+        })
     });
-    SUBXACTS.with(|s| s.borrow_mut().push(SubXactInfo { xid, fileno, offset }));
     Ok(())
 }
 

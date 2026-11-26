@@ -15,9 +15,18 @@ fn int4_ri(canonical: bool) -> RangeInfo {
         rngtypid: INT4RANGE,
         collation: InvalidOid,
         elem_typid: 23,
-        elem: ElemInfo { typlen: 4, typbyval: true, typalign: b'i', typstorage: b'p' },
+        elem: ElemInfo {
+            typlen: 4,
+            typbyval: true,
+            typalign: b'i',
+            typstorage: b'p',
+        },
         cmp: FmgrInfo::new(fc_i32_cmp, 351, 2, true, false),
-        canonical_oid: if canonical { F_INT4RANGE_CANONICAL } else { InvalidOid },
+        canonical_oid: if canonical {
+            F_INT4RANGE_CANONICAL
+        } else {
+            InvalidOid
+        },
         elem_hash: None,
         elem_hash_extended: None,
         own_typlen: -1,
@@ -27,11 +36,21 @@ fn int4_ri(canonical: bool) -> RangeInfo {
 }
 
 fn bound(val: i32, inclusive: bool, lower: bool) -> RangeBound {
-    RangeBound { val: Datum::from_i32(val), infinite: false, inclusive, lower }
+    RangeBound {
+        val: Datum::from_i32(val),
+        infinite: false,
+        inclusive,
+        lower,
+    }
 }
 
 fn inf_bound(lower: bool) -> RangeBound {
-    RangeBound { val: Datum::from_usize(0), infinite: true, inclusive: false, lower }
+    RangeBound {
+        val: Datum::from_usize(0),
+        infinite: true,
+        inclusive: false,
+        lower,
+    }
 }
 
 fn fc_i64_cmp(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -47,7 +66,12 @@ fn int8_ri() -> RangeInfo {
         rngtypid: INT8RANGE,
         collation: InvalidOid,
         elem_typid: 20,
-        elem: ElemInfo { typlen: 8, typbyval: true, typalign: b'd', typstorage: b'p' },
+        elem: ElemInfo {
+            typlen: 8,
+            typbyval: true,
+            typalign: b'd',
+            typstorage: b'p',
+        },
         cmp: FmgrInfo::new(fc_i64_cmp, 351, 2, true, false),
         canonical_oid: InvalidOid,
         elem_hash: None,
@@ -70,9 +94,21 @@ fn int8_bounds_serialize_full_datum_word() {
     let mut ri = int8_ri();
     let lo_v: i64 = 0x1_0000_0001; // > 2^32: the high word is load-bearing
     let up_v: i64 = 0x2_0000_0007;
-    let mut lo = RangeBound { val: Datum::from_i64(lo_v), infinite: false, inclusive: true, lower: true };
-    let mut up = RangeBound { val: Datum::from_i64(up_v), infinite: false, inclusive: false, lower: false };
-    let img = range_serialize(mcx, &mut ri, &mut lo, &mut up, false, None).unwrap().unwrap();
+    let mut lo = RangeBound {
+        val: Datum::from_i64(lo_v),
+        infinite: false,
+        inclusive: true,
+        lower: true,
+    };
+    let mut up = RangeBound {
+        val: Datum::from_i64(up_v),
+        infinite: false,
+        inclusive: false,
+        lower: false,
+    };
+    let img = range_serialize(mcx, &mut ri, &mut lo, &mut up, false, None)
+        .unwrap()
+        .unwrap();
     // vl(4) + oid(4) + 8 + 8 + flags(1) = 25
     assert_eq!(img.len(), 25);
     assert_eq!(i64::from_ne_bytes(img[8..16].try_into().unwrap()), lo_v);
@@ -90,7 +126,9 @@ fn serialize_layout_is_byte_exact() {
     let mut ri = int4_ri(false);
     let mut lo = bound(1, true, true);
     let mut up = bound(10, false, false);
-    let img = range_serialize(mcx, &mut ri, &mut lo, &mut up, false, None).unwrap().unwrap();
+    let img = range_serialize(mcx, &mut ri, &mut lo, &mut up, false, None)
+        .unwrap()
+        .unwrap();
     // vl(4) + oid(4) + 4 + 4 + flags(1) = 17
     assert_eq!(img.len(), 17);
     assert_eq!(range_type_oid(&img), INT4RANGE);
@@ -114,14 +152,29 @@ fn serialize_empty_and_bound_order() {
     let mcx = cx.mcx();
     let mut ri = int4_ri(false);
     // equal bounds, not both inclusive -> empty (9 bytes: hdr + flags)
-    let img = range_serialize(mcx, &mut ri, &mut bound(5, false, true), &mut bound(5, true, false), false, None)
-        .unwrap()
-        .unwrap();
+    let img = range_serialize(
+        mcx,
+        &mut ri,
+        &mut bound(5, false, true),
+        &mut bound(5, true, false),
+        false,
+        None,
+    )
+    .unwrap()
+    .unwrap();
     assert_eq!(img.len(), 9);
     assert_eq!(range_get_flags(&img), RANGE_EMPTY);
     // lower > upper errors
-    let err = range_serialize(mcx, &mut ri, &mut bound(6, true, true), &mut bound(5, true, false), false, None)
-        .err().unwrap();
+    let err = range_serialize(
+        mcx,
+        &mut ri,
+        &mut bound(6, true, true),
+        &mut bound(5, true, false),
+        false,
+        None,
+    )
+    .err()
+    .unwrap();
     assert!(err.message().contains("less than or equal"));
 }
 
@@ -131,9 +184,16 @@ fn canonical_normalizes_discrete_bounds() {
     let mcx = cx.mcx();
     let mut ri = int4_ri(true);
     // (1,5] -> [2,6)
-    let img = make_range(mcx, &mut ri, &mut bound(1, false, true), &mut bound(5, true, false), false, None)
-        .unwrap()
-        .unwrap();
+    let img = make_range(
+        mcx,
+        &mut ri,
+        &mut bound(1, false, true),
+        &mut bound(5, true, false),
+        false,
+        None,
+    )
+    .unwrap()
+    .unwrap();
     let (lo, up, empty) = range_deserialize(&ri.elem, &img);
     assert!(!empty);
     assert_eq!(lo.val.as_i32(), 2);
@@ -161,7 +221,8 @@ fn canonical_normalizes_discrete_bounds() {
         false,
         None,
     )
-    .err().unwrap();
+    .err()
+    .unwrap();
     assert!(err.message().contains("integer out of range"));
 }
 
@@ -170,10 +231,16 @@ fn infinite_bounds_serialize_without_payload() {
     let cx = MemoryContext::new("t");
     let mcx = cx.mcx();
     let mut ri = int4_ri(false);
-    let img =
-        range_serialize(mcx, &mut ri, &mut inf_bound(true), &mut bound(3, false, false), false, None)
-            .unwrap()
-            .unwrap();
+    let img = range_serialize(
+        mcx,
+        &mut ri,
+        &mut inf_bound(true),
+        &mut bound(3, false, false),
+        false,
+        None,
+    )
+    .unwrap()
+    .unwrap();
     assert_eq!(img.len(), 13); // hdr + one 4-byte bound + flags
     assert_eq!(range_get_flags(&img), RANGE_LB_INF);
     let (lo, up, _e) = range_deserialize(&ri.elem, &img);
@@ -187,9 +254,15 @@ fn cmp_bounds_matrix() {
     let mcx = cx.mcx();
     let mut ri = int4_ri(false);
     // -inf lower < finite
-    assert_eq!(range_cmp_bounds(mcx, &mut ri, &inf_bound(true), &bound(0, true, true)).unwrap(), -1);
+    assert_eq!(
+        range_cmp_bounds(mcx, &mut ri, &inf_bound(true), &bound(0, true, true)).unwrap(),
+        -1
+    );
     // +inf upper > finite
-    assert_eq!(range_cmp_bounds(mcx, &mut ri, &inf_bound(false), &bound(0, true, true)).unwrap(), 1);
+    assert_eq!(
+        range_cmp_bounds(mcx, &mut ri, &inf_bound(false), &bound(0, true, true)).unwrap(),
+        1
+    );
     // equal value: exclusive lower > inclusive lower
     assert_eq!(
         range_cmp_bounds(mcx, &mut ri, &bound(5, false, true), &bound(5, true, true)).unwrap(),
@@ -197,7 +270,13 @@ fn cmp_bounds_matrix() {
     );
     // equal value: exclusive upper < inclusive upper
     assert_eq!(
-        range_cmp_bounds(mcx, &mut ri, &bound(5, false, false), &bound(5, true, false)).unwrap(),
+        range_cmp_bounds(
+            mcx,
+            &mut ri,
+            &bound(5, false, false),
+            &bound(5, true, false)
+        )
+        .unwrap(),
         -1
     );
     // both inclusive equal, mixed lower/upper: equal
@@ -207,7 +286,13 @@ fn cmp_bounds_matrix() {
     );
     // both exclusive equal: lower > upper
     assert_eq!(
-        range_cmp_bounds(mcx, &mut ri, &bound(5, false, true), &bound(5, false, false)).unwrap(),
+        range_cmp_bounds(
+            mcx,
+            &mut ri,
+            &bound(5, false, true),
+            &bound(5, false, false)
+        )
+        .unwrap(),
         1
     );
 }
@@ -216,12 +301,16 @@ fn cmp_bounds_matrix() {
 fn parse_and_deparse_round_trip_grammar() {
     let cx = MemoryContext::new("t");
     let mcx = cx.mcx();
-    let p = crate::io::range_parse(mcx, b"  [1,10) ", None).unwrap().unwrap();
+    let p = crate::io::range_parse(mcx, b"  [1,10) ", None)
+        .unwrap()
+        .unwrap();
     assert_eq!(p.flags, RANGE_LB_INC);
     assert_eq!(p.lbound.as_deref(), Some(&b"1"[..]));
     assert_eq!(p.ubound.as_deref(), Some(&b"10"[..]));
 
-    let p = crate::io::range_parse(mcx, b"EMPTY", None).unwrap().unwrap();
+    let p = crate::io::range_parse(mcx, b"EMPTY", None)
+        .unwrap()
+        .unwrap();
     assert_eq!(p.flags, RANGE_EMPTY);
 
     let p = crate::io::range_parse(mcx, b"(,]", None).unwrap().unwrap();
@@ -229,12 +318,16 @@ fn parse_and_deparse_round_trip_grammar() {
     assert!(p.lbound.is_none() && p.ubound.is_none());
 
     // quoting and escapes
-    let p = crate::io::range_parse(mcx, br#"["a ""b",\ c)"#, None).unwrap().unwrap();
+    let p = crate::io::range_parse(mcx, br#"["a ""b",\ c)"#, None)
+        .unwrap()
+        .unwrap();
     assert_eq!(p.lbound.as_deref(), Some(&br#"a "b"#[..]));
     assert_eq!(p.ubound.as_deref(), Some(&b" c"[..]));
 
     // quoted empty string is a bound, not infinity
-    let p = crate::io::range_parse(mcx, br#"["",)"#, None).unwrap().unwrap();
+    let p = crate::io::range_parse(mcx, br#"["",)"#, None)
+        .unwrap()
+        .unwrap();
     assert_eq!(p.lbound.as_deref(), Some(&b""[..]));
 
     for (bad, detail) in [
@@ -246,8 +339,16 @@ fn parse_and_deparse_round_trip_grammar() {
         (b"[1,2", "Unexpected end of input."),
     ] {
         let err = crate::io::range_parse(mcx, bad, None).err().unwrap();
-        assert_eq!(err.detail(), Some(detail), "case {:?}", String::from_utf8_lossy(bad));
-        assert_eq!(err.sqlstate(), ::types_error::ERRCODE_INVALID_TEXT_REPRESENTATION);
+        assert_eq!(
+            err.detail(),
+            Some(detail),
+            "case {:?}",
+            String::from_utf8_lossy(bad)
+        );
+        assert_eq!(
+            err.sqlstate(),
+            ::types_error::ERRCODE_INVALID_TEXT_REPRESENTATION
+        );
     }
 
     let out = crate::io::range_deparse(mcx, RANGE_LB_INC, Some(b"a b"), Some(b"c\"d")).unwrap();
@@ -258,8 +359,8 @@ fn parse_and_deparse_round_trip_grammar() {
 fn deparse_quoting_rules() {
     let cx = MemoryContext::new("t");
     let mcx = cx.mcx();
-    let out = crate::io::range_deparse(mcx, RANGE_LB_INC | RANGE_UB_INC, Some(b"1"), Some(b"2"))
-        .unwrap();
+    let out =
+        crate::io::range_deparse(mcx, RANGE_LB_INC | RANGE_UB_INC, Some(b"1"), Some(b"2")).unwrap();
     assert_eq!(&out[..], b"[1,2]\0");
     let out = crate::io::range_deparse(mcx, RANGE_EMPTY, None, None).unwrap();
     assert_eq!(&out[..], b"empty\0");
@@ -273,9 +374,16 @@ fn ops_over_int4_ranges() {
     let mcx = cx.mcx();
     let mut ri = int4_ri(true);
     let mk = |ri: &mut RangeInfo, lo: i32, hi: i32| {
-        make_range(mcx, ri, &mut bound(lo, true, true), &mut bound(hi, false, false), false, None)
-            .unwrap()
-            .unwrap()
+        make_range(
+            mcx,
+            ri,
+            &mut bound(lo, true, true),
+            &mut bound(hi, false, false),
+            false,
+            None,
+        )
+        .unwrap()
+        .unwrap()
     };
     let a = mk(&mut ri, 1, 5);
     let b = mk(&mut ri, 3, 8);
@@ -287,9 +395,16 @@ fn ops_over_int4_ranges() {
     assert!(crate::ops::range_adjacent_internal(mcx, &mut ri, &a, &c).unwrap());
     assert!(crate::ops::range_before_internal(mcx, &mut ri, &a, &c).unwrap());
     assert!(crate::ops::range_after_internal(mcx, &mut ri, &c, &a).unwrap());
-    assert!(crate::ops::range_contains_elem_internal(mcx, &mut ri, &a, Datum::from_i32(4)).unwrap());
-    assert!(!crate::ops::range_contains_elem_internal(mcx, &mut ri, &a, Datum::from_i32(5)).unwrap());
-    assert!(!crate::ops::range_contains_elem_internal(mcx, &mut ri, &empty, Datum::from_i32(1)).unwrap());
+    assert!(
+        crate::ops::range_contains_elem_internal(mcx, &mut ri, &a, Datum::from_i32(4)).unwrap()
+    );
+    assert!(
+        !crate::ops::range_contains_elem_internal(mcx, &mut ri, &a, Datum::from_i32(5)).unwrap()
+    );
+    assert!(
+        !crate::ops::range_contains_elem_internal(mcx, &mut ri, &empty, Datum::from_i32(1))
+            .unwrap()
+    );
     assert!(crate::ops::range_eq_internal(mcx, &mut ri, &a, &a).unwrap());
     assert!(crate::ops::range_ne_internal(mcx, &mut ri, &a, &b).unwrap());
 
@@ -323,14 +438,25 @@ fn ops_over_int4_ranges() {
     }
 
     // cmp: empty sorts first
-    assert_eq!(crate::ops::range_cmp_internal(mcx, &mut ri, &empty, &a).unwrap(), -1);
-    assert_eq!(crate::ops::range_cmp_internal(mcx, &mut ri, &a, &b).unwrap(), -1);
-    assert_eq!(crate::ops::range_cmp_internal(mcx, &mut ri, &a, &a).unwrap(), 0);
+    assert_eq!(
+        crate::ops::range_cmp_internal(mcx, &mut ri, &empty, &a).unwrap(),
+        -1
+    );
+    assert_eq!(
+        crate::ops::range_cmp_internal(mcx, &mut ri, &a, &b).unwrap(),
+        -1
+    );
+    assert_eq!(
+        crate::ops::range_cmp_internal(mcx, &mut ri, &a, &a).unwrap(),
+        0
+    );
 
     // split
     let wide = mk(&mut ri, 0, 10);
     let mid = mk(&mut ri, 4, 6);
-    let (s1, s2) = crate::ops::range_split_internal(mcx, &mut ri, &wide, &mid).unwrap().unwrap();
+    let (s1, s2) = crate::ops::range_split_internal(mcx, &mut ri, &wide, &mid)
+        .unwrap()
+        .unwrap();
     let (lo, up, _e) = range_deserialize(&ri.elem, &s1);
     assert_eq!((lo.val.as_i32(), up.val.as_i32()), (0, 4));
     let (lo, up, _e) = range_deserialize(&ri.elem, &s2);
@@ -344,7 +470,12 @@ fn short_varlena_bounds_pack_without_padding() {
     // A byref packable elem type (numeric-shaped): two 4-byte-header varlenas
     // must pack to short form back to back after the 8-byte range header.
     let mut ri = int4_ri(false);
-    ri.elem = ElemInfo { typlen: -1, typbyval: false, typalign: b'i', typstorage: b'm' };
+    ri.elem = ElemInfo {
+        typlen: -1,
+        typbyval: false,
+        typalign: b'i',
+        typstorage: b'm',
+    };
     fn fc_varlena_cmp(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
         // SAFETY: test datums are live 4-byte-header varlenas.
         let read = |d: Datum| unsafe {
@@ -374,7 +505,9 @@ fn short_varlena_bounds_pack_without_padding() {
         inclusive: false,
         lower: false,
     };
-    let img = range_serialize(mcx, &mut ri, &mut lo, &mut up, false, None).unwrap().unwrap();
+    let img = range_serialize(mcx, &mut ri, &mut lo, &mut up, false, None)
+        .unwrap()
+        .unwrap();
     // 8 hdr + 2 short varlenas of 2 bytes each + flags = 13, no padding.
     assert_eq!(img.len(), 13);
     assert_eq!(img[8], (2 << 1) | 1);
@@ -493,7 +626,12 @@ mod bound_detoast {
             rngtypid: 99001,
             collation: InvalidOid,
             elem_typid: 25,
-            elem: ElemInfo { typlen: -1, typbyval: false, typalign: b'i', typstorage: b'x' },
+            elem: ElemInfo {
+                typlen: -1,
+                typbyval: false,
+                typalign: b'i',
+                typstorage: b'x',
+            },
             cmp: FmgrInfo::new(fc_never, 360, 2, true, false),
             canonical_oid: InvalidOid,
             elem_hash: None,
@@ -505,14 +643,21 @@ mod bound_detoast {
     }
 
     fn text_bound(val: Datum) -> RangeBound {
-        RangeBound { val, infinite: false, inclusive: true, lower: true }
+        RangeBound {
+            val,
+            infinite: false,
+            inclusive: true,
+            lower: true,
+        }
     }
 
     fn serialize_lower<'m>(mcx: Mcx<'m>, val: Datum) -> PgVec<'m, u8> {
         let mut ri = text_ri();
         let mut lo = text_bound(val);
         let mut up = inf_bound(false);
-        range_serialize(mcx, &mut ri, &mut lo, &mut up, false, None).unwrap().unwrap()
+        range_serialize(mcx, &mut ri, &mut lo, &mut up, false, None)
+            .unwrap()
+            .unwrap()
     }
 
     #[test]
@@ -520,11 +665,19 @@ mod bound_detoast {
         install_test_detoast();
         let ctx = MemoryContext::new_bump("t");
         let mcx = ctx.mcx();
-        let payload: std::vec::Vec<u8> =
-            b"range external ".iter().copied().cycle().take(2400).collect();
+        let payload: std::vec::Vec<u8> = b"range external "
+            .iter()
+            .copied()
+            .cycle()
+            .take(2400)
+            .collect();
         let got = serialize_lower(mcx, ondisk(mcx, 8001, &payload));
         let want = serialize_lower(mcx, flat(mcx, &payload));
-        assert_eq!(&got[..], &want[..], "external bound must serialize as the inline value");
+        assert_eq!(
+            &got[..],
+            &want[..],
+            "external bound must serialize as the inline value"
+        );
     }
 
     #[test]
@@ -532,11 +685,19 @@ mod bound_detoast {
         install_test_detoast();
         let ctx = MemoryContext::new_bump("t");
         let mcx = ctx.mcx();
-        let payload: std::vec::Vec<u8> =
-            b"range compressible ".iter().copied().cycle().take(500).collect();
+        let payload: std::vec::Vec<u8> = b"range compressible "
+            .iter()
+            .copied()
+            .cycle()
+            .take(500)
+            .collect();
         let got = serialize_lower(mcx, pglz_img(mcx, &payload));
         let want = serialize_lower(mcx, flat(mcx, &payload));
-        assert_eq!(&got[..], &want[..], "compressed bound must serialize decompressed");
+        assert_eq!(
+            &got[..],
+            &want[..],
+            "compressed bound must serialize decompressed"
+        );
     }
 
     #[test]
@@ -672,14 +833,18 @@ mod stack_guard {
     }
 
     fn fc_leaf_i32_hash_ext(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
-        Ok(Datum::from_u64(fcinfo.arg(0).as_i32() as u64 ^ fcinfo.arg(1).as_u64()))
+        Ok(Datum::from_u64(
+            fcinfo.arg(0).as_i32() as u64 ^ fcinfo.arg(1).as_u64(),
+        ))
     }
 
     fn fc_nested_hash(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
         let mcx = fcinfo.result_mcx();
         let r = arg_range(fcinfo, 0, mcx)?;
         let mut ri = ri_for(range_type_oid(&r));
-        Ok(Datum::from_i32(ops::hash_range_internal(mcx, &mut ri, &r)? as i32))
+        Ok(Datum::from_i32(
+            ops::hash_range_internal(mcx, &mut ri, &r)? as i32
+        ))
     }
 
     fn fc_nested_hash_ext(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -687,7 +852,9 @@ mod stack_guard {
         let r = arg_range(fcinfo, 0, mcx)?;
         let seed = fcinfo.arg(1);
         let mut ri = ri_for(range_type_oid(&r));
-        Ok(Datum::from_u64(ops::hash_range_extended_internal(mcx, &mut ri, &r, seed)?))
+        Ok(Datum::from_u64(ops::hash_range_extended_internal(
+            mcx, &mut ri, &r, seed,
+        )?))
     }
 
     fn fc_nested_cmp(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -695,7 +862,9 @@ mod stack_guard {
         let r1 = arg_range(fcinfo, 0, mcx)?;
         let r2 = arg_range(fcinfo, 1, mcx)?;
         let mut ri = ri_for(range_type_oid(&r1));
-        Ok(Datum::from_i32(ops::range_cmp_internal(mcx, &mut ri, &r1, &r2)?))
+        Ok(Datum::from_i32(ops::range_cmp_internal(
+            mcx, &mut ri, &r1, &r2,
+        )?))
     }
 
     fn fc_leaf_i32_out(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -739,7 +908,11 @@ mod stack_guard {
         let buf = unsafe { fcinfo.arg_stringinfo(0) };
         // The wire form carries no oid; the leaf-range wire is exactly
         // flags(1) + len(4) + int4(4) = 9 bytes, a deeper one is >= 14.
-        let inner = if buf.len() - buf.cursor == 9 { LEAF_RANGE } else { NESTED_RANGE };
+        let inner = if buf.len() - buf.cursor == 9 {
+            LEAF_RANGE
+        } else {
+            NESTED_RANGE
+        };
         let mut cache = io_cache_for(inner, IOFuncSelector::IOFunc_receive);
         let img = io::range_recv(mcx, &mut cache, buf, -1)?;
         byref_result(mcx, &img)
@@ -753,7 +926,12 @@ mod stack_guard {
                 rngtypid: LEAF_RANGE,
                 collation: InvalidOid,
                 elem_typid: 23,
-                elem: ElemInfo { typlen: 4, typbyval: true, typalign: b'i', typstorage: b'p' },
+                elem: ElemInfo {
+                    typlen: 4,
+                    typbyval: true,
+                    typalign: b'i',
+                    typstorage: b'p',
+                },
                 cmp: FmgrInfo::new(fc_i32_cmp, 351, 2, true, false),
                 canonical_oid: InvalidOid,
                 elem_hash: Some(FmgrInfo::new(fc_leaf_i32_hash, 425, 1, true, false)),
@@ -768,7 +946,12 @@ mod stack_guard {
                 rngtypid: NESTED_RANGE,
                 collation: InvalidOid,
                 elem_typid: NESTED_RANGE,
-                elem: ElemInfo { typlen: -1, typbyval: false, typalign: b'i', typstorage: b'x' },
+                elem: ElemInfo {
+                    typlen: -1,
+                    typbyval: false,
+                    typalign: b'i',
+                    typstorage: b'x',
+                },
                 cmp: FmgrInfo::new(fc_nested_cmp, 3870, 2, true, false),
                 canonical_oid: InvalidOid,
                 elem_hash: Some(FmgrInfo::new(fc_nested_hash, 3902, 1, true, false)),
@@ -808,7 +991,11 @@ mod stack_guard {
             }
             _ => unreachable!("text input is not deep-drivable (exponential literal)"),
         };
-        RangeIOData { ri: ri_for(rngtypid), typioproc, typioparam: if leaf { 23 } else { NESTED_RANGE } }
+        RangeIOData {
+            ri: ri_for(rngtypid),
+            typioproc,
+            typioparam: if leaf { 23 } else { NESTED_RANGE },
+        }
     }
 
     /// 8-byte-aligned copy of a serialized range image (bound datums are read
@@ -933,9 +1120,10 @@ mod stack_guard {
             ("recv", 200_000),
             ("cmp", 100_000),
         ];
-        if let (Ok(d), Ok(kind)) =
-            (std::env::var("RANGE_STACK_PROBE_DEPTH"), std::env::var("RANGE_STACK_PROBE_KIND"))
-        {
+        if let (Ok(d), Ok(kind)) = (
+            std::env::var("RANGE_STACK_PROBE_DEPTH"),
+            std::env::var("RANGE_STACK_PROBE_KIND"),
+        ) {
             let depth: usize = d.parse().unwrap();
             let h = std::thread::Builder::new()
                 // Production HEADROOM: an 8 MiB worker stack paired with
@@ -973,13 +1161,19 @@ mod stack_guard {
                             let (buf, len) = build_nested_img(depth);
                             let img = img_bytes(&buf, len);
                             let mut ri = ri_for(NESTED_RANGE);
-                            ops::hash_range_extended_internal(mcx, &mut ri, img, Datum::from_u64(11))
-                                .map(|h| h as usize)
+                            ops::hash_range_extended_internal(
+                                mcx,
+                                &mut ri,
+                                img,
+                                Datum::from_u64(11),
+                            )
+                            .map(|h| h as usize)
                         }
                         "out" => {
                             let (buf, len) = build_nested_img(depth);
                             let img = img_bytes(&buf, len);
-                            let mut cache = io_cache_for(NESTED_RANGE, IOFuncSelector::IOFunc_output);
+                            let mut cache =
+                                io_cache_for(NESTED_RANGE, IOFuncSelector::IOFunc_output);
                             io::range_out(mcx, &mut cache, img).map(|v| v.len())
                         }
                         "send" => {
@@ -1005,7 +1199,11 @@ mod stack_guard {
                 Ok(n) => eprintln!("PROBE OK {n}"),
                 Err(e) => eprintln!(
                     "PROBE ERR {}",
-                    if e.sqlstate == ERRCODE_STATEMENT_TOO_COMPLEX { "54001" } else { "other" }
+                    if e.sqlstate == ERRCODE_STATEMENT_TOO_COMPLEX {
+                        "54001"
+                    } else {
+                        "other"
+                    }
                 ),
             }
             return;
@@ -1053,9 +1251,12 @@ mod stack_guard {
         for ((kind, depth), out) in CASES.iter().zip(outs) {
             let out = out.expect("every probe ran");
             let se = String::from_utf8_lossy(&out.stderr);
-            let line = se.lines().find(|l| l.starts_with("PROBE")).unwrap_or_else(|| {
-                panic!("{kind}/{depth}: process died without a verdict (stack overflow): {se}")
-            });
+            let line = se
+                .lines()
+                .find(|l| l.starts_with("PROBE"))
+                .unwrap_or_else(|| {
+                    panic!("{kind}/{depth}: process died without a verdict (stack overflow): {se}")
+                });
             // The depth at which the guard trips is a function of frame size
             // and is NOT a comparison surface against C. That the process
             // SURVIVES and reports a clean 54001 rather than aborting is.
@@ -1145,8 +1346,14 @@ fn pseudotype_aliases_delegate_to_range_out() {
             .find(|b| b.foid == oid)
             .unwrap_or_else(|| panic!("oid {oid} not registered"))
     };
-    assert_eq!(by_oid(3833).func as usize, crate::builtins::fc_range_out as *const () as usize);
-    assert_eq!(by_oid(5095).func as usize, crate::builtins::fc_range_out as *const () as usize);
+    assert_eq!(
+        by_oid(3833).func as usize,
+        crate::builtins::fc_range_out as *const () as usize
+    );
+    assert_eq!(
+        by_oid(5095).func as usize,
+        crate::builtins::fc_range_out as *const () as usize
+    );
     assert_eq!(by_oid(5095).name, "anycompatiblerange_out");
 }
 
@@ -1154,10 +1361,18 @@ fn pseudotype_aliases_delegate_to_range_out() {
 mod deserialize_checked_bounds {
     use super::*;
 
-    const INT4: ElemInfo =
-        ElemInfo { typlen: 4, typbyval: true, typalign: b'i', typstorage: b'p' };
-    const VARLENA: ElemInfo =
-        ElemInfo { typlen: -1, typbyval: false, typalign: b'i', typstorage: b'x' };
+    const INT4: ElemInfo = ElemInfo {
+        typlen: 4,
+        typbyval: true,
+        typalign: b'i',
+        typstorage: b'p',
+    };
+    const VARLENA: ElemInfo = ElemInfo {
+        typlen: -1,
+        typbyval: false,
+        typalign: b'i',
+        typstorage: b'x',
+    };
 
     fn img_with(rngtypid: u32, payload: &[u8], flags: u8) -> Vec<u8> {
         let total = RANGE_HDRSZ + payload.len() + 1;
@@ -1232,9 +1447,14 @@ fn parse_bound_growth_reserves_terminator() {
     for (literal, expected) in [
         (&b"[1234567890123456,)"[..], &b"1234567890123456"[..]),
         (&br"[123456789012345\6,)"[..], &b"1234567890123456"[..]),
-        (&br#"["123456789012345""",)"#[..], &br#"123456789012345""#[..]),
+        (
+            &br#"["123456789012345""",)"#[..],
+            &br#"123456789012345""#[..],
+        ),
     ] {
-        let parsed = crate::io::range_parse(cx.mcx(), literal, None).unwrap().unwrap();
+        let parsed = crate::io::range_parse(cx.mcx(), literal, None)
+            .unwrap()
+            .unwrap();
         let bound = parsed.lbound.unwrap();
         assert_eq!(&bound[..], expected);
         assert!(bound.capacity() > bound.len());
@@ -1249,7 +1469,16 @@ fn parse_bound_stringinfo_growth_ceiling() {
     assert_eq!(::stringinfo::enlarge_target(cap, cap, 1).unwrap(), max);
     assert_eq!(::stringinfo::enlarge_target(max - 2, max, 1).unwrap(), max);
     let err = ::stringinfo::enlarge_target(max - 1, max, 1).unwrap_err();
-    assert_eq!(err.sqlstate(), ::types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED);
-    assert_eq!(err.message(), "string buffer exceeds maximum allowed length (1073741823 bytes)");
-    assert_eq!(err.detail(), Some("Cannot enlarge string buffer containing 1073741822 bytes by 1 more bytes."));
+    assert_eq!(
+        err.sqlstate(),
+        ::types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED
+    );
+    assert_eq!(
+        err.message(),
+        "string buffer exceeds maximum allowed length (1073741823 bytes)"
+    );
+    assert_eq!(
+        err.detail(),
+        Some("Cannot enlarge string buffer containing 1073741822 bytes by 1 more bytes.")
+    );
 }

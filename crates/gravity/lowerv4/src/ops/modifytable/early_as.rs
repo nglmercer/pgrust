@@ -38,34 +38,68 @@ const EARLY_AS: u64 = 1;
 pub(crate) fn shape(gx: &Gx<'_, '_>) -> Option<usize> {
     let ps = gx.pipelines();
     let n = ps.len();
-    let write = |k: usize| ps[k].ops.iter().find_map(|o| if let Op::Write(w) = o { Some(w) } else { None }).filter(|w| w.cmd != Cmd::Select);
-    if !gx.graph.init_plans.iter().all(|i| gx.cte_write(i.pipeline as usize)) {
+    let write = |k: usize| {
+        ps[k]
+            .ops
+            .iter()
+            .find_map(|o| if let Op::Write(w) = o { Some(w) } else { None })
+            .filter(|w| w.cmd != Cmd::Select)
+    };
+    if !gx
+        .graph
+        .init_plans
+        .iter()
+        .all(|i| gx.cte_write(i.pipeline as usize))
+    {
         return None;
     }
-    let ctes: PgVec<'_, usize> = (0..n).filter(|&k| gx.cte_write(k) && write(k).is_some()).collect_in(gx.mcx);
-    let own: PgVec<'_, usize> = (0..n).filter(|&k| !gx.cte_write(k) && write(k).is_some()).collect_in(gx.mcx);
-    let (&[c], &[r]) = (&ctes[..], &own[..]) else { return None };
+    let ctes: PgVec<'_, usize> = (0..n)
+        .filter(|&k| gx.cte_write(k) && write(k).is_some())
+        .collect_in(gx.mcx);
+    let own: PgVec<'_, usize> = (0..n)
+        .filter(|&k| !gx.cte_write(k) && write(k).is_some())
+        .collect_in(gx.mcx);
+    let (&[c], &[r]) = (&ctes[..], &own[..]) else {
+        return None;
+    };
     let cw = write(c)?;
-    if cw.returning.is_none() || ps[c].ops.iter().any(crate::graph::is_arm) || ps[r].union.is_some() {
+    if cw.returning.is_none() || ps[c].ops.iter().any(crate::graph::is_arm) || ps[r].union.is_some()
+    {
         return None;
     }
     // the CTE's product: read by the own write pipeline alone, as its source, which reads nothing else
     let s = ps[c].desc.produces()?;
     let readers = (0..n).filter(|&m| m != c && ps[m].desc.consumes.contains(&s));
-    if !readers.eq(core::iter::once(r)) || !matches!(ps[r].source, Source::Breaker { slot } if slot == s) || ps[r].desc.consumes.iter().any(|&x| x != s) {
+    if !readers.eq(core::iter::once(r))
+        || !matches!(ps[r].source, Source::Breaker { slot } if slot == s)
+        || ps[r].desc.consumes.iter().any(|&x| x != s)
+    {
         return None;
     }
     // every own row written before the CTE's end, and none after it
-    let streams = ps[r].ops.iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_) | Op::Write(_)));
-    let one_write = ps[r].ops.iter().filter(|o| matches!(o, Op::Write(_))).count() == 1;
+    let streams = ps[r]
+        .ops
+        .iter()
+        .all(|o| matches!(o, Op::Filter(_) | Op::Project(_) | Op::Write(_)));
+    let one_write = ps[r]
+        .ops
+        .iter()
+        .filter(|o| matches!(o, Op::Write(_)))
+        .count()
+        == 1;
     (streams && one_write && rowless(gx, cw)).then_some(r)
 }
 
 /// Write `w`'s targets fire no row-level trigger of its command, with known facts (module doc).
 fn rowless(gx: &Gx<'_, '_>, w: &WriteDesc<'_>) -> bool {
     let bits = cmd_bits(w.cmd);
-    let quiet = |t: TrigExt| t.known && (t.before_row | t.after_row | t.instead_row | t.internal | t.deferrable) & bits == 0;
-    let rels = core::iter::once(w.plan.target_rel).chain(w.targets.iter().map(|t| t.relid)).chain(w.route.as_ref().map(|r| r.root_relid));
+    let quiet = |t: TrigExt| {
+        t.known
+            && (t.before_row | t.after_row | t.instead_row | t.internal | t.deferrable) & bits == 0
+    };
+    let rels = core::iter::once(w.plan.target_rel)
+        .chain(w.targets.iter().map(|t| t.relid))
+        .chain(w.route.as_ref().map(|r| r.root_relid));
     let leaves = w.route.is_none() || (w.leaves_known && w.leaves.iter().all(|l| quiet(l.trig)));
     leaves && rels.map(|r| gx.facts.trig_ext(r)).all(quiet)
 }
@@ -75,7 +109,11 @@ fn rowless(gx: &Gx<'_, '_>, w: &WriteDesc<'_>) -> bool {
 /// refusal stays).
 pub(crate) fn declare(px: &mut Px<'_, '_>) -> bool {
     let Some(r) = shape(px.gx) else { return false };
-    if !px.protos.iter().any(|q| q.kind == ProtoKind::Transition && q.arg & EARLY_AS != 0) {
+    if !px
+        .protos
+        .iter()
+        .any(|q| q.kind == ProtoKind::Transition && q.arg & EARLY_AS != 0)
+    {
         px.declare_proto(Proto::new(ProtoKind::Transition, r as u16).arg(EARLY_AS));
     }
     true

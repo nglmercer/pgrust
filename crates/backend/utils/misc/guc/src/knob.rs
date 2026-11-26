@@ -45,7 +45,10 @@ fn resolve(knob: Knob) -> (KnobRead, bool) {
         None => (knob.read(None), true),
         Some(record) => {
             let placeholder = record.gen().flags & types_guc::GUC_CUSTOM_PLACEHOLDER != 0;
-            (knob.read(Some(&crate::registry::raw_config_value(record))), placeholder)
+            (
+                knob.read(Some(&crate::registry::raw_config_value(record))),
+                placeholder,
+            )
         }
     })
     .expect("GUC store not initialized")

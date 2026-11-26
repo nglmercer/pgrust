@@ -775,7 +775,10 @@ fn complete_mapper_images_match_compiled_upstream_and_native_add_executes() {
         publication.1,
         u8::from(!cfg!(target_os = "linux"))
     );
-    println!("TPDE_ELF_MAPPER_PUBLICATION_REUSE base_reuses={}", publication.2);
+    println!(
+        "TPDE_ELF_MAPPER_PUBLICATION_REUSE base_reuses={}",
+        publication.2
+    );
     println!("TPDE_ELF_MAPPER_LIFECYCLE PASS successful_maps=3 relocation_refusals=1 reuse_after_failure=1 implicit_eh=1 repeated_reset=1");
     println!(
         "TPDE_ELF_MAPPER_SANITIZER_CONFIG PASS active={}",

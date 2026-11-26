@@ -16,14 +16,29 @@ pub(crate) const INNER_WALK_AT_BIND: &str = "a nest inner's walk keyed by an exp
 
 /// D1630: inner `ip` (op `j` of pipeline `k`) refuses by name when its walk's key is bound at bind (a TABLESAMPLE
 /// argument; an index, bitmap or TID walk's is the host's, params_key.rs `per_open`).
-pub(crate) fn check(_gx: &crate::graph::Gx<'_, '_>, _k: usize, _j: usize, ip: &PipelineNode<'_>, node: i32) {
+pub(crate) fn check(
+    _gx: &crate::graph::Gx<'_, '_>,
+    _k: usize,
+    _j: usize,
+    ip: &PipelineNode<'_>,
+    node: i32,
+) {
     let walk = match &ip.source {
         // D1643: a value evaluated at each open (decompose `SampleDesc::per_open`) is the host's at every seek, as an index key's
-        Source::Sample { sample, .. } => sample.args.iter().chain(sample.repeatable).any(|a| at_bind(a) && !sample.opens(a)),
+        Source::Sample { sample, .. } => sample
+            .args
+            .iter()
+            .chain(sample.repeatable)
+            .any(|a| at_bind(a) && !sample.opens(a)),
         _ => false,
     };
     if walk {
-        crate::refuse!(node, Reason::Shape { why: ShapeWhy(INNER_WALK_AT_BIND) });
+        crate::refuse!(
+            node,
+            Reason::Shape {
+                why: ShapeWhy(INNER_WALK_AT_BIND)
+            }
+        );
     }
 }
 
@@ -38,11 +53,18 @@ pub(crate) fn check(_gx: &crate::graph::Gx<'_, '_>, _k: usize, _j: usize, ip: &P
 /// that holds rows (frame::iface `run_holds_rows`: not form G's records), not a set member's run (rerun/sets.rs
 /// `emit_ok`), and the run consumed in the owner's region (`Pipes::consumed_at`).
 /// The licence of the fill's run ahead comes back: its quiet code shows nothing there (`effects::unobservable`).
-pub(crate) fn kept_run(gx: &crate::graph::Gx<'_, '_>, (k, j, ik): (usize, usize, usize)) -> Option<gravity_decompose::effects::Licence> {
+pub(crate) fn kept_run(
+    gx: &crate::graph::Gx<'_, '_>,
+    (k, j, ik): (usize, usize, usize),
+) -> Option<gravity_decompose::effects::Licence> {
     let ps = gx.pipelines();
-    let Source::Breaker { slot } = ps[ik].source else { return None };
+    let Source::Breaker { slot } = ps[ik].source else {
+        return None;
+    };
     let quiet = match ps[k].ops.get(j) {
-        Some(Op::Join(JoinDesc::Nest { facts, .. })) => crate::effects::refill_quiet(facts.raise_free, facts.volatility),
+        Some(Op::Join(JoinDesc::Nest { facts, .. })) => {
+            crate::effects::refill_quiet(facts.raise_free, facts.volatility)
+        }
         Some(Op::SubPlan(d)) => crate::effects::refill_quiet(d.raise_free, d.volatility),
         _ => false,
     };
@@ -50,8 +72,16 @@ pub(crate) fn kept_run(gx: &crate::graph::Gx<'_, '_>, (k, j, ik): (usize, usize,
     // D3378 (m8_d1018_kept_run K6): or the fill alone is quiet (effects.rs `fill_quiet`), whatever the owner's inner does
     // after the run: those ops run over the run's rows at every re-open as PG's do, so only the fill's placement could
     // show, and it shows nothing
-    let kept = ps.consumed_at(ik, slot).is_some() && producer.is_some_and(|q| (quiet || crate::effects::fill_quiet(gx, q)) && crate::frame::iface::run_holds_rows(gx, q) && !crate::rerun::sets::in_owner_set(gx, q));
-    kept.then(|| gravity_decompose::effects::unobservable(gravity_decompose::effects::Effects::NONE)).flatten()
+    let kept = ps.consumed_at(ik, slot).is_some()
+        && producer.is_some_and(|q| {
+            (quiet || crate::effects::fill_quiet(gx, q))
+                && crate::frame::iface::run_holds_rows(gx, q)
+                && !crate::rerun::sets::in_owner_set(gx, q)
+        });
+    kept.then(|| {
+        gravity_decompose::effects::unobservable(gravity_decompose::effects::Effects::NONE)
+    })
+    .flatten()
 }
 
 /// D4101 (D1018's kept emit; S3 rkeep ra-hx3/g8-hagg-lat-exists): inner `ik` of op `j` of pipeline `k` reads a keyed
@@ -64,18 +94,31 @@ pub(crate) fn kept_run(gx: &crate::graph::Gx<'_, '_>, (k, j, ik): (usize, usize,
 /// emit can depend on which record comes first (the gather's order is the table's, a multiset to PG's). The group's
 /// producer is a graph pipeline in no owner's set, and the emit reads it at the owner's consumed region (rerun/sets.rs
 /// `emit_ok`'s row C rule).
-pub(crate) fn kept_emit(px: &crate::frame::px::Px<'_, '_>, (k, j, ik): (usize, usize, usize)) -> bool {
+pub(crate) fn kept_emit(
+    px: &crate::frame::px::Px<'_, '_>,
+    (k, j, ik): (usize, usize, usize),
+) -> bool {
     use crate::face::kinds::KindId;
     let gx = px.gx;
     let ps = gx.pipelines();
-    let Source::Breaker { slot } = ps[ik].source else { return false };
-    let keyed = matches!(gx.source_kind(ik), KindId::KeyedEmitGroup | KindId::RunsGroup | KindId::RunsUnique);
-    let producer = gx.life_of(ik, slot).map(|l| l.0 as usize).filter(|&q| q < ps.len());
+    let Source::Breaker { slot } = ps[ik].source else {
+        return false;
+    };
+    let keyed = matches!(
+        gx.source_kind(ik),
+        KindId::KeyedEmitGroup | KindId::RunsGroup | KindId::RunsUnique
+    );
+    let producer = gx
+        .life_of(ik, slot)
+        .map(|l| l.0 as usize)
+        .filter(|&q| q < ps.len());
     keyed
         && crate::effects::owner_quiet(gx, k, j)
         && crate::rerun::sets::owner_set(gx, ik).is_none()
         && producer.is_some_and(|q| !crate::rerun::sets::in_owner_set(gx, q))
-        && ps.consumed_at(ik, slot).is_some_and(|at| px.consumed(ik, slot) == Some(at))
+        && ps
+            .consumed_at(ik, slot)
+            .is_some_and(|at| px.consumed(ik, slot) == Some(at))
 }
 
 /// Construct C2 (b): `kept_run` or `kept_run_lazy` takes inner `ik` (op `j` of pipeline `k`). A run filled ahead of the
@@ -83,20 +126,44 @@ pub(crate) fn kept_emit(px: &crate::frame::px::Px<'_, '_>, (k, j, ik): (usize, u
 /// on what feeds each: where the owner declares its whole inner quiet (`effects::owner_quiet`, which implies `kept_run`'s
 /// reading of the owner's facts) every pipeline that fills the run (a UNION ALL's arms, GROUPING SETS' phases:
 /// mergejoin/lazy_outer.rs `fillers`), else the life's producer alone (`effects::fill_quiet`'s reading, or the owner's).
-pub(crate) fn kept(px: &mut crate::frame::px::Px<'_, '_>, (k, j, ik): (usize, usize, usize)) -> bool {
+pub(crate) fn kept(
+    px: &mut crate::frame::px::Px<'_, '_>,
+    (k, j, ik): (usize, usize, usize),
+) -> bool {
     let gx = px.gx;
-    let Some(l) = kept_run(gx, (k, j, ik)) else { return kept_run_lazy(gx, (k, j, ik)) };
+    let Some(l) = kept_run(gx, (k, j, ik)) else {
+        return kept_run_lazy(gx, (k, j, ik));
+    };
     let ps = gx.pipelines();
-    if let (true, &Source::Breaker { slot }) = (crate::frame::program::stamps_on(), &ps[ik].source) {
+    if let (true, &Source::Breaker { slot }) = (crate::frame::program::stamps_on(), &ps[ik].source)
+    {
         let (all, one) = if crate::effects::owner_quiet(gx, k, j) {
-            (Some(crate::ops::mergejoin::lazy_outer::fillers(gx, ik, slot)), None)
+            (
+                Some(crate::ops::mergejoin::lazy_outer::fillers(gx, ik, slot)),
+                None,
+            )
         } else {
             (None, gx.life_of(ik, slot).map(|l| l.0 as usize))
         };
-        for q in all.into_iter().flatten().chain(one).filter(|&q| q < ps.len()) {
-            let src = if let Source::Breaker { slot } = ps[q].source { Some(slot) } else { None };
-            let fill = crate::ops::hashjoin::build_class::feed(gx, q, ps[q].desc.consumes.iter().copied().chain(src));
-            fill.into_iter().chain(std::iter::once(q)).for_each(|x| px.hold(x, &l));
+        for q in all
+            .into_iter()
+            .flatten()
+            .chain(one)
+            .filter(|&q| q < ps.len())
+        {
+            let src = if let Source::Breaker { slot } = ps[q].source {
+                Some(slot)
+            } else {
+                None
+            };
+            let fill = crate::ops::hashjoin::build_class::feed(
+                gx,
+                q,
+                ps[q].desc.consumes.iter().copied().chain(src),
+            );
+            fill.into_iter()
+                .chain(std::iter::once(q))
+                .for_each(|x| px.hold(x, &l));
         }
     }
     true
@@ -111,16 +178,42 @@ pub(crate) fn kept(px: &mut crate::frame::px::Px<'_, '_>, (k, j, ik): (usize, us
 /// fill that raises raises there. Not here: the outer's own source reading the same run (a CTE scanned on both sides of
 /// the nest: the two readers' merges over one run, D1061), and a fill whose raise may come at the program's bind rather
 /// than at a row (effects.rs `raises_at_rows`), which a deferred fill would still raise under an empty outer.
-pub(crate) fn kept_run_lazy(gx: &crate::graph::Gx<'_, '_>, (k, j, ik): (usize, usize, usize)) -> bool {
+pub(crate) fn kept_run_lazy(
+    gx: &crate::graph::Gx<'_, '_>,
+    (k, j, ik): (usize, usize, usize),
+) -> bool {
     let ps = gx.pipelines();
-    let Source::Breaker { slot } = ps[ik].source else { return false };
+    let Source::Breaker { slot } = ps[ik].source else {
+        return false;
+    };
     if k >= ps.len() {
         return false;
     }
     let loud = matches!(ps[k].ops.get(j), Some(Op::Join(JoinDesc::Nest { facts, .. })) if crate::effects::waited_fill(facts.raise_free, facts.volatility));
-    let Some(q) = gx.life_of(ik, slot).map(|l| l.0 as usize).filter(|&q| q < ps.len()) else { return false };
+    let Some(q) = gx
+        .life_of(ik, slot)
+        .map(|l| l.0 as usize)
+        .filter(|&q| q < ps.len())
+    else {
+        return false;
+    };
     let shared = matches!(ps[k].source, Source::Breaker { slot: s } if gx.life_of(k, s).is_some_and(|l| l.0 as usize == q));
-    let src = if let Source::Breaker { slot } = ps[q].source { Some(slot) } else { None };
-    let group = crate::ops::hashjoin::build_class::feed(gx, q, ps[q].desc.consumes.iter().copied().chain(src));
-    loud && !shared && ps.consumed_at(ik, slot).is_some() && crate::frame::iface::run_holds_rows(gx, q) && !crate::rerun::sets::in_owner_set(gx, q) && group.iter().chain(std::iter::once(&q)).all(|&x| crate::effects::raises_at_rows(gx, x))
+    let src = if let Source::Breaker { slot } = ps[q].source {
+        Some(slot)
+    } else {
+        None
+    };
+    let group = crate::ops::hashjoin::build_class::feed(
+        gx,
+        q,
+        ps[q].desc.consumes.iter().copied().chain(src),
+    );
+    loud && !shared
+        && ps.consumed_at(ik, slot).is_some()
+        && crate::frame::iface::run_holds_rows(gx, q)
+        && !crate::rerun::sets::in_owner_set(gx, q)
+        && group
+            .iter()
+            .chain(std::iter::once(&q))
+            .all(|&x| crate::effects::raises_at_rows(gx, x))
 }

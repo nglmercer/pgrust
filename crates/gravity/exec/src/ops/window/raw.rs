@@ -34,11 +34,18 @@ pub(crate) fn rearm_windows(ctx: *mut Ctx, windows: &[usize]) -> PgResult<()> {
         return Ok(());
     }
     if ctx.is_null() {
-        return Err(glue::internal("gravity: m8_rerun: a window to re-arm with no context (D4237)"));
+        return Err(glue::internal(
+            "gravity: m8_rerun: a window to re-arm with no context (D4237)",
+        ));
     }
     for &h in windows {
         // SAFETY: the caller's bound context (above); its params hold the handle words
-        let w = unsafe { *(*(ctx as *const u8).add(gravity_abi::ctx::hdr::PARAMS).cast::<*const u64>()).add(h) };
+        let w = unsafe {
+            *(*(ctx as *const u8)
+                .add(gravity_abi::ctx::hdr::PARAMS)
+                .cast::<*const u64>())
+            .add(h)
+        };
         // SAFETY: a nonzero handle word is the window object's cell exec's prepare laid (`rearm_at` checks its magic first)
         unsafe { gravity_hosts::ops::window::object::rearm_at(w) }?;
     }

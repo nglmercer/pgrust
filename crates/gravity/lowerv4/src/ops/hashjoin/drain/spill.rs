@@ -13,7 +13,9 @@ pub(crate) const MAGIC_U: [u8; 4] = *b"M7U1";
 /// The header of a drain part of `n` records.
 pub(crate) const fn drain_head(n: u32) -> [u8; 8] {
     let c = n.to_le_bytes();
-    [MAGIC_U[0], MAGIC_U[1], MAGIC_U[2], MAGIC_U[3], c[0], c[1], c[2], c[3]]
+    [
+        MAGIC_U[0], MAGIC_U[1], MAGIC_U[2], MAGIC_U[3], c[0], c[1], c[2], c[3],
+    ]
 }
 
 /// The stream of the build slot the running pipeline consumes as its region `consumed`: the build's parts, its kept rows

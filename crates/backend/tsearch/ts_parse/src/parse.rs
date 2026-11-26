@@ -125,7 +125,11 @@ impl<'mcx> LexizeData<'mcx> {
             // A live tmpRes keeps lastRes addressable (C holds the ParsedLex
             // pointer): compaction stops there, so a lastRes already retired
             // by moveToWaste stays behind head instead of underflowing.
-            let n = if self.tmp_res.is_some() { self.head.min(self.last_res) } else { self.head };
+            let n = if self.tmp_res.is_some() {
+                self.head.min(self.last_res)
+            } else {
+                self.head
+            };
             self.queue.drain(..n);
             self.head -= n;
             if self.tmp_res.is_some() {
@@ -145,7 +149,11 @@ impl<'mcx> LexizeData<'mcx> {
     fn move_to_waste(&mut self, stop: usize) {
         // C moveToWaste pops towork until it meets `stop`; a stale stop
         // (already retired) drains the whole list and never rewinds head.
-        let new_head = if stop < self.head { self.queue.len() } else { stop + 1 };
+        let new_head = if stop < self.head {
+            self.queue.len()
+        } else {
+            stop + 1
+        };
         self.head = new_head;
         self.pos_dict = 0;
         self.cur_sub = new_head;
@@ -220,7 +228,10 @@ pub(crate) fn lexize_exec<'mcx, E: TsParseEnv<'mcx>>(
                         continue;
                     };
 
-                    if res.first().is_some_and(|l| l.flags & ::ts_locale::TSL_FILTER != 0) {
+                    if res
+                        .first()
+                        .is_some_and(|l| l.flags & ::ts_locale::TSL_FILTER != 0)
+                    {
                         let first = res.into_iter().next().expect("TSL_FILTER lexeme");
                         filtered = Some(first.lexeme);
                         i += 1;

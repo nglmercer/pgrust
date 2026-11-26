@@ -13,8 +13,8 @@ use crate::elect::{elect_manifest, PathHint, ShredBudgets};
 use crate::manifest::{Lane, ManifestError, ShredManifest};
 use crate::path::JsonPath;
 use crate::reconstruct::{reconstruct_row, reconstruct_rows};
-use crate::testgen::{gen_doc, gen_s4, gen_scalar, gen_uuid, lcg, volume_hints};
 use crate::shred::shred_chunk;
+use crate::testgen::{gen_doc, gen_s4, gen_scalar, gen_uuid, lcg, volume_hints};
 use adt_jsonb::getfield;
 use adt_jsonb::io;
 use mbutils::SetDatabaseEncoding;
@@ -424,9 +424,7 @@ fn manifest_serde_roundtrip_and_validation() {
 
     // A manifest grown by late interning (the conform story) still
     // round-trips.
-    let extra: Vec<String> = (0..50)
-        .map(|i| format!("{{\"late_{i}\": [1]}}"))
-        .collect();
+    let extra: Vec<String> = (0..50).map(|i| format!("{{\"late_{i}\": [1]}}")).collect();
     let extra_images = payload_vecs(mcx, &extra);
     let extra_payloads: Vec<&[u8]> = extra_images.iter().map(|i| &i[4..]).collect();
     let dict_before = m.dict().len();
@@ -587,10 +585,7 @@ fn residual_partial_access_is_bucket_isolated() {
         .expect("30 keys span more than one bucket");
     let other_path = JsonPath::new(vec![other.as_bytes().to_vec()]);
 
-    let clean = chunk
-        .residual_get(&manifest, 0, &target)
-        .unwrap()
-        .to_vec();
+    let clean = chunk.residual_get(&manifest, 0, &target).unwrap().to_vec();
     let other_clean = chunk
         .residual_get(&manifest, 0, &other_path)
         .unwrap()
@@ -667,10 +662,10 @@ fn numeric_lane_scale_cap() {
     // dscale 300 (> 255): 0.000...0 with 300 fractional digits.
     let over_cap = format!("{{\"n\": 0.{}}}", "0".repeat(300));
     let docs: Vec<String> = vec![
-        over_cap.clone(),      // dscale 300: exception, must NOT elect
+        over_cap.clone(),       // dscale 300: exception, must NOT elect
         "{\"n\": 1.50}".into(), // elects S=2
         "{\"n\": 2.25}".into(), // fits
-        over_cap,              // still an exception at S=2
+        over_cap,               // still an exception at S=2
     ];
     let hints = vec![PathHint {
         path: JsonPath::from_dotted("n"),
@@ -715,7 +710,11 @@ fn uuid_lane_canonicality() {
     let mut manifest = elect_manifest(&[], &hints, &ShredBudgets::default());
     let mut cov = Coverage::default();
     let chunk = roundtrip_batch(&docs, &mut manifest, 4, &mut cov);
-    assert_eq!(chunk.lanes[0].validity.count(), 1, "only the canonical form");
+    assert_eq!(
+        chunk.lanes[0].validity.count(),
+        1,
+        "only the canonical form"
+    );
     assert!(chunk.lanes[0].validity.get(0));
     assert!(cov.exception_granules > 0);
 }
@@ -791,20 +790,53 @@ fn object_at_elected_path_is_one_exception() {
 fn auto_forced_paths_elect_their_observed_lane() {
     setup();
     let docs: Vec<String> = (0..200)
-        .map(|i| if i == 0 { format!("{{\"t\": {i}, \"k\": \"a{i}\", \"rare\": 1}}") } else { format!("{{\"t\": {i}, \"k\": \"a{i}\"}}") })
+        .map(|i| {
+            if i == 0 {
+                format!("{{\"t\": {i}, \"k\": \"a{i}\", \"rare\": 1}}")
+            } else {
+                format!("{{\"t\": {i}, \"k\": \"a{i}\"}}")
+            }
+        })
         .collect();
     let ctx = MemoryContext::new("elect");
     let images = payload_vecs(ctx.mcx(), &docs);
     let payloads: Vec<&[u8]> = images.iter().map(|i| &i[4..]).collect();
-    let budgets = ShredBudgets { min_presence_div: 2, ..ShredBudgets::default() };
-    let auto = [JsonPath::from_dotted("t"), JsonPath::from_dotted("k"), JsonPath::from_dotted("rare"), JsonPath::from_dotted("absent")];
+    let budgets = ShredBudgets {
+        min_presence_div: 2,
+        ..ShredBudgets::default()
+    };
+    let auto = [
+        JsonPath::from_dotted("t"),
+        JsonPath::from_dotted("k"),
+        JsonPath::from_dotted("rare"),
+        JsonPath::from_dotted("absent"),
+    ];
     let m = crate::elect::elect_manifest_auto(&payloads, &[], &auto, &budgets);
-    let lane_of = |p: &str| m.elected.iter().find(|e| *m.path(e.path_id) == JsonPath::from_dotted(p)).map(|e| e.lane);
+    let lane_of = |p: &str| {
+        m.elected
+            .iter()
+            .find(|e| *m.path(e.path_id) == JsonPath::from_dotted(p))
+            .map(|e| e.lane)
+    };
     assert_eq!(lane_of("t"), Some(Lane::NumericFs));
     assert_eq!(lane_of("k"), Some(Lane::Text));
-    assert_eq!(lane_of("rare"), Some(Lane::NumericFs), "below the presence floor, still forced");
+    assert_eq!(
+        lane_of("rare"),
+        Some(Lane::NumericFs),
+        "below the presence floor, still forced"
+    );
     assert_eq!(lane_of("absent"), Some(Lane::Text));
-    let hints = vec![PathHint { path: JsonPath::from_dotted("t"), lane: Lane::Text }];
+    let hints = vec![PathHint {
+        path: JsonPath::from_dotted("t"),
+        lane: Lane::Text,
+    }];
     let m = crate::elect::elect_manifest_auto(&payloads, &hints, &auto, &budgets);
-    assert_eq!(m.elected.iter().filter(|e| *m.path(e.path_id) == JsonPath::from_dotted("t")).map(|e| e.lane).collect::<Vec<_>>(), vec![Lane::Text]);
+    assert_eq!(
+        m.elected
+            .iter()
+            .filter(|e| *m.path(e.path_id) == JsonPath::from_dotted("t"))
+            .map(|e| e.lane)
+            .collect::<Vec<_>>(),
+        vec![Lane::Text]
+    );
 }

@@ -4,12 +4,14 @@ use types_nodes::parsenodes::RangeTblEntry;
 use types_nodes::plannodes::{Plan, PlannedStmt};
 use types_nodes::Node;
 
+use crate::admit::Refusal;
 use crate::catalog::{Facts, RelFact};
 use crate::graph::{Bound, PipelineGraph, PipelineNode};
 use crate::ledger::Kind;
-use crate::admit::Refusal;
-use crate::ops::{agg, append, setop as setops, sort, scan as sources, srf, subplan, window, modifytable as write};
 use crate::ops::scan::closure;
+use crate::ops::{
+    agg, append, modifytable as write, scan as sources, setop as setops, sort, srf, subplan, window,
+};
 use crate::{join, ops};
 
 pub type Open<'p> = PipelineNode<'p>;
@@ -92,7 +94,6 @@ pub struct Builder<'p, 'f> {
 
 pub const STMT_NODE: i32 = -1;
 
-
 impl<'p, 'f> Builder<'p, 'f> {
     /// The program's one kernel-word allocator (audit C4): `n` words above the fold's fixed ones (`agg::NWORDS`), `None` past
     /// `limits::KERNEL_WORDS`; no pipeline takes a word another pipeline declares.
@@ -105,19 +106,66 @@ impl<'p, 'f> Builder<'p, 'f> {
         Some(w)
     }
 
-    pub fn new(arena: ArenaRef, stmt: &'p PlannedStmt<'p>, facts: &'f dyn Facts, mcx: mcx::Mcx<'f>) -> Builder<'p, 'f> {
+    pub fn new(
+        arena: ArenaRef,
+        stmt: &'p PlannedStmt<'p>,
+        facts: &'f dyn Facts,
+        mcx: mcx::Mcx<'f>,
+    ) -> Builder<'p, 'f> {
         Self::new_in(arena, stmt, facts, mcx)
     }
 
-    pub fn new_in(arena: ArenaRef, stmt: &'p PlannedStmt<'p>, facts: &'f dyn Facts, mcx: mcx::Mcx<'f>) -> Builder<'p, 'f> {
-        Builder { arena, mcx, stmt, facts, graph: PipelineGraph::new(arena), limit: None, absorb: None, chain: None, keyed_material: None, words: 0, work: ArenaVec::new_in(arena), ctes: ArenaVec::new_in(arena), closers: ArenaVec::new_in(arena), mapping: None, alloc: None, carry: None, parents: None, demand: None, #[cfg(debug_assertions)] demand_log: crate::facts::demand::census::new_log(arena), ahead_licensed: ArenaVec::new_in(arena), order_free: false, merge_free: false, seed_pulls: 0, nested_spans: ArenaVec::new_in(arena), write_set: -1, fill_quals: ArenaVec::new_in(arena) }
+    pub fn new_in(
+        arena: ArenaRef,
+        stmt: &'p PlannedStmt<'p>,
+        facts: &'f dyn Facts,
+        mcx: mcx::Mcx<'f>,
+    ) -> Builder<'p, 'f> {
+        Builder {
+            arena,
+            mcx,
+            stmt,
+            facts,
+            graph: PipelineGraph::new(arena),
+            limit: None,
+            absorb: None,
+            chain: None,
+            keyed_material: None,
+            words: 0,
+            work: ArenaVec::new_in(arena),
+            ctes: ArenaVec::new_in(arena),
+            closers: ArenaVec::new_in(arena),
+            mapping: None,
+            alloc: None,
+            carry: None,
+            parents: None,
+            demand: None,
+            #[cfg(debug_assertions)]
+            demand_log: crate::facts::demand::census::new_log(arena),
+            ahead_licensed: ArenaVec::new_in(arena),
+            order_free: false,
+            merge_free: false,
+            seed_pulls: 0,
+            nested_spans: ArenaVec::new_in(arena),
+            write_set: -1,
+            fill_quals: ArenaVec::new_in(arena),
+        }
     }
 
     pub fn run(mut self) -> Result<PipelineGraph<'p>, Refusal> {
-        if self.stmt.commandType == CmdType::CMD_UTILITY || self.stmt.commandType == CmdType::CMD_UNKNOWN {
-            return Err(Refusal::shape(Kind::Result, STMT_NODE, "a utility statement is not executed"));
+        if self.stmt.commandType == CmdType::CMD_UTILITY
+            || self.stmt.commandType == CmdType::CMD_UNKNOWN
+        {
+            return Err(Refusal::shape(
+                Kind::Result,
+                STMT_NODE,
+                "a utility statement is not executed",
+            ));
         }
-        let root = self.stmt.planTree.ok_or(Refusal::shape(Kind::Result, STMT_NODE, "no plan tree"))?;
+        let root =
+            self.stmt
+                .planTree
+                .ok_or(Refusal::shape(Kind::Result, STMT_NODE, "no plan tree"))?;
         self.graph.partial = crate::admit::partial_root();
         if !self.stmt.subplans.is_nil() {
             subplan::map_stmt(&mut self)?;
@@ -146,13 +194,20 @@ impl<'p, 'f> Builder<'p, 'f> {
         let facts = self.facts;
         let mut g = self.graph;
         // a streamed union's root ends in one sink per arm: the last is the root
-        g.root = *g.push(open).last().expect("a push ends at least one pipeline");
+        g.root = *g
+            .push(open)
+            .last()
+            .expect("a push ends at least one pipeline");
         crate::normalize::graph(&mut g, facts, self.alloc)?;
         if let Some(r) = g.fault.or_else(|| crate::ops::subplan::unplaced(&g)) {
             return Err(r);
         }
         if g.pipelines.len() > gravity_program::limits::PIPELINES {
-            return Err(Refusal::shape(Kind::Append, STMT_NODE, "more than 65535 pipelines (the u16 pipeline id)"));
+            return Err(Refusal::shape(
+                Kind::Append,
+                STMT_NODE,
+                "more than 65535 pipelines (the u16 pipeline id)",
+            ));
         }
         crate::outs::annotate(&mut g, facts);
         crate::outs::param_reps(&mut g, facts);
@@ -161,13 +216,14 @@ impl<'p, 'f> Builder<'p, 'f> {
 
     pub fn plan(&mut self, node: Node<'p>) -> Result<Open<'p>, Refusal> {
         stack_check(); // D3748
-        // D240: what the parent pushed since its last child mapped is the parent's (its allParam holds every child's,
-        // as PG's rescan reaches every child); left open, the child's own attribution would claim it
+                       // D240: what the parent pushed since its last child mapped is the parent's (its allParam holds every child's,
+                       // as PG's rescan reaches every child); left open, the child's own attribution would claim it
         if let Some(parent) = self.mapping {
             self.closed_by(parent);
         }
         let free = crate::facts::order::order_free_under(self, self.mapping, node, self.order_free);
-        let mfree = crate::facts::order::merge_free_under(self, self.mapping, node, self.merge_free, free);
+        let mfree =
+            crate::facts::order::merge_free_under(self, self.mapping, node, self.merge_free, free);
         let node = crate::normalize::node(self, node)?;
         let saved = core::mem::replace(&mut self.order_free, free);
         let msaved = core::mem::replace(&mut self.merge_free, mfree);
@@ -184,7 +240,11 @@ impl<'p, 'f> Builder<'p, 'f> {
     /// level.
     #[inline(never)]
     fn map_node(&mut self, node: Node<'p>) -> Result<Open<'p>, Refusal> {
-        let k = Kind::of(node.node_tag()).ok_or(Refusal::shape(Kind::Result, STMT_NODE, "not a plan node"))?;
+        let k = Kind::of(node.node_tag()).ok_or(Refusal::shape(
+            Kind::Result,
+            STMT_NODE,
+            "not a plan node",
+        ))?;
         let id = node.as_plan().map_or(STMT_NODE, |p| p.plan_node_id);
         let outer = self.graph.cur_node.take(); // an InitPlan's pipelines close under no node
         if node.as_plan().is_some_and(|p| !p.initPlan.is_nil()) {
@@ -206,47 +266,96 @@ impl<'p, 'f> Builder<'p, 'f> {
             Kind::Result => ops::map_result(self, node.as_result().unwrap()),
             Kind::SeqScan => sources::map_seq_scan(self, node.as_seq_scan().unwrap()),
             Kind::IndexScan => sources::map_index_scan(self, node.as_index_scan().unwrap()),
-            Kind::IndexOnlyScan => sources::map_index_only_scan(self, node.as_index_only_scan().unwrap()),
+            Kind::IndexOnlyScan => {
+                sources::map_index_only_scan(self, node.as_index_only_scan().unwrap())
+            }
             Kind::ValuesScan => sources::map_values_scan(self, node.as_values_scan().unwrap()),
             Kind::Limit => ops::map_limit(self, node.as_limit().unwrap()),
             Kind::Agg | Kind::Group | Kind::Unique => agg::map(self, node, k),
-            Kind::NestLoop | Kind::MergeJoin | Kind::HashJoin | Kind::Hash | Kind::Material | Kind::Memoize | Kind::NestLoopParam => join::map(self, node, k),
+            Kind::NestLoop
+            | Kind::MergeJoin
+            | Kind::HashJoin
+            | Kind::Hash
+            | Kind::Material
+            | Kind::Memoize
+            | Kind::NestLoopParam => join::map(self, node, k),
             Kind::Sort | Kind::IncrementalSort => sort::map(self, node, k),
             Kind::WindowAgg => window::map(self, node, k),
             Kind::SetOp | Kind::RecursiveUnion | Kind::WorkTableScan => setops::map(self, node, k),
-            Kind::SubqueryScan | Kind::CteScan | Kind::SubPlan | Kind::AlternativeSubPlan => subplan::map(self, node, k),
-            Kind::Append | Kind::MergeAppend | Kind::PartitionPruneInfo => append::map(self, node, k),
+            Kind::SubqueryScan | Kind::CteScan | Kind::SubPlan | Kind::AlternativeSubPlan => {
+                subplan::map(self, node, k)
+            }
+            Kind::Append | Kind::MergeAppend | Kind::PartitionPruneInfo => {
+                append::map(self, node, k)
+            }
             Kind::ModifyTable | Kind::LockRows | Kind::PlanRowMark => write::map(self, node, k),
             Kind::ProjectSet | Kind::FunctionScan => srf::map(self, node, k),
-            Kind::BitmapAnd | Kind::BitmapOr | Kind::BitmapIndexScan | Kind::BitmapHeapScan | Kind::TidScan | Kind::TidRangeScan | Kind::SampleScan | Kind::TableFuncScan | Kind::NamedTuplestoreScan => closure::map(self, node, k),
-            Kind::ForeignScan | Kind::CustomScan | Kind::Gather | Kind::GatherMerge | Kind::PlanInvalItem => Err(Refusal::kind(k, id)),
+            Kind::BitmapAnd
+            | Kind::BitmapOr
+            | Kind::BitmapIndexScan
+            | Kind::BitmapHeapScan
+            | Kind::TidScan
+            | Kind::TidRangeScan
+            | Kind::SampleScan
+            | Kind::TableFuncScan
+            | Kind::NamedTuplestoreScan => closure::map(self, node, k),
+            Kind::ForeignScan
+            | Kind::CustomScan
+            | Kind::Gather
+            | Kind::GatherMerge
+            | Kind::PlanInvalItem => Err(Refusal::kind(k, id)),
         }
     }
 
     /// D3748: what follows a node's own mapping (its carried columns, its SubPlans, its close), in a frame of its own:
     /// `r`, the open `map_kind` returned, becomes the node's.
     #[inline(never)]
-    fn map_tail(&mut self, node: Node<'p>, k: Kind, id: i32, outer: Option<i32>, c0: usize, r: &mut Result<Open<'p>, Refusal>) {
+    fn map_tail(
+        &mut self,
+        node: Node<'p>,
+        k: Kind,
+        id: i32,
+        outer: Option<i32>,
+        c0: usize,
+        r: &mut Result<Open<'p>, Refusal>,
+    ) {
         *r = match core::mem::replace(r, Err(Refusal::kind(k, id))) {
             Ok(open) => self.map_close(node, k, id, outer, c0, open),
             Err(e) => Err(e),
         };
     }
 
-    fn map_close(&mut self, node: Node<'p>, k: Kind, id: i32, outer: Option<i32>, c0: usize, open: Open<'p>) -> Result<Open<'p>, Refusal> {
+    fn map_close(
+        &mut self,
+        node: Node<'p>,
+        k: Kind,
+        id: i32,
+        outer: Option<i32>,
+        c0: usize,
+        open: Open<'p>,
+    ) -> Result<Open<'p>, Refusal> {
         let open = crate::ops::modifytable::carry::after(self, node, k, open)?;
         self.graph.cur_node = None; // a per-row SubPlan's hashed set is no node's breaker
         let mut open = subplan::attach(self, node, k, open)?;
         open.close_node(id);
         // DR-1 / DR-4: the rows the pipeline carries are this node's, at the planner's width (the breaker a parent closes over it sizes its record by it)
-        open.desc.row_width = node.as_plan().map_or(open.desc.row_width, |p| p.plan_width.max(0) as u32);
+        open.desc.row_width = node
+            .as_plan()
+            .map_or(open.desc.row_width, |p| p.plan_width.max(0) as u32);
         // D3205: and at its rows (a serial pipeline's breaker is sized by them, its `predicted_rows` being 0)
         open.desc.end_rows = node.as_plan().map_or(open.desc.end_rows, Self::rows);
         self.graph.cur_node = outer;
         self.closed_by(node);
-        if let Some(child) = node.as_limit().and_then(|l| l.plan.lefttree).and_then(|c| c.as_plan()) {
+        if let Some(child) = node
+            .as_limit()
+            .and_then(|l| l.plan.lefttree)
+            .and_then(|c| c.as_plan())
+        {
             // A Limit's bounds fold into the breaker its child closes (a top-k sort): the Limit closed it.
-            for c in self.closers[c0..].iter_mut().filter(|c| c.as_plan().is_some_and(|p| p.plan_node_id == child.plan_node_id)) {
+            for c in self.closers[c0..].iter_mut().filter(|c| {
+                c.as_plan()
+                    .is_some_and(|p| p.plan_node_id == child.plan_node_id)
+            }) {
                 *c = node;
             }
         }
@@ -265,7 +374,11 @@ impl<'p, 'f> Builder<'p, 'f> {
         match plan.lefttree {
             Some(l) => {
                 if plan.righttree.is_some() {
-                    return Err(Refusal::shape(k, plan.plan_node_id, "an unexpected right subtree"));
+                    return Err(Refusal::shape(
+                        k,
+                        plan.plan_node_id,
+                        "an unexpected right subtree",
+                    ));
                 }
                 self.plan(l)
             }
@@ -282,11 +395,21 @@ impl<'p, 'f> Builder<'p, 'f> {
     }
 
     pub fn relation(&self, scanrelid: u32, k: Kind, node_id: i32) -> Result<RelFact, Refusal> {
-        let rte = self.rte(scanrelid).ok_or(Refusal::shape(k, node_id, "scanrelid outside the range table"))?;
+        let rte = self.rte(scanrelid).ok_or(Refusal::shape(
+            k,
+            node_id,
+            "scanrelid outside the range table",
+        ))?;
         if rte.relid == 0 {
-            return Err(Refusal::shape(k, node_id, "the range table entry is not a relation"));
+            return Err(Refusal::shape(
+                k,
+                node_id,
+                "the range table entry is not a relation",
+            ));
         }
-        self.facts.rel(rte.relid).ok_or(Refusal::shape(k, node_id, "no relation facts"))
+        self.facts
+            .rel(rte.relid)
+            .ok_or(Refusal::shape(k, node_id, "no relation facts"))
     }
 
     pub fn rows(plan: &Plan<'_>) -> u64 {

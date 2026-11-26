@@ -11,7 +11,7 @@ use elog::{ereport, message_level_is_interesting};
 use pqformat::{pq_getmsgbyte, pq_getmsgint, pq_getmsgint64};
 use stringinfo::StringInfo;
 use types_core::{InvalidXLogRecPtr, TimestampTz, XLogRecPtr};
-use types_error::{PgResult, ErrorLocation, COMMERROR, DEBUG2, ERRCODE_PROTOCOL_VIOLATION, FATAL};
+use types_error::{ErrorLocation, PgResult, COMMERROR, DEBUG2, ERRCODE_PROTOCOL_VIOLATION, FATAL};
 
 use crate::streaming::{proc_exit, WalSndKeepalive};
 
@@ -136,7 +136,10 @@ pub(crate) fn ProcessStandbyMessage(body: &[u8]) -> PgResult<()> {
         _ => {
             let _ = ereport(COMMERROR)
                 .errcode(ERRCODE_PROTOCOL_VIOLATION)
-                .errmsg(format!("unexpected message type \"{}\"", msgtype as u8 as char))
+                .errmsg(format!(
+                    "unexpected message type \"{}\"",
+                    msgtype as u8 as char
+                ))
                 .finish(loc(2409, "ProcessStandbyMessage"));
             proc_exit(0);
         }
@@ -163,7 +166,11 @@ fn ProcessStandbyReplyMessage(msg: &mut StringInfo<'_>) -> PgResult<()> {
                 flush_ptr as u32,
                 (apply_ptr >> 32) as u32,
                 apply_ptr as u32,
-                if reply_requested { " (reply requested)" } else { "" },
+                if reply_requested {
+                    " (reply requested)"
+                } else {
+                    ""
+                },
             ),
         );
     }
@@ -175,15 +182,25 @@ fn ProcessStandbyReplyMessage(msg: &mut StringInfo<'_>) -> PgResult<()> {
     let flush_lag = crate::lag::LagTrackerRead(SYNC_REP_WAIT_FLUSH, flush_ptr, now);
     let apply_lag = crate::lag::LagTrackerRead(SYNC_REP_WAIT_APPLY, apply_ptr, now);
 
-    let clear_lag_times =
-        reply_clears_lag_times(write_ptr, flush_ptr, apply_ptr, crate::SENT_PTR.with(|c| c.get()));
+    let clear_lag_times = reply_clears_lag_times(
+        write_ptr,
+        flush_ptr,
+        apply_ptr,
+        crate::SENT_PTR.with(|c| c.get()),
+    );
 
     if reply_requested {
         WalSndKeepalive(false, InvalidXLogRecPtr)?;
     }
 
     crate::my_set_reply(
-        write_ptr, flush_ptr, apply_ptr, write_lag, flush_lag, apply_lag, clear_lag_times,
+        write_ptr,
+        flush_ptr,
+        apply_ptr,
+        write_lag,
+        flush_lag,
+        apply_lag,
+        clear_lag_times,
         reply_time,
     );
 
@@ -264,25 +281,30 @@ fn PhysicalReplicationSlotNewXmin(
     feedback_catalog_xmin: types_core::TransactionId,
 ) -> PgResult<()> {
     use types_core::xact::TransactionIdPrecedes;
-    use types_core::{InvalidTransactionId, FirstNormalTransactionId};
+    use types_core::{FirstNormalTransactionId, InvalidTransactionId};
 
     let slot = slot::MyReplicationSlot().expect("PhysicalReplicationSlotNewXmin: no slot");
     let normal = |x: types_core::TransactionId| x >= FirstNormalTransactionId;
     let changed = slot.with_mutex(|| {
-        my_proc().xmin.value.store(InvalidTransactionId, std::sync::atomic::Ordering::Relaxed);
+        my_proc()
+            .xmin
+            .value
+            .store(InvalidTransactionId, std::sync::atomic::Ordering::Relaxed);
         let mut data = unsafe { slot.data.get() };
         let mut changed = false;
         // Physical replication doesn't need the xmin/effective_xmin
         // interlock (missed increases only cost query cancellations):
         // set both at once.
-        if !normal(data.xmin) || !normal(feedback_xmin)
+        if !normal(data.xmin)
+            || !normal(feedback_xmin)
             || TransactionIdPrecedes(data.xmin, feedback_xmin)
         {
             changed = true;
             data.xmin = feedback_xmin;
             unsafe { slot.effective_xmin.set(feedback_xmin) };
         }
-        if !normal(data.catalog_xmin) || !normal(feedback_catalog_xmin)
+        if !normal(data.catalog_xmin)
+            || !normal(feedback_catalog_xmin)
             || TransactionIdPrecedes(data.catalog_xmin, feedback_catalog_xmin)
         {
             changed = true;
@@ -416,14 +438,32 @@ mod tests {
         assert!(!reply_clears_lag_times(100, 100, 100, 100));
         assert!(reply_clears_lag_times(100, 100, 100, 100));
 
-        assert!(!reply_clears_lag_times(200, 200, 200, 200), "positions advanced: activity");
-        assert!(!reply_clears_lag_times(300, 300, 300, 300), "positions advanced: activity");
+        assert!(
+            !reply_clears_lag_times(200, 200, 200, 200),
+            "positions advanced: activity"
+        );
+        assert!(
+            !reply_clears_lag_times(300, 300, 300, 300),
+            "positions advanced: activity"
+        );
 
-        assert!(!reply_clears_lag_times(300, 250, 300, 300), "flush lags sentPtr");
-        assert!(!reply_clears_lag_times(300, 250, 300, 300), "flush lags sentPtr");
+        assert!(
+            !reply_clears_lag_times(300, 250, 300, 300),
+            "flush lags sentPtr"
+        );
+        assert!(
+            !reply_clears_lag_times(300, 250, 300, 300),
+            "flush lags sentPtr"
+        );
 
-        assert!(!reply_clears_lag_times(300, 300, 300, 300), "flush just caught up");
-        assert!(reply_clears_lag_times(300, 300, 300, 300), "unchanged full replay");
+        assert!(
+            !reply_clears_lag_times(300, 300, 300, 300),
+            "flush just caught up"
+        );
+        assert!(
+            reply_clears_lag_times(300, 300, 300, 300),
+            "unchanged full replay"
+        );
     }
 }
 

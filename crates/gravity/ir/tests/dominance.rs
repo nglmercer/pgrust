@@ -37,7 +37,11 @@ fn random_function(r: &mut Rng) -> Program {
         let n = 2 + r.below(8);
         let mut blocks = vec![b.entry()];
         for _ in 1..n {
-            blocks.push(if r.below(3) == 0 { b.create_block(&[Type::I64]) } else { b.create_block(&[]) });
+            blocks.push(if r.below(3) == 0 {
+                b.create_block(&[Type::I64])
+            } else {
+                b.create_block(&[])
+            });
         }
         let mut pool: Vec<Value> = Vec::new();
         for &bk in &blocks {
@@ -57,7 +61,15 @@ fn random_function(r: &mut Rng) -> Program {
             b.switch_to(bk);
             let target = |r: &mut Rng, b: &mut gravity_ir::builder::FunctionBuilder<'_>| {
                 let t = blocks[1 + r.below(n - 1)];
-                let arg: Vec<Value> = if b.block_params(t).is_empty() { vec![] } else { vec![if pool.is_empty() { b.load(Type::I64, p, 0) } else { pool[r.below(pool.len())] }] };
+                let arg: Vec<Value> = if b.block_params(t).is_empty() {
+                    vec![]
+                } else {
+                    vec![if pool.is_empty() {
+                        b.load(Type::I64, p, 0)
+                    } else {
+                        pool[r.below(pool.len())]
+                    }]
+                };
                 (t, arg)
             };
             match r.below(4) {
@@ -81,8 +93,17 @@ fn random_function(r: &mut Rng) -> Program {
         // a value nothing defines, read by one add (when the function has one)
         let u = Value(func.values.len() as u32);
         func.values.push(Type::I64);
-        let adds: Vec<(usize, usize)> = func.blocks.iter().enumerate()
-            .flat_map(|(bi, b)| b.insts.iter().enumerate().filter(|(_, i)| matches!(i.op, Op::IntBin { .. })).map(move |(ii, _)| (bi, ii)))
+        let adds: Vec<(usize, usize)> = func
+            .blocks
+            .iter()
+            .enumerate()
+            .flat_map(|(bi, b)| {
+                b.insts
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, i)| matches!(i.op, Op::IntBin { .. }))
+                    .map(move |(ii, _)| (bi, ii))
+            })
             .collect();
         if !adds.is_empty() {
             let (bi, ii) = adds[r.below(adds.len())];
@@ -145,19 +166,25 @@ fn dominated_by_definition(f: &Function) -> bool {
         Some((db, dp)) if db == ub => dp < up,
         Some((db, _)) => !reach(f, Some(db))[ub],
     };
-    f.blocks.iter().enumerate().filter(|&(bi, _)| reachable[bi]).all(|(bi, b)| {
-        let tp = b.insts.len() + 1;
-        b.insts.iter().enumerate().all(|(ii, inst)| {
-            let mut all = true;
-            inst.op.for_each_operand(|v| all &= ok(v, bi, ii + 1));
-            all
-        }) && {
-            let mut all = true;
-            b.term.for_each_operand(|v| all &= ok(v, bi, tp));
-            all
-        }
-            && b.term.edges().all(|e| e.args.iter().all(|&a| ok(a, bi, tp)))
-    })
+    f.blocks
+        .iter()
+        .enumerate()
+        .filter(|&(bi, _)| reachable[bi])
+        .all(|(bi, b)| {
+            let tp = b.insts.len() + 1;
+            b.insts.iter().enumerate().all(|(ii, inst)| {
+                let mut all = true;
+                inst.op.for_each_operand(|v| all &= ok(v, bi, ii + 1));
+                all
+            }) && {
+                let mut all = true;
+                b.term.for_each_operand(|v| all &= ok(v, bi, tp));
+                all
+            } && b
+                .term
+                .edges()
+                .all(|e| e.args.iter().all(|&a| ok(a, bi, tp)))
+        })
 }
 
 #[test]
@@ -166,10 +193,16 @@ fn verify_dominance_is_the_definition_on_random_functions() {
     let (mut clean, mut broken, mut undefined) = (0, 0, 0);
     for i in 0..20_000 {
         let p = random_function(&mut r);
-        verify_structure(&p).unwrap_or_else(|e| panic!("program {i}: the generator broke structure: {e:?}"));
+        verify_structure(&p)
+            .unwrap_or_else(|e| panic!("program {i}: the generator broke structure: {e:?}"));
         let want = dominated_by_definition(&p.funcs[0]);
         let got = verify_dominance(&p);
-        assert_eq!(got.is_ok(), want, "program {i}: verify_dominance {got:?}, the definition says {want}\n{}", gravity_ir::text::print_program(&p));
+        assert_eq!(
+            got.is_ok(),
+            want,
+            "program {i}: verify_dominance {got:?}, the definition says {want}\n{}",
+            gravity_ir::text::print_program(&p)
+        );
         if let Err(e) = got {
             broken += 1;
             undefined += e.message.contains("is never defined") as usize;
@@ -178,7 +211,10 @@ fn verify_dominance_is_the_definition_on_random_functions() {
         }
     }
     // the generator reaches all three outcomes, so the comparison above is not vacuous
-    assert!(clean > 1_000 && broken > 1_000 && undefined > 100, "clean {clean}, broken {broken}, never defined {undefined}");
+    assert!(
+        clean > 1_000 && broken > 1_000 && undefined > 100,
+        "clean {clean}, broken {broken}, never defined {undefined}"
+    );
 }
 
 /// `verify` runs the dominance check (main 09-24: lowerv4's every lowering calls `verify`, so an undominated use is a
@@ -203,12 +239,19 @@ fn verify_refuses_an_undominated_use() {
             let x = b.load(Type::I64, p, 16);
             b.br(join, &[x]);
             b.switch_to(join);
-            let r = if read_in_join { x } else { b.block_params(join)[0] };
+            let r = if read_in_join {
+                x
+            } else {
+                b.block_params(join)[0]
+            };
             b.ret(&[r]);
         }
         pb.finish()
     };
     let e = gravity_ir::verify::verify(&build(true)).expect_err("the join reads the arm's value");
-    assert_eq!(format!("fn {}: {}", e.func, e.message), "fn f: b2 terminator: v5 is defined in b1, which does not dominate the use");
+    assert_eq!(
+        format!("fn {}: {}", e.func, e.message),
+        "fn f: b2 terminator: v5 is defined in b1, which does not dominate the use"
+    );
     gravity_ir::verify::verify(&build(false)).unwrap();
 }

@@ -10,8 +10,8 @@ use gravity_decompose::Op;
 use gravity_program::{Cmd, WritePlan};
 use types_nodes::primnodes::VarReturningType;
 
-use crate::ops::modifytable::ret_cols::walk;
 use crate::graph::Gx;
+use crate::ops::modifytable::ret_cols::walk;
 
 /// D774 (`RetTableoid`): the RETURNING projection at `(k, j)` over a write whose every row goes to its one heap target
 /// (a plain table, a leaf a partitioned root was pruned to, an inheritance tree's one result relation): `tableoid` is
@@ -23,7 +23,9 @@ pub(crate) fn tableoid(gx: &Gx<'_, '_>, k: usize, j: usize) -> Option<(i32, type
     let p = gx.pipelines().get(k)?;
     // D1112: op `j` the RETURNING projection, or a SubPlan step of its list before it
     let wi = crate::ops::modifytable::returning::ret_write(p, j)?;
-    let Some(Op::Write(w)) = p.ops.get(wi) else { return None };
+    let Some(Op::Write(w)) = p.ops.get(wi) else {
+        return None;
+    };
     let t = crate::ops::modifytable::returning::target_at(p, wi, w)?;
     // ROWC-UNION: under the union form a row's relation is its own (`union_form`), handed back by the host
     if union_form(gx, k, w) {
@@ -37,7 +39,11 @@ pub(crate) fn tableoid(gx: &Gx<'_, '_>, k: usize, j: usize) -> Option<(i32, type
 }
 
 /// A RETURNING system column the written row carries: tableoid of a heap target (`tableoid`), else none yet.
-pub(crate) fn sys_served(v: &types_nodes::primnodes::Var<'_>, w: &WriteDesc<'_>, t: &Target<'_>) -> bool {
+pub(crate) fn sys_served(
+    v: &types_nodes::primnodes::Var<'_>,
+    w: &WriteDesc<'_>,
+    t: &Target<'_>,
+) -> bool {
     use gravity_decompose::ops::shared::modifytable::TargetKind;
     v.varattno == -6 && t.kind == TargetKind::Heap && !may_move(w)
 }
@@ -54,9 +60,15 @@ pub(crate) fn may_move(w: &WriteDesc<'_>) -> bool {
 /// that is the written row's (a default reference, the NEW of an INSERT / UPDATE, the OLD of a DELETE, and the OLD tableoid
 /// of an UPDATE whose row stays in its target: a row that may move is written by the move host into another leaf).
 pub(crate) fn image(v: &types_nodes::primnodes::Var<'_>, w: &WriteDesc<'_>) -> (bool, bool) {
-    let (old, new) = (v.varreturningtype == VarReturningType::VAR_RETURNING_OLD, v.varreturningtype == VarReturningType::VAR_RETURNING_NEW);
+    let (old, new) = (
+        v.varreturningtype == VarReturningType::VAR_RETURNING_OLD,
+        v.varreturningtype == VarReturningType::VAR_RETURNING_NEW,
+    );
     match w.cmd {
-        Cmd::Insert => (old && !w.on_conflict.as_ref().is_some_and(|c| c.update), !old),
+        Cmd::Insert => (
+            old && !w.on_conflict.as_ref().is_some_and(|c| c.update),
+            !old,
+        ),
         // a moved row's OLD tableoid is its source leaf's, not the destination's the host hands back (V4R-349)
         Cmd::Update => (false, !old || (v.varattno == -6 && !may_move(w))),
         Cmd::Delete => (new, !new),
@@ -73,7 +85,10 @@ pub(crate) fn image(v: &types_nodes::primnodes::Var<'_>, w: &WriteDesc<'_>) -> (
 /// an INSERT's, UPDATE's or DELETE's (hosts write_sys.rs: the inserted tuple, the new version, the deleted version it
 /// fetched); a MERGE through a root with one result relation keeps the Shape.
 pub(crate) fn sys_site(w: &WriteDesc<'_>) -> bool {
-    matches!(w.cmd, Cmd::Insert | Cmd::Update | Cmd::Delete) || w.cmd == Cmd::Merge && (w.route.is_some() && w.targets.len() > 1 || w.route.is_none() && w.targets.len() == 1)
+    matches!(w.cmd, Cmd::Insert | Cmd::Update | Cmd::Delete)
+        || w.cmd == Cmd::Merge
+            && (w.route.is_some() && w.targets.len() > 1
+                || w.route.is_none() && w.targets.len() == 1)
 }
 
 /// V4R-501: OLD's system column `v` as the replaced version's (the old site's last six cells, hosts write_sys.rs
@@ -81,7 +96,10 @@ pub(crate) fn sys_site(w: &WriteDesc<'_>) -> bool {
 /// version its move deleted) or ON CONFLICT DO UPDATE's existing row (NULL for an inserted row). `Err` names the refusal:
 /// xmin .. cmax of a row that may move (PostgreSQL converts a moved row's OLD through the root's virtual slot when a
 /// leaf's layout differs, where they raise: D1686), MERGE's.
-pub(crate) fn old_sys(v: &types_nodes::primnodes::Var<'_>, w: &WriteDesc<'_>) -> Result<(), &'static str> {
+pub(crate) fn old_sys(
+    v: &types_nodes::primnodes::Var<'_>,
+    w: &WriteDesc<'_>,
+) -> Result<(), &'static str> {
     match w.cmd {
         Cmd::Update if (-5..=-2).contains(&v.varattno) && may_move(w) => Err("RETURNING old: xmin .. cmax of a row that may move to another partition (D1686)"),
         Cmd::Update => Ok(()),
@@ -114,14 +132,32 @@ pub(crate) fn union_old(gx: &Gx<'_, '_>, k: usize, w: &WriteDesc<'_>) -> bool {
 
 /// `sys_old_plan`; `union`: OLD's tableoid of an UPDATE that may move is the replaced version's (`union_old`).
 fn sys_old_plan_with(w: &WriteDesc<'_>, union: bool) -> bool {
-    let Some(list) = w.returning.filter(|_| matches!(w.cmd, Cmd::Update | Cmd::Insert)) else { return false };
-    let rti = w.targets.first().filter(|_| w.targets.len() > 1).map_or(w.rti, |t| t.rti) as i32;
+    let Some(list) = w
+        .returning
+        .filter(|_| matches!(w.cmd, Cmd::Update | Cmd::Insert))
+    else {
+        return false;
+    };
+    let rti = w
+        .targets
+        .first()
+        .filter(|_| w.targets.len() > 1)
+        .map_or(w.rti, |t| t.rti) as i32;
     let mut any = false;
     for n in list.iter() {
-        let Some(te) = n.as_target_entry() else { continue };
+        let Some(te) = n.as_target_entry() else {
+            continue;
+        };
         walk(te.expr, &mut |x| {
-            let old = x.as_var().filter(|v| v.varreturningtype == VarReturningType::VAR_RETURNING_OLD && v.varattno < 0 && v.varlevelsup == 0 && v.varno == rti);
-            any |= old.is_some_and(|v| old_sys(v, w).is_ok() && (v.varattno != -6 || w.cmd == Cmd::Insert || union));
+            let old = x.as_var().filter(|v| {
+                v.varreturningtype == VarReturningType::VAR_RETURNING_OLD
+                    && v.varattno < 0
+                    && v.varlevelsup == 0
+                    && v.varno == rti
+            });
+            any |= old.is_some_and(|v| {
+                old_sys(v, w).is_ok() && (v.varattno != -6 || w.cmd == Cmd::Insert || union)
+            });
             true
         });
     }
@@ -138,7 +174,10 @@ pub(crate) fn sys_plan(w: &WriteDesc<'_>) -> Option<bool> {
 /// of their scans (write/delete_built.rs `union_feeds`), not an arm of one target: a row's tableoid is its own relation's.
 /// UNION-RET: or such an UPDATE under RETURNING (write/update_built.rs `ret_union`).
 pub(crate) fn union_form(gx: &Gx<'_, '_>, k: usize, w: &WriteDesc<'_>) -> bool {
-    w.cmd == Cmd::Delete && w.targets.len() > 1 && crate::ops::modifytable::delete_built::union_feeds(gx, k, w).is_some() || crate::ops::modifytable::update_built::ret_union(gx, k, w)
+    w.cmd == Cmd::Delete
+        && w.targets.len() > 1
+        && crate::ops::modifytable::delete_built::union_feeds(gx, k, w).is_some()
+        || crate::ops::modifytable::update_built::ret_union(gx, k, w)
 }
 
 /// ROWC-UNION: `sys_plan` for the write of pipeline `k`: under the union form (`union_form`) the host hands back a
@@ -154,13 +193,22 @@ fn sys_plan_with(w: &WriteDesc<'_>, varies: bool) -> Option<bool> {
         return None;
     }
     // the first target's list (under several result relations every arm's reads the same columns of its own target)
-    let rti = w.targets.first().filter(|_| w.targets.len() > 1).map_or(w.rti, |t| t.rti) as i32;
+    let rti = w
+        .targets
+        .first()
+        .filter(|_| w.targets.len() > 1)
+        .map_or(w.rti, |t| t.rti) as i32;
     let (mut any, mut header) = (false, false);
     for n in list.iter() {
-        let Some(te) = n.as_target_entry() else { continue };
+        let Some(te) = n.as_target_entry() else {
+            continue;
+        };
         walk(te.expr, &mut |x| {
             // a default reference, or OLD / NEW of the written row (`image`)
-            if let Some(v) = x.as_var().filter(|v| v.varattno < 0 && v.varlevelsup == 0 && v.varno == rti && image(v, w).1) {
+            if let Some(v) = x
+                .as_var()
+                .filter(|v| v.varattno < 0 && v.varlevelsup == 0 && v.varno == rti && image(v, w).1)
+            {
                 if varies || !sys_served(v, w, &w.targets[0]) {
                     any = true;
                     header |= (-5..=-2).contains(&v.varattno);
@@ -176,7 +224,11 @@ fn sys_plan_with(w: &WriteDesc<'_>, varies: bool) -> Option<bool> {
 /// reads them; V4R-349: a moved row's are the move host's insert through the root (ExecCrossPartitionUpdate's slot, hosts
 /// write_move.rs `Mover::sys`); V4R-501: the replaced version's (`sys_old_plan`).
 pub(crate) fn sys_update(w: &WriteDesc<'_>, plan: WritePlan) -> WritePlan {
-    let plan = if sys_old_plan(w) { plan.with_sys_old() } else { plan };
+    let plan = if sys_old_plan(w) {
+        plan.with_sys_old()
+    } else {
+        plan
+    };
     match sys_plan(w) {
         Some(header) => plan.with_sys(header),
         None => plan,

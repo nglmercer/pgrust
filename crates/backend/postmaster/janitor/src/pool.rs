@@ -689,8 +689,7 @@ fn replenish_batch(specs: &[PendingEnsure]) -> PgResult<Vec<(String, Oid)>> {
             for (spec, o) in specs.iter().zip(outcomes) {
                 match o {
                     BatchOutcome::Minted { .. } => {
-                        let oid =
-                            oids.next().expect("created oids track Minted outcomes").oid;
+                        let oid = oids.next().expect("created oids track Minted outcomes").oid;
                         minted.push((spec.name.clone(), oid));
                     }
                     // A foreign database squatting a spare name is NEVER
@@ -752,10 +751,7 @@ fn replenish_serial(specs: &[PendingEnsure]) -> PgResult<Vec<(String, Oid)>> {
                 );
             }
             Err(e) => {
-                crate::main_loop::contain(
-                    e,
-                    &format!("minting warm spare \"{}\"", spec.name),
-                )?;
+                crate::main_loop::contain(e, &format!("minting warm spare \"{}\"", spec.name))?;
                 // Stop this tick's refill; the next tick retries the
                 // remaining deficit under fresh names.
                 break;
@@ -801,7 +797,10 @@ mod tests {
         // One template: plain deficit under the tick cap.
         assert_eq!(mint_quotas(&[8], &[8], POOL_REPLENISH_MAX), [0]);
         assert_eq!(mint_quotas(&[8], &[5], POOL_REPLENISH_MAX), [3]);
-        assert_eq!(mint_quotas(&[64], &[0], POOL_REPLENISH_MAX), [POOL_REPLENISH_MAX]);
+        assert_eq!(
+            mint_quotas(&[64], &[0], POOL_REPLENISH_MAX),
+            [POOL_REPLENISH_MAX]
+        );
         // Over-full (target shrank): nothing to MINT (the excess-drain
         // branch drops the surplus separately).
         assert_eq!(mint_quotas(&[4], &[8], POOL_REPLENISH_MAX), [0]);
@@ -823,12 +822,18 @@ mod tests {
         let now: u64 = 10_000_000_000;
         let fresh = now - 1; // just-landed post
         let stale = now - REFILL_DEFER_TRAFFIC_NS; // exactly aged out
-        // Deep pool + fresh traffic: defer (the dispatch-shadow case).
+                                                   // Deep pool + fresh traffic: defer (the dispatch-shadow case).
         assert!(should_defer_refill(128, 128, now, fresh));
-        assert!(should_defer_refill(128, 64, now, fresh), "half target is inclusive");
+        assert!(
+            should_defer_refill(128, 64, now, fresh),
+            "half target is inclusive"
+        );
         // Below half: refill regardless of traffic (pool health outranks).
         assert!(!should_defer_refill(128, 63, now, fresh));
-        assert!(!should_defer_refill(8, 0, now, fresh), "cold fill never defers");
+        assert!(
+            !should_defer_refill(8, 0, now, fresh),
+            "cold fill never defers"
+        );
         // Quiet (or never-posted) traffic: refill proceeds.
         assert!(!should_defer_refill(128, 128, now, stale));
         assert!(!should_defer_refill(128, 128, now, 0));

@@ -23,19 +23,36 @@ pub(super) fn reader_list(rel: &Relation<'_>, list: Arc<PartList>) -> PgResult<A
     if list.parts.is_empty() || list.lacking.is_some() {
         return Ok(list);
     }
-    let fps: Vec<Option<u64>> = list.parts.iter().map(|p| p.expect.schema_fingerprint).collect(); // alloc: Exec
-    let Some(lacking) = pgrc_am::fastadd::Lacking::of(rel, &fps)? else { return Ok(list) };
+    let fps: Vec<Option<u64>> = list
+        .parts
+        .iter()
+        .map(|p| p.expect.schema_fingerprint)
+        .collect(); // alloc: Exec
+    let Some(lacking) = pgrc_am::fastadd::Lacking::of(rel, &fps)? else {
+        return Ok(list);
+    };
     let digest = lacking.digest();
     let mut derived = pgsync::lock(&list.derived);
     if let Some((_, d)) = derived.iter().find(|(k, _)| *k == digest) {
         return Ok(Arc::clone(d));
     }
-    let parts = list.parts.iter().map(|p| PartSpec { io: io_of(&p.io), expect: p.expect, rows: p.rows, granules: p.granules, deletes: p.deletes.clone(), part: p.part.clone() }).collect(); // alloc: Cold
+    let parts = list
+        .parts
+        .iter()
+        .map(|p| PartSpec {
+            io: io_of(&p.io),
+            expect: p.expect,
+            rows: p.rows,
+            granules: p.granules,
+            deletes: p.deletes.clone(),
+            part: p.part.clone(),
+        })
+        .collect(); // alloc: Cold
     let mut d = PartList::with_answers(parts, list.answers.clone());
     d.generation = fnv(d.generation, &digest.to_le_bytes());
     d.lacking = Some(Arc::new(lacking)); // alloc: Cold
     let d = Arc::new(d); // alloc: Cold
-    // a base list serves a few descriptors over its life (one per ADD / DROP COLUMN after it): the oldest goes first
+                         // a base list serves a few descriptors over its life (one per ADD / DROP COLUMN after it): the oldest goes first
     if derived.len() >= 4 {
         derived.remove(0);
     }
@@ -46,7 +63,11 @@ pub(super) fn reader_list(rel: &Relation<'_>, list: Arc<PartList>) -> PgResult<A
 fn io_of(io: &PartIoSpec) -> PartIoSpec {
     match io {
         PartIoSpec::Path(p) => PartIoSpec::Path(p.clone()),
-        PartIoSpec::Mem { bytes, dev, ino } => PartIoSpec::Mem { bytes: Arc::clone(bytes), dev: *dev, ino: *ino },
+        PartIoSpec::Mem { bytes, dev, ino } => PartIoSpec::Mem {
+            bytes: Arc::clone(bytes),
+            dev: *dev,
+            ino: *ino,
+        },
     }
 }
 
@@ -63,7 +84,12 @@ impl PartList {
     }
 
     /// The part column `attno` of part `p` is read from: `real` (part `p`), or the stand-in for a column it lacks.
-    pub fn lane_part<'a>(&'a self, p: usize, attno: u32, real: &'a Arc<OpenPart>) -> PgResult<&'a Arc<OpenPart>> {
+    pub fn lane_part<'a>(
+        &'a self,
+        p: usize,
+        attno: u32,
+        real: &'a Arc<OpenPart>,
+    ) -> PgResult<&'a Arc<OpenPart>> {
         match self.lacking.as_deref() {
             None => Ok(real),
             Some(l) => l.lane(p, attno, real),

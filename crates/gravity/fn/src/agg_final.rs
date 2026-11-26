@@ -145,7 +145,17 @@ fn special_ret(e: *mut ErrSlot, r: *mut Region, code: i64) -> Ret {
         SP_NAN => adt_numeric::NUMERIC_NAN,
         SP_PINF => adt_numeric::NUMERIC_PINF,
         SP_NINF => adt_numeric::NUMERIC_NINF,
-        _ => return fail(e, Box::new(crate::PgError::error("gravity: a numeric sum past the packed sum's range (2^126)".to_string()).with_sqlstate(types_error::ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE))), // alloc: Cold
+        _ => {
+            return fail(
+                e,
+                Box::new(
+                    crate::PgError::error(
+                        "gravity: a numeric sum past the packed sum's range (2^126)".to_string(),
+                    )
+                    .with_sqlstate(types_error::ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
+                ),
+            )
+        } // alloc: Cold
     };
     let mut var = adt_numeric::NumericVar::new();
     var.sign = sign;
@@ -232,8 +242,8 @@ gravity_abi::host! {
     }
 }
 
-pub use raw::num_mantissa_within;
 use raw::datum_mantissa;
+pub use raw::num_mantissa_within;
 
 gravity_abi::host! {
     /// The order of the mantissa `m` at `scale` (a packed lane's word, or `num_mantissa`'s sentinel for a special) against the numeric
@@ -290,7 +300,11 @@ pub fn cmp_mantissa(m: i64, scale: i32, num: Num<'_>) -> i64 {
     for (i, &d) in num.digits().iter().enumerate() {
         let e = 4 * (num.weight() - i as i32) + scale;
         if e >= 0 {
-            q = 10i128.checked_pow(e as u32).and_then(|p| p.checked_mul(d as i128)).and_then(|t| q.checked_add(t)).map_or(CAP, |v| v.min(CAP));
+            q = 10i128
+                .checked_pow(e as u32)
+                .and_then(|p| p.checked_mul(d as i128))
+                .and_then(|t| q.checked_add(t))
+                .map_or(CAP, |v| v.min(CAP));
         } else if e > -38 {
             let p = 10i128.pow((-e) as u32);
             q += d as i128 / p;
@@ -302,7 +316,13 @@ pub fn cmp_mantissa(m: i64, scale: i32, num: Num<'_>) -> i64 {
     let m = m as i128;
     if num.sign() == adt_numeric::NUMERIC_NEG && (q != 0 || frac) {
         // the value is -(q + frac): above -q only when m is; at -q, m is above by the fraction
-        return if m > -q || (m == -q && frac) { 1 } else if m == -q { 0 } else { -1 };
+        return if m > -q || (m == -q && frac) {
+            1
+        } else if m == -q {
+            0
+        } else {
+            -1
+        };
     }
     if m < q || (m == q && frac) {
         -1
@@ -335,7 +355,10 @@ fn mantissa_digits(num: Num<'_>, scale: i32) -> i64 {
     for (i, &d) in num.digits().iter().enumerate() {
         let e = 4 * (num.weight() - i as i32) + scale;
         let term = if e >= 0 {
-            match 10i128.checked_pow(e as u32).and_then(|p| p.checked_mul(d as i128)) {
+            match 10i128
+                .checked_pow(e as u32)
+                .and_then(|p| p.checked_mul(d as i128))
+            {
                 Some(t) => t,
                 None => return NO_MANTISSA,
             }
@@ -354,7 +377,11 @@ fn mantissa_digits(num: Num<'_>, scale: i32) -> i64 {
     if m >= MANT_PINF as i128 {
         return NO_MANTISSA;
     }
-    if num.sign() == adt_numeric::NUMERIC_NEG { -(m as i64) } else { m as i64 }
+    if num.sign() == adt_numeric::NUMERIC_NEG {
+        -(m as i64)
+    } else {
+        m as i64
+    }
 }
 
 gravity_abi::host! {
@@ -501,15 +528,35 @@ fn i128_of(lo: i64, hi: i64) -> i128 {
 /// or at a merge, raised with PG's text (lowerv4 class_interval_sum.rs).
 #[cold]
 pub fn interval_out_of_range() -> Box<crate::PgError> {
-    Box::new(crate::PgError::error("interval out of range").with_sqlstate(types_error::ERRCODE_DATETIME_VALUE_OUT_OF_RANGE)) // alloc: Cold
+    Box::new(
+        crate::PgError::error("interval out of range")
+            .with_sqlstate(types_error::ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
+    ) // alloc: Cold
 }
 
 /// `sum / avg(interval)`'s final over an `IntervalSum` slot's state, by the row executor's own finals (`interval_sum_final`
 /// / `interval_avg_final` over PG's IntervalAggState: NULL for no input, PG's raise for both infinities, an infinity, the
 /// sum, or the sum divided by N through `interval_div`): PG's 16-byte Interval image (time, day, month), or `None` (NULL).
-pub fn interval_agg_final(avg: bool, time: i64, day: i32, month: i32, n: i64, pinf: i64, ninf: i64) -> Result<Option<[u8; 16]>, Box<crate::PgError>> {
-    let state = adt_timestamp::interval::IntervalAggState { N: n, pInfcount: pinf, nInfcount: ninf, sumX: adt_datetime::Interval { time, day, month } };
-    let r = if avg { adt_timestamp::interval::interval_avg_final(&state)? } else { adt_timestamp::interval::interval_sum_final(&state)? };
+pub fn interval_agg_final(
+    avg: bool,
+    time: i64,
+    day: i32,
+    month: i32,
+    n: i64,
+    pinf: i64,
+    ninf: i64,
+) -> Result<Option<[u8; 16]>, Box<crate::PgError>> {
+    let state = adt_timestamp::interval::IntervalAggState {
+        N: n,
+        pInfcount: pinf,
+        nInfcount: ninf,
+        sumX: adt_datetime::Interval { time, day, month },
+    };
+    let r = if avg {
+        adt_timestamp::interval::interval_avg_final(&state)?
+    } else {
+        adt_timestamp::interval::interval_sum_final(&state)?
+    };
     Ok(r.map(|iv| {
         let mut img = [0u8; 16];
         img[..8].copy_from_slice(&iv.time.to_le_bytes());

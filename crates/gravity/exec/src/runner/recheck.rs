@@ -14,7 +14,11 @@ pub fn rechecks(a: &Admitted, pstmt: &PlannedStmt<'_>) -> bool {
     !in_plan_order()
         && a.cmd == Cmd::Select
         && pstmt.rowMarks.iter().next().is_none()
-        && (licensed(&a.program) || a.graph.as_ref().is_some_and(|g| g.arms.iter().any(|x| licensed(&x.program)) || g.inits.iter().any(|x| licensed(&x.program))))
+        && (licensed(&a.program)
+            || a.graph.as_ref().is_some_and(|g| {
+                g.arms.iter().any(|x| licensed(&x.program))
+                    || g.inits.iter().any(|x| licensed(&x.program))
+            }))
 }
 
 /// An error the statement's own code raised, which the plan-order run may not raise. Never re-run: a cancel, a statement
@@ -23,7 +27,10 @@ pub fn rechecks(a: &Admitted, pstmt: &PlannedStmt<'_>) -> bool {
 pub fn rechecked(e: &types_error::PgError) -> bool {
     let class = e.sqlstate.0 & 0xfff;
     let of = |c: [u8; 2]| types_error::make_sqlstate([c[0], c[1], b'0', b'0', b'0']).0 & 0xfff;
-    e.level < types_error::FATAL && ![*b"57", *b"08", *b"25", *b"40", *b"55", *b"58"].into_iter().any(|c| class == of(c))
+    e.level < types_error::FATAL
+        && ![*b"57", *b"08", *b"25", *b"40", *b"55", *b"58"]
+            .into_iter()
+            .any(|c| class == of(c))
 }
 
 /// The first run's error a refused plan-order run gives back as the statement's (no refusal in its place): a resource's (class 53: out of memory, a disk full; 54: a program limit), which names no
@@ -40,7 +47,8 @@ pub fn surfaces_over_refusal(e: &types_error::PgError) -> bool {
 /// `DECISIONS.md` 4 (D) b: `e` is the error of a part run ahead of PostgreSQL's plan under a tagged licence (exec glue
 /// `pg_error` put the run-ahead tag first in its log-only detail).
 pub fn ahead_tagged(e: &types_error::PgError) -> bool {
-    e.detail_log().is_some_and(|d| d.starts_with(crate::glue::AHEAD_TAG))
+    e.detail_log()
+        .is_some_and(|d| d.starts_with(crate::glue::AHEAD_TAG))
 }
 
 /// D4206: whether error `e`, raised by a part run ahead of PostgreSQL's plan under a tagged licence, stands as raised. A
@@ -52,7 +60,12 @@ pub fn ahead_tagged(e: &types_error::PgError) -> bool {
 /// refusal by name (exec glue `pg_error`): PostgreSQL may return rows where the part raised it.
 pub fn tag_stands(e: &types_error::PgError) -> bool {
     let code = types_error::unpack_sqlstate(e.sqlstate());
-    e.level >= types_error::FATAL || matches!(&[code[0], code[1]], b"21" | b"22" | b"23" | b"53" | b"54" | b"57" | b"40" | b"25" | b"08" | b"58") || &code == b"55P03"
+    e.level >= types_error::FATAL
+        || matches!(
+            &[code[0], code[1]],
+            b"21" | b"22" | b"23" | b"53" | b"54" | b"57" | b"40" | b"25" | b"08" | b"58"
+        )
+        || &code == b"55P03"
 }
 
 /// D4206: `e` is the refusal exec glue `pg_error` made of a run-ahead error `tag_stands` refuses: the statement's own
@@ -109,7 +122,11 @@ pub struct PlState {
 
 impl PlState {
     pub fn now() -> PlState {
-        PlState { spi: spi::debug_stack_depth(), guc: guc::guc_nest_level(), xact: xact::GetCurrentTransactionNestLevel() }
+        PlState {
+            spi: spi::debug_stack_depth(),
+            guc: guc::guc_nest_level(),
+            xact: xact::GetCurrentTransactionNestLevel(),
+        }
     }
 
     /// Nothing the run called left SPI, GUC or subtransaction state behind: the statement may go on after its error.
@@ -197,11 +214,24 @@ mod tests {
     /// anything at FATAL or above (the prototype's re-run swallowed a 40 ms statement_timeout and returned rows).
     #[test]
     fn rechecked_takes_the_statements_own_errors_only() {
-        for s in [b"22012", b"22003", b"22P02", b"2201F", b"23514", b"XX000", b"42883"] {
-            assert!(super::rechecked(&err(s)), "{}", core::str::from_utf8(s).unwrap());
+        for s in [
+            b"22012", b"22003", b"22P02", b"2201F", b"23514", b"XX000", b"42883",
+        ] {
+            assert!(
+                super::rechecked(&err(s)),
+                "{}",
+                core::str::from_utf8(s).unwrap()
+            );
         }
-        for s in [b"57014", b"57P01", b"57P05", b"08006", b"25P02", b"25006", b"40001", b"40P01", b"55P03", b"55006", b"58030"] {
-            assert!(!super::rechecked(&err(s)), "{}", core::str::from_utf8(s).unwrap());
+        for s in [
+            b"57014", b"57P01", b"57P05", b"08006", b"25P02", b"25006", b"40001", b"40P01",
+            b"55P03", b"55006", b"58030",
+        ] {
+            assert!(
+                !super::rechecked(&err(s)),
+                "{}",
+                core::str::from_utf8(s).unwrap()
+            );
         }
         let mut fatal = err(b"22012");
         fatal.level = FATAL;
@@ -227,22 +257,42 @@ mod tests {
     #[test]
     fn only_a_resource_error_surfaces_over_a_refusal() {
         for s in [b"53200", b"53100", b"53000", b"54000", b"54001"] {
-            assert!(super::surfaces_over_refusal(&err(s)), "{}", core::str::from_utf8(s).unwrap());
+            assert!(
+                super::surfaces_over_refusal(&err(s)),
+                "{}",
+                core::str::from_utf8(s).unwrap()
+            );
         }
-        for s in [b"22012", b"22003", b"2201W", b"2201X", b"21000", b"XX000", b"23505"] {
-            assert!(!super::surfaces_over_refusal(&err(s)), "{}", core::str::from_utf8(s).unwrap());
+        for s in [
+            b"22012", b"22003", b"2201W", b"2201X", b"21000", b"XX000", b"23505",
+        ] {
+            assert!(
+                !super::surfaces_over_refusal(&err(s)),
+                "{}",
+                core::str::from_utf8(s).unwrap()
+            );
         }
         // `DECISIONS.md` 4 (D) b: a run-ahead part's error is the statement's
-        let tagged = err(b"22012").with_detail_log("gravity ahead: 22012 node 2 Seq Scan (DECISIONS 4 (D) b)".to_string()); // alloc: Cold
+        let tagged = err(b"22012").with_detail_log(
+            "gravity ahead: 22012 node 2 Seq Scan (DECISIONS 4 (D) b)".to_string(),
+        ); // alloc: Cold
         assert!(super::ahead_tagged(&tagged) && super::surfaces_over_refusal(&tagged));
-        assert!(!super::ahead_tagged(&err(b"22012").with_detail_log("Key (a)=(1) already exists.".to_string()))); // alloc: Cold
+        assert!(!super::ahead_tagged(
+            &err(b"22012").with_detail_log("Key (a)=(1) already exists.".to_string())
+        )); // alloc: Cold
     }
 
     /// NEW-numeric-1: a FOLD_TIE re-run's line names its merges.
     #[test]
     fn the_fold_tie_line_names_its_merges() {
-        assert_eq!(super::recheck_line(0, "x"), "gravity: recheck in plan order after: x");
-        assert_eq!(super::recheck_line(2, "x"), "gravity: recheck in plan order after: FOLD_TIE (2 merges): x");
+        assert_eq!(
+            super::recheck_line(0, "x"),
+            "gravity: recheck in plan order after: x"
+        );
+        assert_eq!(
+            super::recheck_line(2, "x"),
+            "gravity: recheck in plan order after: FOLD_TIE (2 merges): x"
+        );
     }
 
     /// D4402 (born red): a statement the memory governor canceled never re-runs in plan order. The ladder's R6 (as the
@@ -260,18 +310,31 @@ mod tests {
             governor::register(4002, 44021);
             let ctx = mcx::MemoryContext::new("d4402 hog");
             governor::statement_start(0, true);
-            assert!(super::reruns(&err(b"53200")), "a 53200 nobody canceled re-runs as before");
+            assert!(
+                super::reruns(&err(b"53200")),
+                "a 53200 nobody canceled re-runs as before"
+            );
             ctx.mcx().alloc_uninit_bytes(hog).unwrap();
             let v = governor::cancel_largest_victim(90, 32 << 20).expect("the hog is chosen");
             assert_eq!(v.backend, Some((4002, 44021)), "{v:?}");
-            let e = governor::take_watchdog_cancel().expect("the run's poll raises the cancel's 53200");
+            let e =
+                governor::take_watchdog_cancel().expect("the run's poll raises the cancel's 53200");
             assert_eq!(e.sqlstate(), types_error::ERRCODE_OUT_OF_MEMORY);
-            assert!(super::memory_canceled(), "the ledger holds the cancel until the statement ends");
-            assert!(!super::reruns(&e), "the cancel's 53200 is the statement's: no plan-order run under a canceled ledger");
+            assert!(
+                super::memory_canceled(),
+                "the ledger holds the cancel until the statement ends"
+            );
+            assert!(
+                !super::reruns(&e),
+                "the cancel's 53200 is the statement's: no plan-order run under a canceled ledger"
+            );
             governor::statement_end();
             drop(ctx);
             governor::statement_start(0, true);
-            assert!(!super::memory_canceled() && super::reruns(&err(b"53200")), "the next statement re-runs as before");
+            assert!(
+                !super::memory_canceled() && super::reruns(&err(b"53200")),
+                "the next statement re-runs as before"
+            );
             governor::statement_end();
         })
         .join()
@@ -283,7 +346,9 @@ mod tests {
     fn plan_order_denies_every_licence() {
         use gravity_decompose::effects::{licence, Departure, Effects};
         assert!(!super::in_plan_order());
-        assert!(super::plan_order(|| super::in_plan_order() && licence(Effects::RAISES, Departure::Ahead).is_err()));
+        assert!(super::plan_order(
+            || super::in_plan_order() && licence(Effects::RAISES, Departure::Ahead).is_err()
+        ));
         assert!(!super::in_plan_order(), "restored");
     }
 }

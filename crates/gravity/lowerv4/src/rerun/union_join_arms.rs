@@ -11,21 +11,21 @@
 //! passes too (two one-index bitmap scans over one index serve since D2207's fix: each rechecks with its own qual, found
 //! by its node id). Registers nothing. Owner M8-NEST.
 use gravity_abi::breaker::BreakerKind;
-use gravity_decompose::ops::shared::append::AppendDesc;
 use gravity_decompose::catalog::expr_type::type_of;
-use gravity_decompose::join::JoinDesc;
-use gravity_decompose::ops::shared::scan::BitmapPlan;
 use gravity_decompose::graph::IndexKey;
+use gravity_decompose::join::JoinDesc;
+use gravity_decompose::ops::shared::append::AppendDesc;
+use gravity_decompose::ops::shared::scan::BitmapPlan;
 use gravity_decompose::{Op, Source};
 use gravity_program::LifeId;
+use mcx::{CollectIn, GrowIn, PgVec};
 use types_nodes::jointype::JoinType;
 use types_nodes::Node;
-use mcx::{CollectIn, GrowIn, PgVec};
 
+use crate::admit::refusal::Reason;
+use crate::effects::{support, Key, KeyUse, USER_FN};
 use crate::frame::iface;
 use crate::graph::Gx;
-use crate::effects::{support, Key, KeyUse, USER_FN};
-use crate::admit::refusal::Reason;
 
 /// How deep a build may itself probe (a three-way partitionwise join's child is two).
 const DEPTH: u8 = 4;
@@ -36,7 +36,9 @@ pub(crate) fn feeds(gx: &Gx<'_, '_>, emit: usize, slot: u8) -> Vec<usize> {
     let ps = gx.pipelines();
     let reads = |q: usize| crate::rerun::union_arms::union_of(&ps[q]).is_some_and(|u| u.0 == slot);
     let from = (0..emit).rev().find(|&q| reads(q)).map_or(0, |q| q + 1);
-    (from..emit).filter(|&q| crate::rerun::union_arms::feed_of(&ps[q]) == Some(slot)).collect() // alloc: Program
+    (from..emit)
+        .filter(|&q| crate::rerun::union_arms::feed_of(&ps[q]) == Some(slot))
+        .collect() // alloc: Program
 }
 
 /// D3897 (build_class.rs `feed`, D3893's `arms_at`): every feed of the settled union whose last arm is pipeline `last`
@@ -47,7 +49,10 @@ pub(crate) fn arms_upto<'g>(gx: &Gx<'g, '_>, last: usize, slot: u8) -> PgVec<'g,
     let ps = gx.pipelines();
     let feeds = |q: usize| crate::rerun::union_arms::feed_of(&ps[q]) == Some(slot);
     let reads = |q: usize| {
-        !feeds(q) && (ps[q].desc.consumes.contains(&slot) || matches!(ps[q].source, gravity_decompose::Source::Breaker { slot: s } if s == slot) || crate::rerun::union_arms::union_of(&ps[q]).is_some_and(|u| u.0 == slot))
+        !feeds(q)
+            && (ps[q].desc.consumes.contains(&slot)
+                || matches!(ps[q].source, gravity_decompose::Source::Breaker { slot: s } if s == slot)
+                || crate::rerun::union_arms::union_of(&ps[q]).is_some_and(|u| u.0 == slot))
     };
     let from = (0..last).rev().find(|&q| reads(q)).map_or(0, |q| q + 1);
     (from..=last).filter(|&q| feeds(q)).collect_in(gx.mcx)
@@ -57,7 +62,8 @@ impl Gx<'_, '_> {
     /// Every feed of the settled union pipeline `p` emits (none when `p` is no union's emit): join/build_class.rs `feed`
     /// reads them all, not only the emit's nearest producer, so a union's side is every arm's.
     pub(crate) fn union_feeds(&self, p: usize) -> Vec<usize> {
-        crate::rerun::union_arms::union_of(&self.pipelines()[p]).map_or_else(Vec::new, |u| feeds(self, p, u.0))
+        crate::rerun::union_arms::union_of(&self.pipelines()[p])
+            .map_or_else(Vec::new, |u| feeds(self, p, u.0))
     }
 }
 
@@ -66,7 +72,9 @@ impl Gx<'_, '_> {
 /// loud arm keeps D1486's name whatever else the statement holds). A union with a joined or bitmap arm then refuses by
 /// USER_FN when a probe's hash support is not built in.
 pub(crate) fn arms(gx: &Gx<'_, '_>, feeds: &[usize], node: i32) -> bool {
-    let Some(joins) = arms_take(gx, feeds) else { return false };
+    let Some(joins) = arms_take(gx, feeds) else {
+        return false;
+    };
     if !joins.iter().all(|&f| hashes(gx, f, 0)) {
         crate::refuse!(node, Reason::Shape { why: USER_FN });
     }
@@ -77,8 +85,15 @@ pub(crate) fn arms(gx: &Gx<'_, '_>, feeds: &[usize], node: i32) -> bool {
 /// or `bitmap` (the rule takes the union), else none (union_arms.rs `arms_read` asks it).
 pub(crate) fn arms_take<'g>(gx: &Gx<'g, '_>, feeds: &[usize]) -> Option<PgVec<'g, usize>> {
     let ps = gx.pipelines();
-    let joins: PgVec<'g, usize> = feeds.iter().copied().filter(|&f| !crate::rerun::union_arms::quiet_arm(gx, &ps[f]) && !merged(gx, f)).collect_in(gx.mcx);
-    joins.iter().all(|&f| joined(gx, f) || bitmap(gx, f)).then_some(joins)
+    let joins: PgVec<'g, usize> = feeds
+        .iter()
+        .copied()
+        .filter(|&f| !crate::rerun::union_arms::quiet_arm(gx, &ps[f]) && !merged(gx, f))
+        .collect_in(gx.mcx);
+    joins
+        .iter()
+        .all(|&f| joined(gx, f) || bitmap(gx, f))
+        .then_some(joins)
 }
 
 /// Feed `f` is a quiet bitmap arm (row 2): a bitmap heap scan whose every leaf key has a builtin operator and a quiet value
@@ -88,14 +103,24 @@ pub(crate) fn arms_take<'g>(gx: &Gx<'g, '_>, feeds: &[usize]) -> Option<PgVec<'g
 pub(crate) fn bitmap(gx: &Gx<'_, '_>, f: usize) -> bool {
     let p = &gx.pipelines()[f];
     let quiet = |n: Node<'_>| crate::rerun::union_arms::quiet_in(gx, n, false);
-    let Source::Bitmap { plan, recheck, .. } = &p.source else { return false };
-    let Some((Op::Append(AppendDesc::Feed { .. }), body)) = p.ops.split_last() else { return false };
-    let key = |k: &IndexKey<'_>| (k.opno == 0 || gravity_decompose::effects::builtin_oper(k.opno).is_some()) && quiet(k.value);
-    leaves(plan, &key) && recheck.iter().all(quiet) && p.desc.consumes.is_empty() && body.iter().all(|op| match op {
-        Op::Filter(n) | Op::Gate(n) => quiet(*n),
-        Op::Project(l) => l.iter().all(quiet),
-        _ => false,
-    })
+    let Source::Bitmap { plan, recheck, .. } = &p.source else {
+        return false;
+    };
+    let Some((Op::Append(AppendDesc::Feed { .. }), body)) = p.ops.split_last() else {
+        return false;
+    };
+    let key = |k: &IndexKey<'_>| {
+        (k.opno == 0 || gravity_decompose::effects::builtin_oper(k.opno).is_some())
+            && quiet(k.value)
+    };
+    leaves(plan, &key)
+        && recheck.iter().all(quiet)
+        && p.desc.consumes.is_empty()
+        && body.iter().all(|op| match op {
+            Op::Filter(n) | Op::Gate(n) => quiet(*n),
+            Op::Project(l) => l.iter().all(quiet),
+            _ => false,
+        })
 }
 
 /// D1486 (material, foreign_key#1393 / #1394: ATTACH PARTITION's RI validation, a Merge Right Anti Join over an ordered Append
@@ -108,16 +133,24 @@ pub(crate) fn merged(gx: &Gx<'_, '_>, f: usize) -> bool {
     let ps = gx.pipelines();
     let p = &ps[f];
     let quiet = |n: Node<'_>| crate::rerun::union_arms::quiet_in(gx, n, false);
-    let Some((Op::Append(AppendDesc::Feed { .. }), body)) = p.ops.split_last() else { return false };
-    let Some((Op::Append(AppendDesc::Merge { prune: None, .. }), rest)) = body.split_first() else { return false };
-    let Some(m) = crate::ops::append::merge_admit::Merge::of_reader(gx, f) else { return false };
+    let Some((Op::Append(AppendDesc::Feed { .. }), body)) = p.ops.split_last() else {
+        return false;
+    };
+    let Some((Op::Append(AppendDesc::Merge { prune: None, .. }), rest)) = body.split_first() else {
+        return false;
+    };
+    let Some(m) = crate::ops::append::merge_admit::Merge::of_reader(gx, f) else {
+        return false;
+    };
     matches!(p.source, Source::Breaker { slot } if slot == m.slot)
         && rest.iter().all(|op| match op {
             Op::Filter(n) | Op::Gate(n) => quiet(*n),
             Op::Project(l) => l.iter().all(quiet),
             _ => false,
         })
-        && m.arms.iter().all(|&a| crate::rerun::union_arms::quiet_arm(gx, &ps[a]))
+        && m.arms
+            .iter()
+            .all(|&a| crate::rerun::union_arms::quiet_arm(gx, &ps[a]))
         && crate::ops::append::merge_admit::builtin_keys(gx, &m)
 }
 
@@ -126,18 +159,24 @@ pub(crate) fn leaves(p: &BitmapPlan<'_>, ok: &dyn Fn(&IndexKey<'_>) -> bool) -> 
     crate::stack_check();
     match p {
         BitmapPlan::Index { keys, .. } => keys.iter().all(ok),
-        BitmapPlan::And { plans, .. } | BitmapPlan::Or { plans, .. } => plans.iter().all(|q| leaves(q, ok)),
+        BitmapPlan::And { plans, .. } | BitmapPlan::Or { plans, .. } => {
+            plans.iter().all(|q| leaves(q, ok))
+        }
     }
 }
 
 /// Feed `f` (its ops end in the Feed) is a joined quiet arm: at least one probe, and `pipe` over its ops and builds.
 pub(crate) fn joined(gx: &Gx<'_, '_>, f: usize) -> bool {
     let p = &gx.pipelines()[f];
-    let Some((Op::Append(AppendDesc::Feed { .. }), body)) = p.ops.split_last() else { return false };
+    let Some((Op::Append(AppendDesc::Feed { .. }), body)) = p.ops.split_last() else {
+        return false;
+    };
     if let Some((Op::Join(JoinDesc::Drain { matches, jointype }), rest)) = body.split_first() {
         return drain(gx, f, *matches, *jointype, rest);
     }
-    body.iter().any(|op| matches!(op, Op::Join(JoinDesc::Probe { .. }))) && pipe(gx, f, body, 0)
+    body.iter()
+        .any(|op| matches!(op, Op::Join(JoinDesc::Probe { .. })))
+        && pipe(gx, f, body, 0)
 }
 
 /// D1483 (S2q, rerun/union_arms.rs `refills_whole`): feed `f` is a joined quiet arm a rerun set refills at every re-open
@@ -145,8 +184,13 @@ pub(crate) fn joined(gx: &Gx<'_, '_>, f: usize) -> bool {
 /// draining arm, read with executor parameters (`pipe_by`), every probe hashing through built-in support (`hashes`).
 pub(crate) fn joined_exec(gx: &Gx<'_, '_>, f: usize) -> bool {
     let p = &gx.pipelines()[f];
-    let Some((Op::Append(AppendDesc::Feed { .. }), body)) = p.ops.split_last() else { return false };
-    body.iter().any(|op| matches!(op, Op::Join(JoinDesc::Probe { marks: false, .. }))) && pipe_by(gx, f, body, 0, true) && hashes(gx, f, 0)
+    let Some((Op::Append(AppendDesc::Feed { .. }), body)) = p.ops.split_last() else {
+        return false;
+    };
+    body.iter()
+        .any(|op| matches!(op, Op::Join(JoinDesc::Probe { marks: false, .. })))
+        && pipe_by(gx, f, body, 0, true)
+        && hashes(gx, f, 0)
 }
 
 /// D3485 (a union's arm that is a Hash Right Join, read by a hash join's probe under a nest): feed `f` is a draining
@@ -158,9 +202,14 @@ pub(crate) fn joined_exec(gx: &Gx<'_, '_>, f: usize) -> bool {
 fn drain(gx: &Gx<'_, '_>, f: usize, m: u8, jt: JoinType, rest: &[Op<'_>]) -> bool {
     let ps = gx.pipelines();
     let quiet = |n| crate::rerun::union_arms::quiet_in(gx, n, false);
-    let Source::Breaker { slot: h } = ps[f].source else { return false };
-    let Some(pm) = gx.life_of(f, m).map(|l| l.0 as usize).filter(|&pm| pm < f) else { return false };
-    let spool = iface::breaker_of(&ps[pm].desc).is_some_and(|x| x.kind == BreakerKind::Materialize && x.slot == m);
+    let Source::Breaker { slot: h } = ps[f].source else {
+        return false;
+    };
+    let Some(pm) = gx.life_of(f, m).map(|l| l.0 as usize).filter(|&pm| pm < f) else {
+        return false;
+    };
+    let spool = iface::breaker_of(&ps[pm].desc)
+        .is_some_and(|x| x.kind == BreakerKind::Materialize && x.slot == m);
     let probe = matches!(ps[pm].ops.last(), Some(Op::Join(JoinDesc::Probe { slot, jointype, marks: true, .. })) if *slot == h && *jointype == jt)
         && gx.life_of(pm, h).is_some()
         && gx.life_of(pm, h) == gx.life_of(f, h);
@@ -178,7 +227,9 @@ fn drain(gx: &Gx<'_, '_>, f: usize, m: u8, jt: JoinType, rest: &[Op<'_>]) -> boo
 
 /// A join type whose inner entries are handed on after the probe (decompose join.rs `JOIN_FORMS`).
 fn drains(jt: JoinType) -> bool {
-    gravity_decompose::join::JOIN_FORMS.iter().any(|f| f.jt == jt && f.drains)
+    gravity_decompose::join::JOIN_FORMS
+        .iter()
+        .any(|f| f.jt == jt && f.drains)
 }
 
 /// Pipeline `q` (its ops `ops`): a heap scan, a Result or quiet VALUES under quiet filters, gates, projections, build keys
@@ -197,9 +248,21 @@ fn pipe_by(gx: &Gx<'_, '_>, q: usize, ops: &[Op<'_>], depth: u8, exec: bool) -> 
     let quiet = |n: Node<'_>| crate::rerun::union_arms::quiet_in(gx, n, exec);
     let src = match &ps[q].source {
         Source::Range { .. } | Source::Const => true,
-        Source::Values { lists, .. } => lists.iter().all(|l| l.as_list().is_some_and(|l| l.iter().all(quiet))),
-        Source::Index { keys, recheck, .. } if exec => keys.iter().all(|x| quiet(x.value) && (x.opno == 0 || gravity_decompose::effects::builtin_oper(x.opno).is_some())) && recheck.iter().all(quiet),
-        Source::Bitmap { plan, recheck, .. } if exec => leaves(plan, &|x| quiet(x.value) && (x.opno == 0 || gravity_decompose::effects::builtin_oper(x.opno).is_some())) && recheck.iter().all(quiet),
+        Source::Values { lists, .. } => lists
+            .iter()
+            .all(|l| l.as_list().is_some_and(|l| l.iter().all(quiet))),
+        Source::Index { keys, recheck, .. } if exec => {
+            keys.iter().all(|x| {
+                quiet(x.value)
+                    && (x.opno == 0 || gravity_decompose::effects::builtin_oper(x.opno).is_some())
+            }) && recheck.iter().all(quiet)
+        }
+        Source::Bitmap { plan, recheck, .. } if exec => {
+            leaves(plan, &|x| {
+                quiet(x.value)
+                    && (x.opno == 0 || gravity_decompose::effects::builtin_oper(x.opno).is_some())
+            }) && recheck.iter().all(quiet)
+        }
         _ => false,
     };
     let ops_ok = ops.iter().all(|op| match op {
@@ -207,17 +270,42 @@ fn pipe_by(gx: &Gx<'_, '_>, q: usize, ops: &[Op<'_>], depth: u8, exec: bool) -> 
         Op::Project(l) => l.iter().all(quiet),
         Op::Join(JoinDesc::Build { keys, .. }) => keys.iter().all(quiet),
         // a draining probe (marks) ends the pipeline `drain` reads through its spool
-        Op::Join(JoinDesc::Probe { jointype, keys, clauses, qual, marks, .. }) => {
-            (if *marks { drains(*jointype) } else { matches!(jointype, JoinType::JOIN_INNER | JoinType::JOIN_LEFT | JoinType::JOIN_SEMI | JoinType::JOIN_ANTI) })
-                && keys.iter().chain(clauses.iter()).chain(qual.iter()).all(quiet)
+        Op::Join(JoinDesc::Probe {
+            jointype,
+            keys,
+            clauses,
+            qual,
+            marks,
+            ..
+        }) => {
+            (if *marks {
+                drains(*jointype)
+            } else {
+                matches!(
+                    jointype,
+                    JoinType::JOIN_INNER
+                        | JoinType::JOIN_LEFT
+                        | JoinType::JOIN_SEMI
+                        | JoinType::JOIN_ANTI
+                )
+            }) && keys
+                .iter()
+                .chain(clauses.iter())
+                .chain(qual.iter())
+                .all(quiet)
         }
         _ => false,
     });
-    let probed = |s: u8| ops.iter().any(|op| matches!(op, Op::Join(JoinDesc::Probe { slot, .. }) if *slot == s));
+    let probed = |s: u8| {
+        ops.iter()
+            .any(|op| matches!(op, Op::Join(JoinDesc::Probe { slot, .. }) if *slot == s))
+    };
     let build = |s: u8| match gx.life_of(q, s) {
         Some(LifeId(b)) if (b as usize) < q && depth < DEPTH => {
             let bp = &ps[b as usize];
-            iface::breaker_of(&gx.pipelines()[b as usize].desc).is_some_and(|x| x.kind == BreakerKind::HashBuild && x.slot == s) && pipe_by(gx, b as usize, &bp.ops, depth + 1, exec)
+            iface::breaker_of(&gx.pipelines()[b as usize].desc)
+                .is_some_and(|x| x.kind == BreakerKind::HashBuild && x.slot == s)
+                && pipe_by(gx, b as usize, &bp.ops, depth + 1, exec)
         }
         _ => false,
     };
@@ -231,10 +319,20 @@ fn hashes(gx: &Gx<'_, '_>, q: usize, depth: u8) -> bool {
     crate::stack_check();
     let ps = gx.pipelines();
     ps[q].ops.iter().all(|op| {
-        let Op::Join(JoinDesc::Probe { clauses, .. }) = op else { return true };
+        let Op::Join(JoinDesc::Probe { clauses, .. }) = op else {
+            return true;
+        };
         let mut keys = PgVec::new_in(gx.mcx);
         let all = clauses.iter().all(|c| {
-            let key = c.as_op_expr().filter(|o| o.args.len() == 2).and_then(|o| Some(Key { op: o.opno, lefttype: type_of(o.args.nth(0))?, righttype: type_of(o.args.nth(1))?, family: 0, coll: 0 }));
+            let key = c.as_op_expr().filter(|o| o.args.len() == 2).and_then(|o| {
+                Some(Key {
+                    op: o.opno,
+                    lefttype: type_of(o.args.nth(0))?,
+                    righttype: type_of(o.args.nth(1))?,
+                    family: 0,
+                    coll: 0,
+                })
+            });
             key.map(|k| keys.push_in(k)).is_some()
         });
         all && support(gx, KeyUse::Hash, &keys[..], &[]).is_ok()

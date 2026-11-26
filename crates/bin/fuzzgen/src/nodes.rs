@@ -111,10 +111,15 @@ fn guc_bracket(g: &mut Gen) -> (Vec<StmtKind>, Vec<StmtKind>) {
     }
     // debug_pretty_print defaults ON; flipping it off routes the dump
     // through format_node_dump instead of pretty_format_node_dump.
-    let mut sets: Vec<StmtKind> =
-        names.iter().map(|n| raw(format!("SET {} TO on;", n))).collect();
-    let mut resets: Vec<StmtKind> =
-        names.iter().rev().map(|n| raw(format!("RESET {};", n))).collect();
+    let mut sets: Vec<StmtKind> = names
+        .iter()
+        .map(|n| raw(format!("SET {} TO on;", n)))
+        .collect();
+    let mut resets: Vec<StmtKind> = names
+        .iter()
+        .rev()
+        .map(|n| raw(format!("RESET {};", n)))
+        .collect();
     if g.rng.chance(1, 4) {
         g.fire("nodes:nopretty");
         sets.push(raw("SET debug_pretty_print TO off;"));
@@ -528,7 +533,10 @@ mod tests {
             let mut prods = Vec::new();
             let mut g = Gen::new(&mut rng, &cat, w, &mut prods, 3);
             groups.push(
-                gen_nodes_module(&mut g).iter().map(|s| s.to_sql()).collect::<Vec<_>>(),
+                gen_nodes_module(&mut g)
+                    .iter()
+                    .map(|s| s.to_sql())
+                    .collect::<Vec<_>>(),
             );
             prods_all.extend(prods);
         }
@@ -602,15 +610,23 @@ mod tests {
             }
             // Functions/schemas/views are renamed/moved before drop, so
             // count statements, not names.
-            let fc = group.iter().filter(|s| s.starts_with("CREATE FUNCTION")).count();
-            let fd = group.iter().filter(|s| s.starts_with("DROP FUNCTION")).count();
+            let fc = group
+                .iter()
+                .filter(|s| s.starts_with("CREATE FUNCTION"))
+                .count();
+            let fd = group
+                .iter()
+                .filter(|s| s.starts_with("DROP FUNCTION"))
+                .count();
             assert_eq!(fc, fd, "CREATE FUNCTION without DROP: {group:?}");
             // ALTER SYSTEM SET is always paired with a RESET of the same GUC.
             for sql in group {
                 if let Some(rest) = sql.strip_prefix("ALTER SYSTEM SET ") {
                     let guc = rest.split(' ').next().unwrap();
                     assert!(
-                        group.iter().any(|s| *s == format!("ALTER SYSTEM RESET {};", guc)),
+                        group
+                            .iter()
+                            .any(|s| *s == format!("ALTER SYSTEM RESET {};", guc)),
                         "ALTER SYSTEM SET {guc} not reset: {group:?}"
                     );
                 }

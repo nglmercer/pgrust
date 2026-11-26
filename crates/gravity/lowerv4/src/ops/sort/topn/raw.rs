@@ -12,7 +12,11 @@ use crate::ops::shared::twopass::Rule;
 use crate::ops::sort::topn::strategies::twopass_bare::P1_WORDS;
 
 /// Every record of a finished generic owner region (`Owned`: each owner's runs behind its `OwnerTop`), `rec` bytes each.
-unsafe fn each_record(region: *const u8, rec: usize, f: &mut dyn FnMut(*const u64)) -> Option<usize> {
+unsafe fn each_record(
+    region: *const u8,
+    rec: usize,
+    f: &mut dyn FnMut(*const u64),
+) -> Option<usize> {
     if table_kind(region) != TABLE_OWNED {
         return None;
     }
@@ -62,7 +66,12 @@ unsafe fn key_of(r: *const u64, rule: &Rule) -> (u64, u64, u64) {
 ///
 /// # Safety
 /// `region` is pass 1's finished leader region (HOSTS: at least 64 bytes), of the records the rule describes.
-pub(crate) unsafe fn kept_keys(region: *const u8, words: &[u64], owner: Option<Owner>, emit: &mut dyn FnMut(u64, u64, u64)) -> Option<usize> {
+pub(crate) unsafe fn kept_keys(
+    region: *const u8,
+    words: &[u64],
+    owner: Option<Owner>,
+    emit: &mut dyn FnMut(u64, u64, u64),
+) -> Option<usize> {
     admitted(region, words.get(1..)?, owner, &mut |r, rule| {
         let (a, b, n) = key_of(r, rule);
         emit(a, b, n)
@@ -77,7 +86,12 @@ pub(crate) unsafe fn kept_keys(region: *const u8, words: &[u64], owner: Option<O
 ///
 /// # Safety
 /// As `kept_keys`.
-pub(crate) unsafe fn admitted(region: *const u8, words: &[u64], owner: Option<Owner>, f: &mut dyn FnMut(*const u64, &Rule)) -> Option<usize> {
+pub(crate) unsafe fn admitted(
+    region: *const u8,
+    words: &[u64],
+    owner: Option<Owner>,
+    f: &mut dyn FnMut(*const u64, &Rule),
+) -> Option<usize> {
     let rule = Rule::unpack(*words.first()?);
     let rec = rule.rec_words as usize * 8;
     if rule.ext {
@@ -88,11 +102,21 @@ pub(crate) unsafe fn admitted(region: *const u8, words: &[u64], owner: Option<Ow
     }
     let count = |r: *const u64| *r.add(rule.count_word as usize) as i64;
     let k = match rule.floor {
-        true => words.get(1).map(|&raw| if rule.int4 { raw as u32 as i32 as i64 } else { raw as i64 })?,
+        true => words.get(1).map(|&raw| {
+            if rule.int4 {
+                raw as u32 as i32 as i64
+            } else {
+                raw as i64
+            }
+        })?,
         false => 0,
     };
     // top: every key seen twice, then the n first keys seen once in the tie order (a bounded heap of the n best)
-    let mut heap = ChargedHeap::<(Single, *const u64)>::with_capacity(owner, Kind::HashAgg, if rule.floor { 0 } else { rule.n as usize + 1 });
+    let mut heap = ChargedHeap::<(Single, *const u64)>::with_capacity(
+        owner,
+        Kind::HashAgg,
+        if rule.floor { 0 } else { rule.n as usize + 1 },
+    );
     let mut n = 0;
     // one key's records `rs` (a marked key's parts), `c` rows in all
     let mut group = |c: i64, rs: &[*const u64]| {
@@ -132,7 +156,13 @@ pub(crate) unsafe fn admitted(region: *const u8, words: &[u64], owner: Option<Ow
 ///
 /// # Safety
 /// As `kept_keys`.
-unsafe fn top_count_admitted(region: *const u8, rec: usize, rule: &Rule, owner: Option<Owner>, f: &mut dyn FnMut(*const u64, &Rule)) -> Option<usize> {
+unsafe fn top_count_admitted(
+    region: *const u8,
+    rec: usize,
+    rule: &Rule,
+    owner: Option<Owner>,
+    f: &mut dyn FnMut(*const u64, &Rule),
+) -> Option<usize> {
     use crate::ops::shared::twopass::{LEAD_COUNT, LEAD_I64};
     let w = rule.count_word as usize;
     match rule.lead {
@@ -160,7 +190,14 @@ unsafe fn top_count_admitted(region: *const u8, rec: usize, rule: &Rule, owner: 
 ///
 /// # Safety
 /// As `kept_keys`; `ranks` reads a record of `region`.
-unsafe fn admit_ranked<R: Ord + Copy>(region: *const u8, rec: usize, rule: &Rule, owner: Option<Owner>, f: &mut dyn FnMut(*const u64, &Rule), ranks: impl Fn(*const u64) -> (R, R)) -> Option<usize> {
+unsafe fn admit_ranked<R: Ord + Copy>(
+    region: *const u8,
+    rec: usize,
+    rule: &Rule,
+    owner: Option<Owner>,
+    f: &mut dyn FnMut(*const u64, &Rule),
+    ranks: impl Fn(*const u64) -> (R, R),
+) -> Option<usize> {
     let n = rule.n as usize;
     let mut heap = ChargedHeap::<core::cmp::Reverse<R>>::with_capacity(owner, Kind::HashAgg, n + 1);
     each_record(region, rec, &mut |r| {
@@ -210,7 +247,9 @@ fn rank(v: Option<Val>, rule: &Rule) -> Rank {
 /// clear; a numeric sum's OVERFLOW sentinel ranks anywhere, so it is admitted and pass 2's final raises as PostgreSQL's
 /// would; a float sum spans `float_slack` around pass 1's value.
 unsafe fn lead_ranks(r: *const u64, rule: &Rule) -> (Rank, Rank) {
-    use crate::ops::shared::twopass::{LEAD_COUNT, LEAD_F32, LEAD_F64, LEAD_I128, LEAD_I64, LEAD_NUM, LEAD_NUM_WIDE};
+    use crate::ops::shared::twopass::{
+        LEAD_COUNT, LEAD_F32, LEAD_F64, LEAD_I128, LEAD_I64, LEAD_NUM, LEAD_NUM_WIDE,
+    };
     use gravity_abi::breaker::{num_sum_order, SlotKind};
     let w = r.add(rule.count_word as usize);
     let int = |v: i128| (1u8, v >> 127, v as u128);
@@ -229,7 +268,11 @@ unsafe fn lead_ranks(r: *const u64, rule: &Rule) -> (Rank, Rank) {
         LEAD_I64 => int(*w as i64 as i128),
         LEAD_I128 => int(((*w.add(1) as u128) << 64 | *w as u128) as i128),
         LEAD_NUM | LEAD_NUM_WIDE => {
-            let (k, n) = if rule.lead == LEAD_NUM { (SlotKind::SumNum, 2) } else { (SlotKind::SumNumWide, 4) };
+            let (k, n) = if rule.lead == LEAD_NUM {
+                (SlotKind::SumNum, 2)
+            } else {
+                (SlotKind::SumNumWide, 4)
+            };
             match num_sum_order(k, words(n)) {
                 Some(v) => v,
                 None => return (RANK_LAST, RANK_FIRST),
@@ -242,8 +285,18 @@ unsafe fn lead_ranks(r: *const u64, rule: &Rule) -> (Rank, Rank) {
             if !s.is_finite() {
                 return one(Some(float_val(s)));
             }
-            let Some(e) = float_slack(s, f64::from_bits(*w.add(1)), *w.add(2) as i64, rule.lead == LEAD_F32) else { return (RANK_LAST, RANK_FIRST) };
-            let (a, b) = (rank(Some(float_val(s - e)), rule), rank(Some(float_val(s + e)), rule));
+            let Some(e) = float_slack(
+                s,
+                f64::from_bits(*w.add(1)),
+                *w.add(2) as i64,
+                rule.lead == LEAD_F32,
+            ) else {
+                return (RANK_LAST, RANK_FIRST);
+            };
+            let (a, b) = (
+                rank(Some(float_val(s - e)), rule),
+                rank(Some(float_val(s + e)), rule),
+            );
             return (a.min(b), a.max(b));
         }
         _ => return (RANK_LAST, RANK_FIRST),
@@ -275,7 +328,14 @@ fn float_val(x: f64) -> Val {
 fn float_slack(s: f64, abs: f64, rows: i64, f32: bool) -> Option<f64> {
     let m = rows.max(1) as f64;
     let gamma = |u: f64| (m * u < 0.5).then(|| m * u / (1.0 - m * u));
-    let (g64, g) = (gamma(f64::EPSILON / 2.0)?, gamma(if f32 { f32::EPSILON as f64 / 2.0 } else { f64::EPSILON / 2.0 })?);
+    let (g64, g) = (
+        gamma(f64::EPSILON / 2.0)?,
+        gamma(if f32 {
+            f32::EPSILON as f64 / 2.0
+        } else {
+            f64::EPSILON / 2.0
+        })?,
+    );
     let sum_abs = (abs / (1.0 - g64) + m * f64::from_bits(1)) * 2f64.powi(128);
     let e = 2.0 * g * sum_abs;
     let e = e * (1.0 + 2f64.powi(-40)) + (s.abs() + e) * 2f64.powi(-50);
@@ -304,7 +364,12 @@ impl<T: Ord> ChargedHeap<T> {
             };
             Charge::open(o, release, kind, Door::Heap, 0)
         });
-        let mut h = ChargedHeap { charge, on: owner.is_some(), cap: 0, heap: std::collections::BinaryHeap::with_capacity(cap) }; // alloc: Exec charged owner
+        let mut h = ChargedHeap {
+            charge,
+            on: owner.is_some(),
+            cap: 0,
+            heap: std::collections::BinaryHeap::with_capacity(cap),
+        }; // alloc: Exec charged owner
         h.recharge();
         h
     }
@@ -364,25 +429,48 @@ fn ext_rank(v: Option<i64>, rule: &Rule) -> (u8, i64) {
 /// best witness `m` is the value of n distinct groups or better, so the top's n-th group ranks at `m` or before, and
 /// every group of the top lies in a key whose best ranks at `m` or before: those keys are admitted, ties included (a
 /// superset; pass 2 folds them exactly and the top orders them by all its keys). Fewer than n keys: every key.
-unsafe fn ext_admitted(region: *const u8, rec: usize, rule: &Rule, owner: Option<Owner>, f: &mut dyn FnMut(*const u64, &Rule)) -> Option<usize> {
+unsafe fn ext_admitted(
+    region: *const u8,
+    rec: usize,
+    rule: &Rule,
+    owner: Option<Owner>,
+    f: &mut dyn FnMut(*const u64, &Rule),
+) -> Option<usize> {
     let cw = rule.count_word as usize;
     let read = |r: *const u64| {
         let (c, e) = (*r.add(cw) as i64, *r.add(cw + 1) as i64);
-        let nn = if rule.ext_nn { *r.add(cw + 2) as i64 } else { c };
+        let nn = if rule.ext_nn {
+            *r.add(cw + 2) as i64
+        } else {
+            c
+        };
         let witness = (nn > 0).then_some(e);
         // gtopn GT-1: a spread key's best is its own word after the witness (and count(v)), its column's other extreme
-        let top = if rule.spread { (nn > 0).then(|| *r.add(cw + 2 + rule.ext_nn as usize) as i64) } else { witness };
-        let best = if rule.nulls_first && nn < c { None } else { top };
+        let top = if rule.spread {
+            (nn > 0).then(|| *r.add(cw + 2 + rule.ext_nn as usize) as i64)
+        } else {
+            witness
+        };
+        let best = if rule.nulls_first && nn < c {
+            None
+        } else {
+            top
+        };
         (ext_rank(witness, rule), ext_rank(best, rule))
     };
-    let mut heap = ChargedHeap::<(u8, i64)>::with_capacity(owner, Kind::HashAgg, rule.n as usize + 1);
+    let mut heap =
+        ChargedHeap::<(u8, i64)>::with_capacity(owner, Kind::HashAgg, rule.n as usize + 1);
     each_record(region, rec, &mut |r| {
         heap.push(read(r).0);
         if heap.len() > rule.n as usize {
             heap.pop();
         }
     })?;
-    let m = if heap.len() < rule.n as usize { None } else { heap.peek().copied() };
+    let m = if heap.len() < rule.n as usize {
+        None
+    } else {
+        heap.peek().copied()
+    };
     let mut n = 0;
     each_record(region, rec, &mut |r| {
         if m.is_none_or(|m| read(r).1 <= m) {
@@ -399,7 +487,12 @@ unsafe fn ext_admitted(region: *const u8, rec: usize, rule: &Rule, owner: Option
 ///
 /// # Safety
 /// `region` is the bare pass 1's finished leader region (HOSTS: at least 64 bytes).
-pub(crate) unsafe fn bare_keys(region: *const u8, words: &[u64], _owner: Option<Owner>, emit: &mut dyn FnMut(u64, u64, u64)) -> Option<usize> {
+pub(crate) unsafe fn bare_keys(
+    region: *const u8,
+    words: &[u64],
+    _owner: Option<Owner>,
+    emit: &mut dyn FnMut(u64, u64, u64),
+) -> Option<usize> {
     let nullable = Rule::unpack(*words.get(1)?).nullable;
     let n = t3::export_keys(region, &P1_WORDS, &mut |k| emit(k, 0, 1 + nullable as u64))?;
     if nullable {
@@ -461,7 +554,10 @@ pub(crate) mod twopass_sum_tests;
 mod ext_tests {
     use std::collections::{BTreeMap, BTreeSet};
 
-    use gravity_abi::breaker::{KeyKind, Owned, OwnerTop, RecordLayout, SlotKind, OWNED_HDR, OWNERTOP_HDR, OWNER_RUN_OFF, TABLE_OWNED};
+    use gravity_abi::breaker::{
+        KeyKind, Owned, OwnerTop, RecordLayout, SlotKind, OWNED_HDR, OWNERTOP_HDR, OWNER_RUN_OFF,
+        TABLE_OWNED,
+    };
 
     use super::admitted;
     use crate::ops::shared::twopass::Rule;
@@ -470,9 +566,17 @@ mod ext_tests {
 
     /// The keys `admitted` lists for rows `(k1, k2, v)` under the extreme rule, and the keys of the groups every valid
     /// top of `n` may hold (a group whose value ranks at or before the n-th group's).
-    fn run(rows: &[Row], n: u32, max: bool, nulls_first: bool, nn_slot: bool) -> (BTreeSet<i64>, BTreeSet<i64>, usize) {
+    fn run(
+        rows: &[Row],
+        n: u32,
+        max: bool,
+        nulls_first: bool,
+        nn_slot: bool,
+    ) -> (BTreeSet<i64>, BTreeSet<i64>, usize) {
         let better = |a: i64, b: i64| if max { a.max(b) } else { a.min(b) };
-        let fold = |m: &mut BTreeMap<(i64, i64), (i64, Option<i64>, i64)>, k: (i64, i64), v: Option<i64>| {
+        let fold = |m: &mut BTreeMap<(i64, i64), (i64, Option<i64>, i64)>,
+                    k: (i64, i64),
+                    v: Option<i64>| {
             let e = m.entry(k).or_insert((0, None, 0));
             e.0 += 1;
             if let Some(x) = v {
@@ -485,16 +589,39 @@ mod ext_tests {
             fold(&mut per, (k1, 0), v);
             fold(&mut groups, (k1, k2), v);
         }
-        let slots: &[SlotKind] = if nn_slot { &[SlotKind::Count, SlotKind::MaxI64, SlotKind::Count] } else { &[SlotKind::Count, SlotKind::MaxI64] };
+        let slots: &[SlotKind] = if nn_slot {
+            &[SlotKind::Count, SlotKind::MaxI64, SlotKind::Count]
+        } else {
+            &[SlotKind::Count, SlotKind::MaxI64]
+        };
         let l = RecordLayout::with_sentinel(&[KeyKind::I64], slots, true, Some(0));
         let rec = l.size() as usize;
         let obytes = OWNER_RUN_OFF + (per.len() + 1) * rec;
         let mut region = vec![0u64; (OWNED_HDR + obytes).div_ceil(8)];
-        let rule = Rule { ext: true, ext_nn: nn_slot, desc: max, nulls_first, img_words: 1, rec_words: (rec / 8) as u8, count_word: (l.sentinel_off() / 8) as u8, n, ..Rule::default() };
+        let rule = Rule {
+            ext: true,
+            ext_nn: nn_slot,
+            desc: max,
+            nulls_first,
+            img_words: 1,
+            rec_words: (rec / 8) as u8,
+            count_word: (l.sentinel_off() / 8) as u8,
+            n,
+            ..Rule::default()
+        };
         let mut got = BTreeSet::new();
         unsafe {
             let o = region.as_mut_ptr() as *mut Owned;
-            *o = Owned { nowners: 1, owner_bytes: obytes as u32, limit: 0, pad0: [0; 3], kind: TABLE_OWNED, base: 0, pad1: [0; 5], cell: core::cell::UnsafeCell::new([]) };
+            *o = Owned {
+                nowners: 1,
+                owner_bytes: obytes as u32,
+                limit: 0,
+                pad0: [0; 3],
+                kind: TABLE_OWNED,
+                base: 0,
+                pad1: [0; 5],
+                cell: core::cell::UnsafeCell::new([]),
+            };
             let base = Owned::view(region.as_ptr() as *const u8).owner(0);
             for (i, (&(k1, _), &(c, e, nn))) in per.iter().enumerate() {
                 let d = base.add(OWNER_RUN_OFF + i * rec);
@@ -509,13 +636,20 @@ mod ext_tests {
             let dir = base.add(OWNERTOP_HDR) as *mut u32;
             (*dir, *dir.add(1)) = (OWNER_RUN_OFF as u32, per.len() as u32);
             let words = [rule.pack(None)];
-            admitted(region.as_ptr() as *const u8, &words, None, &mut |r, _| assert!(got.insert(*r as i64), "a key admitted once")).expect("an owned region");
+            admitted(region.as_ptr() as *const u8, &words, None, &mut |r, _| {
+                assert!(got.insert(*r as i64), "a key admitted once")
+            })
+            .expect("an owned region");
         }
         let rank = |v: Option<i64>| super::ext_rank(v, &rule);
         let mut ranks: Vec<_> = groups.values().map(|g| rank(g.1)).collect();
         ranks.sort_unstable();
         let need = match ranks.get(n.max(1) as usize - 1) {
-            Some(&nth) => groups.iter().filter(|(_, g)| rank(g.1) <= nth).map(|((k1, _), _)| *k1).collect(),
+            Some(&nth) => groups
+                .iter()
+                .filter(|(_, g)| rank(g.1) <= nth)
+                .map(|((k1, _), _)| *k1)
+                .collect(),
             None => per.keys().map(|k| k.0).collect(),
         };
         (got, need, per.len())
@@ -526,23 +660,42 @@ mod ext_tests {
         let mut x = 0x9e37_79b9u64;
         (0..keys * 3)
             .map(|i| {
-                x = x.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+                x = x
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
                 let k1 = (x >> 20) as i64 % keys;
                 let v = ((x >> 40) % 1000) as i64 - 500;
-                (k1, i % 4, (null_every == 0 || i % null_every != 0).then_some(v))
+                (
+                    k1,
+                    i % 4,
+                    (null_every == 0 || i % null_every != 0).then_some(v),
+                )
             })
             .collect()
     }
 
     #[test]
     fn the_extreme_rule_admits_every_key_of_a_valid_top() {
-        for (data, nn_slot) in [(rows(300, 0), false), (rows(300, 0), true), (rows(300, 7), true), (rows(40, 2), true)] {
+        for (data, nn_slot) in [
+            (rows(300, 0), false),
+            (rows(300, 0), true),
+            (rows(300, 7), true),
+            (rows(40, 2), true),
+        ] {
             for (max, nulls_first) in [(true, true), (true, false), (false, false), (false, true)] {
                 for n in [0u32, 1, 5, 37, 400] {
                     let (got, need, keys) = run(&data, n, max, nulls_first, nn_slot);
-                    assert!(need.is_subset(&got), "n {n} max {max} nulls_first {nulls_first} nn {nn_slot}: missed {:?}", need.difference(&got).collect::<Vec<_>>());
+                    assert!(
+                        need.is_subset(&got),
+                        "n {n} max {max} nulls_first {nulls_first} nn {nn_slot}: missed {:?}",
+                        need.difference(&got).collect::<Vec<_>>()
+                    );
                     if n == 5 && keys >= 250 && !(nulls_first && nn_slot) {
-                        assert!(got.len() < keys / 4, "n 5 prunes most keys: {} of {keys}", got.len());
+                        assert!(
+                            got.len() < keys / 4,
+                            "n 5 prunes most keys: {} of {keys}",
+                            got.len()
+                        );
                     }
                 }
             }
@@ -552,11 +705,21 @@ mod ext_tests {
     #[test]
     fn an_all_null_key_ranks_as_null() {
         // key 1: values NULL only; key 2: 5; key 3: 9 and a NULL row
-        let data: Vec<Row> = vec![(1, 0, None), (1, 1, None), (2, 0, Some(5)), (3, 0, Some(9)), (3, 1, None)];
+        let data: Vec<Row> = vec![
+            (1, 0, None),
+            (1, 1, None),
+            (2, 0, Some(5)),
+            (3, 0, Some(9)),
+            (3, 1, None),
+        ];
         let (got, _, _) = run(&data, 1, true, false, true);
         assert_eq!(got, BTreeSet::from([3]), "max DESC NULLS LAST: 9 first");
         let (got, _, _) = run(&data, 1, true, true, true);
-        assert_eq!(got, BTreeSet::from([1, 3]), "max DESC NULLS FIRST: key 1's groups are NULL, key 3 may hold one");
+        assert_eq!(
+            got,
+            BTreeSet::from([1, 3]),
+            "max DESC NULLS FIRST: key 1's groups are NULL, key 3 may hold one"
+        );
         let (got, _, _) = run(&data, 1, false, false, true);
         assert_eq!(got, BTreeSet::from([2]), "min ASC NULLS LAST: 5 first");
     }

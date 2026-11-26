@@ -17,7 +17,10 @@ fn seams() {
 
 fn fixtures() -> Vec<PathBuf> {
     // read at run time (D793-b): the checkout the test runs in, not the one it was built in
-    let root = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").expect("cargo sets CARGO_MANIFEST_DIR")).join("../decompose/tests/plans");
+    let root = PathBuf::from(
+        std::env::var_os("CARGO_MANIFEST_DIR").expect("cargo sets CARGO_MANIFEST_DIR"),
+    )
+    .join("../decompose/tests/plans");
     let mut out = Vec::new();
     for d in [root.clone(), root.join("regress-full")] {
         for e in std::fs::read_dir(&d).unwrap().flatten() {
@@ -49,14 +52,21 @@ fn both_walks_alias_the_same_with_their_literal_table_runs() {
     for path in fixtures() {
         let text = std::fs::read_to_string(&path).unwrap();
         let ctx = MemoryContext::new("alias tables");
-        let Ok(fx) = corpus::load(ctx.mcx(), &text) else { continue };
+        let Ok(fx) = corpus::load(ctx.mcx(), &text) else {
+            continue;
+        };
         let arena = Arena::new(1 << 22);
         if let Some(f) = front::walk(arena.handle(), fx.stmt, None) {
             if !f.tables().is_empty() {
                 front_runs += 1;
                 cells += f.tables().iter().map(|r| u64::from(r.1 - r.0)).sum::<u64>();
             }
-            assert_eq!(puts(&f.nodes, f.tables()), puts(&f.nodes, &[]), "{}: the front walk's alias", path.display());
+            assert_eq!(
+                puts(&f.nodes, f.tables()),
+                puts(&f.nodes, &[]),
+                "{}: the front walk's alias",
+                path.display()
+            );
         }
         if let Ok(g) = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx) {
             let mut nodes = Vec::new();
@@ -64,9 +74,17 @@ fn both_walks_alias_the_same_with_their_literal_table_runs() {
             if !runs.as_slice().is_empty() {
                 key_runs += 1;
             }
-            assert_eq!(puts(&nodes, runs.as_slice()), puts(&nodes, &[]), "{}: the content key's alias", path.display());
+            assert_eq!(
+                puts(&nodes, runs.as_slice()),
+                puts(&nodes, &[]),
+                "{}: the content key's alias",
+                path.display()
+            );
         };
     }
     eprintln!("alias tables: {front_runs} fixtures with front runs ({cells} positions), {key_runs} with key runs");
-    assert!(front_runs > 50 && key_runs > 50, "the corpus holds VALUES lists of Consts: front {front_runs}, key {key_runs}");
+    assert!(
+        front_runs > 50 && key_runs > 50,
+        "the corpus holds VALUES lists of Consts: front {front_runs}, key {key_runs}"
+    );
 }

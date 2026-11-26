@@ -14,9 +14,7 @@
 
 use ::datum::{Datum, Varlena};
 use ::types_core::{Oid, CSTRINGOID};
-use ::types_error::{
-    PgError, PgResult, ERRCODE_ARRAY_SUBSCRIPT_ERROR,
-};
+use ::types_error::{PgError, PgResult, ERRCODE_ARRAY_SUBSCRIPT_ERROR};
 use ::types_fmgr::{
     byref_result, overlaps_common, varlena_result, FmgrBuiltin, FmgrInfo,
     FunctionCallInfoBaseData as Fcinfo, OutInto, OUT_CHARS_DATETIME,
@@ -37,7 +35,10 @@ use crate::PartValue;
 fn in_fastutf8() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {
-        matches!(std::env::var("PGRUST_ADT_IN_FASTUTF8").as_deref(), Ok("1") | Ok("on"))
+        matches!(
+            std::env::var("PGRUST_ADT_IN_FASTUTF8").as_deref(),
+            Ok("1") | Ok("on")
+        )
     })
 }
 
@@ -74,16 +75,22 @@ pub fn fc_timestamptz_in(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) ->
 
 pub fn fc_timestamp_out(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let ts = fcinfo.arg_i64(0);
-    ::types_fmgr::out_cstring_try(fcinfo, MAXDATELEN + 2, |buf| crate::timestamp_out(ts, ts_buf(buf)))
+    ::types_fmgr::out_cstring_try(fcinfo, MAXDATELEN + 2, |buf| {
+        crate::timestamp_out(ts, ts_buf(buf))
+    })
 }
 
 pub fn fc_timestamptz_out(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let ts = fcinfo.arg_i64(0);
-    ::types_fmgr::out_cstring_try(fcinfo, MAXDATELEN + 2, |buf| crate::timestamptz_out(ts, ts_buf(buf)))
+    ::types_fmgr::out_cstring_try(fcinfo, MAXDATELEN + 2, |buf| {
+        crate::timestamptz_out(ts, ts_buf(buf))
+    })
 }
 
 fn ts_buf(buf: &mut [u8]) -> &mut crate::TsBuf {
-    (&mut buf[..MAXDATELEN + 1]).try_into().expect("a TsBuf's bytes")
+    (&mut buf[..MAXDATELEN + 1])
+        .try_into()
+        .expect("a TsBuf's bytes")
 }
 
 pub fn fc_timestamp_recv(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -123,10 +130,7 @@ pub fn fc_statement_timestamp(
     Ok(Datum::from_i64(xact::GetCurrentStatementStartTimestamp()))
 }
 
-pub fn fc_clock_timestamp(
-    _flinfo: Option<&mut FmgrInfo>,
-    _fcinfo: &mut Fcinfo,
-) -> PgResult<Datum> {
+pub fn fc_clock_timestamp(_flinfo: Option<&mut FmgrInfo>, _fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     Ok(Datum::from_i64(crate::GetCurrentTimestamp()))
 }
 
@@ -167,7 +171,9 @@ pub fn fc_timestamp_cmp(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> 
 }
 
 pub fn fc_timestamp_finite(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
-    Ok(Datum::from_bool(!crate::TIMESTAMP_NOT_FINITE(fcinfo.arg_i64(0))))
+    Ok(Datum::from_bool(!crate::TIMESTAMP_NOT_FINITE(
+        fcinfo.arg_i64(0),
+    )))
 }
 
 pub fn fc_timestamp_smaller(
@@ -178,10 +184,7 @@ pub fn fc_timestamp_smaller(
     Ok(Datum::from_i64(if a < b { a } else { b }))
 }
 
-pub fn fc_timestamp_larger(
-    _flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut Fcinfo,
-) -> PgResult<Datum> {
+pub fn fc_timestamp_larger(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let (a, b) = (fcinfo.arg_i64(0), fcinfo.arg_i64(1));
     Ok(Datum::from_i64(if a > b { a } else { b }))
 }
@@ -251,26 +254,36 @@ pub fn fc_timestamp_timestamptz(
     _flinfo: Option<&mut FmgrInfo>,
     fcinfo: &mut Fcinfo,
 ) -> PgResult<Datum> {
-    Ok(Datum::from_i64(crate::timestamp2timestamptz(fcinfo.arg_i64(0))?))
+    Ok(Datum::from_i64(crate::timestamp2timestamptz(
+        fcinfo.arg_i64(0),
+    )?))
 }
 
 pub fn fc_timestamptz_timestamp(
     _flinfo: Option<&mut FmgrInfo>,
     fcinfo: &mut Fcinfo,
 ) -> PgResult<Datum> {
-    Ok(Datum::from_i64(crate::timestamptz2timestamp(fcinfo.arg_i64(0))?))
+    Ok(Datum::from_i64(crate::timestamptz2timestamp(
+        fcinfo.arg_i64(0),
+    )?))
 }
 
 pub fn fc_timestamp_zone(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     // SAFETY: strict fn — arg 0 is a non-null text varlena.
     let zone = unsafe { fcinfo.arg_varlena_packed(0)? };
-    Ok(Datum::from_i64(crate::timestamp_zone(zone.data(), fcinfo.arg_i64(1))?))
+    Ok(Datum::from_i64(crate::timestamp_zone(
+        zone.data(),
+        fcinfo.arg_i64(1),
+    )?))
 }
 
 pub fn fc_timestamptz_zone(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     // SAFETY: strict fn — arg 0 is a non-null text varlena.
     let zone = unsafe { fcinfo.arg_varlena_packed(0)? };
-    Ok(Datum::from_i64(crate::timestamptz_zone(zone.data(), fcinfo.arg_i64(1))?))
+    Ok(Datum::from_i64(crate::timestamptz_zone(
+        zone.data(),
+        fcinfo.arg_i64(1),
+    )?))
 }
 
 pub fn fc_make_timestamp(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -326,7 +339,10 @@ pub fn fc_make_timestamptz_at_timezone(
 pub fn fc_timestamp_trunc(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     // SAFETY: strict fn — arg 0 is a non-null text varlena.
     let units = unsafe { fcinfo.arg_varlena_packed(0)? };
-    Ok(Datum::from_i64(crate::timestamp_trunc(units.data(), fcinfo.arg_i64(1))?))
+    Ok(Datum::from_i64(crate::timestamp_trunc(
+        units.data(),
+        fcinfo.arg_i64(1),
+    )?))
 }
 
 pub fn fc_timestamptz_trunc(
@@ -335,7 +351,10 @@ pub fn fc_timestamptz_trunc(
 ) -> PgResult<Datum> {
     // SAFETY: strict fn — arg 0 is a non-null text varlena.
     let units = unsafe { fcinfo.arg_varlena_packed(0)? };
-    Ok(Datum::from_i64(crate::timestamptz_trunc(units.data(), fcinfo.arg_i64(1))?))
+    Ok(Datum::from_i64(crate::timestamptz_trunc(
+        units.data(),
+        fcinfo.arg_i64(1),
+    )?))
 }
 
 pub fn fc_timestamptz_trunc_zone(
@@ -443,7 +462,11 @@ pub fn array_get_integer_typmods(
     }
     let mut off = if dataoffset != 0 { dataoffset } else { 24 };
     for i in 0..n {
-        let end = off + image[off..].iter().position(|&b| b == 0).expect("NUL-terminated");
+        let end = off
+            + image[off..]
+                .iter()
+                .position(|&b| b == 0)
+                .expect("NUL-terminated");
         let v = numutils::pg_strtoint32_bytes(&image[off..end])?;
         if let Some(slot) = out.get_mut(i) {
             *slot = v;
@@ -452,8 +475,7 @@ pub fn array_get_integer_typmods(
     }
     if n > out.len() {
         return Err(Box::new(
-            PgError::error(cap_msg)
-                .with_sqlstate(::types_error::ERRCODE_INVALID_PARAMETER_VALUE),
+            PgError::error(cap_msg).with_sqlstate(::types_error::ERRCODE_INVALID_PARAMETER_VALUE),
         ));
     }
     Ok(n)
@@ -462,17 +484,20 @@ pub fn array_get_integer_typmods(
 pub fn fc_intervaltypmodin(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let mut tl = [0i32; 8];
     let n = array_get_integer_typmods(fcinfo, &mut tl, "invalid INTERVAL type modifier")?;
-    Ok(Datum::from_i32(crate::interval::intervaltypmodin(&tl[..n])?))
+    Ok(Datum::from_i32(crate::interval::intervaltypmodin(
+        &tl[..n],
+    )?))
 }
 
-pub fn fc_intervaltypmodout(
-    flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut Fcinfo,
-) -> PgResult<Datum> {
+pub fn fc_intervaltypmodout(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let typmod = fcinfo.arg_i32(0);
     let mut buf = [0u8; 64];
     let len = crate::interval::intervaltypmodout(typmod, &mut buf)?;
-    Ok(::types_fmgr::cstring_scratch(flinfo, "intervaltypmodout", &buf[..len]))
+    Ok(::types_fmgr::cstring_scratch(
+        flinfo,
+        "intervaltypmodout",
+        &buf[..len],
+    ))
 }
 
 fn anytimestamp_typmodin(fcinfo: &Fcinfo, istz: bool) -> PgResult<Datum> {
@@ -484,10 +509,15 @@ fn anytimestamp_typmodin(fcinfo: &Fcinfo, istz: bool) -> PgResult<Datum> {
                 .with_sqlstate(::types_error::ERRCODE_INVALID_PARAMETER_VALUE),
         ));
     }
-    Ok(Datum::from_i32(crate::anytimestamp_typmod_check(istz, tl[0])?))
+    Ok(Datum::from_i32(crate::anytimestamp_typmod_check(
+        istz, tl[0],
+    )?))
 }
 
-pub fn fc_timestamptypmodin(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
+pub fn fc_timestamptypmodin(
+    _flinfo: Option<&mut FmgrInfo>,
+    fcinfo: &mut Fcinfo,
+) -> PgResult<Datum> {
     anytimestamp_typmodin(fcinfo, false)
 }
 
@@ -531,10 +561,18 @@ fn anytimestamp_typmodout(
     istz: bool,
 ) -> PgResult<Datum> {
     let typmod = fcinfo.arg_i32(0);
-    let tz: &[u8] = if istz { b" with time zone" } else { b" without time zone" };
+    let tz: &[u8] = if istz {
+        b" with time zone"
+    } else {
+        b" without time zone"
+    };
     let mut buf = [0u8; MAXDATELEN + 1];
     let len = typmod_paren_suffix_out(typmod, tz, &mut buf);
-    Ok(::types_fmgr::cstring_scratch(flinfo, "timestamptypmodout", &buf[..len]))
+    Ok(::types_fmgr::cstring_scratch(
+        flinfo,
+        "timestamptypmodout",
+        &buf[..len],
+    ))
 }
 
 pub fn fc_timestamptypmodout(
@@ -559,11 +597,9 @@ pub fn fc_timestamptz_pl_interval_at_zone(
     // SAFETY: strict fn — arg 2 is a non-null text varlena.
     let zone = unsafe { fcinfo.arg_varlena_packed(2)? };
     let tzp = crate::lookup_timezone(zone.data())?;
-    Ok(Datum::from_i64(crate::interval::timestamptz_pl_interval_internal(
-        fcinfo.arg_i64(0),
-        &iv,
-        Some(&tzp),
-    )?))
+    Ok(Datum::from_i64(
+        crate::interval::timestamptz_pl_interval_internal(fcinfo.arg_i64(0), &iv, Some(&tzp))?,
+    ))
 }
 
 pub fn fc_timestamptz_mi_interval_at_zone(
@@ -574,18 +610,19 @@ pub fn fc_timestamptz_mi_interval_at_zone(
     // SAFETY: strict fn — arg 2 is a non-null text varlena.
     let zone = unsafe { fcinfo.arg_varlena_packed(2)? };
     let tzp = crate::lookup_timezone(zone.data())?;
-    Ok(Datum::from_i64(crate::interval::timestamptz_mi_interval_internal(
-        fcinfo.arg_i64(0),
-        &iv,
-        Some(&tzp),
-    )?))
+    Ok(Datum::from_i64(
+        crate::interval::timestamptz_mi_interval_internal(fcinfo.arg_i64(0), &iv, Some(&tzp))?,
+    ))
 }
 
 // interval_support (timestamp.c): SupportRequestSimplify only — an
 // interval_scale cast that cannot truncate becomes a RelabelType.
 // timestamp_support (timestamp.c): SupportRequestSimplify only —
 // TemporalSimplify (datetime.c) with MAX_TIMESTAMP_PRECISION.
-pub fn fc_timestamp_support(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
+pub fn fc_timestamp_support(
+    _flinfo: Option<&mut FmgrInfo>,
+    fcinfo: &mut Fcinfo,
+) -> PgResult<Datum> {
     use ::types_nodes::{supportnodes::SupportRequestSimplify, NodeTag};
     let [a] = fcinfo.args_n::<1>();
     let p = a.value.as_usize() as *const NodeTag;
@@ -621,8 +658,8 @@ pub fn fc_timestamp_support(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo)
 }
 
 pub fn fc_interval_support(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
-    use ::types_nodes::{supportnodes::SupportRequestSimplify, NodeTag};
     use crate::interval::{intervaltypmodleastfield, INTERVAL_PRECISION};
+    use ::types_nodes::{supportnodes::SupportRequestSimplify, NodeTag};
     let [a] = fcinfo.args_n::<1>();
     let p = a.value.as_usize() as *const NodeTag;
     // SAFETY: prosupport contract — arg points at a live tag-first node.
@@ -679,13 +716,16 @@ fn interval_agg_state_arg(
     // SAFETY: context, if set, is the evaltrans build's AggStateNode, live
     // across every call through this frame.
     let Some(agg_mcx) = (unsafe { fcinfo.agg_context() }) else {
-        return Err(Box::new(PgError::error("aggregate function called in non-aggregate context")));
+        return Err(Box::new(PgError::error(
+            "aggregate function called in non-aggregate context",
+        )));
     };
     if !arg0.isnull {
         return Ok(arg0.value.as_usize() as *mut IntervalAggState);
     }
     let layout = core::alloc::Layout::new::<IntervalAggState>();
-    let raw = ::mcx::Allocator::allocate(&agg_mcx, layout).map_err(|_| agg_mcx.oom(layout.size()))?;
+    let raw =
+        ::mcx::Allocator::allocate(&agg_mcx, layout).map_err(|_| agg_mcx.oom(layout.size()))?;
     let p = raw.cast::<IntervalAggState>().as_ptr();
     // SAFETY: fresh allocation of the exact layout.
     unsafe { p.write(IntervalAggState::default()) };
@@ -714,7 +754,9 @@ pub fn fc_interval_avg_accum_inv(
     let [a, b] = *fcinfo.args_n::<2>();
     // timestamp.c:4228: should not get here with no state.
     if a.isnull {
-        return Err(Box::new(PgError::error("interval_avg_accum_inv called with NULL state")));
+        return Err(Box::new(PgError::error(
+            "interval_avg_accum_inv called with NULL state",
+        )));
     }
     let state = a.value.as_usize() as *mut crate::interval::IntervalAggState;
     if !b.isnull {
@@ -781,7 +823,9 @@ pub fn fc_interval_avg_serialize(
     // timestamp.c:4146: disallow calling when not in aggregate context.
     // SAFETY: context, if set, is the evaltrans build's AggStateNode.
     if unsafe { fcinfo.agg_context() }.is_none() {
-        return Err(Box::new(PgError::error("aggregate function called in non-aggregate context")));
+        return Err(Box::new(PgError::error(
+            "aggregate function called in non-aggregate context",
+        )));
     }
     let a = fcinfo.args_n::<1>()[0];
     // SAFETY: strict fn — arg 0 is the aggcontext-lived state.
@@ -807,7 +851,9 @@ pub fn fc_interval_avg_deserialize(
     use crate::interval::IntervalAggState;
     // SAFETY: agg deserialize contract — only reached inside an aggregate.
     if unsafe { fcinfo.agg_context() }.is_none() {
-        return Err(Box::new(PgError::error("aggregate function called in non-aggregate context")));
+        return Err(Box::new(PgError::error(
+            "aggregate function called in non-aggregate context",
+        )));
     }
     // SAFETY: strict fn — arg 0 is a non-null bytea varlena.
     let sstate = unsafe { fcinfo.arg_varlena_packed(0)? };
@@ -867,7 +913,10 @@ pub fn fc_timestamptz_pl_interval(
     fcinfo: &mut Fcinfo,
 ) -> PgResult<Datum> {
     let iv = arg_interval(fcinfo, 1);
-    Ok(Datum::from_i64(crate::interval::timestamptz_pl_interval(fcinfo.arg_i64(0), &iv)?))
+    Ok(Datum::from_i64(crate::interval::timestamptz_pl_interval(
+        fcinfo.arg_i64(0),
+        &iv,
+    )?))
 }
 
 pub fn fc_timestamptz_mi_interval(
@@ -875,7 +924,10 @@ pub fn fc_timestamptz_mi_interval(
     fcinfo: &mut Fcinfo,
 ) -> PgResult<Datum> {
     let iv = arg_interval(fcinfo, 1);
-    Ok(Datum::from_i64(crate::interval::timestamptz_mi_interval(fcinfo.arg_i64(0), &iv)?))
+    Ok(Datum::from_i64(crate::interval::timestamptz_mi_interval(
+        fcinfo.arg_i64(0),
+        &iv,
+    )?))
 }
 
 pub fn fc_timestamp_age(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -890,7 +942,10 @@ pub fn fc_timestamptz_age(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -
 
 pub fn fc_timestamp_izone(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let zone = arg_interval(fcinfo, 0);
-    Ok(Datum::from_i64(crate::interval::timestamp_izone(&zone, fcinfo.arg_i64(1))?))
+    Ok(Datum::from_i64(crate::interval::timestamp_izone(
+        &zone,
+        fcinfo.arg_i64(1),
+    )?))
 }
 
 pub fn fc_timestamptz_izone(
@@ -898,7 +953,10 @@ pub fn fc_timestamptz_izone(
     fcinfo: &mut Fcinfo,
 ) -> PgResult<Datum> {
     let zone = arg_interval(fcinfo, 0);
-    Ok(Datum::from_i64(crate::interval::timestamptz_izone(&zone, fcinfo.arg_i64(1))?))
+    Ok(Datum::from_i64(crate::interval::timestamptz_izone(
+        &zone,
+        fcinfo.arg_i64(1),
+    )?))
 }
 
 pub fn fc_overlaps_timestamp(
@@ -934,7 +992,9 @@ impl GenSeriesTimestamp {
     ) -> PgResult<Self> {
         let attimezone = match attimezone {
             None if tz_aware => Some(adt_datetime::tz::session_timezone().unwrap_or_else(|| {
-                panic!("session timezone not initialized (pg_timezone_initialize) — generate_series")
+                panic!(
+                    "session timezone not initialized (pg_timezone_initialize) — generate_series"
+                )
             })),
             z => z,
         };
@@ -945,7 +1005,14 @@ impl GenSeriesTimestamp {
         if step.is_nobegin() || step.is_noend() {
             return Err(step_size_err("step size cannot be infinite"));
         }
-        Ok(GenSeriesTimestamp { current, finish, step, step_sign, attimezone, tz_aware })
+        Ok(GenSeriesTimestamp {
+            current,
+            finish,
+            step,
+            step_sign,
+            attimezone,
+            tz_aware,
+        })
     }
 
     pub(crate) fn next(&mut self) -> PgResult<Option<i64>> {
@@ -959,7 +1026,11 @@ impl GenSeriesTimestamp {
             return Ok(None);
         }
         self.current = if self.tz_aware {
-            crate::interval::timestamptz_pl_interval_internal(self.current, &self.step, self.attimezone.as_deref())?
+            crate::interval::timestamptz_pl_interval_internal(
+                self.current,
+                &self.step,
+                self.attimezone.as_deref(),
+            )?
         } else {
             crate::interval::timestamp_pl_interval(self.current, &self.step)?
         };
@@ -1030,8 +1101,16 @@ fn interval_from_const_datum(d: Datum) -> Interval {
 
 fn interval_to_microseconds(i: &Interval) -> f64 {
     use ::fp_contract::fmadd;
-    let days = fmadd(i.month as f64, adt_datetime::consts::DAYS_PER_MONTH as f64, i.day as f64);
-    fmadd(days, adt_datetime::consts::USECS_PER_DAY as f64, i.time as f64)
+    let days = fmadd(
+        i.month as f64,
+        adt_datetime::consts::DAYS_PER_MONTH as f64,
+        i.day as f64,
+    );
+    fmadd(
+        days,
+        adt_datetime::consts::USECS_PER_DAY as f64,
+        i.time as f64,
+    )
 }
 
 // generate_series_timestamp_support (OID 6354; timestamp.c:6861-6942):
@@ -1118,7 +1197,9 @@ pub fn fc_float8_timestamptz(
     _flinfo: Option<&mut FmgrInfo>,
     fcinfo: &mut Fcinfo,
 ) -> PgResult<Datum> {
-    Ok(Datum::from_i64(crate::float8_timestamptz(fcinfo.arg_f64(0))?))
+    Ok(Datum::from_i64(crate::float8_timestamptz(
+        fcinfo.arg_f64(0),
+    )?))
 }
 
 pub fn fc_in_range_timestamp_interval(
@@ -1126,13 +1207,15 @@ pub fn fc_in_range_timestamp_interval(
     fcinfo: &mut Fcinfo,
 ) -> PgResult<Datum> {
     let offset = arg_interval(fcinfo, 2);
-    Ok(Datum::from_bool(crate::interval::in_range_timestamp_interval(
-        fcinfo.arg_i64(0),
-        fcinfo.arg_i64(1),
-        &offset,
-        fcinfo.arg_bool(3),
-        fcinfo.arg_bool(4),
-    )?))
+    Ok(Datum::from_bool(
+        crate::interval::in_range_timestamp_interval(
+            fcinfo.arg_i64(0),
+            fcinfo.arg_i64(1),
+            &offset,
+            fcinfo.arg_bool(3),
+            fcinfo.arg_bool(4),
+        )?,
+    ))
 }
 
 pub fn fc_in_range_timestamptz_interval(
@@ -1140,13 +1223,15 @@ pub fn fc_in_range_timestamptz_interval(
     fcinfo: &mut Fcinfo,
 ) -> PgResult<Datum> {
     let offset = arg_interval(fcinfo, 2);
-    Ok(Datum::from_bool(crate::interval::in_range_timestamptz_interval(
-        fcinfo.arg_i64(0),
-        fcinfo.arg_i64(1),
-        &offset,
-        fcinfo.arg_bool(3),
-        fcinfo.arg_bool(4),
-    )?))
+    Ok(Datum::from_bool(
+        crate::interval::in_range_timestamptz_interval(
+            fcinfo.arg_i64(0),
+            fcinfo.arg_i64(1),
+            &offset,
+            fcinfo.arg_bool(3),
+            fcinfo.arg_bool(4),
+        )?,
+    ))
 }
 
 pub fn fc_in_range_interval_interval(
@@ -1156,21 +1241,20 @@ pub fn fc_in_range_interval_interval(
     let val = arg_interval(fcinfo, 0);
     let base = arg_interval(fcinfo, 1);
     let offset = arg_interval(fcinfo, 2);
-    Ok(Datum::from_bool(crate::interval::in_range_interval_interval(
-        &val,
-        &base,
-        &offset,
-        fcinfo.arg_bool(3),
-        fcinfo.arg_bool(4),
-    )?))
+    Ok(Datum::from_bool(
+        crate::interval::in_range_interval_interval(
+            &val,
+            &base,
+            &offset,
+            fcinfo.arg_bool(3),
+            fcinfo.arg_bool(4),
+        )?,
+    ))
 }
 
 // datetime.c pg_timezone_names. The tuplestore copies each row, so the text
 // and interval images are per-row stack/heap scratch, not mcx allocations.
-pub fn fc_pg_timezone_names(
-    flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut Fcinfo,
-) -> PgResult<Datum> {
+pub fn fc_pg_timezone_names(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     use adt_datetime::consts::{
         pg_itm_in, POSTGRES_EPOCH_JDATE, SECS_PER_DAY, UNIX_EPOCH_JDATE, USECS_PER_SEC,
     };
@@ -1276,7 +1360,9 @@ fn tz_abbrev_interval_image(gmtoffset: i64) -> [u8; 16] {
 }
 
 // C get_call_result_type(fcinfo, ...) reads ReturnSetInfo.expectedDesc.
-fn tz_abbrev_expected_desc<'a>(fcinfo: &mut Fcinfo) -> Option<&'a ::types_tuple::TupleDescData<'a>> {
+fn tz_abbrev_expected_desc<'a>(
+    fcinfo: &mut Fcinfo,
+) -> Option<&'a ::types_tuple::TupleDescData<'a>> {
     let expected_desc = fcinfo.rsinfo_mut().and_then(|rsi| rsi.expectedDesc);
     // SAFETY: expectedDesc contract — the executor armed it with the scan
     // tupdesc, live for the duration of this call.
@@ -1287,7 +1373,9 @@ fn tz_abbrev_check_result_type(flinfo: &FmgrInfo, fcinfo: &mut Fcinfo) -> PgResu
     let expected = tz_abbrev_expected_desc(fcinfo);
     let resolved = funcapi::get_call_result_type(fcinfo.result_mcx(), flinfo, expected)?;
     if resolved.class != funcapi::TypeFuncClass::Composite {
-        return Err(Box::new(::types_error::PgError::error("return type must be a row type")));
+        return Err(Box::new(::types_error::PgError::error(
+            "return type must be a row type",
+        )));
     }
     Ok(())
 }
@@ -1297,9 +1385,13 @@ fn tz_abbrev_row(flinfo: &FmgrInfo, fcinfo: &mut Fcinfo, values: &[Datum; 3]) ->
     let mcx = fcinfo.result_mcx();
     let resolved = funcapi::get_call_result_type(mcx, flinfo, expected)?;
     if resolved.class != funcapi::TypeFuncClass::Composite {
-        return Err(Box::new(::types_error::PgError::error("return type must be a row type")));
+        return Err(Box::new(::types_error::PgError::error(
+            "return type must be a row type",
+        )));
     }
-    let tupdesc = resolved.result_tuple_desc.expect("composite result has tupdesc");
+    let tupdesc = resolved
+        .result_tuple_desc
+        .expect("composite result has tupdesc");
     let tup = ::heaptuple::heap_form_tuple(mcx, &tupdesc, values, &[false; 3])?;
     let d = Datum::from_usize(tup.header_ptr() as usize);
     core::mem::forget(tup);
@@ -1341,15 +1433,21 @@ pub fn fc_pg_timezone_abbrevs_zone(
     let row = adt_datetime::tz::with_required_session_timezone(
         "pg_timezone_abbrevs_zone: session_timezone not initialized",
         |session_tz| {
-            while let Some(abbrev) = localtime::pg_get_next_timezone_abbrev(&mut pindex, session_tz) {
+            while let Some(abbrev) = localtime::pg_get_next_timezone_abbrev(&mut pindex, session_tz)
+            {
                 if !abbrev.iter().all(u8::is_ascii_uppercase) {
                     continue;
                 }
-                let Some((gmtoff, isdst)) = localtime::pg_interpret_timezone_abbrev(abbrev, t, session_tz)
+                let Some((gmtoff, isdst)) =
+                    localtime::pg_interpret_timezone_abbrev(abbrev, t, session_tz)
                 else {
                     continue;
                 };
-                return Some((tz_abbrev_text_image(abbrev), tz_abbrev_interval_image(gmtoff), isdst != 0));
+                return Some((
+                    tz_abbrev_text_image(abbrev),
+                    tz_abbrev_interval_image(gmtoff),
+                    isdst != 0,
+                ));
             }
             None
         },
@@ -1405,7 +1503,8 @@ pub fn fc_pg_timezone_abbrevs_abbrevs(
             };
             let now = xact::GetCurrentTransactionStartTimestamp();
             let mut isdst = 0i32;
-            let off = crate::DetermineTimeZoneAbbrevOffsetTS(now, tp.token_bytes(), &tzp, &mut isdst)?;
+            let off =
+                crate::DetermineTimeZoneAbbrevOffsetTS(now, tp.token_bytes(), &tzp, &mut isdst)?;
             (-(off as i64), isdst != 0)
         }
         other => panic!("unrecognized timezone type {other}"),
@@ -1434,20 +1533,75 @@ use ::types_fmgr::builtin_nonstrict as bn;
 // rows are the timestamptz operators sharing the timestamp prosrc).
 pub const TIMESTAMP_BUILTINS: &[FmgrBuiltin] = &[
     // sort/skip support: native comparator resolution; fmgr-lookup parity rows.
-    b(3137, "timestamp_sortsupport", 1, ::types_fmgr::fc_internal_dispatch_only),
-    b(6409, "timestamp_skipsupport", 1, ::types_fmgr::fc_internal_dispatch_only),
+    b(
+        3137,
+        "timestamp_sortsupport",
+        1,
+        ::types_fmgr::fc_internal_dispatch_only,
+    ),
+    b(
+        6409,
+        "timestamp_skipsupport",
+        1,
+        ::types_fmgr::fc_internal_dispatch_only,
+    ),
     b(274, "timeofday", 0, fc_timeofday),
     srf(2856, "pg_timezone_names", 0, fc_pg_timezone_names),
-    srf(6401, "pg_timezone_abbrevs_zone", 0, fc_pg_timezone_abbrevs_zone),
-    srf(2599, "pg_timezone_abbrevs_abbrevs", 0, fc_pg_timezone_abbrevs_abbrevs),
-    srf(938, "generate_series_timestamp", 3, fc_generate_series_timestamp),
-    srf(939, "generate_series_timestamptz", 3, fc_generate_series_timestamptz),
-    srf(6274, "generate_series_timestamptz_at_zone", 4, fc_generate_series_timestamptz),
-    b(6354, "generate_series_timestamp_support", 1, fc_generate_series_timestamp_support),
+    srf(
+        6401,
+        "pg_timezone_abbrevs_zone",
+        0,
+        fc_pg_timezone_abbrevs_zone,
+    ),
+    srf(
+        2599,
+        "pg_timezone_abbrevs_abbrevs",
+        0,
+        fc_pg_timezone_abbrevs_abbrevs,
+    ),
+    srf(
+        938,
+        "generate_series_timestamp",
+        3,
+        fc_generate_series_timestamp,
+    ),
+    srf(
+        939,
+        "generate_series_timestamptz",
+        3,
+        fc_generate_series_timestamptz,
+    ),
+    srf(
+        6274,
+        "generate_series_timestamptz_at_zone",
+        4,
+        fc_generate_series_timestamptz,
+    ),
+    b(
+        6354,
+        "generate_series_timestamp_support",
+        1,
+        fc_generate_series_timestamp_support,
+    ),
     b(1158, "float8_timestamptz", 1, fc_float8_timestamptz),
-    b(4134, "in_range_timestamp_interval", 5, fc_in_range_timestamp_interval),
-    b(4135, "in_range_timestamptz_interval", 5, fc_in_range_timestamptz_interval),
-    b(4136, "in_range_interval_interval", 5, fc_in_range_interval_interval),
+    b(
+        4134,
+        "in_range_timestamp_interval",
+        5,
+        fc_in_range_timestamp_interval,
+    ),
+    b(
+        4135,
+        "in_range_timestamptz_interval",
+        5,
+        fc_in_range_timestamptz_interval,
+    ),
+    b(
+        4136,
+        "in_range_interval_interval",
+        5,
+        fc_in_range_interval_interval,
+    ),
     b(1150, "timestamptz_in", 3, fc_timestamptz_in),
     b(1151, "timestamptz_out", 1, fc_timestamptz_out),
     b(1152, "timestamp_eq", 2, fc_timestamp_eq),
@@ -1489,33 +1643,118 @@ pub const TIMESTAMP_BUILTINS: &[FmgrBuiltin] = &[
     b(2475, "timestamp_send", 1, fc_timestamp_send),
     b(2476, "timestamptz_recv", 3, fc_timestamptz_recv),
     b(2477, "timestamptz_send", 1, fc_timestamp_send),
-    b(2520, "timestamp_lt_timestamptz", 2, fc_timestamp_lt_timestamptz),
-    b(2521, "timestamp_le_timestamptz", 2, fc_timestamp_le_timestamptz),
-    b(2522, "timestamp_eq_timestamptz", 2, fc_timestamp_eq_timestamptz),
-    b(2523, "timestamp_gt_timestamptz", 2, fc_timestamp_gt_timestamptz),
-    b(2524, "timestamp_ge_timestamptz", 2, fc_timestamp_ge_timestamptz),
-    b(2525, "timestamp_ne_timestamptz", 2, fc_timestamp_ne_timestamptz),
-    b(2526, "timestamp_cmp_timestamptz", 2, fc_timestamp_cmp_timestamptz),
-    b(2527, "timestamptz_lt_timestamp", 2, fc_timestamptz_lt_timestamp),
-    b(2528, "timestamptz_le_timestamp", 2, fc_timestamptz_le_timestamp),
-    b(2529, "timestamptz_eq_timestamp", 2, fc_timestamptz_eq_timestamp),
-    b(2530, "timestamptz_gt_timestamp", 2, fc_timestamptz_gt_timestamp),
-    b(2531, "timestamptz_ge_timestamp", 2, fc_timestamptz_ge_timestamp),
-    b(2532, "timestamptz_ne_timestamp", 2, fc_timestamptz_ne_timestamp),
-    b(2533, "timestamptz_cmp_timestamp", 2, fc_timestamptz_cmp_timestamp),
+    b(
+        2520,
+        "timestamp_lt_timestamptz",
+        2,
+        fc_timestamp_lt_timestamptz,
+    ),
+    b(
+        2521,
+        "timestamp_le_timestamptz",
+        2,
+        fc_timestamp_le_timestamptz,
+    ),
+    b(
+        2522,
+        "timestamp_eq_timestamptz",
+        2,
+        fc_timestamp_eq_timestamptz,
+    ),
+    b(
+        2523,
+        "timestamp_gt_timestamptz",
+        2,
+        fc_timestamp_gt_timestamptz,
+    ),
+    b(
+        2524,
+        "timestamp_ge_timestamptz",
+        2,
+        fc_timestamp_ge_timestamptz,
+    ),
+    b(
+        2525,
+        "timestamp_ne_timestamptz",
+        2,
+        fc_timestamp_ne_timestamptz,
+    ),
+    b(
+        2526,
+        "timestamp_cmp_timestamptz",
+        2,
+        fc_timestamp_cmp_timestamptz,
+    ),
+    b(
+        2527,
+        "timestamptz_lt_timestamp",
+        2,
+        fc_timestamptz_lt_timestamp,
+    ),
+    b(
+        2528,
+        "timestamptz_le_timestamp",
+        2,
+        fc_timestamptz_le_timestamp,
+    ),
+    b(
+        2529,
+        "timestamptz_eq_timestamp",
+        2,
+        fc_timestamptz_eq_timestamp,
+    ),
+    b(
+        2530,
+        "timestamptz_gt_timestamp",
+        2,
+        fc_timestamptz_gt_timestamp,
+    ),
+    b(
+        2531,
+        "timestamptz_ge_timestamp",
+        2,
+        fc_timestamptz_ge_timestamp,
+    ),
+    b(
+        2532,
+        "timestamptz_ne_timestamp",
+        2,
+        fc_timestamptz_ne_timestamp,
+    ),
+    b(
+        2533,
+        "timestamptz_cmp_timestamp",
+        2,
+        fc_timestamptz_cmp_timestamp,
+    ),
     b(2647, "now", 0, fc_now),
     b(2648, "statement_timestamp", 0, fc_statement_timestamp),
     b(2649, "clock_timestamp", 0, fc_clock_timestamp),
-    b(3411, "timestamp_hash_extended", 2, fc_timestamp_hash_extended),
+    b(
+        3411,
+        "timestamp_hash_extended",
+        2,
+        fc_timestamp_hash_extended,
+    ),
     b(3461, "make_timestamp", 6, fc_make_timestamp),
     b(3462, "make_timestamptz", 6, fc_make_timestamptz),
-    b(3463, "make_timestamptz_at_timezone", 7, fc_make_timestamptz_at_timezone),
+    b(
+        3463,
+        "make_timestamptz_at_timezone",
+        7,
+        fc_make_timestamptz_at_timezone,
+    ),
     b(6202, "extract_timestamp", 2, fc_extract_timestamp),
     b(6203, "extract_timestamptz", 2, fc_extract_timestamptz),
     b(6334, "timestamptz_at_local", 1, fc_timestamptz_timestamp),
     b(6335, "timestamp_at_local", 1, fc_timestamp_timestamptz),
     b(6425, "timestamptz_hash", 1, fc_timestamp_hash),
-    b(6426, "timestamptz_hash_extended", 2, fc_timestamp_hash_extended),
+    b(
+        6426,
+        "timestamptz_hash_extended",
+        2,
+        fc_timestamp_hash_extended,
+    ),
     b(1026, "timestamptz_izone", 2, fc_timestamptz_izone),
     b(1172, "interval_part", 2, fc_interval_part),
     b(1199, "timestamptz_age", 2, fc_timestamptz_age),
@@ -1538,13 +1777,38 @@ pub const TIMESTAMP_BUILTINS: &[FmgrBuiltin] = &[
     bn(3549, "interval_avg_accum_inv", 2, fc_interval_avg_accum_inv),
     bn(6326, "interval_sum", 1, fc_interval_sum),
     b(6324, "interval_avg_serialize", 1, fc_interval_avg_serialize),
-    b(6325, "interval_avg_deserialize", 2, fc_interval_avg_deserialize),
-    b(6222, "timestamptz_pl_interval_at_zone", 3, fc_timestamptz_pl_interval_at_zone),
-    b(6273, "timestamptz_mi_interval_at_zone", 3, fc_timestamptz_mi_interval_at_zone),
+    b(
+        6325,
+        "interval_avg_deserialize",
+        2,
+        fc_interval_avg_deserialize,
+    ),
+    b(
+        6222,
+        "timestamptz_pl_interval_at_zone",
+        3,
+        fc_timestamptz_pl_interval_at_zone,
+    ),
+    b(
+        6273,
+        "timestamptz_mi_interval_at_zone",
+        3,
+        fc_timestamptz_mi_interval_at_zone,
+    ),
     b(3464, "make_interval", 7, fc_make_interval),
     b(6204, "extract_interval", 2, fc_extract_interval),
-    b(6221, "timestamptz_pl_interval", 2, fc_timestamptz_pl_interval),
-    b(6223, "timestamptz_mi_interval", 2, fc_timestamptz_mi_interval),
+    b(
+        6221,
+        "timestamptz_pl_interval",
+        2,
+        fc_timestamptz_pl_interval,
+    ),
+    b(
+        6223,
+        "timestamptz_mi_interval",
+        2,
+        fc_timestamptz_mi_interval,
+    ),
 ];
 
 fn ts_bound(_: Datum) -> Option<usize> {
@@ -1560,8 +1824,18 @@ unsafe fn timestamptz_render(v: Datum, dst: *mut u8) -> PgResult<usize> {
 }
 
 pub static TIMESTAMP_OUT_INTO: &[OutInto] = &[
-    OutInto { foid: 1151, bound: ts_bound, render: timestamptz_render, chars: Some(OUT_CHARS_DATETIME) },
-    OutInto { foid: 1313, bound: ts_bound, render: timestamp_render, chars: Some(OUT_CHARS_DATETIME) },
+    OutInto {
+        foid: 1151,
+        bound: ts_bound,
+        render: timestamptz_render,
+        chars: Some(OUT_CHARS_DATETIME),
+    },
+    OutInto {
+        foid: 1313,
+        bound: ts_bound,
+        render: timestamp_render,
+        chars: Some(OUT_CHARS_DATETIME),
+    },
 ];
 
 #[cfg(test)]
@@ -1570,8 +1844,16 @@ mod d400_tests {
 
     #[test]
     fn interval_to_microseconds_fmadd() {
-        let i = Interval { time: 999_999_999, day: 0, month: 1_234_567_891 };
-        let want = if cfg!(target_arch = "aarch64") { 3.199999973473e21 } else { 3.1999999734729996e21 };
+        let i = Interval {
+            time: 999_999_999,
+            day: 0,
+            month: 1_234_567_891,
+        };
+        let want = if cfg!(target_arch = "aarch64") {
+            3.199999973473e21
+        } else {
+            3.1999999734729996e21
+        };
         assert_eq!(interval_to_microseconds(&i), want);
     }
 }

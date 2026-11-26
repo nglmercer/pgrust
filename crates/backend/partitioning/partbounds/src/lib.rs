@@ -3,9 +3,9 @@
 #![allow(non_snake_case)]
 
 pub mod merge;
-mod qual;
 #[cfg(test)]
 mod merge_tests;
+mod qual;
 #[cfg(test)]
 mod tests;
 
@@ -21,12 +21,12 @@ pub use qual::{
 
 use datum::Datum;
 use mcx::{Mcx, PgVec};
+use partcache::PartitionKeyData;
 use types_core::Oid;
 use types_error::{PgError, PgResult, ERRCODE_INVALID_OBJECT_DEFINITION, ERROR};
 use types_fmgr::{FmgrInfo, LocalFcinfo};
 use types_nodes::primnodes::Const;
 use types_nodes::rawnodes::{PartitionBoundSpec, PartitionRangeDatum, PartitionRangeDatumKind};
-use partcache::PartitionKeyData;
 
 pub const PARTITION_STRATEGY_LIST: u8 = b'l';
 pub const PARTITION_STRATEGY_RANGE: u8 = b'r';
@@ -91,7 +91,8 @@ fn bound_internal_error(message: &'static str) -> Box<PgError> {
 }
 
 fn spec_const<'a>(n: types_nodes::Node<'a>) -> &'a Const {
-    n.as_variant::<Const>().expect("partition bound datum is not a Const")
+    n.as_variant::<Const>()
+        .expect("partition bound datum is not a Const")
 }
 
 struct PartitionRangeBound {
@@ -345,7 +346,9 @@ fn create_hash_bounds<'m>(
     for (i, spec) in boundspecs.iter().enumerate() {
         if spec.strategy != PARTITION_STRATEGY_HASH {
             // partbounds.c:372
-            return Err(bound_internal_error("invalid strategy in partition bound spec"));
+            return Err(bound_internal_error(
+                "invalid strategy in partition bound spec",
+            ));
         }
         hbounds.push((spec.modulus, spec.remainder, i as i32));
     }
@@ -391,7 +394,9 @@ fn create_list_bounds<'m>(
     for (i, spec) in boundspecs.iter().enumerate() {
         if spec.strategy != PARTITION_STRATEGY_LIST {
             // partbounds.c:493
-            return Err(bound_internal_error("invalid strategy in partition bound spec"));
+            return Err(bound_internal_error(
+                "invalid strategy in partition bound spec",
+            ));
         }
         if spec.is_default {
             default_index = i as i32;
@@ -426,7 +431,12 @@ fn create_list_bounds<'m>(
         default_index: -1,
     };
     for &(orig_index, value) in &all_values {
-        info.datums.push(datum_copy(mcx, value, key.parttypbyval[0], key.parttyplen[0])?);
+        info.datums.push(datum_copy(
+            mcx,
+            value,
+            key.parttypbyval[0],
+            key.parttyplen[0],
+        )?);
         if mapping[orig_index as usize] == -1 {
             mapping[orig_index as usize] = next_index;
             next_index += 1;
@@ -465,26 +475,44 @@ fn create_range_bounds<'m>(
     for (i, spec) in boundspecs.iter().enumerate() {
         if spec.strategy != PARTITION_STRATEGY_RANGE {
             // partbounds.c:713
-            return Err(bound_internal_error("invalid strategy in partition bound spec"));
+            return Err(bound_internal_error(
+                "invalid strategy in partition bound spec",
+            ));
         }
         if spec.is_default {
             default_index = i as i32;
             continue;
         }
-        all_bounds.push(make_one_partition_rbound(key, i as i32, &spec.lowerdatums, true)?);
-        all_bounds.push(make_one_partition_rbound(key, i as i32, &spec.upperdatums, false)?);
+        all_bounds.push(make_one_partition_rbound(
+            key,
+            i as i32,
+            &spec.lowerdatums,
+            true,
+        )?);
+        all_bounds.push(make_one_partition_rbound(
+            key,
+            i as i32,
+            &spec.upperdatums,
+            false,
+        )?);
     }
 
     // qsort_arg(all_bounds, ..., qsort_partition_rbound_cmp, key)
     try_sort_by(&mut all_bounds, |a, b| {
-        partition_rbound_cmp(key, &a.datums, &a.kind, a.lower, &b.datums, &b.kind, b.lower)
+        partition_rbound_cmp(
+            key, &a.datums, &a.kind, a.lower, &b.datums, &b.kind, b.lower,
+        )
     })?;
 
     // Distinct bounds only (C's rbounds pass).
     let mut rbounds: Vec<&PartitionRangeBound> = Vec::with_capacity(all_bounds.len());
     for (i, cur) in all_bounds.iter().enumerate() {
         let mut is_distinct = false;
-        let prev = if i == 0 { None } else { Some(&all_bounds[i - 1]) };
+        let prev = if i == 0 {
+            None
+        } else {
+            Some(&all_bounds[i - 1])
+        };
         for j in 0..partnatts {
             let Some(prev) = prev else {
                 is_distinct = true;
@@ -688,7 +716,9 @@ pub fn check_new_partition_bound<'mcx>(
         parser_small1::parser_errposition_source(sourcetext, loc, mbutils::GetDatabaseEncoding())
     };
     if spec.is_default {
-        let Some(boundinfo) = boundinfo else { return Ok(()) };
+        let Some(boundinfo) = boundinfo else {
+            return Ok(());
+        };
         if !boundinfo.has_default() {
             return Ok(());
         }
@@ -842,7 +872,11 @@ pub fn check_new_partition_bound<'mcx>(
                             overlap = true;
                             overlap_location = range_datum_location(
                                 &spec.upperdatums,
-                                if cmpval2 == 0 { 0 } else { cmpval2.unsigned_abs() as usize - 1 },
+                                if cmpval2 == 0 {
+                                    0
+                                } else {
+                                    cmpval2.unsigned_abs() as usize - 1
+                                },
                             );
                             with = boundinfo.indexes[(offset + 2) as usize];
                         }
@@ -851,7 +885,11 @@ pub fn check_new_partition_bound<'mcx>(
                     overlap = true;
                     overlap_location = range_datum_location(
                         &spec.lowerdatums,
-                        if cmpval == 0 { 0 } else { cmpval.unsigned_abs() as usize - 1 },
+                        if cmpval == 0 {
+                            0
+                        } else {
+                            cmpval.unsigned_abs() as usize - 1
+                        },
                     );
                     with = boundinfo.indexes[(offset + 1) as usize];
                 }
@@ -863,7 +901,9 @@ pub fn check_new_partition_bound<'mcx>(
     if overlap {
         debug_assert!(with >= 0);
         let e = overlap_error(relname, &rel_name(mcx, part_oids[with as usize]));
-        return Err(Box::new((*e).with_cursor_position(errpos(overlap_location))));
+        return Err(Box::new(
+            (*e).with_cursor_position(errpos(overlap_location)),
+        ));
     }
     Ok(())
 }

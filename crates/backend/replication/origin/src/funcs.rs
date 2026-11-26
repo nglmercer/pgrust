@@ -5,15 +5,17 @@
 use datum::Datum;
 use elog::ereport;
 use types_core::{InvalidRepOriginId, InvalidXLogRecPtr, XLogRecPtr};
-use types_error::{PgResult, ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE, ERRCODE_RESERVED_NAME, ERROR};
+use types_error::{
+    PgResult, ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE, ERRCODE_RESERVED_NAME, ERROR,
+};
 use types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData};
 
 use crate::{
     for_each_status_row, is_reserved_origin_name, loc, replorigin_advance, replorigin_by_name,
-    replorigin_by_oid, replorigin_check_prerequisites, replorigin_create,
-    replorigin_drop_by_name, replorigin_get_progress, replorigin_session_get_progress,
-    replorigin_session_is_setup, replorigin_session_origin, replorigin_session_reset,
-    replorigin_session_setup, set_replorigin_session_origin, set_replorigin_session_origin_lsn,
+    replorigin_by_oid, replorigin_check_prerequisites, replorigin_create, replorigin_drop_by_name,
+    replorigin_get_progress, replorigin_session_get_progress, replorigin_session_is_setup,
+    replorigin_session_origin, replorigin_session_reset, replorigin_session_setup,
+    set_replorigin_session_origin, set_replorigin_session_origin_lsn,
     set_replorigin_session_origin_timestamp,
 };
 
@@ -21,7 +23,7 @@ use crate::{
 fn arg_text_string(fcinfo: &mut FunctionCallInfoBaseData, i: usize) -> PgResult<Vec<u8>> {
     // SAFETY: strict fn — the arg is a non-null text varlena.
     let name = unsafe { fcinfo.arg_varlena_packed(i)? };
-    ::mcx::std_vec_from_slice("replication",name.data())
+    ::mcx::std_vec_from_slice("replication", name.data())
 }
 
 pub fn fc_pg_replication_origin_create(
@@ -101,7 +103,9 @@ pub fn fc_pg_replication_origin_session_is_setup(
     _fcinfo: &mut FunctionCallInfoBaseData,
 ) -> PgResult<Datum> {
     replorigin_check_prerequisites(false, false)?;
-    Ok(Datum::from_bool(replorigin_session_origin() != InvalidRepOriginId))
+    Ok(Datum::from_bool(
+        replorigin_session_origin() != InvalidRepOriginId,
+    ))
 }
 
 pub fn fc_pg_replication_origin_session_progress(
@@ -162,7 +166,10 @@ pub fn fc_pg_replication_origin_advance(
     let remote_commit = fcinfo.arg_i64(1) as XLogRecPtr;
 
     // Lock to prevent the replication origin from vanishing.
-    lmgr::LockRelationOid(catalog::ReplicationOriginRelationId, types_rel::RowExclusiveLock)?;
+    lmgr::LockRelationOid(
+        catalog::ReplicationOriginRelationId,
+        types_rel::RowExclusiveLock,
+    )?;
 
     let node = replorigin_by_name(&name, false)?;
 
@@ -170,7 +177,10 @@ pub fn fc_pg_replication_origin_advance(
     // xact hasn't committed yet: initial-state setup only, not replay.
     replorigin_advance(node, remote_commit, InvalidXLogRecPtr, true, true)?;
 
-    lmgr::UnlockRelationOid(catalog::ReplicationOriginRelationId, types_rel::RowExclusiveLock)?;
+    lmgr::UnlockRelationOid(
+        catalog::ReplicationOriginRelationId,
+        types_rel::RowExclusiveLock,
+    )?;
     Ok(Datum::from_usize(0))
 }
 

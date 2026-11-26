@@ -1148,7 +1148,10 @@ mod tests {
             let mut prods = Vec::new();
             let mut g = Gen::new(&mut rng, &cat, &w, &mut prods, 3);
             groups.push(
-                gen_einterp_module(&mut g).iter().map(|s| s.to_sql()).collect::<Vec<_>>(),
+                gen_einterp_module(&mut g)
+                    .iter()
+                    .map(|s| s.to_sql())
+                    .collect::<Vec<_>>(),
             );
         }
         groups
@@ -1197,11 +1200,7 @@ mod tests {
                     ("CREATE FUNCTION ", "f"),
                 ] {
                     if let Some(rest) = sql.strip_prefix(pat) {
-                        let name = rest
-                            .split([ ' ', '('])
-                            .next()
-                            .unwrap()
-                            .to_string();
+                        let name = rest.split([' ', '(']).next().unwrap().to_string();
                         if kind != "i" {
                             if let Some(par) = sql
                                 .split(" PARTITION OF ")
@@ -1221,11 +1220,7 @@ mod tests {
                     .or_else(|| sql.strip_prefix("DROP DOMAIN "))
                     .or_else(|| sql.strip_prefix("DROP FUNCTION "))
                 {
-                    let name = rest
-                        .split([ ';', ' ', '('])
-                        .next()
-                        .unwrap()
-                        .to_string();
+                    let name = rest.split([';', ' ', '(']).next().unwrap().to_string();
                     let pos = created.iter().rposition(|c| *c == name);
                     assert!(pos.is_some(), "DROP without CREATE: {sql}");
                     created.remove(pos.unwrap());
@@ -1239,7 +1234,10 @@ mod tests {
                     }
                 }
             }
-            assert!(created.is_empty(), "undropped objects {created:?} in {group:?}");
+            assert!(
+                created.is_empty(),
+                "undropped objects {created:?} in {group:?}"
+            );
         }
     }
 

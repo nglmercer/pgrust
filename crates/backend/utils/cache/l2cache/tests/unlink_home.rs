@@ -48,7 +48,13 @@ fn account(a: Acct) -> i64 {
 fn publish(relid: u32, db: u32) {
     let v: Arc<dyn Any + Send + Sync> = Arc::new(vec![7u8; MIB]);
     let gen = l2cache::current_gen(l2cache::Domain::Rel(relid));
-    drop(l2cache::insert(l2cache::rel_key(relid, db), gen, v, EST, |a| a.is::<Vec<u8>>()));
+    drop(l2cache::insert(
+        l2cache::rel_key(relid, db),
+        gen,
+        v,
+        EST,
+        |a| a.is::<Vec<u8>>(),
+    ));
 }
 
 #[test]
@@ -76,8 +82,16 @@ fn a_dropped_databases_entries_come_home_not_onto_the_dropping_session() {
     })
     .join()
     .unwrap();
-    assert!(dropper.abs() < SLACK, "the dropping session's account moved {dropper} B (blocks - estimate is {} B)", MIB - EST);
-    assert!((unbound - u0).abs() < SLACK, "the publisher's bytes on UNBOUND came back to zero: {} B left", unbound - u0);
+    assert!(
+        dropper.abs() < SLACK,
+        "the dropping session's account moved {dropper} B (blocks - estimate is {} B)",
+        MIB - EST
+    );
+    assert!(
+        (unbound - u0).abs() < SLACK,
+        "the publisher's bytes on UNBOUND came back to zero: {} B left",
+        unbound - u0
+    );
 }
 
 /// Small entries, each under its own key (its own bucket): the L2's structure is most of what a forget frees.
@@ -96,7 +110,13 @@ fn a_dropped_databases_buckets_leave_the_l2_not_the_dropping_session() {
             let v: Arc<dyn Any + Send + Sync> = Arc::new([7u8; 64]);
             let gen = l2cache::current_gen(l2cache::Domain::Rel(relid));
             // the estimate is the entry's block (its Arc's header and the array): only the L2's own bytes are left
-            drop(l2cache::insert(l2cache::rel_key(relid, 73), gen, v, 80, |a| a.is::<[u8; 64]>()));
+            drop(l2cache::insert(
+                l2cache::rel_key(relid, 73),
+                gen,
+                v,
+                80,
+                |a| a.is::<[u8; 64]>(),
+            ));
         }
         unbind_backend();
     })
@@ -114,8 +134,15 @@ fn a_dropped_databases_buckets_leave_the_l2_not_the_dropping_session() {
     })
     .join()
     .unwrap();
-    assert!(dropper.abs() < SLACK, "the dropping session's account moved {dropper} B ({SMALL} buckets freed)");
-    assert!((unbound - u0).abs() < SLACK, "the publisher's bytes on UNBOUND came back to zero: {} B left", unbound - u0);
+    assert!(
+        dropper.abs() < SLACK,
+        "the dropping session's account moved {dropper} B ({SMALL} buckets freed)"
+    );
+    assert!(
+        (unbound - u0).abs() < SLACK,
+        "the publisher's bytes on UNBOUND came back to zero: {} B left",
+        unbound - u0
+    );
 }
 
 #[test]
@@ -149,7 +176,16 @@ fn a_trimmed_entry_comes_home_to_its_publisher_while_it_holds_its_slot() {
     });
     let (held, back) = publisher.join().unwrap();
     let t = trimmer.join().unwrap();
-    assert!(held > (MIB - EST) as i64 - SLACK, "the publisher holds the blocks past the estimate: {held} B");
-    assert!(t.abs() < SLACK, "the trimming session's account moved {t} B");
-    assert!(back.abs() < SLACK, "the publisher's account is back at its start: {back} B");
+    assert!(
+        held > (MIB - EST) as i64 - SLACK,
+        "the publisher holds the blocks past the estimate: {held} B"
+    );
+    assert!(
+        t.abs() < SLACK,
+        "the trimming session's account moved {t} B"
+    );
+    assert!(
+        back.abs() < SLACK,
+        "the publisher's account is back at its start: {back} B"
+    );
 }

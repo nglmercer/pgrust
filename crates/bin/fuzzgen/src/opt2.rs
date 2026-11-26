@@ -136,12 +136,18 @@ const HASHU: Prof = Prof {
     name: "hashuniq",
     gucs: &[("enable_sort", "off")],
 };
-const DEFAULTP: Prof = Prof { name: "default", gucs: &[] };
+const DEFAULTP: Prof = Prof {
+    name: "default",
+    gucs: &[],
+};
 
 /// SET/RESET bracket (RESETs reversed) around `body`, one group.
 fn bracket(p: &Prof, body: Vec<StmtKind>) -> Vec<StmtKind> {
-    let mut v: Vec<StmtKind> =
-        p.gucs.iter().map(|(n, x)| raw(format!("SET {n} = {x};"))).collect();
+    let mut v: Vec<StmtKind> = p
+        .gucs
+        .iter()
+        .map(|(n, x)| raw(format!("SET {n} = {x};")))
+        .collect();
     v.extend(body);
     for (n, _) in p.gucs.iter().rev() {
         v.push(raw(format!("RESET {n};")));
@@ -285,7 +291,13 @@ fn gen_lateralrp(g: &mut Gen) -> Vec<StmtKind> {
     );
     v.extend(sweep(
         g,
-        &[PWISE_NESTL, PWISE_NESTL_IDX, PWISE_NESTL_BMP, NESTL_BARE, DEFAULTP],
+        &[
+            PWISE_NESTL,
+            PWISE_NESTL_IDX,
+            PWISE_NESTL_BMP,
+            NESTL_BARE,
+            DEFAULTP,
+        ],
         &queries,
     ));
     // MergeAppend under partitionwise merge join (ordered child paths).
@@ -573,8 +585,14 @@ fn gen_eclass(g: &mut Gen) -> Vec<StmtKind> {
          ON a.k = b.k AND a.s = b.s WHERE a.v < 60;"
             .into(),
     ];
-    v.extend(sweep(g, &[PWISE_NESTL, PWISE_MERGEA, DEFAULTP], &ek_queries));
-    v.push(raw("DROP TABLE fz_o2_ek1, fz_o2_ek2, fz_o2_ek3, fz_o2_ek4;"));
+    v.extend(sweep(
+        g,
+        &[PWISE_NESTL, PWISE_MERGEA, DEFAULTP],
+        &ek_queries,
+    ));
+    v.push(raw(
+        "DROP TABLE fz_o2_ek1, fz_o2_ek2, fz_o2_ek3, fz_o2_ek4;",
+    ));
     v.push(raw("DROP TABLE fz_o2_e1, fz_o2_e2, fz_o2_e3, fz_o2_e4;"));
     v
 }
@@ -727,8 +745,7 @@ fn gen_indexmatch(g: &mut Gen) -> Vec<StmtKind> {
         "SELECT count(*)::int8 FROM fz_o2_ix WHERE a = 5 OR b = 11;".into(),
         "SELECT count(*)::int8 FROM fz_o2_ix WHERE (a = 8 AND b < 10) OR (a = 9 AND b > 30);"
             .into(),
-        "SELECT count(*)::int8 FROM fz_o2_ix WHERE a = 1 OR a = 2 OR b = 3 OR n IS NULL;"
-            .into(),
+        "SELECT count(*)::int8 FROM fz_o2_ix WHERE a = 1 OR a = 2 OR b = 3 OR n IS NULL;".into(),
         // Backward scans / NULLS ordering off an index.
         "SELECT pk FROM fz_o2_ix WHERE a = 13 ORDER BY b DESC, pk LIMIT 5;".into(),
         "SELECT n FROM fz_o2_ix ORDER BY n DESC NULLS LAST, pk LIMIT 5;".into(),
@@ -851,7 +868,10 @@ fn gen_uniq(g: &mut Gen) -> Vec<StmtKind> {
 /// constraint_exclusion=on, partition-constraint exclusion under
 /// constraint_exclusion=partition with pruning disabled.
 fn gen_refute(g: &mut Gen) -> Vec<StmtKind> {
-    const CEX_ON: Prof = Prof { name: "cex_on", gucs: &[("constraint_exclusion", "on")] };
+    const CEX_ON: Prof = Prof {
+        name: "cex_on",
+        gucs: &[("constraint_exclusion", "on")],
+    };
     const CEX_PART: Prof = Prof {
         name: "cex_part",
         gucs: &[
@@ -905,8 +925,14 @@ fn gen_refute(g: &mut Gen) -> Vec<StmtKind> {
 /// swept over a small structurally-mixed query set.
 fn gen_gucmatrix(g: &mut Gen) -> Vec<StmtKind> {
     const MATRIX: &[Prof] = &[
-        Prof { name: "no_gathermerge", gucs: &[("enable_gathermerge", "off")] },
-        Prof { name: "no_pruning", gucs: &[("enable_partition_pruning", "off")] },
+        Prof {
+            name: "no_gathermerge",
+            gucs: &[("enable_gathermerge", "off")],
+        },
+        Prof {
+            name: "no_pruning",
+            gucs: &[("enable_partition_pruning", "off")],
+        },
         Prof {
             name: "no_presorted",
             gucs: &[("enable_presorted_aggregate", "off")],
@@ -919,8 +945,14 @@ fn gen_gucmatrix(g: &mut Gen) -> Vec<StmtKind> {
             name: "no_groupby_reord",
             gucs: &[("enable_group_by_reordering", "off")],
         },
-        Prof { name: "no_async", gucs: &[("enable_async_append", "off")] },
-        Prof { name: "no_tidscan", gucs: &[("enable_tidscan", "off")] },
+        Prof {
+            name: "no_async",
+            gucs: &[("enable_async_append", "off")],
+        },
+        Prof {
+            name: "no_tidscan",
+            gucs: &[("enable_tidscan", "off")],
+        },
         Prof {
             name: "constraint_excl",
             gucs: &[("constraint_exclusion", "on")],
@@ -966,8 +998,10 @@ fn gen_gucmatrix(g: &mut Gen) -> Vec<StmtKind> {
         raw("CREATE TABLE fz_o2_gm_1 PARTITION OF fz_o2_gm FOR VALUES IN (1);"),
         raw("CREATE TABLE fz_o2_gm_d PARTITION OF fz_o2_gm DEFAULT;"),
         raw("CREATE INDEX ON fz_o2_gm (a);"),
-        raw("INSERT INTO fz_o2_gm SELECT i, (i * 3) % 20, (i * 7) % 9, 'g' || (i % 5) \
-             FROM generate_series(1, 600) i;"),
+        raw(
+            "INSERT INTO fz_o2_gm SELECT i, (i * 3) % 20, (i * 7) % 9, 'g' || (i % 5) \
+             FROM generate_series(1, 600) i;",
+        ),
         raw("ANALYZE fz_o2_gm;"),
         raw("CREATE TABLE fz_o2_gj (pk int4 PRIMARY KEY, a int4);"),
         raw("INSERT INTO fz_o2_gj SELECT i, i % 20 FROM generate_series(1, 100) i;"),
@@ -1055,8 +1089,12 @@ mod tests {
                 }
                 if let Some(rest) = sql.strip_prefix("CREATE TABLE ") {
                     let t = rest.split_whitespace().next().unwrap();
-                    if !t.contains("_c") && !t.ends_with("_0") && !t.ends_with("_1")
-                        && !t.ends_with("_d") && !t.ends_with("_a") && !t.ends_with("_b")
+                    if !t.contains("_c")
+                        && !t.ends_with("_0")
+                        && !t.ends_with("_1")
+                        && !t.ends_with("_d")
+                        && !t.ends_with("_a")
+                        && !t.ends_with("_b")
                     {
                         assert!(
                             joined.contains(&format!("DROP TABLE {t}"))

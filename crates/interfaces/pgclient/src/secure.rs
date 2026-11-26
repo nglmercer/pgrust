@@ -223,24 +223,39 @@ pub(crate) fn initialize(opts: &[(String, String)], host: &str) -> Result<Pendin
     clear_err_queue();
     let mut ctx = SslContext::builder(SslMethod::tls())
         .map_err(|e| format!("could not create SSL context: {}", errmessage(&e)))?;
-    let flags = Box::new(CertFlags { requested: Cell::new(false), sent: Cell::new(false) });
+    let flags = Box::new(CertFlags {
+        requested: Cell::new(false),
+        sent: Cell::new(false),
+    });
     // SAFETY: the callback only dereferences `flags`, which ClientTls keeps
     // alive for as long as the SSL object that can call it.
     unsafe {
-        SSL_CTX_set_cert_cb(ctx.as_ptr(), Some(cert_cb), &*flags as *const CertFlags as *mut _);
+        SSL_CTX_set_cert_cb(
+            ctx.as_ptr(),
+            Some(cert_cb),
+            &*flags as *const CertFlags as *mut _,
+        );
     }
     ctx.set_options(SslOptions::NO_SSLV2 | SslOptions::NO_SSLV3);
     if let Some(v) = nonempty(opts, "ssl_min_protocol_version") {
         let ver = protocol_version_to_openssl(v)
             .ok_or_else(|| format!("invalid value \"{v}\" for minimum SSL protocol version"))?;
-        ctx.set_min_proto_version(Some(ver))
-            .map_err(|e| format!("could not set minimum SSL protocol version: {}", errmessage(&e)))?;
+        ctx.set_min_proto_version(Some(ver)).map_err(|e| {
+            format!(
+                "could not set minimum SSL protocol version: {}",
+                errmessage(&e)
+            )
+        })?;
     }
     if let Some(v) = nonempty(opts, "ssl_max_protocol_version") {
         let ver = protocol_version_to_openssl(v)
             .ok_or_else(|| format!("invalid value \"{v}\" for maximum SSL protocol version"))?;
-        ctx.set_max_proto_version(Some(ver))
-            .map_err(|e| format!("could not set maximum SSL protocol version: {}", errmessage(&e)))?;
+        ctx.set_max_proto_version(Some(ver)).map_err(|e| {
+            format!(
+                "could not set maximum SSL protocol version: {}",
+                errmessage(&e)
+            )
+        })?;
     }
     ctx.set_mode(SslMode::ACCEPT_MOVING_WRITE_BUFFER);
 
@@ -250,12 +265,20 @@ pub(crate) fn initialize(opts: &[(String, String)], host: &str) -> Result<Pendin
         (None, None) => String::new(),
     };
     let have_rootcert = if rootfile == "system" {
-        ctx.set_default_verify_paths()
-            .map_err(|e| format!("could not load system root certificate paths: {}", errmessage(&e)))?;
+        ctx.set_default_verify_paths().map_err(|e| {
+            format!(
+                "could not load system root certificate paths: {}",
+                errmessage(&e)
+            )
+        })?;
         true
     } else if !rootfile.is_empty() && stat(&rootfile).is_ok() {
-        ctx.set_ca_file(&rootfile)
-            .map_err(|e| format!("could not read root certificate file \"{rootfile}\": {}", errmessage(&e)))?;
+        ctx.set_ca_file(&rootfile).map_err(|e| {
+            format!(
+                "could not read root certificate file \"{rootfile}\": {}",
+                errmessage(&e)
+            )
+        })?;
         let crl_default;
         let (fname, dname) = match (sslcrl, sslcrldir, &homedir) {
             (None, None, Some(h)) => {
@@ -278,7 +301,8 @@ pub(crate) fn initialize(opts: &[(String, String)], host: &str) -> Result<Pendin
                 )
             };
             if loaded == 1 {
-                let _ = store.set_flags(X509VerifyFlags::CRL_CHECK | X509VerifyFlags::CRL_CHECK_ALL);
+                let _ =
+                    store.set_flags(X509VerifyFlags::CRL_CHECK | X509VerifyFlags::CRL_CHECK_ALL);
             }
             clear_err_queue();
         }
@@ -320,7 +344,10 @@ pub(crate) fn initialize(opts: &[(String, String)], host: &str) -> Result<Pendin
             }
             Ok(_) => {
                 ctx.set_certificate_chain_file(&certfile).map_err(|e| {
-                    format!("could not read certificate file \"{certfile}\": {}", errmessage(&e))
+                    format!(
+                        "could not read certificate file \"{certfile}\": {}",
+                        errmessage(&e)
+                    )
                 })?;
                 true
             }
@@ -330,8 +357,10 @@ pub(crate) fn initialize(opts: &[(String, String)], host: &str) -> Result<Pendin
     if let Some(keylog) = nonempty(opts, "sslkeylogfile") {
         let path = keylog.to_string();
         ctx.set_keylog_callback(move |_, line| {
-            if let Ok(mut f) =
-                std::fs::OpenOptions::new().create(true).append(true).open(&path)
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
             {
                 let _ = writeln!(f, "{line}");
             }
@@ -349,7 +378,10 @@ pub(crate) fn initialize(opts: &[(String, String)], host: &str) -> Result<Pendin
         && !(host.bytes().all(|b| b.is_ascii_digit() || b == b'.') || host.contains(':'))
     {
         ssl.set_hostname(host).map_err(|e| {
-            format!("could not set SSL Server Name Indication (SNI): {}", errmessage(&e))
+            format!(
+                "could not set SSL Server Name Indication (SNI): {}",
+                errmessage(&e)
+            )
         })?;
     }
     ssl.set_alpn_protos(ALPN_PROTOS)
@@ -364,7 +396,9 @@ pub(crate) fn initialize(opts: &[(String, String)], host: &str) -> Result<Pendin
         let st = match stat(&keyfile) {
             Ok(st) => st,
             Err(libc::ENOENT) => {
-                return Err(format!("certificate present, but not private key file \"{keyfile}\""))
+                return Err(format!(
+                    "certificate present, but not private key file \"{keyfile}\""
+                ))
             }
             Err(e) => {
                 return Err(format!(
@@ -374,7 +408,9 @@ pub(crate) fn initialize(opts: &[(String, String)], host: &str) -> Result<Pendin
             }
         };
         if st.st_mode & libc::S_IFMT != libc::S_IFREG {
-            return Err(format!("private key file \"{keyfile}\" is not a regular file"));
+            return Err(format!(
+                "private key file \"{keyfile}\" is not a regular file"
+            ));
         }
         let bad = if st.st_uid == 0 {
             st.st_mode & (libc::S_IWGRP | libc::S_IXGRP | libc::S_IRWXO)
@@ -407,8 +443,12 @@ pub(crate) fn initialize(opts: &[(String, String)], host: &str) -> Result<Pendin
             },
         };
         clear_err_queue();
-        ssl.set_private_key(&pkey)
-            .map_err(|e| format!("could not load private key file \"{keyfile}\": {}", errmessage(&e)))?;
+        ssl.set_private_key(&pkey).map_err(|e| {
+            format!(
+                "could not load private key file \"{keyfile}\": {}",
+                errmessage(&e)
+            )
+        })?;
     }
     // SAFETY: ssl is a live SSL object.
     if have_cert && unsafe { SSL_check_private_key(ssl.as_ptr()) } != 1 {
@@ -476,7 +516,10 @@ pub(crate) fn open(
                     && vcode.as_raw() == X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY
                     && opt(opts, "sslrootcert") == Some("system")
                 {
-                    format!("SSL error: certificate verify failed: {}", vcode.error_string())
+                    format!(
+                        "SSL error: certificate verify failed: {}",
+                        vcode.error_string()
+                    )
                 } else if r == -1 && save_errno != 0 {
                     format!("SSL SYSCALL error: {}", strerror(save_errno))
                 } else {
@@ -503,11 +546,10 @@ pub(crate) fn open(
 
     if direct {
         match ssl.selected_alpn_protocol() {
-            None => {
-                return Ok(Err(
-                    "direct SSL connection was established without ALPN protocol negotiation extension".into(),
-                ))
-            }
+            None => return Ok(Err(
+                "direct SSL connection was established without ALPN protocol negotiation extension"
+                    .into(),
+            )),
             Some(p) if p != PG_ALPN_PROTOCOL => {
                 return Ok(Err(
                     "SSL connection was established with unexpected ALPN protocol".into(),
@@ -518,7 +560,10 @@ pub(crate) fn open(
     }
 
     let Some(peer) = ssl.peer_certificate() else {
-        return Ok(Err(format!("certificate could not be obtained: {}", err_now())));
+        return Ok(Err(format!(
+            "certificate could not be obtained: {}",
+            err_now()
+        )));
     };
     if let Err(e) = verify_peer_name_matches_certificate(opts, host, &peer) {
         return Ok(Err(e));
@@ -544,13 +589,13 @@ fn classify(ssl: &Ssl, n: libc::c_int, save_errno: i32, op: &str) -> Io {
         }
         openssl_sys::SSL_ERROR_WANT_READ => Io::WantRead,
         openssl_sys::SSL_ERROR_WANT_WRITE => Io::WantWrite,
-        openssl_sys::SSL_ERROR_SYSCALL if n < 0 && save_errno != 0 => {
-            Io::Failed(if save_errno == libc::EPIPE || save_errno == libc::ECONNRESET {
+        openssl_sys::SSL_ERROR_SYSCALL if n < 0 && save_errno != 0 => Io::Failed(
+            if save_errno == libc::EPIPE || save_errno == libc::ECONNRESET {
                 SERVER_CLOSED_MSG.to_string()
             } else {
                 format!("SSL SYSCALL error: {}", strerror(save_errno))
-            })
-        }
+            },
+        ),
         openssl_sys::SSL_ERROR_SYSCALL => Io::Failed("SSL SYSCALL error: EOF detected".into()),
         openssl_sys::SSL_ERROR_SSL => {
             Io::Failed(format!("SSL error: {}", errmessage(&ErrorStack::get())))
@@ -566,7 +611,13 @@ pub(crate) fn read(ssl: &Ssl, buf: &mut [u8]) -> Io {
     clear_err_queue();
     set_errno(0);
     // SAFETY: live SSL; buf is valid writable memory of buf.len() bytes.
-    let n = unsafe { openssl_sys::SSL_read(ssl.as_ptr(), buf.as_mut_ptr().cast(), buf.len() as libc::c_int) };
+    let n = unsafe {
+        openssl_sys::SSL_read(
+            ssl.as_ptr(),
+            buf.as_mut_ptr().cast(),
+            buf.len() as libc::c_int,
+        )
+    };
     classify(ssl, n, errno(), "SSL_read")
 }
 
@@ -574,7 +625,9 @@ pub(crate) fn write(ssl: &Ssl, buf: &[u8]) -> Io {
     clear_err_queue();
     set_errno(0);
     // SAFETY: live SSL; buf is valid readable memory of buf.len() bytes.
-    let n = unsafe { openssl_sys::SSL_write(ssl.as_ptr(), buf.as_ptr().cast(), buf.len() as libc::c_int) };
+    let n = unsafe {
+        openssl_sys::SSL_write(ssl.as_ptr(), buf.as_ptr().cast(), buf.len() as libc::c_int)
+    };
     classify(ssl, n, errno(), "SSL_write")
 }
 
@@ -614,13 +667,19 @@ pub(crate) fn peer_certificate_hash(peer: &X509) -> Result<Vec<u8>, String> {
 }
 
 fn is_ip_address(host: &str) -> bool {
-    let Ok(c) = std::ffi::CString::new(host) else { return false };
+    let Ok(c) = std::ffi::CString::new(host) else {
+        return false;
+    };
     let mut a4: libc::in_addr = unsafe { std::mem::zeroed() };
     let mut a6: libc::in6_addr = unsafe { std::mem::zeroed() };
     // SAFETY: c is NUL-terminated; the out-buffers are valid.
     unsafe {
         inet_aton(c.as_ptr(), &mut a4) != 0
-            || inet_pton(libc::AF_INET6, c.as_ptr(), (&mut a6 as *mut libc::in6_addr).cast()) == 1
+            || inet_pton(
+                libc::AF_INET6,
+                c.as_ptr(),
+                (&mut a6 as *mut libc::in6_addr).cast(),
+            ) == 1
     }
 }
 
@@ -672,13 +731,19 @@ fn ip_matches(host: &str, ipdata: &[u8]) -> Result<(bool, String), String> {
             let mut addr: libc::in6_addr = unsafe { std::mem::zeroed() };
             // SAFETY: as above.
             let matched = unsafe {
-                inet_pton(libc::AF_INET6, c.as_ptr(), (&mut addr as *mut libc::in6_addr).cast())
+                inet_pton(
+                    libc::AF_INET6,
+                    c.as_ptr(),
+                    (&mut addr as *mut libc::in6_addr).cast(),
+                )
             } == 1
                 && addr.s6_addr[..] == ipdata[..];
             let a: [u8; 16] = ipdata.try_into().unwrap();
             Ok((matched, crate::pg_inet6_ntop(&a)))
         }
-        n => Err(format!("certificate contains IP address with invalid length {n}")),
+        n => Err(format!(
+            "certificate contains IP address with invalid length {n}"
+        )),
     }
 }
 
@@ -757,13 +822,28 @@ mod tests {
 
     #[test]
     fn wildcard_match_follows_libpq() {
-        assert!(wildcard_certificate_match("*.example.com", "db.example.com"));
-        assert!(wildcard_certificate_match("*.EXAMPLE.com", "db.example.COM"));
-        assert!(!wildcard_certificate_match("*.example.com", "a.db.example.com"));
+        assert!(wildcard_certificate_match(
+            "*.example.com",
+            "db.example.com"
+        ));
+        assert!(wildcard_certificate_match(
+            "*.EXAMPLE.com",
+            "db.example.COM"
+        ));
+        assert!(!wildcard_certificate_match(
+            "*.example.com",
+            "a.db.example.com"
+        ));
         assert!(!wildcard_certificate_match("*.example.com", "example.com"));
-        assert!(!wildcard_certificate_match("*example.com", "db.example.com"));
+        assert!(!wildcard_certificate_match(
+            "*example.com",
+            "db.example.com"
+        ));
         assert!(!wildcard_certificate_match("*.", "x."));
-        assert!(!wildcard_certificate_match("db.example.com", "db.example.com"));
+        assert!(!wildcard_certificate_match(
+            "db.example.com",
+            "db.example.com"
+        ));
     }
 
     #[test]
@@ -777,16 +857,34 @@ mod tests {
 
     #[test]
     fn name_checks_reject_embedded_nul_and_report_the_name() {
-        assert_eq!(name_matches("localhost", b"LOCALHOST").unwrap(), (true, "LOCALHOST".into()));
-        assert_eq!(name_matches("localhost", b"other").unwrap(), (false, "other".into()));
+        assert_eq!(
+            name_matches("localhost", b"LOCALHOST").unwrap(),
+            (true, "LOCALHOST".into())
+        );
+        assert_eq!(
+            name_matches("localhost", b"other").unwrap(),
+            (false, "other".into())
+        );
         assert_eq!(
             name_matches("localhost", b"local\0host").unwrap_err(),
             "SSL certificate's name contains embedded null"
         );
-        assert_eq!(name_matches("", b"x").unwrap_err(), "host name must be specified");
-        assert_eq!(ip_matches("127.0.0.1", &[127, 0, 0, 1]).unwrap(), (true, "127.0.0.1".into()));
-        assert_eq!(ip_matches("127.0.0.2", &[127, 0, 0, 1]).unwrap(), (false, "127.0.0.1".into()));
-        assert_eq!(ip_matches("::1", &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]).unwrap(), (true, "::1".into()));
+        assert_eq!(
+            name_matches("", b"x").unwrap_err(),
+            "host name must be specified"
+        );
+        assert_eq!(
+            ip_matches("127.0.0.1", &[127, 0, 0, 1]).unwrap(),
+            (true, "127.0.0.1".into())
+        );
+        assert_eq!(
+            ip_matches("127.0.0.2", &[127, 0, 0, 1]).unwrap(),
+            (false, "127.0.0.1".into())
+        );
+        assert_eq!(
+            ip_matches("::1", &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]).unwrap(),
+            (true, "::1".into())
+        );
         assert_eq!(
             ip_matches("::1", &[1, 2, 3]).unwrap_err(),
             "certificate contains IP address with invalid length 3"
@@ -799,7 +897,11 @@ mod tests {
         fn reason_text(code: libc::c_int) -> String {
             // SAFETY: ERR_reason_error_string returns a static string or NULL.
             unsafe {
-                let p = openssl_sys::ERR_reason_error_string(openssl_sys::ERR_PACK(ERR_LIB_SSL, 0, code));
+                let p = openssl_sys::ERR_reason_error_string(openssl_sys::ERR_PACK(
+                    ERR_LIB_SSL,
+                    0,
+                    code,
+                ));
                 if p.is_null() {
                     "<unknown reason>".to_string()
                 } else {

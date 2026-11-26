@@ -18,12 +18,31 @@ fn text(rel: &str) -> String {
 #[test]
 fn a_pl_function_in_from_reads_the_incumbent_store_and_stays_private() {
     let (kinds, _) = common::props_fixture(&text("bench-104.plan")).expect("decomposes");
-    assert!(kinds.contains("srf.pl"), "bench-104 needs srf.pl: {kinds:?}");
-    let l = common::lower_fixture(&text("bench-104.plan")).expect("decomposes").unwrap_or_else(|r| panic!("bench-104: {r}"));
-    let sets: Vec<u64> = l.descs.v4.protos.iter().filter(|p| p.kind == ProtoKind::SetFn).map(|p| p.arg).collect();
+    assert!(
+        kinds.contains("srf.pl"),
+        "bench-104 needs srf.pl: {kinds:?}"
+    );
+    let l = common::lower_fixture(&text("bench-104.plan"))
+        .expect("decomposes")
+        .unwrap_or_else(|r| panic!("bench-104: {r}"));
+    let sets: Vec<u64> = l
+        .descs
+        .v4
+        .protos
+        .iter()
+        .filter(|p| p.kind == ProtoKind::SetFn)
+        .map(|p| p.arg)
+        .collect();
     assert_eq!(sets.len(), 1, "one SetFn protocol");
-    assert_eq!(setfn_parts(sets[0]).2, Some(1), "it names the FunctionScan (plan node 1)");
-    assert!(setfn_private(sets[0]), "a PL set's program stays the session's (Decision 7)");
+    assert_eq!(
+        setfn_parts(sets[0]).2,
+        Some(1),
+        "it names the FunctionScan (plan node 1)"
+    );
+    assert!(
+        setfn_private(sets[0]),
+        "a PL set's program stays the session's (Decision 7)"
+    );
 }
 
 /// G4: a builtin set function in FROM (`unnest`, `jsonb_each`) is not srf.pl.
@@ -31,6 +50,9 @@ fn a_pl_function_in_from_reads_the_incumbent_store_and_stays_private() {
 fn a_builtin_set_function_in_from_is_not_srf_pl() {
     for name in ["srf-016", "srf-022"] {
         let (kinds, _) = common::props_fixture(&text(&format!("{name}.plan"))).expect("decomposes");
-        assert!(!kinds.contains("srf.pl") && kinds.contains("srf.function"), "{name}: {kinds:?}");
+        assert!(
+            !kinds.contains("srf.pl") && kinds.contains("srf.function"),
+            "{name}: {kinds:?}"
+        );
     }
 }

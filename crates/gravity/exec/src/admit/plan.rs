@@ -30,7 +30,10 @@ pub struct PlanScope<'r> {
 
 impl<'r> PlanScope<'r> {
     pub fn new(root: &'r Root) -> PlanScope<'r> {
-        PlanScope { root, cx: OnceCell::new() }
+        PlanScope {
+            root,
+            cx: OnceCell::new(),
+        }
     }
 
     pub fn mcx(&self) -> Mcx<'_> {
@@ -39,7 +42,10 @@ impl<'r> PlanScope<'r> {
                 let owner = op_begin(statement_owner(), LABEL_PLAN, 0);
                 let ctx = self.root.new_child("GravityPlan");
                 ctx.set_owner(owner);
-                PlanCtx { ctx, owner: OwnerEnd(owner) }
+                PlanCtx {
+                    ctx,
+                    owner: OwnerEnd(owner),
+                }
             })
             .ctx
             .mcx()

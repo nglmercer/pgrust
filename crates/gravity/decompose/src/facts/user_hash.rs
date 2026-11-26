@@ -21,25 +21,45 @@ use gravity_abi::breaker::KeyKind;
 /// classes are no one value each), as does a key holding a multirange (the caller's D1901 test).
 pub fn key(f: &dyn Facts, op: u32, typid: u32, coll: u32) -> bool {
     let image = |tf: crate::catalog::typefacts::TypeFacts| {
-        ((tf.image.untrimmed_bytes() || !tf.image.equality()) && tf.kind == KeyKind::Fp128 && tf.words == 2 && !tf.byval)
-            || ((tf.image.is_word() || tf.image.is_enum()) && tf.words == 1 && tf.byval && crate::catalog::keysem::eq_opaque(f, op, typid))
+        ((tf.image.untrimmed_bytes() || !tf.image.equality())
+            && tf.kind == KeyKind::Fp128
+            && tf.words == 2
+            && !tf.byval)
+            || ((tf.image.is_word() || tf.image.is_enum())
+                && tf.words == 1
+                && tf.byval
+                && crate::catalog::keysem::eq_opaque(f, op, typid))
     };
-    crate::catalog::typefacts::facts_of(f, typid).is_some_and(image) && f.op_key_hash(op, typid, coll)
+    crate::catalog::typefacts::facts_of(f, typid).is_some_and(image)
+        && f.op_key_hash(op, typid, coll)
 }
 
 /// A hashed Agg of no chain, grouping sets or hint (`map_agg`'s plain hashed form, the one that takes `TypeFacts::user`).
 pub fn hashed(a: &Agg<'_>) -> bool {
-    a.aggstrategy == AGG_HASHED && a.chain.iter().next().is_none() && !crate::ops::per_set(a) && Hint::of_agg(a).iter().all(Option::is_none)
+    a.aggstrategy == AGG_HASHED
+        && a.chain.iter().next().is_none()
+        && !crate::ops::per_set(a)
+        && Hint::of_agg(a).iter().all(Option::is_none)
 }
 
 /// `map`'s early test: Agg `a`'s key at input column `col` (type `typid`) under its operator `op` is hashed `key`'s.
 pub fn agg_key(f: &dyn Facts, a: &Agg<'_>, op: u32, col: i16, typid: Option<u32>) -> bool {
     let Some(t) = typid else { return false };
-    let Some(i) = a.grpColIdx.iter().zip(a.grpOperators.iter()).position(|(&c, &o)| c == col && o == op) else { return false };
+    let Some(i) = a
+        .grpColIdx
+        .iter()
+        .zip(a.grpOperators.iter())
+        .position(|(&c, &o)| c == col && o == op)
+    else {
+        return false;
+    };
     hashed(a) && key(f, op, t, a.grpCollations.get(i).copied().unwrap_or(0))
 }
 
 /// `map_agg`'s test for a group of no hint: each key under a user `=` (`KeyDecl::user_eq`) is hashed `key`'s.
 pub fn keys(f: &dyn Facts, keys: &[KeyDecl<'_>], hints: &[Option<Hint>]) -> bool {
-    hints.iter().all(Option::is_none) && keys.iter().all(|k| k.user_eq == 0 || key(f, k.user_eq, k.tf, k.coll))
+    hints.iter().all(Option::is_none)
+        && keys
+            .iter()
+            .all(|k| k.user_eq == 0 || key(f, k.user_eq, k.tf, k.coll))
 }

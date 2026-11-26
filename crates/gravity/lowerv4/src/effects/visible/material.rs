@@ -43,23 +43,50 @@ fn quiet_in(gx: &Gx<'_, '_>, p: &PipelineNode<'_>, ops: &[Op<'_>]) -> bool {
         // a VALUES list whose every expression D449's rule passes and reads no executor parameter (updatable_views
         // rw_view1's MERGE USING (VALUES ..): a write's plan puts its EvalPlanQual parameter in every scan's allParam, so
         // FACTS-1b's F1 never holds there and only this form keeps the Material)
-        Source::Values { lists, .. } => lists.iter().all(|l| l.as_list().is_some_and(|l| !l.iter().any(exec_param) && !ops_can_raise(gx, &[Op::Project(l)]))),
+        Source::Values { lists, .. } => lists.iter().all(|l| {
+            l.as_list()
+                .is_some_and(|l| !l.iter().any(exec_param) && !ops_can_raise(gx, &[Op::Project(l)]))
+        }),
         Source::Breaker { slot } => {
             let d = &p.desc;
-            let life = d.consumes.iter().position(|&s| s == slot).and_then(|j| d.consumes_from.get(j).copied());
+            let life = d
+                .consumes
+                .iter()
+                .position(|&s| s == slot)
+                .and_then(|j| d.consumes_from.get(j).copied());
             let ps = gx.pipelines();
             // the producer's end is a Materialize breaker (a quiet producer writes no row, so its end kind is its declared end)
-            life.map(|l| l.0 as usize).is_some_and(|q| q < ps.len() && matches!(gx.end_kind(q), EndKind::Breaker(BreakerKind::Materialize)) && quiet(gx, q))
+            life.map(|l| l.0 as usize).is_some_and(|q| {
+                q < ps.len()
+                    && matches!(gx.end_kind(q), EndKind::Breaker(BreakerKind::Materialize))
+                    && quiet(gx, q)
+            })
         }
         _ => false,
     };
     source
         && ops.iter().all(|op| match op {
-            Op::Srf(d) => matches!(d.place, SrfPlace::From { .. }) && d.functions.iter().all(series) && !d.tlist.iter().any(exec_param) && !ops_can_raise(gx, &[Op::Project(d.tlist)]),
+            Op::Srf(d) => {
+                matches!(d.place, SrfPlace::From { .. })
+                    && d.functions.iter().all(series)
+                    && !d.tlist.iter().any(exec_param)
+                    && !ops_can_raise(gx, &[Op::Project(d.tlist)])
+            }
             Op::Filter(q) => !exec_param(*q) && !ops_can_raise(gx, core::slice::from_ref(op)),
-            Op::Project(l) => !l.iter().any(exec_param) && !ops_can_raise(gx, core::slice::from_ref(op)),
-            Op::Join(JoinDesc::Nest { jointype: JoinType::JOIN_INNER, params, inner, qual, .. }) => {
-                params.is_nil() && !qual.iter().any(exec_param) && !ops_can_raise(gx, &[Op::Project(qual)]) && quiet_in(gx, inner, &inner.ops)
+            Op::Project(l) => {
+                !l.iter().any(exec_param) && !ops_can_raise(gx, core::slice::from_ref(op))
+            }
+            Op::Join(JoinDesc::Nest {
+                jointype: JoinType::JOIN_INNER,
+                params,
+                inner,
+                qual,
+                ..
+            }) => {
+                params.is_nil()
+                    && !qual.iter().any(exec_param)
+                    && !ops_can_raise(gx, &[Op::Project(qual)])
+                    && quiet_in(gx, inner, &inner.ops)
             }
             _ => false,
         })
@@ -71,7 +98,9 @@ fn series(f: &SrfFn<'_>) -> bool {
     let consts = f.args.iter().all(|a| a.as_const().is_some());
     match f.kind {
         SrfKind::SeriesInt { step: false, .. } | SrfKind::Unnest => consts,
-        SrfKind::SeriesInt { step: true, .. } => consts && gravity_lower::inputs::key::series_step(f.funcid, f.args) == Some(true),
+        SrfKind::SeriesInt { step: true, .. } => {
+            consts && gravity_lower::inputs::key::series_step(f.funcid, f.args) == Some(true)
+        }
         _ => false,
     }
 }
@@ -96,30 +125,52 @@ pub(crate) fn quiet_fill(gx: &Gx<'_, '_>, k: usize, volatility: Volatility) -> b
 /// parameters and join qual are quiet too. D1486 (window, heldout rnd-3175 / rnd-0098): PostgreSQL's Materialize over that
 /// inner scan (a plan Material spool the inner reads at every re-open, `nest_fill` from pipeline `k`; an arm's nest,
 /// union_arms.rs `quiet_arm_in`, passes none and takes no spool) shows nothing either: its one fill runs once, quietly.
-pub(crate) fn quiet_nest(gx: &Gx<'_, '_>, k: Option<usize>, params: &NodeList<'_>, qual: &NodeList<'_>, inner: &PipelineNode<'_>) -> bool {
+pub(crate) fn quiet_nest(
+    gx: &Gx<'_, '_>,
+    k: Option<usize>,
+    params: &NodeList<'_>,
+    qual: &NodeList<'_>,
+    inner: &PipelineNode<'_>,
+) -> bool {
     use crate::rerun::union_arms::quiet_in;
     let q = |n: Node<'_>| quiet_in(gx, n, true);
     let src = match &inner.source {
         Source::Range { .. } => true,
-        Source::Index { keys, recheck, .. } => keys.iter().all(|x| q(x.value) && (x.opno == 0 || effects::builtin_oper(x.opno).is_some())) && recheck.iter().all(q),
+        Source::Index { keys, recheck, .. } => {
+            keys.iter()
+                .all(|x| q(x.value) && (x.opno == 0 || effects::builtin_oper(x.opno).is_some()))
+                && recheck.iter().all(q)
+        }
         // PostgreSQL's Materialize over the inner scan: the fill's keys, recheck and ops, each quiet
-        Source::Breaker { slot } => k.and_then(|k| nest_fill(gx, k, inner, *slot)).is_some_and(|f| {
-            let fq = |n: Node<'_>| quiet_in(gx, n, false);
-            let keys = match &f.source {
-                Source::Index { keys, recheck, .. } => keys.iter().all(|x| fq(x.value) && (x.opno == 0 || effects::builtin_oper(x.opno).is_some())) && recheck.iter().all(fq),
-                _ => true,
-            };
-            keys && f.ops.split_last().is_some_and(|(_, body)| body.iter().all(|op| match op {
-                Op::Filter(n) | Op::Gate(n) => fq(*n),
-                Op::Project(l) => l.iter().all(fq),
-                _ => false,
-            }))
-        }),
+        Source::Breaker { slot } => {
+            k.and_then(|k| nest_fill(gx, k, inner, *slot))
+                .is_some_and(|f| {
+                    let fq = |n: Node<'_>| quiet_in(gx, n, false);
+                    let keys = match &f.source {
+                        Source::Index { keys, recheck, .. } => {
+                            keys.iter().all(|x| {
+                                fq(x.value)
+                                    && (x.opno == 0 || effects::builtin_oper(x.opno).is_some())
+                            }) && recheck.iter().all(fq)
+                        }
+                        _ => true,
+                    };
+                    keys && f.ops.split_last().is_some_and(|(_, body)| {
+                        body.iter().all(|op| match op {
+                            Op::Filter(n) | Op::Gate(n) => fq(*n),
+                            Op::Project(l) => l.iter().all(fq),
+                            _ => false,
+                        })
+                    })
+                })
+        }
         _ => false,
     };
     let own = |s: &u8| matches!(inner.source, Source::Breaker { slot } if slot == *s);
     src && inner.desc.consumes.iter().all(own)
-        && params.iter().all(|p| p.as_nest_loop_param().is_some_and(|p| q(p.paramval)))
+        && params
+            .iter()
+            .all(|p| p.as_nest_loop_param().is_some_and(|p| q(p.paramval)))
         && qual.iter().all(q)
         && inner.ops.iter().all(|op| match op {
             Op::Filter(n) | Op::Gate(n) => q(*n),
@@ -132,14 +183,26 @@ pub(crate) fn quiet_nest(gx: &Gx<'_, '_>, k: Option<usize>, params: &NodeList<'_
 /// fill (the life the inner reads, `consumes_from`, else the slot's nearest producer before `k`) when that is one heap or
 /// index scan, reading no other breaker, of filters, gates and projections ending in the spool (PostgreSQL's Materialize
 /// over a plain scan, run once, at the first re-open). Was union_arms.rs `spool_fill`.
-fn nest_fill<'g, 'p>(gx: &'g Gx<'_, 'p>, k: usize, inner: &PipelineNode<'_>, slot: u8) -> Option<&'g PipelineNode<'p>> {
+fn nest_fill<'g, 'p>(
+    gx: &'g Gx<'_, 'p>,
+    k: usize,
+    inner: &PipelineNode<'_>,
+    slot: u8,
+) -> Option<&'g PipelineNode<'p>> {
     let (d, ps) = (&inner.desc, gx.pipelines());
-    let life = d.consumes.iter().position(|&s| s == slot).and_then(|j| d.consumes_from.get(j).copied());
-    let f = life.map(|l| l.0 as usize).or_else(|| (0..k).rev().find(|&q| ps[q].desc.produces() == Some(slot)))?;
+    let life = d
+        .consumes
+        .iter()
+        .position(|&s| s == slot)
+        .and_then(|j| d.consumes_from.get(j).copied());
+    let f = life
+        .map(|l| l.0 as usize)
+        .or_else(|| (0..k).rev().find(|&q| ps[q].desc.produces() == Some(slot)))?;
     let fill = ps.get(f).filter(|_| f < k)?;
     let scan = matches!(fill.source, Source::Range { .. } | Source::Index { .. });
     let spool = matches!(fill.ops.split_last(), Some((Op::Join(JoinDesc::Spool), body)) if body.iter().all(|op| matches!(op, Op::Filter(_) | Op::Gate(_) | Op::Project(_))));
-    (scan && spool && fill.desc.consumes.is_empty() && fill.desc.produces() == Some(slot)).then_some(fill)
+    (scan && spool && fill.desc.consumes.is_empty() && fill.desc.produces() == Some(slot))
+        .then_some(fill)
 }
 
 /// D3749 (River's JobSchedule with few due jobs): fill pipeline `k`, or a pipeline feeding it, reads the store of a CTE
@@ -152,13 +215,41 @@ pub(crate) fn pulls_loud_cte(gx: &Gx<'_, '_>, k: usize) -> bool {
     use crate::ops::hashjoin::build_class::{feed, side, Side};
     use gravity_decompose::ops::shared::subplan::SubLink;
     let ps = gx.pipelines();
-    let src = |x: usize| if let Source::Breaker { slot } = ps[x].source { Some(slot) } else { None };
-    let loud = |q: usize| {
-        let cte = gx.graph.init_plans.iter().find(|i| i.pipeline as usize == q && matches!(i.link, SubLink::Cte));
-        cte.is_some_and(|i| crate::effects::visible::hashjoin::init_loud(i.raise_free, i.volatility) || side(gx, q) != Side::Safe)
+    let src = |x: usize| {
+        if let Source::Breaker { slot } = ps[x].source {
+            Some(slot)
+        } else {
+            None
+        }
     };
-    let reads = |x: usize| ps[x].desc.consumes.iter().copied().chain(src(x)).any(|s| gx.life_of(x, s).is_some_and(|l| loud(l.0 as usize)));
-    k < ps.len() && core::iter::once(k).chain(feed(gx, k, ps[k].desc.consumes.iter().copied().chain(src(k)))).any(|x| x < ps.len() && reads(x))
+    let loud = |q: usize| {
+        let cte = gx
+            .graph
+            .init_plans
+            .iter()
+            .find(|i| i.pipeline as usize == q && matches!(i.link, SubLink::Cte));
+        cte.is_some_and(|i| {
+            crate::effects::visible::hashjoin::init_loud(i.raise_free, i.volatility)
+                || side(gx, q) != Side::Safe
+        })
+    };
+    let reads = |x: usize| {
+        ps[x]
+            .desc
+            .consumes
+            .iter()
+            .copied()
+            .chain(src(x))
+            .any(|s| gx.life_of(x, s).is_some_and(|l| loud(l.0 as usize)))
+    };
+    k < ps.len()
+        && core::iter::once(k)
+            .chain(feed(
+                gx,
+                k,
+                ps[k].desc.consumes.iter().copied().chain(src(k)),
+            ))
+            .any(|x| x < ps.len() && reads(x))
 }
 
 /// D1108's held form (rerun/spool/form.rs `held_child`): the plan Material in `slot` that fill pipeline `k` or an inner it
@@ -169,13 +260,30 @@ pub(crate) fn pulls_loud_cte(gx: &Gx<'_, '_>, k: usize) -> bool {
 pub(crate) fn store_quiet(gx: &Gx<'_, '_>, k: usize, slot: u8) -> bool {
     use crate::ops::hashjoin::build_class::{feed, side_by, Side};
     let ps = gx.pipelines();
-    let Some(f) = gx.life_of(k, slot).map(|l| l.0 as usize).filter(|&f| f < ps.len() && f != k) else { return false };
-    let src = if let Source::Breaker { slot } = ps[f].source { Some(slot) } else { None };
+    let Some(f) = gx
+        .life_of(k, slot)
+        .map(|l| l.0 as usize)
+        .filter(|&f| f < ps.len() && f != k)
+    else {
+        return false;
+    };
+    let src = if let Source::Breaker { slot } = ps[f].source {
+        Some(slot)
+    } else {
+        None
+    };
     let feeders = feed(gx, f, ps[f].desc.consumes.iter().copied().chain(src));
-    let refilled = |x: usize| gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(x as u16)));
+    let refilled = |x: usize| {
+        gx.graph
+            .reruns
+            .iter()
+            .any(|r| r.pipelines.contains(&(x as u16)))
+    };
     crate::lifetime::material::spool_fill(gx, f).is_ok()
         && side_by(gx, f, usize::MAX, false) == Side::Safe
-        && !core::iter::once(f).chain(feeders).any(|x| refilled(x) || crate::rerun::spool::form::reads_param(&ps[x]))
+        && !core::iter::once(f)
+            .chain(feeders)
+            .any(|x| refilled(x) || crate::rerun::spool::form::reads_param(&ps[x]))
 }
 
 /// D3803 (rerun/spool/form.rs `first_run`): ops `ops` of a fill are per-row work that shows nothing, run one row at a
@@ -191,8 +299,19 @@ pub(crate) fn rows_quiet(gx: &Gx<'_, '_>, ops: &[Op<'_>]) -> bool {
     ops.iter().all(|op| match op {
         Op::Filter(n) | Op::Gate(n) => quiet(*n),
         Op::Project(l) => l.iter().all(quiet),
-        Op::Join(JoinDesc::Probe { catalog: false, keys, clauses, qual, .. }) => keys.iter().chain(clauses.iter()).chain(qual.iter()).all(quiet),
+        Op::Join(JoinDesc::Probe {
+            catalog: false,
+            keys,
+            clauses,
+            qual,
+            ..
+        }) => keys
+            .iter()
+            .chain(clauses.iter())
+            .chain(qual.iter())
+            .all(quiet),
         Op::Join(JoinDesc::Nest { .. }) => crate::effects::nest_step_quiet(op, &quiet, false),
-        op => crate::frame::iface::demand(op).is_some_and(|d| !d.ties && fixed(d.count) && fixed(d.offset)),
+        op => crate::frame::iface::demand(op)
+            .is_some_and(|d| !d.ties && fixed(d.count) && fixed(d.offset)),
     })
 }

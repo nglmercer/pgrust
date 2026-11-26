@@ -14,4 +14,10 @@ use crate::face::fold::ClassImpl;
 use crate::face::kinds::KindId;
 use crate::ops::Table;
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::ClassCollect, &ClassImpl(&crate::ops::agg::numeric::class_num_varlena::FOLD))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(
+        KindId::ClassCollect,
+        &ClassImpl(&crate::ops::agg::numeric::class_num_varlena::FOLD),
+    )],
+    ..crate::ops::NONE
+};

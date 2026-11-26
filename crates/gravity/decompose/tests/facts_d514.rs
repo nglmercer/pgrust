@@ -25,7 +25,10 @@ fn graph(rel: &str) -> String {
 #[test]
 fn a_passenger_read_only_under_its_key_rides_a_min_cell_and_a_raw_read_keeps_the_bare_column() {
     let ok = graph("plans/regress-full/subselect-016.plan");
-    assert!(ok.contains("project (1=outer.1, 2=agg2136(1=outer.2))"), "{ok}");
+    assert!(
+        ok.contains("project (1=outer.1, 2=agg2136(1=outer.2))"),
+        "{ok}"
+    );
     assert!(ok.contains("fn=2136 reg=MinF64"), "{ok}");
     let raw = graph("d514/raw-read.plan");
     assert!(raw.contains("project (1=outer.1, 2=outer.2)"), "{raw}");
@@ -36,5 +39,9 @@ fn a_passenger_read_only_under_its_key_rides_a_min_cell_and_a_raw_read_keeps_the
 /// env!()'s path baked in at compile time: a test binary reused from another checkout would read that checkout's files.
 fn manifest_dir() -> &'static std::path::Path {
     static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| std::env::var_os("CARGO_MANIFEST_DIR").map(Into::into).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)"))
+    DIR.get_or_init(|| {
+        std::env::var_os("CARGO_MANIFEST_DIR")
+            .map(Into::into)
+            .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+    })
 }

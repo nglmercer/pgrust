@@ -22,7 +22,11 @@ fn count_of(arg: &str) -> String {
     let te = format!("({{TARGETENTRY :expr {arg} :resno 1 :resname <> :ressortgroupref 0 :resorigtbl 0 :resorigcol 0 :resjunk false}})");
     let agg = format!(":aggfnoid 2147 :aggtype 20 :aggcollid 0 :inputcollid 0 :aggtranstype 20 :aggargtypes (o 20) :aggdirectargs <> :args {te} :aggorder <> :aggdistinct <> :aggfilter <> :aggstar false");
     let text = group_top().replacen(COUNT_STAR, &agg, 1);
-    assert_ne!(text, group_top(), "the count(*) is where the fixture has it");
+    assert_ne!(
+        text,
+        group_top(),
+        "the count(*) is where the fixture has it"
+    );
     text
 }
 
@@ -35,22 +39,53 @@ fn walk_and_skip(text: &str, off: &str) -> (bool, bool) {
         None => panic!("decompose refused"),
     };
     strategy::set_off(StrategySet::EMPTY);
-    let walk = l.descs.v4.protos.iter().any(|p| p.kind == ProtoKind::Walk && p.arg & WALK_GROUP != 0);
-    (walk, gravity_ir::text::print_program(&l.ir).contains("walk_bound"))
+    let walk = l
+        .descs
+        .v4
+        .protos
+        .iter()
+        .any(|p| p.kind == ProtoKind::Walk && p.arg & WALK_GROUP != 0);
+    (
+        walk,
+        gravity_ir::text::print_program(&l.ir).contains("walk_bound"),
+    )
 }
 
 #[test]
 fn group_walk_skips_rows_past_the_bound() {
-    assert_eq!(walk_and_skip(&group_top(), ""), (true, true), "count(*): the walk and its row skip");
-    assert_eq!(walk_and_skip(&count_of(OBSERVER_ID), ""), (true, true), "count(observer_id): a plain column's fold cannot raise");
+    assert_eq!(
+        walk_and_skip(&group_top(), ""),
+        (true, true),
+        "count(*): the walk and its row skip"
+    );
+    assert_eq!(
+        walk_and_skip(&count_of(OBSERVER_ID), ""),
+        (true, true),
+        "count(observer_id): a plain column's fold cannot raise"
+    );
 }
 
 #[test]
 fn g4_a_raising_argument_folds_every_row() {
     let div = format!("{{OPEXPR :opno 687 :opfuncid 466 :opresulttype 20 :opretset false :opcollid 0 :inputcollid 0 :args ({{CONST :consttype 20 :consttypmod -1 :constcollid 0 :constlen 8 :constbyval true :constisnull false :location -1 :constvalue 8 [ 1 0 0 0 0 0 0 0 ]}} {OBSERVER_ID}) :location -1}}");
-    assert_eq!(walk_and_skip(&count_of(&div), ""), (false, false), "count(1 / observer_id): D554 runs it whole, nothing skips (D449)");
-    let nullable = group_top().replace("observer_id typid=20 typmod=-1 len=8 byval=t notnull=t", "observer_id typid=20 typmod=-1 len=8 byval=t notnull=f");
+    assert_eq!(
+        walk_and_skip(&count_of(&div), ""),
+        (false, false),
+        "count(1 / observer_id): D554 runs it whole, nothing skips (D449)"
+    );
+    let nullable = group_top().replace(
+        "observer_id typid=20 typmod=-1 len=8 byval=t notnull=t",
+        "observer_id typid=20 typmod=-1 len=8 byval=t notnull=f",
+    );
     assert_ne!(nullable, group_top());
-    assert_eq!(walk_and_skip(&nullable, ""), (false, false), "a nullable key: no walk, no skip");
-    assert_eq!(walk_and_skip(&group_top(), "topk.walk"), (false, false), "the road off: no walk, no skip");
+    assert_eq!(
+        walk_and_skip(&nullable, ""),
+        (false, false),
+        "a nullable key: no walk, no skip"
+    );
+    assert_eq!(
+        walk_and_skip(&group_top(), "topk.walk"),
+        (false, false),
+        "the road off: no walk, no skip"
+    );
 }

@@ -488,7 +488,11 @@ pub fn str_bound(var: VarView<'_>) -> usize {
 /// The longest text `numeric_out_raw` writes for `num` (no NUL).
 #[inline]
 pub fn numeric_out_bound(num: Num<'_>) -> usize {
-    if num.is_special() { 9 } else { str_bound(num.view()) }
+    if num.is_special() {
+        9
+    } else {
+        str_bound(num.view())
+    }
 }
 
 /// numeric_out rendered at `dst` (no NUL): the length written. # Safety: `dst` is writable for `numeric_out_bound(num)` bytes.
@@ -496,7 +500,13 @@ pub fn numeric_out_bound(num: Num<'_>) -> usize {
 #[allow(clippy::missing_safety_doc)]
 pub unsafe fn numeric_out_raw(num: Num<'_>, dst: *mut u8) -> usize {
     if num.is_special() {
-        let t: &[u8] = if num.is_pinf() { b"Infinity" } else if num.is_ninf() { b"-Infinity" } else { b"NaN" };
+        let t: &[u8] = if num.is_pinf() {
+            b"Infinity"
+        } else if num.is_ninf() {
+            b"-Infinity"
+        } else {
+            b"NaN"
+        };
         // SAFETY: at most 9 bytes, within the bound.
         unsafe { core::ptr::copy_nonoverlapping(t.as_ptr(), dst, t.len()) };
         return t.len();

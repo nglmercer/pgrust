@@ -18,9 +18,9 @@ use types_nodes::primnodes::{Aggref, Const, ParamKind, AGGKIND_NORMAL};
 use types_nodes::{CmdType, Node};
 
 use super::{Effects, Parallel, Volatility};
+use crate::catalog::typefacts::FIRST_NORMAL_OID;
 use crate::catalog::Facts;
 use crate::effects::found::Found;
-use crate::catalog::typefacts::FIRST_NORMAL_OID;
 
 /// What every reader needs: a SubPlan reaches its plan through `stmt.subplans`, so the catalog alone cannot follow it.
 #[derive(Clone, Copy)]
@@ -33,13 +33,21 @@ pub struct Cx<'c, 'p> {
 
 impl<'c, 'p> Cx<'c, 'p> {
     pub fn new(stmt: &'p PlannedStmt<'p>, cat: &'c dyn Facts, arena: ArenaRef) -> Cx<'c, 'p> {
-        Cx { stmt: Some(stmt), cat, arena }
+        Cx {
+            stmt: Some(stmt),
+            cat,
+            arena,
+        }
     }
 
     /// A reader with no statement (lowering's sites, which hold the graph but not the plan): every SubPlan's plan is then
     /// out of reach, so a SubPlan is unknown and acts (fail closed); a plan subtree or the statement is unknown.
     pub fn without_stmt(cat: &'c dyn Facts, arena: ArenaRef) -> Cx<'c, 'p> {
-        Cx { stmt: None, cat, arena }
+        Cx {
+            stmt: None,
+            cat,
+            arena,
+        }
     }
 
     fn walk(&self, n: Node<'p>) -> Found {
@@ -63,26 +71,40 @@ fn unbound(_: i32) -> bool {
 }
 
 /// No PARAM_EXEC bound, no element read taken.
-pub const PLAIN: Scope<'static> = Scope { bound: &unbound, fetch: None };
+pub const PLAIN: Scope<'static> = Scope {
+    bound: &unbound,
+    fetch: None,
+};
 
 impl Effects {
     /// A walk's facts: a VOLATILE or unknown call acts; code that acts does not return the same rows.
     pub fn of_found(w: Found) -> Effects {
         let acts = w.volatility == Volatility::Volatile;
-        Effects { acts, may_raise: !w.raise_free, same_rows: w.rescan_stable && !acts }
+        Effects {
+            acts,
+            may_raise: !w.raise_free,
+            same_rows: w.rescan_stable && !acts,
+        }
     }
 
     /// An InitPlan's own facts (graph.rs `InitPlan`: its plan's most volatile call and whether it may raise), as `of_found`.
     pub fn of_init_plan(i: &crate::graph::InitPlan<'_>) -> Effects {
         let acts = i.volatility == Volatility::Volatile;
-        Effects { acts, may_raise: !i.raise_free, same_rows: !acts }
+        Effects {
+            acts,
+            may_raise: !i.raise_free,
+            same_rows: !acts,
+        }
     }
 }
 
 /// Expression `n` (a SubPlan in it counts its plan).
 pub fn of_expr<'p>(cx: &Cx<'_, 'p>, n: Node<'p>, sc: &Scope<'_>) -> Effects {
     let w = Effects::of_found(cx.walk(n));
-    Effects { may_raise: !quiet(cx.cat, n, sc), ..w }
+    Effects {
+        may_raise: !quiet(cx.cat, n, sc),
+        ..w
+    }
 }
 
 /// Node `n` alone, its children apart, by the rerun walk's per-node rules (`crate::rerun::of_node`): it acts when it calls a
@@ -95,7 +117,8 @@ pub fn of_node<'p>(cx: &Cx<'_, 'p>, n: Node<'p>) -> Effects {
 }
 
 pub fn of_list<'p>(cx: &Cx<'_, 'p>, l: &'p NodeList<'p>, sc: &Scope<'_>) -> Effects {
-    l.iter().fold(Effects::NONE, |e, n| e.and(of_expr(cx, n, sc)))
+    l.iter()
+        .fold(Effects::NONE, |e, n| e.and(of_expr(cx, n, sc)))
 }
 
 /// A list of ops: filters, gates and projections; a join by its sides (`of_join`); any other op is unknown. The family
@@ -121,15 +144,52 @@ pub fn of_ops<'p>(cx: &Cx<'_, 'p>, ops: &[crate::graph::Op<'p>], sc: &Scope<'_>)
 /// another pipeline spooled (decompose `sort::spool_run`), which the caller reads as that pipeline's. Any other join form
 /// (a hash probe, a drain, a cache, a spool) is unknown.
 pub fn of_join<'p>(cx: &Cx<'_, 'p>, j: &crate::join::JoinDesc<'p>, sc: &Scope<'_>) -> Effects {
-    if let crate::join::JoinDesc::Merge { clauses, families, qual, .. } = j {
-        let compare = if families.iter().all(|&f| f != 0 && f < FIRST_NORMAL_OID) { Effects::NONE } else { Effects::UNKNOWN };
-        return compare.and(of_list(cx, clauses, sc)).and(of_list(cx, qual, sc));
+    if let crate::join::JoinDesc::Merge {
+        clauses,
+        families,
+        qual,
+        ..
+    } = j
+    {
+        let compare = if families.iter().all(|&f| f != 0 && f < FIRST_NORMAL_OID) {
+            Effects::NONE
+        } else {
+            Effects::UNKNOWN
+        };
+        return compare
+            .and(of_list(cx, clauses, sc))
+            .and(of_list(cx, qual, sc));
     }
-    let crate::join::JoinDesc::Nest { params, inner, qual, .. } = j else { return Effects::UNKNOWN };
-    let passed = params.iter().fold(Effects::NONE, |e, p| e.and(p.as_nest_loop_param().map_or(Effects::UNKNOWN, |p| of_expr(cx, p.paramval, sc))));
-    let bound = |id: i32| (sc.bound)(id) || params.iter().filter_map(|p| p.as_nest_loop_param()).any(|p| p.paramno == id);
-    let isc = Scope { bound: &bound, fetch: sc.fetch };
-    passed.and(of_source(cx, &inner.source, &isc)).and(of_ops(cx, &inner.ops, &isc)).and(of_list(cx, qual, &isc))
+    let crate::join::JoinDesc::Nest {
+        params,
+        inner,
+        qual,
+        ..
+    } = j
+    else {
+        return Effects::UNKNOWN;
+    };
+    let passed = params.iter().fold(Effects::NONE, |e, p| {
+        e.and(
+            p.as_nest_loop_param()
+                .map_or(Effects::UNKNOWN, |p| of_expr(cx, p.paramval, sc)),
+        )
+    });
+    let bound = |id: i32| {
+        (sc.bound)(id)
+            || params
+                .iter()
+                .filter_map(|p| p.as_nest_loop_param())
+                .any(|p| p.paramno == id)
+    };
+    let isc = Scope {
+        bound: &bound,
+        fetch: sc.fetch,
+    };
+    passed
+        .and(of_source(cx, &inner.source, &isc))
+        .and(of_ops(cx, &inner.ops, &isc))
+        .and(of_list(cx, qual, &isc))
 }
 
 /// aggtrans T6j: the calls a pipeline's source makes per row: none for a table scan or a constant (its quals are filter
@@ -139,19 +199,32 @@ pub fn of_source<'p>(cx: &Cx<'_, 'p>, s: &crate::graph::Source<'p>, sc: &Scope<'
     use crate::graph::{IndexKey, KeyForm, Source};
     use crate::ops::shared::scan::BitmapPlan;
     let keyed = |indexid: u32, keys: &[IndexKey<'p>]| {
-        let opnos = keys.iter().filter(|x| !matches!(x.form, KeyForm::Null | KeyForm::NotNull)).map(|x| x.opno); // a row compare's value walks its members
-        keys.iter().fold(super::of_index(cx.cat, indexid, opnos), |e, x| e.and(of_expr(cx, x.value, sc)))
+        let opnos = keys
+            .iter()
+            .filter(|x| !matches!(x.form, KeyForm::Null | KeyForm::NotNull))
+            .map(|x| x.opno); // a row compare's value walks its members
+        keys.iter()
+            .fold(super::of_index(cx.cat, indexid, opnos), |e, x| {
+                e.and(of_expr(cx, x.value, sc))
+            })
     };
     fn probes<'p>(p: &BitmapPlan<'p>, keyed: &dyn Fn(u32, &[IndexKey<'p>]) -> Effects) -> Effects {
         crate::walk::stack_check(); // D3748
         match p {
             BitmapPlan::Index { indexid, keys, .. } => keyed(*indexid, keys),
-            BitmapPlan::And { plans, .. } | BitmapPlan::Or { plans, .. } => plans.iter().fold(Effects::NONE, |e, q| e.and(probes(q, keyed))),
+            BitmapPlan::And { plans, .. } | BitmapPlan::Or { plans, .. } => plans
+                .iter()
+                .fold(Effects::NONE, |e, q| e.and(probes(q, keyed))),
         }
     }
     match s {
         Source::Range { .. } | Source::Const => Effects::NONE,
-        Source::Index { indexid, keys, recheck, .. } => keyed(*indexid, keys).and(of_list(cx, recheck, sc)),
+        Source::Index {
+            indexid,
+            keys,
+            recheck,
+            ..
+        } => keyed(*indexid, keys).and(of_list(cx, recheck, sc)),
         Source::Bitmap { plan, recheck, .. } => probes(plan, &keyed).and(of_list(cx, recheck, sc)),
         _ => Effects::UNKNOWN,
     }
@@ -159,7 +232,9 @@ pub fn of_source<'p>(cx: &Cx<'_, 'p>, s: &crate::graph::Source<'p>, sc: &Scope<'
 
 /// Plan subtree `root`, with the InitPlans, SubPlans and CTEs it reads.
 pub fn of_plan<'p>(cx: &Cx<'_, 'p>, root: Node<'p>) -> Effects {
-    cx.stmt.map_or(Effects::UNKNOWN, |st| Effects::of_found(crate::rerun::of_plan(st, cx.cat, cx.arena, root)))
+    cx.stmt.map_or(Effects::UNKNOWN, |st| {
+        Effects::of_found(crate::rerun::of_plan(st, cx.cat, cx.arena, root))
+    })
 }
 
 /// The statement's acting set: what a re-run of the whole statement would repeat. A write, a row lock or a modifying CTE
@@ -167,14 +242,23 @@ pub fn of_plan<'p>(cx: &Cx<'_, 'p>, root: Node<'p>) -> Effects {
 /// `Found::acts`: a disk size or the lock status reads again alike, as a re-run's own calls do). Every other reading of a
 /// walk keeps `of_found`'s (a VOLATILE call acts).
 pub fn of_statement(cx: &Cx<'_, '_>) -> Effects {
-    let Some(s) = cx.stmt else { return Effects::UNKNOWN };
-    let write = s.commandType != CmdType::CMD_SELECT || s.hasModifyingCTE || s.rowMarks.iter().next().is_some();
+    let Some(s) = cx.stmt else {
+        return Effects::UNKNOWN;
+    };
+    let write = s.commandType != CmdType::CMD_SELECT
+        || s.hasModifyingCTE
+        || s.rowMarks.iter().next().is_some();
     let plans = s.planTree.into_iter().chain(s.subplans.iter().flatten());
     let of = |r| {
         let f = crate::rerun::of_plan(s, cx.cat, cx.arena, r);
-        Effects { acts: f.acts, ..Effects::of_found(f) }
+        Effects {
+            acts: f.acts,
+            ..Effects::of_found(f)
+        }
     };
-    plans.fold(if write { Effects::ACTS } else { Effects::NONE }, |e, r| e.and(of(r)))
+    plans.fold(if write { Effects::ACTS } else { Effects::NONE }, |e, r| {
+        e.and(of(r))
+    })
 }
 
 /// `of_statement`'s `acts`, walked once per statement: `memo` keeps it (the graph's `PipelineGraph::acts_read`, D4554),
@@ -203,9 +287,18 @@ pub struct CallLocal {
 /// runs the fill), and only their place against the calls outside the unit moves, which a commuted merge join or a hash
 /// join moves too under plan-only settings (`DECISIONS.md` 6b: a VOLATILE call order PostgreSQL's own plan decides).
 /// Which sequence a call names is a literal the program binds per execution, so no rule here may read it.
-pub fn call_local<'p>(cx: &Cx<'_, 'p>, unit: impl IntoIterator<Item = Node<'p>>) -> Option<CallLocal> {
+pub fn call_local<'p>(
+    cx: &Cx<'_, 'p>,
+    unit: impl IntoIterator<Item = Node<'p>>,
+) -> Option<CallLocal> {
     let s = cx.stmt?;
-    let walk = |n: Node<'p>| if n.as_plan().is_some() { crate::rerun::of_plan(s, cx.cat, cx.arena, n) } else { crate::rerun::of_expr(s, cx.cat, cx.arena, n) };
+    let walk = |n: Node<'p>| {
+        if n.as_plan().is_some() {
+            crate::rerun::of_plan(s, cx.cat, cx.arena, n)
+        } else {
+            crate::rerun::of_expr(s, cx.cat, cx.arena, n)
+        }
+    };
     let mut own = Found::CLEAN;
     unit.into_iter().for_each(|n| own.add(walk(n)));
     let write = s.commandType != CmdType::CMD_SELECT || s.hasModifyingCTE;
@@ -218,7 +311,8 @@ pub fn call_local<'p>(cx: &Cx<'_, 'p>, unit: impl IntoIterator<Item = Node<'p>>)
 /// or the statement's subplans reach it.
 pub(crate) fn local_in(unit: Found, stmt: Option<Found>) -> Option<CallLocal> {
     let all = stmt?;
-    (!unit.acts_past_call && !unit.user_call && !all.user_call && !all.local_state).then_some(CallLocal { _only_effects: () })
+    (!unit.acts_past_call && !unit.user_call && !all.user_call && !all.local_state)
+        .then_some(CallLocal { _only_effects: () })
 }
 
 /// Parallel safety, apart from `Effects` so the licence keeps its three inputs: every call `proparallel = 's'` and known,
@@ -230,8 +324,14 @@ pub fn pool_safe<'p>(cx: &Cx<'_, 'p>, n: Node<'p>) -> bool {
 /// One call of function `funcid`, its arguments apart: it acts when VOLATILE or the catalog cannot answer it (fail
 /// closed); it may raise unless `quiet_call`.
 pub fn of_call(f: &dyn Facts, funcid: u32) -> Effects {
-    let acts = f.func(funcid).is_none_or(|p| p.volatility == Volatility::Volatile);
-    Effects { acts, may_raise: !quiet_call(f, funcid), same_rows: !acts }
+    let acts = f
+        .func(funcid)
+        .is_none_or(|p| p.volatility == Volatility::Volatile);
+    Effects {
+        acts,
+        may_raise: !quiet_call(f, funcid),
+        same_rows: !acts,
+    }
 }
 
 /// D3816: the acting set's one answer to "a call of `funcid` acts" (a re-run of the statement repeats what it does):
@@ -241,7 +341,9 @@ pub fn of_call(f: &dyn Facts, funcid: u32) -> Effects {
 /// `of_call(..).acts` and `Effects::acts` stay VOLATILE for the pinned builtins (the D3816 ruling: what may cache, skip a
 /// rerun or run once reads them as VOLATILE), so neither stands for this one.
 pub fn call_acts(f: &dyn Facts, funcid: u32) -> bool {
-    types_core::quiet::non_acting(funcid).is_none() && f.func(funcid).is_none_or(|p| p.volatility == Volatility::Volatile)
+    types_core::quiet::non_acting(funcid).is_none()
+        && f.func(funcid)
+            .is_none_or(|p| p.volatility == Volatility::Volatile)
 }
 
 /// D2044: a call of `funcid` is user code (a function past FIRST_NORMAL_OID), whose raise can leave transaction state the
@@ -256,7 +358,10 @@ pub fn user_code(funcid: u32) -> bool {
 /// rows: pg_input_is_valid / pg_input_error_info run a type's input function and its domain's CHECK, the *_to_xml family,
 /// ts_rewrite and ts_stat run a query over the relation, cursor or text they are given).
 pub fn runs_named_code(funcid: u32) -> bool {
-    matches!(types_core::quiet::dispatch(funcid), Some(types_core::quiet::Reach::Named))
+    matches!(
+        types_core::quiet::dispatch(funcid),
+        Some(types_core::quiet::Reach::Named)
+    )
 }
 
 impl Effects {
@@ -264,7 +369,11 @@ impl Effects {
     /// and whether any of it may raise), read as `of_found` reads a walk's.
     pub fn of_sub_plan(d: &crate::ops::shared::subplan::SubPlanDesc<'_>) -> Effects {
         let acts = d.volatility == Volatility::Volatile;
-        Effects { acts, may_raise: !d.raise_free, same_rows: !acts }
+        Effects {
+            acts,
+            may_raise: !d.raise_free,
+            same_rows: !acts,
+        }
     }
 
     /// D4137: a SubPlan step's call (`SubPlanDesc::call`: its plan, test and args with a data-modifying CTE its plan reads
@@ -280,8 +389,15 @@ impl super::SubEffects {
     /// (`Effects::of_sub_plan_call`, a data-modifying CTE its plan reads taken as its store), and that call's user code and
     /// order flag (`SubPlanDesc::call`).
     pub fn of_sub_plan(d: &crate::ops::shared::subplan::SubPlanDesc<'_>) -> super::SubEffects {
-        let effects = Effects { acts: Effects::of_sub_plan_call(d).acts, ..Effects::of_sub_plan(d) };
-        super::SubEffects { effects, user_code: d.call.user_call, order_call: d.call.order_call }
+        let effects = Effects {
+            acts: Effects::of_sub_plan_call(d).acts,
+            ..Effects::of_sub_plan(d)
+        };
+        super::SubEffects {
+            effects,
+            user_code: d.call.user_call,
+            order_call: d.call.order_call,
+        }
     }
 }
 
@@ -306,7 +422,8 @@ pub fn body(f: &dyn Facts, funcid: u32) -> Option<u32> {
     if funcid != 0 && funcid < FIRST_NORMAL_OID {
         return Some(funcid);
     }
-    f.builtin_body(funcid).filter(|&b| b != 0 && b < FIRST_NORMAL_OID)
+    f.builtin_body(funcid)
+        .filter(|&b| b != 0 && b < FIRST_NORMAL_OID)
 }
 
 /// A call of `funcid` raises on no input of its argument types: a leakproof builtin, or a builtin whose raise-free rule
@@ -314,7 +431,11 @@ pub fn body(f: &dyn Facts, funcid: u32) -> Option<u32> {
 /// over `Facts::proc_text`). A user function only as the builtin it runs (`body`: LANGUAGE internal), or (D3082) as the body
 /// PostgreSQL's planner would inline for a call of it (`sql_inline_quiet`), never by its own mark.
 pub fn quiet_call(f: &dyn Facts, funcid: u32) -> bool {
-    body(f, funcid).is_some_and(|b| leakproof(f, b) || types_core::quiet::call(b) || f.proc_text(b, &mut types_core::quiet::sql_body)) || sql_inline_quiet(f, funcid)
+    body(f, funcid).is_some_and(|b| {
+        leakproof(f, b)
+            || types_core::quiet::call(b)
+            || f.proc_text(b, &mut types_core::quiet::sql_body)
+    }) || sql_inline_quiet(f, funcid)
 }
 
 /// D3979: a call of `funcid` under input collation `coll` whose raise-free rule reads the collation alone: the builtin
@@ -329,22 +450,34 @@ pub fn quiet_collated(f: &dyn Facts, funcid: u32, coll: u32) -> bool {
 /// inlines a VOLATILE one too; whether the call acts stays its own mark's (`of_call`). A body naming another such
 /// function reads it the same way (its in-flight reading answers false, so a body that reaches itself is not quiet).
 fn sql_inline_quiet(f: &dyn Facts, funcid: u32) -> bool {
-    funcid >= FIRST_NORMAL_OID && f.func(funcid).is_some() && f.sql_inlined(funcid, &mut |n| quiet_body(f, n))
+    funcid >= FIRST_NORMAL_OID
+        && f.func(funcid).is_some()
+        && f.sql_inlined(funcid, &mut |n| quiet_body(f, n))
 }
 
 /// D3713 (lowerv4 rep/keylane.rs `c_level_cmp`): a call of `funcid` raises on no pair of inputs: `quiet_call`, or a user
 /// `LANGUAGE sql` function whose body as fmgr_sql runs it (`Facts::sql_fmgr_body`) raises on none. What
 /// fmgr_security_definer itself may raise (its user switch, its SET clause) it raises at every call alike.
 pub fn quiet_pairs(f: &dyn Facts, funcid: u32) -> bool {
-    quiet_call(f, funcid) || funcid >= FIRST_NORMAL_OID && f.func(funcid).is_some() && f.sql_fmgr_body(funcid, &mut |n| quiet_body(f, n))
+    quiet_call(f, funcid)
+        || funcid >= FIRST_NORMAL_OID
+            && f.func(funcid).is_some()
+            && f.sql_fmgr_body(funcid, &mut |n| quiet_body(f, n))
 }
 
 /// D3712: `quiet` over an inlined SQL body, whose integer `+ - *` also reads the body's own constants by value
 /// (`exact_range` with `body`): they are the function's text, never a statement literal either key files.
 fn quiet_body(f: &dyn Facts, n: Node<'_>) -> bool {
     crate::walk::stack_check(); // D3748
-    let call = n.as_func_expr().map(|x| (x.funcid, &x.args)).or_else(|| n.as_op_expr().map(|o| (o.opfuncid, &o.args)));
-    let in_range = |(fid, args): (u32, &NodeList<'_>)| types_core::quiet::int_arith(fid).is_some_and(|(op, ty)| exact_range(op, args, 0, true).is_some_and(|r| r.0 >= ty.0 && r.1 <= ty.1));
+    let call = n
+        .as_func_expr()
+        .map(|x| (x.funcid, &x.args))
+        .or_else(|| n.as_op_expr().map(|o| (o.opfuncid, &o.args)));
+    let in_range = |(fid, args): (u32, &NodeList<'_>)| {
+        types_core::quiet::int_arith(fid).is_some_and(|(op, ty)| {
+            exact_range(op, args, 0, true).is_some_and(|r| r.0 >= ty.0 && r.1 <= ty.1)
+        })
+    };
     let mut ok = quiet_node(f, n, &PLAIN) || call.is_some_and(in_range);
     let known = crate::expr::kids(n, &mut |c| ok &= quiet_body(f, c));
     ok && known
@@ -355,7 +488,11 @@ fn quiet_body(f: &dyn Facts, n: Node<'_>) -> bool {
 /// catalog's: an ALTER FUNCTION .. [NOT] LEAKPROOF on a builtin changes no reading. A function the table does not hold
 /// (initdb's SQL-made functions) keeps its catalog row's mark (`Facts::func`).
 pub fn leakproof(f: &dyn Facts, funcid: u32) -> bool {
-    body(f, funcid).is_some_and(|b| crate::effects::builtin_func(b).or_else(|| f.func(b)).is_some_and(|p| p.leakproof))
+    body(f, funcid).is_some_and(|b| {
+        crate::effects::builtin_func(b)
+            .or_else(|| f.func(b))
+            .is_some_and(|p| p.leakproof)
+    })
 }
 
 /// Expression `n` raises on no row (`may_raise`'s complement): every node's own step raises on no input (`quiet_node`)
@@ -389,10 +526,19 @@ fn quiet(f: &dyn Facts, n: Node<'_>, s: &Scope<'_>) -> bool {
 pub fn quiet_node(f: &dyn Facts, n: Node<'_>, s: &Scope<'_>) -> bool {
     let arr = s.fetch.is_some();
     if let Some(x) = n.as_func_expr() {
-        return collation_set(x.funcid, x.inputcollid, &x.args) && (quiet_call(f, x.funcid) || quiet_args(x.funcid, &x.args) || quiet_pattern(f, x.funcid, &x.args, x.inputcollid) || quiet_collated(f, x.funcid, x.inputcollid) || arr && types_core::quiet::array_bound(x.funcid));
+        return collation_set(x.funcid, x.inputcollid, &x.args)
+            && (quiet_call(f, x.funcid)
+                || quiet_args(x.funcid, &x.args)
+                || quiet_pattern(f, x.funcid, &x.args, x.inputcollid)
+                || quiet_collated(f, x.funcid, x.inputcollid)
+                || arr && types_core::quiet::array_bound(x.funcid));
     }
     if let Some(o) = n.as_op_expr() {
-        return collation_set(o.opfuncid, o.inputcollid, &o.args) && (quiet_call(f, o.opfuncid) || quiet_args(o.opfuncid, &o.args) || quiet_pattern(f, o.opfuncid, &o.args, o.inputcollid) || array_eq_args(o.opfuncid, &o.args));
+        return collation_set(o.opfuncid, o.inputcollid, &o.args)
+            && (quiet_call(f, o.opfuncid)
+                || quiet_args(o.opfuncid, &o.args)
+                || quiet_pattern(f, o.opfuncid, &o.args, o.inputcollid)
+                || array_eq_args(o.opfuncid, &o.args));
     }
     if let Some(a) = n.as_aggref() {
         return agg_quiet(a);
@@ -445,7 +591,11 @@ pub fn quiet_node(f: &dyn Facts, n: Node<'_>, s: &Scope<'_>) -> bool {
 /// An operator node's function: the one it names (`opfuncid`, set by the planner's fix_opfuncids), else the operator's
 /// `oprcode`; 0 when the catalog has neither (no call is quiet).
 fn op_fn(f: &dyn Facts, opno: u32, opfuncid: u32) -> u32 {
-    if opfuncid != 0 { opfuncid } else { f.oper(opno).map_or(0, |o| o.code) }
+    if opfuncid != 0 {
+        opfuncid
+    } else {
+        f.oper(opno).map_or(0, |o| o.code)
+    }
 }
 
 /// AGC-06: a row comparison `(a, b) < (c, d)` (EEOP_ROWCOMPARE_STEP) calls, per column until the first unequal or NULL
@@ -456,10 +606,27 @@ fn op_fn(f: &dyn Facts, opno: u32, opfuncid: u32) -> u32 {
 /// leakproof), and its collation set (`collation_set` per column).
 pub fn row_compare_quiet(f: &dyn Facts, r: &types_nodes::primnodes::RowCompareExpr<'_>) -> bool {
     let n = r.opnos.len();
-    let coll = |c: u32, l: Node<'_>, rr: Node<'_>| c != 0 || crate::catalog::expr_type::collation_of(l) == 0 && crate::catalog::expr_type::collation_of(rr) == 0;
-    n > 0 && r.opfamilies.len() == n && r.inputcollids.len() == n && r.largs.len() == n && r.rargs.len() == n
-        && r.opnos.iter().zip(r.opfamilies.iter()).zip(r.inputcollids.iter()).zip(r.largs.iter().zip(r.rargs.iter()))
-            .all(|(((op, fam), c), (l, rr))| fam != 0 && fam < FIRST_NORMAL_OID && quiet_call(f, op_fn(f, op, 0)) && coll(c, l, rr))
+    let coll = |c: u32, l: Node<'_>, rr: Node<'_>| {
+        c != 0
+            || crate::catalog::expr_type::collation_of(l) == 0
+                && crate::catalog::expr_type::collation_of(rr) == 0
+    };
+    n > 0
+        && r.opfamilies.len() == n
+        && r.inputcollids.len() == n
+        && r.largs.len() == n
+        && r.rargs.len() == n
+        && r.opnos
+            .iter()
+            .zip(r.opfamilies.iter())
+            .zip(r.inputcollids.iter())
+            .zip(r.largs.iter().zip(r.rargs.iter()))
+            .all(|(((op, fam), c), (l, rr))| {
+                fam != 0
+                    && fam < FIRST_NORMAL_OID
+                    && quiet_call(f, op_fn(f, op, 0))
+                    && coll(c, l, rr)
+            })
 }
 
 /// AGC-31: `x IS JSON` (ExecEvalJsonIsPredicate) over jsonb reads its root's kind; over json without WITH UNIQUE KEYS it
@@ -468,7 +635,9 @@ pub fn row_compare_quiet(f: &dyn Facts, r: &types_nodes::primnodes::RowCompareEx
 /// raises on a document nested past max_stack_depth, so neither is quiet.
 pub fn json_is_quiet(p: &types_nodes::primnodes::JsonIsPredicate<'_>) -> bool {
     use types_core::catalog::{JSONBOID, JSONOID};
-    p.expr.and_then(crate::catalog::expr_type::type_of).is_some_and(|t| t == JSONBOID || t == JSONOID && !p.unique_keys)
+    p.expr
+        .and_then(crate::catalog::expr_type::type_of)
+        .is_some_and(|t| t == JSONBOID || t == JSONOID && !p.unique_keys)
 }
 
 /// AGC-03: XMLCONCAT (xmlconcat: each value's declaration read, the result ignored, then appended), XMLELEMENT and
@@ -478,7 +647,9 @@ pub fn json_is_quiet(p: &types_nodes::primnodes::JsonIsPredicate<'_>) -> bool {
 pub fn xml_quiet(x: &types_nodes::primnodes::XmlExpr<'_>) -> bool {
     use types_nodes::primnodes::XmlExprOp as X;
     matches!(x.op, X::IS_XMLCONCAT | X::IS_XMLELEMENT | X::IS_XMLFOREST)
-        && x.named_args.iter().chain(x.args.iter()).all(|a| crate::catalog::expr_type::type_of(a).is_some_and(types_core::quiet::xml_value_quiet))
+        && x.named_args.iter().chain(x.args.iter()).all(|a| {
+            crate::catalog::expr_type::type_of(a).is_some_and(types_core::quiet::xml_value_quiet)
+        })
 }
 
 /// D3847: an array `=` / `<>` over two arguments of one listed built-in array type (`types_core::quiet::array_eq_quiet`:
@@ -500,7 +671,11 @@ fn array_eq_args(funcid: u32, args: &NodeList<'_>) -> bool {
 /// bttextcmp, hashtext ..), a raise PostgreSQL meets only on the rows it reaches. PostgreSQL marks those builtins leakproof
 /// (the error shows no data). `funcid` 0 (a node that compares by its type's operator family, MinMaxExpr) reads one.
 pub fn collation_set(funcid: u32, inputcollid: u32, args: &NodeList<'_>) -> bool {
-    inputcollid != 0 || types_core::quiet::collation_free(funcid) || args.iter().all(|a| crate::catalog::expr_type::collation_of(a) == 0)
+    inputcollid != 0
+        || types_core::quiet::collation_free(funcid)
+        || args
+            .iter()
+            .all(|a| crate::catalog::expr_type::collation_of(a) == 0)
 }
 
 /// A call of `funcid` over `args` raises nothing by its arguments: an integer `%` by a non-null constant other than 0
@@ -522,10 +697,23 @@ pub fn quiet_args(funcid: u32, args: &NodeList<'_>) -> bool {
     // a constant's image keys it, so reading any other call's (LIKE 'pat', text = 'lit') would key its literal and the
     // front key would miss on another one
     let at = types_core::quiet::privilege_args(funcid).filter(|&n| n == args.len());
-    let text_of = |n: usize| args.iter().nth(n - 1).and_then(|a| a.as_const()).filter(|c| !c.constisnull);
-    let privilege = || at.and_then(text_of).and_then( crate::expr::const_bytes).and_then(|b| types_core::quiet::privilege_quiet(funcid, b));
-    let text = text_arg_class(funcid, args, &logged) == Some(true) || bit_index_class(funcid, args, &logged) == Some(true);
-    text || unit_class(funcid, args) == Some(true) || args.len() == 2 && divisor == Some(true) || privilege() == Some(true) || epoch_ns_class(funcid, args)
+    let text_of = |n: usize| {
+        args.iter()
+            .nth(n - 1)
+            .and_then(|a| a.as_const())
+            .filter(|c| !c.constisnull)
+    };
+    let privilege = || {
+        at.and_then(text_of)
+            .and_then(crate::expr::const_bytes)
+            .and_then(|b| types_core::quiet::privilege_quiet(funcid, b))
+    };
+    let text = text_arg_class(funcid, args, &logged) == Some(true)
+        || bit_index_class(funcid, args, &logged) == Some(true);
+    text || unit_class(funcid, args) == Some(true)
+        || args.len() == 2 && divisor == Some(true)
+        || privilege() == Some(true)
+        || epoch_ns_class(funcid, args)
 }
 
 /// D3882 (`types_core::quiet::EPOCH_NS_CAST`'s proof): the two calls of
@@ -538,26 +726,48 @@ pub fn quiet_args(funcid: u32, args: &NodeList<'_>) -> bool {
 pub fn epoch_ns_class(funcid: u32, args: &NodeList<'_>) -> bool {
     use types_core::quiet as q;
     fn call<'a>(n: Node<'a>) -> Option<(u32, &'a NodeList<'a>)> {
-        n.as_func_expr().map(|x| (x.funcid, &x.args)).or_else(|| n.as_op_expr().map(|o| (o.opfuncid, &o.args)))
+        n.as_func_expr()
+            .map(|x| (x.funcid, &x.args))
+            .or_else(|| n.as_op_expr().map(|o| (o.opfuncid, &o.args)))
     }
     let clock = |n: Node<'_>| {
-        n.as_func_expr().is_some_and(|x| q::start_time(x.funcid) && x.args.is_nil()) || n.as_sql_value_function().is_some_and(|v| q::epoch_clock_value(v.op as u32))
+        n.as_func_expr()
+            .is_some_and(|x| q::start_time(x.funcid) && x.args.is_nil())
+            || n.as_sql_value_function()
+                .is_some_and(|v| q::epoch_clock_value(v.op as u32))
     };
     let epoch = |n: Node<'_>| {
         call(n).is_some_and(|(fid, a)| {
             fid == q::EPOCH_NS_EXTRACT
                 && a.len() == 2
-                && a.iter().next().and_then(|u| u.as_const()).and_then( crate::expr::const_bytes).is_some_and(|u| q::dt_unit(u, true) == Some(q::DtUnit::Epoch))
+                && a.iter()
+                    .next()
+                    .and_then(|u| u.as_const())
+                    .and_then(crate::expr::const_bytes)
+                    .is_some_and(|u| q::dt_unit(u, true) == Some(q::DtUnit::Epoch))
                 && a.iter().nth(1).is_some_and(clock)
         })
     };
     // k is numeric_mul's second argument: the call's signature makes the constant's image a numeric's (a domain over
     // numeric has the same image), so no type test is needed before decoding it
-    let k = |n: Node<'_>| n.as_const().and_then( crate::expr::const_bytes).is_some_and(q::epoch_ns_k_quiet);
-    let product = |a: &NodeList<'_>| a.len() == 2 && a.iter().next().is_some_and(epoch) && a.iter().nth(1).is_some_and(k);
+    let k = |n: Node<'_>| {
+        n.as_const()
+            .and_then(crate::expr::const_bytes)
+            .is_some_and(q::epoch_ns_k_quiet)
+    };
+    let product = |a: &NodeList<'_>| {
+        a.len() == 2 && a.iter().next().is_some_and(epoch) && a.iter().nth(1).is_some_and(k)
+    };
     match funcid {
         q::EPOCH_NS_MUL => product(args),
-        q::EPOCH_NS_CAST => args.len() == 1 && args.iter().next().and_then(call).is_some_and(|(fid, a)| fid == q::EPOCH_NS_MUL && product(a)),
+        q::EPOCH_NS_CAST => {
+            args.len() == 1
+                && args
+                    .iter()
+                    .next()
+                    .and_then(call)
+                    .is_some_and(|(fid, a)| fid == q::EPOCH_NS_MUL && product(a))
+        }
         _ => false,
     }
 }
@@ -572,7 +782,11 @@ pub fn unit_class(funcid: u32, args: &NodeList<'_>) -> Option<bool> {
     if !types_core::quiet::datetime_unit_fn(funcid) || args.len() != 2 {
         return None;
     }
-    let unit = args.iter().next().and_then(|a| a.as_const()).and_then( crate::expr::const_bytes);
+    let unit = args
+        .iter()
+        .next()
+        .and_then(|a| a.as_const())
+        .and_then(crate::expr::const_bytes);
     Some(unit.is_some_and(|u| types_core::quiet::datetime_unit_quiet(funcid, u) == Some(true)))
 }
 
@@ -584,18 +798,33 @@ pub fn unit_class(funcid: u32, args: &NodeList<'_>) -> Option<bool> {
 /// this reading (D1103). Same-width arithmetic (`int4col + 1`, `int8col * 2`), a domain over an integer and any other
 /// type stay a call that may raise.
 pub fn range_quiet(funcid: u32, args: &NodeList<'_>) -> bool {
-    types_core::quiet::int_arith(funcid).is_some_and(|(op, ty)| exact_range(op, args, 0, false).is_some_and(|r| r.0 >= ty.0 && r.1 <= ty.1))
+    types_core::quiet::int_arith(funcid).is_some_and(|(op, ty)| {
+        exact_range(op, args, 0, false).is_some_and(|r| r.0 >= ty.0 && r.1 <= ty.1)
+    })
 }
 
 /// The exact range of integer operation `op` over `args` (one operand for `Neg`, two otherwise) by `int_range_of`; none
 /// for another arity or an operand of no integer type.
-fn exact_range(op: types_core::quiet::IntOp, args: &NodeList<'_>, depth: u8, body: bool) -> Option<(i128, i128)> {
-    let n = if op == types_core::quiet::IntOp::Neg { 1 } else { 2 };
+fn exact_range(
+    op: types_core::quiet::IntOp,
+    args: &NodeList<'_>,
+    depth: u8,
+    body: bool,
+) -> Option<(i128, i128)> {
+    let n = if op == types_core::quiet::IntOp::Neg {
+        1
+    } else {
+        2
+    };
     if args.len() != n {
         return None;
     }
     let a = int_range_of(args.iter().next()?, depth, body)?;
-    let b = if n == 2 { int_range_of(args.iter().nth(1)?, depth, body)? } else { a };
+    let b = if n == 2 {
+        int_range_of(args.iter().nth(1)?, depth, body)?
+    } else {
+        a
+    };
     Some(types_core::quiet::int_arith_range(op, a, b))
 }
 
@@ -608,24 +837,46 @@ fn int_range_of(n: Node<'_>, depth: u8, body: bool) -> Option<(i128, i128)> {
     crate::walk::stack_check(); // D3748
     let ty = types_core::quiet::int_type_range(crate::catalog::expr_type::type_of(n)?)?;
     let clamp = |r: (i128, i128)| (r.0.max(ty.0), r.1.min(ty.1));
-    if let Some(v) = n.as_const().filter(|c| body && !c.constisnull && c.constbyval).and_then(|c| types_core::quiet::int_word(plan_word(c).as_usize(), c.constlen)) {
+    if let Some(v) = n
+        .as_const()
+        .filter(|c| body && !c.constisnull && c.constbyval)
+        .and_then(|c| types_core::quiet::int_word(plan_word(c).as_usize(), c.constlen))
+    {
         return Some(clamp((i128::from(v), i128::from(v))));
     }
-    let call = n.as_func_expr().map(|x| (x.funcid, &x.args)).or_else(|| n.as_op_expr().map(|o| (o.opfuncid, &o.args)));
-    let Some((fid, args)) = call.filter(|_| depth < 8) else { return Some(ty) };
+    let call = n
+        .as_func_expr()
+        .map(|x| (x.funcid, &x.args))
+        .or_else(|| n.as_op_expr().map(|o| (o.opfuncid, &o.args)));
+    let Some((fid, args)) = call.filter(|_| depth < 8) else {
+        return Some(ty);
+    };
     if let Some(r) = types_core::quiet::cmp_range(fid) {
         return Some(clamp(r));
     }
     if types_core::quiet::int_widen(fid) && args.len() == 1 {
-        return Some(args.iter().next().and_then(|a| int_range_of(a, depth + 1, body)).map_or(ty, clamp));
+        return Some(
+            args.iter()
+                .next()
+                .and_then(|a| int_range_of(a, depth + 1, body))
+                .map_or(ty, clamp),
+        );
     }
-    Some(types_core::quiet::int_arith(fid).and_then(|(op, _)| exact_range(op, args, depth + 1, body)).map_or(ty, clamp))
+    Some(
+        types_core::quiet::int_arith(fid)
+            .and_then(|(op, _)| exact_range(op, args, depth + 1, body))
+            .map_or(ty, clamp),
+    )
 }
 
 /// Argument `i` of `args` as an integer (`types_core::quiet::int_word`: its low bytes) when it is a non-null by-value
 /// constant, its word read through `word`.
 fn arg_int(args: &NodeList<'_>, i: usize, word: &dyn Fn(&Const) -> Datum) -> Option<i64> {
-    args.iter().nth(i).and_then(|a| a.as_const()).filter(|c| !c.constisnull && c.constbyval).and_then(|c| types_core::quiet::int_word(word(c).as_usize(), c.constlen))
+    args.iter()
+        .nth(i)
+        .and_then(|a| a.as_const())
+        .filter(|c| !c.constisnull && c.constbyval)
+        .and_then(|c| types_core::quiet::int_word(word(c).as_usize(), c.constlen))
 }
 
 /// An integer `%` or `/`'s divisor class, `Some(quiet)` over any argument list of two (`types_core::quiet::divisor_quiet`:
@@ -636,7 +887,11 @@ fn arg_int(args: &NodeList<'_>, i: usize, word: &dyn Fn(&Const) -> Datum) -> Opt
 /// content key (lower inputs/key.rs) and the front key (exec inputs/front.rs) the plan's own word (`plan_word`), since
 /// they hold this class and never the literal (D1103): `x % 0` right after `x % 7` would otherwise run the raise-free
 /// program, raising where PostgreSQL never evaluates the modulus, or not where it does; `x / -1` after `x / 10` the same.
-pub fn divisor_class(funcid: u32, args: &NodeList<'_>, word: &dyn Fn(&Const) -> Datum) -> Option<bool> {
+pub fn divisor_class(
+    funcid: u32,
+    args: &NodeList<'_>,
+    word: &dyn Fn(&Const) -> Datum,
+) -> Option<bool> {
     // the function first (`divisor_quiet` is `None` for any other, whatever the divisor): the keys ask it of every call
     if args.len() != 2 || types_core::quiet::divisor_quiet(funcid, None).is_none() {
         return None;
@@ -648,19 +903,39 @@ pub fn divisor_class(funcid: u32, args: &NodeList<'_>, word: &dyn Fn(&Const) -> 
 /// `Some(quiet)` for those calls (`types_core::quiet::text_arg_quiet`; NULL or a non-constant is the other class), `None`
 /// for any other call. `word` as `divisor_class`'s: `substr(x, 1, -1)` right after `substr(x, 1, 1)` would otherwise run
 /// the quiet program, raising where PostgreSQL's order would not.
-pub fn text_arg_class(funcid: u32, args: &NodeList<'_>, word: &dyn Fn(&Const) -> Datum) -> Option<bool> {
+pub fn text_arg_class(
+    funcid: u32,
+    args: &NodeList<'_>,
+    word: &dyn Fn(&Const) -> Datum,
+) -> Option<bool> {
     let i = types_core::quiet::const_arg(funcid, args.len())?;
-    Some(types_core::quiet::text_arg_quiet(funcid, arg_int(args, i, word)))
+    Some(types_core::quiet::text_arg_quiet(
+        funcid,
+        arg_int(args, i, word),
+    ))
 }
 
 /// D3604: get_bit(bit, int4)'s class, `Some(quiet)` for that call (types_core quiet `bit_index`: its operand a column of type
 /// bit(len), read by its typmod, its index a constant inside it), `None` for any other call. `word` as `divisor_class`'s:
 /// both keys hold the class, so `get_bit(b, 9)` right after `get_bit(b, 7)` files another program.
-pub fn bit_index_class(funcid: u32, args: &NodeList<'_>, word: &dyn Fn(&Const) -> Datum) -> Option<bool> {
+pub fn bit_index_class(
+    funcid: u32,
+    args: &NodeList<'_>,
+    word: &dyn Fn(&Const) -> Datum,
+) -> Option<bool> {
     // the function first (`bit_index` is `None` for any other, whatever the column and index)
     types_core::quiet::bit_index(funcid, -1, None)?;
-    let len = args.iter().next().and_then(|a| a.as_var()).filter(|v| v.vartype == types_core::catalog::BITOID).map_or(-1, |v| v.vartypmod);
-    let n = if args.len() == 2 { arg_int(args, 1, word) } else { None };
+    let len = args
+        .iter()
+        .next()
+        .and_then(|a| a.as_var())
+        .filter(|v| v.vartype == types_core::catalog::BITOID)
+        .map_or(-1, |v| v.vartypmod);
+    let n = if args.len() == 2 {
+        arg_int(args, 1, word)
+    } else {
+        None
+    };
     types_core::quiet::bit_index(funcid, len, n)
 }
 
@@ -671,11 +946,23 @@ pub fn bit_index_class(funcid: u32, args: &NodeList<'_>, word: &dyn Fn(&Const) -
 /// `word` as `divisor_class`'s: the content key (lower inputs/key.rs) holds this class and the front key the values
 /// themselves (exec inputs/front.rs keys a sample's arguments by value), so `BERNOULLI (150)` right after `BERNOULLI (50)`
 /// files another program.
-pub fn sample_class(handler: u32, args: &NodeList<'_>, repeatable: Option<Node<'_>>, word: &dyn Fn(&Const) -> Datum) -> Option<bool> {
-    if !matches!(handler, crate::ops::shared::scan::TSM_BERNOULLI | crate::ops::shared::scan::TSM_SYSTEM) {
+pub fn sample_class(
+    handler: u32,
+    args: &NodeList<'_>,
+    repeatable: Option<Node<'_>>,
+    word: &dyn Fn(&Const) -> Datum,
+) -> Option<bool> {
+    if !matches!(
+        handler,
+        crate::ops::shared::scan::TSM_BERNOULLI | crate::ops::shared::scan::TSM_SYSTEM
+    ) {
         return None;
     }
-    let percent = |n: Node<'_>| n.as_const().filter(|c| !c.constisnull && c.constbyval && c.consttype == types_core::FLOAT4OID).is_some_and(|c| (0.0..=100.0).contains(&word(c).as_f32()));
+    let percent = |n: Node<'_>| {
+        n.as_const()
+            .filter(|c| !c.constisnull && c.constbyval && c.consttype == types_core::FLOAT4OID)
+            .is_some_and(|c| (0.0..=100.0).contains(&word(c).as_f32()))
+    };
     let seed = repeatable.is_none_or(|r| r.as_const().is_some_and(|c| !c.constisnull));
     Some(args.len() == 1 && args.iter().all(percent) && seed)
 }
@@ -684,7 +971,11 @@ pub fn sample_class(handler: u32, args: &NodeList<'_>, repeatable: Option<Node<'
 /// `None` for any other call. lowerv4's num.window cast node bakes the typmod's precision and scale, so the content key
 /// holds it as the front key does (exec inputs/front.rs keys a cast's trailing arguments by value): `x::numeric(9, 2)`
 /// right after `x::numeric(12, 2)` would otherwise run the wider program and miss its overflow.
-pub fn numeric_typmod_class(funcid: u32, args: &NodeList<'_>, word: &dyn Fn(&Const) -> Datum) -> Option<i64> {
+pub fn numeric_typmod_class(
+    funcid: u32,
+    args: &NodeList<'_>,
+    word: &dyn Fn(&Const) -> Datum,
+) -> Option<i64> {
     crate::catalog::casts::numeric_typmod_cast(funcid).then(|| arg_int(args, 1, word).unwrap_or(-1))
 }
 
@@ -704,7 +995,8 @@ pub fn quiet_pattern(f: &dyn Facts, funcid: u32, args: &NodeList<'_>, coll: u32)
     // D3039: a LIKE / ILIKE over a text extern parameter this execution binds to a pattern no match raises on
     // (`pattern_quiet`, which records the fact the admission's reuse checks)
     let param = || {
-        crate::effects::builtin_pattern(funcid).filter(|f| matches!(f, Pattern::Like | Pattern::ILike))?;
+        crate::effects::builtin_pattern(funcid)
+            .filter(|f| matches!(f, Pattern::Like | Pattern::ILike))?;
         let p = args.iter().nth(1)?.as_param()?;
         (args.len() == 2 && coll != 0 && f.coll(coll).bytes_eq).then_some(())?;
         pattern_quiet(p)
@@ -712,7 +1004,11 @@ pub fn quiet_pattern(f: &dyn Facts, funcid: u32, args: &NodeList<'_>, coll: u32)
     if param() == Some(true) {
         return true;
     }
-    pattern_operand(funcid, args).is_some_and(|(form, pat)| pattern_good(form, pat, coll, f.coll(coll).bytes_eq, || f.regex_compiles(pat, form == Pattern::Regex(true), coll)))
+    pattern_operand(funcid, args).is_some_and(|(form, pat)| {
+        pattern_good(form, pat, coll, f.coll(coll).bytes_eq, || {
+            f.regex_compiles(pat, form == Pattern::Regex(true), coll)
+        })
+    })
 }
 
 /// D3019: whether extern parameter `p` (a text, varchar or bpchar `$n`) is, in this execution, a LIKE pattern no row's
@@ -730,9 +1026,17 @@ pub fn pattern_quiet(p: &types_nodes::primnodes::Param) -> Option<bool> {
 /// DC-14: builtin `funcid`'s pattern form and its constant pattern's bytes, for a two-argument call whose second argument is
 /// a non-NULL text constant; none otherwise. Read without the bake log (`expr::const_bytes_keyed`): the decision it feeds is
 /// keyed as `pattern_good`'s class (exec front.rs), never as the bytes.
-pub fn pattern_operand<'p>(funcid: u32, args: &NodeList<'p>) -> Option<(crate::effects::Pattern, &'p [u8])> {
+pub fn pattern_operand<'p>(
+    funcid: u32,
+    args: &NodeList<'p>,
+) -> Option<(crate::effects::Pattern, &'p [u8])> {
     let form = crate::effects::builtin_pattern(funcid)?;
-    let pat = args.iter().nth(1).and_then(|a| a.as_const()).filter(|c| !c.constisnull).and_then( crate::expr::const_bytes_keyed)?;
+    let pat = args
+        .iter()
+        .nth(1)
+        .and_then(|a| a.as_const())
+        .filter(|c| !c.constisnull)
+        .and_then(crate::expr::const_bytes_keyed)?;
     (args.len() == 2).then_some((form, pat))
 }
 
@@ -742,12 +1046,20 @@ pub fn pattern_operand<'p>(funcid: u32, args: &NodeList<'p>) -> Option<(crate::e
 /// backslashes pair up (MatchText's one error is a pattern ending in its escape; the planner folds an ESCAPE clause to the
 /// default escape); a regular expression compiles (`compiles`: the server compiles it as the first row would,
 /// `Facts::regex_compiles`). A pattern that fails stays a call that may raise.
-pub fn pattern_good(form: crate::effects::Pattern, pat: &[u8], coll: u32, bytes_eq: bool, compiles: impl FnOnce() -> bool) -> bool {
+pub fn pattern_good(
+    form: crate::effects::Pattern,
+    pat: &[u8],
+    coll: u32,
+    bytes_eq: bool,
+    compiles: impl FnOnce() -> bool,
+) -> bool {
     use crate::effects::Pattern;
     coll != 0
         && bytes_eq
         && match form {
-            Pattern::Like | Pattern::ILike => pat.iter().rev().take_while(|&&b| b == b'\\').count() % 2 == 0,
+            Pattern::Like | Pattern::ILike => {
+                pat.iter().rev().take_while(|&&b| b == b'\\').count() % 2 == 0
+            }
             Pattern::Regex(_) => compiles(),
         }
 }
@@ -757,9 +1069,17 @@ pub fn pattern_good(form: crate::effects::Pattern, pat: &[u8], coll: u32, bytes_
 /// otherwise. Read without the bake log (`expr::const_bytes_keyed`), as `pattern_operand`: the decision it feeds is keyed
 /// as `pattern_list_good`'s class in both keys (exec front.rs, lower key.rs), never as the bytes (a list is keyed by its
 /// class, V4R-110).
-pub fn pattern_list<'p>(funcid: u32, args: &NodeList<'p>) -> Option<(crate::effects::Pattern, &'p [u8])> {
+pub fn pattern_list<'p>(
+    funcid: u32,
+    args: &NodeList<'p>,
+) -> Option<(crate::effects::Pattern, &'p [u8])> {
     let form = crate::effects::builtin_pattern(funcid)?;
-    let body = args.iter().nth(1).and_then(|a| a.as_const()).filter(|c| !c.constisnull).and_then( crate::expr::const_bytes_keyed)?;
+    let body = args
+        .iter()
+        .nth(1)
+        .and_then(|a| a.as_const())
+        .filter(|c| !c.constisnull)
+        .and_then(crate::expr::const_bytes_keyed)?;
     (args.len() == 2).then_some((form, body))
 }
 
@@ -772,7 +1092,10 @@ pub fn pattern_list<'p>(funcid: u32, args: &NodeList<'p>) -> Option<(crate::effe
 /// where the caller fails closed.
 pub fn each_list_text(body: &[u8], f: &mut dyn FnMut(&[u8]) -> bool) -> Option<bool> {
     // the field at offset `at` from the array's start, its length word included (`body` starts past it, at 4)
-    let word = |at: usize| body.get(at.checked_sub(4)?..at).map(|w| u32::from_ne_bytes([w[0], w[1], w[2], w[3]]));
+    let word = |at: usize| {
+        body.get(at.checked_sub(4)?..at)
+            .map(|w| u32::from_ne_bytes([w[0], w[1], w[2], w[3]]))
+    };
     let (ndim, dataoffset, elemtype) = (word(4)? as i32, word(8)? as i32, word(12)?);
     if ndim == 0 {
         return Some(true);
@@ -782,7 +1105,11 @@ pub fn each_list_text(body: &[u8], f: &mut dyn FnMut(&[u8]) -> bool) -> Option<b
     }
     let n = usize::try_from(word(16)? as i32).ok()?;
     // ARR_OVERHEAD_NONULLS(1): MAXALIGN(16 + 8); else the bitmap at offset 24 and the data at `dataoffset`
-    let mut off = if dataoffset == 0 { 24 } else { dataoffset as usize };
+    let mut off = if dataoffset == 0 {
+        24
+    } else {
+        dataoffset as usize
+    };
     let mut all = true;
     for i in 0..n {
         if dataoffset != 0 && body.get(20 + i / 8)? & (1 << (i % 8)) == 0 {
@@ -807,10 +1134,20 @@ pub fn each_list_text(body: &[u8], f: &mut dyn FnMut(&[u8]) -> bool) -> Option<b
 /// whether a pattern compiles as a regular expression, case-insensitive or not); none where `c` is no constant pattern
 /// list this reads. exec front.rs and lower key.rs put it with the server's own regex facts, `quiet_pattern_list` asks
 /// it with the decomposer's.
-pub fn pattern_list_good(funcid: u32, args: &NodeList<'_>, coll: u32, bytes_eq: bool, compiles: &dyn Fn(&[u8], bool) -> bool) -> Option<bool> {
+pub fn pattern_list_good(
+    funcid: u32,
+    args: &NodeList<'_>,
+    coll: u32,
+    bytes_eq: bool,
+    compiles: &dyn Fn(&[u8], bool) -> bool,
+) -> Option<bool> {
     use crate::effects::Pattern;
     let (form, body) = pattern_list(funcid, args)?;
-    each_list_text(body, &mut |pat| pattern_good(form, pat, coll, bytes_eq, || compiles(pat, form == Pattern::Regex(true))))
+    each_list_text(body, &mut |pat| {
+        pattern_good(form, pat, coll, bytes_eq, || {
+            compiles(pat, form == Pattern::Regex(true))
+        })
+    })
 }
 
 /// D3788 (DC-14 over a list): a builtin pattern match `x op ANY / ALL (c)` over a non-NULL
@@ -819,13 +1156,16 @@ pub fn pattern_list_good(funcid: u32, args: &NodeList<'_>, coll: u32, bytes_eq: 
 /// (`quiet_pattern`'s rule). pgwatch's table metrics read `nspname NOT LIKE ALL (ARRAY[..])` in a recursive union's seed.
 /// Keyed as `pattern_list_good`'s class, never the list's values.
 pub fn quiet_pattern_list(f: &dyn Facts, funcid: u32, args: &NodeList<'_>, coll: u32) -> bool {
-    pattern_list_good(funcid, args, coll, f.coll(coll).bytes_eq, &|pat, icase| f.regex_compiles(pat, icase, coll)) == Some(true)
+    pattern_list_good(funcid, args, coll, f.coll(coll).bytes_eq, &|pat, icase| {
+        f.regex_compiles(pat, icase, coll)
+    }) == Some(true)
 }
 
 /// D3019: `pattern_good`'s LIKE rule over a bound extern parameter's varlena image at `p`: its payload in place (an
 /// external or compressed image is not read: `false`) and its trailing backslashes paired, so no row's match raises.
 pub fn like_image_quiet(p: *const u8) -> bool {
-    crate::expr::varlena_payload(p).is_some_and(|b| b.iter().rev().take_while(|&&x| x == b'\\').count() % 2 == 0)
+    crate::expr::varlena_payload(p)
+        .is_some_and(|b| b.iter().rev().take_while(|&&x| x == b'\\').count() % 2 == 0)
 }
 
 /// A builtin plain aggregate whose transitions and final raise on no input (its arguments and FILTER not included); a
@@ -834,7 +1174,9 @@ pub fn like_image_quiet(p: *const u8) -> bool {
 pub fn agg_quiet(a: &Aggref<'_>) -> bool {
     // AGB-19: a numeric argument whose integer digits its types bound (`num_bounded`), not only a bare column with a typmod
     let typmod = || a.args.iter().next().is_some_and(num_bounded);
-    a.aggkind == AGGKIND_NORMAL && (agg_oid_quiet(a.aggfnoid, typmod) || types_core::quiet::text_extremum_quiet(a.aggfnoid, a.inputcollid))
+    a.aggkind == AGGKIND_NORMAL
+        && (agg_oid_quiet(a.aggfnoid, typmod)
+            || types_core::quiet::text_extremum_quiet(a.aggfnoid, a.inputcollid))
 }
 
 /// `agg_quiet`'s rule by the aggregate's OID (an `Aggref`'s `aggfnoid`, a window aggregate's `winfnoid`); `typmod`: its
@@ -845,7 +1187,15 @@ pub fn agg_quiet(a: &Aggref<'_>) -> bool {
 pub fn agg_oid_quiet(fnoid: u32, typmod: impl FnOnce() -> bool) -> bool {
     use crate::ops::shared::agg_class::Class as C;
     crate::ops::agg::trans::table::row(fnoid).is_some_and(|r| match r.class {
-        C::CountStar | C::CountAny | C::CountPair | C::SumI64 | C::SumI128 | C::AvgI128 | C::BoolAnd | C::BoolOr | C::BitI64(_) => true,
+        C::CountStar
+        | C::CountAny
+        | C::CountPair
+        | C::SumI64
+        | C::SumI128
+        | C::AvgI128
+        | C::BoolAnd
+        | C::BoolOr
+        | C::BitI64(_) => true,
         // NEW-44: a builtin min / max over a type whose comparison raises nothing (types_core `extremum_quiet`), folded by
         // value (Int, U64, Tid, F64, Num) or through its own *_larger / *_smaller (timetz, interval: `Ext::Opaque`)
         C::Min(_) | C::Max(_) => types_core::quiet::extremum_quiet(fnoid),
@@ -862,7 +1212,8 @@ pub const NUM_BOUNDED_DIGITS: u32 = 65_000;
 /// AGB-19: expression `n` (a target entry: its expression) is an integer or a numeric whose integer digits its types bound
 /// within `NUM_BOUNDED_DIGITS` (`num_digits`).
 pub fn num_bounded(n: Node<'_>) -> bool {
-    num_digits(n.as_target_entry().map_or(n, |t| t.expr), 0).is_some_and(|d| d <= NUM_BOUNDED_DIGITS)
+    num_digits(n.as_target_entry().map_or(n, |t| t.expr), 0)
+        .is_some_and(|d| d <= NUM_BOUNDED_DIGITS)
 }
 
 /// AGB-19: an upper bound on expression `n`'s integer digits (|v| < 10^d) by types alone: an integer's
@@ -882,7 +1233,10 @@ pub fn num_digits(n: Node<'_>, depth: u8) -> Option<u32> {
     if let Some(p) = n.as_param() {
         return typmod_digits(p.paramtypmod);
     }
-    let (fid, args) = n.as_func_expr().map(|x| (x.funcid, &x.args)).or_else(|| n.as_op_expr().map(|o| (o.opfuncid, &o.args)))?;
+    let (fid, args) = n
+        .as_func_expr()
+        .map(|x| (x.funcid, &x.args))
+        .or_else(|| n.as_op_expr().map(|o| (o.opfuncid, &o.args)))?;
     num_op_digits(fid, args, depth)
 }
 
@@ -892,7 +1246,12 @@ pub fn num_digits(n: Node<'_>, depth: u8) -> Option<u32> {
 fn num_op_digits(funcid: u32, args: &NodeList<'_>, depth: u8) -> Option<u32> {
     use types_core::quiet::NumOp;
     let (op, _) = types_core::quiet::num_arith(funcid).filter(|&(_, k)| k == args.len())?;
-    let arg = |i: usize| args.iter().nth(i).filter(|_| depth < 8).and_then(|a| num_digits(a, depth + 1));
+    let arg = |i: usize| {
+        args.iter()
+            .nth(i)
+            .filter(|_| depth < 8)
+            .and_then(|a| num_digits(a, depth + 1))
+    };
     match op {
         NumOp::Neg | NumOp::Cast => arg(0),
         NumOp::Integral => Some(arg(0)? + 1),
@@ -926,8 +1285,17 @@ mod tests {
         // NEW-44: timetz and interval (`Ext::Opaque`) too.
         use crate::ops::shared::agg_class::Class as C;
         let mut n = 0;
-        for r in crate::ops::agg::trans::table::AGG_TABLE.iter().filter(|r| r.kind == b'n' && matches!(r.class, C::Min(_) | C::Max(_))) {
-            assert_eq!(super::agg_oid_quiet(r.fnoid, || false), types_core::quiet::agg_quiet(r.fnoid, 0), "{} {}", r.name, r.fnoid);
+        for r in crate::ops::agg::trans::table::AGG_TABLE
+            .iter()
+            .filter(|r| r.kind == b'n' && matches!(r.class, C::Min(_) | C::Max(_)))
+        {
+            assert_eq!(
+                super::agg_oid_quiet(r.fnoid, || false),
+                types_core::quiet::agg_quiet(r.fnoid, 0),
+                "{} {}",
+                r.name,
+                r.fnoid
+            );
             n += 1;
         }
         assert!(n >= 40, "{n} extrema");
@@ -937,13 +1305,28 @@ mod tests {
     #[allow(clippy::assertions_on_constants, unused_attributes)]
     fn a_numeric_typmod_bounds_its_integer_digits() {
         let tm = |p: i32, s: i32| ((p << 16) | (s & 0x7ff)) + 4;
-        assert_eq!(super::typmod_digits(tm(10, 2)), Some(8), "numeric(10,2): |v| < 10^8");
-        assert_eq!(super::typmod_digits(tm(5, -2)), Some(7), "numeric(5,-2): |v| < 10^7 (PostgreSQL 15+ negative scale)");
-        assert_eq!(super::typmod_digits(tm(3, 5)), Some(0), "numeric(3,5): |v| < 1");
+        assert_eq!(
+            super::typmod_digits(tm(10, 2)),
+            Some(8),
+            "numeric(10,2): |v| < 10^8"
+        );
+        assert_eq!(
+            super::typmod_digits(tm(5, -2)),
+            Some(7),
+            "numeric(5,-2): |v| < 10^7 (PostgreSQL 15+ negative scale)"
+        );
+        assert_eq!(
+            super::typmod_digits(tm(3, 5)),
+            Some(0),
+            "numeric(3,5): |v| < 1"
+        );
         #[allow(unused_attributes)]
         assert_eq!(super::typmod_digits(tm(1000, 0)), Some(1000));
         assert_eq!(super::typmod_digits(-1), None, "an unconstrained numeric");
         #[allow(unused_attributes)]
-        assert!(1000 + 1000 <= super::NUM_BOUNDED_DIGITS, "a product of two widest typmod columns stays bounded");
+        assert!(
+            1000 + 1000 <= super::NUM_BOUNDED_DIGITS,
+            "a product of two widest typmod columns stays bounded"
+        );
     }
 }

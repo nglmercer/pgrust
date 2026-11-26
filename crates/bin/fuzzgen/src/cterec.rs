@@ -52,16 +52,31 @@ struct Graph {
 
 const GRAPHS: &[Graph] = &[
     // Tree.
-    Graph { edges: &[(1, 2), (1, 3), (2, 4), (2, 5), (3, 6)], cyclic: false },
+    Graph {
+        edges: &[(1, 2), (1, 3), (2, 4), (2, 5), (3, 6)],
+        cyclic: false,
+    },
     // Diamond DAG: node 4 reached two ways (UNION dedups it, UNION ALL
     // keeps both paths).
-    Graph { edges: &[(1, 2), (1, 3), (2, 4), (3, 4)], cyclic: false },
+    Graph {
+        edges: &[(1, 2), (1, 3), (2, 4), (3, 4)],
+        cyclic: false,
+    },
     // 3-cycle 1->2->3->1 plus a tail 3->4.
-    Graph { edges: &[(1, 2), (2, 3), (3, 1), (3, 4)], cyclic: true },
+    Graph {
+        edges: &[(1, 2), (2, 3), (3, 1), (3, 4)],
+        cyclic: true,
+    },
     // 2-cycle 1<->2 plus a self-loop at 3.
-    Graph { edges: &[(1, 2), (2, 1), (1, 3), (3, 3)], cyclic: true },
+    Graph {
+        edges: &[(1, 2), (2, 1), (1, 3), (3, 3)],
+        cyclic: true,
+    },
     // Self-loop at the root.
-    Graph { edges: &[(1, 1), (1, 2), (2, 3)], cyclic: true },
+    Graph {
+        edges: &[(1, 1), (1, 2), (2, 3)],
+        cyclic: true,
+    },
 ];
 
 fn render_edges(edges: &[(i32, i32)]) -> String {
@@ -81,7 +96,11 @@ fn gen_graph_rec(g: &mut Gen) -> String {
     // CYCLE first: it decides whether we prefer a cyclic graph.
     let cycle = g.weights.pick(
         g.rng,
-        &["cterec:cycle_none", "cterec:cycle_bool", "cterec:cycle_marked"],
+        &[
+            "cterec:cycle_none",
+            "cterec:cycle_bool",
+            "cterec:cycle_marked",
+        ],
     );
     g.fire(cycle);
     let want_cyclic = cycle != "cterec:cycle_none";
@@ -89,8 +108,7 @@ fn gen_graph_rec(g: &mut Gen) -> String {
     // so the mark fires (but still allow acyclic — the "no cycle" arm).
     let gi = if want_cyclic && g.rng.chance(3, 4) {
         // choose among cyclic graphs
-        let cyclic: Vec<usize> =
-            (0..GRAPHS.len()).filter(|&i| GRAPHS[i].cyclic).collect();
+        let cyclic: Vec<usize> = (0..GRAPHS.len()).filter(|&i| GRAPHS[i].cyclic).collect();
         cyclic[g.rng.below_usize(cyclic.len())]
     } else {
         g.rng.below_usize(GRAPHS.len())
@@ -99,16 +117,28 @@ fn gen_graph_rec(g: &mut Gen) -> String {
 
     let union = g.weights.pick(g.rng, &["cterec:union_all", "cterec:union"]);
     g.fire(union);
-    let union_sql = if union == "cterec:union" { "UNION" } else { "UNION ALL" };
+    let union_sql = if union == "cterec:union" {
+        "UNION"
+    } else {
+        "UNION ALL"
+    };
 
     let search = g.weights.pick(
         g.rng,
-        &["cterec:search_none", "cterec:search_depth", "cterec:search_breadth"],
+        &[
+            "cterec:search_none",
+            "cterec:search_depth",
+            "cterec:search_breadth",
+        ],
     );
     g.fire(search);
     // Occasionally a multi-column BY list (exercises the multi-key search
     // order rewrite).
-    let by = if g.rng.chance(1, 3) { "node, depth" } else { "node" };
+    let by = if g.rng.chance(1, 3) {
+        "node, depth"
+    } else {
+        "node"
+    };
     let search_sql = match search {
         "cterec:search_depth" => format!(" SEARCH DEPTH FIRST BY {by} SET so"),
         "cterec:search_breadth" => format!(" SEARCH BREADTH FIRST BY {by} SET so"),
@@ -117,9 +147,7 @@ fn gen_graph_rec(g: &mut Gen) -> String {
 
     let cycle_sql = match cycle {
         "cterec:cycle_bool" => " CYCLE node SET ic USING pa".to_string(),
-        "cterec:cycle_marked" => {
-            " CYCLE node SET ic TO 'Y' DEFAULT 'N' USING pa".to_string()
-        }
+        "cterec:cycle_marked" => " CYCLE node SET ic TO 'Y' DEFAULT 'N' USING pa".to_string(),
         _ => String::new(),
     };
 
@@ -203,8 +231,16 @@ fn gen_aux_rec(g: &mut Gen) -> String {
 /// the inlining-decision surface, isolated from recursion.
 fn gen_mat(g: &mut Gen) -> String {
     g.fire("cterec:mat");
-    let a = if g.rng.chance(1, 2) { "MATERIALIZED" } else { "NOT MATERIALIZED" };
-    let b = if g.rng.chance(1, 2) { "MATERIALIZED" } else { "NOT MATERIALIZED" };
+    let a = if g.rng.chance(1, 2) {
+        "MATERIALIZED"
+    } else {
+        "NOT MATERIALIZED"
+    };
+    let b = if g.rng.chance(1, 2) {
+        "MATERIALIZED"
+    } else {
+        "NOT MATERIALIZED"
+    };
     format!(
         "WITH a AS {a} (SELECT x, x * 2 AS y FROM (VALUES (1), (2), (3), (4)) v(x)), \
          b AS {b} (SELECT x, x + 1 AS z FROM (VALUES (2), (3), (4), (5)) v(x)) \
@@ -219,10 +255,8 @@ fn gen_dml(g: &mut Gen) -> Vec<StmtKind> {
     let mut v = vec![
         raw("BEGIN;"),
         raw("CREATE TEMP TABLE fz_cr_dm (id int PRIMARY KEY, v int, tag text);"),
-        raw(
-            "INSERT INTO fz_cr_dm VALUES (1, 10, 'a'), (2, 20, 'b'), \
-             (3, 30, 'c'), (4, 40, 'd');",
-        ),
+        raw("INSERT INTO fz_cr_dm VALUES (1, 10, 'a'), (2, 20, 'b'), \
+             (3, 30, 'c'), (4, 40, 'd');"),
     ];
     match g.weights.pick(
         g.rng,
@@ -311,9 +345,7 @@ fn gen_sublink(g: &mut Gen) -> String {
         "cterec:rowcmp" => {
             g.fire("cterec:rowcmp");
             let (lhs, quant, set) = ROW_BANK[g.rng.below_usize(ROW_BANK.len())];
-            format!(
-                "SELECT {lhs} {quant} (SELECT a, b FROM (VALUES {set}) v(a, b)) AS r;"
-            )
+            format!("SELECT {lhs} {quant} (SELECT a, b FROM (VALUES {set}) v(a, b)) AS r;")
         }
         "cterec:scalar" => {
             g.fire("cterec:scalar");
@@ -391,10 +423,10 @@ const ROW_BANK: &[(&str, &str, &str)] = &[
 // Scalar 0-or-1-row: (value-set, tail). A WHERE that keeps 0 rows -> NULL.
 const SCALAR_BANK: &[(&str, &str)] = &[
     ("(42)", ""),
-    ("(1)", " WHERE x > 5"),   // 0 rows -> NULL
-    ("(7)", " WHERE x = 7"),   // exactly 1
+    ("(1)", " WHERE x > 5"), // 0 rows -> NULL
+    ("(7)", " WHERE x = 7"), // exactly 1
     ("(3), (9)", " WHERE x = 9"),
-    ("(5)", " WHERE x < 0"),   // 0 rows -> NULL
+    ("(5)", " WHERE x < 0"), // 0 rows -> NULL
 ];
 
 // NOT IN with a NULL in the set: a non-member yields NULL (NOT TRUE) — the
@@ -488,7 +520,10 @@ mod tests {
             );
             // Recursion is always depth-bounded (termination invariant).
             if sql.contains("WITH RECURSIVE") {
-                assert!(sql.contains("WHERE t.depth <"), "unbounded recursion: {sql}");
+                assert!(
+                    sql.contains("WHERE t.depth <"),
+                    "unbounded recursion: {sql}"
+                );
             }
         }
     }

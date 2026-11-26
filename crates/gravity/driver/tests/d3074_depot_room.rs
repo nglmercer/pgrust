@@ -21,7 +21,11 @@ fn a_fresh_draw_keeps_the_parked_regions() {
     let before = REGIONS.stats().evictions;
     let fresh = REGIONS.take(96 * MIB, None).expect("a fresh region");
     let s = REGIONS.stats();
-    assert_eq!((s.entries, s.bytes), (2, 128 * MIB), "a fresh draw gives nothing back");
+    assert_eq!(
+        (s.entries, s.bytes),
+        (2, 128 * MIB),
+        "a fresh draw gives nothing back"
+    );
     assert_eq!(s.evictions, before);
     drop(fresh);
     REGIONS.trim();
@@ -30,12 +34,20 @@ fn a_fresh_draw_keeps_the_parked_regions() {
     put_new(256 * MIB);
     let small = REGIONS.take(MIB, None).expect("a fresh region");
     let s = REGIONS.stats();
-    assert_eq!((s.entries, s.bytes), (1, 256 * MIB), "a small draw keeps a large parked region");
+    assert_eq!(
+        (s.entries, s.bytes),
+        (1, 256 * MIB),
+        "a small draw keeps a large parked region"
+    );
     drop(small);
 
     // a take the parked region covers is served by it, fitted to the ask
     let hit = REGIONS.take(250 * MIB, None).expect("the parked region");
-    assert_eq!((hit.len(), hit.whole()), (250 * MIB, 256 * MIB), "fitted to the ask, its tail kept");
+    assert_eq!(
+        (hit.len(), hit.whole()),
+        (250 * MIB, 256 * MIB),
+        "fitted to the ask, its tail kept"
+    );
     assert_eq!(REGIONS.stats().entries, 0);
     drop(hit);
 

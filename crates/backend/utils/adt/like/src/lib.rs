@@ -43,10 +43,12 @@ fn invalid_escape_string() -> Box<PgError> {
 #[cold]
 #[inline(never)]
 fn indeterminate_collation(op: &str) -> Box<PgError> {
-    PgError::error(format!("could not determine which collation to use for {op}"))
-        .with_sqlstate(ERRCODE_INDETERMINATE_COLLATION)
-        .with_hint("Use the COLLATE clause to set the collation explicitly.")
-        .into()
+    PgError::error(format!(
+        "could not determine which collation to use for {op}"
+    ))
+    .with_sqlstate(ERRCODE_INDETERMINATE_COLLATION)
+    .with_hint("Use the COLLATE clause to set the collation explicitly.")
+    .into()
 }
 
 #[track_caller]
@@ -318,7 +320,8 @@ pub fn generic_match_text(s: &[u8], p: &[u8], collation: Oid) -> PgResult<i32> {
         match_text::<SbCs>(s, p, locale)
     } else if mbutils::GetDatabaseEncoding() == PG_UTF8 {
         match_text::<Utf8Cs>(s, p, locale)
-    } else { Err(mb_matchtext_unported(mbutils::GetDatabaseEncoding()))
+    } else {
+        Err(mb_matchtext_unported(mbutils::GetDatabaseEncoding()))
     }
 }
 
@@ -505,7 +508,8 @@ fn do_like_escape<E: EscMode>(pat: &[u8], esc: &[u8], r: &mut Vec<u8>) -> PgResu
     // under MaxAllocSize and reserved fallibly.
     let need = pat.len().saturating_mul(2).saturating_add(4);
     ::mcx::check_alloc_size(need)?;
-    r.try_reserve(need).map_err(|_| ::mcx::oom_named("like_escape", need))?;
+    r.try_reserve(need)
+        .map_err(|_| ::mcx::oom_named("like_escape", need))?;
 
     if esc.is_empty() {
         // No escape character wanted: double backslashes so they act literal.

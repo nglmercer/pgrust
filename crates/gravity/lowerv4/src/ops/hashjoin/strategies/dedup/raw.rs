@@ -17,7 +17,13 @@ pub(crate) const SEEN: usize = 8;
 /// `t` is a build region with records `i` and `j` in, laid in the full record form.
 unsafe fn same(t: &Rt, i: usize, j: usize) -> bool {
     let (a, b) = (t.rec(i), t.rec(j));
-    (0..t.words).all(|w| rd::<u64>(a, 8 * w) == rd::<u64>(b, 8 * w)) && *t.link(i) >> 32 == *t.link(j) >> 32 && tail_eq(a.add(8 * (t.words + 1)), b.add(8 * (t.words + 1)), t.rec - 8 * (t.words + 1))
+    (0..t.words).all(|w| rd::<u64>(a, 8 * w) == rd::<u64>(b, 8 * w))
+        && *t.link(i) >> 32 == *t.link(j) >> 32
+        && tail_eq(
+            a.add(8 * (t.words + 1)),
+            b.add(8 * (t.words + 1)),
+            t.rec - 8 * (t.words + 1),
+        )
 }
 
 unsafe fn tail_eq(a: *const u8, b: *const u8, len: usize) -> bool {
@@ -48,7 +54,12 @@ pub(crate) unsafe fn seen(t: &Rt, head: u64, i: usize) -> bool {
 /// # Safety
 /// `s` is a DENSE slot of `t` holding a record of record `i`'s key.
 pub(crate) unsafe fn same_slot(t: &Rt, s: *const u8, i: usize) -> bool {
-    rd::<u64>(s, 0) >> 32 == *t.link(i) >> 32 && tail_eq(s.add(8), t.rec(i).add(8 * (t.words + 1)), t.rec - 8 * (t.words + 1))
+    rd::<u64>(s, 0) >> 32 == *t.link(i) >> 32
+        && tail_eq(
+            s.add(8),
+            t.rec(i).add(8 * (t.words + 1)),
+            t.rec - 8 * (t.words + 1),
+        )
 }
 
 /// D4904: build `d` (`len` bytes, its `n` records in, `F_KEYS`: no payload) with each image held by one record, the first of
@@ -60,7 +71,11 @@ pub(crate) unsafe fn same_slot(t: &Rt, s: *const u8, i: usize) -> bool {
 /// # Safety
 /// `d` is a build region in phase 1 whose first `n` records are in, in the full record form.
 pub(crate) unsafe fn compact(a: &OpArena, d: *mut u8, len: usize, n: usize) -> Option<usize> {
-    if rd::<u8>(d, FLAGS) & F_KEYS == 0 || rd::<u8>(d, KEYS_DONE) != 0 || n < 2 || n >= u32::MAX as usize {
+    if rd::<u8>(d, FLAGS) & F_KEYS == 0
+        || rd::<u8>(d, KEYS_DONE) != 0
+        || n < 2
+        || n >= u32::MAX as usize
+    {
         return None;
     }
     wr::<u64>(d, N, n as u64);
@@ -72,7 +87,8 @@ pub(crate) unsafe fn compact(a: &OpArena, d: *mut u8, len: usize, n: usize) -> O
         return None;
     }
     let (slots, mask) = (set.as_mut_slice(a), cap - 1);
-    let same = |x: *mut u8, y: *mut u8| (0..t.words).all(|w| rd::<u64>(x, 8 * w) == rd::<u64>(y, 8 * w));
+    let same =
+        |x: *mut u8, y: *mut u8| (0..t.words).all(|w| rd::<u64>(x, 8 * w) == rd::<u64>(y, 8 * w));
     let mut keep = 0;
     for i in 0..n {
         let mut s = t.hash(i).to_abi() as usize & mask;

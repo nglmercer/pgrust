@@ -31,7 +31,9 @@ impl Host for NestPrune {
     unsafe fn run(ctx: *mut Ctx, (h,): (u64,)) -> u64 {
         let head = h as *mut PruneHead;
         if head.is_null() || (*head).magic != PRUNE_MAGIC {
-            return crate::host_abi::bare(&format!("m8_prune: a stale or foreign nest.prune handle {h:#x}")) as u64; // alloc: Cold
+            return crate::host_abi::bare(&format!(
+                "m8_prune: a stale or foreign nest.prune handle {h:#x}"
+            )) as u64; // alloc: Cold
         }
         ((*head).op)(head, ctx) as u64
     }
@@ -48,13 +50,25 @@ mod tests {
     /// The entry runs a live object's op and refuses a null or foreign handle by name.
     #[test]
     fn the_entry_runs_its_objects_op_and_refuses_a_foreign_handle() {
-        let mut live = PruneHead { magic: PRUNE_MAGIC, op: seven };
-        let mut dead = PruneHead { magic: 0, op: seven };
+        let mut live = PruneHead {
+            magic: PRUNE_MAGIC,
+            op: seven,
+        };
+        let mut dead = PruneHead {
+            magic: 0,
+            op: seven,
+        };
         let ctx: *mut Ctx = core::ptr::null_mut();
         // SAFETY: both handles are live `PruneHead`s whose op reads no pointer; a null handle is refused before any read.
         unsafe {
-            assert_eq!(NestPrune::run(ctx, (&mut live as *mut PruneHead as u64,)), 7);
-            assert_eq!(NestPrune::run(ctx, (&mut dead as *mut PruneHead as u64,)) as i64, gravity_abi::status::ERROR);
+            assert_eq!(
+                NestPrune::run(ctx, (&mut live as *mut PruneHead as u64,)),
+                7
+            );
+            assert_eq!(
+                NestPrune::run(ctx, (&mut dead as *mut PruneHead as u64,)) as i64,
+                gravity_abi::status::ERROR
+            );
             assert_eq!(NestPrune::run(ctx, (0,)) as i64, gravity_abi::status::ERROR);
         }
     }

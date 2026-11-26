@@ -137,8 +137,11 @@ fn raw(s: impl Into<String>) -> StmtKind {
 fn pick_subset(g: &mut Gen, pool: &[&str], min: usize) -> Vec<StmtKind> {
     debug_assert!(min >= 1 && min <= pool.len());
     loop {
-        let out: Vec<StmtKind> =
-            pool.iter().filter(|_| g.rng.chance(1, 2)).map(|s| raw(*s)).collect();
+        let out: Vec<StmtKind> = pool
+            .iter()
+            .filter(|_| g.rng.chance(1, 2))
+            .map(|s| raw(*s))
+            .collect();
         if out.len() >= min {
             return out;
         }
@@ -238,7 +241,10 @@ mod tests {
             let mut prods = Vec::new();
             let mut g = Gen::new(&mut rng, &cat, w, &mut prods, 3);
             groups.push(
-                gen_obs_module(&mut g).iter().map(|s| s.to_sql()).collect::<Vec<_>>(),
+                gen_obs_module(&mut g)
+                    .iter()
+                    .map(|s| s.to_sql())
+                    .collect::<Vec<_>>(),
             );
             prods_all.extend(prods);
         }
@@ -269,9 +275,10 @@ mod tests {
                 );
             }
             // Self-containment.
-            for (create, drop) in
-                [("CREATE TABLE", "DROP TABLE"), ("CREATE FUNCTION", "DROP FUNCTION")]
-            {
+            for (create, drop) in [
+                ("CREATE TABLE", "DROP TABLE"),
+                ("CREATE FUNCTION", "DROP FUNCTION"),
+            ] {
                 let c = group.iter().filter(|s| s.starts_with(create)).count();
                 let d = group.iter().filter(|s| s.starts_with(drop)).count();
                 assert_eq!(c, d, "{create} without {drop}: {group:?}");
@@ -295,7 +302,7 @@ mod tests {
                 }
                 // Raw wall-clock values must never be a bare output column.
                 {
-                    let volatile ="SELECT pg_stat_get_snapshot_timestamp()";
+                    let volatile = "SELECT pg_stat_get_snapshot_timestamp()";
                     assert!(!sql.starts_with(volatile), "raw volatile projection: {sql}");
                 }
             }

@@ -123,11 +123,21 @@ impl ObjState {
     }
 
     fn live_roles(&self) -> Vec<usize> {
-        self.roles.iter().enumerate().filter(|(_, r)| r.live).map(|(i, _)| i).collect()
+        self.roles
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| r.live)
+            .map(|(i, _)| i)
+            .collect()
     }
 
     fn live_stats(&self) -> Vec<usize> {
-        self.stats.iter().enumerate().filter(|(_, s)| s.live).map(|(i, _)| i).collect()
+        self.stats
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.live)
+            .map(|(i, _)| i)
+            .collect()
     }
 
     fn n_live_types(&self) -> usize {
@@ -169,8 +179,13 @@ fn session_tag(g: &mut Gen) -> u64 {
 }
 
 /// Builtin comment/describe fuel: never created, never dropped.
-const BUILTIN_FUNCS: &[&str] =
-    &["abs(int4)", "length(text)", "lower(text)", "now()", "int4pl(int4,int4)"];
+const BUILTIN_FUNCS: &[&str] = &[
+    "abs(int4)",
+    "length(text)",
+    "lower(text)",
+    "now()",
+    "int4pl(int4,int4)",
+];
 const BUILTIN_TYPES: &[&str] = &["int4", "text", "date", "numeric", "jsonb"];
 const BUILTIN_OPS: &[&str] = &["=(int4,int4)", "<(text,text)", "+(int4,int4)"];
 const ACCESS_METHODS: &[&str] = &["heap", "btree", "hash", "gin", "gist", "brin", "spgist"];
@@ -247,7 +262,8 @@ pub fn gen_objddl_module(g: &mut Gen) -> Vec<StmtKind> {
 // ---------------------------------------------------------- COMMENT ON ----
 
 fn comment_text(g: &mut Gen) -> String {
-    if g.weights.pick(g.rng, &["objddl:comment:text", "objddl:comment:null"])
+    if g.weights
+        .pick(g.rng, &["objddl:comment:text", "objddl:comment:null"])
         == "objddl:comment:null"
     {
         g.fire("objddl:comment:null");
@@ -314,7 +330,10 @@ fn gen_comment(g: &mut Gen) -> Vec<StmtKind> {
             if live.is_empty() {
                 None
             } else {
-                Some(("INDEX".to_string(), live[g.rng.below_usize(live.len())].clone()))
+                Some((
+                    "INDEX".to_string(),
+                    live[g.rng.below_usize(live.len())].clone(),
+                ))
             }
         }
         "objddl:comment:sequence" => {
@@ -328,17 +347,23 @@ fn gen_comment(g: &mut Gen) -> Vec<StmtKind> {
             if live.is_empty() {
                 None
             } else {
-                Some(("SEQUENCE".to_string(), live[g.rng.below_usize(live.len())].clone()))
+                Some((
+                    "SEQUENCE".to_string(),
+                    live[g.rng.below_usize(live.len())].clone(),
+                ))
             }
         }
-        "objddl:comment:function" => {
-            Some(("FUNCTION".to_string(), pick_str(g, BUILTIN_FUNCS).to_string()))
-        }
+        "objddl:comment:function" => Some((
+            "FUNCTION".to_string(),
+            pick_str(g, BUILTIN_FUNCS).to_string(),
+        )),
         "objddl:comment:type" => {
-            let mut pool: Vec<String> =
-                BUILTIN_TYPES.iter().map(|s| s.to_string()).collect();
+            let mut pool: Vec<String> = BUILTIN_TYPES.iter().map(|s| s.to_string()).collect();
             pool.extend(g.obj.live_type_names());
-            Some(("TYPE".to_string(), pool[g.rng.below_usize(pool.len())].clone()))
+            Some((
+                "TYPE".to_string(),
+                pool[g.rng.below_usize(pool.len())].clone(),
+            ))
         }
         "objddl:comment:schema" => Some(("SCHEMA".to_string(), "public".to_string())),
         "objddl:comment:constraint" => {
@@ -354,15 +379,18 @@ fn gen_comment(g: &mut Gen) -> Vec<StmtKind> {
                 Some(("CONSTRAINT".to_string(), format!("{}_pkey ON {}", t, t)))
             }
         }
-        "objddl:comment:am" => {
-            Some(("ACCESS METHOD".to_string(), pick_str(g, ACCESS_METHODS).to_string()))
-        }
+        "objddl:comment:am" => Some((
+            "ACCESS METHOD".to_string(),
+            pick_str(g, ACCESS_METHODS).to_string(),
+        )),
         "objddl:comment:role" => {
             let live = g.obj.live_roles();
             if live.is_empty() {
                 None
             } else {
-                let r = g.obj.roles[live[g.rng.below_usize(live.len())]].name.clone();
+                let r = g.obj.roles[live[g.rng.below_usize(live.len())]]
+                    .name
+                    .clone();
                 Some(("ROLE".to_string(), r))
             }
         }
@@ -382,7 +410,10 @@ fn gen_comment(g: &mut Gen) -> Vec<StmtKind> {
         }
     };
     let txt = comment_text(g);
-    vec![StmtKind::Raw(format!("COMMENT ON {} {} IS {};", obj_kind, obj_name, txt))]
+    vec![StmtKind::Raw(format!(
+        "COMMENT ON {} {} IS {};",
+        obj_kind, obj_name, txt
+    ))]
 }
 
 // ---------------------------------------- object-address describe probes ----
@@ -420,8 +451,7 @@ fn gen_describe(g: &mut Gen) -> Vec<StmtKind> {
         }
         3 => {
             g.fire("objddl:describe:type");
-            let mut pool: Vec<String> =
-                BUILTIN_TYPES.iter().map(|s| s.to_string()).collect();
+            let mut pool: Vec<String> = BUILTIN_TYPES.iter().map(|s| s.to_string()).collect();
             pool.extend(g.obj.live_type_names());
             let ty = pool[g.rng.below_usize(pool.len())].clone();
             format!(
@@ -457,8 +487,7 @@ fn gen_describe(g: &mut Gen) -> Vec<StmtKind> {
         }
         _ => {
             g.fire("objddl:describe:type_addr");
-            let mut pool: Vec<String> =
-                BUILTIN_TYPES.iter().map(|s| s.to_string()).collect();
+            let mut pool: Vec<String> = BUILTIN_TYPES.iter().map(|s| s.to_string()).collect();
             pool.extend(g.obj.live_type_names());
             let ty = pool[g.rng.below_usize(pool.len())].clone();
             format!(
@@ -483,7 +512,11 @@ fn gen_role_create(g: &mut Gen) -> Vec<StmtKind> {
     g.obj.next_role += 1;
     let mut opts = String::new();
     if g.rng.chance(1, 3) {
-        opts.push_str(if g.rng.chance(1, 2) { " LOGIN" } else { " NOLOGIN" });
+        opts.push_str(if g.rng.chance(1, 2) {
+            " LOGIN"
+        } else {
+            " NOLOGIN"
+        });
     }
     if g.rng.chance(1, 5) {
         opts.push_str(" SUPERUSER");
@@ -495,10 +528,17 @@ fn gen_role_create(g: &mut Gen) -> Vec<StmtKind> {
         opts.push_str(" CREATEROLE");
     }
     if g.rng.chance(1, 4) {
-        opts.push_str(if g.rng.chance(1, 2) { " INHERIT" } else { " NOINHERIT" });
+        opts.push_str(if g.rng.chance(1, 2) {
+            " INHERIT"
+        } else {
+            " NOINHERIT"
+        });
     }
     if g.rng.chance(1, 4) {
-        opts.push_str(&format!(" CONNECTION LIMIT {}", pick_str(g, &["-1", "0", "1", "5"])));
+        opts.push_str(&format!(
+            " CONNECTION LIMIT {}",
+            pick_str(g, &["-1", "0", "1", "5"])
+        ));
     }
     if g.rng.chance(1, 4) {
         opts.push_str(&format!(
@@ -507,15 +547,24 @@ fn gen_role_create(g: &mut Gen) -> Vec<StmtKind> {
         ));
     }
     if g.rng.chance(1, 5) {
-        opts.push_str(if g.rng.chance(1, 2) { " PASSWORD 'fzpw'" } else { " PASSWORD NULL" });
+        opts.push_str(if g.rng.chance(1, 2) {
+            " PASSWORD 'fzpw'"
+        } else {
+            " PASSWORD NULL"
+        });
     }
     let live = g.obj.live_roles();
     if !live.is_empty() && g.rng.chance(1, 4) {
         g.fire("objddl:role:create:in_role");
-        let r = g.obj.roles[live[g.rng.below_usize(live.len())]].name.clone();
+        let r = g.obj.roles[live[g.rng.below_usize(live.len())]]
+            .name
+            .clone();
         opts.push_str(&format!(" IN ROLE {}", r));
     }
-    g.obj.roles.push(ObjRole { name: name.clone(), live: true });
+    g.obj.roles.push(ObjRole {
+        name: name.clone(),
+        live: true,
+    });
     vec![StmtKind::Raw(format!("CREATE ROLE {}{};", name, opts))]
 }
 
@@ -526,16 +575,26 @@ fn gen_role_alter(g: &mut Gen) -> Vec<StmtKind> {
         return gen_role_create(g);
     }
     g.fire("objddl:role:alter");
-    let name = g.obj.roles[live[g.rng.below_usize(live.len())]].name.clone();
+    let name = g.obj.roles[live[g.rng.below_usize(live.len())]]
+        .name
+        .clone();
     let sql = match g.rng.below(4) {
         0 => {
             // Attribute mix (always at least one option).
             let mut opts = String::new();
             if g.rng.chance(1, 2) {
-                opts.push_str(if g.rng.chance(1, 2) { " LOGIN" } else { " NOLOGIN" });
+                opts.push_str(if g.rng.chance(1, 2) {
+                    " LOGIN"
+                } else {
+                    " NOLOGIN"
+                });
             }
             if g.rng.chance(1, 3) {
-                opts.push_str(if g.rng.chance(1, 2) { " CREATEDB" } else { " NOCREATEDB" });
+                opts.push_str(if g.rng.chance(1, 2) {
+                    " CREATEDB"
+                } else {
+                    " NOCREATEDB"
+                });
             }
             if g.rng.chance(1, 3) {
                 opts.push_str(&format!(
@@ -544,7 +603,11 @@ fn gen_role_alter(g: &mut Gen) -> Vec<StmtKind> {
                 ));
             }
             if opts.is_empty() {
-                opts.push_str(if g.rng.chance(1, 2) { " INHERIT" } else { " NOINHERIT" });
+                opts.push_str(if g.rng.chance(1, 2) {
+                    " INHERIT"
+                } else {
+                    " NOINHERIT"
+                });
             }
             format!("ALTER ROLE {}{};", name, opts)
         }
@@ -600,7 +663,9 @@ fn gen_role_setrole(g: &mut Gen) -> Vec<StmtKind> {
         return gen_role_create(g);
     }
     g.fire("objddl:role:setrole");
-    let name = g.obj.roles[live[g.rng.below_usize(live.len())]].name.clone();
+    let name = g.obj.roles[live[g.rng.below_usize(live.len())]]
+        .name
+        .clone();
     vec![
         StmtKind::Raw(format!("SET ROLE {};", name)),
         StmtKind::Raw("SELECT current_user;".to_string()),
@@ -671,7 +736,11 @@ fn gen_type_create(g: &mut Gen) -> Vec<StmtKind> {
             let name = format!("fz_ety_{}", n);
             let nvals = 2 + g.rng.below(4);
             let labels: Vec<String> = (0..nvals).map(|i| format!("'v{}'", i)).collect();
-            g.obj.enums.push(ObjEnum { name: name.clone(), nvals, live: true });
+            g.obj.enums.push(ObjEnum {
+                name: name.clone(),
+                nvals,
+                live: true,
+            });
             vec![StmtKind::Raw(format!(
                 "CREATE TYPE {} AS ENUM ({});",
                 name,
@@ -689,7 +758,11 @@ fn gen_type_create(g: &mut Gen) -> Vec<StmtKind> {
                 defs.push(format!("f{} {}", i, ty.name()));
                 fields.push(ty);
             }
-            g.obj.comps.push(ObjComp { name: name.clone(), fields, live: true });
+            g.obj.comps.push(ObjComp {
+                name: name.clone(),
+                fields,
+                live: true,
+            });
             vec![StmtKind::Raw(format!(
                 "CREATE TYPE {} AS ({});",
                 name,
@@ -700,7 +773,11 @@ fn gen_type_create(g: &mut Gen) -> Vec<StmtKind> {
             g.fire("objddl:type:range");
             let name = format!("fz_rty_{}", n);
             let subtype = RANGE_SUBTYPES[g.rng.below_usize(RANGE_SUBTYPES.len())];
-            g.obj.ranges.push(ObjRange { name: name.clone(), subtype, live: true });
+            g.obj.ranges.push(ObjRange {
+                name: name.clone(),
+                subtype,
+                live: true,
+            });
             vec![StmtKind::Raw(format!(
                 "CREATE TYPE {} AS RANGE (SUBTYPE = {});",
                 name,
@@ -710,7 +787,10 @@ fn gen_type_create(g: &mut Gen) -> Vec<StmtKind> {
         "objddl:type:shell" => {
             g.fire("objddl:type:shell");
             let name = format!("fz_sty_{}", n);
-            g.obj.shells.push(ObjShell { name: name.clone(), live: true });
+            g.obj.shells.push(ObjShell {
+                name: name.clone(),
+                live: true,
+            });
             vec![StmtKind::Raw(format!("CREATE TYPE {};", name))]
         }
         _ => {
@@ -831,8 +911,10 @@ fn gen_type_use(g: &mut Gen) -> Vec<StmtKind> {
             }
         }
         'c' => {
-            let (name, fields) =
-                (g.obj.comps[idx].name.clone(), g.obj.comps[idx].fields.clone());
+            let (name, fields) = (
+                g.obj.comps[idx].name.clone(),
+                g.obj.comps[idx].fields.clone(),
+            );
             let lits = |g: &mut Gen| -> String {
                 let vals: Vec<String> = fields.iter().map(|&ty| g.gen_literal(ty)).collect();
                 vals.join(", ")
@@ -858,8 +940,7 @@ fn gen_type_use(g: &mut Gen) -> Vec<StmtKind> {
             }
         }
         _ => {
-            let (name, subtype) =
-                (g.obj.ranges[idx].name.clone(), g.obj.ranges[idx].subtype);
+            let (name, subtype) = (g.obj.ranges[idx].name.clone(), g.obj.ranges[idx].subtype);
             let (lo, hi) = range_bounds(g, subtype);
             match g.rng.below(5) {
                 0 => format!("SELECT ({}({}, {}))::text;", name, lo, hi),
@@ -897,7 +978,10 @@ fn gen_type_coltab(g: &mut Gen) -> Vec<StmtKind> {
     let t = format!("fz_objt_{}", g.obj.next_objt);
     g.obj.next_objt += 1;
     vec![
-        StmtKind::Raw(format!("CREATE TABLE {} (pk int4 PRIMARY KEY, c {});", t, ty)),
+        StmtKind::Raw(format!(
+            "CREATE TABLE {} (pk int4 PRIMARY KEY, c {});",
+            t, ty
+        )),
         StmtKind::Raw(format!(
             "INSERT INTO {} VALUES (1, 'v0'), (2, 'v{}');",
             t,
@@ -974,9 +1058,7 @@ fn gen_stats_create(g: &mut Gen) -> Vec<StmtKind> {
         .tables
         .iter()
         .enumerate()
-        .filter(|(_, t)| {
-            t.columns.iter().filter(|c| c.ty != SqlType::Json).count() >= 2
-        })
+        .filter(|(_, t)| t.columns.iter().filter(|c| c.ty != SqlType::Json).count() >= 2)
         .map(|(i, _)| i)
         .collect();
     if cands.is_empty() {
@@ -1002,7 +1084,10 @@ fn gen_stats_create(g: &mut Gen) -> Vec<StmtKind> {
     }
     let name = format!("fz_stx_{}", g.obj.next_stat);
     g.obj.next_stat += 1;
-    g.obj.stats.push(ObjStat { name: name.clone(), live: true });
+    g.obj.stats.push(ObjStat {
+        name: name.clone(),
+        live: true,
+    });
     let kinds = pick_str(g, STAT_KINDS);
     let collist: Vec<String> = picked.iter().map(|(n, _)| n.clone()).collect();
     let mut out = vec![
@@ -1042,7 +1127,10 @@ fn gen_stats_drop(g: &mut Gen) -> Vec<StmtKind> {
     g.obj.stats[si].live = false;
     // Always IF EXISTS: the object dies silently with its table when the
     // ddl module drops a table this statistics object was built on.
-    vec![StmtKind::Raw(format!("DROP STATISTICS IF EXISTS {};", name))]
+    vec![StmtKind::Raw(format!(
+        "DROP STATISTICS IF EXISTS {};",
+        name
+    ))]
 }
 
 // ------------------------------------------- Q6: opclass DDL breadth ----
@@ -1106,19 +1194,27 @@ fn gen_opc(g: &mut Gen) -> Vec<StmtKind> {
 }
 
 fn amvalidate_class(name: &str) -> StmtKind {
-    raw(format!("SELECT amvalidate(oid) FROM pg_opclass WHERE opcname = '{}';", name))
+    raw(format!(
+        "SELECT amvalidate(oid) FROM pg_opclass WHERE opcname = '{}';",
+        name
+    ))
 }
 
 fn amvalidate_family(name: &str) -> StmtKind {
-    raw(format!("SELECT amvalidate(oid) FROM pg_opfamily WHERE opfname = '{}';", name))
+    raw(format!(
+        "SELECT amvalidate(oid) FROM pg_opfamily WHERE opfname = '{}';",
+        name
+    ))
 }
 
 fn opc_bt(g: &mut Gen) -> Vec<StmtKind> {
     let n = qn(g);
     let fam = format!("fz_qopf_{n}");
     let opc = format!("fz_qopc_{n}");
-    let with_family =
-        g.weights.pick(g.rng, &["objddl:opc:fam", "objddl:opc:nofam"]) == "objddl:opc:fam";
+    let with_family = g
+        .weights
+        .pick(g.rng, &["objddl:opc:fam", "objddl:opc:nofam"])
+        == "objddl:opc:fam";
     let mut out = Vec::new();
     if with_family {
         g.fire("objddl:opc:fam");
@@ -1127,23 +1223,34 @@ fn opc_bt(g: &mut Gen) -> Vec<StmtKind> {
     // Optional support procs beyond the required cmp (sortsupport /
     // equalimage — btvalidate's optional-proc arms).
     let mut procs = String::from("FUNCTION 1 btint4cmp(int4, int4)");
-    if g.weights.pick(g.rng, &["objddl:opc:sort", "objddl:opc:nosort"]) == "objddl:opc:sort" {
+    if g.weights
+        .pick(g.rng, &["objddl:opc:sort", "objddl:opc:nosort"])
+        == "objddl:opc:sort"
+    {
         g.fire("objddl:opc:sort");
         procs.push_str(", FUNCTION 2 btint4sortsupport(internal)");
     }
-    if g.weights.pick(g.rng, &["objddl:opc:eqimg", "objddl:opc:noeqimg"]) == "objddl:opc:eqimg" {
+    if g.weights
+        .pick(g.rng, &["objddl:opc:eqimg", "objddl:opc:noeqimg"])
+        == "objddl:opc:eqimg"
+    {
         g.fire("objddl:opc:eqimg");
         procs.push_str(", FUNCTION 4 btequalimage(oid)");
     }
     out.push(raw(format!(
         "CREATE OPERATOR CLASS {opc} FOR TYPE int4 USING btree{} AS \
          OPERATOR 1 <, OPERATOR 2 <=, OPERATOR 3 =, OPERATOR 4 >=, OPERATOR 5 >, {};",
-        if with_family { format!(" FAMILY {fam}") } else { String::new() },
+        if with_family {
+            format!(" FAMILY {fam}")
+        } else {
+            String::new()
+        },
         procs
     )));
     out.push(amvalidate_class(&opc));
     let cross = with_family
-        && g.weights.pick(g.rng, &["objddl:opc:xtype", "objddl:opc:noxtype"])
+        && g.weights
+            .pick(g.rng, &["objddl:opc:xtype", "objddl:opc:noxtype"])
             == "objddl:opc:xtype";
     if cross {
         g.fire("objddl:opc:xtype");
@@ -1155,7 +1262,10 @@ fn opc_bt(g: &mut Gen) -> Vec<StmtKind> {
         )));
         out.push(amvalidate_family(&fam));
     }
-    if g.weights.pick(g.rng, &["objddl:opc:index", "objddl:opc:noindex"]) == "objddl:opc:index" {
+    if g.weights
+        .pick(g.rng, &["objddl:opc:index", "objddl:opc:noindex"])
+        == "objddl:opc:index"
+    {
         g.fire("objddl:opc:index");
         let tab = format!("fz_qtab_{n}");
         let rows = 300 + g.rng.below(400);
@@ -1182,15 +1292,20 @@ fn opc_bt(g: &mut Gen) -> Vec<StmtKind> {
         )));
     }
     let (mut opc_f, mut fam_f) = (opc.clone(), fam.clone());
-    if g.weights.pick(g.rng, &["objddl:opc:rename", "objddl:opc:norename"])
+    if g.weights
+        .pick(g.rng, &["objddl:opc:rename", "objddl:opc:norename"])
         == "objddl:opc:rename"
     {
         g.fire("objddl:opc:rename");
         opc_f = format!("{opc}_r");
-        out.push(raw(format!("ALTER OPERATOR CLASS {opc} USING btree RENAME TO {opc_f};")));
+        out.push(raw(format!(
+            "ALTER OPERATOR CLASS {opc} USING btree RENAME TO {opc_f};"
+        )));
         if with_family {
             fam_f = format!("{fam}_r");
-            out.push(raw(format!("ALTER OPERATOR FAMILY {fam} USING btree RENAME TO {fam_f};")));
+            out.push(raw(format!(
+                "ALTER OPERATOR FAMILY {fam} USING btree RENAME TO {fam_f};"
+            )));
         }
     }
     out.push(raw(format!("DROP OPERATOR CLASS {opc_f} USING btree;")));
@@ -1211,7 +1326,10 @@ fn opc_hash(g: &mut Gen) -> Vec<StmtKind> {
              OPERATOR 1 =, FUNCTION 1 hashint4(int4), FUNCTION 2 hashint4extended(int4, int8);"
         )),
     ];
-    if g.weights.pick(g.rng, &["objddl:opc:xtype", "objddl:opc:noxtype"]) == "objddl:opc:xtype" {
+    if g.weights
+        .pick(g.rng, &["objddl:opc:xtype", "objddl:opc:noxtype"])
+        == "objddl:opc:xtype"
+    {
         g.fire("objddl:opc:xtype");
         out.push(raw(format!(
             "ALTER OPERATOR FAMILY {fam} USING hash ADD OPERATOR 1 = (int4, int8), \
@@ -1224,7 +1342,9 @@ fn opc_hash(g: &mut Gen) -> Vec<StmtKind> {
     out.push(raw(format!("DROP OPERATOR CLASS {opc} USING hash;")));
     // Cross-type loose members may still be attached: CASCADE drops them
     // with the family (hand-verified identical).
-    out.push(raw(format!("DROP OPERATOR FAMILY {fam} USING hash CASCADE;")));
+    out.push(raw(format!(
+        "DROP OPERATOR FAMILY {fam} USING hash CASCADE;"
+    )));
     out
 }
 
@@ -1233,7 +1353,9 @@ fn opc_gist(g: &mut Gen) -> Vec<StmtKind> {
     let opc = format!("fz_qopc_{n}");
     // Optional ordering member: OPERATOR 15 <-> (box, point) FOR ORDER BY +
     // FUNCTION 8 gist_box_distance — a custom-opclass KNN path.
-    let dist = g.weights.pick(g.rng, &["objddl:opc:dist", "objddl:opc:nodist"])
+    let dist = g
+        .weights
+        .pick(g.rng, &["objddl:opc:dist", "objddl:opc:nodist"])
         == "objddl:opc:dist";
     let mut members = String::from(
         "OPERATOR 3 &&, OPERATOR 7 @>, OPERATOR 8 <@, \
@@ -1252,19 +1374,28 @@ fn opc_gist(g: &mut Gen) -> Vec<StmtKind> {
         );
     }
     let mut out = vec![
-        raw(format!("CREATE OPERATOR CLASS {opc} FOR TYPE box USING gist AS {members};")),
+        raw(format!(
+            "CREATE OPERATOR CLASS {opc} FOR TYPE box USING gist AS {members};"
+        )),
         amvalidate_class(&opc),
     ];
-    if g.weights.pick(g.rng, &["objddl:opc:index", "objddl:opc:noindex"]) == "objddl:opc:index" {
+    if g.weights
+        .pick(g.rng, &["objddl:opc:index", "objddl:opc:noindex"])
+        == "objddl:opc:index"
+    {
         g.fire("objddl:opc:index");
         let tab = format!("fz_qtab_{n}");
         let rows = 400 + g.rng.below(500);
-        out.push(raw(format!("CREATE TABLE {tab} (pk int4 PRIMARY KEY, bx box);")));
+        out.push(raw(format!(
+            "CREATE TABLE {tab} (pk int4 PRIMARY KEY, bx box);"
+        )));
         out.push(raw(format!(
             "INSERT INTO {tab} SELECT i, box(point((i * 7) % 97, (i * 11) % 89), \
              point((i * 7) % 97 + 2, (i * 11) % 89 + 2)) FROM generate_series(1, {rows}) i;"
         )));
-        out.push(raw(format!("CREATE INDEX {tab}_i ON {tab} USING gist (bx {opc});")));
+        out.push(raw(format!(
+            "CREATE INDEX {tab}_i ON {tab} USING gist (bx {opc});"
+        )));
         let x1 = g.rng.below(80);
         let y1 = g.rng.below(70);
         out.push(raw("SET enable_seqscan TO off;"));
@@ -1375,14 +1506,20 @@ fn gen_opcerr(g: &mut Gen) -> Vec<StmtKind> {
             raw(format!(
                 "ALTER OPERATOR FAMILY fz_qopf_{n} USING btree DROP OPERATOR 1 (int4, int4);"
             )),
-            raw(format!("ALTER OPERATOR FAMILY fz_qopf_{n} USING btree ADD FUNCTION 1 now();")),
+            raw(format!(
+                "ALTER OPERATOR FAMILY fz_qopf_{n} USING btree ADD FUNCTION 1 now();"
+            )),
             raw(format!("DROP OPERATOR FAMILY fz_qopf_{n} USING btree;")),
         ],
         "objddl:opcerr:nosuch" => {
             let am = ["btree", "hash", "gist", "gin", "spgist", "brin"][g.rng.below_usize(6)];
             match g.rng.below(3) {
-                0 => vec![raw(format!("DROP OPERATOR CLASS fz_qnosuch_{n} USING {am};"))],
-                1 => vec![raw(format!("DROP OPERATOR FAMILY fz_qnosuch_{n} USING {am};"))],
+                0 => vec![raw(format!(
+                    "DROP OPERATOR CLASS fz_qnosuch_{n} USING {am};"
+                ))],
+                1 => vec![raw(format!(
+                    "DROP OPERATOR FAMILY fz_qnosuch_{n} USING {am};"
+                ))],
                 _ => vec![raw(format!(
                     "DROP OPERATOR CLASS IF EXISTS fz_qnosuch_{n} USING {am};"
                 ))],
@@ -1411,7 +1548,12 @@ fn gen_am(g: &mut Gen) -> Vec<StmtKind> {
     let n = qn(g);
     let kind = g.weights.pick(
         g.rng,
-        &["objddl:am:index", "objddl:am:table", "objddl:am:part", "objddl:am:err"],
+        &[
+            "objddl:am:index",
+            "objddl:am:table",
+            "objddl:am:part",
+            "objddl:am:err",
+        ],
     );
     g.fire(kind);
     let am = format!("fz_qam_{n}");
@@ -1422,7 +1564,9 @@ fn gen_am(g: &mut Gen) -> Vec<StmtKind> {
             let x1 = g.rng.below(40);
             let y1 = g.rng.below(30);
             vec![
-                raw(format!("CREATE ACCESS METHOD {am} TYPE INDEX HANDLER gisthandler;")),
+                raw(format!(
+                    "CREATE ACCESS METHOD {am} TYPE INDEX HANDLER gisthandler;"
+                )),
                 raw(format!("CREATE TABLE {tab} (pk int4 PRIMARY KEY, bx box);")),
                 raw(format!(
                     "INSERT INTO {tab} SELECT i, box(point(i % 50, i % 40), \
@@ -1442,7 +1586,9 @@ fn gen_am(g: &mut Gen) -> Vec<StmtKind> {
             ]
         }
         "objddl:am:table" => vec![
-            raw(format!("CREATE ACCESS METHOD {am} TYPE TABLE HANDLER heap_tableam_handler;")),
+            raw(format!(
+                "CREATE ACCESS METHOD {am} TYPE TABLE HANDLER heap_tableam_handler;"
+            )),
             raw(format!("CREATE TABLE {tab} (pk int4) USING {am};")),
             raw(format!(
                 "INSERT INTO {tab} SELECT i FROM generate_series(1, {}) i;",
@@ -1455,7 +1601,9 @@ fn gen_am(g: &mut Gen) -> Vec<StmtKind> {
             raw(format!("DROP ACCESS METHOD {am};")),
         ],
         "objddl:am:part" => vec![
-            raw(format!("CREATE TABLE {tab} (pk int4) PARTITION BY RANGE (pk);")),
+            raw(format!(
+                "CREATE TABLE {tab} (pk int4) PARTITION BY RANGE (pk);"
+            )),
             raw(format!("ALTER TABLE {tab} SET ACCESS METHOD heap;")),
             raw(format!("ALTER TABLE {tab} SET ACCESS METHOD DEFAULT;")),
             raw(format!("DROP TABLE {tab};")),
@@ -1464,7 +1612,9 @@ fn gen_am(g: &mut Gen) -> Vec<StmtKind> {
             0 => vec![raw(format!(
                 "CREATE ACCESS METHOD {am} TYPE INDEX HANDLER heap_tableam_handler;"
             ))],
-            1 => vec![raw(format!("CREATE ACCESS METHOD {am} TYPE TABLE HANDLER int4pl;"))],
+            1 => vec![raw(format!(
+                "CREATE ACCESS METHOD {am} TYPE TABLE HANDLER int4pl;"
+            ))],
             _ => vec![raw(format!("DROP ACCESS METHOD fz_qnosuch_{n};"))],
         },
     }
@@ -1476,7 +1626,10 @@ fn gen_am(g: &mut Gen) -> Vec<StmtKind> {
 fn gen_cast(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("objddl:cast");
     let n = qn(g);
-    if g.weights.pick(g.rng, &["objddl:cast:err", "objddl:cast:ok"]) == "objddl:cast:err" {
+    if g.weights
+        .pick(g.rng, &["objddl:cast:err", "objddl:cast:ok"])
+        == "objddl:cast:err"
+    {
         g.fire("objddl:cast:err");
         return if g.rng.chance(1, 2) {
             vec![raw("CREATE CAST (int4 AS bool) WITH INOUT;")]
@@ -1489,23 +1642,32 @@ fn gen_cast(g: &mut Gen) -> Vec<StmtKind> {
         raw(format!("CREATE TYPE {en} AS ENUM ('sad', 'ok', 'happy');")),
         raw(format!("CREATE CAST ({en} AS text) WITH INOUT;")),
     ];
-    let implicit = g.weights.pick(g.rng, &["objddl:cast:implicit", "objddl:cast:plain"])
+    let implicit = g
+        .weights
+        .pick(g.rng, &["objddl:cast:implicit", "objddl:cast:plain"])
         == "objddl:cast:implicit";
     if implicit {
         g.fire("objddl:cast:implicit");
-        out.push(raw(format!("CREATE CAST (text AS {en}) WITH INOUT AS IMPLICIT;")));
+        out.push(raw(format!(
+            "CREATE CAST (text AS {en}) WITH INOUT AS IMPLICIT;"
+        )));
     } else {
         out.push(raw(format!("CREATE CAST (text AS {en}) WITH INOUT;")));
     }
     out.push(raw(format!("SELECT (('ok'::text)::{en})::text;")));
-    if g.weights.pick(g.rng, &["objddl:cast:fn", "objddl:cast:nofn"]) == "objddl:cast:fn" {
+    if g.weights
+        .pick(g.rng, &["objddl:cast:fn", "objddl:cast:nofn"])
+        == "objddl:cast:fn"
+    {
         g.fire("objddl:cast:fn");
         let f = format!("fz_qfn_{n}");
         out.push(raw(format!(
             "CREATE FUNCTION {f}({en}) RETURNS int4 LANGUAGE sql IMMUTABLE \
              RETURN CASE $1 WHEN 'sad' THEN 0 WHEN 'ok' THEN 1 ELSE 2 END;"
         )));
-        out.push(raw(format!("CREATE CAST ({en} AS int4) WITH FUNCTION {f}({en}) AS ASSIGNMENT;")));
+        out.push(raw(format!(
+            "CREATE CAST ({en} AS int4) WITH FUNCTION {f}({en}) AS ASSIGNMENT;"
+        )));
         out.push(raw(format!("SELECT ('happy'::{en})::int4;")));
         out.push(raw(format!("DROP CAST ({en} AS int4);")));
         out.push(raw(format!("DROP FUNCTION {f}({en});")));
@@ -1521,7 +1683,10 @@ fn gen_cast(g: &mut Gen) -> Vec<StmtKind> {
 fn gen_conv(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("objddl:conv");
     let n = qn(g);
-    if g.weights.pick(g.rng, &["objddl:conv:err", "objddl:conv:ok"]) == "objddl:conv:err" {
+    if g.weights
+        .pick(g.rng, &["objddl:conv:err", "objddl:conv:ok"])
+        == "objddl:conv:err"
+    {
         g.fire("objddl:conv:err");
         return if g.rng.chance(1, 2) {
             vec![raw(format!(
@@ -1532,7 +1697,9 @@ fn gen_conv(g: &mut Gen) -> Vec<StmtKind> {
         };
     }
     let cv = format!("fz_qcv_{n}");
-    let default = g.weights.pick(g.rng, &["objddl:conv:default", "objddl:conv:plain"])
+    let default = g
+        .weights
+        .pick(g.rng, &["objddl:conv:default", "objddl:conv:plain"])
         == "objddl:conv:default";
     let mut out = vec![raw(format!(
         "CREATE {}CONVERSION {cv} FOR 'LATIN1' TO 'UTF8' FROM iso8859_1_to_utf8;",
@@ -1559,7 +1726,10 @@ fn gen_conv(g: &mut Gen) -> Vec<StmtKind> {
 fn gen_plang(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("objddl:plang");
     let n = qn(g);
-    if g.weights.pick(g.rng, &["objddl:plang:err", "objddl:plang:ok"]) == "objddl:plang:err" {
+    if g.weights
+        .pick(g.rng, &["objddl:plang:err", "objddl:plang:ok"])
+        == "objddl:plang:err"
+    {
         g.fire("objddl:plang:err");
         return vec![raw(format!("CREATE LANGUAGE fz_qlg_{n} HANDLER int4pl;"))];
     }
@@ -1568,7 +1738,11 @@ fn gen_plang(g: &mut Gen) -> Vec<StmtKind> {
     vec![
         raw(format!(
             "CREATE TRUSTED LANGUAGE {lg} HANDLER plpgsql_call_handler{};",
-            if full { " INLINE plpgsql_inline_handler VALIDATOR plpgsql_validator" } else { "" }
+            if full {
+                " INLINE plpgsql_inline_handler VALIDATOR plpgsql_validator"
+            } else {
+                ""
+            }
         )),
         raw(format!("COMMENT ON LANGUAGE {lg} IS 'q6 lang';")),
         raw(format!("DROP LANGUAGE {lg};")),
@@ -1603,13 +1777,21 @@ fn gen_seclabel(g: &mut Gen) -> Vec<StmtKind> {
             "TYPE int4".to_string()
         }
     };
-    if g.weights.pick(g.rng, &["objddl:seclabel:provider", "objddl:seclabel:plain"])
-        == "objddl:seclabel:provider"
+    if g.weights.pick(
+        g.rng,
+        &["objddl:seclabel:provider", "objddl:seclabel:plain"],
+    ) == "objddl:seclabel:provider"
     {
         g.fire("objddl:seclabel:provider");
-        vec![raw(format!("SECURITY LABEL FOR selinux ON {} IS 'classified';", target))]
+        vec![raw(format!(
+            "SECURITY LABEL FOR selinux ON {} IS 'classified';",
+            target
+        ))]
     } else {
-        vec![raw(format!("SECURITY LABEL ON {} IS 'classified';", target))]
+        vec![raw(format!(
+            "SECURITY LABEL ON {} IS 'classified';",
+            target
+        ))]
     }
 }
 
@@ -1618,7 +1800,9 @@ fn gen_seclabel(g: &mut Gen) -> Vec<StmtKind> {
 /// in; the negator shell is probed via pg_operator and dropped explicitly.
 fn gen_opshell(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("objddl:opshell");
-    let neg = g.weights.pick(g.rng, &["objddl:opshell:neg", "objddl:opshell:noneg"])
+    let neg = g
+        .weights
+        .pick(g.rng, &["objddl:opshell:neg", "objddl:opshell:noneg"])
         == "objddl:opshell:neg";
     let mut first = String::from(
         "CREATE OPERATOR <%% (LEFTARG = int4, RIGHTARG = int4, FUNCTION = int4lt, \
@@ -1635,10 +1819,16 @@ fn gen_opshell(g: &mut Gen) -> Vec<StmtKind> {
             "CREATE OPERATOR %%> (LEFTARG = int4, RIGHTARG = int4, FUNCTION = int4gt, \
              COMMUTATOR = OPERATOR(public.<%%));",
         ),
-        raw(format!("SELECT 1 <%% {}, {} %%> 1;", g.rng.below(4), g.rng.below(4))),
+        raw(format!(
+            "SELECT 1 <%% {}, {} %%> 1;",
+            g.rng.below(4),
+            g.rng.below(4)
+        )),
     ];
     if neg {
-        out.push(raw("SELECT oprname, oprcode FROM pg_operator WHERE oprname = '>=%%';"));
+        out.push(raw(
+            "SELECT oprname, oprcode FROM pg_operator WHERE oprname = '>=%%';",
+        ));
     }
     out.push(raw("DROP OPERATOR <%% (int4, int4);"));
     out.push(raw("DROP OPERATOR %%> (int4, int4);"));
@@ -1656,7 +1846,11 @@ fn gen_aggmod(g: &mut Gen) -> Vec<StmtKind> {
     let ag = format!("fz_qag_{n}");
     let kind = g.weights.pick(
         g.rng,
-        &["objddl:aggmod:plain", "objddl:aggmod:moving", "objddl:aggmod:err"],
+        &[
+            "objddl:aggmod:plain",
+            "objddl:aggmod:moving",
+            "objddl:aggmod:err",
+        ],
     );
     g.fire(kind);
     match kind {
@@ -1755,7 +1949,13 @@ mod tests {
                     assert!(rest.starts_with("IF EXISTS fz_stx_"), "{sql}");
                 }
                 // Role DDL only ever names fuzz roles.
-                for pfx in ["CREATE ROLE ", "ALTER ROLE ", "GRANT ", "REVOKE ", "SET ROLE "] {
+                for pfx in [
+                    "CREATE ROLE ",
+                    "ALTER ROLE ",
+                    "GRANT ",
+                    "REVOKE ",
+                    "SET ROLE ",
+                ] {
                     if let Some(rest) = sql.strip_prefix(pfx) {
                         #[allow(clippy::if_same_then_else)]
                         if pfx == "GRANT " || pfx == "REVOKE " {
@@ -1782,8 +1982,14 @@ mod tests {
         for p in SHAPES {
             assert!(prods.iter().any(|q| q == p), "shape {p} never fired");
         }
-        for p in ["objddl", "objddl:comment:text", "objddl:comment:null",
-                  "objddl:type:enum", "objddl:type:composite", "objddl:type:range"] {
+        for p in [
+            "objddl",
+            "objddl:comment:text",
+            "objddl:comment:null",
+            "objddl:type:enum",
+            "objddl:type:composite",
+            "objddl:type:range",
+        ] {
             assert!(prods.iter().any(|q| q == p), "production {p} never fired");
         }
     }
@@ -1926,11 +2132,23 @@ mod tests {
         // in the SAME group (error-fuel creates never create anything).
         for group in &groups {
             for (create, drop_pfx, err_ok) in [
-                ("CREATE OPERATOR CLASS fz_qopc_", "DROP OPERATOR CLASS fz_qopc_", true),
-                ("CREATE OPERATOR FAMILY fz_qopf_", "DROP OPERATOR FAMILY fz_qopf_", false),
+                (
+                    "CREATE OPERATOR CLASS fz_qopc_",
+                    "DROP OPERATOR CLASS fz_qopc_",
+                    true,
+                ),
+                (
+                    "CREATE OPERATOR FAMILY fz_qopf_",
+                    "DROP OPERATOR FAMILY fz_qopf_",
+                    false,
+                ),
                 ("CREATE TABLE fz_qtab_", "DROP TABLE fz_qtab_", false),
                 ("CREATE TYPE fz_qen_", "DROP TYPE fz_qen_", false),
-                ("CREATE TRUSTED LANGUAGE fz_qlg_", "DROP LANGUAGE fz_qlg_", false),
+                (
+                    "CREATE TRUSTED LANGUAGE fz_qlg_",
+                    "DROP LANGUAGE fz_qlg_",
+                    false,
+                ),
             ] {
                 let c = group.iter().filter(|s| s.starts_with(create)).count();
                 let d = group.iter().filter(|s| s.starts_with(drop_pfx)).count();
@@ -1943,8 +2161,14 @@ mod tests {
                 }
             }
             // GUC brackets balanced within the group.
-            let sets = group.iter().filter(|s| s.starts_with("SET enable_seqscan")).count();
-            let resets = group.iter().filter(|s| *s == "RESET enable_seqscan;").count();
+            let sets = group
+                .iter()
+                .filter(|s| s.starts_with("SET enable_seqscan"))
+                .count();
+            let resets = group
+                .iter()
+                .filter(|s| *s == "RESET enable_seqscan;")
+                .count();
             assert_eq!(sets, resets, "unbalanced seqscan bracket: {group:?}");
         }
     }
@@ -1962,7 +2186,9 @@ mod tests {
                     Some(n)
                 } else if let Some(r) = sql.strip_prefix("CREATE TYPE ") {
                     Some(r.split([' ', ';']).next().unwrap().to_string())
-                } else { sql.strip_prefix("CREATE STATISTICS ").map(|r|r.split([' ', ';']).next().unwrap().to_string())
+                } else {
+                    sql.strip_prefix("CREATE STATISTICS ")
+                        .map(|r| r.split([' ', ';']).next().unwrap().to_string())
                 };
                 if let Some(n) = name {
                     assert!(!created.contains(&n), "name reused: {n}");
@@ -1970,8 +2196,13 @@ mod tests {
                 }
                 if let Some(r) = sql.strip_prefix("GRANT ") {
                     let granted = r.split(' ').next().unwrap();
-                    let grantee =
-                        r.split(" TO ").nth(1).unwrap().split([' ', ';']).next().unwrap();
+                    let grantee = r
+                        .split(" TO ")
+                        .nth(1)
+                        .unwrap()
+                        .split([' ', ';'])
+                        .next()
+                        .unwrap();
                     let gi = role_order.iter().position(|x| x == granted).unwrap();
                     let gj = role_order.iter().position(|x| x == grantee).unwrap();
                     assert!(gi < gj, "grant does not flow old->new: {sql}");
@@ -1995,8 +2226,10 @@ mod tests {
         for (i, sql) in stmts.iter().enumerate() {
             for pfx in ["DROP ROLE ", "DROP TYPE ", "DROP STATISTICS "] {
                 if let Some(rest) = sql.strip_prefix(pfx) {
-                    let name =
-                        rest.trim_start_matches("IF EXISTS ").trim_end_matches(';').to_string();
+                    let name = rest
+                        .trim_start_matches("IF EXISTS ")
+                        .trim_end_matches(';')
+                        .to_string();
                     dropped.push((i, name));
                 }
             }

@@ -16,24 +16,27 @@
 //! Registers: road `table.small` (`TABLE_SMALL`) as a `TableImpl`, the resolver's third policy.
 use core::mem::offset_of;
 
-use gravity_abi::breaker::{OPENED_OVER, T1, t1_default_bytes};
+use gravity_abi::breaker::{t1_default_bytes, OPENED_OVER, T1};
 use gravity_expr::emit::hash::{emit_part, emit_route_and_full, Bits};
 use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{ConvOp, IntBinOp, IntCond, Type, Value};
 use gravity_kernels::host_abi::{AggState, AGG_BYPASS_WORD};
 
+use crate::frame::env::Env;
+use crate::frame::stop::Exits;
 use crate::table::bypass::{open_record, state, HASHED};
 use crate::table::face::{Domain, TableDecl, TableImpl, TableMech};
 use crate::table::keyimg::ImageWords;
-use crate::frame::env::Env;
-use crate::frame::stop::Exits;
 
 crate::strategies! {
     /// Small-domain dense word table (serial).
     TABLE_SMALL = 37, "table.small", Keyed;
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(TABLE_SMALL, &TableImpl(&DENSE))], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(TABLE_SMALL, &TableImpl(&DENSE))],
+    ..crate::ops::NONE
+};
 
 pub(crate) struct Dense;
 pub(crate) static DENSE: Dense = Dense;
@@ -67,7 +70,13 @@ impl Dense {
     }
 
     /// The dense form's slot of `img`: `(record, in_slots)`, the record's address only meaningful when in the slots.
-    fn slot(&self, b: &mut FunctionBuilder<'_>, env: &Env, t: &TableDecl, img: &ImageWords) -> (Value, Value, Value) {
+    fn slot(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &Env,
+        t: &TableDecl,
+        img: &ImageWords,
+    ) -> (Value, Value, Value) {
         let w = self.words(b, env, t);
         let lo = b.load(I64, w, 8);
         let st = state(b, env, t);
@@ -78,7 +87,10 @@ impl Dense {
         if nullable(t) {
             // V4R-368: a NULL key (flags word set) takes slot `span`, the one after the domain's; a key past the domain
             // (stale bounds) appends even inside the slots, so it never lands in the NULL key's slot
-            let (null, span) = (b.icmp(IntCond::Ne, img.words.words[1], env.zero), b.load(I64, w, 16));
+            let (null, span) = (
+                b.icmp(IntCond::Ne, img.words.words[1], env.zero),
+                b.load(I64, w, 16),
+            );
             idx = b.select(null, span, idx);
             lim = b.select(null, cap, span);
         }
@@ -102,10 +114,23 @@ fn nullable(t: &TableDecl) -> bool {
 }
 
 impl TableMech for Dense {
-    fn upsert(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &TableDecl, img: &ImageWords, h: Value) -> (Value, Value) {
+    fn upsert(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        t: &TableDecl,
+        img: &ImageWords,
+        h: Value,
+    ) -> (Value, Value) {
         let (zero, words) = (env.zero, &img.words.words);
         let l_out = b.create_block(&[Type::Ptr, Type::Bool]);
-        let (l_dense, l_hashed, l_in, l_app, l_new) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));
+        let (l_dense, l_hashed, l_in, l_app, l_new) = (
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         let on = self.dense_on(b, env, t);
         b.cond_br(on, (l_dense, &[]), (l_hashed, &[]));
         b.switch_to(l_hashed);
@@ -133,7 +158,11 @@ impl TableMech for Dense {
         let len = b.conv(ConvOp::Trunc, Type::I32, len);
         b.store(t1, T1_LEN, len);
         let pk = t.layout.partition_keys();
-        let route = if pk >= words.len() { h } else { emit_route_and_full(b, &img.words, pk).0 };
+        let route = if pk >= words.len() {
+            h
+        } else {
+            emit_route_and_full(b, &img.words, pk).0
+        };
         let pbits = b.load(I64, st, ST_PBITS);
         let part = emit_part(b, route, Bits::Dyn(pbits));
         let part = b.conv(ConvOp::Trunc, Type::I32, part);
@@ -149,9 +178,20 @@ impl TableMech for Dense {
         (b.block_params(l_out)[0], b.block_params(l_out)[1])
     }
 
-    fn find(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &TableDecl, img: &ImageWords, h: Value) -> Value {
+    fn find(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        t: &TableDecl,
+        img: &ImageWords,
+        h: Value,
+    ) -> Value {
         let l_out = b.create_block(&[Type::Ptr]);
-        let (l_dense, l_hashed, l_in) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));
+        let (l_dense, l_hashed, l_in) = (
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         let null = b.conv(ConvOp::IntToPtr, Type::Ptr, env.zero);
         let on = self.dense_on(b, env, t);
         b.cond_br(on, (l_dense, &[]), (l_hashed, &[]));
@@ -215,7 +255,9 @@ impl TableMech for Dense {
     fn takes(&self, t: &TableDecl) -> bool {
         (t.image_words == 1 && t.layout.nkeys() == 1 || nullable(t))
             && match t.key.domain {
-                Domain::Const { lo, hi } => hi >= lo && hi.abs_diff(lo) < (t1_default_bytes() / t.layout.size()) as u64,
+                Domain::Const { lo, hi } => {
+                    hi >= lo && hi.abs_diff(lo) < (t1_default_bytes() / t.layout.size()) as u64
+                }
                 Domain::Bound => t.facts != 0,
                 Domain::Unknown | Domain::Div { .. } | Domain::Shift { .. } => false,
             }
@@ -238,25 +280,32 @@ mod tests {
 
     use super::DENSE;
     use crate::face::end::EndMech;
-    use crate::table::face::{Domain, KeyShape, TableDecl, TableMech};
-    use crate::table::keyimg::ImageWords;
     use crate::face::source::SourceMech;
     use crate::frame::env::{self, Env};
     use crate::frame::frame::{Mechs, Win};
     use crate::frame::open::{Base, OpenWord, OpenWords};
     use crate::frame::row::{Carry, RowVals};
     use crate::frame::stop::Exits;
+    use crate::table::face::{Domain, KeyShape, TableDecl, TableMech};
+    use crate::table::keyimg::ImageWords;
 
     const I64: Type = Type::I64;
     const SHARE: usize = 16 << 20;
-    const LAYOUT: RecordLayout = RecordLayout::with_sentinel(&[KeyKind::I64], &[SlotKind::SumI64], false, None);
+    const LAYOUT: RecordLayout =
+        RecordLayout::with_sentinel(&[KeyKind::I64], &[SlotKind::SumI64], false, None);
 
     /// Rows `[cursor, n)` in one window.
     struct Src(i64);
 
     impl SourceMech for Src {
         fn open_words(&self, w: &mut OpenWords) {
-            w.declare(OpenWord::open("cursor", Base::Ctx, (site_off(0) + site::CURSOR) as i32, Type::I32, 0));
+            w.declare(OpenWord::open(
+                "cursor",
+                Base::Ctx,
+                (site_off(0) + site::CURSOR) as i32,
+                Type::I32,
+                0,
+            ));
         }
         fn open(&self, b: &mut FunctionBuilder<'_>, _env: &mut Env) -> Value {
             b.iconst(I64, 0)
@@ -270,10 +319,29 @@ mod tests {
             b.switch_to(l_end);
             b.br(l_eof, &[env.zero]);
             b.switch_to(l_win);
-            Win { cursor, end, facts: Default::default() }
+            Win {
+                cursor,
+                end,
+                facts: Default::default(),
+            }
         }
-        fn row<'e>(&self, _b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e> {
-            RowVals { row: crate::cell::Row::new_in(env.mcx), vals: mcx::PgVec::new_in(env.mcx), cols: mcx::PgVec::new_in(env.mcx), carry, next, at: j }
+        fn row<'e>(
+            &self,
+            _b: &mut FunctionBuilder<'_>,
+            env: &mut Env<'e, '_>,
+            _win: &Win,
+            j: Value,
+            carry: Carry<'e>,
+            next: Value,
+        ) -> RowVals<'e> {
+            RowVals {
+                row: crate::cell::Row::new_in(env.mcx),
+                vals: mcx::PgVec::new_in(env.mcx),
+                cols: mcx::PgVec::new_in(env.mcx),
+                carry,
+                next,
+                at: j,
+            }
         }
     }
 
@@ -288,24 +356,51 @@ mod tests {
         fn open(&self, b: &mut FunctionBuilder<'_>, env: &mut Env) {
             DENSE.open(b, env, &self.2)
         }
-        fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, _x: &Exits) -> Carry<'e> {
+        fn lower<'e>(
+            &self,
+            b: &mut FunctionBuilder<'_>,
+            env: &mut Env<'e, '_>,
+            row: &RowVals,
+            _x: &Exits,
+        ) -> Carry<'e> {
             let (g, base) = (b.iconst(I64, self.1), b.iconst(I64, self.0));
             let r = b.int_bin(IntBinOp::Urem, row.at, g);
             let k = b.int_bin(IntBinOp::Add, r, base);
             let img = ImageWords::plain(ImageValues { words: vec![k] }, true);
             let h = emit_key_hash(b, &img.words);
             let (rec, _fresh) = DENSE.upsert(b, env, &self.2, &img, h);
-            for (off, add) in [(LAYOUT.sentinel_off() as i32, env.one), (LAYOUT.slot_off(0) as i32, row.at)] {
+            for (off, add) in [
+                (LAYOUT.sentinel_off() as i32, env.one),
+                (LAYOUT.slot_off(0) as i32, row.at),
+            ] {
                 let v = b.load(I64, rec, off);
                 let v = b.int_bin(IntBinOp::Add, v, add);
                 b.store(rec, off, v);
             }
-            Carry { out: row.carry.out, accs: mcx::PgVec::new_in(env.mcx) }
+            Carry {
+                out: row.carry.out,
+                accs: mcx::PgVec::new_in(env.mcx),
+            }
         }
     }
 
     fn decl(domain: Domain) -> TableDecl {
-        TableDecl { image_words: 1, record_bytes: 16, expect: None, depth: Depth::TOP, life: gravity_program::LifeId(0), layout: LAYOUT, state_off: 0, key: KeyShape { code: None, dense: None, domain }, facts: 0, copies: 0 }
+        TableDecl {
+            image_words: 1,
+            record_bytes: 16,
+            expect: None,
+            depth: Depth::TOP,
+            life: gravity_program::LifeId(0),
+            layout: LAYOUT,
+            state_off: 0,
+            key: KeyShape {
+                code: None,
+                dense: None,
+                domain,
+            },
+            facts: 0,
+            copies: 0,
+        }
     }
 
     /// Folds rows `0..n` keyed by `base + i % g` over `[lo, hi]`; per key `(rows, sum)` found in its slot `k - lo` (none
@@ -315,48 +410,90 @@ mod tests {
         let rig = mcx::MemoryContext::new("GravityPlanRig");
         let t = decl(Domain::Const { lo, hi });
         let desc = gravity_program::Pipeline::eligible(0, gravity_program::End::Sink, 0);
-        let mut m = Mechs { k: 0, source: mcx::pg_box_dyn!(rig.mcx(), Src(n) => dyn SourceMech), steps: mcx::PgVec::new_in(rig.mcx()), end: mcx::pg_box_dyn!(rig.mcx(), Fold(base, g, t) => dyn EndMech), site: Some(0), desc, words: None, state_word: None };
+        let mut m = Mechs {
+            k: 0,
+            source: mcx::pg_box_dyn!(rig.mcx(), Src(n) => dyn SourceMech),
+            steps: mcx::PgVec::new_in(rig.mcx()),
+            end: mcx::pg_box_dyn!(rig.mcx(), Fold(base, g, t) => dyn EndMech),
+            site: Some(0),
+            desc,
+            words: None,
+            state_word: None,
+        };
         let mut pb = gravity_ir::builder::ProgramBuilder::new();
         let core = env::declare(&mut pb);
-        let (f, _) = crate::frame::frame::pipeline_fn(&mut pb, core, crate::hir::Ir::none(), &[], "p0", 1, &mut m, rig.mcx());
+        let (f, _) = crate::frame::frame::pipeline_fn(
+            &mut pb,
+            core,
+            crate::hir::Ir::none(),
+            &[],
+            "p0",
+            1,
+            &mut m,
+            rig.mcx(),
+        );
         let p = pb.finish();
         gravity_ir::verify::verify(&p).expect("the dense table's IR verifies");
         let mut own = vec![0u64; SHARE / 8];
         unsafe { HashAgg::arm(own.as_mut_ptr() as *mut u8, SHARE as u32) };
-        let mut partials = Box::new(Partials::two(own.as_mut_ptr() as *mut u8, [core::ptr::null_mut(); 2]));
+        let mut partials = Box::new(Partials::two(
+            own.as_mut_ptr() as *mut u8,
+            [core::ptr::null_mut(); 2],
+        ));
         let mut program = Box::new(ProgramBlock::NONE);
         program.partial = &mut *partials;
         let (mut ctx, mut out) = (vec![0u64; ctx_size(1) / 8], [0u64; 32]);
         ctx[gravity_abi::ctx::hdr::OUT / 8] = out.as_mut_ptr() as u64;
         let c = ctx.as_mut_ptr() as *mut Ctx;
         unsafe { (*c).program = &mut *program };
-        assert_eq!(Interp::new(&p).run(f, &[c as u64]).expect("runs")[0] as i64, status::DONE);
+        assert_eq!(
+            Interp::new(&p).run(f, &[c as u64]).expect("runs")[0] as i64,
+            status::DONE
+        );
         let t1 = unsafe { T1::view(partial(c)) };
-        let (mut got, mut want) = (vec![(0i64, 0i64); g as usize], vec![(0i64, 0i64); g as usize]);
+        let (mut got, mut want) = (
+            vec![(0i64, 0i64); g as usize],
+            vec![(0i64, 0i64); g as usize],
+        );
         for i in 0..n {
             let e = &mut want[(i % g) as usize];
             *e = (e.0 + 1, e.1 + i);
         }
         let (mut slots, mut buffered) = (0, 0);
-        let parts_of = unsafe { (t1 as *const T1 as *const u8).add(t1.hash_off as usize) as *const u32 };
+        let parts_of =
+            unsafe { (t1 as *const T1 as *const u8).add(t1.hash_off as usize) as *const u32 };
         for i in 0..t1.cap as usize {
             let r = t1.record(i);
             if r.used() {
                 let k = r.key(0) as i64;
                 assert_eq!(k - lo, i as i64, "key {k} in its dense slot");
-                assert_eq!(unsafe { *parts_of.add(i) }, KeyHash::of(r.keys()).part(t1.pbits as u32), "slot {i} listed in its key's partition");
+                assert_eq!(
+                    unsafe { *parts_of.add(i) },
+                    KeyHash::of(r.keys()).part(t1.pbits as u32),
+                    "slot {i} listed in its key's partition"
+                );
                 let e = &mut got[(k - base) as usize];
                 *e = (e.0 + r.count(1) - 1, e.1 + r.i64(0));
                 slots += 1;
             }
         }
         assert_eq!(t1.len as usize, slots, "every fresh slot counted");
-        assert!(slots == 0 || t1.opened == OPENED_OVER, "the drain walks every slot");
+        assert!(
+            slots == 0 || t1.opened == OPENED_OVER,
+            "the drain walks every slot"
+        );
         for part in 0..t1.parts() as u32 {
             for ch in t1.chain(part) {
                 for j in 0..ch.recs {
-                    let r = unsafe { Rec::at((ch.ptr as *mut u8).add(j * LAYOUT.size() as usize), &LAYOUT) };
-                    assert_eq!(KeyHash::of(r.keys()).part(t1.pbits as u32), part, "key {} appended to its partition", r.key(0));
+                    let r = unsafe {
+                        Rec::at((ch.ptr as *mut u8).add(j * LAYOUT.size() as usize), &LAYOUT)
+                    };
+                    assert_eq!(
+                        KeyHash::of(r.keys()).part(t1.pbits as u32),
+                        part,
+                        "key {} appended to its partition",
+                        r.key(0)
+                    );
                     let e = &mut got[(r.key(0) as i64 - base) as usize];
                     *e = (e.0 + r.count(1) - 1, e.1 + r.i64(0));
                     buffered += 1;
@@ -369,24 +506,47 @@ mod tests {
 
     #[test]
     fn a_small_domain_folds_in_its_dense_slots() {
-        assert_eq!(fold(10_000, 100, 23, 100, 122), (23, 0), "23 keys, 23 slots, nothing appended");
+        assert_eq!(
+            fold(10_000, 100, 23, 100, 122),
+            (23, 0),
+            "23 keys, 23 slots, nothing appended"
+        );
         // keys 90..99 fall below lo (appended, one record per row); 123..129 lie past hi but inside the slots
-        assert_eq!(fold(4_000, 90, 40, 100, 122), (30, 1_000), "30 keys in slots, 10 keys x 100 rows appended");
+        assert_eq!(
+            fold(4_000, 90, 40, 100, 122),
+            (30, 1_000),
+            "30 keys in slots, 10 keys x 100 rows appended"
+        );
     }
 
     #[test]
     fn takes_one_integer_word_over_a_known_domain() {
         let max = (gravity_abi::breaker::t1_default_bytes() / LAYOUT.size()) as i64;
         assert!(DENSE.takes(&decl(Domain::Const { lo: -5, hi: 17 })));
-        assert!(!DENSE.takes(&decl(Domain::Const { lo: 0, hi: max })), "a domain past a full table's slots");
+        assert!(
+            !DENSE.takes(&decl(Domain::Const { lo: 0, hi: max })),
+            "a domain past a full table's slots"
+        );
         assert!(!DENSE.takes(&decl(Domain::Const { lo: 3, hi: 2 })));
         assert!(!DENSE.takes(&decl(Domain::Unknown)));
-        assert!(!DENSE.takes(&decl(Domain::Bound)), "a bound domain without its Facts words");
-        let two = TableDecl { image_words: 2, layout: RecordLayout::with_sentinel(&[KeyKind::I64, KeyKind::I64], &[], false, None), ..decl(Domain::Const { lo: 0, hi: 9 }) };
+        assert!(
+            !DENSE.takes(&decl(Domain::Bound)),
+            "a bound domain without its Facts words"
+        );
+        let two = TableDecl {
+            image_words: 2,
+            layout: RecordLayout::with_sentinel(&[KeyKind::I64, KeyKind::I64], &[], false, None),
+            ..decl(Domain::Const { lo: 0, hi: 9 })
+        };
         assert!(!DENSE.takes(&two));
     }
 
-    const LAYOUT_N: RecordLayout = RecordLayout::with_sentinel(&[KeyKind::I64, KeyKind::I64], &[SlotKind::SumI64], false, None);
+    const LAYOUT_N: RecordLayout = RecordLayout::with_sentinel(
+        &[KeyKind::I64, KeyKind::I64],
+        &[SlotKind::SumI64],
+        false,
+        None,
+    );
 
     /// V4R-368: row `i` keyed by `base + i % g`, its key NULL on every 7th row (the image `(0, 1)`: value zeroed, flags
     /// set, as emit_image), its record counted and `i` summed as `Fold`'s.
@@ -399,27 +559,56 @@ mod tests {
         fn open(&self, b: &mut FunctionBuilder<'_>, env: &mut Env) {
             DENSE.open(b, env, &self.2)
         }
-        fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, _x: &Exits) -> Carry<'e> {
-            let (g, base, seven) = (b.iconst(I64, self.1), b.iconst(I64, self.0), b.iconst(I64, 7));
+        fn lower<'e>(
+            &self,
+            b: &mut FunctionBuilder<'_>,
+            env: &mut Env<'e, '_>,
+            row: &RowVals,
+            _x: &Exits,
+        ) -> Carry<'e> {
+            let (g, base, seven) = (
+                b.iconst(I64, self.1),
+                b.iconst(I64, self.0),
+                b.iconst(I64, 7),
+            );
             let r = b.int_bin(IntBinOp::Urem, row.at, g);
             let k = b.int_bin(IntBinOp::Add, r, base);
             let m = b.int_bin(IntBinOp::Urem, row.at, seven);
             let null = b.icmp(IntCond::Eq, m, env.zero);
-            let (k, flags) = (b.select(null, env.zero, k), b.select(null, env.one, env.zero));
-            let img = ImageWords::plain(ImageValues { words: vec![k, flags] }, true);
+            let (k, flags) = (
+                b.select(null, env.zero, k),
+                b.select(null, env.one, env.zero),
+            );
+            let img = ImageWords::plain(
+                ImageValues {
+                    words: vec![k, flags],
+                },
+                true,
+            );
             let h = emit_key_hash(b, &img.words);
             let (rec, _fresh) = DENSE.upsert(b, env, &self.2, &img, h);
-            for (off, add) in [(LAYOUT_N.sentinel_off() as i32, env.one), (LAYOUT_N.slot_off(0) as i32, row.at)] {
+            for (off, add) in [
+                (LAYOUT_N.sentinel_off() as i32, env.one),
+                (LAYOUT_N.slot_off(0) as i32, row.at),
+            ] {
                 let v = b.load(I64, rec, off);
                 let v = b.int_bin(IntBinOp::Add, v, add);
                 b.store(rec, off, v);
             }
-            Carry { out: row.carry.out, accs: mcx::PgVec::new_in(env.mcx) }
+            Carry {
+                out: row.carry.out,
+                accs: mcx::PgVec::new_in(env.mcx),
+            }
         }
     }
 
     fn decl_n() -> TableDecl {
-        TableDecl { image_words: 2, layout: LAYOUT_N, facts: 1, ..decl(Domain::Bound) }
+        TableDecl {
+            image_words: 2,
+            layout: LAYOUT_N,
+            facts: 1,
+            ..decl(Domain::Bound)
+        }
     }
 
     /// Folds rows `0..n` (`FoldN`) over the bound domain `[lo, hi]` (Facts words DenseLo / DenseHi / TableSize in the
@@ -429,15 +618,36 @@ mod tests {
     fn fold_n(n: i64, base: i64, g: i64, lo: i64, hi: i64) -> (usize, usize, bool) {
         let rig = mcx::MemoryContext::new("GravityPlanRig");
         let desc = gravity_program::Pipeline::eligible(0, gravity_program::End::Sink, 0);
-        let mut m = Mechs { k: 0, source: mcx::pg_box_dyn!(rig.mcx(), Src(n) => dyn SourceMech), steps: mcx::PgVec::new_in(rig.mcx()), end: mcx::pg_box_dyn!(rig.mcx(), FoldN(base, g, decl_n()) => dyn EndMech), site: Some(0), desc, words: None, state_word: None };
+        let mut m = Mechs {
+            k: 0,
+            source: mcx::pg_box_dyn!(rig.mcx(), Src(n) => dyn SourceMech),
+            steps: mcx::PgVec::new_in(rig.mcx()),
+            end: mcx::pg_box_dyn!(rig.mcx(), FoldN(base, g, decl_n()) => dyn EndMech),
+            site: Some(0),
+            desc,
+            words: None,
+            state_word: None,
+        };
         let mut pb = gravity_ir::builder::ProgramBuilder::new();
         let core = env::declare(&mut pb);
-        let (f, _) = crate::frame::frame::pipeline_fn(&mut pb, core, crate::hir::Ir::none(), &[], "p0", 1, &mut m, rig.mcx());
+        let (f, _) = crate::frame::frame::pipeline_fn(
+            &mut pb,
+            core,
+            crate::hir::Ir::none(),
+            &[],
+            "p0",
+            1,
+            &mut m,
+            rig.mcx(),
+        );
         let p = pb.finish();
         gravity_ir::verify::verify(&p).expect("the dense table's IR verifies");
         let mut own = vec![0u64; SHARE / 8];
         unsafe { HashAgg::arm(own.as_mut_ptr() as *mut u8, SHARE as u32) };
-        let mut partials = Box::new(Partials::two(own.as_mut_ptr() as *mut u8, [core::ptr::null_mut(); 2]));
+        let mut partials = Box::new(Partials::two(
+            own.as_mut_ptr() as *mut u8,
+            [core::ptr::null_mut(); 2],
+        ));
         let mut program = Box::new(ProgramBlock::NONE);
         program.partial = &mut *partials;
         let params = [0, lo as u64, hi as u64, (hi - lo + 2) as u64];
@@ -446,25 +656,53 @@ mod tests {
         ctx[gravity_abi::ctx::hdr::PARAMS / 8] = params.as_ptr() as u64;
         let c = ctx.as_mut_ptr() as *mut Ctx;
         unsafe { (*c).program = &mut *program };
-        assert_eq!(Interp::new(&p).run(f, &[c as u64]).expect("runs")[0] as i64, status::DONE);
+        assert_eq!(
+            Interp::new(&p).run(f, &[c as u64]).expect("runs")[0] as i64,
+            status::DONE
+        );
         let t1 = unsafe { T1::view(partial(c)) };
         // index g: the NULL key
-        let (mut got, mut want) = (vec![(0i64, 0i64); g as usize + 1], vec![(0i64, 0i64); g as usize + 1]);
+        let (mut got, mut want) = (
+            vec![(0i64, 0i64); g as usize + 1],
+            vec![(0i64, 0i64); g as usize + 1],
+        );
         for i in 0..n {
-            let e = &mut want[if i % 7 == 0 { g as usize } else { (i % g) as usize }];
+            let e = &mut want[if i % 7 == 0 {
+                g as usize
+            } else {
+                (i % g) as usize
+            }];
             *e = (e.0 + 1, e.1 + i);
         }
-        let at = |r: &Rec| if r.key(1) != 0 { g as usize } else { (r.key(0) as i64 - base) as usize };
+        let at = |r: &Rec| {
+            if r.key(1) != 0 {
+                g as usize
+            } else {
+                (r.key(0) as i64 - base) as usize
+            }
+        };
         let (mut slots, mut buffered, mut null_slot) = (0, 0, false);
         for i in 0..t1.cap as usize {
             let r = t1.record(i);
             if r.used() {
                 if r.key(1) != 0 {
-                    assert_eq!((i as i64, r.key(0)), (hi - lo + 1, 0), "NULL in the slot after the domain, its value zeroed");
+                    assert_eq!(
+                        (i as i64, r.key(0)),
+                        (hi - lo + 1, 0),
+                        "NULL in the slot after the domain, its value zeroed"
+                    );
                     null_slot = true;
                 } else {
-                    assert!((lo..=hi).contains(&(r.key(0) as i64)), "only a key within the domain takes a slot");
-                    assert_eq!(r.key(0) as i64 - lo, i as i64, "key {} in its dense slot", r.key(0));
+                    assert!(
+                        (lo..=hi).contains(&(r.key(0) as i64)),
+                        "only a key within the domain takes a slot"
+                    );
+                    assert_eq!(
+                        r.key(0) as i64 - lo,
+                        i as i64,
+                        "key {} in its dense slot",
+                        r.key(0)
+                    );
                 }
                 let e = &mut got[at(&r)];
                 *e = (e.0 + r.count(1) - 1, e.1 + r.i64(0));
@@ -475,7 +713,12 @@ mod tests {
         for part in 0..t1.parts() as u32 {
             for ch in t1.chain(part) {
                 for j in 0..ch.recs {
-                    let r = unsafe { Rec::at((ch.ptr as *mut u8).add(j * LAYOUT_N.size() as usize), &LAYOUT_N) };
+                    let r = unsafe {
+                        Rec::at(
+                            (ch.ptr as *mut u8).add(j * LAYOUT_N.size() as usize),
+                            &LAYOUT_N,
+                        )
+                    };
                     assert_eq!(r.key(1), 0, "NULL never appends");
                     let e = &mut got[at(&r)];
                     *e = (e.0 + r.count(1) - 1, e.1 + r.i64(0));
@@ -495,11 +738,35 @@ mod tests {
         // each appends (its rows less the NULL rows: 3 keys x ~372 records), NULL keeps slot 20
         let (slots, buffered, null_slot) = fold_n(10_000, 100, 23, 100, 119);
         assert_eq!((slots, null_slot), (21, true));
-        assert_eq!(buffered, (0..10_000i64).filter(|i| i % 7 != 0 && i % 23 >= 20).count());
+        assert_eq!(
+            buffered,
+            (0..10_000i64)
+                .filter(|i| i % 7 != 0 && i % 23 >= 20)
+                .count()
+        );
         // keys below lo (90..99) append too
         assert!(fold_n(4_000, 90, 40, 100, 122).2);
-        assert!(DENSE.takes(&decl_n()), "one nullable integer key over a bound domain with its Facts words");
-        assert!(!DENSE.takes(&TableDecl { facts: 0, ..decl_n() }), "without its Facts words");
-        assert!(!DENSE.takes(&TableDecl { key: KeyShape { code: None, dense: None, domain: Domain::Const { lo: 0, hi: 9 } }, ..decl_n() }), "a nullable key over a constant domain");
+        assert!(
+            DENSE.takes(&decl_n()),
+            "one nullable integer key over a bound domain with its Facts words"
+        );
+        assert!(
+            !DENSE.takes(&TableDecl {
+                facts: 0,
+                ..decl_n()
+            }),
+            "without its Facts words"
+        );
+        assert!(
+            !DENSE.takes(&TableDecl {
+                key: KeyShape {
+                    code: None,
+                    dense: None,
+                    domain: Domain::Const { lo: 0, hi: 9 }
+                },
+                ..decl_n()
+            }),
+            "a nullable key over a constant domain"
+        );
     }
 }

@@ -146,7 +146,12 @@ fn read_binary_file(
         if missing_ok && e.kind() == std::io::ErrorKind::NotFound {
             return Ok(None);
         }
-        return Err(io_error_path(&e, "could not open file ", filename, &format!(" for reading: {PCT_M}")));
+        return Err(io_error_path(
+            &e,
+            "could not open file ",
+            filename,
+            &format!(" for reading: {PCT_M}"),
+        ));
     }
 
     let r = fd::with_allocated_stdio(index, |file| {
@@ -171,7 +176,12 @@ fn read_allocated_file(
         SeekFrom::End(seek_offset)
     };
     if let Err(e) = file.seek(whence) {
-        return Err(io_error_path(&e, "could not seek in file ", filename, &format!(": {PCT_M}")));
+        return Err(io_error_path(
+            &e,
+            "could not seek in file ",
+            filename,
+            &format!(": {PCT_M}"),
+        ));
     }
 
     if bytes_to_read >= 0 {
@@ -183,7 +193,12 @@ fn read_allocated_file(
                 Ok(n) => nbytes += n,
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(e) => {
-                    return Err(io_error_path(&e, "could not read file ", filename, &format!(": {PCT_M}")))
+                    return Err(io_error_path(
+                        &e,
+                        "could not read file ",
+                        filename,
+                        &format!(": {PCT_M}"),
+                    ))
                 }
             }
         }
@@ -195,7 +210,12 @@ fn read_allocated_file(
         let limit = MAX_ALLOC_SIZE - 1 - VARHDRSZ;
         let mut buf = Vec::new();
         if let Err(e) = file.by_ref().take(limit as u64 + 1).read_to_end(&mut buf) {
-            return Err(io_error_path(&e, "could not read file ", filename, &format!(": {PCT_M}")));
+            return Err(io_error_path(
+                &e,
+                "could not read file ",
+                filename,
+                &format!(": {PCT_M}"),
+            ));
         }
         if buf.len() > limit {
             return Err(ereport(ERROR)
@@ -242,7 +262,12 @@ pub(crate) fn pg_read_file_common(
     } else if bytes_to_read < 0 {
         return Err(negative_length());
     }
-    read_text_file(&convert_and_check_filename(filename)?, seek_offset, bytes_to_read, missing_ok)
+    read_text_file(
+        &convert_and_check_filename(filename)?,
+        seek_offset,
+        bytes_to_read,
+        missing_ok,
+    )
 }
 
 pub(crate) fn pg_read_binary_file_common(
@@ -257,7 +282,12 @@ pub(crate) fn pg_read_binary_file_common(
     } else if bytes_to_read < 0 {
         return Err(negative_length());
     }
-    read_binary_file(&convert_and_check_filename(filename)?, seek_offset, bytes_to_read, missing_ok)
+    read_binary_file(
+        &convert_and_check_filename(filename)?,
+        seek_offset,
+        bytes_to_read,
+        missing_ok,
+    )
 }
 
 // pg_ls_tmpdir (genfile.c:649): TABLESPACEOID existence check + TempTablespacePath.

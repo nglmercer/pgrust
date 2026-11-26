@@ -215,7 +215,9 @@ fn pa_get_fileset_state() -> PartialFileSetState {
 }
 
 pub(crate) fn pa_set_last_commit_end(lsn: XLogRecPtr) {
-    my_parallel_shared().last_commit_end.store(lsn, Ordering::Relaxed);
+    my_parallel_shared()
+        .last_commit_end
+        .store(lsn, Ordering::Relaxed);
 }
 
 pub(crate) fn my_parallel_shared_xid() -> TransactionId {
@@ -227,9 +229,7 @@ pub(crate) fn my_parallel_shared_xid() -> TransactionId {
 // pa_can_start (applyparallelworker.c:264).
 fn pa_can_start(mcx: Mcx<'static>) -> PgResult<bool> {
     // Only leader apply workers start parallel apply workers.
-    if am_parallel_apply_worker()
-        || crate::tablesync::AM_TABLESYNC_WORKER.with(Cell::get)
-    {
+    if am_parallel_apply_worker() || crate::tablesync::AM_TABLESYNC_WORKER.with(Cell::get) {
         return Ok(false);
     }
 
@@ -284,7 +284,13 @@ fn pa_setup_dsm() -> (u64, Winfo) {
     PA_DSM_REGISTRY
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .push((handle, PaDsm { shared: Arc::clone(&shared), mq }));
+        .push((
+            handle,
+            PaDsm {
+                shared: Arc::clone(&shared),
+                mq,
+            },
+        ));
 
     let winfo = Rc::new(RefCell::new(ParallelApplyWorkerInfo {
         mq_handle,
@@ -300,9 +306,7 @@ fn pa_setup_dsm() -> (u64, Winfo) {
 // pa_launch_parallel_worker (applyparallelworker.c:403).
 fn pa_launch_parallel_worker() -> PgResult<Option<Winfo>> {
     // Reuse an available pool worker.
-    let reusable = WORKER_POOL.with(|p| {
-        p.borrow().iter().find(|w| !w.borrow().in_use).cloned()
-    });
+    let reusable = WORKER_POOL.with(|p| p.borrow().iter().find(|w| !w.borrow().in_use).cloned());
     if let Some(w) = reusable {
         return Ok(Some(w));
     }
@@ -375,9 +379,7 @@ pub(crate) fn pa_find_worker(xid: TransactionId) -> Option<Winfo> {
 fn pa_free_worker(winfo: &Winfo) -> PgResult<()> {
     debug_assert!(!am_parallel_apply_worker());
     debug_assert!(winfo.borrow().in_use);
-    debug_assert!(
-        pa_get_xact_state(&winfo.borrow().shared) == ParallelTransState::Finished
-    );
+    debug_assert!(pa_get_xact_state(&winfo.borrow().shared) == ParallelTransState::Finished);
 
     let xid = winfo.borrow().shared.lock().xid;
     if TXN_HASH.with(|h| h.borrow_mut().remove(&xid)).is_none() {
@@ -407,7 +409,10 @@ fn logicalrep_pa_worker_stop(winfo: &Winfo) -> PgResult<()> {
         let mut w = winfo.borrow_mut();
         w.error_mq_attached = false;
         let inner = w.shared.lock();
-        (inner.logicalrep_worker_slot_no, inner.logicalrep_worker_generation)
+        (
+            inner.logicalrep_worker_slot_no,
+            inner.logicalrep_worker_generation,
+        )
     };
     launcher::logicalrep_pa_worker_stop(slot, generation)
 }
@@ -485,7 +490,11 @@ pub(crate) fn test_worker_exited(winfo: &Winfo) {
 #[cfg(test)]
 pub(crate) fn test_registry_holds(winfo: &Winfo) -> bool {
     let h = winfo.borrow().dsm_handle;
-    PA_DSM_REGISTRY.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|(x, _)| *x == h)
+    PA_DSM_REGISTRY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .any(|(x, _)| *x == h)
 }
 
 // pa_detach_all_error_mq (applyparallelworker.c:621).
@@ -584,17 +593,17 @@ pub(crate) fn pa_switch_to_partial_serialize(
         pa_lock_stream(xid, AccessExclusiveLock)?;
     }
 
-    pa_set_fileset_state(&winfo.borrow().shared, PartialFileSetState::SerializeInProgress);
+    pa_set_fileset_state(
+        &winfo.borrow().shared,
+        PartialFileSetState::SerializeInProgress,
+    );
     Ok(true)
 }
 
 // ---- leader: waiting for the PA worker -------------------------------------
 
 // pa_wait_for_xact_state (applyparallelworker.c:1250).
-fn pa_wait_for_xact_state(
-    winfo: &Winfo,
-    xact_state: ParallelTransState,
-) -> PgResult<()> {
+fn pa_wait_for_xact_state(winfo: &Winfo, xact_state: ParallelTransState) -> PgResult<()> {
     loop {
         if pa_get_xact_state(&winfo.borrow().shared) >= xact_state {
             return Ok(());
@@ -641,7 +650,11 @@ pub(crate) fn pa_xact_finish(winfo: &Winfo, remote_lsn: XLogRecPtr) -> PgResult<
     pa_wait_for_xact_finish(winfo)?;
 
     if remote_lsn != InvalidXLogRecPtr {
-        let local_end = winfo.borrow().shared.last_commit_end.load(Ordering::Relaxed);
+        let local_end = winfo
+            .borrow()
+            .shared
+            .last_commit_end
+            .load(Ordering::Relaxed);
         crate::store_flush_position(remote_lsn, local_end);
     }
 
@@ -689,7 +702,8 @@ pub fn ProcessParallelApplyMessages() -> PgResult<()> {
             // C parses the worker's ErrorResponse and rethrows with an added
             // context line (applyparallelworker.c:1039); the original error
             // was already logged by the worker's own exit path.
-            ereport(ERROR).errverbatim()
+            ereport(ERROR)
+                .errverbatim()
                 .errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE)
                 .errmsg("logical replication parallel apply worker exited due to error")
                 .errcontext_msg(parallel_apply_worker_context(&e))
@@ -727,9 +741,7 @@ pub(crate) fn pa_start_subtrans(
     current_xid: TransactionId,
     top_xid: TransactionId,
 ) -> PgResult<()> {
-    if current_xid == top_xid
-        || SUBXACTLIST.with(|l| l.borrow().contains(&current_xid))
-    {
+    if current_xid == top_xid || SUBXACTLIST.with(|l| l.borrow().contains(&current_xid)) {
         return Ok(());
     }
 
@@ -860,7 +872,13 @@ fn pa_process_spooled_messages_if_required(mcx: Mcx<'static>) -> PgResult<bool> 
         let shared = my_parallel_shared();
         let (xid, fileset) = {
             let inner = shared.lock();
-            (inner.xid, inner.fileset.clone().expect("fileset set at SERIALIZE_DONE"))
+            (
+                inner.xid,
+                inner
+                    .fileset
+                    .clone()
+                    .expect("fileset set at SERIALIZE_DONE"),
+            )
         };
         if !crate::stream_apply::apply_spooled_messages(
             mcx,
@@ -890,7 +908,11 @@ fn process_parallel_apply_interrupts() -> PgResult<bool> {
             .errmsg(format!(
                 "logical replication parallel apply worker for subscription \"{name}\" has finished"
             ))
-            .finish(types_error::ErrorLocation::new("applyparallelworker.c", 718, "ProcessParallelApplyInterrupts"));
+            .finish(types_error::ErrorLocation::new(
+                "applyparallelworker.c",
+                718,
+                "ProcessParallelApplyInterrupts",
+            ));
         return Ok(false);
     }
 
@@ -1070,7 +1092,10 @@ pub fn ParallelApplyWorkerMain(main_arg: u64) -> PgResult<()> {
         inner.logicalrep_worker_generation = w.generation;
         inner.logicalrep_worker_slot_no = worker_slot;
     }
-    ipc::before_shmem_exit(pa_shutdown_on_exit, datum::Datum::from_i64(w.leader_pid as i64))?;
+    ipc::before_shmem_exit(
+        pa_shutdown_on_exit,
+        datum::Datum::from_i64(w.leader_pid as i64),
+    )?;
     let error_queue = elog::push_emit_context_callback(Box::new(pa_park_error_report));
     launcher::my_worker_clear_stat_times();
 

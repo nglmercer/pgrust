@@ -4,7 +4,9 @@
 //! D2043); a comparator's ERROR is stashed and
 //! `RowCmp::failed` reports it.
 use core::cmp::Ordering;
-use gravity_kernels::host_abi::{RowCmp, SortSpec, KFLAG_EQTIE, KFLAG_HOSTED, KFLAG_WORDEXACT, VAR_TBL, VAR_WIDTH, WORD_WIDTH};
+use gravity_kernels::host_abi::{
+    RowCmp, SortSpec, KFLAG_EQTIE, KFLAG_HOSTED, KFLAG_WORDEXACT, VAR_TBL, VAR_WIDTH, WORD_WIDTH,
+};
 
 /// `byteacmp` and `bttextcmp` (pg_proc.dat).
 const BYTEACMP: u32 = 1954;
@@ -33,9 +35,27 @@ impl Row {
 /// The emit table: no images, one var column; key 0 its tail (the `SortSpec`), hosted by `proc` under `coll`. The hosted
 /// section holds `proc`'s resolution id, as lowering writes it (`gravity_fn::resolved`: a builtin resolves with no catalog).
 fn table(proc: u32, coll: u32, desc: bool) -> Vec<u32> {
-    let proc = gravity_fn::resolved::resolve(proc).expect("a builtin resolves").expect("not refused");
-    let spec = SortSpec::pack(&[(Some((SLOT as u32, VAR_WIDTH)), desc)]).unwrap().0;
-    vec![ROW as u32, 2, 1 | VAR_TBL, 0, spec as u32, (spec >> 32) as u32, 1, 0, 0, SLOT as u32, coll, KFLAG_HOSTED, proc]
+    let proc = gravity_fn::resolved::resolve(proc)
+        .expect("a builtin resolves")
+        .expect("not refused");
+    let spec = SortSpec::pack(&[(Some((SLOT as u32, VAR_WIDTH)), desc)])
+        .unwrap()
+        .0;
+    vec![
+        ROW as u32,
+        2,
+        1 | VAR_TBL,
+        0,
+        spec as u32,
+        (spec >> 32) as u32,
+        1,
+        0,
+        0,
+        SLOT as u32,
+        coll,
+        KFLAG_HOSTED,
+        proc,
+    ]
 }
 
 fn cmp(t: &[u32], a: &Row, b: &Row) -> Ordering {
@@ -49,8 +69,16 @@ fn a_hosted_key_orders_by_its_comparator() {
     assert_eq!(cmp(&t, &a, &b), Ordering::Less);
     assert_eq!(cmp(&t, &ab, &b), Ordering::Less, "byteacmp: 'ab' < 'b'");
     assert_eq!(cmp(&t, &a, &ab), Ordering::Less, "a prefix first");
-    assert_eq!(cmp(&t, &b, &Row::new(b"b")), Ordering::Equal, "equal copies tie");
-    assert_eq!(cmp(&table(BYTEACMP, 0, true), &a, &b), Ordering::Greater, "DESC reverses the comparator");
+    assert_eq!(
+        cmp(&t, &b, &Row::new(b"b")),
+        Ordering::Equal,
+        "equal copies tie"
+    );
+    assert_eq!(
+        cmp(&table(BYTEACMP, 0, true), &a, &b),
+        Ordering::Greater,
+        "DESC reverses the comparator"
+    );
     assert!(!RowCmp::failed());
 }
 
@@ -58,18 +86,42 @@ fn a_hosted_key_orders_by_its_comparator() {
 fn a_comparator_error_is_stashed_and_reported() {
     // bttextcmp without a collation raises (PostgreSQL: could not determine which collation to use)
     let t = table(BTTEXTCMP, 0, false);
-    assert_eq!(cmp(&t, &Row::new(b"x"), &Row::new(b"y")), Ordering::Equal, "a failed compare ties");
+    assert_eq!(
+        cmp(&t, &Row::new(b"x"), &Row::new(b"y")),
+        Ordering::Equal,
+        "a failed compare ties"
+    );
     assert!(RowCmp::failed(), "the error is reported");
     assert!(!RowCmp::failed(), "once");
     let e = gravity_fn::take_error().expect("the comparator's own error is stashed");
-    assert!(e.message().contains("collation"), "PostgreSQL's message: {}", e.message());
+    assert!(
+        e.message().contains("collation"),
+        "PostgreSQL's message: {}",
+        e.message()
+    );
     // D2043: under no collation equal copies still call the comparator (PostgreSQL's record_cmp -> varstr_cmp raises
     // at the first compare, equal or not); under a collation equal copies tie without a call
     assert_eq!(cmp(&t, &Row::new(b"x"), &Row::new(b"x")), Ordering::Equal);
-    assert!(RowCmp::failed(), "equal copies under no collation raise too");
-    assert!(gravity_fn::take_error().expect("stashed").message().contains("collation"));
-    assert_eq!(cmp(&table(BTTEXTCMP, C_COLLATION, false), &Row::new(b"x"), &Row::new(b"x")), Ordering::Equal);
-    assert!(!RowCmp::failed(), "equal copies under a collation never call the comparator");
+    assert!(
+        RowCmp::failed(),
+        "equal copies under no collation raise too"
+    );
+    assert!(gravity_fn::take_error()
+        .expect("stashed")
+        .message()
+        .contains("collation"));
+    assert_eq!(
+        cmp(
+            &table(BTTEXTCMP, C_COLLATION, false),
+            &Row::new(b"x"),
+            &Row::new(b"x")
+        ),
+        Ordering::Equal
+    );
+    assert!(
+        !RowCmp::failed(),
+        "equal copies under a collation never call the comparator"
+    );
 }
 
 /// `C` (pg_collation.dat).
@@ -86,9 +138,23 @@ fn word_row(d: u64) -> [u64; 3] {
 
 /// A var table of no var column (nvar 0, the record word at 24): key 0's tail the datum word, hosted by `proc`.
 fn word_table(proc: u32, desc: bool) -> Vec<u32> {
-    let proc = gravity_fn::resolved::resolve(proc).expect("a builtin resolves").expect("not refused");
+    let proc = gravity_fn::resolved::resolve(proc)
+        .expect("a builtin resolves")
+        .expect("not refused");
     let spec = SortSpec::pack(&[(Some((16, WORD_WIDTH)), desc)]).unwrap().0;
-    vec![32, 2, 1 | VAR_TBL, 0, spec as u32, (spec >> 32) as u32, 0, 24, 0, KFLAG_HOSTED, proc]
+    vec![
+        32,
+        2,
+        1 | VAR_TBL,
+        0,
+        spec as u32,
+        (spec >> 32) as u32,
+        0,
+        24,
+        0,
+        KFLAG_HOSTED,
+        proc,
+    ]
 }
 
 fn word_cmp(t: &[u32], a: u64, b: u64) -> Ordering {
@@ -100,12 +166,27 @@ fn word_cmp(t: &[u32], a: u64, b: u64) -> Ordering {
 fn a_by_value_hosted_key_orders_by_its_comparator_over_the_datum_word() {
     let t = word_table(BTINT4CMP, false);
     let m1 = -1i32 as u32 as u64; // unsigned, the word bytes order it last; btint4cmp first
-    assert_eq!(word_cmp(&t, m1, 1), Ordering::Less, "the comparator, not the word's bytes");
+    assert_eq!(
+        word_cmp(&t, m1, 1),
+        Ordering::Less,
+        "the comparator, not the word's bytes"
+    );
     assert_eq!(word_cmp(&t, 7, 7), Ordering::Equal, "equal words tie");
-    assert_eq!(word_cmp(&word_table(BTINT4CMP, true), m1, 1), Ordering::Greater, "DESC reverses the comparator");
+    assert_eq!(
+        word_cmp(&word_table(BTINT4CMP, true), m1, 1),
+        Ordering::Greater,
+        "DESC reverses the comparator"
+    );
     // enum_cmp's even-oid path (no type cache): the oids' order
     let e = word_table(ENUM_CMP, false);
-    assert_eq!((word_cmp(&e, 16500, 16502), word_cmp(&e, 16502, 16500), word_cmp(&e, 16502, 16502)), (Ordering::Less, Ordering::Greater, Ordering::Equal));
+    assert_eq!(
+        (
+            word_cmp(&e, 16500, 16502),
+            word_cmp(&e, 16502, 16500),
+            word_cmp(&e, 16502, 16502)
+        ),
+        (Ordering::Less, Ordering::Greater, Ordering::Equal)
+    );
     assert!(!RowCmp::failed());
 }
 
@@ -124,8 +205,14 @@ fn an_equal_copy_under_no_collation_ties_once_its_comparator_ran_clean() {
     assert!(!RowCmp::failed());
     for i in 0..2 {
         assert_eq!(eq(&text), Ordering::Equal);
-        assert!(RowCmp::failed(), "bttextcmp under no collation raises on equal copies (pair {i}), whatever byteacmp saw");
-        assert!(gravity_fn::take_error().expect("stashed").message().contains("collation"));
+        assert!(
+            RowCmp::failed(),
+            "bttextcmp under no collation raises on equal copies (pair {i}), whatever byteacmp saw"
+        );
+        assert!(gravity_fn::take_error()
+            .expect("stashed")
+            .message()
+            .contains("collation"));
     }
 }
 
@@ -151,21 +238,49 @@ fn row_word(v: &[u8], w: u64) -> Row {
 fn eqtie_and_whole_words_tie_with_no_call() {
     let t = table_flags(BTTEXTCMP, 0, false, KFLAG_EQTIE);
     assert_eq!(cmp(&t, &Row::new(b"x"), &Row::new(b"x")), Ordering::Equal);
-    assert!(!RowCmp::failed(), "equal copies tie with no call under KFLAG_EQTIE");
-    assert_eq!(cmp(&t, &Row::new(b"x"), &Row::new(b"y")), Ordering::Equal, "unequal copies still call (and fail)");
+    assert!(
+        !RowCmp::failed(),
+        "equal copies tie with no call under KFLAG_EQTIE"
+    );
+    assert_eq!(
+        cmp(&t, &Row::new(b"x"), &Row::new(b"y")),
+        Ordering::Equal,
+        "unequal copies still call (and fail)"
+    );
     assert!(RowCmp::failed());
     let _ = gravity_fn::take_error();
     let asc = table_flags(BTTEXTCMP, 0, false, KFLAG_WORDEXACT);
-    assert_eq!(cmp(&asc, &row_word(b"x", 6), &row_word(b"y", 6)), Ordering::Equal, "an equal whole word is an equal value");
+    assert_eq!(
+        cmp(&asc, &row_word(b"x", 6), &row_word(b"y", 6)),
+        Ordering::Equal,
+        "an equal whole word is an equal value"
+    );
     assert!(!RowCmp::failed(), "no call on a whole word");
-    assert_eq!(cmp(&asc, &row_word(b"x", 5), &row_word(b"y", 5)), Ordering::Equal);
-    assert!(RowCmp::failed(), "an equal word that is not whole calls the comparator");
+    assert_eq!(
+        cmp(&asc, &row_word(b"x", 5), &row_word(b"y", 5)),
+        Ordering::Equal
+    );
+    assert!(
+        RowCmp::failed(),
+        "an equal word that is not whole calls the comparator"
+    );
     let _ = gravity_fn::take_error();
-    assert_eq!(cmp(&asc, &row_word(b"x", 4), &row_word(b"y", 6)), Ordering::Less, "unequal words order as the words");
+    assert_eq!(
+        cmp(&asc, &row_word(b"x", 4), &row_word(b"y", 6)),
+        Ordering::Less,
+        "unequal words order as the words"
+    );
     let desc = table_flags(BTTEXTCMP, 0, true, KFLAG_WORDEXACT);
-    assert_eq!(cmp(&desc, &row_word(b"x", !6), &row_word(b"y", !6)), Ordering::Equal, "DESC: the word is the image's !");
+    assert_eq!(
+        cmp(&desc, &row_word(b"x", !6), &row_word(b"y", !6)),
+        Ordering::Equal,
+        "DESC: the word is the image's !"
+    );
     assert!(!RowCmp::failed());
-    assert_eq!(cmp(&desc, &row_word(b"x", !5), &row_word(b"y", !5)), Ordering::Equal);
+    assert_eq!(
+        cmp(&desc, &row_word(b"x", !5), &row_word(b"y", !5)),
+        Ordering::Equal
+    );
     assert!(RowCmp::failed());
     let _ = gravity_fn::take_error();
 }

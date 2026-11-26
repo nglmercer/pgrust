@@ -6,11 +6,11 @@ use core::sync::atomic::Ordering::Relaxed;
 
 use ::datum::Datum;
 use ::mcx::{Mcx, TreeStats};
+use ::types_core::ProcNumber;
 use ::types_error::{ErrorLocation, PgResult, WARNING};
 use ::types_fmgr::{
     varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction,
 };
-use ::types_core::ProcNumber;
 use ::types_storage::ProcSignalReason::{self, PROCSIG_LOG_MEMORY_CONTEXT};
 use elog::{ereport, PCT_M};
 
@@ -111,7 +111,9 @@ fn with_context_id_table<T>(
     let mut ctl = HASHCTL::new();
     ctl.keysize = core::mem::size_of::<*const TreeStats>();
     ctl.entrysize = core::mem::size_of::<MemoryContextId>();
-    ctl.hcxt = (mcx.context() as *const mcx::MemoryContext).cast_mut().cast();
+    ctl.hcxt = (mcx.context() as *const mcx::MemoryContext)
+        .cast_mut()
+        .cast();
     let table = dynahash::hash_create(
         "pg_get_backend_memory_contexts",
         256,
@@ -136,7 +138,8 @@ pub fn fc_pg_get_backend_memory_contexts(
 
         // breadth-first ids (C keeps them stable near the roots)
         let forest = mcxt_stats::backend_context_tree();
-        let mut queue: std::collections::VecDeque<(&TreeStats, Vec<&TreeStats>)> = Default::default();
+        let mut queue: std::collections::VecDeque<(&TreeStats, Vec<&TreeStats>)> =
+            Default::default();
         let mut next_id = 1i32;
         for root in &forest {
             queue.push_back((root, Vec::new()));
@@ -237,11 +240,33 @@ fn log_backend_memory_contexts(
     Ok(true)
 }
 
-const fn b(foid: types_core::Oid, name: &'static str, retset: bool, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs: if retset { 0 } else { 1 }, strict: true, retset, func }
+const fn b(
+    foid: types_core::Oid,
+    name: &'static str,
+    retset: bool,
+    func: PGFunction,
+) -> FmgrBuiltin {
+    FmgrBuiltin {
+        foid,
+        name,
+        nargs: if retset { 0 } else { 1 },
+        strict: true,
+        retset,
+        func,
+    }
 }
 
 pub const MCXTFUNCS_BUILTINS: &[FmgrBuiltin] = &[
-    b(2282, "pg_get_backend_memory_contexts", true, fc_pg_get_backend_memory_contexts),
-    b(4543, "pg_log_backend_memory_contexts", false, fc_pg_log_backend_memory_contexts),
+    b(
+        2282,
+        "pg_get_backend_memory_contexts",
+        true,
+        fc_pg_get_backend_memory_contexts,
+    ),
+    b(
+        4543,
+        "pg_log_backend_memory_contexts",
+        false,
+        fc_pg_log_backend_memory_contexts,
+    ),
 ];

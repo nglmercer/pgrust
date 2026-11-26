@@ -21,8 +21,8 @@ pub mod fold;
 pub mod frontend;
 #[cfg(target_arch = "x86_64")]
 pub mod frontend_x64;
-pub mod view;
 mod raw;
+pub mod view;
 
 use alloc::vec::Vec;
 use gravity_ir::{Func, Program};
@@ -71,17 +71,33 @@ pub struct RegEvent {
 }
 
 impl RegEvent {
-    pub fn new(adaptor: &adaptor::GravityAdaptor<'_>, event: RegallocEvent, block: adaptor::GBlock) -> Self {
+    pub fn new(
+        adaptor: &adaptor::GravityAdaptor<'_>,
+        event: RegallocEvent,
+        block: adaptor::GBlock,
+    ) -> Self {
         let v = &adaptor.view;
         let orig = v.blocks.get(block.0 as usize).and_then(|b| b.orig);
         // A split block runs as often as the edge it carries: its source
         // block's frequency is the bound used here.
-        let freq_of = |b: Option<u32>| b.and_then(|b| v.block_freq.get(b as usize).copied()).unwrap_or(1.0);
+        let freq_of = |b: Option<u32>| {
+            b.and_then(|b| v.block_freq.get(b as usize).copied())
+                .unwrap_or(1.0)
+        };
         let freq = match orig {
             Some(b) => freq_of(Some(b)),
-            None => v.splits.get(v.blocks[block.0 as usize].inst_begin as usize).map_or(1.0, |_| 1.0),
+            None => v
+                .splits
+                .get(v.blocks[block.0 as usize].inst_begin as usize)
+                .map_or(1.0, |_| 1.0),
         };
-        RegEvent { func: adaptor.cur, block: orig, layout: block.0, freq, event }
+        RegEvent {
+            func: adaptor.cur,
+            block: orig,
+            layout: block.0,
+            freq,
+            event,
+        }
     }
 }
 
@@ -97,7 +113,20 @@ pub struct RegallocSummary {
 /// The error a compile meets when the host platform cannot map its code executable (`ElfMapper::map` refused): the
 /// backend's caller may run the program interpreted instead (gravity_backend, macOS only).
 pub const MAPPING_REFUSED: &str = "gravity_tpde: mapping refused on this platform";
-pub const REGALLOC_KINDS: [&str; 12] = ["spill", "reload", "phi_mov", "phi_ld", "phi_st", "call_save", "call_restore", "demote", "region_begin", "region_end", "stale_entry", "lend"];
+pub const REGALLOC_KINDS: [&str; 12] = [
+    "spill",
+    "reload",
+    "phi_mov",
+    "phi_ld",
+    "phi_st",
+    "call_save",
+    "call_restore",
+    "demote",
+    "region_begin",
+    "region_end",
+    "stale_entry",
+    "lend",
+];
 
 pub fn regalloc_kind(e: RegallocEvent) -> usize {
     match e {
@@ -146,7 +175,10 @@ impl<'m> Compiled<'m> {
     /// the first tag, `adaptor::JIT_EPILOGUE` after the body), empty for an untagged compile.
     pub fn ranges(&self, f: Func) -> impl Iterator<Item = (u32, u32)> + '_ {
         let lo = self.ranges.partition_point(|r| r.0 < f.0);
-        self.ranges[lo..].iter().take_while(move |r| r.0 == f.0).map(|r| (r.1, r.2))
+        self.ranges[lo..]
+            .iter()
+            .take_while(move |r| r.0 == f.0)
+            .map(|r| (r.1, r.2))
     }
     pub fn code_bytes(&self) -> usize {
         self.code_bytes
@@ -208,7 +240,11 @@ impl<'m> Compiled<'m> {
                 }
             }
         }
-        blocks.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(core::cmp::Ordering::Equal).then(a.0.cmp(&b.0)));
+        blocks.sort_by(|a, b| {
+            b.2.partial_cmp(&a.2)
+                .unwrap_or(core::cmp::Ordering::Equal)
+                .then(a.0.cmp(&b.0))
+        });
         for (layout, block, freq, c) in blocks {
             match block {
                 Some(b) => {
@@ -255,7 +291,9 @@ fn analysis_ns(t: &CompilerX64<'_, frontend_x64::GravityFrontendX64>) -> u64 {
 
 #[cold]
 fn invalid(message: &'static str) -> alloc::boxed::Box<PgError> {
-    PgError::error(message).with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE).into()
+    PgError::error(message)
+        .with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE)
+        .into()
 }
 
 /// CPU feature bits for the x86-64 compiler, detected on the host the code
@@ -324,12 +362,19 @@ impl Default for Scratch {
 impl Scratch {
     pub fn new() -> Self {
         let mctx = mcx::MemoryContext::new_bump("GravityCompileScratch");
-        Scratch { view_ctx: mctx.new_child("GravityCompileView"), mctx, record: false }
+        Scratch {
+            view_ctx: mctx.new_child("GravityCompileView"),
+            mctx,
+            record: false,
+        }
     }
 
     /// A scratch whose compiles record the register-allocation events (`Compiled::regalloc`, `regalloc_report`).
     pub fn recording() -> Self {
-        Scratch { record: true, ..Scratch::new() }
+        Scratch {
+            record: true,
+            ..Scratch::new()
+        }
     }
 
     /// A scratch whose contexts `own` names the owner of, at birth: the caller's ledger owner (the compiling statement's,
@@ -348,13 +393,22 @@ pub fn compile<'m>(mcx: Mcx<'m>, program: &Program) -> PgResult<Compiled<'m>> {
 }
 
 /// `compile` with its scratch contexts owned at birth by `own`'s owner (`Scratch::owned`).
-pub fn compile_owned<'m>(mcx: Mcx<'m>, program: &Program, own: impl Fn(&mcx::MemoryContext)) -> PgResult<Compiled<'m>> {
+pub fn compile_owned<'m>(
+    mcx: Mcx<'m>,
+    program: &Program,
+    own: impl Fn(&mcx::MemoryContext),
+) -> PgResult<Compiled<'m>> {
     compile_with(mcx, program, &mut Scratch::owned(own))
 }
 
 /// `compile_owned`, recording which code range each of the lowering's tags made (`Compiled::ranges`, the JIT map's):
 /// the frontend reads each instruction's text offset, the code itself is the same.
-pub fn compile_tagged<'m>(mcx: Mcx<'m>, program: &Program, own: impl Fn(&mcx::MemoryContext), tags: Option<&gravity_ir::JitTags>) -> PgResult<Compiled<'m>> {
+pub fn compile_tagged<'m>(
+    mcx: Mcx<'m>,
+    program: &Program,
+    own: impl Fn(&mcx::MemoryContext),
+    tags: Option<&gravity_ir::JitTags>,
+) -> PgResult<Compiled<'m>> {
     compile_in(mcx, program, &mut Scratch::owned(own), tags)
 }
 
@@ -367,7 +421,11 @@ pub fn compile_recording<'m>(mcx: Mcx<'m>, program: &Program) -> PgResult<Compil
 /// and the mapper's tables), `scratch` everything transient. Never inlined, as `compile_in` (D4507): the callers share one
 /// copy of the compiler.
 #[inline(never)]
-pub fn compile_with<'m>(mcx: Mcx<'m>, program: &Program, scratch: &mut Scratch) -> PgResult<Compiled<'m>> {
+pub fn compile_with<'m>(
+    mcx: Mcx<'m>,
+    program: &Program,
+    scratch: &mut Scratch,
+) -> PgResult<Compiled<'m>> {
     compile_in(mcx, program, scratch, None)
 }
 
@@ -376,7 +434,12 @@ pub fn compile_with<'m>(mcx: Mcx<'m>, program: &Program, scratch: &mut Scratch) 
 /// inlined the whole TPDE compiler into the pool thread's entry (`__rust_begin_short_backtrace`, 1.7 MB of .text beside
 /// the outlined copy the other callers keep; reports/binsize-20261015 §2).
 #[inline(never)]
-fn compile_in<'m>(mcx: Mcx<'m>, program: &Program, scratch: &mut Scratch, tags: Option<&gravity_ir::JitTags>) -> PgResult<Compiled<'m>> {
+fn compile_in<'m>(
+    mcx: Mcx<'m>,
+    program: &Program,
+    scratch: &mut Scratch,
+    tags: Option<&gravity_ir::JitTags>,
+) -> PgResult<Compiled<'m>> {
     #[cfg(target_arch = "aarch64")]
     let rules: &'static dyn view::ImmRules = &frontend::A64_IMM;
     #[cfg(target_arch = "x86_64")]
@@ -384,7 +447,9 @@ fn compile_in<'m>(mcx: Mcx<'m>, program: &Program, scratch: &mut Scratch, tags: 
     #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
     let rules: &'static dyn view::ImmRules = &view::NoImm;
     if let Err(m) = view::check_edge_arity(program) {
-        return Err(PgError::error(alloc::format!("gravity_tpde: {m}")).with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE).into());
+        return Err(PgError::error(alloc::format!("gravity_tpde: {m}"))
+            .with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE)
+            .into());
     }
     // the compiler's copy with its constant instructions folded (fold.rs); the caller's program is untouched
     let folded = fold::program(program, scratch.view_ctx.mcx());
@@ -393,7 +458,11 @@ fn compile_in<'m>(mcx: Mcx<'m>, program: &Program, scratch: &mut Scratch, tags: 
     let record = scratch.record;
     scratch.mctx.reset();
     let smcx = scratch.mctx.mcx();
-    let mut adaptor = adaptor::GravityAdaptor::with_view(program, rules, view::FnView::new_in(scratch.view_ctx.mcx()));
+    let mut adaptor = adaptor::GravityAdaptor::with_view(
+        program,
+        rules,
+        view::FnView::new_in(scratch.view_ctx.mcx()),
+    );
     adaptor.jit = tags.map(|t| adaptor::JitRec::new_in(t, scratch.view_ctx.mcx()));
     let mut mapper = ElfMapper::new(mcx)?;
     // The closure is target-independent; only the compiler, writer and
@@ -458,24 +527,60 @@ fn compile_in<'m>(mcx: Mcx<'m>, program: &Program, scratch: &mut Scratch, tags: 
         };
     }
     #[cfg(target_arch = "aarch64")]
-    let (entries, sizes, ranges, code_bytes, regalloc, mut timing, fusions) = run!(CompilerA64::new(smcx, frontend::GravityFrontend::with_record(record), 0), A64Target::new(smcx), Architecture::Aarch64, take_events);
+    let (entries, sizes, ranges, code_bytes, regalloc, mut timing, fusions) = run!(
+        CompilerA64::new(smcx, frontend::GravityFrontend::with_record(record), 0),
+        A64Target::new(smcx),
+        Architecture::Aarch64,
+        take_events
+    );
     #[cfg(target_arch = "x86_64")]
-    let (entries, sizes, ranges, code_bytes, regalloc, mut timing, fusions) = run!(CompilerX64::new(smcx, frontend_x64::GravityFrontendX64::with_record(record), host_cpu_features()), X64Target::new(), Architecture::X86_64, take_events);
+    let (entries, sizes, ranges, code_bytes, regalloc, mut timing, fusions) = run!(
+        CompilerX64::new(
+            smcx,
+            frontend_x64::GravityFrontendX64::with_record(record),
+            host_cpu_features()
+        ),
+        X64Target::new(),
+        Architecture::X86_64,
+        take_events
+    );
     #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
-    let (entries, sizes, ranges, code_bytes, regalloc, mut timing, fusions): (mcx::PgVec<'m, usize>, mcx::PgVec<'m, u32>, mcx::PgVec<'m, (u32, u32, u32)>, usize, Vec<RegEvent>, CompileTiming, u8) = {
+    let (entries, sizes, ranges, code_bytes, regalloc, mut timing, fusions): (
+        mcx::PgVec<'m, usize>,
+        mcx::PgVec<'m, u32>,
+        mcx::PgVec<'m, (u32, u32, u32)>,
+        usize,
+        Vec<RegEvent>,
+        CompileTiming,
+        u8,
+    ) = {
         let _ = (adaptor, &mut mapper, smcx, record);
         return Err(invalid("gravity_tpde: unsupported target architecture"));
     };
     scratch.mctx.reset();
     timing.total_ns = now_ns() - t_start;
-    Ok(Compiled { mapper, entries, sizes, ranges, code_bytes, regalloc, timing, fusions })
+    Ok(Compiled {
+        mapper,
+        entries,
+        sizes,
+        ranges,
+        code_bytes,
+        regalloc,
+        timing,
+        fusions,
+    })
 }
 
 /// A tagged compile's ranges: `done`'s `(function, text offset, tag)` (each function's in the order emitted) made
 /// relative to the function's start (`starts`, its symbol's text offset) into `out`, each function's led by `JIT_PROLOGUE`
 /// at 0 when its first tag starts later, the ones past its size dropped, a later tag at the same offset kept (nothing was
 /// emitted between the two), a range of the tag before it merged into that one, sorted by function then offset.
-fn ranges_from_entries(done: &[(u32, u32, u32)], starts: &[u64], sizes: &[u32], out: &mut mcx::PgVec<'_, (u32, u32, u32)>) {
+fn ranges_from_entries(
+    done: &[(u32, u32, u32)],
+    starts: &[u64],
+    sizes: &[u32],
+    out: &mut mcx::PgVec<'_, (u32, u32, u32)>,
+) {
     let mut i = 0;
     while i < done.len() {
         let f = done[i].0;

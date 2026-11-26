@@ -15,28 +15,52 @@ use crate::graph::Gx;
 
 /// Sort pipeline `k`'s run shape, one for its producer (lower.rs `RunEnd::over`) and its reader (`make_emit`):
 /// `Shape::plan_exact`'s when its run feeds a user comparator's sort (`feeds_user_sort`), with whether it does.
-pub(crate) fn shape(px: &Px<'_, '_>, k: usize, keys: &[SortKey], tlist: Option<&NodeList<'_>>, cols: &NodeList<'_>) -> (Shape, bool) {
+pub(crate) fn shape(
+    px: &Px<'_, '_>,
+    k: usize,
+    keys: &[SortKey],
+    tlist: Option<&NodeList<'_>>,
+    cols: &NodeList<'_>,
+) -> (Shape, bool) {
     let node = px.gx.pipelines()[k].node_id;
     // D1596 (D3375): or the Sort PG put under a plain group whose presorted DISTINCT reads PG's comparator calls and tie order
-    let exact = tlist.is_some() && (crate::effects::visible::sort::feeds_user_sort(px.gx, k) || crate::frame::iface::presorted_exact(px.gx, px.arena, k));
-    (if exact { Shape::plan_exact(px, node, keys, tlist, cols) } else { Shape::plan(px, node, keys, tlist, cols) }, exact)
+    let exact = tlist.is_some()
+        && (crate::effects::visible::sort::feeds_user_sort(px.gx, k)
+            || crate::frame::iface::presorted_exact(px.gx, px.arena, k));
+    (
+        if exact {
+            Shape::plan_exact(px, node, keys, tlist, cols)
+        } else {
+            Shape::plan(px, node, keys, tlist, cols)
+        },
+        exact,
+    )
 }
 
 /// Pipeline `r`'s rows come from a feeding sort (`feeds_user_sort`), so they arrive in PostgreSQL's order.
 pub(crate) fn fed_exact(gx: &Gx<'_, '_>, r: usize) -> bool {
-    let Source::Breaker { slot } = gx.pipelines()[r].source else { return false };
-    gx.life_of(r, slot).is_some_and(|l| crate::effects::visible::sort::feeds_user_sort(gx, l.0 as usize))
+    let Source::Breaker { slot } = gx.pipelines()[r].source else {
+        return false;
+    };
+    gx.life_of(r, slot)
+        .is_some_and(|l| crate::effects::visible::sort::feeds_user_sort(gx, l.0 as usize))
 }
 
 /// Pipeline `k` is a heap scan's rows, through filters and projections only, into one full sort (`SortForm::Runs`).
 pub(crate) fn plain_sort(gx: &Gx<'_, '_>, k: usize) -> bool {
     let p = &gx.pipelines()[k];
-    let Some((Op::Sort(d), before)) = p.ops.split_last() else { return false };
+    let Some((Op::Sort(d), before)) = p.ops.split_last() else {
+        return false;
+    };
     matches!(p.source, Source::Range { am: Am::Heap, .. })
-        && before.iter().all(|op| matches!(op, Op::Filter(_) | Op::Project(_)))
+        && before
+            .iter()
+            .all(|op| matches!(op, Op::Filter(_) | Op::Project(_)))
         && matches!(d.form, SortForm::Runs)
         && d.presorted == 0
-        && d.keys.iter().all(|key| !key.own_family && key.no_proc.is_none())
+        && d.keys
+            .iter()
+            .all(|key| !key.own_family && key.no_proc.is_none())
         && crate::frame::iface::run_holds_rows(gx, k)
         && !crate::rerun::sets::in_owner_set(gx, k)
         && !crate::rerun::sets::in_term_set(gx, k)

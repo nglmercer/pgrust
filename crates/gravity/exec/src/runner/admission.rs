@@ -8,10 +8,15 @@ use super::*;
 /// driver's `run_parallel`), and under the driver (`drive`: a completion run, the simple protocol's portal) each Append
 /// arm as `run_program` admits it (parallel: the statement width; else width 1 unless breakerless). The pull's arms and a
 /// serial pull run unadmitted.
-pub fn grant_sites(a: &Admitted, drive: bool) -> Vec<(std::sync::Arc<gravity_program::Program>, u16)> {
+pub fn grant_sites(
+    a: &Admitted,
+    drive: bool,
+) -> Vec<(std::sync::Arc<gravity_program::Program>, u16)> {
     let mut out = Vec::new(); // alloc: Cold
-    // D3865 L4: a program of one emit and on-demand InitPlans runs outside the pool (`inits_only`): nothing to reserve
-    let run = |p: &std::sync::Arc<gravity_program::Program>, bitmap: bool, out: &mut Vec<(std::sync::Arc<gravity_program::Program>, u16)>| {
+                              // D3865 L4: a program of one emit and on-demand InitPlans runs outside the pool (`inits_only`): nothing to reserve
+    let run = |p: &std::sync::Arc<gravity_program::Program>,
+               bitmap: bool,
+               out: &mut Vec<(std::sync::Arc<gravity_program::Program>, u16)>| {
         if crate::inputs::knobs::grant::inits_only(p, bitmap) {
             return;
         }
@@ -27,10 +32,19 @@ pub fn grant_sites(a: &Admitted, drive: bool) -> Vec<(std::sync::Arc<gravity_pro
     if drive {
         run(&a.program, a.bitmap_site(), &mut out);
         for x in a.graph.as_ref().map_or(&[][..], |g| &g.arms[..]) {
-            run(&x.program, (0..x.program.sites.len()).any(|s| x.registry.bitmap_morsel(s).is_some()), &mut out);
+            run(
+                &x.program,
+                (0..x.program.sites.len()).any(|s| x.registry.bitmap_morsel(s).is_some()),
+                &mut out,
+            );
         }
-    } else if a.is_parallel() && !crate::inputs::knobs::grant::inits_only(&a.program, a.bitmap_site()) {
-        out.push((a.program.clone(), crate::inputs::knobs::width::statement_width(&a.program)));
+    } else if a.is_parallel()
+        && !crate::inputs::knobs::grant::inits_only(&a.program, a.bitmap_site())
+    {
+        out.push((
+            a.program.clone(),
+            crate::inputs::knobs::width::statement_width(&a.program),
+        ));
     }
     out
 }
@@ -54,10 +68,18 @@ pub(super) fn note_unkeyed() {
     let _ = crate::with_backend(|b| b.note_fallthrough("bind: not a generic cached plan"));
 }
 
-pub(super) fn lookup_or_admit(b: &mut Backend, key: PlanKey, cplan: CachedPlanHandle, params: ParamListHandle) -> PgResult<Option<usize>> {
+pub(super) fn lookup_or_admit(
+    b: &mut Backend,
+    key: PlanKey,
+    cplan: CachedPlanHandle,
+    params: ParamListHandle,
+) -> PgResult<Option<usize>> {
     if let Some(Verdict::Served(i)) = b.lookup(key) {
         // D2663, C3 S4c: a catalog row the admission read changed since (an invalidation read inside it too) re-admits
-        if b.admitted(i as usize, key).is_some_and(|a| !Backend::serve_stale(a) && crate::admit::folded_hold(a, params)) && !crate::admit::regen::stale(b, i as usize, key)? {
+        if b.admitted(i as usize, key)
+            .is_some_and(|a| !Backend::serve_stale(a) && crate::admit::folded_hold(a, params))
+            && !crate::admit::regen::stale(b, i as usize, key)?
+        {
             return Ok(Some(i as usize));
         }
     }
@@ -71,13 +93,28 @@ pub(super) fn lookup_or_admit(b: &mut Backend, key: PlanKey, cplan: CachedPlanHa
     // (`whole_read`) is routed to the entry, whose start reads the portal's kind and whose first run reads an Execute's
     // max_rows (admit/entry `start_counts`, `counted_partial`, `counted_whole_read`)
     let mut slot = None;
-    admit_any(b, b.admit_mcx(), pstmt, params, true, false, WORDS, &mut slot)?;
+    admit_any(
+        b,
+        b.admit_mcx(),
+        pstmt,
+        params,
+        true,
+        false,
+        WORDS,
+        &mut slot,
+    )?;
     match slot {
         Some(a) => {
             b.cache.insert(Some(key), a.program.clone());
             // D1789: every slot's plan checked out: nothing filed, the portal routes the plan to the executor's entry, which
             // serves it unkeyed (a fallthrough line only, never the refusal text); a no-order-proc plan is never filed
-            let unfiled = if a.graph.as_ref().is_some_and(|g| g.no_proc) { NO_PROC_UNFILED } else if Backend::catalog_stale(&a) { CATALOG_UNFILED } else { MEMO_FULL };
+            let unfiled = if a.graph.as_ref().is_some_and(|g| g.no_proc) {
+                NO_PROC_UNFILED
+            } else if Backend::catalog_stale(&a) {
+                CATALOG_UNFILED
+            } else {
+                MEMO_FULL
+            };
             let filed = b.remember_served(key, Box::new(a)); // alloc: Program
             if filed.is_none() {
                 b.note_fallthrough(unfiled);
@@ -96,23 +133,34 @@ pub(super) fn lookup_or_admit(b: &mut Backend, key: PlanKey, cplan: CachedPlanHa
 const MEMO_FULL: &str = "bind: every memo plan slot is checked out";
 
 /// W8-EQUIVCLASS-SORTOP: bind's fallthrough line for a plan holding the no-order-proc raise (the memo never files it).
-const NO_PROC_UNFILED: &str = "bind: a plan raising a missing order proc is never filed in the memo";
+const NO_PROC_UNFILED: &str =
+    "bind: a plan raising a missing order proc is never filed in the memo";
 
 /// D2663, C3 S4c: bind's fallthrough line for an admission a catalog change overtook (the memo never files it).
-const CATALOG_UNFILED: &str = "bind: a catalog row the admission read changed during it: the plan is not filed in the memo";
+const CATALOG_UNFILED: &str =
+    "bind: a catalog row the admission read changed during it: the plan is not filed in the memo";
 
 /// The memo key of `pstmt` under `cplan` (its place in the plan's list), `None` for a custom plan or none.
 pub fn entry_key(cplan: CachedPlanHandle, pstmt: &PlannedStmt<'_>) -> Option<PlanKey> {
     if cplan.is_null() {
         return None;
     }
-    let i = plancache::CachedPlanStmtList(cplan).iter().position(|s| core::ptr::eq(s as *const PlannedStmt<'_> as *const u8, pstmt as *const PlannedStmt<'_> as *const u8))?;
+    let i = plancache::CachedPlanStmtList(cplan).iter().position(|s| {
+        core::ptr::eq(
+            s as *const PlannedStmt<'_> as *const u8,
+            pstmt as *const PlannedStmt<'_> as *const u8,
+        )
+    })?;
     glue::plan_key(cplan, i as u16)
 }
 
 /// D3865 L5: `entry_key`, or its identity key when `ident` (`PlanKey::identity`: `pstmt`, the desc's own plan, served over
 /// its identity copy, admit/entry `identity_copy`).
-pub fn entry_key_as(cplan: CachedPlanHandle, pstmt: &PlannedStmt<'_>, ident: bool) -> Option<PlanKey> {
+pub fn entry_key_as(
+    cplan: CachedPlanHandle,
+    pstmt: &PlannedStmt<'_>,
+    ident: bool,
+) -> Option<PlanKey> {
     entry_key(cplan, pstmt).map(|k| if ident { k.identity() } else { k })
 }
 
@@ -126,8 +174,17 @@ pub fn remember_entry_refusal(b: &mut Backend, cplan: CachedPlanHandle, pstmt: &
 /// D2908: the entry's admission of `pstmt` raised its refusal (`why`): kept for the plan's next execution when the
 /// refusal is the plan's own, not this execution's: a plan with no parameters (an admission reads their values), and not a
 /// resource refusal a later execution may not meet (the admission arena's address space). A nested statement's is not kept.
-pub fn remember_off_refusal(b: &mut Backend, cplan: CachedPlanHandle, pstmt: &PlannedStmt<'_>, params: ParamListHandle, why: &str) {
-    if admit::is_nested() || !params.is_null() && types_portal::params::num_params(params) > 0 || why.contains(crate::GRAPH_ARENA_REFUSAL) {
+pub fn remember_off_refusal(
+    b: &mut Backend,
+    cplan: CachedPlanHandle,
+    pstmt: &PlannedStmt<'_>,
+    params: ParamListHandle,
+    why: &str,
+) {
+    if admit::is_nested()
+        || !params.is_null() && types_portal::params::num_params(params) > 0
+        || why.contains(crate::GRAPH_ARENA_REFUSAL)
+    {
         return;
     }
     // PGRCSERVE G5: nor a plan whose roads are asked per execution (hosts am_rows.rs `Roads`)
@@ -141,7 +198,11 @@ pub fn remember_off_refusal(b: &mut Backend, cplan: CachedPlanHandle, pstmt: &Pl
 
 /// D2908: the refusal `remember_off_refusal` kept for `pstmt`: the statement's error again, raised without lowering the
 /// plan again. A nested statement admits again (its refusal is not kept).
-pub fn held_refusal(b: &mut Backend, cplan: CachedPlanHandle, pstmt: &PlannedStmt<'_>) -> Option<Box<types_error::PgError>> {
+pub fn held_refusal(
+    b: &mut Backend,
+    cplan: CachedPlanHandle,
+    pstmt: &PlannedStmt<'_>,
+) -> Option<Box<types_error::PgError>> {
     if admit::is_nested() {
         return None;
     }
@@ -151,22 +212,37 @@ pub fn held_refusal(b: &mut Backend, cplan: CachedPlanHandle, pstmt: &PlannedStm
 
 /// C3a (entry/src/keyed.rs): the memo's served plan, taken out of the table for one execution on the seam road; `ident`:
 /// the identity admission under the plan's identity key (D3865 L5).
-pub fn take_served(b: &mut Backend, cplan: CachedPlanHandle, pstmt: &PlannedStmt<'_>, params: ParamListHandle, ident: bool) -> Option<(PlanKey, Box<Admitted>)> {
+pub fn take_served(
+    b: &mut Backend,
+    cplan: CachedPlanHandle,
+    pstmt: &PlannedStmt<'_>,
+    params: ParamListHandle,
+    ident: bool,
+) -> Option<(PlanKey, Box<Admitted>)> {
     let key = entry_key_as(cplan, pstmt, ident)?;
     let verdict = match b.lookup(key) {
         // D3881: a key this level never filed: the thread's pool of kept executions may hold one (a freed deep level's)
         None if crate::admit::kept::refill(b, key) => b.lookup(key),
         v => v,
     };
-    let Some(Verdict::Served(i)) = verdict else { return None };
+    let Some(Verdict::Served(i)) = verdict else {
+        return None;
+    };
     let i = i as usize;
-    if !b.plans.get(i).and_then(Option::as_ref).is_some_and(|s| s.key == key) {
+    if !b
+        .plans
+        .get(i)
+        .and_then(Option::as_ref)
+        .is_some_and(|s| s.key == key)
+    {
         return None;
     }
     // D2663, C3 S4c: a catalog row the admission read changed since (or PS1-21 step 1b, a relation guard decides
     // otherwise on its pages now): dropped, and this execution admits again
     // D3005: or its LIMIT constants are another execution's parameter values
-    if b.plans[i].as_ref().is_some_and(|s| Backend::serve_stale(&s.served) || !crate::admit::folded_hold(&s.served, params)) {
+    if b.plans[i].as_ref().is_some_and(|s| {
+        Backend::serve_stale(&s.served) || !crate::admit::folded_hold(&s.served, params)
+    }) {
         b.drop_plans(Some(key.handle));
         return None;
     }
@@ -179,7 +255,13 @@ pub fn take_served(b: &mut Backend, cplan: CachedPlanHandle, pstmt: &PlannedStmt
 
 /// The execution's plan back into the memo, when the plan is still the one the key names and no verdict displaced it
 /// (`pstmt`: the desc's own plan, an identity admission's too, D3865 L5).
-pub fn give_back(b: &mut Backend, key: PlanKey, cplan: CachedPlanHandle, pstmt: &PlannedStmt<'_>, served: Box<Admitted>) {
+pub fn give_back(
+    b: &mut Backend,
+    key: PlanKey,
+    cplan: CachedPlanHandle,
+    pstmt: &PlannedStmt<'_>,
+    served: Box<Admitted>,
+) {
     if entry_key_as(cplan, pstmt, key.is_identity()) != Some(key) {
         // D3346: a replanned statement's admission: dropped after the Nodes parked under its key (D2190)
         b.drop_admission(key, served);
@@ -190,7 +272,12 @@ pub fn give_back(b: &mut Backend, key: PlanKey, cplan: CachedPlanHandle, pstmt: 
 
 /// The permission check of the seam road, run on every execution (a memoized program included).
 pub fn permitted(pstmt: &PlannedStmt<'_>) -> PgResult<()> {
-    if let Some(relid) = gravity_hosts::perms::check_all(pstmt.permInfos.iter().filter_map(|n| n.as_rte_permission_info()))? {
+    if let Some(relid) = gravity_hosts::perms::check_all(
+        pstmt
+            .permInfos
+            .iter()
+            .filter_map(|n| n.as_rte_permission_info()),
+    )? {
         return Err(perm_denied(relid));
     }
     Ok(())
@@ -215,7 +302,13 @@ pub fn admissions() -> u64 {
 /// `explain`: an EXPLAIN without ANALYZE, which runs nothing, so no pull of it counts its rows (`counted_refused`). D3828:
 /// nor does a reader the start cannot see count (admit/entry `start_counts`: the protocol's unnamed portal is a whole reader
 /// until an Execute's max_rows reaches its first run).
-pub fn admit_unkeyed(b: &mut Backend, pstmt: &'static PlannedStmt<'static>, params: ParamListHandle, completion: bool, explain: bool) -> PgResult<Option<Admitted>> {
+pub fn admit_unkeyed(
+    b: &mut Backend,
+    pstmt: &'static PlannedStmt<'static>,
+    params: ParamListHandle,
+    completion: bool,
+    explain: bool,
+) -> PgResult<Option<Admitted>> {
     prime_once();
     if !admit::offered(pstmt) {
         b.note_fallthrough(admit::NOT_OFFERED);
@@ -223,7 +316,16 @@ pub fn admit_unkeyed(b: &mut Backend, pstmt: &'static PlannedStmt<'static>, para
     }
     let counted = !completion && !explain && crate::admit::entry::start_counts(pstmt);
     let mut slot = None;
-    admit_any(b, b.admit_mcx(), pstmt, params, !completion, counted, WORDS, &mut slot)?;
+    admit_any(
+        b,
+        b.admit_mcx(),
+        pstmt,
+        params,
+        !completion,
+        counted,
+        WORDS,
+        &mut slot,
+    )?;
     Ok(slot)
 }
 
@@ -253,7 +355,10 @@ pub fn last_refusal_line() -> String {
 
 /// The refusal as the statement's error: 0A000, the typed reason verbatim.
 pub fn refused(why: &str) -> Box<types_error::PgError> {
-    Box::new(types_error::PgError::error(format!("gravity: refused ({why})")).with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED)) // alloc: Cold
+    Box::new(
+        types_error::PgError::error(format!("gravity: refused ({why})"))
+            .with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED),
+    ) // alloc: Cold
 }
 
 /// The pgrc read counts its granule sources added (`pgrc_am::scanstats`) land here; nothing pending, nothing done.
@@ -263,7 +368,10 @@ pub fn pgrc_statement_end() {
 
 /// D1509: the reason of a run-time `refused` error (a refusal the run met after its admission), `None` for any other error.
 pub fn refusal_of(e: &types_error::PgError) -> Option<&str> {
-    let why = e.message().strip_prefix("gravity: refused (")?.strip_suffix(')')?;
+    let why = e
+        .message()
+        .strip_prefix("gravity: refused (")?
+        .strip_suffix(')')?;
     (e.sqlstate() == types_error::ERRCODE_FEATURE_NOT_SUPPORTED).then_some(why)
 }
 
@@ -286,11 +394,24 @@ const OFF: &str = "admit: the graph admission is off (pgrust.gravity_admit = sha
 /// into the caller's slot `out` (admit `graph`), `Some` exactly when this answers `Ok(true)`; a refusal or an error leaves
 /// it empty.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn admit_any(b: &mut Backend, mcx: Mcx<'static>, pstmt: &'static PlannedStmt<'static>, params: ParamListHandle, extended: bool, counted: bool, words: usize, out: &mut Option<Admitted>) -> PgResult<bool> {
+pub(super) fn admit_any(
+    b: &mut Backend,
+    mcx: Mcx<'static>,
+    pstmt: &'static PlannedStmt<'static>,
+    params: ParamListHandle,
+    extended: bool,
+    counted: bool,
+    words: usize,
+    out: &mut Option<Admitted>,
+) -> PgResult<bool> {
     // H16 (d): a code-cache miss in this admission is tier 0 only under the rows the statement reads (knobs/tier0.rs; computed
     // at the first miss, never on a hit)
     let rows = || crate::inputs::knobs::tier0::rows_read(pstmt, mcx);
-    match admit::redelivering(|| gravity_backend::with_row_estimate(&rows, || admit_either(b, mcx, pstmt, params, extended, counted, words, &mut *out))) {
+    match admit::redelivering(|| {
+        gravity_backend::with_row_estimate(&rows, || {
+            admit_either(b, mcx, pstmt, params, extended, counted, words, &mut *out)
+        })
+    }) {
         Ok(true) => {}
         r => {
             *out = None;
@@ -301,14 +422,17 @@ pub(super) fn admit_any(b: &mut Backend, mcx: Mcx<'static>, pstmt: &'static Plan
     // a write's modified columns are the statement's, not the cached program's (`INSERT (c1)` and `INSERT (c1, c2)
     // … NULL` share a plan shape): ExecConstraints' DETAIL for a user without table SELECT reads them
     if let Some(a) = a.as_mut().filter(|_| pstmt.resultRelations.len() > 1) {
-        a.registry.set_modified_by_rel(crate::ops::modifytable::beside::modified_cols_by_rel(pstmt));
+        a.registry
+            .set_modified_by_rel(crate::ops::modifytable::beside::modified_cols_by_rel(pstmt));
     }
     if let Some(a) = a.as_mut().filter(|a| a.cmd != Cmd::Select) {
         // D3623: a writing CTE's write as the program's own (a SELECT over writing CTEs) reads its own ModifyTable's
         let own = crate::ops::modifytable::beside::program_write_cols(&a.program, pstmt);
-        a.registry.set_modified_cols(own.or_else(|| admit::modified_cols(pstmt)));
+        a.registry
+            .set_modified_cols(own.or_else(|| admit::modified_cols(pstmt)));
         if a.cmd == Cmd::Merge {
-            a.registry.set_merge_ops(crate::ops::modifytable::statement::merge_ops(pstmt));
+            a.registry
+                .set_merge_ops(crate::ops::modifytable::statement::merge_ops(pstmt));
         }
     }
     Ok(true)
@@ -323,8 +447,17 @@ const COUNTED_PULL: &str = "Shape: a recursive union read through another CTE's 
 /// lowerv4 ops/setop/recursive.rs names such a union (`IterDesc::through`) in the Generation protocol's `peer`.
 fn counted_pull(a: &Admitted) -> bool {
     use gravity_program::protos::{ProtoKind, NONE};
-    let thin = |p: &gravity_program::Program| p.v4.as_ref().is_some_and(|d| d.protos.iter().any(|x| x.kind == ProtoKind::Generation && x.peer != NONE));
-    thin(&a.program) || a.graph.as_ref().is_some_and(|g| g.arms.iter().any(|x| thin(&x.program)) || g.inits.iter().any(|x| thin(&x.program)))
+    let thin = |p: &gravity_program::Program| {
+        p.v4.as_ref().is_some_and(|d| {
+            d.protos
+                .iter()
+                .any(|x| x.kind == ProtoKind::Generation && x.peer != NONE)
+        })
+    };
+    thin(&a.program)
+        || a.graph.as_ref().is_some_and(|g| {
+            g.arms.iter().any(|x| thin(&x.program)) || g.inits.iter().any(|x| thin(&x.program))
+        })
 }
 
 /// D2732 (cursor form): a counted pull of a recursive union whose seed or once-run term input may raise or call a user or
@@ -335,8 +468,17 @@ const LOUD_PULL: &str = "Shape: a recursive union whose seed or once-run term in
 fn seed_pull(a: &Admitted) -> bool {
     use gravity_kernels::ops::setop::entries::GEN_ARG_LOUD;
     use gravity_program::protos::ProtoKind;
-    let loud = |p: &gravity_program::Program| p.v4.as_ref().is_some_and(|d| d.protos.iter().any(|x| x.kind == ProtoKind::Generation && x.arg & GEN_ARG_LOUD != 0));
-    loud(&a.program) || a.graph.as_ref().is_some_and(|g| g.arms.iter().any(|x| loud(&x.program)) || g.inits.iter().any(|x| loud(&x.program)))
+    let loud = |p: &gravity_program::Program| {
+        p.v4.as_ref().is_some_and(|d| {
+            d.protos
+                .iter()
+                .any(|x| x.kind == ProtoKind::Generation && x.arg & GEN_ARG_LOUD != 0)
+        })
+    };
+    loud(&a.program)
+        || a.graph.as_ref().is_some_and(|g| {
+            g.arms.iter().any(|x| loud(&x.program)) || g.inits.iter().any(|x| loud(&x.program))
+        })
 }
 
 /// D2805: a counted pull of a sorted set operation on the statement's root path whose left input may raise: PG hands on each
@@ -345,8 +487,17 @@ const LOUD_SET_PULL: &str = "Shape: a sorted set operation whose left input can 
 
 /// lowerv4 ops/setop/lower.rs marks such a set operation with the kernels' `SETOP_ARG_LOUD` bit (ops/setop/proto.rs `counted_pull_mark`).
 fn set_pull(a: &Admitted) -> bool {
-    let loud = |p: &gravity_program::Program| p.v4.as_ref().is_some_and(|d| d.protos.iter().any(crate::ops::setop::proto::counted_pull_mark));
-    loud(&a.program) || a.graph.as_ref().is_some_and(|g| g.arms.iter().any(|x| loud(&x.program)) || g.inits.iter().any(|x| loud(&x.program)))
+    let loud = |p: &gravity_program::Program| {
+        p.v4.as_ref().is_some_and(|d| {
+            d.protos
+                .iter()
+                .any(crate::ops::setop::proto::counted_pull_mark)
+        })
+    };
+    loud(&a.program)
+        || a.graph.as_ref().is_some_and(|g| {
+            g.arms.iter().any(|x| loud(&x.program)) || g.inits.iter().any(|x| loud(&x.program))
+        })
 }
 
 /// D2230: `a` holds a recursive union a qual, a join, a nested loop's inner, a SubPlan or an InitPlan reads with no breaker
@@ -357,8 +508,17 @@ fn set_pull(a: &Admitted) -> bool {
 pub(crate) fn thin_pull(a: &Admitted) -> bool {
     use gravity_kernels::ops::setop::entries::GEN_ARG_THIN;
     use gravity_program::protos::ProtoKind;
-    let thin = |p: &gravity_program::Program| p.v4.as_ref().is_some_and(|d| d.protos.iter().any(|x| x.kind == ProtoKind::Generation && x.arg & GEN_ARG_THIN != 0));
-    thin(&a.program) || a.graph.as_ref().is_some_and(|g| g.arms.iter().any(|x| thin(&x.program)) || g.inits.iter().any(|x| thin(&x.program)))
+    let thin = |p: &gravity_program::Program| {
+        p.v4.as_ref().is_some_and(|d| {
+            d.protos
+                .iter()
+                .any(|x| x.kind == ProtoKind::Generation && x.arg & GEN_ARG_THIN != 0)
+        })
+    };
+    thin(&a.program)
+        || a.graph.as_ref().is_some_and(|g| {
+            g.arms.iter().any(|x| thin(&x.program)) || g.inits.iter().any(|x| thin(&x.program))
+        })
 }
 
 /// Whether a pull that may count its rows refuses `a` (D2230, D2732, D2805): an EXPLAIN without ANALYZE is admitted past
@@ -370,7 +530,16 @@ pub(crate) fn counted_refused(a: &Admitted) -> bool {
 /// D4454: a refused admission leaves `out` empty (its admission dropped where the by-value one was); an error leaves it to
 /// `admit_any`, which empties it.
 #[allow(clippy::too_many_arguments)]
-fn admit_either(b: &mut Backend, mcx: Mcx<'static>, pstmt: &'static PlannedStmt<'static>, params: ParamListHandle, extended: bool, counted: bool, words: usize, out: &mut Option<Admitted>) -> PgResult<bool> {
+fn admit_either(
+    b: &mut Backend,
+    mcx: Mcx<'static>,
+    pstmt: &'static PlannedStmt<'static>,
+    params: ParamListHandle,
+    extended: bool,
+    counted: bool,
+    words: usize,
+    out: &mut Option<Admitted>,
+) -> PgResult<bool> {
     // a Foreign Scan, a Custom Scan or a foreign result relation: the statement's 0A000, never lowered nor handed off.
     // D4600 (`lean`): under the graph admission the check runs where a front hit does not answer it (admit `admit_in`:
     // on every road but a front hit), and again ahead of any refusal or error the admission ends in, so such a statement
@@ -443,11 +612,27 @@ fn admit_either(b: &mut Backend, mcx: Mcx<'static>, pstmt: &'static PlannedStmt<
 /// Answers whether it lowered again (`Backend::relowered`). Every other admission reads the counter twice, nothing more;
 /// the plan-order program is never filed under its content key (`admit_in`), so each admission of such a statement lowers
 /// twice.
-pub fn or_plan_order<T>(whole: bool, mut f: impl FnMut() -> PgResult<Result<T, admit::Refused>>) -> PgResult<(Result<T, admit::Refused>, bool)> {
-    let (g0, _) = (gravity_decompose::effects::grants(), gravity_decompose::effects::take_acted());
+pub fn or_plan_order<T>(
+    whole: bool,
+    mut f: impl FnMut() -> PgResult<Result<T, admit::Refused>>,
+) -> PgResult<(Result<T, admit::Refused>, bool)> {
+    let (g0, _) = (
+        gravity_decompose::effects::grants(),
+        gravity_decompose::effects::take_acted(),
+    );
     match f()? {
-        Err(why) if relowers(&why, gravity_decompose::effects::grants() != g0, gravity_decompose::effects::take_acted()) => {
-            let again = if whole { plan_order(&mut f) } else { gravity_decompose::effects::deny_all_bounded(&mut f) }?;
+        Err(why)
+            if relowers(
+                &why,
+                gravity_decompose::effects::grants() != g0,
+                gravity_decompose::effects::take_acted(),
+            ) =>
+        {
+            let again = if whole {
+                plan_order(&mut f)
+            } else {
+                gravity_decompose::effects::deny_all_bounded(&mut f)
+            }?;
             Ok((again.map_err(|_| why), true))
         }
         r => Ok((r, false)),
@@ -458,7 +643,14 @@ pub fn or_plan_order<T>(whole: bool, mut f: impl FnMut() -> PgResult<Result<T, a
 /// outside the plan-order run, of a graph that took a licence (`granted`) in a statement that does not act (`acted`:
 /// `effects::take_acted`; a statement that acts has no plan-order form, D3540).
 pub fn relowers(why: &admit::Refused, granted: bool, acted: bool) -> bool {
-    granted && !acted && !in_plan_order() && why.stage == "lower" && why.what.split_once(": ").is_some_and(|(_, w)| w.starts_with("Shape: "))
+    granted
+        && !acted
+        && !in_plan_order()
+        && why.stage == "lower"
+        && why
+            .what
+            .split_once(": ")
+            .is_some_and(|(_, w)| w.starts_with("Shape: "))
 }
 
 /// The admissions `or_plan_order` lowered again in plan order on this backend (how often a licensed form loses to its
@@ -487,6 +679,10 @@ fn relowered_line<T>(b: &mut Backend, admitted: &Result<T, admit::Refused>) {
 /// (a VOLATILE hash function keeps the refusal). The refusal path only: an admitted program does no lookup.
 #[cold]
 fn init_raise(pstmt: &'static PlannedStmt<'static>, params: ParamListHandle) -> PgResult<()> {
-    let prune = if pstmt.partPruneInfos.is_nil() { None } else { Some(crate::ops::append::prune::initial_results(pstmt, params)?) };
+    let prune = if pstmt.partPruneInfos.is_nil() {
+        None
+    } else {
+        Some(crate::ops::append::prune::initial_results(pstmt, params)?)
+    };
     super::start_gates::init_lookups(pstmt, prune.as_ref())
 }

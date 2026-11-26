@@ -32,7 +32,12 @@ pub fn binding<T>(vals: Vec<(i32, i64)>, f: impl FnOnce() -> T) -> (T, Vec<(i32,
     }
     let r = Restore(EXTERNS.with(|e| e.borrow_mut().replace((vals, Vec::new())))); // alloc: Program
     let t = f();
-    let used = EXTERNS.with(|e| e.borrow_mut().as_mut().map(|x| core::mem::take(&mut x.1)).unwrap_or_default());
+    let used = EXTERNS.with(|e| {
+        e.borrow_mut()
+            .as_mut()
+            .map(|x| core::mem::take(&mut x.1))
+            .unwrap_or_default()
+    });
     drop(r);
     (t, used)
 }

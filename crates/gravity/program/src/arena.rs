@@ -69,15 +69,27 @@ pub struct Arena {
 enum Block {
     /// D1703: a boxed slice's words, held raw (the allocator's zeroed block, freed as the box): every write through `ptr`
     /// and the handles derives from that pointer, never from `as_ptr` of a shared borrow (read-only under Stacked / Tree Borrows).
-    Boxed { ptr: NonNull<u64>, words: usize },
-    Mapped { ptr: NonNull<u64>, bytes: usize },
+    Boxed {
+        ptr: NonNull<u64>,
+        words: usize,
+    },
+    Mapped {
+        ptr: NonNull<u64>,
+        bytes: usize,
+    },
     /// pagepool P3 (`PGRUST_POOL_GRAVITY=1`): a pool block, or a pool span (2 MiB up to `pool_lazy_min`), zeroed by the pool
     /// and charged whole on the arena's own charge (`Arena::boxed`, `Door::Pool`), as a boxed block is.
-    Pooled { ptr: NonNull<u64>, bytes: usize },
+    Pooled {
+        ptr: NonNull<u64>,
+        bytes: usize,
+    },
     /// pagepool P3: a lazy span (`pool_lazy_min` and up), charged as its bump passes its pages, as a mapped block is: its
     /// ledger state in header word 3 (`MappedLedger`, its charge on `Door::Pool`, no residency entry), the pool told each
     /// step (`commit_to`).
-    Lazy { ptr: NonNull<u64>, bytes: usize },
+    Lazy {
+        ptr: NonNull<u64>,
+        bytes: usize,
+    },
 }
 
 /// pagepool P3: the pool's dead-page grain (`pagepool::give_pages` releases whole runs of it).
@@ -97,7 +109,9 @@ fn pooled() -> bool {
 /// rest back rather than zero it (without the switch the pool reads no expectation under an ask's length).
 #[cfg(not(target_family = "wasm"))]
 const POOL_HINT: pagepool::Hint =
-    pagepool::Hint::new(pagepool::Class::Session, pagepool::Tag::PROGRAM).zero(pagepool::Zero::Dense).expect_kib(2 << 10);
+    pagepool::Hint::new(pagepool::Class::Session, pagepool::Tag::PROGRAM)
+        .zero(pagepool::Zero::Dense)
+        .expect_kib(2 << 10);
 
 /// A reset keeps this much of an arena's prefix resident and hands the pages above it back to the kernel: the size every
 /// ordinary statement's graph fits in (it was the whole graph arena before landing 20 made the arena an address-space
@@ -122,7 +136,14 @@ fn release_above_keep(base: usize, from: usize, to: usize) -> usize {
         // SAFETY: whole pages of this arena's used span, past the kept prefix; nothing references them after the reset. The
         // arena is its own read-write mapping without MAP_NORESERVE (`try_new`) and never advised huge. `pagegive`: the
         // range reads zero after, as after MADV_DONTNEED, without that call's CVE-2026-74674 shape.
-        if unsafe { pagegive::give_back(start, end - start, pagegive::Mapping::Accounted { huge: false }) } != 0 {
+        if unsafe {
+            pagegive::give_back(
+                start,
+                end - start,
+                pagegive::Mapping::Accounted { huge: false },
+            )
+        } != 0
+        {
             return to;
         }
         unsafe { core::ptr::write_bytes(end as *mut u8, 0, to - end) };
@@ -135,7 +156,10 @@ fn release_above_keep(base: usize, from: usize, to: usize) -> usize {
 impl Block {
     fn ptr(&self) -> *mut u64 {
         match self {
-            Block::Boxed { ptr, .. } | Block::Mapped { ptr, .. } | Block::Pooled { ptr, .. } | Block::Lazy { ptr, .. } => ptr.as_ptr(),
+            Block::Boxed { ptr, .. }
+            | Block::Mapped { ptr, .. }
+            | Block::Pooled { ptr, .. }
+            | Block::Lazy { ptr, .. } => ptr.as_ptr(),
         }
     }
 }
@@ -148,7 +172,9 @@ impl Drop for Block {
     fn drop(&mut self) {
         match *self {
             // SAFETY: the block `try_new` allocated with a `[u64]` box's layout of `words`, taken back once.
-            Block::Boxed { ptr, words } => drop(unsafe { Box::from_raw(core::ptr::slice_from_raw_parts_mut(ptr.as_ptr(), words)) }),
+            Block::Boxed { ptr, words } => drop(unsafe {
+                Box::from_raw(core::ptr::slice_from_raw_parts_mut(ptr.as_ptr(), words))
+            }),
             // SAFETY: the mapping was made by `Arena::new` with exactly these bounds and is unmapped once.
             #[cfg(not(target_family = "wasm"))]
             Block::Mapped { ptr, bytes } => {
@@ -193,7 +219,8 @@ static EMPTY_BLOCK: [u64; HDR] = [0; HDR];
 impl ArenaRef {
     /// The arena of capacity zero: the allocator of a constant empty `ArenaVec` (`WritePlan::SELECT`,
     /// `SiteDesc::write`), which never allocates; a push into one is a refused allocation.
-    pub const EMPTY: ArenaRef = ArenaRef(unsafe { NonNull::new_unchecked(EMPTY_BLOCK.as_ptr() as *mut u64) });
+    pub const EMPTY: ArenaRef =
+        ArenaRef(unsafe { NonNull::new_unchecked(EMPTY_BLOCK.as_ptr() as *mut u64) });
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -234,7 +261,11 @@ impl ArenaRef {
     fn is_pool_block(&self) -> bool {
         match self.recorded_pool() {
             Some(p) => {
-                debug_assert_eq!(p, pagepool::taken(self.0.as_ptr() as *const u8), "arena: a recorded pool bit is not the pool's answer");
+                debug_assert_eq!(
+                    p,
+                    pagepool::taken(self.0.as_ptr() as *const u8),
+                    "arena: a recorded pool bit is not the pool's answer"
+                );
                 p
             }
             None => pagepool::taken(self.0.as_ptr() as *const u8),
@@ -245,7 +276,8 @@ impl ArenaRef {
     #[doc(hidden)]
     pub fn recorded_pool(&self) -> Option<bool> {
         let w = unsafe { *self.0.as_ptr().add(2) };
-        (w & RECORDED != 0 && POOLED_BIT.load(core::sync::atomic::Ordering::Relaxed)).then_some(w & POOL != 0)
+        (w & RECORDED != 0 && POOLED_BIT.load(core::sync::atomic::Ordering::Relaxed))
+            .then_some(w & POOL != 0)
     }
 
     /// C8: a mapped block's ledger state (`None` for a boxed one). Its user is the arena's: the header's other words are
@@ -267,7 +299,14 @@ impl ArenaRef {
     fn listed(&self) {
         if let Some(l) = self.ledger() {
             let charged = self.charged_words() * 8;
-            memledger::resident::update_at(l.res, self.0.as_ptr() as usize, HDR * 8 + charged, charged, l.charge.acct(), l.charge.nr_home());
+            memledger::resident::update_at(
+                l.res,
+                self.0.as_ptr() as usize,
+                HDR * 8 + charged,
+                charged,
+                l.charge.acct(),
+                l.charge.nr_home(),
+            );
         }
     }
 
@@ -299,7 +338,9 @@ impl ArenaRef {
         let block = self.0.cast::<u8>();
         // the span starts on a superpage, so block offsets are as aligned as addresses; never past the arena's own runs
         let (lo, hi) = (((HDR + was) * 8) & !(POOL_RUN - 1), (HDR + to) * 8);
-        let end = hi.next_multiple_of(POOL_RUN).min(((HDR + self.cap_words()) * 8).next_multiple_of(POOL_RUN));
+        let end = hi
+            .next_multiple_of(POOL_RUN)
+            .min(((HDR + self.cap_words()) * 8).next_multiple_of(POOL_RUN));
         // SAFETY: runs of this arena's own span, past its charged words: the bump writes none of them before this returns.
         unsafe { pagepool::take_pages(block, lo, end - lo) };
         // SAFETY: the arena's own live span, starting at the block.
@@ -317,7 +358,10 @@ impl ArenaRef {
         let data = self.data() as usize;
         let start = (data + KEEP_BYTES).max(from).next_multiple_of(PAGE);
         if to > start {
-            let (was, keep) = (self.charged_words(), ((start - data) / 8).next_multiple_of(CHARGE_WORDS));
+            let (was, keep) = (
+                self.charged_words(),
+                ((start - data) / 8).next_multiple_of(CHARGE_WORDS),
+            );
             if let Some(c) = self.charge().filter(|_| keep < was) {
                 // SAFETY: the arena's own span, past its charged words from here on: the bump writes there again only after
                 // `pool_commit` took the runs back.
@@ -334,13 +378,18 @@ impl ArenaRef {
     }
 
     fn alloc_layout(&self, layout: Layout) -> Option<NonNull<[u8]>> {
-        let start = self.used_words().next_multiple_of(words(layout.align()).max(1));
+        let start = self
+            .used_words()
+            .next_multiple_of(words(layout.align()).max(1));
         let n = words(layout.size());
         if start + n > self.charged_words() && !self.charge_room(start + n) {
             return None;
         }
         if n == 0 {
-            return NonNull::new(core::ptr::slice_from_raw_parts_mut(unsafe { self.data().add(start) } as *mut u8, 0));
+            return NonNull::new(core::ptr::slice_from_raw_parts_mut(
+                unsafe { self.data().add(start) } as *mut u8,
+                0,
+            ));
         }
         self.set_used_words(start + n);
         let p = unsafe { self.data().add(start) as *mut u8 };
@@ -355,7 +404,8 @@ impl ArenaRef {
     }
 
     pub fn try_alloc(&self, bytes: usize) -> Option<*mut u8> {
-        self.alloc_layout(Layout::from_size_align(bytes, 8).ok()?).map(|p| p.as_ptr() as *mut u8)
+        self.alloc_layout(Layout::from_size_align(bytes, 8).ok()?)
+            .map(|p| p.as_ptr() as *mut u8)
     }
 
     pub fn offset_of(&self, p: *const u8) -> usize {
@@ -365,7 +415,10 @@ impl ArenaRef {
     }
 
     pub fn zero(&self, off: usize, bytes: usize) {
-        assert!(off.is_multiple_of(8) && off + bytes <= self.used(), "zero {off}+{bytes} outside the used arena");
+        assert!(
+            off.is_multiple_of(8) && off + bytes <= self.used(),
+            "zero {off}+{bytes} outside the used arena"
+        );
         unsafe { core::ptr::write_bytes(self.data().add(off / 8), 0, words(bytes)) };
     }
 
@@ -384,7 +437,10 @@ impl ArenaRef {
     /// resident for the backend's life; the rest is zeroed in place.
     pub fn reset_to(&self, m: Mark) {
         assert!(m.0 <= self.used_words(), "reset above the used arena");
-        let (from, to) = (self.data().wrapping_add(m.0) as usize, self.data().wrapping_add(self.used_words()) as usize);
+        let (from, to) = (
+            self.data().wrapping_add(m.0) as usize,
+            self.data().wrapping_add(self.used_words()) as usize,
+        );
         if self.is_pool_block() {
             return self.pool_reset(m, from, to);
         }
@@ -392,7 +448,10 @@ impl ArenaRef {
         unsafe { core::ptr::write_bytes(from as *mut u8, 0, zero_to - from) };
         if zero_to < to {
             // G1-A door 2: the pages handed back leave the owner's account (to the step past what stays resident)
-            let (was, keep) = (self.charged_words(), ((zero_to - self.data() as usize) / 8).next_multiple_of(CHARGE_WORDS));
+            let (was, keep) = (
+                self.charged_words(),
+                ((zero_to - self.data() as usize) / 8).next_multiple_of(CHARGE_WORDS),
+            );
             if keep < was {
                 if let Some(c) = self.charge() {
                     c.give(((was - keep) * 8) as u64);
@@ -420,7 +479,9 @@ impl ArenaRef {
 #[cold]
 #[inline(never)]
 fn exhausted(used: usize, bytes: usize, capacity: usize) -> ! {
-    gravity_abi::limits::exceeded(format_args!("a program arena is exhausted: {used} + {bytes} bytes of {capacity}"))
+    gravity_abi::limits::exceeded(format_args!(
+        "a program arena is exhausted: {used} + {bytes} bytes of {capacity}"
+    ))
 }
 
 /// D3957: C's palloc failure (`MemoryContextAllocationFailure`): 53200 "out of memory", the request's size in the detail.
@@ -428,8 +489,11 @@ fn exhausted(used: usize, bytes: usize, capacity: usize) -> ! {
 #[inline(never)]
 fn refused(bytes: usize) -> ! {
     let total = words(bytes).saturating_add(HDR).saturating_mul(8);
-    let e = types_error::PgError::error("out of memory").with_sqlstate(types_error::ERRCODE_OUT_OF_MEMORY);
-    std::panic::panic_any(e.with_detail(format!("Failed on request of size {total} in a Gravity program arena.")))
+    let e = types_error::PgError::error("out of memory")
+        .with_sqlstate(types_error::ERRCODE_OUT_OF_MEMORY);
+    std::panic::panic_any(e.with_detail(format!(
+        "Failed on request of size {total} in a Gravity program arena."
+    )))
 }
 
 /// C8: an arena outlives the statement that maps it (a backend's graph, node and program arenas, a worker slot's), so a
@@ -437,7 +501,9 @@ fn refused(bytes: usize) -> ! {
 #[cfg(not(target_family = "wasm"))]
 fn arena_owner() -> (memledger::Owner, memledger::Release) {
     match memledger::charge::context() {
-        (memledger::Owner::Statement { acct, .. } | memledger::Owner::Portal { acct, .. }, _) => (memledger::Owner::Session(acct), memledger::Release::Session),
+        (memledger::Owner::Statement { acct, .. } | memledger::Owner::Portal { acct, .. }, _) => {
+            (memledger::Owner::Session(acct), memledger::Release::Session)
+        }
         o => o,
     }
 }
@@ -453,14 +519,32 @@ fn pool_block(total: usize, cap: usize) -> Option<(Block, Option<memledger::Char
         return None;
     }
     let (owner, release) = arena_owner();
-    let open = |bytes: usize| memledger::Charge::open(owner, release, memledger::Kind::Arena, memledger::charge::Door::Pool, bytes as u64);
+    let open = |bytes: usize| {
+        memledger::Charge::open(
+            owner,
+            release,
+            memledger::Kind::Arena,
+            memledger::charge::Door::Pool,
+            bytes as u64,
+        )
+    };
     if total < MAPPED_MIN {
         let b = pagepool::take(total, 64, POOL_HINT)?;
         let bytes = b.len();
-        return Some((Block::Pooled { ptr: b.cast::<u64>(), bytes }, Some(open(bytes)), cap));
+        return Some((
+            Block::Pooled {
+                ptr: b.cast::<u64>(),
+                bytes,
+            },
+            Some(open(bytes)),
+            cap,
+        ));
     }
     let s = pagepool::span(total, POOL_HINT)?;
-    let (ptr, bytes) = (NonNull::new(s.as_ptr().cast::<u64>()).expect("pool span"), s.len());
+    let (ptr, bytes) = (
+        NonNull::new(s.as_ptr().cast::<u64>()).expect("pool span"),
+        s.len(),
+    );
     if !s.is_lazy() {
         return Some((Block::Pooled { ptr, bytes }, Some(open(bytes)), cap));
     }
@@ -480,7 +564,10 @@ fn pool_block(total: usize, cap: usize) -> Option<(Block, Option<memledger::Char
     }
     // SAFETY: a fresh allocation of a `MappedLedger`'s layout, taken back by `Block::drop`; header word 3 is inside the span.
     unsafe {
-        ledger.write(MappedLedger { charge: open(held), res: memledger::resident::NONE });
+        ledger.write(MappedLedger {
+            charge: open(held),
+            res: memledger::resident::NONE,
+        });
         *ptr.as_ptr().add(3) = ledger as u64;
     }
     Some((Block::Lazy { ptr, bytes }, None, words))
@@ -519,7 +606,13 @@ impl Arena {
             v.try_reserve_exact(HDR + cap).ok()?;
             v.resize(HDR + cap, 0);
             let b = Box::into_raw(v.into_boxed_slice());
-            (Block::Boxed { ptr: NonNull::new(b.cast::<u64>()).expect("box"), words: HDR + cap }, cap)
+            (
+                Block::Boxed {
+                    ptr: NonNull::new(b.cast::<u64>()).expect("box"),
+                    words: HDR + cap,
+                },
+                cap,
+            )
         };
         #[cfg(target_family = "wasm")]
         let boxed = None;
@@ -534,33 +627,72 @@ impl Arena {
         } else if total < MAPPED_MIN {
             // SAFETY: a nonzero layout (HDR words at least), a `[u64]` box's: `Block::drop` frees it as that box.
             let b = unsafe { std::alloc::alloc_zeroed(Layout::array::<u64>(HDR + cap).ok()?) };
-            let block = Block::Boxed { ptr: NonNull::new(b.cast::<u64>())?, words: HDR + cap };
+            let block = Block::Boxed {
+                ptr: NonNull::new(b.cast::<u64>())?,
+                words: HDR + cap,
+            };
             // D4518: door 1 counted the block on this thread's account; its charge names the owner, whole, and moves with
             // the arena as a mapping's pages do (a parked worker set's to the depot, a filed program's to the program
             // caches). With none, a backend's parked Node and the depot's worker sets kept their boxed images on no owner.
             let (owner, release) = arena_owner();
-            boxed = Some(memledger::Charge::open(owner, release, memledger::Kind::Arena, memledger::charge::Door::Heap, total as u64));
+            boxed = Some(memledger::Charge::open(
+                owner,
+                release,
+                memledger::Kind::Arena,
+                memledger::charge::Door::Heap,
+                total as u64,
+            ));
             (block, cap)
         } else {
             // SAFETY: an anonymous private mapping of `total` bytes, zero-filled by the kernel on first touch.
-            let p = unsafe { libc::mmap(core::ptr::null_mut(), total, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_PRIVATE | libc::MAP_ANONYMOUS, -1, 0) };
+            let p = unsafe {
+                libc::mmap(
+                    core::ptr::null_mut(),
+                    total,
+                    libc::PROT_READ | libc::PROT_WRITE,
+                    libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
+                    -1,
+                    0,
+                )
+            };
             if p == libc::MAP_FAILED {
                 return None;
             }
             mempolicy::maps::name(p as *mut u8, total, c"pgrust:arena");
-            let ledger = unsafe { std::alloc::alloc(Layout::new::<MappedLedger>()) } as *mut MappedLedger; // alloc: Cold
+            let ledger =
+                unsafe { std::alloc::alloc(Layout::new::<MappedLedger>()) } as *mut MappedLedger; // alloc: Cold
             if ledger.is_null() {
                 unsafe { libc::munmap(p, total) };
                 return None;
             }
             let (owner, release) = arena_owner();
-            let charge = memledger::Charge::open(owner, release, memledger::Kind::Arena, memledger::charge::Door::Mapped, 0);
+            let charge = memledger::Charge::open(
+                owner,
+                release,
+                memledger::Kind::Arena,
+                memledger::charge::Door::Mapped,
+                0,
+            );
             // D4733: listed with nothing charged yet (`listed` follows each step of the charge)
-            let res = memledger::resident::register_at(p as usize, HDR * 8, 0, charge.acct(), true, false, charge.nr_home());
+            let res = memledger::resident::register_at(
+                p as usize,
+                HDR * 8,
+                0,
+                charge.acct(),
+                true,
+                false,
+                charge.nr_home(),
+            );
             // SAFETY: a fresh allocation of a `MappedLedger`'s layout; `Block::drop` takes it back as a box.
             unsafe { ledger.write(MappedLedger { charge, res }) };
             unsafe { *(p as *mut u64).add(3) = ledger as u64 };
-            (Block::Mapped { ptr: NonNull::new(p as *mut u64)?, bytes: total }, 0)
+            (
+                Block::Mapped {
+                    ptr: NonNull::new(p as *mut u64)?,
+                    bytes: total,
+                },
+                0,
+            )
         };
         // SAFETY: the block holds at least HDR words. A boxed or pooled block is charged whole (`boxed`: door 1, the pool's
         // door), a mapped one from nothing, a lazy span from the pages a warm one holds.
@@ -569,7 +701,10 @@ impl Arena {
             *block.ptr().add(2) = cap as u64 | recorded(from_pool);
             *block.ptr().add(1) = charged as u64;
         }
-        Some(Arena { boxed: pgsync::Mutex::new(boxed), block })
+        Some(Arena {
+            boxed: pgsync::Mutex::new(boxed),
+            block,
+        })
     }
 
     /// C8: a mapped block's pages move to owner `to`, released at `release` (a filed program's arenas go to the program
@@ -608,7 +743,14 @@ impl Arena {
             Block::Pooled { bytes, .. } => (bytes as u64, true),
             Block::Mapped { .. } => ((self.handle().charged_words() * 8) as u64, true),
             // D4784: a lazy span's charge also holds a warm span's committed pages past the capacity (`pool_block`)
-            Block::Lazy { .. } => (self.handle().charge().map_or((self.handle().charged_words() * 8) as u64, |c| c.committed()), true),
+            Block::Lazy { .. } => (
+                self.handle()
+                    .charge()
+                    .map_or((self.handle().charged_words() * 8) as u64, |c| {
+                        c.committed()
+                    }),
+                true,
+            ),
         }
     }
 
@@ -633,10 +775,20 @@ unsafe impl Allocator for ArenaRef {
     /// Landing 20: the arena's last block grows in place (a vector pushed past its capacity while nothing was
     /// allocated after it takes only the added words); any other block moves, as the default does. Without this every
     /// doubling left the old buffer behind, so a vector cost twice its final size of the fixed arena.
-    unsafe fn grow(&self, ptr: NonNull<u8>, old: Layout, new: Layout) -> Result<NonNull<[u8]>, AllocError> {
+    unsafe fn grow(
+        &self,
+        ptr: NonNull<u8>,
+        old: Layout,
+        new: Layout,
+    ) -> Result<NonNull<[u8]>, AllocError> {
         let off = ptr.as_ptr() as usize - self.data() as usize;
         let top = off.is_multiple_of(8) && off / 8 + words(old.size()) == self.used_words();
-        if old.size() > 0 && top && (ptr.as_ptr() as usize).is_multiple_of(new.align()) && (off / 8 + words(new.size()) <= self.charged_words() || self.charge_room(off / 8 + words(new.size()))) {
+        if old.size() > 0
+            && top
+            && (ptr.as_ptr() as usize).is_multiple_of(new.align())
+            && (off / 8 + words(new.size()) <= self.charged_words()
+                || self.charge_room(off / 8 + words(new.size())))
+        {
             // the words past the old block are unused, so zero (`reset_to` zeroes what it frees)
             self.set_used_words(off / 8 + words(new.size()));
             return Ok(NonNull::slice_from_raw_parts(ptr, words(new.size()) * 8));
@@ -662,19 +814,38 @@ mod door_tests {
         {
             let arena = Arena::new(16 << 20);
             let h = arena.handle();
-            assert_eq!(memledger::account_row(a).mapped_bytes, base, "a fresh mapping has nothing on account");
+            assert_eq!(
+                memledger::account_row(a).mapped_bytes,
+                base,
+                "a fresh mapping has nothing on account"
+            );
             let m = h.mark();
             h.alloc((3 << 20) - 4096);
             let charged = memledger::account_row(a).mapped_bytes - base;
             assert_eq!(charged, 3 << 20, "charged to the step past the bump");
             h.alloc(100);
-            assert_eq!(memledger::account_row(a).mapped_bytes - base, charged, "inside the charged step: no new charge");
+            assert_eq!(
+                memledger::account_row(a).mapped_bytes - base,
+                charged,
+                "inside the charged step: no new charge"
+            );
             h.reset_to(m);
-            assert_eq!(memledger::account_row(a).mapped_bytes - base, charged, "below KEEP_BYTES the pages stay, and so does the charge");
-            assert!(h.try_alloc((16 << 20) + 8).is_none(), "past the capacity: refused, nothing charged");
+            assert_eq!(
+                memledger::account_row(a).mapped_bytes - base,
+                charged,
+                "below KEEP_BYTES the pages stay, and so does the charge"
+            );
+            assert!(
+                h.try_alloc((16 << 20) + 8).is_none(),
+                "past the capacity: refused, nothing charged"
+            );
             assert_eq!(memledger::account_row(a).mapped_bytes - base, charged);
         }
-        assert_eq!(memledger::account_row(a).mapped_bytes, base, "the drop discharges the charged prefix");
+        assert_eq!(
+            memledger::account_row(a).mapped_bytes,
+            base,
+            "the drop discharges the charged prefix"
+        );
         // a boxed (small) arena is the allocator's: door 2 never charges it
         let small = Arena::new(4096);
         small.handle().alloc(4000);
@@ -688,7 +859,10 @@ mod door_tests {
     #[test]
     fn an_arena_stepped_under_one_account_leaves_it_when_another_resets_and_drops_it() {
         std::thread::spawn(|| {
-            let (a, b) = (memledger::Acct::backend(4070), memledger::Acct::backend(4071));
+            let (a, b) = (
+                memledger::Acct::backend(4070),
+                memledger::Acct::backend(4071),
+            );
             assert!(a.is_backend() && b.is_backend());
             memledger::bind_backend(4070, 9070);
             let mapped = |x: memledger::Acct| {
@@ -700,20 +874,35 @@ mod door_tests {
             let h = arena.handle();
             let m = h.mark();
             h.alloc((70 << 20) - 4096);
-            assert_eq!((mapped(a) - ba, mapped(b) - bb), (70 << 20, 0), "stepped under a");
+            assert_eq!(
+                (mapped(a) - ba, mapped(b) - bb),
+                (70 << 20, 0),
+                "stepped under a"
+            );
             {
                 let _in = memledger::charge::enter_as(memledger::Owner::Session(b));
                 h.reset_to(m);
             }
             // what stays charged: the kept prefix, to the step past it (Linux hands the rest back; elsewhere none)
             let kept = (h.charged_words() * 8) as i64;
-            assert!(kept < 70 << 20 || !cfg!(target_os = "linux"), "the reset handed pages back ({kept} bytes kept)");
-            assert_eq!((mapped(a) - ba, mapped(b) - bb), (kept, 0), "reset under b: the pages handed back leave a");
+            assert!(
+                kept < 70 << 20 || !cfg!(target_os = "linux"),
+                "the reset handed pages back ({kept} bytes kept)"
+            );
+            assert_eq!(
+                (mapped(a) - ba, mapped(b) - bb),
+                (kept, 0),
+                "reset under b: the pages handed back leave a"
+            );
             {
                 let _in = memledger::charge::enter_as(memledger::Owner::Session(b));
                 drop(arena);
             }
-            assert_eq!((mapped(a) - ba, mapped(b) - bb), (0, 0), "dropped under b: the rest leaves a, b never held it");
+            assert_eq!(
+                (mapped(a) - ba, mapped(b) - bb),
+                (0, 0),
+                "dropped under b: the rest leaves a, b never held it"
+            );
             memledger::unbind_backend();
         })
         .join()
@@ -730,14 +919,19 @@ mod door_tests {
     fn a_mapped_arenas_unwritten_pages_are_not_resident_on_its_account() {
         std::thread::spawn(|| {
             // b: a cache's account (no other test of this crate charges it), where a kept arena's charge can move
-            let (a, b) = (memledger::Acct::backend(4074), memledger::Acct::of(memledger::Consumer::CondCache));
+            let (a, b) = (
+                memledger::Acct::backend(4074),
+                memledger::Acct::of(memledger::Consumer::CondCache),
+            );
             memledger::bind_backend(4074, 9074);
             let row = |x: memledger::Acct| {
                 memledger::fold();
                 let r = memledger::account_row(x);
                 (r.mapped_bytes, r.not_resident_mapped_bytes)
             };
-            let pass = || assert!(memledger::resident::pass(pagegive::resident_bytes, usize::MAX).is_some());
+            let pass = || {
+                assert!(memledger::resident::pass(pagegive::resident_bytes, usize::MAX).is_some())
+            };
             let (ma, na) = row(a);
             let (mb, nb) = row(b);
             let arena = Arena::new(16 << 20);
@@ -749,14 +943,28 @@ mod door_tests {
             let (m, n) = row(a);
             let (charged, resident) = (m - ma, (m - ma) - (n - na));
             assert_eq!(charged, 8 << 20, "charged to the step past the bump");
-            assert!((1 << 20..=(1 << 20) + (2 << 20)).contains(&resident), "resident {resident} B of {charged} charged: the written MiB");
-            arena.transfer_charge(memledger::Owner::Cache(memledger::Holder::of_acct(b)), memledger::Release::Evict);
+            assert!(
+                (1 << 20..=(1 << 20) + (2 << 20)).contains(&resident),
+                "resident {resident} B of {charged} charged: the written MiB"
+            );
+            arena.transfer_charge(
+                memledger::Owner::Cache(memledger::Holder::of_acct(b)),
+                memledger::Release::Evict,
+            );
             pass();
             let ((m2, n2), (m3, n3)) = (row(a), row(b));
             assert_eq!((m2 - ma, n2 - na), (0, 0), "moved off a whole");
-            assert_eq!((m3 - mb, (m3 - mb) - (n3 - nb)), (charged, resident), "on b with its residency");
+            assert_eq!(
+                (m3 - mb, (m3 - mb) - (n3 - nb)),
+                (charged, resident),
+                "on b with its residency"
+            );
             drop(arena);
-            assert_eq!((row(a), row(b)), ((ma, na), (mb, nb)), "the drop takes it off");
+            assert_eq!(
+                (row(a), row(b)),
+                ((ma, na), (mb, nb)),
+                "the drop takes it off"
+            );
             memledger::unbind_backend();
         })
         .join()

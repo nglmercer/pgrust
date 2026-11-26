@@ -63,7 +63,10 @@ fn invalid_syntax_err(input: &[u8]) -> PgError {
         .with_sqlstate(ERRCODE_INVALID_TEXT_REPRESENTATION)
 }
 
-pub fn boolin(in_str: impl AsRef<[u8]>, escontext: Option<&mut SoftErrorContext>) -> PgResult<bool> {
+pub fn boolin(
+    in_str: impl AsRef<[u8]>,
+    escontext: Option<&mut SoftErrorContext>,
+) -> PgResult<bool> {
     let bytes = in_str.as_ref();
     let start = bytes
         .iter()

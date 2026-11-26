@@ -41,13 +41,36 @@ impl SharedSweep {
             ELEM_BITS => n.div_ceil(64),
             ELEM_I64 => n,
             ELEM_FP128 => 2 * n,
-            _ => return Err(crate::pg_err("gravity: a program table of an element the program cannot fill")),
+            _ => {
+                return Err(crate::pg_err(
+                    "gravity: a program table of an element the program cannot fill",
+                ))
+            }
         }
         .max(1);
         let words = super::raw::zeroed_words(data_words + n.div_ceil(64).max(1));
         let bytes = core::mem::size_of_val(&*words) as u64;
-        let charge = gravity_driver::stmt_context().map_or(memledger::Charge::NONE, |(o, r)| memledger::Charge::open(o, r, memledger::Kind::Region, memledger::charge::Door::Heap, bytes));
-        Ok(SharedSweep { _charge: charge, words, data_words, elem, ncodes, next: AtomicU64::new(0), done: AtomicU64::new(0), orphans: Mutex::new(Vec::new()), norphans: AtomicU64::new(0), total: AtomicU64::new(0) }) // alloc: Exec
+        let charge = gravity_driver::stmt_context().map_or(memledger::Charge::NONE, |(o, r)| {
+            memledger::Charge::open(
+                o,
+                r,
+                memledger::Kind::Region,
+                memledger::charge::Door::Heap,
+                bytes,
+            )
+        });
+        Ok(SharedSweep {
+            _charge: charge,
+            words,
+            data_words,
+            elem,
+            ncodes,
+            next: AtomicU64::new(0),
+            done: AtomicU64::new(0),
+            orphans: Mutex::new(Vec::new()),
+            norphans: AtomicU64::new(0),
+            total: AtomicU64::new(0),
+        }) // alloc: Exec
     }
 
     pub(super) fn elem(&self) -> u8 {
@@ -76,7 +99,10 @@ impl SharedSweep {
         if t != 0 {
             return (t - 1) as u32;
         }
-        let n: u64 = self.words[self.data_words..].iter().map(|w| w.load(Ordering::Relaxed).count_ones() as u64).sum();
+        let n: u64 = self.words[self.data_words..]
+            .iter()
+            .map(|w| w.load(Ordering::Relaxed).count_ones() as u64)
+            .sum();
         self.total.store(n + 1, Ordering::Release);
         n as u32
     }
@@ -103,11 +129,23 @@ pub(super) struct SweepShare {
 
 impl SweepShare {
     pub(super) fn shared(table: usize, sweep: Arc<SharedSweep>) -> SweepShare {
-        SweepShare { table, sweep: Some(sweep), cur: None, next: 0, ncodes: 0 }
+        SweepShare {
+            table,
+            sweep: Some(sweep),
+            cur: None,
+            next: 0,
+            ncodes: 0,
+        }
     }
 
     pub(super) fn alone(table: usize, ncodes: u32) -> SweepShare {
-        SweepShare { table, sweep: None, cur: None, next: 0, ncodes }
+        SweepShare {
+            table,
+            sweep: None,
+            cur: None,
+            next: 0,
+            ncodes,
+        }
     }
 
     /// `LANE_CLAIM`: the first code of this source's next chunk (the previous one is swept), the code count once every
@@ -162,11 +200,18 @@ pub struct StmtSweeps {
 
 impl StmtSweeps {
     pub(super) fn new() -> StmtSweeps {
-        StmtSweeps { map: Mutex::new(HashMap::new()) } // alloc: Exec
+        StmtSweeps {
+            map: Mutex::new(HashMap::new()),
+        } // alloc: Exec
     }
 
     /// The sweep at `key`, and whether this call made it (a source that joins one counts as a shared table).
-    pub(super) fn share(&self, key: StmtKey, elem: u8, ncodes: u32) -> PgResult<(Arc<SharedSweep>, bool)> {
+    pub(super) fn share(
+        &self,
+        key: StmtKey,
+        elem: u8,
+        ncodes: u32,
+    ) -> PgResult<(Arc<SharedSweep>, bool)> {
         let mut m = pgsync::lock(&self.map);
         if let Some(s) = m.get(&key).and_then(Weak::upgrade) {
             return Ok((s, false));
@@ -192,12 +237,24 @@ mod tests {
             let (stmt, _) = memledger::charge::context();
             let c = || memledger::charge::owner_row(stmt).committed;
             let sweeps = super::StmtSweeps::new();
-            let key = super::StmtKey { rel: 0, part: 3, attno: 1, fingerprint: 7 };
+            let key = super::StmtKey {
+                rel: 0,
+                part: 3,
+                attno: 1,
+                fingerprint: 7,
+            };
             let (a, made_a) = sweeps.share(key, super::ELEM_I64, 10_000).unwrap();
             let (b, made_b) = sweeps.share(key, super::ELEM_I64, 10_000).unwrap();
-            assert!(made_a && !made_b && std::sync::Arc::ptr_eq(&a, &b), "the second sharer joins the first's table");
+            assert!(
+                made_a && !made_b && std::sync::Arc::ptr_eq(&a, &b),
+                "the second sharer joins the first's table"
+            );
             let words = 10_000 + 10_000usize.div_ceil(64);
-            assert_eq!(c(), 8 * words as i64, "one charge on the statement: the data words and the fault bitmap");
+            assert_eq!(
+                c(),
+                8 * words as i64,
+                "one charge on the statement: the data words and the fault bitmap"
+            );
             drop(a);
             assert_eq!(c(), 8 * words as i64, "a sharer still holds it");
             drop(b);

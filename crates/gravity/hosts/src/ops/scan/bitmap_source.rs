@@ -18,13 +18,17 @@ use types_error::PgResult;
 use types_fmgr::LocalFcinfo;
 use types_rel::{Relation, RelationData};
 use types_relscan::IndexScanDescData;
-use types_scan::scankey::{ScanKeyData, SK_ROW_HEADER, SK_SEARCHARRAY, SK_SEARCHNOTNULL, SK_SEARCHNULL};
+use types_scan::scankey::{
+    ScanKeyData, SK_ROW_HEADER, SK_SEARCHARRAY, SK_SEARCHNOTNULL, SK_SEARCHNULL,
+};
 use types_slot::SlotData;
 use types_snapshot::SnapshotData;
 use types_storage::lock::NoLock;
 
-use crate::ops::scan::index_source::{heap_am, index_fetch_am, open_heap, open_index, park, pos_of, tid_of, SiteRecipe};
 use crate::ops::scan::heap_source::HeldCharge;
+use crate::ops::scan::index_source::{
+    heap_am, index_fetch_am, open_heap, open_index, park, pos_of, tid_of, SiteRecipe,
+};
 use crate::ops::scan::pgrc::granule_source::Resolved;
 use crate::ops::shared::rel::snapshot_of;
 use crate::scratch::NodeScratch;
@@ -90,7 +94,45 @@ impl BitmapSource {
         let mut keys = recipe.keys.clone();
         let rows = crate::ops::scan::bitmap_window::row_members(&recipe, &mut keys);
         let natts = recipe.natts;
-        BitmapSource { held: HeldCharge::new(), recipe, recheck, entry: None, keys, rows, heap: None, index: None, parked_heap: None, parked_index: None, scan: None, hscan: None, tbm: None, iter: tidbitmap::TbmIterator::empty(), slot: None, snapshot: None, substituted: None, fcinfo: LocalFcinfo::<2>::new(0), pos: ScanPos::NONE, open: false, bound: false, page_recheck: false, lossy_pages: 0, exact_pages: 0, row: vec![0; natts], row_valid: vec![0; natts], vbuf: vec![0; natts], nbuf: vec![0; natts], cur: Cursor::new(), scratch: NodeScratch::new("GravityBitmapSource").with_bind(), page: None, pages: true, tree: None, via_image: false, leaves: 0, pre: Default::default(), seek_images: Default::default() } // alloc: Node
+        BitmapSource {
+            held: HeldCharge::new(),
+            recipe,
+            recheck,
+            entry: None,
+            keys,
+            rows,
+            heap: None,
+            index: None,
+            parked_heap: None,
+            parked_index: None,
+            scan: None,
+            hscan: None,
+            tbm: None,
+            iter: tidbitmap::TbmIterator::empty(),
+            slot: None,
+            snapshot: None,
+            substituted: None,
+            fcinfo: LocalFcinfo::<2>::new(0),
+            pos: ScanPos::NONE,
+            open: false,
+            bound: false,
+            page_recheck: false,
+            lossy_pages: 0,
+            exact_pages: 0,
+            row: vec![0; natts],
+            row_valid: vec![0; natts],
+            vbuf: vec![0; natts],
+            nbuf: vec![0; natts],
+            cur: Cursor::new(),
+            scratch: NodeScratch::new("GravityBitmapSource").with_bind(),
+            page: None,
+            pages: true,
+            tree: None,
+            via_image: false,
+            leaves: 0,
+            pre: Default::default(),
+            seek_images: Default::default(),
+        } // alloc: Node
     }
 
     /// Derived at registry entry `i` (scan derive.rs): each bind takes the executing statement's recheck qual for that entry
@@ -112,7 +154,14 @@ impl BitmapSource {
     fn kept(&self) -> usize {
         use gravity_driver::vec_bytes as v;
         let rows = self.rows.iter().map(v).sum::<usize>();
-        v(&self.keys) + v(&self.rows) + rows + v(&self.row) + v(&self.row_valid) + v(&self.vbuf) + v(&self.nbuf) + self.page.as_ref().map_or(0, |p| p.kept_bytes())
+        v(&self.keys)
+            + v(&self.rows)
+            + rows
+            + v(&self.row)
+            + v(&self.row_valid)
+            + v(&self.vbuf)
+            + v(&self.nbuf)
+            + self.page.as_ref().map_or(0, |p| p.kept_bytes())
     }
 
     /// The bind's recheck qual: the executing statement's for a source at a registry entry (`at_entry`), else the one it
@@ -120,11 +169,19 @@ impl BitmapSource {
     /// is bound again at each later W8 execution). A rechecking entry without one in the binding's `Resolved` keeps the
     /// qual it holds, and errors when it holds none (its unbind dropped the last execution's).
     fn bind_recheck(&mut self, b: &BindingRef<'_>) -> PgResult<()> {
-        let Some((i, rechecks)) = self.entry else { return Ok(()) };
-        if let Some(f) = b.resolved.and_then(|r| r.downcast_ref::<Resolved>()).and_then(|r| r.recheck(i)) {
+        let Some((i, rechecks)) = self.entry else {
+            return Ok(());
+        };
+        if let Some(f) = b
+            .resolved
+            .and_then(|r| r.downcast_ref::<Resolved>())
+            .and_then(|r| r.recheck(i))
+        {
             self.recheck = Some(f);
         } else if rechecks && self.recheck.is_none() {
-            return Err(crate::pg_err("gravity: a parked bitmap source's bind without this execution's recheck qual"));
+            return Err(crate::pg_err(
+                "gravity: a parked bitmap source's bind without this execution's recheck qual",
+            ));
         }
         Ok(())
     }
@@ -140,7 +197,9 @@ impl BitmapSource {
     pub fn paged_by(mut self, desc: &gravity_program::SiteDesc) -> BitmapSource {
         let has = |id: gravity_program::LaneId| desc.lanes().iter().any(|l| l.id == id);
         if has(gravity_program::LaneId::RowId) {
-            self.page = Some(crate::ops::scan::bitmap_window::PageBatch::with_rowids(self.recipe.natts));
+            self.page = Some(crate::ops::scan::bitmap_window::PageBatch::with_rowids(
+                self.recipe.natts,
+            ));
             return self;
         }
         self.paged(has(gravity_program::LaneId::Offset))
@@ -175,18 +234,30 @@ impl BitmapSource {
     fn bind_pg(&mut self, snapshot: Rc<SnapshotData<'static>>) -> PgResult<()> {
         let mcx = self.scratch.mcx();
         let heap = open_heap(mcx, &self.parked_heap, self.recipe.heap)?;
-        let index = match open_index(mcx, &self.parked_index, self.recipe.index, self.recipe.index_lockmode) {
+        let index = match open_index(
+            mcx,
+            &self.parked_index,
+            self.recipe.index,
+            self.recipe.index_lockmode,
+        ) {
             Ok(i) => i,
             Err(e) => {
                 heap.close(NoLock)?;
                 return Err(e);
             }
         };
-        let stale = heap.rd_att.natts != self.recipe.heap_natts() || !index_fetch_am(&heap) || !index.rd_index.as_ref().is_some_and(|i| i.indisvalid && i.indrelid == heap.rd_id);
+        let stale = heap.rd_att.natts != self.recipe.heap_natts()
+            || !index_fetch_am(&heap)
+            || !index
+                .rd_index
+                .as_ref()
+                .is_some_and(|i| i.indisvalid && i.indrelid == heap.rd_id);
         if stale {
             index.close(NoLock)?;
             heap.close(NoLock)?;
-            return Err(crate::pg_err("gravity: relation changed under the parked plan"));
+            return Err(crate::pg_err(
+                "gravity: relation changed under the parked plan",
+            ));
         }
         if !heap.is_scannable() {
             // an unpopulated materialized view: PostgreSQL's ExecOpenScanRelation error (the heap walk's, heap_source.rs)
@@ -204,8 +275,13 @@ impl BitmapSource {
         // D2988: a RowId site's windows span sparse pages unless a LIMIT bounds the walk's read-ahead or the transaction is
         // SERIALIZABLE (a page read ahead is a SIREAD lock PostgreSQL never takes)
         if let Some(b) = self.page.as_mut() {
-            let serializable = xact_seams::isolation_is_serializable::is_installed() && xact_seams::isolation_is_serializable::call();
-            b.arm(&heap, &self.recipe.attnos, self.recipe.row_budget().is_none() && !serializable);
+            let serializable = xact_seams::isolation_is_serializable::is_installed()
+                && xact_seams::isolation_is_serializable::call();
+            b.arm(
+                &heap,
+                &self.recipe.attnos,
+                self.recipe.row_budget().is_none() && !serializable,
+            );
         }
         self.heap = Some(heap);
         self.index = Some(index);
@@ -218,16 +294,34 @@ impl BitmapSource {
 
     /// The bind's scans over the opened relations: the index's bitmap scan and the heap's, a tree's leaves (in the
     /// source's per-bind context, D3195), the slot (in its own context: it outlives them).
-    fn begin_scans(&mut self, heap: &Relation<'static>, index: &Relation<'static>, snapshot: &Rc<SnapshotData<'static>>) -> PgResult<()> {
+    fn begin_scans(
+        &mut self,
+        heap: &Relation<'static>,
+        index: &Relation<'static>,
+        snapshot: &Rc<SnapshotData<'static>>,
+    ) -> PgResult<()> {
         let (mcx, smcx) = (self.scratch.mcx(), self.scratch.bind_mcx());
-        self.scan = Some(indexam::index_beginscan_bitmap(smcx, index, snapshot.clone(), self.recipe.nkeys as i32)?);
-        self.hscan = Some(tableam::table_beginscan_bm(smcx, heap, Some(snapshot.clone()))?);
+        self.scan = Some(indexam::index_beginscan_bitmap(
+            smcx,
+            index,
+            snapshot.clone(),
+            self.recipe.nkeys as i32,
+        )?);
+        self.hscan = Some(tableam::table_beginscan_bm(
+            smcx,
+            heap,
+            Some(snapshot.clone()),
+        )?);
         self.pages = heap_am(heap);
         if let (false, Some(h)) = (self.pages, self.hscan.as_mut()) {
             let mut needed = vec![false; heap.rd_att.natts as usize]; // alloc: Node
-            // bounded("key-columns: one flag per read column, at most MaxTupleAttributeNumber (1664)")
+                                                                      // bounded("key-columns: one flag per read column, at most MaxTupleAttributeNumber (1664)")
             for &a in &self.recipe.attnos {
-                if let Some(x) = usize::try_from(a).ok().and_then(|a| a.checked_sub(1)).and_then(|i| needed.get_mut(i)) {
+                if let Some(x) = usize::try_from(a)
+                    .ok()
+                    .and_then(|a| a.checked_sub(1))
+                    .and_then(|i| needed.get_mut(i))
+                {
                     *x = true;
                 }
             }
@@ -308,12 +402,26 @@ impl BitmapSource {
     /// scan leader builds it; `None` when a key word makes the scan empty (a NULL comparison key). The source is bound
     /// and unbound here: it serves no window.
     /// A2 entry 2: `leaves` pool threads may walk a btree's leaves (`bitmap_image::getbitmap_wide`; < 2: the leader).
-    pub fn freeze(&mut self, snapshot: Rc<SnapshotData<'static>>, keys: &[Word], nulls: &[u8], leaves: u16) -> PgResult<Option<std::sync::Arc<tidbitmap::TbmSharedIterState>>> {
+    pub fn freeze(
+        &mut self,
+        snapshot: Rc<SnapshotData<'static>>,
+        keys: &[Word],
+        nulls: &[u8],
+        leaves: u16,
+    ) -> PgResult<Option<std::sync::Arc<tidbitmap::TbmSharedIterState>>> {
         self.bind_pg(snapshot)?;
         let built = (|| -> PgResult<Option<std::sync::Arc<tidbitmap::TbmSharedIterState>>> {
             let open = match self.tree.as_mut() {
                 Some(t) => t.seek(keys, nulls)?,
-                None => crate::ops::scan::bitmap_window::bind_words(&self.recipe, &mut self.keys, &mut self.rows, keys, nulls, &mut self.seek_images, &mut true)?,
+                None => crate::ops::scan::bitmap_window::bind_words(
+                    &self.recipe,
+                    &mut self.keys,
+                    &mut self.rows,
+                    keys,
+                    nulls,
+                    &mut self.seek_images,
+                    &mut true,
+                )?,
             };
             if !open {
                 return Ok(None);
@@ -346,23 +454,57 @@ impl BitmapSource {
         let tbm = match self.tree.as_mut() {
             Some(t) => t.build(mcx, maxbytes)?,
             None => {
-                let scan = self.scan.as_mut().ok_or_else(|| crate::pg_err("gravity: seek on an unbound bitmap source"))?;
+                let scan = self
+                    .scan
+                    .as_mut()
+                    .ok_or_else(|| crate::pg_err("gravity: seek on an unbound bitmap source"))?;
                 let mut tbm = tidbitmap::TIDBitmap::new(mcx, maxbytes);
                 // D433: a non-btree AM's = ANY keys scan once per element (hosts v4/m2_bitmap_array.rs)
-                let native = self.index.as_ref().is_some_and(|x| x.rd_rel.relam == crate::ops::scan::index_source::BTREE_AM_OID);
+                let native = self.index.as_ref().is_some_and(|x| {
+                    x.rd_rel.relam == crate::ops::scan::index_source::BTREE_AM_OID
+                });
                 // the morsel leader's build reads a btree through its image (the keys pass as they are: btree is native)
-                let imaged = match (self.via_image && native, self.index.as_ref(), self.snapshot.as_ref()) {
-                    (true, Some(index), Some(snapshot)) => match crate::ops::scan::bitmap_image::getbitmap_wide(index, snapshot, &self.keys[..n], scan.xactStartedInRecovery, self.leaves, maxbytes, &mut tbm)? {
-                        Some(n) => Some(n),
-                        None => crate::ops::scan::bitmap_image::getbitmap(mcx, index, snapshot, &self.keys[..n], scan.xactStartedInRecovery, &mut tbm)?,
-                    },
+                let imaged = match (
+                    self.via_image && native,
+                    self.index.as_ref(),
+                    self.snapshot.as_ref(),
+                ) {
+                    (true, Some(index), Some(snapshot)) => {
+                        match crate::ops::scan::bitmap_image::getbitmap_wide(
+                            index,
+                            snapshot,
+                            &self.keys[..n],
+                            scan.xactStartedInRecovery,
+                            self.leaves,
+                            maxbytes,
+                            &mut tbm,
+                        )? {
+                            Some(n) => Some(n),
+                            None => crate::ops::scan::bitmap_image::getbitmap(
+                                mcx,
+                                index,
+                                snapshot,
+                                &self.keys[..n],
+                                scan.xactStartedInRecovery,
+                                &mut tbm,
+                            )?,
+                        }
+                    }
                     _ => None,
                 };
                 let ntids = match imaged {
                     Some(n) => n,
-                    None => crate::ops::scan::bitmap_array::getbitmap(mcx, scan, &self.keys[..n], native, &mut tbm)?,
+                    None => crate::ops::scan::bitmap_array::getbitmap(
+                        mcx,
+                        scan,
+                        &self.keys[..n],
+                        native,
+                        &mut tbm,
+                    )?,
                 };
-                self.recipe.bitmap().add(crate::instr::BitmapCounts::NTIDS, ntids);
+                self.recipe
+                    .bitmap()
+                    .add(crate::instr::BitmapCounts::NTIDS, ntids);
                 tbm
             }
         };
@@ -374,20 +516,44 @@ impl BitmapSource {
         if !self.open {
             return Ok(0);
         }
-        let (Some(b), Some(hscan), Some(slot)) = (self.page.as_mut(), self.hscan.as_mut(), self.slot.as_mut()) else {
-            return Err(crate::pg_err("gravity: a bitmap page window on an unbound source"));
+        let (Some(b), Some(hscan), Some(slot)) =
+            (self.page.as_mut(), self.hscan.as_mut(), self.slot.as_mut())
+        else {
+            return Err(crate::pg_err(
+                "gravity: a bitmap page window on an unbound source",
+            ));
         };
         let at = (self.exact_pages, self.lossy_pages);
-        let parts = crate::ops::scan::bitmap_window::PageParts { mcx: self.scratch.exec_mcx(), hscan, tbm: self.tbm.as_ref(), iter: &mut self.iter, slot, recheck: self.recheck.as_ref(), page_recheck: &mut self.page_recheck, lossy: &mut self.lossy_pages, exact: &mut self.exact_pages, counts: self.recipe.bitmap(), filter: self.recipe.filter.as_ref(), pre: &mut self.pre };
+        let parts = crate::ops::scan::bitmap_window::PageParts {
+            mcx: self.scratch.exec_mcx(),
+            hscan,
+            tbm: self.tbm.as_ref(),
+            iter: &mut self.iter,
+            slot,
+            recheck: self.recheck.as_ref(),
+            page_recheck: &mut self.page_recheck,
+            lossy: &mut self.lossy_pages,
+            exact: &mut self.exact_pages,
+            counts: self.recipe.bitmap(),
+            filter: self.recipe.filter.as_ref(),
+            pre: &mut self.pre,
+        };
         let (rows, last) = b.fill(parts, self.recipe.heap, &self.recipe.attnos, w)?;
-        self.recipe.bitmap().pages(at, (self.exact_pages, self.lossy_pages));
+        self.recipe
+            .bitmap()
+            .pages(at, (self.exact_pages, self.lossy_pages));
         self.open = rows > 0;
         self.pos = last;
         Ok(rows)
     }
 
     /// The EPQ test (`IndexSource::next_substituted`): the newest version at `pos` against the keys as ordinary quals and the recheck qual.
-    fn next_substituted(&mut self, pos: ScanPos, values: &mut [Word], isnull: &mut [u8]) -> PgResult<bool> {
+    fn next_substituted(
+        &mut self,
+        pos: ScanPos,
+        values: &mut [Word],
+        isnull: &mut [u8],
+    ) -> PgResult<bool> {
         // mergecmd D1684: the empty row position a NULL REFERENCE mark stores (offset 0, a MERGE's NOT MATCHED BY SOURCE
         // row): no row, as the heap and index sources' (D2048), never a fetch at block 0 (an empty relation has none)
         if !pos.is_valid() || pos.off == 0 {
@@ -401,9 +567,15 @@ impl BitmapSource {
             return Ok(false);
         }
         // a tree's keys are several probes' (AND / OR): its recheck, the plan's `bitmapqualorig`, is the whole qual
-        let nkeys = if self.tree.is_some() { 0 } else { self.recipe.nkeys };
+        let nkeys = if self.tree.is_some() {
+            0
+        } else {
+            self.recipe.nkeys
+        };
         if self.tree.is_some() && self.recheck.is_none() {
-            return Err(crate::pg_err("gravity: a bitmap tree's substituted row without its recheck qual"));
+            return Err(crate::pg_err(
+                "gravity: a bitmap tree's substituted row without its recheck qual",
+            ));
         }
         // bounded("other: one recheck per scan key of the probe, which the statement's index quals bound")
         for i in 0..nkeys {
@@ -417,7 +589,8 @@ impl BitmapSource {
             }
             let search = self.keys[i].sk_flags & (SK_SEARCHNULL | SK_SEARCHNOTNULL);
             let mut null = false;
-            let d = exectuples::slot_getattr(slot, self.recipe.key_heap_attnos[i] as i32, &mut null);
+            let d =
+                exectuples::slot_getattr(slot, self.recipe.key_heap_attnos[i] as i32, &mut null);
             if search != 0 {
                 // D409: a null test key rechecks its column's nullness (IndexSource's substituted row, V4R-49)
                 if null != (search == SK_SEARCHNULL) {
@@ -486,7 +659,17 @@ impl Source for BitmapSource {
             return Ok(());
         }
         // the recipe's words (a null test has none, a row comparison one per member), as IndexSource binds them
-        if !crate::ops::scan::bitmap_window::bind_words(&self.recipe, &mut self.keys, &mut self.rows, keys, keys_null, &mut self.seek_images, &mut true).map_err(crate::stash)? {
+        if !crate::ops::scan::bitmap_window::bind_words(
+            &self.recipe,
+            &mut self.keys,
+            &mut self.rows,
+            keys,
+            keys_null,
+            &mut self.seek_images,
+            &mut true,
+        )
+        .map_err(crate::stash)?
+        {
             self.open = false;
             self.substituted = None;
             return Ok(());
@@ -524,8 +707,21 @@ impl Source for BitmapSource {
         for k in 0..natts {
             let null = self.nbuf[k] != 0;
             self.row_valid[k] = (!null) as u64;
-            let valid = if null { &self.row_valid[k] as *const u64 } else { core::ptr::null() };
-            w.set(k, Lane::byval(&self.row[k] as *const Word as *const u8, valid, 8, lane::REGION_ARENA, lane::id(lane::ID_ATTR, self.recipe.attnos[k] as u32)));
+            let valid = if null {
+                &self.row_valid[k] as *const u64
+            } else {
+                core::ptr::null()
+            };
+            w.set(
+                k,
+                Lane::byval(
+                    &self.row[k] as *const Word as *const u8,
+                    valid,
+                    8,
+                    lane::REGION_ARENA,
+                    lane::id(lane::ID_ATTR, self.recipe.attnos[k] as u32),
+                ),
+            );
         }
         if let Some(b) = self.page.as_mut() {
             b.one(self.pos, self.recipe.attnos.len(), w);
@@ -549,17 +745,34 @@ impl Source for BitmapSource {
         }
         if let Some(pos) = self.substituted.take() {
             self.open = false;
-            return self.next_substituted(pos, values, isnull).map_err(crate::stash);
+            return self
+                .next_substituted(pos, values, isnull)
+                .map_err(crate::stash);
         }
         let mcx = self.scratch.exec_mcx();
         // a tick per row visited, dropped or passed, as the index walk's (a row is a heap fetch, microseconds: a per-unit
         // tick)
         let mut step = cancelpoll::step("bitmap_source next: the bitmap walk's next row");
         loop {
-            let (hscan, slot) = (self.hscan.as_mut().expect("bound"), self.slot.as_mut().expect("bound"));
+            let (hscan, slot) = (
+                self.hscan.as_mut().expect("bound"),
+                self.slot.as_mut().expect("bound"),
+            );
             let at = (self.exact_pages, self.lossy_pages);
-            let found = tableam::table_scan_bitmap_next_tuple(mcx, hscan, self.tbm.as_ref(), &mut self.iter, slot, &mut self.page_recheck, &mut self.lossy_pages, &mut self.exact_pages).map_err(crate::stash)?;
-            self.recipe.bitmap().pages(at, (self.exact_pages, self.lossy_pages));
+            let found = tableam::table_scan_bitmap_next_tuple(
+                mcx,
+                hscan,
+                self.tbm.as_ref(),
+                &mut self.iter,
+                slot,
+                &mut self.page_recheck,
+                &mut self.lossy_pages,
+                &mut self.exact_pages,
+            )
+            .map_err(crate::stash)?;
+            self.recipe
+                .bitmap()
+                .pages(at, (self.exact_pages, self.lossy_pages));
             if !found {
                 self.open = false;
                 return Ok(false);
@@ -568,7 +781,9 @@ impl Source for BitmapSource {
             if self.page_recheck {
                 if let Some(f) = self.recheck.as_ref() {
                     if !f(slot).map_err(crate::stash)? {
-                        self.recipe.bitmap().add(crate::instr::BitmapCounts::REMOVED, 1);
+                        self.recipe
+                            .bitmap()
+                            .add(crate::instr::BitmapCounts::REMOVED, 1);
                         continue;
                     }
                 }
@@ -576,11 +791,14 @@ impl Source for BitmapSource {
             // D2988: the scan's qual pre-check (PageBatch::fill's)
             if let Some(f) = self.recipe.filter.as_ref().filter(|_| self.pre.on()) {
                 if !self.pre.check(f(slot)).map_err(crate::stash)? {
-                    self.recipe.bitmap().add(crate::instr::BitmapCounts::FILTERED, 1);
+                    self.recipe
+                        .bitmap()
+                        .add(crate::instr::BitmapCounts::FILTERED, 1);
                     continue;
                 }
             }
-            crate::ops::shared::heap_fetch::project(slot, &self.recipe.attnos, values, isnull).map_err(crate::stash)?;
+            crate::ops::shared::heap_fetch::project(slot, &self.recipe.attnos, values, isnull)
+                .map_err(crate::stash)?;
             self.pos = pos_of(self.recipe.heap, &slot.base().tts_tid);
             return Ok(true);
         }
@@ -600,10 +818,23 @@ impl Source for BitmapSource {
         }
         let mcx = self.scratch.exec_mcx();
         let tid = tid_of(self.pos);
-        let heap = self.heap.as_ref().ok_or_else(|| Error::host("refetch on an unbound source"))?;
+        let heap = self
+            .heap
+            .as_ref()
+            .ok_or_else(|| Error::host("refetch on an unbound source"))?;
         let snapshot = self.snapshot.as_ref().expect("bound");
         let slot = self.slot.as_mut().expect("bound");
-        crate::ops::shared::heap_fetch::fetch_by_tid(mcx, heap, &tid, snapshot, slot, &self.recipe.attnos, values, isnull).map_err(crate::stash)
+        crate::ops::shared::heap_fetch::fetch_by_tid(
+            mcx,
+            heap,
+            &tid,
+            snapshot,
+            slot,
+            &self.recipe.attnos,
+            values,
+            isnull,
+        )
+        .map_err(crate::stash)
     }
 
     fn substitute(&mut self, pos: ScanPos) {

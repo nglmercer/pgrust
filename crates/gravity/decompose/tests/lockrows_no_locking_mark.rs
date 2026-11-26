@@ -17,7 +17,9 @@ const SHARE_MARK: &str = ":markType 2 :allMarkTypes 4 :strength 2 :waitPolicy 1"
 const REFERENCE_MARK: &str = ":markType 4 :allMarkTypes 16 :strength 0 :waitPolicy 0";
 
 fn manifest_dir() -> PathBuf {
-    std::env::var_os("CARGO_MANIFEST_DIR").map(Into::into).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+    std::env::var_os("CARGO_MANIFEST_DIR")
+        .map(Into::into)
+        .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
 }
 
 /// The graph text (dump.rs, as tests/golden has it) and the number of lock ops over every pipeline; a refusal's line and 0.
@@ -29,7 +31,12 @@ fn decompose(text: &str) -> (String, usize) {
     let r = match decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx) {
         Ok(g) => {
             dump::dump(&g, &mut out).unwrap();
-            let locks = g.pipelines.iter().flat_map(|p| p.ops.iter()).filter(|o| matches!(o, Op::Lock(_))).count();
+            let locks = g
+                .pipelines
+                .iter()
+                .flat_map(|p| p.ops.iter())
+                .filter(|o| matches!(o, Op::Lock(_)))
+                .count();
             (out, locks)
         }
         Err(r) => {
@@ -41,26 +48,60 @@ fn decompose(text: &str) -> (String, usize) {
 }
 
 fn fixture() -> String {
-    fs::read_to_string(manifest_dir().join("tests/plans").join(format!("{FIXTURE}.plan"))).unwrap()
+    fs::read_to_string(
+        manifest_dir()
+            .join("tests/plans")
+            .join(format!("{FIXTURE}.plan")),
+    )
+    .unwrap()
 }
 
 #[test]
 fn a_lock_rows_with_a_locking_mark_keeps_its_lock_op() {
     let (graph, locks) = decompose(&fixture());
-    let golden = fs::read_to_string(manifest_dir().join("tests/golden").join(format!("{FIXTURE}.graph"))).unwrap();
-    assert_eq!(graph, golden, "{FIXTURE}: a LockRows with a locking mark decomposes as its golden");
+    let golden = fs::read_to_string(
+        manifest_dir()
+            .join("tests/golden")
+            .join(format!("{FIXTURE}.graph")),
+    )
+    .unwrap();
+    assert_eq!(
+        graph, golden,
+        "{FIXTURE}: a LockRows with a locking mark decomposes as its golden"
+    );
     assert_eq!(locks, 1, "{FIXTURE}: one lock op\n{graph}");
-    assert!(graph.contains("  lock rel=16395 Share Skip marks=(rti1:ROW_MARK_SHARE, rti2:ROW_MARK_REFERENCE)\n"), "{graph}");
+    assert!(
+        graph.contains(
+            "  lock rel=16395 Share Skip marks=(rti1:ROW_MARK_SHARE, rti2:ROW_MARK_REFERENCE)\n"
+        ),
+        "{graph}"
+    );
 }
 
 #[test]
 fn a_lock_rows_whose_every_mark_is_reference_passes_its_child() {
     let text = fixture();
-    assert_eq!(text.matches(SHARE_MARK).count(), 2, "{FIXTURE}: t's mark in the LockRows and in the statement's rowMarks");
+    assert_eq!(
+        text.matches(SHARE_MARK).count(),
+        2,
+        "{FIXTURE}: t's mark in the LockRows and in the statement's rowMarks"
+    );
     let (graph, locks) = decompose(&text.replace(SHARE_MARK, REFERENCE_MARK));
-    assert!(graph.contains("\ngraph pipelines="), "a LockRows with no locking mark decomposes:\n{graph}");
-    assert_eq!(locks, 0, "no lock op (ExecLockRows locks nothing there):\n{graph}");
+    assert!(
+        graph.contains("\ngraph pipelines="),
+        "a LockRows with no locking mark decomposes:\n{graph}"
+    );
+    assert_eq!(
+        locks, 0,
+        "no lock op (ExecLockRows locks nothing there):\n{graph}"
+    );
     assert!(!graph.contains("  lock "), "{graph}");
-    assert!(graph.contains(" serial site=1 reason=Lock "), "the statement stays serial past the LockRows:\n{graph}");
-    assert!(graph.contains("mapped: IndexScan NestLoop NestLoopParam LockRows PlanRowMark\n"), "{graph}");
+    assert!(
+        graph.contains(" serial site=1 reason=Lock "),
+        "the statement stays serial past the LockRows:\n{graph}"
+    );
+    assert!(
+        graph.contains("mapped: IndexScan NestLoop NestLoopParam LockRows PlanRowMark\n"),
+        "{graph}"
+    );
 }

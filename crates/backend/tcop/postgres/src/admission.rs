@@ -219,7 +219,10 @@ impl Drop for StatementAdmission {
 }
 
 pub(crate) fn finishes_prepared(tag: types_core::CommandTag) -> bool {
-    matches!(cmdtag::GetCommandTagNameAndLen(tag).0, "COMMIT PREPARED" | "ROLLBACK PREPARED")
+    matches!(
+        cmdtag::GetCommandTagNameAndLen(tag).0,
+        "COMMIT PREPARED" | "ROLLBACK PREPARED"
+    )
 }
 
 fn try_admit(limit: i32, defer_to_waiters: bool) -> bool {

@@ -306,6 +306,10 @@ fn scanner_errors_surface_in_parse_order() {
     ] {
         let err = replication_parse(input).unwrap_err();
         assert_eq!(err.message(), expected, "{input:?}");
-        assert_eq!(err.sqlstate(), types_error::ERRCODE_SYNTAX_ERROR, "{input:?}");
+        assert_eq!(
+            err.sqlstate(),
+            types_error::ERRCODE_SYNTAX_ERROR,
+            "{input:?}"
+        );
     }
 }

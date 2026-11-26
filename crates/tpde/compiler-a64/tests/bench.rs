@@ -180,7 +180,11 @@ fn capture_asm(directory: &Path, label: &str, exe: &Path, patterns: &[&str]) {
         fs::write(target, "UNRUN: llvm-nm/llvm-objdump unavailable\n").unwrap();
         return;
     };
-    let names = Command::new(&nm).arg("--defined-only").arg(exe).output().unwrap();
+    let names = Command::new(&nm)
+        .arg("--defined-only")
+        .arg(exe)
+        .output()
+        .unwrap();
     let mut symbols: Vec<String> = String::from_utf8_lossy(&names.stdout)
         .lines()
         .filter_map(|line| {
@@ -306,7 +310,12 @@ fn paired_raw_operation_cost_against_pinned_cpp() {
         &directory,
         "cpp",
         &binary,
-        &["RawCompiler", "FunctionWriter", "more_space", "compile_inst"],
+        &[
+            "RawCompiler",
+            "FunctionWriter",
+            "more_space",
+            "compile_inst",
+        ],
     );
     let counter = perf::Counter::new();
     let mut environment = String::new();

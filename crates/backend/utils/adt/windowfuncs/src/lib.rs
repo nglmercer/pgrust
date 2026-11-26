@@ -105,10 +105,7 @@ pub fn fc_window_dense_rank_support(
 }
 
 // int8inc_support (int8.c) handles only WFuncMonotonic; NULL otherwise.
-pub fn fc_int8inc_support(
-    _flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut Fcinfo,
-) -> PgResult<Datum> {
+pub fn fc_int8inc_support(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     window_support(fcinfo, false)
 }
 
@@ -141,25 +138,102 @@ pub const WINDOWFUNCS_BUILTINS: &[FmgrBuiltin] = &[
     builtin(3100, "window_row_number", 0, false, false, fc_win_internal),
     builtin(3101, "window_rank", 0, false, false, fc_win_internal),
     builtin(3102, "window_dense_rank", 0, false, false, fc_win_internal),
-    builtin(3103, "window_percent_rank", 0, false, false, fc_win_internal),
+    builtin(
+        3103,
+        "window_percent_rank",
+        0,
+        false,
+        false,
+        fc_win_internal,
+    ),
     builtin(3104, "window_cume_dist", 0, false, false, fc_win_internal),
     builtin(3105, "window_ntile", 1, true, false, fc_win_internal),
     builtin(3106, "window_lag", 1, true, false, fc_win_internal),
-    builtin(3107, "window_lag_with_offset", 2, true, false, fc_win_internal),
-    builtin(3108, "window_lag_with_offset_and_default", 3, true, false, fc_win_internal),
+    builtin(
+        3107,
+        "window_lag_with_offset",
+        2,
+        true,
+        false,
+        fc_win_internal,
+    ),
+    builtin(
+        3108,
+        "window_lag_with_offset_and_default",
+        3,
+        true,
+        false,
+        fc_win_internal,
+    ),
     builtin(3109, "window_lead", 1, true, false, fc_win_internal),
-    builtin(3110, "window_lead_with_offset", 2, true, false, fc_win_internal),
-    builtin(3111, "window_lead_with_offset_and_default", 3, true, false, fc_win_internal),
+    builtin(
+        3110,
+        "window_lead_with_offset",
+        2,
+        true,
+        false,
+        fc_win_internal,
+    ),
+    builtin(
+        3111,
+        "window_lead_with_offset_and_default",
+        3,
+        true,
+        false,
+        fc_win_internal,
+    ),
     builtin(3112, "window_first_value", 1, true, false, fc_win_internal),
     builtin(3113, "window_last_value", 1, true, false, fc_win_internal),
     builtin(3114, "window_nth_value", 2, true, false, fc_win_internal),
-    builtin(6233, "window_row_number_support", 1, true, false, fc_window_row_number_support),
-    builtin(6234, "window_rank_support", 1, true, false, fc_window_rank_support),
-    builtin(6235, "window_dense_rank_support", 1, true, false, fc_window_dense_rank_support),
+    builtin(
+        6233,
+        "window_row_number_support",
+        1,
+        true,
+        false,
+        fc_window_row_number_support,
+    ),
+    builtin(
+        6234,
+        "window_rank_support",
+        1,
+        true,
+        false,
+        fc_window_rank_support,
+    ),
+    builtin(
+        6235,
+        "window_dense_rank_support",
+        1,
+        true,
+        false,
+        fc_window_dense_rank_support,
+    ),
     builtin(6236, "int8inc_support", 1, true, false, fc_int8inc_support),
-    builtin(6306, "window_percent_rank_support", 1, true, false, fc_window_percent_rank_support),
-    builtin(6307, "window_cume_dist_support", 1, true, false, fc_window_cume_dist_support),
-    builtin(6308, "window_ntile_support", 1, true, false, fc_window_ntile_support),
+    builtin(
+        6306,
+        "window_percent_rank_support",
+        1,
+        true,
+        false,
+        fc_window_percent_rank_support,
+    ),
+    builtin(
+        6307,
+        "window_cume_dist_support",
+        1,
+        true,
+        false,
+        fc_window_cume_dist_support,
+    ),
+    builtin(
+        6308,
+        "window_ntile_support",
+        1,
+        true,
+        false,
+        fc_window_ntile_support,
+    ),
 ];
 
 #[cfg(test)]
@@ -178,11 +252,16 @@ mod tests {
         let mut fci = LocalFcinfo::<1>::new(0);
         fci.set_arg(0, Datum::from_usize(&req as *const _ as usize));
         assert_eq!(
-            fc_window_row_number_support(None, &mut fci).unwrap().as_usize(),
+            fc_window_row_number_support(None, &mut fci)
+                .unwrap()
+                .as_usize(),
             0
         );
         assert_eq!(fc_int8inc_support(None, &mut fci).unwrap().as_usize(), 0);
-        assert_eq!(fc_window_ntile_support(None, &mut fci).unwrap().as_usize(), 0);
+        assert_eq!(
+            fc_window_ntile_support(None, &mut fci).unwrap().as_usize(),
+            0
+        );
     }
 
     // int8inc_support ignores OptimizeWindowClause (C returns NULL there too).

@@ -53,8 +53,20 @@ pub unsafe fn render(site: *mut Site, lane: u8, word: u64) -> Result<Option<*con
 /// fingerprint words).
 /// # Safety — `a`, `b` are live records of `layout`; `site` as `render`.
 #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
-pub unsafe fn count_better(layout: &RecordLayout, off_count: usize, reps: &Reps, flags: Option<usize>, text: u32, site: *mut Site, a: *const u8, b: *const u8) -> bool {
-    let (ca, cb) = (*(a.add(off_count) as *const u64) & !MOVING, *(b.add(off_count) as *const u64) & !MOVING);
+pub unsafe fn count_better(
+    layout: &RecordLayout,
+    off_count: usize,
+    reps: &Reps,
+    flags: Option<usize>,
+    text: u32,
+    site: *mut Site,
+    a: *const u8,
+    b: *const u8,
+) -> bool {
+    let (ca, cb) = (
+        *(a.add(off_count) as *const u64) & !MOVING,
+        *(b.add(off_count) as *const u64) & !MOVING,
+    );
     if ca != cb {
         return (ca as i64) > (cb as i64);
     }
@@ -95,11 +107,19 @@ fn int_text(v: i64, buf: &mut [u8; 20]) -> &[u8] {
 /// # Safety — as `count_better`; `flags` names the flags words of `layout`'s records.
 #[inline(always)]
 #[allow(clippy::missing_safety_doc)]
-pub unsafe fn keys_better(layout: &RecordLayout, reps: &Reps, flags: Option<usize>, text: u32, site: *mut Site, a: *const u8, b: *const u8) -> bool {
+pub unsafe fn keys_better(
+    layout: &RecordLayout,
+    reps: &Reps,
+    flags: Option<usize>,
+    text: u32,
+    site: *mut Site,
+    a: *const u8,
+    b: *const u8,
+) -> bool {
     // the loop stops at the flags word, so the flags words must follow the image words directly and end the key words
     // (lowerv4 rec.rs `flags_word`): a slot between them would skip keys
     debug_assert!(
-        flags.is_none_or( |f| f + flag_words(image_keys(layout, f)) == layout.nkeys()),
+        flags.is_none_or(|f| f + flag_words(image_keys(layout, f)) == layout.nkeys()),
         "a count top's flags words follow its image words and end its key words"
     );
     let (mut k, mut t, mut i) = (0usize, 0usize, 0usize);
@@ -113,7 +133,10 @@ pub unsafe fn keys_better(layout: &RecordLayout, reps: &Reps, flags: Option<usiz
                     return (wa, ha) < (wb, hb);
                 }
                 let off = layout.slot_off(slot as usize) as usize;
-                let (ra, rb) = (render(site, lane, *(a.add(off) as *const u64)), render(site, lane, *(b.add(off) as *const u64)));
+                let (ra, rb) = (
+                    render(site, lane, *(a.add(off) as *const u64)),
+                    render(site, lane, *(b.add(off) as *const u64)),
+                );
                 return match (ra, rb) {
                     (Ok(Some(pa)), Ok(Some(pb))) => varlena_bytes(pa) < varlena_bytes(pb),
                     // a NULL (no representative code) orders after every text: the only NULL placement a count top claims
@@ -130,7 +153,10 @@ pub unsafe fn keys_better(layout: &RecordLayout, reps: &Reps, flags: Option<usiz
         }
         if let Some(f) = flags {
             let (w, bit) = flag_at(i);
-            let (na, nb) = (*(a as *const u64).add(f + w) >> bit & 1, *(b as *const u64).add(f + w) >> bit & 1);
+            let (na, nb) = (
+                *(a as *const u64).add(f + w) >> bit & 1,
+                *(b as *const u64).add(f + w) >> bit & 1,
+            );
             if na | nb != 0 {
                 if na != nb {
                     return nb != 0;
@@ -156,7 +182,11 @@ pub unsafe fn keys_better(layout: &RecordLayout, reps: &Reps, flags: Option<usiz
 fn image_keys(layout: &RecordLayout, words: usize) -> usize {
     let (mut k, mut i) = (0usize, 0usize);
     while k < words {
-        k += if layout.key_kind(k) == KeyKind::Fp128 { 2 } else { 1 };
+        k += if layout.key_kind(k) == KeyKind::Fp128 {
+            2
+        } else {
+            1
+        };
         i += 1;
     }
     i
@@ -170,7 +200,10 @@ pub fn pack_slot(slot: u8, reps: &Reps) -> [u64; REP_WORDS] {
     let mut w = [0u64; REP_WORDS];
     w[0] = slot as u64;
     for (t, &(s, l)) in reps.iter().enumerate() {
-        assert!(s == REP_NONE || l < 64, "a representative's lane fits six bits");
+        assert!(
+            s == REP_NONE || l < 64,
+            "a representative's lane fits six bits"
+        );
         let j = t % 4;
         w[t / 4] |= (s as u64) << (8 + 8 * j) | ((l & 63) as u64) << (40 + 6 * j);
     }
@@ -194,31 +227,94 @@ mod null_key_tests {
     use super::*;
 
     /// Two word keys and their flags word, as a count top's record of nullable int keys carries them.
-    const L: RecordLayout = RecordLayout::new(&[KeyKind::I64, KeyKind::I32, KeyKind::I64], &[SlotKind::Count]);
+    const L: RecordLayout = RecordLayout::new(
+        &[KeyKind::I64, KeyKind::I32, KeyKind::I64],
+        &[SlotKind::Count],
+    );
     const NO_REPS: Reps = [(REP_NONE, 0); MAX_REPS];
 
     fn before(a: [i64; 3], b: [i64; 3], flags: Option<usize>) -> bool {
-        let rec = |k: [i64; 3]| { let mut r = [0u64; 8]; r[..3].copy_from_slice(&k.map(|w| w as u64)); r };
+        let rec = |k: [i64; 3]| {
+            let mut r = [0u64; 8];
+            r[..3].copy_from_slice(&k.map(|w| w as u64));
+            r
+        };
         let (ra, rb) = (rec(a), rec(b));
         // SAFETY: both records hold the layout's words; no key is a fingerprint, so `site` is never read
-        unsafe { keys_better(&L, &NO_REPS, flags, 0, core::ptr::null_mut(), ra.as_ptr() as *const u8, rb.as_ptr() as *const u8) }
+        unsafe {
+            keys_better(
+                &L,
+                &NO_REPS,
+                flags,
+                0,
+                core::ptr::null_mut(),
+                ra.as_ptr() as *const u8,
+                rb.as_ptr() as *const u8,
+            )
+        }
     }
 
     #[test]
     fn an_int_text_key_orders_by_its_decimal_text() {
-        let mut v = [i64::MIN, -100, -20, -1, 0, 1, 9, 10, 99, 100, 1000, i64::MAX, 512345678901234567];
-        v.sort_by(|&a, &b| if int_text_less(a, b) { core::cmp::Ordering::Less } else if int_text_less(b, a) { core::cmp::Ordering::Greater } else { core::cmp::Ordering::Equal });
+        let mut v = [
+            i64::MIN,
+            -100,
+            -20,
+            -1,
+            0,
+            1,
+            9,
+            10,
+            99,
+            100,
+            1000,
+            i64::MAX,
+            512345678901234567,
+        ];
+        v.sort_by(|&a, &b| {
+            if int_text_less(a, b) {
+                core::cmp::Ordering::Less
+            } else if int_text_less(b, a) {
+                core::cmp::Ordering::Greater
+            } else {
+                core::cmp::Ordering::Equal
+            }
+        });
         let mut t: Vec<String> = v.iter().map(|x| x.to_string()).collect(); // alloc: Cold
-        let want = { let mut w = t.clone(); w.sort(); w }; // alloc: Cold
+        let want = {
+            let mut w = t.clone();
+            w.sort();
+            w
+        }; // alloc: Cold
         assert_eq!(t, want);
         t.dedup();
         assert_eq!(t.len(), v.len());
-        let rec = |k: [i64; 3]| { let mut r = [0u64; 8]; r[..3].copy_from_slice(&k.map(|w| w as u64)); r };
+        let rec = |k: [i64; 3]| {
+            let mut r = [0u64; 8];
+            r[..3].copy_from_slice(&k.map(|w| w as u64));
+            r
+        };
         let (ra, rb) = (rec([10, 0, 0]), rec([9, 0, 0]));
         // SAFETY: both records hold the layout's words; no key is a fingerprint
         unsafe {
-            assert!(keys_better(&L, &NO_REPS, None, 0b1, core::ptr::null_mut(), ra.as_ptr() as *const u8, rb.as_ptr() as *const u8)); // '10' < '9'
-            assert!(!keys_better(&L, &NO_REPS, None, 0, core::ptr::null_mut(), ra.as_ptr() as *const u8, rb.as_ptr() as *const u8));
+            assert!(keys_better(
+                &L,
+                &NO_REPS,
+                None,
+                0b1,
+                core::ptr::null_mut(),
+                ra.as_ptr() as *const u8,
+                rb.as_ptr() as *const u8
+            )); // '10' < '9'
+            assert!(!keys_better(
+                &L,
+                &NO_REPS,
+                None,
+                0,
+                core::ptr::null_mut(),
+                ra.as_ptr() as *const u8,
+                rb.as_ptr() as *const u8
+            ));
         }
     }
 
@@ -226,9 +322,12 @@ mod null_key_tests {
     fn a_null_word_key_orders_after_every_value() {
         let f = Some(2);
         assert!(!before([0, 5, 0b01], [0, 5, 0], f) && before([0, 5, 0], [0, 5, 0b01], f)); // NULL against 0, its image word
-        assert!(!before([0, 0, 0b01], [i64::MIN, 0, 0], f) && before([i64::MIN, 0, 0], [0, 0, 0b01], f));
+        assert!(
+            !before([0, 0, 0b01], [i64::MIN, 0, 0], f) && before([i64::MIN, 0, 0], [0, 0, 0b01], f)
+        );
         assert!(!before([0, 0, 0b01], [i64::MAX, 0, 0], f));
-        assert!(before([1, 9, 0], [1, 0, 0b10], f) && !before([1, 0, 0b10], [1, 9, 0], f)); // the second key's flag
+        assert!(before([1, 9, 0], [1, 0, 0b10], f) && !before([1, 0, 0b10], [1, 9, 0], f));
+        // the second key's flag
     }
 
     #[test]
@@ -270,12 +369,19 @@ mod slot_word_tests {
         assert_eq!(w[0] as u8, 5);
         assert_eq!(unpack_slot(&w), reps);
         assert_eq!(unpack_slot(&pack_slot(0, &reps)), reps);
-        assert_eq!(unpack_slot(&pack_slot(0, &[(REP_NONE, 0); MAX_REPS])), [(REP_NONE, 0); MAX_REPS]);
+        assert_eq!(
+            unpack_slot(&pack_slot(0, &[(REP_NONE, 0); MAX_REPS])),
+            [(REP_NONE, 0); MAX_REPS]
+        );
         // one per record slot: every slot a representative, past the first word's four
         let all: Reps = core::array::from_fn(|t| (t as u8, (63 - t) as u8));
         assert_eq!(MAX_REPS, gravity_abi::breaker::MAX_RECORD_SLOTS);
         assert_eq!(unpack_slot(&pack_slot(2, &all)), all);
         let four: Reps = core::array::from_fn(|t| if t < 4 { all[t] } else { (REP_NONE, 0) });
-        assert_eq!(pack_slot(2, &all)[0], pack_slot(2, &four)[0], "word 0 is the first four's, as the one-word codec wrote it");
+        assert_eq!(
+            pack_slot(2, &all)[0],
+            pack_slot(2, &four)[0],
+            "word 0 is the first four's, as the one-word codec wrote it"
+        );
     }
 }

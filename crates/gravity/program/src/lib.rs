@@ -2,9 +2,9 @@
 
 pub mod arena;
 pub mod cache;
-pub mod externs;
 pub mod code;
 pub mod cost;
+pub mod externs;
 #[cfg(feature = "hand")]
 pub mod hand;
 pub mod laneset;
@@ -15,21 +15,37 @@ pub mod rep;
 pub mod spill;
 pub mod twin;
 
-pub use arena::{Arena, ArenaBox, ArenaRef, ArenaVec, Mark, Scope};
 /// planprod P1-b: the list-allocator bound of the descriptors generic over their lists' home (`protos::V4Descs<A>`,
 /// `lifetime::Lifetimes<A>`), for readers that take either form.
 pub use allocator_api2::alloc::Allocator;
+pub use arena::{Arena, ArenaBox, ArenaRef, ArenaVec, Mark, Scope};
 pub use cache::{CacheStats, Generation, Handle, PlanKey, ProgramCache};
 // NEW-72 entry B: a bound zone predicate's forms (`ZonePred::bound`), on a line of their own
 pub use program::{BOUND_FIXED_HASH, BOUND_FIXED_PREFIX, BOUND_TEXT_HASH, BOUND_TEXT_PREFIX};
 // construct C2 D1: an exact licence's proof (`LicenceStamp::Exact`), on a line of its own
-pub use program::{ProofCheck, ProofStamp};
 pub use code::{Code, Entry, Owner};
 pub use laneset::LaneSet;
 pub use lives::{Life, LifeBytes, LifeId};
-pub use rep::{DictRef, ExprLife, ExprOut, FnLife, Home, LaneLife, NumTypmod, NumForm, Rep, Until, NUM_WORD_DIGITS};
-pub use program::{record_layout, record_layout_at, shred_kind, table_fn, ClaimKind, Cmd, Conflict, ContentKey, End, ExportKeys, GranuleMarks, IndexPlan, KeyCheck, CheckStep, CHECK_ADD, CHECK_CAST, CHECK_KEY_NULLABLE, CHECK_MUL, CHECK_NEG, CHECK_NONE, CHECK_RSUB, CHECK_SUB, KEY_CHECK_KEYS, LaneDesc, LaneId, Layout, LockKind, MergeAttnos, OutCol, OwnerCtor, OwnerDesc, RUNS_TOP_HEAP, Parallel, Pipeline, Program, Reason, RouteLeaf, RoutePlan, ShredDecl, SiteDesc, SiteKind, SlotPlan, TableDecl, TopKDesc, TwoPassDesc, WaitPolicy, WordsDesc, WritePlan, ZoneOp, ZonePred, AheadTag, LicenceStamp, END_RATE_NONE, END_RATE_ONE, ACC_PAIRS, ACC_SLOT_BASE, MAX_REPS, NULL_ARG_NONE, OBSERVE_KEY, OBSERVE_KEY_FLAGGED, OBSERVE_NONE, TIE_FLAGS_NONE, RANGE_KEYS, REP_NONE};
-pub use program::{bind_estimates, estimates_out, heap_width, source_serial, step_serial, NestProbe, NestShape, PipeEst, SourceShape, StepShape};
+pub use program::{
+    bind_estimates, estimates_out, heap_width, source_serial, step_serial, NestProbe, NestShape,
+    PipeEst, SourceShape, StepShape,
+};
+pub use program::{
+    record_layout, record_layout_at, shred_kind, table_fn, AheadTag, CheckStep, ClaimKind, Cmd,
+    Conflict, ContentKey, End, ExportKeys, GranuleMarks, IndexPlan, KeyCheck, LaneDesc, LaneId,
+    Layout, LicenceStamp, LockKind, MergeAttnos, OutCol, OwnerCtor, OwnerDesc, Parallel, Pipeline,
+    Program, Reason, RouteLeaf, RoutePlan, ShredDecl, SiteDesc, SiteKind, SlotPlan, TableDecl,
+    TopKDesc, TwoPassDesc, WaitPolicy, WordsDesc, WritePlan, ZoneOp, ZonePred, ACC_PAIRS,
+    ACC_SLOT_BASE, CHECK_ADD, CHECK_CAST, CHECK_KEY_NULLABLE, CHECK_MUL, CHECK_NEG, CHECK_NONE,
+    CHECK_RSUB, CHECK_SUB, END_RATE_NONE, END_RATE_ONE, KEY_CHECK_KEYS, MAX_REPS, NULL_ARG_NONE,
+    OBSERVE_KEY, OBSERVE_KEY_FLAGGED, OBSERVE_NONE, RANGE_KEYS, REP_NONE, RUNS_TOP_HEAP,
+    TIE_FLAGS_NONE,
+};
+pub use program::{ProofCheck, ProofStamp};
+pub use rep::{
+    DictRef, ExprLife, ExprOut, FnLife, Home, LaneLife, NumForm, NumTypmod, Rep, Until,
+    NUM_WORD_DIGITS,
+};
 pub mod protos;
 
 /// The sanity bounds by contract (milestone-2.md §2.6 item 30): named refusals, never array sizes. Each is at least
@@ -67,11 +83,20 @@ pub mod limits {
 }
 
 const _: () = {
-    assert!(limits::LANES >= 1600, "a relation's columns: MaxHeapAttributeNumber");
+    assert!(
+        limits::LANES >= 1600,
+        "a relation's columns: MaxHeapAttributeNumber"
+    );
     assert!(limits::KEYS == 32, "an index's key columns: INDEX_MAX_KEYS");
-    assert!(limits::PIPELINES == u16::MAX as usize && limits::RESULT_RELATIONS == u16::MAX as usize, "the u16 id spaces");
+    assert!(
+        limits::PIPELINES == u16::MAX as usize && limits::RESULT_RELATIONS == u16::MAX as usize,
+        "the u16 id spaces"
+    );
     assert!(limits::INDEXES == u16::MAX as usize, "the u16 index count");
     assert!(limits::ROUTE_LEAVES == limits::RESULT_RELATIONS);
-    assert!(limits::BREAKERS == u8::MAX as usize + 1, "the breaker record's u8 slot");
+    assert!(
+        limits::BREAKERS == u8::MAX as usize + 1,
+        "the breaker record's u8 slot"
+    );
     assert!(limits::KERNEL_WORDS <= limits::PARAM_WORDS);
 };

@@ -4,9 +4,9 @@
 //! scripts created) has no properties, and every fact that reads one is false: taken as volatile, non-strict, not leakproof,
 //! hashing in no opfamily.
 
-pub(crate) mod procfacts;
 /// The agg family's sibling file of the home: its moved planning-half decisions.
 pub mod agg;
+pub(crate) mod procfacts;
 
 // The effects home (v5 interfaces §2.2): what running some code may do, read from the catalog-generated table above (or
 // `pg_proc` on the server, through `Facts::func`), and the licence a departure from PostgreSQL's executor needs.
@@ -20,26 +20,38 @@ pub mod setop;
 mod sort;
 mod user;
 
-pub use licence::{accepted, deny_all, deny_all_bounded, denying, denying_bounded, exact, exact_first, grants, held_error, licence, licence_unchecked, lowering, quiet_ahead, statement_acts, statement_rechecks, take_acted, unobservable, volatile_free, whole_read, whole_read_local, Denied, Departure, Licence, Proof, ProofKind};
-pub use read::{bit_index_class, body, call_local, CallLocal, divisor_class, each_list_text, unit_class, json_is_quiet, leakproof, numeric_typmod_class, of_call, of_expr, of_list, of_ops, of_plan, of_statement, of_statement_acts, pattern_good, pattern_list, pattern_list_good, pattern_operand, pattern_quiet, plan_word, pool_safe, pure, quiet_args, quiet_call, quiet_pairs, quiet_node, quiet_pattern, quiet_pattern_list, row_compare_quiet, sample_class, text_arg_class, xml_quiet, Cx, Scope, PLAIN};
 pub use fold::{raises_by_order, scan_raises};
+pub use licence::{
+    accepted, deny_all, deny_all_bounded, denying, denying_bounded, exact, exact_first, grants,
+    held_error, licence, licence_unchecked, lowering, quiet_ahead, statement_acts,
+    statement_rechecks, take_acted, unobservable, volatile_free, whole_read, whole_read_local,
+    Denied, Departure, Licence, Proof, ProofKind,
+};
+pub use read::{
+    bit_index_class, body, call_local, divisor_class, each_list_text, json_is_quiet, leakproof,
+    numeric_typmod_class, of_call, of_expr, of_list, of_ops, of_plan, of_statement,
+    of_statement_acts, pattern_good, pattern_list, pattern_list_good, pattern_operand,
+    pattern_quiet, plan_word, pool_safe, pure, quiet_args, quiet_call, quiet_node, quiet_pairs,
+    quiet_pattern, quiet_pattern_list, row_compare_quiet, sample_class, text_arg_class, unit_class,
+    xml_quiet, CallLocal, Cx, Scope, PLAIN,
+};
 pub use sort::{reads_raising_sort, sort_raises};
 
+pub use read::agg_oid_quiet;
 pub use read::agg_quiet;
-pub use read::quiet_collated;
-pub use read::like_image_quiet;
+/// D3816: the acting set's one answer to "a call acts" (F5's `Found::acts` and lowerv4's acting reading ask it).
+pub use read::call_acts;
 /// A call's input collation is set (or nothing it reads is collatable): the one collation rule every raise-free reading
 /// asks for a call, a ScalarArrayOpExpr or a GREATEST / LEAST ("could not determine which collation" otherwise).
 pub use read::collation_set;
 /// ops/window.rs D1354: an expression acts (its VOLATILE reading), with no raise reading.
 pub use read::expr_acts;
-/// D3816: the acting set's one answer to "a call acts" (F5's `Found::acts` and lowerv4's acting reading ask it).
-pub use read::call_acts;
-pub use read::{of_join, of_source};
-pub use read::agg_oid_quiet;
-pub use read::{num_bounded, num_digits};
+pub use read::like_image_quiet;
 /// One node's own facts, its children apart (a reader that walks the children itself).
 pub use read::of_node;
+pub use read::quiet_collated;
+pub use read::{num_bounded, num_digits};
+pub use read::{of_join, of_source};
 /// D2044: a call that is user code (its raise can leave SPI, GUC or snapshot state behind).
 pub use read::{runs_named_code, user_code};
 /// The one answer to "a call runs user code" (F5 and the lowering's readings ask it).
@@ -79,7 +91,8 @@ pub fn agg_calls(f: &dyn crate::catalog::Facts, oid: u32) -> AggCalls {
     if oid < crate::catalog::typefacts::FIRST_NORMAL_OID {
         return AggCalls::Own;
     }
-    f.agg_support(oid).map_or(AggCalls::NoRow, AggCalls::Support)
+    f.agg_support(oid)
+        .map_or(AggCalls::NoRow, AggCalls::Support)
 }
 
 /// One more call of aggregate `oid`'s final function on a state it already finalized (a top's order pass, then the emit):
@@ -114,30 +127,63 @@ pub fn of_agg_sorts(f: &dyn crate::catalog::Facts, n: types_nodes::Node<'_>) -> 
     let mut hit = false;
     crate::expr::walk(n, &mut |x| {
         if let Some(r) = x.as_aggref() {
-            let col = |i: u32| r.args.iter().filter_map(|t| t.as_target_entry()).find(|t| t.ressortgroupref == i).and_then(|t| crate::catalog::expr_type::type_of(t.expr)).is_some_and(|t| t >= FIRST_NORMAL_OID && of_compare(f, t).acts);
-            hit |= r.aggorder.iter().chain(r.aggdistinct.iter()).filter_map(|c| c.as_sort_group_clause()).any(|c| c.sortop >= FIRST_NORMAL_OID || c.eqop >= FIRST_NORMAL_OID || col(c.tleSortGroupRef));
+            let col = |i: u32| {
+                r.args
+                    .iter()
+                    .filter_map(|t| t.as_target_entry())
+                    .find(|t| t.ressortgroupref == i)
+                    .and_then(|t| crate::catalog::expr_type::type_of(t.expr))
+                    .is_some_and(|t| t >= FIRST_NORMAL_OID && of_compare(f, t).acts)
+            };
+            hit |= r
+                .aggorder
+                .iter()
+                .chain(r.aggdistinct.iter())
+                .filter_map(|c| c.as_sort_group_clause())
+                .any(|c| {
+                    c.sortop >= FIRST_NORMAL_OID
+                        || c.eqop >= FIRST_NORMAL_OID
+                        || col(c.tleSortGroupRef)
+                });
         }
         !hit
     });
-    if hit { Effects::ACTS } else { Effects::NONE }
+    if hit {
+        Effects::ACTS
+    } else {
+        Effects::NONE
+    }
 }
 
 /// A table AM may run operator `opno` on every row (`rows_zone_form`): its function is an IMMUTABLE LEAKPROOF builtin.
 pub fn am_pushable(opno: u32, opfuncid: u32) -> bool {
-    let func = if opfuncid != 0 { Some(opfuncid) } else { builtin_oper(opno).map(|p| p.code) };
-    func.and_then(builtin_func).is_some_and(|f| f.volatility == Volatility::Immutable && f.leakproof)
+    let func = if opfuncid != 0 {
+        Some(opfuncid)
+    } else {
+        builtin_oper(opno).map(|p| p.code)
+    };
+    func.and_then(builtin_func)
+        .is_some_and(|f| f.volatility == Volatility::Immutable && f.leakproof)
 }
 
 /// A scan of index `indexid` keyed by operators `opnos`: the operators' functions when every key column's operator class
 /// reaches only initdb functions (D2063's `IndexOpc`, all key columns: skip scan reads key-less leading ones) and each
 /// operator is an initdb one; else unknown (a user's support function, or a user operator, runs per probe).
-pub fn of_index(f: &dyn crate::catalog::Facts, indexid: u32, opnos: impl IntoIterator<Item = u32>) -> Effects {
+pub fn of_index(
+    f: &dyn crate::catalog::Facts,
+    indexid: u32,
+    opnos: impl IntoIterator<Item = u32>,
+) -> Effects {
     if !f.index_opc(indexid).all() {
         return Effects::UNKNOWN;
     }
     opnos.into_iter().fold(Effects::NONE, |e, op| {
         e.and(match f.oper(op) {
-            Some(p) if op < crate::catalog::typefacts::FIRST_NORMAL_OID && p.code != 0 && !p.poly => of_call(f, p.code),
+            Some(p)
+                if op < crate::catalog::typefacts::FIRST_NORMAL_OID && p.code != 0 && !p.poly =>
+            {
+                of_call(f, p.code)
+            }
             _ => Effects::UNKNOWN,
         })
     })
@@ -167,7 +213,9 @@ fn of_procs(f: &dyn crate::catalog::Facts, typid: u32, hash: bool) -> Effects {
 /// `of_procs` at nesting `depth` of composite columns (at most 8 levels, as lowerv4's `type_free`; deeper: unknown).
 fn of_procs_at(f: &dyn crate::catalog::Facts, typid: u32, hash: bool, depth: u8) -> Effects {
     crate::walk::stack_check(); // D3748
-    let Some(t) = crate::catalog::typefacts::facts_of(f, typid) else { return Effects::UNKNOWN };
+    let Some(t) = crate::catalog::typefacts::facts_of(f, typid) else {
+        return Effects::UNKNOWN;
+    };
     let pseudo = crate::catalog::pseudo_type(f, typid);
     // AGC-20: a named composite (a domain over one keys as its base) compares by initdb's record_eq / btrecordcmp and
     // hashes by hash_record (`quiet::RECORD_KEY_PROCS`), which call each live column's own default procs (rowtypes.c; a
@@ -176,22 +224,41 @@ fn of_procs_at(f: &dyn crate::catalog::Facts, typid: u32, hash: bool, depth: u8)
     // unknown.
     if !pseudo && f.type_row(t.base).is_some_and(|b| b.typtype == b'c') {
         let mut cols = Effects::NONE;
-        if depth >= 8 || !f.row_cols(t.base, &mut |a| cols = cols.and(of_procs_at(f, a.typid, hash, depth + 1))) {
+        if depth >= 8
+            || !f.row_cols(t.base, &mut |a| {
+                cols = cols.and(of_procs_at(f, a.typid, hash, depth + 1))
+            })
+        {
             return Effects::UNKNOWN;
         }
         let [eq, cmp, h] = types_core::quiet::RECORD_KEY_PROCS.map(|r| r.0);
-        return [eq, cmp, if hash { h } else { 0 }].into_iter().filter(|&p| p != 0).fold(cols, |e, p| e.and(of_call(f, p)));
+        return [eq, cmp, if hash { h } else { 0 }]
+            .into_iter()
+            .filter(|&p| p != 0)
+            .fold(cols, |e, p| e.and(of_call(f, p)));
     }
     // AGC-20: an enum (a domain over one keys as its base, `facts_of`) is no row of the builtin type table, but every enum
     // compares and hashes by initdb's enum_eq, enum_cmp and hashenum over pg_enum's sort order (`quiet::ENUM_KEY_PROCS`)
     let enum_ = t.image.is_enum();
-    let [eq, cmp, h] = if enum_ { types_core::quiet::ENUM_KEY_PROCS.map(|r| r.0) } else { [t.eq, t.cmp, t.hash] };
+    let [eq, cmp, h] = if enum_ {
+        types_core::quiet::ENUM_KEY_PROCS.map(|r| r.0)
+    } else {
+        [t.eq, t.cmp, t.hash]
+    };
     let known = (crate::catalog::typefacts::row_of(t.base).is_some() || enum_) && !pseudo;
     let procs = [eq, cmp, if hash { h } else { 0 }];
-    if !known || eq == 0 || procs.iter().any(|&p| p >= crate::catalog::typefacts::FIRST_NORMAL_OID) {
+    if !known
+        || eq == 0
+        || procs
+            .iter()
+            .any(|&p| p >= crate::catalog::typefacts::FIRST_NORMAL_OID)
+    {
         return Effects::UNKNOWN;
     }
-    procs.into_iter().filter(|&p| p != 0).fold(Effects::NONE, |e, p| e.and(of_call(f, p)))
+    procs
+        .into_iter()
+        .filter(|&p| p != 0)
+        .fold(Effects::NONE, |e, p| e.and(of_call(f, p)))
 }
 
 /// Whether a sort or DISTINCT clause's ordering operator runs user code beyond its column type's own comparator: an
@@ -200,7 +267,10 @@ fn of_procs_at(f: &dyn crate::catalog::Facts, typid: u32, hash: bool, depth: u8)
 /// DISTINCT) and an operator the source never saw are user code.
 pub fn user_order(f: &dyn crate::catalog::Facts, sortop: u32) -> bool {
     use crate::catalog::typefacts::FIRST_NORMAL_OID;
-    !crate::facts::order::default_order(f, sortop) && (sortop == 0 || sortop >= FIRST_NORMAL_OID || f.oper(sortop).is_none_or(|o| o.code >= FIRST_NORMAL_OID))
+    !crate::facts::order::default_order(f, sortop)
+        && (sortop == 0
+            || sortop >= FIRST_NORMAL_OID
+            || f.oper(sortop).is_none_or(|o| o.code >= FIRST_NORMAL_OID))
 }
 
 /// D2719 / D2640 (group lane): whether a group key of type `typid` under equality operator `op` compares by user code or
@@ -208,7 +278,8 @@ pub fn user_order(f: &dyn crate::catalog::Facts, sortop: u32) -> bool {
 /// PostgreSQL groups by the operator's procedure there, which the key's image does not stand for (a streamed sorted
 /// group calls it, decompose ops/agg `KeyDecl::user_eq`). No operator, or a built-in one, is not.
 pub fn user_group_eq(f: &dyn crate::catalog::Facts, op: u32, typid: u32) -> bool {
-    op >= crate::catalog::typefacts::FIRST_NORMAL_OID && crate::catalog::keysem::eq_not_image(f, op, typid)
+    op >= crate::catalog::typefacts::FIRST_NORMAL_OID
+        && crate::catalog::keysem::eq_not_image(f, op, typid)
 }
 
 /// D2036: hash clause `c` (a hash join's, or a catalog nest's in its form) is under no builtin hashable equality
@@ -217,7 +288,8 @@ pub fn user_group_eq(f: &dyn crate::catalog::Facts, op: u32, typid: u32) -> bool
 /// and the probe runs it on each candidate whose images are equal (lowerv4 keys.rs `confirms`), as PG's bucket scan runs it
 /// on each hash-equal tuple.
 pub fn user_hash_clause(facts: &dyn crate::catalog::Facts, c: types_nodes::Node<'_>) -> bool {
-    c.as_op_expr().is_some_and(|o| crate::join::hash_valued(facts, o))
+    c.as_op_expr()
+        .is_some_and(|o| crate::join::hash_valued(facts, o))
 }
 
 /// D2013 slice 2, Road A (main 2026-10-04T20:45:39Z; the user's VOLATILE ruling of 2026-10-04: counts free, at least one
@@ -240,7 +312,12 @@ pub fn hoist_ok(e: Effects, exact: bool) -> bool {
 /// copies raise is one PostgreSQL raises, perhaps from another pair (`occurred_on BETWEEN released_on AND released_on +
 /// 6`: date_pli may raise). The raising inner stays out: its fill runs ahead of every arm, and its licences are lowerv4's
 /// held-error forms.
-pub fn union_nest_quiet(invariant: bool, raise_free: bool, volatility: Volatility, qual: Effects) -> bool {
+pub fn union_nest_quiet(
+    invariant: bool,
+    raise_free: bool,
+    volatility: Volatility,
+    qual: Effects,
+) -> bool {
     invariant && raise_free && volatility != Volatility::Volatile && !qual.acts
 }
 
@@ -257,13 +334,33 @@ pub struct Effects {
 }
 
 impl Effects {
-    pub const NONE: Effects = Effects { acts: false, may_raise: false, same_rows: true };
-    pub const RAISES: Effects = Effects { acts: false, may_raise: true, same_rows: true };
-    pub const ACTS: Effects = Effects { acts: true, may_raise: false, same_rows: false };
-    pub const UNKNOWN: Effects = Effects { acts: true, may_raise: true, same_rows: false };
+    pub const NONE: Effects = Effects {
+        acts: false,
+        may_raise: false,
+        same_rows: true,
+    };
+    pub const RAISES: Effects = Effects {
+        acts: false,
+        may_raise: true,
+        same_rows: true,
+    };
+    pub const ACTS: Effects = Effects {
+        acts: true,
+        may_raise: false,
+        same_rows: false,
+    };
+    pub const UNKNOWN: Effects = Effects {
+        acts: true,
+        may_raise: true,
+        same_rows: false,
+    };
 
     pub const fn and(self, o: Effects) -> Effects {
-        Effects { acts: self.acts || o.acts, may_raise: self.may_raise || o.may_raise, same_rows: self.same_rows && o.same_rows }
+        Effects {
+            acts: self.acts || o.acts,
+            may_raise: self.may_raise || o.may_raise,
+            same_rows: self.same_rows && o.same_rows,
+        }
     }
 }
 
@@ -278,11 +375,23 @@ pub struct SubEffects {
 }
 
 impl SubEffects {
-    pub const NONE: SubEffects = SubEffects { effects: Effects::NONE, user_code: false, order_call: false };
-    pub const UNKNOWN: SubEffects = SubEffects { effects: Effects::UNKNOWN, user_code: true, order_call: true };
+    pub const NONE: SubEffects = SubEffects {
+        effects: Effects::NONE,
+        user_code: false,
+        order_call: false,
+    };
+    pub const UNKNOWN: SubEffects = SubEffects {
+        effects: Effects::UNKNOWN,
+        user_code: true,
+        order_call: true,
+    };
 
     pub const fn and(self, o: SubEffects) -> SubEffects {
-        SubEffects { effects: self.effects.and(o.effects), user_code: self.user_code || o.user_code, order_call: self.order_call || o.order_call }
+        SubEffects {
+            effects: self.effects.and(o.effects),
+            user_code: self.user_code || o.user_code,
+            order_call: self.order_call || o.order_call,
+        }
     }
 }
 
@@ -327,7 +436,12 @@ pub struct FuncProps {
 impl FuncProps {
     /// A pg_proc row's provolatile and proparallel letters with its proisstrict and proleakproof (a plan capture's
     /// `-- func` line, corpus.rs); none for a letter pg_proc never holds.
-    pub fn of_letters(volatility: &str, strict: bool, leakproof: bool, parallel: &str) -> Option<FuncProps> {
+    pub fn of_letters(
+        volatility: &str,
+        strict: bool,
+        leakproof: bool,
+        parallel: &str,
+    ) -> Option<FuncProps> {
         let volatility = match volatility {
             "i" => Volatility::Immutable,
             "s" => Volatility::Stable,
@@ -340,13 +454,22 @@ impl FuncProps {
             "u" => Parallel::Unsafe,
             _ => return None,
         };
-        Some(FuncProps { volatility, strict, leakproof, parallel })
+        Some(FuncProps {
+            volatility,
+            strict,
+            leakproof,
+            parallel,
+        })
     }
 
     /// A call to `funcid` on a pool: a builtin's `proparallel`; a user function's is taken as Unsafe whatever its mark
     /// (main 09-28: conservative, its InitPlan stays lazy).
     pub fn pool(&self, funcid: u32) -> Parallel {
-        if funcid < crate::catalog::typefacts::FIRST_NORMAL_OID { self.parallel } else { Parallel::Unsafe }
+        if funcid < crate::catalog::typefacts::FIRST_NORMAL_OID {
+            self.parallel
+        } else {
+            Parallel::Unsafe
+        }
     }
 }
 
@@ -369,7 +492,9 @@ pub struct OperProps {
 /// A builtin function's properties (`procfacts::PROCS`); none for an oid outside the builtin catalog.
 pub fn builtin_func(oid: u32) -> Option<FuncProps> {
     let oid = u16::try_from(oid).ok()?;
-    let i = crate::effects::procfacts::PROCS.binary_search_by_key(&oid, |r| r.0).ok()?;
+    let i = crate::effects::procfacts::PROCS
+        .binary_search_by_key(&oid, |r| r.0)
+        .ok()?;
     let f = crate::effects::procfacts::PROCS[i].1;
     let volatility = match f & 3 {
         0 => Volatility::Immutable,
@@ -381,16 +506,25 @@ pub fn builtin_func(oid: u32) -> Option<FuncProps> {
         1 => Parallel::Restricted,
         _ => Parallel::Unsafe,
     };
-    Some(FuncProps { volatility, strict: f & 4 != 0, leakproof: f & 8 != 0, parallel })
+    Some(FuncProps {
+        volatility,
+        strict: f & 4 != 0,
+        leakproof: f & 8 != 0,
+        parallel,
+    })
 }
 
 /// D3577: builtin `oid` is a LANGUAGE sql function (`procfacts::PROCS` bit 6): initdb's `select $2 + $1` commutators
 /// (`interval_pl_timestamp`, `integer_pl_date`, ...) and the like, which PostgreSQL runs through the SQL function manager
 /// (or inlines); false for an oid outside the builtin catalog.
 pub fn builtin_sql_body(oid: u32) -> bool {
-    let Ok(oid) = u16::try_from(oid) else { return false };
+    let Ok(oid) = u16::try_from(oid) else {
+        return false;
+    };
     let procs = crate::effects::procfacts::PROCS;
-    procs.binary_search_by_key(&oid, |r| r.0).is_ok_and(|i| procs[i].1 & 64 != 0)
+    procs
+        .binary_search_by_key(&oid, |r| r.0)
+        .is_ok_and(|i| procs[i].1 & 64 != 0)
 }
 
 /// A pattern match's form (DC-14, the constant-pattern rule `read::quiet_pattern` applies).
@@ -409,7 +543,9 @@ pub enum Pattern {
 /// a user function whatever its name included.
 pub fn builtin_pattern(funcid: u32) -> Option<Pattern> {
     let oid = u16::try_from(funcid).ok()?;
-    let i = crate::effects::procfacts::PATTERNS.binary_search_by_key(&oid, |r| r.0).ok()?;
+    let i = crate::effects::procfacts::PATTERNS
+        .binary_search_by_key(&oid, |r| r.0)
+        .ok()?;
     match crate::effects::procfacts::PATTERNS[i].1 {
         1 => Some(Pattern::Like),
         2 => Some(Pattern::ILike),
@@ -434,7 +570,9 @@ pub enum ExtractSource {
 /// name included.
 pub fn builtin_extract(funcid: u32) -> Option<ExtractSource> {
     let oid = u16::try_from(funcid).ok()?;
-    let i = crate::effects::procfacts::EXTRACTS.binary_search_by_key(&oid, |r| r.0).ok()?;
+    let i = crate::effects::procfacts::EXTRACTS
+        .binary_search_by_key(&oid, |r| r.0)
+        .ok()?;
     Some(match crate::effects::procfacts::EXTRACTS[i].1 {
         1 => ExtractSource::Date,
         2 => ExtractSource::Time,
@@ -449,7 +587,8 @@ pub fn builtin_extract(funcid: u32) -> Option<ExtractSource> {
 /// `OPER_ROW`, no search: normalize asks it of compares the front walk keys (`commute`, `detext`'s negator).
 pub fn builtin_oper(oid: u32) -> Option<OperProps> {
     let row = *OPER_ROW.get(usize::try_from(oid).ok()?)?;
-    let (_, code, fam, f, com, neg) = *crate::effects::procfacts::OPERS.get(usize::from(row).checked_sub(1)?)?;
+    let (_, code, fam, f, com, neg) =
+        *crate::effects::procfacts::OPERS.get(usize::from(row).checked_sub(1)?)?;
     Some(OperProps {
         code: code as u32,
         canhash: f & 1 != 0,
@@ -464,7 +603,8 @@ pub fn builtin_oper(oid: u32) -> Option<OperProps> {
 /// `procfacts::OPERS`' row of each operator oid, as 1 + its index (0: no builtin operator), built at compile time from the
 /// sorted table (one row per oid): the row its binary search found, for every oid.
 static OPER_ROW: [u16; OPER_OIDS] = oper_rows();
-const OPER_OIDS: usize = crate::effects::procfacts::OPERS[crate::effects::procfacts::OPERS.len() - 1].0 as usize + 1;
+const OPER_OIDS: usize =
+    crate::effects::procfacts::OPERS[crate::effects::procfacts::OPERS.len() - 1].0 as usize + 1;
 
 const fn oper_rows() -> [u16; OPER_OIDS] {
     let t = crate::effects::procfacts::OPERS;
@@ -482,14 +622,16 @@ const fn oper_rows() -> [u16; OPER_OIDS] {
 /// asks it of each compare it keys, two to three times (normalize's `retype_class`, `implied_class_of`).
 pub fn builtin_btree_member(opno: u32) -> Option<(u32, u32, u32, u8)> {
     let row = *BTREE_ROW.get(usize::try_from(opno).ok()?)?;
-    let &(_, fam, l, r, s) = crate::effects::procfacts::BTREE.get(usize::from(row).checked_sub(1)?)?;
+    let &(_, fam, l, r, s) =
+        crate::effects::procfacts::BTREE.get(usize::from(row).checked_sub(1)?)?;
     Some((fam as u32, l as u32, r as u32, s))
 }
 
 /// `procfacts::BTREE`'s first row of each operator oid, as 1 + its index (0: the operator is in no builtin btree family),
 /// built at compile time from the sorted table: the row its binary search found (`partition_point`), for every oid.
 static BTREE_ROW: [u16; BTREE_OIDS] = btree_rows();
-const BTREE_OIDS: usize = crate::effects::procfacts::BTREE[crate::effects::procfacts::BTREE.len() - 1].0 as usize + 1;
+const BTREE_OIDS: usize =
+    crate::effects::procfacts::BTREE[crate::effects::procfacts::BTREE.len() - 1].0 as usize + 1;
 
 const fn btree_rows() -> [u16; BTREE_OIDS] {
     let t = crate::effects::procfacts::BTREE;
@@ -505,15 +647,25 @@ const fn btree_rows() -> [u16; BTREE_OIDS] {
 
 /// The builtin btree family's operator for `(lefttype, righttype, strategy)` (`get_opfamily_member`); none when it has none.
 pub fn builtin_btree_op(family: u32, left: u32, right: u32, strategy: u8) -> Option<u32> {
-    let row = (u16::try_from(family).ok()?, u16::try_from(left).ok()?, u16::try_from(right).ok()?, strategy);
-    crate::effects::procfacts::BTREE.iter().find(|r| (r.1, r.2, r.3, r.4) == row).map(|r| r.0 as u32)
+    let row = (
+        u16::try_from(family).ok()?,
+        u16::try_from(left).ok()?,
+        u16::try_from(right).ok()?,
+        strategy,
+    );
+    crate::effects::procfacts::BTREE
+        .iter()
+        .find(|r| (r.1, r.2, r.3, r.4) == row)
+        .map(|r| r.0 as u32)
 }
 
 /// A builtin type's `(typinput, typoutput)` (`procfacts::TYPES`, array types through array_in / array_out); none for a type
 /// outside the builtin catalog (a user type or domain: its I/O calls are unknown).
 pub fn builtin_type_io(typid: u32) -> Option<(u32, u32)> {
     let typid = u16::try_from(typid).ok()?;
-    let i = crate::effects::procfacts::TYPES.binary_search_by_key(&typid, |r| r.0).ok()?;
+    let i = crate::effects::procfacts::TYPES
+        .binary_search_by_key(&typid, |r| r.0)
+        .ok()?;
     let (_, input, output) = crate::effects::procfacts::TYPES[i];
     Some((input as u32, output as u32))
 }
@@ -522,7 +674,9 @@ pub fn builtin_type_io(typid: u32) -> Option<(u32, u32)> {
 /// none outside the builtin catalog or for a type with no array (PostgreSQL raises "could not find array type").
 pub fn builtin_promoted_array(typid: u32) -> Option<u32> {
     let typid = u16::try_from(typid).ok()?;
-    let i = crate::effects::procfacts::PROMOTED.binary_search_by_key(&typid, |r| r.0).ok()?;
+    let i = crate::effects::procfacts::PROMOTED
+        .binary_search_by_key(&typid, |r| r.0)
+        .ok()?;
     Some(crate::effects::procfacts::PROMOTED[i].1 as u32)
 }
 
@@ -545,14 +699,20 @@ mod tests {
         for opno in (0..=last + 70).chain([70_000, u32::MAX]) {
             assert_eq!(builtin_btree_member(opno), searched(opno), "{opno}");
         }
-        assert!(t.windows(2).any(|w| w[0].0 == w[1].0), "the table holds an operator in two families");
+        assert!(
+            t.windows(2).any(|w| w[0].0 == w[1].0),
+            "the table holds an operator in two families"
+        );
     }
 
     /// `builtin_oper`'s table is the binary search's answer for every oid (the table holds each operator once).
     #[test]
     fn oper_by_table_is_the_searched_row() {
         let t = procfacts::OPERS;
-        assert!(t.windows(2).all(|w| w[0].0 < w[1].0), "sorted, one row per operator");
+        assert!(
+            t.windows(2).all(|w| w[0].0 < w[1].0),
+            "sorted, one row per operator"
+        );
         let searched = |oid: u32| {
             let oid = u16::try_from(oid).ok()?;
             let (_, code, fam, f, com, neg) = t[t.binary_search_by_key(&oid, |r| r.0).ok()?];
@@ -560,7 +720,15 @@ mod tests {
         };
         let last = u32::from(t[t.len() - 1].0);
         for oid in (0..=last + 70).chain([70_000, u32::MAX]) {
-            let got = builtin_oper(oid).map(|o| (o.code as u16, o.hash_family as u16, (o.canhash as u8) | ((o.canmerge as u8) << 1) | ((o.poly as u8) << 2), o.commutator as u16, o.negator as u16));
+            let got = builtin_oper(oid).map(|o| {
+                (
+                    o.code as u16,
+                    o.hash_family as u16,
+                    (o.canhash as u8) | ((o.canmerge as u8) << 1) | ((o.poly as u8) << 2),
+                    o.commutator as u16,
+                    o.negator as u16,
+                )
+            });
             assert_eq!(got, searched(oid), "{oid}");
         }
     }
@@ -585,11 +753,23 @@ mod tests {
             for c in [100, 950, 951] {
                 assert!(read::quiet_collated(no, f, c), "{f} under {c}");
             }
-            assert!(!read::quiet_collated(no, f, 0) && !read::quiet_collated(no, f, 12345), "{f}: unset, another collation");
-            assert!(!read::quiet_call(no, f), "{f}: not quiet apart from its collation");
+            assert!(
+                !read::quiet_collated(no, f, 0) && !read::quiet_collated(no, f, 12345),
+                "{f}: unset, another collation"
+            );
+            assert!(
+                !read::quiet_call(no, f),
+                "{f}: not quiet apart from its collation"
+            );
         }
-        assert!(!read::quiet_collated(no, 3848, 100), "lower(anyrange): not the rule's");
-        assert!(!read::quiet_collated(no, 20100, 100), "a user function the facts run no builtin for");
+        assert!(
+            !read::quiet_collated(no, 3848, 100),
+            "lower(anyrange): not the rule's"
+        );
+        assert!(
+            !read::quiet_collated(no, 20100, 100),
+            "a user function the facts run no builtin for"
+        );
     }
 
     /// Arguments of different implicit collations leave a call's input collation indeterminate (0): a collation-aware
@@ -601,23 +781,70 @@ mod tests {
         use types_nodes::{Node, NodeList};
         let ctx = mcx::MemoryContext::new("collation-set");
         let m = ctx.mcx();
-        let v = |coll: u32, t: u32| Node::mk(m, Var { vartype: t, varcollid: coll, ..Default::default() }).unwrap();
+        let v = |coll: u32, t: u32| {
+            Node::mk(
+                m,
+                Var {
+                    vartype: t,
+                    varcollid: coll,
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+        };
         let (c, posix) = (950, 951);
         let text2 = NodeList::make2(m, v(c, 25), v(posix, 25)).unwrap();
         let (texteq, text_lt) = (67, 740);
-        assert!(!read::collation_set(texteq, 0, &text2), "C vs POSIX: indeterminate");
-        assert!(!read::collation_set(text_lt, 0, &text2), "text_lt: varstr_cmp's check_collation_set");
-        assert!(!read::collation_set(0, 0, &text2), "a comparison by the type's family (MinMaxExpr)");
-        assert!(read::collation_set(texteq, c, &text2), "a COLLATE clause sets it");
+        assert!(
+            !read::collation_set(texteq, 0, &text2),
+            "C vs POSIX: indeterminate"
+        );
+        assert!(
+            !read::collation_set(text_lt, 0, &text2),
+            "text_lt: varstr_cmp's check_collation_set"
+        );
+        assert!(
+            !read::collation_set(0, 0, &text2),
+            "a comparison by the type's family (MinMaxExpr)"
+        );
+        assert!(
+            read::collation_set(texteq, c, &text2),
+            "a COLLATE clause sets it"
+        );
         let int2 = NodeList::make2(m, v(0, 23), v(0, 23)).unwrap();
-        assert!(read::collation_set(texteq, 0, &int2), "no collatable argument");
-        for (f, name) in [(2160, "~<~"), (2161, "~<=~"), (2163, "~>=~"), (2164, "~>~"), (2166, "bttext_pattern_cmp"), (1258, "||")] {
-            assert!(read::collation_set(f, 0, &text2), "{name} over text reads no collation");
+        assert!(
+            read::collation_set(texteq, 0, &int2),
+            "no collatable argument"
+        );
+        for (f, name) in [
+            (2160, "~<~"),
+            (2161, "~<=~"),
+            (2163, "~>=~"),
+            (2164, "~>~"),
+            (2166, "bttext_pattern_cmp"),
+            (1258, "||"),
+        ] {
+            assert!(
+                read::collation_set(f, 0, &text2),
+                "{name} over text reads no collation"
+            );
         }
         let bp2 = NodeList::make2(m, v(c, 1042), v(posix, 1042)).unwrap();
-        assert!(!read::collation_set(1048, 0, &bp2), "bpchareq: bpchar's collation-aware equality");
-        for (f, name) in [(2174, "~<~"), (2175, "~<=~"), (2177, "~>=~"), (2178, "~>~"), (2180, "btbpchar_pattern_cmp")] {
-            assert!(read::collation_set(f, 0, &bp2), "{name} over bpchar reads no collation");
+        assert!(
+            !read::collation_set(1048, 0, &bp2),
+            "bpchareq: bpchar's collation-aware equality"
+        );
+        for (f, name) in [
+            (2174, "~<~"),
+            (2175, "~<=~"),
+            (2177, "~>=~"),
+            (2178, "~>~"),
+            (2180, "btbpchar_pattern_cmp"),
+        ] {
+            assert!(
+                read::collation_set(f, 0, &bp2),
+                "{name} over bpchar reads no collation"
+            );
         }
     }
 
@@ -645,7 +872,12 @@ mod tests {
                 20011 => Volatility::Immutable,
                 _ => return builtin_func(funcid),
             };
-            Some(FuncProps { volatility, strict: false, leakproof: false, parallel: Parallel::Safe })
+            Some(FuncProps {
+                volatility,
+                strict: false,
+                leakproof: false,
+                parallel: Parallel::Safe,
+            })
         }
         fn agg_support(&self, aggfnoid: u32) -> Option<AggSupport> {
             let final_ = match aggfnoid {
@@ -654,7 +886,16 @@ mod tests {
                 20002 => 0,
                 _ => return None,
             };
-            Some(AggSupport { trans: 20020, final_, combine: 0, serial: 0, deserial: 0, mtrans: 0, minv: 0, mfinal: 0 })
+            Some(AggSupport {
+                trans: 20020,
+                final_,
+                combine: 0,
+                serial: 0,
+                deserial: 0,
+                mtrans: 0,
+                minv: 0,
+                mfinal: 0,
+            })
         }
     }
 
@@ -688,25 +929,88 @@ mod tests {
     fn a_constant_pattern_match_is_quiet_once_its_pattern_is_good() {
         use types_nodes::primnodes::{Param, ParamKind};
         use types_nodes::{Node, NodeList};
-        assert_eq!([858, 1636, 1252, 1241, 1658].map(builtin_pattern), [Some(Pattern::Like), Some(Pattern::ILike), Some(Pattern::Regex(false)), Some(Pattern::Regex(true)), Some(Pattern::Regex(false))]);
+        assert_eq!(
+            [858, 1636, 1252, 1241, 1658].map(builtin_pattern),
+            [
+                Some(Pattern::Like),
+                Some(Pattern::ILike),
+                Some(Pattern::Regex(false)),
+                Some(Pattern::Regex(true)),
+                Some(Pattern::Regex(false))
+            ]
+        );
         assert_eq!([2005, 67, 20_000].map(builtin_pattern), [None, None, None]);
         let ctx = mcx::MemoryContext::new("dc14-pattern");
         let m = ctx.mcx();
-        let subject = || Node::mk(m, Param { paramkind: ParamKind::PARAM_EXTERN, paramid: 1, paramtype: 19, paramtypmod: -1, paramcollid: 950, location: -1 }).unwrap();
-        let args = |pat: &[u8]| NodeList::make2(m, subject(), crate::normalize::text_const(m, pat, 950).unwrap()).unwrap();
+        let subject = || {
+            Node::mk(
+                m,
+                Param {
+                    paramkind: ParamKind::PARAM_EXTERN,
+                    paramid: 1,
+                    paramtype: 19,
+                    paramtypmod: -1,
+                    paramcollid: 950,
+                    location: -1,
+                },
+            )
+            .unwrap()
+        };
+        let args = |pat: &[u8]| {
+            NodeList::make2(
+                m,
+                subject(),
+                crate::normalize::text_const(m, pat, 950).unwrap(),
+            )
+            .unwrap()
+        };
         let (c, yes, no) = (950, &Compiles(true), &Compiles(false));
-        assert!(quiet_pattern(no, 858, &args(b"pg\\_%"), c), "name LIKE: the escape pairs up");
-        assert!(!quiet_pattern(no, 858, &args(b"abc\\"), c), "does not apply: a LIKE pattern ending in its escape");
-        assert!(quiet_pattern(no, 1635, &args(b"PG%"), c), "name ILIKE under C");
-        assert!(quiet_pattern(yes, 79, &args(b"^(pg_catalog)$"), c), "name ~: the server compiles it");
-        assert!(!quiet_pattern(no, 79, &args(b"^(pg_catalog)$"), c), "does not apply: a source that cannot compile it");
-        assert!(!quiet_pattern(yes, 1635, &args(b"PG%"), 20_000), "does not apply: an unknown (user) collation");
-        assert!(!quiet_pattern(yes, 858, &args(b"pg%"), 0), "does not apply: no collation (PostgreSQL cannot determine one)");
-        assert_eq!(pattern_operand(858, &args(b"pg%")).map(|(f, p)| (f, p.to_vec())), Some((Pattern::Like, b"pg%".to_vec())), "the class's operand");
-        assert!(!quiet_pattern(yes, 2005, &args(b"x"), c) && !quiet_pattern(yes, 67, &args(b"x"), c), "not a pattern match");
+        assert!(
+            quiet_pattern(no, 858, &args(b"pg\\_%"), c),
+            "name LIKE: the escape pairs up"
+        );
+        assert!(
+            !quiet_pattern(no, 858, &args(b"abc\\"), c),
+            "does not apply: a LIKE pattern ending in its escape"
+        );
+        assert!(
+            quiet_pattern(no, 1635, &args(b"PG%"), c),
+            "name ILIKE under C"
+        );
+        assert!(
+            quiet_pattern(yes, 79, &args(b"^(pg_catalog)$"), c),
+            "name ~: the server compiles it"
+        );
+        assert!(
+            !quiet_pattern(no, 79, &args(b"^(pg_catalog)$"), c),
+            "does not apply: a source that cannot compile it"
+        );
+        assert!(
+            !quiet_pattern(yes, 1635, &args(b"PG%"), 20_000),
+            "does not apply: an unknown (user) collation"
+        );
+        assert!(
+            !quiet_pattern(yes, 858, &args(b"pg%"), 0),
+            "does not apply: no collation (PostgreSQL cannot determine one)"
+        );
+        assert_eq!(
+            pattern_operand(858, &args(b"pg%")).map(|(f, p)| (f, p.to_vec())),
+            Some((Pattern::Like, b"pg%".to_vec())),
+            "the class's operand"
+        );
+        assert!(
+            !quiet_pattern(yes, 2005, &args(b"x"), c) && !quiet_pattern(yes, 67, &args(b"x"), c),
+            "not a pattern match"
+        );
         let var = NodeList::make2(m, subject(), subject()).unwrap();
-        assert!(!quiet_pattern(yes, 79, &var, c), "does not apply: a pattern that is no constant");
-        assert!(read::quiet_call(no, 2854) && read::quiet_call(no, 2855), "pg_my_temp_schema / pg_is_other_temp_schema");
+        assert!(
+            !quiet_pattern(yes, 79, &var, c),
+            "does not apply: a pattern that is no constant"
+        );
+        assert!(
+            read::quiet_call(no, 2854) && read::quiet_call(no, 2855),
+            "pg_my_temp_schema / pg_is_other_temp_schema"
+        );
     }
 
     /// A one-dimensional text array's image as construct_md_array lays it out (`each_list_text`'s reading): the header,
@@ -715,9 +1019,14 @@ mod tests {
     fn text_array_image(elems: &[Option<&[u8]>]) -> Vec<u8> {
         let n = elems.len();
         let nulls = elems.iter().any(Option::is_none);
-        let data = if nulls { (24 + n.div_ceil(8) + 7) & !7 } else { 24 };
+        let data = if nulls {
+            (24 + n.div_ceil(8) + 7) & !7
+        } else {
+            24
+        };
         let mut v = vec![0u8; if n == 0 { 16 } else { data }]; // alloc: Cold
-        let w = |v: &mut Vec<u8>, at: usize, x: u32| v[at..at + 4].copy_from_slice(&x.to_ne_bytes());
+        let w =
+            |v: &mut Vec<u8>, at: usize, x: u32| v[at..at + 4].copy_from_slice(&x.to_ne_bytes());
         w(&mut v, 4, u32::from(n != 0));
         w(&mut v, 8, if nulls { data as u32 } else { 0 });
         w(&mut v, 12, 25);
@@ -752,39 +1061,117 @@ mod tests {
         use types_nodes::{Node, NodeList};
         let ctx = mcx::MemoryContext::new("d3788-pattern-list");
         let m = ctx.mcx();
-        let subject = || Node::mk(m, Param { paramkind: ParamKind::PARAM_EXTERN, paramid: 1, paramtype: 19, paramtypmod: -1, paramcollid: 950, location: -1 }).unwrap();
+        let subject = || {
+            Node::mk(
+                m,
+                Param {
+                    paramkind: ParamKind::PARAM_EXTERN,
+                    paramid: 1,
+                    paramtype: 19,
+                    paramtypmod: -1,
+                    paramcollid: 950,
+                    location: -1,
+                },
+            )
+            .unwrap()
+        };
         let list = |elems: &[Option<&[u8]>], elemtype: u32| {
             let mut image = text_array_image(elems);
             image[12..16].copy_from_slice(&elemtype.to_ne_bytes());
-            let words: Vec<u32> = image.chunks(4).map(|w| u32::from_ne_bytes([w[0], w[1], w[2], w[3]])).collect();
+            let words: Vec<u32> = image
+                .chunks(4)
+                .map(|w| u32::from_ne_bytes([w[0], w[1], w[2], w[3]]))
+                .collect();
             let words = mcx::slice_borrow_in(m, &words).unwrap();
-            let k = Node::mk_const(m, 1009, -1, 950, -1, datum::Datum::from_usize(words.as_ptr() as usize), false, false).unwrap();
+            let k = Node::mk_const(
+                m,
+                1009,
+                -1,
+                950,
+                -1,
+                datum::Datum::from_usize(words.as_ptr() as usize),
+                false,
+                false,
+            )
+            .unwrap();
             NodeList::make2(m, subject(), k).unwrap()
         };
         let (c, yes, no) = (950, &Compiles(true), &Compiles(false));
         fn e(b: &'static [u8]) -> Option<&'static [u8]> {
             Some(b)
         }
-        let pgwatch = [e(b"pg\\_%"), e(b"information_schema"), e(b"\\_timescaledb%")];
-        assert!(quiet_pattern_list(no, 859, &list(&pgwatch, 25), c), "name NOT LIKE ALL: every escape pairs up");
-        assert!(quiet_pattern_list(no, 858, &list(&[e(b"a%"), None, e(b"b\\\\")], 25), c), "a NULL element is skipped; a doubled escape pairs");
-        assert!(quiet_pattern_list(no, 858, &list(&[], 25), c), "an empty list matches nothing");
-        assert!(!quiet_pattern_list(no, 858, &list(&[e(b"a%"), e(b"abc\\")], 25), c), "does not apply: an element ending in its escape");
-        assert!(quiet_pattern_list(yes, 79, &list(&[e(b"^pg_"), e(b"x$")], 25), c), "name ~ ANY: the server compiles each");
-        assert!(!quiet_pattern_list(no, 79, &list(&[e(b"^pg_")], 25), c), "does not apply: a source that cannot compile it");
-        assert!(!quiet_pattern_list(yes, 858, &list(&pgwatch, 25), 0), "does not apply: no collation");
-        assert!(!quiet_pattern_list(yes, 858, &list(&pgwatch, 23), c), "does not apply: another element type");
-        assert!(!quiet_pattern_list(yes, 67, &list(&pgwatch, 25), c), "does not apply: texteq is no pattern match");
+        let pgwatch = [
+            e(b"pg\\_%"),
+            e(b"information_schema"),
+            e(b"\\_timescaledb%"),
+        ];
+        assert!(
+            quiet_pattern_list(no, 859, &list(&pgwatch, 25), c),
+            "name NOT LIKE ALL: every escape pairs up"
+        );
+        assert!(
+            quiet_pattern_list(no, 858, &list(&[e(b"a%"), None, e(b"b\\\\")], 25), c),
+            "a NULL element is skipped; a doubled escape pairs"
+        );
+        assert!(
+            quiet_pattern_list(no, 858, &list(&[], 25), c),
+            "an empty list matches nothing"
+        );
+        assert!(
+            !quiet_pattern_list(no, 858, &list(&[e(b"a%"), e(b"abc\\")], 25), c),
+            "does not apply: an element ending in its escape"
+        );
+        assert!(
+            quiet_pattern_list(yes, 79, &list(&[e(b"^pg_"), e(b"x$")], 25), c),
+            "name ~ ANY: the server compiles each"
+        );
+        assert!(
+            !quiet_pattern_list(no, 79, &list(&[e(b"^pg_")], 25), c),
+            "does not apply: a source that cannot compile it"
+        );
+        assert!(
+            !quiet_pattern_list(yes, 858, &list(&pgwatch, 25), 0),
+            "does not apply: no collation"
+        );
+        assert!(
+            !quiet_pattern_list(yes, 858, &list(&pgwatch, 23), c),
+            "does not apply: another element type"
+        );
+        assert!(
+            !quiet_pattern_list(yes, 67, &list(&pgwatch, 25), c),
+            "does not apply: texteq is no pattern match"
+        );
         let var = NodeList::make2(m, subject(), subject()).unwrap();
-        assert!(!quiet_pattern_list(yes, 858, &var, c), "does not apply: a list that is no constant");
+        assert!(
+            !quiet_pattern_list(yes, 858, &var, c),
+            "does not apply: a list that is no constant"
+        );
         let image = text_array_image(&[e(b"ab"), None, e(b"cde")]);
         let mut seen = Vec::new(); // alloc: Cold
-        assert_eq!(each_list_text(&image[4..], &mut |p| { seen.push(p.to_vec()); true }), Some(true));
-        assert_eq!(seen, [b"ab".to_vec(), b"cde".to_vec()], "the non-NULL elements in order");
-        assert_eq!(each_list_text(&image[4..image.len() - 4], &mut |_| true), None, "a length past the image");
+        assert_eq!(
+            each_list_text(&image[4..], &mut |p| {
+                seen.push(p.to_vec());
+                true
+            }),
+            Some(true)
+        );
+        assert_eq!(
+            seen,
+            [b"ab".to_vec(), b"cde".to_vec()],
+            "the non-NULL elements in order"
+        );
+        assert_eq!(
+            each_list_text(&image[4..image.len() - 4], &mut |_| true),
+            None,
+            "a length past the image"
+        );
         let mut two = text_array_image(&[e(b"a")]);
         two[4..8].copy_from_slice(&2u32.to_ne_bytes());
-        assert_eq!(each_list_text(&two[4..], &mut |_| true), None, "two dimensions");
+        assert_eq!(
+            each_list_text(&two[4..], &mut |_| true),
+            None,
+            "two dimensions"
+        );
     }
 
     #[test]
@@ -792,17 +1179,36 @@ mod tests {
         // sum(int4) (2108): a builtin's own IMMUTABLE row.
         assert!(!of_final(&Aggs, 2108).acts);
         assert!(of_final(&Aggs, 20000).acts, "a VOLATILE finalfn acts");
-        assert_eq!(of_final(&Aggs, 20001), Effects::RAISES, "an IMMUTABLE user finalfn may raise, never acts");
-        assert_eq!(of_final(&Aggs, 20002), Effects::NONE, "no finalfn: nothing runs");
-        assert_eq!(of_final(&Aggs, 20003), Effects::UNKNOWN, "no pg_aggregate row: unknown");
+        assert_eq!(
+            of_final(&Aggs, 20001),
+            Effects::RAISES,
+            "an IMMUTABLE user finalfn may raise, never acts"
+        );
+        assert_eq!(
+            of_final(&Aggs, 20002),
+            Effects::NONE,
+            "no finalfn: nothing runs"
+        );
+        assert_eq!(
+            of_final(&Aggs, 20003),
+            Effects::UNKNOWN,
+            "no pg_aggregate row: unknown"
+        );
     }
 
     #[test]
     fn of_agg_reads_every_support_function() {
         assert!(!of_agg(&Aggs, 2108).acts);
         assert!(of_agg(&Aggs, 20000).acts, "a VOLATILE finalfn acts");
-        assert!(of_agg(&Aggs, 20002).acts, "an unknown transfn acts though no finalfn runs");
-        assert_eq!(of_agg(&Aggs, 20003), Effects::UNKNOWN, "no pg_aggregate row: unknown");
+        assert!(
+            of_agg(&Aggs, 20002).acts,
+            "an unknown transfn acts though no finalfn runs"
+        );
+        assert_eq!(
+            of_agg(&Aggs, 20003),
+            Effects::UNKNOWN,
+            "no pg_aggregate row: unknown"
+        );
     }
 
     /// Indexes 30000 (one key column, initdb opclass), 30001 (two key columns, the second a user's opclass), any other
@@ -825,8 +1231,16 @@ mod tests {
         }
         fn index_opc(&self, indexid: u32) -> crate::catalog::IndexOpc {
             match indexid {
-                30000 => crate::catalog::IndexOpc { builtin: 0b1, nkeys: 1, known: true },
-                30001 => crate::catalog::IndexOpc { builtin: 0b01, nkeys: 2, known: true },
+                30000 => crate::catalog::IndexOpc {
+                    builtin: 0b1,
+                    nkeys: 1,
+                    known: true,
+                },
+                30001 => crate::catalog::IndexOpc {
+                    builtin: 0b01,
+                    nkeys: 2,
+                    known: true,
+                },
                 _ => crate::catalog::IndexOpc::UNKNOWN,
             }
         }
@@ -835,7 +1249,15 @@ mod tests {
         }
         fn oper(&self, opno: u32) -> Option<OperProps> {
             match opno {
-                40000 => Some(OperProps { code: 20010, canhash: false, canmerge: false, hash_family: 0, poly: false, commutator: 0, negator: 0 }),
+                40000 => Some(OperProps {
+                    code: 20010,
+                    canhash: false,
+                    canmerge: false,
+                    hash_family: 0,
+                    poly: false,
+                    commutator: 0,
+                    negator: 0,
+                }),
                 _ => builtin_oper(opno),
             }
         }
@@ -845,10 +1267,25 @@ mod tests {
     fn of_index_reads_opclasses_and_key_operators() {
         // int4eq (96) over a user table's index on an initdb opclass: the user index itself does not act.
         assert!(!of_index(&Idx, 30000, [96]).acts);
-        assert!(!of_index(&Idx, 30000, []).acts, "no key operator: the opclass alone");
-        assert_eq!(of_index(&Idx, 30001, [96]), Effects::UNKNOWN, "a user opclass on a key column: unknown");
-        assert_eq!(of_index(&Idx, 30002, [96]), Effects::UNKNOWN, "no opclass facts: unknown");
-        assert_eq!(of_index(&Idx, 30000, [40000]), Effects::UNKNOWN, "a user operator: unknown");
+        assert!(
+            !of_index(&Idx, 30000, []).acts,
+            "no key operator: the opclass alone"
+        );
+        assert_eq!(
+            of_index(&Idx, 30001, [96]),
+            Effects::UNKNOWN,
+            "a user opclass on a key column: unknown"
+        );
+        assert_eq!(
+            of_index(&Idx, 30002, [96]),
+            Effects::UNKNOWN,
+            "no opclass facts: unknown"
+        );
+        assert_eq!(
+            of_index(&Idx, 30000, [40000]),
+            Effects::UNKNOWN,
+            "a user operator: unknown"
+        );
     }
     /// Types: jsonb (3802) a base type, record (2249) a pseudo-type, 50000 a user base type, 50001 a domain over jsonb, 50002
     /// an enum, 50003 a domain over it; composites 50004 (int4, the enum), 50005 (int4, the user type), 50006 a domain over
@@ -881,7 +1318,12 @@ mod tests {
                 50006 => (-1, b'd', 50004),
                 _ => return None,
             };
-            Some(crate::catalog::TypeRow { typlen, byval: false, typtype, base })
+            Some(crate::catalog::TypeRow {
+                typlen,
+                byval: false,
+                typtype,
+                base,
+            })
         }
         fn row_cols(&self, typid: u32, f: &mut dyn FnMut(AttFact)) -> bool {
             let cols: &[u32] = match typid {
@@ -891,32 +1333,92 @@ mod tests {
                 50009 => &[50009],
                 _ => return false,
             };
-            cols.iter().for_each(|&t| f(AttFact::plain(t, -1, -1, false, false)));
+            cols.iter()
+                .for_each(|&t| f(AttFact::plain(t, -1, -1, false, false)));
             true
         }
     }
 
     #[test]
     fn of_type_reads_the_types_procs() {
-        assert!(!of_type(&Tys, 3802).acts, "jsonb's eq / cmp / hash are initdb IMMUTABLE functions");
+        assert!(
+            !of_type(&Tys, 3802).acts,
+            "jsonb's eq / cmp / hash are initdb IMMUTABLE functions"
+        );
         assert!(!of_type(&Tys, 50001).acts, "a domain compares as its base");
-        assert_eq!(of_type(&Tys, 2249), Effects::UNKNOWN, "record's procs call each column type's");
-        assert_eq!(of_type(&Tys, 50000), Effects::UNKNOWN, "a user type's procs are a user's");
+        assert_eq!(
+            of_type(&Tys, 2249),
+            Effects::UNKNOWN,
+            "record's procs call each column type's"
+        );
+        assert_eq!(
+            of_type(&Tys, 50000),
+            Effects::UNKNOWN,
+            "a user type's procs are a user's"
+        );
         assert_eq!(of_type(&Tys, 60000), Effects::UNKNOWN, "an unknown type");
-        assert!(!of_type(&Tys, 23).acts, "int4 with no catalog row: the bootstrap catalog's IMMUTABLE procs, no pseudo-type");
-        assert_eq!(of_type(&Tys, 2277), Effects::UNKNOWN, "anyarray with no catalog row stays a pseudo-type");
-        assert_eq!(of_compare(&Tys, 23), Effects::NONE, "int4eq and btint4cmp are leakproof builtins; hashint4 is not, and no compare calls it");
-        assert!(of_type(&Tys, 23).may_raise, "pg_proc marks hashint4 not leakproof");
-        assert_eq!(of_compare(&Tys, 2249), Effects::UNKNOWN, "record's compare calls each column type's");
-        assert!(!of_type(&Tys, 50002).acts, "AGC-20: an enum compares and hashes by initdb's enum_eq / enum_cmp / hashenum");
-        assert_eq!(of_compare(&Tys, 50003), of_compare(&Tys, 50002), "a domain over an enum compares as the enum");
-        assert_ne!(of_compare(&Tys, 50002), Effects::UNKNOWN, "an enum's compare is known");
+        assert!(
+            !of_type(&Tys, 23).acts,
+            "int4 with no catalog row: the bootstrap catalog's IMMUTABLE procs, no pseudo-type"
+        );
+        assert_eq!(
+            of_type(&Tys, 2277),
+            Effects::UNKNOWN,
+            "anyarray with no catalog row stays a pseudo-type"
+        );
+        assert_eq!(
+            of_compare(&Tys, 23),
+            Effects::NONE,
+            "int4eq and btint4cmp are leakproof builtins; hashint4 is not, and no compare calls it"
+        );
+        assert!(
+            of_type(&Tys, 23).may_raise,
+            "pg_proc marks hashint4 not leakproof"
+        );
+        assert_eq!(
+            of_compare(&Tys, 2249),
+            Effects::UNKNOWN,
+            "record's compare calls each column type's"
+        );
+        assert!(
+            !of_type(&Tys, 50002).acts,
+            "AGC-20: an enum compares and hashes by initdb's enum_eq / enum_cmp / hashenum"
+        );
+        assert_eq!(
+            of_compare(&Tys, 50003),
+            of_compare(&Tys, 50002),
+            "a domain over an enum compares as the enum"
+        );
+        assert_ne!(
+            of_compare(&Tys, 50002),
+            Effects::UNKNOWN,
+            "an enum's compare is known"
+        );
         assert!(!of_type(&Tys, 50004).acts, "AGC-20: a named composite of builtin columns: record_eq / btrecordcmp / hash_record over theirs");
-        assert_eq!(of_compare(&Tys, 50006), of_compare(&Tys, 50004), "a domain over a composite compares as the composite");
-        assert!(!of_compare(&Tys, 50007).acts, "a composite of a composite of builtin columns");
-        assert_eq!(of_type(&Tys, 50005), Effects::UNKNOWN, "a composite with a user-typed column calls that type's procs");
-        assert_eq!(of_compare(&Tys, 50008), Effects::UNKNOWN, "a composite whose columns cannot be read");
-        assert_eq!(of_compare(&Tys, 50009), Effects::UNKNOWN, "nesting past 8 levels");
+        assert_eq!(
+            of_compare(&Tys, 50006),
+            of_compare(&Tys, 50004),
+            "a domain over a composite compares as the composite"
+        );
+        assert!(
+            !of_compare(&Tys, 50007).acts,
+            "a composite of a composite of builtin columns"
+        );
+        assert_eq!(
+            of_type(&Tys, 50005),
+            Effects::UNKNOWN,
+            "a composite with a user-typed column calls that type's procs"
+        );
+        assert_eq!(
+            of_compare(&Tys, 50008),
+            Effects::UNKNOWN,
+            "a composite whose columns cannot be read"
+        );
+        assert_eq!(
+            of_compare(&Tys, 50009),
+            Effects::UNKNOWN,
+            "nesting past 8 levels"
+        );
     }
 
     /// KeySem (LANGUAGE internal; equivclass#53): user functions 20100 (`AS 'int8eq'`), 20101 (`AS 'int8lt'`), 20103 (`AS
@@ -942,7 +1444,12 @@ mod tests {
         }
         fn func(&self, funcid: u32) -> Option<FuncProps> {
             match funcid {
-                20100..=20104 => Some(FuncProps { volatility: Volatility::Immutable, strict: true, leakproof: false, parallel: Parallel::Safe }),
+                20100..=20104 => Some(FuncProps {
+                    volatility: Volatility::Immutable,
+                    strict: true,
+                    leakproof: false,
+                    parallel: Parallel::Safe,
+                }),
                 _ => builtin_func(funcid),
             }
         }
@@ -969,22 +1476,80 @@ mod tests {
 
     #[test]
     fn a_language_internal_function_raises_as_its_builtin() {
-        assert_eq!((body(&Alias, 20100), body(&Alias, 467), body(&Alias, 20102)), (Some(467), Some(467), None));
-        assert!(quiet_call(&Alias, 20100) && leakproof(&Alias, 20100), "int8eq is a leakproof builtin, whatever 20100's own mark");
-        assert_eq!(of_call(&Alias, 20100), Effects::NONE, "IMMUTABLE by its own row, quiet as int8eq");
-        assert_eq!(of_call(&Alias, 20103), Effects::RAISES, "hashint8 is no leakproof builtin");
-        assert_eq!(of_call(&Alias, 20102), Effects::RAISES, "does not apply: a SQL function keeps its own volatility and may raise");
-        assert!(!quiet_call(&crate::catalog::NoFacts, 20100), "does not apply: a source that reads no catalog knows no alias");
+        assert_eq!(
+            (body(&Alias, 20100), body(&Alias, 467), body(&Alias, 20102)),
+            (Some(467), Some(467), None)
+        );
+        assert!(
+            quiet_call(&Alias, 20100) && leakproof(&Alias, 20100),
+            "int8eq is a leakproof builtin, whatever 20100's own mark"
+        );
+        assert_eq!(
+            of_call(&Alias, 20100),
+            Effects::NONE,
+            "IMMUTABLE by its own row, quiet as int8eq"
+        );
+        assert_eq!(
+            of_call(&Alias, 20103),
+            Effects::RAISES,
+            "hashint8 is no leakproof builtin"
+        );
+        assert_eq!(
+            of_call(&Alias, 20102),
+            Effects::RAISES,
+            "does not apply: a SQL function keeps its own volatility and may raise"
+        );
+        assert!(
+            !quiet_call(&crate::catalog::NoFacts, 20100),
+            "does not apply: a source that reads no catalog knows no alias"
+        );
         let ctx = mcx::MemoryContext::new("keysem-langint");
         let m = ctx.mcx();
         let arena = gravity_program::Arena::new(1 << 12);
-        let clause = |eqop, sortop| types_nodes::Node::mk(m, types_nodes::parsenodes::SortGroupClause { tleSortGroupRef: 1, eqop, sortop, reverse_sort: false, nulls_first: false, hashable: false }).unwrap();
+        let clause = |eqop, sortop| {
+            types_nodes::Node::mk(
+                m,
+                types_nodes::parsenodes::SortGroupClause {
+                    tleSortGroupRef: 1,
+                    eqop,
+                    sortop,
+                    reverse_sort: false,
+                    nulls_first: false,
+                    hashable: false,
+                },
+            )
+            .unwrap()
+        };
         let walk = |n| Effects::of_found(crate::rerun::of_expr_alone(&Alias, arena.handle(), n));
-        assert_eq!(walk(clause(0, 40100)), Effects::RAISES, "int8alias1's `<`: int8lt's facts, and the sort raises at its first call");
-        assert_eq!(walk(clause(0, 40103)), Effects::NONE, "a `<` over int8lt with btint8cmp as its family's comparator");
-        assert_eq!(walk(clause(40102, 0)), Effects::RAISES, "a hashable `=`: int8eq and hashint8, no act");
-        assert_eq!(walk(clause(40101, 0)), Effects::UNKNOWN, "does not apply: an operator over a SQL function stays unknown");
-        assert_eq!(Effects::of_found(crate::rerun::of_expr_alone(&crate::catalog::NoFacts, arena.handle(), clause(0, 40100))), Effects::UNKNOWN, "does not apply: no catalog");
+        assert_eq!(
+            walk(clause(0, 40100)),
+            Effects::RAISES,
+            "int8alias1's `<`: int8lt's facts, and the sort raises at its first call"
+        );
+        assert_eq!(
+            walk(clause(0, 40103)),
+            Effects::NONE,
+            "a `<` over int8lt with btint8cmp as its family's comparator"
+        );
+        assert_eq!(
+            walk(clause(40102, 0)),
+            Effects::RAISES,
+            "a hashable `=`: int8eq and hashint8, no act"
+        );
+        assert_eq!(
+            walk(clause(40101, 0)),
+            Effects::UNKNOWN,
+            "does not apply: an operator over a SQL function stays unknown"
+        );
+        assert_eq!(
+            Effects::of_found(crate::rerun::of_expr_alone(
+                &crate::catalog::NoFacts,
+                arena.handle(),
+                clause(0, 40100)
+            )),
+            Effects::UNKNOWN,
+            "does not apply: no catalog"
+        );
     }
 
     /// `of_node` judges one node, its children apart, by the walk's per-node rules, and fails closed: a node the walk does
@@ -992,37 +1557,126 @@ mod tests {
     /// expression gives the whole walk's answer.
     #[test]
     fn of_node_judges_one_node_and_fails_closed() {
-        use types_nodes::primnodes::{CoerceToDomain, CoercionForm, FuncExpr, NextValueExpr, Param, ParamKind, SubPlan};
+        use types_nodes::primnodes::{
+            CoerceToDomain, CoercionForm, FuncExpr, NextValueExpr, Param, ParamKind, SubPlan,
+        };
         use types_nodes::{Node, NodeList};
         let ctx = mcx::MemoryContext::new("of-node");
         let m = ctx.mcx();
         let arena = gravity_program::Arena::new(1 << 12);
-        let (f, cx) = (&crate::catalog::NoFacts, Cx::without_stmt(&crate::catalog::NoFacts, arena.handle()));
-        let param = || Node::mk(m, Param { paramkind: ParamKind::PARAM_EXTERN, paramid: 1, paramtype: 23, paramtypmod: -1, paramcollid: 0, location: -1 }).unwrap();
-        let call = |funcid: u32, args| Node::mk(m, FuncExpr { funcid, funcresulttype: 23, args, ..Default::default() }).unwrap();
+        let (f, cx) = (
+            &crate::catalog::NoFacts,
+            Cx::without_stmt(&crate::catalog::NoFacts, arena.handle()),
+        );
+        let param = || {
+            Node::mk(
+                m,
+                Param {
+                    paramkind: ParamKind::PARAM_EXTERN,
+                    paramid: 1,
+                    paramtype: 23,
+                    paramtypmod: -1,
+                    paramcollid: 0,
+                    location: -1,
+                },
+            )
+            .unwrap()
+        };
+        let call = |funcid: u32, args| {
+            Node::mk(
+                m,
+                FuncExpr {
+                    funcid,
+                    funcresulttype: 23,
+                    args,
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+        };
         // random() (VOLATILE), int4eq (leakproof, strict), int4pl (strict, raises on overflow), an oid no catalog holds
         let random = call(1598, NodeList::nil());
         let eq = call(65, NodeList::make2(m, random, param()).unwrap());
         assert!(read::of_node(&cx, random).acts, "a VOLATILE call acts");
-        assert_eq!(read::of_node(&cx, eq), Effects::NONE, "int4eq itself: its VOLATILE argument is a child");
-        assert!(read::of_expr(&cx, eq, &PLAIN).acts, "the whole expression acts");
+        assert_eq!(
+            read::of_node(&cx, eq),
+            Effects::NONE,
+            "int4eq itself: its VOLATILE argument is a child"
+        );
+        assert!(
+            read::of_expr(&cx, eq, &PLAIN).acts,
+            "the whole expression acts"
+        );
         let pl = call(177, NodeList::make2(m, param(), param()).unwrap());
-        assert_eq!(read::of_node(&cx, pl), Effects::RAISES, "int4pl may raise, never acts");
-        assert_eq!(read::of_node(&cx, call(70_000, NodeList::nil())), Effects::UNKNOWN, "an unknown function");
-        assert_eq!(read::of_node(&cx, param()), Effects::NONE, "a parameter calls nothing");
-        let domain = Node::mk(m, CoerceToDomain { arg: param(), resulttype: 70_001, resulttypmod: -1, resultcollid: 0, coercionformat: CoercionForm::COERCE_IMPLICIT_CAST, location: -1 }).unwrap();
-        assert_eq!(read::of_node(&cx, domain), Effects::UNKNOWN, "a domain coercion runs its CHECKs: fail closed, it acts and may raise");
-        let nextval = Node::mk(m, NextValueExpr { seqid: 70_002, typeId: 20 }).unwrap();
-        assert_eq!(read::of_node(&cx, nextval), Effects::UNKNOWN, "a node the walk does not know: fail closed");
-        let sub = Node::mk(m, SubPlan { plan_id: 1, ..Default::default() }).unwrap();
-        assert_eq!(read::of_node(&cx, sub), Effects::UNKNOWN, "a SubPlan with no statement: its plan is out of reach");
+        assert_eq!(
+            read::of_node(&cx, pl),
+            Effects::RAISES,
+            "int4pl may raise, never acts"
+        );
+        assert_eq!(
+            read::of_node(&cx, call(70_000, NodeList::nil())),
+            Effects::UNKNOWN,
+            "an unknown function"
+        );
+        assert_eq!(
+            read::of_node(&cx, param()),
+            Effects::NONE,
+            "a parameter calls nothing"
+        );
+        let domain = Node::mk(
+            m,
+            CoerceToDomain {
+                arg: param(),
+                resulttype: 70_001,
+                resulttypmod: -1,
+                resultcollid: 0,
+                coercionformat: CoercionForm::COERCE_IMPLICIT_CAST,
+                location: -1,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            read::of_node(&cx, domain),
+            Effects::UNKNOWN,
+            "a domain coercion runs its CHECKs: fail closed, it acts and may raise"
+        );
+        let nextval = Node::mk(
+            m,
+            NextValueExpr {
+                seqid: 70_002,
+                typeId: 20,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            read::of_node(&cx, nextval),
+            Effects::UNKNOWN,
+            "a node the walk does not know: fail closed"
+        );
+        let sub = Node::mk(
+            m,
+            SubPlan {
+                plan_id: 1,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            read::of_node(&cx, sub),
+            Effects::UNKNOWN,
+            "a SubPlan with no statement: its plan is out of reach"
+        );
         for n in [eq, pl, domain] {
             let mut each = Effects::NONE;
             crate::expr::walk(n, &mut |x| {
                 each = each.and(read::of_node(&cx, x));
                 true
             });
-            assert_eq!(each, Effects::of_found(crate::rerun::of_expr_alone(f, arena.handle(), n)), "the fold is the walk");
+            assert_eq!(
+                each,
+                Effects::of_found(crate::rerun::of_expr_alone(f, arena.handle(), n)),
+                "the fold is the walk"
+            );
         }
     }
 
@@ -1050,7 +1704,11 @@ mod tests {
         fn index_expr(&self, _: u32, _: u8) -> Option<ExprFp> {
             None
         }
-        fn domain_checks(&self, typid: u32, f: &mut dyn for<'n> FnMut(Option<types_nodes::Node<'n>>)) -> bool {
+        fn domain_checks(
+            &self,
+            typid: u32,
+            f: &mut dyn for<'n> FnMut(Option<types_nodes::Node<'n>>),
+        ) -> bool {
             match typid {
                 70_010 | 70_015 => f(Some(self.ge)),
                 70_011 => f(None),
@@ -1068,28 +1726,109 @@ mod tests {
     /// closed.
     #[test]
     fn a_domain_coercion_reads_its_constraints() {
-        use types_nodes::primnodes::{CoerceToDomain, CoerceToDomainValue, CoercionForm, FuncExpr, Param, ParamKind};
+        use types_nodes::primnodes::{
+            CoerceToDomain, CoerceToDomainValue, CoercionForm, FuncExpr, Param, ParamKind,
+        };
         use types_nodes::{Node, NodeList};
         let ctx = mcx::MemoryContext::new("domains");
         let m = ctx.mcx();
         let arena = gravity_program::Arena::new(1 << 12);
-        let value = || Node::mk(m, CoerceToDomainValue { typeId: 23, typeMod: -1, collation: 0, location: -1 }).unwrap();
-        let param = || Node::mk(m, Param { paramkind: ParamKind::PARAM_EXTERN, paramid: 1, paramtype: 23, paramtypmod: -1, paramcollid: 0, location: -1 }).unwrap();
-        let call = |funcid: u32, args| Node::mk(m, FuncExpr { funcid, funcresulttype: 16, args, ..Default::default() }).unwrap();
-        let domain = |resulttype: u32, arg| Node::mk(m, CoerceToDomain { arg, resulttype, resulttypmod: -1, resultcollid: 0, coercionformat: CoercionForm::COERCE_IMPLICIT_CAST, location: -1 }).unwrap();
+        let value = || {
+            Node::mk(
+                m,
+                CoerceToDomainValue {
+                    typeId: 23,
+                    typeMod: -1,
+                    collation: 0,
+                    location: -1,
+                },
+            )
+            .unwrap()
+        };
+        let param = || {
+            Node::mk(
+                m,
+                Param {
+                    paramkind: ParamKind::PARAM_EXTERN,
+                    paramid: 1,
+                    paramtype: 23,
+                    paramtypmod: -1,
+                    paramcollid: 0,
+                    location: -1,
+                },
+            )
+            .unwrap()
+        };
+        let call = |funcid: u32, args| {
+            Node::mk(
+                m,
+                FuncExpr {
+                    funcid,
+                    funcresulttype: 16,
+                    args,
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+        };
+        let domain = |resulttype: u32, arg| {
+            Node::mk(
+                m,
+                CoerceToDomain {
+                    arg,
+                    resulttype,
+                    resulttypmod: -1,
+                    resultcollid: 0,
+                    coercionformat: CoercionForm::COERCE_IMPLICIT_CAST,
+                    location: -1,
+                },
+            )
+            .unwrap()
+        };
         let ge = call(150, NodeList::make2(m, value(), param()).unwrap());
         let random = call(1598, NodeList::nil());
         let unknown = call(70_000, NodeList::make1(m, value()).unwrap());
         let itself = domain(70_014, value());
-        let f = Doms { ge, random, unknown, itself };
-        let walk = |typid: u32| Effects::of_found(crate::rerun::of_expr_alone(&f, arena.handle(), domain(typid, param())));
-        assert_eq!(walk(70_010), Effects::RAISES, "a CHECK by a builtin IMMUTABLE comparison: may raise, never acts");
-        assert_eq!(walk(70_011), Effects::RAISES, "a NOT NULL: may raise, never acts");
+        let f = Doms {
+            ge,
+            random,
+            unknown,
+            itself,
+        };
+        let walk = |typid: u32| {
+            Effects::of_found(crate::rerun::of_expr_alone(
+                &f,
+                arena.handle(),
+                domain(typid, param()),
+            ))
+        };
+        assert_eq!(
+            walk(70_010),
+            Effects::RAISES,
+            "a CHECK by a builtin IMMUTABLE comparison: may raise, never acts"
+        );
+        assert_eq!(
+            walk(70_011),
+            Effects::RAISES,
+            "a NOT NULL: may raise, never acts"
+        );
         assert_eq!(walk(70_015), Effects::RAISES, "the chain's CHECK");
         assert!(walk(70_012).acts, "a CHECK calling random() acts");
-        assert_eq!(walk(70_013), Effects::UNKNOWN, "a CHECK calling a function no catalog holds");
-        assert_eq!(walk(70_014), Effects::UNKNOWN, "a CHECK coercing to its own domain: fail closed");
-        assert_eq!(walk(70_016), Effects::UNKNOWN, "a domain the facts cannot read: fail closed");
+        assert_eq!(
+            walk(70_013),
+            Effects::UNKNOWN,
+            "a CHECK calling a function no catalog holds"
+        );
+        assert_eq!(
+            walk(70_014),
+            Effects::UNKNOWN,
+            "a CHECK coercing to its own domain: fail closed"
+        );
+        assert_eq!(
+            walk(70_016),
+            Effects::UNKNOWN,
+            "a domain the facts cannot read: fail closed"
+        );
         let found = crate::rerun::of_expr_alone(&f, arena.handle(), domain(70_010, param()));
         assert!(!found.user_call, "int4ge is no user code");
     }

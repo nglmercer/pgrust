@@ -38,7 +38,9 @@ const N: i64 = 64;
 const PROCNO: u32 = 4078;
 
 fn konst(k: i64) -> gravity_ir::Program {
-    let src = format!("(program (fn e ((c ptr)) (i64) (block entry ((c ptr)) (k (const i64 {k})) (return k))))");
+    let src = format!(
+        "(program (fn e ((c ptr)) (i64) (block entry ((c ptr)) (k (const i64 {k})) (return k))))"
+    );
     parse_program(&src, &|_| None).unwrap_or_else(|e| panic!("{e}"))
 }
 
@@ -61,7 +63,9 @@ fn snap() -> Snap {
 }
 
 fn sides(base: i64) -> Vec<Box<dyn Staged>> {
-    (0..N).map(|i| gravity_backend::staged(&konst(base + i), false, 0)).collect()
+    (0..N)
+        .map(|i| gravity_backend::staged(&konst(base + i), false, 0))
+        .collect()
 }
 
 #[test]

@@ -15,11 +15,20 @@ impl Fixed {
         if natts > d.natts as usize {
             return None; // the slot path raises "a store window wider than the scan's row"
         }
-        let upto = if natts > 64 { natts } else { (0..natts).rev().find(|&c| need >> c & 1 != 0).map_or(0, |c| c + 1) };
+        let upto = if natts > 64 {
+            natts
+        } else {
+            (0..natts)
+                .rev()
+                .find(|&c| need >> c & 1 != 0)
+                .map_or(0, |c| c + 1)
+        };
         let (mut off, mut cols) = (0usize, Vec::with_capacity(upto)); // alloc: Exec
-        // bounded("key-columns: one offset per column of the scan's row up to the last one the reader needs, at most MaxTupleAttributeNumber (1664) columns")
+                                                                      // bounded("key-columns: one offset per column of the scan's row up to the last one the reader needs, at most MaxTupleAttributeNumber (1664) columns")
         for c in 0..upto {
-            let a = (c < d.natts as usize).then(|| d.compact_attr(c)).filter(|a| a.attbyval && a.attlen > 0 && !a.attisdropped)?;
+            let a = (c < d.natts as usize)
+                .then(|| d.compact_attr(c))
+                .filter(|a| a.attbyval && a.attlen > 0 && !a.attisdropped)?;
             off = off.next_multiple_of(a.attalignby.max(1) as usize);
             cols.push((off, a.attlen)); // alloc: Exec
             off += a.attlen as usize;

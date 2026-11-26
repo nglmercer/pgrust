@@ -8,4 +8,7 @@
 use crate::face::kinds::KindId;
 use crate::ops::Table;
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::JoinChain, &())], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::JoinChain, &())],
+    ..crate::ops::NONE
+};

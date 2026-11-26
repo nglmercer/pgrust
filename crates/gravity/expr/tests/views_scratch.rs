@@ -18,7 +18,10 @@ fn a_nested_detoast_keeps_the_outer_bytes() {
         let inner_bytes = unsafe { core::slice::from_raw_parts(q, m) };
         let _ = inner_bytes.len();
         let bytes = unsafe { core::slice::from_raw_parts(p, n) };
-        assert!(bytes.iter().all(|b| *b == 0xA5), "the outer's bytes survive the nested detoast's reset");
+        assert!(
+            bytes.iter().all(|b| *b == 0xA5),
+            "the outer's bytes survive the nested detoast's reset"
+        );
         (p, n)
     });
     // a fresh outer call after the reset gets the retained context again: nested once more, it still nests

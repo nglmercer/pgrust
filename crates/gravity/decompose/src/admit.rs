@@ -18,21 +18,36 @@ pub struct Refusal {
 
 impl Refusal {
     pub fn kind(kind: Kind, node_id: i32) -> Refusal {
-        Refusal { kind, reason: ledger::reason(kind), node_id }
+        Refusal {
+            kind,
+            reason: ledger::reason(kind),
+            node_id,
+        }
     }
 
     pub const fn shape(kind: Kind, node_id: i32, reason: &'static str) -> Refusal {
-        Refusal { kind, reason, node_id }
+        Refusal {
+            kind,
+            reason,
+            node_id,
+        }
     }
 
     pub fn into_error(self) -> Box<PgError> {
-        Box::new(PgError::error(format!("{self}")).with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED)) // alloc: Cold
+        Box::new(PgError::error(format!("{self}")).with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED))
+        // alloc: Cold
     }
 }
 
 impl fmt::Display for Refusal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "gravity_decompose: {} (node {}) is not expressible: {}", self.kind.name(), self.node_id, self.reason)
+        write!(
+            f,
+            "gravity_decompose: {} (node {}) is not expressible: {}",
+            self.kind.name(),
+            self.node_id,
+            self.reason
+        )
     }
 }
 
@@ -74,7 +89,10 @@ fn plan_gate_ops(n: Node<'_>, out: &mut Vec<Oid>) {
         }
         // each Agg of a chain is a phase ExecInitAgg prepares (the chain's Sorts are never plan nodes)
         NodeTag::T_Agg => {
-            for a in core::iter::once(n).chain(n.as_agg().unwrap().chain.iter()).filter_map(|a| a.as_agg()) {
+            for a in core::iter::once(n)
+                .chain(n.as_agg().unwrap().chain.iter())
+                .filter_map(|a| a.as_agg())
+            {
                 if a.aggstrategy != crate::ops::shared::agg::AGG_PLAIN {
                     ops(a.grpOperators, a.numCols);
                 }
@@ -111,10 +129,21 @@ fn plan_gate_ops(n: Node<'_>, out: &mut Vec<Oid>) {
         }
         _ => {}
     }
-    let arms = n.as_append().map(|a| &a.appendplans).or(n.as_merge_append().map(|a| &a.mergeplans));
-    let arms = arms.or(n.as_bitmap_and().map(|a| &a.bitmapplans)).or(n.as_bitmap_or().map(|a| &a.bitmapplans));
+    let arms = n
+        .as_append()
+        .map(|a| &a.appendplans)
+        .or(n.as_merge_append().map(|a| &a.mergeplans));
+    let arms = arms
+        .or(n.as_bitmap_and().map(|a| &a.bitmapplans))
+        .or(n.as_bitmap_or().map(|a| &a.bitmapplans));
     let sub = n.as_subquery_scan().and_then(|s| s.subplan);
-    for c in p.lefttree.into_iter().chain(p.righttree).chain(arms.into_iter().flat_map(|l| l.iter())).chain(sub) {
+    for c in p
+        .lefttree
+        .into_iter()
+        .chain(p.righttree)
+        .chain(arms.into_iter().flat_map(|l| l.iter()))
+        .chain(sub)
+    {
         plan_gate_ops(c, out);
     }
 }
@@ -127,7 +156,12 @@ pub fn distinct_eq_ops(aggref: Node<'_>, out: &mut Vec<Oid>) {
     if a.aggdistinct.len() < 2 {
         return;
     }
-    out.extend(a.aggdistinct.iter().filter_map(|c| c.as_sort_group_clause()).map(|c| c.eqop)); // alloc: Program
+    out.extend(
+        a.aggdistinct
+            .iter()
+            .filter_map(|c| c.as_sort_group_clause())
+            .map(|c| c.eqop),
+    ); // alloc: Program
 }
 
 leader_tls::leader_tls! {
@@ -164,7 +198,8 @@ pub fn rescaling<T>(rows: Vec<(i32, f64)>, f: impl FnOnce() -> T) -> T {
 /// GENP-1: plan node `plan`'s estimated rows for this admission: the re-estimate `rescaling` holds for it, else the plan's.
 pub fn plan_rows(plan: &types_nodes::plannodes::Plan<'_>) -> f64 {
     let id = plan.plan_node_id;
-    ROWS.with(|r| r.borrow().iter().find(|x| x.0 == id).map(|x| x.1)).unwrap_or(plan.plan_rows)
+    ROWS.with(|r| r.borrow().iter().find(|x| x.0 == id).map(|x| x.1))
+        .unwrap_or(plan.plan_rows)
 }
 
 /// D3005: the admission `f` run with this execution's integer extern parameters `vals` (`(paramid, value)`, non-NULL
@@ -199,9 +234,26 @@ pub(crate) const fn text_like(t: Oid) -> bool {
 /// D2834: and the extern parameters the execution leaves to evaluation time (gravity_program::externs `deferring`), which
 /// its program fetches where it evaluates them (a program over their words would read them ahead).
 pub fn externs_salt() -> u64 {
-    let texts = gravity_program::externs::all(|vals| vals.iter().filter(|x| x.1 < QUIET_FACT + 4 && x.1 != QUIET_FACT + QUIET_BIT).fold(0u64, |h, x| (h ^ (x.0 as u64 + 0x51) ^ ((x.1 - QUIET_FACT) as u64) << 32).wrapping_mul(0x0000_0100_0000_01b3))).unwrap_or(0);
-    let rows = ROWS.with(|r| r.borrow().iter().fold(texts, |h, x| (h ^ (x.0 as u64 + 0x6e) ^ x.1.to_bits().rotate_left(17)).wrapping_mul(0x0000_0100_0000_01b3)));
-    gravity_program::externs::deferred_ids().iter().fold(rows, |h, &id| (h ^ (id as u64 + 0x2834) ^ 0x6465_6600_0000_0000).wrapping_mul(0x0000_0100_0000_01b3))
+    let texts = gravity_program::externs::all(|vals| {
+        vals.iter()
+            .filter(|x| x.1 < QUIET_FACT + 4 && x.1 != QUIET_FACT + QUIET_BIT)
+            .fold(0u64, |h, x| {
+                (h ^ (x.0 as u64 + 0x51) ^ ((x.1 - QUIET_FACT) as u64) << 32)
+                    .wrapping_mul(0x0000_0100_0000_01b3)
+            })
+    })
+    .unwrap_or(0);
+    let rows = ROWS.with(|r| {
+        r.borrow().iter().fold(texts, |h, x| {
+            (h ^ (x.0 as u64 + 0x6e) ^ x.1.to_bits().rotate_left(17))
+                .wrapping_mul(0x0000_0100_0000_01b3)
+        })
+    });
+    gravity_program::externs::deferred_ids()
+        .iter()
+        .fold(rows, |h, &id| {
+            (h ^ (id as u64 + 0x2834) ^ 0x6465_6600_0000_0000).wrapping_mul(0x0000_0100_0000_01b3)
+        })
 }
 
 /// The integer functions a LIMIT / OFFSET count over extern parameters may apply (RUNS-16 / B3-02: `LIMIT $1 + 1`,
@@ -209,14 +261,42 @@ pub fn externs_salt() -> u64 {
 /// unary minus and `c` a cast. Each is immutable and strict and raises only where its result leaves its type (int.c,
 /// int8.c), which `fold` checks the same way: a raising or NULL count stays the plan's run-time expression.
 const LIMIT_FNS: &[(u32, u8, [u8; 2], u8)] = &[
-    (176, b'+', [2, 2], 2), (177, b'+', [4, 4], 4), (178, b'+', [2, 4], 4), (179, b'+', [4, 2], 4), (463, b'+', [8, 8], 8),
-    (837, b'+', [8, 2], 8), (841, b'+', [2, 8], 8), (1274, b'+', [8, 4], 8), (1278, b'+', [4, 8], 8),
-    (180, b'-', [2, 2], 2), (181, b'-', [4, 4], 4), (182, b'-', [2, 4], 4), (183, b'-', [4, 2], 4), (464, b'-', [8, 8], 8),
-    (838, b'-', [8, 2], 8), (942, b'-', [2, 8], 8), (1275, b'-', [8, 4], 8), (1279, b'-', [4, 8], 8),
-    (152, b'*', [2, 2], 2), (141, b'*', [4, 4], 4), (170, b'*', [2, 4], 4), (171, b'*', [4, 2], 4), (465, b'*', [8, 8], 8),
-    (839, b'*', [8, 2], 8), (943, b'*', [2, 8], 8), (1276, b'*', [8, 4], 8), (1280, b'*', [4, 8], 8),
-    (213, b'u', [2, 0], 2), (212, b'u', [4, 0], 4), (462, b'u', [8, 0], 8),
-    (313, b'c', [2, 0], 4), (754, b'c', [2, 0], 8), (481, b'c', [4, 0], 8), (314, b'c', [4, 0], 2), (480, b'c', [8, 0], 4), (714, b'c', [8, 0], 2),
+    (176, b'+', [2, 2], 2),
+    (177, b'+', [4, 4], 4),
+    (178, b'+', [2, 4], 4),
+    (179, b'+', [4, 2], 4),
+    (463, b'+', [8, 8], 8),
+    (837, b'+', [8, 2], 8),
+    (841, b'+', [2, 8], 8),
+    (1274, b'+', [8, 4], 8),
+    (1278, b'+', [4, 8], 8),
+    (180, b'-', [2, 2], 2),
+    (181, b'-', [4, 4], 4),
+    (182, b'-', [2, 4], 4),
+    (183, b'-', [4, 2], 4),
+    (464, b'-', [8, 8], 8),
+    (838, b'-', [8, 2], 8),
+    (942, b'-', [2, 8], 8),
+    (1275, b'-', [8, 4], 8),
+    (1279, b'-', [4, 8], 8),
+    (152, b'*', [2, 2], 2),
+    (141, b'*', [4, 4], 4),
+    (170, b'*', [2, 4], 4),
+    (171, b'*', [4, 2], 4),
+    (465, b'*', [8, 8], 8),
+    (839, b'*', [8, 2], 8),
+    (943, b'*', [2, 8], 8),
+    (1276, b'*', [8, 4], 8),
+    (1280, b'*', [4, 8], 8),
+    (213, b'u', [2, 0], 2),
+    (212, b'u', [4, 0], 4),
+    (462, b'u', [8, 0], 8),
+    (313, b'c', [2, 0], 4),
+    (754, b'c', [2, 0], 8),
+    (481, b'c', [4, 0], 8),
+    (314, b'c', [4, 0], 2),
+    (480, b'c', [8, 0], 4),
+    (714, b'c', [8, 0], 2),
 ];
 
 /// D3005, RUNS-16 / B3-02: a LIMIT / OFFSET count `n` built from extern parameters: `$1`, an integer constant, or one of
@@ -233,7 +313,7 @@ fn fold(n: Node<'_>) -> Option<(Vec<(i32, i64)>, Option<i64>)> {
     crate::walk::stack_check(); // D3748
     let fit = |v: i128, w: u8| -> Option<i64> {
         let half = 1i128 << (8 * u32::from(w) - 1);
-        (-half..half).contains(&v).then_some( v as i64)
+        (-half..half).contains(&v).then_some(v as i64)
     };
     if let Some(c) = n.as_const() {
         let w = match c.consttype {
@@ -254,7 +334,12 @@ fn fold(n: Node<'_>) -> Option<(Vec<(i32, i64)>, Option<i64>)> {
         return Some((Vec::new(), Some(v))); // alloc: Program
     }
     if let Some(p) = n.as_param() {
-        if p.paramkind != types_nodes::primnodes::ParamKind::PARAM_EXTERN || !matches!(p.paramtype, types_core::INT2OID | types_core::INT4OID | types_core::INT8OID) {
+        if p.paramkind != types_nodes::primnodes::ParamKind::PARAM_EXTERN
+            || !matches!(
+                p.paramtype,
+                types_core::INT2OID | types_core::INT4OID | types_core::INT8OID
+            )
+        {
             return None;
         }
         let id = p.paramid;
@@ -303,13 +388,21 @@ fn fold(n: Node<'_>) -> Option<(Vec<(i32, i64)>, Option<i64>)> {
 /// a NULL, a negative value (PostgreSQL raises at the node, before any child row) or a zero count keeps every bound of
 /// the node a run-time count, as before; a Limit with a constant and a run-time bound would order its child's work and
 /// the bound's check apart from PostgreSQL's (m1_d1716_limit_zero_feeders, m8_d1018_limit).
-pub fn limit_externs(count: Option<Node<'_>>, offset: Option<Node<'_>>) -> (Option<i64>, Option<i64>) {
+pub fn limit_externs(
+    count: Option<Node<'_>>,
+    offset: Option<Node<'_>>,
+) -> (Option<i64>, Option<i64>) {
     let (c, o) = (count.and_then(extern_count), offset.and_then(extern_count));
-    let ok = c.as_ref().is_none_or(|(_, v)| v.is_some_and(|v| v >= 1)) && o.as_ref().is_none_or(|(_, v)| v.is_some_and(|v| v >= 0));
+    let ok = c.as_ref().is_none_or(|(_, v)| v.is_some_and(|v| v >= 1))
+        && o.as_ref().is_none_or(|(_, v)| v.is_some_and(|v| v >= 0));
     if !ok || (c.is_none() && o.is_none()) {
         return (None, None);
     }
-    for id in [&c, &o].into_iter().flatten().flat_map(|(ids, _)| ids.iter().map(|x| x.0)) {
+    for id in [&c, &o]
+        .into_iter()
+        .flatten()
+        .flat_map(|(ids, _)| ids.iter().map(|x| x.0))
+    {
         gravity_program::externs::take(id, |_| true);
     }
     (c.and_then(|x| x.1), o.and_then(|x| x.1))

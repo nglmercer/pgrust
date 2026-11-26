@@ -26,19 +26,66 @@ use types_core::quiet as q;
 mod harness;
 
 /// Divisors probed for every `int_mod` / `int_div` function (`None`: NULL or not a constant).
-const PROBE_DIVISORS: [Option<i64>; 8] = [None, Some(i64::MIN), Some(-2), Some(-1), Some(0), Some(1), Some(7), Some(i64::MAX)];
+const PROBE_DIVISORS: [Option<i64>; 8] = [
+    None,
+    Some(i64::MIN),
+    Some(-2),
+    Some(-1),
+    Some(0),
+    Some(1),
+    Some(7),
+    Some(i64::MAX),
+];
 
 /// Constants probed at every `const_arg` place (a substr length, a left / right n; `None`: NULL or not a constant).
-const PROBE_WORDS: [Option<i64>; 9] =
-    [None, Some(i32::MIN as i64), Some(i32::MIN as i64 + 1), Some(-1), Some(0), Some(1), Some(5), Some(i32::MAX as i64), Some(1 << 40)];
+const PROBE_WORDS: [Option<i64>; 9] = [
+    None,
+    Some(i32::MIN as i64),
+    Some(i32::MIN as i64 + 1),
+    Some(-1),
+    Some(0),
+    Some(1),
+    Some(5),
+    Some(i32::MAX as i64),
+    Some(1 << 40),
+];
 
 /// Privilege texts probed for every `PRIVILEGES` function: every privilege name acl.c knows, in case and with spaces, the
 /// GRANT / ADMIN OPTION forms, lists, an empty chunk, unknown words.
 const PROBE_PRIVILEGES: [&str; 33] = [
-    "SELECT", "select", " Select\t", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", "MAINTAIN", "USAGE",
-    "MEMBER", "SET", "EXECUTE", "CREATE", "CONNECT", "TEMPORARY", "TEMP", "ALTER SYSTEM", "SELECT WITH GRANT OPTION",
-    "select with grant option", "USAGE WITH ADMIN OPTION", "MEMBER WITH ADMIN OPTION", "SELECT WITH ADMIN OPTION",
-    "EXECUTE WITH GRANT OPTION", "SELECT,INSERT", "select, update ", "SELECT,", ",", "", "FOO", "SELECT,FOO", "SELECTX",
+    "SELECT",
+    "select",
+    " Select\t",
+    "INSERT",
+    "UPDATE",
+    "DELETE",
+    "TRUNCATE",
+    "REFERENCES",
+    "TRIGGER",
+    "MAINTAIN",
+    "USAGE",
+    "MEMBER",
+    "SET",
+    "EXECUTE",
+    "CREATE",
+    "CONNECT",
+    "TEMPORARY",
+    "TEMP",
+    "ALTER SYSTEM",
+    "SELECT WITH GRANT OPTION",
+    "select with grant option",
+    "USAGE WITH ADMIN OPTION",
+    "MEMBER WITH ADMIN OPTION",
+    "SELECT WITH ADMIN OPTION",
+    "EXECUTE WITH GRANT OPTION",
+    "SELECT,INSERT",
+    "select, update ",
+    "SELECT,",
+    ",",
+    "",
+    "FOO",
+    "SELECT,FOO",
+    "SELECTX",
 ];
 
 /// LIKE / ILIKE / regex patterns probed: no trailing backslash, one, two, three.
@@ -57,8 +104,14 @@ const PROBE_NUMERICS: [(&str, &[u8]); 15] = [
     ("1e9", &[0x02, 0x80, 0x0A, 0x00]),
     ("-1e9", &[0x02, 0xA0, 0x0A, 0x00]),
     ("1e9+1", &[0x02, 0x80, 0x0A, 0x00, 0x00, 0x00, 0x01, 0x00]),
-    ("1e9+0.5", &[0x82, 0x80, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x88, 0x13]),
-    ("123456789.5", &[0x82, 0x80, 0x01, 0x00, 0x29, 0x09, 0x85, 0x1A, 0x88, 0x13]),
+    (
+        "1e9+0.5",
+        &[0x82, 0x80, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x88, 0x13],
+    ),
+    (
+        "123456789.5",
+        &[0x82, 0x80, 0x01, 0x00, 0x29, 0x09, 0x85, 0x1A, 0x88, 0x13],
+    ),
     ("1e12 (weight 3)", &[0x03, 0x80, 0x01, 0x00]),
     ("1 (long form)", &[0x00, 0x00, 0x00, 0x00, 0x01, 0x00]),
     ("NaN", &[0x00, 0xC0]),
@@ -87,7 +140,8 @@ fn word(w: Option<i64>) -> String {
 /// The table, from the Rust answers alone.
 fn table() -> String {
     let mut rows: Vec<(String, String, String)> = Vec::new();
-    let mut row = |rule: &str, key: String, value: String| rows.push((rule.to_string(), key, value));
+    let mut row =
+        |rule: &str, key: String, value: String| rows.push((rule.to_string(), key, value));
     let flag = |b: bool| if b { "1".to_string() } else { "0".to_string() };
     for oid in BUILTIN {
         if q::call(oid) {
@@ -103,8 +157,13 @@ fn table() -> String {
             row("pattern", oid.to_string(), form.to_string());
             for coll in PROBE_COLLATIONS {
                 for pat in PROBE_PATTERNS {
-                    let good = effects::pattern_good(p, pat, coll, KeyColl::of(coll).bytes_eq, || false);
-                    row("probe.pattern", format!("{oid} {coll} {}", hex(pat)), flag(good));
+                    let good =
+                        effects::pattern_good(p, pat, coll, KeyColl::of(coll).bytes_eq, || false);
+                    row(
+                        "probe.pattern",
+                        format!("{oid} {coll} {}", hex(pat)),
+                        flag(good),
+                    );
                 }
             }
         }
@@ -115,19 +174,43 @@ fn table() -> String {
         }
         if q::const_arg(oid, 2).is_some() || q::const_arg(oid, 3).is_some() {
             for w in PROBE_WORDS {
-                row("probe.text_arg", format!("{oid} {}", word(w)), flag(q::text_arg_quiet(oid, w)));
+                row(
+                    "probe.text_arg",
+                    format!("{oid} {}", word(w)),
+                    flag(q::text_arg_quiet(oid, w)),
+                );
             }
         }
         if q::int_mod(oid) || q::int_div(oid) {
-            row(if q::int_mod(oid) { "int_mod" } else { "int_div" }, oid.to_string(), "1".into());
+            row(
+                if q::int_mod(oid) {
+                    "int_mod"
+                } else {
+                    "int_div"
+                },
+                oid.to_string(),
+                "1".into(),
+            );
             for d in PROBE_DIVISORS {
-                row("probe.divisor", format!("{oid} {}", word(d)), flag(q::divisor_quiet(oid, d) == Some(true)));
+                row(
+                    "probe.divisor",
+                    format!("{oid} {}", word(d)),
+                    flag(q::divisor_quiet(oid, d) == Some(true)),
+                );
             }
         }
         if let Some(&(_, names, role, nargs)) = q::PRIVILEGES.iter().find(|p| p.0 == oid) {
-            row("privilege", oid.to_string(), format!("{nargs} {} {}", u8::from(role), names.join(",")));
+            row(
+                "privilege",
+                oid.to_string(),
+                format!("{nargs} {} {}", u8::from(role), names.join(",")),
+            );
             for text in PROBE_PRIVILEGES {
-                row("probe.privilege", format!("{oid} {}", hex(text.as_bytes())), flag(q::privilege_quiet(oid, text.as_bytes()) == Some(true)));
+                row(
+                    "probe.privilege",
+                    format!("{oid} {}", hex(text.as_bytes())),
+                    flag(q::privilege_quiet(oid, text.as_bytes()) == Some(true)),
+                );
             }
         }
         if q::start_time(oid) {
@@ -159,15 +242,31 @@ fn table() -> String {
         }
     }
     for op in PROBE_SVF_OPS {
-        row("svf_raise_free", op.to_string(), flag(q::svf_raise_free(op)));
-        row("epoch_clock", op.to_string(), flag(q::epoch_clock_value(op)));
+        row(
+            "svf_raise_free",
+            op.to_string(),
+            flag(q::svf_raise_free(op)),
+        );
+        row(
+            "epoch_clock",
+            op.to_string(),
+            flag(q::epoch_clock_value(op)),
+        );
     }
     row("epoch_ns", "cast".into(), q::EPOCH_NS_CAST.to_string());
     row("epoch_ns", "mul".into(), q::EPOCH_NS_MUL.to_string());
-    row("epoch_ns", "extract".into(), q::EPOCH_NS_EXTRACT.to_string());
+    row(
+        "epoch_ns",
+        "extract".into(),
+        q::EPOCH_NS_EXTRACT.to_string(),
+    );
     row("epoch_ns", "max_k".into(), q::EPOCH_NS_MAX_K.to_string());
     for (what, image) in PROBE_NUMERICS {
-        row("probe.epoch_k", hex(image), format!("{} {what}", flag(q::epoch_ns_k_quiet(image))));
+        row(
+            "probe.epoch_k",
+            hex(image),
+            format!("{} {what}", flag(q::epoch_ns_k_quiet(image))),
+        );
     }
     rows.sort();
     rows.dedup();
@@ -179,7 +278,8 @@ fn table() -> String {
 }
 
 fn tsv() -> PathBuf {
-    PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("run under cargo test")).join("../../../crates/gravity/decompose/testdata/gravity/lowerv4/tools/effects_facts.tsv")
+    PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("run under cargo test"))
+        .join("../../../crates/gravity/decompose/testdata/gravity/lowerv4/tools/effects_facts.tsv")
 }
 
 /// The committed table is the Rust answers' (REGEN=changed rewrites it).
@@ -195,13 +295,38 @@ fn the_census_mirror_table_is_the_effects_homes() {
 #[test]
 fn the_table_has_every_rule() {
     let text = table();
-    let count = |rule: &str| text.lines().filter(|l| l.split('\t').next() == Some(rule)).count();
-    for (rule, at_least) in [("call", 50), ("pattern", 28), ("const_arg", 4), ("int_mod", 3), ("int_div", 9), ("privilege", 6),
-        ("start_time", 3), ("collation_free", 11), ("agg", 50), ("text_extremum", 6), ("io_text_target", 4), ("out_quiet", 16),
-        ("xml_value", 26), ("svf_raise_free", 21), ("epoch_ns", 4), ("probe.pattern", 1000), ("probe.divisor", 96),
-        ("probe.privilege", 198), ("probe.text_arg", 36), ("probe.epoch_k", 15)]
-    {
-        assert!(count(rule) >= at_least, "{rule}: {} rows, at least {at_least}", count(rule));
+    let count = |rule: &str| {
+        text.lines()
+            .filter(|l| l.split('\t').next() == Some(rule))
+            .count()
+    };
+    for (rule, at_least) in [
+        ("call", 50),
+        ("pattern", 28),
+        ("const_arg", 4),
+        ("int_mod", 3),
+        ("int_div", 9),
+        ("privilege", 6),
+        ("start_time", 3),
+        ("collation_free", 11),
+        ("agg", 50),
+        ("text_extremum", 6),
+        ("io_text_target", 4),
+        ("out_quiet", 16),
+        ("xml_value", 26),
+        ("svf_raise_free", 21),
+        ("epoch_ns", 4),
+        ("probe.pattern", 1000),
+        ("probe.divisor", 96),
+        ("probe.privilege", 198),
+        ("probe.text_arg", 36),
+        ("probe.epoch_k", 15),
+    ] {
+        assert!(
+            count(rule) >= at_least,
+            "{rule}: {} rows, at least {at_least}",
+            count(rule)
+        );
     }
 }
 
@@ -209,8 +334,23 @@ fn the_table_has_every_rule() {
 /// every probe row of the table as the effects home does: graphprops_facts.py --check-table.
 #[test]
 fn the_census_mirror_evaluators_answer_the_probes_as_rust() {
-    let script = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("run under cargo test")).join("../../../crates/gravity/decompose/testdata/gravity/lowerv4/tools/graphprops_facts.py");
-    let out = std::process::Command::new("python3").arg(script).arg("--check-table").output().expect("python3 runs graphprops_facts.py");
+    let script = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("run under cargo test"))
+        .join(
+            "../../../crates/gravity/decompose/testdata/gravity/lowerv4/tools/graphprops_facts.py",
+        );
+    let out = std::process::Command::new("python3")
+        .arg(script)
+        .arg("--check-table")
+        .output()
+        .expect("python3 runs graphprops_facts.py");
     println!("{}", String::from_utf8_lossy(&out.stdout));
-    assert!(out.status.success(), "graphprops_facts.py --check-table:\n{}", String::from_utf8_lossy(&out.stderr).lines().take(40).collect::<Vec<_>>().join("\n"));
+    assert!(
+        out.status.success(),
+        "graphprops_facts.py --check-table:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+            .lines()
+            .take(40)
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
 }

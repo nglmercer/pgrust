@@ -12,8 +12,8 @@ pub mod help_config;
 pub mod knob;
 pub mod layers;
 pub mod model;
-mod nondef_list;
 pub mod name;
+mod nondef_list;
 pub mod process_config;
 pub mod registry;
 pub mod report;
@@ -28,10 +28,11 @@ use std::cell::{Cell, RefCell};
 
 use elog::ereport;
 use types_core::{Oid, BOOTSTRAP_SUPERUSERID};
-use types_error::{
-    PgError, PgResult, SqlState, ERRCODE_INVALID_PARAMETER_VALUE, ERROR, WARNING,
+use types_error::{PgError, PgResult, SqlState, ERRCODE_INVALID_PARAMETER_VALUE, ERROR, WARNING};
+use types_guc::{
+    GucContext, GucSource, PGC_INTERNAL, PGC_S_CLIENT, PGC_S_DYNAMIC_DEFAULT, PGC_S_INTERACTIVE,
+    PGC_S_SESSION,
 };
-use types_guc::{GucContext, GucSource, PGC_INTERNAL, PGC_S_CLIENT, PGC_S_DYNAMIC_DEFAULT, PGC_S_INTERACTIVE, PGC_S_SESSION};
 
 pub use enum_lookup::{
     config_enum_get_options, config_enum_lookup_by_name, config_enum_lookup_by_value,
@@ -152,10 +153,20 @@ pub fn redefine_inherited_custom_variables() -> PgResult<()> {
     for d in custom_variable_definitions() {
         match d {
             CustomVariableDefinition::String {
-                name, short_desc, long_desc, boot_val, context, flags,
+                name,
+                short_desc,
+                long_desc,
+                boot_val,
+                context,
+                flags,
             } => {
                 define_custom_string_variable(
-                    name, short_desc, long_desc, boot_val.as_deref(), context, flags,
+                    name,
+                    short_desc,
+                    long_desc,
+                    boot_val.as_deref(),
+                    context,
+                    flags,
                 )?;
             }
             CustomVariableDefinition::Setting(setting) => {
@@ -214,7 +225,10 @@ pub fn guc_nest_level() -> i32 {
 pub fn AtStart_GUC() {
     if GUC_NEST_LEVEL.get() != 0 {
         let e = ereport(WARNING)
-            .errmsg(format!("GUC nest level = {} at transaction start", GUC_NEST_LEVEL.get()))
+            .errmsg(format!(
+                "GUC nest level = {} at transaction start",
+                GUC_NEST_LEVEL.get()
+            ))
             .into_error();
         elog::emit_error_report_for(&e);
     }
@@ -259,9 +273,7 @@ fn at_eoxact_guc_haswork(is_commit: bool, nest_level: i32) {
         }
     }
     // Re-arm the hint from the real list (entries can survive to outer levels).
-    store::set_has_stacked_hint(
-        store::with_store(|reg| reg.has_stacked()).unwrap_or(false),
-    );
+    store::set_has_stacked_hint(store::with_store(|reg| reg.has_stacked()).unwrap_or(false));
 }
 
 // set_config_option (guc.c:3342): srole from the source class.
@@ -281,7 +293,9 @@ pub fn set_config_option(
     } else {
         BOOTSTRAP_SUPERUSERID
     };
-    set_config_option_global(name, value, context, source, srole, action, change_val, elevel, is_reload)
+    set_config_option_global(
+        name, value, context, source, srole, action, change_val, elevel, is_reload,
+    )
 }
 
 // set_config_option_ext (guc.c:3382).
@@ -297,7 +311,9 @@ pub fn set_config_option_ext(
     elevel: types_error::ErrorLevel,
     is_reload: bool,
 ) -> PgResult<i32> {
-    set_config_option_global(name, value, context, source, srole, action, change_val, elevel, is_reload)
+    set_config_option_global(
+        name, value, context, source, srole, action, change_val, elevel, is_reload,
+    )
 }
 
 // SetConfigOption (guc.c:4332).
@@ -372,23 +388,38 @@ pub enum OptionSlot {
 /// variable's for the registry's life), and an absent name is looked up again
 /// only once the registry has grown (a SET of a new placeholder appends it).
 /// `None` when this thread has no store.
-pub fn get_config_option_at(slot: &std::cell::Cell<OptionSlot>, name: &str) -> Option<Option<String>> {
+pub fn get_config_option_at(
+    slot: &std::cell::Cell<OptionSlot>,
+    name: &str,
+) -> Option<Option<String>> {
     store::with_store(|reg| {
         let generation = store::store_generation();
         let record = match slot.get() {
-            OptionSlot::Found { generation: g, idx } if g == generation => reg.live_at(idx).or_else(|| lookup(slot, reg, name, generation)),
-            OptionSlot::Missing { generation: g, len } if g == generation && len == reg.len() => None,
+            OptionSlot::Found { generation: g, idx } if g == generation => reg
+                .live_at(idx)
+                .or_else(|| lookup(slot, reg, name, generation)),
+            OptionSlot::Missing { generation: g, len } if g == generation && len == reg.len() => {
+                None
+            }
             _ => lookup(slot, reg, name, generation),
         };
         record.map(registry::raw_config_value)
     })
 }
 
-fn lookup<'r>(slot: &std::cell::Cell<OptionSlot>, reg: &'r GucRegistry, name: &str, generation: u64) -> Option<&'r GucVariable> {
+fn lookup<'r>(
+    slot: &std::cell::Cell<OptionSlot>,
+    reg: &'r GucRegistry,
+    name: &str,
+    generation: u64,
+) -> Option<&'r GucVariable> {
     let idx = reg.find_index(name);
     slot.set(match idx {
         Some(idx) => OptionSlot::Found { generation, idx },
-        None => OptionSlot::Missing { generation, len: reg.len() },
+        None => OptionSlot::Missing {
+            generation,
+            len: reg.len(),
+        },
     });
     idx.map(|idx| &reg[idx])
 }
@@ -424,8 +455,8 @@ const ROLE_PG_READ_ALL_SETTINGS: Oid = 3374;
 
 // valid_custom_variable_name (guc.c:1076).
 pub use array::{
-    GUCArrayAdd, GUCArrayDelete, GUCArrayReset, ProcessGUCArray, TransformGUCArray,
-    validate_option_array_item,
+    validate_option_array_item, GUCArrayAdd, GUCArrayDelete, GUCArrayReset, ProcessGUCArray,
+    TransformGUCArray,
 };
 
 pub fn valid_custom_variable_name(name: &str) -> bool {
@@ -488,7 +519,9 @@ pub fn assignable_custom_variable_name(name: &str, skip_errors: bool) -> PgResul
     }
 
     if !skip_errors {
-        return Err(unrecognized(name).with_funcname("assignable_custom_variable_name").into());
+        return Err(unrecognized(name)
+            .with_funcname("assignable_custom_variable_name")
+            .into());
     }
     Ok(false)
 }
@@ -511,14 +544,16 @@ pub fn DefineCustomStringVariable(
 ) -> PgResult<()> {
     define_custom_string_variable(name, short_desc, long_desc, boot_val, context, flags)?;
     RESERVED_CLASS_PREFIX.with(|s| {
-        s.borrow_mut().definitions.push(CustomVariableDefinition::String {
-            name,
-            short_desc,
-            long_desc,
-            boot_val: boot_val.map(str::to_owned),
-            context,
-            flags,
-        })
+        s.borrow_mut()
+            .definitions
+            .push(CustomVariableDefinition::String {
+                name,
+                short_desc,
+                long_desc,
+                boot_val: boot_val.map(str::to_owned),
+                context,
+                flags,
+            })
     });
     Ok(())
 }
@@ -585,7 +620,9 @@ pub fn DefineCustomVariable(setting: guc_tables::GucSetting) -> PgResult<()> {
     }
     define_custom_variable(store::build_variable(setting).expect("custom GUC type"))?;
     RESERVED_CLASS_PREFIX.with(|s| {
-        s.borrow_mut().definitions.push(CustomVariableDefinition::Setting(setting));
+        s.borrow_mut()
+            .definitions
+            .push(CustomVariableDefinition::Setting(setting));
     });
     Ok(())
 }
@@ -643,9 +680,12 @@ fn reapply_stacked_values(
     cursource: GucSource,
     cursrole: Oid,
 ) {
-    let apply = |value: Option<&str>, scontext: GucContext, source: GucSource, srole: Oid, action: u32| {
-        let _ = set_config_option_ext(name, value, scontext, source, srole, action, true, WARNING, false);
-    };
+    let apply =
+        |value: Option<&str>, scontext: GucContext, source: GucSource, srole: Oid, action: u32| {
+            let _ = set_config_option_ext(
+                name, value, scontext, source, srole, action, true, WARNING, false,
+            );
+        };
     let stack_string = |v: &model::config_var_value| -> Option<String> {
         match &v.val {
             Some(model::config_var_val::Stringval(s)) => s.clone(),
@@ -710,8 +750,8 @@ const GUC_HASHTAB_INIT_BUCKETS: u32 = 512;
 // MarkGUCPrefixReserved (guc.c:5285): purge existing placeholders under the
 // prefix (WARNING each), then reserve the prefix against future placeholders.
 pub fn MarkGUCPrefixReserved(class_name: &str) {
-    let mut removed =
-        store::with_store_mut(|reg| reg.remove_reserved_placeholders(class_name)).unwrap_or_default();
+    let mut removed = store::with_store_mut(|reg| reg.remove_reserved_placeholders(class_name))
+        .unwrap_or_default();
     // guc.c:5298 walks guc_hashtab: dynahash bucket order (guc_name_hash
     // over the 512-bucket table build_guc_variables sizes for 18.6; a bucket
     // chain keeps insertion order). Exact until the table's first split.
@@ -719,9 +759,15 @@ pub fn MarkGUCPrefixReserved(class_name: &str) {
     for name in removed {
         let _ = ereport(WARNING)
             .errcode(types_error::ERRCODE_INVALID_NAME)
-            .errmsg(format!("invalid configuration parameter name \"{name}\", removing it"))
+            .errmsg(format!(
+                "invalid configuration parameter name \"{name}\", removing it"
+            ))
             .errdetail(format!("\"{class_name}\" is now a reserved prefix."))
-            .finish(types_error::ErrorLocation::new(file!(), line!() as i32, "MarkGUCPrefixReserved"));
+            .finish(types_error::ErrorLocation::new(
+                file!(),
+                line!() as i32,
+                "MarkGUCPrefixReserved",
+            ));
     }
     RESERVED_CLASS_PREFIX.with(|s| {
         let prefixes = &mut s.borrow_mut().prefixes;
@@ -776,9 +822,9 @@ pub fn init_seams() {
     s::new_guc_nest_level::set(NewGUCNestLevel);
     s::get_config_option_missing_ok::set(|name| GetConfigOption(name, true, false));
     s::knob_read::set(knob::knob_read);
-    s::guc_check_errdetail::set( GUC_check_errdetail);
+    s::guc_check_errdetail::set(GUC_check_errdetail);
     s::guc_check_errcode::set(GUC_check_errcode);
-    s::guc_check_errhint::set( GUC_check_errhint);
+    s::guc_check_errhint::set(GUC_check_errhint);
     s::at_eoxact_guc::set(|is_commit, nest_level| {
         AtEOXact_GUC(is_commit, nest_level);
         Ok(())

@@ -10,7 +10,9 @@ use crate::admit::Refusal;
 use crate::breakers;
 use crate::catalog::{Am, Facts, KeyReq};
 use crate::expr;
-use crate::graph::{Col, KeyForm, Op, Order, OrderKey, PipelineGraph, Source, MAX_ORDER_EQS, MAX_ORDER_KEYS};
+use crate::graph::{
+    Col, KeyForm, Op, Order, OrderKey, PipelineGraph, Source, MAX_ORDER_EQS, MAX_ORDER_KEYS,
+};
 use crate::join::JoinDesc;
 use crate::ledger::Kind;
 use crate::ops::shared::setop::SetDesc;
@@ -24,15 +26,22 @@ use crate::walk::{Builder, Open};
 /// default one. None for any other key. A source that knows the operator but not its input type (a capture's `-- op` line)
 /// answers the bootstrap catalog's for a builtin operator, whose input type is fixed.
 pub fn reformed_family(facts: &dyn Facts, opno: u32, typ: Option<u32>) -> Option<u32> {
-    let o = facts.key(KeyReq::sort(opno)).filter(|o| o.opcintype != 0).or_else(|| crate::catalog::opdir::builtin_key(opno))?;
+    let o = facts
+        .key(KeyReq::sort(opno))
+        .filter(|o| o.opcintype != 0)
+        .or_else(|| crate::catalog::opdir::builtin_key(opno))?;
     // D3630: a domain column reads as its base (a domain over oid sorted by int4's `<` re-forms as oid does)
     let base = |t: u32| crate::catalog::typefacts::facts_of(facts, t).map_or(t, |f| f.base);
-    typ.is_some_and(|t| expr::reforms_word(base(t), base(o.opcintype))).then_some(o.family)
+    typ.is_some_and(|t| expr::reforms_word(base(t), base(o.opcintype)))
+        .then_some(o.family)
 }
 
 /// The type of target-list entry `resno` (1-based); none outside the list or for an entry of unknown type.
 pub fn key_type(tlist: &NodeList<'_>, resno: i16) -> Option<u32> {
-    let e = (resno as usize).checked_sub(1).filter(|&i| i < tlist.len()).and_then(|i| tlist.nth(i).as_target_entry())?;
+    let e = (resno as usize)
+        .checked_sub(1)
+        .filter(|&i| i < tlist.len())
+        .and_then(|i| tlist.nth(i).as_target_entry())?;
     crate::catalog::expr_type::type_of(e.expr)
 }
 
@@ -41,15 +50,44 @@ pub fn key_type(tlist: &NodeList<'_>, resno: i16) -> Option<u32> {
 /// computes it) without the equality-probed ones, each in its declared direction (`indoption`: DESC / NULLS
 /// FIRST), all flipped by a backward scan. The order is cut at an expression column whose expression the facts
 /// do not carry.
-fn index_order(b: &Builder<'_, '_>, indexid: u32, probes: &[crate::graph::IndexKey<'_>], only: bool, scanrelid: u16, backward: bool) -> Order {
-    let Some(idx) = b.facts.index(indexid) else { return Order::NONE };
+fn index_order(
+    b: &Builder<'_, '_>,
+    indexid: u32,
+    probes: &[crate::graph::IndexKey<'_>],
+    only: bool,
+    scanrelid: u16,
+    backward: bool,
+) -> Order {
+    let Some(idx) = b.facts.index(indexid) else {
+        return Order::NONE;
+    };
     let mut o = Order::NONE;
     if probes.iter().any(|p| p.form == KeyForm::OrderBy) {
         // a nearest-neighbour walk (amcanorderbyop): the rows come by each `column <op> value` ascending, nulls last
         for p in probes.iter().filter(|p| p.form == KeyForm::OrderBy) {
-            let (varno, attno) = if only { (INDEX_VAR, p.col as i16) } else { (scanrelid as i32, p.attno) };
-            let Some(fp) = b.facts.att(idx.relid, p.attno).filter(|_| p.attno > 0).and_then(|a| crate::catalog::op_expr_fp(p.opno, varno, attno, a.typid, a.typmod, p.value)) else { break };
-            o.push_expr(OrderKey { col: Col { varno, attno: 0 }, desc: false, nulls_first: false }, fp);
+            let (varno, attno) = if only {
+                (INDEX_VAR, p.col as i16)
+            } else {
+                (scanrelid as i32, p.attno)
+            };
+            let Some(fp) = b
+                .facts
+                .att(idx.relid, p.attno)
+                .filter(|_| p.attno > 0)
+                .and_then(|a| {
+                    crate::catalog::op_expr_fp(p.opno, varno, attno, a.typid, a.typmod, p.value)
+                })
+            else {
+                break;
+            };
+            o.push_expr(
+                OrderKey {
+                    col: Col { varno, attno: 0 },
+                    desc: false,
+                    nulls_first: false,
+                },
+                fp,
+            );
         }
         return o;
     }
@@ -57,21 +95,49 @@ fn index_order(b: &Builder<'_, '_>, indexid: u32, probes: &[crate::graph::IndexK
         return Order::NONE;
     }
     for (i, &col) in idx.keys().iter().enumerate() {
-        if col != 0 && probes.iter().any(|p| p.attno == col && p.form == KeyForm::Op && b.facts.op_eq(p.opno)) {
+        if col != 0
+            && probes
+                .iter()
+                .any(|p| p.attno == col && p.form == KeyForm::Op && b.facts.op_eq(p.opno))
+        {
             continue;
         }
-        let key = |c| OrderKey { col: c, desc: idx.desc(i) != backward, nulls_first: idx.nulls_first(i) != backward };
+        let key = |c| OrderKey {
+            col: c,
+            desc: idx.desc(i) != backward,
+            nulls_first: idx.nulls_first(i) != backward,
+        };
         // D2313: a key column of another btree family (text_pattern_ops) orders by that family, never by its type's default
         let fam = b.facts.index_family(indexid, i as u8);
         if only {
-            o.push_fam(key(Col { varno: INDEX_VAR, attno: i as i16 + 1 }), fam);
+            o.push_fam(
+                key(Col {
+                    varno: INDEX_VAR,
+                    attno: i as i16 + 1,
+                }),
+                fam,
+            );
         } else if col != 0 {
-            o.push_fam(key(Col { varno: scanrelid as i32, attno: col }), fam);
+            o.push_fam(
+                key(Col {
+                    varno: scanrelid as i32,
+                    attno: col,
+                }),
+                fam,
+            );
         } else if fam != 0 {
             break;
         } else {
-            let Some(fp) = b.facts.index_expr(indexid, i as u8) else { break };
-            o.push_expr(key(Col { varno: scanrelid as i32, attno: 0 }), fp);
+            let Some(fp) = b.facts.index_expr(indexid, i as u8) else {
+                break;
+            };
+            o.push_expr(
+                key(Col {
+                    varno: scanrelid as i32,
+                    attno: 0,
+                }),
+                fp,
+            );
         }
     }
     o
@@ -85,8 +151,24 @@ fn index_order(b: &Builder<'_, '_>, indexid: u32, probes: &[crate::graph::IndexK
 /// under projections and filters only, its first eight keys are plain columns of their types' default families (an
 /// order led by another family's key is no default-family order) and keys remain past them.
 pub(crate) fn index_past<'p>(b: &Builder<'p, '_>, p: &Open<'p>) -> Option<ArenaVec<OrderKey>> {
-    let Source::Index { indexid, keys: probes, only, scanrelid, backward, .. } = &p.source else { return None };
-    if p.union.is_some() || !p.ops.iter().all(|op| matches!(op, Op::Project(_) | Op::Filter(_))) || probes.iter().any(|k| k.form == KeyForm::OrderBy) {
+    let Source::Index {
+        indexid,
+        keys: probes,
+        only,
+        scanrelid,
+        backward,
+        ..
+    } = &p.source
+    else {
+        return None;
+    };
+    if p.union.is_some()
+        || !p
+            .ops
+            .iter()
+            .all(|op| matches!(op, Op::Project(_) | Op::Filter(_)))
+        || probes.iter().any(|k| k.form == KeyForm::OrderBy)
+    {
         return None;
     }
     let idx = b.facts.index(*indexid).filter(|i| i.btree)?;
@@ -97,17 +179,35 @@ pub(crate) fn index_past<'p>(b: &Builder<'p, '_>, p: &Open<'p>) -> Option<ArenaV
     let nkey = (ext.nkeyatts as usize).min(idx.keys().len());
     let mut all = ArenaVec::with_capacity_in(nkey, b.arena);
     for (i, &col) in idx.keys()[..nkey].iter().enumerate() {
-        if col != 0 && probes.iter().any(|k| k.attno == col && k.form == KeyForm::Op && b.facts.op_eq(k.opno)) {
+        if col != 0
+            && probes
+                .iter()
+                .any(|k| k.attno == col && k.form == KeyForm::Op && b.facts.op_eq(k.opno))
+        {
             continue;
         }
-        let c = if *only { Col { varno: INDEX_VAR, attno: i as i16 + 1 } } else { Col { varno: *scanrelid as i32, attno: col } };
+        let c = if *only {
+            Col {
+                varno: INDEX_VAR,
+                attno: i as i16 + 1,
+            }
+        } else {
+            Col {
+                varno: *scanrelid as i32,
+                attno: col,
+            }
+        };
         if c.attno == 0 || b.facts.index_family(*indexid, i as u8) != 0 {
             if all.len() < MAX_ORDER_KEYS {
                 return None;
             }
             break;
         }
-        all.push(OrderKey { col: c, desc: idx.desc(i) != *backward, nulls_first: idx.nulls_first(i) != *backward });
+        all.push(OrderKey {
+            col: c,
+            desc: idx.desc(i) != *backward,
+            nulls_first: idx.nulls_first(i) != *backward,
+        });
     }
     if all.len() <= MAX_ORDER_KEYS {
         return None;
@@ -130,12 +230,17 @@ pub(crate) fn index_past<'p>(b: &Builder<'p, '_>, p: &Open<'p>) -> Option<ArenaV
 }
 
 const fn keeps_outer_order(jt: JoinType) -> bool {
-    matches!(jt, JoinType::JOIN_INNER | JoinType::JOIN_LEFT | JoinType::JOIN_SEMI | JoinType::JOIN_ANTI)
+    matches!(
+        jt,
+        JoinType::JOIN_INNER | JoinType::JOIN_LEFT | JoinType::JOIN_SEMI | JoinType::JOIN_ANTI
+    )
 }
 
 /// `a = b` over two columns with a btree equality (`Facts::op_eq`): the pair.
 fn eq_cols(facts: &dyn Facts, e: Node<'_>) -> Option<(Col, Col)> {
-    let op = e.as_op_expr().filter(|o| o.args.len() == 2 && facts.op_eq(o.opno))?;
+    let op = e
+        .as_op_expr()
+        .filter(|o| o.args.len() == 2 && facts.op_eq(o.opno))?;
     Some((Col::of(op.args.nth(0))?, Col::of(op.args.nth(1))?))
 }
 
@@ -143,7 +248,9 @@ fn eq_cols(facts: &dyn Facts, e: Node<'_>) -> Option<(Col, Col)> {
 /// `eq_cols`) between a bare column and a non-NULL constant, over a type without a collation (a nondeterministic
 /// collation's equality joins values its order tells apart).
 fn pinned_col(facts: &dyn Facts, e: Node<'_>) -> Option<Col> {
-    let op = e.as_op_expr().filter(|o| o.args.len() == 2 && o.inputcollid == 0 && facts.op_eq(o.opno))?;
+    let op = e
+        .as_op_expr()
+        .filter(|o| o.args.len() == 2 && o.inputcollid == 0 && facts.op_eq(o.opno))?;
     let (x, y) = (op.args.nth(0), op.args.nth(1));
     let konst = |n: Node<'_>| n.as_const().is_some_and(|c| !c.constisnull);
     match (Col::of(x), Col::of(y)) {
@@ -179,13 +286,34 @@ fn step<'p>(facts: &dyn Facts, g: &PipelineGraph<'p>, o: Order, op: &Op<'p>) -> 
             for key in s.keys.iter() {
                 // D858: a key whose operator re-forms its column's word is declared under the operator's family
                 let reformed = || reformed_family(facts, key.opno, key_type(s.tlist, key.resno));
-                let fam = if key.own_family { facts.key(KeyReq::sort(key.opno)).filter(|o| !o.default_family).map(|o| o.family).or_else(reformed) } else { Some(0) };
+                let fam = if key.own_family {
+                    facts
+                        .key(KeyReq::sort(key.opno))
+                        .filter(|o| !o.default_family)
+                        .map(|o| o.family)
+                        .or_else(reformed)
+                } else {
+                    Some(0)
+                };
                 let Some(fam) = fam else { break };
-                n.push_fam(OrderKey { col: Col::outer(key.resno), desc: key.desc, nulls_first: key.nulls_first }, fam);
+                n.push_fam(
+                    OrderKey {
+                        col: Col::outer(key.resno),
+                        desc: key.desc,
+                        nulls_first: key.nulls_first,
+                    },
+                    fam,
+                );
             }
             n
         }
-        Op::Join(JoinDesc::Merge { slot, jointype, clauses, qual, .. }) => {
+        Op::Join(JoinDesc::Merge {
+            slot,
+            jointype,
+            clauses,
+            qual,
+            ..
+        }) => {
             if !keeps_outer_order(*jointype) {
                 return Order::NONE;
             }
@@ -204,7 +332,13 @@ fn step<'p>(facts: &dyn Facts, g: &PipelineGraph<'p>, o: Order, op: &Op<'p>) -> 
             }
             n
         }
-        Op::Join(JoinDesc::Nest { jointype, params, inner, qual, .. }) => {
+        Op::Join(JoinDesc::Nest {
+            jointype,
+            params,
+            inner,
+            qual,
+            ..
+        }) => {
             if !keeps_outer_order(*jointype) {
                 return Order::NONE;
             }
@@ -219,7 +353,14 @@ fn step<'p>(facts: &dyn Facts, g: &PipelineGraph<'p>, o: Order, op: &Op<'p>) -> 
         // its hash clauses (a RIGHT / FULL probe hands on build rows NULL-extended, so none of the outer's hold). A catalog
         // probe (join.rs map_catalog) keeps the outer's order too: serial, at most one inner row per outer row, never the
         // spill pair (rnd-2838)
-        Op::Join(JoinDesc::Probe { slot, jointype, clauses, qual, catalog, .. }) if keeps_outer_order(*jointype) => {
+        Op::Join(JoinDesc::Probe {
+            slot,
+            jointype,
+            clauses,
+            qual,
+            catalog,
+            ..
+        }) if keeps_outer_order(*jointype) => {
             let mut n = if *catalog { o } else { o.unordered() };
             if matches!(jointype, JoinType::JOIN_INNER | JoinType::JOIN_SEMI) {
                 for c in clauses.iter() {
@@ -238,20 +379,38 @@ fn step<'p>(facts: &dyn Facts, g: &PipelineGraph<'p>, o: Order, op: &Op<'p>) -> 
         // D3906: a RIGHT join's drain hands on every build row, matched or NULL-extended on the probe side: the equalities
         // every build row meets (its source's, the HashBuild's declared ones in its rows' `OUTER_VAR` columns) hold, in the
         // join's `INNER_VAR` ones; the probe side's and the hash clauses hold for the matched rows only
-        Op::Join(JoinDesc::Drain { jointype: JoinType::JOIN_RIGHT, .. }) => {
+        Op::Join(JoinDesc::Drain {
+            jointype: JoinType::JOIN_RIGHT,
+            ..
+        }) => {
             let mut n = Order::NONE;
             for [a, b] in &o.eqs[..o.neq as usize] {
                 if a.varno == OUTER_VAR && b.varno == OUTER_VAR {
-                    n.push_eq(Col { varno: INNER_VAR, attno: a.attno }, Col { varno: INNER_VAR, attno: b.attno });
+                    n.push_eq(
+                        Col {
+                            varno: INNER_VAR,
+                            attno: a.attno,
+                        },
+                        Col {
+                            varno: INNER_VAR,
+                            attno: b.attno,
+                        },
+                    );
                 }
             }
             n
         }
-        Op::Join(JoinDesc::Build { .. } | JoinDesc::Probe { .. } | JoinDesc::Drain { .. }) => Order::NONE,
+        Op::Join(JoinDesc::Build { .. } | JoinDesc::Probe { .. } | JoinDesc::Drain { .. }) => {
+            Order::NONE
+        }
         Op::SetOp(SetDesc::Set { hashed: false, .. }) => o,
         // a union's rows come in feed order across the children: the slot's declared order (an ordered Append's
         // mark checked on every child) or none; a feed is the end of its pipeline
-        Op::SetOp(_) | Op::Append(crate::ops::shared::append::AppendDesc::Feed { .. } | crate::ops::shared::append::AppendDesc::Arm { .. }) => Order::NONE,
+        Op::SetOp(_)
+        | Op::Append(
+            crate::ops::shared::append::AppendDesc::Feed { .. }
+            | crate::ops::shared::append::AppendDesc::Arm { .. },
+        ) => Order::NONE,
         _ => o,
     }
 }
@@ -259,10 +418,21 @@ fn step<'p>(facts: &dyn Facts, g: &PipelineGraph<'p>, o: Order, op: &Op<'p>) -> 
 /// D3856: an inner join's rows each carry an inner row, so the equalities every inner row meets hold too: those slot
 /// `slot`'s declaration names in its rows' columns (`OUTER_VAR`), which the join reads as its `INNER_VAR` ones.
 fn inner_eqs(g: &PipelineGraph<'_>, slot: u8, n: &mut Order) {
-    let Some(d) = breakers::decl_of(g, slot) else { return };
+    let Some(d) = breakers::decl_of(g, slot) else {
+        return;
+    };
     for [a, b] in &d.order.eqs[..d.order.neq as usize] {
         if a.varno == OUTER_VAR && b.varno == OUTER_VAR {
-            n.push_eq(Col { varno: INNER_VAR, attno: a.attno }, Col { varno: INNER_VAR, attno: b.attno });
+            n.push_eq(
+                Col {
+                    varno: INNER_VAR,
+                    attno: a.attno,
+                },
+                Col {
+                    varno: INNER_VAR,
+                    attno: b.attno,
+                },
+            );
         }
     }
 }
@@ -287,7 +457,13 @@ fn join_eqs(facts: &dyn Facts, o: &mut Order, qual: &NodeList<'_>) {
 /// an Append inner (a settled union, `breakers::union_arms`; ExecReScanAppend rescans every child with the parameter):
 /// a column of the union's row, which the Append's projection names by position (`OUTER_VAR`), when every arm's scan
 /// probes the column at that position by the same parameter (MJ-NOORDER: a partitioned inner).
-fn nest_eqs<'p>(facts: &dyn Facts, g: &PipelineGraph<'p>, o: &mut Order, params: &NodeList<'_>, inner: &Open<'p>) {
+fn nest_eqs<'p>(
+    facts: &dyn Facts,
+    g: &PipelineGraph<'p>,
+    o: &mut Order,
+    params: &NodeList<'_>,
+    inner: &Open<'p>,
+) {
     if projection(inner).is_none() {
         return;
     }
@@ -296,8 +472,13 @@ fn nest_eqs<'p>(facts: &dyn Facts, g: &PipelineGraph<'p>, o: &mut Order, params:
         while let Some(a) = expr::through_relabel(v) {
             v = a;
         }
-        let p = v.as_param().filter(|p| p.paramkind == types_nodes::primnodes::ParamKind::PARAM_EXEC)?;
-        let np = params.iter().filter_map(|x| x.as_nest_loop_param()).find(|x| x.paramno == p.paramid)?;
+        let p = v
+            .as_param()
+            .filter(|p| p.paramkind == types_nodes::primnodes::ParamKind::PARAM_EXEC)?;
+        let np = params
+            .iter()
+            .filter_map(|x| x.as_nest_loop_param())
+            .find(|x| x.paramno == p.paramid)?;
         Col::of(np.paramval).filter(|c| c.varno == OUTER_VAR)
     };
     let mut pairs: [(Col, Col); MAX_ORDER_EQS] = [(Col::outer(0), Col::outer(0)); MAX_ORDER_EQS];
@@ -306,12 +487,18 @@ fn nest_eqs<'p>(facts: &dyn Facts, g: &PipelineGraph<'p>, o: &mut Order, params:
         Some(arms) => {
             let mut n = 0;
             for (k, arm) in arms.enumerate() {
-                let mut own: [(Col, Col); MAX_ORDER_EQS] = [(Col::outer(0), Col::outer(0)); MAX_ORDER_EQS];
+                let mut own: [(Col, Col); MAX_ORDER_EQS] =
+                    [(Col::outer(0), Col::outer(0)); MAX_ORDER_EQS];
                 let m = scan_eqs(facts, &bound, arm, &mut own);
                 let Some(at) = projection(arm) else { return };
                 // the arm's scan column as the union's row names it: its position in the arm's projection
-                let pos = |c: Col| at.iter().position(|e| e.as_target_entry().and_then(|t| Col::of(t.expr)) == Some(c)).map(|i| Col::outer(i as i16 + 1));
-                let mut mine: [(Col, Col); MAX_ORDER_EQS] = [(Col::outer(0), Col::outer(0)); MAX_ORDER_EQS];
+                let pos = |c: Col| {
+                    at.iter()
+                        .position(|e| e.as_target_entry().and_then(|t| Col::of(t.expr)) == Some(c))
+                        .map(|i| Col::outer(i as i16 + 1))
+                };
+                let mut mine: [(Col, Col); MAX_ORDER_EQS] =
+                    [(Col::outer(0), Col::outer(0)); MAX_ORDER_EQS];
                 let mut j = 0;
                 for &(col, outer) in &own[..m] {
                     if let Some(c) = pos(col) {
@@ -342,7 +529,13 @@ fn nest_eqs<'p>(facts: &dyn Facts, g: &PipelineGraph<'p>, o: &mut Order, params:
     };
     for &(col, outer) in &pairs[..n] {
         if let Some(attno) = inner_position(inner, col) {
-            o.push_eq(outer, Col { varno: INNER_VAR, attno });
+            o.push_eq(
+                outer,
+                Col {
+                    varno: INNER_VAR,
+                    attno,
+                },
+            );
         }
     }
 }
@@ -354,7 +547,11 @@ fn inner_position(inner: &Open<'_>, c: Col) -> Option<i16> {
     let (mut c, mut at) = (c, None);
     for op in inner.ops.iter() {
         let Op::Project(l) = op else { continue };
-        let i = l.iter().position(|e| e.as_target_entry().and_then(|t| Col::of(t.expr)) == Some(c))? as i16 + 1;
+        let i = l
+            .iter()
+            .position(|e| e.as_target_entry().and_then(|t| Col::of(t.expr)) == Some(c))?
+            as i16
+            + 1;
         (c, at) = (Col::outer(i), Some(i));
     }
     at
@@ -362,7 +559,12 @@ fn inner_position(inner: &Open<'_>, c: Col) -> Option<i16> {
 
 /// A scan's parameter equalities (`nest_eqs`): (the scanned column in the scan's coordinates, the outer column its
 /// parameter is bound to), into `out`; the count.
-fn scan_eqs(facts: &dyn Facts, bound: &dyn Fn(Node<'_>) -> Option<Col>, scan: &Open<'_>, out: &mut [(Col, Col); MAX_ORDER_EQS]) -> usize {
+fn scan_eqs(
+    facts: &dyn Facts,
+    bound: &dyn Fn(Node<'_>) -> Option<Col>,
+    scan: &Open<'_>,
+    out: &mut [(Col, Col); MAX_ORDER_EQS],
+) -> usize {
     let mut n = 0;
     let mut add = |col: Col, outer: Option<Col>| {
         if let Some(outer) = outer.filter(|_| n < MAX_ORDER_EQS) {
@@ -371,17 +573,42 @@ fn scan_eqs(facts: &dyn Facts, bound: &dyn Fn(Node<'_>) -> Option<Col>, scan: &O
         }
     };
     match &scan.source {
-        Source::Index { keys, only, scanrelid, .. } => {
-            for k in keys.iter().filter(|k| k.form == KeyForm::Op && facts.op_eq(k.opno)) {
-                let col = if *only { Col { varno: INDEX_VAR, attno: k.col as i16 } } else { Col { varno: *scanrelid as i32, attno: k.attno } };
+        Source::Index {
+            keys,
+            only,
+            scanrelid,
+            ..
+        } => {
+            for k in keys
+                .iter()
+                .filter(|k| k.form == KeyForm::Op && facts.op_eq(k.opno))
+            {
+                let col = if *only {
+                    Col {
+                        varno: INDEX_VAR,
+                        attno: k.col as i16,
+                    }
+                } else {
+                    Col {
+                        varno: *scanrelid as i32,
+                        attno: k.attno,
+                    }
+                };
                 if col.attno > 0 {
                     add(col, bound(k.value));
                 }
             }
         }
-        Source::Bitmap { recheck, scanrelid, .. } => {
+        Source::Bitmap {
+            recheck, scanrelid, ..
+        } => {
             for c in recheck.iter() {
-                let Some(op) = c.as_op_expr().filter(|x| x.args.len() == 2 && facts.op_eq(x.opno)) else { continue };
+                let Some(op) = c
+                    .as_op_expr()
+                    .filter(|x| x.args.len() == 2 && facts.op_eq(x.opno))
+                else {
+                    continue;
+                };
                 let (x, y) = (op.args.nth(0), op.args.nth(1));
                 for (v, other) in [(x, y), (y, x)] {
                     if let Some(col) = Col::of(v).filter(|c| c.varno == *scanrelid as i32) {
@@ -405,9 +632,20 @@ fn range_order(b: &Builder<'_, '_>, am: Am, site: &SiteDesc, relid: u32, scanrel
         return o;
     }
     let rel = b.facts.rel(relid);
-    let key = if site.is_merged() { &site.merge[..] } else { rel.as_ref().map_or(&[][..], |r| r.sorted_by()) };
+    let key = if site.is_merged() {
+        &site.merge[..]
+    } else {
+        rel.as_ref().map_or(&[][..], |r| r.sorted_by())
+    };
     for &attno in key {
-        o.push(OrderKey { col: Col { varno: scanrelid as i32, attno }, desc: false, nulls_first: false });
+        o.push(OrderKey {
+            col: Col {
+                varno: scanrelid as i32,
+                attno,
+            },
+            desc: false,
+            nulls_first: false,
+        });
     }
     o
 }
@@ -418,9 +656,23 @@ pub fn order_of<'p>(b: &Builder<'p, '_>, p: &Open<'p>) -> Order {
     // an open over a streamed union: the union's order (the ordered mark, the arms run in child order) or none
     let mut o = match &p.source {
         _ if p.union.is_some() => b.graph.unions[p.union.unwrap() as usize].order,
-        Source::Index { indexid, keys, only, scanrelid, backward, .. } => index_order(b, *indexid, keys, *only, *scanrelid, *backward),
-        Source::Range { site, am, relid, scanrelid } => range_order(b, *am, site, *relid, *scanrelid),
-        Source::Breaker { slot } if !b.work.iter().any(|w| w.1 == *slot) => breakers::decl_of(&b.graph, *slot).map_or(Order::NONE, |d| d.order),
+        Source::Index {
+            indexid,
+            keys,
+            only,
+            scanrelid,
+            backward,
+            ..
+        } => index_order(b, *indexid, keys, *only, *scanrelid, *backward),
+        Source::Range {
+            site,
+            am,
+            relid,
+            scanrelid,
+        } => range_order(b, *am, site, *relid, *scanrelid),
+        Source::Breaker { slot } if !b.work.iter().any(|w| w.1 == *slot) => {
+            breakers::decl_of(&b.graph, *slot).map_or(Order::NONE, |d| d.order)
+        }
         // a FROM function scan WITH ORDINALITY: its ordinality column ascending (window_core-0120)
         Source::Const => crate::facts::srf::ordinality_order(p.ops.first()),
         _ => Order::NONE,
@@ -449,11 +701,26 @@ pub fn eqs_of<'p>(b: &Builder<'p, '_>, p: &Open<'p>) -> Order {
 
 /// The last projection of an open pipeline (its `OUTER_VAR` coordinates).
 pub fn projection<'p>(p: &Open<'p>) -> Option<&'p NodeList<'p>> {
-    p.ops.iter().rev().find_map(|op| if let Op::Project(l) = op { Some(*l) } else { None })
+    p.ops.iter().rev().find_map(|op| {
+        if let Op::Project(l) = op {
+            Some(*l)
+        } else {
+            None
+        }
+    })
 }
 
 pub fn is_const(proj: Option<&NodeList<'_>>, c: Col) -> bool {
-    c.varno == OUTER_VAR && proj.and_then(|l| (c.attno as usize).checked_sub(1).filter(|&i| i < l.len()).map(|i| l.nth(i))).and_then(|e| e.as_target_entry()).is_some_and(|t| t.expr.as_const().is_some())
+    c.varno == OUTER_VAR
+        && proj
+            .and_then(|l| {
+                (c.attno as usize)
+                    .checked_sub(1)
+                    .filter(|&i| i < l.len())
+                    .map(|i| l.nth(i))
+            })
+            .and_then(|e| e.as_target_entry())
+            .is_some_and(|t| t.expr.as_const().is_some())
 }
 
 /// Whether `p`'s rows lead with `want` (a column, direction and null placement each): a wanted key that is a
@@ -466,18 +733,39 @@ pub fn leads_with(o: &Order, proj: Option<&NodeList<'_>>, want: &[OrderKey], dir
 /// `leads_with` with each wanted key's btree family (`fams[i]`, 0 or absent: its type's default): an order key matches
 /// only a wanted key of its own family (record-image order: a key of another family's order never stands for a
 /// default-family one, nor the reverse).
-pub fn leads_with_fams(o: &Order, proj: Option<&NodeList<'_>>, want: &[OrderKey], fams: &[u32], dirs: bool) -> bool {
+pub fn leads_with_fams(
+    o: &Order,
+    proj: Option<&NodeList<'_>>,
+    want: &[OrderKey],
+    fams: &[u32],
+    dirs: bool,
+) -> bool {
     let fam = |i: usize| fams.get(i).copied().unwrap_or(0);
     // the default family's equalities (`Order::eqs`) carry its order only; another family's key matches its own column
     let same = |f: u32, a: Col, b: Col| if f == 0 { o.same(a, b) } else { a == b };
     let mut j = 0;
     for (i, w) in want.iter().enumerate() {
-        let passed = o.keys()[..j].iter().enumerate().any(|(m, x)| o.fams[m] == fam(i) && same(fam(i), x.col, w.col));
-        if is_const(proj, w.col) || want[..i].iter().enumerate().any(|(m, x)| fam(m) == fam(i) && same(fam(i), x.col, w.col)) || passed {
+        let passed = o.keys()[..j]
+            .iter()
+            .enumerate()
+            .any(|(m, x)| o.fams[m] == fam(i) && same(fam(i), x.col, w.col));
+        if is_const(proj, w.col)
+            || want[..i]
+                .iter()
+                .enumerate()
+                .any(|(m, x)| fam(m) == fam(i) && same(fam(i), x.col, w.col))
+            || passed
+        {
             continue;
         }
         match o.keys().get(j) {
-            Some(x) if o.fams[j] == fam(i) && same(fam(i), x.col, w.col) && (!dirs || (x.desc == w.desc && x.nulls_first == w.nulls_first)) => j += 1,
+            Some(x)
+                if o.fams[j] == fam(i)
+                    && same(fam(i), x.col, w.col)
+                    && (!dirs || (x.desc == w.desc && x.nulls_first == w.nulls_first)) =>
+            {
+                j += 1
+            }
             _ => return false,
         }
     }
@@ -485,17 +773,41 @@ pub fn leads_with_fams(o: &Order, proj: Option<&NodeList<'_>>, want: &[OrderKey]
 }
 
 /// The refusal for a consumer whose input is not in `want`'s order: none known, or a different one.
-pub fn ordered_as(o: &Order, proj: Option<&NodeList<'_>>, want: &[OrderKey], k: Kind, id: i32, none: &'static str, other: &'static str) -> Result<(), Refusal> {
+pub fn ordered_as(
+    o: &Order,
+    proj: Option<&NodeList<'_>>,
+    want: &[OrderKey],
+    k: Kind,
+    id: i32,
+    none: &'static str,
+    other: &'static str,
+) -> Result<(), Refusal> {
     if leads_with(o, proj, want, true) {
         return Ok(());
     }
-    Err(Refusal::shape(k, id, if o.is_known() { other } else { none }))
+    Err(Refusal::shape(
+        k,
+        id,
+        if o.is_known() { other } else { none },
+    ))
 }
 
 /// `ordered_as` for a wanted order whose keys name their btree families (`Order::fams`: a merge join's clauses).
-pub fn ordered_as_order(o: &Order, proj: Option<&NodeList<'_>>, want: &Order, k: Kind, id: i32, none: &'static str, other: &'static str) -> Result<(), Refusal> {
+pub fn ordered_as_order(
+    o: &Order,
+    proj: Option<&NodeList<'_>>,
+    want: &Order,
+    k: Kind,
+    id: i32,
+    none: &'static str,
+    other: &'static str,
+) -> Result<(), Refusal> {
     if leads_with_fams(o, proj, want.keys(), &want.fams[..want.n as usize], true) {
         return Ok(());
     }
-    Err(Refusal::shape(k, id, if o.is_known() { other } else { none }))
+    Err(Refusal::shape(
+        k,
+        id,
+        if o.is_known() { other } else { none },
+    ))
 }

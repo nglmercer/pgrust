@@ -35,7 +35,10 @@ fn canonicalize_path_lexically(path: &Path) -> PathBuf {
     out
 }
 
-pub fn absolute_config_location(location: impl AsRef<Path>, calling_file: Option<&Path>) -> PathBuf {
+pub fn absolute_config_location(
+    location: impl AsRef<Path>,
+    calling_file: Option<&Path>,
+) -> PathBuf {
     let location = location.as_ref();
     if location.is_absolute() {
         return PathBuf::from(location);
@@ -129,7 +132,10 @@ pub fn get_conf_files_in_dir(
                 return Err(io_error(
                     ERROR,
                     &error,
-                    format!("could not read directory \"{}\": {PCT_M}", directory.display()),
+                    format!(
+                        "could not read directory \"{}\": {PCT_M}",
+                        directory.display()
+                    ),
                 )
                 .into())
             }

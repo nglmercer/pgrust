@@ -22,7 +22,9 @@
 /// A match's span as the per-row tier keeps it: `(start, end)` byte offsets, `(-1, -1)` for a group that took no part.
 pub type GroupSpan = (i64, i64);
 
-pub use gravity_abi::limits::{REGEXP_MAX_GROUPS as MAX_GROUPS, REGEXP_MAX_LITS as MAX_LITS, REGEXP_MAX_OPS as MAX_OPS};
+pub use gravity_abi::limits::{
+    REGEXP_MAX_GROUPS as MAX_GROUPS, REGEXP_MAX_LITS as MAX_LITS, REGEXP_MAX_OPS as MAX_OPS,
+};
 
 const UNSET: (usize, usize) = (usize::MAX, usize::MAX);
 
@@ -92,15 +94,30 @@ enum Scan {
 
 #[derive(Clone, Copy)]
 enum Op {
-    Lit { off: u16, len: u16 },
-    Opt { off: u16, len: u16 },
+    Lit {
+        off: u16,
+        len: u16,
+    },
+    Opt {
+        off: u16,
+        len: u16,
+    },
     /// `chars`: the class admits non-ASCII characters, so its bounds count characters; `possessive`: only the greedy
     /// length can match (`mark_possessive`).
-    Set { set: ByteSet, scan: Scan, min: u32, max: u32, chars: bool, possessive: bool },
+    Set {
+        set: ByteSet,
+        scan: Scan,
+        min: u32,
+        max: u32,
+        chars: bool,
+        possessive: bool,
+    },
     CapStart(u8),
     CapEnd(u8),
     /// A trailing `.*` / `.+`: every remaining byte, read or not.
-    Tail { min_one: bool },
+    Tail {
+        min_one: bool,
+    },
     End,
 }
 
@@ -142,7 +159,10 @@ pub struct Found {
 impl Found {
     /// Group `g` (1-based), `None` past the pattern's groups.
     pub fn group(&self, g: usize) -> Option<(usize, usize)> {
-        (1..=MAX_GROUPS).contains(&g).then(|| self.caps[g - 1]).filter(|&c| c != UNSET)
+        (1..=MAX_GROUPS)
+            .contains(&g)
+            .then(|| self.caps[g - 1])
+            .filter(|&c| c != UNSET)
     }
 }
 
@@ -214,7 +234,10 @@ impl Compiler<'_> {
 
     fn flush_run(&mut self) -> Option<()> {
         if self.prog.nlits > self.run_start {
-            let (off, len) = (self.run_start as u16, (self.prog.nlits - self.run_start) as u16);
+            let (off, len) = (
+                self.run_start as u16,
+                (self.prog.nlits - self.run_start) as u16,
+            );
             self.run_start = self.prog.nlits;
             self.push_op(Op::Lit { off, len })?;
         }
@@ -245,7 +268,9 @@ impl Compiler<'_> {
                 self.i += 2;
                 Some(1)
             }
-            b'(' | b')' | b'[' | b']' | b'{' | b'*' | b'+' | b'?' | b'|' | b'^' | b'$' | b'.' => None,
+            b'(' | b')' | b'[' | b']' | b'{' | b'*' | b'+' | b'?' | b'|' | b'^' | b'$' | b'.' => {
+                None
+            }
             _ => {
                 let len = utf8_char_len(b);
                 if self.i + len > self.pat.len() || (self.prog.fold && !b.is_ascii()) {
@@ -390,7 +415,14 @@ impl Compiler<'_> {
                 _ => Scan::Table,
             }
         };
-        self.push(Op::Set { set, scan, min, max, chars, possessive: false })
+        self.push(Op::Set {
+            set,
+            scan,
+            min,
+            max,
+            chars,
+            possessive: false,
+        })
     }
 
     fn quantified_atom(&mut self, atom_off: usize, atom_len: usize) -> Option<()> {
@@ -402,7 +434,10 @@ impl Compiler<'_> {
                 self.flush_run()?;
                 self.prog.nlits = bytes_end;
                 self.run_start = bytes_end;
-                self.push_op(Op::Opt { off: atom_off as u16, len: atom_len as u16 })
+                self.push_op(Op::Opt {
+                    off: atom_off as u16,
+                    len: atom_len as u16,
+                })
             }
             (min, max) => {
                 if atom_len != 1 || !self.prog.lits[atom_off].is_ascii() {
@@ -436,9 +471,14 @@ impl Compiler<'_> {
                 b'.' => {
                     let q = self.pat.get(self.i + 1).copied();
                     let rest = &self.pat[(self.i + 2).min(self.pat.len())..];
-                    if !in_group && matches!(q, Some(b'*' | b'+')) && (rest.is_empty() || rest == b"$") {
+                    if !in_group
+                        && matches!(q, Some(b'*' | b'+'))
+                        && (rest.is_empty() || rest == b"$")
+                    {
                         self.i += 2;
-                        self.push(Op::Tail { min_one: q == Some(b'+') })?;
+                        self.push(Op::Tail {
+                            min_one: q == Some(b'+'),
+                        })?;
                         continue;
                     }
                     self.i += 1;
@@ -506,8 +546,23 @@ impl Program {
     }
 
     fn build(pattern: &[u8], fold: bool) -> Option<Program> {
-        let prog = Program { ops: [Op::End; MAX_OPS], nops: 0, lits: [0; MAX_LITS], nlits: 0, ngroups: 0, anchored: false, fold, linear: false, lead: Lead::None };
-        let mut c = Compiler { pat: pattern, i: 0, prog, run_start: 0 };
+        let prog = Program {
+            ops: [Op::End; MAX_OPS],
+            nops: 0,
+            lits: [0; MAX_LITS],
+            nlits: 0,
+            ngroups: 0,
+            anchored: false,
+            fold,
+            linear: false,
+            lead: Lead::None,
+        };
+        let mut c = Compiler {
+            pat: pattern,
+            i: 0,
+            prog,
+            run_start: 0,
+        };
         if c.peek() == Some(b'^') {
             c.prog.anchored = true;
             c.i += 1;
@@ -521,7 +576,9 @@ impl Program {
         prog.mark_possessive();
         prog.lead = match prog.consuming(0).map(|i| prog.ops[i]) {
             // folded, a literal with a letter: the first byte's cases (`memmem` compares exactly)
-            Some(Op::Lit { off, len }) if len > 0 && fold && prog.lit(off, len).iter().any(u8::is_ascii_alphabetic) => {
+            Some(Op::Lit { off, len })
+                if len > 0 && fold && prog.lit(off, len).iter().any(u8::is_ascii_alphabetic) =>
+            {
                 let mut set = ByteSet::empty();
                 set.insert(prog.lits[off as usize]);
                 set.fold_ascii();
@@ -549,17 +606,32 @@ impl Program {
     pub fn longest_is_first(&self) -> bool {
         let ops = &self.ops[..self.nops];
         let decided = |i: usize, off: u16| match self.consuming(i + 1).map(|k| ops[k]) {
-            Some(Op::Lit { off: o, len }) => len > 0 && self.lits[o as usize] != self.lits[off as usize],
+            Some(Op::Lit { off: o, len }) => {
+                len > 0 && self.lits[o as usize] != self.lits[off as usize]
+            }
             Some(Op::Set { set, min, .. }) => min >= 1 && !set.contains(self.lits[off as usize]),
             _ => false,
         };
         let choice = |(i, op): (usize, &Op)| match op {
             Op::Opt { off, len } => *len > 0 && !decided(i, *off),
-            Op::Set { possessive: false, min, max, .. } => min != max,
+            Op::Set {
+                possessive: false,
+                min,
+                max,
+                ..
+            } => min != max,
             _ => false,
         };
-        let variable = |op: &Op| matches!(op, Op::Opt { .. } | Op::Tail { .. }) || matches!(op, Op::Set { min, max, .. } if min != max);
-        self.anchored_to_end() || ops.iter().enumerate().position(choice).is_none_or(|i| !ops[i + 1..].iter().any(variable))
+        let variable = |op: &Op| {
+            matches!(op, Op::Opt { .. } | Op::Tail { .. })
+                || matches!(op, Op::Set { min, max, .. } if min != max)
+        };
+        self.anchored_to_end()
+            || ops
+                .iter()
+                .enumerate()
+                .position(choice)
+                .is_none_or(|i| !ops[i + 1..].iter().any(variable))
     }
 
     /// A class run whose next consuming op is `$`, the program's end, a literal whose first byte the class excludes, or a
@@ -570,7 +642,9 @@ impl Program {
     /// `saw_end` stay exact. `$` is the subject's end alone, never before a '\n' (no newline-sensitive flag in the subset).
     fn mark_possessive(&mut self) {
         for i in 0..self.nops {
-            let Op::Set { set, .. } = self.ops[i] else { continue };
+            let Op::Set { set, .. } = self.ops[i] else {
+                continue;
+            };
             let p = match self.consuming(i + 1).map(|k| self.ops[k]) {
                 None | Some(Op::End) | Some(Op::Tail { min_one: false }) => true,
                 Some(Op::Lit { off, len }) => len > 0 && !set.contains(self.lits[off as usize]),
@@ -581,7 +655,15 @@ impl Program {
                 *possessive = p;
             }
         }
-        self.linear = self.ops[..self.nops].iter().all(|op| !matches!(op, Op::Set { possessive: false, .. }));
+        self.linear = self.ops[..self.nops].iter().all(|op| {
+            !matches!(
+                op,
+                Op::Set {
+                    possessive: false,
+                    ..
+                }
+            )
+        });
     }
 
     pub fn ngroups(&self) -> usize {
@@ -605,7 +687,10 @@ impl Program {
 
     /// Every match ends at the subject's end (a trailing `.*` or `$`).
     pub fn anchored_to_end(&self) -> bool {
-        matches!(self.ops[..self.nops].last(), Some(Op::Tail { .. } | Op::End))
+        matches!(
+            self.ops[..self.nops].last(),
+            Some(Op::Tail { .. } | Op::End)
+        )
     }
 
     /// The leftmost match starting at or past `from` (a character boundary).
@@ -628,7 +713,12 @@ impl Program {
                 _ if g <= MAX_GROUPS && r.caps[g - 1] != UNSET => r.caps[g - 1],
                 _ => (0, 0),
             };
-            Grouped { end: r.end, group, read: r.read, saw_end: r.saw_end }
+            Grouped {
+                end: r.end,
+                group,
+                read: r.read,
+                saw_end: r.saw_end,
+            }
         })
     }
 
@@ -657,7 +747,13 @@ impl Program {
 
     /// The leftmost match at or past `from`, `take` reading it off the run.
     #[inline(always)]
-    fn search<F>(&self, hay: &[u8], from: usize, linear: bool, take: impl Fn(&Run<'_>, usize) -> F) -> Outcome<F> {
+    fn search<F>(
+        &self,
+        hay: &[u8],
+        from: usize,
+        linear: bool,
+        take: impl Fn(&Run<'_>, usize) -> F,
+    ) -> Outcome<F> {
         match self.fold {
             true => self.search_in::<true, F>(hay, from, linear, take),
             false => self.search_in::<false, F>(hay, from, linear, take),
@@ -667,8 +763,23 @@ impl Program {
     /// `search` with the case rule a constant (`FOLD` = `self.fold`): the runner an unfolded program takes carries no
     /// folded comparison (D4953: a per-literal test of the rule cost every unfolded program's runner).
     #[inline(always)]
-    fn search_in<const FOLD: bool, F>(&self, hay: &[u8], from: usize, linear: bool, take: impl Fn(&Run<'_>, usize) -> F) -> Outcome<F> {
-        let mut r = Run { hay, prog: self, caps: [UNSET; MAX_GROUPS], end: 0, read: 0, saw_end: false, steps: step_budget(hay.len()), refused: false };
+    fn search_in<const FOLD: bool, F>(
+        &self,
+        hay: &[u8],
+        from: usize,
+        linear: bool,
+        take: impl Fn(&Run<'_>, usize) -> F,
+    ) -> Outcome<F> {
+        let mut r = Run {
+            hay,
+            prog: self,
+            caps: [UNSET; MAX_GROUPS],
+            end: 0,
+            read: 0,
+            saw_end: false,
+            steps: step_budget(hay.len()),
+            refused: false,
+        };
         if self.anchored {
             let ok = from == 0 && r.attempt::<FOLD>(0, linear);
             return r.outcome(ok, 0, take);
@@ -676,7 +787,8 @@ impl Program {
         let mut s = from;
         loop {
             s = match self.lead {
-                Lead::Lit { off, len } => match memchr::memmem::find(&hay[s..], self.lit(off, len)) {
+                Lead::Lit { off, len } => match memchr::memmem::find(&hay[s..], self.lit(off, len))
+                {
                     Some(k) => s + k,
                     None => return Outcome::NoMatch,
                 },
@@ -726,7 +838,12 @@ impl Run<'_> {
     }
 
     #[inline(always)]
-    fn outcome<F>(&self, ok: bool, start: usize, take: impl Fn(&Run<'_>, usize) -> F) -> Outcome<F> {
+    fn outcome<F>(
+        &self,
+        ok: bool,
+        start: usize,
+        take: impl Fn(&Run<'_>, usize) -> F,
+    ) -> Outcome<F> {
         match (ok, self.refused) {
             (_, true) => Outcome::Refused,
             (false, _) => Outcome::NoMatch,
@@ -735,16 +852,28 @@ impl Run<'_> {
     }
 
     fn found(&self, start: usize) -> Found {
-        Found { start, end: self.end, caps: self.caps, read: self.read, saw_end: self.saw_end }
+        Found {
+            start,
+            end: self.end,
+            caps: self.caps,
+            read: self.read,
+            saw_end: self.saw_end,
+        }
     }
 
     /// The next start after a failed attempt at `s`: past a possessive unbounded leading run (every start inside it ends
     /// the run at the same byte and fails the same way), else one character on.
     fn skip(&mut self, s: usize) -> usize {
         let one = utf8_char_len(self.hay[s]);
-        let Some(i) = self.prog.consuming(0) else { return one };
+        let Some(i) = self.prog.consuming(0) else {
+            return one;
+        };
         match self.prog.ops[i] {
-            Op::Set { possessive: true, max: u32::MAX, .. } => self.span(i, s).map_or(one, |(_, e)| (e - s).max(one)),
+            Op::Set {
+                possessive: true,
+                max: u32::MAX,
+                ..
+            } => self.span(i, s).map_or(one, |(_, e)| (e - s).max(one)),
             _ => one,
         }
     }
@@ -763,17 +892,34 @@ impl Run<'_> {
     /// or `None` short of the minimum. The bytes the scan read are recorded.
     #[inline(always)]
     fn span(&mut self, ip: usize, pos: usize) -> Option<(usize, usize)> {
-        let Op::Set { set, scan, min, max, chars, .. } = self.prog.ops[ip] else { unreachable!("a class op") };
+        let Op::Set {
+            set,
+            scan,
+            min,
+            max,
+            chars,
+            ..
+        } = self.prog.ops[ip]
+        else {
+            unreachable!("a class op")
+        };
         let (hay, len) = (self.hay, self.hay.len());
         let rest = &hay[pos..];
         if !chars || (max == u32::MAX && min <= 1) {
-            let cap = if max == u32::MAX { rest.len() } else { rest.len().min(max as usize) };
+            let cap = if max == u32::MAX {
+                rest.len()
+            } else {
+                rest.len().min(max as usize)
+            };
             let k = match scan {
                 Scan::Not1(a) => memchr::memchr(a, &rest[..cap]).unwrap_or(cap),
                 Scan::Not2(a, b) => memchr::memchr2(a, b, &rest[..cap]).unwrap_or(cap),
                 Scan::Not3(a, b, c) => memchr::memchr3(a, b, c, &rest[..cap]).unwrap_or(cap),
                 Scan::All => cap,
-                Scan::Table => rest[..cap].iter().position(|&b| !set.contains(b)).unwrap_or(cap),
+                Scan::Table => rest[..cap]
+                    .iter()
+                    .position(|&b| !set.contains(b))
+                    .unwrap_or(cap),
             };
             if k == cap && cap == rest.len() {
                 self.saw_end = true;
@@ -883,10 +1029,19 @@ impl Run<'_> {
             return true;
         }
         match self.prog.ops[ip] {
-            Op::Lit { off, len } => self.lit_at::<FOLD>(pos, off, len) && self.run::<FOLD>(ip + 1, pos + len as usize),
-            Op::Opt { off, len } => (self.lit_at::<FOLD>(pos, off, len) && self.run::<FOLD>(ip + 1, pos + len as usize)) || (!self.refused && self.run::<FOLD>(ip + 1, pos)),
-            Op::Set { chars, possessive, .. } => {
-                let Some((floor, mut e)) = self.span(ip, pos) else { return false };
+            Op::Lit { off, len } => {
+                self.lit_at::<FOLD>(pos, off, len) && self.run::<FOLD>(ip + 1, pos + len as usize)
+            }
+            Op::Opt { off, len } => {
+                (self.lit_at::<FOLD>(pos, off, len) && self.run::<FOLD>(ip + 1, pos + len as usize))
+                    || (!self.refused && self.run::<FOLD>(ip + 1, pos))
+            }
+            Op::Set {
+                chars, possessive, ..
+            } => {
+                let Some((floor, mut e)) = self.span(ip, pos) else {
+                    return false;
+                };
                 loop {
                     if self.run::<FOLD>(ip + 1, e) {
                         return true;
@@ -956,11 +1111,17 @@ mod tests {
     fn m(p: &str, s: &str) -> Option<((usize, usize), Vec<Option<(usize, usize)>>)> {
         let pr = prog(p);
         let f = |o: Outcome| match o {
-            Outcome::Match(f) => Some(((f.start, f.end), (1..=pr.ngroups()).map(|g| f.group(g)).collect::<Vec<_>>())),
+            Outcome::Match(f) => Some((
+                (f.start, f.end),
+                (1..=pr.ngroups()).map(|g| f.group(g)).collect::<Vec<_>>(),
+            )),
             Outcome::NoMatch => None,
             Outcome::Refused => panic!("budget refusal on {p:?} / {s:?}"),
         };
-        let (a, b) = (f(pr.find(s.as_bytes(), 0)), f(pr.find_recursive(s.as_bytes(), 0)));
+        let (a, b) = (
+            f(pr.find(s.as_bytes(), 0)),
+            f(pr.find_recursive(s.as_bytes(), 0)),
+        );
         assert_eq!(a, b, "the linear and the recursive runner on {p:?} / {s:?}");
         a
     }
@@ -970,32 +1131,56 @@ mod tests {
     /// letter (the Kelvin sign is not `k`); a non-ASCII pattern byte is refused.
     #[test]
     fn folded_letters_match_either_case() {
-        let f = |p: &str, s: &str| match Program::compile_folded(p.as_bytes()).unwrap_or_else(|| panic!("should compile {p:?}")).find(s.as_bytes(), 0) {
+        let f = |p: &str, s: &str| match Program::compile_folded(p.as_bytes())
+            .unwrap_or_else(|| panic!("should compile {p:?}"))
+            .find(s.as_bytes(), 0)
+        {
             Outcome::Match(f) => Some((f.start, f.end, f.group(1))),
             Outcome::NoMatch => None,
             Outcome::Refused => panic!("budget refusal on {p:?} / {s:?}"),
         };
-        assert_eq!(f("http://([a-z.]+)/", "x HTTP://Ab.C/d"), Some((2, 14, Some((9, 13)))));
-        assert_eq!(f("^https?://(?:M\\.)?([^/]+)/", "Https://m.A/"), Some((0, 12, Some((10, 11)))));
+        assert_eq!(
+            f("http://([a-z.]+)/", "x HTTP://Ab.C/d"),
+            Some((2, 14, Some((9, 13))))
+        );
+        assert_eq!(
+            f("^https?://(?:M\\.)?([^/]+)/", "Https://m.A/"),
+            Some((0, 12, Some((10, 11))))
+        );
         assert_eq!(f("[^a-c]+", "ABCdx"), Some((3, 5, None)));
         assert_eq!(f("k", "\u{212a}K"), Some((3, 4, None)));
         assert_eq!(f("k", "\u{212a}"), None);
         assert_eq!(f("x?y{2}", "XYy"), Some((0, 3, None)));
-        assert!(Program::compile_folded("é".as_bytes()).is_none() && Program::compile_folded("[a-z]é".as_bytes()).is_none());
-        assert!(Program::compile("é".as_bytes()).is_some(), "unfolded, a non-ASCII literal is bytes");
+        assert!(
+            Program::compile_folded("é".as_bytes()).is_none()
+                && Program::compile_folded("[a-z]é".as_bytes()).is_none()
+        );
+        assert!(
+            Program::compile("é".as_bytes()).is_some(),
+            "unfolded, a non-ASCII literal is bytes"
+        );
     }
 
     #[test]
     fn url_host_shape() {
         let p = r"^https?://(?:m\.)?([^/]+)/.*$";
-        assert_eq!(m(p, "http://m.example.com/path/x?y=1"), Some(((0, 31), vec![Some((9, 20))]))); // alloc: Cold
-        assert_eq!(m(p, "https://sub.host.ru/"), Some(((0, 20), vec![Some((8, 19))]))); // alloc: Cold
+        assert_eq!(
+            m(p, "http://m.example.com/path/x?y=1"),
+            Some(((0, 31), vec![Some((9, 20))]))
+        ); // alloc: Cold
+        assert_eq!(
+            m(p, "https://sub.host.ru/"),
+            Some(((0, 20), vec![Some((8, 19))]))
+        ); // alloc: Cold
         assert_eq!(m(p, "not-a-url"), None);
         assert_eq!(m(p, "http://hostonly.com"), None);
         assert_eq!(m(p, ""), None);
         assert_eq!(m(p, "http://m/"), Some(((0, 9), vec![Some((7, 8))]))); // alloc: Cold
         let s = "https://пример.рф/страница";
-        assert_eq!(m(p, s).unwrap().1, vec![Some((8, s.find("/страница").unwrap()))]); // alloc: Cold
+        assert_eq!(
+            m(p, s).unwrap().1,
+            vec![Some((8, s.find("/страница").unwrap()))]
+        ); // alloc: Cold
     }
 
     #[test]
@@ -1029,7 +1214,10 @@ mod tests {
             "^é?x",
             "://([^/]+)/",
         ] {
-            assert!(Program::compile(p.as_bytes()).is_some(), "should compile {p:?}");
+            assert!(
+                Program::compile(p.as_bytes()).is_some(),
+                "should compile {p:?}"
+            );
         }
         for p in [
             "^a|b",
@@ -1047,7 +1235,10 @@ mod tests {
             "^a+*",
             "***:abc",
         ] {
-            assert!(Program::compile(p.as_bytes()).is_none(), "should refuse {p:?}");
+            assert!(
+                Program::compile(p.as_bytes()).is_none(),
+                "should refuse {p:?}"
+            );
         }
     }
 
@@ -1061,10 +1252,22 @@ mod tests {
         assert!(m("^a{2,3}$", "aaa").is_some());
         assert!(m("^a{2,3}$", "aaaa").is_none());
         assert!(m("^ab?bc$", "abc").is_some());
-        assert_eq!(m(r"^(?:www\.)?([^/]+)$", "www.x").unwrap().1, vec![Some((4, 5))]); // alloc: Cold
-        assert_eq!(m(r"^(?:www\.)?([^/]+)$", "www").unwrap().1, vec![Some((0, 3))]); // alloc: Cold
-        assert_eq!(m("^(.*)/(.*)$", "a/b/c").unwrap().1, vec![Some((0, 3)), Some((4, 5))]); // alloc: Cold
-        assert_eq!(m("^(.+)/[0-9]+/", "x/y/12/z").unwrap().1, vec![Some((0, 3))]); // alloc: Cold
+        assert_eq!(
+            m(r"^(?:www\.)?([^/]+)$", "www.x").unwrap().1,
+            vec![Some((4, 5))]
+        ); // alloc: Cold
+        assert_eq!(
+            m(r"^(?:www\.)?([^/]+)$", "www").unwrap().1,
+            vec![Some((0, 3))]
+        ); // alloc: Cold
+        assert_eq!(
+            m("^(.*)/(.*)$", "a/b/c").unwrap().1,
+            vec![Some((0, 3)), Some((4, 5))]
+        ); // alloc: Cold
+        assert_eq!(
+            m("^(.+)/[0-9]+/", "x/y/12/z").unwrap().1,
+            vec![Some((0, 3))]
+        ); // alloc: Cold
     }
 
     #[test]
@@ -1072,7 +1275,10 @@ mod tests {
         assert_eq!(m("^([^a]+)y$", "xéy").unwrap().1, vec![Some((0, 3))]); // alloc: Cold
         assert_eq!(m("^([^a]+)[^b]+X$", "xéX").unwrap().1, vec![Some((0, 1))]); // alloc: Cold
         assert_eq!(m("^(.{2})", "éüx").unwrap().1, vec![Some((0, 4))]); // alloc: Cold
-        assert_eq!(m("^(.)(.)$", "日本").unwrap().1, vec![Some((0, 3)), Some((3, 6))]); // alloc: Cold
+        assert_eq!(
+            m("^(.)(.)$", "日本").unwrap().1,
+            vec![Some((0, 3)), Some((3, 6))]
+        ); // alloc: Cold
         assert!(m("^.{3}$", "日本").is_none());
         assert_eq!(m("^([^/]{2,3})", "ab/").unwrap().1, vec![Some((0, 2))]); // alloc: Cold
         assert_eq!(m("^([^/]{2,3})", "日本語x").unwrap().1, vec![Some((0, 9))]); // alloc: Cold
@@ -1082,16 +1288,27 @@ mod tests {
 
     #[test]
     fn leftmost_match() {
-        assert_eq!(m("://([^/]+)/", "http://a.b/c").unwrap(), ((4, 11), vec![Some((7, 10))])); // alloc: Cold
+        assert_eq!(
+            m("://([^/]+)/", "http://a.b/c").unwrap(),
+            ((4, 11), vec![Some((7, 10))])
+        ); // alloc: Cold
         assert_eq!(m("b+", "aabbbc").unwrap().0, (2, 5));
         assert_eq!(m("x*", "abc").unwrap().0, (0, 0));
         assert_eq!(m("a*$", "bbb").unwrap().0, (3, 3));
-        assert_eq!(m("([A-Za-z]+)/v?[0-9.]+", "Mozilla/5.0 (X11)").unwrap(), ((0, 11), vec![Some((0, 7))])); // alloc: Cold
-        assert_eq!(m("([A-Za-z]+)/v?[0-9.]+", "x Opera/v12.1").unwrap(), ((2, 13), vec![Some((2, 7))])); // alloc: Cold
+        assert_eq!(
+            m("([A-Za-z]+)/v?[0-9.]+", "Mozilla/5.0 (X11)").unwrap(),
+            ((0, 11), vec![Some((0, 7))])
+        ); // alloc: Cold
+        assert_eq!(
+            m("([A-Za-z]+)/v?[0-9.]+", "x Opera/v12.1").unwrap(),
+            ((2, 13), vec![Some((2, 7))])
+        ); // alloc: Cold
         assert!(m("([a-z]+)/[0-9]", "abc/def/ghi").is_none());
         assert_eq!(m("é(.)", "aéb").unwrap(), ((1, 4), vec![Some((3, 4))])); // alloc: Cold
         let pr = prog("[0-9]+");
-        let Outcome::Match(f) = pr.find(b"a1b22c", 2) else { panic!("a match past 2") };
+        let Outcome::Match(f) = pr.find(b"a1b22c", 2) else {
+            panic!("a match past 2")
+        };
         assert_eq!((f.start, f.end), (3, 5));
         let mut out = [(-7i64, -7i64); 2];
         assert_eq!(pr.exec(b"a1b22c", 2, &mut out), Some(true));

@@ -37,18 +37,30 @@ pub(crate) fn desc_rel(d: &WriteDesc<'_>) -> u32 {
 /// Pipeline `k` is a data-modifying CTE's (lowerv4 `Gx::cte_write`, which sets its write plan's `cte`; a WriteDesc's own
 /// plan never carries it): a check option is matched to its write plan by its relation and this.
 pub(crate) fn cte_write(graph: &PipelineGraph<'_>, k: usize) -> bool {
-    graph.init_plans.iter().any(|i| i.pipeline as usize == k && matches!(i.link, SubLink::Cte))
+    graph
+        .init_plans
+        .iter()
+        .any(|i| i.pipeline as usize == k && matches!(i.link, SubLink::Cte))
 }
 
 /// This admission's check options (`checks`, bound from `tpl` in its order) and MERGE subcommands onto the program write
 /// and each writer beside it. Fail closed: a check option of no single write plan, and two writers beside of one relation
 /// whose facts would mix (a writer beside's are found by its relation), refuse by name.
-pub(crate) fn set(reg: &mut HostRegistry, program: &Program, pstmt: &'static PlannedStmt<'static>, tpl: &[CheckTpl], checks: Option<Vec<CheckSpec>>) -> Result<(), Refused> {
+pub(crate) fn set(
+    reg: &mut HostRegistry,
+    program: &Program,
+    pstmt: &'static PlannedStmt<'static>,
+    tpl: &[CheckTpl],
+    checks: Option<Vec<CheckSpec>>,
+) -> Result<(), Refused> {
     // D3348: a writer beside finds its modified columns by its relation and command (`modified_cols_by_rel`, each
     // writing CTE's own): fail closed when two writing CTEs of one relation and command update different columns.
     // D3623: unless every writer beside names its own ModifyTable (`WriteAt::node`), which it finds its columns by
     if !program.writes.is_empty() && !by_node(program, pstmt) && modified_mixed(pstmt) {
-        return crate::admit::refuse("hosts", "two writing CTEs of one relation and command whose updated columns differ (D3348)");
+        return crate::admit::refuse(
+            "hosts",
+            "two writing CTEs of one relation and command whose updated columns differ (D3348)",
+        );
     }
     let merges = program.writes.iter().any(|w| w.plan.cmd == Cmd::Merge);
     if program.writes.is_empty() || checks.is_none() && !merges {
@@ -57,19 +69,36 @@ pub(crate) fn set(reg: &mut HostRegistry, program: &Program, pstmt: &'static Pla
         }
         return Ok(());
     }
-    let plans: Vec<&WritePlan> = core::iter::once(&program.write).chain(program.writes.iter().map(|w| &w.plan)).collect(); // alloc: Program
+    let plans: Vec<&WritePlan> = core::iter::once(&program.write)
+        .chain(program.writes.iter().map(|w| &w.plan))
+        .collect(); // alloc: Program
     let mut own: Vec<Vec<CheckSpec>> = plans.iter().map(|_| Vec::new()).collect(); // alloc: Program
     for (t, c) in tpl.iter().zip(checks.into_iter().flatten()) {
         // fail closed: a check option whose write is not exactly one of the program's write plans names no writer
-        let mut of = plans.iter().enumerate().filter(|(_, p)| (rel(p), p.cte) == (t.rel, t.cte)).map(|(i, _)| i);
-        let (Some(i), None) = (of.next(), of.next()) else { return crate::admit::refuse("hosts", "a check option of no single write plan beside another write (D1687)") };
+        let mut of = plans
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| (rel(p), p.cte) == (t.rel, t.cte))
+            .map(|(i, _)| i);
+        let (Some(i), None) = (of.next(), of.next()) else {
+            return crate::admit::refuse(
+                "hosts",
+                "a check option of no single write plan beside another write (D1687)",
+            );
+        };
         own[i].push(c); // alloc: Program
     }
     // a writer beside finds its facts by its relation (hosts `derive_writer_beside`): fail closed when two writers beside
     // of one relation would read each other's check options or subcommands. D3472: the program's own write is not one of
     // them: it reads the program's list (`set_checks`) and never the writers' (`set_beside`), and each writer beside has
     // its own entry there, so a writer beside of the program write's relation finds its own facts, never the write's
-    let shared = |i: usize| plans.iter().enumerate().skip(1).any(|(j, p)| j != i && rel(p) == rel(plans[i]));
+    let shared = |i: usize| {
+        plans
+            .iter()
+            .enumerate()
+            .skip(1)
+            .any(|(j, p)| j != i && rel(p) == rel(plans[i]))
+    };
     if (1..plans.len()).any(|i| (!own[i].is_empty() || plans[i].cmd == Cmd::Merge) && shared(i)) {
         return crate::admit::refuse("hosts", "two write plans of one relation beside each other, one with a check option or a MERGE (D1687)");
     }
@@ -78,7 +107,11 @@ pub(crate) fn set(reg: &mut HostRegistry, program: &Program, pstmt: &'static Pla
         reg.set_checks(c);
     }
     let facts = program.writes.iter().zip(own).map(|(w, c)| {
-        let merge = if w.plan.cmd == Cmd::Merge { merge_ops(pstmt, rel(&w.plan)) } else { MergeOps::NONE };
+        let merge = if w.plan.cmd == Cmd::Merge {
+            merge_ops(pstmt, rel(&w.plan))
+        } else {
+            MergeOps::NONE
+        };
         (rel(&w.plan), (!c.is_empty()).then(|| Rc::from(c)), merge) // alloc: Program
     });
     reg.set_beside(facts.collect()); // alloc: Program
@@ -89,9 +122,22 @@ pub(crate) fn set(reg: &mut HostRegistry, program: &Program, pstmt: &'static Pla
 /// of its ModifyTable; none when no such ModifyTable or several.
 fn merge_ops(pstmt: &'static PlannedStmt<'static>, rel: u32) -> MergeOps {
     let relid = |rti: u32| crate::shapes::rte(pstmt, rti).map(|r| r.relid);
-    let of = |m: &&types_nodes::plannodes::ModifyTable<'static>| m.rootRelation != 0 && relid(m.rootRelation) == Some(rel) || m.resultRelations.iter().any(|r| relid(r as u32) == Some(rel));
-    let mut mts = pstmt.subplans.iter().flatten().filter_map(|n| n.as_modify_table()).filter(|m| m.operation == CmdType::CMD_MERGE && !m.canSetTag).filter(of);
-    let (Some(mt), None) = (mts.next(), mts.next()) else { return MergeOps::NONE };
+    let of = |m: &&types_nodes::plannodes::ModifyTable<'static>| {
+        m.rootRelation != 0 && relid(m.rootRelation) == Some(rel)
+            || m.resultRelations
+                .iter()
+                .any(|r| relid(r as u32) == Some(rel))
+    };
+    let mut mts = pstmt
+        .subplans
+        .iter()
+        .flatten()
+        .filter_map(|n| n.as_modify_table())
+        .filter(|m| m.operation == CmdType::CMD_MERGE && !m.canSetTag)
+        .filter(of);
+    let (Some(mt), None) = (mts.next(), mts.next()) else {
+        return MergeOps::NONE;
+    };
     super::statement::subcommands(mt)
 }
 
@@ -102,10 +148,20 @@ fn merge_ops(pstmt: &'static PlannedStmt<'static>, rel: u32) -> MergeOps {
 /// relations forms each new row from these columns (hosts write_route.rs `MultiTargetHost`). Two writing CTEs of one
 /// relation and command whose updated columns differ refuse (`modified_mixed`), unless each writer names its ModifyTable's
 /// plan node (D3623: the third field, which the writer finds its own by first, `by_node`).
-pub fn modified_cols_by_rel(pstmt: &'static PlannedStmt<'static>) -> Vec<(u32, Cmd, i32, gravity_hosts::ops::modifytable::write_constraints::ModifiedCols)> {
+pub fn modified_cols_by_rel(
+    pstmt: &'static PlannedStmt<'static>,
+) -> Vec<(
+    u32,
+    Cmd,
+    i32,
+    gravity_hosts::ops::modifytable::write_constraints::ModifiedCols,
+)> {
     let of = |rti: i32| {
         let rte = crate::shapes::rte(pstmt, rti as u32)?;
-        let pi = pstmt.permInfos.nth(rte.perminfoindex.checked_sub(1)? as usize).as_rte_permission_info()?;
+        let pi = pstmt
+            .permInfos
+            .nth(rte.perminfoindex.checked_sub(1)? as usize)
+            .as_rte_permission_info()?;
         Some((rte.relid, (&pi.insertedCols, &pi.updatedCols)))
     };
     let cmd = |op: CmdType| match op {
@@ -116,10 +172,21 @@ pub fn modified_cols_by_rel(pstmt: &'static PlannedStmt<'static>) -> Vec<(u32, C
         _ => None,
     };
     let own = |m: &types_nodes::plannodes::ModifyTable<'static>| {
-        let (rel, cols) = m.resultRelations.iter().chain((m.rootRelation != 0).then_some(m.rootRelation as i32)).find_map(of)?;
+        let (rel, cols) = m
+            .resultRelations
+            .iter()
+            .chain((m.rootRelation != 0).then_some(m.rootRelation as i32))
+            .find_map(of)?;
         Some((rel, cmd(m.operation)?, m.plan.plan_node_id, cols))
     };
-    pstmt.subplans.iter().flatten().filter_map(|n| n.as_modify_table()).filter(|m| !m.canSetTag).filter_map(own).collect() // alloc: Plan
+    pstmt
+        .subplans
+        .iter()
+        .flatten()
+        .filter_map(|n| n.as_modify_table())
+        .filter(|m| !m.canSetTag)
+        .filter_map(own)
+        .collect() // alloc: Plan
 }
 
 /// D3348: two writing CTEs of one relation and command whose `updatedCols` differ: a writer beside, found by its relation
@@ -128,7 +195,11 @@ pub fn modified_cols_by_rel(pstmt: &'static PlannedStmt<'static>) -> Vec<(u32, C
 /// relation (regress with.sql's `WITH RECURSIVE t AS (INSERT INTO y ...), t2 AS (UPDATE y ...)`) each find their own.
 pub fn modified_mixed(pstmt: &'static PlannedStmt<'static>) -> bool {
     let by = modified_cols_by_rel(pstmt);
-    by.iter().enumerate().any(|(i, (r, k, _, c))| by[i + 1..].iter().any(|(s, l, _, d)| s == r && l == k && c.1 != d.1))
+    by.iter().enumerate().any(|(i, (r, k, _, c))| {
+        by[i + 1..]
+            .iter()
+            .any(|(s, l, _, d)| s == r && l == k && c.1 != d.1)
+    })
 }
 
 /// D3623: every writer beside the program's write names a writing CTE's ModifyTable by its plan node (`WriteAt::node`,
@@ -136,19 +207,30 @@ pub fn modified_mixed(pstmt: &'static PlannedStmt<'static>) -> bool {
 /// and the program's write, when it is a writing CTE's, is one ModifyTable too (`program_write_cols`).
 fn by_node(program: &Program, pstmt: &'static PlannedStmt<'static>) -> bool {
     let by = modified_cols_by_rel(pstmt);
-    program.writes.iter().all(|w| w.node != 0 && by.iter().filter(|e| e.2 == w.node).count() == 1) && (!program.write.cte || program_write_cols(program, pstmt).is_some())
+    program
+        .writes
+        .iter()
+        .all(|w| w.node != 0 && by.iter().filter(|e| e.2 == w.node).count() == 1)
+        && (!program.write.cte || program_write_cols(program, pstmt).is_some())
 }
 
 /// D3623: the modified columns of the program's own write when it is a writing CTE's (a SELECT over writing CTEs, whose
 /// statement has no ModifyTable of its own for `admit::modified_cols` to read): the one writing CTE's ModifyTable of its
 /// relation and command that no writer beside names (`WriteAt::node`); `None` for any other write, or not exactly one.
-pub fn program_write_cols(program: &Program, pstmt: &'static PlannedStmt<'static>) -> Option<gravity_hosts::ops::modifytable::write_constraints::ModifiedCols> {
+pub fn program_write_cols(
+    program: &Program,
+    pstmt: &'static PlannedStmt<'static>,
+) -> Option<gravity_hosts::ops::modifytable::write_constraints::ModifiedCols> {
     if !program.write.cte {
         return None;
     }
     let by = modified_cols_by_rel(pstmt);
     let rel = rel(&program.write);
-    let mut own = by.iter().filter(|e| e.0 == rel && e.1 == program.write.cmd && !program.writes.iter().any(|w| w.node == e.2));
-    let (Some(e), None) = (own.next(), own.next()) else { return None };
+    let mut own = by.iter().filter(|e| {
+        e.0 == rel && e.1 == program.write.cmd && !program.writes.iter().any(|w| w.node == e.2)
+    });
+    let (Some(e), None) = (own.next(), own.next()) else {
+        return None;
+    };
     Some(e.3)
 }

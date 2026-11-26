@@ -57,11 +57,30 @@ fn trim(_: u64) -> u64 {
 #[test]
 fn b0_the_pool_follows_free_room_each_tick_and_never_counts_pinned_cache_bytes_free() {
     budget::set_fallback_limit(32 * GIB);
-    assert!(budget::register(Consumer::PartCache, Hooks { current: part, floor: one_gib, cap: eight_gib, reclaim: Some(trim) }));
+    assert!(budget::register(
+        Consumer::PartCache,
+        Hooks {
+            current: part,
+            floor: one_gib,
+            cap: eight_gib,
+            reclaim: Some(trim)
+        }
+    ));
     let mut pinned = [0u64; CONSUMERS];
-    budget::configure(Cfg { mode: Mode::Advise, ..Cfg::DEFAULT });
-    assert_eq!(budget::pool_now(0, &pinned), None, "advise: the tick computes nothing");
-    budget::configure(Cfg { mode: Mode::On, actuators: actuator::ALL, ..Cfg::DEFAULT });
+    budget::configure(Cfg {
+        mode: Mode::Advise,
+        ..Cfg::DEFAULT
+    });
+    assert_eq!(
+        budget::pool_now(0, &pinned),
+        None,
+        "advise: the tick computes nothing"
+    );
+    budget::configure(Cfg {
+        mode: Mode::On,
+        actuators: actuator::ALL,
+        ..Cfg::DEFAULT
+    });
     budget::declare_managed(Consumer::PartCache, true);
     PART.store(6 * GIB, Relaxed);
     COUNTING.with(|c| c.set(true));
@@ -70,10 +89,22 @@ fn b0_the_pool_follows_free_room_each_tick_and_never_counts_pinned_cache_bytes_f
     assert_eq!(ALLOCS.with(Cell::get), 0, "the tick allocated");
     pinned[Consumer::PartCache as usize] = 3 * GIB;
     let scanning = budget::pool_now(0, &pinned).expect("on");
-    assert_eq!(free - scanning, 2 * GIB, "3 GiB pinned under a 1 GiB floor: 2 GiB more stay out of the pool");
+    assert_eq!(
+        free - scanning,
+        2 * GIB,
+        "3 GiB pinned under a 1 GiB floor: 2 GiB more stay out of the pool"
+    );
     pinned[Consumer::PartCache as usize] = 0;
-    assert_eq!(budget::pool_now(0, &pinned), Some(free), "the scan ends: the pool has them back at the next tick");
+    assert_eq!(
+        budget::pool_now(0, &pinned),
+        Some(free),
+        "the scan ends: the pool has them back at the next tick"
+    );
     PART.store(GIB / 2, Relaxed);
-    assert_eq!(budget::pool_now(0, &pinned), Some(free + GIB / 2), "a cache under its floor keeps only what it holds");
+    assert_eq!(
+        budget::pool_now(0, &pinned),
+        Some(free + GIB / 2),
+        "a cache under its floor keeps only what it holds"
+    );
     budget::configure(Cfg::DEFAULT);
 }

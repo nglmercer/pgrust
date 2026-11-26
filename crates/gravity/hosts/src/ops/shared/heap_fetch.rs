@@ -49,12 +49,23 @@ impl Proj {
 
 /// The fetched row's cells by `attnos`: a table column, `ctid` (`SELF_ITEM_POINTER`: the slot's tid) or a V4R-88 system
 /// lane (`XMIN_AT` ..= `CMAX_AT`: C `slot_getsysattr` over the slot's heap tuple, as heap_window.rs fills a page window's).
-pub fn project(slot: &mut SlotData<'_>, attnos: &[i16], values: &mut [Word], isnull: &mut [u8]) -> PgResult<()> {
+pub fn project(
+    slot: &mut SlotData<'_>,
+    attnos: &[i16],
+    values: &mut [Word],
+    isnull: &mut [u8],
+) -> PgResult<()> {
     project_by(slot, attnos, Proj::of(attnos), values, isnull)
 }
 
 /// `project` with the site's reading of `attnos` (`Proj::of(attnos)`).
-pub fn project_by(slot: &mut SlotData<'_>, attnos: &[i16], p: Proj, values: &mut [Word], isnull: &mut [u8]) -> PgResult<()> {
+pub fn project_by(
+    slot: &mut SlotData<'_>,
+    attnos: &[i16],
+    p: Proj,
+    values: &mut [Word],
+    isnull: &mut [u8],
+) -> PgResult<()> {
     debug_assert_eq!(p, Proj::of(attnos));
     // D1217: one deform to the highest attribute read, then each read hits the slot's valid prefix (slot_getattr per
     // attribute ascending re-entered the deform once per column: slot_getattr_miss on every row)
@@ -65,7 +76,10 @@ pub fn project_by(slot: &mut SlotData<'_>, attnos: &[i16], p: Proj, values: &mut
     if plain {
         // every cell a table column: read the deformed prefix's arrays once, not the slot per column
         let base = slot.base();
-        let (vals, nulls) = (&base.tts_values[..last as usize], &base.tts_isnull[..last as usize]);
+        let (vals, nulls) = (
+            &base.tts_values[..last as usize],
+            &base.tts_isnull[..last as usize],
+        );
         // bounded("key-columns: one cell per output column of a row, at most MaxTupleAttributeNumber (1664) columns")
         for ((&a, v), n) in attnos.iter().zip(values.iter_mut()).zip(isnull.iter_mut()) {
             *v = vals[a as usize - 1].as_u64();
@@ -89,7 +103,14 @@ pub fn project_by(slot: &mut SlotData<'_>, attnos: &[i16], p: Proj, values: &mut
     Ok(())
 }
 
-pub fn fetch_row<'mcx>(mcx: Mcx<'mcx>, scan: &mut IndexScanDescData<'mcx>, slot: &mut SlotData<'mcx>, attnos: &[i16], values: &mut [Word], isnull: &mut [u8]) -> PgResult<bool> {
+pub fn fetch_row<'mcx>(
+    mcx: Mcx<'mcx>,
+    scan: &mut IndexScanDescData<'mcx>,
+    slot: &mut SlotData<'mcx>,
+    attnos: &[i16],
+    values: &mut [Word],
+    isnull: &mut [u8],
+) -> PgResult<bool> {
     if !indexam::index_getnext_slot(mcx, scan, ScanDirection::ForwardScanDirection, slot)? {
         return Ok(false);
     }
@@ -97,7 +118,16 @@ pub fn fetch_row<'mcx>(mcx: Mcx<'mcx>, scan: &mut IndexScanDescData<'mcx>, slot:
     Ok(true)
 }
 
-pub fn fetch_by_tid<'mcx>(mcx: Mcx<'mcx>, heap: &Relation<'mcx>, tid: &ItemPointerData, snapshot: &Rc<SnapshotData<'mcx>>, slot: &mut SlotData<'mcx>, attnos: &[i16], values: &mut [Word], isnull: &mut [u8]) -> PgResult<bool> {
+pub fn fetch_by_tid<'mcx>(
+    mcx: Mcx<'mcx>,
+    heap: &Relation<'mcx>,
+    tid: &ItemPointerData,
+    snapshot: &Rc<SnapshotData<'mcx>>,
+    slot: &mut SlotData<'mcx>,
+    attnos: &[i16],
+    values: &mut [Word],
+    isnull: &mut [u8],
+) -> PgResult<bool> {
     let snap = Some(snapshot.clone());
     if !tableam::table_tuple_fetch_row_version(mcx, heap, tid, &snap, slot)? {
         return Ok(false);
@@ -108,7 +138,12 @@ pub fn fetch_by_tid<'mcx>(mcx: Mcx<'mcx>, heap: &Relation<'mcx>, tid: &ItemPoint
 
 /// The tuple at `tid` regardless of visibility (SnapshotAny): the EPQ test
 /// tuple is the newest version the lock host already found committed.
-pub fn fetch_any<'mcx>(mcx: Mcx<'mcx>, heap: &Relation<'mcx>, tid: &ItemPointerData, slot: &mut SlotData<'mcx>) -> PgResult<bool> {
+pub fn fetch_any<'mcx>(
+    mcx: Mcx<'mcx>,
+    heap: &Relation<'mcx>,
+    tid: &ItemPointerData,
+    slot: &mut SlotData<'mcx>,
+) -> PgResult<bool> {
     tableam::table_tuple_fetch_row_version(mcx, heap, tid, &None, slot)
 }
 

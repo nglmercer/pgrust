@@ -88,7 +88,12 @@ pub mod scanpos {
     pub const REL: usize = 4;
     pub const BLOCK: usize = 8;
     pub const SIZE: usize = 12;
-    pub const FIELDS: &[(&str, usize, usize)] = &[("flags", FLAGS, 2), ("off", OFF, 2), ("rel", REL, 4), ("block", BLOCK, 4)];
+    pub const FIELDS: &[(&str, usize, usize)] = &[
+        ("flags", FLAGS, 2),
+        ("off", OFF, 2),
+        ("rel", REL, 4),
+        ("block", BLOCK, 4),
+    ];
 }
 
 const _: () = assert!(core::mem::size_of::<ScanPos>() == scanpos::SIZE);
@@ -228,9 +233,15 @@ unsafe impl Send for Lane {}
 unsafe impl Sync for Lane {}
 
 impl MorselRange {
-    pub const ALL: MorselRange = MorselRange { lo: 0, hi: u64::MAX };
+    pub const ALL: MorselRange = MorselRange {
+        lo: 0,
+        hi: u64::MAX,
+    };
     /// The section-end call (milestone-2.md §2.6 item 20): once per worker after its last claim.
-    pub const SECTION_END: MorselRange = MorselRange { lo: u64::MAX, hi: u64::MAX };
+    pub const SECTION_END: MorselRange = MorselRange {
+        lo: u64::MAX,
+        hi: u64::MAX,
+    };
 
     pub const fn is_section_end(&self) -> bool {
         self.lo == u64::MAX
@@ -257,7 +268,8 @@ impl MorselRange {
 
 impl PartialEq for ScanPos {
     fn eq(&self, o: &ScanPos) -> bool {
-        (self.flags & POS_VALID, self.off, self.rel, self.block) == (o.flags & POS_VALID, o.off, o.rel, o.block)
+        (self.flags & POS_VALID, self.off, self.rel, self.block)
+            == (o.flags & POS_VALID, o.off, o.rel, o.block)
     }
 }
 
@@ -270,14 +282,29 @@ impl core::hash::Hash for ScanPos {
 }
 
 impl ScanPos {
-    pub const NONE: ScanPos = ScanPos { flags: 0, off: 0, rel: 0, block: 0 };
+    pub const NONE: ScanPos = ScanPos {
+        flags: 0,
+        off: 0,
+        rel: 0,
+        block: 0,
+    };
 
     pub const fn new(rel: u32, block: u32, off: u16) -> ScanPos {
-        ScanPos { flags: POS_VALID, off, rel, block }
+        ScanPos {
+            flags: POS_VALID,
+            off,
+            rel,
+            block,
+        }
     }
 
     pub const fn row(rel: u32, block: u32, off: u16) -> ScanPos {
-        ScanPos { flags: POS_VALID | POS_ROW, off, rel, block }
+        ScanPos {
+            flags: POS_VALID | POS_ROW,
+            off,
+            rel,
+            block,
+        }
     }
 
     pub const fn is_valid(&self) -> bool {
@@ -290,7 +317,15 @@ impl ScanPos {
 }
 
 impl Answer {
-    pub const NONE: Answer = Answer { nonnull: 0, sum_lo: 0, sum_hi: 0, min: 0, max: 0, flags: 0, false_count: 0 };
+    pub const NONE: Answer = Answer {
+        nonnull: 0,
+        sum_lo: 0,
+        sum_hi: 0,
+        min: 0,
+        max: 0,
+        flags: 0,
+        false_count: 0,
+    };
 
     pub const fn sum(&self) -> i128 {
         ((self.sum_hi as u128) << 64 | self.sum_lo as u128) as i128
@@ -304,11 +339,35 @@ impl Answer {
 }
 
 impl Lane {
-    pub const NONE: Lane = Lane { ptr: word(core::ptr::null()), valid: word(core::ptr::null()), width: 0, kind: 0, region: 0, flags: 0, ncodes_or_scale: 0, id: 0, aux: 0 };
+    pub const NONE: Lane = Lane {
+        ptr: word(core::ptr::null()),
+        valid: word(core::ptr::null()),
+        width: 0,
+        kind: 0,
+        region: 0,
+        flags: 0,
+        ncodes_or_scale: 0,
+        id: 0,
+        aux: 0,
+    };
 
     pub const fn byval(ptr: *const u8, valid: *const u64, width: u8, region: u8, id: u32) -> Lane {
-        let flags = if valid.is_null() { lane::FLAG_ALL_VALID } else { 0 };
-        Lane { ptr: word(ptr), valid: word(valid), width, kind: lane::KIND_BYVAL, region, flags, ncodes_or_scale: 0, id, aux: 0 }
+        let flags = if valid.is_null() {
+            lane::FLAG_ALL_VALID
+        } else {
+            0
+        };
+        Lane {
+            ptr: word(ptr),
+            valid: word(valid),
+            width,
+            kind: lane::KIND_BYVAL,
+            region,
+            flags,
+            ncodes_or_scale: 0,
+            id,
+            aux: 0,
+        }
     }
 
     pub const fn all_valid(&self) -> bool {
@@ -339,11 +398,19 @@ impl Lane {
 }
 
 impl Partials {
-    pub const NONE: Partials = Partials { own: word(core::ptr::null_mut()), consumed: [word(core::ptr::null_mut()); 2], more: word(core::ptr::null()) };
+    pub const NONE: Partials = Partials {
+        own: word(core::ptr::null_mut()),
+        consumed: [word(core::ptr::null_mut()); 2],
+        more: word(core::ptr::null()),
+    };
 
     /// The two inline regions (the 8-key tier's face; `more` null: no third).
     pub const fn two(own: *mut u8, consumed: [*mut u8; 2]) -> Partials {
-        Partials { own: word(own), consumed: [word(consumed[0]), word(consumed[1])], more: word(core::ptr::null()) }
+        Partials {
+            own: word(own),
+            consumed: [word(consumed[0]), word(consumed[1])],
+            more: word(core::ptr::null()),
+        }
     }
 }
 

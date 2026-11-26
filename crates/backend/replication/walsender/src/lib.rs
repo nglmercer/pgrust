@@ -9,11 +9,11 @@
 // (Q2 ruling — see UPLOADED_MANIFESTS).
 #![allow(non_snake_case)]
 
-pub mod replies;
-pub mod logical_stream;
 mod lag;
-mod streaming;
+pub mod logical_stream;
 mod pgrc_files;
+pub mod replies;
+mod streaming;
 pub mod wakeup;
 
 use std::cell::{Cell, RefCell};
@@ -25,15 +25,15 @@ use datum::Datum;
 use elog::errno::current_errno;
 use elog::{ereport, PCT_M};
 use repl_gram::{
-    AlterReplicationSlotCmd, CreateReplicationSlotCmd, DropReplicationSlotCmd, ReadReplicationSlotCmd,
-    ReplCommand, ReplOptionArg, ReplicationKind, TimeLineHistoryCmd,
+    AlterReplicationSlotCmd, CreateReplicationSlotCmd, DropReplicationSlotCmd,
+    ReadReplicationSlotCmd, ReplCommand, ReplOptionArg, ReplicationKind, TimeLineHistoryCmd,
 };
 use types_core::{
     InvalidOid, InvalidXLogRecPtr, TimeLineID, TimestampTz, XLogRecPtr, INT8OID, TEXTOID,
 };
 use types_error::{
     ErrorLocation, PgResult, DEBUG1, ERRCODE_DATA_CORRUPTED, ERRCODE_FEATURE_NOT_SUPPORTED,
-    ERRCODE_IN_FAILED_SQL_TRANSACTION, ERRCODE_INVALID_PARAMETER_VALUE,
+    ERRCODE_INVALID_PARAMETER_VALUE, ERRCODE_IN_FAILED_SQL_TRANSACTION,
     ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE, ERRCODE_SYNTAX_ERROR, ERROR, LOG,
 };
 
@@ -142,7 +142,10 @@ const C_SIZEOF_WAL_SND: usize = 96;
 pub fn WalSndShmemSize(max_wal_senders: i32) -> PgResult<usize> {
     let mut size: usize = 0;
     size = mcx::add_size(size, C_OFFSETOF_WAL_SND_CTL_DATA_WALSNDS)?;
-    size = mcx::add_size(size, mcx::mul_size(max_wal_senders as usize, C_SIZEOF_WAL_SND)?)?;
+    size = mcx::add_size(
+        size,
+        mcx::mul_size(max_wal_senders as usize, C_SIZEOF_WAL_SND)?,
+    )?;
     Ok(size)
 }
 
@@ -256,7 +259,9 @@ fn wal_snd_ctl_boot_image(max_wal_senders: i32) -> WalSndCtlData {
 /// zeroes WalSndCtl); the in-process crash restart resets the live block in
 /// place so no dead walsender slot, sync-rep LSN or standby status survives.
 pub fn WalSndShmemResetAfterCrash() {
-    let Some(shared) = WAL_SND_CTL.get() else { return };
+    let Some(shared) = WAL_SND_CTL.get() else {
+        return;
+    };
     let c: &WalSndCtlData = shared.ctl;
     for s in c.walsnds.iter() {
         *s.lock().unwrap_or_else(|e| e.into_inner()) = walsnd_empty();
@@ -264,7 +269,8 @@ pub fn WalSndShmemResetAfterCrash() {
     for l in &c.sync_rep_lsn {
         l.store(0, std::sync::atomic::Ordering::SeqCst);
     }
-    c.sync_standbys_status.store(0, std::sync::atomic::Ordering::SeqCst);
+    c.sync_standbys_status
+        .store(0, std::sync::atomic::Ordering::SeqCst);
     for q in &c.sync_rep_queue {
         // SAFETY: crash restart, no walsender or backend thread is live.
         unsafe { q.set(types_storage::storage::proclist_head::default()) };
@@ -280,7 +286,10 @@ pub fn WalSndShmemResetAfterCrash() {
 pub fn WalSndShmemInit(max_wal_senders: i32) -> PgResult<()> {
     const {
         assert!(core::mem::size_of::<WalSndCtlData>() <= C_OFFSETOF_WAL_SND_CTL_DATA_WALSNDS);
-        assert!(core::mem::align_of::<WalSndCtlData>() <= 64, "PG_CACHE_LINE_SIZE alignment");
+        assert!(
+            core::mem::align_of::<WalSndCtlData>() <= 64,
+            "PG_CACHE_LINE_SIZE alignment"
+        );
     }
     let (raw, found) =
         shmem_seams::shmem_init_struct::call("Wal Sender Ctl", WalSndShmemSize(max_wal_senders)?)?;
@@ -343,7 +352,11 @@ pub fn InitWalSender() {
 
 // InitWalSenderSlot (walsender.c:2937).
 fn InitWalSenderSlot() {
-    assert_eq!(MY_WAL_SND.get(), -1, "InitWalSenderSlot: MyWalSnd already set");
+    assert_eq!(
+        MY_WAL_SND.get(),
+        -1,
+        "InitWalSenderSlot: MyWalSnd already set"
+    );
 
     let ctl = WalSndCtl();
     let my_pid = init_small::globals::MyProcPid();
@@ -365,12 +378,17 @@ fn InitWalSenderSlot() {
         // Session-ownership (Q2): a fresh session tenure must never observe
         // a prior tenant's uploaded manifest. WalSndKill already clears it
         // at session end; this is the acquire-side belt to that suspender.
-        *uploaded_manifests()[i].lock().expect("uploaded manifest mutex") = None;
+        *uploaded_manifests()[i]
+            .lock()
+            .expect("uploaded manifest mutex") = None;
         MY_WAL_SND.set(i as i32);
         break;
     }
     // C: must not fail, per the free-WAL-sender check in InitProcess.
-    assert!(MY_WAL_SND.get() >= 0, "InitWalSenderSlot: no free walsender slot");
+    assert!(
+        MY_WAL_SND.get() >= 0,
+        "InitWalSenderSlot: no free walsender slot"
+    );
 
     ipc_seams::on_shmem_exit::call(WalSndKill, 0);
 }
@@ -389,7 +407,10 @@ fn WalSndKill(_code: i32, _arg: usize) {
     *uploaded_manifests()[i as usize]
         .lock()
         .expect("uploaded manifest mutex") = None;
-    WalSndCtl().walsnds[i as usize].lock().expect("walsnd mutex").pid = 0;
+    WalSndCtl().walsnds[i as usize]
+        .lock()
+        .expect("walsnd mutex")
+        .pid = 0;
 }
 
 // HandleWalSndInitStopping (walsender.c:3560): if replication has not yet
@@ -476,12 +497,11 @@ pub fn WalSndGetStateString(state: WalSndState) -> &'static str {
 // not linked or synchronous_standby_names is unset — C-identical).
 fn pg_stat_wal_senders_snapshot() -> Vec<walsender_seams::WalSndStatRow> {
     let ctl = WalSndCtl();
-    let candidates: Vec<(i32, i32)> =
-        if syncrep_seams::sync_rep_candidate_indexes::is_installed() {
-            syncrep_seams::sync_rep_candidate_indexes::call().unwrap_or_default()
-        } else {
-            Vec::new()
-        };
+    let candidates: Vec<(i32, i32)> = if syncrep_seams::sync_rep_candidate_indexes::is_installed() {
+        syncrep_seams::sync_rep_candidate_indexes::call().unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     let method_is_priority = if syncrep_seams::sync_rep_method_is_priority::is_installed() {
         syncrep_seams::sync_rep_method_is_priority::call()
     } else {
@@ -675,7 +695,9 @@ pub fn exec_replication_command(cmd_string: &str) -> PgResult<bool> {
     if xact::IsAbortedTransactionBlockState() {
         return ereport(ERROR)
             .errcode(ERRCODE_IN_FAILED_SQL_TRANSACTION)
-            .errmsg("current transaction is aborted, commands ignored until end of transaction block")
+            .errmsg(
+                "current transaction is aborted, commands ignored until end of transaction block",
+            )
             .finish(loc(2103, "exec_replication_command"))
             .map(|()| false);
     }
@@ -898,7 +920,11 @@ fn ReadReplicationSlot(mcx: mcx::Mcx<'_>, cmd: ReadReplicationSlotCmd) -> PgResu
     let mut restart_lsn_v = None;
 
     let control = lwlock::main_lock(types_storage::storage::REPLICATION_SLOT_CONTROL_LOCK);
-    lwlock::LWLockAcquire(control, lwlock::LW_SHARED, init_small::globals::MyProcNumber())?;
+    lwlock::LWLockAcquire(
+        control,
+        lwlock::LW_SHARED,
+        init_small::globals::MyProcNumber(),
+    )?;
     let slotname = cmd.slotname.as_deref().unwrap_or("");
     let slot = slot::SearchNamedReplicationSlot(slotname, false)?;
     // SAFETY: in_use read under ReplicationSlotControlLock (held above)
@@ -1000,11 +1026,7 @@ fn def_get_boolean(name: &str, arg: &Option<ReplOptionArg>, func: &'static str) 
 }
 
 // defGetString (define.c), the arms replication options use.
-fn def_get_string(
-    name: &str,
-    arg: &Option<ReplOptionArg>,
-    func: &'static str,
-) -> PgResult<String> {
+fn def_get_string(name: &str, arg: &Option<ReplOptionArg>, func: &'static str) -> PgResult<String> {
     match arg {
         Some(ReplOptionArg::Str(s)) => Ok(s.clone()),
         Some(ReplOptionArg::Int(i)) => Ok(i.to_string()),
@@ -1082,21 +1104,24 @@ fn parse_create_repl_slot_options(
                     conflicting_or_redundant("parseCreateReplSlotOptions", 1158)?;
                 }
                 reserve_wal_given = true;
-                opts.reserve_wal = def_get_boolean("reserve_wal", &defel.arg, "parseCreateReplSlotOptions")?;
+                opts.reserve_wal =
+                    def_get_boolean("reserve_wal", &defel.arg, "parseCreateReplSlotOptions")?;
             }
             "two_phase" => {
                 if two_phase_given || cmd.kind != ReplicationKind::REPLICATION_KIND_LOGICAL {
                     conflicting_or_redundant("parseCreateReplSlotOptions", 1168)?;
                 }
                 two_phase_given = true;
-                opts.two_phase = def_get_boolean("two_phase", &defel.arg, "parseCreateReplSlotOptions")?;
+                opts.two_phase =
+                    def_get_boolean("two_phase", &defel.arg, "parseCreateReplSlotOptions")?;
             }
             "failover" => {
                 if failover_given || cmd.kind != ReplicationKind::REPLICATION_KIND_LOGICAL {
                     conflicting_or_redundant("parseCreateReplSlotOptions", 1177)?;
                 }
                 failover_given = true;
-                opts.failover = def_get_boolean("failover", &defel.arg, "parseCreateReplSlotOptions")?;
+                opts.failover =
+                    def_get_boolean("failover", &defel.arg, "parseCreateReplSlotOptions")?;
             }
             other => {
                 ereport(ERROR)
@@ -1120,7 +1145,11 @@ fn CreateReplicationSlot(mcx: mcx::Mcx<'_>, cmd: CreateReplicationSlotCmd) -> Pg
     let mut snapshot_name: Option<String> = None;
 
     if cmd.kind == ReplicationKind::REPLICATION_KIND_PHYSICAL {
-        let persistency = if cmd.temporary { slot::RS_TEMPORARY } else { slot::RS_PERSISTENT };
+        let persistency = if cmd.temporary {
+            slot::RS_TEMPORARY
+        } else {
+            slot::RS_PERSISTENT
+        };
         slot::ReplicationSlotCreate(slotname, false, persistency, false, false, false)?;
 
         if opts.reserve_wal {
@@ -1137,7 +1166,11 @@ fn CreateReplicationSlot(mcx: mcx::Mcx<'_>, cmd: CreateReplicationSlotCmd) -> Pg
         slot::ReplicationSlotCreate(
             slotname,
             true,
-            if cmd.temporary { slot::RS_TEMPORARY } else { slot::RS_EPHEMERAL },
+            if cmd.temporary {
+                slot::RS_TEMPORARY
+            } else {
+                slot::RS_EPHEMERAL
+            },
             opts.two_phase,
             opts.failover,
             false,
@@ -1227,8 +1260,7 @@ fn CreateReplicationSlot(mcx: mcx::Mcx<'_>, cmd: CreateReplicationSlotCmd) -> Pg
             // snapshot (walsender.c:1326: SnapBuildInitialSnapshot +
             // RestoreTransactionSnapshot against our own proc).
             let snap = ctx.snapshot_builder.initial_snapshot()?;
-            let my_procno =
-                lmgr_proc::MyProc().expect("walsender has a PGPROC");
+            let my_procno = lmgr_proc::MyProc().expect("walsender has a PGPROC");
             snapmgr::RestoreTransactionSnapshot(&snap, my_procno)?;
         }
 
@@ -1242,7 +1274,11 @@ fn CreateReplicationSlot(mcx: mcx::Mcx<'_>, cmd: CreateReplicationSlotCmd) -> Pg
     let slot_ref = slot::MyReplicationSlot().expect("CreateReplicationSlot: no slot acquired");
     // SAFETY: MyReplicationSlot's data owned by this backend (slot spinlock)
     let d = unsafe { slot_ref.data.get() };
-    let xloc = format!("{:X}/{:X}", (d.confirmed_flush >> 32) as u32, d.confirmed_flush as u32);
+    let xloc = format!(
+        "{:X}/{:X}",
+        (d.confirmed_flush >> 32) as u32,
+        d.confirmed_flush as u32
+    );
     let slot_name = String::from_utf8_lossy(d.name.name_str()).into_owned();
 
     let mut dest = tcop_dest::CreateDestReceiver(types_dest::CommandDest::RemoteSimple);
@@ -1319,8 +1355,7 @@ pub fn uploaded_manifest_cell(
 /// Whether this walsender session has an uploaded manifest (basebackup's
 /// `ib == NULL` gate for BASE_BACKUP (INCREMENTAL)).
 pub fn uploaded_manifest_exists() -> bool {
-    uploaded_manifest_cell()
-        .is_some_and(|m| m.lock().expect("uploaded manifest mutex").is_some())
+    uploaded_manifest_cell().is_some_and(|m| m.lock().expect("uploaded manifest mutex").is_some())
 }
 
 // Handle UPLOAD_MANIFEST command (walsender.c:667).
@@ -1386,7 +1421,7 @@ fn HandleUploadManifestPacket(
     }
 
     let maxmsglen = match mtype as u8 {
-        b'd' => PQ_LARGE_MESSAGE_LIMIT, /* CopyData */
+        b'd' => PQ_LARGE_MESSAGE_LIMIT,                      /* CopyData */
         b'c' | b'f' | b'H' | b'S' => PQ_SMALL_MESSAGE_LIMIT, /* CopyDone, CopyFail, Flush, Sync */
         _ => {
             ereport(ERROR)
@@ -1417,7 +1452,7 @@ fn HandleUploadManifestPacket(
             ib.AppendIncrementalManifestData(buf.as_bytes())?;
             Ok(true)
         }
-        b'c' => Ok(false), /* CopyDone */
+        b'c' => Ok(false),       /* CopyDone */
         b'H' | b'S' => Ok(true), /* Sync/Flush: ignore, as elsewhere in CopyOut */
         b'f' => {
             /* CopyFail */
@@ -1467,7 +1502,11 @@ fn AlterReplicationSlot(cmd: AlterReplicationSlotCmd) -> PgResult<()> {
     slot::ReplicationSlotAlter(
         cmd.slotname.as_deref().unwrap_or(""),
         if failover_given { Some(failover) } else { None },
-        if two_phase_given { Some(two_phase) } else { None },
+        if two_phase_given {
+            Some(two_phase)
+        } else {
+            None
+        },
     )
 }
 
@@ -1518,7 +1557,9 @@ fn SendTimeLineHistory(mcx: mcx::Mcx<'_>, cmd: TimeLineHistoryCmd) -> PgResult<(
         return ereport(ERROR)
             .with_saved_errno(en)
             .errcode_for_file_access()
-            .errmsg(format!("could not seek to beginning of file \"{path}\": {PCT_M}"))
+            .errmsg(format!(
+                "could not seek to beginning of file \"{path}\": {PCT_M}"
+            ))
             .finish(loc(626, "SendTimeLineHistory"));
     }
 
@@ -1540,7 +1581,9 @@ fn SendTimeLineHistory(mcx: mcx::Mcx<'_>, cmd: TimeLineHistoryCmd) -> PgResult<(
             fd::CloseTransientFile(fd);
             return ereport(ERROR)
                 .errcode(ERRCODE_DATA_CORRUPTED)
-                .errmsg(format!("could not read file \"{path}\": read {nread} of {bytesleft}"))
+                .errmsg(format!(
+                    "could not read file \"{path}\": read {nread} of {bytesleft}"
+                ))
                 .finish(loc(648, "SendTimeLineHistory"));
         }
         content.extend_from_slice(&rbuf[..nread as usize]);
@@ -1595,7 +1638,6 @@ fn timeline_history_read(fd: i32, rbuf: &mut [u8]) -> isize {
 pub(crate) const WAIT_EVENT_WAIT_FOR_STANDBY_CONFIRMATION: u32 = 0x0600_0000 | 6;
 
 fn wait_for_standby_confirmation_loop(wait_for_lsn: types_core::XLogRecPtr) -> PgResult<()> {
-
     condition_variable::ConditionVariablePrepareToSleep(&WalSndCtl().wal_confirm_rcv_cv);
 
     loop {
@@ -1684,10 +1726,14 @@ mod tests {
             // A failed open(2) leaves ENOENT in this thread's errno slot.
             #[cfg(target_os = "macos")]
             // SAFETY: libc returns this thread's errno slot.
-            unsafe { *libc::__error() = libc::ENOENT };
+            unsafe {
+                *libc::__error() = libc::ENOENT
+            };
             #[cfg(not(target_os = "macos"))]
             // SAFETY: libc returns this thread's errno slot.
-            unsafe { *libc::__errno_location() = libc::ENOENT };
+            unsafe {
+                *libc::__errno_location() = libc::ENOENT
+            };
             -1
         });
         let mut v = xlogreader_seams::XLogReaderState::default();
@@ -1696,11 +1742,20 @@ mod tests {
         let err = streaming::WalSndSegment
             .segment_open(&mut v, 0, &mut tli)
             .unwrap_err();
-        assert_eq!(err.message, "requested WAL segment 000000010000000000000000 has already been removed");
+        assert_eq!(
+            err.message,
+            "requested WAL segment 000000010000000000000000 has already been removed"
+        );
         assert_eq!(err.sqlstate, types_error::ERRCODE_UNDEFINED_FILE);
         assert_eq!(err.location.as_ref().map(|l| l.lineno), Some(3120));
-        assert_eq!(err.location.as_ref().and_then(|l| l.filename.as_deref()), Some("walsender.c"));
-        assert_eq!(err.location.as_ref().and_then(|l| l.funcname.as_deref()), Some("WalSndSegmentOpen"));
+        assert_eq!(
+            err.location.as_ref().and_then(|l| l.filename.as_deref()),
+            Some("walsender.c")
+        );
+        assert_eq!(
+            err.location.as_ref().and_then(|l| l.funcname.as_deref()),
+            Some("WalSndSegmentOpen")
+        );
     }
 
     // WalSndRqstFileReload flags every ACTIVE slot's needreload and leaves
@@ -1709,7 +1764,10 @@ mod tests {
     fn rqst_file_reload_flags_only_active_slots() {
         let _g = slot_lock();
         let ctl = WalSndCtl();
-        assert!(ctl.walsnds.len() >= 2, "boot max_wal_senders covers two slots");
+        assert!(
+            ctl.walsnds.len() >= 2,
+            "boot max_wal_senders covers two slots"
+        );
         {
             let mut w = ctl.walsnds[0].lock().expect("walsnd mutex");
             w.pid = 4711;
@@ -1880,7 +1938,10 @@ mod tests {
         WalSndKill(0, 0);
         assert_eq!(MY_WAL_SND.get(), -1);
         assert!(
-            uploaded_manifests()[slot as usize].lock().unwrap().is_none(),
+            uploaded_manifests()[slot as usize]
+                .lock()
+                .unwrap()
+                .is_none(),
             "manifest must die with the session"
         );
     }
@@ -1911,7 +1972,10 @@ mod tests {
         assert!(uploaded_manifest_cell().is_none());
         assert!(!uploaded_manifest_exists());
         assert!(
-            uploaded_manifests()[slot1 as usize].lock().unwrap().is_none(),
+            uploaded_manifests()[slot1 as usize]
+                .lock()
+                .unwrap()
+                .is_none(),
             "session 1's manifest leaked past WalSndKill"
         );
 
@@ -1920,10 +1984,14 @@ mod tests {
         let slot2 = MY_WAL_SND.get();
         // Whichever slot session 2 landed on (usually slot1 again), it must
         // start with no manifest.
-        assert!(!uploaded_manifest_exists(), "second session saw prior session's manifest");
         assert!(
-            uploaded_manifests()[slot2 as usize].lock().unwrap().is_none()
+            !uploaded_manifest_exists(),
+            "second session saw prior session's manifest"
         );
+        assert!(uploaded_manifests()[slot2 as usize]
+            .lock()
+            .unwrap()
+            .is_none());
 
         // Belt-and-suspenders: even a manifest left behind WITHOUT WalSndKill
         // (crash-shaped teardown) is cleared by the acquire side.
@@ -1975,7 +2043,10 @@ mod tests {
     #[test]
     fn streaming_reply_message_limit_is_max_alloc_size_minus_one() {
         assert_eq!(crate::replies::PQ_LARGE_MESSAGE_LIMIT, 0x3fff_ffff - 1);
-        assert_eq!(crate::replies::PQ_LARGE_MESSAGE_LIMIT, PQ_LARGE_MESSAGE_LIMIT);
+        assert_eq!(
+            crate::replies::PQ_LARGE_MESSAGE_LIMIT,
+            PQ_LARGE_MESSAGE_LIMIT
+        );
     }
 
     // walsender.c:794 reads the CopyFail text with pq_getmsgstring: a body
@@ -2018,7 +2089,10 @@ mod tests {
         static ENDS: Mutex<Vec<std::thread::ThreadId>> = Mutex::new(Vec::new());
         if !waitevent_seams::pgstat_report_wait_start::is_installed() {
             waitevent_seams::pgstat_report_wait_start::set(|info| {
-                STARTS.lock().unwrap().push((std::thread::current().id(), info));
+                STARTS
+                    .lock()
+                    .unwrap()
+                    .push((std::thread::current().id(), info));
             });
             waitevent_seams::pgstat_report_wait_end::set(|| {
                 ENDS.lock().unwrap().push(std::thread::current().id());
@@ -2050,7 +2124,12 @@ mod tests {
                 .filter(|(tid, _)| *tid == my_tid)
                 .map(|(_, info)| *info)
                 .collect();
-            let ends = ENDS.lock().unwrap().iter().filter(|tid| **tid == my_tid).count();
+            let ends = ENDS
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|tid| **tid == my_tid)
+                .count();
             if !starts.is_empty() || ends > 0 {
                 assert_eq!(starts, vec![WAIT_EVENT_WALSENDER_TIMELINE_HISTORY_READ]);
                 assert_eq!(ends, 1);
@@ -2072,7 +2151,10 @@ mod tests {
         let err = exec_replication_command("UPLOAD_MANIFEST").err().unwrap();
         assert_eq!(err.sqlstate(), types_error::ERRCODE_QUERY_CANCELED);
         assert_eq!(err.message(), "COPY from stdin failed: client bailed");
-        assert!(!uploaded_manifest_exists(), "failed upload must not stash a manifest");
+        assert!(
+            !uploaded_manifest_exists(),
+            "failed upload must not stash a manifest"
+        );
 
         WalSndKill(0, 0);
     }
@@ -2114,9 +2196,12 @@ mod tests {
         WalSndShmemInit(n).expect("WalSndShmemInit");
         let first = {
             let reg = shmem_index().lock().unwrap();
-            let (addr, size) = *reg
-                .get("Wal Sender Ctl")
-                .unwrap_or_else(|| panic!("Wal Sender Ctl is missing from the ShmemIndex: {:?}", reg.keys().collect::<Vec<_>>()));
+            let (addr, size) = *reg.get("Wal Sender Ctl").unwrap_or_else(|| {
+                panic!(
+                    "Wal Sender Ctl is missing from the ShmemIndex: {:?}",
+                    reg.keys().collect::<Vec<_>>()
+                )
+            });
             assert_eq!(size, want, "pg_shmem_allocations.size for Wal Sender Ctl");
             assert_eq!(size, WalSndShmemSize(n).unwrap());
             addr
@@ -2125,12 +2210,20 @@ mod tests {
         let ctl = WalSndCtl();
         assert_eq!(ctl.walsnds.len(), n.max(0) as usize);
         assert!(ctl.walsnds.iter().all(|s| s.lock().unwrap().pid == 0));
-        assert!(ctl.sync_rep_lsn.iter().all(|l| l.load(std::sync::atomic::Ordering::Relaxed) == 0));
+        assert!(ctl
+            .sync_rep_lsn
+            .iter()
+            .all(|l| l.load(std::sync::atomic::Ordering::Relaxed) == 0));
 
         // Re-entry (found = true): one row, same location, live data kept.
         WalSndShmemInit(n).expect("WalSndShmemInit re-entry");
         let reg = shmem_index().lock().unwrap();
         assert_eq!(reg.get("Wal Sender Ctl").map(|&(a, _)| a), Some(first));
-        assert_eq!(reg.keys().filter(|k| k.as_str() == "Wal Sender Ctl").count(), 1);
+        assert_eq!(
+            reg.keys()
+                .filter(|k| k.as_str() == "Wal Sender Ctl")
+                .count(),
+            1
+        );
     }
 }

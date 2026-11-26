@@ -15,7 +15,9 @@
 use std::rc::Rc;
 
 use gravity_abi::{Datum as Word, ScanPos};
-use gravity_driver::{box_source, ArenaRef, BindingRef, Cursor, Error, Result, Source, SourceBox, Window};
+use gravity_driver::{
+    box_source, ArenaRef, BindingRef, Cursor, Error, Result, Source, SourceBox, Window,
+};
 use gravity_program::{LaneId, SiteDesc};
 use types_core::Oid;
 
@@ -45,11 +47,29 @@ impl HostRecipe for ParamKeyRecipe {
     fn derive(&self, desc: &SiteDesc, a: ArenaRef) -> SourceBox {
         // the site's key cells are the recipe's key words, then the input cells
         let r = &self.leaf;
-        assert!(!desc.is_range() && r.heap == desc.relation && r.index == desc.index && r.words.len() + self.inputs.len() == desc.nkeys() && r.natts == desc.natts(), "gravity: computed-key index recipe does not match its site descriptor");
+        assert!(
+            !desc.is_range()
+                && r.heap == desc.relation
+                && r.index == desc.index
+                && r.words.len() + self.inputs.len() == desc.nkeys()
+                && r.natts == desc.natts(),
+            "gravity: computed-key index recipe does not match its site descriptor"
+        );
         let rowid = desc.lanes().iter().any(|l| l.id == LaneId::RowId);
         let n = r.words.len();
         let inner = IndexSource::new(r.clone()).batched(rowid);
-        box_source(ParamKey { inner, keys: self.keys.clone(), vals: self.vals.clone(), inputs: self.inputs.clone(), words: vec![0; n], nulls: vec![0; n], scratch: NodeScratch::new("GravityParamKey") }, a) // alloc: Node
+        box_source(
+            ParamKey {
+                inner,
+                keys: self.keys.clone(),
+                vals: self.vals.clone(),
+                inputs: self.inputs.clone(),
+                words: vec![0; n],
+                nulls: vec![0; n],
+                scratch: NodeScratch::new("GravityParamKey"),
+            },
+            a,
+        ) // alloc: Node
     }
     fn clone_box(&self) -> Box<dyn HostRecipe> {
         Box::new(self.clone()) // alloc: Program
@@ -77,7 +97,9 @@ impl Source for ParamKey {
     fn seek(&mut self, keys: &[Word], keys_null: &[u8]) -> Result<()> {
         let n = self.words.len();
         if keys.len() < n + self.inputs.len() || keys_null.len() < n + self.inputs.len() {
-            return Err(Error::host("a computed-key index seek with fewer key words than its recipe and inputs"));
+            return Err(Error::host(
+                "a computed-key index seek with fewer key words than its recipe and inputs",
+            ));
         }
         // bounded("other: one input cell per outer value the site's computed keys read, which the statement's index quals bound")
         for &(w, id) in self.inputs.iter() {

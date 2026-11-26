@@ -21,7 +21,13 @@ pub trait EqReads {
 /// procedure fmgr runs for each (a user `LANGUAGE internal` wrapper is the built-in its prosrc names, `body`). A type
 /// whose cache names no `=` (no default btree or hash class: box, point) has no own equality, so no image stands for an
 /// operator over it.
-pub fn own_eq<R: EqReads + ?Sized>(mcx: mcx::Mcx<'_>, r: &R, op: Oid, typid: Oid, own_proc: Oid) -> PgResult<bool> {
+pub fn own_eq<R: EqReads + ?Sized>(
+    mcx: mcx::Mcx<'_>,
+    r: &R,
+    op: Oid,
+    typid: Oid,
+    own_proc: Oid,
+) -> PgResult<bool> {
     if op == 0 {
         return Ok(false);
     }

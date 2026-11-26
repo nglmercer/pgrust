@@ -1,6 +1,4 @@
-use ::types_error::{
-    PgError, PgResult, ERRCODE_INVALID_DATETIME_FORMAT, ERRCODE_SYNTAX_ERROR,
-};
+use ::types_error::{PgError, PgResult, ERRCODE_INVALID_DATETIME_FORMAT, ERRCODE_SYNTAX_ERROR};
 
 use crate::case::{index_seq_search, is_separator_char, suff_search};
 use crate::tables::*;
@@ -190,7 +188,9 @@ pub fn parse_format(
     let bytes = n.saturating_mul(C_FORMAT_NODE_SIZE);
     ::mcx::check_alloc_size(bytes)?;
     let mut nodes: Vec<FormatNode> = Vec::new();
-    nodes.try_reserve_exact(n).map_err(|_| ::mcx::oom_named("parse_format", bytes))?;
+    nodes
+        .try_reserve_exact(n)
+        .map_err(|_| ::mcx::oom_named("parse_format", bytes))?;
     let mut num = num;
     let mut pos = 0usize;
 
@@ -335,6 +335,9 @@ mod tests {
         let pic = vec![b'"'; 68_000_000];
         let err = parse_format(&pic, DCH_KEYWORDS, DCH_SUFF, &DCH_INDEX, DCH_FLAG, None)
             .expect_err("oversized picture must be rejected");
-        assert_eq!(err.message(), "invalid memory alloc request size 1088000016");
+        assert_eq!(
+            err.message(),
+            "invalid memory alloc request size 1088000016"
+        );
     }
 }

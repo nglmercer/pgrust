@@ -16,9 +16,9 @@
 //! Budget 400 lines. Owner M3-MERGE.
 use std::cell::Cell;
 
+use gravity_decompose::graph::Bound;
 use gravity_decompose::ops::shared::append::{AppendDesc, PruneDesc};
 use gravity_decompose::{Op, Source};
-use gravity_decompose::graph::Bound;
 use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{IntBinOp, IntCond, Type, Value};
 use gravity_lower::Place;
@@ -26,22 +26,22 @@ use gravity_program::protos::{Proto, ProtoKind};
 use mcx::{CollectIn, PgBox, PgVec};
 use types_nodes::list::NodeList;
 
+use crate::admit::refusal::{Reason, ShapeWhy, Variant};
 use crate::face::end::EndMech;
 use crate::face::kinds::{Face, KindId};
-use crate::face::strategy::SORT_NATURAL;
 use crate::face::source::SourceMech;
 use crate::face::step::StepMech;
+use crate::face::strategy::SORT_NATURAL;
 use crate::frame::env::Env;
 use crate::frame::frame::{EndMaker, Next, SourceMaker, StepMaker, WordWin};
 use crate::frame::iface;
 use crate::frame::open::{Base, OpenWord, OpenWords};
 use crate::frame::px::{Px, WordKey};
-use crate::frame::stop::Exits;
 use crate::frame::row::{Carry, Mask, RowVals};
+use crate::frame::stop::Exits;
 use crate::graph::Gx;
-use crate::props::Merge;
-use crate::admit::refusal::{Reason, ShapeWhy, Variant};
 use crate::ops::Table;
+use crate::props::Merge;
 
 use crate::ops::append::merge_pull as pull;
 
@@ -69,8 +69,24 @@ fn shape(node: i32, why: &'static str) -> ! {
 /// Arm pipeline `k`'s row: the projection before its Feed op (the MergeAppend's columns by resno).
 fn cols_of<'g, 'p>(gx: &Gx<'g, 'p>, k: usize) -> &'g NodeList<'p> {
     let p = &gx.pipelines()[k];
-    let Some(f) = p.ops.iter().position(|op| matches!(op, Op::Append(AppendDesc::Feed { .. }))) else { bug(p.node_id, "a MergeAppend arm without its feed") };
-    p.ops[..f].iter().rev().find_map(|op| if let Op::Project(l) = op { Some(*l) } else { None }).unwrap_or_else(|| shape(p.node_id, "a MergeAppend arm with no projection"))
+    let Some(f) = p
+        .ops
+        .iter()
+        .position(|op| matches!(op, Op::Append(AppendDesc::Feed { .. })))
+    else {
+        bug(p.node_id, "a MergeAppend arm without its feed")
+    };
+    p.ops[..f]
+        .iter()
+        .rev()
+        .find_map(|op| {
+            if let Op::Project(l) = op {
+                Some(*l)
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| shape(p.node_id, "a MergeAppend arm with no projection"))
 }
 
 /// D3931: every arm of the MergeAppend whose run `cols` is one arm's row of (`cols_of`, the list a run end and the reader
@@ -78,25 +94,54 @@ fn cols_of<'g, 'p>(gx: &Gx<'g, 'p>, k: usize) -> &'g NodeList<'p> {
 /// form (`merge_pull`: no arm writes a run; its reader holds the Sort runs' rows as they are). The run's key layout is one
 /// decision over all of them (rep/keylane.rs `packed_words`).
 pub(crate) fn writer_arms<'g>(gx: &Gx<'g, '_>, cols: &NodeList<'_>) -> PgVec<'g, (usize, usize)> {
-    let mine = |q: usize| proj_of(gx, q).is_some_and(|(l, _)| core::ptr::eq(l as *const NodeList<'_> as *const (), cols as *const NodeList<'_> as *const ()));
-    let found = (0..gx.pipelines().end()).find(|&q| mine(q)).and_then(|q| Merge::of_arm(gx, q));
-    let Some(m) = found.filter(|m| !crate::props::merge_pull(gx, m)) else { return PgVec::new_in(gx.mcx) };
-    m.arms.iter().filter_map(|&a| proj_of(gx, a).map(|(_, f)| (a, f))).collect_in(gx.mcx)
+    let mine = |q: usize| {
+        proj_of(gx, q).is_some_and(|(l, _)| {
+            core::ptr::eq(
+                l as *const NodeList<'_> as *const (),
+                cols as *const NodeList<'_> as *const (),
+            )
+        })
+    };
+    let found = (0..gx.pipelines().end())
+        .find(|&q| mine(q))
+        .and_then(|q| Merge::of_arm(gx, q));
+    let Some(m) = found.filter(|m| !crate::props::merge_pull(gx, m)) else {
+        return PgVec::new_in(gx.mcx);
+    };
+    m.arms
+        .iter()
+        .filter_map(|&a| proj_of(gx, a).map(|(_, f)| (a, f)))
+        .collect_in(gx.mcx)
 }
 
 /// Pipeline `q`'s projection before its Feed op and the Feed op's position (`cols_of` without its refusals); none for a
 /// pipeline with no Feed.
 fn proj_of<'g, 'p>(gx: &Gx<'g, 'p>, q: usize) -> Option<(&'g NodeList<'p>, usize)> {
     let p = &gx.pipelines()[q];
-    let f = p.ops.iter().position(|op| matches!(op, Op::Append(AppendDesc::Feed { .. })))?;
-    p.ops[..f].iter().rev().find_map(|op| if let Op::Project(l) = op { Some((*l, f)) } else { None })
+    let f = p
+        .ops
+        .iter()
+        .position(|op| matches!(op, Op::Append(AppendDesc::Feed { .. })))?;
+    p.ops[..f].iter().rev().find_map(|op| {
+        if let Op::Project(l) = op {
+            Some((*l, f))
+        } else {
+            None
+        }
+    })
 }
 
 /// The Feed op of an arm and the Merge op of the reader: the row goes on as it is.
 struct Pass;
 
 impl StepMech for Pass {
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, next: Next<'_, 'e>) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        next: Next<'_, 'e>,
+    ) -> Carry<'e> {
         next(b, env, row)
     }
 }
@@ -104,33 +149,69 @@ impl StepMech for Pass {
 fn make_step<'g, 'p>(px: &mut Px<'g, 'p>, k: usize, j: usize) -> PgBox<'g, dyn StepMech + 'g> {
     let p = &px.gx.pipelines()[k];
     match &p.ops[j] {
-        Op::Append(AppendDesc::Feed { ordered: false, .. }) => bug(p.node_id, "a MergeAppend arm not in the merge keys' order"),
+        Op::Append(AppendDesc::Feed { ordered: false, .. }) => {
+            bug(p.node_id, "a MergeAppend arm not in the merge keys' order")
+        }
         // the pull form's reader reads the arms' skip bits (runs/merge_pull.rs); their own pipelines leave at the open
-        Op::Append(AppendDesc::Feed { .. }) if Merge::of_arm(px.gx, k).is_some_and(|m| crate::props::merge_pull(px.gx, &m)) => mcx::pg_box_dyn!(px.mcx(), Pass => dyn StepMech + 'g),
+        Op::Append(AppendDesc::Feed { .. })
+            if Merge::of_arm(px.gx, k).is_some_and(|m| crate::props::merge_pull(px.gx, &m)) =>
+        {
+            mcx::pg_box_dyn!(px.mcx(), Pass => dyn StepMech + 'g)
+        }
         Op::Append(AppendDesc::Feed { .. }) => {
-            let inner: PgBox<'g, dyn StepMech + 'g> = match Merge::of_arm(px.gx, k).and_then(|m| crate::props::merge_cap(px.gx, &m)) {
-                Some(cap) if serial(px, k) => mcx::pg_box_dyn!(px.mcx(), Cap::new(px, k, j, cap) => dyn StepMech + 'g),
-                _ => mcx::pg_box_dyn!(px.mcx(), Pass => dyn StepMech + 'g),
-            };
+            let inner: PgBox<'g, dyn StepMech + 'g> =
+                match Merge::of_arm(px.gx, k).and_then(|m| crate::props::merge_cap(px.gx, &m)) {
+                    Some(cap) if serial(px, k) => {
+                        mcx::pg_box_dyn!(px.mcx(), Cap::new(px, k, j, cap) => dyn StepMech + 'g)
+                    }
+                    _ => mcx::pg_box_dyn!(px.mcx(), Pass => dyn StepMech + 'g),
+                };
             gate(px, k, inner)
         }
-        Op::Append(AppendDesc::Merge { .. }) => mcx::pg_box_dyn!(px.mcx(), Pass => dyn StepMech + 'g),
-        _ => bug(p.node_id, "runs.mergeappend's step over an op that is not its feed or merge"),
+        Op::Append(AppendDesc::Merge { .. }) => {
+            mcx::pg_box_dyn!(px.mcx(), Pass => dyn StepMech + 'g)
+        }
+        _ => bug(
+            p.node_id,
+            "runs.mergeappend's step over an op that is not its feed or merge",
+        ),
     }
 }
 
 /// The reader's pruning (D509), when its Merge op has one.
 pub(crate) fn prune_of<'g, 'p>(gx: &Gx<'g, 'p>, reader: usize) -> Option<&'g PruneDesc<'p>> {
-    gx.pipelines()[reader].ops.iter().find_map(|op| if let Op::Append(AppendDesc::Merge { prune: Some(p), .. }) = op { Some(p) } else { None })
+    gx.pipelines()[reader].ops.iter().find_map(|op| {
+        if let Op::Append(AppendDesc::Merge { prune: Some(p), .. }) = op {
+            Some(p)
+        } else {
+            None
+        }
+    })
 }
 
 /// Arm `k`'s Feed step, behind its skip bit when the merge prunes (D509: arm `i` of the merge's `n`).
-fn gate<'g>(px: &mut Px<'g, '_>, k: usize, inner: PgBox<'g, dyn StepMech + 'g>) -> PgBox<'g, dyn StepMech + 'g> {
+fn gate<'g>(
+    px: &mut Px<'g, '_>,
+    k: usize,
+    inner: PgBox<'g, dyn StepMech + 'g>,
+) -> PgBox<'g, dyn StepMech + 'g> {
     let node = px.gx.pipelines()[k].node_id;
-    let Some(m) = Merge::of_arm(px.gx, k) else { bug(node, "a MergeAppend arm without its merge") };
-    let Some(p) = prune_of(px.gx, m.reader) else { return inner };
-    let i = m.arms.iter().position(|&q| q == k).unwrap_or_else(|| bug(node, "a MergeAppend arm outside its merge's arms"));
-    let skip = (crate::frame::iface::kind_impl::<crate::face::source::PruneImpl>(&node, crate::face::kinds::KindId::SrcPrune).0)(px, k, i as u16, m.arms.len() as u16, p, node);
+    let Some(m) = Merge::of_arm(px.gx, k) else {
+        bug(node, "a MergeAppend arm without its merge")
+    };
+    let Some(p) = prune_of(px.gx, m.reader) else {
+        return inner;
+    };
+    let i = m
+        .arms
+        .iter()
+        .position(|&q| q == k)
+        .unwrap_or_else(|| bug(node, "a MergeAppend arm outside its merge's arms"));
+    let skip = (crate::frame::iface::kind_impl::<crate::face::source::PruneImpl>(
+        &node,
+        crate::face::kinds::KindId::SrcPrune,
+    )
+    .0)(px, k, i as u16, m.arms.len() as u16, p, node);
     mcx::pg_box_dyn!(px.mcx(), Gate { skip, pass: Cell::new(None), inner } => dyn StepMech + 'g)
 }
 
@@ -168,7 +249,14 @@ impl StepMech for Gate<'_> {
         self.inner.window(b, env, x)
     }
 
-    fn block(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, w: &WordWin, base: Value, m: Mask) -> Mask {
+    fn block(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        w: &WordWin,
+        base: Value,
+        m: Mask,
+    ) -> Mask {
         let m = self.inner.block(b, env, w, base, m);
         match self.pass.get() {
             Some(p) => Mask(b.select(p, m.0, env.zero)),
@@ -180,9 +268,22 @@ impl StepMech for Gate<'_> {
         self.inner.block_reads(env, w)
     }
 
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, next: Next<'_, 'e>) -> Carry<'e> {
-        let Some(pass) = self.pass.get() else { bug(-1, "a pruned merge arm's feed lowered before its prologue") };
-        let types: PgVec<'_, Type> = row.carry.params().iter().map(|&v| b.value_type(v)).collect_in(env.mcx);
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        next: Next<'_, 'e>,
+    ) -> Carry<'e> {
+        let Some(pass) = self.pass.get() else {
+            bug(-1, "a pruned merge arm's feed lowered before its prologue")
+        };
+        let types: PgVec<'_, Type> = row
+            .carry
+            .params()
+            .iter()
+            .map(|&v| b.value_type(v))
+            .collect_in(env.mcx);
         let l_join = b.create_block(&types);
         let l_yes = b.create_block(&[]);
         b.cond_br(pass, (l_yes, &[]), (l_join, &row.carry.params()));
@@ -208,7 +309,10 @@ impl StepMech for Gate<'_> {
 
 /// Arm pipeline `k` runs as one claim stream in its order (a serial pipeline: no worker sees a part of the arm).
 fn serial(px: &Px<'_, '_>, k: usize) -> bool {
-    matches!(px.gx.pipelines()[k].desc.parallel, gravity_program::Parallel::Ineligible { .. })
+    matches!(
+        px.gx.pipelines()[k].desc.parallel,
+        gravity_program::Parallel::Ineligible { .. }
+    )
 }
 
 /// A LIMIT's bound as the arm reads it.
@@ -232,19 +336,44 @@ struct Cap {
 }
 
 impl Cap {
-    fn new<'p>(px: &mut Px<'_, 'p>, k: usize, j: usize, (count, offset): (Bound<'p>, Bound<'p>)) -> Cap {
+    fn new<'p>(
+        px: &mut Px<'_, 'p>,
+        k: usize,
+        j: usize,
+        (count, offset): (Bound<'p>, Bound<'p>),
+    ) -> Cap {
         let node = px.gx.pipelines()[k].node_id;
         let mut lim = |b: Bound<'p>| match b {
             Bound::All => None,
             Bound::Const(n) => Some(Lim::Const(n)),
-            Bound::Expr(e) => match crate::lifetime::bound::word(px, crate::lifetime::bound::Feed::TupleBound, k, e, node) {
+            Bound::Expr(e) => match crate::lifetime::bound::word(
+                px,
+                crate::lifetime::bound::Feed::TupleBound,
+                k,
+                e,
+                node,
+            ) {
                 Place::Word(w) => Some(Lim::Word(w)),
                 _ => None,
             },
         };
-        let (Some(count), offset) = (lim(count), lim(offset)) else { bug(node, "an arm cap without a count") };
-        let fed = px.frame_word(WordKey::Open { face: Face::Runs, k, j: crate::frame::px::key_j(j), i: 0 }) as i32 * 8;
-        Cap { count, offset, fed, node, bound: core::cell::Cell::new(None) }
+        let (Some(count), offset) = (lim(count), lim(offset)) else {
+            bug(node, "an arm cap without a count")
+        };
+        let fed = px.frame_word(WordKey::Open {
+            face: Face::Runs,
+            k,
+            j: crate::frame::px::key_j(j),
+            i: 0,
+        }) as i32
+            * 8;
+        Cap {
+            count,
+            offset,
+            fed,
+            node,
+            bound: core::cell::Cell::new(None),
+        }
     }
 
     /// The bound's value, i64::MAX when NULL or negative.
@@ -267,7 +396,13 @@ impl Cap {
 
 impl StepMech for Cap {
     fn open_words(&self, w: &mut OpenWords) {
-        w.declare(OpenWord::open("merge arm fed", Base::Words, self.fed, Type::I64, 0));
+        w.declare(OpenWord::open(
+            "merge arm fed",
+            Base::Words,
+            self.fed,
+            Type::I64,
+            0,
+        ));
     }
 
     /// `count + offset`, saturating (either one uncapped caps nothing).
@@ -288,8 +423,13 @@ impl StepMech for Cap {
 
     /// A window once the arm fed its cap is done at once.
     fn window(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, x: &Exits) {
-        let n = self.bound.get().unwrap_or_else(|| bug(self.node, "an arm cap before its prologue"));
-        let Some(st) = env.words else { bug(self.node, "an arm cap without the frame words") };
+        let n = self
+            .bound
+            .get()
+            .unwrap_or_else(|| bug(self.node, "an arm cap before its prologue"));
+        let Some(st) = env.words else {
+            bug(self.node, "an arm cap without the frame words")
+        };
         let fed = b.load(Type::I64, st, self.fed);
         let (full, l_go) = (b.icmp(IntCond::Sge, fed, n), b.create_block(&[]));
         b.cond_br(full, (x.l_done, &[]), (l_go, &[]));
@@ -297,15 +437,34 @@ impl StepMech for Cap {
     }
 
     /// The row fed, then counted; the arm ends at the cap (`Env::full`: the carried states stored first).
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, next: Next<'_, 'e>) -> Carry<'e> {
-        let n = self.bound.get().unwrap_or_else(|| bug(self.node, "an arm cap before its prologue"));
-        let Some(st) = env.words else { bug(self.node, "an arm cap without the frame words") };
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        next: Next<'_, 'e>,
+    ) -> Carry<'e> {
+        let n = self
+            .bound
+            .get()
+            .unwrap_or_else(|| bug(self.node, "an arm cap before its prologue"));
+        let Some(st) = env.words else {
+            bug(self.node, "an arm cap without the frame words")
+        };
         let c = next(b, env, row);
         let fed = b.load(Type::I64, st, self.fed);
         let fed1 = b.int_bin(IntBinOp::Add, fed, env.one);
         b.store(st, self.fed, fed1);
-        let types: PgVec<'_, Type> = c.params().iter().map(|&v| b.value_type(v)).collect_in(env.mcx);
-        let (full, l_full, l_cont) = (b.icmp(IntCond::Sge, fed1, n), b.create_block(&[]), b.create_block(&types));
+        let types: PgVec<'_, Type> = c
+            .params()
+            .iter()
+            .map(|&v| b.value_type(v))
+            .collect_in(env.mcx);
+        let (full, l_full, l_cont) = (
+            b.icmp(IntCond::Sge, fed1, n),
+            b.create_block(&[]),
+            b.create_block(&types),
+        );
         b.cond_br(full, (l_full, &[]), (l_cont, &c.params()));
         b.switch_to(l_full);
         env.full(b, &c, row.next);
@@ -319,7 +478,12 @@ impl StepMech for Cap {
 fn make_end<'g, 'p>(px: &mut Px<'g, 'p>, k: usize) -> PgBox<'g, dyn EndMech + 'g> {
     let gx = px.gx;
     let node = gx.pipelines()[k].node_id;
-    let Some(m) = Merge::of_arm(gx, k) else { bug(node, "a MergeAppend arm whose reader the graph does not hold") };
+    let Some(m) = Merge::of_arm(gx, k) else {
+        bug(
+            node,
+            "a MergeAppend arm whose reader the graph does not hold",
+        )
+    };
     // D449: the pull form reads PostgreSQL's rows exactly (one per arm at the open, then the emitting arm's next), so an
     // arm row that can raise raises where PostgreSQL's does; only the breaker form reads past the early stop. v5
     // errorhold (worklist item 9): there each arm runs ahead under a recheck licence (`Px::run_ahead`): an error before
@@ -333,7 +497,10 @@ fn make_end<'g, 'p>(px: &mut Px<'g, 'p>, k: usize) -> PgBox<'g, dyn EndMech + 'g
     // USEROP (K10.y1 .h0): a merge key of another family's order (decompose append.rs `merge_keys`) whose comparator is
     // SQL / PL: the breaker merge (the arms' runs, then one k-way) calls it on pairs of its own, not those of PostgreSQL's
     // binary heap over the arms' heads
-    if m.keys.iter().any(|key| key.compare_fn() && !crate::rep::keylane::c_level_cmp(gx, key.opno)) {
+    if m.keys
+        .iter()
+        .any(|key| key.compare_fn() && !crate::rep::keylane::c_level_cmp(gx, key.opno))
+    {
         shape(node, crate::rep::keylane::USER_ARRIVAL);
     }
     // D3374 (e) (record keys E2): an anonymous record key whose arms disagree on its columns (decompose append.rs
@@ -366,25 +533,51 @@ fn make_end<'g, 'p>(px: &mut Px<'g, 'p>, k: usize) -> PgBox<'g, dyn EndMech + 'g
         // V4R-129: `arg` counts the run's pipelines, a child Sort's between two arms included (it produces another slot)
         (arms.arg, arms.slot) = ((m.arms[m.arms.len() - 1] - k + 1) as u64, m.slot);
         px.declare_proto(arms);
-        iface::sort_resident(px, k, m.slot, (!first.var()).then_some((first.spec, 2 * first.keys.len() as u16)));
+        iface::sort_resident(
+            px,
+            k,
+            m.slot,
+            (!first.var()).then_some((first.spec, 2 * first.keys.len() as u16)),
+        );
     }
     // the resident open is b3's protocol, not road sort.resident's; the ordered mark holds unless sort.natural is forced off
     let natural = crate::face::source::on(Variant::Strategy(SORT_NATURAL));
-    iface::sort_end_over(px, k, m.keys, cols, iface::SortArm { keylane: false, natural, resident: true, finish: false })
+    iface::sort_end_over(
+        px,
+        k,
+        m.keys,
+        cols,
+        iface::SortArm {
+            keylane: false,
+            natural,
+            resident: true,
+            finish: false,
+        },
+    )
 }
 
 /// D449 / v5 errorhold: the licence the breaker form's arms run ahead of PostgreSQL's early stop under where an arm row
 /// can raise past it (`arms_admit` fails): `Px::run_ahead`'s recheck licence, else `Px::ahead_unchecked`'s; both
 /// denied, D449's name refuses. `None`: the pull form, or arms `arms_admit` admits (no licence asked).
-fn raise_ahead(px: &mut Px<'_, '_>, k: usize, m: &Merge<'_>, node: i32) -> Option<gravity_decompose::effects::Licence> {
+fn raise_ahead(
+    px: &mut Px<'_, '_>,
+    k: usize,
+    m: &Merge<'_>,
+    node: i32,
+) -> Option<gravity_decompose::effects::Licence> {
     let gx = px.gx;
     if crate::props::arms_admit(gx, m) || crate::props::merge_pull(gx, m) {
         return None;
     }
     let raises = gravity_decompose::effects::Effects::RAISES;
-    let l = px.run_ahead(k, raises).or_else(|| px.ahead_unchecked(k, raises));
+    let l = px
+        .run_ahead(k, raises)
+        .or_else(|| px.ahead_unchecked(k, raises));
     if l.is_none() {
-        shape(node, "a MergeAppend arm whose rows can raise past PostgreSQL's early stop (D449's rule)");
+        shape(
+            node,
+            "a MergeAppend arm whose rows can raise past PostgreSQL's early stop (D449's rule)",
+        );
     }
     l
 }
@@ -393,12 +586,21 @@ fn raise_ahead(px: &mut Px<'_, '_>, k: usize, m: &Merge<'_>, node: i32) -> Optio
 /// statement runs to its end (`merge_admit::whole_only`), served to a reader that takes every row alone
 /// (`shared::whole::read`, over the arms' effects and their producers'). `None`: the pull form, a merge `whole_only`
 /// does not take, or arms that act past call-local builtins.
-fn whole_ahead(px: &mut Px<'_, '_>, k: usize, m: &Merge<'_>) -> Option<gravity_decompose::effects::Licence> {
+fn whole_ahead(
+    px: &mut Px<'_, '_>,
+    k: usize,
+    m: &Merge<'_>,
+) -> Option<gravity_decompose::effects::Licence> {
     let gx = px.gx;
     if crate::props::merge_pull(gx, m) || !crate::ops::append::merge_admit::whole_only(gx, m) {
         return None;
     }
-    let own = m.arms.iter().fold(gravity_decompose::effects::Effects::NONE, |e, &a| e.and(crate::effects::pipeline_effects(gx, px.arena, a, true)));
+    let own = m
+        .arms
+        .iter()
+        .fold(gravity_decompose::effects::Effects::NONE, |e, &a| {
+            e.and(crate::effects::pipeline_effects(gx, px.arena, a, true))
+        });
     crate::ops::shared::whole::read(px, k, own)
 }
 
@@ -414,7 +616,9 @@ fn make_emit<'g, 'p>(px: &mut Px<'g, 'p>, k: usize) -> PgBox<'g, dyn SourceMech 
     if reader.is_none() && Merge::of_arm(gx, k).is_some_and(|m| crate::props::merge_pull(gx, &m)) {
         return pull::empty(px, k);
     }
-    let Some(m) = reader else { bug(node, "a MergeAppend's emit without its merge op or arms") };
+    let Some(m) = reader else {
+        bug(node, "a MergeAppend's emit without its merge op or arms")
+    };
     let cols = cols_of(gx, *m.arms.last().expect("a merge has an arm"));
     if crate::props::merge_pull(gx, &m) {
         return pull::make(px, k, &m, cols);

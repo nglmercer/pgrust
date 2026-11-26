@@ -10,9 +10,9 @@
 //! 2 or more a count pass between the top and its emit (lowerv4 heads.rs) counts each part the top kept on the pool,
 //! one whole part per claim (`heads_tally`), into a directory the emit reads first (`counted`). A #[path] submodule of
 //! host_abi/v4/m6.rs.
-use gravity_abi::PtrWord;
 use gravity_abi::status::ERROR;
 use gravity_abi::Ctx;
+use gravity_abi::PtrWord;
 
 use crate::util;
 
@@ -74,15 +74,25 @@ unsafe fn counted(dir: *const u64, mark: u64) -> Option<i64> {
     let (mut lo, mut hi) = (0, n);
     while lo < hi {
         let m = (lo + hi) / 2;
-        if *e(m) < start { lo = m + 1 } else { hi = m }
+        if *e(m) < start {
+            lo = m + 1
+        } else {
+            hi = m
+        }
     }
     if lo == n || *e(lo) != start {
         return None;
     }
     let x = e(lo);
     match *x.add(1) as usize {
-        slots if slots != NO_TABLE && slots as u64 & PASS_SPARSE != 0 => sparse(*x.add(2) as *const u64, (slots as u64 & !PASS_SPARSE) as usize, mark as u32),
-        slots if slots != SEEN && slots != NO_TABLE => Some(slot(*x.add(2) as *const u32, slots, mark as u32)),
+        slots if slots != NO_TABLE && slots as u64 & PASS_SPARSE != 0 => sparse(
+            *x.add(2) as *const u64,
+            (slots as u64 & !PASS_SPARSE) as usize,
+            mark as u32,
+        ),
+        slots if slots != SEEN && slots != NO_TABLE => {
+            Some(slot(*x.add(2) as *const u32, slots, mark as u32))
+        }
         _ => None,
     }
 }
@@ -137,13 +147,28 @@ unsafe fn tally_window(ctx: *mut Ctx, k: usize, dir: *mut u64) -> i64 {
     };
     let past = if s.sel.ptr().is_null() && l.valid.ptr().is_null() && l.width == 4 {
         let (from, to) = (s.cursor as usize, s.rows as usize);
-        !tally_runs(t, slots, core::slice::from_raw_parts((l.ptr.ptr() as *const u32).add(from), to.saturating_sub(from)))
+        !tally_runs(
+            t,
+            slots,
+            core::slice::from_raw_parts(
+                (l.ptr.ptr() as *const u32).add(from),
+                to.saturating_sub(from),
+            ),
+        )
     } else {
-        let at = |i: usize| match l.width { 2 => *(l.ptr.ptr() as *const u16).add(i) as u32, 8 => *(l.ptr.ptr() as *const u64).add(i) as u32, _ => *(l.ptr.ptr() as *const u32).add(i) };
+        let at = |i: usize| match l.width {
+            2 => *(l.ptr.ptr() as *const u16).add(i) as u32,
+            8 => *(l.ptr.ptr() as *const u64).add(i) as u32,
+            _ => *(l.ptr.ptr() as *const u32).add(i),
+        };
         let mut past = false;
         let _ = util::for_each_row(s, |i| {
             #[allow(clippy::unnecessary_cast)]
-            let x = if util::row_valid(l.valid.ptr() as *const u64, i) { at(i) as usize } else { slots - 1 };
+            let x = if util::row_valid(l.valid.ptr() as *const u64, i) {
+                at(i) as usize
+            } else {
+                slots - 1
+            };
             match x < slots {
                 true => *t.add(x) += 1,
                 false => past = true,
@@ -161,7 +186,9 @@ unsafe fn tally_window(ctx: *mut Ctx, k: usize, dir: *mut u64) -> i64 {
 /// Each code's rows of a flat window into `t`; a skewed window (`skewed`) by runs of one code, so an increment does not
 /// wait on the store of the one before; false at a code past `slots`.
 unsafe fn tally_runs(t: *mut u32, slots: usize, codes: &[u32]) -> bool {
-    let Some((&first, rest)) = codes.split_first() else { return true };
+    let Some((&first, rest)) = codes.split_first() else {
+        return true;
+    };
     if !skewed(codes) {
         return tally(t, core::ptr::null_mut(), slots, codes);
     }
@@ -216,7 +243,10 @@ unsafe fn lookup(d: *const u64, start: u64) -> Option<(*const u32, usize)> {
         return None;
     }
     let n = *d.add(1) as usize;
-    (0..n).map(|i| d.add(DIR_HDR + i * DIR_ENTRY)).find(|e| **e == start).map(|e| (*e.add(2) as *const u32, *e.add(1) as usize))
+    (0..n)
+        .map(|i| d.add(DIR_HDR + i * DIR_ENTRY))
+        .find(|e| **e == start)
+        .map(|e| (*e.add(2) as *const u32, *e.add(1) as usize))
 }
 
 /// Code `code`'s rows in a table of `slots` (the last: the part's NULL rows); a code past the table holds none.
@@ -233,7 +263,10 @@ unsafe fn slot(t: *const u32, slots: usize, code: u32) -> i64 {
 unsafe fn file(ctx: *mut Ctx, memo: *mut u64, start: u64, slots: usize, t: *mut u32) -> bool {
     let mut d = *memo as *mut u64;
     let n = if d.is_null() { 0 } else { *d.add(1) as usize };
-    if let Some(e) = (0..n).map(|i| d.add(DIR_HDR + i * DIR_ENTRY)).find(|e| **e == start) {
+    if let Some(e) = (0..n)
+        .map(|i| d.add(DIR_HDR + i * DIR_ENTRY))
+        .find(|e| **e == start)
+    {
         (*e.add(1), *e.add(2)) = (slots as u64, t as u64);
         return true;
     }
@@ -264,11 +297,17 @@ unsafe fn file(ctx: *mut Ctx, memo: *mut u64, start: u64, slots: usize, t: *mut 
 unsafe fn walk(ctx: *mut Ctx, k: usize, mark: u64, mut memo: Option<*mut u64>) -> i64 {
     let (start, code) = ((mark >> 32) & 0x7fff_ffff, mark as u32);
     let s = util::site(ctx, k);
-    (*s.keys.ptr(), *s.keys.ptr().add(1), *s.keys_null.ptr(), *s.keys_null.ptr().add(1)) = (start, u64::MAX, 0, 0);
+    (
+        *s.keys.ptr(),
+        *s.keys.ptr().add(1),
+        *s.keys_null.ptr(),
+        *s.keys_null.ptr().add(1),
+    ) = (start, u64::MAX, 0, 0);
     if util::seek(ctx, k) < 0 {
         return ERROR;
     }
-    let (mut part, mut c, mut table, mut side) = (None, 0i64, None::<(*mut u32, usize)>, None::<*mut u32>);
+    let (mut part, mut c, mut table, mut side) =
+        (None, 0i64, None::<(*mut u32, usize)>, None::<*mut u32>);
     loop {
         match util::advance(ctx, k) {
             r if r < 0 => return r,
@@ -300,16 +339,27 @@ unsafe fn walk(ctx: *mut Ctx, k: usize, mark: u64, mut memo: Option<*mut u64>) -
                 table = Some((t, ncodes + 1));
             }
         }
-        let at = |i: usize| match l.width { 2 => *(l.ptr.ptr() as *const u16).add(i) as u32, 8 => *(l.ptr.ptr() as *const u64).add(i) as u32, _ => *(l.ptr.ptr() as *const u32).add(i) };
+        let at = |i: usize| match l.width {
+            2 => *(l.ptr.ptr() as *const u16).add(i) as u32,
+            8 => *(l.ptr.ptr() as *const u64).add(i) as u32,
+            _ => *(l.ptr.ptr() as *const u32).add(i),
+        };
         match table {
             Some((t, slots)) => {
                 let past = if s.sel.ptr().is_null() && l.valid.ptr().is_null() && l.width == 4 {
                     let (from, to) = (s.cursor as usize, s.rows as usize);
-                    let codes = core::slice::from_raw_parts((l.ptr.ptr() as *const u32).add(from), to.saturating_sub(from));
+                    let codes = core::slice::from_raw_parts(
+                        (l.ptr.ptr() as *const u32).add(from),
+                        to.saturating_sub(from),
+                    );
                     let sides = match side {
                         Some(x) => x,
                         None => {
-                            let x = if skewed(codes) { side_tables(ctx, memo.unwrap(), slots) } else { core::ptr::null_mut() };
+                            let x = if skewed(codes) {
+                                side_tables(ctx, memo.unwrap(), slots)
+                            } else {
+                                core::ptr::null_mut()
+                            };
                             if x == ERROR_TABLES {
                                 return ERROR;
                             }
@@ -321,7 +371,11 @@ unsafe fn walk(ctx: *mut Ctx, k: usize, mark: u64, mut memo: Option<*mut u64>) -
                     let mut past = false;
                     let _ = util::for_each_row(s, |i| {
                         #[allow(clippy::unnecessary_cast)]
-                        let x = if util::row_valid(l.valid.ptr() as *const u64, i) { at(i) as usize } else { slots - 1 };
+                        let x = if util::row_valid(l.valid.ptr() as *const u64, i) {
+                            at(i) as usize
+                        } else {
+                            slots - 1
+                        };
                         if x < slots {
                             *t.add(x) += 1;
                         } else {
@@ -342,16 +396,27 @@ unsafe fn walk(ctx: *mut Ctx, k: usize, mark: u64, mut memo: Option<*mut u64>) -
             }
             // A window with no selection, every row valid and 4-byte codes counts as one flat compare loop (the
             // ladder's heads_emit count; NEON auto-vectorized); any other window takes the per-row walk below
-            None if s.sel.ptr().is_null() && l.valid.ptr().is_null() && l.width == 4 && code != NULL_CODE => {
+            None if s.sel.ptr().is_null()
+                && l.valid.ptr().is_null()
+                && l.width == 4
+                && code != NULL_CODE =>
+            {
                 let (from, to) = (s.cursor as usize, s.rows as usize);
-                let codes = core::slice::from_raw_parts((l.ptr.ptr() as *const u32).add(from), to.saturating_sub(from));
+                let codes = core::slice::from_raw_parts(
+                    (l.ptr.ptr() as *const u32).add(from),
+                    to.saturating_sub(from),
+                );
                 c += codes.iter().filter(|&&x| x == code).count() as i64;
             }
             None => {
                 util::for_each_row(s, |i| {
                     #[allow(clippy::unnecessary_cast)]
                     let valid = util::row_valid(l.valid.ptr() as *const u64, i);
-                    c += if code == NULL_CODE { !valid } else { valid && at(i) == code } as i64;
+                    c += if code == NULL_CODE {
+                        !valid
+                    } else {
+                        valid && at(i) == code
+                    } as i64;
                     true
                 });
             }
@@ -375,7 +440,7 @@ unsafe fn walk(ctx: *mut Ctx, k: usize, mark: u64, mut memo: Option<*mut u64>) -
 }
 
 /// `side_tables`' refusal (a pin the pool refused): no table is ever at address 1.
-const ERROR_TABLES: *mut u32 = std::ptr::dangling_mut::< u32>();
+const ERROR_TABLES: *mut u32 = std::ptr::dangling_mut::<u32>();
 
 /// Whether one row in eight or more repeats the row before it: past that, a single table's increments chain on each
 /// other's stores (D3027: a skewed text column's parts 51 -> 39 ms on four tables); below it the side tables' zeroing
@@ -422,7 +487,11 @@ unsafe fn tally(t: *mut u32, sides: *mut u32, slots: usize, codes: &[u32]) -> bo
             *c.add(q[3] as usize) += 1;
         }
     }
-    for &x in if sides.is_null() { codes } else { quads.remainder() } {
+    for &x in if sides.is_null() {
+        codes
+    } else {
+        quads.remainder()
+    } {
         *t.add(x as usize) += 1;
     }
     true
@@ -437,18 +506,50 @@ mod tests {
     #[test]
     fn d4554_a_sparse_entry_answers_its_codes_only() {
         let dense = [3u32, 4, 5, 6];
-        let sparse = [(2u64 << 32) | 20, (9u64 << 32) | 90, ((NULL_CODE as u64) << 32) | 7];
-        let dir = [2u64, 0, dense.len() as u64, dense.as_ptr() as u64, 8, PASS_SPARSE | sparse.len() as u64, sparse.as_ptr() as u64];
+        let sparse = [
+            (2u64 << 32) | 20,
+            (9u64 << 32) | 90,
+            ((NULL_CODE as u64) << 32) | 7,
+        ];
+        let dir = [
+            2u64,
+            0,
+            dense.len() as u64,
+            dense.as_ptr() as u64,
+            8,
+            PASS_SPARSE | sparse.len() as u64,
+            sparse.as_ptr() as u64,
+        ];
         let mark = |start: u64, code: u32| (1u64 << 63) | (start << 32) | code as u64;
         // SAFETY: `dir` is a directory of two entries whose tables are live above.
         unsafe {
-            assert_eq!(counted(dir.as_ptr(), mark(0, 1)), Some(4), "the dense table's code 1");
-            assert_eq!(counted(dir.as_ptr(), mark(0, NULL_CODE)), Some(6), "the dense table's NULL rows");
+            assert_eq!(
+                counted(dir.as_ptr(), mark(0, 1)),
+                Some(4),
+                "the dense table's code 1"
+            );
+            assert_eq!(
+                counted(dir.as_ptr(), mark(0, NULL_CODE)),
+                Some(6),
+                "the dense table's NULL rows"
+            );
             assert_eq!(counted(dir.as_ptr(), mark(8, 2)), Some(20));
             assert_eq!(counted(dir.as_ptr(), mark(8, 9)), Some(90));
-            assert_eq!(counted(dir.as_ptr(), mark(8, NULL_CODE)), Some(7), "a kept NULL count");
-            assert_eq!(counted(dir.as_ptr(), mark(8, 5)), None, "a code the sparse table does not hold: the emit counts it");
-            assert_eq!(counted(dir.as_ptr(), mark(4, 5)), None, "no entry for the part");
+            assert_eq!(
+                counted(dir.as_ptr(), mark(8, NULL_CODE)),
+                Some(7),
+                "a kept NULL count"
+            );
+            assert_eq!(
+                counted(dir.as_ptr(), mark(8, 5)),
+                None,
+                "a code the sparse table does not hold: the emit counts it"
+            );
+            assert_eq!(
+                counted(dir.as_ptr(), mark(4, 5)),
+                None,
+                "no entry for the part"
+            );
             assert_eq!(pass_slot(dense.as_ptr(), dense.len(), 2), 5);
         }
     }

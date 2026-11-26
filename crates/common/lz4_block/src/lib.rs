@@ -201,7 +201,8 @@ fn compress_generic<T: HashTable>(src: &[u8], dst: &mut [u8], table: &mut T) -> 
                 op += 2;
 
                 {
-                    let mut match_code = count(src, ip + MINMATCH, match_pos + MINMATCH, matchlimit);
+                    let mut match_code =
+                        count(src, ip + MINMATCH, match_pos + MINMATCH, matchlimit);
                     ip += match_code + MINMATCH;
 
                     if match_code >= ML_MASK {
@@ -333,13 +334,21 @@ mod tests {
             seed ^= seed << 17;
             seed
         };
-        for &len in &[0usize, 1, 12, 13, 14, 100, 4096, 65_546, 65_547, 65_560, 200_000] {
+        for &len in &[
+            0usize, 1, 12, 13, 14, 100, 4096, 65_546, 65_547, 65_560, 200_000,
+        ] {
             let mut src = Vec::with_capacity(len);
             while src.len() < len {
                 let r = next();
                 match r % 4 {
-                    0 => src.extend(std::iter::repeat_n((r >> 8) as u8,(r >> 16) as usize % 300 + 1)),
-                    1 => src.extend((0..(r >> 16) as usize % 50 + 1).map(|i| b'a' + ((r >> 8) as u8).wrapping_add(i as u8) % 7)),
+                    0 => src.extend(std::iter::repeat_n(
+                        (r >> 8) as u8,
+                        (r >> 16) as usize % 300 + 1,
+                    )),
+                    1 => src.extend(
+                        (0..(r >> 16) as usize % 50 + 1)
+                            .map(|i| b'a' + ((r >> 8) as u8).wrapping_add(i as u8) % 7),
+                    ),
                     _ => src.extend_from_slice(&r.to_le_bytes()),
                 }
             }

@@ -15,14 +15,19 @@ pub(crate) fn source<'p>(stmt: &'p PlannedStmt<'p>, ru: &RecursiveUnion<'p>) -> 
     let mut n = ru.plan.righttree?;
     let id = loop {
         match n.node_tag() {
-            NodeTag::T_Result if n.as_result().is_some_and(|r| r.resconstantqual.is_none()) => n = n.as_plan()?.lefttree?,
+            NodeTag::T_Result if n.as_result().is_some_and(|r| r.resconstantqual.is_none()) => {
+                n = n.as_plan()?.lefttree?
+            }
             NodeTag::T_SubqueryScan => n = n.as_subquery_scan()?.subplan?,
             NodeTag::T_CteScan => break n.as_cte_scan()?.ctePlanId,
             _ => return None,
         }
     };
     let inner = crate::rerun::subplan_root(stmt, id)?;
-    let reads = |p: Option<Node<'p>>| p.and_then(|p| p.as_plan()).is_some_and(|p| p.allParam.is_member(ru.wtParam));
+    let reads = |p: Option<Node<'p>>| {
+        p.and_then(|p| p.as_plan())
+            .is_some_and(|p| p.allParam.is_member(ru.wtParam))
+    };
     let seed = inner.as_recursive_union()?.plan.lefttree;
     (reads(Some(inner)) && !reads(seed)).then_some(id)
 }

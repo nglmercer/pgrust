@@ -17,7 +17,9 @@ pub fn RelationGetFKeyList(relid: Oid) -> PgResult<Rc<[ForeignKeyCacheInfo]>> {
         return Ok(hit);
     }
     let cx = mcx::MemoryContext::new("RelationGetFKeyList");
-    let infos = gravity_deps::suppressed(|| relcache_build_seams::scan_pg_constraint_fkeys::call(cx.mcx(), relid))?;
+    let infos = gravity_deps::suppressed(|| {
+        relcache_build_seams::scan_pg_constraint_fkeys::call(cx.mcx(), relid)
+    })?;
     let built: Rc<[ForeignKeyCacheInfo]> = Rc::from(&infos[..]);
     with_state(|st| st.fkey_cache.insert(relid, Rc::clone(&built)));
     Ok(built)

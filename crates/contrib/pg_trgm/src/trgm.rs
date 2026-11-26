@@ -47,7 +47,9 @@ fn enlarge_trgm_array(len: usize, needed: usize, allocated: &mut usize) -> PgRes
         if new_needed > ::mcx::MAX_ALLOC_SIZE / core::mem::size_of::<Trgm>() {
             return Err(Box::new(trgm_array_limit()));
         }
-        ::mcx::check_alloc_size(crate::gist::TRGMHDRSIZE + new_needed * core::mem::size_of::<Trgm>())?;
+        ::mcx::check_alloc_size(
+            crate::gist::TRGMHDRSIZE + new_needed * core::mem::size_of::<Trgm>(),
+        )?;
         *allocated = new_needed;
     }
     Ok(())
@@ -93,7 +95,11 @@ pub fn cmp_trgm(a: &Trgm, b: &Trgm) -> core::cmp::Ordering {
 #[inline]
 pub fn cmp_trgm_as(signed: bool, a: &Trgm, b: &Trgm) -> core::cmp::Ordering {
     for i in 0..3 {
-        let o = if signed { (a[i] as i8).cmp(&(b[i] as i8)) } else { a[i].cmp(&b[i]) };
+        let o = if signed {
+            (a[i] as i8).cmp(&(b[i] as i8))
+        } else {
+            a[i].cmp(&b[i])
+        };
         match o {
             core::cmp::Ordering::Equal => continue,
             other => return other,
@@ -401,7 +407,14 @@ pub fn generate_wildcard_trgm(
         eword = next;
         // IGNORECASE: fold the padded word (spaces fold to themselves).
         let word = (env.tolower)(&buf);
-        make_trigrams(&mut dst, &word, word.len(), env, legacy_crc32, &mut allocated);
+        make_trigrams(
+            &mut dst,
+            &word,
+            word.len(),
+            env,
+            legacy_crc32,
+            &mut allocated,
+        );
         if eword >= slen {
             break;
         }
@@ -608,7 +621,10 @@ pub fn calc_word_similarity(
         ptrg.push(PosTrgm { trg: *t, index: -1 });
     }
     for (i, t) in trg2.iter().enumerate() {
-        ptrg.push(PosTrgm { trg: *t, index: i as i32 });
+        ptrg.push(PosTrgm {
+            trg: *t,
+            index: i as i32,
+        });
     }
     ptrg.sort_by(comp_ptrgm);
 
@@ -647,8 +663,6 @@ pub fn calc_word_similarity(
     )
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -657,7 +671,11 @@ mod tests {
         TrgmEnv {
             max_encoding_len: 1,
             mblen: &|_s| 1,
-            isalnum: &|s| s.first().map(|c| c.is_ascii_alphanumeric()).unwrap_or(false),
+            isalnum: &|s| {
+                s.first()
+                    .map(|c| c.is_ascii_alphanumeric())
+                    .unwrap_or(false)
+            },
             tolower: &|s| s.iter().map(|c| c.to_ascii_lowercase()).collect(),
         }
     }
@@ -667,7 +685,9 @@ mod tests {
     }
 
     fn show(v: &[Trgm]) -> Vec<String> {
-        v.iter().map(|t| String::from_utf8_lossy(t).into_owned()).collect()
+        v.iter()
+            .map(|t| String::from_utf8_lossy(t).into_owned())
+            .collect()
     }
 
     // C 18.6: slen 357913939 passes the explicit guard but the header-
@@ -703,8 +723,13 @@ mod tests {
     #[test]
     fn positional_trgm_array_is_bounded_by_max_alloc_size() {
         assert!(positional_trgm_array(4).is_ok());
-        let msg = positional_trgm_array(134217728).err().map(|e| e.message().to_string());
-        assert_eq!(msg.as_deref(), Some("invalid memory alloc request size 1073741824"));
+        let msg = positional_trgm_array(134217728)
+            .err()
+            .map(|e| e.message().to_string());
+        assert_eq!(
+            msg.as_deref(),
+            Some("invalid memory alloc request size 1073741824")
+        );
     }
 
     #[test]
@@ -753,8 +778,14 @@ mod tests {
         assert_eq!(cmp_trgm_as(true, &hi, &lo), Ordering::Less);
         assert_eq!(cmp_trgm_as(false, &hi, &lo), Ordering::Greater);
         assert_eq!(cmp_trgm_as(false, &[0x12, 0xc4, 0x4a], &lo), Ordering::Less);
-        assert_eq!(cmp_trgm_as(true, &[0x76, 0xa4, 0x0e], &[0x76, 0x0d, 0x7f]), Ordering::Less);
-        assert_eq!(cmp_trgm_as(false, &[0x76, 0xa4, 0x0e], &[0x76, 0x0d, 0x7f]), Ordering::Greater);
+        assert_eq!(
+            cmp_trgm_as(true, &[0x76, 0xa4, 0x0e], &[0x76, 0x0d, 0x7f]),
+            Ordering::Less
+        );
+        assert_eq!(
+            cmp_trgm_as(false, &[0x76, 0xa4, 0x0e], &[0x76, 0x0d, 0x7f]),
+            Ordering::Greater
+        );
         assert_eq!(cmp_trgm_as(false, &hi, &hi), Ordering::Equal);
         // No control file read in this process: the initdb default (signed).
         assert_eq!(cmp_trgm(&hi, &lo), Ordering::Less);

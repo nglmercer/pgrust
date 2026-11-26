@@ -174,7 +174,12 @@ fn gen_substr(g: &mut Gen) -> Vec<StmtKind> {
         2 => format!("SELECT substring({} from {})::text;", q(&s), from),
         _ => {
             let len = pick_len(g);
-            format!("SELECT substring({} from {} for {})::text;", q(&s), from, len)
+            format!(
+                "SELECT substring({} from {} for {})::text;",
+                q(&s),
+                from,
+                len
+            )
         }
     };
     raw(sql)
@@ -186,7 +191,12 @@ fn gen_overlay(g: &mut Gen) -> Vec<StmtKind> {
     let r = pick_str(g);
     let from = 1 + g.rng.below(6) as i64;
     let sql = if g.rng.chance(1, 2) {
-        format!("SELECT overlay({} placing {} from {})::text;", q(&s), q(&r), from)
+        format!(
+            "SELECT overlay({} placing {} from {})::text;",
+            q(&s),
+            q(&r),
+            from
+        )
     } else {
         let len = pick_len(g);
         format!(
@@ -203,7 +213,11 @@ fn gen_overlay(g: &mut Gen) -> Vec<StmtKind> {
 /// position(sub in s) and strpos(s, sub).
 fn gen_pos(g: &mut Gen) -> Vec<StmtKind> {
     let s = pick_str(g);
-    let sub = if g.rng.chance(1, 3) { pick_str(g) } else { g.rng.pick(SETS).to_string() };
+    let sub = if g.rng.chance(1, 3) {
+        pick_str(g)
+    } else {
+        g.rng.pick(SETS).to_string()
+    };
     let sql = if g.rng.chance(1, 2) {
         format!("SELECT position({} in {});", q(&sub), q(&s))
     } else {
@@ -244,12 +258,21 @@ fn gen_trim(g: &mut Gen) -> Vec<StmtKind> {
         0 => format!("SELECT ltrim({}, {})::text;", q(&s), q(&set)),
         1 => format!("SELECT rtrim({}, {})::text;", q(&s), q(&set)),
         2 => format!("SELECT btrim({}, {})::text;", q(&s), q(&set)),
-        3 => format!("SELECT btrim({})::text, ltrim({})::text, rtrim({})::text;", q(&s), q(&s), q(&s)),
+        3 => format!(
+            "SELECT btrim({})::text, ltrim({})::text, rtrim({})::text;",
+            q(&s),
+            q(&s),
+            q(&s)
+        ),
         4 => {
             let dir = *g.rng.pick(&["LEADING", "TRAILING", "BOTH"]);
             format!("SELECT trim({} {} FROM {})::text;", dir, q(&set), q(&s))
         }
-        _ => format!("SELECT trim(BOTH FROM {})::text, trim({})::text;", q(&s), q(&s)),
+        _ => format!(
+            "SELECT trim(BOTH FROM {})::text, trim({})::text;",
+            q(&s),
+            q(&s)
+        ),
     };
     raw(sql)
 }
@@ -274,13 +297,21 @@ fn gen_translate(g: &mut Gen) -> Vec<StmtKind> {
     let s = pick_str(g);
     let from = g.rng.pick(SETS).to_string();
     let to = g.rng.pick(SETS).to_string();
-    raw(format!("SELECT translate({}, {}, {})::text;", q(&s), q(&from), q(&to)))
+    raw(format!(
+        "SELECT translate({}, {}, {})::text;",
+        q(&s),
+        q(&from),
+        q(&to)
+    ))
 }
 
 /// split_part (incl. negative field, PG14+), string_to_array and
 /// string_to_table with the optional null-string argument.
 fn gen_split(g: &mut Gen) -> Vec<StmtKind> {
-    let s = g.rng.pick(&["a,b,c", "one,two,,three", "x", "", "a||b||c", "日,本,語"]).to_string();
+    let s = g
+        .rng
+        .pick(&["a,b,c", "one,two,,three", "x", "", "a||b||c", "日,本,語"])
+        .to_string();
     let delim = g.rng.pick(&[",", "||", "", "X", "，"]).to_string();
     let sql = match g.rng.below(4) {
         0 => {
@@ -290,9 +321,18 @@ fn gen_split(g: &mut Gen) -> Vec<StmtKind> {
         1 => format!("SELECT string_to_array({}, {})::text;", q(&s), q(&delim)),
         2 => {
             let ns = g.rng.pick(&["two", "", "a"]).to_string();
-            format!("SELECT string_to_array({}, {}, {})::text;", q(&s), q(&delim), q(&ns))
+            format!(
+                "SELECT string_to_array({}, {}, {})::text;",
+                q(&s),
+                q(&delim),
+                q(&ns)
+            )
         }
-        _ => format!("SELECT x FROM string_to_table({}, {}) t(x);", q(&s), q(&delim)),
+        _ => format!(
+            "SELECT x FROM string_to_table({}, {}) t(x);",
+            q(&s),
+            q(&delim)
+        ),
     };
     raw(sql)
 }
@@ -303,10 +343,21 @@ fn gen_concat(g: &mut Gen) -> Vec<StmtKind> {
     let a = pick_str(g);
     let b = pick_str(g);
     let sql = if g.rng.chance(1, 2) {
-        format!("SELECT concat({}, NULL, {}, {})::text;", q(&a), q(&b), g.rng.below(100))
+        format!(
+            "SELECT concat({}, NULL, {}, {})::text;",
+            q(&a),
+            q(&b),
+            g.rng.below(100)
+        )
     } else {
         let sep = g.rng.pick(&[", ", "", "-", "だ"]).to_string();
-        format!("SELECT concat_ws({}, {}, NULL, {}, {})::text;", q(&sep), q(&a), q(&b), g.rng.below(100))
+        format!(
+            "SELECT concat_ws({}, {}, NULL, {}, {})::text;",
+            q(&sep),
+            q(&a),
+            q(&b),
+            g.rng.below(100)
+        )
     };
     raw(sql)
 }
@@ -315,12 +366,19 @@ fn gen_concat(g: &mut Gen) -> Vec<StmtKind> {
 /// flags. Arguments include NULL (%s->"", %I/%L->quoted null forms).
 fn gen_format(g: &mut Gen) -> Vec<StmtKind> {
     let a = pick_str(g);
-    let b = g.rng.pick(&["col name", "Weird\"Id", "public", "x"]).to_string();
+    let b = g
+        .rng
+        .pick(&["col name", "Weird\"Id", "public", "x"])
+        .to_string();
     let sql = match g.rng.below(5) {
         0 => format!("SELECT format('%s | %s', {}, NULL)::text;", q(&a)),
         1 => format!("SELECT format('%I = %L', {}, {})::text;", q(&b), q(&a)),
         2 => format!("SELECT format('%2$s-%1$s', {}, {})::text;", q(&a), q(&b)),
-        3 => format!("SELECT format('[%10s][%-10s]', {}, {})::text;", q(&a), q(&a)),
+        3 => format!(
+            "SELECT format('[%10s][%-10s]', {}, {})::text;",
+            q(&a),
+            q(&a)
+        ),
         _ => format!(
             "SELECT format('%1$s/%1$I/%1$L', {})::text, format('%L', NULL::text)::text;",
             q(&b)
@@ -332,9 +390,19 @@ fn gen_format(g: &mut Gen) -> Vec<StmtKind> {
 /// quote_ident / quote_literal / quote_nullable, incl. embedded quotes,
 /// backslashes and NULL.
 fn gen_quote(g: &mut Gen) -> Vec<StmtKind> {
-    let s = g.rng.pick(&[
-        "simple", "Weird Id", "has\"quote", "has'apos", "with\\back", "SELECT", "café", "",
-    ]).to_string();
+    let s = g
+        .rng
+        .pick(&[
+            "simple",
+            "Weird Id",
+            "has\"quote",
+            "has'apos",
+            "with\\back",
+            "SELECT",
+            "café",
+            "",
+        ])
+        .to_string();
     let sql = match g.rng.below(4) {
         0 => format!("SELECT quote_ident({})::text;", q(&s)),
         1 => format!("SELECT quote_literal({})::text;", q(&s)),
@@ -369,7 +437,9 @@ fn gen_asciichr(g: &mut Gen) -> Vec<StmtKind> {
             format!("SELECT ascii({});", q(&s))
         }
         1 => {
-            let c = *g.rng.pick(&[1i64, 32, 65, 66, 233, 946, 955, 26085, 128512]);
+            let c = *g
+                .rng
+                .pick(&[1i64, 32, 65, 66, 233, 946, 955, 26085, 128512]);
             format!("SELECT chr({})::text;", c)
         }
         _ => {
@@ -406,16 +476,19 @@ fn gen_len(g: &mut Gen) -> Vec<StmtKind> {
 /// (PG16). Combining/compatibility inputs make the forms diverge.
 fn gen_norm(g: &mut Gen) -> Vec<StmtKind> {
     // Precomposed vs decomposed and compatibility characters.
-    let s = g.rng.pick(&[
-        "e\u{0301}",       // e + combining acute
-        "é",               // precomposed
-        "ﬁ",               // compatibility ligature (NFKC/NFKD split it)
-        "²",               // superscript two
-        "Å",               // angstrom-ish precomposed
-        "A\u{030A}",       // A + combining ring
-        "①",               // circled digit
-        "ẛ",               // long s with dot
-    ]).to_string();
+    let s = g
+        .rng
+        .pick(&[
+            "e\u{0301}", // e + combining acute
+            "é",         // precomposed
+            "ﬁ",         // compatibility ligature (NFKC/NFKD split it)
+            "²",         // superscript two
+            "Å",         // angstrom-ish precomposed
+            "A\u{030A}", // A + combining ring
+            "①",         // circled digit
+            "ẛ",         // long s with dot
+        ])
+        .to_string();
     let form = *g.rng.pick(&["NFC", "NFD", "NFKC", "NFKD"]);
     let sql = match g.rng.below(4) {
         0 => format!("SELECT normalize({}, {})::text;", q(&s), form),
@@ -435,8 +508,16 @@ fn gen_hash(g: &mut Gen) -> Vec<StmtKind> {
     let s = pick_str(g);
     let sql = match g.rng.below(4) {
         0 => format!("SELECT md5({});", q(&s)),
-        1 => format!("SELECT sha256({}::bytea)::text, sha224({}::bytea)::text;", q(&s), q(&s)),
-        2 => format!("SELECT sha384({}::bytea)::text, sha512({}::bytea)::text;", q(&s), q(&s)),
+        1 => format!(
+            "SELECT sha256({}::bytea)::text, sha224({}::bytea)::text;",
+            q(&s),
+            q(&s)
+        ),
+        2 => format!(
+            "SELECT sha384({}::bytea)::text, sha512({}::bytea)::text;",
+            q(&s),
+            q(&s)
+        ),
         _ => format!("SELECT hashtext({}), md5({}::bytea);", q(&s), q(&s)),
     };
     raw(sql)

@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use common::*;
 use gravity_driver::Entry;
-use gravity_program::hand as programs;
 use gravity_parallel::FixturePool;
+use gravity_program::hand as programs;
 
 #[test]
 fn hashjoin_rows_are_identical_at_every_width_and_both_pipelines_section() {
@@ -17,7 +17,15 @@ fn hashjoin_rows_are_identical_at_every_width_and_both_pipelines_section() {
     let pool = FixturePool::new(8);
     let mut entry = Entry::new(2);
     let inner_rows: Vec<[i64; 2]> = inner.rows().collect();
-    let mut expect: Vec<Vec<u64>> = outer.rows().flat_map(|[k, b]| inner_rows.iter().filter(move |r| r[0] == k).map(move |r| vec![k as u64, r[1] as u64, b as u64])).collect();
+    let mut expect: Vec<Vec<u64>> = outer
+        .rows()
+        .flat_map(|[k, b]| {
+            inner_rows
+                .iter()
+                .filter(move |r| r[0] == k)
+                .map(move |r| vec![k as u64, r[1] as u64, b as u64])
+        })
+        .collect();
     expect.sort();
     for w in WIDTHS {
         for claim in [1u64, 16] {
@@ -25,14 +33,38 @@ fn hashjoin_rows_are_identical_at_every_width_and_both_pipelines_section() {
             outer.fresh();
             let mut sink = LegSink::new(true);
             let before = pool.claims_run();
-            let rows = run_once(&mut entry, &program, &mut derive, &pool, w, claim, &gravity_kernels::par_hashjoin::DEFAULT_PARAMS, &NO_ABORT, &mut sink).unwrap();
+            let rows = run_once(
+                &mut entry,
+                &program,
+                &mut derive,
+                &pool,
+                w,
+                claim,
+                &gravity_kernels::par_hashjoin::DEFAULT_PARAMS,
+                &NO_ABORT,
+                &mut sink,
+            )
+            .unwrap();
             assert_eq!(rows, expect.len() as u64, "width {w}");
             assert_eq!(sink.sorted(), expect, "width {w} claim {claim}");
-            assert!(inner.ledger.consumed_once() && outer.ledger.consumed_once(), "width {w} claim {claim}");
-            assert_eq!((inner.pins.load(Ordering::Relaxed), outer.pins.load(Ordering::Relaxed)), (0, 0));
+            assert!(
+                inner.ledger.consumed_once() && outer.ledger.consumed_once(),
+                "width {w} claim {claim}"
+            );
+            assert_eq!(
+                (
+                    inner.pins.load(Ordering::Relaxed),
+                    outer.pins.load(Ordering::Relaxed)
+                ),
+                (0, 0)
+            );
             let claims = pool.claims_run() - before;
             if w >= 2 {
-                assert_eq!(claims, 100u64.div_ceil(claim) + 120u64.div_ceil(claim), "width {w} claim {claim}: both pipelines ran as sections");
+                assert_eq!(
+                    claims,
+                    100u64.div_ceil(claim) + 120u64.div_ceil(claim),
+                    "width {w} claim {claim}: both pipelines ran as sections"
+                );
             } else {
                 assert_eq!(claims, 0, "width 1 is serial on the leader");
             }
@@ -49,7 +81,11 @@ struct LedgeredBuild {
 }
 
 impl gravity_driver::Merge for LedgeredBuild {
-    fn merge_into(&self, leader: &mut gravity_driver::State<'_>, partial: gravity_driver::Partial<'_>) -> gravity_driver::Result<()> {
+    fn merge_into(
+        &self,
+        leader: &mut gravity_driver::State<'_>,
+        partial: gravity_driver::Partial<'_>,
+    ) -> gravity_driver::Result<()> {
         self.serial.fetch_add(1, Ordering::Relaxed);
         self.inner.merge_into(leader, partial)
     }
@@ -59,21 +95,40 @@ impl gravity_driver::Merge for LedgeredBuild {
     fn room_for(&self, leader: &[u8], partial: gravity_driver::Partial<'_>) -> bool {
         self.inner.room_for(leader, partial)
     }
-    fn partition_plan(&self, partials: &[gravity_driver::Partial<'_>]) -> Option<gravity_driver::PartitionPlan> {
+    fn partition_plan(
+        &self,
+        partials: &[gravity_driver::Partial<'_>],
+    ) -> Option<gravity_driver::PartitionPlan> {
         self.inner.partition_plan(partials)
     }
-    fn prepare_partitions(&self, leader: &mut [u8], plan: gravity_driver::PartitionPlan, partials: &[gravity_driver::Partial<'_>]) -> gravity_driver::Result<()> {
+    fn prepare_partitions(
+        &self,
+        leader: &mut [u8],
+        plan: gravity_driver::PartitionPlan,
+        partials: &[gravity_driver::Partial<'_>],
+    ) -> gravity_driver::Result<()> {
         self.inner.prepare_partitions(leader, plan, partials)
     }
     fn prepares_partials(&self) -> bool {
         true
     }
-    fn prepare_partial(&self, partial: gravity_driver::Region, plan: gravity_driver::PartitionPlan) -> gravity_driver::Result<()> {
+    fn prepare_partial(
+        &self,
+        partial: gravity_driver::Region,
+        plan: gravity_driver::PartitionPlan,
+    ) -> gravity_driver::Result<()> {
         self.prepared.fetch_add(1, Ordering::Relaxed);
         self.inner.prepare_partial(partial, plan)
     }
-    fn merge_partition(&self, leader: gravity_driver::Region, part: u32, plan: gravity_driver::PartitionPlan, partials: &[gravity_driver::Partial<'_>]) -> gravity_driver::Result<()> {
-        self.parts.record(gravity_abi::MorselRange::new(part as u64, part as u64 + 1));
+    fn merge_partition(
+        &self,
+        leader: gravity_driver::Region,
+        part: u32,
+        plan: gravity_driver::PartitionPlan,
+        partials: &[gravity_driver::Partial<'_>],
+    ) -> gravity_driver::Result<()> {
+        self.parts
+            .record(gravity_abi::MorselRange::new(part as u64, part as u64 + 1));
         self.inner.merge_partition(leader, part, plan, partials)
     }
 }
@@ -97,7 +152,11 @@ impl gravity_parallel::Plan for JoinPlan {
             self.inner.merge_for(p)
         }
     }
-    fn after_pipeline(&self, p: usize, exec: &mut gravity_driver::Exec) -> gravity_driver::Result<()> {
+    fn after_pipeline(
+        &self,
+        p: usize,
+        exec: &mut gravity_driver::Exec,
+    ) -> gravity_driver::Result<()> {
         self.inner.after_pipeline(p, exec)
     }
 }
@@ -118,7 +177,9 @@ fn a_build_past_the_gate_merges_from_the_workers_sorted_partitions_at_every_widt
     let inner = FixtureTable::new(T_INNER, 2500, 40, gen_big_inner);
     let outer = FixtureTable::new(T_OUTER, 40, 25, gen_big_outer);
     let mut derive = FixtureDerive::new(&[&inner, &outer]);
-    let program = Arc::new(programs::par_hashjoin_with(T_INNER, T_OUTER, 32, 100_000, 1000));
+    let program = Arc::new(programs::par_hashjoin_with(
+        T_INNER, T_OUTER, 32, 100_000, 1000,
+    ));
     let pool = FixturePool::new(8);
     let mut entry = Entry::new(2);
     let expect = join_expect(&inner, &outer);
@@ -128,19 +189,57 @@ fn a_build_past_the_gate_merges_from_the_workers_sorted_partitions_at_every_widt
     for w in WIDTHS {
         inner.fresh();
         outer.fresh();
-        let plan = JoinPlan { inner: FixturePlan::new(&program, &derive, w, 100), build: LedgeredBuild { inner: gravity_parallel::HashBuildPartial, prepared: std::sync::atomic::AtomicU64::new(0), parts: gravity_parallel::ClaimLedger::new(2), serial: std::sync::atomic::AtomicU64::new(0) } };
+        let plan = JoinPlan {
+            inner: FixturePlan::new(&program, &derive, w, 100),
+            build: LedgeredBuild {
+                inner: gravity_parallel::HashBuildPartial,
+                prepared: std::sync::atomic::AtomicU64::new(0),
+                parts: gravity_parallel::ClaimLedger::new(2),
+                serial: std::sync::atomic::AtomicU64::new(0),
+            },
+        };
         let mut sink = LegSink::new(true);
-        let rows = run_planned(&mut entry, &program, &mut derive, &pool, &plan, Grant::of(64 << 20), &gravity_kernels::par_hashjoin::DEFAULT_PARAMS, &NO_ABORT, &mut sink).unwrap();
+        let rows = run_planned(
+            &mut entry,
+            &program,
+            &mut derive,
+            &pool,
+            &plan,
+            Grant::of(64 << 20),
+            &gravity_kernels::par_hashjoin::DEFAULT_PARAMS,
+            &NO_ABORT,
+            &mut sink,
+        )
+        .unwrap();
         assert_eq!(rows, 1000, "width {w}");
         assert_eq!(sink.sorted(), expect, "width {w}: identical rows");
-        assert!(inner.ledger.consumed_once() && outer.ledger.consumed_once(), "width {w}");
+        assert!(
+            inner.ledger.consumed_once() && outer.ledger.consumed_once(),
+            "width {w}"
+        );
         if w >= 2 {
             let prepared = plan.build.prepared.load(Ordering::Relaxed);
-            assert!(prepared >= 1 && prepared <= w as u64, "width {w}: every claiming partial prepared once ({prepared})");
-            assert!(plan.build.parts.consumed_once(), "width {w}: both partitions merged exactly once");
-            assert_eq!(plan.build.serial.load(Ordering::Relaxed), 0, "width {w}: no serial fold after phase 2");
+            assert!(
+                prepared >= 1 && prepared <= w as u64,
+                "width {w}: every claiming partial prepared once ({prepared})"
+            );
+            assert!(
+                plan.build.parts.consumed_once(),
+                "width {w}: both partitions merged exactly once"
+            );
+            assert_eq!(
+                plan.build.serial.load(Ordering::Relaxed),
+                0,
+                "width {w}: no serial fold after phase 2"
+            );
         }
-        assert_eq!((inner.pins.load(Ordering::Relaxed), outer.pins.load(Ordering::Relaxed)), (0, 0));
+        assert_eq!(
+            (
+                inner.pins.load(Ordering::Relaxed),
+                outer.pins.load(Ordering::Relaxed)
+            ),
+            (0, 0)
+        );
     }
 }
 
@@ -161,7 +260,12 @@ impl gravity_parallel::MorselSource for Skewed<'_> {
     }
     fn claim(&self) -> Option<gravity_abi::MorselRange> {
         let me = std::thread::current().id();
-        let first = *self.first.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert(me) == me;
+        let first = *self
+            .first
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get_or_insert(me)
+            == me;
         if !first {
             std::thread::sleep(self.delay);
         }
@@ -211,12 +315,20 @@ impl gravity_parallel::Plan for SkewedPlan<'_> {
         gravity_parallel::Plan::width_of(self.join, p)
     }
     fn claims_for(&self, p: usize) -> &dyn gravity_parallel::MorselSource {
-        if p == 0 { &self.build } else { gravity_parallel::Plan::claims_for(self.join, p) }
+        if p == 0 {
+            &self.build
+        } else {
+            gravity_parallel::Plan::claims_for(self.join, p)
+        }
     }
     fn merge_for(&self, p: usize) -> &dyn gravity_driver::Merge {
         gravity_parallel::Plan::merge_for(self.join, p)
     }
-    fn after_pipeline(&self, p: usize, exec: &mut gravity_driver::Exec) -> gravity_driver::Result<()> {
+    fn after_pipeline(
+        &self,
+        p: usize,
+        exec: &mut gravity_driver::Exec,
+    ) -> gravity_driver::Result<()> {
         gravity_parallel::Plan::after_pipeline(self.join, p, exec)
     }
 }
@@ -229,19 +341,54 @@ fn million_entry_build(skew: Option<std::time::Duration>) {
     let inner = FixtureTable::new(T_INNER, 25_000, 40, gen_big_inner);
     let outer = FixtureTable::new(T_OUTER, 40, 25, gen_big_outer);
     let mut derive = FixtureDerive::new(&[&inner, &outer]);
-    let program = Arc::new(programs::par_hashjoin_with(T_INNER, T_OUTER, 32, 1_000_000, 1000));
+    let program = Arc::new(programs::par_hashjoin_with(
+        T_INNER, T_OUTER, 32, 1_000_000, 1000,
+    ));
     let pool = FixturePool::new(16);
     let mut entry = Entry::new(2);
     let expect = join_expect(&inner, &outer);
-    let join = JoinPlan { inner: FixturePlan::new(&program, &derive, 16, 100), build: LedgeredBuild { inner: gravity_parallel::HashBuildPartial, prepared: std::sync::atomic::AtomicU64::new(0), parts: gravity_parallel::ClaimLedger::new(16), serial: std::sync::atomic::AtomicU64::new(0) } };
-    let skewed = SkewedPlan { join: &join, build: Skewed { inner: gravity_parallel::Plan::claims_for(&join.inner, 0), first: std::sync::Mutex::new(None), delay: skew.unwrap_or_default() } };
+    let join = JoinPlan {
+        inner: FixturePlan::new(&program, &derive, 16, 100),
+        build: LedgeredBuild {
+            inner: gravity_parallel::HashBuildPartial,
+            prepared: std::sync::atomic::AtomicU64::new(0),
+            parts: gravity_parallel::ClaimLedger::new(16),
+            serial: std::sync::atomic::AtomicU64::new(0),
+        },
+    };
+    let skewed = SkewedPlan {
+        join: &join,
+        build: Skewed {
+            inner: gravity_parallel::Plan::claims_for(&join.inner, 0),
+            first: std::sync::Mutex::new(None),
+            delay: skew.unwrap_or_default(),
+        },
+    };
     let plan: &dyn gravity_parallel::Plan = if skew.is_some() { &skewed } else { &join };
     let mut sink = LegSink::new(true);
-    let rows = run_planned(&mut entry, &program, &mut derive, &pool, plan, Grant::of(1 << 30), &gravity_kernels::par_hashjoin::DEFAULT_PARAMS, &NO_ABORT, &mut sink).unwrap();
+    let rows = run_planned(
+        &mut entry,
+        &program,
+        &mut derive,
+        &pool,
+        plan,
+        Grant::of(1 << 30),
+        &gravity_kernels::par_hashjoin::DEFAULT_PARAMS,
+        &NO_ABORT,
+        &mut sink,
+    )
+    .unwrap();
     assert_eq!(rows, 1000);
     assert_eq!(sink.sorted(), expect);
-    assert_eq!(join.build.serial.load(Ordering::Relaxed), 0, "no serial fold after phase 2");
-    assert!(join.build.parts.consumed_once(), "every one of the 16 partitions merged exactly once");
+    assert_eq!(
+        join.build.serial.load(Ordering::Relaxed),
+        0,
+        "no serial fold after phase 2"
+    );
+    assert!(
+        join.build.parts.consumed_once(),
+        "every one of the 16 partitions merged exactly once"
+    );
 }
 
 #[test]
@@ -256,7 +403,15 @@ fn a_million_entry_build_one_worker_mostly_claimed_still_merges_partition_parall
 
 fn join_expect(inner: &FixtureTable, outer: &FixtureTable) -> Vec<Vec<u64>> {
     let inner_rows: Vec<[i64; 2]> = inner.rows().collect();
-    let mut expect: Vec<Vec<u64>> = outer.rows().flat_map(|[k, b]| inner_rows.iter().filter(move |r| r[0] == k).map(move |r| vec![k as u64, r[1] as u64, b as u64])).collect();
+    let mut expect: Vec<Vec<u64>> = outer
+        .rows()
+        .flat_map(|[k, b]| {
+            inner_rows
+                .iter()
+                .filter(move |r| r[0] == k)
+                .map(move |r| vec![k as u64, r[1] as u64, b as u64])
+        })
+        .collect();
     expect.sort();
     expect
 }
@@ -270,38 +425,82 @@ fn a_spilled_build_joins_identically_at_every_width_through_its_partitions() {
     let inner = FixtureTable::new(T_INNER, 1000, 40, gen_inner);
     let outer = FixtureTable::new(T_OUTER, 40, 25, gen_outer);
     let mut derive = FixtureDerive::new(&[&inner, &outer]);
-    let program = Arc::new(programs::par_hashjoin_with(T_INNER, T_OUTER, 32, 8000, 1000));
+    let program = Arc::new(programs::par_hashjoin_with(
+        T_INNER, T_OUTER, 32, 8000, 1000,
+    ));
     let words = params(8000);
     let pool = FixturePool::new(8);
     let mut entry = Entry::new(2);
     let expect = join_expect(&inner, &outer);
-    assert!(expect.len() > 100_000, "{} rows: a join worth checking", expect.len());
+    assert!(
+        expect.len() > 100_000,
+        "{} rows: a join worth checking",
+        expect.len()
+    );
     // in memory under a 64 MB grant: the partition-parallel build, no spill
     for w in WIDTHS {
         inner.fresh();
         outer.fresh();
         let plan = FixturePlan::new(&program, &derive, w, 16);
         let mut sink = LegSink::new(true);
-        let (rows, spilled, parts, _) = run_spilling(&mut entry, &program, &mut derive, &pool, &plan, gravity_driver::Grant::of(64 << 20), &words, &NO_ABORT, &mut sink).unwrap();
-        assert_eq!((rows, spilled, parts), (expect.len() as u64, false, 0), "width {w}: in memory");
+        let (rows, spilled, parts, _) = run_spilling(
+            &mut entry,
+            &program,
+            &mut derive,
+            &pool,
+            &plan,
+            gravity_driver::Grant::of(64 << 20),
+            &words,
+            &NO_ABORT,
+            &mut sink,
+        )
+        .unwrap();
+        assert_eq!(
+            (rows, spilled, parts),
+            (expect.len() as u64, false, 0),
+            "width {w}: in memory"
+        );
         assert_eq!(sink.sorted(), expect, "width {w}: in memory");
     }
     // spilled: 16 partitions each refilled whole; then 2 partitions too big for the third phase's
     // table, split into a second generation on refill (the program and the words share the bits)
     for (bits, want_gens) in [(4u8, 1u8), (1, 2)] {
-        let program = Arc::new(programs::par_hashjoin_bits(T_INNER, T_OUTER, 32, 8000, 1000, bits));
+        let program = Arc::new(programs::par_hashjoin_bits(
+            T_INNER, T_OUTER, 32, 8000, 1000, bits,
+        ));
         let params = [bits as u64];
         for w in WIDTHS {
             inner.fresh();
             outer.fresh();
             let plan = FixturePlan::new(&program, &derive, w, 16);
             let mut sink = LegSink::new(true);
-            let (rows, spilled, parts, gens) = run_spilling(&mut entry, &program, &mut derive, &pool, &plan, gravity_driver::Grant::of(1), &params, &NO_ABORT, &mut sink).unwrap();
-            assert!(spilled && parts > 0, "width {w} bits {bits}: the build spilled ({parts} partitions)");
+            let (rows, spilled, parts, gens) = run_spilling(
+                &mut entry,
+                &program,
+                &mut derive,
+                &pool,
+                &plan,
+                gravity_driver::Grant::of(1),
+                &params,
+                &NO_ABORT,
+                &mut sink,
+            )
+            .unwrap();
+            assert!(
+                spilled && parts > 0,
+                "width {w} bits {bits}: the build spilled ({parts} partitions)"
+            );
             assert_eq!(gens, want_gens, "width {w} bits {bits}: generations");
             assert_eq!(rows, expect.len() as u64, "width {w} bits {bits}");
-            assert_eq!(sink.sorted(), expect, "width {w} bits {bits}: identical to the in-memory join");
-            assert!(inner.ledger.consumed_once() && outer.ledger.consumed_once(), "width {w} bits {bits}");
+            assert_eq!(
+                sink.sorted(),
+                expect,
+                "width {w} bits {bits}: identical to the in-memory join"
+            );
+            assert!(
+                inner.ledger.consumed_once() && outer.ledger.consumed_once(),
+                "width {w} bits {bits}"
+            );
         }
     }
 }

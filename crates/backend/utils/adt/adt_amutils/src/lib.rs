@@ -6,8 +6,7 @@ use ::datum::Datum;
 use ::mcx::Mcx;
 use ::types_core::{Oid, BTREE_AM_OID, GIN_AM_OID, GIST_AM_OID, HASH_AM_OID, SPGIST_AM_OID};
 use ::types_error::{PgError, PgResult, ERRCODE_FEATURE_NOT_SUPPORTED};
-use ::types_fmgr::{
-    varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, };
+use ::types_fmgr::{varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 
 const BRIN_AM_OID: Oid = 3580;
 
@@ -69,7 +68,10 @@ fn lookup_prop_name(name: &[u8]) -> Prop {
     // amutils.c:97 text_to_cstring: the comparison stops at the first NUL.
     let name = &name[..name.iter().position(|&b| b == 0).unwrap_or(name.len())];
     for &(n, p) in AM_PROPNAMES {
-        if n.len() == name.len() && n.bytes().zip(name).all(|(a, &b)| a == b.to_ascii_lowercase())
+        if n.len() == name.len()
+            && n.bytes()
+                .zip(name)
+                .all(|(a, &b)| a == b.to_ascii_lowercase())
         {
             return p;
         }
@@ -377,10 +379,12 @@ struct IndexRow {
 }
 
 fn index_row(index_oid: Oid) -> PgResult<Option<IndexRow>> {
-    Ok(syscache_seams::lookup_pg_index_ls_shape::call(index_oid)?.map(|s| IndexRow {
-        indnatts: s.indnatts,
-        indnkeyatts: s.indnkeyatts,
-    }))
+    Ok(
+        syscache_seams::lookup_pg_index_ls_shape::call(index_oid)?.map(|s| IndexRow {
+            indnatts: s.indnatts,
+            indnkeyatts: s.indnkeyatts,
+        }),
+    )
 }
 
 // elog(ERROR, "cache lookup failed for index %u") -- elog's default SQLSTATE
@@ -485,9 +489,13 @@ fn indexam_property(
                 INDOPTION_NULLS_FIRST,
                 INDOPTION_NULLS_FIRST,
             )?,
-            Prop::NullsLast if iskey => {
-                test_indoption(index_oid, attno, routine.amcanorder, INDOPTION_NULLS_FIRST, 0)?
-            }
+            Prop::NullsLast if iskey => test_indoption(
+                index_oid,
+                attno,
+                routine.amcanorder,
+                INDOPTION_NULLS_FIRST,
+                0,
+            )?,
             Prop::Orderable => Some(if iskey { routine.amcanorder } else { false }),
             Prop::DistanceOrderable => {
                 if !iskey || !routine.amcanorderbyop {
@@ -643,13 +651,33 @@ pub const AMUTILS_BUILTINS: &[FmgrBuiltin] = &[
     // AM handlers (heapam_handler.c, nbtree.c, hash.c — crates unreachable
     // from fmgr_core without cycles): access methods resolve natively;
     // fmgr-lookup parity rows.
-    b(3, "heap_tableam_handler", 1, ::types_fmgr::fc_am_handler_stub),
+    b(
+        3,
+        "heap_tableam_handler",
+        1,
+        ::types_fmgr::fc_am_handler_stub,
+    ),
     b(330, "bthandler", 1, ::types_fmgr::fc_am_handler_stub),
     b(331, "hashhandler", 1, ::types_fmgr::fc_am_handler_stub),
-    b(636, "pg_indexam_has_property", 2, fc_pg_indexam_has_property),
+    b(
+        636,
+        "pg_indexam_has_property",
+        2,
+        fc_pg_indexam_has_property,
+    ),
     b(637, "pg_index_has_property", 2, fc_pg_index_has_property),
-    b(638, "pg_index_column_has_property", 3, fc_pg_index_column_has_property),
-    b(676, "pg_indexam_progress_phasename", 2, fc_pg_indexam_progress_phasename),
+    b(
+        638,
+        "pg_index_column_has_property",
+        3,
+        fc_pg_index_column_has_property,
+    ),
+    b(
+        676,
+        "pg_indexam_progress_phasename",
+        2,
+        fc_pg_indexam_progress_phasename,
+    ),
 ];
 
 #[cfg(test)]

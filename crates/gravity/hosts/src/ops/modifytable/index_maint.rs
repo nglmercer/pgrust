@@ -2,21 +2,24 @@ use std::any::Any;
 use std::rc::Weak;
 
 use datum::Datum;
-use execindexing::{check_exclusion_constraint, check_exclusion_or_unique_constraint, BuildIndexInfo, CeoucWaitMode, IndexInfo, ResultRelIndexState};
+use execindexing::{
+    check_exclusion_constraint, check_exclusion_or_unique_constraint, BuildIndexInfo,
+    CeoucWaitMode, IndexInfo, ResultRelIndexState,
+};
 use gravity_abi::Datum as Word;
 use gravity_program::IndexPlan;
 use mcx::{Mcx, MemoryContext};
 use types_core::Oid;
 use types_error::PgResult;
 use types_nbtree::IndexUniqueCheck;
+use types_nodes::Bitmapset;
 use types_rel::{Relation, RelationData};
 use types_relscan::IndexAmKind;
-use types_storage::lock::{RowExclusiveLock, NoLock};
-use types_nodes::Bitmapset;
+use types_storage::lock::{NoLock, RowExclusiveLock};
 use types_tuple::ItemPointerData;
 
-use crate::ops::shared::rel::{open_index, park};
 use crate::ops::modifytable::write_index_am::{summarizing, unmaintainable_am};
+use crate::ops::shared::rel::{open_index, park};
 
 #[derive(Clone, Debug)]
 pub struct IndexRecipe {
@@ -28,7 +31,12 @@ pub struct IndexRecipe {
 
 impl IndexRecipe {
     pub fn from_plan(p: &IndexPlan) -> IndexRecipe {
-        IndexRecipe { oid: p.index_oid, nkeys: p.keys().len(), key_attnos: p.keys().to_vec(), unique: p.unique } // alloc: Node
+        IndexRecipe {
+            oid: p.index_oid,
+            nkeys: p.keys().len(),
+            key_attnos: p.keys().to_vec(),
+            unique: p.unique,
+        } // alloc: Node
     }
 }
 
@@ -108,7 +116,9 @@ pub fn unmaintainable_routed(index: &Relation<'_>) -> Option<&'static str> {
 }
 
 fn unmaintainable_form(index: &Relation<'_>, general: bool) -> Option<&'static str> {
-    let Some(form) = index.rd_index.as_ref() else { return Some("an index without its pg_index form") };
+    let Some(form) = index.rd_index.as_ref() else {
+        return Some("an index without its pg_index form");
+    };
     if let Some(what) = unmaintainable_am(index) {
         Some(what)
     } else if !(form.indisvalid && form.indisready) {
@@ -125,7 +135,9 @@ fn unmaintainable_form(index: &Relation<'_>, general: bool) -> Option<&'static s
 }
 
 pub fn supported(index: &Relation<'_>, recipe: &IndexRecipe) -> bool {
-    let Some(form) = index.rd_index.as_ref() else { return false };
+    let Some(form) = index.rd_index.as_ref() else {
+        return false;
+    };
     unmaintainable_am(index).is_none()
         && form.indisvalid
         && form.indisready
@@ -143,19 +155,48 @@ pub fn supported(index: &Relation<'_>, recipe: &IndexRecipe) -> bool {
 /// wholesale like the bump context, whose first block waits for the first allocation: a btree-only write puts nothing in
 /// it (D4572: the bump keeper was 8,192 of a kept point UPDATE's 37,784 bytes).
 fn am_cache() -> MemoryContext {
-    if crate::scratch::small() { MemoryContext::new_small_wholesale("GravityIndexAmCache") } else { MemoryContext::new_bump("GravityIndexAmCache") }
+    if crate::scratch::small() {
+        MemoryContext::new_small_wholesale("GravityIndexAmCache")
+    } else {
+        MemoryContext::new_bump("GravityIndexAmCache")
+    }
 }
 
 impl IndexMaint {
     pub fn new(plans: &[IndexPlan]) -> IndexMaint {
-        IndexMaint::from_recipes(plans.iter().map(IndexRecipe::from_plan).collect()) // alloc: Node
+        IndexMaint::from_recipes(plans.iter().map(IndexRecipe::from_plan).collect())
+        // alloc: Node
     }
 
     /// The same over recipes read from the relcache (a routed INSERT's leaf, `write_route.rs`).
     pub fn from_recipes(recipes: Vec<IndexRecipe>) -> IndexMaint {
         let widest = recipes.iter().map(|r| r.nkeys).max().unwrap_or(0);
-        let slots = recipes.into_iter().map(|recipe| Slot { recipe, rel: None, parked: None, am_cache: None, summarizing: false, cached: false, exclusion: None, locked: false, deferred: false, unchanged: false, general: None }).collect(); // alloc: Node
-        IndexMaint { slots, keys: vec![Datum::null(); widest], nulls: vec![false; widest], cache: Box::new(am_cache()), opened: false, recheck: Vec::new(), slot: None, generic: None } // alloc: Node
+        let slots = recipes
+            .into_iter()
+            .map(|recipe| Slot {
+                recipe,
+                rel: None,
+                parked: None,
+                am_cache: None,
+                summarizing: false,
+                cached: false,
+                exclusion: None,
+                locked: false,
+                deferred: false,
+                unchanged: false,
+                general: None,
+            })
+            .collect(); // alloc: Node
+        IndexMaint {
+            slots,
+            keys: vec![Datum::null(); widest],
+            nulls: vec![false; widest],
+            cache: Box::new(am_cache()),
+            opened: false,
+            recheck: Vec::new(),
+            slot: None,
+            generic: None,
+        } // alloc: Node
     }
 
     /// The AM cache context (and every context under it) on `to` from now, its bytes moving with it: the maintenance of a
@@ -209,7 +250,10 @@ impl IndexMaint {
         if !self.list_is_the_plans(heap)? {
             // D765: ExecOpenIndices reads the list at this row (a DDL in the statement's own first row, or another
             // session's, since the plan froze it); the executor's own path maintains it, every index as PG does
-            self.generic = Some(Generic { state: execindexing::ExecOpenIndices(cache, heap, false)?, updated: None });
+            self.generic = Some(Generic {
+                state: execindexing::ExecOpenIndices(cache, heap, false)?,
+                updated: None,
+            });
             return Ok(true);
         }
         // bounded("catalog-sized: one per index of the relation (its pg_index rows), locked and opened as ExecOpenIndices does")
@@ -217,22 +261,47 @@ impl IndexMaint {
             lmgr_seams::lock_relation_oid::call(s.recipe.oid, RowExclusiveLock)?;
             s.locked = true;
             let rel = open_index(mcx, &s.parked, s.recipe.oid, NoLock)?;
-            let ok = supported(&rel, &s.recipe) && rel.rd_index.as_ref().is_some_and(|f| f.indrelid == heap.rd_id);
+            let ok = supported(&rel, &s.recipe)
+                && rel
+                    .rd_index
+                    .as_ref()
+                    .is_some_and(|f| f.indrelid == heap.rd_id);
             if !ok {
                 // D765: an index the plan's recipe no longer describes (its form changed since): the executor's path
                 rel.close(NoLock)?;
                 self.unbind()?;
                 self.opened = true;
-                self.generic = Some(Generic { state: execindexing::ExecOpenIndices(self.cache_mcx(), heap, false)?, updated: None });
+                self.generic = Some(Generic {
+                    state: execindexing::ExecOpenIndices(self.cache_mcx(), heap, false)?,
+                    updated: None,
+                });
                 return Ok(true);
             }
             s.summarizing = summarizing(&rel);
-            s.deferred = rel.rd_index.as_ref().is_some_and(|f| !f.indimmediate && (s.recipe.unique || f.indisexclusion));
-            s.cached = matches!(IndexAmKind::from_relam(rel.rd_rel.relam), IndexAmKind::Brin | IndexAmKind::Gist | IndexAmKind::Spgist);
+            s.deferred = rel
+                .rd_index
+                .as_ref()
+                .is_some_and(|f| !f.indimmediate && (s.recipe.unique || f.indisexclusion));
+            s.cached = matches!(
+                IndexAmKind::from_relam(rel.rd_rel.relam),
+                IndexAmKind::Brin | IndexAmKind::Gist | IndexAmKind::Spgist
+            );
             // the exclusion info is this execution's (ExecOpenIndices'): in the AM cache context, dropped and reset at
             // unbind, never in the node context a parked Node keeps (D263)
-            s.exclusion = if rel.rd_index.as_ref().is_some_and(|f| f.indisexclusion) { Some(Box::new(BuildIndexInfo(cache, &rel)?)) } else { None }; // alloc: Exec
-            s.general = if rel.rd_index.as_ref().is_some_and(|f| f.has_indpred || f.indexprs_src.is_some()) { Some(Box::new(BuildIndexInfo(cache, &rel)?)) } else { None }; // alloc: Exec
+            s.exclusion = if rel.rd_index.as_ref().is_some_and(|f| f.indisexclusion) {
+                Some(Box::new(BuildIndexInfo(cache, &rel)?))
+            } else {
+                None
+            }; // alloc: Exec
+            s.general = if rel
+                .rd_index
+                .as_ref()
+                .is_some_and(|f| f.has_indpred || f.indexprs_src.is_some())
+            {
+                Some(Box::new(BuildIndexInfo(cache, &rel)?))
+            } else {
+                None
+            }; // alloc: Exec
             s.rel = Some(rel);
         }
         Ok(true)
@@ -242,7 +311,12 @@ impl IndexMaint {
     /// the common case, compared without allocating when the relcache holds the list. Otherwise (an index dropped or
     /// created since the plan froze it; D624's index outside the recipes) `open` takes the executor's path.
     fn list_is_the_plans(&self, heap: &Relation<'static>) -> PgResult<bool> {
-        let same = |list: &[Oid]| list.len() == self.slots.len() && list.iter().all(|o| self.slots.iter().any(|s| s.recipe.oid == *o));
+        let same = |list: &[Oid]| {
+            list.len() == self.slots.len()
+                && list
+                    .iter()
+                    .all(|o| self.slots.iter().any(|s| s.recipe.oid == *o))
+        };
         if let Some(l) = heap.rd_indexlist.borrow().as_ref() {
             return Ok(same(&l.list));
         }
@@ -260,7 +334,11 @@ impl IndexMaint {
     /// = no hint, as ExecInsert passes. Called after `open` (the expression walk reads the opened index): the first
     /// UPDATE row, as ExecUpdatePrologue opens them.
     #[allow(clippy::unnecessary_unwrap)]
-    pub fn set_updated(&mut self, mcx: Mcx<'static>, all_updated: Option<&Bitmapset<'_>>) -> PgResult<()> {
+    pub fn set_updated(
+        &mut self,
+        mcx: Mcx<'static>,
+        all_updated: Option<&Bitmapset<'_>>,
+    ) -> PgResult<()> {
         if self.generic.is_some() {
             let cache = self.cache_mcx();
             // the columns copied into the AM cache context, where the executor's state lives until `unbind`
@@ -288,7 +366,10 @@ impl IndexMaint {
                 continue;
             };
             let keys = &s.recipe.key_attnos[..s.recipe.nkeys];
-            s.unchanged = if keys.iter().any(|&a| a > 0 && u.is_member(a as i32 - FLIHAN)) {
+            s.unchanged = if keys
+                .iter()
+                .any(|&a| a > 0 && u.is_member(a as i32 - FLIHAN))
+            {
                 false
             } else if !keys.iter().any(|&a| a <= 0) {
                 true
@@ -324,7 +405,9 @@ impl IndexMaint {
                 }
             }
             if core::mem::take(&mut s.locked) {
-                if let Err(e) = lmgr_seams::unlock_relation_oid::call(s.recipe.oid, RowExclusiveLock) {
+                if let Err(e) =
+                    lmgr_seams::unlock_relation_oid::call(s.recipe.oid, RowExclusiveLock)
+                {
                     first = first.and(Err(e));
                 }
             }
@@ -342,7 +425,16 @@ impl IndexMaint {
 
     /// The new row's entry in every index (`only_summarizing`: in the summarizing ones alone — a HOT update
     /// that answered `TU_Summarizing`; `update`: an UPDATE's new version, which passes each index's `indexUnchanged`).
-    pub fn insert(&mut self, mcx: Mcx<'static>, heap: &Relation<'static>, tid: &ItemPointerData, values: &[Word], isnull: &[u8], only_summarizing: bool, update: bool) -> PgResult<()> {
+    pub fn insert(
+        &mut self,
+        mcx: Mcx<'static>,
+        heap: &Relation<'static>,
+        tid: &ItemPointerData,
+        values: &[Word],
+        isnull: &[u8],
+        only_summarizing: bool,
+        update: bool,
+    ) -> PgResult<()> {
         let cache = self.cache_mcx();
         if let Some(g) = self.generic.as_mut() {
             // D765: ExecInsertIndexTuples over the row as the executor holds it (its TID, its table)
@@ -365,16 +457,39 @@ impl IndexMaint {
             slot.base_mut().tts_tid = *tid;
             let upd = if update { g.updated.as_ref() } else { None };
             let state_mcx = state_mcx(&mut g.state, cache, mcx)?; // D783: bind, not row: the IndexInfo's cached state outlives the row
-            let recheck = execindexing::ExecInsertIndexTuples(state_mcx, mcx, &mut g.state, heap, slot, upd, false, None, &[], only_summarizing)?;
+            let recheck = execindexing::ExecInsertIndexTuples(
+                state_mcx,
+                mcx,
+                &mut g.state,
+                heap,
+                slot,
+                upd,
+                false,
+                None,
+                &[],
+                only_summarizing,
+            )?;
             self.recheck.clear();
             self.recheck.extend(recheck.iter().copied()); // alloc: Exec
             return Ok(());
         }
-        let (keys, nulls, recheck, general) = (&mut self.keys, &mut self.nulls, &mut self.recheck, &mut self.slot);
+        let (keys, nulls, recheck, general) = (
+            &mut self.keys,
+            &mut self.nulls,
+            &mut self.recheck,
+            &mut self.slot,
+        );
         recheck.clear();
         // bounded("catalog-sized: one entry per index of the relation (its pg_index rows) for the row, as ExecInsertIndexTuples loops them; the kernel's row loop polls per row")
-        for s in self.slots.iter_mut().filter(|s| !only_summarizing || s.summarizing) {
-            let rel = s.rel.as_ref().expect("gravity: index maintenance before ExecOpenIndices (IndexMaint::open)");
+        for s in self
+            .slots
+            .iter_mut()
+            .filter(|s| !only_summarizing || s.summarizing)
+        {
+            let rel = s
+                .rel
+                .as_ref()
+                .expect("gravity: index maintenance before ExecOpenIndices (IndexMaint::open)");
             if let Some(info) = s.general.as_deref_mut() {
                 // ExecInsertIndexTuples over the row in a virtual slot: no entry when the predicate fails, the expression
                 // keys by FormIndexDatum (the per-row context `mcx` holds their results until the entry is in)
@@ -394,10 +509,19 @@ impl IndexMaint {
                 }
                 exectuples::exec_store_virtual_tuple(slot);
                 slot.base_mut().tts_tableOid = heap.rd_id;
-                if !info.ii_Predicate.is_nil() && !execindexing::index_predicate_passes(cache, mcx, info, slot)? {
+                if !info.ii_Predicate.is_nil()
+                    && !execindexing::index_predicate_passes(cache, mcx, info, slot)?
+                {
                     continue;
                 }
-                execindexing::FormIndexDatum(cache, mcx, info, slot, &mut keys[..s.recipe.nkeys], &mut nulls[..s.recipe.nkeys])?;
+                execindexing::FormIndexDatum(
+                    cache,
+                    mcx,
+                    info,
+                    slot,
+                    &mut keys[..s.recipe.nkeys],
+                    &mut nulls[..s.recipe.nkeys],
+                )?;
             } else {
                 // bounded("small-fixed: one key datum per index key, at most INDEX_MAX_KEYS")
                 for k in 0..s.recipe.nkeys {
@@ -412,20 +536,57 @@ impl IndexMaint {
                 (true, true) => IndexUniqueCheck::UNIQUE_CHECK_PARTIAL,
             };
             let n = s.recipe.nkeys;
-            let mut satisfied = indexam::index_insert(if s.cached { cache } else { mcx }, rel, &keys[..n], &nulls[..n], tid, heap, check, update && s.unchanged, &mut s.am_cache)?;
+            let mut satisfied = indexam::index_insert(
+                if s.cached { cache } else { mcx },
+                rel,
+                &keys[..n],
+                &nulls[..n],
+                tid,
+                heap,
+                check,
+                update && s.unchanged,
+                &mut s.am_cache,
+            )?;
             // ExecInsertIndexTuples: the exclusion scan after the entry is in (an immediate constraint waits on a conflicting insert)
             if let Some(info) = s.exclusion.as_deref_mut() {
                 // D786 (D783's class): the recheck's FormIndexDatum over each neighbour caches this IndexInfo's expression
                 // state; built here once per bind in the AM cache context (over the new row), never in the per-row `mcx`
-                if let (false, true, Some(slot)) = (info.ii_Expressions.is_nil(), info.ii_ExpressionsState.is_empty(), general.as_mut()) {
+                if let (false, true, Some(slot)) = (
+                    info.ii_Expressions.is_nil(),
+                    info.ii_ExpressionsState.is_empty(),
+                    general.as_mut(),
+                ) {
                     let (mut v, mut z) = ([Datum::null(); 32], [false; 32]); // INDEX_MAX_KEYS
                     execindexing::FormIndexDatum(cache, mcx, info, slot, &mut v, &mut z)?;
                 }
                 if s.deferred {
                     // V4R-297: ExecInsertIndexTuples' !indimmediate arm: CEOUC_NOWAIT, violationOK (the recheck decides at commit)
-                    satisfied = check_exclusion_or_unique_constraint(mcx, mcx, heap, rel, info, tid, &keys[..n], &nulls[..n], false, CeoucWaitMode::NoWait, true, None)?;
+                    satisfied = check_exclusion_or_unique_constraint(
+                        mcx,
+                        mcx,
+                        heap,
+                        rel,
+                        info,
+                        tid,
+                        &keys[..n],
+                        &nulls[..n],
+                        false,
+                        CeoucWaitMode::NoWait,
+                        true,
+                        None,
+                    )?;
                 } else {
-                    check_exclusion_constraint(mcx, mcx, heap, rel, info, tid, &keys[..n], &nulls[..n], false)?;
+                    check_exclusion_constraint(
+                        mcx,
+                        mcx,
+                        heap,
+                        rel,
+                        info,
+                        tid,
+                        &keys[..n],
+                        &nulls[..n],
+                        false,
+                    )?;
                 }
             }
             // ExecInsertIndexTuples: (checkUnique == UNIQUE_CHECK_PARTIAL || ii_ExclusionOps) && !satisfiesConstraint
@@ -443,13 +604,20 @@ impl IndexMaint {
 /// built here in `bind` (per bind, reset only at unbind); the call gets `bind` while an expression state is still unbuilt
 /// (FormIndexDatum builds it at the first row that passes the predicate) or the AM caches per statement (as a recipe's
 /// `cached` does), else `row`, the per-row context, for what is the row's alone.
-pub fn state_mcx(state: &mut ResultRelIndexState<'static>, bind: Mcx<'static>, row: Mcx<'static>) -> PgResult<Mcx<'static>> {
+pub fn state_mcx(
+    state: &mut ResultRelIndexState<'static>,
+    bind: Mcx<'static>,
+    row: Mcx<'static>,
+) -> PgResult<Mcx<'static>> {
     let mut built = true;
     // bounded("catalog-sized: one per index of the relation (the executor's opened index list), its predicate prepared once per bind")
     for (d, i) in state.descs.iter().zip(state.infos.iter_mut()) {
         execindexing::prepare_index_predicate(bind, i)?;
         built &= (i.ii_Expressions.is_nil() || !i.ii_ExpressionsState.is_empty())
-            && !matches!(IndexAmKind::from_relam(d.rd_rel.relam), IndexAmKind::Brin | IndexAmKind::Gist | IndexAmKind::Spgist);
+            && !matches!(
+                IndexAmKind::from_relam(d.rd_rel.relam),
+                IndexAmKind::Brin | IndexAmKind::Gist | IndexAmKind::Spgist
+            );
     }
     Ok(if built { row } else { bind })
 }
@@ -465,7 +633,12 @@ mod tests {
     use super::*;
 
     fn recipe(oid: Oid, keys: &[i16]) -> IndexRecipe {
-        IndexRecipe { oid, nkeys: keys.len(), key_attnos: keys.to_vec(), unique: false } // alloc: Cold
+        IndexRecipe {
+            oid,
+            nkeys: keys.len(),
+            key_attnos: keys.to_vec(),
+            unique: false,
+        } // alloc: Cold
     }
 
     /// The cache context stays where its `Mcx`s point when the IndexMaint moves: a routed INSERT's leaf host binds (its
@@ -484,8 +657,16 @@ mod tests {
         let unused = small.cache_bytes();
         small.cache_mcx().alloc_bytes(64).unwrap();
         bump.cache_mcx().alloc_bytes(64).unwrap();
-        assert!(unused <= 1024 && small.cache_bytes() <= 2048, "small AM cache: {unused} unused, {} used", small.cache_bytes());
-        assert!(bump.cache_bytes() >= 8192, "the bump AM cache's keeper: {}", bump.cache_bytes());
+        assert!(
+            unused <= 1024 && small.cache_bytes() <= 2048,
+            "small AM cache: {unused} unused, {} used",
+            small.cache_bytes()
+        );
+        assert!(
+            bump.cache_bytes() >= 8192,
+            "the bump AM cache's keeper: {}",
+            bump.cache_bytes()
+        );
     }
 
     #[test]
@@ -494,7 +675,11 @@ mod tests {
         let mut hosts = vec![Some(IndexMaint::from_recipes(vec![recipe(1, &[1])]))]; // alloc: Cold
         let before = at(hosts[0].as_ref().expect("built"));
         let moved = Box::new(hosts.pop().flatten().expect("built")); // alloc: Cold
-        assert_eq!(at(&moved), before, "the IndexMaint moved from the Vec into a Box; its cache context must not");
+        assert_eq!(
+            at(&moved),
+            before,
+            "the IndexMaint moved from the Vec into a Box; its cache context must not"
+        );
     }
 
     /// H-a (D235): an index is unchanged by an UPDATE when none of its key columns is updated (index_unchanged_by_update);
@@ -503,11 +688,20 @@ mod tests {
     fn an_index_is_unchanged_when_no_key_column_is_updated() {
         let ctx: &'static MemoryContext = Box::leak(Box::new(MemoryContext::new("t"))); // alloc: Cold
         let m = ctx.mcx();
-        let mut m2 = IndexMaint::from_recipes(vec![recipe(1, &[1]), recipe(2, &[2, 3]), recipe(3, &[3]), recipe(4, &[0])]); // alloc: Cold
+        let mut m2 = IndexMaint::from_recipes(vec![
+            recipe(1, &[1]),
+            recipe(2, &[2, 3]),
+            recipe(3, &[3]),
+            recipe(4, &[0]),
+        ]); // alloc: Cold
         let mut upd = Bitmapset::empty();
-        upd.add_member(m, 2 - types_tuple::htup::FirstLowInvalidHeapAttributeNumber).unwrap();
+        upd.add_member(m, 2 - types_tuple::htup::FirstLowInvalidHeapAttributeNumber)
+            .unwrap();
         m2.set_updated(m, Some(&upd)).unwrap();
-        assert_eq!(m2.slots.iter().map(|s| s.unchanged).collect::<Vec<_>>(), vec![true, false, true, false]); // alloc: Cold
+        assert_eq!(
+            m2.slots.iter().map(|s| s.unchanged).collect::<Vec<_>>(),
+            vec![true, false, true, false]
+        ); // alloc: Cold
         m2.set_updated(m, None).unwrap();
         assert!(m2.slots.iter().all(|s| !s.unchanged));
     }

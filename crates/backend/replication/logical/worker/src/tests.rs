@@ -2,9 +2,9 @@ use types_core::{InvalidRepOriginId, InvalidXLogRecPtr};
 
 #[test]
 fn apply_wait_returns_on_latch_without_waiting_for_timeout() {
+    use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
     use types_storage::waiteventset::{WaitEvent, WaitEventSetHandle, WL_LATCH_SET, WL_TIMEOUT};
     use waiteventset_seams as wes;
-    use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
 
     static WAITS: AtomicUsize = AtomicUsize::new(0);
 
@@ -15,7 +15,10 @@ fn apply_wait_returns_on_latch_without_waiting_for_timeout() {
         assert_eq!(timeout, super::NAPTIME_PER_CYCLE);
         assert_eq!(event, super::WAIT_EVENT_LOGICAL_APPLY_MAIN);
         match WAITS.fetch_add(1, SeqCst) {
-            0 => Ok(Some(WaitEvent { events: WL_LATCH_SET, ..WaitEvent::default() })),
+            0 => Ok(Some(WaitEvent {
+                events: WL_LATCH_SET,
+                ..WaitEvent::default()
+            })),
             1 => Ok(None),
             2 => Ok(Some(WaitEvent {
                 events: super::WL_SOCKET_READABLE,
@@ -34,10 +37,20 @@ fn apply_wait_returns_on_latch_without_waiting_for_timeout() {
     latch::InitLatch(latch);
     init_small::globals::SetMyLatch(Some(latch));
     latch::SetLatch(latch);
-    assert_eq!(super::wait_for_apply(-1, super::NAPTIME_PER_CYCLE).unwrap(), WL_LATCH_SET);
+    assert_eq!(
+        super::wait_for_apply(-1, super::NAPTIME_PER_CYCLE).unwrap(),
+        WL_LATCH_SET
+    );
 
-    assert_eq!(WAITS.load(SeqCst), 1, "latch wake must return to apply loop");
-    assert_eq!(super::wait_for_apply(-1, super::NAPTIME_PER_CYCLE).unwrap(), WL_TIMEOUT);
+    assert_eq!(
+        WAITS.load(SeqCst),
+        1,
+        "latch wake must return to apply loop"
+    );
+    assert_eq!(
+        super::wait_for_apply(-1, super::NAPTIME_PER_CYCLE).unwrap(),
+        WL_TIMEOUT
+    );
     assert_eq!(
         super::wait_for_apply(-1, super::NAPTIME_PER_CYCLE).unwrap(),
         super::WL_SOCKET_READABLE
@@ -148,16 +161,25 @@ fn binary_column_receive() {
 
     // int4recv (oid 2406) over a network-order int4.
     let mut flinfo = fmgr::FmgrInfo::new(adt_int::builtins::fc_int4recv, 2406, 1, true, false);
-    let d =
-        super::apply::receive_binary_column(mcx, &mut flinfo, 0, -1, &0x01020304i32.to_be_bytes(), 0)
-            .unwrap();
+    let d = super::apply::receive_binary_column(
+        mcx,
+        &mut flinfo,
+        0,
+        -1,
+        &0x01020304i32.to_be_bytes(),
+        0,
+    )
+    .unwrap();
     assert_eq!(d.as_i32(), 0x01020304);
 
     // Trailing bytes the receive function didn't eat.
     let mut flinfo = fmgr::FmgrInfo::new(adt_int::builtins::fc_int4recv, 2406, 1, true, false);
     let err = super::apply::receive_binary_column(mcx, &mut flinfo, 0, -1, &[0, 0, 0, 1, 9], 2)
         .unwrap_err();
-    assert_eq!(err.sqlstate(), types_error::ERRCODE_INVALID_BINARY_REPRESENTATION);
+    assert_eq!(
+        err.sqlstate(),
+        types_error::ERRCODE_INVALID_BINARY_REPRESENTATION
+    );
     assert_eq!(
         err.message(),
         "incorrect binary data format in logical replication column 3"
@@ -185,7 +207,13 @@ fn default_fill_column_filter() {
 fn conflict_type_detail_sentences() {
     use super::conflict::{conflict_type_detail, ConflictType};
     assert_eq!(
-        conflict_type_detail(ConflictType::UpdateOriginDiffers, "", 731, Some("ts0"), None),
+        conflict_type_detail(
+            ConflictType::UpdateOriginDiffers,
+            "",
+            731,
+            Some("ts0"),
+            None
+        ),
         "Updating the row that was modified locally in transaction 731 at ts0."
     );
     assert_eq!(
@@ -193,7 +221,13 @@ fn conflict_type_detail_sentences() {
         "Updating the row that was modified by a different origin \"o1\" in transaction 731 at ts0."
     );
     assert_eq!(
-        conflict_type_detail(ConflictType::DeleteOriginDiffers, "", 731, Some("ts0"), Some(None)),
+        conflict_type_detail(
+            ConflictType::DeleteOriginDiffers,
+            "",
+            731,
+            Some("ts0"),
+            Some(None)
+        ),
         "Deleting the row that was modified by a non-existent origin in transaction 731 at ts0."
     );
     assert_eq!(
@@ -310,7 +344,9 @@ fn should_refetch_tuple_maps_lock_results_c_exactly() {
 // "parallel" (row a186-candidate-fp-logical-worker-p2-f9a3c01dea37ab25410f-1).
 #[test]
 fn stream_options_negotiate_by_server_version() {
-    use pg_subscription::{LOGICALREP_STREAM_OFF, LOGICALREP_STREAM_ON, LOGICALREP_STREAM_PARALLEL};
+    use pg_subscription::{
+        LOGICALREP_STREAM_OFF, LOGICALREP_STREAM_ON, LOGICALREP_STREAM_PARALLEL,
+    };
 
     assert_eq!(super::logicalrep_proto_version(180006), 4);
     assert_eq!(super::logicalrep_proto_version(160000), 4);
@@ -370,16 +406,28 @@ fn owner_superuser_revoked_predicate() {
 // a186-candidate-fp-libpqwalreceiver-libpqwalreceiver-50d642674ff510053dc6-1).
 #[test]
 fn create_slot_consistent_point_uses_pg_lsn_in() {
-    assert_eq!(super::tablesync::parse_consistent_point("0/16B3748").unwrap(), 0x16B3748);
+    assert_eq!(
+        super::tablesync::parse_consistent_point("0/16B3748").unwrap(),
+        0x16B3748
+    );
     assert_eq!(
         super::tablesync::parse_consistent_point("A/FFFFFFFF").unwrap(),
         (0xA_u64 << 32) | 0xFFFF_FFFF
     );
     let err = super::tablesync::parse_consistent_point("garbage").unwrap_err();
-    assert_eq!(err.sqlstate(), types_error::ERRCODE_INVALID_TEXT_REPRESENTATION);
-    assert_eq!(err.message(), "invalid input syntax for type pg_lsn: \"garbage\"");
+    assert_eq!(
+        err.sqlstate(),
+        types_error::ERRCODE_INVALID_TEXT_REPRESENTATION
+    );
+    assert_eq!(
+        err.message(),
+        "invalid input syntax for type pg_lsn: \"garbage\""
+    );
     let err = super::tablesync::parse_consistent_point("").unwrap_err();
-    assert_eq!(err.sqlstate(), types_error::ERRCODE_INVALID_TEXT_REPRESENTATION);
+    assert_eq!(
+        err.sqlstate(),
+        types_error::ERRCODE_INVALID_TEXT_REPRESENTATION
+    );
 }
 
 // applyparallelworker.c:1045: the leader's rethrow carries the worker error's
@@ -387,13 +435,18 @@ fn create_slot_consistent_point_uses_pg_lsn_in() {
 // (row a186-candidate-fp-logical-applyparallelworker-bb0db1927baf6fe07776-1).
 #[test]
 fn parallel_apply_worker_error_context_is_context_not_message() {
-    let with_ctx = types_error::PgError::error("duplicate key value violates unique constraint \"t_pkey\"")
-        .with_context("processing remote data for replication origin \"pg_16390\" during message type \"INSERT\"");
+    let with_ctx = types_error::PgError::error(
+        "duplicate key value violates unique constraint \"t_pkey\"",
+    )
+    .with_context(
+        "processing remote data for replication origin \"pg_16390\" during message type \"INSERT\"",
+    );
     assert_eq!(
         super::parallel::parallel_apply_worker_context(&with_ctx),
         "processing remote data for replication origin \"pg_16390\" during message type \"INSERT\"\nlogical replication parallel apply worker"
     );
-    let no_ctx = types_error::PgError::error("duplicate key value violates unique constraint \"t_pkey\"");
+    let no_ctx =
+        types_error::PgError::error("duplicate key value violates unique constraint \"t_pkey\"");
     assert_eq!(
         super::parallel::parallel_apply_worker_context(&no_ctx),
         "logical replication parallel apply worker"
@@ -518,12 +571,16 @@ fn apply_error_context_attaches_to_a_propagating_apply_error() {
 
     // Normal exit: the saved command (0) is restored.
     super::IN_REMOTE_TRANSACTION.set(true);
-    frame.attach(super::apply::apply_dispatch(mcx, None, &buf)).unwrap();
+    frame
+        .attach(super::apply::apply_dispatch(mcx, None, &buf))
+        .unwrap();
     assert_eq!(super::set_apply_error_context_command(0), 0);
 
     // Error exit: the command stays 'O' and the frame's attach adds the line.
     super::IN_REMOTE_TRANSACTION.set(false);
-    let err = frame.attach(super::apply::apply_dispatch(mcx, None, &buf)).unwrap_err();
+    let err = frame
+        .attach(super::apply::apply_dispatch(mcx, None, &buf))
+        .unwrap_err();
     assert_eq!(err.message(), "ORIGIN message sent out of order");
     assert_eq!(
         err.context(),
@@ -565,7 +622,14 @@ fn start_replication_gates_options_on_publisher_version() {
     assert!(!c13.contains("binary") && !c13.contains("two_phase") && !c13.contains("origin"));
     assert!(c13.ends_with(", publication_names '\"p\",\"q\"\"r\"')"));
     let streamed = super::start_replication_command(
-        160000, "s", 0, &pubs, false, "any", Some("parallel"), false,
+        160000,
+        "s",
+        0,
+        &pubs,
+        false,
+        "any",
+        Some("parallel"),
+        false,
     );
     assert!(streamed
         .contains("(proto_version '4', streaming 'parallel', origin 'any', publication_names"));
@@ -585,7 +649,10 @@ fn leader_reports_lost_connection_for_a_silently_exited_pa_worker() {
     super::parallel::ProcessParallelApplyMessages().unwrap();
     super::parallel::test_worker_exited(&w);
     let err = super::parallel::ProcessParallelApplyMessages().unwrap_err();
-    assert_eq!(err.sqlstate(), types_error::ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE);
+    assert_eq!(
+        err.sqlstate(),
+        types_error::ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE
+    );
     assert_eq!(
         err.message(),
         "lost connection to the logical replication parallel apply worker"
@@ -615,7 +682,10 @@ fn flush_position_reports_tail_remote_end_as_write_while_commits_await_flush() {
     assert_eq!(super::LSN_MAPPING.with(|m| m.borrow().len()), 1);
     // Nothing flushed yet: write still the tail, flush invalid.
     super::store_flush_position(0x400, 0x40);
-    assert_eq!(super::get_flush_position_at(0x25), (0x400, InvalidXLogRecPtr, true));
+    assert_eq!(
+        super::get_flush_position_at(0x25),
+        (0x400, InvalidXLogRecPtr, true)
+    );
     // Everything flushed: both positions at the last entry, list empty.
     assert_eq!(super::get_flush_position_at(0x40), (0x400, 0x400, false));
     assert_eq!(super::LSN_MAPPING.with(|m| m.borrow().len()), 0);
@@ -686,8 +756,11 @@ fn pa_worker_fatal_exit_parks_the_report_for_the_leader() {
     }
     let w = super::parallel::test_pool_worker();
     super::parallel::test_become_pa_worker(&w);
-    ipc::before_shmem_exit(super::parallel::pa_shutdown_on_exit, datum::Datum::from_i64(0))
-        .unwrap();
+    ipc::before_shmem_exit(
+        super::parallel::pa_shutdown_on_exit,
+        datum::Datum::from_i64(0),
+    )
+    .unwrap();
 
     // A WARNING is not queued; the FATAL emitted before proc_exit is.
     let mut warn = types_error::PgError::new(types_error::WARNING, "noise");
@@ -702,8 +775,14 @@ fn pa_worker_fatal_exit_parks_the_report_for_the_leader() {
     super::parallel::test_leave_pa_worker();
 
     let err = super::parallel::ProcessParallelApplyMessages().unwrap_err();
-    assert_eq!(err.sqlstate(), types_error::ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE);
-    assert_eq!(err.message(), "logical replication parallel apply worker exited due to error");
+    assert_eq!(
+        err.sqlstate(),
+        types_error::ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE
+    );
+    assert_eq!(
+        err.message(),
+        "logical replication parallel apply worker exited due to error"
+    );
     assert_eq!(
         err.context(),
         Some("processing remote data for replication origin \"pg_16384\"\nlogical replication parallel apply worker")
@@ -724,14 +803,23 @@ fn publication_column_list_parses_as_int2vector() {
 // elog(ERROR)'s XX000.
 #[test]
 fn wal_stream_transport_errors_carry_c_sqlstates() {
-    let e = super::wal_stream_receive_error("server closed the connection unexpectedly\n", types_error::ERRCODE_PROTOCOL_VIOLATION);
+    let e = super::wal_stream_receive_error(
+        "server closed the connection unexpectedly\n",
+        types_error::ERRCODE_PROTOCOL_VIOLATION,
+    );
     assert_eq!(e.sqlstate(), types_error::ERRCODE_PROTOCOL_VIOLATION);
-    assert_eq!(e.message(), "could not receive data from WAL stream: server closed the connection unexpectedly");
+    assert_eq!(
+        e.message(),
+        "could not receive data from WAL stream: server closed the connection unexpectedly"
+    );
     let e = super::wal_stream_receive_error("boom", types_error::ERRCODE_CONNECTION_FAILURE);
     assert_eq!(e.sqlstate(), types_error::ERRCODE_CONNECTION_FAILURE);
     let e = super::wal_stream_send_error("no connection to the server\n");
     assert_eq!(e.sqlstate(), types_error::ERRCODE_CONNECTION_FAILURE);
-    assert_eq!(e.message(), "could not send data to WAL stream: no connection to the server");
+    assert_eq!(
+        e.message(),
+        "could not send data to WAL stream: no connection to the server"
+    );
 }
 
 // ReplicationSlotDropAtPubNode (subscriptioncmds.c:1959-1980): a tablesync
@@ -749,16 +837,35 @@ fn tablesync_slot_drop_triages_results_like_c() {
         diag: None,
         err: String::new(),
     };
-    assert!(matches!(drop_slot_outcome(&ok, false), DropSlotOutcome::Dropped));
+    assert!(matches!(
+        drop_slot_outcome(&ok, false),
+        DropSlotOutcome::Dropped
+    ));
     let mut missing = QueryResult::conn_error("replication slot \"x\" does not exist".to_string());
     missing.status = ExecStatus::Error;
-    missing.diag = Some(ErrorFields { sqlstate: "42704".to_string(), ..Default::default() });
-    assert!(matches!(drop_slot_outcome(&missing, true), DropSlotOutcome::MissingTolerated));
-    assert!(matches!(drop_slot_outcome(&missing, false), DropSlotOutcome::Failed));
-    let mut cancelled = QueryResult::conn_error("canceling statement due to user request".to_string());
+    missing.diag = Some(ErrorFields {
+        sqlstate: "42704".to_string(),
+        ..Default::default()
+    });
+    assert!(matches!(
+        drop_slot_outcome(&missing, true),
+        DropSlotOutcome::MissingTolerated
+    ));
+    assert!(matches!(
+        drop_slot_outcome(&missing, false),
+        DropSlotOutcome::Failed
+    ));
+    let mut cancelled =
+        QueryResult::conn_error("canceling statement due to user request".to_string());
     cancelled.status = ExecStatus::Error;
-    cancelled.diag = Some(ErrorFields { sqlstate: "57014".to_string(), ..Default::default() });
-    assert!(matches!(drop_slot_outcome(&cancelled, true), DropSlotOutcome::Failed));
+    cancelled.diag = Some(ErrorFields {
+        sqlstate: "57014".to_string(),
+        ..Default::default()
+    });
+    assert!(matches!(
+        drop_slot_outcome(&cancelled, true),
+        DropSlotOutcome::Failed
+    ));
 }
 
 // handle_streamed_transaction (worker.c:579) reads the streamed XID through
@@ -774,14 +881,21 @@ fn streamed_message_truncated_in_xid_is_insufficient_data() {
     super::stream_apply::STREAM_XID.set(700);
 
     let short = [b'I', 0, 0, 2];
-    let err = super::stream_apply::handle_streamed_transaction(mcx, b'I', &short).err().unwrap();
+    let err = super::stream_apply::handle_streamed_transaction(mcx, b'I', &short)
+        .err()
+        .unwrap();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_PROTOCOL_VIOLATION);
     assert_eq!(err.message(), "insufficient data left in message");
 
     let zero = [b'I', 0, 0, 0, 0];
-    let err = super::stream_apply::handle_streamed_transaction(mcx, b'I', &zero).err().unwrap();
+    let err = super::stream_apply::handle_streamed_transaction(mcx, b'I', &zero)
+        .err()
+        .unwrap();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_PROTOCOL_VIOLATION);
-    assert_eq!(err.message(), "invalid transaction ID in streamed replication transaction");
+    assert_eq!(
+        err.message(),
+        "invalid transaction ID in streamed replication transaction"
+    );
 
     super::stream_apply::IN_STREAMED_TRANSACTION.set(false);
     super::stream_apply::STREAM_XID.set(types_core::InvalidTransactionId);

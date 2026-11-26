@@ -102,5 +102,13 @@ pub(crate) fn decode(
     let relhasrules = row.req(21)?.as_bool();
     let relhastriggers = row.req(22)?.as_bool();
     let relrewrite = row.req(29)?.as_oid();
-    Ok(ScannedPgClass { form, relchecks, relnatts, relhastriggers, relhasrules, relrewrite, options })
+    Ok(ScannedPgClass {
+        form,
+        relchecks,
+        relnatts,
+        relhastriggers,
+        relhasrules,
+        relrewrite,
+        options,
+    })
 }

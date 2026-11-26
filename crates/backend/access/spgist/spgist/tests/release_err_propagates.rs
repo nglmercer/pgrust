@@ -30,8 +30,14 @@ fn unlock_release_propagates_release_err() {
     // The fake must actually have fired (guards against a vacuous pass if the
     // helper is ever restructured to skip the release), and its Err must
     // surface to the caller.
-    assert!(RELEASE_CALLS.load(Relaxed) > before, "release seam never fired");
-    assert!(r.is_err(), "unlock_release swallowed the release_buffer error");
+    assert!(
+        RELEASE_CALLS.load(Relaxed) > before,
+        "release seam never fired"
+    );
+    assert!(
+        r.is_err(),
+        "unlock_release swallowed the release_buffer error"
+    );
     let e = r.unwrap_err();
     assert!(
         e.message().contains("injected"),

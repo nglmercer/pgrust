@@ -46,13 +46,37 @@ unsafe impl Sync for HostTpl {}
 impl HostTpl {
     /// The template over `programs` (`make_template`): their lists compacted into a new root owned by the running
     /// statement (memsig E-prog: from the lowering's lists root, which drops after, `hir::finish_keeping`).
-    pub(super) fn new(programs: Vec<gravity_expr::Program<'static>>, calls: Vec<Vec<super::TplCall>>, stamps: Vec<(Oid, [u32; 3])>, any: bool, lazy: bool, catalog: &gravity_fn::pool_catalog::Reach<'_>, descs: Vec<std::sync::Arc<crate::step::raw::saop_host::Desc>>, bytes: usize) -> HostTpl {
+    pub(super) fn new(
+        programs: Vec<gravity_expr::Program<'static>>,
+        calls: Vec<Vec<super::TplCall>>,
+        stamps: Vec<(Oid, [u32; 3])>,
+        any: bool,
+        lazy: bool,
+        catalog: &gravity_fn::pool_catalog::Reach<'_>,
+        descs: Vec<std::sync::Arc<crate::step::raw::saop_host::Desc>>,
+        bytes: usize,
+    ) -> HostTpl {
         let (root, m) = owned_root("GravityHostedTpl", memledger::charge::statement_owner());
         let mut progs = mcx::reserved_in(programs.len(), m);
         // SAFETY: the plan arena outlives the programs (`nodes::func::set_fn_expr`'s contract), and their lists are held in
         // `progs`, which drops before `root` (field order)
-        mcx::GrowIn::extend_in(&mut progs, programs.into_iter().map(|p| unsafe { p.into_hosted(m) }));
-        HostTpl { own: pgsync::Mutex::new(memledger::charge::Charge::NONE), progs, calls, stamps, any, lazy, catalog: catalog.clone_in(m), descs, bytes, published: AtomicBool::new(false), root: pgsync::Mutex::new(root) }
+        mcx::GrowIn::extend_in(
+            &mut progs,
+            programs.into_iter().map(|p| unsafe { p.into_hosted(m) }),
+        );
+        HostTpl {
+            own: pgsync::Mutex::new(memledger::charge::Charge::NONE),
+            progs,
+            calls,
+            stamps,
+            any,
+            lazy,
+            catalog: catalog.clone_in(m),
+            descs,
+            bytes,
+            published: AtomicBool::new(false),
+            root: pgsync::Mutex::new(root),
+        }
     }
 
     /// The building backend's cache filed the program (`adopt`): the root is `o`'s, unless the program caches hold it.
@@ -67,14 +91,33 @@ impl HostTpl {
         use memledger::charge::{release_of, Charge, Door};
         if !self.published.swap(true, Ordering::AcqRel) {
             pgsync::lock(&self.root).set_owner(caches);
-            *pgsync::lock(&self.own) = Charge::open(caches, release_of(caches), memledger::Kind::Region, Door::Heap, self.own_bytes());
+            *pgsync::lock(&self.own) = Charge::open(
+                caches,
+                release_of(caches),
+                memledger::Kind::Region,
+                Door::Heap,
+                self.own_bytes(),
+            );
         }
     }
 
     pub(super) fn own_bytes(&self) -> u64 {
         use core::mem::size_of;
-        let calls: usize = self.calls.iter().map(|c| c.capacity() * size_of::<super::TplCall>() + c.iter().map(|t| t.facts.argtypes.capacity() * size_of::<Oid>()).sum::<usize>()).sum();
-        let lists = self.calls.capacity() * size_of::<Vec<super::TplCall>>() + calls + self.stamps.capacity() * size_of::<(Oid, [u32; 3])>() + self.descs.capacity() * size_of::<std::sync::Arc<crate::step::raw::saop_host::Desc>>();
+        let calls: usize = self
+            .calls
+            .iter()
+            .map(|c| {
+                c.capacity() * size_of::<super::TplCall>()
+                    + c.iter()
+                        .map(|t| t.facts.argtypes.capacity() * size_of::<Oid>())
+                        .sum::<usize>()
+            })
+            .sum();
+        let lists = self.calls.capacity() * size_of::<Vec<super::TplCall>>()
+            + calls
+            + self.stamps.capacity() * size_of::<(Oid, [u32; 3])>()
+            + self.descs.capacity()
+                * size_of::<std::sync::Arc<crate::step::raw::saop_host::Desc>>();
         memledger::arc_bytes::<HostTpl>() + mcx::SendRoot::HEADER_BYTES + lists as u64
     }
 
@@ -110,17 +153,26 @@ pub(super) fn product_mcx(root: &mcx::PinnedContext) -> mcx::Mcx<'static> {
 
 /// A hosted expression's program moved into its owner's product root (`m`, `product_mcx`'s): its lists
 /// there, for the owner's life (`Progs::Own`, in the owner's `hold`, which drops before the root).
-pub(super) fn hosted_program(c: gravity_expr::Compiled<'_>, m: mcx::Mcx<'static>) -> gravity_expr::HostedCompiled {
+pub(super) fn hosted_program(
+    c: gravity_expr::Compiled<'_>,
+    m: mcx::Mcx<'static>,
+) -> gravity_expr::HostedCompiled {
     // SAFETY: the plan arena outlives the program (`nodes::func::set_fn_expr`'s contract), and the result is held in the
     // owner's `hold`, which drops before the root `m` allocates from (`Owner::root`, the owner's last field)
     unsafe { c.into_in(m) }
 }
 
 /// D3438: the programs a template keeps (`make_template`), at the template's lifetime.
-pub(super) fn for_template(c: Vec<gravity_expr::Compiled<'_>>) -> Vec<gravity_expr::Compiled<'static>> {
+pub(super) fn for_template(
+    c: Vec<gravity_expr::Compiled<'_>>,
+) -> Vec<gravity_expr::Compiled<'static>> {
     // SAFETY: the plan arena outlives the programs (`nodes::func::set_fn_expr`'s contract); a lifetime-only change of the
     // list, so the heap buffers the cells point into (`prog.sites`, `prog.convs`, `state.calls`) do not move.
-    unsafe { core::mem::transmute::<Vec<gravity_expr::Compiled<'_>>, Vec<gravity_expr::Compiled<'static>>>(c) }
+    unsafe {
+        core::mem::transmute::<Vec<gravity_expr::Compiled<'_>>, Vec<gravity_expr::Compiled<'static>>>(
+            c,
+        )
+    }
 }
 
 /// planprod row 4 / P6: a lane past 0's root ('GravityHostedLane') or a template's ('GravityHostedTpl'), owned at birth
@@ -128,7 +180,10 @@ pub(super) fn for_template(c: Vec<gravity_expr::Compiled<'_>>) -> Vec<gravity_ex
 /// everything made through the handle is held beside the root, the holder's last field, which drops after them; a SendRoot
 /// holds its context box raw, so the address holds when the root moves into the holder; the lists are built on one thread
 /// before the holder is published, and never grow after.
-pub(super) fn owned_root(name: &'static str, holder: memledger::Owner) -> (mcx::SendRoot, mcx::Mcx<'static>) {
+pub(super) fn owned_root(
+    name: &'static str,
+    holder: memledger::Owner,
+) -> (mcx::SendRoot, mcx::Mcx<'static>) {
     let mut root = mcx::SendRoot::new_owned_small(name, holder);
     let m = root_mcx(&mut root);
     (root, m)
@@ -144,7 +199,10 @@ pub(super) fn root_mcx(root: &mut mcx::SendRoot) -> mcx::Mcx<'static> {
 }
 
 /// Lane 0's result region (`owner_of`): `bytes` uninitialized bytes in `m` (D848: never zeroed).
-pub(super) fn region_in(bytes: usize, m: mcx::Mcx<'static>) -> mcx::PgVec<'static, core::mem::MaybeUninit<u8>> {
+pub(super) fn region_in(
+    bytes: usize,
+    m: mcx::Mcx<'static>,
+) -> mcx::PgVec<'static, core::mem::MaybeUninit<u8>> {
     let mut region = mcx::reserved_in(bytes, m);
     // SAFETY: `reserved_in` reserved `bytes`, and `MaybeUninit` bytes need no initialization
     unsafe { region.set_len(bytes) };
@@ -163,7 +221,10 @@ pub(super) struct Lanes {
     pub(super) rest: AtomicPtr<Lane>,
     /// The tables `rest_lane` built and the ones a race's losers freed (the race witness's count).
     #[cfg(test)]
-    pub(super) tables: (core::sync::atomic::AtomicUsize, core::sync::atomic::AtomicUsize),
+    pub(super) tables: (
+        core::sync::atomic::AtomicUsize,
+        core::sync::atomic::AtomicUsize,
+    ),
 }
 
 impl Lanes {
@@ -193,11 +254,18 @@ impl Lanes {
             let built = Box::into_raw(table).cast::<Lane>();
             #[cfg(test)]
             self.tables.0.fetch_add(1, Ordering::Relaxed);
-            rest = match self.rest.compare_exchange(core::ptr::null_mut(), built, Ordering::AcqRel, Ordering::Acquire) {
+            rest = match self.rest.compare_exchange(
+                core::ptr::null_mut(),
+                built,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
                 Ok(_) => built,
                 Err(won) => {
                     // SAFETY: `built` is the table this call leaked above and never published.
-                    drop(unsafe { Box::from_raw(core::ptr::slice_from_raw_parts_mut(built, LANES - 1)) });
+                    drop(unsafe {
+                        Box::from_raw(core::ptr::slice_from_raw_parts_mut(built, LANES - 1))
+                    });
                     #[cfg(test)]
                     self.tables.1.fetch_add(1, Ordering::Relaxed);
                     won

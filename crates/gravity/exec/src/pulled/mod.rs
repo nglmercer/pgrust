@@ -35,9 +35,19 @@ impl Pull {
         m.sort_unstable();
         m.dedup();
         if m.last() != u16::try_from(k).ok().as_ref() {
-            return Err(glue::internal(&format!("gravity: {what}: its pulled set does not end in its pipeline"))); // alloc: Cold
+            return Err(glue::internal(&format!(
+                "gravity: {what}: its pulled set does not end in its pipeline"
+            ))); // alloc: Cold
         }
-        Ok(Pull { members: m.into_boxed_slice(), frame: Cell::new(None), running: Cell::new(false), done: Cell::new(false), failed: Cell::new(false), what, raw })
+        Ok(Pull {
+            members: m.into_boxed_slice(),
+            frame: Cell::new(None),
+            running: Cell::new(false),
+            done: Cell::new(false),
+            failed: Cell::new(false),
+            what,
+            raw,
+        })
     }
 
     /// The runner steps past `pipeline` in the producer order (`Live::deferred`): a member.
@@ -57,13 +67,20 @@ impl Pull {
             return Ok(false);
         }
         if self.failed.get() {
-            return Err(glue::internal(&format!("gravity: {} read again after its error (M8 RT-2f)", self.what))); // alloc: Cold
+            return Err(glue::internal(&format!(
+                "gravity: {} read again after its error (M8 RT-2f)",
+                self.what
+            ))); // alloc: Cold
         }
         if self.running.get() {
-            return Err(glue::internal(&format!("gravity: {} pulled inside its own run", self.what))); // alloc: Cold
+            return Err(glue::internal(&format!(
+                "gravity: {} pulled inside its own run",
+                self.what
+            ))); // alloc: Cold
         }
         let Some(f) = self.frame.get() else {
-            return Err(glue::internal(&format!("gravity: {}: a pull with no runner frame (the lowering pins its reader to the leader)", self.what))); // alloc: Cold
+            return Err(glue::internal(&format!("gravity: {}: a pull with no runner frame (the lowering pins its reader to the leader)", self.what)));
+            // alloc: Cold
         };
         self.running.set(true);
         let r = (self.raw)(f, &self.members);

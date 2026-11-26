@@ -57,7 +57,13 @@ pub(super) fn bytea_image<'a>(out: Datum) -> PackedVarlena<'a> {
 /// `frame_rows` for a format with `FAST_TEXT` / `FAST_NUMERIC` columns: the block's frame bytes measured first (a text cell's payload length, a numeric's
 /// `NUM_MAX`), then written; false when a text cell is compressed or external or a numeric cell is not the fast path's (the caller sends the block
 /// row by row through the output function), `out` untouched.
-pub fn frame_rows_text(out: &mut Vec<u8>, fmt: &WireFormat, values: &[u64], isnull: &[u8], rows: usize) -> bool {
+pub fn frame_rows_text(
+    out: &mut Vec<u8>,
+    fmt: &WireFormat,
+    values: &[u64],
+    isnull: &[u8],
+    rows: usize,
+) -> bool {
     let natts = fmt.natts as usize;
     assert!(values.len() >= rows * natts && isnull.len() >= rows * natts);
     let mut total = 0usize;
@@ -70,11 +76,17 @@ pub fn frame_rows_text(out: &mut Vec<u8>, fmt: &WireFormat, values: &[u64], isnu
                 total += 4;
             } else if kind == FAST_TEXT {
                 // SAFETY: a non-null text datum of a pushed block points at a live image (the out region's copy).
-                let Some((_, n)) = (unsafe { text_payload(values[cell] as usize as *const u8) }) else { return false };
+                let Some((_, n)) = (unsafe { text_payload(values[cell] as usize as *const u8) })
+                else {
+                    return false;
+                };
                 total += 4 + n;
             } else if kind == FAST_NUMERIC {
                 // SAFETY: as a text cell's: a live numeric image.
-                if unsafe { payload(values[cell] as usize as *const u8) }.and_then(num_head).is_none() {
+                if unsafe { payload(values[cell] as usize as *const u8) }
+                    .and_then(num_head)
+                    .is_none()
+                {
                     return false;
                 }
                 total += 4 + NUM_MAX;
@@ -97,7 +109,11 @@ pub fn frame_rows_text(out: &mut Vec<u8>, fmt: &WireFormat, values: &[u64], isnu
             for i in 0..natts {
                 let cell = r * natts + i;
                 if *isnull.get_unchecked(cell) != 0 {
-                    core::ptr::copy_nonoverlapping((-1i32).to_be_bytes().as_ptr(), base.add(len), 4);
+                    core::ptr::copy_nonoverlapping(
+                        (-1i32).to_be_bytes().as_ptr(),
+                        base.add(len),
+                        4,
+                    );
                     len += 4;
                     continue;
                 }
@@ -109,7 +125,11 @@ pub fn frame_rows_text(out: &mut Vec<u8>, fmt: &WireFormat, values: &[u64], isnu
                     n
                 } else if kind == FAST_NUMERIC {
                     // measured above: the fast path takes every numeric cell of the block, NUM_MAX bytes reserved for each
-                    put_numeric(payload(v as usize as *const u8).unwrap_unchecked(), core::slice::from_raw_parts_mut(base.add(len + 4), NUM_MAX)).unwrap_unchecked()
+                    put_numeric(
+                        payload(v as usize as *const u8).unwrap_unchecked(),
+                        core::slice::from_raw_parts_mut(base.add(len + 4), NUM_MAX),
+                    )
+                    .unwrap_unchecked()
                 } else {
                     let text = core::slice::from_raw_parts_mut(base.add(len + 4), FAST_MAX);
                     put_fast(kind, v, text)
@@ -117,7 +137,11 @@ pub fn frame_rows_text(out: &mut Vec<u8>, fmt: &WireFormat, values: &[u64], isnu
                 core::ptr::copy_nonoverlapping((n as u32).to_be_bytes().as_ptr(), base.add(len), 4);
                 len += 4 + n;
             }
-            core::ptr::copy_nonoverlapping(((len - start - 1) as u32).to_be_bytes().as_ptr(), base.add(start + 1), 4);
+            core::ptr::copy_nonoverlapping(
+                ((len - start - 1) as u32).to_be_bytes().as_ptr(),
+                base.add(start + 1),
+                4,
+            );
         }
         out.set_len(len);
     }
@@ -130,7 +154,12 @@ pub fn frame_rows_text(out: &mut Vec<u8>, fmt: &WireFormat, values: &[u64], isnu
 pub fn frame_rows(out: &mut Vec<u8>, fmt: &WireFormat, values: &[u64], isnull: &[u8], rows: usize) {
     let natts = fmt.natts as usize;
     assert!(values.len() >= rows * natts && isnull.len() >= rows * natts);
-    debug_assert!(!fmt.kinds[..natts].iter().any(|k| matches!(*k, FAST_TEXT | FAST_NUMERIC)), "a text or numeric column frames through frame_rows_text");
+    debug_assert!(
+        !fmt.kinds[..natts]
+            .iter()
+            .any(|k| matches!(*k, FAST_TEXT | FAST_NUMERIC)),
+        "a text or numeric column frames through frame_rows_text"
+    );
     out.reserve(rows * frame_row_max(fmt)); // alloc: Exec charged by the caller's charge on `out` (WireNode::send_rows: keep_frame fits frame_charge, the session's, to the frame; exec legs: the framed ChargedVec, its room reserved first)
     let base = out.as_mut_ptr();
     let mut len = out.len();
@@ -146,7 +175,11 @@ pub fn frame_rows(out: &mut Vec<u8>, fmt: &WireFormat, values: &[u64], isnull: &
             for i in 0..natts {
                 let cell = r * natts + i;
                 if *isnull.get_unchecked(cell) != 0 {
-                    core::ptr::copy_nonoverlapping((-1i32).to_be_bytes().as_ptr(), base.add(len), 4);
+                    core::ptr::copy_nonoverlapping(
+                        (-1i32).to_be_bytes().as_ptr(),
+                        base.add(len),
+                        4,
+                    );
                     len += 4;
                     continue;
                 }
@@ -156,7 +189,11 @@ pub fn frame_rows(out: &mut Vec<u8>, fmt: &WireFormat, values: &[u64], isnull: &
                 core::ptr::copy_nonoverlapping((n as u32).to_be_bytes().as_ptr(), base.add(len), 4);
                 len += 4 + n;
             }
-            core::ptr::copy_nonoverlapping(((len - start - 1) as u32).to_be_bytes().as_ptr(), base.add(start + 1), 4);
+            core::ptr::copy_nonoverlapping(
+                ((len - start - 1) as u32).to_be_bytes().as_ptr(),
+                base.add(start + 1),
+                4,
+            );
         }
         out.set_len(len);
     }

@@ -18,16 +18,19 @@ use crate::vfd::{
 pub const PG_IOV_MAX: usize = 128;
 
 fn vfd_raw(fd: &FdState, file: i32) -> RawFd {
-    fd.vfd_cache[file as usize].fd.as_ref().expect("I/O on closed VFD").as_raw()
+    fd.vfd_cache[file as usize]
+        .fd
+        .as_ref()
+        .expect("I/O on closed VFD")
+        .as_raw()
 }
 
 fn pg_preadv(fd: RawFd, iov: &mut [IoSliceMut<'_>], offset: i64) -> isize {
     // SAFETY: IoSliceMut is ABI-compatible with iovec; fd is live; the base
     // pointers are valid for writes of their lengths (the vfs caller
     // contract).
-    let iov_c = unsafe {
-        std::slice::from_raw_parts(iov.as_ptr().cast::<libc::iovec>(), iov.len())
-    };
+    let iov_c =
+        unsafe { std::slice::from_raw_parts(iov.as_ptr().cast::<libc::iovec>(), iov.len()) };
     vfs::preadv(fd, iov_c, offset as libc::off_t)
 }
 
@@ -43,9 +46,8 @@ const _: () = assert!(
 fn pg_pwritev(fd: RawFd, iov: &[WriteChunk<'_>], offset: i64) -> isize {
     // SAFETY: WriteChunk is ABI-compatible with iovec (asserted above); fd is
     // live. The kernel, not Rust, reads the bytes.
-    let iov_c = unsafe {
-        std::slice::from_raw_parts(iov.as_ptr().cast::<libc::iovec>(), iov.len())
-    };
+    let iov_c =
+        unsafe { std::slice::from_raw_parts(iov.as_ptr().cast::<libc::iovec>(), iov.len()) };
     vfs::pwritev(fd, iov_c, offset as libc::off_t)
 }
 
@@ -111,7 +113,13 @@ pub fn FileGeneration(file: File) -> u64 {
     if !vfd::fd_tls_alive() {
         return 0;
     }
-    with_fd(|fd| if vfd::FileIsValid(fd, file.0) { fd.vfd_cache[file.0 as usize].gen } else { 0 })
+    with_fd(|fd| {
+        if vfd::FileIsValid(fd, file.0) {
+            fd.vfd_cache[file.0 as usize].gen
+        } else {
+            0
+        }
+    })
 }
 
 /// `FileClose(file)` only while its slot still holds the open that took generation `gen`. A slot freed since (a
@@ -161,7 +169,12 @@ pub fn FileClose(file: File) -> PgResult<()> {
         } else {
             crate::vfd::data_sync_elevel(LOG)
         };
-        let name = with_fd(|fd| fd.vfd_cache[file as usize].file_name.clone().unwrap_or_default());
+        let name = with_fd(|fd| {
+            fd.vfd_cache[file as usize]
+                .file_name
+                .clone()
+                .unwrap_or_default()
+        });
         ereport(elevel)
             .with_saved_errno(en)
             .errmsg_internal(format!("could not close file \"{name}\": {PCT_M}"))
@@ -172,7 +185,11 @@ pub fn FileClose(file: File) -> PgResult<()> {
         let vfd_p = &mut fd.vfd_cache[file as usize];
         let fdstate = vfd_p.fdstate;
         if let Some(charge) = vfd_p.temp.take() {
-            match vfd_p.file_name.as_deref().filter(|_| fdstate & vfd::FD_TEMP_FOR_LIFE != 0) {
+            match vfd_p
+                .file_name
+                .as_deref()
+                .filter(|_| fdstate & vfd::FD_TEMP_FOR_LIFE != 0)
+            {
                 Some(name) => crate::vfd::named_temp_closed(name, &charge),
                 None => charge.shrink_to(0),
             }
@@ -346,7 +363,12 @@ pub fn FileRead(file: File, buf: &mut [u8], offset: i64, wait_event_info: u32) -
     FileReadV(file, &mut iov, offset, wait_event_info)
 }
 
-pub fn FileStartReadV(file: File, iovcnt: i32, offset: i64, _wait_event_info: u32) -> PgResult<i32> {
+pub fn FileStartReadV(
+    file: File,
+    iovcnt: i32,
+    offset: i64,
+    _wait_event_info: u32,
+) -> PgResult<i32> {
     let file = file.0;
     debug_assert!(with_fd(|fd| vfd::FileIsValid(fd, file)));
 
@@ -380,9 +402,10 @@ pub fn FileWriteV(
             let fdstate = fd.vfd_cache[file as usize].fdstate;
             let (temp_total, file_size) = match &fd.vfd_cache[file as usize].temp {
                 Some(charge) => charge.totals(),
-                None if fdstate & FD_TEMP_FILE_LIMIT != 0 => {
-                    (fd.temp_current().load(std::sync::atomic::Ordering::Relaxed), 0)
-                }
+                None if fdstate & FD_TEMP_FILE_LIMIT != 0 => (
+                    fd.temp_current().load(std::sync::atomic::Ordering::Relaxed),
+                    0,
+                ),
                 None => (0, 0),
             };
             Ok((rc, vfd_raw(fd, file), fdstate, file_size as i64, temp_total))
@@ -499,9 +522,8 @@ pub fn FileZero(file: File, offset: i64, amount: i64, wait_event_info: u32) -> P
 // unaligned buffer addresses with EINVAL.
 #[repr(align(4096))]
 pub(crate) struct IoAlignedBlock(pub(crate) [u8; BLCKSZ]);
-const _: () = assert!(
-    core::mem::align_of::<IoAlignedBlock>() == ::types_storage::bufpage::PG_IO_ALIGN_SIZE
-);
+const _: () =
+    assert!(core::mem::align_of::<IoAlignedBlock>() == ::types_storage::bufpage::PG_IO_ALIGN_SIZE);
 
 // common/file_utils.c pg_pwrite_zeros' `static const PGIOAlignedBlock zbuffer`:
 // I/O-aligned, or FileZero-backed zero-extension EINVALs under
@@ -692,7 +714,10 @@ pub fn FileTruncate(file: File, offset: i64, wait_event_info: u32) -> PgResult<i
 pub fn FilePathName(file: File) -> String {
     with_fd(|fd| {
         debug_assert!(vfd::FileIsValid(fd, file.0));
-        fd.vfd_cache[file.0 as usize].file_name.clone().expect("FilePathName on unused VFD")
+        fd.vfd_cache[file.0 as usize]
+            .file_name
+            .clone()
+            .expect("FilePathName on unused VFD")
     })
 }
 
@@ -785,11 +810,15 @@ mod zero_block_tests {
                 .lines()
                 .find(|l| {
                     let (a, z) = l.split(' ').next().unwrap().split_once('-').unwrap();
-                    (usize::from_str_radix(a, 16).unwrap()..usize::from_str_radix(z, 16).unwrap()).contains(&last)
+                    (usize::from_str_radix(a, 16).unwrap()..usize::from_str_radix(z, 16).unwrap())
+                        .contains(&last)
                 })
                 .unwrap_or_else(|| panic!("no mapping holds {last:#x}"));
             let f: Vec<&str> = line.split_whitespace().collect();
-            assert!(f[1].starts_with("rw") && (f.len() == 5 || f[5] == "[heap]"), "the zero block is mapped from the binary (.rodata / .data), not .bss: {line}");
+            assert!(
+                f[1].starts_with("rw") && (f.len() == 5 || f[5] == "[heap]"),
+                "the zero block is mapped from the binary (.rodata / .data), not .bss: {line}"
+            );
         }
     }
 }

@@ -17,7 +17,10 @@
 use crate::adaptor::{GBlock, GFunc, GInst, GValue, GravityAdaptor};
 use crate::view::VInst;
 use alloc::vec::Vec;
-use gravity_ir::{ConvOp, FloatBinOp, FloatCond, FloatUnOp, IntBinOp, IntCond, IntOvfOp, IntUnOp, Op, Terminator, Type, VecBinOp, VecShiftOp};
+use gravity_ir::{
+    ConvOp, FloatBinOp, FloatCond, FloatUnOp, IntBinOp, IntCond, IntOvfOp, IntUnOp, Op, Terminator,
+    Type, VecBinOp, VecShiftOp,
+};
 use tpde_assembler::SymRef;
 use tpde_compiler::{
     branches,
@@ -28,11 +31,12 @@ use tpde_compiler::{
 use tpde_compiler_x64::{
     calls,
     emission::{self, gp, xmm},
-    emit, encoding_error, regs, Jump, X64CompilerState, X64Frontend, CPU_POPCNT, CPU_SSE4_1, CPU_SSE4_2,
+    emit, encoding_error, regs, Jump, X64CompilerState, X64Frontend, CPU_POPCNT, CPU_SSE4_1,
+    CPU_SSE4_2,
 };
 use tpde_core::{
     compiler::{ValRefSpecial, ValueParts},
-    RegBank, Reg,
+    Reg, RegBank,
 };
 use tpde_fadec::*;
 use types_error::{PgError, PgResult, ERRCODE_INVALID_PARAMETER_VALUE};
@@ -61,11 +65,23 @@ impl ValueParts for Parts {
 
 fn parts_of(ty: Type) -> Parts {
     match ty {
-        Type::F32 => Parts { size: 4, bank: FP_BANK },
-        Type::F64 => Parts { size: 8, bank: FP_BANK },
+        Type::F32 => Parts {
+            size: 4,
+            bank: FP_BANK,
+        },
+        Type::F64 => Parts {
+            size: 8,
+            bank: FP_BANK,
+        },
         // A 128-bit vector is one XMM register (16-byte spill slot).
-        t if t.is_vector() => Parts { size: 16, bank: FP_BANK },
-        _ => Parts { size: 8, bank: GP_BANK },
+        t if t.is_vector() => Parts {
+            size: 16,
+            bank: FP_BANK,
+        },
+        _ => Parts {
+            size: 8,
+            bank: GP_BANK,
+        },
     }
 }
 
@@ -83,7 +99,10 @@ pub struct GravityFrontendX64 {
 impl GravityFrontendX64 {
     /// See `frontend::GravityFrontend::with_record`.
     pub fn with_record(record: bool) -> Self {
-        GravityFrontendX64 { record, ..Default::default() }
+        GravityFrontendX64 {
+            record,
+            ..Default::default()
+        }
     }
 }
 
@@ -127,7 +146,8 @@ impl<'p> X64Frontend<A<'p>> for GravityFrontendX64 {
         self.analysis_t0.set(crate::now_ns());
     }
     fn analysis_end(&mut self, _: &A<'p>) {
-        self.analysis_ns.set(self.analysis_ns.get() + (crate::now_ns() - self.analysis_t0.get()));
+        self.analysis_ns
+            .set(self.analysis_ns.get() + (crate::now_ns() - self.analysis_t0.get()));
     }
     fn cur_func_may_emit_calls(&self, adaptor: &A<'p>) -> bool {
         adaptor.view.has_calls
@@ -139,7 +159,12 @@ impl<'p> X64Frontend<A<'p>> for GravityFrontendX64 {
         assert_eq!(function.0, index);
     }
     fn try_force_fixed_assignment(&self, adaptor: &A<'p>, value: GValue) -> bool {
-        adaptor.view.force_fixed.get(value.0 as usize).copied().unwrap_or(false)
+        adaptor
+            .view
+            .force_fixed
+            .get(value.0 as usize)
+            .copied()
+            .unwrap_or(false)
     }
     const PHI_COALESCING: bool = true;
     const WEIGHTED_REGALLOC: bool = false;
@@ -149,7 +174,9 @@ impl<'p> X64Frontend<A<'p>> for GravityFrontendX64 {
     }
     fn regalloc_event(&self, adaptor: &A<'p>, event: RegallocEvent, block: GBlock) {
         if self.record {
-            self.events.borrow_mut().push(crate::RegEvent::new(adaptor, event, block));
+            self.events
+                .borrow_mut()
+                .push(crate::RegEvent::new(adaptor, event, block));
         }
     }
     fn allow_fixed_assignment(&self, adaptor: &A<'p>, _: GValue) -> bool {
@@ -161,14 +188,20 @@ impl<'p> X64Frontend<A<'p>> for GravityFrontendX64 {
     where
         A<'p>: 's,
         M: TargetMachine<'m, A<'p>, 2>,
-        M::Target: X64CompilerState<Frontend = Self> + CompilerTarget<A<'p>, 2, Special = Self::Special>,
+        M::Target:
+            X64CompilerState<Frontend = Self> + CompilerTarget<A<'p>, 2, Special = Self::Special>,
     {
         unreachable!("gravity has no special values")
     }
-    fn compile_inst<'m, M>(machine: &M, inst: GInst, _: impl Iterator<Item = GInst> + Clone) -> PgResult<bool>
+    fn compile_inst<'m, M>(
+        machine: &M,
+        inst: GInst,
+        _: impl Iterator<Item = GInst> + Clone,
+    ) -> PgResult<bool>
     where
         M: TargetMachine<'m, A<'p>, 2>,
-        M::Target: X64CompilerState<Frontend = Self> + CompilerTarget<A<'p>, 2, Special = Self::Special, Jump = Jump>,
+        M::Target: X64CompilerState<Frontend = Self>
+            + CompilerTarget<A<'p>, 2, Special = Self::Special, Jump = Jump>,
     {
         let adaptor = machine.adaptor();
         if let (Some(t), Some(j)) = (adaptor.jit_tag(inst), &adaptor.jit) {
@@ -195,7 +228,9 @@ impl<'p> X64Frontend<A<'p>> for GravityFrontendX64 {
 
 #[cold]
 fn invalid(message: &'static str) -> alloc::boxed::Box<PgError> {
-    PgError::error(message).with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE).into()
+    PgError::error(message)
+        .with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE)
+        .into()
 }
 
 macro_rules! insn {
@@ -240,7 +275,12 @@ where
 }
 
 /// Zero-extend `src` (canonical `ty`) into `dst`.
-fn zext_into<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, dst: Reg, src: Reg, ty: Type) -> PgResult<()>
+fn zext_into<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    dst: Reg,
+    src: Reg,
+    ty: Type,
+) -> PgResult<()>
 where
     M::Target: X64CompilerState,
 {
@@ -288,7 +328,12 @@ where
 }
 
 /// GP -> XMM move of `size` bytes (4 or 8).
-fn gp_to_fp<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, dst: Reg, src: Reg, size: u32) -> PgResult<()>
+fn gp_to_fp<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    dst: Reg,
+    src: Reg,
+    size: u32,
+) -> PgResult<()>
 where
     M::Target: X64CompilerState,
 {
@@ -300,7 +345,12 @@ where
 }
 
 /// XMM -> GP move of `size` bytes (4 or 8); the GP upper bits are zero.
-fn fp_to_gp<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, dst: Reg, src: Reg, size: u32) -> PgResult<()>
+fn fp_to_gp<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    dst: Reg,
+    src: Reg,
+    size: u32,
+) -> PgResult<()>
 where
     M::Target: X64CompilerState,
 {
@@ -334,7 +384,12 @@ where
     emission::generate_raw_set(machine, cc, dst, true)
 }
 
-fn cmov<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, cc: Jump, dst: Reg, src: Reg) -> PgResult<()>
+fn cmov<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    cc: Jump,
+    dst: Reg,
+    src: Reg,
+) -> PgResult<()>
 where
     M::Target: X64CompilerState,
 {
@@ -342,7 +397,12 @@ where
 }
 
 /// Unary op on one operand producing a result in a fresh (or reused) register.
-fn unary<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, a: GValue, result: GValue, emit: impl FnOnce(&M, Reg, Reg) -> PgResult<()>) -> PgResult<()>
+fn unary<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    a: GValue,
+    result: GValue,
+    emit: impl FnOnce(&M, Reg, Reg) -> PgResult<()>,
+) -> PgResult<()>
 where
     M::Target: X64CompilerState,
 {
@@ -358,7 +418,12 @@ where
 }
 
 /// Unary op whose result bank differs from the operand bank (never reuse).
-fn unary_cross<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, a: GValue, result: GValue, emit: impl FnOnce(&M, Reg, Reg) -> PgResult<()>) -> PgResult<()>
+fn unary_cross<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    a: GValue,
+    result: GValue,
+    emit: impl FnOnce(&M, Reg, Reg) -> PgResult<()>,
+) -> PgResult<()>
 where
     M::Target: X64CompilerState,
 {
@@ -374,7 +439,13 @@ where
 }
 
 /// Binary op; the result may reuse the first operand's register.
-fn binary<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, a: GValue, b: GValue, result: GValue, emit: impl FnOnce(&M, Reg, Reg, Reg) -> PgResult<()>) -> PgResult<()>
+fn binary<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    a: GValue,
+    b: GValue,
+    result: GValue,
+    emit: impl FnOnce(&M, Reg, Reg, Reg) -> PgResult<()>,
+) -> PgResult<()>
 where
     M::Target: X64CompilerState,
 {
@@ -393,7 +464,13 @@ where
 }
 
 /// Binary op whose result must not alias an operand.
-fn binary_fresh<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, a: GValue, b: GValue, result: GValue, emit: impl FnOnce(&M, Reg, Reg, Reg) -> PgResult<()>) -> PgResult<()>
+fn binary_fresh<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    a: GValue,
+    b: GValue,
+    result: GValue,
+    emit: impl FnOnce(&M, Reg, Reg, Reg) -> PgResult<()>,
+) -> PgResult<()>
 where
     M::Target: X64CompilerState,
 {
@@ -412,7 +489,14 @@ where
 }
 
 /// Two-address GP arithmetic: `rd = rn OP rm` through `mov rd, rn; op rd, rm`.
-fn two_addr_gp<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, rd: Reg, rn: Reg, rm: Reg, commutative: bool, op: impl FnOnce(&M, Reg, Reg) -> PgResult<()>) -> PgResult<()>
+fn two_addr_gp<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    rd: Reg,
+    rn: Reg,
+    rm: Reg,
+    commutative: bool,
+    op: impl FnOnce(&M, Reg, Reg) -> PgResult<()>,
+) -> PgResult<()>
 where
     M::Target: X64CompilerState,
 {
@@ -435,7 +519,14 @@ where
 }
 
 /// Two-address XMM arithmetic, same shape as `two_addr_gp`.
-fn two_addr_fp<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, rd: Reg, rn: Reg, rm: Reg, commutative: bool, op: impl FnOnce(&M, Reg, Reg) -> PgResult<()>) -> PgResult<()>
+fn two_addr_fp<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    rd: Reg,
+    rn: Reg,
+    rm: Reg,
+    commutative: bool,
+    op: impl FnOnce(&M, Reg, Reg) -> PgResult<()>,
+) -> PgResult<()>
 where
     M::Target: X64CompilerState,
 {
@@ -457,9 +548,15 @@ where
     }
 }
 
-fn compile_op<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, inst: GInst, op: &Op, result: Option<GValue>) -> PgResult<bool>
+fn compile_op<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    inst: GInst,
+    op: &Op,
+    result: Option<GValue>,
+) -> PgResult<bool>
 where
-    M::Target: CompilerTarget<A<'p>, 2, Jump = Jump> + X64CompilerState<Frontend = GravityFrontendX64>,
+    M::Target:
+        CompilerTarget<A<'p>, 2, Jump = Jump> + X64CompilerState<Frontend = GravityFrontendX64>,
 {
     let g = |v: gravity_ir::Value| GValue(v.0);
     match *op {
@@ -488,7 +585,18 @@ where
             let ty = ty_of(machine, g(a));
             // A no-wrap result already fits its type: canonicalizing as I64
             // is a no-op, so pass that as the canon type.
-            let cty = if machine.adaptor().view.nowrap.get(result.unwrap().0 as usize).copied().unwrap_or(false) { Type::I64 } else { ty };
+            let cty = if machine
+                .adaptor()
+                .view
+                .nowrap
+                .get(result.unwrap().0 as usize)
+                .copied()
+                .unwrap_or(false)
+            {
+                Type::I64
+            } else {
+                ty
+            };
             if let Some((k, cv)) = folded_imm_operand(machine, op) {
                 let w = bits(ty);
                 // The register operand is whichever side is not the folded
@@ -623,7 +731,9 @@ where
                 if op != ConvOp::Bitcast || !(from.is_vector() && to.is_vector()) {
                     return Err(invalid("gravity_tpde: a vector conversion other than a vector bitcast is not encoded"));
                 }
-                unary(machine, g(a), result.unwrap(), |m, rd, rn| mov_fp(m, rd, rn))?;
+                unary(machine, g(a), result.unwrap(), |m, rd, rn| {
+                    mov_fp(m, rd, rn)
+                })?;
                 return Ok(true);
             }
             compile_conv(machine, op, from, to, g(a), result.unwrap())?;
@@ -661,7 +771,12 @@ where
             }
             Ok(true)
         }
-        Op::Load { ty, ptr, offset, .. } | Op::LoadZext { ty, ptr, offset, .. } => {
+        Op::Load {
+            ty, ptr, offset, ..
+        }
+        | Op::LoadZext {
+            ty, ptr, offset, ..
+        } => {
             let p_ref = machine.value_ref(g(ptr))?;
             let mut pp = p_ref.part(0);
             let r_ref = machine.result_ref(result.unwrap())?;
@@ -669,7 +784,14 @@ where
             let base = pp.load_to_reg()?;
             let dst = rp.alloc_reg()?;
             let m = mem(base, offset)?;
-            let zext = matches!(op, Op::LoadZext { .. }) || machine.adaptor().view.load_zext.get(inst.0 as usize).copied().unwrap_or(false);
+            let zext = matches!(op, Op::LoadZext { .. })
+                || machine
+                    .adaptor()
+                    .view
+                    .load_zext
+                    .get(inst.0 as usize)
+                    .copied()
+                    .unwrap_or(false);
             match ty {
                 Type::I8 if zext => insn!(machine, fe64_MOVZXr32m8, gp(dst), m)?,
                 Type::I16 if zext => insn!(machine, fe64_MOVZXr32m16, gp(dst), m)?,
@@ -686,7 +808,9 @@ where
             rp.set_modified();
             Ok(true)
         }
-        Op::Store { ptr, offset, value, .. } => {
+        Op::Store {
+            ptr, offset, value, ..
+        } => {
             let ty = ty_of(machine, g(value));
             let p_ref = machine.value_ref(g(ptr))?;
             let mut pp = p_ref.part(0);
@@ -702,7 +826,11 @@ where
                 Type::I64 | Type::Ptr => insn!(machine, fe64_MOV64mr, m, gp(src))?,
                 Type::F32 => insn!(machine, fe64_SSE_MOVSSmr, m, xmm(src))?,
                 Type::F64 => insn!(machine, fe64_SSE_MOVSDmr, m, xmm(src))?,
-                _ => return Err(invalid("gravity_tpde: a vector store is `vstore` (simd.md)")),
+                _ => {
+                    return Err(invalid(
+                        "gravity_tpde: a vector store is `vstore` (simd.md)",
+                    ))
+                }
             }
             Ok(true)
         }
@@ -736,21 +864,39 @@ where
             // `crc32 r64, r64` accumulates in place: the result register
             // takes the accumulator first (it may reuse its register,
             // never the data's).
-            binary(machine, g(acc), g(data), result.unwrap(), |m, rd, rn, rm| {
-                mov_gp(m, rd, rn)?;
-                insn!(m, fe64_CRC32_64rr, gp(rd), gp(rm))
-            })?;
+            binary(
+                machine,
+                g(acc),
+                g(data),
+                result.unwrap(),
+                |m, rd, rn, rm| {
+                    mov_gp(m, rd, rn)?;
+                    insn!(m, fe64_CRC32_64rr, gp(rd), gp(rm))
+                },
+            )?;
             Ok(true)
         }
         Op::StackAddr { slot } => {
             let nv = machine.adaptor().view.num_values;
-            unary(machine, GValue(nv + slot.0), result.unwrap(), |m, rd, rn| mov_gp(m, rd, rn))?;
+            unary(
+                machine,
+                GValue(nv + slot.0),
+                result.unwrap(),
+                |m, rd, rn| mov_gp(m, rd, rn),
+            )?;
             Ok(true)
         }
-        Op::PtrAdd { base, index, scale, offset } => {
+        Op::PtrAdd {
+            base,
+            index,
+            scale,
+            offset,
+        } => {
             if let Some(k) = folded_imm(machine, op) {
                 // Constant index: `lea rd, [rn + k * scale + offset]`.
-                let total = k.wrapping_mul(i64::from(scale)).wrapping_add(i64::from(offset));
+                let total = k
+                    .wrapping_mul(i64::from(scale))
+                    .wrapping_add(i64::from(offset));
                 unary(machine, g(base), result.unwrap(), |m, rd, rn| {
                     if total == 0 {
                         mov_gp(m, rd, rn)
@@ -761,32 +907,53 @@ where
                 })?;
                 return Ok(true);
             }
-            binary_fresh(machine, g(base), g(index), result.unwrap(), |m, rd, rn, rm| {
-                if scale == 0 {
-                    if offset != 0 {
-                        let a = mem(rn, offset)?;
+            binary_fresh(
+                machine,
+                g(base),
+                g(index),
+                result.unwrap(),
+                |m, rd, rn, rm| {
+                    if scale == 0 {
+                        if offset != 0 {
+                            let a = mem(rn, offset)?;
+                            insn!(m, fe64_LEA64rm, gp(rd), a)
+                        } else {
+                            mov_gp(m, rd, rn)
+                        }
+                    } else if matches!(scale, 1 | 2 | 4 | 8) {
+                        let a = FE_MEM(gp(rn), scale, gp(rm), offset).map_err(encoding_error)?;
                         insn!(m, fe64_LEA64rm, gp(rd), a)
                     } else {
-                        mov_gp(m, rd, rn)
+                        insn!(m, fe64_IMUL64rri, gp(rd), gp(rm), i32::from(scale))?;
+                        let a = FE_MEM(gp(rn), 1, gp(rd), offset).map_err(encoding_error)?;
+                        insn!(m, fe64_LEA64rm, gp(rd), a)
                     }
-                } else if matches!(scale, 1 | 2 | 4 | 8) {
-                    let a = FE_MEM(gp(rn), scale, gp(rm), offset).map_err(encoding_error)?;
-                    insn!(m, fe64_LEA64rm, gp(rd), a)
-                } else {
-                    insn!(m, fe64_IMUL64rri, gp(rd), gp(rm), i32::from(scale))?;
-                    let a = FE_MEM(gp(rn), 1, gp(rd), offset).map_err(encoding_error)?;
-                    insn!(m, fe64_LEA64rm, gp(rd), a)
-                }
-            })?;
+                },
+            )?;
             Ok(true)
         }
         Op::Call { callee, ref args } => {
             let sym = machine.function_symbol(callee.0);
-            let ret_ty = machine.adaptor().program.funcs[callee.index()].returns.first().copied();
+            let ret_ty = machine.adaptor().program.funcs[callee.index()]
+                .returns
+                .first()
+                .copied();
             compile_call(machine, sym, args, result, ret_ty)?;
             Ok(true)
         }
-        Op::VecLoad { .. } | Op::VecStore { .. } | Op::VecBin { .. } | Op::VecShift { .. } | Op::VecCmp { .. } | Op::VecSelect { .. } | Op::VecReduceAdd { .. } | Op::VecMovmask { .. } | Op::VecSplat { .. } | Op::VecExtract { .. } | Op::VecInsert { .. } | Op::VecWiden { .. } | Op::VecNarrow { .. } => compile_vec_op(machine, op, result),
+        Op::VecLoad { .. }
+        | Op::VecStore { .. }
+        | Op::VecBin { .. }
+        | Op::VecShift { .. }
+        | Op::VecCmp { .. }
+        | Op::VecSelect { .. }
+        | Op::VecReduceAdd { .. }
+        | Op::VecMovmask { .. }
+        | Op::VecSplat { .. }
+        | Op::VecExtract { .. }
+        | Op::VecInsert { .. }
+        | Op::VecWiden { .. }
+        | Op::VecNarrow { .. } => compile_vec_op(machine, op, result),
         Op::CallHost { callee, ref args } => {
             let a = machine.adaptor();
             let sym = machine.function_symbol(a.host_func_index(callee.0));
@@ -816,23 +983,40 @@ fn folded_imm<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, op: &Op) -> O
 
 /// `folded_imm` with the constant's value: the frontend takes the other
 /// operand as the register source.
-fn folded_imm_operand<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, op: &Op) -> Option<(i64, gravity_ir::Value)> {
+fn folded_imm_operand<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    op: &Op,
+) -> Option<(i64, gravity_ir::Value)> {
     let a = machine.adaptor();
     let view = &a.view;
-    let cv = crate::view::imm_operand(a.func(), &view.const_of, op, a.rules).filter(|c| view.const_fused[c.index()])?;
+    let cv = crate::view::imm_operand(a.func(), &view.const_of, op, a.rules)
+        .filter(|c| view.const_fused[c.index()])?;
     let (cty, cbits) = view.const_of[cv.index()].unwrap();
     Some((crate::view::const_canon(cty, cbits), cv))
 }
 
-fn compile_call<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, sym: SymRef, args: &[gravity_ir::Value], result: Option<GValue>, ret_ty: Option<Type>) -> PgResult<()>
+fn compile_call<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    sym: SymRef,
+    args: &[gravity_ir::Value],
+    result: Option<GValue>,
+    ret_ty: Option<Type>,
+) -> PgResult<()>
 where
-    M::Target: CompilerTarget<A<'p>, 2, Jump = Jump> + X64CompilerState<Frontend = GravityFrontendX64>,
+    M::Target:
+        CompilerTarget<A<'p>, 2, Jump = Jump> + X64CompilerState<Frontend = GravityFrontendX64>,
 {
     let arguments = args.iter().map(|v| CallArg::new(GValue(v.0)));
     match result {
         Some(r) => {
             let mut r_ref = machine.result_ref(r)?;
-            calls::generate_call_iter(machine, CallTarget::Symbol(sym), arguments, Some(&mut r_ref), false)?;
+            calls::generate_call_iter(
+                machine,
+                CallTarget::Symbol(sym),
+                arguments,
+                Some(&mut r_ref),
+                false,
+            )?;
             // The callee does not promise canonical upper bits for narrow results.
             if let Some(ty) = ret_ty {
                 if matches!(ty, Type::Bool | Type::I8 | Type::I16 | Type::I32) {
@@ -850,13 +1034,26 @@ where
     Ok(())
 }
 
-fn compile_int_bin<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, op: IntBinOp, ty: Type, cty: Type, a: GValue, b: GValue, result: GValue) -> PgResult<()>
+fn compile_int_bin<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    op: IntBinOp,
+    ty: Type,
+    cty: Type,
+    a: GValue,
+    b: GValue,
+    result: GValue,
+) -> PgResult<()>
 where
     M::Target: X64CompilerState,
 {
     let w = bits(ty);
     match op {
-        IntBinOp::Add | IntBinOp::Sub | IntBinOp::Mul | IntBinOp::And | IntBinOp::Or | IntBinOp::Xor => binary(machine, a, b, result, |m, rd, rn, rm| {
+        IntBinOp::Add
+        | IntBinOp::Sub
+        | IntBinOp::Mul
+        | IntBinOp::And
+        | IntBinOp::Or
+        | IntBinOp::Xor => binary(machine, a, b, result, |m, rd, rn, rm| {
             two_addr_gp(m, rd, rn, rm, op != IntBinOp::Sub, |m, d, s| {
                 let (d, s) = (gp(d), gp(s));
                 match op {
@@ -869,21 +1066,27 @@ where
                 }
             })?;
             // Bool operands are 0/1, so and/or/xor results already are.
-            if ty == Type::Bool { Ok(()) } else { canon(m, rd, cty) }
+            if ty == Type::Bool {
+                Ok(())
+            } else {
+                canon(m, rd, cty)
+            }
         }),
         // canonical (sign-extended) operands order the same way at 64 bits, signed and unsigned
-        IntBinOp::Smin | IntBinOp::Smax | IntBinOp::Umin | IntBinOp::Umax => binary(machine, a, b, result, |m, rd, rn, rm| {
-            // `rd` may alias `rn` (reuse) but never `rm`
-            mov_gp(m, rd, rn)?;
-            insn!(m, fe64_CMP64rr, gp(rd), gp(rm))?;
-            let take_m = match op {
-                IntBinOp::Smin => Jump::jg,
-                IntBinOp::Smax => Jump::jl,
-                IntBinOp::Umin => Jump::ja,
-                _ => Jump::jb,
-            };
-            cmov(m, take_m, rd, rm)
-        }),
+        IntBinOp::Smin | IntBinOp::Smax | IntBinOp::Umin | IntBinOp::Umax => {
+            binary(machine, a, b, result, |m, rd, rn, rm| {
+                // `rd` may alias `rn` (reuse) but never `rm`
+                mov_gp(m, rd, rn)?;
+                insn!(m, fe64_CMP64rr, gp(rd), gp(rm))?;
+                let take_m = match op {
+                    IntBinOp::Smin => Jump::jg,
+                    IntBinOp::Smax => Jump::jl,
+                    IntBinOp::Umin => Jump::ja,
+                    _ => Jump::jb,
+                };
+                cmov(m, take_m, rd, rm)
+            })
+        }
         IntBinOp::Sdiv | IntBinOp::Srem | IntBinOp::Udiv | IntBinOp::Urem => {
             let signed = matches!(op, IntBinOp::Sdiv | IntBinOp::Srem);
             let rem = matches!(op, IntBinOp::Srem | IntBinOp::Urem);
@@ -1012,7 +1215,14 @@ where
     }
 }
 
-fn compile_int_ovf<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, op: IntOvfOp, ty: Type, a: GValue, b: GValue, result: GValue) -> PgResult<()>
+fn compile_int_ovf<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    op: IntOvfOp,
+    ty: Type,
+    a: GValue,
+    b: GValue,
+    result: GValue,
+) -> PgResult<()>
 where
     M::Target: X64CompilerState,
 {
@@ -1058,7 +1268,13 @@ where
     })
 }
 
-fn compile_int_un<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, op: IntUnOp, ty: Type, a: GValue, result: GValue) -> PgResult<()>
+fn compile_int_un<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    op: IntUnOp,
+    ty: Type,
+    a: GValue,
+    result: GValue,
+) -> PgResult<()>
 where
     M::Target: X64CompilerState,
 {
@@ -1160,7 +1376,11 @@ where
                 let (tg, kg) = (gp(t), gp(k));
                 mov_gp(m, rd, rn)?;
                 insn!(m, fe64_BSWAP64r, d)?;
-                for (sh, mask) in [(4i8, 0x0f0f_0f0f_0f0f_0f0fu64), (2, 0x3333_3333_3333_3333), (1, 0x5555_5555_5555_5555)] {
+                for (sh, mask) in [
+                    (4i8, 0x0f0f_0f0f_0f0f_0f0fu64),
+                    (2, 0x3333_3333_3333_3333),
+                    (1, 0x5555_5555_5555_5555),
+                ] {
                     mov_imm(m, k, mask)?;
                     insn!(m, fe64_MOV64rr, tg, d)?;
                     insn!(m, fe64_SHR64ri, tg, sh)?;
@@ -1198,7 +1418,14 @@ where
     })
 }
 
-fn compile_float_bin<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, op: FloatBinOp, ty: Type, a: GValue, b: GValue, result: GValue) -> PgResult<()>
+fn compile_float_bin<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    op: FloatBinOp,
+    ty: Type,
+    a: GValue,
+    b: GValue,
+    result: GValue,
+) -> PgResult<()>
 where
     M::Target: X64CompilerState,
 {
@@ -1280,7 +1507,13 @@ where
     }
 }
 
-fn compile_float_un<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, op: FloatUnOp, ty: Type, a: GValue, result: GValue) -> PgResult<()>
+fn compile_float_un<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    op: FloatUnOp,
+    ty: Type,
+    a: GValue,
+    result: GValue,
+) -> PgResult<()>
 where
     M::Target: X64CompilerState,
 {
@@ -1322,7 +1555,9 @@ where
             }
             FloatUnOp::Ceil | FloatUnOp::Floor | FloatUnOp::Trunc | FloatUnOp::Nearest => {
                 if !sse41 {
-                    return Err(invalid("gravity_tpde: float rounding needs SSE4.1 (x86-64-v2)"));
+                    return Err(invalid(
+                        "gravity_tpde: float rounding needs SSE4.1 (x86-64-v2)",
+                    ));
                 }
                 // Bit 3 suppresses precision exceptions; bits 0-1 pick the mode.
                 let imm: i8 = match op {
@@ -1341,9 +1576,17 @@ where
     })
 }
 
-fn compile_conv<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, op: ConvOp, from: Type, to: Type, a: GValue, result: GValue) -> PgResult<()>
+fn compile_conv<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    op: ConvOp,
+    from: Type,
+    to: Type,
+    a: GValue,
+    result: GValue,
+) -> PgResult<()>
 where
-    M::Target: CompilerTarget<A<'p>, 2, Jump = Jump> + X64CompilerState<Frontend = GravityFrontendX64>,
+    M::Target:
+        CompilerTarget<A<'p>, 2, Jump = Jump> + X64CompilerState<Frontend = GravityFrontendX64>,
 {
     let same_bank = from.is_float() == to.is_float();
     let emit_mov = |m: &M, rd: Reg, rn: Reg| -> PgResult<()> {
@@ -1416,7 +1659,15 @@ where
             let t = f2.alloc(FP_BANK)?;
             let small = m.label_create()?;
             let done = m.label_create()?;
-            mov_imm(m, g, if from == Type::F64 { 0x43e0_0000_0000_0000 } else { 0x5f00_0000 })?;
+            mov_imm(
+                m,
+                g,
+                if from == Type::F64 {
+                    0x43e0_0000_0000_0000
+                } else {
+                    0x5f00_0000
+                },
+            )?;
             gp_to_fp(m, k, g, size)?;
             if from == Type::F64 {
                 insn!(m, fe64_SSE_UCOMISDrr, xmm(rn), xmm(k))?;
@@ -1455,7 +1706,12 @@ where
 }
 
 /// Signed 64-bit integer to float.
-fn cvt_si2f<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(m: &M, rd: Reg, rn: Reg, to: Type) -> PgResult<()>
+fn cvt_si2f<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    m: &M,
+    rd: Reg,
+    rn: Reg,
+    to: Type,
+) -> PgResult<()>
 where
     M::Target: X64CompilerState,
 {
@@ -1467,7 +1723,12 @@ where
 }
 
 /// Float to signed 64-bit integer, truncating.
-fn cvt_f2si<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(m: &M, rd: Reg, rn: Reg, from: Type) -> PgResult<()>
+fn cvt_f2si<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    m: &M,
+    rd: Reg,
+    rn: Reg,
+    from: Type,
+) -> PgResult<()>
 where
     M::Target: X64CompilerState,
 {
@@ -1480,11 +1741,15 @@ where
 
 fn compile_term<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, block: u32) -> PgResult<bool>
 where
-    M::Target: CompilerTarget<A<'p>, 2, Jump = Jump> + X64CompilerState<Frontend = GravityFrontendX64>,
+    M::Target:
+        CompilerTarget<A<'p>, 2, Jump = Jump> + X64CompilerState<Frontend = GravityFrontendX64>,
 {
     let adaptor = machine.adaptor();
     let func = adaptor.func();
-    let succs = mcx::to_vec_in(&adaptor.view.blocks[block as usize].succs, adaptor.view.mcx());
+    let succs = mcx::to_vec_in(
+        &adaptor.view.blocks[block as usize].succs,
+        adaptor.view.mcx(),
+    );
     match &func.blocks[block as usize].term {
         Terminator::Br(_) => {
             branches::generate_uncond_branch(machine, GBlock(succs[0]))?;
@@ -1552,7 +1817,11 @@ where
                         let mut bp = b_ref.part(0);
                         let rb = bp.load_to_reg()?;
                         let cond = f.fcond.unwrap();
-                        let (x, y) = if matches!(cond, FloatCond::Lt | FloatCond::Le) { (rb, ra) } else { (ra, rb) };
+                        let (x, y) = if matches!(cond, FloatCond::Lt | FloatCond::Le) {
+                            (rb, ra)
+                        } else {
+                            (ra, rb)
+                        };
                         if f.is_f64 {
                             insn!(machine, fe64_SSE_UCOMISDrr, xmm(x), xmm(y))?;
                         } else {
@@ -1604,14 +1873,31 @@ where
                 let reg = vp.load_to_reg()?;
                 mov_gp(machine, sreg, reg)?;
             }
-            let table: mcx::PgVec<(u64, GBlock)> = mcx::CollectIn::collect_in(cases.iter().enumerate().map(|(i, c)| (c.value, GBlock(succs[i]))), adaptor.view.mcx());
-            branches::generate_switch(machine, scratch, bits(ty), GBlock(succs[cases.len()]), &table)?;
+            let table: mcx::PgVec<(u64, GBlock)> = mcx::CollectIn::collect_in(
+                cases
+                    .iter()
+                    .enumerate()
+                    .map(|(i, c)| (c.value, GBlock(succs[i]))),
+                adaptor.view.mcx(),
+            );
+            branches::generate_switch(
+                machine,
+                scratch,
+                bits(ty),
+                GBlock(succs[cases.len()]),
+                &table,
+            )?;
         }
         Terminator::Return(values) => {
             // System V returns in RAX:RDX and XMM0:XMM1; TPDE asserts past that.
-            let fp = values.iter().filter(|v| ty_of(machine, GValue(v.0)).is_float()).count();
+            let fp = values
+                .iter()
+                .filter(|v| ty_of(machine, GValue(v.0)).is_float())
+                .count();
             if values.len() - fp > 2 || fp > 2 {
-                return Err(invalid("gravity_tpde: System V returns at most two values per register class"));
+                return Err(invalid(
+                    "gravity_tpde: System V returns at most two values per register class",
+                ));
             }
             machine.with_cur_cc_assigner(|assigner| {
                 let mut builder = RetBuilder::new(machine, assigner);
@@ -1709,7 +1995,13 @@ where
 }
 
 /// `d = d OP s` for the ops with one SSE instruction.
-fn vec_bin_insn<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(m: &M, op: VecBinOp, lane: Type, d: Reg, s: Reg) -> PgResult<()>
+fn vec_bin_insn<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    m: &M,
+    op: VecBinOp,
+    lane: Type,
+    d: Reg,
+    s: Reg,
+) -> PgResult<()>
 where
     M::Target: X64CompilerState,
 {
@@ -1746,12 +2038,20 @@ where
         (VecBinOp::Smax, Type::I8) => insn!(m, fe64_SSE_PMAXSBrr, d, s),
         (VecBinOp::Umin, Type::I8) => insn!(m, fe64_SSE_PMINUBrr, d, s),
         (VecBinOp::Umax, Type::I8) => insn!(m, fe64_SSE_PMAXUBrr, d, s),
-        _ => Err(invalid("gravity_tpde: vector op has no SSE form for this lane type")),
+        _ => Err(invalid(
+            "gravity_tpde: vector op has no SSE form for this lane type",
+        )),
     }
 }
 
 /// `x <<= k` / `x >>= k` (logical / arithmetic) on 16/32/64-bit lanes.
-fn vec_shift_insn<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(m: &M, op: VecShiftOp, lane: Type, x: Reg, k: i8) -> PgResult<()>
+fn vec_shift_insn<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    m: &M,
+    op: VecShiftOp,
+    lane: Type,
+    x: Reg,
+    k: i8,
+) -> PgResult<()>
 where
     M::Target: X64CompilerState,
 {
@@ -1770,7 +2070,13 @@ where
 }
 
 /// `rd = mask ? p : q` with `mask` clobbered (`rd` aliases none of them).
-fn vec_blend<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(m: &M, rd: Reg, mask: Reg, p: Reg, q: Reg) -> PgResult<()>
+fn vec_blend<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    m: &M,
+    rd: Reg,
+    mask: Reg,
+    p: Reg,
+    q: Reg,
+) -> PgResult<()>
 where
     M::Target: X64CompilerState,
 {
@@ -1807,9 +2113,14 @@ where
     insn!(m, fe64_SSE_PSRLWri, xmm(x), 15)
 }
 
-fn compile_vec_op<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, op: &Op, result: Option<GValue>) -> PgResult<bool>
+fn compile_vec_op<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    op: &Op,
+    result: Option<GValue>,
+) -> PgResult<bool>
 where
-    M::Target: CompilerTarget<A<'p>, 2, Jump = Jump> + X64CompilerState<Frontend = GravityFrontendX64>,
+    M::Target:
+        CompilerTarget<A<'p>, 2, Jump = Jump> + X64CompilerState<Frontend = GravityFrontendX64>,
 {
     let g = |v: gravity_ir::Value| GValue(v.0);
     if !has_feat(machine, VEC_FEATS) {
@@ -1828,7 +2139,9 @@ where
             rp.set_modified();
             Ok(true)
         }
-        Op::VecStore { ptr, offset, value, .. } => {
+        Op::VecStore {
+            ptr, offset, value, ..
+        } => {
             let p_ref = machine.value_ref(g(ptr))?;
             let mut pp = p_ref.part(0);
             let v_ref = machine.value_ref(g(value))?;
@@ -1839,7 +2152,11 @@ where
             insn!(machine, fe64_SSE_MOVDQUmr, a, xmm(src))?;
             Ok(true)
         }
-        Op::VecBin { op: bop @ (VecBinOp::Smin | VecBinOp::Smax | VecBinOp::Umin | VecBinOp::Umax), a, b } if ty_of(machine, g(a)).lane() == Type::I64 => {
+        Op::VecBin {
+            op: bop @ (VecBinOp::Smin | VecBinOp::Smax | VecBinOp::Umin | VecBinOp::Umax),
+            a,
+            b,
+        } if ty_of(machine, g(a)).lane() == Type::I64 => {
             // no 64-bit min / max below AVX-512: `pcmpgtq` (biased for the
             // unsigned forms) into a mask, then the blend
             binary_fresh(machine, g(a), g(b), result.unwrap(), |m, rd, rn, rm| {
@@ -1866,7 +2183,11 @@ where
             })?;
             Ok(true)
         }
-        Op::VecBin { op: VecBinOp::Mul, a, b } if ty_of(machine, g(a)).lane() == Type::I8 => {
+        Op::VecBin {
+            op: VecBinOp::Mul,
+            a,
+            b,
+        } if ty_of(machine, g(a)).lane() == Type::I8 => {
             // no byte multiply: the odd bytes through `psrlw 8` + `pmullw` +
             // `psllw 8`, the even ones as the low byte of `pmullw`
             binary_fresh(machine, g(a), g(b), result.unwrap(), |m, rd, rn, rm| {
@@ -1892,7 +2213,11 @@ where
         Op::VecBin { op: bop, a, b } => {
             let lane = ty_of(machine, g(a)).lane();
             let commutative = bop != VecBinOp::Sub;
-            binary(machine, g(a), g(b), result.unwrap(), |m, rd, rn, rm| two_addr_fp(m, rd, rn, rm, commutative, |m, d, s| vec_bin_insn(m, bop, lane, d, s)))?;
+            binary(machine, g(a), g(b), result.unwrap(), |m, rd, rn, rm| {
+                two_addr_fp(m, rd, rn, rm, commutative, |m, d, s| {
+                    vec_bin_insn(m, bop, lane, d, s)
+                })
+            })?;
             Ok(true)
         }
         Op::VecShift { op: sop, a, count } => {
@@ -2120,7 +2445,9 @@ where
         Op::VecSplat { ty, a } => {
             let lane = ty.lane();
             if lane.is_float() {
-                unary(machine, g(a), result.unwrap(), |m, rd, rn| pshufd(m, rd, rn, if lane == Type::F64 { 0x44 } else { 0x00 }))?;
+                unary(machine, g(a), result.unwrap(), |m, rd, rn| {
+                    pshufd(m, rd, rn, if lane == Type::F64 { 0x44 } else { 0x00 })
+                })?;
             } else {
                 unary_cross(machine, g(a), result.unwrap(), |m, rd, rn| {
                     match lane {
@@ -2193,7 +2520,11 @@ where
                 Type::I32 => insn!(machine, fe64_SSE_PINSRDrri, xmm(rd), gp(xr), i)?,
                 Type::I16 => insn!(machine, fe64_SSE_PINSRWrri, xmm(rd), gp(xr), i)?,
                 Type::I8 => insn!(machine, fe64_SSE_PINSRBrri, xmm(rd), gp(xr), i)?,
-                _ => return Err(invalid("gravity_tpde: vinsert of a float lane is not encoded")),
+                _ => {
+                    return Err(invalid(
+                        "gravity_tpde: vinsert of a float lane is not encoded",
+                    ))
+                }
             }
             rp.set_modified();
             Ok(true)

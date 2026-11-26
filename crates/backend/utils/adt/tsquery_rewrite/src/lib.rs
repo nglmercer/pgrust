@@ -1,7 +1,7 @@
 //! tsquery_rewrite.c — ts_rewrite over the tsquery_core QTNode machinery.
 
 use ::adt_tsquery_core::util::{
-    qt2qtn, qtn2qt, qtn_clear_flags, qtn_copy, qtn_sort, qtn_ternary, qtn_eq, qtnode_compare,
+    qt2qtn, qtn2qt, qtn_clear_flags, qtn_copy, qtn_eq, qtn_sort, qtn_ternary, qtnode_compare,
     QtNode, QTN_NOCHANGE,
 };
 use ::adt_tsvector_core::builtins::arg_tsquery;
@@ -9,8 +9,7 @@ use ::adt_tsvector_core::query::{Item, TsQueryRef, OP_NOT};
 use ::datum::Datum;
 use ::mcx::{vec_with_capacity_in, Mcx, PgVec};
 use ::types_error::{PgError, PgResult, ERRCODE_INVALID_PARAMETER_VALUE};
-use ::types_fmgr::{
-    varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, };
+use ::types_fmgr::{varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 
 const TSQUERYOID: ::types_core::Oid = 3615;
 
@@ -46,7 +45,9 @@ fn findeq<'mcx>(
                 // AND/OR are commutative/associative: match a subset of the
                 // (sorted) children in one merge pass.
                 let mut matched = Vec::new();
-                matched.try_reserve_exact(node.children.len()).map_err(|_| ::mcx::oom_named("tsquery", node.children.len()))?;
+                matched
+                    .try_reserve_exact(node.children.len())
+                    .map_err(|_| ::mcx::oom_named("tsquery", node.children.len()))?;
                 matched.resize(node.children.len(), false);
                 let mut nmatched = 0usize;
                 let (mut i, mut j) = (0usize, 0usize);
@@ -212,7 +213,11 @@ pub fn fc_tsquery_rewrite(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -
 
     let tree = prepared_tree(mcx, query)?;
     let qex = prepared_tree(mcx, ex)?;
-    let subs = if subst.size() != 0 { Some(qt2qtn(mcx, subst, 0)?) } else { None };
+    let subs = if subst.size() != 0 {
+        Some(qt2qtn(mcx, subst, 0)?)
+    } else {
+        None
+    };
 
     let tree = findsubquery(mcx, tree, &qex, subs.as_ref())?;
     finish_tree(mcx, tree)
@@ -232,7 +237,9 @@ impl RuleImage<'_, '_> {
             RuleImage::Flat(s) => s,
             RuleImage::Detoasted(v) => v.as_slice(),
         };
-        TsQueryRef { payload: &flat[::types_tuple::varatt::VARHDRSZ..] }
+        TsQueryRef {
+            payload: &flat[::types_tuple::varatt::VARHDRSZ..],
+        }
     }
 }
 
@@ -322,8 +329,11 @@ pub fn fc_tsquery_rewrite_query(
                         continue;
                     }
                     let qex = prepared_tree(mcx, qtex)?;
-                    let qsubs =
-                        if qtsubs.size() != 0 { Some(qt2qtn(mcx, qtsubs, 0)?) } else { None };
+                    let qsubs = if qtsubs.size() != 0 {
+                        Some(qt2qtn(mcx, qtsubs, 0)?)
+                    } else {
+                        None
+                    };
                     *tree = findsubquery(mcx, tree.take().expect("tree"), &qex, qsubs.as_ref())?;
                     if let Some(t) = tree.as_mut() {
                         // Ready the tree for another pass.
@@ -358,7 +368,9 @@ mod tests {
     use super::*;
 
     fn tree<'mcx>(mcx: ::mcx::Mcx<'mcx>, text: &str) -> QtNode<'mcx> {
-        let img = ::adt_tsquery_core::io::tsquery_in_core(mcx, text.as_bytes(), None).unwrap().unwrap();
+        let img = ::adt_tsquery_core::io::tsquery_in_core(mcx, text.as_bytes(), None)
+            .unwrap()
+            .unwrap();
         prepared_tree(mcx, TsQueryRef { payload: &img[4..] }).unwrap()
     }
 
@@ -370,7 +382,8 @@ mod tests {
             }
             None => empty_tsquery(mcx).unwrap(),
         };
-        let out = ::adt_tsquery_core::io::tsquery_out_core(mcx, TsQueryRef { payload: &img[4..] }).unwrap();
+        let out = ::adt_tsquery_core::io::tsquery_out_core(mcx, TsQueryRef { payload: &img[4..] })
+            .unwrap();
         String::from_utf8(out[..out.len() - 1].to_vec()).unwrap()
     }
 
@@ -382,13 +395,22 @@ mod tests {
         let mcx = ctx.mcx();
         let q = tree(mcx, "a | b | c | d | e | f | g | h");
         let buf = q.children.as_ptr();
-        let q = findsubquery(mcx, q, &tree(mcx, "zz"), Some(&tree(mcx, "zz | yy"))).unwrap().unwrap();
+        let q = findsubquery(mcx, q, &tree(mcx, "zz"), Some(&tree(mcx, "zz | yy")))
+            .unwrap()
+            .unwrap();
         assert_eq!(q.children.as_ptr(), buf);
-        let q = findsubquery(mcx, q, &tree(mcx, "c"), Some(&tree(mcx, "c & x"))).unwrap().unwrap();
+        let q = findsubquery(mcx, q, &tree(mcx, "c"), Some(&tree(mcx, "c & x")))
+            .unwrap()
+            .unwrap();
         assert_eq!(q.children.as_ptr(), buf);
-        let q = findsubquery(mcx, q, &tree(mcx, "d | e"), Some(&tree(mcx, "y"))).unwrap().unwrap();
+        let q = findsubquery(mcx, q, &tree(mcx, "d | e"), Some(&tree(mcx, "y")))
+            .unwrap()
+            .unwrap();
         assert_eq!(q.children.as_ptr(), buf);
-        assert_eq!(printed(mcx, Some(q)), "'a' | 'y' | 'g' | 'b' | 'f' | 'h' | 'c' & 'x'");
+        assert_eq!(
+            printed(mcx, Some(q)),
+            "'a' | 'y' | 'g' | 'b' | 'f' | 'h' | 'c' & 'x'"
+        );
         let q = findsubquery(mcx, tree(mcx, "a | b"), &tree(mcx, "a"), None).unwrap();
         assert_eq!(printed(mcx, q), "'b'");
     }

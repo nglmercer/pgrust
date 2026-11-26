@@ -54,7 +54,10 @@ crate::strategies! {
     KEY_CARRY = 136, "key.carry", JoinFoldVarlena;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(KEY_DEPENDENT, &()), (KEY_CARRY, &())], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(KEY_DEPENDENT, &()), (KEY_CARRY, &())],
+    ..crate::ops::NONE
+};
 
 /// A group keyed through a build's join key (`find`): the build (`UniqueKey`, frame::iface; the carried form's never
 /// skips) and the dependent keys (bit i: key i), each a column of that build's row its records keep as a code (`each`).
@@ -74,30 +77,64 @@ impl Dep {
 pub(crate) fn find(px: &mut Px<'_, '_>, g: &GroupDecl<'_>) -> Option<Dep> {
     let gx = px.gx;
     let q = g.producer.0 as usize;
-    let on = |px: &Px<'_, '_>, r| px.strategies.has(r) && crate::face::source::on(crate::admit::refusal::Variant::Strategy(r));
+    let on = |px: &Px<'_, '_>, r| {
+        px.strategies.has(r) && crate::face::source::on(crate::admit::refusal::Variant::Strategy(r))
+    };
     let (road, carry) = (on(px, KEY_DEPENDENT), on(px, KEY_CARRY));
     // a top over the groups (runs.topk_groups) compares records' key words; a later sort reads the emitted cells' renders
-    let topped = gx.drainers(g).first().is_some_and(|&k| gx.end_need(k) == crate::face::kinds::KindId::RunsTopkGroups);
-    let streamed = gx.pipelines()[q].ops.iter().any(|op| matches!(op, Op::GroupRun(_)));
+    let topped = gx
+        .drainers(g)
+        .first()
+        .is_some_and(|&k| gx.end_need(k) == crate::face::kinds::KindId::RunsTopkGroups);
+    let streamed = gx.pipelines()[q]
+        .ops
+        .iter()
+        .any(|op| matches!(op, Op::GroupRun(_)));
     // D4620: a cascade's base's records are rewritten key by key (a set's NULL columns): every key keeps its image
-    if !(road || carry) || crate::ops::agg::cascade::base_group(gx, g) || g.form != GroupForm::Hashed || g.two_pass.is_some() || g.set.is_some() || g.keys.len() > u64::BITS as usize ||gx.group_at(q).is_none_or(|x| x.slot != g.slot) || streamed {
+    if !(road || carry)
+        || crate::ops::agg::cascade::base_group(gx, g)
+        || g.form != GroupForm::Hashed
+        || g.two_pass.is_some()
+        || g.set.is_some()
+        || g.keys.len() > u64::BITS as usize
+        || gx.group_at(q).is_none_or(|x| x.slot != g.slot)
+        || streamed
+    {
         return None;
     }
-    for kd in g.keys.iter().filter(|kd| road && matches!(kd.kind, KeyKind::I32 | KeyKind::I64) && kd.resno > 0) {
-        let Some(u) = crate::frame::iface::unique_build_key(px, q, kd.resno) else { continue };
+    for kd in g
+        .keys
+        .iter()
+        .filter(|kd| road && matches!(kd.kind, KeyKind::I32 | KeyKind::I64) && kd.resno > 0)
+    {
+        let Some(u) = crate::frame::iface::unique_build_key(px, q, kd.resno) else {
+            continue;
+        };
         let mut mask = 0u64;
         each(px, g, &u, |i, _, _, _| mask |= 1 << i);
         // a top over the groups orders by finals, or (`ORDER BY sum(..) DESC, t.tenant_id LIMIT 20`) by keys that keep
         // their image too: never by a key that leaves it
-        let kept = |r: i16| g.keys.iter().position(|k| k.resno == r).is_some_and(|i| i >= u64::BITS as usize || mask >> i & 1 == 0);
+        let kept = |r: i16| {
+            g.keys
+                .iter()
+                .position(|k| k.resno == r)
+                .is_some_and(|i| i >= u64::BITS as usize || mask >> i & 1 == 0)
+        };
         if mask != 0 && (!topped || crate::frame::iface::top_reads_finals_and(gx, g, kept)) {
             fires::fire("key.dependent"); // shapecheck fire signal (D3324 (b)): text keys of a unique build key's row leave the image
             return Some(Dep { u, mask });
         }
     }
     // the carried form: the first text key's build row, with every key of that row's code lanes (one build per group)
-    for kd in g.keys.iter().filter(|kd| carry && kd.kind == KeyKind::Fp128 && kd.resno > 0 && (!topped || crate::frame::iface::top_reads_finals(gx, g))) {
-        let Some(u) = crate::frame::iface::build_row(px, q, kd.resno) else { continue };
+    for kd in g.keys.iter().filter(|kd| {
+        carry
+            && kd.kind == KeyKind::Fp128
+            && kd.resno > 0
+            && (!topped || crate::frame::iface::top_reads_finals(gx, g))
+    }) {
+        let Some(u) = crate::frame::iface::build_row(px, q, kd.resno) else {
+            continue;
+        };
         let mut mask = 0u64;
         each(px, g, &u, |i, _, _, _| mask |= 1 << i);
         if mask != 0 {
@@ -110,10 +147,20 @@ pub(crate) fn find(px: &mut Px<'_, '_>, g: &GroupDecl<'_>) -> Option<Dep> {
 
 /// Each key of `g` that is a text column of `u`'s build row the build keeps as a code (frame::iface `build_code_col`), with
 /// its INNER_VAR attno, its column in the producer's row and its code rep; a key an aggregate also reads is not one.
-pub(crate) fn each(px: &mut Px<'_, '_>, g: &GroupDecl<'_>, u: &UniqueKey, mut f: impl FnMut(usize, i16, i16, Rep)) {
+pub(crate) fn each(
+    px: &mut Px<'_, '_>,
+    g: &GroupDecl<'_>,
+    u: &UniqueKey,
+    mut f: impl FnMut(usize, i16, i16, Rep),
+) {
     let (gx, q) = (px.gx, g.producer.0 as usize);
     for (i, k) in g.keys.iter().enumerate().take(u64::BITS as usize) {
-        if k.kind != KeyKind::Fp128 || k.resno <= 0 || k.rep == NONE || !gx.facts.coll(k.coll).bytes_eq || agg_reads(g, k.resno) {
+        if k.kind != KeyKind::Fp128
+            || k.resno <= 0
+            || k.rep == NONE
+            || !gx.facts.coll(k.coll).bytes_eq
+            || agg_reads(g, k.resno)
+        {
             continue;
         }
         let bp = crate::dict::coderep::sk_bpchar(gx, k.tf) != 0;
@@ -125,22 +172,37 @@ pub(crate) fn each(px: &mut Px<'_, '_>, g: &GroupDecl<'_>, u: &UniqueKey, mut f:
 
 /// Whether an aggregate or its FILTER reads column `col` of the group's row (it would read the build row's code, not text).
 fn agg_reads(g: &GroupDecl<'_>, col: i16) -> bool {
-    g.aggs.iter().flat_map(|a| [Some(a.node), a.filter]).flatten().any(|n| {
-        let mut hit = false;
-        let known = gravity_decompose::expr::walk(n, &mut |x| {
-            hit |= x.as_var().is_some_and(|v| v.varno == OUTER_VAR && v.varlevelsup == 0 && v.varattno == col);
-            true
-        });
-        hit || !known
-    })
+    g.aggs
+        .iter()
+        .flat_map(|a| [Some(a.node), a.filter])
+        .flatten()
+        .any(|n| {
+            let mut hit = false;
+            let known = gravity_decompose::expr::walk(n, &mut |x| {
+                hit |= x.as_var().is_some_and(|v| {
+                    v.varno == OUTER_VAR && v.varlevelsup == 0 && v.varattno == col
+                });
+                true
+            });
+            hit || !known
+        })
 }
 
 /// Whether INNER_VAR column `a` is one projection op `j` of pipeline `k` hands on as the build row's code cell: a
 /// dependent key's column, where the op before `j` is the probe `find` names.
 pub(crate) fn forwards(px: &mut Px<'_, '_>, k: usize, j: usize, a: i16) -> bool {
-    let Some(g) = px.gx.group_at(k) else { return false };
-    let Some(i) = px.gx.pipelines()[k].ops[..j].iter().rposition(|op| !matches!(op, Op::Filter(_))) else { return false };
-    let Some(d) = find(px, g).filter(|d| d.u.j == i) else { return false };
+    let Some(g) = px.gx.group_at(k) else {
+        return false;
+    };
+    let Some(i) = px.gx.pipelines()[k].ops[..j]
+        .iter()
+        .rposition(|op| !matches!(op, Op::Filter(_)))
+    else {
+        return false;
+    };
+    let Some(d) = find(px, g).filter(|d| d.u.j == i) else {
+        return false;
+    };
     let mut hit = false;
     each(px, g, &d.u, |i, attno, _, _| hit |= d.has(i) && attno == a);
     hit

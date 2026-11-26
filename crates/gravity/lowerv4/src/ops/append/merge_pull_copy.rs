@@ -23,19 +23,53 @@ pub(crate) struct Buf {
 /// Both words start at 0 (no buffer) at every open.
 pub(crate) fn open_words(w: &mut OpenWords, bufs: &[Buf]) {
     for x in bufs {
-        w.declare(OpenWord::open("merge pull copy", Base::Words, x.w_ptr, Type::I64, 0));
-        w.declare(OpenWord::open("merge pull copy cap", Base::Words, x.w_cap, Type::I64, 0));
+        w.declare(OpenWord::open(
+            "merge pull copy",
+            Base::Words,
+            x.w_ptr,
+            Type::I64,
+            0,
+        ));
+        w.declare(OpenWord::open(
+            "merge pull copy cap",
+            Base::Words,
+            x.w_cap,
+            Type::I64,
+            0,
+        ));
     }
 }
 
 /// `datum`'s copy in buffer `x` (0 for a NULL `datum`, whose caller passes 0); a failed detoast or pin raises HOST.
 pub(crate) fn copy(b: &mut FunctionBuilder<'_>, env: &mut Env, x: Buf, datum: Value) -> Value {
-    let h = b.declare_host_once("pull_copy", &[Type::Ptr, Type::Ptr, Type::I64], Some(Type::I64), crate::ops::append::raw::pull_copy as *const () as usize, HostFlags { may_error: true, touches_memory: true, ..HostFlags::default() });
-    let Some(words) = env.words else { crate::refuse!(env.node, crate::admit::refusal::Reason::Bug { payload: "a merge copy without the words site" }) };
+    let h = b.declare_host_once(
+        "pull_copy",
+        &[Type::Ptr, Type::Ptr, Type::I64],
+        Some(Type::I64),
+        crate::ops::append::raw::pull_copy as *const () as usize,
+        HostFlags {
+            may_error: true,
+            touches_memory: true,
+            ..HostFlags::default()
+        },
+    );
+    let Some(words) = env.words else {
+        crate::refuse!(
+            env.node,
+            crate::admit::refusal::Reason::Bug {
+                payload: "a merge copy without the words site"
+            }
+        )
+    };
     let at = b.ptr_add(words, env.zero, 1, x.w_ptr);
-    let w = b.call_host(h, &[env.ctx, at, datum], Some(Type::I64)).expect("returns the copy");
+    let w = b
+        .call_host(h, &[env.ctx, at, datum], Some(Type::I64))
+        .expect("returns the copy");
     let (failed, l_ok) = (b.icmp(IntCond::Slt, w, env.zero), b.create_block(&[]));
-    let e = b.iconst(Type::I64, gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64);
+    let e = b.iconst(
+        Type::I64,
+        gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64,
+    );
     b.cond_br(failed, (env.l_raise, &[e]), (l_ok, &[]));
     b.switch_to(l_ok);
     w
@@ -44,14 +78,43 @@ pub(crate) fn copy(b: &mut FunctionBuilder<'_>, env: &mut Env, x: Buf, datum: Va
 /// `datum`'s fixed-width image of `len` bytes (a name, a uuid: a by-reference type of a fixed length) copied into buffer
 /// `x`, the copy's address the held word (0 for a NULL `datum`); a failed pin raises HOST (ops/append/raw.rs
 /// `PullCopyFixed`).
-pub(crate) fn copy_fixed(b: &mut FunctionBuilder<'_>, env: &mut Env, x: Buf, datum: Value, len: u32) -> Value {
-    let h = b.declare_host_once("pull_copy_fixed", &[Type::Ptr, Type::Ptr, Type::I64, Type::I64], Some(Type::I64), gravity_kernels::contract::entry3::<crate::ops::append::raw::PullCopyFixed> as *const () as usize, HostFlags { may_error: true, touches_memory: true, ..HostFlags::default() });
-    let Some(words) = env.words else { crate::refuse!(env.node, crate::admit::refusal::Reason::Bug { payload: "a merge copy without the words site" }) };
+pub(crate) fn copy_fixed(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    x: Buf,
+    datum: Value,
+    len: u32,
+) -> Value {
+    let h = b.declare_host_once(
+        "pull_copy_fixed",
+        &[Type::Ptr, Type::Ptr, Type::I64, Type::I64],
+        Some(Type::I64),
+        gravity_kernels::contract::entry3::<crate::ops::append::raw::PullCopyFixed> as *const ()
+            as usize,
+        HostFlags {
+            may_error: true,
+            touches_memory: true,
+            ..HostFlags::default()
+        },
+    );
+    let Some(words) = env.words else {
+        crate::refuse!(
+            env.node,
+            crate::admit::refusal::Reason::Bug {
+                payload: "a merge copy without the words site"
+            }
+        )
+    };
     let at = b.ptr_add(words, env.zero, 1, x.w_ptr);
     let n = b.iconst(Type::I64, len as i64);
-    let w = b.call_host(h, &[env.ctx, at, datum, n], Some(Type::I64)).expect("returns the copy");
+    let w = b
+        .call_host(h, &[env.ctx, at, datum, n], Some(Type::I64))
+        .expect("returns the copy");
     let (failed, l_ok) = (b.icmp(IntCond::Slt, w, env.zero), b.create_block(&[]));
-    let e = b.iconst(Type::I64, gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64);
+    let e = b.iconst(
+        Type::I64,
+        gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64,
+    );
     b.cond_br(failed, (env.l_raise, &[e]), (l_ok, &[]));
     b.switch_to(l_ok);
     w

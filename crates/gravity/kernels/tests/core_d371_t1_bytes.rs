@@ -9,5 +9,9 @@ fn an_estimate_past_2_60_groups_sizes_the_default_table() {
     for groups in [(1u64 << 60) + 1, 1 << 61, (1 << 61) - 1, u64::MAX] {
         assert_eq!(t1_bytes(groups, 16), t1_default_bytes(), "groups {groups}");
     }
-    assert_eq!(t1_bytes(1 << 60, 16), t1_default_bytes(), "2^60 groups: 2^63 slots, capped at the default's bytes");
+    assert_eq!(
+        t1_bytes(1 << 60, 16),
+        t1_default_bytes(),
+        "2^60 groups: 2^63 slots, capped at the default's bytes"
+    );
 }

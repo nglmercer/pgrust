@@ -3,8 +3,8 @@
 //! unchecked readers, a fmgr text result's bytes, and the pages advice of the build buffers and the reuse pool.
 #![allow(unsafe_code)]
 
-use gravity_abi::PtrWord;
 use super::*;
+use gravity_abi::PtrWord;
 
 use gravity_dict::table::Header;
 
@@ -22,7 +22,12 @@ pub struct BuildBuf {
 enum Mem {
     Heap(Vec<u64>),
     /// `dead`: the idle release gave its whole runs to the pool (`give_dead`), their bytes off its charge.
-    Pool { ptr: core::ptr::NonNull<u64>, words: usize, charge: pgsync::Mutex<memledger::Charge>, dead: bool },
+    Pool {
+        ptr: core::ptr::NonNull<u64>,
+        words: usize,
+        charge: pgsync::Mutex<memledger::Charge>,
+        dead: bool,
+    },
 }
 
 // SAFETY: the buffer owns its words (a pool block is named by no one else); its charge is behind a lock.
@@ -34,7 +39,8 @@ const POOL_RUN: usize = 64 << 10;
 
 /// pagepool P3: a build buffer from the page pool, session-lived (kept buffers outlive their statement), not zeroed (a
 /// build reads only the words it wrote).
-const POOL_HINT: pagepool::Hint = pagepool::Hint::new(pagepool::Class::Session, pagepool::Tag::BUILD);
+const POOL_HINT: pagepool::Hint =
+    pagepool::Hint::new(pagepool::Class::Session, pagepool::Tag::BUILD);
 
 impl BuildBuf {
     /// pagepool P3: `words` words or more from the page pool, on the calling thread's owner (where the allocator's bytes
@@ -45,8 +51,21 @@ impl BuildBuf {
         }
         let b = pagepool::take(words.checked_mul(8)?, 64, POOL_HINT)?;
         let owner = memledger::charge::context().0;
-        let charge = memledger::Charge::open(owner, memledger::charge::release_of(owner), memledger::Kind::Region, memledger::charge::Door::Pool, b.len() as u64);
-        Some(BuildBuf { mem: Mem::Pool { ptr: b.cast::<u64>(), words: b.len() / 8, charge: pgsync::Mutex::new(charge), dead: false } })
+        let charge = memledger::Charge::open(
+            owner,
+            memledger::charge::release_of(owner),
+            memledger::Kind::Region,
+            memledger::charge::Door::Pool,
+            b.len() as u64,
+        );
+        Some(BuildBuf {
+            mem: Mem::Pool {
+                ptr: b.cast::<u64>(),
+                words: b.len() / 8,
+                charge: pgsync::Mutex::new(charge),
+                dead: false,
+            },
+        })
     }
 
     /// The words the buffer holds (a `Vec`'s capacity).
@@ -88,7 +107,11 @@ impl BuildBuf {
             Mem::Heap(_) => true,
             Mem::Pool { dead: true, .. } => false,
             Mem::Pool { ptr, .. } => {
-                let tag = if cached { pagepool::Tag::DICT } else { POOL_HINT.tag };
+                let tag = if cached {
+                    pagepool::Tag::DICT
+                } else {
+                    POOL_HINT.tag
+                };
                 // SAFETY: the live pool block this buffer owns; its holder has it (a give or `give_dead` needs it whole).
                 unsafe { pagepool::retag(ptr.cast(), tag) }
             }
@@ -98,19 +121,33 @@ impl BuildBuf {
     /// The whole pool runs inside the buffer, as a block offset and length.
     fn runs(ptr: core::ptr::NonNull<u64>, words: usize) -> (usize, usize) {
         let a = ptr.as_ptr() as usize;
-        let (lo, hi) = (a.next_multiple_of(POOL_RUN), (a + words * 8) & !(POOL_RUN - 1));
+        let (lo, hi) = (
+            a.next_multiple_of(POOL_RUN),
+            (a + words * 8) & !(POOL_RUN - 1),
+        );
         (lo - a, hi.saturating_sub(lo))
     }
 
     /// pagepool P3: the idle release of a kept pool buffer: its whole runs dead (`give_pages`: the purger releases them on
     /// pressure or age), their bytes off its charge. False for the allocator's buffer (`release`'s road).
     pub(super) fn give_dead(&mut self) -> bool {
-        let Mem::Pool { ptr, words, charge, dead } = &mut self.mem else { return false };
+        let Mem::Pool {
+            ptr,
+            words,
+            charge,
+            dead,
+        } = &mut self.mem
+        else {
+            return false;
+        };
         if !*dead {
             let (at, len) = Self::runs(*ptr, *words);
             // SAFETY: whole runs of this kept buffer, which nothing reads or writes until `take_dead`.
             unsafe { pagepool::give_pages(ptr.cast(), at, len) };
-            charge.get_mut().unwrap_or_else(|e| e.into_inner()).give(len as u64);
+            charge
+                .get_mut()
+                .unwrap_or_else(|e| e.into_inner())
+                .give(len as u64);
             *dead = true;
         }
         true
@@ -118,12 +155,21 @@ impl BuildBuf {
 
     /// pagepool P3: a kept pool buffer taken again: its dead runs live (their old words or zero), back on its charge.
     pub(super) fn take_dead(&mut self) {
-        if let Mem::Pool { ptr, words, charge, dead } = &mut self.mem {
+        if let Mem::Pool {
+            ptr,
+            words,
+            charge,
+            dead,
+        } = &mut self.mem
+        {
             if core::mem::replace(dead, false) {
                 let (at, len) = Self::runs(*ptr, *words);
                 // SAFETY: the runs `give_dead` gave, of this buffer, before any word of them is read or written.
                 unsafe { pagepool::take_pages(ptr.cast(), at, len) };
-                charge.get_mut().unwrap_or_else(|e| e.into_inner()).commit(len as u64);
+                charge
+                    .get_mut()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .commit(len as u64);
             }
         }
     }
@@ -131,7 +177,9 @@ impl BuildBuf {
 
 impl Default for BuildBuf {
     fn default() -> BuildBuf {
-        BuildBuf { mem: Mem::Heap(Vec::new()) } // alloc: Node
+        BuildBuf {
+            mem: Mem::Heap(Vec::new()),
+        } // alloc: Node
     }
 }
 
@@ -148,7 +196,9 @@ impl core::ops::Deref for BuildBuf {
         match &self.mem {
             Mem::Heap(v) => v,
             // SAFETY: the pool block of `words` words this buffer owns, live until its drop.
-            Mem::Pool { ptr, words, .. } => unsafe { core::slice::from_raw_parts(ptr.as_ptr(), *words) },
+            Mem::Pool { ptr, words, .. } => unsafe {
+                core::slice::from_raw_parts(ptr.as_ptr(), *words)
+            },
         }
     }
 }
@@ -158,16 +208,24 @@ impl core::ops::DerefMut for BuildBuf {
         match &mut self.mem {
             Mem::Heap(v) => v,
             // SAFETY: as `deref`, borrowed mutably through the buffer.
-            Mem::Pool { ptr, words, .. } => unsafe { core::slice::from_raw_parts_mut(ptr.as_ptr(), *words) },
+            Mem::Pool { ptr, words, .. } => unsafe {
+                core::slice::from_raw_parts_mut(ptr.as_ptr(), *words)
+            },
         }
     }
 }
 
 impl Drop for BuildBuf {
     fn drop(&mut self) {
-        if let Mem::Pool { ptr, words, charge, .. } = &mut self.mem {
+        if let Mem::Pool {
+            ptr, words, charge, ..
+        } = &mut self.mem
+        {
             // its charge off its owner first, then the block back (dead runs live again in the pool's give)
-            drop(core::mem::replace(charge.get_mut().unwrap_or_else(|e| e.into_inner()), memledger::Charge::NONE));
+            drop(core::mem::replace(
+                charge.get_mut().unwrap_or_else(|e| e.into_inner()),
+                memledger::Charge::NONE,
+            ));
             // SAFETY: the pool block `pool` took, given back once.
             unsafe { pagepool::give(ptr.cast(), *words * 8) };
         }
@@ -231,7 +289,10 @@ pub(super) fn fp128_at(hdr: *const Header) -> gravity_dict::Fp128 {
 /// or a table of another element.
 pub(super) fn bits_at(hdr: *const Header) -> Option<gravity_dict::table::Bits> {
     // SAFETY: a non-null `hdr` is the header the build wrote into its table's buffer; `Bits::at` only after its element says so.
-    unsafe { (!hdr.is_null() && (*hdr).elem == gravity_dict::lane::ELEM_BITS).then(|| gravity_dict::table::Bits::at(hdr)) }
+    unsafe {
+        (!hdr.is_null() && (*hdr).elem == gravity_dict::lane::ELEM_BITS)
+            .then(|| gravity_dict::table::Bits::at(hdr))
+    }
 }
 
 /// The `Fp128` entries of `t` (its header not null), 16 B per code: `None` for a table of another element or one with
@@ -240,7 +301,8 @@ pub(super) fn fp128_entries(t: &FpTable) -> Option<&[u8]> {
     // SAFETY: `hdr` is the header the build wrote into `buf`; an `Fp128` table's `data` holds `ncodes` 16-byte entries.
     unsafe {
         let h = &*t.hdr;
-        (h.elem == gravity_dict::lane::ELEM_FP128 && h.faults.ptr().is_null()).then(|| core::slice::from_raw_parts(h.data.ptr(), h.ncodes as usize * 16))
+        (h.elem == gravity_dict::lane::ELEM_FP128 && h.faults.ptr().is_null())
+            .then(|| core::slice::from_raw_parts(h.data.ptr(), h.ncodes as usize * 16))
     }
 }
 
@@ -257,7 +319,14 @@ pub(super) fn no_faults(hdr: *mut Header) -> *const Header {
 
 /// The fresh zeroed header `hdr` inside a region, filled as a program table's: `elem`, `ncodes` codes, its `data` and its
 /// fault bitmap `faults` (reserved after it), the region's `base`.
-pub(super) fn program_header(hdr: *mut Header, elem: u8, ncodes: u32, data: *const u8, faults: *const u64, base: *const u8) {
+pub(super) fn program_header(
+    hdr: *mut Header,
+    elem: u8,
+    ncodes: u32,
+    data: *const u8,
+    faults: *const u64,
+    base: *const u8,
+) {
     // SAFETY: a fresh zeroed header inside the region; the data and the bitmap were just reserved after it.
     unsafe {
         (*hdr).elem = elem;
@@ -271,9 +340,20 @@ pub(super) fn program_header(hdr: *mut Header, elem: u8, ncodes: u32, data: *con
 
 /// The length table over a part dictionary's resident `index` (`INDEX_ENTRY` bytes an entry): the lane reads each entry's
 /// `field` in place.
-pub(super) fn index_len_header(region: &mut gravity_dict::Region, index: &[u8], field: gravity_dict::LenField) -> Result<*const Header, gravity_dict::BuildError> {
+pub(super) fn index_len_header(
+    region: &mut gravity_dict::Region,
+    index: &[u8],
+    field: gravity_dict::LenField,
+) -> Result<*const Header, gravity_dict::BuildError> {
     // SAFETY: the index is live and immutable for the handle's life, which outlives the part's lanes.
-    unsafe { gravity_dict::index_len_header(region, index.as_ptr(), (index.len() / INDEX_ENTRY) as u32, field) }
+    unsafe {
+        gravity_dict::index_len_header(
+            region,
+            index.as_ptr(),
+            (index.len() / INDEX_ENTRY) as u32,
+            field,
+        )
+    }
 }
 
 /// The `Derived` table at `hdr`, the header the inner build wrote into its table's buffer.
@@ -310,7 +390,11 @@ pub(super) fn phys_bytes() -> u64 {
     const SC_PHYS_PAGES: core::ffi::c_int = 85;
     // SAFETY: sysconf reads two process-independent constants.
     let (pages, page) = unsafe { (sysconf(SC_PHYS_PAGES), sysconf(SC_PAGESIZE)) };
-    if pages > 0 && page > 0 { pages as u64 * page as u64 } else { 0 }
+    if pages > 0 && page > 0 {
+        pages as u64 * page as u64
+    } else {
+        0
+    }
 }
 
 /// A table buffer's pages advised huge and pre-faulted at the build, so no statement's loop takes the faults (pagepool P3:
@@ -325,12 +409,19 @@ pub(super) fn advise_resident(buf: &mut [u64]) {
         return;
     }
     extern "C" {
-        fn madvise(addr: *mut core::ffi::c_void, len: usize, advice: core::ffi::c_int) -> core::ffi::c_int;
+        fn madvise(
+            addr: *mut core::ffi::c_void,
+            len: usize,
+            advice: core::ffi::c_int,
+        ) -> core::ffi::c_int;
     }
     const MADV_HUGEPAGE: core::ffi::c_int = 14;
     const MADV_POPULATE_WRITE: core::ffi::c_int = 23;
     const PAGE: usize = 4096;
-    let (start, end) = (buf.as_mut_ptr() as usize, buf.as_mut_ptr() as usize + buf.len() * 8);
+    let (start, end) = (
+        buf.as_mut_ptr() as usize,
+        buf.as_mut_ptr() as usize + buf.len() * 8,
+    );
     let (lo, hi) = ((start + PAGE - 1) & !(PAGE - 1), end & !(PAGE - 1));
     if hi <= lo {
         return;
@@ -352,7 +443,10 @@ pub(super) fn advise_resident(_buf: &mut [u64]) {}
 #[cfg(target_os = "linux")]
 pub(super) fn release(ptr: *mut u8, bytes: usize) -> u64 {
     const PAGE: usize = 4096;
-    let (lo, hi) = ((ptr as usize).next_multiple_of(PAGE), (ptr as usize + bytes) / PAGE * PAGE);
+    let (lo, hi) = (
+        (ptr as usize).next_multiple_of(PAGE),
+        (ptr as usize + bytes) / PAGE * PAGE,
+    );
     if hi > lo {
         // SAFETY: whole pages inside a buffer the pool owns (its lock held); no mapping is freed. Named the page pool's
         // when it owns the range (the pool as the global allocator), else the global allocator's, as before.

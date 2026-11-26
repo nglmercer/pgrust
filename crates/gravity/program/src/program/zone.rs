@@ -57,33 +57,72 @@ impl ZonePred {
 
     /// `lane op value` over the lane's word: every predicate but SRC-09's.
     pub const fn word(lane: u16, op: ZoneOp, value: i64) -> ZonePred {
-        ZonePred { lane, op, prefix: false, tallied: false, bound: false, value }
+        ZonePred {
+            lane,
+            op,
+            prefix: false,
+            tallied: false,
+            bound: false,
+            value,
+        }
     }
 
     /// SRC-09: `lane op c` over a text lane, `key` = c's 8-byte prefix key.
     pub const fn prefix(lane: u16, op: ZoneOp, key: i64) -> ZonePred {
-        ZonePred { lane, op, prefix: true, tallied: false, bound: false, value: key }
+        ZonePred {
+            lane,
+            op,
+            prefix: true,
+            tallied: false,
+            bound: false,
+            value: key,
+        }
     }
 
     /// NEW-72: `lane op c` whose constant `c` (of typlen `len`) is bound per execution from word `word`.
     pub const fn bound(lane: u16, op: ZoneOp, word: u16, len: u8) -> ZonePred {
-        ZonePred { lane, op, prefix: false, tallied: false, bound: true, value: bound_slot(word, len) }
+        ZonePred {
+            lane,
+            op,
+            prefix: false,
+            tallied: false,
+            bound: true,
+            value: bound_slot(word, len),
+        }
     }
 
     /// NEW-72: `lane op c` over an order key (`prefix`): a by-reference constant `c` bound per execution from word `word`,
     /// its key made by the host from the image in form `form` (`BOUND_TEXT_PREFIX`, `BOUND_FIXED_PREFIX` | its length).
     pub const fn bound_prefix(lane: u16, op: ZoneOp, word: u16, form: u8) -> ZonePred {
-        ZonePred { lane, op, prefix: true, tallied: false, bound: true, value: bound_slot(word, form) }
+        ZonePred {
+            lane,
+            op,
+            prefix: true,
+            tallied: false,
+            bound: true,
+            value: bound_slot(word, form),
+        }
     }
 
     /// NEW-72: `(word, typlen)` of a bound predicate's constant (`bound`), before the host binds its value.
     pub const fn bound_of(&self) -> Option<(u16, u8)> {
-        if self.bound { Some((self.value as u16, (self.value >> 16) as u8)) } else { None }
+        if self.bound {
+            Some((self.value as u16, (self.value >> 16) as u8))
+        } else {
+            None
+        }
     }
 
     /// P5-11: `lane = c` (`HashEq`) or an IN member (`HashIn`) over a byte-equality lane, `packed` = c's probe word.
     pub const fn hashed(lane: u16, op: ZoneOp, packed: i64) -> ZonePred {
-        ZonePred { lane, op, prefix: false, tallied: false, bound: false, value: packed }
+        ZonePred {
+            lane,
+            op,
+            prefix: false,
+            tallied: false,
+            bound: false,
+            value: packed,
+        }
     }
 
     /// P5-11: a predicate only the bloom answers by its probe word (`HashEq` / `HashIn`).

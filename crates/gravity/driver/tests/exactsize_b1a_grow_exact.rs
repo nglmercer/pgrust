@@ -12,8 +12,8 @@ use std::sync::Arc;
 
 use common::*;
 use gravity_abi::MorselRange;
-use gravity_driver::{Merge, Partial, State};
 use gravity_driver::{Call, Claimed, Entry, Grant, Step, EXACT_BUILD, SHARE_FLOOR};
+use gravity_driver::{Merge, Partial, State};
 use gravity_program::Program;
 
 const NULLS: [u8; 1] = [0];
@@ -35,7 +35,11 @@ static NEED: AtomicU64 = AtomicU64::new(0);
 struct ExactMerge;
 
 impl Merge for ExactMerge {
-    fn merge_into(&self, leader: &mut State<'_>, partial: Partial<'_>) -> gravity_driver::Result<()> {
+    fn merge_into(
+        &self,
+        leader: &mut State<'_>,
+        partial: Partial<'_>,
+    ) -> gravity_driver::Result<()> {
         grow_fold(leader, partial.bytes)
     }
 
@@ -56,11 +60,18 @@ impl Merge for ExactMerge {
     }
 }
 
-fn run(entry: &mut Entry, program: &Arc<Program>, derive: &mut FakeDerive, grant: Grant) -> Vec<Vec<u64>> {
+fn run(
+    entry: &mut Entry,
+    program: &Arc<Program>,
+    derive: &mut FakeDerive,
+    grant: Grant,
+) -> Vec<Vec<u64>> {
     let flag = AtomicU8::new(0);
     let mut sink = LegSink::new();
     let mut b = binding(&[0], &NULLS, &mut sink, &flag);
-    let mut exec = entry.start(None, program, derive, &mut b, lease(grant)).unwrap();
+    let mut exec = entry
+        .start(None, program, derive, &mut b, lease(grant))
+        .unwrap();
     let width = 2u16;
     let open = entry.open_section(&mut exec, &b, derive, 0, width).unwrap();
     let cursor = AtomicU64::new(0);
@@ -70,11 +81,20 @@ fn run(entry: &mut Entry, program: &Arc<Program>, derive: &mut FakeDerive, grant
             if lo >= BLOCKS {
                 break 'claims;
             }
-            assert_eq!(open.run_claim(o, MorselRange::new(lo, (lo + CLAIM).min(BLOCKS))).unwrap(), Claimed::Done);
+            assert_eq!(
+                open.run_claim(o, MorselRange::new(lo, (lo + CLAIM).min(BLOCKS)))
+                    .unwrap(),
+                Claimed::Done
+            );
         }
     }
-    entry.close_section(open, &mut b, &ExactMerge, true).unwrap();
-    assert_eq!(entry.run(&mut exec, &mut b, Call::batch(64)).unwrap(), Step::Done);
+    entry
+        .close_section(open, &mut b, &ExactMerge, true)
+        .unwrap();
+    assert_eq!(
+        entry.run(&mut exec, &mut b, Call::batch(64)).unwrap(),
+        Step::Done
+    );
     entry.end(exec, true);
     sink.sorted()
 }
@@ -91,24 +111,68 @@ fn exactsize_b1a_the_counted_finish_grows_to_its_need_and_none_doubles() {
     // a floor charged whole (1 MiB, nothing reserved): every grow reopens; a 64 MiB floor: reserved, grows in place
     for floors in [MIB, 64 * MIB] {
         let none = Grant::of(SHARE_FLOOR as u64).with_floors(floors, floors);
-        assert_eq!(none.trimmed(none.bytes), Grant { trimmed: true, ..Grant::of(none.bytes) }, "a trim drops the floors (marked a trim, D4043); none stays none");
-        assert_eq!(run(&mut entry, &program, &mut derive, none), want, "none, floors {floors}: every row");
-        let (len, need, after) = (BEFORE.load(Ordering::Relaxed), NEED.load(Ordering::Relaxed), AFTER.load(Ordering::Relaxed));
-        assert!(need > len, "the finish's need is past the folded leader ({len} < {need})");
+        assert_eq!(
+            none.trimmed(none.bytes),
+            Grant {
+                trimmed: true,
+                ..Grant::of(none.bytes)
+            },
+            "a trim drops the floors (marked a trim, D4043); none stays none"
+        );
+        assert_eq!(
+            run(&mut entry, &program, &mut derive, none),
+            want,
+            "none, floors {floors}: every row"
+        );
+        let (len, need, after) = (
+            BEFORE.load(Ordering::Relaxed),
+            NEED.load(Ordering::Relaxed),
+            AFTER.load(Ordering::Relaxed),
+        );
+        assert!(
+            need > len,
+            "the finish's need is past the folded leader ({len} < {need})"
+        );
         if floors == MIB {
-            assert_eq!(after, page((2 * len).max(need)), "none: a reopen at twice the length");
+            assert_eq!(
+                after,
+                page((2 * len).max(need)),
+                "none: a reopen at twice the length"
+            );
         } else {
-            assert!(after >= need && after <= page((2 * len).max(need)), "none: doubled, at most, within the reservation ({after})");
+            assert!(
+                after >= need && after <= page((2 * len).max(need)),
+                "none: doubled, at most, within the reservation ({after})"
+            );
         }
         let none_after = after;
 
         let exact = none.with_exact(EXACT_BUILD);
         assert!(exact.exact_build() && !none.exact_build());
-        assert_eq!(exact.trimmed(SHARE_FLOOR as u64).exact, EXACT_BUILD, "a trim keeps the exact sizing");
-        assert_eq!(run(&mut entry, &program, &mut derive, exact), want, "build, floors {floors}: every row");
-        let (len, need, after) = (BEFORE.load(Ordering::Relaxed), NEED.load(Ordering::Relaxed), AFTER.load(Ordering::Relaxed));
+        assert_eq!(
+            exact.trimmed(SHARE_FLOOR as u64).exact,
+            EXACT_BUILD,
+            "a trim keeps the exact sizing"
+        );
+        assert_eq!(
+            run(&mut entry, &program, &mut derive, exact),
+            want,
+            "build, floors {floors}: every row"
+        );
+        let (len, need, after) = (
+            BEFORE.load(Ordering::Relaxed),
+            NEED.load(Ordering::Relaxed),
+            AFTER.load(Ordering::Relaxed),
+        );
         assert!(need > len);
-        assert_eq!(after, page(need), "build: the counted need, page-rounded, not twice {len}");
-        assert!(after <= none_after, "build never grows past none's ({after} vs {none_after})");
+        assert_eq!(
+            after,
+            page(need),
+            "build: the counted need, page-rounded, not twice {len}"
+        );
+        assert!(
+            after <= none_after,
+            "build never grows past none's ({after} vs {none_after})"
+        );
     }
 }

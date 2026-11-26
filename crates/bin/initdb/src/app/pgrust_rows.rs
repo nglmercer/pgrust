@@ -4,7 +4,10 @@ fn rows() -> Result<Vec<(&'static str, &'static str)>, String> {
     PGRUST_BKI
         .lines()
         .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
-        .map(|l| l.split_once(' ').ok_or_else(|| format!("malformed pgrust.bki row: {l}")))
+        .map(|l| {
+            l.split_once(' ')
+                .ok_or_else(|| format!("malformed pgrust.bki row: {l}"))
+        })
         .collect()
 }
 
@@ -26,7 +29,10 @@ pub fn splice(lines: Vec<String>) -> Result<Vec<String>, String> {
         out.push(line);
     }
     match placed.iter().position(|&n| n != 1) {
-        Some(i) => Err(format!("pgrust.bki: postgres.bki must close {} exactly once", rows[i].0)),
+        Some(i) => Err(format!(
+            "pgrust.bki: postgres.bki must close {} exactly once",
+            rows[i].0
+        )),
         None => Ok(out),
     }
 }
@@ -36,11 +42,16 @@ mod tests {
     use super::*;
 
     fn vendored() -> Vec<String> {
-        crate::app::conf::readfile(concat!(env!("CARGO_MANIFEST_DIR"), "/share/postgres.bki")).expect("vendored postgres.bki")
+        crate::app::conf::readfile(concat!(env!("CARGO_MANIFEST_DIR"), "/share/postgres.bki"))
+            .expect("vendored postgres.bki")
     }
 
     fn fields(stmt: &str) -> Vec<String> {
-        let body = stmt.trim().strip_prefix("insert (").and_then(|s| s.strip_suffix(')')).expect("insert ( ... )");
+        let body = stmt
+            .trim()
+            .strip_prefix("insert (")
+            .and_then(|s| s.strip_suffix(')'))
+            .expect("insert ( ... )");
         let (mut out, mut cur, mut quoted) = (Vec::new(), String::new(), false);
         for ch in body.chars() {
             match ch {
@@ -58,13 +69,23 @@ mod tests {
     }
 
     fn block<'a>(bki: &'a [String], cat: &str) -> &'a [String] {
-        let start = bki.iter().position(|l| l.starts_with(&format!("create {cat} "))).expect("create line");
-        let end = bki.iter().position(|l| l.trim_end() == format!("close {cat}")).expect("close line");
+        let start = bki
+            .iter()
+            .position(|l| l.starts_with(&format!("create {cat} ")))
+            .expect("create line");
+        let end = bki
+            .iter()
+            .position(|l| l.trim_end() == format!("close {cat}"))
+            .expect("close line");
         &bki[start..end]
     }
 
     fn key(cat: &str, f: &[String]) -> String {
-        if cat == "pg_description" { format!("{} {}", f[0], f[1]) } else { f[0].clone() }
+        if cat == "pg_description" {
+            format!("{} {}", f[0], f[1])
+        } else {
+            f[0].clone()
+        }
     }
 
     #[test]
@@ -83,11 +104,20 @@ mod tests {
                 .count();
             let f = fields(stmt);
             assert_eq!(f.len(), columns, "{cat}: {stmt}");
-            let taken = orig.iter().filter(|l| l.starts_with("insert")).any(|l| key(cat, &fields(l)) == key(cat, &f));
+            let taken = orig
+                .iter()
+                .filter(|l| l.starts_with("insert"))
+                .any(|l| key(cat, &fields(l)) == key(cat, &f));
             assert!(!taken, "{cat} already has a row keyed {}", key(cat, &f));
             let blk = block(&spliced, cat);
-            let at = blk.iter().position(|l| l.trim_end() == *stmt).expect("row inside its catalog block");
-            assert!(blk[at..].iter().all(|l| l.starts_with("insert")), "{cat}: rows sit right before close");
+            let at = blk
+                .iter()
+                .position(|l| l.trim_end() == *stmt)
+                .expect("row inside its catalog block");
+            assert!(
+                blk[at..].iter().all(|l| l.starts_with("insert")),
+                "{cat}: rows sit right before close"
+            );
         }
     }
 }

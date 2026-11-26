@@ -37,54 +37,150 @@ macro_rules! paste_tag {
 }
 
 macro_rules! tag_of {
-    (Result) => { NodeTag::T_Result };
-    (ProjectSet) => { NodeTag::T_ProjectSet };
-    (ModifyTable) => { NodeTag::T_ModifyTable };
-    (Append) => { NodeTag::T_Append };
-    (MergeAppend) => { NodeTag::T_MergeAppend };
-    (RecursiveUnion) => { NodeTag::T_RecursiveUnion };
-    (BitmapAnd) => { NodeTag::T_BitmapAnd };
-    (BitmapOr) => { NodeTag::T_BitmapOr };
-    (SeqScan) => { NodeTag::T_SeqScan };
-    (SampleScan) => { NodeTag::T_SampleScan };
-    (IndexScan) => { NodeTag::T_IndexScan };
-    (IndexOnlyScan) => { NodeTag::T_IndexOnlyScan };
-    (BitmapIndexScan) => { NodeTag::T_BitmapIndexScan };
-    (BitmapHeapScan) => { NodeTag::T_BitmapHeapScan };
-    (TidScan) => { NodeTag::T_TidScan };
-    (TidRangeScan) => { NodeTag::T_TidRangeScan };
-    (SubqueryScan) => { NodeTag::T_SubqueryScan };
-    (FunctionScan) => { NodeTag::T_FunctionScan };
-    (ValuesScan) => { NodeTag::T_ValuesScan };
-    (TableFuncScan) => { NodeTag::T_TableFuncScan };
-    (CteScan) => { NodeTag::T_CteScan };
-    (NamedTuplestoreScan) => { NodeTag::T_NamedTuplestoreScan };
-    (WorkTableScan) => { NodeTag::T_WorkTableScan };
-    (ForeignScan) => { NodeTag::T_ForeignScan };
-    (CustomScan) => { NodeTag::T_CustomScan };
-    (NestLoop) => { NodeTag::T_NestLoop };
-    (NestLoopParam) => { NodeTag::T_NestLoopParam };
-    (MergeJoin) => { NodeTag::T_MergeJoin };
-    (HashJoin) => { NodeTag::T_HashJoin };
-    (Material) => { NodeTag::T_Material };
-    (Memoize) => { NodeTag::T_Memoize };
-    (Sort) => { NodeTag::T_Sort };
-    (IncrementalSort) => { NodeTag::T_IncrementalSort };
-    (Group) => { NodeTag::T_Group };
-    (Agg) => { NodeTag::T_Agg };
-    (WindowAgg) => { NodeTag::T_WindowAgg };
-    (Unique) => { NodeTag::T_Unique };
-    (Gather) => { NodeTag::T_Gather };
-    (GatherMerge) => { NodeTag::T_GatherMerge };
-    (Hash) => { NodeTag::T_Hash };
-    (SetOp) => { NodeTag::T_SetOp };
-    (LockRows) => { NodeTag::T_LockRows };
-    (Limit) => { NodeTag::T_Limit };
-    (PlanRowMark) => { NodeTag::T_PlanRowMark };
-    (PartitionPruneInfo) => { NodeTag::T_PartitionPruneInfo };
-    (PlanInvalItem) => { NodeTag::T_PlanInvalItem };
-    (SubPlan) => { NodeTag::T_SubPlan };
-    (AlternativeSubPlan) => { NodeTag::T_AlternativeSubPlan };
+    (Result) => {
+        NodeTag::T_Result
+    };
+    (ProjectSet) => {
+        NodeTag::T_ProjectSet
+    };
+    (ModifyTable) => {
+        NodeTag::T_ModifyTable
+    };
+    (Append) => {
+        NodeTag::T_Append
+    };
+    (MergeAppend) => {
+        NodeTag::T_MergeAppend
+    };
+    (RecursiveUnion) => {
+        NodeTag::T_RecursiveUnion
+    };
+    (BitmapAnd) => {
+        NodeTag::T_BitmapAnd
+    };
+    (BitmapOr) => {
+        NodeTag::T_BitmapOr
+    };
+    (SeqScan) => {
+        NodeTag::T_SeqScan
+    };
+    (SampleScan) => {
+        NodeTag::T_SampleScan
+    };
+    (IndexScan) => {
+        NodeTag::T_IndexScan
+    };
+    (IndexOnlyScan) => {
+        NodeTag::T_IndexOnlyScan
+    };
+    (BitmapIndexScan) => {
+        NodeTag::T_BitmapIndexScan
+    };
+    (BitmapHeapScan) => {
+        NodeTag::T_BitmapHeapScan
+    };
+    (TidScan) => {
+        NodeTag::T_TidScan
+    };
+    (TidRangeScan) => {
+        NodeTag::T_TidRangeScan
+    };
+    (SubqueryScan) => {
+        NodeTag::T_SubqueryScan
+    };
+    (FunctionScan) => {
+        NodeTag::T_FunctionScan
+    };
+    (ValuesScan) => {
+        NodeTag::T_ValuesScan
+    };
+    (TableFuncScan) => {
+        NodeTag::T_TableFuncScan
+    };
+    (CteScan) => {
+        NodeTag::T_CteScan
+    };
+    (NamedTuplestoreScan) => {
+        NodeTag::T_NamedTuplestoreScan
+    };
+    (WorkTableScan) => {
+        NodeTag::T_WorkTableScan
+    };
+    (ForeignScan) => {
+        NodeTag::T_ForeignScan
+    };
+    (CustomScan) => {
+        NodeTag::T_CustomScan
+    };
+    (NestLoop) => {
+        NodeTag::T_NestLoop
+    };
+    (NestLoopParam) => {
+        NodeTag::T_NestLoopParam
+    };
+    (MergeJoin) => {
+        NodeTag::T_MergeJoin
+    };
+    (HashJoin) => {
+        NodeTag::T_HashJoin
+    };
+    (Material) => {
+        NodeTag::T_Material
+    };
+    (Memoize) => {
+        NodeTag::T_Memoize
+    };
+    (Sort) => {
+        NodeTag::T_Sort
+    };
+    (IncrementalSort) => {
+        NodeTag::T_IncrementalSort
+    };
+    (Group) => {
+        NodeTag::T_Group
+    };
+    (Agg) => {
+        NodeTag::T_Agg
+    };
+    (WindowAgg) => {
+        NodeTag::T_WindowAgg
+    };
+    (Unique) => {
+        NodeTag::T_Unique
+    };
+    (Gather) => {
+        NodeTag::T_Gather
+    };
+    (GatherMerge) => {
+        NodeTag::T_GatherMerge
+    };
+    (Hash) => {
+        NodeTag::T_Hash
+    };
+    (SetOp) => {
+        NodeTag::T_SetOp
+    };
+    (LockRows) => {
+        NodeTag::T_LockRows
+    };
+    (Limit) => {
+        NodeTag::T_Limit
+    };
+    (PlanRowMark) => {
+        NodeTag::T_PlanRowMark
+    };
+    (PartitionPruneInfo) => {
+        NodeTag::T_PartitionPruneInfo
+    };
+    (PlanInvalItem) => {
+        NodeTag::T_PlanInvalItem
+    };
+    (SubPlan) => {
+        NodeTag::T_SubPlan
+    };
+    (AlternativeSubPlan) => {
+        NodeTag::T_AlternativeSubPlan
+    };
 }
 
 kinds! {
@@ -99,7 +195,13 @@ kinds! {
 
 pub const PLAN_TAG_FIRST: u16 = NodeTag::T_Result as u16;
 pub const PLAN_TAG_LAST: u16 = NodeTag::T_Limit as u16;
-pub const ATTACHED_TAGS: &[NodeTag] = &[NodeTag::T_PlanRowMark, NodeTag::T_PartitionPruneInfo, NodeTag::T_PlanInvalItem, NodeTag::T_SubPlan, NodeTag::T_AlternativeSubPlan];
+pub const ATTACHED_TAGS: &[NodeTag] = &[
+    NodeTag::T_PlanRowMark,
+    NodeTag::T_PartitionPruneInfo,
+    NodeTag::T_PlanInvalItem,
+    NodeTag::T_SubPlan,
+    NodeTag::T_AlternativeSubPlan,
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Milestone {
@@ -188,7 +290,11 @@ pub const LEDGER: &[(Kind, State)] = &[
 ];
 
 pub fn state_of(k: Kind) -> State {
-    LEDGER.iter().find(|(x, _)| *x == k).map(|(_, s)| *s).expect("every kind has a ledger row")
+    LEDGER
+        .iter()
+        .find(|(x, _)| *x == k)
+        .map(|(_, s)| *s)
+        .expect("every kind has a ledger row")
 }
 
 pub fn is_mapped(k: Kind) -> bool {
@@ -211,7 +317,10 @@ pub fn unplanned(k: Kind) -> bool {
 }
 
 pub fn refused_now() -> impl Iterator<Item = (Kind, State)> {
-    LEDGER.iter().copied().filter(|(k, _)| !is_mapped(*k) && !matches!(state_of(*k), Excluded(..)))
+    LEDGER
+        .iter()
+        .copied()
+        .filter(|(k, _)| !is_mapped(*k) && !matches!(state_of(*k), Excluded(..)))
 }
 
 /// The corpus census's ownership (decompose.md §5.6) of every shape refusal a corpus still carries: a reason with a
@@ -224,7 +333,10 @@ pub const OWNERS: &[(&str, &str)] = &[
 
 /// The owner of a refusal reason, or None when the census must list it as unowned.
 pub fn owner(reason: &str) -> Option<&'static str> {
-    OWNERS.iter().find(|(prefix, _)| reason.starts_with(prefix)).map(|(_, o)| *o)
+    OWNERS
+        .iter()
+        .find(|(prefix, _)| reason.starts_with(prefix))
+        .map(|(_, o)| *o)
 }
 
 pub fn reason(k: Kind) -> &'static str {

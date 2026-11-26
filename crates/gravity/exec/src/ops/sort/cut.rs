@@ -48,7 +48,7 @@ pub(crate) fn sample(runs: &[Run<'_>], parts: usize, cmp: Cmp<'_>) -> Vec<usize>
         return Vec::new(); // alloc: Exec
     }
     let mut s = Vec::with_capacity(runs.len() * (parts - 1)); // alloc: Exec
-    s.extend(std::iter::repeat_n(0usize,runs.len() * (parts - 1)));
+    s.extend(std::iter::repeat_n(0usize, runs.len() * (parts - 1)));
     let n = draw(runs, parts, &mut s);
     let k = pick(&mut s[..n], parts, cmp);
     s.truncate(k);
@@ -56,7 +56,12 @@ pub(crate) fn sample(runs: &[Run<'_>], parts: usize, cmp: Cmp<'_>) -> Vec<usize>
 }
 
 /// `sample`'s splitters in `a` (CONVERT wave 2: the sort merge's, in its operator's scratch arena).
-pub(crate) fn sample_in(a: &OpArena, runs: &[Run<'_>], parts: usize, cmp: Cmp<'_>) -> core::result::Result<AVec<usize>, Refused> {
+pub(crate) fn sample_in(
+    a: &OpArena,
+    runs: &[Run<'_>],
+    parts: usize,
+    cmp: Cmp<'_>,
+) -> core::result::Result<AVec<usize>, Refused> {
     let mut s = AVec::default();
     if parts < 2 {
         return Ok(s);
@@ -75,7 +80,9 @@ fn draw(runs: &[Run<'_>], parts: usize, out: &mut [usize]) -> usize {
         for j in 1..parts {
             out[n] = match *r {
                 Run::Mem { base, rows, rb } if rows > 0 => base + (j * rows as usize / parts) * rb,
-                Run::Put { fences, .. } if !fences.is_empty() => fences.rec(j * fences.len() / parts).as_ptr() as usize,
+                Run::Put { fences, .. } if !fences.is_empty() => {
+                    fences.rec(j * fences.len() / parts).as_ptr() as usize
+                }
                 _ => break,
             };
             n += 1;
@@ -106,13 +113,18 @@ fn pick(s: &mut [usize], parts: usize, cmp: Cmp<'_>) -> usize {
 #[cfg(test)]
 pub(crate) fn cut(run: &Run<'_>, splitters: &[usize], cmp: Cmp<'_>) -> Result<Vec<u64>> {
     let mut at = Vec::with_capacity(splitters.len() + 2); // alloc: Exec
-    at.extend(std::iter::repeat_n(0u64,splitters.len() + 2));
+    at.extend(std::iter::repeat_n(0u64, splitters.len() + 2));
     cut_into(run, splitters, cmp, &mut at)?;
     Ok(at)
 }
 
 /// `cut`'s positions into `at` (`splitters.len() + 2` of them).
-pub(crate) fn cut_into(run: &Run<'_>, splitters: &[usize], cmp: Cmp<'_>, at: &mut [u64]) -> Result<()> {
+pub(crate) fn cut_into(
+    run: &Run<'_>,
+    splitters: &[usize],
+    cmp: Cmp<'_>,
+    at: &mut [u64],
+) -> Result<()> {
     let rows = run.rows();
     at[0] = 0;
     let mut floor = 0u64;
@@ -122,7 +134,11 @@ pub(crate) fn cut_into(run: &Run<'_>, splitters: &[usize], cmp: Cmp<'_>, at: &mu
                 let (mut lo, mut hi) = (floor, rows);
                 while lo < hi {
                     let mid = lo + (hi - lo) / 2;
-                    if cmp(base + mid as usize * rb, k).is_lt() { lo = mid + 1 } else { hi = mid }
+                    if cmp(base + mid as usize * rb, k).is_lt() {
+                        lo = mid + 1
+                    } else {
+                        hi = mid
+                    }
                 }
                 floor = lo;
                 at[i + 1] = lo;
@@ -144,7 +160,14 @@ pub(crate) fn cut_into(run: &Run<'_>, splitters: &[usize], cmp: Cmp<'_>, at: &mu
 /// (a binary search over the fences' copies), then the records of the interval before it from `floor` or that interval's
 /// fence on, up to the first not under `k` (at most the next fence). `rd` the run's reader, kept across splitters: the
 /// next splitter's interval is read on from it when it lies in the same one.
-fn put_bound(fences: &Fences, open: Open<'_>, rd: &mut Option<Records>, floor: u64, k: usize, cmp: Cmp<'_>) -> Result<u64> {
+fn put_bound(
+    fences: &Fences,
+    open: Open<'_>,
+    rd: &mut Option<Records>,
+    floor: u64,
+    k: usize,
+    cmp: Cmp<'_>,
+) -> Result<u64> {
     let n = fences.len();
     if n == 0 {
         return Ok(0);
@@ -153,13 +176,24 @@ fn put_bound(fences: &Fences, open: Open<'_>, rd: &mut Option<Records>, floor: u
     let (mut lo, mut hi) = (f0, n);
     while lo < hi {
         let mid = lo + (hi - lo) / 2;
-        if cmp(fences.rec(mid).as_ptr() as usize, k).is_lt() { lo = mid + 1 } else { hi = mid }
+        if cmp(fences.rec(mid).as_ptr() as usize, k).is_lt() {
+            lo = mid + 1
+        } else {
+            hi = mid
+        }
     }
     if lo == f0 {
         // floor's fence is not under k: neither is any row from it on
         return Ok(floor);
     }
-    let (f, end) = (lo - 1, if lo < n { fences.row(lo) } else { fences.rows() });
+    let (f, end) = (
+        lo - 1,
+        if lo < n {
+            fences.row(lo)
+        } else {
+            fences.rows()
+        },
+    );
     let from = (fences.row(f) + 1).max(floor);
     if from >= end {
         return Ok(end);
@@ -171,7 +205,9 @@ fn put_bound(fences: &Fences, open: Open<'_>, rd: &mut Option<Records>, floor: u
     };
     let skip = from - r.row();
     if r.skip(skip)? != skip {
-        return Err(Error::host("gravity: cut: a put run ends before its fence's rows"));
+        return Err(Error::host(
+            "gravity: cut: a put run ends before its fence's rows",
+        ));
     }
     while r.row() < end {
         let Some(rec) = r.peek()? else { break };
@@ -187,8 +223,13 @@ fn put_bound(fences: &Fences, open: Open<'_>, rd: &mut Option<Records>, floor: u
 /// `nkey` keys, `cmp(B row, A splitter)` (the co-split merge join: its inner at its outer's splitters, the clauses' keys first in
 /// both sorts); `None` when the two shapes do not order alike (`raw::cross_ok`), and the merge stays serial.
 #[allow(dead_code)] // its first user is the co-split merge join (D3190), next on this branch
-pub(crate) fn cross<'s>(sa: &'s RunShape, sb: &'s RunShape, nkey: usize) -> Option<impl Fn(usize, usize) -> Ordering + 's> {
-    raw::cross_ok(sb, sa, nkey).then_some(move |b: usize, a: usize| raw::cmp_cross(sb, b, sa, a, nkey))
+pub(crate) fn cross<'s>(
+    sa: &'s RunShape,
+    sb: &'s RunShape,
+    nkey: usize,
+) -> Option<impl Fn(usize, usize) -> Ordering + 's> {
+    raw::cross_ok(sb, sa, nkey)
+        .then_some(move |b: usize, a: usize| raw::cmp_cross(sb, b, sa, a, nkey))
 }
 
 /// A put run's records from row `from` on: opened at the last fence at or before it, the rows before `from` passed (a
@@ -202,7 +243,9 @@ pub(crate) fn records_from(fences: &Fences, open: Open<'_>, from: u64) -> Result
     let mut r = open(Some(f))?;
     let skip = from - fences.row(f);
     if r.skip(skip)? != skip {
-        return Err(Error::host("gravity: cut: a put run ends before a slice's first row"));
+        return Err(Error::host(
+            "gravity: cut: a put run ends before a slice's first row",
+        ));
     }
     Ok(r)
 }
@@ -246,7 +289,12 @@ mod tests {
             self.open_part_at(part, 0)
         }
         fn open_part_at(&self, _part: u32, offset: u64) -> Result<Option<Box<dyn RunReader>>> {
-            Ok((offset < self.b.len() as u64).then(|| Box::new(Bytes { b: self.b[offset as usize..].to_vec(), pos: 0 }) as Box<dyn RunReader>)) // alloc: Cold
+            Ok((offset < self.b.len() as u64).then(|| {
+                Box::new(Bytes {
+                    b: self.b[offset as usize..].to_vec(),
+                    pos: 0,
+                }) as Box<dyn RunReader>
+            })) // alloc: Cold
         }
         fn spilled_bytes(&self) -> u64 {
             self.b.len() as u64
@@ -260,14 +308,24 @@ mod tests {
 
     fn keys(seed: u64, n: usize, dups: u64) -> Vec<u64> {
         let mut x = seed.wrapping_mul(0x5851_f42d_4c95_7f2d) | 1;
-        let mut k: Vec<u64> = (0..n).map(|_| { x ^= x << 13; x ^= x >> 7; x ^= x << 17; x % dups }).collect(); // alloc: Cold
+        let mut k: Vec<u64> = (0..n)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                x % dups
+            })
+            .collect(); // alloc: Cold
         k.sort_unstable();
         k
     }
 
     /// A run's rows as words: `[key, tag, row index]` per row.
     fn rows_of(keys: &[u64], tag: u64) -> Vec<u64> {
-        keys.iter().enumerate().flat_map(|(i, &k)| [k, tag, i as u64]).collect() // alloc: Cold
+        keys.iter()
+            .enumerate()
+            .flat_map(|(i, &k)| [k, tag, i as u64])
+            .collect() // alloc: Cold
     }
 
     #[allow(unsafe_code)]
@@ -292,7 +350,11 @@ mod tests {
             let (mut lo, mut hi) = (floor, rows);
             while lo < hi {
                 let mid = lo + (hi - lo) / 2;
-                if by_key(base + mid as usize * RB, k).is_lt() { lo = mid + 1 } else { hi = mid }
+                if by_key(base + mid as usize * RB, k).is_lt() {
+                    lo = mid + 1
+                } else {
+                    hi = mid
+                }
             }
             floor = lo;
             at.push(lo);
@@ -305,24 +367,59 @@ mod tests {
     /// of part p is under every row of part p + 1 with equal keys in one part.
     #[test]
     fn resident_runs_cut_as_phase_2_did() {
-        for (nruns, dups, parts) in [(1, 1 << 40, 2), (3, 5, 4), (8, 1 << 40, 16), (17, 1, 8), (5, 50, 64)] {
-            let runs: Vec<Vec<u64>> = (0..nruns).map(|r| rows_of(&keys(r as u64 + 7, (r * 977 + 13) % 3001 + 1, dups), r as u64)).collect();
-            let cr: Vec<Run<'_>> = runs.iter().map(|v| Run::Mem { base: v.as_ptr() as usize, rows: (v.len() / 3) as u64, rb: RB }).collect();
+        for (nruns, dups, parts) in [
+            (1, 1 << 40, 2),
+            (3, 5, 4),
+            (8, 1 << 40, 16),
+            (17, 1, 8),
+            (5, 50, 64),
+        ] {
+            let runs: Vec<Vec<u64>> = (0..nruns)
+                .map(|r| {
+                    rows_of(
+                        &keys(r as u64 + 7, (r * 977 + 13) % 3001 + 1, dups),
+                        r as u64,
+                    )
+                })
+                .collect();
+            let cr: Vec<Run<'_>> = runs
+                .iter()
+                .map(|v| Run::Mem {
+                    base: v.as_ptr() as usize,
+                    rows: (v.len() / 3) as u64,
+                    rb: RB,
+                })
+                .collect();
             let sp = sample(&cr, parts, &by_key);
             let old: Vec<usize> = {
-                let mut s: Vec<usize> = runs.iter().flat_map(|v| (1..parts).map(move |j| v.as_ptr() as usize + (j * (v.len() / 3) / parts) * RB)).collect();
+                let mut s: Vec<usize> = runs
+                    .iter()
+                    .flat_map(|v| {
+                        (1..parts)
+                            .map(move |j| v.as_ptr() as usize + (j * (v.len() / 3) / parts) * RB)
+                    })
+                    .collect();
                 gravity_fn::pg_qsort::pg_qsort(&mut s, |&a, &b| by_key(a, b) as i32);
                 (1..parts).map(|p| s[p * s.len() / parts]).collect()
             };
             assert_eq!(sp, old, "the splitters");
             for (v, r) in runs.iter().zip(cr.iter()) {
                 let at = cut(r, &sp, &by_key).unwrap();
-                assert_eq!(at.iter().map(|&x| x as u32).collect::<Vec<_>>(), old_cut(v.as_ptr() as usize, (v.len() / 3) as u32, &sp));
+                assert_eq!(
+                    at.iter().map(|&x| x as u32).collect::<Vec<_>>(),
+                    old_cut(v.as_ptr() as usize, (v.len() / 3) as u32, &sp)
+                );
                 for p in 0..parts {
                     for i in at[p]..at[p + 1] {
                         let key = v[i as usize * 3];
-                        assert!(p == 0 || key >= key_at(sp[p - 1]), "part {p} at or over its splitter");
-                        assert!(p + 1 == parts || key < key_at(sp[p]), "part {p} under the next splitter");
+                        assert!(
+                            p == 0 || key >= key_at(sp[p - 1]),
+                            "part {p} at or over its splitter"
+                        );
+                        assert!(
+                            p + 1 == parts || key < key_at(sp[p]),
+                            "part {p} under the next splitter"
+                        );
                     }
                 }
             }
@@ -334,12 +431,46 @@ mod tests {
     #[test]
     fn arena_sample_and_cut_into_match_the_vec_forms() {
         let a = OpArena::scratch_of(None, gravity_fn::arena::Kind::Sort);
-        for (nruns, dups, parts) in [(1, 1 << 40, 2), (3, 5, 4), (8, 1 << 40, 16), (17, 1, 8), (5, 50, 64), (4, 9, 1), (6, 3, 512)] {
-            let runs: Vec<Vec<u64>> = (0..nruns).map(|r| rows_of(&keys(r as u64 + 3, if r % 3 == 1 { 0 } else { (r * 613 + 7) % 2001 + 1 }, dups), r as u64)).collect();
-            let cr: Vec<Run<'_>> = runs.iter().map(|v| Run::Mem { base: v.as_ptr() as usize, rows: (v.len() / 3) as u64, rb: RB }).collect();
+        for (nruns, dups, parts) in [
+            (1, 1 << 40, 2),
+            (3, 5, 4),
+            (8, 1 << 40, 16),
+            (17, 1, 8),
+            (5, 50, 64),
+            (4, 9, 1),
+            (6, 3, 512),
+        ] {
+            let runs: Vec<Vec<u64>> = (0..nruns)
+                .map(|r| {
+                    rows_of(
+                        &keys(
+                            r as u64 + 3,
+                            if r % 3 == 1 {
+                                0
+                            } else {
+                                (r * 613 + 7) % 2001 + 1
+                            },
+                            dups,
+                        ),
+                        r as u64,
+                    )
+                })
+                .collect();
+            let cr: Vec<Run<'_>> = runs
+                .iter()
+                .map(|v| Run::Mem {
+                    base: v.as_ptr() as usize,
+                    rows: (v.len() / 3) as u64,
+                    rb: RB,
+                })
+                .collect();
             let sp = sample(&cr, parts, &by_key);
             let si = sample_in(&a, &cr, parts, &by_key).unwrap();
-            assert_eq!(si.as_slice(&a), &sp[..], "the splitters ({nruns} runs, {parts} parts)");
+            assert_eq!(
+                si.as_slice(&a),
+                &sp[..],
+                "the splitters ({nruns} runs, {parts} parts)"
+            );
             let mut at = vec![u64::MAX; sp.len() + 2]; // alloc: Cold
             for r in cr.iter() {
                 cut_into(r, &sp, &by_key, &mut at).unwrap();
@@ -353,29 +484,71 @@ mod tests {
     #[test]
     fn a_put_run_cuts_where_the_same_rows_cut_resident() {
         let shape = RowShape::new(RB as u32, None).unwrap();
-        for (case, (n, dups, parts)) in [(1usize, 3u64, 4usize), (700, 1 << 40, 8), (20_000, 1 << 40, 16), (20_000, 7, 32), (60_000, 900, 64), (9_000, 1, 8)].into_iter().enumerate() {
+        for (case, (n, dups, parts)) in [
+            (1usize, 3u64, 4usize),
+            (700, 1 << 40, 8),
+            (20_000, 1 << 40, 16),
+            (20_000, 7, 32),
+            (60_000, 900, 64),
+            (9_000, 1, 8),
+        ]
+        .into_iter()
+        .enumerate()
+        {
             for compress in [false, true] {
                 let words = rows_of(&keys(case as u64 + 1, n, dups), 1);
                 let raw = bytes_of(&words);
-                let mut f = File { compress, ..File::default() };
-                let fences = runcodec::put_run(&mut f, 0, &raw, Some(&shape), 0, None).unwrap().expect("fenced");
+                let mut f = File {
+                    compress,
+                    ..File::default()
+                };
+                let fences = runcodec::put_run(&mut f, 0, &raw, Some(&shape), 0, None)
+                    .unwrap()
+                    .expect("fenced");
                 let open = |x: Option<usize>| match x {
                     Some(i) => Records::at(&f, 0, &fences, i),
                     None => Records::first(&f, 0, &shape, None),
                 };
-                let mem = Run::Mem { base: words.as_ptr() as usize, rows: n as u64, rb: RB };
-                let put = Run::Put { fences: &fences, open: &open };
+                let mem = Run::Mem {
+                    base: words.as_ptr() as usize,
+                    rows: n as u64,
+                    rb: RB,
+                };
+                let put = Run::Put {
+                    fences: &fences,
+                    open: &open,
+                };
                 // splitters from other runs (some keys between the run's) and from the put run's own fences
-                let other: Vec<Vec<u64>> = (0..3).map(|r| rows_of(&keys(case as u64 * 31 + r, 500, dups + 3), 2)).collect();
-                let oruns: Vec<Run<'_>> = other.iter().map(|v| Run::Mem { base: v.as_ptr() as usize, rows: 500, rb: RB }).collect();
-                for sp in [sample(&oruns, parts, &by_key), sample(core::slice::from_ref(&put), parts, &by_key)] {
+                let other: Vec<Vec<u64>> = (0..3)
+                    .map(|r| rows_of(&keys(case as u64 * 31 + r, 500, dups + 3), 2))
+                    .collect();
+                let oruns: Vec<Run<'_>> = other
+                    .iter()
+                    .map(|v| Run::Mem {
+                        base: v.as_ptr() as usize,
+                        rows: 500,
+                        rb: RB,
+                    })
+                    .collect();
+                for sp in [
+                    sample(&oruns, parts, &by_key),
+                    sample(core::slice::from_ref(&put), parts, &by_key),
+                ] {
                     let want = cut(&mem, &sp, &by_key).unwrap();
-                    assert_eq!(cut(&put, &sp, &by_key).unwrap(), want, "case {case}, compress {compress}");
+                    assert_eq!(
+                        cut(&put, &sp, &by_key).unwrap(),
+                        want,
+                        "case {case}, compress {compress}"
+                    );
                     for p in 0..want.len() - 1 {
                         let mut r = records_from(&fences, &open, want[p]).unwrap();
                         for i in want[p]..want[p + 1] {
                             let rec = r.next().unwrap().expect("a row of the part");
-                            assert_eq!(rec, &raw[i as usize * RB..(i as usize + 1) * RB], "case {case}: part {p}, row {i}");
+                            assert_eq!(
+                                rec,
+                                &raw[i as usize * RB..(i as usize + 1) * RB],
+                                "case {case}: part {p}, row {i}"
+                            );
                         }
                     }
                 }
@@ -391,7 +564,9 @@ mod tests {
         let words = rows_of(&keys(3, 30_000, 1 << 40), 1);
         let raw = bytes_of(&words);
         let mut f = File::default();
-        let fences = runcodec::put_run(&mut f, 0, &raw, Some(&shape), 0, None).unwrap().expect("fenced");
+        let fences = runcodec::put_run(&mut f, 0, &raw, Some(&shape), 0, None)
+            .unwrap()
+            .expect("fenced");
         let open = |x: Option<usize>| match x {
             Some(i) => Records::at(&f, 0, &fences, i),
             None => Records::first(&f, 0, &shape, None),
@@ -405,7 +580,17 @@ mod tests {
             seed.set(x);
             [Ordering::Less, Ordering::Equal, Ordering::Greater][(x % 3) as usize]
         };
-        let runs = [Run::Mem { base: words.as_ptr() as usize, rows: 30_000, rb: RB }, Run::Put { fences: &fences, open: &open }];
+        let runs = [
+            Run::Mem {
+                base: words.as_ptr() as usize,
+                rows: 30_000,
+                rb: RB,
+            },
+            Run::Put {
+                fences: &fences,
+                open: &open,
+            },
+        ];
         for parts in [2, 8, 64] {
             let sp = sample(&runs, parts, &random);
             assert_eq!(sp.len(), parts - 1);
@@ -422,14 +607,34 @@ mod tests {
     #[test]
     fn a_run_cuts_at_another_inputs_splitters_through_the_cross_compare() {
         use gravity_kernels::host_abi::SortSpec;
-        let (spec_a, spec_b) = (SortSpec::pack(&[(Some((24, 4)), false)]).unwrap(), SortSpec::pack(&[(Some((16, 4)), false)]).unwrap());
-        let (sa, sb) = (RunShape::fixed(32, 2, spec_a.0), RunShape::fixed(24, 2, spec_b.0));
+        let (spec_a, spec_b) = (
+            SortSpec::pack(&[(Some((24, 4)), false)]).unwrap(),
+            SortSpec::pack(&[(Some((16, 4)), false)]).unwrap(),
+        );
+        let (sa, sb) = (
+            RunShape::fixed(32, 2, spec_a.0),
+            RunShape::fixed(24, 2, spec_b.0),
+        );
         // key (word, image): word = k / 4, image = k % 4 as a big-endian u32 (bytes order), flags 1
         let img = |k: u64| u64::from_ne_bytes([0, 0, 0, (k % 4) as u8, 0, 0, 0, 0]);
-        let a: Vec<u64> = keys(41, 900, 300).iter().flat_map(|&k| [1, k / 4, 7, img(k)]).collect();
-        let b: Vec<u64> = keys(42, 5000, 300).iter().flat_map(|&k| [1, k / 4, img(k)]).collect();
-        let ra = Run::Mem { base: a.as_ptr() as usize, rows: 900, rb: 32 };
-        let rb = Run::Mem { base: b.as_ptr() as usize, rows: 5000, rb: 24 };
+        let a: Vec<u64> = keys(41, 900, 300)
+            .iter()
+            .flat_map(|&k| [1, k / 4, 7, img(k)])
+            .collect();
+        let b: Vec<u64> = keys(42, 5000, 300)
+            .iter()
+            .flat_map(|&k| [1, k / 4, img(k)])
+            .collect();
+        let ra = Run::Mem {
+            base: a.as_ptr() as usize,
+            rows: 900,
+            rb: 32,
+        };
+        let rb = Run::Mem {
+            base: b.as_ptr() as usize,
+            rows: 5000,
+            rb: 24,
+        };
         let own_a = |x: usize, y: usize| raw::cmp_rows(&sa, x, y);
         let sp = sample(core::slice::from_ref(&ra), 16, &own_a);
         let cmp = cross(&sa, &sb, 1).expect("one key laid alike");
@@ -441,7 +646,10 @@ mod tests {
             assert_eq!(x, want, "splitter {p}");
         }
         let desc = RunShape::fixed(24, 2, SortSpec::pack(&[(Some((16, 4)), true)]).unwrap().0);
-        assert!(cross(&sa, &desc, 1).is_none(), "a descending key orders unalike");
+        assert!(
+            cross(&sa, &desc, 1).is_none(),
+            "a descending key orders unalike"
+        );
     }
 
     /// The `(word, image word)` of the row at `a` whose image lies at byte `img`.
@@ -459,19 +667,27 @@ mod tests {
             let words = rows_of(&keys(9, n, 5), 1);
             let raw = bytes_of(&words);
             let mut f = File::default();
-            let fences = runcodec::put_run(&mut f, 0, &raw, Some(&shape), 0, None).unwrap().expect("fenced");
+            let fences = runcodec::put_run(&mut f, 0, &raw, Some(&shape), 0, None)
+                .unwrap()
+                .expect("fenced");
             let open = |x: Option<usize>| match x {
                 Some(i) => Records::at(&f, 0, &fences, i),
                 None => Records::first(&f, 0, &shape, None),
             };
-            let put = Run::Put { fences: &fences, open: &open };
+            let put = Run::Put {
+                fences: &fences,
+                open: &open,
+            };
             let k = [7u64, 0, 0];
             let ks = [k.as_ptr() as usize; 3];
             let at = cut(&put, &ks, &by_key).unwrap();
             assert_eq!((at.len(), at[0], at[4]), (5, 0, n as u64));
             assert_eq!(cut(&put, &[], &by_key).unwrap(), vec![0, n as u64]); // alloc: Cold
             assert!(sample(core::slice::from_ref(&put), 1, &by_key).is_empty());
-            assert_eq!(records_from(&fences, &open, 0).unwrap().skip(9).unwrap(), n as u64);
+            assert_eq!(
+                records_from(&fences, &open, 0).unwrap().skip(9).unwrap(),
+                n as u64
+            );
         }
     }
 }

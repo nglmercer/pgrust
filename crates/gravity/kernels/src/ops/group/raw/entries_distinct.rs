@@ -3,11 +3,11 @@
 //! duplicates dropped and its keys upserted in one host loop) and the pair's insert-count owner `distinct_count_fns`
 //! (lowerv4 ops/group/distinct_total.rs). Raw-pointer work over the site's lanes and the owner's table, so it sits in the
 //! family's raw half; the family's mod.rs re-exports the module as `ops::group::entries_distinct`, the path its readers name.
-use gravity_abi::PtrWord;
 use gravity_abi::breaker::T1;
 use gravity_abi::hash::KeyHash;
 use gravity_abi::limits::DISTINCT_WINDOW_CHUNK;
 use gravity_abi::Ctx;
+use gravity_abi::PtrWord;
 
 use crate::host_abi::AggState;
 
@@ -58,8 +58,17 @@ crate::contract::host! {
 
 /// `agg_distinct_block`'s body: the mask's positions as lane rows, then the window body over them.
 #[inline(always)]
-unsafe fn distinct_block_in(ctx: *mut Ctx, st: *mut u8, at: u64, base: u64, mask: u64, arg: u64) -> i64 {
-    let sel = (*gravity_abi::ctx::site_ptr(ctx, (at >> 8) as usize)).sel.ptr();
+unsafe fn distinct_block_in(
+    ctx: *mut Ctx,
+    st: *mut u8,
+    at: u64,
+    base: u64,
+    mask: u64,
+    arg: u64,
+) -> i64 {
+    let sel = (*gravity_abi::ctx::site_ptr(ctx, (at >> 8) as usize))
+        .sel
+        .ptr();
     let (mut rows, mut m, mut n) = ([0u32; 64], mask, 0usize);
     while m != 0 {
         let p = base as usize + m.trailing_zeros() as usize;
@@ -72,14 +81,30 @@ unsafe fn distinct_block_in(ctx: *mut Ctx, st: *mut u8, at: u64, base: u64, mask
 /// `agg_distinct_window`'s body, run under the entry's landing pad (a host entry's panic is an ERROR, never an abort);
 /// `rows`: the lane rows of positions `[cursor, end)` in place of the site's selection (`agg_distinct_block`'s).
 #[inline(always)]
-unsafe fn distinct_window_in(ctx: *mut Ctx, st: *mut u8, at: u64, rows: Option<*const u32>, cursor: u64, end: u64, arg: u64) -> i64 {
+unsafe fn distinct_window_in(
+    ctx: *mut Ctx,
+    st: *mut u8,
+    at: u64,
+    rows: Option<*const u32>,
+    cursor: u64,
+    end: u64,
+    arg: u64,
+) -> i64 {
     use gravity_abi::breaker::{LAYOUT_IMPLICIT_COUNT, T1_BYPASS};
     use gravity_abi::ctx::{lane, site_ptr, Lane};
-    let (typlen, dense, runs_at) = (arg & 0xff, ((arg >> 16) & 0xffff) as usize, (arg >> 32) as usize);
+    let (typlen, dense, runs_at) = (
+        arg & 0xff,
+        ((arg >> 16) & 0xffff) as usize,
+        (arg >> 32) as usize,
+    );
     let a = st as *mut AggState;
     let (t, layout) = ((*a).t.ptr(), &*(*a).layout.ptr());
-    let pair = layout.nkeys() == 1 && layout.size() == 16 && layout.flags & LAYOUT_IMPLICIT_COUNT != 0 && layout.sentinel_off() == 8;
-    if !pair || !matches!(typlen, 2 | 4 | 8) || (dense != 0 && *(st.add(dense) as *const u64) != 0) {
+    let pair = layout.nkeys() == 1
+        && layout.size() == 16
+        && layout.flags & LAYOUT_IMPLICIT_COUNT != 0
+        && layout.sentinel_off() == 8;
+    if !pair || !matches!(typlen, 2 | 4 | 8) || (dense != 0 && *(st.add(dense) as *const u64) != 0)
+    {
         return DW_DECLINED;
     }
     let s = site_ptr(ctx, (at >> 8) as usize);
@@ -88,13 +113,28 @@ unsafe fn distinct_window_in(ctx: *mut Ctx, st: *mut u8, at: u64, rows: Option<*
     if l.kind != lane::KIND_BYVAL || l.ptr.ptr().is_null() || !matches!(w, 2 | 4 | 8) {
         return DW_DECLINED;
     }
-    let valid = if l.valid.ptr().is_null() || l.flags & lane::FLAG_ALL_VALID != 0 { core::ptr::null() } else { l.valid.ptr() };
+    let valid = if l.valid.ptr().is_null() || l.flags & lane::FLAG_ALL_VALID != 0 {
+        core::ptr::null()
+    } else {
+        l.valid.ptr()
+    };
     // KEYED-24: `arg & DW_UNSIGNED`: an unsigned image (oid): the value's bytes zero-extended, as the row loop images them
     let unsigned = arg & DW_UNSIGNED != 0;
     let shift = if unsigned { 0 } else { 64 - typlen as u32 * 8 };
-    let mask = if unsigned && typlen < 8 { (1u64 << (typlen * 8)) - 1 } else { u64::MAX };
-    let lanes = DwLane { base: l.ptr.ptr(), sel: rows.unwrap_or((*s).sel.ptr()), valid, shift, mask };
-    type Compact = unsafe fn(&DwLane, usize, usize, *mut u64, &mut u64, &mut bool, &mut u64) -> usize;
+    let mask = if unsigned && typlen < 8 {
+        (1u64 << (typlen * 8)) - 1
+    } else {
+        u64::MAX
+    };
+    let lanes = DwLane {
+        base: l.ptr.ptr(),
+        sel: rows.unwrap_or((*s).sel.ptr()),
+        valid,
+        shift,
+        mask,
+    };
+    type Compact =
+        unsafe fn(&DwLane, usize, usize, *mut u64, &mut u64, &mut bool, &mut u64) -> usize;
     macro_rules! pick {
         ($w:literal) => {
             match (!lanes.sel.is_null(), !valid.is_null(), lanes.shift != 0) {
@@ -170,7 +210,11 @@ unsafe fn dw_scatter(ctx: *mut Ctx, a: *mut AggState, keys: &[u64], pbits: u32) 
                 ap = T1::appender(t);
                 match ap.reserve(part) {
                     Some(d) => d,
-                    None => return gravity_abi::status::unsupported(gravity_abi::status::UNSUPPORTED_SCRATCH),
+                    None => {
+                        return gravity_abi::status::unsupported(
+                            gravity_abi::status::UNSUPPORTED_SCRATCH,
+                        )
+                    }
                 }
             }
         };
@@ -196,14 +240,26 @@ struct DwLane {
 /// row's (`prev`, none before the window's first row); the kept count, the non-NULL rows added to `rows`. Branch-free: the
 /// write is unconditional, the count steps by the compare.
 #[inline(never)]
-unsafe fn dw_compact<const W: usize, const SEL: bool, const VALID: bool, const EXT: bool>(l: &DwLane, j: usize, n: usize, cand: *mut u64, prev: &mut u64, first: &mut bool, rows: &mut u64) -> usize {
+unsafe fn dw_compact<const W: usize, const SEL: bool, const VALID: bool, const EXT: bool>(
+    l: &DwLane,
+    j: usize,
+    n: usize,
+    cand: *mut u64,
+    prev: &mut u64,
+    first: &mut bool,
+    rows: &mut u64,
+) -> usize {
     let key = |r: usize| -> u64 {
         let v = match W {
             8 => core::ptr::read_unaligned(l.base.add(8 * r) as *const u64),
             4 => core::ptr::read_unaligned(l.base.add(4 * r) as *const i32) as i64 as u64,
             _ => core::ptr::read_unaligned(l.base.add(2 * r) as *const i16) as i64 as u64,
         };
-        (if EXT { (((v << l.shift) as i64) >> l.shift) as u64 } else { v }) & l.mask
+        (if EXT {
+            (((v << l.shift) as i64) >> l.shift) as u64
+        } else {
+            v
+        }) & l.mask
     };
     let (mut k, mut p, mut f, mut m) = (0usize, *prev, *first, 0u64);
     for i in j..j + n {
@@ -229,7 +285,18 @@ unsafe fn dw_compact<const W: usize, const SEL: bool, const VALID: bool, const E
 /// the partition's distinct count, summed into `OwnerTop.total` (what `pairs_total` reads), as the generic plain form's.
 pub fn distinct_count_fns() -> gravity_abi::breaker::OwnerFns {
     use gravity_abi::breaker::{OwnerFns, ORDER_NONE, OWNER_PARAMS};
-    OwnerFns { params: [0; OWNER_PARAMS], rounds: 1, order_slot: ORDER_NONE, order_slot2: ORDER_NONE, min_bytes: dc_min, open: dc_open, reduce: dc_reduce, end_round: dc_end, reduce2: dc_reduce, fold: Some(dc_fold) }
+    OwnerFns {
+        params: [0; OWNER_PARAMS],
+        rounds: 1,
+        order_slot: ORDER_NONE,
+        order_slot2: ORDER_NONE,
+        min_bytes: dc_min,
+        open: dc_open,
+        reduce: dc_reduce,
+        end_round: dc_end,
+        reduce2: dc_reduce,
+        fold: Some(dc_fold),
+    }
 }
 
 /// `HashAgg.flags`: the partition's key 0 was counted.
@@ -244,11 +311,32 @@ unsafe fn dc_open(_params: *const u64, owner: *mut u8, bytes: usize) -> i64 {
     if OWNERTOP_HDR + HASHAGG_HDR + 2 * 16 > bytes {
         return gravity_abi::status::unsupported(gravity_abi::status::UNSUPPORTED_SCRATCH);
     }
-    *(owner as *mut OwnerTop) = OwnerTop { len: 0, n: 0, table_off: OWNERTOP_HDR as u32, worst: 0, round2_off: 0, resume: 0, total: 0, groups: 0, records: 0, thr: 0, key_lo: gravity_abi::breaker::KEY_LO_NONE, key_hi: gravity_abi::breaker::KEY_HI_NONE, cell: core::cell::UnsafeCell::new([]) };
+    *(owner as *mut OwnerTop) = OwnerTop {
+        len: 0,
+        n: 0,
+        table_off: OWNERTOP_HDR as u32,
+        worst: 0,
+        round2_off: 0,
+        resume: 0,
+        total: 0,
+        groups: 0,
+        records: 0,
+        thr: 0,
+        key_lo: gravity_abi::breaker::KEY_LO_NONE,
+        key_hi: gravity_abi::breaker::KEY_HI_NONE,
+        cell: core::cell::UnsafeCell::new([]),
+    };
     OWNERTOP_HDR as i64
 }
 
-unsafe fn dc_reduce(_params: *const u64, owner: *mut u8, table: *const gravity_abi::breaker::HashAgg, _site: *mut gravity_abi::Site, _cand: *const u32, _ncand: i64) -> i64 {
+unsafe fn dc_reduce(
+    _params: *const u64,
+    owner: *mut u8,
+    table: *const gravity_abi::breaker::HashAgg,
+    _site: *mut gravity_abi::Site,
+    _cand: *const u32,
+    _ncand: i64,
+) -> i64 {
     let h = &mut *(owner as *mut gravity_abi::breaker::OwnerTop);
     let n = (*table).len as u64;
     h.records += n;
@@ -262,7 +350,14 @@ unsafe fn dc_end(_params: *const u64, _owner: *mut u8) -> i64 {
 
 /// `FoldFn` over the pair records `[x, n]` (16 bytes): the records folded, or `-1 - folded` past 7/8 of the words (the driver
 /// refolds or splits the partition).
-unsafe fn dc_fold(_params: *const u64, t: *mut gravity_abi::breaker::HashAgg, recs: *const u8, nrecs: usize, split: gravity_abi::breaker::SubSplit, _cand: *mut gravity_abi::breaker::Candidates) -> i64 {
+unsafe fn dc_fold(
+    _params: *const u64,
+    t: *mut gravity_abi::breaker::HashAgg,
+    recs: *const u8,
+    nrecs: usize,
+    split: gravity_abi::breaker::SubSplit,
+    _cand: *mut gravity_abi::breaker::Candidates,
+) -> i64 {
     let words = 2 * (*t).cap as usize;
     let (cb, at) = (words.trailing_zeros(), (*t).home_bits().1);
     let (slots, mask) = ((*t).base_ptr() as *mut u64, words - 1);

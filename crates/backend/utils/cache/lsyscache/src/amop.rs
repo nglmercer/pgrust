@@ -55,9 +55,9 @@ fn index_am_translate_strategy(strategy: i16, amoid: Oid, _opfamily: Oid) -> Com
             c if c != amoid => index_am_translate_strategy(strategy, c, _opfamily),
             _ => match extension_am_handler_name(amoid).as_deref() {
                 Some(b"hnswhandler") | Some(b"blhandler") => COMPARE_INVALID,
-                _ => panic!(
-                    "IndexAmTranslateStrategy for non-builtin AM {amoid}: amapi.c unported"
-                ),
+                _ => {
+                    panic!("IndexAmTranslateStrategy for non-builtin AM {amoid}: amapi.c unported")
+                }
             },
         },
     }
@@ -90,9 +90,7 @@ pub(crate) fn index_am_consistent_flags(amoid: Oid) -> (bool, bool) {
             c if c != amoid => index_am_consistent_flags(c),
             _ => match extension_am_handler_name(amoid).as_deref() {
                 Some(b"hnswhandler") | Some(b"blhandler") => (false, false),
-                _ => panic!(
-                    "GetIndexAmRoutineByAmId for non-builtin AM {amoid}: amapi.c unported"
-                ),
+                _ => panic!("GetIndexAmRoutineByAmId for non-builtin AM {amoid}: amapi.c unported"),
             },
         },
     }
@@ -132,7 +130,11 @@ pub fn get_op_opfamily_properties(
                 "operator {opno} is not a member of opfamily {opfamily}"
             ))
         })?;
-    Ok((amop.amopstrategy as i32, amop.amoplefttype, amop.amoprighttype))
+    Ok((
+        amop.amopstrategy as i32,
+        amop.amoplefttype,
+        amop.amoprighttype,
+    ))
 }
 
 pub fn get_opfamily_member(
@@ -166,9 +168,7 @@ fn get_opmethod_canorder(amoid: Oid) -> bool {
             c if c != amoid => get_opmethod_canorder(c),
             _ => match extension_am_handler_name(amoid).as_deref() {
                 Some(b"hnswhandler") | Some(b"blhandler") => false,
-                _ => panic!(
-                    "get_opmethod_canorder for non-builtin AM {amoid}: amapi.c unported"
-                ),
+                _ => panic!("get_opmethod_canorder for non-builtin AM {amoid}: amapi.c unported"),
             },
         },
     }
@@ -191,11 +191,8 @@ pub fn get_ordering_op_properties(opno: Oid) -> PgResult<Option<(Oid, Oid, Compa
             if !get_opmethod_canorder(aform.amopmethod) {
                 continue;
             }
-            let am_cmptype = index_am_translate_strategy(
-                aform.amopstrategy,
-                aform.amopmethod,
-                aform.amopfamily,
-            );
+            let am_cmptype =
+                index_am_translate_strategy(aform.amopstrategy, aform.amopmethod, aform.amopfamily);
             if (am_cmptype == COMPARE_LT || am_cmptype == COMPARE_GT)
                 && aform.amoplefttype == aform.amoprighttype
             {
@@ -221,13 +218,14 @@ pub fn get_ordering_op_for_equality_op(opno: Oid, use_lhs_type: bool) -> PgResul
             if !get_opmethod_canorder(aform.amopmethod) {
                 continue;
             }
-            let cmptype = index_am_translate_strategy(
-                aform.amopstrategy,
-                aform.amopmethod,
-                aform.amopfamily,
-            );
+            let cmptype =
+                index_am_translate_strategy(aform.amopstrategy, aform.amopmethod, aform.amopfamily);
             if cmptype == COMPARE_EQ {
-                let typid = if use_lhs_type { aform.amoplefttype } else { aform.amoprighttype };
+                let typid = if use_lhs_type {
+                    aform.amoplefttype
+                } else {
+                    aform.amoprighttype
+                };
                 let result =
                     get_opfamily_member_for_cmptype(aform.amopfamily, typid, typid, COMPARE_LT)?;
                 if result != InvalidOid {
@@ -283,7 +281,8 @@ pub fn get_mergejoin_opfamilies<'mcx>(mcx: Mcx<'mcx>, opno: Oid) -> PgResult<PgV
 // get_mergejoin_opfamilies' test: the member is the equality strategy of an ordering opfamily.
 pub(crate) fn is_mergejoin_equality(aform: &syscache_seams::PgAmopMemberShape) -> bool {
     get_opmethod_canorder(aform.amopmethod)
-        && index_am_translate_strategy(aform.amopstrategy, aform.amopmethod, aform.amopfamily) == COMPARE_EQ
+        && index_am_translate_strategy(aform.amopstrategy, aform.amopmethod, aform.amopfamily)
+            == COMPARE_EQ
 }
 
 // A side the caller does not ask for is never looked up; an unrequested
@@ -404,7 +403,8 @@ pub fn get_op_index_interpretation<'mcx>(
         if op_negator == InvalidOid {
             return Ok(());
         }
-        let members = syscache_seams::lookup_pg_amop_members_by_operator::call(scratch, op_negator)?;
+        let members =
+            syscache_seams::lookup_pg_amop_members_by_operator::call(scratch, op_negator)?;
         for op_form in &members {
             if !get_opmethod_canorder(op_form.amopmethod) {
                 continue;
@@ -445,9 +445,12 @@ fn ops_are_compatible(opno1: Oid, opno2: Oid, check_ordering: bool) -> PgResult<
         let members = syscache_seams::lookup_pg_amop_members_by_operator::call(scratch, opno1)?;
         for op_form in &members {
             if op_in_opfamily(opno2, op_form.amopfamily)? {
-                let (consistent_eq, consistent_ord) =
-                    index_am_consistent_flags(op_form.amopmethod);
-                if if check_ordering { consistent_ord } else { consistent_eq } {
+                let (consistent_eq, consistent_ord) = index_am_consistent_flags(op_form.amopmethod);
+                if if check_ordering {
+                    consistent_ord
+                } else {
+                    consistent_eq
+                } {
                     return Ok(true);
                 }
             }

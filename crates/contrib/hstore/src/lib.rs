@@ -84,17 +84,21 @@ pub(crate) unsafe fn arg_hstore<'a>(fcinfo: &'a Fcinfo, i: usize) -> PgResult<Hs
 }
 
 // arg_hstore whose detoast copy lands in a caller-chosen context.
-unsafe fn arg_hstore_in<'m>(fcinfo: &Fcinfo, i: usize, mcx: ::mcx::Mcx<'m>) -> PgResult<HstoreView<'m>> {
+unsafe fn arg_hstore_in<'m>(
+    fcinfo: &Fcinfo,
+    i: usize,
+    mcx: ::mcx::Mcx<'m>,
+) -> PgResult<HstoreView<'m>> {
     let v = unsafe { types_fmgr::datum_varlena_packed(fcinfo.arg(i), mcx)? };
     Ok(HstoreView::from_vardata(v.data()))
 }
 
-pub(crate) unsafe fn arg_text(fcinfo: & Fcinfo, i: usize) -> PgResult<& [u8]> {
+pub(crate) unsafe fn arg_text(fcinfo: &Fcinfo, i: usize) -> PgResult<&[u8]> {
     Ok(unsafe { fcinfo.arg_varlena_packed(i)? }.data())
 }
 
 // Full header-ful image of a varlena arg (arrays keep their dims header).
-pub(crate) unsafe fn arg_image(fcinfo: & Fcinfo, i: usize) -> PgResult<& [u8]> {
+pub(crate) unsafe fn arg_image(fcinfo: &Fcinfo, i: usize) -> PgResult<&[u8]> {
     let mcx = unsafe { fcinfo.result_mcx_detached() };
     crate::gist::detoasted_image(mcx, fcinfo.arg(i))
 }
@@ -142,7 +146,11 @@ pub(crate) fn deconstruct_text_array<'m>(
                 // SAFETY: non-null text element datum inside the array image.
                 unsafe {
                     let total = types_tuple::varatt::varsize_any(p);
-                    let hdr = if types_tuple::varatt::varatt_is_1b(p) { 1 } else { 4 };
+                    let hdr = if types_tuple::varatt::varatt_is_1b(p) {
+                        1
+                    } else {
+                        4
+                    };
                     core::slice::from_raw_parts(p.add(hdr), total - hdr).to_vec()
                 }
             })
@@ -191,7 +199,7 @@ fn build_text_array_1d<'m>(
 
 fn fc_hstore_in(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     // SAFETY: catalog arg 0 is cstring (typlen -2).
-    let s = ::mcx::std_vec_from_slice("hstore",unsafe { fcinfo.arg_cstring(0) }.to_bytes())?;
+    let s = ::mcx::std_vec_from_slice("hstore", unsafe { fcinfo.arg_cstring(0) }.to_bytes())?;
     match parse::parse_hstore(&s) {
         Ok(pairs) => {
             let pairs = unique_pairs(pairs);
@@ -229,7 +237,14 @@ fn cpw(dst: &mut Vec<u8>, src: &[u8]) {
 // rejected once this estimate passes MaxAllocSize.
 pub(crate) fn out_buflen(hs: &HstoreView<'_>) -> usize {
     (0..hs.count())
-        .map(|i| 8 + 2 * hs.keylen(i) + if hs.val_isnull(i) { 2 } else { 2 * hs.vallen(i) })
+        .map(|i| {
+            8 + 2 * hs.keylen(i)
+                + if hs.val_isnull(i) {
+                    2
+                } else {
+                    2 * hs.vallen(i)
+                }
+        })
         .sum()
 }
 
@@ -294,17 +309,27 @@ fn fc_hstore_recv(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Da
         // which runs pg_client_to_server -> pg_verify_mbstr and so rejects
         // invalid encoding and embedded NULs. Raw pq_getmsgbytes accepted
         // bytes C refuses (proofs finding #3, validation-bypass class).
-        let key = ::mcx::std_vec_from_slice("hstore", &pqformat::pq_getmsgtext(fcinfo.result_mcx(), buf, rawlen as usize)?)?;
+        let key = ::mcx::std_vec_from_slice(
+            "hstore",
+            &pqformat::pq_getmsgtext(fcinfo.result_mcx(), buf, rawlen as usize)?,
+        )?;
         check_key_len(key.len())?;
         let rawlen = pqformat::pq_getmsgint(buf, 4)? as i32;
         let val = if rawlen < 0 {
             None
         } else {
-            let v = ::mcx::std_vec_from_slice("hstore", &pqformat::pq_getmsgtext(fcinfo.result_mcx(), buf, rawlen as usize)?)?;
+            let v = ::mcx::std_vec_from_slice(
+                "hstore",
+                &pqformat::pq_getmsgtext(fcinfo.result_mcx(), buf, rawlen as usize)?,
+            )?;
             check_val_len(v.len())?;
             Some(v)
         };
-        pairs.push(Pair { key, val, needfree: true });
+        pairs.push(Pair {
+            key,
+            val,
+            needfree: true,
+        });
     }
     let pairs = unique_pairs(pairs);
     ret_hstore(fcinfo, &build_hstore(&pairs))
@@ -347,17 +372,24 @@ fn fc_hstore_from_text(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResu
     }
     let b_null = b.isnull;
     // SAFETY: checked non-null above / below.
-    let key = ::mcx::std_vec_from_slice("hstore",unsafe { arg_text(fcinfo, 0)? })?;
+    let key = ::mcx::std_vec_from_slice("hstore", unsafe { arg_text(fcinfo, 0)? })?;
     check_key_len(key.len())?;
     let val = if b_null {
         None
     } else {
         // SAFETY: checked non-null.
-        let v = ::mcx::std_vec_from_slice("hstore",unsafe { arg_text(fcinfo, 1)? })?;
+        let v = ::mcx::std_vec_from_slice("hstore", unsafe { arg_text(fcinfo, 1)? })?;
         check_val_len(v.len())?;
         Some(v)
     };
-    ret_hstore(fcinfo, &build_hstore(&[Pair { key, val, needfree: false }]))
+    ret_hstore(
+        fcinfo,
+        &build_hstore(&[Pair {
+            key,
+            val,
+            needfree: false,
+        }]),
+    )
 }
 
 // hstore(text[], text[]); NOT STRICT.
@@ -395,9 +427,7 @@ fn fc_hstore_from_arrays(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRe
         // hstore_diff, lane p1-mb-contribc).
         let (knd, kdims, klbs) = arrayfuncs::foundation::read_dims_lbounds(key_image);
         let (vnd, vdims, vlbs) = arrayfuncs::foundation::read_dims_lbounds(val_image);
-        if (knd > 0 || vnd > 0)
-            && (knd != vnd || kdims[0] != vdims[0] || klbs[0] != vlbs[0])
-        {
+        if (knd > 0 || vnd > 0) && (knd != vnd || kdims[0] != vdims[0] || klbs[0] != vlbs[0]) {
             return Err(subscript_err("arrays must have same bounds"));
         }
         let v = deconstruct_text_array(mcx, val_image)?;
@@ -417,7 +447,11 @@ fn fc_hstore_from_arrays(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRe
                 }
             },
         };
-        pairs.push(Pair { key, val, needfree: false });
+        pairs.push(Pair {
+            key,
+            val,
+            needfree: false,
+        });
     }
     let pairs = unique_pairs(pairs);
     ret_hstore(fcinfo, &build_hstore(&pairs))
@@ -481,7 +515,11 @@ fn fc_hstore_from_array(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRes
                 Some(v.clone())
             }
         };
-        pairs.push(Pair { key, val, needfree: false });
+        pairs.push(Pair {
+            key,
+            val,
+            needfree: false,
+        });
     }
     let pairs = unique_pairs(pairs);
     ret_hstore(fcinfo, &build_hstore(&pairs))
@@ -526,7 +564,11 @@ pub(crate) fn array_to_keys(image: &[u8]) -> PgResult<Vec<Vec<u8>>> {
     let pairs: Vec<Pair> = elems
         .into_iter()
         .flatten()
-        .map(|k| Pair { key: k, val: None, needfree: false })
+        .map(|k| Pair {
+            key: k,
+            val: None,
+            needfree: false,
+        })
         .collect();
     Ok(unique_pairs(pairs).into_iter().map(|p| p.key).collect())
 }
@@ -619,7 +661,8 @@ pub(crate) fn varsize(hs: &HstoreView<'_>) -> usize {
 pub(crate) fn concat_pairs(s1: &HstoreView<'_>, s2: &HstoreView<'_>) -> PgResult<Vec<Pair>> {
     let n = s1.count() + s2.count();
     let mut out: Vec<Pair> = Vec::new();
-    out.try_reserve_exact(n).map_err(|_| ::mcx::oom_named("hstore", n))?;
+    out.try_reserve_exact(n)
+        .map_err(|_| ::mcx::oom_named("hstore", n))?;
     let (mut i, mut j) = (0usize, 0usize);
     while i < s1.count() || j < s2.count() {
         let diff = if i >= s1.count() {
@@ -867,8 +910,7 @@ pub(crate) fn hstore_cmp(hs1: &HstoreView<'_>, hs2: &HstoreView<'_>) -> i32 {
                 return if c1 > c2 { 1 } else { -1 };
             }
             for i in 0..c1 * 2 {
-                if hs1.raw_endpos(i) != hs2.raw_endpos(i)
-                    || hs1.raw_isnull(i) != hs2.raw_isnull(i)
+                if hs1.raw_endpos(i) != hs2.raw_endpos(i) || hs1.raw_isnull(i) != hs2.raw_isnull(i)
                 {
                     if hs1.raw_endpos(i) < hs2.raw_endpos(i) {
                         return -1;
@@ -910,7 +952,12 @@ fc_hstore_cmp_op! {
 fn fc_hstore_cmp(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let scratch = ::mcx::MemoryContext::new_wholesale("hstore cmp detoast");
     // SAFETY: catalog args are non-null (strict fn).
-    let (a, b) = unsafe { (arg_hstore_in(fcinfo, 0, scratch.mcx())?, arg_hstore_in(fcinfo, 1, scratch.mcx())?) };
+    let (a, b) = unsafe {
+        (
+            arg_hstore_in(fcinfo, 0, scratch.mcx())?,
+            arg_hstore_in(fcinfo, 1, scratch.mcx())?,
+        )
+    };
     Ok(Datum::from_i32(hstore_cmp(&a, &b)))
 }
 
@@ -1032,8 +1079,19 @@ mod tests {
     #[test]
     fn legacy_symbol_names_resolve() {
         for name in [
-            "tconvert", "fetchval", "exists", "defined", "delete", "hs_concat", "hs_contains",
-            "hs_contained", "akeys", "avals", "skeys", "svals", "each",
+            "tconvert",
+            "fetchval",
+            "exists",
+            "defined",
+            "delete",
+            "hs_concat",
+            "hs_contains",
+            "hs_contained",
+            "akeys",
+            "avals",
+            "skeys",
+            "svals",
+            "each",
         ] {
             assert!(lookup(name).is_some(), "{name}");
         }
@@ -1049,12 +1107,20 @@ mod tests {
     #[test]
     fn only_syntax_errors_are_soft() {
         assert!(soft_input_error(&parse::parse_hstore(b"a").unwrap_err()));
-        assert!(soft_input_error(&parse::parse_hstore(b"\"a\"=>\"b").unwrap_err()));
-        assert!(!soft_input_error(&mcx::check_alloc_size(1 << 30).unwrap_err()));
+        assert!(soft_input_error(
+            &parse::parse_hstore(b"\"a\"=>\"b").unwrap_err()
+        ));
+        assert!(!soft_input_error(
+            &mcx::check_alloc_size(1 << 30).unwrap_err()
+        ));
     }
 
     fn pair(k: &str, v: Option<&str>) -> Pair {
-        Pair { key: k.as_bytes().to_vec(), val: v.map(|v| v.as_bytes().to_vec()), needfree: false }
+        Pair {
+            key: k.as_bytes().to_vec(),
+            val: v.map(|v| v.as_bytes().to_vec()),
+            needfree: false,
+        }
     }
 
     // hstore_out (hstore_io.c:1237): 6 + 2*keylen, then 2 + (2 | 2*vallen).
@@ -1068,7 +1134,10 @@ mod tests {
         assert_eq!(out_buflen(&hs), 12);
         assert!(::mcx::check_alloc_size(8 + 2 + 2 * 536870906).is_ok());
         let err = ::mcx::check_alloc_size(8 + 2 + 2 * 536870907).unwrap_err();
-        assert_eq!(err.message(), "invalid memory alloc request size 1073741824");
+        assert_eq!(
+            err.message(),
+            "invalid memory alloc request size 1073741824"
+        );
     }
 
     // hstore_concat (hstore_op.c:478) sizes its palloc by VARSIZE(s1) +
@@ -1086,7 +1155,10 @@ mod tests {
         assert_eq!(out.len(), 2);
         assert!(::mcx::check_alloc_size(148888901 + 148888901).is_ok());
         let err = ::mcx::check_alloc_size(600000010 + 600000010).unwrap_err();
-        assert_eq!(err.message(), "invalid memory alloc request size 1200000020");
+        assert_eq!(
+            err.message(),
+            "invalid memory alloc request size 1200000020"
+        );
     }
 
     // hstorePairs (hstore_io.c:458) and hstore_subscript_assign
@@ -1098,13 +1170,25 @@ mod tests {
         assert_eq!(repr::c_int32_alloc_size(1073741824), 1073741824);
         assert_eq!(repr::c_int32_alloc_size(2147483647), 2147483647);
         let err = ::mcx::check_alloc_size(repr::c_int32_alloc_size(2147483654)).unwrap_err();
-        assert_eq!(err.message(), "invalid memory alloc request size 18446744071562067974");
+        assert_eq!(
+            err.message(),
+            "invalid memory alloc request size 18446744071562067974"
+        );
         let err = ::mcx::check_alloc_size(repr::c_int32_alloc_size(2400000041)).unwrap_err();
-        assert_eq!(err.message(), "invalid memory alloc request size 18446744071814584361");
+        assert_eq!(
+            err.message(),
+            "invalid memory alloc request size 18446744071814584361"
+        );
         let err = ::mcx::check_alloc_size(repr::c_int32_alloc_size(1200000020)).unwrap_err();
-        assert_eq!(err.message(), "invalid memory alloc request size 1200000020");
+        assert_eq!(
+            err.message(),
+            "invalid memory alloc request size 1200000020"
+        );
         let n = subs::null_assign_alloc_size(1073741819, 1073741819);
         let err = ::mcx::check_alloc_size(repr::c_int32_alloc_size(n)).unwrap_err();
-        assert_eq!(err.message(), "invalid memory alloc request size 18446744071562067974");
+        assert_eq!(
+            err.message(),
+            "invalid memory alloc request size 18446744071562067974"
+        );
     }
 }

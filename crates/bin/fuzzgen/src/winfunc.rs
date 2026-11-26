@@ -68,7 +68,12 @@ pub fn gen_winfunc_stmt(g: &mut Gen) -> SelectStmt {
     // Single-table source; prefer a unique-keyed table so a total window
     // order (and therefore the order-sensitive probes) is available.
     let table = {
-        let keyed: Vec<_> = g.catalog.tables.iter().filter(|t| t.unique_key.is_some()).collect();
+        let keyed: Vec<_> = g
+            .catalog
+            .tables
+            .iter()
+            .filter(|t| t.unique_key.is_some())
+            .collect();
         if !keyed.is_empty() && g.rng.chance(3, 4) {
             *g.rng.pick(&keyed)
         } else {
@@ -82,14 +87,24 @@ pub fn gen_winfunc_stmt(g: &mut Gen) -> SelectStmt {
         uks.push((alias.clone(), uk.clone()));
     }
     let total_possible = uks.len() == rels.len();
-    let from = crate::render::FromItem::Table { name: table.name.clone(), alias };
-    let scope = Scope { rels: &rels, outer: None };
+    let from = crate::render::FromItem::Table {
+        name: table.name.clone(),
+        alias,
+    };
+    let scope = Scope {
+        rels: &rels,
+        outer: None,
+    };
 
     // A plain passthrough column alongside the window column.
     let mut items: Vec<SelectItem> = Vec::new();
     let pty = g.any_type(&scope);
     let pexpr = g.gen_typed(&scope, pty, 2);
-    items.push(SelectItem { expr: pexpr, alias: None, ty: pty });
+    items.push(SelectItem {
+        expr: pexpr,
+        alias: None,
+        ty: pty,
+    });
 
     items.push(gen_winfunc_item(g, &scope, &uks, total_possible));
 
@@ -138,13 +153,19 @@ fn gen_winfunc_item(
         "winfunc:pct_rank" => ("percent_rank", Vec::new(), SqlType::Float8),
         "winfunc:cume_dist" => ("cume_dist", Vec::new(), SqlType::Float8),
         // ntile(NULL) -> NULL for every row (no bucketing computed).
-        "winfunc:ntile_null" => {
-            ("ntile", vec![Expr::Null { ty: SqlType::Int4 }], SqlType::Int4)
-        }
+        "winfunc:ntile_null" => (
+            "ntile",
+            vec![Expr::Null { ty: SqlType::Int4 }],
+            SqlType::Int4,
+        ),
         // ntile(0) / ntile(-k) -> "argument of ntile must be greater than
         // zero" (error identity).
         "winfunc:ntile_err" => {
-            let n = if g.rng.chance(1, 2) { 0 } else { -(1 + g.rng.below(3) as i64) };
+            let n = if g.rng.chance(1, 2) {
+                0
+            } else {
+                -(1 + g.rng.below(3) as i64)
+            };
             ("ntile", vec![lit(n)], SqlType::Int4)
         }
         // Single bucket: boundary math with nbuckets == 1.
@@ -169,7 +190,11 @@ fn gen_winfunc_item(
         // Offset past the partition edge -> out of partition -> NULL.
         "winfunc:leadlag_bigoff" => {
             let (x, xty) = typed_colref(g, scope);
-            (leadlag(g), vec![x, lit(1_000 + g.rng.below(1000) as i64)], xty)
+            (
+                leadlag(g),
+                vec![x, lit(1_000 + g.rng.below(1000) as i64)],
+                xty,
+            )
         }
         // Three-arg form: an in-range offset returns the neighbour, an
         // out-of-range one returns the supplied default (isout && default).
@@ -183,7 +208,9 @@ fn gen_winfunc_item(
             let default = if g.rng.chance(1, 3) {
                 Expr::Null { ty: xty }
             } else {
-                Expr::Lit { sql: g.gen_literal(xty) }
+                Expr::Lit {
+                    sql: g.gen_literal(xty),
+                }
             };
             (leadlag(g), vec![x, off, default], xty)
         }
@@ -195,7 +222,11 @@ fn gen_winfunc_item(
         // nth_value(x, 0) / nth_value(x, -k) -> argument error (identity).
         "winfunc:nth_err" => {
             let (x, xty) = typed_colref(g, scope);
-            let n = if g.rng.chance(1, 2) { 0 } else { -(1 + g.rng.below(3) as i64) };
+            let n = if g.rng.chance(1, 2) {
+                0
+            } else {
+                -(1 + g.rng.below(3) as i64)
+            };
             ("nth_value", vec![x, lit(n)], xty)
         }
         // nth beyond the frame -> NULL (in-frame seek returns "out").
@@ -209,7 +240,11 @@ fn gen_winfunc_item(
         // gen_window_def offers under allow_frame.
         "winfunc:firstlast_frame" => {
             let (x, xty) = typed_colref(g, scope);
-            let name = if g.rng.chance(1, 2) { "first_value" } else { "last_value" };
+            let name = if g.rng.chance(1, 2) {
+                "first_value"
+            } else {
+                "last_value"
+            };
             (name, vec![x], xty)
         }
         other => unreachable!("unknown winfunc production {other}"),
@@ -223,7 +258,11 @@ fn gen_winfunc_item(
         "rank-family probe {picked} must be float-typed"
     );
 
-    SelectItem { expr: Expr::WindowFunc { name, args, over }, alias: None, ty }
+    SelectItem {
+        expr: Expr::WindowFunc { name, args, over },
+        alias: None,
+        ty,
+    }
 }
 
 /// A random in-scope column plus its type (for the displacement/default
@@ -233,7 +272,13 @@ fn typed_colref(g: &mut Gen, scope: &Scope) -> (Expr, SqlType) {
     let cols = scope.columns_of_type(ty);
     debug_assert!(!cols.is_empty(), "any_type returned a type with no columns");
     let (alias, c) = *g.rng.pick(&cols);
-    (Expr::ColRef { alias: alias.to_string(), name: c.name.clone() }, ty)
+    (
+        Expr::ColRef {
+            alias: alias.to_string(),
+            name: c.name.clone(),
+        },
+        ty,
+    )
 }
 
 /// A bare integer literal (offsets/bucket counts render verbatim; negatives
@@ -300,11 +345,17 @@ mod tests {
             "last_value(",
             " OVER (",
         ] {
-            assert!(sqls.contains(frag), "winfunc flavor {frag:?} never generated");
+            assert!(
+                sqls.contains(frag),
+                "winfunc flavor {frag:?} never generated"
+            );
         }
         // Both non-positive argument errors and negative offsets appear.
         assert!(sqls.contains("ntile(0)") || sqls.contains("ntile(-"));
-        assert!(sqls.contains(", -"), "no negative offset/nth argument generated");
+        assert!(
+            sqls.contains(", -"),
+            "no negative offset/nth argument generated"
+        );
     }
 
     /// Order-sensitive probes only ride a window ORDER BY that ends with
@@ -331,7 +382,10 @@ mod tests {
             let def = window_def_of(&stmt);
             for (alias, uk) in &rel_uks {
                 let uk = uk.as_ref().unwrap_or_else(|| {
-                    panic!("order-sensitive {probe} over keyless relation {alias}: {}", stmt.to_sql())
+                    panic!(
+                        "order-sensitive {probe} over keyless relation {alias}: {}",
+                        stmt.to_sql()
+                    )
                 });
                 assert!(
                     def.order_by.iter().any(|k| matches!(
@@ -343,7 +397,10 @@ mod tests {
                 );
             }
         }
-        assert!(checked > 100, "order-sensitive probes rarely generated ({checked})");
+        assert!(
+            checked > 100,
+            "order-sensitive probes rarely generated ({checked})"
+        );
     }
 
     /// percent_rank/cume_dist are always generated over some ORDER BY (a
@@ -367,12 +424,19 @@ mod tests {
                 cume += 1;
             }
         }
-        assert!(pct > 10 && cume > 10, "rank-family probes rare: pct={pct} cume={cume}");
+        assert!(
+            pct > 10 && cume > 10,
+            "rank-family probes rare: pct={pct} cume={cume}"
+        );
     }
 
     fn window_def_of(stmt: &SelectStmt) -> &WindowDef {
         for item in &stmt.items {
-            if let Expr::WindowFunc { over: WindowOver::Inline(d), .. } = &item.expr {
+            if let Expr::WindowFunc {
+                over: WindowOver::Inline(d),
+                ..
+            } = &item.expr
+            {
                 return d;
             }
         }
@@ -382,7 +446,11 @@ mod tests {
     fn rel_unique_keys(item: &FromItem, cat: &Catalog) -> Vec<(String, Option<String>)> {
         match item {
             FromItem::Table { name, alias } => {
-                let t = cat.tables.iter().find(|t| &t.name == name).expect("fixture table");
+                let t = cat
+                    .tables
+                    .iter()
+                    .find(|t| &t.name == name)
+                    .expect("fixture table");
                 vec![(alias.clone(), t.unique_key.clone())]
             }
             FromItem::Join { left, right, .. } => {

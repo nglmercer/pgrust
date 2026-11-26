@@ -1,15 +1,19 @@
-#[allow(unused_imports)]use core::hash::{Hash, Hasher};
+#[allow(unused_imports)]
+use core::hash::{Hash, Hasher};
 
 use gravity_abi::ctx::{ctx_size, lane};
 use gravity_abi::hash::Fnv128;
 
 use crate::arena::{Arena, ArenaRef, ArenaVec};
-use crate::laneset::LaneSet;
-#[allow(unused_imports)]
-use gravity_abi::breaker::{fits_inline, Breaker, Budget, KeyKind, OwnerFns, RecordLayout, SlotKind, WideLayout, LAYOUT_IMPLICIT_COUNT, MAX_RECORD_SLOTS, ORDER_KEY, ORDER_NONE};
 use crate::code::Code;
+use crate::laneset::LaneSet;
 use crate::lives::LifeId;
 use crate::rep::{DictRef, LaneLife, NumTypmod, Rep};
+#[allow(unused_imports)]
+use gravity_abi::breaker::{
+    fits_inline, Breaker, Budget, KeyKind, OwnerFns, RecordLayout, SlotKind, WideLayout,
+    LAYOUT_IMPLICIT_COUNT, MAX_RECORD_SLOTS, ORDER_KEY, ORDER_NONE,
+};
 
 mod lanes;
 mod layout;
@@ -173,24 +177,43 @@ impl LockSite {
 /// build) to the outermost probe; `i` itself when it is not lazy.
 fn lazy_probe(ps: &[Pipeline], i: usize) -> usize {
     let mut q = i;
-    while let Some(next) = usize::try_from(ps[q].lazy_for).ok().filter(|&next| next > q && next < ps.len()) {
+    while let Some(next) = usize::try_from(ps[q].lazy_for)
+        .ok()
+        .filter(|&next| next > q && next < ps.len())
+    {
         q = next;
     }
     q
 }
 
 fn last_consumer_in(ps: &[Pipeline], producer: usize) -> usize {
-    let Some(slot) = ps[producer].produces() else { return producer };
-    let next = (producer + 1..ps.len()).find(|&k| ps[k].produces() == Some(slot)).unwrap_or(ps.len());
-    let held = usize::try_from(ps[producer].live_through).map_or(producer, |k| k.min(next.saturating_sub(1)));
-    (producer + 1..next).filter(|&k| ps[k].consumes.contains(&slot)).max().unwrap_or(producer).max(held)
+    let Some(slot) = ps[producer].produces() else {
+        return producer;
+    };
+    let next = (producer + 1..ps.len())
+        .find(|&k| ps[k].produces() == Some(slot))
+        .unwrap_or(ps.len());
+    let held = usize::try_from(ps[producer].live_through)
+        .map_or(producer, |k| k.min(next.saturating_sub(1)));
+    (producer + 1..next)
+        .filter(|&k| ps[k].consumes.contains(&slot))
+        .max()
+        .unwrap_or(producer)
+        .max(held)
 }
 
 /// A pipeline without the planner's estimates, as the content key hashes it (lower inputs/key.rs): the rows, the build rows,
 /// the row width, `end_rate` (NEW-48) and `end_rows`. A lowering's decision on one is a guard of its key, and the rest only
 /// size (D3205, DR-1).
 pub fn estimates_out(p: &Pipeline) -> Pipeline {
-    Pipeline { predicted_rows: 0, build_rows: 0, row_width: 0, end_rate: 0, end_rows: 0, ..*p }
+    Pipeline {
+        predicted_rows: 0,
+        build_rows: 0,
+        row_width: 0,
+        end_rate: 0,
+        end_rows: 0,
+        ..*p
+    }
 }
 
 /// What `bind_key` hashes of a pipeline: `estimates_out`, but for the rows and build rows no `rows_of` / `build_of` names
@@ -199,7 +222,17 @@ pub fn estimates_out(p: &Pipeline) -> Pipeline {
 /// nor the end's spill answer `holds` (C10: it follows from the code and the breaker, both keyed).
 fn bound(p: &Pipeline) -> Pipeline {
     let own = |of: u16, v: u64| if of == u16::MAX { v } else { 0 };
-    Pipeline { predicted_rows: own(p.rows_of, p.predicted_rows), build_rows: own(p.build_of, p.build_rows), pg_gate: -1, pg_regions: [-1; 4], quiet: false, licence: LicenceStamp::None, gate_tags: None, holds: None, ..estimates_out(p) }
+    Pipeline {
+        predicted_rows: own(p.rows_of, p.predicted_rows),
+        build_rows: own(p.build_of, p.build_rows),
+        pg_gate: -1,
+        pg_regions: [-1; 4],
+        quiet: false,
+        licence: LicenceStamp::None,
+        gate_tags: None,
+        holds: None,
+        ..estimates_out(p)
+    }
 }
 
 impl Program {
@@ -221,39 +254,151 @@ impl Program {
             return format!("the write ({:?} / {:?})", self.write, o.write); // alloc: Cold
         }
         if self.pipelines.len() != o.pipelines.len() {
-            return format!("{} / {} pipelines", self.pipelines.len(), o.pipelines.len()); // alloc: Cold
+            return format!("{} / {} pipelines", self.pipelines.len(), o.pipelines.len());
+            // alloc: Cold
         }
         for (i, (a, b)) in self.pipelines.iter().zip(o.pipelines.iter()).enumerate() {
             let (a, b) = (bound(a), bound(b));
-            let Pipeline { driving_site, ends_in, parallel, predicted_rows, consumes, consumes_from, claims, owner, admit, words, topk, finish,
-                store_row_bytes, build_rows, recheck_skip, lazy_for, recheck_hold, recheck_hold_epq, held_sort, held_at, recheck, whole_read,
-                ahead, live_through, rows_of, build_of, source_of, row_width, post, first_call, end_rate, end_rows, end_of, top_rows, pg_gate, pg_regions, quiet, pass_of, licence, gate_tags, holds, refills, cascade } = b;
+            let Pipeline {
+                driving_site,
+                ends_in,
+                parallel,
+                predicted_rows,
+                consumes,
+                consumes_from,
+                claims,
+                owner,
+                admit,
+                words,
+                topk,
+                finish,
+                store_row_bytes,
+                build_rows,
+                recheck_skip,
+                lazy_for,
+                recheck_hold,
+                recheck_hold_epq,
+                held_sort,
+                held_at,
+                recheck,
+                whole_read,
+                ahead,
+                live_through,
+                rows_of,
+                build_of,
+                source_of,
+                row_width,
+                post,
+                first_call,
+                end_rate,
+                end_rows,
+                end_of,
+                top_rows,
+                pg_gate,
+                pg_regions,
+                quiet,
+                pass_of,
+                licence,
+                gate_tags,
+                holds,
+                refills,
+                cascade,
+            } = b;
             macro_rules! field {
                 ($($f:ident),*) => { $( if a.$f != $f { return format!("pipeline {i}'s {} ({:?} / {:?})", stringify!($f), a.$f, $f); } )* }; // alloc: Cold
             }
-            field!(driving_site, ends_in, parallel, predicted_rows, consumes, consumes_from, claims, owner, admit, words, topk, finish, store_row_bytes,
-                build_rows, recheck_skip, lazy_for, recheck_hold, recheck_hold_epq, held_sort, held_at, recheck, whole_read, ahead, live_through, rows_of,
-                build_of, source_of, row_width, post, first_call, end_rate, end_rows, end_of, top_rows, pg_gate, pg_regions, quiet, pass_of, licence, gate_tags, holds, refills, cascade);
+            field!(
+                driving_site,
+                ends_in,
+                parallel,
+                predicted_rows,
+                consumes,
+                consumes_from,
+                claims,
+                owner,
+                admit,
+                words,
+                topk,
+                finish,
+                store_row_bytes,
+                build_rows,
+                recheck_skip,
+                lazy_for,
+                recheck_hold,
+                recheck_hold_epq,
+                held_sort,
+                held_at,
+                recheck,
+                whole_read,
+                ahead,
+                live_through,
+                rows_of,
+                build_of,
+                source_of,
+                row_width,
+                post,
+                first_call,
+                end_rate,
+                end_rows,
+                end_of,
+                top_rows,
+                pg_gate,
+                pg_regions,
+                quiet,
+                pass_of,
+                licence,
+                gate_tags,
+                holds,
+                refills,
+                cascade
+            );
             if self.codes[i].identity() != o.codes[i].identity() {
-                return format!("pipeline {i}'s code ({:?} / {:?})", self.codes[i].identity(), o.codes[i].identity()); // alloc: Cold
+                return format!(
+                    "pipeline {i}'s code ({:?} / {:?})",
+                    self.codes[i].identity(),
+                    o.codes[i].identity()
+                ); // alloc: Cold
             }
         }
         if self.out_region != o.out_region {
-            return format!("the out region ({} / {})", self.out_region, o.out_region); // alloc: Cold
+            return format!("the out region ({} / {})", self.out_region, o.out_region);
+            // alloc: Cold
         }
         first!("instrumented cell", self.instr, o.instr);
         first!("lock", self.locks, o.locks);
         first!("beside write", self.writes, o.writes);
         if self.write_end != o.write_end {
-            return format!("the write end ({} / {})", self.write_end, o.write_end); // alloc: Cold
+            return format!("the write end ({} / {})", self.write_end, o.write_end);
+            // alloc: Cold
         }
         "the owner's signature (`with_owner`)".to_string() // alloc: Cold
     }
 
-    pub fn new(layout: Layout, sites: &[SiteDesc], out: &[OutCol], write: WritePlan, code: Code) -> Program {
-        let driving = sites.iter().position(SiteDesc::is_source).map_or(-1, |i| i as i16);
-        let reason = if driving < 0 { Reason::NoDrivingSite } else if sites[driving as usize].is_range() { Reason::Sink } else { Reason::IndexSource };
-        Program::with_pipelines(layout, sites, out, write, [(Pipeline::serial(driving, End::Sink, reason), code)])
+    pub fn new(
+        layout: Layout,
+        sites: &[SiteDesc],
+        out: &[OutCol],
+        write: WritePlan,
+        code: Code,
+    ) -> Program {
+        let driving = sites
+            .iter()
+            .position(SiteDesc::is_source)
+            .map_or(-1, |i| i as i16);
+        let reason = if driving < 0 {
+            Reason::NoDrivingSite
+        } else if sites[driving as usize].is_range() {
+            Reason::Sink
+        } else {
+            Reason::IndexSource
+        };
+        Program::with_pipelines(
+            layout,
+            sites,
+            out,
+            write,
+            [(Pipeline::serial(driving, End::Sink, reason), code)],
+        )
     }
 
     /// The out block's by-reference region (lower.md §15.13): `bytes` behind every node's out block; the content key folds it in. `out_region_bytes` is the lowerer's size.
@@ -268,7 +413,10 @@ impl Program {
     /// Re-keys `key` and `bind_key` alike with what `f` hashes.
     fn fold(&mut self, f: impl Fn(&mut Fnv128)) {
         for k in [&mut self.key, &mut self.bind_key] {
-            let mut h = Fnv128 { lo: k.0 as u64, hi: (k.0 >> 64) as u64 };
+            let mut h = Fnv128 {
+                lo: k.0 as u64,
+                hi: (k.0 >> 64) as u64,
+            };
             f(&mut h);
             *k = ContentKey(((h.hi as u128) << 64) | h.lo as u128);
         }
@@ -333,14 +481,24 @@ impl Program {
             return self;
         }
         self.fold(|h| (0x1687u32, writes).hash(h));
-        let bytes = round8(core::mem::size_of_val(writes)) + writes.iter().map(|w| w.plan.arena_bytes()).sum::<usize>();
+        let bytes = round8(core::mem::size_of_val(writes))
+            + writes.iter().map(|w| w.plan.arena_bytes()).sum::<usize>();
         let arena = Arena::new(bytes); // alloc: Cold
         let a = arena.handle();
         let mut list = ArenaVec::with_capacity_in(writes.len(), a);
         for w in writes {
-            list.push(WriteAt { site: w.site, plan: w.plan.copy_in(a), end: w.end, node: w.node });
+            list.push(WriteAt {
+                site: w.site,
+                plan: w.plan.copy_in(a),
+                end: w.end,
+                node: w.node,
+            });
         }
-        assert!(a.used() <= bytes, "beside write plans' arena: {} of {bytes}", a.used());
+        assert!(
+            a.used() <= bytes,
+            "beside write plans' arena: {} of {bytes}",
+            a.used()
+        );
         self.writes = list;
         self.side.writes = Some(arena);
         self
@@ -363,21 +521,51 @@ impl Program {
     }
 
     /// The program's one allocation: its arena, sized exactly from the descriptors.
-    pub fn with_pipelines(layout: Layout, sites: &[SiteDesc], out: &[OutCol], write: WritePlan, pipelines: impl IntoIterator<Item = (Pipeline, Code)>) -> Program {
+    pub fn with_pipelines(
+        layout: Layout,
+        sites: &[SiteDesc],
+        out: &[OutCol],
+        write: WritePlan,
+        pipelines: impl IntoIterator<Item = (Pipeline, Code)>,
+    ) -> Program {
         Program::build(layout, sites, out, write, pipelines, true)
     }
 
     /// A lowered program (`gravity_lower::assemble`): lowerv4 declares every slot a pipeline reads, so no sink takes the
     /// nearest earlier producer's slot by default; a sink after an on-demand run (an Init's members, a LAZY set's build:
     /// M8) never reads its slot, and the run stays on demand (D1114)
-    pub fn with_declared_pipelines(layout: Layout, sites: &[SiteDesc], out: &[OutCol], write: WritePlan, pipelines: impl IntoIterator<Item = (Pipeline, Code)>) -> Program {
+    pub fn with_declared_pipelines(
+        layout: Layout,
+        sites: &[SiteDesc],
+        out: &[OutCol],
+        write: WritePlan,
+        pipelines: impl IntoIterator<Item = (Pipeline, Code)>,
+    ) -> Program {
         Program::build(layout, sites, out, write, pipelines, false)
     }
 
-    fn build(layout: Layout, sites: &[SiteDesc], out: &[OutCol], write: WritePlan, pipelines: impl IntoIterator<Item = (Pipeline, Code)>, chain: bool) -> Program {
-        assert_eq!(layout.nsites as usize, sites.len(), "layout.nsites vs site descriptors");
-        assert_eq!(layout.out_natts as usize, out.len(), "layout.out_natts vs output columns");
-        let mut h = Fnv128 { lo: 0xcbf2_9ce4_8422_2325, hi: 0x84222325_cbf29ce4 };
+    fn build(
+        layout: Layout,
+        sites: &[SiteDesc],
+        out: &[OutCol],
+        write: WritePlan,
+        pipelines: impl IntoIterator<Item = (Pipeline, Code)>,
+        chain: bool,
+    ) -> Program {
+        assert_eq!(
+            layout.nsites as usize,
+            sites.len(),
+            "layout.nsites vs site descriptors"
+        );
+        assert_eq!(
+            layout.out_natts as usize,
+            out.len(),
+            "layout.out_natts vs output columns"
+        );
+        let mut h = Fnv128 {
+            lo: 0xcbf2_9ce4_8422_2325,
+            hi: 0x84222325_cbf29ce4,
+        };
         layout.hash(&mut h);
         sites.hash(&mut h);
         out.hash(&mut h);
@@ -388,7 +576,15 @@ impl Program {
         for (p, code) in staged.iter() {
             // construct C2 (b): the run-ahead tracer's stamps are a diagnosis, never a decision: two lowerings that differ
             // in them run alike. C10: a lowered end's spill answer (`holds`) follows from its code and breaker, both keyed
-            let p = &Pipeline { pg_gate: -1, pg_regions: [-1; 4], quiet: false, licence: LicenceStamp::None, gate_tags: None, holds: None, ..*p };
+            let p = &Pipeline {
+                pg_gate: -1,
+                pg_regions: [-1; 4],
+                quiet: false,
+                licence: LicenceStamp::None,
+                gate_tags: None,
+                holds: None,
+                ..*p
+            };
             p.hash(&mut h);
             code.identity().hash(&mut h);
             bound(p).hash(&mut b);
@@ -397,7 +593,12 @@ impl Program {
         assert!(n > 0, "a program has a pipeline");
         let key = ContentKey(((h.hi as u128) << 64) | h.lo as u128);
         let bind_key = ContentKey(((b.hi as u128) << 64) | b.lo as u128);
-        let nslots = staged.iter().filter_map(|(p, _)| p.produces()).map(|s| s as usize + 1).max().unwrap_or(0);
+        let nslots = staged
+            .iter()
+            .filter_map(|(p, _)| p.produces())
+            .map(|s| s as usize + 1)
+            .max()
+            .unwrap_or(0);
         let words = crate::laneset::words_for(nslots);
         let bytes = round8(std::mem::size_of_val(sites))
             + sites.iter().map(SiteDesc::arena_bytes).sum::<usize>()
@@ -409,9 +610,20 @@ impl Program {
             + round8(nslots)
             + round8(nslots * 2)
             + words * n * 8
-            + staged.iter().filter(|(p, _)| p.consumes.len() > 1).map(|(p, _)| round8(p.consumes.len())).sum::<usize>()
-            + staged.iter().map(|(p, _)| round8(std::mem::size_of_val(p.consumes_from))).sum::<usize>()
-            + staged.iter().filter_map(|(p, _)| p.owner.as_ref()).map(|o| round8(std::mem::size_of_val(o.check.steps))).sum::<usize>();
+            + staged
+                .iter()
+                .filter(|(p, _)| p.consumes.len() > 1)
+                .map(|(p, _)| round8(p.consumes.len()))
+                .sum::<usize>()
+            + staged
+                .iter()
+                .map(|(p, _)| round8(std::mem::size_of_val(p.consumes_from)))
+                .sum::<usize>()
+            + staged
+                .iter()
+                .filter_map(|(p, _)| p.owner.as_ref())
+                .map(|o| round8(std::mem::size_of_val(o.check.steps)))
+                .sum::<usize>();
         let arena = Arena::new(bytes); // alloc: Cold
         let a = arena.handle();
         let mut s = ArenaVec::with_capacity_in(sites.len(), a);
@@ -443,19 +655,49 @@ impl Program {
         }
         let last = ps.len() - 1;
         for (i, p) in ps.iter().enumerate() {
-            assert!(p.driving_site < sites.len() as i16, "pipeline {i} driving site");
-            assert!(p.driving_site < 0 || sites[p.driving_site as usize].is_source(), "pipeline {i} drives a non-source site");
+            assert!(
+                p.driving_site < sites.len() as i16,
+                "pipeline {i} driving site"
+            );
+            assert!(
+                p.driving_site < 0 || sites[p.driving_site as usize].is_source(),
+                "pipeline {i} drives a non-source site"
+            );
             // the last pipeline ends in the sink, or in a `Materialize` breaker: a scratch region per worker whose rows go to the sink (the partitioned join's third phase)
-            assert!(i < last || p.produces().is_none() || matches!(p.ends_in, End::Breaker(Breaker { kind: gravity_abi::breaker::BreakerKind::Materialize, .. })), "the last pipeline must end in the sink");
+            assert!(
+                i < last
+                    || p.produces().is_none()
+                    || matches!(
+                        p.ends_in,
+                        End::Breaker(Breaker {
+                            kind: gravity_abi::breaker::BreakerKind::Materialize,
+                            ..
+                        })
+                    ),
+                "the last pipeline must end in the sink"
+            );
             if let Some(d) = p.admit {
                 // the two-pass protocol (§2.6 item 15): an earlier HashAgg producer this pass consumes, both with an owner phase
-                let p1 = ps.get(d.pass1 as usize).filter(|_| (d.pass1 as usize) < i).unwrap_or_else(|| panic!("pipeline {i} admits from pipeline {}", d.pass1));
+                let p1 = ps
+                    .get(d.pass1 as usize)
+                    .filter(|_| (d.pass1 as usize) < i)
+                    .unwrap_or_else(|| panic!("pipeline {i} admits from pipeline {}", d.pass1));
                 let slot = match p1.ends_in {
-                    End::Breaker(Breaker { kind: gravity_abi::breaker::BreakerKind::HashAgg, slot, .. }) => slot,
+                    End::Breaker(Breaker {
+                        kind: gravity_abi::breaker::BreakerKind::HashAgg,
+                        slot,
+                        ..
+                    }) => slot,
                     _ => panic!("pipeline {i}'s pass 1 must produce a HashAgg"),
                 };
-                assert!(p.consumes.contains(&slot), "pipeline {i} consumes its pass 1's slot");
-                assert!(p1.owner.is_some(), "pipeline {i}'s pass 1 declares its owner phase");
+                assert!(
+                    p.consumes.contains(&slot),
+                    "pipeline {i} consumes its pass 1's slot"
+                );
+                assert!(
+                    p1.owner.is_some(),
+                    "pipeline {i}'s pass 1 declares its owner phase"
+                );
             }
         }
         // a kernel word is a u16 slot (`WordsDesc`): one owner per slot, over every slot the statement declares. A pipeline
@@ -471,12 +713,41 @@ impl Program {
         let slots = Program::validate_dag(&mut ps, nslots, a, chain);
         let used = a.used();
         assert!(used <= bytes, "program arena: {used} of {bytes}");
-        Program { key, bind_key, layout, sites: s, out: o, write, pipelines: ps, slots, out_region: 0, codes, arena, owner: None, hosted: None, instr: ArenaVec::new_in(ArenaRef::EMPTY), v4: None, used: 0, v4_lowered: false, locks: ArenaVec::new_in(ArenaRef::EMPTY), writes: ArenaVec::new_in(ArenaRef::EMPTY), side: Side::default(), write_end: END_STATEMENT, front: pgsync::OnceLock::new(), ledger: Ledgered::default() }
+        Program {
+            key,
+            bind_key,
+            layout,
+            sites: s,
+            out: o,
+            write,
+            pipelines: ps,
+            slots,
+            out_region: 0,
+            codes,
+            arena,
+            owner: None,
+            hosted: None,
+            instr: ArenaVec::new_in(ArenaRef::EMPTY),
+            v4: None,
+            used: 0,
+            v4_lowered: false,
+            locks: ArenaVec::new_in(ArenaRef::EMPTY),
+            writes: ArenaVec::new_in(ArenaRef::EMPTY),
+            side: Side::default(),
+            write_end: END_STATEMENT,
+            front: pgsync::OnceLock::new(),
+            ledger: Ledgered::default(),
+        }
     }
 
     /// The DAG rules (§2 decision 4): a pipeline never consumes what it produces; every consumed slot was produced by an earlier pipeline (the nearest producer of it: so the program order is a topological order and the graph acyclic); producing a slot again ends the earlier
     /// production's lifetime (its consumers are the ones before the new producer). A sink pipeline declaring nothing consumes the nearest earlier producer's slot (`chain`: not a lowered program's). `nslots` is the highest produced slot plus one.
-    fn validate_dag(ps: &mut ArenaVec<Pipeline>, nslots: usize, a: ArenaRef, chain: bool) -> SlotPlan {
+    fn validate_dag(
+        ps: &mut ArenaVec<Pipeline>,
+        nslots: usize,
+        a: ArenaRef,
+        chain: bool,
+    ) -> SlotPlan {
         let n = ps.len();
         let mut plan = SlotPlan::new_in(a, nslots, n);
         // slot ids are u8: one flag per id
@@ -490,16 +761,34 @@ impl Program {
                     ps[i] = p;
                 }
             }
-            assert!(p.consumes_from.is_empty() || p.consumes_from.len() == p.consumes.len(), "pipeline {i} names the life of some consumed slots only");
+            assert!(
+                p.consumes_from.is_empty() || p.consumes_from.len() == p.consumes.len(),
+                "pipeline {i} names the life of some consumed slots only"
+            );
             for (k, c) in p.consumes.iter().enumerate() {
                 let c = *c as usize;
-                assert!(p.produces() != Some(c as u8), "pipeline {i} consumes the slot it produces");
-                assert!(c < nslots && produced[c], "pipeline {i} consumes slot {c} before any pipeline produced it");
-                assert!(!p.consumes[..k].contains(&(c as u8)), "pipeline {i} consumes one slot twice");
+                assert!(
+                    p.produces() != Some(c as u8),
+                    "pipeline {i} consumes the slot it produces"
+                );
+                assert!(
+                    c < nslots && produced[c],
+                    "pipeline {i} consumes slot {c} before any pipeline produced it"
+                );
+                assert!(
+                    !p.consumes[..k].contains(&(c as u8)),
+                    "pipeline {i} consumes one slot twice"
+                );
                 if let Some(&LifeId(l)) = p.consumes_from.get(k) {
                     let l = l as usize;
-                    assert!(l < i && ps[l].produces() == Some(c as u8), "pipeline {i} reads slot {c} from life {l}, which does not produce it");
-                    assert!((l + 1..i).all(|m| ps[m].produces() != Some(c as u8)), "pipeline {i} reads life {l} of slot {c} past the slot's next producer");
+                    assert!(
+                        l < i && ps[l].produces() == Some(c as u8),
+                        "pipeline {i} reads slot {c} from life {l}, which does not produce it"
+                    );
+                    assert!(
+                        (l + 1..i).all(|m| ps[m].produces() != Some(c as u8)),
+                        "pipeline {i} reads life {l} of slot {c} past the slot's next producer"
+                    );
                 }
             }
             if let Some(b) = p.breaker() {
@@ -524,12 +813,18 @@ impl Program {
                 }
             }
         }
-        plan.max_live = (0..n).map(|p| crate::laneset::count(plan.live_words(p)) as u16).max().unwrap_or(0);
+        plan.max_live = (0..n)
+            .map(|p| crate::laneset::count(plan.live_words(p)) as u16)
+            .max()
+            .unwrap_or(0);
         // D3034: a share breaker's divisor counts the share slots live beside it, never a program-constant one
         // (`Budget::Fixed`: its region is its own bytes, no part of the grant). A count-ordered top's fixed owner slot live
         // beside its group table halved the table's share: a spill and a slow statement end.
         for p in 0..n {
-            let count = (0..nslots).filter(|&s| plan.shared[s] && plan.is_live(p, s as u8)).count().max(1) as u16;
+            let count = (0..nslots)
+                .filter(|&s| plan.shared[s] && plan.is_live(p, s as u8))
+                .count()
+                .max(1) as u16;
             for s in 0..nslots {
                 if plan.is_live(p, s as u8) {
                     plan.peak[s] = plan.peak[s].max(count);
@@ -553,9 +848,18 @@ impl Program {
         if self.ledger.filed.swap(true, Relaxed) {
             return;
         }
-        let caches = memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::ProgramCaches));
-        let mut heap = memledger::arc_bytes::<Program>() + self.v4.as_ref().map_or(0, |_| memledger::arc_bytes::<crate::protos::V4Descs<ArenaRef>>());
-        let side = [self.side.instr.as_ref(), self.side.locks.as_ref(), self.side.writes.as_ref(), self.side.v4.as_ref()];
+        let caches =
+            memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::ProgramCaches));
+        let mut heap = memledger::arc_bytes::<Program>()
+            + self.v4.as_ref().map_or(0, |_| {
+                memledger::arc_bytes::<crate::protos::V4Descs<ArenaRef>>()
+            });
+        let side = [
+            self.side.instr.as_ref(),
+            self.side.locks.as_ref(),
+            self.side.writes.as_ref(),
+            self.side.v4.as_ref(),
+        ];
         for a in core::iter::once(&self.arena).chain(side.into_iter().flatten()) {
             match a.ledger_bytes() {
                 (bytes, true) => {
@@ -570,7 +874,13 @@ impl Program {
         if heap > 0 {
             // C8: the boxed arenas' bytes with no charge of their own (wasm) and the program's own blocks (D4580), which this
             // thread's door 1 counted, move to the program caches' charge
-            let c = memledger::Charge::open(caches, memledger::Release::Evict, memledger::Kind::Region, memledger::charge::Door::Heap, heap);
+            let c = memledger::Charge::open(
+                caches,
+                memledger::Release::Evict,
+                memledger::Kind::Region,
+                memledger::charge::Door::Heap,
+                heap,
+            );
             *self.ledger.heap.lock().unwrap_or_else(|e| e.into_inner()) = Some(c);
         }
     }
@@ -578,7 +888,13 @@ impl Program {
     /// C2: the bytes this program holds on the program caches' memory account (0: never filed).
     pub fn ledgered_bytes(&self) -> u64 {
         use core::sync::atomic::Ordering::Relaxed;
-        let heap = self.ledger.heap.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map_or(0, memledger::Charge::committed);
+        let heap = self
+            .ledger
+            .heap
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .map_or(0, memledger::Charge::committed);
         heap + self.ledger.mapped.load(Relaxed)
     }
 
@@ -586,12 +902,19 @@ impl Program {
     /// the code that runs them (a hand kernel, a lowered function) share it; `ProgramCache::install` files a program under it and the admission takes that program for a matching shape.
     pub fn front_key(&self) -> ContentKey {
         let key = *self.front.get_or_init(|| self.front_hash());
-        debug_assert_eq!(key, self.front_hash(), "gravity: a program's front content changed after its first front_key");
+        debug_assert_eq!(
+            key,
+            self.front_hash(),
+            "gravity: a program's front content changed after its first front_key"
+        );
         key
     }
 
     fn front_hash(&self) -> ContentKey {
-        let mut h = Fnv128 { lo: 0xcbf2_9ce4_8422_2325, hi: 0x84222325_cbf29ce4 };
+        let mut h = Fnv128 {
+            lo: 0xcbf2_9ce4_8422_2325,
+            hi: 0x84222325_cbf29ce4,
+        };
         self.layout.hash(&mut h);
         self.sites[..].hash(&mut h);
         self.out[..].hash(&mut h);
@@ -644,13 +967,19 @@ impl Program {
 
     /// The pipeline whose breaker fills `slot` for consumer `pipeline` (the nearest earlier producer of it).
     pub fn producer_of_slot(&self, pipeline: usize, slot: u8) -> Option<usize> {
-        (0..pipeline).rev().find(|&p| self.pipelines[p].produces() == Some(slot))
+        (0..pipeline)
+            .rev()
+            .find(|&p| self.pipelines[p].produces() == Some(slot))
     }
 
     /// The pipelines `pipeline` waits for: the producers of every slot it consumes, then those it follows (v4
     /// `ProtoKind::Follows`: an order edge, no slot; M7-DRAIN V4R-377).
     pub fn producers_of(&self, pipeline: usize) -> impl Iterator<Item = usize> + '_ {
-        self.pipelines[pipeline].consumes.iter().filter_map(move |&s| self.producer_of_slot(pipeline, s)).chain(self.v4.iter().flat_map(move |d| d.follows(pipeline)))
+        self.pipelines[pipeline]
+            .consumes
+            .iter()
+            .filter_map(move |&s| self.producer_of_slot(pipeline, s))
+            .chain(self.v4.iter().flat_map(move |d| d.follows(pipeline)))
     }
 
     /// The last pipeline that reads the slot pipeline `producer` produces, before the slot's next producer (`producer` itself when none).

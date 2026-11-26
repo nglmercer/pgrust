@@ -48,7 +48,15 @@ pub struct SpillDecl {
 pub trait SpillMech: Sync {
     /// The exit an insert takes when it finds no room. The row at `row` (`bytes` long) goes to its partition's stream,
     /// picked from the row's KeyHash word `h` at `d.depth`, and the breaker continues.
-    fn spill_row(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, d: &SpillDecl, h: Value, row: Value, bytes: Value);
+    fn spill_row(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        d: &SpillDecl,
+        h: Value,
+        row: Value,
+        bytes: Value,
+    );
     /// After the input ends, the partition streams are read back into the breaker, one partition at a time.
     fn reload(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, d: &SpillDecl, x: &Exits);
     /// M7-SPILL (V4R-359): the partition bits hash build `k` spills at, when its probe (op `j` of pipeline `q`) and the

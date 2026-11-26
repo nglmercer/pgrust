@@ -34,7 +34,11 @@ pub fn parse_backup_label(
             };
             start_lsn = lsn;
             if rest.get(nchars) != Some(&b' ') {
-                pg_fatal!("{}: improper terminator for {}", filename, "START WAL LOCATION");
+                pg_fatal!(
+                    "{}: improper terminator for {}",
+                    filename,
+                    "START WAL LOCATION"
+                );
             }
             found |= 1;
         } else if let Some(rest) = line_strip_prefix(line, b"START TIMELINE: ") {
@@ -52,7 +56,11 @@ pub fn parse_backup_label(
             };
             previous_lsn = lsn;
             if rest.get(nchars) != Some(&b'\n') {
-                pg_fatal!("{}: improper terminator for {}", filename, "INCREMENTAL FROM LSN");
+                pg_fatal!(
+                    "{}: improper terminator for {}",
+                    filename,
+                    "INCREMENTAL FROM LSN"
+                );
             }
             found |= 4;
         } else if let Some(rest) = line_strip_prefix(line, b"INCREMENTAL FROM TLI: ") {
@@ -208,7 +216,9 @@ fn parse_tli(s: &[u8]) -> Option<TimeLineID> {
     let start = i;
     let mut acc: u64 = 0;
     while i < s.len() && s[i].is_ascii_digit() {
-        acc = acc.saturating_mul(10).saturating_add(u64::from(s[i] - b'0'));
+        acc = acc
+            .saturating_mul(10)
+            .saturating_add(u64::from(s[i] - b'0'));
         i += 1;
     }
     if i == start {

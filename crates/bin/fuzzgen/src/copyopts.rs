@@ -63,21 +63,21 @@ pub struct CopyOptsStats {
 const HOSTILE_V: &[&str] = &[
     r"plain",
     r"",
-    r"tab\there",     // \t escape
-    r"nl\nhere",      // \n escape
-    r"cr\rhere",      // \r escape (distinct from \n)
-    r"bs\bhere",      // \b backspace escape
-    r"ff\fhere",      // \f form-feed escape
-    r"vt\x0Bhere",    // \v vertical-tab escape
-    r"back\\slash",   // literal backslash -> doubled
-    "quote\"here",    // embeds the CSV quote char
-    r"comma,here",    // embeds a common delimiter
-    r"pipe|here",     // embeds the '|' custom delimiter
-    r"semi;here",     // embeds the ';' custom delimiter
-    r"NULL",          // NULL-string lookalike
-    r"\N",            // text default-NULL lookalike
-    r"  padded  ",    // leading/trailing spaces (CSV/csv trim edges)
-    "caf\u{00e9}",    // 2-byte UTF-8 out path
+    r"tab\there",   // \t escape
+    r"nl\nhere",    // \n escape
+    r"cr\rhere",    // \r escape (distinct from \n)
+    r"bs\bhere",    // \b backspace escape
+    r"ff\fhere",    // \f form-feed escape
+    r"vt\x0Bhere",  // \v vertical-tab escape
+    r"back\\slash", // literal backslash -> doubled
+    "quote\"here",  // embeds the CSV quote char
+    r"comma,here",  // embeds a common delimiter
+    r"pipe|here",   // embeds the '|' custom delimiter
+    r"semi;here",   // embeds the ';' custom delimiter
+    r"NULL",        // NULL-string lookalike
+    r"\N",          // text default-NULL lookalike
+    r"  padded  ",  // leading/trailing spaces (CSV/csv trim edges)
+    "caf\u{00e9}",  // 2-byte UTF-8 out path
 ];
 
 /// Deck DDL + seed rows: one control-char text column (v), one delimiter-
@@ -104,12 +104,10 @@ pub fn suite_ddl() -> Vec<String> {
         ));
     }
     // An all-NULL row (drives the NULL-print / NULL-quote arms on every col).
-    v.push(
-        format!(
-            "INSERT INTO fz_co_src VALUES ({}, NULL, NULL, NULL, NULL);",
-            HOSTILE_V.len() + 1
-        ),
-    );
+    v.push(format!(
+        "INSERT INTO fz_co_src VALUES ({}, NULL, NULL, NULL, NULL);",
+        HOSTILE_V.len() + 1
+    ));
     // Clone target for the round-trips (same shape incl. any defaults).
     v.push("CREATE TABLE fz_co_dst (LIKE fz_co_src INCLUDING ALL);".to_string());
     v
@@ -193,7 +191,11 @@ pub struct RoundTrip {
 /// attribute decode on FROM.
 pub fn roundtrips() -> Vec<RoundTrip> {
     vec![
-        RoundTrip { label: "text-default", to_opts: "", from_opts: "" },
+        RoundTrip {
+            label: "text-default",
+            to_opts: "",
+            from_opts: "",
+        },
         RoundTrip {
             label: "text-delim-pipe-null-na",
             to_opts: "(FORMAT text, DELIMITER '|', NULL 'NA')",
@@ -209,7 +211,11 @@ pub fn roundtrips() -> Vec<RoundTrip> {
             to_opts: "(FORMAT text, NULL '')",
             from_opts: "(FORMAT text, NULL '')",
         },
-        RoundTrip { label: "csv-default", to_opts: "(FORMAT csv)", from_opts: "(FORMAT csv)" },
+        RoundTrip {
+            label: "csv-default",
+            to_opts: "(FORMAT csv)",
+            from_opts: "(FORMAT csv)",
+        },
         RoundTrip {
             label: "csv-header-match",
             to_opts: "(FORMAT csv, HEADER)",
@@ -268,8 +274,7 @@ pub fn seeded_roundtrips(seed: u64, n: u32) -> Vec<SeededRT> {
         if nullstr.contains(delim) {
             nullstr = "";
         }
-        let mut opts: Vec<String> =
-            vec![format!("FORMAT {}", if csv { "csv" } else { "text" })];
+        let mut opts: Vec<String> = vec![format!("FORMAT {}", if csv { "csv" } else { "text" })];
         if delim != '\t' || rng.chance(1, 3) {
             opts.push(format!("DELIMITER E'{}'", esc_ch(delim)));
         }
@@ -281,7 +286,10 @@ pub fn seeded_roundtrips(seed: u64, n: u32) -> Vec<SeededRT> {
         if csv {
             let quote = if delim == '"' { '#' } else { '"' };
             if rng.chance(1, 2) {
-                opts.push(format!("QUOTE '{}'", if quote == '\'' { "''" } else { "\"" }));
+                opts.push(format!(
+                    "QUOTE '{}'",
+                    if quote == '\'' { "''" } else { "\"" }
+                ));
             }
             if rng.chance(1, 3) {
                 to_extra = ", FORCE_QUOTE *".to_string();
@@ -325,7 +333,14 @@ fn record_case(
     records: &mut Vec<Record>,
     stats: &mut CopyOptsStats,
 ) -> DiffClass {
-    let raw = classify(&DiffInput { sql, a: oa, b: ob, ulp_tol, soft_cols: &[], mask_explain_timing: false });
+    let raw = classify(&DiffInput {
+        sql,
+        a: oa,
+        b: ob,
+        ulp_tol,
+        soft_cols: &[],
+        mask_explain_timing: false,
+    });
     let c = apply_ruled(table, sql, raw);
     stats.cases += 1;
     match &c.class {
@@ -396,14 +411,30 @@ pub fn run_suite(
     // 2. Fixed round-trip matrix: A emits, both reload A's bytes, probe, re-emit.
     for rt in roundtrips() {
         run_one_roundtrip(
-            rt.to_opts, rt.from_opts, a, b, table, ulp_tol, &mut records, &mut stats, &mut next,
+            rt.to_opts,
+            rt.from_opts,
+            a,
+            b,
+            table,
+            ulp_tol,
+            &mut records,
+            &mut stats,
+            &mut next,
         );
     }
 
     // 3. Seeded round-trips.
     for rt in seeded_roundtrips(seed, seeded_n) {
         run_one_roundtrip(
-            &rt.to_opts, &rt.from_opts, a, b, table, ulp_tol, &mut records, &mut stats, &mut next,
+            &rt.to_opts,
+            &rt.from_opts,
+            a,
+            b,
+            table,
+            ulp_tol,
+            &mut records,
+            &mut stats,
+            &mut next,
         );
     }
 
@@ -430,7 +461,9 @@ fn run_one_roundtrip(
     let oa = a.apply(&copy_to);
     let ob = b.apply(&copy_to);
     record_case(&copy_to, &oa, &ob, table, ulp_tol, next(), records, stats);
-    let StmtOutcome::CopyOut { bytes, .. } = &oa else { return };
+    let StmtOutcome::CopyOut { bytes, .. } = &oa else {
+        return;
+    };
     let spec = bytes.clone();
 
     // Fresh clone state on both sides.
@@ -455,7 +488,8 @@ fn run_one_roundtrip(
         record_case(probe, &pa, &pb, table, ulp_tol, next(), records, stats);
         // Symmetric-difference against the source (0 on the reference; a
         // non-zero on either side is a lossy round-trip).
-        let symdiff = "SELECT count(*) FROM (SELECT * FROM fz_co_src EXCEPT SELECT * FROM fz_co_dst) x;";
+        let symdiff =
+            "SELECT count(*) FROM (SELECT * FROM fz_co_src EXCEPT SELECT * FROM fz_co_dst) x;";
         let sa = a.apply(symdiff);
         let sb = b.apply(symdiff);
         record_case(symdiff, &sa, &sb, table, ulp_tol, next(), records, stats);
@@ -486,7 +520,11 @@ pub fn run_single(engine: &mut dyn Executor, seed: u64, seeded_n: u32) -> (u32, 
         run(engine, &sql, &mut applied, &mut errors);
     }
 
-    let do_rt = |engine: &mut dyn Executor, to_opts: &str, from_opts: &str, applied: &mut u32, errors: &mut u32| {
+    let do_rt = |engine: &mut dyn Executor,
+                 to_opts: &str,
+                 from_opts: &str,
+                 applied: &mut u32,
+                 errors: &mut u32| {
         let sep_to = if to_opts.is_empty() { "" } else { " " };
         let o = run(
             engine,
@@ -494,17 +532,26 @@ pub fn run_single(engine: &mut dyn Executor, seed: u64, seeded_n: u32) -> (u32, 
             applied,
             errors,
         );
-        let StmtOutcome::CopyOut { bytes, .. } = o else { return };
+        let StmtOutcome::CopyOut { bytes, .. } = o else {
+            return;
+        };
         run(engine, "TRUNCATE fz_co_dst;", applied, errors);
         let sep_from = if from_opts.is_empty() { "" } else { " " };
         *applied += 1;
-        let fo = engine
-            .apply_copy_in(&format!("COPY fz_co_dst FROM STDIN{sep_from}{from_opts};"), &bytes);
+        let fo = engine.apply_copy_in(
+            &format!("COPY fz_co_dst FROM STDIN{sep_from}{from_opts};"),
+            &bytes,
+        );
         if !is_ok(&fo) {
             *errors += 1;
             return;
         }
-        run(engine, "SELECT * FROM fz_co_dst ORDER BY pk;", applied, errors);
+        run(
+            engine,
+            "SELECT * FROM fz_co_dst ORDER BY pk;",
+            applied,
+            errors,
+        );
         run(
             engine,
             "SELECT count(*) FROM (SELECT * FROM fz_co_src EXCEPT SELECT * FROM fz_co_dst) x;",
@@ -523,7 +570,13 @@ pub fn run_single(engine: &mut dyn Executor, seed: u64, seeded_n: u32) -> (u32, 
         do_rt(engine, rt.to_opts, rt.from_opts, &mut applied, &mut errors);
     }
     for rt in seeded_roundtrips(seed, seeded_n) {
-        do_rt(engine, &rt.to_opts, &rt.from_opts, &mut applied, &mut errors);
+        do_rt(
+            engine,
+            &rt.to_opts,
+            &rt.from_opts,
+            &mut applied,
+            &mut errors,
+        );
     }
     (applied, errors)
 }

@@ -93,7 +93,12 @@ impl DivScales {
     pub fn scale_of(&self, m: u64) -> u32 {
         match m {
             0 => self.zero,
-            _ => self.steps().iter().rev().find(|s| s.0 <= m).map_or(self.zero, |s| s.1),
+            _ => self
+                .steps()
+                .iter()
+                .rev()
+                .find(|s| s.0 <= m)
+                .map_or(self.zero, |s| s.1),
         }
     }
 }
@@ -106,7 +111,14 @@ fn nbase_lead(m: u128, s: i32) -> (i32, u128) {
     }
     let w = (m.ilog10() as i32 - s).div_euclid(4);
     let at = s + 4 * w;
-    (w, if at >= 0 { m / 10u128.pow(at as u32) } else { m * 10u128.pow(at.unsigned_abs()) })
+    (
+        w,
+        if at >= 0 {
+            m / 10u128.pow(at as u32)
+        } else {
+            m * 10u128.pow(at.unsigned_abs())
+        },
+    )
 }
 
 /// numeric.c `select_div_scale` of an x of mantissa `m` (its absolute value) at scale `s` over k (`km` at `ks`).
@@ -127,8 +139,18 @@ pub fn div_scales(s: u32, digits: u32, km: i64, ks: u32) -> Option<DivScales> {
     let top = 10u128.pow(digits);
     let (_, f2) = nbase_lead(km, ks as i32);
     // every |x| where the scale may change: 10^(4w + s) and (f2 + 1) x 10^(4w + s), rounded up to a mantissa
-    let at = |p: i32, c: u128| if p >= 0 { c * 10u128.pow(p as u32) } else { c.div_ceil(10u128.pow(p.unsigned_abs())) };
-    let mut out = DivScales { zero: div_scale(0, s, km, ks), steps: [(0, 0); DIV_STEPS], len: 0 };
+    let at = |p: i32, c: u128| {
+        if p >= 0 {
+            c * 10u128.pow(p as u32)
+        } else {
+            c.div_ceil(10u128.pow(p.unsigned_abs()))
+        }
+    };
+    let mut out = DivScales {
+        zero: div_scale(0, s, km, ks),
+        steps: [(0, 0); DIV_STEPS],
+        len: 0,
+    };
     let mut from: u128 = 1;
     let mut w = (-si).div_euclid(4);
     while from < top {
@@ -141,7 +163,10 @@ pub fn div_scales(s: u32, digits: u32, km: i64, ks: u32) -> Option<DivScales> {
             out.len += 1;
         }
         from = loop {
-            match [at(4 * w + si, 1), at(4 * w + si, f2 + 1)].into_iter().find(|&c| c > from) {
+            match [at(4 * w + si, 1), at(4 * w + si, f2 + 1)]
+                .into_iter()
+                .find(|&c| c > from)
+            {
                 Some(c) => break c,
                 None => w += 1,
             }
@@ -171,8 +196,14 @@ pub fn exact_reciprocal(km: i64, ks: u32) -> Option<(i64, u32)> {
     }
     // 1 / km = 2^(p - twos) x 5^(p - fives) / 10^p with p = max(twos, fives); then x 10^ks
     let p = twos.max(fives);
-    let c = 2u128.checked_pow(p - twos)?.checked_mul(5u128.checked_pow(p - fives)?)?;
-    let (mut c, mut e) = if ks >= p { (c.checked_mul(10u128.checked_pow(ks - p)?)?, 0) } else { (c, p - ks) };
+    let c = 2u128
+        .checked_pow(p - twos)?
+        .checked_mul(5u128.checked_pow(p - fives)?)?;
+    let (mut c, mut e) = if ks >= p {
+        (c.checked_mul(10u128.checked_pow(ks - p)?)?, 0)
+    } else {
+        (c, p - ks)
+    };
     // the fewest places: c's trailing zeros stripped while e > 0
     while e > 0 && c % 10 == 0 {
         c /= 10;

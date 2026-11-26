@@ -1,18 +1,20 @@
 use std::sync::atomic::Ordering::Relaxed;
 
 use types_core::{
-    LocalTransactionId, Oid, ProcNumber, TransactionId, VirtualTransactionId, InvalidOid,
-    InvalidLocalTransactionId, InvalidTransactionId, INVALID_PROC_NUMBER,
+    InvalidLocalTransactionId, InvalidOid, InvalidTransactionId, LocalTransactionId, Oid,
+    ProcNumber, TransactionId, VirtualTransactionId, INVALID_PROC_NUMBER,
 };
 use types_error::PgResult;
 use types_storage::lock::{
     ExclusiveLock, LockMethod, ShareLock, ShareUpdateExclusiveLock, DEFAULT_LOCKMETHOD, LOCKMODE,
     LOCKTAG, LOCKTAG_RELATION,
 };
-use types_storage::storage::{Spinlock, SyncCell, PGPROC, FP_LOCK_SLOTS_PER_GROUP};
+use types_storage::storage::{Spinlock, SyncCell, FP_LOCK_SLOTS_PER_GROUP, PGPROC};
 
 use crate::locallock::with_local;
-use crate::shared::{find_lock, find_proclock, LockHashPartitionLock, LockTagHashCode, SetupLockInTable};
+use crate::shared::{
+    find_lock, find_proclock, LockHashPartitionLock, LockTagHashCode, SetupLockInTable,
+};
 
 pub(crate) const FAST_PATH_BITS_PER_SLOT: u32 = 3;
 pub(crate) const FAST_PATH_LOCKNUMBER_OFFSET: LOCKMODE = 1;
@@ -78,14 +80,12 @@ fn strong_spin_acquire() {
 pub(crate) fn strong_lock_count(fasthashcode: u32) -> u32 {
     // SeqCst pairs with the SeqCst decrement + sinval hasMessages ops to keep
     // invalidation delivery ordered before a fast-path grant that observes the release.
-    strong_locks().count[fasthashcode as usize]
-        .load(std::sync::atomic::Ordering::SeqCst)
+    strong_locks().count[fasthashcode as usize].load(std::sync::atomic::Ordering::SeqCst)
 }
 
 pub(crate) fn increment_strong_lock_count_partition(fasthashcode: u32) {
     strong_spin_acquire();
-    strong_locks().count[fasthashcode as usize]
-        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    strong_locks().count[fasthashcode as usize].fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     strong_locks().mutex.unlock();
 }
 
@@ -179,8 +179,7 @@ pub(crate) unsafe fn fp_group_conflicts(
 
 pub(crate) fn fast_path_local_can_try(locktag: &LOCKTAG, mode: LOCKMODE) -> bool {
     eligible_for_relation_fast_path(locktag, mode)
-        && local_use_count(fast_path_rel_group(locktag.locktag_field2))
-            < FP_LOCK_SLOTS_PER_GROUP
+        && local_use_count(fast_path_rel_group(locktag.locktag_field2)) < FP_LOCK_SLOTS_PER_GROUP
 }
 
 pub(crate) fn fp_info_lock(proc: &PGPROC) -> &lwlock::LWLock {
@@ -200,7 +199,9 @@ pub(crate) fn fp_info_lock(proc: &PGPROC) -> &lwlock::LWLock {
     };
     // SAFETY: identical repr(C) layouts, asserted above; both types carry the
     // same atomics/UnsafeCell synchronization contract.
-    unsafe { &*(&proc.fpInfoLock as *const types_storage::storage::LWLock as *const lwlock::LWLock) }
+    unsafe {
+        &*(&proc.fpInfoLock as *const types_storage::storage::LWLock as *const lwlock::LWLock)
+    }
 }
 
 pub(crate) struct FpView<'a> {
@@ -224,7 +225,8 @@ impl FpView<'_> {
         let group = f / FP_LOCK_SLOTS_PER_GROUP as u32;
         let index = f % FP_LOCK_SLOTS_PER_GROUP as u32;
         // SAFETY: [FPL] serialized by fpInfoLock
-        (unsafe { self.bits[group as usize].get() } >> (FAST_PATH_BITS_PER_SLOT * index)) & FAST_PATH_MASK
+        (unsafe { self.bits[group as usize].get() } >> (FAST_PATH_BITS_PER_SLOT * index))
+            & FAST_PATH_MASK
     }
 
     fn bit_position(f: u32, l: LOCKMODE) -> u64 {
@@ -237,13 +239,17 @@ impl FpView<'_> {
     fn set_lockmode(&self, f: u32, l: LOCKMODE) {
         let group = (f / FP_LOCK_SLOTS_PER_GROUP as u32) as usize;
         // SAFETY: [FPL] serialized by fpInfoLock
-        unsafe { self.bits[group].set(self.bits[group].get() | (1u64 << Self::bit_position(f, l))); }
+        unsafe {
+            self.bits[group].set(self.bits[group].get() | (1u64 << Self::bit_position(f, l)));
+        }
     }
 
     fn clear_lockmode(&self, f: u32, l: LOCKMODE) {
         let group = (f / FP_LOCK_SLOTS_PER_GROUP as u32) as usize;
         // SAFETY: [FPL] serialized by fpInfoLock
-        unsafe { self.bits[group].set(self.bits[group].get() & !(1u64 << Self::bit_position(f, l))); }
+        unsafe {
+            self.bits[group].set(self.bits[group].get() & !(1u64 << Self::bit_position(f, l)));
+        }
     }
 
     fn check_lockmode(&self, f: u32, l: LOCKMODE) -> bool {
@@ -264,19 +270,25 @@ impl FpView<'_> {
 
     fn set_relid(&self, f: u32, relid: Oid) {
         // SAFETY: [FPL] serialized by fpInfoLock
-        unsafe { self.relids[f as usize].set(relid); }
+        unsafe {
+            self.relids[f as usize].set(relid);
+        }
     }
 
     // Owner-only (writes require the owner holding fpInfoLock exclusive).
     fn bump_use_count(&self, group: u32) {
         let cell = &self.use_counts[group as usize];
         // SAFETY: [FPL] serialized by fpInfoLock
-        unsafe { cell.set(cell.get() + 1); }
+        unsafe {
+            cell.set(cell.get() + 1);
+        }
     }
 
     fn set_use_count(&self, group: u32, v: i32) {
         // SAFETY: [FPL] serialized by fpInfoLock
-        unsafe { self.use_counts[group as usize].set(v); }
+        unsafe {
+            self.use_counts[group as usize].set(v);
+        }
     }
 }
 
@@ -422,9 +434,8 @@ pub(crate) fn FastPathGetRelationLockEntry(
         }
         lwlock::LWLockAcquire(partition_lock, lwlock::LW_EXCLUSIVE, my_procno)?;
         // SAFETY: partition lock held exclusive.
-        proclock = unsafe {
-            SetupLockInTable(lockMethodTable, my_procno, &locktag, hashcode, lockmode)?
-        };
+        proclock =
+            unsafe { SetupLockInTable(lockMethodTable, my_procno, &locktag, hashcode, lockmode)? };
         if proclock.is_null() {
             lwlock::LWLockRelease(partition_lock)?;
             lwlock::LWLockRelease(fp_info_lock(proc))?;
@@ -447,7 +458,10 @@ pub(crate) fn FastPathGetRelationLockEntry(
             let lock = find_lock(&locktag, hashcode)?;
             assert!(!lock.is_null(), "failed to re-find shared lock object");
             proclock = find_proclock(lock, my_procno, hashcode)?;
-            assert!(!proclock.is_null(), "failed to re-find shared proclock object");
+            assert!(
+                !proclock.is_null(),
+                "failed to re-find shared proclock object"
+            );
         }
         lwlock::LWLockRelease(partition_lock)?;
     }
@@ -523,13 +537,14 @@ fn XactLockForVirtualXact(
         }
 
         if xid == InvalidTransactionId
-            && twophase_seams::two_phase_get_xid_by_virtual_xid::is_installed() {
-                let (found, have_more) = twophase_seams::two_phase_get_xid_by_virtual_xid::call(
-                    vxid.procNumber,
-                    vxid.localTransactionId,
-                )?;
-                xid = found;
-                more = have_more;
+            && twophase_seams::two_phase_get_xid_by_virtual_xid::is_installed()
+        {
+            let (found, have_more) = twophase_seams::two_phase_get_xid_by_virtual_xid::call(
+                vxid.procNumber,
+                vxid.localTransactionId,
+            )?;
+            xid = found;
+            more = have_more;
         }
         if xid == InvalidTransactionId {
             debug_assert!(!more);

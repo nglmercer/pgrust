@@ -6,28 +6,36 @@
 use std::thread::ThreadId;
 
 use datum::Datum;
-use executils::{create_executor_state, free_executor_state, EStateData, ExecutorState};
 use execscan::ScanNode;
+use executils::{create_executor_state, free_executor_state, EStateData, ExecutorState};
 use gravity_driver::{ArenaRef, SourceBox};
-pub(crate) use gravity_kernels::ops::srf::entries::{win_bytes, win_valid, StoreHead, STORE_END, STORE_FEED, STORE_MAGIC, WIN_N, WIN_VALUES};
+pub(crate) use gravity_kernels::ops::srf::entries::{
+    win_bytes, win_valid, StoreHead, STORE_END, STORE_FEED, STORE_MAGIC, WIN_N, WIN_VALUES,
+};
 use gravity_program::SiteDesc;
 use mcx::MemoryContext;
-use nodefunctionscan::{exec_end_function_scan, exec_function_scan_materialize, exec_rescan_function_scan, exec_rescan_function_scan_chg, FunctionScanState};
+use nodefunctionscan::{
+    exec_end_function_scan, exec_function_scan_materialize, exec_rescan_function_scan,
+    exec_rescan_function_scan_chg, FunctionScanState,
+};
 use nodenamedtuplestorescan::{exec_rescan_named_tuplestore_scan, NamedTuplestoreScanState};
-use nodetablefuncscan::{exec_end_table_func_scan, exec_rescan_table_func_scan, exec_rescan_table_func_scan_chg, TableFuncScanState};
+use nodetablefuncscan::{
+    exec_end_table_func_scan, exec_rescan_table_func_scan, exec_rescan_table_func_scan_chg,
+    TableFuncScanState,
+};
+use tuplestore::Tuplestore;
 use types_error::{PgError, PgResult, ERRCODE_DATATYPE_MISMATCH};
 use types_nodes::bitmapset::Bitmapset;
-use types_nodes::plannodes::{FunctionScan, Plan, PlannedStmt, Scan};
 use types_nodes::list::NodeList;
 use types_nodes::parsenodes::RangeTblFunction;
+use types_nodes::plannodes::{FunctionScan, Plan, PlannedStmt, Scan};
 use types_nodes::Node;
 use types_portal::params::ParamExecData;
 use types_portal::{ParamListHandle, QueryEnvHandle};
-use tuplestore::Tuplestore;
 
-use crate::ops::Recipe;
 use crate::ops::srf::raw;
 use crate::ops::srf::store_row::Fixed;
+use crate::ops::Recipe;
 
 pub fn derive(_r: &Recipe, _i: usize, _desc: &SiteDesc, _a: ArenaRef) -> Option<SourceBox> {
     None
@@ -111,10 +119,35 @@ struct Reader {
 
 impl ScanStore {
     /// `None` unless `plan` is a FunctionScan, a TableFuncScan or a NamedTuplestoreScan. Nothing runs until the first batch.
-    pub fn new(pstmt: &'static PlannedStmt<'static>, plan: Node<'static>, params: ParamListHandle, query_env: QueryEnvHandle) -> Option<Box<ScanStore>> {
-        (plan.as_function_scan().is_some() || plan.as_table_func_scan().is_some() || plan.as_named_tuplestore_scan().is_some()).then(|| {
-            let head = StoreHead { magic: STORE_MAGIC, batch: raw::batch_of, rewind: raw::rewind_of, param: raw::param_of };
-            Box::new(ScanStore { head, plan, pstmt, params, query_env, leader: std::thread::current().id(), run: None, reader: None, pars: Vec::new(), chg: Vec::new(), chgcx: None }) // alloc: Exec
+    pub fn new(
+        pstmt: &'static PlannedStmt<'static>,
+        plan: Node<'static>,
+        params: ParamListHandle,
+        query_env: QueryEnvHandle,
+    ) -> Option<Box<ScanStore>> {
+        (plan.as_function_scan().is_some()
+            || plan.as_table_func_scan().is_some()
+            || plan.as_named_tuplestore_scan().is_some())
+        .then(|| {
+            let head = StoreHead {
+                magic: STORE_MAGIC,
+                batch: raw::batch_of,
+                rewind: raw::rewind_of,
+                param: raw::param_of,
+            };
+            Box::new(ScanStore {
+                head,
+                plan,
+                pstmt,
+                params,
+                query_env,
+                leader: std::thread::current().id(),
+                run: None,
+                reader: None,
+                pars: Vec::new(),
+                chg: Vec::new(),
+                chgcx: None,
+            }) // alloc: Exec
         })
     }
 
@@ -129,18 +162,38 @@ impl ScanStore {
         let reader = match &mut self.reader {
             Some(r) if (r.max, r.natts) == (max, natts) => r,
             Some(_) => return Err(bug("gravity: a store reader changed its window's shape")),
-            None if max == 0 || ! max.is_multiple_of( 64) => return Err(bug("gravity: a store window of rows not a multiple of 64")),
+            None if max == 0 || !max.is_multiple_of(64) => {
+                return Err(bug("gravity: a store window of rows not a multiple of 64"))
+            }
             None => {
                 let region = Box::new(MemoryContext::new_bump("gravity srf store batch")); // alloc: Exec
-                self.reader.insert(Reader { max, natts, window: vec![0u64; win_bytes(natts as usize, max as usize).div_ceil(8)], region }) // alloc: Exec
+                self.reader.insert(Reader {
+                    max,
+                    natts,
+                    window: vec![0u64; win_bytes(natts as usize, max as usize).div_ceil(8)],
+                    region,
+                }) // alloc: Exec
             }
         };
         reader.region.reset();
         let (win, rmcx) = (reader.window.as_mut_ptr() as *mut u8, reader.region.mcx());
         if self.run.is_none() {
-            self.run = Some(Run::start(self.pstmt, self.plan, self.params, self.query_env, &self.pars)?);
+            self.run = Some(Run::start(
+                self.pstmt,
+                self.plan,
+                self.params,
+                self.query_env,
+                &self.pars,
+            )?);
         }
-        let n = self.run.as_mut().expect("started").pull(self.plan, win, rmcx, max as usize, natts as usize, need)?;
+        let n = self.run.as_mut().expect("started").pull(
+            self.plan,
+            win,
+            rmcx,
+            max as usize,
+            natts as usize,
+            need,
+        )?;
         raw::put_count(win, n);
         Ok(if n == 0 { STORE_END } else { win as u64 })
     }
@@ -154,14 +207,19 @@ impl ScanStore {
             r.region.reset();
         }
         let chg = core::mem::take(&mut self.chg);
-        let Some(run) = self.run.as_mut() else { return Ok(()) };
+        let Some(run) = self.run.as_mut() else {
+            return Ok(());
+        };
         if chg.is_empty() {
             return run.with(|node, es| node.rescan(es));
         }
-        let cx = self.chgcx.get_or_insert_with(|| Box::new(MemoryContext::new_bump("GravitySrfScan chgParam"))); // alloc: Exec
+        let cx = self
+            .chgcx
+            .get_or_insert_with(|| Box::new(MemoryContext::new_bump("GravitySrfScan chgParam"))); // alloc: Exec
         cx.reset();
         let mut set = Bitmapset::empty();
-        chg.iter().try_for_each(|&id| set.add_member(cx.mcx(), id))?;
+        chg.iter()
+            .try_for_each(|&id| set.add_member(cx.mcx(), id))?;
         run.with(|node, es| node.rescan_chg(es, raw::chg_param(&set)))
     }
 
@@ -172,10 +230,16 @@ impl ScanStore {
         let n = self.pstmt.paramExecTypes.len();
         // D1874: a call's SubPlan value, the exec param `bare` put in its place (past the plan's own, one per subplan)
         let id = match id.checked_sub(STORE_FEED) {
-            Some(p) => (1..=self.pstmt.subplans.len()).contains(&(p as usize)).then(|| (n + p as usize - 1) as i32),
+            Some(p) => (1..=self.pstmt.subplans.len())
+                .contains(&(p as usize))
+                .then(|| (n + p as usize - 1) as i32),
             None => i32::try_from(id).ok().filter(|&i| (i as usize) < n),
         };
-        let Some(id) = id.filter(|_| flags & 1 != 0) else { return Err(bug("gravity: a store param unset or past the plan's exec params")) };
+        let Some(id) = id.filter(|_| flags & 1 != 0) else {
+            return Err(bug(
+                "gravity: a store param unset or past the plan's exec params",
+            ));
+        };
         let isnull = flags & 2 != 0;
         match self.pars.iter_mut().find(|p| p.0 == id) {
             Some(p) => (p.1, p.2) = (value, isnull),
@@ -200,7 +264,9 @@ impl ScanStore {
         if std::thread::current().id() != self.leader {
             return Err(bug("gravity: a scan store read off the leader"));
         }
-        (ptr == 0).then_some(()).ok_or_else(|| bug("gravity: a scan store has one reader (read pointer 0)"))
+        (ptr == 0)
+            .then_some(())
+            .ok_or_else(|| bug("gravity: a scan store has one reader (read pointer 0)"))
     }
 }
 
@@ -212,44 +278,78 @@ impl Drop for ScanStore {
 
 impl Run {
     /// The node's `ExecInit*` over a fresh executor state carrying this execution's parameters and query environment.
-    fn start(pstmt: &'static PlannedStmt<'static>, plan: Node<'static>, params: ParamListHandle, query_env: QueryEnvHandle, pars: &[(i32, u64, bool)]) -> PgResult<Run> {
+    fn start(
+        pstmt: &'static PlannedStmt<'static>,
+        plan: Node<'static>,
+        params: ParamListHandle,
+        query_env: QueryEnvHandle,
+        pars: &[(i32, u64, bool)],
+    ) -> PgResult<Run> {
         let cx = gravity_driver::mem::root::Root::new("GravitySrfScan");
-        let mut run = Run { node: None, stale: None, state: Some(create_executor_state(cx.mcx().context())?), _cx: cx, bare: false };
+        let mut run = Run {
+            node: None,
+            stale: None,
+            state: Some(create_executor_state(cx.mcx().context())?),
+            _cx: cx,
+            bare: false,
+        };
         let mut is_bare = false;
-        let node = run.state.as_mut().expect("live state").with_mut(|es| -> PgResult<Box<dyn Store<'static>>> {
-            raw::bind(es, pstmt, params, query_env);
-            // M8 store_reopen: the plan's exec params sized before ExecInit binds their array (as InitPlan's
-            // ExecutorStart), the passed ones laid
-            // D1874: a call holding a SubPlan reads it as an exec param past the plan's own, one per subplan (`bare`)
-            let fed = plan.as_function_scan().is_some_and(|f| f.functions.iter().any(|r| r.as_range_tbl_function().and_then(|r| r.funcexpr).is_some_and(sub)));
-            let n = pstmt.paramExecTypes.len();
-            let m = n + if fed { pstmt.subplans.len() } else { 0 };
-            es.es_param_exec_vals.extend(core::iter::repeat_n(ParamExecData::EMPTY, m));
-            es.es_param_subplans.extend(core::iter::repeat_n(None, m));
-            pars.iter().for_each(|&(id, v, isnull)| lay(es, id, v, isnull));
-            let mcx = es.es_query_cxt;
-            let bare = match plan.as_function_scan() {
-                Some(f) => bare(mcx, f, n as i32)?,
-                None => None,
-            };
-            is_bare = bare.is_some();
-            raw::init(mcx, es, plan, bare)
-        });
+        let node = run.state.as_mut().expect("live state").with_mut(
+            |es| -> PgResult<Box<dyn Store<'static>>> {
+                raw::bind(es, pstmt, params, query_env);
+                // M8 store_reopen: the plan's exec params sized before ExecInit binds their array (as InitPlan's
+                // ExecutorStart), the passed ones laid
+                // D1874: a call holding a SubPlan reads it as an exec param past the plan's own, one per subplan (`bare`)
+                let fed = plan.as_function_scan().is_some_and(|f| {
+                    f.functions.iter().any(|r| {
+                        r.as_range_tbl_function()
+                            .and_then(|r| r.funcexpr)
+                            .is_some_and(sub)
+                    })
+                });
+                let n = pstmt.paramExecTypes.len();
+                let m = n + if fed { pstmt.subplans.len() } else { 0 };
+                es.es_param_exec_vals
+                    .extend(core::iter::repeat_n(ParamExecData::EMPTY, m));
+                es.es_param_subplans.extend(core::iter::repeat_n(None, m));
+                pars.iter()
+                    .for_each(|&(id, v, isnull)| lay(es, id, v, isnull));
+                let mcx = es.es_query_cxt;
+                let bare = match plan.as_function_scan() {
+                    Some(f) => bare(mcx, f, n as i32)?,
+                    None => None,
+                };
+                is_bare = bare.is_some();
+                raw::init(mcx, es, plan, bare)
+            },
+        );
         run.node = Some(node?);
         run.bare = is_bare;
         Ok(run)
     }
 
     /// Runs `f` over the node and the executor state it lives in.
-    fn with<T>(&mut self, f: impl for<'a> FnOnce(&mut dyn Store<'a>, &mut EStateData<'a>) -> PgResult<T>) -> PgResult<T> {
+    fn with<T>(
+        &mut self,
+        f: impl for<'a> FnOnce(&mut dyn Store<'a>, &mut EStateData<'a>) -> PgResult<T>,
+    ) -> PgResult<T> {
         let node = &mut **self.node.as_mut().expect("live node");
-        self.state.as_mut().expect("live state").with_mut(|es| {
-            f(raw::narrow(node), es)
-        })
+        self.state
+            .as_mut()
+            .expect("live state")
+            .with_mut(|es| f(raw::narrow(node), es))
     }
 
     /// Up to `max` rows into the window; the rows pulled.
-    fn pull(&mut self, plan: Node<'static>, win: *mut u8, rmcx: mcx::Mcx<'_>, max: usize, natts: usize, need: u64) -> PgResult<usize> {
+    fn pull(
+        &mut self,
+        plan: Node<'static>,
+        win: *mut u8,
+        rmcx: mcx::Mcx<'_>,
+        max: usize,
+        natts: usize,
+        need: u64,
+    ) -> PgResult<usize> {
         let mut stale_of = self.stale;
         let bare = self.bare;
         let n = self.with(|node, es| {
@@ -320,15 +420,42 @@ fn sub(n: Node<'_>) -> bool {
 /// is replaced by the exec param `base + plan_id - 1` (decompose `fed_params`; `base` the plan's own exec params), whose
 /// value the program evaluates on the step's row and passes before every rewind (`param`, `STORE_FEED`), and that id joins
 /// the call's funcparams, so a rewind that passes it recomputes the call (PG's ExecReScanFunctionScan on a changed param).
-fn bare<'m>(mcx: mcx::Mcx<'m>, f: &FunctionScan<'m>, base: i32) -> PgResult<Option<&'m FunctionScan<'m>>> {
+fn bare<'m>(
+    mcx: mcx::Mcx<'m>,
+    f: &FunctionScan<'m>,
+    base: i32,
+) -> PgResult<Option<&'m FunctionScan<'m>>> {
     let p = &f.scan.plan;
-    let calls = f.functions.iter().any(|r| r.as_range_tbl_function().and_then(|r| r.funcexpr).is_some_and(sub));
+    let calls = f.functions.iter().any(|r| {
+        r.as_range_tbl_function()
+            .and_then(|r| r.funcexpr)
+            .is_some_and(sub)
+    });
     if !calls && !p.qual.iter().chain(p.targetlist.iter()).any(sub) {
         return Ok(None);
     }
-    let plan = Plan { plan_node_id: p.plan_node_id, parallel_safe: p.parallel_safe, ..Default::default() };
-    let functions = if calls { fed(mcx, &f.functions, base)? } else { f.functions.clone_in(mcx)? };
-    mcx::alloc_leak_in(mcx, FunctionScan { scan: Scan { plan, scanrelid: f.scan.scanrelid }, functions, funcordinality: f.funcordinality }).map(Some)
+    let plan = Plan {
+        plan_node_id: p.plan_node_id,
+        parallel_safe: p.parallel_safe,
+        ..Default::default()
+    };
+    let functions = if calls {
+        fed(mcx, &f.functions, base)?
+    } else {
+        f.functions.clone_in(mcx)?
+    };
+    mcx::alloc_leak_in(
+        mcx,
+        FunctionScan {
+            scan: Scan {
+                plan,
+                scanrelid: f.scan.scanrelid,
+            },
+            functions,
+            funcordinality: f.funcordinality,
+        },
+    )
+    .map(Some)
 }
 
 /// D1874: FROM functions `l` with each call's SubPlans replaced by their exec params (`bare`), each id in its funcparams.
@@ -347,7 +474,8 @@ fn fed<'m>(mcx: mcx::Mcx<'m>, l: &NodeList<'m>, base: i32) -> PgResult<NodeList<
             continue;
         };
         let mut funcparams = r.funcparams.clone_in(mcx)?;
-        ids.iter().try_for_each(|&id| funcparams.add_member(mcx, id))?;
+        ids.iter()
+            .try_for_each(|&id| funcparams.add_member(mcx, id))?;
         let r = RangeTblFunction {
             funcexpr: Some(e),
             funccolcount: r.funccolcount,
@@ -366,14 +494,24 @@ fn fed<'m>(mcx: mcx::Mcx<'m>, l: &NodeList<'m>, base: i32) -> PgResult<NodeList<
 /// attribute past its end, dropped, or of another type (a view or a prepared plan over a function whose row type changed
 /// since). PG's CheckVarSlotCompatibility raises it at that expression's first run; the program would read the wrong type.
 fn stale(plan: Node<'_>, d: &types_tuple::TupleDescData<'_>) -> bool {
-    let scan = plan.as_function_scan().map(|f| &f.scan).or_else(|| plan.as_table_func_scan().map(|t| &t.scan));
-    let Some(scan) = scan.or_else(|| plan.as_named_tuplestore_scan().map(|n| &n.scan)) else { return false };
+    let scan = plan
+        .as_function_scan()
+        .map(|f| &f.scan)
+        .or_else(|| plan.as_table_func_scan().map(|t| &t.scan));
+    let Some(scan) = scan.or_else(|| plan.as_named_tuplestore_scan().map(|n| &n.scan)) else {
+        return false;
+    };
     let mut bad = false;
     // bounded("other: the scan node's own qual and target list entries, walked once at the first row: the query text bounds them, as PG's ExecInitExpr walks the same expressions with no poll")
     for n in scan.plan.qual.iter().chain(scan.plan.targetlist.iter()) {
         gravity_decompose::expr::walk(n, &mut |x| {
-            if let Some(v) = x.as_var().filter(|v| v.varno == scan.scanrelid as i32 && v.varlevelsup == 0 && v.varattno > 0) {
-                let a = d.attrs.get(v.varattno as usize - 1).filter(|_| (v.varattno as i32) <= d.natts);
+            if let Some(v) = x.as_var().filter(|v| {
+                v.varno == scan.scanrelid as i32 && v.varlevelsup == 0 && v.varattno > 0
+            }) {
+                let a = d
+                    .attrs
+                    .get(v.varattno as usize - 1)
+                    .filter(|_| (v.varattno as i32) <= d.natts);
                 bad |= a.is_none_or(|a| a.attisdropped || a.atttypid != v.vartype);
             }
             !bad
@@ -395,7 +533,11 @@ impl Drop for Run {
 
 /// Exec param `id` (inside the plan's array) set in the store's own state.
 fn lay(es: &mut EStateData<'_>, id: i32, value: u64, isnull: bool) {
-    es.es_param_exec_vals[id as usize] = ParamExecData { value: Datum::from_usize(value as usize), isnull, exec_plan: false };
+    es.es_param_exec_vals[id as usize] = ParamExecData {
+        value: Datum::from_usize(value as usize),
+        isnull,
+        exec_plan: false,
+    };
 }
 
 #[cold]

@@ -124,7 +124,10 @@ fn compound_reference_is_not_a_named_cursor_argument() {
         bound_cursor(&mut comp, argrow);
         let mut parser = parser_for!(cx, comp, src);
         let block = parser.parse_function_body().unwrap();
-        let PlStmt::Open { argquery: Some(q), .. } = &block.body[0] else {
+        let PlStmt::Open {
+            argquery: Some(q), ..
+        } = &block.body[0]
+        else {
             panic!("expected OPEN with args: {:?}", block.body);
         };
         assert_eq!(q.query, &core::str::from_utf8(src).unwrap()[13..21]);
@@ -155,7 +158,10 @@ fn for_in_execute_missing_terminator_names_loop_or_using() {
     let mut parser = parser_for!(cx, comp, b"begin for r in execute 'select 1'; end");
     let err = parser.parse_function_body().unwrap_err();
     assert_eq!(err.sqlstate, types_error::ERRCODE_SYNTAX_ERROR);
-    assert_eq!(err.message, "missing \"LOOP or USING\" at end of SQL expression");
+    assert_eq!(
+        err.message,
+        "missing \"LOOP or USING\" at end of SQL expression"
+    );
     assert_eq!(err.internal_position, Some(34));
 }
 

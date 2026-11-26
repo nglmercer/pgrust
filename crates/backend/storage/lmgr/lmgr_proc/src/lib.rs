@@ -10,14 +10,14 @@ use std::sync::OnceLock;
 use init_small::globals as g;
 use types_core::{
     BackendType, InvalidLocalTransactionId, InvalidOid, InvalidTransactionId, ProcNumber,
-    TRANSACTION_STATUS_IN_PROGRESS, INVALID_PROC_NUMBER,
+    INVALID_PROC_NUMBER, TRANSACTION_STATUS_IN_PROGRESS,
 };
 use types_error::{PgError, PgResult, ERRCODE_TOO_MANY_CONNECTIONS, ERROR, FATAL};
 use types_storage::lock::{DeadLockState, DEFAULT_LOCKMETHOD, USER_LOCKMETHOD};
 use types_storage::storage::{
-    pg_atomic_uint32, proclist_head, proclist_node, FreeListId, LWLockWaitList, PGPROC, PROC_HDR,
-    Spinlock, SyncCell, XidCacheStatus, FP_LOCK_GROUPS_PER_BACKEND_MAX, FP_LOCK_SLOTS_PER_GROUP,
-    LWTRANCHE_LOCK_FASTPATH, NUM_LOCK_PARTITIONS, NUM_SPECIAL_WORKER_PROCS,
+    pg_atomic_uint32, proclist_head, proclist_node, FreeListId, LWLockWaitList, Spinlock, SyncCell,
+    XidCacheStatus, FP_LOCK_GROUPS_PER_BACKEND_MAX, FP_LOCK_SLOTS_PER_GROUP,
+    LWTRANCHE_LOCK_FASTPATH, NUM_LOCK_PARTITIONS, NUM_SPECIAL_WORKER_PROCS, PGPROC, PROC_HDR,
     PROC_IS_AUTOVACUUM, PROC_WAIT_STATUS_OK,
 };
 use types_storage::waiteventset::{WL_EXIT_ON_PM_DEATH, WL_LATCH_SET};
@@ -289,7 +289,10 @@ const fn maxalign(len: usize) -> usize {
 fn total_procs(cfg: &ProcGlobalConfig) -> PgResult<usize> {
     shmem_seams::add_size::call(
         g::MaxBackends() as usize,
-        shmem_seams::add_size::call(g::NumAuxiliaryProcs() as usize, cfg.max_prepared_xacts as usize)?,
+        shmem_seams::add_size::call(
+            g::NumAuxiliaryProcs() as usize,
+            cfg.max_prepared_xacts as usize,
+        )?,
     )
 }
 
@@ -344,7 +347,7 @@ pub fn InitProcGlobal(cfg: &ProcGlobalConfig) {
             + NUM_SPECIAL_WORKER_PROCS
     );
     let groups = cfg.fastpath_lock_groups_per_backend;
-    assert!(( 1..= FP_LOCK_GROUPS_PER_BACKEND_MAX).contains(&groups));
+    assert!((1..=FP_LOCK_GROUPS_PER_BACKEND_MAX).contains(&groups));
 
     let total = max_backends + g::NumAuxiliaryProcs() + cfg.max_prepared_xacts;
     let slots_per_backend = groups * FP_LOCK_SLOTS_PER_GROUP;
@@ -366,7 +369,10 @@ pub fn InitProcGlobal(cfg: &ProcGlobalConfig) {
     for i in 0..total {
         let mut proc = PGPROC::new_zeroed();
         // SAFETY: [FPL] fpInfoLock; exclusive during single-threaded InitProcGlobal.
-        unsafe { proc.fpLockBits.set(fp_bits[(i * groups) as usize..].as_ptr()) };
+        unsafe {
+            proc.fpLockBits
+                .set(fp_bits[(i * groups) as usize..].as_ptr())
+        };
         // SAFETY: [FPL] fpInfoLock; exclusive during single-threaded InitProcGlobal.
         unsafe {
             proc.fpRelId
@@ -516,7 +522,10 @@ pub fn ProcGlobalResetAfterCrash() {
         // SAFETY: [PAL] subxidStatus; exclusive during crash reset (all children dead).
         unsafe { proc.subxidStatus.set(XidCacheStatus::default()) };
         // SAFETY: [PAL] subxids; exclusive during crash reset (all children dead).
-        unsafe { proc.subxids.set(types_storage::storage::XidCache::default()) };
+        unsafe {
+            proc.subxids
+                .set(types_storage::storage::XidCache::default())
+        };
         proc.procArrayGroupMember.store(false, Relaxed);
         proc.procArrayGroupNext
             .value
@@ -671,8 +680,9 @@ pub fn InitProcess(backend_type: BackendType) -> PgResult<()> {
     // D6 (connqueue): while admission-queue waiters exist, a new regular
     // backend must not barge past them to the freelist — divert it to the
     // queue tail (the None arm below) to keep service order FIFO.
-    let queue_eligible =
-        backend_type == BackendType::Backend && list_id == FreeListId::Regular && connqueue::enabled();
+    let queue_eligible = backend_type == BackendType::Backend
+        && list_id == FreeListId::Regular
+        && connqueue::enabled();
 
     // The reserved band (superuser_reserved_connections +
     // reserved_connections) is kept OUT of the queue's reach, so that a
@@ -703,8 +713,7 @@ pub fn InitProcess(backend_type: BackendType) -> PgResult<()> {
     spin_acquire(&ProcStructLock);
     // SAFETY: [PSL] spins_per_delay read under ProcStructLock.
     s_lock_seams::set_spins_per_delay::call(unsafe { hdr.spins_per_delay.get() });
-    let popped = if waiters
-        || (queue_eligible && !claimer && !regular_free_exceeds(hdr, reserved))
+    let popped = if waiters || (queue_eligible && !claimer && !regular_free_exceeds(hdr, reserved))
     {
         // FIFO: join the tail behind the waiters; or inside the band
         // without a claim: wait for an ordinary slot (never the band).
@@ -1354,87 +1363,87 @@ pub fn ProcKill(_code: i32, _arg: usize) {
         // the push gate decide (a still-set lockGroupLeader legally blocks
         // the self-push — reported loudly instead of leaking silently).
         let detach = run_release_step("lock-group detach in ProcKill", || {
-        let leader = GetPGProcByNumber(leader_no);
-        let leader_lwlock = LockHashPartitionLockByProc(leader_no);
-        lwlock::LWLockAcquire(leader_lwlock, lwlock::LW_EXCLUSIVE, procno)
-            .expect("partition lock in ProcKill");
-        debug_assert!(!plist_is_empty(&leader.lockGroupMembers));
-        plist_delete(hdr, &leader.lockGroupMembers, procno, group_link_of);
-        if plist_is_empty(&leader.lockGroupMembers) {
-            if leader_no != procno {
-                // Leader exited first (its detach block removed its own
-                // link — a live attached leader is always on its own list,
-                // so this transition is proof it already died or parked).
-                // DEFERRED-RETURN ARBITRATION under ProcStructLock: the
-                // pointer clear, the pid read, and the push form one
-                // critical section against the leader's own freelist tail
-                // (which stores pid=0 and reads this pointer under the
-                // same lock). Exactly one side returns the PGPROC:
-                //   pid == 0  -> the leader's tail CS already ran; it saw
-                //                its pointer still set (== leader_no) and
-                //                skipped its self-push: WE return it.
-                //   pid != 0  -> the leader has not reached its tail CS
-                //                (or wretain-parked and never will): it
-                //                owns its own return — our pointer clear
-                //                makes its gate read INVALID and self-push
-                //                (a parked leader keeps its retained PGPROC
-                //                and reattaches group-clean). NOT a leak,
-                //                NOT corruption: the designed handoff.
-                // Racy-shape note: C's proc.c shares the unlocked shape
-                // (pid=0 store and the tail gate outside any lock common
-                // with this arm); stock C never gets here concurrently —
-                // parallel-context teardown waits for worker DEATH before
-                // the leader's ProcKill, and only dying procs detach. Our
-                // LeaveLockGroup (live pool workers, per-engagement) makes
-                // the window hot, hence the stronger locking here.
-                // SAFETY: [PSL] procgloballist fixed at InitProcGlobal.
-                let list = unsafe { leader.procgloballist.get() }.expect("leader freelist");
-                spin_acquire(&ProcStructLock);
-                leader.lockGroupLeader.store(INVALID_PROC_NUMBER, Relaxed);
-                let pushed = leader.pid.load(Relaxed) == 0;
-                if pushed {
-                    plist_push_head(hdr, freelist(hdr, list), leader_no, links_of);
+            let leader = GetPGProcByNumber(leader_no);
+            let leader_lwlock = LockHashPartitionLockByProc(leader_no);
+            lwlock::LWLockAcquire(leader_lwlock, lwlock::LW_EXCLUSIVE, procno)
+                .expect("partition lock in ProcKill");
+            debug_assert!(!plist_is_empty(&leader.lockGroupMembers));
+            plist_delete(hdr, &leader.lockGroupMembers, procno, group_link_of);
+            if plist_is_empty(&leader.lockGroupMembers) {
+                if leader_no != procno {
+                    // Leader exited first (its detach block removed its own
+                    // link — a live attached leader is always on its own list,
+                    // so this transition is proof it already died or parked).
+                    // DEFERRED-RETURN ARBITRATION under ProcStructLock: the
+                    // pointer clear, the pid read, and the push form one
+                    // critical section against the leader's own freelist tail
+                    // (which stores pid=0 and reads this pointer under the
+                    // same lock). Exactly one side returns the PGPROC:
+                    //   pid == 0  -> the leader's tail CS already ran; it saw
+                    //                its pointer still set (== leader_no) and
+                    //                skipped its self-push: WE return it.
+                    //   pid != 0  -> the leader has not reached its tail CS
+                    //                (or wretain-parked and never will): it
+                    //                owns its own return — our pointer clear
+                    //                makes its gate read INVALID and self-push
+                    //                (a parked leader keeps its retained PGPROC
+                    //                and reattaches group-clean). NOT a leak,
+                    //                NOT corruption: the designed handoff.
+                    // Racy-shape note: C's proc.c shares the unlocked shape
+                    // (pid=0 store and the tail gate outside any lock common
+                    // with this arm); stock C never gets here concurrently —
+                    // parallel-context teardown waits for worker DEATH before
+                    // the leader's ProcKill, and only dying procs detach. Our
+                    // LeaveLockGroup (live pool workers, per-engagement) makes
+                    // the window hot, hence the stronger locking here.
+                    // SAFETY: [PSL] procgloballist fixed at InitProcGlobal.
+                    let list = unsafe { leader.procgloballist.get() }.expect("leader freelist");
+                    spin_acquire(&ProcStructLock);
+                    leader.lockGroupLeader.store(INVALID_PROC_NUMBER, Relaxed);
+                    let pushed = leader.pid.load(Relaxed) == 0;
+                    if pushed {
+                        plist_push_head(hdr, freelist(hdr, list), leader_no, links_of);
+                    }
+                    ProcStructLock.unlock();
+                    if pushed && list == FreeListId::Regular {
+                        connqueue::slot_released();
+                    }
+                } else {
+                    leader.lockGroupLeader.store(INVALID_PROC_NUMBER, Relaxed);
                 }
-                ProcStructLock.unlock();
-                if pushed && list == FreeListId::Regular {
-                    connqueue::slot_released();
-                }
-            } else {
-                leader.lockGroupLeader.store(INVALID_PROC_NUMBER, Relaxed);
             }
-        }
-        // GL-ASSERTMASK-1 row A2, folded into GL-GANGWEDGE-1 (letter §6.5).
-        // A MEMBER clears its own pointer in BOTH arms, not just the
-        // non-empty one. Previously the empty-transition arm above cleared
-        // only the LEADER's pointer, leaving ours set. That is harmless for a
-        // DYING caller (the slot is reinitialized by the next allocation) but
-        // not for a PARKING one: the `wretain::parking()` branch below returns
-        // with the PGPROC retained, so a stale pointer survives the park and
-        // `ReattachRetainedProc`'s group-clean precondition (its
-        // debug_assert_eq on lockGroupLeader) no longer holds — and in a
-        // release build, where that assert is compiled out, the reattached
-        // proc silently advertises membership in whatever the leader's slot has
-        // since been recycled into.
-        //
-        // This is exactly the rule LeaveLockGroup already states for a proc
-        // that lives on ("its own lockGroupLeader must clear in BOTH arms ... a
-        // stale pointer would advertise membership in a recycled PGPROC slot").
-        // ProcKill's parking branch is subject to that rule; this makes it hold
-        // at both doors instead of one. Idempotent — the non-empty arm used to
-        // do this store and every other path already leaves it INVALID.
-        //
-        // HARDENING BY CONSTRUCTION, not a witnessed fix: see §6.5 for the
-        // three repro shapes attempted and the reachability analysis (the
-        // leader's parallel-context teardown waits for its workers, so on the
-        // wpool path the leader's link is removed LAST and a member never sees
-        // the empty transition; on the standing path members leave via
-        // LeaveLockGroup, which already clears correctly). The leader case
-        // (leader_no == procno) is deliberately untouched: live members read
-        // the leader's pointer for the deferred-return arbitration above.
-        if leader_no != procno {
-            proc.lockGroupLeader.store(INVALID_PROC_NUMBER, Relaxed);
-        }
-        lwlock::LWLockRelease(leader_lwlock).expect("partition unlock in ProcKill");
+            // GL-ASSERTMASK-1 row A2, folded into GL-GANGWEDGE-1 (letter §6.5).
+            // A MEMBER clears its own pointer in BOTH arms, not just the
+            // non-empty one. Previously the empty-transition arm above cleared
+            // only the LEADER's pointer, leaving ours set. That is harmless for a
+            // DYING caller (the slot is reinitialized by the next allocation) but
+            // not for a PARKING one: the `wretain::parking()` branch below returns
+            // with the PGPROC retained, so a stale pointer survives the park and
+            // `ReattachRetainedProc`'s group-clean precondition (its
+            // debug_assert_eq on lockGroupLeader) no longer holds — and in a
+            // release build, where that assert is compiled out, the reattached
+            // proc silently advertises membership in whatever the leader's slot has
+            // since been recycled into.
+            //
+            // This is exactly the rule LeaveLockGroup already states for a proc
+            // that lives on ("its own lockGroupLeader must clear in BOTH arms ... a
+            // stale pointer would advertise membership in a recycled PGPROC slot").
+            // ProcKill's parking branch is subject to that rule; this makes it hold
+            // at both doors instead of one. Idempotent — the non-empty arm used to
+            // do this store and every other path already leaves it INVALID.
+            //
+            // HARDENING BY CONSTRUCTION, not a witnessed fix: see §6.5 for the
+            // three repro shapes attempted and the reachability analysis (the
+            // leader's parallel-context teardown waits for its workers, so on the
+            // wpool path the leader's link is removed LAST and a member never sees
+            // the empty transition; on the standing path members leave via
+            // LeaveLockGroup, which already clears correctly). The leader case
+            // (leader_no == procno) is deliberately untouched: live members read
+            // the leader's pointer for the deferred-return arbitration above.
+            if leader_no != procno {
+                proc.lockGroupLeader.store(INVALID_PROC_NUMBER, Relaxed);
+            }
+            lwlock::LWLockRelease(leader_lwlock).expect("partition unlock in ProcKill");
         });
         if let Some(p) = detach {
             detach_failed = true;
@@ -1806,8 +1815,8 @@ pub fn init_seams() {
             })
         }
     });
-    s::pg_semaphore_lock::set( pg_sema_seams::pg_semaphore_lock::call);
-    s::pg_semaphore_unlock::set( pg_sema_seams::pg_semaphore_unlock::call);
+    s::pg_semaphore_lock::set(pg_sema_seams::pg_semaphore_lock::call);
+    s::pg_semaphore_unlock::set(pg_sema_seams::pg_semaphore_unlock::call);
 
     use guc_tables::{vars, GucVarAccessors};
     macro_rules! install_var {

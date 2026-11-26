@@ -41,7 +41,9 @@ fn fc_blhandler(
 ) -> types_error::PgResult<datum::Datum> {
     let amroutine: &types_relscan::IndexAmKind =
         mcx::alloc_leak_in(fcinfo.result_mcx(), types_relscan::IndexAmKind::Bloom)?;
-    Ok(datum::Datum::from_usize(amroutine as *const types_relscan::IndexAmKind as usize))
+    Ok(datum::Datum::from_usize(
+        amroutine as *const types_relscan::IndexAmKind as usize,
+    ))
 }
 
 dfmgr::builtin_library_seams!();

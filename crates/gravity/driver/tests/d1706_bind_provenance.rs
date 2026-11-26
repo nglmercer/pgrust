@@ -16,9 +16,14 @@ use common::*;
 use gravity_abi::status::{DONE, ERROR};
 use gravity_abi::Ctx;
 use gravity_driver::{Call, Entry, Step};
-use gravity_program::{Code, End, Generation, Handle, Layout, OutCol, Pipeline, PlanKey, Program, Reason, WritePlan};
+use gravity_program::{
+    Code, End, Generation, Handle, Layout, OutCol, Pipeline, PlanKey, Program, Reason, WritePlan,
+};
 
-const KEY: PlanKey = PlanKey { handle: Handle(1706), generation: Generation(1) };
+const KEY: PlanKey = PlanKey {
+    handle: Handle(1706),
+    generation: Generation(1),
+};
 const NULLS: [u8; 1] = [0];
 
 /// One row, 7, then done: the host's send reaches the node through the ctx's `out` and the program block's `env`.
@@ -35,9 +40,24 @@ unsafe extern "C-unwind" fn k_one(ctx: *mut Ctx) -> i64 {
 
 #[test]
 fn a_pipelines_first_call_settles_through_the_env_the_bind_handed_out() {
-    let layout = Layout { nsites: 0, out_natts: 1, out_rows: 8, scratch_bytes: 0, exec_bytes: 0 };
-    let pipes = [(Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), Code::hand(k_one))];
-    let program = Arc::new(Program::with_pipelines(layout, &[], &[OutCol::new("c0", 20, -1, 8, true)], WritePlan::SELECT, pipes));
+    let layout = Layout {
+        nsites: 0,
+        out_natts: 1,
+        out_rows: 8,
+        scratch_bytes: 0,
+        exec_bytes: 0,
+    };
+    let pipes = [(
+        Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+        Code::hand(k_one),
+    )];
+    let program = Arc::new(Program::with_pipelines(
+        layout,
+        &[],
+        &[OutCol::new("c0", 20, -1, 8, true)],
+        WritePlan::SELECT,
+        pipes,
+    ));
     let mut entry = Entry::new(2);
     let mut derive = FakeDerive::new([no_rows, no_rows, no_rows, no_rows]);
     let sink = FakeSink::new();
@@ -45,10 +65,22 @@ fn a_pipelines_first_call_settles_through_the_env_the_bind_handed_out() {
     let mut sink_ref = &sink;
     let mut b = binding(&[0], &NULLS, &mut sink_ref, &flag);
     for _ in 0..2 {
-        let mut exec = entry.start(Some(KEY), &program, &mut derive, &mut b, lease(gravity_driver::Grant::of(1 << 20))).unwrap();
+        let mut exec = entry
+            .start(
+                Some(KEY),
+                &program,
+                &mut derive,
+                &mut b,
+                lease(gravity_driver::Grant::of(1 << 20)),
+            )
+            .unwrap();
         let r = entry.run(&mut exec, &mut b, Call::batch(8));
         entry.end(exec, true);
         assert_eq!(r, Ok(Step::Done), "the pipeline runs to its end");
     }
-    assert_eq!((sink.rows(), sink.last()[0]), (2, 7), "one row per statement, the parked node's second bind too");
+    assert_eq!(
+        (sink.rows(), sink.last()[0]),
+        (2, 7),
+        "one row per statement, the parked node's second bind too"
+    );
 }

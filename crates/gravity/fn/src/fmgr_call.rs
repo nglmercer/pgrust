@@ -55,18 +55,37 @@ impl FmgrCall {
     /// C `fmgr_info_set_expr`: the calling node for the polymorphic readers (`get_fn_expr_argtype`).
     pub fn set_fn_expr<T: core::any::Any>(&mut self, node: T) {
         let boxed = Box::new(node); // alloc: Program
-        // SAFETY: the box is owned by this call and freed after the `FmgrInfo` (drop order).
-        self.flinfo.fn_expr = Some(unsafe { types_core::fmgr::FnExprErased::from_node_ref(&*boxed) });
+                                    // SAFETY: the box is owned by this call and freed after the `FmgrInfo` (drop order).
+        self.flinfo.fn_expr =
+            Some(unsafe { types_core::fmgr::FnExprErased::from_node_ref(&*boxed) });
         self.fn_expr = Some(boxed);
     }
 
     pub fn bind(proc_oid: Oid, nargs: usize, collation: Oid) -> PgResult<FmgrCall> {
-        Self::bind_in(proc_oid, nargs, collation, Box::new(MemoryContext::new_bump("gravity_fn fmgr window")), RET_UNKNOWN) // alloc: Node
+        Self::bind_in(
+            proc_oid,
+            nargs,
+            collation,
+            Box::new(MemoryContext::new_bump("gravity_fn fmgr window")),
+            RET_UNKNOWN,
+        ) // alloc: Node
     }
 
     /// Result context under `parent` (G, or the statement's context when unadmitted; outlives the call); `ret_typlen` 0 = by value.
-    pub fn bind_under(proc_oid: Oid, nargs: usize, collation: Oid, parent: &MemoryContext, ret_typlen: i16) -> PgResult<FmgrCall> {
-        Self::bind_in(proc_oid, nargs, collation, Box::new(parent.new_child_bump("gravity_fn fmgr result")), ret_typlen) // alloc: Node
+    pub fn bind_under(
+        proc_oid: Oid,
+        nargs: usize,
+        collation: Oid,
+        parent: &MemoryContext,
+        ret_typlen: i16,
+    ) -> PgResult<FmgrCall> {
+        Self::bind_in(
+            proc_oid,
+            nargs,
+            collation,
+            Box::new(parent.new_child_bump("gravity_fn fmgr result")),
+            ret_typlen,
+        ) // alloc: Node
     }
 
     /// `bind_under` for a per-window site: the keeper sized for `rows` x `width`, extra blocks kept across `reset_window`.
@@ -79,7 +98,11 @@ impl FmgrCall {
         rows: usize,
         width: usize,
     ) -> PgResult<FmgrCall> {
-        let cx = parent.new_child_bump_window("gravity_fn fmgr window", rows.saturating_mul(width), FMGR_WINDOW_RETAIN);
+        let cx = parent.new_child_bump_window(
+            "gravity_fn fmgr window",
+            rows.saturating_mul(width),
+            FMGR_WINDOW_RETAIN,
+        );
         Self::bind_in(proc_oid, nargs, collation, Box::new(cx), ret_typlen) // alloc: Node
     }
 
@@ -91,22 +114,50 @@ impl FmgrCall {
         Some(Self::bind_info(flinfo, nargs, collation, cx, RET_UNKNOWN))
     }
 
-    fn bind_in(proc_oid: Oid, nargs: usize, collation: Oid, cx: Box<MemoryContext>, ret_typlen: i16) -> PgResult<FmgrCall> {
+    fn bind_in(
+        proc_oid: Oid,
+        nargs: usize,
+        collation: Oid,
+        cx: Box<MemoryContext>,
+        ret_typlen: i16,
+    ) -> PgResult<FmgrCall> {
         let flinfo = fmgr_core::fmgr_info(proc_oid)?;
         Ok(Self::bind_info(flinfo, nargs, collation, cx, ret_typlen))
     }
 
-    fn bind_info(flinfo: FmgrInfo, nargs: usize, collation: Oid, cx: Box<MemoryContext>, ret_typlen: i16) -> FmgrCall {
+    fn bind_info(
+        flinfo: FmgrInfo,
+        nargs: usize,
+        collation: Oid,
+        cx: Box<MemoryContext>,
+        ret_typlen: i16,
+    ) -> FmgrCall {
         assert!(nargs <= FUNC_MAX_ARGS, "gravity_fn: {nargs} arguments");
         let proc_oid = flinfo.fn_oid;
         let fusage = tracks(&flinfo);
         let thin = fmgr_core::fmgr_thin_builtin(&flinfo, nargs as i16);
-        let life = if ret_typlen == RET_UNKNOWN { ResultLife::UntilNextCall } else { fmgr_life(proc_oid, ret_typlen == 0) };
+        let life = if ret_typlen == RET_UNKNOWN {
+            ResultLife::UntilNextCall
+        } else {
+            fmgr_life(proc_oid, ret_typlen == 0)
+        };
         let mut fc = frame(nargs, collation);
         fc.nargs = nargs as i16;
         // SAFETY: the context box moves into the same FmgrCall as the frame and outlives it (field order).
         unsafe { fc.set_result_mcx(cx.mcx()) };
-        FmgrCall { flinfo, fc, cx, thin, nargs, collation, fn_expr: None, fusage, life, ret_typlen, scribble: scribble::on() }
+        FmgrCall {
+            flinfo,
+            fc,
+            cx,
+            thin,
+            nargs,
+            collation,
+            fn_expr: None,
+            fusage,
+            life,
+            ret_typlen,
+            scribble: scribble::on(),
+        }
     }
 
     /// B2: drop the memo this call's body kept in `fn_extra` (the next call rebuilds it, as after `fmgr_info`): a pool
@@ -124,13 +175,16 @@ impl FmgrCall {
     /// `fmgr_info_copy`: `fn_extra` reset, the calling node shared), collation and result life, a frame and a result
     /// context of its own, so its calls and window resets never touch this call's result.
     pub fn twin(&self) -> FmgrCall {
-        self.twin_in(Box::new(MemoryContext::new_bump("gravity_fn fmgr nested"))) // alloc: Node
+        self.twin_in(Box::new(MemoryContext::new_bump("gravity_fn fmgr nested")))
+        // alloc: Node
     }
 
     /// D2983: `twin` for a pool lane: made on the pool thread at the lane's first entry and dropped with the
     /// program on the leader, so its result context is unobserved (mcx `new_unobserved`: no entry in either thread's forest).
     pub fn twin_pool(&self) -> FmgrCall {
-        self.twin_in(Box::new(MemoryContext::new_unobserved_wholesale("gravity_fn fmgr pool lane"))) // alloc: Node
+        self.twin_in(Box::new(MemoryContext::new_unobserved_wholesale(
+            "gravity_fn fmgr pool lane",
+        ))) // alloc: Node
     }
 
     fn twin_in(&self, cx: Box<MemoryContext>) -> FmgrCall {
@@ -138,14 +192,32 @@ impl FmgrCall {
         fc.nargs = self.nargs as i16;
         // SAFETY: the context is owned by the twin and outlives its frame (field order).
         unsafe { fc.set_result_mcx(cx.mcx()) };
-        FmgrCall { flinfo: self.flinfo.clone(), fc, cx, thin: self.thin, nargs: self.nargs, collation: self.collation, fn_expr: None, fusage: self.fusage, life: self.life, ret_typlen: self.ret_typlen, scribble: self.scribble }
+        FmgrCall {
+            flinfo: self.flinfo.clone(),
+            fc,
+            cx,
+            thin: self.thin,
+            nargs: self.nargs,
+            collation: self.collation,
+            fn_expr: None,
+            fusage: self.fusage,
+            life: self.life,
+            ret_typlen: self.ret_typlen,
+            scribble: self.scribble,
+        }
     }
 
     /// M8 (D1036): `f`'s `twin`, kept in `calls` for a nested lane's life; its address, null for a null `f`. D2983: a pool
     /// lane's (`twin_pool`) when `pool`.
     /// # Safety — `f` is null or a live call.
-    pub unsafe fn twin_into(f: *mut FmgrCall, calls: &mut Vec<Box<FmgrCall>>, pool: bool) -> *mut FmgrCall {
-        let Some(f) = f.as_ref() else { return core::ptr::null_mut() };
+    pub unsafe fn twin_into(
+        f: *mut FmgrCall,
+        calls: &mut Vec<Box<FmgrCall>>,
+        pool: bool,
+    ) -> *mut FmgrCall {
+        let Some(f) = f.as_ref() else {
+            return core::ptr::null_mut();
+        };
         let mut t = Box::new(if pool { f.twin_pool() } else { f.twin() }); // alloc: Node
         let at: *mut FmgrCall = &mut *t;
         calls.push(t); // alloc: Node
@@ -204,7 +276,12 @@ impl FmgrCall {
     /// PostgreSQL's contract: a by-reference result is fresh in `mcx` (or one of the arguments); it lives as long as `mcx`
     /// is neither reset nor dropped. The site's own context (`bind_under`, placement by `ResultLife`) is `call_site`.
     #[inline]
-    pub fn call<'r>(&mut self, mcx: Mcx<'r>, args: &[Datum], nulls: &[bool]) -> PgResult<NullableDatum> {
+    pub fn call<'r>(
+        &mut self,
+        mcx: Mcx<'r>,
+        args: &[Datum],
+        nulls: &[bool],
+    ) -> PgResult<NullableDatum> {
         // SAFETY: armed for this call only; the frame is re-armed before every later call (call / call_site).
         unsafe { self.fc.set_result_mcx(mcx) };
         self.call_armed(args, nulls)
@@ -245,7 +322,12 @@ impl FmgrCall {
     /// `emit/scalar.rs` `call`, which then never stores the null bytes), so `nulls` is not read and the frame's
     /// strict re-check is skipped: no argument is NULL.
     #[inline]
-    pub fn call_site_words(&mut self, args: &[i64], nulls: &[u8], strict_checked: bool) -> PgResult<NullableDatum> {
+    pub fn call_site_words(
+        &mut self,
+        args: &[i64],
+        nulls: &[u8],
+        strict_checked: bool,
+    ) -> PgResult<NullableDatum> {
         debug_assert!(args.len() == self.nargs && nulls.len() == self.nargs);
         self.arm_site();
         let n = self.nargs.min(args.len()).min(nulls.len());
@@ -280,12 +362,27 @@ impl FmgrCall {
     fn invoke_scribbled(&mut self, any_null: bool) -> PgResult<NullableDatum> {
         scribble::before_call(self.flinfo.fn_oid);
         let r = self.invoke_plain(any_null)?;
-        if r.isnull || self.life != ResultLife::UntilNextCall || self.ret_typlen == 0 || self.ret_typlen == RET_UNKNOWN {
+        if r.isnull
+            || self.life != ResultLife::UntilNextCall
+            || self.ret_typlen == 0
+            || self.ret_typlen == RET_UNKNOWN
+        {
             return Ok(r);
         }
         // SAFETY: a non-null by-reference result is a live image of its type until the next call.
-        let value = unsafe { scribble::quarantine(self.flinfo.fn_oid, self.owner(), r.value, self.ret_typlen, self.cx.mcx()) };
-        Ok(NullableDatum { value, isnull: false })
+        let value = unsafe {
+            scribble::quarantine(
+                self.flinfo.fn_oid,
+                self.owner(),
+                r.value,
+                self.ret_typlen,
+                self.cx.mcx(),
+            )
+        };
+        Ok(NullableDatum {
+            value,
+            isnull: false,
+        })
     }
 
     fn owner(&self) -> usize {
@@ -300,11 +397,21 @@ impl FmgrCall {
         if let (Some(thin), false, false) = (self.thin, any_null, self.fusage) {
             // SAFETY: the thin contract — a live frame of the registered arity, no null argument.
             let value = unsafe { thin(NonNull::from(&mut *self.fc).cast()) }?;
-            return Ok(NullableDatum { value, isnull: false });
+            return Ok(NullableDatum {
+                value,
+                isnull: false,
+            });
         }
         self.fc.isnull = false;
-        let value = if self.fusage { self.invoke_fusage()? } else { self.flinfo.invoke(&mut self.fc)? };
-        Ok(NullableDatum { value, isnull: self.fc.isnull })
+        let value = if self.fusage {
+            self.invoke_fusage()?
+        } else {
+            self.flinfo.invoke(&mut self.fc)?
+        };
+        Ok(NullableDatum {
+            value,
+            isnull: self.fc.isnull,
+        })
     }
 
     // ExecEvalFuncExprFusage: an erroring call unwinds past `end_function_usage`, exactly as C's ereport does
@@ -315,7 +422,7 @@ impl FmgrCall {
         if !tracks(&self.flinfo) {
             return self.flinfo.invoke(&mut self.fc);
         }
-        let fcu =pgstat::function::pgstat_init_function_usage(self.flinfo.fn_oid)?;
+        let fcu = pgstat::function::pgstat_init_function_usage(self.flinfo.fn_oid)?;
         let value = self.flinfo.invoke(&mut self.fc)?;
         pgstat::function::pgstat_end_function_usage(&fcu, true);
         Ok(value)
@@ -323,7 +430,13 @@ impl FmgrCall {
 
     /// `call` with the frame's `context` node set for this call (C `fcinfo->context`, e.g. an ErrorSaveContext).
     #[inline]
-    pub fn call_in_context<'r>(&mut self, mcx: Mcx<'r>, args: &[Datum], nulls: &[bool], context: fmgr::FmNodePtr) -> PgResult<NullableDatum> {
+    pub fn call_in_context<'r>(
+        &mut self,
+        mcx: Mcx<'r>,
+        args: &[Datum],
+        nulls: &[bool],
+        context: fmgr::FmNodePtr,
+    ) -> PgResult<NullableDatum> {
         self.fc.context = context;
         let r = self.call(mcx, args, nulls);
         self.fc.context = None;
@@ -332,7 +445,12 @@ impl FmgrCall {
 
     /// `call_site` with the frame's `context` node set for this call.
     #[inline]
-    pub fn call_site_in_context(&mut self, args: &[Datum], nulls: &[bool], context: fmgr::FmNodePtr) -> PgResult<NullableDatum> {
+    pub fn call_site_in_context(
+        &mut self,
+        args: &[Datum],
+        nulls: &[bool],
+        context: fmgr::FmNodePtr,
+    ) -> PgResult<NullableDatum> {
         self.fc.context = context;
         let r = self.call_site(args, nulls);
         self.fc.context = None;
@@ -365,7 +483,8 @@ impl FmgrCall {
 
 /// C `pgstat_track_functions <= flinfo->fn_stats` picks the untracked path; a builtin's TRACK_FUNC_ALL is never tracked.
 fn tracks(flinfo: &fmgr::FmgrInfo) -> bool {
-    flinfo.fn_stats < fmgr::TRACK_FUNC_ALL && pgstat::function::pgstat_track_functions() > i32::from(flinfo.fn_stats)
+    flinfo.fn_stats < fmgr::TRACK_FUNC_ALL
+        && pgstat::function::pgstat_track_functions() > i32::from(flinfo.fn_stats)
 }
 
 impl Drop for FmgrCall {
@@ -385,9 +504,21 @@ mod tests {
         let mut call = super::FmgrCall::bind(177, 2, 0).unwrap(); // int4pl
         assert_eq!(call.fc.args.len(), 8, "the smallest frame class");
         let r = call.call_site_words(&[2, 3], &[0, 0], false).unwrap();
-        assert_eq!((r.value.as_i64(), r.isnull), (5, false), "int4pl(2, 3) through an 8-slot frame");
+        assert_eq!(
+            (r.value.as_i64(), r.isnull),
+            (5, false),
+            "int4pl(2, 3) through an 8-slot frame"
+        );
         assert_eq!(call.twin().fc.args.len(), 8, "a twin's frame as its call's");
-        for (n, slots) in [(0, 8), (7, 8), (8, 8), (9, 16), (16, 16), (17, super::FUNC_MAX_ARGS), (super::FUNC_MAX_ARGS, super::FUNC_MAX_ARGS)] {
+        for (n, slots) in [
+            (0, 8),
+            (7, 8),
+            (8, 8),
+            (9, 16),
+            (16, 16),
+            (17, super::FUNC_MAX_ARGS),
+            (super::FUNC_MAX_ARGS, super::FUNC_MAX_ARGS),
+        ] {
             assert_eq!(super::frame(n, 0).args.len(), slots, "{n} arguments");
         }
     }

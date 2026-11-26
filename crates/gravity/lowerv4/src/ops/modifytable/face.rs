@@ -16,17 +16,44 @@ use crate::frame::row::{Carry, RowVals};
 pub(crate) trait RetMech {
     /// After the op answered Done for `row`: `written`, `(datum, isnull)` per target attribute in attno order as
     /// `RowOpMech::cells` returns them, handed to `next` as the row; the carry after.
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, written: &[(Value, Value)], next: Next<'_, 'e>) -> Carry<'e>;
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        written: &[(Value, Value)],
+        next: Next<'_, 'e>,
+    ) -> Carry<'e>;
     /// `lower` with the version an UPDATE replaced (R4a, RETURNING OLD: `RowOpMech::old_cells`), `old` empty when the
     /// write fetched none.
-    fn lower_old<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, written: &[(Value, Value)], old: &[(Value, Value)], next: Next<'_, 'e>) -> Carry<'e> {
+    fn lower_old<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        written: &[(Value, Value)],
+        old: &[(Value, Value)],
+        next: Next<'_, 'e>,
+    ) -> Carry<'e> {
         let _ = old;
         self.lower(b, env, row, written, next)
     }
     /// D789: a MERGE action's row: `written` (an UPDATE's new row, a DELETE's deleted version), OLD `old` (the replaced
     /// version; a DELETE's is `written`), NEW `written` when `new` (UPDATE) else NULLs, and `merge_action()`'s text.
-    fn lower_merge<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, written: &[(Value, Value)], old: &[(Value, Value)], new: bool, action: &'static [u8], next: Next<'_, 'e>) -> Carry<'e>;
+    fn lower_merge<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        written: &[(Value, Value)],
+        old: &[(Value, Value)],
+        new: bool,
+        action: &'static [u8],
+        next: Next<'_, 'e>,
+    ) -> Carry<'e>;
 }
 
 /// The maker for write op `j` of pipeline `k` (its RETURNING projection is op `j + 1`).
-pub(crate) struct RetMaker(pub for<'g, 'p> fn(&mut Px<'g, 'p>, usize, usize) -> mcx::PgBox<'g, dyn RetMech + 'g>);
+pub(crate) struct RetMaker(
+    pub for<'g, 'p> fn(&mut Px<'g, 'p>, usize, usize) -> mcx::PgBox<'g, dyn RetMech + 'g>,
+);

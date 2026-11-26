@@ -1,4 +1,5 @@
-#![cfg(feature = "wasmtime-oracle")]//! `gravity_interp/tests/programs.rs`'s text corpus (loops, parallel
+#![cfg(feature = "wasmtime-oracle")]
+//! `gravity_interp/tests/programs.rs`'s text corpus (loops, parallel
 //! copies, memory, recursion, `switch`, narrow widths, f32, hosts with
 //! stack slots) through the wasm backend under wasmtime, against the
 //! interpreter; pointer arguments live in the guest memory on the wasm
@@ -20,14 +21,18 @@ extern "C" fn host_sum8(a: i64, b: i64, c: i64, d: i64, e: i64, f: i64, g: i64, 
     a + 2 * b + 3 * c + 4 * d + 5 * e + 6 * f + 7 * g + 8 * h
 }
 extern "C" fn host_mix(a: i32, b: i8, c: i16, d: bool) -> i32 {
-    a.wrapping_add(b as i32).wrapping_add(c as i32).wrapping_add(d as i32)
+    a.wrapping_add(b as i32)
+        .wrapping_add(c as i32)
+        .wrapping_add(d as i32)
 }
 
 fn load(src: &str) -> Program {
     parse_program(src, &|name| match name {
         "mul3" => Some(host_mul3 as extern "C" fn(i64, i64, i64) -> i64 as usize),
         "swap_i64" => Some(host_swap_i64 as extern "C" fn(u64, u64) as usize),
-        "sum8" => Some(host_sum8 as extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64) -> i64 as usize),
+        "sum8" => {
+            Some(host_sum8 as extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64) -> i64 as usize)
+        }
         "mix" => Some(host_mix as extern "C" fn(i32, i8, i16, bool) -> i32 as usize),
         _ => None,
     })
@@ -41,7 +46,10 @@ fn func(p: &Program, name: &str) -> Func {
 /// The guest-side host table for the corpus's hosts.
 fn hosts() -> Vec<(&'static str, HostImpl)> {
     vec![
-        ("mul3", Box::new(|_: &mut [u8], a: &[u64]| (a[0] as i64 * a[1] as i64 * a[2] as i64) as u64)),
+        (
+            "mul3",
+            Box::new(|_: &mut [u8], a: &[u64]| (a[0] as i64 * a[1] as i64 * a[2] as i64) as u64),
+        ),
         (
             "swap_i64",
             Box::new(|m: &mut [u8], a: &[u64]| {
@@ -53,8 +61,27 @@ fn hosts() -> Vec<(&'static str, HostImpl)> {
                 0
             }),
         ),
-        ("sum8", Box::new(|_: &mut [u8], a: &[u64]| (host_sum8(a[0] as i64, a[1] as i64, a[2] as i64, a[3] as i64, a[4] as i64, a[5] as i64, a[6] as i64, a[7] as i64)) as u64)),
-        ("mix", Box::new(|_: &mut [u8], a: &[u64]| host_mix(a[0] as i32, a[1] as i8, a[2] as i16, a[3] != 0) as i64 as u64)),
+        (
+            "sum8",
+            Box::new(|_: &mut [u8], a: &[u64]| {
+                (host_sum8(
+                    a[0] as i64,
+                    a[1] as i64,
+                    a[2] as i64,
+                    a[3] as i64,
+                    a[4] as i64,
+                    a[5] as i64,
+                    a[6] as i64,
+                    a[7] as i64,
+                )) as u64
+            }),
+        ),
+        (
+            "mix",
+            Box::new(|_: &mut [u8], a: &[u64]| {
+                host_mix(a[0] as i32, a[1] as i8, a[2] as i16, a[3] != 0) as i64 as u64
+            }),
+        ),
     ]
 }
 
@@ -90,7 +117,11 @@ const GCD: &str = r#"
 
 #[test]
 fn gcd_euclid() {
-    scalar(GCD, "gcd", &[&[48, 18], &[17, 5], &[0, 9], &[100, 100], &[1071, 462]]);
+    scalar(
+        GCD,
+        "gcd",
+        &[&[48, 18], &[17, 5], &[0, 9], &[100, 100], &[1071, 462]],
+    );
 }
 
 #[test]
@@ -169,10 +200,27 @@ fn binary_search_i32_array() {
     let p = load(src);
     let (inst, _) = rig.instantiate(&p, Func(0));
     let arr: Vec<i32> = vec![-50, -3, 0, 4, 9, 15, 16, 100, 1000];
-    rig.write(DATA, &arr.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>());
+    rig.write(
+        DATA,
+        &arr.iter()
+            .flat_map(|x| x.to_le_bytes())
+            .collect::<Vec<u8>>(),
+    );
     for k in arr.iter().copied().chain([-100, -1, 5, 17, 5000]) {
-        let want = Interp::new(&p).run(Func(0), &[arr.as_ptr() as u64, arr.len() as u64, k as i64 as u64]).unwrap();
-        let got = rig.call(&inst, &p, Func(0), &[DATA as u64, arr.len() as u64, k as i64 as u64]).unwrap();
+        let want = Interp::new(&p)
+            .run(
+                Func(0),
+                &[arr.as_ptr() as u64, arr.len() as u64, k as i64 as u64],
+            )
+            .unwrap();
+        let got = rig
+            .call(
+                &inst,
+                &p,
+                Func(0),
+                &[DATA as u64, arr.len() as u64, k as i64 as u64],
+            )
+            .unwrap();
         assert_eq!(got, want, "key {k}");
     }
 }
@@ -219,11 +267,22 @@ fn bubble_sort_in_place() {
     let p = load(src);
     let (inst, _) = rig.instantiate(&p, Func(0));
     let data: Vec<i64> = vec![5, -1, 9, 3, 3, 0, -100, 42, 7, 1];
-    rig.write(DATA, &data.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>());
-    rig.call(&inst, &p, Func(0), &[DATA as u64, data.len() as u64]).unwrap();
+    rig.write(
+        DATA,
+        &data
+            .iter()
+            .flat_map(|x| x.to_le_bytes())
+            .collect::<Vec<u8>>(),
+    );
+    rig.call(&inst, &p, Func(0), &[DATA as u64, data.len() as u64])
+        .unwrap();
     let mut want = data.clone();
     want.sort();
-    let got: Vec<i64> = rig.read(DATA, 80).chunks(8).map(|c| i64::from_le_bytes(c.try_into().unwrap())).collect();
+    let got: Vec<i64> = rig
+        .read(DATA, 80)
+        .chunks(8)
+        .map(|c| i64::from_le_bytes(c.try_into().unwrap()))
+        .collect();
     assert_eq!(got, want);
 }
 
@@ -257,8 +316,12 @@ fn fnv1a_hash_bytes() {
     let (inst, _) = rig.instantiate(&p, Func(0));
     for s in ["", "a", "hello", "the quick brown fox", "\u{ff}\u{fe}bytes"] {
         rig.write(DATA, s.as_bytes());
-        let want = Interp::new(&p).run(Func(0), &[s.as_ptr() as u64, s.len() as u64]).unwrap();
-        let got = rig.call(&inst, &p, Func(0), &[DATA as u64, s.len() as u64]).unwrap();
+        let want = Interp::new(&p)
+            .run(Func(0), &[s.as_ptr() as u64, s.len() as u64])
+            .unwrap();
+        let got = rig
+            .call(&inst, &p, Func(0), &[DATA as u64, s.len() as u64])
+            .unwrap();
         assert_eq!(got, want, "{s:?}");
     }
 }
@@ -330,10 +393,21 @@ fn switch_state_machine_counts_words() {
     let mut rig = Rig::new();
     let p = load(src);
     let (inst, _) = rig.instantiate(&p, Func(0));
-    for s in ["", "a", "hello world", "  leading  and   trailing  ", "one", "   "] {
+    for s in [
+        "",
+        "a",
+        "hello world",
+        "  leading  and   trailing  ",
+        "one",
+        "   ",
+    ] {
         rig.write(DATA, s.as_bytes());
-        let want = Interp::new(&p).run(Func(0), &[s.as_ptr() as u64, s.len() as u64]).unwrap();
-        let got = rig.call(&inst, &p, Func(0), &[DATA as u64, s.len() as u64]).unwrap();
+        let want = Interp::new(&p)
+            .run(Func(0), &[s.as_ptr() as u64, s.len() as u64])
+            .unwrap();
+        let got = rig
+            .call(&inst, &p, Func(0), &[DATA as u64, s.len() as u64])
+            .unwrap();
         assert_eq!(got, want, "{s:?}");
     }
 }
@@ -458,7 +532,15 @@ fn host_calls_with_stack_slots_and_narrow_signatures() {
       (mx (call_host mix a32 b8 c16 t))
       (return x y s mx))))
 "#;
-    scalar(src, "f", &[&[2, 3, 4], &[-1i64 as u64, 200, 70000], &[1 << 40, -128i64 as u64, 0]]);
+    scalar(
+        src,
+        "f",
+        &[
+            &[2, 3, 4],
+            &[-1i64 as u64, 200, 70000],
+            &[1 << 40, -128i64 as u64, 0],
+        ],
+    );
 }
 
 /// A merge node inside a loop inside a diamond: nested `block`/`loop`

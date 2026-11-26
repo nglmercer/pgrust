@@ -11,15 +11,24 @@ use super::*;
 /// # Safety
 /// `t` is a build region with every record in, its header's `LO` / `HI` over them.
 pub(crate) unsafe fn lay(t: &Rt) -> gravity_driver::Result<Option<(u8, usize)>> {
-    let (flags, allow, lo) = (rd::<u8>(t.d, FLAGS), rd::<u8>(t.d, ALLOW), rd::<i64>(t.d, LO));
-    let Some(span) = span_of(t.d, t.n) else { return Ok(None) };
+    let (flags, allow, lo) = (
+        rd::<u8>(t.d, FLAGS),
+        rd::<u8>(t.d, ALLOW),
+        rd::<i64>(t.d, LO),
+    );
+    let Some(span) = span_of(t.d, t.n) else {
+        return Ok(None);
+    };
     let dir = t.dir();
     let srec = t.rec - 8 * t.words;
     let bm = bitmap(span);
     let slots = dir + bm;
     let (mut dup, mult) = (false, allow & A_MULT != 0);
     // join.dedup: a copy of a record its key's slot or chain holds is dropped (dedup.rs)
-    let (dedup, mut dropped) = (flags & crate::ops::hashjoin::build::F_DEDUP != 0 && !t.compact && !mult, 0usize);
+    let (dedup, mut dropped) = (
+        flags & crate::ops::hashjoin::build::F_DEDUP != 0 && !t.compact && !mult,
+        0usize,
+    );
     if !t.marks && t.room(slots, span * srec).is_ok() {
         let bits = t.d.add(dir) as *mut u64;
         core::ptr::write_bytes(bits, 0, bm / 8);
@@ -28,10 +37,20 @@ pub(crate) unsafe fn lay(t: &Rt) -> gravity_driver::Result<Option<(u8, usize)>> 
             let (w, m) = (bits.add(k >> 6), 1u64 << (k & 63));
             if *w & m != 0 {
                 if mult {
-                    crate::ops::hashjoin::strategies::multiplicity::bump(t, t.d.add(slots + k * srec), i);
+                    crate::ops::hashjoin::strategies::multiplicity::bump(
+                        t,
+                        t.d.add(slots + k * srec),
+                        i,
+                    );
                     continue;
                 }
-                if dedup && crate::ops::hashjoin::strategies::dedup::same_slot(t, t.d.add(slots + k * srec), i) {
+                if dedup
+                    && crate::ops::hashjoin::strategies::dedup::same_slot(
+                        t,
+                        t.d.add(slots + k * srec),
+                        i,
+                    )
+                {
                     dropped += 1;
                     continue;
                 }
@@ -89,7 +108,11 @@ pub(crate) unsafe fn lay(t: &Rt) -> gravity_driver::Result<Option<(u8, usize)>> 
 /// `d` is a build region's header.
 pub(crate) unsafe fn span_of(d: *const u8, n: usize) -> Option<usize> {
     let span = (rd::<i64>(d, HI) as i128 - rd::<i64>(d, LO) as i128 + 1).max(0) as u128;
-    (rd::<u8>(d, ALLOW) & A_DENSE != 0 && rd::<u8>(d, FLAGS) & F_RANGE != 0 && n > 0 && span <= crate::ops::hashjoin::rt::dense_span_max(n as u64) as u128).then_some(span as usize)
+    (rd::<u8>(d, ALLOW) & A_DENSE != 0
+        && rd::<u8>(d, FLAGS) & F_RANGE != 0
+        && n > 0
+        && span <= crate::ops::hashjoin::rt::dense_span_max(n as u64) as u128)
+        .then_some(span as usize)
 }
 
 /// A partitioned merge's record `i` into the `DENSE` slots its prepare zeroed (build_rt.rs): the jobs share the bitmap, so
@@ -106,7 +129,11 @@ pub(crate) unsafe fn put(t: &Rt, i: usize) {
     if flags.load(Relaxed) & F_DUP != 0 {
         return;
     }
-    let (lo, dir, slots) = (rd::<i64>(t.d, LO), rd::<u64>(t.d, DIR) as usize, rd::<u64>(t.d, SLOTS) as usize);
+    let (lo, dir, slots) = (
+        rd::<i64>(t.d, LO),
+        rd::<u64>(t.d, DIR) as usize,
+        rd::<u64>(t.d, SLOTS) as usize,
+    );
     let (k, srec) = ((t.key(i) - lo) as usize, t.rec - 8 * t.words);
     let m = 1u64 << (k & 63);
     if (*(t.d.add(dir + 8 * (k >> 6)) as *const AtomicU64)).fetch_or(m, Relaxed) & m != 0 {
@@ -126,13 +153,22 @@ pub(crate) unsafe fn compact_out(st: &mut State<'_>) -> gravity_driver::Result<(
         return Ok(());
     }
     if crate::ops::hashjoin::strategies::dense_bits::need(d) > 0 {
-        grow_to(st, Rt::of(d, st.bytes.len()).dir() + crate::ops::hashjoin::strategies::dense_bits::need(d))?;
-        if crate::ops::hashjoin::strategies::dense_bits::lay(&Rt::of(st.bytes.as_mut_ptr(), st.bytes.len())) {
+        grow_to(
+            st,
+            Rt::of(d, st.bytes.len()).dir() + crate::ops::hashjoin::strategies::dense_bits::need(d),
+        )?;
+        if crate::ops::hashjoin::strategies::dense_bits::lay(&Rt::of(
+            st.bytes.as_mut_ptr(),
+            st.bytes.len(),
+        )) {
             return Ok(());
         }
     }
     let d = st.bytes.as_mut_ptr();
-    grow_to(st, HDR + rd::<u64>(d, N) as usize * rd::<u32>(d, FULL) as usize)?;
+    grow_to(
+        st,
+        HDR + rd::<u64>(d, N) as usize * rd::<u32>(d, FULL) as usize,
+    )?;
     crate::ops::hashjoin::strategies::dense_bits::expand(st.bytes.as_mut_ptr());
     wr::<u8>(st.bytes.as_mut_ptr(), PHASE, 1);
     Ok(())

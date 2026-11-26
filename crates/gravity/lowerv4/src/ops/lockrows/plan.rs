@@ -1,8 +1,8 @@
 //! Construct C11, one lock plan (lanes/wfrefuse/row-lock-forms.md §5): the home of the decisions about a statement's row
 //! locks (lint/rules/rf_lock_forms.py names the ones not moved here yet). Its first answer: the out block's rows.
+use gravity_decompose::join::JoinDesc;
 use gravity_decompose::ops::shared::modifytable::{LockDesc, RowMark};
 use gravity_decompose::ops::shared::subplan::SubLink;
-use gravity_decompose::join::JoinDesc;
 use gravity_decompose::{Op, PipelineNode, Source};
 use gravity_program::program::LockSite;
 use gravity_program::LockKind;
@@ -34,7 +34,12 @@ pub(crate) fn out_rows(gx: &Gx<'_, '_>) -> u32 {
 /// EvalPlanQualFetchRowMark copy leg).
 pub(crate) fn below_copy(gx: &Gx<'_, '_>, q: usize, j: usize, marks: &[RowMark]) -> bool {
     let copy = |m: &RowMark| m.mark == RowMarkType::ROW_MARK_COPY;
-    let below = |m: &RowMark| gx.graph.record_rows.iter().any(|r| r.scanrelid == m.rti && crate::rerun::epq::copy_row::boundary(gx, q, r).is_some_and(|at| j < at));
+    let below = |m: &RowMark| {
+        gx.graph.record_rows.iter().any(|r| {
+            r.scanrelid == m.rti
+                && crate::rerun::epq::copy_row::boundary(gx, q, r).is_some_and(|at| j < at)
+        })
+    };
     q < gx.pipelines().len() && marks.iter().any(|m| copy(m) && below(m))
 }
 
@@ -46,7 +51,13 @@ impl<'g> Census<'_, 'g, '_> {
     /// Every non-CTE InitPlan's pipeline and, transitively, the producers of the slots they read (nest/initplan.rs `members`).
     pub(crate) fn init_pipelines(&self) -> PgVec<'g, usize> {
         let gx = self.0;
-        gx.with_producers(gx.graph.init_plans.iter().filter(|i| !matches!(i.link, SubLink::Cte)).map(|i| i.pipeline as usize))
+        gx.with_producers(
+            gx.graph
+                .init_plans
+                .iter()
+                .filter(|i| !matches!(i.link, SubLink::Cte))
+                .map(|i| i.pipeline as usize),
+        )
     }
 
     /// Whether pipeline `x` runs for a non-CTE InitPlan (`init_pipelines`).
@@ -58,7 +69,10 @@ impl<'g> Census<'_, 'g, '_> {
     /// CTESORT (`breaker_limit`): every InitPlan of the statement is a CTE's.
     pub(crate) fn ctes_only(&self) -> bool {
         let gx = self.0;
-        gx.graph.init_plans.iter().all(|i| matches!(i.link, SubLink::Cte))
+        gx.graph
+            .init_plans
+            .iter()
+            .all(|i| matches!(i.link, SubLink::Cte))
     }
 
     /// AGA-35 (`breaker_limit`, lockrows 15b): the number of pipelines the statement's InitPlans run (`init_pipelines`)
@@ -76,10 +90,18 @@ impl<'g> Census<'_, 'g, '_> {
         let ctes = init_ctes(gx)?;
         let ps = gx.pipelines();
         let init = self.init_pipelines();
-        let ops = || ps.iter().chain(ps.inners().into_iter().map(|x| x.1)).flat_map(|p| p.ops.iter());
+        let ops = || {
+            ps.iter()
+                .chain(ps.inners().into_iter().map(|x| x.1))
+                .flat_map(|p| p.ops.iter())
+        };
         let locks = ops().filter(|o| matches!(o, Op::Lock(_))).count();
         let write = |o: &Op<'_>| matches!(o, Op::Write(w) if w.cmd != gravity_program::Cmd::Select);
-        let writes = ps.iter().enumerate().any(|(x, p)| !ctes.contains(&x) && p.ops.iter().any(write)) || ps.inners().iter().any(|x| x.1.ops.iter().any(write));
+        let writes = ps
+            .iter()
+            .enumerate()
+            .any(|(x, p)| !ctes.contains(&x) && p.ops.iter().any(write))
+            || ps.inners().iter().any(|x| x.1.ops.iter().any(write));
         (!init.contains(&k) && !init.contains(&q) && locks == 1 && !writes).then_some(init.len())
     }
 
@@ -93,14 +115,35 @@ impl<'g> Census<'_, 'g, '_> {
     pub(crate) fn pair_inits(&self, k: usize, q: usize) -> Option<usize> {
         let gx = self.0;
         let ps = gx.pipelines();
-        if gx.graph.init_plans.is_empty() || gx.graph.init_plans.iter().any(|i| matches!(i.link, SubLink::Cte)) {
+        if gx.graph.init_plans.is_empty()
+            || gx
+                .graph
+                .init_plans
+                .iter()
+                .any(|i| matches!(i.link, SubLink::Cte))
+        {
             return None;
         }
         let init = self.init_pipelines();
         let inners = ps.inners();
-        let locks: PgVec<'_, usize> = ps.iter().enumerate().flat_map(|(x, p)| p.ops.iter().filter(|o| matches!(o, Op::Lock(_))).map(move |_| x)).collect_in(gx.mcx);
-        let inner_locks = inners.iter().any(|x| x.1.ops.iter().any(|o| matches!(o, Op::Lock(_))));
-        let writes = ps.iter().chain(inners.iter().map(|x| x.1)).flat_map(|p| p.ops.iter()).any(|o| matches!(o, Op::Write(w) if w.cmd != gravity_program::Cmd::Select));
+        let locks: PgVec<'_, usize> = ps
+            .iter()
+            .enumerate()
+            .flat_map(|(x, p)| {
+                p.ops
+                    .iter()
+                    .filter(|o| matches!(o, Op::Lock(_)))
+                    .map(move |_| x)
+            })
+            .collect_in(gx.mcx);
+        let inner_locks = inners
+            .iter()
+            .any(|x| x.1.ops.iter().any(|o| matches!(o, Op::Lock(_))));
+        let writes = ps
+            .iter()
+            .chain(inners.iter().map(|x| x.1))
+            .flat_map(|p| p.ops.iter())
+            .any(|o| matches!(o, Op::Write(w) if w.cmd != gravity_program::Cmd::Select));
         if inner_locks {
             return None;
         }
@@ -128,8 +171,17 @@ impl<'g> Census<'_, 'g, '_> {
             return Some(0);
         }
         let inners = gx.pipelines().inners();
-        let inner = |i: &gravity_decompose::InitPlan<'_>| inners.iter().any(|x| x.1.node_ops.iter().any(|n| n.node_id == i.attach));
-        if gx.graph.init_plans.iter().any(|i| matches!(i.link, SubLink::Cte) || inner(i)) {
+        let inner = |i: &gravity_decompose::InitPlan<'_>| {
+            inners
+                .iter()
+                .any(|x| x.1.node_ops.iter().any(|n| n.node_id == i.attach))
+        };
+        if gx
+            .graph
+            .init_plans
+            .iter()
+            .any(|i| matches!(i.link, SubLink::Cte) || inner(i))
+        {
             return None;
         }
         let init = self.init_pipelines();
@@ -145,7 +197,11 @@ impl<'g> Census<'_, 'g, '_> {
     /// top, its value copied, and `admit_ir` asks where it is read. D3655: or beside the InitPlan whose own row lock is the M4
     /// pair's A (`pair_inits`; `mark` gives this lock entry 2): PostgreSQL rechecks A under its own EvalPlanQual inside the
     /// InitPlan's run, and this lock's EvalPlanQual copies the InitPlan's value.
-    pub(crate) fn subs_inits(&self, k: usize, member: &dyn Fn(usize) -> bool) -> Option<PgVec<'g, usize>> {
+    pub(crate) fn subs_inits(
+        &self,
+        k: usize,
+        member: &dyn Fn(usize) -> bool,
+    ) -> Option<PgVec<'g, usize>> {
         let gx = self.0;
         if gx.graph.init_plans.is_empty() {
             return Some(PgVec::new_in(gx.mcx));
@@ -157,11 +213,24 @@ impl<'g> Census<'_, 'g, '_> {
         }
         let ps = gx.pipelines();
         let inners = ps.inners();
-        let at = |q: usize, i: &gravity_decompose::InitPlan<'_>| ps[q].node_id == i.attach || ps[q].node_ops.iter().any(|n| n.node_id == i.attach);
-        let inner = |i: &gravity_decompose::InitPlan<'_>| inners.iter().any(|x| x.1.node_ops.iter().any(|n| n.node_id == i.attach));
+        let at = |q: usize, i: &gravity_decompose::InitPlan<'_>| {
+            ps[q].node_id == i.attach || ps[q].node_ops.iter().any(|n| n.node_id == i.attach)
+        };
+        let inner = |i: &gravity_decompose::InitPlan<'_>| {
+            inners
+                .iter()
+                .any(|x| x.1.node_ops.iter().any(|n| n.node_id == i.attach))
+        };
         // D3272: one attached inside a step's plan or an inner that the recheck arms afresh (`arms`, decompose `epq_fresh`)
-        let fresh = |i: &gravity_decompose::InitPlan<'_>| gx.graph.epq_fresh.contains(&i.plan_id) && plain_init(gx, i);
-        if gx.graph.init_plans.iter().any(|i| (inner(i) || (0..ps.len()).any(|q| member(q) && at(q, i))) && !fresh(i)) {
+        let fresh = |i: &gravity_decompose::InitPlan<'_>| {
+            gx.graph.epq_fresh.contains(&i.plan_id) && plain_init(gx, i)
+        };
+        if gx
+            .graph
+            .init_plans
+            .iter()
+            .any(|i| (inner(i) || (0..ps.len()).any(|q| member(q) && at(q, i))) && !fresh(i))
+        {
             return None;
         }
         let init = self.init_pipelines();
@@ -175,19 +244,51 @@ impl<'g> Census<'_, 'g, '_> {
     pub(crate) fn cte_whole(&self, k: usize, limit_op: fn(&Op<'_>) -> bool) -> bool {
         let gx = self.0;
         let ps = gx.pipelines();
-        let ctes = gx.with_producers(gx.graph.init_plans.iter().filter(|i| matches!(i.link, SubLink::Cte)).map(|i| i.pipeline as usize));
-        let store = ps[k].desc.produces().filter(|_| gx.cte_write(k) && !ps[k].ops.iter().any(|o| matches!(o, Op::Write(_))));
-        let scans = |p: &PipelineNode<'_>, s: u8| matches!(p.source, Source::Breaker { slot } if slot == s);
+        let ctes = gx.with_producers(
+            gx.graph
+                .init_plans
+                .iter()
+                .filter(|i| matches!(i.link, SubLink::Cte))
+                .map(|i| i.pipeline as usize),
+        );
+        let store = ps[k]
+            .desc
+            .produces()
+            .filter(|_| gx.cte_write(k) && !ps[k].ops.iter().any(|o| matches!(o, Op::Write(_))));
+        let scans =
+            |p: &PipelineNode<'_>, s: u8| matches!(p.source, Source::Breaker { slot } if slot == s);
         // D3650 (graphile-worker's get_job with one named queue: q's UPDATE a Nested Loop over job_queues, the CTE Scan of
         // j its inner): or a nest's inner reads the store too, the lock under a LIMIT 1 (its first pull takes every lock
         // the CTE takes: nodeLimit never pulls the LockRows past the first row) and a reader outside the CTEs scanning the
         // store as its source (read whole, as above)
-        let first = |d: crate::frame::iface::Demand<'_, '_>| !d.ties && d.rows() == Some(1) && matches!(d.offset, gravity_decompose::graph::Bound::All | gravity_decompose::graph::Bound::Const(0));
-        let one = ps[k].ops.iter().skip_while(|o| !matches!(o, Op::Lock(_))).filter_map(crate::frame::iface::demand).any(first);
+        let first = |d: crate::frame::iface::Demand<'_, '_>| {
+            !d.ties
+                && d.rows() == Some(1)
+                && matches!(
+                    d.offset,
+                    gravity_decompose::graph::Bound::All
+                        | gravity_decompose::graph::Bound::Const(0)
+                )
+        };
+        let one = ps[k]
+            .ops
+            .iter()
+            .skip_while(|o| !matches!(o, Op::Lock(_)))
+            .filter_map(crate::frame::iface::demand)
+            .any(first);
         let whole = |s: u8| {
-            let mut outside = ps.iter().enumerate().filter(|(q, _)| !ctes.contains(q)).map(|(_, p)| p);
-            let read = ps.iter().enumerate().any(|(q, p)| !ctes.contains(&q) && scans(p, s));
-            outside.all(|p| !p.ops.iter().any(limit_op) && (!p.desc.consumes.contains(&s) || scans(p, s))) && (ps.inners().iter().all(|x| !scans(x.1, s)) || one && read)
+            let mut outside = ps
+                .iter()
+                .enumerate()
+                .filter(|(q, _)| !ctes.contains(q))
+                .map(|(_, p)| p);
+            let read = ps
+                .iter()
+                .enumerate()
+                .any(|(q, p)| !ctes.contains(&q) && scans(p, s));
+            outside.all(|p| {
+                !p.ops.iter().any(limit_op) && (!p.desc.consumes.contains(&s) || scans(p, s))
+            }) && (ps.inners().iter().all(|x| !scans(x.1, s)) || one && read)
         };
         store.is_some_and(whole) || crate::ops::shared::limit::cte_lock_cap(gx, k).is_some()
     }
@@ -203,20 +304,35 @@ impl<'g> Census<'_, 'g, '_> {
         let gx = self.0;
         let ps = gx.pipelines();
         let inners = ps.inners();
-        if inners.iter().any(|x| x.1.ops.iter().any(|o| matches!(o, Op::Lock(_)))) {
+        if inners
+            .iter()
+            .any(|x| x.1.ops.iter().any(|o| matches!(o, Op::Lock(_))))
+        {
             return None;
         }
-        let scans = |p: &PipelineNode<'_>, s: u8| matches!(p.source, Source::Breaker { slot } if slot == s);
+        let scans =
+            |p: &PipelineNode<'_>, s: u8| matches!(p.source, Source::Breaker { slot } if slot == s);
         let mut out: PgVec<'g, usize> = PgVec::new_in(gx.mcx);
         for (x, p) in ps.iter().enumerate() {
             for (i, o) in p.ops.iter().enumerate() {
                 let Op::Lock(d) = o else { continue };
                 let s = p.desc.produces()?;
-                let plain = d.family().is_none() && d.family_top().is_none() && d.marks.len() == 1 && d.marks.iter().all(|m| m.lock != LockKind::None && !m.parent);
-                if !gx.cte_write(x) || !plain || p.ops.iter().any(|o| matches!(o, Op::Write(_))) || !p.ops[i + 1..].iter().any(limit_op) {
+                let plain = d.family().is_none()
+                    && d.family_top().is_none()
+                    && d.marks.len() == 1
+                    && d.marks
+                        .iter()
+                        .all(|m| m.lock != LockKind::None && !m.parent);
+                if !gx.cte_write(x)
+                    || !plain
+                    || p.ops.iter().any(|o| matches!(o, Op::Write(_)))
+                    || !p.ops[i + 1..].iter().any(limit_op)
+                {
                     return None;
                 }
-                let read = ps.iter().all(|r| !r.desc.consumes.contains(&s) || scans(r, s) && !r.ops.iter().any(limit_op)) && inners.iter().all(|r| !scans(r.1, s));
+                let read = ps.iter().all(|r| {
+                    !r.desc.consumes.contains(&s) || scans(r, s) && !r.ops.iter().any(limit_op)
+                }) && inners.iter().all(|r| !scans(r.1, s));
                 if !read {
                     return None;
                 }
@@ -242,7 +358,9 @@ impl<'g> Census<'_, 'g, '_> {
     pub(crate) fn above_only(&self, k: usize) -> Option<usize> {
         let gx = self.0;
         let ps = gx.pipelines();
-        let Some(first) = ps[k].desc.produces() else { return Some(0) };
+        let Some(first) = ps[k].desc.produces() else {
+            return Some(0);
+        };
         let mut slots = mcx::pg_vec![in gx.mcx; first];
         let mut n = 0;
         for x in k + 1..ps.len() {
@@ -250,7 +368,12 @@ impl<'g> Census<'_, 'g, '_> {
             if !reads.iter().any(|s| slots.contains(s)) {
                 continue;
             }
-            if !reads.iter().all(|s| slots.contains(s)) || ps[x].ops.iter().any(|o| matches!(o, Op::Lock(_) | Op::Write(_))) {
+            if !reads.iter().all(|s| slots.contains(s))
+                || ps[x]
+                    .ops
+                    .iter()
+                    .any(|o| matches!(o, Op::Lock(_) | Op::Write(_)))
+            {
                 return None;
             }
             n += 1;
@@ -274,14 +397,32 @@ impl<'g> Census<'_, 'g, '_> {
         let p = &ps[k];
         let reads = |o: &Op<'_>, s: u8| match o {
             Op::Join(JoinDesc::Probe { slot, .. }) => *slot == s,
-            Op::Join(JoinDesc::Nest { inner, .. }) => matches!(inner.source, Source::Breaker { slot } if slot == s),
+            Op::Join(JoinDesc::Nest { inner, .. }) => {
+                matches!(inner.source, Source::Breaker { slot } if slot == s)
+            }
             _ => false,
         };
         let feeds = |x: usize| {
-            let Some(s) = ps[x].desc.produces().filter(|_| x != k && x != q && ps[x].desc.consumes.is_empty()) else { return false };
-            let alone = ps.iter().enumerate().all(|(y, o)| y == k || !o.desc.consumes.contains(&s));
-            let quiet = !ps[x].ops.iter().any(|o| matches!(o, Op::Lock(_) | Op::Write(_)));
-            alone && quiet && !self.init_member(x) && !p.ops[..=j].iter().any(|o| reads(o, s)) && p.ops[j + 1..].iter().any(|o| reads(o, s))
+            let Some(s) = ps[x]
+                .desc
+                .produces()
+                .filter(|_| x != k && x != q && ps[x].desc.consumes.is_empty())
+            else {
+                return false;
+            };
+            let alone = ps
+                .iter()
+                .enumerate()
+                .all(|(y, o)| y == k || !o.desc.consumes.contains(&s));
+            let quiet = !ps[x]
+                .ops
+                .iter()
+                .any(|o| matches!(o, Op::Lock(_) | Op::Write(_)));
+            alone
+                && quiet
+                && !self.init_member(x)
+                && !p.ops[..=j].iter().any(|o| reads(o, s))
+                && p.ops[j + 1..].iter().any(|o| reads(o, s))
         };
         (0..ps.len()).filter(|&x| feeds(x)).count()
     }
@@ -291,9 +432,23 @@ impl<'g> Census<'_, 'g, '_> {
     pub(crate) fn tail_sets(&self, k: usize, j: usize) -> Option<usize> {
         let gx = self.0;
         let ps = gx.pipelines();
-        let member = |q: usize| gx.graph.reruns.iter().any(|r| ps[k].ops[..j].iter().any(|o| matches!(o, Op::SubPlan(s) if s.plan_id == r.plan_id)) && r.pipelines.iter().any(|&m| usize::from(m) == q));
-        let members: PgVec<'_, usize> = (0..ps.len()).filter(|&q| q != k && member(q)).collect_in(gx.mcx);
-        let quiet = members.iter().all(|&q| !ps[q].ops.iter().any(|o| matches!(o, Op::Write(_) | Op::Lock(_))));
+        let member = |q: usize| {
+            gx.graph.reruns.iter().any(|r| {
+                ps[k].ops[..j]
+                    .iter()
+                    .any(|o| matches!(o, Op::SubPlan(s) if s.plan_id == r.plan_id))
+                    && r.pipelines.iter().any(|&m| usize::from(m) == q)
+            })
+        };
+        let members: PgVec<'_, usize> = (0..ps.len())
+            .filter(|&q| q != k && member(q))
+            .collect_in(gx.mcx);
+        let quiet = members.iter().all(|&q| {
+            !ps[q]
+                .ops
+                .iter()
+                .any(|o| matches!(o, Op::Write(_) | Op::Lock(_)))
+        });
         quiet.then_some(members.len())
     }
 
@@ -309,7 +464,11 @@ impl<'g> Census<'_, 'g, '_> {
             true => self.tail_sets(k, j),
             false => Some(0),
         };
-        n.zip(self.above_only(k)).zip(tail).is_some_and(|((n, a), t)| self.whole(2 + n + a + t + self.above_feeds(k, j, q) + usize::from(extra.is_some())))
+        n.zip(self.above_only(k))
+            .zip(tail)
+            .is_some_and(|((n, a), t)| {
+                self.whole(2 + n + a + t + self.above_feeds(k, j, q) + usize::from(extra.is_some()))
+            })
     }
 
     /// D3277 (DRAINED LIMIT): `breaker_limit`'s lock (pipeline `k`, its producer `q`) beside data-modifying CTEs nothing reads
@@ -323,7 +482,12 @@ impl<'g> Census<'_, 'g, '_> {
         let ps = gx.pipelines();
         // D3379 LOCKPOST: or beside a post CTE (ops/modifytable/post.rs: one without RETURNING, run after the emit)
         let drained = gx.after_emit();
-        let locks = ps.iter().chain(ps.inners().into_iter().map(|x| x.1)).flat_map(|p| p.ops.iter()).filter(|o| matches!(o, Op::Lock(_))).count();
+        let locks = ps
+            .iter()
+            .chain(ps.inners().into_iter().map(|x| x.1))
+            .flat_map(|p| p.ops.iter())
+            .filter(|o| matches!(o, Op::Lock(_)))
+            .count();
         !drained.is_empty()
             && !drained.contains(&k)
             && !drained.contains(&q)
@@ -337,12 +501,19 @@ impl<'g> Census<'_, 'g, '_> {
     /// D3558: the `Program.locks` entry (its index + 1) of the CTE claim in pipeline `k` that `Plan::write_pair` admitted:
     /// its place among `cte_claims`, else 1 (the one claim).
     pub(crate) fn claim_entry(&self, k: usize, limit_op: fn(&Op<'_>) -> bool) -> usize {
-        self.cte_claims(limit_op).and_then(|ks| ks.iter().position(|&x| x == k)).map_or(1, |i| i + 1)
+        self.cte_claims(limit_op)
+            .and_then(|ks| ks.iter().position(|&x| x == k))
+            .map_or(1, |i| i + 1)
     }
 
     /// D3506 SETLOCK: the `Program.locks` entry (1-based) of the set lock at op `j` of hashed SubPlan set build `k`, after
     /// the claims' (rerun/epq/set_lock.rs `mark`).
-    pub(crate) fn set_entry(&self, k: usize, j: usize, limit_op: fn(&Op<'_>) -> bool) -> Option<usize> {
+    pub(crate) fn set_entry(
+        &self,
+        k: usize,
+        j: usize,
+        limit_op: fn(&Op<'_>) -> bool,
+    ) -> Option<usize> {
         let claims = self.cte_claims(limit_op).map_or(1, |ks| ks.len());
         crate::rerun::epq::set_lock::mark(self.0, k, j, claims)
     }
@@ -370,7 +541,11 @@ pub(crate) fn multi_b(px: &Px<'_, '_>, node: i32) -> bool {
 /// D4154 INITMULTI: 1 when the lock at plan node `node` is that B and no runner has numbered its marks yet (they go after
 /// A's entry), else 0.
 pub(crate) fn runner_off(px: &Px<'_, '_>, node: i32) -> usize {
-    usize::from(px.lock_plan.multi.is_some_and(|(n, done, _)| n == node && !done))
+    usize::from(
+        px.lock_plan
+            .multi
+            .is_some_and(|(n, done, _)| n == node && !done),
+    )
 }
 
 /// At the program's end: B's marks laid after A's for marks.rs's runner that no runner numbered (another form made B, its
@@ -426,7 +601,40 @@ pub(crate) enum FormId {
 }
 
 impl FormId {
-    const ALL: [FormId; 32] = [FormId::Dummy, FormId::LockFill, FormId::SetLock, FormId::SubLock, FormId::ExistsSort, FormId::Sort15b, FormId::RefCopy, FormId::CteSort, FormId::JobqSort, FormId::JobqHash, FormId::RefFetch, FormId::MergeTail, FormId::RefChain, FormId::RefNest, FormId::RefNestChain, FormId::RefNestClaim, FormId::SortNest, FormId::SortNestCte, FormId::RefAnti, FormId::RefAntiCte, FormId::CopyProbe, FormId::CopyNest, FormId::LockNest, FormId::LockChain, FormId::LockPair, FormId::RefBuild, FormId::FamLimit, FormId::FamClaim, FormId::SortChain, FormId::RefDrain, FormId::Marks, FormId::Runner];
+    const ALL: [FormId; 32] = [
+        FormId::Dummy,
+        FormId::LockFill,
+        FormId::SetLock,
+        FormId::SubLock,
+        FormId::ExistsSort,
+        FormId::Sort15b,
+        FormId::RefCopy,
+        FormId::CteSort,
+        FormId::JobqSort,
+        FormId::JobqHash,
+        FormId::RefFetch,
+        FormId::MergeTail,
+        FormId::RefChain,
+        FormId::RefNest,
+        FormId::RefNestChain,
+        FormId::RefNestClaim,
+        FormId::SortNest,
+        FormId::SortNestCte,
+        FormId::RefAnti,
+        FormId::RefAntiCte,
+        FormId::CopyProbe,
+        FormId::CopyNest,
+        FormId::LockNest,
+        FormId::LockChain,
+        FormId::LockPair,
+        FormId::RefBuild,
+        FormId::FamLimit,
+        FormId::FamClaim,
+        FormId::SortChain,
+        FormId::RefDrain,
+        FormId::Marks,
+        FormId::Runner,
+    ];
 
     /// Its shapecheck signal, `lock.<name>`.
     pub(crate) const fn fire(self) -> &'static str {
@@ -514,35 +722,122 @@ pub(crate) fn accepts(gx: &Gx<'_, '_>, k: usize, j: usize, d: &LockDesc<'_>) -> 
     let p = &gx.pipelines()[k];
     let tests = [
         (FormId::Dummy, crate::ops::shared::dummy::dummy(gx, k, j)),
-        (FormId::SetLock, crate::rerun::epq::set_lock::form(gx, k, j).is_some()),
-        (FormId::SubLock, crate::rerun::epq::sub_lock::form(gx, k, j).is_some()),
-        (FormId::ExistsSort, crate::rerun::epq::sub_lock::sort_claim(gx, k, j).is_some()),
-        (FormId::Sort15b, breaker_limit(gx, k, j, d, Beside::Alone).is_some()),
-        (FormId::RefCopy, super::lower::ref_copy(gx, k, j, d).is_some()),
-        (FormId::CteSort, breaker_limit(gx, k, j, d, Beside::Cte).is_some()),
-        (FormId::JobqSort, breaker_limit(gx, k, j, d, Beside::Init).is_some()),
-        (FormId::JobqHash, breaker_limit(gx, k, j, d, Beside::Copy).is_some()),
-        (FormId::RefFetch, super::lower::ref_limit(gx, k, j, d).is_some()),
-        (FormId::MergeTail, super::lower::merge_tail(gx, k, j, d).is_some()),
-        (FormId::RefChain, super::lower::ref_chain(gx, k, j, d).is_some()),
-        (FormId::RefNest, ref_nest::form(gx, k, j, d, limit_op, false).is_some()),
-        (FormId::RefNestChain, ref_nest::chain_form(gx, k, j, d, limit_op).is_some()),
-        (FormId::RefNestClaim, ref_nest::form(gx, k, j, d, limit_op, true).is_some()),
-        (FormId::SortNest, ref_nest::sort_form(gx, k, j, d, (limit_op, sort_emit), false).is_some()),
-        (FormId::SortNestCte, ref_nest::sort_form(gx, k, j, d, (limit_op, sort_emit), true).is_some()),
-        (FormId::RefAnti, ref_anti::form(gx, k, j, d, limit_op, false).is_some()),
-        (FormId::RefAntiCte, ref_anti::form(gx, k, j, d, limit_op, true).is_some()),
-        (FormId::CopyProbe, crate::rerun::epq::ref_copy::probe_form(gx, k, j, d).is_some()),
-        (FormId::CopyNest, ref_nest::copy_nest_form(gx, k, j, d).is_some()),
-        (FormId::LockNest, ref_nest::lock_form(gx, k, j, d, limit_op).is_some()),
-        (FormId::LockChain, ref_nest::chain_lock_form(gx, k, j, d, limit_op).is_some()),
-        (FormId::LockPair, ref_nest::pair_form(gx, k, j, d, limit_op).is_some()),
-        (FormId::RefBuild, super::lower::ref_build(gx, k, j, d).is_some()),
-        (FormId::FamLimit, super::lower::family_limit(gx, k, j, d, false).is_some()),
-        (FormId::FamClaim, super::lower::family_limit(gx, k, j, d, true).is_some()),
-        (FormId::SortChain, crate::rerun::epq::sort_chain::form(gx, k, j, d, (limit_op, sort_emit)).is_some()),
+        (
+            FormId::SetLock,
+            crate::rerun::epq::set_lock::form(gx, k, j).is_some(),
+        ),
+        (
+            FormId::SubLock,
+            crate::rerun::epq::sub_lock::form(gx, k, j).is_some(),
+        ),
+        (
+            FormId::ExistsSort,
+            crate::rerun::epq::sub_lock::sort_claim(gx, k, j).is_some(),
+        ),
+        (
+            FormId::Sort15b,
+            breaker_limit(gx, k, j, d, Beside::Alone).is_some(),
+        ),
+        (
+            FormId::RefCopy,
+            super::lower::ref_copy(gx, k, j, d).is_some(),
+        ),
+        (
+            FormId::CteSort,
+            breaker_limit(gx, k, j, d, Beside::Cte).is_some(),
+        ),
+        (
+            FormId::JobqSort,
+            breaker_limit(gx, k, j, d, Beside::Init).is_some(),
+        ),
+        (
+            FormId::JobqHash,
+            breaker_limit(gx, k, j, d, Beside::Copy).is_some(),
+        ),
+        (
+            FormId::RefFetch,
+            super::lower::ref_limit(gx, k, j, d).is_some(),
+        ),
+        (
+            FormId::MergeTail,
+            super::lower::merge_tail(gx, k, j, d).is_some(),
+        ),
+        (
+            FormId::RefChain,
+            super::lower::ref_chain(gx, k, j, d).is_some(),
+        ),
+        (
+            FormId::RefNest,
+            ref_nest::form(gx, k, j, d, limit_op, false).is_some(),
+        ),
+        (
+            FormId::RefNestChain,
+            ref_nest::chain_form(gx, k, j, d, limit_op).is_some(),
+        ),
+        (
+            FormId::RefNestClaim,
+            ref_nest::form(gx, k, j, d, limit_op, true).is_some(),
+        ),
+        (
+            FormId::SortNest,
+            ref_nest::sort_form(gx, k, j, d, (limit_op, sort_emit), false).is_some(),
+        ),
+        (
+            FormId::SortNestCte,
+            ref_nest::sort_form(gx, k, j, d, (limit_op, sort_emit), true).is_some(),
+        ),
+        (
+            FormId::RefAnti,
+            ref_anti::form(gx, k, j, d, limit_op, false).is_some(),
+        ),
+        (
+            FormId::RefAntiCte,
+            ref_anti::form(gx, k, j, d, limit_op, true).is_some(),
+        ),
+        (
+            FormId::CopyProbe,
+            crate::rerun::epq::ref_copy::probe_form(gx, k, j, d).is_some(),
+        ),
+        (
+            FormId::CopyNest,
+            ref_nest::copy_nest_form(gx, k, j, d).is_some(),
+        ),
+        (
+            FormId::LockNest,
+            ref_nest::lock_form(gx, k, j, d, limit_op).is_some(),
+        ),
+        (
+            FormId::LockChain,
+            ref_nest::chain_lock_form(gx, k, j, d, limit_op).is_some(),
+        ),
+        (
+            FormId::LockPair,
+            ref_nest::pair_form(gx, k, j, d, limit_op).is_some(),
+        ),
+        (
+            FormId::RefBuild,
+            super::lower::ref_build(gx, k, j, d).is_some(),
+        ),
+        (
+            FormId::FamLimit,
+            super::lower::family_limit(gx, k, j, d, false).is_some(),
+        ),
+        (
+            FormId::FamClaim,
+            super::lower::family_limit(gx, k, j, d, true).is_some(),
+        ),
+        (
+            FormId::SortChain,
+            crate::rerun::epq::sort_chain::form(gx, k, j, d, (limit_op, sort_emit)).is_some(),
+        ),
         (FormId::RefDrain, ref_drain(gx, k, j, d).is_some()),
-        (FormId::Marks, super::marks::several(p, d) || super::marks::over_breaker(p, d) || super::marks::nest_outer(gx, k, d) || super::marks::family_breaker(p, d)),
+        (
+            FormId::Marks,
+            super::marks::several(p, d)
+                || super::marks::over_breaker(p, d)
+                || super::marks::nest_outer(gx, k, d)
+                || super::marks::family_breaker(p, d),
+        ),
     ];
     tests.iter().filter(|t| t.1).fold(0, |m, t| m | t.0.bit())
 }
@@ -550,11 +845,33 @@ pub(crate) fn accepts(gx: &Gx<'_, '_>, k: usize, j: usize, d: &LockDesc<'_>) -> 
 /// C11 overlap: the pairs of forms in `set` and the answer `id` that no row of `refines` orders, each `(a, b)` with `a` tried
 /// first: a pair with the answer needs its edge (`a` the answer: it `Wins`; `b` the answer: `a` `Declines`), any other pair
 /// either edge.
-fn unordered<'r>(set: u64, id: FormId, refines: &'r [(FormId, FormId, Edge, &'r str)]) -> impl Iterator<Item = (FormId, FormId)> + 'r {
+fn unordered<'r>(
+    set: u64,
+    id: FormId,
+    refines: &'r [(FormId, FormId, Edge, &'r str)],
+) -> impl Iterator<Item = (FormId, FormId)> + 'r {
     let set = set | id.bit();
     let ids = FormId::ALL.into_iter().filter(move |f| set & f.bit() != 0);
-    let need = move |a: FormId, b: FormId| if a == id { Some(Edge::Wins) } else if b == id { Some(Edge::Declines) } else { None };
-    ids.clone().flat_map(move |a| ids.clone().filter(move |b| (a as u32) < (*b as u32)).map(move |b| (a, b))).filter(move |&(a, b)| !refines.iter().any(|r| r.0 == a && r.1 == b && need(a, b).is_none_or(|e| e == r.2)))
+    let need = move |a: FormId, b: FormId| {
+        if a == id {
+            Some(Edge::Wins)
+        } else if b == id {
+            Some(Edge::Declines)
+        } else {
+            None
+        }
+    };
+    ids.clone()
+        .flat_map(move |a| {
+            ids.clone()
+                .filter(move |b| (a as u32) < (*b as u32))
+                .map(move |b| (a, b))
+        })
+        .filter(move |&(a, b)| {
+            !refines
+                .iter()
+                .any(|r| r.0 == a && r.1 == b && need(a, b).is_none_or(|e| e == r.2))
+        })
 }
 
 /// C11 overlap: `None` when the forms whose tests accept a lock (`accepts`) and its answer `id` are one form or a chain under
@@ -562,8 +879,17 @@ fn unordered<'r>(set: u64, id: FormId, refines: &'r [(FormId, FormId, Edge, &'r 
 fn overlap(set: u64, id: FormId) -> Option<&'static str> {
     let mut pairs = unordered(set, id, REFINES).peekable();
     pairs.peek()?;
-    let names: Vec<String> = pairs.map(|(a, b)| format!("{}/{}", &a.fire()[5..], &b.fire()[5..])).collect(); // alloc: Cold (a debug build's refusal)
-    Some(Box::leak(format!("lock-forms: {} accept one lock outside REFINES, answered {} (C11)", names.join(" "), &id.fire()[5..]).into_boxed_str())) // alloc: Cold (a debug build's refusal)
+    let names: Vec<String> = pairs
+        .map(|(a, b)| format!("{}/{}", &a.fire()[5..], &b.fire()[5..]))
+        .collect(); // alloc: Cold (a debug build's refusal)
+    Some(Box::leak(
+        format!(
+            "lock-forms: {} accept one lock outside REFINES, answered {} (C11)",
+            names.join(" "),
+            &id.fire()[5..]
+        )
+        .into_boxed_str(),
+    )) // alloc: Cold (a debug build's refusal)
 }
 
 /// C11 FORMS: the REFERENCE / COPY rows a form's recheck refetches, (pipeline, junk ctid column, relation) each.
@@ -589,18 +915,49 @@ pub(crate) enum Form<'g> {
     NoRows,
     SetLock(LockSite),
     SubLock(crate::rerun::epq::sub_lock::SubLock),
-    SortSubClaim { at: (usize, usize), col: i16 },
-    Breaker { at: (usize, usize), col: i16, fetch: Fetch<'g>, mark: usize },
-    Tail { at: (usize, usize), col: i16, fetch: Fetch<'g>, mark: usize },
-    RefNest { ctid: i16, fetch: Fetch<'g>, mark: usize },
-    Probe { col: i16, mark: usize },
-    LockNest { at: (usize, usize), ctid: i16, mark: usize },
+    SortSubClaim {
+        at: (usize, usize),
+        col: i16,
+    },
+    Breaker {
+        at: (usize, usize),
+        col: i16,
+        fetch: Fetch<'g>,
+        mark: usize,
+    },
+    Tail {
+        at: (usize, usize),
+        col: i16,
+        fetch: Fetch<'g>,
+        mark: usize,
+    },
+    RefNest {
+        ctid: i16,
+        fetch: Fetch<'g>,
+        mark: usize,
+    },
+    Probe {
+        col: i16,
+        mark: usize,
+    },
+    LockNest {
+        at: (usize, usize),
+        ctid: i16,
+        mark: usize,
+    },
     Pair((usize, usize, usize, usize, Option<(usize, usize)>)),
     RefBuild(crate::ops::lockrows::lower::RefBuild<'g>, usize),
-    Family { arms: PgVec<'g, (usize, usize, u32)>, ctid: i16, toid: i16, mark: usize },
+    Family {
+        arms: PgVec<'g, (usize, usize, u32)>,
+        ctid: i16,
+        toid: i16,
+        mark: usize,
+    },
     SortChain(crate::rerun::epq::sort_chain::SortChain<'g>),
     Drain(RefDrain, usize),
-    Marks { fam: bool },
+    Marks {
+        fam: bool,
+    },
     Runner(RunnerAnswer),
 }
 
@@ -627,7 +984,10 @@ impl<'g> Plan<'_, 'g, '_> {
     /// test) and marks.rs `several` (Row A's multilock test); a refusal is at `node`, the asking lock's.
     pub(crate) fn role(&mut self, k: usize, node: i32) -> usize {
         let px = &mut *self.0;
-        let (one_site, several) = (crate::ops::lockrows::lower::one_site, crate::ops::lockrows::marks::several);
+        let (one_site, several) = (
+            crate::ops::lockrows::lower::one_site,
+            crate::ops::lockrows::marks::several,
+        );
         let gx = px.gx;
         let ps = gx.pipelines();
         let mut locks: PgVec<'_, At<'_, '_>> = PgVec::new_in(gx.mcx);
@@ -635,7 +995,16 @@ impl<'g> Plan<'_, 'g, '_> {
             for (j, o) in p.ops.iter().enumerate() {
                 let Op::Lock(d) = o else { continue };
                 if !crate::ops::shared::dummy::dummy(gx, q, j) {
-                    locks.push_in((q, j, d, p.node_ops.iter().rev().find(|n| n.first_op as usize <= j).map_or(p.node_id, |n| n.node_id)));
+                    locks.push_in((
+                        q,
+                        j,
+                        d,
+                        p.node_ops
+                            .iter()
+                            .rev()
+                            .find(|n| n.first_op as usize <= j)
+                            .map_or(p.node_id, |n| n.node_id),
+                    ));
                 }
             }
         }
@@ -649,7 +1018,16 @@ impl<'g> Plan<'_, 'g, '_> {
             for (x, (_, ip)) in inners.iter().enumerate() {
                 for (j, o) in ip.ops.iter().enumerate() {
                     if let Op::Lock(d) = o {
-                        locks.push_in((n + x, j, d, ip.node_ops.iter().rev().find(|m| m.first_op as usize <= j).map_or(ip.node_id, |m| m.node_id)));
+                        locks.push_in((
+                            n + x,
+                            j,
+                            d,
+                            ip.node_ops
+                                .iter()
+                                .rev()
+                                .find(|m| m.first_op as usize <= j)
+                                .map_or(ip.node_id, |m| m.node_id),
+                        ));
                     }
                 }
             }
@@ -667,17 +1045,40 @@ impl<'g> Plan<'_, 'g, '_> {
         // D3775 COPYPAIR: or A the lock below the copy entry of a SubqueryScan whose row the other node's COPY mark carries,
         // in a pipeline of its own making a product (SQLAlchemy's joinedload of a `LIMIT n FOR UPDATE` subquery under the
         // statement's FOR UPDATE, the subquery a hash build): B's recheck reads that row stored, never running A again
-        let copied = |l: &&At<'_, '_>| l.0 < n && ps[l.0].desc.produces().is_some() && locks.iter().any(|o| o.3 != l.3 && o.0 != l.0 && below_copy(gx, l.0, l.1, &o.2.marks));
-        let Some(na) = locks.iter().find(|l| init.contains(&l.0)).or_else(|| locks.iter().find(|l| fill(l.0))).or_else(|| locks.iter().find(copied)).map(|l| l.3).filter(|_| nodes.len() == 2) else { return 0 };
-        let (mut a, mut b): (PgVec<'_, At<'_, '_>>, PgVec<'_, At<'_, '_>>) = (PgVec::new_in(gx.mcx), PgVec::new_in(gx.mcx));
+        let copied = |l: &&At<'_, '_>| {
+            l.0 < n
+                && ps[l.0].desc.produces().is_some()
+                && locks
+                    .iter()
+                    .any(|o| o.3 != l.3 && o.0 != l.0 && below_copy(gx, l.0, l.1, &o.2.marks))
+        };
+        let Some(na) = locks
+            .iter()
+            .find(|l| init.contains(&l.0))
+            .or_else(|| locks.iter().find(|l| fill(l.0)))
+            .or_else(|| locks.iter().find(copied))
+            .map(|l| l.3)
+            .filter(|_| nodes.len() == 2)
+        else {
+            return 0;
+        };
+        let (mut a, mut b): (PgVec<'_, At<'_, '_>>, PgVec<'_, At<'_, '_>>) =
+            (PgVec::new_in(gx.mcx), PgVec::new_in(gx.mcx));
         for &l in locks.iter() {
             match l.3 == na {
                 true => a.push_in(l),
                 false => b.push_in(l),
             }
         }
-        let (Some(&(_, _, da, _)), Some(&(qb, jb, db, nb))) = (a.first(), b.first()) else { return 0 };
-        if b.iter().any(|l| init.contains(&l.0) || l.0 < n && ps[l.0].desc.produces().is_some() || a.iter().any(|m| m.0 > l.0)) || b.len() > 1 && db.family().is_none() {
+        let (Some(&(_, _, da, _)), Some(&(qb, jb, db, nb))) = (a.first(), b.first()) else {
+            return 0;
+        };
+        if b.iter().any(|l| {
+            init.contains(&l.0)
+                || l.0 < n && ps[l.0].desc.produces().is_some()
+                || a.iter().any(|m| m.0 > l.0)
+        }) || b.len() > 1 && db.family().is_none()
+        {
             return 0;
         }
         // D4150 INITFAM (the temporal-FK RI restrict check over a partitioned or inheritance PK table): or A a family's lock,
@@ -685,7 +1086,9 @@ impl<'g> Plan<'_, 'g, '_> {
         // `own_leaf`, producerchain E): the arms share A's entry, each on its own late lock site over its leaf (B's family
         // form), and each rechecks that leaf's newest version in the IR on the way to the product, as PostgreSQL's LockRows
         // over the Append rechecks the row's leaf (the other children's marks inactive) and its Aggregate reads the row
-        if a.len() > 1 && da.family().is_none() || a.iter().any(|l| l.0 >= n) && da.family().is_some() {
+        if a.len() > 1 && da.family().is_none()
+            || a.iter().any(|l| l.0 >= n) && da.family().is_some()
+        {
             shape(node, crate::ops::lockrows::lock_init::LOCK_INIT_FAMILY);
         }
         // D3657: B in REFBUILD's form (lower.rs `ref_build`) is one entry: its one locking mark is on the build side of the join
@@ -694,9 +1097,14 @@ impl<'g> Plan<'_, 'g, '_> {
         // Program.locks entries after A's (`PlanState`, claimed by marks.rs `make`); B in an embedded inner is not
         // D4157 INITSORT: so is B over a breaker (an ORDER BY under it, marks.rs `over_breaker`; a family's over its Append,
         // `family_breaker`), unless an AGA-35 bound form (D3436: 15b, FAMLIMIT, REFFETCH under a LIMIT) makes it first
-        let sorted = |p: &PipelineNode<'_>| crate::ops::lockrows::marks::over_breaker(p, db) || crate::ops::lockrows::marks::family_breaker(p, db);
+        let sorted = |p: &PipelineNode<'_>| {
+            crate::ops::lockrows::marks::over_breaker(p, db)
+                || crate::ops::lockrows::marks::family_breaker(p, db)
+        };
         let several_b = qb < n && several(pipe(qb), db);
-        let multi = qb < n && (several_b || sorted(&ps[qb])) && crate::ops::lockrows::lower::ref_build(gx, qb, jb, db).is_none();
+        let multi = qb < n
+            && (several_b || sorted(&ps[qb]))
+            && crate::ops::lockrows::lower::ref_build(gx, qb, jb, db).is_none();
         if a.iter().any(|l| several(pipe(l.0), l.2)) || qb >= n && several(pipe(qb), db) {
             shape(node, crate::ops::lockrows::lock_init::LOCK_INIT_MULTI);
         }
@@ -705,30 +1113,65 @@ impl<'g> Plan<'_, 'g, '_> {
         // or its second row's raise): the rechecked row goes on to the sink as to a product (`Plan::form`, `mark` 1)
         // D4150 INITFAM: a family's arms each make the product over its own leaf (`own_leaf`, no sink form)
         let form = |&(q, j, d, _): &At<'_, '_>| match d.family() {
-            None => (ps[q].desc.produces().is_some() || super::lock_init::init_sink(gx, q)) && one_site(&ps[q], j, d),
-            Some(_) => ps[q].desc.produces().is_some() && crate::ops::lockrows::lower::own_leaf(&ps[q], j, d),
+            None => {
+                (ps[q].desc.produces().is_some() || super::lock_init::init_sink(gx, q))
+                    && one_site(&ps[q], j, d)
+            }
+            Some(_) => {
+                ps[q].desc.produces().is_some()
+                    && crate::ops::lockrows::lower::own_leaf(&ps[q], j, d)
+            }
         };
         if !a.iter().all(form) {
             shape(node, crate::ops::lockrows::lock_init::LOCK_INIT_FORM);
         }
-        if ps.iter().chain(ps.inners().into_iter().map(|x| x.1)).flat_map(|p| p.ops.iter()).any(|o| matches!(o, Op::Write(w) if w.cmd != gravity_program::Cmd::Select)) {
+        if ps
+            .iter()
+            .chain(ps.inners().into_iter().map(|x| x.1))
+            .flat_map(|p| p.ops.iter())
+            .any(|o| matches!(o, Op::Write(w) if w.cmd != gravity_program::Cmd::Select))
+        {
             shape(node, crate::ops::lockrows::lock_init::LOCK_INIT_WRITE);
         }
-        let sites = |d: &LockDesc<'_>| d.marks.iter().filter(|m| m.lock != LockKind::None && !m.parent).map(|m| LockSite { rti: m.rti, relid: m.relid, lock: m.lock, wait: m.wait }).collect_in(gx.mcx);
+        let sites = |d: &LockDesc<'_>| {
+            d.marks
+                .iter()
+                .filter(|m| m.lock != LockKind::None && !m.parent)
+                .map(|m| LockSite {
+                    rti: m.rti,
+                    relid: m.relid,
+                    lock: m.lock,
+                    wait: m.wait,
+                })
+                .collect_in(gx.mcx)
+        };
         let (sa, sb) = (sites(da), sites(db));
-        let (Some(&a1), Some(&b1)) = (sa.first(), sb.first()) else { crate::refuse!(node, Reason::Bug { payload: "a LockRows of the InitPlan pair without a locking mark" }) };
+        let (Some(&a1), Some(&b1)) = (sa.first(), sb.first()) else {
+            crate::refuse!(
+                node,
+                Reason::Bug {
+                    payload: "a LockRows of the InitPlan pair without a locking mark"
+                }
+            )
+        };
         // D4154 INITMULTI: B's every locking mark in marks.rs's order (PlanRowMark order), whichever of the two makes is first;
         // D4157: B over a breaker alone keeps [A, B], the entries an AGA-35 bound form's B (plan.rs `Plan::pair_entry`) has too, and
         // marks.rs `make` lays its own after A's when it claims B
         let laid = multi && several_b;
         px.locks = match laid {
             true => core::iter::once(a1).chain(sb).collect(), // alloc: Program
-            false => vec![a1, b1], // alloc: Program
+            false => vec![a1, b1],                            // alloc: Program
         };
         if multi && px.lock_plan.multi.is_none() {
             px.lock_plan.multi = Some((nb, false, laid));
         }
-        if a.iter().any(|l| l.0 == k) { 1 } else if b.iter().any(|l| l.0 == k) { 2 } else { 0 }
+        if a.iter().any(|l| l.0 == k) {
+            1
+        } else if b.iter().any(|l| l.0 == k) {
+            2
+        } else {
+            0
+        }
     }
 
     /// D3379 INITSINK: the `Program.locks` entry of an AGA-35 form's lock at plan node `node` (pipeline `k`, its rechecked
@@ -756,7 +1199,16 @@ impl<'g> Plan<'_, 'g, '_> {
     /// the lock is a `Program.locks` entry of its own (its own lock host), rechecked in the IR (lower.rs), and the write keeps
     /// the program's `write` plan. The lock's site once served (the caller's lock mark 1), else false.
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn write_pair(&mut self, k: usize, j: usize, _node: i32, d: &LockDesc<'_>, limit: bool, one_site: fn(&PipelineNode<'_>, usize, &LockDesc<'_>) -> bool, limit_op: fn(&Op<'_>) -> bool) -> bool {
+    pub(crate) fn write_pair(
+        &mut self,
+        k: usize,
+        j: usize,
+        _node: i32,
+        d: &LockDesc<'_>,
+        limit: bool,
+        one_site: fn(&PipelineNode<'_>, usize, &LockDesc<'_>) -> bool,
+        limit_op: fn(&Op<'_>) -> bool,
+    ) -> bool {
         let px = &mut *self.0;
         let gx = px.gx;
         let ps = gx.pipelines();
@@ -771,12 +1223,27 @@ impl<'g> Plan<'_, 'g, '_> {
         // after the claims', no claim
         let set_locks = crate::rerun::epq::set_lock::locks(gx);
         let not_set = |q: usize, i: usize| !set_locks.iter().any(|x| x.0 == q && x.1 == i);
-        let nlocks = ps.iter().enumerate().flat_map(|(q, p)| p.ops.iter().enumerate().filter(|(_, o)| matches!(o, Op::Lock(_))).map(move |(i, _)| (q, i))).filter(|&(q, i)| not_set(q, i)).count();
+        let nlocks = ps
+            .iter()
+            .enumerate()
+            .flat_map(|(q, p)| {
+                p.ops
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, o)| matches!(o, Op::Lock(_)))
+                    .map(move |(i, _)| (q, i))
+            })
+            .filter(|&(q, i)| not_set(q, i))
+            .count();
         if nlocks != 1 && several.is_none() {
             return false;
         }
         let own = |q: usize| !init.contains(&q) && !gx.cte_write(q);
-        let writes = ps.iter().enumerate().flat_map(|(q, p)| p.ops.iter().map(move |o| (q, o))).filter(|(_, o)| matches!(o, Op::Write(w) if w.cmd != gravity_program::Cmd::Select));
+        let writes = ps
+            .iter()
+            .enumerate()
+            .flat_map(|(q, p)| p.ops.iter().map(move |o| (q, o)))
+            .filter(|(_, o)| matches!(o, Op::Write(w) if w.cmd != gravity_program::Cmd::Select));
         // CTELOCK: the lock inside a CTE that writes nothing, its store read whole by the statement: each reader scans the
         // store as its source (no nest inner), and no LIMIT / OFFSET outside the CTE stops a read early (PostgreSQL's
         // CteScan pulls the CTE's LockRows only as far as its readers read); the CTE's product is the lock's (a
@@ -788,7 +1255,8 @@ impl<'g> Plan<'_, 'g, '_> {
         let (mut n, mut main) = (0, None);
         // D3379 FAMCLAIM HASH: the statement's one UPDATE / DELETE over a partitioned target may be one write op per leaf, each
         // in a union arm (the leaf's scan probing the hashed subquery): every one the same command and root
-        let mut arms: PgVec<'_, &gravity_decompose::ops::shared::modifytable::WriteDesc<'_>> = PgVec::new_in(gx.mcx);
+        let mut arms: PgVec<'_, &gravity_decompose::ops::shared::modifytable::WriteDesc<'_>> =
+            PgVec::new_in(gx.mcx);
         // D3488 CTECLAIM: or one data-modifying CTE's UPDATE / DELETE (its CTE's own pipeline) whose COPY mark carries the
         // claim (`below_copy`), every other write a plain INSERT: the archive or log of the claimed rows, `WITH d AS (DELETE
         // FROM job WHERE id IN (SELECT id .. LIMIT n FOR UPDATE SKIP LOCKED) RETURNING ..) INSERT INTO done SELECT * FROM d`.
@@ -799,42 +1267,86 @@ impl<'g> Plan<'_, 'g, '_> {
         for (q, o) in writes {
             n += 1;
             if let Op::Write(w) = o {
-                if own(q) && (matches!(w.cmd, gravity_program::Cmd::Update | gravity_program::Cmd::Delete) || in_cte && w.cmd == gravity_program::Cmd::Insert) {
+                if own(q)
+                    && (matches!(
+                        w.cmd,
+                        gravity_program::Cmd::Update | gravity_program::Cmd::Delete
+                    ) || in_cte && w.cmd == gravity_program::Cmd::Insert)
+                {
                     main = Some(w);
                 }
-                if own(q) && matches!(w.cmd, gravity_program::Cmd::Update | gravity_program::Cmd::Delete) && ps[q].ops.iter().any(crate::graph::is_arm) {
+                if own(q)
+                    && matches!(
+                        w.cmd,
+                        gravity_program::Cmd::Update | gravity_program::Cmd::Delete
+                    )
+                    && ps[q].ops.iter().any(crate::graph::is_arm)
+                {
                     arms.push_in(w);
                 }
-                if gx.cte_write(q) && !init.contains(&q) && matches!(w.cmd, gravity_program::Cmd::Update | gravity_program::Cmd::Delete) {
+                if gx.cte_write(q)
+                    && !init.contains(&q)
+                    && matches!(
+                        w.cmd,
+                        gravity_program::Cmd::Update | gravity_program::Cmd::Delete
+                    )
+                {
                     cte = Some((q, w));
                     ncte += 1;
                     cte_writes.push_in(q);
                 }
-                if w.cmd == gravity_program::Cmd::Insert && w.on_conflict.is_none() && w.merge.is_none() {
+                if w.cmd == gravity_program::Cmd::Insert
+                    && w.on_conflict.is_none()
+                    && w.merge.is_none()
+                {
                     inserts += 1;
                 }
             }
         }
-        let one_root = arms.len() == n && n > 1 && arms.iter().all(|w| w.cmd == arms[0].cmd && w.plan.target_rel == arms[0].plan.target_rel);
+        let one_root = arms.len() == n
+            && n > 1
+            && arms
+                .iter()
+                .all(|w| w.cmd == arms[0].cmd && w.plan.target_rel == arms[0].plan.target_rel);
         // D3601 (4) (River's completer: job_to_update's FOR UPDATE read whole by updated_running and
         // updated_metadata_only): or several such writes beside CTELOCK's claim (`in_cte`) and no statement write, each
         // rechecking in its own IR
         let several_ctes = in_cte && ncte > 1 && gx.ctes_beside(&cte_writes[..]);
-        let claim = cte.filter(|_| main.is_none() && (ncte == 1 || several_ctes) && ncte + inserts == n);
+        let claim =
+            cte.filter(|_| main.is_none() && (ncte == 1 || several_ctes) && ncte + inserts == n);
         // D3489 CTECLAIM-INIT: or that write reads the claim through an InitPlan at its ModifyTable its first recheck runs again
         // (`.. WHERE id = (SELECT id .. LIMIT 1 FOR UPDATE SKIP LOCKED)`: rerun/epq/inits.rs `cte_write_armed`), whose pipelines
         // hold this lock: the lock's Program.locks entry locks again in that run (its own lock TM_Ok)
         let claim_init = claim.is_some_and(|(q, _)| {
-            let jq = ps[q].ops.iter().position(|o| matches!(o, Op::Write(_))).unwrap_or(ps[q].ops.len());
-            crate::rerun::epq::inits::cte_write_armed(gx, q, jq).into_iter().any(|x| gx.with_producers([gx.graph.init_plans[x].pipeline as usize]).contains(&k))
+            let jq = ps[q]
+                .ops
+                .iter()
+                .position(|o| matches!(o, Op::Write(_)))
+                .unwrap_or(ps[q].ops.len());
+            crate::rerun::epq::inits::cte_write_armed(gx, q, jq)
+                .into_iter()
+                .any(|x| {
+                    gx.with_producers([gx.graph.init_plans[x].pipeline as usize])
+                        .contains(&k)
+                })
         });
         let claim = claim.map(|(_, w)| w);
         // D3507 (graphile-worker's get_job: `WITH j AS (SELECT .. LIMIT 1 FOR UPDATE SKIP LOCKED), q AS (UPDATE job_queues
         // .. FROM j ..) UPDATE jobs .. FROM j ..`): or CTELOCK's claim beside the statement's UPDATE / DELETE and
         // data-modifying CTEs' UPDATE / DELETEs that each recheck in their own IR, every other write a plain INSERT
         // (`ctes_beside`)
-        let beside = in_cte && main.is_some_and(|w| matches!(w.cmd, gravity_program::Cmd::Update | gravity_program::Cmd::Delete)) && gx.ctes_beside(&cte_writes[..]) && 1 + ncte + inserts == n;
-        let Some(w) = main.filter(|_| n == 1 || one_root || beside).or(claim) else { return false };
+        let beside = in_cte
+            && main.is_some_and(|w| {
+                matches!(
+                    w.cmd,
+                    gravity_program::Cmd::Update | gravity_program::Cmd::Delete
+                )
+            })
+            && gx.ctes_beside(&cte_writes[..])
+            && 1 + ncte + inserts == n;
+        let Some(w) = main.filter(|_| n == 1 || one_root || beside).or(claim) else {
+            return false;
+        };
         // the claim's IN form (lk-0056 / 0059 / 0064 / 0067: `.. WHERE id IN (SELECT id .. LIMIT n FOR UPDATE ..)`, a
         // HashAggregate over the subquery): the lock is below the SubqueryScan whose row the write's ROW_MARK_COPY mark
         // carries, in the pipeline running it; the write's recheck enters that pipeline at the SubqueryScan with the stored row
@@ -850,12 +1362,32 @@ impl<'g> Plan<'_, 'g, '_> {
         // `updated AS (UPDATE .. WHERE id = ANY (SELECT id FROM combined_jobs) ..)`): its recheck reads each CTE Scan's row from
         // its COPY mark and never runs the claim again
         #[allow(clippy::nonminimal_bool)]
-        if !(limit && init.contains(&k) || below_copy) && !in_cte || claim.is_some() && !(below_copy || limit && claim_init || in_cte) {
+        if !(limit && init.contains(&k) || below_copy) && !in_cte
+            || claim.is_some() && !(below_copy || limit && claim_init || in_cte)
+        {
             return false;
         }
-        let site = |d: &LockDesc<'_>| d.marks.iter().find(|m| m.lock != LockKind::None && !m.parent).map(|m| LockSite { rti: m.rti, relid: m.relid, lock: m.lock, wait: m.wait });
+        let site = |d: &LockDesc<'_>| {
+            d.marks
+                .iter()
+                .find(|m| m.lock != LockKind::None && !m.parent)
+                .map(|m| LockSite {
+                    rti: m.rti,
+                    relid: m.relid,
+                    lock: m.lock,
+                    wait: m.wait,
+                })
+        };
         px.locks = match several {
-            Some(ks) => ks.iter().filter_map(|&x| ps[x].ops.iter().find_map(|o| if let Op::Lock(dx) = o { site(dx) } else { None })).collect(), // alloc: Program
+            Some(ks) => ks
+                .iter()
+                .filter_map(|&x| {
+                    ps[x]
+                        .ops
+                        .iter()
+                        .find_map(|o| if let Op::Lock(dx) = o { site(dx) } else { None })
+                })
+                .collect(), // alloc: Program
             None => site(d).into_iter().collect(), // alloc: Program
         };
         let claims = px.locks.len();
@@ -881,7 +1413,14 @@ impl<'g> Plan<'_, 'g, '_> {
     /// marks.rs's runner form: its locking marks' entries, after A's when `off` (`runner_off`) is 1, which numbers B.
     pub(crate) fn runner(&mut self, off: usize, locks: Vec<LockSite>) {
         let px = &mut *self.0;
-        px.locks = px.locks.first().copied().filter(|_| off == 1).into_iter().chain(locks).collect(); // alloc: Program
+        px.locks = px
+            .locks
+            .first()
+            .copied()
+            .filter(|_| off == 1)
+            .into_iter()
+            .chain(locks)
+            .collect(); // alloc: Program
         if let Some(m) = px.lock_plan.multi.as_mut().filter(|_| off == 1) {
             m.1 = true;
         }
@@ -943,9 +1482,25 @@ impl<'g> Plan<'_, 'g, '_> {
             if super::lower::sort_tail(&px.gx.pipelines()[k], j) {
                 fires::fire("lock.sort_tail"); // shapecheck fire signal (D3563): a 15b lock past a Result's SubPlan over the Sort
                 crate::ops::lockrows::lock_init::admit_ir_at(px, k, node, k, j);
-                return (FormId::Sort15b, Form::Tail { at: (q, jq), col, fetch: Fetch::None, mark });
+                return (
+                    FormId::Sort15b,
+                    Form::Tail {
+                        at: (q, jq),
+                        col,
+                        fetch: Fetch::None,
+                        mark,
+                    },
+                );
             }
-            return (FormId::Sort15b, Form::Breaker { at: (q, jq), col, fetch: Fetch::None, mark });
+            return (
+                FormId::Sort15b,
+                Form::Breaker {
+                    at: (q, jq),
+                    col,
+                    fetch: Fetch::None,
+                    mark,
+                },
+            );
         }
         // D3569 REFCOPY: the same with the producer's nest over a COPY-marked subquery's row (Odoo's cron claim), its
         // stored row the inner's in the recheck (EvalPlanQualFetchRowMark's copy leg)
@@ -953,9 +1508,23 @@ impl<'g> Plan<'_, 'g, '_> {
             // AGA-35: the recheck redoes the producer's part (its nest read through its own expressions) and the subquery's
             // part from its entry over the stored row
             crate::ops::lockrows::lock_init::admit_ir_nest(px, k, node, q, jq);
-            crate::ops::lockrows::lock_init::admit_ir_at(px, k, node, fetch.0, crate::rerun::epq::ref_nest::inner_end(&px.gx.pipelines()[fetch.0]));
+            crate::ops::lockrows::lock_init::admit_ir_at(
+                px,
+                k,
+                node,
+                fetch.0,
+                crate::rerun::epq::ref_nest::inner_end(&px.gx.pipelines()[fetch.0]),
+            );
             let mark = Plan(px).pair_entry(k, q, node);
-            return (FormId::RefCopy, Form::Breaker { at: (q, jq), col, fetch: Fetch::One(fetch), mark });
+            return (
+                FormId::RefCopy,
+                Form::Breaker {
+                    at: (q, jq),
+                    col,
+                    fetch: Fetch::One(fetch),
+                    mark,
+                },
+            );
         }
         // CTESORT: that lock inside a CTE that writes nothing, its store read whole by the
         // statement's one write (CTELOCK's form, plan.rs `Plan::write_pair`): a Program.locks entry of its own beside the write
@@ -964,7 +1533,15 @@ impl<'g> Plan<'_, 'g, '_> {
                 crate::ops::lockrows::lock_init::admit_ir(px, k, node);
                 // D3558: one of several CTE claims, its own Program.locks entry
                 let mark = Census(px.gx).claim_entry(k, super::lower::limit_op);
-                return (FormId::CteSort, Form::Breaker { at: (q, jq), col, fetch: Fetch::None, mark });
+                return (
+                    FormId::CteSort,
+                    Form::Breaker {
+                        at: (q, jq),
+                        col,
+                        fetch: Fetch::None,
+                        mark,
+                    },
+                );
             }
         }
         // D3277 (JOBQ SORT): the job-queue claim whose subquery sorts (Limit -> LockRows -> Sort -> its relation's scan, no
@@ -973,9 +1550,25 @@ impl<'g> Plan<'_, 'g, '_> {
         // value). PostgreSQL's InitPlan LockRows rechecks under its own EvalPlanQual: Sort -> scan over the test tuple, the
         // newest version through the scan's quals, then on to the Limit
         if let Some((q, jq, col)) = breaker_limit(px.gx, k, j, d, super::lower::Beside::Init) {
-            if Plan(px).write_pair(k, j, node, d, true, super::lower::one_site, super::lower::limit_op) {
+            if Plan(px).write_pair(
+                k,
+                j,
+                node,
+                d,
+                true,
+                super::lower::one_site,
+                super::lower::limit_op,
+            ) {
                 crate::ops::lockrows::lock_init::admit_ir_at(px, k, node, q, jq);
-                return (FormId::JobqSort, Form::Breaker { at: (q, jq), col, fetch: Fetch::None, mark: 1 });
+                return (
+                    FormId::JobqSort,
+                    Form::Breaker {
+                        at: (q, jq),
+                        col,
+                        fetch: Fetch::None,
+                        mark: 1,
+                    },
+                );
             }
         }
         // D3379 JOBQ HASH (m4_iso's claim): the same claim with the statement's own UPDATE / DELETE probing the hashed
@@ -986,9 +1579,25 @@ impl<'g> Plan<'_, 'g, '_> {
         // write's recheck reads the subquery's row from its COPY mark and never runs the LockRows again. The probe's
         // outer-first order (the Hash built at the target scan's first row) is the probe's own (hashjoin probe.rs, D824)
         if let Some((q, jq, col)) = breaker_limit(px.gx, k, j, d, super::lower::Beside::Copy) {
-            if Plan(px).write_pair(k, j, node, d, true, super::lower::one_site, super::lower::limit_op) {
+            if Plan(px).write_pair(
+                k,
+                j,
+                node,
+                d,
+                true,
+                super::lower::one_site,
+                super::lower::limit_op,
+            ) {
                 crate::ops::lockrows::lock_init::admit_ir_at(px, k, node, q, jq);
-                return (FormId::JobqHash, Form::Breaker { at: (q, jq), col, fetch: Fetch::None, mark: 1 });
+                return (
+                    FormId::JobqHash,
+                    Form::Breaker {
+                        at: (q, jq),
+                        col,
+                        fetch: Fetch::None,
+                        mark: 1,
+                    },
+                );
             }
         }
         // REFFETCH: the same over a Sort of a join whose other side is REFERENCE-marked, its
@@ -996,19 +1605,45 @@ impl<'g> Plan<'_, 'g, '_> {
         if let Some((q, jq, col, fetch)) = super::lower::ref_limit(px.gx, k, j, d) {
             // AGA-35: the recheck redoes the producer's part and the REFERENCE side's ops over its refetched row
             let pb = &px.gx.pipelines()[fetch.0];
-            let jb = pb.ops.iter().position(|o| matches!(o, Op::Join(JoinDesc::Build { .. }))).unwrap_or(pb.ops.len());
+            let jb = pb
+                .ops
+                .iter()
+                .position(|o| matches!(o, Op::Join(JoinDesc::Build { .. })))
+                .unwrap_or(pb.ops.len());
             crate::ops::lockrows::lock_init::admit_ir_ref(px, k, node, q, jq);
             crate::ops::lockrows::lock_init::admit_ir_at(px, k, node, fetch.0, jb);
             let mark = Plan(px).pair_entry(k, k, node);
-            return (FormId::RefFetch, Form::Breaker { at: (q, jq), col, fetch: Fetch::One(fetch), mark });
+            return (
+                FormId::RefFetch,
+                Form::Breaker {
+                    at: (q, jq),
+                    col,
+                    fetch: Fetch::One(fetch),
+                    mark,
+                },
+            );
         }
         // D3777 MERGETAIL: REFMERGE with the locked outer under a Sort, the recheck the Sort's producer's part, then the merge
         // pipeline's ops with the REFERENCE inner's row refetched
         if let Some((q, jq, col, fetch)) = super::lower::merge_tail(px.gx, k, j, d) {
             crate::ops::lockrows::lock_init::admit_ir_at(px, k, node, q, jq);
             crate::ops::lockrows::lock_init::admit_ir_ref(px, k, node, k, j);
-            crate::ops::lockrows::lock_init::admit_ir_at(px, k, node, fetch.0, px.gx.pipelines()[fetch.0].ops.len());
-            return (FormId::MergeTail, Form::Tail { at: (q, jq), col, fetch: Fetch::One(fetch), mark: 0 });
+            crate::ops::lockrows::lock_init::admit_ir_at(
+                px,
+                k,
+                node,
+                fetch.0,
+                px.gx.pipelines()[fetch.0].ops.len(),
+            );
+            return (
+                FormId::MergeTail,
+                Form::Tail {
+                    at: (q, jq),
+                    col,
+                    fetch: Fetch::One(fetch),
+                    mark: 0,
+                },
+            );
         }
         // D3567 REFCHAIN: the same over a chain of such joins (hash probes of REFERENCE builds, nests over REFERENCE
         // inners), each REFERENCE row refetched in the recheck
@@ -1019,77 +1654,200 @@ impl<'g> Plan<'_, 'g, '_> {
             crate::ops::lockrows::lock_init::admit_ir_nest(px, k, node, q, jq);
             for &(f, _, _) in &fetches {
                 let pf = &px.gx.pipelines()[f];
-                let end = pf.ops.iter().position(|o| matches!(o, Op::Join(JoinDesc::Build { .. } | JoinDesc::Memo { .. }))).unwrap_or(pf.ops.len());
+                let end = pf
+                    .ops
+                    .iter()
+                    .position(|o| {
+                        matches!(o, Op::Join(JoinDesc::Build { .. } | JoinDesc::Memo { .. }))
+                    })
+                    .unwrap_or(pf.ops.len());
                 crate::ops::lockrows::lock_init::admit_ir_at(px, k, node, f, end);
             }
             let mark = Plan(px).pair_entry(k, q, node);
-            return (FormId::RefChain, Form::Breaker { at: (q, jq), col, fetch: Fetch::Many(fetches), mark });
+            return (
+                FormId::RefChain,
+                Form::Breaker {
+                    at: (q, jq),
+                    col,
+                    fetch: Fetch::Many(fetches),
+                    mark,
+                },
+            );
         }
         // REFNEST: under a LIMIT / OFFSET (or over a Memoize inner), a lock over an INNER nest whose inner is the
         // REFERENCE-marked relation's own scan, its row refetched in the IR's recheck under the nest's parameters
-        if let Some(rn) = crate::rerun::epq::ref_nest::form(px.gx, k, j, d, super::lower::limit_op, false) {
+        if let Some(rn) =
+            crate::rerun::epq::ref_nest::form(px.gx, k, j, d, super::lower::limit_op, false)
+        {
             // AGA-35 form 5: the recheck redoes the outer part (the nest through its own expressions) and the REFERENCE
             // relation's part up to its Memoize or spool over the refetched row
             let q = rn.fetch.0;
             crate::ops::lockrows::lock_init::admit_ir_nest(px, k, node, k, j);
-            crate::ops::lockrows::lock_init::admit_ir_at(px, k, node, q, crate::rerun::epq::ref_nest::inner_end(&px.gx.pipelines()[q]));
+            crate::ops::lockrows::lock_init::admit_ir_at(
+                px,
+                k,
+                node,
+                q,
+                crate::rerun::epq::ref_nest::inner_end(&px.gx.pipelines()[q]),
+            );
             let mark = Plan(px).pair_entry(k, k, node);
-            return (FormId::RefNest, Form::RefNest { ctid: rn.ctid, fetch: Fetch::One(rn.fetch), mark });
+            return (
+                FormId::RefNest,
+                Form::RefNest {
+                    ctid: rn.ctid,
+                    fetch: Fetch::One(rn.fetch),
+                    mark,
+                },
+            );
         }
         // D3564 REFNEST-CHAIN: the same over several such nests, INNER or LEFT, each REFERENCE row refetched in the recheck
-        if let Some((col, fetches)) = crate::rerun::epq::ref_nest::chain_form(px.gx, k, j, d, super::lower::limit_op) {
+        if let Some((col, fetches)) =
+            crate::rerun::epq::ref_nest::chain_form(px.gx, k, j, d, super::lower::limit_op)
+        {
             crate::ops::lockrows::lock_init::admit_ir_nest(px, k, node, k, j);
             for &(f, _, _) in &fetches {
-                crate::ops::lockrows::lock_init::admit_ir_at(px, k, node, f, crate::rerun::epq::ref_nest::inner_end(&px.gx.pipelines()[f]));
+                crate::ops::lockrows::lock_init::admit_ir_at(
+                    px,
+                    k,
+                    node,
+                    f,
+                    crate::rerun::epq::ref_nest::inner_end(&px.gx.pipelines()[f]),
+                );
             }
             let mark = Plan(px).pair_entry(k, k, node);
-            return (FormId::RefNestChain, Form::RefNest { ctid: col, fetch: Fetch::Many(fetches), mark });
+            return (
+                FormId::RefNestChain,
+                Form::RefNest {
+                    ctid: col,
+                    fetch: Fetch::Many(fetches),
+                    mark,
+                },
+            );
         }
         // D3557: REFNEST's claim of the statement's own UPDATE / DELETE (the IN subquery its COPY mark carries, or its InitPlan):
         // a Program.locks entry of its own beside the write (JOBQ's forms, plan.rs `Plan::write_pair`)
-        if let Some(rn) = crate::rerun::epq::ref_nest::form(px.gx, k, j, d, super::lower::limit_op, true) {
+        if let Some(rn) =
+            crate::rerun::epq::ref_nest::form(px.gx, k, j, d, super::lower::limit_op, true)
+        {
             if Plan(px).write_pair(k, j, node, d, true, |_, _, _| true, super::lower::limit_op) {
                 let q = rn.fetch.0;
                 crate::ops::lockrows::lock_init::admit_ir_nest(px, k, node, k, j);
-                crate::ops::lockrows::lock_init::admit_ir_at(px, k, node, q, crate::rerun::epq::ref_nest::inner_end(&px.gx.pipelines()[q]));
-                return (FormId::RefNestClaim, Form::RefNest { ctid: rn.ctid, fetch: Fetch::One(rn.fetch), mark: 1 });
+                crate::ops::lockrows::lock_init::admit_ir_at(
+                    px,
+                    k,
+                    node,
+                    q,
+                    crate::rerun::epq::ref_nest::inner_end(&px.gx.pipelines()[q]),
+                );
+                return (
+                    FormId::RefNestClaim,
+                    Form::RefNest {
+                        ctid: rn.ctid,
+                        fetch: Fetch::One(rn.fetch),
+                        mark: 1,
+                    },
+                );
             }
         }
         // D3554 SORTNEST: that nest below a Sort under a LIMIT / OFFSET, the recheck REFNEST's redo over the Sort's producer
-        if let Some((q, jq, rn)) = crate::rerun::epq::ref_nest::sort_form(px.gx, k, j, d, (super::lower::limit_op, super::lower::sort_emit), false) {
+        if let Some((q, jq, rn)) = crate::rerun::epq::ref_nest::sort_form(
+            px.gx,
+            k,
+            j,
+            d,
+            (super::lower::limit_op, super::lower::sort_emit),
+            false,
+        ) {
             let f = rn.fetch.0;
             crate::ops::lockrows::lock_init::admit_ir_nest(px, k, node, q, jq);
-            crate::ops::lockrows::lock_init::admit_ir_at(px, k, node, f, crate::rerun::epq::ref_nest::inner_end(&px.gx.pipelines()[f]));
+            crate::ops::lockrows::lock_init::admit_ir_at(
+                px,
+                k,
+                node,
+                f,
+                crate::rerun::epq::ref_nest::inner_end(&px.gx.pipelines()[f]),
+            );
             let mark = Plan(px).pair_entry(k, q, node);
-            return (FormId::SortNest, Form::Breaker { at: (q, jq), col: rn.ctid, fetch: Fetch::One(rn.fetch), mark });
+            return (
+                FormId::SortNest,
+                Form::Breaker {
+                    at: (q, jq),
+                    col: rn.ctid,
+                    fetch: Fetch::One(rn.fetch),
+                    mark,
+                },
+            );
         }
         // D3555: that lock inside a CTE that writes nothing, its store read whole by the statement's one write (CTESORT's form):
         // a Program.locks entry of its own beside the write
-        if let Some((q, jq, rn)) = crate::rerun::epq::ref_nest::sort_form(px.gx, k, j, d, (super::lower::limit_op, super::lower::sort_emit), true) {
+        if let Some((q, jq, rn)) = crate::rerun::epq::ref_nest::sort_form(
+            px.gx,
+            k,
+            j,
+            d,
+            (super::lower::limit_op, super::lower::sort_emit),
+            true,
+        ) {
             if Plan(px).write_pair(k, j, node, d, true, |_, _, _| true, super::lower::limit_op) {
                 crate::ops::lockrows::lock_init::admit_ir(px, k, node);
-                return (FormId::SortNestCte, Form::Breaker { at: (q, jq), col: rn.ctid, fetch: Fetch::One(rn.fetch), mark: 1 });
+                return (
+                    FormId::SortNestCte,
+                    Form::Breaker {
+                        at: (q, jq),
+                        col: rn.ctid,
+                        fetch: Fetch::One(rn.fetch),
+                        mark: 1,
+                    },
+                );
             }
         }
         // D3562 REFANTI: a lock over an ANTI join whose inner reads a REFERENCE-marked relation's own scan (NOT EXISTS over a
         // side table), rechecked in the IR: no test tuple for that relation, so the newest version passes the join
-        if let Some((ctid, probe)) = crate::rerun::epq::ref_anti::form(px.gx, k, j, d, super::lower::limit_op, false) {
+        if let Some((ctid, probe)) =
+            crate::rerun::epq::ref_anti::form(px.gx, k, j, d, super::lower::limit_op, false)
+        {
             // AGA-35: the recheck redoes the lock pipeline's part, the join read through its own expressions
             match probe {
                 true => crate::ops::lockrows::lock_init::admit_ir_ref(px, k, node, k, j),
                 false => crate::ops::lockrows::lock_init::admit_ir_nest(px, k, node, k, j),
             }
             let mark = Plan(px).pair_entry(k, k, node);
-            return (FormId::RefAnti, Form::Breaker { at: (k, j), col: ctid, fetch: Fetch::None, mark });
+            return (
+                FormId::RefAnti,
+                Form::Breaker {
+                    at: (k, j),
+                    col: ctid,
+                    fetch: Fetch::None,
+                    mark,
+                },
+            );
         }
         // D3561: that lock inside a CTE that writes nothing (procrastinate's claim in its index order), its store read whole by
         // the statement's one write (CTELOCK's form): a Program.locks entry of its own beside the write
-        if let Some((ctid, _)) = crate::rerun::epq::ref_anti::form(px.gx, k, j, d, super::lower::limit_op, true) {
+        if let Some((ctid, _)) =
+            crate::rerun::epq::ref_anti::form(px.gx, k, j, d, super::lower::limit_op, true)
+        {
             let limited = p.ops[j + 1..].iter().any(super::lower::limit_op);
-            if Plan(px).write_pair(k, j, node, d, limited, |_, _, _| true, super::lower::limit_op) {
+            if Plan(px).write_pair(
+                k,
+                j,
+                node,
+                d,
+                limited,
+                |_, _, _| true,
+                super::lower::limit_op,
+            ) {
                 crate::ops::lockrows::lock_init::admit_ir(px, k, node);
                 let mark = Census(px.gx).claim_entry(k, super::lower::limit_op);
-                return (FormId::RefAntiCte, Form::Breaker { at: (k, j), col: ctid, fetch: Fetch::None, mark });
+                return (
+                    FormId::RefAntiCte,
+                    Form::Breaker {
+                        at: (k, j),
+                        col: ctid,
+                        fetch: Fetch::None,
+                        mark,
+                    },
+                );
             }
         }
         // D3607 COPYPROBE (River's completer claim): a lock inside a CTE over INNER hash probes of COPY-marked rows (a
@@ -1098,12 +1856,26 @@ impl<'g> Plan<'_, 'g, '_> {
         // beside the one write that reads its store (CTELOCK's form, plan.rs `Plan::write_pair`)
         if let Some(col) = crate::rerun::epq::ref_copy::probe_form(px.gx, k, j, d) {
             let ps = px.gx.pipelines();
-            let locks = ps.iter().flat_map(|p| p.ops.iter()).filter(|o| matches!(o, Op::Lock(_))).count();
-            let writes = ps.iter().flat_map(|p| p.ops.iter()).filter(|o| matches!(o, Op::Write(w) if w.cmd != gravity_program::Cmd::Select)).count();
+            let locks = ps
+                .iter()
+                .flat_map(|p| p.ops.iter())
+                .filter(|o| matches!(o, Op::Lock(_)))
+                .count();
+            let writes = ps
+                .iter()
+                .flat_map(|p| p.ops.iter())
+                .filter(|o| matches!(o, Op::Write(w) if w.cmd != gravity_program::Cmd::Select))
+                .count();
             let alone = locks == 1 && writes == 0;
-            if alone || Plan(px).write_pair(k, j, node, d, false, |_, _, _| true, super::lower::limit_op) {
+            if alone
+                || Plan(px).write_pair(k, j, node, d, false, |_, _, _| true, super::lower::limit_op)
+            {
                 crate::ops::lockrows::lock_init::admit_ir_ref(px, k, node, k, j);
-                let mark = if alone { 0 } else { Census(px.gx).claim_entry(k, super::lower::limit_op) };
+                let mark = if alone {
+                    0
+                } else {
+                    Census(px.gx).claim_entry(k, super::lower::limit_op)
+                };
                 return (FormId::CopyProbe, Form::Probe { col, mark });
             }
         }
@@ -1113,28 +1885,75 @@ impl<'g> Plan<'_, 'g, '_> {
         // statement, or a Program.locks entry of its own beside the writes that read its store (plan.rs `Plan::write_pair`)
         if let Some((ctid, jn, ik)) = crate::rerun::epq::ref_nest::copy_nest_form(px.gx, k, j, d) {
             let ps = px.gx.pipelines();
-            let locks = ps.iter().flat_map(|p| p.ops.iter()).filter(|o| matches!(o, Op::Lock(_))).count();
-            let writes = ps.iter().flat_map(|p| p.ops.iter()).filter(|o| matches!(o, Op::Write(w) if w.cmd != gravity_program::Cmd::Select)).count();
+            let locks = ps
+                .iter()
+                .flat_map(|p| p.ops.iter())
+                .filter(|o| matches!(o, Op::Lock(_)))
+                .count();
+            let writes = ps
+                .iter()
+                .flat_map(|p| p.ops.iter())
+                .filter(|o| matches!(o, Op::Write(w) if w.cmd != gravity_program::Cmd::Select))
+                .count();
             let alone = locks == 1 && writes == 0;
-            if alone || Plan(px).write_pair(k, j, node, d, false, |_, _, _| true, super::lower::limit_op) {
+            if alone
+                || Plan(px).write_pair(k, j, node, d, false, |_, _, _| true, super::lower::limit_op)
+            {
                 crate::ops::lockrows::lock_init::admit_ir_nest(px, k, node, k, j);
-                crate::ops::lockrows::lock_init::admit_ir_at(px, k, node, ik, crate::rerun::epq::ref_nest::inner_end(&px.gx.pipelines()[ik]));
-                let mark = if alone { 0 } else { Census(px.gx).claim_entry(k, super::lower::limit_op) };
-                return (FormId::CopyNest, Form::LockNest { at: (jn, ik), ctid, mark });
+                crate::ops::lockrows::lock_init::admit_ir_at(
+                    px,
+                    k,
+                    node,
+                    ik,
+                    crate::rerun::epq::ref_nest::inner_end(&px.gx.pipelines()[ik]),
+                );
+                let mark = if alone {
+                    0
+                } else {
+                    Census(px.gx).claim_entry(k, super::lower::limit_op)
+                };
+                return (
+                    FormId::CopyNest,
+                    Form::LockNest {
+                        at: (jn, ik),
+                        ctid,
+                        mark,
+                    },
+                );
             }
         }
         // D3379 LOCKNEST (REFNEST's mirror): under a LIMIT / OFFSET, a lock on an INNER nest's inner relation beside
         // its REFERENCE-marked outer, the inner's redo over the newest version joined to the outer row the nest holds
-        if let Some((ctid, jn, ik)) = crate::rerun::epq::ref_nest::lock_form(px.gx, k, j, d, super::lower::limit_op) {
-            return (FormId::LockNest, Form::LockNest { at: (jn, ik), ctid, mark: 0 });
+        if let Some((ctid, jn, ik)) =
+            crate::rerun::epq::ref_nest::lock_form(px.gx, k, j, d, super::lower::limit_op)
+        {
+            return (
+                FormId::LockNest,
+                Form::LockNest {
+                    at: (jn, ik),
+                    ctid,
+                    mark: 0,
+                },
+            );
         }
         // D3780 LOCKCHAIN: LOCKNEST's lock under a join of REFERENCE relations (TypeORM's lock of a relation of a relation),
         // the outer row the nest holds the one EvalPlanQual's rerun over the refetched rows hands on
-        if let Some((ctid, jn, ik)) = crate::rerun::epq::ref_nest::chain_lock_form(px.gx, k, j, d, super::lower::limit_op) {
-            return (FormId::LockChain, Form::LockNest { at: (jn, ik), ctid, mark: 0 });
+        if let Some((ctid, jn, ik)) =
+            crate::rerun::epq::ref_nest::chain_lock_form(px.gx, k, j, d, super::lower::limit_op)
+        {
+            return (
+                FormId::LockChain,
+                Form::LockNest {
+                    at: (jn, ik),
+                    ctid,
+                    mark: 0,
+                },
+            );
         }
         // D3379 LOCKPAIR: the same with the nest's outer relation locked too, both locks `Program.locks` entries (pair.rs)
-        if let Some(f) = crate::rerun::epq::ref_nest::pair_form(px.gx, k, j, d, super::lower::limit_op) {
+        if let Some(f) =
+            crate::rerun::epq::ref_nest::pair_form(px.gx, k, j, d, super::lower::limit_op)
+        {
             return (FormId::LockPair, Form::Pair(f));
         }
         // REFBUILD: the locked relation (one family's leaves through their union, or one table under a LIMIT /
@@ -1164,7 +1983,15 @@ impl<'g> Plan<'_, 'g, '_> {
                 crate::ops::lockrows::lock_init::admit_ir_family(px, k, node, q, jq);
             }
             let mark = Plan(px).pair_entry(k, k, node);
-            return (FormId::FamLimit, Form::Family { arms, ctid, toid, mark });
+            return (
+                FormId::FamLimit,
+                Form::Family {
+                    arms,
+                    ctid,
+                    toid,
+                    mark,
+                },
+            );
         }
         // FAMCLAIM: that lock below the SubqueryScan whose row the statement's one write carries in its
         // ROW_MARK_COPY mark (JOBQ's IN form, plan.rs `Plan::write_pair`): a Program.locks entry of its own beside the write
@@ -1172,13 +1999,27 @@ impl<'g> Plan<'_, 'g, '_> {
         if let Some((arms, ctid, toid)) = super::lower::family_limit(px.gx, k, j, d, true) {
             if Plan(px).write_pair(k, j, node, d, true, |_, _, _| true, super::lower::limit_op) {
                 crate::ops::lockrows::lock_init::admit_ir(px, k, node);
-                return (FormId::FamClaim, Form::Family { arms, ctid, toid, mark: 1 });
+                return (
+                    FormId::FamClaim,
+                    Form::Family {
+                        arms,
+                        ctid,
+                        toid,
+                        mark: 1,
+                    },
+                );
             }
         }
         // D3802 SORTCHAIN: LOCKCHAIN's lock behind a Sort (TypeORM's ordered find locking a relation of a relation), the
         // recheck EvalPlanQual's rerun redone whole: the producer's source row and each REFERENCE row refetched, the locked
         // inner's newest version, the joins over them (rerun/epq/sort_chain.rs)
-        if let Some(sc) = crate::rerun::epq::sort_chain::form(px.gx, k, j, d, (super::lower::limit_op, super::lower::sort_emit)) {
+        if let Some(sc) = crate::rerun::epq::sort_chain::form(
+            px.gx,
+            k,
+            j,
+            d,
+            (super::lower::limit_op, super::lower::sort_emit),
+        ) {
             return (FormId::SortChain, Form::SortChain(sc));
         }
         // D3565 REFDRAIN: a lock over the Sort of a Hash Right Anti Join's drain, the locked relation the join's build
@@ -1191,7 +2032,11 @@ impl<'g> Plan<'_, 'g, '_> {
         }
         // D2604 (marks.rs `make`): the family test its form starts from
         let fam = crate::ops::lockrows::marks::family_breaker(p, d);
-        if crate::ops::lockrows::marks::several(p, d) || crate::ops::lockrows::marks::over_breaker(p, d) || crate::ops::lockrows::marks::nest_outer(px.gx, k, d) || fam {
+        if crate::ops::lockrows::marks::several(p, d)
+            || crate::ops::lockrows::marks::over_breaker(p, d)
+            || crate::ops::lockrows::marks::nest_outer(px.gx, k, d)
+            || fam
+        {
             return (FormId::Marks, Form::Marks { fam });
         }
         // V4R-527 (M4): the RI temporal restrict check's two LockRows, each a Program.locks entry (0: the program's one lock)
@@ -1203,8 +2048,23 @@ impl<'g> Plan<'_, 'g, '_> {
         // D3506 SETLOCK: or a claim whose SubPlan steps below it all probe the sets of locks in hashed SubPlans' plans
         // (rerun/epq/set_lock.rs `probes_sets`): its own relation alone besides (`set_site`)
         let sets = crate::rerun::epq::set_lock::probes_sets(px.gx, k, j);
-        let site: fn(&gravity_decompose::PipelineNode<'_>, usize, &LockDesc<'_>) -> bool = if sets { super::lower::set_site } else if px.gx.cte_write(k) { cte_site } else { super::lower::one_site };
-        let pair = mark == 0 && Plan(px).write_pair(k, j, node, d, p.ops[j + 1..].iter().any(super::lower::limit_op), site, super::lower::limit_op);
+        let site: fn(&gravity_decompose::PipelineNode<'_>, usize, &LockDesc<'_>) -> bool = if sets {
+            super::lower::set_site
+        } else if px.gx.cte_write(k) {
+            cte_site
+        } else {
+            super::lower::one_site
+        };
+        let pair = mark == 0
+            && Plan(px).write_pair(
+                k,
+                j,
+                node,
+                d,
+                p.ops[j + 1..].iter().any(super::lower::limit_op),
+                site,
+                super::lower::limit_op,
+            );
         if pair {
             mark = Census(px.gx).claim_entry(k, super::lower::limit_op);
         }
@@ -1226,12 +2086,18 @@ impl<'g> Plan<'_, 'g, '_> {
         // D3379 INITSINK: so does the M4 pair's A (`mark` 1) whose pipeline ends in its InitPlan's sink (plan.rs `Plan::role`);
         // D3613: and the program's one lock in that place (`init_sink`), D652's checks then asking only the other InitPlans
         let sink = mark == 0 && !pair && crate::ops::lockrows::lock_init::init_sink(px.gx, k);
-        let product = (p.desc.produces().is_some() || pair || mark == 1 || sink) && super::lower::one_site(p, j, d) || p.desc.produces().is_some() && super::lower::own_leaf(p, j, d);
+        let product = (p.desc.produces().is_some() || pair || mark == 1 || sink)
+            && super::lower::one_site(p, j, d)
+            || p.desc.produces().is_some() && super::lower::own_leaf(p, j, d);
         // D3379 OPABOVE: an op above the lock other than its projection and a LIMIT / OFFSET (the locked subquery's Subquery
         // Scan filter, `SELECT * FROM (.. LIMIT 5 OFFSET 2 ..) s WHERE s.id % 2 = 0 FOR UPDATE`): over its own relation alone
         // (`one_site`) the recheck runs in the IR as the product form's does, so the rechecked row goes on through those ops,
         // as ExecLockRows hands its EvalPlanQual row to its parent (the runner's recheck sends it to the client past them)
-        let product = product || super::lower::one_site(p, j, d) && p.ops[j + 1..].iter().any(|o| !matches!(o, Op::Project(_)) && !super::lower::limit_op(o));
+        let product = product
+            || super::lower::one_site(p, j, d)
+                && p.ops[j + 1..]
+                    .iter()
+                    .any(|o| !matches!(o, Op::Project(_)) && !super::lower::limit_op(o));
         // D652-S1's lock half: beside per-row SubPlan steps whose rerun sets are the only other pipelines, the IR's recheck too
         let subs = !product && super::lower::subs_in_ir(px.gx, k, j, d);
         // D3506 SETLOCK: or the claim beside the writes whose SubPlan steps probe the sets of locks in hashed SubPlans'
@@ -1239,7 +2105,17 @@ impl<'g> Plan<'_, 'g, '_> {
         // them
         let twin = !product && pair && sets;
         let subs = subs || twin;
-        (FormId::Runner, Form::Runner(RunnerAnswer { mark, pair, sub_claim, product, subs, twin }))
+        (
+            FormId::Runner,
+            Form::Runner(RunnerAnswer {
+                mark,
+                pair,
+                sub_claim,
+                product,
+                subs,
+                twin,
+            }),
+        )
     }
 }
 
@@ -1259,10 +2135,18 @@ impl<'g> Plan<'_, 'g, '_> {
 /// (`super::lower::Beside::Init`): the lock pipeline is one a non-CTE InitPlan runs; `write_pair` then admits the statement's own write.
 /// D3379 JOBQ HASH (`super::lower::Beside::Copy`): the lock pipeline is the statement's own, below the SubqueryScan whose row the
 /// statement's own write carries in its COPY mark; `write_pair` admits that write (its `below_copy`).
-fn breaker_limit(gx: &crate::graph::Gx<'_, '_>, k: usize, j: usize, d: &LockDesc<'_>, at: super::lower::Beside) -> Option<(usize, usize, i16)> {
+fn breaker_limit(
+    gx: &crate::graph::Gx<'_, '_>,
+    k: usize,
+    j: usize,
+    d: &LockDesc<'_>,
+    at: super::lower::Beside,
+) -> Option<(usize, usize, i16)> {
     let ps = gx.pipelines();
     let p = &ps[k];
-    let Source::Breaker { slot } = p.source else { return None };
+    let Source::Breaker { slot } = p.source else {
+        return None;
+    };
     let alone = match at {
         // alone with its producer, or beside InitPlans that lock and write nothing (`Census::plain_inits`), their
         // pipelines counted out; `Plan::form` then asks `admit_ir_at` of each one the recheck may read
@@ -1271,7 +2155,14 @@ fn breaker_limit(gx: &crate::graph::Gx<'_, '_>, k: usize, j: usize, d: &LockDesc
         // D3379 FEEDABOVE: and the pipelines that only feed an op above the lock (`above_feeds`), counted out too
         // D3379 INITSINK: or beside the InitPlan whose own row lock is the M4 pair's A (`Census::pair_inits`)
         // D3561 REFANTI: or one pipeline more, the one the producer's ANTI join reads (checked below, `alone_with`)
-        super::lower::Beside::Alone => (0..k).rev().find(|&x| ps[x].desc.produces() == Some(slot)).is_some_and(|q| Census(gx).alone_with(k, j, q, None) || Census(gx).alone_with(k, j, q, Some(q)) || Census(gx).beside_drained(k, q)),
+        super::lower::Beside::Alone => (0..k)
+            .rev()
+            .find(|&x| ps[x].desc.produces() == Some(slot))
+            .is_some_and(|q| {
+                Census(gx).alone_with(k, j, q, None)
+                    || Census(gx).alone_with(k, j, q, Some(q))
+                    || Census(gx).beside_drained(k, q)
+            }),
         super::lower::Beside::Cte => gx.cte_write(k) && Census(gx).ctes_only(),
         super::lower::Beside::Init => Census(gx).init_pipelines().contains(&k),
         // D3379 JOBQ HASH: the statement's own (no InitPlan's, no CTE's); `write_pair` then asks for the write's COPY mark
@@ -1280,7 +2171,11 @@ fn breaker_limit(gx: &crate::graph::Gx<'_, '_>, k: usize, j: usize, d: &LockDesc
     };
     // D3563: or (alone) the Sort emit's projection and a Result's per-row SubPlan steps and projections over it
     // (Django's annotate(Subquery(..)) on a claim sorted off its index), redone in the recheck too (`sort_tail`)
-    if !(p.ops[..j].iter().all(super::lower::sort_emit) || matches!(at, super::lower::Beside::Alone) && super::lower::sort_tail(p, j)) || d.family().is_some() || !alone {
+    if !(p.ops[..j].iter().all(super::lower::sort_emit)
+        || matches!(at, super::lower::Beside::Alone) && super::lower::sort_tail(p, j))
+        || d.family().is_some()
+        || !alone
+    {
         return None;
     }
     // D3561 REFANTI (procrastinate's fetch_job: NOT EXISTS over earlier jobs of the same lock): or two marks, the other a
@@ -1293,28 +2188,66 @@ fn breaker_limit(gx: &crate::graph::Gx<'_, '_>, k: usize, j: usize, d: &LockDesc
     if m.lock == LockKind::None || m.parent || m.ctid_col <= 0 || m.relid != d.plan.target_rel {
         return None;
     }
-    let q = (0..k).rev().find(|&x| ps[x].desc.produces() == Some(slot))?;
+    let q = (0..k)
+        .rev()
+        .find(|&x| ps[x].desc.produces() == Some(slot))?;
     let pq = &ps[q];
     let own = match &pq.source {
-        Source::Range { am: gravity_decompose::Am::Heap, scanrelid, relid, .. } | Source::Bitmap { am: gravity_decompose::Am::Heap, scanrelid, relid, .. } | Source::Index { am: gravity_decompose::Am::Heap, scanrelid, relid, only: false, .. } => u32::from(*scanrelid) == m.rti && *relid == m.relid,
+        Source::Range {
+            am: gravity_decompose::Am::Heap,
+            scanrelid,
+            relid,
+            ..
+        }
+        | Source::Bitmap {
+            am: gravity_decompose::Am::Heap,
+            scanrelid,
+            relid,
+            ..
+        }
+        | Source::Index {
+            am: gravity_decompose::Am::Heap,
+            scanrelid,
+            relid,
+            only: false,
+            ..
+        } => u32::from(*scanrelid) == m.rti && *relid == m.relid,
         _ => false,
     };
-    let jq = pq.ops.iter().position(|o| matches!(o, Op::Sort(_))).unwrap_or(pq.ops.len());
+    let jq = pq
+        .ops
+        .iter()
+        .position(|o| matches!(o, Op::Sort(_)))
+        .unwrap_or(pq.ops.len());
     // D3506 SETLOCK: a CTE claim's producer may probe the sets of locks in hashed SubPlans' plans
     // (rerun/epq/set_lock.rs): the slots it reads besides, the recheck's redo probing sets of its own (`breaker_lock`)
-    let sets = if matches!(at, super::lower::Beside::Cte) { crate::rerun::epq::set_lock::set_slots(gx) } else { PgVec::new_in(gx.mcx) };
-    let plain = |o: &Op<'_>| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_)) || crate::rerun::epq::set_lock::set_probe(o, &sets);
+    let sets = if matches!(at, super::lower::Beside::Cte) {
+        crate::rerun::epq::set_lock::set_slots(gx)
+    } else {
+        PgVec::new_in(gx.mcx)
+    };
+    let plain = |o: &Op<'_>| {
+        matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_))
+            || crate::rerun::epq::set_lock::set_probe(o, &sets)
+    };
     let ja = r.and_then(|_| pq.ops[..jq].iter().position(|o| !plain(o)));
     let anti = match (r, ja) {
         (None, _) => None,
         (Some(r), Some(ja)) => Some(crate::rerun::epq::ref_anti::inner(gx, q, ja, r)?),
         (Some(_), None) => return None,
     };
-    let below = pq.ops[..jq].iter().enumerate().all(|(i, o)| plain(o) || Some(i) == ja) && matches!(pq.ops[..jq].last(), Some(Op::Project(_)));
+    let below = pq.ops[..jq]
+        .iter()
+        .enumerate()
+        .all(|(i, o)| plain(o) || Some(i) == ja)
+        && matches!(pq.ops[..jq].last(), Some(Op::Project(_)));
     let after = pq.ops[jq..].iter().all(|o| matches!(o, Op::Sort(_)));
     let extra = anti.flatten();
     let nsets = pq.desc.consumes.iter().filter(|s| sets.contains(s)).count();
-    let reads = pq.desc.consumes.len() == usize::from(extra.is_some()) + nsets && (!matches!(at, super::lower::Beside::Alone) || Census(gx).alone_with(k, j, q, extra) || extra.is_none() && Census(gx).beside_drained(k, q));
+    let reads = pq.desc.consumes.len() == usize::from(extra.is_some()) + nsets
+        && (!matches!(at, super::lower::Beside::Alone)
+            || Census(gx).alone_with(k, j, q, extra)
+            || extra.is_none() && Census(gx).beside_drained(k, q));
     // under a LIMIT / OFFSET; D3562 REFANTI: or with no bound over that anti join (the runner's recheck opens no anti join)
     let bound = p.ops[j + 1..].iter().any(super::lower::limit_op) || anti.is_some();
     (own && below && after && reads && bound).then_some((q, jq, m.ctid_col))
@@ -1344,37 +2277,82 @@ fn ref_drain(gx: &Gx<'_, '_>, k: usize, j: usize, d: &LockDesc<'_>) -> Option<Re
     use crate::rerun::epq::ref_nest::{heap, part_reads_subplan};
     let ps = gx.pipelines();
     let p = &ps[k];
-    let Source::Breaker { slot } = p.source else { return None };
-    if !gx.graph.init_plans.is_empty() || p.desc.produces().is_some() || p.desc.consumes.len() != 1 || !Census(gx).whole(4) {
+    let Source::Breaker { slot } = p.source else {
+        return None;
+    };
+    if !gx.graph.init_plans.is_empty()
+        || p.desc.produces().is_some()
+        || p.desc.consumes.len() != 1
+        || !Census(gx).whole(4)
+    {
         return None;
     }
-    if !p.ops[..j].iter().all(super::lower::sort_emit) || !p.ops[j + 1..].iter().all(|o| matches!(o, Op::Project(_)) || super::lower::limit_op(o)) {
+    if !p.ops[..j].iter().all(super::lower::sort_emit)
+        || !p.ops[j + 1..]
+            .iter()
+            .all(|o| matches!(o, Op::Project(_)) || super::lower::limit_op(o))
+    {
         return None;
     }
     let (m, r) = crate::rerun::epq::ref_anti::marks(d)?;
     let plain = |o: &Op<'_>| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_));
-    let q = (0..k).rev().find(|&x| ps[x].desc.produces() == Some(slot))?;
+    let q = (0..k)
+        .rev()
+        .find(|&x| ps[x].desc.produces() == Some(slot))?;
     let pq = &ps[q];
-    let Source::Breaker { slot: hs } = pq.source else { return None };
-    let Some(Op::Join(JoinDesc::Drain { matches, jointype: types_nodes::jointype::JoinType::JOIN_RIGHT_ANTI })) = pq.ops.first() else { return None };
+    let Source::Breaker { slot: hs } = pq.source else {
+        return None;
+    };
+    let Some(Op::Join(JoinDesc::Drain {
+        matches,
+        jointype: types_nodes::jointype::JoinType::JOIN_RIGHT_ANTI,
+    })) = pq.ops.first()
+    else {
+        return None;
+    };
     let jq = pq.ops.iter().position(|o| matches!(o, Op::Sort(_)))?;
-    if !pq.ops[1..jq].iter().all(plain) || !matches!(pq.ops[..jq].last(), Some(Op::Project(_))) || !pq.ops[jq..].iter().all(|o| matches!(o, Op::Sort(_))) || pq.desc.consumes.len() != 2 || part_reads_subplan(pq, jq) {
+    if !pq.ops[1..jq].iter().all(plain)
+        || !matches!(pq.ops[..jq].last(), Some(Op::Project(_)))
+        || !pq.ops[jq..].iter().all(|o| matches!(o, Op::Sort(_)))
+        || pq.desc.consumes.len() != 2
+        || part_reads_subplan(pq, jq)
+    {
         return None;
     }
     let b = (0..q).rev().find(|&x| ps[x].desc.produces() == Some(hs))?;
     let pb = &ps[b];
     let jb = pb.ops.len().checked_sub(1)?;
-    if !matches!(pb.ops[jb], Op::Join(JoinDesc::Build { .. })) || !pb.ops[..jb].iter().all(plain) || !pb.desc.consumes.is_empty() || heap(&pb.source) != Some((m.rti, m.relid)) || part_reads_subplan(pb, jb) {
+    if !matches!(pb.ops[jb], Op::Join(JoinDesc::Build { .. }))
+        || !pb.ops[..jb].iter().all(plain)
+        || !pb.desc.consumes.is_empty()
+        || heap(&pb.source) != Some((m.rti, m.relid))
+        || part_reads_subplan(pb, jb)
+    {
         return None;
     }
-    let pr = (0..q).rev().find(|&x| ps[x].desc.produces() == Some(*matches))?;
+    let pr = (0..q)
+        .rev()
+        .find(|&x| ps[x].desc.produces() == Some(*matches))?;
     let pp = &ps[pr];
     let jp = pp.ops.iter().position(|o| !plain(o))?;
-    let Op::Join(JoinDesc::Probe { slot: ph, jointype: types_nodes::jointype::JoinType::JOIN_RIGHT_ANTI, .. }) = &pp.ops[jp] else { return None };
+    let Op::Join(JoinDesc::Probe {
+        slot: ph,
+        jointype: types_nodes::jointype::JoinType::JOIN_RIGHT_ANTI,
+        ..
+    }) = &pp.ops[jp]
+    else {
+        return None;
+    };
     if *ph != hs || heap(&pp.source) != Some((r.rti, r.relid)) || pp.desc.consumes.len() != 1 {
         return None;
     }
-    Some(RefDrain { q, jd: 0, jq, build: (b, jb), col: m.ctid_col })
+    Some(RefDrain {
+        q,
+        jd: 0,
+        jq,
+        build: (b, jb),
+        col: m.ctid_col,
+    })
 }
 
 /// D3502 FAMCTE (index order: the claim CTE as `Limit -> LockRows -> Index Scan` on the one leaf its queue's name prunes
@@ -1394,7 +2372,10 @@ mod tests {
     #[test]
     fn refines_rows_follow_the_chain() {
         for &(a, b, _, why) in REFINES {
-            assert!((a as u32) < (b as u32) && !why.is_empty(), "REFINES {a:?} -> {b:?}");
+            assert!(
+                (a as u32) < (b as u32) && !why.is_empty(),
+                "REFINES {a:?} -> {b:?}"
+            );
         }
     }
 
@@ -1404,13 +2385,51 @@ mod tests {
         assert_eq!(unordered(one, FormId::Sort15b, &[]).count(), 0);
         assert_eq!(unordered(0, FormId::Runner, &[]).count(), 0);
         // D4157 INITSORT's B: a 15b lock answered by the runner, with no REFINES row, is the overlap Sort15b/Runner
-        assert_eq!(unordered(one, FormId::Runner, &[]).collect::<Vec<_>>(), [(FormId::Sort15b, FormId::Runner)]);
-        assert_eq!(unordered(one, FormId::Runner, &[(FormId::Sort15b, FormId::Runner, Edge::Declines, "declined")]).count(), 0);
+        assert_eq!(
+            unordered(one, FormId::Runner, &[]).collect::<Vec<_>>(),
+            [(FormId::Sort15b, FormId::Runner)]
+        );
+        assert_eq!(
+            unordered(
+                one,
+                FormId::Runner,
+                &[(FormId::Sort15b, FormId::Runner, Edge::Declines, "declined")]
+            )
+            .count(),
+            0
+        );
         // a 15b lock the marks form answers while 15b's test accepts it: 15b has no admission to decline it
         let marks = one | FormId::Marks.bit();
-        assert_eq!(unordered(marks, FormId::Marks, &[(FormId::Sort15b, FormId::Marks, Edge::Wins, "LIMIT_ABOVE")]).collect::<Vec<_>>(), [(FormId::Sort15b, FormId::Marks)]);
-        assert_eq!(unordered(marks, FormId::Sort15b, &[(FormId::Sort15b, FormId::Marks, Edge::Wins, "LIMIT_ABOVE")]).count(), 0);
+        assert_eq!(
+            unordered(
+                marks,
+                FormId::Marks,
+                &[(FormId::Sort15b, FormId::Marks, Edge::Wins, "LIMIT_ABOVE")]
+            )
+            .collect::<Vec<_>>(),
+            [(FormId::Sort15b, FormId::Marks)]
+        );
+        assert_eq!(
+            unordered(
+                marks,
+                FormId::Sort15b,
+                &[(FormId::Sort15b, FormId::Marks, Edge::Wins, "LIMIT_ABOVE")]
+            )
+            .count(),
+            0
+        );
         let three = one | FormId::Marks.bit();
-        assert_eq!(unordered(three, FormId::Runner, &[(FormId::Sort15b, FormId::Runner, Edge::Declines, "x")]).collect::<Vec<_>>(), [(FormId::Sort15b, FormId::Marks), (FormId::Marks, FormId::Runner)]);
+        assert_eq!(
+            unordered(
+                three,
+                FormId::Runner,
+                &[(FormId::Sort15b, FormId::Runner, Edge::Declines, "x")]
+            )
+            .collect::<Vec<_>>(),
+            [
+                (FormId::Sort15b, FormId::Marks),
+                (FormId::Marks, FormId::Runner)
+            ]
+        );
     }
 }

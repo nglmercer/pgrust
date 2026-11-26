@@ -95,17 +95,29 @@ fn extra_pending_counts_ride_the_flush() {
     pending::pgstat_install_extra_flush(count);
     pending::pgstat_install_extra_flush(count); // a second install is a no-op
     assert_eq!(pending::pgstat_report_stat(true), 0);
-    assert_eq!(FLUSHES.load(Ordering::Relaxed), 0, "nothing noted: no flush");
+    assert_eq!(
+        FLUSHES.load(Ordering::Relaxed),
+        0,
+        "nothing noted: no flush"
+    );
     pending::pgstat_note_extra_pending();
     assert_eq!(pending::pgstat_report_stat(true), 0);
     assert_eq!(FLUSHES.load(Ordering::Relaxed), 1);
     pending::pgstat_note_extra_pending();
-    assert_eq!(pending::pgstat_report_stat(false), PGSTAT_IDLE_INTERVAL, "within the minimum interval: deferred");
+    assert_eq!(
+        pending::pgstat_report_stat(false),
+        PGSTAT_IDLE_INTERVAL,
+        "within the minimum interval: deferred"
+    );
     assert_eq!(FLUSHES.load(Ordering::Relaxed), 1);
     NOW.with(|c| c.set(c.get() + (PGSTAT_MIN_INTERVAL + 1) * 1000));
     assert_eq!(pending::pgstat_report_stat(true), 0);
     assert_eq!(FLUSHES.load(Ordering::Relaxed), 2);
-    assert_eq!(pending::pgstat_report_stat(false), 0, "flushed: nothing pending");
+    assert_eq!(
+        pending::pgstat_report_stat(false),
+        0,
+        "flushed: nothing pending"
+    );
 }
 
 #[test]
@@ -511,7 +523,10 @@ fn checkpointer_buffers_written_counter() {
     checkpointer::pgstat_count_checkpointer_buffers_written();
     checkpointer::pgstat_count_checkpointer_buffers_written();
     checkpointer::pgstat_count_checkpointer_buffers_written();
-    assert_eq!(checkpointer::pending_checkpointer_stats().buffers_written, 3);
+    assert_eq!(
+        checkpointer::pending_checkpointer_stats().buffers_written,
+        3
+    );
 }
 
 #[test]
@@ -672,7 +687,9 @@ fn setup_function_seams() {
     static ONCE: pgsync::Once = pgsync::Once::new();
     ONCE.call_once(|| {
         inval_seams::accept_invalidation_messages::set(|| Ok(()));
-        syscache_seams::search_syscache_exists_procoid::set(|oid| Ok(oid != 66_666 && oid != 66_667));
+        syscache_seams::search_syscache_exists_procoid::set(|oid| {
+            Ok(oid != 66_666 && oid != 66_667)
+        });
     });
 }
 
@@ -695,7 +712,11 @@ fn function_usage_accumulates_and_flushes() {
     assert!(crate::find_funcstat_entry(7001).is_none());
     let shared = crate::pgstat_fetch_stat_funcentry(7001).unwrap();
     assert_eq!(shared.numcalls, 2);
-    assert!(crate::pgstat_have_entry(pending::PGSTAT_KIND_FUNCTION.0, 5, 7001));
+    assert!(crate::pgstat_have_entry(
+        pending::PGSTAT_KIND_FUNCTION.0,
+        5,
+        7001
+    ));
 }
 
 #[test]
@@ -758,22 +779,27 @@ fn create_transactional_resets_stale_entry_with_warning() {
     crate::shmem::clear_snapshot();
     let db_ts_before = crate::pgstat_fetch_stat_dbentry(5).map(|d| d.stat_reset_timestamp);
     advance_clock(10);
-    let log = b091_capture_log(|| {
-        xact::pgstat_create_transactional(PGSTAT_KIND_RELATION, 5, 6100)
-    });
+    let log = b091_capture_log(|| xact::pgstat_create_transactional(PGSTAT_KIND_RELATION, 5, 6100));
     assert_eq!(
         log,
-        vec![b091_warning("resetting existing statistics for kind relation, db=5, oid=6100")]
+        vec![b091_warning(
+            "resetting existing statistics for kind relation, db=5, oid=6100"
+        )]
     );
     crate::shmem::clear_snapshot();
-    assert_eq!(crate::pgstat_fetch_stat_tabentry_ext(false, 6100).unwrap().numscans, 0);
-    let db_ts_after = crate::pgstat_fetch_stat_dbentry(5).unwrap().stat_reset_timestamp;
+    assert_eq!(
+        crate::pgstat_fetch_stat_tabentry_ext(false, 6100)
+            .unwrap()
+            .numscans,
+        0
+    );
+    let db_ts_after = crate::pgstat_fetch_stat_dbentry(5)
+        .unwrap()
+        .stat_reset_timestamp;
     assert_ne!(Some(db_ts_after), db_ts_before);
     assert_eq!(db_ts_after, NOW.with(|c| c.get()));
     // A fresh key warns nothing.
-    let log = b091_capture_log(|| {
-        xact::pgstat_create_transactional(PGSTAT_KIND_RELATION, 5, 6101)
-    });
+    let log = b091_capture_log(|| xact::pgstat_create_transactional(PGSTAT_KIND_RELATION, 5, 6101));
     assert!(log.is_empty());
     xact::AtEOXact_PgStat(true, false);
     crate::shmem::drop_entry(key);
@@ -839,33 +865,97 @@ fn setup_io() -> MutexGuard<'static, ()> {
 fn io_tracks_predicates_match_c_rules() {
     use crate::io::{self, IOContext, IOObject, IOOp};
     use types_core::BackendType as B;
-    assert!(io::pgstat_tracks_io_op(B::Backend, IOObject::Relation, IOContext::IOCONTEXT_NORMAL, IOOp::Hit));
+    assert!(io::pgstat_tracks_io_op(
+        B::Backend,
+        IOObject::Relation,
+        IOContext::IOCONTEXT_NORMAL,
+        IOOp::Hit
+    ));
     assert!(!io::pgstat_tracks_io_bktype(B::Archiver));
-    assert!(!io::pgstat_tracks_io_object(B::Checkpointer, IOObject::Relation, IOContext::IOCONTEXT_VACUUM));
-    assert!(!io::pgstat_tracks_io_op(B::BgWriter, IOObject::Relation, IOContext::IOCONTEXT_NORMAL, IOOp::Read));
-    assert!(!io::pgstat_tracks_io_op(B::Backend, IOObject::TempRelation, IOContext::IOCONTEXT_NORMAL, IOOp::Fsync));
-    assert!(!io::pgstat_tracks_io_op(B::Backend, IOObject::Relation, IOContext::IOCONTEXT_NORMAL, IOOp::Reuse));
-    assert!(io::pgstat_tracks_io_op(B::Backend, IOObject::Relation, IOContext::IOCONTEXT_VACUUM, IOOp::Reuse));
-    assert!(io::pgstat_tracks_io_op(B::Backend, IOObject::Wal, IOContext::IOCONTEXT_INIT, IOOp::Fsync));
-    assert!(!io::pgstat_tracks_io_op(B::Backend, IOObject::Wal, IOContext::IOCONTEXT_INIT, IOOp::Read));
-    assert!(!io::pgstat_tracks_io_op(B::Backend, IOObject::Relation, IOContext::IOCONTEXT_VACUUM, IOOp::Fsync));
+    assert!(!io::pgstat_tracks_io_object(
+        B::Checkpointer,
+        IOObject::Relation,
+        IOContext::IOCONTEXT_VACUUM
+    ));
+    assert!(!io::pgstat_tracks_io_op(
+        B::BgWriter,
+        IOObject::Relation,
+        IOContext::IOCONTEXT_NORMAL,
+        IOOp::Read
+    ));
+    assert!(!io::pgstat_tracks_io_op(
+        B::Backend,
+        IOObject::TempRelation,
+        IOContext::IOCONTEXT_NORMAL,
+        IOOp::Fsync
+    ));
+    assert!(!io::pgstat_tracks_io_op(
+        B::Backend,
+        IOObject::Relation,
+        IOContext::IOCONTEXT_NORMAL,
+        IOOp::Reuse
+    ));
+    assert!(io::pgstat_tracks_io_op(
+        B::Backend,
+        IOObject::Relation,
+        IOContext::IOCONTEXT_VACUUM,
+        IOOp::Reuse
+    ));
+    assert!(io::pgstat_tracks_io_op(
+        B::Backend,
+        IOObject::Wal,
+        IOContext::IOCONTEXT_INIT,
+        IOOp::Fsync
+    ));
+    assert!(!io::pgstat_tracks_io_op(
+        B::Backend,
+        IOObject::Wal,
+        IOContext::IOCONTEXT_INIT,
+        IOOp::Read
+    ));
+    assert!(!io::pgstat_tracks_io_op(
+        B::Backend,
+        IOObject::Relation,
+        IOContext::IOCONTEXT_VACUUM,
+        IOOp::Fsync
+    ));
 }
 
 #[test]
 fn io_count_flush_and_fetch() {
     use crate::io::{self, IOContext, IOObject, IOOp};
     let _lock = setup_io();
-    let base = io::export_io_stats().stats[types_core::BackendType::Backend as usize]
-        .counts[IOObject::Relation as usize][IOContext::IOCONTEXT_NORMAL as usize][IOOp::Hit as usize];
-    io::pgstat_count_io_op(IOObject::Relation, IOContext::IOCONTEXT_NORMAL, IOOp::Hit, 3, 0);
-    io::pgstat_count_io_op(IOObject::Relation, IOContext::IOCONTEXT_NORMAL, IOOp::Read, 1, 8192);
+    let base = io::export_io_stats().stats[types_core::BackendType::Backend as usize].counts
+        [IOObject::Relation as usize][IOContext::IOCONTEXT_NORMAL as usize][IOOp::Hit as usize];
+    io::pgstat_count_io_op(
+        IOObject::Relation,
+        IOContext::IOCONTEXT_NORMAL,
+        IOOp::Hit,
+        3,
+        0,
+    );
+    io::pgstat_count_io_op(
+        IOObject::Relation,
+        IOContext::IOCONTEXT_NORMAL,
+        IOOp::Read,
+        1,
+        8192,
+    );
     assert!(io::pgstat_have_pending_io());
     assert!(pending::pgstat_report_fixed());
     io::pgstat_flush_io(false);
     assert!(!io::pgstat_have_pending_io());
     let shared = io::export_io_stats().stats[types_core::BackendType::Backend as usize];
-    assert!(shared.counts[IOObject::Relation as usize][IOContext::IOCONTEXT_NORMAL as usize][IOOp::Hit as usize] >= base + 3);
-    assert!(shared.bytes[IOObject::Relation as usize][IOContext::IOCONTEXT_NORMAL as usize][IOOp::Read as usize] >= 8192);
+    assert!(
+        shared.counts[IOObject::Relation as usize][IOContext::IOCONTEXT_NORMAL as usize]
+            [IOOp::Hit as usize]
+            >= base + 3
+    );
+    assert!(
+        shared.bytes[IOObject::Relation as usize][IOContext::IOCONTEXT_NORMAL as usize]
+            [IOOp::Read as usize]
+            >= 8192
+    );
 }
 
 #[test]
@@ -874,9 +964,20 @@ fn io_timed_count_records_time_and_dbstats() {
     let _lock = setup_io();
     let start = io::pgstat_prepare_io_time(true);
     assert!(start > 0);
-    io::pgstat_count_io_op_time(IOObject::Relation, IOContext::IOCONTEXT_NORMAL, IOOp::Write, start, 1, 8192);
+    io::pgstat_count_io_op_time(
+        IOObject::Relation,
+        IOContext::IOCONTEXT_NORMAL,
+        IOOp::Write,
+        start,
+        1,
+        8192,
+    );
     let pend = io::pgstat_pending_io();
-    assert!(pend.pending_times_ns[IOObject::Relation as usize][IOCONTEXT_NORMAL_IDX][IOOp::Write as usize] >= 0);
+    assert!(
+        pend.pending_times_ns[IOObject::Relation as usize][IOCONTEXT_NORMAL_IDX]
+            [IOOp::Write as usize]
+            >= 0
+    );
     assert_eq!(io::pgstat_prepare_io_time(false), 0);
     io::pgstat_flush_io(false);
 }
@@ -894,12 +995,54 @@ fn io_timed_count_feeds_buffer_usage_times() {
         io::local_blk_write_time(),
     );
     let start = io::pgstat_prepare_io_time(true) - 1_000_000;
-    io::pgstat_count_io_op_time(IOObject::Relation, IOContext::IOCONTEXT_NORMAL, IOOp::Read, start, 1, 8192);
-    io::pgstat_count_io_op_time(IOObject::Relation, IOContext::IOCONTEXT_NORMAL, IOOp::Extend, start, 1, 8192);
-    io::pgstat_count_io_op_time(IOObject::TempRelation, IOContext::IOCONTEXT_NORMAL, IOOp::Read, start, 1, 8192);
-    io::pgstat_count_io_op_time(IOObject::TempRelation, IOContext::IOCONTEXT_NORMAL, IOOp::Write, start, 1, 8192);
-    io::pgstat_count_io_op_time(IOObject::Wal, IOContext::IOCONTEXT_NORMAL, IOOp::Write, start, 1, 8192);
-    io::pgstat_count_io_op_time(IOObject::Relation, IOContext::IOCONTEXT_NORMAL, IOOp::Read, 0, 1, 8192);
+    io::pgstat_count_io_op_time(
+        IOObject::Relation,
+        IOContext::IOCONTEXT_NORMAL,
+        IOOp::Read,
+        start,
+        1,
+        8192,
+    );
+    io::pgstat_count_io_op_time(
+        IOObject::Relation,
+        IOContext::IOCONTEXT_NORMAL,
+        IOOp::Extend,
+        start,
+        1,
+        8192,
+    );
+    io::pgstat_count_io_op_time(
+        IOObject::TempRelation,
+        IOContext::IOCONTEXT_NORMAL,
+        IOOp::Read,
+        start,
+        1,
+        8192,
+    );
+    io::pgstat_count_io_op_time(
+        IOObject::TempRelation,
+        IOContext::IOCONTEXT_NORMAL,
+        IOOp::Write,
+        start,
+        1,
+        8192,
+    );
+    io::pgstat_count_io_op_time(
+        IOObject::Wal,
+        IOContext::IOCONTEXT_NORMAL,
+        IOOp::Write,
+        start,
+        1,
+        8192,
+    );
+    io::pgstat_count_io_op_time(
+        IOObject::Relation,
+        IOContext::IOCONTEXT_NORMAL,
+        IOOp::Read,
+        0,
+        1,
+        8192,
+    );
     assert!(io::shared_blk_read_time() - r0 >= 1_000_000);
     assert!(io::shared_blk_write_time() - w0 >= 1_000_000);
     assert!(io::local_blk_read_time() - lr0 >= 1_000_000);
@@ -934,15 +1077,29 @@ fn backend_kind_flush_fetch_reset_drop() {
     let _lock = setup_io();
     init_small::globals::SetMyProcNumber(41);
     crate::backend::pgstat_create_backend(41);
-    crate::io::pgstat_count_io_op(IOObject::Relation, IOContext::IOCONTEXT_NORMAL, IOOp::Hit, 2, 0);
+    crate::io::pgstat_count_io_op(
+        IOObject::Relation,
+        IOContext::IOCONTEXT_NORMAL,
+        IOOp::Hit,
+        2,
+        0,
+    );
     crate::backend::pgstat_flush_backend(false, crate::backend::PGSTAT_BACKEND_FLUSH_ALL);
     crate::pgstat_clear_snapshot();
     let entry = crate::backend::pgstat_fetch_stat_backend(41).unwrap();
-    assert_eq!(entry.io_stats.counts[IOObject::Relation as usize][IOCONTEXT_NORMAL_IDX][IOOp::Hit as usize], 2);
+    assert_eq!(
+        entry.io_stats.counts[IOObject::Relation as usize][IOCONTEXT_NORMAL_IDX]
+            [IOOp::Hit as usize],
+        2
+    );
     crate::backend::pgstat_reset_backend(41);
     crate::pgstat_clear_snapshot();
     let entry = crate::backend::pgstat_fetch_stat_backend(41).unwrap();
-    assert_eq!(entry.io_stats.counts[IOObject::Relation as usize][IOCONTEXT_NORMAL_IDX][IOOp::Hit as usize], 0);
+    assert_eq!(
+        entry.io_stats.counts[IOObject::Relation as usize][IOCONTEXT_NORMAL_IDX]
+            [IOOp::Hit as usize],
+        0
+    );
     assert!(entry.stat_reset_timestamp > 0);
     crate::io::pgstat_flush_io(false);
 }
@@ -999,9 +1156,19 @@ fn checkpointer_report_flushes_pending_io() {
             [IOContext::IOCONTEXT_NORMAL as usize][IOOp::Write as usize]
     };
     let base = idx(&io::export_io_stats());
-    io::pgstat_count_io_op(IOObject::Relation, IOContext::IOCONTEXT_NORMAL, IOOp::Write, 3, 24576);
+    io::pgstat_count_io_op(
+        IOObject::Relation,
+        IOContext::IOCONTEXT_NORMAL,
+        IOOp::Write,
+        3,
+        24576,
+    );
     checkpointer::pgstat_report_checkpointer();
-    assert_eq!(idx(&io::export_io_stats()), base, "nothing pending: no flush");
+    assert_eq!(
+        idx(&io::export_io_stats()),
+        base,
+        "nothing pending: no flush"
+    );
     checkpointer::with_pending_checkpointer_stats(|s| s.buffers_written += 3);
     checkpointer::pgstat_report_checkpointer();
     assert_eq!(idx(&io::export_io_stats()), base + 3);
@@ -1022,15 +1189,29 @@ fn vacuum_and_analyze_reports_flush_pending_io() {
     };
     let backend_hits = || {
         crate::pgstat_clear_snapshot();
-        crate::backend::pgstat_fetch_stat_backend(43).unwrap().io_stats.counts
-            [IOObject::Relation as usize][IOCONTEXT_NORMAL_IDX][IOOp::Hit as usize]
+        crate::backend::pgstat_fetch_stat_backend(43)
+            .unwrap()
+            .io_stats
+            .counts[IOObject::Relation as usize][IOCONTEXT_NORMAL_IDX][IOOp::Hit as usize]
     };
     let base = shared_hits();
-    io::pgstat_count_io_op(IOObject::Relation, IOContext::IOCONTEXT_NORMAL, IOOp::Hit, 5, 0);
+    io::pgstat_count_io_op(
+        IOObject::Relation,
+        IOContext::IOCONTEXT_NORMAL,
+        IOOp::Hit,
+        5,
+        0,
+    );
     relation::pgstat_report_vacuum(7101, false, 10, 0, NOW.with(|c| c.get()));
     assert_eq!(shared_hits(), base + 5);
     assert_eq!(backend_hits(), 5);
-    io::pgstat_count_io_op(IOObject::Relation, IOContext::IOCONTEXT_NORMAL, IOOp::Hit, 2, 0);
+    io::pgstat_count_io_op(
+        IOObject::Relation,
+        IOContext::IOCONTEXT_NORMAL,
+        IOOp::Hit,
+        2,
+        0,
+    );
     relation::pgstat_report_analyze(7101, false, b'r', true, 10, 0, true, NOW.with(|c| c.get()));
     assert_eq!(shared_hits(), base + 7);
     assert_eq!(backend_hits(), 7);
@@ -1052,7 +1233,11 @@ fn forced_snapshot_clear_discards_backend_activity_snapshot() {
     checkpointer::pgstat_fetch_stat_checkpointer();
     assert_eq!(BACKEND_STATUS_CLEARS.load(Relaxed), before + 1);
     checkpointer::pgstat_fetch_stat_checkpointer();
-    assert_eq!(BACKEND_STATUS_CLEARS.load(Relaxed), before + 1, "cleared once per force");
+    assert_eq!(
+        BACKEND_STATUS_CLEARS.load(Relaxed),
+        before + 1,
+        "cleared once per force"
+    );
 }
 
 #[test]
@@ -1260,7 +1445,10 @@ fn statsfile_replslot_roundtrips_by_name() {
 static B091_LOG: std::sync::Mutex<Vec<(i32, String)>> = std::sync::Mutex::new(Vec::new());
 
 fn b091_capture(err: &types_error::PgError, _output_to_server: &mut bool) {
-    B091_LOG.lock().unwrap().push((err.level.0, err.message.clone()));
+    B091_LOG
+        .lock()
+        .unwrap()
+        .push((err.level.0, err.message.clone()));
 }
 
 fn b091_capture_log(f: impl FnOnce()) -> Vec<(i32, String)> {
@@ -1276,7 +1464,10 @@ fn b091_warning(msg: &str) -> (i32, String) {
 }
 
 fn b091_corrupted() -> (i32, String) {
-    (types_error::LOG.0, "corrupted statistics file \"pg_stat/pgstat.stat\"".to_string())
+    (
+        types_error::LOG.0,
+        "corrupted statistics file \"pg_stat/pgstat.stat\"".to_string(),
+    )
 }
 
 fn b091_read_log(dir_name: &str, body: &[u8]) -> Vec<(i32, String)> {
@@ -1300,7 +1491,9 @@ fn statsfile_read_failures_warn_before_corrupted_log() {
         vec![b091_warning("could not read format ID"), b091_corrupted()]
     );
     // pgstat.c:1798
-    let mut wrong = (crate::file::PGSTAT_FILE_FORMAT_ID + 1).to_ne_bytes().to_vec();
+    let mut wrong = (crate::file::PGSTAT_FILE_FORMAT_ID + 1)
+        .to_ne_bytes()
+        .to_vec();
     wrong.push(b'E');
     assert_eq!(
         b091_read_log("pgstat-b091-wrongfmt", &wrong),
@@ -1318,7 +1511,10 @@ fn statsfile_read_failures_warn_before_corrupted_log() {
     unknown.push(b'X');
     assert_eq!(
         b091_read_log("pgstat-b091-unknown", &unknown),
-        vec![b091_warning("could not read entry of type X"), b091_corrupted()]
+        vec![
+            b091_warning("could not read entry of type X"),
+            b091_corrupted()
+        ]
     );
     // pgstat.c:1821 (fixed entry whose kind is cut short)
     let mut short_fixed = header.clone();
@@ -1342,7 +1538,10 @@ fn statsfile_read_failures_warn_before_corrupted_log() {
     short_key.extend_from_slice(&[b'S', 2, 0, 0, 0, 5]);
     assert_eq!(
         b091_read_log("pgstat-b091-shortkey", &short_key),
-        vec![b091_warning("could not read key for entry of type S"), b091_corrupted()]
+        vec![
+            b091_warning("could not read key for entry of type S"),
+            b091_corrupted()
+        ]
     );
     // pgstat.c:1895 (kind outside the builtin range)
     let mut bad_kind = header.clone();
@@ -1368,7 +1567,11 @@ fn statsfile_duplicate_entry_is_corruption() {
     rec.extend_from_slice(&PGSTAT_KIND_RELATION.0.to_ne_bytes());
     rec.extend_from_slice(&5u32.to_ne_bytes());
     rec.extend_from_slice(&1259u64.to_ne_bytes());
-    rec.extend_from_slice(&vec![0u8; core::mem::size_of::<crate::shmem::PgStat_StatTabEntry>()]);
+    rec.extend_from_slice(&vec![
+        0u8;
+        core::mem::size_of::<crate::shmem::PgStat_StatTabEntry>(
+        )
+    ]);
     body.extend_from_slice(&rec);
     body.extend_from_slice(&rec);
     body.push(b'E');
@@ -1414,7 +1617,11 @@ fn statsfile_discard_logs_unlink_failure() {
     let prefix = "could not unlink permanent statistics file \"pg_stat/pgstat.stat\": ";
     assert!(log[0].1.starts_with(prefix), "{}", log[0].1);
     assert!(log[0].1.len() > prefix.len());
-    assert!(!log[0].1.ends_with(')'), "no Rust io::Error suffix: {}", log[0].1);
+    assert!(
+        !log[0].1.ends_with(')'),
+        "no Rust io::Error suffix: {}",
+        log[0].1
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -1444,7 +1651,8 @@ fn statsfile_write_rename_failure_unlinks_tmpfile() {
     let log = b091_capture_log(|| crate::file::pgstat_write_statsfile().unwrap());
     // durable_rename reported the failure (pgstat.c:1733 "already emitted")...
     assert!(
-        log.iter().any(|(lvl, m)| *lvl == types_error::LOG.0 && m.contains("pgstat.stat")),
+        log.iter()
+            .any(|(lvl, m)| *lvl == types_error::LOG.0 && m.contains("pgstat.stat")),
         "{log:?}"
     );
     // ...and the temp file was unlinked (pgstat.c:1736).
@@ -1468,7 +1676,10 @@ fn statsfile_missing_replslot_name_is_an_error_not_a_panic() {
         .unwrap_or_else(|_| panic!("missing replication slot name must not panic"))
         .unwrap_err();
     assert_eq!(err.sqlstate, types_error::ERRCODE_INTERNAL_ERROR);
-    assert_eq!(err.message, "could not find name for replication slot index 4");
+    assert_eq!(
+        err.message,
+        "could not find name for replication slot index 4"
+    );
     assert!(!dir.join("pg_stat/pgstat.tmp").exists());
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -1576,7 +1787,9 @@ fn drop_relation_associates_enabled_relation() {
     let _lock = setup();
     let key = relation::relation_key(2020, false);
     relation::pgstat_drop_relation(2021, false, false);
-    assert!(!crate::shmem::entry_exists(relation::relation_key(2021, false)));
+    assert!(!crate::shmem::entry_exists(relation::relation_key(
+        2021, false
+    )));
     relation::pgstat_drop_relation(2020, false, true);
     assert!(crate::shmem::entry_exists(key));
     xact::AtEOXact_PgStat(false, false);

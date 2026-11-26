@@ -62,10 +62,25 @@ pub(crate) struct Calls {
 /// builtin, which each expression's own reading now carries; the m8_d1902_quiet_sides C5 case, a table_to_xml one-time
 /// filter above the join, serves with PG's calls, rig W0 and W8).
 pub(crate) fn rescans(gx: &Gx<'_, '_>, q: usize, j: usize, b: usize) -> bool {
-    let Some(Op::Join(JoinDesc::Probe { jointype, outer_first, catalog: false, .. })) = gx.pipelines()[q].ops.get(j) else { return false };
+    let Some(Op::Join(JoinDesc::Probe {
+        jointype,
+        outer_first,
+        catalog: false,
+        ..
+    })) = gx.pipelines()[q].ops.get(j)
+    else {
+        return false;
+    };
     let sets = || gx.graph.reruns.iter();
-    matches!(jointype, JoinType::JOIN_INNER | JoinType::JOIN_SEMI | JoinType::JOIN_UNIQUE_OUTER | JoinType::JOIN_UNIQUE_INNER | JoinType::JOIN_RIGHT_SEMI | JoinType::JOIN_RIGHT_ANTI)
-        && sets().any(|r| r.pipelines.contains(&(q as u16)))
+    matches!(
+        jointype,
+        JoinType::JOIN_INNER
+            | JoinType::JOIN_SEMI
+            | JoinType::JOIN_UNIQUE_OUTER
+            | JoinType::JOIN_UNIQUE_INNER
+            | JoinType::JOIN_RIGHT_SEMI
+            | JoinType::JOIN_RIGHT_ANTI
+    ) && sets().any(|r| r.pipelines.contains(&(q as u16)))
         && !sets().any(|r| r.pipelines.contains(&(b as u16)))
         && side_by(gx, q, j, true) != Side::Safe
         && crate::ops::hashjoin::build_class::side_by_at(gx, q, 0, false, q, j) == Side::Safe
@@ -93,7 +108,16 @@ pub(crate) fn nest_rescans(gx: &Gx<'_, '_>, k: usize, j: usize, b: usize) -> boo
         return false;
     }
     let p = &ps[k];
-    let Some(Op::Join(JoinDesc::Probe { jointype, slot, keys, catalog: false, .. })) = p.ops.get(j) else { return false };
+    let Some(Op::Join(JoinDesc::Probe {
+        jointype,
+        slot,
+        keys,
+        catalog: false,
+        ..
+    })) = p.ops.get(j)
+    else {
+        return false;
+    };
     let bound = |id: i32| gx.graph.params.iter().any(|x| x.0 == id);
     let rf = |n: types_nodes::Node<'_>| crate::effects::raise_free_each(gx, n, &bound);
     let step = |op: &Op<'_>| match op {
@@ -102,9 +126,18 @@ pub(crate) fn nest_rescans(gx: &Gx<'_, '_>, k: usize, j: usize, b: usize) -> boo
         _ => false,
     };
     let cells = matches!(&p.source, Source::Values { lists, .. } if !lists.iter().all(|l| l.as_list().is_some_and(|r| r.iter().all(rf))));
-    let held = |r: &gravity_decompose::graph::Rerun| r.pipelines.contains(&(k as u16)) || r.pipelines.contains(&(b as u16)) || gravity_decompose::graph::slot_has(&r.slots, *slot);
-    matches!(jointype, JoinType::JOIN_INNER | JoinType::JOIN_SEMI | JoinType::JOIN_UNIQUE_OUTER | JoinType::JOIN_UNIQUE_INNER)
-        && !gx.graph.reruns.iter().any(held)
+    let held = |r: &gravity_decompose::graph::Rerun| {
+        r.pipelines.contains(&(k as u16))
+            || r.pipelines.contains(&(b as u16))
+            || gravity_decompose::graph::slot_has(&r.slots, *slot)
+    };
+    matches!(
+        jointype,
+        JoinType::JOIN_INNER
+            | JoinType::JOIN_SEMI
+            | JoinType::JOIN_UNIQUE_OUTER
+            | JoinType::JOIN_UNIQUE_INNER
+    ) && !gx.graph.reruns.iter().any(held)
         && side_by(gx, b, usize::MAX, false) == Side::Safe
         && !crate::ops::hashjoin::probe::opaque(gx, b)
         && !defers(gx, b, k, j)
@@ -118,12 +151,23 @@ pub(crate) fn nest_rescans(gx: &Gx<'_, '_>, k: usize, j: usize, b: usize) -> boo
 /// (ExecIndexEvalRuntimeKeys), which `Calls` keeps (its `close` on the build-first path).
 fn seek_keys(gx: &Gx<'_, '_>, k: usize) -> bool {
     use gravity_decompose::graph::KeyForm;
-    let Source::Index { keys, indexid, iam: gravity_decompose::catalog::IndexAm::Btree, .. } = &gx.pipelines()[k].source else { return false };
+    let Source::Index {
+        keys,
+        indexid,
+        iam: gravity_decompose::catalog::IndexAm::Btree,
+        ..
+    } = &gx.pipelines()[k].source
+    else {
+        return false;
+    };
     let evaluated = |v: types_nodes::Node<'_>| v.as_const().is_none() && v.as_param().is_none();
     crate::effects::initdb_index(gx, *indexid, keys)
         && keys.iter().any(|x| match x.form {
             KeyForm::Null | KeyForm::NotNull => false,
-            KeyForm::Row => x.value.as_row_compare_expr().is_some_and(|rc| rc.rargs.iter().any(evaluated)),
+            KeyForm::Row => x
+                .value
+                .as_row_compare_expr()
+                .is_some_and(|rc| rc.rargs.iter().any(evaluated)),
             _ => evaluated(x.value),
         })
 }
@@ -133,16 +177,50 @@ fn seek_keys(gx: &Gx<'_, '_>, k: usize) -> bool {
 /// (probe.rs refuses a probe that takes neither after all).
 pub(crate) fn seek_calls(gx: &Gx<'_, '_>, q: usize) -> bool {
     let ops = &gx.pipelines()[q].ops;
-    ops.iter().enumerate().filter_map(|(j, op)| if let Op::Join(JoinDesc::Probe { slot, .. }) = op { Some((j, *slot)) } else { None }).all(|(j, s)| gx.life_of(q, s).is_some_and(|l| orders(gx, q, j, l.0 as usize) || nest_rescans(gx, q, j, l.0 as usize)))
+    ops.iter()
+        .enumerate()
+        .filter_map(|(j, op)| {
+            if let Op::Join(JoinDesc::Probe { slot, .. }) = op {
+                Some((j, *slot))
+            } else {
+                None
+            }
+        })
+        .all(|(j, s)| {
+            gx.life_of(q, s).is_some_and(|l| {
+                orders(gx, q, j, l.0 as usize) || nest_rescans(gx, q, j, l.0 as usize)
+            })
+        })
 }
 
 impl Calls {
     pub(crate) fn make(px: &mut Px<'_, '_>, k: usize, j: usize, outer_first: bool) -> Calls {
-        let mut word = |i: u8| px.frame_word(WordKey::Open { face: Face::Join, k, j: crate::frame::px::key_j(j), i }) as i32 * 8;
+        let mut word = |i: u8| {
+            px.frame_word(WordKey::Open {
+                face: Face::Join,
+                k,
+                j: crate::frame::px::key_j(j),
+                i,
+            }) as i32
+                * 8
+        };
         let (mode, seen) = (word(2), word(3));
-        let marks = matches!(px.gx.pipelines()[k].ops.get(j), Some(Op::Join(JoinDesc::Probe { jointype: JoinType::JOIN_RIGHT_SEMI | JoinType::JOIN_RIGHT_ANTI, .. })));
+        let marks = matches!(
+            px.gx.pipelines()[k].ops.get(j),
+            Some(Op::Join(JoinDesc::Probe {
+                jointype: JoinType::JOIN_RIGHT_SEMI | JoinType::JOIN_RIGHT_ANTI,
+                ..
+            }))
+        );
         let close = !outer_first && px.seek_keyed.contains(&k);
-        Calls { mode, seen, outer_first, marks, close, shut: core::cell::Cell::new(None) }
+        Calls {
+            mode,
+            seen,
+            outer_first,
+            marks,
+            close,
+            shut: core::cell::Cell::new(None),
+        }
     }
 
     /// D1016 row 2 (`seek_keyed`, build-first): at the prologue, before the source opens, a call that runs PG's build
@@ -170,7 +248,13 @@ impl Calls {
 
     /// `mode` only: `seen` outlives the open.
     pub(crate) fn open_words(&self, w: &mut OpenWords) {
-        w.declare(OpenWord::open("join.kept call", Base::Words, self.mode, Type::I64, 0));
+        w.declare(OpenWord::open(
+            "join.kept call",
+            Base::Words,
+            self.mode,
+            Type::I64,
+            0,
+        ));
     }
 
     /// At every window: the call's `mode` (`I64`), read from `seen` at its first window (a build-first call runs PG's
@@ -228,12 +312,38 @@ impl Calls {
 /// as PG's first outer fetch evaluates the key.
 pub(crate) fn orders(gx: &Gx<'_, '_>, q: usize, j: usize, b: usize) -> bool {
     let p = &gx.pipelines()[q];
-    let Some(Op::Join(JoinDesc::Probe { jointype, outer_first: true, catalog: false, .. })) = p.ops.get(j) else { return false };
-    let quiet = |x: Option<usize>| x.is_some_and(|x| x < gx.pipelines().len() && side_by(gx, x, usize::MAX, false) == Side::Safe);
-    let feeders = || feed(gx, q, p.desc.consumes.iter().copied().filter(|s| !p.ops.iter().any(|op| matches!(op, Op::Join(JoinDesc::Probe { slot, .. }) if slot == s)))).into_iter().all(|x| quiet(Some(x)));
+    let Some(Op::Join(JoinDesc::Probe {
+        jointype,
+        outer_first: true,
+        catalog: false,
+        ..
+    })) = p.ops.get(j)
+    else {
+        return false;
+    };
+    let quiet = |x: Option<usize>| {
+        x.is_some_and(|x| {
+            x < gx.pipelines().len() && side_by(gx, x, usize::MAX, false) == Side::Safe
+        })
+    };
+    let feeders = || {
+        feed(
+            gx,
+            q,
+            p.desc.consumes.iter().copied().filter(|s| {
+                !p.ops
+                    .iter()
+                    .any(|op| matches!(op, Op::Join(JoinDesc::Probe { slot, .. }) if slot == s))
+            }),
+        )
+        .into_iter()
+        .all(|x| quiet(Some(x)))
+    };
     let source = side_by(gx, q, 0, false) == Side::Safe
         || matches!(p.source, Source::Const) && feeders()
-        || p.desc.driving_site >= 0 && crate::effects::visible::hashjoin::seek_raises_only(gx, q) && feeders();
+        || p.desc.driving_site >= 0
+            && crate::effects::visible::hashjoin::seek_raises_only(gx, q)
+            && feeders();
     matches!(jointype, JoinType::JOIN_INNER | JoinType::JOIN_SEMI | JoinType::JOIN_UNIQUE_OUTER | JoinType::JOIN_UNIQUE_INNER)
         && gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(q as u16)) && r.pipelines.contains(&(b as u16)))
         && side_by(gx, q, j, false) != Side::Safe
@@ -247,7 +357,19 @@ pub(crate) fn orders(gx: &Gx<'_, '_>, q: usize, j: usize, b: usize) -> bool {
 /// after all (a lazy build) refuses at its make (probe.rs).
 pub(crate) fn seek_orders(gx: &Gx<'_, '_>, q: usize) -> bool {
     let ops = &gx.pipelines()[q].ops;
-    ops.iter().enumerate().filter_map(|(j, op)| if let Op::Join(JoinDesc::Probe { slot, .. }) = op { Some((j, *slot)) } else { None }).all(|(j, s)| gx.life_of(q, s).is_some_and(|l| orders(gx, q, j, l.0 as usize)))
+    ops.iter()
+        .enumerate()
+        .filter_map(|(j, op)| {
+            if let Op::Join(JoinDesc::Probe { slot, .. }) = op {
+                Some((j, *slot))
+            } else {
+                None
+            }
+        })
+        .all(|(j, s)| {
+            gx.life_of(q, s)
+                .is_some_and(|l| orders(gx, q, j, l.0 as usize))
+        })
 }
 
 /// D1902 (held build): probe `j` of pipeline `q` over build `b` takes `Order` with the build's held error: an INNER or SEMI
@@ -260,10 +382,27 @@ pub(crate) fn seek_orders(gx: &Gx<'_, '_>, q: usize) -> bool {
 /// outer shows no other order.
 pub(crate) fn orders_held(gx: &Gx<'_, '_>, q: usize, j: usize, b: usize) -> bool {
     let p = &gx.pipelines()[q];
-    let Some(Op::Join(JoinDesc::Probe { jointype, outer_first: true, catalog: false, .. })) = p.ops.get(j) else { return false };
-    matches!(jointype, JoinType::JOIN_INNER | JoinType::JOIN_SEMI | JoinType::JOIN_UNIQUE_OUTER | JoinType::JOIN_UNIQUE_INNER)
-        && b < gx.pipelines().len()
-        && gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(q as u16)) && r.pipelines.contains(&(b as u16)))
+    let Some(Op::Join(JoinDesc::Probe {
+        jointype,
+        outer_first: true,
+        catalog: false,
+        ..
+    })) = p.ops.get(j)
+    else {
+        return false;
+    };
+    matches!(
+        jointype,
+        JoinType::JOIN_INNER
+            | JoinType::JOIN_SEMI
+            | JoinType::JOIN_UNIQUE_OUTER
+            | JoinType::JOIN_UNIQUE_INNER
+    ) && b < gx.pipelines().len()
+        && gx
+            .graph
+            .reruns
+            .iter()
+            .any(|r| r.pipelines.contains(&(q as u16)) && r.pipelines.contains(&(b as u16)))
         && side_by(gx, q, j, false) == Side::Safe
         && side_by(gx, b, usize::MAX, false) == Side::Raises
         && !crate::ops::hashjoin::probe::opaque(gx, b)
@@ -282,20 +421,40 @@ pub(crate) struct Order {
 
 impl Order {
     pub(crate) fn make(px: &mut Px<'_, '_>, k: usize, j: usize, held: bool) -> Order {
-        let mut word = |i: u8| px.frame_word(WordKey::Open { face: Face::Join, k, j: crate::frame::px::key_j(j), i }) as i32 * 8;
+        let mut word = |i: u8| {
+            px.frame_word(WordKey::Open {
+                face: Face::Join,
+                k,
+                j: crate::frame::px::key_j(j),
+                i,
+            }) as i32
+                * 8
+        };
         let (mode, seen) = (word(4), word(5));
         Order { mode, seen, held }
     }
 
     pub(crate) fn open_words(&self, w: &mut OpenWords) {
-        w.declare(OpenWord::open("join.member order", Base::Words, self.mode, Type::I64, 0));
+        w.declare(OpenWord::open(
+            "join.member order",
+            Base::Words,
+            self.mode,
+            Type::I64,
+            0,
+        ));
     }
 
     /// At every window: a build-first call (`seen` set at its first window) whose table is EMPTY (`form` 0) ends before
     /// any outer row (`l_done`); at the first window a build-first call over a table with rows clears `seen`, as PG
     /// resets hj_OuterNotEmpty after its build. A held build's (`held`): a build-first call raises its held error (FORM
     /// FAILED) here, before any outer row, as PG's build raises over an empty outer too.
-    pub(crate) fn at_window(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, form: Value, l_done: Block) {
+    pub(crate) fn at_window(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        form: Value,
+        l_done: Block,
+    ) {
         let m = env.load_word(b, self.mode);
         let unset = b.icmp(IntCond::Eq, m, env.zero);
         let (l_set, l_on) = (b.create_block(&[]), b.create_block(&[Type::I64]));
@@ -356,7 +515,10 @@ pub(crate) fn built_empty(b: &mut FunctionBuilder<'_>, env: &Env, consumed: usiz
     let form = b.load_zext(Type::I8, r, crate::ops::hashjoin::build::FORM as i32);
     let empty = b.icmp(IntCond::Eq, form, env.zero);
     let fl = b.load_zext(Type::I32, env.ctx, gravity_abi::ctx::hdr::FLAGS as i32);
-    let bit = b.iconst(Type::I64, 1i64 << (gravity_abi::ctx::FLAG_PENDING_SHIFT as usize + consumed));
+    let bit = b.iconst(
+        Type::I64,
+        1i64 << (gravity_abi::ctx::FLAG_PENDING_SHIFT as usize + consumed),
+    );
     let m = b.int_bin(IntBinOp::And, fl, bit);
     let built = b.icmp(IntCond::Eq, m, env.zero);
     b.int_bin(IntBinOp::And, empty, built)

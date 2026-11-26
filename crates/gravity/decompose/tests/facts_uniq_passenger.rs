@@ -51,14 +51,20 @@ impl Facts for Server<'_> {
     fn att_generated(&self, relid: u32, attno: i16) -> u8 {
         self.fx.att_generated(relid, attno)
     }
-    fn key(&self, req: gravity_decompose::catalog::KeyReq) -> Option<gravity_decompose::catalog::KeyOrder> {
+    fn key(
+        &self,
+        req: gravity_decompose::catalog::KeyReq,
+    ) -> Option<gravity_decompose::catalog::KeyOrder> {
         self.fx.key(req)
     }
     fn op_image_eq(&self, opno: u32) -> Option<(u32, u32)> {
         self.fx.op_image_eq(opno)
     }
     fn rel_ext(&self, relid: u32) -> RelExt {
-        RelExt { known: self.fx.rel(relid).is_some(), ..self.fx.rel_ext(relid) }
+        RelExt {
+            known: self.fx.rel(relid).is_some(),
+            ..self.fx.rel_ext(relid)
+        }
     }
     fn instead_of(&self, relid: u32) -> gravity_decompose::InsteadOf {
         self.fx.instead_of(relid)
@@ -97,20 +103,32 @@ fn graph(text: &str, server: bool) -> String {
 /// `text` with the first `from` after the first `after` as `to`.
 fn edit(text: &str, after: &str, from: &str, to: &str) -> String {
     let a = text.find(after).unwrap_or_else(|| panic!("no {after}"));
-    let f = a + text[a..].find(from).unwrap_or_else(|| panic!("no {from} after {after}"));
+    let f = a + text[a..]
+        .find(from)
+        .unwrap_or_else(|| panic!("no {from} after {after}"));
     format!("{}{}{}", &text[..f], to, &text[f + from.len()..])
 }
 
 fn rewritten(g: &str, p0: &str, leaf: &str) {
     assert!(g.contains(NULLED), "{g}");
     assert!(g.contains(&format!("params=(${p0}=outer.1)")), "{g}");
-    assert!(g.contains(&format!("key att=1 op=96 value=${p0}")) && g.contains(&format!("recheck (op96({leaf}.1, ${p0}))")), "{g}");
+    assert!(
+        g.contains(&format!("key att=1 op=96 value=${p0}"))
+            && g.contains(&format!("recheck (op96({leaf}.1, ${p0}))")),
+        "{g}"
+    );
     assert!(g.contains(&format!("param ${p0} owner=")), "{g}");
 }
 
 fn kept(g: &str, p0: &str, p1: &str) {
-    assert!(g.contains(&format!("{KEPT}\n  nest inner=")) && !g.contains(NULLED), "{g}");
-    assert!(g.contains(&format!("params=(${p0}=outer.2, ${p1}=outer.3)")), "{g}");
+    assert!(
+        g.contains(&format!("{KEPT}\n  nest inner=")) && !g.contains(NULLED),
+        "{g}"
+    );
+    assert!(
+        g.contains(&format!("params=(${p0}=outer.2, ${p1}=outer.3)")),
+        "{g}"
+    );
 }
 
 #[test]
@@ -121,7 +139,10 @@ fn each_arm_binds_its_key_and_its_passengers_ride_as_nulls() {
     rewritten(&pj, "exec0", "v5");
     rewritten(&pj, "exec2", "v6");
     rewritten(&pj, "exec5", "v7");
-    assert!(!pj.contains("$exec1") && !pj.contains("$exec3") && !pj.contains("$exec6"), "{pj}");
+    assert!(
+        !pj.contains("$exec1") && !pj.contains("$exec3") && !pj.contains("$exec6"),
+        "{pj}"
+    );
     // the child nest's own parameter (arm 3) is the plan's
     assert!(pj.contains("params=($exec4=outer.1)"), "{pj}");
 }
@@ -136,27 +157,108 @@ fn under_a_possible_lazy_build_the_plan_stands() {
 fn does_not_apply() {
     let arm1 = read(ARM1);
     // C's side is another expression than the loop's (/ 3 against / 2)
-    kept(&graph(&edit(&arm1, ":hashclauses (", "[ 2 0 0 0 0 0 0 0 ]", "[ 3 0 0 0 0 0 0 0 ]"), true), "exec0", "exec1");
+    kept(
+        &graph(
+            &edit(
+                &arm1,
+                ":hashclauses (",
+                "[ 2 0 0 0 0 0 0 0 ]",
+                "[ 3 0 0 0 0 0 0 0 ]",
+            ),
+            true,
+        ),
+        "exec0",
+        "exec1",
+    );
     // the leaf's two reads differ (F1)
-    kept(&graph(&edit(&arm1, ":indexqualorig (", "[ 2 0 0 0 0 0 0 0 ]", "[ 3 0 0 0 0 0 0 0 ]"), true), "exec0", "exec1");
+    kept(
+        &graph(
+            &edit(
+                &arm1,
+                ":indexqualorig (",
+                "[ 2 0 0 0 0 0 0 0 ]",
+                "[ 3 0 0 0 0 0 0 0 ]",
+            ),
+            true,
+        ),
+        "exec0",
+        "exec1",
+    );
     // no P parameter of the key expression's type (F2)
-    kept(&graph(&edit(&arm1, ":paramExecTypes (o 23 23", "(o 23 23", "(o 20 20"), true), "exec0", "exec1");
+    kept(
+        &graph(
+            &edit(&arm1, ":paramExecTypes (o 23 23", "(o 23 23", "(o 20 20"),
+            true,
+        ),
+        "exec0",
+        "exec1",
+    );
     // the group's equality is not a same-type IMAGE_EQ (int48eq)
-    kept(&graph(&edit(&arm1, ":grpOperators ( 96)", "96", "15"), true), "exec0", "exec1");
+    kept(
+        &graph(&edit(&arm1, ":grpOperators ( 96)", "96", "15"), true),
+        "exec0",
+        "exec1",
+    );
     // a SEMI child emits no row per member
-    kept(&graph(&edit(&arm1, "{HASHJOIN ", ":join.jointype 0", ":join.jointype 4"), true), "exec0", "exec1");
+    kept(
+        &graph(
+            &edit(&arm1, "{HASHJOIN ", ":join.jointype 0", ":join.jointype 4"),
+            true,
+        ),
+        "exec0",
+        "exec1",
+    );
     // the loop's own join clause reads a passenger (`own`): inner.1 = outer.2 for inner.1 = outer.1
-    kept(&graph(&edit(&arm1, ":join.joinqual (", "{VAR :varno -2 :varattno 1 ", "{VAR :varno -2 :varattno 2 "), true), "exec0", "exec1");
+    kept(
+        &graph(
+            &edit(
+                &arm1,
+                ":join.joinqual (",
+                "{VAR :varno -2 :varattno 1 ",
+                "{VAR :varno -2 :varattno 2 ",
+            ),
+            true,
+        ),
+        "exec0",
+        "exec1",
+    );
     // the leaf's target list reads a P parameter (`quiet`): $exec0 for its column b
     let b = "{VAR :varno 5 :varattno 2 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 5 :varattnosyn 2 :location -1}";
-    let p0 = "{PARAM :paramkind 1 :paramid 0 :paramtype 23 :paramtypmod -1 :paramcollid 0 :location -1}";
-    kept(&graph(&edit(&arm1, ":join.plan.righttree {INDEXSCAN", &format!("{b} :resno 2"), &format!("{p0} :resno 2")), true), "exec0", "exec1");
+    let p0 =
+        "{PARAM :paramkind 1 :paramid 0 :paramtype 23 :paramtypmod -1 :paramcollid 0 :location -1}";
+    kept(
+        &graph(
+            &edit(
+                &arm1,
+                ":join.plan.righttree {INDEXSCAN",
+                &format!("{b} :resno 2"),
+                &format!("{p0} :resno 2"),
+            ),
+            true,
+        ),
+        "exec0",
+        "exec1",
+    );
     let arm3 = read(ARM3);
     // the child's index clause is another expression than the loop's
-    kept(&graph(&edit(&arm3, ":scan.scanrelid 13", "[ 2 0 0 0 0 0 0 0 ]", "[ 3 0 0 0 0 0 0 0 ]"), true), "exec5", "exec6");
+    kept(
+        &graph(
+            &edit(
+                &arm3,
+                ":scan.scanrelid 13",
+                "[ 2 0 0 0 0 0 0 0 ]",
+                "[ 3 0 0 0 0 0 0 0 ]",
+            ),
+            true,
+        ),
+        "exec5",
+        "exec6",
+    );
 }
 
 fn manifest_dir() -> std::path::PathBuf {
     // D793-b: the checkout under test, read at run time (cargo sets it for every test process), never the compile-time path
-    std::env::var_os("CARGO_MANIFEST_DIR").map(Into::into).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+    std::env::var_os("CARGO_MANIFEST_DIR")
+        .map(Into::into)
+        .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
 }

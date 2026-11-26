@@ -13,44 +13,50 @@ mod bgwriter_sync;
 mod buf_hdr;
 mod buf_table;
 pub mod counters;
+mod dbcopy;
+mod drop_buffers;
+mod evict;
 mod extend;
+mod extent;
 mod freelist;
+mod giveback;
 mod gucs;
 mod localbuf;
 mod ops;
 mod pin;
+mod pool_sql;
 mod privref;
-mod dbcopy;
-mod evict;
 mod read;
+mod resize;
 mod uring;
 mod write;
-mod drop_buffers;
-mod extent;
-mod giveback;
-mod pool_sql;
-mod resize;
 mod wss;
 
-use types_core::{
-    BlockNumber, Buffer, ForkNumber, Oid, INVALID_PROC_NUMBER, RELPERSISTENCE_TEMP,
-};
+use types_core::{BlockNumber, Buffer, ForkNumber, Oid, INVALID_PROC_NUMBER, RELPERSISTENCE_TEMP};
 use types_error::{ErrorLocation, PgResult, ERROR};
+use types_rel::rel::RelationData;
 use types_storage::buf::BufferAccessStrategy;
 use types_storage::{ReadBufferMode, RelFileLocator, RelFileLocatorBackend};
-use types_rel::rel::RelationData;
 
+pub use bgwriter_sync::{BgBufferSync, BgwSyncState};
 pub use buf_hdr::{
     BufferDesc, BufferDescriptorGetBuffer, BufferGetBlockPtr, BufferManagerShmemInit,
-    BufferManagerShmemResetAfterCrash, BufferManagerShmemSize, GetBufferDescriptor, LockBufHdr, NBuffersInited,
-    UnlockBufHdr, BUFFERDESC_PAD_TO_SIZE,
+    BufferManagerShmemResetAfterCrash, BufferManagerShmemSize, GetBufferDescriptor, LockBufHdr,
+    NBuffersInited, UnlockBufHdr, BUFFERDESC_PAD_TO_SIZE,
 };
 pub use buf_table::{BufMappingPartitionLock, BufTableHashCode, BufTableLookup};
+pub use evict::{
+    EvictAllUnpinnedBuffers, EvictCounts, EvictRelUnpinnedBuffers, EvictUnpinnedBuffer,
+};
 pub use extent::blocks_span;
 pub use freelist::{
     have_free_buffer, FreeAccessStrategy, GetAccessStrategy, GetAccessStrategyWithSize,
     GetPinLimit, IOContextForStrategy, StrategyFreeBuffer, StrategyGetBuffer,
     StrategyNotifyBgWriter, StrategySyncStart,
+};
+pub use giveback::{
+    evicted_bytes, giveback_landing, giveback_reclaimable, giveback_request, giveback_stats,
+    giveback_step, grow_request, GivebackStats, GIVEBACK_SLICE,
 };
 pub use ops::{
     buffer_page_get_lsn, buffer_page_is_new, buffer_page_ref, buffer_page_set_lsn,
@@ -58,21 +64,17 @@ pub use ops::{
     ConditionalLockBuffer, IsBufferCleanupOK, LockBuffer, LockBufferForCleanup, MarkBufferDirty,
     UnlockReleaseBuffer, BUFFER_LOCK_EXCLUSIVE, BUFFER_LOCK_SHARE, BUFFER_LOCK_UNLOCK,
 };
-pub use bgwriter_sync::{BgBufferSync, BgwSyncState};
-pub use write::{BufferSync, CheckPointBuffers, FlushOneBuffer, PageSetChecksumInplace};
 pub use pin::{
     AtEOXact_Buffers, BufferIsPinned, CheckBufferIsPinnedOnce, DebugPrintBufferRefcount,
     IncrBufferRefCount, ReleaseBuffer, UnlockBuffers,
 };
-pub use privref::{debug_all_private_pins, GetPrivateRefCount, ReservePrivateRefCountEntry};
-pub use evict::{EvictAllUnpinnedBuffers, EvictCounts, EvictRelUnpinnedBuffers, EvictUnpinnedBuffer};
-pub use pool_sql::{BUFPOOL_BUILTINS, PGRUST_BUFFER_POOL_RESIZE_FOID, PGRUST_BUFFER_POOL_STATS_FOID};
-pub use resize::{grow_counts, BufferPoolResize, BufferPoolStats, PoolStats, ResizeOutcome};
-pub use giveback::{
-    evicted_bytes, giveback_landing, giveback_reclaimable, giveback_request, giveback_stats, giveback_step, grow_request, GivebackStats,
-    GIVEBACK_SLICE,
+pub use pool_sql::{
+    BUFPOOL_BUILTINS, PGRUST_BUFFER_POOL_RESIZE_FOID, PGRUST_BUFFER_POOL_STATS_FOID,
 };
+pub use privref::{debug_all_private_pins, GetPrivateRefCount, ReservePrivateRefCountEntry};
 pub use resize::GivebackStep;
+pub use resize::{grow_counts, BufferPoolResize, BufferPoolStats, PoolStats, ResizeOutcome};
+pub use write::{BufferSync, CheckPointBuffers, FlushOneBuffer, PageSetChecksumInplace};
 
 // Diagnostic (PGRUST_REDO_PIN_CHECK): wait out this thread's in-flight uring
 // prefetch pins so the check sees only genuine leaks.
@@ -88,17 +90,17 @@ pub fn debug_buffer_tag_string(buffer: types_core::Buffer) -> String {
         t.spcOid, t.dbOid, t.relNumber, t.forkNum as i32, t.blockNum
     )
 }
+pub use extend::{ExtendBufferedRelBy, ExtendBufferedRelTo, ExtendBufferedRelToSmgr};
+pub use gucs::ignore_checksum_failure;
 pub use localbuf::{
     n_loc_buffer, AtEOXact_LocalBuffers, AtProcExit_LocalBuffers, DropRelationAllLocalBuffers,
     DropRelationLocalBuffers,
 };
-pub use gucs::ignore_checksum_failure;
 pub use read::{
     page_is_verified, relpath_backend_desc, relpath_desc, ReadBufferWithoutRelcache,
     ReadBuffer_common, ReadRecentBuffer, StartReadBuffer, StartReadBuffers, WaitReadBuffers,
     PIV_IGNORE_CHECKSUM_FAILURE, PIV_LOG_LOG, PIV_LOG_WARNING,
 };
-pub use extend::{ExtendBufferedRelBy, ExtendBufferedRelTo, ExtendBufferedRelToSmgr};
 
 const DEFAULTTABLESPACE_OID: Oid = 1663;
 const GLOBALTABLESPACE_OID: Oid = 1664;
@@ -176,12 +178,13 @@ pub fn ReadBufferExtended(
 ) -> PgResult<Buffer> {
     if rel.rd_rel.relpersistence == RELPERSISTENCE_TEMP && !rel.rd_islocaltemp {
         return Err(Box::new(
-            types_error::PgError::new(
-                ERROR,
-                "cannot access temporary tables of other sessions",
-            )
-            .with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED)
-            .with_error_location(ErrorLocation::new(file!(), line!() as i32, "ReadBufferExtended")),
+            types_error::PgError::new(ERROR, "cannot access temporary tables of other sessions")
+                .with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED)
+                .with_error_location(ErrorLocation::new(
+                    file!(),
+                    line!() as i32,
+                    "ReadBufferExtended",
+                )),
         ));
     }
     let (buffer, acct) = read::ReadBuffer_common_acct(
@@ -209,7 +212,11 @@ pub fn ReadBufferIfValid(
         return Err(Box::new(
             types_error::PgError::new(ERROR, "cannot access temporary tables of other sessions")
                 .with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED)
-                .with_error_location(ErrorLocation::new(file!(), line!() as i32, "ReadBufferIfValid")),
+                .with_error_location(ErrorLocation::new(
+                    file!(),
+                    line!() as i32,
+                    "ReadBufferIfValid",
+                )),
         ));
     }
     let (buffer, found) = read::PinBufferForBlock(
@@ -233,7 +240,10 @@ pub fn ReadBufferIfValid(
 fn pgstat_count_buffer_acct(rel: &RelationData<'_>, acct: read::ReadAccounting) {
     match acct {
         read::ReadAccounting::Hit => pgstat_count_buffer(rel, true),
-        read::ReadAccounting::Miss { reads, forwarded_hit } => {
+        read::ReadAccounting::Miss {
+            reads,
+            forwarded_hit,
+        } => {
             for _ in 0..reads {
                 pgstat_count_buffer(rel, false);
             }
@@ -447,7 +457,8 @@ pub fn MarkBufferDirtyHint(buffer: Buffer, buffer_std: bool) -> PgResult<()> {
         counters::dirtied();
         if init_small::globals::VacuumCostActive() {
             init_small::globals::SetVacuumCostBalance(
-                init_small::globals::VacuumCostBalance() + init_small::globals::VacuumCostPageDirty(),
+                init_small::globals::VacuumCostBalance()
+                    + init_small::globals::VacuumCostPageDirty(),
             );
         }
     }

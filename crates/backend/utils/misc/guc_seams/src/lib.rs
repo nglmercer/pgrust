@@ -70,7 +70,6 @@ seam_core::seam!(
     pub fn initialize_guc_options() -> PgResult<()>
 );
 
-
 seam_core::seam!(
     // get_explain_guc_options (guc.c): (name, GetConfigOptionByName value)
     // for GUC_EXPLAIN vars modified from boot; EXPLAIN (SETTINGS) reads it
@@ -127,7 +126,16 @@ impl Knob {
     /// whether the text is trimmed of blanks first. One list per knob, so every reader of a knob reads it alike.
     pub const fn words(self) -> (&'static [&'static str], bool) {
         const ON: &[&str] = &["on", "true", "yes", "1"];
-        const CTE_WALK: &[&str] = &["off", "false", "0", "on", "true", "1", "all", "materialized"];
+        const CTE_WALK: &[&str] = &[
+            "off",
+            "false",
+            "0",
+            "on",
+            "true",
+            "1",
+            "all",
+            "materialized",
+        ];
         const OFF_ON: &[&str] = &["off", "false", "0", "no", "on", "true", "1", "yes"];
         const REACH: &[&str] = &["base", "p2", "wide"];
         match self {
@@ -140,7 +148,9 @@ impl Knob {
 
     /// How `text` (the option's value, `None` when absent) reads: the first of `words` it equals, or `Other`.
     pub fn read(self, text: Option<&str>) -> KnobRead {
-        let Some(text) = text else { return KnobRead::Unset };
+        let Some(text) = text else {
+            return KnobRead::Unset;
+        };
         let (words, trim) = self.words();
         let text = if trim { text.trim() } else { text };
         match words.iter().position(|w| text.eq_ignore_ascii_case(w)) {

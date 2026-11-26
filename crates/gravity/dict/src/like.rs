@@ -85,7 +85,16 @@ struct Shape {
 /// One pass over the pattern: `%`-runs at the ends, one literal run between, escapes counted;
 /// `_`, an interior `%` or a trailing escape make it general.
 fn shape(p: &[u8]) -> Shape {
-    let mut s = Shape { lead: false, trail: false, lit_from: 0, lit_to: 0, lit_len: 0, escapes: false, general: false, all_percent: true };
+    let mut s = Shape {
+        lead: false,
+        trail: false,
+        lit_from: 0,
+        lit_to: 0,
+        lit_len: 0,
+        escapes: false,
+        general: false,
+        all_percent: true,
+    };
     let mut i = 0;
     let mut seen_lit = false;
     let mut in_lit = false;
@@ -132,8 +141,12 @@ fn shape(p: &[u8]) -> Shape {
 /// runs and their scans laid in `region` (a full region is the caller's retry, as for a literal);
 /// and whether the first run starts the pattern and the last one ends it.
 #[allow(clippy::type_complexity)]
-fn segments<'p>(p: &'p [u8], region: &mut Region) -> Result<Option<(&'p [Seg<'p>], (bool, bool))>, BuildError> {
-    let (mut n, mut i, mut in_run, mut last_pct, mut escapes) = (0usize, 0usize, false, false, false);
+fn segments<'p>(
+    p: &'p [u8],
+    region: &mut Region,
+) -> Result<Option<(&'p [Seg<'p>], (bool, bool))>, BuildError> {
+    let (mut n, mut i, mut in_run, mut last_pct, mut escapes) =
+        (0usize, 0usize, false, false, false);
     while i < p.len() {
         let b = p[i];
         if b == b'%' {
@@ -158,8 +171,15 @@ fn segments<'p>(p: &'p [u8], region: &mut Region) -> Result<Option<(&'p [Seg<'p>
     if n < 2 {
         return Ok(None);
     }
-    let bytes = if escapes { region.alloc(p.len(), 1)? } else { core::ptr::null_mut() };
-    let segs = region.alloc(n * core::mem::size_of::<Seg<'p>>(), core::mem::align_of::<Seg<'p>>())? as *mut Seg<'p>;
+    let bytes = if escapes {
+        region.alloc(p.len(), 1)?
+    } else {
+        core::ptr::null_mut()
+    };
+    let segs = region.alloc(
+        n * core::mem::size_of::<Seg<'p>>(),
+        core::mem::align_of::<Seg<'p>>(),
+    )? as *mut Seg<'p>;
     let (mut k, mut i, mut used) = (0usize, 0usize, 0usize);
     while i < p.len() {
         if p[i] == b'%' {
@@ -176,7 +196,12 @@ fn segments<'p>(p: &'p [u8], region: &mut Region) -> Result<Option<(&'p [Seg<'p>
             let from = used;
             let mut j = start;
             while j < i {
-                let c = if p[j] == ESCAPE { j += 1; p[j] } else { p[j] };
+                let c = if p[j] == ESCAPE {
+                    j += 1;
+                    p[j]
+                } else {
+                    p[j]
+                };
                 // SAFETY: `bytes` holds `p.len()` bytes and the unescaped runs take at most that many.
                 unsafe { *bytes.add(used) = c };
                 (used, j) = (used + 1, j + 1);
@@ -187,18 +212,30 @@ fn segments<'p>(p: &'p [u8], region: &mut Region) -> Result<Option<(&'p [Seg<'p>
             &p[start..i]
         };
         // SAFETY: `segs` holds `n` runs; `k < n` (the first pass counted them).
-        unsafe { segs.add(k).write(Seg { lit, pair: RarePair::new(lit) }) };
+        unsafe {
+            segs.add(k).write(Seg {
+                lit,
+                pair: RarePair::new(lit),
+            })
+        };
         k += 1;
     }
     // SAFETY: the `n` runs were written above, in the region, which outlives the matcher.
-    Ok(Some((unsafe { core::slice::from_raw_parts(segs, n) }, (p[0] != b'%', !last_pct))))
+    Ok(Some((
+        unsafe { core::slice::from_raw_parts(segs, n) },
+        (p[0] != b'%', !last_pct),
+    )))
 }
 
 impl<'p> Matcher<'p> {
     /// The pattern is in PostgreSQL's backslash convention (`like_escape` applied by the caller);
     /// the literal is borrowed from it or unescaped / folded into `region`, whose memory outlives
     /// the matcher (the region stays usable: the table is built into it next).
-    pub fn new(pattern: &'p [u8], mode: Mode, region: &mut Region) -> Result<Matcher<'p>, BuildError> {
+    pub fn new(
+        pattern: &'p [u8],
+        mode: Mode,
+        region: &mut Region,
+    ) -> Result<Matcher<'p>, BuildError> {
         let fold = mode == Mode::ILike;
         let sh = shape(pattern);
         let class = if sh.general {
@@ -210,12 +247,24 @@ impl<'p> Matcher<'p> {
             match (sh.lead, sh.trail) {
                 (false, false) => Class::Exact,
                 (false, true) => Class::Prefix,
-                (true, _) if continuation(first) || (first == ESCAPE && pattern.get(sh.lit_from + 1).is_some_and(|&b| continuation(b))) => Class::General,
+                (true, _)
+                    if continuation(first)
+                        || (first == ESCAPE
+                            && pattern
+                                .get(sh.lit_from + 1)
+                                .is_some_and(|&b| continuation(b))) =>
+                {
+                    Class::General
+                }
                 (true, false) => Class::Suffix,
                 (true, true) => Class::Contains,
             }
         };
-        let raw = if sh.general { &[][..] } else { &pattern[sh.lit_from..sh.lit_to] };
+        let raw = if sh.general {
+            &[][..]
+        } else {
+            &pattern[sh.lit_from..sh.lit_to]
+        };
         let needs_copy = sh.escapes || (fold && raw.iter().any(u8::is_ascii_uppercase));
         let lit: &'p [u8] = if matches!(class, Class::Any | Class::General) {
             &[]
@@ -240,8 +289,20 @@ impl<'p> Matcher<'p> {
         } else {
             raw
         };
-        let pair = (class == Class::Contains && !fold).then(|| RarePair::new(lit)).flatten();
-        let mut m = Matcher { pattern, lit, class, fold, negate: false, pair, recount: None, segs: &[], anchored: (false, false) };
+        let pair = (class == Class::Contains && !fold)
+            .then(|| RarePair::new(lit))
+            .flatten();
+        let mut m = Matcher {
+            pattern,
+            lit,
+            class,
+            fold,
+            negate: false,
+            pair,
+            recount: None,
+            segs: &[],
+            anchored: (false, false),
+        };
         if class == Class::General && !fold {
             if let Some((segs, anchored)) = segments(pattern, region)? {
                 (m.class, m.segs, m.anchored) = (Class::Segments, segs, anchored);
@@ -300,7 +361,11 @@ impl<'p> Matcher<'p> {
             Class::Contains => self.find(s, 0).is_some(),
             Class::Segments => self.segments_hit(s),
             Class::General => {
-                let r = if self.fold { match_text::<true>(s, self.pattern)? } else { match_text::<false>(s, self.pattern)? };
+                let r = if self.fold {
+                    match_text::<true>(s, self.pattern)?
+                } else {
+                    match_text::<false>(s, self.pattern)?
+                };
                 r == LIKE_TRUE
             }
         };
@@ -322,7 +387,11 @@ impl<'p> Matcher<'p> {
             }
             (at, runs) = (first.len(), &runs[1..]);
         }
-        let last = if tail { runs.split_last().map(|(l, rest)| (runs = rest, l.lit).1) } else { None };
+        let last = if tail {
+            runs.split_last().map(|(l, rest)| (runs = rest, l.lit).1)
+        } else {
+            None
+        };
         for g in runs {
             match g.find(s, at) {
                 Some(p) => at = p + g.lit.len(),
@@ -345,7 +414,9 @@ impl<'p> Matcher<'p> {
     /// The predicate over every entry as a `Bits` table. A contains pattern under a `recounting`
     /// rule carries `build_bits_over`'s re-check across the entries (`build_bits_rechecking`).
     pub fn build_bits(&self, dict: &dyn Dict, region: &mut Region) -> Result<Bits, BuildError> {
-        if let (Class::Contains, false, Some(pair), Some(rule)) = (self.class, self.fold, self.pair, self.recount) {
+        if let (Class::Contains, false, Some(pair), Some(rule)) =
+            (self.class, self.fold, self.pair, self.recount)
+        {
             return self.build_bits_rechecking(dict, region, pair, rule);
         }
         // SAFETY: the dictionary's views are live through the sweep.
@@ -357,11 +428,18 @@ impl<'p> Matcher<'p> {
     /// wasted one, the bytes left estimated from the mean entry so far. A count the rule asks for is taken forward, over
     /// as many bytes of the entries that follow as were read since the last count (entries are not revisited), and the
     /// pair is re-ranked from all the counts once it is complete; a re-rank that keeps the pair ends the re-checks.
-    fn build_bits_rechecking(&self, dict: &dyn Dict, region: &mut Region, start: RarePair, rule: fn(u64, u64, u64, u64) -> bool) -> Result<Bits, BuildError> {
+    fn build_bits_rechecking(
+        &self,
+        dict: &dyn Dict,
+        region: &mut Region,
+        start: RarePair,
+        rule: fn(u64, u64, u64, u64) -> bool,
+    ) -> Result<Bits, BuildError> {
         let (lit, negate, n) = (self.lit, self.negate, dict.ncodes() as u64);
         let mut pair = start;
         let mut counts = [0u64; 256];
-        let (mut counted, mut since, mut rejected, mut pending, mut done, mut read) = (0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
+        let (mut counted, mut since, mut rejected, mut pending, mut done, mut read) =
+            (0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
         let mut settled = false;
         Bits::build(dict, region, &mut |v| {
             // SAFETY: the dictionary's views are live through the sweep.
@@ -376,7 +454,14 @@ impl<'p> Matcher<'p> {
                 let hit = pair.find_counting(lit, s, &mut rejected).is_some();
                 since += s.len() as u64;
                 // the rule is asked after an entry that wasted a candidate; the bytes left come from the mean entry so far
-                if rejected == before || !rule(since, rejected, counted, n.saturating_sub(done).saturating_mul(read / done)) {
+                if rejected == before
+                    || !rule(
+                        since,
+                        rejected,
+                        counted,
+                        n.saturating_sub(done).saturating_mul(read / done),
+                    )
+                {
                     return Ok(hit != negate);
                 }
                 (pending, since, rejected) = (since, 0, 0);
@@ -402,12 +487,19 @@ impl<'p> Matcher<'p> {
     /// hit straddling two entries hides nothing; the other classes compare each span in place. The
     /// pair starts as the static rank's and, under a `recounting` rule, is re-ranked from the
     /// payload's own byte counts when the waste its candidates project pays for counting.
-    pub fn build_bits_over(&self, index: &dyn EntryIndex, payload: &[u8], region: &mut Region) -> Result<Bits, BuildError> {
+    pub fn build_bits_over(
+        &self,
+        index: &dyn EntryIndex,
+        payload: &[u8],
+        region: &mut Region,
+    ) -> Result<Bits, BuildError> {
         let dict = PayloadDict { index, payload };
         if !self.streams() || !dict.ascending() {
             return self.build_bits(&dict, region);
         }
-        Bits::of_hits(&dict, self.negate, region, &mut |set| self.scan_entries(index, payload, set))
+        Bits::of_hits(&dict, self.negate, region, &mut |set| {
+            self.scan_entries(index, payload, set)
+        })
     }
 
     /// Whether `scan_entries` takes this pattern: a contains literal (no fold) or segments.
@@ -440,16 +532,25 @@ impl<'p> Matcher<'p> {
         let (mut counted, mut rejected) = (0usize, 0u64);
         loop {
             let h = match (pair, self.recount) {
-                (Some(p), Some(rule)) => match p.find_rechecking(scan, payload, from, &mut rejected, |at, r| rule(at.saturating_sub(counted) as u64, r, counted as u64, payload.len().saturating_sub(at) as u64)) {
-                    Step::Hit(h) => h,
-                    Step::Recheck(at) => {
-                        count_bytes(&payload[counted..at], &mut counts);
-                        (counted, rejected, from) = (at, 0, at);
-                        pair = RarePair::sampled(scan, &counts).or(pair);
-                        continue;
+                (Some(p), Some(rule)) => {
+                    match p.find_rechecking(scan, payload, from, &mut rejected, |at, r| {
+                        rule(
+                            at.saturating_sub(counted) as u64,
+                            r,
+                            counted as u64,
+                            payload.len().saturating_sub(at) as u64,
+                        )
+                    }) {
+                        Step::Hit(h) => h,
+                        Step::Recheck(at) => {
+                            count_bytes(&payload[counted..at], &mut counts);
+                            (counted, rejected, from) = (at, 0, at);
+                            pair = RarePair::sampled(scan, &counts).or(pair);
+                            continue;
+                        }
+                        Step::End => break,
                     }
-                    Step::End => break,
-                },
+                }
                 _ => match (Seg { lit: scan, pair }).find(payload, from) {
                     Some(h) => h,
                     None => break,
@@ -458,7 +559,9 @@ impl<'p> Matcher<'p> {
             let c = index.code_at(h);
             let (s, l) = index.span(c);
             if h >= s && h + scan.len() <= s + l && Some(c) != index.null_code() {
-                if self.class == Class::Contains || self.segments_hit(&payload[s..(s + l).min(payload.len())]) {
+                if self.class == Class::Contains
+                    || self.segments_hit(&payload[s..(s + l).min(payload.len())])
+                {
                     hit(c);
                 }
                 from = s + l;
@@ -523,7 +626,10 @@ impl Dict for PayloadDict<'_> {
     fn entries(&self, f: &mut dyn FnMut(u32, View)) {
         for c in 0..self.index.ncodes() {
             let (s, l) = self.index.span(c);
-            f(c, View::of(&self.payload[s.min(self.payload.len())..(s + l).min(self.payload.len())]));
+            f(
+                c,
+                View::of(&self.payload[s.min(self.payload.len())..(s + l).min(self.payload.len())]),
+            );
         }
     }
 }
@@ -535,7 +641,13 @@ fn contains_fold(s: &[u8], lit: &[u8]) -> bool {
     let mut from = 0;
     while from + lit.len() <= s.len() {
         let hay = &s[from..s.len() - lit.len() + 1];
-        let Some(off) = (if lo == up { memchr::memchr(lo, hay) } else { memchr::memchr2(lo, up, hay) }) else { return false };
+        let Some(off) = (if lo == up {
+            memchr::memchr(lo, hay)
+        } else {
+            memchr::memchr2(lo, up, hay)
+        }) else {
+            return false;
+        };
         let at = from + off;
         if s[at + 1..at + lit.len()].eq_ignore_ascii_case(&lit[1..]) {
             return true;
@@ -605,7 +717,9 @@ fn match_text<const F: bool>(t: &[u8], p: &[u8]) -> Result<i8, Fault> {
         if rest.is_empty() {
             return Ok(LIKE_ABORT);
         }
-        let Some(at) = scan::<F>(rest, b.firstpat) else { return Ok(LIKE_ABORT) };
+        let Some(at) = scan::<F>(rest, b.firstpat) else {
+            return Ok(LIKE_ABORT);
+        };
         (t, p) = (&rest[at..], b.pat);
         back = Some(Back { at: t, ..b });
     }
@@ -625,7 +739,11 @@ struct Back<'a> {
 /// One MatchText level from `(t, p)`: its verdict, or, at a `%`, the scan's first try continued in
 /// place (`back` holds that `%`), as MatchText's recursive call would run it.
 #[inline(always)]
-fn level<'a, const F: bool>(t: &mut &'a [u8], p: &mut &'a [u8], back: &mut Option<Back<'a>>) -> Result<i8, Fault> {
+fn level<'a, const F: bool>(
+    t: &mut &'a [u8],
+    p: &mut &'a [u8],
+    back: &mut Option<Back<'a>>,
+) -> Result<i8, Fault> {
     while !t.is_empty() && !p.is_empty() {
         if p[0] == b'%' {
             *p = &p[1..];
@@ -657,15 +775,27 @@ fn level<'a, const F: bool>(t: &mut &'a [u8], p: &mut &'a [u8], back: &mut Optio
                 if t.is_empty() || t[0] != firstpat {
                     return Ok(LIKE_ABORT);
                 }
-                *back = Some(Back { at: t, pat: p, firstpat, single: true });
+                *back = Some(Back {
+                    at: t,
+                    pat: p,
+                    firstpat,
+                    single: true,
+                });
                 continue;
             }
             if t.is_empty() {
                 return Ok(LIKE_ABORT);
             }
-            let Some(at) = scan::<F>(t, firstpat) else { return Ok(LIKE_ABORT) };
+            let Some(at) = scan::<F>(t, firstpat) else {
+                return Ok(LIKE_ABORT);
+            };
             *t = &t[at..];
-            *back = Some(Back { at: t, pat: p, firstpat, single: false });
+            *back = Some(Back {
+                at: t,
+                pat: p,
+                firstpat,
+                single: false,
+            });
             continue;
         } else if p[0] == b'_' {
             *t = next_char(t);
@@ -748,7 +878,9 @@ mod d4009 {
                     return Ok(LIKE_ABORT);
                 }
                 while !t.is_empty() {
-                    let Some(at) = scan::<F>(t, firstpat) else { return Ok(LIKE_ABORT) };
+                    let Some(at) = scan::<F>(t, firstpat) else {
+                        return Ok(LIKE_ABORT);
+                    };
                     t = &t[at..];
                     let m = recursive::<F>(t, p)?;
                     if m != LIKE_FALSE {
@@ -807,31 +939,60 @@ mod d4009 {
 
     #[test]
     fn the_iterative_matcher_answers_as_the_recursive_port() {
-        let pat = ["%", "%", "_", "\\", "a", "b", "A", "\u{e9}", "\u{65e5}", "%a", "a_"];
-        let txt = ["a", "b", "A", "B", "\u{e9}", "\u{c9}", "\u{65e5}", "%", "_", "\\"];
+        let pat = [
+            "%", "%", "_", "\\", "a", "b", "A", "\u{e9}", "\u{65e5}", "%a", "a_",
+        ];
+        let txt = [
+            "a", "b", "A", "B", "\u{e9}", "\u{c9}", "\u{65e5}", "%", "_", "\\",
+        ];
         let mut r = Rng(0x9e37_79b9_7f4a_7c15);
         let (mut n, mut faults, mut trues) = (0usize, 0usize, 0usize);
         for _ in 0..200_000 {
             let (p, t) = (word(&mut r, &pat, 9), word(&mut r, &txt, 12));
             for fold in [false, true] {
-                let (got, want) = if fold { (match_text::<true>(&t, &p), recursive::<true>(&t, &p)) } else { (match_text::<false>(&t, &p), recursive::<false>(&t, &p)) };
-                assert_eq!(got, want, "{:?} LIKE {:?} fold {fold}", core::str::from_utf8(&t), core::str::from_utf8(&p));
+                let (got, want) = if fold {
+                    (match_text::<true>(&t, &p), recursive::<true>(&t, &p))
+                } else {
+                    (match_text::<false>(&t, &p), recursive::<false>(&t, &p))
+                };
+                assert_eq!(
+                    got,
+                    want,
+                    "{:?} LIKE {:?} fold {fold}",
+                    core::str::from_utf8(&t),
+                    core::str::from_utf8(&p)
+                );
                 faults += got.is_err() as usize;
                 trues += (got == Ok(LIKE_TRUE)) as usize;
                 n += 1;
             }
         }
-        assert!(faults > 100 && trues > 10_000 && n == 400_000, "the corpus reaches every verdict: {faults} faults, {trues} matches of {n}");
+        assert!(
+            faults > 100 && trues > 10_000 && n == 400_000,
+            "the corpus reaches every verdict: {faults} faults, {trues} matches of {n}"
+        );
     }
 
     #[test]
     fn a_pattern_of_two_hundred_thousand_groups_needs_no_stack() {
         let text: Vec<u8> = core::iter::repeat_n(b'a', 400_000).collect();
-        let deep: Vec<u8> = core::iter::repeat_n(&b"%a"[..], 200_000).flatten().copied().chain([b'%']).collect();
+        let deep: Vec<u8> = core::iter::repeat_n(&b"%a"[..], 200_000)
+            .flatten()
+            .copied()
+            .chain([b'%'])
+            .collect();
         assert_eq!(match_text::<true>(&text, &deep), Ok(LIKE_TRUE));
         assert_eq!(match_text::<false>(&text, &deep), Ok(LIKE_TRUE));
-        let under: Vec<u8> = core::iter::repeat_n(&b"%a_"[..], 200_000).flatten().copied().chain([b'%']).collect();
+        let under: Vec<u8> = core::iter::repeat_n(&b"%a_"[..], 200_000)
+            .flatten()
+            .copied()
+            .chain([b'%'])
+            .collect();
         assert_eq!(match_text::<false>(&text, &under), Ok(LIKE_TRUE));
-        assert_eq!(match_text::<false>(&text[..399_999], &under), Ok(LIKE_ABORT), "one 'a' short");
+        assert_eq!(
+            match_text::<false>(&text[..399_999], &under),
+            Ok(LIKE_ABORT),
+            "one 'a' short"
+        );
     }
 }

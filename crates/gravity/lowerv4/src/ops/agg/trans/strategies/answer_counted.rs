@@ -13,8 +13,8 @@
 //! constant-free tallies too: `x IS NULL`, `x IS NOT NULL`, and a bool column's `b` / `NOT b` from its record's false
 //! tally. Every other aggregate of the fold turns the form off (answer.rs `declare_site`).
 use gravity_abi::ctx::answer;
-use gravity_decompose::ops::shared::agg::{AggDecl, Register as R};
 use gravity_decompose::graph::Op;
+use gravity_decompose::ops::shared::agg::{AggDecl, Register as R};
 use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{IntBinOp, Type, Value};
 use gravity_program::{LaneId, Rep, SiteDesc};
@@ -30,7 +30,10 @@ crate::strategies! {
     ANSWER_COUNTED = 19, "answer.counted", PgrcPlain;
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(ANSWER_COUNTED, &AnswerImpl(&COUNTED))], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(ANSWER_COUNTED, &AnswerImpl(&COUNTED))],
+    ..crate::ops::NONE
+};
 
 struct Counted;
 static COUNTED: Counted = Counted;
@@ -40,7 +43,12 @@ static COUNTED: Counted = Counted;
 pub(crate) use crate::frame::iface::SummaryTally as Pred;
 
 /// The counted qual of pipeline `k`'s plain fold: `(j, x's site lane, the predicate)` of [`qual_at`].
-pub(crate) fn qual(px: &Px<'_, '_>, k: usize, site: &SiteDesc, zoned: u64) -> Option<(usize, usize, Pred)> {
+pub(crate) fn qual(
+    px: &Px<'_, '_>,
+    k: usize,
+    site: &SiteDesc,
+    zoned: u64,
+) -> Option<(usize, usize, Pred)> {
     qual_at(px, k, site, zoned).map(|(j, _, l, pr)| (j, l, pr))
 }
 
@@ -50,14 +58,25 @@ pub(crate) fn qual(px: &Px<'_, '_>, k: usize, site: &SiteDesc, zoned: u64) -> Op
 /// filters and projections. Op `j` may hold other quals only where the source's zone covers it whole (`zoned` bit `j`:
 /// every qual of it a zone predicate the site declares, the counted one tallied); a lone qual takes the form whether or
 /// not it is zoned. `(j, i, x's site lane, the predicate)`.
-pub(crate) fn qual_at(px: &Px<'_, '_>, k: usize, site: &SiteDesc, zoned: u64) -> Option<(usize, usize, usize, Pred)> {
-    if !(px.strategies.has(ANSWER_COUNTED) && crate::face::source::on(crate::admit::refusal::Variant::Strategy(ANSWER_COUNTED))) {
+pub(crate) fn qual_at(
+    px: &Px<'_, '_>,
+    k: usize,
+    site: &SiteDesc,
+    zoned: u64,
+) -> Option<(usize, usize, usize, Pred)> {
+    if !(px.strategies.has(ANSWER_COUNTED)
+        && crate::face::source::on(crate::admit::refusal::Variant::Strategy(ANSWER_COUNTED)))
+    {
         return None;
     }
     let gx = px.gx;
     let p = &gx.pipelines()[k];
     let g = gx.group_at(k)?;
-    if !g.aggs.iter().all(|a| a.filter.is_none() && matches!(a.reg, R::CountStar | R::CountAny)) {
+    if !g
+        .aggs
+        .iter()
+        .all(|a| a.filter.is_none() && matches!(a.reg, R::CountStar | R::CountAny))
+    {
         return None;
     }
     let mut found = None;
@@ -66,8 +85,15 @@ pub(crate) fn qual_at(px: &Px<'_, '_>, k: usize, site: &SiteDesc, zoned: u64) ->
             Op::Project(_) => {}
             Op::Filter(_) if found.is_some() => {}
             Op::Filter(q) => {
-                let qs: PgVec<'_, types_nodes::Node<'_>> = q.as_list().map_or_else(|| mcx::pg_vec![in px.mcx(); *q], |l| l.iter().collect_in(px.mcx()));
-                if let Some((i, (attno, pr))) = qs.iter().enumerate().find_map(|(i, &q)| Some((i, crate::frame::iface::summary_tally(q)?))) {
+                let qs: PgVec<'_, types_nodes::Node<'_>> = q.as_list().map_or_else(
+                    || mcx::pg_vec![in px.mcx(); *q],
+                    |l| l.iter().collect_in(px.mcx()),
+                );
+                if let Some((i, (attno, pr))) = qs
+                    .iter()
+                    .enumerate()
+                    .find_map(|(i, &q)| Some((i, crate::frame::iface::summary_tally(q)?)))
+                {
                     if qs.len() > 1 && !(j < 64 && zoned >> j & 1 == 1) {
                         return None;
                     }
@@ -79,7 +105,10 @@ pub(crate) fn qual_at(px: &Px<'_, '_>, k: usize, site: &SiteDesc, zoned: u64) ->
     }
     let (j, i, attno, pr) = found?;
     let lane = site.lane_index(LaneId::Attr(attno))?;
-    let ok = g.aggs.iter().all(|a| a.reg == R::CountStar || arg_is(px, k, a, attno));
+    let ok = g
+        .aggs
+        .iter()
+        .all(|a| a.reg == R::CountStar || arg_is(px, k, a, attno));
     ok.then_some((j, i, lane, pr))
 }
 
@@ -90,15 +119,30 @@ pub(crate) use crate::frame::iface::SummaryFilterTally as FilterPred;
 /// of pipeline `k`'s plain fold as a counted FILTER, `count(*)` or `count(x)` of the FILTER's own column `x`, whose FILTER
 /// is a predicate `x`'s granule record tallies (pgrc summary.rs `filter_tally`) over a lane of `site`: `(x's lane, the
 /// predicate)`. An answered window's count is then its record's tally (`filtered`), the same rows the FILTER passes.
-pub(crate) fn filter_at(px: &Px<'_, '_>, k: usize, a: &AggDecl<'_>, site: &SiteDesc) -> Option<(usize, FilterPred)> {
+pub(crate) fn filter_at(
+    px: &Px<'_, '_>,
+    k: usize,
+    a: &AggDecl<'_>,
+    site: &SiteDesc,
+) -> Option<(usize, FilterPred)> {
     let f = a.filter?;
     #[allow(clippy::nonminimal_bool)]
-    if !matches!(a.reg, R::CountStar | R::CountAny) || !(px.strategies.has(ANSWER_COUNTED) && crate::face::source::on(crate::admit::refusal::Variant::Strategy(ANSWER_COUNTED))) {
+    if !matches!(a.reg, R::CountStar | R::CountAny)
+        || !(px.strategies.has(ANSWER_COUNTED)
+            && crate::face::source::on(crate::admit::refusal::Variant::Strategy(ANSWER_COUNTED)))
+    {
         return None;
     }
     let col = |n: types_nodes::Node<'_>| {
         let v = n.as_var()?;
-        Some((crate::ops::agg::trans::block_fold::scan_attno(px, k, crate::step::project::bare_var(n)?)?, v.vartype))
+        Some((
+            crate::ops::agg::trans::block_fold::scan_attno(
+                px,
+                k,
+                crate::step::project::bare_var(n)?,
+            )?,
+            v.vartype,
+        ))
     };
     let (attno, pred) = crate::frame::iface::summary_filter_tally(f, &col)?;
     if a.reg == R::CountAny && !arg_is(px, k, a, attno) {
@@ -107,13 +151,21 @@ pub(crate) fn filter_at(px: &Px<'_, '_>, k: usize, a: &AggDecl<'_>, site: &SiteD
     // `IS NULL` of any type, over a by-value word lane (ints, dates, timestamps, bool, floats): the host answers a window
     // only from an exact record (granule_source.rs `part_answered`), never a text or code lane's
     let l = site.lane_index(LaneId::Attr(attno))?;
-    (pred != FilterPred::IsNull || matches!(site.lanes()[l].rep, Rep::Word { .. })).then_some((l, pred))
+    (pred != FilterPred::IsNull || matches!(site.lanes()[l].rep, Rep::Word { .. }))
+        .then_some((l, pred))
 }
 
 /// A counted FILTER's count over an answered window of `rows` rows from lane `lane`'s record (`filter_at`): `x IS NOT
 /// NULL`'s `nonnull`, a bool lane's `b` / `NOT b` from its false tally, `x IS NULL`'s `rows - nonnull` (0 for `count(x)`:
 /// `any`).
-pub(crate) fn filtered(b: &mut FunctionBuilder<'_>, ans: Value, lane: usize, pred: FilterPred, rows: Value, any: bool) -> Value {
+pub(crate) fn filtered(
+    b: &mut FunctionBuilder<'_>,
+    ans: Value,
+    lane: usize,
+    pred: FilterPred,
+    rows: Value,
+    any: bool,
+) -> Value {
     if pred == FilterPred::IsNull && any {
         return b.iconst(Type::I64, 0);
     }
@@ -121,7 +173,8 @@ pub(crate) fn filtered(b: &mut FunctionBuilder<'_>, ans: Value, lane: usize, pre
     let at = (lane * answer::SIZE) as i32;
     let nonnull = |b: &mut FunctionBuilder<'_>| b.load(Type::I64, ans, at + answer::NONNULL as i32);
     // a bool lane's record tallies its false rows (hosts granule_source `answer`)
-    let falses = |b: &mut FunctionBuilder<'_>| b.load(Type::I64, ans, at + answer::FALSE_COUNT as i32);
+    let falses =
+        |b: &mut FunctionBuilder<'_>| b.load(Type::I64, ans, at + answer::FALSE_COUNT as i32);
     match pred {
         FilterPred::NotNull => nonnull(b),
         FilterPred::IsNull => {
@@ -138,9 +191,15 @@ pub(crate) fn filtered(b: &mut FunctionBuilder<'_>, ans: Value, lane: usize, pre
 
 /// `a`'s one argument is scan column `attno`.
 fn arg_is(px: &Px<'_, '_>, k: usize, a: &AggDecl<'_>, attno: i16) -> bool {
-    let Some(r) = a.node.as_aggref() else { return false };
-    let Some(t) = r.args.iter().next().filter(|_| r.args.len() == 1) else { return false };
-    crate::step::project::bare_var(t.as_target_entry().map_or(t, |t| t.expr)).and_then(|c| crate::ops::agg::trans::block_fold::scan_attno(px, k, c)) == Some(attno)
+    let Some(r) = a.node.as_aggref() else {
+        return false;
+    };
+    let Some(t) = r.args.iter().next().filter(|_| r.args.len() == 1) else {
+        return false;
+    };
+    crate::step::project::bare_var(t.as_target_entry().map_or(t, |t| t.expr))
+        .and_then(|c| crate::ops::agg::trans::block_fold::scan_attno(px, k, c))
+        == Some(attno)
 }
 
 /// The rows of an answered window that pass `pred` over lane `lane`, from the lane's record.
@@ -158,8 +217,22 @@ impl AnswerMech for Counted {
     }
 
     /// A count's carry word from the counted lane's record: `nonnull`.
-    fn fold(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, _a: &AggDecl<'_>, acc: Acc<'_>, rec: Value) {
-        let Acc::Regs(w) = acc else { crate::refuse!(env.node, crate::admit::refusal::Reason::Bug { payload: "an answer into a slot" }) };
+    fn fold(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        _a: &AggDecl<'_>,
+        acc: Acc<'_>,
+        rec: Value,
+    ) {
+        let Acc::Regs(w) = acc else {
+            crate::refuse!(
+                env.node,
+                crate::admit::refusal::Reason::Bug {
+                    payload: "an answer into a slot"
+                }
+            )
+        };
         w[0] = counted(b, rec, 0, Pred::NotNull);
     }
 }

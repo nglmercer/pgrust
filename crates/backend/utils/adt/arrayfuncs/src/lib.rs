@@ -23,16 +23,16 @@ pub use construct::{
     array_contains_nulls, array_get_integer_typmods, construct_array, construct_empty_array,
     construct_md_array, deconstruct_array, deconstruct_array_builtin, deconstruct_array_into,
 };
+pub use element::{array_get_element, array_get_slice, array_set_element, array_set_slice};
+pub use expanded::{
+    adopt_transferred, array_get_element_expanded, array_set_element_expanded,
+    datum_get_expanded_array, datum_get_expanded_array_x, deconstruct_expanded_array, expand_array,
+    expand_array_owned, expanded_array, expanded_array_flat_datum, rw_expanded_array,
+    ArrayMetaState, ExpandedArrayHeader, OwnedExpandedArray, EA_MAGIC,
+};
 pub use foundation::{
     arr_data_offset, arr_dim, arr_elemtype, arr_hasnull, arr_lbound, arr_ndim, arr_size,
     read_dims_lbounds, MAXDIM,
-};
-pub use element::{array_get_element, array_get_slice, array_set_element, array_set_slice};
-pub use expanded::{
-    adopt_transferred, array_get_element_expanded, array_set_element_expanded, datum_get_expanded_array,
-    datum_get_expanded_array_x, deconstruct_expanded_array, expand_array, expand_array_owned,
-    expanded_array, expanded_array_flat_datum, rw_expanded_array, ArrayMetaState, ExpandedArrayHeader,
-    OwnedExpandedArray, EA_MAGIC,
 };
 pub use io::{array_in, array_out, array_recv, array_send, ArrayIoMeta};
 pub use ops::{array_cmp, array_eq_internal};

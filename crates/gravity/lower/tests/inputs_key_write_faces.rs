@@ -3,8 +3,8 @@
 #[allow(unused_imports)]
 use std::path::Path;
 
-use gravity_decompose::{corpus, decompose_in, Op, PipelineGraph};
 use gravity_decompose::ops::shared::modifytable::{Member, Target, WriteDesc};
+use gravity_decompose::{corpus, decompose_in, Op, PipelineGraph};
 use gravity_lower::inputs::key::key_and_nodes;
 use gravity_program::Arena;
 use mcx::MemoryContext;
@@ -14,7 +14,11 @@ fn key(g: &PipelineGraph<'_>) -> u128 {
 }
 
 fn write<'a, 'p>(g: &'a mut PipelineGraph<'p>) -> &'a mut WriteDesc<'p> {
-    g.pipelines.iter_mut().flat_map(|p| p.ops.iter_mut()).find_map(|o| if let Op::Write(d) = o { Some(d) } else { None }).unwrap()
+    g.pipelines
+        .iter_mut()
+        .flat_map(|p| p.ops.iter_mut())
+        .find_map(|o| if let Op::Write(d) = o { Some(d) } else { None })
+        .unwrap()
 }
 
 /// The write's target list is shared by its arms (D2483), so an edit to one target replaces the list with an edited copy.
@@ -76,5 +80,9 @@ fn equal_copies_of_a_writes_lists_key_as_the_shared_ones() {
 /// env!()'s path baked in at compile time: a test binary reused from another checkout would read that checkout's files.
 fn manifest_dir() -> &'static std::path::Path {
     static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| std::env::var_os("CARGO_MANIFEST_DIR").map(Into::into).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)"))
+    DIR.get_or_init(|| {
+        std::env::var_os("CARGO_MANIFEST_DIR")
+            .map(Into::into)
+            .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+    })
 }

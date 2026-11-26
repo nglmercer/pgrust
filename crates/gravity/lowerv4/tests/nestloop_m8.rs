@@ -15,8 +15,15 @@ use std::collections::BTreeMap;
 use common::multiset;
 
 fn plan_text(id: &str) -> Option<String> {
-    let rel = id.strip_prefix("regress-full-").map_or_else(|| format!("{id}.plan"), |s| format!("regress-full/{s}.plan"));
-    std::fs::read_to_string(common::plans_dir().join(rel)).ok().or_else(|| std::fs::read_to_string(common::milestone_dir(8).join(format!("{id}.plan"))).ok())
+    let rel = id.strip_prefix("regress-full-").map_or_else(
+        || format!("{id}.plan"),
+        |s| format!("regress-full/{s}.plan"),
+    );
+    std::fs::read_to_string(common::plans_dir().join(rel))
+        .ok()
+        .or_else(|| {
+            std::fs::read_to_string(common::milestone_dir(8).join(format!("{id}.plan"))).ok()
+        })
 }
 
 /// `tests/fixtures/m8/<dir>/*.tsv` as (stem, its non-comment rows); each dir's README says what an entry means.
@@ -25,9 +32,21 @@ fn entries(dir: &str) -> BTreeMap<String, Vec<Vec<String>>> {
     let mut out = BTreeMap::new();
     for e in std::fs::read_dir(&d).unwrap_or_else(|e| panic!("{}: {e}", d.display())) {
         let p = e.expect("dir entry").path();
-        let Some(id) = p.file_name().and_then(|f| f.to_str()).and_then(|f| f.strip_suffix(".tsv")) else { continue };
+        let Some(id) = p
+            .file_name()
+            .and_then(|f| f.to_str())
+            .and_then(|f| f.strip_suffix(".tsv"))
+        else {
+            continue;
+        };
         let t = std::fs::read_to_string(&p).expect("entry file");
-        out.insert(id.to_owned(), t.lines().filter(|l| !l.starts_with('#') && !l.is_empty()).map(|l| l.split('\t').map(str::to_owned).collect()).collect());
+        out.insert(
+            id.to_owned(),
+            t.lines()
+                .filter(|l| !l.starts_with('#') && !l.is_empty())
+                .map(|l| l.split('\t').map(str::to_owned).collect())
+                .collect(),
+        );
     }
     out
 }
@@ -58,21 +77,31 @@ fn seed() -> Vec<(String, String, String)> {
 /// it).
 #[test]
 fn m8_seed_verdicts_and_pins() {
-    let (rows, dir, write) = (seed(), common::milestone_dir(8), std::env::var("LOWERV4_PIN").is_ok_and(|v| v == "write"));
+    let (rows, dir, write) = (
+        seed(),
+        common::milestone_dir(8),
+        std::env::var("LOWERV4_PIN").is_ok_and(|v| v == "write"),
+    );
     let (mut bad, gaps) = (Vec::new(), entries("rig_gaps.d"));
     for (id, src, want) in &rows {
         let text = plan_text(id);
-        let got = text.as_deref().and_then(verdict).unwrap_or_else(|| "not decomposed".to_owned());
+        let got = text
+            .as_deref()
+            .and_then(verdict)
+            .unwrap_or_else(|| "not decomposed".to_owned());
         println!("m8 seed\t{id}\t{src}\t{got}");
         if want == "rig-gap" {
-            let gap = got.starts_with("refused lowerv4: Shape: ") || got.starts_with("refused lowerv4: Bug: seam not installed");
+            let gap = got.starts_with("refused lowerv4: Shape: ")
+                || got.starts_with("refused lowerv4: Bug: seam not installed");
             if !gaps.contains_key(id.as_str()) || !gap {
                 bad.push(format!("{id} ({src}): rig-gap needs a rig_gaps.d entry and a Shape or missing-seam refusal, got {got}"));
             }
         } else if want != "server-only" && got != *want {
             bad.push(format!("{id} ({src}): expected {want}, got {got}"));
         }
-        let Some(Ok(ir)) = text.and_then(|t| write_rig::lower_declared(&t)) else { continue };
+        let Some(Ok(ir)) = text.and_then(|t| write_rig::lower_declared(&t)) else {
+            continue;
+        };
         let pin = dir.join(format!("{id}.ir"));
         match std::fs::read_to_string(&pin) {
             _ if write => std::fs::write(&pin, &ir).unwrap_or_else(|e| panic!("{}: {e}", pin.display())),
@@ -81,7 +110,12 @@ fn m8_seed_verdicts_and_pins() {
         }
     }
     assert!(rows.len() >= MIN_SEED, "{} seed rows", rows.len());
-    assert!(bad.is_empty(), "{} seed rows:\n{}", bad.len(), bad.join("\n"));
+    assert!(
+        bad.is_empty(),
+        "{} seed rows:\n{}",
+        bad.len(),
+        bad.join("\n")
+    );
 }
 
 /// corpus.d's rows at M8-L1 (32 m8x rows + 57 census rows).
@@ -94,12 +128,18 @@ const MIN_SEED: usize = 89;
 #[test]
 fn m8_rows_against_the_oracle() {
     let want: BTreeMap<String, String> = seed().into_iter().map(|(id, _, x)| (id, x)).collect();
-    let host_raise = format!("Raised({})", gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST));
+    let host_raise = format!(
+        "Raised({})",
+        gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST)
+    );
     pgtz::init_seams();
     xact_seams::get_current_sub_transaction_id::set(|| 1);
     pgtz::set_session_timezone(pgtz::pg_tzset_offset(0).expect("UTC offset zone"));
     let (mut ran, mut goldens, mut bad) = (0, 0, Vec::new());
-    for e in common::corpus(&common::milestone_dir(8)).into_iter().filter(|e| e.golden.is_some()) {
+    for e in common::corpus(&common::milestone_dir(8))
+        .into_iter()
+        .filter(|e| e.golden.is_some())
+    {
         goldens += 1;
         for mode in common::MODES {
             let m = common::mode_name(mode);
@@ -110,20 +150,37 @@ fn m8_rows_against_the_oracle() {
                 }
                 Some(Err(w)) if w.contains("host site") => format!("server rig: {w}"),
                 // a named Shape refusal (the lowerer declines the shape; served coverage is v5probe's count): not a wrong answer
-                Some(Err(w)) if w.starts_with("refused: lowerv4: Shape: ") => format!("refused: {}", &w[9..]),
+                Some(Err(w)) if w.starts_with("refused: lowerv4: Shape: ") => {
+                    format!("refused: {}", &w[9..])
+                }
                 // a server-only seed row's host raise (raise::HOST: the crate's fmgr host stashes no error): the server rig's
                 Some(Ok(multiset::Outcome::Error { message, .. }))
-                    if message == host_raise && want.get(&e.name).is_some_and(|w| w == "server-only") => format!("server rig: {message}"),
+                    if message == host_raise
+                        && want.get(&e.name).is_some_and(|w| w == "server-only") =>
+                {
+                    format!("server rig: {message}")
+                }
                 // a served row whose output type common's renderer has no arm for (an array, ..): its lowering is pinned by
                 // m8_seed_verdicts_and_pins, its rows are the server rig's (v4 kept it as claimed debt, D1257)
-                Some(Err(w)) if w.starts_with("out type ") && want.get(&e.name).is_some_and(|w| w == "served") => format!("server rig: {w}"),
+                Some(Err(w))
+                    if w.starts_with("out type ")
+                        && want.get(&e.name).is_some_and(|w| w == "served") =>
+                {
+                    format!("server rig: {w}")
+                }
                 Some(Err(w)) => {
                     bad.push(format!("{} {m}: {w}", e.name));
                     format!("FAILED: {w}")
                 }
                 Some(Ok(got)) => {
                     ran += 1;
-                    common::check(&e, mode, &got).map_or_else(|x| { bad.push(x.clone()); format!("WRONG: {x}") }, |()| "ok".to_owned())
+                    common::check(&e, mode, &got).map_or_else(
+                        |x| {
+                            bad.push(x.clone());
+                            format!("WRONG: {x}")
+                        },
+                        |()| "ok".to_owned(),
+                    )
                 }
             };
             println!("m8 driver\t{}\t{m}\t{v}", e.name);
@@ -131,9 +188,13 @@ fn m8_rows_against_the_oracle() {
     }
     eprintln!("m8 driver: {goldens} PG goldens, {ran} runs compared");
     assert!(goldens >= MIN_GOLDENS, "{goldens} fixtures/m8 goldens");
-    assert!(bad.is_empty(), "{} driver runs:\n{}", bad.len(), bad.join("\n"));
+    assert!(
+        bad.is_empty(),
+        "{} driver runs:\n{}",
+        bad.len(),
+        bad.join("\n")
+    );
 }
 
 /// fixtures/m8's `.pg` goldens at M8-L1.
 const MIN_GOLDENS: usize = 33;
-

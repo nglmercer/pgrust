@@ -108,7 +108,11 @@ impl Depth {
     /// Rows routed by `pbits` partition bits and `depth` sub-splits; `None` past [`ROUTE_BITS`].
     pub const fn new(pbits: u32, depth: u32) -> Option<Depth> {
         let used = pbits as u64 + SPLIT_BITS as u64 * depth as u64;
-        if used <= ROUTE_BITS as u64 { Some(Depth { used: used as u32 }) } else { None }
+        if used <= ROUTE_BITS as u64 {
+            Some(Depth { used: used as u32 })
+        } else {
+            None
+        }
     }
 
     /// The rows of one partition of `pbits` bits.
@@ -118,14 +122,22 @@ impl Depth {
 
     /// One sub-split below this depth; `None` past [`ROUTE_BITS`].
     pub const fn deeper(self) -> Option<Depth> {
-        if self.used + SPLIT_BITS <= ROUTE_BITS { Some(Depth { used: self.used + SPLIT_BITS }) } else { None }
+        if self.used + SPLIT_BITS <= ROUTE_BITS {
+            Some(Depth {
+                used: self.used + SPLIT_BITS,
+            })
+        } else {
+            None
+        }
     }
 
     /// D446: the depth of `used` route bits read back from a table header, where only a `Depth`'s own bits are ever stored
     /// (`set_route_bits`), so `used <= ROUTE_BITS` always holds; a debug build asserts it, a release build never widens past it.
     pub const fn stored(used: u32) -> Depth {
         debug_assert!(used <= ROUTE_BITS, "a table's route bits past ROUTE_BITS");
-        Depth { used: if used <= ROUTE_BITS { used } else { ROUTE_BITS } }
+        Depth {
+            used: if used <= ROUTE_BITS { used } else { ROUTE_BITS },
+        }
     }
 
     /// The route bits consumed.
@@ -186,14 +198,22 @@ impl KeyHash {
     /// The partition among 2^`pbits`: the top `pbits` bits.
     #[inline(always)]
     pub const fn part(self, pbits: u32) -> u32 {
-        if pbits == 0 { 0 } else { (self.0 >> (64 - pbits)) as u32 }
+        if pbits == 0 {
+            0
+        } else {
+            (self.0 >> (64 - pbits)) as u32
+        }
     }
 
     /// The sub-split path after `pbits` partition bits and `depth` splits: the next `SPLIT_BITS · depth` bits.
     #[inline(always)]
     pub const fn sub(self, pbits: u32, depth: u32) -> u64 {
         let n = SPLIT_BITS * depth;
-        if n == 0 { 0 } else { (self.0 << pbits) >> (64 - n) }
+        if n == 0 {
+            0
+        } else {
+            (self.0 << pbits) >> (64 - n)
+        }
     }
 
     /// The child stream (one of 2^`SPLIT_BITS`) of a table at `at` when it splits once more: the next `SPLIT_BITS` bits.
@@ -248,7 +268,9 @@ pub fn hash_bytes64(b: &[u8]) -> u64 {
     let mut h = (b.len() as u64).wrapping_mul(K1) ^ K2;
     let mut rest = b;
     while rest.len() >= 8 {
-        let w = u64::from_le_bytes([rest[0], rest[1], rest[2], rest[3], rest[4], rest[5], rest[6], rest[7]]);
+        let w = u64::from_le_bytes([
+            rest[0], rest[1], rest[2], rest[3], rest[4], rest[5], rest[6], rest[7],
+        ]);
         h = (h ^ w).wrapping_mul(K1).rotate_left(29);
         rest = &rest[8..];
     }
@@ -303,13 +325,18 @@ impl Default for Mix128 {
 
 impl Mix128 {
     pub const fn new() -> Mix128 {
-        Mix128 { lo: 0xcbf2_9ce4_8422_2325, hi: 0x8422_2325_cbf2_9ce4 }
+        Mix128 {
+            lo: 0xcbf2_9ce4_8422_2325,
+            hi: 0x8422_2325_cbf2_9ce4,
+        }
     }
 
     #[inline]
     pub fn word(&mut self, w: u64) {
         self.lo = (self.lo ^ w).wrapping_mul(0x0000_0100_0000_01b3);
-        self.hi = (self.hi ^ w).wrapping_mul(0x9e37_79b9_7f4a_7c15).rotate_left(29);
+        self.hi = (self.hi ^ w)
+            .wrapping_mul(0x9e37_79b9_7f4a_7c15)
+            .rotate_left(29);
     }
 
     fn fmix(mut k: u64) -> u64 {
@@ -322,7 +349,8 @@ impl Mix128 {
 
     /// The 128-bit key: fmix64 of each lane (the low one crossed with the high).
     pub fn key128(&self) -> u128 {
-        ((Mix128::fmix(self.hi) as u128) << 64) | Mix128::fmix(self.lo ^ self.hi.rotate_left(17)) as u128
+        ((Mix128::fmix(self.hi) as u128) << 64)
+            | Mix128::fmix(self.lo ^ self.hi.rotate_left(17)) as u128
     }
 }
 
@@ -422,10 +450,17 @@ fn sip_round(v: &mut [u64; 4]) {
 /// SipHash-2-4-128 keyed by `(k0, k1)`: `[lo, hi]` = the reference's 16 output bytes, little-endian (dict's `siphash128`,
 /// the same bits).
 pub fn siphash128(k0: u64, k1: u64, b: &[u8]) -> [u64; 2] {
-    let mut v = [k0 ^ 0x736f_6d65_7073_6575, k1 ^ 0x646f_7261_6e64_6f6d ^ 0xee, k0 ^ 0x6c79_6765_6e65_7261, k1 ^ 0x7465_6462_7974_6573];
+    let mut v = [
+        k0 ^ 0x736f_6d65_7073_6575,
+        k1 ^ 0x646f_7261_6e64_6f6d ^ 0xee,
+        k0 ^ 0x6c79_6765_6e65_7261,
+        k1 ^ 0x7465_6462_7974_6573,
+    ];
     let mut rest = b;
     while rest.len() >= 8 {
-        let m = u64::from_le_bytes([rest[0], rest[1], rest[2], rest[3], rest[4], rest[5], rest[6], rest[7]]);
+        let m = u64::from_le_bytes([
+            rest[0], rest[1], rest[2], rest[3], rest[4], rest[5], rest[6], rest[7],
+        ]);
         v[3] ^= m;
         sip_round(&mut v);
         sip_round(&mut v);

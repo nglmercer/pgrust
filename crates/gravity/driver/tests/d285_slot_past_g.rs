@@ -27,19 +27,31 @@ fn run_exhausted(headroom: u64) -> (Result<u64>, u64, Vec<Vec<u64>>) {
     let program = Arc::new(p_count(4));
     let grant = Grant::of(1 << 20);
     POOL.arm(footprint(grant, &program, 1) + headroom);
-    let res = std::rc::Rc::new(POOL.admit_need(grant, &|g| footprint(g, &program, 1), Duration::from_millis(10)).expect("admitted"));
+    let res = std::rc::Rc::new(
+        POOL.admit_need(
+            grant,
+            &|g| footprint(g, &program, 1),
+            Duration::from_millis(10),
+        )
+        .expect("admitted"),
+    );
     let table = RangeTable::new(24, 10);
     let mut derive = FakeDerive::ranges(table);
     let mut entry = Entry::new(2);
     let flag = AtomicU8::new(0);
     let mut sink = LegSink::new();
     let mut b = binding(&[100], &NULLS, &mut sink, &flag);
-    let mut exec = entry.start(None, &program, &mut derive, &mut b, res.clone()).expect("started");
+    let mut exec = entry
+        .start(None, &program, &mut derive, &mut b, res.clone())
+        .expect("started");
 
     // G's room gone, as an owner placed again past the grant leaves it
     let carved = res.hold(res.left()).expect("G's room held");
     assert_eq!(res.left(), 0);
-    assert!(res.hold(1).is_none(), "Reservation::hold stays bounded by G");
+    assert!(
+        res.hold(1).is_none(),
+        "Reservation::hold stays bounded by G"
+    );
     let grown = res.grown();
     let r = entry.run_to_end(&mut exec, &mut b);
     entry.end(exec, r.is_ok());
@@ -50,7 +62,11 @@ fn run_exhausted(headroom: u64) -> (Result<u64>, u64, Vec<Vec<u64>>) {
     drop(res);
     REGIONS.trim();
     gravity_driver::DEPOT.trim();
-    assert_eq!(POOL.held(), 0, "every byte back at the statement's end (headroom {headroom})");
+    assert_eq!(
+        POOL.held(),
+        0,
+        "every byte back at the statement's end (headroom {headroom})"
+    );
     POOL.arm(0);
     (r, grown, sink.sorted())
 }
@@ -58,14 +74,28 @@ fn run_exhausted(headroom: u64) -> (Result<u64>, u64, Vec<Vec<u64>>) {
 #[test]
 fn a_serial_statements_slot_region_opens_past_an_exhausted_g_and_fails_cleanly_without_pool_room() {
     let (r, grown, rows) = run_exhausted(256 << 20);
-    assert!(r.is_ok(), "the slot regions open past G (D285), never out of memory: {r:?}");
+    assert!(
+        r.is_ok(),
+        "the slot regions open past G (D285), never out of memory: {r:?}"
+    );
     assert!(grown > 0, "the slot regions past G are counted as grown");
-    assert_eq!(rows, vec![vec![100, (0..100).sum::<u64>()]], "the count, as PG's");
+    assert_eq!(
+        rows,
+        vec![vec![100, (0..100).sum::<u64>()]],
+        "the count, as PG's"
+    );
 
     // no room past G in the pool either: PG's out of memory within the bounded wait, nothing kept
     let t0 = Instant::now();
     let (r, _, rows) = run_exhausted(0);
-    assert!(matches!(r, Err(Error::OutOfMemory { .. })), "53200 when the pool has no room past G: {r:?}");
-    assert!(t0.elapsed() < Duration::from_secs(30), "the pool's wait is bounded ({:?})", t0.elapsed());
+    assert!(
+        matches!(r, Err(Error::OutOfMemory { .. })),
+        "53200 when the pool has no room past G: {r:?}"
+    );
+    assert!(
+        t0.elapsed() < Duration::from_secs(30),
+        "the pool's wait is bounded ({:?})",
+        t0.elapsed()
+    );
     assert!(rows.is_empty());
 }

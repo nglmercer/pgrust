@@ -38,6 +38,10 @@ fn a_table_lane_past_the_windows_data_lanes_reads() {
     ctx.sites = &mut site;
     ctx.nsites = 1;
     // SAFETY: the ctx's one site is bound above; lane 4 is a filled table.
-    assert_eq!(unsafe { agg_table_ncodes((&mut *ctx) as *mut _ as u64, 0, 4) }, 11, "the table's code count, no assert");
+    assert_eq!(
+        unsafe { agg_table_ncodes((&mut *ctx) as *mut _ as u64, 0, 4) },
+        11,
+        "the table's code count, no assert"
+    );
     assert_eq!(site.nlanes, 3);
 }

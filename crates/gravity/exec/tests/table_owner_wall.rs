@@ -13,11 +13,16 @@ use std::time::Duration;
 use common::*;
 use gravity_abi::breaker::ORDER_NONE;
 use gravity_abi::hash::KeyHash;
-use gravity_driver::{footprint, Entry, Grant, OWN_GATED, OWN_PIN_GIVEN, OWN_SPILLED, OWN_SPLIT, POOL, TEST_OWNER_WALL};
+use gravity_driver::{
+    footprint, Entry, Grant, OWN_GATED, OWN_PIN_GIVEN, OWN_SPILLED, OWN_SPLIT, POOL,
+    TEST_OWNER_WALL,
+};
 use gravity_kernels::table::params as par_hashagg;
 use gravity_kernels::table::params::{DEFAULT_PARAMS, PARAM_SPILL_BITS, PARAM_TOPK_N};
 use gravity_parallel::{FixturePool, HashAggPartial};
-use gravity_program::{hand as programs, Code, End, OutCol, OwnerDesc, Pipeline, Program, Reason, SiteDesc, WritePlan};
+use gravity_program::{
+    hand as programs, Code, End, OutCol, OwnerDesc, Pipeline, Program, Reason, SiteDesc, WritePlan,
+};
 
 static LOCK: Mutex<()> = Mutex::new(());
 /// The last `run_fault`'s resident peak (`Reservation::resident_peak`: the most its Node held at once at a section close).
@@ -55,12 +60,34 @@ fn declared(rows: u64, d: OwnerDesc) -> Program {
 fn declared_groups(rows: u64, d: OwnerDesc, groups: u64) -> Program {
     let st = gravity_program::Arena::new(1 << 12);
     let sites = [SiteDesc::range_source(st.handle(), T_KV, &[1, 2])];
-    let out = [OutCol::new("k", programs::INT4, -1, 4, true).origin(T_KV, 1), OutCol::new("sum", programs::INT8, -1, 8, true), OutCol::new("count", programs::INT8, -1, 8, true)];
-    let pipes = [
-        (Pipeline::eligible(0, End::Breaker(par_hashagg::breaker(groups)), rows).owner(d), Code::hand(par_hashagg::par_hashagg)),
-        (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), Code::hand(par_hashagg::par_hashagg_emit)),
+    let out = [
+        OutCol::new("k", programs::INT4, -1, 4, true).origin(T_KV, 1),
+        OutCol::new("sum", programs::INT8, -1, 8, true),
+        OutCol::new("count", programs::INT8, -1, 8, true),
     ];
-    Program::with_pipelines(gravity_program::Layout { nsites: 1, out_natts: 3, out_rows: 16, scratch_bytes: 0, exec_bytes: 0 }, &sites, &out, WritePlan::SELECT, pipes)
+    let pipes = [
+        (
+            Pipeline::eligible(0, End::Breaker(par_hashagg::breaker(groups)), rows).owner(d),
+            Code::hand(par_hashagg::par_hashagg),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            Code::hand(par_hashagg::par_hashagg_emit),
+        ),
+    ];
+    Program::with_pipelines(
+        gravity_program::Layout {
+            nsites: 1,
+            out_natts: 3,
+            out_rows: 16,
+            scratch_bytes: 0,
+            exec_bytes: 0,
+        },
+        &sites,
+        &out,
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
 /// Every row its own group: 4000 groups, a one owner of several walls.
@@ -108,19 +135,39 @@ fn run(gen: fn(u64) -> Option<[i64; 2]>, w: u16) -> (gravity_driver::Result<()>,
 }
 
 /// `run` of a top-`topk` owner (0: the runs form, every group).
-fn run_top(gen: fn(u64) -> Option<[i64; 2]>, w: u16, topk: u32) -> (gravity_driver::Result<()>, u64) {
+fn run_top(
+    gen: fn(u64) -> Option<[i64; 2]>,
+    w: u16,
+    topk: u32,
+) -> (gravity_driver::Result<()>, u64) {
     run_pool(gen, w, topk, 256 << 20, (40, 100), WALL)
 }
 
 /// `run_top` with the pool armed `slack` bytes past the statement's admitted need (D491: a small pool).
-fn run_pool(gen: fn(u64) -> Option<[i64; 2]>, w: u16, topk: u32, slack: u64, shape: (u64, u64), wall: usize) -> (gravity_driver::Result<()>, u64) {
+fn run_pool(
+    gen: fn(u64) -> Option<[i64; 2]>,
+    w: u16,
+    topk: u32,
+    slack: u64,
+    shape: (u64, u64),
+    wall: usize,
+) -> (gravity_driver::Result<()>, u64) {
     run_fault(gen, w, topk, slack, shape, wall, 0, 0)
 }
 
 /// `run_pool` under the forced-spill test fault (`Grant::spill_every`: every `every`th room ask refused; 0 = off), its
 /// grant carrying the one-owner wall `owner_wall` (D4078's admission snapshot, `Grant::owner_wall`; 0 = the format's).
 #[allow(clippy::too_many_arguments)]
-fn run_fault(gen: fn(u64) -> Option<[i64; 2]>, w: u16, topk: u32, slack: u64, (morsels, per): (u64, u64), wall: usize, every: u32, owner_wall: u64) -> (gravity_driver::Result<()>, u64) {
+fn run_fault(
+    gen: fn(u64) -> Option<[i64; 2]>,
+    w: u16,
+    topk: u32,
+    slack: u64,
+    (morsels, per): (u64, u64),
+    wall: usize,
+    every: u32,
+    owner_wall: u64,
+) -> (gravity_driver::Result<()>, u64) {
     let table = FixtureTable::new(T_KV, morsels, per, gen);
     let mut derive = FixtureDerive::new(&[&table]);
     let pool = FixturePool::new(w.max(4));
@@ -131,12 +178,18 @@ fn run_fault(gen: fn(u64) -> Option<[i64; 2]>, w: u16, topk: u32, slack: u64, (m
         g.0 += v;
         g.1 += 1;
     }
-    let mut expect: Vec<Vec<u64>> = groups.iter().map(|(k, (s, c))| vec![*k as u64, *s as u64, *c as u64]).collect();
+    let mut expect: Vec<Vec<u64>> = groups
+        .iter()
+        .map(|(k, (s, c))| vec![*k as u64, *s as u64, *c as u64])
+        .collect();
     if topk > 0 {
         // the top-k form keeps the k least keys (owner_leader's `top-k` form)
         expect.truncate(topk as usize);
     }
-    let d = OwnerDesc { groups: 100, ..OwnerDesc::generic(par_hashagg::LAYOUT, ORDER_NONE, topk) };
+    let d = OwnerDesc {
+        groups: 100,
+        ..OwnerDesc::generic(par_hashagg::LAYOUT, ORDER_NONE, topk)
+    };
     let program = Arc::new(declared(4000, d));
     let mut params = DEFAULT_PARAMS;
     params[PARAM_SPILL_BITS] = PBITS as u64;
@@ -145,13 +198,43 @@ fn run_fault(gen: fn(u64) -> Option<[i64; 2]>, w: u16, topk: u32, slack: u64, (m
     let mut sink = LegSink::new(true);
     let splits = OWN_SPLIT.load(Ordering::Relaxed);
     TEST_OWNER_WALL.store(wall, Ordering::Relaxed);
-    let grant = Grant::of(1 << 20).with_spill_every(every).with_owner_wall(owner_wall);
+    let grant = Grant::of(1 << 20)
+        .with_spill_every(every)
+        .with_owner_wall(owner_wall);
     let need = footprint(grant, &program, w);
     POOL.arm(need + slack);
-    let lease = Rc::new(POOL.admit_need(grant, &|g| footprint(g, &program, w), Duration::from_millis(10)).unwrap());
+    let lease = Rc::new(
+        POOL.admit_need(
+            grant,
+            &|g| footprint(g, &program, w),
+            Duration::from_millis(10),
+        )
+        .unwrap(),
+    );
     let r = {
-        let plan = Keyed { inner: FixturePlan::new(&program, &derive, w, 33), merge: HashAggPartial::new(0, Some(gravity_exec::table::owner::bind(&d, &mut params.clone(), PBITS, None))) };
-        run_planned_in(&mut entry, &program, &mut derive, &pool, &plan, lease.clone(), &params, &NO_ABORT, &mut sink)
+        let plan = Keyed {
+            inner: FixturePlan::new(&program, &derive, w, 33),
+            merge: HashAggPartial::new(
+                0,
+                Some(gravity_exec::table::owner::bind(
+                    &d,
+                    &mut params.clone(),
+                    PBITS,
+                    None,
+                )),
+            ),
+        };
+        run_planned_in(
+            &mut entry,
+            &program,
+            &mut derive,
+            &pool,
+            &plan,
+            lease.clone(),
+            &params,
+            &NO_ABORT,
+            &mut sink,
+        )
     };
     PEAK.store(lease.resident_peak(), Ordering::Relaxed);
     drop(lease);
@@ -180,7 +263,10 @@ fn d485_a_one_round_owner_past_the_wall_splits_into_serial_owners_and_returns_ev
 fn d485_a_hot_partition_overflows_its_owner_and_reruns_at_twice_the_owners() {
     let _g = LOCK.lock().unwrap_or_else(|p| p.into_inner());
     install_mem_spill();
-    let hot = skew_keys(600).iter().filter(|&&k| KeyHash::of(&[k as u64]).part(PBITS as u32) == 0).count();
+    let hot = skew_keys(600)
+        .iter()
+        .filter(|&&k| KeyHash::of(&[k as u64]).part(PBITS as u32) == 0)
+        .count();
     assert_eq!(hot, 600, "the crafted keys route where they say");
     let (r, splits) = run(gen_hot, 1);
     r.unwrap_or_else(|e| panic!("W1: {e:?}"));
@@ -192,7 +278,9 @@ fn d485_a_partition_past_a_wall_sized_owner_is_a_named_refusal_never_kind_2() {
     let _g = LOCK.lock().unwrap_or_else(|p| p.into_inner());
     install_mem_spill();
     match run(gen_too_hot, 1) {
-        (Err(gravity_driver::Error::Refused(why)), _) => assert!(why.contains("one-owner wall"), "{why}"),
+        (Err(gravity_driver::Error::Refused(why)), _) => {
+            assert!(why.contains("one-owner wall"), "{why}")
+        }
         (other, _) => panic!("W1: {other:?}"),
     }
 }
@@ -221,7 +309,10 @@ fn d485_a_runs_form_table_that_fills_mid_fold_splits_and_returns_every_group() {
     for r in 0..4000u64 {
         per[KeyHash::of(&[gen_wide(r).unwrap()[0] as u64]).part(PBITS as u32) as usize] += 1;
     }
-    assert!(per.iter().all(|&n| n > slots), "every partition past a 4 KiB table ({slots} slots): {per:?}");
+    assert!(
+        per.iter().all(|&n| n > slots),
+        "every partition past a 4 KiB table ({slots} slots): {per:?}"
+    );
     OWNER_TABLE_CAP.store(4 << 10, Ordering::Relaxed);
     let (r, _) = run(gen_wide, 1);
     OWNER_TABLE_CAP.store(64 << 20, Ordering::Relaxed);
@@ -241,8 +332,14 @@ fn d491_serial_owners_past_a_small_pool_fold_into_a_mapped_temp_file_and_return_
             let spilled = OWN_SPILLED.load(Ordering::Relaxed);
             let (r, splits) = run_pool(gen_wide, w, 0, slack, (400, 1000), 1 << 20);
             r.unwrap_or_else(|e| panic!("W{w} pool need + {slack}: {e:?}"));
-            assert!(splits >= 1, "W{w} pool need + {slack}: the one owner split past the wall");
-            assert!(OWN_SPILLED.load(Ordering::Relaxed) > spilled, "W{w} pool need + {slack}: the refused chunk was mapped");
+            assert!(
+                splits >= 1,
+                "W{w} pool need + {slack}: the one owner split past the wall"
+            );
+            assert!(
+                OWN_SPILLED.load(Ordering::Relaxed) > spilled,
+                "W{w} pool need + {slack}: the refused chunk was mapped"
+            );
         }
     }
 }
@@ -256,16 +353,31 @@ fn an_owner_region_past_the_grant_under_the_forced_fault_is_mapped_and_returns_e
     let _g = LOCK.lock().unwrap_or_else(|p| p.into_inner());
     install_mem_spill();
     for w in [1u16, 8] {
-        let census = || (OWN_GATED.load(Ordering::Relaxed), OWN_SPILLED.load(Ordering::Relaxed));
+        let census = || {
+            (
+                OWN_GATED.load(Ordering::Relaxed),
+                OWN_SPILLED.load(Ordering::Relaxed),
+            )
+        };
         let before = census();
         let (r, _) = run_fault(gen_wide, w, 0, 256 << 20, (400, 1000), 0, 0, 0);
         r.unwrap_or_else(|e| panic!("W{w} fault off: {e:?}"));
-        assert_eq!(census(), before, "W{w} fault off: no owner draw gated, none mapped");
+        assert_eq!(
+            census(),
+            before,
+            "W{w} fault off: no owner draw gated, none mapped"
+        );
         let (r, _) = run_fault(gen_wide, w, 0, 256 << 20, (400, 1000), 0, 1, 0);
         r.unwrap_or_else(|e| panic!("W{w} fault on: {e:?}"));
         let after = census();
-        assert!(after.0 > before.0, "W{w} fault on: an owner draw was refused");
-        assert!(after.1 > before.1, "W{w} fault on: the refused owner region was mapped from a temp file");
+        assert!(
+            after.0 > before.0,
+            "W{w} fault on: an owner draw was refused"
+        );
+        assert!(
+            after.1 > before.1,
+            "W{w} fault on: the refused owner region was mapped from a temp file"
+        );
     }
 }
 
@@ -283,17 +395,39 @@ fn d4078_the_admitted_owner_wall_splits_the_one_owner_and_bounds_its_footprint_p
         let spilled = OWN_SPILLED.load(Ordering::Relaxed);
         let (r, splits) = run_fault(gen_wide, w, 0, 4 << 20, (400, 1000), 0, 0, 1 << 20);
         r.unwrap_or_else(|e| panic!("W{w}: {e:?}"));
-        assert!(splits >= 1, "W{w}: the one owner split past the admitted wall");
-        assert!(OWN_SPILLED.load(Ordering::Relaxed) > spilled, "W{w}: the refused chunk was mapped");
+        assert!(
+            splits >= 1,
+            "W{w}: the one owner split past the admitted wall"
+        );
+        assert!(
+            OWN_SPILLED.load(Ordering::Relaxed) > spilled,
+            "W{w}: the refused chunk was mapped"
+        );
     }
-    let d = OwnerDesc { groups: 100, ..OwnerDesc::generic(par_hashagg::LAYOUT, ORDER_NONE, 0) };
+    let d = OwnerDesc {
+        groups: 100,
+        ..OwnerDesc::generic(par_hashagg::LAYOUT, ORDER_NONE, 0)
+    };
     let program = declared_groups(1 << 32, d, 1 << 30);
     let grant = Grant::of(1 << 20);
     let walled = grant.with_owner_wall(256 << 20);
-    assert_eq!(walled.trimmed(1 << 19).owner_wall, 256 << 20, "a trim keeps the wall");
-    let (format, statement) = (footprint(grant, &program, 1), footprint(walled, &program, 1));
-    assert!(format >= u32::MAX as u64 & !7, "the format's wall: the serial owner pin at ~4 GiB ({format})");
-    assert!(statement < format - (3 << 30) && statement >= 256 << 20, "the statement's wall bounds the pin ({statement} of {format})");
+    assert_eq!(
+        walled.trimmed(1 << 19).owner_wall,
+        256 << 20,
+        "a trim keeps the wall"
+    );
+    let (format, statement) = (
+        footprint(grant, &program, 1),
+        footprint(walled, &program, 1),
+    );
+    assert!(
+        format >= u32::MAX as u64 & !7,
+        "the format's wall: the serial owner pin at ~4 GiB ({format})"
+    );
+    assert!(
+        statement < format - (3 << 30) && statement >= 256 << 20,
+        "the statement's wall bounds the pin ({statement} of {format})"
+    );
 }
 
 /// D4078 (ADMITFP (A)): a one-round owner whose round 1 overflows at its statement's wall and then splits gives the region
@@ -311,9 +445,18 @@ fn d4078_a_round_one_past_the_statement_wall_is_given_back_before_the_split_pins
         let given = OWN_PIN_GIVEN.load(Ordering::Relaxed);
         let (r, splits) = run_fault(gen_wide, w, 0, slack, (400, 1000), 0, 0, sw);
         r.unwrap_or_else(|e| panic!("W{w}: {e:?}"));
-        let (peak, given) = (PEAK.load(Ordering::Relaxed), OWN_PIN_GIVEN.load(Ordering::Relaxed) - given);
+        let (peak, given) = (
+            PEAK.load(Ordering::Relaxed),
+            OWN_PIN_GIVEN.load(Ordering::Relaxed) - given,
+        );
         eprintln!("d4078 (A): W{w} statement wall {sw}: splits {splits} given {given} peak {peak}");
-        assert!(splits >= 1, "W{w}: the one owner split past the statement's wall");
-        assert!(given >= sw, "W{w}: the round-1 region ({sw} bytes) given back before the split's pin: {given}");
+        assert!(
+            splits >= 1,
+            "W{w}: the one owner split past the statement's wall"
+        );
+        assert!(
+            given >= sw,
+            "W{w}: the round-1 region ({sw} bytes) given back before the split's pin: {given}"
+        );
     }
 }

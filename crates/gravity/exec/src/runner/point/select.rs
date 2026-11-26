@@ -45,39 +45,80 @@ pub(super) fn shape<'p>(p: &PlannedStmt<'p>) -> Verdict<'p> {
     let Some(scan) = p.planTree.and_then(|n| n.as_index_scan()) else {
         return Verdict::Not;
     };
-    let plain = p.commandType == CmdType::CMD_SELECT && p.utilityStmt.is_none() && p.canSetTag && !p.hasReturning && !p.hasModifyingCTE;
-    let empty = p.rowMarks.is_nil() && p.subplans.is_nil() && p.paramExecTypes.is_nil() && p.resultRelations.is_nil() && !p.parallelModeNeeded;
+    let plain = p.commandType == CmdType::CMD_SELECT
+        && p.utilityStmt.is_none()
+        && p.canSetTag
+        && !p.hasReturning
+        && !p.hasModifyingCTE;
+    let empty = p.rowMarks.is_nil()
+        && p.subplans.is_nil()
+        && p.paramExecTypes.is_nil()
+        && p.resultRelations.is_nil()
+        && !p.parallelModeNeeded;
     if !(plain && empty) {
         return Verdict::Declined("statement");
     }
-    let Some(rte) = (p.rtable.len() == 1).then(|| p.rtable.nth(0).as_range_tbl_entry()).flatten() else {
+    let Some(rte) = (p.rtable.len() == 1)
+        .then(|| p.rtable.nth(0).as_range_tbl_entry())
+        .flatten()
+    else {
         return Verdict::Declined("range table");
     };
-    if rte.rtekind != RTEKind::RTE_RELATION || rte.inh || !rte.securityQuals.is_nil() || scan.scan.scanrelid != 1 {
+    if rte.rtekind != RTEKind::RTE_RELATION
+        || rte.inh
+        || !rte.securityQuals.is_nil()
+        || scan.scan.scanrelid != 1
+    {
         return Verdict::Declined("range table");
     }
     let plan = &scan.scan.plan;
-    let bare = plan.lefttree.is_none() && plan.righttree.is_none() && plan.initPlan.is_nil() && plan.qual.is_nil() && scan.indexorderby.is_nil();
+    let bare = plan.lefttree.is_none()
+        && plan.righttree.is_none()
+        && plan.initPlan.is_nil()
+        && plan.qual.is_nil()
+        && scan.indexorderby.is_nil();
     if !bare || scan.indexqual.is_nil() {
         return Verdict::Declined("plan");
     }
-    if plan.targetlist.is_nil() || !plan.targetlist.iter().all(|t| t.as_target_entry().is_some_and(entry)) {
+    if plan.targetlist.is_nil()
+        || !plan
+            .targetlist
+            .iter()
+            .all(|t| t.as_target_entry().is_some_and(entry))
+    {
         return Verdict::Declined("target list");
     }
-    Verdict::Take(Shape { scan, relid: rte.relid, lockmode: rte.rellockmode })
+    Verdict::Take(Shape {
+        scan,
+        relid: rte.relid,
+        lockmode: rte.rellockmode,
+    })
 }
 
 /// A target entry S1 projects: a column of the scanned table (not a system column or the whole row) or a constant, with
 /// a name the wire's out row holds and a type it has a form for (no cstring, as S0a and the lowering's `col_of`).
 fn entry(te: &TargetEntry<'_>) -> bool {
-    let named = !te.resjunk && te.resname.is_none_or(|n| n.len() < gravity_program::program::NAME_LEN) && !cstring(te);
-    let column = te.expr.as_var().is_some_and(|v| v.varno == 1 && v.varattno > 0 && v.varlevelsup == 0);
+    let named = !te.resjunk
+        && te
+            .resname
+            .is_none_or(|n| n.len() < gravity_program::program::NAME_LEN)
+        && !cstring(te);
+    let column = te
+        .expr
+        .as_var()
+        .is_some_and(|v| v.varno == 1 && v.varattno > 0 && v.varlevelsup == 0);
     named && (column || te.expr.as_const().is_some())
 }
 
 /// The table's and the index's tests (`None`: S1 takes them): `rel::table_refusal`, the index the table's, and a point
 /// probe's (`probe::index_refusal`, the keys' values from `params`, their properties into `ops`).
-pub(super) fn relation_refusal(heap: &Relation<'_>, index: &Relation<'_>, s: &Shape<'_>, params: &[ParamExternData], ops: &mut probe::KeyOps) -> PgResult<Option<&'static str>> {
+pub(super) fn relation_refusal(
+    heap: &Relation<'_>,
+    index: &Relation<'_>,
+    s: &Shape<'_>,
+    params: &[ParamExternData],
+    ops: &mut probe::KeyOps,
+) -> PgResult<Option<&'static str>> {
     if let Some(why) = rel::table_refusal(heap) {
         return Ok(Some(why));
     }
@@ -89,7 +130,11 @@ pub(super) fn relation_refusal(heap: &Relation<'_>, index: &Relation<'_>, s: &Sh
 
 /// Hook B for an index scan statement: `None` leaves it to Gravity, unchanged. `hit`: S5 served the plan from its memo
 /// slot, which keeps the run's pieces (keep.rs `ProbeKept`).
-pub(super) fn serve(pstmt: &PlannedStmt<'_>, dest: &mut DestReceiver<'_>, hit: Option<skip::Hit>) -> Option<PgResult<Option<QueryCompletion>>> {
+pub(super) fn serve(
+    pstmt: &PlannedStmt<'_>,
+    dest: &mut DestReceiver<'_>,
+    hit: Option<skip::Hit>,
+) -> Option<PgResult<Option<QueryCompletion>>> {
     let s = match shape(pstmt) {
         Verdict::Not => return None,
         Verdict::Declined(why) => return declined(why),
@@ -97,14 +142,22 @@ pub(super) fn serve(pstmt: &PlannedStmt<'_>, dest: &mut DestReceiver<'_>, hit: O
     };
     // `strict` raises only where hook A built a plan Gravity would then run (S0a); S1 serves the planner's own plan, so a
     // decline here is a word in the log, in every mode
-    if let Some(why) = super::runtime_refusal(dest.mydest()).or_else(|| xact::IsolationIsSerializable().then_some("serializable")) {
+    if let Some(why) = super::runtime_refusal(dest.mydest())
+        .or_else(|| xact::IsolationIsSerializable().then_some("serializable"))
+    {
         return declined(why);
     }
     // D4572: a slot whose pieces found no room runs as with pgrust.point_keep off (`skip::Taken::NoRoom`)
     let taken = hit.map(|h| (h, skip::take_kept(&h)));
     let r = with_run(|mcx, wire| match taken {
-        Some((h, skip::Taken::Kept(kb))) if keep::probe_ids(&kb) == Some((s.relid, s.scan.indexid)) => run_kept(pstmt, &s, mcx, wire, h, kb, None).map(Ok),
-        Some((h, skip::Taken::Kept(_) | skip::Taken::Make)) => make_and_run(pstmt, &s, mcx, wire, h),
+        Some((h, skip::Taken::Kept(kb)))
+            if keep::probe_ids(&kb) == Some((s.relid, s.scan.indexid)) =>
+        {
+            run_kept(pstmt, &s, mcx, wire, h, kb, None).map(Ok)
+        }
+        Some((h, skip::Taken::Kept(_) | skip::Taken::Make)) => {
+            make_and_run(pstmt, &s, mcx, wire, h)
+        }
         Some((_, skip::Taken::NoRoom)) | None => run_in(pstmt, &s, mcx, wire),
     });
     let r = match r {
@@ -115,7 +168,7 @@ pub(super) fn serve(pstmt: &PlannedStmt<'_>, dest: &mut DestReceiver<'_>, hit: O
     if super::reporting() {
         super::report(&match &r {
             Ok(qc) => format!("served select rows={}", qc.nprocessed), // alloc: Cold
-            Err(_) => "served select error".to_string(),                // alloc: Cold
+            Err(_) => "served select error".to_string(),               // alloc: Cold
         });
     }
     Some(r.map(Some))
@@ -133,16 +186,25 @@ fn declined(why: &str) -> Option<PgResult<Option<QueryCompletion>>> {
 /// (`index_lockmode`), the table's and the index's tests (`Err` with the reason: nothing was sent, Gravity serves it), then
 /// ExecutorStart's checks and the keys' EXECUTE gates (`probe::key_gates`), then ExecutorRun: the RowDescription, the probe,
 /// one DataRow per row built in the run context (`send_row_in`), SELECT n.
-fn run_in<'m>(pstmt: &PlannedStmt<'_>, s: &Shape<'_>, mcx: Mcx<'m>, wire: &mut gravity_wire::WireNode) -> PgResult<Result<QueryCompletion, &'static str>> {
+fn run_in<'m>(
+    pstmt: &PlannedStmt<'_>,
+    s: &Shape<'_>,
+    mcx: Mcx<'m>,
+    wire: &mut gravity_wire::WireNode,
+) -> PgResult<Result<QueryCompletion, &'static str>> {
     let heap = table::table_open(mcx, s.relid, NoLock)?;
     let index = indexam::index_open(mcx, s.scan.indexid, index_lockmode(s))?;
     let mut ops: probe::KeyOps = [(0, 0); types_core::fmgr::INDEX_MAX_KEYS as usize];
     let r = match relation_refusal(&heap, &index, s, &[], &mut ops) {
         Ok(Some(why)) => Ok(Err(why)),
-        Ok(None) => exec_in(pstmt, mcx, |_| probe_rows(s, mcx, wire, &heap, &index, &ops)).map(|n| Ok(gravity_wire::completion(Cmd::Select, n))),
+        Ok(None) => exec_in(pstmt, mcx, |_| {
+            probe_rows(s, mcx, wire, &heap, &index, &ops)
+        })
+        .map(|n| Ok(gravity_wire::completion(Cmd::Select, n))),
         Err(e) => Err(e),
     };
-    let closed = indexam::index_close(index, NoLock).and_then(|()| table::table_close(heap, NoLock));
+    let closed =
+        indexam::index_close(index, NoLock).and_then(|()| table::table_close(heap, NoLock));
     let r = r?;
     closed?;
     Ok(r)
@@ -150,20 +212,47 @@ fn run_in<'m>(pstmt: &PlannedStmt<'_>, s: &Shape<'_>, mcx: Mcx<'m>, wire: &mut g
 
 /// The pieces a memo slot keeps for its SELECT (`ProbeKept::make`: `run_in`'s opens and tests, what they read recorded
 /// into the slot's reads), then the run over them.
-fn make_and_run(pstmt: &PlannedStmt<'_>, s: &Shape<'_>, mcx: Mcx<'_>, wire: &mut gravity_wire::WireNode, hit: skip::Hit) -> PgResult<Result<QueryCompletion, &'static str>> {
+fn make_and_run(
+    pstmt: &PlannedStmt<'_>,
+    s: &Shape<'_>,
+    mcx: Mcx<'_>,
+    wire: &mut gravity_wire::WireNode,
+    hit: skip::Hit,
+) -> PgResult<Result<QueryCompletion, &'static str>> {
     let (made, deps) = gravity_deps::recording(|| ProbeKept::make(s, skip::MEMO_OWNER));
     match made? {
         Err(why) => Ok(Err(why)),
-        Ok(k) => run_kept(pstmt, s, mcx, wire, hit, keep::boxed(Made::Probe(k), skip::MEMO_OWNER)?, Some(deps)).map(Ok),
+        Ok(k) => run_kept(
+            pstmt,
+            s,
+            mcx,
+            wire,
+            hit,
+            keep::boxed(Made::Probe(k), skip::MEMO_OWNER)?,
+            Some(deps),
+        )
+        .map(Ok),
     }
 }
 
 /// A SELECT over the memo slot's kept pieces: ExecInitIndexScan's index lock where hook A's left none, then ExecutorStart's
 /// checks and the snapshot around the run (`ProbeKept::run`); the pieces back into the slot when it returns, dropped when
 /// it raises. The first run (`deps`: the making's reads) makes the scan, its reads recorded with the making's.
-fn run_kept(pstmt: &PlannedStmt<'_>, s: &Shape<'_>, mcx: Mcx<'_>, wire: &mut gravity_wire::WireNode, hit: skip::Hit, mut kb: KeptBox, deps: Option<gravity_deps::Deps>) -> PgResult<QueryCompletion> {
+fn run_kept(
+    pstmt: &PlannedStmt<'_>,
+    s: &Shape<'_>,
+    mcx: Mcx<'_>,
+    wire: &mut gravity_wire::WireNode,
+    hit: skip::Hit,
+    mut kb: KeptBox,
+    deps: Option<gravity_deps::Deps>,
+) -> PgResult<QueryCompletion> {
     if super::reporting() {
-        super::report(if deps.is_some() { "keep made" } else { "keep used" });
+        super::report(if deps.is_some() {
+            "keep made"
+        } else {
+            "keep used"
+        });
     }
     let mode = index_lockmode(s);
     if mode != NoLock {
@@ -172,7 +261,9 @@ fn run_kept(pstmt: &PlannedStmt<'_>, s: &Shape<'_>, mcx: Mcx<'_>, wire: &mut gra
     let mut run = || {
         kb.with_mut(|kin| -> PgResult<u64> {
             let Kept::Probe(k) = &mut kin.kept else {
-                return Err(keep::internal("a point SELECT's memo entry keeps another statement's pieces"));
+                return Err(keep::internal(
+                    "a point SELECT's memo entry keeps another statement's pieces",
+                ));
             };
             let k: &mut ProbeKept = k; // the pieces' fields borrowed apart, not through the box each time
             exec_in(pstmt, mcx, |_| k.run(s, mcx, wire))
@@ -207,12 +298,20 @@ pub(super) fn index_lockmode(s: &Shape<'_>) -> LOCKMODE {
     }
 }
 
-fn probe_rows<'m>(s: &Shape<'_>, mcx: Mcx<'m>, wire: &mut gravity_wire::WireNode, heap: &Relation<'m>, index: &Relation<'m>, ops: &probe::KeyOps) -> PgResult<u64> {
+fn probe_rows<'m>(
+    s: &Shape<'_>,
+    mcx: Mcx<'m>,
+    wire: &mut gravity_wire::WireNode,
+    heap: &Relation<'m>,
+    index: &Relation<'m>,
+    ops: &probe::KeyOps,
+) -> PgResult<u64> {
     probe::key_gates(&s.scan.indexqual)?;
     let tlist: &NodeList<'_> = &s.scan.scan.plan.targetlist;
     let n = tlist.len();
     let mut cols: PgVec<'m, OutCol> = PgVec::new_in(mcx);
-    cols.try_reserve_exact(n).map_err(|_| mcx.oom(n * core::mem::size_of::<OutCol>()))?;
+    cols.try_reserve_exact(n)
+        .map_err(|_| mcx.oom(n * core::mem::size_of::<OutCol>()))?;
     for t in tlist.iter() {
         cols.push(out_col(t.as_target_entry().expect("checked by shape"))?);
     }
@@ -230,7 +329,12 @@ fn probe_rows<'m>(s: &Shape<'_>, mcx: Mcx<'m>, wire: &mut gravity_wire::WireNode
 }
 
 /// ExecProject over the scanned row: each entry's column (slot_getattr) or constant, into `values` / `isnull`.
-pub(super) fn project(tlist: &NodeList<'_>, slot: &mut SlotData<'_>, values: &mut PgVec<'_, u64>, isnull: &mut PgVec<'_, u8>) {
+pub(super) fn project(
+    tlist: &NodeList<'_>,
+    slot: &mut SlotData<'_>,
+    values: &mut PgVec<'_, u64>,
+    isnull: &mut PgVec<'_, u8>,
+) {
     values.clear();
     isnull.clear();
     for t in tlist.iter() {

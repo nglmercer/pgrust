@@ -12,7 +12,9 @@ use types_core::ForkNumber;
 use types_storage::RelFileLocator;
 
 fn testdata(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata").join(name)
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("testdata")
+        .join(name)
 }
 
 fn bin() -> &'static str {
@@ -20,7 +22,11 @@ fn bin() -> &'static str {
 }
 
 fn rl(spc: u32, db: u32, rel: u32) -> RelFileLocator {
-    RelFileLocator { spcOid: spc, dbOid: db, relNumber: rel }
+    RelFileLocator {
+        spcOid: spc,
+        dbOid: db,
+        relNumber: rel,
+    }
 }
 
 /// The committed fixture's contents, rebuilt from scratch. Exercises: a
@@ -34,14 +40,17 @@ fn build_sample_summary() -> Vec<u8> {
 
     // rel 16384 MAIN: out-of-order marks + a contiguous run + an outlier.
     for b in [7u32, 3, 4, 5, 900] {
-        tab.mark_block_modified(rl(1663, 5, 16384), ForkNumber::MAIN_FORKNUM, b).unwrap();
+        tab.mark_block_modified(rl(1663, 5, 16384), ForkNumber::MAIN_FORKNUM, b)
+            .unwrap();
     }
     // rel 16384 VM: single block, plus a limit block.
-    tab.mark_block_modified(rl(1663, 5, 16384), ForkNumber::VISIBILITYMAP_FORKNUM, 0).unwrap();
+    tab.mark_block_modified(rl(1663, 5, 16384), ForkNumber::VISIBILITYMAP_FORKNUM, 0)
+        .unwrap();
     tab.set_limit_block(rl(1663, 5, 16384), ForkNumber::VISIBILITYMAP_FORKNUM, 2);
     // rel 16385 MAIN: a full bitmap chunk (blocks 0..=4095).
     for b in 0u32..4096 {
-        tab.mark_block_modified(rl(1663, 5, 16385), ForkNumber::MAIN_FORKNUM, b).unwrap();
+        tab.mark_block_modified(rl(1663, 5, 16385), ForkNumber::MAIN_FORKNUM, b)
+            .unwrap();
     }
     // rel 16386 INIT in another database: limit block only, no blocks.
     tab.set_limit_block(rl(1664, 0, 16386), ForkNumber::INIT_FORKNUM, 0);
@@ -60,7 +69,11 @@ fn build_sample_summary() -> Vec<u8> {
 #[test]
 fn fixture_matches_writer_output() {
     let expected = std::fs::read(testdata("sample.summary")).unwrap();
-    assert_eq!(build_sample_summary(), expected, "fixture drifted; regenerate goldens");
+    assert_eq!(
+        build_sample_summary(),
+        expected,
+        "fixture drifted; regenerate goldens"
+    );
 }
 
 fn run(args: &[&str]) -> (String, String, i32) {
@@ -137,7 +150,9 @@ fn missing_file_is_c_open_error() {
     assert_eq!(code, 1);
     assert_eq!(stdout, "");
     assert!(
-        stderr.starts_with("pg_walsummary: error: could not open file \"/nonexistent/nope.summary\":"),
+        stderr.starts_with(
+            "pg_walsummary: error: could not open file \"/nonexistent/nope.summary\":"
+        ),
         "{stderr}"
     );
 }

@@ -78,11 +78,11 @@ const PART_ROWS: i64 = 1199; // pk 1..1199, all inside [0,1200)
 
 /// Group-unique object names.
 struct Names {
-    b: String,   // plain multi-index table
-    p: String,   // range-partitioned table (key = pk)
-    ps: String,  // prepared select
-    pa: String,  // prepared aggregate
-    pp: String,  // prepared over the partitioned table
+    b: String,  // plain multi-index table
+    p: String,  // range-partitioned table (key = pk)
+    ps: String, // prepared select
+    pa: String, // prepared aggregate
+    pp: String, // prepared over the partitioned table
 }
 
 fn names(n: u32) -> Names {
@@ -135,7 +135,10 @@ fn create_part(nm: &Names) -> Vec<StmtKind> {
         "CREATE TABLE {p} (pk int4 PRIMARY KEY, a int4, b int4, txt text) \
          PARTITION BY RANGE (pk);"
     ))];
-    for (i, (lo, hi)) in [(0, 300), (300, 600), (600, 900), (900, 1200)].iter().enumerate() {
+    for (i, (lo, hi)) in [(0, 300), (300, 600), (600, 900), (900, 1200)]
+        .iter()
+        .enumerate()
+    {
         v.push(raw(format!(
             "CREATE TABLE {p}_c{i} PARTITION OF {p} FOR VALUES FROM ({lo}) TO ({hi}) \
              WITH (autovacuum_enabled = off);"
@@ -308,7 +311,9 @@ fn gen_transition(g: &mut Gen) -> Vec<StmtKind> {
         pa = nm.pa
     )));
 
-    let explain = g.weights.pick(g.rng, &["plancache:explain", "plancache:explain:none"])
+    let explain = g
+        .weights
+        .pick(g.rng, &["plancache:explain", "plancache:explain:none"])
         == "plancache:explain";
     // 7 executes cross the 5-custom threshold with room to spare; each arg
     // is a distinct deterministic value.
@@ -331,7 +336,10 @@ fn gen_transition(g: &mut Gen) -> Vec<StmtKind> {
     // forced-custom plan for identical input.
     let shared = (g.rng.below(200)) as i64;
     for mode in ["force_custom_plan", "force_generic_plan"] {
-        out.extend(mode_bracket(mode, vec![format!("EXECUTE {}({});", nm.pa, shared)]));
+        out.extend(mode_bracket(
+            mode,
+            vec![format!("EXECUTE {}({});", nm.pa, shared)],
+        ));
     }
 
     out.push(raw(format!("DEALLOCATE {};", nm.pa)));
@@ -353,7 +361,9 @@ fn gen_prune(g: &mut Gen) -> Vec<StmtKind> {
     let p = &nm.p;
     let mut out = create_part(&nm);
 
-    let kind = g.weights.pick(g.rng, &["plancache:prune:range", "plancache:prune:eq"]);
+    let kind = g
+        .weights
+        .pick(g.rng, &["plancache:prune:range", "plancache:prune:eq"]);
     g.fire(kind);
     let (decl, args): (String, Vec<i64>) = if kind == "plancache:prune:range" {
         // Half-open window of width 250: prunes to 1-2 partitions; the
@@ -383,8 +393,10 @@ fn gen_prune(g: &mut Gen) -> Vec<StmtKind> {
     // The forced-generic sweep is the primary runtime-pruning oracle; a
     // forced-custom sweep over the same args is the plan-time-pruning
     // control (both must equal C and each other).
-    let exec_args: Vec<String> =
-        args.iter().map(|a| format!("EXECUTE {}({});", nm.pp, a)).collect();
+    let exec_args: Vec<String> = args
+        .iter()
+        .map(|a| format!("EXECUTE {}({});", nm.pp, a))
+        .collect();
     out.extend(mode_bracket("force_generic_plan", exec_args.clone()));
     out.extend(mode_bracket("force_custom_plan", exec_args));
 
@@ -417,7 +429,9 @@ fn gen_invalidate(g: &mut Gen) -> Vec<StmtKind> {
     // invalidate it.
     out.extend(mode_bracket(
         "force_generic_plan",
-        (0..6).map(|_| format!("EXECUTE {}({});", nm.ps, arg)).collect(),
+        (0..6)
+            .map(|_| format!("EXECUTE {}({});", nm.ps, arg))
+            .collect(),
     ));
 
     // Invalidating DDL inside a rolled-back bracket: each ALTER/CREATE
@@ -426,7 +440,9 @@ fn gen_invalidate(g: &mut Gen) -> Vec<StmtKind> {
     out.push(raw("BEGIN;".to_string()));
     out.push(raw(format!("CREATE INDEX {b}_binv ON {b} (b);")));
     out.push(raw(format!("EXECUTE {}({});", nm.ps, arg)));
-    out.push(raw(format!("ALTER TABLE {b} ADD COLUMN zpad int DEFAULT 7;")));
+    out.push(raw(format!(
+        "ALTER TABLE {b} ADD COLUMN zpad int DEFAULT 7;"
+    )));
     out.push(raw(format!("EXECUTE {}({});", nm.ps, arg)));
     // A generic-plan re-execute under the altered relation too.
     out.extend(mode_bracket(
@@ -471,11 +487,15 @@ fn gen_introspect(g: &mut Gen) -> Vec<StmtKind> {
     let arg = (g.rng.below(50)) as i64;
     out.extend(mode_bracket(
         "force_custom_plan",
-        (0..3).map(|_| format!("EXECUTE {}({});", nm.ps, arg)).collect(),
+        (0..3)
+            .map(|_| format!("EXECUTE {}({});", nm.ps, arg))
+            .collect(),
     ));
     out.extend(mode_bracket(
         "force_generic_plan",
-        (0..3).map(|_| format!("EXECUTE {}({}, {});", nm.pa, arg, 900 + arg)).collect(),
+        (0..3)
+            .map(|_| format!("EXECUTE {}({}, {});", nm.pa, arg, 900 + arg))
+            .collect(),
     ));
 
     // The SRF read-back: every column here is a deterministic function of
@@ -509,8 +529,10 @@ mod tests {
             let mut prods = Vec::new();
             let mut g = Gen::new(&mut rng, &cat, &weights, &mut prods, 4);
             std::mem::swap(&mut g.plancache, &mut state);
-            let stmts: Vec<String> =
-                gen_plancache_module(&mut g).iter().map(|s| s.to_sql()).collect();
+            let stmts: Vec<String> = gen_plancache_module(&mut g)
+                .iter()
+                .map(|s| s.to_sql())
+                .collect();
             std::mem::swap(&mut g.plancache, &mut state);
             out.push(stmts);
         }
@@ -543,11 +565,7 @@ mod tests {
             let mut prepared: Vec<String> = Vec::new();
             for sql in &group {
                 if let Some(rest) = sql.strip_prefix("PREPARE ") {
-                    let name = rest
-                        .split([ '(', ' '])
-                        .next()
-                        .unwrap()
-                        .to_string();
+                    let name = rest.split(['(', ' ']).next().unwrap().to_string();
                     prepared.push(name);
                 } else if let Some(rest) = sql.strip_prefix("DEALLOCATE ") {
                     let name = rest.trim_end_matches(';').to_string();
@@ -556,7 +574,10 @@ mod tests {
                     }
                 }
             }
-            assert!(prepared.is_empty(), "un-deallocated {prepared:?} in {group:?}");
+            assert!(
+                prepared.is_empty(),
+                "un-deallocated {prepared:?} in {group:?}"
+            );
         }
     }
 
@@ -643,8 +664,7 @@ mod tests {
         for group in gen_groups(41, 200) {
             for sql in &group {
                 if let Some(rest) = sql.strip_prefix("PREPARE ") {
-                    let name =
-                        rest.split([ '(', ' ']).next().unwrap().to_string();
+                    let name = rest.split(['(', ' ']).next().unwrap().to_string();
                     assert!(seen.insert(name.clone()), "duplicate prepared name {name}");
                 }
             }

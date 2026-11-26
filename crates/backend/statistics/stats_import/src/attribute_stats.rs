@@ -1,8 +1,8 @@
 use crate::{
     detoast_array_datum, lookup_relation, recovery_in_progress_error, stats_check_arg_array,
-    stats_check_arg_pair,
-    stats_check_required_arg, stats_fill_fcinfo_from_arg_pairs, text_datum_string, warn,
-    warn_error_data, Arg, StatsArgInfo, RELKIND_INDEX, RELKIND_PARTITIONED_INDEX,
+    stats_check_arg_pair, stats_check_required_arg, stats_fill_fcinfo_from_arg_pairs,
+    text_datum_string, warn, warn_error_data, Arg, StatsArgInfo, RELKIND_INDEX,
+    RELKIND_PARTITIONED_INDEX,
 };
 use datum::Datum;
 use mcx::{Mcx, MemoryContext, PgVec};
@@ -76,24 +76,78 @@ const RANGE_BOUNDS_HISTOGRAM_ARG: usize = 17;
 const NUM_ATTRIBUTE_STATS_ARGS: usize = 18;
 
 static ATTARGINFO: [StatsArgInfo; NUM_ATTRIBUTE_STATS_ARGS] = [
-    StatsArgInfo { argname: "schemaname", argtype: TEXTOID },
-    StatsArgInfo { argname: "relname", argtype: TEXTOID },
-    StatsArgInfo { argname: "attname", argtype: TEXTOID },
-    StatsArgInfo { argname: "attnum", argtype: INT2OID },
-    StatsArgInfo { argname: "inherited", argtype: BOOLOID },
-    StatsArgInfo { argname: "null_frac", argtype: FLOAT4OID },
-    StatsArgInfo { argname: "avg_width", argtype: INT4OID },
-    StatsArgInfo { argname: "n_distinct", argtype: FLOAT4OID },
-    StatsArgInfo { argname: "most_common_vals", argtype: TEXTOID },
-    StatsArgInfo { argname: "most_common_freqs", argtype: FLOAT4ARRAYOID },
-    StatsArgInfo { argname: "histogram_bounds", argtype: TEXTOID },
-    StatsArgInfo { argname: "correlation", argtype: FLOAT4OID },
-    StatsArgInfo { argname: "most_common_elems", argtype: TEXTOID },
-    StatsArgInfo { argname: "most_common_elem_freqs", argtype: FLOAT4ARRAYOID },
-    StatsArgInfo { argname: "elem_count_histogram", argtype: FLOAT4ARRAYOID },
-    StatsArgInfo { argname: "range_length_histogram", argtype: TEXTOID },
-    StatsArgInfo { argname: "range_empty_frac", argtype: FLOAT4OID },
-    StatsArgInfo { argname: "range_bounds_histogram", argtype: TEXTOID },
+    StatsArgInfo {
+        argname: "schemaname",
+        argtype: TEXTOID,
+    },
+    StatsArgInfo {
+        argname: "relname",
+        argtype: TEXTOID,
+    },
+    StatsArgInfo {
+        argname: "attname",
+        argtype: TEXTOID,
+    },
+    StatsArgInfo {
+        argname: "attnum",
+        argtype: INT2OID,
+    },
+    StatsArgInfo {
+        argname: "inherited",
+        argtype: BOOLOID,
+    },
+    StatsArgInfo {
+        argname: "null_frac",
+        argtype: FLOAT4OID,
+    },
+    StatsArgInfo {
+        argname: "avg_width",
+        argtype: INT4OID,
+    },
+    StatsArgInfo {
+        argname: "n_distinct",
+        argtype: FLOAT4OID,
+    },
+    StatsArgInfo {
+        argname: "most_common_vals",
+        argtype: TEXTOID,
+    },
+    StatsArgInfo {
+        argname: "most_common_freqs",
+        argtype: FLOAT4ARRAYOID,
+    },
+    StatsArgInfo {
+        argname: "histogram_bounds",
+        argtype: TEXTOID,
+    },
+    StatsArgInfo {
+        argname: "correlation",
+        argtype: FLOAT4OID,
+    },
+    StatsArgInfo {
+        argname: "most_common_elems",
+        argtype: TEXTOID,
+    },
+    StatsArgInfo {
+        argname: "most_common_elem_freqs",
+        argtype: FLOAT4ARRAYOID,
+    },
+    StatsArgInfo {
+        argname: "elem_count_histogram",
+        argtype: FLOAT4ARRAYOID,
+    },
+    StatsArgInfo {
+        argname: "range_length_histogram",
+        argtype: TEXTOID,
+    },
+    StatsArgInfo {
+        argname: "range_empty_frac",
+        argtype: FLOAT4OID,
+    },
+    StatsArgInfo {
+        argname: "range_bounds_histogram",
+        argtype: TEXTOID,
+    },
 ];
 
 const C_ATTRELSCHEMA_ARG: usize = 0;
@@ -104,10 +158,22 @@ const C_NUM_ATTRIBUTE_STATS_ARGS: usize = 4;
 
 // upstream ae8c4bd558c5 (18.6): Fix argument names in pg_clear_attribute_stats() errors
 static CLEARARGINFO: [StatsArgInfo; C_NUM_ATTRIBUTE_STATS_ARGS] = [
-    StatsArgInfo { argname: "schemaname", argtype: TEXTOID },
-    StatsArgInfo { argname: "relname", argtype: TEXTOID },
-    StatsArgInfo { argname: "attname", argtype: TEXTOID },
-    StatsArgInfo { argname: "inherited", argtype: BOOLOID },
+    StatsArgInfo {
+        argname: "schemaname",
+        argtype: TEXTOID,
+    },
+    StatsArgInfo {
+        argname: "relname",
+        argtype: TEXTOID,
+    },
+    StatsArgInfo {
+        argname: "attname",
+        argtype: TEXTOID,
+    },
+    StatsArgInfo {
+        argname: "inherited",
+        argtype: BOOLOID,
+    },
 ];
 
 #[track_caller]
@@ -226,7 +292,12 @@ fn attribute_statistics_update(mcx: Mcx<'_>, args: &[Arg]) -> PgResult<bool> {
         do_dechist = false;
         result = false;
     }
-    if !stats_check_arg_pair(args, &ATTARGINFO, MOST_COMMON_VALS_ARG, MOST_COMMON_FREQS_ARG)? {
+    if !stats_check_arg_pair(
+        args,
+        &ATTARGINFO,
+        MOST_COMMON_VALS_ARG,
+        MOST_COMMON_FREQS_ARG,
+    )? {
         do_mcv = false;
         result = false;
     }
@@ -249,8 +320,14 @@ fn attribute_statistics_update(mcx: Mcx<'_>, args: &[Arg]) -> PgResult<bool> {
         result = false;
     }
 
-    let StatType { atttypid, atttypmod, atttyptype, mut atttypcoll, eq_opr, lt_opr } =
-        get_attr_stat_type(mcx, reloid, attnum)?;
+    let StatType {
+        atttypid,
+        atttypmod,
+        atttyptype,
+        mut atttypcoll,
+        eq_opr,
+        lt_opr,
+    } = get_attr_stat_type(mcx, reloid, attnum)?;
     let _ = &mut atttypcoll;
 
     let mut elemtypid = InvalidOid;
@@ -266,9 +343,7 @@ fn attribute_statistics_update(mcx: Mcx<'_>, args: &[Arg]) -> PgResult<bool> {
                     "attribute_statistics_update",
                     format!("could not determine element type of column \"{attname}\""),
                     None,
-                    Some(
-                        "Cannot set STATISTIC_KIND_MCELEM or STATISTIC_KIND_DECHIST.".to_string(),
-                    ),
+                    Some("Cannot set STATISTIC_KIND_MCELEM or STATISTIC_KIND_DECHIST.".to_string()),
                     None,
                 )?;
                 do_mcelem = false;
@@ -323,14 +398,20 @@ fn attribute_statistics_update(mcx: Mcx<'_>, args: &[Arg]) -> PgResult<bool> {
             for i in 0..Natts_pg_statistic {
                 let mut isnull = false;
                 // SAFETY: pg_statistic tuple read under pg_statistic's descriptor.
-                let d = unsafe {
-                    types_tuple::heap_getattr(oldtup, (i + 1) as i32, desc, &mut isnull)
-                };
+                let d =
+                    unsafe { types_tuple::heap_getattr(oldtup, (i + 1) as i32, desc, &mut isnull) };
                 values[i] = d;
                 nulls[i] = isnull;
             }
         }
-        None => init_empty_stats_tuple(reloid, attnum, inherited, &mut values, &mut nulls, &mut replaces),
+        None => init_empty_stats_tuple(
+            reloid,
+            attnum,
+            inherited,
+            &mut values,
+            &mut nulls,
+            &mut replaces,
+        ),
     }
 
     if !args[NULL_FRAC_ARG].isnull {
@@ -641,7 +722,14 @@ fn get_attr_stat_type(mcx: Mcx<'_>, reloid: Oid, attnum: AttrNumber) -> PgResult
 
     rel.close(NoLock as LOCKMODE)?;
 
-    Ok(StatType { atttypid, atttypmod, atttyptype, atttypcoll, eq_opr, lt_opr })
+    Ok(StatType {
+        atttypid,
+        atttypmod,
+        atttyptype,
+        atttypcoll,
+        eq_opr,
+        lt_opr,
+    })
 }
 
 fn get_elem_stat_type(atttypid: Oid) -> PgResult<Option<(Oid, Oid)>> {
@@ -686,7 +774,8 @@ fn text_to_stavalues<'m>(
     };
 
     let mut esn = ErrorSaveNode::new(true);
-    let arr = arrayfuncs::io::array_in(mcx, s.as_bytes(), &meta, &mut proc, typmod, Some(&mut esn))?;
+    let arr =
+        arrayfuncs::io::array_in(mcx, s.as_bytes(), &meta, &mut proc, typmod, Some(&mut esn))?;
 
     if esn.ctx.error_occurred() {
         if let Some(err) = esn.ctx.take_error() {
@@ -802,9 +891,21 @@ fn find_stats_tuple<'m>(
     inh: bool,
 ) -> PgResult<Option<FoundStats<'m>>> {
     let keys = [
-        stat_key(Anum_pg_statistic_starelid as i32, F_OIDEQ, Datum::from_oid(relid)),
-        stat_key(Anum_pg_statistic_staattnum as i32, F_INT2EQ, Datum::from_i16(attnum)),
-        stat_key(Anum_pg_statistic_stainherit as i32, F_BOOLEQ, Datum::from_bool(inh)),
+        stat_key(
+            Anum_pg_statistic_starelid as i32,
+            F_OIDEQ,
+            Datum::from_oid(relid),
+        ),
+        stat_key(
+            Anum_pg_statistic_staattnum as i32,
+            F_INT2EQ,
+            Datum::from_i16(attnum),
+        ),
+        stat_key(
+            Anum_pg_statistic_stainherit as i32,
+            F_BOOLEQ,
+            Datum::from_bool(inh),
+        ),
     ];
     let mut scan = genam::systable_beginscan(mcx, sd, InvalidOid, false, None, &keys)?;
     let found = match genam::systable_getnext(mcx, &mut scan)? {
@@ -850,7 +951,12 @@ fn upsert_pg_statistic<'m>(
     Ok(())
 }
 
-fn delete_pg_statistic(mcx: Mcx<'_>, reloid: Oid, attnum: AttrNumber, stainherit: bool) -> PgResult<bool> {
+fn delete_pg_statistic(
+    mcx: Mcx<'_>,
+    reloid: Oid,
+    attnum: AttrNumber,
+    stainherit: bool,
+) -> PgResult<bool> {
     let sd = table::table_open(mcx, STATISTIC_RELATION_ID, RowExclusiveLock as LOCKMODE)?;
     let mut result = false;
 
@@ -940,7 +1046,10 @@ pub fn fc_pg_clear_attribute_stats(
 
     let mut clear = [Arg::NULL; C_NUM_ATTRIBUTE_STATS_ARGS];
     for (i, slot) in clear.iter_mut().enumerate() {
-        *slot = Arg { value: fcinfo.arg(i), isnull: fcinfo.argisnull(i) };
+        *slot = Arg {
+            value: fcinfo.arg(i),
+            isnull: fcinfo.argisnull(i),
+        };
     }
 
     stats_check_required_arg(&clear, &CLEARARGINFO, C_ATTRELSCHEMA_ARG)?;
@@ -998,9 +1107,18 @@ mod tests {
                 .message()
                 .to_string()
         };
-        assert_eq!(msg(C_ATTRELSCHEMA_ARG), "argument \"schemaname\" must not be null");
-        assert_eq!(msg(C_ATTRELNAME_ARG), "argument \"relname\" must not be null");
+        assert_eq!(
+            msg(C_ATTRELSCHEMA_ARG),
+            "argument \"schemaname\" must not be null"
+        );
+        assert_eq!(
+            msg(C_ATTRELNAME_ARG),
+            "argument \"relname\" must not be null"
+        );
         assert_eq!(msg(C_ATTNAME_ARG), "argument \"attname\" must not be null");
-        assert_eq!(msg(C_INHERITED_ARG), "argument \"inherited\" must not be null");
+        assert_eq!(
+            msg(C_INHERITED_ARG),
+            "argument \"inherited\" must not be null"
+        );
     }
 }

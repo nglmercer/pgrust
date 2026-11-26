@@ -19,15 +19,28 @@ fn table() -> OnceTable {
 #[test]
 fn a_second_claim_of_a_key_this_thread_builds_returns_at_once() {
     let once = table();
-    let k = Key { part: 3, epoch: 1, fingerprint: 0xd319 };
+    let k = Key {
+        part: 3,
+        epoch: 1,
+        fingerprint: 0xd319,
+    };
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
-        let Claim::Build(b) = once.claim(k) else { panic!("the first claimer builds") };
+        let Claim::Build(b) = once.claim(k) else {
+            panic!("the first claimer builds")
+        };
         // the build is pending (a program's table until its LANE_DONE) when a second lane of the same key claims it
         let second = once.claim(k);
-        let _ = tx.send(matches!(second, Claim::Build(_) | Claim::Ready(_) | Claim::Full));
+        let _ = tx.send(matches!(
+            second,
+            Claim::Build(_) | Claim::Ready(_) | Claim::Full
+        ));
         drop(b);
     });
     // before D319 the second claim waited for its own build forever
-    assert_eq!(rx.recv_timeout(Duration::from_secs(20)), Ok(false), "the second claim returns at once, and with no table");
+    assert_eq!(
+        rx.recv_timeout(Duration::from_secs(20)),
+        Ok(false),
+        "the second claim returns at once, and with no table"
+    );
 }

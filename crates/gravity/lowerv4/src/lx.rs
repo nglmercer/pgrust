@@ -5,8 +5,8 @@ use gravity_ir::{Block, HostFn, Value};
 use gravity_program::{DictRef, LifeId, Rep};
 use mcx::{GrowIn, Mcx, PgVec};
 
-use crate::cell::{At, Cell, CellHome};
 use crate::admit::refusal::{Reason, Site};
+use crate::cell::{At, Cell, CellHome};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scope {
@@ -91,12 +91,18 @@ impl<'e> Memo<'e> {
 
     /// Every block created since `n0` (the helper that emitted the bounded loops ran in between).
     pub fn bounded_since(&mut self, b: &FunctionBuilder<'_>, n0: usize) {
-        self.bounded.extend_in((n0..b.num_blocks()).map(|i| Block(i as u32)));
+        self.bounded
+            .extend_in((n0..b.num_blocks()).map(|i| Block(i as u32)));
     }
 
     /// An empty memo: `Env::new`'s and `Lx::new`'s.
     pub fn root(mcx: Mcx<'e>) -> Memo<'e> {
-        Memo { rows: PgVec::new_in(mcx), nums: PgVec::new_in(mcx), texts: PgVec::new_in(mcx), bounded: PgVec::new_in(mcx) }
+        Memo {
+            rows: PgVec::new_in(mcx),
+            nums: PgVec::new_in(mcx),
+            texts: PgVec::new_in(mcx),
+            bounded: PgVec::new_in(mcx),
+        }
     }
 
     /// The whole memo, bounded headers too, for `Env::lx`'s round trip (`env.memo = cx.memo` puts it back).
@@ -114,7 +120,11 @@ impl<'e> Memo<'e> {
     /// `restore` drops what the branch adds.
     pub fn fork(&mut self) -> SetAside<'e> {
         let mcx = *self.rows.allocator();
-        let (rows, nums, texts) = (mcx::to_vec_in(&self.rows[..], mcx), mcx::to_vec_in(&self.nums[..], mcx), mcx::to_vec_in(&self.texts[..], mcx));
+        let (rows, nums, texts) = (
+            mcx::to_vec_in(&self.rows[..], mcx),
+            mcx::to_vec_in(&self.nums[..], mcx),
+            mcx::to_vec_in(&self.texts[..], mcx),
+        );
         let outer = self.lend();
         (self.rows, self.nums, self.texts) = (rows, nums, texts);
         SetAside(outer)
@@ -139,7 +149,8 @@ impl<'e> Memo<'e> {
     }
 
     pub fn put(&mut self, c: CellRef<'_>, v: (Value, Value)) {
-        self.rows.push_in(((c.cell.at, c.val, c.cell.rep, c.null), v.0, v.1));
+        self.rows
+            .push_in(((c.cell.at, c.val, c.cell.rep, c.null), v.0, v.1));
     }
 
     /// A numeric datum's `(mantissa, dscale)` at `scale` this row already decoded (`k`: datum, NULL flag, scale, dscale).
@@ -227,7 +238,10 @@ pub struct FpLinks {
 pub const FP_LINKS: usize = 16;
 
 impl FpLinks {
-    pub const NONE: FpLinks = FpLinks { at: [(Value(u32::MAX), [Value(u32::MAX); 2]); FP_LINKS], n: 0 };
+    pub const NONE: FpLinks = FpLinks {
+        at: [(Value(u32::MAX), [Value(u32::MAX); 2]); FP_LINKS],
+        n: 0,
+    };
 
     /// Code word `v` carries the Fp128 words `w`.
     pub fn add(&mut self, v: Value, w: [Value; 2]) {
@@ -283,12 +297,29 @@ impl<'a, 'f, 'e> Lx<'a, 'f, 'e> {
     where
         'e: 'a,
     {
-        Lx { b, mcx, node, memo: Memo::root(mcx), at: None, space: None, pipe_sites: None, raise: None, strategies: crate::face::strategy::StrategySet::EMPTY, key_word: KeyWord::Sort, num_kinds: None, fps: FpLinks::NONE }
+        Lx {
+            b,
+            mcx,
+            node,
+            memo: Memo::root(mcx),
+            at: None,
+            space: None,
+            pipe_sites: None,
+            raise: None,
+            strategies: crate::face::strategy::StrategySet::EMPTY,
+            key_word: KeyWord::Sort,
+            num_kinds: None,
+            fps: FpLinks::NONE,
+        }
     }
 
     /// The site a cell's lanes and dictionaries belong to: a record cell's producing pipeline's, else the frame's.
     pub fn site_of(&self, c: &Cell) -> Option<usize> {
-        let producer = |l: LifeId| self.pipe_sites.as_ref().and_then(|p| p.get(l.0 as usize).copied().flatten());
+        let producer = |l: LifeId| {
+            self.pipe_sites
+                .as_ref()
+                .and_then(|p| p.get(l.0 as usize).copied().flatten())
+        };
         match c.life.home {
             CellHome::Record(l) => producer(l).map(usize::from),
             _ => self.at.and_then(|f| f.site),
@@ -299,7 +330,12 @@ impl<'a, 'f, 'e> Lx<'a, 'f, 'e> {
     pub fn frame(&self) -> Frame {
         match self.at {
             Some(f) => f,
-            None => crate::refuse!(self.node, Reason::Bug { payload: "an accessor that reads the frame outside one" }),
+            None => crate::refuse!(
+                self.node,
+                Reason::Bug {
+                    payload: "an accessor that reads the frame outside one"
+                }
+            ),
         }
     }
 }

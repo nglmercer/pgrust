@@ -10,15 +10,27 @@
 use gravity_decompose::catalog::typefacts::{KeyColl, TypeFacts};
 use gravity_ir::{Type, Value};
 
-pub use crate::table::keyimg::{TailForm, VarKeyImpl, VarKeyMech};
-use crate::table::keyimg::ImageForm;
 use crate::admit::refusal::Site;
 use crate::rep::{CellRef, KeyWord, Lx, Scope, Words};
+use crate::table::keyimg::ImageForm;
+pub use crate::table::keyimg::{TailForm, VarKeyImpl, VarKeyMech};
 
 /// The roads in their fixed order (surrogate, canon, tagged, coll), each asked while on; `fp` (the payload's exact Fp128,
 /// rep/varlena/hash.rs) last.
-pub fn hash_image(lx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, tf: &TypeFacts, coll: KeyColl, scope: Scope, fp: fn(&mut Lx<'_, '_, '_>, CellRef<'_>, &TypeFacts) -> Words) -> Words {
-    for form in [ImageForm::Surrogate, ImageForm::Canon, ImageForm::Tagged, ImageForm::Coll] {
+pub fn hash_image(
+    lx: &mut Lx<'_, '_, '_>,
+    c: CellRef<'_>,
+    tf: &TypeFacts,
+    coll: KeyColl,
+    scope: Scope,
+    fp: fn(&mut Lx<'_, '_, '_>, CellRef<'_>, &TypeFacts) -> Words,
+) -> Words {
+    for form in [
+        ImageForm::Surrogate,
+        ImageForm::Canon,
+        ImageForm::Tagged,
+        ImageForm::Coll,
+    ] {
         if form.on() {
             if let Some(w) = form.need::<VarKeyImpl>(&*lx).0.hash(lx, c, tf, coll, scope) {
                 return w;
@@ -35,8 +47,19 @@ pub fn hash_image(lx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, tf: &TypeFacts, coll:
 /// `varstr_cmp`). That is key.coll's plain form, and its form while the road is off: the bytes prefix there ordered two
 /// keys by their bytes wherever their first 8 bytes differed, the collated tail deciding only ties (`gravity_road_off =
 /// 'key.coll'`: 'b' before 'C' under en-x-icu). The tail form rides the run's var table (V4R-267).
-pub fn order_prefix(lx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, tf: &TypeFacts, coll: KeyColl, bytes: fn(&mut Lx<'_, '_, '_>, CellRef<'_>, &TypeFacts) -> Value) -> Value {
-    for form in [ImageForm::Surrogate, ImageForm::Canon, ImageForm::Tagged, ImageForm::Coll] {
+pub fn order_prefix(
+    lx: &mut Lx<'_, '_, '_>,
+    c: CellRef<'_>,
+    tf: &TypeFacts,
+    coll: KeyColl,
+    bytes: fn(&mut Lx<'_, '_, '_>, CellRef<'_>, &TypeFacts) -> Value,
+) -> Value {
+    for form in [
+        ImageForm::Surrogate,
+        ImageForm::Canon,
+        ImageForm::Tagged,
+        ImageForm::Coll,
+    ] {
         if form.on() {
             if let Some((w, _)) = form.need::<VarKeyImpl>(&*lx).0.order(lx, c, tf, coll) {
                 return w;

@@ -46,8 +46,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gravity_abi::status::raise;
-use gravity_decompose::join::JoinDesc;
 use gravity_decompose::catalog::typefacts::TypeFacts;
+use gravity_decompose::join::JoinDesc;
 use gravity_decompose::{Op, PipelineNode, Source};
 use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{ConvOp, HostFlags, HostFn, IntBinOp, IntCond, Type, Value};
@@ -56,6 +56,7 @@ use gravity_program::protos::{Proto, ProtoKind};
 use gravity_program::{ExprLife, ExprOut, NumForm, Rep};
 use mcx::{GrowIn, Mcx, PgBox, PgVec};
 
+use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::cell::{Cell, Nullable};
 use crate::face::kinds::{Face, KindId};
 use crate::face::step::{ExprFace, StepMech};
@@ -66,21 +67,25 @@ use crate::frame::px::{ExId, Px, WordKey};
 use crate::frame::row::{Carry, RowVals};
 #[allow(unused_imports)]
 use crate::graph::Gx;
-use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::ops::Table;
 use crate::rep::{self, CellRef};
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::NestMemo, &StepMaker(make_alone))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::NestMemo, &StepMaker(make_alone))],
+    ..crate::ops::NONE
+};
 
 /// D1018 tail row 1 (GAP-W3b-D1018-TAIL): one set function below the Memoize, over a Result's one row (`row_tag`).
-pub(crate) const D_SRF_TWO: &str = "a Memoize over more than one set function below it (D1018 tail)";
+pub(crate) const D_SRF_TWO: &str =
+    "a Memoize over more than one set function below it (D1018 tail)";
 pub(crate) const D_SRF_SRC: &str = "a Memoize over a set function whose inner source reads more than one row per open (D1018 tail)";
 
 /// memoize entry D: a Memoize over VOLATILE code in a re-run plan whose pipeline a re-opener opens without setting any param
 /// the child reads outside its keys: PG keeps the cache across that re-opener's rows, the purge word would drop it and run
 /// the calls again (`purge_exact`).
 pub(crate) const D_PURGE: &str = "a Memoize over VOLATILE code inside a re-run plan re-opened by an owner that sets none of the parameters its child reads outside its keys (PG keeps its cache there)";
-const D_UNARMED: &str = "a Memoize purge word no owner declared (a re-run plan's memo outside nest.loop's inner)";
+const D_UNARMED: &str =
+    "a Memoize purge word no owner declared (a re-run plan's memo outside nest.loop's inner)";
 
 /// The state word after the re-open.
 pub(crate) const FILLING: i64 = 1;
@@ -134,7 +139,8 @@ pub(crate) struct Memo<'g> {
 }
 
 /// A replayed row `(j, row)` through the steps past the Memoize and the owner's continuation: the carry after.
-pub(crate) type Replay<'a, 'e> = &'a mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env<'e, '_>, Value, &RowVals) -> Carry<'e>;
+pub(crate) type Replay<'a, 'e> =
+    &'a mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env<'e, '_>, Value, &RowVals) -> Carry<'e>;
 
 /// The fill step at the Memoize's place in the inner's chain.
 pub(crate) struct Fill<'g> {
@@ -143,7 +149,9 @@ pub(crate) struct Fill<'g> {
 
 /// The inner's Memoize op, if any (nest/inner.rs).
 pub(crate) fn at(ip: &PipelineNode<'_>) -> Option<usize> {
-    ip.ops.iter().position(|op| matches!(op, Op::Join(JoinDesc::Memo { .. })))
+    ip.ops
+        .iter()
+        .position(|op| matches!(op, Op::Join(JoinDesc::Memo { .. })))
 }
 
 /// Whether `op` is a row-at-a-time inner op (nest/inner.rs's D1018 test); past a Memoize only filters and projections
@@ -152,7 +160,10 @@ pub(crate) fn at(ip: &PipelineNode<'_>) -> Option<usize> {
 pub(crate) fn row_op(op: &Op<'_>, past_memo: bool) -> bool {
     match past_memo {
         true => matches!(op, Op::Filter(_) | Op::Project(_)),
-        false => matches!(op, Op::Filter(_) | Op::Project(_) | Op::Gate(_) | Op::SubPlan(_) | Op::Srf(_)),
+        false => matches!(
+            op,
+            Op::Filter(_) | Op::Project(_) | Op::Gate(_) | Op::SubPlan(_) | Op::Srf(_)
+        ),
     }
 }
 
@@ -161,18 +172,33 @@ pub(crate) fn row_op(op: &Op<'_>, past_memo: bool) -> bool {
 /// is not stored twice and the set's next row (a new count) is; `None` with no expanding step below (the flag 1, as
 /// before: the IR is unchanged). More than one fails closed (`make_parts` refuses a second set function by name first).
 pub(crate) fn row_tag(b: &mut FunctionBuilder<'_>, env: &Env, node: i32) -> Option<Value> {
-    let mut below = env.expands.iter().filter(|e| env.step.is_some_and(|j| e.0 < j)).map(|e| e.1);
+    let mut below = env
+        .expands
+        .iter()
+        .filter(|e| env.step.is_some_and(|j| e.0 < j))
+        .map(|e| e.1);
     match (below.next(), below.next()) {
         (None, _) => None,
         (Some(o), None) => Some(env.load_word(b, o)),
-        _ => crate::refuse!(node, Reason::Bug { payload: "a Memoize fill over more than one expanding step" }),
+        _ => crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a Memoize fill over more than one expanding step"
+            }
+        ),
     }
 }
 
 /// The memo of op `m` (step `s`) of inner `ik`, embedded by op `j` of pipeline `k` (its nest): its re-open side into
 /// `memo`, its fill step returned.
 /// Never over a spool (nest.spool): PG plans Memoize only over a parameterized inner and Material only over an unparameterized one.
-pub(crate) fn make<'g>(px: &mut Px<'g, '_>, (k, j): (usize, usize), ik: usize, (m, si): (usize, usize), memo: &mut Option<(usize, Memo<'g>)>) -> PgBox<'g, dyn StepMech + 'g> {
+pub(crate) fn make<'g>(
+    px: &mut Px<'g, '_>,
+    (k, j): (usize, usize),
+    ik: usize,
+    (m, si): (usize, usize),
+    memo: &mut Option<(usize, Memo<'g>)>,
+) -> PgBox<'g, dyn StepMech + 'g> {
     let n0 = crate::rerun::inner::op_node(&px.gx.pipelines()[ik], m);
     let _ = crate::frame::iface::kind_impl::<StepMaker>(&n0, KindId::NestMemo);
     let (mm, fill) = make_parts(px, (k, j), ik, m);
@@ -180,15 +206,39 @@ pub(crate) fn make<'g>(px: &mut Px<'g, '_>, (k, j): (usize, usize), ik: usize, (
     fill
 }
 
-fn make_parts<'g>(px: &mut Px<'g, '_>, (k, j): (usize, usize), ik: usize, m: usize) -> (Memo<'g>, PgBox<'g, dyn StepMech + 'g>) {
+fn make_parts<'g>(
+    px: &mut Px<'g, '_>,
+    (k, j): (usize, usize),
+    ik: usize,
+    m: usize,
+) -> (Memo<'g>, PgBox<'g, dyn StepMech + 'g>) {
     let gx = px.gx;
     let ip: &PipelineNode<'_> = &gx.pipelines()[ik];
     let node = crate::rerun::inner::op_node(ip, m);
-    let Some(Op::Join(JoinDesc::Memo { keys, singlerow, binary, ops, colls, purge, nonkey, .. })) = ip.ops.get(m) else { crate::refuse!(node, Reason::Bug { payload: "a memo over another op" }) };
+    let Some(Op::Join(JoinDesc::Memo {
+        keys,
+        singlerow,
+        binary,
+        ops,
+        colls,
+        purge,
+        nonkey,
+        ..
+    })) = ip.ops.get(m)
+    else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a memo over another op"
+            }
+        )
+    };
     // a volatile call below the Memoize runs once per miss, as PG's does: its planner memoizes an inner whose volatile calls
     // sit inside a subquery or a FROM function (get_memoize_path tests only the inner rel's target list and quals), and the
     // fill and replay keep ExecMemoize's misses (the inner runs at a miss only, a row stored as handed on)
-    let Some(Op::Join(JoinDesc::Nest { facts, .. })) = gx.pipelines()[k].ops.get(j) else { shape(node, "a Memoize under another op than a nest") };
+    let Some(Op::Join(JoinDesc::Nest { facts, .. })) = gx.pipelines()[k].ops.get(j) else {
+        shape(node, "a Memoize under another op than a nest")
+    };
     // D3836: a child reading its own nest's param outside the keys (a LATERAL union's arm returning an outer column reads a
     // PlaceHolderVar's param beside the Var's another arm reads): PG's nest marks each of its params changed at every outer
     // row, so ExecReScanMemoize purges at every rescan and no lookup hits; every lookup purges here (`Core::every`)
@@ -197,7 +247,12 @@ fn make_parts<'g>(px: &mut Px<'g, '_>, (k, j): (usize, usize), ik: usize, m: usi
     // inside another inner may see one, only where its child reads one (decompose's `purge`); with none PG never purges,
     // and the cache, one per execution, lives across the re-runs as PG's does; with one the purge word (`owner_words`)
     let rerun = crate::lifetime::memoize::rerun(gx, k);
-    if *purge && rerun && !every && crate::effects::visible::memoize::purge_calls(facts.volatility) && !crate::lifetime::memoize::purge_exact(gx, k, nonkey) {
+    if *purge
+        && rerun
+        && !every
+        && crate::effects::visible::memoize::purge_calls(facts.volatility)
+        && !crate::lifetime::memoize::purge_exact(gx, k, nonkey)
+    {
         shape(node, D_PURGE);
     }
     if crate::lifetime::memoize::gated(&ip.ops, m) {
@@ -206,7 +261,11 @@ fn make_parts<'g>(px: &mut Px<'g, '_>, (k, j): (usize, usize), ik: usize, m: usi
     // D1018 tail row 1: one set function below, over a Result's one row (the fill's tag names a set row only while the
     // source row is fixed). The frozen no-widen list is gone (memoize item 8): D2178 / D2179 left it at ROOTFIX-CTE-PARK,
     // D2213 at GAP-D2213-GUARD (a SubPlan refuses a nest inner's site cells by its own name), as D2180 / D2197 / D2194 had
-    match ip.ops[..m].iter().filter(|op| matches!(op, Op::Srf(_))).count() {
+    match ip.ops[..m]
+        .iter()
+        .filter(|op| matches!(op, Op::Srf(_)))
+        .count()
+    {
         0 => {}
         1 if !matches!(ip.source, Source::Const) => shape(node, D_SRF_SRC),
         1 => {}
@@ -215,7 +274,10 @@ fn make_parts<'g>(px: &mut Px<'g, '_>, (k, j): (usize, usize), ik: usize, m: usi
     // any key count, as PG's (NEST-02): the key block is a stack slot of `n` keys (`lookup`), the host's probe grows to it
     let n = keys.len();
     if n == 0 || ops.len() != n || colls.len() != n {
-        shape(node, "a Memoize whose keys are not one or more with an operator and a collation each");
+        shape(
+            node,
+            "a Memoize whose keys are not one or more with an operator and a collation each",
+        );
     }
     let ex: &'static ExprFace = crate::frame::iface::expr_face(&node);
     let mut ks = mcx::reserved_in(n, px.mcx());
@@ -229,20 +291,61 @@ fn make_parts<'g>(px: &mut Px<'g, '_>, (k, j): (usize, usize), ik: usize, m: usi
         if tf.typlen == -2 {
             shape(node, "a Memoize key of a cstring type");
         }
-        let out = gx.out_of(key).unwrap_or(ExprOut { rep: Rep::of_storage(tf.typlen, tf.byval), typid, life: ExprLife::Row });
-        ks.push_in(Key { ex: e, tf, out, op: ops[i], coll: colls[i] });
+        let out = gx.out_of(key).unwrap_or(ExprOut {
+            rep: Rep::of_storage(tf.typlen, tf.byval),
+            typid,
+            life: ExprLife::Row,
+        });
+        ks.push_in(Key {
+            ex: e,
+            tf,
+            out,
+            op: ops[i],
+            coll: colls[i],
+        });
     }
     let h = px.proto_words(1);
-    px.declare_proto(Proto::new(ProtoKind::Cache, k as u16).words(h, 1).arg(wide_key(*binary, ops, colls)));
+    px.declare_proto(
+        Proto::new(ProtoKind::Cache, k as u16)
+            .words(h, 1)
+            .arg(wide_key(*binary, ops, colls)),
+    );
     // EXPLAIN ANALYZE: the cache's hits, misses, evictions, overflows and peak bytes, read from the memo object at the
     // run's end (frame/instr.rs `memo_cells`)
     crate::frame::instr::memo_cells(node, h);
-    let word = |px: &mut Px<'_, '_>, i: u8| px.frame_word(WordKey::Open { face: Face::Nest, k: ik, j: crate::frame::px::key_j(m), i }) as i32 * 8;
+    let word = |px: &mut Px<'_, '_>, i: u8| {
+        px.frame_word(WordKey::Open {
+            face: Face::Nest,
+            k: ik,
+            j: crate::frame::px::key_j(m),
+            i,
+        }) as i32
+            * 8
+    };
     let (state, pend, hit, pos) = (word(px, 0), word(px, 1), word(px, 2), word(px, 3));
     let purge = (*purge && rerun && !every).then(|| word(px, 4));
-    let flags = if *binary { abi::MEMO_BINARY } else { 0 } | if *singlerow { abi::MEMO_SINGLEROW } else { 0 };
-    let core = Rc::new(Core { mcx: px.mcx(), node, h, keys: ks, flags, ex, state, pend, hit, pos, purge, every, armed: Default::default(), shape: RefCell::new(None) });
-    (Memo { core: core.clone() }, mcx::pg_box_dyn!(px.mcx(), Fill { core } => dyn StepMech + 'g))
+    let flags = if *binary { abi::MEMO_BINARY } else { 0 }
+        | if *singlerow { abi::MEMO_SINGLEROW } else { 0 };
+    let core = Rc::new(Core {
+        mcx: px.mcx(),
+        node,
+        h,
+        keys: ks,
+        flags,
+        ex,
+        state,
+        pend,
+        hit,
+        pos,
+        purge,
+        every,
+        armed: Default::default(),
+        shape: RefCell::new(None),
+    });
+    (
+        Memo { core: core.clone() },
+        mcx::pg_box_dyn!(px.mcx(), Fill { core } => dyn StepMech + 'g),
+    )
 }
 
 /// D3014 M2: the proto's `arg`, the one key a widened nest's workers compare and hash with functions the leader resolves
@@ -256,8 +359,23 @@ fn wide_key(binary: bool, ops: &[u32], colls: &[u32]) -> u64 {
     }
 }
 
-pub(crate) fn host(b: &mut FunctionBuilder<'_>, name: &str, params: &[Type], addr: usize) -> HostFn {
-    b.declare_host_once(name, params, Some(Type::I64), addr, HostFlags { touches_memory: true, may_error: true, ..HostFlags::default() })
+pub(crate) fn host(
+    b: &mut FunctionBuilder<'_>,
+    name: &str,
+    params: &[Type],
+    addr: usize,
+) -> HostFn {
+    b.declare_host_once(
+        name,
+        params,
+        Some(Type::I64),
+        addr,
+        HostFlags {
+            touches_memory: true,
+            may_error: true,
+            ..HostFlags::default()
+        },
+    )
 }
 
 /// Leaves by the raise exit with the host's stashed error when `r` is below zero.
@@ -325,11 +443,26 @@ pub(crate) fn image_len(b: &mut FunctionBuilder<'_>, d: Value, null: Value, typl
 /// here site-free (fill.rs `site_free`): a kept order word is a word.
 pub(crate) fn byref_len(node: i32, c: &Cell) -> Option<i16> {
     match c.rep {
-        Rep::Word { .. } | Rep::PackedNum { form: NumForm::Word, .. } => None,
+        Rep::Word { .. }
+        | Rep::PackedNum {
+            form: NumForm::Word,
+            ..
+        } => None,
         Rep::VarlenaPtr => Some(-1),
         Rep::FixedPtr { len } => Some(len as i16),
         Rep::CstrPtr => shape(node, "a Memoize over a cstring column"),
-        Rep::Code { .. } | Rep::PackedNum { form: NumForm::Window, .. } | Rep::PackedNumDyn => crate::refuse!(node, Reason::Bug { payload: "a memo cell in its site's dictionary or window form past fill.rs site_free" }),
+        Rep::Code { .. }
+        | Rep::PackedNum {
+            form: NumForm::Window,
+            ..
+        }
+        | Rep::PackedNumDyn => crate::refuse!(
+            node,
+            Reason::Bug {
+                payload:
+                    "a memo cell in its site's dictionary or window form past fill.rs site_free"
+            }
+        ),
     }
 }
 
@@ -345,14 +478,25 @@ impl Memo<'_> {
     /// every outer row of the memo's nest.
     pub(crate) fn owner_words(&self, w: &mut OpenWords) {
         if let Some(o) = self.core.purge {
-            w.declare(OpenWord::open("nest.memo purge", Base::Words, o, Type::I64, 1));
+            w.declare(OpenWord::open(
+                "nest.memo purge",
+                Base::Words,
+                o,
+                Type::I64,
+                1,
+            ));
             self.core.armed.set(true);
         }
     }
 
     /// The re-open after the inner's per-open words: the lookup (`lookup`), then on a miss only `source` (the inner's
     /// open: PG's Memoize never pulls its child on a hit). The open's status (0 on a hit).
-    pub(crate) fn open(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, source: &mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env) -> Value) -> Value {
+    pub(crate) fn open(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        source: &mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env) -> Value,
+    ) -> Value {
         let hit = self.lookup(b, env);
         let (l_src, l_join) = (b.create_block(&[]), b.create_block(&[Type::I64]));
         b.cond_br(hit, (l_join, &[env.zero]), (l_src, &[]));
@@ -367,10 +511,23 @@ impl Memo<'_> {
     fn lookup(&self, b: &mut FunctionBuilder<'_>, env: &mut Env) -> Value {
         let c = &*self.core;
         let n = c.keys.len();
-        let none = RowVals { row: crate::cell::Row::new_in(env.mcx), vals: mcx::PgVec::new_in(env.mcx), cols: mcx::PgVec::new_in(env.mcx), carry: Carry::new(env.zero, env.mcx), next: env.zero, at: env.zero };
-        let slot = b.declare_stack_slot(((abi::MEMO_KEY_HEAD + n * abi::MEMO_KEY_WORDS) * 8) as u32, 8);
+        let none = RowVals {
+            row: crate::cell::Row::new_in(env.mcx),
+            vals: mcx::PgVec::new_in(env.mcx),
+            cols: mcx::PgVec::new_in(env.mcx),
+            carry: Carry::new(env.zero, env.mcx),
+            next: env.zero,
+            at: env.zero,
+        };
+        let slot = b.declare_stack_slot(
+            ((abi::MEMO_KEY_HEAD + n * abi::MEMO_KEY_WORDS) * 8) as u32,
+            8,
+        );
         let kb = b.stack_addr(slot);
-        let (nk, mut fl) = (b.iconst(Type::I64, n as i64), b.iconst(Type::I64, c.flags as i64));
+        let (nk, mut fl) = (
+            b.iconst(Type::I64, n as i64),
+            b.iconst(Type::I64, c.flags as i64),
+        );
         // a re-run plan's first lookup after its nest's pipeline opened purges (ExecReScanMemoize), and clears the word
         if c.every {
             fl = b.iconst(Type::I64, (c.flags | abi::MEMO_PURGE) as i64);
@@ -392,7 +549,15 @@ impl Memo<'_> {
             let isnull = b.int_bin(IntBinOp::Xor, valid, t);
             let cell = Cell::of_expr(k.out, 0, 0, Nullable::Maybe);
             let mut cx = env.lx(b, c.node);
-            let (d, null) = rep::datum(&mut cx, CellRef { cell: &cell, val: v, null: Some(isnull) }, &k.tf);
+            let (d, null) = rep::datum(
+                &mut cx,
+                CellRef {
+                    cell: &cell,
+                    val: v,
+                    null: Some(isnull),
+                },
+                &k.tf,
+            );
             env.memo = cx.memo;
             env.memo.clear();
             let len = match (!k.tf.byval).then_some(k.tf.typlen) {
@@ -402,14 +567,25 @@ impl Memo<'_> {
             let off = ((abi::MEMO_KEY_HEAD + i * abi::MEMO_KEY_WORDS) * 8) as i32;
             let w = to_word(b, d);
             let nw = b.conv(ConvOp::Zext, Type::I64, null);
-            let (op, coll, tl) = (b.iconst(Type::I64, k.op as i64), b.iconst(Type::I64, k.coll as i64), b.iconst(Type::I64, k.tf.typlen as i64));
+            let (op, coll, tl) = (
+                b.iconst(Type::I64, k.op as i64),
+                b.iconst(Type::I64, k.coll as i64),
+                b.iconst(Type::I64, k.tf.typlen as i64),
+            );
             for (x, v) in [w, nw, len, op, coll, tl].into_iter().enumerate() {
                 b.store(kb, off + 8 * x as i32, v);
             }
         }
         let hv = b.load(Type::I64, env.params, c.h as i32 * 8);
-        let f = host(b, "m8_memo_miss", &[Type::Ptr, Type::I64, Type::Ptr], gravity_abi::host_words!(abi::m8_memo_miss(ctx, h, key)));
-        let r = b.call_host(f, &[env.ctx, hv, kb], Some(Type::I64)).unwrap_or(env.zero);
+        let f = host(
+            b,
+            "m8_memo_miss",
+            &[Type::Ptr, Type::I64, Type::Ptr],
+            gravity_abi::host_words!(abi::m8_memo_miss(ctx, h, key)),
+        );
+        let r = b
+            .call_host(f, &[env.ctx, hv, kb], Some(Type::I64))
+            .unwrap_or(env.zero);
         raise_if_bad(b, env, r);
         env.store_word(b, c.hit, r);
         let hit = b.icmp(IntCond::Sgt, r, env.zero);

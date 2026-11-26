@@ -88,8 +88,11 @@ pub struct Classification {
     pub ascii_subject: bool,
 }
 
-const INCOMPATIBLE: Classification =
-    Classification { tier: Compat::Incompatible, needs_longest: false, ascii_subject: false };
+const INCOMPATIBLE: Classification = Classification {
+    tier: Compat::Incompatible,
+    needs_longest: false,
+    ascii_subject: false,
+};
 
 pub fn classify(pattern: &[u8], cflags: i32) -> Classification {
     if pattern.len() > MAX_PATTERN_BYTES {
@@ -111,7 +114,11 @@ pub fn classify(pattern: &[u8], cflags: i32) -> Classification {
         return INCOMPATIBLE;
     }
     if quoted {
-        return Classification { tier: Compat::CaptureSafe, needs_longest: false, ascii_subject: false };
+        return Classification {
+            tier: Compat::CaptureSafe,
+            needs_longest: false,
+            ascii_subject: false,
+        };
     }
     scan_are(pattern)
 }
@@ -204,9 +211,7 @@ fn parse_bracket(pat: &[u8], mut i: usize) -> Option<usize> {
             b']' if any_member => return Some(i + 1),
             b']' => return None,
             b'\\' => return None,
-            b'[' if i + 1 < pat.len() && matches!(pat[i + 1], b':' | b'.' | b'=') => {
-                return None
-            }
+            b'[' if i + 1 < pat.len() && matches!(pat[i + 1], b':' | b'.' | b'=') => return None,
             b'-' => {
                 // Literal at start or end; otherwise a range: both endpoints
                 // must be ASCII (code-point ranges match; wider left closed).
@@ -398,9 +403,7 @@ fn scan_are(pat: &[u8]) -> Classification {
     if translated && !boundaries_exact(pat) {
         return INCOMPATIBLE;
     }
-    let tier = if capture_safe
-        && !(has_capture && (has_alternation || !captures_determined(pat)))
-    {
+    let tier = if capture_safe && !(has_capture && (has_alternation || !captures_determined(pat))) {
         Compat::CaptureSafe
     } else {
         Compat::WholeMatch
@@ -503,14 +506,21 @@ impl Bounds<'_> {
         if want_word_next {
             return None;
         }
-        Some(Edges { first_word: first.unwrap_or(false), last_word: prev_last })
+        Some(Edges {
+            first_word: first.unwrap_or(false),
+            last_word: prev_last,
+        })
     }
 
     // One atom or group with its quantifier; a quantifier that admits zero
     // iterations makes the item possibly empty, so no edge is known.
     fn item(&mut self) -> Option<Edges> {
         let (mut e, next) = if self.pat[self.i] == b'(' {
-            self.i += if self.pat.get(self.i + 1) == Some(&b'?') { 3 } else { 1 };
+            self.i += if self.pat.get(self.i + 1) == Some(&b'?') {
+                3
+            } else {
+                1
+            };
             let e = self.alt()?;
             if self.pat.get(self.i) != Some(&b')') {
                 return None;
@@ -519,11 +529,20 @@ impl Bounds<'_> {
         } else {
             let (set, next) = single_atom(self.pat, self.i)?;
             let w = set.ascii != 0 && set.ascii & !WORD == 0 && !set.non_ascii;
-            (Edges { first_word: w, last_word: w }, next)
+            (
+                Edges {
+                    first_word: w,
+                    last_word: w,
+                },
+                next,
+            )
         };
         let (min, _, after) = quantifier(self.pat, next);
         if min == 0 {
-            e = Edges { first_word: false, last_word: false };
+            e = Edges {
+                first_word: false,
+                last_word: false,
+            };
         }
         self.i = after;
         Some(e)
@@ -572,10 +591,16 @@ struct FirstSet {
 }
 
 impl FirstSet {
-    const ANY: FirstSet = FirstSet { ascii: u128::MAX, non_ascii: true };
+    const ANY: FirstSet = FirstSet {
+        ascii: u128::MAX,
+        non_ascii: true,
+    };
 
     fn byte(b: u8) -> FirstSet {
-        FirstSet { ascii: 1u128 << b, non_ascii: false }
+        FirstSet {
+            ascii: 1u128 << b,
+            non_ascii: false,
+        }
     }
 
     fn disjoint(self, other: FirstSet) -> bool {
@@ -604,7 +629,10 @@ fn bracket_set(pat: &[u8], mut i: usize) -> Option<(FirstSet, usize)> {
     if negated {
         i += 1;
     }
-    let mut set = FirstSet { ascii: 0, non_ascii: false };
+    let mut set = FirstSet {
+        ascii: 0,
+        non_ascii: false,
+    };
     let mut prev: Option<u8> = None;
     while i < end - 1 {
         let b = pat[i];
@@ -629,7 +657,10 @@ fn bracket_set(pat: &[u8], mut i: usize) -> Option<(FirstSet, usize)> {
         }
     }
     if negated {
-        set = FirstSet { ascii: !set.ascii, non_ascii: true };
+        set = FirstSet {
+            ascii: !set.ascii,
+            non_ascii: true,
+        };
     }
     Some((set, end))
 }
@@ -638,7 +669,13 @@ fn bracket_set(pat: &[u8], mut i: usize) -> Option<(FirstSet, usize)> {
 fn single_atom(pat: &[u8], i: usize) -> Option<(FirstSet, usize)> {
     match pat[i] {
         b'\\' => match *pat.get(i + 1)? {
-            b's' => Some((FirstSet { ascii: SPACE, non_ascii: false }, i + 2)),
+            b's' => Some((
+                FirstSet {
+                    ascii: SPACE,
+                    non_ascii: false,
+                },
+                i + 2,
+            )),
             b'm' | b'M' => None,
             c => Some((FirstSet::byte(escape_byte(c)), i + 2)),
         },
@@ -646,7 +683,13 @@ fn single_atom(pat: &[u8], i: usize) -> Option<(FirstSet, usize)> {
         b'.' => Some((FirstSet::ANY, i + 1)),
         b'(' | b')' | b'|' | b'^' | b'$' | b'*' | b'+' | b'?' | b'{' => None,
         b if b.is_ascii() => Some((FirstSet::byte(b), i + 1)),
-        b => Some((FirstSet { ascii: 0, non_ascii: true }, i + utf8_char_len(b))),
+        b => Some((
+            FirstSet {
+                ascii: 0,
+                non_ascii: true,
+            },
+            i + utf8_char_len(b),
+        )),
     }
 }
 
@@ -850,7 +893,11 @@ fn ends_with_anchor(pat: &[u8]) -> bool {
     if pat.last() != Some(&b'$') {
         return false;
     }
-    let slashes = pat[..pat.len() - 1].iter().rev().take_while(|&&b| b == b'\\').count();
+    let slashes = pat[..pat.len() - 1]
+        .iter()
+        .rev()
+        .take_while(|&&b| b == b'\\')
+        .count();
     slashes % 2 == 0
 }
 
@@ -899,34 +946,34 @@ mod tests {
     #[test]
     fn rejects_incompatible_class() {
         for p in [
-            r"(a)\1",       // backref
-            r"\d+",         // ctype escape
+            r"(a)\1", // backref
+            r"\d+",   // ctype escape
             r"\w",
             r"\bword\b",
             r"\Aabc",
-            r"a*?",         // non-greedy
+            r"a*?", // non-greedy
             r"a{1,2}?",
-            r"(?=x)",       // lookaround
+            r"(?=x)", // lookaround
             r"(?!x)",
             r"(?<=x)",
-            r"(?i)abc",     // inline options
-            "[[:alpha:]]",  // named class
+            r"(?i)abc",    // inline options
+            "[[:alpha:]]", // named class
             "[[=a=]]",
             "[[.a.]]",
-            r"[\d]",        // escape inside bracket
-            "[]a]",         // POSIX leading-]: RE2 errors
-            "[é-z]",        // non-ASCII range endpoint
+            r"[\d]", // escape inside bracket
+            "[]a]",  // POSIX leading-]: RE2 errors
+            "[é-z]", // non-ASCII range endpoint
             "[a-é]",
-            "a{256}",       // beyond Spencer DUPMAX
-            "a{2,1}",       // malformed bound
+            "a{256}", // beyond Spencer DUPMAX
+            "a{2,1}", // malformed bound
             "a{}",
             "a{,2}",
-            "{2}",          // nothing to repeat
+            "{2}", // nothing to repeat
             "*a",
             "a**",
-            "(a",           // unbalanced
+            "(a", // unbalanced
             "a)",
-            r"a\",          // trailing backslash
+            r"a\", // trailing backslash
         ] {
             assert!(!ok(p), "should reject {p:?}");
         }
@@ -958,15 +1005,15 @@ mod tests {
         assert!(!c("abc").ascii_subject);
         assert!(!c(r"a\.b").ascii_subject);
         for p in [
-            r"\m",            // nothing after
-            r"\M",            // nothing before
+            r"\m", // nothing after
+            r"\M", // nothing before
             r"\m\M",
-            r"\m.a",          // '.' may be a non-word character
-            r"\m[a-z ]",      // the class holds a space
-            r"\mé",           // non-ASCII
-            r"\m(a|b c|)",    // an empty branch
+            r"\m.a",       // '.' may be a non-word character
+            r"\m[a-z ]",   // the class holds a space
+            r"\mé",        // non-ASCII
+            r"\m(a|b c|)", // an empty branch
             r"\m(a| b)",
-            r"\ma?",          // possibly empty
+            r"\ma?", // possibly empty
             r"\m(ab)*c",
             r"\m\sa",
             r"\m^a",
@@ -974,11 +1021,11 @@ mod tests {
             r"(a|b )\M",
             r"\s\M",
             r"$\M",
-            r"\m*a",          // quantified constraint
+            r"\m*a", // quantified constraint
             r"a\M+",
-            r"\S",            // still off-list
+            r"\S", // still off-list
             r"\y",
-            r"[\s]",          // escape inside a bracket
+            r"[\s]", // escape inside a bracket
         ] {
             assert_eq!(c(p).tier, Compat::Incompatible, "should reject {p:?}");
         }
@@ -988,12 +1035,17 @@ mod tests {
     fn re2_pattern_translates_only_the_escapes() {
         assert_eq!(re2_pattern(br"\s+"), br"[\x09-\x0D\x20]+".to_vec());
         assert_eq!(re2_pattern(br"\m(inc|co)\M"), br"\b(inc|co)\b".to_vec());
-        assert_eq!(re2_pattern(r"a\.\n[^s m]é".as_bytes()), r"a\.\n[^s m]é".as_bytes().to_vec());
+        assert_eq!(
+            re2_pattern(r"a\.\n[^s m]é".as_bytes()),
+            r"a\.\n[^s m]é".as_bytes().to_vec()
+        );
     }
 
     #[test]
     fn leading_zero_bounds_fall_back_to_spencer() {
-        for p in ["a{01}", "a{00}", "a{001}", "a{0,01}", "a{1,01}", "a{01,2}", "a{01,}"] {
+        for p in [
+            "a{01}", "a{00}", "a{001}", "a{0,01}", "a{1,01}", "a{01,2}", "a{01,}",
+        ] {
             assert!(!ok(p), "should reject {p:?}");
         }
         for p in ["a{0}", "a{0,1}", "a{1,2}", "a{0,}", "a{10}"] {
@@ -1078,10 +1130,16 @@ mod tests {
             "(a*(?:ab)*)b?",
             "(a+(?:ab)*)b?",
         ] {
-            assert_eq!(classify(pattern.as_bytes(), REG_ADVANCED).tier, Compat::WholeMatch);
+            assert_eq!(
+                classify(pattern.as_bytes(), REG_ADVANCED).tier,
+                Compat::WholeMatch
+            );
         }
         assert_eq!(classify(b"(a*)b?", REG_ADVANCED).tier, Compat::CaptureSafe);
-        assert_eq!(classify(b"(?:a?(?:ab)?)b?", REG_ADVANCED).tier, Compat::CaptureSafe);
+        assert_eq!(
+            classify(b"(?:a?(?:ab)?)b?", REG_ADVANCED).tier,
+            Compat::CaptureSafe
+        );
     }
 
     #[test]
@@ -1148,7 +1206,10 @@ mod tests {
         assert!(!c("^(?:ab)?(?:abcd)?$").needs_longest);
         assert!(c("a{2,}b?").needs_longest);
         assert_eq!(c("^(?:ab)?(abcd)?").tier, Compat::WholeMatch);
-        assert_eq!(c("^https?://(?:m\\.)?([^/]+)/.*$").tier, Compat::CaptureSafe);
+        assert_eq!(
+            c("^https?://(?:m\\.)?([^/]+)/.*$").tier,
+            Compat::CaptureSafe
+        );
     }
 
     #[test]
@@ -1161,7 +1222,10 @@ mod tests {
         // scale with literal length).
         assert!(!ok(&"a".repeat(MAX_PATTERN_BYTES + 1)));
         assert!(ok(&"a".repeat(MAX_PATTERN_BYTES)));
-        assert!(!re2_compatible("a".repeat(MAX_PATTERN_BYTES + 1).as_bytes(), REG_QUOTE));
+        assert!(!re2_compatible(
+            "a".repeat(MAX_PATTERN_BYTES + 1).as_bytes(),
+            REG_QUOTE
+        ));
         // Quantifier budget.
         assert!(!ok(&"x*".repeat(MAX_QUANTIFIERS as usize + 1)));
         assert!(ok(&"x*".repeat(MAX_QUANTIFIERS as usize)));

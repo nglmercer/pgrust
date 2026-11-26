@@ -52,7 +52,9 @@
 //!   (`charged_landing_bytes`) and an allocator reservation's committed bytes, pending relief with no named charge. It is
 //!   in the service's one landing account and the ladder's landing credit (`reap::landing_credit`).
 
-use core::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering::Acquire, Ordering::Relaxed, Ordering::Release};
+use core::sync::atomic::{
+    AtomicBool, AtomicU64, AtomicUsize, Ordering::Acquire, Ordering::Relaxed, Ordering::Release,
+};
 
 use mempolicy::consts::{get, K};
 use pgsync::Mutex;
@@ -76,7 +78,11 @@ struct Fifo<T, const N: usize> {
 
 impl<T, const N: usize> Fifo<T, N> {
     const fn new() -> Self {
-        Fifo { jobs: [const { None }; N], head: 0, len: 0 }
+        Fifo {
+            jobs: [const { None }; N],
+            head: 0,
+            len: 0,
+        }
     }
 
     fn push(&mut self, seq: u64, job: T) {
@@ -104,7 +110,11 @@ impl<T, const N: usize> Fifo<T, N> {
     /// Take-back (T1): the newest job `pick` accepts, out of the ring. Its slot is left empty (`pop` and `front` skip it)
     /// unless it is at either end, which the ring's span leaves.
     fn remove_newest(&mut self, mut pick: impl FnMut(&T) -> bool) -> Option<(u64, T)> {
-        let k = (0..self.len).rev().find(|&k| self.jobs[(self.head + k) % N].as_ref().is_some_and(|j| pick(&j.1)))?;
+        let k = (0..self.len).rev().find(|&k| {
+            self.jobs[(self.head + k) % N]
+                .as_ref()
+                .is_some_and(|j| pick(&j.1))
+        })?;
         let j = self.jobs[(self.head + k) % N].take();
         while self.len != 0 && self.jobs[(self.head + self.len - 1) % N].is_none() {
             self.len -= 1;
@@ -136,7 +146,14 @@ impl Ring {
     }
 }
 
-static QUEUE: Mutex<Ring> = Mutex::new(Ring { gives: Fifo::new(), parks: Fifo::new(), parks_held: 0, next: 0, low: 0, done: [false; SEQS] });
+static QUEUE: Mutex<Ring> = Mutex::new(Ring {
+    gives: Fifo::new(),
+    parks: Fifo::new(),
+    parks_held: 0,
+    next: 0,
+    low: 0,
+    done: [false; SEQS],
+});
 
 /// A job of either kind, as taken off the rings.
 #[allow(clippy::large_enum_variant)]
@@ -236,7 +253,11 @@ fn route(on: bool, past: bool, rw: usize) -> Route {
     if rw == 0 {
         return Route::Job;
     }
-    if rw >= crate::mem::reap::REAP_MIN { Route::Drop } else { Route::Here }
+    if rw >= crate::mem::reap::REAP_MIN {
+        Route::Drop
+    } else {
+        Route::Here
+    }
 }
 
 /// Whether the lane acts: give_back_spill and give_back_service on, and the service in place (its start made).
@@ -253,7 +274,12 @@ pub(crate) fn give(c: RegionBuf) {
         return;
     }
     let on = on();
-    give_as(c, on, on && mcx::ladder::past_cancel_line(), allocarena::own::service_cap());
+    give_as(
+        c,
+        on,
+        on && mcx::ladder::past_cancel_line(),
+        allocarena::own::service_cap(),
+    );
 }
 
 /// `give` with the knobs' and the line's reads given (`cap`: the service's backlog cap).
@@ -420,8 +446,15 @@ pub(crate) fn take_back_give(want: usize) -> Option<(RegionBuf, usize)> {
     if LANDING.load(Relaxed) == 0 {
         return None;
     }
-    let fits = |g: &GiveParts| g.shape().is_some_and(|(len, whole)| len >= want && whole - want <= want / 8);
-    let (seq, job) = QUEUE.lock().unwrap_or_else(|e| e.into_inner()).gives.remove_newest(fits)?;
+    let fits = |g: &GiveParts| {
+        g.shape()
+            .is_some_and(|(len, whole)| len >= want && whole - want <= want / 8)
+    };
+    let (seq, job) = QUEUE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .gives
+        .remove_newest(fits)?;
     let b = job.bytes();
     LANDING.fetch_sub(b, Relaxed);
     LANDING_POOL.fetch_sub(job.pool_bytes(), Relaxed);
@@ -517,7 +550,9 @@ pub fn drain_upto(max: usize) -> usize {
 fn give_until(max: usize, until: u64, parks: bool, service: bool) -> (usize, u64) {
     let (mut n, mut jobs) = (0, 0);
     while n < max {
-        let Some((seq, j)) = pop(until, parks || service) else { break };
+        let Some((seq, j)) = pop(until, parks || service) else {
+            break;
+        };
         let ((charged, pending), park) = (j.bytes(), matches!(j, Job::Park(_)));
         // TB4: off the overdraft's room before its pool bytes are released (never counted twice)
         LANDING_POOL.fetch_sub(j.pool_bytes(), Relaxed);
@@ -677,7 +712,11 @@ mod tests {
         // knobs off (or no service): as before, whatever the region
         for rw in [0, min - 4096, min, 64 * MIB] {
             assert_eq!(route(false, false, rw), Route::Here, "off: rw {rw}");
-            assert_eq!(route(false, true, rw), Route::Here, "off past the line: rw {rw}");
+            assert_eq!(
+                route(false, true, rw),
+                Route::Here,
+                "off past the line: rw {rw}"
+            );
         }
         // S1: past the cancel line, on the caller as before
         for rw in [0, min - 4096, min, 64 * MIB] {
@@ -687,8 +726,16 @@ mod tests {
         assert_eq!(route(true, false, 0), Route::Job);
         // S3: a mapped region keeps its inline give-back under REAP_MIN and skips it from REAP_MIN up (its drop's reaper)
         assert_eq!(route(true, false, 4096), Route::Here);
-        assert_eq!(route(true, false, min - 4096), Route::Here, "one page under REAP_MIN: kept");
-        assert_eq!(route(true, false, min), Route::Drop, "at REAP_MIN: the reaper's");
+        assert_eq!(
+            route(true, false, min - 4096),
+            Route::Here,
+            "one page under REAP_MIN: kept"
+        );
+        assert_eq!(
+            route(true, false, min),
+            Route::Drop,
+            "at REAP_MIN: the reaper's"
+        );
         assert_eq!(route(true, false, 64 * MIB), Route::Drop);
     }
 
@@ -700,17 +747,44 @@ mod tests {
         let min = crate::mem::reap::REAP_MIN;
         let (c0, h0) = (counts(), crate::mem::reap::HANDED.load(Relaxed));
         // reservations of sizes no other test parks (a parked one of another writable extent would be taken first)
-        let small = crate::mem::region::reserved_region(64 << 10, 74 * MIB, None, None, true).expect("a small reservation");
-        assert!(small.writable() != 0 && small.writable() < min, "mapped, writable {} under REAP_MIN", small.writable());
+        let small = crate::mem::region::reserved_region(64 << 10, 74 * MIB, None, None, true)
+            .expect("a small reservation");
+        assert!(
+            small.writable() != 0 && small.writable() < min,
+            "mapped, writable {} under REAP_MIN",
+            small.writable()
+        );
         give_as(small, true, false, 512 * MIB);
         let c1 = counts();
-        assert_eq!((c1.small_mapped_inline - c0.small_mapped_inline, c1.to_reaper - c0.to_reaper), (1, 0), "under REAP_MIN: kept");
-        let large = crate::mem::region::reserved_region(min, 78 * MIB, None, None, true).expect("a large reservation");
-        assert!(large.writable() >= min, "mapped, writable {} at REAP_MIN", large.writable());
+        assert_eq!(
+            (
+                c1.small_mapped_inline - c0.small_mapped_inline,
+                c1.to_reaper - c0.to_reaper
+            ),
+            (1, 0),
+            "under REAP_MIN: kept"
+        );
+        let large = crate::mem::region::reserved_region(min, 78 * MIB, None, None, true)
+            .expect("a large reservation");
+        assert!(
+            large.writable() >= min,
+            "mapped, writable {} at REAP_MIN",
+            large.writable()
+        );
         give_as(large, true, false, 512 * MIB);
         let c2 = counts();
-        assert_eq!((c2.small_mapped_inline - c1.small_mapped_inline, c2.to_reaper - c1.to_reaper), (0, 1), "at REAP_MIN: skipped");
-        assert!(crate::mem::reap::HANDED.load(Relaxed) > h0, "its drop handed it to the reaper");
+        assert_eq!(
+            (
+                c2.small_mapped_inline - c1.small_mapped_inline,
+                c2.to_reaper - c1.to_reaper
+            ),
+            (0, 1),
+            "at REAP_MIN: skipped"
+        );
+        assert!(
+            crate::mem::reap::HANDED.load(Relaxed) > h0,
+            "its drop handed it to the reaper"
+        );
         assert_eq!(c2.jobs, c0.jobs, "a mapped region is never a job");
     }
 
@@ -731,7 +805,11 @@ mod tests {
         // the newest the pick accepts, from the middle: an empty slot
         assert_eq!(f.remove_newest(|j| *j < 40), Some((3, 30)));
         assert_eq!(f.len, 4, "a middle slot stays in the span");
-        assert_eq!(f.remove_newest(|j| *j == 99), None, "no pick: nothing changes");
+        assert_eq!(
+            f.remove_newest(|j| *j == 99),
+            None,
+            "no pick: nothing changes"
+        );
         assert_eq!(f.front(), Some(2));
         // at the head: the span starts past it and past the empty slot after it
         assert_eq!(f.remove_newest(|j| *j == 20), Some((2, 20)));

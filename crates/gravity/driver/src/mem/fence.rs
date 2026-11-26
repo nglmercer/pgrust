@@ -72,18 +72,28 @@ pub(crate) fn pick(shape: &RowShape, raw: &[u8]) -> Option<Picks> {
     let head = shape.head as usize;
     if shape.var.is_none() {
         // fixed records: every `step`-th row
-        if ! raw.len().is_multiple_of( head) || !first_kept(head, raw.len()) {
+        if !raw.len().is_multiple_of(head) || !first_kept(head, raw.len()) {
             return None;
         }
         let rows = raw.len() / head;
         let step = FENCE.max(SPREAD * head).div_ceil(head);
-        let at = (0..rows).step_by(step).map(|r| (r as u64, r * head, head)).collect(); // alloc: Exec
-        return Some(Picks { at, rows: rows as u64 });
+        let at = (0..rows)
+            .step_by(step)
+            .map(|r| (r as u64, r * head, head))
+            .collect(); // alloc: Exec
+        return Some(Picks {
+            at,
+            rows: rows as u64,
+        });
     }
     let (mut at, mut off, mut row, mut last) = (Vec::new(), 0usize, 0u64, None::<usize>); // alloc: Exec
     while off < raw.len() {
         let n = runcodec::record_len(shape, &raw[off..])?;
-        if n < head || n % 8 != 0 || off + n > raw.len() || (last.is_none() && !first_kept(n, raw.len())) {
+        if n < head
+            || n % 8 != 0
+            || off + n > raw.len()
+            || (last.is_none() && !first_kept(n, raw.len()))
+        {
             return None;
         }
         if last.is_none_or(|l| off - l >= FENCE.max(SPREAD * n)) {
@@ -99,19 +109,53 @@ impl Fences {
     /// The fences of a run whose records are `raw`, chosen by `pick`: `ends[i]` the offset in the run's coded stream
     /// just past fence i's record (its raw end, or a compacted run's coded end), `starts[b]` block b's part offset,
     /// `total` the part's bytes; `owner` the run's slot owner, whose the fences' heap bytes are (`None`: no one's).
-    pub(crate) fn new(raw: &[u8], shape: &RowShape, picks: Picks, ends: &[usize], starts: &[u64], total: u64, compact: bool, owner: Option<memledger::Owner>) -> Fences {
+    pub(crate) fn new(
+        raw: &[u8],
+        shape: &RowShape,
+        picks: Picks,
+        ends: &[usize],
+        starts: &[u64],
+        total: u64,
+        compact: bool,
+        owner: Option<memledger::Owner>,
+    ) -> Fences {
         let copied: usize = picks.at.iter().map(|p| p.2 / 8).sum();
         let mut recs = Vec::with_capacity(copied); // alloc: Exec charged owner
         let mut at = Vec::with_capacity(picks.at.len()); // alloc: Exec charged owner
         for (&(row, off, len), &end) in picks.at.iter().zip(ends) {
             let word = recs.len();
-            recs.extend(raw[off..off + len].chunks_exact(8).map(|c| u64::from_ne_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]))); // alloc: Exec charged owner
+            recs.extend(
+                raw[off..off + len]
+                    .chunks_exact(8)
+                    .map(|c| u64::from_ne_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]])),
+            ); // alloc: Exec charged owner
             let b = end / BLOCK;
-            at.push(Fence { row, word, len, at: starts.get(b).copied().unwrap_or(total), skip: (end % BLOCK) as u32 }); // alloc: Exec charged owner
+            at.push(Fence {
+                row,
+                word,
+                len,
+                at: starts.get(b).copied().unwrap_or(total),
+                skip: (end % BLOCK) as u32,
+            }); // alloc: Exec charged owner
         }
         let bytes = recs.capacity() * 8 + at.capacity() * core::mem::size_of::<Fence>();
-        let claim = owner.map_or(memledger::Charge::NONE, |o| memledger::Charge::open(o, memledger::Release::Statement, memledger::Kind::Sort, memledger::charge::Door::Heap, bytes as u64));
-        Fences { recs, at, shape: shape.clone(), compact, rows: picks.rows, _claim: claim }
+        let claim = owner.map_or(memledger::Charge::NONE, |o| {
+            memledger::Charge::open(
+                o,
+                memledger::Release::Statement,
+                memledger::Kind::Sort,
+                memledger::charge::Door::Heap,
+                bytes as u64,
+            )
+        });
+        Fences {
+            recs,
+            at,
+            shape: shape.clone(),
+            compact,
+            rows: picks.rows,
+            _claim: claim,
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -170,9 +214,24 @@ pub struct Records {
 impl Records {
     /// Part `part` of `file`, a put run of records of `shape`, from its first record. E-kern R: `owner` (the run's stream
     /// owner, the caller's) is its reader's (`runcodec::reader`).
-    pub fn first(file: &dyn SpillFile, part: u32, shape: &RowShape, owner: Option<memledger::Owner>) -> Result<Records> {
-        let r = file.open_part(part)?.map(|r| runcodec::reader(r, owner)).transpose()?;
-        Ok(Records { r, shape: shape.clone(), buf: vec![0; BUF_WORDS], lo: 0, hi: 0, row: 0 }) // alloc: Exec
+    pub fn first(
+        file: &dyn SpillFile,
+        part: u32,
+        shape: &RowShape,
+        owner: Option<memledger::Owner>,
+    ) -> Result<Records> {
+        let r = file
+            .open_part(part)?
+            .map(|r| runcodec::reader(r, owner))
+            .transpose()?;
+        Ok(Records {
+            r,
+            shape: shape.clone(),
+            buf: vec![0; BUF_WORDS],
+            lo: 0,
+            hi: 0,
+            row: 0,
+        }) // alloc: Exec
     }
 
     /// Part `part` of `file`, the put run fenced by `f`, from fence `i` on: the fence's record (its copy), then the run's
@@ -189,19 +248,32 @@ impl Records {
                 while left > 0 {
                     let n = d.read(&mut scratch[..left.min(512)])?;
                     if n == 0 {
-                        return Err(Error::host("gravity: spill: a put run ends before its fence"));
+                        return Err(Error::host(
+                            "gravity: spill: a put run ends before its fence",
+                        ));
                     }
                     left -= n;
                 }
                 Some(match f.compact {
-                    true => Box::new(runcodec::RowReader::resume(Box::new(d), f.shape.clone(), rec)) as Box<dyn RunReader>, // alloc: Exec
+                    true => Box::new(runcodec::RowReader::resume(
+                        Box::new(d),
+                        f.shape.clone(),
+                        rec,
+                    )) as Box<dyn RunReader>, // alloc: Exec
                     false => Box::new(d) as Box<dyn RunReader>, // alloc: Exec
                 })
             }
         };
         let mut buf = vec![0u64; BUF_WORDS.max(x.len / 8 * 2)]; // alloc: Exec
         buf[..x.len / 8].copy_from_slice(&f.recs[x.word..x.word + x.len / 8]);
-        Ok(Records { r, shape: f.shape.clone(), buf, lo: 0, hi: x.len, row: x.row })
+        Ok(Records {
+            r,
+            shape: f.shape.clone(),
+            buf,
+            lo: 0,
+            hi: x.len,
+            row: x.row,
+        })
     }
 
     /// The row index of the next record.
@@ -212,7 +284,9 @@ impl Records {
     /// The next record's bytes (valid until the next call), `None` past the run's last.
     #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Result<Option<&[u8]>> {
-        let Some(n) = self.fill()? else { return Ok(None) };
+        let Some(n) = self.fill()? else {
+            return Ok(None);
+        };
         let at = self.lo;
         (self.lo, self.row) = (at + n, self.row + 1);
         Ok(Some(&self.bytes()[at..at + n]))
@@ -220,7 +294,9 @@ impl Records {
 
     /// The next record's bytes, not passed.
     pub fn peek(&mut self) -> Result<Option<&[u8]>> {
-        let Some(n) = self.fill()? else { return Ok(None) };
+        let Some(n) = self.fill()? else {
+            return Ok(None);
+        };
         let at = self.lo;
         Ok(Some(&self.bytes()[at..at + n]))
     }
@@ -241,12 +317,19 @@ impl Records {
 
     fn bytes_mut(&mut self) -> &mut [u8] {
         // SAFETY: as `bytes`, borrowed mutably.
-        unsafe { core::slice::from_raw_parts_mut(self.buf.as_mut_ptr() as *mut u8, self.buf.len() * 8) }
+        unsafe {
+            core::slice::from_raw_parts_mut(self.buf.as_mut_ptr() as *mut u8, self.buf.len() * 8)
+        }
     }
 
     /// A reader over this run's next `rows` records (fewer at its end), their bytes whole and in order (`SliceReader`).
     pub fn slice(self, rows: u64) -> SliceReader {
-        SliceReader { recs: self, left: rows, held: Vec::new(), at: 0 } // alloc: Exec
+        SliceReader {
+            recs: self,
+            left: rows,
+            held: Vec::new(),
+            at: 0,
+        } // alloc: Exec
     }
 
     /// The next record whole at `lo`: its bytes, `None` at the run's end (a record cut short is an error). Every record
@@ -256,7 +339,11 @@ impl Records {
         loop {
             let held = self.hi - self.lo;
             let need = match runcodec::record_len(&self.shape, &self.bytes()[self.lo..self.hi]) {
-                Some(n) if n < head || n % 8 != 0 => return Err(Error::host(format!("gravity: spill: a put run's record reads {n} bytes"))), // alloc: Cold
+                Some(n) if n < head || n % 8 != 0 => {
+                    return Err(Error::host(format!(
+                        "gravity: spill: a put run's record reads {n} bytes"
+                    )))
+                } // alloc: Cold
                 Some(n) if held >= n => return Ok(Some(n)),
                 Some(n) => n,
                 None => head,
@@ -264,7 +351,9 @@ impl Records {
             let Some(mut r) = self.r.take() else {
                 return match held {
                     0 => Ok(None),
-                    _ => Err(Error::host(format!("gravity: spill: a put run ends inside a record ({held} of {need} bytes)"))), // alloc: Cold
+                    _ => Err(Error::host(format!(
+                        "gravity: spill: a put run ends inside a record ({held} of {need} bytes)"
+                    ))), // alloc: Cold
                 };
             };
             if self.lo > 0 {
@@ -334,7 +423,12 @@ impl RunReader for SliceReader {
 
 /// D3190: rows `[lo, hi)` of `fences`' put run (`open(Some(f))` its records from fence f on) as a run reader: opened at the
 /// last fence at or before `lo`, the rows before `lo` passed; `None` for an empty slice (or an empty run).
-pub fn slice_of(fences: &Fences, open: &dyn Fn(usize) -> Result<Records>, lo: u64, hi: u64) -> Result<Option<SliceReader>> {
+pub fn slice_of(
+    fences: &Fences,
+    open: &dyn Fn(usize) -> Result<Records>,
+    lo: u64,
+    hi: u64,
+) -> Result<Option<SliceReader>> {
     if lo >= hi || fences.is_empty() || lo >= fences.rows() {
         return Ok(None);
     }
@@ -342,7 +436,9 @@ pub fn slice_of(fences: &Fences, open: &dyn Fn(usize) -> Result<Records>, lo: u6
     let mut r = open(f)?;
     let skip = lo - fences.row(f);
     if r.skip(skip)? != skip {
-        return Err(Error::host("gravity: spill: a put run ends before its slice's first row"));
+        return Err(Error::host(
+            "gravity: spill: a put run ends before its slice's first row",
+        ));
     }
     Ok(Some(r.slice(hi.min(fences.rows()) - lo)))
 }
@@ -386,11 +482,18 @@ mod tests {
             sink(&self.b)
         }
         fn open_part(&self, _part: u32) -> Result<Option<Box<dyn RunReader>>> {
-            Ok((!self.b.is_empty()).then(|| Box::new(Bytes { b: self.b.clone(), pos: 0 }) as Box<dyn RunReader>)) // alloc: Cold
+            Ok((!self.b.is_empty()).then(|| {
+                Box::new(Bytes {
+                    b: self.b.clone(),
+                    pos: 0,
+                }) as Box<dyn RunReader>
+            })) // alloc: Cold
         }
         fn open_part_at(&self, part: u32, offset: u64) -> Result<Option<Box<dyn RunReader>>> {
             if !self.seek {
-                let Some(mut r) = self.open_part(part)? else { return Ok(None) };
+                let Some(mut r) = self.open_part(part)? else {
+                    return Ok(None);
+                };
                 let mut skip = vec![0u8; offset as usize]; // alloc: Cold
                 let mut got = 0;
                 while got < skip.len() {
@@ -401,7 +504,12 @@ mod tests {
                 }
                 return Ok((offset < self.b.len() as u64).then_some(r));
             }
-            Ok((offset < self.b.len() as u64).then(|| Box::new(Bytes { b: self.b[offset as usize..].to_vec(), pos: 0 }) as Box<dyn RunReader>)) // alloc: Cold
+            Ok((offset < self.b.len() as u64).then(|| {
+                Box::new(Bytes {
+                    b: self.b[offset as usize..].to_vec(),
+                    pos: 0,
+                }) as Box<dyn RunReader>
+            })) // alloc: Cold
         }
         fn spilled_bytes(&self) -> u64 {
             self.b.len() as u64
@@ -452,7 +560,11 @@ mod tests {
     /// One `var_rows` record of index `i` whose copy is `size` bytes (0: NULL) pushed onto `v`.
     fn push_var(v: &mut Vec<u8>, s: &RowShape, i: usize, size: usize) {
         let head = s.head as usize;
-        let copy = if size == 0 { 0 } else { size.next_multiple_of(8).max(16) };
+        let copy = if size == 0 {
+            0
+        } else {
+            size.next_multiple_of(8).max(16)
+        };
         let at = v.len();
         v.resize(at + head + copy, 0); // alloc: Cold
         v[at..at + 8].copy_from_slice(&(i as u64).to_ne_bytes());
@@ -468,7 +580,14 @@ mod tests {
     }
 
     fn var_shape() -> RowShape {
-        RowShape::new(32, Some(VarRows { rec_off: 8, slots: vec![16] })).expect("a var shape") // alloc: Cold
+        RowShape::new(
+            32,
+            Some(VarRows {
+                rec_off: 8,
+                slots: vec![16],
+            }),
+        )
+        .expect("a var shape") // alloc: Cold
     }
 
     /// Every record read from fence `i` on: the run's records from the fence's row.
@@ -505,42 +624,92 @@ mod tests {
         let mut r = Rng(0x7a11_c0de);
         for case in 0..36 {
             let var = case % 2 == 1;
-            let s = if var { var_shape() } else { RowShape::new(8 * (2 + case as u32 % 7), None).unwrap() };
+            let s = if var {
+                var_shape()
+            } else {
+                RowShape::new(8 * (2 + case as u32 % 7), None).unwrap()
+            };
             let n = [0usize, 1, 2, 77, 900, 4000][case / 6 % 6];
-            let raw = if var { var_rows(&mut r, &s, n, case % 4 == 3) } else { fixed_rows(s.head as usize, n * 3) };
+            let raw = if var {
+                var_rows(&mut r, &s, n, case % 4 == 3)
+            } else {
+                fixed_rows(s.head as usize, n * 3)
+            };
             let (compress, seek) = (case % 3, case % 5 != 0);
-            let mut f = File { raw: compress == 0, seek, ..File::default() };
+            let mut f = File {
+                raw: compress == 0,
+                seek,
+                ..File::default()
+            };
             let shape = (compress != 2 || var).then_some(&s);
             let fences = runcodec::put_run(&mut f, 0, &raw, shape, 0, None).unwrap();
-            let mut plain = File { raw: compress == 0, ..File::default() };
+            let mut plain = File {
+                raw: compress == 0,
+                ..File::default()
+            };
             runcodec::write_run_rows(&mut plain, 0, &raw, shape, 0, None).unwrap();
-            assert!(plain.b == f.b, "case {case}: the bytes on disk are write_run_rows's");
+            assert!(
+                plain.b == f.b,
+                "case {case}: the bytes on disk are write_run_rows's"
+            );
             let want = records_of(&s, &raw);
             let Some(fences) = fences else {
                 // D3974: a first record past its bound (`first_kept`) puts the run without fences
-                let long = want.first().is_some_and(|r| !first_kept(r.len(), raw.len()));
-                assert!(shape.is_none() || long, "case {case}: a run with a shape is fenced");
+                let long = want
+                    .first()
+                    .is_some_and(|r| !first_kept(r.len(), raw.len()));
+                assert!(
+                    shape.is_none() || long,
+                    "case {case}: a run with a shape is fenced"
+                );
                 continue;
             };
-            assert_eq!((fences.rows(), fences.is_empty()), (want.len() as u64, want.is_empty()), "case {case}");
+            assert_eq!(
+                (fences.rows(), fences.is_empty()),
+                (want.len() as u64, want.is_empty()),
+                "case {case}"
+            );
             if !want.is_empty() {
                 assert_eq!(fences.row(0), 0, "fence 0 is the first record");
             }
             let copies: usize = (0..fences.len()).map(|i| fences.rec(i).len()).sum();
-            let first = if fences.is_empty() { 0 } else { fences.rec(0).len() };
-            assert!(copies <= first + raw.len() / SPREAD, "case {case}: copies {copies} of {} B", raw.len());
+            let first = if fences.is_empty() {
+                0
+            } else {
+                fences.rec(0).len()
+            };
+            assert!(
+                copies <= first + raw.len() / SPREAD,
+                "case {case}: copies {copies} of {} B",
+                raw.len()
+            );
             for i in 0..fences.len() {
                 let row = fences.row(i) as usize;
-                assert_eq!(fences.rec(i), want[row].as_slice(), "case {case}: fence {i}'s copy");
+                assert_eq!(
+                    fences.rec(i),
+                    want[row].as_slice(),
+                    "case {case}: fence {i}'s copy"
+                );
                 let got = all_from(&f, &fences, i);
-                assert_eq!(got.len(), want.len() - row, "case {case}: rows from fence {i}");
+                assert_eq!(
+                    got.len(),
+                    want.len() - row,
+                    "case {case}: rows from fence {i}"
+                );
                 for (k, (gr, gb)) in got.iter().enumerate() {
-                    assert!(*gr as usize == row + k && *gb == want[row + k], "case {case}: fence {i}, record {k}");
+                    assert!(
+                        *gr as usize == row + k && *gb == want[row + k],
+                        "case {case}: fence {i}, record {k}"
+                    );
                 }
                 assert_eq!(fences.before(fences.row(i)), i);
             }
             let mut from = Records::first(&f, 0, &s, None).unwrap();
-            assert_eq!(from.skip(u64::MAX).unwrap(), want.len() as u64, "case {case}: from the first record");
+            assert_eq!(
+                from.skip(u64::MAX).unwrap(),
+                want.len() as u64,
+                "case {case}: from the first record"
+            );
         }
     }
 
@@ -551,15 +720,37 @@ mod tests {
         let mut r = Rng(0x51ce_0001);
         for case in 0..24 {
             let var = case % 2 == 1;
-            let s = if var { var_shape() } else { RowShape::new(8 * (2 + case as u32 % 5), None).unwrap() };
-            let raw = if var { var_rows(&mut r, &s, 900, case % 4 == 3) } else { fixed_rows(s.head as usize, 3000) };
-            let mut f = File { raw: case % 3 == 0, seek: case % 5 != 0, ..File::default() };
+            let s = if var {
+                var_shape()
+            } else {
+                RowShape::new(8 * (2 + case as u32 % 5), None).unwrap()
+            };
+            let raw = if var {
+                var_rows(&mut r, &s, 900, case % 4 == 3)
+            } else {
+                fixed_rows(s.head as usize, 3000)
+            };
+            let mut f = File {
+                raw: case % 3 == 0,
+                seek: case % 5 != 0,
+                ..File::default()
+            };
             let shape = (case % 3 != 2 || var).then_some(&s);
-            let Some(fences) = runcodec::put_run(&mut f, 0, &raw, shape, 0, None).unwrap() else { continue };
+            let Some(fences) = runcodec::put_run(&mut f, 0, &raw, shape, 0, None).unwrap() else {
+                continue;
+            };
             let want = records_of(&s, &raw);
             let n = want.len() as u64;
             let open = |i: usize| Records::at(&f, 0, &fences, i);
-            for (lo, hi) in [(0, n), (0, 1), (n / 3, n / 3), (n / 3, n / 2 + 7), (n - 1, n), (n / 2, n + 50), (n, n + 1)] {
+            for (lo, hi) in [
+                (0, n),
+                (0, 1),
+                (n / 3, n / 3),
+                (n / 3, n / 2 + 7),
+                (n - 1, n),
+                (n / 2, n + 50),
+                (n, n + 1),
+            ] {
                 let rd = slice_of(&fences, &open, lo, hi).unwrap();
                 let rows = hi.min(n).saturating_sub(lo);
                 let Some(mut rd) = rd else {
@@ -576,7 +767,12 @@ mod tests {
                     }
                 }
                 let expect: Vec<u8> = want[lo as usize..(lo + rows) as usize].concat();
-                assert!(got == expect, "case {case}: slice [{lo}, {hi}) of {n}: {} B read, {} B wanted", got.len(), expect.len());
+                assert!(
+                    got == expect,
+                    "case {case}: slice [{lo}, {hi}) of {n}: {} B read, {} B wanted",
+                    got.len(),
+                    expect.len()
+                );
             }
         }
     }
@@ -589,12 +785,18 @@ mod tests {
         let s = var_shape();
         let run = |sizes: &[usize]| {
             let mut v = Vec::new(); // alloc: Cold
-            sizes.iter().enumerate().for_each(|(i, &n)| push_var(&mut v, &s, i, n));
+            sizes
+                .iter()
+                .enumerate()
+                .for_each(|(i, &n)| push_var(&mut v, &s, i, n));
             v
         };
         let row = 640_000;
         let small = vec![200usize; 4000]; // alloc: Cold
-        let long_in_a_long_run: Vec<usize> = [2000].into_iter().chain(core::iter::repeat_n(2000, 300)).collect(); // alloc: Cold
+        let long_in_a_long_run: Vec<usize> = [2000]
+            .into_iter()
+            .chain(core::iter::repeat_n(2000, 300))
+            .collect(); // alloc: Cold
         let small_then_long = [200, row, 300];
         for (case, sizes, fenced) in [
             (0, &[row][..], false),
@@ -607,19 +809,40 @@ mod tests {
         ] {
             let raw = run(sizes);
             for compress in [false, true] {
-                let mut f = File { raw: !compress, seek: true, ..File::default() };
+                let mut f = File {
+                    raw: !compress,
+                    seek: true,
+                    ..File::default()
+                };
                 let fences = runcodec::put_run(&mut f, 0, &raw, Some(&s), 0, None).unwrap();
-                let mut plain = File { raw: !compress, ..File::default() };
+                let mut plain = File {
+                    raw: !compress,
+                    ..File::default()
+                };
                 runcodec::write_run_rows(&mut plain, 0, &raw, Some(&s), 0, None).unwrap();
-                assert!(plain.b == f.b, "case {case}: the bytes on disk are write_run_rows's");
+                assert!(
+                    plain.b == f.b,
+                    "case {case}: the bytes on disk are write_run_rows's"
+                );
                 let want = records_of(&s, &raw);
                 assert_eq!(fences.is_some(), fenced, "case {case}: fenced");
                 if let Some(fences) = &fences {
-                    assert!(fences.rec(0).len() <= FIRST_FREE.max(raw.len() / SPREAD), "case {case}: fence 0's copy is bounded");
-                    assert_eq!(all_from(&f, fences, 0).len(), want.len(), "case {case}: from fence 0");
+                    assert!(
+                        fences.rec(0).len() <= FIRST_FREE.max(raw.len() / SPREAD),
+                        "case {case}: fence 0's copy is bounded"
+                    );
+                    assert_eq!(
+                        all_from(&f, fences, 0).len(),
+                        want.len(),
+                        "case {case}: from fence 0"
+                    );
                 }
                 let mut from = Records::first(&f, 0, &s, None).unwrap();
-                assert_eq!(from.skip(u64::MAX).unwrap(), want.len() as u64, "case {case}: from the first record");
+                assert_eq!(
+                    from.skip(u64::MAX).unwrap(),
+                    want.len() as u64,
+                    "case {case}: from the first record"
+                );
             }
         }
     }
@@ -631,8 +854,15 @@ mod tests {
         let mut raw = var_rows(&mut Rng(5), &s, 40, false);
         raw[8..12].copy_from_slice(&3u32.to_le_bytes());
         let mut f = File::default();
-        assert!(runcodec::put_run(&mut f, 0, &raw, Some(&s), 0, None).unwrap().is_none());
+        assert!(runcodec::put_run(&mut f, 0, &raw, Some(&s), 0, None)
+            .unwrap()
+            .is_none());
         let fixed = RowShape::new(16, None).unwrap();
-        assert!(runcodec::put_run(&mut f, 0, &[0u8; 24], Some(&fixed), 0, None).unwrap().is_none(), "a fixed run not in whole rows");
+        assert!(
+            runcodec::put_run(&mut f, 0, &[0u8; 24], Some(&fixed), 0, None)
+                .unwrap()
+                .is_none(),
+            "a fixed run not in whole rows"
+        );
     }
 }

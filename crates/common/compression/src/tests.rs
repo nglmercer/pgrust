@@ -6,10 +6,22 @@ fn parse(alg: PgCompressAlgorithm, spec: Option<&str>) -> PgCompressSpecificatio
 
 #[test]
 fn algorithm_names_case_sensitive() {
-    assert_eq!(parse_compress_algorithm("gzip"), Some(PgCompressAlgorithm::Gzip));
-    assert_eq!(parse_compress_algorithm("lz4"), Some(PgCompressAlgorithm::Lz4));
-    assert_eq!(parse_compress_algorithm("zstd"), Some(PgCompressAlgorithm::Zstd));
-    assert_eq!(parse_compress_algorithm("none"), Some(PgCompressAlgorithm::None));
+    assert_eq!(
+        parse_compress_algorithm("gzip"),
+        Some(PgCompressAlgorithm::Gzip)
+    );
+    assert_eq!(
+        parse_compress_algorithm("lz4"),
+        Some(PgCompressAlgorithm::Lz4)
+    );
+    assert_eq!(
+        parse_compress_algorithm("zstd"),
+        Some(PgCompressAlgorithm::Zstd)
+    );
+    assert_eq!(
+        parse_compress_algorithm("none"),
+        Some(PgCompressAlgorithm::None)
+    );
     // C uses strcmp: case matters.
     assert_eq!(parse_compress_algorithm("GZIP"), None);
     assert_eq!(parse_compress_algorithm("Gzip"), None);
@@ -19,7 +31,10 @@ fn algorithm_names_case_sensitive() {
 #[test]
 fn defaults_per_algorithm() {
     assert_eq!(parse(PgCompressAlgorithm::None, None).level, 0);
-    assert_eq!(parse(PgCompressAlgorithm::Gzip, None).level, Z_DEFAULT_COMPRESSION);
+    assert_eq!(
+        parse(PgCompressAlgorithm::Gzip, None).level,
+        Z_DEFAULT_COMPRESSION
+    );
     assert_eq!(parse(PgCompressAlgorithm::Lz4, None).level, 0);
     #[cfg(not(target_family = "wasm"))]
     assert_eq!(parse(PgCompressAlgorithm::Zstd, None).level, 3); // ZSTD_CLEVEL_DEFAULT
@@ -72,7 +87,10 @@ fn zstd_workers_and_long() {
     assert_eq!(s.workers, 3);
     assert_eq!(s.level, 4);
     assert!(s.long_distance);
-    assert_eq!(s.options, PG_COMPRESSION_OPTION_WORKERS | PG_COMPRESSION_OPTION_LONG_DISTANCE);
+    assert_eq!(
+        s.options,
+        PG_COMPRESSION_OPTION_WORKERS | PG_COMPRESSION_OPTION_LONG_DISTANCE
+    );
     assert!(validate_compress_specification(&s).is_none());
     // Negative zstd levels are legal down to ZSTD_minCLevel().
     let neg = parse(PgCompressAlgorithm::Zstd, Some("level=-3"));
@@ -112,10 +130,16 @@ fn none_rejects_level() {
 #[test]
 fn parse_error_strings() {
     let s = parse(PgCompressAlgorithm::Gzip, Some("bogus=1"));
-    assert_eq!(s.parse_error.as_deref(), Some("unrecognized compression option: \"bogus\""));
+    assert_eq!(
+        s.parse_error.as_deref(),
+        Some("unrecognized compression option: \"bogus\"")
+    );
 
     let s = parse(PgCompressAlgorithm::Gzip, Some("level"));
-    assert_eq!(s.parse_error.as_deref(), Some("compression option \"level\" requires a value"));
+    assert_eq!(
+        s.parse_error.as_deref(),
+        Some("compression option \"level\" requires a value")
+    );
 
     let s = parse(PgCompressAlgorithm::Gzip, Some("level=abc"));
     assert_eq!(
@@ -186,10 +210,22 @@ fn parse_options_bare_integer_nonzero_is_gzip() {
     // compression.c:447-451: any other bare integer implies gzip, and the
     // detail is the ORIGINAL option text (pstrdup(option)), not a
     // re-rendering of the parsed value.
-    assert_eq!(parse_compress_options("5"), ("gzip".to_string(), Some("5".to_string())));
-    assert_eq!(parse_compress_options("+7"), ("gzip".to_string(), Some("+7".to_string())));
-    assert_eq!(parse_compress_options(" 9"), ("gzip".to_string(), Some(" 9".to_string())));
-    assert_eq!(parse_compress_options("-1"), ("gzip".to_string(), Some("-1".to_string())));
+    assert_eq!(
+        parse_compress_options("5"),
+        ("gzip".to_string(), Some("5".to_string()))
+    );
+    assert_eq!(
+        parse_compress_options("+7"),
+        ("gzip".to_string(), Some("+7".to_string()))
+    );
+    assert_eq!(
+        parse_compress_options(" 9"),
+        ("gzip".to_string(), Some(" 9".to_string()))
+    );
+    assert_eq!(
+        parse_compress_options("-1"),
+        ("gzip".to_string(), Some("-1".to_string()))
+    );
 }
 
 #[test]
@@ -216,8 +252,14 @@ fn parse_options_method_and_detail() {
         parse_compress_options("zstd:level=3,long"),
         ("zstd".to_string(), Some("level=3,long".to_string()))
     );
-    assert_eq!(parse_compress_options("lz4:"), ("lz4".to_string(), Some(String::new())));
-    assert_eq!(parse_compress_options(":5"), (String::new(), Some("5".to_string())));
+    assert_eq!(
+        parse_compress_options("lz4:"),
+        ("lz4".to_string(), Some(String::new()))
+    );
+    assert_eq!(
+        parse_compress_options(":5"),
+        (String::new(), Some("5".to_string()))
+    );
     assert_eq!(
         parse_compress_options("a:b:c"),
         ("a".to_string(), Some("b:c".to_string()))
@@ -264,7 +306,10 @@ fn integer_overflow_clamps_like_strtol_then_truncates_to_int() {
     assert!(s.parse_error.is_none(), "{:?}", s.parse_error);
     assert_eq!(s.level, 0);
     assert!(validate_compress_specification(&s).is_none());
-    let s = parse(PgCompressAlgorithm::None, Some("level=-99999999999999999999"));
+    let s = parse(
+        PgCompressAlgorithm::None,
+        Some("level=-99999999999999999999"),
+    );
     assert!(s.parse_error.is_none(), "{:?}", s.parse_error);
     assert_eq!(s.level, 0);
     // LONG_MAX truncates to -1.

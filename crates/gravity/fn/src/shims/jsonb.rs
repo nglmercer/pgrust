@@ -7,9 +7,18 @@
 
 use adt_jsonb::container::{container_is_object, get_key_value, JsonbItem};
 
-use crate::{fail, null_ret, region_datum, region_payload, scratch_image, with_scratch, ErrSlot, Region, Ret, View};
+use crate::{
+    fail, null_ret, region_datum, region_payload, scratch_image, with_scratch, ErrSlot, Region,
+    Ret, View,
+};
 
-pub extern "C-unwind" fn jsonb_object_field_text(e: *mut ErrSlot, r: *mut Region, _coll: u32, a0: i64, a1: View) -> Ret {
+pub extern "C-unwind" fn jsonb_object_field_text(
+    e: *mut ErrSlot,
+    r: *mut Region,
+    _coll: u32,
+    a0: i64,
+    a1: View,
+) -> Ret {
     let image = super::raw::varlena_image(a0);
     let b0 = image[0];
     // short (1-byte) or plain 4-byte header, neither compressed nor external: the container is the payload in place

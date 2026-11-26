@@ -582,7 +582,12 @@ fn move_to_phi<M: BranchMachine<N>, const N: usize>(
         let parts = machine.with_assignment(local, |assignment| assignment.part_count());
         tpde_assert_eq!(parts, 1, "a constant phi incoming with several parts");
         let (fixed, destination, size, bank) = machine.with_part(local, 0, |ap| {
-            (ap.fixed_assignment(), ap.get_reg(), ap.part_size(), ap.bank())
+            (
+                ap.fixed_assignment(),
+                ap.get_reg(),
+                ap.part_size(),
+                ap.bank(),
+            )
         });
         if fixed {
             machine.materialize_constant(&[bits], bank, size, destination)?;

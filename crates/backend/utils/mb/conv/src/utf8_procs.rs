@@ -8,12 +8,12 @@ use datum::Datum;
 use mbutils::check_encoding_conversion_args;
 use types_error::PgResult;
 use types_fmgr::{FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
-use wchar::{PG_KOI8R, PG_KOI8U, PG_UTF8};
 #[cfg(feature = "cjk-encodings")]
 use wchar::{
     PG_BIG5, PG_EUC_CN, PG_EUC_JIS_2004, PG_EUC_JP, PG_EUC_KR, PG_EUC_TW, PG_GB18030, PG_GBK,
     PG_JOHAB, PG_SHIFT_JIS_2004, PG_SJIS, PG_UHC,
 };
+use wchar::{PG_KOI8R, PG_KOI8U, PG_UTF8};
 
 macro_rules! conv_pair {
     ($to_utf8:ident, $from_utf8:ident, $enc:expr, $map_to:expr, $map_from:expr,
@@ -205,7 +205,9 @@ fn unicode_to_utf8word(c: u32) -> u32 {
     } else if c <= 0x7ff {
         ((0xc0 | ((c >> 6) & 0x1f)) << 8) | (0x80 | (c & 0x3f))
     } else if c <= 0xffff {
-        ((0xe0 | ((c >> 12) & 0x0f)) << 16) | ((0x80 | ((c >> 6) & 0x3f)) << 8) | (0x80 | (c & 0x3f))
+        ((0xe0 | ((c >> 12) & 0x0f)) << 16)
+            | ((0x80 | ((c >> 6) & 0x3f)) << 8)
+            | (0x80 | (c & 0x3f))
     } else {
         ((0xf0 | ((c >> 18) & 0x07)) << 24)
             | ((0x80 | ((c >> 12) & 0x3f)) << 16)
@@ -223,7 +225,10 @@ fn utf8word_to_unicode(c: u32) -> u32 {
     } else if c <= 0xff_ffff {
         (((c >> 16) & 0x0f) << 12) | (((c >> 8) & 0x3f) << 6) | (c & 0x3f)
     } else {
-        (((c >> 24) & 0x07) << 18) | (((c >> 16) & 0x3f) << 12) | (((c >> 8) & 0x3f) << 6) | (c & 0x3f)
+        (((c >> 24) & 0x07) << 18)
+            | (((c >> 16) & 0x3f) << 12)
+            | (((c >> 8) & 0x3f) << 6)
+            | (c & 0x3f)
     }
 }
 

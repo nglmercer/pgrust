@@ -60,6 +60,7 @@ use gravity_program::LockKind;
 use types_nodes::jointype::JoinType;
 use types_nodes::plannodes::RowMarkType;
 
+use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::face::end::{EndMech, SinkKind};
 use crate::face::step::StepMech;
 use crate::frame::env::Env;
@@ -68,7 +69,6 @@ use crate::frame::iface::limit_bounds;
 use crate::frame::open::{Base, OpenWord, OpenWords};
 use crate::frame::px::Px;
 use crate::frame::row::{Carry, RowVals};
-use crate::admit::refusal::{Reason, ShapeWhy};
 
 use crate::ops::lockrows::lower::{FAMILY_JOIN, LIMIT_ABOVE, NOT_OWN, NOT_SINK, OP_ABOVE};
 
@@ -91,7 +91,12 @@ pub(crate) fn several(p: &PipelineNode<'_>, d: &LockDesc<'_>) -> bool {
     // D3278 (SAMPLE): or a TABLESAMPLE scan of another relation (REFERENCE-marked, its row substituted: `make`'s `sample`)
     // D3292: or a table function (its COPY row the recheck's copy entry hands the scan: `make`'s `tablefunc`)
     let sample = match p.source {
-        Source::Sample { am: Am::Heap, scanrelid, .. } | Source::TableFunc { scanrelid, .. } => Some(u32::from(scanrelid)),
+        Source::Sample {
+            am: Am::Heap,
+            scanrelid,
+            ..
+        }
+        | Source::TableFunc { scanrelid, .. } => Some(u32::from(scanrelid)),
         _ => None,
     };
     match (locking.next(), locking.next()) {
@@ -104,7 +109,8 @@ pub(crate) fn several(p: &PipelineNode<'_>, d: &LockDesc<'_>) -> bool {
 /// mark, no parent's, read back from a breaker the producers fill (a Sort below LockRows), not from a scan of its own.
 pub(crate) fn over_breaker(p: &PipelineNode<'_>, d: &LockDesc<'_>) -> bool {
     let mut locking = d.marks.iter().filter(|m| m.lock != LockKind::None);
-    matches!(p.source, Source::Breaker { .. }) && matches!((locking.next(), locking.next()), (Some(m), None) if !m.parent)
+    matches!(p.source, Source::Breaker { .. })
+        && matches!((locking.next(), locking.next()), (Some(m), None) if !m.parent)
 }
 
 /// lockrows D2604: whether lock `d` of pipeline `p` is one partitioned / inheritance family's (L2's `LockDesc::family`: a top
@@ -129,10 +135,18 @@ pub(crate) fn lock_family(d: &LockDesc<'_>) -> Option<u32> {
     }
     // lockrows MULTIFAM (portals#244: FOR UPDATE of both aliases of a self-joined inheritance tree): one or more locked
     // families, each child locking as its own top parent's mark asks (ExecLockRows locks each family's active child)
-    let tops = || d.marks.iter().filter(|m| m.parent && m.prti == m.rti && m.lock != LockKind::None);
+    let tops = || {
+        d.marks
+            .iter()
+            .filter(|m| m.parent && m.prti == m.rti && m.lock != LockKind::None)
+    };
     let first = tops().next()?;
     let top_of = |m: &RowMark| tops().find(|t| m.prti == t.rti);
-    let refs = |m: &RowMark| m.lock == LockKind::None && m.mark == RowMarkType::ROW_MARK_REFERENCE && (m.prti == m.rti && !m.parent || m.toid_col > 0);
+    let refs = |m: &RowMark| {
+        m.lock == LockKind::None
+            && m.mark == RowMarkType::ROW_MARK_REFERENCE
+            && (m.prti == m.rti && !m.parent || m.toid_col > 0)
+    };
     let ok = d.marks.iter().all(|m| match top_of(m) {
         Some(t) => m.toid_col > 0 && (m.rti == t.rti || m.lock == t.lock && m.wait == t.wait),
         None => refs(m),
@@ -145,14 +159,25 @@ pub(crate) fn lock_family(d: &LockDesc<'_>) -> Option<u32> {
 /// `tableoid{rowmarkId}` junk column, and there is a parent: the lock's relations are plain, beside whole REFERENCE families.
 pub(crate) fn refs_beside(d: &LockDesc<'_>) -> bool {
     let fam = |m: &RowMark| m.parent || m.prti != m.rti;
-    d.marks.iter().any(|m| m.parent) && d.marks.iter().filter(|m| fam(m)).all(|m| m.lock == LockKind::None && m.mark == RowMarkType::ROW_MARK_REFERENCE && m.toid_col > 0)
+    d.marks.iter().any(|m| m.parent)
+        && d.marks.iter().filter(|m| fam(m)).all(|m| {
+            m.lock == LockKind::None && m.mark == RowMarkType::ROW_MARK_REFERENCE && m.toid_col > 0
+        })
 }
 
 /// lockrows D2604: the family's `tableoid{rowmarkId}` junk column (preprocess_targetlist adds one per top parent's mark; the
 /// children share their parent's rowmarkId), LockRows' targetlist being its child's.
 pub(crate) fn tableoid_col(d: &LockDesc<'_>) -> Option<i16> {
-    let named = |n: &str| n.strip_prefix("tableoid").is_some_and(|id| !id.is_empty() && id.bytes().all(|c| c.is_ascii_digit()));
-    let mut cols = d.tlist.iter().filter_map(|e| e.as_target_entry()).filter(|te| te.resjunk && te.resname.is_some_and(named)).map(|te| te.resno);
+    let named = |n: &str| {
+        n.strip_prefix("tableoid")
+            .is_some_and(|id| !id.is_empty() && id.bytes().all(|c| c.is_ascii_digit()))
+    };
+    let mut cols = d
+        .tlist
+        .iter()
+        .filter_map(|e| e.as_target_entry())
+        .filter(|te| te.resjunk && te.resname.is_some_and(named))
+        .map(|te| te.resno);
     match (cols.next(), cols.next()) {
         (Some(c), None) => Some(c),
         _ => None,
@@ -161,7 +186,10 @@ pub(crate) fn tableoid_col(d: &LockDesc<'_>) -> Option<i16> {
 
 pub(crate) fn own(s: &Source<'_>) -> Option<u32> {
     match s {
-        Source::Range { scanrelid, .. } | Source::Index { scanrelid, .. } | Source::Bitmap { scanrelid, .. } | Source::Tid { scanrelid, .. } => Some(u32::from(*scanrelid)),
+        Source::Range { scanrelid, .. }
+        | Source::Index { scanrelid, .. }
+        | Source::Bitmap { scanrelid, .. }
+        | Source::Tid { scanrelid, .. } => Some(u32::from(*scanrelid)),
         _ => None,
     }
 }
@@ -178,7 +206,25 @@ pub(crate) fn nest_outer(gx: &crate::graph::Gx<'_, '_>, k: usize, d: &LockDesc<'
 /// A heap scan's (scanrelid, relid), marks.rs's form: range, index (not index-only), bitmap.
 fn heap_scan(s: &Source<'_>) -> Option<(u32, u32)> {
     match s {
-        Source::Range { am: Am::Heap, scanrelid, relid, .. } | Source::Bitmap { am: Am::Heap, scanrelid, relid, .. } | Source::Index { am: Am::Heap, scanrelid, relid, only: false, .. } => Some((u32::from(*scanrelid), *relid)),
+        Source::Range {
+            am: Am::Heap,
+            scanrelid,
+            relid,
+            ..
+        }
+        | Source::Bitmap {
+            am: Am::Heap,
+            scanrelid,
+            relid,
+            ..
+        }
+        | Source::Index {
+            am: Am::Heap,
+            scanrelid,
+            relid,
+            only: false,
+            ..
+        } => Some((u32::from(*scanrelid), *relid)),
         _ => None,
     }
 }
@@ -200,7 +246,13 @@ fn inner_scans(p: &PipelineNode<'_>, rti: u32) -> bool {
 /// re-opens the inner over an empty spool of its own (exec rerun/epq.rs `fresh_spools`) and its child pulls the row at that
 /// site, as EvalPlanQual's fresh Material pulls its child's test tuple.
 fn spool_nest(gx: &crate::graph::Gx<'_, '_>, k: usize, o: &Op<'_>) -> bool {
-    matches!(o, Op::Join(JoinDesc::Nest { jointype: JoinType::JOIN_INNER, .. })) && spool_inner(gx, k, o)
+    matches!(
+        o,
+        Op::Join(JoinDesc::Nest {
+            jointype: JoinType::JOIN_INNER,
+            ..
+        })
+    ) && spool_inner(gx, k, o)
 }
 
 /// D3287 (b): op `o` of pipeline `k` is a LEFT nest whose inner reads `spool_nest`'s pulled plan Material (m7_epq_joins:
@@ -208,19 +260,40 @@ fn spool_nest(gx: &crate::graph::Gx<'_, '_>, k: usize, o: &Op<'_>) -> bool {
 /// REFERENCE relation: the recheck re-opens the inner over an empty spool of its own and the child pulls the row the
 /// statement read at that site, none where the join null-extended (its ctid NULL), so the recheck null-extends again.
 pub(crate) fn spool_left_nest(gx: &crate::graph::Gx<'_, '_>, k: usize, o: &Op<'_>) -> bool {
-    matches!(o, Op::Join(JoinDesc::Nest { jointype: JoinType::JOIN_LEFT, .. })) && spool_inner(gx, k, o)
+    matches!(
+        o,
+        Op::Join(JoinDesc::Nest {
+            jointype: JoinType::JOIN_LEFT,
+            ..
+        })
+    ) && spool_inner(gx, k, o)
 }
 
 /// `spool_nest`'s inner: a pulled plan Material's reader under filters and projections.
 fn spool_inner(gx: &crate::graph::Gx<'_, '_>, k: usize, o: &Op<'_>) -> bool {
-    let Op::Join(JoinDesc::Nest { inner, .. }) = o else { return false };
-    let Source::Breaker { slot } = inner.source else { return false };
+    let Op::Join(JoinDesc::Nest { inner, .. }) = o else {
+        return false;
+    };
+    let Source::Breaker { slot } = inner.source else {
+        return false;
+    };
     let fill = gx.life_of(k, slot).map(|l| l.0 as usize);
-    inner.ops.iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_))) && fill.is_some_and(|f| crate::pipes::spool_pull(gx, f).is_ok())
+    inner
+        .ops
+        .iter()
+        .all(|o| matches!(o, Op::Filter(_) | Op::Project(_)))
+        && fill.is_some_and(|f| crate::pipes::spool_pull(gx, f).is_ok())
 }
 
 /// Every refusal by name of the module doc, then the marks' positions (marks.rs, no target) and `Program.locks`.
-pub(crate) fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize, node: i32, d: &LockDesc<'_>, fam: bool) -> PgBox<'g, dyn StepMech + 'g> {
+pub(crate) fn make<'g>(
+    px: &mut Px<'g, '_>,
+    k: usize,
+    j: usize,
+    node: i32,
+    d: &LockDesc<'_>,
+    fam: bool,
+) -> PgBox<'g, dyn StepMech + 'g> {
     let gx = px.gx;
     let ps = gx.pipelines();
     let p = &ps[k];
@@ -232,38 +305,79 @@ pub(crate) fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize, node: i32, d: &L
     if !fam && !refs && d.marks.iter().any(|m| m.parent) {
         shape(node, FAMILY_JOIN);
     }
-    if d.plan.lock == LockKind::None || d.members.iter().any(|m| m != Member::MultiLock && !((fam || refs) && m == Member::ParentMark)) {
+    if d.plan.lock == LockKind::None
+        || d.members
+            .iter()
+            .any(|m| m != Member::MultiLock && !((fam || refs) && m == Member::ParentMark))
+    {
         crate::refuse!(node, Reason::Bug { payload: "a LockRows over several marks without a lock plan, or carrying a member write.lock does not bind" });
     }
     let gate = match fam {
         true => {
-            let Some(of) = gravity_decompose::catalog::typefacts::facts_of(gx.facts, types_core::catalog::OIDOID) else { crate::refuse!(node, Reason::Bug { payload: "the oid type the catalog does not know" }) };
+            let Some(of) = gravity_decompose::catalog::typefacts::facts_of(
+                gx.facts,
+                types_core::catalog::OIDOID,
+            ) else {
+                crate::refuse!(
+                    node,
+                    Reason::Bug {
+                        payload: "the oid type the catalog does not know"
+                    }
+                )
+            };
             // lockrows REFFAM: a settled union's spool (its feeds' record) is the recheck's own and empty when the
             // recheck reruns its feeds (exec rerun/epq.rs `fresh_spools`, mergecmd G2(c)), as EvalPlanQualStart's fresh
             // tuplestores; rerun/epq/marks.rs `sites_in` reruns its reader only over every feed (else D652)
             // FAMJOIN: only a family's children are gated (a join's REFERENCE mark beside them is always active); REFFAM:
             // each on its own family's tableoid column (the locked family's, or a REFERENCE family's beside it)
             let col = |m: &RowMark| if m.prti != m.rti { m.toid_col } else { 0 };
-            if d.marks.iter().any(|m| !m.parent && m.prti != m.rti && m.toid_col <= 0) {
-                crate::refuse!(node, Reason::Bug { payload: "a family child's mark without its tableoid junk column" })
+            if d.marks
+                .iter()
+                .any(|m| !m.parent && m.prti != m.rti && m.toid_col <= 0)
+            {
+                crate::refuse!(
+                    node,
+                    Reason::Bug {
+                        payload: "a family child's mark without its tableoid junk column"
+                    }
+                )
             }
-            let kin = d.marks.iter().filter(|m| !m.parent).map(col).collect_in(px.mcx());
+            let kin = d
+                .marks
+                .iter()
+                .filter(|m| !m.parent)
+                .map(col)
+                .collect_in(px.mcx());
             Some((of, kin))
         }
         false => None,
     };
     // a parent's mark locks nothing (ExecLockRows skips it); its children lock each row in its leaf
-    let locking: PgVec<'_, &RowMark> = d.marks.iter().filter(|m| m.lock != LockKind::None && !m.parent).collect_in(px.mcx());
+    let locking: PgVec<'_, &RowMark> = d
+        .marks
+        .iter()
+        .filter(|m| m.lock != LockKind::None && !m.parent)
+        .collect_in(px.mcx());
     // lockrows J182: a locked relation scanned only by a pulled plan Material's child (its fill, rerun/spool/form.rs `spool_pull`)
     let pulled_lock = |m: &RowMark| {
-        let mut scans = (0..ps.len()).filter(|&q| own(&ps[q].source) == Some(m.rti)).peekable();
+        let mut scans = (0..ps.len())
+            .filter(|&q| own(&ps[q].source) == Some(m.rti))
+            .peekable();
         scans.peek().is_some() && scans.all(|q| crate::pipes::spool_pull(gx, q).is_ok())
     };
     // D3269 (a): the rechecking pipeline's own copy entry (a COPY subquery this pipeline runs, epq-subq-window's merge
     // outer): the recheck enters at its SubqueryScan with the stored row, and the subquery's own ops below it never run
     // (rerun/epq/copy_row.rs; rerun/epq/marks.rs `copy_pos` W5-C)
     let rec = |m: &RowMark| gx.graph.record_rows.iter().find(|r| r.scanrelid == m.rti);
-    let entry = d.marks.iter().filter(|m| m.mark == RowMarkType::ROW_MARK_COPY).filter_map(rec).filter_map(|r| crate::rerun::epq::copy_row::boundary(gx, k, r)).max().unwrap_or(0).min(j);
+    let entry = d
+        .marks
+        .iter()
+        .filter(|m| m.mark == RowMarkType::ROW_MARK_COPY)
+        .filter_map(rec)
+        .filter_map(|r| crate::rerun::epq::copy_row::boundary(gx, k, r))
+        .max()
+        .unwrap_or(0)
+        .min(j);
     for o in p.ops[entry..j].iter() {
         match o {
             Op::Filter(_) | Op::Gate(_) | Op::Project(_) | Op::SubPlan(_) => {}
@@ -282,34 +396,70 @@ pub(crate) fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize, node: i32, d: &L
             // runs once over one row a side, as PostgreSQL's EvalPlanQual reruns the Merge Join over its test tuples; an
             // inner PG may not run must be quiet (rerun.rs RERUN_FIRST), and a stop at the recheck's push re-enters the
             // merge's pair (D3289)
-            Op::Join(JoinDesc::Merge { jointype: JoinType::JOIN_INNER, .. }) => {}
+            Op::Join(JoinDesc::Merge {
+                jointype: JoinType::JOIN_INNER,
+                ..
+            }) => {}
             // D3287 PULLNEST (a FOR UPDATE cursor's fast-start plan: LockRows -> Nested Loop, the inner a Materialize over
             // the other relation's scan): or each locked relation the lock pipeline's own scan or, over a family's settled
             // union (`fam`), one of its children's feeds, the recheck substituting its newest version there (gated on the
             // family's tableoid) while the inner's child pulls its row at its own site (locked or REFERENCE), as
             // EvalPlanQual reruns the Nested Loop over the test tuples with a fresh Material
-            o if spool_nest(gx, k, o) && locking.iter().all(|m| pulled_lock(m) || own(&p.source) == Some(m.rti) || fam && !m.parent && m.prti != m.rti) => {}
-            o if crate::rerun::epq::marks::nest_joins(o) && locking.iter().all(|m| !inner_scans_deep(o, m.rti) || crate::rerun::epq::marks::nest_scan(gx, k, m).is_some()) => {}
+            o if spool_nest(gx, k, o)
+                && locking.iter().all(|m| {
+                    pulled_lock(m)
+                        || own(&p.source) == Some(m.rti)
+                        || fam && !m.parent && m.prti != m.rti
+                }) => {}
+            o if crate::rerun::epq::marks::nest_joins(o)
+                && locking.iter().all(|m| {
+                    !inner_scans_deep(o, m.rti)
+                        || crate::rerun::epq::marks::nest_scan(gx, k, m).is_some()
+                }) => {}
             // D3291: a nest whose inner holds one Memoize, every mark its inner scans a `nest_scan` position (fresh memo)
-            o if crate::rerun::epq::marks::nest_memo_joins(o) && d.marks.iter().filter(|m| !m.parent && inner_scans_deep(o, m.rti)).all(|m| crate::rerun::epq::marks::nest_scan(gx, k, m).is_some()) => {}
+            o if crate::rerun::epq::marks::nest_memo_joins(o)
+                && d.marks
+                    .iter()
+                    .filter(|m| !m.parent && inner_scans_deep(o, m.rti))
+                    .all(|m| crate::rerun::epq::marks::nest_scan(gx, k, m).is_some()) => {}
             // D3287 (b): a LEFT join whose inner no lock reads (its REFERENCE row null_empty: lower.rs L1's `join`)
-            o if crate::rerun::epq::marks::left_joins(o) && locking.iter().all(|m| !inner_scans_deep(o, m.rti)) => {}
+            o if crate::rerun::epq::marks::left_joins(o)
+                && locking.iter().all(|m| !inner_scans_deep(o, m.rti)) => {}
             o if spool_left_nest(gx, k, o) && locking.iter().all(|m| !pulled_lock(m)) => {}
-            Op::Join(JoinDesc::Nest { inner, .. }) if locking.iter().any(|m| own(&inner.source) == Some(m.rti) || inner_scans(inner, m.rti)) => shape(node, NEST_INNER),
+            Op::Join(JoinDesc::Nest { inner, .. })
+                if locking
+                    .iter()
+                    .any(|m| own(&inner.source) == Some(m.rti) || inner_scans(inner, m.rti)) =>
+            {
+                shape(node, NEST_INNER)
+            }
             _ => shape(node, NOT_OWN),
         }
     }
-    let scanned = |m: &RowMark| ps.iter().any(|q| heap_scan(&q.source) == Some((m.rti, m.relid))) || crate::rerun::epq::marks::nest_scan(gx, k, m).is_some();
+    let scanned = |m: &RowMark| {
+        ps.iter()
+            .any(|q| heap_scan(&q.source) == Some((m.rti, m.relid)))
+            || crate::rerun::epq::marks::nest_scan(gx, k, m).is_some()
+    };
     // CNM-38: a breaker source's rows come from the producers marks.rs `sites` makes the recheck rerun (each locked
     // relation's scan among them, else D652 there)
     // lockrows NEST: a VALUES source whose every locked relation a nest inner scans (its COPY row the one outer row)
-    let values = matches!(p.source, Source::Values { .. }) && locking.iter().all(|m| crate::rerun::epq::marks::nest_scan(gx, k, m).is_some());
+    let values = matches!(p.source, Source::Values { .. })
+        && locking
+            .iter()
+            .all(|m| crate::rerun::epq::marks::nest_scan(gx, k, m).is_some());
     // D3278 (SAMPLE): or a TABLESAMPLE scan of a REFERENCE-marked relation (rerun/epq/marks.rs `sample_of`: its row substituted)
     let sample = matches!(p.source, Source::Sample { am: Am::Heap, .. });
     // D3292: or a table function a COPY mark carries, its copy entry on this pipeline (rerun/epq/copy_row.rs: the recheck
     // enters with the stored row, the function never called again, as EvalPlanQual hands the Table Function Scan its row)
     let tablefunc = matches!(p.source, Source::TableFunc { scanrelid, .. } if d.marks.iter().any(|m| m.mark == RowMarkType::ROW_MARK_COPY && m.rti == u32::from(scanrelid) && rec(m).is_some_and(|r| crate::rerun::epq::copy_row::boundary(gx, k, r).is_some())));
-    if heap_scan(&p.source).is_none() && !matches!(p.source, Source::Breaker { .. }) && !values && !sample && !tablefunc || !locking.iter().all(|m| scanned(m)) {
+    if heap_scan(&p.source).is_none()
+        && !matches!(p.source, Source::Breaker { .. })
+        && !values
+        && !sample
+        && !tablefunc
+        || !locking.iter().all(|m| scanned(m))
+    {
         shape(node, NOT_OWN);
     }
     for o in p.ops[j + 1..].iter() {
@@ -336,7 +486,12 @@ pub(crate) fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize, node: i32, d: &L
         marks.gate = gate;
     }
     if marks.pos.len() != d.marks.iter().filter(|m| !m.parent).count() {
-        crate::refuse!(node, Reason::Bug { payload: "a LockRows over several marks whose marks are not each a position" });
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a LockRows over several marks whose marks are not each a position"
+            }
+        );
     }
     // D2033 step 2: the epq probe's lazy group and the first probe's build the recheck keeps in the statement run's order
     // (rerun.rs `first_held`), as lower.rs's L1 form
@@ -348,18 +503,38 @@ pub(crate) fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize, node: i32, d: &L
     lazy.extend_in(epq_held);
     // D4154 INITMULTI: the pair's B reruns none of the InitPlans' members (`sites_in`: lock_init.rs `members`), its
     // recheck reading the InitPlan A's run filled, as EvalPlanQualStart copies its value
-    let init = if off == 1 { crate::rerun::epq::marks::init_members(px) } else { PgVec::new_in(px.mcx()) };
+    let init = if off == 1 {
+        crate::rerun::epq::marks::init_members(px)
+    } else {
+        PgVec::new_in(px.mcx())
+    };
     crate::ops::lockrows::rerun::admit_lazy(px.gx, k, node, &d.marks, (true, &init), &lazy);
     px.recheck_hold.extend(held); // alloc: Program
     px.recheck_hold.extend(epq_held); // alloc: Program
     px.recheck_hold_epq.extend(epq_held); // alloc: Program
     let mut locks = Vec::new(); // alloc: Program
     let mut sites = PgVec::new_in(px.mcx());
-    for (m, at) in d.marks.iter().filter(|m| !m.parent).zip(marks.pos.iter()).filter(|(m, _)| m.lock != LockKind::None) {
+    for (m, at) in d
+        .marks
+        .iter()
+        .filter(|m| !m.parent)
+        .zip(marks.pos.iter())
+        .filter(|(m, _)| m.lock != LockKind::None)
+    {
         if at.copy.is_some() {
-            crate::refuse!(node, Reason::Bug { payload: "a locking mark positioned as a COPY row" });
+            crate::refuse!(
+                node,
+                Reason::Bug {
+                    payload: "a locking mark positioned as a COPY row"
+                }
+            );
         }
-        locks.push(LockSite { rti: m.rti, relid: m.relid, lock: m.lock, wait: m.wait }); // alloc: Program
+        locks.push(LockSite {
+            rti: m.rti,
+            relid: m.relid,
+            lock: m.lock,
+            wait: m.wait,
+        }); // alloc: Program
         sites.push_in((at.site.clone(), at.own, at.of));
     }
     px.keep_write(d.plan.copy_in(px.arena));
@@ -384,8 +559,18 @@ struct Locks<'g> {
 /// D3289: a lock's re-entry word (`StepMech::reentry`) when a join op sits below it in pipeline `p` (an expanding step
 /// that would otherwise continue past the row a receiver's stop at the recheck's push leaves the cursor at).
 pub(crate) fn again(px: &mut Px<'_, '_>, k: usize, j: usize) -> Option<i32> {
-    let below = px.gx.pipelines()[k].ops[..j].iter().any(|o| matches!(o, Op::Join(_)));
-    below.then(|| crate::frame::stop::resume_word(px, crate::frame::stop::ResumeWord::StepOffset { k, j: crate::frame::px::key_j(j) }))
+    let below = px.gx.pipelines()[k].ops[..j]
+        .iter()
+        .any(|o| matches!(o, Op::Join(_)));
+    below.then(|| {
+        crate::frame::stop::resume_word(
+            px,
+            crate::frame::stop::ResumeWord::StepOffset {
+                k,
+                j: crate::frame::px::key_j(j),
+            },
+        )
+    })
 }
 
 impl<'g> StepMech for Locks<'g> {
@@ -403,11 +588,23 @@ impl<'g> StepMech for Locks<'g> {
     /// D3289: the re-entry word starts clear at every open, as an expanding step's offset does.
     fn open_words(&self, w: &mut OpenWords) {
         if let Some(o) = self.again {
-            w.declare(OpenWord::open("write.lock re-entry", Base::Words, o, Type::I64, 0));
+            w.declare(OpenWord::open(
+                "write.lock re-entry",
+                Base::Words,
+                o,
+                Type::I64,
+                0,
+            ));
         }
     }
 
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, next: Next<'_, 'e>) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        next: Next<'_, 'e>,
+    ) -> Carry<'e> {
         // the pipeline's own scan's site, read by an `own` mark's stop (a breaker source has none, and no `own` mark)
         let src = env.site;
         // D3289: the row is here: a re-entry it waited for is over
@@ -415,22 +612,46 @@ impl<'g> StepMech for Locks<'g> {
             env.store_word(b, w, env.zero);
         }
         if src.is_none() && self.sites.iter().any(|s| s.1) {
-            crate::refuse!(self.node, Reason::Bug { payload: "a row lock over several marks whose source has no site" });
+            crate::refuse!(
+                self.node,
+                Reason::Bug {
+                    payload: "a row lock over several marks whose source has no site"
+                }
+            );
         }
         crate::rerun::epq::marks::store(b, env, row, self.node, &self.marks);
-        let mem = HostFlags { touches_memory: true, ..HostFlags::default() };
+        let mem = HostFlags {
+            touches_memory: true,
+            ..HostFlags::default()
+        };
         let lock_row = gravity_kernels::ops::lockrows::entries::lock_row as *const () as usize;
-        let h = b.declare_host_once("lock_row", &[Type::Ptr, Type::I64], Some(Type::I64), lock_row, mem);
-        let types: PgVec<'_, Type> = row.carry.params().iter().map(|&v| b.value_type(v)).collect_in(self.mcx);
+        let h = b.declare_host_once(
+            "lock_row",
+            &[Type::Ptr, Type::I64],
+            Some(Type::I64),
+            lock_row,
+            mem,
+        );
+        let types: PgVec<'_, Type> = row
+            .carry
+            .params()
+            .iter()
+            .map(|&v| b.value_type(v))
+            .collect_in(self.mcx);
         let l_join = b.create_block(&types[..]);
         let l_bad = b.create_block(&[Type::I64]);
         b.mark_cold(l_bad);
-        let (rc, sk) = (b.iconst(Type::I64, WRITE_RECHECK), b.iconst(Type::I64, WRITE_SKIPPED));
+        let (rc, sk) = (
+            b.iconst(Type::I64, WRITE_RECHECK),
+            b.iconst(Type::I64, WRITE_SKIPPED),
+        );
         // the stop's status: the last traversed mark's recheck(site), 0 while none traversed (straight-line, dominated)
         let mut rs = env.zero;
         for (i, (site, own, of)) in self.sites.iter().enumerate() {
             let arg = b.iconst(Type::I64, LockSite::arg(site.get(), self.off + i) as i64);
-            let st = b.call_host(h, &[env.ctx, arg], Some(Type::I64)).unwrap_or(env.zero);
+            let st = b
+                .call_host(h, &[env.ctx, arg], Some(Type::I64))
+                .unwrap_or(env.zero);
             // below zero: the host's error; above RECHECK: no lock answers it (CONFLICT is ON CONFLICT's)
             let odd = b.icmp(IntCond::Sgt, st, rc);
             let neg = b.icmp(IntCond::Slt, st, env.zero);
@@ -442,7 +663,14 @@ impl<'g> StepMech for Locks<'g> {
             b.cond_br(is_sk, (l_join, &row.carry.params()), (l_on, &[]));
             b.switch_to(l_on);
             let is_rc = b.icmp(IntCond::Eq, st, rc);
-            let at = b.iconst(Type::I64, recheck(match (*own, src, *of) { (true, Some(src), _) => src, (_, _, Some(of)) => of, _ => site.get() }));
+            let at = b.iconst(
+                Type::I64,
+                recheck(match (*own, src, *of) {
+                    (true, Some(src), _) => src,
+                    (_, _, Some(of)) => of,
+                    _ => site.get(),
+                }),
+            );
             rs = b.select(is_rc, at, rs);
         }
         let stop = b.icmp(IntCond::Ne, rs, env.zero);
@@ -471,14 +699,22 @@ impl<'g> StepMech for Locks<'g> {
 /// (each lock follows the update chain to the version this transaction already holds and rechecks once more), so no row
 /// is skipped. D3289: over a join, that stop sets the lock's re-entry word `again` (`StepMech::reentry`), so the
 /// expanding steps before the lock hand the same row on again rather than continue past it.
-pub(crate) fn recheck_exit(b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals, again: Option<i32>, rs: &dyn Fn(&mut FunctionBuilder<'_>) -> Value) {
+pub(crate) fn recheck_exit(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    row: &RowVals,
+    again: Option<i32>,
+    rs: &dyn Fn(&mut FunctionBuilder<'_>) -> Value,
+) {
     let o = b.load(Type::Ptr, env.ctx, hdr::OUT as i32);
     let count = b.load(Type::I64, o, out::COUNT as i32);
     let held = b.icmp(IntCond::Sgt, count, env.zero);
     let (l_push, l_leave) = (b.create_block(&[]), b.create_block(&[]));
     b.cond_br(held, (l_push, &[]), (l_leave, &[]));
     b.switch_to(l_push);
-    let fl = b.call_host(env.core.push, &[env.ctx], Some(Type::I64)).unwrap_or(env.zero);
+    let fl = b
+        .call_host(env.core.push, &[env.ctx], Some(Type::I64))
+        .unwrap_or(env.zero);
     let cont = b.icmp(IntCond::Eq, fl, env.zero);
     let l_pushed = b.create_block(&[]);
     match again {
@@ -491,7 +727,11 @@ pub(crate) fn recheck_exit(b: &mut FunctionBuilder<'_>, env: &mut Env, row: &Row
             env.store_word(b, w, one);
             b.br(env.x.l_stop_in, &[row.carry.out, row.at, fl]);
         }
-        None => b.cond_br(cont, (l_pushed, &[]), (env.x.l_stop_in, &[row.carry.out, row.at, fl])),
+        None => b.cond_br(
+            cont,
+            (l_pushed, &[]),
+            (env.x.l_stop_in, &[row.carry.out, row.at, fl]),
+        ),
     }
     b.switch_to(l_pushed);
     if env.hir.hosted() {

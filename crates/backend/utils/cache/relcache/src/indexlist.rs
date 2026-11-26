@@ -113,7 +113,9 @@ fn rebuild_index_list<'mcx>(
     rel: &RelationData<'static>,
 ) -> PgResult<PgVec<'mcx, Oid>> {
     // C3: the relation's open is the recorded dependency (its invalidation drops the list); the fill's scan is its own
-    let rows = gravity_deps::suppressed(|| relcache_build_seams::scan_pg_index_shapes::call(mcx, rel.rd_id))?;
+    let rows = gravity_deps::suppressed(|| {
+        relcache_build_seams::scan_pg_index_shapes::call(mcx, rel.rd_id)
+    })?;
 
     let mut result: PgVec<'mcx, Oid> = mcx::vec_with_capacity_in(mcx, rows.len())?;
     let mut pkey_index = InvalidOid;
@@ -127,9 +129,7 @@ fn rebuild_index_list<'mcx>(
         if !row.indisunique || row.has_indpred {
             continue;
         }
-        if row.indisprimary
-            && (row.indisvalid || rel.rd_rel.relkind == RELKIND_PARTITIONED_TABLE)
-        {
+        if row.indisprimary && (row.indisvalid || rel.rd_rel.relkind == RELKIND_PARTITIONED_TABLE) {
             pkey_index = row.indexrelid;
             pkdeferrable = !row.indimmediate;
         }
@@ -143,16 +143,14 @@ fn rebuild_index_list<'mcx>(
     result.sort_unstable();
 
     let replident = rel.rd_rel.relreplident;
-    let replidindex = if replident == REPLICA_IDENTITY_DEFAULT
-        && pkey_index != InvalidOid
-        && !pkdeferrable
-    {
-        pkey_index
-    } else if replident == REPLICA_IDENTITY_INDEX && candidate_index != InvalidOid {
-        candidate_index
-    } else {
-        InvalidOid
-    };
+    let replidindex =
+        if replident == REPLICA_IDENTITY_DEFAULT && pkey_index != InvalidOid && !pkdeferrable {
+            pkey_index
+        } else if replident == REPLICA_IDENTITY_INDEX && candidate_index != InvalidOid {
+            candidate_index
+        } else {
+            InvalidOid
+        };
 
     *rel.rd_indexlist.borrow_mut() = Some(RdIndexList {
         list: copy_list(cache_mcx(), &result)?,

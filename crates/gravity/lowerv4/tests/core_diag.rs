@@ -17,12 +17,18 @@ fn repo(rel: &str) -> PathBuf {
 
 /// census/serve.tsv ids whose first serve is `m`.
 fn ids(m: &str) -> Vec<String> {
-    let t = std::fs::read_to_string(repo("crates/gravity/lowerv4/testdata/gravity/lowerv4/census/serve.tsv")).expect("serve.tsv");
-    t.lines().skip(1).filter_map(|l| {
-        let mut f = l.split('\t');
-        let id = f.next()?;
-        (f.next()? == m).then(|| id.to_owned())
-    }).collect()
+    let t = std::fs::read_to_string(repo(
+        "crates/gravity/lowerv4/testdata/gravity/lowerv4/census/serve.tsv",
+    ))
+    .expect("serve.tsv");
+    t.lines()
+        .skip(1)
+        .filter_map(|l| {
+            let mut f = l.split('\t');
+            let id = f.next()?;
+            (f.next()? == m).then(|| id.to_owned())
+        })
+        .collect()
 }
 
 fn plan_text(id: &str) -> Option<String> {
@@ -44,32 +50,66 @@ fn sql_key(s: &str) -> String {
 /// of its test, by stem order), or None when no crate plan of its test has that SQL. Other ids are not in the map.
 fn regress_remap() -> std::collections::BTreeMap<String, Option<String>> {
     use std::collections::BTreeMap;
-    let t = std::fs::read_to_string(repo("crates/gravity/lowerv4/testdata/gravity/lowerv3/census/shapes.tsv")).expect("shapes.tsv");
-    let census: BTreeMap<String, String> = t.lines().filter(|l| !l.starts_with('#'))
-        .filter_map(|l| Some((l.split('\t').next()?.to_owned(), sql_key(l.rsplit('\t').next()?))))
-        .filter(|(id, _)| id.starts_with("regress-full-")).collect();
+    let t = std::fs::read_to_string(repo(
+        "crates/gravity/lowerv4/testdata/gravity/lowerv3/census/shapes.tsv",
+    ))
+    .expect("shapes.tsv");
+    let census: BTreeMap<String, String> = t
+        .lines()
+        .filter(|l| !l.starts_with('#'))
+        .filter_map(|l| {
+            Some((
+                l.split('\t').next()?.to_owned(),
+                sql_key(l.rsplit('\t').next()?),
+            ))
+        })
+        .filter(|(id, _)| id.starts_with("regress-full-"))
+        .collect();
     let mut by_sql: BTreeMap<(String, String), String> = BTreeMap::new();
     for (stem, text) in common::files(&common::plans_dir().join("regress-full"), "plan") {
-        let Some(sql) = text.lines().find_map(|l| l.strip_prefix("-- sql: ")) else { continue };
-        by_sql.entry((stem.rsplit_once('-').map_or(stem.as_str(), |x| x.0).to_owned(), sql_key(sql))).or_insert(stem);
+        let Some(sql) = text.lines().find_map(|l| l.strip_prefix("-- sql: ")) else {
+            continue;
+        };
+        by_sql
+            .entry((
+                stem.rsplit_once('-')
+                    .map_or(stem.as_str(), |x| x.0)
+                    .to_owned(),
+                sql_key(sql),
+            ))
+            .or_insert(stem);
     }
-    census.into_iter().map(|(id, sql)| {
-        let stem = &id["regress-full-".len()..];
-        let test = stem.rsplit_once('-').map_or(stem, |x| x.0).to_owned();
-        let hit = by_sql.get(&(test, sql)).cloned();
-        (id, hit)
-    }).collect()
+    census
+        .into_iter()
+        .map(|(id, sql)| {
+            let stem = &id["regress-full-".len()..];
+            let test = stem.rsplit_once('-').map_or(stem, |x| x.0).to_owned();
+            let hit = by_sql.get(&(test, sql)).cloned();
+            (id, hit)
+        })
+        .collect()
 }
 
 /// A plan fixture lowered in the mode (`lower_graph_diag`, as common's `lower_fixture` lowers it): served or the refusal's
 /// text, and the report; `None` when the statement does not decompose.
 fn lower_diag(text: &str) -> Option<(Result<(), String>, diag::Report)> {
     common::RigCatalog::install_seams();
-    let (ctx, arena) = (mcx::MemoryContext::new("v4 rig fixture"), gravity_program::Arena::new(1 << 20));
-    let fx = gravity_decompose::corpus::load(ctx.mcx(), text).unwrap_or_else(|e| panic!("fixture: {e}"));
+    let (ctx, arena) = (
+        mcx::MemoryContext::new("v4 rig fixture"),
+        gravity_program::Arena::new(1 << 20),
+    );
+    let fx =
+        gravity_decompose::corpus::load(ctx.mcx(), text).unwrap_or_else(|e| panic!("fixture: {e}"));
     let graph = gravity_decompose::decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx).ok()?;
     gravity_expr::nodes::func::acl_defer_begin();
-    let (r, report) = diag::lower_graph_diag(arena.handle(), &graph, &fx.facts, common::RigCatalog::get(), &mut gravity_lower::Sequential::new(arena.handle()), gravity_lower::LowerOpts::default());
+    let (r, report) = diag::lower_graph_diag(
+        arena.handle(),
+        &graph,
+        &fx.facts,
+        common::RigCatalog::get(),
+        &mut gravity_lower::Sequential::new(arena.handle()),
+        gravity_lower::LowerOpts::default(),
+    );
     gravity_expr::nodes::func::acl_defer_end();
     Some((r.map(|_| ()).map_err(|e| e.to_string()), report))
 }
@@ -82,50 +122,100 @@ struct Seen {
 
 /// Lower `text` with the mode off, then on: the outcome must match; the mode's blockers and lines.
 fn both(id: &str, text: &str) -> Option<Seen> {
-    let off = common::lower_fixture(text)?.map(|_| ()).map_err(|e| e.to_string());
+    let off = common::lower_fixture(text)?
+        .map(|_| ())
+        .map_err(|e| e.to_string());
     let (on, diag::Report { blockers, lines }) = lower_diag(text)?;
     match (&off, &on) {
-        (Ok(_), Ok(_)) => assert!(lines.is_empty(), "{id}: served, yet blocker lines {lines:?}"),
+        (Ok(_), Ok(_)) => assert!(
+            lines.is_empty(),
+            "{id}: served, yet blocker lines {lines:?}"
+        ),
         (Err(a), Err(b)) => {
             assert_eq!(a, b, "{id}: the mode refuses as the mode-off lowering does");
-            assert!(!lines.is_empty(), "{id}: refused ({b}) with no blocker line");
+            assert!(
+                !lines.is_empty(),
+                "{id}: refused ({b}) with no blocker line"
+            );
         }
-        _ => panic!("{id}: mode off {:?} vs on {:?}", off.as_ref().map(|_| "served"), on.as_ref().map(|_| "served")),
+        _ => panic!(
+            "{id}: mode off {:?} vs on {:?}",
+            off.as_ref().map(|_| "served"),
+            on.as_ref().map(|_| "served")
+        ),
     }
     for (i, l) in lines.iter().enumerate() {
         assert!(l.starts_with("gravity: blocker pipe="), "{id}: {l}");
-        assert!(l.contains(&format!(" k={}/{} ", i + 1, lines.len())), "{id}: {l}");
-        assert!(!l.contains("diag placeholder"), "{id}: a placeholder was emitted: {l}");
+        assert!(
+            l.contains(&format!(" k={}/{} ", i + 1, lines.len())),
+            "{id}: {l}"
+        );
+        assert!(
+            !l.contains("diag placeholder"),
+            "{id}: a placeholder was emitted: {l}"
+        );
     }
-    Some(Seen { id: id.to_owned(), blockers, lines })
+    Some(Seen {
+        id: id.to_owned(),
+        blockers,
+        lines,
+    })
 }
 
 /// Every census fixture first served at `ms`, lowered both ways.
 fn corpus(ms: &[&str]) -> Vec<Seen> {
-    ms.iter().flat_map(|m| ids(m)).filter_map(|id| plan_text(&id).and_then(|t| both(&id, &t))).collect()
+    ms.iter()
+        .flat_map(|m| ids(m))
+        .filter_map(|id| plan_text(&id).and_then(|t| both(&id, &t)))
+        .collect()
 }
 
 #[test]
 fn every_blocker_and_the_same_outcome() {
     // M1 / M2 fixtures: the mode lowers what the mode-off lowering lowers, refuses what it refuses, with its refusal
     let early = corpus(&["M1", "M2"]);
-    assert!(early.len() > 1000, "M1 / M2 fixtures lowered: {}", early.len());
-    assert!(early.iter().any(|s| s.lines.is_empty()), "a served M1 / M2 fixture");
+    assert!(
+        early.len() > 1000,
+        "M1 / M2 fixtures lowered: {}",
+        early.len()
+    );
+    assert!(
+        early.iter().any(|s| s.lines.is_empty()),
+        "a served M1 / M2 fixture"
+    );
     // M3's: each refused, with every blocker
     let m3 = corpus(&["M3"]);
     assert!(m3.len() > 300, "M3 fixtures lowered: {}", m3.len());
     let multi = m3.iter().filter(|s| s.blockers.len() >= 2).count();
-    let lower = m3.iter().filter(|s| s.blockers.iter().any(|b| b.stage == "lower")).count();
-    let cascade = m3.iter().filter(|s| s.blockers.iter().any(|b| b.cascade)).count();
+    let lower = m3
+        .iter()
+        .filter(|s| s.blockers.iter().any(|b| b.stage == "lower"))
+        .count();
+    let cascade = m3
+        .iter()
+        .filter(|s| s.blockers.iter().any(|b| b.cascade))
+        .count();
     eprintln!("diag: M1/M2 fixtures {}, M3 {}: {} with >= 2 blockers, {} past admission, {} with a cascade", early.len(), m3.len(), multi, lower, cascade);
     assert!(multi > 0 && lower > 0 && cascade > 0);
     for s in &m3 {
         // a cascade is never a NotBuilt, and follows a line naming a blocked pipeline <= its own (an admission line
         // names the first pipeline its kind's maker refused in)
         for (i, b) in s.blockers.iter().enumerate().filter(|(_, b)| b.cascade) {
-            assert!(!matches!(b.refusal.reason, Reason::NotBuilt { .. }), "{}: a NotBuilt cascade", s.id);
+            assert!(
+                !matches!(b.refusal.reason, Reason::NotBuilt { .. }),
+                "{}: a NotBuilt cascade",
+                s.id
+            );
             let before = &s.blockers[..i];
-            assert!(b.pipe.is_none() || before.iter().any(|a| a.pipe.zip(b.pipe).is_some_and(|(x, y)| x <= y)), "{}: {:?}", s.id, s.lines);
+            assert!(
+                b.pipe.is_none()
+                    || before
+                        .iter()
+                        .any(|a| a.pipe.zip(b.pipe).is_some_and(|(x, y)| x <= y)),
+                "{}: {:?}",
+                s.id,
+                s.lines
+            );
         }
     }
 }
@@ -143,14 +233,33 @@ fn every_blocker_and_the_same_outcome() {
 /// aggs-029 serves since the M3 grouping landings.)
 #[test]
 fn two_walls_and_a_cascade() {
-    let diag_of = |id: &str| both(id, &plan_text(id).unwrap_or_else(|| panic!("{id}.plan"))).expect("decomposes");
-    let (built, s) = (diag_of("regress-full-with-087"), diag_of("regress-full-with-036"));
-    assert!(built.blockers.is_empty() && built.lines.is_empty(), "{:?}", built.lines);
-    let shape = |c: bool| s.blockers.iter().any(|b| matches!(b.refusal.reason, Reason::Shape { .. }) && b.stage == "lower" && b.cascade == c);
+    let diag_of = |id: &str| {
+        both(id, &plan_text(id).unwrap_or_else(|| panic!("{id}.plan"))).expect("decomposes")
+    };
+    let (built, s) = (
+        diag_of("regress-full-with-087"),
+        diag_of("regress-full-with-036"),
+    );
+    assert!(
+        built.blockers.is_empty() && built.lines.is_empty(),
+        "{:?}",
+        built.lines
+    );
+    let shape = |c: bool| {
+        s.blockers.iter().any(|b| {
+            matches!(b.refusal.reason, Reason::Shape { .. }) && b.stage == "lower" && b.cascade == c
+        })
+    };
     assert!(shape(false) && shape(true), "{:?}", s.lines);
     // one line per wall: no repeated (pipe, stage, reason, node)
     let mut seen = std::collections::BTreeSet::new();
-    assert!(s.blockers.iter().all(|b| seen.insert(format!("{:?}{}{:?}", b.pipe, b.stage, b.refusal))), "{:?}", s.lines);
+    assert!(
+        s.blockers
+            .iter()
+            .all(|b| seen.insert(format!("{:?}{}{:?}", b.pipe, b.stage, b.refusal))),
+        "{:?}",
+        s.lines
+    );
 }
 
 /// D788: a refusal raised while the program is emitted (after every maker ran and `stop` found no blocker, e.g. a key
@@ -167,11 +276,27 @@ fn an_emission_refusal_has_its_blocker_line() {
             _ => id.to_owned(),
         };
         let text = plan_text(&fixture).unwrap_or_else(|| panic!("{id}: no plan {fixture}"));
-        let (r, rep) = lower_diag(&text).unwrap_or_else(|| panic!("{id}: {fixture} does not decompose"));
+        let (r, rep) =
+            lower_diag(&text).unwrap_or_else(|| panic!("{id}: {fixture} does not decompose"));
         let Err(e) = r else { continue }; // served once its wall is built: nothing to pin
-        assert!(!rep.lines.is_empty(), "{id} ({fixture}): refused ({e}) with no blocker line");
-        assert!(rep.lines.iter().all(|l| l.starts_with("gravity: blocker pipe=")), "{id}: {:?}", rep.lines);
-        assert!(rep.blockers.iter().any(|b| b.stage == "lower" && b.pipe.is_none()), "{id}: the emission refusal ({e}) is not a line: {:?}", rep.lines);
+        assert!(
+            !rep.lines.is_empty(),
+            "{id} ({fixture}): refused ({e}) with no blocker line"
+        );
+        assert!(
+            rep.lines
+                .iter()
+                .all(|l| l.starts_with("gravity: blocker pipe=")),
+            "{id}: {:?}",
+            rep.lines
+        );
+        assert!(
+            rep.blockers
+                .iter()
+                .any(|b| b.stage == "lower" && b.pipe.is_none()),
+            "{id}: the emission refusal ({e}) is not a line: {:?}",
+            rep.lines
+        );
     }
 }
 
@@ -183,9 +308,13 @@ fn an_emission_refusal_has_its_blocker_line() {
 #[test]
 #[ignore]
 fn dump() {
-    let Ok(out) = std::env::var("DIAG_OUT") else { return };
+    let Ok(out) = std::env::var("DIAG_OUT") else {
+        return;
+    };
     let ms = std::env::var("DIAG_MS").unwrap_or_else(|_| "M3".into());
-    let mut rows = vec!["id\tplaced\toutcome\tpipe\tnode\tstage\tmilestone\treason\tcascade\ttext".to_string()];
+    let mut rows = vec![
+        "id\tplaced\toutcome\tpipe\tnode\tstage\tmilestone\treason\tcascade\ttext".to_string(),
+    ];
     let remap = regress_remap();
     let (mut remapped, mut unmatched) = (0, 0);
     for m in ms.split(',') {
@@ -193,8 +322,15 @@ fn dump() {
             // D542: a regress-full id lowers the crate plan that captured ITS statement (D505's re-map), never the plan
             // the crate happened to number the same; with no such plan it is a fixture-less id (the server half has it)
             let fixture = match remap.get(&id) {
-                Some(Some(stem)) if format!("regress-full-{stem}") != id => { remapped += 1; format!("regress-full-{stem}") }
-                Some(None) => { unmatched += 1; rows.push(format!("{id}\t{m}\tno-fixture\t-\t-\t-\t-\t-\t-\tD505: no crate plan with the census SQL")); continue }
+                Some(Some(stem)) if format!("regress-full-{stem}") != id => {
+                    remapped += 1;
+                    format!("regress-full-{stem}")
+                }
+                Some(None) => {
+                    unmatched += 1;
+                    rows.push(format!("{id}\t{m}\tno-fixture\t-\t-\t-\t-\t-\t-\tD505: no crate plan with the census SQL"));
+                    continue;
+                }
                 _ => id.clone(),
             };
             let Some(text) = plan_text(&fixture) else {
@@ -220,7 +356,14 @@ fn dump() {
                     _ => "-",
                 };
                 let pipe = b.pipe.map_or("-".to_string(), |k| k.to_string());
-                rows.push(format!("{id}\t{m}\t{outcome}\t{pipe}\t{}\t{}\t{bm}\t{}\t{}\t{}", b.refusal.node, b.stage, b.refusal.reason.variant(), b.cascade as u8, s.what));
+                rows.push(format!(
+                    "{id}\t{m}\t{outcome}\t{pipe}\t{}\t{}\t{bm}\t{}\t{}\t{}",
+                    b.refusal.node,
+                    b.stage,
+                    b.refusal.reason.variant(),
+                    b.cascade as u8,
+                    s.what
+                ));
             }
         }
     }
@@ -232,5 +375,9 @@ fn dump() {
 /// env!()'s path baked in at compile time: a test binary reused from another checkout would read that checkout's files.
 fn manifest_dir() -> &'static std::path::Path {
     static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| std::env::var_os("CARGO_MANIFEST_DIR").map(|d| std::path::Path::new(&d).with_file_name("lowerv4")).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)"))
+    DIR.get_or_init(|| {
+        std::env::var_os("CARGO_MANIFEST_DIR")
+            .map(|d| std::path::Path::new(&d).with_file_name("lowerv4"))
+            .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+    })
 }

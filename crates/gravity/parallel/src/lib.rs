@@ -4,11 +4,11 @@ pub mod barrier;
 pub mod cancel;
 pub mod claim;
 pub mod merge;
+pub mod section;
 /// Test support: FixturePool, a thread pool for crate tests and examples (never a server pool; the server's is gravity_pool).
 /// Compiled only under the `fixture-pool` feature, which only dev-dependencies enable (gravity_lint's fixture_pool test).
 #[cfg(feature = "fixture-pool")]
 pub mod test;
-pub mod section;
 pub mod worker;
 
 use std::sync::atomic::Ordering;
@@ -18,24 +18,42 @@ use gravity_program::cost::runtime::MAX_POOLS;
 
 pub use barrier::Barrier;
 pub use cancel::{ErrorFunnel, FirstError};
-pub use claim::{BlockRange, ClaimLedger, ClaimSize, GranuleRange, MorselSource, PartitionRange, RangeCursor, Unit, startup_c0};
+pub use claim::{
+    startup_c0, BlockRange, ClaimLedger, ClaimSize, GranuleRange, MorselSource, PartitionRange,
+    RangeCursor, Unit,
+};
 pub use gravity_abi::MorselRange;
-pub use merge::{kway_merge, order_topk, HashAggPartial, HashBuildPartial, PlainAggPartial, RowsOrdered, RowsUnordered, SortedRun, TopKPartial, TOPK_TIES};
+pub use merge::{
+    kway_merge, order_topk, HashAggPartial, HashBuildPartial, PlainAggPartial, RowsOrdered,
+    RowsUnordered, SortedRun, TopKPartial, TOPK_TIES,
+};
+pub use section::Section;
 #[cfg(feature = "fixture-pool")]
 pub use test::fixture_pool::FixturePool;
-pub use section::Section;
 pub use worker::Worker;
 
 pub type Job<'a> = dyn Fn(u16, MorselRange) -> Result<()> + Sync + 'a;
 
 pub trait Pool {
-    fn run(&self, width: u16, claims: &dyn MorselSource, job: &Job<'_>) -> core::result::Result<(), FirstError>;
+    fn run(
+        &self,
+        width: u16,
+        claims: &dyn MorselSource,
+        job: &Job<'_>,
+    ) -> core::result::Result<(), FirstError>;
     /// `run` with the leader working while it waits (R1D's ordered output): `lead` on every wake, `order.wake` armed with
     /// the leader's word so a worker can wake it. A claim runs `job` only once `order` admitted it, and every admitted
     /// claim settles with `order.finish` (ok = the job's; false when it never ran). A pool with slots admits BEFORE the
     /// claim takes one (D278: a claim waiting for room in the window never holds a slot the head needs). The default
     /// admits inside the job, runs the section, then leads once.
-    fn run_leading(&self, width: u16, claims: &dyn MorselSource, job: &Job<'_>, lead: &mut dyn FnMut(), order: &gravity_driver::ClaimOrder) -> core::result::Result<(), FirstError> {
+    fn run_leading(
+        &self,
+        width: u16,
+        claims: &dyn MorselSource,
+        job: &Job<'_>,
+        lead: &mut dyn FnMut(),
+        order: &gravity_driver::ClaimOrder,
+    ) -> core::result::Result<(), FirstError> {
         let admitted = |ordinal: u16, claim: MorselRange| {
             if !order.admit(claim) {
                 return Ok(());
@@ -88,7 +106,8 @@ fn section_arm(p: &gravity_program::Program) -> Option<Box<dyn core::any::Any>> 
 }
 
 /// Statements in flight per pool (`per-node`): a statement lands WHOLE on the pool with the fewest.
-static INFLIGHT: [std::sync::atomic::AtomicU64; MAX_POOLS] = [const { std::sync::atomic::AtomicU64::new(0) }; MAX_POOLS];
+static INFLIGHT: [std::sync::atomic::AtomicU64; MAX_POOLS] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; MAX_POOLS];
 
 leader_tls::leader_tls! {
     thread_local! {
@@ -128,7 +147,11 @@ pub fn place() -> Placed {
         INFLIGHT[idx].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
     let prev = CURRENT.with(|c| c.replace(idx));
-    Placed { idx, counted: n > 1, prev }
+    Placed {
+        idx,
+        counted: n > 1,
+        prev,
+    }
 }
 
 /// A statement's placement: `idx` its pool (the NUMA node's index), `prev` the enclosing statement's, restored at the drop.
@@ -152,9 +175,10 @@ pub fn placed() -> usize {
 }
 
 pub fn inflight() -> Vec<u64> {
-    (0..pool_count()).map(|k| INFLIGHT[k].load(std::sync::atomic::Ordering::Relaxed)).collect() // alloc: Cold
+    (0..pool_count())
+        .map(|k| INFLIGHT[k].load(std::sync::atomic::Ordering::Relaxed))
+        .collect() // alloc: Cold
 }
-
 
 /// `PGRUST_GRAVITY_PHASES=1`: one stderr line per section with the wall clock of its phases (diagnostic; read once).
 fn phases_on() -> bool {
@@ -165,7 +189,8 @@ fn phases_on() -> bool {
 /// The owner phase's census under the same switch: nanoseconds per partition in the table's
 /// zeroing, the fold and the kernel's reduce, summed over the owners; the partitions folded; the
 /// records the owners read (the phase-1 output: runs, not rows, under the collapse).
-pub static OWN_CENSUS: [std::sync::atomic::AtomicU64; 5] = [const { std::sync::atomic::AtomicU64::new(0) }; 5];
+pub static OWN_CENSUS: [std::sync::atomic::AtomicU64; 5] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; 5];
 
 pub fn census_on() -> bool {
     phases_on()
@@ -211,7 +236,14 @@ pub fn next_claim(claims: &dyn MorselSource, first: &mut bool) -> Option<MorselR
 }
 
 /// One claim of a section (the zone walk's bound first): the job every section runs, ordered or not.
-fn run_one(open: &gravity_driver::Open<'_>, claims: &dyn MorselSource, merge: &dyn Merge, abort: &std::sync::atomic::AtomicU8, ordinal: u16, claim: MorselRange) -> Result<()> {
+fn run_one(
+    open: &gravity_driver::Open<'_>,
+    claims: &dyn MorselSource,
+    merge: &dyn Merge,
+    abort: &std::sync::atomic::AtomicU8,
+    ordinal: u16,
+    claim: MorselRange,
+) -> Result<()> {
     // the zone walk: a claim past the proven bound is not run and ends the hand-out
     if claims.beyond_bound(claim.lo) {
         claims.close();
@@ -227,7 +259,16 @@ fn run_one(open: &gravity_driver::Open<'_>, claims: &dyn MorselSource, merge: &d
     Ok(())
 }
 
-pub fn run_section(entry: &mut Entry, exec: &mut Exec, binding: &mut Binding<'_>, derive: &mut dyn Derive, section: &Section, claims: &dyn MorselSource, pool: &dyn Pool, merge: &dyn Merge) -> Result<()> {
+pub fn run_section(
+    entry: &mut Entry,
+    exec: &mut Exec,
+    binding: &mut Binding<'_>,
+    derive: &mut dyn Derive,
+    section: &Section,
+    claims: &dyn MorselSource,
+    pool: &dyn Pool,
+    merge: &dyn Merge,
+) -> Result<()> {
     let t_open = std::time::Instant::now();
     let lease = exec.lease();
     // D393b: an arm that continues its union's run skips the owner phase (close_section scatters or merges its partials)
@@ -242,7 +283,9 @@ pub fn run_section(entry: &mut Entry, exec: &mut Exec, binding: &mut Binding<'_>
     let abort = binding.parts.abort_flag;
     // R1D: a pipeline ending in the emit whose sink orders its legs streams them claim by claim while the section runs
     let mut sink = binding.sink;
-    let order = (open.ends_in_sink() && sink.ordered()).then(|| gravity_driver::ClaimOrder::for_section(section.width as usize, claims.first_live_at(0)));
+    let order = (open.ends_in_sink() && sink.ordered()).then(|| {
+        gravity_driver::ClaimOrder::for_section(section.width as usize, claims.first_live_at(0))
+    });
     // an ordered claim reaches the job admitted and settles after it: the pool admits before the claim's lease (D278)
     let reached = std::sync::atomic::AtomicBool::new(false);
     let job = |ordinal: u16, claim: MorselRange| -> Result<()> {
@@ -258,7 +301,7 @@ pub fn run_section(entry: &mut Entry, exec: &mut Exec, binding: &mut Binding<'_>
         None => pool.run(section.width, claims, &job),
         Some(o) => {
             let mut los = Vec::new(); // alloc: Exec
-            // the window's bytes held in G (grown by doubling as the legs fill; G's refusal narrows the window to the head)
+                                      // the window's bytes held in G (grown by doubling as the legs fill; G's refusal narrows the window to the head)
             let mut held = (gravity_driver::Held::NONE, 0u64);
             let mut lead = || {
                 if led.is_some() {
@@ -299,20 +342,37 @@ pub fn run_section(entry: &mut Entry, exec: &mut Exec, binding: &mut Binding<'_>
         // its error, which may be the interrupt's own (a host call's interrupt check consumed it, and with it the
         // statement_timeout indicator a bare cancel reads back as "user request")
         if !(matches!(e, Error::Cancelled) && ran.is_err()) {
-            ran = Err(FirstError { claim_lo: 0, ordinal: 0, error: e });
+            ran = Err(FirstError {
+                claim_lo: 0,
+                ordinal: 0,
+                error: e,
+            });
         }
     }
     // D2877: no claim reached a section whose kernel makes a check PG makes at its node's first call (`Pipeline::first_call`):
     // `FIRST_CALL` on one ordinal (no row: an ordered emit's leg keeps none, so the order is untouched)
     if ran.is_ok() && first_call && !reached.load(Ordering::Relaxed) {
-        ran = pool.run(section.width, &PartitionRange::new(1, 1), &|ordinal: u16, _: MorselRange| run_one(&open, claims, merge, abort, ordinal, FIRST_CALL));
+        ran = pool.run(
+            section.width,
+            &PartitionRange::new(1, 1),
+            &|ordinal: u16, _: MorselRange| {
+                run_one(&open, claims, merge, abort, ordinal, FIRST_CALL)
+            },
+        );
     }
     let cancelled = gravity_abi::ctx::abort_set(abort);
     if ran.is_ok() && !cancelled && section.finish {
         // the section end (item 20): the kernel once more per ordinal that claimed, `SECTION_END`
         // as its claim, one unit per ordinal on whatever thread takes it
         let mut claimed = [false; gravity_driver::SLOTS];
-        let mut ps: [gravity_driver::Partial<'_>; gravity_driver::SLOTS] = [const { gravity_driver::Partial { ordinal: 0, bytes: &[], rows_processed: 0 } }; gravity_driver::SLOTS];
+        let mut ps: [gravity_driver::Partial<'_>; gravity_driver::SLOTS] = [const {
+            gravity_driver::Partial {
+                ordinal: 0,
+                bytes: &[],
+                rows_processed: 0,
+            }
+        };
+            gravity_driver::SLOTS];
         let n = open.partials(&mut ps);
         for p in ps.iter().take(n) {
             claimed[p.ordinal as usize] = true;
@@ -340,21 +400,40 @@ pub fn run_section(entry: &mut Entry, exec: &mut Exec, binding: &mut Binding<'_>
     // A leader that started small commits what the owners' counted records take before they are cut from it
     // C10 2b (D3582): a spilled one-round group past the statement's room, read by a refilling emit, is batched: the partials
     // go to the slot's files and the emit folds one batch of partitions at a time (driver mem/batch.rs); no owner phase here
-    let batched = ran.is_ok() && !cancelled && !cont && match open.own_batched(merge) {
-        Ok(b) => b,
-        Err(e) => {
-            ran = Err(FirstError { claim_lo: 0, ordinal: 0, error: e });
-            false
-        }
-    };
+    let batched = ran.is_ok()
+        && !cancelled
+        && !cont
+        && match open.own_batched(merge) {
+            Ok(b) => b,
+            Err(e) => {
+                ran = Err(FirstError {
+                    claim_lo: 0,
+                    ordinal: 0,
+                    error: e,
+                });
+                false
+            }
+        };
     if ran.is_ok() && !cancelled && !cont && !batched && section.width >= 2 {
         open.owners_in_place(merge);
     }
-    let owned = if ran.is_ok() && !cancelled && !batched { open.owned_partitions(merge).map(|b| open.spill_bits().unwrap_or(b)) } else { None };
+    let owned = if ran.is_ok() && !cancelled && !batched {
+        open.owned_partitions(merge)
+            .map(|b| open.spill_bits().unwrap_or(b))
+    } else {
+        None
+    };
     // a few records (W workers x a handful of groups): the leader folds them, not two or three pool rounds (wake, lease, return, their stalls)
     let few = || {
         !open.spilled() && !open.has_entry_runs() && {
-            let mut ps: [gravity_driver::Partial<'_>; gravity_driver::SLOTS] = [const { gravity_driver::Partial { ordinal: 0, bytes: &[], rows_processed: 0 } }; gravity_driver::SLOTS];
+            let mut ps: [gravity_driver::Partial<'_>; gravity_driver::SLOTS] = [const {
+                gravity_driver::Partial {
+                    ordinal: 0,
+                    bytes: &[],
+                    rows_processed: 0,
+                }
+            };
+                gravity_driver::SLOTS];
             let n = open.partials(&mut ps);
             merge::held_bytes(&ps[..n]) <= leader_owns_bytes()
         }
@@ -366,18 +445,30 @@ pub fn run_section(entry: &mut Entry, exec: &mut Exec, binding: &mut Binding<'_>
     // D3004: the owners are the grant's cut (an estimate's size), not regions sized from the real records
     let cut_owners = owned.is_some();
     let owned = match owned {
-        None if ran.is_ok() && !cancelled && !cont && !batched && section.width >= 2 && !few() => match open.own_past_grant(merge) {
-            Ok(o) => o.inspect(|&pbits| {
-                if census_on() {
-                    eprintln!("OWN pipeline={} width={} owners=past_grant owner_bytes={} pbits={}", section.pipeline, section.width, open.owner_bytes(), pbits);
+        None if ran.is_ok() && !cancelled && !cont && !batched && section.width >= 2 && !few() => {
+            match open.own_past_grant(merge) {
+                Ok(o) => o.inspect(|&pbits| {
+                    if census_on() {
+                        eprintln!(
+                            "OWN pipeline={} width={} owners=past_grant owner_bytes={} pbits={}",
+                            section.pipeline,
+                            section.width,
+                            open.owner_bytes(),
+                            pbits
+                        );
+                    }
+                }),
+                // D4280: the owners' pin stopped for the statement's cancel
+                Err(e) => {
+                    ran = Err(FirstError {
+                        claim_lo: 0,
+                        ordinal: 0,
+                        error: e,
+                    });
+                    None
                 }
-            }),
-            // D4280: the owners' pin stopped for the statement's cancel
-            Err(e) => {
-                ran = Err(FirstError { claim_lo: 0, ordinal: 0, error: e });
-                None
             }
-        },
+        }
         o => o,
     };
     if cont {
@@ -387,11 +478,20 @@ pub fn run_section(entry: &mut Entry, exec: &mut Exec, binding: &mut Binding<'_>
     } else if let (Some(pbits), true) = (owned, leads) {
         let tb = std::time::Instant::now();
         if census_on() {
-            eprintln!("OWN pipeline={} width={} own_single=leader pbits={}", section.pipeline, section.width, pbits);
+            eprintln!(
+                "OWN pipeline={} width={} own_single=leader pbits={}",
+                section.pipeline, section.width, pbits
+            );
         }
         match open.own_single(merge, pbits) {
             Ok(()) => open.set_merged(),
-            Err(e) => ran = Err(FirstError { claim_lo: 0, ordinal: 0, error: e }),
+            Err(e) => {
+                ran = Err(FirstError {
+                    claim_lo: 0,
+                    ordinal: 0,
+                    error: e,
+                })
+            }
         }
         t_2b = tb.elapsed();
     } else if let Some(pbits) = owned {
@@ -406,15 +506,34 @@ pub fn run_section(entry: &mut Entry, exec: &mut Exec, binding: &mut Binding<'_>
             ran = Err(e);
         }
         t_2b = tb.elapsed();
-    } else if ran.is_ok() && !cancelled && (open.spill_bits().is_some() || open.partition_bits(merge).is_some()) {
+    } else if ran.is_ok()
+        && !cancelled
+        && (open.spill_bits().is_some() || open.partition_bits(merge).is_some())
+    {
         // the owner regions could not hold the shape's results: one owner over the whole leader region, on this thread
         let tb = std::time::Instant::now();
         if census_on() {
-            eprintln!("OWN pipeline={} width={} own_single=floor owner_bytes={}", section.pipeline, section.width, open.owner_bytes());
+            eprintln!(
+                "OWN pipeline={} width={} own_single=floor owner_bytes={}",
+                section.pipeline,
+                section.width,
+                open.owner_bytes()
+            );
         }
-        match open.own_single(merge, open.spill_bits().or(open.partition_bits(merge)).unwrap_or(0)) {
+        match open.own_single(
+            merge,
+            open.spill_bits()
+                .or(open.partition_bits(merge))
+                .unwrap_or(0),
+        ) {
             Ok(()) => open.set_merged(),
-            Err(e) => ran = Err(FirstError { claim_lo: 0, ordinal: 0, error: e }),
+            Err(e) => {
+                ran = Err(FirstError {
+                    claim_lo: 0,
+                    ordinal: 0,
+                    error: e,
+                })
+            }
         }
         t_2b = tb.elapsed();
     } else if ran.is_ok() && !cancelled && !open.spilled() {
@@ -439,13 +558,21 @@ pub fn run_section(entry: &mut Entry, exec: &mut Exec, binding: &mut Binding<'_>
                 };
                 let tb = std::time::Instant::now();
                 let cursor = PartitionRange::for_width(1u64 << plan.pbits, section.width);
-                let job2 = |_ordinal: u16, range: MorselRange| -> Result<()> { open.merge_partitions(merge, plan, range.lo as u32, range.hi as u32) };
+                let job2 = |_ordinal: u16, range: MorselRange| -> Result<()> {
+                    open.merge_partitions(merge, plan, range.lo as u32, range.hi as u32)
+                };
                 match prepared {
-                    Err(FirstError { error: Error::Unsupported(_), .. }) => open.reset_leader(1),
+                    Err(FirstError {
+                        error: Error::Unsupported(_),
+                        ..
+                    }) => open.reset_leader(1),
                     Err(e) => ran = Err(e),
                     Ok(()) => match pool.run(section.width, &cursor, &job2) {
                         Ok(()) => open.set_merged(),
-                        Err(FirstError { error: Error::Unsupported(_), .. }) => open.reset_leader(2),
+                        Err(FirstError {
+                            error: Error::Unsupported(_),
+                            ..
+                        }) => open.reset_leader(2),
                         Err(e) => ran = Err(e),
                     },
                 }
@@ -453,7 +580,13 @@ pub fn run_section(entry: &mut Entry, exec: &mut Exec, binding: &mut Binding<'_>
             }
             Ok(None) => {}
             Err(Error::Unsupported(_)) => open.reset_leader(0),
-            Err(e) => ran = Err(FirstError { claim_lo: 0, ordinal: 0, error: e }),
+            Err(e) => {
+                ran = Err(FirstError {
+                    claim_lo: 0,
+                    ordinal: 0,
+                    error: e,
+                })
+            }
         }
     }
     let ok = ran.is_ok() && !cancelled;
@@ -480,19 +613,46 @@ pub fn run_section(entry: &mut Entry, exec: &mut Exec, binding: &mut Binding<'_>
 /// regrown owners take twice the real records' even share, then four times (a skewed group's partition), then one owner;
 /// a cut under the real records (`owners_short`) is regrown before the first owner phase. 0: an overflow goes to one owner.
 /// 1 (D4620, `Pipeline::cascade`): the even share first, then twice and four times it.
-fn own_pooled(open: &gravity_driver::Open<'_>, pool: &dyn Pool, merge: &dyn Merge, mut pbits: u8, mut regrow: usize) -> core::result::Result<(), FirstError> {
+fn own_pooled(
+    open: &gravity_driver::Open<'_>,
+    pool: &dyn Pool,
+    merge: &dyn Merge,
+    mut pbits: u8,
+    mut regrow: usize,
+) -> core::result::Result<(), FirstError> {
     let (pipeline, width) = (open.pipeline(), open.width());
-    let first = |error: Error| FirstError { claim_lo: 0, ordinal: 0, error };
-    if regrow != 0 && open.owners_short(merge, pbits) && open.own_past_grant_at(merge, regrow).map_err(first)?.inspect(|&p| pbits = p).is_some() {
+    let first = |error: Error| FirstError {
+        claim_lo: 0,
+        ordinal: 0,
+        error,
+    };
+    if regrow != 0
+        && open.owners_short(merge, pbits)
+        && open
+            .own_past_grant_at(merge, regrow)
+            .map_err(first)?
+            .inspect(|&p| pbits = p)
+            .is_some()
+    {
         regrow *= 2;
         if census_on() {
             eprintln!("OWN pipeline={pipeline} width={width} owners=regrown_first owner_bytes={} pbits={pbits}", open.owner_bytes());
         }
     }
     loop {
-        let opened: [std::sync::atomic::AtomicBool; gravity_driver::SLOTS] = core::array::from_fn(|_| std::sync::atomic::AtomicBool::new(false));
+        let opened: [std::sync::atomic::AtomicBool; gravity_driver::SLOTS] =
+            core::array::from_fn(|_| std::sync::atomic::AtomicBool::new(false));
         let units = PartitionRange::new(1u64 << pbits, 1);
-        let job_o = |ordinal: u16, range: MorselRange| -> Result<()> { open.own_partitions(merge, ordinal, pbits, range.lo as u32, range.hi as u32, &opened[ordinal as usize]) };
+        let job_o = |ordinal: u16, range: MorselRange| -> Result<()> {
+            open.own_partitions(
+                merge,
+                ordinal,
+                pbits,
+                range.lo as u32,
+                range.hi as u32,
+                &opened[ordinal as usize],
+            )
+        };
         let mut r = pool.run(width, &units, &job_o);
         if r.is_ok() && merge.owned_rounds() == 1 {
             // every owner's round closed on a pool thread (a one-round shape orders its run here)
@@ -503,7 +663,9 @@ fn own_pooled(open: &gravity_driver::Open<'_>, pool: &dyn Pool, merge: &dyn Merg
                     if !opened[o as usize].swap(true, Ordering::AcqRel) {
                         merge.open_owner(region, o as u16)?;
                     }
-                    merge.end_round(region, &mut || Err(Error::Unsupported(gravity_abi::status::UNSUPPORTED_SCRATCH)))?;
+                    merge.end_round(region, &mut || {
+                        Err(Error::Unsupported(gravity_abi::status::UNSUPPORTED_SCRATCH))
+                    })?;
                 }
                 Ok(())
             };
@@ -514,17 +676,44 @@ fn own_pooled(open: &gravity_driver::Open<'_>, pool: &dyn Pool, merge: &dyn Merg
             r = match open.end_round(merge, &opened[..width as usize]) {
                 Ok(pbits2) => {
                     let units2 = PartitionRange::new(1u64 << pbits2, 1);
-                    let job2 = |ordinal: u16, range: MorselRange| -> Result<()> { open.own_partitions2(merge, ordinal, pbits2, range.lo as u32, range.hi as u32) };
+                    let job2 = |ordinal: u16, range: MorselRange| -> Result<()> {
+                        open.own_partitions2(
+                            merge,
+                            ordinal,
+                            pbits2,
+                            range.lo as u32,
+                            range.hi as u32,
+                        )
+                    };
                     pool.run(width, &units2, &job2)
                 }
                 Err(e) => Err(first(e)),
             };
         }
         // D3004: an overflowed one-round owner phase regrows its owners from the real records (`own_past_grant_at`)
-        let regrown = matches!(r, Err(FirstError { error: Error::Unsupported(_), .. })) && merge.owned_rounds() == 1 && regrow != 0 && regrow <= 4 && open.own_past_grant_at(merge, regrow).map_err(first)?.inspect(|&p| pbits = p).is_some();
+        let regrown = matches!(
+            r,
+            Err(FirstError {
+                error: Error::Unsupported(_),
+                ..
+            })
+        ) && merge.owned_rounds() == 1
+            && regrow != 0
+            && regrow <= 4
+            && open
+                .own_past_grant_at(merge, regrow)
+                .map_err(first)?
+                .inspect(|&p| pbits = p)
+                .is_some();
         return match r {
-            Ok(()) => open.finish_owners(merge, &opened[..width as usize]).map(|()| open.set_merged()).map_err(first),
-            Err(FirstError { error: Error::Unsupported(_), .. }) if regrown => {
+            Ok(()) => open
+                .finish_owners(merge, &opened[..width as usize])
+                .map(|()| open.set_merged())
+                .map_err(first),
+            Err(FirstError {
+                error: Error::Unsupported(_),
+                ..
+            }) if regrown => {
                 // D3004: regions sized from the real records (`own_past_grant_at` pinned them), the owner phase again
                 regrow *= 2;
                 OWN_OVERFLOW.fetch_add(1, Ordering::Relaxed);
@@ -533,24 +722,38 @@ fn own_pooled(open: &gravity_driver::Open<'_>, pool: &dyn Pool, merge: &dyn Merg
                 }
                 continue;
             }
-            Err(FirstError { error: Error::Unsupported(_), .. }) if merge.owned_rounds() == 1 => {
+            Err(FirstError {
+                error: Error::Unsupported(_),
+                ..
+            }) if merge.owned_rounds() == 1 => {
                 // an owner region overflowed (the estimate under the result): a one-round shape wrote only its owner regions, `own_single` redoes it
                 OWN_OVERFLOW.fetch_add(1, Ordering::Relaxed);
                 if census_on() {
-                    eprintln!("OWN pipeline={pipeline} width={width} own_single=overflow pbits={pbits}");
+                    eprintln!(
+                        "OWN pipeline={pipeline} width={width} own_single=overflow pbits={pbits}"
+                    );
                 }
-                open.own_single(merge, pbits).map(|()| open.set_merged()).map_err(first)
+                open.own_single(merge, pbits)
+                    .map(|()| open.set_merged())
+                    .map_err(first)
             }
-            Err(FirstError { error: Error::Unsupported(_), .. }) if merge.owned_rounds() == 2 => {
+            Err(FirstError {
+                error: Error::Unsupported(_),
+                ..
+            }) if merge.owned_rounds() == 2 => {
                 // D533: a two-round owner's partition past its route bits (merge.rs fold_sub SCRATCH) or an owner region it
                 // overflowed: both rounds redone by one owner on this thread, in a region own_all grows up to the wall; the
                 // owners only read the partials and files, and their round-2 files restart empty
                 OWN_OVERFLOW.fetch_add(1, Ordering::Relaxed);
                 if census_on() {
-                    eprintln!("OWN pipeline={pipeline} width={width} own_single=overflow2 pbits={pbits}");
+                    eprintln!(
+                        "OWN pipeline={pipeline} width={width} own_single=overflow2 pbits={pbits}"
+                    );
                 }
                 open.reset_round2();
-                open.own_single(merge, pbits).map(|()| open.set_merged()).map_err(first)
+                open.own_single(merge, pbits)
+                    .map(|()| open.set_merged())
+                    .map_err(first)
             }
             Err(e) => Err(e),
         };
@@ -646,11 +849,23 @@ impl Drop for Published<'_> {
 
 /// M8 (RT-1): publish `f` to `plan`'s protocols for as long as the guard lives: a host of a pipeline the runner calls
 /// meanwhile (`m8_init_run`) runs other pipelines through it, nested (`Entry::run_nested`).
-pub fn publish<'g>(plan: &'g dyn Plan, f: &'g mut (dyn gravity_driver::OnDemand + 'g)) -> Published<'g> {
+pub fn publish<'g>(
+    plan: &'g dyn Plan,
+    f: &'g mut (dyn gravity_driver::OnDemand + 'g),
+) -> Published<'g> {
     // SAFETY: the lifetime is erased only for the plan's cell: the guard borrows `f` for 'g and takes it out of the plan
     // (the frame before it back) when it drops, so nothing reads the pointer after `f` is gone.
-    let frame = unsafe { core::mem::transmute::<core::ptr::NonNull<dyn gravity_driver::OnDemand + 'g>, gravity_driver::Frame>(core::ptr::NonNull::from(f)) };
-    Published { plan, prev: plan.frame(Some(frame)), _frame: core::marker::PhantomData }
+    let frame = unsafe {
+        core::mem::transmute::<
+            core::ptr::NonNull<dyn gravity_driver::OnDemand + 'g>,
+            gravity_driver::Frame,
+        >(core::ptr::NonNull::from(f))
+    };
+    Published {
+        plan,
+        prev: plan.frame(Some(frame)),
+        _frame: core::marker::PhantomData,
+    }
 }
 
 /// D899: pipeline `p`'s run (`f`) under its own parameter image: the binding's words with `p`'s late key words bound now
@@ -658,7 +873,15 @@ pub fn publish<'g>(plan: &'g dyn Plan, f: &'g mut (dyn gravity_driver::OnDemand 
 /// only from `build_wait`; a producer an empty build masks, `runs_empty`, binds none). An evaluation error is the
 /// pipeline's own: held as a failed run's when its merge defers it (op 14), else the statement's (`held` is the arm's
 /// result then). A pipeline without late words runs as before, on the binding's image.
-pub fn run_with_late<R>(entry: &mut Entry, exec: &mut Exec, binding: &mut Binding<'_>, plan: &dyn Plan, p: usize, f: impl FnOnce(&mut Entry, &mut Exec, &mut Binding<'_>) -> Result<R>, held: impl FnOnce() -> R) -> Result<R> {
+pub fn run_with_late<R>(
+    entry: &mut Entry,
+    exec: &mut Exec,
+    binding: &mut Binding<'_>,
+    plan: &dyn Plan,
+    p: usize,
+    f: impl FnOnce(&mut Entry, &mut Exec, &mut Binding<'_>) -> Result<R>,
+    held: impl FnOnce() -> R,
+) -> Result<R> {
     // G1-B: the regions the pipeline's run draws (its calls, its claims, its owner phase, a pool claim's through the session
     // carry) count under its breaker's kind in the memory ledger's per-kind split
     let _kind = gravity_driver::pipeline_kind_scope(exec.node().program(), p);
@@ -681,7 +904,9 @@ pub fn run_with_late<R>(entry: &mut Entry, exec: &mut Exec, binding: &mut Bindin
             if exec.node().program().pipelines[p].produces().is_some() {
                 entry.open_unclaimed_of(exec, p)?;
             }
-            entry.defer_failed(exec, binding, plan.merge_for(p), p, e).or_else(|e| entry.defer_fed(exec, binding, &|q| plan.merge_for(q), p, e))?;
+            entry
+                .defer_failed(exec, binding, plan.merge_for(p), p, e)
+                .or_else(|e| entry.defer_fed(exec, binding, &|q| plan.merge_for(q), p, e))?;
             return Ok(held());
         }
     };
@@ -691,14 +916,26 @@ pub fn run_with_late<R>(entry: &mut Entry, exec: &mut Exec, binding: &mut Bindin
 /// D899: `f` under the binding's words with `late` (`Plan::late_words`) bound, then the binding's own image again:
 /// `run_with_late`'s image, and a recheck's rerun producer's (exec, D655: PostgreSQL's EvalPlanQual rescans the index,
 /// its runtime keys, and rechecks the refetched row against them).
-pub fn with_late<R>(exec: &mut Exec, binding: &mut Binding<'_>, late: LateWords, f: impl FnOnce(&mut Exec, &mut Binding<'_>) -> Result<R>) -> Result<R> {
+pub fn with_late<R>(
+    exec: &mut Exec,
+    binding: &mut Binding<'_>,
+    late: LateWords,
+    f: impl FnOnce(&mut Exec, &mut Binding<'_>) -> Result<R>,
+) -> Result<R> {
     if late.is_empty() {
         return f(exec, binding);
     }
     let owner = gravity_driver::stmt_context().map(|(o, _)| o);
-    let (mut params, mut nulls): (Box<[u64]>, Box<[u8]>) = (binding.parts.params.into(), binding.parts.param_nulls.into()); // alloc: Exec
-    let mut late_at: memledger::ChargedVec<usize> = memledger::ChargedVec::new(owner, memledger::Kind::Region); // alloc: Exec charged owner
-    late_at.with_vec(|v| { v.reserve_exact(late.len()); v.extend(late.iter().map(|l| l.0)) }); // alloc: Exec charged owner
+    let (mut params, mut nulls): (Box<[u64]>, Box<[u8]>) = (
+        binding.parts.params.into(),
+        binding.parts.param_nulls.into(),
+    ); // alloc: Exec
+    let mut late_at: memledger::ChargedVec<usize> =
+        memledger::ChargedVec::new(owner, memledger::Kind::Region); // alloc: Exec charged owner
+    late_at.with_vec(|v| {
+        v.reserve_exact(late.len());
+        v.extend(late.iter().map(|l| l.0))
+    }); // alloc: Exec charged owner
     for &(w, v, n) in late.iter() {
         if w < params.len() && w < nulls.len() {
             (params[w], nulls[w]) = (v, n);
@@ -706,26 +943,41 @@ pub fn with_late<R>(exec: &mut Exec, binding: &mut Binding<'_>, late: LateWords,
     }
     drop(late);
     let saved = (binding.parts.params, binding.parts.param_nulls);
-    let mut made: (memledger::ChargedVec<u64>, memledger::ChargedVec<u8>) = (memledger::ChargedVec::new(owner, memledger::Kind::Region), memledger::ChargedVec::new(owner, memledger::Kind::Region)); // alloc: Exec charged owner
-    made.0.with_vec(|v| { v.reserve_exact(params.len()); v.extend_from_slice(&params) }); // alloc: Exec charged owner
-    made.1.with_vec(|v| { v.reserve_exact(nulls.len()); v.extend_from_slice(&nulls) }); // alloc: Exec charged owner
-    // SAFETY: the image lives on this frame until the binding and the leader's context point back at `saved` below, after
-    // `f` returns, Ok or Err (every section `f` launched has joined by then; a section's workers copied the pointers at its
-    // launch, which happens after the image was complete). `saved` is the image found on entry (the binding's own, or an
-    // enclosing `with_late`'s: the images stack). Nothing writes the image after this point: it is created whole, before
-    // any reader, and dropped after the last.
+    let mut made: (memledger::ChargedVec<u64>, memledger::ChargedVec<u8>) = (
+        memledger::ChargedVec::new(owner, memledger::Kind::Region),
+        memledger::ChargedVec::new(owner, memledger::Kind::Region),
+    ); // alloc: Exec charged owner
+    made.0.with_vec(|v| {
+        v.reserve_exact(params.len());
+        v.extend_from_slice(&params)
+    }); // alloc: Exec charged owner
+    made.1.with_vec(|v| {
+        v.reserve_exact(nulls.len());
+        v.extend_from_slice(&nulls)
+    }); // alloc: Exec charged owner
+        // SAFETY: the image lives on this frame until the binding and the leader's context point back at `saved` below, after
+        // `f` returns, Ok or Err (every section `f` launched has joined by then; a section's workers copied the pointers at its
+        // launch, which happens after the image was complete). `saved` is the image found on entry (the binding's own, or an
+        // enclosing `with_late`'s: the images stack). Nothing writes the image after this point: it is created whole, before
+        // any reader, and dropped after the last.
     unsafe {
         binding.parts.params = &*(&*params as *const [u64]);
         binding.parts.param_nulls = &*(&*nulls as *const [u8]);
     }
-    exec.node_mut().repoint_params(binding.parts.params, binding.parts.param_nulls);
+    exec.node_mut()
+        .repoint_params(binding.parts.params, binding.parts.param_nulls);
     let r = f(exec, binding);
     (binding.parts.params, binding.parts.param_nulls) = saved;
     exec.node_mut().repoint_params(saved.0, saved.1);
     // D2736: a word the run wrote into the image (a protocol's state word: a settled union's spool, its fill's length) is
     // the execution's, as it is where no late word made an image: it goes back to the words the image was copied from. The
     // late words stay the run's (the binding's own keep their bind values)
-    for i in 0..params.len().min(nulls.len()).min(saved.0.len()).min(saved.1.len()) {
+    for i in 0..params
+        .len()
+        .min(nulls.len())
+        .min(saved.0.len())
+        .min(saved.1.len())
+    {
         if (params[i] != made.0[i] || nulls[i] != made.1[i]) && !late_at.contains(&i) {
             // SAFETY: the binding's words are the execution's parameter image, which the program's hosts write in place
             // through the context's pointer (a state word); this frame alone writes them now, between two runs
@@ -743,8 +995,21 @@ pub fn with_late<R>(exec: &mut Exec, binding: &mut Binding<'_>, late: LateWords,
 /// the driver runs that pipeline itself, outside `run_with_late`, so its scan read none of the key words it binds late (a
 /// pulled WindowAgg fill over an index scan keyed by an expression returned no rows). A masked or exec-pruned last
 /// pipeline binds none (as `run_with_late`).
-pub fn pull_late<R>(entry: &mut Entry, exec: &mut Exec, binding: &mut Binding<'_>, plan: &dyn Plan, members: &[u16], f: impl FnOnce(&mut Entry, &mut Exec, &mut Binding<'_>) -> Result<R>) -> Result<R> {
-    let Some(q) = members.last().map(|&m| m as usize).filter(|&q| !exec.runs_empty(q) && !plan.skips_whole(q)) else { return f(entry, exec, binding) };
+pub fn pull_late<R>(
+    entry: &mut Entry,
+    exec: &mut Exec,
+    binding: &mut Binding<'_>,
+    plan: &dyn Plan,
+    members: &[u16],
+    f: impl FnOnce(&mut Entry, &mut Exec, &mut Binding<'_>) -> Result<R>,
+) -> Result<R> {
+    let Some(q) = members
+        .last()
+        .map(|&m| m as usize)
+        .filter(|&q| !exec.runs_empty(q) && !plan.skips_whole(q))
+    else {
+        return f(entry, exec, binding);
+    };
     let late = entry.with_current(exec, binding, || plan.pulled_late(q))?;
     with_late(exec, binding, late, |x, b| f(entry, x, b))
 }
@@ -772,15 +1037,30 @@ pub fn skip_in_wait(entry: &mut Entry, exec: &mut Exec, plan: &dyn Plan, p: usiz
     let readers = plan.pull_readers(p);
     match owner {
         Some(o) if readers.is_empty() => entry.skip_rerun(exec, o)?,
-        Some(o) => entry.skip_rearmed(exec, o,readers)?,
+        Some(o) => entry.skip_rearmed(exec, o, readers)?,
         None if readers.is_empty() => return Ok(false),
-        None => entry.skip_pulled(exec,readers)?,
+        None => entry.skip_pulled(exec, readers)?,
     }
     Ok(true)
 }
 
-pub fn run_program(entry: &mut Entry, exec: &mut Exec, binding: &mut Binding<'_>, derive: &mut dyn Derive, pool: &dyn Pool, plan: &dyn Plan) -> Result<u64> {
-    run_body(entry, exec, binding, derive, pool, plan, &mut |_, _, _, _, site| Err(Error::Recheck(site)))
+pub fn run_program(
+    entry: &mut Entry,
+    exec: &mut Exec,
+    binding: &mut Binding<'_>,
+    derive: &mut dyn Derive,
+    pool: &dyn Pool,
+    plan: &dyn Plan,
+) -> Result<u64> {
+    run_body(
+        entry,
+        exec,
+        binding,
+        derive,
+        pool,
+        plan,
+        &mut |_, _, _, _, site| Err(Error::Recheck(site)),
+    )
 }
 
 /// D610: a recheck hook's view of the derive `run_program` was given (the runner's own registry, whose rewind the
@@ -805,20 +1085,47 @@ impl<'a> AsDerive for dyn Derive + 'a {
 /// recheck calls `recheck` with the pipeline's exec, which rechecks the row on a second node and counts what it
 /// processed into the binding; `Ok(true)` resumes the pipeline past the row (its resume word), `Ok(false)` ends the
 /// statement there (a stop the kernel cannot resume: the serial runner's end, legal only on the last pipeline).
-pub fn run_program_rechecking<D: Derive>(entry: &mut Entry, exec: &mut Exec, binding: &mut Binding<'_>, derive: &mut D, pool: &dyn Pool, plan: &dyn Plan, recheck: &mut dyn FnMut(&mut Entry, &mut Exec, &mut Binding<'_>, &mut D, u8) -> Result<bool>) -> Result<u64> {
+pub fn run_program_rechecking<D: Derive>(
+    entry: &mut Entry,
+    exec: &mut Exec,
+    binding: &mut Binding<'_>,
+    derive: &mut D,
+    pool: &dyn Pool,
+    plan: &dyn Plan,
+    recheck: &mut dyn FnMut(&mut Entry, &mut Exec, &mut Binding<'_>, &mut D, u8) -> Result<bool>,
+) -> Result<u64> {
     run_body(entry, exec, binding, derive, pool, plan, recheck)
 }
 
 #[allow(clippy::too_many_arguments)]
-fn run_body<D: AsDerive + ?Sized>(entry: &mut Entry, exec: &mut Exec, binding: &mut Binding<'_>, derive: &mut D, pool: &dyn Pool, plan: &dyn Plan, recheck: &mut dyn FnMut(&mut Entry, &mut Exec, &mut Binding<'_>, &mut D, u8) -> Result<bool>) -> Result<u64> {
+fn run_body<D: AsDerive + ?Sized>(
+    entry: &mut Entry,
+    exec: &mut Exec,
+    binding: &mut Binding<'_>,
+    derive: &mut D,
+    pool: &dyn Pool,
+    plan: &dyn Plan,
+    recheck: &mut dyn FnMut(&mut Entry, &mut Exec, &mut Binding<'_>, &mut D, u8) -> Result<bool>,
+) -> Result<u64> {
     // D1702: the slot the entry's calls publish their execution in; a nested run re-enters through it (`Leader::at`)
     let current = gravity_driver::CurrentCell::new(None);
-    entry.with_current_slot(&current, |entry| run_slotted(entry, exec, binding, derive, pool, plan, recheck, &current))
+    entry.with_current_slot(&current, |entry| {
+        run_slotted(entry, exec, binding, derive, pool, plan, recheck, &current)
+    })
 }
 
 /// D1702: `run_body` with `current` the entry's installed slot.
 #[allow(clippy::redundant_guards, clippy::too_many_arguments)]
-fn run_slotted<D: AsDerive + ?Sized>(entry: &mut Entry, exec: &mut Exec, binding: &mut Binding<'_>, derive: &mut D, pool: &dyn Pool, plan: &dyn Plan, recheck: &mut dyn FnMut(&mut Entry, &mut Exec, &mut Binding<'_>, &mut D, u8) -> Result<bool>, current: &gravity_driver::CurrentCell) -> Result<u64> {
+fn run_slotted<D: AsDerive + ?Sized>(
+    entry: &mut Entry,
+    exec: &mut Exec,
+    binding: &mut Binding<'_>,
+    derive: &mut D,
+    pool: &dyn Pool,
+    plan: &dyn Plan,
+    recheck: &mut dyn FnMut(&mut Entry, &mut Exec, &mut Binding<'_>, &mut D, u8) -> Result<bool>,
+    current: &gravity_driver::CurrentCell,
+) -> Result<u64> {
     let program = exec.node_mut().program().clone();
     let recorded = entry.recording(&program);
     let legs = binding.sink.leg(0).is_some();
@@ -827,7 +1134,17 @@ fn run_slotted<D: AsDerive + ?Sized>(entry: &mut Entry, exec: &mut Exec, binding
     // either across a call a nested run re-enters from (`Leader`), whose section opens write the derive (`Node::provision`)
     let (derive, recheck): (*mut D, *mut _) = (derive, recheck);
     // M8 (RT-1): the leader's frame while it runs the program: an Init read in any of its calls runs the Init's members
-    let mut leader = Leader { entry: entry as *mut Entry, exec: exec as *mut Exec, binding: binding as *mut Binding<'_>, derive, pool, plan, recheck, legs, current };
+    let mut leader = Leader {
+        entry: entry as *mut Entry,
+        exec: exec as *mut Exec,
+        binding: binding as *mut Binding<'_>,
+        derive,
+        pool,
+        plan,
+        recheck,
+        legs,
+        current,
+    };
     let _frame = publish(plan, &mut leader);
     while let Some(p) = barrier.next() {
         // D2772 POST: the turn before an unread data-modifying CTE's pipelines, the program's last (driver entry/post.rs)
@@ -845,13 +1162,13 @@ fn run_slotted<D: AsDerive + ?Sized>(entry: &mut Entry, exec: &mut Exec, binding
                 Some(owner) => match plan.pull_readers(p) {
                     #[allow(clippy::redundant_guards)]
                     r if r.is_empty() => entry.skip_rerun(exec, owner)?,
-                    r => entry.skip_rearmed(exec, owner,r)?,
+                    r => entry.skip_rearmed(exec, owner, r)?,
                 },
                 // M8 (RT-2f): a pulled CTE's plan: its store edge kept, opened zeroed for its readers
                 None => match plan.pull_readers(p) {
                     #[allow(clippy::redundant_guards)]
                     r if r.is_empty() => entry.skip_deferred(exec),
-                    r => entry.skip_pulled(exec,r)?,
+                    r => entry.skip_pulled(exec, r)?,
                 },
             }
             barrier.done(p);
@@ -865,7 +1182,18 @@ fn run_slotted<D: AsDerive + ?Sized>(entry: &mut Entry, exec: &mut Exec, binding
         let claims0 = recorded.then(|| pool.claims_run());
         let mark = if recorded { entry.record_mark() } else { None };
         // SAFETY: `derive` and `recheck` are this frame's own arguments, alive across the arm, reached on this thread only
-        let arm = match unsafe { run_arm(entry, exec, binding, derive, pool, plan, recheck, (p, legs, false)) }? {
+        let arm = match unsafe {
+            run_arm(
+                entry,
+                exec,
+                binding,
+                derive,
+                pool,
+                plan,
+                recheck,
+                (p, legs, false),
+            )
+        }? {
             Arm::Ran(a) => a,
             Arm::Return(rows) => {
                 if recorded {
@@ -876,17 +1204,37 @@ fn run_slotted<D: AsDerive + ?Sized>(entry: &mut Entry, exec: &mut Exec, binding
         };
         let t_arm = t_pipe.map_or(std::time::Duration::ZERO, |t| t.elapsed());
         if let Some(c0) = claims0 {
-            let width = if arm == "section" { plan.width_of(p) } else { 0 };
+            let width = if arm == "section" {
+                plan.width_of(p)
+            } else {
+                0
+            };
             // serial census M0: the lowered verdict beside the arm, so a serial or emit row names why it ran on the leader
             let (why, site) = gravity_driver::entry::record::verdict(program.pipelines[p].parallel);
             let (at, b0) = mark.unwrap_or((0, [0; 10]));
             let buf = entry.record_bufs_since(&b0);
-            entry.record_push(gravity_driver::entry::record::PipeRun { pipeline: p as u16, arm, width, ns: t_arm.as_nanos() as u64, claims: pool.claims_run() - c0, why, site, at, buf });
+            entry.record_push(gravity_driver::entry::record::PipeRun {
+                pipeline: p as u16,
+                arm,
+                width,
+                ns: t_arm.as_nanos() as u64,
+                claims: pool.claims_run() - c0,
+                why,
+                site,
+                at,
+                buf,
+            });
         }
         let t_after = timed.then(std::time::Instant::now);
         plan.after_pipeline(p, exec)?;
         if let Some(t_after) = t_after.filter(|_| phases_on()) {
-            eprintln!("PHASES pipeline={} arm={} arm_ms={:.2} after={:.2}ms", p, arm, t_arm.as_secs_f64() * 1e3, t_after.elapsed().as_secs_f64() * 1e3);
+            eprintln!(
+                "PHASES pipeline={} arm={} arm_ms={:.2} after={:.2}ms",
+                p,
+                arm,
+                t_arm.as_secs_f64() * 1e3,
+                t_after.elapsed().as_secs_f64() * 1e3
+            );
         }
         barrier.done(p);
         // op 14, fed (V4R-89): the feeders and the build `Entry::defer_fed` passed unrun
@@ -907,8 +1255,12 @@ fn run_slotted<D: AsDerive + ?Sized>(entry: &mut Entry, exec: &mut Exec, binding
 fn record_cells(entry: &mut Entry, exec: &Exec, plan: &dyn Plan) {
     let owner = gravity_driver::stmt_context().map(|(o, _)| o);
     let src = exec.node().instr_cells();
-    let mut cells: memledger::ChargedVec<u64> = memledger::ChargedVec::new(owner, memledger::Kind::Region); // alloc: Exec charged owner
-    cells.with_vec(|v| { v.reserve_exact(src.len()); v.extend_from_slice(src) }); // alloc: Exec charged owner
+    let mut cells: memledger::ChargedVec<u64> =
+        memledger::ChargedVec::new(owner, memledger::Kind::Region); // alloc: Exec charged owner
+    cells.with_vec(|v| {
+        v.reserve_exact(src.len());
+        v.extend_from_slice(src)
+    }); // alloc: Exec charged owner
     plan.fill_cells(&mut cells);
     entry.record_cells(&cells);
 }
@@ -926,7 +1278,8 @@ struct Leader<'r, 'b, D: AsDerive + ?Sized> {
     derive: *mut D,
     pool: &'r dyn Pool,
     plan: &'r dyn Plan,
-    recheck: *mut (dyn FnMut(&mut Entry, &mut Exec, &mut Binding<'_>, &mut D, u8) -> Result<bool> + 'r),
+    recheck:
+        *mut (dyn FnMut(&mut Entry, &mut Exec, &mut Binding<'_>, &mut D, u8) -> Result<bool> + 'r),
     legs: bool,
     /// D1702: the entry's installed `Current` slot (`run_body`'s).
     current: *const gravity_driver::CurrentCell,
@@ -956,7 +1309,8 @@ impl<D: AsDerive + ?Sized> gravity_driver::OnDemand for Leader<'_, '_, D> {
         // D1708 (a): the derive and the hook passed on raw, as `run_body` passes them: every arm between `run_body` and this
         // call holds them so (a `&mut` taken here from the frame's pointer and written by a member's section open would be a
         // write foreign to an outer arm's protected borrow)
-        let (derive, recheck, pool, plan, legs) = (self.derive, self.recheck, self.pool, self.plan, self.legs);
+        let (derive, recheck, pool, plan, legs) =
+            (self.derive, self.recheck, self.pool, self.plan, self.legs);
         let program = exec.node().program().clone();
         if Section::plan(&program, reader, plan.width_of(reader), legs).is_none() {
             return Ok(false);
@@ -964,7 +1318,8 @@ impl<D: AsDerive + ?Sized> gravity_driver::OnDemand for Leader<'_, '_, D> {
         let last = members.last().map(|&m| m as usize);
         let mut run = |e: &mut Entry, x: &mut Exec, bd: &mut Binding<'_>, p: usize| -> Result<()> {
             // D2998: an EXISTS Init's own pipeline may run as a section too (its rows only store true and stop)
-            let lazy = Some(p) == last && !(gravity_driver::exists_cell(&program, p) && plan.width_of(p) >= 2);
+            let lazy = Some(p) == last
+                && !(gravity_driver::exists_cell(&program, p) && plan.width_of(p) >= 2);
             if !lazy && Some(p) == last {
                 fires::fire("exec.exists.section");
             }
@@ -974,7 +1329,9 @@ impl<D: AsDerive + ?Sized> gravity_driver::OnDemand for Leader<'_, '_, D> {
                 Arm::Return(_) => Err(Error::BadReturn(gravity_abi::status::ERROR)),
             }
         };
-        entry.run_ahead(exec, binding, members, &mut run).map(|()| true)
+        entry
+            .run_ahead(exec, binding, members, &mut run)
+            .map(|()| true)
     }
 
     fn pull_members(&mut self, members: &[u16], _budget: u64) -> Result<gravity_driver::Pulled> {
@@ -984,7 +1341,8 @@ impl<D: AsDerive + ?Sized> gravity_driver::OnDemand for Leader<'_, '_, D> {
         let (e, x, b) = unsafe { self.at() };
         let (entry, exec, binding) = unsafe { (&mut *e, &mut *x, &mut *b) };
         // D1708 (a): passed on raw (`prerun_members`)
-        let (derive, recheck, pool, plan, legs) = (self.derive, self.recheck, self.pool, self.plan, self.legs);
+        let (derive, recheck, pool, plan, legs) =
+            (self.derive, self.recheck, self.pool, self.plan, self.legs);
         pulled_serial(plan, members)?;
         let program = exec.node_mut().program().clone();
         let mut run = |e: &mut Entry, x: &mut Exec, bd: &mut Binding<'_>, p: usize| -> Result<()> {
@@ -992,14 +1350,17 @@ impl<D: AsDerive + ?Sized> gravity_driver::OnDemand for Leader<'_, '_, D> {
             // over its claims taken from the start when they are big enough (`nested_section`, D3137's rule for every nested
             // producer; the serial statement's pull, exec runner/producers.rs, takes the same rule); the pulled pipeline is
             // bound at width 0 (`pulled_serial`), so it stays on the leader
-            let lazy = program.pipelines[p].lazy_for >= 0 || !nested_section(plan, &program, p, true);
+            let lazy =
+                program.pipelines[p].lazy_for >= 0 || !nested_section(plan, &program, p, true);
             // SAFETY: `run_body`'s derive and hook, no `&mut` of either live across this arm
             match unsafe { run_arm(e, x, bd, derive, pool, plan, recheck, (p, legs, lazy)) }? {
                 Arm::Ran(_) => plan.after_pipeline(p, x),
                 Arm::Return(_) => Err(Error::BadReturn(gravity_abi::status::ERROR)),
             }
         };
-        pull_late(entry, exec, binding, plan, members, |e, x, b| e.pull_nested(x, b, members, &mut run))
+        pull_late(entry, exec, binding, plan, members, |e, x, b| {
+            e.pull_nested(x, b, members, &mut run)
+        })
     }
 
     fn end_main(&mut self) -> Result<()> {
@@ -1041,14 +1402,20 @@ pub fn drain_pulled(plan: &dyn Plan) -> Result<()> {
     }
     let f = plan.frame(None);
     plan.frame(f);
-    let Some(mut f) = f else { return Err(Error::Refused("gravity: Bug: a statement-end drain with no frame published (M8 RT-2f)".into())) };
+    let Some(mut f) = f else {
+        return Err(Error::Refused(
+            "gravity: Bug: a statement-end drain with no frame published (M8 RT-2f)".into(),
+        ));
+    };
     // D2605: the statement's own ModifyTable ended with the main plan: its AFTER STATEMENT events queue before the drained
     // CTEs' (driver node/ends.rs)
     // SAFETY: as below
     unsafe { f.as_mut() }.end_main()?;
     for set in sets.iter() {
         // SAFETY: the frame published to the plan (`publish`), alive while its guard is; this thread's only.
-        while unsafe { f.as_mut() }.pull_members(set, u64::MAX)? == gravity_driver::Pulled::Stopped {}
+        while unsafe { f.as_mut() }.pull_members(set, u64::MAX)? == gravity_driver::Pulled::Stopped
+        {
+        }
     }
     Ok(())
 }
@@ -1073,7 +1440,8 @@ impl<'b, D: AsDerive + ?Sized> Leader<'_, 'b, D> {
         let (e, x, b) = unsafe { self.at() };
         let (entry, exec, binding) = unsafe { (&mut *e, &mut *x, &mut *b) };
         // D1708 (a): passed on raw (`prerun_members`)
-        let (derive, recheck, pool, plan, legs) = (self.derive, self.recheck, self.pool, self.plan, self.legs);
+        let (derive, recheck, pool, plan, legs) =
+            (self.derive, self.recheck, self.pool, self.plan, self.legs);
         let program = exec.node_mut().program().clone();
         let mut run = |e: &mut Entry, x: &mut Exec, bd: &mut Binding<'_>, p: usize| -> Result<()> {
             // D3014 S2' / D3137: a nested member over a big scan runs as a section (`nested_section`)
@@ -1103,9 +1471,19 @@ impl<'b, D: AsDerive + ?Sized> Leader<'_, 'b, D> {
 /// serial), drives a site and folds into no Init cell (`folds_init_cell`), its width is 2 or more, and its claims (a
 /// rerun's taken again from the start, `MorselSource::rescan`) hold a granule's rows per worker; else it runs on the
 /// leader. `PGRUST_GRAVITY_RERUN_SECTIONS=0` keeps every nested member serial (`Plan::rerun_sections`).
-pub fn nested_section(plan: &dyn Plan, program: &gravity_program::Program, p: usize, rerun: bool) -> bool {
+pub fn nested_section(
+    plan: &dyn Plan,
+    program: &gravity_program::Program,
+    p: usize,
+    rerun: bool,
+) -> bool {
     let width = plan.width_of(p);
-    if !plan.rerun_sections() || width < 2 || !program.pipelines[p].is_eligible() || program.pipelines[p].driving_site < 0 || folds_init_cell(program, p) {
+    if !plan.rerun_sections()
+        || width < 2
+        || !program.pipelines[p].is_eligible()
+        || program.pipelines[p].driving_site < 0
+        || folds_init_cell(program, p)
+    {
         return false;
     }
     let claims = plan.claims_for(p);
@@ -1121,7 +1499,11 @@ pub fn nested_section(plan: &dyn Plan, program: &gravity_program::Program, p: us
     };
     let section = claims.total() >= width as u64 * per_worker;
     if section {
-        fires::fire(if rerun { "exec.rerun.section" } else { "exec.nested.section" });
+        fires::fire(if rerun {
+            "exec.rerun.section"
+        } else {
+            "exec.nested.section"
+        });
         if gravity_driver::exists_cell(program, p) {
             fires::fire("exec.exists.section");
         }
@@ -1132,7 +1514,13 @@ pub fn nested_section(plan: &dyn Plan, program: &gravity_program::Program, p: us
 /// D3137: pipeline `p` is an Init's own (its rows fold into the Init's cell on the leader, as `prerun_members` runs it),
 /// but an EXISTS Init's (D2998, `INIT_EXISTS`: a row stores true and stops the claims, the runtime set false first).
 fn folds_init_cell(program: &gravity_program::Program, p: usize) -> bool {
-    program.v4.as_deref().is_some_and(|d| d.protos.iter().any(|q| q.kind == gravity_program::protos::ProtoKind::Init && q.pipeline as usize == p && q.arg & gravity_abi::limits::INIT_EXISTS == 0))
+    program.v4.as_deref().is_some_and(|d| {
+        d.protos.iter().any(|q| {
+            q.kind == gravity_program::protos::ProtoKind::Init
+                && q.pipeline as usize == p
+                && q.arg & gravity_abi::limits::INIT_EXISTS == 0
+        })
+    })
 }
 
 /// D3014 S2': the heap blocks per worker a rerun's section needs (64 blocks ~ a granule's 8,192 rows at ~128 per block).
@@ -1143,11 +1531,30 @@ const RERUN_BLOCKS_PER_WORKER: u64 = 64;
 /// the run's widest section width, not one owner on this thread, once they pass what the leader folds alone
 /// (`leader_owns_bytes`). `false`: not taken, or the owners' regions found no room (`own_single_of` runs).
 #[allow(clippy::too_many_arguments)]
-fn own_run_end(entry: &mut Entry, exec: &mut Exec, binding: &Binding<'_>, derive: &mut dyn Derive, pool: &dyn Pool, plan: &dyn Plan, (p, legs): (usize, bool), merge: &dyn Merge) -> Result<bool> {
-    let Some(run) = exec.node().arm_run(p) else { return Ok(false) };
+fn own_run_end(
+    entry: &mut Entry,
+    exec: &mut Exec,
+    binding: &Binding<'_>,
+    derive: &mut dyn Derive,
+    pool: &dyn Pool,
+    plan: &dyn Plan,
+    (p, legs): (usize, bool),
+    merge: &dyn Merge,
+) -> Result<bool> {
+    let Some(run) = exec.node().arm_run(p) else {
+        return Ok(false);
+    };
     let program = exec.node().program().clone();
-    let width = run.filter(|&q| q != p).filter_map(|q| Section::plan(&program, q, plan.width_of(q), legs)).map(|s| s.width).max().unwrap_or(0);
-    if width < 2 || entry.owner_held_of(exec, p) <= leader_owns_bytes() || gravity_abi::ctx::abort_set(binding.parts.abort_flag) {
+    let width = run
+        .filter(|&q| q != p)
+        .filter_map(|q| Section::plan(&program, q, plan.width_of(q), legs))
+        .map(|s| s.width)
+        .max()
+        .unwrap_or(0);
+    if width < 2
+        || entry.owner_held_of(exec, p) <= leader_owns_bytes()
+        || gravity_abi::ctx::abort_set(binding.parts.abort_flag)
+    {
         return Ok(false);
     }
     if phases_on() {
@@ -1158,9 +1565,14 @@ fn own_run_end(entry: &mut Entry, exec: &mut Exec, binding: &Binding<'_>, derive
     let r = match open.own_past_grant(merge) {
         Ok(Some(pbits)) => {
             if census_on() {
-                eprintln!("OWN pipeline={p} width={width} owners=run_end owner_bytes={} pbits={pbits}", open.owner_bytes());
+                eprintln!(
+                    "OWN pipeline={p} width={width} owners=run_end owner_bytes={} pbits={pbits}",
+                    open.owner_bytes()
+                );
             }
-            own_pooled(&open, pool, merge, pbits, 2).map(|()| true).map_err(|f| f.error)
+            own_pooled(&open, pool, merge, pbits, 2)
+                .map(|()| true)
+                .map_err(|f| f.error)
         }
         Ok(None) => Ok(false),
         Err(e) => Err(e),
@@ -1185,7 +1597,17 @@ enum Arm {
 /// # Safety
 /// As `run_arm`.
 #[allow(clippy::too_many_arguments)]
-unsafe fn build_wait<D: AsDerive + ?Sized>(entry: &mut Entry, exec: &mut Exec, binding: &mut Binding<'_>, derive: *mut D, pool: &dyn Pool, plan: &dyn Plan, recheck: *mut (dyn FnMut(&mut Entry, &mut Exec, &mut Binding<'_>, &mut D, u8) -> Result<bool> + '_), (b, legs): (usize, bool)) -> Result<()> {
+unsafe fn build_wait<D: AsDerive + ?Sized>(
+    entry: &mut Entry,
+    exec: &mut Exec,
+    binding: &mut Binding<'_>,
+    derive: *mut D,
+    pool: &dyn Pool,
+    plan: &dyn Plan,
+    recheck: *mut (dyn FnMut(&mut Entry, &mut Exec, &mut Binding<'_>, &mut D, u8) -> Result<bool>
+         + '_),
+    (b, legs): (usize, bool),
+) -> Result<()> {
     stack_depth_core::check_stack_depth_or_panic();
     let mut run = |e: &mut Entry, x: &mut Exec, bd: &mut Binding<'_>, p: usize| -> Result<()> {
         // D2816 / D3524: a pulled set or a rerun set fed into the build runs at its reader's pulls or its owner's reruns
@@ -1209,14 +1631,32 @@ unsafe fn build_wait<D: AsDerive + ?Sized>(entry: &mut Entry, exec: &mut Exec, b
 /// `derive` and `recheck` are `run_body`'s own, alive across the call and reached on this thread only; no `&mut` of either
 /// is live across it but the ones derived from these pointers.
 #[allow(clippy::too_many_arguments)]
-unsafe fn run_arm<D: AsDerive + ?Sized>(entry: &mut Entry, exec: &mut Exec, binding: &mut Binding<'_>, derive: *mut D, pool: &dyn Pool, plan: &dyn Plan, recheck: *mut (dyn FnMut(&mut Entry, &mut Exec, &mut Binding<'_>, &mut D, u8) -> Result<bool> + '_), (p, legs, lazy): (usize, bool, bool)) -> Result<Arm> {
+unsafe fn run_arm<D: AsDerive + ?Sized>(
+    entry: &mut Entry,
+    exec: &mut Exec,
+    binding: &mut Binding<'_>,
+    derive: *mut D,
+    pool: &dyn Pool,
+    plan: &dyn Plan,
+    recheck: *mut (dyn FnMut(&mut Entry, &mut Exec, &mut Binding<'_>, &mut D, u8) -> Result<bool>
+         + '_),
+    (p, legs, lazy): (usize, bool, bool),
+) -> Result<Arm> {
     // D3918: a later arm of a run that ended at its first arm (an empty pair pass) is stepped past unopened; D4072: on a
     // leader-only run too (`lazy`: a nested member at W0 or over a small scan), whose run reopened the sealed slot
     if p == exec.next_pipeline() && entry.skip_ended(exec)? {
         return Ok(Arm::Ran("ended"));
     }
     // SAFETY: this call's contract
-    run_with_late(entry, exec, binding, plan, p, |e, x, b| unsafe { run_arm_now(e, x, b, derive, pool, plan, recheck, (p, legs, lazy)) }, || Arm::Ran("held"))
+    run_with_late(
+        entry,
+        exec,
+        binding,
+        plan,
+        p,
+        |e, x, b| unsafe { run_arm_now(e, x, b, derive, pool, plan, recheck, (p, legs, lazy)) },
+        || Arm::Ran("held"),
+    )
 }
 
 /// Pipeline `p`'s arm: a section at its width, else the width-1 arm of a producer, else the emit / site-less arm. `lazy`: a
@@ -1224,7 +1664,17 @@ unsafe fn run_arm<D: AsDerive + ?Sized>(entry: &mut Entry, exec: &mut Exec, bind
 /// # Safety
 /// As `run_arm`.
 #[allow(clippy::too_many_arguments)]
-unsafe fn run_arm_now<D: AsDerive + ?Sized>(entry: &mut Entry, exec: &mut Exec, binding: &mut Binding<'_>, derive: *mut D, pool: &dyn Pool, plan: &dyn Plan, recheck: *mut (dyn FnMut(&mut Entry, &mut Exec, &mut Binding<'_>, &mut D, u8) -> Result<bool> + '_), (p, legs, lazy): (usize, bool, bool)) -> Result<Arm> {
+unsafe fn run_arm_now<D: AsDerive + ?Sized>(
+    entry: &mut Entry,
+    exec: &mut Exec,
+    binding: &mut Binding<'_>,
+    derive: *mut D,
+    pool: &dyn Pool,
+    plan: &dyn Plan,
+    recheck: *mut (dyn FnMut(&mut Entry, &mut Exec, &mut Binding<'_>, &mut D, u8) -> Result<bool>
+         + '_),
+    (p, legs, lazy): (usize, bool, bool),
+) -> Result<Arm> {
     let program = exec.node_mut().program().clone();
     let out_rows = program.layout.out_rows;
     let pipe = program.pipelines[p];
@@ -1232,13 +1682,28 @@ unsafe fn run_arm_now<D: AsDerive + ?Sized>(entry: &mut Entry, exec: &mut Exec, 
     // D276: a producer the build-first join's empty build masked runs as if no claim reached it (the width-1 arm); so
     // does an exec-pruned arm (D2105, `Plan::skips_whole`)
     let empty = exec.runs_empty(p) || plan.skips_whole(p);
-    match if empty || lazy { None } else { Section::plan(&program, p, plan.width_of(p), legs) } {
+    match if empty || lazy {
+        None
+    } else {
+        Section::plan(&program, p, plan.width_of(p), legs)
+    } {
         // op 14: a failed pipeline whose merge defers its error (JOIN's outer-first build) is held and passed (`defer_failed`)
         Some(section) => {
             // SAFETY: this call's contract; the borrow ends with the section, whose claims make no nested run (an Init a
             // section reads was run ahead of it, D1035 step 2)
-            if let Err(e) = run_section(entry, exec, binding, unsafe { (*derive).as_derive() }, &section, plan.claims_for(p), pool, plan.merge_for(p)) {
-                entry.defer_failed(exec, binding, plan.merge_for(p), p, e).or_else(|e| entry.defer_fed(exec, binding, &|q| plan.merge_for(q), p, e))?;
+            if let Err(e) = run_section(
+                entry,
+                exec,
+                binding,
+                unsafe { (*derive).as_derive() },
+                &section,
+                plan.claims_for(p),
+                pool,
+                plan.merge_for(p),
+            ) {
+                entry
+                    .defer_failed(exec, binding, plan.merge_for(p), p, e)
+                    .or_else(|e| entry.defer_fed(exec, binding, &|q| plan.merge_for(q), p, e))?;
             }
         }
         // the width-1 arm of a producer: an eligible one runs claim by claim on the leader and
@@ -1268,7 +1733,9 @@ unsafe fn run_arm_now<D: AsDerive + ?Sized>(entry: &mut Entry, exec: &mut Exec, 
                             // D824: a lazy build's probe runs leader-only over one claim (lowerv4 refuses an eligible one)
                             Ok(Step::BuildWait { .. }) => {
                                 claims.close();
-                                break 'run Err(Error::BadReturn(gravity_abi::status::build_wait(0)));
+                                break 'run Err(Error::BadReturn(gravity_abi::status::build_wait(
+                                    0,
+                                )));
                             }
                             Ok(_) => {}
                             Err(e) => {
@@ -1285,7 +1752,18 @@ unsafe fn run_arm_now<D: AsDerive + ?Sized>(entry: &mut Entry, exec: &mut Exec, 
                     let mut step = entry.run_claim(exec, binding, MorselRange::ALL);
                     while let Ok(Step::BuildWait { pipeline }) = step {
                         // SAFETY: this call's contract
-                        if let Err(e) = unsafe { build_wait(entry, exec, binding, derive, pool, plan, recheck, (pipeline, legs)) } {
+                        if let Err(e) = unsafe {
+                            build_wait(
+                                entry,
+                                exec,
+                                binding,
+                                derive,
+                                pool,
+                                plan,
+                                recheck,
+                                (pipeline, legs),
+                            )
+                        } {
                             break 'run Err(e);
                         }
                         step = entry.resume_claim(exec, binding, MorselRange::ALL);
@@ -1303,7 +1781,9 @@ unsafe fn run_arm_now<D: AsDerive + ?Sized>(entry: &mut Entry, exec: &mut Exec, 
             };
             // op 14: the run's error held and the pipeline passed when its merge defers it, else the statement's error
             if let Err(e) = ran {
-                entry.defer_failed(exec, binding, merge, p, e).or_else(|e| entry.defer_fed(exec, binding, &|q| plan.merge_for(q), p, e))?;
+                entry
+                    .defer_failed(exec, binding, merge, p, e)
+                    .or_else(|e| entry.defer_fed(exec, binding, &|q| plan.merge_for(q), p, e))?;
             } else {
                 // a record table: the owner fold on this thread (§3.2); else the merge's finish before
                 // the seal: the leader's own partial becomes the consumer's table, a refusal (it does not
@@ -1311,7 +1791,9 @@ unsafe fn run_arm_now<D: AsDerive + ?Sized>(entry: &mut Entry, exec: &mut Exec, 
                 // D393b: an arm that continues its union's run folds only (end_claims scatters a spilling end's records)
                 let cont = exec.node().arm_continues(p);
                 let fin: Result<()> = 'fin: {
-                    let Some(slot) = pipe.produces().filter(|_| !cont) else { break 'fin Ok(()) };
+                    let Some(slot) = pipe.produces().filter(|_| !cont) else {
+                        break 'fin Ok(());
+                    };
                     // D292: a slot no claim reached is opened before the merge touches it
                     entry.open_unclaimed_of(exec, p)?;
                     if let Some(pbits) = entry.owner_bits_of(exec, exec.next_pipeline(), merge) {
@@ -1322,7 +1804,13 @@ unsafe fn run_arm_now<D: AsDerive + ?Sized>(entry: &mut Entry, exec: &mut Exec, 
                     let node = exec.node_mut();
                     match merge.finish(&mut node.leader_state(slot, binding.sink)) {
                         Ok(()) => Ok(()),
-                        Err(Error::Unsupported(_)) if pipe.breaker().is_some_and(|b| matches!(b.spill, gravity_abi::breaker::Spill::Partitioned { .. })) => entry.spill_leader_partial(exec).map(|_| ()),
+                        Err(Error::Unsupported(_))
+                            if pipe.breaker().is_some_and(|b| {
+                                matches!(b.spill, gravity_abi::breaker::Spill::Partitioned { .. })
+                            }) =>
+                        {
+                            entry.spill_leader_partial(exec).map(|_| ())
+                        }
                         Err(e) => Err(e),
                     }
                 };
@@ -1337,7 +1825,11 @@ unsafe fn run_arm_now<D: AsDerive + ?Sized>(entry: &mut Entry, exec: &mut Exec, 
             arm = "emit";
             // D2584: an emit its pruning removed (`Plan::skips_whole`: an Append arm streaming into the sink) runs empty,
             // never opened (`Exec::run_empty`), as the producer arm above skips a pruned producer
-            if p < 64 && pipe.driving_site >= 0 && plan.skips_whole(p) && gravity_driver::is_emit(&program, p) {
+            if p < 64
+                && pipe.driving_site >= 0
+                && plan.skips_whole(p)
+                && gravity_driver::is_emit(&program, p)
+            {
                 exec.run_empty(1 << p);
                 arm = "empty";
             }
@@ -1349,13 +1841,28 @@ unsafe fn run_arm_now<D: AsDerive + ?Sized>(entry: &mut Entry, exec: &mut Exec, 
                     Ok(Step::Recheck { site }) => {
                         // SAFETY: this call's contract; the hook's borrows end with its call
                         if !unsafe { (*recheck)(entry, exec, binding, &mut *derive, site) }? {
-                            return if p + 1 >= program.pipelines.len() { Ok(Arm::Return(binding.rows_processed)) } else { Err(Error::Recheck(site)) };
+                            return if p + 1 >= program.pipelines.len() {
+                                Ok(Arm::Return(binding.rows_processed))
+                            } else {
+                                Err(Error::Recheck(site))
+                            };
                         }
                         call = Call::resume(out_rows);
                     }
                     // D824: the emit (or a site-less producer) stopped for its lazy build: the build runs, the call resumes
                     // SAFETY: this call's contract
-                    Ok(Step::BuildWait { pipeline }) => match unsafe { build_wait(entry, exec, binding, derive, pool, plan, recheck, (pipeline, legs)) } {
+                    Ok(Step::BuildWait { pipeline }) => match unsafe {
+                        build_wait(
+                            entry,
+                            exec,
+                            binding,
+                            derive,
+                            pool,
+                            plan,
+                            recheck,
+                            (pipeline, legs),
+                        )
+                    } {
                         Ok(()) => call = Call::resume(out_rows),
                         Err(e) => break Err(e),
                     },
@@ -1365,15 +1872,31 @@ unsafe fn run_arm_now<D: AsDerive + ?Sized>(entry: &mut Entry, exec: &mut Exec, 
             // D763 (op 14): a site-less producer's error (a VALUES, set or table-function build, an aggregate's table) is
             // held as the serial arm holds a relation build's (`defer_failed`, else the deferring build it feeds)
             let held = match (ran, pipe.produces()) {
-                (Err(e), Some(_)) => entry.defer_failed(exec, binding, plan.merge_for(p), p, e).or_else(|e| entry.defer_fed(exec, binding, &|q| plan.merge_for(q), p, e)).map(|()| true)?,
+                (Err(e), Some(_)) => entry
+                    .defer_failed(exec, binding, plan.merge_for(p), p, e)
+                    .or_else(|e| entry.defer_fed(exec, binding, &|q| plan.merge_for(q), p, e))
+                    .map(|()| true)?,
                 (Err(e), None) => return Err(e),
                 (Ok(()), _) => false,
             };
-            if let Some(slot) = pipe.produces().filter(|_| !held && !exec.node().arm_continues(p)) { // finishes like the serial arm; a keyed site-less producer owns by index first (D109); an arm that continues its run folds only (D393b)
+            if let Some(slot) = pipe
+                .produces()
+                .filter(|_| !held && !exec.node().arm_continues(p))
+            {
+                // finishes like the serial arm; a keyed site-less producer owns by index first (D109); an arm that continues its run folds only (D393b)
                 let merge = plan.merge_for(p);
                 if let Some(pbits) = entry.owner_bits_of(exec, p, merge) {
                     // SAFETY: this call's contract; the borrow ends with the owners (no nested run)
-                    if !own_run_end(entry, exec, binding, unsafe { (*derive).as_derive() }, pool, plan, (p, legs), merge)? {
+                    if !own_run_end(
+                        entry,
+                        exec,
+                        binding,
+                        unsafe { (*derive).as_derive() },
+                        pool,
+                        plan,
+                        (p, legs),
+                        merge,
+                    )? {
                         entry.own_single_of(exec, p, merge, pbits)?;
                     }
                 }
@@ -1431,7 +1954,10 @@ mod m8_frame_tests {
             assert_ne!(fa, 0, "a is published");
             {
                 let _b = publish(&plan, &mut b);
-                assert!(at(plan.0.get()) != fa && at(plan.0.get()) != 0, "b is published over a");
+                assert!(
+                    at(plan.0.get()) != fa && at(plan.0.get()) != 0,
+                    "b is published over a"
+                );
             }
             assert_eq!(at(plan.0.get()), fa, "b's guard put a back");
             let r = std::panic::catch_unwind(core::panic::AssertUnwindSafe(|| {
@@ -1442,7 +1968,14 @@ mod m8_frame_tests {
             assert!(r.is_err());
             assert_eq!(at(plan.0.get()), fa, "the unwind put a back");
             // SAFETY: the published frame is `a`, alive and not otherwise borrowed while its guard lives.
-            unsafe { plan.0.get().expect("a").as_mut().run_members(&[1, 2, 3]).expect("a runs") };
+            unsafe {
+                plan.0
+                    .get()
+                    .expect("a")
+                    .as_mut()
+                    .run_members(&[1, 2, 3])
+                    .expect("a runs")
+            };
         }
         assert!(plan.0.get().is_none(), "a's guard put none back");
         assert_eq!((a.0, b.0), (3, 0));

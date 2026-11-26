@@ -127,8 +127,8 @@ fn conninfo_uri_decode(s: &str) -> Result<String, String> {
             q += 1;
         } else {
             q += 1; // skip the percent sign itself
-            // C reads *q++ twice; end-of-string is caught by the first
-            // failing get_hexdigit (NUL is not a hex digit).
+                    // C reads *q++ twice; end-of-string is caught by the first
+                    // failing get_hexdigit (NUL is not a hex digit).
             let d1 = b.get(q).copied().unwrap_or(0);
             q += 1;
             let Some(hi) = get_hexdigit(d1) else {
@@ -141,7 +141,9 @@ fn conninfo_uri_decode(s: &str) -> Result<String, String> {
             };
             let c = (hi << 4) | lo;
             if c == 0 {
-                return Err(format!("forbidden value %00 in percent-encoded value: \"{s}\""));
+                return Err(format!(
+                    "forbidden value %00 in percent-encoded value: \"{s}\""
+                ));
             }
             out.push(c);
         }
@@ -169,7 +171,12 @@ fn store_uri_component(
     let (keyword, value) = if keyword == "requiressl" {
         (
             "sslmode",
-            if value_encoded.starts_with('1') { "require" } else { "prefer" }.to_string(),
+            if value_encoded.starts_with('1') {
+                "require"
+            } else {
+                "prefer"
+            }
+            .to_string(),
         )
     } else {
         (keyword, conninfo_uri_decode(value_encoded)?)
@@ -232,7 +239,12 @@ fn conninfo_uri_parse_params(params: &str, opts: &mut Vec<(String, String)>) -> 
         let (keyword, value) = if keyword == "requiressl" {
             (
                 "sslmode".to_string(),
-                if value.starts_with('1') { "require" } else { "prefer" }.to_string(),
+                if value.starts_with('1') {
+                    "require"
+                } else {
+                    "prefer"
+                }
+                .to_string(),
             )
         } else {
             (keyword, value)
@@ -257,7 +269,9 @@ fn conninfo_uri_parse(uri: &str) -> Result<Vec<(String, String)>, String> {
     let prefix_len = uri_prefix_length(uri);
     if prefix_len == 0 {
         // Should never happen.
-        return Err(format!("invalid URI propagated to internal parser routine: \"{uri}\""));
+        return Err(format!(
+            "invalid URI propagated to internal parser routine: \"{uri}\""
+        ));
     }
     let start = prefix_len;
     let mut p = start;
@@ -312,12 +326,14 @@ fn conninfo_uri_parse(uri: &str) -> Result<Vec<(String, String)>, String> {
                 ));
             }
             if p == host_start {
-                return Err(format!("IPv6 host address may not be empty in URI: \"{uri}\""));
+                return Err(format!(
+                    "IPv6 host address may not be empty in URI: \"{uri}\""
+                ));
             }
             host_end = p;
             p += 1; // cut off the bracket and advance
-            // The address may be followed by a port specifier or a slash or
-            // a query or a separator comma.
+                    // The address may be followed by a port specifier or a slash or
+                    // a query or a separator comma.
             if p < b.len() && b[p] != b':' && b[p] != b'/' && b[p] != b'?' && b[p] != b',' {
                 return Err(format!(
                     "unexpected character \"{}\" at position {} in URI (expected \":\" or \"/\"): \"{uri}\"",
@@ -459,7 +475,11 @@ pub fn parse_conninfo(s: &str) -> Result<Vec<(String, String)>, String> {
         let val = String::from_utf8_lossy(&val).into_owned();
         // conninfo_storeval (uri_decode=false, ignoreMissing=false).
         let (key, val) = if key == "requiressl" {
-            let v = if val.starts_with('1') { "require" } else { "prefer" };
+            let v = if val.starts_with('1') {
+                "require"
+            } else {
+                "prefer"
+            };
             ("sslmode".to_string(), v.to_string())
         } else {
             (key, val)
@@ -496,7 +516,9 @@ pub fn resolve_conninfo(conninfo: &str) -> Result<Vec<(String, String)>, String>
     add_defaults(&mut opts, &|name| std::env::var(name).ok());
     // connectOptions2: dbname defaults to the user name.
     if opt(&opts, "dbname").is_none() {
-        let user = opt(&opts, "user").map(|s| s.to_string()).unwrap_or_else(super::os_user_name);
+        let user = opt(&opts, "user")
+            .map(|s| s.to_string())
+            .unwrap_or_else(super::os_user_name);
         opts.push(("dbname".to_string(), user));
     }
     Ok(opts)
@@ -595,8 +617,7 @@ pub(crate) fn parse_service_file(
         let line = String::from_utf8_lossy(raw);
         // parseServiceFile trims leading/trailing C-locale isspace() (VT
         // included), not the narrower is_ascii_whitespace set.
-        let line =
-            line.trim_matches(|c: char| c.is_ascii() && isspace_c_locale(c as u8));
+        let line = line.trim_matches(|c: char| c.is_ascii() && isspace_c_locale(c as u8));
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
@@ -706,7 +727,13 @@ pub(crate) fn home_directory() -> Option<String> {
         let mut result: *mut libc::passwd = std::ptr::null_mut();
         // SAFETY: getpwuid_r fills `pw` and strings into `buf` of the given size.
         let rc = unsafe {
-            libc::getpwuid_r(libc::geteuid(), &mut pw, buf.as_mut_ptr().cast(), buf.len(), &mut result)
+            libc::getpwuid_r(
+                libc::geteuid(),
+                &mut pw,
+                buf.as_mut_ptr().cast(),
+                buf.len(),
+                &mut result,
+            )
         };
         if rc == 0 && !result.is_null() && !pw.pw_dir.is_null() {
             // SAFETY: pw_dir points into `buf`, NUL-terminated by getpwuid_r.
@@ -732,7 +759,8 @@ pub fn password_from_file(
         return None;
     }
     let is_unixsock_path = hostname.starts_with('/') || hostname.starts_with('@');
-    let hostname = if hostname.is_empty() || (is_unixsock_path && hostname == DEFAULT_PGSOCKET_DIR) {
+    let hostname = if hostname.is_empty() || (is_unixsock_path && hostname == DEFAULT_PGSOCKET_DIR)
+    {
         "localhost"
     } else {
         hostname
@@ -782,10 +810,18 @@ pub fn password_from_file(
         if t.is_empty() {
             continue;
         }
-        let Some(t) = pwdf_matches(t, hostname.as_bytes()) else { continue };
-        let Some(t) = pwdf_matches(t, port.as_bytes()) else { continue };
-        let Some(t) = pwdf_matches(t, dbname.as_bytes()) else { continue };
-        let Some(t) = pwdf_matches(t, username.as_bytes()) else { continue };
+        let Some(t) = pwdf_matches(t, hostname.as_bytes()) else {
+            continue;
+        };
+        let Some(t) = pwdf_matches(t, port.as_bytes()) else {
+            continue;
+        };
+        let Some(t) = pwdf_matches(t, dbname.as_bytes()) else {
+            continue;
+        };
+        let Some(t) = pwdf_matches(t, username.as_bytes()) else {
+            continue;
+        };
         let mut password = Vec::with_capacity(t.len());
         let mut i = 0;
         while i < t.len() && t[i] != b':' {
@@ -874,7 +910,10 @@ mod passfile_tests {
         let f = write("insecure", "h1:5432:db:bob:pw\n", 0o644);
         assert_eq!(password_from_file("h1", "5432", "db", "bob", &f), None);
         std::fs::remove_file(&f).unwrap();
-        assert_eq!(password_from_file("h1", "5432", "db", "bob", "/nonexistent/pgpass"), None);
+        assert_eq!(
+            password_from_file("h1", "5432", "db", "bob", "/nonexistent/pgpass"),
+            None
+        );
     }
 
     #[test]
@@ -896,11 +935,18 @@ mod passfile_tests {
     #[test]
     fn pgrequiressl_defaults_sslmode_to_require() {
         let env = |vars: &'static [(&'static str, &'static str)]| {
-            move |name: &str| vars.iter().find(|(k, _)| *k == name).map(|(_, v)| v.to_string())
+            move |name: &str| {
+                vars.iter()
+                    .find(|(k, _)| *k == name)
+                    .map(|(_, v)| v.to_string())
+            }
         };
-        let resolved = |explicit: &[(&str, &str)], vars: &'static [(&'static str, &'static str)]| {
-            let mut opts: Vec<(String, String)> =
-                explicit.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        let resolved = |explicit: &[(&str, &str)],
+                        vars: &'static [(&'static str, &'static str)]| {
+            let mut opts: Vec<(String, String)> = explicit
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect();
             super::add_defaults(&mut opts, &env(vars));
             super::opt(&opts, "sslmode").unwrap().to_string()
         };
@@ -909,16 +955,31 @@ mod passfile_tests {
         assert_eq!(resolved(&[], &[("PGREQUIRESSL", "1yes")]), "require");
         assert_eq!(resolved(&[], &[("PGREQUIRESSL", "0")]), "prefer");
         assert_eq!(resolved(&[], &[("PGREQUIRESSL", "true")]), "prefer");
-        assert_eq!(resolved(&[], &[("PGREQUIRESSL", "1"), ("PGSSLMODE", "disable")]), "disable");
-        assert_eq!(resolved(&[("sslmode", "allow")], &[("PGREQUIRESSL", "1")]), "allow");
+        assert_eq!(
+            resolved(&[], &[("PGREQUIRESSL", "1"), ("PGSSLMODE", "disable")]),
+            "disable"
+        );
+        assert_eq!(
+            resolved(&[("sslmode", "allow")], &[("PGREQUIRESSL", "1")]),
+            "allow"
+        );
         // conninfo_add_defaults (fe-connect.c:6730): sslrootcert=system
         // lifts only the compiled default to verify-full.
         assert_eq!(resolved(&[("sslrootcert", "system")], &[]), "verify-full");
         assert_eq!(resolved(&[], &[("PGSSLROOTCERT", "system")]), "verify-full");
-        assert_eq!(resolved(&[("sslrootcert", "system")], &[("PGSSLMODE", "require")]), "require");
-        assert_eq!(resolved(&[("sslrootcert", "system"), ("sslmode", "prefer")], &[]), "prefer");
+        assert_eq!(
+            resolved(&[("sslrootcert", "system")], &[("PGSSLMODE", "require")]),
+            "require"
+        );
+        assert_eq!(
+            resolved(&[("sslrootcert", "system"), ("sslmode", "prefer")], &[]),
+            "prefer"
+        );
         let mut opts = vec![];
-        super::add_defaults(&mut opts, &env(&[("PGREQUIRESSL", "1"), ("PGPORT", "5999")]));
+        super::add_defaults(
+            &mut opts,
+            &env(&[("PGREQUIRESSL", "1"), ("PGPORT", "5999")]),
+        );
         assert_eq!(super::opt(&opts, "port"), Some("5999"));
     }
 
@@ -928,7 +989,10 @@ mod passfile_tests {
     fn user_defaults_to_the_os_user() {
         let mut opts = vec![];
         super::add_defaults(&mut opts, &|_| None);
-        assert_eq!(super::opt(&opts, "user"), Some(crate::os_user_name().as_str()));
+        assert_eq!(
+            super::opt(&opts, "user"),
+            Some(crate::os_user_name().as_str())
+        );
         let mut opts = vec![("user".to_string(), "rep".to_string())];
         super::add_defaults(&mut opts, &|_| None);
         assert_eq!(super::opt(&opts, "user"), Some("rep"));

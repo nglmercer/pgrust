@@ -4,11 +4,11 @@ use gravity_abi::breaker::{KeyKind, SlotKind};
 use gravity_program::{ArenaVec, LifeId};
 use types_nodes::Node;
 
+use crate::catalog::typefacts;
 use crate::facts::hints::Hint;
 use crate::graph::Layout;
 use crate::ops::shared::agg_class::{Class, Ext, Mods, Trans};
 use crate::ops::shared::sort::KeyImage;
-use crate::catalog::typefacts;
 
 pub const AGG_PLAIN: u32 = 0;
 pub const AGG_SORTED: u32 = 1;
@@ -319,7 +319,12 @@ pub struct Stripped<'p> {
 
 /// The fold of a class: its register (the per-row op), the slot kind it folds into and the final (decompose.md §2.6's
 /// classification table). `code_arg`: the argument is a code lane; `scaled`: a numeric argument's scale is decided.
-pub fn fold_of(class: Class, fnoid: u32, code_arg: bool, scaled: bool) -> (Register, Trans, FinalForm) {
+pub fn fold_of(
+    class: Class,
+    fnoid: u32,
+    code_arg: bool,
+    scaled: bool,
+) -> (Register, Trans, FinalForm) {
     use SlotKind as S;
     let abi = Trans::Abi;
     match class {
@@ -334,7 +339,11 @@ pub fn fold_of(class: Class, fnoid: u32, code_arg: bool, scaled: bool) -> (Regis
         Class::SumNum => (Register::SumNumVar, Trans::Var, FinalForm::Numeric),
         Class::SumF32 => (Register::SumF32, abi(S::SumF32), FinalForm::F32),
         Class::SumF64 => (Register::SumF64, abi(S::SumF64), FinalForm::Identity),
-        Class::SumInterval => (Register::SumInterval, abi(S::IntervalSum), FinalForm::Interval),
+        Class::SumInterval => (
+            Register::SumInterval,
+            abi(S::IntervalSum),
+            FinalForm::Interval,
+        ),
         Class::AvgI128 if crate::catalog::agg::avg_int8(fnoid) => {
             fires::fire("agg.avg_i128"); // shapecheck fire signal (REGISTRY OID-03): avg(int8) in the I128 average register
             (Register::AvgInt128, abi(S::AvgI128), FinalForm::Int128Avg)
@@ -343,7 +352,11 @@ pub fn fold_of(class: Class, fnoid: u32, code_arg: bool, scaled: bool) -> (Regis
         Class::AvgNum if scaled => (Register::AvgNum, abi(S::AvgNum), FinalForm::NumericAvg),
         Class::AvgNum => (Register::AvgNumVar, Trans::Var, FinalForm::NumericAvg),
         Class::AvgF64 => (Register::AvgF64, abi(S::F64Accum), FinalForm::F64Avg),
-        Class::AvgInterval => (Register::AvgInterval, abi(S::IntervalSum), FinalForm::IntervalAvg),
+        Class::AvgInterval => (
+            Register::AvgInterval,
+            abi(S::IntervalSum),
+            FinalForm::IntervalAvg,
+        ),
         Class::Min(Ext::Int) => (Register::MinInt, abi(S::MinI64), FinalForm::Identity),
         Class::Max(Ext::Int) => (Register::MaxInt, abi(S::MaxI64), FinalForm::Identity),
         Class::Min(Ext::U64) => (Register::MinImage, abi(S::MinI64), FinalForm::Image),
@@ -352,10 +365,22 @@ pub fn fold_of(class: Class, fnoid: u32, code_arg: bool, scaled: bool) -> (Regis
         Class::Max(Ext::F64) => (Register::MaxF64, abi(S::MaxI64), FinalForm::F64Ordered),
         Class::Min(Ext::Num) if scaled => (Register::MinNum, abi(S::MinI64), FinalForm::Numeric),
         Class::Max(Ext::Num) if scaled => (Register::MaxNum, abi(S::MaxI64), FinalForm::Numeric),
-        Class::Min(Ext::Text) if code_arg => (Register::MinCode, abi(S::MinCode), FinalForm::Rendered),
-        Class::Max(Ext::Text) if code_arg => (Register::MaxCode, abi(S::MaxCode), FinalForm::Rendered),
-        Class::Min(Ext::Opaque) if crate::catalog::agg::interval_extreme(fnoid) => (Register::MinInterval, abi(S::IntervalMin), FinalForm::Interval),
-        Class::Max(Ext::Opaque) if crate::catalog::agg::interval_extreme(fnoid) => (Register::MaxInterval, abi(S::IntervalMax), FinalForm::Interval),
+        Class::Min(Ext::Text) if code_arg => {
+            (Register::MinCode, abi(S::MinCode), FinalForm::Rendered)
+        }
+        Class::Max(Ext::Text) if code_arg => {
+            (Register::MaxCode, abi(S::MaxCode), FinalForm::Rendered)
+        }
+        Class::Min(Ext::Opaque) if crate::catalog::agg::interval_extreme(fnoid) => (
+            Register::MinInterval,
+            abi(S::IntervalMin),
+            FinalForm::Interval,
+        ),
+        Class::Max(Ext::Opaque) if crate::catalog::agg::interval_extreme(fnoid) => (
+            Register::MaxInterval,
+            abi(S::IntervalMax),
+            FinalForm::Interval,
+        ),
         Class::Min(_) => (Register::MinVar, Trans::Var, FinalForm::Rendered),
         Class::Max(_) => (Register::MaxVar, Trans::Var, FinalForm::Rendered),
         Class::BoolAnd => (Register::BoolAnd, abi(S::MinI64), FinalForm::Bool),

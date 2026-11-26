@@ -339,12 +339,7 @@ pub(crate) fn already_template_error(name: &str) -> Box<PgError> {
 /// (a) the name still resolves to `expected_oid`, and (b) `caller_role`
 /// still owns `expected_oid` — a rename attack fails (a), an ownership
 /// change fails (b). Only then is the flip on the caller's behalf legitimate.
-fn validate_and_launch(
-    gen: u64,
-    name: &str,
-    expected_oid: Oid,
-    caller_role: Oid,
-) -> PgResult<()> {
+fn validate_and_launch(gen: u64, name: &str, expected_oid: Oid, caller_role: Oid) -> PgResult<()> {
     let cx = mcx::MemoryContext::new("pgrust janitor seal validate");
     xact::StartTransactionCommand()?;
     let mcx = cx.mcx();
@@ -396,8 +391,7 @@ fn validate_and_launch(
     let bgw = bgworker::BackgroundWorker {
         bgw_name: format!("pgrust template seal: {name}"),
         bgw_type: "pgrust template seal".to_string(),
-        bgw_flags: bgworker::BGWORKER_SHMEM_ACCESS
-            | bgworker::BGWORKER_BACKEND_DATABASE_CONNECTION,
+        bgw_flags: bgworker::BGWORKER_SHMEM_ACCESS | bgworker::BGWORKER_BACKEND_DATABASE_CONNECTION,
         bgw_start_time: bgworker::BgWorkerStartTime::RecoveryFinished,
         bgw_restart_time: bgworker::BGW_NEVER_RESTART,
         bgw_main: seal_vacuum_main,

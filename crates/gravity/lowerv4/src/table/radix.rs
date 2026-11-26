@@ -10,23 +10,29 @@
 //! against the record threshold, the head stepped by the record size, a full or absent block through `agg_block`.
 //!
 //! Registers: road `table.radix` (`TABLE_RADIX`).
-use gravity_abi::breaker::{RecordLayout, HEAD_LEFT, HEAD_POS, LAYOUT_IMPLICIT_COUNT, MINCODE_NONE, t1_default_bytes, T1_MAX_PARTS};
+use gravity_abi::breaker::{
+    t1_default_bytes, RecordLayout, HEAD_LEFT, HEAD_POS, LAYOUT_IMPLICIT_COUNT, MINCODE_NONE,
+    T1_MAX_PARTS,
+};
 use gravity_expr::emit::hash::{emit_part, emit_route_and_full, Bits};
 use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{ConvOp, IntBinOp, IntCond, IntUnOp, Type, Value};
 use gravity_kernels::host_abi as abi;
 
+use crate::frame::env::Env;
 use crate::table::bypass::{host, Hashed, ST_APP, ST_HEADS, ST_PBITS};
 use crate::table::face::TableDecl;
 use crate::table::keyimg::ImageWords;
-use crate::frame::env::Env;
 
 crate::strategies! {
     /// Radix partition at every width incl. W0.
     TABLE_RADIX = 36, "table.radix", Table;
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(TABLE_RADIX, &())], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(TABLE_RADIX, &())],
+    ..crate::ops::NONE
+};
 
 /// `t`'s partition bits: `bits_for` its bound (`table_size::groups`), 0 = the runtime's floor.
 pub(crate) fn bits(b: &mut FunctionBuilder<'_>, env: &Env, t: &TableDecl) -> Value {
@@ -57,19 +63,33 @@ pub(crate) fn bits_for(b: &mut FunctionBuilder<'_>, groups: Value, rec: u32) -> 
 
 /// A reserved record opened as `Rec::open` opens one: zeroed, the image's words as keys, the implicit sentinel at 1 (the
 /// record form, 1 + rows: the end adds its rows), a MinCode slot at `MINCODE_NONE` on a layout without the validity word.
-pub(crate) fn open_record(b: &mut FunctionBuilder<'_>, p: Value, l: &RecordLayout, words: &[Value]) {
+pub(crate) fn open_record(
+    b: &mut FunctionBuilder<'_>,
+    p: Value,
+    l: &RecordLayout,
+    words: &[Value],
+) {
     open_record_n(b, p, l, words, None)
 }
 
 /// `open_record` with the implicit sentinel at `1 + n` when `n` is given (V4R-201 count-at-append): the record's words
 /// written once each, keys first, the sentinel never zeroed then rewritten.
-pub(crate) fn open_record_n(b: &mut FunctionBuilder<'_>, p: Value, l: &RecordLayout, words: &[Value], n: Option<Value>) {
+pub(crate) fn open_record_n(
+    b: &mut FunctionBuilder<'_>,
+    p: Value,
+    l: &RecordLayout,
+    words: &[Value],
+    n: Option<Value>,
+) {
     let zero = b.iconst(Type::I64, 0);
     let implicit = l.flags & LAYOUT_IMPLICIT_COUNT != 0;
     for (k, w) in words.iter().enumerate() {
         b.store(p, 8 * k as i32, *w);
     }
-    for off in (8 * words.len() as u32..l.size()).step_by(8).filter(|&o| !(implicit && o == l.sentinel_off())) {
+    for off in (8 * words.len() as u32..l.size())
+        .step_by(8)
+        .filter(|&o| !(implicit && o == l.sentinel_off()))
+    {
         b.store(p, off as i32, zero);
     }
     if implicit {
@@ -90,7 +110,13 @@ pub(crate) fn open_record_n(b: &mut FunctionBuilder<'_>, p: Value, l: &RecordLay
 
 /// The implicit count's bump (`+= n` at `off`), skipped when the append wrote the record with its count (`counted`,
 /// V4R-201): no reload of a word just stored.
-pub(crate) fn bump_unless(b: &mut FunctionBuilder<'_>, rec: Value, off: i32, n: Value, counted: Value) {
+pub(crate) fn bump_unless(
+    b: &mut FunctionBuilder<'_>,
+    rec: Value,
+    off: i32,
+    n: Value,
+    counted: Value,
+) {
     let (l_bump, l_go) = (b.create_block(&[]), b.create_block(&[]));
     b.cond_br(counted, (l_go, &[]), (l_bump, &[]));
     b.switch_to(l_bump);
@@ -104,16 +130,37 @@ pub(crate) fn bump_unless(b: &mut FunctionBuilder<'_>, rec: Value, off: i32, n: 
 impl Hashed {
     /// The bypass arm: `img`'s record appended at its partition's head (`reserve_fast`; a full or absent block through
     /// `agg_block`), opened as `Rec::open` opens one. The route is the image's partition words (`Rec::route`, D250).
-    pub(crate) fn append(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &TableDecl, st: Value, img: &ImageWords, h: Value) -> Value {
+    pub(crate) fn append(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        t: &TableDecl,
+        st: Value,
+        img: &ImageWords,
+        h: Value,
+    ) -> Value {
         self.append_n(b, env, t, st, img, h, None)
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn append_n(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &TableDecl, st: Value, img: &ImageWords, h: Value, n: Option<Value>) -> Value {
+    pub(crate) fn append_n(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        t: &TableDecl,
+        st: Value,
+        img: &ImageWords,
+        h: Value,
+        n: Option<Value>,
+    ) -> Value {
         let (ctx, zero, x) = (env.ctx, env.zero, env.x);
         let (rec, words) = (t.layout.size() as i64, &img.words.words);
         let pk = t.layout.partition_keys();
-        let route = if pk >= words.len() { h } else { emit_route_and_full(b, &img.words, pk).0 };
+        let route = if pk >= words.len() {
+            h
+        } else {
+            emit_route_and_full(b, &img.words, pk).0
+        };
         let pbits = b.load(Type::I64, st, ST_PBITS);
         let part = emit_part(b, route, Bits::Dyn(pbits));
         let heads = b.load(Type::Ptr, st, ST_HEADS);
@@ -125,8 +172,15 @@ impl Hashed {
         b.cond_br(full, (l_blk, &[]), (l_st, &[head]));
         b.switch_to(l_blk);
         let app = b.load(Type::I64, st, ST_APP);
-        let block = host(b, "agg_block", &[Type::Ptr, Type::Ptr, Type::I64, Type::I64], gravity_abi::host_words!(abi::agg_block(ctx, st, part, appended)));
-        let r = b.call_host(block, &[ctx, st, part, app], Some(Type::I64)).expect("agg_block returns a head or a status");
+        let block = host(
+            b,
+            "agg_block",
+            &[Type::Ptr, Type::Ptr, Type::I64, Type::I64],
+            gravity_abi::host_words!(abi::agg_block(ctx, st, part, appended)),
+        );
+        let r = b
+            .call_host(block, &[ctx, st, part, app], Some(Type::I64))
+            .expect("agg_block returns a head or a status");
         b.store(st, ST_APP, zero);
         let bad = b.icmp(IntCond::Sle, r, zero);
         b.cond_br(bad, (x.l_exit, &[r]), (l_st, &[r]));
@@ -167,7 +221,10 @@ mod tests {
     #[test]
     fn the_bound_sets_one_table_of_records_per_partition() {
         assert_eq!([bits(0, 32), bits(1000, 32), bits(16384, 32)], [0, 0, 0]);
-        assert_eq!([bits(16385, 32), bits(65536, 32), bits(1 << 20, 24)], [1, 2, 6]);
+        assert_eq!(
+            [bits(16385, 32), bits(65536, 32), bits(1 << 20, 24)],
+            [1, 2, 6]
+        );
         assert_eq!(bits(100_000_000, 32), 11);
     }
 }

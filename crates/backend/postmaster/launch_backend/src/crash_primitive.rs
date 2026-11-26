@@ -46,7 +46,9 @@ pub fn crash_current_backend(kind: CrashKind) -> ! {
             // The message is diagnostic only; the payload's *type* (a plain
             // &str panic, not ProcExitThread/KilledBySignal) is what drives
             // the SIGABRT mapping.
-            panic!("pgrust_test_backend_panic: deterministic test-only backend crash (SIGABRT class)")
+            panic!(
+                "pgrust_test_backend_panic: deterministic test-only backend crash (SIGABRT class)"
+            )
         }
         CrashKind::Signal(signo) => ipc::exit_thread_killed(signo),
     }

@@ -4,8 +4,8 @@
 //! submodule of host_abi/v4/m3.rs (owner M3-HOSTS; M3-TOPS' fetch-hydrate hosts join it).
 use core::cmp::Ordering;
 
-use crate::host_abi::CMP_ERR;
 use super::polled::{sort_by, Poll, Stopped, SORT_RUN};
+use crate::host_abi::CMP_ERR;
 
 /// `flags` bit 0: WITH TIES, the rows after row n-1 that equal it on every key word stay.
 pub const CUT_TIES: u64 = 1;
@@ -24,7 +24,15 @@ pub(super) const CUT_LENIENT: u64 = 1 << 62;
 /// equal to it) sorted, the rest left in any order past them (the cut drops them). D4140: the sort is a polled step on the
 /// kernels' one poll (`polled.rs`; one large run's cut was a second with no cancel poll); `Err` when the statement's abort
 /// is pending, the run untouched.
-pub(super) fn first_n(poll: &mut Poll<'_>, idx: &mut [u32], n: usize, ties: bool, scratch: &mut [u32], row: &dyn Fn(u32) -> *const u8, cmp: &dyn Fn(*const u8, *const u8) -> Ordering) -> Result<(), Stopped> {
+pub(super) fn first_n(
+    poll: &mut Poll<'_>,
+    idx: &mut [u32],
+    n: usize,
+    ties: bool,
+    scratch: &mut [u32],
+    row: &dyn Fn(u32) -> *const u8,
+    cmp: &dyn Fn(*const u8, *const u8) -> Ordering,
+) -> Result<(), Stopped> {
     // D4373 (b): `idx` (the run's rows `0..len`) and `scratch` (as many, used past `SORT_RUN` kept rows) are the caller's
     // blocks of the grant
     let len = idx.len();
@@ -41,8 +49,14 @@ pub(super) fn first_n(poll: &mut Poll<'_>, idx: &mut [u32], n: usize, ties: bool
             }
         }
     }
-    let scratch = if keep > SORT_RUN { &mut scratch[..keep] } else { &mut scratch[..0] };
-    sort_by(poll, &mut idx[..keep], scratch, |&a, &b| cmp(row(a), row(b)))?;
+    let scratch = if keep > SORT_RUN {
+        &mut scratch[..keep]
+    } else {
+        &mut scratch[..0]
+    };
+    sort_by(poll, &mut idx[..keep], scratch, |&a, &b| {
+        cmp(row(a), row(b))
+    })?;
     Ok(())
 }
 

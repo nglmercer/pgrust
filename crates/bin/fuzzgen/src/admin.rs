@@ -191,15 +191,37 @@ fn gen_size(g: &mut Gen) -> Vec<StmtKind> {
 // fully deterministic, compared raw (hand-verified identical).
 
 const PRETTY_INT8: &[&str] = &[
-    "0", "999", "10239", "10240", "-10241", "1048576", "1073741823", "1099511627776",
-    "9223372036854775807", "-9223372036854775808", "5497558138880",
+    "0",
+    "999",
+    "10239",
+    "10240",
+    "-10241",
+    "1048576",
+    "1073741823",
+    "1099511627776",
+    "9223372036854775807",
+    "-9223372036854775808",
+    "5497558138880",
 ];
 const PRETTY_NUM: &[&str] = &[
-    "1234567890.5", "'NaN'", "10485760000000000000000", "-0.5", "10240.49", "10240.5",
+    "1234567890.5",
+    "'NaN'",
+    "10485760000000000000000",
+    "-0.5",
+    "10240.49",
+    "10240.5",
 ];
 const SIZE_BYTES: &[&str] = &[
-    "'1kB'", "'512 MB'", "'-1 PB'", "'1e6 bytes'", "'1.5 GB'", "'.5TB'", "'  100 '", "'3'",
-    "'0 TB'", "'-1e-3 MB'",
+    "'1kB'",
+    "'512 MB'",
+    "'-1 PB'",
+    "'1e6 bytes'",
+    "'1.5 GB'",
+    "'.5TB'",
+    "'  100 '",
+    "'3'",
+    "'0 TB'",
+    "'-1e-3 MB'",
 ];
 
 fn gen_pretty(g: &mut Gen) -> Vec<StmtKind> {
@@ -227,11 +249,23 @@ fn gen_pretty(g: &mut Gen) -> Vec<StmtKind> {
             }
         }
         2 => {
-            let lit = pick_str(g, &[
-                "1::int2", "1::int4", "1::int8", "1.5::float8", "'abc'::text", "''::text",
-                "NULL::text", "row(1, 'x')", "ARRAY[1,2,3]", "'2020-01-01'::date",
-                "repeat('x', 5000)", "'{\"a\": 1}'::jsonb",
-            ]);
+            let lit = pick_str(
+                g,
+                &[
+                    "1::int2",
+                    "1::int4",
+                    "1::int8",
+                    "1.5::float8",
+                    "'abc'::text",
+                    "''::text",
+                    "NULL::text",
+                    "row(1, 'x')",
+                    "ARRAY[1,2,3]",
+                    "'2020-01-01'::date",
+                    "repeat('x', 5000)",
+                    "'{\"a\": 1}'::jsonb",
+                ],
+            );
             format!("SELECT pg_column_size({});", lit)
         }
         _ => {
@@ -332,10 +366,15 @@ fn gen_ls(g: &mut Gen) -> Vec<StmtKind> {
                 }
             }
             6 => {
-                let f = pick_str(g, &[
-                    "pg_ls_archive_statusdir", "pg_ls_logicalmapdir", "pg_ls_logicalsnapdir",
-                    "pg_ls_summariesdir",
-                ]);
+                let f = pick_str(
+                    g,
+                    &[
+                        "pg_ls_archive_statusdir",
+                        "pg_ls_logicalmapdir",
+                        "pg_ls_logicalsnapdir",
+                        "pg_ls_summariesdir",
+                    ],
+                );
                 format!("SELECT count(*) >= 0 FROM {}() a;", f)
             }
             7 => "SELECT count(*) > 0 FROM pg_ls_dir('base') a;".to_string(),
@@ -355,7 +394,10 @@ fn gen_wal(g: &mut Gen) -> Vec<StmtKind> {
     let sql = if err {
         match g.rng.below(3) {
             0 => "SELECT * FROM pg_split_walfile_name('bogus');".to_string(),
-            1 => format!("SELECT pg_create_restore_point(repeat('x', {}));", 80 + g.rng.below(60)),
+            1 => format!(
+                "SELECT pg_create_restore_point(repeat('x', {}));",
+                80 + g.rng.below(60)
+            ),
             _ => "SELECT pg_walfile_name('0/0'::pg_lsn);".to_string(),
         }
     } else {
@@ -479,7 +521,10 @@ fn gen_snap(g: &mut Gen) -> Vec<StmtKind> {
         2 => {
             // Identifier parse/lookup error paths (22023): bogus format,
             // well-formed-but-absent, out-of-range xid spelling.
-            let ident = pick_str(g, &["bogus", "00000003-00000002-1", "FFFFFFFF-FFFFFFFF-1", "1-2"]);
+            let ident = pick_str(
+                g,
+                &["bogus", "00000003-00000002-1", "FFFFFFFF-FFFFFFFF-1", "1-2"],
+            );
             let iso = pick_str(g, &["REPEATABLE READ", "SERIALIZABLE"]);
             vec![
                 StmtKind::Raw("BEGIN;".to_string()),
@@ -611,7 +656,9 @@ fn gen_summ(g: &mut Gen) -> Vec<StmtKind> {
             "SELECT count(*) >= 0 FROM (SELECT s.tli FROM pg_available_wal_summaries() s LIMIT 1) t;".to_string(),
         )),
     }
-    out.push(StmtKind::Raw("ALTER SYSTEM RESET summarize_wal;".to_string()));
+    out.push(StmtKind::Raw(
+        "ALTER SYSTEM RESET summarize_wal;".to_string(),
+    ));
     out.push(StmtKind::Raw("SELECT pg_reload_conf();".to_string()));
     out
 }
@@ -641,7 +688,7 @@ mod tests {
 
     #[test]
     fn shapes_and_textual_invariants() {
-        let (groups, prods) = gen_groups(0x05AD, 4000, );
+        let (groups, prods) = gen_groups(0x05AD, 4000);
         for group in &groups {
             for sql in group {
                 assert!(sql.ends_with(';'), "{sql}");
@@ -656,15 +703,25 @@ mod tests {
                 }
                 // Every raw size/lsn/count surface must be projected: no
                 // bare environment value may reach the compare surface.
-                for f in ["pg_relation_size", "pg_table_size", "pg_total_relation_size",
-                          "pg_indexes_size", "pg_database_size", "pg_tablespace_size"] {
-                    if sql.contains(f) && !sql.contains("'bogus'") && !sql.contains("fz_no_such_db") {
-                        let projected = sql.contains(">=") || sql.contains("> 0")
-                            || sql.contains("IS NULL") || sql.contains("IS NOT NULL");
+                for f in [
+                    "pg_relation_size",
+                    "pg_table_size",
+                    "pg_total_relation_size",
+                    "pg_indexes_size",
+                    "pg_database_size",
+                    "pg_tablespace_size",
+                ] {
+                    if sql.contains(f) && !sql.contains("'bogus'") && !sql.contains("fz_no_such_db")
+                    {
+                        let projected = sql.contains(">=")
+                            || sql.contains("> 0")
+                            || sql.contains("IS NULL")
+                            || sql.contains("IS NOT NULL");
                         assert!(projected, "raw size on compare surface: {sql}");
                     }
                 }
-                if sql.contains("pg_current_wal") || sql.contains("pg_switch_wal")
+                if sql.contains("pg_current_wal")
+                    || sql.contains("pg_switch_wal")
                     || sql.contains("pg_export_snapshot")
                 {
                     assert!(
@@ -690,7 +747,10 @@ mod tests {
                     || sql.contains("pg_wal_summary_contents")
                     || sql.contains("pg_ls_summariesdir")
                 {
-                    assert!(sql.contains("count(*) >= 0"), "unprojected summary probe: {sql}");
+                    assert!(
+                        sql.contains("count(*) >= 0"),
+                        "unprojected summary probe: {sql}"
+                    );
                 }
                 // Round-9 FP-9: instance-config views only ever appear as
                 // existence shapes — file content must never reach the
@@ -713,7 +773,9 @@ mod tests {
             // Brackets close within their group.
             if group[0].starts_with("ALTER SYSTEM SET summarize_wal") {
                 assert!(
-                    group.iter().any(|s| s == "ALTER SYSTEM RESET summarize_wal;"),
+                    group
+                        .iter()
+                        .any(|s| s == "ALTER SYSTEM RESET summarize_wal;"),
                     "unclosed summarize_wal bracket: {group:?}"
                 );
                 assert_eq!(group.last().unwrap(), "SELECT pg_reload_conf();");
@@ -735,7 +797,10 @@ mod tests {
         for p in SHAPES {
             assert!(prods.iter().any(|q| q == p), "shape {p} never fired");
         }
-        assert!(prods.iter().any(|q| q == "admin:err"), "err arm never fired");
+        assert!(
+            prods.iter().any(|q| q == "admin:err"),
+            "err arm never fired"
+        );
     }
 
     #[test]

@@ -24,15 +24,21 @@ pub fn max_connections() -> i32 {
 /// PostgreSQL's combined read in blocks: min(io_combine_limit, io_max_combine_limit), each at least 1 (1 when not
 /// installed), so the result is at least 1 (heap_window.rs `advice_piece`, heap_source.rs `bulk_read_ring`).
 pub fn io_combine_blocks() -> i32 {
-    guc(&guc_tables::vars::io_combine_limit_guc, 1).min(guc(&guc_tables::vars::io_max_combine_limit, 1))
+    guc(&guc_tables::vars::io_combine_limit_guc, 1)
+        .min(guc(&guc_tables::vars::io_max_combine_limit, 1))
 }
 
 /// PostgreSQL's read stream sizes on the session's settings: (`io_combine_blocks`, `effective_io_concurrency`); a process
 /// without them installed (a host test) takes their boot values, io_combine_limit 16 blocks (128 kB) and
 /// DEFAULT_EFFECTIVE_IO_CONCURRENCY (the pgrc granule source's `read_knobs`).
 pub fn read_stream_sizes() -> (i32, i32) {
-    let set = guc_tables::vars::io_combine_limit_guc.installed() && guc_tables::vars::effective_io_concurrency.installed();
-    if set { (io_combine_blocks(), effective_io_concurrency()) } else { (16, guc_tables::consts::DEFAULT_EFFECTIVE_IO_CONCURRENCY) }
+    let set = guc_tables::vars::io_combine_limit_guc.installed()
+        && guc_tables::vars::effective_io_concurrency.installed();
+    if set {
+        (io_combine_blocks(), effective_io_concurrency())
+    } else {
+        (16, guc_tables::consts::DEFAULT_EFFECTIVE_IO_CONCURRENCY)
+    }
 }
 
 /// The widest width a parallel statement of this server runs at: `max_parallel_workers` within the driver's `MAX_WIDTH`
@@ -46,7 +52,12 @@ pub fn parallel_width() -> Option<u16> {
     if !max_parallel_workers.installed() {
         return None;
     }
-    u16::try_from(max_parallel_workers.read().clamp(0, i32::from(gravity_driver::MAX_WIDTH))).ok()
+    u16::try_from(
+        max_parallel_workers
+            .read()
+            .clamp(0, i32::from(gravity_driver::MAX_WIDTH)),
+    )
+    .ok()
 }
 
 /// D3047: whether this session's statements run on the leader alone: `max_parallel_workers_per_gather` 0, or a server
@@ -96,8 +107,18 @@ pub fn work_mem_kb() -> i32 {
 /// when it is set and parses, else the environment variable `env` in kB, else `default` kB. The GUC is read only when
 /// the GUC seam is installed (not in the hosts rig).
 pub fn knob_kb(guc: &str, env: &str, default: u64) -> u64 {
-    let from_guc = if guc_seams::get_config_option_missing_ok::is_installed() { guc_seams::get_config_option_missing_ok::call(guc).ok().flatten().and_then(|v| v.trim().parse::<u64>().ok()) } else { None };
-    from_guc.or_else(|| gravity_driver::env::num::<u64>(env)).unwrap_or(default) << 10
+    let from_guc = if guc_seams::get_config_option_missing_ok::is_installed() {
+        guc_seams::get_config_option_missing_ok::call(guc)
+            .ok()
+            .flatten()
+            .and_then(|v| v.trim().parse::<u64>().ok())
+    } else {
+        None
+    };
+    from_guc
+        .or_else(|| gravity_driver::env::num::<u64>(env))
+        .unwrap_or(default)
+        << 10
 }
 
 /// D2985: `PGRUST_GRAVITY_PART_RELEASE=0` keeps every statement's pgrc dictionaries in the list's shared cells (the kill
@@ -121,12 +142,23 @@ fn release_switches() -> (bool, bool, bool) {
 /// `PGRUST_GRAVITY_PART_CACHE_MB` (`part_cache_server_mb`), `PGRUST_GRAVITY_METACACHE` (`metacache_enabled`),
 /// `PGRUST_GRAVITY_RENDER_PARK` (`render_park_enabled`) and `PGRUST_GRAVITY_PART_DECIDES_MEMO` (`part_decides_memo`).
 fn env_levers() -> ((bool, bool, bool), Option<u64>, bool, bool, bool) {
-    static ON: pgsync::OnceLock<((bool, bool, bool), Option<u64>, bool, bool, bool)> = pgsync::OnceLock::new();
+    static ON: pgsync::OnceLock<((bool, bool, bool), Option<u64>, bool, bool, bool)> =
+        pgsync::OnceLock::new();
     *ON.get_or_init(|| {
         let on = |name: &str| gravity_driver::env::num::<u32>(name) != Some(0);
-        let switches = (on("PGRUST_GRAVITY_PART_RELEASE"), on("PGRUST_GRAVITY_RELEASE_DICTS"), on("PGRUST_GRAVITY_UNPIN_BEHIND"));
+        let switches = (
+            on("PGRUST_GRAVITY_PART_RELEASE"),
+            on("PGRUST_GRAVITY_RELEASE_DICTS"),
+            on("PGRUST_GRAVITY_UNPIN_BEHIND"),
+        );
         let memo = gravity_driver::env::num::<u32>("PGRUST_GRAVITY_PART_DECIDES_MEMO") == Some(1);
-        (switches, gravity_driver::env::num::<u64>("PGRUST_GRAVITY_PART_CACHE_MB"), on("PGRUST_GRAVITY_METACACHE"), on("PGRUST_GRAVITY_RENDER_PARK"), memo)
+        (
+            switches,
+            gravity_driver::env::num::<u64>("PGRUST_GRAVITY_PART_CACHE_MB"),
+            on("PGRUST_GRAVITY_METACACHE"),
+            on("PGRUST_GRAVITY_RENDER_PARK"),
+            memo,
+        )
     })
 }
 
@@ -167,7 +199,10 @@ pub fn render_park_enabled() -> bool {
 /// (granule_source/release.rs; read once).
 pub fn release_poison() -> bool {
     static ON: pgsync::OnceLock<bool> = pgsync::OnceLock::new();
-    *ON.get_or_init(|| cfg!(debug_assertions) || gravity_driver::env::num::<u32>("PGRUST_GRAVITY_RELEASE_POISON") == Some(1))
+    *ON.get_or_init(|| {
+        cfg!(debug_assertions)
+            || gravity_driver::env::num::<u32>("PGRUST_GRAVITY_RELEASE_POISON") == Some(1)
+    })
 }
 
 /// The GUC store's mutation count (pgrc residency's `road_watch`): every SET / RESET / SET LOCAL / set_config and the
@@ -178,7 +213,11 @@ pub fn guc_store_mutations() -> u64 {
 
 /// An integer GUC's value on this thread (the leader's bind reads the session's), `floor` when not installed (the hosts rig).
 fn guc(v: &guc_tables::GucIntVar, floor: i32) -> i32 {
-    if v.installed() { v.read().max(floor) } else { floor }
+    if v.installed() {
+        v.read().max(floor)
+    } else {
+        floor
+    }
 }
 
 /// Memory step 5: the memory broker's settings from its process-global GUCs (`pgrust.memory_broker`,
@@ -189,13 +228,19 @@ fn guc(v: &guc_tables::GucIntVar, floor: i32) -> i32 {
 pub fn memory_budget_cfg() -> gravity_driver::mem::budget::Cfg {
     use gravity_driver::mem::budget::{actuator, parse_actuators, Cfg, Mode};
     let mb = |v: i32| (v.max(0) as u64) << 20;
-    let mode = match gravity_driver::env::text("PGRUST_GRAVITY_MEMORY_BROKER").as_deref().map(str::trim) {
+    let mode = match gravity_driver::env::text("PGRUST_GRAVITY_MEMORY_BROKER")
+        .as_deref()
+        .map(str::trim)
+    {
         Some("off") => Mode::Off,
         Some("advise") => Mode::Advise,
         Some("on") => Mode::On,
         _ => Mode::from_index(guc_tables::backing::pgrust_memory_broker()),
     };
-    let target = gravity_driver::env::num::<u64>("PGRUST_GRAVITY_MEMORY_TARGET_MB").map_or_else(|| mb(guc_tables::backing::pgrust_memory_target()), |m| m << 20);
+    let target = gravity_driver::env::num::<u64>("PGRUST_GRAVITY_MEMORY_TARGET_MB").map_or_else(
+        || mb(guc_tables::backing::pgrust_memory_target()),
+        |m| m << 20,
+    );
     let actuators = gravity_driver::env::text("PGRUST_GRAVITY_MEMORY_BROKER_ACTUATORS")
         .or_else(guc_tables::backing::pgrust_memory_broker_actuators)
         .map_or(actuator::ALL, |s| parse_actuators(&s).0);
@@ -203,7 +248,10 @@ pub fn memory_budget_cfg() -> gravity_driver::mem::budget::Cfg {
         mode,
         target,
         page_cache_floor: mb(guc_tables::backing::pgrust_memory_page_cache_floor_mb()),
-        reserve: gravity_driver::env::num::<u64>("PGRUST_GRAVITY_MEMORY_RESERVE_MB").map_or_else(|| mb(guc_tables::backing::pgrust_memory_reserve_mb()), |m| m << 20),
+        reserve: gravity_driver::env::num::<u64>("PGRUST_GRAVITY_MEMORY_RESERVE_MB").map_or_else(
+            || mb(guc_tables::backing::pgrust_memory_reserve_mb()),
+            |m| m << 20,
+        ),
         actuators,
     }
 }
@@ -237,15 +285,21 @@ pub fn condition_cache_kb() -> Option<u64> {
 /// D3793: shared_buffers in bytes (NBuffers pages of 8 kB); 0 without a GUC store (the hosts rig).
 pub fn shared_buffers_bytes() -> u64 {
     let n = &guc_tables::vars::NBuffers;
-    if n.installed() { (n.read().max(0) as u64).saturating_mul(8192) } else { 0 }
+    if n.installed() {
+        (n.read().max(0) as u64).saturating_mul(8192)
+    } else {
+        0
+    }
 }
 
 /// D3793: the larger of the grant pool's explicit size (`pgrust.gravity_grant_pool_mb`, else the e2e lever
 /// `PGRUST_GRAVITY_GRANT_POOL_MB`, as exec's pool arms) and a statement's explicit grant (`pgrust.gravity_grant_mb`), in
 /// MB; 0 when both are derived.
 pub fn grant_explicit_mb() -> u64 {
-    let pool = custom_guc_u64("pgrust.gravity_grant_pool_mb").or_else(|| gravity_driver::env::num::<u64>("PGRUST_GRAVITY_GRANT_POOL_MB"));
-    pool.unwrap_or(0).max(custom_guc_u64("pgrust.gravity_grant_mb").unwrap_or(0))
+    let pool = custom_guc_u64("pgrust.gravity_grant_pool_mb")
+        .or_else(|| gravity_driver::env::num::<u64>("PGRUST_GRAVITY_GRANT_POOL_MB"));
+    pool.unwrap_or(0)
+        .max(custom_guc_u64("pgrust.gravity_grant_mb").unwrap_or(0))
 }
 
 /// The memory policy's override (`PGRUST_MEMPOLICY`, `mempolicy::consts`), read once at the postmaster's start; None when
@@ -257,12 +311,14 @@ pub fn mempolicy_override() -> Option<String> {
 /// D3793: `pgrust.pgrc_part_cache_mb`'s check hook: `memory_budget::part_cache_refusal` names a refusal's DETAIL and
 /// HINT; the GUC machinery then LOGs it and keeps the old value on a reload, or raises it at ALTER SYSTEM.
 pub fn install_part_cache_check() {
-    guc_tables::hooks::check_pgrust_pgrc_part_cache_mb.install(|v, _extra, _source| match crate::memory_budget::part_cache_refusal(*v) {
-        None => Ok(true),
-        Some((detail, hint)) => {
-            guc_seams::guc_check_errdetail::call(detail);
-            guc_seams::guc_check_errhint::call(hint);
-            Ok(false)
+    guc_tables::hooks::check_pgrust_pgrc_part_cache_mb.install(|v, _extra, _source| {
+        match crate::memory_budget::part_cache_refusal(*v) {
+            None => Ok(true),
+            Some((detail, hint)) => {
+                guc_seams::guc_check_errdetail::call(detail);
+                guc_seams::guc_check_errhint::call(hint);
+                Ok(false)
+            }
         }
     });
 }
@@ -280,7 +336,10 @@ pub fn custom_guc_u64(name: &str) -> Option<u64> {
     if !guc_seams::get_config_option_missing_ok::is_installed() {
         return None;
     }
-    guc_seams::get_config_option_missing_ok::call(name).ok().flatten().and_then(|v| v.trim().parse::<u64>().ok())
+    guc_seams::get_config_option_missing_ok::call(name)
+        .ok()
+        .flatten()
+        .and_then(|v| v.trim().parse::<u64>().ok())
 }
 
 /// A placeholder custom option as text, trimmed; `None` when unset or empty.
@@ -288,7 +347,11 @@ pub fn custom_guc_text(name: &str) -> Option<String> {
     if !guc_seams::get_config_option_missing_ok::is_installed() {
         return None;
     }
-    guc_seams::get_config_option_missing_ok::call(name).ok().flatten().map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) // alloc: Cold
+    guc_seams::get_config_option_missing_ok::call(name)
+        .ok()
+        .flatten()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty()) // alloc: Cold
 }
 
 /// Where a reader that reads the same option after every GUC store mutation found its name in the registry
@@ -299,7 +362,9 @@ pub use guc::OptionSlot;
 /// so a knob read again after an unrelated SET (a function writing its own option on every call) costs no lookup by
 /// name (D2896). A thread with no GUC store reads through the seam as `custom_guc_text` does.
 pub fn custom_guc_text_at(slot: &core::cell::Cell<OptionSlot>, name: &str) -> Option<String> {
-    raw_at(slot, name).map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) // alloc: Cold
+    raw_at(slot, name)
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty()) // alloc: Cold
 }
 
 /// `custom_guc_u64` through the option's slot (`custom_guc_text_at`).
@@ -313,11 +378,14 @@ fn raw_at(slot: &core::cell::Cell<OptionSlot>, name: &str) -> Option<String> {
     }
     match guc::get_config_option_at(slot, name) {
         Some(v) => v,
-        None => guc_seams::get_config_option_missing_ok::call(name).ok().flatten(),
+        None => guc_seams::get_config_option_missing_ok::call(name)
+            .ok()
+            .flatten(),
     }
 }
 
 /// The cluster's system identifier (pg_control); `None` before this process read the control file (a rig).
 pub fn system_identifier() -> Option<u64> {
-    transam_xlog::control_file::control_file_loaded().then(transam_xlog::control_file::GetSystemIdentifier)
+    transam_xlog::control_file::control_file_loaded()
+        .then(transam_xlog::control_file::GetSystemIdentifier)
 }

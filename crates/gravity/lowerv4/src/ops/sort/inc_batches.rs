@@ -66,9 +66,23 @@ pub(crate) struct Batches {
 impl Batches {
     /// Between `lo` and `hi` distinct rows handed on (equal unless a split group's, D2432); where the lower bound of the rows
     /// handed on meets `need` the walk ends, where only the upper bound does the statement is UNSUPPORTED.
-    fn hand_on(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, lo: Value, hi: Value, carry: &Carry, next: Value) {
-        let (out, out_hi) = (env.load_word(b, self.w_out), env.load_word(b, self.w_out_hi));
-        let (out, out_hi) = (b.int_bin(IntBinOp::Add, out, lo), b.int_bin(IntBinOp::Add, out_hi, hi));
+    fn hand_on(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        lo: Value,
+        hi: Value,
+        carry: &Carry,
+        next: Value,
+    ) {
+        let (out, out_hi) = (
+            env.load_word(b, self.w_out),
+            env.load_word(b, self.w_out_hi),
+        );
+        let (out, out_hi) = (
+            b.int_bin(IntBinOp::Add, out, lo),
+            b.int_bin(IntBinOp::Add, out_hi, hi),
+        );
         env.store_word(b, self.w_out, out);
         env.store_word(b, self.w_out_hi, out_hi);
         let need = b.iconst(Type::I64, self.need);
@@ -85,7 +99,13 @@ impl Batches {
     }
 
     /// The group form: a prefix group closed, one group handed on.
-    pub(crate) fn closed(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, carry: &Carry, next: Value) {
+    pub(crate) fn closed(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        carry: &Carry,
+        next: Value,
+    ) {
         let one = env.one;
         self.hand_on(b, env, one, one, carry, next);
     }
@@ -93,11 +113,18 @@ impl Batches {
     /// D2432: a part of the open group, `d` distinct rows, put while the group stays open (the run's room ended inside it):
     /// the group's distinct rows are at least the most of one part and at most their sum.
     pub(crate) fn split(&self, b: &mut FunctionBuilder<'_>, env: &Env, d: Value) {
-        let (lo, hi) = (env.load_word(b, self.w_split_lo), env.load_word(b, self.w_split_hi));
+        let (lo, hi) = (
+            env.load_word(b, self.w_split_lo),
+            env.load_word(b, self.w_split_hi),
+        );
         let more = b.icmp(IntCond::Sgt, d, lo);
         let lo = b.select(more, d, lo);
         // under `per_group` every part is the group's one row; under `rows` the parts' rows add up exactly
-        let hi = if self.per_group { lo } else { b.int_bin(IntBinOp::Add, hi, d) };
+        let hi = if self.per_group {
+            lo
+        } else {
+            b.int_bin(IntBinOp::Add, hi, d)
+        };
         let lo = if self.rows { hi } else { lo };
         env.store_word(b, self.w_split_lo, lo);
         env.store_word(b, self.w_split_hi, hi);
@@ -106,10 +133,17 @@ impl Batches {
     /// The closed group's distinct rows as `(lo, hi)` from its last part's `d` and the parts put before it (D2432), the
     /// parts then cleared; `(d, d)` for a group never split.
     fn whole(&self, b: &mut FunctionBuilder<'_>, env: &Env, d: Value) -> (Value, Value) {
-        let (lo, hi) = (env.load_word(b, self.w_split_lo), env.load_word(b, self.w_split_hi));
+        let (lo, hi) = (
+            env.load_word(b, self.w_split_lo),
+            env.load_word(b, self.w_split_hi),
+        );
         let more = b.icmp(IntCond::Sgt, d, lo);
         let lo = b.select(more, d, lo);
-        let hi = if self.per_group { lo } else { b.int_bin(IntBinOp::Add, hi, d) };
+        let hi = if self.per_group {
+            lo
+        } else {
+            b.int_bin(IntBinOp::Add, hi, d)
+        };
         let lo = if self.rows { hi } else { lo };
         env.store_word(b, self.w_split_lo, env.zero);
         env.store_word(b, self.w_split_hi, env.zero);
@@ -125,7 +159,13 @@ impl Batches {
 
     /// A run's row that is not past its open group's first (`boundary`'s, the first row of a run or of the walk): the row
     /// opening a group a put closed (`pend`) or else a row of the open group's prefix.
-    pub(crate) fn row(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, carry: &Carry, next: Value) {
+    pub(crate) fn row(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        carry: &Carry,
+        next: Value,
+    ) {
         let p = env.load_word(b, self.w_pend);
         let [l_open, l_same, l_done] = [(); 3].map(|_| b.create_block(&[]));
         let some = b.icmp(IntCond::Ne, p, env.zero);
@@ -143,7 +183,13 @@ impl Batches {
 
     /// A row of the open group's prefix (or the first): a full-sort load counts it, and its 65th row hands on the batch's
     /// closed groups and turns to the presorted-prefix load.
-    pub(crate) fn same(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, carry: &Carry, next: Value) {
+    pub(crate) fn same(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        carry: &Carry,
+        next: Value,
+    ) {
         let mode = env.load_word(b, self.w_mode);
         let [l_full, l_switch, l_done] = [(); 3].map(|_| b.create_block(&[]));
         let full = b.icmp(IntCond::Eq, mode, env.zero);
@@ -156,7 +202,10 @@ impl Batches {
         let past = b.icmp(IntCond::Sgt, rows, past);
         b.cond_br(past, (l_switch, &[]), (l_done, &[]));
         b.switch_to(l_switch);
-        let (held, held_hi) = (env.load_word(b, self.w_held), env.load_word(b, self.w_held_hi));
+        let (held, held_hi) = (
+            env.load_word(b, self.w_held),
+            env.load_word(b, self.w_held_hi),
+        );
         env.store_word(b, self.w_held, env.zero);
         env.store_word(b, self.w_held_hi, env.zero);
         env.store_word(b, self.w_mode, env.one);
@@ -168,14 +217,28 @@ impl Batches {
     /// A row opening a prefix group after one of `d` distinct rows closed (its last part's, D2432: a split group's are a
     /// range): in a presorted-prefix load or past a full-sort load's 32 rows the batch ends (the row carried over into the
     /// next) and is handed on; else the row joins it.
-    pub(crate) fn opened(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, d: Value, carry: &Carry, next: Value) {
+    pub(crate) fn opened(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        d: Value,
+        carry: &Carry,
+        next: Value,
+    ) {
         let (d, d_hi) = self.whole(b, env, d);
-        let (rows, mode, held) = (env.load_word(b, self.w_rows), env.load_word(b, self.w_mode), env.load_word(b, self.w_held));
+        let (rows, mode, held) = (
+            env.load_word(b, self.w_rows),
+            env.load_word(b, self.w_mode),
+            env.load_word(b, self.w_held),
+        );
         let held_hi = env.load_word(b, self.w_held_hi);
         let held_hi = b.int_bin(IntBinOp::Add, held_hi, d_hi);
         let held = b.int_bin(IntBinOp::Add, held, d);
         let pivot = b.iconst(Type::I64, PIVOT_ROW);
-        let (prefix, filled) = (b.icmp(IntCond::Ne, mode, env.zero), b.icmp(IntCond::Sge, rows, pivot));
+        let (prefix, filled) = (
+            b.icmp(IntCond::Ne, mode, env.zero),
+            b.icmp(IntCond::Sge, rows, pivot),
+        );
         let ends = b.int_bin(IntBinOp::Or, prefix, filled);
         let [l_end, l_join, l_done] = [(); 3].map(|_| b.create_block(&[]));
         b.cond_br(ends, (l_end, &[]), (l_join, &[]));

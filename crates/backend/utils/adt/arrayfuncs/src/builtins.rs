@@ -6,11 +6,12 @@ use ::types_core::Oid;
 use ::types_error::{PgError, PgResult, ERRCODE_UNDEFINED_FUNCTION};
 use ::types_fmgr::{
     byref_result, cstring_result, varlena_result, FmgrBuiltin, FmgrInfo,
-    FunctionCallInfoBaseData as Fcinfo, };
+    FunctionCallInfoBaseData as Fcinfo,
+};
 
 use crate::foundation::varsize_any;
-use ::mcx::vec_with_capacity_in;
 use crate::io::{array_in, array_out, array_recv, array_send, ArrayIoMeta};
+use ::mcx::vec_with_capacity_in;
 
 // Cached in FmgrInfo.fn_extra: resolved element I/O metadata + proc carrier,
 // keyed by element_type (C's ArrayMetaState fn_extra memo).
@@ -53,11 +54,11 @@ fn build_meta(element_type: Oid, which: IOFuncSelector, binary: bool) -> PgResul
 
 // Populate/refresh the fn_extra memo for element_type; returns a &mut to it.
 fn cached_meta(
-    flinfo: & mut FmgrInfo,
+    flinfo: &mut FmgrInfo,
     element_type: Oid,
     which: IOFuncSelector,
     binary: bool,
-) -> PgResult<& mut ArrayMetaState> {
+) -> PgResult<&mut ArrayMetaState> {
     let need = match flinfo.fn_extra_ref::<ArrayMetaState>() {
         Some(ams) => ams.meta.element_type != element_type,
         None => true,
@@ -100,7 +101,11 @@ pub(crate) fn arg_array_plain(fcinfo: &Fcinfo, i: usize) -> Option<&[u8]> {
 pub(crate) fn arg_array_dims(
     fcinfo: &Fcinfo,
     i: usize,
-) -> PgResult<(i32, [i32; crate::foundation::MAXDIM], [i32; crate::foundation::MAXDIM])> {
+) -> PgResult<(
+    i32,
+    [i32; crate::foundation::MAXDIM],
+    [i32; crate::foundation::MAXDIM],
+)> {
     // SAFETY: arg i is a non-null array (varlena) datum (strict function).
     if let Some(eah) = unsafe { crate::expanded::expanded_array(fcinfo.arg(i)) } {
         // SAFETY: a live expanded array; only its dimension fields are read.
@@ -151,7 +156,12 @@ pub fn fc_array_recv(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRe
     let buf = unsafe { &mut *(fcinfo.arg(0).as_usize() as *mut ::stringinfo::StringInfo<'_>) };
     let flinfo = flinfo.expect("array_recv: NULL flinfo");
     let hdr = crate::io::array_recv_header(buf, spec_element_type)?;
-    let ams = cached_meta(flinfo, spec_element_type, IOFuncSelector::IOFunc_receive, true)?;
+    let ams = cached_meta(
+        flinfo,
+        spec_element_type,
+        IOFuncSelector::IOFunc_receive,
+        true,
+    )?;
     let img = crate::io::array_recv_body(mcx, buf, &hdr, &ams.meta, &mut ams.proc, typmod)?;
     byref_result(mcx, &img)
 }
@@ -208,13 +218,13 @@ pub fn fc_array_unnest(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> Pg
         let mcx = fcinfo.result_mcx();
         let array = arg_array_bytes(fcinfo, 0, mcx)?;
         let elemtype = crate::foundation::arr_elemtype(&array);
-        let (elmlen, elmbyval, elmalign) = ::lsyscache::get_typlenbyvalalign(elemtype)
-            .map(|(l, b, a)| (l as i32, b, a as u8))?;
+        let (elmlen, elmbyval, elmalign) =
+            ::lsyscache::get_typlenbyvalalign(elemtype).map(|(l, b, a)| (l as i32, b, a as u8))?;
         let (ndim, dims) = crate::foundation::read_dims(&array);
         let numelems = ::arrayutils::array_get_n_items(ndim, &dims)?;
         let pos = crate::foundation::arr_data_offset(&array);
         let state = ArrayUnnestFctx {
-            image: ::mcx::std_vec_from_slice("adt",array.as_slice())?,
+            image: ::mcx::std_vec_from_slice("adt", array.as_slice())?,
             nextelem: 0,
             numelems,
             pos,
@@ -274,7 +284,8 @@ pub fn fc_array_unnest_support(
                 // A folded bound-param Const may carry a 1B-header image.
                 let hdr = if b0 & 0x01 == 0x01 { 1 } else { 4 };
                 // SAFETY: inline varlena of varsize_any bytes, header included.
-                let body = unsafe { core::slice::from_raw_parts(ap.add(hdr), varsize_any(ap) - hdr) };
+                let body =
+                    unsafe { core::slice::from_raw_parts(ap.add(hdr), varsize_any(ap) - hdr) };
                 let rd = |off: usize| i32::from_ne_bytes(body[off..off + 4].try_into().unwrap());
                 let ndim = rd(0);
                 let mut dims = [0i32; crate::foundation::MAXDIM];
@@ -315,14 +326,16 @@ pub fn fc_array_agg_transfn(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) 
     }
     // SAFETY: fcinfo.context is the executor's live AggStateNode.
     let Some(aggmcx) = (unsafe { fcinfo.agg_context() }) else {
-        return Err(non_aggregate_context("array_agg_transfn called in non-aggregate context"));
+        return Err(non_aggregate_context(
+            "array_agg_transfn called in non-aggregate context",
+        ));
     };
 
     let stp: *mut ArrayBuildState<'_> = if fcinfo.args[0].isnull {
         let st = crate::build::init_array_result(aggmcx, arg1_typeid, false)?;
         let layout = core::alloc::Layout::new::<ArrayBuildState<'_>>();
-        let raw = ::mcx::Allocator::allocate(&aggmcx, layout)
-            .map_err(|_| aggmcx.oom(layout.size()))?;
+        let raw =
+            ::mcx::Allocator::allocate(&aggmcx, layout).map_err(|_| aggmcx.oom(layout.size()))?;
         let p: *mut ArrayBuildState<'_> = raw.cast().as_ptr();
         // SAFETY: fresh aggcontext allocation of the exact layout; no drop
         // glue runs (PgVec fields are arena-plain — ForgetSafe).
@@ -383,7 +396,9 @@ pub fn fc_array_agg_combine(
     use ::datum::array_build::ArrayBuildState;
     // SAFETY: fcinfo.context is the executor's live AggStateNode.
     let Some(aggmcx) = (unsafe { fcinfo.agg_context() }) else {
-        return Err(non_aggregate_context("aggregate function called in non-aggregate context"));
+        return Err(non_aggregate_context(
+            "aggregate function called in non-aggregate context",
+        ));
     };
     let state1 = if fcinfo.argisnull(0) {
         None
@@ -440,7 +455,9 @@ pub fn fc_array_agg_deserialize(
 ) -> PgResult<Datum> {
     // SAFETY: fcinfo.context is the executor's live AggStateNode.
     if unsafe { fcinfo.agg_context() }.is_none() {
-        return Err(non_aggregate_context("aggregate function called in non-aggregate context"));
+        return Err(non_aggregate_context(
+            "aggregate function called in non-aggregate context",
+        ));
     }
     // SAFETY: strict fn — arg 0 is a non-null live bytea.
     let sstate = unsafe { fcinfo.arg_varlena_packed(0) }?;
@@ -518,9 +535,7 @@ fn array_to_text_common(
             }
             let v = crate::io::call1_armed(&mut ams.proc, mcx, d)?;
             // SAFETY: out fns return NUL-terminated cstrings.
-            let cs = unsafe {
-                core::ffi::CStr::from_ptr(v.as_usize() as *const core::ffi::c_char)
-            };
+            let cs = unsafe { core::ffi::CStr::from_ptr(v.as_usize() as *const core::ffi::c_char) };
             if printed {
                 out.append_formatted(&[&sep, cs.to_bytes()])?;
             } else {
@@ -565,7 +580,6 @@ pub fn fc_array_to_text_null(
 }
 
 use ::types_fmgr::builtin_strict_retset as srf;
-
 
 // C array_cat (array_userfuncs.c), hosted with the array machinery it
 // consumes; catalog unit backend-utils-adt-array-user.
@@ -725,10 +739,18 @@ fn fresh_elem_cmp(element_type: Oid, eq: bool) -> PgResult<ElemCmpState> {
         ::typcache::TYPECACHE_CMP_PROC_FINFO
     };
     let entry = ::typcache::lookup_type_cache(element_type, flags)?;
-    let finfo = if eq { entry.eq_opr_finfo().clone() } else { entry.cmp_proc_finfo().clone() };
+    let finfo = if eq {
+        entry.eq_opr_finfo().clone()
+    } else {
+        entry.cmp_proc_finfo().clone()
+    };
     if finfo.fn_oid == 0 {
         let name = ::format_type::format_type_be(element_type)?;
-        let what = if eq { "an equality operator" } else { "a comparison function" };
+        let what = if eq {
+            "an equality operator"
+        } else {
+            "a comparison function"
+        };
         return Err(Box::new(
             PgError::error(alloc::format!("could not identify {what} for type {name}"))
                 .with_sqlstate(ERRCODE_UNDEFINED_FUNCTION),
@@ -774,10 +796,7 @@ fn elem_type_mismatch() -> PgResult<Datum> {
     ))
 }
 
-fn array_eq_internal(
-    flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut Fcinfo,
-) -> PgResult<bool> {
+fn array_eq_internal(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<bool> {
     // By-val result; detoast/deconstruct scratch dies with the call (C's
     // AARR_FREE_IF_COPY), so no armed result frame is required.
     let scratch = ::mcx::MemoryContext::new_wholesale("array_eq scratch");
@@ -799,12 +818,10 @@ fn array_eq_internal(
     }
     let mut shim_scratch = None;
     let st = resolve_elem_cmp(flinfo, &mut shim_scratch, element_type, true)?;
-    let (vals1, nulls1) = crate::construct::deconstruct_array(
-        mcx, &a1, st.typlen, st.typbyval, st.typalign, true,
-    )?;
-    let (vals2, nulls2) = crate::construct::deconstruct_array(
-        mcx, &a2, st.typlen, st.typbyval, st.typalign, true,
-    )?;
+    let (vals1, nulls1) =
+        crate::construct::deconstruct_array(mcx, &a1, st.typlen, st.typbyval, st.typalign, true)?;
+    let (vals2, nulls2) =
+        crate::construct::deconstruct_array(mcx, &a2, st.typlen, st.typbyval, st.typalign, true)?;
     for i in 0..vals1.len() {
         // Two NULLs are equal; NULL vs not-NULL is unequal (C array_eq).
         if nulls1[i] && nulls2[i] {
@@ -827,10 +844,7 @@ fn array_eq_internal(
     Ok(true)
 }
 
-fn array_cmp_internal(
-    flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut Fcinfo,
-) -> PgResult<i32> {
+fn array_cmp_internal(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<i32> {
     let scratch = ::mcx::MemoryContext::new_wholesale("array_cmp scratch");
     let mcx = scratch.mcx();
     let a1 = arg_array_bytes(fcinfo, 0, mcx)?;
@@ -846,12 +860,10 @@ fn array_cmp_internal(
     let nitems2 = ::arrayutils::array_get_n_items(nd2, &dims2)? as usize;
     let mut shim_scratch = None;
     let st = resolve_elem_cmp(flinfo, &mut shim_scratch, element_type, false)?;
-    let (vals1, nulls1) = crate::construct::deconstruct_array(
-        mcx, &a1, st.typlen, st.typbyval, st.typalign, true,
-    )?;
-    let (vals2, nulls2) = crate::construct::deconstruct_array(
-        mcx, &a2, st.typlen, st.typbyval, st.typalign, true,
-    )?;
+    let (vals1, nulls1) =
+        crate::construct::deconstruct_array(mcx, &a1, st.typlen, st.typbyval, st.typalign, true)?;
+    let (vals2, nulls2) =
+        crate::construct::deconstruct_array(mcx, &a2, st.typlen, st.typbyval, st.typalign, true)?;
     for i in 0..nitems1.min(nitems2) {
         // Two NULLs are equal; NULL sorts above not-NULL (C array_cmp).
         if nulls1[i] && nulls2[i] {
@@ -1001,7 +1013,7 @@ pub fn modify_in_place_support(fcinfo: &Fcinfo, argno: usize, need_second: bool)
     // SAFETY: prosupport contract — arg 0 points at a live tag-first node.
     let Some(req) = (unsafe {
         ::types_nodes::supportnodes::support_request_modify_in_place(
-            fcinfo.arg(0).as_usize() as *const (),
+            fcinfo.arg(0).as_usize() as *const ()
         )
     }) else {
         return Datum::from_usize(0);
@@ -1032,10 +1044,30 @@ pub fn fc_array_subscript_handler_support(
 pub const ARRAYFUNCS_BUILTINS: &[FmgrBuiltin] = &[
     // array_typanalyze.c hook + arraysubs.c subscript handlers (no crate of
     // their own): native dispatch; fmgr-lookup parity rows.
-    b(3816, "array_typanalyze", 1, ::types_fmgr::fc_internal_dispatch_only),
-    b(6179, "array_subscript_handler", 1, ::types_fmgr::fc_internal_dispatch_only),
-    b(6180, "raw_array_subscript_handler", 1, ::types_fmgr::fc_internal_dispatch_only),
-    b(6380, "array_subscript_handler_support", 1, fc_array_subscript_handler_support),
+    b(
+        3816,
+        "array_typanalyze",
+        1,
+        ::types_fmgr::fc_internal_dispatch_only,
+    ),
+    b(
+        6179,
+        "array_subscript_handler",
+        1,
+        ::types_fmgr::fc_internal_dispatch_only,
+    ),
+    b(
+        6180,
+        "raw_array_subscript_handler",
+        1,
+        ::types_fmgr::fc_internal_dispatch_only,
+    ),
+    b(
+        6380,
+        "array_subscript_handler_support",
+        1,
+        fc_array_subscript_handler_support,
+    ),
     b(382, "btarraycmp", 2, fc_btarraycmp),
     b(390, "array_ne", 2, fc_array_ne),
     b(391, "array_lt", 2, fc_array_lt),
@@ -1074,19 +1106,49 @@ pub const ARRAYFUNCS_BUILTINS: &[FmgrBuiltin] = &[
     b(748, "array_ndims", 1, crate::ops::fc_array_ndims),
     b(2091, "array_lower", 2, crate::ops::fc_array_lower),
     b(2092, "array_upper", 2, crate::ops::fc_array_upper),
-    b(3179, "array_cardinality", 1, crate::ops::fc_array_cardinality),
+    b(
+        3179,
+        "array_cardinality",
+        1,
+        crate::ops::fc_array_cardinality,
+    ),
     b(626, "hash_array", 1, crate::ops::fc_hash_array),
-    b(782, "hash_array_extended", 2, crate::ops::fc_hash_array_extended),
+    b(
+        782,
+        "hash_array_extended",
+        2,
+        crate::ops::fc_hash_array_extended,
+    ),
     b(2747, "arrayoverlap", 2, crate::ops::fc_arrayoverlap),
     b(2748, "arraycontains", 2, crate::ops::fc_arraycontains),
     b(2749, "arraycontained", 2, crate::ops::fc_arraycontained),
     nb(3167, "array_remove", 2, crate::ops::fc_array_remove),
     nb(3168, "array_replace", 3, crate::ops::fc_array_replace),
     nb(1193, "array_fill", 2, crate::ops::fc_array_fill),
-    nb(1286, "array_fill_with_lower_bounds", 3, crate::ops::fc_array_fill_with_lower_bounds),
-    srf(1191, "generate_subscripts", 3, crate::ops::fc_generate_subscripts),
-    srf(1192, "generate_subscripts_nodir", 2, crate::ops::fc_generate_subscripts),
-    b(3218, "width_bucket_array", 2, crate::ops::fc_width_bucket_array),
+    nb(
+        1286,
+        "array_fill_with_lower_bounds",
+        3,
+        crate::ops::fc_array_fill_with_lower_bounds,
+    ),
+    srf(
+        1191,
+        "generate_subscripts",
+        3,
+        crate::ops::fc_generate_subscripts,
+    ),
+    srf(
+        1192,
+        "generate_subscripts_nodir",
+        2,
+        crate::ops::fc_generate_subscripts,
+    ),
+    b(
+        3218,
+        "width_bucket_array",
+        2,
+        crate::ops::fc_width_bucket_array,
+    ),
 ];
 
 #[track_caller]

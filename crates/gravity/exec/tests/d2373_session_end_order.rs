@@ -31,9 +31,17 @@ fn register(label: &'static str, phase: Option<SessionCleanupPhase>) {
 /// then Roots; newest first within a phase.
 fn teardown_order() -> Vec<&'static str> {
     let me = std::thread::current().id();
-    let regs: Vec<_> = pgsync::lock(&REGS).iter().filter(|r| r.0 == me).map(|r| (r.1, r.2)).collect();
+    let regs: Vec<_> = pgsync::lock(&REGS)
+        .iter()
+        .filter(|r| r.0 == me)
+        .map(|r| (r.1, r.2))
+        .collect();
     let mut out = Vec::new();
-    for phase in [SessionCleanupPhase::Portals, SessionCleanupPhase::State, SessionCleanupPhase::Roots] {
+    for phase in [
+        SessionCleanupPhase::Portals,
+        SessionCleanupPhase::State,
+        SessionCleanupPhase::Roots,
+    ] {
         out.extend(regs.iter().rev().filter(|r| r.0 == phase).map(|r| r.1)); // alloc: Cold
     }
     out

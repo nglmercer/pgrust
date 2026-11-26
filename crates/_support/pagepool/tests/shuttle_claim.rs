@@ -48,11 +48,18 @@ fn one_round() {
     let ladder = thread::spawn(|| pagepool::set_claim_room(0));
     assert_eq!(claimer.join().unwrap(), 0, "a fill with no Cold superpage");
     ladder.join().unwrap();
-    assert_eq!(pagepool::hooks::claim_room_left(), 0, "the ladder's room 0 was undone by the claimer's refund");
+    assert_eq!(
+        pagepool::hooks::claim_room_left(),
+        0,
+        "the ladder's room 0 was undone by the claimer's refund"
+    );
 }
 
 #[test]
 fn a_refund_races_a_sample() {
-    let iters = std::env::var("SHUTTLE_ITERS").ok().and_then(|v| v.parse().ok()).unwrap_or(2000);
+    let iters = std::env::var("SHUTTLE_ITERS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(2000);
     shuttle::check_pct(one_round, iters, 3);
 }

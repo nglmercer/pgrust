@@ -54,11 +54,19 @@ pub struct IndexPlan {
 impl IndexPlan {
     pub fn new(a: ArenaRef, index_oid: u32, key_attnos: &[i16], unique: bool) -> IndexPlan {
         assert!(!key_attnos.is_empty(), "index key count");
-        IndexPlan { index_oid, key_attnos: copy_vec(key_attnos, a), unique }
+        IndexPlan {
+            index_oid,
+            key_attnos: copy_vec(key_attnos, a),
+            unique,
+        }
     }
 
     pub fn copy_in(&self, a: ArenaRef) -> IndexPlan {
-        IndexPlan { index_oid: self.index_oid, key_attnos: copy_vec(&self.key_attnos, a), unique: self.unique }
+        IndexPlan {
+            index_oid: self.index_oid,
+            key_attnos: copy_vec(&self.key_attnos, a),
+            unique: self.unique,
+        }
     }
 
     pub fn keys(&self) -> &[i16] {
@@ -130,23 +138,66 @@ pub enum Conflict {
 }
 
 impl WritePlan {
-    pub const SELECT: WritePlan = WritePlan { target_rel: 0, indexes: ArenaVec::new_in(ArenaRef::EMPTY), cmd: Cmd::Select, lock: LockKind::None, wait: WaitPolicy::Block, conflict: Conflict::None, arbiters: ArenaVec::new_in(ArenaRef::EMPTY), route: None, old: false, sys: false, sys_header: false, cte: false, sys_old: false, epq_ir: false, checks_of: 0, defer: false };
+    pub const SELECT: WritePlan = WritePlan {
+        target_rel: 0,
+        indexes: ArenaVec::new_in(ArenaRef::EMPTY),
+        cmd: Cmd::Select,
+        lock: LockKind::None,
+        wait: WaitPolicy::Block,
+        conflict: Conflict::None,
+        arbiters: ArenaVec::new_in(ArenaRef::EMPTY),
+        route: None,
+        old: false,
+        sys: false,
+        sys_header: false,
+        cte: false,
+        sys_old: false,
+        epq_ir: false,
+        checks_of: 0,
+        defer: false,
+    };
 
     pub fn write(a: ArenaRef, cmd: Cmd, target_rel: u32, indexes: &[IndexPlan]) -> WritePlan {
         let mut ix = ArenaVec::with_capacity_in(indexes.len(), a);
         for i in indexes {
             ix.push(i.copy_in(a));
         }
-        WritePlan { target_rel, indexes: ix, cmd, ..WritePlan::SELECT }
+        WritePlan {
+            target_rel,
+            indexes: ix,
+            cmd,
+            ..WritePlan::SELECT
+        }
     }
 
     pub const fn locking(target_rel: u32, lock: LockKind, wait: WaitPolicy) -> WritePlan {
-        WritePlan { target_rel, indexes: ArenaVec::new_in(ArenaRef::EMPTY), cmd: Cmd::Select, lock, wait, conflict: Conflict::None, arbiters: ArenaVec::new_in(ArenaRef::EMPTY), route: None, old: false, sys: false, sys_header: false, cte: false, sys_old: false, epq_ir: false, checks_of: 0, defer: false }
+        WritePlan {
+            target_rel,
+            indexes: ArenaVec::new_in(ArenaRef::EMPTY),
+            cmd: Cmd::Select,
+            lock,
+            wait,
+            conflict: Conflict::None,
+            arbiters: ArenaVec::new_in(ArenaRef::EMPTY),
+            route: None,
+            old: false,
+            sys: false,
+            sys_header: false,
+            cte: false,
+            sys_old: false,
+            epq_ir: false,
+            checks_of: 0,
+            defer: false,
+        }
     }
 
     /// The same plan with an ON CONFLICT action over `arbiters`.
     pub fn with_conflict(self, a: ArenaRef, conflict: Conflict, arbiters: &[u32]) -> WritePlan {
-        WritePlan { conflict, arbiters: copy_vec(arbiters, a), ..self }
+        WritePlan {
+            conflict,
+            arbiters: copy_vec(arbiters, a),
+            ..self
+        }
     }
 
     /// The same plan with the replaced version fetched after each UPDATE (RETURNING OLD, M4-RET R4a).
@@ -156,17 +207,31 @@ impl WritePlan {
 
     /// D774: the same plan with the written row's system columns handed back (`header`: xmin .. cmax read too).
     pub fn with_sys(self, header: bool) -> WritePlan {
-        WritePlan { sys: true, sys_header: header, ..self }
+        WritePlan {
+            sys: true,
+            sys_header: header,
+            ..self
+        }
     }
 
     /// V4R-501: the same plan with the replaced version's system columns after its cells in the old site.
     pub fn with_sys_old(self) -> WritePlan {
-        WritePlan { sys_old: true, ..self }
+        WritePlan {
+            sys_old: true,
+            ..self
+        }
     }
 
     /// The same plan routed through `root` over `leaves` (none: the target is one leaf written under the root).
     pub fn with_route(self, a: ArenaRef, root: u32, leaves: &[RouteLeaf]) -> WritePlan {
-        WritePlan { route: Some(RoutePlan { root, leaves: copy_vec(leaves, a), moves: ArenaVec::new_in(a) }), ..self }
+        WritePlan {
+            route: Some(RoutePlan {
+                root,
+                leaves: copy_vec(leaves, a),
+                moves: ArenaVec::new_in(a),
+            }),
+            ..self
+        }
     }
 
     /// H-e (c): a routed UPDATE that moves rows into `moves` (the root's partitions); `with_route` first.
@@ -182,11 +247,42 @@ impl WritePlan {
         for i in self.indexes.iter() {
             ix.push(i.copy_in(a));
         }
-        WritePlan { target_rel: self.target_rel, indexes: ix, cmd: self.cmd, lock: self.lock, wait: self.wait, conflict: self.conflict, arbiters: copy_vec(&self.arbiters, a), route: self.route.as_ref().map(|r| RoutePlan { root: r.root, leaves: copy_vec(&r.leaves, a), moves: copy_vec(&r.moves, a) }), old: self.old, sys: self.sys, sys_header: self.sys_header, cte: self.cte, sys_old: self.sys_old, epq_ir: self.epq_ir, checks_of: self.checks_of, defer: self.defer }
+        WritePlan {
+            target_rel: self.target_rel,
+            indexes: ix,
+            cmd: self.cmd,
+            lock: self.lock,
+            wait: self.wait,
+            conflict: self.conflict,
+            arbiters: copy_vec(&self.arbiters, a),
+            route: self.route.as_ref().map(|r| RoutePlan {
+                root: r.root,
+                leaves: copy_vec(&r.leaves, a),
+                moves: copy_vec(&r.moves, a),
+            }),
+            old: self.old,
+            sys: self.sys,
+            sys_header: self.sys_header,
+            cte: self.cte,
+            sys_old: self.sys_old,
+            epq_ir: self.epq_ir,
+            checks_of: self.checks_of,
+            defer: self.defer,
+        }
     }
 
     pub fn arena_bytes(&self) -> usize {
-        round8(self.indexes.len() * core::mem::size_of::<IndexPlan>()) + self.indexes.iter().map(|i| round8(i.key_attnos.len() * 2)).sum::<usize>() + round8(self.arbiters.len() * 4) + self.route.as_ref().map_or(0, |r| round8(r.leaves.len() * core::mem::size_of::<RouteLeaf>()) + round8(r.moves.len() * core::mem::size_of::<RouteLeaf>()))
+        round8(self.indexes.len() * core::mem::size_of::<IndexPlan>())
+            + self
+                .indexes
+                .iter()
+                .map(|i| round8(i.key_attnos.len() * 2))
+                .sum::<usize>()
+            + round8(self.arbiters.len() * 4)
+            + self.route.as_ref().map_or(0, |r| {
+                round8(r.leaves.len() * core::mem::size_of::<RouteLeaf>())
+                    + round8(r.moves.len() * core::mem::size_of::<RouteLeaf>())
+            })
     }
 
     pub fn indexes(&self) -> &[IndexPlan] {

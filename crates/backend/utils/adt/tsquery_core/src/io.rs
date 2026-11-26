@@ -44,7 +44,9 @@ impl<'mcx> OutBuf<'mcx> {
         if self.buflen > self.v.capacity() {
             let mcx = *self.v.allocator();
             let add = self.buflen - self.v.len();
-            self.v.try_reserve_exact(add).map_err(|_| mcx.oom(self.buflen))?;
+            self.v
+                .try_reserve_exact(add)
+                .map_err(|_| mcx.oom(self.buflen))?;
         }
         Ok(())
     }
@@ -95,7 +97,8 @@ fn infix<'mcx>(
     ::stack_depth::check_stack_depth()?;
     match st.q.item(st.cur) {
         Item::Val(op) => {
-            let add_len = op.length * (::mbutils::pg_database_encoding_max_length() as usize + 1) + 8;
+            let add_len =
+                op.length * (::mbutils::pg_database_encoding_max_length() as usize + 1) + 8;
             out.resize(add_len)?;
             out.v.push(b'\'');
             // operand is NUL-terminated in the pool; C walks to the NUL.
@@ -149,7 +152,10 @@ fn infix<'mcx>(
                 out.v.extend_from_slice(b"( ");
             }
             // C: nrm.buflen = 16; nrm.buf = palloc(nrm.buflen)
-            let mut nrm = OutBuf { v: vec_with_capacity_in(mcx, 16)?, buflen: 16 };
+            let mut nrm = OutBuf {
+                v: vec_with_capacity_in(mcx, 16)?,
+                buflen: 16,
+            };
             infix(mcx, st, &mut nrm, priority, opr.oper == OP_PHRASE)?;
             infix(mcx, st, out, priority, false)?;
             // C: RESIZEBUF(in, 3 + (2 + 10 /* distance */) + (nrm.cur - nrm.buf))
@@ -182,7 +188,10 @@ fn infix<'mcx>(
 pub fn tsquery_out_core<'mcx>(mcx: Mcx<'mcx>, q: TsQueryRef<'_>) -> PgResult<PgVec<'mcx, u8>> {
     // C: nrm.buflen = 32. The vec's larger initial reserve is a perf carve;
     // the ceiling ledger stays C's.
-    let mut out = OutBuf { v: vec_with_capacity_in(mcx, q.payload.len() + 8)?, buflen: 32 };
+    let mut out = OutBuf {
+        v: vec_with_capacity_in(mcx, q.payload.len() + 8)?,
+        buflen: 32,
+    };
     if q.size() != 0 {
         let mut st = Infix { q, cur: 0 };
         infix(mcx, &mut st, &mut out, -1, false)?;
@@ -272,7 +281,7 @@ pub fn tsquery_recv_core<'mcx>(
             }
             if pool.len() > MAXSTRPOS {
                 return Err(
-                    PgError::error("invalid tsquery: total operand length exceeded").into()
+                    PgError::error("invalid tsquery: total operand length exceeded").into(),
                 );
             }
             let valcrc = ::crc32c::legacy_crc32_lexeme(val) as i32;
@@ -304,7 +313,11 @@ pub fn tsquery_recv_core<'mcx>(
             } else {
                 0
             };
-            items.push(Item::Opr(Operator { oper, distance, left: 0 }));
+            items.push(Item::Opr(Operator {
+                oper,
+                distance,
+                left: 0,
+            }));
         } else {
             return Err(PgError::error(format!("unrecognized tsquery node type: {typ}")).into());
         }
@@ -321,7 +334,11 @@ pub fn compare_tsq(a: TsQueryRef<'_>, b: TsQueryRef<'_>, mcx: Mcx<'_>) -> PgResu
         return Ok(if a.size() < b.size() { -1 } else { 1 });
     }
     if a.payload.len() != b.payload.len() {
-        return Ok(if a.payload.len() < b.payload.len() { -1 } else { 1 });
+        return Ok(if a.payload.len() < b.payload.len() {
+            -1
+        } else {
+            1
+        });
     }
     if a.size() != 0 {
         let an = crate::util::qt2qtn(mcx, a, 0)?;
@@ -337,7 +354,8 @@ pub fn collect_values<'mcx>(
     q: TsQueryRef<'_>,
 ) -> PgResult<PgVec<'mcx, PgVec<'mcx, u8>>> {
     let mut vals: PgVec<PgVec<u8>> = PgVec::new_in(mcx);
-    vals.try_reserve_exact(q.size()).map_err(|_| mcx.oom(q.size()))?;
+    vals.try_reserve_exact(q.size())
+        .map_err(|_| mcx.oom(q.size()))?;
     for i in 0..q.size() {
         if let Item::Val(op) = q.item(i) {
             let mut v = vec_with_capacity_in(mcx, op.length)?;
@@ -375,4 +393,3 @@ pub fn tsq_mcontains_core(
     }
     Ok(true)
 }
-

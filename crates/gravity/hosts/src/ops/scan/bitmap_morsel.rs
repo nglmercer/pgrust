@@ -8,9 +8,9 @@
 //! lossy page every visible tuple. No recheck here: a lossy page, or an exact page an AM marked for recheck (GIN, BRIN,
 //! hash), publishes `site::PAGE_RECHECK` on its window, and the morsel form's filter tests `bitmapqualorig` on exactly
 //! those windows (lowerv4 step/filter.rs `guard`), as PostgreSQL's bitmap heap scan rechecks.
+use pgsync::Mutex;
 use std::rc::Rc;
 use std::sync::Arc;
-use pgsync::Mutex;
 
 use gravity_abi::Datum as Word;
 use gravity_driver::{box_source, ArenaRef, SourceBox};
@@ -52,7 +52,12 @@ pub struct BitmapMorselRecipe {
 
 impl BitmapMorselRecipe {
     pub fn new(range: RangeRecipe, bitmap: MorselBitmap) -> BitmapMorselRecipe {
-        BitmapMorselRecipe { range, bitmap, frozen: Arc::new(Mutex::new(None)), wide_walk: false }
+        BitmapMorselRecipe {
+            range,
+            bitmap,
+            frozen: Arc::new(Mutex::new(None)),
+            wide_walk: false,
+        }
     }
 
     /// `self` whose build may walk a btree's leaves on pool threads (`wide_walk`).
@@ -65,12 +70,25 @@ impl BitmapMorselRecipe {
     /// frozen into the slot: `(entries, heap pages)` — the claim units, and the pages they expand to (an exact page one,
     /// a lossy chunk its set bits). Leader only (the index walk reads its relcache); `leaves`: the pool threads a btree's
     /// leaf walk may take (A2 entry 2, only with `wide_walk`; < 2: the leader walks).
-    pub fn build(&self, snapshot: Rc<SnapshotData<'static>>, keys: &[Word], nulls: &[u8], leaves: u16) -> PgResult<(u64, u64)> {
+    pub fn build(
+        &self,
+        snapshot: Rc<SnapshotData<'static>>,
+        keys: &[Word],
+        nulls: &[u8],
+        leaves: u16,
+    ) -> PgResult<(u64, u64)> {
         let mut src = match &self.bitmap {
             MorselBitmap::Leaf(r) => BitmapSource::new(r.clone(), None),
-            MorselBitmap::Tree(t) => BitmapSource::new(t.leaves[0].clone(), None).with_tree(Tree::new(t.clone())),
+            MorselBitmap::Tree(t) => {
+                BitmapSource::new(t.leaves[0].clone(), None).with_tree(Tree::new(t.clone()))
+            }
         };
-        let frozen = src.freeze(snapshot, keys, nulls, if self.wide_walk { leaves } else { 0 })?;
+        let frozen = src.freeze(
+            snapshot,
+            keys,
+            nulls,
+            if self.wide_walk { leaves } else { 0 },
+        )?;
         let (units, pages) = frozen.as_ref().map_or((0, 0), |f| {
             let (exact, chunks) = f.entry_counts();
             (exact + chunks, f.expanded_pages())
@@ -97,7 +115,14 @@ impl HostRecipe for BitmapMorselRecipe {
             MorselBitmap::Leaf(r) => Some(r.bitmap_arc()),
             MorselBitmap::Tree(_) => None,
         };
-        box_source(HeapRangeSource::with_sample(self.range.clone(), BitmapFilter::new(self.frozen.clone(), counts)).walk(desc.walk), a)
+        box_source(
+            HeapRangeSource::with_sample(
+                self.range.clone(),
+                BitmapFilter::new(self.frozen.clone(), counts),
+            )
+            .walk(desc.walk),
+            a,
+        )
     }
     fn clone_box(&self) -> Box<dyn HostRecipe> {
         Box::new(self.clone()) // alloc: Program
@@ -121,8 +146,18 @@ pub struct BitmapFilter {
 }
 
 impl BitmapFilter {
-    pub fn new(frozen: FrozenSlot, counts: Option<Arc<crate::instr::BitmapCounts>>) -> BitmapFilter {
-        BitmapFilter { frozen, iter: None, words: None, roots: Box::new([0; MaxHeapTuplesPerPage]), recheck: false, counts } // alloc: Node
+    pub fn new(
+        frozen: FrozenSlot,
+        counts: Option<Arc<crate::instr::BitmapCounts>>,
+    ) -> BitmapFilter {
+        BitmapFilter {
+            frozen,
+            iter: None,
+            words: None,
+            roots: Box::new([0; MaxHeapTuplesPerPage]),
+            recheck: false,
+            counts,
+        } // alloc: Node
     }
 }
 
@@ -137,10 +172,21 @@ impl SampleFilter for BitmapFilter {
 
     /// The claim `[keys[0], keys[1])` over the frozen entries (`MorselRange::ALL` on the width-1 arm: every entry).
     fn start(&mut self, keys: &[Word], keys_null: &[u8]) -> PgResult<()> {
-        let st = self.frozen.lock().unwrap_or_else(|p| p.into_inner()).clone().ok_or_else(no_build)?;
+        let st = self
+            .frozen
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+            .ok_or_else(no_build)?;
         let (pages, chunks) = st.entry_counts();
         let total = pages + chunks;
-        let (lo, hi) = if keys_null.first().is_some_and(|&n| n != 0) || keys_null.get(1).is_some_and(|&n| n != 0) { (0, 0) } else { (keys[0].min(total), keys[1].min(total)) };
+        let (lo, hi) = if keys_null.first().is_some_and(|&n| n != 0)
+            || keys_null.get(1).is_some_and(|&n| n != 0)
+        {
+            (0, 0)
+        } else {
+            (keys[0].min(total), keys[1].min(total))
+        };
         self.iter = Some(TbmRangeIterator::new(st, lo, hi.max(lo)));
         self.words = None;
         Ok(())
@@ -155,17 +201,31 @@ impl SampleFilter for BitmapFilter {
     }
 
     fn page_flags(&self) -> u16 {
-        if self.recheck { gravity_abi::site::site::PAGE_RECHECK } else { 0 }
+        if self.recheck {
+            gravity_abi::site::site::PAGE_RECHECK
+        } else {
+            0
+        }
     }
 
     /// An exact page: the visible tuples whose HOT chain root (`heap_get_root_tuples`) has its bit; a lossy page: all.
     /// Under an MVCC snapshot a chain has at most one visible member, so when every set bit is a visible tuple's own
     /// offset (no chain moved past its root: the common page) those tuples are the answer and the roots are not walked.
-    fn keep_page(&mut self, _blk: BlockNumber, page: PageRef<'_>, vis: &mut [u16]) -> PgResult<usize> {
-        let Some(words) = self.words else { return Ok(vis.len()) };
+    fn keep_page(
+        &mut self,
+        _blk: BlockNumber,
+        page: PageRef<'_>,
+        vis: &mut [u16],
+    ) -> PgResult<usize> {
+        let Some(words) = self.words else {
+            return Ok(vis.len());
+        };
         let has = |off: u16| {
             let bit = off as usize - 1;
-            words[bit / types_nodes::BITS_PER_BITMAPWORD] >> (bit % types_nodes::BITS_PER_BITMAPWORD) & 1 != 0
+            words[bit / types_nodes::BITS_PER_BITMAPWORD]
+                >> (bit % types_nodes::BITS_PER_BITMAPWORD)
+                & 1
+                != 0
         };
         let set: u32 = words.iter().map(|w| w.count_ones()).sum();
         if vis.iter().filter(|&&o| has(o)).count() as u32 == set {
@@ -189,7 +249,11 @@ impl SampleFilter for BitmapFilter {
                 continue;
             }
             let bit = root as usize - 1;
-            if words[bit / types_nodes::BITS_PER_BITMAPWORD] >> (bit % types_nodes::BITS_PER_BITMAPWORD) & 1 != 0 {
+            if words[bit / types_nodes::BITS_PER_BITMAPWORD]
+                >> (bit % types_nodes::BITS_PER_BITMAPWORD)
+                & 1
+                != 0
+            {
                 vis[n] = off;
                 n += 1;
             }
@@ -202,22 +266,38 @@ impl BitmapFilter {
     /// D3128: the walk's next block (the sample filter's `next_block` is fallible: NextSampleBlock can raise).
     #[inline(always)]
     fn walk_block(&mut self, nblocks: BlockNumber) -> PgResult<Option<BlockNumber>> {
-        let Some(it) = self.iter.as_mut() else { return Ok(None) };
+        let Some(it) = self.iter.as_mut() else {
+            return Ok(None);
+        };
         // a skipped entry is the unit (an iterator step, so a tick per batch): a relation extended after the bind can
         // leave any number of them
-        let (mut step, mut skipped) = (cancelpoll::step("bitmap_morsel walk_block: a bitmap entry past the relation's end skipped"), 0usize);
+        let (mut step, mut skipped) = (
+            cancelpoll::step(
+                "bitmap_morsel walk_block: a bitmap entry past the relation's end skipped",
+            ),
+            0usize,
+        );
         loop {
             let Some(r) = it.next() else { return Ok(None) };
             // a block past the relation's end at the bind (PG's bitmap scan skips it: `blockno >= rs_nblocks`)
             if r.blockno >= nblocks {
-                step.batch(skipped).map_err(|_| crate::pg_err("gravity: a bitmap walk stopped for its statement's cancel"))?;
+                step.batch(skipped).map_err(|_| {
+                    crate::pg_err("gravity: a bitmap walk stopped for its statement's cancel")
+                })?;
                 skipped += 1;
                 continue;
             }
             self.words = r.tuple_bits();
             self.recheck = r.recheck || r.lossy;
             if let Some(c) = &self.counts {
-                c.add(if self.words.is_some() { crate::instr::BitmapCounts::EXACT } else { crate::instr::BitmapCounts::LOSSY }, 1);
+                c.add(
+                    if self.words.is_some() {
+                        crate::instr::BitmapCounts::EXACT
+                    } else {
+                        crate::instr::BitmapCounts::LOSSY
+                    },
+                    1,
+                );
             }
             return Ok(Some(r.blockno));
         }

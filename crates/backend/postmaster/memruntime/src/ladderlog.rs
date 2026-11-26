@@ -18,13 +18,20 @@ pub struct Moves {
 impl Moves {
     pub fn now() -> Moves {
         let raised = mcx::ladder::sized_counts();
-        Moves { takes: mcx::ladder::sized_takes(), raises: core::array::from_fn(|c| (raised[c].0, raised[c].1)) }
+        Moves {
+            takes: mcx::ladder::sized_takes(),
+            raises: core::array::from_fn(|c| (raised[c].0, raised[c].1)),
+        }
     }
 }
 
 /// The sized caches' names, as the views and the ledger name them.
-pub const NAMES: [&str; SIZED_N] =
-    [memledger::Consumer::PartCache.name(), memledger::Consumer::FpTables.name(), memledger::Consumer::CondCache.name(), "pool_reserve"];
+pub const NAMES: [&str; SIZED_N] = [
+    memledger::Consumer::PartCache.name(),
+    memledger::Consumer::FpTables.name(),
+    memledger::Consumer::CondCache.name(),
+    "pool_reserve",
+];
 
 /// What the lines have said so far: the counts through each cache's last line per kind, the takes made on the ladder's own
 /// passes since its last take line, and when each last line was written (decide's clock, ms; 0 = none yet).
@@ -55,10 +62,21 @@ pub fn sample(before: &Moves, now_ms: u64, read: u64, line: u64) {
     if !mempolicy::ladder::take_log_on() {
         return;
     }
-    let at = At { now_ms, read, line, budgets: mcx::ladder::sized_budgets(), floors: mcx::ladder::sized_floors() };
+    let at = At {
+        now_ms,
+        read,
+        line,
+        budgets: mcx::ladder::sized_budgets(),
+        floors: mcx::ladder::sized_floors(),
+    };
     let Ok(mut g) = LOGGED.try_lock() else { return };
-    let logged = g.get_or_insert_with(|| Logged { through: *before, ..Logged::default() });
-    lines(logged, before, &Moves::now(), &at, &mut |l| crate::log_line(&l));
+    let logged = g.get_or_insert_with(|| Logged {
+        through: *before,
+        ..Logged::default()
+    });
+    lines(logged, before, &Moves::now(), &at, &mut |l| {
+        crate::log_line(&l)
+    });
 }
 
 fn mb(b: u64) -> u64 {
@@ -67,22 +85,42 @@ fn mb(b: u64) -> u64 {
 
 /// The read against the line, in words.
 fn against(read: u64, line: u64) -> String {
-    if read > line { format!("{} MB past", mb(read - line)) } else { format!("{} MB under", mb(line - read)) }
+    if read > line {
+        format!("{} MB past", mb(read - line))
+    } else {
+        format!("{} MB under", mb(line - read))
+    }
 }
 
 fn budget(b: u64) -> String {
-    if b == u64::MAX { "at its start".to_owned() } else { format!("{} MB", mb(b)) }
+    if b == u64::MAX {
+        "at its start".to_owned()
+    } else {
+        format!("{} MB", mb(b))
+    }
 }
 
 /// The lines due at `at` (`mempolicy::ladder::take_log_due` per cache and kind), `before` and `after` the counts around
 /// the ladder's own passes this sample; `logged` advanced for each line written.
-pub fn lines(logged: &mut Logged, before: &Moves, after: &Moves, at: &At, out: &mut dyn FnMut(String)) {
+pub fn lines(
+    logged: &mut Logged,
+    before: &Moves,
+    after: &Moves,
+    at: &At,
+    out: &mut dyn FnMut(String),
+) {
     let r2a = mempolicy::ladder::Rung::EvictElastic.name();
     #[allow(clippy::needless_range_loop)]
     for c in 0..SIZED_N {
-        let own = (after.takes[c].0.saturating_sub(before.takes[c].0), after.takes[c].1.saturating_sub(before.takes[c].1));
+        let own = (
+            after.takes[c].0.saturating_sub(before.takes[c].0),
+            after.takes[c].1.saturating_sub(before.takes[c].1),
+        );
         logged.pass[c] = (logged.pass[c].0 + own.0, logged.pass[c].1 + own.1);
-        let took = (after.takes[c].0.saturating_sub(logged.through.takes[c].0), after.takes[c].1.saturating_sub(logged.through.takes[c].1));
+        let took = (
+            after.takes[c].0.saturating_sub(logged.through.takes[c].0),
+            after.takes[c].1.saturating_sub(logged.through.takes[c].1),
+        );
         if took.0 != 0 && mempolicy::ladder::take_log_due(at.now_ms, logged.at_ms[c][0]) {
             let pass = (logged.pass[c].0.min(took.0), logged.pass[c].1.min(took.1));
             out(format!(
@@ -105,7 +143,10 @@ pub fn lines(logged: &mut Logged, before: &Moves, after: &Moves, at: &At, out: &
             logged.pass[c] = (0, 0);
             logged.at_ms[c][0] = at.now_ms;
         }
-        let raised = (after.raises[c].0.saturating_sub(logged.through.raises[c].0), after.raises[c].1.saturating_sub(logged.through.raises[c].1));
+        let raised = (
+            after.raises[c].0.saturating_sub(logged.through.raises[c].0),
+            after.raises[c].1.saturating_sub(logged.through.raises[c].1),
+        );
         if raised.0 != 0 && mempolicy::ladder::take_log_due(at.now_ms, logged.at_ms[c][1]) {
             out(format!(
                 "ladder raise: {} budget raised {} MB in {} raise{} since its last raise line, to {}; read {} MB, line {} MB ({})",
@@ -131,11 +172,18 @@ mod tests {
     const MIB: u64 = 1 << 20;
 
     fn at(now_ms: u64) -> At {
-        At { now_ms, read: 15_200 * MIB, line: 15_100 * MIB, budgets: [1024 * MIB, u64::MAX, 320 * MIB, u64::MAX], floors: [1030 * MIB, 0, 0, 0] }
+        At {
+            now_ms,
+            read: 15_200 * MIB,
+            line: 15_100 * MIB,
+            budgets: [1024 * MIB, u64::MAX, 320 * MIB, u64::MAX],
+            floors: [1030 * MIB, 0, 0, 0],
+        }
     }
 
     #[test]
-    fn a_take_is_one_line_with_its_cache_bytes_rung_and_read_against_the_line_and_the_window_folds_the_rest() {
+    fn a_take_is_one_line_with_its_cache_bytes_rung_and_read_against_the_line_and_the_window_folds_the_rest(
+    ) {
         let _one = pgsync::lock(&mempolicy::consts::TEST_LOCK);
         mempolicy::consts::reset();
         let mut logged = Logged::default();
@@ -147,7 +195,11 @@ mod tests {
         lines(&mut logged, &zero, &one, &at(5_000), &mut |l| seen.push(l));
         assert!(seen.is_empty(), "ladder_log_ms 0: no line");
         mempolicy::consts::reset();
-        assert_eq!(mempolicy::consts::get(mempolicy::consts::K::LadderLogMs), 1_000, "the default");
+        assert_eq!(
+            mempolicy::consts::get(mempolicy::consts::K::LadderLogMs),
+            1_000,
+            "the default"
+        );
         let mut logged = Logged::default();
         // the take on the ladder's own pass this sample
         lines(&mut logged, &zero, &one, &at(5_000), &mut |l| seen.push(l));
@@ -182,13 +234,23 @@ mod tests {
         let zero = Moves::default();
         let mut first = zero;
         first.takes[mcx::ladder::SIZED_PART] = (1, 100 * MIB);
-        lines(&mut logged, &zero, &first, &at(10_000), &mut |l| seen.push(l));
+        lines(&mut logged, &zero, &first, &at(10_000), &mut |l| {
+            seen.push(l)
+        });
         assert_eq!(seen.len(), 1, "the first take: a line");
         let mut second = first;
         second.takes[mcx::ladder::SIZED_PART] = (2, 150 * MIB);
-        lines(&mut logged, &first, &second, &at(10_400), &mut |l| seen.push(l));
-        assert_eq!(seen.len(), 1, "the second take 400 ms later, inside the 1000 ms window: its line dropped");
-        lines(&mut logged, &second, &second, &at(11_000), &mut |l| seen.push(l));
+        lines(&mut logged, &first, &second, &at(10_400), &mut |l| {
+            seen.push(l)
+        });
+        assert_eq!(
+            seen.len(),
+            1,
+            "the second take 400 ms later, inside the 1000 ms window: its line dropped"
+        );
+        lines(&mut logged, &second, &second, &at(11_000), &mut |l| {
+            seen.push(l)
+        });
         assert_eq!(seen.len(), 2, "the window over: the next line");
         assert!(seen[1].starts_with("ladder take: part_cache gave 50 MB to R2a in 1 take since its last take line (on the ladder's passes 1 / 50 MB"), "{}", seen[1]);
         mempolicy::consts::reset();
@@ -199,13 +261,22 @@ mod tests {
     fn a_take_noted_in_mcx_reaches_the_line() {
         let _one = pgsync::lock(&mempolicy::consts::TEST_LOCK);
         mempolicy::consts::reset();
-        let mut logged = Logged { through: Moves::now(), ..Logged::default() };
+        let mut logged = Logged {
+            through: Moves::now(),
+            ..Logged::default()
+        };
         let before = Moves::now();
         mcx::ladder::note_take_bytes(mcx::ladder::SIZED_FP, 96 * MIB);
         let mut seen = Vec::new();
-        lines(&mut logged, &before, &Moves::now(), &at(7_000), &mut |l| seen.push(l));
+        lines(&mut logged, &before, &Moves::now(), &at(7_000), &mut |l| {
+            seen.push(l)
+        });
         assert_eq!(seen.len(), 1, "{seen:?}");
-        assert!(seen[0].starts_with("ladder take: fp_tables gave 96 MB to R2a in 1 take"), "{}", seen[0]);
+        assert!(
+            seen[0].starts_with("ladder take: fp_tables gave 96 MB to R2a in 1 take"),
+            "{}",
+            seen[0]
+        );
         mempolicy::consts::reset();
     }
 }

@@ -2,7 +2,7 @@ use ::datum::Datum;
 use ::types_error::{PgError, PgResult};
 use ::types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 
-fn arg_text(fcinfo: & Fcinfo, i: usize) -> PgResult<& [u8]> {
+fn arg_text(fcinfo: &Fcinfo, i: usize) -> PgResult<&[u8]> {
     // SAFETY: strict text arg is a non-null live varlena.
     let pv = unsafe { fcinfo.arg_varlena_packed(i) }?;
     if pv.is_short() {
@@ -40,15 +40,28 @@ fn compat_nargs_guard(
 }
 
 fn fc_gin_extract_tsvector_2args(f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
-    compat_nargs_guard(f, fcinfo, 3, "gin_extract_tsvector requires three arguments")
+    compat_nargs_guard(
+        f,
+        fcinfo,
+        3,
+        "gin_extract_tsvector requires three arguments",
+    )
 }
 
 fn fc_gin_extract_tsquery_5args(f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     compat_nargs_guard(f, fcinfo, 7, "gin_extract_tsquery requires seven arguments")
 }
 
-fn fc_gin_tsquery_consistent_6args(f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
-    compat_nargs_guard(f, fcinfo, 8, "gin_tsquery_consistent requires eight arguments")
+fn fc_gin_tsquery_consistent_6args(
+    f: Option<&mut FmgrInfo>,
+    fcinfo: &mut Fcinfo,
+) -> PgResult<Datum> {
+    compat_nargs_guard(
+        f,
+        fcinfo,
+        8,
+        "gin_tsquery_consistent requires eight arguments",
+    )
 }
 
 use ::types_fmgr::builtin_strict as b;
@@ -58,13 +71,58 @@ pub const TSGINIDX_BUILTINS: &[FmgrBuiltin] = &[
     b(3724, "gin_cmp_tslexeme", 2, fc_gin_cmp_tslexeme),
     // tsvector/tsquery GIN opclass support: native GIN dispatch; fmgr-lookup
     // parity rows.
-    b(3077, "gin_extract_tsvector_2args", 2, fc_gin_extract_tsvector_2args),
-    b(3087, "gin_extract_tsquery_5args", 5, fc_gin_extract_tsquery_5args),
-    b(3088, "gin_tsquery_consistent_6args", 6, fc_gin_tsquery_consistent_6args),
-    b(3656, "gin_extract_tsvector", 3, ::types_fmgr::fc_internal_dispatch_only),
-    b(3657, "gin_extract_tsquery", 7, ::types_fmgr::fc_internal_dispatch_only),
-    b(3658, "gin_tsquery_consistent", 8, ::types_fmgr::fc_internal_dispatch_only),
-    b(3791, "gin_extract_tsquery_oldsig", 7, ::types_fmgr::fc_internal_dispatch_only),
-    b(3792, "gin_tsquery_consistent_oldsig", 8, ::types_fmgr::fc_internal_dispatch_only),
-    b(3921, "gin_tsquery_triconsistent", 7, ::types_fmgr::fc_internal_dispatch_only),
+    b(
+        3077,
+        "gin_extract_tsvector_2args",
+        2,
+        fc_gin_extract_tsvector_2args,
+    ),
+    b(
+        3087,
+        "gin_extract_tsquery_5args",
+        5,
+        fc_gin_extract_tsquery_5args,
+    ),
+    b(
+        3088,
+        "gin_tsquery_consistent_6args",
+        6,
+        fc_gin_tsquery_consistent_6args,
+    ),
+    b(
+        3656,
+        "gin_extract_tsvector",
+        3,
+        ::types_fmgr::fc_internal_dispatch_only,
+    ),
+    b(
+        3657,
+        "gin_extract_tsquery",
+        7,
+        ::types_fmgr::fc_internal_dispatch_only,
+    ),
+    b(
+        3658,
+        "gin_tsquery_consistent",
+        8,
+        ::types_fmgr::fc_internal_dispatch_only,
+    ),
+    b(
+        3791,
+        "gin_extract_tsquery_oldsig",
+        7,
+        ::types_fmgr::fc_internal_dispatch_only,
+    ),
+    b(
+        3792,
+        "gin_tsquery_consistent_oldsig",
+        8,
+        ::types_fmgr::fc_internal_dispatch_only,
+    ),
+    b(
+        3921,
+        "gin_tsquery_triconsistent",
+        7,
+        ::types_fmgr::fc_internal_dispatch_only,
+    ),
 ];

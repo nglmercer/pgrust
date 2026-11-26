@@ -1,6 +1,6 @@
 use super::*;
-use std::sync::MutexGuard;
 use elog::PCT_M;
+use std::sync::MutexGuard;
 
 static TEST_LOCK: Mutex<()> = Mutex::new(());
 
@@ -80,7 +80,11 @@ fn feed(st: &mut SysLoggerState, wire: &[u8]) {
 #[test]
 fn header_layout_matches_elog_writer() {
     assert_eq!(PIPE_HEADER_SIZE, 9);
-    let c = chunk(0x0102_0304, PIPE_PROTO_IS_LAST | PIPE_PROTO_DEST_STDERR, b"xy");
+    let c = chunk(
+        0x0102_0304,
+        PIPE_PROTO_IS_LAST | PIPE_PROTO_DEST_STDERR,
+        b"xy",
+    );
     assert_eq!(c.len(), PIPE_HEADER_SIZE + 2);
     assert_eq!(&c[0..2], &[0, 0]);
     assert_eq!(u16::from_ne_bytes([c[2], c[3]]), 2);
@@ -96,7 +100,10 @@ fn single_chunk_message_is_written() {
     install_logfile(&path);
 
     let mut st = SysLoggerState::new();
-    feed(&mut st, &chunk(42, PIPE_PROTO_IS_LAST | PIPE_PROTO_DEST_STDERR, b"hello\n"));
+    feed(
+        &mut st,
+        &chunk(42, PIPE_PROTO_IS_LAST | PIPE_PROTO_DEST_STDERR, b"hello\n"),
+    );
     assert_eq!(drain_logfile(&path), b"hello\n");
 }
 
@@ -111,8 +118,16 @@ fn multi_chunk_message_reassembles_and_interleaves() {
     let mut wire = Vec::new();
     wire.extend_from_slice(&chunk(7, PIPE_PROTO_DEST_STDERR, b"AAAA"));
     wire.extend_from_slice(&chunk(8, PIPE_PROTO_DEST_STDERR, b"BBBB"));
-    wire.extend_from_slice(&chunk(7, PIPE_PROTO_IS_LAST | PIPE_PROTO_DEST_STDERR, b"aaaa\n"));
-    wire.extend_from_slice(&chunk(8, PIPE_PROTO_IS_LAST | PIPE_PROTO_DEST_STDERR, b"bbbb\n"));
+    wire.extend_from_slice(&chunk(
+        7,
+        PIPE_PROTO_IS_LAST | PIPE_PROTO_DEST_STDERR,
+        b"aaaa\n",
+    ));
+    wire.extend_from_slice(&chunk(
+        8,
+        PIPE_PROTO_IS_LAST | PIPE_PROTO_DEST_STDERR,
+        b"bbbb\n",
+    ));
     feed(&mut st, &wire);
     assert_eq!(drain_logfile(&path), b"AAAAaaaa\nBBBBbbbb\n");
 
@@ -197,7 +212,10 @@ fn csv_dest_without_csv_file_falls_back_to_syslog_file() {
     assert!(CSVLOG_FILE.load(Relaxed).is_null());
 
     let mut st = SysLoggerState::new();
-    feed(&mut st, &chunk(3, PIPE_PROTO_IS_LAST | PIPE_PROTO_DEST_CSVLOG, b"c,s,v\n"));
+    feed(
+        &mut st,
+        &chunk(3, PIPE_PROTO_IS_LAST | PIPE_PROTO_DEST_CSVLOG, b"c,s,v\n"),
+    );
     assert_eq!(drain_logfile(&path), b"c,s,v\n");
 }
 
@@ -253,9 +271,17 @@ fn logfile_open_mode_matches_c_fopen_under_umask() {
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
     LOG_FILE_MODE.store(0o600, Relaxed);
     open("a");
-    assert_eq!(mode_of(&path), 0o640, "existing file, append: mode preserved");
+    assert_eq!(
+        mode_of(&path),
+        0o640,
+        "existing file, append: mode preserved"
+    );
     open("w");
-    assert_eq!(mode_of(&path), 0o640, "existing file, truncate: mode preserved");
+    assert_eq!(
+        mode_of(&path),
+        0o640,
+        "existing file, truncate: mode preserved"
+    );
 
     LOG_FILE_MODE.store(saved, Relaxed);
 }
@@ -268,7 +294,9 @@ fn logfile_open_mode_matches_c_fopen_under_umask() {
 fn logger_pipe_errors_use_socket_access_sqlstates() {
     use types_error::{ERRCODE_CONNECTION_FAILURE, ERRCODE_INTERNAL_ERROR};
     let sqlstate = |errnum: i32, message: &str| {
-        logger_pipe_report(FATAL, errnum, message).into_error().sqlstate()
+        logger_pipe_report(FATAL, errnum, message)
+            .into_error()
+            .sqlstate()
     };
     let create = format!("could not create pipe for syslog: {PCT_M}");
     let read = format!("could not read from logger pipe: {PCT_M}");
@@ -276,10 +304,19 @@ fn logger_pipe_errors_use_socket_access_sqlstates() {
     assert_eq!(sqlstate(libc::ENFILE, &create), ERRCODE_INTERNAL_ERROR);
     assert_eq!(sqlstate(libc::ENOMEM, &create), ERRCODE_INTERNAL_ERROR);
     assert_eq!(sqlstate(libc::EIO, &read), ERRCODE_INTERNAL_ERROR);
-    assert_eq!(sqlstate(libc::ECONNRESET, &read), ERRCODE_CONNECTION_FAILURE);
+    assert_eq!(
+        sqlstate(libc::ECONNRESET, &read),
+        ERRCODE_CONNECTION_FAILURE
+    );
     assert_eq!(sqlstate(libc::EPIPE, &read), ERRCODE_CONNECTION_FAILURE);
     let err = logger_pipe_report(FATAL, libc::EMFILE, &create).into_error();
-    assert_eq!(err.message, format!("could not create pipe for syslog: {}", elog::errno::strerror(libc::EMFILE)));
+    assert_eq!(
+        err.message,
+        format!(
+            "could not create pipe for syslog: {}",
+            elog::errno::strerror(libc::EMFILE)
+        )
+    );
 }
 
 /// syslogger.c:1421: snprintf(MAXPGPATH) truncates "<Log_directory>/" by
@@ -293,7 +330,9 @@ fn logfile_getname_truncates_log_directory_on_a_char_boundary() {
     let saved_dir = LOG_DIRECTORY.lock().unwrap().replace(dir);
     let saved_name = LOG_FILENAME.lock().unwrap().replace("x".to_string());
     let saved_tz = pgtz::log_timezone();
-    pgtz::set_log_timezone(Some(pgtz::pg_tzset(b"GMT").unwrap().expect("GMT always parses")));
+    pgtz::set_log_timezone(Some(
+        pgtz::pg_tzset(b"GMT").unwrap().expect("GMT always parses"),
+    ));
 
     assert_eq!(logfile_getname(0, None), "a".repeat(MAXPGPATH - 2));
 
@@ -310,7 +349,9 @@ fn logfile_getname_formats_up_to_maxpgpath_minus_len_minus_one() {
     let _g = lock();
     let saved_dir = LOG_DIRECTORY.lock().unwrap().replace("log".to_string());
     let saved_tz = pgtz::log_timezone();
-    pgtz::set_log_timezone(Some(pgtz::pg_tzset(b"GMT").unwrap().expect("GMT always parses")));
+    pgtz::set_log_timezone(Some(
+        pgtz::pg_tzset(b"GMT").unwrap().expect("GMT always parses"),
+    ));
 
     let len = "log/".len();
     let fits = "x".repeat(MAXPGPATH - len - 1);
@@ -325,7 +366,10 @@ fn logfile_getname_formats_up_to_maxpgpath_minus_len_minus_one() {
 
     // the default pattern still expands normally
     *LOG_FILENAME.lock().unwrap() = Some("postgresql-%Y-%m-%d_%H%M%S.log".to_string());
-    assert_eq!(logfile_getname(0, None), "log/postgresql-1970-01-01_000000.log");
+    assert_eq!(
+        logfile_getname(0, None),
+        "log/postgresql-1970-01-01_000000.log"
+    );
 
     *LOG_FILENAME.lock().unwrap() = saved_name;
     *LOG_DIRECTORY.lock().unwrap() = saved_dir;
@@ -359,7 +403,10 @@ fn write_failure_report_avoids_the_collector_input_pipe() {
     let n = unsafe { libc::read(fds[0], buf.as_mut_ptr().cast(), buf.len()) }.max(0) as usize;
     assert_eq!(
         String::from_utf8_lossy(&buf[..n]),
-        format!("could not write to log file: {}\n", elog::errno::strerror(libc::EBADF))
+        format!(
+            "could not write to log file: {}\n",
+            elog::errno::strerror(libc::EBADF)
+        )
     );
 
     SYSLOG_FILE.store(saved_file, Relaxed);
@@ -400,7 +447,10 @@ fn logfile_open_creates_the_target_of_a_dangling_symlink() {
     std::os::unix::fs::symlink(&target, &link).unwrap();
     let saved = LOG_FILE_MODE.swap(0o600, Relaxed);
     let fh = logfile_open(link.to_str().unwrap(), "a", true).unwrap();
-    assert!(!fh.is_null(), "logfile_open through a dangling symlink failed");
+    assert!(
+        !fh.is_null(),
+        "logfile_open through a dangling symlink failed"
+    );
     unsafe { libc::fclose(fh) };
     LOG_FILE_MODE.store(saved, Relaxed);
     let md = std::fs::metadata(&target).expect("symlink target created");
@@ -410,7 +460,10 @@ fn logfile_open_creates_the_target_of_a_dangling_symlink() {
 static FORK_FAILURE_LOGS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 fn capture_fork_failure(e: &PgError, _output_to_server: &mut bool) {
-    FORK_FAILURE_LOGS.lock().unwrap_or_else(|p| p.into_inner()).push(e.message().to_string());
+    FORK_FAILURE_LOGS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .push(e.message().to_string());
 }
 
 // syslogger.c:711: "could not fork system logger: %m" carries the launch
@@ -418,13 +471,25 @@ fn capture_fork_failure(e: &PgError, _output_to_server: &mut bool) {
 #[test]
 fn fork_failure_message_expands_errno() {
     let _g = lock();
-    FORK_FAILURE_LOGS.lock().unwrap_or_else(|p| p.into_inner()).clear();
+    FORK_FAILURE_LOGS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clear();
     let prior = elog::sink::set_emit_log_hook(Some(capture_fork_failure));
     log_fork_failure(libc::EAGAIN).unwrap();
     elog::sink::set_emit_log_hook(prior);
-    let logs = FORK_FAILURE_LOGS.lock().unwrap_or_else(|p| p.into_inner()).clone();
-    let expected = format!("could not fork system logger: {}", elog::errno::strerror(libc::EAGAIN));
-    assert!(logs.iter().any(|m| m == &expected), "expected {expected:?}, got {logs:?}");
+    let logs = FORK_FAILURE_LOGS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
+    let expected = format!(
+        "could not fork system logger: {}",
+        elog::errno::strerror(libc::EAGAIN)
+    );
+    assert!(
+        logs.iter().any(|m| m == &expected),
+        "expected {expected:?}, got {logs:?}"
+    );
 }
 
 /// csvlog.c:79 / jsonlog.c:126: the per-writer line counter (and the cached

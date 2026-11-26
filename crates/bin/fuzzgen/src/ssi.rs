@@ -84,11 +84,21 @@ pub struct Scenario {
 }
 
 fn step(name: &'static str, session: usize, sql: &str) -> Step {
-    Step { name, session, sql: sql.to_string(), group: None }
+    Step {
+        name,
+        session,
+        sql: sql.to_string(),
+        group: None,
+    }
 }
 
 fn gstep(name: &'static str, session: usize, sql: &str, group: &'static str) -> Step {
-    Step { name, session, sql: sql.to_string(), group: Some(group) }
+    Step {
+        name,
+        session,
+        sql: sql.to_string(),
+        group: Some(group),
+    }
 }
 
 // ---------------------------------------------------------------- events --
@@ -136,14 +146,26 @@ fn outcome_msg(o: &StmtOutcome) -> String {
 #[derive(Clone, Debug)]
 pub enum Event {
     /// Step ran to completion while it was the schedule head.
-    Completed { step: usize, key: OutcomeKey, msg: String },
+    Completed {
+        step: usize,
+        key: OutcomeKey,
+        msg: String,
+    },
     /// Step did not complete; parked. `detect` recorded only.
     Blocked { step: usize, detect: BlockDetect },
     /// A parked step completed after `after` finished (usize::MAX = the
     /// end-of-scenario drain).
-    Unblocked { step: usize, after: usize, key: OutcomeKey, msg: String },
+    Unblocked {
+        step: usize,
+        after: usize,
+        key: OutcomeKey,
+        msg: String,
+    },
     /// Final-state probe result.
-    Probe { label: &'static str, key: OutcomeKey },
+    Probe {
+        label: &'static str,
+        key: OutcomeKey,
+    },
 }
 
 impl Event {
@@ -204,7 +226,9 @@ fn spawn_session(ep: &Endpoint, setup: &[String]) -> Result<SessionHandle, Strin
         match client.simple_query(sql) {
             Ok(rs) => {
                 if let StmtOutcome::Error { sqlstate, message } = fold_results(&rs) {
-                    return Err(format!("session setup {sql:?} failed: {sqlstate} {message}"));
+                    return Err(format!(
+                        "session setup {sql:?} failed: {sqlstate} {message}"
+                    ));
                 }
             }
             Err(ConnLost(e)) => return Err(format!("session setup: {e}")),
@@ -223,7 +247,13 @@ fn spawn_session(ep: &Endpoint, setup: &[String]) -> Result<SessionHandle, Strin
             }
         }
     });
-    Ok(SessionHandle { tx: jtx, rx: orx, pid, parked: None, joiner: Some(joiner) })
+    Ok(SessionHandle {
+        tx: jtx,
+        rx: orx,
+        pid,
+        parked: None,
+        joiner: Some(joiner),
+    })
 }
 
 /// One engine's scenario execution state.
@@ -252,7 +282,11 @@ pub struct Tunables {
 
 impl Default for Tunables {
     fn default() -> Tunables {
-        Tunables { tick_ms: 20, block_window_ms: 2_500, step_deadline_ms: 25_000 }
+        Tunables {
+            tick_ms: 20,
+            block_window_ms: 2_500,
+            step_deadline_ms: 25_000,
+        }
     }
 }
 
@@ -260,7 +294,14 @@ impl EngineRun {
     pub fn new(label: &'static str, ep: Endpoint) -> Result<EngineRun, String> {
         let monitor = Client::connect(&ep.host, ep.port, &ep.db, &ep.user)
             .map_err(|ConnLost(e)| format!("{label} monitor connect: {e}"))?;
-        Ok(EngineRun { ep, monitor, monitor_ok: true, sessions: Vec::new(), events: Vec::new(), label })
+        Ok(EngineRun {
+            ep,
+            monitor,
+            monitor_ok: true,
+            sessions: Vec::new(),
+            events: Vec::new(),
+            label,
+        })
     }
 
     fn monitor_exec(&mut self, sql: &str) -> Result<StmtOutcome, String> {
@@ -277,17 +318,13 @@ impl EngineRun {
             return None;
         }
         let pid = pid?;
-        let sql = format!(
-            "SELECT wait_event_type, wait_event FROM pg_stat_activity WHERE pid = {pid}"
-        );
+        let sql =
+            format!("SELECT wait_event_type, wait_event FROM pg_stat_activity WHERE pid = {pid}");
         match self.monitor_exec(&sql) {
             Ok(StmtOutcome::Rows { rows, .. }) => {
                 let wet = rows.first().and_then(|r| r.first()).cloned().flatten();
                 let we = rows.first().and_then(|r| r.get(1)).cloned().flatten();
-                Some(
-                    wet.as_deref() == Some("Lock")
-                        || we.as_deref() == Some("SafeSnapshot"),
-                )
+                Some(wet.as_deref() == Some("Lock") || we.as_deref() == Some("SafeSnapshot"))
             }
             _ => {
                 // View/column missing or errored: introspection gap.
@@ -300,13 +337,12 @@ impl EngineRun {
 
     fn setup(&mut self, scenario: &Scenario) -> Result<(), String> {
         for sql in &scenario.setup {
-            if let
-                StmtOutcome::Error { sqlstate, message } = self.monitor_exec(sql)? {
-                    return Err(format!(
-                        "{} setup {sql:?} failed: {sqlstate} {message}",
-                        self.label
-                    ))
-                }
+            if let StmtOutcome::Error { sqlstate, message } = self.monitor_exec(sql)? {
+                return Err(format!(
+                    "{} setup {sql:?} failed: {sqlstate} {message}",
+                    self.label
+                ));
+            }
         }
         for _ in 0..scenario.sessions {
             let h = spawn_session(&self.ep, &scenario.session_setup)
@@ -324,11 +360,16 @@ impl EngineRun {
         loop {
             let mut reaped = false;
             for s in 0..self.sessions.len() {
-                let Some(stepidx) = self.sessions[s].parked else { continue };
+                let Some(stepidx) = self.sessions[s].parked else {
+                    continue;
+                };
                 // Grace: poll up to block_window for the unblocked step.
                 let deadline = Instant::now() + Duration::from_millis(tun.block_window_ms);
                 loop {
-                    match self.sessions[s].rx.recv_timeout(Duration::from_millis(tun.tick_ms)) {
+                    match self.sessions[s]
+                        .rx
+                        .recv_timeout(Duration::from_millis(tun.tick_ms))
+                    {
                         Ok(out) => {
                             self.sessions[s].parked = None;
                             self.events.push(Event::Unblocked {
@@ -372,7 +413,10 @@ impl EngineRun {
     fn issue(&mut self, stepidx: usize, st: &Step, tun: &Tunables) -> Result<(), String> {
         let s = st.session;
         if s >= self.sessions.len() {
-            return Err(format!("{}: step {} session {} out of range", self.label, st.name, s));
+            return Err(format!(
+                "{}: step {} session {} out of range",
+                self.label, st.name, s
+            ));
         }
         if let Some(parked_step) = self.sessions[s].parked {
             // The schedule needs this session, whose parked step must
@@ -410,7 +454,10 @@ impl EngineRun {
         let window = Duration::from_millis(tun.block_window_ms);
         let deadline = Duration::from_millis(tun.step_deadline_ms);
         loop {
-            match self.sessions[s].rx.recv_timeout(Duration::from_millis(tun.tick_ms)) {
+            match self.sessions[s]
+                .rx
+                .recv_timeout(Duration::from_millis(tun.tick_ms))
+            {
                 Ok(out) => {
                     self.events.push(Event::Completed {
                         step: stepidx,
@@ -424,8 +471,10 @@ impl EngineRun {
                     match self.pid_waiting(self.sessions[s].pid) {
                         Some(true) => {
                             self.sessions[s].parked = Some(stepidx);
-                            self.events
-                                .push(Event::Blocked { step: stepidx, detect: BlockDetect::Monitor });
+                            self.events.push(Event::Blocked {
+                                step: stepidx,
+                                detect: BlockDetect::Monitor,
+                            });
                             return Ok(());
                         }
                         Some(false) => {
@@ -464,7 +513,9 @@ impl EngineRun {
     /// decks always end with the lock holders committing).
     fn drain(&mut self, tun: &Tunables) -> Result<(), String> {
         for s in 0..self.sessions.len() {
-            let Some(stepidx) = self.sessions[s].parked else { continue };
+            let Some(stepidx) = self.sessions[s].parked else {
+                continue;
+            };
             match self.sessions[s]
                 .rx
                 .recv_timeout(Duration::from_millis(tun.step_deadline_ms))
@@ -492,7 +543,10 @@ impl EngineRun {
     fn probes(&mut self, scenario: &Scenario) -> Result<(), String> {
         for (label, sql) in &scenario.probes {
             let out = self.monitor_exec(sql)?;
-            self.events.push(Event::Probe { label, key: outcome_key(&out) });
+            self.events.push(Event::Probe {
+                label,
+                key: outcome_key(&out),
+            });
         }
         Ok(())
     }
@@ -623,7 +677,12 @@ pub fn compare(scenario: &Scenario, a: &[Event], b: &[Event]) -> Vec<Divergence>
                     } else if ka != kb {
                         out.push(Divergence {
                             class: "OUTCOME",
-                            detail: format!("step {}: A={} B={}", st.name, fmt_key(ka), fmt_key(kb)),
+                            detail: format!(
+                                "step {}: A={} B={}",
+                                st.name,
+                                fmt_key(ka),
+                                fmt_key(kb)
+                            ),
                         });
                     }
                 }
@@ -707,14 +766,10 @@ pub fn compare(scenario: &Scenario, a: &[Event], b: &[Event]) -> Vec<Divergence>
     let mut gb: HashMap<&'static str, Vec<String>> = HashMap::new();
     for (ea, eb) in a.iter().zip(b.iter()) {
         let (stepidx, ka, kb) = match (ea, eb) {
-            (
-                Event::Completed { step, key: ka, .. },
-                Event::Completed { key: kb, .. },
-            )
-            | (
-                Event::Unblocked { step, key: ka, .. },
-                Event::Unblocked { key: kb, .. },
-            ) => (Some(*step), ka, kb),
+            (Event::Completed { step, key: ka, .. }, Event::Completed { key: kb, .. })
+            | (Event::Unblocked { step, key: ka, .. }, Event::Unblocked { key: kb, .. }) => {
+                (Some(*step), ka, kb)
+            }
             (Event::Probe { label, key: ka }, Event::Probe { key: kb, .. }) => {
                 if ka != kb {
                     out.push(Divergence {
@@ -731,7 +786,9 @@ pub fn compare(scenario: &Scenario, a: &[Event], b: &[Event]) -> Vec<Divergence>
             (Event::Blocked { .. }, Event::Blocked { .. }) => continue,
             _ => continue, // shapes matched, so this is unreachable
         };
-        let group = stepidx.and_then(|i| scenario.steps.get(i)).and_then(|s| s.group);
+        let group = stepidx
+            .and_then(|i| scenario.steps.get(i))
+            .and_then(|s| s.group);
         match group {
             Some(g) => {
                 ga.entry(g).or_default().push(fmt_key(ka));
@@ -745,11 +802,7 @@ pub fn compare(scenario: &Scenario, a: &[Event], b: &[Event]) -> Vec<Divergence>
                         .unwrap_or("?");
                     out.push(Divergence {
                         class: "OUTCOME",
-                        detail: format!(
-                            "step {name}: A={} B={}",
-                            fmt_key(ka),
-                            fmt_key(kb)
-                        ),
+                        detail: format!("step {name}: A={} B={}", fmt_key(ka), fmt_key(kb)),
                     });
                 }
             }
@@ -799,12 +852,22 @@ pub fn transcript(scenario: &Scenario, events: &[Event]) -> String {
             Event::Blocked { step, detect } => {
                 s.push_str(&format!("BLOCKED    {} (detect={detect:?})\n", name(*step)));
             }
-            Event::Unblocked { step, after, key, msg } => {
+            Event::Unblocked {
+                step,
+                after,
+                key,
+                msg,
+            } => {
                 s.push_str(&format!(
                     "unblocked  {} after {} -> {}",
                     name(*step),
-                    if *after == usize::MAX { "<end>".into() } else {
-                        scenario.steps.get(*after).map(|st| st.name.to_string())
+                    if *after == usize::MAX {
+                        "<end>".into()
+                    } else {
+                        scenario
+                            .steps
+                            .get(*after)
+                            .map(|st| st.name.to_string())
                             .unwrap_or_else(|| format!("step#{after}"))
                     },
                     fmt_key(key)
@@ -829,7 +892,10 @@ const T_SSI: &str = "DROP TABLE IF EXISTS ssi_t; \
      INSERT INTO ssi_t SELECT g, g % 2 + 1, 10 FROM generate_series(1, 200) g";
 
 fn probe_ssi_t() -> (&'static str, String) {
-    ("ssi_t", "SELECT id, class, v FROM ssi_t ORDER BY id".to_string())
+    (
+        "ssi_t",
+        "SELECT id, class, v FROM ssi_t ORDER BY id".to_string(),
+    )
 }
 
 fn begin_srl() -> &'static str {
@@ -846,7 +912,8 @@ pub fn deck() -> Vec<Scenario> {
     //    their own. First committer wins; s2's COMMIT must fail 40001.
     v.push(Scenario {
         name: "write-skew",
-        description: "classic SSI write skew: rw-antidependency cycle, second committer aborts 40001",
+        description:
+            "classic SSI write skew: rw-antidependency cycle, second committer aborts 40001",
         setup: vec![T_SSI.into()],
         sessions: 2,
         session_setup: vec!["SET statement_timeout = '20s'".into()],
@@ -855,8 +922,16 @@ pub fn deck() -> Vec<Scenario> {
             step("s2-begin", 1, begin_srl()),
             step("s1-read", 0, "SELECT sum(v) FROM ssi_t WHERE class = 2"),
             step("s2-read", 1, "SELECT sum(v) FROM ssi_t WHERE class = 1"),
-            step("s1-write", 0, "UPDATE ssi_t SET v = v + 100 WHERE class = 1"),
-            step("s2-write", 1, "UPDATE ssi_t SET v = v + 100 WHERE class = 2"),
+            step(
+                "s1-write",
+                0,
+                "UPDATE ssi_t SET v = v + 100 WHERE class = 1",
+            ),
+            step(
+                "s2-write",
+                1,
+                "UPDATE ssi_t SET v = v + 100 WHERE class = 2",
+            ),
             step("s1-commit", 0, "COMMIT"),
             step("s2-commit", 1, "COMMIT"),
         ],
@@ -881,10 +956,26 @@ pub fn deck() -> Vec<Scenario> {
         steps: vec![
             step("s1-begin", 0, begin_srl()),
             step("s2-begin", 1, begin_srl()),
-            step("s1-read", 0, "SELECT count(*) FROM ssi_t WHERE class = 2 AND id < 50"),
-            step("s2-read", 1, "SELECT count(*) FROM ssi_t WHERE class = 1 AND id < 50"),
-            step("s1-write", 0, "UPDATE ssi_t SET v = v + 1 WHERE class = 1 AND id < 50"),
-            step("s2-write", 1, "UPDATE ssi_t SET v = v + 1 WHERE class = 2 AND id < 50"),
+            step(
+                "s1-read",
+                0,
+                "SELECT count(*) FROM ssi_t WHERE class = 2 AND id < 50",
+            ),
+            step(
+                "s2-read",
+                1,
+                "SELECT count(*) FROM ssi_t WHERE class = 1 AND id < 50",
+            ),
+            step(
+                "s1-write",
+                0,
+                "UPDATE ssi_t SET v = v + 1 WHERE class = 1 AND id < 50",
+            ),
+            step(
+                "s2-write",
+                1,
+                "UPDATE ssi_t SET v = v + 1 WHERE class = 2 AND id < 50",
+            ),
             step("s1-commit", 0, "COMMIT"),
             step("s2-commit", 1, "COMMIT"),
         ],
@@ -1023,10 +1114,18 @@ pub fn deck() -> Vec<Scenario> {
         session_setup: vec!["SET statement_timeout = '20s'".into()],
         steps: vec![
             step("s1-begin", 0, "BEGIN"),
-            step("s1-lock", 0, "SELECT id, v FROM ssi_t WHERE id = 5 FOR UPDATE"),
+            step(
+                "s1-lock",
+                0,
+                "SELECT id, v FROM ssi_t WHERE id = 5 FOR UPDATE",
+            ),
             step("s1-upd", 0, "UPDATE ssi_t SET v = 77 WHERE id = 5"),
             step("s2-begin", 1, "BEGIN"),
-            step("s2-lock", 1, "SELECT id, v FROM ssi_t WHERE id = 5 FOR UPDATE"), // blocks
+            step(
+                "s2-lock",
+                1,
+                "SELECT id, v FROM ssi_t WHERE id = 5 FOR UPDATE",
+            ), // blocks
             step("s1-commit", 0, "COMMIT"), // s2 unblocks, sees v=77
             step("s2-commit", 1, "COMMIT"),
         ],
@@ -1048,7 +1147,7 @@ pub fn deck() -> Vec<Scenario> {
             step("s2-read", 1, "SELECT v FROM ssi_t WHERE id = 9"),
             step("s1-upd", 0, "UPDATE ssi_t SET v = v + 1 WHERE id = 9"),
             step("s2-upd", 1, "UPDATE ssi_t SET v = v + 5 WHERE id = 9"), // blocks
-            step("s1-commit", 0, "COMMIT"), // s2 unblocks with 40001
+            step("s1-commit", 0, "COMMIT"),                               // s2 unblocks with 40001
             step("s2-rollback", 1, "ROLLBACK"),
         ],
         probes: vec![probe_ssi_t()],
@@ -1073,8 +1172,18 @@ pub fn deck() -> Vec<Scenario> {
             step("s2-begin", 1, "BEGIN"),
             step("s1-lock11", 0, "UPDATE ssi_t SET v = v + 1 WHERE id = 11"),
             step("s2-lock12", 1, "UPDATE ssi_t SET v = v + 1 WHERE id = 12"),
-            gstep("s1-want12", 0, "UPDATE ssi_t SET v = v + 1 WHERE id = 12", "dl"),
-            gstep("s2-want11", 1, "UPDATE ssi_t SET v = v + 1 WHERE id = 11", "dl"),
+            gstep(
+                "s1-want12",
+                0,
+                "UPDATE ssi_t SET v = v + 1 WHERE id = 12",
+                "dl",
+            ),
+            gstep(
+                "s2-want11",
+                1,
+                "UPDATE ssi_t SET v = v + 1 WHERE id = 11",
+                "dl",
+            ),
             gstep("s1-end", 0, "COMMIT", "dl"),
             gstep("s2-end", 1, "COMMIT", "dl"),
         ],
@@ -1108,9 +1217,24 @@ pub fn deck() -> Vec<Scenario> {
             step("s1-lock14", 0, "UPDATE ssi_t SET v = v + 1 WHERE id = 14"),
             step("s2-lock15", 1, "UPDATE ssi_t SET v = v + 1 WHERE id = 15"),
             step("s3-lock16", 2, "UPDATE ssi_t SET v = v + 1 WHERE id = 16"),
-            gstep("s1-want15", 0, "UPDATE ssi_t SET v = v + 1 WHERE id = 15", "dl3"),
-            gstep("s2-want16", 1, "UPDATE ssi_t SET v = v + 1 WHERE id = 16", "dl3"),
-            gstep("s3-want14", 2, "UPDATE ssi_t SET v = v + 1 WHERE id = 14", "dl3"),
+            gstep(
+                "s1-want15",
+                0,
+                "UPDATE ssi_t SET v = v + 1 WHERE id = 15",
+                "dl3",
+            ),
+            gstep(
+                "s2-want16",
+                1,
+                "UPDATE ssi_t SET v = v + 1 WHERE id = 16",
+                "dl3",
+            ),
+            gstep(
+                "s3-want14",
+                2,
+                "UPDATE ssi_t SET v = v + 1 WHERE id = 14",
+                "dl3",
+            ),
             gstep("s1-end", 0, "COMMIT", "dl3"),
             gstep("s2-end", 1, "COMMIT", "dl3"),
             gstep("s3-end", 2, "COMMIT", "dl3"),
@@ -1135,8 +1259,16 @@ pub fn deck() -> Vec<Scenario> {
             step("s1-begin", 0, "BEGIN"),
             step("s2-begin", 1, "BEGIN"),
             step("s3-begin", 2, "BEGIN"),
-            step("s1-share", 0, "SELECT id FROM ssi_t WHERE id = 21 FOR SHARE"),
-            step("s2-share", 1, "SELECT id FROM ssi_t WHERE id = 21 FOR SHARE"),
+            step(
+                "s1-share",
+                0,
+                "SELECT id FROM ssi_t WHERE id = 21 FOR SHARE",
+            ),
+            step(
+                "s2-share",
+                1,
+                "SELECT id FROM ssi_t WHERE id = 21 FOR SHARE",
+            ),
             step("s3-upd", 2, "UPDATE ssi_t SET v = 99 WHERE id = 21"), // blocks on multixact
             step("s1-commit", 0, "COMMIT"), // s3 still blocked (s2 holds)
             step("s2-commit", 1, "COMMIT"), // s3 unblocks
@@ -1179,7 +1311,8 @@ pub fn deck() -> Vec<Scenario> {
     //      on both members.
     v.push(Scenario {
         name: "multixact-keyupdate",
-        description: "FOR KEY SHARE + no-key UPDATE multixact; reader resolves update xid; FOR UPDATE waits",
+        description:
+            "FOR KEY SHARE + no-key UPDATE multixact; reader resolves update xid; FOR UPDATE waits",
         setup: vec![T_SSI.into()],
         sessions: 3,
         session_setup: vec!["SET statement_timeout = '20s'".into()],
@@ -1187,7 +1320,11 @@ pub fn deck() -> Vec<Scenario> {
             step("s1-begin", 0, "BEGIN"),
             step("s2-begin", 1, "BEGIN"),
             step("s3-begin", 2, "BEGIN"),
-            step("s1-keyshare", 0, "SELECT id FROM ssi_t WHERE id = 71 FOR KEY SHARE"),
+            step(
+                "s1-keyshare",
+                0,
+                "SELECT id FROM ssi_t WHERE id = 71 FOR KEY SHARE",
+            ),
             // Non-key UPDATE: compatible with KEY SHARE -> multixact
             // {s1 keyshare, s2 nokeyupdate}.
             step("s2-upd", 1, "UPDATE ssi_t SET v = 500 WHERE id = 71"),
@@ -1195,7 +1332,11 @@ pub fn deck() -> Vec<Scenario> {
             // decide visibility: sees the old version.
             step("s3-read", 2, "SELECT v FROM ssi_t WHERE id = 71"),
             // FOR UPDATE conflicts with both members: waits.
-            step("s3-forupd", 2, "SELECT id, v FROM ssi_t WHERE id = 71 FOR UPDATE"),
+            step(
+                "s3-forupd",
+                2,
+                "SELECT id, v FROM ssi_t WHERE id = 71 FOR UPDATE",
+            ),
             step("s2-commit", 1, "COMMIT"), // still blocked on s1
             step("s1-commit", 0, "COMMIT"), // s3 unblocks, sees v=500
             step("s3-commit", 2, "COMMIT"),
@@ -1214,7 +1355,11 @@ pub fn deck() -> Vec<Scenario> {
         steps: vec![
             step("s1-mktemp", 0, "CREATE TEMP TABLE q4ssitmp (a int)"),
             step("s1-fill", 0, "INSERT INTO q4ssitmp VALUES (1), (2)"),
-            step("s1-own", 0, "SELECT pg_is_other_temp_schema(pg_my_temp_schema())"),
+            step(
+                "s1-own",
+                0,
+                "SELECT pg_is_other_temp_schema(pg_my_temp_schema())",
+            ),
             step(
                 "s2-other",
                 1,
@@ -1280,7 +1425,8 @@ pub fn deck() -> Vec<Scenario> {
     //     commit -> 23505; and the rollback variant succeeds.
     v.push(Scenario {
         name: "unique-wait",
-        description: "duplicate-pk insert waits on inserter's xact; commit -> 23505, rollback -> success",
+        description:
+            "duplicate-pk insert waits on inserter's xact; commit -> 23505, rollback -> success",
         setup: vec![T_SSI.into()],
         sessions: 2,
         session_setup: vec!["SET statement_timeout = '20s'".into()],
@@ -1289,7 +1435,7 @@ pub fn deck() -> Vec<Scenario> {
             step("s2-begin", 1, "BEGIN"),
             step("s1-ins", 0, "INSERT INTO ssi_t VALUES (1001, 1, 1)"),
             step("s2-ins", 1, "INSERT INTO ssi_t VALUES (1001, 2, 2)"), // blocks
-            step("s1-commit", 0, "COMMIT"), // s2 unblocks with 23505
+            step("s1-commit", 0, "COMMIT"),                             // s2 unblocks with 23505
             step("s2-rollback", 1, "ROLLBACK"),
             step("s1-begin2", 0, "BEGIN"),
             step("s2-begin2", 1, "BEGIN"),
@@ -1315,7 +1461,7 @@ pub fn deck() -> Vec<Scenario> {
             step("s2-begin", 1, begin_srl()),
             step("s1-upd", 0, "UPDATE ssi_t SET v = v + 1 WHERE id = 61"),
             step("s2-upd", 1, "UPDATE ssi_t SET v = v + 7 WHERE id = 61"), // blocks
-            step("s1-commit", 0, "COMMIT"), // s2 unblocks with 40001
+            step("s1-commit", 0, "COMMIT"),                                // s2 unblocks with 40001
             step("s2-rollback", 1, "ROLLBACK"),
         ],
         probes: vec![probe_ssi_t()],
@@ -1333,11 +1479,19 @@ pub fn deck() -> Vec<Scenario> {
         steps: vec![
             step("s1-begin", 0, begin_srl()),
             step("s1-read", 0, "SELECT sum(v) FROM ssi_t WHERE class = 1"),
-            step("s1-write", 0, "UPDATE ssi_t SET v = v + 1 WHERE class = 1 AND id <= 4"),
+            step(
+                "s1-write",
+                0,
+                "UPDATE ssi_t SET v = v + 1 WHERE class = 1 AND id <= 4",
+            ),
             step("s1-commit", 0, "COMMIT"),
             step("s2-begin", 1, begin_srl()),
             step("s2-read", 1, "SELECT sum(v) FROM ssi_t WHERE class = 1"),
-            step("s2-write", 1, "UPDATE ssi_t SET v = v + 1 WHERE class = 1 AND id <= 4"),
+            step(
+                "s2-write",
+                1,
+                "UPDATE ssi_t SET v = v + 1 WHERE class = 1 AND id <= 4",
+            ),
             step("s2-commit", 1, "COMMIT"),
         ],
         probes: vec![probe_ssi_t()],
@@ -1386,7 +1540,11 @@ pub fn random_scenario(seed: u64, steps_per_session: usize) -> Scenario {
         for (i, id) in targets.iter().enumerate() {
             let roll = rng.below(100);
             let stmt = if roll < 25 {
-                format!("SELECT count(*), COALESCE(sum(v), 0) FROM ssi_t WHERE id BETWEEN {} AND {}", id, id + 1 + rng.below(20) as u32)
+                format!(
+                    "SELECT count(*), COALESCE(sum(v), 0) FROM ssi_t WHERE id BETWEEN {} AND {}",
+                    id,
+                    id + 1 + rng.below(20) as u32
+                )
             } else if roll < 45 {
                 format!("UPDATE ssi_t SET v = v + 1 WHERE id = {id}")
             } else if roll < 60 {
@@ -1413,7 +1571,11 @@ pub fn random_scenario(seed: u64, steps_per_session: usize) -> Scenario {
             };
             stmts.push(stmt);
         }
-        stmts.push(if rng.below(4) == 0 { "ROLLBACK".into() } else { "COMMIT".into() });
+        stmts.push(if rng.below(4) == 0 {
+            "ROLLBACK".into()
+        } else {
+            "COMMIT".into()
+        });
         per_session.push(stmts);
     }
     // Seeded merge preserving per-session order. IMPORTANT determinism
@@ -1444,13 +1606,18 @@ pub fn random_scenario(seed: u64, steps_per_session: usize) -> Scenario {
     for s in order {
         let sql = per_session[s][taken[s]].clone();
         taken[s] += 1;
-        let name: &'static str =
-            Box::leak(format!("r{s}-{}", taken[s]).into_boxed_str());
-        steps.push(Step { name, session: s, sql, group: None });
+        let name: &'static str = Box::leak(format!("r{s}-{}", taken[s]).into_boxed_str());
+        steps.push(Step {
+            name,
+            session: s,
+            sql,
+            group: None,
+        });
     }
     Scenario {
         name: Box::leak(format!("rand-{seed}").into_boxed_str()),
-        description: "seeded random interleaving over ssi_t (ascending lock targets, no generated deadlocks)",
+        description:
+            "seeded random interleaving over ssi_t (ascending lock targets, no generated deadlocks)",
         setup: vec![T_SSI.into()],
         sessions: nsessions,
         session_setup: vec!["SET statement_timeout = '20s'".into()],
@@ -1572,7 +1739,10 @@ mod tests {
             key: OutcomeKey::Command("BEGIN".into()),
             msg: String::new(),
         }];
-        let b = vec![Event::Blocked { step: 0, detect: BlockDetect::Monitor }];
+        let b = vec![Event::Blocked {
+            step: 0,
+            detect: BlockDetect::Monitor,
+        }];
         let d = compare(sc, &a, &b);
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].class, "SCHEDULE");
@@ -1587,25 +1757,73 @@ mod tests {
         assert!(g(4).is_some() && g(5).is_some() && g(6).is_some() && g(7).is_some());
         let mk = |victim_first: bool| -> Vec<Event> {
             let (k1, k2) = if victim_first {
-                (OutcomeKey::Error("40P01".into()), OutcomeKey::Command("UPDATE 1".into()))
+                (
+                    OutcomeKey::Error("40P01".into()),
+                    OutcomeKey::Command("UPDATE 1".into()),
+                )
             } else {
-                (OutcomeKey::Command("UPDATE 1".into()), OutcomeKey::Error("40P01".into()))
+                (
+                    OutcomeKey::Command("UPDATE 1".into()),
+                    OutcomeKey::Error("40P01".into()),
+                )
             };
             let (c1, c2) = if victim_first {
-                (OutcomeKey::Command("ROLLBACK".into()), OutcomeKey::Command("COMMIT".into()))
+                (
+                    OutcomeKey::Command("ROLLBACK".into()),
+                    OutcomeKey::Command("COMMIT".into()),
+                )
             } else {
-                (OutcomeKey::Command("COMMIT".into()), OutcomeKey::Command("ROLLBACK".into()))
+                (
+                    OutcomeKey::Command("COMMIT".into()),
+                    OutcomeKey::Command("ROLLBACK".into()),
+                )
             };
             vec![
-                Event::Completed { step: 0, key: OutcomeKey::Command("BEGIN".into()), msg: String::new() },
-                Event::Completed { step: 1, key: OutcomeKey::Command("BEGIN".into()), msg: String::new() },
-                Event::Completed { step: 2, key: OutcomeKey::Command("UPDATE 1".into()), msg: String::new() },
-                Event::Completed { step: 3, key: OutcomeKey::Command("UPDATE 1".into()), msg: String::new() },
-                Event::Blocked { step: 4, detect: BlockDetect::Monitor },
-                Event::Completed { step: 5, key: k2.clone(), msg: String::new() },
-                Event::Unblocked { step: 4, after: 5, key: k1.clone(), msg: String::new() },
-                Event::Completed { step: 6, key: c1, msg: String::new() },
-                Event::Completed { step: 7, key: c2, msg: String::new() },
+                Event::Completed {
+                    step: 0,
+                    key: OutcomeKey::Command("BEGIN".into()),
+                    msg: String::new(),
+                },
+                Event::Completed {
+                    step: 1,
+                    key: OutcomeKey::Command("BEGIN".into()),
+                    msg: String::new(),
+                },
+                Event::Completed {
+                    step: 2,
+                    key: OutcomeKey::Command("UPDATE 1".into()),
+                    msg: String::new(),
+                },
+                Event::Completed {
+                    step: 3,
+                    key: OutcomeKey::Command("UPDATE 1".into()),
+                    msg: String::new(),
+                },
+                Event::Blocked {
+                    step: 4,
+                    detect: BlockDetect::Monitor,
+                },
+                Event::Completed {
+                    step: 5,
+                    key: k2.clone(),
+                    msg: String::new(),
+                },
+                Event::Unblocked {
+                    step: 4,
+                    after: 5,
+                    key: k1.clone(),
+                    msg: String::new(),
+                },
+                Event::Completed {
+                    step: 6,
+                    key: c1,
+                    msg: String::new(),
+                },
+                Event::Completed {
+                    step: 7,
+                    key: c2,
+                    msg: String::new(),
+                },
             ]
         };
         // Same shape, swapped victims: group-invariant must hold.
@@ -1642,41 +1860,110 @@ mod tests {
         // A: s1 (parked) victimized.
         let mut a = Vec::new();
         pre(&mut a);
-        a.push(Event::Blocked { step: 4, detect: BlockDetect::Monitor });
-        a.push(Event::Completed { step: 5, key: OutcomeKey::Command("UPDATE 1".into()), msg: String::new() });
-        a.push(Event::Unblocked { step: 4, after: 5, key: OutcomeKey::Error("40P01".into()), msg: String::new() });
-        a.push(Event::Completed { step: 6, key: OutcomeKey::Command("ROLLBACK".into()), msg: String::new() });
-        a.push(Event::Completed { step: 7, key: OutcomeKey::Command("COMMIT".into()), msg: String::new() });
-        a.push(Event::Probe { label: "ssi_t-sum", key: OutcomeKey::Rows(vec![20, 20], vec![vec![Some("2".into()), Some("22".into())]]) });
+        a.push(Event::Blocked {
+            step: 4,
+            detect: BlockDetect::Monitor,
+        });
+        a.push(Event::Completed {
+            step: 5,
+            key: OutcomeKey::Command("UPDATE 1".into()),
+            msg: String::new(),
+        });
+        a.push(Event::Unblocked {
+            step: 4,
+            after: 5,
+            key: OutcomeKey::Error("40P01".into()),
+            msg: String::new(),
+        });
+        a.push(Event::Completed {
+            step: 6,
+            key: OutcomeKey::Command("ROLLBACK".into()),
+            msg: String::new(),
+        });
+        a.push(Event::Completed {
+            step: 7,
+            key: OutcomeKey::Command("COMMIT".into()),
+            msg: String::new(),
+        });
+        a.push(Event::Probe {
+            label: "ssi_t-sum",
+            key: OutcomeKey::Rows(
+                vec![20, 20],
+                vec![vec![Some("2".into()), Some("22".into())]],
+            ),
+        });
         // B: s2 (issued) victimized; s1's parked step unblocks after s2-end.
         let mut b = Vec::new();
         pre(&mut b);
-        b.push(Event::Blocked { step: 4, detect: BlockDetect::Monitor });
-        b.push(Event::Completed { step: 5, key: OutcomeKey::Error("40P01".into()), msg: String::new() });
-        b.push(Event::Completed { step: 6, key: OutcomeKey::Command("COMMIT".into()), msg: String::new() });
-        b.push(Event::Unblocked { step: 4, after: 6, key: OutcomeKey::Command("UPDATE 1".into()), msg: String::new() });
-        b.push(Event::Completed { step: 7, key: OutcomeKey::Command("ROLLBACK".into()), msg: String::new() });
-        b.push(Event::Probe { label: "ssi_t-sum", key: OutcomeKey::Rows(vec![20, 20], vec![vec![Some("2".into()), Some("22".into())]]) });
+        b.push(Event::Blocked {
+            step: 4,
+            detect: BlockDetect::Monitor,
+        });
+        b.push(Event::Completed {
+            step: 5,
+            key: OutcomeKey::Error("40P01".into()),
+            msg: String::new(),
+        });
+        b.push(Event::Completed {
+            step: 6,
+            key: OutcomeKey::Command("COMMIT".into()),
+            msg: String::new(),
+        });
+        b.push(Event::Unblocked {
+            step: 4,
+            after: 6,
+            key: OutcomeKey::Command("UPDATE 1".into()),
+            msg: String::new(),
+        });
+        b.push(Event::Completed {
+            step: 7,
+            key: OutcomeKey::Command("ROLLBACK".into()),
+            msg: String::new(),
+        });
+        b.push(Event::Probe {
+            label: "ssi_t-sum",
+            key: OutcomeKey::Rows(
+                vec![20, 20],
+                vec![vec![Some("2".into()), Some("22".into())]],
+            ),
+        });
         let d = compare(&sc, &a, &b);
         assert!(d.is_empty(), "{d:?}");
         // But a final-state mismatch under the same shape skew IS caught.
         if let Some(Event::Probe { key, .. }) = b.last_mut() {
-            *key = OutcomeKey::Rows(vec![20, 20], vec![vec![Some("2".into()), Some("23".into())]]);
+            *key = OutcomeKey::Rows(
+                vec![20, 20],
+                vec![vec![Some("2".into()), Some("23".into())]],
+            );
         }
         let d = compare(&sc, &a, &b);
         assert!(d.iter().any(|x| x.class == "PROBE"), "{d:?}");
         // And an ungrouped step blocking on only one side is SCHEDULE.
         let mut c = a.clone();
-        c[2] = Event::Blocked { step: 2, detect: BlockDetect::Monitor };
-        c.push(Event::Unblocked { step: 2, after: 7, key: OutcomeKey::Command("UPDATE 1".into()), msg: String::new() });
+        c[2] = Event::Blocked {
+            step: 2,
+            detect: BlockDetect::Monitor,
+        };
+        c.push(Event::Unblocked {
+            step: 2,
+            after: 7,
+            key: OutcomeKey::Command("UPDATE 1".into()),
+            msg: String::new(),
+        });
         let d = compare(&sc, &a, &c);
         assert!(d.iter().any(|x| x.class == "SCHEDULE"), "{d:?}");
     }
 
     #[test]
     fn outcome_key_excludes_error_message() {
-        let a = StmtOutcome::Error { sqlstate: "40001".into(), message: "pid 123".into() };
-        let b = StmtOutcome::Error { sqlstate: "40001".into(), message: "pid 456".into() };
+        let a = StmtOutcome::Error {
+            sqlstate: "40001".into(),
+            message: "pid 123".into(),
+        };
+        let b = StmtOutcome::Error {
+            sqlstate: "40001".into(),
+            message: "pid 456".into(),
+        };
         assert_eq!(outcome_key(&a), outcome_key(&b));
     }
 }

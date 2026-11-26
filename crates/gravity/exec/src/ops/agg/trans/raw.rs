@@ -32,7 +32,12 @@ pub(crate) fn bytes_unshared(arena: &UnsafeCell<Box<AggArena>>) -> u64 {
 
 /// The arena's combine of the held state `from` into `into` (two `AGG_STATE_BYTES` state slots of one aggregate). The
 /// caller is the leader's merge (`Held::merge_into`, `Sync` above): no worker reaches the arena.
-pub(crate) fn combine_unshared(arena: &UnsafeCell<Box<AggArena>>, aggno: u32, into: *mut u8, from: *const u8) -> PgResult<()> {
+pub(crate) fn combine_unshared(
+    arena: &UnsafeCell<Box<AggArena>>,
+    aggno: u32,
+    into: *mut u8,
+    from: *const u8,
+) -> PgResult<()> {
     // SAFETY: the caller's contract above; `into` / `from` are the record's and the partial's live state slots.
     unsafe { (*arena.get()).combine(aggno, into, from) }
 }
@@ -41,7 +46,12 @@ pub(crate) fn combine_unshared(arena: &UnsafeCell<Box<AggArena>>, aggno: u32, in
 /// read from `into`'s) in worker `ordinal`'s slot through the arena's `AggHead.combine` (`from` left zeroed); `Err(())` with
 /// PG's error stashed. The caller is the owner phase on the leader after the workers finished (as `merge_into`).
 #[allow(dead_code)] // its reader is `Held::combiner` (owner.rs fold_pair, M6-FOLD D798), stacked on this row
-pub(crate) fn combine_held(arena: &UnsafeCell<Box<AggArena>>, ordinal: u16, into: *mut u8, from: *mut u8) -> core::result::Result<(), ()> {
+pub(crate) fn combine_held(
+    arena: &UnsafeCell<Box<AggArena>>,
+    ordinal: u16,
+    into: *mut u8,
+    from: *mut u8,
+) -> core::result::Result<(), ()> {
     // SAFETY: the caller's contract above; the head is the live arena's, `into` / `from` are two state slots of one
     // aggregate.
     unsafe {
@@ -62,7 +72,12 @@ pub(crate) fn combine_held(arena: &UnsafeCell<Box<AggArena>>, ordinal: u16, into
 /// internal states); here each such state is rehomed, combined from an empty state into the merge slot's context
 /// (PG's combine with a NULL first state; a strict combinefn copies a by-reference state, an internal state's combinefn
 /// is never strict).
-pub(crate) fn merge_hosted(leader: &mut State<'_>, partial: Partial<'_>, combine: &mut dyn FnMut(u32, *mut u8, *const u8) -> PgResult<()>, homed: &core::cell::Cell<bool>) -> Result<()> {
+pub(crate) fn merge_hosted(
+    leader: &mut State<'_>,
+    partial: Partial<'_>,
+    combine: &mut dyn FnMut(u32, *mut u8, *const u8) -> PgResult<()>,
+    homed: &core::cell::Cell<bool>,
+) -> Result<()> {
     // SAFETY: a plain aggregate's partial and leader regions, each a record table of one (`single_record`).
     unsafe {
         let src = single_record(partial.bytes);
@@ -70,23 +85,42 @@ pub(crate) fn merge_hosted(leader: &mut State<'_>, partial: Partial<'_>, combine
             if let Some(dst) = single_record(leader.bytes) {
                 let layout = HashAgg::view(leader.bytes.as_ptr()).layout;
                 for j in 0..layout.nslots() {
-                    rehome(combine, dst, layout.slot_kind(j), layout.slot_off(j) as usize)?;
+                    rehome(
+                        combine,
+                        dst,
+                        layout.slot_kind(j),
+                        layout.slot_off(j) as usize,
+                    )?;
                 }
                 homed.set(true);
             }
         }
-        let Some(src) = src else { return PlainAggPartial.merge_into(leader, partial) };
+        let Some(src) = src else {
+            return PlainAggPartial.merge_into(leader, partial);
+        };
         let layout = HashAgg::view(partial.bytes.as_ptr()).layout;
-        let held = |r: *mut u8, j: usize| layout.slot_kind(j) == SlotKind::AggState && *r.add(layout.slot_off(j) as usize + AGGSTATE_HELD) != 0;
+        let held = |r: *mut u8, j: usize| {
+            layout.slot_kind(j) == SlotKind::AggState
+                && *r.add(layout.slot_off(j) as usize + AGGSTATE_HELD) != 0
+        };
         let before = single_record(leader.bytes);
-        let moved: Vec<usize> = (0..layout.nslots()).filter(|&j| held(src, j) && before.is_none_or(|d| !held(d, j))).collect(); // alloc: Exec
+        let moved: Vec<usize> = (0..layout.nslots())
+            .filter(|&j| held(src, j) && before.is_none_or(|d| !held(d, j)))
+            .collect(); // alloc: Exec
         match before {
             Some(dst) if (0..layout.nslots()).any(|j| held(src, j) && held(dst, j)) => {
                 let need = HASHAGG_HDR + layout.size() as usize;
-                debug_assert!(partial.bytes.len() >= need && leader.bytes.len() >= need, "a hosted record outside its plain region (D792, D806)");
-                debug_assert!(HashAgg::view(leader.bytes.as_ptr()).layout == layout, "a plain partial of another layout");
+                debug_assert!(
+                    partial.bytes.len() >= need && leader.bytes.len() >= need,
+                    "a hosted record outside its plain region (D792, D806)"
+                );
+                debug_assert!(
+                    HashAgg::view(leader.bytes.as_ptr()).layout == layout,
+                    "a plain partial of another layout"
+                );
                 let mut copy = vec![0u64; partial.bytes.len().max(need).div_ceil(8)]; // alloc: Exec
-                let whole = core::slice::from_raw_parts_mut(copy.as_mut_ptr().cast::<u8>(), copy.len() * 8);
+                let whole =
+                    core::slice::from_raw_parts_mut(copy.as_mut_ptr().cast::<u8>(), copy.len() * 8);
                 whole[..partial.bytes.len()].copy_from_slice(partial.bytes);
                 let at = src.offset_from(partial.bytes.as_ptr()) as usize;
                 for j in (0..layout.nslots()).filter(|&j| held(src, j) && held(dst, j)) {
@@ -98,13 +132,24 @@ pub(crate) fn merge_hosted(leader: &mut State<'_>, partial: Partial<'_>, combine
                     }
                     whole[at + off + AGGSTATE_HELD] = 0;
                 }
-                PlainAggPartial.merge_into(leader, Partial { bytes: &whole[..partial.bytes.len()], ..partial })?;
+                PlainAggPartial.merge_into(
+                    leader,
+                    Partial {
+                        bytes: &whole[..partial.bytes.len()],
+                        ..partial
+                    },
+                )?;
             }
             _ => PlainAggPartial.merge_into(leader, partial)?,
         }
         if let Some(dst) = single_record(leader.bytes) {
             for &j in &moved {
-                rehome(combine, dst, layout.slot_kind(j), layout.slot_off(j) as usize)?;
+                rehome(
+                    combine,
+                    dst,
+                    layout.slot_kind(j),
+                    layout.slot_off(j) as usize,
+                )?;
             }
             homed.set(true);
         }
@@ -114,7 +159,12 @@ pub(crate) fn merge_hosted(leader: &mut State<'_>, partial: Partial<'_>, combine
 
 /// D1404: the held state at `rec + off` (an `AggState` slot) combined from an empty state into the merge slot's context and
 /// written back in place; any other slot kind, or a state not held, is left as it is.
-unsafe fn rehome(combine: &mut dyn FnMut(u32, *mut u8, *const u8) -> PgResult<()>, rec: *mut u8, kind: SlotKind, off: usize) -> Result<()> {
+unsafe fn rehome(
+    combine: &mut dyn FnMut(u32, *mut u8, *const u8) -> PgResult<()>,
+    rec: *mut u8,
+    kind: SlotKind,
+    off: usize,
+) -> Result<()> {
     if kind != SlotKind::AggState || *rec.add(off + AGGSTATE_HELD) == 0 {
         return Ok(());
     }
@@ -124,7 +174,11 @@ unsafe fn rehome(combine: &mut dyn FnMut(u32, *mut u8, *const u8) -> PgResult<()
         gravity_fn::stash_error(e);
         return Err(Error::Raised(raise::bit(raise::HOST)));
     }
-    core::ptr::copy_nonoverlapping(fresh.as_ptr().cast::<u8>(), rec.add(off), AGG_STATE_BYTES as usize);
+    core::ptr::copy_nonoverlapping(
+        fresh.as_ptr().cast::<u8>(),
+        rec.add(off),
+        AGG_STATE_BYTES as usize,
+    );
     Ok(())
 }
 

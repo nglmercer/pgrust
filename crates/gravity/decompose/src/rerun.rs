@@ -16,13 +16,12 @@ use types_nodes::{Node, NodeTag};
 
 use crate::admit::Refusal;
 use crate::catalog::Facts;
-use crate::effects::Parallel;
 pub use crate::effects::found::{dump_f5, Found};
+use crate::effects::Parallel;
 use crate::graph::{slot_has, slot_set, Bound, Rerun, SlotSet};
-use crate::lifetime;
 use crate::ledger::Kind;
+use crate::lifetime;
 use crate::walk::Builder;
-
 
 /// D3796 (`Walk::domain`): how many domains' CHECK expressions a walk reads inside one another before it fails closed.
 const DOMAIN_DEPTH: usize = 8;
@@ -58,11 +57,20 @@ enum Cut<'a, 'p> {
     Kids(&'a dyn Fn(Node<'p>, Node<'p>) -> bool),
     /// D3749 (`of_inner_after`): the CTEs whose plans a nest's outer row has run to their end (`whole`) or up to their
     /// first row (`started`, `first_row`), and whether the walk is inside a started CTE's plan above its first Sort (`top`).
-    After { whole: &'a [i32], started: &'a [i32], top: bool },
+    After {
+        whole: &'a [i32],
+        started: &'a [i32],
+        top: bool,
+    },
 }
 
 /// The facts of plan subtree `root`.
-pub fn of_plan<'p>(stmt: &'p PlannedStmt<'p>, facts: &dyn Facts, arena: ArenaRef, root: Node<'p>) -> Found {
+pub fn of_plan<'p>(
+    stmt: &'p PlannedStmt<'p>,
+    facts: &dyn Facts,
+    arena: ArenaRef,
+    root: Node<'p>,
+) -> Found {
     let mut w = Walk::new(Some(stmt), facts, arena);
     w.plan(root);
     w.found
@@ -94,9 +102,19 @@ pub fn of_all_plans<'p>(stmt: &'p PlannedStmt<'p>, facts: &dyn Facts, arena: Are
 /// row (the inner's scan of it runs nothing of its plan), and a `started` one's plan ran below its first Sort (the inner's
 /// scan runs only the nodes above it). Their stores stay for the statement, so the rows are the same at every rescan. A
 /// LockRows in those plans (River's FOR UPDATE claim) is then no part of the inner.
-pub fn of_inner_after<'p>(stmt: &'p PlannedStmt<'p>, facts: &dyn Facts, arena: ArenaRef, root: Node<'p>, (whole, started): (&[i32], &[i32])) -> Found {
+pub fn of_inner_after<'p>(
+    stmt: &'p PlannedStmt<'p>,
+    facts: &dyn Facts,
+    arena: ArenaRef,
+    root: Node<'p>,
+    (whole, started): (&[i32], &[i32]),
+) -> Found {
     let mut w = Walk::new(Some(stmt), facts, arena);
-    w.cut = Some(Cut::After { whole, started, top: false });
+    w.cut = Some(Cut::After {
+        whole,
+        started,
+        top: false,
+    });
     w.plan(root);
     w.found
 }
@@ -107,11 +125,21 @@ pub fn of_inner_after<'p>(stmt: &'p PlannedStmt<'p>, facts: &dyn Facts, arena: A
 /// on its child's row; a Hash Join's row comes after its Hash read its child whole, and an INNER / LEFT / SEMI / ANTI one's
 /// after its outer handed a row; a Nested Loop's or a Merge Join's of those types after its outer handed a row. Anything
 /// else adds nothing (an Append's arm, a Gather's worker: not known to have run).
-pub fn first_row<'p>(stmt: &'p PlannedStmt<'p>, n: Node<'p>, whole: &mut ArenaVec<i32>, started: &mut ArenaVec<i32>) {
+pub fn first_row<'p>(
+    stmt: &'p PlannedStmt<'p>,
+    n: Node<'p>,
+    whole: &mut ArenaVec<i32>,
+    started: &mut ArenaVec<i32>,
+) {
     crate::walk::stack_check();
     use types_nodes::jointype::JoinType;
     let Some(p) = n.as_plan() else { return };
-    let outer = |t: JoinType| matches!(t, JoinType::JOIN_INNER | JoinType::JOIN_LEFT | JoinType::JOIN_SEMI | JoinType::JOIN_ANTI);
+    let outer = |t: JoinType| {
+        matches!(
+            t,
+            JoinType::JOIN_INNER | JoinType::JOIN_LEFT | JoinType::JOIN_SEMI | JoinType::JOIN_ANTI
+        )
+    };
     match n.node_tag() {
         NodeTag::T_CteScan => {
             let id = n.as_cte_scan().unwrap().ctePlanId;
@@ -122,25 +150,61 @@ pub fn first_row<'p>(stmt: &'p PlannedStmt<'p>, n: Node<'p>, whole: &mut ArenaVe
                 }
             }
         }
-        NodeTag::T_Sort | NodeTag::T_Hash => p.lefttree.into_iter().for_each(|c| drained(stmt, c, whole)),
-        NodeTag::T_Agg if n.as_agg().is_some_and(|a| a.groupingSets.is_nil() && matches!(a.aggstrategy, crate::ops::shared::agg::AGG_PLAIN | crate::ops::shared::agg::AGG_HASHED)) => {
+        NodeTag::T_Sort | NodeTag::T_Hash => {
             p.lefttree.into_iter().for_each(|c| drained(stmt, c, whole))
         }
-        NodeTag::T_Result if n.as_result().is_some_and(|r| r.resconstantqual.is_none()) => p.lefttree.into_iter().for_each(|c| first_row(stmt, c, whole, started)),
-        NodeTag::T_Agg | NodeTag::T_Limit | NodeTag::T_LockRows | NodeTag::T_Unique | NodeTag::T_WindowAgg | NodeTag::T_Material | NodeTag::T_Group | NodeTag::T_IncrementalSort => {
-            p.lefttree.into_iter().for_each(|c| first_row(stmt, c, whole, started))
+        NodeTag::T_Agg
+            if n.as_agg().is_some_and(|a| {
+                a.groupingSets.is_nil()
+                    && matches!(
+                        a.aggstrategy,
+                        crate::ops::shared::agg::AGG_PLAIN | crate::ops::shared::agg::AGG_HASHED
+                    )
+            }) =>
+        {
+            p.lefttree.into_iter().for_each(|c| drained(stmt, c, whole))
         }
-        NodeTag::T_SubqueryScan => n.as_subquery_scan().and_then(|s| s.subplan).into_iter().for_each(|c| first_row(stmt, c, whole, started)),
+        NodeTag::T_Result if n.as_result().is_some_and(|r| r.resconstantqual.is_none()) => p
+            .lefttree
+            .into_iter()
+            .for_each(|c| first_row(stmt, c, whole, started)),
+        NodeTag::T_Agg
+        | NodeTag::T_Limit
+        | NodeTag::T_LockRows
+        | NodeTag::T_Unique
+        | NodeTag::T_WindowAgg
+        | NodeTag::T_Material
+        | NodeTag::T_Group
+        | NodeTag::T_IncrementalSort => p
+            .lefttree
+            .into_iter()
+            .for_each(|c| first_row(stmt, c, whole, started)),
+        NodeTag::T_SubqueryScan => n
+            .as_subquery_scan()
+            .and_then(|s| s.subplan)
+            .into_iter()
+            .for_each(|c| first_row(stmt, c, whole, started)),
         NodeTag::T_HashJoin => {
-            p.righttree.and_then(|h| h.as_plan()).and_then(|h| h.lefttree).into_iter().for_each(|c| drained(stmt, c, whole));
+            p.righttree
+                .and_then(|h| h.as_plan())
+                .and_then(|h| h.lefttree)
+                .into_iter()
+                .for_each(|c| drained(stmt, c, whole));
             if outer(n.as_hash_join().unwrap().join.jointype) {
-                p.lefttree.into_iter().for_each(|c| first_row(stmt, c, whole, started));
+                p.lefttree
+                    .into_iter()
+                    .for_each(|c| first_row(stmt, c, whole, started));
             }
         }
         NodeTag::T_NestLoop | NodeTag::T_MergeJoin => {
-            let t = n.as_nest_loop().map(|j| j.join.jointype).or(n.as_merge_join().map(|j| j.join.jointype));
+            let t = n
+                .as_nest_loop()
+                .map(|j| j.join.jointype)
+                .or(n.as_merge_join().map(|j| j.join.jointype));
             if t.is_some_and(outer) {
-                p.lefttree.into_iter().for_each(|c| first_row(stmt, c, whole, started));
+                p.lefttree
+                    .into_iter()
+                    .for_each(|c| first_row(stmt, c, whole, started));
             }
         }
         _ => {}
@@ -164,13 +228,32 @@ fn drained<'p>(stmt: &'p PlannedStmt<'p>, n: Node<'p>, whole: &mut ArenaVec<i32>
                 }
             }
         }
-        NodeTag::T_Result if n.as_result().is_some_and(|r| r.resconstantqual.is_none()) => p.lefttree.into_iter().for_each(|c| drained(stmt, c, whole)),
-        NodeTag::T_WindowAgg if n.as_window_agg().is_some_and(|w| w.runCondition.is_nil()) => p.lefttree.into_iter().for_each(|c| drained(stmt, c, whole)),
-        NodeTag::T_Sort | NodeTag::T_Hash | NodeTag::T_Agg | NodeTag::T_LockRows | NodeTag::T_Unique | NodeTag::T_Material | NodeTag::T_Group | NodeTag::T_IncrementalSort | NodeTag::T_NestLoop => {
+        NodeTag::T_Result if n.as_result().is_some_and(|r| r.resconstantqual.is_none()) => {
             p.lefttree.into_iter().for_each(|c| drained(stmt, c, whole))
         }
-        NodeTag::T_SubqueryScan => n.as_subquery_scan().and_then(|s| s.subplan).into_iter().for_each(|c| drained(stmt, c, whole)),
-        NodeTag::T_Append => n.as_append().unwrap().appendplans.iter().for_each(|c| drained(stmt, c, whole)),
+        NodeTag::T_WindowAgg if n.as_window_agg().is_some_and(|w| w.runCondition.is_nil()) => {
+            p.lefttree.into_iter().for_each(|c| drained(stmt, c, whole))
+        }
+        NodeTag::T_Sort
+        | NodeTag::T_Hash
+        | NodeTag::T_Agg
+        | NodeTag::T_LockRows
+        | NodeTag::T_Unique
+        | NodeTag::T_Material
+        | NodeTag::T_Group
+        | NodeTag::T_IncrementalSort
+        | NodeTag::T_NestLoop => p.lefttree.into_iter().for_each(|c| drained(stmt, c, whole)),
+        NodeTag::T_SubqueryScan => n
+            .as_subquery_scan()
+            .and_then(|s| s.subplan)
+            .into_iter()
+            .for_each(|c| drained(stmt, c, whole)),
+        NodeTag::T_Append => n
+            .as_append()
+            .unwrap()
+            .appendplans
+            .iter()
+            .for_each(|c| drained(stmt, c, whole)),
         _ => {}
     }
 }
@@ -178,7 +261,12 @@ fn drained<'p>(stmt: &'p PlannedStmt<'p>, n: Node<'p>, whole: &mut ArenaVec<i32>
 /// D4051 (join.rs `map_hash_join`, lowerv4 hashjoin build_class.rs `nonbuiltin_build`): the facts of a Hash's build,
 /// `of_plan` over its subtree and hash keys, with a data-modifying CTE it reads taken as its store: PostgreSQL runs such a
 /// CTE to its end whether or not the build runs (ExecPostprocessPlan), so its write is no code of the build's.
-pub fn of_build<'p>(stmt: &'p PlannedStmt<'p>, facts: &dyn Facts, arena: ArenaRef, root: Node<'p>) -> Found {
+pub fn of_build<'p>(
+    stmt: &'p PlannedStmt<'p>,
+    facts: &dyn Facts,
+    arena: ArenaRef,
+    root: Node<'p>,
+) -> Found {
     let mut w = Walk::new(Some(stmt), facts, arena);
     w.seen.extend(writes(stmt)); // alloc: Cold
     w.plan(root);
@@ -187,12 +275,20 @@ pub fn of_build<'p>(stmt: &'p PlannedStmt<'p>, facts: &dyn Facts, arena: ArenaRe
 
 /// The plan ids of the statement's data-modifying CTEs (a subplan whose root is a ModifyTable).
 fn writes<'p>(stmt: &'p PlannedStmt<'p>) -> impl Iterator<Item = i32> + 'p {
-    (1..=stmt.subplans.len() as i32).filter(move |&id| subplan_root(stmt, id).is_some_and(|r| r.node_tag() == NodeTag::T_ModifyTable))
+    (1..=stmt.subplans.len() as i32).filter(move |&id| {
+        subplan_root(stmt, id).is_some_and(|r| r.node_tag() == NodeTag::T_ModifyTable)
+    })
 }
 
 /// The facts of the part of subtree `root` a rescan runs again: the walk stops at a child `cut(parent, child)` names (a
 /// node that keeps its state and does not rescan its children, the lifetime home's `shields_in`).
-pub fn of_rerun<'p>(stmt: &'p PlannedStmt<'p>, facts: &dyn Facts, arena: ArenaRef, root: Node<'p>, cut: &dyn Fn(Node<'p>, Node<'p>) -> bool) -> Found {
+pub fn of_rerun<'p>(
+    stmt: &'p PlannedStmt<'p>,
+    facts: &dyn Facts,
+    arena: ArenaRef,
+    root: Node<'p>,
+    cut: &dyn Fn(Node<'p>, Node<'p>) -> bool,
+) -> Found {
     let mut w = Walk::new(Some(stmt), facts, arena);
     w.cut = Some(Cut::Kids(cut));
     w.plan(root);
@@ -203,7 +299,13 @@ pub fn of_rerun<'p>(stmt: &'p PlannedStmt<'p>, facts: &dyn Facts, arena: ArenaRe
 /// rebuild for another calling node: buildSubPlanHash): `of_rerun`'s walk stopped where PostgreSQL surely keeps state
 /// (`lifetime::keeps_in`), less the stores its nodes keep (`Walk::kept`). `same_rows` then says the rescan makes the rows
 /// the first run made, and `acts` whether it calls a VOLATILE function again.
-pub fn of_rescan<'p>(stmt: &'p PlannedStmt<'p>, facts: &dyn Facts, arena: ArenaRef, root: Node<'p>, changed: &[i32]) -> Found {
+pub fn of_rescan<'p>(
+    stmt: &'p PlannedStmt<'p>,
+    facts: &dyn Facts,
+    arena: ArenaRef,
+    root: Node<'p>,
+    changed: &[i32],
+) -> Found {
     let cut = |up: Node<'p>, k: Node<'p>| lifetime::keeps_in(stmt, changed, up, k);
     let mut w = Walk::new(Some(stmt), facts, arena);
     w.cut = Some(Cut::Kids(&cut));
@@ -213,7 +315,12 @@ pub fn of_rescan<'p>(stmt: &'p PlannedStmt<'p>, facts: &dyn Facts, arena: ArenaR
 }
 
 /// The facts of expression `n` (a SubPlan in it counts its plan).
-pub fn of_expr<'p>(stmt: &'p PlannedStmt<'p>, facts: &dyn Facts, arena: ArenaRef, n: Node<'p>) -> Found {
+pub fn of_expr<'p>(
+    stmt: &'p PlannedStmt<'p>,
+    facts: &dyn Facts,
+    arena: ArenaRef,
+    n: Node<'p>,
+) -> Found {
     let mut w = Walk::new(Some(stmt), facts, arena);
     w.expr(n);
     w.found
@@ -222,7 +329,12 @@ pub fn of_expr<'p>(stmt: &'p PlannedStmt<'p>, facts: &dyn Facts, arena: ArenaRef
 /// The facts of expression `n` in the lowering's per-expression scope: a SubPlan in it counts its own parts (its
 /// arguments and test, and the raise of a sublink that may return more than one row), not its plan, which runs as the
 /// plan's own pipelines and is read there (C1's lowering-end agreement check, lowerv4 effects/end_check.rs).
-pub fn of_expr_own<'p>(stmt: &'p PlannedStmt<'p>, facts: &dyn Facts, arena: ArenaRef, n: Node<'p>) -> Found {
+pub fn of_expr_own<'p>(
+    stmt: &'p PlannedStmt<'p>,
+    facts: &dyn Facts,
+    arena: ArenaRef,
+    n: Node<'p>,
+) -> Found {
     let mut w = Walk::new(Some(stmt), facts, arena);
     crate::expr::walk(n, &mut |x| {
         if let Some(s) = x.as_sub_plan() {
@@ -245,9 +357,17 @@ pub fn of_expr_alone<'p>(facts: &dyn Facts, arena: ArenaRef, n: Node<'p>) -> Fou
 /// support functions, an I/O coercion's functions, a node that raises by itself; a SubPlan's sublink raise and plan, unknown
 /// with no statement). A list's members are its children. A node the walk does not know is unknown: volatile, raising,
 /// unstable. For a reader that visits the children itself, in PostgreSQL's evaluation order.
-pub fn of_node<'p>(stmt: Option<&'p PlannedStmt<'p>>, facts: &dyn Facts, arena: ArenaRef, n: Node<'p>) -> Found {
+pub fn of_node<'p>(
+    stmt: Option<&'p PlannedStmt<'p>>,
+    facts: &dyn Facts,
+    arena: ArenaRef,
+    n: Node<'p>,
+) -> Found {
     let mut w = Walk::new(stmt, facts, arena);
-    if n.as_list().is_none() && matches!(w.node(n), Children::Kids) && !crate::expr::kids(n, &mut |_| {}) {
+    if n.as_list().is_none()
+        && matches!(w.node(n), Children::Kids)
+        && !crate::expr::kids(n, &mut |_| {})
+    {
         w.unknown();
     }
     w.found
@@ -265,7 +385,12 @@ enum Children<'p> {
 }
 
 /// The facts of a SubPlan's call: its test, its args and its plan (with the sublink's own raise: a second row).
-pub fn of_subplan<'p>(stmt: &'p PlannedStmt<'p>, facts: &dyn Facts, arena: ArenaRef, s: &'p SubPlan<'p>) -> Found {
+pub fn of_subplan<'p>(
+    stmt: &'p PlannedStmt<'p>,
+    facts: &dyn Facts,
+    arena: ArenaRef,
+    s: &'p SubPlan<'p>,
+) -> Found {
     let mut w = Walk::new(Some(stmt), facts, arena);
     w.opt(s.testexpr);
     w.list(&s.args);
@@ -276,7 +401,12 @@ pub fn of_subplan<'p>(stmt: &'p PlannedStmt<'p>, facts: &dyn Facts, arena: Arena
 /// D4137 (`of_build`'s reading for a SubPlan's call): `of_subplan` with a data-modifying CTE its plan reads taken as its
 /// store. PostgreSQL runs such a CTE to its end whether or not the call runs (ExecPostprocessPlan), so its write is no act
 /// of the call's.
-pub fn of_subplan_stored<'p>(stmt: &'p PlannedStmt<'p>, facts: &dyn Facts, arena: ArenaRef, s: &'p SubPlan<'p>) -> Found {
+pub fn of_subplan_stored<'p>(
+    stmt: &'p PlannedStmt<'p>,
+    facts: &dyn Facts,
+    arena: ArenaRef,
+    s: &'p SubPlan<'p>,
+) -> Found {
     let mut w = Walk::new(Some(stmt), facts, arena);
     w.seen.extend(writes(stmt).filter(|&id| id != s.plan_id)); // alloc: Cold
     w.opt(s.testexpr);
@@ -289,8 +419,15 @@ pub fn of_subplan_stored<'p>(stmt: &'p PlannedStmt<'p>, facts: &dyn Facts, arena
 /// that stay fixed for the statement (`fixed_params`: so none of a nest's, a SubPlan's, a recursion's or an enclosing
 /// query level's), and the effects home reads the walk's facts as returning the same rows (`Effects::same_rows`: nothing
 /// in it acts, nothing in it makes different rows per run).
-pub fn invariant<'p>(stmt: &'p PlannedStmt<'p>, arena: ArenaRef, root: Node<'p>, found: Found) -> bool {
-    let Some(p) = root.as_plan() else { return false };
+pub fn invariant<'p>(
+    stmt: &'p PlannedStmt<'p>,
+    arena: ArenaRef,
+    root: Node<'p>,
+    found: Found,
+) -> bool {
+    let Some(p) = root.as_plan() else {
+        return false;
+    };
     if !crate::effects::Effects::of_found(found).same_rows {
         return false;
     }
@@ -304,7 +441,9 @@ pub fn invariant<'p>(stmt: &'p PlannedStmt<'p>, arena: ArenaRef, root: Node<'p>,
             epq.push(l.epqParam);
         }
     });
-    p.allParam.iter().all(|x| fixed.contains(&x) || epq.contains(&x))
+    p.allParam
+        .iter()
+        .all(|x| fixed.contains(&x) || epq.contains(&x))
 }
 
 /// The statement's params that never change once set: those an InitPlan binds whose plan reads no param but such ones.
@@ -330,7 +469,10 @@ pub fn fixed_params<'p>(stmt: &'p PlannedStmt<'p>, arena: ArenaRef) -> ArenaVec<
             if s.setParam.iter().all(|x| fixed.contains(&x)) {
                 continue;
             }
-            if subplan_root(stmt, s.plan_id).and_then(|r| r.as_plan()).is_some_and(|p| p.extParam.iter().all(|x| fixed.contains(&x))) {
+            if subplan_root(stmt, s.plan_id)
+                .and_then(|r| r.as_plan())
+                .is_some_and(|p| p.extParam.iter().all(|x| fixed.contains(&x)))
+            {
                 fixed.extend(s.setParam.iter());
                 grew = true;
             }
@@ -348,7 +490,11 @@ pub fn fixed_params<'p>(stmt: &'p PlannedStmt<'p>, arena: ArenaRef) -> ArenaVec<
 /// - it sits in the plan of a SubPlan that is no CTE's (an InitPlan or a SubPlan, run on demand at its first read, which
 ///   may come after a UNION ALL arm sent its row).
 ///   A node in a CTE's plan is lowerv4's to answer (D4203: ops/ctescan/lower.rs runs the producers first or refuses).
-pub(crate) fn runs_late<'p>(stmt: &'p PlannedStmt<'p>, arena: ArenaRef, plan: &types_nodes::plannodes::Plan<'p>) -> bool {
+pub(crate) fn runs_late<'p>(
+    stmt: &'p PlannedStmt<'p>,
+    arena: ArenaRef,
+    plan: &types_nodes::plannodes::Plan<'p>,
+) -> bool {
     let me = plan.plan_node_id;
     let mut ctes: ArenaVec<i32> = ArenaVec::new_in(arena); // alloc: Cold
     each_plan_node(stmt, &mut |n| {
@@ -358,10 +504,17 @@ pub(crate) fn runs_late<'p>(stmt: &'p PlannedStmt<'p>, arena: ArenaRef, plan: &t
     });
     let holds = |r: Node<'p>| {
         let mut found = false;
-        each_node(r, &mut |n| found |= n.as_plan().is_some_and(|p| p.plan_node_id == me));
+        each_node(r, &mut |n| {
+            found |= n.as_plan().is_some_and(|p| p.plan_node_id == me)
+        });
         found
     };
-    let sub = stmt.subplans.iter().enumerate().find(|(_, r)| r.is_some_and(holds)).map(|(i, _)| i as i32 + 1);
+    let sub = stmt
+        .subplans
+        .iter()
+        .enumerate()
+        .find(|(_, r)| r.is_some_and(holds))
+        .map(|(i, _)| i as i32 + 1);
     if sub.is_some_and(|id| ctes.contains(&id)) {
         return false;
     }
@@ -371,13 +524,20 @@ pub(crate) fn runs_late<'p>(stmt: &'p PlannedStmt<'p>, arena: ArenaRef, plan: &t
 
 pub fn subplan_root<'p>(stmt: &'p PlannedStmt<'p>, plan_id: i32) -> Option<Node<'p>> {
     let n = usize::try_from(plan_id).ok()?.checked_sub(1)?;
-    (n < stmt.subplans.len()).then(|| stmt.subplans.nth(n)).flatten().filter(|r| r.as_plan().is_some())
+    (n < stmt.subplans.len())
+        .then(|| stmt.subplans.nth(n))
+        .flatten()
+        .filter(|r| r.as_plan().is_some())
 }
 
 /// Every plan node of the tree under `n` (its plan children; the SubPlans its expressions call are separate trees).
 /// Every plan node of the statement: its tree and each subplan's, parents first.
 pub fn each_plan_node<'p>(stmt: &'p PlannedStmt<'p>, f: &mut dyn FnMut(Node<'p>)) {
-    for r in stmt.planTree.into_iter().chain(stmt.subplans.iter().flatten()) {
+    for r in stmt
+        .planTree
+        .into_iter()
+        .chain(stmt.subplans.iter().flatten())
+    {
         each_node(r, f);
     }
 }
@@ -423,7 +583,9 @@ pub(crate) fn path_has(n: Node<'_>, lock: i32, id: i32) -> Option<bool> {
 /// D3271: whether plan node `id` is in the tree under `n`.
 pub(crate) fn holds_node(n: Node<'_>, id: i32) -> bool {
     let mut hit = false;
-    each_node(n, &mut |x| hit |= x.as_plan().is_some_and(|p| p.plan_node_id == id));
+    each_node(n, &mut |x| {
+        hit |= x.as_plan().is_some_and(|p| p.plan_node_id == id)
+    });
     hit
 }
 
@@ -446,8 +608,23 @@ fn plan_kids<'p>(n: Node<'p>, f: &mut dyn FnMut(Node<'p>)) {
 }
 
 impl<'a, 'p> Walk<'a, 'p> {
-    fn new(stmt: Option<&'p PlannedStmt<'p>>, facts: &'a dyn Facts, arena: ArenaRef) -> Walk<'a, 'p> {
-        Walk { stmt, facts, found: Found::CLEAN, wt: ArenaVec::new_in(arena), seen: ArenaVec::new_in(arena), cut: None, kept: None, last_call: None, arena, domains: &[] } // alloc: Cold
+    fn new(
+        stmt: Option<&'p PlannedStmt<'p>>,
+        facts: &'a dyn Facts,
+        arena: ArenaRef,
+    ) -> Walk<'a, 'p> {
+        Walk {
+            stmt,
+            facts,
+            found: Found::CLEAN,
+            wt: ArenaVec::new_in(arena),
+            seen: ArenaVec::new_in(arena),
+            cut: None,
+            kept: None,
+            last_call: None,
+            arena,
+            domains: &[],
+        } // alloc: Cold
     }
 
     fn unknown(&mut self) {
@@ -501,7 +678,8 @@ impl<'a, 'p> Walk<'a, 'p> {
                 self.found.acts |= acts;
                 self.found.parallel = self.found.parallel.max(p.pool(oid));
                 // F5 reads the effects home's raise-free answer (effects/found.rs `call_raise_free`)
-                self.found.raise_free &= crate::effects::found::call_raise_free(self.facts, quiet, &p, oid, args, list);
+                self.found.raise_free &=
+                    crate::effects::found::call_raise_free(self.facts, quiet, &p, oid, args, list);
             }
             None => self.unknown(),
         }
@@ -541,7 +719,8 @@ impl<'a, 'p> Walk<'a, 'p> {
                 found.add(w.found);
             }
         });
-        self.found.add(if read { found } else { Found::DOMAIN_CHECK });
+        self.found
+            .add(if read { found } else { Found::DOMAIN_CHECK });
     }
 
     /// An operator call: its function as the node names it, else the operator's `oprcode`.
@@ -551,7 +730,11 @@ impl<'a, 'p> Walk<'a, 'p> {
 
     /// `oper` over the OpExpr's `args` and input collation (`call`).
     fn oper_over(&mut self, opno: u32, funcid: u32, args: Option<(&NodeList<'_>, u32)>) {
-        match if funcid != 0 { Some(funcid) } else { self.facts.oper(opno).map(|o| o.code).filter(|&c| c != 0) } {
+        match if funcid != 0 {
+            Some(funcid)
+        } else {
+            self.facts.oper(opno).map(|o| o.code).filter(|&c| c != 0)
+        } {
             Some(f) => self.call(f, args),
             None => self.op_alone(opno),
         }
@@ -565,7 +748,10 @@ impl<'a, 'p> Walk<'a, 'p> {
     /// operator (a SQL or PL procedure, a C function, an unknown one) stays unknown.
     fn op_alone(&mut self, opno: u32) {
         match self.facts.op_calls(opno) {
-            Some(c) if c.each().all(|p| crate::effects::body(self.facts, p).is_some()) => {
+            Some(c)
+                if c.each()
+                    .all(|p| crate::effects::body(self.facts, p).is_some()) =>
+            {
                 c.each().for_each(|p| self.call(p, None));
                 if c.no_order() {
                     self.raises();
@@ -647,7 +833,11 @@ impl<'a, 'p> Walk<'a, 'p> {
                 let o = n.as_scalar_array_op_expr().unwrap();
                 // D3788: over its arguments, so a pattern match over a constant list of good patterns reads raise-free
                 // (`effects::quiet_pattern_list`), as the effects home's `quiet_node` reads it
-                match if o.opfuncid != 0 { Some(o.opfuncid) } else { self.facts.oper(o.opno).map(|x| x.code).filter(|&c| c != 0) } {
+                match if o.opfuncid != 0 {
+                    Some(o.opfuncid)
+                } else {
+                    self.facts.oper(o.opno).map(|x| x.code).filter(|&c| c != 0)
+                } {
                     Some(f) => self.call_in(f, Some((&o.args, o.inputcollid)), true),
                     None => self.op_alone(o.opno),
                 }
@@ -674,7 +864,9 @@ impl<'a, 'p> Walk<'a, 'p> {
                 let a = n.as_aggref().unwrap();
                 let before = self.found.raise_free;
                 self.agg(a.aggfnoid, true);
-                if a.aggsplit == types_nodes::primnodes::AGGSPLIT_SIMPLE && crate::effects::agg_quiet(a) {
+                if a.aggsplit == types_nodes::primnodes::AGGSPLIT_SIMPLE
+                    && crate::effects::agg_quiet(a)
+                {
                     self.found.raise_free = before;
                 }
             }
@@ -694,7 +886,9 @@ impl<'a, 'p> Walk<'a, 'p> {
             // source's `Facts::type_io`, unknown without one); an input function raises on text it cannot read
             NodeTag::T_CoerceViaIO => {
                 let c = n.as_coerce_via_io().unwrap();
-                let out = crate::catalog::expr_type::type_of(c.arg).and_then(|t| self.facts.type_io(t)).map(|t| t.1);
+                let out = crate::catalog::expr_type::type_of(c.arg)
+                    .and_then(|t| self.facts.type_io(t))
+                    .map(|t| t.1);
                 let input = self.facts.type_io(c.resulttype).map(|t| t.0);
                 let before = self.found.raise_free;
                 for f in [out, input] {
@@ -705,23 +899,34 @@ impl<'a, 'p> Walk<'a, 'p> {
                 }
                 // AGC-30: to a text-like type from a listed source neither function raises (the effects home's rule)
                 match crate::catalog::expr_type::type_of(c.arg) {
-                    Some(t) if types_core::quiet::io_quiet(t, c.resulttype) => self.found.raise_free = before,
+                    Some(t) if types_core::quiet::io_quiet(t, c.resulttype) => {
+                        self.found.raise_free = before
+                    }
                     _ => self.raises(),
                 }
             }
             NodeTag::T_CoerceToDomain => self.domain(n.as_coerce_to_domain().unwrap().resulttype),
-            NodeTag::T_ArrayCoerceExpr | NodeTag::T_MinMaxExpr | NodeTag::T_SubscriptingRef => self.raises(),
+            NodeTag::T_ArrayCoerceExpr | NodeTag::T_MinMaxExpr | NodeTag::T_SubscriptingRef => {
+                self.raises()
+            }
             // AGC-31: IS JSON by the effects home's rule (`effects::json_is_quiet`)
-            NodeTag::T_JsonIsPredicate if crate::effects::json_is_quiet(n.as_json_is_predicate().unwrap()) => {}
+            NodeTag::T_JsonIsPredicate
+                if crate::effects::json_is_quiet(n.as_json_is_predicate().unwrap()) => {}
             // AGC-03: XMLCONCAT / XMLELEMENT / XMLFOREST by the effects home's rule (`effects::xml_quiet`)
             NodeTag::T_XmlExpr if crate::effects::xml_quiet(n.as_xml_expr().unwrap()) => {}
-            NodeTag::T_XmlExpr | NodeTag::T_JsonExpr | NodeTag::T_JsonConstructorExpr | NodeTag::T_JsonIsPredicate | NodeTag::T_JsonValueExpr | NodeTag::T_JsonBehavior => self.raises(),
+            NodeTag::T_XmlExpr
+            | NodeTag::T_JsonExpr
+            | NodeTag::T_JsonConstructorExpr
+            | NodeTag::T_JsonIsPredicate
+            | NodeTag::T_JsonValueExpr
+            | NodeTag::T_JsonBehavior => self.raises(),
             NodeTag::T_ArrayExpr if n.as_array_expr().unwrap().multidims => self.raises(),
             // CURRENT_DATE, CURRENT_USER, ..: stable (`contain_mutable_functions`); the role ones may raise (D3920:
             // `quiet::svf_raise_free`, the expression reader's answer too)
             NodeTag::T_SQLValueFunction => {
                 self.found.stable_node();
-                if !types_core::quiet::svf_raise_free(n.as_sql_value_function().unwrap().op as u32) {
+                if !types_core::quiet::svf_raise_free(n.as_sql_value_function().unwrap().op as u32)
+                {
                     self.raises();
                 }
             }
@@ -729,7 +934,9 @@ impl<'a, 'p> Walk<'a, 'p> {
             // D1112 (writesubplan): RETURNING's OLD / NEW image of a view column (PG 18's ReturningExpr) evaluates its
             // expression, or yields NULL with no such image (EEOP_RETURNINGEXPR): the expression's facts (a `(SELECT old)`
             // over a view passes that ROW(..) image as the SubPlan's argument)
-            NodeTag::T_ReturningExpr => return Children::One(n.as_returning_expr().unwrap().retexpr),
+            NodeTag::T_ReturningExpr => {
+                return Children::One(n.as_returning_expr().unwrap().retexpr)
+            }
             // an ordered / DISTINCT aggregate's clause: the operators it compares with, no expression under it
             NodeTag::T_SortGroupClause => {
                 let c = n.as_sort_group_clause().unwrap();
@@ -753,8 +960,16 @@ impl<'a, 'p> Walk<'a, 'p> {
         let root = self.stmt.and_then(|st| subplan_root(st, s.plan_id));
         // `more than one row returned by a subquery used as an expression` (ExecScanSubPlan / ExecSetParamPlan): none
         // where the plan returns at most one row each run (the facts home's row bound)
-        let one = root.zip(self.stmt).is_some_and(|(r, st)| crate::catalog::rows::max_rows(self.facts, st, r).is_some_and(|m| m <= 1));
-        if matches!(s.subLinkType, SubLinkType::EXPR_SUBLINK | SubLinkType::ROWCOMPARE_SUBLINK | SubLinkType::MULTIEXPR_SUBLINK) && !one {
+        let one = root.zip(self.stmt).is_some_and(|(r, st)| {
+            crate::catalog::rows::max_rows(self.facts, st, r).is_some_and(|m| m <= 1)
+        });
+        if matches!(
+            s.subLinkType,
+            SubLinkType::EXPR_SUBLINK
+                | SubLinkType::ROWCOMPARE_SUBLINK
+                | SubLinkType::MULTIEXPR_SUBLINK
+        ) && !one
+        {
             self.raises();
         }
         if self.seen.contains(&s.plan_id) {
@@ -762,9 +977,24 @@ impl<'a, 'p> Walk<'a, 'p> {
         }
         self.seen.push(s.plan_id);
         // a rescan keeps a hashed SubPlan's table, an InitPlan's cell and a CTE's rows while their plan reads no changed param
-        let read = |r: Node<'p>| r.as_plan().is_some_and(|p| p.allParam.iter().any(|q| self.kept.is_some_and(|c| c.contains(&q))));
-        let holds = s.useHashTable || !s.setParam.is_nil() || s.subLinkType == SubLinkType::CTE_SUBLINK;
-        if self.kept.is_some() && holds && root.is_some_and(|r| !read(r) && s.parParam.iter().all(|q| !self.kept.is_some_and(|c| c.contains(&q)))) {
+        let read = |r: Node<'p>| {
+            r.as_plan().is_some_and(|p| {
+                p.allParam
+                    .iter()
+                    .any(|q| self.kept.is_some_and(|c| c.contains(&q)))
+            })
+        };
+        let holds =
+            s.useHashTable || !s.setParam.is_nil() || s.subLinkType == SubLinkType::CTE_SUBLINK;
+        if self.kept.is_some()
+            && holds
+            && root.is_some_and(|r| {
+                !read(r)
+                    && s.parParam
+                        .iter()
+                        .all(|q| !self.kept.is_some_and(|c| c.contains(&q)))
+            })
+        {
             return;
         }
         let top = self.top(false);
@@ -780,7 +1010,12 @@ impl<'a, 'p> Walk<'a, 'p> {
     fn scanned(&mut self, scanrelid: u32) {
         let n = (scanrelid as usize).checked_sub(1);
         let rtable = self.stmt.map(|st| &st.rtable);
-        let relid = rtable.and_then(|t| n.filter(|&n| n < t.len()).and_then(|n| t.nth(n).as_range_tbl_entry())).map(|r| r.relid);
+        let relid = rtable
+            .and_then(|t| {
+                n.filter(|&n| n < t.len())
+                    .and_then(|n| t.nth(n).as_range_tbl_entry())
+            })
+            .map(|r| r.relid);
         let hazard = match relid.map(|r| self.facts.rel_ext(r)) {
             Some(e) if e.known && !e.temp => Parallel::Safe,
             Some(e) if e.known => Parallel::Restricted,
@@ -789,19 +1024,27 @@ impl<'a, 'p> Walk<'a, 'p> {
         self.found.parallel = self.found.parallel.max(hazard);
         // a sequence's row is the state nextval moves (SELECT last_value FROM s): a statement that reads one holds no
         // call-local proof; a relation the facts cannot name fails closed
-        self.found.local_state |= relid.and_then(|r| self.facts.rel(r)).is_none_or(|r| r.relkind == b'S');
+        self.found.local_state |= relid
+            .and_then(|r| self.facts.rel(r))
+            .is_none_or(|r| r.relkind == b'S');
     }
 
     /// Range-table entry `scanrelid` is a heap relation by the facts.
     fn heap(&self, scanrelid: u32) -> bool {
         let n = (scanrelid as usize).checked_sub(1);
-        let rte = self.stmt.and_then(|st| n.filter(|&n| n < st.rtable.len()).and_then(|n| st.rtable.nth(n).as_range_tbl_entry()));
-        rte.and_then(|r| self.facts.rel(r.relid)).is_some_and(|r| r.am == crate::catalog::Am::Heap)
+        let rte = self.stmt.and_then(|st| {
+            n.filter(|&n| n < st.rtable.len())
+                .and_then(|n| st.rtable.nth(n).as_range_tbl_entry())
+        });
+        rte.and_then(|r| self.facts.rel(r.relid))
+            .is_some_and(|r| r.am == crate::catalog::Am::Heap)
     }
 
     fn plan(&mut self, n: Node<'p>) {
         crate::walk::stack_check(); // D3748: one level per plan node of the subtree
-        let Some(p) = n.as_plan() else { return self.unknown() };
+        let Some(p) = n.as_plan() else {
+            return self.unknown();
+        };
         if self.at_top() && n.node_tag() == NodeTag::T_Sort {
             return;
         }
@@ -822,11 +1065,21 @@ impl<'a, 'p> Walk<'a, 'p> {
         self.list(&p.qual);
         self.list(&p.initPlan);
         match n.node_tag() {
-            NodeTag::T_SeqScan | NodeTag::T_Material | NodeTag::T_ProjectSet | NodeTag::T_BitmapAnd | NodeTag::T_BitmapOr | NodeTag::T_SubqueryScan => {}
+            NodeTag::T_SeqScan
+            | NodeTag::T_Material
+            | NodeTag::T_ProjectSet
+            | NodeTag::T_BitmapAnd
+            | NodeTag::T_BitmapOr
+            | NodeTag::T_SubqueryScan => {}
             NodeTag::T_Result => self.opt(n.as_result().unwrap().resconstantqual),
             NodeTag::T_IndexScan => {
                 let s = n.as_index_scan().unwrap();
-                for l in [&s.indexqual, &s.indexqualorig, &s.indexorderby, &s.indexorderbyorig] {
+                for l in [
+                    &s.indexqual,
+                    &s.indexqualorig,
+                    &s.indexorderby,
+                    &s.indexorderbyorig,
+                ] {
                     self.list(l);
                 }
             }
@@ -841,7 +1094,9 @@ impl<'a, 'p> Walk<'a, 'p> {
                 self.list(&s.indexqual);
                 self.list(&s.indexqualorig);
             }
-            NodeTag::T_BitmapHeapScan => self.list(&n.as_bitmap_heap_scan().unwrap().bitmapqualorig),
+            NodeTag::T_BitmapHeapScan => {
+                self.list(&n.as_bitmap_heap_scan().unwrap().bitmapqualorig)
+            }
             NodeTag::T_TidScan => self.list(&n.as_tid_scan().unwrap().tidquals),
             NodeTag::T_TidRangeScan => self.list(&n.as_tid_range_scan().unwrap().tidrangequals),
             NodeTag::T_SampleScan => {
@@ -850,12 +1105,25 @@ impl<'a, 'p> Walk<'a, 'p> {
                 // execution does too (D1920 / D1644: its sources share the node's one seed, hosts HostRegistry::sample_seed)
                 let s = n.as_sample_scan().unwrap();
                 let clause = s.tablesample.and_then(|t| t.as_table_sample_clause());
-                let seeded = clause.is_some_and(|t| matches!(t.tsmhandler, crate::ops::shared::scan::TSM_BERNOULLI | crate::ops::shared::scan::TSM_SYSTEM));
+                let seeded = clause.is_some_and(|t| {
+                    matches!(
+                        t.tsmhandler,
+                        crate::ops::shared::scan::TSM_BERNOULLI
+                            | crate::ops::shared::scan::TSM_SYSTEM
+                    )
+                });
                 if !seeded || self.kept.is_none() && !self.heap(s.scan.scanrelid) {
                     self.found.rescan_stable = false;
                 }
                 // the clause's own raise at each scan's start (the effects home's `sample_class`; its arguments below)
-                if clause.is_none_or(|t| crate::effects::sample_class(t.tsmhandler, &t.args, t.repeatable, &crate::bake::read) != Some(true)) {
+                if clause.is_none_or(|t| {
+                    crate::effects::sample_class(
+                        t.tsmhandler,
+                        &t.args,
+                        t.repeatable,
+                        &crate::bake::read,
+                    ) != Some(true)
+                }) {
                     self.raises();
                 }
                 if let Some(t) = clause {
@@ -867,7 +1135,10 @@ impl<'a, 'p> Walk<'a, 'p> {
                 for f in n.as_function_scan().unwrap().functions.iter() {
                     match f.as_range_tbl_function() {
                         // `kept`: ExecReScanFunctionScan keeps the tuplestore while none of its funcparams changed
-                        Some(r) if self.kept.is_some_and(|c| !r.funcparams.iter().any(|q| c.contains(&q))) => {}
+                        Some(r)
+                            if self
+                                .kept
+                                .is_some_and(|c| !r.funcparams.iter().any(|q| c.contains(&q))) => {}
                         Some(r) => self.opt(r.funcexpr),
                         None => self.unknown(),
                     }
@@ -882,7 +1153,9 @@ impl<'a, 'p> Walk<'a, 'p> {
                     // D3749 (`of_inner_after`): a CTE the nest's outer row ran whole runs nothing here; one it started
                     // ran below its first Sort then
                     let (whole, now) = match self.cut {
-                        Some(Cut::After { whole, started, .. }) => (whole.contains(&id), started.contains(&id)),
+                        Some(Cut::After { whole, started, .. }) => {
+                            (whole.contains(&id), started.contains(&id))
+                        }
                         _ => (false, false),
                     };
                     let top = self.top(now);
@@ -928,7 +1201,9 @@ impl<'a, 'p> Walk<'a, 'p> {
             }
             NodeTag::T_Hash => self.list(&n.as_hash().unwrap().hashkeys),
             NodeTag::T_Sort => self.opers(n.as_sort().unwrap().sortOperators),
-            NodeTag::T_IncrementalSort => self.opers(n.as_incremental_sort().unwrap().sort.sortOperators),
+            NodeTag::T_IncrementalSort => {
+                self.opers(n.as_incremental_sort().unwrap().sort.sortOperators)
+            }
             NodeTag::T_Group => self.opers(n.as_group().unwrap().grpOperators),
             NodeTag::T_Unique => self.opers(n.as_unique().unwrap().uniqOperators),
             NodeTag::T_SetOp => self.opers(n.as_set_op().unwrap().cmpOperators),
@@ -944,14 +1219,19 @@ impl<'a, 'p> Walk<'a, 'p> {
                 self.opt(w.startOffset);
                 self.opt(w.endOffset);
                 self.list(&w.runCondition);
-                for f in [w.startInRangeFunc, w.endInRangeFunc].into_iter().filter(|&f| f != 0) {
+                for f in [w.startInRangeFunc, w.endInRangeFunc]
+                    .into_iter()
+                    .filter(|&f| f != 0)
+                {
                     self.func(f);
                 }
             }
             NodeTag::T_Limit => {
                 let l = n.as_limit().unwrap();
                 // WITH TIES raises on a null count
-                if l.limitOption == types_nodes::nodes_enums::LimitOption::LIMIT_OPTION_WITH_TIES && !matches!(crate::ops::limit_bounds(l).0, Bound::Const(_)) {
+                if l.limitOption == types_nodes::nodes_enums::LimitOption::LIMIT_OPTION_WITH_TIES
+                    && !matches!(crate::ops::limit_bounds(l).0, Bound::Const(_))
+                {
                     self.raises();
                 }
                 self.bound(l.limitCount);
@@ -1028,7 +1308,10 @@ pub struct Owner {
 
 impl From<i32> for Owner {
     fn from(node_id: i32) -> Owner {
-        Owner { node_id, plan_id: 0 }
+        Owner {
+            node_id,
+            plan_id: 0,
+        }
     }
 }
 
@@ -1044,15 +1327,31 @@ pub(crate) fn owner_inner<'p>(b: &Builder<'p, '_>, node_id: i32, plan_id: i32) -
 /// closed over the slots they fill. The slots a rerun pipeline fills or reads are leased for the statement
 /// (`breakers::leased`): they are filled and read again per outer row, so none is reassigned. A slot only the embedded
 /// inner reads stays leased by that read (the inner is never pushed).
-pub fn declare_rerun(b: &mut Builder<'_, '_>, p0: usize, node_id: i32, plan_id: i32, params: &[i32]) -> Result<(), Refusal> {
-    let k = if plan_id == 0 { Kind::NestLoop } else { Kind::SubPlan };
+pub fn declare_rerun(
+    b: &mut Builder<'_, '_>,
+    p0: usize,
+    node_id: i32,
+    plan_id: i32,
+    params: &[i32],
+) -> Result<(), Refusal> {
+    let k = if plan_id == 0 {
+        Kind::NestLoop
+    } else {
+        Kind::SubPlan
+    };
     let (set, slots, kept_by) = lifetime::rerun_set(b, p0, params, k, Owner { node_id, plan_id })?;
     b.graph.kept_by.extend(kept_by.iter().copied());
     if !set.is_empty() {
-        let (keep, _) = lifetime::kept_hashed(b, p0, &set, params, false).map_err(|why| Refusal::shape(k, node_id, why))?;
+        let (keep, _) = lifetime::kept_hashed(b, p0, &set, params, false)
+            .map_err(|why| Refusal::shape(k, node_id, why))?;
         b.graph.kept.extend(keep.iter().copied());
         let changed = lifetime::changed_params(b, &set, params);
-        b.graph.reruns.push(Rerun { node_id, plan_id, pipelines: set, slots });
+        b.graph.reruns.push(Rerun {
+            node_id,
+            plan_id,
+            pipelines: set,
+            slots,
+        });
         lifetime::claim_refills(b, p0, (b.graph.reruns.len() - 1) as u16, &changed);
     }
     Ok(())
@@ -1062,11 +1361,20 @@ pub fn declare_rerun(b: &mut Builder<'_, '_>, p0: usize, node_id: i32, plan_id: 
 /// subtree and its aggregates (arguments, FILTER, ORDER BY, transition calls). One that acts and may raise must not run
 /// again where PG keeps its table: a call run again could raise anew.
 pub(crate) fn fill_effects(b: &Builder<'_, '_>, q: usize) -> crate::effects::Effects {
-    let Some(agg) = b.closers.get(q).and_then(|c| c.as_agg()) else { return crate::effects::Effects::UNKNOWN };
+    let Some(agg) = b.closers.get(q).and_then(|c| c.as_agg()) else {
+        return crate::effects::Effects::UNKNOWN;
+    };
     let cx = crate::effects::Cx::new(b.stmt, b.facts, b.arena);
-    let mut e = agg.plan.lefttree.map_or(crate::effects::Effects::UNKNOWN, |n| crate::effects::of_plan(&cx, n));
+    let mut e = agg
+        .plan
+        .lefttree
+        .map_or(crate::effects::Effects::UNKNOWN, |n| {
+            crate::effects::of_plan(&cx, n)
+        });
     for x in agg.plan.targetlist.iter().chain(agg.plan.qual.iter()) {
-        crate::expr::run_aggrefs(x, &mut |a| e = e.and(crate::effects::of_expr(&cx, a, &crate::effects::PLAIN)));
+        crate::expr::run_aggrefs(x, &mut |a| {
+            e = e.and(crate::effects::of_expr(&cx, a, &crate::effects::PLAIN))
+        });
     }
     e
 }
@@ -1074,7 +1382,9 @@ pub(crate) fn fill_effects(b: &Builder<'_, '_>, q: usize) -> crate::effects::Eff
 /// D2612: whether pipeline `q` closes at a hashed Agg with one hash table (AGG_HASHED, no grouping sets), the one form
 /// `kept_hashed` keeps (a grouping-sets table runs again at every re-open, as PG's spilled one does).
 pub(crate) fn hashed_closer(b: &Builder<'_, '_>, q: usize) -> bool {
-    b.closers.get(q).and_then(|c| c.as_agg()).is_some_and(|a| a.aggstrategy == crate::ops::shared::agg::AGG_HASHED && a.groupingSets.is_nil())
+    b.closers.get(q).and_then(|c| c.as_agg()).is_some_and(|a| {
+        a.aggstrategy == crate::ops::shared::agg::AGG_HASHED && a.groupingSets.is_nil()
+    })
 }
 
 /// D4104: whether pipeline `q` closes at a hashed GROUPING SETS Agg in its tag form (ops/agg/gsets_tag.rs, D3029): one
@@ -1084,9 +1394,12 @@ pub(crate) fn hashed_closer(b: &Builder<'_, '_>, q: usize) -> bool {
 /// The arm form (a spool and one HashAgg per set) is not this form.
 pub(crate) fn tag_sets_closer(b: &Builder<'_, '_>, q: usize) -> bool {
     use gravity_abi::breaker::BreakerKind;
-    b.closers.get(q).and_then(|c| c.as_agg()).is_some_and(|a| a.aggstrategy == crate::ops::shared::agg::AGG_HASHED && !a.groupingSets.is_nil())
-        && matches!(b.graph.pipelines[q].desc.ends_in, gravity_program::End::Breaker(br) if matches!(br.kind, BreakerKind::HashAgg))
-        && b.graph.group_of(gravity_program::LifeId(q as u16)).is_some_and(|g| g.set.is_none())
+    b.closers.get(q).and_then(|c| c.as_agg()).is_some_and(|a| {
+        a.aggstrategy == crate::ops::shared::agg::AGG_HASHED && !a.groupingSets.is_nil()
+    }) && matches!(b.graph.pipelines[q].desc.ends_in, gravity_program::End::Breaker(br) if matches!(br.kind, BreakerKind::HashAgg))
+        && b.graph
+            .group_of(gravity_program::LifeId(q as u16))
+            .is_some_and(|g| g.set.is_none())
 }
 
 /// D1018 (nestloop item 9, main's option (a1)): a nest whose embedded inner reads breaker slot `slot` that no rerun set
@@ -1119,11 +1432,22 @@ pub(crate) fn tag_sets_closer(b: &Builder<'_, '_>, q: usize) -> bool {
 /// rescan re-reads the rewound run and nothing else (`lifetime::rereads_run`), so under an inner that acts its pipeline, which holds both nodes, is a kept member and
 /// a kept root as the Sort alone would be: the fill's VOLATILE calls run once, at the first re-open, and never under an
 /// empty outer. A quiet inner keeps the (a1) set: its re-run shows nothing.
-pub fn declare_breaker_rerun(b: &mut Builder<'_, '_>, p0: usize, (node_id, plan_id): (i32, i32), slot: u8, also: Option<u8>, acts: bool) {
+pub fn declare_breaker_rerun(
+    b: &mut Builder<'_, '_>,
+    p0: usize,
+    (node_id, plan_id): (i32, i32),
+    slot: u8,
+    also: Option<u8>,
+    acts: bool,
+) {
     let n = b.graph.pipelines.len();
     let inner = owner_inner(b, node_id, plan_id);
     // a SubPlan mapped once per reference (D1337's copies, one key) owns the set its own mapping (since `p0`) declared
-    let own = b.graph.reruns.iter().position(|r| r.node_id == node_id && r.plan_id == plan_id && (plan_id == 0 || r.pipelines.iter().all(|&q| q as usize >= p0)));
+    let own = b.graph.reruns.iter().position(|r| {
+        r.node_id == node_id
+            && r.plan_id == plan_id
+            && (plan_id == 0 || r.pipelines.iter().all(|&q| q as usize >= p0))
+    });
     if own.is_some_and(|i| slot_has(&b.graph.reruns[i].slots, slot)) {
         return;
     }
@@ -1150,7 +1474,8 @@ pub fn declare_breaker_rerun(b: &mut Builder<'_, '_>, p0: usize, (node_id, plan_
                 met = true;
                 // D4101: a Unique or a Group that only re-reads its Sort's rewound run is kept with it (`lifetime::rereads_run`), asked
                 // for an inner that acts alone: a quiet one keeps the (a1) road, where the re-run shows nothing
-                let kq = under || !lifetime::reexecuted(b, q) || acts && lifetime::rereads_run(b, q);
+                let kq =
+                    under || !lifetime::reexecuted(b, q) || acts && lifetime::rereads_run(b, q);
                 let hash = matches!(d.ends_in, gravity_program::End::Breaker(br) if br.kind == gravity_abi::breaker::BreakerKind::HashBuild);
                 if init(q) || hash && !under && at != n {
                     continue;
@@ -1180,10 +1505,20 @@ pub fn declare_breaker_rerun(b: &mut Builder<'_, '_>, p0: usize, (node_id, plan_
     }
     if keep.len() == set.len() {
         // item 9 (b): kept whole when its root is a node PG keeps (the keep table: D2616's REWIND, D2626's IncrementalSort)
-        if plan_id != 0 || own.is_some() || !roots.iter().all(|&q| kept_root(b, q as usize, inner)) || set.iter().any(|&q| sub_build(b, q as usize)) {
+        if plan_id != 0
+            || own.is_some()
+            || !roots.iter().all(|&q| kept_root(b, q as usize, inner))
+            || set.iter().any(|&q| sub_build(b, q as usize))
+        {
             return;
         }
-    } else if acts || !keep.is_empty() && (own.is_some() || roots.iter().any(|q| keep.contains(q)) || keep.iter().any(|&q| sub_build(b, q as usize)) || !edge.iter().all(|&q| lifetime::keepable(b, q as usize))) {
+    } else if acts
+        || !keep.is_empty()
+            && (own.is_some()
+                || roots.iter().any(|q| keep.contains(q))
+                || keep.iter().any(|&q| sub_build(b, q as usize))
+                || !edge.iter().all(|&q| lifetime::keepable(b, q as usize)))
+    {
         // a re-executed root: (a1) when nothing below is kept; item 9 (b) part 2 when what it reads includes a node PG
         // keeps (a Sort, a top-k, a hashed group under a plain or sorted aggregate): that node and its fill run at the first
         // re-open only, the re-executed members at every re-open over its rewound rows
@@ -1192,7 +1527,12 @@ pub fn declare_breaker_rerun(b: &mut Builder<'_, '_>, p0: usize, (node_id, plan_
     b.graph.kept.extend(keep.iter().copied());
     let mut slots: SlotSet = own.map_or([0; 4], |i| b.graph.reruns[i].slots);
     for &q in set.iter() {
-        for s in ps[q as usize].desc.consumes.iter().chain(ps[q as usize].desc.produces().iter()) {
+        for s in ps[q as usize]
+            .desc
+            .consumes
+            .iter()
+            .chain(ps[q as usize].desc.produces().iter())
+        {
             slot_set(&mut slots, *s);
         }
     }
@@ -1209,7 +1549,12 @@ pub fn declare_breaker_rerun(b: &mut Builder<'_, '_>, p0: usize, (node_id, plan_
         }
         None => {
             set.sort_unstable();
-            b.graph.reruns.push(Rerun { node_id, plan_id, pipelines: set, slots });
+            b.graph.reruns.push(Rerun {
+                node_id,
+                plan_id,
+                pipelines: set,
+                slots,
+            });
         }
     }
 }
@@ -1218,19 +1563,36 @@ pub fn declare_breaker_rerun(b: &mut Builder<'_, '_>, p0: usize, (node_id, plan_
 /// the fills the lifetime home keeps for it (`lifetime::sub_kept_fills`: run at the SubPlan's first evaluation, where
 /// PostgreSQL 18.6's first scan of its plan runs them) join its rerun set as members PG keeps (`graph.kept`, lowerv4
 /// `RERUN_KEPT`), the keep rule's earlier answers for them dropped; a SubPlan with no set gets one of those members alone.
-pub fn declare_sub_kept(b: &mut Builder<'_, '_>, p0: usize, node_id: i32, plan_id: i32, inner: &crate::graph::PipelineNode<'_>) {
+pub fn declare_sub_kept(
+    b: &mut Builder<'_, '_>,
+    p0: usize,
+    node_id: i32,
+    plan_id: i32,
+    inner: &crate::graph::PipelineNode<'_>,
+) {
     let mut keep = lifetime::sub_kept_fills(b, p0, node_id, plan_id, inner);
-    let own = b.graph.reruns.iter().position(|r| r.node_id == node_id && r.plan_id == plan_id);
+    let own = b
+        .graph
+        .reruns
+        .iter()
+        .position(|r| r.node_id == node_id && r.plan_id == plan_id);
     let ps = &b.graph.pipelines;
     if keep.is_empty() {
         return;
     }
     // the set runs them now: the keep rule's answers for them (`kept_by`, run once outside the set) no longer apply
-    b.graph.kept_by.retain(|r| !(r.node_id == node_id && r.plan_id == plan_id && keep.contains(&r.pipeline)));
+    b.graph
+        .kept_by
+        .retain(|r| !(r.node_id == node_id && r.plan_id == plan_id && keep.contains(&r.pipeline)));
     b.graph.kept.extend(keep.iter().copied());
     let mut slots: SlotSet = own.map_or([0; 4], |i| b.graph.reruns[i].slots);
     for &q in keep.iter() {
-        for s in ps[q as usize].desc.consumes.iter().chain(ps[q as usize].desc.produces().iter()) {
+        for s in ps[q as usize]
+            .desc
+            .consumes
+            .iter()
+            .chain(ps[q as usize].desc.produces().iter())
+        {
             slot_set(&mut slots, *s);
         }
     }
@@ -1243,7 +1605,12 @@ pub fn declare_sub_kept(b: &mut Builder<'_, '_>, p0: usize, node_id: i32, plan_i
         }
         None => {
             keep.sort_unstable();
-            b.graph.reruns.push(Rerun { node_id, plan_id, pipelines: keep, slots });
+            b.graph.reruns.push(Rerun {
+                node_id,
+                plan_id,
+                pipelines: keep,
+                slots,
+            });
         }
     }
 }
@@ -1265,20 +1632,42 @@ pub(crate) fn sub_build(b: &Builder<'_, '_>, q: usize) -> bool {
 /// D4101 (n10): a re-executed closer is a kept root only as a Unique or a Group re-reading its kept Sort's run (`rereads_run`).
 fn kept_root<'p>(b: &Builder<'p, '_>, q: usize, inner: Option<Node<'p>>) -> bool {
     use gravity_abi::breaker::BreakerKind;
-    let gravity_program::End::Breaker(br) = b.graph.pipelines[q].desc.ends_in else { return false };
+    let gravity_program::End::Breaker(br) = b.graph.pipelines[q].desc.ends_in else {
+        return false;
+    };
     let record = br.kind == BreakerKind::PlainAgg && hashed_closer(b, q) && plain_finals(b, q);
-    let rewound = (matches!(br.kind, BreakerKind::Sort | BreakerKind::TopK | BreakerKind::HashAgg | BreakerKind::Distinct) || record) && (!lifetime::reexecuted(b, q) || lifetime::rereads_run(b, q)) && !sub_build(b, q);
-    let site = lifetime::Site { keep_rerun: true, checks_unseen: false };
-    rewound && b.closers.get(q).is_some_and(|&c| lifetime::keep_at(b, c, &[], inner, site).is_none_or(|k| matches!(k, lifetime::Kept::Keep { .. })))
+    let rewound = (matches!(
+        br.kind,
+        BreakerKind::Sort | BreakerKind::TopK | BreakerKind::HashAgg | BreakerKind::Distinct
+    ) || record)
+        && (!lifetime::reexecuted(b, q) || lifetime::rereads_run(b, q))
+        && !sub_build(b, q);
+    let site = lifetime::Site {
+        keep_rerun: true,
+        checks_unseen: false,
+    };
+    rewound
+        && b.closers.get(q).is_some_and(|&c| {
+            lifetime::keep_at(b, c, &[], inner, site)
+                .is_none_or(|k| matches!(k, lifetime::Kept::Keep { .. }))
+        })
 }
 
 /// D3908: every aggregate of the Agg closing pipeline `q` a plain one (no ORDER BY, no DISTINCT, not ordered-set); D4031's
 /// quiet SubPlan fill too (lifetime/rerun.rs `member_reread`).
 pub(crate) fn plain_finals(b: &Builder<'_, '_>, q: usize) -> bool {
-    let Some(agg) = b.closers.get(q).and_then(|c| c.as_agg()) else { return false };
+    let Some(agg) = b.closers.get(q).and_then(|c| c.as_agg()) else {
+        return false;
+    };
     let mut plain = true;
     for x in agg.plan.targetlist.iter().chain(agg.plan.qual.iter()) {
-        crate::expr::run_aggrefs(x, &mut |a| plain &= a.as_aggref().is_some_and(|r| r.aggorder.is_nil() && r.aggdistinct.is_nil() && r.aggkind == types_nodes::primnodes::AGGKIND_NORMAL));
+        crate::expr::run_aggrefs(x, &mut |a| {
+            plain &= a.as_aggref().is_some_and(|r| {
+                r.aggorder.is_nil()
+                    && r.aggdistinct.is_nil()
+                    && r.aggkind == types_nodes::primnodes::AGGKIND_NORMAL
+            })
+        });
     }
     plain
 }

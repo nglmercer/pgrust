@@ -7,8 +7,19 @@ pub(crate) fn unique_on(gx: &crate::graph::Gx<'_, '_>, relid: u32, eqs: &[i16]) 
     let mut hit = false;
     gx.facts.indexes_of(relid, &mut |i| {
         let e = gx.facts.index_ext(i.indexid);
-        let n = usize::from(if e.nkeyatts == 0 { i.nkeys } else { e.nkeyatts.min(i.nkeys) });
-        hit |= i.unique && i.btree && !i.partial && e.known && e.valid && !e.deferrable && n > 0 && i.keys[..n].iter().all(|&a| a > 0 && eqs.contains(&a));
+        let n = usize::from(if e.nkeyatts == 0 {
+            i.nkeys
+        } else {
+            e.nkeyatts.min(i.nkeys)
+        });
+        hit |= i.unique
+            && i.btree
+            && !i.partial
+            && e.known
+            && e.valid
+            && !e.deferrable
+            && n > 0
+            && i.keys[..n].iter().all(|&a| a > 0 && eqs.contains(&a));
     });
     hit
 }

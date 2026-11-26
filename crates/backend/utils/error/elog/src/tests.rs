@@ -577,7 +577,10 @@ fn log_status_format_applies_padding_and_percent_escape() {
 
     let mut buf = Vec::new();
     log_status_format(&mut buf, Some("%8p|%-8p|%%"), &error);
-    assert_eq!(String::from_utf8(buf.clone()).unwrap(), "    1234|1234    |%");
+    assert_eq!(
+        String::from_utf8(buf.clone()).unwrap(),
+        "    1234|1234    |%"
+    );
 
     // Padding-only escapes for absent values render spaces; %q in a backend
     // is ignored; a trailing bare % is a format error and is dropped.
@@ -598,8 +601,15 @@ fn log_status_format_padding_wraps_like_c_int() {
     // elog.c:2801 accumulates the width in a wrapping int: 2^32 is 0 and
     // 2^32 + 8 is 8, not a saturated i32::MAX of padding.
     let mut buf = Vec::new();
-    log_status_format(&mut buf, Some("%4294967296p|%4294967304p|%-4294967304p"), &error);
-    assert_eq!(String::from_utf8(buf.clone()).unwrap(), "1234|    1234|1234    ");
+    log_status_format(
+        &mut buf,
+        Some("%4294967296p|%4294967304p|%-4294967304p"),
+        &error,
+    );
+    assert_eq!(
+        String::from_utf8(buf.clone()).unwrap(),
+        "1234|    1234|1234    "
+    );
 
     set_backend_log_context(previous);
 }
@@ -717,10 +727,16 @@ fn check_log_of_query_needs_a_statement_in_flight() {
     let q = String::from("select 1/0");
     let scope = debug_query_string_scope(&q);
     assert!(check_log_of_query(&PgError::error("boom")));
-    assert!(!check_log_of_query(&PgError::warning("below log_min_error_statement")));
-    assert!(!check_log_of_query(&PgError::error("hidden").with_hide_statement(true)));
+    assert!(!check_log_of_query(&PgError::warning(
+        "below log_min_error_statement"
+    )));
+    assert!(!check_log_of_query(
+        &PgError::error("hidden").with_hide_statement(true)
+    ));
     drop(scope);
-    assert!(check_log_of_query(&PgError::error("reported after the frame unwound")));
+    assert!(check_log_of_query(&PgError::error(
+        "reported after the frame unwound"
+    )));
     clear_retired_debug_query_string();
     assert!(!check_log_of_query(&PgError::error("idle")));
 }
@@ -1043,7 +1059,10 @@ fn builder_captures_errno_for_percent_m() {
         .into_error();
     assert_eq!(
         err.message,
-        format!("could not open directory \"d\": {}", errno::strerror(libc::EBADF))
+        format!(
+            "could not open directory \"d\": {}",
+            errno::strerror(libc::EBADF)
+        )
     );
 }
 
@@ -1171,7 +1190,11 @@ fn crit_section_guard_balances_the_count_on_every_exit() {
     let g = CritSection::enter();
     assert_eq!(config::crit_section_count(), 1);
     let inner = CritSection::enter();
-    assert_eq!(config::crit_section_count(), 2, "sections nest like C's counter");
+    assert_eq!(
+        config::crit_section_count(),
+        2,
+        "sections nest like C's counter"
+    );
     inner.exit();
     assert_eq!(config::crit_section_count(), 1);
     drop(g);
@@ -1226,7 +1249,10 @@ fn crit_section_run_promotes_escaping_hand_built_error() {
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         CritSection::run(|| -> PgResult<()> {
-            Err(Box::new(PgError::new(ERROR, "xlog flush request 0/1234 is not satisfied")))
+            Err(Box::new(PgError::new(
+                ERROR,
+                "xlog flush request 0/1234 is not satisfied",
+            )))
         })
     }));
     assert!(result
@@ -1235,8 +1261,10 @@ fn crit_section_run_promotes_escaping_hand_built_error() {
     assert_eq!(config::crit_section_count(), 0);
 
     #[allow(clippy::unnecessary_literal_unwrap)]
-
-    let err = Err::<(), _>(Box::new(PgError::new(ERROR, "xlog flush request 0/1234 is not satisfied")))
+    let err = Err::<(), _>(Box::new(PgError::new(
+        ERROR,
+        "xlog flush request 0/1234 is not satisfied",
+    )))
     .unwrap_err();
     assert_eq!(err.level, ERROR);
 }
@@ -1282,15 +1310,24 @@ fn percent_m_marker_expansion_and_literal_retention() {
 
     let arg_literal = ErrorBuilder::new(ERROR)
         .with_saved_errno(2)
-        .errmsg_internal(format!("relation \"{name}\" does not exist", name = "no%mtable"))
+        .errmsg_internal(format!(
+            "relation \"{name}\" does not exist",
+            name = "no%mtable"
+        ))
         .into_error();
-    assert_eq!(arg_literal.message(), "relation \"no%mtable\" does not exist");
+    assert_eq!(
+        arg_literal.message(),
+        "relation \"no%mtable\" does not exist"
+    );
 
     let marker_only = ErrorBuilder::new(ERROR)
         .with_saved_errno(2)
         .errmsg_internal(format!("could not open file: {PCT_M}"))
         .into_error();
-    assert_eq!(marker_only.message(), format!("could not open file: {expected}"));
+    assert_eq!(
+        marker_only.message(),
+        format!("could not open file: {expected}")
+    );
 
     let both = ErrorBuilder::new(ERROR)
         .with_saved_errno(2)
@@ -1298,7 +1335,10 @@ fn percent_m_marker_expansion_and_literal_retention() {
             "could not open file \"{path}\" for reading: {PCT_M}",
             path = "/nonexistent/data%m.csv"
         ))
-        .errhint(format!("hint with argument {hint_arg}: {PCT_M}", hint_arg = "50%m"))
+        .errhint(format!(
+            "hint with argument {hint_arg}: {PCT_M}",
+            hint_arg = "50%m"
+        ))
         .into_error();
     assert_eq!(
         both.message(),
@@ -1366,12 +1406,31 @@ fn hidden_context_walks_no_emit_frame_when_no_one_reads_it() {
     set_guc(LOG, ERROR, CommandDest::None, false);
     let at = ErrorLocation::new("file.c", 1, "func");
     let before = RUNS.load(Relaxed);
-    assert_eq!(ereport(LOG).errmsg("context shown").finish(at.clone()), Ok(()));
+    assert_eq!(
+        ereport(LOG).errmsg("context shown").finish(at.clone()),
+        Ok(())
+    );
     assert_eq!(RUNS.load(Relaxed), before + 1);
-    assert_eq!(ereport(LOG).errmsg("context hidden").errhidecontext(true).finish(at.clone()), Ok(()));
-    assert_eq!(RUNS.load(Relaxed), before + 1, "a report whose context is printed nowhere walks no emit frame");
+    assert_eq!(
+        ereport(LOG)
+            .errmsg("context hidden")
+            .errhidecontext(true)
+            .finish(at.clone()),
+        Ok(())
+    );
+    assert_eq!(
+        RUNS.load(Relaxed),
+        before + 1,
+        "a report whose context is printed nowhere walks no emit frame"
+    );
     let previous = set_emit_log_hook(Some(hook));
-    assert_eq!(ereport(LOG).errmsg("a hook reads it").errhidecontext(true).finish(at), Ok(()));
+    assert_eq!(
+        ereport(LOG)
+            .errmsg("a hook reads it")
+            .errhidecontext(true)
+            .finish(at),
+        Ok(())
+    );
     set_emit_log_hook(previous);
     assert_eq!(RUNS.load(Relaxed), before + 2);
     pop_emit_context_callback(id);
@@ -1398,11 +1457,22 @@ fn borrowed_frames_interleave_pop_out_of_order_and_spill() {
     pop_emit_context_callback(d);
     pop_emit_context_callback(c);
     let labels: Vec<String> = (0..40).map(|i| format!("f{i}")).collect();
-    let mut cbs: Vec<_> = labels.iter().map(|l| move |e: &mut PgError| e.add_context_line(l.as_str())).collect();
-    let ids: Vec<u64> = cbs.iter_mut().map(|cb| unsafe { push_context_frame_borrowed(cb, true) }).collect();
+    let mut cbs: Vec<_> = labels
+        .iter()
+        .map(|l| move |e: &mut PgError| e.add_context_line(l.as_str()))
+        .collect();
+    let ids: Vec<u64> = cbs
+        .iter_mut()
+        .map(|cb| unsafe { push_context_frame_borrowed(cb, true) })
+        .collect();
     let mut e = PgError::new(NOTICE, "z");
     apply_emit_context_callbacks_below(&mut e, context_stack_mark());
-    let want: Vec<String> = labels.iter().rev().cloned().chain(core::iter::once("a".to_string())).collect();
+    let want: Vec<String> = labels
+        .iter()
+        .rev()
+        .cloned()
+        .chain(core::iter::once("a".to_string()))
+        .collect();
     assert_eq!(e.context.as_deref(), Some(want.join("\n").as_str()));
     for id in ids.into_iter().rev() {
         pop_emit_context_callback(id);
@@ -1421,19 +1491,29 @@ fn borrowed_frames_interleave_pop_out_of_order_and_spill() {
 fn borrowed_frames_past_the_slots_among_boxed_frames_keep_order() {
     let _guard = lock();
     let labels: Vec<String> = (0..100).map(|i| format!("p{i}")).collect();
-    let mut cbs: Vec<_> = labels.iter().map(|l| move |e: &mut PgError| e.add_context_line(l.as_str())).collect();
+    let mut cbs: Vec<_> = labels
+        .iter()
+        .map(|l| move |e: &mut PgError| e.add_context_line(l.as_str()))
+        .collect();
     let mut ids = Vec::new();
     let mut mid_mark = 0;
     for (i, cb) in cbs.iter_mut().enumerate() {
         // SAFETY: every borrowed frame is popped below, before `cbs` goes out of scope.
         ids.push(unsafe { push_context_frame_borrowed(cb, true) });
-        ids.push(push_context_frame(Box::new(move |e| e.add_context_line(format!("b{i}"))), true));
+        ids.push(push_context_frame(
+            Box::new(move |e| e.add_context_line(format!("b{i}"))),
+            true,
+        ));
         if i == 49 {
             mid_mark = context_stack_mark();
         }
     }
     let want = |from: usize, to: usize| -> String {
-        (from..to).rev().flat_map(|i| [format!("b{i}"), format!("p{i}")]).collect::<Vec<_>>().join("\n")
+        (from..to)
+            .rev()
+            .flat_map(|i| [format!("b{i}"), format!("p{i}")])
+            .collect::<Vec<_>>()
+            .join("\n")
     };
     let mut e = PgError::new(NOTICE, "bottom");
     apply_emit_context_callbacks_below(&mut e, context_stack_mark());

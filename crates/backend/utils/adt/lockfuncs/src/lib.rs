@@ -16,8 +16,7 @@ use ::types_storage::lock::{
     ExclusiveLock, LockInstanceData, NoLock, ShareLock, LOCKACQUIRE_NOT_AVAIL, LOCKBIT_ON,
     LOCKMODE, LOCKTAG, LOCKTAG_APPLY_TRANSACTION, LOCKTAG_DATABASE_FROZEN_IDS, LOCKTAG_LAST_TYPE,
     LOCKTAG_PAGE, LOCKTAG_RELATION, LOCKTAG_RELATION_EXTEND, LOCKTAG_SPECULATIVE_TOKEN,
-    LOCKTAG_TRANSACTION, LOCKTAG_TUPLE, LOCKTAG_VIRTUALTRANSACTION, MAX_LOCKMODES,
-    USER_LOCKMETHOD,
+    LOCKTAG_TRANSACTION, LOCKTAG_TUPLE, LOCKTAG_VIRTUALTRANSACTION, MAX_LOCKMODES, USER_LOCKMETHOD,
 };
 use predicate::internals::{
     GET_PREDICATELOCKTARGETTAG_DB, GET_PREDICATELOCKTARGETTAG_OFFSET,
@@ -56,7 +55,12 @@ fn set_locktag_int64(key: i64) -> LOCKTAG {
 }
 
 fn set_locktag_int32(key1: i32, key2: i32) -> LOCKTAG {
-    LOCKTAG::advisory(init_small::globals::MyDatabaseId(), key1 as u32, key2 as u32, 2)
+    LOCKTAG::advisory(
+        init_small::globals::MyDatabaseId(),
+        key1 as u32,
+        key2 as u32,
+        2,
+    )
 }
 
 fn text_datum(mcx: Mcx<'_>, s: &str) -> PgResult<Datum> {
@@ -168,13 +172,20 @@ fn lock_status_row(
         }
     }
 
-    values[10] = vxid_datum(mcx, instance.vxid.procNumber, instance.vxid.localTransactionId)?;
+    values[10] = vxid_datum(
+        mcx,
+        instance.vxid.procNumber,
+        instance.vxid.localTransactionId,
+    )?;
     if instance.pid != 0 {
         values[11] = Datum::from_i32(instance.pid);
     } else {
         nulls[11] = true;
     }
-    values[12] = text_datum(mcx, lock::GetLockmodeName(tag.locktag_lockmethodid.into(), mode))?;
+    values[12] = text_datum(
+        mcx,
+        lock::GetLockmodeName(tag.locktag_lockmethodid.into(), mode),
+    )?;
     values[13] = Datum::from_bool(granted);
     values[14] = Datum::from_bool(instance.fastpath);
     if !granted && instance.waitStart != 0 {
@@ -227,7 +238,7 @@ fn collect_lock_rows(mcx: Mcx<'_>) -> PgResult<LockRows> {
     let mut tuples = Vec::new();
     let mut put = |values: &[Datum], nulls: &[bool]| -> PgResult<()> {
         let tuple = heaptuple::heap_form_tuple(mcx, &desc, values, nulls)?;
-        tuples.push(::mcx::std_vec_from_slice("adt",tuple.image())?);
+        tuples.push(::mcx::std_vec_from_slice("adt", tuple.image())?);
         Ok(())
     };
 
@@ -427,9 +438,19 @@ advisory_lock_fn!(fc_pg_advisory_xact_lock_int8, int8, ExclusiveLock, false);
 advisory_lock_fn!(fc_pg_advisory_lock_shared_int8, int8, ShareLock, true);
 advisory_lock_fn!(fc_pg_advisory_xact_lock_shared_int8, int8, ShareLock, false);
 advisory_try_fn!(fc_pg_try_advisory_lock_int8, int8, ExclusiveLock, true);
-advisory_try_fn!(fc_pg_try_advisory_xact_lock_int8, int8, ExclusiveLock, false);
+advisory_try_fn!(
+    fc_pg_try_advisory_xact_lock_int8,
+    int8,
+    ExclusiveLock,
+    false
+);
 advisory_try_fn!(fc_pg_try_advisory_lock_shared_int8, int8, ShareLock, true);
-advisory_try_fn!(fc_pg_try_advisory_xact_lock_shared_int8, int8, ShareLock, false);
+advisory_try_fn!(
+    fc_pg_try_advisory_xact_lock_shared_int8,
+    int8,
+    ShareLock,
+    false
+);
 advisory_unlock_fn!(fc_pg_advisory_unlock_int8, int8, ExclusiveLock);
 advisory_unlock_fn!(fc_pg_advisory_unlock_shared_int8, int8, ShareLock);
 advisory_lock_fn!(fc_pg_advisory_lock_int4, int4, ExclusiveLock, true);
@@ -437,9 +458,19 @@ advisory_lock_fn!(fc_pg_advisory_xact_lock_int4, int4, ExclusiveLock, false);
 advisory_lock_fn!(fc_pg_advisory_lock_shared_int4, int4, ShareLock, true);
 advisory_lock_fn!(fc_pg_advisory_xact_lock_shared_int4, int4, ShareLock, false);
 advisory_try_fn!(fc_pg_try_advisory_lock_int4, int4, ExclusiveLock, true);
-advisory_try_fn!(fc_pg_try_advisory_xact_lock_int4, int4, ExclusiveLock, false);
+advisory_try_fn!(
+    fc_pg_try_advisory_xact_lock_int4,
+    int4,
+    ExclusiveLock,
+    false
+);
 advisory_try_fn!(fc_pg_try_advisory_lock_shared_int4, int4, ShareLock, true);
-advisory_try_fn!(fc_pg_try_advisory_xact_lock_shared_int4, int4, ShareLock, false);
+advisory_try_fn!(
+    fc_pg_try_advisory_xact_lock_shared_int4,
+    int4,
+    ShareLock,
+    false
+);
 advisory_unlock_fn!(fc_pg_advisory_unlock_int4, int4, ExclusiveLock);
 advisory_unlock_fn!(fc_pg_advisory_unlock_shared_int4, int4, ShareLock);
 
@@ -453,29 +484,190 @@ pub fn fc_pg_advisory_unlock_all(
 
 pub const LOCKFUNCS_BUILTINS: &[FmgrBuiltin] = &[
     builtin(1371, "pg_lock_status", 0, true, true, fc_pg_lock_status),
-    builtin(2561, "pg_blocking_pids", 1, true, false, fc_pg_blocking_pids),
-    builtin(3376, "pg_safe_snapshot_blocking_pids", 1, true, false, fc_pg_safe_snapshot_blocking_pids),
-    builtin(2880, "pg_advisory_lock_int8", 1, true, false, fc_pg_advisory_lock_int8),
-    builtin(3089, "pg_advisory_xact_lock_int8", 1, true, false, fc_pg_advisory_xact_lock_int8),
-    builtin(2881, "pg_advisory_lock_shared_int8", 1, true, false, fc_pg_advisory_lock_shared_int8),
-    builtin(3090, "pg_advisory_xact_lock_shared_int8", 1, true, false, fc_pg_advisory_xact_lock_shared_int8),
-    builtin(2882, "pg_try_advisory_lock_int8", 1, true, false, fc_pg_try_advisory_lock_int8),
-    builtin(3091, "pg_try_advisory_xact_lock_int8", 1, true, false, fc_pg_try_advisory_xact_lock_int8),
-    builtin(2883, "pg_try_advisory_lock_shared_int8", 1, true, false, fc_pg_try_advisory_lock_shared_int8),
-    builtin(3092, "pg_try_advisory_xact_lock_shared_int8", 1, true, false, fc_pg_try_advisory_xact_lock_shared_int8),
-    builtin(2884, "pg_advisory_unlock_int8", 1, true, false, fc_pg_advisory_unlock_int8),
-    builtin(2885, "pg_advisory_unlock_shared_int8", 1, true, false, fc_pg_advisory_unlock_shared_int8),
-    builtin(2886, "pg_advisory_lock_int4", 2, true, false, fc_pg_advisory_lock_int4),
-    builtin(3093, "pg_advisory_xact_lock_int4", 2, true, false, fc_pg_advisory_xact_lock_int4),
-    builtin(2887, "pg_advisory_lock_shared_int4", 2, true, false, fc_pg_advisory_lock_shared_int4),
-    builtin(3094, "pg_advisory_xact_lock_shared_int4", 2, true, false, fc_pg_advisory_xact_lock_shared_int4),
-    builtin(2888, "pg_try_advisory_lock_int4", 2, true, false, fc_pg_try_advisory_lock_int4),
-    builtin(3095, "pg_try_advisory_xact_lock_int4", 2, true, false, fc_pg_try_advisory_xact_lock_int4),
-    builtin(2889, "pg_try_advisory_lock_shared_int4", 2, true, false, fc_pg_try_advisory_lock_shared_int4),
-    builtin(3096, "pg_try_advisory_xact_lock_shared_int4", 2, true, false, fc_pg_try_advisory_xact_lock_shared_int4),
-    builtin(2890, "pg_advisory_unlock_int4", 2, true, false, fc_pg_advisory_unlock_int4),
-    builtin(2891, "pg_advisory_unlock_shared_int4", 2, true, false, fc_pg_advisory_unlock_shared_int4),
-    builtin(2892, "pg_advisory_unlock_all", 0, true, false, fc_pg_advisory_unlock_all),
+    builtin(
+        2561,
+        "pg_blocking_pids",
+        1,
+        true,
+        false,
+        fc_pg_blocking_pids,
+    ),
+    builtin(
+        3376,
+        "pg_safe_snapshot_blocking_pids",
+        1,
+        true,
+        false,
+        fc_pg_safe_snapshot_blocking_pids,
+    ),
+    builtin(
+        2880,
+        "pg_advisory_lock_int8",
+        1,
+        true,
+        false,
+        fc_pg_advisory_lock_int8,
+    ),
+    builtin(
+        3089,
+        "pg_advisory_xact_lock_int8",
+        1,
+        true,
+        false,
+        fc_pg_advisory_xact_lock_int8,
+    ),
+    builtin(
+        2881,
+        "pg_advisory_lock_shared_int8",
+        1,
+        true,
+        false,
+        fc_pg_advisory_lock_shared_int8,
+    ),
+    builtin(
+        3090,
+        "pg_advisory_xact_lock_shared_int8",
+        1,
+        true,
+        false,
+        fc_pg_advisory_xact_lock_shared_int8,
+    ),
+    builtin(
+        2882,
+        "pg_try_advisory_lock_int8",
+        1,
+        true,
+        false,
+        fc_pg_try_advisory_lock_int8,
+    ),
+    builtin(
+        3091,
+        "pg_try_advisory_xact_lock_int8",
+        1,
+        true,
+        false,
+        fc_pg_try_advisory_xact_lock_int8,
+    ),
+    builtin(
+        2883,
+        "pg_try_advisory_lock_shared_int8",
+        1,
+        true,
+        false,
+        fc_pg_try_advisory_lock_shared_int8,
+    ),
+    builtin(
+        3092,
+        "pg_try_advisory_xact_lock_shared_int8",
+        1,
+        true,
+        false,
+        fc_pg_try_advisory_xact_lock_shared_int8,
+    ),
+    builtin(
+        2884,
+        "pg_advisory_unlock_int8",
+        1,
+        true,
+        false,
+        fc_pg_advisory_unlock_int8,
+    ),
+    builtin(
+        2885,
+        "pg_advisory_unlock_shared_int8",
+        1,
+        true,
+        false,
+        fc_pg_advisory_unlock_shared_int8,
+    ),
+    builtin(
+        2886,
+        "pg_advisory_lock_int4",
+        2,
+        true,
+        false,
+        fc_pg_advisory_lock_int4,
+    ),
+    builtin(
+        3093,
+        "pg_advisory_xact_lock_int4",
+        2,
+        true,
+        false,
+        fc_pg_advisory_xact_lock_int4,
+    ),
+    builtin(
+        2887,
+        "pg_advisory_lock_shared_int4",
+        2,
+        true,
+        false,
+        fc_pg_advisory_lock_shared_int4,
+    ),
+    builtin(
+        3094,
+        "pg_advisory_xact_lock_shared_int4",
+        2,
+        true,
+        false,
+        fc_pg_advisory_xact_lock_shared_int4,
+    ),
+    builtin(
+        2888,
+        "pg_try_advisory_lock_int4",
+        2,
+        true,
+        false,
+        fc_pg_try_advisory_lock_int4,
+    ),
+    builtin(
+        3095,
+        "pg_try_advisory_xact_lock_int4",
+        2,
+        true,
+        false,
+        fc_pg_try_advisory_xact_lock_int4,
+    ),
+    builtin(
+        2889,
+        "pg_try_advisory_lock_shared_int4",
+        2,
+        true,
+        false,
+        fc_pg_try_advisory_lock_shared_int4,
+    ),
+    builtin(
+        3096,
+        "pg_try_advisory_xact_lock_shared_int4",
+        2,
+        true,
+        false,
+        fc_pg_try_advisory_xact_lock_shared_int4,
+    ),
+    builtin(
+        2890,
+        "pg_advisory_unlock_int4",
+        2,
+        true,
+        false,
+        fc_pg_advisory_unlock_int4,
+    ),
+    builtin(
+        2891,
+        "pg_advisory_unlock_shared_int4",
+        2,
+        true,
+        false,
+        fc_pg_advisory_unlock_shared_int4,
+    ),
+    builtin(
+        2892,
+        "pg_advisory_unlock_all",
+        0,
+        true,
+        false,
+        fc_pg_advisory_unlock_all,
+    ),
 ];
 
 #[cfg(test)]

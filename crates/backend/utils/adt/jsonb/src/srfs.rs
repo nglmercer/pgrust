@@ -48,7 +48,7 @@ enum SrfRows {
 fn detoast_owned(fcinfo: &Fcinfo) -> PgResult<Vec<u8>> {
     let mcx = fcinfo.result_mcx();
     let jb = super::builtins::arg_jsonb(fcinfo, 0, mcx)?;
-    ::mcx::std_vec_from_slice("adt",jb.as_bytes())
+    ::mcx::std_vec_from_slice("adt", jb.as_bytes())
 }
 
 fn srf_drive(
@@ -73,11 +73,13 @@ fn srf_drive(
         .expect("user_fctx is SrfRows");
     let mcx = fcinfo.result_mcx();
     let out: Option<Option<Datum>> = match rows {
-        SrfRows::Texts(v) => v.get(idx).map(|r| r.as_ref().map(|bytes|
+        SrfRows::Texts(v) => v.get(idx).map(|r| {
+            r.as_ref().map(|bytes| {
                 varlena::cstring_to_text(mcx, bytes)
                     .map(varlena_result)
                     .expect("text result")
-            )),
+            })
+        }),
     };
     match out {
         Some(Some(d)) => Ok(funcapi::srf_return_next(flinfo, fcinfo, d)),
@@ -95,10 +97,7 @@ fn require_object(payload: &[u8], name: &str) -> PgResult<()> {
     )))
 }
 
-pub fn fc_jsonb_object_keys(
-    flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut Fcinfo,
-) -> PgResult<Datum> {
+pub fn fc_jsonb_object_keys(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     srf_drive(flinfo, fcinfo, "jsonb_object_keys", |fcinfo| {
         let image = detoast_owned(fcinfo)?;
         let payload = &image[..];
@@ -136,7 +135,9 @@ pub fn fc_jsonb_object_keys(
 fn elements_check(payload: &[u8]) -> PgResult<()> {
     // C: the scalar check runs only per the array check order.
     if container_is_scalar(payload) {
-        return Err(invalid_param("cannot extract elements from a scalar".into()));
+        return Err(invalid_param(
+            "cannot extract elements from a scalar".into(),
+        ));
     }
     if !container_is_array(payload) {
         return Err(invalid_param(
@@ -154,7 +155,10 @@ fn value_datum(tmp: Mcx<'_>, v: JsonbItem<'_>, as_text: bool) -> PgResult<(Datum
             None => (Datum::null(), true),
         })
     } else {
-        Ok((super::builtins::image_result(item_to_jsonb_image(tmp, v)?), false))
+        Ok((
+            super::builtins::image_result(item_to_jsonb_image(tmp, v)?),
+            false,
+        ))
     }
 }
 
@@ -178,7 +182,9 @@ fn elements_worker(
         let jb = super::builtins::arg_jsonb(fcinfo, 0, mcx)?;
         let payload = jb.as_bytes();
         elements_check(payload)?;
-        let mut tmp_cxt = mcx.context().new_child_wholesale("jsonb_array_elements temporary cxt");
+        let mut tmp_cxt = mcx
+            .context()
+            .new_child_wholesale("jsonb_array_elements temporary cxt");
         let mut it = JsonbIterator::init(mcx, payload)?;
         loop {
             let (tok, v) = it.next(true);
@@ -225,7 +231,9 @@ fn each_worker(
         let jb = super::builtins::arg_jsonb(fcinfo, 0, mcx)?;
         let payload = jb.as_bytes();
         require_object(payload, name)?;
-        let mut tmp_cxt = mcx.context().new_child_wholesale("jsonb_each temporary cxt");
+        let mut tmp_cxt = mcx
+            .context()
+            .new_child_wholesale("jsonb_each temporary cxt");
         let mut it = JsonbIterator::init(mcx, payload)?;
         loop {
             let (tok, k) = it.next(true);

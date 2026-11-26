@@ -63,13 +63,19 @@ fn acl(mcx: mcx::Mcx<'_>, f: Oid, user: Oid) -> PgResult<()> {
     let r = aclchk_seams::object_aclcheck::call(PROCEDURE_RELATION_ID, f, user, ACL_EXECUTE)?;
     if r != 0 {
         let name = lsyscache::get_func_name(mcx, f)?;
-        aclchk_seams::aclcheck_error::call(r, OBJECT_FUNCTION, name.as_ref().map(|n| n.as_str()).unwrap_or(""))?;
+        aclchk_seams::aclcheck_error::call(
+            r,
+            OBJECT_FUNCTION,
+            name.as_ref().map(|n| n.as_str()).unwrap_or(""),
+        )?;
     }
     objectaccess::InvokeFunctionExecuteHook(f)
 }
 
 fn lookup_failed(what: &str, oid: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!("cache lookup failed for {what} {oid}"))) // alloc: Cold
+    Box::new(PgError::error(format!(
+        "cache lookup failed for {what} {oid}"
+    ))) // alloc: Cold
 }
 
 impl Aggs {
@@ -78,14 +84,20 @@ impl Aggs {
         let keep = root.new_child("gravity window aggregates");
         let user = miscinit_seams::get_user_id::call();
         let mut v = Vec::new(); // alloc: Exec
-        // bounded("other: the WindowAgg node's window functions, one EXECUTE check and one bind each: the query text bounds them, as PG's ExecInitWindowAgg walks the same functions with no poll")
+                                // bounded("other: the WindowAgg node's window functions, one EXECUTE check and one bind each: the query text bounds them, as PG's ExecInitWindowAgg walks the same functions with no poll")
         for (i, w) in s.funcs.iter().enumerate() {
             acl(keep.mcx(), w.winfnoid, user)?;
             if w.winagg {
                 v.push(Agg::new(s, i, &keep, root)?); // alloc: Exec
             }
         }
-        Ok(Aggs { v, base: 0, upto: 0, _keep: keep, call_cx: root.new_child_wholesale("gravity window aggregate call") })
+        Ok(Aggs {
+            v,
+            base: 0,
+            upto: 0,
+            _keep: keep,
+            call_cx: root.new_child_wholesale("gravity window aggregate call"),
+        })
     }
 
     pub(crate) fn any(&self) -> bool {
@@ -104,21 +116,46 @@ impl Agg {
         let inputs = &s.argtypes[fno];
         let nargs = inputs.len();
         if nargs > types_core::FUNC_MAX_ARGS - 1 {
-            return Err(Box::new(PgError::error(format!("aggregates cannot have more than {} arguments", types_core::FUNC_MAX_ARGS - 1)).with_sqlstate(types_error::ERRCODE_TOO_MANY_ARGUMENTS))); // alloc: Cold
+            return Err(Box::new(
+                PgError::error(format!(
+                    "aggregates cannot have more than {} arguments",
+                    types_core::FUNC_MAX_ARGS - 1
+                ))
+                .with_sqlstate(types_error::ERRCODE_TOO_MANY_ARGUMENTS),
+            )); // alloc: Cold
         }
-        let a = syscache_seams::lookup_pg_aggregate_shape::call(w.winfnoid)?.ok_or_else(|| lookup_failed("aggregate", w.winfnoid))?;
+        let a = syscache_seams::lookup_pg_aggregate_shape::call(w.winfnoid)?
+            .ok_or_else(|| lookup_failed("aggregate", w.winfnoid))?;
         let ma = if a.aggminvtransfn == 0 {
             false
-        } else if a.aggmfinalmodify == AGGMODIFY_READ_ONLY && a.aggfinalmodify != AGGMODIFY_READ_ONLY {
+        } else if a.aggmfinalmodify == AGGMODIFY_READ_ONLY
+            && a.aggfinalmodify != AGGMODIFY_READ_ONLY
+        {
             true
         } else {
             s.plan.frameOptions & FRAMEOPTION_START_UNBOUNDED_PRECEDING == 0 && s.moving_ok[fno]
         };
         let (transfn, invfn, finalfn, extra, modify, transtype) = match ma {
-            true => (a.aggmtransfn, a.aggminvtransfn, a.aggmfinalfn, a.aggmfinalextra, a.aggmfinalmodify, a.aggmtranstype),
-            false => (a.aggtransfn, 0, a.aggfinalfn, a.aggfinalextra, a.aggfinalmodify, a.aggtranstype),
+            true => (
+                a.aggmtransfn,
+                a.aggminvtransfn,
+                a.aggmfinalfn,
+                a.aggmfinalextra,
+                a.aggmfinalmodify,
+                a.aggmtranstype,
+            ),
+            false => (
+                a.aggtransfn,
+                0,
+                a.aggfinalfn,
+                a.aggfinalextra,
+                a.aggfinalmodify,
+                a.aggtranstype,
+            ),
         };
-        let owner = syscache_seams::lookup_pg_proc_secdef::call(w.winfnoid)?.ok_or_else(|| lookup_failed("function", w.winfnoid))?.proowner;
+        let owner = syscache_seams::lookup_pg_proc_secdef::call(w.winfnoid)?
+            .ok_or_else(|| lookup_failed("function", w.winfnoid))?
+            .proowner;
         for f in [transfn, invfn, finalfn] {
             if f != 0 {
                 acl(keep.mcx(), f, owner)?;
@@ -126,22 +163,58 @@ impl Agg {
         }
         if modify != AGGMODIFY_READ_ONLY {
             let name = adt_regproc::format_procedure(keep.mcx(), w.winfnoid)?;
-            return Err(Box::new(PgError::error(format!("aggregate function {name} does not support use as a window function")).with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED))); // alloc: Cold
+            return Err(Box::new(
+                PgError::error(format!(
+                    "aggregate function {name} does not support use as a window function"
+                ))
+                .with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED),
+            )); // alloc: Cold
         }
         let nfinal = if extra { nargs + 1 } else { 1 };
         let transtype = if coerce::IsPolymorphicType(transtype) {
             let (_ret, mut declared) = lsyscache::get_func_signature(keep.mcx(), w.winfnoid)?;
             let n = declared.len().min(nargs);
-            coerce::enforce_generic_type_consistency(&inputs[..n], &mut declared[..n], transtype, false)?
+            coerce::enforce_generic_type_consistency(
+                &inputs[..n],
+                &mut declared[..n],
+                transtype,
+                false,
+            )?
         } else {
             transtype
         };
         let mut carriers = Vec::new(); // alloc: Exec
         let mut types = vec![transtype]; // alloc: Exec
         types.extend(inputs.iter().copied());
-        let tf = bind(transfn, transtype, types.clone(), w.inputcollid, &mut carriers)?;
-        let inv = if invfn != 0 { Some(bind(invfn, transtype, types.clone(), w.inputcollid, &mut carriers)?) } else { None };
-        let fin = if finalfn != 0 { Some(bind(finalfn, w.wintype, types[..nfinal].to_vec(), w.inputcollid, &mut carriers)?) } else { None }; // alloc: Exec
+        let tf = bind(
+            transfn,
+            transtype,
+            types.clone(),
+            w.inputcollid,
+            &mut carriers,
+        )?;
+        let inv = if invfn != 0 {
+            Some(bind(
+                invfn,
+                transtype,
+                types.clone(),
+                w.inputcollid,
+                &mut carriers,
+            )?)
+        } else {
+            None
+        };
+        let fin = if finalfn != 0 {
+            Some(bind(
+                finalfn,
+                w.wintype,
+                types[..nfinal].to_vec(),
+                w.inputcollid,
+                &mut carriers,
+            )?)
+        } else {
+            None
+        }; // alloc: Exec
         let (reslen, resbyval) = gravity_fn::typesem::storage::len_byval(w.wintype)?;
         let (translen, transbyval) = gravity_fn::typesem::storage::len_byval(transtype)?;
         let text = match ma {
@@ -153,27 +226,54 @@ impl Agg {
             None => NullableDatum::null(),
             Some(t) => {
                 let (input, ioparam) = lsyscache::getTypeInputInfo(transtype)?;
-                let cstr = CString::new(t.as_bytes()).map_err(|_| bad("window.agg: an initcond with a NUL"))?;
+                let cstr = CString::new(t.as_bytes())
+                    .map_err(|_| bad("window.agg: an initcond with a NUL"))?;
                 // the input function's by-reference result lives only as long as its FmgrInfo: copied into the
                 // aggregates' context before the FmgrInfo drops (GetAggInitVal's datumCopy)
                 let mut flinfo = fmgr_core::fmgr_info(input)?;
-                let v = types_fmgr::input_function_call(&mut flinfo, Some(&cstr), ioparam, -1, keep.mcx())?;
+                let v = types_fmgr::input_function_call(
+                    &mut flinfo,
+                    Some(&cstr),
+                    ioparam,
+                    -1,
+                    keep.mcx(),
+                )?;
                 let v = match transbyval {
                     true => v,
                     // a non-NULL by-reference datum the input function made, alive while `flinfo` is
                     false => datum_copy(keep.mcx(), v, translen)?,
                 };
                 drop(flinfo);
-                NullableDatum { value: v, isnull: false }
+                NullableDatum {
+                    value: v,
+                    isnull: false,
+                }
             }
         };
-        if tf.fn_strict && init.isnull && (nargs < 1 || !coerce::IsBinaryCoercible(inputs[0], transtype)?) {
-            return Err(Box::new(PgError::error(format!("aggregate {} needs to have compatible input type and transition type", w.winfnoid)).with_sqlstate(types_error::ERRCODE_INVALID_FUNCTION_DEFINITION))); // alloc: Cold
+        if tf.fn_strict
+            && init.isnull
+            && (nargs < 1 || !coerce::IsBinaryCoercible(inputs[0], transtype)?)
+        {
+            return Err(Box::new(
+                PgError::error(format!(
+                    "aggregate {} needs to have compatible input type and transition type",
+                    w.winfnoid
+                ))
+                .with_sqlstate(types_error::ERRCODE_INVALID_FUNCTION_DEFINITION),
+            )); // alloc: Cold
         }
         if inv.as_ref().is_some_and(|f| f.fn_strict != tf.fn_strict) {
-            return Err(Box::new(PgError::error("strictness of aggregate's forward and inverse transition functions must match".to_string()).with_sqlstate(types_error::ERRCODE_INVALID_FUNCTION_DEFINITION))); // alloc: Cold
+            return Err(Box::new(
+                PgError::error(
+                    "strictness of aggregate's forward and inverse transition functions must match"
+                        .to_string(),
+                )
+                .with_sqlstate(types_error::ERRCODE_INVALID_FUNCTION_DEFINITION),
+            )); // alloc: Cold
         }
-        let node = Box::new(AggStateNode::new(root.new_child_wholesale("gravity window aggregate"))); // alloc: Exec
+        let node = Box::new(AggStateNode::new(
+            root.new_child_wholesale("gravity window aggregate"),
+        )); // alloc: Exec
         let frame = Box::new(Frame::new(w.inputcollid)); // alloc: Exec
         Ok(Agg {
             fno,
@@ -203,7 +303,10 @@ impl Agg {
         self.trans = match self.init.isnull || self.transbyval {
             true => self.init,
             // a by-reference initcond made by its type's input function, alive for the execution
-            false => NullableDatum { value: datum_copy(self.node.aggcontext(), self.init.value, self.translen)?, isnull: false },
+            false => NullableDatum {
+                value: datum_copy(self.node.aggcontext(), self.init.value, self.translen)?,
+                isnull: false,
+            },
         };
         (self.count, self.result) = (0, NullableDatum::null());
         Ok(())
@@ -211,21 +314,43 @@ impl Agg {
 
     /// The transition (or, `inverse`, the inverse transition) call over the state and `args`; `None` when the call
     /// returned NULL.
-    fn call(&mut self, inverse: bool, args: &[NullableDatum], call_cx: &MemoryContext) -> PgResult<NullableDatum> {
-        let f = if inverse { self.invtransfn.as_mut().ok_or_else(|| bad("window.agg: an inverse transition without its function"))? } else { &mut self.transfn };
+    fn call(
+        &mut self,
+        inverse: bool,
+        args: &[NullableDatum],
+        call_cx: &MemoryContext,
+    ) -> PgResult<NullableDatum> {
+        let f = if inverse {
+            self.invtransfn
+                .as_mut()
+                .ok_or_else(|| bad("window.agg: an inverse transition without its function"))?
+        } else {
+            &mut self.transfn
+        };
         let fc = &mut *self.frame;
         fc.rearm(self.coll);
         fc.nargs = (args.len() + 1) as i16;
         fc.context = self.node.fm_node_ptr();
         // the call context lives across the call; the result is copied out below before it resets
         result_into(fc, call_cx.mcx());
-        if self.trans.isnull { fc.set_arg_null(0) } else { fc.set_arg(0, self.trans.value) }
+        if self.trans.isnull {
+            fc.set_arg_null(0)
+        } else {
+            fc.set_arg(0, self.trans.value)
+        }
         // bounded("small-fixed: one argument of the transition call, at most FUNC_MAX_ARGS - 1 (99: `Agg::new` refuses more)")
         for (k, a) in args.iter().enumerate() {
-            if a.isnull { fc.set_arg_null(k + 1) } else { fc.set_arg(k + 1, a.value) }
+            if a.isnull {
+                fc.set_arg_null(k + 1)
+            } else {
+                fc.set_arg(k + 1, a.value)
+            }
         }
         let v = f.invoke(fc)?;
-        Ok(NullableDatum { value: v, isnull: fc.isnull })
+        Ok(NullableDatum {
+            value: v,
+            isnull: fc.isnull,
+        })
     }
 
     /// The new state `v` kept: a by-reference value other than the old state copied into the aggregate context.
@@ -249,7 +374,10 @@ impl Agg {
                 self.trans = match self.transbyval {
                     true => args[0],
                     // a non-NULL by-reference argument cell, alive for the execution
-                    false => NullableDatum { value: datum_copy(self.node.aggcontext(), args[0].value, self.translen)?, isnull: false },
+                    false => NullableDatum {
+                        value: datum_copy(self.node.aggcontext(), args[0].value, self.translen)?,
+                        isnull: false,
+                    },
                 };
                 self.count = 1;
                 return Ok(());
@@ -260,7 +388,12 @@ impl Agg {
         }
         let v = self.call(false, args, call_cx)?;
         if v.isnull && self.invtransfn.is_some() {
-            return Err(Box::new(PgError::error("moving-aggregate transition function must not return null".to_string()).with_sqlstate(types_error::ERRCODE_NULL_VALUE_NOT_ALLOWED))); // alloc: Cold
+            return Err(Box::new(
+                PgError::error(
+                    "moving-aggregate transition function must not return null".to_string(),
+                )
+                .with_sqlstate(types_error::ERRCODE_NULL_VALUE_NOT_ALLOWED),
+            )); // alloc: Cold
         }
         self.count += 1;
         self.keep_state(v)
@@ -272,7 +405,9 @@ impl Agg {
             return Ok(true);
         }
         if self.trans.isnull {
-            return Err(bad("aggregate transition value is NULL before inverse transition"));
+            return Err(bad(
+                "aggregate transition value is NULL before inverse transition",
+            ));
         }
         if self.count == 1 {
             self.initialize()?;
@@ -288,22 +423,37 @@ impl Agg {
 
     /// finalize_windowaggregate into `row_cx`.
     fn finalize(&mut self, row_cx: &MemoryContext) -> PgResult<NullableDatum> {
-        let t = NullableDatum { value: read_only(self.trans, self.translen), isnull: self.trans.isnull };
-        let Some(f) = self.finalfn.as_mut() else { return Ok(t) };
+        let t = NullableDatum {
+            value: read_only(self.trans, self.translen),
+            isnull: self.trans.isnull,
+        };
+        let Some(f) = self.finalfn.as_mut() else {
+            return Ok(t);
+        };
         let fc = &mut *self.frame;
         fc.rearm(self.coll);
         fc.nargs = self.nfinal as i16;
         fc.context = self.node.fm_node_ptr();
         // the row context lives until the object's next row, as the result must
         result_into(fc, row_cx.mcx());
-        if t.isnull { fc.set_arg_null(0) } else { fc.set_arg(0, t.value) }
+        if t.isnull {
+            fc.set_arg_null(0)
+        } else {
+            fc.set_arg(0, t.value)
+        }
         (1..self.nfinal).for_each(|k| fc.set_arg_null(k));
         if f.fn_strict && (t.isnull || self.nfinal > 1) {
             return Ok(NullableDatum::null());
         }
         let v = f.invoke(fc)?;
-        let r = NullableDatum { value: v, isnull: fc.isnull };
-        Ok(NullableDatum { value: read_only(r, self.reslen), isnull: r.isnull })
+        let r = NullableDatum {
+            value: v,
+            isnull: fc.isnull,
+        };
+        Ok(NullableDatum {
+            value: read_only(r, self.reslen),
+            isnull: r.isnull,
+        })
     }
 }
 
@@ -319,7 +469,10 @@ impl Rt {
                 return Ok(None);
             }
         }
-        (0..n).map(|k| self.cell(r, base + k)).collect::<PgResult<Vec<_>>>().map(Some) // alloc: Exec
+        (0..n)
+            .map(|k| self.cell(r, base + k))
+            .collect::<PgResult<Vec<_>>>()
+            .map(Some) // alloc: Exec
     }
 
     /// PG `eval_windowaggregates`.
@@ -332,7 +485,12 @@ impl Rt {
             return Err(bad("window frame head moved backward"));
         }
         let na = self.aggs.v.len();
-        if self.aggs.base == fh && fo & (FRAMEOPTION_END_UNBOUNDED_FOLLOWING | FRAMEOPTION_END_CURRENT_ROW) != 0 && fo & FRAMEOPTION_EXCLUSION == 0 && self.aggs.base <= cur && self.aggs.upto > cur {
+        if self.aggs.base == fh
+            && fo & (FRAMEOPTION_END_UNBOUNDED_FOLLOWING | FRAMEOPTION_END_CURRENT_ROW) != 0
+            && fo & FRAMEOPTION_EXCLUSION == 0
+            && self.aggs.base <= cur
+            && self.aggs.upto > cur
+        {
             // bounded("other: the WindowAgg node's aggregates, one step each: the query text bounds them, as PG's eval_windowaggregates walks the same aggregates per row with no poll")
             for a in 0..na {
                 let (fno, r) = (self.aggs.v[a].fno, self.aggs.v[a].result);
@@ -343,7 +501,10 @@ impl Rt {
         let mut nrestart = 0;
         // bounded("other: the WindowAgg node's aggregates, one step each: the query text bounds them, as PG's eval_windowaggregates walks the same aggregates per row with no poll")
         for a in self.aggs.v.iter_mut() {
-            a.restart = cur == 0 || self.aggs.base != fh && a.invtransfn.is_none() || fo & FRAMEOPTION_EXCLUSION != 0 || self.aggs.upto <= fh;
+            a.restart = cur == 0
+                || self.aggs.base != fh && a.invtransfn.is_none()
+                || fo & FRAMEOPTION_EXCLUSION != 0
+                || self.aggs.upto <= fh;
             nrestart += a.restart as usize;
         }
         while nrestart < na && self.aggs.base < fh {
@@ -411,7 +572,10 @@ impl Rt {
             let ag = &mut self.aggs.v[a];
             ag.result = match !ag.resbyval && !r.isnull {
                 // a non-NULL by-reference final result, alive in the row context
-                true => NullableDatum { value: datum_copy(ag.node.aggcontext(), r.value, ag.reslen)?, isnull: false },
+                true => NullableDatum {
+                    value: datum_copy(ag.node.aggcontext(), r.value, ag.reslen)?,
+                    isnull: false,
+                },
                 false => r,
             };
             let fno = ag.fno;

@@ -5,9 +5,9 @@
 //! PostgreSQL's; the heap tuple lands in a buffer heap slot of the table's.
 use std::rc::Rc;
 
+use datum::Datum;
 use mcx::{Mcx, PgVec};
 use types_core::Oid;
-use datum::Datum;
 use types_error::PgResult;
 use types_nodes::list::NodeList;
 use types_nodes::primnodes::{Const, Param, ParamKind, INDEX_VAR};
@@ -62,7 +62,9 @@ impl Value<'_> {
 /// key, e.g. a varchar column under text's operator).
 fn index_col(n: Node<'_>) -> Option<i16> {
     let n = n.as_relabel_type().map_or(n, |r| r.arg);
-    n.as_var().filter(|v| v.varno == INDEX_VAR && v.varattno > 0).map(|v| v.varattno)
+    n.as_var()
+        .filter(|v| v.varno == INDEX_VAR && v.varattno > 0)
+        .map(|v| v.varattno)
 }
 
 /// Clause `i` of `indexqual` as a point key: an OpExpr over two arguments, the index column then a Const or an extern
@@ -76,16 +78,30 @@ pub(super) fn key_of<'p>(clause: Node<'p>) -> Option<Key<'p>> {
     let arg = op.args.nth(1);
     let value = match arg.as_const() {
         Some(c) => Value::Const(c),
-        None => Value::Param(arg.as_param().filter(|p| p.paramkind == ParamKind::PARAM_EXTERN)?),
+        None => Value::Param(
+            arg.as_param()
+                .filter(|p| p.paramkind == ParamKind::PARAM_EXTERN)?,
+        ),
     };
-    Some(Key { attno, opno: op.opno, opfuncid: op.opfuncid, collid: op.inputcollid, value })
+    Some(Key {
+        attno,
+        opno: op.opno,
+        opfuncid: op.opfuncid,
+        collid: op.inputcollid,
+        value,
+    })
 }
 
 /// Why `index` is not a point probe's for `indexqual` (`None`: it is): a valid, immediate, unique btree with no expression
 /// key and no predicate, each key column under exactly one clause whose operator is the column's opfamily equality, in
 /// a collation the column's (none, the default, C or POSIX), whose value `params` gives (`Value::get`); `ops` gets each
 /// key's strategy and right-hand type.
-pub(super) fn index_refusal(index: &Relation<'_>, indexqual: &NodeList<'_>, params: &[ParamExternData], ops: &mut KeyOps) -> PgResult<Option<&'static str>> {
+pub(super) fn index_refusal(
+    index: &Relation<'_>,
+    indexqual: &NodeList<'_>,
+    params: &[ParamExternData],
+    ops: &mut KeyOps,
+) -> PgResult<Option<&'static str>> {
     const BTREE_AM_OID: Oid = 403;
     let Some(form) = index.rd_index.as_ref() else {
         return Ok(Some("not an index"));
@@ -93,7 +109,12 @@ pub(super) fn index_refusal(index: &Relation<'_>, indexqual: &NodeList<'_>, para
     if index.rd_rel.relam != BTREE_AM_OID {
         return Ok(Some("not btree"));
     }
-    if !form.indisunique || !form.indimmediate || !form.indisvalid || !form.indisready || form.indcheckxmin {
+    if !form.indisunique
+        || !form.indimmediate
+        || !form.indisvalid
+        || !form.indisready
+        || form.indcheckxmin
+    {
         return Ok(Some("index not unique, immediate and valid"));
     }
     if form.has_indpred || form.indexprs_src.is_some() {
@@ -120,7 +141,8 @@ pub(super) fn index_refusal(index: &Relation<'_>, indexqual: &NodeList<'_>, para
         if !plain_collation(coll) || !plain_collation(k.collid) {
             return Ok(Some("collation"));
         }
-        let (strategy, _, right) = gravity_fn::typesem::op_opfamily_properties(k.opno, index.rd_opfamily[col - 1], false)?;
+        let (strategy, _, right) =
+            gravity_fn::typesem::op_opfamily_properties(k.opno, index.rd_opfamily[col - 1], false)?;
         if strategy != BT_EQUAL {
             return Ok(Some("not equality"));
         }
@@ -132,7 +154,9 @@ pub(super) fn index_refusal(index: &Relation<'_>, indexqual: &NodeList<'_>, para
 /// Every key of `indexqual` (`index_refusal` passed it for the plan) has a value in `params` of the type the plan was made
 /// for (`Value::get`): a kept probe's per-portal half of `index_refusal`'s "parameter" test (pkeep.rs).
 pub(super) fn params_fit(indexqual: &NodeList<'_>, params: &[ParamExternData]) -> bool {
-    indexqual.iter().all(|clause| key_of(clause).is_some_and(|k| k.value.get(params).is_some()))
+    indexqual
+        .iter()
+        .all(|clause| key_of(clause).is_some_and(|k| k.value.get(params).is_some()))
 }
 
 /// ExecInitIndexScan's ExecInitQual(indexqualorig): ExecInitFunc's EXECUTE gate (and the function-execute object access
@@ -154,7 +178,10 @@ fn plain_collation(c: Oid) -> bool {
     const DEFAULT_COLLATION_OID: Oid = 100;
     const C_COLLATION_OID: Oid = 950;
     const POSIX_COLLATION_OID: Oid = 951;
-    matches!(c, 0 | DEFAULT_COLLATION_OID | C_COLLATION_OID | POSIX_COLLATION_OID)
+    matches!(
+        c,
+        0 | DEFAULT_COLLATION_OID | C_COLLATION_OID | POSIX_COLLATION_OID
+    )
 }
 
 /// An index scan of the probe's, from ExecInitIndexScan to ExecEndIndexScan: the scan keys built (ExecIndexBuildScanKeys:
@@ -180,7 +207,8 @@ impl<'m> Scan<'m> {
     ) -> PgResult<Scan<'m>> {
         let n = indexqual.len();
         let mut keys: PgVec<'m, ScanKeyData> = PgVec::new_in(mcx);
-        keys.try_reserve_exact(n).map_err(|_| mcx.oom(n * core::mem::size_of::<ScanKeyData>()))?;
+        keys.try_reserve_exact(n)
+            .map_err(|_| mcx.oom(n * core::mem::size_of::<ScanKeyData>()))?;
         for (clause, &(strategy, right)) in indexqual.iter().zip(ops.iter()) {
             let k = key_of(clause).expect("checked by index_refusal");
             let (value, isnull) = k.value.get(params).ok_or_else(no_value)?;
@@ -202,7 +230,11 @@ impl<'m> Scan<'m> {
     /// The slot is of `heap`'s row type (its descriptor the relation's own): a kept scan serves only such a statement or
     /// portal (pkeep.rs: a relcache entry rebuilt since the scan was made has another descriptor).
     pub(super) fn fits(&self, heap: &Relation<'m>) -> bool {
-        self.slot.base().tts_tupleDescriptor.as_ref().is_some_and(|d| Rc::ptr_eq(d, &heap.rd_att))
+        self.slot
+            .base()
+            .tts_tupleDescriptor
+            .as_ref()
+            .is_some_and(|d| Rc::ptr_eq(d, &heap.rd_att))
     }
 
     pub(super) fn rescan(&mut self) -> PgResult<()> {
@@ -212,7 +244,12 @@ impl<'m> Scan<'m> {
     pub(super) fn next(&mut self, mcx: Mcx<'m>) -> PgResult<bool> {
         // ExecScanFetch's CHECK_FOR_INTERRUPTS before each fetch (a cancel, statement_timeout, a terminate)
         cancelpoll::interrupts::check()?;
-        indexam::index_getnext_slot(mcx, &mut self.scan, ScanDirection::ForwardScanDirection, &mut self.slot)
+        indexam::index_getnext_slot(
+            mcx,
+            &mut self.scan,
+            ScanDirection::ForwardScanDirection,
+            &mut self.slot,
+        )
     }
 
     pub(super) fn end(mut self, mcx: Mcx<'m>) -> PgResult<()> {
@@ -231,7 +268,14 @@ impl<'m> Scan<'m> {
     /// snapshot (`index_rearmscan`), then ExecIndexBuildScanKeys' values from the statement's clauses (`indexqual`, the
     /// kept scan's shape: each key's strategy, subtype, collation and function stay the build's) and `params` (a portal's,
     /// pkeep.rs; a statement's keys are its constants, `&[]`). `rescan` follows.
-    pub(super) fn rearm(&mut self, heap: &Relation<'m>, index: &Relation<'m>, indexqual: &NodeList<'_>, params: &[ParamExternData], snap: Rc<SnapshotData<'m>>) -> PgResult<()> {
+    pub(super) fn rearm(
+        &mut self,
+        heap: &Relation<'m>,
+        index: &Relation<'m>,
+        indexqual: &NodeList<'_>,
+        params: &[ParamExternData],
+        snap: Rc<SnapshotData<'m>>,
+    ) -> PgResult<()> {
         indexam::index_rearmscan(&mut self.scan, heap, index, snap)?;
         for (sk, clause) in self.keys.iter_mut().zip(indexqual.iter()) {
             let k = key_of(clause).ok_or_else(no_value)?;
@@ -254,7 +298,15 @@ pub(super) fn run<'m>(
     ops: &KeyOps,
     mut row: impl FnMut(&mut SlotData<'m>) -> PgResult<()>,
 ) -> PgResult<u64> {
-    let mut scan = Scan::begin(mcx, heap, index, indexqual, &[], ops, snapmgr::GetActiveSnapshot())?;
+    let mut scan = Scan::begin(
+        mcx,
+        heap,
+        index,
+        indexqual,
+        &[],
+        ops,
+        snapmgr::GetActiveSnapshot(),
+    )?;
     let mut rows = 0u64;
     let r = scan.rescan().and_then(|()| loop {
         if !scan.next(mcx)? {
@@ -269,5 +321,8 @@ pub(super) fn run<'m>(
 
 #[cold]
 fn no_value() -> Box<types_error::PgError> {
-    Box::new(types_error::PgError::error("point path: a probe key with no value").with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR)) // alloc: Cold
+    Box::new(
+        types_error::PgError::error("point path: a probe key with no value")
+            .with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR),
+    ) // alloc: Cold
 }

@@ -17,14 +17,20 @@ use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{ConvOp, FloatBinOp, FloatCond, IntBinOp, IntCond, IntUnOp, Type, Value};
 use gravity_program::Rep;
 
-use crate::face::kinds::KindId;
 use crate::admit::refusal::{Reason, ShapeWhy, Variant};
+use crate::face::kinds::KindId;
 use crate::ops::Table;
 use crate::rep::{self, CellRef, Lx, OrderArm, Words};
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::RepWordOrder, &ARM)], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::RepWordOrder, &ARM)],
+    ..crate::ops::NONE
+};
 
-pub(crate) const ARM: OrderArm = OrderArm { image, name: Some(name_image) };
+pub(crate) const ARM: OrderArm = OrderArm {
+    image,
+    name: Some(name_image),
+};
 
 /// `NAMEDATALEN`: a `name` is this many bytes, NUL-padded (`namein` / `namestrcpy`), never holding a NUL of its own.
 pub const NAME_BYTES: u16 = types_core::fmgr::NAMEDATALEN as u16;
@@ -33,7 +39,12 @@ pub const NAME_BYTES: u16 = types_core::fmgr::NAMEDATALEN as u16;
 /// A NULL's image is undefined: `fold` puts the NULL by its flag.
 fn image(cx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, tf: &TypeFacts, _coll: KeyColl) -> Words {
     if !matches!(c.cell.rep, Rep::Word { .. }) {
-        crate::refuse!(cx, Reason::Bug { payload: "a word order image over a cell that is not a word" });
+        crate::refuse!(
+            cx,
+            Reason::Bug {
+                payload: "a word order image over a cell that is not a word"
+            }
+        );
     }
     if tf.image.is_enum() {
         crate::not_built!(cx, Variant::Kind(KindId::RepHostedOrderFixed));
@@ -42,9 +53,17 @@ fn image(cx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, tf: &TypeFacts, _coll: KeyColl
     let w = match (tf.image.int_signed(), tf.image.float32()) {
         (Some(signed), _) => int_order(cx.b, v, tf.typlen, signed),
         (_, Some(f32)) => float_order(cx.b, v, f32),
-        _ => crate::refuse!(cx, Reason::Bug { payload: "a word cell whose type has no word order" }),
+        _ => crate::refuse!(
+            cx,
+            Reason::Bug {
+                payload: "a word cell whose type has no word order"
+            }
+        ),
     };
-    Words { w: [Some(w), None], exact: true }
+    Words {
+        w: [Some(w), None],
+        exact: true,
+    }
 }
 
 /// An integer datum word at `typlen` bytes as a signed-comparable word: its low bytes decide, whatever its upper bits.
@@ -60,7 +79,11 @@ pub fn int_order(b: &mut FunctionBuilder<'_>, v: Value, typlen: i16, signed: boo
         _ => return v,
     };
     let t = b.conv(ConvOp::Trunc, ty, v);
-    b.conv(if signed { ConvOp::Sext } else { ConvOp::Zext }, Type::I64, t)
+    b.conv(
+        if signed { ConvOp::Sext } else { ConvOp::Zext },
+        Type::I64,
+        t,
+    )
 }
 
 /// A float datum word's total-order image (a float4's datum is its bits in the low half): the float8 bits of `x + 0.0`
@@ -103,9 +126,22 @@ pub enum Folded {
 
 /// `img` (an order arm's signed-comparable word) folded for a sort key: DESC reverses the values only, a NULL's place is
 /// its NULLS flag's (PostgreSQL's DESC defaults to NULLS FIRST in the planner, never here). `null` None: never NULL.
-pub fn fold(b: &mut FunctionBuilder<'_>, img: Value, null: Option<Value>, narrow: bool, desc: bool, nulls_first: bool) -> Folded {
-    let w = if desc { b.int_un(IntUnOp::Not, img) } else { img };
-    let Some(null) = null else { return Folded::One(w) };
+pub fn fold(
+    b: &mut FunctionBuilder<'_>,
+    img: Value,
+    null: Option<Value>,
+    narrow: bool,
+    desc: bool,
+    nulls_first: bool,
+) -> Folded {
+    let w = if desc {
+        b.int_un(IntUnOp::Not, img)
+    } else {
+        img
+    };
+    let Some(null) = null else {
+        return Folded::One(w);
+    };
     if narrow {
         let at = b.iconst(Type::I64, if nulls_first { i64::MIN } else { i64::MAX });
         return Folded::One(b.select(null, at, w));
@@ -123,12 +159,27 @@ pub fn fold(b: &mut FunctionBuilder<'_>, img: Value, null: Option<Value>, narrow
 /// is `namecmp`'s order under a collation that orders by bytes (C / POSIX: `strncmp(a, b, NAMEDATALEN)`, unsigned bytes,
 /// stopping at the NUL): a prefix orders first. Any other collation is its sort key's (`key.coll`, M6). A NULL's words
 /// are 0 (nothing is read); `fold` places it.
-pub fn name_image(cx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, tf: &TypeFacts, coll: KeyColl) -> [Value; 8] {
+pub fn name_image(
+    cx: &mut Lx<'_, '_, '_>,
+    c: CellRef<'_>,
+    tf: &TypeFacts,
+    coll: KeyColl,
+) -> [Value; 8] {
     if !matches!(c.cell.rep, Rep::FixedPtr { len: NAME_BYTES }) {
-        crate::refuse!(cx, Reason::Bug { payload: "a name order image over a cell that is not a 64-byte image" });
+        crate::refuse!(
+            cx,
+            Reason::Bug {
+                payload: "a name order image over a cell that is not a 64-byte image"
+            }
+        );
     }
     if !coll.bytes_order {
-        crate::refuse!(cx, Reason::Shape { why: ShapeWhy("a name key under a collation that does not order by bytes") });
+        crate::refuse!(
+            cx,
+            Reason::Shape {
+                why: ShapeWhy("a name key under a collation that does not order by bytes")
+            }
+        );
     }
     let (p, null) = rep::datum(cx, c, tf);
     let (l_img, l_out) = (cx.b.create_block(&[]), cx.b.create_block(&[Type::I64; 8]));
@@ -137,13 +188,27 @@ pub fn name_image(cx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, tf: &TypeFacts, coll:
     cx.b.switch_to(l_img);
     let ptr = cx.b.conv(ConvOp::IntToPtr, Type::Ptr, p);
     let b = &mut *cx.b;
-    let (top, ones, lo7, hi7) = (b.const_raw(Type::I64, 1 << 63), b.iconst(Type::I64, -1), b.const_raw(Type::I64, 0x0101_0101_0101_0101), b.const_raw(Type::I64, 0x8080_8080_8080_8080));
-    let (mut seen, zero, one, seven) = (b.bconst(false), b.iconst(Type::I64, 0), b.iconst(Type::I64, 1), b.iconst(Type::I64, 7));
+    let (top, ones, lo7, hi7) = (
+        b.const_raw(Type::I64, 1 << 63),
+        b.iconst(Type::I64, -1),
+        b.const_raw(Type::I64, 0x0101_0101_0101_0101),
+        b.const_raw(Type::I64, 0x8080_8080_8080_8080),
+    );
+    let (mut seen, zero, one, seven) = (
+        b.bconst(false),
+        b.iconst(Type::I64, 0),
+        b.iconst(Type::I64, 1),
+        b.iconst(Type::I64, 7),
+    );
     let mut words = [zero; 8];
     for (i, out) in words.iter_mut().enumerate() {
         // the bytes before the word's first NUL (the haszero trick: its lowest flagged byte is exact), none after a NUL
         let w = b.load_unaligned(Type::I64, ptr, 8 * i as i32);
-        let w = if cfg!(target_endian = "little") { w } else { b.int_un(IntUnOp::Bswap, w) };
+        let w = if cfg!(target_endian = "little") {
+            w
+        } else {
+            b.int_un(IntUnOp::Bswap, w)
+        };
         let (d, nw) = (b.int_bin(IntBinOp::Sub, w, lo7), b.int_un(IntUnOp::Not, w));
         let t = b.int_bin(IntBinOp::And, d, nw);
         let t = b.int_bin(IntBinOp::And, t, hi7);
@@ -167,21 +232,39 @@ pub fn name_image(cx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, tf: &TypeFacts, coll:
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cell::{At, Cell, CellHome, CellLife, Nullable};
     use crate::admit::refusal::Reason;
+    use crate::cell::{At, Cell, CellHome, CellLife, Nullable};
     use gravity_decompose::catalog::typefacts::{row_of, KeyColl};
     use gravity_interp::Interp;
     use gravity_ir::builder::ProgramBuilder;
     use gravity_program::{NumTypmod, Until};
 
-    const C: KeyColl = KeyColl { oid: 950, bytes_eq: true, bytes_order: true };
+    const C: KeyColl = KeyColl {
+        oid: 950,
+        bytes_eq: true,
+        bytes_order: true,
+    };
 
     fn cell(rep: Rep, typid: u32) -> Cell {
-        Cell { rep, typid, num: NumTypmod::NONE, life: CellLife { until: Until::Row, home: CellHome::RowCx }, at: At::Value(0), null: Nullable::Maybe }
+        Cell {
+            rep,
+            typid,
+            num: NumTypmod::NONE,
+            life: CellLife {
+                until: Until::Row,
+                home: CellHome::RowCx,
+            },
+            at: At::Value(0),
+            null: Nullable::Maybe,
+        }
     }
 
     /// `f` over a function of two `I64` params (the datum word, a NULL flag word) returning `n` words, run on `args`.
-    fn run(n: usize, args: [u64; 2], f: &dyn Fn(&mut Lx<'_, '_, '_>, Value, Value) -> Vec<Value>) -> Result<Vec<u64>, crate::Refusal> {
+    fn run(
+        n: usize,
+        args: [u64; 2],
+        f: &dyn Fn(&mut Lx<'_, '_, '_>, Value, Value) -> Vec<Value>,
+    ) -> Result<Vec<u64>, crate::Refusal> {
         let rig = mcx::MemoryContext::new("GravityPlanRig");
         crate::catch(9, || {
             let mut pb = ProgramBuilder::new();
@@ -202,8 +285,24 @@ mod tests {
 
     /// The order image of the datum word `d` of a word cell of type `typid`, through the registered arm.
     fn img(typid: u32, d: u64) -> i64 {
-        let (tf, c) = (*row_of(typid).expect("type facts"), cell(Rep::Word { bytes: 8 }, typid));
-        let w = run(1, [d, 0], &|cx, v, _| vec![rep::order_words(cx, CellRef { cell: &c, val: v, null: None }, &tf, C).w[0].unwrap()]);
+        let (tf, c) = (
+            *row_of(typid).expect("type facts"),
+            cell(Rep::Word { bytes: 8 }, typid),
+        );
+        let w = run(1, [d, 0], &|cx, v, _| {
+            vec![rep::order_words(
+                cx,
+                CellRef {
+                    cell: &c,
+                    val: v,
+                    null: None,
+                },
+                &tf,
+                C,
+            )
+            .w[0]
+                .unwrap()]
+        });
         w.expect("an image")[0] as i64
     }
 
@@ -213,34 +312,69 @@ mod tests {
 
     #[test]
     fn integer_images_order_as_the_type() {
-        let i2: Vec<i64> = [-32768i64, -5, 0, 7, 32767].iter().map(|&x| img(21, x as u16 as u64 | 0xABCD_0000)).collect();
+        let i2: Vec<i64> = [-32768i64, -5, 0, 7, 32767]
+            .iter()
+            .map(|&x| img(21, x as u16 as u64 | 0xABCD_0000))
+            .collect();
         assert!(ascending(&i2), "int2 by its low 16 bits, signed: {i2:?}");
-        let i4: Vec<i64> = [i32::MIN as i64, -1, 0, 1, i32::MAX as i64].iter().map(|&x| img(23, x as u64)).collect();
+        let i4: Vec<i64> = [i32::MIN as i64, -1, 0, 1, i32::MAX as i64]
+            .iter()
+            .map(|&x| img(23, x as u64))
+            .collect();
         assert!(ascending(&i4), "{i4:?}");
-        let i8: Vec<i64> = [i64::MIN, -1, 0, 1, i64::MAX].iter().map(|&x| img(20, x as u64)).collect();
+        let i8: Vec<i64> = [i64::MIN, -1, 0, 1, i64::MAX]
+            .iter()
+            .map(|&x| img(20, x as u64))
+            .collect();
         assert!(ascending(&i8), "{i8:?}");
         assert!(img(26, 0xFFFF_FFFF) > img(26, 7), "oid unsigned");
-        assert!(img(18, 0xFF) > img(18, 0x01), "\"char\" compares unsigned bytes (charlt)");
+        assert!(
+            img(18, 0xFF) > img(18, 0x01),
+            "\"char\" compares unsigned bytes (charlt)"
+        );
         assert!(img(16, 1) > img(16, 0), "true after false");
         assert!(img(5069, 1 << 63) > img(5069, 7), "xid8 unsigned");
-        assert!(ascending(&[img(1082, -3i64 as u64), img(1082, 0), img(1114, 5)]), "date / timestamp as ints");
+        assert!(
+            ascending(&[img(1082, -3i64 as u64), img(1082, 0), img(1114, 5)]),
+            "date / timestamp as ints"
+        );
     }
 
     #[test]
     fn floats_order_totally_with_nan_greatest() {
         let f8 = |x: f64| img(701, x.to_bits());
-        let xs = [f64::NEG_INFINITY, -1e300, -2.5, -1.0, -1e-300, 0.0, 1e-300, 1.0, 2.5, 1e300, f64::INFINITY, f64::NAN];
+        let xs = [
+            f64::NEG_INFINITY,
+            -1e300,
+            -2.5,
+            -1.0,
+            -1e-300,
+            0.0,
+            1e-300,
+            1.0,
+            2.5,
+            1e300,
+            f64::INFINITY,
+            f64::NAN,
+        ];
         let w: Vec<i64> = xs.iter().map(|&x| f8(x)).collect();
         assert!(ascending(&w), "{w:?}");
         assert_eq!(f8(-0.0), f8(0.0), "-0 = +0");
         assert_eq!(f8(-f64::NAN), f8(f64::NAN), "every NaN is one value");
         assert_eq!(f8(f64::NAN), i64::MAX);
         let f4 = |x: f32| img(700, x.to_bits() as i32 as i64 as u64);
-        let w4: Vec<i64> = [f32::NEG_INFINITY, -3.5, -0.0, 1.25, f32::INFINITY, f32::NAN].iter().map(|&x| f4(x)).collect();
+        let w4: Vec<i64> = [f32::NEG_INFINITY, -3.5, -0.0, 1.25, f32::INFINITY, f32::NAN]
+            .iter()
+            .map(|&x| f4(x))
+            .collect();
         assert!(ascending(&w4), "{w4:?}");
         assert_eq!(f4(1.25), f8(1.25), "a float4 orders as its float8");
         for x in [-7.5f64, 0.0, -0.0, 3.0, f64::NAN, f64::NEG_INFINITY] {
-            assert_eq!(f8(x), gravity_kernels::host_abi::float_order(x), "the host's float order word ({x})");
+            assert_eq!(
+                f8(x),
+                gravity_kernels::host_abi::float_order(x),
+                "the host's float order word ({x})"
+            );
         }
     }
 
@@ -248,27 +382,56 @@ mod tests {
     /// `ORDER BY` (signed; a pair's flags signed, then its word unsigned).
     #[test]
     fn fold_places_desc_and_nulls() {
-        let vals: [Option<i64>; 5] = [Some(-5), None, Some(0), Some(i32::MAX as i64), Some(i32::MIN as i64)];
+        let vals: [Option<i64>; 5] = [
+            Some(-5),
+            None,
+            Some(0),
+            Some(i32::MAX as i64),
+            Some(i32::MIN as i64),
+        ];
         for narrow in [true, false] {
             for desc in [false, true] {
                 for nulls_first in [false, true] {
                     let key = |x: Option<i64>| -> (i64, u64) {
-                        let w = run(2, [x.unwrap_or(0) as u64, x.is_none() as u64], &|cx, v, null| match fold(cx.b, v, Some(null), narrow, desc, nulls_first) {
-                            Folded::One(w) => vec![w, cx.b.iconst(Type::I64, 0)],
-                            Folded::Pair(p) => p.to_vec(),
-                        });
+                        let w = run(
+                            2,
+                            [x.unwrap_or(0) as u64, x.is_none() as u64],
+                            &|cx, v, null| match fold(
+                                cx.b,
+                                v,
+                                Some(null),
+                                narrow,
+                                desc,
+                                nulls_first,
+                            ) {
+                                Folded::One(w) => vec![w, cx.b.iconst(Type::I64, 0)],
+                                Folded::Pair(p) => p.to_vec(),
+                            },
+                        );
                         let w = w.expect("folds");
-                        if narrow { (w[0] as i64, 0) } else { (w[0] as i64, w[1]) }
+                        if narrow {
+                            (w[0] as i64, 0)
+                        } else {
+                            (w[0] as i64, w[1])
+                        }
                     };
                     let mut got = vals.to_vec();
                     got.sort_by_key(|&x| key(x));
-                    let mut want: Vec<Option<i64>> = vals.iter().copied().flatten().map(Some).collect();
+                    let mut want: Vec<Option<i64>> =
+                        vals.iter().copied().flatten().map(Some).collect();
                     want.sort();
                     if desc {
                         want.reverse();
                     }
-                    if nulls_first { want.insert(0, None) } else { want.push(None) }
-                    assert_eq!(got, want, "narrow {narrow} desc {desc} nulls_first {nulls_first}");
+                    if nulls_first {
+                        want.insert(0, None)
+                    } else {
+                        want.push(None)
+                    }
+                    assert_eq!(
+                        got, want,
+                        "narrow {narrow} desc {desc} nulls_first {nulls_first}"
+                    );
                 }
             }
         }
@@ -282,13 +445,33 @@ mod tests {
     fn folded_words_order_random_values_and_nulls_as_postgres() {
         let mut seed = 0x0123_4567_89AB_CDEFu64; // any odd LCG seed
         let mut next = || {
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             seed >> 11
         };
-        let special = [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -0.0, 0.0, f64::MIN_POSITIVE, -f64::MAX];
-        let ints: Vec<Option<i64>> = (0..60).map(|i| (i % 9 != 4).then(|| next() as i32 as i64)).collect();
+        let special = [
+            f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            -0.0,
+            0.0,
+            f64::MIN_POSITIVE,
+            -f64::MAX,
+        ];
+        let ints: Vec<Option<i64>> = (0..60)
+            .map(|i| (i % 9 != 4).then(|| next() as i32 as i64))
+            .collect();
         let floats: Vec<Option<f64>> = (0..60)
-            .map(|i| (i % 7 != 3).then(|| if i % 5 == 0 { special[i % special.len()] } else { (next() as i64 as f64) / 7.0 * if i % 2 == 0 { -1.0 } else { 1.0 } }))
+            .map(|i| {
+                (i % 7 != 3).then(|| {
+                    if i % 5 == 0 {
+                        special[i % special.len()]
+                    } else {
+                        (next() as i64 as f64) / 7.0 * if i % 2 == 0 { -1.0 } else { 1.0 }
+                    }
+                })
+            })
             .collect();
         // PostgreSQL's float8 order key: NaN greatest (all NaN equal), -0 = 0
         let pg = |x: f64| if x.is_nan() { (1u8, 0.0) } else { (0, x + 0.0) };
@@ -297,35 +480,66 @@ mod tests {
                 let place = |ord: core::cmp::Ordering| if desc { ord.reverse() } else { ord };
                 let words = |d: u64, null: bool, float: bool| -> (i64, u64) {
                     let w = run(2, [d, null as u64], &|cx, v, n| {
-                        let img = if float { float_order(cx.b, v, false) } else { int_order(cx.b, v, 4, true) };
+                        let img = if float {
+                            float_order(cx.b, v, false)
+                        } else {
+                            int_order(cx.b, v, 4, true)
+                        };
                         match fold(cx.b, img, Some(n), !float, desc, nulls_first) {
                             Folded::One(w) => vec![w, cx.b.iconst(Type::I64, 0)],
                             Folded::Pair(p) => p.to_vec(),
                         }
                     });
                     let w = w.expect("folds");
-                    if float { (w[0] as i64, w[1]) } else { (w[0] as i64, 0) }
+                    if float {
+                        (w[0] as i64, w[1])
+                    } else {
+                        (w[0] as i64, 0)
+                    }
                 };
                 let expect_nulls = |n: usize, mut vals: Vec<String>| {
                     let nulls = vec!["NULL".to_string(); n];
-                    if nulls_first { [nulls, vals].concat() } else { vals.extend(nulls); vals }
+                    if nulls_first {
+                        [nulls, vals].concat()
+                    } else {
+                        vals.extend(nulls);
+                        vals
+                    }
                 };
                 // int4
                 let mut got = ints.clone();
                 got.sort_by_key(|x| words(x.unwrap_or(0) as u64, x.is_none(), false));
                 let mut vals: Vec<i64> = ints.iter().flatten().copied().collect();
                 vals.sort_by(|a, b| place(a.cmp(b)));
-                let want = expect_nulls(ints.len() - vals.len(), vals.iter().map(|v| v.to_string()).collect());
-                let got: Vec<String> = got.iter().map(|x| x.map_or("NULL".to_string(), |v| v.to_string())).collect();
+                let want = expect_nulls(
+                    ints.len() - vals.len(),
+                    vals.iter().map(|v| v.to_string()).collect(),
+                );
+                let got: Vec<String> = got
+                    .iter()
+                    .map(|x| x.map_or("NULL".to_string(), |v| v.to_string()))
+                    .collect();
                 assert_eq!(got, want, "int4 desc {desc} nulls_first {nulls_first}");
                 // float8
                 let mut got = floats.clone();
                 got.sort_by_key(|x| words(x.unwrap_or(0.0).to_bits(), x.is_none(), true));
                 let mut vals: Vec<f64> = floats.iter().flatten().copied().collect();
                 vals.sort_by(|a, b| place(pg(*a).partial_cmp(&pg(*b)).unwrap()));
-                let show = |v: f64| if v.is_nan() { "NaN".to_string() } else { format!("{}", v + 0.0) };
-                let want = expect_nulls(floats.len() - vals.len(), vals.iter().map(|&v| show(v)).collect());
-                let got: Vec<String> = got.iter().map(|x| x.map_or("NULL".to_string(), show)).collect();
+                let show = |v: f64| {
+                    if v.is_nan() {
+                        "NaN".to_string()
+                    } else {
+                        format!("{}", v + 0.0)
+                    }
+                };
+                let want = expect_nulls(
+                    floats.len() - vals.len(),
+                    vals.iter().map(|&v| show(v)).collect(),
+                );
+                let got: Vec<String> = got
+                    .iter()
+                    .map(|x| x.map_or("NULL".to_string(), show))
+                    .collect();
                 assert_eq!(got, want, "float8 desc {desc} nulls_first {nulls_first}");
             }
         }
@@ -334,16 +548,41 @@ mod tests {
     /// O3: a name's eight words order as its bytes (high-bit bytes after ASCII, a prefix first); a NULL reads nothing.
     #[test]
     fn name_orders_as_its_padded_bytes() {
-        let names: [&[u8]; 6] = [b"", b"a", b"ab", b"abc_longer_than_eight_bytes_x", b"b", b"\xc3\xa9t\xc3\xa9"];
+        let names: [&[u8]; 6] = [
+            b"",
+            b"a",
+            b"ab",
+            b"abc_longer_than_eight_bytes_x",
+            b"b",
+            b"\xc3\xa9t\xc3\xa9",
+        ];
         let tf = *row_of(19).expect("name");
         let c = cell(Rep::FixedPtr { len: NAME_BYTES }, 19);
-        let image = |p: u64, null: u64, coll: KeyColl| run(8, [p, null], &|cx, v, n| name_image(cx, CellRef { cell: &c, val: v, null: Some(n) }, &tf, coll).to_vec());
+        let image = |p: u64, null: u64, coll: KeyColl| {
+            run(8, [p, null], &|cx, v, n| {
+                name_image(
+                    cx,
+                    CellRef {
+                        cell: &c,
+                        val: v,
+                        null: Some(n),
+                    },
+                    &tf,
+                    coll,
+                )
+                .to_vec()
+            })
+        };
         let words: Vec<Vec<i64>> = names
             .iter()
             .map(|s| {
                 let mut b = [0u8; 64];
                 b[..s.len()].copy_from_slice(s);
-                image(b.as_ptr() as u64, 0, C).expect("an image").iter().map(|&w| w as i64).collect()
+                image(b.as_ptr() as u64, 0, C)
+                    .expect("an image")
+                    .iter()
+                    .map(|&w| w as i64)
+                    .collect()
             })
             .collect();
         assert!(words.windows(2).all(|w| w[0] < w[1]), "{words:x?}");
@@ -357,13 +596,31 @@ mod tests {
         junk[..3].copy_from_slice(b"ab\0");
         let garbage = image(junk.as_ptr() as u64, 0, C).expect("an image");
         assert_eq!(garbage, padded(b"ab"), "the bytes after the NUL are zeroed");
-        assert!((garbage[0] as i64) < (padded(b"abc")[0] as i64), "a prefix before its extension, whatever follows its NUL");
+        assert!(
+            (garbage[0] as i64) < (padded(b"abc")[0] as i64),
+            "a prefix before its extension, whatever follows its NUL"
+        );
         junk[..12].copy_from_slice(b"abcdefghij\0x");
-        assert_eq!(image(junk.as_ptr() as u64, 0, C).expect("an image"), padded(b"abcdefghij"), "a NUL in the second word");
-        assert_eq!(image(0, 1, C).expect("a NULL"), vec![0; 8], "a NULL's words, the pointer never read");
-        let en_us = KeyColl { oid: 100, bytes_eq: true, bytes_order: false };
+        assert_eq!(
+            image(junk.as_ptr() as u64, 0, C).expect("an image"),
+            padded(b"abcdefghij"),
+            "a NUL in the second word"
+        );
+        assert_eq!(
+            image(0, 1, C).expect("a NULL"),
+            vec![0; 8],
+            "a NULL's words, the pointer never read"
+        );
+        let en_us = KeyColl {
+            oid: 100,
+            bytes_eq: true,
+            bytes_order: false,
+        };
         match image(0, 1, en_us) {
-            Err(crate::Refusal { reason: Reason::Shape { .. }, .. }) => {}
+            Err(crate::Refusal {
+                reason: Reason::Shape { .. },
+                ..
+            }) => {}
             other => panic!("a name under a linguistic collation refuses: {other:?}"),
         }
     }
@@ -374,15 +631,40 @@ mod tests {
     fn enums_and_non_words_are_not_claimed() {
         let tf = gravity_decompose::catalog::typefacts::opaque(16500, 16500, 4, true, true);
         let c = cell(Rep::Word { bytes: 4 }, 16500);
-        assert_eq!(rep::arm_kind(c.rep, rep::Accessor::Order, &tf), KindId::RepHostedOrderFixed);
+        assert_eq!(
+            rep::arm_kind(c.rep, rep::Accessor::Order, &tf),
+            KindId::RepHostedOrderFixed
+        );
         let w = run(1, [3, 0], &|cx, v, _| {
-            let w = rep::order_words(cx, CellRef { cell: &c, val: v, null: None }, &tf, C);
-            assert!(!w.exact, "an enum's word is inexact: its comparator decides");
+            let w = rep::order_words(
+                cx,
+                CellRef {
+                    cell: &c,
+                    val: v,
+                    null: None,
+                },
+                &tf,
+                C,
+            );
+            assert!(
+                !w.exact,
+                "an enum's word is inexact: its comparator decides"
+            );
             vec![w.w[0].unwrap()]
         });
         assert_eq!(w.expect("an enum's word"), vec![0]);
         let order = rep::Accessor::Order;
-        assert_eq!(rep::arm_kind(Rep::VarlenaPtr, order, row_of(25).unwrap()), KindId::RepVarlenaOrder);
-        assert_ne!(rep::arm_kind(Rep::FixedPtr { len: NAME_BYTES }, order, row_of(19).unwrap()), KindId::RepWordOrder);
+        assert_eq!(
+            rep::arm_kind(Rep::VarlenaPtr, order, row_of(25).unwrap()),
+            KindId::RepVarlenaOrder
+        );
+        assert_ne!(
+            rep::arm_kind(
+                Rep::FixedPtr { len: NAME_BYTES },
+                order,
+                row_of(19).unwrap()
+            ),
+            KindId::RepWordOrder
+        );
     }
 }

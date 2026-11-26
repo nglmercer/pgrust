@@ -10,23 +10,23 @@
 //! Keyed kinds (face Keyed) are made by `frame::EndMaker` (the table's end) and `frame::SourceMaker` (its emit).
 use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::Value;
-use mcx::PgVec;
 use gravity_program::LifeId;
+use mcx::PgVec;
 
 use gravity_abi::breaker::RecordLayout;
 use gravity_abi::hash::Depth;
 use gravity_decompose::ops::shared::agg::GroupDecl;
 
+use crate::admit::refusal::Variant;
 use crate::cell::LaneId;
 use crate::dict::face::CodeRep;
-use crate::table::keyimg::ImageWords;
 use crate::frame::env::Env;
 use crate::frame::frame::Win;
 use crate::frame::open::OpenWords;
 use crate::frame::px::Px;
 use crate::frame::row::RowVals;
 use crate::frame::stop::Exits;
-use crate::admit::refusal::Variant;
+use crate::table::keyimg::ImageWords;
 
 crate::strategies! {
     /// Partition table for whole-partition frames. No mechanism yet: its readers take the straight form.
@@ -131,20 +131,29 @@ impl RangeForm {
 /// row as before (an `x` that raises, raises): the form only picks the table, and a row outside the domain (a stale
 /// bound, a date offset of an infinite date, which PostgreSQL leaves infinite) takes the table's overflow, never a wrong
 /// row.
-pub fn range_key<'a>(cat: &dyn gravity_expr::Catalog<'_>, e: types_nodes::Node<'a>) -> Option<(RangeForm, types_nodes::Node<'a>, i64)> {
+pub fn range_key<'a>(
+    cat: &dyn gravity_expr::Catalog<'_>,
+    e: types_nodes::Node<'a>,
+) -> Option<(RangeForm, types_nodes::Node<'a>, i64)> {
     use gravity_fn::typesem::integral::int_divmod;
     if !TablePolicy::DenseRange.on() {
         return None;
     }
     if let Some(o) = e.as_op_expr().filter(|o| o.args.len() == 2) {
-        let f = if o.opfuncid != 0 { o.opfuncid } else { cat.opcode(o.opno).ok()? };
+        let f = if o.opfuncid != 0 {
+            o.opfuncid
+        } else {
+            cat.opcode(o.opno).ok()?
+        };
         if let Some(dm) = int_divmod(f) {
             let (x, y) = (o.args.nth(0), o.args.nth(1));
             let c = int_const(y).filter(|&c| c > 0)?;
             if !dm.div {
                 return Some((RangeForm::Rem, x, c));
             }
-            let (x, 0) = shifted(cat, x)? else { return None };
+            let (x, 0) = shifted(cat, x)? else {
+                return None;
+            };
             return Some((RangeForm::Div, x, c));
         }
     }
@@ -169,7 +178,10 @@ fn int_const(n: types_nodes::Node<'_>) -> Option<i64> {
 /// int-to-int cast (the value kept, or a raise), an integer `+` / `-` with a constant (typesem `int_arith`: exact, or a
 /// raise), a date `+` / `-` an int4 constant (days: a date's word is its day number); relabels are read through. `None`
 /// for anything else (a product, a negation: the image is not a shift) or a shift past i64.
-fn shifted<'a>(cat: &dyn gravity_expr::Catalog<'_>, e: types_nodes::Node<'a>) -> Option<(types_nodes::Node<'a>, i64)> {
+fn shifted<'a>(
+    cat: &dyn gravity_expr::Catalog<'_>,
+    e: types_nodes::Node<'a>,
+) -> Option<(types_nodes::Node<'a>, i64)> {
     crate::stack_check();
     use gravity_fn::typesem::integral::{int_arith, IntOp};
     use gravity_fn::typesem::keysem::image::{dependent_form, Form};
@@ -180,10 +192,15 @@ fn shifted<'a>(cat: &dyn gravity_expr::Catalog<'_>, e: types_nodes::Node<'a>) ->
         return Some((e, 0));
     }
     if let Some(f) = e.as_func_expr().filter(|f| f.args.len() == 1) {
-        return matches!(dependent_form(f.funcid), Some(Form::IntCast { .. })).then(|| shifted(cat, f.args.nth(0)))?;
+        return matches!(dependent_form(f.funcid), Some(Form::IntCast { .. }))
+            .then(|| shifted(cat, f.args.nth(0)))?;
     }
     let o = e.as_op_expr().filter(|o| o.args.len() == 2)?;
-    let f = if o.opfuncid != 0 { o.opfuncid } else { cat.opcode(o.opno).ok()? };
+    let f = if o.opfuncid != 0 {
+        o.opfuncid
+    } else {
+        cat.opcode(o.opno).ok()?
+    };
     let (x, y) = (o.args.nth(0), o.args.nth(1));
     let (inner, c) = match (int_arith(f).map(|a| a.op), dependent_form(f)) {
         (Some(IntOp::Add), _) => match (int_const(y), int_const(x)) {
@@ -210,24 +227,35 @@ fn date_minus(f: u32) -> bool {
 /// The column a dense.range key narrows to one image word (keyed_emit_group `key_nullable`): `x / c` or `x + c` (its span
 /// is the run time's), or `x % c` whose constant span could fit a full T1 of the smallest record (16 bytes); a wider `x % c` keeps
 /// the flags word, as with the road off (it opens hashed either way, and a one-word image hashes worse there: twin cells).
-pub fn range_x<'a>(cat: &dyn gravity_expr::Catalog<'_>, e: types_nodes::Node<'a>) -> Option<types_nodes::Node<'a>> {
+pub fn range_x<'a>(
+    cat: &dyn gravity_expr::Catalog<'_>,
+    e: types_nodes::Node<'a>,
+) -> Option<types_nodes::Node<'a>> {
     let (form, x, c) = range_key(cat, e)?;
-    (form.bound() || (2 * c as i128 - 1) < (gravity_abi::breaker::t1_default_bytes() / 16) as i128).then_some(x)
+    (form.bound() || (2 * c as i128 - 1) < (gravity_abi::breaker::t1_default_bytes() / 16) as i128)
+        .then_some(x)
 }
 
 /// A record's key domain (keyed_emit_group `key_shape`): a single one-word key `x % c` is `Const [1 - c, c - 1]` (bounds in
 /// i128, `Unknown` past i64), `x / c` over a bound lane `Div`, `x + c` over one `Shift`, a bound lane's own column `Bound`,
 /// else `Unknown`.
-pub fn key_domain(cat: &dyn gravity_expr::Catalog<'_>, keys: &[gravity_decompose::ops::shared::agg::KeyDecl<'_>], nkeys: usize, bound: bool) -> Domain {
+pub fn key_domain(
+    cat: &dyn gravity_expr::Catalog<'_>,
+    keys: &[gravity_decompose::ops::shared::agg::KeyDecl<'_>],
+    nkeys: usize,
+    bound: bool,
+) -> Domain {
     let range = match (keys, nkeys) {
         ([k], 1) => range_key(cat, k.expr.node()),
         _ => None,
     };
     match (range, bound) {
-        (Some((RangeForm::Rem, _, c)), _) => match (i64::try_from(1 - c as i128), i64::try_from(c as i128 - 1)) {
-            (Ok(lo), Ok(hi)) => Domain::Const { lo, hi },
-            _ => Domain::Unknown,
-        },
+        (Some((RangeForm::Rem, _, c)), _) => {
+            match (i64::try_from(1 - c as i128), i64::try_from(c as i128 - 1)) {
+                (Ok(lo), Ok(hi)) => Domain::Const { lo, hi },
+                _ => Domain::Unknown,
+            }
+        }
         (Some((RangeForm::Div, _, c)), true) => Domain::Div { c },
         (Some((RangeForm::Shift, _, c)), true) => Domain::Shift { c },
         (_, true) => Domain::Bound,
@@ -262,10 +290,25 @@ pub trait TableMech: Sync {
     /// H17 a: the table handle's per-open words.
     fn open_words(&self, _t: &TableDecl, _w: &mut OpenWords) {}
     /// The record of `img`, inserted zeroed when absent: `(record, fresh)`.
-    fn upsert(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &TableDecl, img: &ImageWords, h: Value) -> (Value, Value);
+    fn upsert(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        t: &TableDecl,
+        img: &ImageWords,
+        h: Value,
+    ) -> (Value, Value);
     /// `upsert` whose appended record carries the implicit count `1 + n` already written (V4R-201, count-at-append)
     /// (`counted` true there: the caller skips its bump); the default, and `n` None, count nothing.
-    fn upsert_n(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &TableDecl, img: &ImageWords, h: Value, _n: Option<Value>) -> (Value, Value, Value) {
+    fn upsert_n(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        t: &TableDecl,
+        img: &ImageWords,
+        h: Value,
+        _n: Option<Value>,
+    ) -> (Value, Value, Value) {
         let (r, f) = self.upsert(b, env, t, img, h);
         (r, f, b.bconst(false))
     }
@@ -274,11 +317,24 @@ pub trait TableMech: Sync {
     /// (its key image written when it opened; `window`: `Env::rec_window`'s, false for code.front_part's run cache, a
     /// table record) and `l_cold` every other row (a fresh record, a code past the front), where the caller images the
     /// row and calls `upsert`. `None` (the default): no probe, the caller images every row.
-    fn probe(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env, _t: &TableDecl, _codes: &ImageWords) -> Option<(gravity_ir::Block, gravity_ir::Block)> {
+    fn probe(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        _env: &mut Env,
+        _t: &TableDecl,
+        _codes: &ImageWords,
+    ) -> Option<(gravity_ir::Block, gravity_ir::Block)> {
         None
     }
     /// The record of `img`, or a null pointer.
-    fn find(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &TableDecl, img: &ImageWords, h: Value) -> Value;
+    fn find(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        t: &TableDecl,
+        img: &ImageWords,
+        h: Value,
+    ) -> Value;
     fn state_bytes(&self, _t: &TableDecl) -> u32 {
         0
     }
@@ -308,7 +364,13 @@ pub struct TableImpl(pub &'static dyn TableMech);
 /// DISTINCT record's too; `table.sized` / `table.radix` shape its open). Admission refused every applicable unbuilt road;
 /// a road switched off (twin A/Bs) is passed over.
 pub fn table(cx: &impl crate::admit::refusal::Site, t: &TableDecl) -> &'static dyn TableMech {
-    let order = [CodeRep::FrontDense.variant(), CodeRep::FrontPart.variant(), TablePolicy::DenseSmall.variant(), TablePolicy::DenseRange.variant(), TablePolicy::Bypass.variant()];
+    let order = [
+        CodeRep::FrontDense.variant(),
+        CodeRep::FrontPart.variant(),
+        TablePolicy::DenseSmall.variant(),
+        TablePolicy::DenseRange.variant(),
+        TablePolicy::Bypass.variant(),
+    ];
     for v in order {
         if let Variant::Strategy(r) = v {
             if crate::face::source::on(v) {
@@ -329,7 +391,13 @@ pub fn table(cx: &impl crate::admit::refusal::Site, t: &TableDecl) -> &'static d
 pub trait CountFrontMech: Sync {
     /// The front's shape for table `t` of group `g` keyed by `keys` (every group key, in key order), or `None` (a slot that
     /// is not a row count or a key's representative, a record too wide).
-    fn plan<'g>(&self, t: &TableDecl, g: &GroupDecl<'_>, keys: &[CountKey], mcx: mcx::Mcx<'g>) -> Option<CountShape<'g>>;
+    fn plan<'g>(
+        &self,
+        t: &TableDecl,
+        g: &GroupDecl<'_>,
+        keys: &[CountKey],
+        mcx: mcx::Mcx<'g>,
+    ) -> Option<CountShape<'g>>;
     /// The front's words, after the table's in the end's state (KEYED passes their address `w`, and the table's `st`).
     fn state_bytes(&self, c: &CountShape) -> u32;
     /// At the claim's open: no part bound.
@@ -342,9 +410,25 @@ pub trait CountFrontMech: Sync {
     /// of the row's live across it (D3159: a value live past that compare is spilled on every row of the filter's
     /// bit-scan loop). `at`: the row's index in its window (D3159: it picks the count's way; only a shape whose `ways` is
     /// set tests the ways).
-    fn row(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, words: &dyn Fn(&mut FunctionBuilder<'_>, &Env) -> Value, c: &CountShape, keys: &[crate::rep::CellRef<'_>], at: Value) -> gravity_ir::Block;
+    fn row(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        words: &dyn Fn(&mut FunctionBuilder<'_>, &Env) -> Value,
+        c: &CountShape,
+        keys: &[crate::rep::CellRef<'_>],
+        at: Value,
+    ) -> gravity_ir::Block;
     /// At the claim's end, before the table's: the bound part's counts converted.
-    fn finish(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, st: Value, w: Value, c: &CountShape, x: &Exits);
+    fn finish(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        st: Value,
+        w: Value,
+        c: &CountShape,
+        x: &Exits,
+    );
 }
 
 pub struct CountFrontImpl(pub &'static dyn CountFrontMech);
@@ -383,15 +467,41 @@ pub struct CountKeyShape {
 
 /// code.front_light's mechanism while the road is on (built, not dropped, not switched off).
 pub fn count_front(cx: &impl crate::admit::refusal::Site) -> Option<&'static dyn CountFrontMech> {
-    CodeRep::FrontLight.on().then(|| crate::frame::iface::need_strategy::<CountFrontImpl>(cx, crate::face::strategy::CODE_FRONT_LIGHT).0)
+    CodeRep::FrontLight.on().then(|| {
+        crate::frame::iface::need_strategy::<CountFrontImpl>(
+            cx,
+            crate::face::strategy::CODE_FRONT_LIGHT,
+        )
+        .0
+    })
 }
 
 /// A keyed end's accumulators as a run carry drives them (M1-KEYED implements it).
 pub trait RunFold {
     fn init<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>) -> PgVec<'e, Value>;
-    fn step<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, accs: &[Value]) -> PgVec<'e, Value>;
-    fn close(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, img: &ImageWords, h: Value, accs: &[Value]);
-    fn row_into(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals, img: &ImageWords, h: Value);
+    fn step<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        accs: &[Value],
+    ) -> PgVec<'e, Value>;
+    fn close(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        img: &ImageWords,
+        h: Value,
+        accs: &[Value],
+    );
+    fn row_into(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        row: &RowVals,
+        img: &ImageWords,
+        h: Value,
+    );
     /// D3326: the run carry tests each run's key once, at its open (`admit`), and steps only an admitted run's rows (a
     /// two-pass form's pass 2, join.domain); `close` then folds the run with no test of its own.
     fn admits_runs(&self, _env: &Env) -> bool {
@@ -406,9 +516,32 @@ pub trait RunFold {
 /// The open run a keyed end carries across rows (H06 / H22 run.collapse, H21 hash.runopen), registered as `RunCarryImpl`
 /// under `RUN_COLLAPSE`. The carry is the run's words (image words, hash, open flag), then `fold.init()`'s.
 pub trait RunCarry: Sync {
-    fn carried<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, t: &TableDecl, fold: &dyn RunFold) -> PgVec<'e, Value>;
-    fn row<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, t: &TableDecl, win: &Win, row: &RowVals, img: &ImageWords, carry: &[Value], fold: &dyn RunFold) -> PgVec<'e, Value>;
-    fn window_end(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &TableDecl, carry: &[Value], fold: &dyn RunFold);
+    fn carried<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        t: &TableDecl,
+        fold: &dyn RunFold,
+    ) -> PgVec<'e, Value>;
+    fn row<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        t: &TableDecl,
+        win: &Win,
+        row: &RowVals,
+        img: &ImageWords,
+        carry: &[Value],
+        fold: &dyn RunFold,
+    ) -> PgVec<'e, Value>;
+    fn window_end(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        t: &TableDecl,
+        carry: &[Value],
+        fold: &dyn RunFold,
+    );
 }
 
 pub struct RunCarryImpl(pub &'static dyn RunCarry);
@@ -477,7 +610,14 @@ crate::hook_variants! {
 pub trait OwnerTopMech: Sync {
     /// The owner descriptor of pipeline `k`'s group `g`, whose table is `t`, under a count-ordered top of `n` rows; declared
     /// at the hash end's build, so the mechanism may claim words (V4R-113).
-    fn owner<'p>(&self, px: &mut Px<'_, 'p>, k: usize, g: &GroupDecl<'p>, t: &TableDecl, n: u32) -> gravity_program::OwnerDesc;
+    fn owner<'p>(
+        &self,
+        px: &mut Px<'_, 'p>,
+        k: usize,
+        g: &GroupDecl<'p>,
+        t: &TableDecl,
+        n: u32,
+    ) -> gravity_program::OwnerDesc;
     /// Whether the emit reads the owners' kept records (true) or gathers every record (false).
     fn kept(&self) -> bool {
         true
@@ -495,7 +635,11 @@ leader_tls::leader_tls! {
 /// The count-ordered owner top's mechanism: road owner.count's when it is on (built, not dropped, not switched off), else
 /// `None` (M1: owner.count is not built; the group sorts every record).
 pub fn owner_top(cx: &impl crate::admit::refusal::Site) -> Option<&'static dyn OwnerTopMech> {
-    OWNER_STUB.with(|s| s.get()).or_else(|| OwnerTop::Count.on().then(|| OwnerTop::Count.need::<OwnerTopImpl>(cx).0))
+    OWNER_STUB.with(|s| s.get()).or_else(|| {
+        OwnerTop::Count
+            .on()
+            .then(|| OwnerTop::Count.need::<OwnerTopImpl>(cx).0)
+    })
 }
 
 /// The L0-d rig only: `m` stands in for road owner.count's registered mechanism on this thread (`None` clears it). The
@@ -545,19 +689,49 @@ mod keyed23_tests {
         Box::leak(Box::new(MemoryContext::new("keyed23"))).mcx() // alloc: Cold
     }
     fn col(m: Mcx<'static>, ty: u32) -> Node<'static> {
-        Node::mk(m, Var { varno: 1, varattno: 2, vartype: ty, vartypmod: -1, ..Default::default() }).unwrap()
+        Node::mk(
+            m,
+            Var {
+                varno: 1,
+                varattno: 2,
+                vartype: ty,
+                vartypmod: -1,
+                ..Default::default()
+            },
+        )
+        .unwrap()
     }
     fn k(m: Mcx<'static>, ty: u32, len: i32, v: i64) -> Node<'static> {
         Node::mk_const(m, ty, -1, 0, len, Datum::from_i64(v), false, true).unwrap()
     }
     fn op(m: Mcx<'static>, f: u32, ty: u32, l: Node<'static>, r: Node<'static>) -> Node<'static> {
-        Node::mk(m, OpExpr { opno: 1, opfuncid: f, opresulttype: ty, args: NodeList::from_slice(m, &[l, r]).unwrap(), ..Default::default() }).unwrap()
+        Node::mk(
+            m,
+            OpExpr {
+                opno: 1,
+                opfuncid: f,
+                opresulttype: ty,
+                args: NodeList::from_slice(m, &[l, r]).unwrap(),
+                ..Default::default()
+            },
+        )
+        .unwrap()
     }
     fn cast(m: Mcx<'static>, f: u32, ty: u32, x: Node<'static>) -> Node<'static> {
-        Node::mk(m, FuncExpr { funcid: f, funcresulttype: ty, args: NodeList::from_slice(m, &[x]).unwrap(), ..Default::default() }).unwrap()
+        Node::mk(
+            m,
+            FuncExpr {
+                funcid: f,
+                funcresulttype: ty,
+                args: NodeList::from_slice(m, &[x]).unwrap(),
+                ..Default::default()
+            },
+        )
+        .unwrap()
     }
     fn form(e: Node<'static>) -> Option<(RangeForm, bool, i64)> {
-        range_key(&gravity_expr::catalog::PgCatalog, e).map(|(f, x, c)| (f, x.as_var().is_some(), c))
+        range_key(&gravity_expr::catalog::PgCatalog, e)
+            .map(|(f, x, c)| (f, x.as_var().is_some(), c))
     }
 
     /// KEYED-23: a key whose value is `x + c` of one column through the order images keysem names is a Shift over `x`:
@@ -568,16 +742,60 @@ mod keyed23_tests {
     fn order_images_of_one_column_shift_it() {
         let m = m();
         let (x, d) = (col(m, 23), col(m, 1082));
-        assert_eq!(form(cast(m, 481, 20, x)), Some((RangeForm::Shift, true, 0)), "x::int8");
-        assert_eq!(form(cast(m, 314, 21, x)), Some((RangeForm::Shift, true, 0)), "x::int2");
-        assert_eq!(form(op(m, 181, 23, op(m, 177, 23, x, k(m, 23, 4, 3)), k(m, 23, 4, 1))), Some((RangeForm::Shift, true, 2)), "(x + 3) - 1");
-        assert_eq!(form(op(m, 463, 20, cast(m, 481, 20, x), k(m, 20, 8, -5))), Some((RangeForm::Shift, true, -5)), "x::int8 + -5");
-        assert_eq!(form(op(m, 1141, 1082, d, k(m, 23, 4, 7))), Some((RangeForm::Shift, true, 7)), "d + 7");
-        assert_eq!(form(op(m, 1142, 1082, d, k(m, 23, 4, 7))), Some((RangeForm::Shift, true, -7)), "d - 7");
-        assert_eq!(form(op(m, 466, 20, cast(m, 481, 20, x), k(m, 20, 8, 10))), Some((RangeForm::Div, true, 10)), "x::int8 / 10");
+        assert_eq!(
+            form(cast(m, 481, 20, x)),
+            Some((RangeForm::Shift, true, 0)),
+            "x::int8"
+        );
+        assert_eq!(
+            form(cast(m, 314, 21, x)),
+            Some((RangeForm::Shift, true, 0)),
+            "x::int2"
+        );
+        assert_eq!(
+            form(op(
+                m,
+                181,
+                23,
+                op(m, 177, 23, x, k(m, 23, 4, 3)),
+                k(m, 23, 4, 1)
+            )),
+            Some((RangeForm::Shift, true, 2)),
+            "(x + 3) - 1"
+        );
+        assert_eq!(
+            form(op(m, 463, 20, cast(m, 481, 20, x), k(m, 20, 8, -5))),
+            Some((RangeForm::Shift, true, -5)),
+            "x::int8 + -5"
+        );
+        assert_eq!(
+            form(op(m, 1141, 1082, d, k(m, 23, 4, 7))),
+            Some((RangeForm::Shift, true, 7)),
+            "d + 7"
+        );
+        assert_eq!(
+            form(op(m, 1142, 1082, d, k(m, 23, 4, 7))),
+            Some((RangeForm::Shift, true, -7)),
+            "d - 7"
+        );
+        assert_eq!(
+            form(op(m, 466, 20, cast(m, 481, 20, x), k(m, 20, 8, 10))),
+            Some((RangeForm::Div, true, 10)),
+            "x::int8 / 10"
+        );
         assert_eq!(form(x), None, "a bare column is the Bound domain");
         assert_eq!(form(op(m, 141, 23, x, k(m, 23, 4, 3))), None, "x * 3");
-        assert_eq!(form(op(m, 154, 23, op(m, 177, 23, x, k(m, 23, 4, 1)), k(m, 23, 4, 10))), None, "(x + 1) / 10");
+        assert_eq!(
+            form(op(
+                m,
+                154,
+                23,
+                op(m, 177, 23, x, k(m, 23, 4, 1)),
+                k(m, 23, 4, 10)
+            )),
+            None,
+            "(x + 1) / 10"
+        );
         assert_eq!(form(op(m, 177, 23, x, x)), None, "x + x");
     }
 }

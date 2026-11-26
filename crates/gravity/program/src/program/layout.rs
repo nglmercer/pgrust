@@ -6,7 +6,11 @@ use super::*;
 /// empty region; a row wider than the region itself has the sink regrow it from the grant, D645's `out_grow`).
 pub const fn out_region_bytes(nbyref: u32, out_rows: u32) -> u32 {
     let want = nbyref.saturating_mul(out_rows).saturating_mul(64);
-    if want < 2 * 8192 { 2 * 8192 } else { want }
+    if want < 2 * 8192 {
+        2 * 8192
+    } else {
+        want
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -46,7 +50,14 @@ pub struct SlotPlan {
 impl SlotPlan {
     pub(crate) fn new_in(a: ArenaRef, nslots: usize, npipelines: usize) -> SlotPlan {
         let words = crate::laneset::words_for(nslots);
-        let mut p = SlotPlan { bytes: ArenaVec::with_capacity_in(nslots, a), shared: ArenaVec::with_capacity_in(nslots, a), live: ArenaVec::with_capacity_in(words * npipelines, a), words, max_live: 0, peak: ArenaVec::with_capacity_in(nslots, a) };
+        let mut p = SlotPlan {
+            bytes: ArenaVec::with_capacity_in(nslots, a),
+            shared: ArenaVec::with_capacity_in(nslots, a),
+            live: ArenaVec::with_capacity_in(words * npipelines, a),
+            words,
+            max_live: 0,
+            peak: ArenaVec::with_capacity_in(nslots, a),
+        };
         p.bytes.resize(nslots, 0);
         p.peak.resize(nslots, 0);
         p.shared.resize(nslots, false);

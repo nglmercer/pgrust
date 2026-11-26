@@ -4,7 +4,9 @@
 //! unanchored and several-group ones among them; the near misses (a class run before a literal starting inside the class,
 //! a class before an overlapping class, before an optional literal, before `.+`, a `.` before a literal) must not be
 //! linear, and still answer as before.
-use gravity_dict::regexp::{compile, replace_first, replace_first_memo, Memo, Outcome, Program, Template};
+use gravity_dict::regexp::{
+    compile, replace_first, replace_first_memo, Memo, Outcome, Program, Template,
+};
 use gravity_dict::Region;
 
 const LINEAR: &[&[u8]] = &[
@@ -21,7 +23,18 @@ const LINEAR: &[&[u8]] = &[
 ];
 
 /// One matching subject per `LINEAR` pattern, mutated by `subject` into near matches.
-const EXAMPLES: &[&[u8]] = &[b"https://m.a.b/c", b"ab@x", b"m.foo.bar", b"123-z", b"XY-1234x", b"abcdfoo;bar", b"abc5x", b"http://a.b/c", b"/ab/cd/e", b"x ab@cd.ef"];
+const EXAMPLES: &[&[u8]] = &[
+    b"https://m.a.b/c",
+    b"ab@x",
+    b"m.foo.bar",
+    b"123-z",
+    b"XY-1234x",
+    b"abcdfoo;bar",
+    b"abc5x",
+    b"http://a.b/c",
+    b"/ab/cd/e",
+    b"x ab@cd.ef",
+];
 
 const NOT_LINEAR: &[&[u8]] = &[
     br"^([a-z]+)a.*$",
@@ -38,7 +51,12 @@ type Key = Option<((usize, usize), Vec<Option<(usize, usize)>>, usize, bool)>;
 
 fn key(p: &Program, o: Outcome) -> Key {
     match o {
-        Outcome::Match(f) => Some(((f.start, f.end), (1..=p.ngroups()).map(|g| f.group(g)).collect(), f.read, f.saw_end)),
+        Outcome::Match(f) => Some((
+            (f.start, f.end),
+            (1..=p.ngroups()).map(|g| f.group(g)).collect(),
+            f.read,
+            f.saw_end,
+        )),
         Outcome::NoMatch => None,
         Outcome::Refused => panic!("a refusal on a short subject"),
     }
@@ -65,10 +83,18 @@ impl Rng {
 /// A subject from the pattern's own literal bytes, a few class-edge bytes and multi-byte UTF-8, sometimes a prefix of a
 /// matching shape so the deep paths run.
 fn subject(r: &mut Rng, pat: &[u8]) -> Vec<u8> {
-    let mut alpha: Vec<u8> = pat.iter().copied().filter(|b| !b"^$()[]?+*{}\\,".contains(b)).collect();
+    let mut alpha: Vec<u8> = pat
+        .iter()
+        .copied()
+        .filter(|b| !b"^$()[]?+*{}\\,".contains(b))
+        .collect();
     alpha.extend_from_slice(b"aZ09/.@;-xhw:");
     let mut s = Vec::new();
-    if let Some(k) = LINEAR.iter().position(|p| *p == pat).filter(|_| r.below(2) == 0) {
+    if let Some(k) = LINEAR
+        .iter()
+        .position(|p| *p == pat)
+        .filter(|_| r.below(2) == 0)
+    {
         // a near match: the example with up to two bytes replaced, inserted or deleted
         s.extend_from_slice(EXAMPLES[k]);
         for _ in 0..r.below(3) {
@@ -86,7 +112,16 @@ fn subject(r: &mut Rng, pat: &[u8]) -> Vec<u8> {
         return s;
     }
     if r.below(3) == 0 {
-        s.extend_from_slice([&b"http://"[..], b"https://m.", b"ab", b"abcd", b"m.", b"XY-123"][r.below(6)]);
+        s.extend_from_slice(
+            [
+                &b"http://"[..],
+                b"https://m.",
+                b"ab",
+                b"abcd",
+                b"m.",
+                b"XY-123",
+            ][r.below(6)],
+        );
     }
     for _ in 0..r.below(24) {
         match r.below(12) {
@@ -108,13 +143,23 @@ fn the_linear_runner_answers_as_the_backtracker_does() {
         for _ in 0..100_000 {
             let s = subject(&mut r, pat);
             let (a, b) = both(&p, &s);
-            assert_eq!(a, b, "{} over {:?}", String::from_utf8_lossy(pat), String::from_utf8_lossy(&s));
+            assert_eq!(
+                a,
+                b,
+                "{} over {:?}",
+                String::from_utf8_lossy(pat),
+                String::from_utf8_lossy(&s)
+            );
             match a {
                 None => miss += 1,
                 Some(_) => hit += 1,
             }
         }
-        assert!(hit > 1000 && miss > 1000, "{}: {hit} matches, {miss} misses", String::from_utf8_lossy(pat));
+        assert!(
+            hit > 1000 && miss > 1000,
+            "{}: {hit} matches, {miss} misses",
+            String::from_utf8_lossy(pat)
+        );
     }
 }
 
@@ -123,7 +168,11 @@ fn a_near_miss_is_not_linear_and_answers_as_before() {
     let mut r = Rng(7);
     for pat in NOT_LINEAR {
         let p = compile(pat).unwrap_or_else(|| panic!("{} compiles", String::from_utf8_lossy(pat)));
-        assert!(!p.linear(), "{} must not be linear", String::from_utf8_lossy(pat));
+        assert!(
+            !p.linear(),
+            "{} must not be linear",
+            String::from_utf8_lossy(pat)
+        );
         for _ in 0..20_000 {
             let s = subject(&mut r, pat);
             let (a, b) = both(&p, &s);
@@ -137,7 +186,10 @@ fn a_near_miss_is_not_linear_and_answers_as_before() {
 #[test]
 fn the_memo_over_the_linear_runner_answers_replace_first() {
     let mut r = Rng(11);
-    let (p, t) = (compile(LINEAR[0]).unwrap(), Template::parse(br"\1").unwrap());
+    let (p, t) = (
+        compile(LINEAR[0]).unwrap(),
+        Template::parse(br"\1").unwrap(),
+    );
     // hosts shared by runs of entries (a dictionary's byte order puts one host's URLs together), plus random subjects
     let hosts: Vec<Vec<u8>> = (0..300).map(|_| subject(&mut r, b"abcxyz.")).collect();
     let mut ents: Vec<Vec<u8>> = (0..50_000)
@@ -157,9 +209,21 @@ fn the_memo_over_the_linear_runner_answers_replace_first() {
     let mut memo = Memo::new();
     for e in &ents {
         let mut reg = unsafe { Region::new(buf.as_mut_ptr() as *mut u8, buf.len() * 8) };
-        let a = unsafe { replace_first_memo(&p, &t, br"\1", e, &mut reg, &mut memo).unwrap().unwrap().bytes().to_vec() };
+        let a = unsafe {
+            replace_first_memo(&p, &t, br"\1", e, &mut reg, &mut memo)
+                .unwrap()
+                .unwrap()
+                .bytes()
+                .to_vec()
+        };
         let mut reg = unsafe { Region::new(buf.as_mut_ptr() as *mut u8, buf.len() * 8) };
-        let b = unsafe { replace_first(&p, &t, br"\1", e, &mut reg).unwrap().unwrap().bytes().to_vec() };
+        let b = unsafe {
+            replace_first(&p, &t, br"\1", e, &mut reg)
+                .unwrap()
+                .unwrap()
+                .bytes()
+                .to_vec()
+        };
         assert_eq!(a, b, "{:?}", String::from_utf8_lossy(e));
     }
     assert!(memo.hits > 1000);

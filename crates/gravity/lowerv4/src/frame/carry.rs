@@ -23,32 +23,63 @@ crate::strategies! {
     FRAME_CARRY = 8, "frame.carry", Fold;
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(FRAME_CARRY, &CarryImpl(&STORE))], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(FRAME_CARRY, &CarryImpl(&STORE))],
+    ..crate::ops::NONE
+};
 
 struct Store;
 static STORE: Store = Store;
 
 impl CarryMech for Store {
     fn exits(&self, b: &mut FunctionBuilder<'_>, accs: &[Type], mcx: Mcx<'_>) -> CarryExits {
-        let head = |n: usize| core::iter::repeat_n(Type::I64, n).chain(accs.iter().copied()).collect_in(mcx);
-        CarryExits { l_stop: b.create_block(&head(3)[..]), l_full: b.create_block(&head(2)[..]) }
+        let head = |n: usize| {
+            core::iter::repeat_n(Type::I64, n)
+                .chain(accs.iter().copied())
+                .collect_in(mcx)
+        };
+        CarryExits {
+            l_stop: b.create_block(&head(3)[..]),
+            l_full: b.create_block(&head(2)[..]),
+        }
     }
 
     /// The bodies once the window's bodies are lowered (D326): a `window_end` written before its end's `lower` stored the
     /// build's default record shape (no words, 0-byte records) at a met LIMIT, so the build kept one zeroed record. The
     /// bodies close their blocks; the frame moves on to the window's end (no current block is left to return to).
-    fn seal(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, end: &dyn EndMech, CarryExits { l_stop, l_full }: CarryExits, x: &Exits) {
+    fn seal(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        end: &dyn EndMech,
+        CarryExits { l_stop, l_full }: CarryExits,
+        x: &Exits,
+    ) {
         // D528: an exit no row leaves through is not emitted
         if crate::frame::frame::reached(b, l_stop) {
             b.switch_to(l_stop);
             let p = mcx::to_vec_in(b.block_params(l_stop), env.mcx);
-            end.window_end(b, env, &Carry { out: p[0], accs: mcx::to_vec_in(&p[3..], env.mcx) });
+            end.window_end(
+                b,
+                env,
+                &Carry {
+                    out: p[0],
+                    accs: mcx::to_vec_in(&p[3..], env.mcx),
+                },
+            );
             b.br(x.l_stop_in, &p[..3]);
         }
         if crate::frame::frame::reached(b, l_full) {
             b.switch_to(l_full);
             let p = mcx::to_vec_in(b.block_params(l_full), env.mcx);
-            end.window_end(b, env, &Carry { out: p[0], accs: mcx::to_vec_in(&p[2..], env.mcx) });
+            end.window_end(
+                b,
+                env,
+                &Carry {
+                    out: p[0],
+                    accs: mcx::to_vec_in(&p[2..], env.mcx),
+                },
+            );
             b.br(x.l_full, &p[..2]);
         }
     }
@@ -64,7 +95,13 @@ pub(crate) fn full(b: &mut FunctionBuilder<'_>, env: &Env, c: &Carry, cur: gravi
 /// (`row.next`: the row stored, the sink's stop) stores it there, since `next` does not return; a cursor at the row
 /// (`row.at`: an expanding step's stop, H32) stores nothing, as the resume re-enters the row and stores it when the row is
 /// through. A cursor that is neither leaves with UNSUPPORTED_SHAPE, never a miscount (D357).
-pub(crate) fn through<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, next: Next<'_, 'e>, count: &dyn Fn(&mut FunctionBuilder<'_>)) -> Carry<'e> {
+pub(crate) fn through<'e>(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env<'e, '_>,
+    row: &RowVals,
+    next: Next<'_, 'e>,
+    count: &dyn Fn(&mut FunctionBuilder<'_>),
+) -> Carry<'e> {
     let l_seen = b.create_block(&[Type::I64, Type::I64, Type::I64]);
     b.mark_cold(l_seen);
     let stop_in = core::mem::replace(&mut env.x.l_stop_in, l_seen);
@@ -76,7 +113,12 @@ pub(crate) fn through<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, ro
     let past = b.icmp(IntCond::Eq, p[1], row.next);
     let at = b.icmp(IntCond::Eq, p[1], row.at);
     let known = b.int_bin(IntBinOp::Or, past, at);
-    let (l_known, l_bad, l_count, l_on) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));
+    let (l_known, l_bad, l_count, l_on) = (
+        b.create_block(&[]),
+        b.create_block(&[]),
+        b.create_block(&[]),
+        b.create_block(&[]),
+    );
     b.cond_br(known, (l_known, &[]), (l_bad, &[]));
     b.switch_to(l_bad);
     let uns = b.iconst(Type::I64, unsupported(UNSUPPORTED_SHAPE));
@@ -120,7 +162,13 @@ mod tests {
 
     impl SourceMech for Src {
         fn open_words(&self, w: &mut OpenWords) {
-            w.declare(OpenWord::open("cursor", Base::Ctx, (site_off(0) + site::CURSOR) as i32, Type::I32, 0));
+            w.declare(OpenWord::open(
+                "cursor",
+                Base::Ctx,
+                (site_off(0) + site::CURSOR) as i32,
+                Type::I32,
+                0,
+            ));
         }
         fn open(&self, b: &mut FunctionBuilder<'_>, _env: &mut Env) -> Value {
             b.iconst(I64, 0)
@@ -135,10 +183,29 @@ mod tests {
             let st = b.iconst(I64, -5);
             b.br(l_eof, &[st]);
             b.switch_to(l_win);
-            Win { cursor, end, facts: Default::default() }
+            Win {
+                cursor,
+                end,
+                facts: Default::default(),
+            }
         }
-        fn row<'e>(&self, _b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e> {
-            RowVals { row: crate::cell::Row::new_in(env.mcx), vals: mcx::PgVec::new_in(env.mcx), cols: mcx::PgVec::new_in(env.mcx), carry, next, at: j }
+        fn row<'e>(
+            &self,
+            _b: &mut FunctionBuilder<'_>,
+            env: &mut Env<'e, '_>,
+            _win: &Win,
+            j: Value,
+            carry: Carry<'e>,
+            next: Value,
+        ) -> RowVals<'e> {
+            RowVals {
+                row: crate::cell::Row::new_in(env.mcx),
+                vals: mcx::PgVec::new_in(env.mcx),
+                cols: mcx::PgVec::new_in(env.mcx),
+                carry,
+                next,
+                at: j,
+            }
         }
     }
 
@@ -148,12 +215,25 @@ mod tests {
     struct Sum(Cell<i64>);
 
     impl EndMech for Sum {
-        fn carried<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>) -> mcx::PgVec<'e, Value> {
+        fn carried<'e>(
+            &self,
+            b: &mut FunctionBuilder<'_>,
+            env: &mut Env<'e, '_>,
+        ) -> mcx::PgVec<'e, Value> {
             mcx::pg_vec![in env.mcx; b.load(I64, env.ctx, hdr::BUDGET_BYTES as i32)]
         }
-        fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, _x: &Exits) -> Carry<'e> {
+        fn lower<'e>(
+            &self,
+            b: &mut FunctionBuilder<'_>,
+            env: &mut Env<'e, '_>,
+            row: &RowVals,
+            _x: &Exits,
+        ) -> Carry<'e> {
             self.0.set(1);
-            Carry { out: b.int_bin(IntBinOp::Add, row.carry.out, env.one), accs: mcx::pg_vec![in env.mcx; b.int_bin(IntBinOp::Add, row.carry.accs[0], row.at)] }
+            Carry {
+                out: b.int_bin(IntBinOp::Add, row.carry.out, env.one),
+                accs: mcx::pg_vec![in env.mcx; b.int_bin(IntBinOp::Add, row.carry.accs[0], row.at)],
+            }
         }
         fn window_end(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, c: &Carry) {
             let scale = b.iconst(I64, self.0.get());
@@ -172,7 +252,13 @@ mod tests {
                 w.declare(OpenWord::open("stopped once", Base::Words, 0, I64, 0));
             }
         }
-        fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, next: Next<'_, 'e>) -> Carry<'e> {
+        fn lower<'e>(
+            &self,
+            b: &mut FunctionBuilder<'_>,
+            env: &mut Env<'e, '_>,
+            row: &RowVals,
+            next: Next<'_, 'e>,
+        ) -> Carry<'e> {
             let k = b.iconst(I64, self.0);
             let mut cut = b.icmp(IntCond::Eq, row.at, k);
             if !self.1 {
@@ -201,18 +287,41 @@ mod tests {
         let words = (!cut.1).then_some(1);
         let desc = gravity_program::Pipeline::eligible(0, gravity_program::End::Sink, 0);
         let c = rig.mcx();
-        let mut m = Mechs { k: 0, source: mcx::pg_box_dyn!(c, Src(n) => dyn SourceMech), steps: mcx::pg_vec![in c; mcx::pg_box_dyn!(c, cut => dyn StepMech)], end: mcx::pg_box_dyn!(c, Sum(Cell::new(0)) => dyn EndMech), site: Some(0), desc, words, state_word: None };
+        let mut m = Mechs {
+            k: 0,
+            source: mcx::pg_box_dyn!(c, Src(n) => dyn SourceMech),
+            steps: mcx::pg_vec![in c; mcx::pg_box_dyn!(c, cut => dyn StepMech)],
+            end: mcx::pg_box_dyn!(c, Sum(Cell::new(0)) => dyn EndMech),
+            site: Some(0),
+            desc,
+            words,
+            state_word: None,
+        };
         let mut pb = ProgramBuilder::new();
         let core = env::declare(&mut pb);
-        let (f, bounded) = crate::frame::frame::pipeline_fn(&mut pb, core, crate::hir::Ir::none(), &[], "p0", 1, &mut m, rig.mcx());
+        let (f, bounded) = crate::frame::frame::pipeline_fn(
+            &mut pb,
+            core,
+            crate::hir::Ir::none(),
+            &[],
+            "p0",
+            1,
+            &mut m,
+            rig.mcx(),
+        );
         let p = pb.finish();
         gravity_ir::verify::verify(&p).expect("the frame's IR verifies");
-        assert_eq!(crate::frame::cancel::verify(p.func(f), &bounded, rig.mcx()), Ok(()));
+        assert_eq!(
+            crate::frame::cancel::verify(p.func(f), &bounded, rig.mcx()),
+            Ok(())
+        );
         (p, f)
     }
 
     fn run(p: &Program, f: Func, ctx: &mut [u64]) -> i64 {
-        Interp::new(p).run(f, &[ctx.as_mut_ptr() as u64]).expect("runs")[0] as i64
+        Interp::new(p)
+            .run(f, &[ctx.as_mut_ptr() as u64])
+            .expect("runs")[0] as i64
     }
 
     fn cell(ctx: &[u64], off: usize) -> u64 {
@@ -225,7 +334,11 @@ mod tests {
         let (mut ctx, mut out) = (vec![0u64; ctx_size(1) / 8], [0u64; 32]);
         ctx[hdr::OUT / 8] = out.as_mut_ptr() as u64;
         assert_eq!(run(&p, f, &mut ctx), status::DONE);
-        assert_eq!((cell(&ctx, site::ROWS_OUT), ctx[hdr::BUDGET_BYTES / 8]), (4, 6), "rows 0..3 folded: 0+1+2+3 stored at the cut, in the lowered shape (D326)");
+        assert_eq!(
+            (cell(&ctx, site::ROWS_OUT), ctx[hdr::BUDGET_BYTES / 8]),
+            (4, 6),
+            "rows 0..3 folded: 0+1+2+3 stored at the cut, in the lowered shape (D326)"
+        );
     }
 
     #[test]
@@ -234,8 +347,24 @@ mod tests {
         let (mut ctx, mut words) = (vec![0u64; ctx_size(2) / 8], [0u64; 2]);
         ctx[(site_off(1) + site::KEYS) / 8] = words.as_mut_ptr() as u64;
         assert_eq!(run(&p, f, &mut ctx), -7, "the stop's status");
-        assert_eq!((cell(&ctx, site::CURSOR) as u32, ctx[hdr::BUDGET_BYTES / 8]), (3, 3), "rows 0+1+2 stored at the stop, cursor at row 3");
-        assert_eq!(run(&p, f, &mut ctx), -5, "the resumed call finishes the window");
-        assert_eq!((cell(&ctx, site::ROWS_OUT), ctx[hdr::BUDGET_BYTES / 8], words[0]), (6, 15, 1), "3 reloaded, then rows 3+4+5");
+        assert_eq!(
+            (cell(&ctx, site::CURSOR) as u32, ctx[hdr::BUDGET_BYTES / 8]),
+            (3, 3),
+            "rows 0+1+2 stored at the stop, cursor at row 3"
+        );
+        assert_eq!(
+            run(&p, f, &mut ctx),
+            -5,
+            "the resumed call finishes the window"
+        );
+        assert_eq!(
+            (
+                cell(&ctx, site::ROWS_OUT),
+                ctx[hdr::BUDGET_BYTES / 8],
+                words[0]
+            ),
+            (6, 15, 1),
+            "3 reloaded, then rows 3+4+5"
+        );
     }
 }

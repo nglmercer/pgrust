@@ -18,8 +18,7 @@ use ::types_portal::{
     QueryDescHandle, QueryEnvHandle, StmtListHandle, TuplestoreHandle, CMDTAG_DELETE,
     CMDTAG_INSERT, CMDTAG_MERGE, CMDTAG_SELECT, CMDTAG_UNKNOWN, CMDTAG_UPDATE, CURSOR_OPT_HOLD,
     CURSOR_OPT_NO_SCROLL, CURSOR_OPT_SCROLL, FETCH_ALL, PORTAL_DEFINED, PORTAL_MULTI_QUERY,
-    PORTAL_ONE_MOD_WITH, PORTAL_ONE_RETURNING, PORTAL_ONE_SELECT, PORTAL_READY,
-    PORTAL_UTIL_SELECT,
+    PORTAL_ONE_MOD_WITH, PORTAL_ONE_RETURNING, PORTAL_ONE_SELECT, PORTAL_READY, PORTAL_UTIL_SELECT,
 };
 use ::types_scan::sdir::{
     BackwardScanDirection, ForwardScanDirection, NoMovementScanDirection, ScanDirection,
@@ -357,8 +356,9 @@ pub fn FetchUtilityStatementTargetList<'a, 'mcx>(
 ) -> PgResult<PgVec<'mcx, TargetEntrySummary>> {
     match utility_stmt.map(Node::node_tag) {
         Some(NodeTag::T_FetchStmt) => {
-            let fstmt =
-                utility_stmt.and_then(Node::as_fetch_stmt).expect("utilityStmt is FetchStmt");
+            let fstmt = utility_stmt
+                .and_then(Node::as_fetch_stmt)
+                .expect("utilityStmt is FetchStmt");
             if fstmt.ismove {
                 return Ok(PgVec::new_in(mcx));
             }
@@ -418,7 +418,8 @@ pub fn PortalStart(
                     let p = portal.borrow();
                     let source_text = p.sourceText.unwrap_or("");
                     let query_env = p.queryEnv;
-                    if !p.cplan.is_null() && execmain_seams::note_cplan_for_query_desc::is_installed()
+                    if !p.cplan.is_null()
+                        && execmain_seams::note_cplan_for_query_desc::is_installed()
                     {
                         execmain_seams::note_cplan_for_query_desc::call(p.cplan);
                     }
@@ -592,7 +593,8 @@ pub fn PortalRun<'mcx>(
     portal: &Portal<'static>,
     count: i64,
     is_top_level: bool,
-    dest: &mut DestReceiver<'mcx>, altdest: Option<&mut DestReceiver<'mcx>>,
+    dest: &mut DestReceiver<'mcx>,
+    altdest: Option<&mut DestReceiver<'mcx>>,
     mut qc: Option<&mut QueryCompletion>,
 ) -> PgResult<bool> {
     if let Some(qc) = qc.as_deref_mut() {
@@ -602,7 +604,9 @@ pub fn PortalRun<'mcx>(
     let strategy = portal.borrow().strategy;
     let log_stats = guc_tables::backing::log_executor_stats();
     if log_stats && strategy != PORTAL_MULTI_QUERY {
-        ereport(DEBUG3).errmsg_internal("PortalRun").finish(loc("PortalRun"))?;
+        ereport(DEBUG3)
+            .errmsg_internal("PortalRun")
+            .finish(loc("PortalRun"))?;
         postgres_seams::reset_usage::call();
     }
 
@@ -610,8 +614,7 @@ pub fn PortalRun<'mcx>(
 
     let result = run_protected(portal, true, || -> PgResult<bool> {
         match strategy {
-            PORTAL_ONE_SELECT | PORTAL_ONE_RETURNING | PORTAL_ONE_MOD_WITH
-            | PORTAL_UTIL_SELECT => {
+            PORTAL_ONE_SELECT | PORTAL_ONE_RETURNING | PORTAL_ONE_MOD_WITH | PORTAL_UTIL_SELECT => {
                 if strategy != PORTAL_ONE_SELECT && portal.borrow().holdStore.is_null() {
                     FillPortalStore(portal, is_top_level)?;
                 }
@@ -631,14 +634,7 @@ pub fn PortalRun<'mcx>(
                 Ok(portal.borrow().atEnd)
             }
             PORTAL_MULTI_QUERY => {
-                PortalRunMulti(
-                    portal,
-                    is_top_level,
-                    false,
-                    dest,
-                    altdest,
-                    qc,
-                )?;
+                PortalRunMulti(portal, is_top_level, false, dest, altdest, qc)?;
 
                 portalmem::MarkPortalDone(portal)?;
 
@@ -692,12 +688,21 @@ fn PortalRunSelect(
                 };
                 fill_portal_store_to(portal, target)?;
             }
-            nprocessed =
-                RunFromStore(portal, direction, count as u64, dest, cursor_read_store(portal))?;
+            nprocessed = RunFromStore(
+                portal,
+                direction,
+                count as u64,
+                dest,
+                cursor_read_store(portal),
+            )?;
         } else if !hold_store.is_null() {
             nprocessed = RunFromStore(portal, direction, count as u64, dest, hold_store)?;
         } else if gravity {
-            let tupdesc = portal.borrow().tupDesc.clone().expect("a served SELECT portal has its result descriptor");
+            let tupdesc = portal
+                .borrow()
+                .tupDesc
+                .clone()
+                .expect("a served SELECT portal has its result descriptor");
             dest.startup(CmdType::CMD_SELECT as i32, &tupdesc)?;
             nprocessed = if ScanDirectionIsNoMovement(direction) {
                 0
@@ -741,8 +746,13 @@ fn PortalRunSelect(
         }
 
         if store_armed {
-            nprocessed =
-                RunFromStore(portal, direction, count as u64, dest, cursor_read_store(portal))?;
+            nprocessed = RunFromStore(
+                portal,
+                direction,
+                count as u64,
+                dest,
+                cursor_read_store(portal),
+            )?;
         } else if !hold_store.is_null() {
             nprocessed = RunFromStore(portal, direction, count as u64, dest, hold_store)?;
         } else {
@@ -801,7 +811,15 @@ fn FillPortalStore(portal: &Portal<'static>, is_top_level: bool) -> PgResult<()>
         }
         PORTAL_UTIL_SELECT => {
             let h = portal.borrow().stmts;
-            PortalRunUtility(portal, h, 0, is_top_level, true, &mut treceiver, Some(&mut qc))?;
+            PortalRunUtility(
+                portal,
+                h,
+                0,
+                is_top_level,
+                true,
+                &mut treceiver,
+                Some(&mut qc),
+            )?;
         }
         other => {
             return Err(ereport(ERROR)
@@ -840,8 +858,7 @@ fn RunFromStore(
     // call (freed only in PortalDrop); the Ref is released before use.
     let ctx: &MemoryContext = unsafe {
         let p = portal.borrow();
-        &*(&**p.portalContext.as_ref().expect("portal has portalContext")
-            as *const MemoryContext)
+        &*(&**p.portalContext.as_ref().expect("portal has portalContext") as *const MemoryContext)
     };
     let mcx = ctx.mcx();
 
@@ -921,8 +938,7 @@ fn PortalRunUtility(
     // call (freed only in PortalDrop); the Ref is released before use.
     let ctx: &MemoryContext = unsafe {
         let p = portal.borrow();
-        &*(&**p.portalContext.as_ref().expect("portal has portalContext")
-            as *const MemoryContext)
+        &*(&**p.portalContext.as_ref().expect("portal has portalContext") as *const MemoryContext)
     };
     let mcx = ctx.mcx();
 
@@ -932,9 +948,7 @@ fn PortalRunUtility(
     // portal's memory, and never mutated while the portal runs (C contract).
     let source_text: &str = unsafe {
         let p = portal.borrow();
-        core::mem::transmute::<&str, &str>(
-            p.sourceText.unwrap_or(""),
-        )
+        core::mem::transmute::<&str, &str>(p.sourceText.unwrap_or(""))
     };
     let (params, query_env) = {
         let p = portal.borrow();
@@ -1018,13 +1032,21 @@ fn PortalRunMulti<'mcx>(
             }
 
             let receiver: &mut DestReceiver<'mcx> = if can_set_tag {
-                if demote_dest { &mut none_dest } else { &mut *dest }
+                if demote_dest {
+                    &mut none_dest
+                } else {
+                    &mut *dest
+                }
             } else {
                 match altdest.as_deref_mut() {
                     Some(a) if !demote_alt => a,
                     Some(_) => &mut none_alt,
                     None => {
-                        if demote_dest { &mut none_dest } else { &mut *dest }
+                        if demote_dest {
+                            &mut none_dest
+                        } else {
+                            &mut *dest
+                        }
                     }
                 }
             };
@@ -1047,8 +1069,11 @@ fn PortalRunMulti<'mcx>(
         } else {
             if can_set_tag {
                 debug_assert!(!active_snapshot_set);
-                let receiver: &mut DestReceiver<'mcx> =
-                    if demote_dest { &mut none_dest } else { &mut *dest };
+                let receiver: &mut DestReceiver<'mcx> = if demote_dest {
+                    &mut none_dest
+                } else {
+                    &mut *dest
+                };
                 PortalRunUtility(
                     portal,
                     stmts,
@@ -1063,13 +1088,16 @@ fn PortalRunMulti<'mcx>(
                     Some(a) if !demote_alt => a,
                     Some(_) => &mut none_alt,
                     None => {
-                        if demote_dest { &mut none_dest } else { &mut *dest }
+                        if demote_dest {
+                            &mut none_dest
+                        } else {
+                            &mut *dest
+                        }
                     }
                 };
                 PortalRunUtility(portal, stmts, i, is_top_level, false, receiver, None)?;
             }
         }
-
 
         if portal.borrow().stmts.is_null() {
             break;
@@ -1301,9 +1329,10 @@ fn rewind_replays(portal: &Portal<'static>) -> bool {
         return false;
     }
     let stmts: &[PlannedStmt<'static>] = stmt_list::resolve(p.stmts);
-    stmts.first().is_some_and(execmain_seams::cursor_plan_rewind_replays::call)
+    stmts
+        .first()
+        .is_some_and(execmain_seams::cursor_plan_rewind_replays::call)
 }
-
 
 fn cursor_read_store(portal: &Portal<'static>) -> TuplestoreHandle {
     let p = portal.borrow();
@@ -1331,9 +1360,7 @@ fn ensure_cursor_store(portal: &Portal<'static>) -> PgResult<()> {
     }
     // A never-run WITH HOLD cursor reaches its first fill at COMMIT with the
     // holdStore already minted by HoldPortal — the sidecar must still ride along.
-    if portal.borrow().currentOfEligible == Some(true)
-        && portal.borrow().cursorTidStore.is_null()
-    {
+    if portal.borrow().currentOfEligible == Some(true) && portal.borrow().cursorTidStore.is_null() {
         let sidecar = tuplestore_hold_seams::tuplestore_begin_heap_cursor::call(true, hold)?;
         portal.borrow_mut().cursorTidStore = sidecar;
     }
@@ -1354,8 +1381,15 @@ pub fn fill_portal_store_to(portal: &Portal<'static>, target_rows: u64) -> PgRes
         return Ok(());
     }
     let query_desc = portal.borrow().queryDesc;
-    debug_assert!(!query_desc.is_null(), "fill_to on a portal without an executor");
-    let deficit = if target_rows == 0 { 0 } else { target_rows - have };
+    debug_assert!(
+        !query_desc.is_null(),
+        "fill_to on a portal without an executor"
+    );
+    let deficit = if target_rows == 0 {
+        0
+    } else {
+        target_rows - have
+    };
     let hold = (portal.borrow().cursorOptions & CURSOR_OPT_HOLD) != 0;
     let eligible = portal.borrow().currentOfEligible == Some(true);
     let tid_store = portal.borrow().cursorTidStore;
@@ -1410,7 +1444,10 @@ pub fn cursor_store_persist_into_hold(portal: &Portal<'static>) -> PgResult<()> 
         return Ok(());
     }
     let dst = portal.borrow().holdStore;
-    debug_assert!(!dst.is_null(), "HoldPortal creates the holdStore before persist");
+    debug_assert!(
+        !dst.is_null(),
+        "HoldPortal creates the holdStore before persist"
+    );
     let tup_desc = portal
         .borrow()
         .tupDesc
@@ -1420,8 +1457,7 @@ pub fn cursor_store_persist_into_hold(portal: &Portal<'static>) -> PgResult<()> 
     // this call (freed only in PortalDrop) — the RunFromStore pattern.
     let ctx: &MemoryContext = unsafe {
         let p = portal.borrow();
-        &*(&**p.portalContext.as_ref().expect("portal has portalContext")
-            as *const MemoryContext)
+        &*(&**p.portalContext.as_ref().expect("portal has portalContext") as *const MemoryContext)
     };
     let mcx = ctx.mcx();
     let mut treceiver = tcop_dest::CreateDestReceiver(CommandDest::Tuplestore);

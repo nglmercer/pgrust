@@ -16,7 +16,10 @@ fn image(bytes: &[u8], short: bool) -> Vec<u8> {
 
 fn fp(img: &[u8]) -> [u64; 2] {
     let mut out = [0u64; 2];
-    assert_eq!(unsafe { text_fp(img.as_ptr() as u64, out.as_mut_ptr() as u64) }, 0);
+    assert_eq!(
+        unsafe { text_fp(img.as_ptr() as u64, out.as_mut_ptr() as u64) },
+        0
+    );
     out
 }
 

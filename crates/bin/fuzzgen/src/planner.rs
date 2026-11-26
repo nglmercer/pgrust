@@ -92,11 +92,20 @@ struct Prof {
     gucs: &'static [(&'static str, &'static str)],
 }
 
-const DEFAULTP: Prof = Prof { name: "default", gucs: &[] };
+const DEFAULTP: Prof = Prof {
+    name: "default",
+    gucs: &[],
+};
 /// Force the plain sorted Group node / sorted SetOp (no hashing).
-const NOHASHAGG: Prof = Prof { name: "nohashagg", gucs: &[("enable_hashagg", "off")] };
+const NOHASHAGG: Prof = Prof {
+    name: "nohashagg",
+    gucs: &[("enable_hashagg", "off")],
+};
 /// Force the hashed SetOp strategy (subpath_is_hashable arm).
-const NOSORT: Prof = Prof { name: "nosort", gucs: &[("enable_sort", "off")] };
+const NOSORT: Prof = Prof {
+    name: "nosort",
+    gucs: &[("enable_sort", "off")],
+};
 /// Force a TidRangeScan: every other base-rel scan type disabled, tidscan
 /// stays on (default).
 const TIDRANGE: Prof = Prof {
@@ -132,8 +141,11 @@ const GEQO: Prof = Prof {
 
 /// SET/RESET bracket (RESETs reversed) around `body`, one group.
 fn bracket(p: &Prof, body: Vec<StmtKind>) -> Vec<StmtKind> {
-    let mut v: Vec<StmtKind> =
-        p.gucs.iter().map(|(n, x)| raw(format!("SET {n} = {x};"))).collect();
+    let mut v: Vec<StmtKind> = p
+        .gucs
+        .iter()
+        .map(|(n, x)| raw(format!("SET {n} = {x};")))
+        .collect();
     v.extend(body);
     for (n, _) in p.gucs.iter().rev() {
         v.push(raw(format!("RESET {n};")));
@@ -198,8 +210,7 @@ fn gen_sample(g: &mut Gen) -> Vec<StmtKind> {
          REPEATABLE (1);"
             .into(),
         // BERNOULLI sampler, total-ordered row probe.
-        "SELECT pk, a FROM fz_pl_s TABLESAMPLE BERNOULLI (100) REPEATABLE (7) ORDER BY pk;"
-            .into(),
+        "SELECT pk, a FROM fz_pl_s TABLESAMPLE BERNOULLI (100) REPEATABLE (7) ORDER BY pk;".into(),
         // SampleScan under a qual (cost_samplescan with restriction quals).
         "SELECT pk, a FROM fz_pl_s TABLESAMPLE SYSTEM (100) REPEATABLE (3) \
          WHERE a < 20 ORDER BY pk;"
@@ -395,7 +406,9 @@ fn gen_geqo(g: &mut Gen) -> Vec<StmtKind> {
             .into(),
     ];
     v.extend(sweep(g, &[GEQO], &queries));
-    v.push(raw("DROP TABLE fz_pl_j1, fz_pl_j2, fz_pl_j3, fz_pl_j4, fz_pl_j5, fz_pl_j6;"));
+    v.push(raw(
+        "DROP TABLE fz_pl_j1, fz_pl_j2, fz_pl_j3, fz_pl_j4, fz_pl_j5, fz_pl_j6;",
+    ));
     v
 }
 
@@ -475,7 +488,10 @@ mod tests {
             let sql: Vec<String> = stmts.iter().map(|s| s.to_sql()).collect();
             let text = sql.join("\n");
             // Balanced CREATE TABLE / DROP TABLE (count table names dropped).
-            let creates = sql.iter().filter(|s| s.starts_with("CREATE TABLE ")).count();
+            let creates = sql
+                .iter()
+                .filter(|s| s.starts_with("CREATE TABLE "))
+                .count();
             let drop_names: usize = sql
                 .iter()
                 .filter(|s| s.starts_with("DROP TABLE "))
@@ -488,11 +504,17 @@ mod tests {
             // Every SET has a matching RESET in the group.
             let sets = sql.iter().filter(|s| s.starts_with("SET ")).count();
             let resets = sql.iter().filter(|s| s.starts_with("RESET ")).count();
-            assert_eq!(sets, resets, "{shape}: {sets} SET vs {resets} RESET\n{text}");
+            assert_eq!(
+                sets, resets,
+                "{shape}: {sets} SET vs {resets} RESET\n{text}"
+            );
             // Every SELECT that projects rows (not a bare count/sum) ends
             // with ORDER BY before its semicolon.
             for s in &sql {
-                if s.starts_with("SELECT ") && !s.contains("count(*)") && !s.starts_with("SELECT count") {
+                if s.starts_with("SELECT ")
+                    && !s.contains("count(*)")
+                    && !s.starts_with("SELECT count")
+                {
                     assert!(
                         s.contains("ORDER BY"),
                         "{shape}: row-returning select without ORDER BY: {s}"

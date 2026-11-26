@@ -9,27 +9,37 @@
 //! and writes them as one run sorted by `k`; the emit merges every run in key order (the width-1
 //! arm's one owner folds on the backend thread, `Entry::own_single`).
 
-use gravity_abi::PtrWord;
+use crate::util::{HOST_CONTINUE, HOST_STOP};
+use gravity_abi::breaker::{
+    t1_default_bytes, table_kind, Breaker, BreakerKind, Budget, HashAgg, KeyKind, Owned, OwnerFns,
+    OwnerTop, Rec, RecordLayout, SlotKind, Spill, ADAPT_FACTOR, HASHAGG_HDR, ORDER_NONE,
+    OWNERTOP_HDR, OWNER_PARAMS, REDUCE_FLUSH, SHARE, T1, T1_BYPASS, T1_MAX_PARTS, TABLE_OWNED,
+};
 use gravity_abi::ctx::{hdr, resume, RESUME_NONE};
-use gravity_abi::status::{suspend, unsupported, UNSUPPORTED_SCRATCH, UNSUPPORTED_SHAPE};
-use gravity_abi::{Ctx, Lane, Site};
-use gravity_abi::status::{DONE, ERROR};
-use gravity_abi::breaker::{table_kind, Breaker, BreakerKind, Budget, HashAgg, KeyKind, Owned, OwnerFns, OwnerTop, Rec, RecordLayout, SlotKind, Spill, T1, ADAPT_FACTOR, HASHAGG_HDR, ORDER_NONE, OWNERTOP_HDR, OWNER_PARAMS, REDUCE_FLUSH, SHARE, T1_BYPASS, t1_default_bytes, T1_MAX_PARTS, TABLE_OWNED};
 use gravity_abi::hash::KeyHash;
 use gravity_abi::program::SPILL_SCATTER;
-use crate::util::{HOST_CONTINUE, HOST_STOP};
+use gravity_abi::status::{suspend, unsupported, UNSUPPORTED_SCRATCH, UNSUPPORTED_SHAPE};
+use gravity_abi::status::{DONE, ERROR};
+use gravity_abi::PtrWord;
+use gravity_abi::{Ctx, Lane, Site};
 
 use crate::ops::sort::runmerge::MERGING;
-use crate::util::{advance, emit, end, flush, for_each_row, int8_datum, lane, partial, range_seek, site as site_of, Cell};
-use crate::{Touch, SITE_EXEC_CELLS};
 use crate::table::image::AlignedImage;
+use crate::util::{
+    advance, emit, end, flush, for_each_row, int8_datum, lane, partial, range_seek,
+    site as site_of, Cell,
+};
+use crate::{Touch, SITE_EXEC_CELLS};
 
 /// The pair record: `(k, x)` and the implicit count sentinel (a pair's multiplicity, unused).
 pub const LAYOUT: RecordLayout = RecordLayout::new(&[KeyKind::I32, KeyKind::I32], &[]);
 /// The group record: `(k) → pairs`.
 pub const LAYOUT2: RecordLayout = RecordLayout::new_nn(&[KeyKind::I32], &[SlotKind::Count]);
 pub const INIT: u32 = 256;
-pub const TOUCH: Touch = Touch { hdr: &[hdr::RESUME], sites: &[(0, SITE_EXEC_CELLS)] };
+pub const TOUCH: Touch = Touch {
+    hdr: &[hdr::RESUME],
+    sites: &[(0, SITE_EXEC_CELLS)],
+};
 pub const PARAM_SPILL_BITS: usize = 0;
 pub const NPARAMS: usize = 1;
 pub const DEFAULT_BITS: u8 = 4;
@@ -50,12 +60,24 @@ pub const fn params(pairs: u64) -> [u64; NPARAMS] {
 }
 
 pub const fn breaker(pairs: u64) -> Breaker {
-    Breaker { kind: BreakerKind::Distinct, slot: 0, bytes: 0, budget: Budget::Share, spill: Spill::Partitioned { bits: spill_bits(pairs) } }
+    Breaker {
+        kind: BreakerKind::Distinct,
+        slot: 0,
+        bytes: 0,
+        budget: Budget::Share,
+        spill: Spill::Partitioned {
+            bits: spill_bits(pairs),
+        },
+    }
 }
 
 fn bits_of(p: &[u64]) -> u8 {
     let b = p[PARAM_SPILL_BITS] as u8;
-    if b == 0 { DEFAULT_BITS } else { b }
+    if b == 0 {
+        DEFAULT_BITS
+    } else {
+        b
+    }
 }
 
 /// # Safety
@@ -74,7 +96,14 @@ pub unsafe extern "C-unwind" fn par_distinct(ctx: *mut Ctx) -> i64 {
         (*table).flags |= T1_BYPASS;
     }
     let bypass = (*table).flags & T1_BYPASS != 0;
-    let mut st = Sink { ctx, table, pbits, bypass, last: [0; 2], last_rec: core::ptr::null_mut() };
+    let mut st = Sink {
+        ctx,
+        table,
+        pbits,
+        bypass,
+        last: [0; 2],
+        last_rec: core::ptr::null_mut(),
+    };
     loop {
         let r = advance(ctx, 0);
         if r <= 0 {
@@ -139,7 +168,8 @@ impl Sink {
                 Some(r) => r,
                 None => {
                     self.flush()?;
-                    T1::append_new(self.table, part, keys).ok_or(unsupported(UNSUPPORTED_SCRATCH))?
+                    T1::append_new(self.table, part, keys)
+                        .ok_or(unsupported(UNSUPPORTED_SCRATCH))?
                 }
             };
             self.last = *keys;
@@ -181,7 +211,10 @@ unsafe fn pairs<K: Cell, X: Cell>(s: &mut Site, lk: &Lane, lx: &Lane, st: &mut S
             return true;
         }
         out += 1;
-        let key = AlignedImage([(*kp.add(i)).i32() as i64 as u64, (*xp.add(i)).i32() as i64 as u64]);
+        let key = AlignedImage([
+            (*kp.add(i)).i32() as i64 as u64,
+            (*xp.add(i)).i32() as i64 as u64,
+        ]);
         if let Err(e) = st.record(&key.0) {
             code = e;
             return false;
@@ -202,7 +235,18 @@ unsafe fn pairs<K: Cell, X: Cell>(s: &mut Site, lk: &Lane, lx: &Lane, st: &mut S
 pub fn owner_fns(params: &[u64]) -> OwnerFns {
     let mut p = [0u64; OWNER_PARAMS];
     p[..NPARAMS].copy_from_slice(&params[..NPARAMS]);
-    OwnerFns { params: p, rounds: 2, order_slot: ORDER_NONE, order_slot2: ORDER_NONE, min_bytes: owner_min, open: owner_open, reduce: owner_reduce, end_round: owner_end, reduce2: owner_reduce2, fold: Some(crate::table::owner_fold::owner_fold) }
+    OwnerFns {
+        params: p,
+        rounds: 2,
+        order_slot: ORDER_NONE,
+        order_slot2: ORDER_NONE,
+        min_bytes: owner_min,
+        open: owner_open,
+        reduce: owner_reduce,
+        end_round: owner_end,
+        reduce2: owner_reduce2,
+        fold: Some(crate::table::owner_fold::owner_fold),
+    }
 }
 
 /// The owner region: `OwnerTop` (`worst` = the runs, `total` = the run bytes, `len` = the groups),
@@ -216,7 +260,9 @@ fn owner_min(params: *const u64, _owners: u32) -> u64 {
     let bits = bits_of(unsafe { core::slice::from_raw_parts(params, NPARAMS) });
     // the groups are bounded by the pairs; the runs and the round-2 pool each hold this owner's share
     let est = (1u64 << bits) * (512 << 10) / REC as u64;
-    RUN_OFF as u64 + 2 * (est * REC2 as u64 / 2).max(ROUND2_T1_BYTES as u64 + 2048 * 12 * 2) + (HASHAGG_HDR + 64 * REC) as u64
+    RUN_OFF as u64
+        + 2 * (est * REC2 as u64 / 2).max(ROUND2_T1_BYTES as u64 + 2048 * 12 * 2)
+        + (HASHAGG_HDR + 64 * REC) as u64
 }
 
 unsafe fn owner_open(params: *const u64, owner: *mut u8, bytes: usize) -> i64 {
@@ -230,13 +276,40 @@ unsafe fn owner_open(params: *const u64, owner: *mut u8, bytes: usize) -> i64 {
     }
     let r2 = owner.add(round2_off);
     core::ptr::write_bytes(r2, 0, 64);
-    T1::at(r2, &LAYOUT2, bits.max(3), (quarter as u32 / 2).min(ROUND2_T1_BYTES), quarter as u32);
-    *(owner as *mut OwnerTop) = OwnerTop { len: 0, n: 0, table_off: table_off as u32, worst: 0, round2_off: round2_off as u32, resume: 0, total: 0, groups: 0, records: 0, thr: 0, key_lo: gravity_abi::breaker::KEY_LO_NONE, key_hi: gravity_abi::breaker::KEY_HI_NONE, cell: core::cell::UnsafeCell::new([]) };
+    T1::at(
+        r2,
+        &LAYOUT2,
+        bits.max(3),
+        (quarter as u32 / 2).min(ROUND2_T1_BYTES),
+        quarter as u32,
+    );
+    *(owner as *mut OwnerTop) = OwnerTop {
+        len: 0,
+        n: 0,
+        table_off: table_off as u32,
+        worst: 0,
+        round2_off: round2_off as u32,
+        resume: 0,
+        total: 0,
+        groups: 0,
+        records: 0,
+        thr: 0,
+        key_lo: gravity_abi::breaker::KEY_LO_NONE,
+        key_hi: gravity_abi::breaker::KEY_HI_NONE,
+        cell: core::cell::UnsafeCell::new([]),
+    };
     table_off as i64
 }
 
 /// Round 1: the partition's deduped pairs counted per group into the owner's round-2 table.
-unsafe fn owner_reduce(_params: *const u64, owner: *mut u8, table: *const HashAgg, _site: *mut Site, _cand: *const u32, _ncand: i64) -> i64 {
+unsafe fn owner_reduce(
+    _params: *const u64,
+    owner: *mut u8,
+    table: *const HashAgg,
+    _site: *mut Site,
+    _cand: *const u32,
+    _ncand: i64,
+) -> i64 {
     let h = &mut *(owner as *mut OwnerTop);
     let t = &*table;
     if h.resume == 0 {
@@ -278,7 +351,14 @@ unsafe fn owner_end(_params: *const u64, owner: *mut u8) -> i64 {
 }
 
 /// Round 2: a partition's group records folded across the owners, written as one run sorted by `k`.
-unsafe fn owner_reduce2(_params: *const u64, owner: *mut u8, table: *const HashAgg, _site: *mut Site, _cand: *const u32, _ncand: i64) -> i64 {
+unsafe fn owner_reduce2(
+    _params: *const u64,
+    owner: *mut u8,
+    table: *const HashAgg,
+    _site: *mut Site,
+    _cand: *const u32,
+    _ncand: i64,
+) -> i64 {
     let h = &mut *(owner as *mut OwnerTop);
     let t = &mut *(table as *mut HashAgg);
     let n = t.len as usize;
@@ -342,7 +422,10 @@ unsafe fn emit_owned(ctx: *mut Ctx, own: *mut u8, word: i64) -> i64 {
             let h = OwnerTop::view(o.owner(j));
             if g < h.worst as usize {
                 let dir = o.owner(j).add(DIR_OFF) as *const u32;
-                return (o.owner(j).add(*dir.add(2 * g) as usize), *dir.add(2 * g + 1) as usize);
+                return (
+                    o.owner(j).add(*dir.add(2 * g) as usize),
+                    *dir.add(2 * g + 1) as usize,
+                );
             }
             g -= h.worst as usize;
         }

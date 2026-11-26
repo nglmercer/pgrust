@@ -178,7 +178,10 @@ fn gen_create(g: &mut Gen) -> Vec<StmtKind> {
     g.spill.next_table += 1;
     // <= 24000: exhaustive ANALYZE (deterministic stats/plans); >= 8000:
     // even the "big" work_mem-bracketed shapes truly spill.
-    let rows = match g.weights.pick(g.rng, &["spill:rows:8000", "spill:rows:16000", "spill:rows:20000"]) {
+    let rows = match g.weights.pick(
+        g.rng,
+        &["spill:rows:8000", "spill:rows:16000", "spill:rows:20000"],
+    ) {
         "spill:rows:8000" => 8000,
         "spill:rows:16000" => 16000,
         _ => 20000,
@@ -207,10 +210,16 @@ fn gen_create(g: &mut Gen) -> Vec<StmtKind> {
         StmtKind::Raw(format!("CREATE INDEX {i3} ON {name} (kskew);")),
         StmtKind::Raw(format!("ANALYZE {name};")),
     ];
-    g.spill.tables.push(SpillTable { name: name.clone(), live: true, kint_index: i1 });
-    g.spill
-        .events
-        .push(DdlEvent { table: name, pk: "pk".to_string(), kind: DdlEventKind::Created });
+    g.spill.tables.push(SpillTable {
+        name: name.clone(),
+        live: true,
+        kint_index: i1,
+    });
+    g.spill.events.push(DdlEvent {
+        table: name,
+        pk: "pk".to_string(),
+        kind: DdlEventKind::Created,
+    });
     stmts
 }
 
@@ -292,7 +301,11 @@ fn gen_sort(g: &mut Gen) -> Vec<StmtKind> {
         // the plan to Incremental Sort (witnessed) and the full external
         // merge never runs.
         "spill:sort:rows" => {
-            let key = if g.rng.chance(1, 2) { "txt, pk" } else { "num, pk" };
+            let key = if g.rng.chance(1, 2) {
+                "txt, pk"
+            } else {
+                "num, pk"
+            };
             format!("SELECT pk, k_int FROM {t} ORDER BY {key};")
         }
         // Count-wrapped sorted subquery: the sort runs (subquery ORDER BY
@@ -654,7 +667,12 @@ fn gen_hashagg(g: &mut Gen) -> Vec<StmtKind> {
     let t = g.spill.tables[ti].name.clone();
     let shape = g.weights.pick(
         g.rng,
-        &["spill:ha:wrap", "spill:ha:distinct", "spill:ha:gsets", "spill:ha:mixed"],
+        &[
+            "spill:ha:wrap",
+            "spill:ha:distinct",
+            "spill:ha:gsets",
+            "spill:ha:mixed",
+        ],
     );
     g.fire(shape);
     // W5 r2 (spill:ha:mixed): grouping sets with BOTH strategies live —
@@ -683,9 +701,9 @@ fn gen_hashagg(g: &mut Gen) -> Vec<StmtKind> {
             )
         }
         // Hashed DISTINCT spill.
-        "spill:ha:distinct" => format!(
-            "SELECT count(*) FROM (SELECT DISTINCT (pk * 7) % 9973, txt FROM {t}) s;"
-        ),
+        "spill:ha:distinct" => {
+            format!("SELECT count(*) FROM (SELECT DISTINCT (pk * 7) % 9973, txt FROM {t}) s;")
+        }
         // Grouping sets: the mixed hashed/sorted strategies + spill.
         _ => format!(
             "SELECT count(*), sum(c) FROM \
@@ -793,7 +811,10 @@ fn gen_window(g: &mut Gen) -> Vec<StmtKind> {
     let ti = need_table!(g);
     g.fire("spill:window");
     let t = g.spill.tables[ti].name.clone();
-    let shape = g.weights.pick(g.rng, &["spill:win:rowsframe", "spill:win:part", "spill:win:range"]);
+    let shape = g.weights.pick(
+        g.rng,
+        &["spill:win:rowsframe", "spill:win:part", "spill:win:range"],
+    );
     g.fire(shape);
     let body = match shape {
         // Wide moving frame with pad carried through the buffer: the
@@ -1067,7 +1088,9 @@ fn gen_explain(g: &mut Gen) -> Vec<StmtKind> {
     let ti = need_table!(g);
     g.fire("spill:explain");
     let t = g.spill.tables[ti].name.clone();
-    let shape = g.weights.pick(g.rng, &["spill:ex:hj", "spill:ex:ha", "spill:ex:incsort"]);
+    let shape = g
+        .weights
+        .pick(g.rng, &["spill:ex:hj", "spill:ex:ha", "spill:ex:incsort"]);
     g.fire(shape);
     let (gucs, body): (&[(&str, &str)], String) = match shape {
         "spill:ex:hj" => (
@@ -1094,9 +1117,7 @@ fn gen_explain(g: &mut Gen) -> Vec<StmtKind> {
         ),
         _ => (
             &[("enable_seqscan", "off"), ("work_mem", "'64kB'")],
-            format!(
-                "EXPLAIN (COSTS OFF) SELECT pk FROM {t} ORDER BY k_int, pk LIMIT 100;"
-            ),
+            format!("EXPLAIN (COSTS OFF) SELECT pk FROM {t} ORDER BY k_int, pk LIMIT 100;"),
         ),
     };
     bracket(gucs, vec![StmtKind::Raw(body)])
@@ -1175,7 +1196,10 @@ mod tests {
             if !sql.starts_with("SELECT pk") && !sql.contains("SELECT a.pk, b.pk") {
                 continue;
             }
-            assert!(sql.contains("ORDER BY"), "row-returning spill SELECT without ORDER BY: {sql}");
+            assert!(
+                sql.contains("ORDER BY"),
+                "row-returning spill SELECT without ORDER BY: {sql}"
+            );
         }
     }
 
@@ -1184,8 +1208,15 @@ mod tests {
         // B1: no accumulation-order-sensitive float aggregates anywhere in
         // the module output.
         for sql in flat(13, 600) {
-            for bad in ["avg(num)", "sum(num)", "stddev", "var_samp", "percentile_cont",
-                        "::float", "::double"] {
+            for bad in [
+                "avg(num)",
+                "sum(num)",
+                "stddev",
+                "var_samp",
+                "percentile_cont",
+                "::float",
+                "::double",
+            ] {
                 assert!(!sql.contains(bad), "float-order-sensitive aggregate: {sql}");
             }
         }
@@ -1249,7 +1280,10 @@ mod tests {
                 let tail = args.split(',').nth(1).unwrap().trim();
                 let digits: String = tail.chars().take_while(|c| c.is_ascii_digit()).collect();
                 let hi: i64 = digits.parse().unwrap();
-                assert!(hi <= 24000, "bulk load exceeds ANALYZE-exhaustive cap: {sql}");
+                assert!(
+                    hi <= 24000,
+                    "bulk load exceeds ANALYZE-exhaustive cap: {sql}"
+                );
             }
         }
     }
@@ -1309,7 +1343,10 @@ mod tests {
             "USING hash (",
             "ORDER BY pad DESC, pk",
         ] {
-            assert!(stmts.contains(needle), "family never fired in 1200 groups: {needle}");
+            assert!(
+                stmts.contains(needle),
+                "family never fired in 1200 groups: {needle}"
+            );
         }
     }
 }

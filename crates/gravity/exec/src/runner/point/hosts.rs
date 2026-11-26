@@ -11,8 +11,8 @@
 use std::rc::Rc;
 
 use gravity_driver::{BindingRef, Outcome, ScanPos, Source, WriteOp, Writer};
-use gravity_hosts::{IndexSource, SiteRecipe, WriteHost};
 use gravity_hosts::ops::modifytable::write_constraints::ModifiedCols;
+use gravity_hosts::{IndexSource, SiteRecipe, WriteHost};
 use gravity_program::{Cmd, WritePlan};
 use types_core::Oid;
 use types_error::{PgError, PgResult};
@@ -34,13 +34,22 @@ struct Keys {
 
 impl Keys {
     fn of(indexqual: &NodeList<'_>) -> PgResult<Keys> {
-        let mut k = Keys { words: [0; KEYS], nulls: [0; KEYS], n: indexqual.len() };
+        let mut k = Keys {
+            words: [0; KEYS],
+            nulls: [0; KEYS],
+            n: indexqual.len(),
+        };
         if k.n > KEYS {
             return Err(internal("a point probe with more keys than an index has"));
         }
         for (i, clause) in indexqual.iter().enumerate() {
-            let key = probe::key_of(clause).ok_or_else(|| internal("a point probe key that is not an operator over a constant"))?;
-            let (v, null) = key.value.get(&[]).ok_or_else(|| internal("a point probe key with no value"))?;
+            let key = probe::key_of(clause).ok_or_else(|| {
+                internal("a point probe key that is not an operator over a constant")
+            })?;
+            let (v, null) = key
+                .value
+                .get(&[])
+                .ok_or_else(|| internal("a point probe key with no value"))?;
             (k.words[i], k.nulls[i]) = (if null { 0 } else { v.as_u64() }, u8::from(null));
         }
         Ok(k)
@@ -64,7 +73,14 @@ impl Probe<'_, '_, '_> {
     /// The lowerer's walk of the plan's IndexScan: a btree recipe over `cols` (in that order), the index already locked
     /// (`NoLock`: the caller opened it at the RTE's mode, ExecInitIndexScan's).
     pub(super) fn recipe(&self) -> PgResult<SiteRecipe> {
-        SiteRecipe::from_plan(self.heap, self.index, self.indexqual, &NodeList::nil(), NoLock, self.cols)
+        SiteRecipe::from_plan(
+            self.heap,
+            self.index,
+            self.indexqual,
+            &NodeList::nil(),
+            NoLock,
+            self.cols,
+        )
     }
 }
 
@@ -80,7 +96,9 @@ impl EpqRecipe<'_, '_, '_> {
     fn make(&self) -> PgResult<SiteRecipe> {
         match self {
             EpqRecipe::Plan(p) => p.recipe(),
-            EpqRecipe::Kept(r) => r.take().ok_or_else(|| internal("a kept recheck walk's recipe was taken")),
+            EpqRecipe::Kept(r) => r
+                .take()
+                .ok_or_else(|| internal("a kept recheck walk's recipe was taken")),
         }
     }
 }
@@ -116,7 +134,8 @@ fn epq_walk(walk: IndexSource, held: Option<memledger::Owner>) -> PgResult<EpqWa
         ctx.set_owner(o);
     }
     mcx::McxOwned::<EpqTy>::try_new(ctx, move |m| {
-        let walk = mcx::PgBox::try_new_in(walk, m).map_err(|_| m.oom_boxed(core::mem::size_of::<IndexSource>()))?;
+        let walk = mcx::PgBox::try_new_in(walk, m)
+            .map_err(|_| m.oom_boxed(core::mem::size_of::<IndexSource>()))?;
         Ok(EpqIn { walk })
     })
 }
@@ -124,9 +143,25 @@ fn epq_walk(walk: IndexSource, held: Option<memledger::Owner>) -> PgResult<EpqWa
 impl Hosts {
     /// ExecInitModifyTable's write host of `cmd` (with the statement's insertedCols / updatedCols, `modified`: the host
     /// copies them at its first bind) and ExecInitIndexScan's walk (`recipe`), nothing bound.
-    pub(super) fn new(heap: Oid, cmd: Cmd, modified: Option<ModifiedCols>, recipe: SiteRecipe) -> Hosts {
-        let w = WriteHost::new(&WritePlan { target_rel: heap, cmd, ..WritePlan::SELECT }).with_modified(modified);
-        Hosts { w, src: IndexSource::new(recipe), epq: None, epq_bound: false, held: None }
+    pub(super) fn new(
+        heap: Oid,
+        cmd: Cmd,
+        modified: Option<ModifiedCols>,
+        recipe: SiteRecipe,
+    ) -> Hosts {
+        let w = WriteHost::new(&WritePlan {
+            target_rel: heap,
+            cmd,
+            ..WritePlan::SELECT
+        })
+        .with_modified(modified);
+        Hosts {
+            w,
+            src: IndexSource::new(recipe),
+            epq: None,
+            epq_bound: false,
+            held: None,
+        }
     }
 
     /// `new` for a memo entry to keep (keep.rs): the hosts' contexts named the entry's holder `owner` at once, their
@@ -134,7 +169,13 @@ impl Hosts {
     /// the creating thread's owner is that owner's in the owner tree only, its bytes on the thread's account, so the
     /// holder's account read low by them (`pgrust_memory_owners`' unattributed row went below zero).
     /// Their roots small-first (`gravity_hosts::scratch::small_roots`): parked between statements they hold little.
-    pub(super) fn new_held(heap: Oid, cmd: Cmd, modified: Option<ModifiedCols>, recipe: SiteRecipe, owner: memledger::Owner) -> Hosts {
+    pub(super) fn new_held(
+        heap: Oid,
+        cmd: Cmd,
+        modified: Option<ModifiedCols>,
+        recipe: SiteRecipe,
+        owner: memledger::Owner,
+    ) -> Hosts {
         let mut h = {
             let _small = gravity_hosts::scratch::small_roots();
             Hosts::new(heap, cmd, modified, recipe)
@@ -148,15 +189,31 @@ impl Hosts {
     pub(super) fn bytes(&self) -> usize {
         let sum = |p: [usize; 3]| p.iter().sum::<usize>();
         let [w, oc] = self.w.scratch_parts();
-        sum(w) + sum(oc) + self.w.maint_bytes() + sum(self.src.scratch_parts()) + self.epq.as_ref().map_or(0, |e| e.context().mem_allocated() + e.with(|x| sum(x.walk.scratch_parts())))
+        sum(w)
+            + sum(oc)
+            + self.w.maint_bytes()
+            + sum(self.src.scratch_parts())
+            + self.epq.as_ref().map_or(0, |e| {
+                e.context().mem_allocated() + e.with(|x| sum(x.walk.scratch_parts()))
+            })
     }
 
     /// `bytes` by piece, for REPORT's 'keep bytes' line: each scratch's roots (node / exec / bind) and the inline sizes.
     #[cold]
     pub(super) fn parts(&self) -> String {
-        let epq = self.epq.as_ref().map(|e| (e.context().mem_allocated(), e.with(|x| x.walk.scratch_parts())));
+        let epq = self.epq.as_ref().map(|e| {
+            (
+                e.context().mem_allocated(),
+                e.with(|x| x.walk.scratch_parts()),
+            )
+        });
         let [w, oc] = self.w.scratch_parts();
-        format!("write {w:?} + bind {oc:?} + maint {}, walk {:?}, epq {epq:?}, Hosts {} B", self.w.maint_bytes(), self.src.scratch_parts(), core::mem::size_of::<Hosts>()) // alloc: Cold
+        format!(
+            "write {w:?} + bind {oc:?} + maint {}, walk {:?}, epq {epq:?}, Hosts {} B",
+            self.w.maint_bytes(),
+            self.src.scratch_parts(),
+            core::mem::size_of::<Hosts>()
+        ) // alloc: Cold
     }
 
     /// The write host's and the walks' contexts on owner `to` (a kept entry's holder: at their making, and after each
@@ -189,7 +246,12 @@ impl Hosts {
 /// host's bind (ExecInitModifyTable's CheckValidResultRel, before its subplan starts), the keys' EXECUTE gates
 /// (ExecInitIndexScan's), the walk's bind; then per row ExecModifyTable's order: the walk's next (ExecScanFetch's interrupt
 /// check first), the row deleted at its position (`delete_at`). Returns the rows deleted (es_processed).
-pub(super) fn delete(h: &mut Hosts, epq: &EpqRecipe<'_, '_, '_>, indexqual: &NodeList<'_>, snap: &Rc<SnapshotData<'static>>) -> PgResult<u64> {
+pub(super) fn delete(
+    h: &mut Hosts,
+    epq: &EpqRecipe<'_, '_, '_>,
+    indexqual: &NodeList<'_>,
+    snap: &Rc<SnapshotData<'static>>,
+) -> PgResult<u64> {
     let cid = xact::GetCurrentCommandId(true)?;
     crate::ops::modifytable::after_query::begin(Cmd::Delete);
     let parts = crate::glue::binding_parts(snap, cid, &[], &[], None);
@@ -203,7 +265,11 @@ pub(super) fn delete(h: &mut Hosts, epq: &EpqRecipe<'_, '_, '_>, indexqual: &Nod
     let mut rows = 0u64;
     loop {
         cancelpoll::interrupts::check()?;
-        if !h.src.next(&mut [], &mut []).map_err(crate::glue::pg_error)? {
+        if !h
+            .src
+            .next(&mut [], &mut [])
+            .map_err(crate::glue::pg_error)?
+        {
             break;
         }
         let at = h.src.position();
@@ -220,7 +286,13 @@ pub(super) fn delete(h: &mut Hosts, epq: &EpqRecipe<'_, '_, '_>, indexqual: &Nod
 /// since the snapshot: the host locked its newest version, table_tuple_lock FIND_LAST_VERSION) the EvalPlanQual test of
 /// that version (`recheck`): a pass deletes it at its position (`goto ldelete`), a miss deletes nothing. True when a row
 /// was deleted.
-fn delete_at(h: &mut Hosts, epq: &EpqRecipe<'_, '_, '_>, b: &BindingRef<'_>, keys: &Keys, mut pos: ScanPos) -> PgResult<bool> {
+fn delete_at(
+    h: &mut Hosts,
+    epq: &EpqRecipe<'_, '_, '_>,
+    b: &BindingRef<'_>,
+    keys: &Keys,
+    mut pos: ScanPos,
+) -> PgResult<bool> {
     loop {
         match h.w.write(WriteOp::Delete, pos, &[], &[]).map_err(crate::glue::pg_error)? {
             Outcome::Done => return Ok(true),
@@ -241,7 +313,15 @@ fn delete_at(h: &mut Hosts, epq: &EpqRecipe<'_, '_, '_>, b: &BindingRef<'_>, key
 /// first): the version at `at` substituted for the scan's row and tested by the walk's keys, the walk's columns into
 /// `values` / `isnull`. `Some(position)` when it passes. The recheck walk is made at the statement's first recheck (or
 /// kept from an earlier statement's) and bound once per statement.
-fn recheck(h: &mut Hosts, epq: &EpqRecipe<'_, '_, '_>, b: &BindingRef<'_>, keys: &Keys, at: ScanPos, values: &mut [u64], isnull: &mut [u8]) -> PgResult<Option<ScanPos>> {
+fn recheck(
+    h: &mut Hosts,
+    epq: &EpqRecipe<'_, '_, '_>,
+    b: &BindingRef<'_>,
+    keys: &Keys,
+    at: ScanPos,
+    values: &mut [u64],
+    isnull: &mut [u8],
+) -> PgResult<Option<ScanPos>> {
     if crate::rerun::epq::must_serialize() {
         return Err(crate::rerun::epq::serialization_failure());
     }
@@ -254,19 +334,26 @@ fn recheck(h: &mut Hosts, epq: &EpqRecipe<'_, '_, '_>, b: &BindingRef<'_>, keys:
         h.epq = Some(epq_walk(e, h.held)?);
     }
     let bound = &mut h.epq_bound;
-    h.epq.as_mut().expect("made").with_mut(|x| -> PgResult<Option<ScanPos>> {
-        let s = &mut *x.walk;
-        if !*bound {
-            s.bind(b).map_err(crate::glue::pg_error)?;
-            *bound = true;
-        }
-        s.substitute(at);
-        let (kw, kn) = keys.words();
-        s.seek(kw, kn).map_err(crate::glue::pg_error)?;
-        // EvalPlanQualNext's fetch is ExecScanFetch's too: its CHECK_FOR_INTERRUPTS before the test tuple is handed out
-        cancelpoll::interrupts::check()?;
-        Ok(if s.next(values, isnull).map_err(crate::glue::pg_error)? { Some(s.position()) } else { None })
-    })
+    h.epq
+        .as_mut()
+        .expect("made")
+        .with_mut(|x| -> PgResult<Option<ScanPos>> {
+            let s = &mut *x.walk;
+            if !*bound {
+                s.bind(b).map_err(crate::glue::pg_error)?;
+                *bound = true;
+            }
+            s.substitute(at);
+            let (kw, kn) = keys.words();
+            s.seek(kw, kn).map_err(crate::glue::pg_error)?;
+            // EvalPlanQualNext's fetch is ExecScanFetch's too: its CHECK_FOR_INTERRUPTS before the test tuple is handed out
+            cancelpoll::interrupts::check()?;
+            Ok(if s.next(values, isnull).map_err(crate::glue::pg_error)? {
+                Some(s.position())
+            } else {
+                None
+            })
+        })
 }
 
 /// An UPDATE's new row (keep.rs `SetKept`), as ExecGetUpdateNewTuple makes it from the scanned version and the SET values.
@@ -287,7 +374,13 @@ pub(super) trait NewRow {
 /// DETAIL and the indexUnchanged hints read them), the SET expressions' init (`NewRow::init`), the keys' gates, the walk
 /// over the old row's columns; then per row ExecModifyTable's order: the walk's next (its interrupt check first), the new
 /// row formed and written at the row's position (`update_at`). Returns the rows updated (es_processed).
-pub(super) fn update(h: &mut Hosts, epq: &EpqRecipe<'_, '_, '_>, indexqual: &NodeList<'_>, new: &mut dyn NewRow, snap: &Rc<SnapshotData<'static>>) -> PgResult<u64> {
+pub(super) fn update(
+    h: &mut Hosts,
+    epq: &EpqRecipe<'_, '_, '_>,
+    indexqual: &NodeList<'_>,
+    new: &mut dyn NewRow,
+    snap: &Rc<SnapshotData<'static>>,
+) -> PgResult<u64> {
     let cid = xact::GetCurrentCommandId(true)?;
     crate::ops::modifytable::after_query::begin(Cmd::Update);
     let parts = crate::glue::binding_parts(snap, cid, &[], &[], None);
@@ -321,7 +414,14 @@ pub(super) fn update(h: &mut Hosts, epq: &EpqRecipe<'_, '_, '_>, indexqual: &Nod
 /// the host locked its newest version) the EvalPlanQual test of that version (`recheck`, its columns into `new.old()`): a
 /// pass forms the new row again over it, SET values recomputed (EvalPlanQual's projection), and writes at its position
 /// (`goto lreplace`); a miss updates nothing. True when a row was updated.
-fn update_at(h: &mut Hosts, epq: &EpqRecipe<'_, '_, '_>, b: &BindingRef<'_>, keys: &Keys, new: &mut dyn NewRow, mut pos: ScanPos) -> PgResult<bool> {
+fn update_at(
+    h: &mut Hosts,
+    epq: &EpqRecipe<'_, '_, '_>,
+    b: &BindingRef<'_>,
+    keys: &Keys,
+    new: &mut dyn NewRow,
+    mut pos: ScanPos,
+) -> PgResult<bool> {
     new.form()?;
     loop {
         let (v, n) = new.row();
@@ -346,5 +446,8 @@ fn update_at(h: &mut Hosts, epq: &EpqRecipe<'_, '_, '_>, b: &BindingRef<'_>, key
 
 #[cold]
 fn internal(msg: &str) -> Box<PgError> {
-    Box::new(PgError::error(format!("point path: {msg}")).with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR)) // alloc: Cold
+    Box::new(
+        PgError::error(format!("point path: {msg}"))
+            .with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR),
+    ) // alloc: Cold
 }

@@ -3,7 +3,6 @@
 //! (935) the text-result convention (the varlena textin precedent); their
 //! value cores live in the crate root.
 
-
 use ::datum::Datum;
 use ::types_error::PgResult;
 use ::types_fmgr::{
@@ -11,7 +10,7 @@ use ::types_fmgr::{
 };
 
 // Raw server-encoding bytes: C quotes the cstring as-is in its messages.
-fn in_arg(fcinfo: & Fcinfo) -> & [u8] {
+fn in_arg(fcinfo: &Fcinfo) -> &[u8] {
     // SAFETY: catalog arg 0 of cash_in is cstring (typlen -2).
     unsafe { fcinfo.arg_cstring(0) }.to_bytes()
 }
@@ -28,7 +27,11 @@ pub fn fc_cash_out(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResu
     let value = a.value.as_i64();
     let mut buf = [0u8; crate::CASH_OUT_BUFLEN];
     let len = crate::cash_out_into(value, &mut buf)?;
-    Ok(::types_fmgr::cstring_scratch(flinfo, "cash_out", &buf[..len]))
+    Ok(::types_fmgr::cstring_scratch(
+        flinfo,
+        "cash_out",
+        &buf[..len],
+    ))
 }
 
 macro_rules! fc_cash2 {

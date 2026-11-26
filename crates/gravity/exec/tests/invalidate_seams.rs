@@ -12,7 +12,10 @@ fn build(_depth: usize) -> Box<Backend> {
 }
 
 fn key(handle: u64) -> PlanKey {
-    PlanKey { handle: Handle(handle), generation: Generation(1) }
+    PlanKey {
+        handle: Handle(handle),
+        generation: Generation(1),
+    }
 }
 
 /// init_seams installs process-wide slots once (a second install panics): the tests share one call.
@@ -22,14 +25,22 @@ fn init() {
 }
 
 fn lookup(k: PlanKey) -> Option<Verdict> {
-    reentry::enter(None, None, false, |b, _| b.lookup(k)).expect("level").expect("built")
+    reentry::enter(None, None, false, |b, _| b.lookup(k))
+        .expect("level")
+        .expect("built")
 }
 
 #[test]
 fn init_seams_installs_the_drop_and_reset_channels() {
     init();
-    assert!(plancache_portal_seams::engine_plan_dropped::is_installed(), "DropCachedPlan reaches Gravity");
-    assert!(plancache_portal_seams::engine_plan_cache_reset::is_installed(), "ResetPlanCache reaches Gravity");
+    assert!(
+        plancache_portal_seams::engine_plan_dropped::is_installed(),
+        "DropCachedPlan reaches Gravity"
+    );
+    assert!(
+        plancache_portal_seams::engine_plan_cache_reset::is_installed(),
+        "ResetPlanCache reaches Gravity"
+    );
     // a level remembers two plansources' verdicts
     reentry::enter(Some(build), None, false, |b, _| {
         b.remember_refusal(key(0x40));
@@ -39,7 +50,11 @@ fn init_seams_installs_the_drop_and_reset_channels() {
     assert_eq!(lookup(key(0x40)), Some(Verdict::Refused));
     // DEALLOCATE of 0x40: its entry goes, 0x41's stays
     plancache_portal_seams::engine_plan_dropped::call(types_portal::PlanSourceHandle(0x40));
-    assert_eq!(lookup(key(0x40)), None, "the dropped plansource's verdict is forgotten");
+    assert_eq!(
+        lookup(key(0x40)),
+        None,
+        "the dropped plansource's verdict is forgotten"
+    );
     assert_eq!(lookup(key(0x41)), Some(Verdict::Refused));
     // DISCARD PLANS: every entry goes
     plancache_portal_seams::engine_plan_cache_reset::call();
@@ -64,7 +79,15 @@ fn a_drop_under_a_running_level_forgets_only_that_plansource() {
         plancache_portal_seams::engine_plan_dropped::call(types_portal::PlanSourceHandle(0x50));
     })
     .expect("level");
-    assert_eq!(lookup(key(0x50)), None, "the dropped plansource's verdict is forgotten at the level's next borrow");
-    assert_eq!(lookup(key(0x51)), Some(Verdict::Refused), "the running level's other entries stay (no whole flush)");
+    assert_eq!(
+        lookup(key(0x50)),
+        None,
+        "the dropped plansource's verdict is forgotten at the level's next borrow"
+    );
+    assert_eq!(
+        lookup(key(0x51)),
+        Some(Verdict::Refused),
+        "the running level's other entries stay (no whole flush)"
+    );
     reentry::teardown();
 }

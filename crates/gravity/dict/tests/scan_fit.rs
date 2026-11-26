@@ -67,8 +67,13 @@ fn scan_unit_costs_at_the_dev_seed() {
         pts.push((rej as f64, m));
     }
     let n = pts.len() as f64;
-    let (mx, my) = (pts.iter().map(|p| p.0).sum::<f64>() / n, pts.iter().map(|p| p.1).sum::<f64>() / n);
-    let (sxx, sxy) = pts.iter().fold((0.0, 0.0), |(a, b), &(x, y)| (a + (x - mx) * (x - mx), b + (x - mx) * (y - my)));
+    let (mx, my) = (
+        pts.iter().map(|p| p.0).sum::<f64>() / n,
+        pts.iter().map(|p| p.1).sum::<f64>() / n,
+    );
+    let (sxx, sxy) = pts.iter().fold((0.0, 0.0), |(a, b), &(x, y)| {
+        (a + (x - mx) * (x - mx), b + (x - mx) * (y - my))
+    });
     let reject_ns = sxy / sxx;
     let h = hay(0);
     let mut ns = Vec::new();

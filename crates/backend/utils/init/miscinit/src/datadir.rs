@@ -2,7 +2,9 @@
 
 use elog::{ereport, PCT_M};
 use init_small::globals as g;
-use types_error::{ErrorLocation, PgResult, ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE, ERROR, FATAL};
+use types_error::{
+    ErrorLocation, PgResult, ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE, ERROR, FATAL,
+};
 
 use crate::process::{loc, ValidatePgVersion};
 
@@ -20,7 +22,11 @@ pub fn make_absolute_path(path: &str) -> PgResult<String> {
                 return ereport(ERROR)
                     .with_saved_errno(e.raw_os_error().unwrap_or(0))
                     .errmsg(format!("could not get current working directory: {PCT_M}"))
-                    .finish(ErrorLocation::new("src/port/path.c", 868, "make_absolute_path"))
+                    .finish(ErrorLocation::new(
+                        "src/port/path.c",
+                        868,
+                        "make_absolute_path",
+                    ))
                     .map(|()| String::new());
             }
         };
@@ -109,7 +115,9 @@ pub fn checkDataDir() -> PgResult<()> {
     if st.st_mode & PG_MODE_MASK_GROUP != 0 {
         ereport(FATAL)
             .errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE)
-            .errmsg(format!("data directory \"{data_dir}\" has invalid permissions"))
+            .errmsg(format!(
+                "data directory \"{data_dir}\" has invalid permissions"
+            ))
             .errdetail("Permissions should be u=rwx (0700) or u=rwx,g=rx (0750).")
             .finish(loc(405, "checkDataDir"))?;
     }

@@ -37,7 +37,8 @@ unsafe fn call(ctx: *mut Ctx, h: u64, code: u64, entry: &str) -> i64 {
 #[cold]
 #[inline(never)]
 fn stale(entry: &str, h: u64) -> i64 {
-    crate::host_abi::bare(&format!("{entry}: a stale or foreign M9 handle {h:#x}")) // alloc: Cold
+    crate::host_abi::bare(&format!("{entry}: a stale or foreign M9 handle {h:#x}"))
+    // alloc: Cold
 }
 
 /// `setop.recursive` (D2231): PG's CHECK_FOR_INTERRUPTS once per generation, before the term re-runs (the IR passes the
@@ -52,7 +53,9 @@ impl Host for GenCheck {
     unsafe fn run(ctx: *mut Ctx, (h,): (u64,)) -> u64 {
         let cell = h as *mut GenCell;
         if cell.is_null() || (*cell).head.magic != GEN_MAGIC {
-            return crate::host_abi::bare(&format!("m9_gen_check: a stale or foreign M9 handle {h:#x}")) as u64; // alloc: Cold
+            return crate::host_abi::bare(&format!(
+                "m9_gen_check: a stale or foreign M9 handle {h:#x}"
+            )) as u64; // alloc: Cold
         }
         let head = core::ptr::addr_of_mut!((*cell).head);
         ((*cell).head.op)(head, ctx, OP_GEN_CHECK, 0, 0) as u64
@@ -72,7 +75,9 @@ impl Host for GenSeen {
     unsafe fn run(ctx: *mut Ctx, (h, img, n): (u64, u64, u64)) -> u64 {
         let cell = h as *mut GenCell;
         if cell.is_null() || (*cell).head.magic != GEN_MAGIC {
-            return crate::host_abi::bare(&format!("m9_gen_seen: a stale or foreign M9 handle {h:#x}")) as u64; // alloc: Cold
+            return crate::host_abi::bare(&format!(
+                "m9_gen_seen: a stale or foreign M9 handle {h:#x}"
+            )) as u64; // alloc: Cold
         }
         let head = core::ptr::addr_of_mut!((*cell).head);
         ((*cell).head.op)(head, ctx, OP_GEN_SEEN, img, n) as u64
@@ -91,7 +96,11 @@ impl Host for StreamTextCmp {
     /// # Safety
     /// `a` and `x` are live varlena datums (a row's value, or a held copy behind a 4-byte header).
     unsafe fn run(_ctx: *mut Ctx, (a, x, coll): (u64, u64, u64)) -> u64 {
-        let r = gravity_fn::with_payload(a as usize as *const u8, |p| gravity_fn::with_payload(x as usize as *const u8, |q| gravity_fn::typesem::collation::sort_compare(p, q, coll as u32)));
+        let r = gravity_fn::with_payload(a as usize as *const u8, |p| {
+            gravity_fn::with_payload(x as usize as *const u8, |q| {
+                gravity_fn::typesem::collation::sort_compare(p, q, coll as u32)
+            })
+        });
         match r {
             Ok(Ok(Ok(c))) => c.signum() as i64 as u64,
             Ok(Ok(Err(e)) | Err(e)) | Err(e) => {
@@ -176,7 +185,11 @@ impl Host for StreamFixedCopy {
             }
             (*ptr, *cap) = (p as u64, size);
         }
-        core::ptr::copy_nonoverlapping(datum as usize as *const u8, *ptr as usize as *mut u8, len as usize);
+        core::ptr::copy_nonoverlapping(
+            datum as usize as *const u8,
+            *ptr as usize as *mut u8,
+            len as usize,
+        );
         *ptr
     }
 
@@ -200,8 +213,10 @@ mod tests {
     fn the_text_key_compare_under_c_is_the_byte_order_in_any_header() {
         let plain = |s: &[u8]| [&((s.len() as u32 + 4) << 2).to_le_bytes()[..], s].concat(); // alloc: Cold
         let short = |s: &[u8]| [&[((s.len() as u8 + 1) << 1) | 1][..], s].concat(); // alloc: Cold
-        // SAFETY: two live varlena images for the call; the context is not read
-        let cmp = |a: &[u8], x: &[u8]| unsafe { entry3::<StreamTextCmp>(0, a.as_ptr() as u64, x.as_ptr() as u64, 950) } as i64;
+                                                                                    // SAFETY: two live varlena images for the call; the context is not read
+        let cmp = |a: &[u8], x: &[u8]| unsafe {
+            entry3::<StreamTextCmp>(0, a.as_ptr() as u64, x.as_ptr() as u64, 950)
+        } as i64;
         assert_eq!(cmp(&plain(b"k0001"), &plain(b"k0002")), -1);
         assert_eq!(cmp(&short(b"k0002"), &plain(b"k0001")), 1);
         assert_eq!(cmp(&short(b"k0001"), &plain(b"k0001")), 0);
@@ -212,7 +227,8 @@ mod tests {
 
     /// The test's `Program.pin`: a zeroed region of its own, never freed (the test's few pins).
     unsafe extern "C" fn test_pin(_ctx: *mut Ctx, bytes: u64) -> *mut u8 {
-        Box::leak(vec![0u64; (bytes as usize).div_ceil(8)].into_boxed_slice()).as_mut_ptr() as *mut u8 // alloc: Cold
+        Box::leak(vec![0u64; (bytes as usize).div_ceil(8)].into_boxed_slice()).as_mut_ptr()
+            as *mut u8 // alloc: Cold
     }
 
     /// The text key's copy: NULL copies nothing; a short image is copied as a plain one; a larger value regrows the buffer
@@ -222,7 +238,7 @@ mod tests {
         let mut program = Box::new(gravity_abi::ProgramBlock::NONE); // alloc: Cold
         program.pin = Some(test_pin);
         let mut cx = vec![0u64; gravity_abi::ctx::ctx_size(1) / 8]; // alloc: Cold
-        // SAFETY: the words are a ctx image; `program` outlives every use.
+                                                                    // SAFETY: the words are a ctx image; `program` outlives every use.
         unsafe { (*(cx.as_mut_ptr() as *mut Ctx)).program = &mut *program };
         let ctx = cx.as_mut_ptr() as u64;
         let short = |s: &[u8]| [&[((s.len() as u8 + 1) << 1) | 1][..], s].concat(); // alloc: Cold
@@ -239,13 +255,19 @@ mod tests {
         let img = unsafe { core::slice::from_raw_parts(c as usize as *const u8, 9) };
         assert_eq!(img, [&(9u32 << 2).to_le_bytes()[..], b"k0001"].concat());
         // SAFETY: the copy and its source are live varlenas
-        assert_eq!(unsafe { entry3::<StreamTextCmp>(0, c, a.as_ptr() as u64, 950) }, 0);
+        assert_eq!(
+            unsafe { entry3::<StreamTextCmp>(0, c, a.as_ptr() as u64, 950) },
+            0
+        );
         let long = [&(204u32 << 2).to_le_bytes()[..], &[b'x'; 200][..]].concat(); // alloc: Cold
-        // SAFETY: as above
+                                                                                  // SAFETY: as above
         let c2 = unsafe { entry2::<StreamKeyCopy>(ctx, at, long.as_ptr() as u64) };
         assert!(c2 != u64::MAX && c2 != c && buf[1] >= 204);
         // SAFETY: as above
-        assert_eq!(unsafe { entry2::<StreamKeyCopy>(ctx, at, a.as_ptr() as u64) }, c2);
+        assert_eq!(
+            unsafe { entry2::<StreamKeyCopy>(ctx, at, a.as_ptr() as u64) },
+            c2
+        );
     }
 
     /// A null or foreign handle is an error by name, never a call through it (the op itself runs in the e2e witness).
@@ -254,10 +276,15 @@ mod tests {
         let _ = gravity_fn::take_error();
         // SAFETY: a null handle: nothing is read.
         assert_eq!(unsafe { entry1::<GenCheck>(0, 0) } as i64, ERROR);
-        assert!(gravity_fn::take_error().is_some_and(|e| e.message().contains("m9_gen_check: a stale or foreign M9 handle 0x0")));
+        assert!(gravity_fn::take_error().is_some_and(|e| e
+            .message()
+            .contains("m9_gen_check: a stale or foreign M9 handle 0x0")));
         let foreign = [0u64; 3];
         // SAFETY: a live three-word block whose magic is not the generation object's: only its magic is read.
-        assert_eq!(unsafe { entry1::<GenCheck>(0, foreign.as_ptr() as u64) } as i64, ERROR);
+        assert_eq!(
+            unsafe { entry1::<GenCheck>(0, foreign.as_ptr() as u64) } as i64,
+            ERROR
+        );
         assert!(gravity_fn::take_error().is_some_and(|e| e.message().contains("stale or foreign")));
     }
 
@@ -267,11 +294,20 @@ mod tests {
         let _ = gravity_fn::take_error();
         let img = [0u64; 2];
         // SAFETY: a null handle: nothing is read.
-        assert_eq!(unsafe { entry3::<GenSeen>(0, 0, img.as_ptr() as u64, 1) } as i64, ERROR);
-        assert!(gravity_fn::take_error().is_some_and(|e| e.message().contains("m9_gen_seen: a stale or foreign M9 handle 0x0")));
+        assert_eq!(
+            unsafe { entry3::<GenSeen>(0, 0, img.as_ptr() as u64, 1) } as i64,
+            ERROR
+        );
+        assert!(gravity_fn::take_error().is_some_and(|e| e
+            .message()
+            .contains("m9_gen_seen: a stale or foreign M9 handle 0x0")));
         let foreign = [0u64; 3];
         // SAFETY: a live three-word block whose magic is not the generation object's: only its magic is read.
-        assert_eq!(unsafe { entry3::<GenSeen>(0, foreign.as_ptr() as u64, img.as_ptr() as u64, 1) } as i64, ERROR);
-        assert!(gravity_fn::take_error().is_some_and(|e| e.message().contains("m9_gen_seen: a stale or foreign")));
+        assert_eq!(
+            unsafe { entry3::<GenSeen>(0, foreign.as_ptr() as u64, img.as_ptr() as u64, 1) } as i64,
+            ERROR
+        );
+        assert!(gravity_fn::take_error()
+            .is_some_and(|e| e.message().contains("m9_gen_seen: a stale or foreign")));
     }
 }

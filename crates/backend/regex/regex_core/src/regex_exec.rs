@@ -1,4 +1,3 @@
-
 extern crate alloc;
 
 use alloc::boxed::Box;
@@ -18,8 +17,6 @@ use crate::regguts::{
 };
 use ::regex::{pg_regoff_t, RegMatch};
 
-
-
 pub const UBITS: usize = 32;
 
 #[inline]
@@ -32,17 +29,14 @@ pub fn isbset(uv: &[u32], sn: usize) -> bool {
     (uv[sn / UBITS] & (1u32 << (sn % UBITS))) != 0
 }
 
-
 pub const STARTER: i32 = 0o01;
 pub const POSTSTATE: i32 = 0o02;
 pub const LOCKED: i32 = 0o04;
 pub const NOPROGRESS: i32 = 0o010;
 
-
 pub const WORK: usize = 1;
 
 pub const REG_SMALL_NSSETS: usize = 7;
-
 
 // C moves 8-byte pointers with NULL sentinels through the DFA exec loop;
 // Option<usize> here cost 16-byte moves + decode branches per transition
@@ -58,7 +52,10 @@ pub struct Arcp {
 impl Arcp {
     #[inline]
     pub const fn null() -> Self {
-        Arcp { ss: NOSS, co: WHITE }
+        Arcp {
+            ss: NOSS,
+            co: WHITE,
+        }
     }
 }
 
@@ -216,7 +213,10 @@ impl<T: ZeroValid> LazyArray<T> {
         crate::regex_error::check_alloc_request(n, c_size)?;
         let layout = Self::layout(n)?;
         if layout.size() == 0 {
-            return Ok(LazyArray { ptr: core::ptr::NonNull::dangling(), len: n });
+            return Ok(LazyArray {
+                ptr: core::ptr::NonNull::dangling(),
+                len: n,
+            });
         }
         // SAFETY: non-zero-size layout.
         let p = unsafe { std::alloc::GlobalAlloc::alloc_zeroed(&std::alloc::System, layout) };
@@ -250,7 +250,11 @@ impl<T: ZeroValid> Drop for LazyArray<T> {
         if layout.size() != 0 {
             // SAFETY: allocated by System with this layout in zeroed().
             unsafe {
-                std::alloc::GlobalAlloc::dealloc(&std::alloc::System, self.ptr.as_ptr().cast(), layout)
+                std::alloc::GlobalAlloc::dealloc(
+                    &std::alloc::System,
+                    self.ptr.as_ptr().cast(),
+                    layout,
+                )
             };
         }
     }
@@ -480,7 +484,6 @@ impl Dfa<'_> {
     }
 }
 
-
 pub struct ExecVars<'a> {
     pub eflags: i32,
     pub nmatch: usize,
@@ -496,7 +499,6 @@ pub struct ExecVars<'a> {
     pub lblastcss: Vec<Option<usize>>,
     pub lblastcp: Vec<Option<usize>>,
 }
-
 
 fn dfa_from_parts<'s>(
     meta: DfaMeta,
@@ -599,11 +601,9 @@ fn fill_vec<T: Copy>(n: usize, val: T, c_size: usize) -> RegResult<Vec<T>> {
     Ok(v)
 }
 
-
 pub fn hash(uv: &[u32], n: usize) -> u32 {
     uv[..n].iter().fold(0u32, |h, &w| h ^ w)
 }
-
 
 pub fn initialize(d: &mut Dfa<'_>, cnfa: &Cnfa, start: usize) -> RegResult<usize> {
     let ss: usize = if d.nssused > 0 && (d.ssets[0].flags & STARTER) != 0 {
@@ -630,12 +630,10 @@ pub fn initialize(d: &mut Dfa<'_>, cnfa: &Cnfa, start: usize) -> RegResult<usize
     Ok(ss)
 }
 
-
 #[inline]
 pub fn getvacant(d: &mut Dfa<'_>, cp: usize, start: usize) -> RegResult<usize> {
     crate::regex_dfa_kernel::getvacant(d, cp, start)
 }
-
 
 pub fn pickss(d: &mut Dfa<'_>, cp: usize, start: usize) -> RegResult<usize> {
     debug_assert!(cp >= start);
@@ -678,7 +676,6 @@ pub fn pickss(d: &mut Dfa<'_>, cp: usize, start: usize) -> RegResult<usize> {
     Err(RegError(REG_ASSERT))
 }
 
-
 #[inline]
 fn getcolor(cm: &ColorMap, c: chr) -> color {
     if c <= MAX_SIMPLE_CHR {
@@ -687,7 +684,6 @@ fn getcolor(cm: &ColorMap, c: chr) -> color {
         crate::regex_foundation::pg_reg_getcolor(cm, c)
     }
 }
-
 
 pub fn getsubdfa(v: &mut ExecVars, t: &Subre) -> RegResult<usize> {
     if v.subdfas.is_empty() {
@@ -722,7 +718,6 @@ pub fn getladfa(v: &mut ExecVars, g: &Guts, n: usize) -> RegResult<usize> {
     }
     Ok(n)
 }
-
 
 #[allow(clippy::too_many_arguments)]
 fn miss(
@@ -771,7 +766,7 @@ fn miss(
                     if !lacon(v, g, cnfa, cp, ca.co)? {
                         continue; // LACON arc cannot be traversed
                     }
-                    bset( d.work, ca.to as usize);
+                    bset(d.work, ca.to as usize);
                     dolacons = true;
                     if ca.to == cnfa.post {
                         ispost = true;
@@ -824,18 +819,11 @@ fn miss(
     Ok(p as u32)
 }
 
-
 // LACON traversal is rare; keeping it out of line keeps miss()'s frame and
 // register pressure at C's density.
 #[cold]
 #[inline(never)]
-fn lacon(
-    v: &mut ExecVars,
-    g: &Guts,
-    pcnfa: &Cnfa,
-    cp: usize,
-    co: color,
-) -> RegResult<bool> {
+fn lacon(v: &mut ExecVars, g: &Guts, pcnfa: &Cnfa, cp: usize, co: color) -> RegResult<bool> {
     // C regexec.c / rege_dfa.c STACK_TOO_DEEP(v->re) == stack_is_too_deep().
     if ::stack_depth::stack_is_too_deep() {
         return Err(RegError(REG_ETOOBIG));
@@ -846,13 +834,7 @@ fn lacon(
     result
 }
 
-fn lacon_inner(
-    v: &mut ExecVars,
-    g: &Guts,
-    pcnfa: &Cnfa,
-    cp: usize,
-    co: color,
-) -> RegResult<bool> {
+fn lacon_inner(v: &mut ExecVars, g: &Guts, pcnfa: &Cnfa, cp: usize, co: color) -> RegResult<bool> {
     let n = (co as i32 - pcnfa.ncolors) as usize;
     debug_assert!(n > 0 && (n as i32) < g.nlacons);
     let latype = g.lacons[n].latype as i32;
@@ -890,7 +872,6 @@ fn lacon_inner(
         Ok(satisfied)
     }
 }
-
 
 #[allow(clippy::too_many_arguments)]
 fn longest(
@@ -977,7 +958,11 @@ fn longest(
                 break;
             }
             Scan::Post { .. } => unreachable!(),
-            Scan::Miss { cp: ncp, css: ncss, co } => {
+            Scan::Miss {
+                cp: ncp,
+                css: ncss,
+                co,
+            } => {
                 cp = ncp;
                 css = ncss;
                 let m = miss(v, g, d, cnfa, cm, css, co, cp + 1, start)?;
@@ -1018,7 +1003,6 @@ fn longest(
 
     Ok(None)
 }
-
 
 #[allow(clippy::too_many_arguments)]
 fn shortest(
@@ -1087,7 +1071,8 @@ fn shortest(
     }
     css = m as usize;
     d.ssets[css].lastseen = Pos::at(cp);
-    #[allow(unused_assignments)] // Rust-structural: C's live pre-loop store (rege_dfa.c:280) is expressed through scan_shortest's return
+    #[allow(unused_assignments)]
+    // Rust-structural: C's live pre-loop store (rege_dfa.c:280) is expressed through scan_shortest's return
     let mut ss: Option<usize> = Some(css);
 
     // Same bounds-check fold as longest(); per-char loop in the kernel.
@@ -1103,7 +1088,11 @@ fn shortest(
                 ss = Some(ncss);
                 break;
             }
-            Scan::Miss { cp: ncp, css: ncss, co } => {
+            Scan::Miss {
+                cp: ncp,
+                css: ncss,
+                co,
+            } => {
                 cp = ncp;
                 css = ncss;
                 let m = miss(v, g, d, cnfa, cm, css, co, cp + 1, start)?;
@@ -1160,7 +1149,6 @@ fn shortest(
         _ => Ok(None),
     }
 }
-
 
 #[allow(clippy::too_many_arguments)]
 fn matchuntil(
@@ -1251,7 +1239,6 @@ fn matchuntil(
     }
 }
 
-
 fn dfa_backref(
     v: &ExecVars,
     g: &Guts,
@@ -1322,7 +1309,6 @@ fn dfa_backref(
     }
 }
 
-
 fn lastcold(v: &ExecVars, d: &Dfa<'_>) -> usize {
     let mut nopr = if d.lastnopr.is_none() {
         Pos::at(v.start)
@@ -1336,7 +1322,6 @@ fn lastcold(v: &ExecVars, d: &Dfa<'_>) -> usize {
     }
     nopr.get()
 }
-
 
 #[inline]
 fn off(v: &ExecVars, p: usize) -> isize {
@@ -1358,7 +1343,8 @@ fn find(
     let mut cold: Option<usize> = None;
     let (close, used) = {
         let mut s = newdfa(v.eflags, &g.search, &mut scratch.s1, &mut scratch.h1)?;
-        let close = shortest(v,
+        let close = shortest(
+            v,
             g,
             &mut s,
             &g.search,
@@ -1394,7 +1380,18 @@ fn find(
     while begin <= close {
         let mut hitend = false;
         let e = if shorter {
-            shortest(v, g, &mut d, cnfa, cm, begin, begin, stop, None, Some(&mut hitend))
+            shortest(
+                v,
+                g,
+                &mut d,
+                cnfa,
+                cm,
+                begin,
+                begin,
+                stop,
+                None,
+                Some(&mut hitend),
+            )
         } else {
             longest(v, g, &mut d, cnfa, cm, begin, stop, Some(&mut hitend))
         };
@@ -1484,7 +1481,8 @@ fn cfindloop(
     let mut close = v.search_start;
 
     loop {
-        let close_opt = shortest(v,
+        let close_opt = shortest(
+            v,
             g,
             s,
             &g.search,
@@ -1517,7 +1515,18 @@ fn cfindloop(
             loop {
                 let mut hitend = false;
                 let end_res = if shorter {
-                    shortest(v, g, d, cnfa, cm, begin, estart, estop, None, Some(&mut hitend))
+                    shortest(
+                        v,
+                        g,
+                        d,
+                        cnfa,
+                        cm,
+                        begin,
+                        estart,
+                        estop,
+                        None,
+                        Some(&mut hitend),
+                    )
                 } else {
                     longest(v, g, d, cnfa, cm, begin, estop, Some(&mut hitend))
                 };
@@ -1572,7 +1581,6 @@ fn cfindloop(
     *coldp = cold;
     Ok(REG_NOMATCH)
 }
-
 
 pub fn pg_regexec(
     guts: &Guts,
@@ -1723,7 +1731,6 @@ fn pg_regexec_code(
     st
 }
 
-
 fn longest_sub(
     v: &mut ExecVars,
     g: &Guts,
@@ -1771,7 +1778,6 @@ fn shortest_sub(
     r
 }
 
-
 pub fn zapallsubs(p: &mut [(isize, isize)], n: usize) {
     let mut i = n.wrapping_sub(1);
     while i > 0 {
@@ -1806,14 +1812,7 @@ fn subset(v: &mut ExecVars, g: &Guts, sub: NodeId, begin: usize, end: usize) {
     v.pmatch[n as usize].1 = (end - v.start) as isize;
 }
 
-
-fn cdissect(
-    v: &mut ExecVars,
-    g: &Guts,
-    t: NodeId,
-    begin: usize,
-    end: usize,
-) -> RegResult<i32> {
+fn cdissect(v: &mut ExecVars, g: &Guts, t: NodeId, begin: usize, end: usize) -> RegResult<i32> {
     // C regexec.c:767 INTERRUPT(v->re): "handy place to check for operation
     // cancel" — backref dissection (citerdissect) is exponential worst case.
     check_interrupt()?;
@@ -1837,7 +1836,6 @@ fn cdissect_inner(
     let id = t.0 as usize;
     let op = g.tree_nodes[id].op;
     let capno = g.tree_nodes[id].capno;
-
 
     let er: i32 = match op {
         b'=' => {
@@ -1884,14 +1882,7 @@ fn cdissect_inner(
     Ok(er)
 }
 
-
-fn ccondissect(
-    v: &mut ExecVars,
-    g: &Guts,
-    t: NodeId,
-    begin: usize,
-    end: usize,
-) -> RegResult<i32> {
+fn ccondissect(v: &mut ExecVars, g: &Guts, t: NodeId, begin: usize, end: usize) -> RegResult<i32> {
     let id = t.0 as usize;
     let left = g.tree_nodes[id].child.expect("concat left");
     let right = g.tree_nodes[left.0 as usize].sibling.expect("concat right");
@@ -1934,7 +1925,6 @@ fn ccondissect(
         };
     }
 }
-
 
 fn crevcondissect(
     v: &mut ExecVars,
@@ -1985,7 +1975,6 @@ fn crevcondissect(
         };
     }
 }
-
 
 fn cbrdissect(v: &mut ExecVars, g: &Guts, t: NodeId, begin: usize, end: usize) -> RegResult<i32> {
     let id = t.0 as usize;
@@ -2041,27 +2030,18 @@ fn cbrdissect(v: &mut ExecVars, g: &Guts, t: NodeId, begin: usize, end: usize) -
     Ok(REG_OKAY)
 }
 
-
-fn caltdissect(
-    v: &mut ExecVars,
-    g: &Guts,
-    t: NodeId,
-    begin: usize,
-    end: usize,
-) -> RegResult<i32> {
+fn caltdissect(v: &mut ExecVars, g: &Guts, t: NodeId, begin: usize, end: usize) -> RegResult<i32> {
     debug_assert!(g.tree_nodes[t.0 as usize].op == b'|');
 
     let mut tcur = g.tree_nodes[t.0 as usize].child;
     debug_assert!(tcur.is_some() && g.tree_nodes[tcur.unwrap().0 as usize].sibling.is_some());
 
     while let Some(node) = tcur {
-        debug_assert!(
-            g.tree_nodes[node.0 as usize]
-                .cnfa
-                .as_ref()
-                .map(|c| c.nstates > 0)
-                .unwrap_or(false)
-        );
+        debug_assert!(g.tree_nodes[node.0 as usize]
+            .cnfa
+            .as_ref()
+            .map(|c| c.nstates > 0)
+            .unwrap_or(false));
 
         getsubdfa(v, &g.tree_nodes[node.0 as usize])?;
         if longest_sub(v, g, node, begin, end, None)? == Some(end) {
@@ -2077,14 +2057,7 @@ fn caltdissect(
     Ok(REG_NOMATCH)
 }
 
-
-fn citerdissect(
-    v: &mut ExecVars,
-    g: &Guts,
-    t: NodeId,
-    begin: usize,
-    end: usize,
-) -> RegResult<i32> {
+fn citerdissect(v: &mut ExecVars, g: &Guts, t: NodeId, begin: usize, end: usize) -> RegResult<i32> {
     let id = t.0 as usize;
     let child = g.tree_nodes[id].child.expect("iter child");
     let t_min = g.tree_nodes[id].min as i32;
@@ -2145,12 +2118,8 @@ fn citerdissect(
                     let mut i = nverified + 1;
                     while i <= k {
                         zaptreesubs(v, g, child);
-                        let er = cdissect(v,
-                            g,
-                            child,
-                            endpts[(i - 1) as usize],
-                            endpts[i as usize],
-                        )?;
+                        let er =
+                            cdissect(v, g, child, endpts[(i - 1) as usize], endpts[i as usize])?;
                         if er == REG_OKAY {
                             nverified = i;
                             i += 1;
@@ -2185,14 +2154,12 @@ fn citerdissect(
         }
     }
 
-
     if t_min == 0 && begin == end {
         return Ok(REG_OKAY);
     }
 
     Ok(REG_NOMATCH)
 }
-
 
 fn creviterdissect(
     v: &mut ExecVars,
@@ -2271,12 +2238,8 @@ fn creviterdissect(
                     let mut i = nverified + 1;
                     while i <= k {
                         zaptreesubs(v, g, child);
-                        let er = cdissect(v,
-                            g,
-                            child,
-                            endpts[(i - 1) as usize],
-                            endpts[i as usize],
-                        )?;
+                        let er =
+                            cdissect(v, g, child, endpts[(i - 1) as usize], endpts[i as usize])?;
                         if er == REG_OKAY {
                             nverified = i;
                             i += 1;
@@ -2308,7 +2271,6 @@ fn creviterdissect(
 
     Ok(REG_NOMATCH)
 }
-
 
 pub struct PrefixResult {
     pub code: i32,
@@ -2345,7 +2307,10 @@ pub fn pg_regprefix<'mcx>(_mcx: Mcx<'mcx>, guts: &Guts) -> RegResult<PrefixResul
     string = res.prefix;
 
     match res.code {
-        x if x == REG_PREFIX || x == REG_EXACT => Ok(PrefixResult { code: x, prefix: string }),
+        x if x == REG_PREFIX || x == REG_EXACT => Ok(PrefixResult {
+            code: x,
+            prefix: string,
+        }),
         other => Ok(PrefixResult {
             code: other,
             prefix: Vec::new(),
@@ -2364,14 +2329,23 @@ pub fn findprefix(cnfa: &Cnfa, cm: &ColorMap) -> RegResult<PrefixResult> {
             if nextst == -1 {
                 nextst = ca.to;
             } else if nextst != ca.to {
-                return Ok(PrefixResult { code: REG_NOMATCH, prefix: string });
+                return Ok(PrefixResult {
+                    code: REG_NOMATCH,
+                    prefix: string,
+                });
             }
         } else {
-            return Ok(PrefixResult { code: REG_NOMATCH, prefix: string });
+            return Ok(PrefixResult {
+                code: REG_NOMATCH,
+                prefix: string,
+            });
         }
     }
     if nextst == -1 {
-        return Ok(PrefixResult { code: REG_NOMATCH, prefix: string });
+        return Ok(PrefixResult {
+            code: REG_NOMATCH,
+            prefix: string,
+        });
     }
 
     loop {
@@ -2439,12 +2413,21 @@ pub fn findprefix(cnfa: &Cnfa, cm: &ColorMap) -> RegResult<PrefixResult> {
         }
     }
     if nextst == cnfa.post {
-        return Ok(PrefixResult { code: REG_EXACT, prefix: string });
+        return Ok(PrefixResult {
+            code: REG_EXACT,
+            prefix: string,
+        });
     }
 
     if !string.is_empty() {
-        return Ok(PrefixResult { code: REG_PREFIX, prefix: string });
+        return Ok(PrefixResult {
+            code: REG_PREFIX,
+            prefix: string,
+        });
     }
 
-    Ok(PrefixResult { code: REG_NOMATCH, prefix: string })
+    Ok(PrefixResult {
+        code: REG_NOMATCH,
+        prefix: string,
+    })
 }

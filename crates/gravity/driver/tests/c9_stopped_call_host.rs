@@ -13,7 +13,9 @@ use gravity_abi::breaker::{Breaker, BreakerKind, Budget, Spill};
 use gravity_abi::status::{raise, DONE, ERROR};
 use gravity_abi::{Ctx, MorselRange, PtrWord};
 use gravity_driver::{Call, Claimed, Entry, Error, Grant, Merge, Partial, Result, State};
-use gravity_program::{Arena, Code, End, Layout, OutCol, Pipeline, Program, Reason, SiteDesc, WritePlan};
+use gravity_program::{
+    Arena, Code, End, Layout, OutCol, Pipeline, Program, Reason, SiteDesc, WritePlan,
+};
 
 const NULLS: [u8; 1] = [0];
 
@@ -60,7 +62,15 @@ fn node_call() -> Result<gravity_driver::Step> {
     let sink = FakeSink::new();
     let mut sink_ref = &sink;
     let mut b = binding(&[], &NULLS, &mut sink_ref, &flag);
-    let mut exec = entry.start(None, &program, &mut derive, &mut b, lease(Grant::of(8 << 20))).unwrap();
+    let mut exec = entry
+        .start(
+            None,
+            &program,
+            &mut derive,
+            &mut b,
+            lease(Grant::of(8 << 20)),
+        )
+        .unwrap();
     let r = entry.run(&mut exec, &mut b, Call::batch(1));
     entry.end(exec, false);
     r
@@ -69,13 +79,23 @@ fn node_call() -> Result<gravity_driver::Step> {
 #[test]
 fn a_nodes_call_is_the_cancel_only_while_its_stop_is_the_statements_to_raise() {
     arm(false, false);
-    assert!(matches!(node_call(), Err(Error::Host(_))), "no stop: the error stands");
+    assert!(
+        matches!(node_call(), Err(Error::Host(_))),
+        "no stop: the error stands"
+    );
     assert_eq!(ASKED.get(), 0, "no stop: the host is not asked");
     arm(true, false);
-    assert_eq!(node_call(), Err(Error::Cancelled), "the stop is the statement's to raise: the cancel");
+    assert_eq!(
+        node_call(),
+        Err(Error::Cancelled),
+        "the stop is the statement's to raise: the cancel"
+    );
     assert_eq!(ASKED.get(), 1);
     arm(true, true);
-    assert!(matches!(node_call(), Err(Error::Host(_))), "the owner raised the stop already: the error stands");
+    assert!(
+        matches!(node_call(), Err(Error::Host(_))),
+        "the owner raised the stop already: the error stands"
+    );
     assert_eq!(ASKED.get(), 1);
 }
 
@@ -87,9 +107,36 @@ fn section_program() -> Program {
     let st = Arena::new(1 << 12);
     let sites = [SiteDesc::range_source(st.handle(), 2001, &[1, 2])];
     let out = [OutCol::new("n", 20, -1, 8, true)];
-    let breaker = Breaker { kind: BreakerKind::HashBuild, slot: 0, bytes: 0, budget: Budget::Share, spill: Spill::None };
-    let pipes = [(Pipeline::eligible(0, End::Breaker(breaker), 1000), Code::hand(k_done)), (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), Code::hand(k_done))];
-    Program::with_pipelines(Layout { nsites: 1, out_natts: 1, out_rows: 8, scratch_bytes: 0, exec_bytes: 0 }, &sites, &out, WritePlan::SELECT, pipes)
+    let breaker = Breaker {
+        kind: BreakerKind::HashBuild,
+        slot: 0,
+        bytes: 0,
+        budget: Budget::Share,
+        spill: Spill::None,
+    };
+    let pipes = [
+        (
+            Pipeline::eligible(0, End::Breaker(breaker), 1000),
+            Code::hand(k_done),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            Code::hand(k_done),
+        ),
+    ];
+    Program::with_pipelines(
+        Layout {
+            nsites: 1,
+            out_natts: 1,
+            out_rows: 8,
+            scratch_bytes: 0,
+            exec_bytes: 0,
+        },
+        &sites,
+        &out,
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
 /// The leader's fold of a partial: polls, then fails as a hosted combine does (a `HOST` raise).
@@ -112,8 +159,12 @@ fn leader_fold() -> Result<()> {
     let flag = AtomicU8::new(0);
     let mut sink = LegSink::new();
     let mut b = binding(&[0], &NULLS, &mut sink, &flag);
-    let mut exec = entry.start(None, &program, &mut derive, &mut b, lease(Grant::of(1))).unwrap();
-    let open = entry.open_section(&mut exec, &b, &mut derive, 0, 2).unwrap();
+    let mut exec = entry
+        .start(None, &program, &mut derive, &mut b, lease(Grant::of(1)))
+        .unwrap();
+    let open = entry
+        .open_section(&mut exec, &b, &mut derive, 0, 2)
+        .unwrap();
     assert_eq!(open.run_claim(0, MorselRange::new(0, 2)), Ok(Claimed::Done));
     assert_eq!(open.run_claim(1, MorselRange::new(2, 4)), Ok(Claimed::Done));
     let closed = entry.close_section(open, &mut b, &FailingFold(&flag), true);
@@ -128,7 +179,15 @@ fn the_leaders_fold_is_the_cancel_only_while_its_stop_is_the_statements_to_raise
     assert_eq!(leader_fold(), host, "no stop: the raise stands");
     assert_eq!(ASKED.get(), 0, "no stop: the host is not asked");
     arm(true, false);
-    assert_eq!(leader_fold(), Err(Error::Cancelled), "the stop is the statement's to raise: the cancel");
+    assert_eq!(
+        leader_fold(),
+        Err(Error::Cancelled),
+        "the stop is the statement's to raise: the cancel"
+    );
     arm(true, true);
-    assert_eq!(leader_fold(), host, "the owner raised the stop already: the raise stands");
+    assert_eq!(
+        leader_fold(),
+        host,
+        "the owner raised the stop already: the raise stands"
+    );
 }

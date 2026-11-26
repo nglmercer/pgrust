@@ -8,9 +8,9 @@ use gravity_kernels::host_abi as abi;
 use gravity_expr::emit::AggCell;
 use gravity_expr::Compiled;
 
-use crate::face::strategy::{Strategy, StrategySet};
 use crate::face::source::Body;
 use crate::face::step::Hoisted;
+use crate::face::strategy::{Strategy, StrategySet};
 use crate::frame::px::ExId;
 use crate::frame::stop::Exits;
 use crate::hir::{Ex, Ir};
@@ -35,7 +35,11 @@ leader_tls::leader_tls! {
 }
 
 /// Runs `f` (the program's functions) with each pipeline's driving site seen by every `Env`, `rels` by `site_relation`.
-pub fn with_pipe_sites<T>(sites: std::rc::Rc<[Option<u16>]>, rels: std::rc::Rc<[u32]>, f: impl FnOnce() -> T) -> T {
+pub fn with_pipe_sites<T>(
+    sites: std::rc::Rc<[Option<u16>]>,
+    rels: std::rc::Rc<[u32]>,
+    f: impl FnOnce() -> T,
+) -> T {
     struct Clear;
     impl Drop for Clear {
         fn drop(&mut self) {
@@ -51,7 +55,12 @@ pub fn with_pipe_sites<T>(sites: std::rc::Rc<[Option<u16>]>, rels: std::rc::Rc<[
 
 /// PGRCSERVE M0 (D2): the relation numbered site `site` reads (`with_pipe_sites`); 0 for none or outside the scope.
 pub fn site_relation(site: Option<usize>) -> u32 {
-    SITE_RELS.with(|c| c.borrow().as_ref().and_then(|r| site.and_then(|s| r.get(s).copied())).unwrap_or(0))
+    SITE_RELS.with(|c| {
+        c.borrow()
+            .as_ref()
+            .and_then(|r| site.and_then(|s| r.get(s).copied()))
+            .unwrap_or(0)
+    })
 }
 
 /// D4197: runs `f` (the program's functions) with `word` the program's `keys.user` handle word, which a user key's site
@@ -72,7 +81,8 @@ pub fn with_user_keys<T>(word: u16, f: impl FnOnce() -> T) -> (T, bool) {
 }
 
 /// D4197: a user key site outside a program's functions (`with_user_keys`): no run's classes to call.
-pub const NO_USER_KEYS: &str = "a user key site with no keys.user word (outside the program's functions)";
+pub const NO_USER_KEYS: &str =
+    "a user key site with no keys.user word (outside the program's functions)";
 
 /// D4197: the run's `keys.user` handle (kernels typesem/userfp.rs `RunKeys`), every user key host call's first word past
 /// the context: the program's word, loaded through `ctx`'s parameter words. `None` outside `with_user_keys`; the site
@@ -100,20 +110,58 @@ pub struct Core {
 }
 
 pub fn declare(pb: &mut ProgramBuilder) -> Core {
-    let mem = HostFlags { touches_memory: true, ..HostFlags::default() };
+    let mem = HostFlags {
+        touches_memory: true,
+        ..HostFlags::default()
+    };
     Core {
-        done: pb.declare_host("done", &[Type::Ptr], Some(Type::I64), gravity_kernels::contract::entry0::<abi::Done> as *const () as usize, mem),
-        stopped: pb.declare_host("stopped", &[Type::Ptr], Some(Type::I64), gravity_kernels::contract::entry0::<abi::Stopped> as *const () as usize, mem),
-        push: pb.declare_host("push", &[Type::Ptr], Some(Type::I64), gravity_kernels::contract::entry0::<abi::Push> as *const () as usize, mem),
-        scratch: pb.declare_host("scratch", &[Type::Ptr, Type::I64], Some(Type::Ptr), gravity_kernels::contract::entry1::<abi::Scratch> as *const () as usize, mem),
-        render: pb.declare_host("agg_render", &[Type::Ptr, Type::I64, Type::I64, Type::I64], Some(Type::Ptr), abi::agg_render as *const () as usize, mem),
+        done: pb.declare_host(
+            "done",
+            &[Type::Ptr],
+            Some(Type::I64),
+            gravity_kernels::contract::entry0::<abi::Done> as *const () as usize,
+            mem,
+        ),
+        stopped: pb.declare_host(
+            "stopped",
+            &[Type::Ptr],
+            Some(Type::I64),
+            gravity_kernels::contract::entry0::<abi::Stopped> as *const () as usize,
+            mem,
+        ),
+        push: pb.declare_host(
+            "push",
+            &[Type::Ptr],
+            Some(Type::I64),
+            gravity_kernels::contract::entry0::<abi::Push> as *const () as usize,
+            mem,
+        ),
+        scratch: pb.declare_host(
+            "scratch",
+            &[Type::Ptr, Type::I64],
+            Some(Type::Ptr),
+            gravity_kernels::contract::entry1::<abi::Scratch> as *const () as usize,
+            mem,
+        ),
+        render: pb.declare_host(
+            "agg_render",
+            &[Type::Ptr, Type::I64, Type::I64, Type::I64],
+            Some(Type::Ptr),
+            abi::agg_render as *const () as usize,
+            mem,
+        ),
         strategies: StrategySet::EMPTY,
     }
 }
 
 /// A nest's inner row as nest.loop joins it (`Env::redo_nests`): its cells, their values and its column map; producerchain
 /// C: and whether it is a LEFT nest's NULL-extended row (no inner row matched: EvalPlanQual's test tuple is none).
-pub type NestRow<'e> = (mcx::PgVec<'e, crate::cell::Cell>, mcx::PgVec<'e, (Value, Option<Value>)>, mcx::PgVec<'e, Option<u16>>, Filled);
+pub type NestRow<'e> = (
+    mcx::PgVec<'e, crate::cell::Cell>,
+    mcx::PgVec<'e, (Value, Option<Value>)>,
+    mcx::PgVec<'e, Option<u16>>,
+    Filled,
+);
 
 /// Whether a held inner row (`NestRow`) is a LEFT join's NULL-extended row. D3818: a LEFT nest or probe that lowers the
 /// steps after it once for its matched and NULL-extended rows (`Gx::fills_share`) knows it only at run time: `At` is the
@@ -322,11 +370,25 @@ impl<'e, 'p> Env<'e, 'p> {
         r
     }
 
-    pub fn new(b: &mut FunctionBuilder<'_>, core: Core, hir: Ir, exs: &'e [Ex<'p>], x: Exits, mcx: mcx::Mcx<'e>) -> Env<'e, 'p> {
+    pub fn new(
+        b: &mut FunctionBuilder<'_>,
+        core: Core,
+        hir: Ir,
+        exs: &'e [Ex<'p>],
+        x: Exits,
+        mcx: mcx::Mcx<'e>,
+    ) -> Env<'e, 'p> {
         Self::new_in(b, core, hir, exs, x, mcx)
     }
 
-    pub fn new_in(b: &mut FunctionBuilder<'_>, core: Core, hir: Ir, exs: &'e [Ex<'p>], x: Exits, mcx: mcx::Mcx<'e>) -> Env<'e, 'p> {
+    pub fn new_in(
+        b: &mut FunctionBuilder<'_>,
+        core: Core,
+        hir: Ir,
+        exs: &'e [Ex<'p>],
+        x: Exits,
+        mcx: mcx::Mcx<'e>,
+    ) -> Env<'e, 'p> {
         let ctx = b.params()[0];
         let zero = b.iconst(Type::I64, 0);
         let one = b.iconst(Type::I64, 1);
@@ -409,7 +471,8 @@ impl<'e, 'p> Env<'e, 'p> {
 
     /// Road `r` applies to the statement and is on (built, not dropped, not switched off).
     pub fn applies(&self, r: Strategy) -> bool {
-        self.core.strategies.has(r) && crate::face::source::on(crate::admit::refusal::Variant::Strategy(r))
+        self.core.strategies.has(r)
+            && crate::face::source::on(crate::admit::refusal::Variant::Strategy(r))
     }
 
     /// `e`'s hoisted words, when road `hoist` computed them outside the row.
@@ -425,18 +488,44 @@ impl<'e, 'p> Env<'e, 'p> {
         &self.exs[id.0 as usize]
     }
 
-    pub fn lx<'a, 'f>(&mut self, b: &'a mut FunctionBuilder<'f>, node: i32) -> crate::rep::Lx<'a, 'f, 'e>
+    pub fn lx<'a, 'f>(
+        &mut self,
+        b: &'a mut FunctionBuilder<'f>,
+        node: i32,
+    ) -> crate::rep::Lx<'a, 'f, 'e>
     where
         'e: 'a,
     {
-        let at = crate::rep::Frame { ctx: self.ctx, site: self.site, hosts: crate::rep::RepHosts { render: self.core.render }, tables: self.tables };
-        crate::rep::Lx { b, mcx: self.mcx, node, memo: self.memo.lend(), at: Some(at), space: None, pipe_sites: self.pipe_sites.clone(), raise: Some(self.l_raise), strategies: self.core.strategies, key_word: crate::rep::KeyWord::Sort, num_kinds: self.num_kinds.clone(), fps: self.fps }
+        let at = crate::rep::Frame {
+            ctx: self.ctx,
+            site: self.site,
+            hosts: crate::rep::RepHosts {
+                render: self.core.render,
+            },
+            tables: self.tables,
+        };
+        crate::rep::Lx {
+            b,
+            mcx: self.mcx,
+            node,
+            memo: self.memo.lend(),
+            at: Some(at),
+            space: None,
+            pipe_sites: self.pipe_sites.clone(),
+            raise: Some(self.l_raise),
+            strategies: self.core.strategies,
+            key_word: crate::rep::KeyWord::Sort,
+            num_kinds: self.num_kinds.clone(),
+            fps: self.fps,
+        }
     }
 
     /// The site a cell's lanes and dictionaries belong to (`rep::Lx::site_of`).
     pub fn site_of(&self, c: &crate::cell::Cell) -> Option<usize> {
         match (c.life.home, &self.pipe_sites) {
-            (crate::cell::CellHome::Record(l), Some(p)) => p.get(l.0 as usize).copied().flatten().map(usize::from),
+            (crate::cell::CellHome::Record(l), Some(p)) => {
+                p.get(l.0 as usize).copied().flatten().map(usize::from)
+            }
             (crate::cell::CellHome::Record(_), None) => None,
             _ => self.site,
         }
@@ -446,22 +535,41 @@ impl<'e, 'p> Env<'e, 'p> {
     pub fn load_word(&self, b: &mut FunctionBuilder<'_>, off: i32) -> Value {
         match self.words {
             Some(w) => b.load(Type::I64, w, off),
-            None => crate::refuse!(self.node, crate::admit::refusal::Reason::Bug { payload: "a frame word without the words site" }),
+            None => crate::refuse!(
+                self.node,
+                crate::admit::refusal::Reason::Bug {
+                    payload: "a frame word without the words site"
+                }
+            ),
         }
     }
 
     pub fn store_word(&self, b: &mut FunctionBuilder<'_>, off: i32, v: Value) {
         match self.words {
             Some(w) => b.store(w, off, v),
-            None => crate::refuse!(self.node, crate::admit::refusal::Reason::Bug { payload: "a frame word without the words site" }),
+            None => crate::refuse!(
+                self.node,
+                crate::admit::refusal::Reason::Bug {
+                    payload: "a frame word without the words site"
+                }
+            ),
         }
     }
 
     /// Leaves the row with `status`, the cursor at `cur` and the rows counted in `c.out` (a stop inside a step). When the end
     /// carries accumulators in registers (frame.carry), `c.accs` are stored first through the window's `carry_exits`.
-    pub fn stop(&self, b: &mut FunctionBuilder<'_>, c: &crate::frame::row::Carry, cur: Value, status: Value) {
+    pub fn stop(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        c: &crate::frame::row::Carry,
+        cur: Value,
+        status: Value,
+    ) {
         match self.carry_exits {
-            Some(e) => b.br(e.l_stop, &mcx::concat_in(&[&[c.out, cur, status][..], &c.accs[..]], self.mcx)),
+            Some(e) => b.br(
+                e.l_stop,
+                &mcx::concat_in(&[&[c.out, cur, status][..], &c.accs[..]], self.mcx),
+            ),
             None => b.br(self.x.l_stop_in, &[c.out, cur, status]),
         }
     }
@@ -478,7 +586,10 @@ impl<'e, 'p> Env<'e, 'p> {
             b.store(f.at, 0, v);
         }
         match self.carry_exits {
-            Some(e) => b.br(e.l_full, &mcx::concat_in(&[&[c.out, cur][..], &c.accs[..]], self.mcx)),
+            Some(e) => b.br(
+                e.l_full,
+                &mcx::concat_in(&[&[c.out, cur][..], &c.accs[..]], self.mcx),
+            ),
             None => b.br(self.x.l_full, &[c.out, cur]),
         }
     }

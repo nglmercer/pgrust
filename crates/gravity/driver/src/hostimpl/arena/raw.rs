@@ -2,8 +2,8 @@
 //! moved verbatim from arena.rs (private ones pub(super)); it imports them back.
 #![allow(unsafe_code)]
 
-use gravity_abi::PtrWord;
 use super::*;
+use gravity_abi::PtrWord;
 
 gravity_abi::host! {
     /// `Program.arena_grow`: the bump window moved to a pool chunk of ≥ `bytes` (kept across executions); its size, or 0 when
@@ -49,8 +49,13 @@ pub unsafe fn object_region(ctx: *mut Ctx, bytes: usize) -> Option<crate::Region
 /// session has no file road, the caller's out of memory stands.
 /// # Safety — `ctx` is bound, or null (no statement to clear: a rig).
 #[allow(clippy::missing_safety_doc)]
-pub unsafe fn object_map(ctx: *mut Ctx, bytes: usize) -> crate::Result<Option<crate::mem::spill::TempMap>> {
-    let Some(mut m) = crate::mem::spill::map_temp(bytes)? else { return Ok(None) };
+pub unsafe fn object_map(
+    ctx: *mut Ctx,
+    bytes: usize,
+) -> crate::Result<Option<crate::mem::spill::TempMap>> {
+    let Some(mut m) = crate::mem::spill::map_temp(bytes)? else {
+        return Ok(None);
+    };
     crate::mem::spill::note_mapped_past(m.len());
     if !ctx.is_null() {
         let n = inner_of(ctx);
@@ -89,7 +94,10 @@ pub(super) unsafe fn grow_in(ctx: *mut Ctx, bytes: u64) -> i64 {
         None => {
             // SAFETY: as `Inner::stmt` (null on a worker slot).
             let stmt = unsafe { n.stmt.as_ref() };
-            let Some(chunk) = crate::node::chunk_region(want, Some(&mut n.w), stmt, n.w_only) else { return grow_mapped(ctx, want) };
+            let Some(chunk) = crate::node::chunk_region(want, Some(&mut n.w), stmt, n.w_only)
+            else {
+                return grow_mapped(ctx, want);
+            };
             n.mapped_fresh(chunk.len() as u64);
             n.chunks.push(chunk); // alloc: Exec
             n.chunks.len() - 1
@@ -119,7 +127,11 @@ unsafe fn pin_mapped(ctx: *mut Ctx, bytes: usize) -> *mut u8 {
     let (next, end) = n.pin_map;
     if next == 0 || end - next < need {
         // each mapping twice the last (the first at the refused chunk's size): a pin per group maps O(log n) files
-        let last = if next == 0 { 0 } else { n.owner_maps.last().map_or(0, |m| m.len()) };
+        let last = if next == 0 {
+            0
+        } else {
+            n.owner_maps.last().map_or(0, |m| m.len())
+        };
         let len = need.max(CHUNK).max(last * 2);
         let m = match crate::mem::spill::map_temp(len) {
             Ok(Some(m)) => m,
@@ -173,7 +185,11 @@ unsafe fn grow_mapped(ctx: *mut Ctx, want: usize) -> i64 {
 /// # Safety — `ctx` is bound.
 #[allow(clippy::missing_safety_doc)]
 pub unsafe fn spill_region(ctx: *mut Ctx, bytes: usize) -> *mut u8 {
-    guarded((*(*ctx).program.ptr()).env.ptr(), || spill_in(ctx, bytes, true, false), |_| core::ptr::null_mut())
+    guarded(
+        (*(*ctx).program.ptr()).env.ptr(),
+        || spill_in(ctx, bytes, true, false),
+        |_| core::ptr::null_mut(),
+    )
 }
 
 /// D4425: `spill_region` whose draw past W and G takes the pool's room as it is now (`chunk_region_now`: no wait, no
@@ -181,40 +197,65 @@ pub unsafe fn spill_region(ctx: *mut Ctx, bytes: usize) -> *mut u8 {
 /// statement's mapped temp file (`spill_host::v4::take_reload`).
 /// # Safety — As `spill_region`.
 pub(crate) unsafe fn spill_region_now(ctx: *mut Ctx, bytes: usize) -> *mut u8 {
-    guarded((*(*ctx).program.ptr()).env.ptr(), || spill_in(ctx, bytes, true, true), |_| core::ptr::null_mut())
+    guarded(
+        (*(*ctx).program.ptr()).env.ptr(),
+        || spill_in(ctx, bytes, true, true),
+        |_| core::ptr::null_mut(),
+    )
 }
 
 /// D3644 (b): `spill_region` not zeroed (`chunk_region_unzeroed`: no memset of reused pages; huge pages asked for as
 /// `uninit_region` asks), for a block its taker writes before it reads (a group sort's arrays).
 /// # Safety — As `spill_region`.
 pub(crate) unsafe fn spill_region_unzeroed(ctx: *mut Ctx, bytes: usize) -> *mut u8 {
-    guarded((*(*ctx).program.ptr()).env.ptr(), || spill_in(ctx, bytes, false, false), |_| core::ptr::null_mut())
+    guarded(
+        (*(*ctx).program.ptr()).env.ptr(),
+        || spill_in(ctx, bytes, false, false),
+        |_| core::ptr::null_mut(),
+    )
 }
 
 /// D4373: `spill_region_unzeroed` within the grant: W, else G (`region::chunk_region_within`), else with `pool_now` the
 /// pool's room now; null past them, no refusal kept (the caller's road past them is the statement's mapped temp file).
 /// # Safety — As `spill_region`.
 pub(crate) unsafe fn spill_region_within(ctx: *mut Ctx, bytes: usize, pool_now: bool) -> *mut u8 {
-    guarded((*(*ctx).program.ptr()).env.ptr(), || {
-        let n = inner_of(ctx);
-        // SAFETY: as `Inner::stmt` (null on a worker slot).
-        let stmt = unsafe { n.stmt.as_ref() };
-        let chunk = match crate::mem::region::chunk_region_within(bytes, Some(&mut n.w), stmt, n.w_only) {
-            Some(c) => Some(c),
-            // `pool_now`: past W and G the pool's room as it is now (no wait, no refusal kept), counted as grown
-            None if pool_now => crate::mem::region::chunk_region_unzeroed(bytes, Some(&mut n.w), stmt, n.w_only, true),
-            None => None,
-        };
-        let Some(mut chunk) = chunk else { return core::ptr::null_mut() };
-        n.mapped_fresh(chunk.len() as u64);
-        // LEDGER2 step 5: the running pipeline's slot owner holds it
-        if let Some(o) = n.op_owner {
-            chunk.own_by(o);
-        }
-        let p = chunk.as_mut_ptr();
-        n.spills.push(chunk); // alloc: Exec
-        p
-    }, |_| core::ptr::null_mut())
+    guarded(
+        (*(*ctx).program.ptr()).env.ptr(),
+        || {
+            let n = inner_of(ctx);
+            // SAFETY: as `Inner::stmt` (null on a worker slot).
+            let stmt = unsafe { n.stmt.as_ref() };
+            let chunk = match crate::mem::region::chunk_region_within(
+                bytes,
+                Some(&mut n.w),
+                stmt,
+                n.w_only,
+            ) {
+                Some(c) => Some(c),
+                // `pool_now`: past W and G the pool's room as it is now (no wait, no refusal kept), counted as grown
+                None if pool_now => crate::mem::region::chunk_region_unzeroed(
+                    bytes,
+                    Some(&mut n.w),
+                    stmt,
+                    n.w_only,
+                    true,
+                ),
+                None => None,
+            };
+            let Some(mut chunk) = chunk else {
+                return core::ptr::null_mut();
+            };
+            n.mapped_fresh(chunk.len() as u64);
+            // LEDGER2 step 5: the running pipeline's slot owner holds it
+            if let Some(o) = n.op_owner {
+                chunk.own_by(o);
+            }
+            let p = chunk.as_mut_ptr();
+            n.spills.push(chunk); // alloc: Exec
+            p
+        },
+        |_| core::ptr::null_mut(),
+    )
 }
 
 /// Ladder step 1.1 (`gate_now`): `spill_region` (`zeroed`) or `spill_region_unzeroed` for a draw whose caller maps the
@@ -222,7 +263,11 @@ pub(crate) unsafe fn spill_region_within(ctx: *mut Ctx, bytes: usize, pool_now: 
 /// `Spills` asker (`node::chunk_region_spills`). With the knob off, their road exactly.
 /// # Safety — As `spill_region`.
 pub(crate) unsafe fn spill_region_spills(ctx: *mut Ctx, bytes: usize, zeroed: bool) -> *mut u8 {
-    guarded((*(*ctx).program.ptr()).env.ptr(), || spill_in_as(ctx, bytes, zeroed, false, true), |_| core::ptr::null_mut())
+    guarded(
+        (*(*ctx).program.ptr()).env.ptr(),
+        || spill_in_as(ctx, bytes, zeroed, false, true),
+        |_| core::ptr::null_mut(),
+    )
 }
 
 /// `now`: past W and G the pool's room as it is now, no wait and no refusal kept (`spill_region_now`).
@@ -233,17 +278,29 @@ pub(super) unsafe fn spill_in(ctx: *mut Ctx, bytes: usize, zeroed: bool, now: bo
 
 /// `spill_in`; `spills`: the gate's `Spills` asker past W and G (`spill_region_spills`).
 /// # Safety — As `spill_region`.
-unsafe fn spill_in_as(ctx: *mut Ctx, bytes: usize, zeroed: bool, now: bool, spills: bool) -> *mut u8 {
+unsafe fn spill_in_as(
+    ctx: *mut Ctx,
+    bytes: usize,
+    zeroed: bool,
+    now: bool,
+    spills: bool,
+) -> *mut u8 {
     let n = inner_of(ctx);
     // SAFETY: as `Inner::stmt` (null on a worker slot).
     let stmt = unsafe { n.stmt.as_ref() };
     let chunk = match (zeroed, now) {
-        _ if spills && !now => crate::node::chunk_region_spills(bytes, Some(&mut n.w), stmt, n.w_only, zeroed),
+        _ if spills && !now => {
+            crate::node::chunk_region_spills(bytes, Some(&mut n.w), stmt, n.w_only, zeroed)
+        }
         (true, false) => crate::node::chunk_region(bytes, Some(&mut n.w), stmt, n.w_only),
         (true, true) => crate::node::chunk_region_now(bytes, Some(&mut n.w), stmt, n.w_only),
-        (false, _) => crate::node::chunk_region_unzeroed(bytes, Some(&mut n.w), stmt, n.w_only, now),
+        (false, _) => {
+            crate::node::chunk_region_unzeroed(bytes, Some(&mut n.w), stmt, n.w_only, now)
+        }
     };
-    let Some(mut chunk) = chunk else { return core::ptr::null_mut() };
+    let Some(mut chunk) = chunk else {
+        return core::ptr::null_mut();
+    };
     n.mapped_fresh(chunk.len() as u64);
     // LEDGER2 step 5: the running pipeline's slot owner holds it
     if let Some(o) = n.op_owner {
@@ -278,14 +335,26 @@ pub(crate) unsafe fn pin_zeroed(ctx: *mut Ctx, bytes: usize, zeroed: usize) -> *
 /// past W and G takes only the pool's room now (`chunk_region_unzeroed`: no wait, no refusal kept), null when it has none.
 /// Past W and G it counts as SPILL-DEBT's `AggOwnerAll` road (`grow::uncapped_pin`). # Safety — as `pin`.
 pub(crate) unsafe fn pin_owner(ctx: *mut Ctx, bytes: usize, zeroed: usize, now: bool) -> *mut u8 {
-    pin_road(ctx, bytes, zeroed, now, Some(gravity_program::spill::NoSpill::AggOwnerAll))
+    pin_road(
+        ctx,
+        bytes,
+        zeroed,
+        now,
+        Some(gravity_program::spill::NoSpill::AggOwnerAll),
+    )
 }
 
 /// C10 2b (D3582): `pin_zeroed` of a batched slot's one owner region (mem/batch.rs `pin_region`): planned within W and G,
 /// it counts past them as SPILL-DEBT's `AggPartitionPastGrant` road (a partition whose records alone pass the grant, one
 /// partition level). # Safety — as `pin`.
 pub(crate) unsafe fn pin_batch(ctx: *mut Ctx, bytes: usize, zeroed: usize) -> *mut u8 {
-    pin_road(ctx, bytes, zeroed, false, Some(gravity_program::spill::NoSpill::AggPartitionPastGrant))
+    pin_road(
+        ctx,
+        bytes,
+        zeroed,
+        false,
+        Some(gravity_program::spill::NoSpill::AggPartitionPastGrant),
+    )
 }
 
 /// D491: `bytes` of a temp file mapped shared for the serial owners the grant pool refused (`section.rs own_split`): held to
@@ -293,7 +362,9 @@ pub(crate) unsafe fn pin_batch(ctx: *mut Ctx, bytes: usize, zeroed: usize) -> *m
 /// when the session has no file road (`SpillFactory::map_temp`); an error is the file's own (53400 past temp_file_limit).
 /// # Safety — `ctx` is bound.
 pub(crate) unsafe fn map_owners(ctx: *mut Ctx, bytes: usize) -> crate::Result<*mut u8> {
-    let Some(mut m) = crate::mem::spill::map_temp(bytes)? else { return Ok(core::ptr::null_mut()) };
+    let Some(mut m) = crate::mem::spill::map_temp(bytes)? else {
+        return Ok(core::ptr::null_mut());
+    };
     let n = inner_of(ctx);
     // LEDGER2 step 5: the running pipeline's slot owner holds it
     if let Some(o) = n.op_owner {
@@ -313,7 +384,6 @@ pub(crate) unsafe fn unmap_owners(ctx: *mut Ctx, p: *mut u8) {
     }
 }
 
-
 /// D3236 (B): the pinned chunk at `p` filed as produced slot `slot`'s one-owner region (`Inner::slot_pins`): `Node::free_slot`
 /// gives it back with the slot. Nothing when `slot` is `None` or `p` null (a refused pin). LEDGER2 step 5: the pin of the
 /// slot this pipeline produces is charged to the slot's owner (`Inner::op_owner`, the handle the bind set); a pin kept past
@@ -325,7 +395,10 @@ pub(crate) unsafe fn file_slot_pin(ctx: *mut Ctx, slot: Option<u8>, p: *mut u8) 
         n.slot_pins.push((s, p as usize)); // alloc: Exec
         if let (Some(o), true) = (n.op_owner, s == n.own_slot) {
             let pinned = n.pinned;
-            if let Some(c) = n.chunks[..pinned].iter_mut().find(|c| c.as_ptr() == p.cast_const()) {
+            if let Some(c) = n.chunks[..pinned]
+                .iter_mut()
+                .find(|c| c.as_ptr() == p.cast_const())
+            {
                 c.own_by(o);
             }
         }
@@ -339,13 +412,23 @@ pub(crate) unsafe fn file_slot_pin(ctx: *mut Ctx, slot: Option<u8>, p: *mut u8) 
 /// beside it. Only at or over `floor` (`Node::owner_give_floor`, read by the caller with the Node's conditions), never a
 /// statement pin; its `slot`'s entry in `slot_pins` (D3236 (B)) leaves with it. The bytes given back (0: kept).
 /// # Safety — `ctx` is bound; nothing reads the region again (the split's owners take its place).
-pub(crate) unsafe fn give_owner_pin(ctx: *mut Ctx, slot: Option<u8>, p: *mut u8, floor: usize) -> u64 {
+pub(crate) unsafe fn give_owner_pin(
+    ctx: *mut Ctx,
+    slot: Option<u8>,
+    p: *mut u8,
+    floor: usize,
+) -> u64 {
     let n = inner_of(ctx);
     let base = p as usize;
     if p.is_null() || n.stmt_pins.contains(&base) {
         return 0;
     }
-    let Some(j) = n.chunks[..n.pinned].iter().position(|c| c.as_ptr() as usize == base) else { return 0 };
+    let Some(j) = n.chunks[..n.pinned]
+        .iter()
+        .position(|c| c.as_ptr() as usize == base)
+    else {
+        return 0;
+    };
     if j < floor {
         return 0;
     }
@@ -362,7 +445,13 @@ pub(crate) unsafe fn give_owner_pin(ctx: *mut Ctx, slot: Option<u8>, p: *mut u8,
 }
 
 #[inline(always)]
-unsafe fn pin_road(ctx: *mut Ctx, bytes: usize, zeroed: usize, now: bool, road: Option<gravity_program::spill::NoSpill>) -> *mut u8 {
+unsafe fn pin_road(
+    ctx: *mut Ctx,
+    bytes: usize,
+    zeroed: usize,
+    now: bool,
+    road: Option<gravity_program::spill::NoSpill>,
+) -> *mut u8 {
     let n = inner_of(ctx);
     let want = bytes.max(CHUNK);
     let idx = match (n.chunk_next..n.chunks.len()).find(|&i| n.chunks[i].len() >= want) {
@@ -373,7 +462,11 @@ unsafe fn pin_road(ctx: *mut Ctx, bytes: usize, zeroed: usize, now: bool, road: 
             // C10: what W and G held before the draw, for its uncapped check below (a pin past them counts as a grow does)
             let held = (n.w, stmt.map(|s| s.left()));
             // NR-6: a named pin past them the debt lever refuses (`grow::debt_pin_refused`) asks the pool nothing, as a refusal
-            let chunk = if crate::mem::grow::debt_pin_refused(&*n, want as u64, held, road) { None } else { crate::node::chunk_region_unzeroed(want, Some(&mut n.w), stmt, n.w_only, now) };
+            let chunk = if crate::mem::grow::debt_pin_refused(&*n, want as u64, held, road) {
+                None
+            } else {
+                crate::node::chunk_region_unzeroed(want, Some(&mut n.w), stmt, n.w_only, now)
+            };
             let Some(chunk) = chunk else {
                 if !now {
                     refused(n, want);
@@ -424,20 +517,26 @@ unsafe fn zero_stepped(p: *mut u8, len: usize) -> *mut u8 {
 /// (the pool unarmed, or no admitted statement on this thread). # Safety — `ctx` is bound.
 pub(crate) unsafe fn pin_room(ctx: *mut Ctx) -> Option<u64> {
     let n = inner_of(ctx);
-    let s = n.stmt().filter(|s| crate::mem::grant::POOL.capacity() != 0 && (s.holds_slot() || s.small))?;
+    let s = n
+        .stmt()
+        .filter(|s| crate::mem::grant::POOL.capacity() != 0 && (s.holds_slot() || s.small))?;
     Some(n.w + s.left())
 }
 
 /// D4078: the one-owner wall the statement's admission sized its owner pins with (`Grant::owner_wall_bytes`, read once at
 /// its admission), at most `format`; `format` with no statement (a worker slot). # Safety — `ctx` is bound.
 pub(crate) unsafe fn owner_wall_of(ctx: *mut Ctx, format: usize) -> usize {
-    inner_of(ctx).stmt().map_or(format, |s| (s.grant.owner_wall_bytes() as usize).min(format) & !7)
+    inner_of(ctx).stmt().map_or(format, |s| {
+        (s.grant.owner_wall_bytes() as usize).min(format) & !7
+    })
 }
 
 /// The largest one pin inside the grant (a pin draws the worker's W or the reservation, never both). # Safety — `ctx` is bound.
 pub(crate) unsafe fn pin_room_one(ctx: *mut Ctx) -> Option<u64> {
     let n = inner_of(ctx);
-    let s = n.stmt().filter(|s| crate::mem::grant::POOL.capacity() != 0 && (s.holds_slot() || s.small))?;
+    let s = n
+        .stmt()
+        .filter(|s| crate::mem::grant::POOL.capacity() != 0 && (s.holds_slot() || s.small))?;
     Some(n.w.max(s.left()))
 }
 
@@ -498,9 +597,15 @@ mod d3971 {
             got
         });
         assert!(got.is_null(), "a canceled zeroing refuses the pin");
-        assert!(v.iter().all(|&b| b == 0xA5), "it stopped before its first piece");
+        assert!(
+            v.iter().all(|&b| b == 0xA5),
+            "it stopped before its first piece"
+        );
         // SAFETY: as above.
         assert_eq!(unsafe { super::zero_stepped(p, len) }, p);
-        assert!(v.iter().all(|&b| b == 0), "outside a kernel call it zeroes the whole length");
+        assert!(
+            v.iter().all(|&b| b == 0),
+            "outside a kernel call it zeroes the whole length"
+        );
     }
 }

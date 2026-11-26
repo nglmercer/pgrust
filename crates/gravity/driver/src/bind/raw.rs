@@ -19,7 +19,9 @@ pub(crate) unsafe fn sites(inner: *mut Inner, role: Role) {
         (*s).env = gravity_abi::word(env);
         (*s).nkeys = d.nkeys() as u16;
         (*s).natts = d.natts() as u16;
-        let Some(src) = inner.sources[i].as_mut() else { continue };
+        let Some(src) = inner.sources[i].as_mut() else {
+            continue;
+        };
         (*s).src = gravity_abi::word(src.data_ptr());
         if matches!(role, Role::Worker) && !d.is_range() && !src.serves_worker() {
             (*s).next = gravity_abi::word(Some(hostimpl::source::trap_next));

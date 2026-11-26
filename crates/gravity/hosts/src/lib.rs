@@ -4,29 +4,34 @@
 pub mod cost_host;
 pub mod facts;
 pub mod inputs;
-pub mod memory_budget;
 pub mod membroker;
+pub mod memory_budget;
 pub mod perms;
 pub mod recipe;
-pub mod v4;
 pub mod scratch;
 pub mod tinylfu;
+pub mod v4;
 pub mod worker_arm;
 
 use std::cell::Cell;
 
-pub use crate::ops::scan::bitmap_source::BitmapSource;
-pub use crate::ops::scan::pgrc::granule_source::{GranuleRangeSource, GranuleRecipe, PartList, PartSpec};
-pub use crate::ops::scan::heap_source::{HeapRangeSource, RangeRecipe};
-pub use crate::ops::modifytable::index_maint::{IndexMaint, IndexRecipe};
-pub use crate::ops::scan::index_source::{IndexSource, SiteRecipe};
-pub use crate::ops::scan::pgrc::lanebits::LaneBits;
 pub use crate::ops::lockrows::lock::{LockHost, LockRecipe};
+pub use crate::ops::modifytable::index_maint::{IndexMaint, IndexRecipe};
+pub use crate::ops::modifytable::trigger::TriggerHost;
+pub use crate::ops::modifytable::write::{WriteHost, WriteRecipe};
+pub use crate::ops::scan::bitmap_source::BitmapSource;
+pub use crate::ops::scan::heap_source::{HeapRangeSource, RangeRecipe};
+pub use crate::ops::scan::index_source::{IndexSource, SiteRecipe};
+pub use crate::ops::scan::pgrc::granule_source::{
+    GranuleRangeSource, GranuleRecipe, PartList, PartSpec,
+};
+pub use crate::ops::scan::pgrc::lanebits::LaneBits;
 pub use crate::ops::{HostRegistry, Recipe};
 pub use scratch::NodeScratch;
-pub use crate::ops::modifytable::trigger::TriggerHost;
-pub use worker_arm::{arm_database_encoding, arm_once, arm_worker, first_arm_micros, is_armed, no_arm, ArmFn, Carried, SessionCarry, StatementArm};
-pub use crate::ops::modifytable::write::{WriteHost, WriteRecipe};
+pub use worker_arm::{
+    arm_database_encoding, arm_once, arm_worker, first_arm_micros, is_armed, no_arm, ArmFn,
+    Carried, SessionCarry, StatementArm,
+};
 
 // The pgrc source's run-time calls the exec families make (its own exec half lives in its family): the top-k walk's
 // section width from the resident zone store (`resolve`, `zone_walk_order`, `zone_walk_reach`; exec ops/sort walk.rs),
@@ -35,7 +40,9 @@ pub use crate::ops::modifytable::write::{WriteHost, WriteRecipe};
 // `VerdictCell`, `VerdictClaim`, `resolve`; exec ops/sort/topn proto.rs), with D3245's slots a site's filters claim
 // (`RT_SLOTS`) and the key range a filter's keys are clipped to (`part_extrema`).
 pub use crate::ops::scan::pgrc::fetch_site::FetchRecipe;
-pub use crate::ops::scan::pgrc::granule_source::{part_extrema, resolve, zone_walk_order, zone_walk_reach, VerdictCell, VerdictClaim, RT_SLOTS};
+pub use crate::ops::scan::pgrc::granule_source::{
+    part_extrema, resolve, zone_walk_order, zone_walk_reach, VerdictCell, VerdictClaim, RT_SLOTS,
+};
 
 use std::rc::Rc;
 
@@ -54,12 +61,16 @@ pub type FilterFn = Rc<dyn Fn(&mut SlotData<'static>) -> PgResult<bool>>;
 /// IsolationUsesXactSnapshot (repeatable read / serializable); the unit
 /// harness installs no xact seams, there every transaction is read committed.
 pub fn xact_snapshot() -> bool {
-    xact_seams::isolation_uses_xact_snapshot::is_installed() && xact_seams::isolation_uses_xact_snapshot::call()
+    xact_seams::isolation_uses_xact_snapshot::is_installed()
+        && xact_seams::isolation_uses_xact_snapshot::call()
 }
 
 /// PostgreSQL's text for a concurrent update under a transaction snapshot.
 pub fn serialization_failure() -> Box<PgError> {
-    Box::new(PgError::error("could not serialize access due to concurrent update".to_string()).with_sqlstate(ERRCODE_T_R_SERIALIZATION_FAILURE)) // alloc: Cold
+    Box::new(
+        PgError::error("could not serialize access due to concurrent update".to_string())
+            .with_sqlstate(ERRCODE_T_R_SERIALIZATION_FAILURE),
+    ) // alloc: Cold
 }
 
 thread_local! {
@@ -86,8 +97,16 @@ pub fn note_dropped(e: &PgError) {
     }
     let code = types_error::unpack_sqlstate(e.sqlstate());
     let _ = elog::ereport(types_error::DEBUG1)
-        .errmsg(format!("gravity: a call stopped for its statement's cancel dropped its error {}: {}", String::from_utf8_lossy(&code), e.message())) // alloc: Cold
-        .finish(types_error::ErrorLocation::new("gravity", 0, "note_dropped"));
+        .errmsg(format!(
+            "gravity: a call stopped for its statement's cancel dropped its error {}: {}",
+            String::from_utf8_lossy(&code),
+            e.message()
+        )) // alloc: Cold
+        .finish(types_error::ErrorLocation::new(
+            "gravity",
+            0,
+            "note_dropped",
+        ));
 }
 
 pub fn take_error() -> Option<Box<PgError>> {
@@ -113,7 +132,10 @@ pub struct StashScope {
 
 impl StashScope {
     pub fn enter() -> StashScope {
-        StashScope { host: take_error(), shim: gravity_fn::take_error() }
+        StashScope {
+            host: take_error(),
+            shim: gravity_fn::take_error(),
+        }
     }
 }
 

@@ -52,7 +52,14 @@ fn image(bytes: &[u8], short: bool, flag: u8) -> Vec<u8> {
 }
 
 fn run(code: &gravity_program::Code, img: &[u8], k0: u64, k1: u64) -> (u64, u64, u64) {
-    let mut fr = Frame { datum: img.as_ptr() as u64, k0, k1, lo: 0, hi: 0, bad: 0 };
+    let mut fr = Frame {
+        datum: img.as_ptr() as u64,
+        k0,
+        k1,
+        lo: 0,
+        hi: 0,
+        bad: 0,
+    };
     // SAFETY: the frame is the ctx the function reads; the image is live for the call.
     let r = unsafe { code.call((&mut fr as *mut Frame).cast()) };
     assert_eq!(r, 0);
@@ -63,7 +70,13 @@ fn run(code: &gravity_program::Code, img: &[u8], k0: u64, k1: u64) -> (u64, u64,
 fn the_text_key_equals_the_reference_on_both_backends() {
     let (ir, f) = ir();
     gravity_ir::verify::verify(&ir).unwrap_or_else(|e| panic!("{e:?}"));
-    let codes = [("tpde", gravity_backend::mapped(&ir, f).unwrap_or_else(|e| panic!("tpde: {}", e.message()))), ("interp", gravity_backend::interp(ir.clone(), f).unwrap())];
+    let codes = [
+        (
+            "tpde",
+            gravity_backend::mapped(&ir, f).unwrap_or_else(|e| panic!("tpde: {}", e.message())),
+        ),
+        ("interp", gravity_backend::interp(ir.clone(), f).unwrap()),
+    ];
     let mut seed = 0x9e37_79b9_7f4a_7c15u64;
     let mut next = || {
         seed ^= seed << 13;
@@ -71,7 +84,9 @@ fn the_text_key_equals_the_reference_on_both_backends() {
         seed ^= seed << 17;
         seed
     };
-    let lens: Vec<usize> = (0..=40).chain([63, 64, 100, 122, 123, 127, 128, 200, 1000, 4097]).collect();
+    let lens: Vec<usize> = (0..=40)
+        .chain([63, 64, 100, 122, 123, 127, 128, 200, 1000, 4097])
+        .collect();
     for &len in &lens {
         let bytes: Vec<u8> = (0..len).map(|_| next() as u8).collect();
         let (k0, k1) = (next(), next());
@@ -92,7 +107,15 @@ fn the_text_key_equals_the_reference_on_both_backends() {
     for short in [true, false] {
         let img = image(&[], short, 0);
         for (arm, code) in &codes {
-            assert_eq!(run(code, &img, 0, 0), (gravity_dict::fp::siphash128(0, 0, &[])[0], gravity_dict::fp::siphash128(0, 0, &[])[1], 0), "{arm} empty short {short}");
+            assert_eq!(
+                run(code, &img, 0, 0),
+                (
+                    gravity_dict::fp::siphash128(0, 0, &[])[0],
+                    gravity_dict::fp::siphash128(0, 0, &[])[1],
+                    0
+                ),
+                "{arm} empty short {short}"
+            );
         }
     }
 }
@@ -100,7 +123,13 @@ fn the_text_key_equals_the_reference_on_both_backends() {
 #[test]
 fn a_compressed_or_external_image_is_bad_and_hashes_nothing() {
     let (ir, f) = ir();
-    let codes = [("tpde", gravity_backend::mapped(&ir, f).unwrap_or_else(|e| panic!("tpde: {}", e.message()))), ("interp", gravity_backend::interp(ir.clone(), f).unwrap())];
+    let codes = [
+        (
+            "tpde",
+            gravity_backend::mapped(&ir, f).unwrap_or_else(|e| panic!("tpde: {}", e.message())),
+        ),
+        ("interp", gravity_backend::interp(ir.clone(), f).unwrap()),
+    ];
     let compressed = image(b"twelve bytes", false, 2);
     let mut toast = vec![0x01u8, 18];
     toast.extend_from_slice(&[0u8; 24]);
@@ -124,11 +153,21 @@ extern "C" {
 #[test]
 fn a_short_datum_at_a_page_edge_reads_no_byte_past_its_image() {
     let (ir, f) = ir();
-    let codes = [("tpde", gravity_backend::mapped(&ir, f).unwrap_or_else(|e| panic!("tpde: {}", e.message()))), ("interp", gravity_backend::interp(ir.clone(), f).unwrap())];
+    let codes = [
+        (
+            "tpde",
+            gravity_backend::mapped(&ir, f).unwrap_or_else(|e| panic!("tpde: {}", e.message())),
+        ),
+        ("interp", gravity_backend::interp(ir.clone(), f).unwrap()),
+    ];
     // SAFETY: a private anonymous two-page mapping, the second page made inaccessible; unmapped below.
     let (base, page) = unsafe {
         let page = getpagesize() as usize;
-        let map_anon = if cfg!(target_os = "macos") { 0x1000 } else { 0x20 };
+        let map_anon = if cfg!(target_os = "macos") {
+            0x1000
+        } else {
+            0x20
+        };
         let base = mmap(core::ptr::null_mut(), 2 * page, 3, 0x02 | map_anon, -1, 0);
         assert!(!base.is_null() && base as isize != -1, "mmap");
         assert_eq!(mprotect(base.add(page), page, 0), 0, "mprotect");
@@ -146,7 +185,11 @@ fn a_short_datum_at_a_page_edge_reads_no_byte_past_its_image() {
         };
         let want = gravity_dict::fp::siphash128(7, 9, &bytes);
         for (arm, code) in &codes {
-            assert_eq!(run(code, img, 7, 9), (want[0], want[1], 0), "{arm} len {len}");
+            assert_eq!(
+                run(code, img, 7, 9),
+                (want[0], want[1], 0),
+                "{arm} len {len}"
+            );
         }
     }
     // SAFETY: the mapping made above; no image outlives it.

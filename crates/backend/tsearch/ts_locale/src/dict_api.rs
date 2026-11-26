@@ -29,7 +29,12 @@ impl<'mcx> DictInitData<'mcx> {
         dict_options: PgVec<'mcx, (PgVec<'mcx, u8>, Option<PgVec<'mcx, u8>>)>,
         int_options: PgVec<'mcx, Option<i64>>,
     ) -> Self {
-        DictInitData { mcx, dict_options, int_options, drop_fn: Cell::new(None) }
+        DictInitData {
+            mcx,
+            dict_options,
+            int_options,
+            drop_fn: Cell::new(None),
+        }
     }
 }
 

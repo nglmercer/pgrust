@@ -25,14 +25,20 @@ use gravity_abi::program::COSPLIT_MAX_PARTS as MAX_PARTS;
 use gravity_driver::mem::fence::Records;
 use gravity_fn::arena::{AVec, ChargedVec, Kind, OpArena, Owner};
 use gravity_parallel::{MorselSource, PartitionRange};
-use gravity_program::cost::{COSPLIT_PARTS_PER_WORKER as PARTS_PER_WORKER, COSPLIT_PART_ROWS_MIN as MIN_PART_ROWS};
-use gravity_program::protos::{cosplit_of, cosplit_window_word, Proto, ProtoKind, COSPLIT_HDR_WORDS, COSPLIT_MODE, COSPLIT_MODE_RESIDENT, COSPLIT_MODE_SLICES, COSPLIT_PARTS, COSPLIT_PART_WORDS, COSPLIT_RUNS, COSPLIT_SLICES_AT, COSPLIT_WHOLE, COSPLIT_WINDOW};
+use gravity_program::cost::{
+    COSPLIT_PARTS_PER_WORKER as PARTS_PER_WORKER, COSPLIT_PART_ROWS_MIN as MIN_PART_ROWS,
+};
+use gravity_program::protos::{
+    cosplit_of, cosplit_window_word, Proto, ProtoKind, COSPLIT_HDR_WORDS, COSPLIT_MODE,
+    COSPLIT_MODE_RESIDENT, COSPLIT_MODE_SLICES, COSPLIT_PARTS, COSPLIT_PART_WORDS, COSPLIT_RUNS,
+    COSPLIT_SLICES_AT, COSPLIT_WHOLE, COSPLIT_WINDOW,
+};
 use types_error::PgResult;
 
 use gravity_kernels::ops::sort::entries::RunShape;
 
-use crate::glue;
 use super::cut;
+use crate::glue;
 use crate::ops::{Live, Prepare, Protocol};
 
 pub struct CoSplit;
@@ -70,8 +76,14 @@ impl Protocol for CoSplit {
         let (h, k) = (p.words.base as usize, p.pipeline as usize);
         let (inner, nkey) = cosplit_of(p.arg);
         let window = p.arg & COSPLIT_WINDOW != 0;
-        if p.words.n != 1 || h >= cx.words.len().min(cx.nulls.len()) || k >= cx.program.pipelines.len() || nkey == 0 {
-            return Err(glue::internal("gravity: merge.cosplit is not one table word over one of the program's pipelines"));
+        if p.words.n != 1
+            || h >= cx.words.len().min(cx.nulls.len())
+            || k >= cx.program.pipelines.len()
+            || nkey == 0
+        {
+            return Err(glue::internal(
+                "gravity: merge.cosplit is not one table word over one of the program's pipelines",
+            ));
         }
         let parts = match window {
             true => window_objects(cx, p.arg)?,
@@ -80,7 +92,16 @@ impl Protocol for CoSplit {
         };
         let words = COSPLIT_HDR_WORDS + parts * COSPLIT_PART_WORDS + MAX_OWNERS;
         // D3336 (A1a): a window's parts past the first start empty (`[WHOLE, WHOLE)`): uncut, claim 0 reads the whole run
-        let part = |i: usize| (COSPLIT_HDR_WORDS..COSPLIT_HDR_WORDS + parts * COSPLIT_PART_WORDS).contains(&i).then(|| ((i - COSPLIT_HDR_WORDS) / COSPLIT_PART_WORDS, (i - COSPLIT_HDR_WORDS) % COSPLIT_PART_WORDS));
+        let part = |i: usize| {
+            (COSPLIT_HDR_WORDS..COSPLIT_HDR_WORDS + parts * COSPLIT_PART_WORDS)
+                .contains(&i)
+                .then(|| {
+                    (
+                        (i - COSPLIT_HDR_WORDS) / COSPLIT_PART_WORDS,
+                        (i - COSPLIT_HDR_WORDS) % COSPLIT_PART_WORDS,
+                    )
+                })
+        };
         let at = |i: usize| match (i, part(i)) {
             (COSPLIT_PARTS, _) => parts as u64,
             (_, Some((_, w))) if w % 2 == 1 => COSPLIT_WHOLE,
@@ -93,13 +114,34 @@ impl Protocol for CoSplit {
         *cx.nparams = (*cx.nparams).max(h + 1);
         let prod = |s: u8| cx.program.producer_of_slot(k, s);
         // D3336 (A1a): the sort's fixed row, from its SortMerge proto (the slot's sort), for the window cut's order
-        let fixed = cx.program.v4.as_deref().and_then(|d| d.protos.iter().find(|q| q.kind == ProtoKind::SortMerge && q.slot == p.slot)).and_then(|q| (q.peer != gravity_program::protos::NONE).then_some((q.peer as usize, q.arg)));
+        let fixed = cx
+            .program
+            .v4
+            .as_deref()
+            .and_then(|d| {
+                d.protos
+                    .iter()
+                    .find(|q| q.kind == ProtoKind::SortMerge && q.slot == p.slot)
+            })
+            .and_then(|q| {
+                (q.peer != gravity_program::protos::NONE).then_some((q.peer as usize, q.arg))
+            });
         let last = match (prod(p.slot), prod(inner)) {
             (Some(a), _) if window => a,
             (Some(a), Some(b)) => a.max(b),
             _ => usize::MAX,
         };
-        let live = CoSplitLive { pipeline: k, last, slots: [p.slot, inner], nkey: nkey as usize, table, slices: pgsync::Mutex::new(Vec::new()), claims: PartitionRange::new(1, 1), window, fixed }; // alloc: Exec
+        let live = CoSplitLive {
+            pipeline: k,
+            last,
+            slots: [p.slot, inner],
+            nkey: nkey as usize,
+            table,
+            slices: pgsync::Mutex::new(Vec::new()),
+            claims: PartitionRange::new(1, 1),
+            window,
+            fixed,
+        }; // alloc: Exec
         Ok(Some(Box::new(live))) // alloc: Exec
     }
 }
@@ -117,7 +159,11 @@ impl Live for CoSplitLive {
 
     /// Both runs sealed or put (the later producer ran): the cut, when the inner is resident and the outer is worth two
     /// parts.
-    fn after_pipeline(&self, pipeline: usize, exec: &mut gravity_driver::Exec) -> Option<gravity_driver::Result<()>> {
+    fn after_pipeline(
+        &self,
+        pipeline: usize,
+        exec: &mut gravity_driver::Exec,
+    ) -> Option<gravity_driver::Result<()>> {
         if pipeline != self.last {
             return None;
         }
@@ -127,14 +173,33 @@ impl Live for CoSplitLive {
         let node = exec.node();
         let [o, i] = self.slots;
         let room = (self.table[COSPLIT_PARTS].load(Relaxed) as usize).min(MAX_PARTS);
-        let inner = if node.sort_runs(i) == 0 { super::raw::sealed_run(node.slot_region(i), self.nkey) } else { None };
+        let inner = if node.sort_runs(i) == 0 {
+            super::raw::sealed_run(node.slot_region(i), self.nkey)
+        } else {
+            None
+        };
         let cut = match (inner, node.sort_runs(o)) {
             (None, _) => Ok(None),
             (Some(inner), 0) => match super::raw::sealed_run(node.slot_region(o), self.nkey) {
-                Some(outer) => plan(outer, inner, parts_of(room, outer.1), self.nkey, node.slot_owner(o)).map(|r| r.map(|r| (r, Vec::new()))), // alloc: Exec
+                Some(outer) => plan(
+                    outer,
+                    inner,
+                    parts_of(room, outer.1),
+                    self.nkey,
+                    node.slot_owner(o),
+                )
+                .map(|r| r.map(|r| (r, Vec::new()))), // alloc: Exec
                 None => Ok(None),
             },
-            (Some(inner), n) => plan_put(node.spill_runs(), o, n, inner, room, self.nkey, node.slot_owner(o)),
+            (Some(inner), n) => plan_put(
+                node.spill_runs(),
+                o,
+                n,
+                inner,
+                room,
+                self.nkey,
+                node.slot_owner(o),
+            ),
         };
         let (ranges, slices) = match cut {
             Ok(Some(c)) => c,
@@ -145,7 +210,9 @@ impl Live for CoSplitLive {
             Err(e) => return Some(Err(e)),
         };
         for (p, r) in ranges.iter().enumerate() {
-            r.iter().enumerate().for_each(|(w, &v)| self.table[COSPLIT_HDR_WORDS + p * COSPLIT_PART_WORDS + w].store(v, Relaxed));
+            r.iter().enumerate().for_each(|(w, &v)| {
+                self.table[COSPLIT_HDR_WORDS + p * COSPLIT_PART_WORDS + w].store(v, Relaxed)
+            });
         }
         if slices.is_empty() {
             self.table[COSPLIT_MODE].store(COSPLIT_MODE_RESIDENT, Relaxed);
@@ -172,11 +239,21 @@ impl Live for CoSplitLive {
 /// by the Window proto's prepare (declared before this one: the fill's source declares it after the window's handle).
 fn window_objects(cx: &Prepare<'_>, arg: u64) -> PgResult<usize> {
     let w = cosplit_window_word(arg);
-    let t = cx.words.get(w).copied().filter(|&t| t != 0 && cx.nulls.get(w) == Some(&0));
-    let Some(t) = t else { return Err(glue::internal("gravity: win.partfill's cut names no laid window object table (D3336 A1a)")) };
+    let t = cx
+        .words
+        .get(w)
+        .copied()
+        .filter(|&t| t != 0 && cx.nulls.get(w) == Some(&0));
+    let Some(t) = t else {
+        return Err(glue::internal(
+            "gravity: win.partfill's cut names no laid window object table (D3336 A1a)",
+        ));
+    };
     let n = super::raw::window_objects(t) as usize;
     if n == 0 || n > MAX_PARTS {
-        return Err(glue::internal("gravity: win.partfill's window has no objects, or more than a cut's parts (D3336 A1a)"));
+        return Err(glue::internal(
+            "gravity: win.partfill's window has no objects, or more than a cut's parts (D3336 A1a)",
+        ));
     }
     Ok(n)
 }
@@ -201,7 +278,14 @@ impl CoSplitLive {
         let cut = match node.sort_runs(o) {
             0 => match super::raw::sealed_run(node.slot_region(o), self.nkey) {
                 Some(run) => match fit(shape(run.0, run.2)) {
-                    Some(s) => plan_sides(run, None, parts_of(room, run.1), self.nkey, Some(&s), node.slot_owner(o)),
+                    Some(s) => plan_sides(
+                        run,
+                        None,
+                        parts_of(room, run.1),
+                        self.nkey,
+                        Some(&s),
+                        node.slot_owner(o),
+                    ),
                     None => Ok(None),
                 },
                 None => Ok(None),
@@ -224,11 +308,13 @@ impl CoSplitLive {
         let end = ranges.last().map_or(0, |r| r[1]);
         for p in 0..room {
             let r = if p < cut { ranges[p] } else { [end, end, 0, 0] };
-            r.iter().enumerate().for_each(|(w, &v)| self.table[COSPLIT_HDR_WORDS + p * COSPLIT_PART_WORDS + w].store(v, Relaxed));
+            r.iter().enumerate().for_each(|(w, &v)| {
+                self.table[COSPLIT_HDR_WORDS + p * COSPLIT_PART_WORDS + w].store(v, Relaxed)
+            });
         }
         self.table[COSPLIT_MODE].store(COSPLIT_MODE_RESIDENT, Relaxed);
         fires::fire("exec.win.partfill.resident"); // shapecheck fire signal (D3336 A1a): a K-cut fill over one sealed run
-        // D4358: the parts index the run as it lies now: no give-back or spill moves it under the fill's claims
+                                                   // D4358: the parts index the run as it lies now: no give-back or spill moves it under the fill's claims
         exec.node_mut().hold_as_laid(o);
         fires::fire("exec.win.partfill.cut"); // shapecheck fire signal (D3336 A1a): a K-cut fill's parts cut on the window's keys
         Some(Ok(()))
@@ -251,19 +337,36 @@ fn parts_of(room: usize, rows: u64) -> usize {
 
 /// The parts' ranges of runs `outer` and `inner` (each `(rows base, rows, row bytes)`): `parts - 1` splitters sampled from
 /// the outer, both runs cut at them on their first `nkey` key pairs; `None` under two parts.
-fn plan(outer: (usize, u64, usize), inner: (usize, u64, usize), parts: usize, nkey: usize, owner: Option<Owner>) -> gravity_driver::Result<Option<ChargedVec<Part>>> {
+fn plan(
+    outer: (usize, u64, usize),
+    inner: (usize, u64, usize),
+    parts: usize,
+    nkey: usize,
+    owner: Option<Owner>,
+) -> gravity_driver::Result<Option<ChargedVec<Part>>> {
     plan_sides(outer, Some(inner), parts, nkey, None, owner)
 }
 
 /// `plan` over the outer alone when `inner` is `None` (D3336 A1a: a window's fill), its parts' inner words 0.
 /// D3336 (A1a): `shape` `Some`: the run's own order on its first `nkey` keys (`RunShape::cmp_cross`: images, collations,
 /// bpchar trim; its caller held `cross_ok`) instead of their `[flags, word]` pairs.
-fn plan_sides(outer: (usize, u64, usize), inner: Option<(usize, u64, usize)>, parts: usize, nkey: usize, shape: Option<&RunShape>, owner: Option<Owner>) -> gravity_driver::Result<Option<ChargedVec<Part>>> {
+fn plan_sides(
+    outer: (usize, u64, usize),
+    inner: Option<(usize, u64, usize)>,
+    parts: usize,
+    nkey: usize,
+    shape: Option<&RunShape>,
+    owner: Option<Owner>,
+) -> gravity_driver::Result<Option<ChargedVec<Part>>> {
     if parts < 2 {
         return Ok(None);
     }
     let cmp = |a: usize, b: usize| -> Ordering { order(shape, a, b, nkey) };
-    let o = cut::Run::Mem { base: outer.0, rows: outer.1, rb: outer.2 };
+    let o = cut::Run::Mem {
+        base: outer.0,
+        rows: outer.1,
+        rb: outer.2,
+    };
     let refused = |r: gravity_fn::arena::Refused| gravity_driver::Error::out_of_memory(r.bytes);
     let a = OpArena::scratch_of(owner, Kind::Sort);
     let splitters = cut::sample_in(&a, core::slice::from_ref(&o), parts, &cmp).map_err(refused)?;
@@ -274,11 +377,22 @@ fn plan_sides(outer: (usize, u64, usize), inner: Option<(usize, u64, usize)>, pa
     ic.resize(&a, w, 0).map_err(refused)?;
     cut::cut_into(&o, splitters, &cmp, oc.as_mut_slice(&a))?;
     if let Some(inner) = inner {
-        cut::cut_into(&cut::Run::Mem { base: inner.0, rows: inner.1, rb: inner.2 }, splitters, &cmp, ic.as_mut_slice(&a))?;
+        cut::cut_into(
+            &cut::Run::Mem {
+                base: inner.0,
+                rows: inner.1,
+                rb: inner.2,
+            },
+            splitters,
+            &cmp,
+            ic.as_mut_slice(&a),
+        )?;
     }
     let (oc, ic) = (oc.as_slice(&a), ic.as_slice(&a));
     let mut ranges = ChargedVec::new(owner, Kind::Sort); // alloc: Exec charged owner
-    ranges.with_vec(|v| v.extend((0..splitters.len() + 1).map(|p| [oc[p], oc[p + 1], ic[p], ic[p + 1]]))); // alloc: Exec charged owner
+    ranges.with_vec(|v| {
+        v.extend((0..splitters.len() + 1).map(|p| [oc[p], oc[p + 1], ic[p], ic[p + 1]]))
+    }); // alloc: Exec charged owner
     Ok(Some(ranges))
 }
 
@@ -286,13 +400,23 @@ fn plan_sides(outer: (usize, u64, usize), inner: Option<(usize, u64, usize)>, pa
 /// their fences and each cut at the splitters, the resident inner cut at them too; `None` when a run has no fences, the
 /// runs pass `MAXORDER` or the outer is under two parts. The sample and the runs' cuts (up to `MAXORDER` x `MAX_PARTS`
 /// words each) are scratch charged to `owner`, the outer's Sort slot owner (CONVERT wave 2).
-fn plan_put(t: &gravity_driver::mem::spill::SpillTable, o: u8, nruns: u32, inner: (usize, u64, usize), room: usize, nkey: usize, owner: Option<Owner>) -> gravity_driver::Result<Option<(ChargedVec<Part>, Vec<u64>)>> {
+fn plan_put(
+    t: &gravity_driver::mem::spill::SpillTable,
+    o: u8,
+    nruns: u32,
+    inner: (usize, u64, usize),
+    room: usize,
+    nkey: usize,
+    owner: Option<Owner>,
+) -> gravity_driver::Result<Option<(ChargedVec<Part>, Vec<u64>)>> {
     if nruns as usize > MAXORDER {
         return Ok(None);
     }
     let mut fences = ChargedVec::new(owner, Kind::Sort); // alloc: Exec charged owner
     for r in 0..nruns {
-        let Some(f) = t.run_fences(o, r) else { return Ok(None) };
+        let Some(f) = t.run_fences(o, r) else {
+            return Ok(None);
+        };
         fences.with_vec(|v| v.push(f)); // alloc: Exec charged owner
     }
     let parts = parts_of(room, fences.iter().map(|f| f.rows()).sum());
@@ -300,9 +424,26 @@ fn plan_put(t: &gravity_driver::mem::spill::SpillTable, o: u8, nruns: u32, inner
         return Ok(None);
     }
     let mut opens = ChargedVec::new(owner, Kind::Sort); // alloc: Exec charged owner
-    opens.with_vec(|v| v.extend((0..nruns).map(|r| move |f: Option<usize>| t.run_records(o, r, f)?.ok_or_else(|| gravity_driver::Error::host("gravity: merge.cosplit: a fenced run without its records"))))); // alloc: Exec charged owner
+    opens.with_vec(|v| {
+        v.extend((0..nruns).map(|r| {
+            move |f: Option<usize>| {
+                t.run_records(o, r, f)?.ok_or_else(|| {
+                    gravity_driver::Error::host(
+                        "gravity: merge.cosplit: a fenced run without its records",
+                    )
+                })
+            }
+        }))
+    }); // alloc: Exec charged owner
     let mut runs: ChargedVec<cut::Run<'_>> = ChargedVec::new(owner, Kind::Sort); // alloc: Exec charged owner
-    runs.with_vec(|v| v.extend(fences.iter().zip(opens.iter()).map(|(&fences, open)| cut::Run::Put { fences, open }))); // alloc: Exec charged owner
+    runs.with_vec(|v| {
+        v.extend(
+            fences
+                .iter()
+                .zip(opens.iter())
+                .map(|(&fences, open)| cut::Run::Put { fences, open }),
+        )
+    }); // alloc: Exec charged owner
     let cmp = |a: usize, b: usize| -> Ordering { super::raw::cmp_pairs(a, b, nkey) };
     let refused = |r: gravity_fn::arena::Refused| gravity_driver::Error::out_of_memory(r.bytes);
     let a = OpArena::scratch_of(owner, Kind::Sort);
@@ -319,7 +460,16 @@ fn plan_put(t: &gravity_driver::mem::spill::SpillTable, o: u8, nruns: u32, inner
     }
     let mut ic = AVec::<u64>::default();
     ic.resize(&a, w, 0).map_err(refused)?;
-    cut::cut_into(&cut::Run::Mem { base: inner.0, rows: inner.1, rb: inner.2 }, splitters, &cmp, ic.as_mut_slice(&a))?;
+    cut::cut_into(
+        &cut::Run::Mem {
+            base: inner.0,
+            rows: inner.1,
+            rb: inner.2,
+        },
+        splitters,
+        &cmp,
+        ic.as_mut_slice(&a),
+    )?;
     Ok(Some(slice_parts(cuts.as_slice(&a), ic.as_slice(&a), owner)))
 }
 
@@ -332,12 +482,16 @@ fn slice_parts(cuts: &[u64], ic: &[u64], owner: Option<Owner>) -> (ChargedVec<Pa
     let mut slices = Vec::with_capacity(2 * n * (cuts.len() / ic.len())); // alloc: Exec
     let mut at = 0;
     let mut ranges = ChargedVec::new(owner, Kind::Sort); // alloc: Exec charged owner
-    ranges.with_vec(|v| v.extend((0..n).map(|p| { // alloc: Exec charged owner
-        let rows: u64 = cuts.chunks_exact(ic.len()).map(|c| c[p + 1] - c[p]).sum();
-        cuts.chunks_exact(ic.len()).for_each(|c| slices.extend([c[p], c[p + 1]]));
-        at += rows;
-        [at - rows, at, ic[p], ic[p + 1]]
-    })));
+    ranges.with_vec(|v| {
+        v.extend((0..n).map(|p| {
+            // alloc: Exec charged owner
+            let rows: u64 = cuts.chunks_exact(ic.len()).map(|c| c[p + 1] - c[p]).sum();
+            cuts.chunks_exact(ic.len())
+                .for_each(|c| slices.extend([c[p], c[p + 1]]));
+            at += rows;
+            [at - rows, at, ic[p], ic[p + 1]]
+        }))
+    });
     (ranges, slices)
 }
 
@@ -370,22 +524,52 @@ mod tests {
         let (orb, irb) = (24, 16);
         let (ov, iv) = (run(&ok, orb), run(&ik, irb));
         for parts in [2usize, 3, 8, 64] {
-            let ranges = plan((ov.as_ptr() as usize, ok.len() as u64, orb), (iv.as_ptr() as usize, ik.len() as u64, irb), parts, 1, None).unwrap().unwrap();
+            let ranges = plan(
+                (ov.as_ptr() as usize, ok.len() as u64, orb),
+                (iv.as_ptr() as usize, ik.len() as u64, irb),
+                parts,
+                1,
+                None,
+            )
+            .unwrap()
+            .unwrap();
             assert_eq!(ranges.len(), parts);
             assert_eq!((ranges[0][0], ranges[0][2]), (0, 0));
-            assert_eq!((ranges[parts - 1][1], ranges[parts - 1][3]), (ok.len() as u64, ik.len() as u64));
+            assert_eq!(
+                (ranges[parts - 1][1], ranges[parts - 1][3]),
+                (ok.len() as u64, ik.len() as u64)
+            );
             for p in 0..parts {
                 let r = ranges[p];
                 assert!(r[0] <= r[1] && r[2] <= r[3], "part {p}: {r:?}");
                 if p + 1 < parts {
-                    assert_eq!((r[1], r[3]), (ranges[p + 1][0], ranges[p + 1][2]), "parts {p} and {} meet", p + 1);
+                    assert_eq!(
+                        (r[1], r[3]),
+                        (ranges[p + 1][0], ranges[p + 1][2]),
+                        "parts {p} and {} meet",
+                        p + 1
+                    );
                 }
                 // every key of this part (either run) under every key of the next parts
-                let keys = |v: &[(u64, u64)], lo: u64, hi: u64| v[lo as usize..hi as usize].to_vec();
-                let here: Vec<(u64, u64)> = keys(&ok, r[0], r[1]).into_iter().chain(keys(&ik, r[2], r[3])).collect(); // alloc: Cold
-                let later: Vec<(u64, u64)> = ranges[p + 1..].iter().flat_map(|n| keys(&ok, n[0], n[1]).into_iter().chain(keys(&ik, n[2], n[3]))).collect(); // alloc: Cold
+                let keys =
+                    |v: &[(u64, u64)], lo: u64, hi: u64| v[lo as usize..hi as usize].to_vec();
+                let here: Vec<(u64, u64)> = keys(&ok, r[0], r[1])
+                    .into_iter()
+                    .chain(keys(&ik, r[2], r[3]))
+                    .collect(); // alloc: Cold
+                let later: Vec<(u64, u64)> = ranges[p + 1..]
+                    .iter()
+                    .flat_map(|n| {
+                        keys(&ok, n[0], n[1])
+                            .into_iter()
+                            .chain(keys(&ik, n[2], n[3]))
+                    })
+                    .collect(); // alloc: Cold
                 if let (Some(a), Some(b)) = (here.iter().max(), later.iter().min()) {
-                    assert!(a < b, "parts={parts}: part {p}'s key {a:?} not under a later part's {b:?}");
+                    assert!(
+                        a < b,
+                        "parts={parts}: part {p}'s key {a:?} not under a later part's {b:?}"
+                    );
                 }
             }
         }
@@ -395,8 +579,23 @@ mod tests {
     #[test]
     fn under_two_parts_nothing_is_cut() {
         let (ov, iv) = (run(&[(1, 5), (1, 6)], 16), run(&[(1, 6)], 16));
-        assert!(plan((ov.as_ptr() as usize, 2, 16), (iv.as_ptr() as usize, 1, 16), 1, 1, None).unwrap().is_none());
-        assert_eq!((parts_of(32, 4095), parts_of(32, 3 * MIN_PART_ROWS), parts_of(4, 1 << 30)), (0, 3, 4));
+        assert!(plan(
+            (ov.as_ptr() as usize, 2, 16),
+            (iv.as_ptr() as usize, 1, 16),
+            1,
+            1,
+            None
+        )
+        .unwrap()
+        .is_none());
+        assert_eq!(
+            (
+                parts_of(32, 4095),
+                parts_of(32, 3 * MIN_PART_ROWS),
+                parts_of(4, 1 << 30)
+            ),
+            (0, 3, 4)
+        );
     }
 
     /// The put outer's parts: each part's outer range its slices' rows after the parts before it, the slices part-major
@@ -404,7 +603,10 @@ mod tests {
     #[test]
     fn put_runs_slice_part_major() {
         let (ranges, slices) = slice_parts(&[0, 3, 3, 9, 0, 0, 5, 6], &[0, 1, 4, 4], None);
-        assert_eq!(ranges.to_vec(), vec![[0, 3, 0, 1], [3, 8, 1, 4], [8, 15, 4, 4]]); // alloc: Cold
+        assert_eq!(
+            ranges.to_vec(),
+            vec![[0, 3, 0, 1], [3, 8, 1, 4], [8, 15, 4, 4]]
+        ); // alloc: Cold
         assert_eq!(slices, vec![0, 3, 0, 0, 3, 3, 0, 5, 3, 9, 5, 6]); // alloc: Cold
     }
 }

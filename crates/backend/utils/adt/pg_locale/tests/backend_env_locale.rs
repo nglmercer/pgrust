@@ -9,7 +9,11 @@ fn empty_locale_name_resolves_to_backend_record() {
     std::env::set_var("LC_COLLATE", "POSIX");
     pg_locale::freeze_global_locale();
     let cx = mcx::MemoryContext::new("t");
-    assert!(pg_locale::pg_perm_setlocale(cx.mcx(), libc::LC_COLLATE, "C").unwrap().is_some());
+    assert!(
+        pg_locale::pg_perm_setlocale(cx.mcx(), libc::LC_COLLATE, "C")
+            .unwrap()
+            .is_some()
+    );
     let (ok, canon) = pg_locale::check_locale(libc::LC_COLLATE, "").unwrap();
     assert!(ok);
     assert_eq!(canon.as_deref(), Some("C"));
@@ -29,7 +33,11 @@ fn wide_len(s: &std::ffi::CStr) -> usize {
 fn backend_ctype_scopes_null_locale_calls_and_restores() {
     pg_locale::freeze_global_locale();
     let cx = mcx::MemoryContext::new("t");
-    assert!(pg_locale::pg_perm_setlocale(cx.mcx(), libc::LC_CTYPE, "en_US.UTF-8").unwrap().is_some());
+    assert!(
+        pg_locale::pg_perm_setlocale(cx.mcx(), libc::LC_CTYPE, "en_US.UTF-8")
+            .unwrap()
+            .is_some()
+    );
     // SAFETY: querying the thread locale.
     let before = unsafe { libc::uselocale(core::ptr::null_mut()) };
     assert_eq!(pg_locale::with_backend_ctype(|| wide_len(c"caf\u{e9}")), 4);

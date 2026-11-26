@@ -183,12 +183,18 @@ pub fn walk_cond<'p>(x: Node<'p>, cond: bool, f: &mut dyn FnMut(Node<'p>, bool) 
                 walk_cond(d, true, f);
             }
         }
-        NodeTag::T_Aggref | NodeTag::T_WindowFunc => agg_kids(x, cond, &mut |c, cond| walk_cond(c, cond, f)),
+        NodeTag::T_Aggref | NodeTag::T_WindowFunc => {
+            agg_kids(x, cond, &mut |c, cond| walk_cond(c, cond, f))
+        }
         // D3374: JSON_VALUE / JSON_QUERY / JSON_EXISTS run their ON EMPTY / ON ERROR behavior's expression only for the rows
         // whose path finds nothing / raises (ExecEvalJsonExprPath jumps to it); the context item, path and PASSING always run
         NodeTag::T_JsonExpr => {
             let j = x.as_json_expr().unwrap();
-            for n in [j.formatted_expr, j.path_spec].into_iter().flatten().chain(j.passing_values.iter()) {
+            for n in [j.formatted_expr, j.path_spec]
+                .into_iter()
+                .flatten()
+                .chain(j.passing_values.iter())
+            {
                 walk_cond(n, cond, f);
             }
             for b in [j.on_empty, j.on_error].into_iter().flatten() {
@@ -211,12 +217,18 @@ pub(crate) fn agg_kids<'p>(x: Node<'p>, cond: bool, f: &mut dyn FnMut(Node<'p>, 
     if let Some(a) = x.as_aggref() {
         let args_cond = cond || a.aggfilter.is_some();
         a.aggdirectargs.iter().for_each(|c| f(c, cond));
-        a.args.iter().chain(a.aggorder.iter()).chain(a.aggdistinct.iter()).for_each(|c| f(c, args_cond));
+        a.args
+            .iter()
+            .chain(a.aggorder.iter())
+            .chain(a.aggdistinct.iter())
+            .for_each(|c| f(c, args_cond));
         if let Some(q) = a.aggfilter {
             f(q, cond);
         }
     } else if let Some(w) = x.as_window_func() {
-        w.args.iter().for_each(|c| f(c, cond || w.aggfilter.is_some()));
+        w.args
+            .iter()
+            .for_each(|c| f(c, cond || w.aggfilter.is_some()));
         if let Some(q) = w.aggfilter {
             f(q, cond);
         }

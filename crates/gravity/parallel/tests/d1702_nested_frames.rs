@@ -52,8 +52,14 @@ unsafe extern "C-unwind" fn k_member(ctx: *mut Ctx) -> i64 {
             (*ctx).resume = RESUME_NONE;
             return if r == 0 { DONE } else { r };
         }
-        let take = if pulled { (r as u64).min(BUDGET - n) } else { r as u64 };
-        HashAgg::at(partial(ctx), &LAYOUT, 1, BYTES).single().add_count(0, take as i64);
+        let take = if pulled {
+            (r as u64).min(BUDGET - n)
+        } else {
+            r as u64
+        };
+        HashAgg::at(partial(ctx), &LAYOUT, 1, BYTES)
+            .single()
+            .add_count(0, take as i64);
         LANDED.fetch_add(take, Relaxed);
         (*s).cursor += take as u32;
         n += take;
@@ -105,7 +111,9 @@ unsafe extern "C-unwind" fn k_emit(ctx: *mut Ctx) -> i64 {
         *ERR.lock().unwrap() = format!("{e:?}");
         return ERROR;
     }
-    let a = HashAgg::at(consumed(ctx, 0), &LAYOUT, 1, BYTES).single().count(0);
+    let a = HashAgg::at(consumed(ctx, 0), &LAYOUT, 1, BYTES)
+        .single()
+        .count(0);
     EMIT_SAW.store(a, Relaxed);
     let v = [a as u64];
     let n = [0u8; 1];
@@ -120,13 +128,43 @@ fn program() -> Program {
     let sites = [SiteDesc::range_source(st.handle(), T_A, &[1])];
     let out = [OutCol::new("set", 20, -1, 8, true)];
     let pipes = [
-        (Pipeline::serial(0, End::Breaker(Breaker::sized(BreakerKind::PlainAgg, BYTES).in_slot(0)), Reason::Host), Code::hand(k_member)),
-        (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming(&[0]), Code::hand(k_emit)),
+        (
+            Pipeline::serial(
+                0,
+                End::Breaker(Breaker::sized(BreakerKind::PlainAgg, BYTES).in_slot(0)),
+                Reason::Host,
+            ),
+            Code::hand(k_member),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming(&[0]),
+            Code::hand(k_emit),
+        ),
     ];
-    let mut p = Program::with_pipelines(Layout { nsites: 1, out_natts: 1, out_rows: 8, scratch_bytes: 0, exec_bytes: 0 }, &sites, &out, WritePlan::SELECT, pipes);
+    let mut p = Program::with_pipelines(
+        Layout {
+            nsites: 1,
+            out_natts: 1,
+            out_rows: 8,
+            scratch_bytes: 0,
+            exec_bytes: 0,
+        },
+        &sites,
+        &out,
+        WritePlan::SELECT,
+        pipes,
+    );
     // pipeline 0 is the emit's rerun set's one member, as lowerv4's lifetime home declares it
-    let member = RunMember { pipeline: 0, runner: Runner::Set(0), life: RunLife::EveryRun, lazy_probe: NO_PROBE };
-    p.set_v4(&V4Descs { lifetimes: Lifetimes::new(vec![member]).unwrap(), ..V4Descs::new(Vec::new()) });
+    let member = RunMember {
+        pipeline: 0,
+        runner: Runner::Set(0),
+        life: RunLife::EveryRun,
+        lazy_probe: NO_PROBE,
+    };
+    p.set_v4(&V4Descs {
+        lifetimes: Lifetimes::new(vec![member]).unwrap(),
+        ..V4Descs::new(Vec::new())
+    });
     p
 }
 
@@ -157,7 +195,11 @@ impl Plan for Nf {
         (p == 0 && !self.pull).then_some(1)
     }
     fn pull_readers(&self, p: usize) -> &[usize] {
-        if p == 0 && self.pull { &[1] } else { &[] }
+        if p == 0 && self.pull {
+            &[1]
+        } else {
+            &[]
+        }
     }
     fn frame(&self, f: Option<Frame>) -> Option<Frame> {
         self.frame.replace(f)
@@ -172,11 +214,27 @@ fn run(pull: bool) -> Result<Vec<Vec<u64>>> {
     let pool = FixturePool::new(1);
     let mut entry = gravity_driver::Entry::new(2);
     let mut sink = LegSink::new(true);
-    let plan = Nf { inner: FixturePlan::new(&program, &derive, 1, 3), pull, frame: Cell::new(None) };
+    let plan = Nf {
+        inner: FixturePlan::new(&program, &derive, 1, 3),
+        pull,
+        frame: Cell::new(None),
+    };
     PLAN.store(&plan as *const Nf as *mut Nf, Relaxed);
-    LANDED.store(0, Relaxed); EMIT_SAW.store(-1, Relaxed); PULL.store(pull as u64, Relaxed);
+    LANDED.store(0, Relaxed);
+    EMIT_SAW.store(-1, Relaxed);
+    PULL.store(pull as u64, Relaxed);
     ERR.lock().unwrap().clear();
-    let r = run_planned(&mut entry, &program, &mut derive, &pool, &plan, gravity_driver::Grant::of(16 << 20), &[1_000_000], &NO_ABORT, &mut sink);
+    let r = run_planned(
+        &mut entry,
+        &program,
+        &mut derive,
+        &pool,
+        &plan,
+        gravity_driver::Grant::of(16 << 20),
+        &[1_000_000],
+        &NO_ABORT,
+        &mut sink,
+    );
     PLAN.store(core::ptr::null_mut(), Relaxed);
     r.map(|_| sink.sorted())
 }
@@ -191,7 +249,11 @@ fn serial() -> std::sync::MutexGuard<'static, ()> {
 fn a_rerun_inside_a_call_runs_its_members_through_the_frame_below_every_outer_borrow() {
     let _g = serial();
     let rows = run(false).unwrap_or_else(|e| panic!("{e:?} ({})", ERR.lock().unwrap()));
-    assert_eq!(rows, vec![vec![ROWS]], "the emit reads the member's whole table, run once from inside its call");
+    assert_eq!(
+        rows,
+        vec![vec![ROWS]],
+        "the emit reads the member's whole table, run once from inside its call"
+    );
     assert_eq!(LANDED.load(Relaxed), ROWS);
 }
 
@@ -199,6 +261,10 @@ fn a_rerun_inside_a_call_runs_its_members_through_the_frame_below_every_outer_bo
 fn a_pull_inside_a_call_runs_the_set_through_the_frame_below_every_outer_borrow() {
     let _g = serial();
     let rows = run(true).unwrap_or_else(|e| panic!("{e:?} ({})", ERR.lock().unwrap()));
-    assert_eq!(rows, vec![vec![ROWS]], "the emit pulls the set to its end, then reads it");
+    assert_eq!(
+        rows,
+        vec![vec![ROWS]],
+        "the emit pulls the set to its end, then reads it"
+    );
     assert_eq!(LANDED.load(Relaxed), ROWS);
 }

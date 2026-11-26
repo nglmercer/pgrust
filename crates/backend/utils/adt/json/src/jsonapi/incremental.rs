@@ -96,14 +96,28 @@ const JSON_PROD_SCALAR_FALSE: &[u8] = &[JSON_SEM_SCALAR_CALL, T_FALSE, JSON_SEM_
 /// JSON -> 'null'
 const JSON_PROD_SCALAR_NULL: &[u8] = &[JSON_SEM_SCALAR_CALL, T_NULL, JSON_SEM_SCALAR_INIT];
 /// JSON -> '{' KEY_PAIRS '}'
-const JSON_PROD_OBJECT: &[u8] =
-    &[JSON_SEM_OEND, T_OBJECT_END, JSON_NT_KEY_PAIRS, T_OBJECT_START, JSON_SEM_OSTART];
+const JSON_PROD_OBJECT: &[u8] = &[
+    JSON_SEM_OEND,
+    T_OBJECT_END,
+    JSON_NT_KEY_PAIRS,
+    T_OBJECT_START,
+    JSON_SEM_OSTART,
+];
 /// JSON -> '[' ARRAY_ELEMENTS ']'
-const JSON_PROD_ARRAY: &[u8] =
-    &[JSON_SEM_AEND, T_ARRAY_END, JSON_NT_ARRAY_ELEMENTS, T_ARRAY_START, JSON_SEM_ASTART];
+const JSON_PROD_ARRAY: &[u8] = &[
+    JSON_SEM_AEND,
+    T_ARRAY_END,
+    JSON_NT_ARRAY_ELEMENTS,
+    T_ARRAY_START,
+    JSON_SEM_ASTART,
+];
 /// ARRAY_ELEMENTS -> JSON MORE_ARRAY_ELEMENTS
-const JSON_PROD_ARRAY_ELEMENTS: &[u8] =
-    &[JSON_NT_MORE_ARRAY_ELEMENTS, JSON_SEM_AELEM_END, JSON_NT_JSON, JSON_SEM_AELEM_START];
+const JSON_PROD_ARRAY_ELEMENTS: &[u8] = &[
+    JSON_NT_MORE_ARRAY_ELEMENTS,
+    JSON_SEM_AELEM_END,
+    JSON_NT_JSON,
+    JSON_SEM_AELEM_START,
+];
 /// MORE_ARRAY_ELEMENTS -> ',' JSON MORE_ARRAY_ELEMENTS
 const JSON_PROD_MORE_ARRAY_ELEMENTS: &[u8] = &[
     JSON_NT_MORE_ARRAY_ELEMENTS,
@@ -436,7 +450,11 @@ impl<'src, 'mcx> JsonIncrementalChunk<'_, 'src, 'mcx> {
         if self.token_in_partial {
             &self.st.partial_token[self.ptok_start..self.ptok_end]
         } else {
-            let start = self.lex.lex.token_start.unwrap_or(self.lex.lex.token_terminator);
+            let start = self
+                .lex
+                .lex
+                .token_start
+                .unwrap_or(self.lex.lex.token_terminator);
             &self.lex.lex.input[start..self.lex.lex.token_terminator]
         }
     }
@@ -634,7 +652,7 @@ impl<'src, 'mcx> JsonIncrementalChunk<'_, 'src, 'mcx> {
             for &c in input.iter() {
                 push_partial(ptok, c)?;
                 added += 1;
-                if c == b'"' && escapes.is_multiple_of( 2) {
+                if c == b'"' && escapes.is_multiple_of(2) {
                     tok_done = true;
                     break;
                 }
@@ -1034,9 +1052,7 @@ impl<'src, 'mcx> JsonIncrementalChunk<'_, 'src, 'mcx> {
                             return Ok(JsonError::SemActionFailed);
                         }
                     }
-                    _ => {
-                        /* should not happen */
-                    }
+                    _ => { /* should not happen */ }
                 }
             } else {
                 /*

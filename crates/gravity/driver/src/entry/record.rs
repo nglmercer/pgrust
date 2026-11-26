@@ -39,7 +39,9 @@ pub fn bufs_delta(now: &Bufs, then: &Bufs) -> Bufs {
 /// A pipeline's lowered verdict as its record row carries it: the Ineligible reason's name and site, `("", -1)` for an
 /// Eligible one.
 pub fn verdict(p: Parallel) -> (&'static str, i16) {
-    let Parallel::Ineligible { site, reason } = p else { return ("", -1) };
+    let Parallel::Ineligible { site, reason } = p else {
+        return ("", -1);
+    };
     let why = match reason {
         Reason::NoDrivingSite => "NoDrivingSite",
         Reason::IndexSource => "IndexSource",
@@ -58,7 +60,12 @@ pub fn verdict(p: Parallel) -> (&'static str, i16) {
 /// between pipelines and the statement's start and end. A section's leader-only owner phase (`own_single`) counts as
 /// section time here.
 pub fn lead_ns(runs: &[PipeRun], run_ns: u64) -> u64 {
-    run_ns.saturating_sub(runs.iter().filter(|r| r.arm == "section").map(|r| r.ns).sum())
+    run_ns.saturating_sub(
+        runs.iter()
+            .filter(|r| r.arm == "section")
+            .map(|r| r.ns)
+            .sum(),
+    )
 }
 
 /// The program recorded (its address and content key), the pipelines it ran, the clock when the record opened and the
@@ -95,14 +102,24 @@ impl Entry {
 
     /// `record_open` keeping each pipeline's buffer counters' delta through `probe` (an EXPLAIN ANALYZE's record).
     pub fn record_open_probed(&mut self, program: &Program, probe: Option<fn() -> Bufs>) -> Token {
-        Token(self.record.replace(Box::new(Record { program: addr(program), key: program.key, runs: Vec::new(), t0: now_ns(), cells: Vec::new(), probe }))) // alloc: Exec
+        Token(self.record.replace(Box::new(Record {
+            program: addr(program),
+            key: program.key,
+            runs: Vec::new(),
+            t0: now_ns(),
+            cells: Vec::new(),
+            probe,
+        }))) // alloc: Exec
     }
 
     /// A pipeline's start as the record keeps it: ns since the record opened and the buffer counters then (zero without a
     /// probe); `None` without a record.
     pub fn record_mark(&self) -> Option<(u64, Bufs)> {
         let r = self.record.as_ref()?;
-        Some((now_ns().saturating_sub(r.t0), r.probe.map_or([0; 10], |p| p())))
+        Some((
+            now_ns().saturating_sub(r.t0),
+            r.probe.map_or([0; 10], |p| p()),
+        ))
     }
 
     /// The buffer counters' delta since `then` (a `record_mark`'s), zero without a probe.
@@ -117,7 +134,10 @@ impl Entry {
     /// the counter cells the run ended with; the record before it back.
     pub fn record_close(&mut self, token: Token) -> (Vec<PipeRun>, u64, Vec<u64>) {
         let r = core::mem::replace(&mut self.record, token.0);
-        r.map_or_else(|| (Vec::new(), 0, Vec::new()), |r| (r.runs, now_ns().saturating_sub(r.t0), r.cells)) // alloc: Exec
+        r.map_or_else(
+            || (Vec::new(), 0, Vec::new()),
+            |r| (r.runs, now_ns().saturating_sub(r.t0), r.cells),
+        ) // alloc: Exec
     }
 
     /// The recorded program's counter cells as its run ends (the node's, every section's slots folded in).
@@ -129,7 +149,9 @@ impl Entry {
 
     /// Whether `program`'s run is being recorded.
     pub fn recording(&self, program: &Program) -> bool {
-        self.record.as_ref().is_some_and(|r| r.program == addr(program) || r.key == program.key)
+        self.record
+            .as_ref()
+            .is_some_and(|r| r.program == addr(program) || r.key == program.key)
     }
 
     pub fn record_push(&mut self, run: PipeRun) {
@@ -144,12 +166,27 @@ mod tests {
     use super::*;
 
     fn run(arm: &'static str, ns: u64) -> PipeRun {
-        PipeRun { pipeline: 0, arm, width: 0, ns, claims: 0, why: "", site: -1, at: 0, buf: [0; 10] }
+        PipeRun {
+            pipeline: 0,
+            arm,
+            width: 0,
+            ns,
+            claims: 0,
+            why: "",
+            site: -1,
+            at: 0,
+            buf: [0; 10],
+        }
     }
 
     #[test]
     fn lead_is_the_wall_less_the_sections() {
-        let runs = [run("section", 70), run("emit", 10), run("section", 5), run("serial", 3)];
+        let runs = [
+            run("section", 70),
+            run("emit", 10),
+            run("section", 5),
+            run("serial", 3),
+        ];
         assert_eq!(lead_ns(&runs, 100), 25);
         assert_eq!(lead_ns(&runs, 60), 0);
         assert_eq!(lead_ns(&[], 9), 9);
@@ -158,7 +195,19 @@ mod tests {
     #[test]
     fn verdict_names_the_reason_and_site() {
         assert_eq!(verdict(Parallel::Eligible), ("", -1));
-        assert_eq!(verdict(Parallel::Ineligible { site: 3, reason: Reason::Host }), ("Host", 3));
-        assert_eq!(verdict(Parallel::Ineligible { site: -1, reason: Reason::NoDrivingSite }), ("NoDrivingSite", -1));
+        assert_eq!(
+            verdict(Parallel::Ineligible {
+                site: 3,
+                reason: Reason::Host
+            }),
+            ("Host", 3)
+        );
+        assert_eq!(
+            verdict(Parallel::Ineligible {
+                site: -1,
+                reason: Reason::NoDrivingSite
+            }),
+            ("NoDrivingSite", -1)
+        );
     }
 }

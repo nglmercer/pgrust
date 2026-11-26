@@ -35,7 +35,15 @@ fn cancel_in_flight() -> bool {
 fn protected() -> u64 {
     0
 }
-static ACTS: mcx::ladder::Acts = mcx::ladder::Acts { read, reclaimable, reclaim, cancel, cancel_in_flight, protected, evict_protected: reclaim };
+static ACTS: mcx::ladder::Acts = mcx::ladder::Acts {
+    read,
+    reclaimable,
+    reclaim,
+    cancel,
+    cancel_in_flight,
+    protected,
+    evict_protected: reclaim,
+};
 
 fn armed() -> std::sync::MutexGuard<'static, ()> {
     let g = LOCK.lock().unwrap_or_else(|p| p.into_inner());
@@ -59,7 +67,15 @@ fn disarm() {
 fn full_until(after: Duration) -> std::thread::JoinHandle<()> {
     let (tx, rx) = std::sync::mpsc::channel();
     let h = std::thread::spawn(move || {
-        let admit = || POOL.admit_need_until(Grant::of(64 * MIB), &|g| g.bytes, Duration::from_secs(5), &|| false).expect("a statement");
+        let admit = || {
+            POOL.admit_need_until(
+                Grant::of(64 * MIB),
+                &|g| g.bytes,
+                Duration::from_secs(5),
+                &|| false,
+            )
+            .expect("a statement")
+        };
         let others = (admit(), admit());
         tx.send(()).expect("admitted");
         std::thread::sleep(after);
@@ -77,7 +93,11 @@ fn scratch_past() -> u64 {
 fn with_the_ladder_on_a_gate_climbs_then_waits_for_the_bytes_given_back() {
     let _g = armed();
     mcx::ladder::publish(mcx::ladder::ON, 1024 * MIB);
-    let (reclaims, climbs, past) = (RECLAIMS.load(Relaxed), mcx::ladder::counts().1, scratch_past());
+    let (reclaims, climbs, past) = (
+        RECLAIMS.load(Relaxed),
+        mcx::ladder::counts().1,
+        scratch_past(),
+    );
     let scratches = gate(mcx::ladder::Gate::Scratch);
     let giver = full_until(Duration::from_millis(300));
     let t0 = Instant::now();
@@ -87,12 +107,25 @@ fn with_the_ladder_on_a_gate_climbs_then_waits_for_the_bytes_given_back() {
     giver.join().expect("giver");
     drop(held);
     disarm();
-    assert!(RECLAIMS.load(Relaxed) > reclaims, "R2a ran: the caches were asked first");
+    assert!(
+        RECLAIMS.load(Relaxed) > reclaims,
+        "R2a ran: the caches were asked first"
+    );
     assert!(narrowed, "R2a freed nothing measured: R3 set its flag");
     assert!(mcx::ladder::counts().1 > climbs, "the climb is counted");
-    assert!(waited >= Duration::from_millis(250), "it waited (R5) for the bytes the other statement gave back ({waited:?})");
-    assert_eq!(scratch_past(), past, "the freed bytes came from the pool: no overdraft");
-    assert!(gate(mcx::ladder::Gate::Scratch) > scratches, "the climb is counted as the scratch gate's");
+    assert!(
+        waited >= Duration::from_millis(250),
+        "it waited (R5) for the bytes the other statement gave back ({waited:?})"
+    );
+    assert_eq!(
+        scratch_past(),
+        past,
+        "the freed bytes came from the pool: no overdraft"
+    );
+    assert!(
+        gate(mcx::ladder::Gate::Scratch) > scratches,
+        "the climb is counted as the scratch gate's"
+    );
 }
 
 #[test]
@@ -131,7 +164,15 @@ fn full_and_spillable_until(after: Duration) -> std::thread::JoinHandle<()> {
         mcx::governor::register(48, 0);
         mcx::governor::statement_start(0, true);
         mcx::revoke::note_spillable(64 * MIB as i64);
-        let admit = || POOL.admit_need_until(Grant::of(64 * MIB), &|g| g.bytes, Duration::from_secs(5), &|| false).expect("a statement");
+        let admit = || {
+            POOL.admit_need_until(
+                Grant::of(64 * MIB),
+                &|g| g.bytes,
+                Duration::from_secs(5),
+                &|| false,
+            )
+            .expect("a statement")
+        };
         let others = (admit(), admit());
         tx.send(()).expect("admitted");
         std::thread::sleep(after);
@@ -150,21 +191,45 @@ fn with_the_ladder_on_an_admission_climbs_then_waits_as_r5() {
     let _g = armed();
     mcx::ladder::publish(mcx::ladder::ON, 1024 * MIB);
     mcx::revoke::set_enabled(true);
-    let (reclaims, climbs, r5, r4b) = (RECLAIMS.load(Relaxed), mcx::ladder::counts().1, r5_runs(), runs(mempolicy::ladder::Rung::Revoke));
+    let (reclaims, climbs, r5, r4b) = (
+        RECLAIMS.load(Relaxed),
+        mcx::ladder::counts().1,
+        r5_runs(),
+        runs(mempolicy::ladder::Rung::Revoke),
+    );
     let admits = gate(mcx::ladder::Gate::Admit);
     let giver = full_and_spillable_until(Duration::from_millis(300));
-    let admitted = POOL.admit_need_until(Grant::of(64 * MIB), &|g| g.bytes, Duration::from_secs(5), &|| false).expect("admitted");
+    let admitted = POOL
+        .admit_need_until(
+            Grant::of(64 * MIB),
+            &|g| g.bytes,
+            Duration::from_secs(5),
+            &|| false,
+        )
+        .expect("admitted");
     let narrowed = mcx::ladder::narrowed();
     giver.join().expect("giver");
     drop(admitted);
     mcx::revoke::set_enabled(false);
     disarm();
-    assert!(runs(mempolicy::ladder::Rung::Revoke) > r4b, "R4b ran: the holders' spillable bytes were asked");
-    assert!(RECLAIMS.load(Relaxed) > reclaims, "R2a ran: the caches were asked first");
+    assert!(
+        runs(mempolicy::ladder::Rung::Revoke) > r4b,
+        "R4b ran: the holders' spillable bytes were asked"
+    );
+    assert!(
+        RECLAIMS.load(Relaxed) > reclaims,
+        "R2a ran: the caches were asked first"
+    );
     assert!(narrowed, "R2a freed nothing measured: R3 set its flag");
-    assert!(mcx::ladder::counts().1 > climbs, "the admission's climb is counted");
+    assert!(
+        mcx::ladder::counts().1 > climbs,
+        "the admission's climb is counted"
+    );
     assert!(r5_runs() > r5, "its wait is counted as R5");
-    assert!(gate(mcx::ladder::Gate::Admit) > admits, "the climb is counted as admission's");
+    assert!(
+        gate(mcx::ladder::Gate::Admit) > admits,
+        "the climb is counted as admission's"
+    );
 }
 
 #[test]
@@ -173,7 +238,14 @@ fn with_the_ladder_off_an_admission_does_not_climb() {
     mcx::ladder::publish(mcx::ladder::OFF, 1024 * MIB);
     let (reclaims, climbs, r5) = (RECLAIMS.load(Relaxed), mcx::ladder::counts().1, r5_runs());
     let giver = full_until(Duration::from_millis(300));
-    let admitted = POOL.admit_need_until(Grant::of(64 * MIB), &|g| g.bytes, Duration::from_secs(5), &|| false).expect("admitted");
+    let admitted = POOL
+        .admit_need_until(
+            Grant::of(64 * MIB),
+            &|g| g.bytes,
+            Duration::from_secs(5),
+            &|| false,
+        )
+        .expect("admitted");
     giver.join().expect("giver");
     drop(admitted);
     disarm();

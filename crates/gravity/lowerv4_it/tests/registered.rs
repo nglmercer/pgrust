@@ -44,13 +44,16 @@ fn standalone_reason(src: &str) -> Option<String> {
 }
 
 fn stem(file: &str) -> &str {
-    file.strip_suffix("/main.rs").or_else(|| file.strip_suffix(".rs")).unwrap_or(file)
+    file.strip_suffix("/main.rs")
+        .or_else(|| file.strip_suffix(".rs"))
+        .unwrap_or(file)
 }
 
 #[test]
 fn every_lowerv4_test_file_is_registered() {
     // D793-b: the checkout under test, read at run time
-    let me = std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)");
+    let me = std::env::var_os("CARGO_MANIFEST_DIR")
+        .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)");
     let me = Path::new(&me);
     let dir = me.with_file_name("lowerv4").join("tests");
     let mut files = BTreeSet::new();
@@ -73,9 +76,15 @@ fn every_lowerv4_test_file_is_registered() {
         if l.starts_with('[') {
             (section, name) = (l, String::new());
         } else if section == "[[test]]" {
-            if let Some(n) = l.strip_prefix("name = \"").and_then(|r| r.strip_suffix('"')) {
+            if let Some(n) = l
+                .strip_prefix("name = \"")
+                .and_then(|r| r.strip_suffix('"'))
+            {
                 name = n.to_string();
-            } else if let Some(f) = l.strip_prefix("path = \"../lowerv4/tests/").and_then(|r| r.strip_suffix('"')) {
+            } else if let Some(f) = l
+                .strip_prefix("path = \"../lowerv4/tests/")
+                .and_then(|r| r.strip_suffix('"'))
+            {
                 standalone.insert(f.to_string(), name.clone());
             }
         }
@@ -92,8 +101,17 @@ fn every_lowerv4_test_file_is_registered() {
     let mut suite = BTreeMap::new();
     let mut lines = text.lines().map(str::trim).filter(|l| !l.is_empty());
     while let Some(l) = lines.next() {
-        let Some(f) = l.strip_prefix("#[path = \"../../lowerv4/tests/").and_then(|r| r.strip_suffix("\"]")) else { continue };
-        let m = lines.next().and_then(|m| m.strip_prefix("mod ")).and_then(|m| m.strip_suffix(';')).unwrap_or("");
+        let Some(f) = l
+            .strip_prefix("#[path = \"../../lowerv4/tests/")
+            .and_then(|r| r.strip_suffix("\"]"))
+        else {
+            continue;
+        };
+        let m = lines
+            .next()
+            .and_then(|m| m.strip_prefix("mod "))
+            .and_then(|m| m.strip_suffix(';'))
+            .unwrap_or("");
         if m != format!("t_{}", stem(f)) {
             bad.push(format!("lowerv4_suite.rs: {f} is `mod {m}`; write `mod t_{};` right after its #[path] line", stem(f)));
         }
@@ -113,10 +131,15 @@ fn every_lowerv4_test_file_is_registered() {
         ));
     }
     if !gone.is_empty() {
-        bad.push(format!("registered but missing under {}: {gone:?}", dir.display()));
+        bad.push(format!(
+            "registered but missing under {}: {gone:?}",
+            dir.display()
+        ));
     }
     for f in suite.keys().filter(|f| standalone.contains_key(*f)) {
-        bad.push(format!("{f} is both a module of lowerv4_suite and its own [[test]]: keep one"));
+        bad.push(format!(
+            "{f} is both a module of lowerv4_suite and its own [[test]]: keep one"
+        ));
     }
     for f in files.iter().filter(|f| listed.contains(*f)) {
         let src = std::fs::read_to_string(dir.join(f)).unwrap_or_else(|e| panic!("{f}: {e}"));
@@ -128,7 +151,21 @@ fn every_lowerv4_test_file_is_registered() {
             _ => {}
         }
     }
-    assert!(bad.is_empty(), "crates/gravity/lowerv4_it and crates/gravity/lowerv4/tests disagree:\n  {}", bad.join("\n  "));
-    assert!(files.len() > 50, "only {} lowerv4 test files under {}: wrong directory?", files.len(), dir.display());
-    assert!(suite.len() > 50, "only {} modules in {}: wrong file?", suite.len(), root.display());
+    assert!(
+        bad.is_empty(),
+        "crates/gravity/lowerv4_it and crates/gravity/lowerv4/tests disagree:\n  {}",
+        bad.join("\n  ")
+    );
+    assert!(
+        files.len() > 50,
+        "only {} lowerv4 test files under {}: wrong directory?",
+        files.len(),
+        dir.display()
+    );
+    assert!(
+        suite.len() > 50,
+        "only {} modules in {}: wrong file?",
+        suite.len(),
+        root.display()
+    );
 }

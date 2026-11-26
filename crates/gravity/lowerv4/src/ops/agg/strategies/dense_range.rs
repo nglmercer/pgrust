@@ -18,20 +18,23 @@
 use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::Value;
 
-use crate::table::face::{Domain, TableDecl, TableImpl, TableMech, TablePolicy};
-use crate::table::keyimg::ImageWords;
 use crate::face::strategy::TABLE_SMALL;
 use crate::frame::env::Env;
 use crate::frame::open::OpenWords;
 use crate::frame::stop::Exits;
 use crate::ops::Table;
+use crate::table::face::{Domain, TableDecl, TableImpl, TableMech, TablePolicy};
+use crate::table::keyimg::ImageWords;
 
 crate::strategies! {
     /// Dense keys from value-range facts (x % c).
     DENSE_RANGE = 73, "dense.range", ExprKey;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(DENSE_RANGE, &TableImpl(&RANGE))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(DENSE_RANGE, &TableImpl(&RANGE))],
+    ..crate::ops::NONE
+};
 
 struct Range;
 static RANGE: Range = Range;
@@ -39,17 +42,32 @@ static RANGE: Range = Range;
 /// table.small's mechanism (its slot form keys a `Div` domain by its `domain()` arm).
 fn small() -> &'static dyn TableMech {
     let m = crate::ops::strategy(TABLE_SMALL).and_then(|m| m.downcast_ref::<TableImpl>());
-    m.expect("dense.range takes a table only while table.small is registered").0
+    m.expect("dense.range takes a table only while table.small is registered")
+        .0
 }
 
 impl TableMech for Range {
     fn open_words(&self, t: &TableDecl, w: &mut OpenWords) {
         small().open_words(t, w)
     }
-    fn upsert(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &TableDecl, img: &ImageWords, h: Value) -> (Value, Value) {
+    fn upsert(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        t: &TableDecl,
+        img: &ImageWords,
+        h: Value,
+    ) -> (Value, Value) {
         small().upsert(b, env, t, img, h)
     }
-    fn find(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &TableDecl, img: &ImageWords, h: Value) -> Value {
+    fn find(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        t: &TableDecl,
+        img: &ImageWords,
+        h: Value,
+    ) -> Value {
         small().find(b, env, t, img, h)
     }
     fn state_bytes(&self, t: &TableDecl) -> u32 {
@@ -71,7 +89,11 @@ impl TableMech for Range {
             Domain::Shift { .. } => true,
             Domain::Unknown | Domain::Const { .. } | Domain::Bound => false,
         };
-        mapped && t.facts != 0 && t.image_words == 1 && t.layout.nkeys() == 1 && TablePolicy::DenseSmall.on()
+        mapped
+            && t.facts != 0
+            && t.image_words == 1
+            && t.layout.nkeys() == 1
+            && TablePolicy::DenseSmall.on()
     }
 }
 
@@ -85,7 +107,22 @@ mod tests {
 
     fn decl(domain: Domain, facts: u16, keys: &[KeyKind]) -> TableDecl {
         let layout = RecordLayout::with_sentinel(keys, &[SlotKind::SumI64], false, None);
-        TableDecl { image_words: keys.len() as u16, record_bytes: 16, expect: None, depth: Depth::TOP, life: gravity_program::LifeId(0), layout, state_off: 0, key: KeyShape { code: None, dense: None, domain }, facts, copies: 0 }
+        TableDecl {
+            image_words: keys.len() as u16,
+            record_bytes: 16,
+            expect: None,
+            depth: Depth::TOP,
+            life: gravity_program::LifeId(0),
+            layout,
+            state_off: 0,
+            key: KeyShape {
+                code: None,
+                dense: None,
+                domain,
+            },
+            facts,
+            copies: 0,
+        }
     }
 
     /// A `Div` domain with its Facts words, one key word; never a constant or bound domain (table.small's), a nullable key's
@@ -95,14 +132,44 @@ mod tests {
         assert!(RANGE.takes(&decl(Domain::Div { c: 1 }, 3, &[KeyKind::I64])));
         assert!(RANGE.takes(&decl(Domain::Div { c: i64::MAX }, 3, &[KeyKind::I32])));
         assert!(!RANGE.takes(&decl(Domain::Div { c: 0 }, 3, &[KeyKind::I64])));
-        assert!(!RANGE.takes(&decl(Domain::Div { c: 7 }, 0, &[KeyKind::I64])), "a domain without its Facts words");
-        assert!(!RANGE.takes(&decl(Domain::Div { c: 7 }, 3, &[KeyKind::I64, KeyKind::I64])), "a nullable key's flags word");
-        assert!(RANGE.takes(&decl(Domain::Shift { c: -7 }, 3, &[KeyKind::I64])), "x - 7");
+        assert!(
+            !RANGE.takes(&decl(Domain::Div { c: 7 }, 0, &[KeyKind::I64])),
+            "a domain without its Facts words"
+        );
+        assert!(
+            !RANGE.takes(&decl(
+                Domain::Div { c: 7 },
+                3,
+                &[KeyKind::I64, KeyKind::I64]
+            )),
+            "a nullable key's flags word"
+        );
+        assert!(
+            RANGE.takes(&decl(Domain::Shift { c: -7 }, 3, &[KeyKind::I64])),
+            "x - 7"
+        );
         assert!(RANGE.takes(&decl(Domain::Shift { c: i64::MAX }, 3, &[KeyKind::I32])));
-        assert!(!RANGE.takes(&decl(Domain::Shift { c: 1 }, 0, &[KeyKind::I64])), "a shifted domain without its Facts words");
-        assert!(!RANGE.takes(&decl(Domain::Shift { c: 1 }, 3, &[KeyKind::I64, KeyKind::I64])), "a nullable key's flags word");
-        for d in [Domain::Const { lo: -6, hi: 6 }, Domain::Bound, Domain::Unknown] {
-            assert!(!RANGE.takes(&decl(d, 3, &[KeyKind::I64])), "{d:?} is table.small's or the hashed table's");
+        assert!(
+            !RANGE.takes(&decl(Domain::Shift { c: 1 }, 0, &[KeyKind::I64])),
+            "a shifted domain without its Facts words"
+        );
+        assert!(
+            !RANGE.takes(&decl(
+                Domain::Shift { c: 1 },
+                3,
+                &[KeyKind::I64, KeyKind::I64]
+            )),
+            "a nullable key's flags word"
+        );
+        for d in [
+            Domain::Const { lo: -6, hi: 6 },
+            Domain::Bound,
+            Domain::Unknown,
+        ] {
+            assert!(
+                !RANGE.takes(&decl(d, 3, &[KeyKind::I64])),
+                "{d:?} is table.small's or the hashed table's"
+            );
         }
     }
 }

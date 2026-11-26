@@ -12,12 +12,8 @@ pub fn prepare_skip_support_from_opclass(
     opcintype: Oid,
     reverse: bool,
 ) -> PgResult<Option<SkipSupportData>> {
-    let proc = lsyscache::get_opfamily_proc(
-        opfamily,
-        opcintype,
-        opcintype,
-        BTSKIPSUPPORT_PROC as i16,
-    )?;
+    let proc =
+        lsyscache::get_opfamily_proc(opfamily, opcintype, opcintype, BTSKIPSUPPORT_PROC as i16)?;
     if proc == 0 {
         return Ok(None);
     }
@@ -139,7 +135,10 @@ mod tests {
     #[test]
     fn int4_incdec_edges() {
         let mut flow = false;
-        assert_eq!(nbt_compare::int4_increment(Datum::from_i32(41), &mut flow).as_i32(), 42);
+        assert_eq!(
+            nbt_compare::int4_increment(Datum::from_i32(41), &mut flow).as_i32(),
+            42
+        );
         assert!(!flow);
         nbt_compare::int4_increment(Datum::from_i32(i32::MAX), &mut flow);
         assert!(flow);
@@ -206,12 +205,18 @@ mod tests {
             .expect("btint4skipsupport alias");
         assert_eq!(s.low_elem.as_i32(), i32::MIN);
         assert_eq!(s.high_elem.as_i32(), i32::MAX);
-        let s = prepare_skip_support_from_opclass(1000, 23, true).unwrap().unwrap();
+        let s = prepare_skip_support_from_opclass(1000, 23, true)
+            .unwrap()
+            .unwrap();
         assert_eq!(s.low_elem.as_i32(), i32::MAX);
         // uuid alias: unported by-ref bounds degrade to no skip support.
-        assert!(prepare_skip_support_from_opclass(1002, 2950, false).unwrap().is_none());
+        assert!(prepare_skip_support_from_opclass(1002, 2950, false)
+            .unwrap()
+            .is_none());
         // no amproc 6 at all.
-        assert!(prepare_skip_support_from_opclass(1, 23, false).unwrap().is_none());
+        assert!(prepare_skip_support_from_opclass(1, 23, false)
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -223,7 +228,10 @@ mod tests {
         };
         let err = expect_err(prepare_skip_support_from_opclass(1001, 23, false));
         assert_eq!(err.sqlstate(), ::types_error::ERRCODE_FEATURE_NOT_SUPPORTED);
-        assert_eq!(err.message(), "skip support function \"my_skip\" is not supported");
+        assert_eq!(
+            err.message(),
+            "skip support function \"my_skip\" is not supported"
+        );
         let err = expect_err(prepare_skip_support_from_opclass(1003, 23, false));
         assert_eq!(err.message(), "cache lookup failed for function 16499");
     }

@@ -9,7 +9,8 @@
 //! the incumbent computed it) — so comparisons and plans are unchanged by
 //! construction. Pinned by relids_differential_tests.
 
-use crate::{PathTarget, PlannerInfo, PtId, RelId, RelOptInfo, Relids, UpperRelationKind, RELOPT_UPPER_REL,
+use crate::{
+    PathTarget, PlannerInfo, PtId, RelId, RelOptInfo, Relids, UpperRelationKind, RELOPT_UPPER_REL,
 };
 use mcx::{Mcx, PgVec};
 
@@ -234,7 +235,8 @@ mod repr {
     /// Mutable view of the backing words; empty slice for the unset value.
     #[inline]
     pub fn relids_word_slice_mut<'a>(a: &'a mut Relids<'_>) -> &'a mut [u64] {
-        a.as_mut().map_or(&mut [] as &mut [u64], |b| b.word_slice_mut())
+        a.as_mut()
+            .map_or(&mut [] as &mut [u64], |b| b.word_slice_mut())
     }
 
     #[inline]
@@ -275,7 +277,9 @@ mod repr {
         a: &Relids<'mcx>,
         b: &Relids<'mcx>,
     ) -> Relids<'mcx> {
-        let (Some(x), Some(y)) = (a, b) else { return None; };
+        let (Some(x), Some(y)) = (a, b) else {
+            return None;
+        };
         let (xw, yw) = (x.word_slice(), y.word_slice());
         let n = xw.len().min(yw.len());
         if n == 0 {
@@ -432,7 +436,10 @@ pub fn relids_is_member(x: i32, a: &Relids<'_>) -> bool {
 
 #[inline]
 pub fn relids_num_members(a: &Relids<'_>) -> i32 {
-    relids_word_slice(a).iter().map(|w| w.count_ones() as i32).sum()
+    relids_word_slice(a)
+        .iter()
+        .map(|w| w.count_ones() as i32)
+        .sum()
 }
 
 #[inline]
@@ -528,7 +535,10 @@ pub fn find_base_rel(root: &PlannerInfo<'_>, relid: i32) -> RelId {
         root.query_level
     );
     root.simple_rel_array[relid as usize].unwrap_or_else(|| {
-        panic!("no relation entry for relid {relid} (find_base_rel, level {})", root.query_level)
+        panic!(
+            "no relation entry for relid {relid} (find_base_rel, level {})",
+            root.query_level
+        )
     })
 }
 

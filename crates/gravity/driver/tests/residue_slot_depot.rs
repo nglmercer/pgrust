@@ -81,15 +81,30 @@ fn held_for_sources() -> i64 {
 fn cycle(entry: &mut Entry, program: &Arc<Program>, derive: &mut FakeDerive, flag: &AtomicU8) {
     let mut sink = LegSink::new();
     let mut b = binding(&[100], &NULLS, &mut sink, flag);
-    let mut exec = entry.start(None, program, derive, &mut b, lease(gravity_driver::Grant::of(8 << 20))).unwrap();
+    let mut exec = entry
+        .start(
+            None,
+            program,
+            derive,
+            &mut b,
+            lease(gravity_driver::Grant::of(8 << 20)),
+        )
+        .unwrap();
     exec.set_slot_salt(Some(SALT));
     let open = entry.open_section(&mut exec, &b, derive, 0, WIDTH).unwrap();
     let cursor = AtomicU64::new(0);
     for o in 0..WIDTH {
         drain(&open, &cursor, o).unwrap();
     }
-    entry.close_section(open, &mut b, &CountMerge, true).unwrap();
-    assert_eq!(entry.run(&mut exec, &mut b, gravity_driver::Call::batch(4)).unwrap(), Step::Done);
+    entry
+        .close_section(open, &mut b, &CountMerge, true)
+        .unwrap();
+    assert_eq!(
+        entry
+            .run(&mut exec, &mut b, gravity_driver::Call::batch(4))
+            .unwrap(),
+        Step::Done
+    );
     entry.end(exec, true);
 }
 
@@ -111,9 +126,17 @@ fn a_parked_sets_source_heap_is_the_slot_depots_then_the_taking_backends() {
         let mut entry = Entry::new(2);
         cycle(&mut entry, &program, &mut derive, &flag);
         assert_eq!(DEPOT.stats().entries, 1, "the set parks");
-        assert_eq!(held_for_sources() - d0, parked, "the parked set's {WIDTH} sources' heap is the slot depot's");
+        assert_eq!(
+            held_for_sources() - d0,
+            parked,
+            "the parked set's {WIDTH} sources' heap is the slot depot's"
+        );
         drop(entry);
-        assert!((bytes(a) - a0).abs() < SLACK, "backend A holds none of the parked set's heap: {}", bytes(a) - a0);
+        assert!(
+            (bytes(a) - a0).abs() < SLACK,
+            "backend A holds none of the parked set's heap: {}",
+            bytes(a) - a0
+        );
         memledger::unbind_backend();
 
         // backend B takes the set: its heap is B's statement's while it runs, the depot's again when it parks
@@ -122,16 +145,32 @@ fn a_parked_sets_source_heap_is_the_slot_depots_then_the_taking_backends() {
         let takes = DEPOT.stats().takes;
         let mut entry = Entry::new(2);
         cycle(&mut entry, &program, &mut derive, &flag);
-        assert_eq!(DEPOT.stats().takes, takes + 1, "backend B's statement took the parked set");
+        assert_eq!(
+            DEPOT.stats().takes,
+            takes + 1,
+            "backend B's statement took the parked set"
+        );
         assert_eq!(held_for_sources() - d0, parked, "parked again: the depot's");
         drop(entry);
-        assert!((bytes(b) - b0).abs() < SLACK, "backend B holds none of it: {}", bytes(b) - b0);
+        assert!(
+            (bytes(b) - b0).abs() < SLACK,
+            "backend B holds none of it: {}",
+            bytes(b) - b0
+        );
 
         // the depot drops the set on B's thread: the charges leave the depot first, then the buffers free there
         DEPOT.clear();
         assert_eq!(DEPOT.stats().entries, 0);
-        assert_eq!(held_for_sources(), d0, "the dropped set's heap leaves the depot");
-        assert!((bytes(b) - b0).abs() < SLACK, "and nets to 0 on the dropping backend: {}", bytes(b) - b0);
+        assert_eq!(
+            held_for_sources(),
+            d0,
+            "the dropped set's heap leaves the depot"
+        );
+        assert!(
+            (bytes(b) - b0).abs() < SLACK,
+            "and nets to 0 on the dropping backend: {}",
+            bytes(b) - b0
+        );
         memledger::unbind_backend();
     })
     .join()

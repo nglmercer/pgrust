@@ -26,27 +26,38 @@ use crate::graph::Gx;
 use crate::ops::{kind, kind_as, need, strategy, strategy_rows};
 
 mod answer;
+mod cte_plan;
 mod ends;
 mod group;
 mod group_end;
-mod sort;
 mod kinds;
 mod limit;
 mod nest;
+mod sort;
 mod union_arm;
-mod cte_plan;
-pub(crate) use answer::{answer_count_only, answer_count_star_only, answer_counted_qual, answer_declare_site, summary_filter_tally, summary_tally, SummaryFilterTally, SummaryTally};
-pub(crate) use sort::{held_fill, sort_cols, sort_cursor, sort_emit_over, sort_end_over, sort_resident, SortArm};
-pub use ends::{breaker_of, breaker_of_mut, end_holds, with_end_of};
-pub use group::{key_ordered, order_read};
-pub(crate) use group::presorted_exact;
-pub(crate) use group_end::{fold_class_in, group_end, group_end_of, join_domain, twopass_admitted_at, twopass_count_split, twopass_having_split, twopass_pass2};
-pub use kinds::kind_impl;
-pub use limit::{demand, holds_limit, limit_bounds, limit_may_skip, limit_settled, limit_stopping, limit_with_ties, Demand};
-pub(crate) use limit::limit_check_bound;
-pub use nest::{nest_param_val, nest_param_vals};
-pub(crate) use union_arm::{arm_index, later_arm_closes, later_arm_probe};
+pub(crate) use answer::{
+    answer_count_only, answer_count_star_only, answer_counted_qual, answer_declare_site,
+    summary_filter_tally, summary_tally, SummaryFilterTally, SummaryTally,
+};
 pub(crate) use cte_plan::in_cte_plan_apart;
+pub use ends::{breaker_of, breaker_of_mut, end_holds, with_end_of};
+pub(crate) use group::presorted_exact;
+pub use group::{key_ordered, order_read};
+pub(crate) use group_end::{
+    fold_class_in, group_end, group_end_of, join_domain, twopass_admitted_at, twopass_count_split,
+    twopass_having_split, twopass_pass2,
+};
+pub use kinds::kind_impl;
+pub(crate) use limit::limit_check_bound;
+pub use limit::{
+    demand, holds_limit, limit_bounds, limit_may_skip, limit_settled, limit_stopping,
+    limit_with_ties, Demand,
+};
+pub use nest::{nest_param_val, nest_param_vals};
+pub(crate) use sort::{
+    held_fill, sort_cols, sort_cursor, sort_emit_over, sort_end_over, sort_resident, SortArm,
+};
+pub(crate) use union_arm::{arm_index, later_arm_closes, later_arm_probe};
 
 /// What a consumer asks of the node below it. `bound`, `order` and `cols` are hints; `delivery` is a promise.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -61,7 +72,13 @@ pub struct Request {
 
 impl Request {
     /// No bound, any order, any number of passes, every column.
-    pub const ALL: Request = Request { bound: Bound::All, order: None, delivery: Delivery::Stream, cols: ColSet(Vec::new()), mark: false };
+    pub const ALL: Request = Request {
+        bound: Bound::All,
+        order: None,
+        delivery: Delivery::Stream,
+        cols: ColSet(Vec::new()),
+        mark: false,
+    };
 }
 
 /// `Request::ALL`, for a node no consumer asks anything of.
@@ -119,21 +136,29 @@ pub struct Iface {
 /// partitions has N scans). An id past `BY_NODE_INDEXED` or below 0 is searched.
 struct ByNode<T> {
     items: Vec<(i32, T)>, // alloc: Program
-    at: Vec<u32>, // alloc: Program
+    at: Vec<u32>,         // alloc: Program
 }
 
 const BY_NODE_INDEXED: usize = 1 << 20;
 
 impl<T> Default for ByNode<T> {
     fn default() -> Self {
-        ByNode { items: Vec::new(), at: Vec::new() }
+        ByNode {
+            items: Vec::new(),
+            at: Vec::new(),
+        }
     }
 }
 
 impl<T> ByNode<T> {
     fn place(&self, node: i32) -> Option<usize> {
         match usize::try_from(node) {
-            Ok(i) if i < BY_NODE_INDEXED => self.at.get(i).copied().filter(|&p| p > 0).map(|p| p as usize - 1),
+            Ok(i) if i < BY_NODE_INDEXED => self
+                .at
+                .get(i)
+                .copied()
+                .filter(|&p| p > 0)
+                .map(|p| p as usize - 1),
             _ => self.items.iter().position(|x| x.0 == node),
         }
     }
@@ -170,12 +195,21 @@ impl Iface {
                 let child = match i.checked_sub(1) {
                     Some(c) => Some(p.node_ops[c].node_id),
                     None => match p.source {
-                        Source::Breaker { slot } => gx.life_of(k, slot).and_then(|l| ps.get(l.0 as usize)).and_then(|q| q.node_ops.last()).map(|t| t.node_id),
+                        Source::Breaker { slot } => gx
+                            .life_of(k, slot)
+                            .and_then(|l| ps.get(l.0 as usize))
+                            .and_then(|q| q.node_ops.last())
+                            .map(|t| t.node_id),
                         _ => None,
                     },
                 };
-                let Some(c) = child.filter(|&c| c != n.node_id) else { continue };
-                let end = p.node_ops.get(i + 1).map_or(p.ops.len(), |x| x.first_op as usize);
+                let Some(c) = child.filter(|&c| c != n.node_id) else {
+                    continue;
+                };
+                let end = p
+                    .node_ops
+                    .get(i + 1)
+                    .map_or(p.ops.len(), |x| x.first_op as usize);
                 let ops = p.ops.get(n.first_op as usize..end).unwrap_or(&[]);
                 let ask = pass_down(ops, &out.own(gx, n.node_id));
                 out.ask(c, ask);
@@ -192,7 +226,10 @@ impl Iface {
     fn own(&self, gx: &Gx<'_, '_>, node: i32) -> Request {
         let r = self.request(node).clone();
         match gx.graph.exact.contains(&node) {
-            true => Request { delivery: Delivery::Exact, ..r },
+            true => Request {
+                delivery: Delivery::Exact,
+                ..r
+            },
             false => r,
         }
     }
@@ -214,9 +251,17 @@ impl Iface {
         match self.requests.get_mut(node) {
             None => self.requests.push(node, r),
             Some(have) => {
-                let cols = if have.cols == r.cols { r.cols } else { ColSet::default() };
+                let cols = if have.cols == r.cols {
+                    r.cols
+                } else {
+                    ColSet::default()
+                };
                 *have = Request {
-                    bound: if have.bound == r.bound { r.bound } else { Bound::All },
+                    bound: if have.bound == r.bound {
+                        r.bound
+                    } else {
+                        Bound::All
+                    },
                     order: if have.order == r.order { r.order } else { None },
                     delivery: have.delivery.max(r.delivery),
                     cols,
@@ -230,25 +275,45 @@ impl Iface {
 /// The implementation registered for hook variant `v`, as its face's type `T` (`NotBuilt` when unbuilt): a kind's row or a
 /// road's, the registry lookup every hook family's `need` makes (face/source.rs `hook_variants!`), here so no family
 /// reads the registry raw (lint RB).
-pub fn need_variant<T: 'static>(cx: &impl crate::admit::refusal::Site, v: crate::admit::refusal::Variant) -> &'static T {
+pub fn need_variant<T: 'static>(
+    cx: &impl crate::admit::refusal::Site,
+    v: crate::admit::refusal::Variant,
+) -> &'static T {
     match v {
         crate::admit::refusal::Variant::Kind(k) => crate::frame::iface::need_kind::<T>(cx, k),
-        crate::admit::refusal::Variant::Strategy(r) => crate::frame::iface::need_strategy::<T>(cx, r),
+        crate::admit::refusal::Variant::Strategy(r) => {
+            crate::frame::iface::need_strategy::<T>(cx, r)
+        }
     }
 }
 
 /// What a node running `ops` (its own, in its pipeline) with request `own` asks of the node it reads. The default hands
 /// `Request::ALL` on, an exact request staying exact; a Limit bounds its child by a constant count plus offset.
 fn pass_down(ops: &[Op<'_>], own: &Request) -> Request {
-    let delivery = if own.delivery == Delivery::Exact { Delivery::Exact } else { Delivery::Stream };
-    let bound = ops.iter().find_map(|o| demand(o).filter(|d| !d.ties).map(|d| limit_bound(d.count, d.offset)));
-    Request { bound: bound.unwrap_or(Bound::All), delivery, ..Request::ALL }
+    let delivery = if own.delivery == Delivery::Exact {
+        Delivery::Exact
+    } else {
+        Delivery::Stream
+    };
+    let bound = ops.iter().find_map(|o| {
+        demand(o)
+            .filter(|d| !d.ties)
+            .map(|d| limit_bound(d.count, d.offset))
+    });
+    Request {
+        bound: bound.unwrap_or(Bound::All),
+        delivery,
+        ..Request::ALL
+    }
 }
 
 /// The arm a key's representation registers for kind `k` (rep/: its datum, hash or order face, `T`): the kind lookup
 /// lives here, so rep reads no registry raw (lint RB; rep/mod.rs `arm`). `NotBuilt` when no file provides the kind, a
 /// Bug when one registers it as another face.
-pub fn rep_arm<T: 'static>(site: &impl crate::admit::refusal::Site, k: crate::face::kinds::KindId) -> &'static T {
+pub fn rep_arm<T: 'static>(
+    site: &impl crate::admit::refusal::Site,
+    k: crate::face::kinds::KindId,
+) -> &'static T {
     crate::frame::iface::need_kind::<T>(site, k)
 }
 
@@ -304,10 +369,19 @@ pub fn end_breaker_of(gx: &Gx<'_, '_>, k: usize) -> Option<gravity_abi::breaker:
 /// Descriptor `d` with its end breaker's spill off, so the breaker grows its grant instead of spilling (a keyed table
 /// whose records hold key copies, table/emit_key.rs `resident`), its answer the debt `why` names (C10); a sink end is
 /// unchanged. The one way a lowering edits a pipeline's end (lint RB).
-pub fn end_resident(d: gravity_program::Pipeline, why: gravity_program::spill::NoSpill) -> gravity_program::Pipeline {
+pub fn end_resident(
+    d: gravity_program::Pipeline,
+    why: gravity_program::spill::NoSpill,
+) -> gravity_program::Pipeline {
     match d.ends_in {
         gravity_program::End::Breaker(br) => {
-            let d = gravity_program::Pipeline { ends_in: gravity_program::End::Breaker(gravity_abi::breaker::Breaker { spill: gravity_abi::breaker::Spill::None, ..br }), ..d };
+            let d = gravity_program::Pipeline {
+                ends_in: gravity_program::End::Breaker(gravity_abi::breaker::Breaker {
+                    spill: gravity_abi::breaker::Spill::None,
+                    ..br
+                }),
+                ..d
+            };
             end_holds(d, gravity_program::spill::Shape::Grows(why))
         }
         gravity_program::End::Sink => d,
@@ -350,7 +424,11 @@ pub(crate) fn fed_user_code<'g>(gx: &Gx<'g, '_>, k: usize) -> (mcx::PgVec<'g, us
     use crate::ops::hashjoin::build_class::{feed, side, Side};
     use mcx::GrowIn;
     let ps = gx.pipelines();
-    let src = if let gravity_decompose::Source::Breaker { slot } = ps[k].source { Some(slot) } else { None };
+    let src = if let gravity_decompose::Source::Breaker { slot } = ps[k].source {
+        Some(slot)
+    } else {
+        None
+    };
     let mut all = mcx::pg_vec![in gx.mcx; k];
     all.extend_in(feed(gx, k, ps[k].desc.consumes.iter().copied().chain(src)));
     (all, side(gx, k) == Side::UserFn)
@@ -359,7 +437,10 @@ pub(crate) fn fed_user_code<'g>(gx: &Gx<'g, '_>, k: usize) -> (mcx::PgVec<'g, us
 /// join.payload_fp: the code lanes of pipeline `k`'s scan whose Fp128 its hash build stores in its records for a group past
 /// the probe: hashjoin's answer (ops/hashjoin/strategies/payload_fp.rs `lanes`), which the pgrc source declares beside the
 /// group's own tables (ops/scan/pgrc/lower.rs), so it names no other family (lint RA).
-pub(crate) fn build_fp_lanes(gx: &Gx<'_, '_>, k: usize) -> crate::ops::hashjoin::strategies::payload_fp::FpCols {
+pub(crate) fn build_fp_lanes(
+    gx: &Gx<'_, '_>,
+    k: usize,
+) -> crate::ops::hashjoin::strategies::payload_fp::FpCols {
     crate::ops::hashjoin::strategies::payload_fp::lanes(gx, k)
 }
 
@@ -375,20 +456,37 @@ pub(crate) fn unique_build_key(px: &mut Px<'_, '_>, q: usize, col: i16) -> Optio
 pub(crate) fn build_row(px: &mut Px<'_, '_>, q: usize, col: i16) -> Option<UniqueKey> {
     crate::ops::hashjoin::strategies::dep_key::build_row(px, q, col)
 }
-pub(crate) fn build_code_col(px: &mut Px<'_, '_>, q: usize, u: &UniqueKey, col: i16, bp: bool) -> Option<(i16, gravity_program::Rep)> {
+pub(crate) fn build_code_col(
+    px: &mut Px<'_, '_>,
+    q: usize,
+    u: &UniqueKey,
+    col: i16,
+    bp: bool,
+) -> Option<(i16, gravity_program::Rep)> {
     crate::ops::hashjoin::strategies::dep_key::code_col(px, q, u, col, bp)
 }
-pub(crate) fn build_unique_now(u: &UniqueKey, b: &mut gravity_ir::builder::FunctionBuilder<'_>, env: &crate::frame::env::Env) -> Option<gravity_ir::Value> {
+pub(crate) fn build_unique_now(
+    u: &UniqueKey,
+    b: &mut gravity_ir::builder::FunctionBuilder<'_>,
+    env: &crate::frame::env::Env,
+) -> Option<gravity_ir::Value> {
     crate::ops::hashjoin::strategies::dep_key::unique_now(u, b, env)
 }
 
 /// Whether group `g`'s records stream into a top over the groups that sorts by finals alone: the sort's answer
 /// (ops/sort/topn/order_slot.rs `top_reads_finals`), which road key.dependent asks, so it names no other family (lint RA).
-pub(crate) fn top_reads_finals(gx: &Gx<'_, '_>, g: &gravity_decompose::ops::shared::agg::GroupDecl<'_>) -> bool {
+pub(crate) fn top_reads_finals(
+    gx: &Gx<'_, '_>,
+    g: &gravity_decompose::ops::shared::agg::GroupDecl<'_>,
+) -> bool {
     crate::ops::sort::topn::order_slot::top_reads_finals(gx, g)
 }
 /// As `top_reads_finals`, where the sort may also read a group key column `keep` passes (order_slot.rs `top_reads_finals_and`).
-pub(crate) fn top_reads_finals_and(gx: &Gx<'_, '_>, g: &gravity_decompose::ops::shared::agg::GroupDecl<'_>, keep: impl Fn(i16) -> bool) -> bool {
+pub(crate) fn top_reads_finals_and(
+    gx: &Gx<'_, '_>,
+    g: &gravity_decompose::ops::shared::agg::GroupDecl<'_>,
+    keep: impl Fn(i16) -> bool,
+) -> bool {
     crate::ops::sort::topn::order_slot::top_reads_finals_and(gx, g, keep)
 }
 
@@ -407,43 +505,62 @@ pub fn expr_face(site: &impl crate::admit::refusal::Site) -> &'static crate::fac
 
 /// The store reader's maker (kind `srf.function`'s store row) a FunctionScan over a materialised set builds its reader
 /// through (ops/srf/function_store.rs `store_step`), so the family reads no registry row raw for it (lint RB).
-pub(crate) fn store_maker(site: &impl crate::admit::refusal::Site) -> &'static crate::ops::srf::face::StoreMaker {
+pub(crate) fn store_maker(
+    site: &impl crate::admit::refusal::Site,
+) -> &'static crate::ops::srf::face::StoreMaker {
     crate::frame::iface::need_kind(site, crate::face::kinds::KindId::SrfFunction)
 }
 
 /// nest.initplan's InitLoad (an Init's value into its frame pair, run at the first open that needs it), which a
 /// re-opened store reads its InitPlan parameters through (rerun/store_read.rs), so it reads no registry row raw (lint RB).
-pub(crate) fn init_load(site: &impl crate::admit::refusal::Site) -> &'static crate::rerun::params::InitLoad {
+pub(crate) fn init_load(
+    site: &impl crate::admit::refusal::Site,
+) -> &'static crate::rerun::params::InitLoad {
     crate::frame::iface::need_kind(site, crate::face::kinds::KindId::NestInitplan)
 }
 
 /// The extension row of kind `k` (expr.wholerow, expr.saop) an expression's claim is tried through (step/expr_ext.rs
 /// `pre_claim`), so step reads no registry row raw (lint RB).
-pub(crate) fn ext_impl(site: &impl crate::admit::refusal::Site, k: crate::face::kinds::KindId) -> &'static crate::face::step::ExprExtImpl {
+pub(crate) fn ext_impl(
+    site: &impl crate::admit::refusal::Site,
+    k: crate::face::kinds::KindId,
+) -> &'static crate::face::step::ExprExtImpl {
     crate::frame::iface::need_kind(site, k)
 }
 
 /// expr.volatile's mechanism, which plans a VOLATILE call's held words (step/expr_ext.rs `held`), so step reads no
 /// registry row raw (lint RB).
-pub(crate) fn volatile_impl(site: &impl crate::admit::refusal::Site) -> &'static crate::face::step::VolatileImpl {
+pub(crate) fn volatile_impl(
+    site: &impl crate::admit::refusal::Site,
+) -> &'static crate::face::step::VolatileImpl {
     crate::frame::iface::need_kind(site, crate::face::kinds::KindId::ExprVolatile)
 }
 
 /// nest.subplan's SubEval, which evaluates a lent SubPlan in the block that reads it (step/expr_ext_lazy.rs
 /// `emit_subplan`), so step reads no registry row raw (lint RB).
-pub(crate) fn sub_eval(site: &impl crate::admit::refusal::Site) -> &'static crate::rerun::face::SubEval {
+pub(crate) fn sub_eval(
+    site: &impl crate::admit::refusal::Site,
+) -> &'static crate::rerun::face::SubEval {
     crate::frame::iface::need_kind(site, crate::face::kinds::KindId::NestSubplan)
 }
 
 /// D3374: nest.subplan's `SubHolds`.
-pub(crate) fn sub_holds(site: &impl crate::admit::refusal::Site) -> &'static crate::rerun::face::SubHolds {
+pub(crate) fn sub_holds(
+    site: &impl crate::admit::refusal::Site,
+) -> &'static crate::rerun::face::SubHolds {
     crate::frame::iface::need_kind(site, crate::face::kinds::KindId::NestSubplan)
 }
 
 /// PG `recompute_limits`' rows a Limit reads from its child: its demand's count plus offset, both constants (a NULL or
 /// negative constant, or one known only at bind, passes no bound).
 fn limit_bound(count: &PlanBound<'_>, offset: &PlanBound<'_>) -> Bound {
-    Demand { count, offset, ties: false }.rows().map_or(Bound::All, Bound::Rows)
+    Demand {
+        count,
+        offset,
+        ties: false,
+    }
+    .rows()
+    .map_or(Bound::All, Bound::Rows)
 }
 
 impl<'g, 'p> Px<'g, 'p> {
@@ -474,7 +591,12 @@ pub fn need_kind<T: 'static>(cx: &impl Site, k: KindId) -> &'static T {
 /// A road may have one row per face type (num.short: its decode and its compare extension); the typed row is found
 /// whatever the registration order.
 pub fn need_strategy<T: 'static>(cx: &impl Site, r: Strategy) -> &'static T {
-    need(cx, strategy(r).is_some(), strategy_rows(r).iter().find_map(|m| m.downcast_ref()), Variant::Strategy(r))
+    need(
+        cx,
+        strategy(r).is_some(),
+        strategy_rows(r).iter().find_map(|m| m.downcast_ref()),
+        Variant::Strategy(r),
+    )
 }
 
 #[cfg(test)]
@@ -493,14 +615,32 @@ mod tests {
     const OP: Op<'static> = Op::GroupRun(0);
 
     fn limit(count: PlanBound<'static>, offset: PlanBound<'static>) -> Op<'static> {
-        Op::Limit { count, offset, ties: None }
+        Op::Limit {
+            count,
+            offset,
+            ties: None,
+        }
     }
 
     /// A pipeline running `nodes` (node id, its ops), source first.
-    fn pipe<'p>(a: gravity_program::ArenaRef, source: Source<'p>, end: End, nodes: Vec<(i32, Vec<Op<'p>>)>) -> PipelineNode<'p> {
-        let mut p = PipelineNode::new(a, nodes[0].0, source, Pipeline::serial(-1, end, Reason::NoDrivingSite));
+    fn pipe<'p>(
+        a: gravity_program::ArenaRef,
+        source: Source<'p>,
+        end: End,
+        nodes: Vec<(i32, Vec<Op<'p>>)>,
+    ) -> PipelineNode<'p> {
+        let mut p = PipelineNode::new(
+            a,
+            nodes[0].0,
+            source,
+            Pipeline::serial(-1, end, Reason::NoDrivingSite),
+        );
         for (id, ops) in nodes {
-            p.node_ops.push(NodeOps { node_id: id, first_op: p.ops.len() as u16, producer_top: false });
+            p.node_ops.push(NodeOps {
+                node_id: id,
+                first_op: p.ops.len() as u16,
+                producer_top: false,
+            });
             ops.into_iter().for_each(|o| p.push(o));
         }
         p
@@ -508,7 +648,13 @@ mod tests {
 
     fn iface(g: &PipelineGraph<'_>) -> Iface {
         let rig = mcx::MemoryContext::new("GravityPlanRig");
-        Iface::of(&Gx { graph: g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() })
+        Iface::of(&Gx {
+            graph: g,
+            facts: &NoFacts,
+            catalog: &gravity_expr::PgCatalog,
+            over: None,
+            mcx: rig.mcx(),
+        })
     }
 
     /// A Limit bounds the node right under it by count + offset, as PG's ExecSetTupleBound; the Limit itself and the node
@@ -518,7 +664,16 @@ mod tests {
         let arena = Arena::new(1 << 16);
         let a = arena.handle();
         let mut g = PipelineGraph::new(a);
-        g.pipelines.push(pipe(a, Source::Const, End::Sink, vec![(3, vec![OP]), (2, vec![OP]), (1, vec![limit(PlanBound::Const(5), PlanBound::Const(2)), OP])]));
+        g.pipelines.push(pipe(
+            a,
+            Source::Const,
+            End::Sink,
+            vec![
+                (3, vec![OP]),
+                (2, vec![OP]),
+                (1, vec![limit(PlanBound::Const(5), PlanBound::Const(2)), OP]),
+            ],
+        ));
         let r = iface(&g);
         assert_eq!(r.request(2).bound, Bound::Rows(7));
         assert_eq!(r.request(2).delivery, Delivery::Stream);
@@ -529,10 +684,22 @@ mod tests {
     /// No bound passes for LIMIT ALL, a negative count, a count or offset known only at bind, or WITH TIES.
     #[test]
     fn only_a_constant_count_and_offset_bound() {
-        assert_eq!(super::limit_bound(&PlanBound::Const(4), &PlanBound::All), Bound::Rows(4));
-        assert_eq!(super::limit_bound(&PlanBound::All, &PlanBound::Const(3)), Bound::All);
-        assert_eq!(super::limit_bound(&PlanBound::Const(-1), &PlanBound::All), Bound::All);
-        assert_eq!(super::limit_bound(&PlanBound::Const(i64::MAX), &PlanBound::Const(i64::MAX)), Bound::Rows(u64::MAX - 1));
+        assert_eq!(
+            super::limit_bound(&PlanBound::Const(4), &PlanBound::All),
+            Bound::Rows(4)
+        );
+        assert_eq!(
+            super::limit_bound(&PlanBound::All, &PlanBound::Const(3)),
+            Bound::All
+        );
+        assert_eq!(
+            super::limit_bound(&PlanBound::Const(-1), &PlanBound::All),
+            Bound::All
+        );
+        assert_eq!(
+            super::limit_bound(&PlanBound::Const(i64::MAX), &PlanBound::Const(i64::MAX)),
+            Bound::Rows(u64::MAX - 1)
+        );
     }
 
     /// Across a breaker source the request reaches the top node of the pipeline that fills it; an exact request stays exact
@@ -543,15 +710,43 @@ mod tests {
         let a = arena.handle();
         let mut g = PipelineGraph::new(a);
         let b = Breaker::sized(BreakerKind::Materialize, 64).in_slot(1);
-        g.pipelines.push(pipe(a, Source::Const, End::Breaker(b), vec![(5, vec![OP]), (4, vec![OP])]));
-        g.pipelines.push(pipe(a, Source::Breaker { slot: 1 }, End::Sink, vec![(1, vec![limit(PlanBound::Const(3), PlanBound::All)])]));
+        g.pipelines.push(pipe(
+            a,
+            Source::Const,
+            End::Breaker(b),
+            vec![(5, vec![OP]), (4, vec![OP])],
+        ));
+        g.pipelines.push(pipe(
+            a,
+            Source::Breaker { slot: 1 },
+            End::Sink,
+            vec![(1, vec![limit(PlanBound::Const(3), PlanBound::All)])],
+        ));
         let mut r = iface(&g);
-        assert_eq!(r.request(4).bound, Bound::Rows(3), "the Limit's child is the filling pipeline's top");
-        r.ask(4, Request { delivery: Delivery::Exact, ..Request::ALL });
+        assert_eq!(
+            r.request(4).bound,
+            Bound::Rows(3),
+            "the Limit's child is the filling pipeline's top"
+        );
+        r.ask(
+            4,
+            Request {
+                delivery: Delivery::Exact,
+                ..Request::ALL
+            },
+        );
         assert_eq!(r.request(4).delivery, Delivery::Exact);
-        assert_eq!(r.request(4).bound, Bound::All, "two consumers that disagree on the bound pass none");
+        assert_eq!(
+            r.request(4).bound,
+            Bound::All,
+            "two consumers that disagree on the bound pass none"
+        );
         let below = super::pass_down(&[OP], r.request(4));
-        assert_eq!((below.delivery, below.bound), (Delivery::Exact, Bound::All), "exact stays exact; the bound does not pass");
+        assert_eq!(
+            (below.delivery, below.bound),
+            (Delivery::Exact, Bound::All),
+            "exact stays exact; the bound does not pass"
+        );
     }
 
     /// A node decompose asked Exact of (`PipelineGraph::exact`) keeps its consumer's bound, and every node below it is asked
@@ -561,11 +756,27 @@ mod tests {
         let arena = Arena::new(1 << 16);
         let a = arena.handle();
         let mut g = PipelineGraph::new(a);
-        g.pipelines.push(pipe(a, Source::Const, End::Sink, vec![(4, vec![OP]), (3, vec![OP]), (2, vec![OP]), (1, vec![limit(PlanBound::Const(5), PlanBound::All)])]));
+        g.pipelines.push(pipe(
+            a,
+            Source::Const,
+            End::Sink,
+            vec![
+                (4, vec![OP]),
+                (3, vec![OP]),
+                (2, vec![OP]),
+                (1, vec![limit(PlanBound::Const(5), PlanBound::All)]),
+            ],
+        ));
         g.exact.push(2);
         let r = iface(&g);
-        assert_eq!((r.request(2).bound, r.request(2).delivery), (Bound::Rows(5), Delivery::Exact));
-        assert_eq!((r.request(3).delivery, r.request(4).delivery), (Delivery::Exact, Delivery::Exact));
+        assert_eq!(
+            (r.request(2).bound, r.request(2).delivery),
+            (Bound::Rows(5), Delivery::Exact)
+        );
+        assert_eq!(
+            (r.request(3).delivery, r.request(4).delivery),
+            (Delivery::Exact, Delivery::Exact)
+        );
         assert_eq!(r.request(1).delivery, Delivery::Stream);
     }
 
@@ -576,12 +787,25 @@ mod tests {
         let arena = Arena::new(1 << 16);
         let a = arena.handle();
         let mut g = PipelineGraph::new(a);
-        g.pipelines.push(pipe(a, Source::Const, End::Sink, vec![(7, vec![OP])]));
-        let gx = Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
+        g.pipelines
+            .push(pipe(a, Source::Const, End::Sink, vec![(7, vec![OP])]));
+        let gx = Gx {
+            graph: &g,
+            facts: &NoFacts,
+            catalog: &gravity_expr::PgCatalog,
+            over: None,
+            mcx: rig.mcx(),
+        };
         let mut plan = Sequential::new(a);
         let mut px = Px::new(a, &gx, &mut plan);
         assert!(px.answer(7).is_none());
-        let ans = |delivery| Answer { order: None, delivery, cols: ColSet::default(), bounded: false, markable: false };
+        let ans = |delivery| Answer {
+            order: None,
+            delivery,
+            cols: ColSet::default(),
+            bounded: false,
+            markable: false,
+        };
         px.set_answer(7, ans(Delivery::Stream));
         px.set_answer(7, ans(Delivery::Exact));
         assert_eq!(px.answer(7).map(|x| x.delivery), Some(Delivery::Exact));

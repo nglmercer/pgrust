@@ -32,7 +32,16 @@ extern "C" fn host_more(hdr: *mut i64) -> i64 {
 
 fn walk_program(reenter_with_arg: bool) -> Program {
     let mut pb = ProgramBuilder::new();
-    let more = pb.declare_host("more", &[Type::Ptr], Some(Type::I64), host_more as extern "C" fn(*mut i64) -> i64 as usize, HostFlags { touches_memory: true, ..Default::default() });
+    let more = pb.declare_host(
+        "more",
+        &[Type::Ptr],
+        Some(Type::I64),
+        host_more as extern "C" fn(*mut i64) -> i64 as usize,
+        HostFlags {
+            touches_memory: true,
+            ..Default::default()
+        },
+    );
     let f = pb.declare_func("f", &[Type::Ptr], &[Type::I64]);
     let mut b = pb.define(f);
     let p = b.params()[0];
@@ -82,7 +91,10 @@ fn an_edge_missing_the_blocks_argument_is_refused_at_compile() {
         Ok(_) => panic!("a phi with no incoming value on one predecessor compiled"),
         Err(e) => format!("{e:?}"),
     };
-    assert!(err.contains("edge b3 -> b1 has 0 args, block has 1 params"), "{err}");
+    assert!(
+        err.contains("edge b3 -> b1 has 0 args, block has 1 params"),
+        "{err}"
+    );
 }
 
 #[test]
@@ -98,11 +110,20 @@ fn the_walk_reentered_with_its_header_agrees_with_the_interpreter() {
     };
     let want: i64 = (1..=9).map(|i| 100 * i + 7).sum();
     let mut a = fresh();
-    let interp = gravity_interp::Interp::new(&p).run(Func(0), &[a.as_mut_ptr() as u64]).unwrap();
+    let interp = gravity_interp::Interp::new(&p)
+        .run(Func(0), &[a.as_mut_ptr() as u64])
+        .unwrap();
     assert_eq!(interp, vec![want as u64]);
-    assert_eq!(a[0], 9, "the interpreter consumed the array and all three batches");
+    assert_eq!(
+        a[0], 9,
+        "the interpreter consumed the array and all three batches"
+    );
     let mut b = fresh();
     let native = common::native(&p, Func(0), &[b.as_mut_ptr() as u64]);
     assert_eq!(native, interp, "native vs interpreter mismatch");
-    assert_eq!(b[..4], a[..4], "the native walk consumed the array and all three batches");
+    assert_eq!(
+        b[..4],
+        a[..4],
+        "the native walk consumed the array and all three batches"
+    );
 }

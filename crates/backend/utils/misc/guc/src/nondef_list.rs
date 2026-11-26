@@ -14,7 +14,12 @@ pub(crate) struct NondefList {
 
 impl Default for NondefList {
     fn default() -> Self {
-        Self { head: NIL, tail: NIL, prev: Vec::new(), next: Vec::new() }
+        Self {
+            head: NIL,
+            tail: NIL,
+            prev: Vec::new(),
+            next: Vec::new(),
+        }
     }
 }
 

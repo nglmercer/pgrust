@@ -10,8 +10,7 @@ use elog::ereport;
 use types_guc::{GucContext, GucSource};
 
 use crate::{
-    get_stats_option_name, guc_context_from_u8, loc, set_debug_options,
-    set_plan_disabling_options,
+    get_stats_option_name, guc_context_from_u8, loc, set_debug_options, set_plan_disabling_options,
 };
 
 const OPTSTRING: &[u8] = b"BbCcDdEeFfhijklNnOPprSsTtvW-";
@@ -41,7 +40,11 @@ fn c_atoi(s: &str) -> i32 {
     for b in digits.bytes().take_while(|b| b.is_ascii_digit()) {
         v = (v.saturating_mul(10).saturating_add((b - b'0') as u64)).min(1 << 63);
     }
-    let long = if neg { (v as i64).wrapping_neg() } else { v.min(i64::MAX as u64) as i64 };
+    let long = if neg {
+        (v as i64).wrapping_neg()
+    } else {
+        v.min(i64::MAX as u64) as i64
+    };
     long as i32
 }
 
@@ -50,7 +53,10 @@ fn is_dispatch_option(name: &str) -> bool {
     // parse_dispatch_option strcmp's the whole optarg, so "single=1" is a
     // GUC assignment, not a misplaced dispatch option.
     // + the pgrust-extension stdio-wire / sim-net modes (main_main dispatch).
-    matches!(name, "check" | "boot" | "describe-config" | "single" | "stdio-wire" | "sim-net")
+    matches!(
+        name,
+        "check" | "boot" | "describe-config" | "single" | "stdio-wire" | "sim-net"
+    )
 }
 
 pub fn process_postgres_switches(argv: &[String], gucctx: u8) -> PgResult<()> {
@@ -88,7 +94,13 @@ enum Opt {
 
 impl Getopt {
     fn new(argv: Vec<String>) -> Self {
-        Getopt { argv, optind: 1, nextchar: Vec::new(), first_nonopt: 1, last_nonopt: 1 }
+        Getopt {
+            argv,
+            optind: 1,
+            nextchar: Vec::new(),
+            first_nonopt: 1,
+            last_nonopt: 1,
+        }
     }
 
     fn exchange(&mut self) {
@@ -170,7 +182,11 @@ fn process_postgres_switches_inner(
 ) -> PgResult<()> {
     let ctx = guc_context_from_u8(gucctx);
     let secure = ctx == GucContext::PGC_POSTMASTER;
-    let source = if secure { GucSource::PGC_S_ARGV } else { GucSource::PGC_S_CLIENT };
+    let source = if secure {
+        GucSource::PGC_S_ARGV
+    } else {
+        GucSource::PGC_S_CLIENT
+    };
     let fname = "process_postgres_switches";
 
     let set = |name: &str, value: &str| guc::SetConfigOption(name, Some(value), ctx, source);
@@ -295,7 +311,9 @@ fn process_postgres_switches_inner(
         }
     }
 
-    let Getopt { argv, mut optind, .. } = g;
+    let Getopt {
+        argv, mut optind, ..
+    } = g;
     if errs == 0 {
         if let Some(dbname) = dbname {
             if dbname.is_none() && argv.len() - optind >= 1 {
@@ -353,7 +371,9 @@ mod tests {
     fn assert_proc_exit_1(f: impl FnOnce()) {
         let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f))
             .expect_err("expected proc_exit(1)");
-        let code = payload.downcast_ref::<ipc::ProcExitThread>().map(|e| e.code);
+        let code = payload
+            .downcast_ref::<ipc::ProcExitThread>()
+            .map(|e| e.code);
         assert_eq!(code, Some(1), "expected proc_exit(1)");
     }
 
@@ -402,8 +422,9 @@ mod tests {
 
     #[test]
     fn c_without_value_errors() {
-        let err = process_postgres_switches(&av(&["-c", "work_mem"]), GucContext::PGC_BACKEND as u8)
-            .unwrap_err();
+        let err =
+            process_postgres_switches(&av(&["-c", "work_mem"]), GucContext::PGC_BACKEND as u8)
+                .unwrap_err();
         assert!(format!("{err:?}").contains("-c work_mem requires a value"));
     }
 
@@ -423,7 +444,10 @@ mod tests {
             process_postgres_switches(&av(&["--single=1"]), GucContext::PGC_BACKEND as u8)
         });
         if let Ok(Err(err)) = outcome {
-            assert!(!format!("{err:?}").contains("must be first argument"), "{err:?}");
+            assert!(
+                !format!("{err:?}").contains("must be first argument"),
+                "{err:?}"
+            );
         }
     }
 
@@ -452,11 +476,23 @@ mod tests {
             assert!(!matches!(outcome, Ok(Ok(_))), "no FATAL for {args:?}");
             SEEN.lock().unwrap().take().expect("FATAL emitted")
         };
-        assert_eq!(run(&["-Zcsingle=1"]), "postgres: invalid command-line argument: postgres");
+        assert_eq!(
+            run(&["-Zcsingle=1"]),
+            "postgres: invalid command-line argument: postgres"
+        );
         assert_eq!(run(&["-Z"]), "postgres: invalid command-line argument: -Z");
-        assert_eq!(run(&["-e", "-Zc"]), "postgres: invalid command-line argument: -e");
-        assert_eq!(run(&["-f", "xyz"]), "postgres: invalid command-line argument: xyz");
-        assert_eq!(run(&["-fxyz"]), "postgres: invalid command-line argument: -fxyz");
+        assert_eq!(
+            run(&["-e", "-Zc"]),
+            "postgres: invalid command-line argument: -e"
+        );
+        assert_eq!(
+            run(&["-f", "xyz"]),
+            "postgres: invalid command-line argument: xyz"
+        );
+        assert_eq!(
+            run(&["-fxyz"]),
+            "postgres: invalid command-line argument: -fxyz"
+        );
     }
 
     // postgres.c:4000: -W sets post_auth_delay (it was in ARG_TAKING_FLAGS
@@ -501,7 +537,9 @@ mod tests {
             );
         }))
         .expect_err("a second argument after -- exits");
-        let exit = payload.downcast_ref::<ipc::ProcExitThread>().expect("the proc_exit payload");
+        let exit = payload
+            .downcast_ref::<ipc::ProcExitThread>()
+            .expect("the proc_exit payload");
         assert_eq!(exit.code, 1);
     }
 
@@ -574,8 +612,14 @@ mod tests {
             assert!(!matches!(outcome, Ok(Ok(_))), "no FATAL for {args:?}");
             SEEN.lock().unwrap().take().expect("FATAL emitted")
         };
-        assert_eq!(run(&["junk", "-Z"], false), "postgres: invalid command-line argument: -Z");
-        assert_eq!(run(&["junk", "-Zc"], false), "postgres: invalid command-line argument: junk");
+        assert_eq!(
+            run(&["junk", "-Z"], false),
+            "postgres: invalid command-line argument: -Z"
+        );
+        assert_eq!(
+            run(&["junk", "-Zc"], false),
+            "postgres: invalid command-line argument: junk"
+        );
         assert_eq!(
             run(&["a", "-W", "0", "b", "-Z"], false),
             "postgres: invalid command-line argument: -Z"
@@ -584,7 +628,10 @@ mod tests {
             run(&["junk", "-W", "0"], false),
             "postgres: invalid command-line argument: junk"
         );
-        assert_eq!(run(&["a", "-W", "0", "b"], true), "postgres: invalid command-line argument: b");
+        assert_eq!(
+            run(&["a", "-W", "0", "b"], true),
+            "postgres: invalid command-line argument: b"
+        );
         assert_eq!(
             run(&["a", "--", "b", "-W", "0"], true),
             "postgres: invalid command-line argument: b"

@@ -75,7 +75,15 @@ pub struct Report {
 
 impl Report {
     fn new(m: &Mint) -> Report {
-        Report { promoted: 0, refused: m.vec(), phis: 0, loads_removed: 0, stores_removed: 0, stores_added: 0, params: m.vec() }
+        Report {
+            promoted: 0,
+            refused: m.vec(),
+            phis: 0,
+            loads_removed: 0,
+            stores_removed: 0,
+            stores_added: 0,
+            params: m.vec(),
+        }
     }
 }
 
@@ -144,7 +152,12 @@ struct Promoter<'a> {
 /// Promote `cells` in `f`. `host_state` is each program host's
 /// `HostFlags::state` (the masks decide which calls see the memory). `Err(TooDeep)`: a content read
 /// walked more than `max_read_depth` blocks; `f` is then half rewritten (the caller restores it).
-pub fn promote(f: &mut Function, cells: &[Cell], host_state: &[StateMask], max_read_depth: u32) -> Result<Report, TooDeep> {
+pub fn promote(
+    f: &mut Function,
+    cells: &[Cell],
+    host_state: &[StateMask],
+    max_read_depth: u32,
+) -> Result<Report, TooDeep> {
     let m = f.mint();
     if cells.is_empty() {
         return Ok(Report::new(&m));
@@ -202,7 +215,8 @@ impl<'a> Promoter<'a> {
         if bits == 0 {
             return None;
         }
-        (0..self.cells.len()).find(|&ci| bits & (1u64 << ci) != 0 && self.cells[ci].offset == offset)
+        (0..self.cells.len())
+            .find(|&ci| bits & (1u64 << ci) != 0 && self.cells[ci].offset == offset)
     }
 
     /// The cells whose root `v` resolves to (bit = cell index).
@@ -212,7 +226,9 @@ impl<'a> Promoter<'a> {
 
     /// Does `v` resolve to cell `ci`'s root pointer?
     fn is_root(&self, ci: usize, v: Value) -> bool {
-        self.root_bits.get(v.index()).is_some_and(|b| b & (1u64 << ci) != 0)
+        self.root_bits
+            .get(v.index())
+            .is_some_and(|b| b & (1u64 << ci) != 0)
     }
 
     /// `root_bits`, once, from the definitions.
@@ -224,7 +240,16 @@ impl<'a> Promoter<'a> {
                 Root::LoadedFrom { ptr, offset } => {
                     for b in &self.f.blocks {
                         for i in &b.insts {
-                            if let (Some(r), Op::Load { ty: Type::Ptr, ptr: p, offset: o, .. }) = (i.result, &i.op) {
+                            if let (
+                                Some(r),
+                                Op::Load {
+                                    ty: Type::Ptr,
+                                    ptr: p,
+                                    offset: o,
+                                    ..
+                                },
+                            ) = (i.result, &i.op)
+                            {
                                 if *p == ptr && *o == offset {
                                     bits[r.index()] |= 1 << ci;
                                 }
@@ -244,8 +269,11 @@ impl<'a> Promoter<'a> {
     fn def_points(&self) -> IrVec<(Block, usize)> {
         let n = self.cells.len();
         let mut at = self.m.vec_filled((self.f.entry, 0), n);
-        let value_root = |ci: usize, v: Value| matches!(self.cells[ci].root, Root::Value(r) if r == v);
-        let mut left: u64 = (0..n).filter(|&ci| matches!(self.cells[ci].root, Root::Value(_))).fold(0, |a, ci| a | 1u64 << ci);
+        let value_root =
+            |ci: usize, v: Value| matches!(self.cells[ci].root, Root::Value(r) if r == v);
+        let mut left: u64 = (0..n)
+            .filter(|&ci| matches!(self.cells[ci].root, Root::Value(_)))
+            .fold(0, |a, ci| a | 1u64 << ci);
         let mut take = |v: Value, point: (Block, usize), left: &mut u64| {
             let bits = self.bits(v) & *left;
             for ci in (0..n).filter(|&ci| bits & (1u64 << ci) != 0 && value_root(ci, v)) {
@@ -282,10 +310,24 @@ impl<'a> Promoter<'a> {
             for inst in &b.insts {
                 // A cell access: the type must be the cell's.
                 let (ptr, offset, tyv, zext, stored) = match &inst.op {
-                    Op::Load { ty, ptr, offset, .. } => (*ptr, *offset, Some(*ty), false, None),
-                    Op::LoadZext { ty, ptr, offset, .. } => (*ptr, *offset, Some(*ty), true, None),
-                    Op::Store { ptr, offset, value, .. } => (*ptr, *offset, Some(self.f.value_type(*value)), false, Some(*value)),
-                    Op::VecLoad { ptr, offset, .. } | Op::VecStore { ptr, offset, .. } => (*ptr, *offset, None, false, None),
+                    Op::Load {
+                        ty, ptr, offset, ..
+                    } => (*ptr, *offset, Some(*ty), false, None),
+                    Op::LoadZext {
+                        ty, ptr, offset, ..
+                    } => (*ptr, *offset, Some(*ty), true, None),
+                    Op::Store {
+                        ptr, offset, value, ..
+                    } => (
+                        *ptr,
+                        *offset,
+                        Some(self.f.value_type(*value)),
+                        false,
+                        Some(*value),
+                    ),
+                    Op::VecLoad { ptr, offset, .. } | Op::VecStore { ptr, offset, .. } => {
+                        (*ptr, *offset, None, false, None)
+                    }
                     Op::Prefetch { .. } => continue,
                     _ => {
                         // Any other use of a root pointer value refuses the root's cells.
@@ -295,7 +337,10 @@ impl<'a> Promoter<'a> {
                             false
                         });
                         for ci in (0..n).filter(|&ci| used & (1u64 << ci) != 0) {
-                            refused[ci] = Some(alloc::format!("root used outside a cell access ({:?})", inst.op)); // alloc: Cold
+                            refused[ci] = Some(alloc::format!(
+                                "root used outside a cell access ({:?})",
+                                inst.op
+                            )); // alloc: Cold
                         }
                         continue;
                     }
@@ -312,7 +357,8 @@ impl<'a> Promoter<'a> {
                     // A store through a root pointer as the *value* is a use too.
                     if let Some(sv) = stored {
                         if self.is_root(ci, sv) {
-                            refused[ci] = Some(Why::from("root pointer stored to memory")); // alloc: Cold
+                            refused[ci] = Some(Why::from("root pointer stored to memory"));
+                            // alloc: Cold
                         }
                     }
                     if !self.is_root(ci, ptr) {
@@ -323,13 +369,18 @@ impl<'a> Promoter<'a> {
                         // width may overlap ours.
                         let w = tyv.map_or(16, |t| t.bytes() as i32);
                         if offset < c.offset + c.ty.bytes() as i32 && c.offset < offset + w {
-                            refused[ci] = Some(alloc::format!("overlapping access at offset {offset}")); // alloc: Cold
+                            refused[ci] =
+                                Some(alloc::format!("overlapping access at offset {offset}"));
+                            // alloc: Cold
                         }
                         continue;
                     }
                     match tyv {
                         Some(t) if t == c.ty && (!zext || t.is_int()) => {}
-                        Some(t) => refused[ci] = Some(alloc::format!("access of type {t:?} to a {:?} cell", c.ty)), // alloc: Cold
+                        Some(t) => {
+                            refused[ci] =
+                                Some(alloc::format!("access of type {t:?} to a {:?} cell", c.ty))
+                        } // alloc: Cold
                         None => refused[ci] = Some(Why::from("vector access to the cell")), // alloc: Cold
                     }
                 }
@@ -339,19 +390,27 @@ impl<'a> Promoter<'a> {
                 }
             }
             // Terminators: a root passed as a block argument or returned.
-            let passed = b.term.edges().flat_map(|e| e.args.iter()).chain(match &b.term {
-                Terminator::Return(vs) => vs.iter(),
-                _ => [].iter(),
-            });
+            let passed = b
+                .term
+                .edges()
+                .flat_map(|e| e.args.iter())
+                .chain(match &b.term {
+                    Terminator::Return(vs) => vs.iter(),
+                    _ => [].iter(),
+                });
             if passed.fold(0u64, |a, &v| a | self.bits(v)) == 0 {
                 continue;
             }
             for ci in 0..n {
-                let uses_root = b.term.edges().any(|e| e.args.iter().any(|&a| self.is_root(ci, a)))
+                let uses_root = b
+                    .term
+                    .edges()
+                    .any(|e| e.args.iter().any(|&a| self.is_root(ci, a)))
                     || matches!(&b.term, Terminator::Return(vs) if vs.iter().any(|&a| self.is_root(ci, a)));
                 if uses_root {
                     if let Root::Value(_) = self.cells[ci].root {
-                        refused[ci] = Some(Why::from("root passed on an edge or returned")); // alloc: Cold
+                        refused[ci] = Some(Why::from("root passed on an edge or returned"));
+                        // alloc: Cold
                     }
                 }
             }
@@ -369,9 +428,14 @@ impl<'a> Promoter<'a> {
     fn slot_stored(&self, ptr: Value, offset: i32, refused: &mut [Option<Why>]) {
         #[allow(clippy::needless_range_loop)]
         for ci in 0..self.cells.len() {
-            if let Root::LoadedFrom { ptr: rp, offset: ro } = self.cells[ci].root {
+            if let Root::LoadedFrom {
+                ptr: rp,
+                offset: ro,
+            } = self.cells[ci].root
+            {
                 if ptr == rp && offset == ro {
-                    refused[ci] = Some(Why::from("the root's own slot is stored")); // alloc: Cold
+                    refused[ci] = Some(Why::from("the root's own slot is stored"));
+                    // alloc: Cold
                 }
             }
         }
@@ -379,9 +443,23 @@ impl<'a> Promoter<'a> {
 
     fn access(&self, op: &Op) -> Option<Access> {
         match op {
-            Op::Load { ptr, offset, .. } => self.cell_of(*ptr, *offset).filter(|&c| self.ok[c]).map(|cell| Access::Load { cell, zext: false }),
-            Op::LoadZext { ptr, offset, .. } => self.cell_of(*ptr, *offset).filter(|&c| self.ok[c]).map(|cell| Access::Load { cell, zext: true }),
-            Op::Store { ptr, offset, value, .. } => self.cell_of(*ptr, *offset).filter(|&c| self.ok[c]).map(|cell| Access::Store { cell, value: *value }),
+            Op::Load { ptr, offset, .. } => self
+                .cell_of(*ptr, *offset)
+                .filter(|&c| self.ok[c])
+                .map(|cell| Access::Load { cell, zext: false }),
+            Op::LoadZext { ptr, offset, .. } => self
+                .cell_of(*ptr, *offset)
+                .filter(|&c| self.ok[c])
+                .map(|cell| Access::Load { cell, zext: true }),
+            Op::Store {
+                ptr, offset, value, ..
+            } => self
+                .cell_of(*ptr, *offset)
+                .filter(|&c| self.ok[c])
+                .map(|cell| Access::Store {
+                    cell,
+                    value: *value,
+                }),
             _ => None,
         }
     }
@@ -451,14 +529,26 @@ impl<'a> Promoter<'a> {
         drop(by_root);
         for &(p, ei) in splits.iter() {
             let nbk = Block(self.f.blocks.len() as u32);
-            let e = core::mem::replace(edge_mut(&mut self.f.blocks[p.index()].term, ei), self.m.edge(nbk, &[]));
-            self.f.blocks.push(BasicBlock { params: self.m.slice_from(&[]), insts: self.m.vec(), term: Terminator::Br(e) });
+            let e = core::mem::replace(
+                edge_mut(&mut self.f.blocks[p.index()].term, ei),
+                self.m.edge(nbk, &[]),
+            );
+            self.f.blocks.push(BasicBlock {
+                params: self.m.slice_from(&[]),
+                insts: self.m.vec(),
+                term: Terminator::Br(e),
+            });
             // The split block is dominated by what dominates p.
             reach.push(reach[p.index()]);
             self.preds.push(self.m.vec_from(&[(p, ei)]));
             self.sealed.push(false);
             self.incomplete.push(self.m.vec());
-            let s = self.f.blocks[nbk.index()].term.edges().next().expect("split edge").target;
+            let s = self.f.blocks[nbk.index()]
+                .term
+                .edges()
+                .next()
+                .expect("split edge")
+                .target;
             let sp = &mut self.preds[s.index()];
             if let Some(k) = sp.iter().position(|&(q, qi)| q == p && qi == ei) {
                 sp[k] = (nbk, 0);
@@ -522,7 +612,11 @@ impl<'a> Promoter<'a> {
 
     fn resolve(&self, mut v: Value) -> Value {
         for _ in 0..self.phis.len() + 1 {
-            let next = self.phi_of.get(v.index()).filter(|&&pi| pi != usize::MAX).and_then(|&pi| self.phis[pi].replaced_by);
+            let next = self
+                .phi_of
+                .get(v.index())
+                .filter(|&&pi| pi != usize::MAX)
+                .and_then(|&pi| self.phis[pi].replaced_by);
             match next {
                 Some(n) if n != v => v = n,
                 _ => return v,
@@ -557,7 +651,13 @@ impl<'a> Promoter<'a> {
     fn new_phi(&mut self, block: Block, cell: usize) -> usize {
         let v = self.new_value(self.cells[cell].ty);
         let operands = self.m.vec();
-        self.phis.push(Phi { block, cell, value: v, operands, replaced_by: None });
+        self.phis.push(Phi {
+            block,
+            cell,
+            value: v,
+            operands,
+            replaced_by: None,
+        });
         if self.phi_of.len() <= v.index() {
             self.phi_of.resize(v.index() + 1, usize::MAX);
         }
@@ -572,7 +672,12 @@ impl<'a> Promoter<'a> {
 
     /// The cell's content at the end of `block` (or, while `block` is
     /// being rewritten, at the current point of it).
-    fn read_variable(&mut self, cell: usize, block: Block, pending: &mut Pending) -> Result<Value, TooDeep> {
+    fn read_variable(
+        &mut self,
+        cell: usize,
+        block: Block,
+        pending: &mut Pending,
+    ) -> Result<Value, TooDeep> {
         if let Some(v) = self.current_def[block.index() * self.cells.len() + cell] {
             return Ok(v);
         }
@@ -585,7 +690,12 @@ impl<'a> Promoter<'a> {
         v
     }
 
-    fn read_variable_recursive(&mut self, cell: usize, block: Block, pending: &mut Pending) -> Result<Value, TooDeep> {
+    fn read_variable_recursive(
+        &mut self,
+        cell: usize,
+        block: Block,
+        pending: &mut Pending,
+    ) -> Result<Value, TooDeep> {
         let v = if self.def_block[cell] == block {
             // The root becomes available here: the initial content is a
             // load at the block's start (`pending` gets it; the
@@ -594,7 +704,20 @@ impl<'a> Promoter<'a> {
             let r = self.new_value(ty);
             let pos = self.def_pos[cell];
             let ptr = self.root_ptr_at(cell, pending, block, pos);
-            defer(pending, block, pos, Instruction { result: Some(r), op: Op::Load { ty, ptr, offset: self.cells[cell].offset, unaligned: false } });
+            defer(
+                pending,
+                block,
+                pos,
+                Instruction {
+                    result: Some(r),
+                    op: Op::Load {
+                        ty,
+                        ptr,
+                        offset: self.cells[cell].offset,
+                        unaligned: false,
+                    },
+                },
+            );
             r
         } else if !self.sealed[block.index()] {
             let ph = self.new_phi(block, cell);
@@ -608,7 +731,20 @@ impl<'a> Promoter<'a> {
             let ty = self.cells[cell].ty;
             let r = self.new_value(ty);
             let ptr = self.root_ptr_at(cell, pending, block, 0);
-            defer(pending, block, 0, Instruction { result: Some(r), op: Op::Load { ty, ptr, offset: self.cells[cell].offset, unaligned: false } });
+            defer(
+                pending,
+                block,
+                0,
+                Instruction {
+                    result: Some(r),
+                    op: Op::Load {
+                        ty,
+                        ptr,
+                        offset: self.cells[cell].offset,
+                        unaligned: false,
+                    },
+                },
+            );
             r
         } else {
             let ph = self.new_phi(block, cell);
@@ -637,12 +773,31 @@ impl<'a> Promoter<'a> {
     /// The root pointer for a store / reload at a point of `block`: the
     /// root value itself, or a fresh load of the slot (`pending` gets it
     /// at position `pos`).
-    fn root_ptr_at(&mut self, cell: usize, pending: &mut Pending, block: Block, pos: usize) -> Value {
+    fn root_ptr_at(
+        &mut self,
+        cell: usize,
+        pending: &mut Pending,
+        block: Block,
+        pos: usize,
+    ) -> Value {
         match self.cells[cell].root {
             Root::Value(v) => v,
             Root::LoadedFrom { ptr, offset } => {
                 let r = self.new_value(Type::Ptr);
-                defer(pending, block, pos, Instruction { result: Some(r), op: Op::Load { ty: Type::Ptr, ptr, offset, unaligned: false } });
+                defer(
+                    pending,
+                    block,
+                    pos,
+                    Instruction {
+                        result: Some(r),
+                        op: Op::Load {
+                            ty: Type::Ptr,
+                            ptr,
+                            offset,
+                            unaligned: false,
+                        },
+                    },
+                );
                 r
             }
         }
@@ -662,7 +817,12 @@ impl<'a> Promoter<'a> {
         // terminator. Applied per block after its walk.
         let mut pending: Pending = self.m.vec();
         let m = &self.m;
-        let mut deleted: IrVec<IrVec<bool>> = m.collect(self.f.blocks.iter().map(|b| m.vec_filled(false, b.insts.len())));
+        let mut deleted: IrVec<IrVec<bool>> = m.collect(
+            self.f
+                .blocks
+                .iter()
+                .map(|b| m.vec_filled(false, b.insts.len())),
+        );
         self.current_def = self.m.vec_filled(None, nb * n);
         for &b in order.iter() {
             let bi = b.index();
@@ -683,7 +843,19 @@ impl<'a> Promoter<'a> {
                             let r = result.expect("load result");
                             if zext && self.cells[cell].ty != Type::I64 {
                                 let z = self.new_value(Type::I64);
-                                defer(&mut pending, b, ii, Instruction { result: Some(z), op: Op::Conv { op: ConvOp::Zext, to: Type::I64, a: content } });
+                                defer(
+                                    &mut pending,
+                                    b,
+                                    ii,
+                                    Instruction {
+                                        result: Some(z),
+                                        op: Op::Conv {
+                                            op: ConvOp::Zext,
+                                            to: Type::I64,
+                                            a: content,
+                                        },
+                                    },
+                                );
                                 self.set_replace(r, z);
                             } else {
                                 self.set_replace(r, content);
@@ -700,13 +872,29 @@ impl<'a> Promoter<'a> {
                     }
                 } else if let Some(m) = mask {
                     for ci in 0..n {
-                        if !self.ok[ci] || !m.contains(self.cells[ci].class) || self.reach[bi] & 1 << ci == 0 {
+                        if !self.ok[ci]
+                            || !m.contains(self.cells[ci].class)
+                            || self.reach[bi] & 1 << ci == 0
+                        {
                             continue;
                         }
                         if dirty & 1 << ci != 0 {
                             let content = self.read_variable(ci, b, &mut pending)?;
                             let ptr = self.root_ptr_at(ci, &mut pending, b, ii);
-                            defer(&mut pending, b, ii, Instruction { result: None, op: Op::Store { ptr, offset: self.cells[ci].offset, value: content, unaligned: false } });
+                            defer(
+                                &mut pending,
+                                b,
+                                ii,
+                                Instruction {
+                                    result: None,
+                                    op: Op::Store {
+                                        ptr,
+                                        offset: self.cells[ci].offset,
+                                        value: content,
+                                        unaligned: false,
+                                    },
+                                },
+                            );
                             self.report.stores_added += 1;
                             dirty &= !(1 << ci);
                         }
@@ -714,19 +902,50 @@ impl<'a> Promoter<'a> {
                         let ty = self.cells[ci].ty;
                         let r = self.new_value(ty);
                         let ptr = self.root_ptr_at(ci, &mut pending, b, ii + 1);
-                        defer(&mut pending, b, ii + 1, Instruction { result: Some(r), op: Op::Load { ty, ptr, offset: self.cells[ci].offset, unaligned: false } });
+                        defer(
+                            &mut pending,
+                            b,
+                            ii + 1,
+                            Instruction {
+                                result: Some(r),
+                                op: Op::Load {
+                                    ty,
+                                    ptr,
+                                    offset: self.cells[ci].offset,
+                                    unaligned: false,
+                                },
+                            },
+                        );
                         self.write_variable(ci, b, r);
                     }
                 }
             }
-            let leaving = self.f.blocks[bi].term.edges().fold(0u64, |a, e| a | self.reach[bi] & !self.reach[e.target.index()]);
+            let leaving = self.f.blocks[bi].term.edges().fold(0u64, |a, e| {
+                a | self.reach[bi] & !self.reach[e.target.index()]
+            });
             let returns = matches!(self.f.blocks[bi].term, Terminator::Return(_));
             {
                 for ci in 0..n {
-                    if self.ok[ci] && self.reach[bi] & dirty & 1 << ci != 0 && (returns || leaving & 1 << ci != 0) {
+                    if self.ok[ci]
+                        && self.reach[bi] & dirty & 1 << ci != 0
+                        && (returns || leaving & 1 << ci != 0)
+                    {
                         let content = self.read_variable(ci, b, &mut pending)?;
                         let ptr = self.root_ptr_at(ci, &mut pending, b, usize::MAX);
-                        defer(&mut pending, b, usize::MAX, Instruction { result: None, op: Op::Store { ptr, offset: self.cells[ci].offset, value: content, unaligned: false } });
+                        defer(
+                            &mut pending,
+                            b,
+                            usize::MAX,
+                            Instruction {
+                                result: None,
+                                op: Op::Store {
+                                    ptr,
+                                    offset: self.cells[ci].offset,
+                                    value: content,
+                                    unaligned: false,
+                                },
+                            },
+                        );
                         self.report.stores_added += 1;
                     }
                 }
@@ -773,7 +992,9 @@ impl<'a> Promoter<'a> {
         // Materialize: params and edge arguments for the surviving phis,
         // in cell declaration order within a block (the hottest cell was
         // declared first; the pinned budget fills in parameter order).
-        let mut order = self.m.collect((0..self.phis.len()).filter(|&pi| self.phis[pi].replaced_by.is_none()));
+        let mut order = self
+            .m
+            .collect((0..self.phis.len()).filter(|&pi| self.phis[pi].replaced_by.is_none()));
         order.sort_unstable_by_key(|&pi| (self.phis[pi].block.0, self.phis[pi].cell, pi));
         for &pi in order.iter() {
             let b = self.phis[pi].block;
@@ -791,7 +1012,10 @@ impl<'a> Promoter<'a> {
         }
         // Apply the deletions and insertions per block (deferral order within a position).
         pending.sort_unstable_by_key(|&(b, pos, seq, _)| (b.0, pos, seq));
-        let mut pending = pending.into_iter().map(|(b, pos, _, inst)| (b, pos, inst)).peekable();
+        let mut pending = pending
+            .into_iter()
+            .map(|(b, pos, _, inst)| (b, pos, inst))
+            .peekable();
         for bi in 0..nb {
             let old = core::mem::replace(&mut self.f.blocks[bi].insts, self.m.vec());
             let mut new = self.m.vec_with_capacity(old.len() + 4);
@@ -1037,7 +1261,11 @@ pub fn rpo(f: &Function, m: &Mint) -> IrVec<Block> {
 pub(crate) fn edge_mut(t: &mut Terminator, ei: usize) -> &mut Edge {
     match t {
         Terminator::Br(e) => e,
-        Terminator::CondBr { then_edge, else_edge, .. } => {
+        Terminator::CondBr {
+            then_edge,
+            else_edge,
+            ..
+        } => {
             if ei == 0 {
                 then_edge
             } else {
@@ -1051,7 +1279,9 @@ pub(crate) fn edge_mut(t: &mut Terminator, ei: usize) -> &mut Edge {
                 default
             }
         }
-        Terminator::Return(_) | Terminator::Unreachable => unreachable!("edge of a returning terminator"),
+        Terminator::Return(_) | Terminator::Unreachable => {
+            unreachable!("edge of a returning terminator")
+        }
     }
 }
 
@@ -1066,11 +1296,26 @@ pub(crate) fn op_uses(op: &Op, mut f: impl FnMut(Value) -> bool) -> bool {
 pub(crate) fn op_values_mut(op: &mut Op, f: &mut impl FnMut(&mut Value)) {
     match op {
         Op::Const { .. } | Op::StackAddr { .. } => {}
-        Op::IntBin { a, b, .. } | Op::IntOvf { a, b, .. } | Op::Icmp { a, b, .. } | Op::FloatBin { a, b, .. } | Op::Fcmp { a, b, .. } | Op::VecBin { a, b, .. } | Op::VecCmp { a, b, .. } | Op::VecNarrow { a, b } => {
+        Op::IntBin { a, b, .. }
+        | Op::IntOvf { a, b, .. }
+        | Op::Icmp { a, b, .. }
+        | Op::FloatBin { a, b, .. }
+        | Op::Fcmp { a, b, .. }
+        | Op::VecBin { a, b, .. }
+        | Op::VecCmp { a, b, .. }
+        | Op::VecNarrow { a, b } => {
             f(a);
             f(b);
         }
-        Op::IntUn { a, .. } | Op::FloatUn { a, .. } | Op::Conv { a, .. } | Op::VecShift { a, .. } | Op::VecReduceAdd { a } | Op::VecMovmask { a } | Op::VecSplat { a, .. } | Op::VecExtract { a, .. } | Op::VecWiden { a, .. } => f(a),
+        Op::IntUn { a, .. }
+        | Op::FloatUn { a, .. }
+        | Op::Conv { a, .. }
+        | Op::VecShift { a, .. }
+        | Op::VecReduceAdd { a }
+        | Op::VecMovmask { a }
+        | Op::VecSplat { a, .. }
+        | Op::VecExtract { a, .. }
+        | Op::VecWiden { a, .. } => f(a),
         Op::Select { cond, a, b } => {
             f(cond);
             f(a);
@@ -1085,7 +1330,10 @@ pub(crate) fn op_values_mut(op: &mut Op, f: &mut impl FnMut(&mut Value)) {
             f(a);
             f(value);
         }
-        Op::Load { ptr, .. } | Op::LoadZext { ptr, .. } | Op::Prefetch { ptr, .. } | Op::VecLoad { ptr, .. } => f(ptr),
+        Op::Load { ptr, .. }
+        | Op::LoadZext { ptr, .. }
+        | Op::Prefetch { ptr, .. }
+        | Op::VecLoad { ptr, .. } => f(ptr),
         Op::Store { ptr, value, .. } | Op::VecStore { ptr, value, .. } => {
             f(ptr);
             f(value);
@@ -1114,20 +1362,28 @@ pub(crate) fn op_values_mut(op: &mut Op, f: &mut impl FnMut(&mut Value)) {
 
 pub(crate) fn term_values_mut(t: &mut Terminator, f: &mut impl FnMut(&mut Value)) {
     match t {
-        Terminator::Br(e) => e.args.iter_mut().for_each(&mut * f),
-        Terminator::CondBr { cond, then_edge, else_edge } => {
+        Terminator::Br(e) => e.args.iter_mut().for_each(&mut *f),
+        Terminator::CondBr {
+            cond,
+            then_edge,
+            else_edge,
+        } => {
             f(cond);
-            then_edge.args.iter_mut().for_each(&mut * f);
-            else_edge.args.iter_mut().for_each(&mut * f);
+            then_edge.args.iter_mut().for_each(&mut *f);
+            else_edge.args.iter_mut().for_each(&mut *f);
         }
-        Terminator::Switch { value, cases, default } => {
+        Terminator::Switch {
+            value,
+            cases,
+            default,
+        } => {
             f(value);
             for c in cases.iter_mut() {
-                c.edge.args.iter_mut().for_each(&mut * f);
+                c.edge.args.iter_mut().for_each(&mut *f);
             }
-            default.args.iter_mut().for_each(&mut * f);
+            default.args.iter_mut().for_each(&mut *f);
         }
-        Terminator::Return(vs) => vs.iter_mut().for_each( f),
+        Terminator::Return(vs) => vs.iter_mut().for_each(f),
         Terminator::Unreachable => {}
     }
 }

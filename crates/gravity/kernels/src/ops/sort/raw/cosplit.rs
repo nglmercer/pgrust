@@ -2,13 +2,17 @@
 //! gravity_abi program.rs; exec lays it, the merge join's lowering declares it). A claim of parts over the outer's put runs
 //! (`COSPLIT_MODE_SLICES`) reads the merge of those parts' slice of each run, laid over its owner's merge area; any other
 //! claim reads the run as `sort_begin_at` / `sort_total_at` / `sort_next_at` do.
-use gravity_abi::program::{COSPLIT_HDR_WORDS, COSPLIT_MODE, COSPLIT_MODE_SLICES, COSPLIT_PARTS, COSPLIT_PART_WORDS, COSPLIT_RUNS, COSPLIT_SLICES_AT, COSPLIT_WHOLE, SPILL_MERGE_BIG, SPILL_RUN_SLICE, STREAM_CONSUMED};
+use gravity_abi::program::{
+    COSPLIT_HDR_WORDS, COSPLIT_MODE, COSPLIT_MODE_SLICES, COSPLIT_PARTS, COSPLIT_PART_WORDS,
+    COSPLIT_RUNS, COSPLIT_SLICES_AT, COSPLIT_WHOLE, SPILL_MERGE_BIG, SPILL_RUN_SLICE,
+    STREAM_CONSUMED,
+};
 use gravity_abi::status::{DONE, ERROR};
 use gravity_abi::Ctx;
 
 use super::rowsort::{begin_slices, next_slices, slices_area_bytes};
-use crate::ops::sort::runmerge::RunMerge;
 use crate::host_abi::{bare, sort_begin_at, sort_next_at, sort_total_at, SORT_MODE_MERGE};
+use crate::ops::sort::runmerge::RunMerge;
 
 /// `sort_cosplit_begin`'s mode for a part's claim over the outer's put runs: the merge of its slices over the claim's
 /// owner's area (`sort_cosplit_next` drains it); past the emit's `SORT_MODE_MEM` / `SORT_MODE_MERGE`.
@@ -36,8 +40,18 @@ unsafe fn claim_parts(ctx: *mut Ctx, ctab: *const u64) -> Option<(usize, usize)>
 /// for the statement: `SPILL_MERGE_BIG` keyed by the table, its header zeroed when fresh, its address in the owner's
 /// word), then the merge of each run's slice of those parts (consecutive key ranges: part a's start to part b - 1's end of
 /// each run) laid over it (`SPILL_RUN_SLICE` readers).
-unsafe fn outer_slices(ctx: *mut Ctx, tbl: *const u32, k: u64, ctab: *const u64, a: usize, b: usize) -> i64 {
-    let (nruns, slices) = (*ctab.add(COSPLIT_RUNS) as usize, *ctab.add(COSPLIT_SLICES_AT) as *const u64);
+unsafe fn outer_slices(
+    ctx: *mut Ctx,
+    tbl: *const u32,
+    k: u64,
+    ctab: *const u64,
+    a: usize,
+    b: usize,
+) -> i64 {
+    let (nruns, slices) = (
+        *ctab.add(COSPLIT_RUNS) as usize,
+        *ctab.add(COSPLIT_SLICES_AT) as *const u64,
+    );
     if slices.is_null() {
         return bare("Bug: a co-split claim over put runs with no slices");
     }
@@ -52,12 +66,21 @@ unsafe fn outer_slices(ctx: *mut Ctx, tbl: *const u32, k: u64, ctab: *const u64,
         if area == 0 {
             return ERROR; // the driver holds the allocation's error
         }
-        core::ptr::write_bytes(area as usize as *mut u8, 0, core::mem::size_of::<RunMerge>());
+        core::ptr::write_bytes(
+            area as usize as *mut u8,
+            0,
+            core::mem::size_of::<RunMerge>(),
+        );
     }
     *owner_word(ctab, (*ctx).worker_ordinal) = area as u64;
     let (first, last) = (slices.add(2 * a * nruns), slices.add(2 * (b - 1) * nruns));
     let open = |r: usize| {
-        let w = [STREAM_CONSUMED | k, r as u64, *first.add(2 * r), *last.add(2 * r + 1)];
+        let w = [
+            STREAM_CONSUMED | k,
+            r as u64,
+            *first.add(2 * r),
+            *last.add(2 * r + 1),
+        ];
         crate::util::spill(ctx, SPILL_RUN_SLICE, w.as_ptr() as i64)
     };
     match begin_slices(ctx, area as usize as *mut u8, bytes, tbl, nruns, &open) {

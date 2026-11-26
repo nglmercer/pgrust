@@ -12,7 +12,8 @@ use crate::graph::Gx;
 /// a PARAM_EXEC `init_unseen` passes is a bound word.
 pub(crate) fn quiet_qual(gx: &Gx<'_, '_>, n: Node<'_>) -> bool {
     let unseen = |id: i32| init_unseen(gx, id);
-    crate::effects::raise_free_by(gx, n, &unseen, false) || super::errorhold::quiet_cmp_by(gx, n, &unseen)
+    crate::effects::raise_free_by(gx, n, &unseen, false)
+        || super::errorhold::quiet_cmp_by(gx, n, &unseen)
 }
 
 /// D3126: whether lead qual `n` may raise only inside a comparand that reads no column: a quiet comparison (as
@@ -29,9 +30,15 @@ pub(crate) fn raises_in_comparand(gx: &Gx<'_, '_>, n: Node<'_>) -> bool {
 /// first reads the parameter on, or never where a verdict skips that row, shows nothing. PS1-05: also road
 /// `nest.eagersafe`'s test (pgrc verdict_zone.rs `init_of`: such a value feeds the scan's open-time zone verdicts).
 pub(crate) fn init_unseen(gx: &Gx<'_, '_>, id: i32) -> bool {
-    let mut sets = gx.graph.init_plans.iter().filter(|i| i.params.iter().any(|p| p == id)).peekable();
-    sets.peek().is_some() && sets.all(|i| {
-        let e = gravity_decompose::effects::Effects::of_init_plan(i);
-        !e.acts && !e.may_raise
-    })
+    let mut sets = gx
+        .graph
+        .init_plans
+        .iter()
+        .filter(|i| i.params.iter().any(|p| p == id))
+        .peekable();
+    sets.peek().is_some()
+        && sets.all(|i| {
+            let e = gravity_decompose::effects::Effects::of_init_plan(i);
+            !e.acts && !e.may_raise
+        })
 }

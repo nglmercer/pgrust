@@ -2,8 +2,8 @@
 //! `= ANY`, whole-row references, domains and json calls. Every op premise walks its expressions through `list` / `expr`.
 use gravity_expr::Catalog;
 use gravity_fn::Tier;
-use mcx::PgVec;
 use mcx::GrowIn;
+use mcx::PgVec;
 use types_nodes::list::NodeList;
 use types_nodes::{Node, NodeTag};
 
@@ -35,7 +35,9 @@ impl<'p> Walk<'_, '_, 'p> {
                         self.call(o.opfuncid);
                     }
                 }
-                NodeTag::T_Var if x.as_var().is_some_and(|v| v.varattno == 0) => self.add(KindId::ExprWholerow),
+                NodeTag::T_Var if x.as_var().is_some_and(|v| v.varattno == 0) => {
+                    self.add(KindId::ExprWholerow)
+                }
                 // a SubPlan left inside an expression (a gate, a projection): step/consts.rs refuses nest.subplan (M8)
                 NodeTag::T_SubPlan | NodeTag::T_AlternativeSubPlan => self.add(KindId::NestSubplan),
                 NodeTag::T_CoerceToDomain => {
@@ -50,9 +52,17 @@ impl<'p> Walk<'_, '_, 'p> {
                 }
                 NodeTag::T_NextValueExpr => self.add(KindId::ExprVolatile), // nextval_internal: VOLATILE, not a FuncExpr
                 NodeTag::T_OpExpr | NodeTag::T_DistinctExpr | NodeTag::T_NullIfExpr => {
-                    let op = x.as_op_expr().map(|o| (o.opno, o.opfuncid)).or_else(|| x.as_distinct_expr().map(|o| (o.opno, o.opfuncid))).or_else(|| x.as_null_if_expr().map(|o| (o.opno, o.opfuncid)));
+                    let op = x
+                        .as_op_expr()
+                        .map(|o| (o.opno, o.opfuncid))
+                        .or_else(|| x.as_distinct_expr().map(|o| (o.opno, o.opfuncid)))
+                        .or_else(|| x.as_null_if_expr().map(|o| (o.opno, o.opfuncid)));
                     let (opno, fid) = op.unwrap_or((0, 0));
-                    self.call(if fid != 0 { fid } else { self.gx.catalog.opcode(opno).unwrap_or(0) });
+                    self.call(if fid != 0 {
+                        fid
+                    } else {
+                        self.gx.catalog.opcode(opno).unwrap_or(0)
+                    });
                 }
                 _ => {}
             }
@@ -75,11 +85,47 @@ impl<'p> Walk<'_, '_, 'p> {
         if cat.tier(fid) != Tier::A {
             self.p.add(Prop::Hosted);
         }
-        let Some(name) = cat.shim(fid).map(|s| s.name) else { return };
+        let Some(name) = cat.shim(fid).map(|s| s.name) else {
+            return;
+        };
         let props: &[(&[&str], Prop)] = &[
-            (&["textlike", "namelike", "textnlike", "namenlike", "bpcharlike", "bpcharnlike", "texticlike", "texticnlike", "nameiclike", "bpchariclike"], Prop::Like),
-            (&["texteq", "textne", "bpchareq", "nameeq", "nameeqtext", "texteqname"], Prop::TextEq),
-            (&["textlen", "textoctetlen", "bpcharlen", "bpcharoctetlen", "byteaoctetlen", "length_in_encoding"], Prop::Length),
+            (
+                &[
+                    "textlike",
+                    "namelike",
+                    "textnlike",
+                    "namenlike",
+                    "bpcharlike",
+                    "bpcharnlike",
+                    "texticlike",
+                    "texticnlike",
+                    "nameiclike",
+                    "bpchariclike",
+                ],
+                Prop::Like,
+            ),
+            (
+                &[
+                    "texteq",
+                    "textne",
+                    "bpchareq",
+                    "nameeq",
+                    "nameeqtext",
+                    "texteqname",
+                ],
+                Prop::TextEq,
+            ),
+            (
+                &[
+                    "textlen",
+                    "textoctetlen",
+                    "bpcharlen",
+                    "bpcharoctetlen",
+                    "byteaoctetlen",
+                    "length_in_encoding",
+                ],
+                Prop::Length,
+            ),
         ];
         for (names, t) in props {
             if names.contains(&name) {
@@ -107,13 +153,25 @@ impl<'p> Walk<'_, '_, 'p> {
         for con in facts.constraints.iter() {
             if let gravity_expr::catalog::DomainConstraint::Check { expr, .. } = con {
                 gravity_decompose::expr::walk(*expr, &mut |y| {
-                    let op = |opno: u32, fid: u32| if fid != 0 { fid } else { cat.opcode(opno).unwrap_or(0) };
+                    let op = |opno: u32, fid: u32| {
+                        if fid != 0 {
+                            fid
+                        } else {
+                            cat.opcode(opno).unwrap_or(0)
+                        }
+                    };
                     let fid = match y.node_tag() {
                         NodeTag::T_FuncExpr => y.as_func_expr().map_or(0, |f| f.funcid),
                         NodeTag::T_OpExpr => y.as_op_expr().map_or(0, |o| op(o.opno, o.opfuncid)),
-                        NodeTag::T_DistinctExpr => y.as_distinct_expr().map_or(0, |o| op(o.opno, o.opfuncid)),
-                        NodeTag::T_NullIfExpr => y.as_null_if_expr().map_or(0, |o| op(o.opno, o.opfuncid)),
-                        NodeTag::T_ScalarArrayOpExpr => y.as_scalar_array_op_expr().map_or(0, |o| op(o.opno, o.opfuncid)),
+                        NodeTag::T_DistinctExpr => {
+                            y.as_distinct_expr().map_or(0, |o| op(o.opno, o.opfuncid))
+                        }
+                        NodeTag::T_NullIfExpr => {
+                            y.as_null_if_expr().map_or(0, |o| op(o.opno, o.opfuncid))
+                        }
+                        NodeTag::T_ScalarArrayOpExpr => y
+                            .as_scalar_array_op_expr()
+                            .map_or(0, |o| op(o.opno, o.opfuncid)),
                         _ => 0,
                     };
                     volatile |= fid != 0 && cat.func(fid).map_or(true, |f| f.volatile());
@@ -132,11 +190,20 @@ impl<'p> Walk<'_, '_, 'p> {
         let cat = self.gx.catalog;
         gravity_decompose::expr::walk(n, &mut |x| {
             let fid = match x.node_tag() {
-                NodeTag::T_OpExpr => x.as_op_expr().map_or(0, |o| if o.opfuncid != 0 { o.opfuncid } else { cat.opcode(o.opno).unwrap_or(0) }),
+                NodeTag::T_OpExpr => x.as_op_expr().map_or(0, |o| {
+                    if o.opfuncid != 0 {
+                        o.opfuncid
+                    } else {
+                        cat.opcode(o.opno).unwrap_or(0)
+                    }
+                }),
                 NodeTag::T_FuncExpr => x.as_func_expr().map_or(0, |f| f.funcid),
                 _ => 0,
             };
-            hit |= fid != 0 && cat.shim(fid).is_some_and(|s| parts.iter().any(|p| s.name.contains(p)));
+            hit |= fid != 0
+                && cat
+                    .shim(fid)
+                    .is_some_and(|s| parts.iter().any(|p| s.name.contains(p)));
             true
         });
         hit
@@ -147,7 +214,10 @@ impl<'p> Walk<'_, '_, 'p> {
 /// the base type first); a type the catalog cannot resolve counts as itself.
 fn json_category(cat: &dyn Catalog<'_>, t: u32) -> bool {
     let mut typmod = -1;
-    matches!(cat.base_type(t, &mut typmod).unwrap_or(t), types_core::JSONOID | types_core::JSONBOID)
+    matches!(
+        cat.base_type(t, &mut typmod).unwrap_or(t),
+        types_core::JSONOID | types_core::JSONBOID
+    )
 }
 
 /// Every node of an expression tree, pre-order: `expr::kids` plus a list (VALUES rows, gate quals) and a sort clause
@@ -155,7 +225,11 @@ fn json_category(cat: &dyn Catalog<'_>, t: u32) -> bool {
 pub(crate) fn visit<'p>(n: Node<'p>, f: &mut dyn FnMut(Node<'p>)) {
     crate::stack_check();
     match n.node_tag() {
-        NodeTag::T_List => n.as_list().into_iter().flat_map(|l| l.iter()).for_each(|x| visit(x, f)),
+        NodeTag::T_List => n
+            .as_list()
+            .into_iter()
+            .flat_map(|l| l.iter())
+            .for_each(|x| visit(x, f)),
         NodeTag::T_SortGroupClause => {}
         _ => {
             f(n);
@@ -168,8 +242,8 @@ pub(crate) fn visit<'p>(n: Node<'p>, f: &mut dyn FnMut(Node<'p>)) {
 /// A polymorphic call (a polymorphic / `any` argument: `FuncFacts.node_arg`; COALESCE, GREATEST / LEAST) counts only
 /// when it returns json: `count(j)` does not, `coalesce(j, '{}')` does. A pass-through `Var` or a typed NULL is no call.
 pub(crate) fn json_call(cat: &dyn Catalog<'_>, x: Node<'_>) -> bool {
-    use gravity_decompose::expr::kids;
     use gravity_decompose::catalog::expr_type::type_of;
+    use gravity_decompose::expr::kids;
     let json = |n: Node<'_>| type_of(n).is_some_and(|t| json_category(cat, t));
     let fid = match x.node_tag() {
         NodeTag::T_FuncExpr => x.as_func_expr().map(|f| f.funcid),
@@ -181,7 +255,9 @@ pub(crate) fn json_call(cat: &dyn Catalog<'_>, x: Node<'_>) -> bool {
         NodeTag::T_WindowFunc => x.as_window_func().map(|w| w.winfnoid),
         NodeTag::T_SubscriptingRef => Some(0),
         NodeTag::T_CoalesceExpr | NodeTag::T_MinMaxExpr => return json(x),
-        NodeTag::T_JsonExpr | NodeTag::T_JsonConstructorExpr | NodeTag::T_JsonIsPredicate => return true,
+        NodeTag::T_JsonExpr | NodeTag::T_JsonConstructorExpr | NodeTag::T_JsonIsPredicate => {
+            return true
+        }
         _ => return false,
     };
     let polymorphic = fid.is_some_and(|f| f != 0 && cat.func(f).is_ok_and(|f| f.node_arg));

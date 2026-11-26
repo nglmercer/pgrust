@@ -153,9 +153,8 @@ pub fn run_deferred_exit_callbacks(mut code: i32) -> i32 {
             return code;
         }
         // unwind-ok: log-then-die
-        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            drain_exit_callbacks(code)
-        }));
+        let outcome =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drain_exit_callbacks(code)));
         match outcome {
             Ok(()) => {
                 log_exit(code);
@@ -255,7 +254,11 @@ fn run_callback_guarded(what: &str, f: impl FnOnce()) {
         .downcast_ref::<String>()
         .cloned()
         .or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string()))
-        .or_else(|| payload.downcast_ref::<PgError>().map(|e| e.message().to_string()))
+        .or_else(|| {
+            payload
+                .downcast_ref::<PgError>()
+                .map(|e| e.message().to_string())
+        })
         .unwrap_or_else(|| "unknown panic".to_string());
     let what = what.to_string();
     // unwind-ok: log-then-die
@@ -335,7 +338,10 @@ fn rethrow_callback_error(e: PgError) {
     };
     e.level = FATAL;
     elog::emit_error_report_for(&e);
-    panic!("shmem_exit callback failed outside proc_exit: {}", e.message());
+    panic!(
+        "shmem_exit callback failed outside proc_exit: {}",
+        e.message()
+    );
 }
 
 #[cold]
@@ -344,7 +350,11 @@ fn out_of_slots(which: &str) -> ! {
     let _ = elog::ereport(FATAL)
         .errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED)
         .errmsg_internal(format!("out of {which} slots"))
-        .finish(ErrorLocation { filename: None, lineno: 0, funcname: None });
+        .finish(ErrorLocation {
+            filename: None,
+            lineno: 0,
+            funcname: None,
+        });
     unreachable!("ereport(FATAL) returned");
 }
 

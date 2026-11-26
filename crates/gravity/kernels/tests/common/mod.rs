@@ -17,14 +17,27 @@ pub type RowsFor = fn(&[Datum], &[u8]) -> Vec<Row>;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Ret {
     Done,
-    Suspended { out_full: bool },
-    Recheck { site: u8 },
+    Suspended {
+        out_full: bool,
+    },
+    Recheck {
+        site: u8,
+    },
     Error,
     /// `status::raised(mask)`: a bit per abi `status::raise` code.
-    Raised { mask: u64 },
+    Raised {
+        mask: u64,
+    },
     Aborted,
-    Unsupported { kind: u8 },
-    Fault { site: u8, lane: u8, code: u32, part: u32 },
+    Unsupported {
+        kind: u8,
+    },
+    Fault {
+        site: u8,
+        lane: u8,
+        code: u32,
+        part: u32,
+    },
     Bad(i64),
 }
 
@@ -38,7 +51,17 @@ impl Ret {
             Status::Raised { mask } => Ret::Raised { mask },
             Status::Cancelled => Ret::Aborted,
             Status::Unsupported { kind } => Ret::Unsupported { kind },
-            Status::Fault { site, lane, code, part } => Ret::Fault { site, lane, code, part },
+            Status::Fault {
+                site,
+                lane,
+                code,
+                part,
+            } => Ret::Fault {
+                site,
+                lane,
+                code,
+                part,
+            },
             Status::Ok(x) => Ret::Bad(x),
             Status::Stop | Status::BuildWait { .. } => Ret::Bad(v),
             Status::Bad(x) => Ret::Bad(x),
@@ -159,7 +182,10 @@ pub struct FakeHost {
 
 /// The rig never spills partitions (`SPILL_PARTS` says 0); the run ops serve `host.runs` in memory.
 unsafe extern "C" fn h_spill(ctx: *mut Ctx, op: u32, arg: u64) -> i64 {
-    use gravity_abi::program::{SPILL_RUNS, SPILL_RUN_ADOPT, SPILL_RUN_BASE, SPILL_RUN_CLOSE, SPILL_RUN_FILL, SPILL_RUN_OPEN, SPILL_RUN_PUT};
+    use gravity_abi::program::{
+        SPILL_RUNS, SPILL_RUN_ADOPT, SPILL_RUN_BASE, SPILL_RUN_CLOSE, SPILL_RUN_FILL,
+        SPILL_RUN_OPEN, SPILL_RUN_PUT,
+    };
     let h = host_of(ctx);
     let own = gravity_abi::program::partial(ctx);
     match op {
@@ -167,7 +193,8 @@ unsafe extern "C" fn h_spill(ctx: *mut Ctx, op: u32, arg: u64) -> i64 {
         SPILL_RUN_PUT => {
             let run = &mut *(own as *mut gravity_abi::breaker::SortRun);
             // a var run's put compacted it into `var_bytes` of records (M4 L3B), else `len × row_bytes`
-            h.runs.push(core::slice::from_raw_parts(run.row(0), run.dense_bytes()).to_vec());
+            h.runs
+                .push(core::slice::from_raw_parts(run.row(0), run.dense_bytes()).to_vec());
             h.run_read.push(0);
             h.run_rows.push(run.len as u64);
             run.clear();
@@ -189,19 +216,32 @@ unsafe extern "C" fn h_spill(ctx: *mut Ctx, op: u32, arg: u64) -> i64 {
         }
         SPILL_RUN_CLOSE => 0,
         // NEW-43: the one run stream's runs dropped (`SortStreamRearm`)
-        gravity_abi::program::SPILL_RUN_DROP => {h.runs.clear(); h.run_read.clear(); h.run_rows.clear();
+        gravity_abi::program::SPILL_RUN_DROP => {
+            h.runs.clear();
+            h.run_read.clear();
+            h.run_rows.clear();
             0
         }
         // one run stream: an adoption moves nothing
         SPILL_RUN_ADOPT => 0,
         // D4373: a sort's work blocks (`SPILL_WORK_TAKE`, `SPILL_WORK_WITHIN`, the permutation's copy `SPILL_WORK_TRY`) take
         // the allocator's road, as under the memory policy's floor (the rig holds no grant)
-        gravity_abi::program::SPILL_WORK_TAKE | gravity_abi::program::SPILL_WORK_WITHIN | gravity_abi::program::SPILL_WORK_TRY => 1,
+        gravity_abi::program::SPILL_WORK_TAKE
+        | gravity_abi::program::SPILL_WORK_WITHIN
+        | gravity_abi::program::SPILL_WORK_TRY => 1,
         gravity_abi::program::SPILL_WORK_GIVE => 0,
         SPILL_RUN_FILL => {
-            let (r, off, cap) = ((arg & 0xffff) as usize, ((arg >> 16) & 0xffff_ffff) as usize, (arg >> 48) as usize);
+            let (r, off, cap) = (
+                (arg & 0xffff) as usize,
+                ((arg >> 16) & 0xffff_ffff) as usize,
+                (arg >> 48) as usize,
+            );
             let n = cap.min(h.runs[r].len() - h.run_read[r]);
-            let base = if h.fill_base.is_null() { own } else { h.fill_base };
+            let base = if h.fill_base.is_null() {
+                own
+            } else {
+                h.fill_base
+            };
             h.run_ops.1 += 1;
             core::ptr::copy_nonoverlapping(h.runs[r].as_ptr().add(h.run_read[r]), base.add(off), n);
             h.run_read[r] += n;
@@ -226,7 +266,8 @@ unsafe extern "C" fn h_grow(ctx: *mut Ctx, bytes: u64) -> i64 {
 /// `Program.pin` as the driver's: a zeroed chunk kept for the rig's life, the bump window left alone.
 unsafe extern "C" fn h_pin(ctx: *mut Ctx, bytes: u64) -> *mut u8 {
     let h = host_of(ctx);
-    h.chunks.push(vec![0u8; (bytes as usize).max(1 << 16)].into_boxed_slice());
+    h.chunks
+        .push(vec![0u8; (bytes as usize).max(1 << 16)].into_boxed_slice());
     h.chunks.last_mut().expect("chunk").as_mut_ptr()
 }
 
@@ -270,7 +311,9 @@ unsafe extern "C" fn h_next(sp: *mut Site) -> i64 {
     let ek = site.entries_lanes.trailing_zeros() as usize;
     let mut fill = None;
     while site.entries_dedupe && site.entries_lanes != 0 && site.windows_per_part > 0 && take > 0 {
-        let part = (site.seek_key0 as usize / site.windows_per_part + (site.windows - site.seek_windows - 1) / site.windows_per_part) as u32;
+        let part = (site.seek_key0 as usize / site.windows_per_part
+            + (site.windows - site.seek_windows - 1) / site.windows_per_part)
+            as u32;
         if part >= site.entries_parts {
             break;
         }
@@ -322,10 +365,19 @@ unsafe extern "C" fn h_next(sp: *mut Site) -> i64 {
             site.valid[k] |= ((n[k] == 0) as u64) << r;
         }
     }
-    let all = if take == 64 { u64::MAX } else { (1u64 << take) - 1 };
+    let all = if take == 64 {
+        u64::MAX
+    } else {
+        (1u64 << take) - 1
+    };
     if site.answered_from.is_some_and(|w| site.windows >= w) {
         for k in 0..site.natts {
-            let mut a = Answer { flags: ANSWER_MINMAX, min: i64::MAX, max: i64::MIN, ..Answer::NONE };
+            let mut a = Answer {
+                flags: ANSWER_MINMAX,
+                min: i64::MAX,
+                max: i64::MIN,
+                ..Answer::NONE
+            };
             let mut sum = 0i128;
             for r in 0..take {
                 if site.valid[k] >> r & 1 == 0 {
@@ -351,21 +403,48 @@ unsafe extern "C" fn h_next(sp: *mut Site) -> i64 {
     let all_match = site.all_match_from.is_some_and(|w| site.windows >= w);
     let wpp = site.windows_per_part;
     #[allow(clippy::manual_checked_ops)]
-    let (w, part) = if wpp > 0 { let w = site.windows - site.seek_windows - 1; (w, (site.seek_key0 as usize / wpp + w / wpp) as u32) } else { (0, 0) };
+    let (w, part) = if wpp > 0 {
+        let w = site.windows - site.seek_windows - 1;
+        (w, (site.seek_key0 as usize / wpp + w / wpp) as u32)
+    } else {
+        (0, 0)
+    };
     for k in 0..site.natts {
-        let valid = if site.valid[k] == all { core::ptr::null() } else { &site.valid[k] as *const u64 };
+        let valid = if site.valid[k] == all {
+            core::ptr::null()
+        } else {
+            &site.valid[k] as *const u64
+        };
         let width = site.widths[k];
         let mut l = if all_match && k == 0 {
-            Lane::byval(core::ptr::null(), core::ptr::null(), width, lane::REGION_ARENA, lane::id(lane::ID_ATTR, 0))
+            Lane::byval(
+                core::ptr::null(),
+                core::ptr::null(),
+                width,
+                lane::REGION_ARENA,
+                lane::id(lane::ID_ATTR, 0),
+            )
         } else if width == 8 {
-            Lane::byval(site.cols[k].as_ptr() as *const u8, valid, 8, lane::REGION_ARENA, lane::id(lane::ID_ATTR, k as u32))
+            Lane::byval(
+                site.cols[k].as_ptr() as *const u8,
+                valid,
+                8,
+                lane::REGION_ARENA,
+                lane::id(lane::ID_ATTR, k as u32),
+            )
         } else {
             for r in 0..take {
                 let v = site.cols[k][r];
                 let w = width as usize;
                 site.narrow[k][r * w..(r + 1) * w].copy_from_slice(&v.to_le_bytes()[..w]);
             }
-            Lane::byval(site.narrow[k].as_ptr(), valid, width, lane::REGION_ARENA, lane::id(lane::ID_ATTR, k as u32))
+            Lane::byval(
+                site.narrow[k].as_ptr(),
+                valid,
+                width,
+                lane::REGION_ARENA,
+                lane::id(lane::ID_ATTR, k as u32),
+            )
         };
         if all_match {
             l.flags |= lane::VERDICT_ALL_MATCH;
@@ -376,7 +455,8 @@ unsafe extern "C" fn h_next(sp: *mut Site) -> i64 {
             l.ncodes_or_scale = 64;
         }
         let verbatim = site.verbatim_granules != 0 && {
-            let g = (site.seek_key0 as usize).wrapping_add(site.windows.wrapping_sub(site.seek_windows + 1));
+            let g = (site.seek_key0 as usize)
+                .wrapping_add(site.windows.wrapping_sub(site.seek_windows + 1));
             g < 64 && site.verbatim_granules >> g & 1 != 0
         };
         if site.fixed_lanes >> k & 1 != 0 && !verbatim {
@@ -406,14 +486,19 @@ unsafe extern "C" fn h_next(sp: *mut Site) -> i64 {
 /// A rig table lane: the per-entry function over the site's `dict` (the source builds these in production).
 #[derive(Clone, Debug)]
 pub enum RigTable {
-    Like { pattern: Vec<u8>, negated: bool },
+    Like {
+        pattern: Vec<u8>,
+        negated: bool,
+    },
     OctetLength,
     CharLength,
     Fingerprint,
     /// A derived fingerprint table: the fingerprints of these per-code values (`regexp_replace` of the entries, computed by the test).
     DerivedFingerprint(Vec<Vec<u8>>),
     /// A `table_fn::PROGRAM` table: allocated unfilled (`LANE_UNFILLED`), swept by the program, published at `LANE_DONE`.
-    Program { elem: u8 },
+    Program {
+        elem: u8,
+    },
 }
 
 struct RigDict<'a>(&'a [Vec<u8>]);
@@ -436,7 +521,11 @@ unsafe extern "C" fn h_lane(sp: *mut Site, k: u32) -> i64 {
         let i = (k & !gravity_abi::site::LANE_CLAIM) as usize - (site.natts + 1);
         let n = site.dict.len() as u64;
         let part = s.part_id;
-        let at = match site.program_claims.iter().position(|(j, p, _)| *j == i && *p == part) {
+        let at = match site
+            .program_claims
+            .iter()
+            .position(|(j, p, _)| *j == i && *p == part)
+        {
             Some(at) => at,
             None => {
                 site.program_claims.push((i, part, 0));
@@ -449,17 +538,32 @@ unsafe extern "C" fn h_lane(sp: *mut Site, k: u32) -> i64 {
     }
     if k & gravity_abi::site::LANE_DONE != 0 {
         let k = k & !gravity_abi::site::LANE_DONE;
-        host(s.env).calls.push(format!("lane_done({}, {k})", site.index));
+        host(s.env)
+            .calls
+            .push(format!("lane_done({}, {k})", site.index));
         let i = k as usize - (site.natts + 1);
         let hdr = (*s.lanes.add(k as usize)).ptr as usize;
         site.program_done.push((i, s.part_id, hdr));
         return 1;
     }
     host(s.env).calls.push(format!("lane({}, {k})", site.index));
-    let Some(i) = (k as usize).checked_sub(site.natts + 1) else { return 0 };
-    let Some(t) = site.tables.get(i).cloned() else { return 0 };
-    if let Some((_, _, hdr)) = site.program_done.iter().find(|(j, part, _)| *j == i && *part == s.part_id) {
-        gravity_dict::lane::publish(*hdr as *const gravity_dict::table::Header, i as u32, 0, &mut *s.lanes.add(k as usize));
+    let Some(i) = (k as usize).checked_sub(site.natts + 1) else {
+        return 0;
+    };
+    let Some(t) = site.tables.get(i).cloned() else {
+        return 0;
+    };
+    if let Some((_, _, hdr)) = site
+        .program_done
+        .iter()
+        .find(|(j, part, _)| *j == i && *part == s.part_id)
+    {
+        gravity_dict::lane::publish(
+            *hdr as *const gravity_dict::table::Header,
+            i as u32,
+            0,
+            &mut *s.lanes.add(k as usize),
+        );
         return 1;
     }
     if site.table_bufs.len() <= i {
@@ -470,21 +574,38 @@ unsafe extern "C" fn h_lane(sp: *mut Site, k: u32) -> i64 {
     let dict = RigDict(&site.dict);
     let hdr = match t {
         RigTable::Like { pattern, negated } => {
-            let mut m = gravity_dict::like::Matcher::new(&pattern, gravity_dict::like::Mode::Like, &mut region).expect("pattern");
+            let mut m = gravity_dict::like::Matcher::new(
+                &pattern,
+                gravity_dict::like::Mode::Like,
+                &mut region,
+            )
+            .expect("pattern");
             if negated {
                 m = m.negated();
             }
             m.build_bits(&dict, &mut region).expect("bits").header()
         }
-        RigTable::OctetLength => gravity_dict::I64::build(&dict, &mut region, &mut |v| Ok(v.bytes().len() as i64)).expect("i64").header(),
-        RigTable::CharLength => gravity_dict::I64::build(&dict, &mut region, &mut |v| Ok(v.bytes().iter().filter(|b| (**b & 0xC0) != 0x80).count() as i64)).expect("i64").header(),
+        RigTable::OctetLength => {
+            gravity_dict::I64::build(&dict, &mut region, &mut |v| Ok(v.bytes().len() as i64))
+                .expect("i64")
+                .header()
+        }
+        RigTable::CharLength => gravity_dict::I64::build(&dict, &mut region, &mut |v| {
+            Ok(v.bytes().iter().filter(|b| (**b & 0xC0) != 0x80).count() as i64)
+        })
+        .expect("i64")
+        .header(),
         RigTable::Fingerprint => {
             gravity_dict::fp::install(0x0706_0504_0302_0100, 0x0f0e_0d0c_0b0a_0908);
-            gravity_dict::Fp128::build(&dict, &mut region, &mut |v| Ok(v)).expect("fp128").header()
+            gravity_dict::Fp128::build(&dict, &mut region, &mut |v| Ok(v))
+                .expect("fp128")
+                .header()
         }
         RigTable::DerivedFingerprint(values) => {
             gravity_dict::fp::install(0x0706_0504_0302_0100, 0x0f0e_0d0c_0b0a_0908);
-            gravity_dict::Fp128::build(&RigDict(&values), &mut region, &mut |v| Ok(v)).expect("fp128").header()
+            gravity_dict::Fp128::build(&RigDict(&values), &mut region, &mut |v| Ok(v))
+                .expect("fp128")
+                .header()
         }
         RigTable::Program { elem } => {
             use gravity_dict::table::{Header, FLAG_FAULTS};
@@ -495,9 +616,13 @@ unsafe extern "C" fn h_lane(sp: *mut Site, k: u32) -> i64 {
                 gravity_dict::lane::ELEM_I64 => n * 8,
                 _ => n * 16,
             };
-            let hdr = region.alloc_zeroed(core::mem::size_of::<Header>(), 8).expect("header") as *mut Header;
+            let hdr = region
+                .alloc_zeroed(core::mem::size_of::<Header>(), 8)
+                .expect("header") as *mut Header;
             let data = region.alloc_zeroed(bytes.max(8), 8).expect("data");
-            let faults = region.alloc_zeroed((n.div_ceil(64) * 8).max(8), 8).expect("faults") as *const u64;
+            let faults = region
+                .alloc_zeroed((n.div_ceil(64) * 8).max(8), 8)
+                .expect("faults") as *const u64;
             (*hdr).elem = elem;
             (*hdr).flags = FLAG_FAULTS;
             (*hdr).ncodes = n as u32;
@@ -518,13 +643,30 @@ unsafe extern "C" fn h_dict(sp: *mut Site, part: u32, lane: u32, code: u32, out:
     let s = &mut *sp;
     let site = &mut *(s.src as *mut FakeSite);
     // the source's plan check (`granule_source.rs` `dict_value_pg`): a code lane of the site, a part of the scan
-    let parts = if site.windows_per_part > 0 { site.windows.div_ceil(site.windows_per_part).max(1) } else { 1 };
-    if site.dict_plan && (lane as usize >= site.natts || site.codes_lanes >> lane & 1 == 0 || part as usize >= parts) {
-        host(s.env).calls.push(format!("dict({}, {part}, {lane}, {code}) outside the plan", site.index));
+    let parts = if site.windows_per_part > 0 {
+        site.windows.div_ceil(site.windows_per_part).max(1)
+    } else {
+        1
+    };
+    if site.dict_plan
+        && (lane as usize >= site.natts
+            || site.codes_lanes >> lane & 1 == 0
+            || part as usize >= parts)
+    {
+        host(s.env).calls.push(format!(
+            "dict({}, {part}, {lane}, {code}) outside the plan",
+            site.index
+        ));
         return -1;
     }
-    host(s.env).calls.push(if site.windows_per_part > 0 { format!("dict({}, {part}, {code})", site.index) } else { format!("dict({}, {code})", site.index) });
-    let Some(e) = site.dict.get(code as usize) else { return -1 };
+    host(s.env).calls.push(if site.windows_per_part > 0 {
+        format!("dict({}, {part}, {code})", site.index)
+    } else {
+        format!("dict({}, {code})", site.index)
+    });
+    let Some(e) = site.dict.get(code as usize) else {
+        return -1;
+    };
     let mut img = Vec::with_capacity(4 + e.len());
     img.extend_from_slice(&(((4 + e.len()) as u32) << 2).to_le_bytes());
     img.extend_from_slice(e);
@@ -539,9 +681,16 @@ unsafe extern "C" fn h_dict(sp: *mut Site, part: u32, lane: u32, code: u32, out:
 unsafe extern "C" fn h_fetch(sp: *mut Site, n: u32) -> i64 {
     let s = &mut *sp;
     let site = &mut *(s.src as *mut FakeSite);
-    host(s.env).calls.push(format!("fetch({}, {n})", site.index));
+    host(s.env)
+        .calls
+        .push(format!("fetch({}, {n})", site.index));
     let lanes = core::slice::from_raw_parts_mut(s.lanes, s.nlanes.max(1) as usize);
-    let Some(req) = lanes.iter().find(|l| lane::id_kind(l.id) == lane::ID_ROWID && !l.ptr.is_null()) else { return ERROR };
+    let Some(req) = lanes
+        .iter()
+        .find(|l| lane::id_kind(l.id) == lane::ID_ROWID && !l.ptr.is_null())
+    else {
+        return ERROR;
+    };
     let n = n as usize;
     if n > MAX_GRANULE {
         return ERROR;
@@ -551,10 +700,20 @@ unsafe extern "C" fn h_fetch(sp: *mut Site, n: u32) -> i64 {
     let g = site.granule.clamp(1, MAX_GRANULE);
     site.valid.fill(0);
     for (i, &id) in ids.iter().enumerate() {
-        let (part, granule, row) = ((id >> 32) as usize, (id >> 13 & 0x7ffff) as usize, (id & 0x1fff) as usize);
+        let (part, granule, row) = (
+            (id >> 32) as usize,
+            (id >> 13 & 0x7ffff) as usize,
+            (id & 0x1fff) as usize,
+        );
         // one part: the rig numbers windows from 1 (`s.granule = windows`); parts: `part * wpp + granule` from 0
-        let w = if site.windows_per_part > 0 { part * site.windows_per_part + granule } else { granule - 1 };
-        let Some((v, nl)) = rows.get(w * g + row) else { return ERROR };
+        let w = if site.windows_per_part > 0 {
+            part * site.windows_per_part + granule
+        } else {
+            granule - 1
+        };
+        let Some((v, nl)) = rows.get(w * g + row) else {
+            return ERROR;
+        };
         for k in 0..site.natts {
             site.cols[k][i] = v[k];
             site.valid[k] |= ((nl[k] == 0) as u64) << i;
@@ -563,8 +722,18 @@ unsafe extern "C" fn h_fetch(sp: *mut Site, n: u32) -> i64 {
     let all = if n == 64 { u64::MAX } else { (1u64 << n) - 1 };
     #[allow(clippy::needless_range_loop)]
     for k in 0..site.natts {
-        let valid = if site.valid[k] == all { core::ptr::null() } else { &site.valid[k] as *const u64 };
-        lanes[k] = Lane::byval(site.cols[k].as_ptr() as *const u8, valid, 8, lane::REGION_ARENA, lane::id(lane::ID_ATTR, k as u32));
+        let valid = if site.valid[k] == all {
+            core::ptr::null()
+        } else {
+            &site.valid[k] as *const u64
+        };
+        lanes[k] = Lane::byval(
+            site.cols[k].as_ptr() as *const u8,
+            valid,
+            8,
+            lane::REGION_ARENA,
+            lane::id(lane::ID_ATTR, k as u32),
+        );
     }
     n as i64
 }
@@ -574,7 +743,13 @@ unsafe extern "C" fn h_write(ctx: *mut Ctx, op: u32, a: u64) -> i64 {
     let i = a as usize;
     let s = &*site_ptr(h.ctx, i);
     let n = h.sites[i].natts;
-    let w = Written { site: i, op, pos: s.pos, values: core::slice::from_raw_parts(s.values, n).to_vec(), isnull: core::slice::from_raw_parts(s.isnull, n).to_vec() };
+    let w = Written {
+        site: i,
+        op,
+        pos: s.pos,
+        values: core::slice::from_raw_parts(s.values, n).to_vec(),
+        isnull: core::slice::from_raw_parts(s.isnull, n).to_vec(),
+    };
     h.calls.push(format!("write({i}, {op})"));
     h.writes.push(w);
     h.write_result
@@ -598,14 +773,22 @@ unsafe extern "C" fn h_push(ctx: *mut Ctx) -> i64 {
     let rows = o.count as usize;
     let k = h.out_natts;
     let (lo, len) = (o.region as u64, o.region_len as u64);
-    let kept = if len > 0 { core::slice::from_raw_parts(o.region as *const u64, len as usize / 8).to_vec() } else { Vec::new() };
+    let kept = if len > 0 {
+        core::slice::from_raw_parts(o.region as *const u64, len as usize / 8).to_vec()
+    } else {
+        Vec::new()
+    };
     for r in 0..rows {
         let mut row = core::slice::from_raw_parts(o.values.add(r * k), k).to_vec();
-        for d in row.iter_mut().filter(|d| len > 0 && **d >= lo && **d < lo + len) {
+        for d in row
+            .iter_mut()
+            .filter(|d| len > 0 && **d >= lo && **d < lo + len)
+        {
             *d = kept.as_ptr() as u64 + (*d - lo);
         }
         h.pushed.push(row);
-        h.pushed_nulls.push(core::slice::from_raw_parts(o.isnull.add(r * k), k).to_vec());
+        h.pushed_nulls
+            .push(core::slice::from_raw_parts(o.isnull.add(r * k), k).to_vec());
     }
     h.calls.push(format!("push({rows})"));
     h.pushed_regions.push(kept);
@@ -669,11 +852,21 @@ impl Rig {
         let mut scratch = vec![0u64; (l.scratch_bytes as usize).div_ceil(8).max(1)];
         // a share-budgeted breaker gets a `RIG_SHARE` region armed the way the driver arms it
         let shared = program.slots.shared.iter().any(|&s| s);
-        let mut partial = vec![0u64; (program.worker_partial_bytes() as usize).max(if shared { RIG_SHARE as usize } else { 0 }).div_ceil(8).max(1)];
+        let mut partial = vec![
+            0u64;
+            (program.worker_partial_bytes() as usize)
+                .max(if shared { RIG_SHARE as usize } else { 0 })
+                .div_ceil(8)
+                .max(1)
+        ];
         let mut leader = vec![0u64; partial.len()];
         if shared {
-            unsafe { gravity_abi::breaker::HashAgg::arm(partial.as_mut_ptr() as *mut u8, RIG_SHARE) };
-            unsafe { gravity_abi::breaker::HashAgg::arm(leader.as_mut_ptr() as *mut u8, RIG_SHARE) };
+            unsafe {
+                gravity_abi::breaker::HashAgg::arm(partial.as_mut_ptr() as *mut u8, RIG_SHARE)
+            };
+            unsafe {
+                gravity_abi::breaker::HashAgg::arm(leader.as_mut_ptr() as *mut u8, RIG_SHARE)
+            };
         }
         // one leader region per distinct produced slot: index 0 (`leader`) = the slot the LAST pipeline reads (the
         // tests' `rig.leader`: rung 6's merged run, rung 9's agg table), the rest in producer order (two passes over
@@ -688,14 +881,19 @@ impl Rig {
                 slot_lead.push((s, slot_lead.len()));
             }
         }
-        let mut extra_leaders: Vec<Vec<u64>> = (1..slot_lead.len().max(1)).map(|_| vec![0u64; partial.len()]).collect();
+        let mut extra_leaders: Vec<Vec<u64>> = (1..slot_lead.len().max(1))
+            .map(|_| vec![0u64; partial.len()])
+            .collect();
         if shared {
             for l in extra_leaders.iter_mut() {
                 unsafe { gravity_abi::breaker::HashAgg::arm(l.as_mut_ptr() as *mut u8, RIG_SHARE) };
             }
         }
         let more: Vec<*mut u8> = vec![leader.as_mut_ptr() as *mut u8];
-        let mut partials = Box::new(gravity_abi::Partials::two(partial.as_mut_ptr() as *mut u8, [more[0], core::ptr::null_mut()]));
+        let mut partials = Box::new(gravity_abi::Partials::two(
+            partial.as_mut_ptr() as *mut u8,
+            [more[0], core::ptr::null_mut()],
+        ));
         partials.more = more.as_ptr();
         let mut rows = Vec::new();
         let mut keys = Vec::new();
@@ -772,9 +970,32 @@ impl Rig {
             chunks: Vec::new(),
         });
         let interrupt = Box::new(0u8);
-        let mut out = Box::new(Out { values: out_values.as_mut_ptr(), isnull: out_isnull.as_mut_ptr(), count: 0, cap: l.out_rows as i64, region: out_region.as_mut_ptr() as *mut u8, region_cap: program.out_region as i64, region_len: 0 });
+        let mut out = Box::new(Out {
+            values: out_values.as_mut_ptr(),
+            isnull: out_isnull.as_mut_ptr(),
+            count: 0,
+            cap: l.out_rows as i64,
+            region: out_region.as_mut_ptr() as *mut u8,
+            region_cap: program.out_region as i64,
+            region_len: 0,
+        });
         let env = &mut *host as *mut FakeHost as *mut u8;
-        let mut prog = Box::new(ProgramBlock { push: Some(h_push), spill: Some(h_spill), arena_grow: Some(h_grow), write: Some(h_write), lock: Some(h_lock), partial: &*partials as *const gravity_abi::Partials as *mut gravity_abi::Partials, env, sink: core::ptr::null_mut(), rec_open: Some(gravity_abi::breaker::rec_open), owner: program.owner.as_deref().map_or(core::ptr::null_mut(), |o| o as *const dyn core::any::Any as *const u8 as *mut u8), pin: Some(h_pin), instr: core::ptr::null_mut() });
+        let mut prog = Box::new(ProgramBlock {
+            push: Some(h_push),
+            spill: Some(h_spill),
+            arena_grow: Some(h_grow),
+            write: Some(h_write),
+            lock: Some(h_lock),
+            partial: &*partials as *const gravity_abi::Partials as *mut gravity_abi::Partials,
+            env,
+            sink: core::ptr::null_mut(),
+            rec_open: Some(gravity_abi::breaker::rec_open),
+            owner: program.owner.as_deref().map_or(core::ptr::null_mut(), |o| {
+                o as *const dyn core::any::Any as *const u8 as *mut u8
+            }),
+            pin: Some(h_pin),
+            instr: core::ptr::null_mut(),
+        });
         unsafe {
             let h = &mut *ctx;
             h.program = &mut *prog;
@@ -806,7 +1027,29 @@ impl Rig {
                 s.natts = host.sites[i].natts as u16;
             }
         }
-        Rig { program, buf, host, out_values, out_isnull, out_region, rows, keys, params, param_nulls, scratch, out, prog, partial, leader, extra_leaders, slot_lead, more, lead_at: 0, partials, interrupt }
+        Rig {
+            program,
+            buf,
+            host,
+            out_values,
+            out_isnull,
+            out_region,
+            rows,
+            keys,
+            params,
+            param_nulls,
+            scratch,
+            out,
+            prog,
+            partial,
+            leader,
+            extra_leaders,
+            slot_lead,
+            more,
+            lead_at: 0,
+            partials,
+            interrupt,
+        }
     }
 
     /// Point `own` at the producer's partial (zeroed and re-armed per producer, as the driver does a
@@ -817,29 +1060,54 @@ impl Rig {
             self.lead_at = self.lead_index(self.program.pipelines[p].produces().unwrap());
             self.partial.fill(0);
             // the driver arms a slot's region by its own budget (`node.rs`: `r.shared`), never another slot's
-            if self.program.pipelines[p].breaker().is_some_and(|b| b.budget == gravity_abi::breaker::Budget::Share) {
-                unsafe { gravity_abi::breaker::HashAgg::arm(self.partial.as_mut_ptr() as *mut u8, RIG_SHARE) };
+            if self.program.pipelines[p]
+                .breaker()
+                .is_some_and(|b| b.budget == gravity_abi::breaker::Budget::Share)
+            {
+                unsafe {
+                    gravity_abi::breaker::HashAgg::arm(
+                        self.partial.as_mut_ptr() as *mut u8,
+                        RIG_SHARE,
+                    )
+                };
             }
         }
         self.host.fill_base = core::ptr::null_mut();
-        self.partials.own = if produces { self.partial.as_mut_ptr() } else { self.leader.as_mut_ptr() } as *mut u8;
+        self.partials.own = if produces {
+            self.partial.as_mut_ptr()
+        } else {
+            self.leader.as_mut_ptr()
+        } as *mut u8;
         // the pipeline's view of what it consumes: its slots' leader regions in `consumes` order (a pipeline that
         // declares nothing sees the nearest earlier producer's slot at `consumed[0]` — the emit behind a build or
         // a two-pass, the chain every program before §2 is; the driver's "nearest earlier producer" law)
-        let mut more: Vec<*mut u8> = self.program.pipelines[p].consumes.iter().map(|&s| self.lead_index(s)).collect::<Vec<_>>().into_iter().map(|k| self.lead_ptr(k)).collect();
+        let mut more: Vec<*mut u8> = self.program.pipelines[p]
+            .consumes
+            .iter()
+            .map(|&s| self.lead_index(s))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|k| self.lead_ptr(k))
+            .collect();
         if more.is_empty() {
             let k = Self::slot_read_by(&self.program, p).map_or(0, |s| self.lead_index(s));
             more.push(self.lead_ptr(k));
         }
         self.more = more;
-        self.partials.consumed = [self.more[0], self.more.get(1).copied().unwrap_or(core::ptr::null_mut())];
+        self.partials.consumed = [
+            self.more[0],
+            self.more.get(1).copied().unwrap_or(core::ptr::null_mut()),
+        ];
         self.partials.more = self.more.as_ptr();
     }
 
     /// The slot pipeline `p` reads at `consumed[0]`: its first declared `consumes`, else the nearest earlier
     /// producer's slot (none before it: the program's last producer, so a lone producer's region is `leader`).
     fn slot_read_by(program: &Program, p: usize) -> Option<u8> {
-        program.pipelines[p].consumes.first().copied()
+        program.pipelines[p]
+            .consumes
+            .first()
+            .copied()
             .or_else(|| (0..p).rev().find_map(|q| program.pipelines[q].produces()))
             .or_else(|| program.pipelines.iter().rev().find_map(|q| q.produces()))
     }
@@ -852,7 +1120,10 @@ impl Rig {
     }
 
     fn lead_index(&self, slot: u8) -> usize {
-        self.slot_lead.iter().find(|(t, _)| *t == slot).map_or(0, |(_, k)| *k)
+        self.slot_lead
+            .iter()
+            .find(|(t, _)| *t == slot)
+            .map_or(0, |(_, k)| *k)
     }
 
     fn lead_ptr(&mut self, k: usize) -> *mut u8 {
@@ -873,17 +1144,29 @@ impl Rig {
     /// The driver's merge, in miniature: the partial folded into the leader region after its
     /// pipeline — a build partition hashed into a `BUILD_TABLE`, a phase-1 table through the
     /// shape's owner functions as one owner (the width-1 arm), any other table copied whole.
-    fn fold_partial(&mut self, owner: &dyn Fn(&Program, &[Datum]) -> Option<gravity_abi::breaker::OwnerFns>) {
-        use gravity_abi::breaker::{table_kind, HashBuild, BUILD_PARTITION, BUILD_TABLE, TABLE_BUILD, TABLE_T1};
+    fn fold_partial(
+        &mut self,
+        owner: &dyn Fn(&Program, &[Datum]) -> Option<gravity_abi::breaker::OwnerFns>,
+    ) {
+        use gravity_abi::breaker::{
+            table_kind, HashBuild, BUILD_PARTITION, BUILD_TABLE, TABLE_BUILD, TABLE_T1,
+        };
         let src = self.partial.as_ptr() as *const u8;
-        if self.partial.iter().all(|&w| w == 0) || (self.partial[0] == 0 && self.partial[1] as u32 == RIG_SHARE && self.partial[2..].iter().all(|&w| w == 0)) {
+        if self.partial.iter().all(|&w| w == 0)
+            || (self.partial[0] == 0
+                && self.partial[1] as u32 == RIG_SHARE
+                && self.partial[2..].iter().all(|&w| w == 0))
+        {
             return;
         }
         if unsafe { table_kind(src) } == TABLE_T1 {
-            let fns = owner(&self.program, &self.params).expect("a phase-1 table's kernel brings its owner functions");
+            let fns = owner(&self.program, &self.params)
+                .expect("a phase-1 table's kernel brings its owner functions");
             return self.fold_owned(&fns);
         }
-        if unsafe { table_kind(src) } == TABLE_BUILD && unsafe { HashBuild::view(src) }.table == BUILD_PARTITION {
+        if unsafe { table_kind(src) } == TABLE_BUILD
+            && unsafe { HashBuild::view(src) }.table == BUILD_PARTITION
+        {
             use gravity_abi::breaker::MAX_BUILD_PARTS;
             use gravity_abi::buildrows::RowStore;
             let p = unsafe { HashBuild::view(src) };
@@ -892,17 +1175,26 @@ impl Rig {
             let mut rebase = [0u32; MAX_BUILD_PARTS];
             let lead_ptr = self.lead().as_mut_ptr() as *mut u8;
             let stored = unsafe { RowStore::of(src) }.map(|ps| {
-                let ls = unsafe { RowStore::carve(lead_ptr, ps.row_hdr as u32, ps.parts) }.expect("the rig's leader region has room for the row store");
-                assert!(ls.merge_from(ps, &mut rebase), "the rig's leader store holds every build row");
+                let ls = unsafe { RowStore::carve(lead_ptr, ps.row_hdr as u32, ps.parts) }
+                    .expect("the rig's leader region has room for the row store");
+                assert!(
+                    ls.merge_from(ps, &mut rebase),
+                    "the rig's leader store holds every build row"
+                );
                 ls.bits()
             });
             let l = unsafe { HashBuild::at_share(lead_ptr, BUILD_TABLE) };
             for e in p.entries() {
                 let payload = match stored {
-                    Some(bits) => (e.payload as u32).wrapping_add(rebase[HashBuild::partition_of(e.key, bits) as usize]) as i64,
+                    Some(bits) => (e.payload as u32)
+                        .wrapping_add(rebase[HashBuild::partition_of(e.key, bits) as usize])
+                        as i64,
                     None => e.payload,
                 };
-                assert!(l.insert_tagged(e.key, payload, e.used), "the rig's leader table holds every build entry");
+                assert!(
+                    l.insert_tagged(e.key, payload, e.used),
+                    "the rig's leader table holds every build entry"
+                );
             }
             return;
         }
@@ -919,7 +1211,9 @@ impl Rig {
     /// and its buffer chains) folded into a scratch table and reduced by the shape's functions,
     /// the round closed, a second round over the owner's round-2 buffers, the `Owned` header written.
     fn fold_owned(&mut self, fns: &gravity_abi::breaker::OwnerFns) {
-        use gravity_abi::breaker::{HashAgg, Owned, OwnerTop, Rec, T1, HASHAGG_HDR, OWNED_HDR, TABLE_OWNED};
+        use gravity_abi::breaker::{
+            HashAgg, Owned, OwnerTop, Rec, HASHAGG_HDR, OWNED_HDR, T1, TABLE_OWNED,
+        };
         let src = self.partial.as_ptr() as *const u8;
         let t1 = unsafe { T1::view(src) };
         let (pbits, layout) = (t1.pbits, t1.layout);
@@ -928,15 +1222,30 @@ impl Rig {
         let region = unsafe { leader_ptr.add(OWNED_HDR) };
         let bytes = leader_len - OWNED_HDR;
         let params = fns.params.as_ptr();
-        assert!(unsafe { (fns.open)(params, region, bytes) } >= 0, "the rig's owner region opens");
+        assert!(
+            unsafe { (fns.open)(params, region, bytes) } >= 0,
+            "the rig's owner region opens"
+        );
         let site = unsafe { gravity_abi::ctx::site_ptr(self.ctx(), 0) };
         let fold_into = |records: &mut dyn FnMut(&mut dyn FnMut(Rec<'_>))| -> Vec<u64> {
             let mut n = 0usize;
             records(&mut |_| n += 1);
             let cap = (n * 2).max(64).next_power_of_two() as u32;
             let mut buf = vec![0u64; HashAgg::bytes(&layout, cap) as usize / 8];
-            let t = unsafe { HashAgg::at(buf.as_mut_ptr() as *mut u8, &layout, cap, HashAgg::bytes(&layout, cap)) };
-            records(&mut |r| t.find_or_insert(r.keys()).expect("room").fold(&r).expect("no float overflow"));
+            let t = unsafe {
+                HashAgg::at(
+                    buf.as_mut_ptr() as *mut u8,
+                    &layout,
+                    cap,
+                    HashAgg::bytes(&layout, cap),
+                )
+            };
+            records(&mut |r| {
+                t.find_or_insert(r.keys())
+                    .expect("room")
+                    .fold(&r)
+                    .expect("no float overflow")
+            });
             buf
         };
         let rec = layout.size() as usize;
@@ -955,10 +1264,18 @@ impl Rig {
             });
             let t = buf.as_mut_ptr() as *const HashAgg;
             if unsafe { (*t).len } > 0 {
-                assert_eq!(unsafe { (fns.reduce)(params, region, t, site, core::ptr::null(), -1) }, 0, "the rig's owner reduce");
+                assert_eq!(
+                    unsafe { (fns.reduce)(params, region, t, site, core::ptr::null(), -1) },
+                    0,
+                    "the rig's owner reduce"
+                );
             }
         }
-        assert_eq!(unsafe { (fns.end_round)(params, region) }, 0, "the rig's round closes");
+        assert_eq!(
+            unsafe { (fns.end_round)(params, region) },
+            0,
+            "the rig's round closes"
+        );
         if fns.rounds == 2 {
             let off = unsafe { OwnerTop::view(region) }.round2_off as usize;
             if off != 0 {
@@ -972,21 +1289,54 @@ impl Rig {
                     }
                     let cap = (n * 2).max(64).next_power_of_two() as u32;
                     let mut buf = vec![0u64; HashAgg::bytes(&layout2, cap) as usize / 8];
-                    let t = unsafe { HashAgg::at(buf.as_mut_ptr() as *mut u8, &layout2, cap, HashAgg::bytes(&layout2, cap)) };
+                    let t = unsafe {
+                        HashAgg::at(
+                            buf.as_mut_ptr() as *mut u8,
+                            &layout2,
+                            cap,
+                            HashAgg::bytes(&layout2, cap),
+                        )
+                    };
                     for b in r2.chain(q) {
                         for i in 0..b.recs {
                             let r = unsafe { Rec::at(b.ptr.add(i * rec2) as *mut u8, &layout2) };
-                            t.find_or_insert(r.keys()).expect("room").fold(&r).expect("no float overflow");
+                            t.find_or_insert(r.keys())
+                                .expect("room")
+                                .fold(&r)
+                                .expect("no float overflow");
                         }
                     }
                     if t.len > 0 {
-                        assert!(unsafe { (fns.reduce2)(params, region, t as *const HashAgg, site, core::ptr::null(), -1) } >= 0, "the rig's round-2 reduce");
+                        assert!(
+                            unsafe {
+                                (fns.reduce2)(
+                                    params,
+                                    region,
+                                    t as *const HashAgg,
+                                    site,
+                                    core::ptr::null(),
+                                    -1,
+                                )
+                            } >= 0,
+                            "the rig's round-2 reduce"
+                        );
                     }
                 }
             }
         }
         let _ = HASHAGG_HDR;
-        unsafe { *(leader_ptr as *mut Owned) = Owned { nowners: 1, owner_bytes: bytes as u32, limit: leader_len as u32, pad0: [0; 3], kind: TABLE_OWNED, base: 0, pad1: [0; 5], cell: core::cell::UnsafeCell::new([]) } };
+        unsafe {
+            *(leader_ptr as *mut Owned) = Owned {
+                nowners: 1,
+                owner_bytes: bytes as u32,
+                limit: leader_len as u32,
+                pad0: [0; 3],
+                kind: TABLE_OWNED,
+                base: 0,
+                pad1: [0; 5],
+                cell: core::cell::UnsafeCell::new([]),
+            }
+        };
     }
 
     /// A fresh call rewinds the arena window to the scratch region, as the driver does.
@@ -995,7 +1345,8 @@ impl Rig {
         unsafe {
             if (*ctx).resume == 0 {
                 (*ctx).arena_cur = self.scratch.as_mut_ptr() as *mut u8;
-                (*ctx).arena_end = (self.scratch.as_mut_ptr() as *mut u8).add(self.scratch.len() * 8);
+                (*ctx).arena_end =
+                    (self.scratch.as_mut_ptr() as *mut u8).add(self.scratch.len() * 8);
             }
         }
     }
@@ -1028,10 +1379,15 @@ impl Rig {
             return;
         }
         let ctx = self.ctx();
-        let claim = unsafe { core::mem::replace(&mut (*ctx).claim, gravity_abi::MorselRange::SECTION_END) };
+        let claim =
+            unsafe { core::mem::replace(&mut (*ctx).claim, gravity_abi::MorselRange::SECTION_END) };
         unsafe { (*ctx).resume = 0 };
         self.host.section_ends += 1;
-        assert_eq!(self.call_pipeline(p), Ret::Done, "pipeline {p}: the section end");
+        assert_eq!(
+            self.call_pipeline(p),
+            Ret::Done,
+            "pipeline {p}: the section end"
+        );
         unsafe { (*self.ctx()).claim = claim };
     }
 
@@ -1040,23 +1396,41 @@ impl Rig {
     }
 
     /// `run_pipelines` with the owner phase bound by `owner` (a lowered program's declared generic phase).
-    pub fn run_pipelines_with(&mut self, owner: &dyn Fn(&Program, &[Datum]) -> Option<gravity_abi::breaker::OwnerFns>) -> (Vec<Vec<Datum>>, Vec<Ret>) {
+    pub fn run_pipelines_with(
+        &mut self,
+        owner: &dyn Fn(&Program, &[Datum]) -> Option<gravity_abi::breaker::OwnerFns>,
+    ) -> (Vec<Vec<Datum>>, Vec<Ret>) {
         let mut rets = Vec::new();
         let n = self.program.pipelines.len();
         for p in 0..n {
             self.aim(p);
             loop {
-                unsafe { (*self.ctx()).resume = if matches!(rets.last(), Some(Ret::Suspended { .. })) { (*self.ctx()).resume } else { 0 } };
+                unsafe {
+                    (*self.ctx()).resume = if matches!(rets.last(), Some(Ret::Suspended { .. })) {
+                        (*self.ctx()).resume
+                    } else {
+                        0
+                    }
+                };
                 let r = self.call_pipeline(p);
                 rets.push(r);
-                assert_eq!(self.out_count(), 0, "a kernel returned with rows still buffered");
+                assert_eq!(
+                    self.out_count(),
+                    0,
+                    "a kernel returned with rows still buffered"
+                );
                 if !matches!(r, Ret::Suspended { .. }) {
                     break;
                 }
-                assert!(p + 1 == n || gravity_abi::ctx::resume::resumable(self.resume()), "only the last pipeline, or an emit phase, may suspend");
+                assert!(
+                    p + 1 == n || gravity_abi::ctx::resume::resumable(self.resume()),
+                    "only the last pipeline, or an emit phase, may suspend"
+                );
             }
             self.section_end(p, &rets);
-            if self.program.pipelines[p].produces().is_some() && matches!(rets.last(), Some(Ret::Done)) {
+            if self.program.pipelines[p].produces().is_some()
+                && matches!(rets.last(), Some(Ret::Done))
+            {
                 self.fold_partial(owner);
             }
         }
@@ -1065,13 +1439,23 @@ impl Rig {
 
     /// `run_pipelines_with`, the owner chosen per pipeline, `after(rig, p)` run once pipeline `p`'s partial is folded
     /// (the lowerer's rung 8 lays the admitted set between its passes, as the runner does).
-    pub fn run_pipelines_hooked(&mut self, owner: &dyn Fn(&Program, usize) -> Option<gravity_abi::breaker::OwnerFns>, after: &mut dyn FnMut(&mut Rig, usize)) -> (Vec<Vec<Datum>>, Vec<Ret>) {
+    pub fn run_pipelines_hooked(
+        &mut self,
+        owner: &dyn Fn(&Program, usize) -> Option<gravity_abi::breaker::OwnerFns>,
+        after: &mut dyn FnMut(&mut Rig, usize),
+    ) -> (Vec<Vec<Datum>>, Vec<Ret>) {
         let mut rets = Vec::new();
         let n = self.program.pipelines.len();
         for p in 0..n {
             self.aim(p);
             loop {
-                unsafe { (*self.ctx()).resume = if matches!(rets.last(), Some(Ret::Suspended { .. })) { (*self.ctx()).resume } else { 0 } };
+                unsafe {
+                    (*self.ctx()).resume = if matches!(rets.last(), Some(Ret::Suspended { .. })) {
+                        (*self.ctx()).resume
+                    } else {
+                        0
+                    }
+                };
                 let r = self.call_pipeline(p);
                 rets.push(r);
                 if !matches!(r, Ret::Suspended { .. }) {
@@ -1079,7 +1463,9 @@ impl Rig {
                 }
             }
             self.section_end(p, &rets);
-            if self.program.pipelines[p].produces().is_some() && matches!(rets.last(), Some(Ret::Done)) {
+            if self.program.pipelines[p].produces().is_some()
+                && matches!(rets.last(), Some(Ret::Done))
+            {
                 self.fold_partial(&|prog, _| owner(prog, p));
                 after(self, p);
             }
@@ -1089,7 +1475,14 @@ impl Rig {
 
     /// `run_pipelines_hooked` with pipeline `p0` driven claim by claim on the one partial (M3-L6M: `claims` fresh calls,
     /// `before(k)` before each — the rows that claim serves — then the section end and the fold), the rest as usual.
-    pub fn run_pipelines_claimed(&mut self, p0: usize, claims: usize, before: &mut dyn FnMut(usize), owner: &dyn Fn(&Program, usize) -> Option<gravity_abi::breaker::OwnerFns>, after: &mut dyn FnMut(&mut Rig, usize)) -> (Vec<Vec<Datum>>, Vec<Ret>) {
+    pub fn run_pipelines_claimed(
+        &mut self,
+        p0: usize,
+        claims: usize,
+        before: &mut dyn FnMut(usize),
+        owner: &dyn Fn(&Program, usize) -> Option<gravity_abi::breaker::OwnerFns>,
+        after: &mut dyn FnMut(&mut Rig, usize),
+    ) -> (Vec<Vec<Datum>>, Vec<Ret>) {
         let mut rets = Vec::new();
         let n = self.program.pipelines.len();
         for p in 0..n {
@@ -1104,7 +1497,14 @@ impl Rig {
                 }
             } else {
                 loop {
-                    unsafe { (*self.ctx()).resume = if matches!(rets.last(), Some(Ret::Suspended { .. })) { (*self.ctx()).resume } else { 0 } };
+                    unsafe {
+                        (*self.ctx()).resume = if matches!(rets.last(), Some(Ret::Suspended { .. }))
+                        {
+                            (*self.ctx()).resume
+                        } else {
+                            0
+                        }
+                    };
                     let r = self.call_pipeline(p);
                     rets.push(r);
                     if !matches!(r, Ret::Suspended { .. }) {
@@ -1113,7 +1513,9 @@ impl Rig {
                 }
             }
             self.section_end(p, &rets);
-            if self.program.pipelines[p].produces().is_some() && matches!(rets.last(), Some(Ret::Done)) {
+            if self.program.pipelines[p].produces().is_some()
+                && matches!(rets.last(), Some(Ret::Done))
+            {
                 self.fold_partial(&|prog, _| owner(prog, p));
                 after(self, p);
             }
@@ -1146,7 +1548,11 @@ impl Rig {
         loop {
             let r = self.ret();
             rets.push(r);
-            assert_eq!(self.out_count(), 0, "a kernel returned with rows still buffered");
+            assert_eq!(
+                self.out_count(),
+                0,
+                "a kernel returned with rows still buffered"
+            );
             if !matches!(r, Ret::Suspended { .. }) {
                 return (self.host.pushed.clone(), rets);
             }
@@ -1158,7 +1564,10 @@ impl Rig {
     }
 
     pub fn changed_cells(&self, before: &[u64]) -> Vec<usize> {
-        (0..self.buf.len()).filter(|&i| self.buf[i] != before[i]).map(|i| i * 8).collect()
+        (0..self.buf.len())
+            .filter(|&i| self.buf[i] != before[i])
+            .map(|i| i * 8)
+            .collect()
     }
 
     pub fn site(&mut self, i: usize) -> &mut FakeSite {
@@ -1166,28 +1575,49 @@ impl Rig {
     }
 
     pub fn pushes(&self) -> Vec<String> {
-        self.host.calls.iter().filter(|c| c.starts_with("push")).cloned().collect()
+        self.host
+            .calls
+            .iter()
+            .filter(|c| c.starts_with("push"))
+            .cloned()
+            .collect()
     }
 
     pub fn windows(&self, i: usize) -> usize {
-        self.host.calls.iter().filter(|c| **c == format!("window({i})")).count()
+        self.host
+            .calls
+            .iter()
+            .filter(|c| **c == format!("window({i})"))
+            .count()
     }
 
     pub fn nexts(&self, i: usize) -> usize {
-        self.host.calls.iter().filter(|c| **c == format!("next({i})")).count()
+        self.host
+            .calls
+            .iter()
+            .filter(|c| **c == format!("next({i})"))
+            .count()
     }
 
     /// Pipeline `p` again as a fresh call after the program ran (the re-open rig, lane TESTS): every word the driver does not write
     /// before a fresh call filled with `poison` (each site's per-call cells `sel`..`part_facts`; the scratch arena when `scratch`, else zeroed), the header's per-call
     /// words written as the driver writes them (`flags` 0, `resume` RESUME_NONE: the fresh-call test, stop.rs); the sink stops after
     /// `stop` more rows when given. A suspend that leaves `resume` at RESUME_NONE or the poison forgot its position (asserted).
-    pub fn rerun_poisoned(&mut self, p: usize, poison: u8, scratch: bool, stop: Option<usize>) -> (Vec<Vec<Datum>>, Vec<Vec<u8>>, Vec<Ret>) {
+    pub fn rerun_poisoned(
+        &mut self,
+        p: usize,
+        poison: u8,
+        scratch: bool,
+        stop: Option<usize>,
+    ) -> (Vec<Vec<Datum>>, Vec<Vec<u8>>, Vec<Ret>) {
         use gravity_abi::ctx::{FLAG_RESUME, RESUME_NONE};
         let n0 = self.host.pushed.len();
         let word = u64::from_ne_bytes([poison; 8]);
         let (sel, len) = site::WINDOW_CELLS;
         for i in 0..self.program.sites.len() {
-            unsafe { core::ptr::write_bytes((site_ptr(self.ctx(), i) as *mut u8).add(sel), poison, len) };
+            unsafe {
+                core::ptr::write_bytes((site_ptr(self.ctx(), i) as *mut u8).add(sel), poison, len)
+            };
         }
         // unpoisoned, the scratch arena is zeroed as `Node::reset` zeroes it before a rescan
         self.scratch.fill(if scratch { word } else { 0 });
@@ -1209,13 +1639,20 @@ impl Rig {
                 break;
             }
             let w = unsafe { (*self.ctx()).resume };
-            assert!(w != RESUME_NONE && w as u64 != word, "pipeline {p}: a suspend left RESUME at {w:#x} (its position never written)");
+            assert!(
+                w != RESUME_NONE && w as u64 != word,
+                "pipeline {p}: a suspend left RESUME at {w:#x} (its position never written)"
+            );
             if let Some(k) = stop {
                 self.host.stop_after_rows = Some(self.host.pushed.len() + k);
             }
         }
         self.host.stop_after_rows = saved;
-        (self.host.pushed[n0..].to_vec(), self.host.pushed_nulls[n0..].to_vec(), rets)
+        (
+            self.host.pushed[n0..].to_vec(),
+            self.host.pushed_nulls[n0..].to_vec(),
+            rets,
+        )
     }
 }
 
@@ -1243,7 +1680,10 @@ pub const LOCKED: i64 = WRITE_DONE;
 
 /// The owner functions of a program whose first pipeline is a phase-1 table kernel (the runner's rule, in miniature).
 #[allow(unexpected_cfgs)]
-pub fn owner_fns_for(program: &Program, params: &[Datum]) -> Option<gravity_abi::breaker::OwnerFns> {
+pub fn owner_fns_for(
+    program: &Program,
+    params: &[Datum],
+) -> Option<gravity_abi::breaker::OwnerFns> {
     let mut words = [0u64; 16];
     let n = params.len().min(16);
     words[..n].copy_from_slice(&params[..n]);
@@ -1253,7 +1693,12 @@ pub fn owner_fns_for(program: &Program, params: &[Datum]) -> Option<gravity_abi:
     {
         use gravity_kernels::par_distinct;
         use gravity_kernels::table::params as par_hashagg;
-        let is = |i: usize, f: gravity_program::Entry| program.pipelines.get(i).is_some_and(|_| program.code_of(i).entry() as usize == f as usize);
+        let is = |i: usize, f: gravity_program::Entry| {
+            program
+                .pipelines
+                .get(i)
+                .is_some_and(|_| program.code_of(i).entry() as usize == f as usize)
+        };
         if is(0, par_hashagg::par_hashagg) {
             return Some(par_hashagg::owner_fns(&words[..par_hashagg::NPARAMS]));
         }
@@ -1262,7 +1707,10 @@ pub fn owner_fns_for(program: &Program, params: &[Datum]) -> Option<gravity_abi:
         }
     }
     // an installed program's declared phase (milestone-2.md §2.6 item 12): the kernel's constructor over the words
-    program.pipelines[0].owner.and_then(|d| d.ctor).map(|ctor| ctor(&words))
+    program.pipelines[0]
+        .owner
+        .and_then(|d| d.ctor)
+        .map(|ctor| ctor(&words))
 }
 
 /// The two-pipeline program the emit tests (leader, heaptop) run pipeline 1 of: site 0 over `rel`'s `attnos` (`codes` a bit
@@ -1270,7 +1718,17 @@ pub fn owner_fns_for(program: &Program, params: &[Datum]) -> Option<gravity_abi:
 /// kernel is never called (the test lays the owned region itself), pipeline 1 `emit` into the sink. It stands in for the
 /// tier-3 group program these tests borrowed before the hand kernels were deleted.
 #[allow(dead_code, clippy::too_many_arguments)]
-pub fn emit_rig_program(rel: u32, attnos: &[i16], codes: u32, ntables: usize, layout: &gravity_abi::breaker::RecordLayout, out: &[gravity_program::OutCol], out_rows: u32, groups: u64, emit: gravity_program::Entry) -> Program {
+pub fn emit_rig_program(
+    rel: u32,
+    attnos: &[i16],
+    codes: u32,
+    ntables: usize,
+    layout: &gravity_abi::breaker::RecordLayout,
+    out: &[gravity_program::OutCol],
+    out_rows: u32,
+    groups: u64,
+    emit: gravity_program::Entry,
+) -> Program {
     use gravity_abi::breaker::{Breaker, BreakerKind, Budget, Spill};
     use gravity_program::{Code, End, LaneDesc, Layout, Pipeline, Reason, SiteDesc, WritePlan};
     unsafe extern "C-unwind" fn never(_: *mut gravity_abi::Ctx) -> i64 {
@@ -1287,12 +1745,30 @@ pub fn emit_rig_program(rel: u32, attnos: &[i16], codes: u32, ntables: usize, la
         site = site.with_lane(LaneDesc::table(i as u16), false);
     }
     let bits = gravity_kernels::table::params::spill_bits(groups, layout.size());
-    let breaker = Breaker { kind: BreakerKind::HashAgg, slot: 0, bytes: 0, budget: Budget::Share, spill: Spill::Partitioned { bits } };
+    let breaker = Breaker {
+        kind: BreakerKind::HashAgg,
+        slot: 0,
+        bytes: 0,
+        budget: Budget::Share,
+        spill: Spill::Partitioned { bits },
+    };
     let pipes = [
-        (Pipeline::eligible(0, End::Breaker(breaker), 0), Code::hand(never)),
-        (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), Code::hand(emit)),
+        (
+            Pipeline::eligible(0, End::Breaker(breaker), 0),
+            Code::hand(never),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            Code::hand(emit),
+        ),
     ];
-    let layout = Layout { nsites: 1, out_natts: out.len() as u16, out_rows, scratch_bytes: 0, exec_bytes: 0 };
+    let layout = Layout {
+        nsites: 1,
+        out_natts: out.len() as u16,
+        out_rows,
+        scratch_bytes: 0,
+        exec_bytes: 0,
+    };
     Program::with_pipelines(layout, &[site], out, WritePlan::SELECT, pipes)
 }
 
@@ -1305,7 +1781,8 @@ pub fn emit_rig_program(rel: u32, attnos: &[i16], codes: u32, ntables: usize, la
 struct Poison([u64; 512]);
 unsafe impl Sync for Poison {}
 static ZERO_NUMERIC: [u8; 3] = [0x07, 0x00, 0x80];
-static POISON: std::sync::LazyLock<Poison> = std::sync::LazyLock::new(|| Poison([ZERO_NUMERIC.as_ptr() as u64; 512]));
+static POISON: std::sync::LazyLock<Poison> =
+    std::sync::LazyLock::new(|| Poison([ZERO_NUMERIC.as_ptr() as u64; 512]));
 
 unsafe fn publish_page(site: &mut FakeSite, s: &mut Site, atts: &[(i16, u8, i16)], take: usize) {
     const HDR: usize = 24;
@@ -1313,7 +1790,11 @@ unsafe fn publish_page(site: &mut FakeSite, s: &mut Site, atts: &[(i16, u8, i16)
     let natts = site.natts;
     let maxatt = atts.iter().map(|a| a.0).max().unwrap_or(0) as usize;
     let lanes: Vec<Lane> = site.lanes.clone();
-    let lane_of = |attno: i16| atts.iter().find(|a| a.0 == attno).and_then(|a| (a.2 >= 0).then_some(a.2 as usize));
+    let lane_of = |attno: i16| {
+        atts.iter()
+            .find(|a| a.0 == attno)
+            .and_then(|a| (a.2 >= 0).then_some(a.2 as usize))
+    };
     let page = site.page_buf.as_mut_ptr() as *mut u8;
     let offs = site.page_offs.as_mut_ptr();
     core::ptr::write_bytes(page, 0, 8192);
@@ -1328,7 +1809,8 @@ unsafe fn publish_page(site: &mut FakeSite, s: &mut Site, atts: &[(i16, u8, i16)
                     let l = &lanes[k];
                     let v = *(l.ptr as *const u64).add(r);
                     #[allow(clippy::unnecessary_cast)]
-                    let valid = l.valid.is_null() || (*(l.valid as *const u64).add(r / 64) >> (r % 64)) & 1 != 0;
+                    let valid = l.valid.is_null()
+                        || (*(l.valid as *const u64).add(r / 64) >> (r % 64)) & 1 != 0;
                     (v, valid)
                 }
                 None => (0, true),
@@ -1342,7 +1824,10 @@ unsafe fn publish_page(site: &mut FakeSite, s: &mut Site, atts: &[(i16, u8, i16)
         // else a 1-byte header of 1..7 bytes
         // a varlena a lane reads (a by-reference column) is laid as the lane's own datum: its image's bytes, 1-byte or 4-byte header
         let varlena_null = |r: usize| !site.page_clean && r % 13 == 5;
-        let has_null = (1..=tnatts).any(|a| !cell(a as i16).1) || atts.iter().any(|&(a, len, k)| len == 255 && k < 0 && a as usize <= tnatts && varlena_null(r));
+        let has_null = (1..=tnatts).any(|a| !cell(a as i16).1)
+            || atts
+                .iter()
+                .any(|&(a, len, k)| len == 255 && k < 0 && a as usize <= tnatts && varlena_null(r));
         nonulls &= !has_null;
         let bitmap = if has_null { maxatt.div_ceil(8) } else { 0 };
         let hoff = (TUP_HDR + bitmap).div_ceil(8) * 8;
@@ -1401,7 +1886,10 @@ unsafe fn publish_page(site: &mut FakeSite, s: &mut Site, atts: &[(i16, u8, i16)
         *tup.add(22) = hoff as u8;
         if has_null {
             for &(a, len, _) in atts.iter() {
-                if cell(a).1 && a as usize <= tnatts && !(len == 255 && lane_of(a).is_none() && varlena_null(r)) {
+                if cell(a).1
+                    && a as usize <= tnatts
+                    && !(len == 255 && lane_of(a).is_none() && varlena_null(r))
+                {
                     *tup.add(TUP_HDR + (a as usize - 1) / 8) |= 1 << ((a as usize - 1) % 8);
                 }
             }
@@ -1424,7 +1912,13 @@ unsafe fn publish_page(site: &mut FakeSite, s: &mut Site, atts: &[(i16, u8, i16)
             }
         }
     }
-    *s.lanes.add(natts) = Lane::byval(site.page_offs.as_ptr() as *const u8, core::ptr::null(), 2, lane::REGION_ARENA, gravity_program::LaneId::Offset.encode());
+    *s.lanes.add(natts) = Lane::byval(
+        site.page_offs.as_ptr() as *const u8,
+        core::ptr::null(),
+        2,
+        lane::REGION_ARENA,
+        gravity_program::LaneId::Offset.encode(),
+    );
     if (natts as u16) >= s.nlanes {
         s.nlanes = natts as u16 + 1;
     }

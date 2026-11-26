@@ -29,14 +29,20 @@ pub(super) const P_LAYOUT: usize = 3;
 pub(super) const LAYOUT_WORDS: usize = size_of::<RecordLayout>() / 8;
 /// The minima's slot words past `P_MINS` (`pack_slot`'s words 1..`REP_WORDS`), after the layout.
 pub(super) const P_MINS_MORE: usize = P_LAYOUT + LAYOUT_WORDS;
-const _: () = assert!(P_MINS_MORE + REP_WORDS - 1 <= OWNER_PARAMS, "the spec fits the owner's words");
+const _: () = assert!(
+    P_MINS_MORE + REP_WORDS - 1 <= OWNER_PARAMS,
+    "the spec fits the owner's words"
+);
 /// The generic owner's runs form: the directory at `OWNERTOP_HDR` (`(off, m)` per run), the records from `OWNER_RUN_OFF`.
 /// The owner that collapses a group's part records to one in `reduce` (partmin's sort-and-sum over the folded
 /// partition; each declared minimum the byte minimum of the parts' rendered minima, kept as its coded word so
 /// `join_resolve` renders it once; the part word zeroed) and keeps every group at the floor in the runs form
 /// `join_gather` reads — so the gather's join is a pass over the survivors, not over `groups × parts`.
 pub fn owner_fns(spec: &PartHavingSpec) -> OwnerFns {
-    assert!(spec.layout.pkeys == 0 || spec.layout.nkeys() == spec.layout.partition_keys() + 1, "the group words, then the part word");
+    assert!(
+        spec.layout.pkeys == 0 || spec.layout.nkeys() == spec.layout.partition_keys() + 1,
+        "the group words, then the part word"
+    );
     let mut p = [0u64; OWNER_PARAMS];
     p[P_HEAD] = spec.count_slot as u64 | (spec.bits as u64) << 8;
     let mw = pack_slot(0, &spec.mins);
@@ -45,7 +51,18 @@ pub fn owner_fns(spec: &PartHavingSpec) -> OwnerFns {
     p[P_FLOOR] = spec.floor as u64;
     let words: [u64; LAYOUT_WORDS] = spec.layout.words();
     p[P_LAYOUT..P_LAYOUT + LAYOUT_WORDS].copy_from_slice(&words);
-    OwnerFns { params: p, rounds: 1, order_slot: ORDER_NONE, order_slot2: ORDER_NONE, min_bytes: owner_min, open: owner_open, reduce: owner_reduce, end_round: owner_end, reduce2: owner_reduce, fold: Some(crate::table::owner_fold::owner_fold) }
+    OwnerFns {
+        params: p,
+        rounds: 1,
+        order_slot: ORDER_NONE,
+        order_slot2: ORDER_NONE,
+        min_bytes: owner_min,
+        open: owner_open,
+        reduce: owner_reduce,
+        end_round: owner_end,
+        reduce2: owner_reduce,
+        fold: Some(crate::table::owner_fold::owner_fold),
+    }
 }
 
 /// The kept records' area of an owner region of `bytes` (`owner_open`'s split; the admission's bound, `exec/src/admit.rs`).
@@ -67,7 +84,12 @@ pub(super) struct GroupSet {
 
 impl GroupSet {
     pub(super) fn new(g: usize) -> GroupSet {
-        GroupSet { g, filter: 0, words: Vec::new(), index: Vec::new() } // alloc: Exec
+        GroupSet {
+            g,
+            filter: 0,
+            words: Vec::new(),
+            index: Vec::new(),
+        } // alloc: Exec
     }
 
     #[inline(always)]
@@ -133,7 +155,9 @@ impl GroupSet {
         self.index = index;
         for k in 0..self.words.len() / self.g {
             let w = &self.words[k * self.g..(k + 1) * self.g];
-            let Err(slot) = self.find(w, Self::hash(w)) else { continue };
+            let Err(slot) = self.find(w, Self::hash(w)) else {
+                continue;
+            };
             self.index[slot] = (k + 1) as u32;
         }
         true

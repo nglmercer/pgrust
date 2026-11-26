@@ -20,15 +20,25 @@ pub(crate) const UNREADABLE: i64 = -1;
 
 /// Base-10000 `digits` at `weight` × 10^scale × `mult`, signed: the i256 words, or the code (`term`). The digits are read
 /// where they lie (`term`: the image's own), never copied out.
-pub(crate) fn mantissa(digits: impl ExactSizeIterator<Item = u64>, weight: i32, scale: i32, mult: u64, neg: bool) -> Result<NumWide, i64> {
+pub(crate) fn mantissa(
+    digits: impl ExactSizeIterator<Item = u64>,
+    weight: i32,
+    scale: i32,
+    mult: u64,
+    neg: bool,
+) -> Result<NumWide, i64> {
     let (mut m, n) = ([0u64; 4], digits.len());
     for d in digits {
-        wide_mul_add(&mut m, 10_000, d).then_some(()).ok_or(SP_OVERFLOW)?;
+        wide_mul_add(&mut m, 10_000, d)
+            .then_some(())
+            .ok_or(SP_OVERFLOW)?;
     }
     let mut e = 4 * (weight - n as i32 + 1) + scale;
     while e > 0 && m != [0; 4] {
         let k = e.min(19);
-        wide_mul_add(&mut m, 10u64.pow(k as u32), 0).then_some(()).ok_or(SP_OVERFLOW)?;
+        wide_mul_add(&mut m, 10u64.pow(k as u32), 0)
+            .then_some(())
+            .ok_or(SP_OVERFLOW)?;
         e -= k;
     }
     while e < 0 && m != [0; 4] {
@@ -104,9 +114,25 @@ pub(crate) fn kept(r: gravity_fn::Ret, e: &mut gravity_fn::ErrSlot) -> u64 {
 
 /// A final through a gravity_fn `agg_final` host over `(region, args…)`, entered only where the state is not NULL, into a
 /// per-call region the sink copies from; a failed render raises the host's error (fold/slots.rs's `host_final`).
-pub(crate) fn host_final(b: &mut FunctionBuilder<'_>, env: &Env, name: &'static str, host: usize, args: &[Value], null: Value) -> Value {
-    let flags = HostFlags { may_error: true, pure: false, touches_memory: true, worker: false, state: StateMask::NONE };
-    let params: PgVec<'_, Type> = [Type::Ptr, Type::Ptr].into_iter().chain(args[1..].iter().map(|_| Type::I64)).collect_in(env.mcx);
+pub(crate) fn host_final(
+    b: &mut FunctionBuilder<'_>,
+    env: &Env,
+    name: &'static str,
+    host: usize,
+    args: &[Value],
+    null: Value,
+) -> Value {
+    let flags = HostFlags {
+        may_error: true,
+        pure: false,
+        touches_memory: true,
+        worker: false,
+        state: StateMask::NONE,
+    };
+    let params: PgVec<'_, Type> = [Type::Ptr, Type::Ptr]
+        .into_iter()
+        .chain(args[1..].iter().map(|_| Type::I64))
+        .collect_in(env.mcx);
     let h = b.declare_host_once(name, &params[..], Some(Type::I64), host, flags);
     let (rs, buf) = (b.declare_stack_slot(16, 8), b.declare_stack_slot(128, 8));
     let (l_call, l_join) = (b.create_block(&[]), b.create_block(&[Type::I64]));
@@ -116,11 +142,16 @@ pub(crate) fn host_final(b: &mut FunctionBuilder<'_>, env: &Env, name: &'static 
     let end = b.ptr_add(p, env.zero, 1, 128);
     b.store(r, 0, p);
     b.store(r, 8, end);
-    let all: PgVec<'_, Value> = core::iter::once(r).chain(args.iter().copied()).collect_in(env.mcx);
+    let all: PgVec<'_, Value> = core::iter::once(r)
+        .chain(args.iter().copied())
+        .collect_in(env.mcx);
     let v = b.call_host(h, &all[..], Some(Type::I64)).unwrap();
     let failed = b.icmp(IntCond::Eq, v, env.zero);
     let l_ok = b.create_block(&[]);
-    let e = b.iconst(Type::I64, gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64);
+    let e = b.iconst(
+        Type::I64,
+        gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64,
+    );
     b.cond_br(failed, (env.l_raise, &[e]), (l_ok, &[]));
     b.switch_to(l_ok);
     b.br(l_join, &[v]);
@@ -134,9 +165,21 @@ pub(crate) fn raise(b: &mut FunctionBuilder<'_>, env: &Env, bad: Value) {
     b.mark_cold(l_bad);
     b.cond_br(bad, (l_bad, &[]), (l_ok, &[]));
     b.switch_to(l_bad);
-    let h = b.declare_host_once("class_num_wide::unreadable", &[], Some(Type::I64), unreadable as *const () as usize, HostFlags { may_error: true, ..HostFlags::default() });
+    let h = b.declare_host_once(
+        "class_num_wide::unreadable",
+        &[],
+        Some(Type::I64),
+        unreadable as *const () as usize,
+        HostFlags {
+            may_error: true,
+            ..HostFlags::default()
+        },
+    );
     b.call_host(h, &[], Some(Type::I64));
-    let e = b.iconst(Type::I64, gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64);
+    let e = b.iconst(
+        Type::I64,
+        gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64,
+    );
     b.br(env.l_raise, &[e]);
     b.switch_to(l_ok);
 }
@@ -149,7 +192,9 @@ mod tests {
 
     /// numeric.c's long image (4-byte varlena header, sign / dscale word, weight, base-10000 digits).
     fn long(neg: bool, dscale: u16, weight: i16, digits: &[u16]) -> Vec<u8> {
-        let mut v = (((4 + 4 + 2 * digits.len()) as u32) << 2).to_le_bytes().to_vec();
+        let mut v = (((4 + 4 + 2 * digits.len()) as u32) << 2)
+            .to_le_bytes()
+            .to_vec();
         v.extend((if neg { 0x4000 } else { 0 } | dscale).to_le_bytes());
         v.extend(weight.to_le_bytes());
         digits.iter().for_each(|d| v.extend(d.to_le_bytes()));
@@ -168,7 +213,14 @@ mod tests {
     fn run(img: &[u8], at: usize, scale: i64, mult: i64) -> Result<i128, i64> {
         let mut out = [0u64; 4];
         // SAFETY: `img[at..]` is a numeric image; `out` four words.
-        let code = unsafe { term(img[at..].as_ptr() as u64, scale, mult, out.as_mut_ptr() as u64) };
+        let code = unsafe {
+            term(
+                img[at..].as_ptr() as u64,
+                scale,
+                mult,
+                out.as_mut_ptr() as u64,
+            )
+        };
         let top = ((out[3] as u128) << 64 | out[2] as u128) as i128;
         match code {
             0 => {
@@ -188,26 +240,47 @@ mod tests {
         assert_eq!(run(&v, 0, 6, 1), Ok(12_345_678_900));
         assert_eq!(run(&v, 0, 8, 1), Ok(1_234_567_890_000));
         assert_eq!(run(&v, 0, 6, 3), Ok(37_037_036_700));
-        assert_eq!(run(&v, 0, 3, 1), Err(UNREADABLE), "6789 has digits below 10^-3");
+        assert_eq!(
+            run(&v, 0, 3, 1),
+            Err(UNREADABLE),
+            "6789 has digits below 10^-3"
+        );
         assert_eq!(run(&long(true, 2, 0, &[7, 2500]), 0, 6, 1), Ok(-7_250_000));
         assert_eq!(run(&short(true, 2, 0, &[7, 2500]), 1, 6, 1), Ok(-7_250_000));
         assert_eq!(run(&short(false, 0, 0, &[]), 1, 6, 1), Ok(0));
         // a 55-digit product: 10^54 (digit 100 at weight 13) at scale 0 and 6
         let big = long(false, 0, 13, &[100]);
         let mut out = [0u64; 4];
-        assert_eq!(unsafe { term(big.as_ptr() as u64, 6, 1, out.as_mut_ptr() as u64) }, 0);
+        assert_eq!(
+            unsafe { term(big.as_ptr() as u64, 6, 1, out.as_mut_ptr() as u64) },
+            0
+        );
         let mut m = [1u64, 0, 0, 0];
         (0..60).for_each(|_| assert!(wide_mul_add(&mut m, 10, 0)));
         assert_eq!(out, m, "10^60 exactly");
         // past 2^254 (about 2.9e76): 10^77 is OVERFLOW
-        assert_eq!(unsafe { term(long(false, 0, 19, &[10]).as_ptr() as u64, 0, 1, out.as_mut_ptr() as u64) }, SP_OVERFLOW);
+        assert_eq!(
+            unsafe {
+                term(
+                    long(false, 0, 19, &[10]).as_ptr() as u64,
+                    0,
+                    1,
+                    out.as_mut_ptr() as u64,
+                )
+            },
+            SP_OVERFLOW
+        );
         for (h, code) in [(0xC000u16, SP_NAN), (0xD000, SP_PINF), (0xF000, SP_NINF)] {
             let mut s = 24u32.to_le_bytes().to_vec();
             s.extend(h.to_le_bytes());
             s.extend([0u8; 18]);
             assert_eq!(run(&s, 0, 6, 1), Err(code));
         }
-        assert_eq!(run(&[1u8, 18, 0, 0], 0, 6, 1), Err(UNREADABLE), "a toast pointer");
+        assert_eq!(
+            run(&[1u8, 18, 0, 0], 0, 6, 1),
+            Err(UNREADABLE),
+            "a toast pointer"
+        );
     }
 
     /// Two specials codes add as PostgreSQL adds them (NaN wins, opposite infinities NaN, OVERFLOW loses to either).

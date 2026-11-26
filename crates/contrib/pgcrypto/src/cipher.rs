@@ -206,7 +206,11 @@ fn prepare_key(kind: CipherKind, key: &[u8]) -> Option<Vec<u8>> {
         // BF_set_key cycles key[0] and CAST_set_key zero-fills, so an empty
         // key schedules like the one-byte zero key.
         CipherKind::Bf => {
-            let key = if key.is_empty() { &[0u8][..] } else { &key[..key.len().min(56)] };
+            let key = if key.is_empty() {
+                &[0u8][..]
+            } else {
+                &key[..key.len().min(56)]
+            };
             // OpenSSL BF_set_key cycles the key through the P-array; RustCrypto
             // rejects len<4. Repeat to the smallest multiple >=4 to reproduce
             // the exact cycling (period = orig len) byte-for-byte.
@@ -226,7 +230,11 @@ fn prepare_key(kind: CipherKind, key: &[u8]) -> Option<Vec<u8>> {
             }
         }
         CipherKind::Cast5 => {
-            let key = if key.is_empty() { &[0u8][..] } else { &key[..key.len().min(16)] };
+            let key = if key.is_empty() {
+                &[0u8][..]
+            } else {
+                &key[..key.len().min(16)]
+            };
             // OpenSSL CAST5 zero-pads a <=10-byte "small key" to 16; RustCrypto
             // rejects len<5. Zero-pad up to 5 to keep the small-key schedule.
             if key.len() >= 5 {
@@ -395,22 +403,31 @@ mod tests {
     fn oversized_input_is_refused_at_the_result_palloc() {
         let data = vec![0u8; 1073741308];
         match encrypt("aes", &[0u8; 16], &[], &data) {
-            Err(CipherError::Pg(e)) => assert_eq!(e.message, "invalid memory alloc request size 1073741824"),
+            Err(CipherError::Pg(e)) => {
+                assert_eq!(e.message, "invalid memory alloc request size 1073741824")
+            }
             _ => panic!("expected the alloc-size error"),
         }
-        assert!(matches!(encrypt("nope", &[0u8; 16], &[], &data), Err(CipherError::NoCipher(_))));
+        assert!(matches!(
+            encrypt("nope", &[0u8; 16], &[], &data),
+            Err(CipherError::NoCipher(_))
+        ));
     }
 
     #[test]
     fn blowfish_ecb_known_answer() {
-        let ct = encrypt("bf-ecb/pad:none", &[0u8; 8], &[], &[0u8; 8]).map_err(|_| ()).unwrap();
+        let ct = encrypt("bf-ecb/pad:none", &[0u8; 8], &[], &[0u8; 8])
+            .map_err(|_| ())
+            .unwrap();
         assert_eq!(hex(&ct), "4ef997456198dd78");
     }
 
     // Standard single-DES ECB KAT (all-zero key+block).
     #[test]
     fn des_ecb_known_answer() {
-        let ct = encrypt("des-ecb/pad:none", &[0u8; 8], &[], &[0u8; 8]).map_err(|_| ()).unwrap();
+        let ct = encrypt("des-ecb/pad:none", &[0u8; 8], &[], &[0u8; 8])
+            .map_err(|_| ())
+            .unwrap();
         assert_eq!(hex(&ct), "8ca64de9c1b123a7");
     }
 
@@ -429,6 +446,9 @@ mod tests {
 
     #[test]
     fn unknown_cipher_errors() {
-        assert!(matches!(encrypt("nope-cbc", &[0u8; 8], &[], &[0u8; 8]), Err(CipherError::NoCipher(_))));
+        assert!(matches!(
+            encrypt("nope-cbc", &[0u8; 8], &[], &[0u8; 8]),
+            Err(CipherError::NoCipher(_))
+        ));
     }
 }

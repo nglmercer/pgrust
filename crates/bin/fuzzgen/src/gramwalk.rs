@@ -36,8 +36,8 @@
 use crate::stmt::{Gen, StmtKind};
 use gram_core::tables as gt;
 use gram_core::tables::names::YYTNAME;
-use scan_fgram::tokens as tk;
 use pgsync::OnceLock;
+use scan_fgram::tokens as tk;
 
 /// How one terminal class renders. Literal-valued classes draw a concrete
 /// lexeme from a pool at emission time.
@@ -70,7 +70,9 @@ const SELF_CHARS: &[u8] = b",()[].;:+-*/%^<>=";
 
 /// Multi-char operators scan.l lexes as Op (none end in +/- after a
 /// non-op char, none embed comment starters).
-const OP_POOL: &[&str] = &["~", "!~", "@>", "<@", "&&", "||", "##", "<->", "@@", "#", "?", "&"];
+const OP_POOL: &[&str] = &[
+    "~", "!~", "@>", "<@", "&&", "||", "##", "<->", "@@", "#", "?", "&",
+];
 
 const IDENT_POOL: &[&str] = &["gw_a", "gw_b", "gw_c", "v0", "q7", "zz"];
 const SCONST_POOL: &[&str] = &["x", "a b", "1", "2024-01-01", "on", "{1,2}"];
@@ -123,9 +125,12 @@ fn build_alphabet() -> Vec<TokDef> {
     let mut defs: Vec<TokDef> = Vec::new();
     for &c in SELF_CHARS {
         if gt::yytranslate(c as i32) != gt::YYUNDEFTOK {
-            let s: &'static str =
-                Box::leak(String::from_utf8(vec![c]).unwrap().into_boxed_str());
-            defs.push(TokDef { code: c as i32, class: Class::Chr, fixed: s });
+            let s: &'static str = Box::leak(String::from_utf8(vec![c]).unwrap().into_boxed_str());
+            defs.push(TokDef {
+                code: c as i32,
+                class: Class::Chr,
+                fixed: s,
+            });
         }
     }
     // Keywords: scanner keyword list x token codes (first spelling wins for
@@ -136,7 +141,11 @@ fn build_alphabet() -> Vec<TokDef> {
             continue;
         }
         let text = keywords::keyword_text(n).expect("keyword text");
-        defs.push(TokDef { code, class: Class::Kw, fixed: text });
+        defs.push(TokDef {
+            code,
+            class: Class::Kw,
+            fixed: text,
+        });
     }
     for code in [
         tk::TYPECAST,
@@ -152,7 +161,11 @@ fn build_alphabet() -> Vec<TokDef> {
         tk::WITH_LA,
         tk::WITHOUT_LA,
     ] {
-        defs.push(TokDef { code, class: Class::Special, fixed: special_lexeme(code).unwrap() });
+        defs.push(TokDef {
+            code,
+            class: Class::Special,
+            fixed: special_lexeme(code).unwrap(),
+        });
     }
     for (code, class) in [
         (tk::IDENT, Class::Ident),
@@ -164,7 +177,11 @@ fn build_alphabet() -> Vec<TokDef> {
         (tk::PARAM, Class::Param),
         (tk::Op, Class::Op),
     ] {
-        defs.push(TokDef { code, class, fixed: "" });
+        defs.push(TokDef {
+            code,
+            class,
+            fixed: "",
+        });
     }
     // Excluded on purpose (their productions get infinite cost): MODE_*
     // (parser-injected), UIDENT/USCONST/UESCAPE-composites (base_yylex
@@ -183,7 +200,10 @@ fn grammar() -> &'static Grammar {
         let mut def_of_internal: Vec<Option<usize>> = vec![None; ntokens];
         for (i, d) in defs.iter().enumerate() {
             let internal = gt::yytranslate(d.code) as usize;
-            assert!(def_of_internal[internal].is_none(), "alphabet collision at {internal}");
+            assert!(
+                def_of_internal[internal].is_none(),
+                "alphabet collision at {internal}"
+            );
             def_of_internal[internal] = Some(i);
         }
 
@@ -208,7 +228,11 @@ fn grammar() -> &'static Grammar {
         let mut mincost: Vec<u32> = (0..nsyms)
             .map(|s| {
                 if s < ntokens {
-                    if def_of_internal[s].is_some() { 1 } else { u32::MAX }
+                    if def_of_internal[s].is_some() {
+                        1
+                    } else {
+                        u32::MAX
+                    }
                 } else {
                     u32::MAX
                 }
@@ -247,7 +271,15 @@ fn grammar() -> &'static Grammar {
             .position(|&n| n == "stmt")
             .expect("stmt nonterminal");
         assert!(entry >= ntokens && mincost[entry] != u32::MAX);
-        Grammar { defs, def_of_internal, rhs, rules_of, mincost, witness, entry }
+        Grammar {
+            defs,
+            def_of_internal,
+            rhs,
+            rules_of,
+            mincost,
+            witness,
+            entry,
+        }
     })
 }
 
@@ -303,7 +335,11 @@ fn walk_statement(g: &mut Gen) -> String {
     let gr = grammar();
     let budget = match g.weights.pick(
         g.rng,
-        &["gramwalk:len:short", "gramwalk:len:mid", "gramwalk:len:long"],
+        &[
+            "gramwalk:len:short",
+            "gramwalk:len:mid",
+            "gramwalk:len:long",
+        ],
     ) {
         "gramwalk:len:long" => 60 + g.rng.below(60),
         "gramwalk:len:mid" => 24 + g.rng.below(24),
@@ -335,8 +371,7 @@ fn walk_statement(g: &mut Gen) -> String {
                 .iter()
                 .copied()
                 .filter(|&r| {
-                    rule_uses[r] < RULE_CAP
-                        && gr.rhs[r].iter().all(|&s| gr.mincost[s] != u32::MAX)
+                    rule_uses[r] < RULE_CAP && gr.rhs[r].iter().all(|&s| gr.mincost[s] != u32::MAX)
                 })
                 .collect();
             if cands.is_empty() {
@@ -348,11 +383,10 @@ fn walk_statement(g: &mut Gen) -> String {
                 // and literals flowing without a full grammar-cost model.
                 let leaf_names: Vec<&str> = cands
                     .iter()
-                    .filter(|&&c|gr.rhs[c].len() == 1 && gr.rhs[c][0] < gt::YYNTOKENS as usize)
-                            .map(|&c|
-                                class_weight_name(
-                                    gr.defs[gr.def_of_internal[gr.rhs[c][0]].unwrap()].class,
-                                ))
+                    .filter(|&&c| gr.rhs[c].len() == 1 && gr.rhs[c][0] < gt::YYNTOKENS as usize)
+                    .map(|&c| {
+                        class_weight_name(gr.defs[gr.def_of_internal[gr.rhs[c][0]].unwrap()].class)
+                    })
                     .collect();
                 if leaf_names.len() == cands.len() && leaf_names.len() > 1 {
                     let want = g.weights.pick(g.rng, &leaf_names);
@@ -670,8 +704,8 @@ pub fn sanitize_alter_system_guc_names(sql: &str) -> String {
     }
     match next_word(&mut i) {
         Some((s, e))
-            if sql[s..e].eq_ignore_ascii_case("set")
-                || sql[s..e].eq_ignore_ascii_case("reset") => {}
+            if sql[s..e].eq_ignore_ascii_case("set") || sql[s..e].eq_ignore_ascii_case("reset") => {
+        }
         _ => return sql.to_string(),
     }
     // Parse the dotted GUC name: word (. word)*, spaces optional around
@@ -881,9 +915,7 @@ pub fn rebase_role_names(sql: &str, tag: &str) -> String {
                     // OWNED BY, membership lists) still pass through:
                     // memberships are pairwise batch-unique rows, and
                     // pass-through keeps their coverage.
-                    "current_user" | "current_role" | "session_user" | "all"
-                        if role_ddl_slot =>
-                    {
+                    "current_user" | "current_role" | "session_user" | "all" if role_ddl_slot => {
                         mode = Mode::AfterName;
                         let mut rebased = format!("{tag}_{lower}");
                         rebased.truncate(63);
@@ -1013,7 +1045,11 @@ mod tests {
     fn grammar_tables_are_coherent() {
         let gr = grammar();
         assert!(gr.defs.len() > 450, "alphabet too small: {}", gr.defs.len());
-        assert!(gr.mincost[gr.entry] <= 2, "stmt mincost {}", gr.mincost[gr.entry]);
+        assert!(
+            gr.mincost[gr.entry] <= 2,
+            "stmt mincost {}",
+            gr.mincost[gr.entry]
+        );
         for (nt, &w) in gr.witness.iter().enumerate() {
             let sym = nt + gt::YYNTOKENS as usize;
             if gr.mincost[sym] == u32::MAX {
@@ -1047,7 +1083,11 @@ mod tests {
             if r.is_ok() {
                 ok += 1;
             } else if std::env::var_os("GRAMWALK_DEBUG").is_some() {
-                eprintln!("PARSE_FAIL {:?} => {}", r.err().map(|e| e.message.clone()), sql);
+                eprintln!(
+                    "PARSE_FAIL {:?} => {}",
+                    r.err().map(|e| e.message.clone()),
+                    sql
+                );
             }
         }
         assert!(
@@ -1091,7 +1131,10 @@ mod tests {
             "alter database fuzz_gw_71_3_template1 refresh collation version ;"
         );
         // No operand (derivation closed early): nothing to rewrite.
-        assert_eq!(rebase_database_names("drop database ;", t), "drop database ;");
+        assert_eq!(
+            rebase_database_names("drop database ;", t),
+            "drop database ;"
+        );
         // Non-database statements never change.
         let s = "select k_int from fz_scalar order by 1 ;";
         assert_eq!(rebase_database_names(s, t), s.to_string());
@@ -1119,10 +1162,7 @@ mod tests {
             "CREATE TABLESPACE fuzz_dd_71_3_dd_ts LOCATION '';"
         );
         assert_eq!(
-            rebase_tablespace_names(
-                "CREATE TABLE dd_tsp (a int, b text) TABLESPACE dd_ts;",
-                t
-            ),
+            rebase_tablespace_names("CREATE TABLE dd_tsp (a int, b text) TABLESPACE dd_ts;", t),
             "CREATE TABLE dd_tsp (a int, b text) TABLESPACE fuzz_dd_71_3_dd_ts;"
         );
         assert_eq!(
@@ -1180,7 +1220,10 @@ mod tests {
         let s = "ALTER TABLE fz_scalar RENAME TO zz;";
         assert_eq!(rebase_tablespace_names(s, t), s.to_string());
         // No operand: nothing to rewrite.
-        assert_eq!(rebase_tablespace_names("DROP TABLESPACE ;", t), "DROP TABLESPACE ;");
+        assert_eq!(
+            rebase_tablespace_names("DROP TABLESPACE ;", t),
+            "DROP TABLESPACE ;"
+        );
         // 63-byte identifier bound holds.
         let long = rebase_tablespace_names(
             "DROP TABLESPACE abcdefghijklmnopqrstuvwxyz0123456789 ;",
@@ -1204,10 +1247,15 @@ mod tests {
             "create role fuzz_gw_71_3_trim with in group current_user , \
              fuzz_gw_71_3_collation ;"
         );
-        assert_eq!(f("alter user trim with ;"), "alter user fuzz_gw_71_3_trim with ;");
+        assert_eq!(
+            f("alter user trim with ;"),
+            "alter user fuzz_gw_71_3_trim with ;"
+        );
         // CREATE/ALTER/DROP ROLE|USER|GROUP, IF EXISTS, name lists.
-        assert_eq!(f("drop role if exists zz , v0 ;"),
-            "drop role if exists fuzz_gw_71_3_zz , fuzz_gw_71_3_v0 ;");
+        assert_eq!(
+            f("drop role if exists zz , v0 ;"),
+            "drop role if exists fuzz_gw_71_3_zz , fuzz_gw_71_3_v0 ;"
+        );
         assert_eq!(f("drop group q7 ;"), "drop group fuzz_gw_71_3_q7 ;");
         // ALTER GROUP ... ADD/DROP USER lists.
         assert_eq!(
@@ -1265,8 +1313,10 @@ mod tests {
              fuzz_gw_71_3_q7 ;"
         );
         // DROP/REASSIGN OWNED role lists (with REASSIGN's TO target)...
-        assert_eq!(f("drop owned by v0 , zz cascade ;"),
-            "drop owned by fuzz_gw_71_3_v0 , fuzz_gw_71_3_zz cascade ;");
+        assert_eq!(
+            f("drop owned by v0 , zz cascade ;"),
+            "drop owned by fuzz_gw_71_3_v0 , fuzz_gw_71_3_zz cascade ;"
+        );
         assert_eq!(
             f("reassign owned by v0 to zz ;"),
             "reassign owned by fuzz_gw_71_3_v0 to fuzz_gw_71_3_zz ;"
@@ -1362,8 +1412,7 @@ mod tests {
             let is_alter_system = toks.len() >= 3
                 && toks[0].eq_ignore_ascii_case("alter")
                 && toks[1].eq_ignore_ascii_case("system")
-                && (toks[2].eq_ignore_ascii_case("set")
-                    || toks[2].eq_ignore_ascii_case("reset"));
+                && (toks[2].eq_ignore_ascii_case("set") || toks[2].eq_ignore_ascii_case("reset"));
             if !is_alter_system {
                 continue;
             }
@@ -1387,7 +1436,10 @@ mod tests {
                     None => break,
                 }
             }
-            assert!(comps <= 2, "poison {comps}-component GUC name survived: {sql}");
+            assert!(
+                comps <= 2,
+                "poison {comps}-component GUC name survived: {sql}"
+            );
         }
     }
 

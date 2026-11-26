@@ -15,14 +15,14 @@ use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{IntBinOp, IntCond, Type, Value};
 use types_nodes::Node;
 
+use crate::admit::refusal::{Reason, ShapeWhy};
+use crate::face::kinds::Face;
 use crate::face::step::ExprFace;
 use crate::frame::env::Env;
-use crate::face::kinds::Face;
 use crate::frame::px::{runs_word, ExId, Px, WordKey};
 use crate::frame::row::{Carry, RowVals};
 use crate::graph::Gx;
 use crate::rerun::params::{NULL, SET};
-use crate::admit::refusal::{Reason, ShapeWhy};
 
 /// A computed bound: expr.core's expression, its plan node, and the per-open words `[value, flags]` a step keeps it in
 /// (`None`: evaluated where it is read, which the reader does once per open: the top-k end's open).
@@ -41,7 +41,15 @@ pub fn computed(b: &Bound<'_>) -> bool {
 /// D1634: top pipeline `p`'s words `[value, flags]` for its bound `which` (0 count, 1 offset), reset at `p`'s open (its end
 /// declares them) and written by the first read: one evaluation per open of the top.
 pub fn top_words(px: &mut Px<'_, '_>, p: usize, which: u8) -> [i32; 2] {
-    let mut w = |i: u8| px.frame_word(WordKey::Open { face: Face::Runs, k: p, j: u64::MAX, i }) as i32 * 8;
+    let mut w = |i: u8| {
+        px.frame_word(WordKey::Open {
+            face: Face::Runs,
+            k: p,
+            j: u64::MAX,
+            i,
+        }) as i32
+            * 8
+    };
     let i = runs_word::TOP_BOUND + 2 * which;
     [w(i), w(i + 1)]
 }
@@ -52,11 +60,15 @@ pub fn top_words(px: &mut Px<'_, '_>, p: usize, which: u8) -> [i32; 2] {
 /// of evaluating it a second time.
 pub fn top_below(gx: &Gx<'_, '_>, k: usize, b: &Bound<'_>, which: u8) -> Option<usize> {
     let Bound::Expr(e) = *b else { return None };
-    let Source::Breaker { slot } = gx.pipelines()[k].source else { return None };
+    let Source::Breaker { slot } = gx.pipelines()[k].source else {
+        return None;
+    };
     let p = gx.life_of(k, slot)?.0 as usize;
     let top = gx.pipelines()[p].ops.iter().find_map(|op| match op {
         Op::Sort(sd) => match &sd.form {
-            SortForm::TopK { count, offset, .. } | SortForm::Walk { count, offset, .. } => Some(if which == 0 { count } else { offset }),
+            SortForm::TopK { count, offset, .. } | SortForm::Walk { count, offset, .. } => {
+                Some(if which == 0 { count } else { offset })
+            }
             SortForm::Runs => None,
         },
         _ => None,
@@ -65,8 +77,10 @@ pub fn top_below(gx: &Gx<'_, '_>, k: usize, b: &Bound<'_>, which: u8) -> Option<
     // D3538: a top whose words a reader's frame sees once (lifetime/bound.rs `open_words`: a sectioned member) is not read:
     // the Limit then reads its own words, reset at its own open, so the bound is evaluated twice per run, over no row and
     // no call that shows (`admit`'s forms)
-    let at_each_run = crate::lifetime::bound::open_words(gx, p, k) == crate::lifetime::bound::BoundAt::Rescan;
-    (same && at_each_run && (crate::lifetime::bound::rebinds(gx, p, top) || computed(top))).then_some(p)
+    let at_each_run =
+        crate::lifetime::bound::open_words(gx, p, k) == crate::lifetime::bound::BoundAt::Rescan;
+    (same && at_each_run && (crate::lifetime::bound::rebinds(gx, p, top) || computed(top)))
+        .then_some(p)
 }
 
 /// ops/limit/lower.rs `make`: the first WITH TIES key word's index when the Limit's four computed-bound words take 3..=6 (a
@@ -84,7 +98,11 @@ pub fn admit<'p>(px: &mut Px<'_, 'p>, e: Node<'p>, node: i32, words: Option<[i32
         crate::rerun::params_key::beside(px.gx, node);
     }
     let ex: &'static ExprFace = crate::frame::iface::expr_face(&node);
-    Computed { ex: ex.0.compile(px, e, None, node), node, words }
+    Computed {
+        ex: ex.0.compile(px, e, None, node),
+        node,
+        words,
+    }
 }
 
 impl Computed {
@@ -101,7 +119,11 @@ impl Computed {
         };
         let (flags, set) = (env.load_word(b, wf), b.iconst(Type::I64, SET));
         let seen = b.int_bin(IntBinOp::And, flags, set);
-        let (fresh, l_eval, l_read) = (b.icmp(IntCond::Eq, seen, env.zero), b.create_block(&[]), b.create_block(&[]));
+        let (fresh, l_eval, l_read) = (
+            b.icmp(IntCond::Eq, seen, env.zero),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         b.cond_br(fresh, (l_eval, &[]), (l_read, &[]));
         b.switch_to(l_eval);
         let memo = env.memo.set_aside(); // the evaluation's reads do not dominate `l_read`
@@ -113,14 +135,25 @@ impl Computed {
         env.store_word(b, wf, f);
         b.br(l_read, &[]);
         b.switch_to(l_read);
-        let (v, f, n) = (env.load_word(b, wv), env.load_word(b, wf), b.iconst(Type::I64, NULL));
+        let (v, f, n) = (
+            env.load_word(b, wv),
+            env.load_word(b, wf),
+            b.iconst(Type::I64, NULL),
+        );
         let null = b.int_bin(IntBinOp::And, f, n);
         (v, Some(b.icmp(IntCond::Ne, null, env.zero)))
     }
 
     /// expr.core's value over no row (an executor parameter from its words, an InitPlan's run at first use), raising there.
     fn eval(&self, b: &mut FunctionBuilder<'_>, env: &mut Env) -> (Value, Value) {
-        let none = RowVals { row: crate::cell::Row::new_in(env.mcx), vals: mcx::PgVec::new_in(env.mcx), cols: mcx::PgVec::new_in(env.mcx), carry: Carry::new(env.zero, env.mcx), next: env.zero, at: env.zero };
+        let none = RowVals {
+            row: crate::cell::Row::new_in(env.mcx),
+            vals: mcx::PgVec::new_in(env.mcx),
+            cols: mcx::PgVec::new_in(env.mcx),
+            carry: Carry::new(env.zero, env.mcx),
+            next: env.zero,
+            at: env.zero,
+        };
         let ex: &'static ExprFace = crate::frame::iface::expr_face(&self.node);
         let (v, valid) = ex.0.emit(b, env, self.node, &none, self.ex);
         let t = b.bconst(true);
@@ -128,4 +161,3 @@ impl Computed {
         (b.select(null, env.zero, v), null)
     }
 }
-

@@ -20,7 +20,10 @@ crate::strategies! {
     PREFETCH_FP = 39, "prefetch.fp", CodeKeyed;
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(PREFETCH_FP, &())], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(PREFETCH_FP, &())],
+    ..crate::ops::NONE
+};
 
 /// The distance in rows (the ladder's).
 pub(crate) const KEY_PF: i64 = 16;
@@ -35,15 +38,23 @@ pub(crate) fn ahead(b: &mut FunctionBuilder<'_>, env: &mut Env, j: Value, keys: 
     // a selected body gathers through its site's selection, and only when some key's code lane is the window's
     let sel = match env.body.nosel {
         true => None,
-        false => match (env.site, keys.iter().any(|&(a, _)| env.codes.iter().any(|c| c.attno == a))) {
+        false => match (
+            env.site,
+            keys.iter()
+                .any(|&(a, _)| env.codes.iter().any(|c| c.attno == a)),
+        ) {
             (Some(k), true) => Some(k),
             _ => return,
         },
     };
-    let Some(ja) = crate::frame::prefetch::row_ahead(b, env, j, KEY_PF) else { return };
+    let Some(ja) = crate::frame::prefetch::row_ahead(b, env, j, KEY_PF) else {
+        return;
+    };
     let ja = sel.map_or(ja, |k| sel_row(b, env, k, ja));
     for &(attno, t) in keys {
-        let Some(c) = env.codes.iter().find(|c| c.attno == attno) else { continue };
+        let Some(c) = env.codes.iter().find(|c| c.attno == attno) else {
+            continue;
+        };
         let lane = c.lane;
         let code = code_at(b, &lane, ja);
         let e = crate::rep::code::hash::fp_entry(b, tables, t, code);
@@ -69,8 +80,19 @@ fn sel_row(b: &mut FunctionBuilder<'_>, env: &Env, k: usize, ja: Value) -> Value
 }
 
 /// A text-key run opening with KeyHash word `h`: its home slot and neighbour hinted in `table` (prefetch.rs `home`).
-#[expect(dead_code, reason = "no keyed run opening calls it yet (lowerv2-final hinted the text-key home slot, D058)")]
-pub(crate) fn home_at_open(b: &mut FunctionBuilder<'_>, env: &mut Env, h: Value, table: Value, cap_bits: Bits, used: Bits, rec: u32) {
+#[expect(
+    dead_code,
+    reason = "no keyed run opening calls it yet (lowerv2-final hinted the text-key home slot, D058)"
+)]
+pub(crate) fn home_at_open(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    h: Value,
+    table: Value,
+    cap_bits: Bits,
+    used: Bits,
+    rec: u32,
+) {
     if env.applies(PREFETCH_FP) {
         crate::frame::prefetch::home(b, env, h, table, cap_bits, used, rec, None);
     }

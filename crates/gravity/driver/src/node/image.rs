@@ -7,7 +7,19 @@ use super::*;
 /// `NumSideMin` / `NumSideMax`): its owners take the image cut of the share.
 pub fn program_images(program: &Program) -> bool {
     use gravity_abi::breaker::SlotKind;
-    program.pipelines.iter().any(|p| p.owner.as_ref().is_some_and(|o| o.layout.slot_kinds().iter().any(|k| matches!(k, SlotKind::MinVar | SlotKind::MaxVar | SlotKind::NumSideMin | SlotKind::NumSideMax))))
+    program.pipelines.iter().any(|p| {
+        p.owner.as_ref().is_some_and(|o| {
+            o.layout.slot_kinds().iter().any(|k| {
+                matches!(
+                    k,
+                    SlotKind::MinVar
+                        | SlotKind::MaxVar
+                        | SlotKind::NumSideMin
+                        | SlotKind::NumSideMax
+                )
+            })
+        })
+    })
 }
 
 pub(crate) const fn round8(n: usize) -> usize {
@@ -22,16 +34,34 @@ pub(crate) enum Role {
 
 /// The widest `Pipeline.consumes` of the program: the `Partials.more` table's entries.
 pub(crate) fn max_consumes(program: &Program) -> usize {
-    program.pipelines.iter().map(|p| p.consumes.len()).max().unwrap_or(0)
+    program
+        .pipelines
+        .iter()
+        .map(|p| p.consumes.len())
+        .max()
+        .unwrap_or(0)
 }
 
 pub(crate) fn image_bytes(program: &Program, derive: &dyn Derive, role: Role) -> usize {
     let l = program.layout;
     let nsites = program.sites.len();
     let out = l.out_rows as usize * l.out_natts as usize;
-    let mut bytes = l.ctx_size() + round8(out * 8) + round8(out) + round8(program.out_region as usize) + round8(l.scratch_bytes as usize) + PARTIALS_SIZE + 8 * max_consumes(program) + IDENTITY_SIZE + 8 * program.instr.len();
+    let mut bytes = l.ctx_size()
+        + round8(out * 8)
+        + round8(out)
+        + round8(program.out_region as usize)
+        + round8(l.scratch_bytes as usize)
+        + PARTIALS_SIZE
+        + 8 * max_consumes(program)
+        + IDENTITY_SIZE
+        + 8 * program.instr.len();
     for d in program.sites.iter() {
-        bytes += round8(d.natts() * 8) + round8(d.natts()) + round8(d.nkeys() * 8) + round8(d.nkeys()) + d.nlanes() * LANE_SIZE + d.arena_bytes();
+        bytes += round8(d.natts() * 8)
+            + round8(d.natts())
+            + round8(d.nkeys() * 8)
+            + round8(d.nkeys())
+            + d.nlanes() * LANE_SIZE
+            + d.arena_bytes();
         if d.is_source() {
             bytes += round8(derive.size_hint(d)) + 8;
         }
@@ -40,10 +70,16 @@ pub(crate) fn image_bytes(program: &Program, derive: &dyn Derive, role: Role) ->
         if program.write.cmd.writes() {
             bytes += round8(derive.writer_size_hint()) + 8;
         }
-        bytes += program.writes.len() * (round8(derive.writer_size_hint()) + 8) + round8(program.writes.len() * size_of::<(u32, ArenaBox<dyn Writer>)>());
-        bytes += nlocks(program) * (round8(derive.locker_size_hint()) + 8) + round8(nlocks(program) * size_of::<LockSlot>());
+        bytes += program.writes.len() * (round8(derive.writer_size_hint()) + 8)
+            + round8(program.writes.len() * size_of::<(u32, ArenaBox<dyn Writer>)>());
+        bytes += nlocks(program) * (round8(derive.locker_size_hint()) + 8)
+            + round8(nlocks(program) * size_of::<LockSlot>());
     }
-    bytes += round8(size_of::<Inner>()) + round8(nsites * size_of::<Option<SourceBox>>()) + round8(nsites * size_of::<SiteDesc>()) + round8(nsites * size_of::<ScanPos>()) + round8(size_of::<SpillTable>());
+    bytes += round8(size_of::<Inner>())
+        + round8(nsites * size_of::<Option<SourceBox>>())
+        + round8(nsites * size_of::<SiteDesc>())
+        + round8(nsites * size_of::<ScanPos>())
+        + round8(size_of::<SpillTable>());
     bytes += round8(nrow_marks(program) * size_of::<RowMark>());
     if cfg!(debug_assertions) {
         bytes += round8(nsites * size_of::<ScanPos>()); // `Inner::positions_eager`
@@ -54,14 +90,25 @@ pub(crate) fn image_bytes(program: &Program, derive: &dyn Derive, role: Role) ->
         // `producers` (an `opened`-wide bit set per slot; D3933: unreserved, it ran an 80-way join's arena out) and the
         // schedule
         let pw = gravity_program::laneset::words_for(np);
-        bytes += round8(nslots * size_of::<SlotRegion>()) + gravity_program::laneset::words_for(nslots) * 8 + pw * 8 + nslots * pw * 8 + crate::lives::Schedule::<ArenaRef>::arena_bytes(program);
+        bytes += round8(nslots * size_of::<SlotRegion>())
+            + gravity_program::laneset::words_for(nslots) * 8
+            + pw * 8
+            + nslots * pw * 8
+            + crate::lives::Schedule::<ArenaRef>::arena_bytes(program);
     }
-    bytes + round8(nregions(nsites) * size_of::<(usize, usize)>()) + round8(l.exec_bytes as usize) + CONTROL_SLACK
+    bytes
+        + round8(nregions(nsites) * size_of::<(usize, usize)>())
+        + round8(l.exec_bytes as usize)
+        + CONTROL_SLACK
 }
 
 /// The program's RowOf mark sites (`Inner::row_marks`).
 fn nrow_marks(program: &Program) -> usize {
-    program.sites.iter().filter(|d| matches!(d.kind, gravity_program::SiteKind::RowOf { .. })).count()
+    program
+        .sites
+        .iter()
+        .filter(|d| matches!(d.kind, gravity_program::SiteKind::RowOf { .. }))
+        .count()
 }
 
 pub(crate) const fn nregions(nsites: usize) -> usize {
@@ -75,7 +122,9 @@ pub(crate) struct Image {
 }
 
 pub(crate) fn owner_ptr(owner: Option<&dyn core::any::Any>) -> *mut u8 {
-    owner.map_or(core::ptr::null_mut(), |o| o as *const dyn core::any::Any as *const u8 as *mut u8)
+    owner.map_or(core::ptr::null_mut(), |o| {
+        o as *const dyn core::any::Any as *const u8 as *mut u8
+    })
 }
 
 thread_local! {
@@ -134,11 +183,18 @@ pub fn owner_running(owner: *const u8) -> bool {
     let o = owner as usize;
     RUNNING.with(|r| {
         let (list, deep) = &*r.borrow();
-        list[..list.len().min(SCANNED)].contains(&o) || (list.len() > SCANNED && deep.contains_key(&o))
+        list[..list.len().min(SCANNED)].contains(&o)
+            || (list.len() > SCANNED && deep.contains_key(&o))
     })
 }
 
-pub(crate) fn build_image(a: ArenaRef, program: &Program, derive: &mut dyn Derive, role: Role, owner: *mut u8) -> Image {
+pub(crate) fn build_image(
+    a: ArenaRef,
+    program: &Program,
+    derive: &mut dyn Derive,
+    role: Role,
+    owner: *mut u8,
+) -> Image {
     let l = program.layout;
     let nsites = program.sites.len();
     let out_rows = l.out_rows as usize;
@@ -156,7 +212,8 @@ pub(crate) fn build_image(a: ArenaRef, program: &Program, derive: &mut dyn Deriv
     let out_region = take(&mut regions, program.out_region as usize);
     let scratch = take(&mut regions, l.scratch_bytes as usize);
     let partials = take(&mut regions, PARTIALS_SIZE) as *mut Partials;
-    let consumed_more = take(&mut regions, 8 * max_consumes(program)) as *mut gravity_abi::Word<*mut u8>;
+    let consumed_more =
+        take(&mut regions, 8 * max_consumes(program)) as *mut gravity_abi::Word<*mut u8>;
     // the breaker regions are buffers beside the arena (`SlotRegion`, `WorkerSlot::fixed_region`): a slot is zeroed when its producer opens
     let identity = take(&mut regions, IDENTITY_SIZE) as *mut Identity;
     // EXPLAIN ANALYZE's counter cells (ENTRY E1): an exec region, so zero at every bind; none for a plain program
@@ -169,8 +226,16 @@ pub(crate) fn build_image(a: ArenaRef, program: &Program, derive: &mut dyn Deriv
         let keys = take(&mut regions, d.nkeys() * 8) as *mut Datum;
         let keys_null = take(&mut regions, d.nkeys());
         let lanes = take(&mut regions, d.nlanes() * LANE_SIZE) as *mut Lane;
-        let s = raw::lay_site(ctx, i, (values, isnull, keys, keys_null, lanes), d.nlanes() as u16); // D1340: table_lane's bound (the array is the descriptor's)
-        regions.push((a.offset_of(s as *const u8) + site::WINDOW_CELLS.0, site::WINDOW_CELLS.1));
+        let s = raw::lay_site(
+            ctx,
+            i,
+            (values, isnull, keys, keys_null, lanes),
+            d.nlanes() as u16,
+        ); // D1340: table_lane's bound (the array is the descriptor's)
+        regions.push((
+            a.offset_of(s as *const u8) + site::WINDOW_CELLS.0,
+            site::WINDOW_CELLS.1,
+        ));
         descs.push(d.copy_in(a));
     }
     let mut positions: ArenaVec<ScanPos> = ArenaVec::with_capacity_in(nsites, a);
@@ -179,8 +244,16 @@ pub(crate) fn build_image(a: ArenaRef, program: &Program, derive: &mut dyn Deriv
     let mut row_marks: ArenaVec<RowMark> = ArenaVec::with_capacity_in(nrow_marks(program), a);
     for (i, d) in program.sites.iter().enumerate() {
         if let gravity_program::SiteKind::RowOf { of } = d.kind {
-            let of_positioned = program.sites.get(of as usize).is_some_and(|o| o.is_positioned());
-            row_marks.push(RowMark { site: i as u32, of: of as u32, of_positioned, taken: ScanPos::NONE });
+            let of_positioned = program
+                .sites
+                .get(of as usize)
+                .is_some_and(|o| o.is_positioned());
+            row_marks.push(RowMark {
+                site: i as u32,
+                of: of as u32,
+                of_positioned,
+                taken: ScanPos::NONE,
+            });
         }
     }
     #[cfg(debug_assertions)]
@@ -195,9 +268,18 @@ pub(crate) fn build_image(a: ArenaRef, program: &Program, derive: &mut dyn Deriv
             // D3014O: a worker's copy of a site a worker probes is the host's worker form (a frozen-image btree probe); a
             // worker's copy of an index-only site the pool reads, its share of the leaf walk; of an ordered site the pool
             // reads in key ranges, its claims' ranges
-            let mut src = if matches!(role, Role::Worker) && (d.worker_probe() || d.leaves() || d.ranges()) { derive.derive_worker_source(d, a) } else { derive.derive_source(d, a) };
+            let mut src =
+                if matches!(role, Role::Worker) && (d.worker_probe() || d.leaves() || d.ranges()) {
+                    derive.derive_worker_source(d, a)
+                } else {
+                    derive.derive_source(d, a)
+                };
             if !d.zone.is_empty() {
-                src.zone(d.zone_preds(), d.filter_lanes.words(), d.answer_lanes.words());
+                src.zone(
+                    d.zone_preds(),
+                    d.filter_lanes.words(),
+                    d.answer_lanes.words(),
+                );
             } else if !d.filter_lanes.is_empty() {
                 // V4R-340: a hit-only site (VERDICT_ELIDE_HIT, no zone predicate) hands the host the filter-only lanes a
                 // condition-cache hit leaves undecoded; no predicate and no answer lane, so nothing is pruned or answered
@@ -212,21 +294,37 @@ pub(crate) fn build_image(a: ArenaRef, program: &Program, derive: &mut dyn Deriv
         });
     }
     let leader = matches!(role, Role::Leader);
-    let writer = if leader && program.write.cmd.writes() { Some(derive.derive_writer(&program.write, a)) } else { None };
-    let mut writers: ArenaVec<(u32, ArenaBox<dyn Writer>)> = ArenaVec::with_capacity_in(if leader { program.writes.len() } else { 0 }, a);
+    let writer = if leader && program.write.cmd.writes() {
+        Some(derive.derive_writer(&program.write, a))
+    } else {
+        None
+    };
+    let mut writers: ArenaVec<(u32, ArenaBox<dyn Writer>)> =
+        ArenaVec::with_capacity_in(if leader { program.writes.len() } else { 0 }, a);
     for w in program.writes.iter().filter(|_| leader) {
-        let key = if w.plan.conflict == gravity_program::Conflict::Update { w.site | crate::hostimpl::dml::OWNS_NEXT } else { w.site };
+        let key = if w.plan.conflict == gravity_program::Conflict::Update {
+            w.site | crate::hostimpl::dml::OWNS_NEXT
+        } else {
+            w.site
+        };
         writers.push((key, derive.derive_writer_beside(&w.plan, w.node, a)));
     }
     // D2605 / D3449: the writers that bind at their CTE's first pull, or at the execution's turn before their post group
     // (node/ends.rs)
     let lazy = super::ends::lazy_slots(program, writer.is_some(), writers.len());
-    let mut lockers: ArenaVec<LockSlot> = ArenaVec::with_capacity_in(if leader { nlocks(program) } else { 0 }, a);
+    let mut lockers: ArenaVec<LockSlot> =
+        ArenaVec::with_capacity_in(if leader { nlocks(program) } else { 0 }, a);
     if leader && program.write.lock != LockKind::None && program.locks.is_empty() {
-        lockers.push(LockSlot { rel: None, host: derive.derive_locker(&program.write, a) });
+        lockers.push(LockSlot {
+            rel: None,
+            host: derive.derive_locker(&program.write, a),
+        });
     }
     for l in program.locks.iter().filter(|_| leader) {
-        lockers.push(LockSlot { rel: Some(l.relid), host: derive.derive_locker(&l.plan(), a) });
+        lockers.push(LockSlot {
+            rel: Some(l.relid),
+            host: derive.derive_locker(&l.plan(), a),
+        });
     }
     let inner = ArenaBox::new_in(
         Inner {
@@ -247,14 +345,22 @@ pub(crate) fn build_image(a: ArenaRef, program: &Program, derive: &mut dyn Deriv
             scratch,
             scratch_end: raw::region_end(scratch, l.scratch_bytes as usize),
             block: ProgramBlock::NONE,
-            out: Out { values: gravity_abi::word(out_values), isnull: gravity_abi::word(out_isnull), count: 0, cap: out_rows as i64, region: gravity_abi::word(out_region), region_cap: program.out_region as i64, region_len: 0 },
+            out: Out {
+                values: gravity_abi::word(out_values),
+                isnull: gravity_abi::word(out_isnull),
+                count: 0,
+                cap: out_rows as i64,
+                region: gravity_abi::word(out_region),
+                region_cap: program.out_region as i64,
+                region_len: 0,
+            },
             out_home: (out_region, program.out_region as i64),
             chunks: Vec::new(), // alloc: Node
             chunk_next: 0,
-            spills: Vec::new(), // alloc: Node
+            spills: Vec::new(),     // alloc: Node
             owner_maps: Vec::new(), // alloc: Node
             pin_map: (0, 0),
-            bigs: Vec::new(), // alloc: Node
+            bigs: Vec::new(),      // alloc: Node
             work_maps: Vec::new(), // alloc: Node
             op_owner: None,
             feed_owner: None,
@@ -303,12 +409,20 @@ pub(crate) fn build_image(a: ArenaRef, program: &Program, derive: &mut dyn Deriv
     let (env, al) = ArenaBox::into_raw_with_allocator(inner);
     let mut inner = raw::inner_back(env, al);
     inner.block = crate::bind::program_block(role, partials, env as *mut u8, owner);
-    inner.block.instr = gravity_abi::word(if program.instr.is_empty() { core::ptr::null_mut() } else { instr });
+    inner.block.instr = gravity_abi::word(if program.instr.is_empty() {
+        core::ptr::null_mut()
+    } else {
+        instr
+    });
     raw::bind_image(env, ctx, role, (scratch, inner.scratch_end), nsites as u16);
     regions.push((hdr::FLAGS, 4));
     regions.push((hdr::RESUME, 8));
     assert_eq!(regions.len(), nregions(nsites));
-    Image { inner, regions, image_bytes }
+    Image {
+        inner,
+        regions,
+        image_bytes,
+    }
 }
 
 #[cfg(test)]
@@ -341,7 +455,10 @@ mod owner_run_tests {
         let mut runs = Vec::with_capacity(n);
         (0..n).for_each(|i| runs.push(OwnerRun::enter(at(i))));
         assert!((0..n).all(|i| owner_running(at(i))) && !owner_running(at(n)));
-        assert_eq!(super::RUNNING.with(|r| r.borrow().1.len()), n - super::SCANNED);
+        assert_eq!(
+            super::RUNNING.with(|r| r.borrow().1.len()),
+            n - super::SCANNED
+        );
         for again in [at(1), at(n - 1)] {
             let inner = OwnerRun::enter(again);
             drop(inner);
@@ -351,6 +468,9 @@ mod owner_run_tests {
             drop(r);
         }
         assert!((0..n).all(|i| !owner_running(at(i))));
-        assert!(super::RUNNING.with(|r| r.borrow().1.is_empty()), "every counted call came off");
+        assert!(
+            super::RUNNING.with(|r| r.borrow().1.is_empty()),
+            "every counted call came off"
+        );
     }
 }

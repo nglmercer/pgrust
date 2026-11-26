@@ -127,7 +127,6 @@ use mcx::{Mcx, PgString, PgVec};
 use types_core::AttrNumber;
 use types_tuple::NameData;
 
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PgAmopShape {
     pub amopstrategy: i16,
@@ -507,7 +506,6 @@ seam_core::seam!(
 seam_core::seam!(
     pub fn lookup_pg_ts_dict_row(dictid: Oid) -> PgResult<Option<PgTsObjectRow>>
 );
-
 
 seam_core::seam!(
     pub fn lookup_pg_constraint_shape(conoid: Oid) -> PgResult<Option<PgConstraintShape>>
@@ -913,8 +911,7 @@ impl<'mcx> PgStatisticSlotData<'mcx> {
         let img = match self.image {
             None => empty(),
             Some((image, t_len)) => {
-                let img =
-                    lookup_pg_statistic_slot_images::call(self.mcx, image, t_len, self.pos)?;
+                let img = lookup_pg_statistic_slot_images::call(self.mcx, image, t_len, self.pos)?;
                 // A kind/staop mismatch can only be a decode fault: never decode arrays under a stale kind/type.
                 if img.stakind != self.kind || img.staop != self.staop {
                     empty()
@@ -1333,12 +1330,20 @@ pub fn arm_statement_type_rows(rows: &'static [ArmedTypeRow]) {
 
 /// B2: whether `capture_type_row`'s seams are all installed (a backend; a lowering test binary may install only some).
 pub fn type_rows_capturable() -> bool {
-    lookup_pg_type_typcache_shape::is_installed() && pg_type_base_shape::is_installed() && lookup_pg_range_shape::is_installed() && lookup_pg_range_by_multirange::is_installed()
+    lookup_pg_type_typcache_shape::is_installed()
+        && pg_type_base_shape::is_installed()
+        && lookup_pg_range_shape::is_installed()
+        && lookup_pg_range_by_multirange::is_installed()
 }
 
 /// The leader's projection of type `oid` (None: no such type), through the same seams lsyscache and typcache read.
 pub fn capture_type_row(oid: Oid) -> PgResult<Option<ArmedTypeRow>> {
-    let (Some(t), Some(b)) = (lookup_pg_type_typcache_shape::call(oid)?, pg_type_base_shape::call(oid)?) else { return Ok(None) };
+    let (Some(t), Some(b)) = (
+        lookup_pg_type_typcache_shape::call(oid)?,
+        pg_type_base_shape::call(oid)?,
+    ) else {
+        return Ok(None);
+    };
     Ok(Some(ArmedTypeRow {
         oid,
         typlen: t.typlen,
@@ -1353,8 +1358,16 @@ pub fn capture_type_row(oid: Oid) -> PgResult<Option<ArmedTypeRow>> {
         typcollation: t.typcollation,
         typbasetype: b.typbasetype,
         typtypmod: b.typtypmod,
-        range: if t.typtype == b'r' as i8 { lookup_pg_range_shape::call(oid)? } else { None },
-        multirange_range: if t.typtype == b'm' as i8 { lookup_pg_range_by_multirange::call(oid)?.unwrap_or(0) } else { 0 },
+        range: if t.typtype == b'r' as i8 {
+            lookup_pg_range_shape::call(oid)?
+        } else {
+            None
+        },
+        multirange_range: if t.typtype == b'm' as i8 {
+            lookup_pg_range_by_multirange::call(oid)?.unwrap_or(0)
+        } else {
+            0
+        },
     }))
 }
 
@@ -1367,10 +1380,16 @@ pub fn arm_type_rows(rows: &'static [ArmedTypeRow]) {
 /// The armed row of type `oid` on this thread, if a claim armed one (one thread-local read when none is armed).
 #[inline]
 pub fn armed_type_row(oid: Oid) -> Option<&'static ArmedTypeRow> {
-    let rows = ARMED_TYPE_ROWS.try_with(core::cell::Cell::get).unwrap_or(&[]);
-    let stmt = STATEMENT_TYPE_ROWS.try_with(core::cell::Cell::get).unwrap_or(&[]);
+    let rows = ARMED_TYPE_ROWS
+        .try_with(core::cell::Cell::get)
+        .unwrap_or(&[]);
+    let stmt = STATEMENT_TYPE_ROWS
+        .try_with(core::cell::Cell::get)
+        .unwrap_or(&[]);
     if rows.is_empty() && stmt.is_empty() {
         return None;
     }
-    rows.iter().find(|r| r.oid == oid).or_else(|| stmt.iter().find(|r| r.oid == oid))
+    rows.iter()
+        .find(|r| r.oid == oid)
+        .or_else(|| stmt.iter().find(|r| r.oid == oid))
 }

@@ -18,7 +18,10 @@ fn run_child(test_name: &str) -> std::process::Output {
 }
 
 fn frame_lines(stderr: &str) -> Vec<&str> {
-    stderr.lines().filter(|l| l.starts_with("pgrust: frame ")).collect()
+    stderr
+        .lines()
+        .filter(|l| l.starts_with("pgrust: frame "))
+        .collect()
 }
 
 fn assert_crash_report(out: &std::process::Output, sig: i32, name: &str) {
@@ -41,7 +44,10 @@ fn assert_crash_report(out: &std::process::Output, sig: i32, name: &str) {
         "FATAL line format: {fatal}"
     );
     let hex = fatal.rsplit("0x").next().unwrap();
-    assert!(!hex.is_empty() && hex.chars().all(|c| c.is_ascii_hexdigit()), "fault address: {fatal}");
+    assert!(
+        !hex.is_empty() && hex.chars().all(|c| c.is_ascii_hexdigit()),
+        "fault address: {fatal}"
+    );
 
     let anchor = stderr
         .lines()
@@ -55,8 +61,13 @@ fn assert_crash_report(out: &std::process::Output, sig: i32, name: &str) {
     assert!(!frames.is_empty(), "no frame lines; stderr:\n{stderr}");
     assert!(frames.len() <= 64, "frame cap: {}", frames.len());
     for (i, l) in frames.iter().enumerate() {
-        let rest = l.strip_prefix(&format!("pgrust: frame {i}: 0x")).unwrap_or_else(|| panic!("frame line {l}"));
-        assert!(!rest.is_empty() && rest.chars().all(|c| c.is_ascii_hexdigit()), "frame hex: {l}");
+        let rest = l
+            .strip_prefix(&format!("pgrust: frame {i}: 0x"))
+            .unwrap_or_else(|| panic!("frame line {l}"));
+        assert!(
+            !rest.is_empty() && rest.chars().all(|c| c.is_ascii_hexdigit()),
+            "frame hex: {l}"
+        );
         let v = u64::from_str_radix(rest, 16).unwrap();
         assert!(v >= 0x1_0000, "frame below the zero page: {l}");
     }
@@ -117,8 +128,14 @@ fn segv_fault_logs_fatal_line_and_frames() {
     let out = run_child("crash_child_segv_fault");
     assert_crash_report(&out, libc::SIGSEGV, "SIGSEGV");
     let stderr = String::from_utf8_lossy(&out.stderr);
-    let fatal = stderr.lines().find(|l| l.contains("terminated by signal")).unwrap();
-    assert!(fatal.ends_with("fault address 0x0"), "null-deref fault address: {fatal}");
+    let fatal = stderr
+        .lines()
+        .find(|l| l.contains("terminated by signal"))
+        .unwrap();
+    assert!(
+        fatal.ends_with("fault address 0x0"),
+        "null-deref fault address: {fatal}"
+    );
 }
 
 #[test]

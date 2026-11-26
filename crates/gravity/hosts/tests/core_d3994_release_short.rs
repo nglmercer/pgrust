@@ -12,8 +12,12 @@ use std::sync::atomic::AtomicU8;
 use std::sync::Arc;
 
 use gravity_abi::Lane;
-use gravity_driver::{blank_site, BindingRef, CommandId, Identity, PerTuple, Pins, Snapshot, Source, Window};
-use gravity_hosts::ops::scan::pgrc::granule_source::{GranuleRangeSource, GranuleRecipe, PartIoSpec, PartList, PartSpec, Resolved};
+use gravity_driver::{
+    blank_site, BindingRef, CommandId, Identity, PerTuple, Pins, Snapshot, Source, Window,
+};
+use gravity_hosts::ops::scan::pgrc::granule_source::{
+    GranuleRangeSource, GranuleRecipe, PartIoSpec, PartList, PartSpec, Resolved,
+};
 use pgrc_format::dirlayout::part_file_name;
 use pgrc_qa::corpus::{build_fixture, int8_fixture};
 use pgrc_read::{PartExpect, PartRegistry};
@@ -26,20 +30,55 @@ const G: u64 = 1 << 30;
 static FLAG: AtomicU8 = AtomicU8::new(0);
 
 fn binding_ref(resolved: &Resolved) -> BindingRef<'_> {
-    BindingRef { snapshot: Snapshot(0), command_id: CommandId(0), params: &[], abort_flag: &FLAG, pins: Pins(0), per_tuple: PerTuple(0), identity: Identity::default(), resolved: Some(resolved), ordinal: None }
+    BindingRef {
+        snapshot: Snapshot(0),
+        command_id: CommandId(0),
+        params: &[],
+        abort_flag: &FLAG,
+        pins: Pins(0),
+        per_tuple: PerTuple(0),
+        identity: Identity::default(),
+        resolved: Some(resolved),
+        ordinal: None,
+    }
 }
 
 /// Three parts of a 60,000-row int8 fixture.
 fn list() -> Arc<PartList> {
-    let bf = build_fixture(int8_fixture("gravity_d3994_short", REL as u64, ROWS, vec![], PartCutPolicy { max_rows: 20_000, ..PartCutPolicy::default() }, |i| Some((i as i64 * 31) % 1000)));
+    let bf = build_fixture(int8_fixture(
+        "gravity_d3994_short",
+        REL as u64,
+        ROWS,
+        vec![],
+        PartCutPolicy {
+            max_rows: 20_000,
+            ..PartCutPolicy::default()
+        },
+        |i| Some((i as i64 * 31) % 1000),
+    ));
     let specs = bf
         .manifest
         .parts
         .iter()
         .enumerate()
         .map(|(i, rec)| {
-            let bytes = bf.files.get(&part_file_name(rec.part_no)).expect("part file").clone();
-            PartSpec { io: PartIoSpec::Mem { bytes: Arc::from(bytes.as_slice()), dev: 7, ino: 990 + i as u64 }, expect: PartExpect::none(), rows: rec.rows, granules: rec.granule_count, deletes: None, part: None }
+            let bytes = bf
+                .files
+                .get(&part_file_name(rec.part_no))
+                .expect("part file")
+                .clone();
+            PartSpec {
+                io: PartIoSpec::Mem {
+                    bytes: Arc::from(bytes.as_slice()),
+                    dev: 7,
+                    ino: 990 + i as u64,
+                },
+                expect: PartExpect::none(),
+                rows: rec.rows,
+                granules: rec.granule_count,
+                deletes: None,
+                part: None,
+            }
         })
         .collect();
     let list = Arc::new(PartList::new(specs));
@@ -97,11 +136,21 @@ fn a_finished_part_goes_back_inside_the_caches_budget_when_memory_is_short() {
     // a box with room (B's free bytes 12 GiB): the finished parts stay held for the statement's next run (D3268)
     memledger::note_snapshot(held, 12 * G);
     let room = scan(&list);
-    assert!(room.iter().all(|&n| n == 0), "with room no part goes back before the statement's end: {room:?}");
+    assert!(
+        room.iter().all(|&n| n == 0),
+        "with room no part goes back before the statement's end: {room:?}"
+    );
 
     // memory short (B's free bytes 0): the first part goes back once every claim left it, the rest as theirs end
     memledger::note_snapshot(held, 0);
     let short = scan(&list);
-    assert_eq!(short[last_of_first as usize], 1, "short: the first part went back at its last claim (trunk: held, 0): {short:?}");
-    assert_eq!(*short.last().unwrap(), 3, "short: every part went back as its claims ended: {short:?}");
+    assert_eq!(
+        short[last_of_first as usize], 1,
+        "short: the first part went back at its last claim (trunk: held, 0): {short:?}"
+    );
+    assert_eq!(
+        *short.last().unwrap(),
+        3,
+        "short: every part went back as its claims ended: {short:?}"
+    );
 }

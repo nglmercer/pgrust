@@ -17,10 +17,10 @@ use types_error::PgResult;
 
 use super::bitmap_param::ExecVals;
 use crate::ops::scan::heap_source::{HeapRangeSource, SampleFilter};
+use crate::ops::scan::tid_sample::{SampleRecipe, TsmFilter};
 use crate::ops::shared::key_fn::KeyFn;
 use crate::recipe::HostRecipe;
 use crate::scratch::NodeScratch;
-use crate::ops::scan::tid_sample::{SampleRecipe, TsmFilter};
 
 /// A sample with a computed argument or REPEATABLE (`Recipe::Rung`): M2's recipe, each computed value's evaluation (`None`:
 /// the site's key cell carries it) and the executor parameters their input cells carry (key cells 1 + REPEATABLE on).
@@ -46,8 +46,19 @@ impl HostRecipe for ParamSampleRecipe {
         let scratch = NodeScratch::new("GravityParamSample");
         let mut ids = mcx::PgVec::new_in(scratch.mcx());
         mcx::GrowIn::extend_from_slice_in(&mut ids, &self.ids);
-        let tsm = ParamTsm { tsm: self.leaf.filter(), arg, rep, vals: self.vals.clone(), ids, repeatable: self.leaf.repeatable, scratch };
-        box_source(HeapRangeSource::with_sample(self.leaf.range.clone(), tsm), a)
+        let tsm = ParamTsm {
+            tsm: self.leaf.filter(),
+            arg,
+            rep,
+            vals: self.vals.clone(),
+            ids,
+            repeatable: self.leaf.repeatable,
+            scratch,
+        };
+        box_source(
+            HeapRangeSource::with_sample(self.leaf.range.clone(), tsm),
+            a,
+        )
     }
     fn clone_box(&self) -> Box<dyn HostRecipe> {
         Box::new(self.clone()) // alloc: Program
@@ -72,11 +83,14 @@ impl SampleFilter for ParamTsm {
         // the argument's cell, the REPEATABLE's when it has one, then the input cells
         let at = 1 + self.repeatable as usize;
         if keys.len() < at + self.ids.len() || keys_null.len() < at + self.ids.len() {
-            return Err(crate::pg_err("gravity: a computed TABLESAMPLE argument without its input cells"));
+            return Err(crate::pg_err(
+                "gravity: a computed TABLESAMPLE argument without its input cells",
+            ));
         }
         // bounded("other: one input cell per outer value the TABLESAMPLE arguments read, which the statement's text bounds")
         for (i, &id) in self.ids.iter().enumerate() {
-            self.vals.set(id as usize, keys[at + i], keys_null[at + i] != 0);
+            self.vals
+                .set(id as usize, keys[at + i], keys_null[at + i] != 0);
         }
         // the last open's evaluation memory dies here, as PG's rescan resets the scan's expression context
         self.scratch.reset_exec();

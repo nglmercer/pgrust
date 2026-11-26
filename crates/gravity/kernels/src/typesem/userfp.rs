@@ -104,7 +104,17 @@ impl RunKeys {
     #[allow(clippy::new_without_default)]
     pub fn new() -> RunKeys {
         let serial = SERIALS.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-        let run = Box::new(Run { charge: None, charged: 0, owned: false, magic: KEYS_MAGIC, here: here(), serial, specs: Default::default(), collided: Default::default(), armed: false }); // alloc: Exec
+        let run = Box::new(Run {
+            charge: None,
+            charged: 0,
+            owned: false,
+            magic: KEYS_MAGIC,
+            here: here(),
+            serial,
+            specs: Default::default(),
+            collided: Default::default(),
+            armed: false,
+        }); // alloc: Exec
         RunKeys(core::ptr::NonNull::from(Box::leak(run)))
     }
 
@@ -127,7 +137,11 @@ impl RunKeys {
     pub fn classes(&self) -> usize {
         // SAFETY: the object this owner made, alive until its drop; read on the run's thread between its calls
         let run = unsafe { self.0.as_ref() };
-        run.specs.iter().filter_map(|(_, c)| c.as_ref()).map(|c| c.reps.len()).sum()
+        run.specs
+            .iter()
+            .filter_map(|(_, c)| c.as_ref())
+            .map(|c| c.reps.len())
+            .sum()
     }
 }
 
@@ -147,14 +161,24 @@ impl Run {
     /// The heap bytes the run's classes hold (a spec's classes out of their slot during its call count at the put-back).
     fn bytes(&self) -> u64 {
         let specs = (self.specs.capacity() * entry(&self.specs)) as u64;
-        specs + self.specs.iter().filter_map(|(_, c)| c.as_ref()).map(|c| c.bytes()).sum::<u64>()
+        specs
+            + self
+                .specs
+                .iter()
+                .filter_map(|(_, c)| c.as_ref())
+                .map(|c| c.bytes())
+                .sum::<u64>()
     }
 
     /// The charge re-synced to `bytes` once the classes grew `slack` bytes or more past it (classes only grow until the
     /// run drops).
     fn sync(&mut self, slack: u64) {
         let b = self.bytes();
-        if let Some(c) = self.charge.as_mut().filter(|_| b >= self.charged + slack.max(1)) {
+        if let Some(c) = self
+            .charge
+            .as_mut()
+            .filter(|_| b >= self.charged + slack.max(1))
+        {
             c.commit(b - self.charged);
             self.charged = b;
         }
@@ -189,10 +213,13 @@ impl Drop for RunKeys {
 unsafe fn run_of(h: u64) -> Result<*mut Run, Box<PgError>> {
     let run = h as usize as *mut Run;
     if run.is_null() || (*run).magic != KEYS_MAGIC {
-        return Err(err(&format!("a stale or foreign keys.user handle {h:#x}"))); // alloc: Cold
+        return Err(err(&format!("a stale or foreign keys.user handle {h:#x}")));
+        // alloc: Cold
     }
     if (*run).here != here() {
-        return Err(err("a run's classes reached from another thread than the run's"));
+        return Err(err(
+            "a run's classes reached from another thread than the run's",
+        ));
     }
     Ok(run)
 }
@@ -201,23 +228,48 @@ unsafe fn run_of(h: u64) -> Result<*mut Run, Box<PgError>> {
 const WINDOW: u32 = 1024;
 
 fn err(what: &str) -> Box<PgError> {
-    Box::new(PgError::error(format!("gravity: rep.hosted.hash user key: {what}"))) // alloc: Cold
+    Box::new(PgError::error(format!(
+        "gravity: rep.hosted.hash user key: {what}"
+    ))) // alloc: Cold
 }
 
 impl Classes {
     fn new(spec: u64) -> Result<Classes, Box<PgError>> {
         let key = gravity_fn::typesem::keysem::user::spec(spec)?;
-        let bind = |id: u32, n: usize| FmgrCall::bind_resolved(id, n, key.coll).ok_or_else(|| err("a support function no lowering resolved"));
+        let bind = |id: u32, n: usize| {
+            FmgrCall::bind_resolved(id, n, key.coll)
+                .ok_or_else(|| err("a support function no lowering resolved"))
+        };
         let eq = bind(key.eq, 2)?;
-        let hash = if key.hash != 0 { Some(bind(key.hash, 1)?) } else { None };
-        let cmp = if key.hash == 0 { Some(bind(key.cmp, 2)?) } else { None };
+        let hash = if key.hash != 0 {
+            Some(bind(key.hash, 1)?)
+        } else {
+            None
+        };
+        let cmp = if key.hash == 0 {
+            Some(bind(key.cmp, 2)?)
+        } else {
+            None
+        };
         let per_row = key.row == gravity_fn::typesem::keysem::user::PER_ROW;
-        Ok(Classes { spec, key, eq, hash, cmp, calls: 0, reps: Default::default(), buckets: Default::default(), sorted: Default::default(), per_row, heap: 0 }) // alloc: Exec
+        Ok(Classes {
+            spec,
+            key,
+            eq,
+            hash,
+            cmp,
+            calls: 0,
+            reps: Default::default(),
+            buckets: Default::default(),
+            sorted: Default::default(),
+            per_row,
+            heap: 0,
+        }) // alloc: Exec
     }
 
     fn tick(&mut self) {
         self.calls = self.calls.wrapping_add(1);
-        if self.calls.is_multiple_of( WINDOW) {
+        if self.calls.is_multiple_of(WINDOW) {
             self.eq.reset_window();
             if let Some(h) = self.hash.as_mut() {
                 h.reset_window();
@@ -239,15 +291,29 @@ impl Classes {
     }
 
     /// `armed`: a 42804 pair of a per-row key is kept in `kept` (the run's `armed`, read before the lookup).
-    fn equal(&mut self, v: usize, class: u32, armed: bool, kept: &mut Vec<Collided>) -> Result<bool, Box<PgError>> {
+    fn equal(
+        &mut self,
+        v: usize,
+        class: u32,
+        armed: bool,
+        kept: &mut Vec<Collided>,
+    ) -> Result<bool, Box<PgError>> {
         self.tick();
         let r = self.rep(class);
-        let out = match self.eq.call_site(&[Datum::from_usize(v), Datum::from_usize(r)], &[false, false]) {
+        let out = match self.eq.call_site(
+            &[Datum::from_usize(v), Datum::from_usize(r)],
+            &[false, false],
+        ) {
             Ok(out) => out,
             // D3374 (e): two layouts of a per-row record key: two classes, the raise kept for the row's probe (the module's note)
             Err(e) if self.per_row && e.sqlstate().0 == DATATYPE_MISMATCH => {
                 if armed {
-                    kept.push(Collided { spec: self.spec, own: None, other: class, e }); // alloc: Cold
+                    kept.push(Collided {
+                        spec: self.spec,
+                        own: None,
+                        other: class,
+                        e,
+                    }); // alloc: Cold
                 }
                 return Ok(false);
             }
@@ -260,7 +326,10 @@ impl Classes {
         self.tick();
         let r = self.rep(class);
         let c = self.cmp.as_mut().expect("the comparison's road");
-        let out = c.call_site(&[Datum::from_usize(v), Datum::from_usize(r)], &[false, false])?;
+        let out = c.call_site(
+            &[Datum::from_usize(v), Datum::from_usize(r)],
+            &[false, false],
+        )?;
         if out.isnull {
             return Err(err("a btree comparison returned NULL"));
         }
@@ -281,7 +350,8 @@ impl Classes {
                 b
             })?
         } else {
-            core::slice::from_raw_parts(v as *const u8, self.key.len as usize).to_vec() // alloc: Exec
+            core::slice::from_raw_parts(v as *const u8, self.key.len as usize).to_vec()
+            // alloc: Exec
         };
         let mut w = vec![0u64; bytes.len().div_ceil(8).max(1)].into_boxed_slice(); // alloc: Exec
         core::ptr::copy_nonoverlapping(bytes.as_ptr(), w.as_mut_ptr() as *mut u8, bytes.len());
@@ -302,17 +372,30 @@ impl Classes {
     fn bytes(&self) -> u64 {
         let table = match self.buckets.capacity() {
             0 => 0,
-            c if c < 8 => (c + 1).next_power_of_two() * (core::mem::size_of::<(u32, Vec<u32>)>() + 1) + 16,
-            c => (c * 8 / 7).next_power_of_two() * (core::mem::size_of::<(u32, Vec<u32>)>() + 1) + 16,
+            c if c < 8 => {
+                (c + 1).next_power_of_two() * (core::mem::size_of::<(u32, Vec<u32>)>() + 1) + 16
+            }
+            c => {
+                (c * 8 / 7).next_power_of_two() * (core::mem::size_of::<(u32, Vec<u32>)>() + 1) + 16
+            }
         };
         self.heap + (table + core::mem::size_of::<Classes>()) as u64
     }
 
     /// The class of the value `v` (a live datum of the key's type, not NULL: a by-value key's word, else its address).
-    unsafe fn class_of(&mut self, v: usize, armed: bool, kept: &mut Vec<Collided>) -> Result<u32, Box<PgError>> {
+    unsafe fn class_of(
+        &mut self,
+        v: usize,
+        armed: bool,
+        kept: &mut Vec<Collided>,
+    ) -> Result<u32, Box<PgError>> {
         if self.hash.is_some() {
             self.tick();
-            let h = self.hash.as_mut().expect("the hash proc's road").call_site(&[Datum::from_usize(v)], &[false])?;
+            let h = self
+                .hash
+                .as_mut()
+                .expect("the hash proc's road")
+                .call_site(&[Datum::from_usize(v)], &[false])?;
             let h = if h.isnull { 0 } else { h.value.as_i32() as u32 };
             let n = self.buckets.get(&h).map_or(0, Vec::len);
             let mut hit = None;
@@ -382,7 +465,9 @@ unsafe fn class(h: u64, v: usize, spec: u64) -> Result<(u32, u64), Box<PgError>>
     let (mut cl, armed) = {
         let r = &mut *run;
         let cl = match r.specs.iter().position(|(s, _)| *s == spec) {
-            Some(i) => r.specs[i].1.take().ok_or_else(|| err("a run's classes re-entered from inside one of their support functions"))?,
+            Some(i) => r.specs[i].1.take().ok_or_else(|| {
+                err("a run's classes re-entered from inside one of their support functions")
+            })?,
             None => {
                 let cl = Box::new(Classes::new(spec)?); // alloc: Exec
                 r.specs.push((spec, None)); // alloc: Exec
@@ -392,7 +477,9 @@ unsafe fn class(h: u64, v: usize, spec: u64) -> Result<(u32, u64), Box<PgError>>
         (cl, r.armed)
     };
     let mut kept = Vec::new(); // alloc: Cold
-    let found = cl.class_of(v, armed, &mut kept).map(|class| (class, cl.reps[class as usize][0]));
+    let found = cl
+        .class_of(v, armed, &mut kept)
+        .map(|class| (class, cl.reps[class as usize][0]));
     let r = &mut *run;
     if let Some(slot) = r.specs.iter_mut().find(|(s, _)| *s == spec) {
         slot.1 = Some(cl);
@@ -465,7 +552,8 @@ impl crate::contract::Host for UserClass {
 
 /// The exact Fp128 of class `class` of user key `spec` (`m6_user_fp`'s image).
 fn fp_of(spec: u64, class: u32) -> Result<[u64; 2], Box<PgError>> {
-    let keys = gravity_dict::fp::keys().ok_or_else(|| err("a fingerprint seed before it is installed"))?;
+    let keys =
+        gravity_dict::fp::keys().ok_or_else(|| err("a fingerprint seed before it is installed"))?;
     let mut b = [0u8; 12];
     b[..8].copy_from_slice(&spec.to_le_bytes());
     b[8..].copy_from_slice(&class.to_le_bytes());
@@ -535,9 +623,24 @@ impl crate::contract::Host for UserCollideProbe {
             return 0;
         }
         let cell = h as *mut GenCell;
-        let (n, k) = if desc == 0 { (0, 0) } else { (*(desc as usize as *const u64) as usize, *(desc as usize as *const u64).add(1) as usize) };
-        let offs = if desc == 0 { &[][..] } else { core::slice::from_raw_parts((desc as usize as *const u64).add(2), k) };
-        if cell.is_null() || (*cell).head.magic != GEN_MAGIC || img == 0 || offs.iter().any(|&o| o as usize + 2 > n) {
+        let (n, k) = if desc == 0 {
+            (0, 0)
+        } else {
+            (
+                *(desc as usize as *const u64) as usize,
+                *(desc as usize as *const u64).add(1) as usize,
+            )
+        };
+        let offs = if desc == 0 {
+            &[][..]
+        } else {
+            core::slice::from_raw_parts((desc as usize as *const u64).add(2), k)
+        };
+        if cell.is_null()
+            || (*cell).head.magic != GEN_MAGIC
+            || img == 0
+            || offs.iter().any(|&o| o as usize + 2 > n)
+        {
             gravity_fn::stash_error(err(&format!("m6_user_probe: a stale handle {h:#x} or an image of {n} words with keys at {offs:?}"))); // alloc: Cold
             return ERROR as u64;
         }
@@ -546,7 +649,10 @@ impl crate::contract::Host for UserCollideProbe {
         // list with the start of each key's run, on the breaker slot `ctx`'s pipeline produces into, else the statement's
         // (`OpArena::slot_owner_kind`), asked only here (S6-body: no escape, no live raw pointer into these buffers, checked)
         let o = gravity_fn::arena::OpArena::slot_owner_kind(ctx);
-        let (ow, kd) = (o.map(|o| o.0), o.map_or(gravity_fn::arena::Kind::Region, |o| o.1));
+        let (ow, kd) = (
+            o.map(|o| o.0),
+            o.map_or(gravity_fn::arena::Kind::Region, |o| o.1),
+        );
         let mut flat = gravity_fn::arena::ChargedVec::<([u64; 2], Option<usize>)>::new(ow, kd);
         let mut starts = gravity_fn::arena::ChargedVec::<usize>::new(ow, kd);
         starts.with_vec(|v| v.push(0)); // alloc: Exec charged o
@@ -574,7 +680,12 @@ impl crate::contract::Host for UserCollideProbe {
         let mut at = gravity_fn::arena::ChargedVec::<usize>::new(ow, kd);
         at.with_vec(|v| v.resize(k, 0)); // alloc: Exec charged o
         loop {
-            let Some(j) = (0..k).rev().find(|&j| at[j] + 1 < starts[j + 1] - starts[j]) else { return 0 };
+            let Some(j) = (0..k)
+                .rev()
+                .find(|&j| at[j] + 1 < starts[j + 1] - starts[j])
+            else {
+                return 0;
+            };
             at[j] += 1;
             at[j + 1..].iter_mut().for_each(|a| *a = 0);
             let mut last = None;
@@ -590,7 +701,10 @@ impl crate::contract::Host for UserCollideProbe {
                 0 => {}
                 1 => {
                     let Some(i) = last else { return 0 };
-                    let e = core::mem::replace(&mut kept[i].e, err("m6_user_probe: a kept error raised twice"));
+                    let e = core::mem::replace(
+                        &mut kept[i].e,
+                        err("m6_user_probe: a kept error raised twice"),
+                    );
                     gravity_fn::stash_error(e);
                     return ERROR as u64;
                 }
@@ -618,11 +732,38 @@ mod tests {
     /// float8 under its own `=` as a by-value user key in run `k`, its calls bound as `Classes::new` binds a spec's (a
     /// builtin resolves with no catalog).
     fn with_float8(k: &RunKeys) {
-        let id = |p: u32| gravity_fn::resolved::resolve(p).expect("a builtin resolves").expect("not refused");
-        let key = UserKey { typid: FLOAT8OID, eq: id(FLOAT8EQ), hash: id(HASHFLOAT8), cmp: 0, coll: 0, len: 8, byval: true, stamp: 1, row: 0, site: 0 };
+        let id = |p: u32| {
+            gravity_fn::resolved::resolve(p)
+                .expect("a builtin resolves")
+                .expect("not refused")
+        };
+        let key = UserKey {
+            typid: FLOAT8OID,
+            eq: id(FLOAT8EQ),
+            hash: id(HASHFLOAT8),
+            cmp: 0,
+            coll: 0,
+            len: 8,
+            byval: true,
+            stamp: 1,
+            row: 0,
+            site: 0,
+        };
         let bind = |p: u32, n: usize| FmgrCall::bind_resolved(p, n, 0).expect("bound");
-        let cl = Box::new(Classes { spec: SPEC, key, eq: bind(key.eq, 2), hash: Some(bind(key.hash, 1)), cmp: None, calls: 0, reps: Vec::new(), buckets: std::collections::HashMap::new(), sorted: Vec::new(), per_row: false, heap: 0 }); // alloc: Cold
-        // SAFETY: the test's own run, no call of it on the stack
+        let cl = Box::new(Classes {
+            spec: SPEC,
+            key,
+            eq: bind(key.eq, 2),
+            hash: Some(bind(key.hash, 1)),
+            cmp: None,
+            calls: 0,
+            reps: Vec::new(),
+            buckets: std::collections::HashMap::new(),
+            sorted: Vec::new(),
+            per_row: false,
+            heap: 0,
+        }); // alloc: Cold
+            // SAFETY: the test's own run, no call of it on the stack
         unsafe { (*run(k)).specs.push((SPEC, Some(cl))) }; // alloc: Cold
     }
 
@@ -630,10 +771,17 @@ mod tests {
     fn rep_word(h: u64, v: f64) -> Result<u64, String> {
         let mut out = 0u64;
         // SAFETY: a by-value float8 word and one writable word
-        let st = unsafe { <UserClass as crate::contract::Host>::run(core::ptr::null_mut(), (h, v.to_bits(), SPEC, &mut out as *mut u64 as u64)) };
+        let st = unsafe {
+            <UserClass as crate::contract::Host>::run(
+                core::ptr::null_mut(),
+                (h, v.to_bits(), SPEC, &mut out as *mut u64 as u64),
+            )
+        };
         match st {
             0 => Ok(out),
-            _ => Err(gravity_fn::take_error().map(|e| e.message().to_string()).unwrap_or_default()), // alloc: Cold
+            _ => Err(gravity_fn::take_error()
+                .map(|e| e.message().to_string())
+                .unwrap_or_default()), // alloc: Cold
         }
     }
 
@@ -645,17 +793,31 @@ mod tests {
         let one = RunKeys::new();
         with_float8(&one);
         assert_eq!(rep_word(one.handle(), -0.0), Ok((-0.0f64).to_bits()));
-        assert_eq!(rep_word(one.handle(), 0.0), Ok((-0.0f64).to_bits()), "0 = -0 in the run that classed -0 first");
+        assert_eq!(
+            rep_word(one.handle(), 0.0),
+            Ok((-0.0f64).to_bits()),
+            "0 = -0 in the run that classed -0 first"
+        );
         assert_eq!(one.classes(), 1);
         drop(one);
         let bare = RunKeys::new();
-        assert!(rep_word(bare.handle(), 0.0).is_err_and(|m| m.contains("was not built in this process")), "a new run makes its own table");
+        assert!(
+            rep_word(bare.handle(), 0.0)
+                .is_err_and(|m| m.contains("was not built in this process")),
+            "a new run makes its own table"
+        );
         let two = RunKeys::new();
         with_float8(&two);
-        assert_eq!(rep_word(two.handle(), 0.0), Ok(0.0f64.to_bits()), "run 2's group shows its own member");
+        assert_eq!(
+            rep_word(two.handle(), 0.0),
+            Ok(0.0f64.to_bits()),
+            "run 2's group shows its own member"
+        );
         assert_eq!(rep_word(two.handle(), -0.0), Ok(0.0f64.to_bits()));
         // SAFETY: the test's own runs, no call of them on the stack
-        assert_ne!(unsafe { (*run(&bare)).serial }, unsafe { (*run(&two)).serial });
+        assert_ne!(unsafe { (*run(&bare)).serial }, unsafe {
+            (*run(&two)).serial
+        });
     }
 
     /// CONVERT wave 2 (site 13): the classes' running heap bytes equal a full recount as they grow (the run's charge follows
@@ -671,7 +833,8 @@ mod tests {
         // SAFETY: the test's own run, no call of it on the stack
         let r = unsafe { &*run(&k) };
         let cl = r.specs[0].1.as_ref().expect("put back");
-        let reps = cl.reps.capacity() * core::mem::size_of::<Box<[u64]>>() + cl.reps.iter().map(|b| b.len() * 8).sum::<usize>();
+        let reps = cl.reps.capacity() * core::mem::size_of::<Box<[u64]>>()
+            + cl.reps.iter().map(|b| b.len() * 8).sum::<usize>();
         let buckets = cl.buckets.values().map(|v| v.capacity() * 4).sum::<usize>();
         assert_eq!(cl.heap, (reps + buckets + cl.sorted.capacity() * 4) as u64);
         assert!(r.bytes() > cl.heap + 5000 * 8 && !r.owned && r.charge.is_none() && r.charged == 0);
@@ -682,7 +845,8 @@ mod tests {
     fn a_stale_or_foreign_handle_is_an_error_by_name() {
         assert!(rep_word(0, 1.0).is_err_and(|m| m.contains("a stale or foreign keys.user handle")));
         let foreign = Box::new([0x8a11_7e11_0000_0005u64, 0, 0, 0]); // alloc: Cold
-        assert!(rep_word(foreign.as_ptr() as u64, 1.0).is_err_and(|m| m.contains("a stale or foreign keys.user handle")));
+        assert!(rep_word(foreign.as_ptr() as u64, 1.0)
+            .is_err_and(|m| m.contains("a stale or foreign keys.user handle")));
     }
 
     /// A run answers only the thread that made it: another thread's lookup is an error by name (a pool thread reaching a
@@ -692,7 +856,9 @@ mod tests {
         let k = RunKeys::new();
         with_float8(&k);
         let h = k.handle();
-        let there = std::thread::spawn(move || rep_word(h, 1.0)).join().expect("the thread ran");
+        let there = std::thread::spawn(move || rep_word(h, 1.0))
+            .join()
+            .expect("the thread ran");
         assert_eq!(there, Err("gravity: rep.hosted.hash user key: a run's classes reached from another thread than the run's".to_string())); // alloc: Cold
         assert_eq!(k.classes(), 0);
     }
@@ -713,9 +879,21 @@ mod tests {
         let k = RunKeys::new();
         // SAFETY: a live run's handle; no descriptor (no per-row key), so the probe reads no image
         unsafe {
-            assert_eq!(<UserCollideClear as crate::contract::Host>::run(core::ptr::null_mut(), (k.handle(),)), 0);
+            assert_eq!(
+                <UserCollideClear as crate::contract::Host>::run(
+                    core::ptr::null_mut(),
+                    (k.handle(),)
+                ),
+                0
+            );
             assert!((*run(&k)).armed);
-            assert_eq!(<UserCollideProbe as crate::contract::Host>::run(core::ptr::null_mut(), (k.handle(), 0, 0, 0)), 0);
+            assert_eq!(
+                <UserCollideProbe as crate::contract::Host>::run(
+                    core::ptr::null_mut(),
+                    (k.handle(), 0, 0, 0)
+                ),
+                0
+            );
         }
         // SAFETY: as above
         assert!(!unsafe { (*run(&k)).armed });

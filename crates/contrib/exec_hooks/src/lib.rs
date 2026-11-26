@@ -19,8 +19,8 @@
 //! consumers in REVERSE registration order and leave-style taps (run_leave,
 //! finish_leave — C's PG_FINALLY unwind) run them in registration order.
 
-use std::sync::atomic::{AtomicPtr, Ordering};
 use pgsync::Mutex;
+use std::sync::atomic::{AtomicPtr, Ordering};
 
 use types_error::PgResult;
 use types_portal::QueryDescHandle;
@@ -222,10 +222,14 @@ mod tests {
         // C chain semantics: the later-loaded module wraps the earlier one —
         // enter runs last-registered first, the PG_FINALLY leave runs
         // first-registered first.
-        let (f_start, s_start) =
-            (FIRST_START_AT.load(Ordering::Relaxed), SECOND_START_AT.load(Ordering::Relaxed));
-        let (f_leave, s_leave) =
-            (FIRST_LEAVE_AT.load(Ordering::Relaxed), SECOND_LEAVE_AT.load(Ordering::Relaxed));
+        let (f_start, s_start) = (
+            FIRST_START_AT.load(Ordering::Relaxed),
+            SECOND_START_AT.load(Ordering::Relaxed),
+        );
+        let (f_leave, s_leave) = (
+            FIRST_LEAVE_AT.load(Ordering::Relaxed),
+            SECOND_LEAVE_AT.load(Ordering::Relaxed),
+        );
         assert!(s_start < f_start, "enter: last-registered runs first");
         assert!(f_leave < s_leave, "leave: first-registered runs first");
 
@@ -240,13 +244,29 @@ mod tests {
             }),
             ..Default::default()
         });
-        assert!(!execmain::tap_executor_hooks_active::call_if_or(false, |f| f()));
+        assert!(!execmain::tap_executor_hooks_active::call_if_or(
+            false,
+            |f| f()
+        ));
         let r = execmain::tap_executor_end::call_if_or(Ok(()), |f| f(h));
         let e = r.expect_err("the raising end consumer must surface from the tap");
         assert_eq!(e.message(), "end hook raised");
-        assert!(THIRD_END_AT.load(Ordering::Relaxed) > 0, "outermost end hook ran");
-        assert_eq!(FIRST_END_AT.load(Ordering::Relaxed), 0, "inner end hook skipped after the error");
-        register(ExecutorHooks { active: Some(|| true), ..Default::default() });
-        assert!(execmain::tap_executor_hooks_active::call_if_or(false, |f| f()));
+        assert!(
+            THIRD_END_AT.load(Ordering::Relaxed) > 0,
+            "outermost end hook ran"
+        );
+        assert_eq!(
+            FIRST_END_AT.load(Ordering::Relaxed),
+            0,
+            "inner end hook skipped after the error"
+        );
+        register(ExecutorHooks {
+            active: Some(|| true),
+            ..Default::default()
+        });
+        assert!(execmain::tap_executor_hooks_active::call_if_or(
+            false,
+            |f| f()
+        ));
     }
 }

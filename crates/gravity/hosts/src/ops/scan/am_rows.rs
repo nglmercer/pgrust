@@ -8,12 +8,14 @@ use std::sync::Arc;
 use datum::Datum;
 use gravity_abi::ctx::lane;
 use gravity_abi::{Datum as Word, Lane, ScanPos};
-use gravity_driver::mem::root::Root;
-use gravity_driver::{box_source, ArenaRef, BindingRef, Cursor, Error, Result, Source, SourceBox, Window, WindowBase};
 use gravity_decompose::ops::scan::identity::{self, Need};
+use gravity_driver::mem::root::Root;
+use gravity_driver::{
+    box_source, ArenaRef, BindingRef, Cursor, Error, Result, Source, SourceBox, Window, WindowBase,
+};
 use gravity_program::{LaneId, SiteDesc, SiteKind, ZoneOp};
-use tablesample::Tsm;
 use tableam_vocab::{ScanRoad, ZoneCmp, ZoneQual, HEAP_TABLE_AM_OID};
+use tablesample::Tsm;
 use types_core::{BlockNumber, Oid};
 use types_error::PgResult;
 use types_nodes::parsenodes::RTEKind;
@@ -24,7 +26,9 @@ use types_scan::sdir::ScanDirection;
 use types_slot::SlotData;
 use types_snapshot::SnapshotData;
 use types_storage::lock::NoLock;
-use types_tuple::{ItemPointerData, ItemPointerGetBlockNumberNoCheck, ItemPointerGetOffsetNumberNoCheck};
+use types_tuple::{
+    ItemPointerData, ItemPointerGetBlockNumberNoCheck, ItemPointerGetOffsetNumberNoCheck,
+};
 
 use crate::ops::scan::heap_source::SampleFilter;
 use crate::ops::scan::heap_window::{PAGE_ROWS, PAGE_VALIDITY_WORDS};
@@ -74,10 +78,17 @@ pub struct Roads(Vec<(u32, bool)>, Vec<(u32, Need)>);
 impl Roads {
     pub fn choose<'p>(mcx: mcx::Mcx<'_>, pstmt: &'p PlannedStmt<'p>) -> PgResult<Roads> {
         let mut out: Vec<(u32, bool)> = Vec::new(); // alloc: Exec
-        for relid in Roads::asked(pstmt)? { // bounded("catalog-sized: the plain relations Roads::asked lists")
-            out.push((relid, tableam::table_scan_road(mcx, relid)? == ScanRoad::Rows)); // alloc: Program
+        for relid in Roads::asked(pstmt)? {
+            // bounded("catalog-sized: the plain relations Roads::asked lists")
+            out.push((
+                relid,
+                tableam::table_scan_road(mcx, relid)? == ScanRoad::Rows,
+            )); // alloc: Program
         }
-        let ident = identity::relids(pstmt).into_iter().filter(|r| out.iter().any(|&(x, _)| x == r.0)).collect(); // alloc: Program
+        let ident = identity::relids(pstmt)
+            .into_iter()
+            .filter(|r| out.iter().any(|&(x, _)| x == r.0))
+            .collect(); // alloc: Program
         Ok(Roads(out, ident))
     }
 
@@ -92,9 +103,16 @@ impl Roads {
     fn asked(pstmt: &PlannedStmt<'_>) -> PgResult<Vec<u32>> {
         let written = insert_targets(pstmt);
         let mut out: Vec<u32> = Vec::new(); // alloc: Exec
-        for (i, n) in pstmt.rtable.iter().enumerate() { // bounded("catalog-sized: the statement's range table entries")
-            let Some(rte) = n.as_range_tbl_entry() else { continue };
-            if rte.rtekind != RTEKind::RTE_RELATION || rte.relid == 0 || !matches!(rte.relkind, RELKIND_RELATION | RELKIND_MATVIEW) || out.contains(&rte.relid) {
+        for (i, n) in pstmt.rtable.iter().enumerate() {
+            // bounded("catalog-sized: the statement's range table entries")
+            let Some(rte) = n.as_range_tbl_entry() else {
+                continue;
+            };
+            if rte.rtekind != RTEKind::RTE_RELATION
+                || rte.relid == 0
+                || !matches!(rte.relkind, RELKIND_RELATION | RELKIND_MATVIEW)
+                || out.contains(&rte.relid)
+            {
                 continue;
             }
             if written.contains(&(i as u32 + 1)) {
@@ -123,7 +141,9 @@ impl Roads {
             return true;
         }
         let ctx = Root::new("GravityRoads");
-        self.0.iter().all(|&(relid, rows)| tableam::table_scan_road(ctx.mcx(), relid).is_ok_and(|r| (r == ScanRoad::Rows) == rows))
+        self.0.iter().all(|&(relid, rows)| {
+            tableam::table_scan_road(ctx.mcx(), relid).is_ok_and(|r| (r == ScanRoad::Rows) == rows)
+        })
     }
 }
 
@@ -131,9 +151,20 @@ impl Roads {
 /// range-table entry (`INSERT INTO t SELECT ... FROM t`) is read there.
 fn insert_targets(pstmt: &PlannedStmt<'_>) -> Vec<u32> {
     let mut out: Vec<u32> = Vec::new(); // alloc: Exec
-    for m in pstmt.planTree.into_iter().chain(pstmt.subplans.iter().flatten()).filter_map(|n| n.as_modify_table()) { // bounded("catalog-sized: the plan's ModifyTable nodes")
+    for m in pstmt
+        .planTree
+        .into_iter()
+        .chain(pstmt.subplans.iter().flatten())
+        .filter_map(|n| n.as_modify_table())
+    {
+        // bounded("catalog-sized: the plan's ModifyTable nodes")
         if m.operation == CmdType::CMD_INSERT {
-            out.extend(m.resultRelations.iter().map(|r| r as u32).chain((m.rootRelation != 0).then_some(m.rootRelation))); // alloc: Program
+            out.extend(
+                m.resultRelations
+                    .iter()
+                    .map(|r| r as u32)
+                    .chain((m.rootRelation != 0).then_some(m.rootRelation)),
+            ); // alloc: Program
         }
     }
     out
@@ -152,7 +183,13 @@ pub struct RoadScope(Option<Scoped>);
 
 impl RoadScope {
     pub fn enter(roads: Roads) -> RoadScope {
-        RoadScope(ROADS.with(|r| r.replace(Some(Scoped { roads, shaped: Vec::new(), reshaped: false })))) // alloc: Exec
+        RoadScope(ROADS.with(|r| {
+            r.replace(Some(Scoped {
+                roads,
+                shaped: Vec::new(),
+                reshaped: false,
+            }))
+        })) // alloc: Exec
     }
 }
 
@@ -164,7 +201,11 @@ impl Drop for RoadScope {
 }
 
 pub fn scoped_rows(relid: u32) -> bool {
-    ROADS.with(|r| r.borrow().as_ref().is_some_and(|x| x.roads.rows(relid) || x.shaped.contains(&relid)))
+    ROADS.with(|r| {
+        r.borrow()
+            .as_ref()
+            .is_some_and(|x| x.roads.rows(relid) || x.shaped.contains(&relid))
+    })
 }
 
 /// The answers of the admission running now into `h` (the front key), nothing when there are none. The shaped
@@ -195,7 +236,11 @@ pub fn shape_rows(relid: u32) -> bool {
 }
 
 pub fn take_reshaped() -> bool {
-    ROADS.with(|r| r.borrow_mut().as_mut().is_some_and(|x| core::mem::replace(&mut x.reshaped, false)))
+    ROADS.with(|r| {
+        r.borrow_mut()
+            .as_mut()
+            .is_some_and(|x| core::mem::replace(&mut x.reshaped, false))
+    })
 }
 
 /// PGRCSERVE M3 (§2 row 6): the TIDs a rows-road scan of `relid` asks its AM for: an identity relation's need, a native
@@ -235,40 +280,79 @@ pub struct AmRowsRecipe {
 
 impl AmRowsRecipe {
     pub fn from_plan(heap: &Relation<'_>, attnos: &[i16], byref: &[u64]) -> PgResult<AmRowsRecipe> {
-        if !matches!(heap.rd_rel.relkind, RELKIND_RELATION | RELKIND_MATVIEW) || tableam_vocab::TableAm::of(heap).is_none() {
-            return Err(crate::pg_err("gravity: a rows road site needs a table with a table access method"));
+        if !matches!(heap.rd_rel.relkind, RELKIND_RELATION | RELKIND_MATVIEW)
+            || tableam_vocab::TableAm::of(heap).is_none()
+        {
+            return Err(crate::pg_err(
+                "gravity: a rows road site needs a table with a table access method",
+            ));
         }
         let mut lens = Vec::with_capacity(attnos.len()); // alloc: Program
-        for (k, &a) in attnos.iter().enumerate() { // bounded("key-columns: the site's read columns, at most MaxTupleAttributeNumber (1664)")
+        for (k, &a) in attnos.iter().enumerate() {
+            // bounded("key-columns: the site's read columns, at most MaxTupleAttributeNumber (1664)")
             let by_ref = byref.get(k / 64).is_some_and(|w| (w >> (k % 64)) & 1 != 0);
             let len = match a {
                 _ if !by_ref => 0,
                 SELF_ITEM_POINTER => core::mem::size_of::<ItemPointerData>() as i16,
                 a if a > 0 => match heap.rd_att.attrs.get(a as usize - 1) {
                     Some(att) if !att.attbyval && att.attlen != 0 => att.attlen,
-                    _ => return Err(crate::pg_err("gravity: a rows road site's by-reference lane over no by-reference column")),
+                    _ => return Err(crate::pg_err(
+                        "gravity: a rows road site's by-reference lane over no by-reference column",
+                    )),
                 },
-                _ => return Err(crate::pg_err("gravity: a rows road site's by-reference system lane")),
+                _ => {
+                    return Err(crate::pg_err(
+                        "gravity: a rows road site's by-reference system lane",
+                    ))
+                }
             };
             lens.push(len); // alloc: Program
         }
-        Ok(AmRowsRecipe { heap: heap.rd_id, heap_natts: heap.rd_att.natts, attnos: Arc::from(attnos), lens: Arc::from(lens), node_id: -1, quals: Arc::from([]), tid: positions(heap.rd_id), tsm_handler: 0, tsm_repeatable: false, tsm_node: 0 }) // alloc: Program
+        Ok(AmRowsRecipe {
+            heap: heap.rd_id,
+            heap_natts: heap.rd_att.natts,
+            attnos: Arc::from(attnos),
+            lens: Arc::from(lens),
+            node_id: -1,
+            quals: Arc::from([]),
+            tid: positions(heap.rd_id),
+            tsm_handler: 0,
+            tsm_repeatable: false,
+            tsm_node: 0,
+        }) // alloc: Program
     }
 
     /// D4735: the sample's recipe, its method resolved from the plan's `tsmhandler` (`Tsm::get`); `node` as
     /// `SampleRecipe::from_plan`'s.
-    pub fn with_sample(self, mcx: mcx::Mcx<'_>, handler: Oid, repeatable: bool, node: usize) -> PgResult<AmRowsRecipe> {
+    pub fn with_sample(
+        self,
+        mcx: mcx::Mcx<'_>,
+        handler: Oid,
+        repeatable: bool,
+        node: usize,
+    ) -> PgResult<AmRowsRecipe> {
         Tsm::get(mcx, handler)?;
-        Ok(AmRowsRecipe { tsm_handler: handler, tsm_repeatable: repeatable, tsm_node: node, ..self })
+        Ok(AmRowsRecipe {
+            tsm_handler: handler,
+            tsm_repeatable: repeatable,
+            tsm_node: node,
+            ..self
+        })
     }
 
     /// Into an execution's registry: a sample's with its plan node's one seed there (D1920 / D1644).
     pub fn bound(self, reg: &mut crate::HostRegistry) -> AmRowsBound {
-        AmRowsBound { seed: (self.tsm_handler != 0).then(|| reg.sample_seed(self.tsm_node)), rows: self }
+        AmRowsBound {
+            seed: (self.tsm_handler != 0).then(|| reg.sample_seed(self.tsm_node)),
+            rows: self,
+        }
     }
 
     fn source(&self, desc: &SiteDesc, seed: Option<SampleSeed>) -> AmRowsSource {
-        assert!(self.heap == desc.relation, "gravity: rows road recipe does not match its site descriptor");
+        assert!(
+            self.heap == desc.relation,
+            "gravity: rows road recipe does not match its site descriptor"
+        );
         let zkeys = match desc.kind {
             SiteKind::RangeSource { zkeys, .. } => zkeys as usize,
             _ => 0,
@@ -284,12 +368,16 @@ impl AmRowsRecipe {
     }
 
     pub fn with_quals(&self, quals: Vec<ZoneQual>) -> AmRowsRecipe {
-        AmRowsRecipe { quals: Arc::from(quals), ..self.clone() } // alloc: Exec
+        AmRowsRecipe {
+            quals: Arc::from(quals),
+            ..self.clone()
+        } // alloc: Exec
     }
 
     fn needed(&self) -> Vec<bool> {
         let mut n = vec![false; self.heap_natts.max(0) as usize]; // alloc: Exec
-        for &a in self.attnos.iter().filter(|&&a| a > 0) { // bounded("key-columns: the site's read columns, at most MaxTupleAttributeNumber (1664)")
+        for &a in self.attnos.iter().filter(|&&a| a > 0) {
+            // bounded("key-columns: the site's read columns, at most MaxTupleAttributeNumber (1664)")
             if let Some(x) = n.get_mut(a as usize - 1) {
                 *x = true;
             }
@@ -307,7 +395,10 @@ pub struct AmRowsBound {
 impl Clone for AmRowsBound {
     fn clone(&self) -> AmRowsBound {
         let seed = self.seed.as_ref().map(|s| s.clone());
-        AmRowsBound { rows: self.rows.clone(), seed }
+        AmRowsBound {
+            rows: self.rows.clone(),
+            seed,
+        }
     }
 }
 
@@ -371,15 +462,29 @@ pub fn rows_param_of(desc: u64) -> Option<(u16, ZoneCmp, i32, u32)> {
         x if x == ZoneOp::Ne as u8 => ZoneCmp::Ne,
         _ => return None,
     };
-    Some((desc as u16, op, (desc >> 24) as u8 as i32, (desc >> 32) as u32))
+    Some((
+        desc as u16,
+        op,
+        (desc >> 24) as u8 as i32,
+        (desc >> 32) as u32,
+    ))
 }
 
 fn param_quals(keys: &[Word], keys_null: &[u8], zkeys: usize, out: &mut Vec<ZoneQual>) {
     use gravity_decompose::ops::shared::scan::zone_word_of;
     out.clear();
-    let Some(at) = keys.len().checked_sub(zkeys).filter(|_| keys_null.len() >= keys.len()) else { return };
-    for c in (at..keys.len().saturating_sub(1)).step_by(2) { // bounded("key-columns: the seek's zone key cells, two per zone column of the relation")
-        let (Some((attnum, op, len, typid)), 0) = (rows_param_of(keys[c]), keys_null[c + 1]) else { continue };
+    let Some(at) = keys
+        .len()
+        .checked_sub(zkeys)
+        .filter(|_| keys_null.len() >= keys.len())
+    else {
+        return;
+    };
+    for c in (at..keys.len().saturating_sub(1)).step_by(2) {
+        // bounded("key-columns: the seek's zone key cells, two per zone column of the relation")
+        let (Some((attnum, op, len, typid)), 0) = (rows_param_of(keys[c]), keys_null[c + 1]) else {
+            continue;
+        };
         if let Some(val) = zone_word_of(typid, len, keys[c + 1]) {
             out.push(ZoneQual { attnum, op, val }); // alloc: Exec
         }
@@ -402,11 +507,11 @@ impl AmRowsSource {
             open: false,
             bound: false,
             substituted: None,
-            words: vec![0; n * PAGE_ROWS],          // alloc: Node
+            words: vec![0; n * PAGE_ROWS],           // alloc: Node
             valid: vec![0; n * PAGE_VALIDITY_WORDS], // alloc: Node
-            offs: vec![0; PAGE_ROWS],               // alloc: Node
-            row: vec![0; n],                        // alloc: Node
-            nulls: vec![0; n],                      // alloc: Node
+            offs: vec![0; PAGE_ROWS],                // alloc: Node
+            row: vec![0; n],                         // alloc: Node
+            nulls: vec![0; n],                       // alloc: Node
             images: Root::bump("GravityAmRowsImages"),
             cur: Cursor::new(),
             scratch: NodeScratch::new("GravityAmRowsSource"),
@@ -422,15 +527,21 @@ impl AmRowsSource {
     fn bind_pg(&mut self, snapshot: Rc<SnapshotData<'static>>) -> PgResult<()> {
         let mcx = self.scratch.mcx();
         let heap = open_heap(mcx, &self.parked, self.recipe.heap)?;
-        if heap.rd_att.natts != self.recipe.heap_natts || tableam_vocab::TableAm::of(&heap).is_none() || !heap.is_scannable() {
+        if heap.rd_att.natts != self.recipe.heap_natts
+            || tableam_vocab::TableAm::of(&heap).is_none()
+            || !heap.is_scannable()
+        {
             heap.close(NoLock)?;
-            return Err(crate::pg_err("gravity: relation changed under the parked plan"));
+            return Err(crate::pg_err(
+                "gravity: relation changed under the parked plan",
+            ));
         }
         self.slot = Some(match self.slot.take() {
             Some(s) => s,
             None => tableam::table_slot_create(mcx, &heap)?,
         });
-        (self.heap, self.snapshot, self.open, self.held, self.bound) = (Some(heap), Some(snapshot), false, false, true);
+        (self.heap, self.snapshot, self.open, self.held, self.bound) =
+            (Some(heap), Some(snapshot), false, false, true);
         Ok(())
     }
 
@@ -459,13 +570,29 @@ impl AmRowsSource {
         let flags = self.sample.as_ref().map(TsmFilter::am_flags);
         match (self.scan.as_mut(), flags) {
             (Some(s), None) => tableam::table_rescan(mcx, s, None)?,
-            (Some(s), Some((strat, sync, page))) => tableam::table_rescan_set_params(mcx, s, None, strat, sync, page)?,
+            (Some(s), Some((strat, sync, page))) => {
+                tableam::table_rescan_set_params(mcx, s, None, strat, sync, page)?
+            }
             (None, _) => {
-                let heap = self.heap.as_ref().ok_or_else(|| crate::pg_err("gravity: seek on an unbound rows road source"))?;
+                let heap = self
+                    .heap
+                    .as_ref()
+                    .ok_or_else(|| crate::pg_err("gravity: seek on an unbound rows road source"))?;
                 let snapshot = self.snapshot.as_ref().map(|s| s.clone());
                 let mut s = match flags {
-                    None => tableam::table_beginscan(mcx, heap, snapshot, 0, mcx::PgVec::new_in(mcx))?,
-                    Some((strat, sync, page)) => tableam::table_beginscan_sampling(mcx, heap, snapshot, 0, mcx::PgVec::new_in(mcx), strat, sync, page)?,
+                    None => {
+                        tableam::table_beginscan(mcx, heap, snapshot, 0, mcx::PgVec::new_in(mcx))?
+                    }
+                    Some((strat, sync, page)) => tableam::table_beginscan_sampling(
+                        mcx,
+                        heap,
+                        snapshot,
+                        0,
+                        mcx::PgVec::new_in(mcx),
+                        strat,
+                        sync,
+                        page,
+                    )?,
                 };
                 tableam::table_scan_set_needed_attrs(&mut s, &self.recipe.needed());
                 tableam::table_scan_set_tid_need(&mut s, self.recipe.tid);
@@ -474,7 +601,8 @@ impl AmRowsSource {
         }
         // PGRCSERVE M0: the pushed conjuncts, at each pass (a rescan drops them); PSZP: this seek's param ones too
         self.pushed.clear();
-        self.pushed.extend(self.recipe.quals.iter().chain(self.params.iter()).copied()); // alloc: Exec
+        self.pushed
+            .extend(self.recipe.quals.iter().chain(self.params.iter()).copied()); // alloc: Exec
         if let (Some(s), false) = (self.scan.as_mut(), self.pushed.is_empty()) {
             tableam::table_scan_push_zone_quals(s, &self.pushed);
             tableam::table_scan_push_quals(s, &self.pushed);
@@ -484,14 +612,25 @@ impl AmRowsSource {
     }
 
     fn put(&mut self, i: usize, tid: &ItemPointerData) -> PgResult<()> {
-        let slot = self.slot.as_mut().ok_or_else(|| crate::pg_err("gravity: a rows road window without its slot"))?;
-        project_by(slot, &self.recipe.attnos, self.proj, &mut self.row, &mut self.nulls)?;
+        let slot = self
+            .slot
+            .as_mut()
+            .ok_or_else(|| crate::pg_err("gravity: a rows road window without its slot"))?;
+        project_by(
+            slot,
+            &self.recipe.attnos,
+            self.proj,
+            &mut self.row,
+            &mut self.nulls,
+        )?;
         let images = self.images.mcx();
-        for (k, &len) in self.recipe.lens.iter().enumerate() { // bounded("key-columns: one row's read columns, at most 1664; window_pg's loop ticks per row")
+        for (k, &len) in self.recipe.lens.iter().enumerate() {
+            // bounded("key-columns: one row's read columns, at most 1664; window_pg's loop ticks per row")
             let mut v = self.row[k];
             if self.nulls[k] == 0 {
                 if len != 0 {
-                    v = adt_scalar::datum_ops::datum_copy(images, Datum::from_u64(v), false, len)?.as_u64();
+                    v = adt_scalar::datum_ops::datum_copy(images, Datum::from_u64(v), false, len)?
+                        .as_u64();
                 }
                 self.valid[k * PAGE_VALIDITY_WORDS + i / 64] |= 1 << (i % 64);
             }
@@ -503,18 +642,44 @@ impl AmRowsSource {
 
     fn publish(&self, w: &mut Window<'_>, n: usize, blk: BlockNumber) -> u32 {
         let natts = self.recipe.attnos.len();
-        for k in 0..natts { // bounded("key-columns: the window's read columns, at most MaxTupleAttributeNumber (1664)")
+        for k in 0..natts {
+            // bounded("key-columns: the window's read columns, at most MaxTupleAttributeNumber (1664)")
             let words = &self.valid[k * PAGE_VALIDITY_WORDS..(k + 1) * PAGE_VALIDITY_WORDS];
             let all = (0..n).all(|r| (words[r / 64] >> (r % 64)) & 1 != 0);
-            let mut l = Lane::byval(self.words[k * PAGE_ROWS..].as_ptr() as *const u8, if all { core::ptr::null() } else { words.as_ptr() }, 8, lane::REGION_ARENA, lane::id(lane::ID_ATTR, self.recipe.attnos[k] as u32));
+            let mut l = Lane::byval(
+                self.words[k * PAGE_ROWS..].as_ptr() as *const u8,
+                if all {
+                    core::ptr::null()
+                } else {
+                    words.as_ptr()
+                },
+                8,
+                lane::REGION_ARENA,
+                lane::id(lane::ID_ATTR, self.recipe.attnos[k] as u32),
+            );
             if self.recipe.lens[k] != 0 {
                 l.kind = lane::KIND_BYREF;
             }
             w.set(k, l);
         }
-        w.set(natts, Lane::byval(self.offs.as_ptr() as *const u8, core::ptr::null(), 2, lane::REGION_ARENA, LaneId::Offset.encode()));
+        w.set(
+            natts,
+            Lane::byval(
+                self.offs.as_ptr() as *const u8,
+                core::ptr::null(),
+                2,
+                lane::REGION_ARENA,
+                LaneId::Offset.encode(),
+            ),
+        );
         w.rows = n as u32;
-        w.set_base(WindowBase { pos: ScanPos::new(self.recipe.heap, blk, 0), part_id: 0, dict_epoch: 0, granule: 0, claim_id: 0 });
+        w.set_base(WindowBase {
+            pos: ScanPos::new(self.recipe.heap, blk, 0),
+            part_id: 0,
+            dict_epoch: 0,
+            granule: 0,
+            claim_id: 0,
+        });
         n as u32
     }
 
@@ -540,14 +705,26 @@ impl AmRowsSource {
         loop {
             if !self.held {
                 step.tick().map_err(|_| crate::pg_err(ROWS_CANCELED))?;
-                let (Some(scan), Some(slot)) = (self.scan.as_mut(), self.slot.as_mut()) else { return Err(crate::pg_err("gravity: a rows road window on an unbound source")) };
-                if !tableam::table_scan_getnextslot(mcx, scan, ScanDirection::ForwardScanDirection, slot)? {
+                let (Some(scan), Some(slot)) = (self.scan.as_mut(), self.slot.as_mut()) else {
+                    return Err(crate::pg_err(
+                        "gravity: a rows road window on an unbound source",
+                    ));
+                };
+                if !tableam::table_scan_getnextslot(
+                    mcx,
+                    scan,
+                    ScanDirection::ForwardScanDirection,
+                    slot,
+                )? {
                     self.open = false;
                     break;
                 }
                 self.held = true;
             }
-            let tid = self.slot.as_ref().map_or(ItemPointerData::invalid(), |s| s.base().tts_tid);
+            let tid = self
+                .slot
+                .as_ref()
+                .map_or(ItemPointerData::invalid(), |s| s.base().tts_tid);
             let b = ItemPointerGetBlockNumberNoCheck(&tid);
             if n > 0 && (b != blk || n == PAGE_ROWS) {
                 break;
@@ -569,7 +746,13 @@ impl AmRowsSource {
         let mut step = cancelpoll::step("am_rows window_sampled: a sampled row");
         loop {
             step.tick().map_err(|_| crate::pg_err(ROWS_CANCELED))?;
-            let (Some(scan), Some(slot), Some(f)) = (self.scan.as_mut(), self.slot.as_mut(), self.sample.as_mut()) else { return Err(crate::pg_err("gravity: a rows road sample on an unbound source")) };
+            let (Some(scan), Some(slot), Some(f)) =
+                (self.scan.as_mut(), self.slot.as_mut(), self.sample.as_mut())
+            else {
+                return Err(crate::pg_err(
+                    "gravity: a rows road sample on an unbound source",
+                ));
+            };
             if !self.in_block {
                 if n > 0 {
                     break;
@@ -605,7 +788,11 @@ impl AmRowsSource {
         self.clear();
         let tid = tid_of(pos);
         let mcx = self.scratch.exec_mcx();
-        let (Some(heap), Some(slot)) = (self.heap.as_ref(), self.slot.as_mut()) else { return Err(crate::pg_err("gravity: a rows road substitution on an unbound source")) };
+        let (Some(heap), Some(slot)) = (self.heap.as_ref(), self.slot.as_mut()) else {
+            return Err(crate::pg_err(
+                "gravity: a rows road substitution on an unbound source",
+            ));
+        };
         if !fetch_any(mcx, heap, &tid, slot)? {
             return Ok(0);
         }
@@ -633,8 +820,10 @@ impl Source for AmRowsSource {
         // D4735: the method's argument and REPEATABLE words (the sampled site's first key cells) begin its sampler, made at
         // the first seek (its method resolved from the handler)
         if self.sample.is_none() && self.recipe.tsm_handler != 0 {
-            let tsm = Tsm::get(self.scratch.mcx(), self.recipe.tsm_handler).map_err(crate::stash)?;
-            self.sample = Some(TsmFilter::new(tsm, self.recipe.tsm_repeatable).sharing(self.tsm_seed.take()));
+            let tsm =
+                Tsm::get(self.scratch.mcx(), self.recipe.tsm_handler).map_err(crate::stash)?;
+            self.sample =
+                Some(TsmFilter::new(tsm, self.recipe.tsm_repeatable).sharing(self.tsm_seed.take()));
         }
         if let Some(f) = self.sample.as_mut() {
             f.start(keys, keys_null).map_err(crate::stash)?;
@@ -672,7 +861,12 @@ impl Source for AmRowsSource {
 
     fn kept_bytes(&self) -> usize {
         use gravity_driver::vec_bytes as v;
-        v(&self.words) + v(&self.valid) + v(&self.offs) + v(&self.row) + v(&self.nulls) + self.images.used()
+        v(&self.words)
+            + v(&self.valid)
+            + v(&self.offs)
+            + v(&self.row)
+            + v(&self.nulls)
+            + self.images.used()
     }
 }
 

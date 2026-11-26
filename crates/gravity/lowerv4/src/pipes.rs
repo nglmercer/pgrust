@@ -7,8 +7,8 @@
 #![allow(unsafe_code)]
 use core::ops::{Deref, Index};
 
-use gravity_decompose::ops::shared::append::AppendDesc;
 use gravity_decompose::join::JoinDesc;
+use gravity_decompose::ops::shared::append::AppendDesc;
 use gravity_decompose::ops::shared::subplan::{SubForm, SubPlanDesc};
 use gravity_decompose::{Op, PipelineNode};
 use gravity_program::SiteDesc;
@@ -20,7 +20,9 @@ use crate::graph::Gx;
 use crate::rerun::params::NestExt;
 
 pub(crate) use crate::lifetime::material::spool_fill;
-pub(crate) use crate::rerun::spool::form::{spool_pull, REFILL_CHILD, LOUD_CHILD, MANY_READERS, PGRC_CHILD};
+pub(crate) use crate::rerun::spool::form::{
+    spool_pull, LOUD_CHILD, MANY_READERS, PGRC_CHILD, REFILL_CHILD,
+};
 
 #[repr(transparent)]
 pub struct Pipes<'p>([PipelineNode<'p>]);
@@ -33,7 +35,9 @@ impl<'p> Pipes<'p> {
 
     /// Pipeline `k`: a graph pipeline, or the embedded inner `k - len()`; `None` past both.
     pub fn get(&self, k: usize) -> Option<&PipelineNode<'p>> {
-        self.0.get(k).or_else(|| self.inners().into_iter().nth(k - self.0.len()).map(|x| x.1))
+        self.0
+            .get(k)
+            .or_else(|| self.inners().into_iter().nth(k - self.0.len()).map(|x| x.1))
     }
 
     /// Every embedded inner in index order (from `len()`): the outer `(pipeline, op)` whose op embeds it, and the inner.
@@ -59,7 +63,14 @@ impl<'p> Pipes<'p> {
         let mut out: Vec<((usize, usize), &PipelineNode<'p>)> = Vec::with_capacity(at.len()); // alloc: Program
         for &(k, j) in at {
             let outer: &PipelineNode<'p> = if k < n { &self.0[k] } else { out.get(k - n)?.1 };
-            let (Op::Join(JoinDesc::Nest { inner, .. }) | Op::SubPlan(SubPlanDesc { form: SubForm::Nested { inner }, .. })) = outer.ops.get(j)? else { return None };
+            let (Op::Join(JoinDesc::Nest { inner, .. })
+            | Op::SubPlan(SubPlanDesc {
+                form: SubForm::Nested { inner },
+                ..
+            })) = outer.ops.get(j)?
+            else {
+                return None;
+            };
             out.push(((k, j), &**inner)); // alloc: Program
         }
         Some(out)
@@ -67,17 +78,32 @@ impl<'p> Pipes<'p> {
 
     /// `inners` by a walk of every pipeline's ops.
     fn walk_inners(&self) -> Vec<((usize, usize), &PipelineNode<'p>)> {
-        fn ops<'a, 'p>(k: usize, p: &'a PipelineNode<'p>, n: usize, out: &mut Vec<((usize, usize), &'a PipelineNode<'p>)>) {
+        fn ops<'a, 'p>(
+            k: usize,
+            p: &'a PipelineNode<'p>,
+            n: usize,
+            out: &mut Vec<((usize, usize), &'a PipelineNode<'p>)>,
+        ) {
             crate::stack_check(); // D3832
             for (j, op) in p.ops.iter().enumerate() {
-                let (Op::Join(JoinDesc::Nest { inner, .. }) | Op::SubPlan(SubPlanDesc { form: SubForm::Nested { inner }, .. })) = op else { continue };
+                let (Op::Join(JoinDesc::Nest { inner, .. })
+                | Op::SubPlan(SubPlanDesc {
+                    form: SubForm::Nested { inner },
+                    ..
+                })) = op
+                else {
+                    continue;
+                };
                 let at = n + out.len();
                 out.push(((k, j), &**inner)); // alloc: Program
                 ops(at, inner, n, out);
             }
         }
         let mut out = Vec::new(); // alloc: Program
-        self.0.iter().enumerate().for_each(|(k, p)| ops(k, p, self.0.len(), &mut out));
+        self.0
+            .iter()
+            .enumerate()
+            .for_each(|(k, p)| ops(k, p, self.0.len(), &mut out));
         out
     }
 
@@ -85,12 +111,19 @@ impl<'p> Pipes<'p> {
     /// index: decompose names a stream's producer when it pushes a graph pipeline (graph.rs `push_into`), never for an inner
     /// kept inside its outer op (the producer stays `u16::MAX`). ops/group/regroup.rs re-declares those streams with this
     /// index, so their readers (keyed/stream.rs `own`, the record's representatives) find the inner.
-    pub(crate) fn stream_producers<'m>(&self, streams: &[gravity_decompose::ops::shared::agg::GroupDecl<'_>], mcx: mcx::Mcx<'m>) -> mcx::PgVec<'m, (usize, usize)> {
+    pub(crate) fn stream_producers<'m>(
+        &self,
+        streams: &[gravity_decompose::ops::shared::agg::GroupDecl<'_>],
+        mcx: mcx::Mcx<'m>,
+    ) -> mcx::PgVec<'m, (usize, usize)> {
         let mut out = mcx::PgVec::new_in(mcx);
         for (n, (_, p)) in self.inners().into_iter().enumerate() {
             for op in p.ops.iter() {
                 let Op::GroupRun(i) = op else { continue };
-                if streams.get(*i as usize).is_some_and(|g| g.producer.0 == u16::MAX) {
+                if streams
+                    .get(*i as usize)
+                    .is_some_and(|g| g.producer.0 == u16::MAX)
+                {
                     out.push_in((*i as usize, self.0.len() + n));
                 }
             }
@@ -100,19 +133,26 @@ impl<'p> Pipes<'p> {
 
     /// D3810: the pipeline whose op embeds inner `k` (a graph pipeline or another inner); `None` for a graph pipeline.
     pub fn owner_of(&self, k: usize) -> Option<usize> {
-        k.checked_sub(self.0.len()).and_then(|i| self.inners().get(i).map(|x| x.0 .0))
+        k.checked_sub(self.0.len())
+            .and_then(|i| self.inners().get(i).map(|x| x.0 .0))
     }
 
     /// The index of the inner that op `j` of pipeline `k` embeds (`k` a graph pipeline or an inner).
     pub fn inner_of(&self, k: usize, j: usize) -> Option<usize> {
-        self.inners().iter().position(|x| x.0 == (k, j)).map(|i| self.0.len() + i)
+        self.inners()
+            .iter()
+            .position(|x| x.0 == (k, j))
+            .map(|i| self.0.len() + i)
     }
 
     /// D1339 (M8-RERUN rows B / D): `slot`'s index among the consumed regions of the graph pipeline whose call runs `k`: an
     /// embedded inner runs in its owner's call, whose regions list its inners' slots.
     pub fn consumed_at(&self, k: usize, slot: u8) -> Option<usize> {
         crate::stack_check();
-        k.checked_sub(self.0.len()).map_or_else(|| self.0[k].desc.consumes.iter().position(|&s| s == slot), |i| self.consumed_at(self.inners()[i].0 .0, slot))
+        k.checked_sub(self.0.len()).map_or_else(
+            || self.0[k].desc.consumes.iter().position(|&s| s == slot),
+            |i| self.consumed_at(self.inners()[i].0 .0, slot),
+        )
     }
 
     /// One past the last inner: a two-pass HAVING's virtual pass ids start here (frame/program.rs `pass_id`), so no index
@@ -121,7 +161,11 @@ impl<'p> Pipes<'p> {
         fn count(p: &PipelineNode<'_>) -> usize {
             crate::stack_check(); // D3832
             let one = |op: &Op<'_>| match op {
-                Op::Join(JoinDesc::Nest { inner, .. }) | Op::SubPlan(SubPlanDesc { form: SubForm::Nested { inner }, .. }) => 1 + count(inner),
+                Op::Join(JoinDesc::Nest { inner, .. })
+                | Op::SubPlan(SubPlanDesc {
+                    form: SubForm::Nested { inner },
+                    ..
+                }) => 1 + count(inner),
                 _ => 0,
             };
             p.ops.iter().map(one).sum()
@@ -161,7 +205,10 @@ impl<'a, 'p> IntoIterator for &'a Pipes<'p> {
 /// its number before its inner's: the inner's make (a step's) runs before the owner's `Mechs::new` numbers the owner's.
 /// `reserve_site` holds a number for pipeline `key` (a program pipeline, or an inner's view index); `place_site` fills it.
 pub(crate) fn reserve_site(px: &mut Px<'_, '_>, key: usize) {
-    if !px.ext::<NestExt>(Face::Nest).is_some_and(|x| x.sites.iter().any(|s| s.0 == key)) {
+    if !px
+        .ext::<NestExt>(Face::Nest)
+        .is_some_and(|x| x.sites.iter().any(|s| s.0 == key))
+    {
         let n = px.add_site(SiteDesc::none_in(px.arena));
         px.ext_mut::<NestExt>(Face::Nest).sites.push((key, n)); // alloc: Program
     }
@@ -169,7 +216,10 @@ pub(crate) fn reserve_site(px: &mut Px<'_, '_>, key: usize) {
 
 /// Pipeline `key`'s site `d` numbered: the number `reserve_site` held for it, else the next.
 pub(crate) fn place_site(px: &mut Px<'_, '_>, key: usize, d: SiteDesc) -> usize {
-    match px.ext::<NestExt>(Face::Nest).and_then(|x| x.sites.iter().position(|s| s.0 == key)) {
+    match px
+        .ext::<NestExt>(Face::Nest)
+        .and_then(|x| x.sites.iter().position(|s| s.0 == key))
+    {
         Some(i) => {
             let n = px.ext_mut::<NestExt>(Face::Nest).sites.swap_remove(i).1;
             px.sites[n] = d;
@@ -185,23 +235,51 @@ pub(crate) fn place_site(px: &mut Px<'_, '_>, key: usize, d: SiteDesc) -> usize 
 /// Not a union the nest's rerun set refills at every re-open (S2r, rerun/union_arms.rs `refilled`), nor one no set re-runs
 /// under a nest with no parameters (S2k, `kept`, D3782), nor one filled once (D3773, `filled_once`): the eager form's.
 pub(crate) fn inner_union(gx: &Gx<'_, '_>, k: usize) -> Option<(usize, u8, Vec<usize>)> {
-    union_in_inner(gx, k).filter(|u| !crate::rerun::union_arms::refilled(gx, u) && !crate::rerun::union_arms::kept(gx, u) && !crate::rerun::union_arms::filled_once(gx, u))
+    union_in_inner(gx, k).filter(|u| {
+        !crate::rerun::union_arms::refilled(gx, u)
+            && !crate::rerun::union_arms::kept(gx, u)
+            && !crate::rerun::union_arms::filled_once(gx, u)
+    })
 }
 
 /// `inner_union`'s search: the settled union a nest or nested SubPlan inner emits that pipeline `k` feeds or emits.
 pub(crate) fn union_in_inner(gx: &Gx<'_, '_>, k: usize) -> Option<(usize, u8, Vec<usize>)> {
     let ps = gx.pipelines();
-    let feed = |q: usize, s: u8| ps[q].ops.iter().any(|op| matches!(op, Op::Append(AppendDesc::Feed { slot, .. }) if *slot == s));
-    if k < ps.len() && !ps[k].ops.iter().any(|op| matches!(op, Op::Append(AppendDesc::Feed { .. }))) {
+    let feed = |q: usize, s: u8| {
+        ps[q]
+            .ops
+            .iter()
+            .any(|op| matches!(op, Op::Append(AppendDesc::Feed { slot, .. }) if *slot == s))
+    };
+    if k < ps.len()
+        && !ps[k]
+            .ops
+            .iter()
+            .any(|op| matches!(op, Op::Append(AppendDesc::Feed { .. })))
+    {
         return None;
     }
     let arms = |e: usize, p: &PipelineNode<'_>| {
-        let Some(Op::Append(AppendDesc::Union { slot, children, .. })) = p.ops.first() else { return None };
-        let last = gx.life_of(e, *slot).map(|l| l.0 as usize).filter(|&l| l < ps.len())?;
-        let mut f: Vec<usize> = (0..=last).rev().filter(|&q| feed(q, *slot)).take(*children as usize).collect(); // alloc: Program
+        let Some(Op::Append(AppendDesc::Union { slot, children, .. })) = p.ops.first() else {
+            return None;
+        };
+        let last = gx
+            .life_of(e, *slot)
+            .map(|l| l.0 as usize)
+            .filter(|&l| l < ps.len())?;
+        let mut f: Vec<usize> = (0..=last)
+            .rev()
+            .filter(|&q| feed(q, *slot))
+            .take(*children as usize)
+            .collect(); // alloc: Program
         f.reverse();
         (f.len() == *children as usize && f.last() == Some(&last)).then_some((e, *slot, f))
     };
     let inners = ps.inners();
-    inners.iter().enumerate().map(|(i, x)| (ps.len() + i, x.1)).filter(|&(e, _)| k < ps.len() || e == k).find_map(|(e, p)| arms(e, p).filter(|a| a.0 == k || a.2.contains(&k)))
+    inners
+        .iter()
+        .enumerate()
+        .map(|(i, x)| (ps.len() + i, x.1))
+        .filter(|&(e, _)| k < ps.len() || e == k)
+        .find_map(|(e, p)| arms(e, p).filter(|a| a.0 == k || a.2.contains(&k)))
 }

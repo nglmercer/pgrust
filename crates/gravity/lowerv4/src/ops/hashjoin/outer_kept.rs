@@ -24,13 +24,32 @@ use crate::graph::Gx;
 /// Whether probe op `j` of pipeline `q` hands its outer row's cells on unchanged to the ops after it (the module rule).
 pub(crate) fn outer_kept(gx: &Gx<'_, '_>, q: usize, j: usize) -> bool {
     let p = &gx.pipelines()[q];
-    let Some(Op::Join(JoinDesc::Probe { slot, jointype, catalog: false, .. })) = p.ops.get(j) else { return false };
-    if !matches!(jointype, JoinType::JOIN_INNER | JoinType::JOIN_LEFT | JoinType::JOIN_SEMI) {
+    let Some(Op::Join(JoinDesc::Probe {
+        slot,
+        jointype,
+        catalog: false,
+        ..
+    })) = p.ops.get(j)
+    else {
+        return false;
+    };
+    if !matches!(
+        jointype,
+        JoinType::JOIN_INNER | JoinType::JOIN_LEFT | JoinType::JOIN_SEMI
+    ) {
         return false;
     }
-    if gx.end_maker(q) == KindId::JoinDrain || gx.drained_arms(q).is_some() || p.ops.iter().any(|op| matches!(op, Op::Join(JoinDesc::Drain { .. }))) {
+    if gx.end_maker(q) == KindId::JoinDrain
+        || gx.drained_arms(q).is_some()
+        || p.ops
+            .iter()
+            .any(|op| matches!(op, Op::Join(JoinDesc::Drain { .. })))
+    {
         return false;
     }
-    let swaps = *jointype == JoinType::JOIN_INNER && gx.life_of(q, *slot).is_some_and(|b| crate::ops::hashjoin::build_side::swaps(gx, b.0 as usize, q, j));
+    let swaps = *jointype == JoinType::JOIN_INNER
+        && gx
+            .life_of(q, *slot)
+            .is_some_and(|b| crate::ops::hashjoin::build_side::swaps(gx, b.0 as usize, q, j));
     !swaps && !crate::ops::hashjoin::spill::build::end_takes_pair(gx, q)
 }

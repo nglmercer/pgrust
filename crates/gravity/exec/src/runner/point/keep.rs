@@ -90,8 +90,17 @@ pub(super) fn bytes(kb: &KeptBox) -> usize {
 pub(super) fn parts(kb: &KeptBox) -> String {
     let own = kb.context().mem_allocated();
     kb.with(|k| match &k.kept {
-        Kept::Write(w) => format!("own {own} (WriteKept {} B); {}; set {:?}", core::mem::size_of::<WriteKept>(), w.hosts.parts(), w.set.as_ref().map(|s| s.scratch.used_parts())), // alloc: Cold
-        Kept::Probe(p) => format!("own {own} (ProbeKept {} B); probe {:?}", core::mem::size_of::<ProbeKept>(), p.scratch.used_parts()), // alloc: Cold
+        Kept::Write(w) => format!(
+            "own {own} (WriteKept {} B); {}; set {:?}",
+            core::mem::size_of::<WriteKept>(),
+            w.hosts.parts(),
+            w.set.as_ref().map(|s| s.scratch.used_parts())
+        ), // alloc: Cold
+        Kept::Probe(p) => format!(
+            "own {own} (ProbeKept {} B); probe {:?}",
+            core::mem::size_of::<ProbeKept>(),
+            p.scratch.used_parts()
+        ), // alloc: Cold
     })
 }
 
@@ -172,7 +181,10 @@ impl ProbeKept {
     /// S1's opens (the table with the parser's lock, the index as ExecInitIndexScan, `select::index_lockmode`) and tests
     /// (`select::relation_refusal`: `Err` with the reason, nothing kept), then the out columns; the relations parked (the
     /// runs re-open them), the context charged to `owner`.
-    pub(super) fn make(s: &select::Shape<'_>, owner: memledger::Owner) -> PgResult<Result<ProbeKept, &'static str>> {
+    pub(super) fn make(
+        s: &select::Shape<'_>,
+        owner: memledger::Owner,
+    ) -> PgResult<Result<ProbeKept, &'static str>> {
         let mut scratch = {
             let _small = gravity_hosts::scratch::small_roots();
             NodeScratch::new("GravityPointProbe")
@@ -197,22 +209,41 @@ impl ProbeKept {
         let tlist = &s.scan.scan.plan.targetlist;
         let n = tlist.len();
         let mut cols: PgVec<'static, OutCol> = PgVec::new_in(m);
-        cols.try_reserve_exact(n).map_err(|_| m.oom(n * core::mem::size_of::<OutCol>()))?;
+        cols.try_reserve_exact(n)
+            .map_err(|_| m.oom(n * core::mem::size_of::<OutCol>()))?;
         for t in tlist.iter() {
-            cols.push(out::out_col(t.as_target_entry().ok_or_else(|| internal("an out entry that is no target entry"))?)?);
+            cols.push(out::out_col(t.as_target_entry().ok_or_else(|| {
+                internal("an out entry that is no target entry")
+            })?)?);
         }
         let mut values: PgVec<'static, u64> = PgVec::new_in(m);
         let mut isnull: PgVec<'static, u8> = PgVec::new_in(m);
         values.try_reserve_exact(n).map_err(|_| m.oom(n * 8))?;
         isnull.try_reserve_exact(n).map_err(|_| m.oom(n))?;
-        Ok(Ok(ProbeKept { relid: s.relid, indexid: s.scan.indexid, ops, heap, index, cols, values, isnull, scan: None, scratch }))
+        Ok(Ok(ProbeKept {
+            relid: s.relid,
+            indexid: s.scan.indexid,
+            ops,
+            heap,
+            index,
+            cols,
+            values,
+            isnull,
+            scan: None,
+            scratch,
+        }))
     }
 
     /// S1's run over the kept pieces (`select::probe_rows`' order, inside ExecutorStart's checks and the snapshot): the
     /// keys' EXECUTE gates, the RowDescription, the relations re-opened through the parked handles, the scan made (the
     /// first run) or re-armed with this statement's keys, a DataRow per row, the scan parked and the relations parked again.
     /// Returns the rows sent.
-    pub(super) fn run(&mut self, s: &select::Shape<'_>, mcx: mcx::Mcx<'_>, wire: &mut gravity_wire::WireNode) -> PgResult<u64> {
+    pub(super) fn run(
+        &mut self,
+        s: &select::Shape<'_>,
+        mcx: mcx::Mcx<'_>,
+        wire: &mut gravity_wire::WireNode,
+    ) -> PgResult<u64> {
         probe::key_gates(&s.scan.indexqual)?;
         wire.prepare_cols(&self.cols, None)?;
         wire.reset();
@@ -236,7 +267,14 @@ impl ProbeKept {
         Ok(rows)
     }
 
-    fn walk(&mut self, s: &select::Shape<'_>, mcx: mcx::Mcx<'_>, wire: &mut gravity_wire::WireNode, heap: &types_rel::Relation<'static>, index: &types_rel::Relation<'static>) -> PgResult<u64> {
+    fn walk(
+        &mut self,
+        s: &select::Shape<'_>,
+        mcx: mcx::Mcx<'_>,
+        wire: &mut gravity_wire::WireNode,
+        heap: &types_rel::Relation<'static>,
+        index: &types_rel::Relation<'static>,
+    ) -> PgResult<u64> {
         let (m, em) = (self.scratch.mcx(), self.scratch.exec_mcx());
         let indexqual = &s.scan.indexqual;
         let snap = snapmgr::GetActiveSnapshot();
@@ -245,7 +283,15 @@ impl ProbeKept {
                 scan.rearm(heap, index, indexqual, &[], snap)?;
                 scan
             }
-            None => self.scan.insert(probe::Scan::begin(m, heap, index, indexqual, &[], &self.ops, snap)?),
+            None => self.scan.insert(probe::Scan::begin(
+                m,
+                heap,
+                index,
+                indexqual,
+                &[],
+                &self.ops,
+                snap,
+            )?),
         };
         let tlist = &s.scan.scan.plan.targetlist;
         let mut rows = 0u64;
@@ -322,8 +368,18 @@ fn paramize<'m>(m: mcx::Mcx<'m>, n: Node<'m>, at: &[usize]) -> PgResult<Option<N
     stack_depth_core::check_stack_depth()?;
     if let Some(c) = n.as_const() {
         let me = c as *const Const as usize;
-        let id = at.iter().position(|&a| a == me).ok_or_else(|| internal("a SET constant outside the kept walk"))?;
-        let p = Param { paramkind: ParamKind::PARAM_EXEC, paramid: id as i32, paramtype: c.consttype, paramtypmod: c.consttypmod, paramcollid: c.constcollid, location: c.location };
+        let id = at
+            .iter()
+            .position(|&a| a == me)
+            .ok_or_else(|| internal("a SET constant outside the kept walk"))?;
+        let p = Param {
+            paramkind: ParamKind::PARAM_EXEC,
+            paramid: id as i32,
+            paramtype: c.consttype,
+            paramtypmod: c.consttypmod,
+            paramcollid: c.constcollid,
+            location: c.location,
+        };
         return Ok(Some(Node::mk(m, p)?));
     }
     nodes_core::expression_tree_mutator(m, n, &mut |c| paramize(m, c, at))
@@ -353,7 +409,13 @@ pub(super) struct SetKept {
 impl SetKept {
     /// The kept compile of the plan's SET values (`tlist`'s first `targets.len()` entries, each one `keeps` takes) over
     /// table `relid` (`cols`: the old row's columns), its context charged to `owner`.
-    pub(super) fn build(relid: Oid, cols: &[i16], targets: &[i16], tlist: &NodeList<'_>, owner: memledger::Owner) -> PgResult<SetKept> {
+    pub(super) fn build(
+        relid: Oid,
+        cols: &[i16],
+        targets: &[i16],
+        tlist: &NodeList<'_>,
+        owner: memledger::Owner,
+    ) -> PgResult<SetKept> {
         let mut scratch = {
             let _small = gravity_hosts::scratch::small_roots();
             NodeScratch::new("GravityPointSet")
@@ -367,9 +429,13 @@ impl SetKept {
         let slot = slot?;
         let mut exprs: PgVec<'_, Node<'_>> = PgVec::new_in(m);
         let mut at: PgVec<'_, usize> = PgVec::new_in(m);
-        exprs.try_reserve_exact(targets.len()).map_err(|_| m.oom(targets.len() * 8))?;
+        exprs
+            .try_reserve_exact(targets.len())
+            .map_err(|_| m.oom(targets.len() * 8))?;
         for t in tlist.iter().take(targets.len()) {
-            let te = t.as_target_entry().ok_or_else(|| internal("a SET entry that is no target entry"))?;
+            let te = t
+                .as_target_entry()
+                .ok_or_else(|| internal("a SET entry that is no target entry"))?;
             let copy = copyfuncs::copy_object(m, te.expr)?;
             let mut n = 0usize;
             each_const(copy, &mut |_| n += 1);
@@ -378,17 +444,28 @@ impl SetKept {
             exprs.push(paramize(m, copy, &at)?.unwrap_or(copy));
         }
         let mut params: PgVec<'static, ParamExecData> = PgVec::new_in(m);
-        params.try_reserve_exact(at.len()).map_err(|_| m.oom(at.len() * core::mem::size_of::<ParamExecData>()))?;
+        params
+            .try_reserve_exact(at.len())
+            .map_err(|_| m.oom(at.len() * core::mem::size_of::<ParamExecData>()))?;
         for _ in 0..at.len() {
             params.push(ParamExecData::EMPTY);
         }
-        let bind = ParamBind { exec_vals: core::ptr::NonNull::new(params.as_mut_ptr()), n_exec: params.len() as u32, ..ParamBind::NONE };
+        let bind = ParamBind {
+            exec_vals: core::ptr::NonNull::new(params.as_mut_ptr()),
+            n_exec: params.len() as u32,
+            ..ParamBind::NONE
+        };
         let mut states: PgVec<'static, PgBox<'static, ExprState<'static>>> = PgVec::new_in(m);
-        states.try_reserve_exact(exprs.len()).map_err(|_| m.oom(exprs.len() * 8))?;
+        states
+            .try_reserve_exact(exprs.len())
+            .map_err(|_| m.oom(exprs.len() * 8))?;
         let window = execexpr::execute_acl_window();
         for &e in exprs.iter() {
             nodes_core::fix_opfuncids(e)?;
-            states.push(execexpr::exec_init_expr(m, Some(e), bind)?.ok_or_else(|| internal("a SET value with no expression"))?);
+            states.push(
+                execexpr::exec_init_expr(m, Some(e), bind)?
+                    .ok_or_else(|| internal("a SET value with no expression"))?,
+            );
         }
         let checked = window.finish();
         let gates = mcx::slice_in(m, &checked)?;
@@ -434,7 +511,11 @@ impl SetKept {
             };
             each_const(te.expr, &mut |c| {
                 if let Some(p) = params.get_mut(k) {
-                    *p = ParamExecData { value: c.constvalue, isnull: c.constisnull, exec_plan: false };
+                    *p = ParamExecData {
+                        value: c.constvalue,
+                        isnull: c.constisnull,
+                        exec_plan: false,
+                    };
                 }
                 k += 1;
             });
@@ -483,7 +564,11 @@ impl NewRow for SetKept {
             }
         }
         exectuples::exec_store_virtual_tuple(&mut self.slot);
-        let mut slots = EvalSlots { scan: Some(&mut self.slot), inner: None, outer: None };
+        let mut slots = EvalSlots {
+            scan: Some(&mut self.slot),
+            inner: None,
+            outer: None,
+        };
         for (st, &a) in self.states.iter_mut().zip(self.targets.iter()) {
             st.arm_result_mcx(em);
             let d = execexpr::exec_eval_expr(st, &mut slots)?;
@@ -501,7 +586,10 @@ impl NewRow for SetKept {
 
 #[cold]
 pub(super) fn internal(msg: &str) -> Box<PgError> {
-    Box::new(PgError::error(format!("point path: {msg}")).with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR)) // alloc: Cold
+    Box::new(
+        PgError::error(format!("point path: {msg}"))
+            .with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR),
+    ) // alloc: Cold
 }
 
 #[cfg(test)]
@@ -516,12 +604,41 @@ mod tests {
     const JSON_BUILD_OBJECT: Oid = 3200;
 
     fn konst(mcx: mcx::Mcx<'_>, typ: Oid) -> Node<'_> {
-        let len = if typ == INT4 { 4 } else if typ == types_core::catalog::UNKNOWNOID { -2 } else { -1 };
-        Node::mk(mcx, Const { consttype: typ, consttypmod: -1, constcollid: 0, constlen: len, constvalue: datum::Datum::from_u64(0), constisnull: true, constbyval: typ == INT4, location: -1 }).unwrap()
+        let len = if typ == INT4 {
+            4
+        } else if typ == types_core::catalog::UNKNOWNOID {
+            -2
+        } else {
+            -1
+        };
+        Node::mk(
+            mcx,
+            Const {
+                consttype: typ,
+                consttypmod: -1,
+                constcollid: 0,
+                constlen: len,
+                constvalue: datum::Datum::from_u64(0),
+                constisnull: true,
+                constbyval: typ == INT4,
+                location: -1,
+            },
+        )
+        .unwrap()
     }
 
     fn call<'m>(mcx: mcx::Mcx<'m>, a: Node<'m>, b: Node<'m>) -> Node<'m> {
-        let f = FuncExpr { funcid: JSON_BUILD_OBJECT, funcresulttype: JSON, funcretset: false, funcvariadic: false, funcformat: CoercionForm::COERCE_EXPLICIT_CALL, funccollid: 0, inputcollid: 0, args: NodeList::make2(mcx, a, b).unwrap(), location: -1 };
+        let f = FuncExpr {
+            funcid: JSON_BUILD_OBJECT,
+            funcresulttype: JSON,
+            funcretset: false,
+            funcvariadic: false,
+            funcformat: CoercionForm::COERCE_EXPLICIT_CALL,
+            funccollid: 0,
+            inputcollid: 0,
+            args: NodeList::make2(mcx, a, b).unwrap(),
+            location: -1,
+        };
         Node::mk(mcx, f).unwrap()
     }
 
@@ -531,12 +648,35 @@ mod tests {
     fn an_unknown_typed_literal_is_not_kept() {
         let ctx = gravity_driver::mem::root::context("PointKeepTest", true);
         let mcx = ctx.mcx();
-        let unknown = call(mcx, konst(mcx, types_core::catalog::UNKNOWNOID), konst(mcx, INT4));
-        assert!(!keeps(unknown), "an untyped literal under a VARIADIC \"any\" call");
-        assert!(!keeps(konst(mcx, types_core::catalog::UNKNOWNOID)), "an untyped literal alone");
+        let unknown = call(
+            mcx,
+            konst(mcx, types_core::catalog::UNKNOWNOID),
+            konst(mcx, INT4),
+        );
+        assert!(
+            !keeps(unknown),
+            "an untyped literal under a VARIADIC \"any\" call"
+        );
+        assert!(
+            !keeps(konst(mcx, types_core::catalog::UNKNOWNOID)),
+            "an untyped literal alone"
+        );
         let typed = call(mcx, konst(mcx, TEXT), konst(mcx, INT4));
         assert!(keeps(typed), "typed literals");
-        let col = Node::mk(mcx, Var { varno: 1, varattno: 2, vartype: INT4, vartypmod: -1, ..Var::default() }).unwrap();
-        assert!(keeps(call(mcx, konst(mcx, TEXT), col)), "a typed literal and a column");
+        let col = Node::mk(
+            mcx,
+            Var {
+                varno: 1,
+                varattno: 2,
+                vartype: INT4,
+                vartypmod: -1,
+                ..Var::default()
+            },
+        )
+        .unwrap();
+        assert!(
+            keeps(call(mcx, konst(mcx, TEXT), col)),
+            "a typed literal and a column"
+        );
     }
 }

@@ -1,4 +1,3 @@
-
 use core::ffi::{c_int, c_uchar, c_void};
 use core::mem::size_of;
 
@@ -24,9 +23,8 @@ unsafe fn sym_cmp(a: *const symbol, b: *const symbol, n: c_int) -> c_int {
 
 #[allow(clippy::missing_safety_doc)]
 pub unsafe fn create_s() -> *mut symbol {
-    let mem: *mut c_void = palloc(
-        HEAD.wrapping_add(((CREATE_SIZE + 1) as usize).wrapping_mul(size_of::<symbol>())),
-    );
+    let mem: *mut c_void =
+        palloc(HEAD.wrapping_add(((CREATE_SIZE + 1) as usize).wrapping_mul(size_of::<symbol>())));
     if mem.is_null() {
         return core::ptr::null_mut();
     }
@@ -64,7 +62,7 @@ pub unsafe fn skip_utf8(p: *const symbol, mut c: c_int, limit: c_int, mut n: c_i
         if b >= 0xc0 {
             while c < limit {
                 b = unsafe { *p.offset(c as isize) } as c_int;
-                if !(0x80.. 0xc0).contains(& b) {
+                if !(0x80..0xc0).contains(&b) {
                     break;
                 }
                 c += 1;
@@ -107,24 +105,21 @@ unsafe fn get_utf8(p: *const symbol, mut c: c_int, l: c_int, slot: *mut c_int) -
     }
     let fresh1 = c;
     c += 1;
-    let
-    b0: c_int = unsafe { *p.offset(fresh1 as isize) } as c_int;
+    let b0: c_int = unsafe { *p.offset(fresh1 as isize) } as c_int;
     if b0 < 0xc0 || c == l {
         unsafe { *slot = b0 };
         return 1;
     }
     let fresh2 = c;
     c += 1;
-    let
-    b1: c_int = unsafe { *p.offset(fresh2 as isize) } as c_int & 0x3f;
+    let b1: c_int = unsafe { *p.offset(fresh2 as isize) } as c_int & 0x3f;
     if b0 < 0xe0 || c == l {
         unsafe { *slot = (b0 & 0x1f) << 6 | b1 };
         return 2;
     }
     let fresh3 = c;
     c += 1;
-    let
-    b2: c_int = unsafe { *p.offset(fresh3 as isize) } as c_int & 0x3f;
+    let b2: c_int = unsafe { *p.offset(fresh3 as isize) } as c_int & 0x3f;
     if b0 < 0xf0 || c == l {
         unsafe { *slot = (b0 & 0xf) << 12 | b1 << 6 | b2 };
         return 3;

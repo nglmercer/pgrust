@@ -18,14 +18,25 @@ crate::strategies! {
     HASH_RUNOPEN = 43, "hash.runopen", Keyed;
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(HASH_RUNOPEN, &())], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(HASH_RUNOPEN, &())],
+    ..crate::ops::NONE
+};
 
 /// The hash a run opening at `img` carries: its KeyHash with the road on, else `zero` (the close hashes).
 pub(crate) fn at_open(b: &mut FunctionBuilder<'_>, img: &ImageWords, zero: Value) -> Value {
-    if ImageForm::RunOpen.on() { emit_key_hash(b, &img.words) } else { zero }
+    if ImageForm::RunOpen.on() {
+        emit_key_hash(b, &img.words)
+    } else {
+        zero
+    }
 }
 
 /// The hash a run closing at `img` folds with: the one it carried from its open, or its image's taken now.
 pub(crate) fn at_close(b: &mut FunctionBuilder<'_>, img: &ImageWords, carried: Value) -> Value {
-    if ImageForm::RunOpen.on() { carried } else { emit_key_hash(b, &img.words) }
+    if ImageForm::RunOpen.on() {
+        carried
+    } else {
+        emit_key_hash(b, &img.words)
+    }
 }

@@ -128,8 +128,13 @@ pub(crate) fn pgaio_worker_shmem_init(_first_time: bool) -> PgResult<()> {
         unsafe {
             c.write(PgAioWorkerControl {
                 idle_worker_mask: 0,
-                workers: [const { PgAioWorkerSlot { procno: INVALID_PROC, _latch_pad: 0, in_use: false } };
-                    MAX_IO_WORKERS_USIZE],
+                workers: [const {
+                    PgAioWorkerSlot {
+                        procno: INVALID_PROC,
+                        _latch_pad: 0,
+                        in_use: false,
+                    }
+                }; MAX_IO_WORKERS_USIZE],
             });
         }
     }
@@ -173,9 +178,15 @@ fn queue_insert(q: &mut PgAioWorkerSubmissionQueue, index: u32) -> bool {
     if new_head == q.tail {
         let report = ereport(DEBUG3);
         if !report.is_suppressed() {
-            let _ = report.errhidestmt(true).errhidecontext(true)
+            let _ = report
+                .errhidestmt(true)
+                .errhidecontext(true)
                 .errmsg_internal(format!("io queue is full, at {} elements", q.size))
-                .finish(ErrorLocation::new("method_worker.c", 190, "pgaio_worker_submission_queue_insert"));
+                .finish(ErrorLocation::new(
+                    "method_worker.c",
+                    190,
+                    "pgaio_worker_submission_queue_insert",
+                ));
         }
         return false; // full
     }
@@ -212,7 +223,12 @@ fn choose_idle(c: &mut PgAioWorkerControl) -> Option<usize> {
     Some(worker)
 }
 
-fn worker_debug_io(index: u32, message: std::fmt::Arguments<'_>, line: i32, function: &'static str) {
+fn worker_debug_io(
+    index: u32,
+    message: std::fmt::Arguments<'_>,
+    line: i32,
+    function: &'static str,
+) {
     let report = ereport(DEBUG4);
     if report.is_suppressed() {
         return;
@@ -220,10 +236,17 @@ fn worker_debug_io(index: u32, message: std::fmt::Arguments<'_>, line: i32, func
     let h = ioh(index);
     // SAFETY: the submitting backend or executing worker owns this queued IO.
     let d = unsafe { h.data() };
-    let _ = report.errhidestmt(true).errhidecontext(true)
-        .errmsg_internal(format!("io {:<10}|op {:<5}|target {:<4}|state {:<16}: {}",
-            index, crate::pgaio_io_op_name(d.op), crate::pgaio_io_target_name(d.target),
-            crate::pgaio_io_state_name(h.state.load(Ordering::Relaxed)), message))
+    let _ = report
+        .errhidestmt(true)
+        .errhidecontext(true)
+        .errmsg_internal(format!(
+            "io {:<10}|op {:<5}|target {:<4}|state {:<16}: {}",
+            index,
+            crate::pgaio_io_op_name(d.op),
+            crate::pgaio_io_target_name(d.target),
+            crate::pgaio_io_state_name(h.state.load(Ordering::Relaxed)),
+            message
+        ))
         .finish(ErrorLocation::new("method_worker.c", line, function));
 }
 
@@ -256,8 +279,12 @@ fn pgaio_worker_submit_internal(staged: &[u32]) -> PgResult<()> {
             if let Some(worker) = worker {
                 wakeup = Some(c.workers[worker].procno);
             }
-            worker_debug_io(index, format_args!("choosing worker {}", worker.map_or(-1, |w| w as i32)),
-                274, "pgaio_worker_submit_internal");
+            worker_debug_io(
+                index,
+                format_args!("choosing worker {}", worker.map_or(-1, |w| w as i32)),
+                274,
+                "pgaio_worker_submit_internal",
+            );
         }
     }
     LWLockRelease(queue_lock())?;
@@ -285,7 +312,6 @@ fn pgaio_worker_die(_code: i32, _arg: usize) {
     c.workers[id as usize].procno = INVALID_PROC;
     LWLockRelease(queue_lock()).expect("pgaio_worker_die");
 }
-
 
 pub fn pgaio_worker_register() -> PgResult<()> {
     MY_IO_WORKER_ID.set(-1);
@@ -323,7 +349,9 @@ fn pgaio_worker_error_context(index: u32) -> String {
     let h = ioh(index);
     debug_assert!(h.owner_procno != g::MyProcNumber());
     debug_assert!(miscinit::GetMyBackendType() == types_core::BackendType::IoWorker);
-    let owner_pid = lmgr_proc::GetPGProcByNumber(h.owner_procno).pid.load(Ordering::Relaxed);
+    let owner_pid = lmgr_proc::GetPGProcByNumber(h.owner_procno)
+        .pid
+        .load(Ordering::Relaxed);
     format!("I/O worker executing I/O on behalf of process {owner_pid}")
 }
 
@@ -383,8 +411,12 @@ pub fn pgaio_worker_cycle() -> PgResult<()> {
 
     match io_index {
         Some(index) => {
-            worker_debug_io(index, format_args!("worker {} processing IO", MY_IO_WORKER_ID.get()),
-                511, "IoWorkerMain");
+            worker_debug_io(
+                index,
+                format_args!("worker {} processing IO", MY_IO_WORKER_ID.get()),
+                511,
+                "IoWorkerMain",
+            );
             // C: interrupts held so the reopened fd cannot be closed before
             // execution consumes it.
             g::HoldInterrupts();
@@ -470,7 +502,11 @@ mod tests {
         elog::config::set_log_min_messages(DEBUG4);
         let old_hook = elog::set_emit_log_hook(Some(hook));
         let mut q = PgAioWorkerSubmissionQueue {
-            size: 64, mask: 63, head: 63, tail: 0, sqes: [0; 64],
+            size: 64,
+            mask: 63,
+            head: 63,
+            tail: 0,
+            sqes: [0; 64],
         };
         assert!(!queue_insert(&mut q, 23));
         let h = ioh(23);
@@ -480,10 +516,18 @@ mod tests {
             h.data().target = types_storage::aio::PGAIO_TID_SMGR;
         }
         h.state.store(crate::PGAIO_HS_SUBMITTED, Ordering::Relaxed);
-        worker_debug_io(23, format_args!("choosing worker -1"),
-            274, "pgaio_worker_submit_internal");
-        worker_debug_io(23, format_args!("worker 2 processing IO"),
-            511, "IoWorkerMain");
+        worker_debug_io(
+            23,
+            format_args!("choosing worker -1"),
+            274,
+            "pgaio_worker_submit_internal",
+        );
+        worker_debug_io(
+            23,
+            format_args!("worker 2 processing IO"),
+            511,
+            "IoWorkerMain",
+        );
         assert_eq!(SEEN.load(Ordering::Relaxed), 3);
         elog::set_emit_log_hook(old_hook);
         elog::config::set_log_min_messages(old_level);

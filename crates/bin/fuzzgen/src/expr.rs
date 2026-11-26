@@ -18,21 +18,57 @@ use crate::subq::{gen_cmp_subq, gen_exists_subq, gen_in_subq, gen_scalar_subq};
 #[derive(Clone, Debug)]
 pub enum Expr {
     /// Alias-qualified column reference (aliases are statement-unique).
-    ColRef { alias: String, name: String },
+    ColRef {
+        alias: String,
+        name: String,
+    },
     /// Pre-rendered literal text, self-delimiting (parenthesized/cast).
-    Lit { sql: String },
-    Null { ty: SqlType },
-    Unary { op: &'static str, arg: Box<Expr> },
-    Binary { op: &'static str, lhs: Box<Expr>, rhs: Box<Expr> },
-    Func { name: &'static str, args: Vec<Expr> },
-    Case { cond: Box<Expr>, then_e: Box<Expr>, else_e: Box<Expr> },
-    Cast { arg: Box<Expr>, to: SqlType },
-    IsNull { arg: Box<Expr>, negated: bool },
+    Lit {
+        sql: String,
+    },
+    Null {
+        ty: SqlType,
+    },
+    Unary {
+        op: &'static str,
+        arg: Box<Expr>,
+    },
+    Binary {
+        op: &'static str,
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+    },
+    Func {
+        name: &'static str,
+        args: Vec<Expr>,
+    },
+    Case {
+        cond: Box<Expr>,
+        then_e: Box<Expr>,
+        else_e: Box<Expr>,
+    },
+    Cast {
+        arg: Box<Expr>,
+        to: SqlType,
+    },
+    IsNull {
+        arg: Box<Expr>,
+        negated: bool,
+    },
     /// Scalar subquery: `(SELECT one-item ...)`, at most one row by
     /// construction (single-row/empty FROM source, or no FROM at all).
-    ScalarSubq { body: Box<SelectStmt> },
-    InSubq { lhs: Box<Expr>, negated: bool, body: Box<SelectStmt> },
-    Exists { negated: bool, body: Box<SelectStmt> },
+    ScalarSubq {
+        body: Box<SelectStmt>,
+    },
+    InSubq {
+        lhs: Box<Expr>,
+        negated: bool,
+        body: Box<SelectStmt>,
+    },
+    Exists {
+        negated: bool,
+        body: Box<SelectStmt>,
+    },
     /// Aggregate call (agg module): COUNT(*) via `star`; DISTINCT;
     /// ordered-input aggregates carry a mandatory inner ORDER BY — always
     /// their own first argument (crate::agg discipline) — and any
@@ -46,13 +82,21 @@ pub enum Expr {
         filter: Option<Box<Expr>>,
     },
     /// Window function call over an inline or named window (win module).
-    WindowFunc { name: &'static str, args: Vec<Expr>, over: WindowOver },
+    WindowFunc {
+        name: &'static str,
+        args: Vec<Expr>,
+        over: WindowOver,
+    },
     /// Generic SQL wrapper for syntax `Func` can't spell (EXTRACT's
     /// `field FROM arg`, array subscripts/slices). `pre`/`post` carry
     /// LITERAL TEXT ONLY — never column references (the scoping checker
     /// walks `arg` but cannot see into the strings) — and must keep the
     /// combined `pre`+`post` paren-balanced.
-    Wrap { pre: String, arg: Box<Expr>, post: String },
+    Wrap {
+        pre: String,
+        arg: Box<Expr>,
+        post: String,
+    },
 }
 
 impl Expr {
@@ -96,7 +140,11 @@ impl Expr {
                 }
                 out.push(')');
             }
-            Expr::Case { cond, then_e, else_e } => {
+            Expr::Case {
+                cond,
+                then_e,
+                else_e,
+            } => {
                 out.push_str("(CASE WHEN ");
                 cond.render(out);
                 out.push_str(" THEN ");
@@ -136,7 +184,14 @@ impl Expr {
                 body.render(out);
                 out.push_str("))");
             }
-            Expr::Agg { name, star, distinct, args, order_within, filter } => {
+            Expr::Agg {
+                name,
+                star,
+                distinct,
+                args,
+                order_within,
+                filter,
+            } => {
                 out.push_str(name);
                 out.push('(');
                 if *star {
@@ -216,9 +271,18 @@ impl Expr {
             }
             Expr::Binary { lhs, rhs, .. } => vec![lhs, rhs],
             Expr::Func { args, .. } => args.iter().collect(),
-            Expr::Case { cond, then_e, else_e } => vec![cond, then_e, else_e],
+            Expr::Case {
+                cond,
+                then_e,
+                else_e,
+            } => vec![cond, then_e, else_e],
             Expr::InSubq { lhs, .. } => vec![lhs],
-            Expr::Agg { args, order_within, filter, .. } => {
+            Expr::Agg {
+                args,
+                order_within,
+                filter,
+                ..
+            } => {
                 let mut out: Vec<&Expr> = args.iter().collect();
                 if let Some((oe, _)) = order_within {
                     out.push(oe);
@@ -244,8 +308,11 @@ impl Gen<'_> {
     /// Random type that has at least one column in scope (guards against
     /// thinner relations; falls back to any type when the scope is bare).
     pub fn any_type(&mut self, scope: &Scope) -> SqlType {
-        let avail: Vec<SqlType> =
-            ALL_TYPES.iter().copied().filter(|&t| scope.has_type(t)).collect();
+        let avail: Vec<SqlType> = ALL_TYPES
+            .iter()
+            .copied()
+            .filter(|&t| scope.has_type(t))
+            .collect();
         if avail.is_empty() {
             *self.rng.pick(ALL_TYPES)
         } else {
@@ -353,24 +420,34 @@ impl Gen<'_> {
                 let src = *self.rng.pick(&sources);
                 self.fire2("cast:", &format!("{}->{}", src.name(), ty.name()));
                 let arg = self.gen_typed(scope, src, depth - 1);
-                Expr::Cast { arg: Box::new(arg), to: ty }
+                Expr::Cast {
+                    arg: Box::new(arg),
+                    to: ty,
+                }
             }
             "coalesce" => {
                 self.fire("func:coalesce");
                 let a = self.gen_typed(scope, ty, depth - 1);
                 let b = self.gen_typed(scope, ty, depth - 1);
-                Expr::Func { name: "coalesce", args: vec![a, b] }
+                Expr::Func {
+                    name: "coalesce",
+                    args: vec![a, b],
+                }
             }
             "nullif" => {
                 self.fire("func:nullif");
                 let a = self.gen_typed(scope, ty, depth - 1);
                 let b = self.gen_typed(scope, ty, depth - 1);
-                Expr::Func { name: "nullif", args: vec![a, b] }
+                Expr::Func {
+                    name: "nullif",
+                    args: vec![a, b],
+                }
             }
             "arith" => {
                 // Same-type operands keep the result type stable.
                 let picked = if ty.is_float() {
-                    self.weights.pick(self.rng, &["binop:+", "binop:-", "binop:*", "binop:/"])
+                    self.weights
+                        .pick(self.rng, &["binop:+", "binop:-", "binop:*", "binop:/"])
                 } else {
                     self.weights.pick(
                         self.rng,
@@ -381,25 +458,41 @@ impl Gen<'_> {
                 self.fire2("binop:", op);
                 let lhs = self.gen_typed(scope, ty, depth - 1);
                 let rhs = self.gen_typed(scope, ty, depth - 1);
-                Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs) }
+                Expr::Binary {
+                    op,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                }
             }
             "neg" => {
                 self.fire("unop:-");
                 let arg = self.gen_typed(scope, ty, depth - 1);
-                Expr::Unary { op: "-", arg: Box::new(arg) }
+                Expr::Unary {
+                    op: "-",
+                    arg: Box::new(arg),
+                }
             }
             "func_num" => {
                 let picked = match ty {
                     SqlType::Float8 | SqlType::Numeric => self.weights.pick(
                         self.rng,
-                        &["func:abs", "func:ceil", "func:floor", "func:round", "func:sqrt"],
+                        &[
+                            "func:abs",
+                            "func:ceil",
+                            "func:floor",
+                            "func:round",
+                            "func:sqrt",
+                        ],
                     ),
                     _ => "func:abs",
                 };
                 let name = &picked["func:".len()..];
                 self.fire2("func:", name);
                 let arg = self.gen_typed(scope, ty, depth - 1);
-                Expr::Func { name, args: vec![arg] }
+                Expr::Func {
+                    name,
+                    args: vec![arg],
+                }
             }
             "concat" => {
                 self.fire("binop:||");
@@ -407,34 +500,52 @@ impl Gen<'_> {
                 let rt = *self.rng.pick(&[SqlType::Text, SqlType::Varchar]);
                 let lhs = self.gen_typed(scope, lt, depth - 1);
                 let rhs = self.gen_typed(scope, rt, depth - 1);
-                Expr::Binary { op: "||", lhs: Box::new(lhs), rhs: Box::new(rhs) }
+                Expr::Binary {
+                    op: "||",
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                }
             }
             "func_text" => {
-                let picked =
-                    self.weights.pick(self.rng, &["func:lower", "func:upper", "func:btrim"]);
+                let picked = self
+                    .weights
+                    .pick(self.rng, &["func:lower", "func:upper", "func:btrim"]);
                 let name = &picked["func:".len()..];
                 self.fire2("func:", name);
                 let arg = self.gen_typed(scope, SqlType::Text, depth - 1);
-                Expr::Func { name, args: vec![arg] }
+                Expr::Func {
+                    name,
+                    args: vec![arg],
+                }
             }
             "func_varchar" => {
                 // substr(varchar, int) keeps the varchar result type.
                 self.fire("func:substr");
                 let arg = self.gen_typed(scope, SqlType::Varchar, depth - 1);
                 let start = self.gen_typed(scope, SqlType::Int4, depth - 1);
-                Expr::Func { name: "substr", args: vec![arg, start] }
+                Expr::Func {
+                    name: "substr",
+                    args: vec![arg, start],
+                }
             }
             "length" => {
                 self.fire("func:length");
                 let src = *self.rng.pick(&[SqlType::Text, SqlType::Varchar]);
                 let arg = self.gen_typed(scope, src, depth - 1);
-                Expr::Func { name: "length", args: vec![arg] }
+                Expr::Func {
+                    name: "length",
+                    args: vec![arg],
+                }
             }
             "date_plus_int" => {
                 self.fire("binop:date+int");
                 let lhs = self.gen_typed(scope, SqlType::Date, depth - 1);
                 let rhs = self.gen_typed(scope, SqlType::Int4, depth - 1);
-                Expr::Binary { op: "+", lhs: Box::new(lhs), rhs: Box::new(rhs) }
+                Expr::Binary {
+                    op: "+",
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                }
             }
             "date_trunc" => {
                 self.fire("func:date_trunc");
@@ -442,7 +553,12 @@ impl Gen<'_> {
                 let arg = self.gen_typed(scope, SqlType::Timestamp, depth - 1);
                 Expr::Func {
                     name: "date_trunc",
-                    args: vec![Expr::Lit { sql: format!("'{}'", unit) }, arg],
+                    args: vec![
+                        Expr::Lit {
+                            sql: format!("'{}'", unit),
+                        },
+                        arg,
+                    ],
                 }
             }
             "subq:scalar" => gen_scalar_subq(self, scope, ty),
@@ -481,8 +597,15 @@ impl Gen<'_> {
             return self.gen_leaf(scope, SqlType::Bool);
         }
         let mut options: Vec<&'static str> = vec![
-            "cmp", "and_or", "not", "isnull", "case", "coalesce", "ts:match",
-            "jsonb:bool", "arr:any_all",
+            "cmp",
+            "and_or",
+            "not",
+            "isnull",
+            "case",
+            "coalesce",
+            "ts:match",
+            "jsonb:bool",
+            "arr:any_all",
         ];
         if self.subq_depth > 0 {
             options.push("subq:cmp");
@@ -498,7 +621,11 @@ impl Gen<'_> {
                 debug_assert!(ty.comparable_with(ty));
                 let lhs = self.gen_typed(scope, ty, depth - 1);
                 let rhs = self.gen_typed(scope, ty, depth - 1);
-                Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs) }
+                Expr::Binary {
+                    op,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                }
             }
             "and_or" => {
                 let picked = self.weights.pick(self.rng, &["binop:and", "binop:or"]);
@@ -506,19 +633,29 @@ impl Gen<'_> {
                 self.fire2("binop:", if op == "AND" { "and" } else { "or" });
                 let lhs = self.gen_bool(scope, depth - 1);
                 let rhs = self.gen_bool(scope, depth - 1);
-                Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs) }
+                Expr::Binary {
+                    op,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                }
             }
             "not" => {
                 self.fire("unop:not");
                 let arg = self.gen_bool(scope, depth - 1);
-                Expr::Unary { op: "NOT", arg: Box::new(arg) }
+                Expr::Unary {
+                    op: "NOT",
+                    arg: Box::new(arg),
+                }
             }
             "isnull" => {
                 let negated = self.rng.chance(1, 2);
                 self.fire(if negated { "isnotnull" } else { "isnull" });
                 let ty = self.any_type(scope);
                 let arg = self.gen_typed(scope, ty, depth - 1);
-                Expr::IsNull { arg: Box::new(arg), negated }
+                Expr::IsNull {
+                    arg: Box::new(arg),
+                    negated,
+                }
             }
             "case" => {
                 self.fire("case");
@@ -535,7 +672,10 @@ impl Gen<'_> {
                 self.fire("func:coalesce");
                 let a = self.gen_bool(scope, depth - 1);
                 let b = self.gen_bool(scope, depth - 1);
-                Expr::Func { name: "coalesce", args: vec![a, b] }
+                Expr::Func {
+                    name: "coalesce",
+                    args: vec![a, b],
+                }
             }
             "subq:cmp" => gen_cmp_subq(self, scope),
             "subq:in" => gen_in_subq(self, scope),
@@ -549,9 +689,10 @@ impl Gen<'_> {
 
     /// Weighted comparison-operator pick (shared with the subquery module).
     pub fn pick_cmp_op(&mut self) -> &'static str {
-        let picked = self
-            .weights
-            .pick(self.rng, &["cmp:=", "cmp:<>", "cmp:<", "cmp:<=", "cmp:>", "cmp:>="]);
+        let picked = self.weights.pick(
+            self.rng,
+            &["cmp:=", "cmp:<>", "cmp:<", "cmp:<=", "cmp:>", "cmp:>="],
+        );
         let op = &picked["cmp:".len()..];
         self.fire2("cmp:", op);
         op
@@ -576,12 +717,18 @@ impl Gen<'_> {
             "colref" => {
                 self.fire("colref");
                 let (alias, c) = *self.rng.pick(&cols);
-                Expr::ColRef { alias: alias.to_string(), name: c.name.clone() }
+                Expr::ColRef {
+                    alias: alias.to_string(),
+                    name: c.name.clone(),
+                }
             }
             "colref:outer" => {
                 self.fire("colref:outer");
                 let (alias, c) = *self.rng.pick(&outer_cols);
-                Expr::ColRef { alias: alias.to_string(), name: c.name.clone() }
+                Expr::ColRef {
+                    alias: alias.to_string(),
+                    name: c.name.clone(),
+                }
             }
             "null" => {
                 self.fire2("null:", ty.name());
@@ -589,7 +736,9 @@ impl Gen<'_> {
             }
             _ => {
                 self.fire2("lit:", ty.name());
-                Expr::Lit { sql: self.gen_literal(ty) }
+                Expr::Lit {
+                    sql: self.gen_literal(ty),
+                }
             }
         }
     }
@@ -857,9 +1006,7 @@ impl Gen<'_> {
                     _ => {
                         let n = 1 + self.rng.below(3);
                         let els: Vec<String> = (0..n)
-                            .map(|_| {
-                                format!("e{}", (b'a' + self.rng.below(4) as u8) as char)
-                            })
+                            .map(|_| format!("e{}", (b'a' + self.rng.below(4) as u8) as char))
                             .collect();
                         format!("{{{}}}", els.join(","))
                     }
@@ -921,8 +1068,7 @@ mod tests {
             let mut prods = Vec::new();
             let mut g = Gen::new(&mut rng, &cat, &w, &mut prods, 5);
             let mut hits = 0usize;
-            let mut seen: std::collections::HashSet<&str> =
-                std::collections::HashSet::new();
+            let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
             const N: usize = 3000;
             for _ in 0..N {
                 let lit = g.gen_literal(ty);
@@ -944,7 +1090,9 @@ mod tests {
                 bank.len(),
                 "{:?}: bank entries never emitted: {:?}",
                 ty,
-                bank.iter().filter(|b| !seen.contains(*b)).collect::<Vec<_>>()
+                bank.iter()
+                    .filter(|b| !seen.contains(*b))
+                    .collect::<Vec<_>>()
             );
         }
     }
@@ -958,7 +1106,10 @@ mod tests {
             let mut rng = Rng::new(seed);
             let mut prods = Vec::new();
             let mut g = Gen::new(&mut rng, &cat, &w, &mut prods, 5);
-            let scope = Scope { rels: &rels, outer: None };
+            let scope = Scope {
+                rels: &rels,
+                outer: None,
+            };
             let e = g.gen_typed(&scope, SqlType::Int8, 5);
             (e.to_sql(), prods)
         };
@@ -975,7 +1126,10 @@ mod tests {
             let mut rng = Rng::new(seed);
             let mut prods = Vec::new();
             let mut g = Gen::new(&mut rng, &cat, &w, &mut prods, 5);
-            let scope = Scope { rels: &rels, outer: None };
+            let scope = Scope {
+                rels: &rels,
+                outer: None,
+            };
             let mut out = Vec::new();
             for _ in 0..20 {
                 out.push(g.gen_typed(&scope, SqlType::Int8, 5).to_sql());
@@ -1003,17 +1157,27 @@ mod tests {
         for _ in 0..100 {
             let mut prods = Vec::new();
             let mut g = Gen::new(&mut rng, &cat, &w, &mut prods, 5);
-            let scope = Scope { rels: &rels, outer: None };
+            let scope = Scope {
+                rels: &rels,
+                outer: None,
+            };
             let ty = g.any_type(&scope);
             g.gen_typed(&scope, ty, 5);
             all.extend(prods);
         }
-        assert!(all.iter().all(|p| !p.starts_with("cast:")), "cast weighted 0 still fired");
         assert!(
-            all.iter().all(|p| !matches!(p.as_str(), "binop:+" | "binop:-" | "binop:*")),
+            all.iter().all(|p| !p.starts_with("cast:")),
+            "cast weighted 0 still fired"
+        );
+        assert!(
+            all.iter()
+                .all(|p| !matches!(p.as_str(), "binop:+" | "binop:-" | "binop:*")),
             "arith weighted 0 still fired"
         );
-        assert!(all.iter().any(|p| p == "case"), "case never fired at dominant weight");
+        assert!(
+            all.iter().any(|p| p == "case"),
+            "case never fired at dominant weight"
+        );
     }
 
     #[test]
@@ -1024,7 +1188,10 @@ mod tests {
         let mut rng = Rng::new(3);
         let mut prods = Vec::new();
         let mut g = Gen::new(&mut rng, &cat, &w, &mut prods, 6);
-        let scope = Scope { rels: &rels, outer: None };
+        let scope = Scope {
+            rels: &rels,
+            outer: None,
+        };
         let e = g.gen_typed(&scope, SqlType::Float8, 6);
         let sql = e.to_sql();
         assert!(!prods.is_empty());
@@ -1032,11 +1199,29 @@ mod tests {
         // Every recorded production has a known prefix.
         for p in &prods {
             let known = [
-                "colref", "lit:", "null:", "unop:", "binop:", "cmp:", "func:", "case",
-                "cast:", "isnull", "isnotnull", "fmt:", "jsonb:", "ts:", "arr:",
-                "interval:", "bytea:",
+                "colref",
+                "lit:",
+                "null:",
+                "unop:",
+                "binop:",
+                "cmp:",
+                "func:",
+                "case",
+                "cast:",
+                "isnull",
+                "isnotnull",
+                "fmt:",
+                "jsonb:",
+                "ts:",
+                "arr:",
+                "interval:",
+                "bytea:",
             ];
-            assert!(known.iter().any(|k| p.starts_with(k)), "unknown production {}", p);
+            assert!(
+                known.iter().any(|k| p.starts_with(k)),
+                "unknown production {}",
+                p
+            );
         }
     }
 
@@ -1049,7 +1234,10 @@ mod tests {
         for _ in 0..50 {
             let mut prods = Vec::new();
             let mut g = Gen::new(&mut rng, &cat, &w, &mut prods, 4);
-            let scope = Scope { rels: &rels, outer: None };
+            let scope = Scope {
+                rels: &rels,
+                outer: None,
+            };
             let e = g.gen_bool(&scope, 4);
             let sql = e.to_sql();
             // Cheap textual invariant: every fixture column mention is
@@ -1081,11 +1269,21 @@ mod tests {
         let mut rng = Rng::new(5);
         let mut prods = Vec::new();
         let mut g = Gen::new(&mut rng, &cat, &w, &mut prods, 3);
-        let outer = Scope { rels: &outer_rels, outer: None };
-        let inner = Scope { rels: &inner_rels, outer: Some(&outer) };
+        let outer = Scope {
+            rels: &outer_rels,
+            outer: None,
+        };
+        let inner = Scope {
+            rels: &inner_rels,
+            outer: Some(&outer),
+        };
         let e = g.gen_typed(&inner, SqlType::Int4, 0);
         // Depth-0 leaf with colref:outer dominant: must reference t0.
-        assert!(e.to_sql().starts_with("t0."), "expected outer ref, got {}", e.to_sql());
+        assert!(
+            e.to_sql().starts_with("t0."),
+            "expected outer ref, got {}",
+            e.to_sql()
+        );
         assert!(prods.iter().any(|p| p == "colref:outer"));
         // Without an outer scope, colref:outer is never offered.
         let mut prods2 = Vec::new();

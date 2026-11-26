@@ -101,13 +101,21 @@ impl Root {
 /// `aggcontext`, and its arena's init context). `observed` false makes it unobserved (mcx `new_unobserved`): no entry in
 /// the creating thread's context forest, so a parallel owner's root may be used and dropped on another thread in turn.
 pub fn context(name: &'static str, observed: bool) -> MemoryContext {
-    if observed { MemoryContext::new(name) } else { MemoryContext::new_unobserved(name) }
+    if observed {
+        MemoryContext::new(name)
+    } else {
+        MemoryContext::new_unobserved(name)
+    }
 }
 
 /// `context` whose reset is wholesale (C's AllocSetReset; D2942: a hosted aggregate's aggcontext, reset at each streamed
 /// group's start and at a re-open with the group's transition states still in it, as nodeAgg.c's ReScanExprContext).
 pub fn context_wholesale(name: &'static str, observed: bool) -> MemoryContext {
-    if observed { MemoryContext::new_wholesale(name) } else { MemoryContext::new_unobserved_wholesale(name) }
+    if observed {
+        MemoryContext::new_wholesale(name)
+    } else {
+        MemoryContext::new_unobserved_wholesale(name)
+    }
 }
 
 #[cfg(test)]
@@ -118,8 +126,8 @@ mod tests {
     fn a_held_handle_is_the_roots_context_and_stays_put_when_the_root_moves() {
         let root = Root::new("GravityRootTest");
         let before = root.mcx().context() as *const _;
-        let moved =[root]; // alloc: Cold
-        // SAFETY: `h` is used only while `moved` is alive.
+        let moved = [root]; // alloc: Cold
+                            // SAFETY: `h` is used only while `moved` is alive.
         let h = unsafe { moved[0].held() };
         assert_eq!(h.context() as *const _, before);
         assert_eq!(h.context().name(), "GravityRootTest");
@@ -141,9 +149,16 @@ mod tests {
         // A small first allocation claims the (small) keeper block, so the large one takes a block of its own.
         root.mcx().alloc_bytes(64).unwrap();
         root.mcx().alloc_bytes(N).unwrap();
-        assert!(root.used() >= N, "a bump context holds what it handed out until reset");
+        assert!(
+            root.used() >= N,
+            "a bump context holds what it handed out until reset"
+        );
         root.reset();
         // A reset bump context keeps its first (keeper) block, so `used` falls below what was handed out, not to 0.
-        assert!(root.used() < N, "reset frees the blocks beyond the keeper: used {}", root.used());
+        assert!(
+            root.used() < N,
+            "reset frees the blocks beyond the keeper: used {}",
+            root.used()
+        );
     }
 }

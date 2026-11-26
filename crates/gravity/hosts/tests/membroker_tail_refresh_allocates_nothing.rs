@@ -56,15 +56,25 @@ fn the_tail_refresh_allocates_nothing_with_every_cache_holding_entries() {
         .iter()
         .enumerate()
         .map(|(i, rec)| {
-            let bytes = bf.files.get(&part_file_name(rec.part_no)).expect("part file").clone();
-            let p = reg.open_pinned(&PartExpect::none(), move || Ok(Box::new(MemPartIo::new(bytes, 31, 3100 + i as u64)) as Box<dyn PartIo>)).expect("open");
+            let bytes = bf
+                .files
+                .get(&part_file_name(rec.part_no))
+                .expect("part file")
+                .clone();
+            let p = reg
+                .open_pinned(&PartExpect::none(), move || {
+                    Ok(Box::new(MemPartIo::new(bytes, 31, 3100 + i as u64)) as Box<dyn PartIo>)
+                })
+                .expect("open");
             p.part().prefault_all_sections().expect("fault");
             p
         })
         .collect();
     // the condition cache's entries and the build pool's kept buffers
     let owner: Arc<dyn Any + Send + Sync> = Arc::new(0u64);
-    let entries: Vec<_> = (0..64u64).map(|i| cond_cache::entry_for([0xb1, i], [0, 0], &owner, 8, 64)).collect();
+    let entries: Vec<_> = (0..64u64)
+        .map(|i| cond_cache::entry_for([0xb1, i], [0, 0], &owner, 8, 64))
+        .collect();
     for _ in 0..3 {
         reuse::give(vec![0u64; gravity_program::cost::DICT_POOL_MIN_WORDS * 2]);
     }
@@ -73,8 +83,15 @@ fn the_tail_refresh_allocates_nothing_with_every_cache_holding_entries() {
     gravity_hosts::membroker::publish_tails();
     COUNTING.with(|c| c.set(false));
     assert_eq!(ALLOCS.with(Cell::get), 0, "the tail refresh allocated");
-    for c in [Consumer::PartCache, Consumer::CondCache, Consumer::BuildPool] {
-        assert!(value::ext_stats(c).tail_bytes > 0, "{c:?}: its tail published");
+    for c in [
+        Consumer::PartCache,
+        Consumer::CondCache,
+        Consumer::BuildPool,
+    ] {
+        assert!(
+            value::ext_stats(c).tail_bytes > 0,
+            "{c:?}: its tail published"
+        );
     }
     drop((entries, pins));
 }

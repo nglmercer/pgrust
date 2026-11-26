@@ -7,7 +7,7 @@ use scan_fgram::{tokens, CoreVal, CoreYYSTYPE, Scanner, ScannerSettings};
 use types_error::{PgError, PgResult};
 
 pub use tokens::{
-    COLON_EQUALS, EQUALS_GREATER, FCONST, ICONST, IDENT, Op, PARAM, SCONST, TYPECAST, UIDENT,
+    Op, COLON_EQUALS, EQUALS_GREATER, FCONST, ICONST, IDENT, PARAM, SCONST, TYPECAST, UIDENT,
 };
 
 pub const T_WORD: i32 = 275;
@@ -244,13 +244,20 @@ pub fn scan_keyword_lookup(s: &str, keywords: &[(&'static str, i32)]) -> Option<
 
 // ScanKeywordLookup + GetScanKeyword: the matched entry, so the keyword's
 // own spelling is kept ("elsif" and "elseif" share K_ELSIF).
-pub fn scan_keyword_entry(s: &str, keywords: &[(&'static str, i32)]) -> Option<(&'static str, i32)> {
+pub fn scan_keyword_entry(
+    s: &str,
+    keywords: &[(&'static str, i32)],
+) -> Option<(&'static str, i32)> {
     if s.len() > 20 {
         return None;
     }
     let mut buf = [0u8; 20];
     for (i, &b) in s.as_bytes().iter().enumerate() {
-        buf[i] = if b.is_ascii_uppercase() { b + (b'a' - b'A') } else { b };
+        buf[i] = if b.is_ascii_uppercase() {
+            b + (b'a' - b'A')
+        } else {
+            b
+        };
     }
     let lower = &buf[..s.len()];
     keywords
@@ -336,7 +343,8 @@ fn is_identifier_word(s: &str) -> bool {
     let b = s.as_bytes();
     !b.is_empty()
         && (b[0].is_ascii_alphabetic() || b[0] == b'_')
-        && b.iter().all(|&c| c.is_ascii_alphanumeric() || c == b'_' || c == b'$')
+        && b.iter()
+            .all(|&c| c.is_ascii_alphanumeric() || c == b'_' || c == b'$')
 }
 
 pub struct PlScanner<'mcx> {
@@ -373,7 +381,10 @@ impl<'mcx> PlScanner<'mcx> {
     // One copy of the body per parse for error-context callbacks, which
     // must own what they read; a copy per expression made parsing quadratic.
     pub fn scanorig_shared(&self) -> std::rc::Rc<[u8]> {
-        let src = self.scanorig_shared.take().unwrap_or_else(|| self.scanbuf.into());
+        let src = self
+            .scanorig_shared
+            .take()
+            .unwrap_or_else(|| self.scanbuf.into());
         self.scanorig_shared.set(Some(src.clone()));
         src
     }
@@ -495,7 +506,11 @@ impl<'mcx> PlScanner<'mcx> {
         lloc: i32,
         leng: i32,
     ) -> PgResult<()> {
-        let aux = TokenAux { lval: lval.clone(), lloc, leng };
+        let aux = TokenAux {
+            lval: lval.clone(),
+            lloc,
+            leng,
+        };
         self.push_back(token, &aux)
     }
 
@@ -522,7 +537,8 @@ impl<'mcx> PlScanner<'mcx> {
             }
             WordRes::Word(word) => {
                 if !word.quoted {
-                    if let Some((kw, tok)) = scan_keyword_entry(&word.ident, UNRESERVED_PL_KEYWORDS) {
+                    if let Some((kw, tok)) = scan_keyword_entry(&word.ident, UNRESERVED_PL_KEYWORDS)
+                    {
                         aux1.lval.word = Some(word);
                         aux1.lval.keyword = Some(kw);
                         return tok;
@@ -535,10 +551,7 @@ impl<'mcx> PlScanner<'mcx> {
     }
 
     // plpgsql_yylex (pl_scanner.c); returns (token, lval, lloc, leng).
-    pub fn yylex(
-        &mut self,
-        resolver: &mut dyn WordResolver,
-    ) -> PgResult<(i32, Yystype, i32, i32)> {
+    pub fn yylex(&mut self, resolver: &mut dyn WordResolver) -> PgResult<(i32, Yystype, i32, i32)> {
         let mut aux1 = TokenAux::default();
         let mut tok1 = self.internal_yylex(&mut aux1)?;
 
@@ -596,11 +609,8 @@ impl<'mcx> PlScanner<'mcx> {
                     || tok2 == COLON_EQUALS
                     || tok2 == ('[' as i32);
                 let yytxt = self.span_text(aux1.lloc, aux1.lloc + aux1.leng).to_string();
-                let res = resolver.parse_word(
-                    aux1.lval.str_.as_deref().unwrap_or(""),
-                    &yytxt,
-                    lookup,
-                )?;
+                let res =
+                    resolver.parse_word(aux1.lval.str_.as_deref().unwrap_or(""), &yytxt, lookup)?;
                 tok1 = self.finish_word(&mut aux1, res);
             }
         }
@@ -668,11 +678,7 @@ impl<'mcx> PlScanner<'mcx> {
     /// error is positioned as an INTERNAL error — internalerrposition(pos)
     /// plus internalerrquery(scanorig), the function body — never as an
     /// outer-statement cursor; a negative location sets nothing.
-    pub fn internal_errposition(
-        &self,
-        b: elog::ErrorBuilder,
-        location: i32,
-    ) -> elog::ErrorBuilder {
+    pub fn internal_errposition(&self, b: elog::ErrorBuilder, location: i32) -> elog::ErrorBuilder {
         if location < 0 {
             return b;
         }

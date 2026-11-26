@@ -83,7 +83,10 @@ fn fake_relation_open(
     _lockmode: types_rel::LOCKMODE,
 ) -> PgResult<types_rel::Relation<'_>> {
     use std::cell::Cell;
-    assert_eq!(oid, COMPOSITE_REL, "typcache only opens the composite's typrelid");
+    assert_eq!(
+        oid, COMPOSITE_REL,
+        "typcache only opens the composite's typrelid"
+    );
     REL_OPEN_COUNT.with(|c| c.set(c.get() + 1));
     let mut attrs = Vec::new();
     for (i, nm) in ["a", "b"].iter().enumerate() {
@@ -138,7 +141,10 @@ fn fake_relation_open(
         rd_firstRelfilelocatorSubid: Cell::new(0),
         rd_droppedSubid: Cell::new(0),
         rd_lockInfo: types_rel::LockInfoData {
-            lockRelId: types_rel::LockRelId { relId: oid, dbId: 5 },
+            lockRelId: types_rel::LockRelId {
+                relId: oid,
+                dbId: 5,
+            },
         },
         rd_rel,
         rd_att: Rc::new(td),
@@ -185,7 +191,9 @@ fn install() {
         });
         s::lookup_pg_type_typcache_shape::set(|typid| {
             Ok(match typid {
-                INT4OID => Some(typrow("int4", b'b' as i8, true, InvalidOid, InvalidOid, InvalidOid)),
+                INT4OID => Some(typrow(
+                    "int4", b'b' as i8, true, InvalidOid, InvalidOid, InvalidOid,
+                )),
                 INT4_ARRAY => Some(typrow(
                     "_int4",
                     b'b' as i8,
@@ -194,14 +202,35 @@ fn install() {
                     INT4OID,
                     F_ARRAY_SUBSCRIPT_HANDLER,
                 )),
-                COMPOSITE_OID => Some(typrow("comp", b'c' as i8, true, COMPOSITE_REL, InvalidOid, InvalidOid)),
-                DOMAIN_OID => Some(typrow("dom", b'd' as i8, true, InvalidOid, InvalidOid, InvalidOid)),
-                RANGE_OID => Some(typrow("rng", b'r' as i8, true, InvalidOid, InvalidOid, InvalidOid)),
-                MULTI_OID => Some(typrow("mrng", b'm' as i8, true, InvalidOid, InvalidOid, InvalidOid)),
-                SHELL_OID => Some(typrow("shell", b'b' as i8, false, InvalidOid, InvalidOid, InvalidOid)),
-                NOHASH_OID => Some(typrow("nohash", b'b' as i8, true, InvalidOid, InvalidOid, InvalidOid)),
-                ENUM_OID => Some(typrow("mood", b'e' as i8, true, InvalidOid, InvalidOid, InvalidOid)),
-                DOMCOMP_OID => Some(typrow("domcomp", b'd' as i8, true, InvalidOid, InvalidOid, InvalidOid)),
+                COMPOSITE_OID => Some(typrow(
+                    "comp",
+                    b'c' as i8,
+                    true,
+                    COMPOSITE_REL,
+                    InvalidOid,
+                    InvalidOid,
+                )),
+                DOMAIN_OID => Some(typrow(
+                    "dom", b'd' as i8, true, InvalidOid, InvalidOid, InvalidOid,
+                )),
+                RANGE_OID => Some(typrow(
+                    "rng", b'r' as i8, true, InvalidOid, InvalidOid, InvalidOid,
+                )),
+                MULTI_OID => Some(typrow(
+                    "mrng", b'm' as i8, true, InvalidOid, InvalidOid, InvalidOid,
+                )),
+                SHELL_OID => Some(typrow(
+                    "shell", b'b' as i8, false, InvalidOid, InvalidOid, InvalidOid,
+                )),
+                NOHASH_OID => Some(typrow(
+                    "nohash", b'b' as i8, true, InvalidOid, InvalidOid, InvalidOid,
+                )),
+                ENUM_OID => Some(typrow(
+                    "mood", b'e' as i8, true, InvalidOid, InvalidOid, InvalidOid,
+                )),
+                DOMCOMP_OID => Some(typrow(
+                    "domcomp", b'd' as i8, true, InvalidOid, InvalidOid, InvalidOid,
+                )),
                 _ => None,
             })
         });
@@ -351,9 +380,7 @@ fn install() {
                 rngsubdiff: InvalidOid,
             }))
         });
-        s::lookup_pg_range_by_multirange::set(|mr| {
-            Ok((mr == MULTI_OID).then_some(RANGE_OID))
-        });
+        s::lookup_pg_range_by_multirange::set(|mr| Ok((mr == MULTI_OID).then_some(RANGE_OID)));
         s::lookup_pg_proc_shape::set(|funcid| {
             Ok((funcid == 147).then_some(s::PgProcShape {
                 prolang: 12,
@@ -467,7 +494,9 @@ fn no_opclasses_yields_invalid_oids() {
 fn missing_and_shell_types_ereport() {
     install();
     let err = lookup_type_cache(424242, 0).unwrap_err();
-    assert!(err.message().contains("type with OID 424242 does not exist"));
+    assert!(err
+        .message()
+        .contains("type with OID 424242 does not exist"));
     let err = lookup_type_cache(SHELL_OID, 0).unwrap_err();
     assert!(err.message().contains("type \"shell\" is only a shell"));
     // The failed lookups left in_progress slots; eoxact cleanup drains them.
@@ -530,7 +559,12 @@ fn domain_entry_threads_into_chain() {
 fn composite_entry_maintains_rel_map() {
     install();
     let _e = lookup_type_cache(COMPOSITE_OID, 0).unwrap();
-    with_state(|st| assert_eq!(st.rel_id_to_type_id.get(&COMPOSITE_REL), Some(&COMPOSITE_OID)));
+    with_state(|st| {
+        assert_eq!(
+            st.rel_id_to_type_id.get(&COMPOSITE_REL),
+            Some(&COMPOSITE_OID)
+        )
+    });
     invalidate::TypeCacheTypCallback(
         Datum::from_oid(InvalidOid),
         82,
@@ -563,7 +597,12 @@ fn composite_tupdesc_loads_and_caches() {
     assert_eq!(REL_OPEN_COUNT.with(|c| c.get()), 1);
 
     // The rel->type reverse map is maintained (RelIdToTypeIdCacheHash).
-    with_state(|st| assert_eq!(st.rel_id_to_type_id.get(&COMPOSITE_REL), Some(&COMPOSITE_OID)));
+    with_state(|st| {
+        assert_eq!(
+            st.rel_id_to_type_id.get(&COMPOSITE_REL),
+            Some(&COMPOSITE_OID)
+        )
+    });
 
     // Non-composite typtypes: C's arm is a no-op, tupDesc stays NULL.
     let i = lookup_type_cache(INT4OID, TYPECACHE_TUPDESC).unwrap();
@@ -589,7 +628,12 @@ fn relcache_inval_resets_composite_tupdesc() {
     assert_eq!(held.natts, 2);
     // pg_type data is still cached, so the rel map entry stays (C's
     // delete_rel_type_cache_if_needed keeps it while any info remains).
-    with_state(|st| assert_eq!(st.rel_id_to_type_id.get(&COMPOSITE_REL), Some(&COMPOSITE_OID)));
+    with_state(|st| {
+        assert_eq!(
+            st.rel_id_to_type_id.get(&COMPOSITE_REL),
+            Some(&COMPOSITE_OID)
+        )
+    });
 
     let e2 = lookup_type_cache(COMPOSITE_OID, TYPECACHE_TUPDESC).unwrap();
     assert!(Rc::ptr_eq(&e, &e2));
@@ -755,7 +799,10 @@ fn domain_constraints_order_and_update() {
     let mut r = crate::domain::DomainConstraintRef::init(DOMAIN_OID).unwrap();
     let names: Vec<&str> = r.constraints().iter().map(|c| c.name).collect();
     assert_eq!(names, ["NOT NULL", "dom_check_a", "dom_check_b"]);
-    assert_eq!(r.constraints()[0].constrainttype, DomConstraintType::NotNull);
+    assert_eq!(
+        r.constraints()[0].constrainttype,
+        DomConstraintType::NotNull
+    );
     assert!(r.constraints()[1].check_expr.is_some());
     assert!(!r.update().unwrap());
     invalidate::TypeCacheConstrCallback(Datum::from_oid(InvalidOid), 19, 0);
@@ -897,7 +944,10 @@ fn domain_over_composite_copies_base_field_properties() {
 #[test]
 fn domain_type_cache_lookup_failure_is_a_catchable_xx000() {
     let e = crate::domain::type_lookup_failed(DOMAIN_OID);
-    assert_eq!(e.message(), format!("cache lookup failed for type {DOMAIN_OID}"));
+    assert_eq!(
+        e.message(),
+        format!("cache lookup failed for type {DOMAIN_OID}")
+    );
     assert_eq!(e.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
     assert_eq!(e.level(), types_error::ERROR);
 }
@@ -919,7 +969,12 @@ fn tupledesc_identifiers_skip_the_invalid_sentinel() {
 
 // V4R-453: the leader's images serve a claim thread (a pool worker) without its catalog, never through its
 // persistent type cache, and a claim's entries end with the claim.
-const FLAGS_ARMED: i32 = TYPECACHE_EQ_OPR | TYPECACHE_LT_OPR | TYPECACHE_GT_OPR | TYPECACHE_CMP_PROC | TYPECACHE_EQ_OPR_FINFO | TYPECACHE_CMP_PROC_FINFO;
+const FLAGS_ARMED: i32 = TYPECACHE_EQ_OPR
+    | TYPECACHE_LT_OPR
+    | TYPECACHE_GT_OPR
+    | TYPECACHE_CMP_PROC
+    | TYPECACHE_EQ_OPR_FINFO
+    | TYPECACHE_CMP_PROC_FINFO;
 
 fn leak_images(types: &[(Oid, i32)]) -> &'static [armed::TypcacheImage] {
     let mut out = Vec::new();
@@ -933,8 +988,15 @@ fn leak_images(types: &[(Oid, i32)]) -> &'static [armed::TypcacheImage] {
 fn an_armed_claim_serves_the_leaders_entries_without_its_catalog() {
     install();
     ENUM_MEMBERS.with(|m| *m.borrow_mut() = vec![(90100, 1.0), (90102, 2.0), (90101, 1.5)]);
-    let images = leak_images(&[(INT4_ARRAY, FLAGS_ARMED), (ENUM_OID, 0), (RANGE_OID, TYPECACHE_RANGE_INFO)]);
-    assert!(images.iter().any(|i| i.type_id() == INT4OID), "an array's element is in its closure");
+    let images = leak_images(&[
+        (INT4_ARRAY, FLAGS_ARMED),
+        (ENUM_OID, 0),
+        (RANGE_OID, TYPECACHE_RANGE_INFO),
+    ]);
+    assert!(
+        images.iter().any(|i| i.type_id() == INT4OID),
+        "an array's element is in its closure"
+    );
     std::thread::spawn(move || {
         // this thread's ENUM_MEMBERS is empty: a reload here would not find 90101
         armed::arm(images);
@@ -973,7 +1035,10 @@ fn a_second_claim_sees_none_of_the_first_claims_entries() {
         drop(a);
         assert!(held.upgrade().is_some(), "the claim's map holds its entry");
         armed::disarm();
-        assert!(held.upgrade().is_none(), "the claim's end drops every armed entry");
+        assert!(
+            held.upgrade().is_none(),
+            "the claim's end drops every armed entry"
+        );
         armed::arm(second);
         assert!(armed::lookup(INT4_ARRAY, 0).unwrap().is_none());
         assert!(armed::lookup(INT4OID, 0).unwrap().is_none());

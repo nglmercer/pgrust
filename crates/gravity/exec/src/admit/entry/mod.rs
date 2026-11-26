@@ -9,22 +9,25 @@ mod raw;
 pub mod run;
 mod shelf;
 
+use pgsync::OnceLock;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
-use pgsync::OnceLock;
 
 use execmain_seams as es;
 use execmain_seams::Snapshot;
+use mcx::Mcx;
 use tcop_dest::DestReceiver;
 use types_dest::CommandDest;
-use mcx::Mcx;
 use types_error::PgResult;
 use types_nodes::nodes_enums::CmdType;
+use types_nodes::parsenodes::{CURSOR_OPT_HOLD, CURSOR_OPT_SCROLL};
 use types_nodes::plannodes::PlannedStmt;
 use types_portal::{CachedPlanHandle, ParamListHandle, QueryDescHandle, QueryEnvHandle};
 use types_scan::sdir::ScanDirection;
-use types_nodes::parsenodes::{CURSOR_OPT_HOLD, CURSOR_OPT_SCROLL};
-use types_slot::{EXEC_FLAG_BACKWARD, EXEC_FLAG_EXPLAIN_GENERIC, EXEC_FLAG_EXPLAIN_ONLY, EXEC_FLAG_MARK, EXEC_FLAG_REWIND, EXEC_FLAG_RUN_WHOLE, EXEC_FLAG_SKIP_TRIGGERS};
+use types_slot::{
+    EXEC_FLAG_BACKWARD, EXEC_FLAG_EXPLAIN_GENERIC, EXEC_FLAG_EXPLAIN_ONLY, EXEC_FLAG_MARK,
+    EXEC_FLAG_REWIND, EXEC_FLAG_RUN_WHOLE, EXEC_FLAG_SKIP_TRIGGERS,
+};
 use types_tuple::TupleDescData;
 
 use raw::with_desc;
@@ -100,7 +103,12 @@ pub fn init_seams() {
     es::query_desc_foreign_explain::set(instrument::query_desc_foreign_explain);
     es::cursor_capture_current::set(instrument::cursor_capture_current);
     es::with_hook_qd::set(with_hook_qd);
-    let p = Prev { exec_current_of: es::exec_current_of::wrap(exec_current_of), cursor_plan_rewind_replays: es::cursor_plan_rewind_replays::wrap(cursor_plan_rewind_replays) };
+    let p = Prev {
+        exec_current_of: es::exec_current_of::wrap(exec_current_of),
+        cursor_plan_rewind_replays: es::cursor_plan_rewind_replays::wrap(
+            cursor_plan_rewind_replays,
+        ),
+    };
     let _ = PREV.set(p);
 }
 
@@ -118,7 +126,10 @@ pub fn encode(idx: u32, generation: u16) -> QueryDescHandle {
 }
 
 pub fn decode(h: QueryDescHandle) -> (u32, u16) {
-    ((((h.0 >> 32) as u32) & MAX_DESCS).wrapping_sub(1), (h.0 >> (32 + IDX_BITS)) as u16)
+    (
+        (((h.0 >> 32) as u32) & MAX_DESCS).wrapping_sub(1),
+        (h.0 >> (32 + IDX_BITS)) as u16,
+    )
 }
 
 pub fn is_ours(h: QueryDescHandle) -> bool {
@@ -136,7 +147,9 @@ fn foreign(h: QueryDescHandle) -> ! {
 /// `foreign`'s error for the seams that return one.
 #[cold]
 fn foreign_error(h: QueryDescHandle) -> Box<types_error::PgError> {
-    crate::glue::internal(&format!("gravity_entry: a query desc handle the entry did not make: {h:?}")) // alloc: Cold
+    crate::glue::internal(&format!(
+        "gravity_entry: a query desc handle the entry did not make: {h:?}"
+    )) // alloc: Cold
 }
 
 /// The kind of statement form the entry cannot serve, worded in its error (`removed`) as what the user asked for: the
@@ -296,7 +309,10 @@ leader_tls::leader_tls! {
 /// D1506: the session's first desc registers the release of the desc table at its State cleanup phase.
 fn ensure_drain() {
     if !DRAIN.replace(true) {
-        mcx::register_session_cleanup_phase(mcx::SessionCleanupPhase::State, Box::new(drain_parked)); // alloc: Cold
+        mcx::register_session_cleanup_phase(
+            mcx::SessionCleanupPhase::State,
+            Box::new(drain_parked),
+        ); // alloc: Cold
     }
 }
 
@@ -319,7 +335,10 @@ fn register(qd: QueryDesc) -> PgResult<QueryDescHandle> {
         let mut d = d.borrow_mut();
         if d.free.is_empty() && d.slots.len() >= MAX_DESCS as usize {
             let msg = format!("more than {MAX_DESCS} nested statements"); // alloc: Cold
-            return Err(Box::new(types_error::PgError::error(msg).with_sqlstate(types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED))); // alloc: Cold
+            return Err(Box::new(
+                types_error::PgError::error(msg)
+                    .with_sqlstate(types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+            )); // alloc: Cold
         }
         let generation = d.generation.wrapping_add(1) & GEN_MASK;
         d.generation = generation;
@@ -346,7 +365,14 @@ fn register(qd: QueryDesc) -> PgResult<QueryDescHandle> {
 /// is not in use.
 fn running<R>(h: QueryDescHandle, f: impl FnOnce(&QueryDesc) -> R) -> Option<R> {
     let (idx, generation) = decode(h);
-    DESCS.with(|d| d.borrow().slots.get(idx as usize).and_then(|s| s.as_deref()).filter(|qd| qd.generation == generation && qd.in_use.get()).map(f))
+    DESCS.with(|d| {
+        d.borrow()
+            .slots
+            .get(idx as usize)
+            .and_then(|s| s.as_deref())
+            .filter(|qd| qd.generation == generation && qd.in_use.get())
+            .map(f)
+    })
 }
 
 fn remove(h: QueryDescHandle) -> Box<QueryDesc> {
@@ -354,10 +380,15 @@ fn remove(h: QueryDescHandle) -> Box<QueryDesc> {
     DESCS.with(|d| {
         let mut d = d.borrow_mut();
         let taken = match d.slots.get_mut(idx as usize) {
-            Some(slot) if slot.as_ref().is_some_and(|q| q.generation == generation) => slot.take().expect("live"),
+            Some(slot) if slot.as_ref().is_some_and(|q| q.generation == generation) => {
+                slot.take().expect("live")
+            }
             _ => panic!("gravity_entry: stale QueryDescHandle {h:?} (already freed)"),
         };
-        assert!(!taken.in_use.get(), "gravity_entry: remove of an in-use QueryDescHandle {h:?}");
+        assert!(
+            !taken.in_use.get(),
+            "gravity_entry: remove of an in-use QueryDescHandle {h:?}"
+        );
         d.free.push(idx); // alloc: Cold
         taken
     })
@@ -475,7 +506,12 @@ impl Drop for ExplainOnly {
 use crate::admit::stack_met;
 
 /// The conditions the entry decides without the runner: what it cannot drive.
-pub fn refusal(operation: CmdType, eflags: i32, snapshot: bool, parallel_mode: bool) -> Option<&'static str> {
+pub fn refusal(
+    operation: CmdType,
+    eflags: i32,
+    snapshot: bool,
+    parallel_mode: bool,
+) -> Option<&'static str> {
     if operation == CmdType::CMD_UTILITY {
         return Some("entry: utility statement");
     }
@@ -537,22 +573,34 @@ fn in_statement() -> bool {
     nested_now() || RUNNING.get() > 0
 }
 
-
 /// D2044: a portal a later FETCH can reach (`visible`, as pg_cursors lists it) starting `pstmt`: DECLARE CURSOR, a protocol
 /// portal the runner's Bind routes here, and the protocol's unnamed one, which SPI finds by the name '' (cursor_to_xml('', n)
 /// fetches n rows of it; a PL/pgSQL refcursor holding ''). The simple query's and EXECUTE's (not visible) run to their end.
 fn fetch_portal(pstmt: &'static PlannedStmt<'static>) -> bool {
-    let Some(portal) = pquery::ActivePortal() else { return false };
+    let Some(portal) = pquery::ActivePortal() else {
+        return false;
+    };
     let p = portal.borrow();
-    p.visible && p.queryDesc.is_null() && !p.stmts.is_null() && pquery::stmt_list::resolve(p.stmts).first().is_some_and(|f| core::ptr::eq(f, pstmt))
+    p.visible
+        && p.queryDesc.is_null()
+        && !p.stmts.is_null()
+        && pquery::stmt_list::resolve(p.stmts)
+            .first()
+            .is_some_and(|f| core::ptr::eq(f, pstmt))
 }
 
 /// `fetch_portal` at a rearm (PortalStartParked): the visible portal whose statement is `pstmt`, its query desc already
 /// the retained one.
 fn rearmed_portal(pstmt: &'static PlannedStmt<'static>) -> bool {
-    let Some(portal) = pquery::ActivePortal() else { return false };
+    let Some(portal) = pquery::ActivePortal() else {
+        return false;
+    };
     let p = portal.borrow();
-    p.visible && !p.stmts.is_null() && pquery::stmt_list::resolve(p.stmts).first().is_some_and(|f| core::ptr::eq(f, pstmt))
+    p.visible
+        && !p.stmts.is_null()
+        && pquery::stmt_list::resolve(p.stmts)
+            .first()
+            .is_some_and(|f| core::ptr::eq(f, pstmt))
 }
 
 /// A serve's `fetch_portal`: `fetch_portal`, or a counted start (`run_counted`, D2926) or a zone restart's (`zone_restart`,
@@ -641,7 +689,11 @@ pub(crate) fn counted_start(pstmt: &PlannedStmt<'_>) -> bool {
 /// refusal; a program served only to a reader that takes every row, or one not lowered partial): true when it declines,
 /// and `run_counted` is told so.
 fn counted_declines(pstmt: &'static PlannedStmt<'static>, a: Option<&crate::Admitted>) -> bool {
-    counted_start(pstmt) && a.is_none_or(|a| crate::runner::whole_read(a) || !a.graph.as_ref().is_some_and(|g| g.partial)) && counted_gives_up(pstmt)
+    counted_start(pstmt)
+        && a.is_none_or(|a| {
+            crate::runner::whole_read(a) || !a.graph.as_ref().is_some_and(|g| g.partial)
+        })
+        && counted_gives_up(pstmt)
 }
 
 /// D2926: a refusal `start_ours` would raise for the partial reader's program (D2044's, D1922's, a grant, a gate):
@@ -674,11 +726,16 @@ pub struct PortalKind {
 impl PortalKind {
     fn of(pstmt: &'static PlannedStmt<'static>, dest: CommandDest, eflags: i32) -> PortalKind {
         let named = named_cursor(pstmt);
-        let opts = if named { pquery::ActivePortal().map_or(0, |p| p.borrow().cursorOptions) } else { 0 };
+        let opts = if named {
+            pquery::ActivePortal().map_or(0, |p| p.borrow().cursorOptions)
+        } else {
+            0
+        };
         PortalKind {
             partial: named,
             later: !named && counted_later(dest) && !runs_whole(dest, eflags),
-            scroll: opts & CURSOR_OPT_SCROLL != 0 || eflags & (EXEC_FLAG_BACKWARD | EXEC_FLAG_REWIND) != 0,
+            scroll: opts & CURSOR_OPT_SCROLL != 0
+                || eflags & (EXEC_FLAG_BACKWARD | EXEC_FLAG_REWIND) != 0,
             hold: opts & CURSOR_OPT_HOLD != 0,
         }
     }
@@ -689,7 +746,11 @@ impl PortalKind {
 /// (analyze) ..'` nests it) and a completion run's dest (CREATE TABLE AS, COPY (query) TO, REFRESH MATERIALIZED VIEW:
 /// complete.rs, contract C7). Its reader takes every row whatever reads the EXPLAIN's or the utility's own output.
 fn runs_whole(dest: CommandDest, eflags: i32) -> bool {
-    eflags & EXEC_FLAG_RUN_WHOLE != 0 || matches!(dest, CommandDest::IntoRel | CommandDest::CopyOut | CommandDest::TransientRel)
+    eflags & EXEC_FLAG_RUN_WHOLE != 0
+        || matches!(
+            dest,
+            CommandDest::IntoRel | CommandDest::CopyOut | CommandDest::TransientRel
+        )
 }
 
 /// D3377: a reader with receiver `dest` whose row count shows only at its run: a SQL function's (lazy or not), or any
@@ -705,7 +766,12 @@ pub const WHOLE_READ: &str = "a program served only to a reader that takes every
 /// The portal-kind check every road makes (`start_ours` after D2044's, `revive`): a program a family marked for a reader
 /// this portal is not raises by the family's name. The portal is read only when a mark is set; a family that needs
 /// another reading (D2316 a stop, D2647 a rewind) adds its mark's arm here.
-fn portal_refusal(a: &crate::Admitted, pstmt: &'static PlannedStmt<'static>, dest: CommandDest, eflags: i32) -> Option<&'static str> {
+fn portal_refusal(
+    a: &crate::Admitted,
+    pstmt: &'static PlannedStmt<'static>,
+    dest: CommandDest,
+    eflags: i32,
+) -> Option<&'static str> {
     let (whole, rewind) = (crate::runner::whole_read(a), rewind_reruns(a));
     if !whole && !rewind {
         return None;
@@ -718,7 +784,12 @@ fn portal_refusal(a: &crate::Admitted, pstmt: &'static PlannedStmt<'static>, des
     // a plan C materializes (D1406) or, for the plans this entry serves, one whose rewind makes no visible call (the
     // KEPT road, `cursor_plan_rewind_replays` below)
     // D2701: or one whose rewind keeps the live execution and runs only the emit again (run.rs `soft_rewind`)
-    (rewind && kind.scroll && !rewind_replays(pstmt) && !rewind_kept_replays(pstmt) && !run::soft_rewind(a)).then_some(REWIND_KEPT)
+    (rewind
+        && kind.scroll
+        && !rewind_replays(pstmt)
+        && !rewind_kept_replays(pstmt)
+        && !run::soft_rewind(a))
+    .then_some(REWIND_KEPT)
 }
 
 /// D2651: a SCROLL portal whose rewind would call a VOLATILE function again where PostgreSQL's rescan keeps its result
@@ -730,7 +801,10 @@ pub const REWIND_KEPT: &str = "a SCROLL cursor whose rewind would call a VOLATIL
 /// execution (`keys_done`), so their programs are not read.
 fn rewind_reruns(a: &crate::Admitted) -> bool {
     let marked = |p: &gravity_program::Program| p.v4.as_ref().is_some_and(|d| d.rewind_reruns);
-    marked(&a.program) || a.graph.as_ref().is_some_and(|g| g.arms.iter().any(|x| marked(&x.program)))
+    marked(&a.program)
+        || a.graph
+            .as_ref()
+            .is_some_and(|g| g.arms.iter().any(|x| marked(&x.program)))
 }
 
 /// D2651: the portal's store replays a rewind of `pstmt` (C's planner put a Material over it: D1406), so the executor is
@@ -749,8 +823,21 @@ pub const WHOLE_READ_COUNTED: &str = "a program served only to a reader that tak
 /// D2678: a SELECT's whole-read program (`runner::whole_read`) at its first run under a count, before anything ran: no
 /// run open, no row, its receiver not started (a plan-order rerun's is: `QueryDesc::started`).
 fn counted_whole_read(qd: &QueryDesc, count: u64) -> bool {
-    let Some(s) = qd.serve.as_ref() else { return false };
-    count > 0 && !qd.started && s.cmd == gravity_program::Cmd::Select && !s.run.is_open() && !s.done && s.rows == 0 && s.sent == 0 && !s.completion && !s.fill_rows && qd.ident.is_none() && qd.prune.is_none() && crate::runner::whole_read(&s.a)
+    let Some(s) = qd.serve.as_ref() else {
+        return false;
+    };
+    count > 0
+        && !qd.started
+        && s.cmd == gravity_program::Cmd::Select
+        && !s.run.is_open()
+        && !s.done
+        && s.rows == 0
+        && s.sent == 0
+        && !s.completion
+        && !s.fill_rows
+        && qd.ident.is_none()
+        && qd.prune.is_none()
+        && crate::runner::whole_read(&s.a)
 }
 
 /// D2926: the protocol's unnamed portal (or an SPI fetch of the portal '') at its first run under a row count, before
@@ -762,18 +849,35 @@ fn counted_whole_read(qd: &QueryDesc, count: u64) -> bool {
 /// lazy row, an SPI execute's count), so a partial program that streams the rows the count owes (a drain's exact form:
 /// lowerv4 spool_admit.rs `drain_exact`) serves it; one that is whole-read too declines, and the refusal stands.
 fn counted_partial(qd: &QueryDesc, count: u64) -> bool {
-    let Some(s) = qd.serve.as_ref() else { return false };
+    let Some(s) = qd.serve.as_ref() else {
+        return false;
+    };
     let whole = crate::runner::whole_read(&s.a);
     let reader = !s.named_cursor && (s.fetch_portal || (whole && counted_later(qd.dest)));
-    count > 0 && !qd.started && !qd.counted && s.cmd == gravity_program::Cmd::Select && reader && s.a.graph.as_ref().is_some_and(|g| !g.partial)
-        && !s.run.is_open() && !s.done && s.rows == 0 && s.sent == 0 && !s.completion && !s.fill_rows && qd.ident.is_none() && qd.prune.is_none() && qd.crosscheck.is_none()
+    count > 0
+        && !qd.started
+        && !qd.counted
+        && s.cmd == gravity_program::Cmd::Select
+        && reader
+        && s.a.graph.as_ref().is_some_and(|g| !g.partial)
+        && !s.run.is_open()
+        && !s.done
+        && s.rows == 0
+        && s.sent == 0
+        && !s.completion
+        && !s.fill_rows
+        && qd.ident.is_none()
+        && qd.prune.is_none()
+        && qd.crosscheck.is_none()
         && (whole || gravity_decompose::facts::stream::partial_stops(qd.plannedstmt()))
 }
 
 /// D3377: the desc serves a whole-read program (`runner::whole_read`): `counted_partial` starts it again before D2678's
 /// refusal is read.
 fn whole_serve(qd: &QueryDesc) -> bool {
-    qd.serve.as_ref().is_some_and(|s| crate::runner::whole_read(&s.a))
+    qd.serve
+        .as_ref()
+        .is_some_and(|s| crate::runner::whole_read(&s.a))
 }
 
 /// D2926: `counted_partial`'s serve released before its first run (nothing ran, no row sent, the receiver not started),
@@ -809,7 +913,13 @@ fn release_for_zone(qd: &mut QueryDesc) -> PgResult<i32> {
 /// B2-31: the statement started again with no timestamptz constant converted in the session TimeZone (`ZONE_OFF`), then
 /// run: each run compares its rows in its own zone. Its later runs (a counted portal's D2926 start among them) go as any
 /// served statement's.
-fn zone_restart(h: QueryDescHandle, eflags: i32, direction: ScanDirection, count: u64, dest: &mut DestReceiver<'_>) -> PgResult<()> {
+fn zone_restart(
+    h: QueryDescHandle,
+    eflags: i32,
+    direction: ScanDirection,
+    count: u64,
+    dest: &mut DestReceiver<'_>,
+) -> PgResult<()> {
     executor_start(h, eflags)?;
     executor_run(h, direction, count, dest)
 }
@@ -818,7 +928,13 @@ fn zone_restart(h: QueryDescHandle, eflags: i32, direction: ScanDirection, count
 /// it owes, as a named cursor's FETCH n), then run under `count`; later runs (the next Execute's max_rows, 0 for the rest)
 /// resume it as a named cursor's later FETCHes do. Never worse than before: when no partial program serves the count
 /// (`COUNTED_DECLINED`), the start is today's whole reader again (its program from the memo) and the run is as before.
-fn run_counted(h: QueryDescHandle, eflags: i32, direction: ScanDirection, count: u64, dest: &mut DestReceiver<'_>) -> PgResult<()> {
+fn run_counted(
+    h: QueryDescHandle,
+    eflags: i32,
+    direction: ScanDirection,
+    count: u64,
+    dest: &mut DestReceiver<'_>,
+) -> PgResult<()> {
     let pstmt = with_desc(h, |qd| qd.plannedstmt());
     let declined = {
         let scope = CountedScope::enter(pstmt as *const PlannedStmt<'static> as usize);
@@ -862,7 +978,9 @@ fn counted_leak_check() {
     }
     READ_COUNTED.set(0);
     COUNTED_DECLINED.set(false);
-    let mut e = crate::glue::internal("gravity_entry: a counted start's reader flag outlived its start (D2926); cleared");
+    let mut e = crate::glue::internal(
+        "gravity_entry: a counted start's reader flag outlived its start (D2926); cleared",
+    );
     e.level = types_error::WARNING;
     elog::emit_error_report_for(&e);
 }
@@ -876,8 +994,20 @@ fn counted_leak_check() {
 /// Read on `counted_whole_read`'s first-run state, once per desc (a restart that converted again meets run.rs's
 /// ZONE_REFUSAL).
 fn zone_runs(qd: &QueryDesc, count: u64) -> bool {
-    let Some(s) = qd.serve.as_ref() else { return false };
-    !qd.zoned && !qd.started && s.cmd == gravity_program::Cmd::Select && !s.run.is_open() && s.rows == 0 && s.sent == 0 && !s.completion && !s.fill_rows && qd.ident.is_none() && qd.prune.is_none() && s.zone_elsewhere(count)
+    let Some(s) = qd.serve.as_ref() else {
+        return false;
+    };
+    !qd.zoned
+        && !qd.started
+        && s.cmd == gravity_program::Cmd::Select
+        && !s.run.is_open()
+        && s.rows == 0
+        && s.sent == 0
+        && !s.completion
+        && !s.fill_rows
+        && qd.ident.is_none()
+        && qd.prune.is_none()
+        && s.zone_elsewhere(count)
 }
 
 /// D2651 (the KEPT road): a rewind of `pstmt` makes no visible call (lowerv4 effects `rewind_quiet`: PostgreSQL's rescan
@@ -904,7 +1034,8 @@ fn cursor_plan_rewind_replays(pstmt: &PlannedStmt<'_>) -> bool {
     (prev().cursor_plan_rewind_replays)(pstmt)
         || pquery::ActivePortal().is_some_and(|p| {
             let h = p.borrow().queryDesc;
-            (serving(h, true) && rewind_kept_replays(pstmt)) || (serving(h, false) && rewind_kept_rows(pstmt))
+            (serving(h, true) && rewind_kept_replays(pstmt))
+                || (serving(h, false) && rewind_kept_rows(pstmt))
         })
 }
 
@@ -913,7 +1044,9 @@ fn cursor_plan_rewind_replays(pstmt: &PlannedStmt<'_>) -> bool {
 /// that Material, so PG finds no scan: the cursor is not a simply updatable scan of any table (24000). pgrust's plan has
 /// no Material (the portal's store plays it), so its scan would read as reachable.
 fn materialized(portal: &types_portal::Portal<'static>, pstmt: &PlannedStmt<'_>) -> bool {
-    portal.borrow().cursorOptions & CURSOR_OPT_SCROLL != 0 && pstmt.rowMarks.is_nil() && (prev().cursor_plan_rewind_replays)(pstmt)
+    portal.borrow().cursorOptions & CURSOR_OPT_SCROLL != 0
+        && pstmt.rowMarks.is_nil()
+        && (prev().cursor_plan_rewind_replays)(pstmt)
 }
 
 /// D2651: handle `h` names a desc of ours that serves a program (`marked`: one marked `rewind_reruns`), read without
@@ -924,9 +1057,18 @@ fn serving(h: QueryDescHandle, marked: bool) -> bool {
     }
     let (idx, generation) = decode(h);
     DESCS.with(|d| {
-        d.borrow().slots.get(idx as usize).and_then(|s| s.as_deref()).is_some_and(|qd| {
-            qd.generation == generation && qd.state == State::Serving && qd.serve.as_ref().is_some_and(|s| !marked || rewind_reruns(&s.a))
-        })
+        d.borrow()
+            .slots
+            .get(idx as usize)
+            .and_then(|s| s.as_deref())
+            .is_some_and(|qd| {
+                qd.generation == generation
+                    && qd.state == State::Serving
+                    && qd
+                        .serve
+                        .as_ref()
+                        .is_some_and(|s| !marked || rewind_reruns(&s.a))
+            })
     })
 }
 
@@ -938,12 +1080,17 @@ fn executor_start(h: QueryDescHandle, eflags: i32) -> PgResult<()> {
     // D3198: C's ExecutorStart_hook runs before standard_ExecutorStart, so a consumer's instrument options (auto_explain's
     // log_analyze) reach the admission and choose its instrumented program. Once per execution: the plan-order starts
     // below and `run_counted`'s start the same execution again.
-    if with_desc(h, |qd| qd.state == State::Created && !core::mem::replace(&mut qd.hooked, true)) {
+    if with_desc(h, |qd| {
+        qd.state == State::Created && !core::mem::replace(&mut qd.hooked, true)
+    }) {
         es::tap_executor_start::call_if(|f| f(h));
     }
     // B2-31: every start of a desc `zone_restart` started again converts nothing in the session TimeZone: its own, a
     // counted start's and the whole reader's after a declined one (`run_counted`), a plan-order start
-    let _zone = with_desc(h, |qd| qd.zoned.then(|| ZoneScope::enter(qd.plannedstmt() as *const PlannedStmt<'static> as usize)));
+    let _zone = with_desc(h, |qd| {
+        qd.zoned
+            .then(|| ZoneScope::enter(qd.plannedstmt() as *const PlannedStmt<'static> as usize))
+    });
     let _nested = Nesting::enter(nested_now());
     let mut r = start_ours(h, eflags);
     if r.is_ok() && with_desc(h, unserve_unrestartable) {
@@ -954,7 +1101,17 @@ fn executor_start(h: QueryDescHandle, eflags: i32) -> PgResult<()> {
 
 /// v5 errorhold: a receiver whose startup may run again once no row reached it (`recheck` restarts the statement into it).
 fn restartable(dest: CommandDest) -> bool {
-    matches!(dest, CommandDest::Remote | CommandDest::RemoteExecute | CommandDest::RemoteSimple | CommandDest::Spi | CommandDest::Tuplestore | CommandDest::None | CommandDest::SqlFunction | CommandDest::CopyOut)
+    matches!(
+        dest,
+        CommandDest::Remote
+            | CommandDest::RemoteExecute
+            | CommandDest::RemoteSimple
+            | CommandDest::Spi
+            | CommandDest::Tuplestore
+            | CommandDest::None
+            | CommandDest::SqlFunction
+            | CommandDest::CopyOut
+    )
 }
 
 /// v5 errorhold: a served program holding a recheck licence whose receiver cannot start again (a table fill's) would
@@ -964,7 +1121,11 @@ fn unserve_unrestartable(qd: &mut QueryDesc) -> bool {
     if crate::runner::in_plan_order() || qd.state != State::Serving || restartable(qd.dest) {
         return false;
     }
-    if !qd.serve.as_ref().is_some_and(|s| crate::runner::rechecks(&s.a, qd.plannedstmt())) {
+    if !qd
+        .serve
+        .as_ref()
+        .is_some_and(|s| crate::runner::rechecks(&s.a, qd.plannedstmt()))
+    {
         return false;
     }
     if run::close(qd, false).is_err() {
@@ -983,7 +1144,10 @@ fn unserve_unrestartable(qd: &mut QueryDesc) -> bool {
 /// start's copy stays valid until free. D3865 L5: the root an identity admission shares (`Admitted::ident`: filed back in
 /// the memo at the re-run's release, taken again by the next call) takes no second copy, or every re-run would grow it while
 /// the memo keeps it: the plan-order start copies into a root of its own, and the desc holds the first until free.
-fn identity_copy(qd: &mut QueryDesc, pstmt: &'static PlannedStmt<'static>) -> PgResult<&'static PlannedStmt<'static>> {
+fn identity_copy(
+    qd: &mut QueryDesc,
+    pstmt: &'static PlannedStmt<'static>,
+) -> PgResult<&'static PlannedStmt<'static>> {
     let fresh = || Rc::new(gravity_driver::mem::root::Root::new("GravityEntryIdentity"));
     let ctx = match qd.ident.take() {
         Some(r) if Rc::strong_count(&r) > 1 => {
@@ -1010,8 +1174,20 @@ fn start_ours(h: QueryDescHandle, eflags: i32) -> PgResult<()> {
         let pstmt = qd.plannedstmt();
         // D3361: a crosscheck snapshot (an RI action under a transaction snapshot) is served: the run hands it to the write
         // hosts (run.rs `executor_run`), which pass it to heap_update / heap_delete as nodeModifyTable.c does
-        if let Some(why) = refusal(pstmt.commandType, eflags, qd.snapshot.is_some(), xact::IsInParallelMode()) {
-            return Err(removed(if why == BACKWARD { Road::Cursor } else { Road::Entry }, why));
+        if let Some(why) = refusal(
+            pstmt.commandType,
+            eflags,
+            qd.snapshot.is_some(),
+            xact::IsInParallelMode(),
+        ) {
+            return Err(removed(
+                if why == BACKWARD {
+                    Road::Cursor
+                } else {
+                    Road::Entry
+                },
+                why,
+            ));
         }
         // D2834: a PL list that leaves a slot to evaluation time (plpgsql's speculative fetch: a field of an unassigned record or
         // one its record lacks, a field whose type changed since planning) is served: the admission keys the slots apart
@@ -1042,7 +1218,8 @@ fn start_ours(h: QueryDescHandle, eflags: i32) -> PgResult<()> {
         // plan memo serve. D3865 L5: an identity start's too (a PL/pgSQL FOR-IN's or OPEN's portal, called per row), under
         // the plan's identity key (`entry_key_as`): its admission holds its copy (`Admitted::ident`), so a start the shelf or
         // the memo serves makes none, and this start copies only after their look
-        let kept_road = !analyze && !completion && in_statement() && !plan_order && !counting && !zoning;
+        let kept_road =
+            !analyze && !completion && in_statement() && !plan_order && !counting && !zoning;
         // D4451: off the kept road too, a start of a cached plan (SQL EXECUTE's portal, a generated name a cursor could
         // take) takes the admission the memo filed under the plan's identity key before any plan copy, and files its own
         let ident_memo = identity && !analyze && !completion && !plan_order && !counting && !zoning;
@@ -1053,8 +1230,15 @@ fn start_ours(h: QueryDescHandle, eflags: i32) -> PgResult<()> {
         let pstmt = ident.unwrap_or(orig);
         // C5b: a named cursor with row marks over a plan that prunes at start keeps PG's es_unpruned_relids, which its
         // WHERE CURRENT OF reads es_rowmarks by (the pruned leaves' marks are not there)
-        qd.unpruned = match !pstmt.rowMarks.is_nil() && !pstmt.partPruneInfos.is_nil() && named_cursor(qd.plannedstmt()) {
-            true => Some(crate::ops::append::prune::initial_results(qd.plannedstmt(), qd.params)?.unpruned.into_boxed_slice()), // alloc: Cold
+        qd.unpruned = match !pstmt.rowMarks.is_nil()
+            && !pstmt.partPruneInfos.is_nil()
+            && named_cursor(qd.plannedstmt())
+        {
+            true => Some(
+                crate::ops::append::prune::initial_results(qd.plannedstmt(), qd.params)?
+                    .unpruned
+                    .into_boxed_slice(),
+            ), // alloc: Cold
             false => None,
         };
         // D3381: EXPLAIN ANALYZE of a write with triggers: PostgreSQL prints a line per trigger with its calls (and time),
@@ -1062,8 +1246,13 @@ fn start_ours(h: QueryDescHandle, eflags: i32) -> PgResult<()> {
         // below); a write whose lines name relations the served write does not track (several result relations, a
         // partitioned one) is refused (0A000)
         let trig_report = match qd.instrument_options != 0 {
-            true => match crate::ops::modifytable::after_query::trigger_report(pstmt, qd.instrument_options)? {
-                crate::ops::modifytable::after_query::TriggerReport::Refuse(why) => return Err(removed(Road::ExplainAnalyze, why)),
+            true => match crate::ops::modifytable::after_query::trigger_report(
+                pstmt,
+                qd.instrument_options,
+            )? {
+                crate::ops::modifytable::after_query::TriggerReport::Refuse(why) => {
+                    return Err(removed(Road::ExplainAnalyze, why))
+                }
                 crate::ops::modifytable::after_query::TriggerReport::Level(rels) => Some(rels),
                 crate::ops::modifytable::after_query::TriggerReport::None => None,
             },
@@ -1072,11 +1261,21 @@ fn start_ours(h: QueryDescHandle, eflags: i32) -> PgResult<()> {
         // EXPLAIN ANALYZE of run-time pruning: the prune getters answer PostgreSQL's initial pruning over this execution's
         // parameters (entry.md §4), pinned for the run's own pruning to check against (`prune::pin`; `finish_pin`, keyed by
         // the desc's own plan: never an identity copy, which only an uninstrumented scroll cursor takes)
-        qd.prune = match qd.instrument_options != 0 && !identity && pstmt.partPruneInfos.iter().next().is_some() {
-            true => Some(Box::new(crate::ops::append::prune::initial_results(pstmt, qd.params)?)), // alloc: Cold
+        qd.prune = match qd.instrument_options != 0
+            && !identity
+            && pstmt.partPruneInfos.iter().next().is_some()
+        {
+            true => Some(Box::new(crate::ops::append::prune::initial_results(
+                pstmt, qd.params,
+            )?)), // alloc: Cold
             false => None,
         };
-        let mut pinned = Pinned(qd.prune.as_deref().map(|p| crate::ops::append::prune::pin(pstmt, p)).map(|_| pstmt));
+        let mut pinned = Pinned(
+            qd.prune
+                .as_deref()
+                .map(|p| crate::ops::append::prune::pin(pstmt, p))
+                .map(|_| pstmt),
+        );
         let params = qd.params;
         let cplan = qd.cplan;
         // W9 PERF D1559 S2: a nested statement's shelved serve for this plan's key (shelf.rs), revived instead of an
@@ -1085,15 +1284,20 @@ fn start_ours(h: QueryDescHandle, eflags: i32) -> PgResult<()> {
         let mut taken = None;
         if kept_road {
             let (mut home, mut amcx) = (0, None);
-            let got = crate::admit::reentry::enter(Some(crate::admit::reentry::built), None, false, |b, depth| {
-                (home, amcx) = (depth, Some(b.admit_mcx()));
-                let got = shelf::take(b, depth, cplan, orig, params, identity);
-                let memo = match identity && got.as_ref().is_ok_and(|g| g.hit.is_none()) {
-                    true => keyed::take(b, cplan, orig, params, true),
-                    false => Ok(None),
-                };
-                (got, memo, depth)
-            });
+            let got = crate::admit::reentry::enter(
+                Some(crate::admit::reentry::built),
+                None,
+                false,
+                |b, depth| {
+                    (home, amcx) = (depth, Some(b.admit_mcx()));
+                    let got = shelf::take(b, depth, cplan, orig, params, identity);
+                    let memo = match identity && got.as_ref().is_ok_and(|g| g.hit.is_none()) {
+                        true => keyed::take(b, cplan, orig, params, true),
+                        false => Ok(None),
+                    };
+                    (got, memo, depth)
+                },
+            );
             if let Ok(Some((got, memo, depth))) = got {
                 let got = got?;
                 drop(got.stale);
@@ -1108,7 +1312,12 @@ fn start_ours(h: QueryDescHandle, eflags: i32) -> PgResult<()> {
         }
         // D4451: a top-level identity start's memo take (the kept road's is above)
         if ident_memo && !kept_road {
-            if let Ok(Some(memo)) = crate::admit::reentry::enter(Some(crate::admit::reentry::built), None, false, |b, depth| keyed::take(b, cplan, orig, params, true).map(|t| t.map(|t| (t, depth)))) {
+            if let Ok(Some(memo)) = crate::admit::reentry::enter(
+                Some(crate::admit::reentry::built),
+                None,
+                false,
+                |b, depth| keyed::take(b, cplan, orig, params, true).map(|t| t.map(|t| (t, depth))),
+            ) {
                 taken = memo?;
             }
         }
@@ -1118,7 +1327,8 @@ fn start_ours(h: QueryDescHandle, eflags: i32) -> PgResult<()> {
             ident = Some(match &taken {
                 Some(((_, a), _)) => {
                     qd.ident = a.ident.clone();
-                    a.pstmt.expect("keyed::take: an identity admission holds its plan copy")
+                    a.pstmt
+                        .expect("keyed::take: an identity admission holds its plan copy")
                 }
                 None => identity_copy(qd, orig)?,
             });
@@ -1126,90 +1336,133 @@ fn start_ours(h: QueryDescHandle, eflags: i32) -> PgResult<()> {
         let pstmt = ident.unwrap_or(orig);
         // D2798: an identity copy whose plan calls user code publishes each row before its quals (lowerv4 frame/publish.rs):
         // that code may say WHERE CURRENT OF this cursor while the run evaluates it
-        let publish = run::Publishing::mark(ident.is_some() && !qd.plannedstmt().invalItems.is_nil());
+        let publish =
+            run::Publishing::mark(ident.is_some() && !qd.plannedstmt().invalItems.is_nil());
         let (mut home, mut amcx) = (0, None);
         let (t_admit, mut memo) = (analyze.then(gravity_driver::entry::record::now_ns), false);
         // an EXPLAIN ANALYZE admits the instrumented program; one its lowering refuses (an instrumented nest, a per-row
         // SubPlan, a Memoize) runs the plain program, its nodes below the root not counted
         let mut admit = |inst: bool| {
             let _mark = Instrumenting::mark(inst);
-            crate::admit::reentry::enter(Some(crate::admit::reentry::built), None, false, |b, depth| -> PgResult<Result<(Box<crate::Admitted>, Option<gravity_program::PlanKey>), String>> {
-                (home, amcx) = (depth, Some(b.admit_mcx()));
-                // D3865 L5: the memo's identity admission the shelf's look took, at this level (nothing ran between)
-                if let Some(((key, a), at)) = taken.take() {
-                    debug_assert_eq!(at, depth, "the identity admission's level");
-                    memo = true;
-                    return Ok(Ok((a, Some(key))));
-                }
-                let stack0 = stack_depth_core::exceeded_count();
-                // the identity copy is never filed or taken under the statement's plan key, nor is the plan-order program;
-                // D3865 L5, D4451: an identity admission is filed under the plan's identity key
-                if ident.is_some() || plan_order {
-                    let key = match identity && ident_memo && !inst {
-                        true => crate::runner::entry_key_as(cplan, orig, true),
-                        false => None,
-                    };
-                    // C3 S4c: a top-level one records what it reads (the memo's take checks them)
-                    let got = match key.is_some() && !kept_road {
-                        true => crate::runner::admit_unkeyed(b, pstmt, params, completion, false),
-                        false => crate::admit::unfiled(|| crate::runner::admit_unkeyed(b, pstmt, params, completion, false)),
-                    };
-                    stack_met(stack0, got.as_ref().is_ok_and(|a| a.is_some()))?;
-                    return Ok(got?.map(|a| (Box::new(a), key)).ok_or_else(crate::runner::last_refusal_line)); // alloc: Program
-                }
-                // the plan memo holds the plain program: the instrumented admission neither takes nor files it
-                if !inst && !zoning {
-                    if let Some((key, a)) = keyed::take(b, cplan, pstmt, params, false)? {
+            crate::admit::reentry::enter(
+                Some(crate::admit::reentry::built),
+                None,
+                false,
+                |b,
+                 depth|
+                 -> PgResult<
+                    Result<(Box<crate::Admitted>, Option<gravity_program::PlanKey>), String>,
+                > {
+                    (home, amcx) = (depth, Some(b.admit_mcx()));
+                    // D3865 L5: the memo's identity admission the shelf's look took, at this level (nothing ran between)
+                    if let Some(((key, a), at)) = taken.take() {
+                        debug_assert_eq!(at, depth, "the identity admission's level");
                         memo = true;
                         return Ok(Ok((a, Some(key))));
                     }
-                }
-                // D2908: the refusal this plan met at an earlier execution is the statement's error again, without a second
-                // lowering
-                if !counting && !zoning {
-                    if let Some(e) = crate::runner::held_refusal(b, cplan, pstmt) {
-                        return Err(e);
+                    let stack0 = stack_depth_core::exceeded_count();
+                    // the identity copy is never filed or taken under the statement's plan key, nor is the plan-order program;
+                    // D3865 L5, D4451: an identity admission is filed under the plan's identity key
+                    if ident.is_some() || plan_order {
+                        let key = match identity && ident_memo && !inst {
+                            true => crate::runner::entry_key_as(cplan, orig, true),
+                            false => None,
+                        };
+                        // C3 S4c: a top-level one records what it reads (the memo's take checks them)
+                        let got = match key.is_some() && !kept_road {
+                            true => {
+                                crate::runner::admit_unkeyed(b, pstmt, params, completion, false)
+                            }
+                            false => crate::admit::unfiled(|| {
+                                crate::runner::admit_unkeyed(b, pstmt, params, completion, false)
+                            }),
+                        };
+                        stack_met(stack0, got.as_ref().is_ok_and(|a| a.is_some()))?;
+                        return Ok(got?
+                            .map(|a| (Box::new(a), key))
+                            .ok_or_else(crate::runner::last_refusal_line)); // alloc: Program
                     }
-                }
-                // C3 S4c: a plan without a plan key is filed nowhere, served or refused: its admission records no reads
-                let admitted = if keyed::key_of(cplan, pstmt).is_some() {
-                    crate::runner::admit_unkeyed(b, pstmt, params, completion, false)
-                } else {
-                    crate::admit::unfiled(|| crate::runner::admit_unkeyed(b, pstmt, params, completion, false))
-                };
-                stack_met(stack0, admitted.as_ref().is_ok_and(|a| a.is_some()))?;
-                if let Err(e) = &admitted {
-                    // the memo's refusals are the plain program's: an instrumented lowering's refusal is not remembered
-                    if let Some(why) = crate::runner::refusal_of(e).filter(|_| !counting && !zoning && !inst) {
-                        crate::runner::remember_off_refusal(b, cplan, pstmt, params, why);
-                    }
-                }
-                match admitted? {
-                    None => {
-                        if !counting && !zoning && !inst {
-                            crate::runner::remember_entry_refusal(b, cplan, pstmt);
+                    // the plan memo holds the plain program: the instrumented admission neither takes nor files it
+                    if !inst && !zoning {
+                        if let Some((key, a)) = keyed::take(b, cplan, pstmt, params, false)? {
+                            memo = true;
+                            return Ok(Ok((a, Some(key))));
                         }
-                        Ok(Err(crate::runner::last_refusal_line()))
                     }
-                    // a parallel program: the driver for a completion run (complete.rs), else the pull adapter runs its producers first (run.rs, chore C1)
-                    Some(a) if a.is_parallel() && completion && a.cmd == gravity_program::Cmd::Select => Ok(Ok((Box::new(a), None))), // alloc: Program
-                    Some(a) if counting || zoning => Ok(Ok((Box::new(a), None))), // alloc: Program
-                    Some(a) if inst => Ok(Ok((Box::new(a), None))), // alloc: Program
-                    Some(a) => Ok(Ok((Box::new(a), keyed::key_of(cplan, pstmt)))), // alloc: Program
-                }
-            }).ok().flatten()
+                    // D2908: the refusal this plan met at an earlier execution is the statement's error again, without a second
+                    // lowering
+                    if !counting && !zoning {
+                        if let Some(e) = crate::runner::held_refusal(b, cplan, pstmt) {
+                            return Err(e);
+                        }
+                    }
+                    // C3 S4c: a plan without a plan key is filed nowhere, served or refused: its admission records no reads
+                    let admitted = if keyed::key_of(cplan, pstmt).is_some() {
+                        crate::runner::admit_unkeyed(b, pstmt, params, completion, false)
+                    } else {
+                        crate::admit::unfiled(|| {
+                            crate::runner::admit_unkeyed(b, pstmt, params, completion, false)
+                        })
+                    };
+                    stack_met(stack0, admitted.as_ref().is_ok_and(|a| a.is_some()))?;
+                    if let Err(e) = &admitted {
+                        // the memo's refusals are the plain program's: an instrumented lowering's refusal is not remembered
+                        if let Some(why) =
+                            crate::runner::refusal_of(e).filter(|_| !counting && !zoning && !inst)
+                        {
+                            crate::runner::remember_off_refusal(b, cplan, pstmt, params, why);
+                        }
+                    }
+                    match admitted? {
+                        None => {
+                            if !counting && !zoning && !inst {
+                                crate::runner::remember_entry_refusal(b, cplan, pstmt);
+                            }
+                            Ok(Err(crate::runner::last_refusal_line()))
+                        }
+                        // a parallel program: the driver for a completion run (complete.rs), else the pull adapter runs its producers first (run.rs, chore C1)
+                        Some(a)
+                            if a.is_parallel()
+                                && completion
+                                && a.cmd == gravity_program::Cmd::Select =>
+                        {
+                            Ok(Ok((Box::new(a), None)))
+                        } // alloc: Program
+                        Some(a) if counting || zoning => Ok(Ok((Box::new(a), None))), // alloc: Program
+                        Some(a) if inst => Ok(Ok((Box::new(a), None))), // alloc: Program
+                        Some(a) => Ok(Ok((Box::new(a), keyed::key_of(cplan, pstmt)))), // alloc: Program
+                    }
+                },
+            )
+            .ok()
+            .flatten()
         };
         let mut admitted = admit(analyze);
         // D3381: a routed write whose leaf triggers fire is delegated, never run as the plain program (its trigger lines)
-        let routed_triggers = |why: &str| why.contains(gravity_lowerv4::ops::modifytable::strategies::ROUTED_TRIGGER_LINES);
-        if analyze && match &admitted { None => true, Some(Ok(Err(why))) => !routed_triggers(why), Some(Err(e)) => crate::runner::refusal_of(e).is_some_and(|w| !routed_triggers(w)), Some(Ok(Ok(_))) => false } {
+        let routed_triggers = |why: &str| {
+            why.contains(gravity_lowerv4::ops::modifytable::strategies::ROUTED_TRIGGER_LINES)
+        };
+        if analyze
+            && match &admitted {
+                None => true,
+                Some(Ok(Err(why))) => !routed_triggers(why),
+                Some(Err(e)) => crate::runner::refusal_of(e).is_some_and(|w| !routed_triggers(w)),
+                Some(Ok(Ok(_))) => false,
+            }
+        {
             admitted = admit(false);
         }
         drop(publish);
-        let admit_ns = t_admit.map_or(0, |t| gravity_driver::entry::record::now_ns().saturating_sub(t));
+        let admit_ns = t_admit.map_or(0, |t| {
+            gravity_driver::entry::record::now_ns().saturating_sub(t)
+        });
         let (mut a, key) = match admitted {
             None if counted_declines(pstmt, None) => return Ok(()),
-            None => return Err(crate::glue::internal("gravity_entry: no backend level for the statement")),
+            None => {
+                return Err(crate::glue::internal(
+                    "gravity_entry: no backend level for the statement",
+                ))
+            }
             Some(Err(e)) => return Err(e),
             Some(Ok(Err(_))) if counted_declines(pstmt, None) => return Ok(()),
             Some(Ok(Err(why))) => return Err(crate::runner::refused(&why)),
@@ -1241,11 +1494,17 @@ fn start_ours(h: QueryDescHandle, eflags: i32) -> PgResult<()> {
         // floor past the pool (knobs grant.rs `reserve_sites`). D3380: a top-level statement's site whose floor need is past
         // the pool's capacity is admitted alone past the pool (`gravity_driver::Admitted::Solo`), never refused here
         // D866: a table fill with a VOLATILE call is pulled a row at a time (run.rs `fill_rows`), never driven
-        let fill_rows = completion && matches!(qd.dest, CommandDest::IntoRel | CommandDest::TransientRel) && gravity_driver::pull::pull_exact(&a.program);
+        let fill_rows = completion
+            && matches!(qd.dest, CommandDest::IntoRel | CommandDest::TransientRel)
+            && gravity_driver::pull::pull_exact(&a.program);
         let drive = completion && a.is_parallel() && !fill_rows;
         crate::runner::grant_start();
         let nested_start = crate::admit::is_nested() && crate::runner::caller_granted();
-        let nested = nested_start.then(|| Rc::new(core::cell::RefCell::new(crate::runner::reserve_nested(&a, drive))));
+        let nested = nested_start.then(|| {
+            Rc::new(core::cell::RefCell::new(crate::runner::reserve_nested(
+                &a, drive,
+            )))
+        });
         // D2926: the counted start checks no permission, read-only guard or EXECUTE gate again: PostgreSQL made them at the
         // portal's ExecutorStart (a SET ROLE between the Bind and the Execute changes nothing), and this desc's first start did
         if !counting {
@@ -1276,11 +1535,15 @@ fn start_ours(h: QueryDescHandle, eflags: i32) -> PgResult<()> {
         serve.completion = completion;
         serve.fill_rows = fill_rows;
         serve.nested = nested;
-        serve.report = analyze.then(|| instrument::report_at_start(&serve.a, pstmt, admit_ns, memo));
+        serve.report =
+            analyze.then(|| instrument::report_at_start(&serve.a, pstmt, admit_ns, memo));
         serve.named_cursor = partial_reader(qd.plannedstmt());
         serve.fetch_portal = reached_later(qd.plannedstmt());
         // D3865 L5: an identity serve too, once filed under the identity key (`Serve::shelvable`)
-        qd.shelf_ok = in_statement() && !crate::runner::once_store(&serve.a) && serve.shelvable() && qd.prune.is_none();
+        qd.shelf_ok = in_statement()
+            && !crate::runner::once_store(&serve.a)
+            && serve.shelvable()
+            && qd.prune.is_none();
         qd.serve = Some(serve);
         qd.state = State::Serving;
         pinned.0 = None;
@@ -1296,7 +1559,15 @@ pub(crate) fn retire_shelved_from(depth: usize) {
 /// W9 PERF D1559 S2: the start of a revived shelved serve (shelf.rs): what `start_ours` does after its admission for a
 /// nested non-completion statement (the grant check and the nested reservation, the read-only guard, the after-query
 /// begin, the relations held under this execution's params), the shed serve re-armed in place of `Serve::new`.
-fn revive(qd: &mut QueryDesc, mut serve: Box<run::Serve>, home: usize, amcx: Option<Mcx<'_>>, eflags: i32, pstmt: &'static PlannedStmt<'static>, params: ParamListHandle) -> PgResult<()> {
+fn revive(
+    qd: &mut QueryDesc,
+    mut serve: Box<run::Serve>,
+    home: usize,
+    amcx: Option<Mcx<'_>>,
+    eflags: i32,
+    pstmt: &'static PlannedStmt<'static>,
+    params: ParamListHandle,
+) -> PgResult<()> {
     let cplan = qd.cplan;
     let key = serve.key;
     if let Some(why) = portal_refusal(&serve.a, pstmt, qd.dest, eflags) {
@@ -1311,7 +1582,11 @@ fn revive(qd: &mut QueryDesc, mut serve: Box<run::Serve>, home: usize, amcx: Opt
     // the pool (`gravity_driver::Admitted::Solo`)
     crate::runner::grant_start();
     let nested_start = crate::runner::caller_granted();
-    let nested = nested_start.then(|| Rc::new(core::cell::RefCell::new(crate::runner::reserve_nested(&serve.a, false))));
+    let nested = nested_start.then(|| {
+        Rc::new(core::cell::RefCell::new(crate::runner::reserve_nested(
+            &serve.a, false,
+        )))
+    });
     let cmd = serve.a.cmd;
     if let Err(e) = prologue(pstmt, &serve.a, amcx) {
         keyed::release(home, key, cplan, pstmt, serve.a);
@@ -1348,7 +1623,9 @@ fn revive(qd: &mut QueryDesc, mut serve: Box<run::Serve>, home: usize, amcx: Opt
 fn prologue(pstmt: &PlannedStmt<'_>, a: &crate::Admitted, amcx: Option<Mcx<'_>>) -> PgResult<()> {
     match amcx {
         Some(mcx) => prologue_in(pstmt, a, mcx),
-        None => crate::with_backend(|b| b.admit_mcx()).map_or(Ok(()), |mcx| prologue_in(pstmt, a, mcx)),
+        None => {
+            crate::with_backend(|b| b.admit_mcx()).map_or(Ok(()), |mcx| prologue_in(pstmt, a, mcx))
+        }
     }
 }
 
@@ -1372,7 +1649,9 @@ impl Drop for Pinned {
 /// against the pin (`prune::initial_valid` checked the set; a different one already failed the run), else the printed
 /// `Subplans Removed` would not be what ran.
 fn finish_pin(qd: &mut QueryDesc) -> PgResult<()> {
-    let Some(p) = qd.prune.as_deref() else { return Ok(()) };
+    let Some(p) = qd.prune.as_deref() else {
+        return Ok(());
+    };
     let checked = crate::ops::append::prune::unpin(qd.plannedstmt()).unwrap_or_default();
     match p.valid.iter().enumerate().find(|&(i, v)| v.is_some() && checked.get(i).copied().unwrap_or(0) == 0) {
         Some((i, _)) => Err(crate::glue::internal(&format!("gravity: EXPLAIN ANALYZE's initial pruning of partPruneInfos[{i}] is not the run's (the run did not prune it)"))), // alloc: Cold
@@ -1383,7 +1662,12 @@ fn finish_pin(qd: &mut QueryDesc) -> PgResult<()> {
 /// D3198: ExecutorRun with C's hook and totaltime bracket for a statement the entry serves (`run_entry` is the run):
 /// the run tap, InstrStartNode(totaltime), the run, InstrStopNode(totaltime, es_processed) and es_total_processed, the
 /// run-leave tap on every way out (PG_FINALLY).
-fn executor_run(h: QueryDescHandle, direction: ScanDirection, count: u64, dest: &mut DestReceiver<'_>) -> PgResult<()> {
+fn executor_run(
+    h: QueryDescHandle,
+    direction: ScanDirection,
+    count: u64,
+    dest: &mut DestReceiver<'_>,
+) -> PgResult<()> {
     if !is_ours(h) || !with_desc(h, |qd| qd.hooked && qd.state == State::Serving) {
         return run_entry(h, direction, count, dest);
     }
@@ -1393,13 +1677,27 @@ fn executor_run(h: QueryDescHandle, direction: ScanDirection, count: u64, dest: 
 /// `executor_run` of a hooked statement. D3620: out of line, so an unhooked run (every level of a nested statement's
 /// stack path) holds none of its frame.
 #[inline(never)]
-fn executor_run_hooked(h: QueryDescHandle, direction: ScanDirection, count: u64, dest: &mut DestReceiver<'_>) -> PgResult<()> {
+fn executor_run_hooked(
+    h: QueryDescHandle,
+    direction: ScanDirection,
+    count: u64,
+    dest: &mut DestReceiver<'_>,
+) -> PgResult<()> {
     es::tap_executor_run::call_if(|f| f(h));
     let leave = LeaveTap(h, |h| es::tap_executor_run_leave::call_if(|f| f(h)));
-    let timed = with_desc(h, |qd| qd.totaltime.as_deref_mut().map(::instrument::instr_start_node).is_some());
+    let timed = with_desc(h, |qd| {
+        qd.totaltime
+            .as_deref_mut()
+            .map(::instrument::instr_start_node)
+            .is_some()
+    });
     let r = run_entry(h, direction, count, dest);
     with_desc(h, |qd| {
-        let n = if qd.state == State::Serving { qd.serve.as_ref().map_or(0, |s| s.es_processed) } else { 0 };
+        let n = if qd.state == State::Serving {
+            qd.serve.as_ref().map_or(0, |s| s.es_processed)
+        } else {
+            0
+        };
         qd.total_processed += n;
         if let Some(t) = qd.totaltime.as_deref_mut().filter(|_| timed) {
             ::instrument::instr_stop_node(t, n as f64);
@@ -1409,7 +1707,12 @@ fn executor_run_hooked(h: QueryDescHandle, direction: ScanDirection, count: u64,
     r
 }
 
-fn run_entry(h: QueryDescHandle, direction: ScanDirection, count: u64, dest: &mut DestReceiver<'_>) -> PgResult<()> {
+fn run_entry(
+    h: QueryDescHandle,
+    direction: ScanDirection,
+    count: u64,
+    dest: &mut DestReceiver<'_>,
+) -> PgResult<()> {
     stack_depth_core::check_stack_depth()?;
     let _running = Running::enter();
     if !is_ours(h) {
@@ -1420,10 +1723,18 @@ fn run_entry(h: QueryDescHandle, direction: ScanDirection, count: u64, dest: &mu
     let mut counted = None;
     let mut zoned = None;
     let mut r = with_desc(h, |qd| match qd.state {
-        State::Serving if counted_partial(qd, count) && whole_serve(qd) => release_for_counted(qd).map(|eflags| counted = Some(eflags)),
-        State::Serving if counted_whole_read(qd, count) => Err(removed(Road::Cursor, WHOLE_READ_COUNTED)),
-        State::Serving if zone_runs(qd, count) => release_for_zone(qd).map(|eflags| zoned = Some(eflags)),
-        State::Serving if counted_partial(qd, count) => release_for_counted(qd).map(|eflags| counted = Some(eflags)),
+        State::Serving if counted_partial(qd, count) && whole_serve(qd) => {
+            release_for_counted(qd).map(|eflags| counted = Some(eflags))
+        }
+        State::Serving if counted_whole_read(qd, count) => {
+            Err(removed(Road::Cursor, WHOLE_READ_COUNTED))
+        }
+        State::Serving if zone_runs(qd, count) => {
+            release_for_zone(qd).map(|eflags| zoned = Some(eflags))
+        }
+        State::Serving if counted_partial(qd, count) => {
+            release_for_counted(qd).map(|eflags| counted = Some(eflags))
+        }
         State::Serving => {
             // D2573: the PL state the run starts with; an error that left any behind (a PL/pgSQL function's open SPI
             // connection) never re-runs in plan order: it is the statement's
@@ -1450,13 +1761,17 @@ fn run_entry(h: QueryDescHandle, direction: ScanDirection, count: u64, dest: &mu
             qd.shelf_ok &= r.is_ok() && again.is_none(); // S2: a failed run's serve is never shelved
             r
         }
-        State::Created => Err(crate::glue::internal("gravity_entry: ExecutorRun before ExecutorStart")),
-        State::Explained => Err(crate::glue::internal("gravity_entry: ExecutorRun of an EXPLAIN without ANALYZE")),
+        State::Created => Err(crate::glue::internal(
+            "gravity_entry: ExecutorRun before ExecutorStart",
+        )),
+        State::Explained => Err(crate::glue::internal(
+            "gravity_entry: ExecutorRun of an EXPLAIN without ANALYZE",
+        )),
     });
     drop(nested);
     if let Err(e) = &r {
         crate::runner::note_tag_refused(e); // D4206: a run-ahead error's refusal is the statement's here
-        // so is an out of memory a SPILL-DEBT row names: its server-only line
+                                            // so is an out of memory a SPILL-DEBT row names: its server-only line
         if let Err(e) = &mut r {
             crate::glue::note_debt_refused(e);
         }
@@ -1467,14 +1782,23 @@ fn run_entry(h: QueryDescHandle, direction: ScanDirection, count: u64, dest: &mu
     if let (Ok(()), Some(eflags)) = (&r, zoned) {
         return zone_restart(h, eflags, direction, count, dest);
     }
-    let Some((eflags, first)) = again else { return r };
+    let Some((eflags, first)) = again else {
+        return r;
+    };
     rerun_in_plan_order(h, direction, count, dest, eflags, first)
 }
 
 /// `run_entry`'s errorhold re-run in plan order. D3620: out of line, so `run_entry`'s frame (on every nested statement's stack
 /// path) does not hold its locals.
 #[inline(never)]
-fn rerun_in_plan_order(h: QueryDescHandle, direction: ScanDirection, count: u64, dest: &mut DestReceiver<'_>, eflags: i32, first: Box<types_error::PgError>) -> PgResult<()> {
+fn rerun_in_plan_order(
+    h: QueryDescHandle,
+    direction: ScanDirection,
+    count: u64,
+    dest: &mut DestReceiver<'_>,
+    eflags: i32,
+    first: Box<types_error::PgError>,
+) -> PgResult<()> {
     // v5 errorhold (interfaces §2.3, `Batch::Statement`) on the portal path: the statement again under the desc's
     // snapshot, admitted and run in plan order (every licence denied; bounded under a count: a cursor's FETCH n, D2316);
     // its rows or its error are the statement's. The first run's receiver startup sent the RowDescription: this one sends
@@ -1486,7 +1810,13 @@ fn rerun_in_plan_order(h: QueryDescHandle, direction: ScanDirection, count: u64,
         _ => None,
     };
     let once = described.is_none();
-    let restarts = matches!(dest, DestReceiver::Tuplestore(_) | DestReceiver::DoNothing | DestReceiver::SqlFunction(_) | DestReceiver::CopyOut(_));
+    let restarts = matches!(
+        dest,
+        DestReceiver::Tuplestore(_)
+            | DestReceiver::DoNothing
+            | DestReceiver::SqlFunction(_)
+            | DestReceiver::CopyOut(_)
+    );
     let mut first = Some(first);
     let r = crate::runner::plan_order_for(count, || {
         executor_start(h, eflags)?;
@@ -1502,7 +1832,12 @@ fn rerun_in_plan_order(h: QueryDescHandle, direction: ScanDirection, count: u64,
     // a refusal of the plan-order run (its start's admission, a run-time one) never hides the first run's resource error
     // (`runner::surfaces_over_refusal`): an out-of-memory is the statement's
     match (r, first) {
-        (Err(e), Some(first)) if crate::runner::refusal_of(&e).is_some() && crate::runner::surfaces_over_refusal(&first) => Err(first),
+        (Err(e), Some(first))
+            if crate::runner::refusal_of(&e).is_some()
+                && crate::runner::surfaces_over_refusal(&first) =>
+        {
+            Err(first)
+        }
         (r, _) => r,
     }
     // the first run's error given back is the statement's (an out of memory a SPILL-DEBT row names: its line)
@@ -1520,15 +1855,39 @@ fn rerun_in_plan_order(h: QueryDescHandle, direction: ScanDirection, count: u64,
 /// identity root (D2710: its first FETCH raised the licensed departure's error where PostgreSQL returns rows).
 /// D3620: out of line, so `run_entry`'s frame (on every nested statement's stack path) does not hold its locals.
 #[inline(never)]
-fn recheck(qd: &mut QueryDesc, e: Box<types_error::PgError>, dest: &DestReceiver<'_>) -> Result<(i32, Box<types_error::PgError>), Box<types_error::PgError>> {
+fn recheck(
+    qd: &mut QueryDesc,
+    e: Box<types_error::PgError>,
+    dest: &DestReceiver<'_>,
+) -> Result<(i32, Box<types_error::PgError>), Box<types_error::PgError>> {
     // D3134: postgres --single's DestDebug too: its startup printed the column header once, and the served plan-order run
     // skips a second startup (`QueryDesc::started`), as for the other receivers whose startup must not run twice
-    let restart = matches!(dest, DestReceiver::PrintTup(_) | DestReceiver::Tuplestore(_) | DestReceiver::DoNothing | DestReceiver::SqlFunction(_) | DestReceiver::CopyOut(_) | DestReceiver::SpiPrintTup | DestReceiver::DebugTup(_));
-    let Some(serve) = qd.serve.as_ref() else { return Err(e) };
+    let restart = matches!(
+        dest,
+        DestReceiver::PrintTup(_)
+            | DestReceiver::Tuplestore(_)
+            | DestReceiver::DoNothing
+            | DestReceiver::SqlFunction(_)
+            | DestReceiver::CopyOut(_)
+            | DestReceiver::SpiPrintTup
+            | DestReceiver::DebugTup(_)
+    );
+    let Some(serve) = qd.serve.as_ref() else {
+        return Err(e);
+    };
     // D3543: a COPY (query) TO's completion run re-runs too while its receiver has taken no row (a table fill's never: its
     // rows went into the relation)
-    let unsent = !serve.completion || matches!(dest, DestReceiver::CopyOut(st) if st.processed == 0);
-    if !restart || !crate::runner::reruns(&e) || serve.sent != 0 || !unsent || serve.fill_rows || qd.crosscheck.is_some() || qd.prune.is_some() || !crate::runner::rechecks(&serve.a, qd.plannedstmt()) {
+    let unsent =
+        !serve.completion || matches!(dest, DestReceiver::CopyOut(st) if st.processed == 0);
+    if !restart
+        || !crate::runner::reruns(&e)
+        || serve.sent != 0
+        || !unsent
+        || serve.fill_rows
+        || qd.crosscheck.is_some()
+        || qd.prune.is_some()
+        || !crate::runner::rechecks(&serve.a, qd.plannedstmt())
+    {
         return Err(e);
     }
     if run::close(qd, false).is_err() {
@@ -1550,7 +1909,11 @@ fn recheck(qd: &mut QueryDesc, e: Box<types_error::PgError>, dest: &DestReceiver
 #[inline(never)]
 fn unrechecked(qd: &QueryDesc, e: Box<types_error::PgError>) -> Box<types_error::PgError> {
     const RECHECK: &str = "recheck: a licensed departure raised before any row and its plan-order run cannot start here";
-    let licensed = crate::runner::reruns(&e) && qd.serve.as_ref().is_some_and(|s| s.sent == 0 && crate::runner::rechecks(&s.a, qd.plannedstmt()));
+    let licensed = crate::runner::reruns(&e)
+        && qd
+            .serve
+            .as_ref()
+            .is_some_and(|s| s.sent == 0 && crate::runner::rechecks(&s.a, qd.plannedstmt()));
     if licensed && !crate::runner::surfaces_over_refusal(&e) {
         return crate::runner::refused(RECHECK);
     }
@@ -1569,7 +1932,12 @@ fn executor_finish(h: QueryDescHandle) -> PgResult<()> {
     }
     es::tap_executor_finish::call_if(|f| f(h));
     let leave = LeaveTap(h, |h| es::tap_executor_finish_leave::call_if(|f| f(h)));
-    let timed = with_desc(h, |qd| qd.totaltime.as_deref_mut().map(::instrument::instr_start_node).is_some());
+    let timed = with_desc(h, |qd| {
+        qd.totaltime
+            .as_deref_mut()
+            .map(::instrument::instr_start_node)
+            .is_some()
+    });
     let r = finish_entry(h);
     with_desc(h, |qd| {
         if let Some(t) = qd.totaltime.as_deref_mut().filter(|_| timed) {
@@ -1583,7 +1951,11 @@ fn executor_finish(h: QueryDescHandle) -> PgResult<()> {
 fn finish_entry(h: QueryDescHandle) -> PgResult<()> {
     with_desc(h, |qd| match qd.state {
         State::Serving => {
-            let r = crate::ops::modifytable::after_query::finish(qd.serve.as_ref().expect("serving").cmd, qd.eflags & EXEC_FLAG_SKIP_TRIGGERS != 0).and_then(|_| finish_pin(qd));
+            let r = crate::ops::modifytable::after_query::finish(
+                qd.serve.as_ref().expect("serving").cmd,
+                qd.eflags & EXEC_FLAG_SKIP_TRIGGERS != 0,
+            )
+            .and_then(|_| finish_pin(qd));
             // D3381: the statement's trigger counts, its AFTER events fired (ExplainPrintTriggers reads them next)
             if let Some(t) = qd.trig_level.take() {
                 qd.triggers = trigger::instr::take(t);
@@ -1608,7 +1980,10 @@ fn executor_end(h: QueryDescHandle) -> PgResult<()> {
         // PostgreSQL's standard_ExecutorEnd: the parallel workers a Gather planned and the ones that ran (the workers the
         // run's sections ran; none at W0)
         if let Some(s) = qd.serve.as_ref().filter(|s| s.done) {
-            gravity_hosts::instr::report_parallel_workers(gravity_decompose::explain::gather_workers(qd.plannedstmt()), s.workers as i64);
+            gravity_hosts::instr::report_parallel_workers(
+                gravity_decompose::explain::gather_workers(qd.plannedstmt()),
+                s.workers as i64,
+            );
         }
         qd.explained = None;
         if qd.prune.take().is_some() {
@@ -1620,7 +1995,13 @@ fn executor_end(h: QueryDescHandle) -> PgResult<()> {
         // construct C2's run-ahead tracer: a whole-read program (the whole-read licence's guard) whose reader ended its
         // run before it completed
         if gravity_driver::ahead_trace::mode() != gravity_driver::ahead_trace::Mode::Off {
-            if let Some(s) = qd.serve.as_ref().filter(|s| gravity_driver::ahead_trace::cut_short(crate::runner::whole_read(&s.a), s.run.is_open(), s.done)) {
+            if let Some(s) = qd.serve.as_ref().filter(|s| {
+                gravity_driver::ahead_trace::cut_short(
+                    crate::runner::whole_read(&s.a),
+                    s.run.is_open(),
+                    s.done,
+                )
+            }) {
                 gravity_driver::ahead_trace::whole_read_cut(s.shape);
             }
         }
@@ -1667,7 +2048,11 @@ fn executor_finish_and_park(h: QueryDescHandle) -> PgResult<bool> {
     crate::runner::pgrc_statement_end();
     executor_end(h)?;
     let parked = with_desc(h, |qd| {
-        let keep = qd.state == State::Serving && qd.prune.is_none() && qd.ident.is_none() && qd.crosscheck.is_none() && qd.serve.as_ref().is_some_and(|s| s.retainable());
+        let keep = qd.state == State::Serving
+            && qd.prune.is_none()
+            && qd.ident.is_none()
+            && qd.crosscheck.is_none()
+            && qd.serve.as_ref().is_some_and(|s| s.retainable());
         if keep {
             snapmgr::UnregisterSnapshot(qd.snapshot.take().as_ref());
             qd.params = ParamListHandle::NULL;
@@ -1690,7 +2075,11 @@ pub(crate) fn pool_trims() -> u64 {
     gravity_driver::mem::grant::POOL.stats().trims
 }
 
-fn executor_rearm(h: QueryDescHandle, snapshot: Option<Snapshot>, params: ParamListHandle) -> PgResult<bool> {
+fn executor_rearm(
+    h: QueryDescHandle,
+    snapshot: Option<Snapshot>,
+    params: ParamListHandle,
+) -> PgResult<bool> {
     if !is_ours(h) {
         return Err(foreign_error(h));
     }
@@ -1719,19 +2108,43 @@ fn executor_rearm(h: QueryDescHandle, snapshot: Option<Snapshot>, params: ParamL
 /// before anything is taken: the entry's switch, the refusals, the retained admission not overtaken by a support change
 /// (D2663: `keyed::take`'s `take_served` drops such an admission), the memo still serving the plan's key (an invalidation
 /// dropped it: the next start re-admits), the permission checks (a REVOKE between executions) and the read-only guard.
-fn rearm(qd: &mut QueryDesc, snapshot: Option<Snapshot>, params: ParamListHandle) -> PgResult<bool> {
+fn rearm(
+    qd: &mut QueryDesc,
+    snapshot: Option<Snapshot>,
+    params: ParamListHandle,
+) -> PgResult<bool> {
     let pstmt = qd.plannedstmt();
-    let Some(key) = qd.serve.as_ref().filter(|s| s.retainable() && !s.run.is_open()).and_then(|s| s.key) else { return Ok(false) };
-    if nested_now() || refusal(pstmt.commandType, qd.eflags, snapshot.is_some(), xact::IsInParallelMode()).is_some() || types_portal::params::defers_to_evaluation(params) {
+    let Some(key) = qd
+        .serve
+        .as_ref()
+        .filter(|s| s.retainable() && !s.run.is_open())
+        .and_then(|s| s.key)
+    else {
+        return Ok(false);
+    };
+    if nested_now()
+        || refusal(
+            pstmt.commandType,
+            qd.eflags,
+            snapshot.is_some(),
+            xact::IsInParallelMode(),
+        )
+        .is_some()
+        || types_portal::params::defers_to_evaluation(params)
+    {
         return Ok(false);
     }
     // D2663: a support proc changed since the admission (a pg_amproc row, a pg_proc row under its OID). The plan keeps its
     // identity (PostgreSQL's plancache follows neither), so the key may be served again, by a newer admission, while this
     // shell holds the old one: its programs and Node bound to the old support procs and language handlers
-    if crate::Backend::serve_stale(&qd.serve.as_ref().expect("retained").a) || !crate::admit::folded_hold(&qd.serve.as_ref().expect("retained").a, params) {
+    if crate::Backend::serve_stale(&qd.serve.as_ref().expect("retained").a)
+        || !crate::admit::folded_hold(&qd.serve.as_ref().expect("retained").a, params)
+    {
         return Ok(false);
     }
-    if !crate::with_backend(|b| matches!(b.lookup(key), Some(crate::Verdict::Served(_)))).unwrap_or(false) {
+    if !crate::with_backend(|b| matches!(b.lookup(key), Some(crate::Verdict::Served(_))))
+        .unwrap_or(false)
+    {
         return Ok(false);
     }
     // the grant pool trimmed its depots since the park (memory pressure): the retained serve goes with the portal's release
@@ -1747,7 +2160,8 @@ fn rearm(qd: &mut QueryDesc, snapshot: Option<Snapshot>, params: ParamListHandle
     qd.serve.as_mut().expect("retained").named_cursor = named_cursor(pstmt);
     // B2-31 / D2890: the portal a rearm starts already holds this desc (PortalStartParked), where a fresh start finds
     // none: the visible portal of the plan is reached by its later Executes all the same (`rearmed_portal`)
-    qd.serve.as_mut().expect("retained").fetch_portal = fetch_portal(pstmt) || rearmed_portal(pstmt);
+    qd.serve.as_mut().expect("retained").fetch_portal =
+        fetch_portal(pstmt) || rearmed_portal(pstmt);
     qd.serve.as_mut().expect("retained").hold(params)?;
     Ok(true)
 }
@@ -1805,7 +2219,10 @@ fn free_ours(h: QueryDescHandle) {
 fn with_hook_qd(h: QueryDescHandle, f: &mut dyn FnMut(&mut es::HookQd<'_>)) {
     route(h, |qd| {
         let (to_launch, launched) = match qd.serve.as_ref().filter(|s| s.done) {
-            Some(s) => (gravity_decompose::explain::gather_workers(qd.plannedstmt()), i64::from(s.workers)),
+            Some(s) => (
+                gravity_decompose::explain::gather_workers(qd.plannedstmt()),
+                i64::from(s.workers),
+            ),
             None => (0, 0),
         };
         let (plannedstmt, source_text, params) = (qd.plannedstmt(), qd.source_text(), qd.params);
@@ -1842,7 +2259,12 @@ fn query_desc_operation(h: QueryDescHandle) -> CmdType {
 /// `WHERE CURRENT OF`: execCurrentOf resolves the cursor's portal; a portal the entry serves answers here (its identity
 /// copy's row, its lock host's row), one with no desc keeps execCurrentOf's own errors (a cursor held from a previous
 /// transaction, not positioned on a row).
-fn exec_current_of(cursor_name: Option<&str>, cursor_param: i32, table_oid: types_core::Oid, table_name: &str) -> PgResult<Option<types_tuple::ItemPointerData>> {
+fn exec_current_of(
+    cursor_name: Option<&str>,
+    cursor_param: i32,
+    table_oid: types_core::Oid,
+    table_name: &str,
+) -> PgResult<Option<types_tuple::ItemPointerData>> {
     let Some(portal) = cursor_name.and_then(|n| portalmem::GetPortalByName(Some(n))) else {
         return (prev().exec_current_of)(cursor_name, cursor_param, table_oid, table_name);
     };
@@ -1851,7 +2273,13 @@ fn exec_current_of(cursor_name: Option<&str>, cursor_param: i32, table_oid: type
         // D3580: a named protocol portal the runner serves has no desc; its run answers (runner `portal_current_of`)
         let token = portal.borrow().gravity;
         if token != 0 {
-            return crate::runner::portal_current_of(&portal, token, cursor_name.unwrap_or(""), table_oid, table_name);
+            return crate::runner::portal_current_of(
+                &portal,
+                token,
+                cursor_name.unwrap_or(""),
+                table_oid,
+                table_name,
+            );
         }
         return (prev().exec_current_of)(cursor_name, cursor_param, table_oid, table_name);
     }
@@ -1862,9 +2290,30 @@ fn exec_current_of(cursor_name: Option<&str>, cursor_param: i32, table_oid: type
     // it published before that row's quals and projection (an identity copy), or its lock host's last lock (row marks)
     let name = cursor_name.unwrap_or("");
     let now = running(h, |qd| match (&qd.state, qd.serve.as_ref()) {
-        (State::Serving, Some(sv)) if !qd.plannedstmt().rowMarks.is_nil() => current_of::current_rowmark(&portal, qd.plannedstmt(), qd.unpruned.as_deref(), sv.run.locked(table_oid), name, table_oid, table_name),
-        (_, Some(sv)) if qd.ident.is_some() => current_of::current_running(&portal, qd.plannedstmt(), sv.published(), name, table_oid, table_name),
-        _ if current_of::no_scan_of(qd.plannedstmt(), table_oid) || materialized(&portal, qd.plannedstmt()) => Err(current_of::not_simply_updatable(name, table_name)),
+        (State::Serving, Some(sv)) if !qd.plannedstmt().rowMarks.is_nil() => {
+            current_of::current_rowmark(
+                &portal,
+                qd.plannedstmt(),
+                qd.unpruned.as_deref(),
+                sv.run.locked(table_oid),
+                name,
+                table_oid,
+                table_name,
+            )
+        }
+        (_, Some(sv)) if qd.ident.is_some() => current_of::current_running(
+            &portal,
+            qd.plannedstmt(),
+            sv.published(),
+            name,
+            table_oid,
+            table_name,
+        ),
+        _ if current_of::no_scan_of(qd.plannedstmt(), table_oid)
+            || materialized(&portal, qd.plannedstmt()) =>
+        {
+            Err(current_of::not_simply_updatable(name, table_name))
+        }
         _ => Err(current_of::unsupported(name)),
     });
     if let Some(r) = now {
@@ -1872,20 +2321,47 @@ fn exec_current_of(cursor_name: Option<&str>, cursor_param: i32, table_oid: type
     }
     // C5b: a served portal with row marks: execCurrentOf's es_rowmarks arm over its lock host's curCtid
     let marked = with_desc(h, |qd| match (&qd.state, qd.serve.as_ref()) {
-        (State::Serving, Some(sv)) if !qd.plannedstmt().rowMarks.is_nil() => Some(current_of::current_rowmark(&portal, qd.plannedstmt(), qd.unpruned.as_deref(), sv.run.locked(table_oid), cursor_name.unwrap_or(""), table_oid, table_name)),
+        (State::Serving, Some(sv)) if !qd.plannedstmt().rowMarks.is_nil() => {
+            Some(current_of::current_rowmark(
+                &portal,
+                qd.plannedstmt(),
+                qd.unpruned.as_deref(),
+                sv.run.locked(table_oid),
+                cursor_name.unwrap_or(""),
+                table_oid,
+                table_name,
+            ))
+        }
         _ => None,
     });
     if let Some(r) = marked {
         return r;
     }
-    let ident = with_desc(h, |qd| qd.ident.is_some().then(|| (qd.plannedstmt(), qd.serve.as_ref().and_then(|s| s.last_tid))));
+    let ident = with_desc(h, |qd| {
+        qd.ident
+            .is_some()
+            .then(|| (qd.plannedstmt(), qd.serve.as_ref().and_then(|s| s.last_tid)))
+    });
     if let Some((pstmt, last)) = ident {
-        return current_of::current(&portal, pstmt, last, cursor_name.unwrap_or(""), table_oid, table_name);
+        return current_of::current(
+            &portal,
+            pstmt,
+            last,
+            cursor_name.unwrap_or(""),
+            table_oid,
+            table_name,
+        );
     }
     // execCurrentOf's no-FOR UPDATE arm: a plan with no reachable scan of the table is PG's error, and so is a scroll
     // cursor's plan PG tops with Material (D3719)
-    if with_desc(h, |qd| current_of::no_scan_of(qd.plannedstmt(), table_oid) || materialized(&portal, qd.plannedstmt())) {
-        return Err(current_of::not_simply_updatable(cursor_name.unwrap_or(""), table_name));
+    if with_desc(h, |qd| {
+        current_of::no_scan_of(qd.plannedstmt(), table_oid)
+            || materialized(&portal, qd.plannedstmt())
+    }) {
+        return Err(current_of::not_simply_updatable(
+            cursor_name.unwrap_or(""),
+            table_name,
+        ));
     }
     Err(current_of::unsupported(cursor_name.unwrap_or("")))
 }
@@ -1984,14 +2460,30 @@ mod removed_tests {
     /// a `gravity: refused (..)` 0A000 the runner reads back.
     #[test]
     fn refusal_says_what_is_unsupported() {
-        for road in [Road::Entry, Road::ExplainAnalyze, Road::Nested, Road::PlanKind] {
+        for road in [
+            Road::Entry,
+            Road::ExplainAnalyze,
+            Road::Nested,
+            Road::PlanKind,
+        ] {
             let e = removed(road, "why");
             let msg = e.message();
-            assert!(msg.starts_with("gravity: refused (this ") && msg.contains(" is not supported") && msg.ends_with(": why)"), "{msg}");
-            assert!(!msg.contains("rowexec") && !msg.contains("R1") && !msg.contains("road"), "{msg}");
+            assert!(
+                msg.starts_with("gravity: refused (this ")
+                    && msg.contains(" is not supported")
+                    && msg.ends_with(": why)"),
+                "{msg}"
+            );
+            assert!(
+                !msg.contains("rowexec") && !msg.contains("R1") && !msg.contains("road"),
+                "{msg}"
+            );
             assert_eq!(e.sqlstate(), types_error::ERRCODE_FEATURE_NOT_SUPPORTED);
             assert!(e.hint().is_some_and(|h| !h.is_empty()), "{road:?}");
-            assert_eq!(crate::runner::refusal_of(&e), Some(&msg["gravity: refused (".len()..msg.len() - 1]));
+            assert_eq!(
+                crate::runner::refusal_of(&e),
+                Some(&msg["gravity: refused (".len()..msg.len() - 1])
+            );
         }
     }
 }

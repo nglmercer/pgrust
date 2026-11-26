@@ -1,11 +1,10 @@
+use crate::api::{SN_close_env, SN_create_env};
 use crate::types::{among, symbol, SN_env};
-use crate::api::{SN_create_env, SN_close_env};
 #[allow(unused_imports)]
 use crate::utilities::{
-    in_grouping, in_grouping_b, out_grouping, out_grouping_b,
-    in_grouping_U, in_grouping_b_U, out_grouping_U, out_grouping_b_U,
-    find_among, find_among_b, slice_from_s, slice_del, slice_to,
-    eq_s, eq_s_b, eq_v_b, insert_s, len_utf8, skip_utf8, skip_b_utf8,
+    eq_s, eq_s_b, eq_v_b, find_among, find_among_b, in_grouping, in_grouping_U, in_grouping_b,
+    in_grouping_b_U, insert_s, len_utf8, out_grouping, out_grouping_U, out_grouping_b,
+    out_grouping_b_U, skip_b_utf8, skip_utf8, slice_del, slice_from_s, slice_to,
 };
 
 static mut s_0_0: [symbol; 4] = [
@@ -3546,22 +3545,13 @@ unsafe fn r_prelude(mut z: *mut SN_env) -> ::core::ffi::c_int {
         loop {
             let mut c3: ::core::ffi::c_int = (*z).c;
             (*z).bra = (*z).c;
-            among_var = find_among(
-                z,
-                &raw const a_0 as *const among,
-                8 as ::core::ffi::c_int,
-            );
+            among_var = find_among(z, &raw const a_0 as *const among, 8 as ::core::ffi::c_int);
             if !(among_var == 0) {
                 (*z).ket = (*z).c;
                 match among_var {
                     1 => {
                         let mut c4: ::core::ffi::c_int = (*z).c;
-                        if eq_s(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_0 as *const symbol,
-                        ) == 0
-                        {
+                        if eq_s(z, 2 as ::core::ffi::c_int, &raw const s_0 as *const symbol) == 0 {
                             (*z).c = c4;
                             let mut ret: ::core::ffi::c_int = slice_from_s(
                                 z,
@@ -3578,12 +3568,7 @@ unsafe fn r_prelude(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     }
                     2 => {
                         let mut c5: ::core::ffi::c_int = (*z).c;
-                        if eq_s(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_2 as *const symbol,
-                        ) == 0
-                        {
+                        if eq_s(z, 2 as ::core::ffi::c_int, &raw const s_2 as *const symbol) == 0 {
                             (*z).c = c5;
                             let mut ret_0: ::core::ffi::c_int = slice_from_s(
                                 z,
@@ -3600,12 +3585,7 @@ unsafe fn r_prelude(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     }
                     3 => {
                         let mut c6: ::core::ffi::c_int = (*z).c;
-                        if eq_s(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_4 as *const symbol,
-                        ) == 0
-                        {
+                        if eq_s(z, 2 as ::core::ffi::c_int, &raw const s_4 as *const symbol) == 0 {
                             (*z).c = c6;
                             let mut ret_1: ::core::ffi::c_int = slice_from_s(
                                 z,
@@ -3688,12 +3668,8 @@ unsafe fn r_prelude(mut z: *mut SN_env) -> ::core::ffi::c_int {
                 }
             }
             (*z).c = c3;
-            let mut ret_7: ::core::ffi::c_int = skip_utf8(
-                (*z).p,
-                (*z).c,
-                (*z).l,
-                1 as ::core::ffi::c_int,
-            );
+            let mut ret_7: ::core::ffi::c_int =
+                skip_utf8((*z).p, (*z).c, (*z).l, 1 as ::core::ffi::c_int);
             if ret_7 < 0 as ::core::ffi::c_int {
                 break;
             }
@@ -3718,12 +3694,8 @@ unsafe fn r_prelude(mut z: *mut SN_env) -> ::core::ffi::c_int {
             ) != 0
             {
                 (*z).c = c9;
-                let mut ret_9: ::core::ffi::c_int = skip_utf8(
-                    (*z).p,
-                    (*z).c,
-                    (*z).l,
-                    1 as ::core::ffi::c_int,
-                );
+                let mut ret_9: ::core::ffi::c_int =
+                    skip_utf8((*z).p, (*z).c, (*z).l, 1 as ::core::ffi::c_int);
                 if ret_9 < 0 as ::core::ffi::c_int {
                     break;
                 }
@@ -3761,11 +3733,8 @@ unsafe fn r_mark_regions(mut z: *mut SN_env) -> ::core::ffi::c_int {
                 (*z).c = c3;
                 if (*z).c < (*z).l {
                     (*z).c = c2;
-                    let mut ret: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_14 as *const symbol,
-                    );
+                    let mut ret: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_14 as *const symbol);
                     if ret < 0 as ::core::ffi::c_int {
                         return ret;
                     }
@@ -3797,9 +3766,7 @@ unsafe fn r_mark_regions(mut z: *mut SN_env) -> ::core::ffi::c_int {
             (*z).c = c7;
             if eq_s(z, 8 as ::core::ffi::c_int, &raw const s_16 as *const symbol) == 0 {
                 (*z).c = c7;
-                if eq_s(z, 8 as ::core::ffi::c_int, &raw const s_17 as *const symbol)
-                    == 0
-                {
+                if eq_s(z, 8 as ::core::ffi::c_int, &raw const s_17 as *const symbol) == 0 {
                     current_block = 16890976918484321012;
                 } else {
                     current_block = 8900704400704817063;
@@ -3826,22 +3793,13 @@ unsafe fn r_mark_regions(mut z: *mut SN_env) -> ::core::ffi::c_int {
             _ => {
                 (*z).c = c5;
                 let mut c_test8: ::core::ffi::c_int = (*z).c;
-                if eq_s(z, 8 as ::core::ffi::c_int, &raw const s_18 as *const symbol)
-                    == 0
-                {
+                if eq_s(z, 8 as ::core::ffi::c_int, &raw const s_18 as *const symbol) == 0 {
                     (*z).c = c5;
                     (*z).bra = (*z).c;
-                    if eq_s(z, 4 as ::core::ffi::c_int, &raw const s_19 as *const symbol)
-                        == 0
-                    {
+                    if eq_s(z, 4 as ::core::ffi::c_int, &raw const s_19 as *const symbol) == 0 {
                         (*z).c = c5;
                         (*z).bra = (*z).c;
-                        if eq_s(
-                            z,
-                            4 as ::core::ffi::c_int,
-                            &raw const s_21 as *const symbol,
-                        ) == 0
-                        {
+                        if eq_s(z, 4 as ::core::ffi::c_int, &raw const s_21 as *const symbol) == 0 {
                             (*z).c = c4;
                         } else {
                             (*z).ket = (*z).c;
@@ -3872,12 +3830,7 @@ unsafe fn r_mark_regions(mut z: *mut SN_env) -> ::core::ffi::c_int {
         }
     }
     let mut c_test9: ::core::ffi::c_int = (*z).c;
-    let mut ret_2: ::core::ffi::c_int = skip_utf8(
-        (*z).p,
-        (*z).c,
-        (*z).l,
-        3 as ::core::ffi::c_int,
-    );
+    let mut ret_2: ::core::ffi::c_int = skip_utf8((*z).p, (*z).c, (*z).l, 3 as ::core::ffi::c_int);
     if ret_2 < 0 as ::core::ffi::c_int {
         return 0 as ::core::ffi::c_int;
     }
@@ -3886,14 +3839,13 @@ unsafe fn r_mark_regions(mut z: *mut SN_env) -> ::core::ffi::c_int {
     (*z).c = c_test9;
     let mut c10: ::core::ffi::c_int = (*z).c;
     if (*z).c + 5 as ::core::ffi::c_int >= (*z).l
-        || *(*z).p.offset(((*z).c + 5 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 169 as ::core::ffi::c_int
-            && *(*z).p.offset(((*z).c + 5 as ::core::ffi::c_int) as isize)
-                as ::core::ffi::c_int != 168 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c + 5 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 169 as ::core::ffi::c_int
+            && *(*z).p.offset(((*z).c + 5 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+                != 168 as ::core::ffi::c_int
     {
         (*z).c = c10;
-    } else if find_among(z, &raw const a_2 as *const among, 4 as ::core::ffi::c_int) == 0
-    {
+    } else if find_among(z, &raw const a_2 as *const among, 4 as ::core::ffi::c_int) == 0 {
         (*z).c = c10;
     }
     let mut c11: ::core::ffi::c_int = (*z).c;
@@ -3949,30 +3901,24 @@ unsafe fn r_mark_regions(mut z: *mut SN_env) -> ::core::ffi::c_int {
     if !(*(*z).I.offset(1 as ::core::ffi::c_int as isize)
         >= *(*z).I.offset(0 as ::core::ffi::c_int as isize))
     {
-        *(*z).I.offset(1 as ::core::ffi::c_int as isize) = *(*z)
-            .I
-            .offset(0 as ::core::ffi::c_int as isize);
+        *(*z).I.offset(1 as ::core::ffi::c_int as isize) =
+            *(*z).I.offset(0 as ::core::ffi::c_int as isize);
     }
     return 1 as ::core::ffi::c_int;
 }
 unsafe fn r_R1(mut z: *mut SN_env) -> ::core::ffi::c_int {
-    return (*(*z).I.offset(1 as ::core::ffi::c_int as isize) <= (*z).c)
-        as ::core::ffi::c_int;
+    return (*(*z).I.offset(1 as ::core::ffi::c_int as isize) <= (*z).c) as ::core::ffi::c_int;
 }
 unsafe fn r_R1plus3(mut z: *mut SN_env) -> ::core::ffi::c_int {
-    return (*(*z).I.offset(1 as ::core::ffi::c_int as isize)
-        <= (*z).c + 6 as ::core::ffi::c_int) as ::core::ffi::c_int;
+    return (*(*z).I.offset(1 as ::core::ffi::c_int as isize) <= (*z).c + 6 as ::core::ffi::c_int)
+        as ::core::ffi::c_int;
 }
 unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
     let mut current_block: u64;
     let mut among_var: ::core::ffi::c_int = 0;
     let mut m1: ::core::ffi::c_int = (*z).l - (*z).c;
     (*z).ket = (*z).c;
-    among_var = find_among_b(
-        z,
-        &raw const a_4 as *const among,
-        79 as ::core::ffi::c_int,
-    );
+    among_var = find_among_b(z, &raw const a_4 as *const among, 79 as ::core::ffi::c_int);
     if !(among_var == 0) {
         (*z).bra = (*z).c;
         match among_var {
@@ -4028,18 +3974,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             }
                         }
                         (*z).ket = (*z).c;
-                        if !(eq_s_b(
-                            z,
-                            8 as ::core::ffi::c_int,
-                            &raw const s_51 as *const symbol,
-                        ) == 0)
+                        if !(eq_s_b(z, 8 as ::core::ffi::c_int, &raw const s_51 as *const symbol)
+                            == 0)
                         {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                4 as ::core::ffi::c_int,
-                                &raw const s_52 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 4 as ::core::ffi::c_int, &raw const s_52 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                             }
@@ -4629,18 +4569,11 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
                         let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_82 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_82 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m5;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_83 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_83 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m4;
                                 let mut ret_66: ::core::ffi::c_int = r_R1(z);
@@ -4739,18 +4672,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             }
                         }
                         (*z).ket = (*z).c;
-                        if !(eq_s_b(
-                            z,
-                            8 as ::core::ffi::c_int,
-                            &raw const s_51 as *const symbol,
-                        ) == 0)
+                        if !(eq_s_b(z, 8 as ::core::ffi::c_int, &raw const s_51 as *const symbol)
+                            == 0)
                         {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                4 as ::core::ffi::c_int,
-                                &raw const s_52 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 4 as ::core::ffi::c_int, &raw const s_52 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                             }
@@ -5340,18 +5267,11 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
                         let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_82 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_82 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m5;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_83 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_83 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m4;
                                 let mut ret_66: ::core::ffi::c_int = r_R1(z);
@@ -5450,18 +5370,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             }
                         }
                         (*z).ket = (*z).c;
-                        if !(eq_s_b(
-                            z,
-                            8 as ::core::ffi::c_int,
-                            &raw const s_51 as *const symbol,
-                        ) == 0)
+                        if !(eq_s_b(z, 8 as ::core::ffi::c_int, &raw const s_51 as *const symbol)
+                            == 0)
                         {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                4 as ::core::ffi::c_int,
-                                &raw const s_52 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 4 as ::core::ffi::c_int, &raw const s_52 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                             }
@@ -6051,18 +5965,11 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
                         let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_82 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_82 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m5;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_83 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_83 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m4;
                                 let mut ret_66: ::core::ffi::c_int = r_R1(z);
@@ -6161,18 +6068,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             }
                         }
                         (*z).ket = (*z).c;
-                        if !(eq_s_b(
-                            z,
-                            8 as ::core::ffi::c_int,
-                            &raw const s_51 as *const symbol,
-                        ) == 0)
+                        if !(eq_s_b(z, 8 as ::core::ffi::c_int, &raw const s_51 as *const symbol)
+                            == 0)
                         {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                4 as ::core::ffi::c_int,
-                                &raw const s_52 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 4 as ::core::ffi::c_int, &raw const s_52 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                             }
@@ -6762,18 +6663,11 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
                         let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_82 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_82 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m5;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_83 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_83 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m4;
                                 let mut ret_66: ::core::ffi::c_int = r_R1(z);
@@ -6872,18 +6766,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             }
                         }
                         (*z).ket = (*z).c;
-                        if !(eq_s_b(
-                            z,
-                            8 as ::core::ffi::c_int,
-                            &raw const s_51 as *const symbol,
-                        ) == 0)
+                        if !(eq_s_b(z, 8 as ::core::ffi::c_int, &raw const s_51 as *const symbol)
+                            == 0)
                         {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                4 as ::core::ffi::c_int,
-                                &raw const s_52 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 4 as ::core::ffi::c_int, &raw const s_52 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                             }
@@ -7473,18 +7361,11 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
                         let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_82 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_82 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m5;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_83 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_83 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m4;
                                 let mut ret_66: ::core::ffi::c_int = r_R1(z);
@@ -7583,18 +7464,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             }
                         }
                         (*z).ket = (*z).c;
-                        if !(eq_s_b(
-                            z,
-                            8 as ::core::ffi::c_int,
-                            &raw const s_51 as *const symbol,
-                        ) == 0)
+                        if !(eq_s_b(z, 8 as ::core::ffi::c_int, &raw const s_51 as *const symbol)
+                            == 0)
                         {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                4 as ::core::ffi::c_int,
-                                &raw const s_52 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 4 as ::core::ffi::c_int, &raw const s_52 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                             }
@@ -8184,18 +8059,11 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
                         let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_82 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_82 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m5;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_83 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_83 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m4;
                                 let mut ret_66: ::core::ffi::c_int = r_R1(z);
@@ -8294,18 +8162,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             }
                         }
                         (*z).ket = (*z).c;
-                        if !(eq_s_b(
-                            z,
-                            8 as ::core::ffi::c_int,
-                            &raw const s_51 as *const symbol,
-                        ) == 0)
+                        if !(eq_s_b(z, 8 as ::core::ffi::c_int, &raw const s_51 as *const symbol)
+                            == 0)
                         {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                4 as ::core::ffi::c_int,
-                                &raw const s_52 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 4 as ::core::ffi::c_int, &raw const s_52 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                             }
@@ -8895,18 +8757,11 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
                         let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_82 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_82 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m5;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_83 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_83 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m4;
                                 let mut ret_66: ::core::ffi::c_int = r_R1(z);
@@ -9005,18 +8860,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             }
                         }
                         (*z).ket = (*z).c;
-                        if !(eq_s_b(
-                            z,
-                            8 as ::core::ffi::c_int,
-                            &raw const s_51 as *const symbol,
-                        ) == 0)
+                        if !(eq_s_b(z, 8 as ::core::ffi::c_int, &raw const s_51 as *const symbol)
+                            == 0)
                         {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                4 as ::core::ffi::c_int,
-                                &raw const s_52 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 4 as ::core::ffi::c_int, &raw const s_52 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                             }
@@ -9606,18 +9455,11 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
                         let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_82 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_82 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m5;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_83 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_83 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m4;
                                 let mut ret_66: ::core::ffi::c_int = r_R1(z);
@@ -9716,18 +9558,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             }
                         }
                         (*z).ket = (*z).c;
-                        if !(eq_s_b(
-                            z,
-                            8 as ::core::ffi::c_int,
-                            &raw const s_51 as *const symbol,
-                        ) == 0)
+                        if !(eq_s_b(z, 8 as ::core::ffi::c_int, &raw const s_51 as *const symbol)
+                            == 0)
                         {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                4 as ::core::ffi::c_int,
-                                &raw const s_52 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 4 as ::core::ffi::c_int, &raw const s_52 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                             }
@@ -10317,18 +10153,11 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
                         let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_82 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_82 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m5;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_83 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_83 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m4;
                                 let mut ret_66: ::core::ffi::c_int = r_R1(z);
@@ -10427,18 +10256,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             }
                         }
                         (*z).ket = (*z).c;
-                        if !(eq_s_b(
-                            z,
-                            8 as ::core::ffi::c_int,
-                            &raw const s_51 as *const symbol,
-                        ) == 0)
+                        if !(eq_s_b(z, 8 as ::core::ffi::c_int, &raw const s_51 as *const symbol)
+                            == 0)
                         {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                4 as ::core::ffi::c_int,
-                                &raw const s_52 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 4 as ::core::ffi::c_int, &raw const s_52 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                             }
@@ -11028,18 +10851,11 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
                         let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_82 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_82 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m5;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_83 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_83 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m4;
                                 let mut ret_66: ::core::ffi::c_int = r_R1(z);
@@ -11138,18 +10954,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             }
                         }
                         (*z).ket = (*z).c;
-                        if !(eq_s_b(
-                            z,
-                            8 as ::core::ffi::c_int,
-                            &raw const s_51 as *const symbol,
-                        ) == 0)
+                        if !(eq_s_b(z, 8 as ::core::ffi::c_int, &raw const s_51 as *const symbol)
+                            == 0)
                         {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                4 as ::core::ffi::c_int,
-                                &raw const s_52 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 4 as ::core::ffi::c_int, &raw const s_52 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                             }
@@ -11739,18 +11549,11 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
                         let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_82 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_82 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m5;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_83 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_83 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m4;
                                 let mut ret_66: ::core::ffi::c_int = r_R1(z);
@@ -11849,18 +11652,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             }
                         }
                         (*z).ket = (*z).c;
-                        if !(eq_s_b(
-                            z,
-                            8 as ::core::ffi::c_int,
-                            &raw const s_51 as *const symbol,
-                        ) == 0)
+                        if !(eq_s_b(z, 8 as ::core::ffi::c_int, &raw const s_51 as *const symbol)
+                            == 0)
                         {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                4 as ::core::ffi::c_int,
-                                &raw const s_52 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 4 as ::core::ffi::c_int, &raw const s_52 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                             }
@@ -12450,18 +12247,11 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
                         let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_82 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_82 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m5;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_83 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_83 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m4;
                                 let mut ret_66: ::core::ffi::c_int = r_R1(z);
@@ -12560,18 +12350,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             }
                         }
                         (*z).ket = (*z).c;
-                        if !(eq_s_b(
-                            z,
-                            8 as ::core::ffi::c_int,
-                            &raw const s_51 as *const symbol,
-                        ) == 0)
+                        if !(eq_s_b(z, 8 as ::core::ffi::c_int, &raw const s_51 as *const symbol)
+                            == 0)
                         {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                4 as ::core::ffi::c_int,
-                                &raw const s_52 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 4 as ::core::ffi::c_int, &raw const s_52 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                             }
@@ -13161,18 +12945,11 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
                         let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_82 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_82 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m5;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_83 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_83 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m4;
                                 let mut ret_66: ::core::ffi::c_int = r_R1(z);
@@ -13271,18 +13048,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             }
                         }
                         (*z).ket = (*z).c;
-                        if !(eq_s_b(
-                            z,
-                            8 as ::core::ffi::c_int,
-                            &raw const s_51 as *const symbol,
-                        ) == 0)
+                        if !(eq_s_b(z, 8 as ::core::ffi::c_int, &raw const s_51 as *const symbol)
+                            == 0)
                         {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                4 as ::core::ffi::c_int,
-                                &raw const s_52 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 4 as ::core::ffi::c_int, &raw const s_52 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                             }
@@ -13872,18 +13643,11 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
                         let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_82 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_82 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m5;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_83 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_83 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m4;
                                 let mut ret_66: ::core::ffi::c_int = r_R1(z);
@@ -13982,18 +13746,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             }
                         }
                         (*z).ket = (*z).c;
-                        if !(eq_s_b(
-                            z,
-                            8 as ::core::ffi::c_int,
-                            &raw const s_51 as *const symbol,
-                        ) == 0)
+                        if !(eq_s_b(z, 8 as ::core::ffi::c_int, &raw const s_51 as *const symbol)
+                            == 0)
                         {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                4 as ::core::ffi::c_int,
-                                &raw const s_52 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 4 as ::core::ffi::c_int, &raw const s_52 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                             }
@@ -14583,18 +14341,11 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
                         let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_82 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_82 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m5;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_83 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_83 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m4;
                                 let mut ret_66: ::core::ffi::c_int = r_R1(z);
@@ -14693,18 +14444,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             }
                         }
                         (*z).ket = (*z).c;
-                        if !(eq_s_b(
-                            z,
-                            8 as ::core::ffi::c_int,
-                            &raw const s_51 as *const symbol,
-                        ) == 0)
+                        if !(eq_s_b(z, 8 as ::core::ffi::c_int, &raw const s_51 as *const symbol)
+                            == 0)
                         {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                4 as ::core::ffi::c_int,
-                                &raw const s_52 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 4 as ::core::ffi::c_int, &raw const s_52 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                             }
@@ -15294,18 +15039,11 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
                         let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_82 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_82 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m5;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_83 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_83 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m4;
                                 let mut ret_66: ::core::ffi::c_int = r_R1(z);
@@ -15404,18 +15142,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             }
                         }
                         (*z).ket = (*z).c;
-                        if !(eq_s_b(
-                            z,
-                            8 as ::core::ffi::c_int,
-                            &raw const s_51 as *const symbol,
-                        ) == 0)
+                        if !(eq_s_b(z, 8 as ::core::ffi::c_int, &raw const s_51 as *const symbol)
+                            == 0)
                         {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                4 as ::core::ffi::c_int,
-                                &raw const s_52 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 4 as ::core::ffi::c_int, &raw const s_52 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                             }
@@ -16005,18 +15737,11 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
                         let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_82 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_82 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m5;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_83 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_83 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m4;
                                 let mut ret_66: ::core::ffi::c_int = r_R1(z);
@@ -16115,18 +15840,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             }
                         }
                         (*z).ket = (*z).c;
-                        if !(eq_s_b(
-                            z,
-                            8 as ::core::ffi::c_int,
-                            &raw const s_51 as *const symbol,
-                        ) == 0)
+                        if !(eq_s_b(z, 8 as ::core::ffi::c_int, &raw const s_51 as *const symbol)
+                            == 0)
                         {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                4 as ::core::ffi::c_int,
-                                &raw const s_52 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 4 as ::core::ffi::c_int, &raw const s_52 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                             }
@@ -16716,18 +16435,11 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
                         let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_82 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_82 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m5;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_83 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_83 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m4;
                                 let mut ret_66: ::core::ffi::c_int = r_R1(z);
@@ -16826,18 +16538,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             }
                         }
                         (*z).ket = (*z).c;
-                        if !(eq_s_b(
-                            z,
-                            8 as ::core::ffi::c_int,
-                            &raw const s_51 as *const symbol,
-                        ) == 0)
+                        if !(eq_s_b(z, 8 as ::core::ffi::c_int, &raw const s_51 as *const symbol)
+                            == 0)
                         {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                4 as ::core::ffi::c_int,
-                                &raw const s_52 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 4 as ::core::ffi::c_int, &raw const s_52 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                             }
@@ -17427,18 +17133,11 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
                         let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_82 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_82 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m5;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_83 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_83 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m4;
                                 let mut ret_66: ::core::ffi::c_int = r_R1(z);
@@ -17537,18 +17236,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             }
                         }
                         (*z).ket = (*z).c;
-                        if !(eq_s_b(
-                            z,
-                            8 as ::core::ffi::c_int,
-                            &raw const s_51 as *const symbol,
-                        ) == 0)
+                        if !(eq_s_b(z, 8 as ::core::ffi::c_int, &raw const s_51 as *const symbol)
+                            == 0)
                         {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                4 as ::core::ffi::c_int,
-                                &raw const s_52 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 4 as ::core::ffi::c_int, &raw const s_52 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                             }
@@ -18138,18 +17831,11 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
                         let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_82 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_82 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m5;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_83 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_83 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m4;
                                 let mut ret_66: ::core::ffi::c_int = r_R1(z);
@@ -18248,18 +17934,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             }
                         }
                         (*z).ket = (*z).c;
-                        if !(eq_s_b(
-                            z,
-                            8 as ::core::ffi::c_int,
-                            &raw const s_51 as *const symbol,
-                        ) == 0)
+                        if !(eq_s_b(z, 8 as ::core::ffi::c_int, &raw const s_51 as *const symbol)
+                            == 0)
                         {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                4 as ::core::ffi::c_int,
-                                &raw const s_52 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 4 as ::core::ffi::c_int, &raw const s_52 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                             }
@@ -18849,18 +18529,11 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
                         let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_82 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_82 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m5;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_83 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_83 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m4;
                                 let mut ret_66: ::core::ffi::c_int = r_R1(z);
@@ -18959,18 +18632,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             }
                         }
                         (*z).ket = (*z).c;
-                        if !(eq_s_b(
-                            z,
-                            8 as ::core::ffi::c_int,
-                            &raw const s_51 as *const symbol,
-                        ) == 0)
+                        if !(eq_s_b(z, 8 as ::core::ffi::c_int, &raw const s_51 as *const symbol)
+                            == 0)
                         {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                4 as ::core::ffi::c_int,
-                                &raw const s_52 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 4 as ::core::ffi::c_int, &raw const s_52 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                             }
@@ -19560,18 +19227,11 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
                         let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_82 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_82 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m5;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_83 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_83 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m4;
                                 let mut ret_66: ::core::ffi::c_int = r_R1(z);
@@ -19670,18 +19330,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             }
                         }
                         (*z).ket = (*z).c;
-                        if !(eq_s_b(
-                            z,
-                            8 as ::core::ffi::c_int,
-                            &raw const s_51 as *const symbol,
-                        ) == 0)
+                        if !(eq_s_b(z, 8 as ::core::ffi::c_int, &raw const s_51 as *const symbol)
+                            == 0)
                         {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                4 as ::core::ffi::c_int,
-                                &raw const s_52 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 4 as ::core::ffi::c_int, &raw const s_52 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                             }
@@ -20271,18 +19925,11 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
                         let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_82 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_82 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m5;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_83 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_83 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m4;
                                 let mut ret_66: ::core::ffi::c_int = r_R1(z);
@@ -20381,18 +20028,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             }
                         }
                         (*z).ket = (*z).c;
-                        if !(eq_s_b(
-                            z,
-                            8 as ::core::ffi::c_int,
-                            &raw const s_51 as *const symbol,
-                        ) == 0)
+                        if !(eq_s_b(z, 8 as ::core::ffi::c_int, &raw const s_51 as *const symbol)
+                            == 0)
                         {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                4 as ::core::ffi::c_int,
-                                &raw const s_52 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 4 as ::core::ffi::c_int, &raw const s_52 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                             }
@@ -20982,18 +20623,11 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
                         let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_82 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_82 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m5;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_83 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_83 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m4;
                                 let mut ret_66: ::core::ffi::c_int = r_R1(z);
@@ -21092,18 +20726,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             }
                         }
                         (*z).ket = (*z).c;
-                        if !(eq_s_b(
-                            z,
-                            8 as ::core::ffi::c_int,
-                            &raw const s_51 as *const symbol,
-                        ) == 0)
+                        if !(eq_s_b(z, 8 as ::core::ffi::c_int, &raw const s_51 as *const symbol)
+                            == 0)
                         {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                4 as ::core::ffi::c_int,
-                                &raw const s_52 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 4 as ::core::ffi::c_int, &raw const s_52 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                             }
@@ -21693,18 +21321,11 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
                         let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_82 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_82 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m5;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_83 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_83 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m4;
                                 let mut ret_66: ::core::ffi::c_int = r_R1(z);
@@ -21803,18 +21424,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             }
                         }
                         (*z).ket = (*z).c;
-                        if !(eq_s_b(
-                            z,
-                            8 as ::core::ffi::c_int,
-                            &raw const s_51 as *const symbol,
-                        ) == 0)
+                        if !(eq_s_b(z, 8 as ::core::ffi::c_int, &raw const s_51 as *const symbol)
+                            == 0)
                         {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                4 as ::core::ffi::c_int,
-                                &raw const s_52 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 4 as ::core::ffi::c_int, &raw const s_52 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                             }
@@ -22404,18 +22019,11 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
                         let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_82 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_82 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m5;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_83 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_83 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m4;
                                 let mut ret_66: ::core::ffi::c_int = r_R1(z);
@@ -22514,18 +22122,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             }
                         }
                         (*z).ket = (*z).c;
-                        if !(eq_s_b(
-                            z,
-                            8 as ::core::ffi::c_int,
-                            &raw const s_51 as *const symbol,
-                        ) == 0)
+                        if !(eq_s_b(z, 8 as ::core::ffi::c_int, &raw const s_51 as *const symbol)
+                            == 0)
                         {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                4 as ::core::ffi::c_int,
-                                &raw const s_52 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 4 as ::core::ffi::c_int, &raw const s_52 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                             }
@@ -23115,18 +22717,11 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
                         let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_82 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_82 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m5;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_83 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_83 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m4;
                                 let mut ret_66: ::core::ffi::c_int = r_R1(z);
@@ -23225,18 +22820,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             }
                         }
                         (*z).ket = (*z).c;
-                        if !(eq_s_b(
-                            z,
-                            8 as ::core::ffi::c_int,
-                            &raw const s_51 as *const symbol,
-                        ) == 0)
+                        if !(eq_s_b(z, 8 as ::core::ffi::c_int, &raw const s_51 as *const symbol)
+                            == 0)
                         {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                4 as ::core::ffi::c_int,
-                                &raw const s_52 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 4 as ::core::ffi::c_int, &raw const s_52 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                             }
@@ -23826,18 +23415,11 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
                         let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_82 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_82 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m5;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_83 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_83 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m4;
                                 let mut ret_66: ::core::ffi::c_int = r_R1(z);
@@ -23936,18 +23518,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             }
                         }
                         (*z).ket = (*z).c;
-                        if !(eq_s_b(
-                            z,
-                            8 as ::core::ffi::c_int,
-                            &raw const s_51 as *const symbol,
-                        ) == 0)
+                        if !(eq_s_b(z, 8 as ::core::ffi::c_int, &raw const s_51 as *const symbol)
+                            == 0)
                         {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                4 as ::core::ffi::c_int,
-                                &raw const s_52 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 4 as ::core::ffi::c_int, &raw const s_52 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                             }
@@ -24537,18 +24113,11 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
                         let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_82 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_82 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m5;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_83 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_83 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m4;
                                 let mut ret_66: ::core::ffi::c_int = r_R1(z);
@@ -24647,18 +24216,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             }
                         }
                         (*z).ket = (*z).c;
-                        if !(eq_s_b(
-                            z,
-                            8 as ::core::ffi::c_int,
-                            &raw const s_51 as *const symbol,
-                        ) == 0)
+                        if !(eq_s_b(z, 8 as ::core::ffi::c_int, &raw const s_51 as *const symbol)
+                            == 0)
                         {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                4 as ::core::ffi::c_int,
-                                &raw const s_52 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 4 as ::core::ffi::c_int, &raw const s_52 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                             }
@@ -25248,18 +24811,11 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
                         let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_82 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_82 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m5;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_83 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_83 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m4;
                                 let mut ret_66: ::core::ffi::c_int = r_R1(z);
@@ -25358,18 +24914,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             }
                         }
                         (*z).ket = (*z).c;
-                        if !(eq_s_b(
-                            z,
-                            8 as ::core::ffi::c_int,
-                            &raw const s_51 as *const symbol,
-                        ) == 0)
+                        if !(eq_s_b(z, 8 as ::core::ffi::c_int, &raw const s_51 as *const symbol)
+                            == 0)
                         {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                4 as ::core::ffi::c_int,
-                                &raw const s_52 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 4 as ::core::ffi::c_int, &raw const s_52 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                             }
@@ -25959,18 +25509,11 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
                         let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_82 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_82 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m5;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_83 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_83 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m4;
                                 let mut ret_66: ::core::ffi::c_int = r_R1(z);
@@ -26069,18 +25612,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             }
                         }
                         (*z).ket = (*z).c;
-                        if !(eq_s_b(
-                            z,
-                            8 as ::core::ffi::c_int,
-                            &raw const s_51 as *const symbol,
-                        ) == 0)
+                        if !(eq_s_b(z, 8 as ::core::ffi::c_int, &raw const s_51 as *const symbol)
+                            == 0)
                         {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                4 as ::core::ffi::c_int,
-                                &raw const s_52 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 4 as ::core::ffi::c_int, &raw const s_52 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                             }
@@ -26670,18 +26207,11 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
                         let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_82 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_82 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m5;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_83 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_83 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m4;
                                 let mut ret_66: ::core::ffi::c_int = r_R1(z);
@@ -26780,18 +26310,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             }
                         }
                         (*z).ket = (*z).c;
-                        if !(eq_s_b(
-                            z,
-                            8 as ::core::ffi::c_int,
-                            &raw const s_51 as *const symbol,
-                        ) == 0)
+                        if !(eq_s_b(z, 8 as ::core::ffi::c_int, &raw const s_51 as *const symbol)
+                            == 0)
                         {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                4 as ::core::ffi::c_int,
-                                &raw const s_52 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 4 as ::core::ffi::c_int, &raw const s_52 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                             }
@@ -27381,18 +26905,11 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
                         let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_82 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_82 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m5;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_83 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_83 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m4;
                                 let mut ret_66: ::core::ffi::c_int = r_R1(z);
@@ -27446,18 +26963,16 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
     let mut m7: ::core::ffi::c_int = (*z).l - (*z).c;
     (*z).ket = (*z).c;
     if !((*z).c - 1 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int >> 5 as ::core::ffi::c_int != 4 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            >> 5 as ::core::ffi::c_int
+            != 4 as ::core::ffi::c_int
         || 285474816 as ::core::ffi::c_int
-            >> (*(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                as ::core::ffi::c_int & 0x1f as ::core::ffi::c_int)
-            & 1 as ::core::ffi::c_int == 0)
+            >> (*(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+                & 0x1f as ::core::ffi::c_int)
+            & 1 as ::core::ffi::c_int
+            == 0)
     {
-        among_var = find_among_b(
-            z,
-            &raw const a_5 as *const among,
-            6 as ::core::ffi::c_int,
-        );
+        among_var = find_among_b(z, &raw const a_5 as *const among, 6 as ::core::ffi::c_int);
         if !(among_var == 0) {
             (*z).bra = (*z).c;
             match among_var {
@@ -27571,19 +27086,12 @@ unsafe fn r_standard_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
             let mut m11: ::core::ffi::c_int = (*z).l - (*z).c;
             (*z).ket = (*z).c;
             let mut m12: ::core::ffi::c_int = (*z).l - (*z).c;
-            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_85 as *const symbol) == 0
-            {
+            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_85 as *const symbol) == 0 {
                 (*z).c = (*z).l - m12;
-                if eq_s_b(z, 3 as ::core::ffi::c_int, &raw const s_86 as *const symbol)
-                    == 0
-                {
+                if eq_s_b(z, 3 as ::core::ffi::c_int, &raw const s_86 as *const symbol) == 0 {
                     (*z).c = (*z).l - m11;
-                    let mut ret_75: ::core::ffi::c_int = skip_b_utf8(
-                        (*z).p,
-                        (*z).c,
-                        (*z).lb,
-                        1 as ::core::ffi::c_int,
-                    );
+                    let mut ret_75: ::core::ffi::c_int =
+                        skip_b_utf8((*z).p, (*z).c, (*z).lb, 1 as ::core::ffi::c_int);
                     if ret_75 < 0 as ::core::ffi::c_int {
                         break;
                     }

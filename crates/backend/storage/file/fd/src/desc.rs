@@ -3,7 +3,9 @@ use std::os::fd::{AsRawFd, IntoRawFd, RawFd};
 
 use ::elog::{ereport, PCT_M};
 use ::types_core::SubTransactionId;
-use ::types_error::{ErrorLevel, PgError, PgResult, ERRCODE_INSUFFICIENT_RESOURCES, ERROR, LOG, WARNING};
+use ::types_error::{
+    ErrorLevel, PgError, PgResult, ERRCODE_INSUFFICIENT_RESOURCES, ERROR, LOG, WARNING,
+};
 use ::types_storage::{Dir, DirEnt, FD_MINFREE};
 
 use crate::vfd::{self, get_errno, loc, set_errno, with_fd, FdState};
@@ -31,7 +33,11 @@ pub(crate) struct StdioStream {
 
 impl StdioStream {
     fn new(file: StdFile) -> Self {
-        StdioStream { file, wbuf: Vec::new(), bufsize: 1024 }
+        StdioStream {
+            file,
+            wbuf: Vec::new(),
+            bufsize: 1024,
+        }
     }
 
     fn write(&mut self, bytes: &[u8]) -> Result<(), i32> {
@@ -143,7 +149,9 @@ fn out_of_fds_log() -> PgResult<()> {
     ereport(LOG)
         .with_saved_errno(en)
         .errcode(ERRCODE_INSUFFICIENT_RESOURCES)
-        .errmsg(format!("out of file descriptors: {PCT_M}; release and retry"))
+        .errmsg(format!(
+            "out of file descriptors: {PCT_M}; release and retry"
+        ))
         .finish(loc("AllocateFile"))
 }
 
@@ -156,7 +164,9 @@ fn current_subid() -> SubTransactionId {
 // underlying close result.
 pub(crate) fn FreeDesc(index: i32) -> i32 {
     let desc = with_fd(|fd| {
-        let desc = fd.allocated_descs[index as usize].take().expect("FreeDesc: occupied slot");
+        let desc = fd.allocated_descs[index as usize]
+            .take()
+            .expect("FreeDesc: occupied slot");
         while matches!(fd.allocated_descs.last(), Some(None)) {
             fd.allocated_descs.pop();
         }
@@ -198,7 +208,6 @@ pub(crate) fn FreeDesc(index: i32) -> i32 {
         }
     }
 }
-
 
 // First tombstoned slot, else append (stable indices; see FreeDesc).
 fn install_desc(fd: &mut FdState, desc: AllocateDesc) -> i32 {
@@ -260,7 +269,10 @@ pub fn FreeFile(index: i32) -> PgResult<i32> {
     let found = with_fd(|fd| {
         matches!(
             fd.allocated_descs.get(index as usize),
-            Some(Some(AllocateDesc { desc: AllocatedHandle::File(_), .. }))
+            Some(Some(AllocateDesc {
+                desc: AllocatedHandle::File(_),
+                ..
+            }))
         )
     });
     if found {
@@ -294,7 +306,11 @@ pub fn OpenTransientFilePermPath(
     file_mode: u32,
 ) -> PgResult<i32> {
     if !with_fd(reserveAllocatedDesc)? {
-        exceeded_max_descs("open file", &file_name.to_string_lossy(), "OpenTransientFilePerm")?;
+        exceeded_max_descs(
+            "open file",
+            &file_name.to_string_lossy(),
+            "OpenTransientFilePerm",
+        )?;
     }
 
     with_fd(|fd| {
@@ -320,8 +336,10 @@ pub fn OpenTransientFilePermPath(
 pub fn CloseTransientFile(fd_to_close: i32) -> i32 {
     let index = with_fd(|fd| {
         for i in (0..fd.allocated_descs.len()).rev() {
-            if let Some(AllocateDesc { desc: AllocatedHandle::RawFd(f), .. }) =
-                &fd.allocated_descs[i]
+            if let Some(AllocateDesc {
+                desc: AllocatedHandle::RawFd(f),
+                ..
+            }) = &fd.allocated_descs[i]
             {
                 if f.as_raw_fd() == fd_to_close {
                     return Some(i as i32);
@@ -361,7 +379,10 @@ pub fn OpenPipeStream(command: &str, mode: &str) -> PgResult<i32> {
                 return with_fd(|fd| {
                     Ok(install_desc(
                         fd,
-                        AllocateDesc { create_subid, desc: AllocatedHandle::Pipe(pipe) },
+                        AllocateDesc {
+                            create_subid,
+                            desc: AllocatedHandle::Pipe(pipe),
+                        },
                     ))
                 });
             }
@@ -386,7 +407,9 @@ pub fn OpenPipeStream(command: &str, mode: &str) -> PgResult<i32> {
 pub fn PipeStreamGets(index: i32, buf: &mut [u8]) -> Result<usize, i32> {
     use std::io::Read;
 
-    let raw = with_pipe(index, |p| p.stdout.as_ref().map(pipe_raw_fd).ok_or(libc::EBADF))?;
+    let raw = with_pipe(index, |p| {
+        p.stdout.as_ref().map(pipe_raw_fd).ok_or(libc::EBADF)
+    })?;
     let mut n = 0usize;
     while n + 1 < buf.len() {
         let mut byte = [0u8; 1];
@@ -423,7 +446,9 @@ pub fn PipeStreamGets(index: i32, buf: &mut [u8]) -> Result<usize, i32> {
 pub fn PipeStreamRead(index: i32, buf: &mut [u8]) -> Result<usize, i32> {
     use std::io::Read;
 
-    let raw = with_pipe(index, |p| p.stdout.as_ref().map(pipe_raw_fd).ok_or(libc::EBADF))?;
+    let raw = with_pipe(index, |p| {
+        p.stdout.as_ref().map(pipe_raw_fd).ok_or(libc::EBADF)
+    })?;
     let mut filled = 0usize;
     while filled < buf.len() {
         wait_pipe(raw, PIPE_READABLE);
@@ -450,7 +475,9 @@ pub fn PipeStreamRead(index: i32, buf: &mut [u8]) -> Result<usize, i32> {
 pub fn PipeStreamWrite(index: i32, buf: &[u8]) -> Result<(), i32> {
     use std::io::Write;
 
-    let raw = with_pipe(index, |p| p.stdin.as_ref().map(pipe_raw_fd).ok_or(libc::EBADF))?;
+    let raw = with_pipe(index, |p| {
+        p.stdin.as_ref().map(pipe_raw_fd).ok_or(libc::EBADF)
+    })?;
     let mut at = 0;
     while at < buf.len() {
         wait_pipe(raw, PIPE_WRITABLE);
@@ -516,7 +543,11 @@ fn pipe_raw_fd<T>(_end: &T) -> i32 {
 #[cfg(not(target_family = "wasm"))]
 fn wait_pipe(raw: i32, events: i16) {
     loop {
-        let mut p = libc::pollfd { fd: raw, events, revents: 0 };
+        let mut p = libc::pollfd {
+            fd: raw,
+            events,
+            revents: 0,
+        };
         // SAFETY: poll(2) over one valid pollfd on a pipe end we own.
         if unsafe { libc::poll(&mut p, 1, PIPE_POLL_MS) } != 0 {
             return;
@@ -533,7 +564,10 @@ pub fn ClosePipeStream(index: i32) -> PgResult<i32> {
     let found = with_fd(|fd| {
         matches!(
             fd.allocated_descs.get(index as usize),
-            Some(Some(AllocateDesc { desc: AllocatedHandle::Pipe(_), .. }))
+            Some(Some(AllocateDesc {
+                desc: AllocatedHandle::Pipe(_),
+                ..
+            }))
         )
     });
     if found {
@@ -568,7 +602,10 @@ pub fn AllocateDirPath(dirname: &vfs::PgPath) -> PgResult<Option<Dir>> {
                 return with_fd(|fd| {
                     Ok(Some(install_desc(
                         fd,
-                        AllocateDesc { create_subid, desc: AllocatedHandle::Dir(Some(iter)) },
+                        AllocateDesc {
+                            create_subid,
+                            desc: AllocatedHandle::Dir(Some(iter)),
+                        },
                     )))
                 });
             }
@@ -599,8 +636,11 @@ pub fn ReadDirExtended(
     // The historical String view: a name the kernel returned that is not
     // UTF-8 renders with U+FFFD here. Byte-faithful walkers (basebackup)
     // use ReadDirPath / with_allocated_dir_path instead.
-    Ok(ReadDirPath(dir, &vfs::PgPath::from(dirname), elevel)?
-        .map(|d_name| DirEnt { d_name: d_name.to_string_lossy() }))
+    Ok(
+        ReadDirPath(dir, &vfs::PgPath::from(dirname), elevel)?.map(|d_name| DirEnt {
+            d_name: d_name.to_string_lossy(),
+        }),
+    )
 }
 
 /// ReadDirExtended yielding the raw `d_name` bytes (C's `struct dirent`).
@@ -653,9 +693,10 @@ pub(crate) fn next_dirent(index: Dir) -> Option<Result<vfs::PgPath, i32>> {
 
 pub(crate) fn next_dirent_entry(index: Dir) -> Option<Result<vfs::VfsDirEnt, i32>> {
     with_fd(|fd| match fd.allocated_descs[index as usize].as_mut() {
-        Some(AllocateDesc { desc: AllocatedHandle::Dir(iter), .. }) => {
-            iter.as_mut().and_then(vfs::VfsDirIter::next_entry)
-        }
+        Some(AllocateDesc {
+            desc: AllocatedHandle::Dir(iter),
+            ..
+        }) => iter.as_mut().and_then(vfs::VfsDirIter::next_entry),
         _ => None,
     })
 }
@@ -669,7 +710,10 @@ pub fn FreeDir(dir: Option<Dir>) -> PgResult<i32> {
     let found = with_fd(|fd| {
         matches!(
             fd.allocated_descs.get(index as usize),
-            Some(Some(AllocateDesc { desc: AllocatedHandle::Dir(_), .. }))
+            Some(Some(AllocateDesc {
+                desc: AllocatedHandle::Dir(_),
+                ..
+            }))
         )
     });
     if found {
@@ -703,7 +747,9 @@ pub fn with_allocated_dir(
     dirname: &str,
     f: &mut dyn FnMut(&str) -> PgResult<bool>,
 ) -> PgResult<bool> {
-    with_allocated_dir_path(&vfs::PgPath::from(dirname), &mut |name| f(&name.to_string_lossy()))
+    with_allocated_dir_path(&vfs::PgPath::from(dirname), &mut |name| {
+        f(&name.to_string_lossy())
+    })
 }
 
 /// `with_allocated_dir` over byte paths: the callback sees each `d_name`
@@ -861,7 +907,10 @@ pub fn with_allocated_stdio<R>(index: i32, f: impl FnOnce(&mut StdFile) -> R) ->
     })
 }
 
-fn with_stdio_stream<R>(index: i32, f: impl FnOnce(&mut StdioStream) -> Result<R, i32>) -> Result<R, i32> {
+fn with_stdio_stream<R>(
+    index: i32,
+    f: impl FnOnce(&mut StdioStream) -> Result<R, i32>,
+) -> Result<R, i32> {
     with_fd(|fd| match fd.allocated_descs.get_mut(index as usize) {
         Some(Some(AllocateDesc {
             desc: AllocatedHandle::File(stream),
@@ -909,10 +958,14 @@ fn flush_all_stdio(fd: &mut FdState) {
 // descriptor bypasses the VFS. Sim-scope callers must not use it.
 pub fn TransientFileRawFd(fd_value: i32) -> Option<RawFd> {
     with_fd(|fd| {
-        fd.allocated_descs.iter().rev().flatten().find_map(|d| match &d.desc {
-            AllocatedHandle::RawFd(f) if f.as_raw_fd() == fd_value => Some(f.as_raw_fd()),
-            _ => None,
-        })
+        fd.allocated_descs
+            .iter()
+            .rev()
+            .flatten()
+            .find_map(|d| match &d.desc {
+                AllocatedHandle::RawFd(f) if f.as_raw_fd() == fd_value => Some(f.as_raw_fd()),
+                _ => None,
+            })
     })
 }
 
@@ -930,7 +983,10 @@ mod stdio_stream_tests {
         let mut s = StdioStream::new(std::fs::File::create(&path).unwrap());
         let data: Vec<u8> = (0..100_000u32).map(|i| (i % 251) as u8).collect();
         let mut off = 0;
-        for step in [1usize, 7, 1023, 1024, 1025, 4096, 3, 50_000].iter().cycle() {
+        for step in [1usize, 7, 1023, 1024, 1025, 4096, 3, 50_000]
+            .iter()
+            .cycle()
+        {
             if off >= data.len() {
                 break;
             }
@@ -947,9 +1003,15 @@ mod stdio_stream_tests {
     // This thread's CPU time: a quadratic copy of a large write burns seconds of it, while a loaded box's writeback can
     // hold the write itself for minutes of wall clock (D3459: 271 s on a box at 90 % io-full).
     fn thread_cpu() -> std::time::Duration {
-        let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+        let mut ts = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
         // SAFETY: clock_gettime only writes the timespec it is given.
-        assert_eq!(unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) }, 0);
+        assert_eq!(
+            unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) },
+            0
+        );
         std::time::Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32)
     }
 
@@ -962,7 +1024,10 @@ mod stdio_stream_tests {
         s.write(&data).unwrap();
         s.flush().unwrap();
         let spent = thread_cpu() - start;
-        assert!(spent < std::time::Duration::from_secs(5), "{spent:?} of CPU");
+        assert!(
+            spent < std::time::Duration::from_secs(5),
+            "{spent:?} of CPU"
+        );
         assert_eq!(std::fs::metadata(&path).unwrap().len(), data.len() as u64);
         let _ = std::fs::remove_file(&path);
     }

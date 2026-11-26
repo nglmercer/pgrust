@@ -1,20 +1,20 @@
 use gravity_abi::PtrWord;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
+use gravity_abi::breaker::Budget;
 use gravity_abi::ctx::Partials;
 use gravity_abi::MorselRange;
-use gravity_abi::breaker::Budget;
 use gravity_program::cost::runtime::KEPT_TABLE_MIN;
 use gravity_program::{Parallel, Program};
 use memledger::ChargedVec;
 
-use gravity_abi::status::UNSUPPORTED_SCRATCH;
 use crate::binding::{Binding, WorkerBinding};
 use crate::entry::{Entry, Exec, ExecState};
 use crate::node::{Derive, NodeState};
 use crate::sink::{Merge, Partial, PartitionPlan, State};
 use crate::slots::{Warm, WorkerSlot};
 use crate::{Error, Result};
+use gravity_abi::status::UNSUPPORTED_SCRATCH;
 
 mod raw;
 use raw::detach;
@@ -26,8 +26,16 @@ pub(crate) use raw::owned_header;
 pub const SLOTS: usize = gravity_abi::breaker::MAX_OWNERS;
 /// The widest grant: a worker's ordinal stays below the nested lanes (`NESTED_LANE_FIRST`, the leader's runs nested inside
 /// a row), so no worker shares one.
-pub const MAX_WIDTH: u16 = if SLOTS - 1 < crate::NESTED_LANE_FIRST as usize { (SLOTS - 1) as u16 } else { crate::NESTED_LANE_FIRST - 1 };
-const EMPTY: Partial<'static> = Partial { ordinal: 0, bytes: &[], rows_processed: 0 };
+pub const MAX_WIDTH: u16 = if SLOTS - 1 < crate::NESTED_LANE_FIRST as usize {
+    (SLOTS - 1) as u16
+} else {
+    crate::NESTED_LANE_FIRST - 1
+};
+const EMPTY: Partial<'static> = Partial {
+    ordinal: 0,
+    bytes: &[],
+    rows_processed: 0,
+};
 
 struct BusyMark(*const AtomicBool);
 
@@ -40,7 +48,8 @@ impl Drop for ReleaseOnUnwind {
     fn drop(&mut self) {
         if std::thread::panicking() {
             let inner = self.inner();
-            let _ = gravity_abi::status::unwind::catch(|| inner.for_each_host(&mut |h| h.release()));
+            let _ =
+                gravity_abi::status::unwind::catch(|| inner.for_each_host(&mut |h| h.release()));
         }
     }
 }
@@ -90,7 +99,8 @@ impl Open<'_> {
     /// The section's pipeline ends in the emit (its rows reach the sink, through the workers' legs); an InitPlan's ends in
     /// its cell (D2998).
     pub fn ends_in_sink(&self) -> bool {
-        self.program().pipelines[self.pipeline].ends_in == gravity_program::End::Sink && !crate::pull::init_cell(self.program(), self.pipeline)
+        self.program().pipelines[self.pipeline].ends_in == gravity_program::End::Sink
+            && !crate::pull::init_cell(self.program(), self.pipeline)
     }
 
     /// The pipeline's index into the program.
@@ -110,7 +120,11 @@ impl Open<'_> {
 
     pub fn partial(&self, ordinal: u16) -> Partial<'_> {
         let slot = self.slot(ordinal);
-        Partial { ordinal, bytes: slot.state(), rows_processed: slot.rows_processed() }
+        Partial {
+            ordinal,
+            bytes: slot.state(),
+            rows_processed: slot.rows_processed(),
+        }
     }
 
     /// The partials of the ordinals that claimed (a slot that never claimed has none), in ordinal order. An owners' open
@@ -121,7 +135,15 @@ impl Open<'_> {
             let n = (self.width as usize).min(out.len());
             // bounded("small-fixed: one partial per worker slot, at most SLOTS (256)")
             for (i, p) in out.iter_mut().take(n).enumerate() {
-                *p = if i == 0 { Partial { ordinal: 0, bytes: self.leader_region(), rows_processed: 0 } } else { EMPTY };
+                *p = if i == 0 {
+                    Partial {
+                        ordinal: 0,
+                        bytes: self.leader_region(),
+                        rows_processed: 0,
+                    }
+                } else {
+                    EMPTY
+                };
             }
             return n;
         }
@@ -145,19 +167,36 @@ impl Open<'_> {
     /// (`State::grow` -> `fold` writing the Node's counters) disabled that borrow, and `close_section`'s reborrow of the
     /// Open's `exec` was then undefined (Miri tree borrows on tests/region_grow.rs, its phase-2 arm).
     pub fn plan_partitions(&mut self, merge: &dyn Merge) -> Result<Option<PartitionPlan>> {
-        let ceil = self.produced_slot().map_or(0, |s| self.exec.node().slot_ceil(s));
-        let home = self.produced_slot().map(|s| self.exec.node_mut().leader_home(s));
+        let ceil = self
+            .produced_slot()
+            .map_or(0, |s| self.exec.node().slot_ceil(s));
+        let home = self
+            .produced_slot()
+            .map(|s| self.exec.node_mut().leader_home(s));
         let mut partials: [Partial<'_>; SLOTS] = [EMPTY; SLOTS];
         let n = self.partials(&mut partials[..self.width.min(SLOTS as u16) as usize]);
-        let Some(plan) = merge.partition_plan_within(&partials[..n], ceil) else { return Ok(None) };
-        let mut leader = State { bytes: self.leader_region(), sink: crate::sink::SinkRef::none(), home };
+        let Some(plan) = merge.partition_plan_within(&partials[..n], ceil) else {
+            return Ok(None);
+        };
+        let mut leader = State {
+            bytes: self.leader_region(),
+            sink: crate::sink::SinkRef::none(),
+            home,
+        };
         merge.prepare_partitions_in(&mut leader, plan, &partials[..n])?;
-        self.leader.set((leader.bytes.as_mut_ptr(), leader.bytes.len()));
+        self.leader
+            .set((leader.bytes.as_mut_ptr(), leader.bytes.len()));
         Ok(Some(plan))
     }
 
     /// Phase 2's job: fold partitions `lo..hi` of every partial into the destination (disjoint per job).
-    pub fn merge_partitions(&self, merge: &dyn Merge, plan: PartitionPlan, lo: u32, hi: u32) -> Result<()> {
+    pub fn merge_partitions(
+        &self,
+        merge: &dyn Merge,
+        plan: PartitionPlan,
+        lo: u32,
+        hi: u32,
+    ) -> Result<()> {
         let mut partials: [Partial<'_>; SLOTS] = [EMPTY; SLOTS];
         let n = self.partials(&mut partials[..self.width.min(SLOTS as u16) as usize]);
         let (ptr, len) = self.leader.get();
@@ -170,7 +209,11 @@ impl Open<'_> {
                 step.tick()?;
                 if let Err(e) = merge.merge_partition(leader, part, plan, &partials[..n]) {
                     let h = raw::head_words(leader);
-                    self.exec.node().counters.p2_fail.set([part, h[0], (h[3] & 0xff), h[1]]);
+                    self.exec
+                        .node()
+                        .counters
+                        .p2_fail
+                        .set([part, h[0], (h[3] & 0xff), h[1]]);
                     return Err(e);
                 }
             }
@@ -181,7 +224,9 @@ impl Open<'_> {
     /// D3259: the merge's `seal_over` answer over every partial, filed on the produced slot's stream for the section end
     /// about to run (every worker reads it there, `SPILL_SEAL_OVER`); `over: false` clears it after the section end.
     pub fn file_seal_over(&self, merge: Option<&dyn Merge>) {
-        let Some(slot) = self.produced_slot() else { return };
+        let Some(slot) = self.produced_slot() else {
+            return;
+        };
         let (over, rows) = merge.map_or((false, None), |m| {
             let mut partials: [Partial<'_>; SLOTS] = [EMPTY; SLOTS];
             let n = self.partials(&mut partials[..self.width.min(SLOTS as u16) as usize]);
@@ -228,7 +273,12 @@ impl Open<'_> {
     pub fn own_past_grant_at(&self, merge: &dyn Merge, scale: usize) -> Result<Option<u8>> {
         let mut partials: [Partial<'_>; SLOTS] = [EMPTY; SLOTS];
         let n = self.partials(&mut partials[..self.width.min(SLOTS as u16) as usize]);
-        let Some(pbits) = self.spill_bits().or_else(|| merge.partition_bits(&partials[..n])) else { return Ok(None) };
+        let Some(pbits) = self
+            .spill_bits()
+            .or_else(|| merge.partition_bits(&partials[..n]))
+        else {
+            return Ok(None);
+        };
         let (held, rec) = self.held_records(&partials[..n], pbits);
         let held = held.saturating_mul(scale.max(1));
         let two_round = merge.owned_rounds() == 2;
@@ -240,8 +290,12 @@ impl Open<'_> {
             }
             Ok(None)
         };
-        let Some(bytes) = owner_share_bytes(held, rec, self.width, pbits, two_round, fits) else { return none("no owner size", 0) };
-        let Some(chunk) = bytes.checked_mul(self.width as usize) else { return none("overflow", 0) };
+        let Some(bytes) = owner_share_bytes(held, rec, self.width, pbits, two_round, fits) else {
+            return none("no owner size", 0);
+        };
+        let Some(chunk) = bytes.checked_mul(self.width as usize) else {
+            return none("overflow", 0);
+        };
         // the gate (`Node::owner_refuses`): the owners' chunk the produced slot's fault refuses is not pinned; the one owner
         // on this thread then maps its region (`own_all`)
         if self.exec.node().owner_refuses(self.produced_slot()) {
@@ -252,7 +306,9 @@ impl Open<'_> {
         // fill ticked none: near the cgroup's limit each fresh page is reclaimed first, and a W8 cb09's leader zeroed for
         // 1.4 s with its cancel unanswered while the cgroup grew. The statement's byte is lent across the pin; a stop is
         // the cancel.
-        let (base, stopped) = raw::lend_cancel_seen(ctx, || raw::pin_zeroed_now(ctx, chunk, if two_round { chunk } else { zeroed }));
+        let (base, stopped) = raw::lend_cancel_seen(ctx, || {
+            raw::pin_zeroed_now(ctx, chunk, if two_round { chunk } else { zeroed })
+        });
         if stopped {
             return Err(Error::Cancelled);
         }
@@ -276,17 +332,29 @@ impl Open<'_> {
     /// `own_past_grant` sizes them), at most its reservation; the owner cut follows what it then holds. Nothing changes for
     /// a region that is no laid reservation, already holds them, or whose draw is refused (the owner phase as before).
     pub fn owners_in_place(&mut self, merge: &dyn Merge) {
-        let Some(slot) = self.produced_slot() else { return };
+        let Some(slot) = self.produced_slot() else {
+            return;
+        };
         let (_, len) = self.leader.get();
         let want = {
             let mut partials: [Partial<'_>; SLOTS] = [EMPTY; SLOTS];
             let n = self.partials(&mut partials[..self.width.min(SLOTS as u16) as usize]);
-            let Some(pbits) = self.spill_bits().or_else(|| merge.partition_bits(&partials[..n])) else { return };
+            let Some(pbits) = self
+                .spill_bits()
+                .or_else(|| merge.partition_bits(&partials[..n]))
+            else {
+                return;
+            };
             let (held, rec) = self.held_records(&partials[..n], pbits);
             let two_round = merge.owned_rounds() == 2;
             let fits = |b: usize| merge.owned_partitions(&partials[..n], b as u32).is_some();
-            let Some(bytes) = owner_share_bytes(held, rec, self.width, pbits, two_round, fits) else { return };
-            bytes.saturating_mul(self.width as usize).saturating_add(gravity_abi::breaker::OWNED_HDR + 4096)
+            let Some(bytes) = owner_share_bytes(held, rec, self.width, pbits, two_round, fits)
+            else {
+                return;
+            };
+            bytes
+                .saturating_mul(self.width as usize)
+                .saturating_add(gravity_abi::breaker::OWNED_HDR + 4096)
         };
         if want <= len {
             return;
@@ -294,7 +362,15 @@ impl Open<'_> {
         let (ptr, bytes) = self.exec.node_mut().grow_leader_in_place(slot, want as u64);
         if bytes > len {
             self.leader.set((ptr, bytes));
-            self.owner.set(crate::mem::grant::owner_cut(crate::mem::grant::Share { bytes: bytes as u32 }, self.width).bytes);
+            self.owner.set(
+                crate::mem::grant::owner_cut(
+                    crate::mem::grant::Share {
+                        bytes: bytes as u32,
+                    },
+                    self.width,
+                )
+                .bytes,
+            );
         }
     }
 
@@ -310,9 +386,21 @@ impl Open<'_> {
             }
         }
         if let Some(slot) = self.produced_slot() {
-            held += self.exec.node().spill.stream(slot).files.iter().flatten().map(|f| f.spilled_bytes() as usize).sum::<usize>();
+            held += self
+                .exec
+                .node()
+                .spill
+                .stream(slot)
+                .files
+                .iter()
+                .flatten()
+                .map(|f| f.spilled_bytes() as usize)
+                .sum::<usize>();
         }
-        held += self.entry_runs(pbits).map(|f| f.spilled_bytes() as usize).sum::<usize>();
+        held += self
+            .entry_runs(pbits)
+            .map(|f| f.spilled_bytes() as usize)
+            .sum::<usize>();
         (held, rec)
     }
 
@@ -322,12 +410,21 @@ impl Open<'_> {
         let mut partials: [Partial<'_>; SLOTS] = [EMPTY; SLOTS];
         let n = self.partials(&mut partials[..self.width.min(SLOTS as u16) as usize]);
         let (held, _) = self.held_records(&partials[..n], pbits);
-        merge.owned_rounds() == 1 && (self.owner_bytes() as usize).saturating_mul(self.width as usize) < held
+        merge.owned_rounds() == 1
+            && (self.owner_bytes() as usize).saturating_mul(self.width as usize) < held
     }
 
     /// The owner phase's job: partitions `lo..hi` of every partial folded into owner `ordinal`'s
     /// region (opened at its first), reduced by the merge; the owner's worker site renders.
-    pub fn own_partitions(&self, merge: &dyn Merge, ordinal: u16, pbits: u8, lo: u32, hi: u32, opened: &AtomicBool) -> Result<()> {
+    pub fn own_partitions(
+        &self,
+        merge: &dyn Merge,
+        ordinal: u16,
+        pbits: u8,
+        lo: u32,
+        hi: u32,
+        opened: &AtomicBool,
+    ) -> Result<()> {
         let mut partials: [Partial<'_>; SLOTS] = [EMPTY; SLOTS];
         let n = self.partials(&mut partials[..self.width.min(SLOTS as u16) as usize]);
         let region = self.owner_region(ordinal);
@@ -342,13 +439,24 @@ impl Open<'_> {
     }
 
     /// The second round (§3.5): every owner's round-2 buffers and round-2 files are the sources.
-    pub fn own_partitions2(&self, merge: &dyn Merge, ordinal: u16, pbits: u8, lo: u32, hi: u32) -> Result<()> {
+    pub fn own_partitions2(
+        &self,
+        merge: &dyn Merge,
+        ordinal: u16,
+        pbits: u8,
+        lo: u32,
+        hi: u32,
+    ) -> Result<()> {
         let mut partials: [Partial<'_>; SLOTS] = [EMPTY; SLOTS];
         let mut n = 0;
         // bounded("small-fixed: one owner's round-2 buffers per worker slot, at most SLOTS (256)")
         for o in 0..self.width.min(SLOTS as u16) {
             if let Some(r) = merge.round2_partial(self.owner_region(o)) {
-                partials[n] = Partial { ordinal: o, bytes: raw::bytes_of(r), rows_processed: 0 };
+                partials[n] = Partial {
+                    ordinal: o,
+                    bytes: raw::bytes_of(r),
+                    rows_processed: 0,
+                };
                 n += 1;
             }
         }
@@ -376,9 +484,23 @@ impl Open<'_> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn own_with(&self, merge: &dyn Merge, ordinal: u16, pbits: u8, lo: u32, hi: u32, partials: &[Partial<'_>], site: *mut gravity_abi::Site, round: u8) -> Result<()> {
+    fn own_with(
+        &self,
+        merge: &dyn Merge,
+        ordinal: u16,
+        pbits: u8,
+        lo: u32,
+        hi: u32,
+        partials: &[Partial<'_>],
+        site: *mut gravity_abi::Site,
+        round: u8,
+    ) -> Result<()> {
         // shapecheck D06/D08/D15: the parallel owner phase over the partitioned record table is taken (pool worker: shared)
-        fires::fire_shared(if round == 2 { "owner.round2" } else { "owner.parallel" });
+        fires::fire_shared(if round == 2 {
+            "owner.round2"
+        } else {
+            "owner.parallel"
+        });
         fire_small_open(partials);
         // round 1: the produced slot's spill files in ctx-owner order (the leader's, then the workers'), then the slots' entry
         // runs; round 2: the owners' round-2 files
@@ -386,16 +508,26 @@ impl Open<'_> {
         let mut nf = 0usize;
         if let Some(slot) = self.produced_slot() {
             let stream = self.exec.node().spill.stream(slot);
-            let source = if round == 1 { &stream.files } else { &stream.round2 };
+            let source = if round == 1 {
+                &stream.files
+            } else {
+                &stream.round2
+            };
             // bounded("small-fixed: one spill file per worker and the slots' entry runs, at most the array's 2 * SLOTS + 1")
-            for f in source.iter().flatten().map(|f| f.as_ref()).chain((round == 1).then(|| self.entry_runs(pbits)).into_iter().flatten()) {
+            for f in source.iter().flatten().map(|f| f.as_ref()).chain(
+                (round == 1)
+                    .then(|| self.entry_runs(pbits))
+                    .into_iter()
+                    .flatten(),
+            ) {
                 if nf < files.len() {
                     files[nf] = Some(f);
                     nf += 1;
                 }
             }
         }
-        let files: [&dyn crate::SpillFile; 2 * SLOTS + 1] = core::array::from_fn(|i| files[i].unwrap_or(files[0].unwrap_or(&NO_FILE)));
+        let files: [&dyn crate::SpillFile; 2 * SLOTS + 1] =
+            core::array::from_fn(|i| files[i].unwrap_or(files[0].unwrap_or(&NO_FILE)));
         let region = self.owner_region(ordinal);
         let mut flush = self.round2_flush(merge, ordinal);
         // the owner's worker ctx, bound for the section (its `cancel` is the statement's abort byte)
@@ -405,7 +537,17 @@ impl Open<'_> {
             let mut step = cancelpoll::step("section owners: an owner's partitions");
             for part in lo..hi.min(1u32 << pbits) {
                 step.tick()?;
-                merge.own_partition(region, part, pbits, partials, &files[..nf], site, cancel, round, &mut flush)?;
+                merge.own_partition(
+                    region,
+                    part,
+                    pbits,
+                    partials,
+                    &files[..nf],
+                    site,
+                    cancel,
+                    round,
+                    &mut flush,
+                )?;
             }
             Ok(())
         })
@@ -415,13 +557,19 @@ impl Open<'_> {
     /// files beside the partials at `pbits`. Phase 1 is over, so the sources are only read.
     fn entry_runs(&self, pbits: u8) -> impl Iterator<Item = &dyn crate::SpillFile> + '_ {
         let site = usize::try_from(self.program().pipelines[self.pipeline].driving_site).ok();
-        (0..self.width).filter_map(move |o| site.and_then(|i| self.slot_source(o, i)).and_then(|s| s.owner_input(pbits)))
+        (0..self.width).filter_map(move |o| {
+            site.and_then(|i| self.slot_source(o, i))
+                .and_then(|s| s.owner_input(pbits))
+        })
     }
 
     /// Some slot's source published parts as entry runs: the owner phase is the pool's, never the leader's few records.
     pub fn has_entry_runs(&self) -> bool {
         let site = usize::try_from(self.program().pipelines[self.pipeline].driving_site).ok();
-        (0..self.width).any(|o| site.and_then(|i| self.slot_source(o, i)).is_some_and(|s| s.has_owner_input()))
+        (0..self.width).any(|o| {
+            site.and_then(|i| self.slot_source(o, i))
+                .is_some_and(|s| s.has_owner_input())
+        })
     }
 
     /// The partials' partition count (phase-1 tables), whatever the owner regions hold.
@@ -441,21 +589,38 @@ impl Open<'_> {
         let mut nf = 0usize;
         if let Some(slot) = self.produced_slot() {
             // bounded("small-fixed: one spill file per worker and the slots' entry runs, at most the array's 2 * SLOTS + 1")
-            for f in self.exec.node().spill.stream(slot).files.iter().flatten().map(|f| f.as_ref()).chain(self.entry_runs(pbits)) {
+            for f in self
+                .exec
+                .node()
+                .spill
+                .stream(slot)
+                .files
+                .iter()
+                .flatten()
+                .map(|f| f.as_ref())
+                .chain(self.entry_runs(pbits))
+            {
                 if nf < files.len() {
                     files[nf] = Some(f);
                     nf += 1;
                 }
             }
         }
-        let files: [&dyn crate::SpillFile; 2 * SLOTS + 1] = core::array::from_fn(|i| files[i].unwrap_or(files[0].unwrap_or(&NO_FILE)));
+        let files: [&dyn crate::SpillFile; 2 * SLOTS + 1] =
+            core::array::from_fn(|i| files[i].unwrap_or(files[0].unwrap_or(&NO_FILE)));
         let node = self.exec.node();
         // D4695: the one owner renders through slot 0's site: a slot no claim reached (`bind_at_claim`) binds first, here
         // (the claims are over: no other thread holds the slot)
         raw::bind_pending(self.slot(0))?;
         let site = self.owner_site(0);
         let leader = self.leader_region();
-        let spare: &mut [u8] = if self.lead { &mut [] } else { leader.get_mut(gravity_abi::breaker::OWNED_HDR..).unwrap_or(&mut []) };
+        let spare: &mut [u8] = if self.lead {
+            &mut []
+        } else {
+            leader
+                .get_mut(gravity_abi::breaker::OWNED_HDR..)
+                .unwrap_or(&mut [])
+        };
         // KN-02 (B): owners pinned past the grant's cut that overflowed (an owner phase whose partitions landed unevenly)
         // leave their chunk idle; the one owner is laid there when it is the larger spare, so the redo takes no second pin
         let spare = match self.owners_chunk() {
@@ -463,7 +628,19 @@ impl Open<'_> {
             _ => spare,
         };
         let gate = || node.owner_refuses(self.produced_slot());
-        let region = own_all(merge, node.ctx(), &node.spill, self.produced_slot(), &partials[..n], &files[..nf], site, pbits, spare, &gate, node.owner_give_floor())?;
+        let region = own_all(
+            merge,
+            node.ctx(),
+            &node.spill,
+            self.produced_slot(),
+            &partials[..n],
+            &files[..nf],
+            site,
+            pbits,
+            spare,
+            &gate,
+            node.owner_give_floor(),
+        )?;
         owned_header(self.leader_region(), region)
     }
 
@@ -472,7 +649,9 @@ impl Open<'_> {
     /// this thread, the leader region its one owner's header); the pool's owner phase does not run. `false`: the owner
     /// phase as before.
     pub fn own_batched(&mut self, merge: &dyn Merge) -> Result<bool> {
-        let Some(slot) = self.produced_slot() else { return Ok(false) };
+        let Some(slot) = self.produced_slot() else {
+            return Ok(false);
+        };
         // D3140: an owners' open folds the leader's table; D393b: an arm run's last arm folds every arm's records
         if self.lead || self.exec.node().in_arm_run(self.pipeline) || self.has_entry_runs() {
             return Ok(false);
@@ -488,9 +667,28 @@ impl Open<'_> {
                 0 => merge.partition_bits(&partials[..n]),
                 b => Some(b),
             };
-            (crate::mem::batch::fold_for(self.program(), self.pipeline, slot, stream, merge, &partials[..n], held, rec, room, self.leader_region().len().saturating_sub(gravity_abi::breaker::OWNED_HDR), &mut || kept_run(merge)), pbits)
+            (
+                crate::mem::batch::fold_for(
+                    self.program(),
+                    self.pipeline,
+                    slot,
+                    stream,
+                    merge,
+                    &partials[..n],
+                    held,
+                    rec,
+                    room,
+                    self.leader_region()
+                        .len()
+                        .saturating_sub(gravity_abi::breaker::OWNED_HDR),
+                    &mut || kept_run(merge),
+                ),
+                pbits,
+            )
         };
-        let (Some(fold), Some(pbits)) = (fold, pbits) else { return Ok(false) };
+        let (Some(fold), Some(pbits)) = (fold, pbits) else {
+            return Ok(false);
+        };
         let (width, pipeline) = (self.width, self.pipeline);
         raw::lend_cancel(ctx, || -> Result<()> {
             let mut step = cancelpoll::step("section own_batched: the partials scattered");
@@ -503,10 +701,20 @@ impl Open<'_> {
             }
             Ok(())
         })?;
-        let site = (!self.program().sites.is_empty()).then_some(self.program().pipelines[pipeline].driving_site.max(0) as usize);
+        let site = (!self.program().sites.is_empty())
+            .then_some(self.program().pipelines[pipeline].driving_site.max(0) as usize);
         let budget = crate::mem::batch::budget(ctx, self.program(), pipeline);
         let spill: *mut crate::mem::spill::SpillTable = &mut *self.exec.node_mut().spill;
-        crate::mem::batch::lay(ctx, spill, slot, fold, pbits, budget, self.leader_region(), site)?;
+        crate::mem::batch::lay(
+            ctx,
+            spill,
+            slot,
+            fold,
+            pbits,
+            budget,
+            self.leader_region(),
+            site,
+        )?;
         Ok(true)
     }
 
@@ -534,18 +742,32 @@ impl Open<'_> {
         merge.finish_owners(self.leader_region(), self.width, bytes)?;
         match self.owners_base.get() {
             // KN-02 (B): the header points every reader (`Owned::owner`) at the pinned chunk
-            base if !base.is_null() => owned_header(self.leader_region(), Owners { base, k: self.width as u32, bytes: bytes as usize }),
+            base if !base.is_null() => owned_header(
+                self.leader_region(),
+                Owners {
+                    base,
+                    k: self.width as u32,
+                    bytes: bytes as usize,
+                },
+            ),
             _ => Ok(()),
         }
     }
 
     /// The partials that claimed (phase 2a's unit count).
     pub fn partials_count(&self) -> usize {
-        (0..self.width).filter(|&o| !self.slot(o).state_stale).count()
+        (0..self.width)
+            .filter(|&o| !self.slot(o).state_stale)
+            .count()
     }
 
     /// Phase 2a's job: the `index`-th partial (ordinal order) prepared in place by the merge.
-    pub fn prepare_partial(&self, merge: &dyn Merge, plan: PartitionPlan, index: usize) -> Result<()> {
+    pub fn prepare_partial(
+        &self,
+        merge: &dyn Merge,
+        plan: PartitionPlan,
+        index: usize,
+    ) -> Result<()> {
         let mut n = 0;
         // bounded("small-fixed: one partial per worker slot, at most SLOTS (256)")
         for o in 0..self.width {
@@ -554,7 +776,13 @@ impl Open<'_> {
                 continue;
             }
             if n == index {
-                return merge.prepare_partial(crate::sink::Region { ptr: s.state_ptr, len: s.state_bytes as usize }, plan);
+                return merge.prepare_partial(
+                    crate::sink::Region {
+                        ptr: s.state_ptr,
+                        len: s.state_bytes as usize,
+                    },
+                    plan,
+                );
             }
             n += 1;
         }
@@ -564,7 +792,10 @@ impl Open<'_> {
     /// Whether the execution spilled so far (phase 2 is skipped then: the seal scatters the leader's fold), or (NEW-53) the
     /// produced slot holds records an earlier arm handed on in memory: files the owner phase reads beside the partials.
     pub fn spilled(&self) -> bool {
-        self.exec.node().spilled() || self.produced_slot().is_some_and(|s| self.exec.node().spill.stream(s).handed())
+        self.exec.node().spilled()
+            || self
+                .produced_slot()
+                .is_some_and(|s| self.exec.node().spill.stream(s).handed())
     }
 
     /// Phase 2 done: the fold is complete, `close_section` runs `finish` only.
@@ -581,7 +812,9 @@ impl Open<'_> {
         c.p2_refused.set(c.p2_refused.get() + 1);
         c.p2_refused_at[step.min(2)].set(c.p2_refused_at[step.min(2)].get() + 1);
         let r = self.leader_region();
-        let shared = self.program().pipelines[self.pipeline].breaker().is_some_and(|b| b.budget.is_share());
+        let shared = self.program().pipelines[self.pipeline]
+            .breaker()
+            .is_some_and(|b| b.budget.is_share());
         raw::rearm(r, shared);
     }
 }
@@ -601,13 +834,21 @@ fn fire_small_open(partials: &[Partial<'_>]) {
     if !fires::on() {
         return;
     }
-    if partials.iter().filter_map(|p| T1::of(p.bytes)).any(|t| (t.cap as u64) < T1_MIN_SLOTS && t.max_bits != 0) {
+    if partials
+        .iter()
+        .filter_map(|p| T1::of(p.bytes))
+        .any(|t| (t.cap as u64) < T1_MIN_SLOTS && t.max_bits != 0)
+    {
         fires::fire_shared("table.sized_small");
     }
 }
 
 fn cut_zeroed(len: usize, two_round: bool) -> usize {
-    if two_round { len } else { crate::node::ZERO_PREFIX.min(len) }
+    if two_round {
+        len
+    } else {
+        crate::node::ZERO_PREFIX.min(len)
+    }
 }
 
 /// One owner's fold on the calling thread over a region sized from the partials' records in memory and in the files
@@ -620,18 +861,45 @@ fn cut_zeroed(len: usize, two_round: bool) -> usize {
 /// `give`: D4078 (ADMITFP (A)) the pin floor under which the region a round 1 overflowed in is given back before a split
 /// pins its chunk (`Node::owner_give_floor`); `None`: it stays to the slot's free.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn own_all(merge: &dyn Merge, ctx: *mut gravity_abi::Ctx, spill: &crate::mem::spill::SpillTable, slot: Option<u8>, partials: &[Partial<'_>], files: &[&dyn crate::SpillFile], site: *mut gravity_abi::Site, pbits: u8, spare: &mut [u8], gate: &dyn Fn() -> bool, give: Option<usize>) -> Result<Owners> {
+pub(crate) fn own_all(
+    merge: &dyn Merge,
+    ctx: *mut gravity_abi::Ctx,
+    spill: &crate::mem::spill::SpillTable,
+    slot: Option<u8>,
+    partials: &[Partial<'_>],
+    files: &[&dyn crate::SpillFile],
+    site: *mut gravity_abi::Site,
+    pbits: u8,
+    spare: &mut [u8],
+    gate: &dyn Fn() -> bool,
+    give: Option<usize>,
+) -> Result<Owners> {
     // D3902: the owner phase runs between kernel calls, where D3887 lent no byte: its draws past the grant (`pin`, the pool's
     // `take_wait`, up to bytes_wait) waited out a cancel or a timeout whole (2 s beside a cursor holding the pool)
     // C9: the owner phase is one Step on that byte; its partitions and regrowths tick it
     raw::lend_cancel(ctx, || {
         let mut step = cancelpoll::step("section own_all: the owner phase");
-        own_all_lent(&mut step, merge, ctx, spill, slot, partials, files, site, pbits, spare, gate, give)
+        own_all_lent(
+            &mut step, merge, ctx, spill, slot, partials, files, site, pbits, spare, gate, give,
+        )
     })
 }
 
 #[allow(clippy::too_many_arguments)]
-fn own_all_lent(step: &mut cancelpoll::Step, merge: &dyn Merge, ctx: *mut gravity_abi::Ctx, spill: &crate::mem::spill::SpillTable, slot: Option<u8>, partials: &[Partial<'_>], files: &[&dyn crate::SpillFile], site: *mut gravity_abi::Site, pbits: u8, spare: &mut [u8], gate: &dyn Fn() -> bool, give: Option<usize>) -> Result<Owners> {
+fn own_all_lent(
+    step: &mut cancelpoll::Step,
+    merge: &dyn Merge,
+    ctx: *mut gravity_abi::Ctx,
+    spill: &crate::mem::spill::SpillTable,
+    slot: Option<u8>,
+    partials: &[Partial<'_>],
+    files: &[&dyn crate::SpillFile],
+    site: *mut gravity_abi::Site,
+    pbits: u8,
+    spare: &mut [u8],
+    gate: &dyn Fn() -> bool,
+    give: Option<usize>,
+) -> Result<Owners> {
     use gravity_abi::breaker::T1;
     let wall = owner_wall_at();
     // D4078: a one-round owner splits past its statement's wall (`Grant::owner_wall`: half the pool, its armed big lane or
@@ -660,7 +928,13 @@ fn own_all_lent(step: &mut cancelpoll::Step, merge: &dyn Merge, ctx: *mut gravit
     // region, floor 31976) "fit" by that clause at 4 workers: its refused open raised kind 2 where 3 workers laid the floor.
     let floor = merge.owner_floor().unwrap_or(0);
     let fits = |b: usize| b as u64 >= floor && merge.owned_partitions(partials, b as u32).is_some();
-    let floored =|| -> Result<usize> { Ok(least_fit(owner_region_bytes(ask, held, |b| fits(b as usize))?, ask, fits)) };
+    let floored = || -> Result<usize> {
+        Ok(least_fit(
+            owner_region_bytes(ask, held, |b| fits(b as usize))?,
+            ask,
+            fits,
+        ))
+    };
     // F7: a two-round owner folds one partition at a time into the table half of its region, so its least floor also holds
     // one partition's table (twice its records' bytes): at the shape's floor alone a spilled partition overfilled the table,
     // fold_sub re-read it at every split depth and D533 re-ran round 1 at each doubling (a 2 M-row count(DISTINCT) per group
@@ -670,10 +944,20 @@ fn own_all_lent(step: &mut cancelpoll::Step, merge: &dyn Merge, ctx: *mut gravit
     // idle): a round 1 laid in it pins nothing, so the statement's wall bounds only a fresh pin (lifetime_d3437's union at
     // W8: a 128 MiB cut of a 200 MB owners' chunk overflowed and split into a second ~200 MB pin)
     let in_spare = spare.len().min(wall) & !7;
-    let bytes = if merge.owned_rounds() == 1 { ask.min(split_wall.max(in_spare)) } else if fits(ask) { least_fit(ask, 0, fits).max(part.min(ask)) } else { floored()? };
+    let bytes = if merge.owned_rounds() == 1 {
+        ask.min(split_wall.max(in_spare))
+    } else if fits(ask) {
+        least_fit(ask, 0, fits).max(part.min(ask))
+    } else {
+        floored()?
+    };
     // D485: a form whose run keeps at most n records (the count / top-k owners, `OwnerTop.n`) has no run half of the records:
     // its region is the run and one partition's table (the fold takes a partition at a time), grown when a partition overflows
-    let kept_word = if merge.owned_rounds() == 1 { merge.kept_run_memo(&mut || kept_run(merge)) } else { None };
+    let kept_word = if merge.owned_rounds() == 1 {
+        merge.kept_run_memo(&mut || kept_run(merge))
+    } else {
+        None
+    };
     let kept = kept_word.map(Kept::of);
     // D3111: the table holds four times the LARGEST partition's records, not the average's: a source routed by its group
     // (a grouped count(DISTINCT)'s pairs) keeps a group's records in one partition, so a few big groups put partitions far
@@ -684,9 +968,17 @@ fn own_all_lent(step: &mut cancelpoll::Step, merge: &dyn Merge, ctx: *mut gravit
         bufs.parts.resize(1 << pbits, 0); // alloc: Cold
         merge.part_record_bytes(partials, files, pbits, &mut bufs.parts)
     };
-    let table = if counted { 4 * bufs.parts.iter().copied().max().unwrap_or(0) as usize } else { ( 4 * held) >> pbits };
+    let table = if counted {
+        4 * bufs.parts.iter().copied().max().unwrap_or(0) as usize
+    } else {
+        (4 * held) >> pbits
+    };
     let bytes = match kept {
-        Some(k) => k.region(table.max(64 * rec).max(KEPT_TABLE_MIN)).min(wall).min(owner_first_at()).next_multiple_of(8),
+        Some(k) => k
+            .region(table.max(64 * rec).max(KEPT_TABLE_MIN))
+            .min(wall)
+            .min(owner_first_at())
+            .next_multiple_of(8),
         None => bytes,
     };
     let spare_len = spare.len().min(wall) & !7;
@@ -695,11 +987,17 @@ fn own_all_lent(step: &mut cancelpoll::Step, merge: &dyn Merge, ctx: *mut gravit
         OWN_CUT.fetch_add(1, Ordering::Relaxed);
         let zeroed = cut_zeroed(len, two_round);
         raw::lay_cut(spare_ptr, len, zeroed);
-        crate::sink::Region { ptr: spare_ptr, len }
+        crate::sink::Region {
+            ptr: spare_ptr,
+            len,
+        }
     };
     // D4078 (ADMITFP (A)): the last region the pin below took from the pool and the last it mapped from a temp file, so the
     // one a round 1 overflowed in can be given back before a split pins its chunk
-    let (pinned, mapped) = (core::cell::Cell::new(core::ptr::null_mut::<u8>()), core::cell::Cell::new(core::ptr::null_mut::<u8>()));
+    let (pinned, mapped) = (
+        core::cell::Cell::new(core::ptr::null_mut::<u8>()),
+        core::cell::Cell::new(core::ptr::null_mut::<u8>()),
+    );
     let pin = |bytes: usize| -> Result<crate::sink::Region> {
         let _pin = cancelpoll::step("section own_all: an owner region's pin");
         // a pinned pool chunk: the arena window is rewound at the next pipeline's Call, the region must outlive it
@@ -739,7 +1037,12 @@ fn own_all_lent(step: &mut cancelpoll::Step, merge: &dyn Merge, ctx: *mut gravit
             }
             // NR-3: refused by the pool and by the temp-file road: the owner region's road, named
             let pool = &crate::mem::grant::POOL;
-            return Err(Error::OutOfMemory { bytes: bytes as u64, held: pool.held(), capacity: pool.capacity(), why: Some(gravity_program::spill::NoSpill::AggOwnerAll) });
+            return Err(Error::OutOfMemory {
+                bytes: bytes as u64,
+                held: pool.held(),
+                capacity: pool.capacity(),
+                why: Some(gravity_program::spill::NoSpill::AggOwnerAll),
+            });
         }
         OWN_SPILLED.fetch_add(1, Ordering::Relaxed);
         mapped.set(ptr);
@@ -752,7 +1055,11 @@ fn own_all_lent(step: &mut cancelpoll::Step, merge: &dyn Merge, ctx: *mut gravit
     // (`owner_place` cuts before it reads the room): a rescanned set's small owner is cut at every rescan
     let place = |bytes: usize| -> Result<(crate::sink::Region, bool)> {
         let holds = two_round && fits(spare_len);
-        let room = if spare_len >= bytes || holds { None } else { raw::pin_room(ctx) };
+        let room = if spare_len >= bytes || holds {
+            None
+        } else {
+            raw::pin_room(ctx)
+        };
         match owner_place(bytes, spare_len, holds, room) {
             OwnerPlace::Cut(len) => Ok((cut(len), false)),
             OwnerPlace::Pin => Ok((pin(bytes)?, false)),
@@ -785,7 +1092,11 @@ fn own_all_lent(step: &mut cancelpoll::Step, merge: &dyn Merge, ctx: *mut gravit
         } else {
             // a count / top-k form's kept rows past the records' size: laid at that form's floor
             let floor = floored()?;
-            region = if bounded { pin(floor)? } else { place(floor)?.0 };
+            region = if bounded {
+                pin(floor)?
+            } else {
+                place(floor)?.0
+            };
         }
         merge.open_owner(region, 0)?;
     }
@@ -794,14 +1105,17 @@ fn own_all_lent(step: &mut cancelpoll::Step, merge: &dyn Merge, ctx: *mut gravit
     // space folded round 1 again from partition 0 at each doubling (the D533 arm below)
     if two_round && counted {
         let recs = bufs.parts.iter().copied().max().unwrap_or(0) as usize / rec.max(1);
-        let need = gravity_abi::breaker::HASHAGG_HDR + (recs + recs / 7 + 2).next_power_of_two().max(64) * rec;
+        let need = gravity_abi::breaker::HASHAGG_HDR
+            + (recs + recs / 7 + 2).next_power_of_two().max(64) * rec;
         for _ in 0..4 {
             let off = raw::owner_top(region).table_off as usize;
             let space = region.len.saturating_sub(off);
             if off == 0 || space >= need || region.len >= wall {
                 break;
             }
-            let want = (region.len as u128 * need as u128).div_ceil(space.max(1) as u128).min(wall as u128) as usize;
+            let want = (region.len as u128 * need as u128)
+                .div_ceil(space.max(1) as u128)
+                .min(wall as u128) as usize;
             region = pin(want.saturating_add(64 << 10).min(wall) & !7)?;
             merge.open_owner(region, 0)?;
             fires::fire_shared("owner.part_sized");
@@ -812,27 +1126,41 @@ fn own_all_lent(step: &mut cancelpoll::Step, merge: &dyn Merge, ctx: *mut gravit
     // D2988 (C): a one-round fold reads only the partitions a source holds (a rescanned DISTINCT of a row or two folded
     // every one of its 64 partitions, each a table laid and the partial's records read again, per rescan)
     let mut held_mask = [0u64; HELD_MASK_WORDS];
-    let masked = !two_round && (1usize << pbits) <= 64 * HELD_MASK_WORDS && merge.held_parts(partials, files, pbits, &mut held_mask);
+    let masked = !two_round
+        && (1usize << pbits) <= 64 * HELD_MASK_WORDS
+        && merge.held_parts(partials, files, pbits, &mut held_mask);
     // D3111: a kept form whose kept state is known saves it (`owner_save`) before each partition where that costs at most
     // the partition's records (or `KEPT_SAVE_FREE`): a partition that overflows the region then folds again from that state
     // in the grown one, and the partitions before it are not folded again. `round1` folds from partition `from` on; its
     // error carries the partition it stopped at (`1 << pbits`: the round's end).
     let save_end = kept.and_then(|k| k.end);
-    let round1 = |step: &mut cancelpoll::Step, region: crate::sink::Region, from: u32, bufs: &mut OwnBufs| -> core::result::Result<(), (u32, Error)> {
+    let round1 = |step: &mut cancelpoll::Step,
+                  region: crate::sink::Region,
+                  from: u32,
+                  bufs: &mut OwnBufs|
+     -> core::result::Result<(), (u32, Error)> {
         let mut flush = || flush_round2(merge, spill, slot, region);
         for part in from..1u32 << pbits {
             step.tick().map_err(|c| (part, Error::from(c)))?;
             if masked && held_mask[part as usize / 64] >> (part % 64) & 1 == 0 {
                 continue;
             }
-            if let Some(end) = save_end.filter(|&e| e <= KEPT_SAVE_FREE || (counted && e as u64 <= bufs.parts[part as usize])) {
+            if let Some(end) = save_end.filter(|&e| {
+                e <= KEPT_SAVE_FREE || (counted && e as u64 <= bufs.parts[part as usize])
+            }) {
                 raw::owner_save(region, end, &mut bufs.snap);
                 bufs.saved = part;
             }
-            merge.own_partition(region, part, pbits, partials, files, site, cancel, 1, &mut flush).map_err(|e| (part, e))?;
+            merge
+                .own_partition(
+                    region, part, pbits, partials, files, site, cancel, 1, &mut flush,
+                )
+                .map_err(|e| (part, e))?;
         }
         let _end = cancelpoll::step("section own_all: the round's end");
-        merge.end_round(region, &mut flush).map_err(|e| (1u32 << pbits, e))
+        merge
+            .end_round(region, &mut flush)
+            .map_err(|e| (1u32 << pbits, e))
     };
     // D438: a one-round region at the records' bytes has a table half of the records' bytes: a few groups' partition table
     // holds one record, so two groups whose routes share the partition bits and the three splits' nine bits fill it at every
@@ -843,7 +1171,23 @@ fn own_all_lent(step: &mut cancelpoll::Step, merge: &dyn Merge, ctx: *mut gravit
     // D485: a one-round owner that overflows the wall is split into k serial owners (`own_split`), never kind 2 at the wall.
     // Only once a wall-sized owner overflowed: `held` counts a group once per record that spilled or was held (D220), so the
     // records' ask past the wall is often a region the real groups fit (a join-and-aggregate at W0: a split many times the wall where the wall held them)
-    let split = || own_split(merge, ctx, partials, files, site, pbits, held, rec, (split_wall, wall), cancel, spill, slot, gate);
+    let split = || {
+        own_split(
+            merge,
+            ctx,
+            partials,
+            files,
+            site,
+            pbits,
+            held,
+            rec,
+            (split_wall, wall),
+            cancel,
+            spill,
+            slot,
+            gate,
+        )
+    };
     // D4078 (ADMITFP (A)): the region round 1 overflowed in leaves before the split pins its chunk,
     // so the phase holds the larger of the two, never their sum (lifetime_d3437's union at W0: a 128 MiB round 1 held beside
     // a ~200 MB chunk). A pool pin goes under `give` (`Node::owner_give_floor`); a temp-file map as D491's rerun gives its
@@ -862,10 +1206,17 @@ fn own_all_lent(step: &mut cancelpoll::Step, merge: &dyn Merge, ctx: *mut gravit
             Error::Unsupported(UNSUPPORTED_SCRATCH) if bounded && region.len < bytes => pin(bytes)?,
             Error::Unsupported(UNSUPPORTED_SCRATCH) if kept.is_some() && region.len < wall => {
                 let part = bufs.parts.get(at as usize).copied().filter(|_| counted);
-                pin(kept.map_or(2 * region.len, |k| k.grown(region.len, part)).min(wall) & !7)?
+                pin(kept
+                    .map_or(2 * region.len, |k| k.grown(region.len, part))
+                    .min(wall)
+                    & !7)?
             }
-            Error::Unsupported(UNSUPPORTED_SCRATCH) if kept.is_some() => return Err(owner_wall(region.len, held)),
-            Error::Unsupported(UNSUPPORTED_SCRATCH) if !two_round && region.len < whole => pin(whole)?,
+            Error::Unsupported(UNSUPPORTED_SCRATCH) if kept.is_some() => {
+                return Err(owner_wall(region.len, held))
+            }
+            Error::Unsupported(UNSUPPORTED_SCRATCH) if !two_round && region.len < whole => {
+                pin(whole)?
+            }
             Error::Unsupported(UNSUPPORTED_SCRATCH) if !two_round && whole_all > split_wall => {
                 give_back(region);
                 return split();
@@ -873,8 +1224,12 @@ fn own_all_lent(step: &mut cancelpoll::Step, merge: &dyn Merge, ctx: *mut gravit
             // D3878: `whole` is the runs layout's need (half runs, half table); a one-round form laid otherwise (hosts
             // distinct_fold.rs: a quarter of runs, each a group's accumulator, wider than its pair) overflows it, and folds
             // again in a region twice the size up to the wall, as D533's two-round owner does, never kind 2 below the wall
-            Error::Unsupported(UNSUPPORTED_SCRATCH) if !two_round && region.len < wall => pin((2 * region.len).min(wall) & !7)?,
-            Error::Unsupported(UNSUPPORTED_SCRATCH) if !two_round => return Err(owner_wall(region.len, held)),
+            Error::Unsupported(UNSUPPORTED_SCRATCH) if !two_round && region.len < wall => {
+                pin((2 * region.len).min(wall) & !7)?
+            }
+            Error::Unsupported(UNSUPPORTED_SCRATCH) if !two_round => {
+                return Err(owner_wall(region.len, held))
+            }
             // D533: a two-round partition past its route bits (parallel merge.rs fold_sub SCRATCH) folds round 1 again in a region
             // twice the size, up to the wall; round 1 only reads its sources, and its round-2 file restarts empty
             Error::Unsupported(UNSUPPORTED_SCRATCH) if two_round && region.len < wall => {
@@ -886,7 +1241,9 @@ fn own_all_lent(step: &mut cancelpoll::Step, merge: &dyn Merge, ctx: *mut gravit
                 fires::fire_shared("owner.regrown1");
                 pin((2 * region.len).min(wall) & !7)?
             }
-            Error::Unsupported(UNSUPPORTED_SCRATCH) if two_round => return Err(owner_wall(region.len, held)),
+            Error::Unsupported(UNSUPPORTED_SCRATCH) if two_round => {
+                return Err(owner_wall(region.len, held))
+            }
             e => return Err(e),
         };
         // a regrowth folds round 1 again: the cancel is read before it
@@ -895,7 +1252,10 @@ fn own_all_lent(step: &mut cancelpoll::Step, merge: &dyn Merge, ctx: *mut gravit
         // D3111: the state saved before the partition that overflowed, laid over the grown region (the same form: a D597
         // domain miss changes it and folds again from partition 0), and round 1 goes on from that partition; its sources
         // are only read, and the state is what the partitions before it left
-        let from = if bufs.saved == at && merge.kept_run_memo(&mut || kept_run(merge)) == kept_word && raw::owner_restore(region, &bufs.snap) {
+        let from = if bufs.saved == at
+            && merge.kept_run_memo(&mut || kept_run(merge)) == kept_word
+            && raw::owner_restore(region, &bufs.snap)
+        {
             OWN_RESUMED.fetch_add(1, Ordering::Relaxed);
             fires::fire_shared("owner.resumed");
             at
@@ -908,9 +1268,14 @@ fn own_all_lent(step: &mut cancelpoll::Step, merge: &dyn Merge, ctx: *mut gravit
     if merge.owned_rounds() == 2 {
         let pbits2 = merge.round2_pbits(region);
         if let Some(r) = merge.round2_partial(region) {
-            let p2 = [Partial { ordinal: 0, bytes: raw::bytes_of(r), rows_processed: 0 }];
+            let p2 = [Partial {
+                ordinal: 0,
+                bytes: raw::bytes_of(r),
+                rows_processed: 0,
+            }];
             let round2 = slot.and_then(|s| spill.stream(s).round2.first().and_then(Option::as_ref));
-            let files2: [&dyn crate::SpillFile; 1] = [round2.map_or(&NO_FILE as &dyn crate::SpillFile, |f| f.as_ref())];
+            let files2: [&dyn crate::SpillFile; 1] =
+                [round2.map_or(&NO_FILE as &dyn crate::SpillFile, |f| f.as_ref())];
             let nf2 = round2.is_some() as usize;
             let parts2 = 1u32 << pbits2;
             // D520: the runs are a quarter of the region, which round 1 sized at the planner's groups; real groups past them rerun
@@ -921,7 +1286,17 @@ fn own_all_lent(step: &mut cancelpoll::Step, merge: &dyn Merge, ctx: *mut gravit
                 let mut short = None;
                 for q in 0..parts2 {
                     step.tick()?;
-                    match merge.own_partition(out, q, pbits2, &p2, &files2[..nf2], site, cancel, 2, &mut flush) {
+                    match merge.own_partition(
+                        out,
+                        q,
+                        pbits2,
+                        &p2,
+                        &files2[..nf2],
+                        site,
+                        cancel,
+                        2,
+                        &mut flush,
+                    ) {
                         Err(Error::Unsupported(UNSUPPORTED_SCRATCH)) => {
                             short = Some(q);
                             break;
@@ -967,7 +1342,9 @@ pub(crate) const SPLIT_TABLE: usize = 64 << 20;
 const KEPT_PROBE: usize = 1 << 20;
 /// The probe's zeroed prefix (a page: the open's header and more).
 const KEPT_PROBE_ZEROED: usize = 4096;
-const _: () = assert!(KEPT_PROBE_ZEROED >= gravity_abi::breaker::OWNERTOP_HDR && KEPT_PROBE_ZEROED <= KEPT_PROBE);
+const _: () = assert!(
+    KEPT_PROBE_ZEROED >= gravity_abi::breaker::OWNERTOP_HDR && KEPT_PROBE_ZEROED <= KEPT_PROBE
+);
 
 /// D485: the form's kept run (`OwnerTop.n > 0`: a count / top-k owner keeps at most n records) as its table offset, read from
 /// an owner opened over a probe; `None`: the runs form, which keeps every group (or a run past the probe).
@@ -987,14 +1364,19 @@ pub(crate) fn kept_run(merge: &dyn Merge) -> Option<u64> {
 }
 
 /// D4531: the holder a thread's kept-run probe is charged to.
-const KEPT_PROBE_OWNER: memledger::Owner = memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PerBackend));
+const KEPT_PROBE_OWNER: memledger::Owner =
+    memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PerBackend));
 
 std::thread_local! {
     /// D2988: `kept_run`'s probe buffer on this thread.
     static KEPT_PROBE_BUF: core::cell::RefCell<ChargedVec<u64>> = const { core::cell::RefCell::new(ChargedVec::none()) }; // alloc: Node charged KEPT_PROBE_OWNER
 }
 
-fn kept_run_in(merge: &dyn Merge, probe: &mut ChargedVec<u64>, owner: Option<memledger::Owner>) -> Option<u64> {
+fn kept_run_in(
+    merge: &dyn Merge,
+    probe: &mut ChargedVec<u64>,
+    owner: Option<memledger::Owner>,
+) -> Option<u64> {
     if probe.capacity() < KEPT_PROBE / 8 {
         *probe = ChargedVec::new(owner, memledger::Kind::Region); // alloc: Cold charged owner
         probe.try_reserve(KEPT_PROBE / 8).ok()?; // alloc: Cold charged owner
@@ -1002,7 +1384,10 @@ fn kept_run_in(merge: &dyn Merge, probe: &mut ChargedVec<u64>, owner: Option<mem
     // the first page zeroed; the rest of the capacity (`KEPT_PROBE` bytes, the region's length) only `open` writes
     probe.clear();
     probe.resize(KEPT_PROBE_ZEROED / 8, 0).ok()?;
-    let r = crate::sink::Region { ptr: probe.as_mut_ptr() as *mut u8, len: KEPT_PROBE };
+    let r = crate::sink::Region {
+        ptr: probe.as_mut_ptr() as *mut u8,
+        len: KEPT_PROBE,
+    };
     merge.open_owner(r, 0).ok()?;
     // the probe's first bytes, the header `open` wrote (a merge with no owner form leaves it zero: n = 0)
     let t = raw::owner_top(r);
@@ -1015,7 +1400,10 @@ fn kept_run_in(merge: &dyn Merge, probe: &mut ChargedVec<u64>, owner: Option<mem
     // when that stays put too (`OwnerTop::resume`, D3111: hosts distinct_fold's results before its accumulator space);
     // any other's is unknown (a run area that grows with the region), and an overflow folds again from partition 0
     probe[..KEPT_PROBE_ZEROED / 8].fill(0);
-    let half = crate::sink::Region { ptr: r.ptr, len: KEPT_PROBE / 2 };
+    let half = crate::sink::Region {
+        ptr: r.ptr,
+        len: KEPT_PROBE / 2,
+    };
     let end = match merge.open_owner(half, 0) {
         Ok(()) => {
             let h = raw::owner_top(half);
@@ -1030,7 +1418,13 @@ fn kept_run_in(merge: &dyn Merge, probe: &mut ChargedVec<u64>, owner: Option<mem
         }
         Err(_) => None,
     };
-    Some(Kept { off, end: end.filter(|&e| e % 8 == 0 && e >= gravity_abi::breaker::OWNERTOP_HDR) }.word())
+    Some(
+        Kept {
+            off,
+            end: end.filter(|&e| e % 8 == 0 && e >= gravity_abi::breaker::OWNERTOP_HDR),
+        }
+        .word(),
+    )
 }
 
 /// D485 / D3111: a kept-run form's probe: its table offset over the probe (`KEPT_PROBE` bytes) and the end of the state its
@@ -1047,7 +1441,10 @@ const _: () = assert!((KEPT_PROBE as u64) < 1 << 32);
 
 impl Kept {
     fn of(word: u64) -> Kept {
-        Kept { off: (word & 0xffff_ffff) as usize, end: (word >> 32).checked_sub(1).map(|e| e as usize) }
+        Kept {
+            off: (word & 0xffff_ffff) as usize,
+            end: (word >> 32).checked_sub(1).map(|e| e as usize),
+        }
     }
 
     fn word(self) -> u64 {
@@ -1061,7 +1458,8 @@ impl Kept {
         let t = gravity_abi::breaker::HASHAGG_HDR + table;
         match self.end {
             Some(e) if e < self.off && self.off < KEPT_PROBE => {
-                let past = (t as u128 * (KEPT_PROBE - e) as u128).div_ceil((KEPT_PROBE - self.off) as u128);
+                let past = (t as u128 * (KEPT_PROBE - e) as u128)
+                    .div_ceil((KEPT_PROBE - self.off) as u128);
                 e.saturating_add(past.min(usize::MAX as u128) as usize)
             }
             _ => self.off.saturating_add(t),
@@ -1099,13 +1497,20 @@ std::thread_local! {
 impl OwnBufs {
     fn take() -> OwnBufs {
         let (parts, snap) = OWN_BUFS.with(core::cell::Cell::take);
-        OwnBufs { parts, snap, saved: u32::MAX }
+        OwnBufs {
+            parts,
+            snap,
+            saved: u32::MAX,
+        }
     }
 }
 
 impl Drop for OwnBufs {
     fn drop(&mut self) {
-        let kept = (core::mem::take(&mut self.parts), core::mem::take(&mut self.snap));
+        let kept = (
+            core::mem::take(&mut self.parts),
+            core::mem::take(&mut self.snap),
+        );
         OWN_BUFS.with(|c| c.set(kept));
     }
 }
@@ -1120,7 +1525,11 @@ pub(crate) struct Owners {
 
 impl Owners {
     fn one(r: crate::sink::Region) -> Owners {
-        Owners { base: r.ptr, k: 1, bytes: r.len }
+        Owners {
+            base: r.ptr,
+            k: 1,
+            bytes: r.len,
+        }
     }
 }
 
@@ -1134,9 +1543,23 @@ impl Owners {
 /// D491: a chunk past the grant pool is a temp file mapped shared, so the owners never end the statement out of memory where
 /// the session can write a temp file.
 #[allow(clippy::too_many_arguments)]
-fn own_split(merge: &dyn Merge, ctx: *mut gravity_abi::Ctx, partials: &[Partial<'_>], files: &[&dyn crate::SpillFile], site: *mut gravity_abi::Site, pbits: u8, held: usize, rec: usize, walls: (usize, usize), cancel: *const u8, spill: &crate::mem::spill::SpillTable, slot: Option<u8>, gate: &dyn Fn() -> bool) -> Result<Owners> {
+fn own_split(
+    merge: &dyn Merge,
+    ctx: *mut gravity_abi::Ctx,
+    partials: &[Partial<'_>],
+    files: &[&dyn crate::SpillFile],
+    site: *mut gravity_abi::Site,
+    pbits: u8,
+    held: usize,
+    rec: usize,
+    walls: (usize, usize),
+    cancel: *const u8,
+    spill: &crate::mem::spill::SpillTable,
+    slot: Option<u8>,
+    gate: &dyn Fn() -> bool,
+) -> Result<Owners> {
     fires::fire_shared("owner.split"); // shapecheck D06/D08/D15: serial split owners over the partitioned records
-    // C9: under `own_all`'s lent byte; each owner's partitions tick it
+                                       // C9: under `own_all`'s lent byte; each owner's partitions tick it
     let mut step = cancelpoll::step("section own_all: the split owners");
     let parts = 1u32 << pbits;
     let most = parts.min(gravity_abi::breaker::MAX_OWNERS as u32);
@@ -1146,8 +1569,12 @@ fn own_split(merge: &dyn Merge, ctx: *mut gravity_abi::Ctx, partials: &[Partial<
     // statement ends, so a rerun draws again)
     let per = |k: u32| {
         let runs = held.div_ceil(k as usize);
-        let runs = (runs + runs / 4).max(gravity_abi::breaker::HASHAGG_HDR + 2 * rec).next_multiple_of(8);
-        one_owner_bytes(0, rec).max(gravity_abi::breaker::OWNER_RUN_OFF + runs + runs.min(SPLIT_TABLE)).next_multiple_of(8)
+        let runs = (runs + runs / 4)
+            .max(gravity_abi::breaker::HASHAGG_HDR + 2 * rec)
+            .next_multiple_of(8);
+        one_owner_bytes(0, rec)
+            .max(gravity_abi::breaker::OWNER_RUN_OFF + runs + runs.min(SPLIT_TABLE))
+            .next_multiple_of(8)
     };
     let (split_wall, wall) = walls;
     let mut k = 2u32;
@@ -1193,7 +1620,11 @@ fn own_split(merge: &dyn Merge, ctx: *mut gravity_abi::Ctx, partials: &[Partial<
         } else {
             let p = raw::map_owners(ctx, chunk)?;
             // a gated chunk in a session with no file road is the pool's, as before the gate
-            let pinned = if p.is_null() && gated { from_pool() } else { core::ptr::null_mut() };
+            let pinned = if p.is_null() && gated {
+                from_pool()
+            } else {
+                core::ptr::null_mut()
+            };
             if !pinned.is_null() {
                 pinned
             } else if p.is_null() {
@@ -1202,7 +1633,12 @@ fn own_split(merge: &dyn Merge, ctx: *mut gravity_abi::Ctx, partials: &[Partial<
                 }
                 // NR-3: refused by the pool and by the temp-file road: the owners' chunk's road, named
                 let pool = &crate::mem::grant::POOL;
-                return Err(Error::OutOfMemory { bytes: chunk as u64, held: pool.held(), capacity: pool.capacity(), why: Some(gravity_program::spill::NoSpill::AggOwnerAll) });
+                return Err(Error::OutOfMemory {
+                    bytes: chunk as u64,
+                    held: pool.held(),
+                    capacity: pool.capacity(),
+                    why: Some(gravity_program::spill::NoSpill::AggOwnerAll),
+                });
             } else {
                 OWN_SPILLED.fetch_add(1, Ordering::Relaxed);
                 mapped = Some(p);
@@ -1215,14 +1651,18 @@ fn own_split(merge: &dyn Merge, ctx: *mut gravity_abi::Ctx, partials: &[Partial<
             let mut flush = || flush_round2(merge, spill, slot, region);
             for part in o * parts / k..(o + 1) * parts / k {
                 step.tick()?;
-                merge.own_partition(region, part, pbits, partials, files, site, cancel, 1, &mut flush)?;
+                merge.own_partition(
+                    region, part, pbits, partials, files, site, cancel, 1, &mut flush,
+                )?;
             }
             merge.end_round(region, &mut flush)
         };
         match (0..k).try_for_each(fold) {
             Ok(()) => return Ok(Owners { base, k, bytes }),
             Err(Error::Unsupported(UNSUPPORTED_SCRATCH)) if k < most => k *= 2,
-            Err(Error::Unsupported(UNSUPPORTED_SCRATCH)) if bytes < wall => bytes = (2 * bytes).min(wall),
+            Err(Error::Unsupported(UNSUPPORTED_SCRATCH)) if bytes < wall => {
+                bytes = (2 * bytes).min(wall)
+            }
             Err(Error::Unsupported(UNSUPPORTED_SCRATCH)) => return Err(owner_wall(chunk, held)),
             Err(e) => return Err(e),
         }
@@ -1232,12 +1672,23 @@ fn own_split(merge: &dyn Merge, ctx: *mut gravity_abi::Ctx, partials: &[Partial<
 /// D1443: the records a continuing arm's worker partial holds when it is a phase-1 table (`T1::held`), else `None`.
 fn continued_t1(cont: bool, bytes: &[u8]) -> Option<u64> {
     // a worker's partial region, idle after the section; a T1 header names its shape
-    if cont { gravity_abi::breaker::T1::of(bytes).map(|t| t.held()) } else { None }
+    if cont {
+        gravity_abi::breaker::T1::of(bytes).map(|t| t.held())
+    } else {
+        None
+    }
 }
 
 /// The one owner's round-2 buffers flushed into its round-2 file (entry 0 of `slot`'s), a reduce's REDUCE_FLUSH.
-fn flush_round2(merge: &dyn Merge, spill: &crate::mem::spill::SpillTable, slot: Option<u8>, region: crate::sink::Region) -> Result<()> {
-    let (Some(slot), Some(r2)) = (slot, merge.round2_partial(region)) else { return Err(Error::Unsupported(UNSUPPORTED_SCRATCH)) };
+fn flush_round2(
+    merge: &dyn Merge,
+    spill: &crate::mem::spill::SpillTable,
+    slot: Option<u8>,
+    region: crate::sink::Region,
+) -> Result<()> {
+    let (Some(slot), Some(r2)) = (slot, merge.round2_partial(region)) else {
+        return Err(Error::Unsupported(UNSUPPORTED_SCRATCH));
+    };
     // the one owner's round-2 buffers, this thread's alone; entry 0 of the slot's round-2 files is its own
     raw::flush_round2_at(spill, slot, 0, r2.ptr).map(|_| ())
 }
@@ -1245,7 +1696,11 @@ fn flush_round2(merge: &dyn Merge, spill: &crate::mem::spill::SpillTable, slot: 
 /// The one owner's region over `held` bytes of records: `4 MiB + 2 × held` capped at the wall (D159: `held` counts every spilled
 /// partial record, the run half needs only the distinct groups, a full table splits; a result past the run half is the fold's named
 /// refusal), grown to the shape's floor (`fits`); past the wall a named refusal.
-pub(crate) fn owner_region_bytes(ask: usize, held: usize, fits: impl Fn(u32) -> bool) -> Result<usize> {
+pub(crate) fn owner_region_bytes(
+    ask: usize,
+    held: usize,
+    fits: impl Fn(u32) -> bool,
+) -> Result<usize> {
     let mut bytes = ask.min(OWNER_WALL);
     // bounded("other: a doubling up to OWNER_WALL, at most 64 rounds of one `fits` test each")
     while !fits(bytes as u32) {
@@ -1299,10 +1754,21 @@ pub fn one_owner_whole_bytes(held: usize, rec: usize) -> usize {
 /// the hash's unevenness (`own_split`'s share), laid as one owner's runs layout (`one_owner_bytes`), one partition's table
 /// for a two-round form (F7, as `own_all`), grown to the least region the merge's owners take (`fits`, its floor at the
 /// partials' owners) and trimmed to it (`least_fit`); `None` past the wall.
-pub(crate) fn owner_share_bytes(held: usize, rec: usize, width: u16, pbits: u8, two_round: bool, fits: impl Fn(usize) -> bool) -> Option<usize> {
+pub(crate) fn owner_share_bytes(
+    held: usize,
+    rec: usize,
+    width: u16,
+    pbits: u8,
+    two_round: bool,
+    fits: impl Fn(usize) -> bool,
+) -> Option<usize> {
     let share = held.div_ceil(width.max(1) as usize);
     let ask = one_owner_bytes(share + share / 4, rec);
-    let ask = if two_round { ask.max(2 * (gravity_abi::breaker::HASHAGG_HDR + ((4 * held) >> pbits).max(64 * rec))) } else { ask };
+    let ask = if two_round {
+        ask.max(2 * (gravity_abi::breaker::HASHAGG_HDR + ((4 * held) >> pbits).max(64 * rec)))
+    } else {
+        ask
+    };
     let top = owner_region_bytes(ask, share, |b| fits(b as usize)).ok()?;
     Some(least_fit(top, ask, fits))
 }
@@ -1313,7 +1779,8 @@ pub(crate) const OWNER_WALL: usize = u32::MAX as usize & !7;
 
 /// D485's test wall: 0 is `OWNER_WALL`; a test sets a small wall so a few thousand records split the one owner.
 #[doc(hidden)]
-pub static TEST_OWNER_WALL: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+pub static TEST_OWNER_WALL: core::sync::atomic::AtomicUsize =
+    core::sync::atomic::AtomicUsize::new(0);
 
 /// D491's test lever: `PGRUST_GRAVITY_OWNER_WALL` (bytes, the server's environment, read once per process) lowers the wall as
 /// `TEST_OWNER_WALL` does, so an e2e reaches the serial owners (`own_split`) at test scale (an e2e file's .env sets it;
@@ -1323,7 +1790,9 @@ fn env_owner_wall() -> usize {
     static WALL: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
     match WALL.load(Ordering::Relaxed) {
         0 => {
-            let w = crate::env::num::<usize>("PGRUST_GRAVITY_OWNER_WALL").filter(|&w| w != 0).map_or(OWNER_WALL, |w| w.clamp(64 << 10, OWNER_WALL) & !7);
+            let w = crate::env::num::<usize>("PGRUST_GRAVITY_OWNER_WALL")
+                .filter(|&w| w != 0)
+                .map_or(OWNER_WALL, |w| w.clamp(64 << 10, OWNER_WALL) & !7);
             WALL.store(w, Ordering::Relaxed);
             w
         }
@@ -1335,14 +1804,17 @@ fn env_owner_wall() -> usize {
 /// `PGRUST_GRAVITY_OWNER_FIRST`, read once per process; unset, 0 or unparsable: no cap; at least 64 KiB), so a test reaches
 /// a partition past the region, grown and resumed at that partition, at test scale (an e2e file's .env sets it; PostgreSQL
 /// ignores it).
-pub static TEST_OWNER_FIRST: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+pub static TEST_OWNER_FIRST: core::sync::atomic::AtomicUsize =
+    core::sync::atomic::AtomicUsize::new(0);
 
 fn owner_first_at() -> usize {
     static FIRST: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
     match TEST_OWNER_FIRST.load(Ordering::Relaxed) {
         0 => match FIRST.load(Ordering::Relaxed) {
             0 => {
-                let f = crate::env::num::<usize>("PGRUST_GRAVITY_OWNER_FIRST").filter(|&f| f != 0).map_or(usize::MAX, |f| f.max(64 << 10) & !7);
+                let f = crate::env::num::<usize>("PGRUST_GRAVITY_OWNER_FIRST")
+                    .filter(|&f| f != 0)
+                    .map_or(usize::MAX, |f| f.max(64 << 10) & !7);
                 FIRST.store(f, Ordering::Relaxed);
                 f
             }
@@ -1389,7 +1861,13 @@ pub static OWN_PIN_GIVEN: AtomicU64 = AtomicU64::new(0);
 /// W8 cut (0x1FFFFFF0) apart). A cut held smaller takes the owner phase's own roads (`owned_partitions` at it, else
 /// `own_past_grant`, else the one owner).
 pub(crate) fn owner_within(split_owner: u32, leader_len: usize, width: u16) -> u32 {
-    let held = crate::mem::grant::owner_cut(crate::mem::grant::Share { bytes: leader_len.min(u32::MAX as usize) as u32 }, width).bytes;
+    let held = crate::mem::grant::owner_cut(
+        crate::mem::grant::Share {
+            bytes: leader_len.min(u32::MAX as usize) as u32,
+        },
+        width,
+    )
+    .bytes;
     if held < split_owner {
         OWNER_CUT_HELD.fetch_add(1, Ordering::Relaxed);
     }
@@ -1405,7 +1883,12 @@ pub enum OwnerPlace {
     Refuse(u64),
 }
 
-pub fn owner_place(bytes: usize, spare: usize, spare_holds_floor: bool, room: Option<u64>) -> OwnerPlace {
+pub fn owner_place(
+    bytes: usize,
+    spare: usize,
+    spare_holds_floor: bool,
+    room: Option<u64>,
+) -> OwnerPlace {
     match room {
         _ if spare >= bytes => OwnerPlace::Cut(bytes),
         _ if spare_holds_floor => OwnerPlace::Cut(spare),
@@ -1416,7 +1899,8 @@ pub fn owner_place(bytes: usize, spare: usize, spare_holds_floor: bool, room: Op
 
 /// The wall met: a named refusal, the ask and the records behind it in the text.
 pub(crate) fn owner_wall(bytes: usize, held: usize) -> Error {
-    Error::Refused(format!("graph: owner: one serial owner over {held} bytes of held and spilled records asks a {bytes}-byte region, past the {OWNER_WALL}-byte one-owner wall").into()) // alloc: Cold
+    Error::Refused(format!("graph: owner: one serial owner over {held} bytes of held and spilled records asks a {bytes}-byte region, past the {OWNER_WALL}-byte one-owner wall").into())
+    // alloc: Cold
 }
 
 /// D4170: an owner fold over a merge with no owner phase (`Merge::own_partition`'s default, a hash aggregate's merge with no
@@ -1450,15 +1934,33 @@ impl crate::SpillFile for NoFile {
 }
 
 impl Entry {
-    pub fn open_section<'e>(&mut self, exec: &'e mut Exec, binding: &Binding<'_>, derive: &mut dyn Derive, pipeline: usize, width: u16) -> Result<Open<'e>> {
-        assert!(matches!(exec.state(), ExecState::Ready | ExecState::Running), "section on a {:?} exec", exec.state());
-        assert_eq!(exec.next_pipeline(), pipeline, "sections run in pipeline order");
+    pub fn open_section<'e>(
+        &mut self,
+        exec: &'e mut Exec,
+        binding: &Binding<'_>,
+        derive: &mut dyn Derive,
+        pipeline: usize,
+        width: u16,
+    ) -> Result<Open<'e>> {
+        assert!(
+            matches!(exec.state(), ExecState::Ready | ExecState::Running),
+            "section on a {:?} exec",
+            exec.state()
+        );
+        assert_eq!(
+            exec.next_pipeline(),
+            pipeline,
+            "sections run in pipeline order"
+        );
         assert!(width >= 2, "a width-{width} grant is serial");
         let node = exec.node_mut();
         assert_eq!(node.state(), NodeState::Bound);
         let program = node.program().clone();
         let p = program.pipelines[pipeline];
-        assert!(p.parallel == Parallel::Eligible, "section over an ineligible pipeline");
+        assert!(
+            p.parallel == Parallel::Eligible,
+            "section over an ineligible pipeline"
+        );
         if !node.is_opened(pipeline) {
             crate::ahead_trace::first_run(&program, pipeline); // construct C2 (b)
         }
@@ -1494,7 +1996,17 @@ impl Entry {
             // run's owner after a section reads the leader's records from the slot's files (close_section), so they go there
             // before this section's workers start, as every continuing arm's did before
             // (NEW-53: a resident keyed end's leader records are handed on: `Node::hand_leader`)
-            let opened = node.open_slot(b.slot, pipeline, split.breaker, split.images.bytes, width).and_then(|()| if node.in_arm_run(pipeline) { node.spill_leader(pipeline).and_then(|_| node.hand_leader(pipeline)).map(|_| ()) } else { Ok(()) });
+            let opened = node
+                .open_slot(b.slot, pipeline, split.breaker, split.images.bytes, width)
+                .and_then(|()| {
+                    if node.in_arm_run(pipeline) {
+                        node.spill_leader(pipeline)
+                            .and_then(|_| node.hand_leader(pipeline))
+                            .map(|_| ())
+                    } else {
+                        Ok(())
+                    }
+                });
             if let Err(e) = opened {
                 exec.set_state(ExecState::Failed);
                 return Err(e);
@@ -1516,18 +2028,42 @@ impl Entry {
         let stmt = raw::stmt_of(node);
         // option c': a set operation side's worker regions bind inside a reservation of its rows bound (0 = none)
         // D2894: or of the breaker's PostgreSQL floor where it passes the worker's modeled share (`grow::floor_reserve`)
-        let (mut reserve, mut floor) = crate::mem::grow::share_reserve(&p, stmt.map(|s| s.grant), split.worker.bytes as u64, width, false);
+        let (mut reserve, mut floor) = crate::mem::grow::share_reserve(
+            &p,
+            stmt.map(|s| s.grant),
+            split.worker.bytes as u64,
+            width,
+            false,
+        );
         // each worker's own ceiling (`grant::ceiling_of`): its partial's grows' bound, as each PostgreSQL worker's work_mem
         let worker_ceil = stmt.map_or(0, |s| crate::mem::grant::ceiling_of(s.grant, &p));
-        let worker_fault = crate::mem::grow::Fault::every(stmt.map_or(0, |s| s.grant.spill_every)).with_revoke_every(stmt.map_or(0, |s| s.grant.revoke_every)).with_refuse_debt(stmt.is_some_and(|s| s.grant.refuse_debt));
+        let worker_fault = crate::mem::grow::Fault::every(stmt.map_or(0, |s| s.grant.spill_every))
+            .with_revoke_every(stmt.map_or(0, |s| s.grant.revoke_every))
+            .with_refuse_debt(stmt.is_some_and(|s| s.grant.refuse_debt));
         // C10 / NR-1: `WorkerSlot::share_spills`, `share_debt`
         let worker_holds = if program.lowered() { p.holds() } else { None };
-        let (worker_spills, worker_debt) = (worker_holds.is_some_and(|h| h.spills()), worker_holds.and_then(|h| h.debt()));
+        let (worker_spills, worker_debt) = (
+            worker_holds.is_some_and(|h| h.spills()),
+            worker_holds.and_then(|h| h.debt()),
+        );
         // a hash breaker's workers start small: the share is the layout each grows into in place, the region commits the start
         let start = crate::mem::grant::start_bytes(split.worker.bytes);
-        let laid = crate::mem::grant::starts_small_in(&program, pipeline, stmt.map_or(crate::mem::grant::Grant::of(0), |s| s.grant)) && start < split.worker.bytes;
+        let laid = crate::mem::grant::starts_small_in(
+            &program,
+            pipeline,
+            stmt.map_or(crate::mem::grant::Grant::of(0), |s| s.grant),
+        ) && start < split.worker.bytes;
         let worker_bytes = if laid {
-            (reserve, floor) = (crate::mem::grow::start_reserve(&p, stmt.map(|s| s.grant), split.worker.bytes as u64, width, false), true);
+            (reserve, floor) = (
+                crate::mem::grow::start_reserve(
+                    &p,
+                    stmt.map(|s| s.grant),
+                    split.worker.bytes as u64,
+                    width,
+                    false,
+                ),
+                true,
+            );
             start
         } else {
             split.worker.bytes
@@ -1545,7 +2081,11 @@ impl Entry {
         // D3196 (rearm E1): a slot a nested run's last section left warm under this binding keeps its hosts
         let (key, mut kept) = (Warm::of(&binding.parts), 0u16);
         // D4725: the sites no worker reads, which no slot binds
-        let skip = if crate::slots::serial_skip() { crate::slots::serial_sites(&program.pipelines) } else { 0 };
+        let skip = if crate::slots::serial_skip() {
+            crate::slots::serial_sites(&program.pipelines)
+        } else {
+            0
+        };
         // bounded("small-fixed: one per worker slot of the section's width, at most SLOTS (256)")
         for (i, slot) in node.workers.iter_mut().take(width as usize).enumerate() {
             let tz = std::time::Instant::now();
@@ -1558,7 +2098,10 @@ impl Entry {
             // D4630 (b): under `bind_at_claim` a slot not warm for this binding binds at its first claim, on the claiming
             // thread (`Open::claim_on`), so the open binds none of the width's slots one after another on the leader
             slot.skip = skip;
-            if crate::slots::bind_at_claim() && slot.warm.is_none_or(|w| w != key) && binds_at_claim(&mut slot.inner, skip) {
+            if crate::slots::bind_at_claim()
+                && slot.warm.is_none_or(|w| w != key)
+                && binds_at_claim(&mut slot.inner, skip)
+            {
                 if slot.warm.take().is_some() {
                     slot.inner.for_each_host(&mut |h| h.unbind());
                 }
@@ -1575,21 +2118,44 @@ impl Entry {
                 }
             }
             let b = slot.binding.as_mut().unwrap();
-            raw::bind_ctx(&slot.inner, b, i as u16, width, arm, split.worker.bytes as u64, leader_ctx);
+            raw::bind_ctx(
+                &slot.inner,
+                b,
+                i as u16,
+                width,
+                arm,
+                split.worker.bytes as u64,
+                leader_ctx,
+            );
             if nested {
                 raw::copy_frame_words(&program, leader_ctx, slot.inner.ctx);
             }
             // G1-A: the worker's breaker region counts under its kind in the ledger's per-kind split
-            let _kind = memledger::with_kind(crate::mem::region::ledger_kind(breaker.map(|b| b.kind)));
+            let _kind =
+                memledger::with_kind(crate::mem::region::ledger_kind(breaker.map(|b| b.kind)));
             let own = match breaker {
                 Some(b) => {
                     let region = match b.budget {
-                        Budget::Fixed(n) => slot.fixed_region(n, stmt, &node.counters).map(|ptr| (ptr, n, 0)),
+                        Budget::Fixed(n) => slot
+                            .fixed_region(n, stmt, &node.counters)
+                            .map(|ptr| (ptr, n, 0)),
                         Budget::Share | Budget::Pool => {
                             node.counters.armed(worker_bytes);
-                            slot.share_region(worker_bytes, stmt, &node.counters, worker_bytes as u64 + split.images.bytes as u64, reserve, floor, if laid { split.worker.bytes } else { 0 }).map(|(ptr, grown, held)| {
-                                node.counters.grown_bytes.set(node.counters.grown_bytes.get() + grown as u64);
-                                let short = (split.images.bytes as u64).saturating_sub(slot.inner.w);
+                            slot.share_region(
+                                worker_bytes,
+                                stmt,
+                                &node.counters,
+                                worker_bytes as u64 + split.images.bytes as u64,
+                                reserve,
+                                floor,
+                                if laid { split.worker.bytes } else { 0 },
+                            )
+                            .map(|(ptr, grown, held)| {
+                                node.counters
+                                    .grown_bytes
+                                    .set(node.counters.grown_bytes.get() + grown as u64);
+                                let short =
+                                    (split.images.bytes as u64).saturating_sub(slot.inner.w);
                                 slot.inner.w += crate::mem::grant::POOL.carve_worker(stmt, short);
                                 // D3226 (c1): a share the pool's room opened smaller is armed at what it holds (`state_arm`), so it spills there
                                 (ptr, held, held)
@@ -1618,11 +2184,19 @@ impl Entry {
                     slot.state_arm = arm;
                     slot.state_stale = true;
                     slot.share_ceil = if b.budget.is_share() { worker_ceil } else { 0 };
-                    slot.share_fault = if b.budget.is_share() { worker_fault } else { crate::mem::grow::Fault::OFF };
+                    slot.share_fault = if b.budget.is_share() {
+                        worker_fault
+                    } else {
+                        crate::mem::grow::Fault::OFF
+                    };
                     slot.share_spills = worker_spills;
                     slot.share_debt = worker_debt;
                     // D4033: a share the pool's room opened smaller is cut by the section's share (`WorkerSlot::share_cut`)
-                    slot.share_cut = if b.budget.is_share() && arm < worker_bytes { split.worker.bytes } else { 0 };
+                    slot.share_cut = if b.budget.is_share() && arm < worker_bytes {
+                        split.worker.bytes
+                    } else {
+                        0
+                    };
                     ptr
                 }
                 None => {
@@ -1646,15 +2220,27 @@ impl Entry {
                 slot.own_partial(o);
             }
             (slot.inner.consumes, slot.inner.spill_parts) = reads;
-            slot.inner.home = if slot.state_ptr.is_null() { crate::mem::grow::Home::None } else { crate::mem::grow::Home::Worker(slot as *mut WorkerSlot) };
+            slot.inner.home = if slot.state_ptr.is_null() {
+                crate::mem::grow::Home::None
+            } else {
+                crate::mem::grow::Home::Worker(slot as *mut WorkerSlot)
+            };
             slot.inner.refill_off = 0;
             slot.inner.clear_mapped();
             // S4 (D187): the worker's arena carved into its W beside the image cut; an admitted worker draws W alone
             slot.inner.w_only = stmt.is_some_and(crate::mem::grant::Reservation::admitted);
-            let images = if breaker.is_some_and(|b| b.budget.is_share()) { split.images.bytes as u64 } else { 0 };
-            slot.inner.w += crate::mem::grant::POOL.carve_worker(stmt, (arena + images).saturating_sub(slot.inner.w));
+            let images = if breaker.is_some_and(|b| b.budget.is_share()) {
+                split.images.bytes as u64
+            } else {
+                0
+            };
+            slot.inner.w += crate::mem::grant::POOL
+                .carve_worker(stmt, (arena + images).saturating_sub(slot.inner.w));
             slot.inner.fill_base = core::ptr::null_mut();
-            slot.inner.set_partials(Partials { own: gravity_abi::word(own), ..consumed });
+            slot.inner.set_partials(Partials {
+                own: gravity_abi::word(own),
+                ..consumed
+            });
             let attached: &mut WorkerBinding<'static> = slot.binding.as_mut().unwrap();
             slot.inner.attach(attached);
             bound += 1;
@@ -1689,7 +2275,11 @@ impl Entry {
         // region is its fixed state, never the owners', and keeps the grant's cut as before. A leader region that started small
         // (`grant::starts_small`) is held the same way: its owners are cut from what it holds, and past that the owner phase
         // sizes them from the partials' records (`owners_in_place`, `own_past_grant`)
-        let owner = if breaker.is_some_and(|b| b.budget.is_share()) && leader.1 > 0 { owner_within(split.owner.bytes, leader.1, width) } else { split.owner.bytes };
+        let owner = if breaker.is_some_and(|b| b.budget.is_share()) && leader.1 > 0 {
+            owner_within(split.owner.bytes, leader.1, width)
+        } else {
+            split.owner.bytes
+        };
         // D4043: G's room past the W carves in the statement's purse, which its workers draw past W before the pool
         let purse = stmt.and_then(crate::mem::grant::Reservation::fill_purse);
         exec.set_state(ExecState::Running);
@@ -1700,12 +2290,38 @@ impl Entry {
             cells0 = ChargedVec::new(stmt_owner.map(|o| o.0), memledger::Kind::Region); // alloc: Exec charged stmt_owner.map(|o| o.0)
             cells0.with_vec(|v| v.extend_from_slice(cells)); // alloc: Exec charged stmt_owner
         }
-        Ok(Open { exec, cells0, slots, program: program_ptr, width, pipeline, leader: core::cell::Cell::new(leader), owner: core::cell::Cell::new(owner), owners_base: core::cell::Cell::new(core::ptr::null_mut()), merged: AtomicBool::new(false), lead: false, purse })
+        Ok(Open {
+            exec,
+            cells0,
+            slots,
+            program: program_ptr,
+            width,
+            pipeline,
+            leader: core::cell::Cell::new(leader),
+            owner: core::cell::Cell::new(owner),
+            owners_base: core::cell::Cell::new(core::ptr::null_mut()),
+            merged: AtomicBool::new(false),
+            lead: false,
+            purse,
+        })
     }
 
-    pub fn close_section(&mut self, open: Open<'_>, binding: &mut Binding<'_>, merge: &dyn Merge, ok: bool) -> Result<()> {
+    pub fn close_section(
+        &mut self,
+        open: Open<'_>,
+        binding: &mut Binding<'_>,
+        merge: &dyn Merge,
+        ok: bool,
+    ) -> Result<()> {
         let merged = open.merged.load(Ordering::Acquire);
-        let Open { exec, width, pipeline, cells0, purse, .. } = open;
+        let Open {
+            exec,
+            width,
+            pipeline,
+            cells0,
+            purse,
+            ..
+        } = open;
         let node = exec.node_mut();
         // D4043: the claims are done: the purse's bytes back in G's room for the close's folds (the outermost section's)
         let stmt = purse.as_ref().and_then(|_| raw::stmt_of(node));
@@ -1720,14 +2336,25 @@ impl Entry {
         // `end_production` scatters the leader; no finish: the run's last arm owns, finishes and seals every arm's records
         let cont = node.arm_continues(pipeline);
         if ok {
-            let spilling = node.program().pipelines[pipeline].breaker().is_some_and(|b| matches!(b.spill, gravity_abi::breaker::Spill::Partitioned { .. }));
+            let spilling = node.program().pipelines[pipeline]
+                .breaker()
+                .is_some_and(|b| {
+                    matches!(b.spill, gravity_abi::breaker::Spill::Partitioned { .. })
+                });
             // B4d (M7-DRAIN): a hash build's continuing arm merges its partials into the leader's region like any build (a v4
             // build spills its own partitions, join/build_spill.rs; spill_partial skips one): the T1 scatter below is a record table's
-            let build = node.program().pipelines[pipeline].breaker().is_some_and(|b| b.kind == gravity_abi::breaker::BreakerKind::HashBuild);
+            let build = node.program().pipelines[pipeline]
+                .breaker()
+                .is_some_and(|b| b.kind == gravity_abi::breaker::BreakerKind::HashBuild);
             // NEW-53 (D1443): a resident keyed end's continuing arm hands its phase-1 tables to the run's last arm as the word
             // form scatters them (in memory while the grant holds them, else to disk: `Node::hand_off`)
             let hands = cont && node.hands_off(pipeline);
-            let n = node.workers.iter().take(width as usize).filter(|s| !s.state_stale).count();
+            let n = node
+                .workers
+                .iter()
+                .take(width as usize)
+                .filter(|s| !s.state_stale)
+                .count();
             // exactsize B1b: a hash build's serial fold sized once from its partials' counted headers (BuildMerge under
             // pgrust.gravity_exact_size = build | all; a no-op otherwise)
             if !merged && !cont && build && n > 0 {
@@ -1735,11 +2362,24 @@ impl Entry {
                 let (state, slots) = node.slot_and_workers(produced);
                 let mut partials: [Partial<'_>; SLOTS] = [EMPTY; SLOTS];
                 let mut k = 0;
-                for slot in slots.iter().take(width as usize).filter(|s| !s.state_stale).take(SLOTS) {
-                    partials[k] = Partial { ordinal: slot.binding.as_ref().map_or(0, |b| b.ordinal), bytes: slot.state(), rows_processed: slot.rows_processed() };
+                for slot in slots
+                    .iter()
+                    .take(width as usize)
+                    .filter(|s| !s.state_stale)
+                    .take(SLOTS)
+                {
+                    partials[k] = Partial {
+                        ordinal: slot.binding.as_ref().map_or(0, |b| b.ordinal),
+                        bytes: slot.state(),
+                        rows_processed: slot.rows_processed(),
+                    };
                     k += 1;
                 }
-                let mut leader = State { bytes: state, sink: binding.sink, home };
+                let mut leader = State {
+                    bytes: state,
+                    sink: binding.sink,
+                    home,
+                };
                 r = merge.prepare_serial(&mut leader, &partials[..k]);
             }
             let mut shape: Option<(gravity_abi::breaker::RecordLayout, u8, u32)> = None;
@@ -1756,21 +2396,39 @@ impl Entry {
                 // second grow of the leader in one close wrote through it.
                 let home = produced.map(|s| node.leader_home(s));
                 let (state, slots) = node.slot_and_workers(produced);
-                let slot = slots.iter().take(width as usize).filter(|s| !s.state_stale).nth(i).expect("a partial");
+                let slot = slots
+                    .iter()
+                    .take(width as usize)
+                    .filter(|s| !s.state_stale)
+                    .nth(i)
+                    .expect("a partial");
                 let ordinal = slot.binding.as_ref().map_or(0, |b| b.ordinal);
-                let partial = Partial { ordinal, bytes: slot.state(), rows_processed: slot.rows_processed() };
+                let partial = Partial {
+                    ordinal,
+                    bytes: slot.state(),
+                    rows_processed: slot.rows_processed(),
+                };
                 let rows = slot.rows_processed();
                 if !merged && cont && spilling && !build {
                     let ptr = slot.state_ptr;
                     // the worker's own partial region (`ptr`), idle after the section; a T1 header names its shape
-                    if let Some(t) = shape.is_none().then(|| gravity_abi::breaker::T1::of(partial.bytes)).flatten() {
+                    if let Some(t) = shape
+                        .is_none()
+                        .then(|| gravity_abi::breaker::T1::of(partial.bytes))
+                        .flatten()
+                    {
                         shape = Some((t.layout, t.pbits, t.cap.saturating_mul(t.layout.size())));
                     }
                     if let Err(e) = node.spill_partial(pipeline, ptr) {
                         r = Err(e);
                         break;
                     }
-                } else if let (false, true, Some(t1)) = (merged, hands, gravity_abi::breaker::T1::of(partial.bytes).map(|t| (t.layout, t.pbits, t.cap.saturating_mul(t.layout.size())))) {
+                } else if let (false, true, Some(t1)) = (
+                    merged,
+                    hands,
+                    gravity_abi::breaker::T1::of(partial.bytes)
+                        .map(|t| (t.layout, t.pbits, t.cap.saturating_mul(t.layout.size()))),
+                ) {
                     let ptr = slot.state_ptr;
                     // NEW-53: a phase-1 table, as the word form's above; the leader's table is laid in the shape once a record went
                     // on (a RIGHT SEMI / ANTI probe's tables stay empty: nothing handed, the leader left as before)
@@ -1792,8 +2450,17 @@ impl Entry {
                             break;
                         }
                         let (state, slots) = node.slot_and_workers(produced);
-                        let slot = slots.iter().take(width as usize).filter(|s| !s.state_stale).nth(i).expect("a partial");
-                        let partial = Partial { ordinal, bytes: slot.state(), rows_processed: slot.rows_processed() };
+                        let slot = slots
+                            .iter()
+                            .take(width as usize)
+                            .filter(|s| !s.state_stale)
+                            .nth(i)
+                            .expect("a partial");
+                        let partial = Partial {
+                            ordinal,
+                            bytes: slot.state(),
+                            rows_processed: slot.rows_processed(),
+                        };
                         if !merge.room_for(state, partial) {
                             let ptr = slot.state_ptr;
                             if let Err(e) = node.spill_partial(pipeline, ptr) {
@@ -1801,18 +2468,27 @@ impl Entry {
                                 break;
                             }
                         } else {
-                            continue_fold(node, produced, ordinal, i, width, binding, merge, &mut r);
+                            continue_fold(
+                                node, produced, ordinal, i, width, binding, merge, &mut r,
+                            );
                         }
                     } else if let Some(held) = continued_t1(cont, partial.bytes) {
                         // D1443: a continuing arm whose end stays resident (no partitioned spill: a varlena key, D6) and hands
                         // nothing on (NEW-53: a keyed end hands its tables, above) has no serial fold for its phase-1 tables;
                         // an empty one has nothing to fold, the run's last arm owns the rest, any other is refused by name
                         if held != 0 {
-                            r = Err(Error::Refused(format!("graph: keyed end: pipeline {pipeline}, an arm continuing its run left {held} records in a resident phase-1 table with no fold (D1443)").into())); // alloc: Cold
+                            r = Err(Error::Refused(format!("graph: keyed end: pipeline {pipeline}, an arm continuing its run left {held} records in a resident phase-1 table with no fold (D1443)").into()));
+                            // alloc: Cold
                         }
                     } else {
-                        let mut leader = State { bytes: state, sink: binding.sink, home };
-                        if let Err(e) = raw::lend_cancel(lead, || merge.merge_into(&mut leader, partial)) {
+                        let mut leader = State {
+                            bytes: state,
+                            sink: binding.sink,
+                            home,
+                        };
+                        if let Err(e) =
+                            raw::lend_cancel(lead, || merge.merge_into(&mut leader, partial))
+                        {
                             r = Err(e);
                         }
                     }
@@ -1822,7 +2498,9 @@ impl Entry {
                 }
                 binding.rows_processed += rows;
             }
-            if let (true, false, Some((layout, pbits, bytes)), Some(slot)) = (r.is_ok() && cont, merged, shape, produced) {
+            if let (true, false, Some((layout, pbits, bytes)), Some(slot)) =
+                (r.is_ok() && cont, merged, shape, produced)
+            {
                 node.lay_leader_t1(slot, &layout, pbits, bytes);
             }
             if r.is_ok() && !merged {
@@ -1831,7 +2509,11 @@ impl Entry {
             if r.is_ok() && !cont {
                 let home = produced.map(|s| node.leader_home(s));
                 let (state, _) = node.slot_and_workers(produced);
-                let mut leader = State { bytes: state, sink: binding.sink, home };
+                let mut leader = State {
+                    bytes: state,
+                    sink: binding.sink,
+                    home,
+                };
                 r = merge.finish(&mut leader);
             }
         }
@@ -1851,13 +2533,22 @@ impl Entry {
         raw::settle_loops(lead_instr, &node.program().instr, &cells0);
         node.fold_worker_arenas(width);
         // D1408: a pin a claim left behind is its thread's: the source leaks it (a WARNING) and the section fails by name
-        if r.is_ok() && node.workers.iter().take(width as usize).any(|s| s.binding.is_some() && s.pins() != 0) {
-            r = Err(Error::host("gravity: D1408 a worker slot still holds buffer pins after its section"));
+        if r.is_ok()
+            && node
+                .workers
+                .iter()
+                .take(width as usize)
+                .any(|s| s.binding.is_some() && s.pins() != 0)
+        {
+            r = Err(Error::host(
+                "gravity: D1408 a worker slot still holds buffer pins after its section",
+            ));
         }
         // D3196 (rearm E1): a nested run's section (a rescan's member, which the next rescan opens again) leaves its slots'
         // hosts bound, warm for this binding (an open of any pipeline at any width under it keeps them: `open_section`); a
         // failed section and every other one unbind them, and the statement's end unbinds the warm ones (`Node::cool_workers`)
-        let warm = (ok && r.is_ok() && node.is_nested() && crate::slots::warm_on()).then(|| Warm::of(&binding.parts));
+        let warm = (ok && r.is_ok() && node.is_nested() && crate::slots::warm_on())
+            .then(|| Warm::of(&binding.parts));
         // bounded("small-fixed: one per worker slot of the section's width, at most SLOTS (256)")
         for slot in node.workers.iter_mut().take(width as usize) {
             match warm {
@@ -1875,7 +2566,11 @@ impl Entry {
                 node.free_after(pipeline);
                 exec.mark_opened(pipeline);
                 exec.advance_pipeline();
-                exec.set_state(if last { ExecState::Done } else { ExecState::Running });
+                exec.set_state(if last {
+                    ExecState::Done
+                } else {
+                    ExecState::Running
+                });
             }
             _ => exec.set_state(ExecState::Failed),
         }
@@ -1886,14 +2581,26 @@ impl Entry {
     /// sections scattered their partials to the slot's files): `width` worker slots bound as a section binds them, with no
     /// claim and no partial region. The leader region's table is the one partial (`Open::partials`); the owners' regions are
     /// pinned past it (`own_past_grant`). `close_owners` ends it.
-    pub fn open_owners<'e>(&mut self, exec: &'e mut Exec, binding: &Binding<'_>, derive: &mut dyn Derive, pipeline: usize, width: u16) -> Result<Open<'e>> {
-        assert!(width >= 2 && exec.next_pipeline() > pipeline, "owners of a pipeline that has not run");
+    pub fn open_owners<'e>(
+        &mut self,
+        exec: &'e mut Exec,
+        binding: &Binding<'_>,
+        derive: &mut dyn Derive,
+        pipeline: usize,
+        width: u16,
+    ) -> Result<Open<'e>> {
+        assert!(
+            width >= 2 && exec.next_pipeline() > pipeline,
+            "owners of a pipeline that has not run"
+        );
         let t0 = pg_clock::MonoStamp::now();
         let salt = exec.slot_salt();
         let node = exec.node_mut();
         assert_eq!(node.state(), NodeState::Bound);
         let program = node.program().clone();
-        let Some(slot_of) = program.pipelines[pipeline].produces() else { return Err(Error::Unsupported(UNSUPPORTED_SCRATCH)) };
+        let Some(slot_of) = program.pipelines[pipeline].produces() else {
+            return Err(Error::Unsupported(UNSUPPORTED_SCRATCH));
+        };
         if let Err(e) = node.provision(width, derive, salt) {
             exec.set_state(ExecState::Failed);
             return Err(e);
@@ -1910,8 +2617,12 @@ impl Entry {
         let (nested, leader_ctx) = (node.is_nested(), node.ctx());
         let (mut bound, mut failed) = (0, None);
         let key = Warm::of(&binding.parts);
-        let skip = if crate::slots::serial_skip() { crate::slots::serial_sites(&program.pipelines) } else { 0 }; // D4725
-        // bounded("small-fixed: one per worker slot of the section's width, at most SLOTS (256)")
+        let skip = if crate::slots::serial_skip() {
+            crate::slots::serial_sites(&program.pipelines)
+        } else {
+            0
+        }; // D4725
+           // bounded("small-fixed: one per worker slot of the section's width, at most SLOTS (256)")
         for (i, slot) in node.workers.iter_mut().take(width as usize).enumerate() {
             slot.binding = Some(raw::erase(binding.fork(i as u16, MorselRange::ALL)));
             let b = slot.binding.as_mut().unwrap();
@@ -1932,7 +2643,10 @@ impl Entry {
             (slot.inner.consumes, slot.inner.spill_parts) = reads;
             slot.inner.home = crate::mem::grow::Home::None;
             slot.inner.clear_mapped();
-            slot.inner.set_partials(Partials { own: gravity_abi::word(core::ptr::null_mut()), ..consumed });
+            slot.inner.set_partials(Partials {
+                own: gravity_abi::word(core::ptr::null_mut()),
+                ..consumed
+            });
             let attached: &mut WorkerBinding<'static> = slot.binding.as_mut().unwrap();
             slot.inner.attach(attached);
             bound += 1;
@@ -1953,19 +2667,40 @@ impl Entry {
         let leader = (r.as_mut_ptr(), r.len());
         // D4043: as `open_section`'s
         let purse = raw::stmt_of(node).and_then(crate::mem::grant::Reservation::fill_purse);
-        Ok(Open { exec, cells0: ChargedVec::none(), slots, program: program_ptr, width, pipeline, leader: core::cell::Cell::new(leader), owner: core::cell::Cell::new(0), owners_base: core::cell::Cell::new(core::ptr::null_mut()), merged: AtomicBool::new(false), lead: true, purse })
+        Ok(Open {
+            exec,
+            cells0: ChargedVec::none(),
+            slots,
+            program: program_ptr,
+            width,
+            pipeline,
+            leader: core::cell::Cell::new(leader),
+            owner: core::cell::Cell::new(0),
+            owners_base: core::cell::Cell::new(core::ptr::null_mut()),
+            merged: AtomicBool::new(false),
+            lead: true,
+            purse,
+        })
     }
 
     /// D3140: `open_owners`' slots folded and detached; the pipeline stays where its arm left it.
     pub fn close_owners(&mut self, open: Open<'_>) {
-        let Open { exec, width, pipeline, purse, .. } = open;
+        let Open {
+            exec,
+            width,
+            pipeline,
+            purse,
+            ..
+        } = open;
         let node = exec.node_mut();
         // D4043: as `close_section`'s
         let stmt = purse.as_ref().and_then(|_| raw::stmt_of(node));
         if let Some(s) = stmt {
             s.drain_purse(true);
         }
-        let kind = node.program().pipelines[pipeline].produces().and_then(|s| crate::mem::grow::kind_of(node.program(), s));
+        let kind = node.program().pipelines[pipeline]
+            .produces()
+            .and_then(|s| crate::mem::grow::kind_of(node.program(), s));
         // bounded("small-fixed: one per worker slot of the section's width, at most SLOTS (256)")
         for slot in node.workers.iter_mut().take(width as usize) {
             slot.settle_retired();
@@ -1988,9 +2723,35 @@ impl Entry {
 /// they bind from `b` without its parameter image (a rescan's own words): what a warm slot keeps across rescans is what a
 /// fresh bind would make. `BindingRef`'s fields are named one by one: a new one is a build error here until the warm key
 /// (`Warm::of`) weighs it.
-fn bind_hosts(warm: &mut Option<Warm>, inner: &mut crate::node::Inner, b: &crate::binding::BindingRef<'_>, key: Warm, skip: u64) -> Result<bool> {
-    let crate::binding::BindingRef { snapshot, command_id, abort_flag, pins, per_tuple, identity, resolved, params: _, ordinal } = *b;
-    let b = crate::binding::BindingRef { snapshot, command_id, abort_flag, pins, per_tuple, identity, resolved, params: &[], ordinal };
+fn bind_hosts(
+    warm: &mut Option<Warm>,
+    inner: &mut crate::node::Inner,
+    b: &crate::binding::BindingRef<'_>,
+    key: Warm,
+    skip: u64,
+) -> Result<bool> {
+    let crate::binding::BindingRef {
+        snapshot,
+        command_id,
+        abort_flag,
+        pins,
+        per_tuple,
+        identity,
+        resolved,
+        params: _,
+        ordinal,
+    } = *b;
+    let b = crate::binding::BindingRef {
+        snapshot,
+        command_id,
+        abort_flag,
+        pins,
+        per_tuple,
+        identity,
+        resolved,
+        params: &[],
+        ordinal,
+    };
     let mut err = None;
     match warm.take() {
         Some(w) if w == key => {
@@ -2005,7 +2766,10 @@ fn bind_hosts(warm: &mut Option<Warm>, inner: &mut crate::node::Inner, b: &crate
         None => {}
     }
     inner.for_each_host_but(skip, &mut |h| {
-        debug_assert!(matches!(h, crate::node::HostRef::Source(_)), "a worker slot's host that is no source (D3196: its bind may read the image)");
+        debug_assert!(
+            matches!(h, crate::node::HostRef::Source(_)),
+            "a worker slot's host that is no source (D3196: its bind may read the image)"
+        );
         if err.is_none() {
             err = h.bind(&b).err();
         }
@@ -2026,13 +2790,35 @@ fn binds_at_claim(inner: &mut crate::node::Inner, skip: u64) -> bool {
 
 /// Fold partial `i` after the leader was scattered for it (the table is empty: it fits).
 #[allow(clippy::too_many_arguments)]
-fn continue_fold(node: &mut crate::node::Node, produced: Option<u8>, ordinal: u16, i: usize, width: u16, binding: &mut Binding<'_>, merge: &dyn Merge, r: &mut Result<()>) {
+fn continue_fold(
+    node: &mut crate::node::Node,
+    produced: Option<u8>,
+    ordinal: u16,
+    i: usize,
+    width: u16,
+    binding: &mut Binding<'_>,
+    merge: &dyn Merge,
+    r: &mut Result<()>,
+) {
     let lead = node.ctx();
     let home = produced.map(|s| node.leader_home(s));
     let (state, slots) = node.slot_and_workers(produced);
-    let slot = slots.iter().take(width as usize).filter(|s| !s.state_stale).nth(i).expect("a partial");
-    let partial = Partial { ordinal, bytes: slot.state(), rows_processed: slot.rows_processed() };
-    let mut leader = State { bytes: state, sink: binding.sink, home };
+    let slot = slots
+        .iter()
+        .take(width as usize)
+        .filter(|s| !s.state_stale)
+        .nth(i)
+        .expect("a partial");
+    let partial = Partial {
+        ordinal,
+        bytes: slot.state(),
+        rows_processed: slot.rows_processed(),
+    };
+    let mut leader = State {
+        bytes: state,
+        sink: binding.sink,
+        home,
+    };
     // C9: as `close_section`'s folds: the statement's byte lent to the fold's steps
     if let Err(e) = raw::lend_cancel(lead, || merge.merge_into(&mut leader, partial)) {
         *r = Err(e);
@@ -2046,11 +2832,24 @@ mod owner_region_tests {
     #[test]
     fn a_serial_owner_over_held_records_past_the_wall_takes_the_wall_not_a_refusal() {
         let held = 2_399_440_640usize;
-        assert_eq!(owner_region_bytes(one_owner_bytes(held, 32), held, |_| true).unwrap(), OWNER_WALL, "D159: a W0 owner holding 2.4 GB asked 4.8 GB");
+        assert_eq!(
+            owner_region_bytes(one_owner_bytes(held, 32), held, |_| true).unwrap(),
+            OWNER_WALL,
+            "D159: a W0 owner holding 2.4 GB asked 4.8 GB"
+        );
         let mib = one_owner_bytes(1 << 20, 32);
         assert_eq!(owner_region_bytes(mib, 1 << 20, |_| true).unwrap(), mib);
-        assert_eq!(owner_region_bytes(mib, 1 << 20, |b| b as usize >= 4 * mib).unwrap(), 4 * mib);
-        assert!(matches!(owner_region_bytes(one_owner_bytes(held, 32), held, |b| b as usize > OWNER_WALL), Err(Error::Refused(_))), "a floor past the wall refuses by name");
+        assert_eq!(
+            owner_region_bytes(mib, 1 << 20, |b| b as usize >= 4 * mib).unwrap(),
+            4 * mib
+        );
+        assert!(
+            matches!(
+                owner_region_bytes(one_owner_bytes(held, 32), held, |b| b as usize > OWNER_WALL),
+                Err(Error::Refused(_))
+            ),
+            "a floor past the wall refuses by name"
+        );
     }
 
     /// D3322: the owners' cuts lie inside the leader region the slot holds. The crash's numbers: a 15780 MiB grant at W8 puts
@@ -2062,26 +2861,60 @@ mod owner_region_tests {
         use crate::mem::grant::Grant;
         let split = Grant::of(15780 << 20).split(1, 8);
         assert_eq!(split.breaker.bytes, !7, "the leader's share at the u32 cap");
-        assert_eq!(crate::park::region_bytes(split.breaker.bytes as usize), 1 << 32, "its region: the 4294967296 B draw");
-        assert_eq!(split.owner.bytes, 0x1FFF_FFF0, "the grant's owner cut at W8");
+        assert_eq!(
+            crate::park::region_bytes(split.breaker.bytes as usize),
+            1 << 32,
+            "its region: the 4294967296 B draw"
+        );
+        assert_eq!(
+            split.owner.bytes, 0x1FFF_FFF0,
+            "the grant's owner cut at W8"
+        );
         let held = OWNER_CUT_HELD.load(Ordering::Relaxed);
         // the region holds the grant's share: the grant's cut, nothing counted
-        assert_eq!(owner_within(split.owner.bytes, split.breaker.bytes as usize, 8), split.owner.bytes);
+        assert_eq!(
+            owner_within(split.owner.bytes, split.breaker.bytes as usize, 8),
+            split.owner.bytes
+        );
         assert_eq!(OWNER_CUT_HELD.load(Ordering::Relaxed), held);
-        for (leader, width) in [(64usize << 20, 8u16), (1 << 30, 8), (64 << 20, 16), (4 << 20, 2)] {
+        for (leader, width) in [
+            (64usize << 20, 8u16),
+            (1 << 30, 8),
+            (64 << 20, 16),
+            (4 << 20, 2),
+        ] {
             let split = Grant::of(15780 << 20).split(1, width);
             let cut = owner_within(split.owner.bytes, leader, width) as usize;
-            assert!(cut < split.owner.bytes as usize && cut > 0, "{leader} B leader at W{width}: cut {cut}");
-            assert!(gravity_abi::breaker::OWNED_HDR + width as usize * cut <= leader, "{leader} B leader at W{width}: the last owner ends inside it");
-            assert_eq!(cut, owner_cut_of(leader, width), "the cut of the region held");
+            assert!(
+                cut < split.owner.bytes as usize && cut > 0,
+                "{leader} B leader at W{width}: cut {cut}"
+            );
+            assert!(
+                gravity_abi::breaker::OWNED_HDR + width as usize * cut <= leader,
+                "{leader} B leader at W{width}: the last owner ends inside it"
+            );
+            assert_eq!(
+                cut,
+                owner_cut_of(leader, width),
+                "the cut of the region held"
+            );
         }
-        assert!(OWNER_CUT_HELD.load(Ordering::Relaxed) >= held + 4, "each held cut counted");
+        assert!(
+            OWNER_CUT_HELD.load(Ordering::Relaxed) >= held + 4,
+            "each held cut counted"
+        );
         // a leader region larger than the grant's share (a kept arm region) never widens the grant's cut
         assert_eq!(owner_within(1 << 20, 1 << 30, 4), 1 << 20);
     }
 
     fn owner_cut_of(leader: usize, width: u16) -> usize {
-        crate::mem::grant::owner_cut(crate::mem::grant::Share { bytes: leader as u32 }, width).bytes as usize
+        crate::mem::grant::owner_cut(
+            crate::mem::grant::Share {
+                bytes: leader as u32,
+            },
+            width,
+        )
+        .bytes as usize
     }
 }
 
@@ -2104,7 +2937,17 @@ mod kept_tests {
     /// D3111: the kept probe's word round-trips its table offset and its kept state's end (none too).
     #[test]
     fn a_kept_word_keeps_its_offset_and_end() {
-        for k in [Kept { off: 4096, end: Some(4096) }, Kept { off: 600_000, end: Some(800) }, Kept { off: 72, end: None }] {
+        for k in [
+            Kept {
+                off: 4096,
+                end: Some(4096),
+            },
+            Kept {
+                off: 600_000,
+                end: Some(800),
+            },
+            Kept { off: 72, end: None },
+        ] {
             assert_eq!(Kept::of(k.word()), k);
         }
     }
@@ -2113,13 +2956,31 @@ mod kept_tests {
     /// fold's accumulators past its results) takes the table at the probe's share of table space past its kept state.
     #[test]
     fn a_kept_region_holds_the_table_behind_the_form_own_share() {
-        assert_eq!(Kept { off: 1000, end: Some(1000) }.region(1 << 20), 1000 + HASHAGG_HDR + (1 << 20));
-        assert_eq!(Kept { off: 1000, end: None }.region(1 << 20), 1000 + HASHAGG_HDR + (1 << 20));
+        assert_eq!(
+            Kept {
+                off: 1000,
+                end: Some(1000)
+            }
+            .region(1 << 20),
+            1000 + HASHAGG_HDR + (1 << 20)
+        );
+        assert_eq!(
+            Kept {
+                off: 1000,
+                end: None
+            }
+            .region(1 << 20),
+            1000 + HASHAGG_HDR + (1 << 20)
+        );
         // 60 % of the probe past the kept state is the form's own: the table space is 40 % of the region past it
         let (e, off) = (800, 800 + (KEPT_PROBE - 800) * 3 / 5);
         let r = Kept { off, end: Some(e) }.region(4 << 20);
         let share = (r - e) as f64 * (KEPT_PROBE - off) as f64 / (KEPT_PROBE - e) as f64;
-        assert!(share >= (HASHAGG_HDR + (4 << 20)) as f64 && share < (HASHAGG_HDR + (4 << 20)) as f64 + 8.0, "{r} {share}");
+        assert!(
+            share >= (HASHAGG_HDR + (4 << 20)) as f64
+                && share < (HASHAGG_HDR + (4 << 20)) as f64 + 8.0,
+            "{r} {share}"
+        );
     }
 
     /// D4531: a thread's kept-run probe is charged whole to the per-backend holder, not to the backend bound on the thread
@@ -2135,15 +2996,28 @@ mod kept_tests {
                 memledger::fold();
                 memledger::account_row(x).account_bytes
             };
-            let probe = || super::KEPT_PROBE_BUF.with(|b| (b.borrow().owner(), b.borrow().charged_bytes()));
+            let probe =
+                || super::KEPT_PROBE_BUF.with(|b| (b.borrow().owner(), b.borrow().charged_bytes()));
             let a0 = row(a);
-            assert_eq!(super::kept_run(&Plain), None, "no owner form: the runs form");
-            assert_eq!(probe(), (Some(super::KEPT_PROBE_OWNER), KEPT_PROBE as u64), "the probe is the per-backend holder's, whole");
+            assert_eq!(
+                super::kept_run(&Plain),
+                None,
+                "no owner form: the runs form"
+            );
+            assert_eq!(
+                probe(),
+                (Some(super::KEPT_PROBE_OWNER), KEPT_PROBE as u64),
+                "the probe is the per-backend holder's, whole"
+            );
             assert!(row(memledger::Acct::of(memledger::Consumer::PerBackend)) >= KEPT_PROBE as i64);
             // the commit moved the block off the bound backend (door 1 counts it there where the allocator is installed)
             assert!(row(a) - a0 <= 0, "nothing of it on the backend");
             assert_eq!(super::kept_run(&Plain), None);
-            assert_eq!(probe(), (Some(super::KEPT_PROBE_OWNER), KEPT_PROBE as u64), "reused");
+            assert_eq!(
+                probe(),
+                (Some(super::KEPT_PROBE_OWNER), KEPT_PROBE as u64),
+                "reused"
+            );
             memledger::unbind_backend();
         })
         .join()
@@ -2153,9 +3027,15 @@ mod kept_tests {
     /// D3111: past an overflow a kept region doubles, or grows at once to hold four times the overflowed partition's records.
     #[test]
     fn a_kept_region_past_an_overflow_grows_to_its_partition_or_twice() {
-        let k = Kept { off: 1000, end: Some(1000) };
+        let k = Kept {
+            off: 1000,
+            end: Some(1000),
+        };
         assert_eq!(k.grown(64 << 10, None), 128 << 10);
-        assert_eq!(k.grown(64 << 10, Some(4 << 20)), 1000 + HASHAGG_HDR + (16 << 20));
+        assert_eq!(
+            k.grown(64 << 10, Some(4 << 20)),
+            1000 + HASHAGG_HDR + (16 << 20)
+        );
         assert_eq!(k.grown(256 << 20, Some(4 << 10)), 512 << 20);
     }
 }

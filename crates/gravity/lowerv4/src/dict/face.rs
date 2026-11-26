@@ -34,9 +34,25 @@ crate::hook_variants! {
 pub trait PerValueMech: Sync {
     /// The rows of block `[base, base + 64)` within `m` whose code on `lane` passes `expr`. The value is read from the
     /// per-entry table, which is built once per dictionary.
-    fn mask(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, w: &WordWin, base: Value, lane: LaneId, expr: ExId, m: Mask) -> Mask;
+    fn mask(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        w: &WordWin,
+        base: Value,
+        lane: LaneId,
+        expr: ExId,
+        m: Mask,
+    ) -> Mask;
     /// The value of `expr` for `code`, read from the table, as `(value, null)`.
-    fn value(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, lane: LaneId, expr: ExId, code: Value) -> (Value, Value);
+    fn value(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        lane: LaneId,
+        expr: ExId,
+        code: Value,
+    ) -> (Value, Value);
 }
 
 pub struct PerValueImpl(pub &'static dyn PerValueMech);
@@ -98,7 +114,9 @@ pub enum DictOpenForm {
 
 /// M6 R3 (road `jsonb.codes`, `CodeRep::Jsonb`): step `j` of pipeline `k`'s compares over a shredded path read as a code
 /// lane, rewritten before step/percode.rs attaches the expression (source/jsonb_codes.rs); `None` when none was.
-pub struct CodeRewrite(pub fn(&mut Px<'_, '_>, usize, usize, &mut gravity_expr::Compiled<'_>) -> Option<Undo>);
+pub struct CodeRewrite(
+    pub fn(&mut Px<'_, '_>, usize, usize, &mut gravity_expr::Compiled<'_>) -> Option<Undo>,
+);
 
 /// C5 (V4R-468; jsonb.lanes' second face, source/jsonb_keys.rs): a group key `col ->> 'key'` over a declared path's
 /// code lane. `path`: key program `c` of pipeline `k` as percode.table's key form over it, its code column of `cols`
@@ -107,15 +125,26 @@ pub struct CodeRewrite(pub fn(&mut Px<'_, '_>, usize, usize, &mut gravity_expr::
 /// them where the path lane is invalid); `keyed`: key `e`'s `ex` over pipeline `k`, refused unless in the path form (the
 /// `bool`) or over no such column.
 pub struct PathKey {
-    pub path: for<'a> fn(&mut Px<'_, '_>, usize, &gravity_expr::Compiled<'_>, &'a [(i16, u8, u8)]) -> Option<&'a (i16, u8, u8)>,
-    pub key: fn(&crate::graph::Gx<'_, '_>, usize, &gravity_decompose::ops::shared::agg::KeyDecl<'_>) -> Option<(i16, u8)>,
+    pub path: for<'a> fn(
+        &mut Px<'_, '_>,
+        usize,
+        &gravity_expr::Compiled<'_>,
+        &'a [(i16, u8, u8)],
+    ) -> Option<&'a (i16, u8, u8)>,
+    pub key: fn(
+        &crate::graph::Gx<'_, '_>,
+        usize,
+        &gravity_decompose::ops::shared::agg::KeyDecl<'_>,
+    ) -> Option<(i16, u8)>,
     pub late: fn(&Px<'_, '_>, usize, &gravity_program::SiteDesc) -> u64,
     pub keyed: fn(bool, &mut Px<'_, '_>, usize, types_nodes::Node<'_>, i32, ExId) -> ExId,
 }
 
 /// The `PathKey` face where M6's jsonb.lanes is built (`node` names a missing face).
 pub fn path_key(node: i32) -> Option<&'static PathKey> {
-    crate::ops::strategy(crate::face::strategy::JSONB_LANES).map(|_| crate::frame::iface::need_strategy::<PathKey>(&node, crate::face::strategy::JSONB_LANES))
+    crate::ops::strategy(crate::face::strategy::JSONB_LANES).map(|_| {
+        crate::frame::iface::need_strategy::<PathKey>(&node, crate::face::strategy::JSONB_LANES)
+    })
 }
 
 /// A rewrite's inverse, applied when no per-code root is served: the program's node / kid / site counts before it, each
@@ -133,12 +162,18 @@ pub struct Undo {
 impl Undo {
     pub fn undo(self, px: &mut Px<'_, '_>, c: &mut gravity_expr::Compiled<'_>) {
         let p = &mut c.prog;
-        self.moved.iter().rev().for_each(|&(i, m)| p.nodes.swap(i, m));
+        self.moved
+            .iter()
+            .rev()
+            .for_each(|&(i, m)| p.nodes.swap(i, m));
         for &i in self.outer.iter() {
             if let gravity_expr::ExprNode::Var(v) = &mut p.nodes[i] {
                 v.src = gravity_expr::Source::Scan;
             }
-        }p.nodes.truncate(self.len[0]); p.kids.truncate(self.len[1]); p.sites.truncate(self.len[2]);
+        }
+        p.nodes.truncate(self.len[0]);
+        p.kids.truncate(self.len[1]);
+        p.sites.truncate(self.len[2]);
         if let Some(s) = px.site_mut(self.k) {
             self.claims.iter().for_each(|&n| s.shreds[n].claims -= 1);
         }
@@ -147,9 +182,18 @@ impl Undo {
 
 /// `attach` (step/percode.rs's, of step `j` of pipeline `k`) over `c` after the `jsonb.codes` rewrite (`CodeRewrite`) when
 /// the road is built and on, the rewrite undone when no per-code root is served.
-pub fn rewritten<'g, 'p, T>(px: &mut Px<'g, 'p>, k: usize, j: usize, c: &mut gravity_expr::Compiled<'p>, attach: impl FnOnce(&mut Px<'g, 'p>, &mut gravity_expr::Compiled<'p>) -> Option<T>) -> Option<T> {
-    let r = crate::ops::strategy(crate::face::strategy::JSONB_CODES).and_then(|m| m.downcast_ref::<CodeRewrite>());
-    let undo = r.filter(|_| CodeRep::Jsonb.on()).and_then(|r| (r.0)(px, k, j, c));
+pub fn rewritten<'g, 'p, T>(
+    px: &mut Px<'g, 'p>,
+    k: usize,
+    j: usize,
+    c: &mut gravity_expr::Compiled<'p>,
+    attach: impl FnOnce(&mut Px<'g, 'p>, &mut gravity_expr::Compiled<'p>) -> Option<T>,
+) -> Option<T> {
+    let r = crate::ops::strategy(crate::face::strategy::JSONB_CODES)
+        .and_then(|m| m.downcast_ref::<CodeRewrite>());
+    let undo = r
+        .filter(|_| CodeRep::Jsonb.on())
+        .and_then(|r| (r.0)(px, k, j, c));
     let plan = attach(px, c);
     if let (None, Some(u)) = (&plan, undo) {
         u.undo(px, c);

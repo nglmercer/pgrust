@@ -27,7 +27,11 @@ pub use writer_guard::{Integral, VectorWriter};
 /// Upstream `WithAsserts`: `TPDE_ASSERT` is `assert` under `#ifndef NDEBUG`
 /// and nothing otherwise. Dev/Miri builds, the `checked` feature and the
 /// address-sanitizer stage keep every check; `dist` compiles them out.
-pub const CHECKED: bool = cfg!(any(debug_assertions, feature = "checked", tpde_address_sanitizer));
+pub const CHECKED: bool = cfg!(any(
+    debug_assertions,
+    feature = "checked",
+    tpde_address_sanitizer
+));
 
 /// `TPDE_ASSERT`: evaluated only when [`CHECKED`]; a dead branch otherwise.
 #[macro_export]

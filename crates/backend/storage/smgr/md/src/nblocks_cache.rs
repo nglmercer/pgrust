@@ -1,5 +1,5 @@
-use std::collections::BTreeMap;
 use pgsync::RwLock;
+use std::collections::BTreeMap;
 
 use ::types_core::primitive::{BlockNumber, ForkNumber};
 use ::types_core::Oid;
@@ -29,7 +29,12 @@ fn home() -> Option<memledger::Entered> {
 
 fn cache() -> &'static RwLock<Inner> {
     static CACHE: pgsync::OnceLock<RwLock<Inner>> = pgsync::OnceLock::new();
-    CACHE.get_or_init(|| RwLock::new(Inner { epoch: 0, map: BTreeMap::new() }))
+    CACHE.get_or_init(|| {
+        RwLock::new(Inner {
+            epoch: 0,
+            map: BTreeMap::new(),
+        })
+    })
 }
 
 // dbOid in the top bits so a whole database is one contiguous key range.

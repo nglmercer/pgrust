@@ -79,7 +79,9 @@ pub fn thread_use() -> Option<ThreadUse> {
     if unsafe { libc::getrusage(libc::RUSAGE_THREAD, &mut ru) } != 0 {
         return None;
     }
-    let tv = |t: libc::timeval| (t.tv_sec.max(0) as u64) * 1_000_000_000 + (t.tv_usec.max(0) as u64) * 1_000;
+    let tv = |t: libc::timeval| {
+        (t.tv_sec.max(0) as u64) * 1_000_000_000 + (t.tv_usec.max(0) as u64) * 1_000
+    };
     let n = |v: libc::c_long| v.max(0) as u64;
     Some(ThreadUse {
         user_ns: tv(ru.ru_utime),
@@ -105,13 +107,21 @@ pub fn thread_use() -> Option<ThreadUse> {
 fn thread_runqueue_ns() -> Option<u64> {
     use std::io::Read;
     let mut b = [0u8; 96];
-    let n = std::fs::File::open("/proc/thread-self/schedstat").ok()?.read(&mut b).ok()?;
+    let n = std::fs::File::open("/proc/thread-self/schedstat")
+        .ok()?
+        .read(&mut b)
+        .ok()?;
     schedstat_wait_ns(&b[..n])
 }
 
 /// The run-queue wait in a schedstat line (`<on-cpu ns> <run-queue wait ns> <timeslices>`): its second field.
 pub fn schedstat_wait_ns(line: &[u8]) -> Option<u64> {
-    std::str::from_utf8(line).ok()?.split_ascii_whitespace().nth(1)?.parse().ok()
+    std::str::from_utf8(line)
+        .ok()?
+        .split_ascii_whitespace()
+        .nth(1)?
+        .parse()
+        .ok()
 }
 
 impl ClockSource for PosixClock {

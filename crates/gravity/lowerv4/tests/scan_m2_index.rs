@@ -18,16 +18,25 @@ fn plan(rel: &str) -> String {
 /// Every index pipeline's source kind in `text`'s graph.
 fn index_kinds(text: &str) -> Vec<KindId> {
     let ctx = MemoryContext::new("m2 index routing");
-    let fx = gravity_decompose::corpus::load(ctx.mcx(), text).unwrap_or_else(|e| panic!("fixture: {e}"));
+    let fx =
+        gravity_decompose::corpus::load(ctx.mcx(), text).unwrap_or_else(|e| panic!("fixture: {e}"));
     let arena = Arena::new(1 << 20);
-    let g = gravity_decompose::decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx).unwrap_or_else(|e| panic!("decompose: {e:?}"));
-    g.pipelines.iter().filter(|p| matches!(p.source, Source::Index { .. })).map(|p| source_kind_of(&p.source, p.node_id)).collect()
+    let g = gravity_decompose::decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx)
+        .unwrap_or_else(|e| panic!("decompose: {e:?}"));
+    g.pipelines
+        .iter()
+        .filter(|p| matches!(p.source, Source::Index { .. }))
+        .map(|p| source_kind_of(&p.source, p.node_id))
+        .collect()
 }
 
 /// L0-h: a btree walk with an `= ANY` key is src.index_array's (C80's IN list over the customer key).
 #[test]
 fn a_btree_walk_with_an_any_key_routes_to_index_array() {
-    assert_eq!(index_kinds(&plan("oltpc-046.plan")), [KindId::SrcIndexArray]);
+    assert_eq!(
+        index_kinds(&plan("oltpc-046.plan")),
+        [KindId::SrcIndexArray]
+    );
 }
 
 /// L0-h: a btree walk with an ORDER BY operator key is src.index_am's. No btree opclass has an ordering operator (the
@@ -36,16 +45,44 @@ fn a_btree_walk_with_an_any_key_routes_to_index_array() {
 fn a_btree_walk_with_an_order_by_key_routes_to_index_am() {
     let text = plan("regress-full/create_index_spgist-008.plan");
     let ctx = MemoryContext::new("m2 index routing");
-    let fx = gravity_decompose::corpus::load(ctx.mcx(), &text).unwrap_or_else(|e| panic!("fixture: {e}"));
+    let fx = gravity_decompose::corpus::load(ctx.mcx(), &text)
+        .unwrap_or_else(|e| panic!("fixture: {e}"));
     let arena = Arena::new(1 << 20);
-    let g = gravity_decompose::decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx).unwrap_or_else(|e| panic!("decompose: {e:?}"));
+    let g = gravity_decompose::decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx)
+        .unwrap_or_else(|e| panic!("decompose: {e:?}"));
     let mut n = 0;
     for p in g.pipelines.iter() {
-        let Source::Index { am, scanrelid, relid, indexid, keys, backward, recheck, .. } = &p.source else { continue };
-        assert!(keys.iter().any(|k| k.form == KeyForm::OrderBy), "create_index_spgist-008 has no ORDER BY key");
+        let Source::Index {
+            am,
+            scanrelid,
+            relid,
+            indexid,
+            keys,
+            backward,
+            recheck,
+            ..
+        } = &p.source
+        else {
+            continue;
+        };
+        assert!(
+            keys.iter().any(|k| k.form == KeyForm::OrderBy),
+            "create_index_spgist-008 has no ORDER BY key"
+        );
         let mut ks = ArenaVec::with_capacity_in(keys.len(), arena.handle());
         ks.extend(keys.iter().copied());
-        let btree = Source::Index { site: SiteDesc::none_in(arena.handle()), am: *am, scanrelid: *scanrelid, relid: *relid, indexid: *indexid, keys: ks, only: false, backward: *backward, recheck, iam: IndexAm::Btree };
+        let btree = Source::Index {
+            site: SiteDesc::none_in(arena.handle()),
+            am: *am,
+            scanrelid: *scanrelid,
+            relid: *relid,
+            indexid: *indexid,
+            keys: ks,
+            only: false,
+            backward: *backward,
+            recheck,
+            iam: IndexAm::Btree,
+        };
         assert_eq!(source_kind_of(&btree, p.node_id), KindId::SrcIndexAm);
         n += 1;
     }
@@ -58,7 +95,10 @@ fn a_btree_walk_with_an_order_by_key_routes_to_index_am() {
 fn plain_and_index_only_walks_keep_their_kinds() {
     assert_eq!(index_kinds(&plan("oltpc-001.plan")), [KindId::SrcIndex]);
     assert_eq!(index_kinds(&plan("oltpc-025.plan")), [KindId::SrcIndexOnly]);
-    assert_eq!(index_kinds(&plan("regress-full/create_index-047.plan")), [KindId::SrcIndexOnly]);
+    assert_eq!(
+        index_kinds(&plan("regress-full/create_index-047.plan")),
+        [KindId::SrcIndexOnly]
+    );
 }
 
 /// L0-h: an index-only walk of another AM (GiST here) is src.index_am's, which serves every non-btree walk: src.index_only
@@ -66,7 +106,10 @@ fn plain_and_index_only_walks_keep_their_kinds() {
 #[test]
 fn a_gist_index_only_walk_routes_to_index_am() {
     let text = plan("regress-full/create_index-011.plan");
-    assert!(text.contains("{INDEXONLYSCAN") && text.contains(" am=gist "), "create_index-011 is no GiST index-only scan");
+    assert!(
+        text.contains("{INDEXONLYSCAN") && text.contains(" am=gist "),
+        "create_index-011 is no GiST index-only scan"
+    );
     assert_eq!(index_kinds(&text), [KindId::SrcIndexAm]);
 }
 
@@ -76,9 +119,29 @@ fn a_gist_index_only_walk_routes_to_index_am() {
 /// still asks for windows.
 #[test]
 fn an_index_only_site_keeps_the_rowid_lane_that_asks_for_windows() {
-    let l = common::lower_fixture(&plan("oltpc-025.plan")).expect("decompose takes C32").unwrap_or_else(|e| panic!("C32 refused: {e}"));
-    let site = l.descs.sites.iter().find(|s| s.lanes().iter().any(|x| matches!(x.id, gravity_program::LaneId::RowId))).expect("C32's index site");
+    let l = common::lower_fixture(&plan("oltpc-025.plan"))
+        .expect("decompose takes C32")
+        .unwrap_or_else(|e| panic!("C32 refused: {e}"));
+    let site = l
+        .descs
+        .sites
+        .iter()
+        .find(|s| {
+            s.lanes()
+                .iter()
+                .any(|x| matches!(x.id, gravity_program::LaneId::RowId))
+        })
+        .expect("C32's index site");
     let lanes = site.lanes();
-    assert_eq!(lanes.last().map(|x| x.id), Some(gravity_program::LaneId::RowId), "the RowId lane is the site's last lane");
-    assert!(lanes[..lanes.len() - 1].iter().all(|x| matches!(x.id, gravity_program::LaneId::Attr(_))), "attribute lanes before it (the host's lane order)");
+    assert_eq!(
+        lanes.last().map(|x| x.id),
+        Some(gravity_program::LaneId::RowId),
+        "the RowId lane is the site's last lane"
+    );
+    assert!(
+        lanes[..lanes.len() - 1]
+            .iter()
+            .all(|x| matches!(x.id, gravity_program::LaneId::Attr(_))),
+        "attribute lanes before it (the host's lane order)"
+    );
 }

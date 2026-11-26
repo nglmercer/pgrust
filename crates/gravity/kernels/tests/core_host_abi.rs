@@ -18,31 +18,60 @@ const BYTES: u32 = HashAgg::bytes(&LAYOUT, 1);
 #[allow(clippy::assertions_on_constants, unused_attributes)]
 fn record_opens_the_one_record_once_and_answers_the_same_pointer() {
     #[allow(clippy::assertions_on_constants)]
-    assert!(BYTES <= par_scan_count::BYTES, "the test layout fits the rig's partial");
+    assert!(
+        BYTES <= par_scan_count::BYTES,
+        "the test layout fits the rig's partial"
+    );
     let mut rig = Rig::new(programs::par_scan_count(Oids::T_A), vec![]);
     let ctx = rig.ctx();
     unsafe {
         let own = partial(ctx);
-        assert!(core::slice::from_raw_parts(own, BYTES as usize).iter().all(|&b| b == 0), "a zeroed partial before the open");
-        let p = entry2::<Record>(ctx as u64, &LAYOUT as *const RecordLayout as u64, BYTES as u64) as *mut u8;
+        assert!(
+            core::slice::from_raw_parts(own, BYTES as usize)
+                .iter()
+                .all(|&b| b == 0),
+            "a zeroed partial before the open"
+        );
+        let p = entry2::<Record>(
+            ctx as u64,
+            &LAYOUT as *const RecordLayout as u64,
+            BYTES as u64,
+        ) as *mut u8;
         assert!(!p.is_null());
         let r = Rec::at(p, &LAYOUT);
         assert!(r.used(), "the record is open");
-        assert_eq!(r.count(LAYOUT.sentinel_slot()), 1, "the sentinel counts the open");
+        assert_eq!(
+            r.count(LAYOUT.sentinel_slot()),
+            1,
+            "the sentinel counts the open"
+        );
         let t = &*(own as *const HashAgg);
         assert_eq!((t.cap, t.len), (1, 1), "a one-record table with its record");
-        let q = entry2::<Record>(ctx as u64, &LAYOUT as *const RecordLayout as u64, BYTES as u64) as *mut u8;
+        let q = entry2::<Record>(
+            ctx as u64,
+            &LAYOUT as *const RecordLayout as u64,
+            BYTES as u64,
+        ) as *mut u8;
         assert_eq!(p, q, "the second open answers the same record");
-        assert_eq!(Rec::at(q, &LAYOUT).count(LAYOUT.sentinel_slot()), 1, "the second open counts nothing");
+        assert_eq!(
+            Rec::at(q, &LAYOUT).count(LAYOUT.sentinel_slot()),
+            1,
+            "the second open counts nothing"
+        );
         assert_eq!((*(own as *const HashAgg)).len, 1);
     }
 }
 
 use gravity_abi::breaker::{KeyKind, SlotKind, SortRun, TopK, T1, TABLE_T1};
 use gravity_abi::ctx::resume;
-use gravity_kernels::host_abi::{agg_finish, agg_miss, agg_open, sort_begin, sort_full, sort_last, sort_next, sort_open, sort_stop, topk_insert, topk_open, topk_order, topk_run, AGG_STATE_BYTES, SORT_MODE_MEM, SORT_MODE_MERGE};
+use gravity_kernels::host_abi::{
+    agg_finish, agg_miss, agg_open, sort_begin, sort_full, sort_last, sort_next, sort_open,
+    sort_stop, topk_insert, topk_open, topk_order, topk_run, AGG_STATE_BYTES, SORT_MODE_MEM,
+    SORT_MODE_MERGE,
+};
 
-const AGG_LAYOUT: RecordLayout = RecordLayout::new(&[KeyKind::I64], &[SlotKind::Count, SlotKind::SumI64]);
+const AGG_LAYOUT: RecordLayout =
+    RecordLayout::new(&[KeyKind::I64], &[SlotKind::Count, SlotKind::SumI64]);
 
 #[test]
 fn agg_open_arms_a_t1_over_a_zeroed_share_region() {
@@ -52,9 +81,16 @@ fn agg_open_arms_a_t1_over_a_zeroed_share_region() {
     unsafe {
         let own = partial(ctx);
         assert_eq!(T1::view(own).cap, 0, "a zeroed region before the open");
-        assert_eq!(agg_open(ctx, st.as_mut_ptr() as *mut u8, &AGG_LAYOUT, 0, 0), 0);
+        assert_eq!(
+            agg_open(ctx, st.as_mut_ptr() as *mut u8, &AGG_LAYOUT, 0, 0),
+            0
+        );
         let t = T1::view(own);
-        assert_eq!((t.kind, t.pbits, t.len), (TABLE_T1, 4, 0), "the T1 armed at the default partition bits");
+        assert_eq!(
+            (t.kind, t.pbits, t.len),
+            (TABLE_T1, 4, 0),
+            "the T1 armed at the default partition bits"
+        );
         assert!(t.cap >= 2 && t.cap.is_power_of_two());
         assert_eq!(st[0], own as u64, "the state names the table");
         assert_eq!(st[3], t.cap as u64 - 1, "the slot mask");
@@ -69,19 +105,29 @@ fn miss_then_finish(bits: u64, in_table: u32) {
     let mut st = [0u64; AGG_STATE_BYTES as usize / 8];
     let mut img = [0u8; 256];
     unsafe {
-        assert_eq!(agg_open(ctx, st.as_mut_ptr() as *mut u8, &AGG_LAYOUT, bits, 0), 0);
+        assert_eq!(
+            agg_open(ctx, st.as_mut_ptr() as *mut u8, &AGG_LAYOUT, bits, 0),
+            0
+        );
         let src = Rec::at(img.as_mut_ptr(), &AGG_LAYOUT);
         src.open(&[42]);
         src.add_count(0, 1);
         src.add_i64(1, 7);
         assert_eq!(agg_miss(ctx, st.as_mut_ptr() as *mut u8, img.as_ptr()), 0);
         let t = T1::view(partial(ctx));
-        assert_eq!(t.len, in_table, "the miss's record in the table (bits {bits})");
+        assert_eq!(
+            t.len, in_table,
+            "the miss's record in the table (bits {bits})"
+        );
         assert_eq!(agg_finish(ctx, st.as_mut_ptr() as *mut u8), 0);
         assert_eq!(t.len, 0, "the finish drained the table");
         let part = KeyHash::of(&[42]).part(t.pbits as u32);
         let recs: Vec<_> = t.chain(part).collect();
-        assert_eq!(recs.iter().map(|b| b.recs).sum::<usize>(), 1, "one record in its partition's chain");
+        assert_eq!(
+            recs.iter().map(|b| b.recs).sum::<usize>(),
+            1,
+            "one record in its partition's chain"
+        );
         let r = Rec::at(recs[0].ptr as *mut u8, &AGG_LAYOUT);
         assert_eq!((r.keys(), r.count(0), r.i64(1)), (&[42u64][..], 1, 7));
         for p in 0..t.parts() as u32 {
@@ -120,7 +166,11 @@ fn agg_miss_of_an_implicit_count_keeps_its_rows() {
             let t = T1::view(partial(ctx));
             let recs: Vec<_> = t.chain(KeyHash::of(&[42]).part(t.pbits as u32)).collect();
             let r = Rec::at(recs[0].ptr as *mut u8, &NN);
-            assert_eq!((r.count(s), r.i64(0)), (2, 7), "bits {bits}: the one row's record reads opened with its row");
+            assert_eq!(
+                (r.count(s), r.i64(0)),
+                (2, 7),
+                "bits {bits}: the one row's record reads opened with its row"
+            );
         }
     }
 }
@@ -177,12 +227,21 @@ fn sort_open_full_begin_next_round_trip_100_rows_through_two_runs() {
             }
             push_row(run, k, i as u64);
         }
-        assert_eq!(sort_last(ctx, run, 2, 0), 0, "the last run put behind the first");
+        assert_eq!(
+            sort_last(ctx, run, 2, 0),
+            0,
+            "the last run put behind the first"
+        );
         assert_eq!(rig.host.runs.len(), 2);
         assert_eq!(sort_begin(ctx, SORT_TBL.as_ptr()), SORT_MODE_MERGE);
         let mut got = Vec::new();
         loop {
-            let p = sort_next(ctx, SORT_TBL.as_ptr(), SORT_MODE_MERGE as u64, got.len() as u64);
+            let p = sort_next(
+                ctx,
+                SORT_TBL.as_ptr(),
+                SORT_MODE_MERGE as u64,
+                got.len() as u64,
+            );
             assert!(p as i64 >= 0, "a status below zero");
             if p.is_null() {
                 break;
@@ -207,7 +266,11 @@ fn a_merge_emit_read_again_at_its_last_row_hands_the_same_row() {
             }
             push_row(run, k, i as u64);
         }
-        assert_eq!(sort_last(ctx, run, 2, 0), 0, "the last run put behind the first");
+        assert_eq!(
+            sort_last(ctx, run, 2, 0),
+            0,
+            "the last run put behind the first"
+        );
         assert_eq!(sort_begin(ctx, SORT_TBL.as_ptr()), SORT_MODE_MERGE);
         let key = |j: u64| -> i64 {
             let p = sort_next(ctx, SORT_TBL.as_ptr(), SORT_MODE_MERGE as u64, j);
@@ -237,23 +300,43 @@ fn sort_last_seals_the_leaders_run_in_memory_and_a_stop_resumes_at_its_row() {
             push_row(run, k, i as u64);
         }
         assert_eq!(sort_last(ctx, run, 2, 0), 0);
-        assert_eq!(rig.host.runs.len(), 0, "no run put: the run stays in the region");
+        assert_eq!(
+            rig.host.runs.len(),
+            0,
+            "no run put: the run stays in the region"
+        );
         assert_eq!(sort_begin(ctx, SORT_TBL.as_ptr()), SORT_MODE_MEM);
-        let row = |i: u64| -> *const u8 { sort_next(ctx, SORT_TBL.as_ptr(), SORT_MODE_MEM as u64, i) };
-        let keys: Vec<i64> = (0..100).map(|i| *(row(i) as *const u64).add(2) as i64).collect();
+        let row =
+            |i: u64| -> *const u8 { sort_next(ctx, SORT_TBL.as_ptr(), SORT_MODE_MEM as u64, i) };
+        let keys: Vec<i64> = (0..100)
+            .map(|i| *(row(i) as *const u64).add(2) as i64)
+            .collect();
         assert_eq!(keys, (0..100).collect::<Vec<i64>>());
         assert!(row(100).is_null(), "the end");
         sort_stop(ctx, SORT_TBL.as_ptr(), SORT_MODE_MEM as u64, 8, 1);
-        assert_eq!((*ctx).resume, resume::word(resume::EMIT, 7), "the held row is re-delivered");
-        assert_eq!(sort_begin(ctx, SORT_TBL.as_ptr()), SORT_MODE_MEM, "the resume reads the sealed run");
-        assert_eq!(*(row(resume::position((*ctx).resume)) as *const u64).add(2), 7);
+        assert_eq!(
+            (*ctx).resume,
+            resume::word(resume::EMIT, 7),
+            "the held row is re-delivered"
+        );
+        assert_eq!(
+            sort_begin(ctx, SORT_TBL.as_ptr()),
+            SORT_MODE_MEM,
+            "the resume reads the sealed run"
+        );
+        assert_eq!(
+            *(row(resume::position((*ctx).resume)) as *const u64).add(2),
+            7
+        );
     }
 }
 
 use gravity_abi::breaker::MINCODE_NONE;
 use gravity_abi::lane::EMPTY_CODE_NONE;
 use gravity_abi::status::{unsupported, UNSUPPORTED_SHAPE};
-use gravity_kernels::host_abi::{agg_bind, agg_render, BIND_BITS, BIND_FORM_WORDS, BIND_FP, BIND_LEN, BIND_OUT_WORDS};
+use gravity_kernels::host_abi::{
+    agg_bind, agg_render, BIND_BITS, BIND_FORM_WORDS, BIND_FP, BIND_LEN, BIND_OUT_WORDS,
+};
 use gravity_kernels::util::{advance, seek};
 
 /// The count program over one code lane and its table lane (lane 0 the codes, 1 the offset, 2 the table): the site shape of a
@@ -261,23 +344,58 @@ use gravity_kernels::util::{advance, seek};
 /// open window).
 fn code_table_program(rel: u32, attno: i16) -> gravity_program::Program {
     use gravity_abi::breaker::{Breaker, BreakerKind};
-    use gravity_program::{Code, End, LaneDesc, Layout, OutCol, Pipeline, Program, Reason, SiteDesc, WritePlan};
+    use gravity_program::{
+        Code, End, LaneDesc, Layout, OutCol, Pipeline, Program, Reason, SiteDesc, WritePlan,
+    };
     unsafe extern "C-unwind" fn never(_: *mut gravity_abi::Ctx) -> i64 {
         unreachable!("the host tests never run the scan pipeline")
     }
     let st = gravity_program::Arena::new(16 << 10);
-    let sites = [SiteDesc::range_source(st.handle(), rel, &[attno]).codes_lane(0).with_lane(LaneDesc::table(0), false)];
+    let sites = [SiteDesc::range_source(st.handle(), rel, &[attno])
+        .codes_lane(0)
+        .with_lane(LaneDesc::table(0), false)];
     let out = [OutCol::new("count", programs::INT8, -1, 8, true)];
     let pipes = [
-        (Pipeline::eligible(0, End::Breaker(Breaker::sized(BreakerKind::PlainAgg, par_scan_count::BYTES)), 0), Code::hand(never)),
-        (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), Code::hand(par_scan_count::par_scan_count_emit)),
+        (
+            Pipeline::eligible(
+                0,
+                End::Breaker(Breaker::sized(BreakerKind::PlainAgg, par_scan_count::BYTES)),
+                0,
+            ),
+            Code::hand(never),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            Code::hand(par_scan_count::par_scan_count_emit),
+        ),
     ];
-    Program::with_pipelines(Layout { nsites: 1, out_natts: 1, out_rows: 1, scratch_bytes: 0, exec_bytes: 0 }, &sites, &out, WritePlan::SELECT, pipes)
+    Program::with_pipelines(
+        Layout {
+            nsites: 1,
+            out_natts: 1,
+            out_rows: 1,
+            scratch_bytes: 0,
+            exec_bytes: 0,
+        },
+        &sites,
+        &out,
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
 /// A rig over `code_table_program`'s site with a window open: `dict` the entries, `tables` the site's table lanes.
 fn dict_rig(tables: Vec<RigTable>) -> (Rig, Vec<Vec<u8>>) {
-    let dict: Vec<Vec<u8>> = ["", "http://garden.com/", "search", "mail.garden.com", "plain"].iter().map(|s| s.as_bytes().to_vec()).collect();
+    let dict: Vec<Vec<u8>> = [
+        "",
+        "http://garden.com/",
+        "search",
+        "mail.garden.com",
+        "plain",
+    ]
+    .iter()
+    .map(|s| s.as_bytes().to_vec())
+    .collect();
     let rows_for: RowsFor = |_, _| (0..20u64).map(|r| (vec![r % 5], vec![0u8])).collect();
     let mut rig = Rig::new(code_table_program(Oids::T_A, 1), vec![0]);
     rig.site(0).rows_for = rows_for;
@@ -294,12 +412,24 @@ fn dict_rig(tables: Vec<RigTable>) -> (Rig, Vec<Vec<u8>>) {
 
 #[test]
 fn agg_bind_fills_a_like_bit_table_once_per_window_and_reads_it_back() {
-    let (mut rig, dict) = dict_rig(vec![RigTable::Like { pattern: b"%garden%".to_vec(), negated: false }]);
+    let (mut rig, dict) = dict_rig(vec![RigTable::Like {
+        pattern: b"%garden%".to_vec(),
+        negated: false,
+    }]);
     let ctx = rig.ctx();
     let spec = [2u64 | (BIND_BITS as u64) << 16];
     let mut out = [0u64; BIND_OUT_WORDS + 1];
     unsafe {
-        assert_eq!(agg_bind(ctx as u64, 0, spec.as_ptr() as u64, 1, out.as_mut_ptr() as u64), 0);
+        assert_eq!(
+            agg_bind(
+                ctx as u64,
+                0,
+                spec.as_ptr() as u64,
+                1,
+                out.as_mut_ptr() as u64
+            ),
+            0
+        );
         let words = out[0] as *const u64;
         for (c, e) in dict.iter().enumerate() {
             let bit = *words.add(c / 64) >> (c % 64) & 1;
@@ -308,11 +438,29 @@ fn agg_bind_fills_a_like_bit_table_once_per_window_and_reads_it_back() {
         assert_ne!(out[1], 0, "the fault words (a zero page)");
         assert_eq!(*(out[1] as *const u64), 0);
         assert_eq!((out[2], out[3]), (BIND_FORM_WORDS, 1), "no faults");
-        assert_eq!(rig.host.calls.iter().filter(|c| c.starts_with("lane(")).count(), 1, "one fill");
+        assert_eq!(
+            rig.host
+                .calls
+                .iter()
+                .filter(|c| c.starts_with("lane("))
+                .count(),
+            1,
+            "one fill"
+        );
         // the bits read as a length or a fingerprint leave by shape
         for class in [BIND_LEN, BIND_FP] {
             let spec = [2u64 | (class as u64) << 16];
-            assert_eq!(agg_bind(ctx as u64, 0, spec.as_ptr() as u64, 1, out.as_mut_ptr() as u64), unsupported(UNSUPPORTED_SHAPE), "class {class}");
+            assert_eq!(
+                agg_bind(
+                    ctx as u64,
+                    0,
+                    spec.as_ptr() as u64,
+                    1,
+                    out.as_mut_ptr() as u64
+                ),
+                unsupported(UNSUPPORTED_SHAPE),
+                "class {class}"
+            );
         }
     }
 }
@@ -324,19 +472,44 @@ fn agg_bind_reads_a_length_and_a_fingerprint_table() {
     let spec = [2u64 | (BIND_LEN as u64) << 16];
     let mut out = [0u64; BIND_OUT_WORDS + 1];
     unsafe {
-        assert_eq!(agg_bind(ctx as u64, 0, spec.as_ptr() as u64, 1, out.as_mut_ptr() as u64), 0);
+        assert_eq!(
+            agg_bind(
+                ctx as u64,
+                0,
+                spec.as_ptr() as u64,
+                1,
+                out.as_mut_ptr() as u64
+            ),
+            0
+        );
         let lens = core::slice::from_raw_parts(out[0] as *const i64, dict.len());
-        assert_eq!(lens, dict.iter().map(|e| e.len() as i64).collect::<Vec<_>>());
+        assert_eq!(
+            lens,
+            dict.iter().map(|e| e.len() as i64).collect::<Vec<_>>()
+        );
         assert_eq!(out[2], BIND_FORM_WORDS);
     }
     let (mut rig, dict) = dict_rig(vec![RigTable::Fingerprint]);
     let ctx = rig.ctx();
     let spec = [2u64 | (BIND_FP as u64) << 16];
     unsafe {
-        assert_eq!(agg_bind(ctx as u64, 0, spec.as_ptr() as u64, 1, out.as_mut_ptr() as u64), 0);
+        assert_eq!(
+            agg_bind(
+                ctx as u64,
+                0,
+                spec.as_ptr() as u64,
+                1,
+                out.as_mut_ptr() as u64
+            ),
+            0
+        );
         let fps = core::slice::from_raw_parts(out[0] as *const [u64; 2], dict.len());
         let distinct: std::collections::HashSet<[u64; 2]> = fps.iter().copied().collect();
-        assert_eq!(distinct.len(), dict.len(), "distinct fingerprints per entry");
+        assert_eq!(
+            distinct.len(),
+            dict.len(),
+            "distinct fingerprints per entry"
+        );
     }
 }
 
@@ -348,12 +521,31 @@ fn agg_render_answers_the_entry_image_the_empty_literal_and_null() {
         for (c, e) in dict.iter().enumerate() {
             let p = agg_render(ctx as u64, 0, 0, c as u64) as *const u8;
             assert!(!p.is_null(), "code {c}");
-            assert_eq!(gravity_kernels::dict::reps::varlena_bytes(p), e.as_slice(), "code {c}");
+            assert_eq!(
+                gravity_kernels::dict::reps::varlena_bytes(p),
+                e.as_slice(),
+                "code {c}"
+            );
         }
-        assert!((agg_render(ctx as u64, 0, 0, MINCODE_NONE) as *const u8).is_null(), "no representative is NULL");
+        assert!(
+            (agg_render(ctx as u64, 0, 0, MINCODE_NONE) as *const u8).is_null(),
+            "no representative is NULL"
+        );
         let p = agg_render(ctx as u64, 0, 0, EMPTY_CODE_NONE as u64) as *const u8;
-        assert_eq!(gravity_kernels::dict::reps::varlena_bytes(p), b"", "the guarded empty code");
-        assert_eq!(rig.host.calls.iter().filter(|c| c.starts_with("dict(")).count(), dict.len(), "one dictionary call per rendered code");
+        assert_eq!(
+            gravity_kernels::dict::reps::varlena_bytes(p),
+            b"",
+            "the guarded empty code"
+        );
+        assert_eq!(
+            rig.host
+                .calls
+                .iter()
+                .filter(|c| c.starts_with("dict("))
+                .count(),
+            dict.len(),
+            "one dictionary call per rendered code"
+        );
     }
 }
 
@@ -368,7 +560,13 @@ const SPOOL_TBL: [u32; 6] = [ROW_BYTES, 0, 2, 0, 0, 0];
 /// The sort program with its breaker end re-kinded Materialize (`Spill::Runs`, `Budget::Share`): the M8 spool's slot through the runtime's arms (M8-plan §4.7, C.0 verify).
 fn spool_program() -> gravity_program::Program {
     let mut p = programs::par_sort_with(Oids::T_A, 64, 0, &[1, 2]);
-    p.pipelines[0].ends_in = End::Breaker(Breaker { kind: BreakerKind::Materialize, slot: 0, bytes: 0, budget: Budget::Share, spill: Spill::Runs });
+    p.pipelines[0].ends_in = End::Breaker(Breaker {
+        kind: BreakerKind::Materialize,
+        slot: 0,
+        bytes: 0,
+        budget: Budget::Share,
+        spill: Spill::Runs,
+    });
     p
 }
 
@@ -382,7 +580,11 @@ fn spool_open_sizes_the_run_for_its_rows_and_spool_begin_hands_the_sealed_run_ba
         let r = &mut *(run as *mut SortRun);
         // D17: 2 × 23 rows round up to the run's floor, 4 KiB of rows (102 of 40 bytes), in a Materialize slot
         let floor = gravity_abi::breaker::SORTRUN_FLOOR_BYTES / ROW_BYTES;
-        assert_eq!((r.cap, r.len, r.kind), (floor, 0, gravity_abi::breaker::TABLE_SORT), "2 × 23 rounds up to the 4 KiB floor");
+        assert_eq!(
+            (r.cap, r.len, r.kind),
+            (floor, 0, gravity_abi::breaker::TABLE_SORT),
+            "2 × 23 rounds up to the 4 KiB floor"
+        );
         for (i, k) in shuffled().into_iter().enumerate() {
             if r.len == r.cap {
                 assert!(r.grow(), "the run doubles within the share (row {i})");
@@ -390,13 +592,28 @@ fn spool_open_sizes_the_run_for_its_rows_and_spool_begin_hands_the_sealed_run_ba
             push_row(run, k, i as u64);
         }
         assert_eq!(r.cap, floor, "100 rows fit the floor's run");
-        assert_eq!(sort_last(ctx, run, 0, 0), 0, "a zero-key last: sealed in place, unsorted");
+        assert_eq!(
+            sort_last(ctx, run, 0, 0),
+            0,
+            "a zero-key last: sealed in place, unsorted"
+        );
         assert_eq!(rig.host.runs.len(), 0, "no run put");
         let p = spool_begin(ctx, SPOOL_TBL.as_ptr());
         assert_eq!(p, run as *const u8, "MEM mode: the sealed run's pointer");
         assert_eq!((*(p as *const SortRun)).len, 100);
-        let tags: Vec<u64> = (0..100).map(|i| *((*(p as *const SortRun)).rows_ptr().add(i * ROW_BYTES as usize) as *const u64).add(3)).collect();
-        assert_eq!(tags, (0..100).collect::<Vec<u64>>(), "insertion order kept: the spool never sorts");
+        let tags: Vec<u64> = (0..100)
+            .map(|i| {
+                *((*(p as *const SortRun))
+                    .rows_ptr()
+                    .add(i * ROW_BYTES as usize) as *const u64)
+                    .add(3)
+            })
+            .collect();
+        assert_eq!(
+            tags,
+            (0..100).collect::<Vec<u64>>(),
+            "insertion order kept: the spool never sorts"
+        );
         assert_eq!(p.add(SORTRUN_HDR), (*(p as *const SortRun)).rows_ptr());
     }
 }
@@ -410,16 +627,28 @@ fn spool_begin_is_null_after_a_put_and_the_merge_drains_every_row() {
         // D17: past the 4 KiB floor's 102 rows: 200 rows (the shuffled keys twice)
         for (i, k) in shuffled().into_iter().chain(shuffled()).enumerate() {
             if (*(run as *mut SortRun)).len == (*(run as *mut SortRun)).cap {
-                assert_eq!(sort_full(ctx, run, 0, 0), 0, "the run put at its cap (the spill arm takes a Materialize slot)");
+                assert_eq!(
+                    sort_full(ctx, run, 0, 0),
+                    0,
+                    "the run put at its cap (the spill arm takes a Materialize slot)"
+                );
             }
             push_row(run, k, i as u64);
         }
         assert_eq!(sort_last(ctx, run, 0, 0), 0);
         assert_eq!(rig.host.runs.len(), 2, "102 + 98 rows in two runs");
-        assert!(spool_begin(ctx, SPOOL_TBL.as_ptr()).is_null(), "MERGE mode: null, the slow arm reads through sort_next");
+        assert!(
+            spool_begin(ctx, SPOOL_TBL.as_ptr()).is_null(),
+            "MERGE mode: null, the slow arm reads through sort_next"
+        );
         let mut tags = Vec::new();
         loop {
-            let p = sort_next(ctx, SPOOL_TBL.as_ptr(), SORT_MODE_MERGE as u64, tags.len() as u64);
+            let p = sort_next(
+                ctx,
+                SPOOL_TBL.as_ptr(),
+                SORT_MODE_MERGE as u64,
+                tags.len() as u64,
+            );
             assert!(p as i64 >= 0, "a status below zero");
             if p.is_null() {
                 break;
@@ -437,17 +666,33 @@ fn spool_begin_is_null_after_a_put_and_the_merge_drains_every_row() {
 /// the no-spill form. Before the rule the open set `T1_BYPASS` and every row became a record appended to its partition (the
 /// Rig's 1 MiB share has no spill host: the pool refuses after ~10 k records).
 #[test]
-fn a_tiny_group_numeric_fold_under_a_huge_estimate_never_bypasses_and_drains_one_record_per_group() {
-    const LAYOUT: RecordLayout = RecordLayout::new(&[KeyKind::I64, KeyKind::I64], &[SlotKind::SumNum, SlotKind::SumNum, SlotKind::AvgNum, SlotKind::Count]);
+fn a_tiny_group_numeric_fold_under_a_huge_estimate_never_bypasses_and_drains_one_record_per_group()
+{
+    const LAYOUT: RecordLayout = RecordLayout::new(
+        &[KeyKind::I64, KeyKind::I64],
+        &[
+            SlotKind::SumNum,
+            SlotKind::SumNum,
+            SlotKind::AvgNum,
+            SlotKind::Count,
+        ],
+    );
     const ROWS: i64 = 200_000;
     let mut rig = Rig::new(programs::par_hashagg(Oids::T_A), vec![]);
     let ctx = rig.ctx();
     let mut st = [0u64; AGG_STATE_BYTES as usize / 8];
     let mut img = [0u8; 256];
     unsafe {
-        assert_eq!(agg_open(ctx, st.as_mut_ptr() as *mut u8, &LAYOUT, 0, 5_998_605), 0);
+        assert_eq!(
+            agg_open(ctx, st.as_mut_ptr() as *mut u8, &LAYOUT, 0, 5_998_605),
+            0
+        );
         let t = T1::view(partial(ctx));
-        assert_eq!(t.flags & T1_BYPASS, 0, "the estimate never sets the bypass at the open");
+        assert_eq!(
+            t.flags & T1_BYPASS,
+            0,
+            "the estimate never sets the bypass at the open"
+        );
         for i in 0..ROWS {
             img.fill(0);
             let src = Rec::at(img.as_mut_ptr(), &LAYOUT);
@@ -456,10 +701,24 @@ fn a_tiny_group_numeric_fold_under_a_huge_estimate_never_bypasses_and_drains_one
             src.add_i128(1, 7);
             src.add_avg(2, i as i128, 1);
             src.add_count(3, 1);
-            assert_eq!(agg_miss(ctx, st.as_mut_ptr() as *mut u8, img.as_ptr()), 0, "row {i}");
+            assert_eq!(
+                agg_miss(ctx, st.as_mut_ptr() as *mut u8, img.as_ptr()),
+                0,
+                "row {i}"
+            );
         }
-        assert_eq!(t.flags & T1_BYPASS, 0, "four groups never thrash the table: observe() keeps table mode");
-        assert_eq!((0..t.parts() as u32).map(|p| t.chain(p).count()).sum::<usize>(), 0, "nothing appended before the finish");
+        assert_eq!(
+            t.flags & T1_BYPASS,
+            0,
+            "four groups never thrash the table: observe() keeps table mode"
+        );
+        assert_eq!(
+            (0..t.parts() as u32)
+                .map(|p| t.chain(p).count())
+                .sum::<usize>(),
+            0,
+            "nothing appended before the finish"
+        );
         assert_eq!(t.len, 4, "the four groups in the table");
         assert_eq!(agg_finish(ctx, st.as_mut_ptr() as *mut u8), 0);
         let mut recs = 0;
@@ -475,10 +734,13 @@ fn a_tiny_group_numeric_fold_under_a_huge_estimate_never_bypasses_and_drains_one
                 }
             }
         }
-        assert_eq!((recs, total), (4, ROWS), "one record per group reaches the owners: parts carry 4 records, no spill");
+        assert_eq!(
+            (recs, total),
+            (4, ROWS),
+            "one record per group reaches the owners: parts carry 4 records, no spill"
+        );
     }
 }
-
 
 use gravity_abi::breaker::adapt_win;
 
@@ -487,7 +749,11 @@ use gravity_abi::breaker::adapt_win;
 /// keys-only slot the drain skips (len 1 after the drain, breaker.rs `debug_assert_eq!(len, 0)`), and an implicit-count layout
 /// appended the slot as an empty duplicate record. Both layouts: the table ends empty at the switch and each key reaches the
 /// owners exactly once, with its rows.
-fn observe_bypass_moves_the_miss_once(layout: &'static RecordLayout, count_slot: usize, count_base: i64) {
+fn observe_bypass_moves_the_miss_once(
+    layout: &'static RecordLayout,
+    count_slot: usize,
+    count_base: i64,
+) {
     let mut rig = Rig::new(programs::par_hashagg(Oids::T_A), vec![]);
     let ctx = rig.ctx();
     let mut st = [0u64; AGG_STATE_BYTES as usize / 8];
@@ -498,22 +764,30 @@ fn observe_bypass_moves_the_miss_once(layout: &'static RecordLayout, count_slot:
         let t = partial(ctx) as *mut T1;
         assert_eq!((*t).flags & T1_BYPASS, 0, "the table path at the open");
         // a thrashing window already observed: the next eviction's observe() answers bypass
-        ((*t).inserts, (*t).win_at, (*t).evictions, (*t).win_ev) = (adapt_win((*t).cap as u64), 0, adapt_win((*t).cap as u64), 0);
+        ((*t).inserts, (*t).win_at, (*t).evictions, (*t).win_ev) =
+            (adapt_win((*t).cap as u64), 0, adapt_win((*t).cap as u64), 0);
         let (mut n, mut switched_at) = (0u64, None);
-        while n < 20_000 && switched_at.is_none_or( |s| n < s + 50) {
+        while n < 20_000 && switched_at.is_none_or(|s| n < s + 50) {
             img.fill(0);
             let src = Rec::at(img.as_mut_ptr(), layout);
             src.open(&[n]);
             src.add_count(count_slot, 1);
             src.add_i64(sum_slot, n as i64);
-            assert_eq!(agg_miss(ctx, st.as_mut_ptr() as *mut u8, img.as_ptr()), 0, "key {n}");
+            assert_eq!(
+                agg_miss(ctx, st.as_mut_ptr() as *mut u8, img.as_ptr()),
+                0,
+                "key {n}"
+            );
             if switched_at.is_none() && (*t).flags & T1_BYPASS != 0 {
                 assert_eq!((*t).len, 0, "key {n}: the table drained at the switch, the bypassed miss not left open in it");
                 switched_at = Some(n);
             }
             n += 1;
         }
-        assert!(switched_at.is_some(), "an eviction came and observe() switched to the bypass");
+        assert!(
+            switched_at.is_some(),
+            "an eviction came and observe() switched to the bypass"
+        );
         assert_eq!(agg_finish(ctx, st.as_mut_ptr() as *mut u8), 0);
         let t = &*t;
         let mut seen = vec![0u32; n as usize];
@@ -524,11 +798,23 @@ fn observe_bypass_moves_the_miss_once(layout: &'static RecordLayout, count_slot:
                     let k = r.keys()[0] as usize;
                     assert!(k < n as usize, "a record of a key fed: {k}");
                     seen[k] += 1;
-                    assert_eq!((r.count(count_slot), r.i64(sum_slot)), (count_base + 1, k as i64), "key {k}: its one row");
+                    assert_eq!(
+                        (r.count(count_slot), r.i64(sum_slot)),
+                        (count_base + 1, k as i64),
+                        "key {k}: its one row"
+                    );
                 }
             }
         }
-        assert!(seen.iter().all(|&s| s == 1), "every key exactly once: {:?}", seen.iter().enumerate().filter(|p| *p.1 != 1).take(5).collect::<Vec<_>>());
+        assert!(
+            seen.iter().all(|&s| s == 1),
+            "every key exactly once: {:?}",
+            seen.iter()
+                .enumerate()
+                .filter(|p| *p.1 != 1)
+                .take(5)
+                .collect::<Vec<_>>()
+        );
     }
 }
 

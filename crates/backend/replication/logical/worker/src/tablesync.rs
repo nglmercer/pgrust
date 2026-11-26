@@ -40,7 +40,12 @@ pub(crate) fn invalidate_table_states_cb(_arg: datum::Datum, _cacheid: i32, _has
 
 // ReplicationSlotNameForTablesync (tablesync.c:1302).
 pub fn ReplicationSlotNameForTablesync(suboid: Oid, relid: Oid) -> String {
-    format!("pg_{}_sync_{}_{}", suboid, relid, transam_xlog::control_file::GetSystemIdentifier())
+    format!(
+        "pg_{}_sync_{}_{}",
+        suboid,
+        relid,
+        transam_xlog::control_file::GetSystemIdentifier()
+    )
 }
 
 fn wait_latch_10ms() -> PgResult<()> {
@@ -359,11 +364,16 @@ pub(crate) fn drop_slot_at_pub_node(
     slotname: &str,
     missing_ok: bool,
 ) -> PgResult<()> {
-    let cmd = format!("DROP_REPLICATION_SLOT \"{}\" WAIT", slotname.replace('"', "\"\""));
+    let cmd = format!(
+        "DROP_REPLICATION_SLOT \"{}\" WAIT",
+        slotname.replace('"', "\"\"")
+    );
     let res = conn.exec(&cmd)?;
     match drop_slot_outcome(&res, missing_ok) {
         DropSlotOutcome::Dropped => ereport(NOTICE)
-            .errmsg(format!("dropped replication slot \"{slotname}\" on publisher"))
+            .errmsg(format!(
+                "dropped replication slot \"{slotname}\" on publisher"
+            ))
             .finish(loc("ReplicationSlotDropAtPubNode")),
         DropSlotOutcome::MissingTolerated => ereport(LOG)
             .errmsg(format!(
@@ -429,7 +439,9 @@ pub(crate) fn quote_literal_cstr(raw: &str) -> String {
 // implicitly (the attribute query excludes attgenerated != '').
 // int2vector text output ("1 3 4") -> attnums.
 pub(crate) fn parse_int2vector(s: &str) -> Vec<i16> {
-    s.split_whitespace().filter_map(|w| w.parse().ok()).collect()
+    s.split_whitespace()
+        .filter_map(|w| w.parse().ok())
+        .collect()
 }
 
 fn fetch_remote_table_info(
@@ -438,7 +450,10 @@ fn fetch_remote_table_info(
     relname: &str,
 ) -> PgResult<(logicalproto::LogicalRepRelation, Vec<String>, bool)> {
     fn text(r: &[Option<Vec<u8>>], i: usize) -> String {
-        r.get(i).and_then(|c| c.as_ref()).map(|b| String::from_utf8_lossy(b).into_owned()).unwrap_or_default()
+        r.get(i)
+            .and_then(|c| c.as_ref())
+            .map(|b| String::from_utf8_lossy(b).into_owned())
+            .unwrap_or_default()
     }
     let lit = quote_literal_cstr;
 
@@ -529,7 +544,12 @@ fn fetch_remote_table_info(
                 ))
                 .finish(loc("fetch_remote_table_info"))?;
         }
-        if let Some(attrs) = pubres.rows.first().and_then(|r| r.first()).and_then(|c| c.as_ref()) {
+        if let Some(attrs) = pubres
+            .rows
+            .first()
+            .and_then(|r| r.first())
+            .and_then(|c| c.as_ref())
+        {
             included_cols = Some(parse_int2vector(&String::from_utf8_lossy(attrs)));
         }
     }
@@ -538,7 +558,11 @@ fn fetch_remote_table_info(
     // since 18: a 5th column reports attgenerated != '' and the query no
     // longer filters them out; 12..17 publishers still exclude them.
     let server_version = conn.server_version();
-    let gencol_col = if server_version >= 180000 { ", a.attgenerated != ''" } else { "" };
+    let gencol_col = if server_version >= 180000 {
+        ", a.attgenerated != ''"
+    } else {
+        ""
+    };
     let gencol_filter = if (120000..180000).contains(&server_version) {
         "AND a.attgenerated = '' "
     } else {
@@ -568,7 +592,10 @@ fn fetch_remote_table_info(
     for row in &res.rows {
         // tablesync.c:1023: not in the column list, skip it.
         let attnum: i16 = text(row, 0).parse().unwrap_or(0);
-        if included_cols.as_ref().is_some_and(|cols| !cols.contains(&attnum)) {
+        if included_cols
+            .as_ref()
+            .is_some_and(|cols| !cols.contains(&attnum))
+        {
             continue;
         }
         attnames.push(text(row, 1));
@@ -689,7 +716,10 @@ fn copy_table(mcx: Mcx<'static>, conn: &mut PgConn, nspname: &str, relname: &str
     if res.status != ExecStatus::CopyOut {
         ereport(ERROR)
             .errcode(ERRCODE_CONNECTION_FAILURE)
-            .errmsg(format!("could not start initial contents copy for table \"{nspname}.{relname}\": {}", res.err))
+            .errmsg(format!(
+                "could not start initial contents copy for table \"{nspname}.{relname}\": {}",
+                res.err
+            ))
             .finish(loc("copy_table"))?;
     }
 
@@ -715,38 +745,38 @@ fn copy_table(mcx: Mcx<'static>, conn: &mut PgConn, nspname: &str, relname: &str
     let pending: std::cell::RefCell<Vec<u8>> = std::cell::RefCell::new(Vec::new());
     let cb: Box<dyn FnMut(&mut [u8], usize) -> PgResult<usize> + '_> =
         Box::new(|buf: &mut [u8], _minread: usize| -> PgResult<usize> {
-        let mut pending = pending.borrow_mut();
-        loop {
-            if !pending.is_empty() {
-                let n = pending.len().min(buf.len());
-                buf[..n].copy_from_slice(&pending[..n]);
-                pending.drain(..n);
-                return Ok(n);
-            }
-            let mut conn = conn_cell.borrow_mut();
-            match conn.get_copy_data() {
-                Ok(CopyData::Msg(m)) => {
-                    *pending = m;
+            let mut pending = pending.borrow_mut();
+            loop {
+                if !pending.is_empty() {
+                    let n = pending.len().min(buf.len());
+                    buf[..n].copy_from_slice(&pending[..n]);
+                    pending.drain(..n);
+                    return Ok(n);
                 }
-                Ok(CopyData::End) => return Ok(0),
-                Ok(CopyData::Block) => {
-                    postgres_seams::check_for_interrupts::call()?;
-                    conn.wait_readable()?;
-                    if !conn.consume_input() {
-                        elog::elog(
-                            ERROR,
-                            format!("could not read COPY data: {}", conn.error_message()),
-                        )?;
+                let mut conn = conn_cell.borrow_mut();
+                match conn.get_copy_data() {
+                    Ok(CopyData::Msg(m)) => {
+                        *pending = m;
+                    }
+                    Ok(CopyData::End) => return Ok(0),
+                    Ok(CopyData::Block) => {
+                        postgres_seams::check_for_interrupts::call()?;
+                        conn.wait_readable()?;
+                        if !conn.consume_input() {
+                            elog::elog(
+                                ERROR,
+                                format!("could not read COPY data: {}", conn.error_message()),
+                            )?;
+                            unreachable!();
+                        }
+                    }
+                    Err(e) => {
+                        elog::elog(ERROR, format!("could not read COPY data: {e}"))?;
                         unreachable!();
                     }
                 }
-                Err(e) => {
-                    elog::elog(ERROR, format!("could not read COPY data: {e}"))?;
-                    unreachable!();
-                }
             }
-        }
-    });
+        });
 
     // SAFETY: the callback captures only two shared references (`&conn_cell`,
     // `&pending`) to `RefCell`s on this stack frame. Those captures have no
@@ -789,7 +819,11 @@ fn create_slot_use_snapshot_cmd(server_version: i32, slotname: &str, failover: b
         cmd.push('(');
     }
     if failover {
-        cmd.push_str(if new_syntax { "FAILOVER, " } else { "FAILOVER " });
+        cmd.push_str(if new_syntax {
+            "FAILOVER, "
+        } else {
+            "FAILOVER "
+        });
     }
     if new_syntax {
         cmd.push_str("SNAPSHOT 'use')");
@@ -811,7 +845,10 @@ fn create_slot_use_snapshot(
         // libpqwalreceiver.c:1036: ERRCODE_PROTOCOL_VIOLATION.
         ereport(ERROR)
             .errcode(types_error::ERRCODE_PROTOCOL_VIOLATION)
-            .errmsg(format!("could not create replication slot \"{slotname}\": {}", res.err))
+            .errmsg(format!(
+                "could not create replication slot \"{slotname}\": {}",
+                res.err
+            ))
             .finish(loc("create_slot_use_snapshot"))?;
     }
     // upstream a6a2eb9f6024 (18.6): Check CREATE_REPLICATION_SLOT response shape in libpqwalreceiver
@@ -846,7 +883,10 @@ pub(crate) fn LogicalRepSyncTableStart(
 
     launcher::my_worker_set_relstate(relstate, relstate_lsn);
 
-    if matches!(relstate, SUBREL_STATE_SYNCDONE | SUBREL_STATE_READY | SUBREL_STATE_UNKNOWN) {
+    if matches!(
+        relstate,
+        SUBREL_STATE_SYNCDONE | SUBREL_STATE_READY | SUBREL_STATE_UNKNOWN
+    ) {
         finish_sync_worker()?;
         // The caller sees the exit flag and unwinds.
         return Err(Box::new(types_error::PgError::error(
@@ -858,19 +898,24 @@ pub(crate) fn LogicalRepSyncTableStart(
     let must_use_password = my_sub(|s| s.passwordrequired && !s.ownersuperuser);
     let (conninfo, name) = my_sub(|s| (s.conninfo.clone(), s.name.clone()));
 
-    let mut conn =
-        match walreceiver::client::connect_extended(&conninfo, true, true, must_use_password, &slotname)? {
-            Ok(c) => c,
-            Err(e) => {
-                ereport(ERROR)
+    let mut conn = match walreceiver::client::connect_extended(
+        &conninfo,
+        true,
+        true,
+        must_use_password,
+        &slotname,
+    )? {
+        Ok(c) => c,
+        Err(e) => {
+            ereport(ERROR)
                     .errcode(ERRCODE_CONNECTION_FAILURE)
                     .errmsg(format!(
                         "table synchronization worker for subscription \"{name}\" could not connect to the publisher: {e}"
                     ))
                     .finish(loc("LogicalRepSyncTableStart"))?;
-                unreachable!();
-            }
-        };
+            unreachable!();
+        }
+    };
 
     debug_assert!(matches!(
         relstate,
@@ -901,7 +946,14 @@ pub(crate) fn LogicalRepSyncTableStart(
     launcher::my_worker_set_relstate(SUBREL_STATE_DATASYNC, InvalidXLogRecPtr);
 
     xact::StartTransactionCommand()?;
-    UpdateSubscriptionRelState(mcx, subid, relid, SUBREL_STATE_DATASYNC, InvalidXLogRecPtr, false)?;
+    UpdateSubscriptionRelState(
+        mcx,
+        subid,
+        relid,
+        SUBREL_STATE_DATASYNC,
+        InvalidXLogRecPtr,
+        false,
+    )?;
     let mut originid = origin::replorigin_by_name(&originname, true)?;
     if originid == InvalidRepOriginId {
         originid = origin::replorigin_create(mcx, &originname)?;
@@ -926,7 +978,10 @@ pub(crate) fn LogicalRepSyncTableStart(
     if res.status == ExecStatus::Error {
         ereport(ERROR)
             .errcode(ERRCODE_CONNECTION_FAILURE)
-            .errmsg(format!("table copy could not start transaction on publisher: {}", res.err))
+            .errmsg(format!(
+                "table copy could not start transaction on publisher: {}",
+                res.err
+            ))
             .finish(loc("LogicalRepSyncTableStart"))?;
     }
 
@@ -945,7 +1000,11 @@ pub(crate) fn LogicalRepSyncTableStart(
 
     // tablesync.c: the acting user needs INSERT on the target before the
     // copy (pg_class_aclcheck + aclcheck_error).
-    let aclresult = aclchk::pg_class_aclcheck(rel.rd_id, miscinit::GetUserId(), types_nodes::parsenodes::ACL_INSERT)?;
+    let aclresult = aclchk::pg_class_aclcheck(
+        rel.rd_id,
+        miscinit::GetUserId(),
+        types_nodes::parsenodes::ACL_INSERT,
+    )?;
     if aclresult != aclchk::ACLCHECK_OK {
         aclchk::aclcheck_error(
             aclresult,
@@ -975,7 +1034,10 @@ pub(crate) fn LogicalRepSyncTableStart(
     if res.status == ExecStatus::Error {
         ereport(ERROR)
             .errcode(ERRCODE_CONNECTION_FAILURE)
-            .errmsg(format!("table copy could not finish transaction on publisher: {}", res.err))
+            .errmsg(format!(
+                "table copy could not finish transaction on publisher: {}",
+                res.err
+            ))
             .finish(loc("LogicalRepSyncTableStart"))?;
     }
 
@@ -1066,7 +1128,15 @@ mod tests {
         // Single row filter on a plain table: SELECT arm with ONLY + WHERE
         // (tablesync.c:1199-1240).
         assert_eq!(
-            super::copy_table_cmd(b'r', "public", "t", &cols, &["(a > 5)".to_string()], false, false),
+            super::copy_table_cmd(
+                b'r',
+                "public",
+                "t",
+                &cols,
+                &["(a > 5)".to_string()],
+                false,
+                false
+            ),
             "COPY (SELECT \"a\", \"b\" FROM ONLY \"public\".\"t\" WHERE (a > 5)) TO STDOUT"
         );
         // Multiple publications' filters are OR'ed.
@@ -1109,7 +1179,10 @@ mod tests {
     // C format "pg_%u_sync_%u_" UINT64 (tablesync.c:1302) structurally.
     #[test]
     fn tablesync_slot_name_format() {
-        let name = format!("pg_{}_sync_{}_{}", 16385u32, 16401u32, 7234567890123456789u64);
+        let name = format!(
+            "pg_{}_sync_{}_{}",
+            16385u32, 16401u32, 7234567890123456789u64
+        );
         assert!(name.starts_with("pg_16385_sync_16401_"));
         let parts: Vec<&str> = name.split('_').collect();
         assert_eq!(parts.len(), 5);

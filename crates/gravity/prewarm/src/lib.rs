@@ -20,7 +20,10 @@ use pg_clock::MonoStamp;
 use pgsync::Mutex;
 
 use pgrc_am::catalog::RelSlot;
-use types_core::{BlockNumber, InvalidOid, Oid, DATABASE_RELATION_ID, MAIN_FORKNUM, PG_CATALOG_NAMESPACE, RELATION_RELATION_ID};
+use types_core::{
+    BlockNumber, InvalidOid, Oid, DATABASE_RELATION_ID, MAIN_FORKNUM, PG_CATALOG_NAMESPACE,
+    RELATION_RELATION_ID,
+};
 use types_error::{PgError, PgResult, LOG, WARNING};
 use types_rel::{RELKIND_INDEX, RELKIND_RELATION};
 use types_storage::lock::AccessShareLock;
@@ -119,7 +122,9 @@ pub fn wait(tick: &dyn Fn()) -> bool {
         // A chain worker is registered dynamically (the next database, or the lister's first): the postmaster's own
         // loop notices it by the bgworker-change signal, which this wait holds off, so the wait takes the signal in
         // (the ServerLoop's arm, postmaster.c) before its start step. PM_RUN: new workers are allowed.
-        if pmsignal::CheckPostmasterSignal(pmsignal::PMSignalReason::PMSIGNAL_BACKGROUND_WORKER_CHANGE) {
+        if pmsignal::CheckPostmasterSignal(
+            pmsignal::PMSignalReason::PMSIGNAL_BACKGROUND_WORKER_CHANGE,
+        ) {
             bgworker::BackgroundWorkerStateChange(true);
         }
         tick();
@@ -145,7 +150,15 @@ pub struct Report {
 }
 
 pub fn report() -> Option<Report> {
-    DONE.load(Ordering::Acquire).then(|| Report { databases: DATABASES.load(Ordering::Relaxed), relations: RELATIONS.load(Ordering::Relaxed), attributes: ATTRIBUTES.load(Ordering::Relaxed), catalog_blocks: CATALOG_BLOCKS.load(Ordering::Relaxed), image_bytes: IMAGE_BYTES.load(Ordering::Relaxed), errors: ERRORS.load(Ordering::Relaxed), micros: MICROS.load(Ordering::Relaxed) })
+    DONE.load(Ordering::Acquire).then(|| Report {
+        databases: DATABASES.load(Ordering::Relaxed),
+        relations: RELATIONS.load(Ordering::Relaxed),
+        attributes: ATTRIBUTES.load(Ordering::Relaxed),
+        catalog_blocks: CATALOG_BLOCKS.load(Ordering::Relaxed),
+        image_bytes: IMAGE_BYTES.load(Ordering::Relaxed),
+        errors: ERRORS.load(Ordering::Relaxed),
+        micros: MICROS.load(Ordering::Relaxed),
+    })
 }
 
 fn bgw_main(arg: u64) -> PgResult<()> {
@@ -189,7 +202,13 @@ fn bgw_main(arg: u64) -> PgResult<()> {
         Ok(v) => *v,
         Err(e) => {
             ERRORS.fetch_add(1, Ordering::Relaxed);
-            let _ = elog::elog(WARNING, format!("gravity: catalog pre-warm of database {db}: {}", e.message())); // alloc: Cold
+            let _ = elog::elog(
+                WARNING,
+                format!(
+                    "gravity: catalog pre-warm of database {db}: {}",
+                    e.message()
+                ),
+            ); // alloc: Cold
             (0, 0, 0, 0)
         }
     };
@@ -212,12 +231,21 @@ fn owed_at_exit(_code: i32, _arg: datum::Datum) -> PgResult<()> {
 }
 
 fn pass_on() {
-    let Some(arg) = OWED.with(|o| o.take()) else { return };
+    let Some(arg) = OWED.with(|o| o.take()) else {
+        return;
+    };
     if (arg & !LISTED) as usize + 1 >= DATABASES.load(Ordering::Relaxed) {
         DONE.store(true, Ordering::Release);
-    } else if !matches!(bgworker::RegisterDynamicBackgroundWorker(worker(arg + 1)), Ok(Some(_))) {
+    } else if !matches!(
+        bgworker::RegisterDynamicBackgroundWorker(worker(arg + 1)),
+        Ok(Some(_))
+    ) {
         ERRORS.fetch_add(1, Ordering::Relaxed);
-        let _ = elog::elog(WARNING, "gravity: catalog pre-warm: no background worker slot for the next database".to_string()); // alloc: Cold
+        let _ = elog::elog(
+            WARNING,
+            "gravity: catalog pre-warm: no background worker slot for the next database"
+                .to_string(),
+        ); // alloc: Cold
         DONE.store(true, Ordering::Release);
     }
 }
@@ -225,8 +253,21 @@ fn pass_on() {
 fn warm_code_cache() {
     let tc = MonoStamp::now();
     match gravity_backend::warm() {
-        Ok(()) => { let _ = elog::elog(LOG, format!("gravity: code cache warmed in {} us", tc.elapsed_ns() / 1_000)); } // alloc: Cold
-        Err(e) => { let _ = elog::elog(WARNING, format!("gravity: code cache warm: {}", e.message())); } // alloc: Cold
+        Ok(()) => {
+            let _ = elog::elog(
+                LOG,
+                format!(
+                    "gravity: code cache warmed in {} us",
+                    tc.elapsed_ns() / 1_000
+                ),
+            );
+        } // alloc: Cold
+        Err(e) => {
+            let _ = elog::elog(
+                WARNING,
+                format!("gravity: code cache warm: {}", e.message()),
+            );
+        } // alloc: Cold
     }
 }
 
@@ -241,7 +282,13 @@ fn list_and_chain(t0: MonoStamp) -> PgResult<()> {
         Ok(d) => d,
         Err(e) => {
             ERRORS.fetch_add(1, Ordering::Relaxed);
-            let _ = elog::elog(WARNING, format!("gravity: catalog pre-warm: listing the databases: {}", e.message())); // alloc: Cold
+            let _ = elog::elog(
+                WARNING,
+                format!(
+                    "gravity: catalog pre-warm: listing the databases: {}",
+                    e.message()
+                ),
+            ); // alloc: Cold
             DONE.store(true, Ordering::Release);
             return Ok(());
         }
@@ -255,7 +302,11 @@ fn list_and_chain(t0: MonoStamp) -> PgResult<()> {
         DONE.store(true, Ordering::Release);
     } else if bgworker::RegisterDynamicBackgroundWorker(worker(LISTED))?.is_none() {
         ERRORS.fetch_add(1, Ordering::Relaxed);
-        let _ = elog::elog(WARNING, "gravity: catalog pre-warm: no background worker slot for the first database".to_string()); // alloc: Cold
+        let _ = elog::elog(
+            WARNING,
+            "gravity: catalog pre-warm: no background worker slot for the first database"
+                .to_string(),
+        ); // alloc: Cold
         DONE.store(true, Ordering::Release);
     }
     Ok(())
@@ -302,9 +353,12 @@ fn warm_image() -> u64 {
     if let Ok(exe) = std::env::current_exe() {
         files.push(exe);
     }
-    if let Ok(maps) = std::fs::read_to_string("/proc/self/maps") { // alloc: Cold
+    if let Ok(maps) = std::fs::read_to_string("/proc/self/maps") {
+        // alloc: Cold
         for line in maps.lines() {
-            let Some(path) = line.split_whitespace().nth(5) else { continue };
+            let Some(path) = line.split_whitespace().nth(5) else {
+                continue;
+            };
             if !path.starts_with('/') || line.ends_with("(deleted)") {
                 continue;
             }
@@ -317,7 +371,9 @@ fn warm_image() -> u64 {
     let mut buf = vec![0u8; gravity_exec::PREWARM_IMAGE_CHUNK]; // alloc: Cold
     let mut total = 0u64;
     for p in &files {
-        let Ok(mut f) = std::fs::File::open(p) else { continue };
+        let Ok(mut f) = std::fs::File::open(p) else {
+            continue;
+        };
         while let Ok(n) = f.read(&mut buf) {
             if n == 0 {
                 break;
@@ -340,7 +396,7 @@ fn warm_database(db: Oid, slots: &[RelSlot]) -> PgResult<(u64, u64, u64, u64)> {
         for slot in slots {
             let relid = relfilenumbermap::RelidByRelfilenumber(slot.0, slot.2 as Oid)?;
             if relid == InvalidOid {
-                    continue;
+                continue;
             }
             attrs += warm_relation(top.mcx(), relid)?;
             rels += 1;
@@ -421,7 +477,13 @@ fn warm_blocks(mcx: mcx::Mcx<'_>, relid: Oid) -> PgResult<u64> {
     let mut done = 0u64;
     if nblocks <= CATALOG_BLOCKS_MAX {
         for block in 0..nblocks {
-            let buf = bufmgr::ReadBufferExtended(&rel, MAIN_FORKNUM, block, ReadBufferMode::Normal, None)?;
+            let buf = bufmgr::ReadBufferExtended(
+                &rel,
+                MAIN_FORKNUM,
+                block,
+                ReadBufferMode::Normal,
+                None,
+            )?;
             bufmgr::ReleaseBuffer(buf)?;
             done += 1;
         }
@@ -436,11 +498,17 @@ mod tests {
     #[test]
     fn the_switch_off_at_start_skips_the_warm() {
         super::register_if(false).expect("register");
-        assert!(!super::REGISTERED.load(super::Ordering::Acquire), "no warm worker registered");
+        assert!(
+            !super::REGISTERED.load(super::Ordering::Acquire),
+            "no warm worker registered"
+        );
         super::arm();
         assert!(super::DONE.load(super::Ordering::Acquire), "armed as done");
         let ticks = std::cell::Cell::new(0u32);
-        assert!(super::wait(&|| ticks.set(ticks.get() + 1)), "the wait returns at once");
+        assert!(
+            super::wait(&|| ticks.set(ticks.get() + 1)),
+            "the wait returns at once"
+        );
         assert_eq!(ticks.get(), 0, "no start step run");
     }
 }

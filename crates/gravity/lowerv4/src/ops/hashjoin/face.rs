@@ -9,11 +9,11 @@ use gravity_ir::Value;
 use mcx::{PgBox, PgVec};
 
 use crate::face::end::EndMech;
-use crate::table::face::TableDecl;
-use crate::table::keyimg::ImageWords;
 use crate::face::step::StepMech;
 use crate::frame::env::Env;
 use crate::frame::px::Px;
+use crate::table::face::TableDecl;
+use crate::table::keyimg::ImageWords;
 
 crate::hook_variants! {
     /// The probe types (H18 a).
@@ -135,7 +135,15 @@ pub struct BuildRef {
 pub trait ProbeMech: Sync {
     /// Walks the records of `build` whose image equals `img` (hash `h`), handing each record's address to `each`. Returns the
     /// matched flag (`Bool`) that the outer types' null fill and the anti / semi exits read.
-    fn walk(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, build: &BuildRef, img: &ImageWords, h: Value, each: &mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env, Value)) -> Value;
+    fn walk(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        build: &BuildRef,
+        img: &ImageWords,
+        h: Value,
+        each: &mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env, Value),
+    ) -> Value;
 }
 
 pub struct ProbeImpl(pub &'static dyn ProbeMech);

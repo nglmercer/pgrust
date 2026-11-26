@@ -9,14 +9,16 @@
 //! condition-cache miss window, a code lane that may hold a NULL or has more codes than the counts, and every window of a
 //! part whose derived table has a faulted entry (its rows re-evaluate the key and raise where PostgreSQL does).
 //! Budget 300 lines (files-extra.tsv, +25 % gate). Owner M2-COUNTWALK.
-use gravity_abi::PtrWord;
 use gravity_abi::breaker::RecordLayout;
 use gravity_abi::ctx::{lane, site_ptr, Lane};
 use gravity_abi::Ctx;
+use gravity_abi::PtrWord;
 
 use crate::dict::strategies::percode::{flush, fold_code, PC_CODES, PC_COUNTS};
 use crate::dict::strategies::percode_const::Verdicts;
-use crate::host_abi::{AggState, BIND_FORM_IDX_BYTES, BIND_FORM_IDX_CHARS, BIND_FORM_IDX_DELTA, BIND_FORM_WORDS};
+use crate::host_abi::{
+    AggState, BIND_FORM_IDX_BYTES, BIND_FORM_IDX_CHARS, BIND_FORM_IDX_DELTA, BIND_FORM_WORDS,
+};
 use crate::table::image::AlignedImage;
 
 /// `agg_cw_window`'s flags: the group folds a per-code length, and the pipeline keeps only the codes every one of its
@@ -54,21 +56,52 @@ crate::contract::host! {
 /// `agg_cw_window`'s body, run under `guard!` (V4R-16 / V4R-40).
 #[inline(always)]
 #[allow(clippy::too_many_arguments)]
-unsafe fn agg_cw_window_in(ctx: *mut Ctx, st: *mut u8, front: *mut u8, at: u64, cursor: u64, end: u64, key: *const u64, len: *const u64, flags: u64, vs: *const i64, ops: u64, rows: *mut u64) -> i64 {
+unsafe fn agg_cw_window_in(
+    ctx: *mut Ctx,
+    st: *mut u8,
+    front: *mut u8,
+    at: u64,
+    cursor: u64,
+    end: u64,
+    key: *const u64,
+    len: *const u64,
+    flags: u64,
+    vs: *const i64,
+    ops: u64,
+    rows: *mut u64,
+) -> i64 {
     if front.is_null() {
         return 1;
     }
     // the verdicts' bits and fault words bound (their faulted entries are read per window below)
-    let Some(v) = Verdicts::of(key, if flags & CW_VERDICT != 0 { vs } else { core::ptr::null() }) else { return 1 };
+    let Some(v) = Verdicts::of(
+        key,
+        if flags & CW_VERDICT != 0 {
+            vs
+        } else {
+            core::ptr::null()
+        },
+    ) else {
+        return 1;
+    };
     let s = site_ptr(ctx, (at >> 8) as usize);
     let lanes = (*s).lanes.ptr() as *const Lane;
     // a condition-cache miss window publishes survivor words the rows set (m1_percode_const.rs)
     let verdict = lane::id(lane::ID_VERDICT, 0);
-    if (0..(*s).nlanes as usize).map(|l| &*lanes.add(l)).any(|l| l.id == verdict && !l.ptr.ptr().is_null() && l.flags & lane::VERDICT_MASK != lane::VERDICT_ALL_MATCH) {
+    if (0..(*s).nlanes as usize).map(|l| &*lanes.add(l)).any(|l| {
+        l.id == verdict
+            && !l.ptr.ptr().is_null()
+            && l.flags & lane::VERDICT_MASK != lane::VERDICT_ALL_MATCH
+    }) {
         return 1;
     }
     let c = &*lanes.add((at & 0xff) as usize);
-    if c.kind != lane::KIND_CODES || c.width != 4 || c.ptr.ptr().is_null() || (!c.valid.ptr().is_null() && c.flags & lane::FLAG_ALL_VALID == 0) || c.ncodes_or_scale as usize > PC_CODES {
+    if c.kind != lane::KIND_CODES
+        || c.width != 4
+        || c.ptr.ptr().is_null()
+        || (!c.valid.ptr().is_null() && c.flags & lane::FLAG_ALL_VALID == 0)
+        || c.ncodes_or_scale as usize > PC_CODES
+    {
         return 1;
     }
     let (a, hdr, part) = (st as *mut AggState, front as *mut u64, (*s).part_id as u64);
@@ -79,18 +112,40 @@ unsafe fn agg_cw_window_in(ctx: *mut Ctx, st: *mut u8, front: *mut u8, at: u64, 
         let (keys, n) = (*key as *const [u64; 2], c.ncodes_or_scale as usize);
         // a faulted entry ([0, 0]: an input the key raised on) re-evaluates per row: the part runs its rows, unless a
         // verdict drops the code's rows before the key is evaluated (the verdicts are the part's, as the key table is)
-        let faulted = keys.is_null() || (0..n).any(|i| *keys.add(i) == [0, 0] && v.is_none_or(|v| v.keeps(i as u32)));
-        let (idx, form) = if flags & CW_LEN != 0 { (*len, *len.add(2)) } else { (0, u64::MAX) };
-        let bad_len = flags & CW_LEN != 0 && (idx == 0 || !matches!(form, BIND_FORM_WORDS | BIND_FORM_IDX_BYTES | BIND_FORM_IDX_DELTA | BIND_FORM_IDX_CHARS));
+        let faulted = keys.is_null()
+            || (0..n).any(|i| *keys.add(i) == [0, 0] && v.is_none_or(|v| v.keeps(i as u32)));
+        let (idx, form) = if flags & CW_LEN != 0 {
+            (*len, *len.add(2))
+        } else {
+            (0, u64::MAX)
+        };
+        let bad_len = flags & CW_LEN != 0
+            && (idx == 0
+                || !matches!(
+                    form,
+                    BIND_FORM_WORDS
+                        | BIND_FORM_IDX_BYTES
+                        | BIND_FORM_IDX_DELTA
+                        | BIND_FORM_IDX_CHARS
+                ));
         *hdr.add(H_PART) = part + 1;
-        (*hdr.add(H_KEYS), *hdr.add(H_LEN), *hdr.add(H_FORM), *hdr.add(H_NCODES)) = (keys as u64, idx, form, n as u64);
+        (
+            *hdr.add(H_KEYS),
+            *hdr.add(H_LEN),
+            *hdr.add(H_FORM),
+            *hdr.add(H_NCODES),
+        ) = (keys as u64, idx, form, n as u64);
         *hdr.add(H_DECLINED) = if faulted || bad_len { DECLINED } else { 0 };
     }
     if *hdr.add(H_DECLINED) == DECLINED {
         return 1;
     }
     let counts = front.add(PC_COUNTS) as *mut u32;
-    let (codes, sel, (from, to)) = (c.ptr.ptr() as *const u32, (*s).sel.ptr(), (cursor as usize, end as usize));
+    let (codes, sel, (from, to)) = (
+        c.ptr.ptr() as *const u32,
+        (*s).sel.ptr(),
+        (cursor as usize, end as usize),
+    );
     let mut n = 0u64;
     // the selection is read as it is: the sparse stage writes the codes of the rows it selects alone (D3179)
     let plain = sel.is_null();
@@ -127,9 +182,17 @@ unsafe fn agg_cw_window_in(ctx: *mut Ctx, st: *mut u8, front: *mut u8, at: u64, 
 /// # Safety
 /// As `agg_cw_window`'s; the counted part's tables are resident for the statement (the part's dictionary index, the
 /// statement's derived table).
-pub(crate) unsafe fn settle(ctx: *mut Ctx, a: *mut AggState, front: *mut u8, ops: u64, at: u64) -> Result<(), i64> {
+pub(crate) unsafe fn settle(
+    ctx: *mut Ctx,
+    a: *mut AggState,
+    front: *mut u8,
+    ops: u64,
+    at: u64,
+) -> Result<(), i64> {
     let hdr = front as *mut u64;
-    let Some(part) = (*hdr.add(H_PART)).checked_sub(1) else { return Ok(()) };
+    let Some(part) = (*hdr.add(H_PART)).checked_sub(1) else {
+        return Ok(());
+    };
     *hdr.add(H_PART) = 0;
     if *hdr.add(H_DECLINED) == DECLINED {
         return Ok(());
@@ -139,7 +202,12 @@ pub(crate) unsafe fn settle(ctx: *mut Ctx, a: *mut AggState, front: *mut u8, ops
         *hdr.add(1) = part;
     }
     let (layout, nk) = (&*(*a).layout.ptr(), (*(*a).layout.ptr()).nkeys());
-    let (keys, idx, form, n) = (*hdr.add(H_KEYS) as *const [u64; 2], *hdr.add(H_LEN) as *const u8, *hdr.add(H_FORM), *hdr.add(H_NCODES) as usize);
+    let (keys, idx, form, n) = (
+        *hdr.add(H_KEYS) as *const [u64; 2],
+        *hdr.add(H_LEN) as *const u8,
+        *hdr.add(H_FORM),
+        *hdr.add(H_NCODES) as usize,
+    );
     let counts = front.add(PC_COUNTS) as *mut u32;
     // the open run: its image, rows, n x f, first and last code
     let mut run: Option<([u64; 2], i64, i64, u32, u32)> = None;
@@ -150,19 +218,43 @@ pub(crate) unsafe fn settle(ctx: *mut Ctx, a: *mut AggState, front: *mut u8, ops
         }
         let (rows, img) = (*c as i64, *keys.add(code as usize));
         *c = 0;
-        let f = if idx.is_null() { 0 } else { len_of(idx, form, code) as i64 };
+        let f = if idx.is_null() {
+            0
+        } else {
+            len_of(idx, form, code) as i64
+        };
         run = match run {
             Some((k, r, nf, lo, _)) if k == img => Some((k, r + rows, nf + rows * f, lo, code)),
             prev => {
                 if let Some((k, r, nf, lo, hi)) = prev {
-                    fold_code(ctx, a, front, &image(layout, k, part).0[..nk], ops, at, (r, nf, 0), part as u32, (lo, hi))?;
+                    fold_code(
+                        ctx,
+                        a,
+                        front,
+                        &image(layout, k, part).0[..nk],
+                        ops,
+                        at,
+                        (r, nf, 0),
+                        part as u32,
+                        (lo, hi),
+                    )?;
                 }
                 Some((img, rows, rows * f, code, code))
             }
         };
     }
     if let Some((k, r, nf, lo, hi)) = run {
-        fold_code(ctx, a, front, &image(layout, k, part).0[..nk], ops, at, (r, nf, 0), part as u32, (lo, hi))?;
+        fold_code(
+            ctx,
+            a,
+            front,
+            &image(layout, k, part).0[..nk],
+            ops,
+            at,
+            (r, nf, 0),
+            part as u32,
+            (lo, hi),
+        )?;
     }
     Ok(())
 }

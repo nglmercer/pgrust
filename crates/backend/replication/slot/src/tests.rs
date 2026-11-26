@@ -174,13 +174,22 @@ fn walsender_slot_log_lines() {
 fn invalidation_cause_names() {
     use crate::{GetSlotInvalidationCause, GetSlotInvalidationCauseName};
     assert_eq!(GetSlotInvalidationCauseName(RS_INVAL_NONE), "none");
-    assert_eq!(GetSlotInvalidationCauseName(RS_INVAL_WAL_REMOVED), "wal_removed");
-    assert_eq!(GetSlotInvalidationCauseName(RS_INVAL_HORIZON), "rows_removed");
+    assert_eq!(
+        GetSlotInvalidationCauseName(RS_INVAL_WAL_REMOVED),
+        "wal_removed"
+    );
+    assert_eq!(
+        GetSlotInvalidationCauseName(RS_INVAL_HORIZON),
+        "rows_removed"
+    );
     assert_eq!(
         GetSlotInvalidationCauseName(RS_INVAL_WAL_LEVEL),
         "wal_level_insufficient"
     );
-    assert_eq!(GetSlotInvalidationCauseName(RS_INVAL_IDLE_TIMEOUT), "idle_timeout");
+    assert_eq!(
+        GetSlotInvalidationCauseName(RS_INVAL_IDLE_TIMEOUT),
+        "idle_timeout"
+    );
     assert_eq!(GetSlotInvalidationCause("rows_removed"), RS_INVAL_HORIZON);
 }
 
@@ -310,7 +319,9 @@ fn become_backend() {
 // so the release must not write effective_xmin / inactive_since into it.
 #[test]
 fn release_of_ephemeral_slot_leaves_the_dropped_entry_untouched() {
-    use crate::{MyReplicationSlot, ReplicationSlotCtl, ReplicationSlotRelease, SetMyReplicationSlot};
+    use crate::{
+        MyReplicationSlot, ReplicationSlotCtl, ReplicationSlotRelease, SetMyReplicationSlot,
+    };
 
     let _array = slot_array_guard();
     shmem_setup();
@@ -491,7 +502,12 @@ fn slot_state_file_io_reports_wait_events() {
     restored.unwrap();
     assert_eq!(
         save_waits,
-        [WAIT_EVENT_REPLICATION_SLOT_WRITE, 0, WAIT_EVENT_REPLICATION_SLOT_SYNC, 0]
+        [
+            WAIT_EVENT_REPLICATION_SLOT_WRITE,
+            0,
+            WAIT_EVENT_REPLICATION_SLOT_SYNC,
+            0
+        ]
     );
     assert_eq!(
         restore_waits,
@@ -522,5 +538,8 @@ fn shmem_init_registers_replication_slot_ctl_in_shmem_index() {
     SHMEM_ROWS.lock().unwrap().clear();
     crate::register_shmem_ctl().unwrap();
     let rows = SHMEM_ROWS.lock().unwrap();
-    assert_eq!(rows.as_slice(), &[("ReplicationSlot Ctl".to_string(), n as usize * 288)]);
+    assert_eq!(
+        rows.as_slice(),
+        &[("ReplicationSlot Ctl".to_string(), n as usize * 288)]
+    );
 }

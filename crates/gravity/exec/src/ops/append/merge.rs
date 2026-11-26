@@ -17,7 +17,11 @@ struct ArmRows {
 
 impl ArmRows {
     fn of(owner: Option<Owner>) -> ArmRows {
-        ArmRows { values: ChargedVec::new(owner, Kind::Region), isnull: ChargedVec::new(owner, Kind::Region), bytes: ChargedVec::new(owner, Kind::Region) } // alloc: Exec
+        ArmRows {
+            values: ChargedVec::new(owner, Kind::Region),
+            isnull: ChargedVec::new(owner, Kind::Region),
+            bytes: ChargedVec::new(owner, Kind::Region),
+        } // alloc: Exec
     }
 
     /// The same rows on `owner`'s charge (the blocks move, nothing is copied).
@@ -35,10 +39,19 @@ impl ArmRows {
 
     /// One pushed block's rows appended; a growth the allocator refuses is the statement's 53200.
     fn append(&mut self, values: &[Datum], isnull: &[u8], region: &[u8]) -> Result<()> {
-        self.grow(values, isnull, region).map_err(|_| Error::out_of_memory(((values.len() * 8 + isnull.len() + region.len()) as u64).max(self.held())))
+        self.grow(values, isnull, region).map_err(|_| {
+            Error::out_of_memory(
+                ((values.len() * 8 + isnull.len() + region.len()) as u64).max(self.held()),
+            )
+        })
     }
 
-    fn grow(&mut self, values: &[Datum], isnull: &[u8], region: &[u8]) -> core::result::Result<(), std::collections::TryReserveError> {
+    fn grow(
+        &mut self,
+        values: &[Datum],
+        isnull: &[u8],
+        region: &[u8],
+    ) -> core::result::Result<(), std::collections::TryReserveError> {
         self.values.extend_from_slice(values)?; // alloc: Exec charged the statement owner (set_owner)
         self.isnull.extend_from_slice(isnull)?; // alloc: Exec charged the statement owner (set_owner)
         self.bytes.extend_from_slice(region) // alloc: Exec charged the statement owner (set_owner)
@@ -67,10 +80,26 @@ pub struct ArmMerge<'a, S: Sink> {
 
 impl<'a, S: Sink> ArmMerge<'a, S> {
     /// `narms` buffers (the main is arm 0) over `natts` output columns, `byref` marking the by-reference ones.
-    pub fn new(inner: &'a mut S, natts: usize, byref: &[bool], keys: &[MergeKey], narms: usize) -> ArmMerge<'a, S> {
+    pub fn new(
+        inner: &'a mut S,
+        natts: usize,
+        byref: &[bool],
+        keys: &[MergeKey],
+        narms: usize,
+    ) -> ArmMerge<'a, S> {
         let mut arms = Vec::with_capacity(narms); // alloc: Exec charged held (set_owner)
         arms.resize_with(narms, || ArmRows::of(None)); // alloc: Exec charged held (set_owner)
-        ArmMerge { held: memledger::Charge::NONE, inner, natts, byref: byref.to_vec(), keys: keys.to_vec(), arms, cur: 0, through: 0, owned: false } // alloc: Exec charged held (set_owner)
+        ArmMerge {
+            held: memledger::Charge::NONE,
+            inner,
+            natts,
+            byref: byref.to_vec(),
+            keys: keys.to_vec(),
+            arms,
+            cur: 0,
+            through: 0,
+            owned: false,
+        } // alloc: Exec charged held (set_owner)
     }
 
     /// CONVERT wave 2 (site 3, RULINGS-1 R3): the statement's owner, which the runner hands over once the first arm's
@@ -83,8 +112,16 @@ impl<'a, S: Sink> ArmMerge<'a, S> {
         self.arms.iter_mut().for_each(|a| a.onto(owner));
         // the tables `new` allocated on this thread move to the owner, once
         if let Some(o) = owner {
-            let bytes = self.arms.capacity() * core::mem::size_of::<ArmRows>() + self.byref.capacity() * core::mem::size_of::<bool>() + self.keys.capacity() * core::mem::size_of::<MergeKey>();
-            self.held = memledger::Charge::open(o, memledger::charge::release_of(o), Kind::Region, memledger::charge::Door::Heap, bytes as u64);
+            let bytes = self.arms.capacity() * core::mem::size_of::<ArmRows>()
+                + self.byref.capacity() * core::mem::size_of::<bool>()
+                + self.keys.capacity() * core::mem::size_of::<MergeKey>();
+            self.held = memledger::Charge::open(
+                o,
+                memledger::charge::release_of(o),
+                Kind::Region,
+                memledger::charge::Door::Heap,
+                bytes as u64,
+            );
         }
     }
 
@@ -104,7 +141,13 @@ impl<'a, S: Sink> ArmMerge<'a, S> {
         let before = self.through;
         for a in self.arms.iter_mut() {
             if !a.bytes.is_empty() {
-                gravity_driver::relocate(&mut a.values, &a.isnull, &self.byref, (0, a.bytes.len()), a.bytes.as_ptr());
+                gravity_driver::relocate(
+                    &mut a.values,
+                    &a.isnull,
+                    &self.byref,
+                    (0, a.bytes.len()),
+                    a.bytes.as_ptr(),
+                );
             }
         }
         let o = self.arms.first().and_then(|a| a.values.owner());
@@ -121,8 +164,22 @@ impl<'a, S: Sink> ArmMerge<'a, S> {
                     None => Some(i),
                     Some(b) => {
                         let bt = heads[b] * natts;
-                        let (bv, bn) = (&self.arms[b].values[bt..bt + natts], &self.arms[b].isnull[bt..bt + natts]);
-                        if compare(&self.keys, &a.values[at..at + natts], &a.isnull[at..at + natts], bv, bn) == core::cmp::Ordering::Less { Some(i) } else { Some(b) }
+                        let (bv, bn) = (
+                            &self.arms[b].values[bt..bt + natts],
+                            &self.arms[b].isnull[bt..bt + natts],
+                        );
+                        if compare(
+                            &self.keys,
+                            &a.values[at..at + natts],
+                            &a.isnull[at..at + natts],
+                            bv,
+                            bn,
+                        ) == core::cmp::Ordering::Less
+                        {
+                            Some(i)
+                        } else {
+                            Some(b)
+                        }
                     }
                 };
             }
@@ -130,7 +187,13 @@ impl<'a, S: Sink> ArmMerge<'a, S> {
             let at = heads[i] * natts;
             heads[i] += 1;
             let a = &self.arms[i];
-            let f = self.inner.push(BorrowedBatch { natts, rows: 1, values: &a.values[at..at + natts], isnull: &a.isnull[at..at + natts], region: &[] })?;
+            let f = self.inner.push(BorrowedBatch {
+                natts,
+                rows: 1,
+                values: &a.values[at..at + natts],
+                isnull: &a.isnull[at..at + natts],
+                region: &[],
+            })?;
             self.through += 1;
             if f == Flow::Stop {
                 break;
@@ -146,17 +209,39 @@ impl<'a, S: Sink> ArmMerge<'a, S> {
 }
 
 /// The keys' order of two rows: NULLs first or last per key, the direction per key, equal when every key ties.
-pub fn compare(keys: &[MergeKey], av: &[Datum], an: &[u8], bv: &[Datum], bn: &[u8]) -> core::cmp::Ordering {
+pub fn compare(
+    keys: &[MergeKey],
+    av: &[Datum],
+    an: &[u8],
+    bv: &[Datum],
+    bn: &[u8],
+) -> core::cmp::Ordering {
     use core::cmp::Ordering::*;
     for k in keys {
         let c = k.col as usize;
         let o = match (an[c] != 0, bn[c] != 0) {
             (true, true) => Equal,
-            (true, false) => if k.nulls_first { Less } else { Greater },
-            (false, true) => if k.nulls_first { Greater } else { Less },
+            (true, false) => {
+                if k.nulls_first {
+                    Less
+                } else {
+                    Greater
+                }
+            }
+            (false, true) => {
+                if k.nulls_first {
+                    Greater
+                } else {
+                    Less
+                }
+            }
             (false, false) => {
                 let o = (av[c] as i64).cmp(&(bv[c] as i64));
-                if k.desc { o.reverse() } else { o }
+                if k.desc {
+                    o.reverse()
+                } else {
+                    o
+                }
             }
         };
         if o != Equal {
@@ -173,7 +258,13 @@ impl<S: Sink> Sink for ArmMerge<'_, S> {
         let (at, base) = (a.values.len(), a.bytes.len());
         a.append(&b.values[..n], &b.isnull[..n], b.region)?;
         if !b.region.is_empty() {
-            gravity_driver::relocate(&mut a.values[at..], &a.isnull[at..], &self.byref, (b.region.as_ptr() as u64, b.region.len()), base as *const u8);
+            gravity_driver::relocate(
+                &mut a.values[at..],
+                &a.isnull[at..],
+                &self.byref,
+                (b.region.as_ptr() as u64, b.region.len()),
+                base as *const u8,
+            );
         }
         Ok(Flow::Continue)
     }
@@ -190,14 +281,25 @@ mod tests {
             for (v, n) in b.iter() {
                 self.0.push((v[0] as i64, n[0] != 0));
             }
-            Ok(if self.1 > 0 && self.0.len() >= self.1 { Flow::Stop } else { Flow::Continue })
+            Ok(if self.1 > 0 && self.0.len() >= self.1 {
+                Flow::Stop
+            } else {
+                Flow::Continue
+            })
         }
     }
 
     fn feed(m: &mut ArmMerge<'_, Rows>, arm: usize, rows: &[(i64, bool)]) {
         m.arm(arm);
         for (v, n) in rows {
-            m.push(BorrowedBatch { natts: 1, rows: 1, values: &[*v as u64], isnull: &[*n as u8], region: &[] }).unwrap();
+            m.push(BorrowedBatch {
+                natts: 1,
+                rows: 1,
+                values: &[*v as u64],
+                isnull: &[*n as u8],
+                region: &[],
+            })
+            .unwrap();
         }
     }
 
@@ -213,23 +315,54 @@ mod tests {
 
     #[test]
     fn ascending_nulls_last() {
-        let k = [MergeKey { col: 0, desc: false, nulls_first: false }];
-        let got = run(&k, &[&[(1, false), (3, false), (0, true)], &[(2, false), (4, false)], &[]], 0);
-        assert_eq!(got, [(1, false), (2, false), (3, false), (4, false), (0, true)]);
+        let k = [MergeKey {
+            col: 0,
+            desc: false,
+            nulls_first: false,
+        }];
+        let got = run(
+            &k,
+            &[
+                &[(1, false), (3, false), (0, true)],
+                &[(2, false), (4, false)],
+                &[],
+            ],
+            0,
+        );
+        assert_eq!(
+            got,
+            [(1, false), (2, false), (3, false), (4, false), (0, true)]
+        );
     }
 
     #[test]
     fn descending_nulls_first_and_the_stop() {
-        let k = [MergeKey { col: 0, desc: true, nulls_first: true }];
-        let got = run(&k, &[&[(0, true), (5, false), (1, false)], &[(3, false)]], 0);
+        let k = [MergeKey {
+            col: 0,
+            desc: true,
+            nulls_first: true,
+        }];
+        let got = run(
+            &k,
+            &[&[(0, true), (5, false), (1, false)], &[(3, false)]],
+            0,
+        );
         assert_eq!(got, [(0, true), (5, false), (3, false), (1, false)]);
-        let got = run(&k, &[&[(0, true), (5, false), (1, false)], &[(3, false)]], 2);
+        let got = run(
+            &k,
+            &[&[(0, true), (5, false), (1, false)], &[(3, false)]],
+            2,
+        );
         assert_eq!(got, [(0, true), (5, false)]);
     }
 
     #[test]
     fn ties_by_arm_order() {
-        let k = [MergeKey { col: 0, desc: false, nulls_first: false }];
+        let k = [MergeKey {
+            col: 0,
+            desc: false,
+            nulls_first: false,
+        }];
         let mut out = Rows(Vec::new(), 0); // alloc: Cold
         let mut m = ArmMerge::new(&mut out, 1, &[false], &k, 2);
         feed(&mut m, 1, &[(7, false)]);
@@ -248,7 +381,11 @@ mod tests {
             let (o, _) = memledger::charge::context();
             let committed = || memledger::charge::owner_row(o).committed;
             let base = committed();
-            let k = [MergeKey { col: 0, desc: false, nulls_first: false }];
+            let k = [MergeKey {
+                col: 0,
+                desc: false,
+                nulls_first: false,
+            }];
             let mut out = Rows(Vec::new(), 0); // alloc: Cold
             {
                 let mut m = ArmMerge::new(&mut out, 1, &[false], &k, 2);
@@ -262,12 +399,23 @@ mod tests {
                 let held = m.arms.iter().map(ArmRows::held).sum::<u64>();
                 // and the merge's own tables (arms, byref, keys), on the owner from the set
                 let tables = m.held.committed();
-                assert!(tables >= 2 * core::mem::size_of::<ArmRows>() as u64, "the tables: {tables}");
-                assert!(held >= 10_000 * 9 && committed() - base == (held + tables) as i64, "held {held} + tables {tables}, committed {}", committed() - base);
+                assert!(
+                    tables >= 2 * core::mem::size_of::<ArmRows>() as u64,
+                    "the tables: {tables}"
+                );
+                assert!(
+                    held >= 10_000 * 9 && committed() - base == (held + tables) as i64,
+                    "held {held} + tables {tables}, committed {}",
+                    committed() - base
+                );
                 assert_eq!(m.drain().unwrap(), 10_000);
             }
             assert_eq!(out.0, (0..10_000).map(|i| (i, false)).collect::<Vec<_>>()); // alloc: Cold
-            assert_eq!(committed(), base, "the buffers' bytes left the owner with the merge");
+            assert_eq!(
+                committed(),
+                base,
+                "the buffers' bytes left the owner with the merge"
+            );
             memledger::statement_end();
             memledger::unbind_backend();
         })

@@ -370,7 +370,13 @@ fn gen_prune(g: &mut Gen) -> Vec<StmtKind> {
     g.exr.next_obj += 1;
     let shape = g.weights.pick(
         g.rng,
-        &["exr:prune:eq", "exr:prune:range", "exr:prune:merge", "exr:prune:join", "exr:prune:hash"],
+        &[
+            "exr:prune:eq",
+            "exr:prune:range",
+            "exr:prune:merge",
+            "exr:prune:join",
+            "exr:prune:hash",
+        ],
     );
     let (prep, execs): (String, Vec<String>) = match shape {
         // pk = $1: exactly one partition survives; no-match value prunes ALL.
@@ -381,7 +387,7 @@ fn gen_prune(g: &mut Gen) -> Vec<StmtKind> {
                 format!("EXECUTE {ps}({});", 1500 + g.rng.below(1500)),
                 format!("EXECUTE {ps}({});", 4500 + g.rng.below(700)),
                 format!("EXECUTE {ps}(-{});", 1 + g.rng.below(100)), // default part range? negative -> default
-                format!("EXECUTE {ps}(NULL);"),                     // all pruned
+                format!("EXECUTE {ps}(NULL);"),                      // all pruned
             ],
         ),
         // pk BETWEEN $1 AND $2: subset survives; inverted range prunes all.
@@ -391,8 +397,16 @@ fn gen_prune(g: &mut Gen) -> Vec<StmtKind> {
                  WHERE pk BETWEEN $1 AND $2;"
             ),
             vec![
-                format!("EXECUTE {ps}({}, {});", g.rng.below(1000), 1400 + g.rng.below(2000)),
-                format!("EXECUTE {ps}({}, {});", 2900 + g.rng.below(200), 4400 + g.rng.below(900)),
+                format!(
+                    "EXECUTE {ps}({}, {});",
+                    g.rng.below(1000),
+                    1400 + g.rng.below(2000)
+                ),
+                format!(
+                    "EXECUTE {ps}({}, {});",
+                    2900 + g.rng.below(200),
+                    4400 + g.rng.below(900)
+                ),
                 format!("EXECUTE {ps}(4000, 100);"),
             ],
         ),
@@ -403,8 +417,16 @@ fn gen_prune(g: &mut Gen) -> Vec<StmtKind> {
                  ORDER BY pk LIMIT 40;"
             ),
             vec![
-                format!("EXECUTE {ps}({}, {});", 1000 + g.rng.below(600), 3200 + g.rng.below(1500)),
-                format!("EXECUTE {ps}({}, {});", g.rng.below(200), 900 + g.rng.below(400)),
+                format!(
+                    "EXECUTE {ps}({}, {});",
+                    1000 + g.rng.below(600),
+                    3200 + g.rng.below(1500)
+                ),
+                format!(
+                    "EXECUTE {ps}({}, {});",
+                    g.rng.below(200),
+                    900 + g.rng.below(400)
+                ),
                 format!("EXECUTE {ps}(5000, 5000);"),
             ],
         ),
@@ -466,7 +488,14 @@ fn gen_winframe(g: &mut Gen) -> Vec<StmtKind> {
     let hi = lo + 400 + g.rng.below(800);
     let shape = g.weights.pick(
         g.rng,
-        &["exr:wf:rangeint", "exr:wf:rangenum", "exr:wf:groups", "exr:wf:rows", "exr:wf:pos", "exr:wf:moving"],
+        &[
+            "exr:wf:rangeint",
+            "exr:wf:rangenum",
+            "exr:wf:groups",
+            "exr:wf:rows",
+            "exr:wf:pos",
+            "exr:wf:moving",
+        ],
     );
     g.fire(shape);
     let exc = pick_str(g, EXCLUDES);
@@ -475,14 +504,17 @@ fn gen_winframe(g: &mut Gen) -> Vec<StmtKind> {
         "exr:wf:rangeint" => {
             let o1 = 1 + g.rng.below(20);
             let o2 = 1 + g.rng.below(20);
-            let frame = pick_str(g, &[
-                "RANGE BETWEEN {o1} PRECEDING AND {o2} FOLLOWING",
-                "RANGE BETWEEN {o1} PRECEDING AND CURRENT ROW",
-                "RANGE BETWEEN CURRENT ROW AND {o2} FOLLOWING",
-                "RANGE BETWEEN {o1} FOLLOWING AND {o2} FOLLOWING",
-                "RANGE BETWEEN UNBOUNDED PRECEDING AND {o2} FOLLOWING",
-                "RANGE BETWEEN {o1} PRECEDING AND UNBOUNDED FOLLOWING",
-            ])
+            let frame = pick_str(
+                g,
+                &[
+                    "RANGE BETWEEN {o1} PRECEDING AND {o2} FOLLOWING",
+                    "RANGE BETWEEN {o1} PRECEDING AND CURRENT ROW",
+                    "RANGE BETWEEN CURRENT ROW AND {o2} FOLLOWING",
+                    "RANGE BETWEEN {o1} FOLLOWING AND {o2} FOLLOWING",
+                    "RANGE BETWEEN UNBOUNDED PRECEDING AND {o2} FOLLOWING",
+                    "RANGE BETWEEN {o1} PRECEDING AND UNBOUNDED FOLLOWING",
+                ],
+            )
             .replace("{o1}", &o1.to_string())
             .replace("{o2}", &o2.to_string());
             format!(
@@ -494,12 +526,15 @@ fn gen_winframe(g: &mut Gen) -> Vec<StmtKind> {
         // RANGE offset on the numeric order key (in_range numeric arm).
         "exr:wf:rangenum" => {
             let o = pick_str(g, &["0.5", "1.25", "3.75", "10.0"]);
-            let frame = pick_str(g, &[
-                "RANGE BETWEEN {o} PRECEDING AND {o} FOLLOWING",
-                "RANGE BETWEEN {o} PRECEDING AND CURRENT ROW",
-                "RANGE BETWEEN CURRENT ROW AND {o} FOLLOWING",
-                "RANGE BETWEEN UNBOUNDED PRECEDING AND {o} PRECEDING",
-            ])
+            let frame = pick_str(
+                g,
+                &[
+                    "RANGE BETWEEN {o} PRECEDING AND {o} FOLLOWING",
+                    "RANGE BETWEEN {o} PRECEDING AND CURRENT ROW",
+                    "RANGE BETWEEN CURRENT ROW AND {o} FOLLOWING",
+                    "RANGE BETWEEN UNBOUNDED PRECEDING AND {o} PRECEDING",
+                ],
+            )
             .replace("{o}", o);
             format!(
                 "SELECT pk, sum(b) OVER w, count(*) OVER w FROM {t} \
@@ -511,13 +546,16 @@ fn gen_winframe(g: &mut Gen) -> Vec<StmtKind> {
         "exr:wf:groups" => {
             let o1 = g.rng.below(4);
             let o2 = g.rng.below(4);
-            let frame = pick_str(g, &[
-                "GROUPS BETWEEN {o1} PRECEDING AND {o2} FOLLOWING",
-                "GROUPS BETWEEN {o1} PRECEDING AND CURRENT ROW",
-                "GROUPS BETWEEN CURRENT ROW AND {o2} FOLLOWING",
-                "GROUPS BETWEEN UNBOUNDED PRECEDING AND {o2} PRECEDING",
-                "GROUPS BETWEEN {o1} FOLLOWING AND UNBOUNDED FOLLOWING",
-            ])
+            let frame = pick_str(
+                g,
+                &[
+                    "GROUPS BETWEEN {o1} PRECEDING AND {o2} FOLLOWING",
+                    "GROUPS BETWEEN {o1} PRECEDING AND CURRENT ROW",
+                    "GROUPS BETWEEN CURRENT ROW AND {o2} FOLLOWING",
+                    "GROUPS BETWEEN UNBOUNDED PRECEDING AND {o2} PRECEDING",
+                    "GROUPS BETWEEN {o1} FOLLOWING AND UNBOUNDED FOLLOWING",
+                ],
+            )
             .replace("{o1}", &o1.to_string())
             .replace("{o2}", &o2.to_string());
             format!(
@@ -530,12 +568,15 @@ fn gen_winframe(g: &mut Gen) -> Vec<StmtKind> {
         "exr:wf:rows" => {
             let o1 = 1 + g.rng.below(15);
             let o2 = 1 + g.rng.below(15);
-            let frame = pick_str(g, &[
-                "ROWS BETWEEN {o1} PRECEDING AND {o2} FOLLOWING",
-                "ROWS BETWEEN {o1} FOLLOWING AND {o2} FOLLOWING",
-                "ROWS BETWEEN UNBOUNDED PRECEDING AND {o1} PRECEDING",
-                "ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING",
-            ])
+            let frame = pick_str(
+                g,
+                &[
+                    "ROWS BETWEEN {o1} PRECEDING AND {o2} FOLLOWING",
+                    "ROWS BETWEEN {o1} FOLLOWING AND {o2} FOLLOWING",
+                    "ROWS BETWEEN UNBOUNDED PRECEDING AND {o1} PRECEDING",
+                    "ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING",
+                ],
+            )
             .replace("{o1}", &o1.to_string())
             .replace("{o2}", &o2.to_string());
             format!(
@@ -550,15 +591,18 @@ fn gen_winframe(g: &mut Gen) -> Vec<StmtKind> {
             let o1 = 1 + g.rng.below(8);
             let o2 = 1 + g.rng.below(8);
             let nth = 1 + g.rng.below(6);
-            let frame = pick_str(g, &[
-                "ROWS BETWEEN {o1} PRECEDING AND {o2} FOLLOWING",
-                "ROWS BETWEEN {o1} FOLLOWING AND {o2} FOLLOWING",
-                "ROWS BETWEEN UNBOUNDED PRECEDING AND {o1} PRECEDING",
-                "GROUPS BETWEEN {o1} PRECEDING AND {o2} FOLLOWING",
-                "GROUPS BETWEEN CURRENT ROW AND {o2} FOLLOWING",
-                "RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW",
-                "RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING",
-            ])
+            let frame = pick_str(
+                g,
+                &[
+                    "ROWS BETWEEN {o1} PRECEDING AND {o2} FOLLOWING",
+                    "ROWS BETWEEN {o1} FOLLOWING AND {o2} FOLLOWING",
+                    "ROWS BETWEEN UNBOUNDED PRECEDING AND {o1} PRECEDING",
+                    "GROUPS BETWEEN {o1} PRECEDING AND {o2} FOLLOWING",
+                    "GROUPS BETWEEN CURRENT ROW AND {o2} FOLLOWING",
+                    "RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW",
+                    "RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING",
+                ],
+            )
             .replace("{o1}", &o1.to_string())
             .replace("{o2}", &o2.to_string());
             format!(
@@ -596,7 +640,14 @@ fn gen_subplan(g: &mut Gen) -> Vec<StmtKind> {
     let hi = lo + 200 + g.rng.below(600);
     let shape = g.weights.pick(
         g.rng,
-        &["exr:sp:hashed", "exr:sp:nullhash", "exr:sp:multicol", "exr:sp:scan", "exr:sp:corr", "exr:sp:any"],
+        &[
+            "exr:sp:hashed",
+            "exr:sp:nullhash",
+            "exr:sp:multicol",
+            "exr:sp:scan",
+            "exr:sp:corr",
+            "exr:sp:any",
+        ],
     );
     g.fire(shape);
     let sql = match shape {
@@ -698,7 +749,9 @@ fn gen_lockrows(g: &mut Gen) -> Vec<StmtKind> {
     let wait = pick_str(g, &["", " SKIP LOCKED", " NOWAIT"]);
     let lo = 1 + g.rng.below(5000);
     let hi = lo + 20 + g.rng.below(200);
-    let shape = g.weights.pick(g.rng, &["exr:lr:plain", "exr:lr:join", "exr:lr:limit"]);
+    let shape = g
+        .weights
+        .pick(g.rng, &["exr:lr:plain", "exr:lr:join", "exr:lr:limit"]);
     g.fire(shape);
     let body = match shape {
         "exr:lr:plain" => format!(
@@ -887,7 +940,9 @@ fn gen_merge(g: &mut Gen) -> Vec<StmtKind> {
     let d = format!("fz_xrd{n}");
     let p = format!("fz_xrp{n}");
     let k = 1 + g.rng.below(600);
-    let shape = g.weights.pick(g.rng, &["exr:mg:full", "exr:mg:bysource", "exr:mg:part"]);
+    let shape = g
+        .weights
+        .pick(g.rng, &["exr:mg:full", "exr:mg:bysource", "exr:mg:part"]);
     g.fire(shape);
     let body = match shape {
         "exr:mg:full" => vec![raw(format!(
@@ -935,7 +990,10 @@ fn gen_tid(g: &mut Gen) -> Vec<StmtKind> {
     let k1 = 1 + g.rng.below(5900);
     let k2 = 1 + g.rng.below(5900);
     let pg = 1 + g.rng.below(30);
-    let shape = g.weights.pick(g.rng, &["exr:tid:eq", "exr:tid:in", "exr:tid:range", "exr:tid:back"]);
+    let shape = g.weights.pick(
+        g.rng,
+        &["exr:tid:eq", "exr:tid:in", "exr:tid:range", "exr:tid:back"],
+    );
     g.fire(shape);
     match shape {
         // ctid = <subquery>: TidScan with one live ctid.
@@ -984,7 +1042,15 @@ fn gen_tid(g: &mut Gen) -> Vec<StmtKind> {
 /// arms). The rig builds carry no libxml, so XMLTABLE is out of scope.
 fn gen_tfunc(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("exr:tfunc");
-    let shape = g.weights.pick(g.rng, &["exr:tf:nested", "exr:tf:opts", "exr:tf:err", "exr:tf:lateral"]);
+    let shape = g.weights.pick(
+        g.rng,
+        &[
+            "exr:tf:nested",
+            "exr:tf:opts",
+            "exr:tf:err",
+            "exr:tf:lateral",
+        ],
+    );
     g.fire(shape);
     let k = g.rng.below(50);
     match shape {
@@ -1039,7 +1105,10 @@ fn gen_ntstore(g: &mut Gen) -> Vec<StmtKind> {
     let t = format!("fz_xrt{n}");
     let l = format!("fz_xrl{n}");
     let k = 1 + g.rng.below(300);
-    let shape = g.weights.pick(g.rng, &["exr:nt:ins", "exr:nt:upd", "exr:nt:del", "exr:nt:mix"]);
+    let shape = g.weights.pick(
+        g.rng,
+        &["exr:nt:ins", "exr:nt:upd", "exr:nt:del", "exr:nt:mix"],
+    );
     g.fire(shape);
     let dml: Vec<StmtKind> = match shape {
         "exr:nt:ins" => vec![raw(format!(
@@ -1058,7 +1127,10 @@ fn gen_ntstore(g: &mut Gen) -> Vec<StmtKind> {
             raw(format!(
                 "INSERT INTO {t} SELECT 2000 + i, i FROM generate_series(1, 25) i;"
             )),
-            raw(format!("UPDATE {t} SET v = -v WHERE k BETWEEN {k} AND {};", k + 30)),
+            raw(format!(
+                "UPDATE {t} SET v = -v WHERE k BETWEEN {k} AND {};",
+                k + 30
+            )),
             raw(format!("DELETE FROM {t} WHERE k % 17 = {};", k % 17)),
             // empty transition tables (zero-row DML still fires the triggers)
             raw(format!("UPDATE {t} SET v = 0 WHERE false;")),
@@ -1091,7 +1163,11 @@ fn gen_currentof(g: &mut Gen) -> Vec<StmtKind> {
     let cur = format!("fz_xoc{}", g.exr.next_obj);
     g.exr.next_obj += 1;
     let k = 1 + g.rng.below(4000);
-    let forup = if part || g.rng.chance(1, 2) { " FOR UPDATE" } else { "" };
+    let forup = if part || g.rng.chance(1, 2) {
+        " FOR UPDATE"
+    } else {
+        ""
+    };
     rollback(vec![
         // Pin the cursor to an index path: a Sort-topped cursor is not
         // simply updatable and WHERE CURRENT OF raises 24000 (that arm
@@ -1109,7 +1185,9 @@ fn gen_currentof(g: &mut Gen) -> Vec<StmtKind> {
              RETURNING {key}, a;"
         )),
         raw(format!("FETCH 2 FROM {cur};")),
-        raw(format!("DELETE FROM {t} WHERE CURRENT OF {cur} RETURNING {key};")),
+        raw(format!(
+            "DELETE FROM {t} WHERE CURRENT OF {cur} RETURNING {key};"
+        )),
         raw(format!("FETCH 1 FROM {cur};")),
         raw(format!("CLOSE {cur};")),
     ])
@@ -1129,7 +1207,15 @@ fn gen_sqlfn(g: &mut Gen) -> Vec<StmtKind> {
     g.exr.next_obj += 1;
     let shape = g.weights.pick(
         g.rng,
-        &["exr:fn:poly", "exr:fn:table", "exr:fn:atomic", "exr:fn:variadic", "exr:fn:comp", "exr:fn:setof", "exr:fn:dml"],
+        &[
+            "exr:fn:poly",
+            "exr:fn:table",
+            "exr:fn:atomic",
+            "exr:fn:variadic",
+            "exr:fn:comp",
+            "exr:fn:setof",
+            "exr:fn:dml",
+        ],
     );
     g.fire(shape);
     let k = 1 + g.rng.below(1000);
@@ -1237,7 +1323,9 @@ fn gen_limit(g: &mut Gen) -> Vec<StmtKind> {
     let n = g.exr.suites[si].n;
     let t = format!("fz_xr{n}");
     let lo = 1 + g.rng.below(5000);
-    let shape = g.weights.pick(g.rng, &["exr:lim:ties", "exr:lim:edge", "exr:lim:back"]);
+    let shape = g
+        .weights
+        .pick(g.rng, &["exr:lim:ties", "exr:lim:edge", "exr:lim:back"]);
     g.fire(shape);
     match shape {
         // WITH TIES needs ORDER BY; the tie column is duplicate-heavy and
@@ -1297,7 +1385,10 @@ fn gen_iscan(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("exr:iscan");
     let n = g.exr.suites[si].n;
     let t = format!("fz_xr{n}");
-    let shape = g.weights.pick(g.rng, &["exr:is:rowcmp", "exr:is:saop", "exr:is:null", "exr:is:desc"]);
+    let shape = g.weights.pick(
+        g.rng,
+        &["exr:is:rowcmp", "exr:is:saop", "exr:is:null", "exr:is:desc"],
+    );
     g.fire(shape);
     let b0 = g.rng.below(37);
     let a0 = g.rng.below(250);
@@ -1352,7 +1443,13 @@ fn gen_rescan(g: &mut Gen) -> Vec<StmtKind> {
     let d = format!("fz_xrd{n}");
     let inner = g.weights.pick(
         g.rng,
-        &["exr:rs:sort", "exr:rs:agg", "exr:rs:setop", "exr:rs:win", "exr:rs:limit"],
+        &[
+            "exr:rs:sort",
+            "exr:rs:agg",
+            "exr:rs:setop",
+            "exr:rs:win",
+            "exr:rs:limit",
+        ],
     );
     g.fire(inner);
     let lim = 3 + g.rng.below(12);
@@ -1408,7 +1505,9 @@ fn gen_parappend(g: &mut Gen) -> Vec<StmtKind> {
     let n = g.exr.suites[si].n;
     let p = format!("fz_xrp{n}");
     let d = format!("fz_xrd{n}");
-    let shape = g.weights.pick(g.rng, &["exr:pa:agg", "exr:pa:mixed", "exr:pa:rescan"]);
+    let shape = g
+        .weights
+        .pick(g.rng, &["exr:pa:agg", "exr:pa:mixed", "exr:pa:rescan"]);
     g.fire(shape);
     let body = match shape {
         // Parallel Append of partial per-partition scans.
@@ -1480,9 +1579,7 @@ fn gen_excl(g: &mut Gen) -> Vec<StmtKind> {
             "SELECT count(*), min(u) FROM {t} WHERE k > 900;"
         )));
     } else {
-        stmts.push(raw(format!(
-            "INSERT INTO {t} VALUES (700 + {k}, -{k});"
-        )));
+        stmts.push(raw(format!("INSERT INTO {t} VALUES (700 + {k}, -{k});")));
         stmts.push(raw(format!(
             "INSERT INTO {t} VALUES (800 + {k}, {k} * 3);" // ERROR 23P01 (matched)
         )));
@@ -1528,10 +1625,7 @@ fn gen_mj(g: &mut Gen) -> Vec<StmtKind> {
         ),
     };
     bracket(
-        &[
-            ("enable_hashjoin", "off"),
-            ("enable_nestloop", "off"),
-        ],
+        &[("enable_hashjoin", "off"), ("enable_nestloop", "off")],
         vec![raw(sql)],
     )
 }

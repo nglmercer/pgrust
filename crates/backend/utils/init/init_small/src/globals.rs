@@ -100,7 +100,7 @@ pub fn guc_ignores_data_directory_mode(_mode: i32) {}
 // are recorded under its (synthetic) MyProcPid so thread-signal delivery can
 // fan the group signals out to them.
 pgsync::process_global! { static BACKEND_CHILDREN: pgsync::Mutex<Vec<(i32, u32)>> =
-    pgsync::Mutex::new(Vec::new()); }
+pgsync::Mutex::new(Vec::new()); }
 
 pub fn register_backend_child(child_pid: u32) {
     BACKEND_CHILDREN
@@ -453,7 +453,13 @@ fn due_passed() -> bool {
         return false;
     }
     let due = DUE_POLL.get();
-    DUE_SKIP.set((if due.is_some() { DUE_EVERY } else { CANCEL_EVERY }) - 1);
+    DUE_SKIP.set(
+        (if due.is_some() {
+            DUE_EVERY
+        } else {
+            CANCEL_EVERY
+        }) - 1,
+    );
     if PollHostCancel() {
         return true;
     }
@@ -504,15 +510,21 @@ thread_local! {
     static REDELIVER: Cell<u32> = const { Cell::new(0) };
 }
 
-fn put_last_interrupt(e: Option<ManuallyDrop<Box<types_error::PgError>>>) -> Option<Box<types_error::PgError>> {
-    LAST_INTERRUPT.with(|l| core::mem::replace(&mut *l.borrow_mut(), e)).map(ManuallyDrop::into_inner)
+fn put_last_interrupt(
+    e: Option<ManuallyDrop<Box<types_error::PgError>>>,
+) -> Option<Box<types_error::PgError>> {
+    LAST_INTERRUPT
+        .with(|l| core::mem::replace(&mut *l.borrow_mut(), e))
+        .map(ManuallyDrop::into_inner)
 }
 
 /// True when an admission raises it again: InterruptPending is set again (the caller sets the latch).
 #[cold]
 pub fn NoteInterruptRaised(e: &types_error::PgError) -> bool {
     INTERRUPTS_RAISED.set(INTERRUPTS_RAISED.get().wrapping_add(1));
-    drop(put_last_interrupt(Some(ManuallyDrop::new(Box::new(e.clone())))));
+    drop(put_last_interrupt(Some(ManuallyDrop::new(Box::new(
+        e.clone(),
+    )))));
     let again = REDELIVER.get() > 0;
     if again {
         SetInterruptPending(true);

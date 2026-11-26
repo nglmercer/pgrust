@@ -16,18 +16,19 @@
 //! Owner M3-GROUPED.
 use gravity_abi::breaker::{KeyKind, SlotKind, LAYOUT_IMPLICIT_COUNT, MINCODE_NONE};
 use gravity_abi::status::{unsupported, UNSUPPORTED_SHAPE};
+use gravity_decompose::catalog::typefacts::row_of;
 use gravity_decompose::ops::shared::agg::{GroupDecl, GroupForm};
 use gravity_decompose::ops::shared::append::AppendDesc;
-use gravity_decompose::catalog::typefacts::row_of;
 use gravity_decompose::Op;
 use gravity_expr::emit::{AggCell, CellForm, CellValid};
 use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{Block, ConvOp, HostFlags, HostFn, IntBinOp, IntCond, Type, Value};
 use gravity_kernels::ops::agg::trans::hosted::{DIRECT_BOUND, DIRECT_NULL};
-use mcx::{Mcx, PgBox, PgVec};
 use mcx::GrowIn;
+use mcx::{Mcx, PgBox, PgVec};
 use types_nodes::primnodes::OUTER_VAR;
 
+use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::face::kinds::{Face, KindId};
 use crate::face::runs::DistinctSetImpl;
 use crate::face::step::StepMech;
@@ -36,15 +37,17 @@ use crate::frame::frame::{Next, StepMaker};
 use crate::frame::open::{Base, OpenWord, OpenWords};
 use crate::frame::px::{Px, WordKey};
 use crate::frame::row::{Carry, RowVals};
-use crate::admit::refusal::{Reason, ShapeWhy};
 use mcx::CollectIn;
 
-use crate::table::emit_key::KeyOut;
 use crate::ops::agg::hashagg::{AccAt, Agg, GroupRec};
+use crate::table::emit_key::KeyOut;
 
 const RECORDOID: u32 = 2249;
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { kinds: &[(KindId::KeyedHashagg, &StepMaker(make))], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    kinds: &[(KindId::KeyedHashagg, &StepMaker(make))],
+    ..crate::ops::NONE
+};
 
 /// Frame words past the record: the open flag, then the key copies' arena cursor (`key_copy`: cursor, end, chunk).
 const W_OPEN: u8 = 0;
@@ -97,24 +100,65 @@ fn shape(node: i32, why: &'static str) -> ! {
     crate::refuse!(node, Reason::Shape { why: ShapeWhy(why) })
 }
 
-pub(crate) fn make<'g, 'p>(px: &mut Px<'g, 'p>, k: usize, j: usize) -> PgBox<'g, dyn StepMech + 'g> {
+pub(crate) fn make<'g, 'p>(
+    px: &mut Px<'g, 'p>,
+    k: usize,
+    j: usize,
+) -> PgBox<'g, dyn StepMech + 'g> {
     let gx = px.gx;
     let p = &gx.pipelines()[k];
-    let node = p.node_ops.iter().rev().find(|n| n.first_op as usize <= j).map_or(p.node_id, |n| n.node_id);
-    let Op::GroupRun(i) = &p.ops[j] else { crate::refuse!(node, Reason::Bug { payload: "a streamed group over another op" }) };
-    let Some(g) = gx.stream(*i as usize) else { crate::refuse!(node, Reason::Bug { payload: "a streamed group without its declaration" }) };
+    let node = p
+        .node_ops
+        .iter()
+        .rev()
+        .find(|n| n.first_op as usize <= j)
+        .map_or(p.node_id, |n| n.node_id);
+    let Op::GroupRun(i) = &p.ops[j] else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a streamed group over another op"
+            }
+        )
+    };
+    let Some(g) = gx.stream(*i as usize) else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a streamed group without its declaration"
+            }
+        )
+    };
     // D1120: a DISTINCT aggregate's per-group set (M6): refused by name until its file registers the set
-    let set = (g.form == GroupForm::Distinct).then(|| crate::frame::iface::kind_impl::<DistinctSetImpl>(&node, KindId::RunsGroupDistinct).0);
+    let set = (g.form == GroupForm::Distinct).then(|| {
+        crate::frame::iface::kind_impl::<DistinctSetImpl>(&node, KindId::RunsGroupDistinct).0
+    });
     // an ordered union's arms (decompose append.rs copies the op into each): one open group across them, in arm order
     let union = px.union_of(k, j);
     let arm = union.map(|(_, marker)| match &p.ops[marker] {
-        Op::Append(AppendDesc::Arm { i, n, ordered: true, prune: None }) => (*i, *n),
-        Op::Append(AppendDesc::Arm { .. }) => shape(node, "run.stream: a streamed group over an unordered or pruned union's arms"),
-        _ => crate::refuse!(node, Reason::Bug { payload: "a streamed union's marker that is no arm" }),
+        Op::Append(AppendDesc::Arm {
+            i,
+            n,
+            ordered: true,
+            prune: None,
+        }) => (*i, *n),
+        Op::Append(AppendDesc::Arm { .. }) => shape(
+            node,
+            "run.stream: a streamed group over an unordered or pruned union's arms",
+        ),
+        _ => crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a streamed union's marker that is no arm"
+            }
+        ),
     });
     let own = g.producer.0 as usize == k;
     if (!own && arm.is_none()) || p.desc.is_eligible() {
-        shape(node, "run.stream: a streamed group outside its own serial pipeline");
+        shape(
+            node,
+            "run.stream: a streamed group outside its own serial pipeline",
+        );
     }
     let node = g.node_id;
     crate::ops::group::stream_distinct::unpaired(g);
@@ -124,38 +168,70 @@ pub(crate) fn make<'g, 'p>(px: &mut Px<'g, 'p>, k: usize, j: usize) -> PgBox<'g,
     };
     if !own && rec.reps.iter().flatten().any(|r| !r.datum) {
         // the declaration reads the last arm's relation: another arm's code lane is not its dictionary's
-        shape(node, "run.stream: a code representative over an ordered union's arms");
+        shape(
+            node,
+            "run.stream: a code representative over an ordered union's arms",
+        );
     }
     if distinct.is_none() {
         rec.compile_args_at(px, false, (k, j));
     }
     rec.arena(px, k); // D1209: a hosted state's arena (V4R-375), the one keyed.hashagg's end declares; serial, no home
-    // K4.riderg: a user-defined aggregate's transition and final are user code (they may act or raise): D439's pull cap, so
-    // a cursor's FETCH n advances and finalizes no group past the n-th, as PG's GroupAggregate under its portal
+                      // K4.riderg: a user-defined aggregate's transition and final are user code (they may act or raise): D439's pull cap, so
+                      // a cursor's FETCH n advances and finalizes no group past the n-th, as PG's GroupAggregate under its portal
     if crate::effects::visible::agg::folds_user(&rec) {
-        px.declare_proto(gravity_program::protos::Proto::new(gravity_program::protos::ProtoKind::Volatile, k as u16));
+        px.declare_proto(gravity_program::protos::Proto::new(
+            gravity_program::protos::ProtoKind::Volatile,
+            k as u16,
+        ));
     }
     let keys = crate::table::emit_key::key_outs(px, node, g, &rec);
-    let words = rec.layout.size().div_ceil(8) as usize + distinct.as_ref().map_or(0, |d| d.set.words() as usize);
+    let words = rec.layout.size().div_ceil(8) as usize
+        + distinct.as_ref().map_or(0, |d| d.set.words() as usize);
     if W_RECORD as usize + words > u8::MAX as usize {
-        shape(node, "run.stream: a group record wider than the step's frame words");
+        shape(
+            node,
+            "run.stream: a group record wider than the step's frame words",
+        );
     }
     let key = |i: u8| match union {
-        Some((union, marker)) => WordKey::Union { union, after: crate::frame::px::key_j(j - marker), i },
-        None => WordKey::Open { face: Face::Step, k, j: crate::frame::px::key_j(j), i },
+        Some((union, marker)) => WordKey::Union {
+            union,
+            after: crate::frame::px::key_j(j - marker),
+            i,
+        },
+        None => WordKey::Open {
+            face: Face::Step,
+            k,
+            j: crate::frame::px::key_j(j),
+            i,
+        },
     };
     let base = px.frame_word(key(0));
     for w in 1..W_RECORD + words as u8 {
         if px.frame_word(key(w)) != base + w as u16 {
-            crate::refuse!(node, Reason::Bug { payload: "a streamed group's frame words out of order" });
+            crate::refuse!(
+                node,
+                Reason::Bug {
+                    payload: "a streamed group's frame words out of order"
+                }
+            );
         }
     }
     let at = |w: u8| (base as i32 + w as i32) * 8;
     if let Some(d) = distinct.as_mut() {
         d.set_at = at(W_RECORD + rec.layout.size().div_ceil(8) as u8); // the set's words after the record's
     }
-    let copies = rec.aggs.iter().any(|a| crate::props::class_kind(&a.d) == KindId::ClassMinmaxCode || crate::ops::shared::agg::order_keyed(&a.d)) || (0..rec.reps.len()).any(|i| crate::table::emit_key::copies(&rec, i)); // N13: a keyed numeric extreme's side copies
-    let ncols = g.keys.iter().map(|kd| kd.resno.max(0) as usize).max().unwrap_or(0);
+    let copies = rec.aggs.iter().any(|a| {
+        crate::props::class_kind(&a.d) == KindId::ClassMinmaxCode
+            || crate::ops::shared::agg::order_keyed(&a.d)
+    }) || (0..rec.reps.len()).any(|i| crate::table::emit_key::copies(&rec, i)); // N13: a keyed numeric extreme's side copies
+    let ncols = g
+        .keys
+        .iter()
+        .map(|kd| kd.resno.max(0) as usize)
+        .max()
+        .unwrap_or(0);
     let count = !rec.sentinel_owned() && distinct.is_none();
     let flag = union.map(|(union, _)| px.frame_word(WordKey::UnionFlag { union }));
     let last = arm.is_none_or(|(i, n)| i + 1 == n);
@@ -164,7 +240,9 @@ pub(crate) fn make<'g, 'p>(px: &mut Px<'g, 'p>, k: usize, j: usize) -> PgBox<'g,
     // D2922 (R1): a group folding its raising calls in plan order over an index merge (decompose facts/stream.rs
     // `merge_spine`) meets PostgreSQL's row order, ties across arms too, only in the merge's pull form, whose heap replays
     // PostgreSQL's (merge_pull_heap.rs); the breaker form's run merge takes ties in arm order
-    if in_order && crate::props::Merge::of_reader(gx, k).is_some_and(|m| !crate::props::merge_pull(gx, &m)) {
+    if in_order
+        && crate::props::Merge::of_reader(gx, k).is_some_and(|m| !crate::props::merge_pull(gx, &m))
+    {
         shape(node, "run.stream: a group folding its raising calls in plan order over a MergeAppend not in the pull form (D2922)");
     }
     let again = again(px, k, j);
@@ -178,8 +256,18 @@ pub(crate) fn make<'g, 'p>(px: &mut Px<'g, 'p>, k: usize, j: usize) -> PgBox<'g,
 /// cursor's FETCH, a PL/pgSQL FOR loop over a grouped merge join). Only in a pipeline made under its own identity: a nest
 /// inner's group re-enters by its owner's walk (rerun/inner.rs `Held`, D1018) on the same step word.
 fn again(px: &mut Px<'_, '_>, k: usize, j: usize) -> Option<i32> {
-    let below = px.gx.pipelines()[k].ops[..j].iter().any(|o| matches!(o, Op::Join(_) | Op::Srf(_)));
-    (below && px.ident(k) == k).then(|| crate::frame::stop::resume_word(px, crate::frame::stop::ResumeWord::StepOffset { k, j: crate::frame::px::key_j(j) }))
+    let below = px.gx.pipelines()[k].ops[..j]
+        .iter()
+        .any(|o| matches!(o, Op::Join(_) | Op::Srf(_)));
+    (below && px.ident(k) == k).then(|| {
+        crate::frame::stop::resume_word(
+            px,
+            crate::frame::stop::ResumeWord::StepOffset {
+                k,
+                j: crate::frame::px::key_j(j),
+            },
+        )
+    })
 }
 
 /// D2719 / D2640: the keys of `rec`'s group under a user `=` (user code, or a built-in other than the
@@ -192,10 +280,21 @@ fn again(px: &mut Px<'_, '_>, k: usize, j: usize) -> Option<i32> {
 /// PostgreSQL's sorted Agg resets a DISTINCT call's input per group.
 fn user_eqs<'g>(px: &Px<'g, '_>, node: i32, rec: &GroupRec<'_, '_>) -> PgVec<'g, UserEq> {
     let mut out = mcx::PgVec::new_in(px.mcx());
-    for (i, kd) in rec.g.keys.iter().enumerate().filter(|(_, kd)| kd.user_eq != 0) {
+    for (i, kd) in rec
+        .g
+        .keys
+        .iter()
+        .enumerate()
+        .filter(|(_, kd)| kd.user_eq != 0)
+    {
         let tf = &rec.tfs[i];
         let (word, n) = rec.key_words(i);
-        if n != 1 || !tf.byval || !matches!(tf.typlen, 2 | 4 | 8) || !kd.image.is_raw() || !matches!(kd.kind, KeyKind::I32 | KeyKind::I64) {
+        if n != 1
+            || !tf.byval
+            || !matches!(tf.typlen, 2 | 4 | 8)
+            || !kd.image.is_raw()
+            || !matches!(kd.kind, KeyKind::I32 | KeyKind::I64)
+        {
             shape(node, "run.stream: a group key under a user-code = whose image word is not its datum (D2719)");
         }
         let id = match gravity_fn::typesem::keysem::eq::eq_call(&crate::effects::EqReads(px.gx.catalog), kd.user_eq, tf.typid) {
@@ -203,28 +302,49 @@ fn user_eqs<'g>(px: &Px<'g, '_>, node: i32, rec: &GroupRec<'_, '_>) -> PgVec<'g,
             Err(gravity_fn::typesem::keysem::eq::EqCallErr::NoProc) => shape(node, "run.stream: a group key's user = whose procedure the catalog does not give (D2719)"),
             Err(gravity_fn::typesem::keysem::eq::EqCallErr::Unbound(why)) => shape(node, why),
         };
-        out.push_in(UserEq { word, null: rec.null_flag(i), pc: id as u64 | (kd.coll as u64) << 32 });
+        out.push_in(UserEq {
+            word,
+            null: rec.null_flag(i),
+            pc: id as u64 | (kd.coll as u64) << 32,
+        });
     }
     out
 }
 
 impl Stream<'_, '_> {
     fn words(&self, env: &Env) -> Value {
-        env.words.unwrap_or_else(|| crate::refuse!(self.node, Reason::Bug { payload: "a streamed group without the frame words" }))
+        env.words.unwrap_or_else(|| {
+            crate::refuse!(
+                self.node,
+                Reason::Bug {
+                    payload: "a streamed group without the frame words"
+                }
+            )
+        })
     }
 
     /// The record's and the images cursor's addresses.
     fn at(&self, b: &mut FunctionBuilder<'_>, env: &Env) -> (Value, Option<Value>) {
         let st = self.words(env);
         let rec = b.ptr_add(st, env.zero, 1, self.record);
-        (rec, self.copies.then(|| b.ptr_add(st, env.zero, 1, self.images)))
+        (
+            rec,
+            self.copies.then(|| b.ptr_add(st, env.zero, 1, self.images)),
+        )
     }
 
     /// D2719: `same` (the group is open and every other key word matches) and, key by key, the user's `=` over the open
     /// group's first key and the row's, as PostgreSQL's ExecBuildGroupingEqual: called only while the row may still be
     /// the group's, never for a NULL key (the flags words already matched, so both are NULL: equal, as EEOP_NOT_DISTINCT
     /// takes them); a NULL result is not equal (EEOP_QUAL), a raise leaves through `l_raise`.
-    fn user_same(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, rec: Value, words: &[Value], mut same: Value) -> Value {
+    fn user_same(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        rec: Value,
+        words: &[Value],
+        mut same: Value,
+    ) -> Value {
         if self.user_eq.is_empty() {
             return same;
         }
@@ -242,7 +362,14 @@ impl Stream<'_, '_> {
                 None => same,
             };
             let pc = b.const_raw(Type::I64, u.pc);
-            let eq = eq_call(b, env, h, when, &[env.ctx, r, words[u.word], pc], env.l_raise);
+            let eq = eq_call(
+                b,
+                env,
+                h,
+                when,
+                &[env.ctx, r, words[u.word], pc],
+                env.l_raise,
+            );
             let eq = b.icmp(IntCond::Ne, eq, env.zero);
             same = b.int_bin(IntBinOp::And, same, eq);
         }
@@ -251,7 +378,15 @@ impl Stream<'_, '_> {
 
     /// The record opened over `row`: zeroed, its key image words, its implicit count and unset codes (abi `Rec::open`),
     /// each aggregate's state initialised and each representative written and marked (keyed.hashagg's fresh record).
-    fn open_rec(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals, rec: Value, images: Option<Value>, img: &[Value]) {
+    fn open_rec(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        row: &RowVals,
+        rec: Value,
+        images: Option<Value>,
+        img: &[Value],
+    ) {
         let l = &self.rec.layout;
         for w in 0..l.size().div_ceil(8) as i32 {
             b.store(rec, 8 * w, env.zero);
@@ -265,21 +400,47 @@ impl Stream<'_, '_> {
         if !l.has_validity() {
             let none = b.const_raw(Type::I64, MINCODE_NONE);
             let codes: PgVec<'_, usize> = match l.is_wide() {
-                false => (0..8).filter(|j| l.mincode_bits >> j & 1 == 1).collect_in(self.mcx),
-                true => (0..l.nslots()).filter(|&j| l.slot_kind(j) == SlotKind::MinCode).collect_in(self.mcx),
+                false => (0..8)
+                    .filter(|j| l.mincode_bits >> j & 1 == 1)
+                    .collect_in(self.mcx),
+                true => (0..l.nslots())
+                    .filter(|&j| l.slot_kind(j) == SlotKind::MinCode)
+                    .collect_in(self.mcx),
             };
-            codes.into_iter().for_each(|j| b.store(rec, l.slot_off(j) as i32, none));
+            codes
+                .into_iter()
+                .for_each(|j| b.store(rec, l.slot_off(j) as i32, none));
         }
         for a in &self.rec.aggs {
-            a.class.init(b, env, &self.rec.decl(a), self.rec.slot(rec, a.d.slot)); // a hosted state's slot is the record's
+            a.class
+                .init(b, env, &self.rec.decl(a), self.rec.slot(rec, a.d.slot)); // a hosted state's slot is the record's
         }
         let t = b.bconst(true);
         let reps = crate::table::emit_group::rep_words(&self.rec, b, env, row);
-        let reps = crate::table::emit_key::keep_datums_in(&self.rec, b, env, row, t, &mut |_, _| images, reps);
-        for (k, w) in self.rec.g.keys.iter().zip(reps).filter_map(|(k, w)| w.map(|w| (crate::frame::pairs_view::rep_slot(self.rec.g, k.rep), w))) {
+        let reps = crate::table::emit_key::keep_datums_in(
+            &self.rec,
+            b,
+            env,
+            row,
+            t,
+            &mut |_, _| images,
+            reps,
+        );
+        for (k, w) in self.rec.g.keys.iter().zip(reps).filter_map(|(k, w)| {
+            w.map(|w| (crate::frame::pairs_view::rep_slot(self.rec.g, k.rep), w))
+        }) {
             b.store(rec, l.slot_off(k as usize) as i32, w);
-            let set = { let none = b.const_raw(Type::I64, MINCODE_NONE); b.icmp(IntCond::Ne, w, none) };
-            crate::ops::shared::slots::mark(b, env, rec, crate::ops::shared::slots::slot_valid(l, k), set);
+            let set = {
+                let none = b.const_raw(Type::I64, MINCODE_NONE);
+                b.icmp(IntCond::Ne, w, none)
+            };
+            crate::ops::shared::slots::mark(
+                b,
+                env,
+                rec,
+                crate::ops::shared::slots::slot_valid(l, k),
+                set,
+            );
         }
         if let Some(d) = &self.distinct {
             let set = b.ptr_add(self.words(env), env.zero, 1, d.set_at);
@@ -291,10 +452,28 @@ impl Stream<'_, '_> {
     /// `(at, past)`: a stop inside leaves by `stop_in` with the cursor `resume`, the group marked handed on first when the
     /// stop is past it. The row's aggregate cells are the group's only while the steps after this op run.
     #[allow(clippy::too_many_arguments)]
-    fn hand_on<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, rec: Value, carry: Carry<'e>, (at, past, resume): (Value, Value, Value), again: Option<i32>, next: Next<'_, 'e>) -> Carry<'e> {
+    fn hand_on<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        rec: Value,
+        carry: Carry<'e>,
+        (at, past, resume): (Value, Value, Value),
+        again: Option<i32>,
+        next: Next<'_, 'e>,
+    ) -> Carry<'e> {
         let st = self.words(env);
         let aggs = env.aggs.take();
-        let grow = crate::table::emit_group::record_row(&self.rec, &self.keys, self.node, self.ncols, b, env, rec, (carry, past, at));
+        let grow = crate::table::emit_group::record_row(
+            &self.rec,
+            &self.keys,
+            self.node,
+            self.ncols,
+            b,
+            env,
+            rec,
+            (carry, past, at),
+        );
         let l_seen = b.create_block(&[Type::I64, Type::I64, Type::I64]);
         b.mark_cold(l_seen);
         let stop_in = core::mem::replace(&mut env.x.l_stop_in, l_seen);
@@ -306,7 +485,12 @@ impl Stream<'_, '_> {
         let is_past = b.icmp(IntCond::Eq, p[1], past);
         let is_at = b.icmp(IntCond::Eq, p[1], at);
         let known = b.int_bin(IntBinOp::Or, is_past, is_at);
-        let (l_known, l_bad, l_mark, l_on) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));
+        let (l_known, l_bad, l_mark, l_on) = (
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         b.cond_br(known, (l_known, &[]), (l_bad, &[]));
         b.switch_to(l_bad);
         let uns = b.iconst(Type::I64, unsupported(UNSUPPORTED_SHAPE));
@@ -339,12 +523,25 @@ impl StepMech for Stream<'_, '_> {
         for i in 0..3 {
             w.declare(word("stream images", self.images + 8 * i));
         }
-        for i in self.distinct.as_ref().map_or(0..0, |d| 0..d.set.words() as i32) {
-            w.declare(word("stream distinct set", self.distinct.as_ref().map_or(0, |d| d.set_at) + 8 * i));
+        for i in self
+            .distinct
+            .as_ref()
+            .map_or(0..0, |d| 0..d.set.words() as i32)
+        {
+            w.declare(word(
+                "stream distinct set",
+                self.distinct.as_ref().map_or(0, |d| d.set_at) + 8 * i,
+            ));
         }
         // D3539: the re-entry word starts clear at every open, as an expanding step's offset does
         if let Some(o) = self.again {
-            w.declare(OpenWord::open("stream re-entry", Base::Words, o, Type::I64, 0));
+            w.declare(OpenWord::open(
+                "stream re-entry",
+                Base::Words,
+                o,
+                Type::I64,
+                0,
+            ));
         }
     }
 
@@ -352,7 +549,13 @@ impl StepMech for Stream<'_, '_> {
         self.again
     }
 
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, next: Next<'_, 'e>) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        next: Next<'_, 'e>,
+    ) -> Carry<'e> {
         let st = self.words(env);
         // D3539: the row is here: a re-entry it waited for is over
         if let Some(w) = self.again {
@@ -374,21 +577,43 @@ impl StepMech for Stream<'_, '_> {
         let open = b.load(Type::I64, st, self.open);
         let is_open = b.icmp(IntCond::Ne, open, env.zero);
         let mut same = is_open;
-        for (i, &w) in words.iter().enumerate().filter(|(i, _)| !self.user_eq.iter().any(|u| u.word == *i)) {
+        for (i, &w) in words
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !self.user_eq.iter().any(|u| u.word == *i))
+        {
             let r = b.load(Type::I64, rec, self.rec.layout.key_off(i) as i32);
             let e = b.icmp(IntCond::Eq, r, w);
             same = b.int_bin(IntBinOp::And, same, e);
         }
         let same = self.user_same(b, env, rec, words, same);
-        let types: PgVec<'_, Type> = row.carry.params().iter().map(|&v| b.value_type(v)).collect_in(self.mcx);
-        let (l_fold, l_new, l_emit, l_open) = (b.create_block(&types[..]), b.create_block(&[]), b.create_block(&[]), b.create_block(&types[..]));
+        let types: PgVec<'_, Type> = row
+            .carry
+            .params()
+            .iter()
+            .map(|&v| b.value_type(v))
+            .collect_in(self.mcx);
+        let (l_fold, l_new, l_emit, l_open) = (
+            b.create_block(&types[..]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&types[..]),
+        );
         b.cond_br(same, (l_fold, &row.carry.params()), (l_new, &[]));
         b.switch_to(l_new);
         b.cond_br(is_open, (l_emit, &[]), (l_open, &row.carry.params()));
         b.switch_to(l_emit);
         let mine = env.agg_arena;
         env.agg_arena = outer; // the hand-on's finals take the record's arena themselves (`finals_of`)
-        let c = self.hand_on(b, env, rec, row.carry.copy_in(env.mcx), (row.at, row.next, row.at), self.again, next);
+        let c = self.hand_on(
+            b,
+            env,
+            rec,
+            row.carry.copy_in(env.mcx),
+            (row.at, row.next, row.at),
+            self.again,
+            next,
+        );
         env.agg_arena = mine;
         b.br(l_open, &c.params());
         b.switch_to(l_open);
@@ -404,7 +629,10 @@ impl StepMech for Stream<'_, '_> {
                 let set = b.ptr_add(st, env.zero, 1, d.set_at);
                 d.fold(&self.rec, b, env, row, rec, images, set);
             }
-            None => self.rec.aggs.iter().for_each(|a| self.rec.step(b, env, row, a, AccAt::Slot(rec, a.d.slot, images))),
+            None => self.rec.aggs.iter().for_each(|a| {
+                self.rec
+                    .step(b, env, row, a, AccAt::Slot(rec, a.d.slot, images))
+            }),
         });
         if self.count {
             let off = self.rec.layout.sentinel_off() as i32;
@@ -422,16 +650,34 @@ impl StepMech for Stream<'_, '_> {
     }
 
     /// The open group at the input's end handed on (the frame's flush exits keep the source's position).
-    fn flush<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, carry: Carry<'e>, next: Next<'_, 'e>) -> Carry<'e> {
+    fn flush<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        carry: Carry<'e>,
+        next: Next<'_, 'e>,
+    ) -> Carry<'e> {
         let st = self.words(env);
         let (rec, _) = self.at(b, env);
         let open = b.load(Type::I64, st, self.open);
         let is_open = b.icmp(IntCond::Ne, open, env.zero);
-        let types: PgVec<'_, Type> = carry.params().iter().map(|&v| b.value_type(v)).collect_in(self.mcx);
+        let types: PgVec<'_, Type> = carry
+            .params()
+            .iter()
+            .map(|&v| b.value_type(v))
+            .collect_in(self.mcx);
         let (l_emit, l_join) = (b.create_block(&[]), b.create_block(&types[..]));
         b.cond_br(is_open, (l_emit, &[]), (l_join, &carry.params()));
         b.switch_to(l_emit);
-        let c = self.hand_on(b, env, rec, carry, (env.zero, env.one, env.zero), None, next);
+        let c = self.hand_on(
+            b,
+            env,
+            rec,
+            carry,
+            (env.zero, env.one, env.zero),
+            None,
+            next,
+        );
         b.br(l_join, &c.params());
         b.switch_to(l_join);
         Carry::from_params(b.block_params(l_join), env.mcx)
@@ -441,16 +687,31 @@ impl StepMech for Stream<'_, '_> {
 /// Record `rec`'s finals in a stack area, 16 bytes each (the datum word, then its valid word), as the row's aggregate
 /// cells by aggno; the record's address after them (`record_of`). The emit's, and a streamed group's (keyed/stream.rs).
 /// `row` is the group's row (its keys by resno): an ordered-set aggregate's direct arguments over it (D1520, `direct`).
-pub(crate) fn finals_of<'e>(r: &GroupRec<'_, '_>, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, rec: Value, row: &RowVals) -> AggRow<'e> {
+pub(crate) fn finals_of<'e>(
+    r: &GroupRec<'_, '_>,
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env<'e, '_>,
+    rec: Value,
+    row: &RowVals,
+) -> AggRow<'e> {
     let n = r.aggs.len() as u32;
     // D3024: a packed numeric final is read lazily (`packed`): its raw words in its entry, its valid word past the record's
-    let packed = |a: &crate::table::rec::Agg<'_>| a.class.packed_num(&r.decl(a)).filter(|_| r.layout.slot_kind(a.d.slot as usize) != SlotKind::AggState && !a.class.deferred_code());
+    let packed = |a: &crate::table::rec::Agg<'_>| {
+        a.class.packed_num(&r.decl(a)).filter(|_| {
+            r.layout.slot_kind(a.d.slot as usize) != SlotKind::AggState && !a.class.deferred_code()
+        })
+    };
     let m = r.aggs.iter().filter(|a| packed(a).is_some()).count() as u32;
     let slot = b.declare_stack_slot(16 * n + 8 + 8 * m, 8);
     let area = b.stack_addr(slot);
     b.store(area, 16 * n as i32, rec);
     let mut tail = 16 * n + 8;
-    let naggno = r.aggs.iter().map(|a| a.d.aggno.max(0) as usize + 1).max().unwrap_or(0);
+    let naggno = r
+        .aggs
+        .iter()
+        .map(|a| a.d.aggno.max(0) as usize + 1)
+        .max()
+        .unwrap_or(0);
     let mut cells = mcx::pg_vec![in env.mcx; AggCell::word(0, CellValid::Always); naggno];
     // D1264: the record's own arena for its finals, the caller's back after them (an end above the emit folds its hosted
     // aggregates through its own arena, never this Agg's under its own aggno)
@@ -460,14 +721,26 @@ pub(crate) fn finals_of<'e>(r: &GroupRec<'_, '_>, b: &mut FunctionBuilder<'_>, e
     }
     // D1371: every host-sorted aggregate's sort and transitions before the group's first final, as finalize_aggregates
     for &n in r.ahead.iter() {
-        if let Some(a) = r.aggs.iter().find(|a| a.d.aggno == n && r.layout.slot_kind(a.d.slot as usize) == SlotKind::AggState) {
-            a.class.fold_ahead(b, env, &r.decl(a), r.slot(rec, a.d.slot));
+        if let Some(a) = r
+            .aggs
+            .iter()
+            .find(|a| a.d.aggno == n && r.layout.slot_kind(a.d.slot as usize) == SlotKind::AggState)
+        {
+            a.class
+                .fold_ahead(b, env, &r.decl(a), r.slot(rec, a.d.slot));
         }
     }
     for (i, a) in r.aggs.iter().enumerate() {
         let off = 16 * i as u32;
         if let Some(p) = packed(a) {
-            let crate::face::fold::Acc::Slot { base, off: at, valid } = r.slot(rec, a.d.slot) else { unreachable!("a record slot") };
+            let crate::face::fold::Acc::Slot {
+                base,
+                off: at,
+                valid,
+            } = r.slot(rec, a.d.slot)
+            else {
+                unreachable!("a record slot")
+            };
             let ok = crate::ops::shared::slots::slot_ok(b, env, base, valid);
             for w in 0..1 + p.sum as i32 {
                 let x = b.load(Type::I64, base, at + 8 * w);
@@ -475,16 +748,35 @@ pub(crate) fn finals_of<'e>(r: &GroupRec<'_, '_>, b: &mut FunctionBuilder<'_>, e
             }
             let ok = b.conv(ConvOp::Zext, Type::I64, ok);
             b.store(area, tail as i32, ok);
-            cells[a.d.aggno as usize] = AggCell { form: CellForm::PackedNum { sum: p.sum, scale: p.scale, render: p.render }, off, valid: CellValid::NonZeroAt(tail) };
+            cells[a.d.aggno as usize] = AggCell {
+                form: CellForm::PackedNum {
+                    sum: p.sum,
+                    scale: p.scale,
+                    render: p.render,
+                },
+                off,
+                valid: CellValid::NonZeroAt(tail),
+            };
             tail += 8;
             continue;
         }
         // D3224 A3: an avg sharing its sum's slot (rec.rs `share`) finishes over that slot and its own count
         let (v, null) = match (r.share(a), r.layout.slot_kind(a.d.slot as usize)) {
-            (Some(s), _) => a.class.finish_shared(b, env, &r.decl(a), r.slot(rec, s.d.slot), r.slot(rec, a.d.slot)),
+            (Some(s), _) => a.class.finish_shared(
+                b,
+                env,
+                &r.decl(a),
+                r.slot(rec, s.d.slot),
+                r.slot(rec, a.d.slot),
+            ),
             (None, kind) => match (kind, direct(r, b, env, a, row)) {
-                (SlotKind::AggState, None) => a.class.finish(b, env, &r.decl(a), r.slot(rec, a.d.slot)), // V4R-375
-                (SlotKind::AggState, Some(d)) => a.class.finish_direct(b, env, &r.decl(a), r.slot(rec, a.d.slot), &d[..]),
+                (SlotKind::AggState, None) => {
+                    a.class.finish(b, env, &r.decl(a), r.slot(rec, a.d.slot))
+                } // V4R-375
+                (SlotKind::AggState, Some(d)) => {
+                    a.class
+                        .finish_direct(b, env, &r.decl(a), r.slot(rec, a.d.slot), &d[..])
+                }
                 _ => crate::ops::sort::topn::strategies::parted::finish(r, b, env, a, rec),
             },
         };
@@ -509,30 +801,71 @@ pub(crate) fn finals_of<'e>(r: &GroupRec<'_, '_>, b: &mut FunctionBuilder<'_>, e
 /// raises the same way); a read-write final runs once per group (hosts m6_agg `MEMO`: an order pass, a top's drain, a
 /// resumed row). A NULL or no-constant direct argument is always given, so the host's "finalized without its direct
 /// argument" never runs.
-fn direct<'e>(r: &GroupRec<'_, '_>, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, a: &Agg<'_>, row: &RowVals) -> Option<PgVec<'e, (Value, Value)>> {
+fn direct<'e>(
+    r: &GroupRec<'_, '_>,
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env<'e, '_>,
+    a: &Agg<'_>,
+    row: &RowVals,
+) -> Option<PgVec<'e, (Value, Value)>> {
     let ag = a.d.node.as_aggref()?;
     let args = &ag.aggdirectargs;
-    if args.iter().all(|n| n.as_const().is_some_and(|c| !c.constisnull)) {
+    if args
+        .iter()
+        .all(|n| n.as_const().is_some_and(|c| !c.constisnull))
+    {
         return None;
     }
     let node = r.node;
     let mut out = mcx::reserved_in(args.len(), env.mcx);
     for (i, n) in args.iter().enumerate() {
         if let Some(c) = n.as_const() {
-            out.push_in((env.zero, b.iconst(Type::I64, (if c.constisnull { DIRECT_NULL } else { DIRECT_BOUND }) as i64)));
+            out.push_in((
+                env.zero,
+                b.iconst(
+                    Type::I64,
+                    (if c.constisnull {
+                        DIRECT_NULL
+                    } else {
+                        DIRECT_BOUND
+                    }) as i64,
+                ),
+            ));
             continue;
         }
         // C2: the final compares with the ORDER BY's operators: each orders by its type's default family
         // (facts::order::default_order) and that type's compare neither acts nor raises (effects::of_compare; a record: unknown)
-        let quiet = ag.aggorder.iter().all(|s| s.as_sort_group_clause().is_some_and(|c| gravity_decompose::facts::order::default_order(r.facts, c.sortop))) && ag.aggargtypes.iter().all(|t| t != RECORDOID && row_of(t).is_some() && { let e = gravity_decompose::effects::of_compare(r.facts, t); !e.acts && !e.may_raise });
+        let quiet = ag.aggorder.iter().all(|s| {
+            s.as_sort_group_clause()
+                .is_some_and(|c| gravity_decompose::facts::order::default_order(r.facts, c.sortop))
+        }) && ag.aggargtypes.iter().all(|t| {
+            t != RECORDOID && row_of(t).is_some() && {
+                let e = gravity_decompose::effects::of_compare(r.facts, t);
+                !e.acts && !e.may_raise
+            }
+        });
         if !quiet {
             shape(node, "an ordered-set aggregate whose direct argument is no constant, ordered by a comparison that may raise (D1520: a user operator or type, a record)");
         }
-        let var = n.as_relabel_type().map_or(n, |x| x.arg).as_var().filter(|v| v.varno == OUTER_VAR && v.varlevelsup == 0 && v.varattno > 0);
+        let var = n
+            .as_relabel_type()
+            .map_or(n, |x| x.arg)
+            .as_var()
+            .filter(|v| v.varno == OUTER_VAR && v.varlevelsup == 0 && v.varattno > 0);
         let key = var.and_then(|v| r.g.keys.iter().position(|k| k.resno == v.varattno));
-        let cell = key.filter(|&k| r.g.keys[k].image.members_alike(r.colls[k].bytes_eq)).and_then(|k| row.col(r.g.keys[k].resno));
-        let ex = || r.direct.iter().find(|x| x.0 == a.d.aggno && x.1 == i).map(|x| crate::table::rec::ex_ref(b, env, node, row, x.2, &x.3));
-        let Some((c, tf)) = cell.or_else(ex).and_then(|c| row_of(c.cell.typid).map(|tf| (c, *tf))) else {
+        let cell = key
+            .filter(|&k| r.g.keys[k].image.members_alike(r.colls[k].bytes_eq))
+            .and_then(|k| row.col(r.g.keys[k].resno));
+        let ex = || {
+            r.direct
+                .iter()
+                .find(|x| x.0 == a.d.aggno && x.1 == i)
+                .map(|x| crate::table::rec::ex_ref(b, env, node, row, x.2, &x.3))
+        };
+        let Some((c, tf)) = cell
+            .or_else(ex)
+            .and_then(|c| row_of(c.cell.typid).map(|tf| (c, *tf)))
+        else {
             shape(node, "an ordered-set aggregate whose direct argument is no constant and no group key of one image (D1520: an expression, a column the group does not key, a key whose equal members differ)");
         };
         out.push_in(crate::table::rec::direct_word(b, env, node, c, &tf));
@@ -542,19 +875,41 @@ fn direct<'e>(r: &GroupRec<'_, '_>, b: &mut FunctionBuilder<'_>, env: &mut Env<'
 
 /// D2719: the host that calls a key's `=` (raw.rs `GroupEqHosted`: `(ctx, a, b, proc | coll << 32)` -> 1 / 0 / 2 raised).
 pub(crate) fn eq_host(b: &mut FunctionBuilder<'_>) -> HostFn {
-    b.declare_host_once("group_eq_hosted", &[Type::Ptr, Type::I64, Type::I64, Type::I64], Some(Type::I64), gravity_kernels::contract::entry3::<crate::ops::group::raw::GroupEqHosted> as *const () as usize, HostFlags { may_error: true, ..HostFlags::default() })
+    b.declare_host_once(
+        "group_eq_hosted",
+        &[Type::Ptr, Type::I64, Type::I64, Type::I64],
+        Some(Type::I64),
+        gravity_kernels::contract::entry3::<crate::ops::group::raw::GroupEqHosted> as *const ()
+            as usize,
+        HostFlags {
+            may_error: true,
+            ..HostFlags::default()
+        },
+    )
 }
 
 /// D2719: the user `=`'s 1 / 0 over the two key Datums `args` carry when `when` holds, else 1 (the caller ands it into a
 /// `same` already false, or both keys are NULL); its `2` (raised) leaves through `l_raise`.
-pub(crate) fn eq_call(b: &mut FunctionBuilder<'_>, env: &mut Env, h: HostFn, when: Value, args: &[Value], l_raise: Block) -> Value {
+pub(crate) fn eq_call(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    h: HostFn,
+    when: Value,
+    args: &[Value],
+    l_raise: Block,
+) -> Value {
     let (l_call, l_join) = (b.create_block(&[]), b.create_block(&[Type::I64]));
     b.cond_br(when, (l_call, &[]), (l_join, &[env.one]));
     b.switch_to(l_call);
-    let r = b.call_host(h, args, Some(Type::I64)).expect("returns the equality");
+    let r = b
+        .call_host(h, args, Some(Type::I64))
+        .expect("returns the equality");
     let two = b.iconst(Type::I64, 2);
     let (raised, l_ok) = (b.icmp(IntCond::Eq, r, two), b.create_block(&[]));
-    let e = b.iconst(Type::I64, gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64);
+    let e = b.iconst(
+        Type::I64,
+        gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64,
+    );
     b.cond_br(raised, (l_raise, &[e]), (l_ok, &[]));
     b.switch_to(l_ok);
     b.br(l_join, &[r]);
@@ -566,24 +921,51 @@ pub(crate) fn eq_call(b: &mut FunctionBuilder<'_>, env: &mut Env, h: HostFn, whe
 /// expression, its cell): each whose every column is a group key of one image and that does not act (the effects home:
 /// PG evaluates it once per group, a resumed final here may again). A constant or a bare key needs none; any other stays
 /// `direct`'s refusal.
-pub(crate) fn direct_exprs<'g, 'p>(px: &mut Px<'g, 'p>, g: &GroupDecl<'p>, node: i32) -> PgVec<'g, (i16, usize, crate::frame::px::ExId, crate::cell::Cell)> {
+pub(crate) fn direct_exprs<'g, 'p>(
+    px: &mut Px<'g, 'p>,
+    g: &GroupDecl<'p>,
+    node: i32,
+) -> PgVec<'g, (i16, usize, crate::frame::px::ExId, crate::cell::Cell)> {
     use gravity_decompose::effects;
     let gx = px.gx;
-    let one = |resno: i16| g.keys.iter().any(|k| k.resno == resno && k.image.members_alike(gx.facts.coll(k.coll).bytes_eq));
+    let one = |resno: i16| {
+        g.keys
+            .iter()
+            .any(|k| k.resno == resno && k.image.members_alike(gx.facts.coll(k.coll).bytes_eq))
+    };
     let keyed = |n: types_nodes::Node<'p>| {
-        gravity_decompose::expr::walk(n, &mut |x| x.as_var().is_none_or(|v| v.varno == OUTER_VAR && v.varlevelsup == 0 && one(v.varattno)))
+        gravity_decompose::expr::walk(n, &mut |x| {
+            x.as_var()
+                .is_none_or(|v| v.varno == OUTER_VAR && v.varlevelsup == 0 && one(v.varattno))
+        })
     };
     let cx = effects::Cx::without_stmt(gx.facts, px.arena);
     let mut out = PgVec::new_in(px.mcx());
     for d in g.aggs.iter() {
-        let Some(r) = d.node.as_aggref() else { continue };
+        let Some(r) = d.node.as_aggref() else {
+            continue;
+        };
         for (i, n) in r.aggdirectargs.iter().enumerate() {
             let bare = n.as_relabel_type().map_or(n, |x| x.arg).as_var().is_some(); // `direct` reads a key of one image itself
-            if n.as_const().is_some() || bare || !keyed(n) || effects::of_expr(&cx, n, &effects::PLAIN).acts {
+            if n.as_const().is_some()
+                || bare
+                || !keyed(n)
+                || effects::of_expr(&cx, n, &effects::PLAIN).acts
+            {
                 continue;
             }
-            let cell = crate::cell::Cell::of_expr(crate::step::project::out_of(gx, n, node), 0, 0, crate::cell::Nullable::Maybe);
-            out.push_in((d.aggno, i, crate::step::expr::compile(px, n, None, node), cell));
+            let cell = crate::cell::Cell::of_expr(
+                crate::step::project::out_of(gx, n, node),
+                0,
+                0,
+                crate::cell::Nullable::Maybe,
+            );
+            out.push_in((
+                d.aggno,
+                i,
+                crate::step::expr::compile(px, n, None, node),
+                cell,
+            ));
         }
     }
     out

@@ -4,11 +4,11 @@
 //! than that in a pipeline the program re-runs per re-open (srf/function_scan.rs refuses it by D1657's name); the rule's
 //! one VOLATILE test is effects/visible/srf.rs `volatile` (effects' reader, with D1907's domain checks); `eager_build` and `hazard` name where the store the D1085 retirement serves refuses
 //! D2107 (in-row, srf/function_store.rs). Registers nothing. Owner M5-SRF.
-use gravity_decompose::lifetime;
-use gravity_decompose::params;
 use gravity_decompose::join::JoinDesc;
+use gravity_decompose::lifetime;
 use gravity_decompose::ops::shared::srf::{SrfDesc, SrfFn};
 use gravity_decompose::ops::shared::subplan::{SubForm, SubPlanDesc};
+use gravity_decompose::params;
 use gravity_decompose::{Op, Source};
 use gravity_program::ArenaRef;
 use mcx::{CollectIn, GrowIn, Mcx, PgVec};
@@ -22,15 +22,38 @@ use crate::graph::Gx;
 /// for effects' walk.
 pub(crate) fn reopen_once<'p>(gx: &Gx<'_, 'p>, arena: ArenaRef, k: usize, d: &SrfDesc<'p>) -> bool {
     let ps = gx.pipelines();
-    let find = |node: i32, plan: i32| (0..ps.end()).filter_map(|q| ps.get(q)).flat_map(|p| p.ops.iter()).find(|op| owns(op, node, plan));
-    let mut owners: PgVec<'_, PgVec<'_, i32>> = gx.graph.reruns.iter().filter(|r| r.pipelines.contains(&(k as u16))).map(|r| find(r.node_id, r.plan_id).map_or_else(|| PgVec::new_in(gx.mcx), |op| params_of(op, gx.mcx))).collect_in(gx.mcx);
-    if let Some(((q, j), _)) = k.checked_sub(ps.len()).and_then(|i| ps.inners().into_iter().nth(i)) {
+    let find = |node: i32, plan: i32| {
+        (0..ps.end())
+            .filter_map(|q| ps.get(q))
+            .flat_map(|p| p.ops.iter())
+            .find(|op| owns(op, node, plan))
+    };
+    let mut owners: PgVec<'_, PgVec<'_, i32>> = gx
+        .graph
+        .reruns
+        .iter()
+        .filter(|r| r.pipelines.contains(&(k as u16)))
+        .map(|r| {
+            find(r.node_id, r.plan_id)
+                .map_or_else(|| PgVec::new_in(gx.mcx), |op| params_of(op, gx.mcx))
+        })
+        .collect_in(gx.mcx);
+    if let Some(((q, j), _)) = k
+        .checked_sub(ps.len())
+        .and_then(|i| ps.inners().into_iter().nth(i))
+    {
         owners.push_in(params_of(&ps[q].ops[j], gx.mcx));
     }
     let vol = |f: &SrfFn<'p>| crate::effects::visible::srf::volatile(gx, arena, f.node);
     match owners.as_slice() {
         [] => false,
-        [own] => d.functions.iter().any(|f| vol(f) && matches!(lifetime::function_rescan(f.node, own), lifetime::Keep::Keep { .. })),
+        [own] => d.functions.iter().any(|f| {
+            vol(f)
+                && matches!(
+                    lifetime::function_rescan(f.node, own),
+                    lifetime::Keep::Keep { .. }
+                )
+        }),
         _ => d.functions.iter().any(vol),
     }
 }
@@ -55,8 +78,20 @@ pub(crate) fn eager_build(gx: &Gx<'_, '_>, k: usize) -> bool {
         let mut i = 0;
         while i < s.len() {
             let x = s[i];
-            let src = if let Source::Breaker { slot } = ps[x].source { Some(slot) } else { None };
-            for l in ps[x].desc.consumes.iter().copied().chain(src).filter_map(|sl| gx.life_of(x, sl)).map(|l| l.0 as usize) {
+            let src = if let Source::Breaker { slot } = ps[x].source {
+                Some(slot)
+            } else {
+                None
+            };
+            for l in ps[x]
+                .desc
+                .consumes
+                .iter()
+                .copied()
+                .chain(src)
+                .filter_map(|sl| gx.life_of(x, sl))
+                .map(|l| l.0 as usize)
+            {
                 if l < ps.len() && !s.contains(&l) {
                     s.push_in(l);
                 }
@@ -65,10 +100,27 @@ pub(crate) fn eager_build(gx: &Gx<'_, '_>, k: usize) -> bool {
         }
         s
     };
-    let nest = |x: usize| ps[x].ops.iter().any(|op| matches!(op, Op::Join(JoinDesc::Nest { .. }) | Op::SubPlan(SubPlanDesc { form: SubForm::Nested { .. }, .. })));
-    let init = gx.graph.init_plans.iter().any(|i| feeds(i.pipeline as usize).contains(&top));
+    let nest = |x: usize| {
+        ps[x].ops.iter().any(|op| {
+            matches!(
+                op,
+                Op::Join(JoinDesc::Nest { .. })
+                    | Op::SubPlan(SubPlanDesc {
+                        form: SubForm::Nested { .. },
+                        ..
+                    })
+            )
+        })
+    };
+    let init = gx
+        .graph
+        .init_plans
+        .iter()
+        .any(|i| feeds(i.pipeline as usize).contains(&top));
     let eager = |q: usize, op: &Op<'_>| matches!(op, Op::Join(JoinDesc::Probe { slot, outer_first: true, .. }) if gx.life_of(q, *slot).is_some_and(|l| init || feeds(l.0 as usize).into_iter().any(&nest)));
-    ps.iter().enumerate().any(|(q, p)| p.ops.iter().any(|op| eager(q, op)))
+    ps.iter()
+        .enumerate()
+        .any(|(q, p)| p.ops.iter().any(|op| eager(q, op)))
 }
 
 /// Whether `op` is the owner of rerun set (`node`, `plan`): the nest at plan node `node` (`plan` 0), or SubPlan `plan`.
@@ -93,7 +145,9 @@ fn params_of<'g>(op: &Op<'_>, mcx: Mcx<'g>) -> PgVec<'g, i32> {
 mod tests {
     use datum::Datum;
     use gravity_decompose::{NoFacts, PipelineGraph};
-    use gravity_expr::catalog::{DomainConstraint, DomainFacts, FuncFacts, IoFacts, TextFacts, TypeFacts};
+    use gravity_expr::catalog::{
+        DomainConstraint, DomainFacts, FuncFacts, IoFacts, TextFacts, TypeFacts,
+    };
     use gravity_expr::{Catalog, PgCatalog};
     use gravity_fn::{Shim, Tier};
     use gravity_program::Arena;
@@ -112,9 +166,24 @@ mod tests {
 
     impl Catalog<'static> for Doms {
         fn domain(&self, t: Oid) -> PgResult<DomainFacts<'static>> {
-            let (_, cs) = self.0.iter().find(|d| d.0 == t).ok_or_else(|| Box::new(PgError::error("no such domain")))?; // alloc: Cold
-            let constraints = cs.iter().map(|c| c.map_or(DomainConstraint::NotNull, |expr| DomainConstraint::Check { name: "c", expr })).collect();
-            Ok(DomainFacts { typlen: 4, constraints })
+            let (_, cs) = self
+                .0
+                .iter()
+                .find(|d| d.0 == t)
+                .ok_or_else(|| Box::new(PgError::error("no such domain")))?; // alloc: Cold
+            let constraints = cs
+                .iter()
+                .map(|c| {
+                    c.map_or(DomainConstraint::NotNull, |expr| DomainConstraint::Check {
+                        name: "c",
+                        expr,
+                    })
+                })
+                .collect();
+            Ok(DomainFacts {
+                typlen: 4,
+                constraints,
+            })
         }
         fn func(&self, f: Oid) -> PgResult<FuncFacts> {
             Catalog::<'static>::func(&PgCatalog, f)
@@ -163,14 +232,53 @@ mod tests {
         let rig = mcx::MemoryContext::new("GravityPlanRig");
         let cx: &'static MemoryContext = Box::leak(Box::new(MemoryContext::new("d1907"))); // alloc: Cold
         let m = cx.mcx();
-        let value = || Node::mk(m, CoerceToDomainValue { typeId: 23, typeMod: -1, collation: 0, location: -1 }).expect("VALUE");
-        let call = |funcid: Oid, x: Node<'static>| Node::mk(m, FuncExpr { funcid, funcresulttype: 23, args: NodeList::make1(m, x).expect("args"), ..Default::default() }).expect("a call");
-        let cast = |t: Oid, arg: Node<'static>| Node::mk(m, CoerceToDomain { arg, resulttype: t, resulttypmod: -1, resultcollid: 0, coercionformat: CoercionForm::COERCE_IMPLICIT_CAST, location: -1 }).expect("a domain cast");
-        let doms = Doms(vec![ // alloc: Cold
+        let value = || {
+            Node::mk(
+                m,
+                CoerceToDomainValue {
+                    typeId: 23,
+                    typeMod: -1,
+                    collation: 0,
+                    location: -1,
+                },
+            )
+            .expect("VALUE")
+        };
+        let call = |funcid: Oid, x: Node<'static>| {
+            Node::mk(
+                m,
+                FuncExpr {
+                    funcid,
+                    funcresulttype: 23,
+                    args: NodeList::make1(m, x).expect("args"),
+                    ..Default::default()
+                },
+            )
+            .expect("a call")
+        };
+        let cast = |t: Oid, arg: Node<'static>| {
+            Node::mk(
+                m,
+                CoerceToDomain {
+                    arg,
+                    resulttype: t,
+                    resulttypmod: -1,
+                    resultcollid: 0,
+                    coercionformat: CoercionForm::COERCE_IMPLICIT_CAST,
+                    location: -1,
+                },
+            )
+            .expect("a domain cast")
+        };
+        let doms = Doms(vec![
+            // alloc: Cold
             (9001, vec![Some(call(1397, value()))]), // alloc: Cold
             (9002, vec![None, Some(call(1299, value()))]), // alloc: Cold
-            (9003, vec![Some(call(1397, value())), Some(call(1574, value()))]), // alloc: Cold
-            (9004, vec![None]), // alloc: Cold
+            (
+                9003,
+                vec![Some(call(1397, value())), Some(call(1574, value()))],
+            ), // alloc: Cold
+            (9004, vec![None]),                      // alloc: Cold
             (9005, vec![Some(call(1397, cast(9003, value())))]), // alloc: Cold
             (9006, vec![Some(call(1397, cast(9006, value())))]), // alloc: Cold
             (9007, vec![Some(call(1397, cast(9001, value())))]), // alloc: Cold
@@ -179,20 +287,58 @@ mod tests {
         let catalog: &'static dyn Catalog<'static> = Box::leak(Box::new(doms)); // alloc: Cold
         let arena: &'static Arena = Box::leak(Box::new(Arena::new(1 << 12))); // alloc: Cold
         let g: &'static PipelineGraph = Box::leak(Box::new(PipelineGraph::new(arena.handle()))); // alloc: Cold
-        let gx = Gx { graph: g, facts: &NoFacts, catalog, over: None, mcx: rig.mcx() };
-        let three = Node::mk_const(m, 23, -1, 0, 4, Datum::from_i32(3), false, true).expect("a const");
+        let gx = Gx {
+            graph: g,
+            facts: &NoFacts,
+            catalog,
+            over: None,
+            mcx: rig.mcx(),
+        };
+        let three =
+            Node::mk_const(m, 23, -1, 0, 4, Datum::from_i32(3), false, true).expect("a const");
         let cx = gravity_decompose::effects::Cx::without_stmt(gx.facts, arena.handle());
         // D1907's CHECK reading alone; 9007's CHECK holds a cast to 9001, which effects reads as acting (Q4 below).
-        for (t, want) in [(9001, false), (9002, false), (9003, true), (9004, false), (9005, true), (9006, true), (9007, true), (9008, true), (9999, true)] {
-            assert_eq!(crate::effects::check_acts(&gx, &cx, cast(t, three)), want, "the CHECK of domain {t}");
-            assert_eq!(crate::effects::check_acts(&gx, &cx, call(1397, cast(t, three))), want, "the CHECK of domain {t} under abs");
+        for (t, want) in [
+            (9001, false),
+            (9002, false),
+            (9003, true),
+            (9004, false),
+            (9005, true),
+            (9006, true),
+            (9007, true),
+            (9008, true),
+            (9999, true),
+        ] {
+            assert_eq!(
+                crate::effects::check_acts(&gx, &cx, cast(t, three)),
+                want,
+                "the CHECK of domain {t}"
+            );
+            assert_eq!(
+                crate::effects::check_acts(&gx, &cx, call(1397, cast(t, three))),
+                want,
+                "the CHECK of domain {t} under abs"
+            );
         }
         // Q4 fail closed: effects reads every domain coercion as acting until the facts carry a domain's CHECKs, so the
         // VOLATILE test holds for each domain, an IMMUTABLE or STABLE check and a NOT NULL alone too.
         for t in [9001, 9002, 9003, 9004, 9005, 9006, 9007, 9008, 9999] {
-            assert!(crate::effects::visible::srf::volatile(&gx, arena.handle(), cast(t, three)), "domain {t}");
-            assert!(crate::effects::visible::srf::volatile(&gx, arena.handle(), call(1397, cast(t, three))), "abs over domain {t}");
+            assert!(
+                crate::effects::visible::srf::volatile(&gx, arena.handle(), cast(t, three)),
+                "domain {t}"
+            );
+            assert!(
+                crate::effects::visible::srf::volatile(
+                    &gx,
+                    arena.handle(),
+                    call(1397, cast(t, three))
+                ),
+                "abs over domain {t}"
+            );
         }
-        assert!(!crate::effects::visible::srf::volatile(&gx, arena.handle(), call(1397, three)), "no domain, an IMMUTABLE call");
+        assert!(
+            !crate::effects::visible::srf::volatile(&gx, arena.handle(), call(1397, three)),
+            "no domain, an IMMUTABLE call"
+        );
     }
 }

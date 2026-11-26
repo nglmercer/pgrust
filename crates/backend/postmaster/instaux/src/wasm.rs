@@ -9,8 +9,11 @@ pub fn postmaster_start() -> PgResult<()> {
         return Ok(());
     }
     Err(Box::new(
-        PgError::new(FATAL, "pgrust.instance_aux is not supported on this platform".to_string())
-            .with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED),
+        PgError::new(
+            FATAL,
+            "pgrust.instance_aux is not supported on this platform".to_string(),
+        )
+        .with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED),
     ))
 }
 

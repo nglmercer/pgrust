@@ -22,7 +22,10 @@ fn reads_under_own_ddl_hold_while_it_stands_and_reads_before_it_where_untouched(
     l2cache::set_pending_touch_probe(touch);
     let (a, b): (u32, u32) = (0xFFFF_E101, 0xFFFF_E202);
     let ((), before) = recording(|| gravity_deps::note_rel(a));
-    assert!(before.current(), "read under the committed state, no DDL: holds");
+    assert!(
+        before.current(),
+        "read under the committed state, no DDL: holds"
+    );
 
     // the transaction's DDL registered a message of `b` (not yet a command end)
     PENDING.store(true, SeqCst);
@@ -40,13 +43,22 @@ fn reads_under_own_ddl_hold_while_it_stands_and_reads_before_it_where_untouched(
     PENDING.store(false, SeqCst);
     let ((), committed_b) = recording(|| gravity_deps::note_rel(b));
     PENDING.store(true, SeqCst);
-    assert!(!committed_b.current(), "read before the DDL, which touches it: not served under it");
+    assert!(
+        !committed_b.current(),
+        "read before the DDL, which touches it: not served under it"
+    );
     assert!(touched.current());
 
     // a command end: the DDL moved on (its next statement, or a rollback)
     l2cache::note_own_invals();
-    assert!(!under.current() && !touched.current(), "read under the DDL as it was: no longer");
-    assert!(before.current(), "read before the DDL, untouched: still holds");
+    assert!(
+        !under.current() && !touched.current(),
+        "read under the DDL as it was: no longer"
+    );
+    assert!(
+        before.current(),
+        "read before the DDL, untouched: still holds"
+    );
 
     // two readings under different stands of the DDL never hold together
     let ((), later) = recording(|| gravity_deps::note_rel(b));
@@ -59,8 +71,17 @@ fn reads_under_own_ddl_hold_while_it_stands_and_reads_before_it_where_untouched(
     PENDING.store(false, SeqCst);
     TOUCHED.store(0, SeqCst);
     l2cache::note_own_invals();
-    assert!(!later.current(), "read under the transaction's own DDL: not past its end");
-    assert!(before.current() && committed_b.current(), "read under the committed state: holds again");
-    assert!(untouched.current(), "C3 S5d: read under the DDL but untouched by it: holds past its end");
+    assert!(
+        !later.current(),
+        "read under the transaction's own DDL: not past its end"
+    );
+    assert!(
+        before.current() && committed_b.current(),
+        "read under the committed state: holds again"
+    );
+    assert!(
+        untouched.current(),
+        "C3 S5d: read under the DDL but untouched by it: holds past its end"
+    );
     assert!(before.iter().eq([Dep::Rel(a)]));
 }

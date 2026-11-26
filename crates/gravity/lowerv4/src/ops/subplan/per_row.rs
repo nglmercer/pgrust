@@ -24,37 +24,45 @@
 //! write/rowop_sub.rs) and one only MERGE actions read (conditional: lazy at the action's read).
 use gravity_abi::breaker::BreakerKind;
 use gravity_abi::status::raise;
+use gravity_decompose::catalog::typefacts::TypeFacts;
 use gravity_decompose::ops::shared::srf::SrfPlace;
 use gravity_decompose::ops::shared::subplan::{refers, refers_list};
 use gravity_decompose::ops::shared::subplan::{SubForm, SubLink, SubSite};
-use gravity_decompose::catalog::typefacts::TypeFacts;
 use gravity_decompose::{Op, PipelineNode, Source};
 use gravity_ir::builder::{FunctionBuilder, ProgramBuilder};
 use gravity_ir::{ConvOp, HostFlags, IntBinOp, IntCond, Type, Value};
 use gravity_kernels::ops::shared::object::entries as m8;
-use types_nodes::Node;
 use mcx::{CollectIn, GrowIn, Mcx, PgBox, PgVec};
+use types_nodes::Node;
 
-use crate::rerun::inner as nest_inner;
-use crate::rerun::inner::Inner;
-use crate::ops::subplan::result as sr;
-use crate::ops::subplan::result::AccOp;
-use crate::ops::subplan::site::{self, Lend};
+use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::face::end::EndMech;
 use crate::face::kinds::{Face, KindId};
-use crate::rerun::face::{SubEval, SubHolds};
 use crate::face::step::{ExprFace, StepMech};
 use crate::frame::env::Env;
 use crate::frame::frame::{EndMaker, Next, StepMaker};
 use crate::frame::px::{ExId, Px, WordKey};
 use crate::frame::row::{Carry, RowVals};
 use crate::frame::stop::Exits;
-use crate::rerun::params::{NULL, SET};
-use crate::admit::refusal::{Reason, ShapeWhy};
+use crate::ops::subplan::result as sr;
+use crate::ops::subplan::result::AccOp;
+use crate::ops::subplan::site::{self, Lend};
 use crate::ops::Table;
 use crate::rep;
+use crate::rerun::face::{SubEval, SubHolds};
+use crate::rerun::inner as nest_inner;
+use crate::rerun::inner::Inner;
+use crate::rerun::params::{NULL, SET};
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::NestSubplan, &StepMaker(make)), (KindId::NestSubplan, &EndMaker(make_set)), (KindId::NestSubplan, &SubEval(site::eval_at)), (KindId::NestSubplan, &SubHolds(site::holds_at))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[
+        (KindId::NestSubplan, &StepMaker(make)),
+        (KindId::NestSubplan, &EndMaker(make_set)),
+        (KindId::NestSubplan, &SubEval(site::eval_at)),
+        (KindId::NestSubplan, &SubHolds(site::holds_at)),
+    ],
+    ..crate::ops::NONE
+};
 
 fn shape(node: i32, why: &'static str) -> ! {
     crate::refuse!(node, Reason::Shape { why: ShapeWhy(why) })
@@ -79,7 +87,11 @@ enum Link {
 enum Body<'g> {
     /// A Result without a child: its one-time qual and quals in order, and the entries the fold reads; D1262: the rerun set
     /// of its InitPlans, re-armed at every call before the Result reads a parameter.
-    Once { tests: PgVec<'g, ExId>, cols: PgVec<'g, ExId>, rerun: Option<crate::rerun::sets::Rerun> },
+    Once {
+        tests: PgVec<'g, ExId>,
+        cols: PgVec<'g, ExId>,
+        rerun: Option<crate::rerun::sets::Rerun>,
+    },
     Scan(Inner<'g>),
 }
 
@@ -136,11 +148,20 @@ const FED_ROW: &str = "a check option's ANY / ALL SubPlan whose test reads other
 
 /// updatable_views#978: the columns compiled test `test` reads (every scan Var of its program; a whole-row Var is its
 /// columns, expr.wholerow), read from the call the host laid (word Open 5 of op `j`: rowop_sub.rs names the same).
-fn fed_row<'g>(px: &mut Px<'g, '_>, k: usize, j: usize, (test, params): (ExId, usize), ex: &ExprFace, node: i32) -> FedRow<'g> {
+fn fed_row<'g>(
+    px: &mut Px<'g, '_>,
+    k: usize,
+    j: usize,
+    (test, params): (ExId, usize),
+    ex: &ExprFace,
+    node: i32,
+) -> FedRow<'g> {
     let mcx = px.mcx();
     let mut atts: PgVec<'g, (i16, u32)> = PgVec::new_in(mcx);
     for n in px.placed(test).c.prog.nodes.iter() {
-        let gravity_expr::ExprNode::Var(v) = n else { continue };
+        let gravity_expr::ExprNode::Var(v) = n else {
+            continue;
+        };
         if v.src != gravity_expr::Source::Scan || !(1..=120).contains(&v.attno) {
             shape(node, FED_ROW);
         }
@@ -148,8 +169,21 @@ fn fed_row<'g>(px: &mut Px<'g, '_>, k: usize, j: usize, (test, params): (ExId, u
             atts.push_in((v.attno, v.typ));
         }
     }
-    let call = px.frame_word(WordKey::Open { face: Face::Nest, k, j: crate::frame::px::key_j(j), i: 5 }) as i32 * 8;
-    FedRow { call, params, cols: atts.into_iter().map(|(a, t)| (a, ex.0.tf_of(px.gx, t))).collect_in(mcx) }
+    let call = px.frame_word(WordKey::Open {
+        face: Face::Nest,
+        k,
+        j: crate::frame::px::key_j(j),
+        i: 5,
+    }) as i32
+        * 8;
+    FedRow {
+        call,
+        params,
+        cols: atts
+            .into_iter()
+            .map(|(a, t)| (a, ex.0.tf_of(px.gx, t)))
+            .collect_in(mcx),
+    }
 }
 
 /// A hashed SubPlan's key set (a Distinct end, graph.rs `set_kind`): nest/subplan_hash.rs.
@@ -159,21 +193,41 @@ fn make_set<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn EndMech + 'g> {
 
 /// Columns 1..=n of the SubPlan's tuple: the first entries of the inner's last projection.
 fn entries<'g, 'p>(ip: &PipelineNode<'p>, n: usize, mcx: Mcx<'g>) -> Option<PgVec<'g, Node<'p>>> {
-    let list = ip.ops.iter().rev().find_map(|op| if let Op::Project(l) = op { Some(*l) } else { None })?;
-    let out: PgVec<'g, Node<'p>> = list.iter().take(n).map(|e| e.as_target_entry().map_or(e, |te| te.expr)).collect_in(mcx);
+    let list = ip.ops.iter().rev().find_map(|op| {
+        if let Op::Project(l) = op {
+            Some(*l)
+        } else {
+            None
+        }
+    })?;
+    let out: PgVec<'g, Node<'p>> = list
+        .iter()
+        .take(n)
+        .map(|e| e.as_target_entry().map_or(e, |te| te.expr))
+        .collect_in(mcx);
     (out.len() == n).then_some(out)
 }
 
 /// The SubPlan nodes of `plan_id` the ops after `j` read (PG evaluates each reference); a write's lists count as two.
 pub(crate) fn references(p: &PipelineNode<'_>, j: usize, plan_id: i32) -> usize {
     let count = |x: Node<'_>| uses(x, plan_id);
-    p.ops.iter().skip(j + 1).map(|op| match op {
-        Op::Filter(q) | Op::Gate(q) => count(*q),
-        Op::Project(l) => l.iter().map(count).sum(),
-        Op::Join(jd) => jd.qual().into_iter().chain(jd.keys()).flat_map(|l| l.iter()).map(count).sum(),
-        Op::Write(w) if gravity_decompose::ops::shared::modifytable::refers(w, plan_id) => 2,
-        _ => 0,
-    }).sum()
+    p.ops
+        .iter()
+        .skip(j + 1)
+        .map(|op| match op {
+            Op::Filter(q) | Op::Gate(q) => count(*q),
+            Op::Project(l) => l.iter().map(count).sum(),
+            Op::Join(jd) => jd
+                .qual()
+                .into_iter()
+                .chain(jd.keys())
+                .flat_map(|l| l.iter())
+                .map(count)
+                .sum(),
+            Op::Write(w) if gravity_decompose::ops::shared::modifytable::refers(w, plan_id) => 2,
+            _ => 0,
+        })
+        .sum()
 }
 
 /// How many times expression `x` reads SubPlan `plan_id`; an implicit-AND list (a Result's one-time qual) counts its
@@ -202,32 +256,75 @@ const ORDER: &str = "a VOLATILE or raising SubPlan after a VOLATILE or raising n
 /// A conditional SubPlan is lazy already; an acting SubPlan in a ProjectSet's target list is lazy (D2021: per output row and
 /// in the ending call); a quiet one there and any argument of a hashed or mixed head's grouping-sets spool (`set_spool`, a
 /// VOLATILE input's spool: the fallback runs each once per set, D2090) keep the eager step (`false`).
-fn order(px: &mut Px<'_, '_>, k: usize, j: usize, d: &gravity_decompose::ops::shared::subplan::SubPlanDesc<'_>, node: i32) -> bool {
+fn order(
+    px: &mut Px<'_, '_>,
+    k: usize,
+    j: usize,
+    d: &gravity_decompose::ops::shared::subplan::SubPlanDesc<'_>,
+    node: i32,
+) -> bool {
     let (gx, arena) = (px.gx, px.arena);
     let (p, id) = (&gx.pipelines()[k], d.plan_id);
-    if d.conditional || !d.effects().acts && !d.effects().may_raise || d.site == SubSite::AggArg && (p.ops.iter().any(|o| matches!(o, Op::Window(_))) || d.set_spool) {
+    if d.conditional
+        || !d.effects().acts && !d.effects().may_raise
+        || d.site == SubSite::AggArg
+            && (p.ops.iter().any(|o| matches!(o, Op::Window(_))) || d.set_spool)
+    {
         return false;
     }
     // the lazy hook compiles the arguments and test without the aggregate row (step/expr_ext_lazy.rs `emit_subplan`)
     let agg = |n: Node<'_>| {
         let mut hit = false;
         gravity_decompose::expr::walk(n, &mut |x| {
-            hit |= matches!(x.node_tag(), types_nodes::NodeTag::T_Aggref | types_nodes::NodeTag::T_WindowFunc | types_nodes::NodeTag::T_GroupingFunc);
+            hit |= matches!(
+                x.node_tag(),
+                types_nodes::NodeTag::T_Aggref
+                    | types_nodes::NodeTag::T_WindowFunc
+                    | types_nodes::NodeTag::T_GroupingFunc
+            );
             !hit
         });
         hit
     };
-    let (mut earlier, mut road, mut pset, mut at, mut trans) = (Earlier::default(), matches!(d.form, SubForm::Nested { .. } | SubForm::Hashed { .. }) && d.site == SubSite::Row && !d.args.iter().chain(d.test).any(agg), false, At::Fold, Earlier::default());
+    let (mut earlier, mut road, mut pset, mut at, mut trans) = (
+        Earlier::default(),
+        matches!(d.form, SubForm::Nested { .. } | SubForm::Hashed { .. })
+            && d.site == SubSite::Row
+            && !d.args.iter().chain(d.test).any(agg),
+        false,
+        At::Fold,
+        Earlier::default(),
+    );
     let mut whole = false;
     let found = if d.site == SubSite::AggArg {
         // the group whose aggregates read it and where (`At`): a streamed group's (`Op::GroupRun` after the step) before the
         // breaker group the pipeline ends in (a streamed group may feed an outer aggregate in the same pipeline), else past
         // a grouping-sets phase's spool (an empty-key sort the sets' groups read in its lifetime)
         let ps = gx.pipelines();
-        let stream = p.ops[j + 1..].iter().find_map(|o| if let Op::GroupRun(i) = o { gx.graph.streams.get(*i as usize) } else { None });
-        let spooled = p.desc.produces().filter(|_| matches!(p.ops.last(), Some(Op::Sort(s)) if s.keys.is_empty()));
-        let arm = |slot: u8| (k + 1..ps.len()).filter(|&q| matches!(ps[q].source, Source::Breaker { slot: x } if x == slot) && gx.life_of(q, slot) == Some(gravity_program::LifeId(k as u16))).find_map(|q| gx.group_at(q));
-        let group = match (stream.filter(|g| g.aggs.iter().any(|a| uses(a.node, id) > 0)), gx.group_at(k), spooled) {
+        let stream = p.ops[j + 1..].iter().find_map(|o| {
+            if let Op::GroupRun(i) = o {
+                gx.graph.streams.get(*i as usize)
+            } else {
+                None
+            }
+        });
+        let spooled = p
+            .desc
+            .produces()
+            .filter(|_| matches!(p.ops.last(), Some(Op::Sort(s)) if s.keys.is_empty()));
+        let arm = |slot: u8| {
+            (k + 1..ps.len())
+                .filter(|&q| {
+                    matches!(ps[q].source, Source::Breaker { slot: x } if x == slot)
+                        && gx.life_of(q, slot) == Some(gravity_program::LifeId(k as u16))
+                })
+                .find_map(|q| gx.group_at(q))
+        };
+        let group = match (
+            stream.filter(|g| g.aggs.iter().any(|a| uses(a.node, id) > 0)),
+            gx.group_at(k),
+            spooled,
+        ) {
             (Some(g), ..) => {
                 at = At::Stream;
                 Some(g)
@@ -240,18 +337,37 @@ fn order(px: &mut Px<'_, '_>, k: usize, j: usize, d: &gravity_decompose::ops::sh
                 // (`SetDecl::whole`: a Sort above it). A LIMIT that may count 0 (`SubPlanDesc::stops`, D2115) runs none of
                 // it: step.limit's feeder stops this pipeline before its first row then, or refuses (result/gate.rs
                 // `SPOOL_ZERO`)
-                let mut sets = (k + 1..ps.len()).filter(|&q| matches!(ps[q].source, Source::Breaker { slot: x } if x == slot) && gx.life_of(q, slot) == Some(gravity_program::LifeId(k as u16))).filter_map(|q| gx.group_at(q)).peekable();
-                whole = !ps.iter().any(|p| p.ops.iter().any(|o| matches!(o, Op::Gate(_)))) && sets.peek().is_some() && sets.all(|g| g.set.is_none_or( |s| s.whole));
+                let mut sets = (k + 1..ps.len())
+                    .filter(|&q| {
+                        matches!(ps[q].source, Source::Breaker { slot: x } if x == slot)
+                            && gx.life_of(q, slot) == Some(gravity_program::LifeId(k as u16))
+                    })
+                    .filter_map(|q| gx.group_at(q))
+                    .peekable();
+                whole = !ps
+                    .iter()
+                    .any(|p| p.ops.iter().any(|o| matches!(o, Op::Gate(_))))
+                    && sets.peek().is_some()
+                    && sets.all(|g| g.set.is_none_or(|s| s.whole));
                 arm(slot)
             }
             (None, None, None) => None,
         };
-        let mut aggs: PgVec<'_, _> = group.map_or(&[][..], |g| &g.aggs[..]).iter().filter_map(|a| a.node.as_aggref()).collect_in(gx.mcx);
+        let mut aggs: PgVec<'_, _> = group
+            .map_or(&[][..], |g| &g.aggs[..])
+            .iter()
+            .filter_map(|a| a.node.as_aggref())
+            .collect_in(gx.mcx);
         aggs.sort_by_key(|a| a.aggtransno);
         let hit = agg_reads(gx, arena, p, &aggs[..], id, &mut earlier, &mut trans);
         // a spooled phase's groups read the computed columns: the walk's projection reads the SubPlan
         match at {
-            At::Spool => group.is_some() && p.ops[j + 1..].iter().any(|o| matches!(o, Op::Project(l) if l.iter().any(|n| uses(n, id) > 0))),
+            At::Spool => {
+                group.is_some()
+                    && p.ops[j + 1..]
+                        .iter()
+                        .any(|o| matches!(o, Op::Project(l) if l.iter().any(|n| uses(n, id) > 0)))
+            }
             _ => hit,
         }
     } else {
@@ -301,7 +417,12 @@ fn order(px: &mut Px<'_, '_>, k: usize, j: usize, d: &gravity_decompose::ops::sh
     // stored row in the buffer's order (decompose `attach_window_args`): the fill evaluates it per row in that order when
     // nothing else of the statement acts or raises among its calls (effects `window_fill_exact`; the window's admission
     // asks it too and refuses by name)
-    if !found && d.site == SubSite::Row && d.effects().acts && window_reader(gx, k).is_some_and(|q| crate::effects::window_fill_exact(gx, arena, q, k).is_ok()) {
+    if !found
+        && d.site == SubSite::Row
+        && d.effects().acts
+        && window_reader(gx, k)
+            .is_some_and(|q| crate::effects::window_fill_exact(gx, arena, q, k).is_ok())
+    {
         return false;
     }
     // an aggregate's argument is read by its fold (agg trans/args.rs `with_args`, step::expr::emit), lazily: per input row
@@ -316,7 +437,9 @@ fn order(px: &mut Px<'_, '_>, k: usize, j: usize, d: &gravity_decompose::ops::sh
     // (`whole` below); but every transition runs after every row's arguments, so a transition that acts, or raises beside an
     // acting SubPlan, shows. A hashed one refuses in both.
     if d.site == SubSite::AggArg && found && at != At::Fold {
-        if matches!(d.form, SubForm::Hashed { .. }) || at == At::Spool && (trans.acts || d.effects().acts && trans.loud) {
+        if matches!(d.form, SubForm::Hashed { .. })
+            || at == At::Spool && (trans.acts || d.effects().acts && trans.loud)
+        {
             shape(node, ORDER);
         }
         // DECISIONS 4 (D) b: a spool PG may not read whole (a set that stops early, a one-time qual) evaluates the argument
@@ -327,7 +450,11 @@ fn order(px: &mut Px<'_, '_>, k: usize, j: usize, d: &gravity_decompose::ops::sh
         }
         return true;
     }
-    if d.site == SubSite::AggArg && found && at == At::Fold && !matches!(d.form, SubForm::Hashed { .. }) {
+    if d.site == SubSite::AggArg
+        && found
+        && at == At::Fold
+        && !matches!(d.form, SubForm::Hashed { .. })
+    {
         return d.effects().acts || earlier.loud;
     }
     // a raising SubPlan that calls nothing VOLATILE keeps its eager step under a reader that cannot read lazily when nothing
@@ -348,7 +475,12 @@ fn order(px: &mut Px<'_, '_>, k: usize, j: usize, d: &gravity_decompose::ops::sh
 /// rows PostgreSQL never reaches. Construct C2: the licence of that run ahead, `Px::ahead_unchecked`'s (asked with the
 /// SubPlan's effects: one that acts is denied; one that may raise is tagged); `Some(None)` where PostgreSQL reads the
 /// phase whole too (no row ahead); `None` when denied (`order` refuses by `ORDER`).
-fn spool_ahead(px: &mut Px<'_, '_>, k: usize, d: &gravity_decompose::ops::shared::subplan::SubPlanDesc<'_>, whole: bool) -> Option<Option<gravity_decompose::effects::Licence>> {
+fn spool_ahead(
+    px: &mut Px<'_, '_>,
+    k: usize,
+    d: &gravity_decompose::ops::shared::subplan::SubPlanDesc<'_>,
+    whole: bool,
+) -> Option<Option<gravity_decompose::effects::Licence>> {
     if whole {
         return Some(None);
     }
@@ -374,9 +506,22 @@ fn window_reader(gx: &crate::graph::Gx<'_, '_>, k: usize) -> Option<usize> {
 pub(crate) fn agg_arg(gx: &crate::graph::Gx<'_, '_>, k: usize, id: i32) -> (bool, bool) {
     let arena = gravity_program::Arena::new(1 << 12); // alloc: Cold
     let mut earlier = Earlier::default();
-    let mut aggs: PgVec<'_, _> = gx.group_at(k).map_or(&[][..], |g| &g.aggs[..]).iter().filter_map(|a| a.node.as_aggref()).collect_in(gx.mcx);
+    let mut aggs: PgVec<'_, _> = gx
+        .group_at(k)
+        .map_or(&[][..], |g| &g.aggs[..])
+        .iter()
+        .filter_map(|a| a.node.as_aggref())
+        .collect_in(gx.mcx);
     aggs.sort_by_key(|a| a.aggtransno);
-    let found = agg_reads(gx, arena.handle(), &gx.pipelines()[k], &aggs[..], id, &mut earlier, &mut Earlier::default());
+    let found = agg_reads(
+        gx,
+        arena.handle(),
+        &gx.pipelines()[k],
+        &aggs[..],
+        id,
+        &mut earlier,
+        &mut Earlier::default(),
+    );
     (found, earlier.loud)
 }
 
@@ -387,7 +532,15 @@ pub(crate) fn agg_arg(gx: &crate::graph::Gx<'_, '_>, k: usize, id: i32) -> (bool
 /// never raises; `acts` is a transition that calls a VOLATILE function (D2089); a DISTINCT or ORDER BY aggregate's
 /// transition and direct arguments run at the final call, unless its input comes sorted (then a DISTINCT's equality test
 /// runs too).
-fn agg_reads(gx: &crate::graph::Gx<'_, '_>, arena: gravity_program::ArenaRef, p: &PipelineNode<'_>, aggs: &[&types_nodes::primnodes::Aggref<'_>], id: i32, earlier: &mut Earlier, trans: &mut Earlier) -> bool {
+fn agg_reads(
+    gx: &crate::graph::Gx<'_, '_>,
+    arena: gravity_program::ArenaRef,
+    p: &PipelineNode<'_>,
+    aggs: &[&types_nodes::primnodes::Aggref<'_>],
+    id: i32,
+    earlier: &mut Earlier,
+    trans: &mut Earlier,
+) -> bool {
     let mut found = false;
     for &a in aggs {
         let row = crate::effects::visible::subplan::per_row_transition(a);
@@ -396,7 +549,10 @@ fn agg_reads(gx: &crate::graph::Gx<'_, '_>, arena: gravity_program::ArenaRef, p:
         trans.loud |= loud;
         trans.acts |= acts;
         if !found {
-            found = a.aggfilter.is_some_and(|q| before(gx, arena, p, q, id, earlier)) || a.args.iter().any(|n| before(gx, arena, p, n, id, earlier));
+            found = a
+                .aggfilter
+                .is_some_and(|q| before(gx, arena, p, q, id, earlier))
+                || a.args.iter().any(|n| before(gx, arena, p, n, id, earlier));
             earlier.loud |= !found && loud;
             earlier.acts |= !found && acts;
         }
@@ -424,17 +580,29 @@ struct Earlier {
 /// Whether node `n` reads SubPlan `id`; `earlier` gathers `own` and `acts` over the nodes PG evaluates before that read
 /// (children first, in order; GREATEST / LEAST compares between them), over all of `n` when it does not read it; a node
 /// the walk does not know counts.
-fn before(gx: &crate::graph::Gx<'_, '_>, arena: gravity_program::ArenaRef, p: &PipelineNode<'_>, n: Node<'_>, id: i32, earlier: &mut Earlier) -> bool {
+fn before(
+    gx: &crate::graph::Gx<'_, '_>,
+    arena: gravity_program::ArenaRef,
+    p: &PipelineNode<'_>,
+    n: Node<'_>,
+    id: i32,
+    earlier: &mut Earlier,
+) -> bool {
     crate::stack_check(); // D3832
     let is = |s: Node<'_>| s.as_sub_plan().is_some_and(|s| s.plan_id == id);
-    if is(n) || n.as_alternative_sub_plan().is_some_and(|a| a.subplans.iter().any(is)) {
+    if is(n)
+        || n.as_alternative_sub_plan()
+            .is_some_and(|a| a.subplans.iter().any(is))
+    {
         return true;
     }
     if let Some(l) = n.as_list() {
         return l.iter().any(|c| before(gx, arena, p, c, id, earlier));
     }
     let mut found = false;
-    let known = gravity_decompose::expr::kids(n, &mut |c| found = found || before(gx, arena, p, c, id, earlier));
+    let known = gravity_decompose::expr::kids(n, &mut |c| {
+        found = found || before(gx, arena, p, c, id, earlier)
+    });
     if !found || n.as_min_max_expr().is_some() {
         earlier.loud |= !known || crate::effects::visible::subplan::own(gx, arena, p, n);
         earlier.acts |= !known || crate::effects::visible::subplan::acts(gx, arena, p, n);
@@ -447,12 +615,21 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMech +
     let mcx = px.mcx();
     let p = &gx.pipelines()[k];
     let node = nest_inner::op_node(p, j);
-    let Some(Op::SubPlan(d)) = p.ops.get(j) else { bug(node, "a nest.subplan step over another op") };
+    let Some(Op::SubPlan(d)) = p.ops.get(j) else {
+        bug(node, "a nest.subplan step over another op")
+    };
     // D1112: a SubPlan in a write's own lists (RETURNING, a check, ON CONFLICT, a MERGE action) is B4's (decompose marks the
     // write's members, subplan.rs `write_hit`), but for one its check options read (W6-D1112): lazy and host-fed, read at the
     // host qual's read (write/rowop_sub.rs); one of the rows the write reads is this kind's as any
-    let w = p.ops.iter().find_map(|o| if let Op::Write(w) = o { Some(w) } else { None });
-    let fed = w.is_some_and(|w| w.members.has(gravity_decompose::ops::shared::modifytable::Member::WriteSubPlan) && w.checks.iter().any(|c| refers(c.qual, d.plan_id)));
+    let w = p
+        .ops
+        .iter()
+        .find_map(|o| if let Op::Write(w) = o { Some(w) } else { None });
+    let fed = w.is_some_and(|w| {
+        w.members
+            .has(gravity_decompose::ops::shared::modifytable::Member::WriteSubPlan)
+            && w.checks.iter().any(|c| refers(c.qual, d.plan_id))
+    });
     // IN-CONFLICT (modifytable): a nested one only an INSERT's ON CONFLICT DO UPDATE reads (a SET entry, the WHERE) is lent
     // with no row: the conflict arm (write.onconflict) reads it where ExecOnConflictUpdate's ExecQual / ExecProject reaches
     // it, over the arm's row (the existing row by attno, EXCLUDED as the inner), its arguments compiled over that row; a
@@ -460,12 +637,17 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMech +
     // ExecBuildUpdateProjection's setup steps run each MULTIEXPR SubPlan of the list ahead of the entries reading its Params.
     // D3627: a hashed one too (hashed.rs's probe, its left side compiled over the arm's row): PG's ExecHashSubPlan probes
     // where the arm reaches it, its set built LAZY at that first probe unless proven raise-free with no VOLATILE call
-    let conflict = !fed && matches!(d.form, SubForm::Nested { .. } | SubForm::Hashed { .. }) && w.is_some_and(|w| w.conflict_only(d.plan_id));
+    let conflict = !fed
+        && matches!(d.form, SubForm::Nested { .. } | SubForm::Hashed { .. })
+        && w.is_some_and(|w| w.conflict_only(d.plan_id));
     // D1112 (writesubplan, B4's MERGE part): a nested, conditional one only MERGE actions read (graph::lazy_nested_sub,
     // WriteDesc::action_only, as merge/admit.rs admits it) is lent with no row too: write.merge
     // reads it where ExecMergeMatched / ExecMergeNotMatched's ExecQual / ExecProject reach it, over the action's row (the
     // target by attno, the child's row as the inner), its arguments compiled over that row, never over the chain's row
-    let in_action = !fed && !conflict && crate::graph::lazy_nested_sub(&p.ops[j]).is_some() && w.is_some_and(|w| w.action_only(d.plan_id));
+    let in_action = !fed
+        && !conflict
+        && crate::graph::lazy_nested_sub(&p.ops[j]).is_some()
+        && w.is_some_and(|w| w.action_only(d.plan_id));
     let reader = conflict || in_action;
     // one only MERGE actions read is conditional (decompose `attach`: an action's
     // WHEN qual and target list run only for the rows it takes), so lent lazily at the action's read (site.rs `mode`);
@@ -477,15 +659,34 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMech +
     // (writesubplan: a MERGE's too when only its RETURNING list reads it, none of the pre-write lists (a check, ON CONFLICT,
     // an action: decompose `refers`); write.returning `merge_ret_steps` admits the shape)
     let after = w.is_some_and(|w| {
-        let oc = w.on_conflict.as_ref().is_some_and(|oc| refers_list(oc.set, id) || oc.filter.is_some_and(|f| refers(f, id)));
-        let act = w.merge.as_ref().is_some_and(|m| m.actions.iter().any(|a| refers_list(a.tlist, id) || a.quals.is_some_and(|q| refers_list(q, id))));
-        let ret_only = w.returning.is_some_and(|r| refers_list(r, id)) && !oc && !act && !w.checks.iter().any(|c| refers(c.qual, id));
+        let oc = w
+            .on_conflict
+            .as_ref()
+            .is_some_and(|oc| refers_list(oc.set, id) || oc.filter.is_some_and(|f| refers(f, id)));
+        let act = w.merge.as_ref().is_some_and(|m| {
+            m.actions
+                .iter()
+                .any(|a| refers_list(a.tlist, id) || a.quals.is_some_and(|q| refers_list(q, id)))
+        });
+        let ret_only = w.returning.is_some_and(|r| refers_list(r, id))
+            && !oc
+            && !act
+            && !w.checks.iter().any(|c| refers(c.qual, id));
         (w.merge.is_none() || ret_only) && w.targets.len() == 1
     }) && p.ops[..j].iter().any(|o| matches!(o, Op::Write(_)));
     let b4 = w.is_some_and(|w| {
-        let oc = w.on_conflict.as_ref().is_some_and(|oc| refers_list(oc.set, id) || oc.filter.is_some_and(|f| refers(f, id)));
-        let action = w.merge.as_ref().is_some_and(|m| m.actions.iter().any(|a| refers_list(a.tlist, id) || a.quals.is_some_and(|q| refers_list(q, id))));
-        oc || w.checks.iter().any(|c| refers(c.qual, id)) || w.returning.is_some_and(|r| refers_list(r, id)) && !after || action && !d.conditional
+        let oc = w
+            .on_conflict
+            .as_ref()
+            .is_some_and(|oc| refers_list(oc.set, id) || oc.filter.is_some_and(|f| refers(f, id)));
+        let action = w.merge.as_ref().is_some_and(|m| {
+            m.actions
+                .iter()
+                .any(|a| refers_list(a.tlist, id) || a.quals.is_some_and(|q| refers_list(q, id)))
+        });
+        oc || w.checks.iter().any(|c| refers(c.qual, id))
+            || w.returning.is_some_and(|r| refers_list(r, id)) && !after
+            || action && !d.conditional
     });
     if !fed && !conflict && b4 {
         shape(node, "a SubPlan in a write's own expressions, a check, RETURNING, ON CONFLICT or a MERGE action (D1112: nest.subplan B4)");
@@ -495,14 +696,23 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMech +
     }
     // PG's ProjectSet evaluates its target list per output row and again in the call that ends the sets (srf/project_set.rs
     // `ending_call`), which reads the SubPlan before this step
-    if p.ops[..j].iter().rev().find(|o| !matches!(o, Op::SubPlan(_))).is_some_and(|o| matches!(o, Op::Srf(s) if s.place == SrfPlace::TargetList)) {
+    if p.ops[..j]
+        .iter()
+        .rev()
+        .find(|o| !matches!(o, Op::SubPlan(_)))
+        .is_some_and(|o| matches!(o, Op::Srf(s) if s.place == SrfPlace::TargetList))
+    {
         shape(node, "a SubPlan in a ProjectSet's target list (nest.subplan B2c: per output row and in the ending call)");
     }
     // D1911: read where the reader reaches it when a node PG evaluates first there makes the order show (`order`); a
     // host-fed one (W6-D1112) is read at the host qual's read, in PG's order there, never ahead of it; V4R-499's sites are
     // read where PG's reader reaches them (site.rs `ours`)
     // MULTIEXPR: PG runs it before every entry of its projection, so no entry's order shows
-    let ordered = !fed && !reader && !site::ours(d) && d.link != SubLink::MultiExpr && order(px, k, j, d, node);
+    let ordered = !fed
+        && !reader
+        && !site::ours(d)
+        && d.link != SubLink::MultiExpr
+        && order(px, k, j, d, node);
     let link = match d.link {
         SubLink::Exists => Link::Exists,
         SubLink::Expr => Link::Expr,
@@ -514,24 +724,47 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMech +
         SubLink::Cte => bug(node, "a CTE link on a per-row SubPlan"),
     };
     if crate::frame::instr::on() {
-        shape(node, "an instrumented SubPlan (EXPLAIN ANALYZE's loop counters)");
+        shape(
+            node,
+            "an instrumented SubPlan (EXPLAIN ANALYZE's loop counters)",
+        );
     }
     // B2c: evaluated where its reader reaches it, per reference, as PG's interpreter does: under a conditional expression,
     // and a VOLATILE one read in several places; V4R-499: over a join qual's pair, a VALUES row's source row
-    let lend = if reader { Lend::Reader } else { site::mode(p, j, d, fed, node) };
+    let lend = if reader {
+        Lend::Reader
+    } else {
+        site::mode(p, j, d, fed, node)
+    };
     // a reader-lent one (IN-CONFLICT's arm, a MERGE action's: merge#340) is read ahead of its SET entries by its reader
     if link == Link::MultiExpr && lend != Lend::Eager && !reader {
-        shape(node, "a MULTIEXPR SubPlan not evaluated ahead of its projection's entries");
+        shape(
+            node,
+            "a MULTIEXPR SubPlan not evaluated ahead of its projection's entries",
+        );
     }
     if let SubForm::Hashed { slot } = d.form {
         // D1911 / D3376: a row's hashed probe after a VOLATILE or raising node its projection, filter or gate evaluates first
         // is read lazily there (B2c, `order`), as a conditional one is (D3451): PG's ExecHashSubPlan runs where the reader
         // reaches it, its LAZY set built at that first probe
-        let lend = if ordered && lend == Lend::Eager { Lend::Row } else { lend };
+        let lend = if ordered && lend == Lend::Eager {
+            Lend::Row
+        } else {
+            lend
+        };
         // B2 x W6-D1112: a check option's probe reads the left sides the host laid over the row as written
-        return crate::ops::subplan::hashed::make_probe(px, k, j, d, (slot, lend, fed, conflict), node);
+        return crate::ops::subplan::hashed::make_probe(
+            px,
+            k,
+            j,
+            d,
+            (slot, lend, fed, conflict),
+            node,
+        );
     }
-    let Some(ik) = gx.pipelines().inner_of(k, j) else { bug(node, "a nested SubPlan without its embedded inner") };
+    let Some(ik) = gx.pipelines().inner_of(k, j) else {
+        bug(node, "a nested SubPlan without its embedded inner")
+    };
     // an inner spanning several pipelines re-runs its rerun set at each open (nest/inner.rs, PG's chgParam); a pipeline outside
     // the set keeps its rows, which only a VOLATILE call can tell from PG's per-node rescan rule (D1337)
     let set_at = crate::rerun::sets::sub_set_index(gx, k, j, d.plan_id);
@@ -541,16 +774,44 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMech +
     // covers the SubPlan's own code: stamped for the run-ahead tracer on its inner and its rerun set's members, never
     // on pipeline `k`, whose other code it does not cover (a hashed SubPlan's set holds hashed.rs's build licence)
     if let Some(l) = d.ahead {
-        for q in core::iter::once(ik).chain(set.iter().flat_map(|r| r.pipelines.iter().map(|&q| q as usize))) {
+        for q in core::iter::once(ik).chain(
+            set.iter()
+                .flat_map(|r| r.pipelines.iter().map(|&q| q as usize)),
+        ) {
             px.hold(q, &l);
         }
     }
-    if fed && crate::lifetime::subplan::kept_feeder(gx, k, ik, set.map_or(&[][..], |r| &r.pipelines[..]), false, None) {
+    if fed
+        && crate::lifetime::subplan::kept_feeder(
+            gx,
+            k,
+            ik,
+            set.map_or(&[][..], |r| &r.pipelines[..]),
+            false,
+            None,
+        )
+    {
         shape(node, "a check option SubPlan whose inner reads a pipeline built once (a build, a Material, an aggregate: D1112 row B)");
     }
     // the keep rule's owner: the set's, else the SubPlan at its op's node (decompose records answers for an empty set too)
-    let owner = set.map_or((crate::rerun::inner::op_node(&gx.pipelines()[k], j), d.plan_id), |r| (r.node_id, r.plan_id));
-    if d.effects().acts && d.params.iter().next().is_some() && crate::lifetime::subplan::kept_feeder(gx, k, ik, set.map_or(&[][..], |r| &r.pipelines[..]), true, Some(owner)) {
+    let owner = set.map_or(
+        (
+            crate::rerun::inner::op_node(&gx.pipelines()[k], j),
+            d.plan_id,
+        ),
+        |r| (r.node_id, r.plan_id),
+    );
+    if d.effects().acts
+        && d.params.iter().next().is_some()
+        && crate::lifetime::subplan::kept_feeder(
+            gx,
+            k,
+            ik,
+            set.map_or(&[][..], |r| &r.pipelines[..]),
+            true,
+            Some(owner),
+        )
+    {
         shape(node, "a correlated VOLATILE SubPlan whose inner reads a pipeline kept across calls (PG re-runs a plain Agg or an unsorted-rewind Sort by its rescan rule: D1337)");
     }
     // D2117: a pipeline outside the set (and all that feeds it) runs once, at the statement's start, where PG 18.6 runs it
@@ -570,12 +831,24 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMech +
     let kept = kept_feeders(gx, ik, set.map_or(&[][..], |r| &r.pipelines[..]), mcx);
     // D2117 (b): feeders that act (no licence covers them) depart from nothing when PG certainly runs them first
     let own = set.map_or(&[][..], |r| &r.pipelines[..]);
-    let certain = if kept.iter().any(|&x| feed_effects(px, x).acts) { certain_first(px, (k, j), lend, &kept[..], (ik, own), d.plan_id) } else { None };
-    let kept = if certain.is_some() { PgVec::new_in(mcx) } else { kept };
+    let certain = if kept.iter().any(|&x| feed_effects(px, x).acts) {
+        certain_first(px, (k, j), lend, &kept[..], (ik, own), d.plan_id)
+    } else {
+        None
+    };
+    let kept = if certain.is_some() {
+        PgVec::new_in(mcx)
+    } else {
+        kept
+    };
     let build = |x: usize| {
         let ops = &gx.pipelines()[x].ops;
-        matches!(ops.last(), Some(Op::Join(gravity_decompose::join::JoinDesc::Build { .. })))
-            || ops.iter().any(|op| matches!(op, Op::SubPlan(s) if matches!(s.form, SubForm::Build)))
+        matches!(
+            ops.last(),
+            Some(Op::Join(gravity_decompose::join::JoinDesc::Build { .. }))
+        ) || ops
+            .iter()
+            .any(|op| matches!(op, Op::SubPlan(s) if matches!(s.form, SubForm::Build)))
             || crate::pipes::spool_fill(gx, x).is_ok()
     };
     // D3378 (m8_d1018_kept_run K6b): a feeder quiet by PG 18.6's reading (effects.rs `fill_quiet`: a sort of quiet
@@ -586,14 +859,29 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMech +
     // ahead unchecked (`Px::ahead_unchecked`, asked with its effects: an unknown op acts) when nothing in it hides a call
     // from the side class that licence reads user code by (`effects::hides_calls`), its error tagged. Each feeder that
     // runs ahead holds the licence it was granted (`Sub::ahead`; a quiet one the no-effects licence)
-    let mut ahead: PgVec<'g, gravity_decompose::effects::Licence> = certain.flatten().into_iter().collect_in(mcx);
+    let mut ahead: PgVec<'g, gravity_decompose::effects::Licence> =
+        certain.flatten().into_iter().collect_in(mcx);
     for &x in kept.iter().filter(|&&x| !build(x)) {
         use gravity_decompose::effects::{unobservable, Effects};
         let l = if quiet(x) {
             unobservable(Effects::NONE)
         } else {
             let f = feed_effects(px, x);
-            px.run_ahead(x, if f == Effects::NONE { Effects::NONE } else { Effects::RAISES }).or_else(|| if crate::effects::hides_calls(px.gx, x, true) { None } else { px.ahead_unchecked(x, f) })
+            px.run_ahead(
+                x,
+                if f == Effects::NONE {
+                    Effects::NONE
+                } else {
+                    Effects::RAISES
+                },
+            )
+            .or_else(|| {
+                if crate::effects::hides_calls(px.gx, x, true) {
+                    None
+                } else {
+                    px.ahead_unchecked(x, f)
+                }
+            })
         };
         let Some(l) = l else {
             shape(node, "a SubPlan whose inner reads a pipeline run once ahead of the SubPlan's first evaluation that can raise, its error not held (PG runs it at the first evaluation: D2117)");
@@ -613,40 +901,107 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMech +
     if d.args.len() != d.params.len() {
         bug(node, "a SubPlan whose arguments are not its parameters");
     }
-    let args: PgVec<'g, (i32, ExId)> = d.params.iter().zip(d.args.iter()).filter(|_| !fed).map(|(id, a)| (id, if reader { ex.0.compile(px, a, None, node) } else { ex.0.compile_at(px, (k, j), a, None, node) })).collect_in(mcx);
-    let ids: PgVec<'g, i32> = if link == Link::MultiExpr { d.sets.iter().collect_in(mcx) } else { d.ids.iter().collect_in(mcx) };
+    let args: PgVec<'g, (i32, ExId)> = d
+        .params
+        .iter()
+        .zip(d.args.iter())
+        .filter(|_| !fed)
+        .map(|(id, a)| {
+            (
+                id,
+                if reader {
+                    ex.0.compile(px, a, None, node)
+                } else {
+                    ex.0.compile_at(px, (k, j), a, None, node)
+                },
+            )
+        })
+        .collect_in(mcx);
+    let ids: PgVec<'g, i32> = if link == Link::MultiExpr {
+        d.sets.iter().collect_in(mcx)
+    } else {
+        d.ids.iter().collect_in(mcx)
+    };
     let n = match link {
         Link::Exists => 0,
         Link::Expr | Link::Array => 1,
         _ => ids.len(),
     };
-    let Some(cols) = entries(ip, n, mcx) else { shape(node, "a SubPlan whose inner projects fewer columns than it reads") };
-    let tfs: PgVec<'g, TypeFacts> = cols.iter().map(|&e| ex.0.tf_of(gx, ex.0.out_type(gx, e, node))).collect_in(mcx);
+    let Some(cols) = entries(ip, n, mcx) else {
+        shape(
+            node,
+            "a SubPlan whose inner projects fewer columns than it reads",
+        )
+    };
+    let tfs: PgVec<'g, TypeFacts> = cols
+        .iter()
+        .map(|&e| ex.0.tf_of(gx, ex.0.out_type(gx, e, node)))
+        .collect_in(mcx);
     // ARRAY: the accumulator copies each element as it comes (PG's accumArrayResult), so the element's window may close
-    let acc = (link == Link::Array).then(|| sr::array_acc(px, k, node, ex.0.out_type(gx, cols[0], node)));
+    let acc =
+        (link == Link::Array).then(|| sr::array_acc(px, k, node, ex.0.out_type(gx, cols[0], node)));
     // an EXPR's or a MULTIEXPR's by-reference value outlives the inner's window (a scan's page, a Result's scratch): the
     // runtime keeps a copy per lane until the step's next call (RT-2a's SubResult, PG's curTuple); ANY / ALL / ROWCOMPARE
     // read theirs in the walk
     let copy: PgVec<'g, Option<(u16, i16)>> = match link {
-        Link::Expr => tfs.iter().take(1).map(|tf| sr::copy_slot(px, k, node, tf)).collect_in(mcx),
-        Link::MultiExpr => tfs.iter().map(|tf| sr::copy_slot(px, k, node, tf)).collect_in(mcx),
+        Link::Expr => tfs
+            .iter()
+            .take(1)
+            .map(|tf| sr::copy_slot(px, k, node, tf))
+            .collect_in(mcx),
+        Link::MultiExpr => tfs
+            .iter()
+            .map(|tf| sr::copy_slot(px, k, node, tf))
+            .collect_in(mcx),
         _ => PgVec::new_in(mcx),
     };
     // updatable_views#978: a check option's ANY / ALL test compiles over the written row the host lays (`fed_row`)
     let fed_test = fed && matches!(link, Link::Any | Link::All);
     let test = match (link, d.test) {
         (Link::Exists | Link::Expr | Link::Array | Link::MultiExpr, _) => None,
-        (_, Some(t)) if n > 0 => Some(if reader || fed_test { ex.0.compile(px, t, None, node) } else { ex.0.compile_at(px, (k, j), t, None, node) }),
-        _ => bug(node, "an ANY / ALL / ROWCOMPARE SubPlan without its test or paramIds"),
+        (_, Some(t)) if n > 0 => Some(if reader || fed_test {
+            ex.0.compile(px, t, None, node)
+        } else {
+            ex.0.compile_at(px, (k, j), t, None, node)
+        }),
+        _ => bug(
+            node,
+            "an ANY / ALL / ROWCOMPARE SubPlan without its test or paramIds",
+        ),
     };
-    let row_fed = test.filter(|_| fed_test).map(|t| fed_row(px, k, j, (t, d.params.iter().count()), ex, node));
+    let row_fed = test
+        .filter(|_| fed_test)
+        .map(|t| fed_row(px, k, j, (t, d.params.iter().count()), ex, node));
     // a Result without a child (its one-time qual, then its projection) reads only parameters: compiled at this op
-    let once = matches!(ip.source, Source::Const) && matches!(&ip.ops[..], [.., Op::Project(_)]) && ip.ops[..ip.ops.len() - 1].iter().all(|op| matches!(op, Op::Filter(_) | Op::Gate(_)));
+    let once = matches!(ip.source, Source::Const)
+        && matches!(&ip.ops[..], [.., Op::Project(_)])
+        && ip.ops[..ip.ops.len() - 1]
+            .iter()
+            .all(|op| matches!(op, Op::Filter(_) | Op::Gate(_)));
     let body = if once {
-        let quals = ip.ops.iter().filter_map(|op| if let Op::Filter(q) | Op::Gate(q) = op { Some(*q) } else { None });
-        let tests: PgVec<'g, ExId> = quals.flat_map(|q| q.as_list().map_or_else(|| mcx::pg_vec![in mcx; q], |l| l.iter().collect_in(mcx))).map(|q| ex.0.compile_at(px, (k, j), q, None, node)).collect_in(mcx);
-        let cols: PgVec<'g, ExId> = cols.iter().map(|&e| ex.0.compile_at(px, (k, j), e, None, node)).collect_in(mcx);
-        Body::Once { tests, cols, rerun: set_at.map(|i| crate::rerun::sets::Rerun::declare(px, k, i)) }
+        let quals = ip.ops.iter().filter_map(|op| {
+            if let Op::Filter(q) | Op::Gate(q) = op {
+                Some(*q)
+            } else {
+                None
+            }
+        });
+        let tests: PgVec<'g, ExId> = quals
+            .flat_map(|q| {
+                q.as_list()
+                    .map_or_else(|| mcx::pg_vec![in mcx; q], |l| l.iter().collect_in(mcx))
+            })
+            .map(|q| ex.0.compile_at(px, (k, j), q, None, node))
+            .collect_in(mcx);
+        let cols: PgVec<'g, ExId> = cols
+            .iter()
+            .map(|&e| ex.0.compile_at(px, (k, j), e, None, node))
+            .collect_in(mcx);
+        Body::Once {
+            tests,
+            cols,
+            rerun: set_at.map(|i| crate::rerun::sets::Rerun::declare(px, k, i)),
+        }
     } else {
         Body::Scan(nest_inner::make(px, k, j))
     };
@@ -656,24 +1011,61 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMech +
     if let Some(why) = set.and_then(|r| crate::rerun::sets::owner_refusal(px, k, &r.pipelines)) {
         shape(node, why);
     }
-    sr::rescan(px, k, ik, if let Body::Scan(i) = &body { i.site() } else { None });
-    let mut word = |i: u8| px.frame_word(WordKey::Open { face: Face::Nest, k, j: crate::frame::px::key_j(j), i }) as i32 * 8;
+    sr::rescan(
+        px,
+        k,
+        ik,
+        if let Body::Scan(i) = &body {
+            i.site()
+        } else {
+            None
+        },
+    );
+    let mut word = |i: u8| {
+        px.frame_word(WordKey::Open {
+            face: Face::Nest,
+            k,
+            j: crate::frame::px::key_j(j),
+            i,
+        }) as i32
+            * 8
+    };
     let (val, flags, found, unk, decided) = (word(0), word(1), word(2), word(3), word(4));
     // D2246: a window function's argument is read by the window step only where PG's function reads it (window/lower.rs
     // `fill_cells`, `m10_win_reads`), so it is evaluated there, never ahead at every row
-    let window_arg = d.site == SubSite::AggArg && p.ops[j..].iter().find(|o| !matches!(o, Op::SubPlan(_))).is_some_and(|o| matches!(o, Op::Window(_)));
-    let lend = if (ordered || window_arg) && lend == Lend::Eager { Lend::Row } else { lend };
-    let holds = !fed && d.quiet_but_rows && matches!(link, Link::Exists | Link::Expr | Link::Any | Link::All | Link::Array);
+    let window_arg = d.site == SubSite::AggArg
+        && p.ops[j..]
+            .iter()
+            .find(|o| !matches!(o, Op::SubPlan(_)))
+            .is_some_and(|o| matches!(o, Op::Window(_)));
+    let lend = if (ordered || window_arg) && lend == Lend::Eager {
+        Lend::Row
+    } else {
+        lend
+    };
+    let holds = !fed
+        && d.quiet_but_rows
+        && matches!(
+            link,
+            Link::Exists | Link::Expr | Link::Any | Link::All | Link::Array
+        );
     mcx::pg_box_dyn!(mcx, Sub { node, plan_id: d.plan_id, link, lend, early: site::Early::default(), fed, args, body, tfs, ids, test, row_fed, ex, acc, copy, val, flags, found, unk, decided, holds, ahead } => dyn StepMech + 'g)
 }
 
 /// D3506 EXISTS SORT (rerun/epq/sub_lock.rs `redo_subs`): SubPlan op `j` of pipeline `k` made again as a step of its
 /// own (`make`: its inner and the inner's steps made again), for a recheck in another pipeline's function: its plan id
 /// and step.
-pub(crate) fn redo_sub<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> (i32, PgBox<'g, dyn StepMech + 'g>) {
+pub(crate) fn redo_sub<'g>(
+    px: &mut Px<'g, '_>,
+    k: usize,
+    j: usize,
+) -> (i32, PgBox<'g, dyn StepMech + 'g>) {
     let id = match px.gx.pipelines()[k].ops.get(j) {
         Some(Op::SubPlan(d)) => d.plan_id,
-        _ => bug(nest_inner::op_node(&px.gx.pipelines()[k], j), "a redo SubPlan step over another op"),
+        _ => bug(
+            nest_inner::op_node(&px.gx.pipelines()[k], j),
+            "a redo SubPlan step over another op",
+        ),
     };
     (id, make(px, k, j))
 }
@@ -684,17 +1076,27 @@ pub(crate) fn redo_sub<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> (i32, PgB
 /// inner and a pipeline of another rerun set (a nested SubPlan's own set, run by its owner within this inner's run: psql's
 /// \dp policies over pg_roles, regress rowsecurity#39), and skips a CTE's write outside every rerun set (pulled by its
 /// reader, at the inner's run).
-fn kept_feeders<'g>(gx: &crate::graph::Gx<'_, '_>, ik: usize, set: &[u16], mcx: Mcx<'g>) -> PgVec<'g, usize> {
+fn kept_feeders<'g>(
+    gx: &crate::graph::Gx<'_, '_>,
+    ik: usize,
+    set: &[u16],
+    mcx: Mcx<'g>,
+) -> PgVec<'g, usize> {
     let ps = gx.pipelines();
     let reads = |q: usize| producers(gx, q);
     let mut todo: PgVec<'g, usize> = mcx::to_vec_in(&reads(ik)[..], mcx);
-    let (mut seen, mut kept): (PgVec<'g, usize>, PgVec<'g, usize>) = (PgVec::new_in(mcx), PgVec::new_in(mcx));
+    let (mut seen, mut kept): (PgVec<'g, usize>, PgVec<'g, usize>) =
+        (PgVec::new_in(mcx), PgVec::new_in(mcx));
     while let Some(p) = todo.pop() {
         if p == ik || seen.contains(&p) {
             continue;
         }
         seen.push_in(p);
-        let rerun = gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(p as u16)));
+        let rerun = gx
+            .graph
+            .reruns
+            .iter()
+            .any(|r| r.pipelines.contains(&(p as u16)));
         if gx.cte_write(p) && !rerun {
             continue;
         }
@@ -731,26 +1133,56 @@ fn feed_effects(px: &Px<'_, '_>, x: usize) -> gravity_decompose::effects::Effect
 /// certain; else the whole-read licence of the feeders' run (`shared::whole::read` over their effects: granted where
 /// every act in the statement is a call-local builtin's), or, for any other act, which PG runs at the same point all the
 /// same, the exact licence of the SubPlan-first proof (`first_stamp`); `Some(None)` where neither holds.
-fn certain_first(px: &mut Px<'_, '_>, (k, j): (usize, usize), lend: Lend, kept: &[usize], (ik, own): (usize, &[u16]), plan_id: i32) -> Option<Option<gravity_decompose::effects::Licence>> {
+fn certain_first(
+    px: &mut Px<'_, '_>,
+    (k, j): (usize, usize),
+    lend: Lend,
+    kept: &[usize],
+    (ik, own): (usize, &[u16]),
+    plan_id: i32,
+) -> Option<Option<gravity_decompose::effects::Licence>> {
     use gravity_decompose::effects::Effects;
     let gx = px.gx;
     let ps = gx.pipelines();
-    let calm = |n: Node<'_>| crate::effects::raise_free(gx, n) && !crate::effects::user_or_volatile(gx, n) && !crate::effects::user_typed(gx, n);
+    let calm = |n: Node<'_>| {
+        crate::effects::raise_free(gx, n)
+            && !crate::effects::user_or_volatile(gx, n)
+            && !crate::effects::user_typed(gx, n)
+    };
     #[allow(clippy::question_mark)]
-    let Some(p) = (k < ps.len()).then(|| &ps[k]) else { return None };
-    let rerun = |q: usize| gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(q as u16)));
+    let Some(p) = (k < ps.len()).then(|| &ps[k]) else {
+        return None;
+    };
+    let rerun = |q: usize| {
+        gx.graph
+            .reruns
+            .iter()
+            .any(|r| r.pipelines.contains(&(q as u16)))
+    };
     let rows = match &p.source {
-        Source::Values { lists, .. } => lists.iter().next().is_some() && lists.iter().all(|l| l.as_list().is_some_and(|l| l.iter().all(calm))),
+        Source::Values { lists, .. } => {
+            lists.iter().next().is_some()
+                && lists
+                    .iter()
+                    .all(|l| l.as_list().is_some_and(|l| l.iter().all(calm)))
+        }
         Source::Const => true,
         _ => false,
     };
-    let ops = p.ops[..j].iter().all(|o| matches!(o, Op::Project(l) if l.iter().all(calm)));
+    let ops = p.ops[..j]
+        .iter()
+        .all(|o| matches!(o, Op::Project(l) if l.iter().all(calm)));
     // every row of `k` is pulled: no Limit in the program (PG's LIMIT 0 pulls none), `k` an InitPlan's, a CTE's or a
     // lazily read build's never, its rows handed to the statement's sink, or to a full Sort whose drain hands them there
     use crate::graph::EndKind;
     let init = |q: usize| gx.graph.init_plans.iter().any(|i| i.pipeline as usize == q);
     let sink = |q: usize| matches!(gx.end_kind(q), EndKind::Sink) && !init(q) && !rerun(q);
-    let drain = |q: usize| (q + 1..ps.len()).any(|r| matches!(ps[r].source, Source::Breaker { slot } if ps[q].desc.produces() == Some(slot)) && sink(r));
+    let drain = |q: usize| {
+        (q + 1..ps.len()).any(|r| {
+            matches!(ps[r].source, Source::Breaker { slot } if ps[q].desc.produces() == Some(slot))
+                && sink(r)
+        })
+    };
     let pulled = match gx.end_kind(k) {
         EndKind::Sink => sink(k),
         EndKind::Breaker(BreakerKind::Sort) => drain(k) && !init(k) && !gx.cte_write(k),
@@ -761,22 +1193,37 @@ fn certain_first(px: &mut Px<'_, '_>, (k, j): (usize, usize), lend: Lend, kept: 
     let mut at = 0;
     while let Some(&q) = feeds.get(at) {
         at += 1;
-        let more: PgVec<'_, usize> = producers(gx, q).into_iter().filter(|x| !feeds.contains(x)).collect_in(gx.mcx);
+        let more: PgVec<'_, usize> = producers(gx, q)
+            .into_iter()
+            .filter(|x| !feeds.contains(x))
+            .collect_in(gx.mcx);
         feeds.extend_in(more);
     }
     let quiet = |e: Effects| !e.acts && !e.may_raise;
-    let others = (0..k).filter(|&q| !feeds.contains(&q) && q != ik && !own.contains(&(q as u16))).all(|q| quiet(effects_of(px, q, false)));
-    let ok = lend == Lend::Eager && !rerun(k) && rows && ops && pulled && !limit && others && kept.iter().all(|&x| x < k);
+    let others = (0..k)
+        .filter(|&q| !feeds.contains(&q) && q != ik && !own.contains(&(q as u16)))
+        .all(|q| quiet(effects_of(px, q, false)));
+    let ok = lend == Lend::Eager
+        && !rerun(k)
+        && rows
+        && ops
+        && pulled
+        && !limit
+        && others
+        && kept.iter().all(|&x| x < k);
     if !ok {
         return None;
     }
-    let fed = kept.iter().fold(Effects::NONE, |e, &x| e.and(feed_effects(px, x)));
+    let fed = kept
+        .iter()
+        .fold(Effects::NONE, |e, &x| e.and(feed_effects(px, x)));
     // construct C2 (b): the kept feeders and what they read (`feeds`) run first under that licence, asked with their
     // effects (`feed_effects` follows the producers): the run-ahead tracer reads it on each, not on `k` alone. Where
     // whole_read denies the feeders (an act that is not a call-local builtin's: a writing user function), the structural
     // proof this function's reading rests on (`Proof::subplan_first`, re-checked from the statement) licenses them under
     // `exact_first` (AHEAD-EXACT); the fill is the same either way
-    let l = crate::ops::shared::whole::read(px, k, fed).or_else(|| first_stamp(px, plan_id, &feeds[..], fed));
+    let l = crate::ops::shared::whole::read(px, k, fed)
+        .or_else(|| first_stamp(px, plan_id, &feeds[..], fed));
     if let Some(l) = l {
         for &q in &feeds {
             px.hold(q, &l);
@@ -786,7 +1233,12 @@ fn certain_first(px: &mut Px<'_, '_>, (k, j): (usize, usize), lend: Lend, kept: 
 }
 
 /// `certain_first`'s licence where whole_read denies its feeders: the exact licence of the SubPlan-first proof.
-fn first_stamp(px: &Px<'_, '_>, plan_id: i32, feeds: &[usize], fed: gravity_decompose::effects::Effects) -> Option<gravity_decompose::effects::Licence> {
+fn first_stamp(
+    px: &Px<'_, '_>,
+    plan_id: i32,
+    feeds: &[usize],
+    fed: gravity_decompose::effects::Effects,
+) -> Option<gravity_decompose::effects::Licence> {
     use gravity_decompose::effects::{exact_first, Cx, Proof};
     let s = px.gx.graph.stmt?;
     let cx = Cx::new(s, px.gx.facts, px.arena);
@@ -808,31 +1260,61 @@ fn producers<'g>(gx: &crate::graph::Gx<'g, '_>, q: usize) -> PgVec<'g, usize> {
 pub(crate) trait Eval {
     fn eval(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals);
     /// W6-D1112: host-fed (`Sub::fed`): `eval_at` runs it at every read, never through `unless_again`.
-    fn fed(&self) -> bool { false }
+    fn fed(&self) -> bool {
+        false
+    }
     /// D3374 (`SubHolds`): it may run where PG skips it, its second row held (`Env::hold_rows`).
-    fn holds(&self) -> bool { false }
+    fn holds(&self) -> bool {
+        false
+    }
 }
 
 impl FedRow<'_> {
     /// The row the test reads: column `a` is the host's pair at the call's `params + a - 1` (NULL where its null word is
     /// not 0); the cells live for the parked call, which outlives the inner's walk.
-    fn row<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals) -> RowVals<'e> {
+    fn row<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+    ) -> RowVals<'e> {
         use crate::cell::{At, Cell, CellHome, CellLife, Nullable, Row};
-        let life = CellLife { until: gravity_program::Until::Row, home: CellHome::FrameSlot };
+        let life = CellLife {
+            until: gravity_program::Until::Row,
+            home: CellHome::FrameSlot,
+        };
         let w = env.load_word(b, self.call);
         let p = b.conv(ConvOp::IntToPtr, Type::Ptr, w);
         let mcx = env.mcx;
-        let mut cols = mcx::pg_vec![in mcx; None; self.cols.iter().map(|c| c.0 as usize).max().unwrap_or(0)];
-        let (mut cells, mut vals) = (mcx::reserved_in(self.cols.len(), mcx), mcx::reserved_in(self.cols.len(), mcx));
+        let mut cols =
+            mcx::pg_vec![in mcx; None; self.cols.iter().map(|c| c.0 as usize).max().unwrap_or(0)];
+        let (mut cells, mut vals) = (
+            mcx::reserved_in(self.cols.len(), mcx),
+            mcx::reserved_in(self.cols.len(), mcx),
+        );
         for (c, (a, tf)) in self.cols.iter().enumerate() {
             let a = *a;
             cols[a as usize - 1] = Some(c as u16);
-            cells.push_in(Cell { rep: gravity_program::Rep::of_storage(tf.typlen, tf.byval), typid: tf.typid, num: gravity_program::NumTypmod::NONE, life, at: At::Slot(c as u16), null: Nullable::Maybe });
+            cells.push_in(Cell {
+                rep: gravity_program::Rep::of_storage(tf.typlen, tf.byval),
+                typid: tf.typid,
+                num: gravity_program::NumTypmod::NONE,
+                life,
+                at: At::Slot(c as u16),
+                null: Nullable::Maybe,
+            });
             let at = gravity_abi::program::SUB_ARGS + 16 * (self.params + a as usize - 1) as i32;
             let (v, n) = (b.load(Type::I64, p, at), b.load(Type::I64, p, at + 8));
             vals.push_in((v, Some(b.icmp(IntCond::Ne, n, env.zero))));
         }
-        RowVals { row: Row { cells }, vals, cols, carry: row.carry.copy_in(env.mcx), next: row.next, at: row.at }
+        RowVals {
+            row: Row { cells },
+            vals,
+            cols,
+            carry: row.carry.copy_in(env.mcx),
+            next: row.next,
+            at: row.at,
+        }
     }
 }
 
@@ -852,8 +1334,18 @@ impl Sub<'_> {
         b.mark_cold(l_again);
         b.cond_br(again, (l_again, &[]), (l_first, &[]));
         b.switch_to(l_again);
-        let flags = HostFlags { touches_memory: true, may_error: true, ..HostFlags::default() };
-        let f = b.declare_host_once("m8_raise", &[Type::Ptr, Type::I64], Some(Type::I64), m8::m8_raise as *const () as usize, flags);
+        let flags = HostFlags {
+            touches_memory: true,
+            may_error: true,
+            ..HostFlags::default()
+        };
+        let f = b.declare_host_once(
+            "m8_raise",
+            &[Type::Ptr, Type::I64],
+            Some(Type::I64),
+            m8::m8_raise as *const () as usize,
+            flags,
+        );
         let code = b.iconst(Type::I64, m8::RAISE_CARDINALITY as i64);
         b.call_host(f, &[env.ctx, code], Some(Type::I64));
         let e = b.iconst(Type::I64, raise::bit(raise::HOST) as i64);
@@ -865,7 +1357,14 @@ impl Sub<'_> {
     /// ends the walk at it, where the link may end there. D3374 `held` (an island's read, `Env::hold_rows`): an EXPR's
     /// second row ends the walk with `HELD` in its flags word, in place of the raise; the island raises it where it reads
     /// the SubPlan.
-    fn fold(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals, cols: &[(Value, Value)], held: bool) -> Option<Value> {
+    fn fold(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        row: &RowVals,
+        cols: &[(Value, Value)],
+        held: bool,
+    ) -> Option<Value> {
         let again = (held && self.link == Link::Expr).then(|| {
             let seen = env.load_word(b, self.found);
             b.icmp(IntCond::Ne, seen, env.zero)
@@ -877,7 +1376,8 @@ impl Sub<'_> {
         match self.link {
             Link::Exists => Some(b.bconst(true)),
             Link::Expr => {
-                let v = self.copy[0].map_or(cols[0].0, |c| sr::keep(b, env, c, cols[0].0, cols[0].1));
+                let v =
+                    self.copy[0].map_or(cols[0].0, |c| sr::keep(b, env, c, cols[0].0, cols[0].1));
                 self.put(b, env, v, cols[0].1);
                 if let Some(a) = again {
                     let f = env.load_word(b, self.flags);
@@ -889,7 +1389,8 @@ impl Sub<'_> {
                 again
             }
             Link::MultiExpr => {
-                for ((&id, &(v, null)), c) in self.ids.iter().zip(cols.iter()).zip(self.copy.iter()) {
+                for ((&id, &(v, null)), c) in self.ids.iter().zip(cols.iter()).zip(self.copy.iter())
+                {
                     let v = c.map_or(v, |c| sr::keep(b, env, c, v, null));
                     crate::rerun::params::store(b, env, self.node, id, v, null);
                 }
@@ -904,7 +1405,9 @@ impl Sub<'_> {
                 for (&id, &(v, null)) in self.ids.iter().zip(cols.iter()) {
                     crate::rerun::params::store(b, env, self.node, id, v, null);
                 }
-                let Some(test) = self.test else { bug(self.node, "a SubPlan test without its expression") };
+                let Some(test) = self.test else {
+                    bug(self.node, "a SubPlan test without its expression")
+                };
                 let laid;
                 let at = match &self.row_fed {
                     Some(f) => {
@@ -924,7 +1427,11 @@ impl Sub<'_> {
                 let u = env.load_word(b, self.unk);
                 let u = b.int_bin(IntBinOp::Or, u, n);
                 env.store_word(b, self.unk, u);
-                let want = if self.link == Link::Any { IntCond::Ne } else { IntCond::Eq };
+                let want = if self.link == Link::Any {
+                    IntCond::Ne
+                } else {
+                    IntCond::Eq
+                };
                 let truth = b.icmp(want, v, env.zero);
                 let hit = b.int_bin(IntBinOp::And, valid, truth);
                 let h = b.conv(ConvOp::Zext, Type::I64, hit);
@@ -978,7 +1485,11 @@ impl Sub<'_> {
                 let decided = b.icmp(IntCond::Ne, d, env.zero);
                 let u = env.load_word(b, self.unk);
                 let unk = b.icmp(IntCond::Ne, u, env.zero);
-                let (yes, no) = if self.link == Link::Any { (env.one, env.zero) } else { (env.zero, env.one) };
+                let (yes, no) = if self.link == Link::Any {
+                    (env.one, env.zero)
+                } else {
+                    (env.zero, env.one)
+                };
                 let v = b.select(decided, yes, no);
                 let null = b.select(decided, f, unk);
                 self.put(b, env, v, null);
@@ -991,7 +1502,21 @@ impl Sub<'_> {
 /// (`PackedNum` `Window`, `PackedNumDyn`) form, which only the inner's site reads (D2213).
 fn sited_cols<'g>(r: &RowVals, n: usize, mcx: Mcx<'g>) -> PgVec<'g, bool> {
     use gravity_program::{NumForm, Rep};
-    (0..n).map(|i| matches!(r.col(i as i16 + 1).map(|c| c.cell.rep), Some(Rep::Code { .. } | Rep::PackedNum { form: NumForm::Window, .. } | Rep::PackedNumDyn))).collect_in(mcx)
+    (0..n)
+        .map(|i| {
+            matches!(
+                r.col(i as i16 + 1).map(|c| c.cell.rep),
+                Some(
+                    Rep::Code { .. }
+                        | Rep::PackedNum {
+                            form: NumForm::Window,
+                            ..
+                        }
+                        | Rep::PackedNumDyn
+                )
+            )
+        })
+        .collect_in(mcx)
 }
 
 impl Eval for Sub<'_> {
@@ -1079,9 +1604,13 @@ impl Eval for Sub<'_> {
         self.finish(b, env);
     }
 
-    fn fed(&self) -> bool { self.fed }
+    fn fed(&self) -> bool {
+        self.fed
+    }
 
-    fn holds(&self) -> bool { self.holds }
+    fn holds(&self) -> bool {
+        self.holds
+    }
 }
 
 impl StepMech for Sub<'_> {
@@ -1095,7 +1624,12 @@ impl StepMech for Sub<'_> {
         if let Body::Scan(inner) = &self.body {
             inner.prologue(b, env, x);
         }
-        site::prologue(self, (self.lend, &self.early), (self.plan_id, self.val, self.flags), env);
+        site::prologue(
+            self,
+            (self.lend, &self.early),
+            (self.plan_id, self.val, self.flags),
+            env,
+        );
     }
 
     fn epilogue(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, x: &Exits) {
@@ -1107,13 +1641,30 @@ impl StepMech for Sub<'_> {
     /// A scan inner runs its pipeline serially, as a nest's (until nest.parallel); a once inner reads only frame words,
     /// which are each worker's own.
     fn serial(&self) -> bool {
-        gravity_program::step_serial(&gravity_program::StepShape::SubPlan { scan: matches!(self.body, Body::Scan(_)) }).is_some()
+        gravity_program::step_serial(&gravity_program::StepShape::SubPlan {
+            scan: matches!(self.body, Body::Scan(_)),
+        })
+        .is_some()
     }
 
     /// The ops after the step read the words `(plan_id, value, flags)`. Eager: `eval` writes them for the row here. Lazy
     /// (B2c): the step and its row are lent to the readers (`Env::subplans`' `lent`), which evaluate it where PG's
     /// interpreter reaches the node (`eval_at`), never where it does not (an untaken CASE arm, past a deciding AND / OR).
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, next: Next<'_, 'e>) -> Carry<'e> {
-        site::lend(self, self.lend, (self.plan_id, self.val, self.flags), b, env, row, next)
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        next: Next<'_, 'e>,
+    ) -> Carry<'e> {
+        site::lend(
+            self,
+            self.lend,
+            (self.plan_id, self.val, self.flags),
+            b,
+            env,
+            row,
+            next,
+        )
     }
 }

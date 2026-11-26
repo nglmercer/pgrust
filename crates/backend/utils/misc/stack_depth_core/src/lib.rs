@@ -101,7 +101,11 @@ thread_local! {
 /// guard read a fifth of its limit when the engine died. A level costs ~3.6 KB of engine stack, which the ceiling's
 /// ratio prices at ~6 KB of shadow; the level's own ~1 KB of shadow is already read, and the charge rounds the rest up
 /// with headroom to 8 KB (the guard now trips at ~180 such levels, ~65% of the engine stack).
-pub const WASM_ENGINE_LEVEL_CHARGE: isize = if cfg!(target_family = "wasm") { 8 * 1024 } else { 0 };
+pub const WASM_ENGINE_LEVEL_CHARGE: isize = if cfg!(target_family = "wasm") {
+    8 * 1024
+} else {
+    0
+};
 
 /// D3763: one nested statement level running on this thread (a SQL function's or a PL statement's served query), held
 /// for the level's run: on wasm32 it adds `WASM_ENGINE_LEVEL_CHARGE` to the depth the guard reads, for the frames that
@@ -142,7 +146,11 @@ impl Drop for EngineLevel {
 /// levels while the uncharged guard tripped only between 350 and 400 (a 4000 KB engine). A level costs ~1.3x more
 /// engine stack than its shadow bytes say; 1.5 KB a level brings the guard to ~180-220 levels across the base the
 /// statement runs on, ~70% of the engine's depth.
-pub const WASM_NEST_LEVEL_CHARGE: isize = if cfg!(target_family = "wasm") { 1536 } else { 0 };
+pub const WASM_NEST_LEVEL_CHARGE: isize = if cfg!(target_family = "wasm") {
+    1536
+} else {
+    0
+};
 
 /// The depth the guard reads: the stack's own, plus on wasm32 the nested levels' engine charge (`EngineLevel`).
 #[inline]
@@ -305,7 +313,11 @@ pub fn assign_max_stack_depth(newval: i32) {
 
 fn effective_budget(scaled: isize) -> isize {
     let ceiling = THREAD_STACK_CEILING.get();
-    if ceiling > 0 { scaled.min(ceiling) } else { scaled }
+    if ceiling > 0 {
+        scaled.min(ceiling)
+    } else {
+        scaled
+    }
 }
 
 /// The scaled budget BEFORE the per-thread ceiling clamp — what thread
@@ -349,7 +361,10 @@ where
             assert!(fits(1), "a 1-deep probe must fit in {budget} bytes");
             let (mut lo, mut hi) = (1, 2);
             while fits(hi) {
-                assert!(hi < max_n, "a {hi}-deep probe fits in {budget} bytes; raise max_n");
+                assert!(
+                    hi < max_n,
+                    "a {hi}-deep probe fits in {budget} bytes; raise max_n"
+                );
                 (lo, hi) = (hi, hi * 2);
             }
             while hi - lo > 1 {
@@ -417,7 +432,10 @@ pub const DEFAULT_WASM_ENGINE_STACK: usize = 984 * 1024;
 /// assumes. 1 on every other target, where `check_stack_depth_weighted` IS `check_stack_depth` (asserted below).
 pub const WASM_NATIVE_HEAVY_WEIGHT: usize = if cfg!(target_family = "wasm") { 10 } else { 1 };
 #[cfg(not(target_family = "wasm"))]
-const _: () = assert!(WASM_NATIVE_HEAVY_WEIGHT == 1, "native check_stack_depth_weighted must be the plain check");
+const _: () = assert!(
+    WASM_NATIVE_HEAVY_WEIGHT == 1,
+    "native check_stack_depth_weighted must be the plain check"
+);
 
 /// The shadow-byte size an engine stack of `engine_bytes` stands for.
 pub fn wasm_shadow_equivalent(engine_bytes: usize) -> usize {
@@ -469,7 +487,10 @@ pub fn check_stack_depth_weighted() -> PgResult<()> {
     }
     let stack_base_ptr = STACK_BASE_PTR.get();
     let depth = stack_base_ptr.abs_diff(current_stack_addr()) as isize;
-    if guarded_depth(depth.saturating_mul(WASM_NATIVE_HEAVY_WEIGHT as isize)) > MAX_STACK_DEPTH_BYTES.get() && stack_base_ptr != 0 {
+    if guarded_depth(depth.saturating_mul(WASM_NATIVE_HEAVY_WEIGHT as isize))
+        > MAX_STACK_DEPTH_BYTES.get()
+        && stack_base_ptr != 0
+    {
         return Err(stack_depth_exceeded());
     }
     Ok(())
@@ -482,9 +503,16 @@ pub fn check_stack_depth_weighted() -> PgResult<()> {
 /// first): a nested EXCEPT chain dies in decompose's plan mapping at 4.69 MB of shadow at 984 KB and 21.3 MB at 4000 KB,
 /// 0.215 / 0.192 engine bytes per shadow byte; decompose's join chains spend under 0.15 (200 tables in 500 KB). The worst,
 /// 0.215, is 0.36 of the ceiling's 0.6: rounded up to 3/8, which trips that chain at ~55% of a 984 KB engine stack.
-pub const WASM_SHADOW_HEAVY_PART: (isize, isize) = if cfg!(target_family = "wasm") { (3, 8) } else { (1, 1) };
+pub const WASM_SHADOW_HEAVY_PART: (isize, isize) = if cfg!(target_family = "wasm") {
+    (3, 8)
+} else {
+    (1, 1)
+};
 #[cfg(not(target_family = "wasm"))]
-const _: () = assert!(WASM_SHADOW_HEAVY_PART.0 == WASM_SHADOW_HEAVY_PART.1, "native shadow-heavy check must be the plain check");
+const _: () = assert!(
+    WASM_SHADOW_HEAVY_PART.0 == WASM_SHADOW_HEAVY_PART.1,
+    "native shadow-heavy check must be the plain check"
+);
 
 /// D3812: `check_stack_depth_or_panic` for a recursion whose frames keep most of their state on wasm32's shadow stack
 /// (by-memory aggregates: decompose's walks), which spend far fewer engine bytes per shadow byte than wasm32's
@@ -512,7 +540,9 @@ fn shadow_heavy_too_deep() -> bool {
     let shadow = stack_base_ptr.abs_diff(current_stack_addr()) as isize;
     let (num, den) = WASM_SHADOW_HEAVY_PART;
     let whole = guarded_depth(shadow);
-    whole > SCALED_STACK_BUDGET.get() || whole > WASM_SHADOW_CEILING.get() || guarded_depth(shadow / den * num) > engine_ceiling
+    whole > SCALED_STACK_BUDGET.get()
+        || whole > WASM_SHADOW_CEILING.get()
+        || guarded_depth(shadow / den * num) > engine_ceiling
 }
 
 // Platform stack limit in bytes, -1 if unknown; cached after first call.

@@ -19,7 +19,8 @@ use ::types_core::{InvalidOid, Oid};
 use ::types_error::{unpack_sqlstate, PgError, PgResult};
 use ::types_fmgr::{
     input_function_call_safe, ErrorSaveNode, FmgrBuiltin, FmgrInfo,
-    FunctionCallInfoBaseData as Fcinfo, };
+    FunctionCallInfoBaseData as Fcinfo,
+};
 
 // ValidIOData (misc.c:786-810): the typname is parsed on the first call and,
 // unless get_fn_expr_arg_stable says the argument is constant, on every call
@@ -85,7 +86,9 @@ fn input_is_valid_common(
         });
     }
     let (memo_typoid, typname_constant) = {
-        let v = flinfo.fn_extra_ref::<ValidIOData>().expect("populated above");
+        let v = flinfo
+            .fn_extra_ref::<ValidIOData>()
+            .expect("populated above");
         (v.typoid, v.typname_constant)
     };
     // If the typname argument is constant, we only need to parse it the
@@ -95,10 +98,11 @@ fn input_is_valid_common(
         // verbatim; parseTypeString takes &str here, so bytes no &str can
         // carry (a SQL_ASCII database only: textin validates UTF-8 everywhere
         // else) are the §11 typed refusal, never a lossy substitution.
-        let typname =
-            core::str::from_utf8(typname_bytes).map_err(|_| non_utf8_typname_error())?;
+        let typname = core::str::from_utf8(typname_bytes).map_err(|_| non_utf8_typname_error())?;
         let (typoid, typmod) = parse_utilcmd::parseTypeString(mcx, typname)?;
-        let v = flinfo.fn_extra_mut::<ValidIOData>().expect("populated above");
+        let v = flinfo
+            .fn_extra_mut::<ValidIOData>()
+            .expect("populated above");
         v.typmod = typmod;
         // Update type-specific info if typoid changed.
         if v.typoid != typoid {
@@ -122,7 +126,9 @@ fn input_is_valid_common(
     // C text_to_cstring: an embedded NUL truncates the value.
     let cstr = CStr::from_bytes_until_nul(&buf).expect("NUL-terminated above");
 
-    let v = flinfo.fn_extra_mut::<ValidIOData>().expect("populated above");
+    let v = flinfo
+        .fn_extra_mut::<ValidIOData>()
+        .expect("populated above");
     let mut converted = Datum::null();
     input_function_call_safe(
         &mut v.inputproc,
@@ -135,11 +141,10 @@ fn input_is_valid_common(
     )
 }
 
-pub fn fc_pg_input_is_valid(
-    flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut Fcinfo,
-) -> PgResult<Datum> {
-    let Some(flinfo) = flinfo else { null_flinfo("pg_input_is_valid") };
+pub fn fc_pg_input_is_valid(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
+    let Some(flinfo) = flinfo else {
+        null_flinfo("pg_input_is_valid")
+    };
     let mut escontext = ErrorSaveNode::new(false);
     let ok = input_is_valid_common(flinfo, fcinfo, &mut escontext)?;
     Ok(Datum::from_bool(ok))
@@ -174,7 +179,9 @@ pub fn fc_pg_input_error_info(
     flinfo: Option<&mut FmgrInfo>,
     fcinfo: &mut Fcinfo,
 ) -> PgResult<Datum> {
-    let Some(flinfo) = flinfo else { null_flinfo("pg_input_error_info") };
+    let Some(flinfo) = flinfo else {
+        null_flinfo("pg_input_error_info")
+    };
     let expected = builtins::expected_desc(fcinfo);
     let mcx = fcinfo.result_mcx();
     let tupdesc = builtins::call_result_desc(mcx, flinfo, expected)?;
@@ -185,13 +192,23 @@ pub fn fc_pg_input_error_info(
     let mut values = [Datum::null(); 4];
     let mut isnull = [true; 4];
     if !ok {
-        let err = escontext.ctx.take_error().expect("details_wanted saved the error");
+        let err = escontext
+            .ctx
+            .take_error()
+            .expect("details_wanted saved the error");
         // misc.c pg_input_error_info: CStringGetTextDatum(error_data->message)
         // — the message bytes as raised (raw server-encoding bytes when the
         // input function reported a non-UTF-8 literal).
-        values[0] = text_datum(mcx, err.message_raw.as_deref().unwrap_or(err.message.as_bytes()))?;
+        values[0] = text_datum(
+            mcx,
+            err.message_raw.as_deref().unwrap_or(err.message.as_bytes()),
+        )?;
         isnull[0] = false;
-        if let Some(detail) = err.detail_raw.as_deref().or(err.detail.as_deref().map(str::as_bytes)) {
+        if let Some(detail) = err
+            .detail_raw
+            .as_deref()
+            .or(err.detail.as_deref().map(str::as_bytes))
+        {
             values[1] = text_datum(mcx, detail)?;
             isnull[1] = false;
         }
@@ -209,12 +226,8 @@ pub fn fc_pg_input_error_info(
     Ok(d)
 }
 
-
 // C `count_nulls` (misc.c); false = SQL NULL result (VARIADIC NULL array).
-fn count_nulls(
-    flinfo: Option<&FmgrInfo>,
-    fcinfo: &Fcinfo,
-) -> PgResult<Option<(i32, i32)>> {
+fn count_nulls(flinfo: Option<&FmgrInfo>, fcinfo: &Fcinfo) -> PgResult<Option<(i32, i32)>> {
     if funcapi::get_fn_expr_variadic(flinfo) {
         if fcinfo.argisnull(0) {
             return Ok(None);
@@ -266,7 +279,10 @@ pub fn fc_pg_num_nonnulls(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) ->
 
 pub fn fc_pg_typeof(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let _ = fcinfo;
-    Ok(Datum::from_oid(funcapi::get_fn_expr_argtype(flinfo.as_deref(), 0)))
+    Ok(Datum::from_oid(funcapi::get_fn_expr_argtype(
+        flinfo.as_deref(),
+        0,
+    )))
 }
 
 pub fn fc_current_query(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -346,7 +362,9 @@ pub fn fc_pg_collation_for(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -
         return Ok(fcinfo.return_null());
     }
     if !lsyscache::type_is_collatable(typeid)? && typeid != types_core::UNKNOWNOID {
-        return Err(collations_not_supported(format_type::format_type_be(typeid)?));
+        return Err(collations_not_supported(format_type::format_type_be(
+            typeid,
+        )?));
     }
     let collid = fcinfo.get_collation();
     if collid == types_core::InvalidOid {
@@ -373,5 +391,10 @@ pub const MISC_BUILTINS: &[FmgrBuiltin] = &[
     b(6292, "any_value_transfn", 2, fc_any_value_transfn),
     b(6315, "pg_basetype", 1, fc_pg_basetype),
     bn(3162, "pg_collation_for", 1, fc_pg_collation_for),
-    b(2560, "pg_postmaster_start_time", 0, builtins::fc_pg_postmaster_start_time),
+    b(
+        2560,
+        "pg_postmaster_start_time",
+        0,
+        builtins::fc_pg_postmaster_start_time,
+    ),
 ];

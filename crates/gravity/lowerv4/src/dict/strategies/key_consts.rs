@@ -41,62 +41,166 @@ struct ArmsFp {
 /// on): every arm a text constant, a projected key (resno > 0) under a bytes-equal collation (D823), a hashed group over a
 /// pgrcolumnar source (its window bind holds the rows), the key keeping its own datum (`rep_src`; a CASE over one code
 /// column is percode.table's). table/emit_group.rs `image_keys` / `image_col` read it.
-pub(crate) fn applies(gx: &Gx<'_, '_>, k: usize, form: GroupForm, kd: &KeyDecl<'_>, e: Node<'_>) -> bool {
+pub(crate) fn applies(
+    gx: &Gx<'_, '_>,
+    k: usize,
+    form: GroupForm,
+    kd: &KeyDecl<'_>,
+    e: Node<'_>,
+) -> bool {
     let p = &gx.pipelines()[k];
-    let pgrc = matches!(p.source, gravity_decompose::Source::Range { am: gravity_decompose::Am::Pgrcolumnar, .. });
+    let pgrc = matches!(
+        p.source,
+        gravity_decompose::Source::Range {
+            am: gravity_decompose::Am::Pgrcolumnar,
+            ..
+        }
+    );
     let on = crate::table::keyimg::code_if(&p.node_id).is_some();
-    let ok = on && pgrc && form == GroupForm::Hashed && kd.kind == KeyKind::Fp128 && kd.resno > 0 && gx.facts.coll(kd.coll).bytes_eq;
-    ok && crate::dict::strategies::key_codeif::consts(crate::table::emit_group::bare(e)).is_some() && crate::table::emit_group::rep_src(gx, k, kd, p.node_id).is_some_and(|r| r.datum)
+    let ok = on
+        && pgrc
+        && form == GroupForm::Hashed
+        && kd.kind == KeyKind::Fp128
+        && kd.resno > 0
+        && gx.facts.coll(kd.coll).bytes_eq;
+    ok && crate::dict::strategies::key_codeif::consts(crate::table::emit_group::bare(e)).is_some()
+        && crate::table::emit_group::rep_src(gx, k, kd, p.node_id).is_some_and(|r| r.datum)
 }
 
 /// Key `e` (its CASE under any relabel) as its image on pipeline `k`, read off projection entry `datum`: its rows
 /// declared, its constants compiled after it (inside the attach they would take the key's id) under `e`, the entry's root,
 /// so each is the entry's own word (D390, exec admit.rs's template). Past the row slots it refuses (D1747's bound).
-pub(crate) fn compile<'p>(px: &mut Px<'_, 'p>, k: usize, e: Node<'p>, datum: u16, node: i32) -> ExId {
+pub(crate) fn compile<'p>(
+    px: &mut Px<'_, 'p>,
+    k: usize,
+    e: Node<'p>,
+    datum: u16,
+    node: i32,
+) -> ExId {
     let mcx = px.mcx();
-    let arms = crate::dict::strategies::key_codeif::consts(crate::table::emit_group::bare(e)).and_then(|c| crate::dict::strategies::key_codeif::arms(c, mcx));
-    let Some(arms) = arms else { crate::refuse!(node, Reason::Bug { payload: "a constant-arm key image over another form" }) };
-    let lits: PgVec<'_, Node<'p>> = arms.into_iter().filter(|a| a.as_const().is_some_and(|x| !x.constisnull)).collect_in(mcx);
+    let arms = crate::dict::strategies::key_codeif::consts(crate::table::emit_group::bare(e))
+        .and_then(|c| crate::dict::strategies::key_codeif::arms(c, mcx));
+    let Some(arms) = arms else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a constant-arm key image over another form"
+            }
+        )
+    };
+    let lits: PgVec<'_, Node<'p>> = arms
+        .into_iter()
+        .filter(|a| a.as_const().is_some_and(|x| !x.constisnull))
+        .collect_in(mcx);
     let tabs = crate::dict::percode::tables(px, k);
     let r = tabs.borrow().rows;
-    let r2 = u8::try_from(lits.len() + 1).ok().and_then(|m| r.checked_add(m));
-    let Some(r2) = r2.filter(|&r2| crate::dict::strategies::percode_guard::room(tabs.borrow().lanes.len(), r2.into())) else { crate::refuse!(node, Reason::Bug { payload: "a constant-arm key past the row slots" }) };
+    let r2 = u8::try_from(lits.len() + 1)
+        .ok()
+        .and_then(|m| r.checked_add(m));
+    let Some(r2) = r2.filter(|&r2| {
+        crate::dict::strategies::percode_guard::room(tabs.borrow().lanes.len(), r2.into())
+    }) else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a constant-arm key past the row slots"
+            }
+        )
+    };
     tabs.borrow_mut().rows = r2;
-    let g = Rc::new(ArmsFp { r, datum, consts: RefCell::new(Vec::new()), tabs }); // alloc: Program
-    let ex = crate::step::expr::compile_ext(px, e, None, node, |_, _, _| Some(Rc::clone(&g) as Rc<dyn Any>));
-    *g.consts.borrow_mut() = lits.iter().map(|&a| crate::step::expr::compile_under(px, a, None, node, e)).collect(); // alloc: Program
+    let g = Rc::new(ArmsFp {
+        r,
+        datum,
+        consts: RefCell::new(Vec::new()),
+        tabs,
+    }); // alloc: Program
+    let ex = crate::step::expr::compile_ext(px, e, None, node, |_, _, _| {
+        Some(Rc::clone(&g) as Rc<dyn Any>)
+    });
+    *g.consts.borrow_mut() = lits
+        .iter()
+        .map(|&a| crate::step::expr::compile_under(px, a, None, node, e))
+        .collect(); // alloc: Program
     fires::fire("dict.key_codeif.consts"); // shapecheck fire signal (RD-key.codeif): a constant-arm key keys by its constants
     ex
 }
 
 /// The projection entry whose value is the datum of image `id`, when `id` is a constant-arm key's image.
 pub(crate) fn datum_of(env: &Env, id: ExId) -> Option<u16> {
-    env.placed(id).ext.as_deref()?.downcast_ref::<ArmsFp>().map(|g| g.datum)
+    env.placed(id)
+        .ext
+        .as_deref()?
+        .downcast_ref::<ArmsFp>()
+        .map(|g| g.datum)
 }
 
 /// The image cell of `id` from its key's datum `v` (NULL where `null`), with its value and NULL: the cached Fp128 of the
 /// constant whose word `v` is, else (no constant's word) `v`'s own hash.
-pub(crate) fn cell(b: &mut FunctionBuilder<'_>, env: &mut Env, node: i32, row: &RowVals, id: ExId, v: Value, null: Value) -> (Cell, Value, Value) {
-    let Some(g) = env.placed(id).ext.as_deref().and_then(|x| x.downcast_ref::<ArmsFp>()) else { crate::refuse!(node, Reason::Bug { payload: "a constant-arm key image without its form" }) };
+pub(crate) fn cell(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    node: i32,
+    row: &RowVals,
+    id: ExId,
+    v: Value,
+    null: Value,
+) -> (Cell, Value, Value) {
+    let Some(g) = env
+        .placed(id)
+        .ext
+        .as_deref()
+        .and_then(|x| x.downcast_ref::<ArmsFp>())
+    else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a constant-arm key image without its form"
+            }
+        )
+    };
     let mcx = env.mcx;
     let (r, consts) = (g.r, mcx::to_vec_in(&g.consts.borrow()[..], mcx));
     let (n, rows) = (g.tabs.borrow().lanes.len(), g.tabs.borrow().rows);
-    let (Some(tables), false) = (env.tables, consts.is_empty()) else { crate::refuse!(node, Reason::Bug { payload: "a constant-arm key image with no rows bound or no constant" }) };
+    let (Some(tables), false) = (env.tables, consts.is_empty()) else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a constant-arm key image with no rows bound or no constant"
+            }
+        )
+    };
     let (slot, e) = row_at(n, rows, r);
     let entry = b.ptr_add(tables, env.zero, 8, (e * 8) as i32);
     let (t, f, h) = (b.bconst(true), b.bconst(false), text_fp(b));
-    let (l_null, l_row, l_join) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[Type::Bool]));
+    let (l_null, l_row, l_join) = (
+        b.create_block(&[]),
+        b.create_block(&[]),
+        b.create_block(&[Type::Bool]),
+    );
     let (dp, dw) = (as_ptr(b, v), word(b, v));
     // the constants' words: a load each, no read of the row
     let memo = env.memo.set_aside();
-    let words: PgVec<'_, Value> = consts.iter().map(|&kx| { let w = crate::step::expr::emit(b, env, node, row, kx).0; word(b, w) }).collect_in(mcx);
+    let words: PgVec<'_, Value> = consts
+        .iter()
+        .map(|&kx| {
+            let w = crate::step::expr::emit(b, env, node, row, kx).0;
+            word(b, w)
+        })
+        .collect_in(mcx);
     env.memo.restore(memo);
-    let ks: PgVec<'_, [Block; 3]> = consts.iter().map(|_| [(); 3].map(|_| b.create_block(&[]))).collect_in(mcx);
+    let ks: PgVec<'_, [Block; 3]> = consts
+        .iter()
+        .map(|_| [(); 3].map(|_| b.create_block(&[])))
+        .collect_in(mcx);
     let l_val = b.create_block(&[]);
     b.cond_br(null, (l_null, &[]), (l_val, &[]));
     b.switch_to(l_val);
     for (i, &w) in words.iter().enumerate() {
-        let next = if i + 1 == words.len() { l_row } else { b.create_block(&[]) };
+        let next = if i + 1 == words.len() {
+            l_row
+        } else {
+            b.create_block(&[])
+        };
         let hit = b.icmp(IntCond::Eq, dw, w);
         b.cond_br(hit, (ks[i][0], &[]), (next, &[]));
         b.switch_to(next);
@@ -128,12 +232,27 @@ pub(crate) fn cell(b: &mut FunctionBuilder<'_>, env: &mut Env, node: i32, row: &
     b.br(l_join, &[t]);
     b.switch_to(l_join);
     let null = b.block_params(l_join)[0];
-    let life = CellLife { until: Until::Row, home: CellHome::ImageOnly };
+    let life = CellLife {
+        until: Until::Row,
+        home: CellHome::ImageOnly,
+    };
     // no lane holds this image: its own row table (`slot`) at code 0, the entry's code word, which the bind zeroes; `at` names
     // no site lane (an image-only cell is never rendered, ranked or read as a word: rep/code/datum.rs)
-    let rep = Rep::Code { dict: DictRef { lane: DictRef::NO_TABLE, fp_table: slot as u8 } };
+    let rep = Rep::Code {
+        dict: DictRef {
+            lane: DictRef::NO_TABLE,
+            fp_table: slot as u8,
+        },
+    };
     let at = At::Lane(crate::cell::LaneId::col(u16::MAX));
-    let cell = Cell { rep, typid: env.placed(id).c.result_type, num: NumTypmod::NONE, life, at, null: Nullable::Maybe };
+    let cell = Cell {
+        rep,
+        typid: env.placed(id).c.result_type,
+        num: NumTypmod::NONE,
+        life,
+        at,
+        null: Nullable::Maybe,
+    };
     (cell, b.ptr_add(entry, env.zero, 8, 16), null)
 }
 
@@ -144,9 +263,21 @@ fn word(b: &mut FunctionBuilder<'_>, v: Value) -> Value {
 }
 
 /// The Fp128 of the text at `p` into `dst` by host `h`; a failed hash raises where PG does.
-fn hash(b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals, h: HostFn, p: Value, dst: Value) {
-    let st = b.call_host(h, &[p, dst], Some(Type::I64)).unwrap_or(env.zero);
-    let (failed, bit) = (b.icmp(IntCond::Ne, st, env.zero), b.iconst(Type::I64, raise::bit(raise::HOST) as i64));
+fn hash(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    row: &RowVals,
+    h: HostFn,
+    p: Value,
+    dst: Value,
+) {
+    let st = b
+        .call_host(h, &[p, dst], Some(Type::I64))
+        .unwrap_or(env.zero);
+    let (failed, bit) = (
+        b.icmp(IntCond::Ne, st, env.zero),
+        b.iconst(Type::I64, raise::bit(raise::HOST) as i64),
+    );
     let err = b.select(failed, bit, env.zero);
     crate::step::expr::raise_if(b, env, row, err);
 }

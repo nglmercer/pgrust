@@ -3,10 +3,10 @@
 //! words, sites and partials, and the slot regions' views, lays and scatters.
 #![allow(unsafe_code)]
 
-use gravity_abi::PtrWord;
 use gravity_abi::breaker::HashAgg;
 use gravity_abi::ctx::{FLAG_LATER_CLAIM, FLAG_RESUME, RESUME_NONE};
 use gravity_abi::status::Status;
+use gravity_abi::PtrWord;
 
 use crate::mem::spill::region_live;
 
@@ -29,7 +29,12 @@ impl Node {
         let (ptr, len, laid, top) = {
             let r = &mut self.slots[k];
             // a slot's length is a u32: the reservation's last page (MAX_REGION is 4 GiB) stays out
-            (r.ptr, r.bytes as u64, r.buf.is_laid() && r.ptr == r.buf.as_mut_ptr(), (r.buf.reserve() as u64).min(u32::MAX as u64 & !0xffff))
+            (
+                r.ptr,
+                r.bytes as u64,
+                r.buf.is_laid() && r.ptr == r.buf.as_mut_ptr(),
+                (r.buf.reserve() as u64).min(u32::MAX as u64 & !0xffff),
+            )
         };
         if !laid || want <= len {
             return (ptr, len as usize);
@@ -45,7 +50,11 @@ impl Node {
         let stmt = unsafe { inner.stmt.as_ref() };
         // SAFETY: the leader's own slot region, on the leader's thread, no producer writing it (the section's jobs ended)
         // one exact draw of the owners' counted need (`grow::commit_exact`), never the past-G grow road
-        if new > len && unsafe { crate::mem::grow::commit_exact(&mut r.buf, r.ptr, new, Some(&mut inner.w), stmt) } {
+        if new > len
+            && unsafe {
+                crate::mem::grow::commit_exact(&mut r.buf, r.ptr, new, Some(&mut inner.w), stmt)
+            }
+        {
             r.bytes = new as u32;
         }
         (r.ptr, r.bytes as usize)
@@ -64,7 +73,9 @@ impl Node {
     /// the owners' temp-file road (`arena::map_owners`), as one the pool refuses does: the owner phase's spill exit. A
     /// load and a branch while no cause is on.
     pub(crate) fn owner_refuses(&self, slot: Option<u8>) -> bool {
-        let Some(r) = slot.and_then(|s| self.slots.get(s as usize)) else { return false };
+        let Some(r) = slot.and_then(|s| self.slots.get(s as usize)) else {
+            return false;
+        };
         if !r.fault.get().armed() {
             return false;
         }
@@ -154,7 +165,13 @@ impl Node {
         let mut found = ScanPos::NONE;
         for k in 0..program.pipelines.len() {
             let s = program.pipelines[k].driving_site;
-            if s < 0 || !crate::pull::is_emit(program, k) || !program.sites.get(s as usize).is_some_and(SiteDesc::is_source) {
+            if s < 0
+                || !crate::pull::is_emit(program, k)
+                || !program
+                    .sites
+                    .get(s as usize)
+                    .is_some_and(SiteDesc::is_source)
+            {
                 continue;
             }
             let row = taken_row(site_ref(self.inner.ctx, s as usize));
@@ -171,7 +188,11 @@ impl Node {
 
     /// KEYED-22: site `i`'s rows out this execution, every worker's included (`close_section` folds a section's slots in).
     pub fn site_rows_out(&self, i: usize) -> u64 {
-        assert!(i < self.program.sites.len(), "site {i} of {}", self.program.sites.len());
+        assert!(
+            i < self.program.sites.len(),
+            "site {i} of {}",
+            self.program.sites.len()
+        );
         // SAFETY: one of the program's sites, laid out by `build` in the node's ctx; read on the leader thread.
         unsafe { (*site_ptr(self.inner.ctx, i)).rows_out }
     }
@@ -192,11 +213,19 @@ impl Node {
     /// into the slot's files (a no-op for an end that does not spill: a fold's record stays for the next arm).
     /// D393b: `slot`'s leader region, when no claim laid a table in it (a section's arm), laid as an empty phase-1 table of
     /// the workers' shape: the run's last arm then owns the files' records from a live table even with no rows of its own.
-    pub(crate) fn lay_leader_t1(&mut self, slot: u8, layout: &gravity_abi::breaker::RecordLayout, pbits: u8, bytes: u32) {
+    pub(crate) fn lay_leader_t1(
+        &mut self,
+        slot: u8,
+        layout: &gravity_abi::breaker::RecordLayout,
+        pbits: u8,
+        bytes: u32,
+    ) {
         let region = self.slot_region(slot);
         let (ptr, len) = (region.as_mut_ptr(), region.len());
         // SAFETY: the slot's own region, opened (its header prefix zeroed), `len` bytes; the leader thread between claims.
-        if len < gravity_abi::breaker::HASHAGG_HDR || unsafe { crate::mem::spill::region_live(ptr, len) } {
+        if len < gravity_abi::breaker::HASHAGG_HDR
+            || unsafe { crate::mem::spill::region_live(ptr, len) }
+        {
             return;
         }
         let limit = len.min(u32::MAX as usize) as u32;
@@ -224,7 +253,12 @@ impl Node {
     /// words bound, the parallel runner's `run_with_late`) for its run, then the binding's own again. The caller keeps
     /// both images alive while the context points at them; a section copies the binding's pointers at its launch.
     pub fn repoint_params(&mut self, params: &[u64], nulls: &[u8]) {
-        assert_eq!(self.state, NodeState::Bound, "repoint_params on a {:?} node", self.state);
+        assert_eq!(
+            self.state,
+            NodeState::Bound,
+            "repoint_params on a {:?} node",
+            self.state
+        );
         // SAFETY: the node is bound, so `ctx` is its live context (as `apply` wrote it); only the pointers change
         unsafe {
             let h = &mut *self.inner.ctx;
@@ -235,7 +269,12 @@ impl Node {
 
     /// `call_claim`, or (D824, `resume`) the same claim re-entered where its call stopped with `BuildWait`: the resume
     /// word, the arena and the claim the stop left, the sources' pins kept (`Entry::build_wait`).
-    pub fn call_claim_at(&mut self, pipeline: usize, claim: MorselRange, resume: bool) -> Result<Ret> {
+    pub fn call_claim_at(
+        &mut self,
+        pipeline: usize,
+        claim: MorselRange,
+        resume: bool,
+    ) -> Result<Ret> {
         // SAFETY: this call's own node
         unsafe { Self::call_claim_at_raw(self, pipeline, claim, resume) }
     }
@@ -245,13 +284,22 @@ impl Node {
     /// is live across the call.
     /// # Safety
     /// `this` is a valid node, and no borrow of it is live across the call but through `this`.
-    pub(crate) unsafe fn call_claim_at_raw(this: *mut Node, pipeline: usize, claim: MorselRange, resume: bool) -> Result<Ret> {
+    pub(crate) unsafe fn call_claim_at_raw(
+        this: *mut Node,
+        pipeline: usize,
+        claim: MorselRange,
+        resume: bool,
+    ) -> Result<Ret> {
         let (ctx, program, owner) = {
             let n = &mut *this;
             assert_eq!(n.state, NodeState::Bound, "call on a {:?} node", n.state);
             let ctx = n.inner.ctx;
             let arm = n.arm_flag(pipeline) | n.pending_flags(pipeline);
-            let later = if core::mem::take(&mut n.later_claim) { FLAG_LATER_CLAIM } else { 0 };
+            let later = if core::mem::take(&mut n.later_claim) {
+                FLAG_LATER_CLAIM
+            } else {
+                0
+            };
             (*ctx).flags = arm | later | if resume { FLAG_RESUME } else { 0 };
             (*ctx).claim = claim;
             if !resume {
@@ -265,7 +313,7 @@ impl Node {
             (ctx, Arc::as_ptr(&n.program), n.inner.block.owner.ptr())
         };
         let _run = OwnerRun::enter(owner); // D2355
-        // G1-B: the regions the call draws count under its pipeline's breaker kind in the ledger's per-kind split
+                                           // G1-B: the regions the call draws count under its pipeline's breaker kind in the ledger's per-kind split
         let _kind = memledger::with_kind(crate::mem::region::pipeline_kind(&*program, pipeline));
         (*this).swept.set(false);
         let (v, stopped) = lent(ctx, || (*program).code_of(pipeline).call(ctx));
@@ -301,14 +349,19 @@ impl Node {
     /// `call_pipeline` over a raw receiver, as `call_claim_at_raw` (D1702).
     /// # Safety
     /// `this` is a valid node, and no borrow of it is live across the call but through `this`.
-    pub(crate) unsafe fn call_pipeline_raw(this: *mut Node, pipeline: usize, call: Call) -> Result<Ret> {
+    pub(crate) unsafe fn call_pipeline_raw(
+        this: *mut Node,
+        pipeline: usize,
+        call: Call,
+    ) -> Result<Ret> {
         let (ctx, program, owner) = {
             let n = &mut *this;
             assert_eq!(n.state, NodeState::Bound, "call on a {:?} node", n.state);
             let ctx = n.inner.ctx;
             n.inner.out.cap = call.out_cap as i64;
             let arm = n.arm_flag(pipeline);
-            (*ctx).flags = arm | n.pending_flags(pipeline) | if call.resume { FLAG_RESUME } else { 0 };
+            (*ctx).flags =
+                arm | n.pending_flags(pipeline) | if call.resume { FLAG_RESUME } else { 0 };
             if !call.resume {
                 (*ctx).resume = RESUME_NONE;
                 (*ctx).arena_cur = gravity_abi::word(n.inner.scratch);
@@ -322,7 +375,7 @@ impl Node {
             (ctx, Arc::as_ptr(&n.program), n.inner.block.owner.ptr())
         };
         let _run = OwnerRun::enter(owner); // D2355
-        // G1-B: the regions the call draws count under its pipeline's breaker kind in the ledger's per-kind split
+                                           // G1-B: the regions the call draws count under its pipeline's breaker kind in the ledger's per-kind split
         let _kind = memledger::with_kind(crate::mem::region::pipeline_kind(&*program, pipeline));
         (*this).swept.set(false);
         let (v, stopped) = lent(ctx, || (*program).code_of(pipeline).call(ctx));
@@ -379,8 +432,17 @@ impl Inner {
     #[cold]
     fn bare_error(&self) -> String {
         let c = unsafe { &*self.ctx };
-        let pos: String = (0..self.descs.len()).map(|i| format!("{}{}:{:?}", if i > 0 { " " } else { "" }, i, unsafe { (*site_ptr(self.ctx, i)).pos })).collect(); // alloc: Cold
-        format!("worker {}/{}, claim {}..{}, resume {:#x}, budget {} B, sites [{}]", c.worker_ordinal, c.width, c.claim.lo, c.claim.hi, c.resume, c.budget_bytes, pos) // alloc: Cold
+        let pos: String = (0..self.descs.len())
+            .map(|i| {
+                format!("{}{}:{:?}", if i > 0 { " " } else { "" }, i, unsafe {
+                    (*site_ptr(self.ctx, i)).pos
+                })
+            })
+            .collect(); // alloc: Cold
+        format!(
+            "worker {}/{}, claim {}..{}, resume {:#x}, budget {} B, sites [{}]",
+            c.worker_ordinal, c.width, c.claim.lo, c.claim.hi, c.resume, c.budget_bytes, pos
+        ) // alloc: Cold
     }
 
     /// After a kernel returned: the status decoded, the sites' positions recorded on the binding,
@@ -390,7 +452,15 @@ impl Inner {
     pub(crate) fn poison_out(&mut self, out_rows: u32) {
         let o = &self.out;
         let cells = out_rows as usize * self.out_natts;
-        let spans = [(o.values.ptr() as *mut u8, cells * 8), (o.isnull.ptr(), cells), (o.region.ptr(), o.region_cap as usize), (self.scratch, self.scratch_end as usize - self.scratch as usize)];
+        let spans = [
+            (o.values.ptr() as *mut u8, cells * 8),
+            (o.isnull.ptr(), cells),
+            (o.region.ptr(), o.region_cap as usize),
+            (
+                self.scratch,
+                self.scratch_end as usize - self.scratch as usize,
+            ),
+        ];
         for (p, n) in spans {
             if !p.is_null() && n > 0 {
                 unsafe { core::ptr::write_bytes(p, crate::sink::POISON, n) };
@@ -415,7 +485,12 @@ impl Inner {
         // PostgreSQL projects and sends row by row: the rows the program completed before the one that failed reach the
         // receiver first, and an error of theirs (an output function's, the client encoding's) is the statement's (ENTRY E3).
         // A recheck's rows before the rechecked one reach the sink before the row the recheck pushes (scan order)
-        if matches!(status, Status::Error | Status::Raised { .. } | Status::Recheck { .. }) && (*this).out.count > 0 && (*this).attached.is_some() {
+        if matches!(
+            status,
+            Status::Error | Status::Raised { .. } | Status::Recheck { .. }
+        ) && (*this).out.count > 0
+            && (*this).attached.is_some()
+        {
             if let (Some(push), false) = ((*this).block.push.ptr(), (*this).ctx.is_null()) {
                 if push((*this).ctx) < 0 {
                     let failed = (*this).err.take();
@@ -437,9 +512,21 @@ impl Inner {
                     Status::Raised { mask } => stored.unwrap_or(Error::Raised(mask)),
                     _ => stored.unwrap_or_else(|| Error::host("program reported an error after its host code stopped for the statement's cancel")),
                 };
-                Err(crate::stopped_error(if n.ctx.is_null() { core::ptr::null() } else { (*n.ctx).cancel.ptr() }, e))
+                Err(crate::stopped_error(
+                    if n.ctx.is_null() {
+                        core::ptr::null()
+                    } else {
+                        (*n.ctx).cancel.ptr()
+                    },
+                    e,
+                ))
             }
-            Status::Error => Err(stored.unwrap_or_else(|| Error::host(format!("program reported an error without a message ({})", n.bare_error())))), // alloc: Cold
+            Status::Error => Err(stored.unwrap_or_else(|| {
+                Error::host(format!(
+                    "program reported an error without a message ({})",
+                    n.bare_error()
+                ))
+            })), // alloc: Cold
             // NR-3: the kernel's own out of memory for a pin the pool and the temp-file road refused (kernels `pin_refused`),
             // raised: exec names the debt home's row beside it (`take_pin_debt`)
             Status::Raised { mask } if stored.is_none() && pin_debt.is_some() => {
@@ -450,20 +537,53 @@ impl Inner {
             Status::Cancelled => Err(stored.unwrap_or(Error::Cancelled)),
             // D4306: a scratch refusal (kind 2) of a call stopped for the abort bit: the kernel read the canceled draw's null
             // (a pin's pool wait or stepped zeroing the cancel ended, `cancelpoll::seen`) as its scratch running out
-            Status::Unsupported { kind } if stopped && kind == gravity_abi::status::UNSUPPORTED_SCRATCH => {
-                let e = crate::stopped_error(if n.ctx.is_null() { core::ptr::null() } else { (*n.ctx).cancel.ptr() }, stored.unwrap_or(Error::Unsupported(kind)));
+            Status::Unsupported { kind }
+                if stopped && kind == gravity_abi::status::UNSUPPORTED_SCRATCH =>
+            {
+                let e = crate::stopped_error(
+                    if n.ctx.is_null() {
+                        core::ptr::null()
+                    } else {
+                        (*n.ctx).cancel.ptr()
+                    },
+                    stored.unwrap_or(Error::Unsupported(kind)),
+                );
                 Err(e).inspect_err(|e| crate::note_unsupported(None, e, true))
             }
             // NR-3: a scratch refusal after such a pin: the out of memory `Entry`'s pool_refused names (D2845, its kept
             // refusal's bytes), naming the debt home's row
-            Status::Unsupported { kind } if kind == gravity_abi::status::UNSUPPORTED_SCRATCH && stored.is_none() && pin_debt.is_some() && n.stmt.as_ref().is_some_and(|s| s.refused() != 0) => {
+            Status::Unsupported { kind }
+                if kind == gravity_abi::status::UNSUPPORTED_SCRATCH
+                    && stored.is_none()
+                    && pin_debt.is_some()
+                    && n.stmt.as_ref().is_some_and(|s| s.refused() != 0) =>
+            {
                 let (s, pool) = (&*n.stmt, &crate::mem::grant::POOL);
-                Err(Error::OutOfMemory { bytes: s.refused(), held: pool.held(), capacity: pool.capacity(), why: pin_debt })
+                Err(Error::OutOfMemory {
+                    bytes: s.refused(),
+                    held: pool.held(),
+                    capacity: pool.capacity(),
+                    why: pin_debt,
+                })
             }
-            Status::Unsupported { kind } => Err(stored.unwrap_or(Error::Unsupported(kind))).inspect_err(|e| crate::note_unsupported(None, e, true)),
-            Status::Fault { site, lane, code, part } => Err(Error::Fault { site, lane, code, part }),
+            Status::Unsupported { kind } => Err(stored.unwrap_or(Error::Unsupported(kind)))
+                .inspect_err(|e| crate::note_unsupported(None, e, true)),
+            Status::Fault {
+                site,
+                lane,
+                code,
+                part,
+            } => Err(Error::Fault {
+                site,
+                lane,
+                code,
+                part,
+            }),
             Status::Stop | Status::Ok(_) => Err(Error::BadReturn(v)),
-            Status::Bad(x) => Err(Error::host(format!("bad kernel return {x:#x}: {}", n.bare_error()))), // alloc: Cold
+            Status::Bad(x) => Err(Error::host(format!(
+                "bad kernel return {x:#x}: {}",
+                n.bare_error()
+            ))), // alloc: Cold
         };
         if let Some(mut p) = n.attached {
             let b = p.as_mut();
@@ -478,7 +598,11 @@ impl Inner {
         // all its sites per pipeline call
         for m in n.row_marks.iter_mut() {
             let s = &mut *site_ptr(n.ctx, m.site as usize);
-            m.taken = if s.pos.is_valid() { core::mem::replace(&mut s.pos, ScanPos::NONE) } else { ScanPos::NONE };
+            m.taken = if s.pos.is_valid() {
+                core::mem::replace(&mut s.pos, ScanPos::NONE)
+            } else {
+                ScanPos::NONE
+            };
             if !m.of_positioned && m.taken.is_valid() {
                 n.positions.get_mut()[m.of as usize] = m.taken;
             }
@@ -527,7 +651,11 @@ impl Inner {
         {
             // SAFETY: as `positions`
             let p = unsafe { &*self.positions.get() };
-            assert_eq!(p, &self.positions_eager[..], "the positions laid at a read differ from the walk at the call's settle");
+            assert_eq!(
+                p,
+                &self.positions_eager[..],
+                "the positions laid at a read differ from the walk at the call's settle"
+            );
         }
     }
 
@@ -616,13 +744,24 @@ impl Inner {
 /// A leader region the driver does not scatter: not live, empty, an owner header or a v4 build (`Node::spill_leader`).
 pub(super) fn leader_unscattered(region: &[u8]) -> bool {
     // SAFETY: a `Partitioned` breaker's region is a record or build table (`breakers.md`), `region.len()` bytes.
-    unsafe { !region_live(region.as_ptr(), region.len()) || region_len(region.as_ptr()) == 0 || matches!(gravity_abi::breaker::table_kind(region.as_ptr()), gravity_abi::breaker::TABLE_OWNED | gravity_abi::breaker::TABLE_V4BUILD) }
+    unsafe {
+        !region_live(region.as_ptr(), region.len())
+            || region_len(region.as_ptr()) == 0
+            || matches!(
+                gravity_abi::breaker::table_kind(region.as_ptr()),
+                gravity_abi::breaker::TABLE_OWNED | gravity_abi::breaker::TABLE_V4BUILD
+            )
+    }
 }
 
 /// A worker partial the driver does not scatter: not live, empty or a v4 build (`Node::spill_partial`).
 pub(super) fn partial_unscattered(ptr: *mut u8) -> bool {
     // SAFETY: a worker's live partial region (its header names its kind).
-    unsafe { !region_live(ptr, usize::MAX) || region_len(ptr) == 0 || gravity_abi::breaker::table_kind(ptr) == gravity_abi::breaker::TABLE_V4BUILD }
+    unsafe {
+        !region_live(ptr, usize::MAX)
+            || region_len(ptr) == 0
+            || gravity_abi::breaker::table_kind(ptr) == gravity_abi::breaker::TABLE_V4BUILD
+    }
 }
 
 /// NEW-53: the record bytes of the phase-1 table at `ptr` when it is a live one holding records (`Node::hand_off`), else 0.
@@ -643,13 +782,25 @@ pub(super) fn t1_record_bytes(ptr: *mut u8) -> usize {
 }
 
 /// NEW-53: the live phase-1 table at `ptr` (`t1_record_bytes` said `bytes`) handed into `slot`'s stream (`SpillTable::hand_own`).
-pub(super) fn hand_own(spill: &mut SpillTable, slot: u8, ptr: *mut u8, bytes: usize, memory: bool) -> Result<u64> {
+pub(super) fn hand_own(
+    spill: &mut SpillTable,
+    slot: u8,
+    ptr: *mut u8,
+    bytes: usize,
+    memory: bool,
+) -> Result<u64> {
     // SAFETY: the caller checked a live phase-1 table at `ptr` of `bytes` record bytes (`t1_record_bytes`); the leader thread.
     unsafe { spill.hand_own(slot, ptr, bytes, memory) }
 }
 
 /// A live table at `ptr` scattered into file `index` of `slot`'s stream at `bits` (`SpillTable::scatter_own`).
-pub(super) fn scatter_own(spill: &mut SpillTable, slot: u8, index: usize, ptr: *mut u8, bits: u8) -> Result<u64> {
+pub(super) fn scatter_own(
+    spill: &mut SpillTable,
+    slot: u8,
+    index: usize,
+    ptr: *mut u8,
+    bits: u8,
+) -> Result<u64> {
     // SAFETY: the callers checked a live table at `ptr` (`leader_unscattered` / `partial_unscattered`); the leader thread.
     unsafe { spill.scatter_own(slot, index, ptr, bits) }
 }
@@ -668,24 +819,38 @@ pub(super) fn site_at<'a>(ctx: *mut Ctx, i: usize) -> &'a mut gravity_abi::Site 
 /// them behind in the pages the give-back returns, and its reader's by-reference cells would read zeros there (D4291's
 /// W8 crash: a zero-length varlena copied as `max(text)`'s first value, mcx's dangling 0x8).
 pub(super) fn sealed_fixed_run(ptr: *const u8, extent: usize) -> bool {
-    use gravity_abi::breaker::{SortRun, SORTRUN_HDR, SORTRUN_SIZED, SORTRUN_SIZED_WORDS, SORTRUN_VAR_WORDS, TABLE_SORT};
+    use gravity_abi::breaker::{
+        SortRun, SORTRUN_HDR, SORTRUN_SIZED, SORTRUN_SIZED_WORDS, SORTRUN_VAR_WORDS, TABLE_SORT,
+    };
     if ptr.is_null() || extent < SORTRUN_HDR {
         return false;
     }
     // SAFETY: a live slot region of at least a run header, 8-aligned
     let r = unsafe { &*(ptr as *const SortRun) };
-    if r.kind != TABLE_SORT || r.pad[0] != super::ownspill::SORT_RUN_SEALED || r.cap == 0 || r.len == 0 || r.len > r.cap || r.row_bytes == 0 {
+    if r.kind != TABLE_SORT
+        || r.pad[0] != super::ownspill::SORT_RUN_SEALED
+        || r.cap == 0
+        || r.len == 0
+        || r.len > r.cap
+        || r.row_bytes == 0
+    {
         return false;
     }
     // its var words past `cap` rows inside the region before any is read: `var_top` and `var_bytes` (a share-wide run's
     // `SORTRUN_VAR_WORDS`), and `region` too in an `at_rows` run's trailer (`SORTRUN_SIZED_WORDS`)
-    let words = if r.pad[1] == SORTRUN_SIZED { SORTRUN_SIZED_WORDS } else { SORTRUN_VAR_WORDS };
+    let words = if r.pad[1] == SORTRUN_SIZED {
+        SORTRUN_SIZED_WORDS
+    } else {
+        SORTRUN_VAR_WORDS
+    };
     if SORTRUN_HDR + r.cap as usize * r.row_bytes as usize + words as usize > extent {
         return false;
     }
     // SAFETY: as above, its var words inside the region; a sealed run's header names the region it was laid in
     let laid = unsafe { SortRun::region_bytes(ptr, r.row_bytes) };
-    laid <= extent && r.var_bytes() == 0 && r.var_top() as usize == SORTRUN_HDR + r.cap as usize * r.row_bytes as usize
+    laid <= extent
+        && r.var_bytes() == 0
+        && r.var_top() as usize == SORTRUN_HDR + r.cap as usize * r.row_bytes as usize
 }
 
 /// A slot region laid for a producer: its header prefix zeroed and, for a share region, armed (`arm`: the share's bytes).
@@ -744,12 +909,21 @@ pub(super) fn site_ref<'a>(ctx: *mut Ctx, i: usize) -> &'a gravity_abi::Site {
 /// The image's site array (`build_image`): the ctx's `sites` word points right past its header.
 pub(super) fn point_sites(ctx: *mut Ctx) {
     // SAFETY: a fresh ctx of the layout's `ctx_size()` bytes in the image's arena, its sites right after the header.
-    unsafe { (*ctx).sites = gravity_abi::word((ctx as *mut u8).add(gravity_abi::HEADER_SIZE) as *mut gravity_abi::Site) };
+    unsafe {
+        (*ctx).sites = gravity_abi::word(
+            (ctx as *mut u8).add(gravity_abi::HEADER_SIZE) as *mut gravity_abi::Site
+        )
+    };
 }
 
 /// Site `i`'s windows laid in the image (`build_image`): its values, nulls, keys, key nulls and lanes (`w`, in that
 /// order) and its lanes' bound; the site's pointer.
-pub(super) fn lay_site(ctx: *mut Ctx, i: usize, w: (*mut Datum, *mut u8, *mut Datum, *mut u8, *mut Lane), lanes_cap: u16) -> *mut gravity_abi::Site {
+pub(super) fn lay_site(
+    ctx: *mut Ctx,
+    i: usize,
+    w: (*mut Datum, *mut u8, *mut Datum, *mut u8, *mut Lane),
+    lanes_cap: u16,
+) -> *mut gravity_abi::Site {
     // SAFETY: `i` is one of the program's sites, in the ctx `point_sites` laid; the image is the building thread's own.
     unsafe {
         let s = site_ptr(ctx, i);
@@ -777,7 +951,13 @@ pub(super) fn inner_back(env: *mut Inner, al: ArenaRef) -> ArenaBox<Inner> {
 
 /// The built image bound (`build_image`): each site's targets (`bind::sites`), then the ctx header's program and out
 /// blocks, its arena window (`arena`: cursor, end), the whole claim, width 1 and the site count.
-pub(super) fn bind_image(env: *mut Inner, ctx: *mut Ctx, role: Role, arena: (*mut u8, *mut u8), nsites: u16) {
+pub(super) fn bind_image(
+    env: *mut Inner,
+    ctx: *mut Ctx,
+    role: Role,
+    arena: (*mut u8, *mut u8),
+    nsites: u16,
+) {
     // SAFETY: `env` is the image's own Inner, its ctx's sites laid and its sources filled (`bind::sites`), and `ctx` its
     // fresh ctx; the image is the building thread's own.
     unsafe {
@@ -814,7 +994,9 @@ pub(super) fn arena_window(ctx: *mut Ctx) -> (*mut u8, *mut u8) {
 /// The bound ctx's arena window set: its cursor and end.
 pub(super) fn set_arena_window(ctx: *mut Ctx, cur: *mut u8, end: *mut u8) {
     // SAFETY: as `resume_claim`.
-    unsafe { ((*ctx).arena_cur, (*ctx).arena_end) = (gravity_abi::word(cur), gravity_abi::word(end)) };
+    unsafe {
+        ((*ctx).arena_cur, (*ctx).arena_end) = (gravity_abi::word(cur), gravity_abi::word(end))
+    };
 }
 
 /// The bound ctx's call flags.
@@ -865,8 +1047,14 @@ mod sealed_run_tests {
     #[test]
     fn a_run_with_var_copies_is_not_its_put_form() {
         let mut buf = [0u64; 512];
-        assert!(sealed_fixed_run(run(&mut buf, 0), 4096), "a sealed run with no copy puts as it lies");
+        assert!(
+            sealed_fixed_run(run(&mut buf, 0), 4096),
+            "a sealed run with no copy puts as it lies"
+        );
         let mut buf = [0u64; 512];
-        assert!(!sealed_fixed_run(run(&mut buf, 16), 4096), "a run holding var copies (var_bytes 0 until its kernel's put) is not");
+        assert!(
+            !sealed_fixed_run(run(&mut buf, 16), 4096),
+            "a run holding var copies (var_bytes 0 until its kernel's put) is not"
+        );
     }
 }

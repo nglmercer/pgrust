@@ -4,19 +4,21 @@ use ::bufmgr::{
 };
 use ::gin::amcheck as ginam;
 use ::gin_vocab::{
-    GinPageOpaqueData, GinState, PostingItem, PostingItemGetBlockNumber, GIN_CAT_NORM_KEY,
-    GIN_DATA, GIN_DELETED, GIN_LEAF, GIN_ROOT_BLKNO, MAXALIGN, SizeOfPageHeaderData,
+    GinPageOpaqueData, GinState, PostingItem, PostingItemGetBlockNumber, SizeOfPageHeaderData,
+    GIN_CAT_NORM_KEY, GIN_DATA, GIN_DELETED, GIN_LEAF, GIN_ROOT_BLKNO, MAXALIGN,
 };
 use ::mcx::{Mcx, MemoryContext, PgVec};
 use ::nbtree::itup::{copy_index_tuple, index_tuple_size, ITup};
-use ::types_core::{catalog::GIN_AM_OID, BlockNumber, InvalidBlockNumber, OffsetNumber, Oid, BLCKSZ};
+use ::types_core::ForkNumber;
+use ::types_core::{
+    catalog::GIN_AM_OID, BlockNumber, InvalidBlockNumber, OffsetNumber, Oid, BLCKSZ,
+};
 use ::types_error::{PgError, PgResult, DEBUG1, DEBUG3, ERRCODE_INDEX_CORRUPTED};
 use ::types_rel::Relation;
 use ::types_storage::buf::BufferAccessStrategyType;
 use ::types_storage::bufpage::{ItemIdData, MaxIndexTuplesPerPage, PageRef};
 use ::types_storage::lock::AccessShareLock;
 use ::types_storage::{buf::BufferAccessStrategy, ReadBufferMode};
-use ::types_core::ForkNumber;
 use ::types_tuple::itemptr::{
     FirstOffsetNumber, InvalidOffsetNumber, ItemPointerCompare, ItemPointerData, ItemPointerEquals,
     ItemPointerGetBlockNumberNoCheck, ItemPointerGetOffsetNumberNoCheck, ItemPointerIsValid,
@@ -151,9 +153,14 @@ unsafe fn gin_read_tuple_without_state<'a>(
                 itupsize
             )));
         }
-        out.try_reserve(nipd).map_err(|_| amcx.oom(nipd * core::mem::size_of::<ItemPointerData>()))?;
+        out.try_reserve(nipd)
+            .map_err(|_| amcx.oom(nipd * core::mem::size_of::<ItemPointerData>()))?;
         for i in 0..nipd {
-            out.push(ptr.add(i * core::mem::size_of::<ItemPointerData>()).cast::<ItemPointerData>().read_unaligned());
+            out.push(
+                ptr.add(i * core::mem::size_of::<ItemPointerData>())
+                    .cast::<ItemPointerData>()
+                    .read_unaligned(),
+            );
         }
     }
     Ok(())
@@ -177,7 +184,10 @@ fn gin_check_posting_tree_parent_keys_consistency(
         blkno: posting_tree_root,
     });
 
-    debug(DEBUG3, format!("processing posting tree at blk {posting_tree_root}"))?;
+    debug(
+        DEBUG3,
+        format!("processing posting tree at blk {posting_tree_root}"),
+    )?;
 
     while let Some(cur) = stack.pop() {
         ::gin::check_for_interrupts()?;
@@ -274,7 +284,10 @@ fn check_posting_tree_page(
     let maxoff = opaque.maxoff;
     let rightlink = opaque.rightlink;
 
-    debug(DEBUG1, format!("page blk: {}, type data, maxoff {maxoff}", cur.blkno))?;
+    debug(
+        DEBUG1,
+        format!("page blk: {}, type data, maxoff {maxoff}", cur.blkno),
+    )?;
 
     if cur.parentblk != InvalidBlockNumber {
         debug(
@@ -290,7 +303,10 @@ fn check_posting_tree_page(
     } else {
         debug(
             DEBUG3,
-            format!("blk {}: root internal posting tree page with {maxoff} items", cur.blkno),
+            format!(
+                "blk {}: root internal posting tree page with {maxoff} items",
+                cur.blkno
+            ),
         )?;
     }
 
@@ -339,7 +355,10 @@ fn check_posting_tree_page(
         };
         debug(
             DEBUG3,
-            format!("key ({key_blk}, {key_off}) -> {}", PostingItemGetBlockNumber(&posting_item)),
+            format!(
+                "key ({key_blk}, {key_off}) -> {}",
+                PostingItemGetBlockNumber(&posting_item)
+            ),
         )?;
 
         if i == maxoff && rightlink == InvalidBlockNumber {
@@ -462,7 +481,13 @@ fn check_entry_page<'a>(
 
     check_index_page(rel, page, cur.blkno)?;
 
-    debug(DEBUG3, format!("processing entry tree page at blk {}, maxoff: {maxoff}", cur.blkno))?;
+    debug(
+        DEBUG3,
+        format!(
+            "processing entry tree page at blk {}, maxoff: {maxoff}",
+            cur.blkno
+        ),
+    )?;
 
     if let Some(parenttup) = cur.parenttup {
         let mut parent_key_category = GIN_CAT_NORM_KEY;
@@ -497,7 +522,10 @@ fn check_entry_page<'a>(
         {
             debug(
                 DEBUG3,
-                format!("split detected for blk: {}, parent blk: {}", cur.blkno, cur.parentblk),
+                format!(
+                    "split detected for blk: {}, parent blk: {}",
+                    cur.blkno, cur.parentblk
+                ),
             )?;
             // SAFETY: parenttup is a live owned tuple copy.
             let copy = unsafe { copy_itup_arena(amcx, parenttup)? };
@@ -545,8 +573,9 @@ fn check_entry_page<'a>(
 
         let mut current_key_category = GIN_CAT_NORM_KEY;
         // SAFETY: as above.
-        let current_key =
-            unsafe { ginam::gintuple_get_key(amcx, rel, state, idxtuple, &mut current_key_category)? };
+        let current_key = unsafe {
+            ginam::gintuple_get_key(amcx, rel, state, idxtuple, &mut current_key_category)?
+        };
 
         if i != FirstOffsetNumber && !(i == maxoff && rightlink == InvalidBlockNumber && !is_leaf) {
             let prev = prev_tuple.expect("prev_tuple set for i > First");
@@ -611,8 +640,7 @@ fn check_entry_page<'a>(
                     }
                     Some(parenttup) => {
                         // SAFETY: owned copy of a live entry tuple.
-                        let new_attnum =
-                            unsafe { ginam::gintuple_get_attrnum(state, parenttup) };
+                        let new_attnum = unsafe { ginam::gintuple_get_attrnum(state, parenttup) };
                         let mut cat = GIN_CAT_NORM_KEY;
                         // SAFETY: as above.
                         let new_key = unsafe {
@@ -835,7 +863,9 @@ fn page_get_item_id_careful(
 mod tests {
     use super::*;
     use ::datum::Datum;
-    use ::nbtree::itup::{index_form_tuple, set_t_info, set_t_tid, t_info, ItupBuf, INDEX_SIZE_MASK};
+    use ::nbtree::itup::{
+        index_form_tuple, set_t_info, set_t_tid, t_info, ItupBuf, INDEX_SIZE_MASK,
+    };
     use ::types_storage::bufpage::PageMut;
 
     #[test]
@@ -908,7 +938,10 @@ mod tests {
             rd_firstRelfilelocatorSubid: Cell::new(0),
             rd_droppedSubid: Cell::new(0),
             rd_lockInfo: LockInfoData {
-                lockRelId: LockRelId { relId: 5001, dbId: 5 },
+                lockRelId: LockRelId {
+                    relId: 5001,
+                    dbId: 5,
+                },
             },
             rd_rel: FormData_pg_class {
                 relname,
@@ -983,8 +1016,7 @@ mod tests {
     // GinFormTuple's leaf shape with an uncompressed one-item posting list
     // (the layout ginReadTupleWithoutState still accepts).
     fn gin_leaf_tuple<'m>(mcx: Mcx<'m>, rel: &Relation<'_>, key: i32) -> ItupBuf<'m> {
-        let keytup =
-            index_form_tuple(mcx, rel.descr(), &[Datum::from_i32(key)], &[false]).unwrap();
+        let keytup = index_form_tuple(mcx, rel.descr(), &[Datum::from_i32(key)], &[false]).unwrap();
         let posting_off = keytup.size();
         let size = MAXALIGN(posting_off + core::mem::size_of::<ItemPointerData>());
         let mut tup = ItupBuf::with_size(mcx, size).unwrap();
@@ -995,7 +1027,10 @@ mod tests {
                 tup.as_mut_ptr(),
                 (t_info(keytup.as_ptr()) & !INDEX_SIZE_MASK) | size as u16,
             );
-            set_t_tid(tup.as_mut_ptr(), ItemPointerData::new(posting_off as BlockNumber, 1));
+            set_t_tid(
+                tup.as_mut_ptr(),
+                ItemPointerData::new(posting_off as BlockNumber, 1),
+            );
             tup.as_mut_ptr()
                 .add(posting_off)
                 .cast::<ItemPointerData>()
@@ -1048,7 +1083,11 @@ mod tests {
     fn install_ereport_stub() {
         if !elog_seams::ereport::is_installed() {
             elog_seams::ereport::set(|err| {
-                assert!(err.level().0 < ::types_error::ERROR.0, "ereport seam: {}", err.message());
+                assert!(
+                    err.level().0 < ::types_error::ERROR.0,
+                    "ereport seam: {}",
+                    err.message()
+                );
                 EREPORTS
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
@@ -1069,7 +1108,9 @@ mod tests {
         assert!(ntuples > 200, "page holds only {ntuples} tuples");
         // SAFETY: img is an 8-aligned BLCKSZ image alive for the whole walk.
         let page = unsafe {
-            PageRef::from_raw(core::ptr::NonNull::new(img.as_ptr().cast_mut().cast::<u8>()).unwrap())
+            PageRef::from_raw(
+                core::ptr::NonNull::new(img.as_ptr().cast_mut().cast::<u8>()).unwrap(),
+            )
         };
 
         let arena = MemoryContext::new_wholesale("amcheck consistency check context");
@@ -1104,14 +1145,18 @@ mod tests {
         let after_all = arena.stats().arena_footprint;
         assert!(stack.is_empty() && leafdepth == 0);
         let me = std::thread::current().id();
-        let walk_line = format!("processing entry tree page at blk {GIN_ROOT_BLKNO}, maxoff: {ntuples}");
+        let walk_line =
+            format!("processing entry tree page at blk {GIN_ROOT_BLKNO}, maxoff: {ntuples}");
         let announced = EREPORTS
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .iter()
             .filter(|(t, m)| *t == me && *m == walk_line)
             .count();
-        assert_eq!(announced, 32, "verify_gin.c:444 DEBUG3 line per page visited");
+        assert_eq!(
+            announced, 32,
+            "verify_gin.c:444 DEBUG3 line per page visited"
+        );
         assert_eq!(
             after_first, after_all,
             "check arena grew by {} bytes over 31 more pages of {ntuples} tuples: per-tuple copies leak",

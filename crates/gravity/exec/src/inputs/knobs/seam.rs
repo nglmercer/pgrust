@@ -14,7 +14,14 @@ pub static KNOBS: &[Knob] = &[
 
 /// Whether the entry seam offers the statement to Gravity at all: one plannable query — a plan tree under CMD_SELECT/INSERT/UPDATE/DELETE/MERGE, PostgreSQL's `CMD_UTILITY` distinction (`ChoosePortalStrategy`). A utility statement (SET, SHOW, EXPLAIN, DECLARE, FETCH, COPY, DDL, transaction control …) runs on PostgreSQL's utility path, and the plans it runs (EXPLAIN ANALYZE's, a cursor's, COPY's) reach the entry seam at their own ExecutorStart. A rule-rewritten list (PORTAL_MULTI_QUERY) is offered query by query: the protocol runner leaves the list to the portal, whose ProcessQuery starts each query through the entry seam (e2e m1_write: a DO ALSO DELETE and its rule's SELECT are served).
 pub fn offered(pstmt: &PlannedStmt<'_>) -> bool {
-    matches!(pstmt.commandType, CmdType::CMD_SELECT | CmdType::CMD_INSERT | CmdType::CMD_UPDATE | CmdType::CMD_DELETE | CmdType::CMD_MERGE) && pstmt.planTree.is_some()
+    matches!(
+        pstmt.commandType,
+        CmdType::CMD_SELECT
+            | CmdType::CMD_INSERT
+            | CmdType::CMD_UPDATE
+            | CmdType::CMD_DELETE
+            | CmdType::CMD_MERGE
+    ) && pstmt.planTree.is_some()
 }
 
 /// The fallthrough line of a statement the protocol runner does not offer: the utility path runs it.
@@ -49,7 +56,8 @@ pub fn settings_at() -> u64 {
 /// runner::point::skip does not follow: constraint_exclusion on (the refutation proof reads them) or debug_parallel_query
 /// not off (a Gather over every plan).
 pub fn noplan_setting() -> Option<&'static str> {
-    if guc_tables::vars::constraint_exclusion.read() == guc_tables::consts::CONSTRAINT_EXCLUSION_ON {
+    if guc_tables::vars::constraint_exclusion.read() == guc_tables::consts::CONSTRAINT_EXCLUSION_ON
+    {
         return Some("constraint_exclusion");
     }
     if guc_tables::vars::debug_parallel_query.read() != guc_tables::consts::DEBUG_PARALLEL_OFF {
@@ -82,7 +90,8 @@ pub fn logical_wal() -> bool {
 /// A planner tap (planner_seams::planning_tapped: pg_stat_statements' planner hooks), log_planner_stats or debug_print_plan
 /// watches planning, so a statement planned without the planner (runner::point) declines.
 pub fn planning_observed() -> bool {
-    let tapped = planner_seams::planning_tapped::is_installed() && planner_seams::planning_tapped::call();
+    let tapped =
+        planner_seams::planning_tapped::is_installed() && planner_seams::planning_tapped::call();
     tapped || guc_tables::backing::log_planner_stats() || guc_tables::backing::Debug_print_plan()
 }
 
@@ -94,7 +103,10 @@ pub fn log_executor_stats() -> bool {
 /// D1789 (e2e only): `PGRUST_GRAVITY_MEMO_SLOTS=<n>` sizes a backend's plan-memo slots down from `MAX_PLANS` (1..=MAX_PLANS),
 /// so a test fills every slot with a few checked-out plans; unset or out of range, `MAX_PLANS`. Read once per backend.
 pub fn memo_slots() -> usize {
-    super::env_u64("PGRUST_GRAVITY_MEMO_SLOTS").and_then(|n| usize::try_from(n).ok()).filter(|n| (1..=crate::MAX_PLANS).contains(n)).unwrap_or(crate::MAX_PLANS)
+    super::env_u64("PGRUST_GRAVITY_MEMO_SLOTS")
+        .and_then(|n| usize::try_from(n).ok())
+        .filter(|n| (1..=crate::MAX_PLANS).contains(n))
+        .unwrap_or(crate::MAX_PLANS)
 }
 
 pub fn facts_on() -> bool {

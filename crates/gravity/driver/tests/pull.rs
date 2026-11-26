@@ -8,7 +8,10 @@ use gravity_abi::Datum;
 use gravity_driver::{BorrowedBatch, Entry, MorselRange, PullAdapter, PullBuffer, Sink};
 use gravity_program::{Generation, Handle, PlanKey};
 
-const KEY: PlanKey = PlanKey { handle: Handle(3), generation: Generation(1) };
+const KEY: PlanKey = PlanKey {
+    handle: Handle(3),
+    generation: Generation(1),
+};
 const NULLS: [u8; 4] = [0; 4];
 const PARAMS: [Datum; 4] = [1, 2, 3, 4];
 
@@ -30,12 +33,30 @@ fn fetch_three_twice_then_all_enters_the_pipeline_ceil_rows_over_batch_times() {
     let flag = AtomicU8::new(0);
     let mut adapter = PullAdapter::new(2, 4);
     for _ in 0..3 {
-        adapter.open(&mut entry, Some(KEY), &program, &mut derive, parts(&PARAMS, &NULLS, &flag), lease(gravity_driver::Grant::of(8 << 20))).unwrap();
-        assert_eq!(collect(&mut adapter, &mut entry, 3), vec![vec![40, 200], vec![41, 201], vec![42, 202]]);
+        adapter
+            .open(
+                &mut entry,
+                Some(KEY),
+                &program,
+                &mut derive,
+                parts(&PARAMS, &NULLS, &flag),
+                lease(gravity_driver::Grant::of(8 << 20)),
+            )
+            .unwrap();
+        assert_eq!(
+            collect(&mut adapter, &mut entry, 3),
+            vec![vec![40, 200], vec![41, 201], vec![42, 202]]
+        );
         assert_eq!(adapter.buffered(), 1);
-        assert_eq!(collect(&mut adapter, &mut entry, 3), vec![vec![43, 203], vec![44, 204], vec![45, 205]]);
+        assert_eq!(
+            collect(&mut adapter, &mut entry, 3),
+            vec![vec![43, 203], vec![44, 204], vec![45, 205]]
+        );
         assert_eq!(adapter.buffered(), 2);
-        assert_eq!(collect(&mut adapter, &mut entry, usize::MAX), vec![vec![46, 206], vec![47, 207], vec![48, 208], vec![49, 209]]);
+        assert_eq!(
+            collect(&mut adapter, &mut entry, usize::MAX),
+            vec![vec![46, 206], vec![47, 207], vec![48, 208], vec![49, 209]]
+        );
         assert_eq!(adapter.entries(), 3);
         assert!(collect(&mut adapter, &mut entry, 5).is_empty());
         assert_eq!(adapter.entries(), 3);
@@ -51,11 +72,29 @@ fn early_close_parks_the_node_with_rows_left() {
     let mut derive = FakeDerive::new([ten_rows, no_rows, no_rows, no_rows]);
     let flag = AtomicU8::new(0);
     let mut adapter = PullAdapter::new(2, 4);
-    adapter.open(&mut entry, Some(KEY), &program, &mut derive, parts(&PARAMS, &NULLS, &flag), lease(gravity_driver::Grant::of(8 << 20))).unwrap();
+    adapter
+        .open(
+            &mut entry,
+            Some(KEY),
+            &program,
+            &mut derive,
+            parts(&PARAMS, &NULLS, &flag),
+            lease(gravity_driver::Grant::of(8 << 20)),
+        )
+        .unwrap();
     assert_eq!(collect(&mut adapter, &mut entry, 1).len(), 1);
     adapter.close(&mut entry, true);
     assert_eq!((adapter.buffered(), entry.park().len()), (0, 1));
-    adapter.open(&mut entry, Some(KEY), &program, &mut derive, parts(&PARAMS, &NULLS, &flag), lease(gravity_driver::Grant::of(8 << 20))).unwrap();
+    adapter
+        .open(
+            &mut entry,
+            Some(KEY),
+            &program,
+            &mut derive,
+            parts(&PARAMS, &NULLS, &flag),
+            lease(gravity_driver::Grant::of(8 << 20)),
+        )
+        .unwrap();
     assert_eq!(collect(&mut adapter, &mut entry, 100).len(), 10);
     adapter.close(&mut entry, true);
 }
@@ -70,12 +109,25 @@ fn fetch_five_then_fifteen_suspends_once_and_completes_on_the_second_call() {
     let mut derive = FakeDerive::new([twenty_rows, no_rows, no_rows, no_rows]);
     let flag = AtomicU8::new(0);
     let mut adapter = PullAdapter::new(2, 8);
-    adapter.open(&mut entry, Some(KEY), &program, &mut derive, parts(&PARAMS, &NULLS, &flag), lease(gravity_driver::Grant::of(8 << 20))).unwrap();
+    adapter
+        .open(
+            &mut entry,
+            Some(KEY),
+            &program,
+            &mut derive,
+            parts(&PARAMS, &NULLS, &flag),
+            lease(gravity_driver::Grant::of(8 << 20)),
+        )
+        .unwrap();
     let first = collect(&mut adapter, &mut entry, 5);
     assert_eq!(first.len(), 5);
     assert_eq!(first[0], vec![400, 300]);
     assert!(!adapter.is_done(), "suspended with rows left");
-    assert_eq!(adapter.buffered(), 3, "the batch's over-produced rows wait in the buffer");
+    assert_eq!(
+        adapter.buffered(),
+        3,
+        "the batch's over-produced rows wait in the buffer"
+    );
     let second = collect(&mut adapter, &mut entry, 15);
     assert_eq!(second.len(), 15);
     assert_eq!(second[14], vec![419, 319]);
@@ -92,18 +144,37 @@ fn fetch_five_then_fifteen_suspends_once_and_completes_on_the_second_call() {
 fn a_volatile_program_produces_no_row_ahead_of_the_fetch_count() {
     let mut entry = Entry::new(4);
     let mut p = p_lookup4(8);
-    let mut d = gravity_program::protos::V4Descs::new(vec![gravity_program::protos::Proto::new(gravity_program::protos::ProtoKind::Volatile, 0)]);
+    let mut d = gravity_program::protos::V4Descs::new(vec![gravity_program::protos::Proto::new(
+        gravity_program::protos::ProtoKind::Volatile,
+        0,
+    )]);
     d.pull_exact = true; // what lowerv4 effects/visible.rs `pull_exact` declares for a Volatile protocol
     p.set_v4(&d);
     let program = Arc::new(p);
     let mut derive = FakeDerive::new([twenty_rows, no_rows, no_rows, no_rows]);
     let flag = AtomicU8::new(0);
     let mut adapter = PullAdapter::new(2, 8);
-    adapter.open(&mut entry, Some(KEY), &program, &mut derive, parts(&PARAMS, &NULLS, &flag), lease(gravity_driver::Grant::of(8 << 20))).unwrap();
+    adapter
+        .open(
+            &mut entry,
+            Some(KEY),
+            &program,
+            &mut derive,
+            parts(&PARAMS, &NULLS, &flag),
+            lease(gravity_driver::Grant::of(8 << 20)),
+        )
+        .unwrap();
     let first = collect(&mut adapter, &mut entry, 5);
     assert_eq!((first.len(), first[0].clone()), (5, vec![400, 300]));
-    assert_eq!(adapter.buffered(), 0, "no row produced past the fetch's five");
-    assert_eq!(collect(&mut adapter, &mut entry, 2), vec![vec![405, 305], vec![406, 306]]);
+    assert_eq!(
+        adapter.buffered(),
+        0,
+        "no row produced past the fetch's five"
+    );
+    assert_eq!(
+        collect(&mut adapter, &mut entry, 2),
+        vec![vec![405, 305], vec![406, 306]]
+    );
     assert_eq!(adapter.buffered(), 0, "nor past the next fetch's two");
     let rest = collect(&mut adapter, &mut entry, usize::MAX);
     assert_eq!((rest.len(), rest[12].clone()), (13, vec![419, 319]));
@@ -125,7 +196,16 @@ fn a_two_pipeline_program_runs_its_producer_then_pulls_the_emit() {
     let params: [Datum; 4] = [100, 0, 0, 0];
     let mut adapter = PullAdapter::new(2, 4);
     for _ in 0..2 {
-        adapter.open(&mut entry, Some(KEY), &program, &mut derive, parts(&params, &NULLS, &flag), lease(gravity_driver::Grant::of(8 << 20))).unwrap();
+        adapter
+            .open(
+                &mut entry,
+                Some(KEY),
+                &program,
+                &mut derive,
+                parts(&params, &NULLS, &flag),
+                lease(gravity_driver::Grant::of(8 << 20)),
+            )
+            .unwrap();
         adapter
             .with_open(|exec, binding| -> gravity_driver::Result<()> {
                 assert_eq!(exec.next_pipeline(), 0);
@@ -141,7 +221,14 @@ fn a_two_pipeline_program_runs_its_producer_then_pulls_the_emit() {
         assert_eq!(adapter.entries(), 1);
         adapter.close(&mut entry, true);
     }
-    assert_eq!((entry.stats().built, entry.stats().reused, entry.stats().ended_ok), (1, 1, 2));
+    assert_eq!(
+        (
+            entry.stats().built,
+            entry.stats().reused,
+            entry.stats().ended_ok
+        ),
+        (1, 1, 2)
+    );
 }
 
 /// lower.md §15.13: a by-reference datum inside the pushed region moves with the copy by its offset; a
@@ -153,7 +240,13 @@ fn relocate_moves_only_the_by_reference_datums_inside_the_region() {
     let lo = from.as_ptr() as u64;
     let mut v = [lo + 8, lo + 8, lo + 16, lo + 1000, 5];
     let n = [0u8, 0, 1, 0, 0];
-    gravity_driver::relocate(&mut v, &n, &[true, false, true, true, true], (lo, 64), to.as_ptr());
+    gravity_driver::relocate(
+        &mut v,
+        &n,
+        &[true, false, true, true, true],
+        (lo, 64),
+        to.as_ptr(),
+    );
     let t = to.as_ptr() as u64;
     assert_eq!(v, [t + 8, lo + 8, lo + 16, lo + 1000, 5]);
 }
@@ -169,17 +262,39 @@ fn two_sink_arms_pull_in_order_and_a_fetch_spans_them() {
     let params: [Datum; 4] = [100, 0, 0, 0];
     let one = Arc::new(p_rows(16));
     let mut adapter = PullAdapter::new(2, 16);
-    adapter.open(&mut entry, None, &one, &mut derive, parts(&params, &NULLS, &flag), lease(gravity_driver::Grant::of(8 << 20))).unwrap();
+    adapter
+        .open(
+            &mut entry,
+            None,
+            &one,
+            &mut derive,
+            parts(&params, &NULLS, &flag),
+            lease(gravity_driver::Grant::of(8 << 20)),
+        )
+        .unwrap();
     let arm = collect(&mut adapter, &mut entry, usize::MAX);
     adapter.close(&mut entry, true);
     assert_eq!(arm.len() as u64, table.rows());
     let program = Arc::new(p_two_arms(16));
     let mut derive = FakeDerive::ranges(table.clone());
-    adapter.open(&mut entry, None, &program, &mut derive, parts(&params, &NULLS, &flag), lease(gravity_driver::Grant::of(8 << 20))).unwrap();
+    adapter
+        .open(
+            &mut entry,
+            None,
+            &program,
+            &mut derive,
+            parts(&params, &NULLS, &flag),
+            lease(gravity_driver::Grant::of(8 << 20)),
+        )
+        .unwrap();
     let mut got = Vec::new();
     for want in [100, 100, 100] {
         let rows = collect(&mut adapter, &mut entry, want);
-        assert_eq!(rows.len(), want.min(2 * arm.len() - got.len()), "a FETCH count spans the arms");
+        assert_eq!(
+            rows.len(),
+            want.min(2 * arm.len() - got.len()),
+            "a FETCH count spans the arms"
+        );
         got.extend(rows);
     }
     assert!(adapter.is_done());
@@ -189,10 +304,24 @@ fn two_sink_arms_pull_in_order_and_a_fetch_spans_them() {
 }
 
 /// D2584: one pull of `p_two_arms` with `mask` marked to run empty at the open: the rows it sent and whether it ended.
-fn pull_masked<'a>(adapter: &mut PullAdapter<'a>, entry: &mut Entry, table: &Arc<RangeTable>, params: &'a [Datum; 4], flag: &'a AtomicU8, mask: u64) -> gravity_driver::Result<(usize, bool)> {
+fn pull_masked<'a>(
+    adapter: &mut PullAdapter<'a>,
+    entry: &mut Entry,
+    table: &Arc<RangeTable>,
+    params: &'a [Datum; 4],
+    flag: &'a AtomicU8,
+    mask: u64,
+) -> gravity_driver::Result<(usize, bool)> {
     let program = Arc::new(p_two_arms(16));
     let mut derive = FakeDerive::ranges(table.clone());
-    adapter.open(entry, None, &program, &mut derive, parts(params, &NULLS, flag), lease(gravity_driver::Grant::of(8 << 20)))?;
+    adapter.open(
+        entry,
+        None,
+        &program,
+        &mut derive,
+        parts(params, &NULLS, flag),
+        lease(gravity_driver::Grant::of(8 << 20)),
+    )?;
     adapter.with_open(|exec, _| -> gravity_driver::Result<()> {
         exec.run_empty(mask);
         Ok(())
@@ -219,11 +348,23 @@ fn a_masked_arm_is_never_opened_and_the_pull_goes_on() {
     let mut adapter = PullAdapter::new(2, 16);
     let rows = table.rows() as usize;
     for (mask, want) in [(0b00u64, 2 * rows), (0b01, rows), (0b10, rows), (0b11, 0)] {
-        assert_eq!(pull_masked(&mut adapter, &mut entry, &table, &params, &flag, mask).expect("no read fails"), (want, true), "mask {mask:#b}");
+        assert_eq!(
+            pull_masked(&mut adapter, &mut entry, &table, &params, &flag, mask)
+                .expect("no read fails"),
+            (want, true),
+            "mask {mask:#b}"
+        );
     }
     table.fail_block.store(0, Ordering::Relaxed);
-    assert!(pull_masked(&mut adapter, &mut entry, &table, &params, &flag, 0b10).is_err(), "arm 0 walks and its read fails");
-    assert_eq!(pull_masked(&mut adapter, &mut entry, &table, &params, &flag, 0b11).expect("neither arm reads"), (0, true));
+    assert!(
+        pull_masked(&mut adapter, &mut entry, &table, &params, &flag, 0b10).is_err(),
+        "arm 0 walks and its read fails"
+    );
+    assert_eq!(
+        pull_masked(&mut adapter, &mut entry, &table, &params, &flag, 0b11)
+            .expect("neither arm reads"),
+        (0, true)
+    );
     table.fail_block.store(u64::MAX, Ordering::Relaxed);
 }
 
@@ -239,11 +380,24 @@ fn a_producer_between_arms_runs_before_the_second_arm() {
     let program = Arc::new(p_arm_fold_arm(16));
     let mut adapter = PullAdapter::new(2, 16);
     let mut derive = FakeDerive::ranges(table.clone());
-    adapter.open(&mut entry, None, &program, &mut derive, parts(&params, &NULLS, &flag), lease(gravity_driver::Grant::of(8 << 20))).unwrap();
+    adapter
+        .open(
+            &mut entry,
+            None,
+            &program,
+            &mut derive,
+            parts(&params, &NULLS, &flag),
+            lease(gravity_driver::Grant::of(8 << 20)),
+        )
+        .unwrap();
     adapter.set_external_producers(true);
     assert!(!adapter.producer_next(), "the first pipeline is an arm");
     let first = collect(&mut adapter, &mut entry, usize::MAX);
-    assert_eq!(first.len() as u64, table.rows(), "the FETCH stops before the fold");
+    assert_eq!(
+        first.len() as u64,
+        table.rows(),
+        "the FETCH stops before the fold"
+    );
     assert!(adapter.producer_next());
     adapter
         .with_open(|exec, binding| -> gravity_driver::Result<()> {
@@ -258,7 +412,16 @@ fn a_producer_between_arms_runs_before_the_second_arm() {
     assert!(adapter.is_done());
     adapter.close(&mut entry, true);
     let mut derive = FakeDerive::ranges(table.clone());
-    adapter.open(&mut entry, None, &program, &mut derive, parts(&params, &NULLS, &flag), lease(gravity_driver::Grant::of(8 << 20))).unwrap();
+    adapter
+        .open(
+            &mut entry,
+            None,
+            &program,
+            &mut derive,
+            parts(&params, &NULLS, &flag),
+            lease(gravity_driver::Grant::of(8 << 20)),
+        )
+        .unwrap();
     assert!(!adapter.producer_next(), "inline: the adapter's own");
     let all = collect(&mut adapter, &mut entry, usize::MAX);
     assert_eq!(all.len() as u64, table.rows() + 1);
@@ -274,22 +437,43 @@ fn a_run_over_region_keep_leaves_no_region_behind() {
     let mut buf = PullBuffer::new(1, 4);
     let push = |buf: &mut PullBuffer, region: &[u8]| {
         let values = [region.as_ptr() as Datum];
-        buf.push(BorrowedBatch { natts: 1, rows: 1, values: &values, isnull: &[0], region }).unwrap();
+        buf.push(BorrowedBatch {
+            natts: 1,
+            rows: 1,
+            values: &values,
+            isnull: &[0],
+            region,
+        })
+        .unwrap();
     };
     let big = vec![b'x'; 1 << 20];
     push(&mut buf, &big);
-    assert!(buf.region_capacity() >= big.len(), "the block's region is copied into the buffer");
+    assert!(
+        buf.region_capacity() >= big.len(),
+        "the block's region is copied into the buffer"
+    );
     buf.end_run();
     assert_eq!(buf.buffered(), 0);
-    assert!(buf.region_capacity() <= gravity_driver::pull::REGION_KEEP, "a {} B region kept past the run", buf.region_capacity());
+    assert!(
+        buf.region_capacity() <= gravity_driver::pull::REGION_KEEP,
+        "a {} B region kept past the run",
+        buf.region_capacity()
+    );
     let small = vec![b'y'; 100];
     push(&mut buf, &small);
     buf.end_run();
     let kept = buf.region_capacity();
-    assert!(kept >= small.len() && kept <= gravity_driver::pull::REGION_KEEP, "a run within REGION_KEEP keeps its region ({kept} B)");
+    assert!(
+        kept >= small.len() && kept <= gravity_driver::pull::REGION_KEEP,
+        "a run within REGION_KEEP keeps its region ({kept} B)"
+    );
     for _ in 0..3 {
         push(&mut buf, &small);
         buf.end_run();
-        assert_eq!(buf.region_capacity(), kept, "the next runs reuse the kept region");
+        assert_eq!(
+            buf.region_capacity(),
+            kept,
+            "the next runs reuse the kept region"
+        );
     }
 }

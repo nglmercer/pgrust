@@ -19,6 +19,10 @@ fn helpers_started_after_the_set_run_on_it() {
     wait_pins((2, 0)); // the claimer and the purger pinned themselves
     let _ = prefill(2 * SUPER, 2);
     assert_eq!(helper_pins(), (3, 0), "the prefill thread pinned itself");
-    assert_eq!(current_cpus(), all, "the caller of prefill is not a helper: its mask is untouched");
+    assert_eq!(
+        current_cpus(),
+        all,
+        "the caller of prefill is not a helper: its mask is untouched"
+    );
     stop();
 }

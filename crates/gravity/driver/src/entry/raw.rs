@@ -3,8 +3,8 @@
 //! leader ctx's sites.
 #![allow(unsafe_code)]
 
-use gravity_abi::PtrWord;
 use super::*;
+use gravity_abi::PtrWord;
 
 impl OutRows {
     pub(super) fn hold(exec: &mut Exec) -> OutRows {
@@ -37,7 +37,12 @@ impl OutRows {
 /// stack: a statement-end drain).
 /// # Safety
 /// `cell` is null or a live installed cell.
-pub unsafe fn current_or<'b>(cell: *const CurrentCell, entry: *mut Entry, exec: *mut Exec, binding: *mut Binding<'b>) -> (*mut Entry, *mut Exec, *mut Binding<'b>) {
+pub unsafe fn current_or<'b>(
+    cell: *const CurrentCell,
+    entry: *mut Entry,
+    exec: *mut Exec,
+    binding: *mut Binding<'b>,
+) -> (*mut Entry, *mut Exec, *mut Binding<'b>) {
     match cell.as_ref().and_then(|c| c.get()) {
         Some(c) => (c.entry, c.exec, c.binding.cast()),
         None => (entry, exec, binding),
@@ -54,46 +59,86 @@ impl Drop for PutBack {
 impl Entry {
     /// D1702: `f` (a call a host may re-enter the runner from: a late step's `Plan::late_words`) with this entry, `exec` and
     /// `binding` the current execution, the one before back after it.
-    pub fn with_current<R>(&mut self, exec: &mut Exec, binding: &mut Binding<'_>, f: impl FnOnce() -> R) -> R {
+    pub fn with_current<R>(
+        &mut self,
+        exec: &mut Exec,
+        binding: &mut Binding<'_>,
+        f: impl FnOnce() -> R,
+    ) -> R {
         // SAFETY: this call's own arguments, alive across `f`, which reaches them only through the cell
         unsafe { Self::publish_current(self, exec, binding, f) }
     }
 
     /// # Safety
     /// `this`, `exec` and `binding` are valid, and no borrow of them is live across `f` but the caller's.
-    pub(super) unsafe fn publish_current<R>(this: *mut Entry, exec: *mut Exec, binding: *mut Binding<'_>, f: impl FnOnce() -> R) -> R {
+    pub(super) unsafe fn publish_current<R>(
+        this: *mut Entry,
+        exec: *mut Exec,
+        binding: *mut Binding<'_>,
+        f: impl FnOnce() -> R,
+    ) -> R {
         let cell = (*this).current;
         if cell.is_null() {
             return f();
         }
-        let _back = PutBack(cell, (*cell).replace(Some(Current { entry: this, exec, binding: binding.cast() })));
+        let _back = PutBack(
+            cell,
+            (*cell).replace(Some(Current {
+                entry: this,
+                exec,
+                binding: binding.cast(),
+            })),
+        );
         f()
     }
 }
 
 /// `run_pipeline`'s call of pipeline `p` over `xp`'s node, `bp` attached and the three published current, both put back after.
-pub(super) fn call_pipeline_published(this: *mut Entry, xp: *mut Exec, bp: *mut Binding<'_>, p: usize, call: Call) -> Result<Ret> {
+pub(super) fn call_pipeline_published(
+    this: *mut Entry,
+    xp: *mut Exec,
+    bp: *mut Binding<'_>,
+    p: usize,
+    call: Call,
+) -> Result<Ret> {
     // SAFETY: D1702: the node's call over this call's own execution, published current: a nested run re-enters
     // through it, and no borrow of the entry, the execution or its node is live across the call. D1706: the node's
     // attached binding is this call's own pointer (a nested run's writes are below it), the one before back after it
     unsafe {
         let _back = Node::attach_raw(core::ptr::addr_of_mut!(*(*xp).node), bp);
-        Entry::publish_current(this, xp, bp, || Node::call_pipeline_raw(core::ptr::addr_of_mut!(*(*xp).node), p, call))
+        Entry::publish_current(this, xp, bp, || {
+            Node::call_pipeline_raw(core::ptr::addr_of_mut!(*(*xp).node), p, call)
+        })
     }
 }
 
 /// A claim's call of pipeline `p` over `xp`'s node, attached and published as `call_pipeline_published`.
-pub(super) fn call_claim_published(this: *mut Entry, xp: *mut Exec, bp: *mut Binding<'_>, p: usize, claim: MorselRange, resume: bool) -> Result<Ret> {
+pub(super) fn call_claim_published(
+    this: *mut Entry,
+    xp: *mut Exec,
+    bp: *mut Binding<'_>,
+    p: usize,
+    claim: MorselRange,
+    resume: bool,
+) -> Result<Ret> {
     // SAFETY: as `run_pipeline`'s call (D1702, D1706)
     unsafe {
         let _back = Node::attach_raw(core::ptr::addr_of_mut!(*(*xp).node), bp);
-        Entry::publish_current(this, xp, bp, || Node::call_claim_at_raw(core::ptr::addr_of_mut!(*(*xp).node), p, claim, resume))
+        Entry::publish_current(this, xp, bp, || {
+            Node::call_claim_at_raw(core::ptr::addr_of_mut!(*(*xp).node), p, claim, resume)
+        })
     }
 }
 
 /// A rerun's stopped pipeline called over `xp`'s node: published current first, then `bp` attached inside the call (D1706).
 /// `call`: a batch, or the resume after a lazy build's wait (D2033).
-pub(super) fn call_stopped_published(ep: *mut Entry, xp: *mut Exec, bp: *mut Binding<'_>, stopped: usize, call: Call) -> Result<Ret> {
+pub(super) fn call_stopped_published(
+    ep: *mut Entry,
+    xp: *mut Exec,
+    bp: *mut Binding<'_>,
+    stopped: usize,
+    call: Call,
+) -> Result<Ret> {
     // SAFETY: this call's own entry, execution and binding, alive across the call; no borrow of them is live across it
     // but the published pointers a nested run derives from
     unsafe {
@@ -136,7 +181,10 @@ pub(super) fn site_mut<'a>(ctx: *mut gravity_abi::Ctx, i: usize) -> &'a mut grav
 }
 
 /// The source at site `i` of the leader's ctx.
-pub(super) fn source_of<'a>(ctx: *mut gravity_abi::Ctx, i: usize) -> Option<&'a (dyn crate::source::Source + 'static)> {
+pub(super) fn source_of<'a>(
+    ctx: *mut gravity_abi::Ctx,
+    i: usize,
+) -> Option<&'a (dyn crate::source::Source + 'static)> {
     // SAFETY: the leader's ctx, bound; its claims are over, so nothing else holds the site's source.
     unsafe { crate::source::site_source(ctx, i) }
 }

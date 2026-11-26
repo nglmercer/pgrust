@@ -9,8 +9,8 @@ use core::mem::replace;
 use types_core::InvalidOid;
 
 use crate::io::{
-    with_pending_block, PgStat_PendingIO, IOCONTEXT_NUM_TYPES, IOOBJECT_NUM_TYPES,
-    IOOP_NUM_TYPES, PENDING_IO_ZERO,
+    with_pending_block, PgStat_PendingIO, IOCONTEXT_NUM_TYPES, IOOBJECT_NUM_TYPES, IOOP_NUM_TYPES,
+    PENDING_IO_ZERO,
 };
 use crate::pending::{self, PendingData, PgStat_HashKey, PGSTAT_KIND_RELATION};
 use crate::relation::PgStat_TableCounts;
@@ -29,11 +29,19 @@ pub struct ThreadDeltas {
 
 impl ThreadDeltas {
     pub const fn empty() -> ThreadDeltas {
-        ThreadDeltas { io: PENDING_IO_ZERO, relations: Vec::new(), block_time: (0, 0), slru: None }
+        ThreadDeltas {
+            io: PENDING_IO_ZERO,
+            relations: Vec::new(),
+            block_time: (0, 0),
+            slru: None,
+        }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.io == PENDING_IO_ZERO && self.relations.is_empty() && self.block_time == (0, 0) && self.slru.is_none()
+        self.io == PENDING_IO_ZERO
+            && self.relations.is_empty()
+            && self.block_time == (0, 0)
+            && self.slru.is_none()
     }
 
     pub fn add(&mut self, other: &ThreadDeltas) {
@@ -47,7 +55,9 @@ impl ThreadDeltas {
         self.block_time.0 += other.block_time.0;
         self.block_time.1 += other.block_time.1;
         if let Some(theirs) = &other.slru {
-            let mine = self.slru.get_or_insert([PgStat_SLRUStats::default(); SLRU_NUM_ELEMENTS]);
+            let mine = self
+                .slru
+                .get_or_insert([PgStat_SLRUStats::default(); SLRU_NUM_ELEMENTS]);
             for (m, o) in mine.iter_mut().zip(theirs) {
                 add_slru(m, o);
             }
@@ -102,7 +112,11 @@ pub fn take_thread_deltas() -> Option<ThreadDeltas> {
     if !has_io && !has_relations && block_time == (0, 0) && slru.is_none() {
         return None;
     }
-    let mut d = ThreadDeltas { block_time, slru, ..ThreadDeltas::empty() };
+    let mut d = ThreadDeltas {
+        block_time,
+        slru,
+        ..ThreadDeltas::empty()
+    };
     if has_io {
         with_pending_block(|blk| {
             d.io = replace(&mut blk.io, PENDING_IO_ZERO);

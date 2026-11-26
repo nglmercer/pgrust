@@ -399,7 +399,10 @@ mod tests {
             let mut prods = Vec::new();
             let mut g = Gen::new(&mut rng, &cat, w, &mut prods, 3);
             groups.push(
-                gen_objid_module(&mut g).iter().map(|s| s.to_sql()).collect::<Vec<_>>(),
+                gen_objid_module(&mut g)
+                    .iter()
+                    .map(|s| s.to_sql())
+                    .collect::<Vec<_>>(),
             );
             prods_all.extend(prods);
         }
@@ -410,8 +413,14 @@ mod tests {
     /// the known-divergent SEARCH/CYCLE viewdef probe is never embedded.
     #[test]
     fn decks_are_single_line_and_exclude_ld1_f1() {
-        for deck in [ADDRESS_DECK, DEPARSE_DECK, EXPLAIN_DECK, DEPARSE_CLEANUP,
-                     ADDRESS_EXTRAS, DEPARSE_EXTRAS] {
+        for deck in [
+            ADDRESS_DECK,
+            DEPARSE_DECK,
+            EXPLAIN_DECK,
+            DEPARSE_CLEANUP,
+            ADDRESS_EXTRAS,
+            DEPARSE_EXTRAS,
+        ] {
             for s in deck {
                 assert!(s.ends_with(';'), "{s}");
                 assert!(!s.contains('\n'), "{s}");
@@ -419,8 +428,10 @@ mod tests {
                     !s.contains("pg_get_viewdef('ldp_v28'"),
                     "LD1-F1 divergent probe must stay deck-only: {s}"
                 );
-                assert!(!s.contains("XMLPARSE") && !s.contains("XMLELEMENT"),
-                    "no-libxml A side rejects this at CREATE: {s}");
+                assert!(
+                    !s.contains("XMLPARSE") && !s.contains("XMLELEMENT"),
+                    "no-libxml A side rejects this at CREATE: {s}"
+                );
             }
         }
         // The sweep that IS embedded must exclude the LD1-F1 view.
@@ -458,7 +469,10 @@ mod tests {
             // CASCADE; every group that creates any ldo_/ldp_ object must
             // end in a cleanup tail containing DROP statements.
             if group.iter().any(|s| s.starts_with("CREATE")) {
-                assert!(group.iter().any(|s| s.starts_with("DROP")), "no cleanup tail");
+                assert!(
+                    group.iter().any(|s| s.starts_with("DROP")),
+                    "no cleanup tail"
+                );
             }
             // Any SET opened by the address battery is RESET in-group.
             let sets = group.iter().filter(|s| s.starts_with("SET ")).count();

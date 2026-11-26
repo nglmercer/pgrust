@@ -10,13 +10,13 @@ use gravity_driver::Error;
 use gravity_program::cost::JOIN_SPILL_EPOCH;
 
 use crate::ops::hashjoin::build::{ALLOW, A_MARKS, END};
+use crate::ops::hashjoin::drain::part::{claim_parts, phase, resume, CLAIMED, PH_END};
+use crate::ops::hashjoin::drain::spill::{drain_head, u_part, MAGIC_U};
 use crate::ops::hashjoin::rt::{rd, settle, Rt};
 use crate::ops::hashjoin::spill::build::{SPILL, SPILLED};
 use crate::ops::hashjoin::spill::load::{arg_bits, owners, part_region, records, Buf};
 use crate::ops::hashjoin::spill::pair::{DRAIN_MARKED, FIRST, META, M_PART};
 use crate::ops::hashjoin::spill::raw::{file_len, serialize_each, serialize_over};
-use crate::ops::hashjoin::drain::part::{claim_parts, phase, resume, CLAIMED, PH_END};
-use crate::ops::hashjoin::drain::spill::{drain_head, u_part, MAGIC_U};
 
 /// The drain part of the partition at pair region `m` written and flushed: `drain_pieces` put to the stage as they come
 /// (no copy of the part; the stage writes it as epochs of its own size, which a read joins back). A partition no kept row
@@ -24,11 +24,24 @@ use crate::ops::hashjoin::drain::spill::{drain_head, u_part, MAGIC_U};
 pub(crate) unsafe fn write_drain(ctx: *mut Ctx, stream: u64, arg: u64, m: *mut u8) -> i64 {
     let d = m.add(META);
     if rd::<u8>(d, ALLOW) & A_MARKS == 0 {
-        return v4::fail(ctx, Error::host("gravity: a drained spill partition without marks"));
+        return v4::fail(
+            ctx,
+            Error::host("gravity: a drained spill partition without marks"),
+        );
     }
-    let (bits, part, marked) = (arg_bits(arg), u_part(arg_bits(arg), rd::<u64>(m, M_PART) as u32), arg & DRAIN_MARKED != 0);
+    let (bits, part, marked) = (
+        arg_bits(arg),
+        u_part(arg_bits(arg), rd::<u64>(m, M_PART) as u32),
+        arg & DRAIN_MARKED != 0,
+    );
     // a failed put holds its own error
-    let mut put = |b: &[u8]| -> Result<(), ()> { if v4::put(ctx, stream, bits, part, b) == v4::FAILED { Err(()) } else { Ok(()) } };
+    let mut put = |b: &[u8]| -> Result<(), ()> {
+        if v4::put(ctx, stream, bits, part, b) == v4::FAILED {
+            Err(())
+        } else {
+            Ok(())
+        }
+    };
     match drain_pieces(d, marked, &mut put) {
         Err(()) => v4::FAILED,
         Ok(()) => v4::flush(ctx, stream, bits),
@@ -38,8 +51,15 @@ pub(crate) unsafe fn write_drain(ctx: *mut Ctx, stream: u64, arg: u64, m: *mut u
 /// The drain part of laid-out region `d` (its header, then its records whose mark is `marked`, as a file holds them)
 /// handed to `put` in order through a stack `Batch`: each record serialized straight into the batch (`serialize_over`),
 /// one past `BATCH` in pieces read in place (`serialize_each`).
-pub(crate) unsafe fn drain_pieces<E>(d: *mut u8, marked: bool, put: &mut dyn FnMut(&[u8]) -> Result<(), E>) -> Result<(), E> {
-    let mut batch = Batch { buf: [0; BATCH], len: 0 };
+pub(crate) unsafe fn drain_pieces<E>(
+    d: *mut u8,
+    marked: bool,
+    put: &mut dyn FnMut(&[u8]) -> Result<(), E>,
+) -> Result<(), E> {
+    let mut batch = Batch {
+        buf: [0; BATCH],
+        len: 0,
+    };
     batch.write(&drain_head(drain_n(d, marked)), put)?;
     drain_each(d, marked, &mut |t, i| batch.record(t, i, put))?;
     batch.flush(put)
@@ -78,7 +98,12 @@ impl Batch {
 
     /// Record `i` of `t` (its image words by distance) after the bytes held: serialized over the batch's free bytes
     /// (the held bytes put first when it does not fit them); one past `BATCH` goes in its `serialize_each` pieces.
-    unsafe fn record<E>(&mut self, t: &Rt, i: usize, put: &mut dyn FnMut(&[u8]) -> Result<(), E>) -> Result<(), E> {
+    unsafe fn record<E>(
+        &mut self,
+        t: &Rt,
+        i: usize,
+        put: &mut dyn FnMut(&[u8]) -> Result<(), E>,
+    ) -> Result<(), E> {
         let len = file_len(t, i);
         if len > BATCH {
             return serialize_each(t, i, &mut |b| self.write(b, put));
@@ -106,7 +131,12 @@ pub(crate) unsafe fn drain_n(d: *mut u8, marked: bool) -> u32 {
 /// The bytes the records `drain_each` visits in region `d` take in a file (`file_len`).
 pub(crate) unsafe fn drain_bytes(d: *mut u8, marked: bool) -> usize {
     let mut bytes = 0;
-    let _ = drain_each(d, marked, &mut |t, i| -> Result<(), core::convert::Infallible> {
+    let _ = drain_each(d, marked, &mut |t,
+                                        i|
+     -> Result<
+        (),
+        core::convert::Infallible,
+    > {
         bytes += file_len(t, i);
         Ok(())
     });
@@ -117,7 +147,11 @@ pub(crate) unsafe fn drain_bytes(d: *mut u8, marked: bool) -> usize {
 /// (`file_len`, `serialize_over`, `serialize_each`). A laid-out record's image words are offsets from the base (`settle`)
 /// and `image` reads them by distance, so each is turned back for its call and settled again after (M7-DRAIN's e2e: a
 /// drained text read another record's bytes).
-pub(crate) unsafe fn drain_each<E>(d: *mut u8, marked: bool, f: &mut dyn FnMut(&Rt, usize) -> Result<(), E>) -> Result<(), E> {
+pub(crate) unsafe fn drain_each<E>(
+    d: *mut u8,
+    marked: bool,
+    f: &mut dyn FnMut(&Rt, usize) -> Result<(), E>,
+) -> Result<(), E> {
     let end = rd::<u64>(d, END) as usize;
     let t = Rt::of(d, end);
     for i in (0..t.n + t.kept).filter(|&i| sent(&t, i, marked)) {
@@ -144,18 +178,30 @@ pub(crate) unsafe fn drain_set(d: *mut u8, marked: bool) -> Vec<u8> {
 /// A drain part's records, from each owner's bytes of it (`owners`): `None` when no owner wrote it (no claim opened the
 /// partition). One owner writes a partition's drain part (a claim takes whole partitions); a short, headless, truncated
 /// or miscounted part is an error by name, never a partial region.
-pub(crate) unsafe fn drain_records<'a>(orig: *const u8, owners: &[&'a [u8]]) -> gravity_driver::Result<Option<&'a [u8]>> {
+pub(crate) unsafe fn drain_records<'a>(
+    orig: *const u8,
+    owners: &[&'a [u8]],
+) -> gravity_driver::Result<Option<&'a [u8]>> {
     let mut wrote = owners.iter().filter(|o| !o.is_empty());
-    let Some(bytes) = wrote.next() else { return Ok(None) };
+    let Some(bytes) = wrote.next() else {
+        return Ok(None);
+    };
     if wrote.next().is_some() {
-        return Err(Error::host("gravity: a spill drain part written by two claims"));
+        return Err(Error::host(
+            "gravity: a spill drain part written by two claims",
+        ));
     }
     if bytes.len() < 8 || bytes[..4] != MAGIC_U {
         return Err(Error::host("gravity: a spill drain part has no header"));
     }
-    let (n, body) = (u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]) as usize, &bytes[8..]);
+    let (n, body) = (
+        u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]) as usize,
+        &bytes[8..],
+    );
     if records(orig, body)?.0 != n {
-        return Err(Error::host("gravity: a spill drain part's record count does not match its header"));
+        return Err(Error::host(
+            "gravity: a spill drain part's record count does not match its header",
+        ));
     }
     Ok(Some(body))
 }
@@ -165,7 +211,13 @@ pub(crate) unsafe fn drain_records<'a>(orig: *const u8, owners: &[&'a [u8]]) -> 
 /// over `[0, n)`. D2715: a part past the region's length loads in chunks from byte `from` (spill/raw.rs `chunk_of`). A
 /// build part is always `Some` (no bytes: no record). A drain part (`u_part`) is `None` when no claim opened its partition
 /// (`drain_records`). The region stays until `give_part` or the statement's end.
-pub(crate) unsafe fn load_part(ctx: *mut Ctx, stream: u64, part: u32, orig: *const u8, from: usize) -> gravity_driver::Result<Option<(*mut u8, usize, usize, usize)>> {
+pub(crate) unsafe fn load_part(
+    ctx: *mut Ctx,
+    stream: u64,
+    part: u32,
+    orig: *const u8,
+    from: usize,
+) -> gravity_driver::Result<Option<(*mut u8, usize, usize, usize)>> {
     let mut raw = Buf::new(ctx, FIRST)?;
     let r = (|| {
         // the first two owners that wrote bytes of the part: `drain_records` reads one, and refuses a second by name
@@ -188,7 +240,12 @@ pub(crate) unsafe fn load_part(ctx: *mut Ctx, stream: u64, part: u32, orig: *con
             }
             false => bytes,
         };
-        let to = crate::ops::hashjoin::spill::raw::chunk_of(orig, body, from, crate::ops::hashjoin::spill::raw::part_cap())?;
+        let to = crate::ops::hashjoin::spill::raw::chunk_of(
+            orig,
+            body,
+            from,
+            crate::ops::hashjoin::spill::raw::part_cap(),
+        )?;
         let (_, d, len, n) = part_region(ctx, 0, orig, &body[from.min(to)..to])?;
         Ok(Some((d, len, n, if to < body.len() { to } else { 0 })))
     })();
@@ -252,7 +309,20 @@ mod tests {
     /// piece past `BATCH`, which goes in `JOIN_SPILL_EPOCH` slices after the bytes held before it.
     #[test]
     fn a_batch_puts_every_byte_in_order_in_bounded_pieces() {
-        let sizes = [8usize, 0, 100, BATCH - 108, 1, BATCH, 5, BATCH + 1, 3 * JOIN_SPILL_EPOCH + 17, 40, 2 * BATCH, 9];
+        let sizes = [
+            8usize,
+            0,
+            100,
+            BATCH - 108,
+            1,
+            BATCH,
+            5,
+            BATCH + 1,
+            3 * JOIN_SPILL_EPOCH + 17,
+            40,
+            2 * BATCH,
+            9,
+        ];
         let mut want = Vec::new();
         let (mut puts, mut got): (Vec<usize>, Vec<u8>) = (Vec::new(), Vec::new());
         let mut put = |b: &[u8]| -> Result<(), ()> {
@@ -260,7 +330,10 @@ mod tests {
             got.extend_from_slice(b);
             Ok(())
         };
-        let mut batch = Batch { buf: [0; BATCH], len: 0 };
+        let mut batch = Batch {
+            buf: [0; BATCH],
+            len: 0,
+        };
         for (k, &n) in sizes.iter().enumerate() {
             let piece: Vec<u8> = (0..n).map(|i| (i * 31 + k * 7) as u8).collect();
             batch.write(&piece, &mut put).unwrap();
@@ -269,14 +342,24 @@ mod tests {
         batch.flush(&mut put).unwrap();
         assert_eq!(got, want);
         let e = JOIN_SPILL_EPOCH;
-        assert_eq!(puts, [BATCH, 1, BATCH, 5, BATCH + 1, e, e, e, 17, 40, 2 * BATCH, 9]);
+        assert_eq!(
+            puts,
+            [BATCH, 1, BATCH, 5, BATCH + 1, e, e, e, 17, 40, 2 * BATCH, 9]
+        );
         // a failed put stops the batch
         let mut n = 0;
         let mut failing = |_: &[u8]| -> Result<(), u8> {
             n += 1;
-            if n == 2 { Err(7) } else { Ok(()) }
+            if n == 2 {
+                Err(7)
+            } else {
+                Ok(())
+            }
         };
-        let mut batch = Batch { buf: [0; BATCH], len: 0 };
+        let mut batch = Batch {
+            buf: [0; BATCH],
+            len: 0,
+        };
         let r = (|| {
             for _ in 0..4 {
                 batch.write(&[1u8; BATCH], &mut failing)?;

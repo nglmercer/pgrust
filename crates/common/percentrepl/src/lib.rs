@@ -34,7 +34,9 @@ pub fn replace_percent_placeholders(
             None => {
                 ereport(ERROR)
                     .errcode(ERRCODE_INVALID_PARAMETER_VALUE)
-                    .errmsg(format!("invalid value for parameter \"{param_name}\": \"{instr}\""))
+                    .errmsg(format!(
+                        "invalid value for parameter \"{param_name}\": \"{instr}\""
+                    ))
                     .errdetail("String ends unexpectedly after escape character \"%\".")
                     .finish(loc())?;
                 unreachable!()
@@ -75,7 +77,10 @@ mod tests {
 
     #[test]
     fn double_percent_is_literal() {
-        assert_eq!(replace_percent_placeholders("100%%", "p", &[]).unwrap(), "100%");
+        assert_eq!(
+            replace_percent_placeholders("100%%", "p", &[]).unwrap(),
+            "100%"
+        );
     }
 
     #[test]
@@ -103,15 +108,22 @@ mod tests {
     #[test]
     fn unknown_multibyte_placeholder_reports_its_first_byte() {
         let err = replace_percent_placeholders("%\u{e9}", "p", &[('f', Some("x"))]).unwrap_err();
-        assert_eq!(err.message(), "invalid value for parameter \"p\": \"%\u{e9}\"");
+        assert_eq!(
+            err.message(),
+            "invalid value for parameter \"p\": \"%\u{e9}\""
+        );
         assert_eq!(
             err.detail_raw.as_deref(),
             Some(b"String contains unexpected placeholder \"%\xC3\".".as_slice())
         );
         let err = replace_percent_placeholders("%z", "p", &[('f', Some("x"))]).unwrap_err();
-        assert_eq!(err.detail(), Some("String contains unexpected placeholder \"%z\"."));
         assert_eq!(
-            replace_percent_placeholders("caf\u{e9} %f \u{e9}%%", "p", &[('f', Some("x"))]).unwrap(),
+            err.detail(),
+            Some("String contains unexpected placeholder \"%z\".")
+        );
+        assert_eq!(
+            replace_percent_placeholders("caf\u{e9} %f \u{e9}%%", "p", &[('f', Some("x"))])
+                .unwrap(),
             "caf\u{e9} x \u{e9}%"
         );
     }

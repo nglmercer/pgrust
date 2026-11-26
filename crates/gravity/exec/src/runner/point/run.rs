@@ -42,12 +42,21 @@ impl Drop for End<'_> {
 
 /// ExecutorStart's permission checks (start_checks), then the statement's snapshot registered and pushed around `body`
 /// (PortalStart / ExecutorStart), popped and unregistered on every exit.
-pub(super) fn exec_in<T>(pstmt: &PlannedStmt<'_>, mcx: Mcx<'_>, body: impl FnOnce(&Rc<SnapshotData<'static>>) -> PgResult<T>) -> PgResult<T> {
+pub(super) fn exec_in<T>(
+    pstmt: &PlannedStmt<'_>,
+    mcx: Mcx<'_>,
+    body: impl FnOnce(&Rc<SnapshotData<'static>>) -> PgResult<T>,
+) -> PgResult<T> {
     exec_cmd_in(pstmt, Cmd::Select, mcx, body)
 }
 
 /// `exec_in` for a statement of command `cmd`: a write's checks are a write's (ExecCheckXactReadOnly's read-only guard).
-pub(super) fn exec_cmd_in<T>(pstmt: &PlannedStmt<'_>, cmd: Cmd, mcx: Mcx<'_>, body: impl FnOnce(&Rc<SnapshotData<'static>>) -> PgResult<T>) -> PgResult<T> {
+pub(super) fn exec_cmd_in<T>(
+    pstmt: &PlannedStmt<'_>,
+    cmd: Cmd,
+    mcx: Mcx<'_>,
+    body: impl FnOnce(&Rc<SnapshotData<'static>>) -> PgResult<T>,
+) -> PgResult<T> {
     super::super::start_checks(pstmt, cmd, mcx)?;
     let snap = super::super::register_snapshot()?;
     let r = snapmgr::PushActiveSnapshot(&snap).and_then(|()| {

@@ -8,11 +8,14 @@
 //! `FmgrSet`s from the plan's own expressions (`Sets`, M5 H-b), so no program holds one.
 #![allow(clippy::missing_safety_doc, clippy::not_unsafe_ptr_arg_deref)]
 
-use std::rc::Rc;
 use core::ptr::NonNull;
+use std::rc::Rc;
 
 use datum::Datum;
-use fmgr::{ExprDoneCond, FmgrInfo, LocalFcinfo, ReturnSetInfo, SetFunctionReturnMode, SFRM_Materialize, SFRM_ValuePerCall};
+use fmgr::{
+    ExprDoneCond, FmgrInfo, LocalFcinfo, ReturnSetInfo, SFRM_Materialize, SFRM_ValuePerCall,
+    SetFunctionReturnMode,
+};
 use gravity_abi::Ctx;
 use mcx::{Mcx, MemoryContext};
 use types_core::Oid;
@@ -95,7 +98,13 @@ pub struct FmgrSet {
 
 impl FmgrSet {
     /// The lowering's check (M5 H-b): `new`'s refusals with nothing built, `node` of any lifetime.
-    pub fn check(funcid: Oid, node: Node<'_>, nargs: usize, whole_row: bool, target_list: bool) -> Result<(), Refuse> {
+    pub fn check(
+        funcid: Oid,
+        node: Node<'_>,
+        nargs: usize,
+        whole_row: bool,
+        target_list: bool,
+    ) -> Result<(), Refuse> {
         let cx = MemoryContext::new_bump("gravity_fn fmgr check");
         Self::shape(funcid, node, nargs, whole_row, target_list, cx.mcx())?;
         Ok(())
@@ -104,15 +113,30 @@ impl FmgrSet {
     /// The language and kind checks and the result row resolved as `ExecInitFunctionScan` does (`get_expr_result_type`):
     /// (the row's descriptor, whether the result is a tuple). A composite result is served only `whole_row`, as one datum
     /// (a record-yielding set bare in a target list); a scalar is its own row.
-    fn shape<'c>(funcid: Oid, node: Node<'_>, nargs: usize, whole_row: bool, target_list: bool, cx: Mcx<'c>) -> Result<(Option<TupleDescData<'c>>, bool), Refuse> {
-        if !syscache_seams::lookup_pg_proc_shape::is_installed() || !syscache_seams::pg_proc_proname::is_installed() {
+    fn shape<'c>(
+        funcid: Oid,
+        node: Node<'_>,
+        nargs: usize,
+        whole_row: bool,
+        target_list: bool,
+        cx: Mcx<'c>,
+    ) -> Result<(Option<TupleDescData<'c>>, bool), Refuse> {
+        if !syscache_seams::lookup_pg_proc_shape::is_installed()
+            || !syscache_seams::pg_proc_proname::is_installed()
+        {
             return Err(Refuse::NoCatalog);
         }
-        let shape = syscache_seams::lookup_pg_proc_shape::call(funcid).map_err(Refuse::Catalog)?.ok_or(Refuse::Result)?;
+        let shape = syscache_seams::lookup_pg_proc_shape::call(funcid)
+            .map_err(Refuse::Catalog)?
+            .ok_or(Refuse::Result)?;
         // a SQL / PL-language body is a nested statement at the next re-entrancy level (entry.md §8, rung 14 C2); a
         // volatile one is served in a target list only (V4R-295, D787): its cells are per execution, so a stop resumes
         // the read of the set already opened and a call happens only where ExecProjectSRF calls (the next input row)
-        if !target_list && shape.prolang != LANG_INTERNAL && shape.prolang != LANG_C && shape.provolatile == b'v' as i8 {
+        if !target_list
+            && shape.prolang != LANG_INTERNAL
+            && shape.prolang != LANG_C
+            && shape.provolatile == b'v' as i8
+        {
             return Err(Refuse::Volatile);
         }
         if shape.prokind != b'f' as i8 {
@@ -121,7 +145,9 @@ impl FmgrSet {
         if crate::typesem::srf::nested_by_oid(funcid) {
             return Err(Refuse::Nested);
         }
-        if let Some(name) = syscache_seams::pg_proc_proname::call(funcid).map_err(Refuse::Catalog)? {
+        if let Some(name) =
+            syscache_seams::pg_proc_proname::call(funcid).map_err(Refuse::Catalog)?
+        {
             if crate::typesem::srf::nested_by_name(name.name_str()) {
                 return Err(Refuse::Nested);
             }
@@ -133,10 +159,14 @@ impl FmgrSet {
         let (desc, returns_tuple) = match resolved.class {
             funcapi::TypeFuncClass::Scalar => {
                 let mut d = tupdesc::CreateTemplateTupleDesc(cx, 1).map_err(Refuse::Catalog)?;
-                tupdesc::TupleDescInitEntry(&mut d, 1, None, resolved.result_type_id, -1, 0).map_err(Refuse::Catalog)?;
+                tupdesc::TupleDescInitEntry(&mut d, 1, None, resolved.result_type_id, -1, 0)
+                    .map_err(Refuse::Catalog)?;
                 (Some(d), false)
             }
-            funcapi::TypeFuncClass::Composite | funcapi::TypeFuncClass::CompositeDomain => (Some(resolved.result_tuple_desc.ok_or(Refuse::Result)?), true),
+            funcapi::TypeFuncClass::Composite | funcapi::TypeFuncClass::CompositeDomain => (
+                Some(resolved.result_tuple_desc.ok_or(Refuse::Result)?),
+                true,
+            ),
             // init_sexpr's TYPEFUNC_RECORD: no descriptor; each datum carries its own type (a value-per-call result
             // whole, a materialized store read under its setDesc). Bare in a target list only: FROM needs a column list.
             funcapi::TypeFuncClass::Record if whole_row && target_list => (None, true),
@@ -149,7 +179,11 @@ impl FmgrSet {
             if desc.natts == 0 {
                 return Err(Refuse::Cols);
             }
-            if returns_tuple && desc.tdtypeid == RECORDOID && desc.tdtypmod < 0 && !typcache_seams::assign_record_type_typmod::is_installed() {
+            if returns_tuple
+                && desc.tdtypeid == RECORDOID
+                && desc.tdtypmod < 0
+                && !typcache_seams::assign_record_type_typmod::is_installed()
+            {
                 return Err(Refuse::NoCatalog);
             }
         }
@@ -158,21 +192,37 @@ impl FmgrSet {
 
     /// The face for `node` (a `FuncExpr` of the statement's plan, alive as long as this execution): `shape`'s row, the
     /// frame bound.
-    pub fn new(funcid: Oid, node: Node<'static>, coll: Oid, nargs: usize, retset: bool, whole_row: bool, target_list: bool) -> Result<Box<FmgrSet>, Refuse> {
+    pub fn new(
+        funcid: Oid,
+        node: Node<'static>,
+        coll: Oid,
+        nargs: usize,
+        retset: bool,
+        whole_row: bool,
+        target_list: bool,
+    ) -> Result<Box<FmgrSet>, Refuse> {
         let cx = Box::new(MemoryContext::new_bump("gravity_fn fmgr set")); // alloc: Exec
-        let (mut desc, returns_tuple) = Self::shape(funcid, node, nargs, whole_row, target_list, cx.mcx())?;
+        let (mut desc, returns_tuple) =
+            Self::shape(funcid, node, nargs, whole_row, target_list, cx.mcx())?;
         // `BlessTupleDesc`: an anonymous record's descriptor registered in the typcache so the datum's typmod resolves
-        if let Some(desc) = desc.as_mut().filter(|d| returns_tuple && d.tdtypeid == RECORDOID && d.tdtypmod < 0) {
+        if let Some(desc) = desc
+            .as_mut()
+            .filter(|d| returns_tuple && d.tdtypeid == RECORDOID && d.tdtypmod < 0)
+        {
             typcache_seams::assign_record_type_typmod::call(desc).map_err(Refuse::Catalog)?;
         }
         let mut flinfo = fmgr_core::fmgr_info(funcid).map_err(Refuse::Catalog)?;
         let fn_expr = Box::new(node); // alloc: Exec
-        // SAFETY: the box is a field of the set, freed after the frame (drop order); the plan outlives the execution.
+                                      // SAFETY: the box is a field of the set, freed after the frame (drop order); the plan outlives the execution.
         flinfo.fn_expr = Some(unsafe { types_core::fmgr::FnExprErased::from_node_ref(&*fn_expr) });
         let mut argl = Vec::with_capacity(nargs);
         for i in 0..nargs {
             let t = funcapi::get_fn_expr_argtype(Some(&flinfo), i);
-            argl.push(if t == types_core::InvalidOid { return Err(Refuse::Result) } else { lsyscache::get_typlenbyval(t).map_err(Refuse::Catalog)? });
+            argl.push(if t == types_core::InvalidOid {
+                return Err(Refuse::Result);
+            } else {
+                lsyscache::get_typlenbyval(t).map_err(Refuse::Catalog)?
+            });
         }
         let rowcx = Box::new(MemoryContext::new_bump("gravity_fn fmgr row")); // alloc: Exec
         let mut fc = Box::new(LocalFcinfo::<FUNC_MAX_ARGS>::new(coll)); // alloc: Exec
@@ -180,18 +230,41 @@ impl FmgrSet {
         fc.nargs = nargs as i16;
         // a target-list set's modes (`ExecMakeFunctionResultSet`: no SFRM_Materialize_Preferred)
         let rsinfo = Box::new(ReturnSetInfo::new(SFRM_ValuePerCall | SFRM_Materialize)); // alloc: Exec
-        // SAFETY: the descriptor and the slot live in `cx`, a box that never moves and drops after them.
-        let desc: Option<Rc<TupleDescData<'static>>> = desc.map(|d| Rc::new(unsafe { core::mem::transmute::<TupleDescData<'_>, TupleDescData<'static>>(d) }));
+                                                                                         // SAFETY: the descriptor and the slot live in `cx`, a box that never moves and drops after them.
+        let desc: Option<Rc<TupleDescData<'static>>> = desc.map(|d| {
+            Rc::new(unsafe { core::mem::transmute::<TupleDescData<'_>, TupleDescData<'static>>(d) })
+        });
         let mcx: Mcx<'static> = unsafe { core::mem::transmute::<Mcx<'_>, Mcx<'static>>(cx.mcx()) };
-        let slot = exectuples::make_tuple_table_slot(mcx, TupleSlotKind::MinimalTuple, desc.clone());
+        let slot =
+            exectuples::make_tuple_table_slot(mcx, TupleSlotKind::MinimalTuple, desc.clone());
         let phase = Phase::Idle;
-        Ok(Box::new(FmgrSet { slot, desc, record_slot: false, flinfo, fc, rsinfo, store: None, rowcx, cx, _fn_expr: fn_expr, argl, retset, returns_tuple, phase })) // alloc: Exec
+        Ok(Box::new(FmgrSet {
+            slot,
+            desc,
+            record_slot: false,
+            flinfo,
+            fc,
+            rsinfo,
+            store: None,
+            rowcx,
+            cx,
+            _fn_expr: fn_expr,
+            argl,
+            retset,
+            returns_tuple,
+            phase,
+        })) // alloc: Exec
     }
 
     /// This open's arguments (a by-reference one copied into `mcx`, the slot's context); a set the reader stopped inside
     /// ends first. EXECUTE is admission's, checked at every bind as `init_sexpr` checks it at executor start (exec
     /// tests/m5_srf_acl.rs), not per open.
-    unsafe fn start(&mut self, mcx: Mcx<'static>, args: *const i64, nulls: *const u8) -> PgResult<()> {
+    unsafe fn start(
+        &mut self,
+        mcx: Mcx<'static>,
+        args: *const i64,
+        nulls: *const u8,
+    ) -> PgResult<()> {
         self.shutdown()?;
         let mut any_null = false;
         for (i, &(len, byval)) in self.argl.iter().enumerate() {
@@ -200,7 +273,14 @@ impl FmgrSet {
                 self.fc.set_arg_null(i);
             } else {
                 let d = args.add(i).read();
-                self.fc.set_arg(i, Datum::from_i64(if byval { d } else { copy_datum(mcx, d as usize as *const u8, len, false)? as i64 }));
+                self.fc.set_arg(
+                    i,
+                    Datum::from_i64(if byval {
+                        d
+                    } else {
+                        copy_datum(mcx, d as usize as *const u8, len, false)? as i64
+                    }),
+                );
             }
         }
         self.phase = match (any_null && self.flinfo.fn_strict, self.retset) {
@@ -245,21 +325,35 @@ impl FmgrSet {
         self.fc.isnull = false;
         self.rsinfo.returnMode = SetFunctionReturnMode::ValuePerCall;
         self.rsinfo.isDone = ExprDoneCond::ExprSingleResult;
-        self.rsinfo.expectedDesc = self.desc.as_ref().map(|d| NonNull::from(&**d).cast::<core::ffi::c_void>());
+        self.rsinfo.expectedDesc = self
+            .desc
+            .as_ref()
+            .map(|d| NonNull::from(&**d).cast::<core::ffi::c_void>());
         self.fc.resultinfo = self.rsinfo.as_fmnode_ptr();
         self.fc.set_result_mcx(self.rowcx.mcx());
         // pgstat_init_function_usage's `pgstat_track_functions <= fn_stats` early out
-        let stats = self.flinfo.fn_stats < fmgr::TRACK_FUNC_ALL && pgstat::function::pgstat_track_functions() > self.flinfo.fn_stats as i32;
-        let usage = if stats { Some(pgstat::function::pgstat_init_function_usage(self.flinfo.fn_oid)?) } else { None };
+        let stats = self.flinfo.fn_stats < fmgr::TRACK_FUNC_ALL
+            && pgstat::function::pgstat_track_functions() > self.flinfo.fn_stats as i32;
+        let usage = if stats {
+            Some(pgstat::function::pgstat_init_function_usage(
+                self.flinfo.fn_oid,
+            )?)
+        } else {
+            None
+        };
         let result = self.flinfo.invoke(&mut *self.fc);
         if let Some(usage) = &usage {
-            pgstat::function::pgstat_end_function_usage(usage, self.rsinfo.isDone != ExprDoneCond::ExprMultipleResult);
+            pgstat::function::pgstat_end_function_usage(
+                usage,
+                self.rsinfo.isDone != ExprDoneCond::ExprMultipleResult,
+            );
         }
         let result = match result {
             Ok(d) => d,
             Err(e) => {
                 // the abort path: no shutdown hook, the cross-call state dropped
-                (self.phase, self.rsinfo.srf_shutdown, self.flinfo.fn_extra) = (Phase::Idle, None, None);
+                (self.phase, self.rsinfo.srf_shutdown, self.flinfo.fn_extra) =
+                    (Phase::Idle, None, None);
                 return Err(e);
             }
         };
@@ -288,7 +382,9 @@ impl FmgrSet {
                     self.phase = Phase::Idle;
                     return Ok(false);
                 };
-                let mut store = *set.downcast::<tuplestore::Tuplestore>().expect("rsinfo.setResult downcasts to Tuplestore");
+                let mut store = *set
+                    .downcast::<tuplestore::Tuplestore>()
+                    .expect("rsinfo.setResult downcasts to Tuplestore");
                 let src = self.rsinfo.setDesc.take();
                 match &self.desc {
                     // SAFETY (both arms): setDesc is live for the call that armed it
@@ -299,9 +395,15 @@ impl FmgrSet {
                     }
                     // ExecPrepareTuplestoreResult: a RECORD set's read slot is made once, from the first setDesc
                     None if !self.record_slot => {
-                        let Some(src) = src else { return Err(setof_record_not_accepted()) };
-                        let smcx: Mcx<'static> = core::mem::transmute::<Mcx<'_>, Mcx<'static>>(self.cx.mcx());
-                        let d = Rc::new(tupdesc::CreateTupleDescCopy(smcx, src.cast::<TupleDescData<'_>>().as_ref())?);
+                        let Some(src) = src else {
+                            return Err(setof_record_not_accepted());
+                        };
+                        let smcx: Mcx<'static> =
+                            core::mem::transmute::<Mcx<'_>, Mcx<'static>>(self.cx.mcx());
+                        let d = Rc::new(tupdesc::CreateTupleDescCopy(
+                            smcx,
+                            src.cast::<TupleDescData<'_>>().as_ref(),
+                        )?);
                         exectuples::exec_set_slot_descriptor(&mut self.slot, smcx, d);
                         self.record_slot = true;
                     }
@@ -329,7 +431,11 @@ impl FmgrSet {
         if self.returns_tuple {
             // `ExecFetchSlotHeapTupleDatum`: the stored row re-formed as a datum of the blessed descriptor
             self.rowcx.reset();
-            let d = exectuples::exec_fetch_slot_heap_tuple_datum(&mut self.slot, smcx, self.rowcx.mcx())?;
+            let d = exectuples::exec_fetch_slot_heap_tuple_datum(
+                &mut self.slot,
+                smcx,
+                self.rowcx.mcx(),
+            )?;
             return self.put(mcx, out, d, false);
         }
         let mut isnull = false;
@@ -339,13 +445,23 @@ impl FmgrSet {
 
     /// The row's one column into `out[0]` / `out[1]`: a by-reference value copied into `mcx`, the slot's context (valid
     /// until the slot's next open); a composite handed through whole. Always true (a row).
-    unsafe fn put(&self, mcx: Mcx<'static>, out: *mut i64, d: Datum, isnull: bool) -> PgResult<bool> {
+    unsafe fn put(
+        &self,
+        mcx: Mcx<'static>,
+        out: *mut i64,
+        d: Datum,
+        isnull: bool,
+    ) -> PgResult<bool> {
         let v = match (isnull, self.returns_tuple) {
             (true, _) => 0,
             (false, true) => copy_datum(mcx, d.as_usize() as *const u8, -1, true)? as i64,
             (false, false) => {
                 let a = &self.desc.as_ref().expect("a scalar set has its row").attrs[0];
-                if a.attbyval { d.as_i64() } else { copy_datum(mcx, d.as_usize() as *const u8, a.attlen, true)? as i64 }
+                if a.attbyval {
+                    d.as_i64()
+                } else {
+                    copy_datum(mcx, d.as_usize() as *const u8, a.attlen, true)? as i64
+                }
             }
         };
         out.write(v);
@@ -367,7 +483,11 @@ impl Sets {
     pub fn new(node: Node<'static>) -> Option<Box<Sets>> {
         let node = node.as_project_set()?;
         let sets = (0..node.plan.targetlist.len()).map(|_| None).collect();
-        Some(Box::new(Sets { node, sets, leader: std::thread::current().id() })) // alloc: Exec
+        Some(Box::new(Sets {
+            node,
+            sets,
+            leader: std::thread::current().id(),
+        })) // alloc: Exec
     }
 
     /// Target-list entry `resno`'s set; a composite result is one datum (`ExecMakeFunctionResultSet`).
@@ -376,17 +496,30 @@ impl Sets {
             return Err(internal("gravity: an fmgr set read off the leader"));
         }
         let node = self.node;
-        let set = self.sets.get_mut(resno.wrapping_sub(1)).ok_or_else(|| internal("gravity: no ProjectSet entry for an fmgr set"))?;
+        let set = self
+            .sets
+            .get_mut(resno.wrapping_sub(1))
+            .ok_or_else(|| internal("gravity: no ProjectSet entry for an fmgr set"))?;
         if set.is_none() {
-            let te = node.plan.targetlist.iter().filter_map(|n| n.as_target_entry()).find(|t| t.resno as usize == resno);
-            let e = te.ok_or_else(|| internal("gravity: no ProjectSet entry for an fmgr set"))?.expr;
+            let te = node
+                .plan
+                .targetlist
+                .iter()
+                .filter_map(|n| n.as_target_entry())
+                .find(|t| t.resno as usize == resno);
+            let e = te
+                .ok_or_else(|| internal("gravity: no ProjectSet entry for an fmgr set"))?
+                .expr;
             let (funcid, coll, nargs, retset) = match (e.as_func_expr(), e.as_op_expr()) {
                 (Some(f), _) => (f.funcid, f.inputcollid, f.args.len(), f.funcretset),
                 (_, Some(o)) => (o.opfuncid, o.inputcollid, o.args.len(), o.opretset),
                 _ => return Err(internal("gravity: an fmgr set over no function call")),
             };
             // the lowering refused these by name; a refusal now is a catalog changed under the program
-            *set = Some(FmgrSet::new(funcid, e, coll, nargs, retset, true, true).map_err(|r| internal(r.what()))?);
+            *set = Some(
+                FmgrSet::new(funcid, e, coll, nargs, retset, true, true)
+                    .map_err(|r| internal(r.what()))?,
+            );
         }
         Ok(set.as_deref_mut().expect("built above"))
     }
@@ -397,7 +530,10 @@ impl Sets {
         if std::thread::current().id() != self.leader {
             return Err(internal("gravity: an fmgr set ended off the leader"));
         }
-        self.sets.iter_mut().flatten().try_for_each(|s| s.shutdown())
+        self.sets
+            .iter_mut()
+            .flatten()
+            .try_for_each(|s| s.shutdown())
     }
 }
 
@@ -416,7 +552,9 @@ unsafe fn copy_datum(mcx: Mcx<'static>, p: *const u8, attlen: i16, flat: bool) -
     }
     let n = match attlen {
         -1 => varatt::varsize_any(p),
-        -2 => core::ffi::CStr::from_ptr(p.cast()).to_bytes_with_nul().len(),
+        -2 => core::ffi::CStr::from_ptr(p.cast())
+            .to_bytes_with_nul()
+            .len(),
         l => l as usize,
     };
     let d = mcx.alloc_bytes(n)?.as_ptr();
@@ -426,21 +564,49 @@ unsafe fn copy_datum(mcx: Mcx<'static>, p: *const u8, attlen: i16, flat: bool) -
 
 /// execSRF.c `tupledesc_match`: the store's rows (`setDesc`) against the row the query expects.
 fn tupledesc_match(dst: &TupleDescData<'_>, src: &TupleDescData<'_>) -> PgResult<()> {
-    let mismatch = |detail: String| Box::new(PgError::error("function return row and query-specified return row do not match").with_sqlstate(types_error::ERRCODE_DATATYPE_MISMATCH).with_detail(detail)); // alloc: Cold
+    let mismatch = |detail: String| {
+        Box::new(
+            PgError::error("function return row and query-specified return row do not match")
+                .with_sqlstate(types_error::ERRCODE_DATATYPE_MISMATCH)
+                .with_detail(detail),
+        )
+    }; // alloc: Cold
     if dst.natts != src.natts {
-        let noun = if src.natts == 1 { "attribute" } else { "attributes" };
-        return Err(mismatch(format!("Returned row contains {} {noun}, but query expects {}.", src.natts, dst.natts))); // alloc: Cold
+        let noun = if src.natts == 1 {
+            "attribute"
+        } else {
+            "attributes"
+        };
+        return Err(mismatch(format!(
+            "Returned row contains {} {noun}, but query expects {}.",
+            src.natts, dst.natts
+        ))); // alloc: Cold
     }
-    for (i, (d, s)) in dst.attrs.iter().zip(src.attrs.iter()).enumerate().take(dst.natts as usize) {
+    for (i, (d, s)) in dst
+        .attrs
+        .iter()
+        .zip(src.attrs.iter())
+        .enumerate()
+        .take(dst.natts as usize)
+    {
         if coerce::IsBinaryCoercible(s.atttypid, d.atttypid)? {
             continue;
         }
         if !d.attisdropped {
-            let (st, dt) = (format_type::format_type_be(s.atttypid)?, format_type::format_type_be(d.atttypid)?);
-            return Err(mismatch(format!("Returned type {st} at ordinal position {}, but query expects {dt}.", i + 1))); // alloc: Cold
+            let (st, dt) = (
+                format_type::format_type_be(s.atttypid)?,
+                format_type::format_type_be(d.atttypid)?,
+            );
+            return Err(mismatch(format!(
+                "Returned type {st} at ordinal position {}, but query expects {dt}.",
+                i + 1
+            ))); // alloc: Cold
         }
         if d.attlen != s.attlen || d.attalign != s.attalign {
-            return Err(mismatch(format!("Physical storage mismatch on dropped attribute at ordinal position {}.", i + 1))); // alloc: Cold
+            return Err(mismatch(format!(
+                "Physical storage mismatch on dropped attribute at ordinal position {}.",
+                i + 1
+            ))); // alloc: Cold
         }
     }
     Ok(())
@@ -450,13 +616,23 @@ fn tupledesc_match(dst: &TupleDescData<'_>, src: &TupleDescData<'_>) -> PgResult
 #[cold]
 #[inline(never)]
 fn setof_record_not_accepted() -> Box<PgError> {
-    Box::new(PgError::error("function returning setof record called in context that cannot accept type record").with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED)) // alloc: Cold
+    Box::new(
+        PgError::error(
+            "function returning setof record called in context that cannot accept type record",
+        )
+        .with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED),
+    ) // alloc: Cold
 }
 
 #[cold]
 #[inline(never)]
 fn protocol(mode: &str) -> Box<PgError> {
-    Box::new(PgError::error(format!("table-function protocol for {mode} mode was not followed")).with_sqlstate(types_error::ERRCODE_E_R_I_E_SRF_PROTOCOL_VIOLATED)) // alloc: Cold
+    Box::new(
+        PgError::error(format!(
+            "table-function protocol for {mode} mode was not followed"
+        ))
+        .with_sqlstate(types_error::ERRCODE_E_R_I_E_SRF_PROTOCOL_VIOLATED),
+    ) // alloc: Cold
 }
 
 gravity_abi::host! {

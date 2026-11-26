@@ -25,8 +25,8 @@
 //! (at a shared S, value ↦ value·10^S is order-preserving), so i64 zone maps
 //! over packed chunks are sound.
 
-use crate::var::{int128_to_var, make_result, NumericImage, NumericVar};
 pub use crate::float_cast::{fixed_scale_to_f32, fixed_scale_to_f64};
+use crate::var::{int128_to_var, make_result, NumericImage, NumericVar};
 use crate::{Num, NBASE, NUMERIC_DSCALE_MAX, NUMERIC_NEG, NUMERIC_POS};
 use types_error::PgResult;
 

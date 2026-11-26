@@ -70,7 +70,11 @@ pub fn ProcessConfigFile(context: GucContext) -> PgResult<()> {
     );
 
     // Only the postmaster bleats loudly about config file problems.
-    let elevel = if init_small::globals::IsUnderPostmaster() { DEBUG2 } else { LOG };
+    let elevel = if init_small::globals::IsUnderPostmaster() {
+        DEBUG2
+    } else {
+        LOG
+    };
 
     guc_seams::process_config_file_internal::call(context, true, elevel)
 }
@@ -95,7 +99,10 @@ pub fn ParseConfigFile(
     {
         let error = ereport(elevel)
             .errcode(ERRCODE_INVALID_PARAMETER_VALUE)
-            .errmsg(format!("empty configuration file name: \"{}\"", config_file.display()))
+            .errmsg(format!(
+                "empty configuration file name: \"{}\"",
+                config_file.display()
+            ))
             .into_error();
         record_or_throw(
             elevel,
@@ -116,7 +123,14 @@ pub fn ParseConfigFile(
                 config_file.display()
             ))
             .into_error();
-        record_or_throw(elevel, error, "nesting depth exceeded", calling_file, calling_lineno, variables)?;
+        record_or_throw(
+            elevel,
+            error,
+            "nesting depth exceeded",
+            calling_file,
+            calling_lineno,
+            variables,
+        )?;
         return Ok(false);
     }
 
@@ -172,7 +186,10 @@ pub fn ParseConfigFile(
         }
         Err(_) => {
             let e = ereport(LOG)
-                .errmsg(format!("skipping missing configuration file \"{}\"", abs_path.display()))
+                .errmsg(format!(
+                    "skipping missing configuration file \"{}\"",
+                    abs_path.display()
+                ))
                 .into_error();
             if elog::message_level_is_interesting(LOG) {
                 elog::emit_error_report_for(&e);
@@ -189,7 +206,14 @@ pub fn ParseConfigFile(
                 abs_path.display()
             ))
             .into_error();
-        record_or_throw(elevel, error, "input in flex scanner failed", Some(&abs_path), 1, variables)?;
+        record_or_throw(
+            elevel,
+            error,
+            "input in flex scanner failed",
+            Some(&abs_path),
+            1,
+            variables,
+        )?;
         return Ok(false);
     }
 
@@ -227,15 +251,38 @@ pub fn ParseConfigFp(
             Ok((name, value)) => {
                 // include* directives aren't variables; process immediately.
                 if name.eq_ignore_ascii_case("include_dir") {
-                    if !ParseConfigDirectory(&value, Some(config_file), line_no, depth + 1, elevel, variables)? {
+                    if !ParseConfigDirectory(
+                        &value,
+                        Some(config_file),
+                        line_no,
+                        depth + 1,
+                        elevel,
+                        variables,
+                    )? {
                         ok = false;
                     }
                 } else if name.eq_ignore_ascii_case("include_if_exists") {
-                    if !ParseConfigFile(&value, false, Some(config_file), line_no, depth + 1, elevel, variables)? {
+                    if !ParseConfigFile(
+                        &value,
+                        false,
+                        Some(config_file),
+                        line_no,
+                        depth + 1,
+                        elevel,
+                        variables,
+                    )? {
                         ok = false;
                     }
                 } else if name.eq_ignore_ascii_case("include") {
-                    if !ParseConfigFile(&value, true, Some(config_file), line_no, depth + 1, elevel, variables)? {
+                    if !ParseConfigFile(
+                        &value,
+                        true,
+                        Some(config_file),
+                        line_no,
+                        depth + 1,
+                        elevel,
+                        variables,
+                    )? {
                         ok = false;
                     }
                 } else {
@@ -292,15 +339,26 @@ pub fn ParseConfigDirectory(
     elevel: ErrorLevel,
     variables: &mut Vec<ConfigVariable>,
 ) -> PgResult<bool> {
-    let files =
-        get_conf_files_in_dir::call(includedir.to_string(), calling_file.map(Path::to_path_buf), elevel)?;
+    let files = get_conf_files_in_dir::call(
+        includedir.to_string(),
+        calling_file.map(Path::to_path_buf),
+        elevel,
+    )?;
     if let Some(err_msg) = files.err_msg {
         record_config_file_error(err_msg, calling_file, calling_lineno, variables);
         return Ok(false);
     }
 
     for filename in files.filenames {
-        if !ParseConfigFile(&filename, true, calling_file, calling_lineno, depth, elevel, variables)? {
+        if !ParseConfigFile(
+            &filename,
+            true,
+            calling_file,
+            calling_lineno,
+            depth,
+            elevel,
+            variables,
+        )? {
             return Ok(false);
         }
     }
@@ -314,7 +372,11 @@ pub fn record_config_file_error(
     lineno: i32,
     variables: &mut Vec<ConfigVariable>,
 ) {
-    variables.push(ConfigVariable::error(errmsg.into(), config_file.map(Path::to_path_buf), lineno));
+    variables.push(ConfigVariable::error(
+        errmsg.into(),
+        config_file.map(Path::to_path_buf),
+        lineno,
+    ));
 }
 
 pub fn FreeConfigVariables(list: &mut Vec<ConfigVariable>) {
@@ -365,7 +427,13 @@ pub fn deescape_quoted_bytes(bytes: &[u8]) -> Vec<u8> {
     let len = s.len();
     // C's buffer is NUL-terminated, so s[len] reads as 0 and the scans below
     // stop there exactly as they do in C.
-    let at = |i: usize| -> u8 { if i < len { s[i] } else { 0 } };
+    let at = |i: usize| -> u8 {
+        if i < len {
+            s[i]
+        } else {
+            0
+        }
+    };
 
     let mut out = Vec::new();
     let _ = out.try_reserve(len);
@@ -446,8 +514,18 @@ fn report_syntax_error(
             line_no
         ),
     };
-    let error = ereport(elevel).errcode(ERRCODE_SYNTAX_ERROR).errmsg(message).into_error();
-    record_or_throw(elevel, error, "syntax error", Some(config_file), line_no, variables)
+    let error = ereport(elevel)
+        .errcode(ERRCODE_SYNTAX_ERROR)
+        .errmsg(message)
+        .into_error();
+    record_or_throw(
+        elevel,
+        error,
+        "syntax error",
+        Some(config_file),
+        line_no,
+        variables,
+    )
 }
 
 fn logical_lines(contents: &[u8]) -> Vec<&[u8]> {
@@ -545,12 +623,20 @@ impl<'a> Lexer<'a> {
             // the unterminated-quote path).
             self.pos += 1;
             let raw = &self.line[self.pos - 1..self.pos];
-            return Some(Token { kind: TokenKind::Error, text: token_text(raw), raw: nul_trunc(raw) });
+            return Some(Token {
+                kind: TokenKind::Error,
+                text: token_text(raw),
+                raw: nul_trunc(raw),
+            });
         }
 
         let text = &rest[..best_len];
         self.pos += best_len;
-        Some(Token { kind: best_kind, text: token_text(text), raw: nul_trunc(text) })
+        Some(Token {
+            kind: best_kind,
+            text: token_text(text),
+            raw: nul_trunc(text),
+        })
     }
 
     fn skip_ws(&mut self) {
@@ -720,7 +806,10 @@ fn match_integer(rest: &[u8]) -> usize {
             continue;
         }
         let mut end = sign + mantissa;
-        end += rest[end..].iter().take_while(|b| b.is_ascii_alphabetic()).count();
+        end += rest[end..]
+            .iter()
+            .take_while(|b| b.is_ascii_alphabetic())
+            .count();
         if end > best {
             best = end;
         }

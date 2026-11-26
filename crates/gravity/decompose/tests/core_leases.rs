@@ -16,9 +16,9 @@
 use std::fs;
 
 use gravity_abi::breaker::BreakerKind;
-use gravity_decompose::ops::shared::append::AppendDesc;
 use gravity_decompose::graph::{Op, PipelineGraph, PipelineNode};
 use gravity_decompose::join::JoinDesc;
+use gravity_decompose::ops::shared::append::AppendDesc;
 use gravity_decompose::ops::shared::setop::SetDesc;
 use gravity_decompose::ops::shared::subplan::SubForm;
 use gravity_decompose::{corpus, decompose_in};
@@ -68,15 +68,33 @@ fn embedded_reads(p: &PipelineNode<'_>, out: &mut Vec<u8>) {
 /// Whether pipeline `i` feeds the life an earlier Append child declared (one life, many producers): a Feed of the
 /// slot, or a streamed union's arm ending in it (every arm ends in the parent's end).
 fn co_feeder(g: &PipelineGraph<'_>, i: usize) -> bool {
-    let feeds = |p: &PipelineNode<'_>, s: u8| p.ops.iter().any(|o| matches!(o, Op::Append(AppendDesc::Feed { slot, .. }) if *slot == s) || matches!(o, Op::Append(AppendDesc::Arm { .. })));
-    let Some(s) = g.pipelines[i].desc.produces() else { return false };
-    let Some(j) = (0..i).rev().find(|&j| g.pipelines[j].desc.produces() == Some(s)) else { return false };
-    feeds(&g.pipelines[i], s) && feeds(&g.pipelines[j], s) && !g.pipelines[j + 1..i].iter().any(|p| p.desc.consumes.contains(&s))
+    let feeds = |p: &PipelineNode<'_>, s: u8| {
+        p.ops.iter().any(|o| {
+            matches!(o, Op::Append(AppendDesc::Feed { slot, .. }) if *slot == s)
+                || matches!(o, Op::Append(AppendDesc::Arm { .. }))
+        })
+    };
+    let Some(s) = g.pipelines[i].desc.produces() else {
+        return false;
+    };
+    let Some(j) = (0..i)
+        .rev()
+        .find(|&j| g.pipelines[j].desc.produces() == Some(s))
+    else {
+        return false;
+    };
+    feeds(&g.pipelines[i], s)
+        && feeds(&g.pipelines[j], s)
+        && !g.pipelines[j + 1..i]
+            .iter()
+            .any(|p| p.desc.consumes.contains(&s))
 }
 
 /// The life `slot` names at pipeline `i`: the nearest earlier producer.
 fn life_at(g: &PipelineGraph<'_>, slot: u8, i: usize) -> Option<usize> {
-    (0..i).rev().find(|&j| g.pipelines[j].desc.produces() == Some(slot))
+    (0..i)
+        .rev()
+        .find(|&j| g.pipelines[j].desc.produces() == Some(slot))
 }
 
 fn lives(g: &PipelineGraph<'_>) -> Vec<Life> {
@@ -90,14 +108,31 @@ fn lives(g: &PipelineGraph<'_>) -> Vec<Life> {
                 continue;
             }
             ix[i] = lives.len();
-            let sort = g.breakers.iter().any(|d| d.producer as usize == i && matches!(d.breaker.kind, BreakerKind::Sort | BreakerKind::TopK));
-            lives.push(Life { slot: s, producer: i, ranges: Vec::new(), kinds: if sort { vec![Consumer::Sort] } else { Vec::new() } });
+            let sort = g.breakers.iter().any(|d| {
+                d.producer as usize == i
+                    && matches!(d.breaker.kind, BreakerKind::Sort | BreakerKind::TopK)
+            });
+            lives.push(Life {
+                slot: s,
+                producer: i,
+                ranges: Vec::new(),
+                kinds: if sort {
+                    vec![Consumer::Sort]
+                } else {
+                    Vec::new()
+                },
+            });
         }
     }
     let mut last = vec![None::<usize>; lives.len()];
     for (i, p) in g.pipelines.iter().enumerate() {
         for (j, &s) in p.desc.consumes.iter().enumerate() {
-            let l = p.desc.consumes_from.get(j).map(|l| l.0 as usize).or_else(|| life_at(g, s, i));
+            let l = p
+                .desc
+                .consumes_from
+                .get(j)
+                .map(|l| l.0 as usize)
+                .or_else(|| life_at(g, s, i));
             if let Some(l) = l.filter(|&l| ix[l] != usize::MAX) {
                 let e = &mut last[ix[l]];
                 *e = Some(e.map_or(i, |x| x.max(i)));
@@ -113,7 +148,8 @@ fn lives(g: &PipelineGraph<'_>) -> Vec<Life> {
         }
     }
     for (k, life) in lives.iter_mut().enumerate() {
-        life.ranges.push((life.producer, last[k].unwrap_or(FOREVER)));
+        life.ranges
+            .push((life.producer, last[k].unwrap_or(FOREVER)));
     }
     // The lives a set of pipelines fills or reads; a life read from outside the set is read again per outer row.
     for r in g.reruns.iter() {
@@ -143,7 +179,11 @@ fn lives(g: &PipelineGraph<'_>) -> Vec<Life> {
     };
     for r in g.reruns.iter() {
         let end = r.pipelines.iter().map(|&p| p as usize).max().unwrap_or(0);
-        let kind = if r.plan_id == 0 { Consumer::Rerun } else { Consumer::Subplan };
+        let kind = if r.plan_id == 0 {
+            Consumer::Rerun
+        } else {
+            Consumer::Subplan
+        };
         for k in touched(&|i| r.pipelines.contains(&(i as u16))) {
             lives[k].ranges.push((end + 1, FOREVER));
             lives[k].kinds.push(kind);
@@ -166,10 +206,18 @@ fn lives(g: &PipelineGraph<'_>) -> Vec<Life> {
             }
         }
     }
-    let arm = |p: &PipelineNode<'_>| p.ops.iter().any(|o| matches!(o, Op::Append(AppendDesc::Arm { .. })));
+    let arm = |p: &PipelineNode<'_>| {
+        p.ops
+            .iter()
+            .any(|o| matches!(o, Op::Append(AppendDesc::Arm { .. })))
+    };
     for (i, p) in g.pipelines.iter().enumerate().filter(|(_, p)| arm(p)) {
         let read = p.desc.consumes.iter().filter_map(|&s| life_at(g, s, i));
-        for k in read.chain(p.desc.produces().map(|_| i)).map(|l| ix[l]).filter(|&k| k != usize::MAX) {
+        for k in read
+            .chain(p.desc.produces().map(|_| i))
+            .map(|l| ix[l])
+            .filter(|&k| k != usize::MAX)
+        {
             if !lives[k].kinds.contains(&Consumer::Union) {
                 lives[k].kinds.push(Consumer::Union);
             }
@@ -208,7 +256,9 @@ fn check(g: &PipelineGraph<'_>) -> ([usize; 5], Vec<String>) {
     let lives = lives(g);
     let mut bad = Vec::new();
     for (p, node) in g.pipelines.iter().enumerate() {
-        let Some(chosen) = node.desc.produces().filter(|_| !co_feeder(g, p)) else { continue };
+        let Some(chosen) = node.desc.produces().filter(|_| !co_feeder(g, p)) else {
+            continue;
+        };
         let mut taken = [false; 256];
         for l in lives.iter().filter(|l| covers(l, p)) {
             taken[l.slot as usize] = true;
@@ -217,15 +267,35 @@ fn check(g: &PipelineGraph<'_>) -> ([usize; 5], Vec<String>) {
             taken[c as usize] = true;
         }
         if taken[chosen as usize] {
-            let who = lives.iter().find(|l| l.slot == chosen && covers(l, p)).map(|l| l.producer);
-            bad.push(format!("p{p} took slot {chosen} while the life of p{} still leases it", who.map_or(-1, |x| x as i64)));
-        } else if let Some(want) = (0..=255u8).find(|&s| !taken[s as usize]).filter(|&s| s != chosen) {
-            bad.push(format!("p{p} took slot {chosen}, but slot {want} was free (a pin outlived its reads)"));
+            let who = lives
+                .iter()
+                .find(|l| l.slot == chosen && covers(l, p))
+                .map(|l| l.producer);
+            bad.push(format!(
+                "p{p} took slot {chosen} while the life of p{} still leases it",
+                who.map_or(-1, |x| x as i64)
+            ));
+        } else if let Some(want) = (0..=255u8)
+            .find(|&s| !taken[s as usize])
+            .filter(|&s| s != chosen)
+        {
+            bad.push(format!(
+                "p{p} took slot {chosen}, but slot {want} was free (a pin outlived its reads)"
+            ));
         }
     }
     let mut kinds = [0; 5];
     for l in lives.iter() {
-        for (j, k) in [Consumer::Sort, Consumer::Rerun, Consumer::Subplan, Consumer::Setop, Consumer::Union].iter().enumerate() {
+        for (j, k) in [
+            Consumer::Sort,
+            Consumer::Rerun,
+            Consumer::Subplan,
+            Consumer::Setop,
+            Consumer::Union,
+        ]
+        .iter()
+        .enumerate()
+        {
             if l.kinds.contains(k) {
                 kinds[j] += 1;
             }
@@ -237,13 +307,19 @@ fn check(g: &PipelineGraph<'_>) -> ([usize; 5], Vec<String>) {
 /// Every graph of the corpus: (fixture, graph dump, lives per kind, violations).
 fn corpus_check() -> Vec<(String, [usize; 5], Vec<String>)> {
     let mut files = harness::fixtures_in(&harness::plans_root());
-    files.extend(harness::fixtures_in(&harness::plans_root().join("regress-full")));
+    files.extend(harness::fixtures_in(
+        &harness::plans_root().join("regress-full"),
+    ));
     harness::par_map(&files, |f| {
         let text = fs::read_to_string(f).unwrap();
         let ctx = MemoryContext::new("fixture");
-        let Ok(fx) = corpus::load(ctx.mcx(), &text) else { return (String::new(), [0; 5], Vec::new()) };
+        let Ok(fx) = corpus::load(ctx.mcx(), &text) else {
+            return (String::new(), [0; 5], Vec::new());
+        };
         let arena = Arena::new(1 << 20);
-        let Ok(g) = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx) else { return (String::new(), [0; 5], Vec::new()) };
+        let Ok(g) = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx) else {
+            return (String::new(), [0; 5], Vec::new());
+        };
         let (k, bad) = check(&g);
         (fx.name.clone(), k, bad)
     })
@@ -258,12 +334,18 @@ fn rig(kind: usize, name: &str, min: usize) {
             bad.extend(b.into_iter().map(|x| format!("{f}: {x}")));
         }
     }
-    println!("leases {name}: {lives} lives in {graphs} graphs, {} violations", bad.len());
+    println!(
+        "leases {name}: {lives} lives in {graphs} graphs, {} violations",
+        bad.len()
+    );
     for x in bad.iter() {
         println!("violation {name}: {x}");
     }
     assert!(bad.is_empty(), "{name}: {} violations", bad.len());
-    assert!(graphs >= min, "{name}: only {graphs} graphs exercise the kind");
+    assert!(
+        graphs >= min,
+        "{name}: only {graphs} graphs exercise the kind"
+    );
 }
 
 #[test]
@@ -295,8 +377,15 @@ fn union_arm_lives_are_pinned_exactly_as_long_as_read() {
 #[test]
 fn every_declaration_takes_the_lowest_unleased_slot() {
     let all = corpus_check();
-    let bad: Vec<String> = all.iter().flat_map(|(f, _, b)| b.iter().map(move |x| format!("{f}: {x}"))).collect();
-    println!("leases all: {} graphs, {} violations", all.iter().filter(|x| !x.0.is_empty()).count(), bad.len());
+    let bad: Vec<String> = all
+        .iter()
+        .flat_map(|(f, _, b)| b.iter().map(move |x| format!("{f}: {x}")))
+        .collect();
+    println!(
+        "leases all: {} graphs, {} violations",
+        all.iter().filter(|x| !x.0.is_empty()).count(),
+        bad.len()
+    );
     for x in bad.iter() {
         println!("violation all: {x}");
     }
@@ -311,13 +400,23 @@ fn every_declaration_takes_the_lowest_unleased_slot() {
 #[test]
 fn cascade_lives_are_pinned_exactly_as_long_as_read() {
     for name in ["groupingsets-041", "groupingsets-089", "groupingsets-099"] {
-        let text = fs::read_to_string(harness::plans_root().join("regress-full").join(format!("{name}.plan"))).unwrap();
+        let text = fs::read_to_string(
+            harness::plans_root()
+                .join("regress-full")
+                .join(format!("{name}.plan")),
+        )
+        .unwrap();
         let ctx = MemoryContext::new("fixture");
         let mut fx = corpus::load(ctx.mcx(), &text).unwrap_or_else(|e| panic!("{name}: {e}"));
         fx.facts.roads_on = vec![gravity_decompose::ops::shared::agg::GSETS_CASCADE_ROAD];
         let arena = Arena::new(1 << 20);
-        let Ok(g) = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx) else { panic!("{name}: decompose refused it") };
-        assert!(!g.cascades.is_empty(), "{name}: the road folds the coarser sets from the finer");
+        let Ok(g) = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx) else {
+            panic!("{name}: decompose refused it")
+        };
+        assert!(
+            !g.cascades.is_empty(),
+            "{name}: the road folds the coarser sets from the finer"
+        );
         let (_, bad) = check(&g);
         assert!(bad.is_empty(), "{name}: {bad:?}");
     }

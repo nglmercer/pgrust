@@ -21,13 +21,19 @@ use crate::graph::Gx;
 /// Op `i` of embedded inner `ik` is a merge join whose run's fillers are all members of the inner's own rerun set:
 /// `Some(quiet)` (markable.rs `inner_may_act`), else `None`.
 fn refilled(gx: &Gx<'_, '_>, ik: usize, i: usize) -> Option<bool> {
-    let Some(Op::Join(JoinDesc::Merge { slot, .. })) = gx.pipelines()[ik].ops.get(i) else { return None };
+    let Some(Op::Join(JoinDesc::Merge { slot, .. })) = gx.pipelines()[ik].ops.get(i) else {
+        return None;
+    };
     let fillers = crate::ops::mergejoin::lazy_outer::fillers(gx, ik, *slot);
     let set = &gx.graph.reruns[crate::rerun::sets::owner_set_at(gx, ik)?];
     if fillers.is_empty() || !fillers.iter().all(|&x| set.pipelines.contains(&(x as u16))) {
         return None;
     }
-    Some(fillers.iter().all(|&x| !crate::effects::visible::merge::inner_may_act(gx, x, usize::MAX, None)))
+    Some(
+        fillers
+            .iter()
+            .all(|&x| !crate::effects::visible::merge::inner_may_act(gx, x, usize::MAX, None)),
+    )
 }
 
 /// Fill pipeline `x` reads no other pipeline's rows (a scan, a function scan or VALUES, its ops filters, projections, set
@@ -36,7 +42,10 @@ fn refilled(gx: &Gx<'_, '_>, ik: usize, i: usize) -> Option<bool> {
 fn plain_fill(gx: &Gx<'_, '_>, x: usize) -> bool {
     let p = &gx.pipelines()[x];
     let calls = |n: Node<'_>| crate::effects::user_or_volatile(gx, n);
-    let src = matches!(p.source, Source::Range { .. } | Source::Const | Source::Values { .. });
+    let src = matches!(
+        p.source,
+        Source::Range { .. } | Source::Const | Source::Values { .. }
+    );
     let ops = p.ops.iter().all(|op| match op {
         Op::Filter(n) => !calls(*n),
         Op::Project(l) => !l.iter().any(calls),
@@ -60,10 +69,29 @@ pub(crate) fn ok(gx: &Gx<'_, '_>, ik: usize, i: usize) -> bool {
 pub(crate) fn refill_raises(gx: &Gx<'_, '_>, ik: usize, i: usize) -> Option<usize> {
     let ps = gx.pipelines();
     let ((k, j), ip) = *ps.inners().get(ik.checked_sub(ps.len())?)?;
-    let Some(Op::Join(JoinDesc::Merge { jointype, slot, .. })) = ip.ops.get(i) else { return None };
-    let after = ip.ops[i + 1..].iter().all(|op| matches!(op, Op::Filter(_) | Op::Project(_)));
-    let nest = matches!(ps[k].ops.get(j), Some(Op::Join(JoinDesc::Nest { jointype: JoinType::JOIN_INNER | JoinType::JOIN_LEFT, unique: false, .. })));
+    let Some(Op::Join(JoinDesc::Merge { jointype, slot, .. })) = ip.ops.get(i) else {
+        return None;
+    };
+    let after = ip.ops[i + 1..]
+        .iter()
+        .all(|op| matches!(op, Op::Filter(_) | Op::Project(_)));
+    let nest = matches!(
+        ps[k].ops.get(j),
+        Some(Op::Join(JoinDesc::Nest {
+            jointype: JoinType::JOIN_INNER | JoinType::JOIN_LEFT,
+            unique: false,
+            ..
+        }))
+    );
     let whole = k < ps.len() && crate::ops::mergejoin::lazy_outer::reached(gx, k, j + 1);
-    let plain = crate::ops::mergejoin::lazy_outer::fillers(gx, ik, *slot).iter().all(|&x| plain_fill(gx, x));
-    (refilled(gx, ik, i).is_some() && plain && crate::ops::mergejoin::fill_inner::fills_inner(*jointype) && after && nest && whole).then_some(k)
+    let plain = crate::ops::mergejoin::lazy_outer::fillers(gx, ik, *slot)
+        .iter()
+        .all(|&x| plain_fill(gx, x));
+    (refilled(gx, ik, i).is_some()
+        && plain
+        && crate::ops::mergejoin::fill_inner::fills_inner(*jointype)
+        && after
+        && nest
+        && whole)
+        .then_some(k)
 }

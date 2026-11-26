@@ -93,7 +93,11 @@ fn start_backend(procno: ProcNumber, pid: i32) {
 fn shmem_size_matches_c_formula() {
     let _g = bringup();
     let slots = (g::MaxBackends() + NUM_AUXILIARY_PROCS) as usize;
-    let ssl = if cfg!(feature = "ssl") { slots * C_SIZEOF_PG_BACKEND_SSL_STATUS } else { 0 };
+    let ssl = if cfg!(feature = "ssl") {
+        slots * C_SIZEOF_PG_BACKEND_SSL_STATUS
+    } else {
+        0
+    };
     let expected = slots * C_SIZEOF_PG_BACKEND_STATUS + 2 * slots * NAMELEN + slots * 1024 + ssl;
     assert_eq!(BackendStatusShmemSize().unwrap(), expected);
 }
@@ -111,7 +115,10 @@ fn shmem_init_registers_c_named_buffers_in_shmem_index() {
         ("Backend Activity Buffer", slots * 1024),
     ];
     if cfg!(feature = "ssl") {
-        rows.push(("Backend SSL Status Buffer", slots * C_SIZEOF_PG_BACKEND_SSL_STATUS));
+        rows.push((
+            "Backend SSL Status Buffer",
+            slots * C_SIZEOF_PG_BACKEND_SSL_STATUS,
+        ));
     }
     for (name, size) in rows {
         let (_, found) = shmem::ShmemInitStruct(name, size).unwrap();
@@ -130,7 +137,10 @@ fn bestart_lifecycle_reaches_undefined_state() {
     assert_eq!(unsafe { e.st_proc_start_timestamp.get() }, 777);
     assert_eq!(unsafe { e.st_state.get() }, BackendState::STATE_UNDEFINED);
     assert_ne!(unsafe { e.st_userid.get() }, InvalidOid);
-    assert_eq!(pgstat_get_backend_type_by_proc_number(0), BackendType::Backend);
+    assert_eq!(
+        pgstat_get_backend_type_by_proc_number(0),
+        BackendType::Backend
+    );
 
     pgstat_beshutdown_hook(0, 0);
     assert!(MyBEEntry().is_none());
@@ -161,13 +171,13 @@ fn report_activity_stores_and_resets_ids() {
 
     let activity = pgstat_get_backend_current_activity(900002, false).unwrap();
     assert_eq!(activity, "SELECT 1");
-    assert_eq!(pgstat_get_crashed_backend_activity(900002).unwrap(), "SELECT 1");
+    assert_eq!(
+        pgstat_get_crashed_backend_activity(900002).unwrap(),
+        "SELECT 1"
+    );
 
     let long = "x".repeat(5000);
-    backend_status_seams::pgstat_report_activity::call(
-        BackendState::STATE_RUNNING,
-        Some(&long),
-    );
+    backend_status_seams::pgstat_report_activity::call(BackendState::STATE_RUNNING, Some(&long));
     assert_eq!(read_activity(e.slot).len(), 1023);
 
     backend_status_seams::pgstat_report_activity::call(BackendState::STATE_IDLE, None);
@@ -248,7 +258,10 @@ fn cross_thread_entry_is_readable() {
     });
     handle.join().unwrap();
 
-    assert_eq!(pgstat_get_backend_type_by_proc_number(4), BackendType::Backend);
+    assert_eq!(
+        pgstat_get_backend_type_by_proc_number(4),
+        BackendType::Backend
+    );
     assert_eq!(
         pgstat_get_backend_current_activity(900005, false).unwrap(),
         "CROSS THREAD QUERY"
@@ -323,10 +336,7 @@ fn snapshot_keeps_raw_activity_bytes_for_clipping() {
     mbutils::SetDatabaseEncoding(mbutils::pg_char_to_encoding("UTF8")).unwrap();
     let prefix = "x".repeat(1020);
     let query = format!("{prefix}\u{1F600}yyy");
-    backend_status_seams::pgstat_report_activity::call(
-        BackendState::STATE_RUNNING,
-        Some(&query),
-    );
+    backend_status_seams::pgstat_report_activity::call(BackendState::STATE_RUNNING, Some(&query));
     pgstat_clear_backend_status_snapshot();
     let _ = pgstat_fetch_stat_numbackends();
     let e = pgstat_get_beentry_by_proc_number(me).unwrap();
@@ -341,7 +351,10 @@ fn snapshot_keeps_raw_activity_bytes_for_clipping() {
 // controls and non-ASCII bytes become '?', the copy stops at NUL.
 #[test]
 fn crashed_backend_activity_keeps_whitespace_and_del() {
-    assert_eq!(ascii_safe(b"a\tb\nc\rd\x7fe\x01f\xc3\xa9g\0zz"), "a\tb\nc\rd\x7fe?f??g");
+    assert_eq!(
+        ascii_safe(b"a\tb\nc\rd\x7fe\x01f\xc3\xa9g\0zz"),
+        "a\tb\nc\rd\x7fe?f??g"
+    );
 }
 
 #[test]
@@ -367,7 +380,10 @@ fn gss_security_status_survives_backend_snapshot() {
     assert!(entry.st_gssstatus.authenticated);
     assert!(!entry.st_gssstatus.encrypted);
     assert!(entry.st_gssstatus.delegated);
-    assert_eq!(name_to_string(&entry.st_gssstatus.principal), "postgres@PGBUG.TEST");
+    assert_eq!(
+        name_to_string(&entry.st_gssstatus.principal),
+        "postgres@PGBUG.TEST"
+    );
     g::WithMyProcPortMut(|port| port.gss.as_mut().unwrap().principal = Some("x".repeat(100)));
     pgstat_bestart_security().unwrap();
     pgstat_clear_backend_status_snapshot();

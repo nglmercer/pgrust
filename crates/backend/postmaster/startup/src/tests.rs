@@ -27,7 +27,9 @@ fn startup_proc_exit_error_is_fatal_and_reenters_proc_exit_like_c() {
     init_small::globals::SetMyProcPid(4242);
     xlogutils::set_standby_state(xlogutils::STANDBY_INITIALIZED);
     standby_seams::shutdown_recovery_transaction_environment::set(|| {
-        Err(Box::new(types_error::PgError::error("lock table corrupted")))
+        Err(Box::new(types_error::PgError::error(
+            "lock table corrupted",
+        )))
     });
 
     ipc::on_shmem_exit(super::StartupProcExit, 0);
@@ -36,7 +38,10 @@ fn startup_proc_exit_error_is_fatal_and_reenters_proc_exit_like_c() {
         .downcast_ref::<ipc::ProcExitThread>()
         .expect("unwind payload is ProcExitThread")
         .code;
-    assert_eq!(code, 1, "C: FATAL inside the exit callback re-enters proc_exit(1)");
+    assert_eq!(
+        code, 1,
+        "C: FATAL inside the exit callback re-enters proc_exit(1)"
+    );
 }
 
 // startup.c:371 has_startup_progress_timeout_expired -> TimestampDifference
@@ -49,13 +54,24 @@ fn startup_progress_elapsed_clamps_to_zero_when_clock_steps_back() {
     super::STARTUP_PROGRESS_PHASE_START_TIME.set(5_500_000);
     super::STARTUP_PROGRESS_TIMER_EXPIRED.store(true, std::sync::atomic::Ordering::Relaxed);
     assert_eq!(super::has_startup_progress_timeout_expired(), Some((0, 0)));
-    assert_eq!(super::has_startup_progress_timeout_expired(), None, "flag consumed");
+    assert_eq!(
+        super::has_startup_progress_timeout_expired(),
+        None,
+        "flag consumed"
+    );
 
     super::STARTUP_PROGRESS_PHASE_START_TIME.set(1_000_000);
     super::STARTUP_PROGRESS_TIMER_EXPIRED.store(true, std::sync::atomic::Ordering::Relaxed);
-    assert_eq!(super::has_startup_progress_timeout_expired(), Some((0, 0)), "diff == 0 arm");
+    assert_eq!(
+        super::has_startup_progress_timeout_expired(),
+        Some((0, 0)),
+        "diff == 0 arm"
+    );
 
     super::STARTUP_PROGRESS_PHASE_START_TIME.set(-2_500_000);
     super::STARTUP_PROGRESS_TIMER_EXPIRED.store(true, std::sync::atomic::Ordering::Relaxed);
-    assert_eq!(super::has_startup_progress_timeout_expired(), Some((3, 500_000)));
+    assert_eq!(
+        super::has_startup_progress_timeout_expired(),
+        Some((3, 500_000))
+    );
 }

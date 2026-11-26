@@ -17,7 +17,11 @@ use gravity_lowerv4::frame::diag;
 use gravity_lowerv4::{Reason, Variant};
 
 /// The texts the parameter-word family refused by before L0-w (and the Shape a producer-less parameter refuses by now).
-const OLD: &[&str] = &["a parameter past the word budget", "without a parameter word", "a LIMIT / OFFSET over a value the binder cannot place"];
+const OLD: &[&str] = &[
+    "a parameter past the word budget",
+    "without a parameter word",
+    "a LIMIT / OFFSET over a value the binder cannot place",
+];
 const UNSET: &str = "an executor parameter no nest, SubPlan or InitPlan of the graph sets";
 
 struct Lowered {
@@ -35,28 +39,70 @@ fn lower(rel: &str, ids: &[i32]) -> Lowered {
     common::RigCatalog::install_seams();
     let p = common::plans_dir().join(rel);
     let text = std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
-    let (ctx, arena) = (mcx::MemoryContext::new("m8 l0w fixture"), gravity_program::Arena::new(1 << 20));
-    let fx = gravity_decompose::corpus::load(ctx.mcx(), &text).unwrap_or_else(|e| panic!("fixture: {e}"));
-    let graph = gravity_decompose::decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx).unwrap_or_else(|e| panic!("{rel}: decompose {e:?}"));
+    let (ctx, arena) = (
+        mcx::MemoryContext::new("m8 l0w fixture"),
+        gravity_program::Arena::new(1 << 20),
+    );
+    let fx = gravity_decompose::corpus::load(ctx.mcx(), &text)
+        .unwrap_or_else(|e| panic!("fixture: {e}"));
+    let graph = gravity_decompose::decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx)
+        .unwrap_or_else(|e| panic!("{rel}: decompose {e:?}"));
     let mut plan = Sequential::new(arena.handle());
     gravity_expr::nodes::func::acl_defer_begin();
-    let (_, report) = diag::lower_graph_diag(arena.handle(), &graph, &fx.facts, common::RigCatalog::get(), &mut plan, gravity_lower::LowerOpts::default());
+    let (_, report) = diag::lower_graph_diag(
+        arena.handle(),
+        &graph,
+        &fx.facts,
+        common::RigCatalog::get(),
+        &mut plan,
+        gravity_lower::LowerOpts::default(),
+    );
     gravity_expr::nodes::func::acl_defer_end();
-    let gx = gravity_lowerv4::graph::Gx { graph: &graph, facts: &fx.facts, catalog: common::RigCatalog::get(), over: None, mcx: rig.mcx() };
-    let exec_words = plan.words.iter().filter(|w| matches!(w, WordSrc::Exec { .. })).count();
-    let places = ids.iter().map(|&id| (id, plan.need(&ParamNeed::Exec { id, typ: 23 }, 23, true), gravity_lowerv4::rerun::params::producer(&gx, id))).collect();
-    Lowered { blockers: report.blockers, lines: report.lines, places, exec_words }
+    let gx = gravity_lowerv4::graph::Gx {
+        graph: &graph,
+        facts: &fx.facts,
+        catalog: common::RigCatalog::get(),
+        over: None,
+        mcx: rig.mcx(),
+    };
+    let exec_words = plan
+        .words
+        .iter()
+        .filter(|w| matches!(w, WordSrc::Exec { .. }))
+        .count();
+    let places = ids
+        .iter()
+        .map(|&id| {
+            (
+                id,
+                plan.need(&ParamNeed::Exec { id, typ: 23 }, 23, true),
+                gravity_lowerv4::rerun::params::producer(&gx, id),
+            )
+        })
+        .collect();
+    Lowered {
+        blockers: report.blockers,
+        lines: report.lines,
+        places,
+        exec_words,
+    }
 }
 
 /// A maker's (not admission's) refusal by kind `k`'s name.
 fn maker_refuses(l: &Lowered, k: KindId) -> bool {
-    l.blockers.iter().any(|b| b.pipe.is_some() && b.refusal.reason == Variant::Kind(k).not_built())
+    l.blockers
+        .iter()
+        .any(|b| b.pipe.is_some() && b.refusal.reason == Variant::Kind(k).not_built())
 }
 
 #[allow(dead_code)]
 fn check(rel: &str, ids: &[(i32, KindId)], reader: KindId) {
     let l = placed(rel, ids);
-    assert!(maker_refuses(&l, reader), "{rel}: a reader refuses by {reader:?}: {:?}", l.lines);
+    assert!(
+        maker_refuses(&l, reader),
+        "{rel}: a reader refuses by {reader:?}: {:?}",
+        l.lines
+    );
 }
 
 /// `rel`'s parameters `ids` supplied by their producers' kinds as frame parameters, with no parameter-word Shape.
@@ -65,10 +111,21 @@ fn placed(rel: &str, ids: &[(i32, KindId)]) -> Lowered {
     for (id, place, producer) in l.places.iter() {
         let want = ids.iter().find(|x| x.0 == *id).map(|x| x.1);
         assert_eq!(*producer, want, "{rel}: $exec{id}'s producer");
-        assert_eq!(*place, Place::Exec(*id), "{rel}: $exec{id} places as the frame's parameter word, never a bind word");
+        assert_eq!(
+            *place,
+            Place::Exec(*id),
+            "{rel}: $exec{id} places as the frame's parameter word, never a bind word"
+        );
     }
-    assert_eq!(l.exec_words, 0, "{rel}: no WordSrc::Exec bind word is pushed");
-    let old: Vec<&String> = l.lines.iter().filter(|x| OLD.iter().chain([&UNSET]).any(|t| x.contains(t))).collect();
+    assert_eq!(
+        l.exec_words, 0,
+        "{rel}: no WordSrc::Exec bind word is pushed"
+    );
+    let old: Vec<&String> = l
+        .lines
+        .iter()
+        .filter(|x| OLD.iter().chain([&UNSET]).any(|t| x.contains(t)))
+        .collect();
     assert!(old.is_empty(), "{rel}: no parameter-word Shape: {old:?}");
     l
 }
@@ -78,7 +135,11 @@ fn placed(rel: &str, ids: &[(i32, KindId)]) -> Lowered {
 #[test]
 fn an_initplan_param_in_a_filter_serves_once_nest_initplan_is_built() {
     let l = lower("cte-008.plan", &[0]);
-    assert_eq!(l.places.iter().map(|x| x.2).collect::<Vec<_>>(), vec![Some(KindId::NestInitplan)], "$exec0's producer");
+    assert_eq!(
+        l.places.iter().map(|x| x.2).collect::<Vec<_>>(),
+        vec![Some(KindId::NestInitplan)],
+        "$exec0's producer"
+    );
     assert_eq!(l.exec_words, 0, "no WordSrc::Exec bind word is pushed");
     assert!(l.blockers.is_empty(), "{:?}", l.lines);
 }
@@ -97,7 +158,14 @@ fn an_initplan_param_as_an_index_key_serves_once_nest_initplan_is_built() {
 /// setParams once per row (subplan item 13), so nothing refuses.
 #[test]
 fn a_multiexpr_setparam_serves() {
-    let l = placed("cte-038.plan", &[(0, KindId::NestSubplan), (1, KindId::NestSubplan), (2, KindId::NestSubplan)]);
+    let l = placed(
+        "cte-038.plan",
+        &[
+            (0, KindId::NestSubplan),
+            (1, KindId::NestSubplan),
+            (2, KindId::NestSubplan),
+        ],
+    );
     assert!(l.blockers.is_empty(), "cte-038: {:?}", l.lines);
 }
 
@@ -107,8 +175,22 @@ fn a_multiexpr_setparam_serves() {
 fn a_subplan_param_in_a_rerun_pipeline_refuses_by_name() {
     // the parameters are placed by their producers; the rerun set is named by D1262's Shape where a maker reaches it (the
     // plan's nest inners refuse first under B1), never by the registered nest.rerun's NotBuilt name (main 20:29Z)
-    let l = placed("tpch-020.plan", &[(0, KindId::NestSubplan), (1, KindId::NestSubplan), (2, KindId::NestParam), (3, KindId::NestParam)]);
-    assert!(!l.lines.iter().any(|x| x.contains("NotBuilt M8: nest nest.rerun")), "tpch-020: names no built variant: {:?}", l.lines);
+    let l = placed(
+        "tpch-020.plan",
+        &[
+            (0, KindId::NestSubplan),
+            (1, KindId::NestSubplan),
+            (2, KindId::NestParam),
+            (3, KindId::NestParam),
+        ],
+    );
+    assert!(
+        !l.lines
+            .iter()
+            .any(|x| x.contains("NotBuilt M8: nest nest.rerun")),
+        "tpch-020: names no built variant: {:?}",
+        l.lines
+    );
 }
 
 /// part-023 `u JOIN part ON part.k = u.y`: the nest's $exec0 as the index key of each partition's rerun pipeline. B1 built
@@ -119,7 +201,11 @@ fn a_subplan_param_in_a_rerun_pipeline_refuses_by_name() {
 #[test]
 fn a_nest_param_in_a_rerun_pipeline_is_served_over_quiet_bitmap_leaves() {
     let l = lower("part-023.plan", &[0]);
-    assert_eq!(l.places, vec![(0, Place::Exec(0), Some(KindId::NestParam))], "part-023: $exec0 is the nest's, in its frame word");
+    assert_eq!(
+        l.places,
+        vec![(0, Place::Exec(0), Some(KindId::NestParam))],
+        "part-023: $exec0 is the nest's, in its frame word"
+    );
     assert!(l.blockers.is_empty(), "part-023: {:?}", l.lines);
 }
 
@@ -132,7 +218,11 @@ fn a_nest_param_in_a_rerun_pipeline_is_served_over_quiet_bitmap_leaves() {
 #[test]
 fn a_top_k_bound_over_a_subplan_param_is_served() {
     let l = placed("regress-full/limit-010.plan", &[(0, KindId::NestSubplan)]);
-    assert!(l.blockers.is_empty(), "limit-010: a nest inner over its rerun set's top-k run is served: {:?}", l.lines);
+    assert!(
+        l.blockers.is_empty(),
+        "limit-010: a nest inner over its rerun set's top-k run is served: {:?}",
+        l.lines
+    );
 }
 
 /// FACTS-1a (main 06:50Z): an InitPlan's later setParams have their producer too, so no reader refuses by "no producer",
@@ -141,10 +231,26 @@ fn a_top_k_bound_over_a_subplan_param_is_served() {
 /// UPDATE), update-012 (a MULTIEXPR ON CONFLICT DO UPDATE).
 #[test]
 fn every_setparam_of_an_initplan_has_its_producer() {
-    let rels = ["cte-041", "regress-full/subselect-018", "regress-full/subselect-019", "cte-042", "regress-full/update-007", "regress-full/update-009", "regress-full/update-010", "regress-full/update-012"];
+    let rels = [
+        "cte-041",
+        "regress-full/subselect-018",
+        "regress-full/subselect-019",
+        "cte-042",
+        "regress-full/update-007",
+        "regress-full/update-009",
+        "regress-full/update-010",
+        "regress-full/update-012",
+    ];
     for rel in rels.map(|r| format!("{r}.plan")) {
-        let l = placed(&rel, &[(0, KindId::NestInitplan), (1, KindId::NestInitplan)]);
-        assert!(!maker_refuses(&l, KindId::NestInitplan), "{rel}: {:?}", l.lines);
+        let l = placed(
+            &rel,
+            &[(0, KindId::NestInitplan), (1, KindId::NestInitplan)],
+        );
+        assert!(
+            !maker_refuses(&l, KindId::NestInitplan),
+            "{rel}: {:?}",
+            l.lines
+        );
     }
 }
 
@@ -153,11 +259,23 @@ fn every_setparam_of_an_initplan_has_its_producer() {
 fn outside(rel: &str) -> Vec<(usize, Option<KindId>)> {
     let rig = mcx::MemoryContext::new("GravityPlanRig");
     common::RigCatalog::install_seams();
-    let text = std::fs::read_to_string(common::plans_dir().join(rel)).unwrap_or_else(|e| panic!("{rel}: {e}"));
-    let (ctx, arena) = (mcx::MemoryContext::new("m8 l0l fixture"), gravity_program::Arena::new(1 << 20));
-    let fx = gravity_decompose::corpus::load(ctx.mcx(), &text).unwrap_or_else(|e| panic!("fixture: {e}"));
-    let graph = gravity_decompose::decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx).unwrap_or_else(|e| panic!("{rel}: decompose {e:?}"));
-    let gx = gravity_lowerv4::graph::Gx { graph: &graph, facts: &fx.facts, catalog: common::RigCatalog::get(), over: None, mcx: rig.mcx() };
+    let text = std::fs::read_to_string(common::plans_dir().join(rel))
+        .unwrap_or_else(|e| panic!("{rel}: {e}"));
+    let (ctx, arena) = (
+        mcx::MemoryContext::new("m8 l0l fixture"),
+        gravity_program::Arena::new(1 << 20),
+    );
+    let fx = gravity_decompose::corpus::load(ctx.mcx(), &text)
+        .unwrap_or_else(|e| panic!("fixture: {e}"));
+    let graph = gravity_decompose::decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx)
+        .unwrap_or_else(|e| panic!("{rel}: decompose {e:?}"));
+    let gx = gravity_lowerv4::graph::Gx {
+        graph: &graph,
+        facts: &fx.facts,
+        catalog: common::RigCatalog::get(),
+        over: None,
+        mcx: rig.mcx(),
+    };
     let mut out = Vec::new();
     for (k, p) in graph.pipelines.iter().enumerate() {
         for op in p.ops.iter() {
@@ -178,9 +296,15 @@ fn outside(rel: &str) -> Vec<(usize, Option<KindId>)> {
 #[test]
 fn a_store_waits_on_nest_initplan_only_when_a_call_reads_its_parameter() {
     let o = outside("oltp-043.plan");
-    assert!(!o.is_empty() && o.iter().all(|x| x.1.is_none()), "oltp-043: pg_sleep's call reads no parameter: {o:?}");
+    assert!(
+        !o.is_empty() && o.iter().all(|x| x.1.is_none()),
+        "oltp-043: pg_sleep's call reads no parameter: {o:?}"
+    );
     let t = outside("regress-full/tsearch-019.plan");
-    assert!(t.iter().any(|x| x.1 == Some(KindId::NestInitplan)), "tsearch-019: a call reads the InitPlan's $exec5: {t:?}");
+    assert!(
+        t.iter().any(|x| x.1 == Some(KindId::NestInitplan)),
+        "tsearch-019: a call reads the InitPlan's $exec5: {t:?}"
+    );
 }
 
 /// A parameter no producer of the graph sets folds as before (no word, no `Place::Exec`), and its producer is `None`.
@@ -188,7 +312,13 @@ fn a_store_waits_on_nest_initplan_only_when_a_call_reads_its_parameter() {
 fn a_param_no_producer_sets_stays_unsupplied() {
     let l = lower("cte-008.plan", &[7]);
     assert_eq!(l.places, vec![(7, Place::Fold, None)]);
-    assert!(l.blockers.iter().all(|b| !matches!(b.refusal.reason, Reason::Bug { .. })), "{:?}", l.lines);
+    assert!(
+        l.blockers
+            .iter()
+            .all(|b| !matches!(b.refusal.reason, Reason::Bug { .. })),
+        "{:?}",
+        l.lines
+    );
 }
 
 /// V4R-361 (main 08:15Z): the Pipes view (src/pipes.rs) leaves every walk over the graph pipelines as it was. On every plan
@@ -204,24 +334,55 @@ fn the_pipes_view_keeps_every_graph_walk_on_every_fixture() {
     let (mut graphs, mut inners, mut bad) = (0usize, 0usize, Vec::new());
     for dir in std::iter::once(common::plans_dir()).chain((1..=8).map(common::milestone_dir)) {
         for (name, text) in common::files(&dir, "plan") {
-            let (ctx, arena) = (mcx::MemoryContext::new("m8 pipes view"), gravity_program::Arena::new(1 << 20));
-            let Ok(fx) = gravity_decompose::corpus::load(ctx.mcx(), &text) else { continue };
-            let Ok(graph) = gravity_decompose::decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx) else { continue };
-            let gx = gravity_lowerv4::graph::Gx { graph: &graph, facts: &fx.facts, catalog: common::RigCatalog::get(), over: None, mcx: rig.mcx() };
+            let (ctx, arena) = (
+                mcx::MemoryContext::new("m8 pipes view"),
+                gravity_program::Arena::new(1 << 20),
+            );
+            let Ok(fx) = gravity_decompose::corpus::load(ctx.mcx(), &text) else {
+                continue;
+            };
+            let Ok(graph) =
+                gravity_decompose::decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx)
+            else {
+                continue;
+            };
+            let gx = gravity_lowerv4::graph::Gx {
+                graph: &graph,
+                facts: &fx.facts,
+                catalog: common::RigCatalog::get(),
+                over: None,
+                mcx: rig.mcx(),
+            };
             let (v, g) = (gx.pipelines(), &graph.pipelines[..]);
             graphs += 1;
-            let own = |k: usize| core::ptr::eq(&v[k], &g[k]) && v.get(k).is_some_and(|p| core::ptr::eq(p, &g[k]));
-            if v.len() != g.len() || !v.iter().zip(g.iter()).all(|(a, b)| core::ptr::eq(a, b)) || !(0..g.len()).all(own) {
-                bad.push(format!("{name}: a walk over 0..len() sees other than the graph's pipelines"));
+            let own = |k: usize| {
+                core::ptr::eq(&v[k], &g[k]) && v.get(k).is_some_and(|p| core::ptr::eq(p, &g[k]))
+            };
+            if v.len() != g.len()
+                || !v.iter().zip(g.iter()).all(|(a, b)| core::ptr::eq(a, b))
+                || !(0..g.len()).all(own)
+            {
+                bad.push(format!(
+                    "{name}: a walk over 0..len() sees other than the graph's pipelines"
+                ));
             }
             let all = v.inners();
             for (i, &((k, j), p)) in all.iter().enumerate() {
                 let embeds = match &v[k].ops[j] {
-                    Op::Join(JoinDesc::Nest { inner, .. }) | Op::SubPlan(SubPlanDesc { form: SubForm::Nested { inner }, .. }) => core::ptr::eq(&**inner, p),
+                    Op::Join(JoinDesc::Nest { inner, .. })
+                    | Op::SubPlan(SubPlanDesc {
+                        form: SubForm::Nested { inner },
+                        ..
+                    }) => core::ptr::eq(&**inner, p),
                     _ => false,
                 };
-                if !embeds || v.inner_of(k, j) != Some(g.len() + i) || !core::ptr::eq(&v[g.len() + i], p) {
-                    bad.push(format!("{name}: inner {i} (pipeline {k}, op {j}) is not the one its op embeds"));
+                if !embeds
+                    || v.inner_of(k, j) != Some(g.len() + i)
+                    || !core::ptr::eq(&v[g.len() + i], p)
+                {
+                    bad.push(format!(
+                        "{name}: inner {i} (pipeline {k}, op {j}) is not the one its op embeds"
+                    ));
                 }
             }
             if v.get(g.len() + all.len()).is_some() || v.end() != g.len() + all.len() {
@@ -231,7 +392,10 @@ fn the_pipes_view_keeps_every_graph_walk_on_every_fixture() {
         }
     }
     assert!(bad.is_empty(), "{}", bad.join("\n"));
-    assert!(graphs > 800 && inners > 100, "{graphs} graphs, {inners} inners: the corpus did not load");
+    assert!(
+        graphs > 800 && inners > 100,
+        "{graphs} graphs, {inners} inners: the corpus did not load"
+    );
     eprintln!("pipes view: {graphs} graphs, {inners} embedded inners");
 }
 
@@ -242,9 +406,20 @@ fn the_pipes_view_keeps_every_graph_walk_on_every_fixture() {
 /// state (keep-pins, the gather's own position), so it serves too, by neither D1339's Shape nor D1018's.
 #[test]
 fn a_plain_aggregate_rerun_inner_and_a_rerun_set_emit_both_serve() {
-    for rel in ["regress-full/tidrangescan-008.plan", "regress-full/aggregates-018.plan"] {
+    for rel in [
+        "regress-full/tidrangescan-008.plan",
+        "regress-full/aggregates-018.plan",
+    ] {
         let l = lower(rel, &[]);
-        assert!(l.blockers.is_empty() && !l.lines.iter().any(|x| x.contains("(D1339)") || x.contains("(D1018)")), "{rel}: {:?}", l.lines);
+        assert!(
+            l.blockers.is_empty()
+                && !l
+                    .lines
+                    .iter()
+                    .any(|x| x.contains("(D1339)") || x.contains("(D1018)")),
+            "{rel}: {:?}",
+            l.lines
+        );
     }
 }
 
@@ -258,7 +433,11 @@ fn a_plain_aggregate_rerun_inner_and_a_rerun_set_emit_both_serve() {
 fn a_delete_end_beside_an_initplan_numbers_its_site_late() {
     let text = std::fs::read_to_string(common::plans_dir().join("cte-040.plan")).expect("fixture");
     let key = "{OPEXPR :opno 551 :opfuncid 177 :opresulttype 23 :opretset false :opcollid 0 :inputcollid 0 :args ({PARAM :paramkind 1 :paramid 1 :paramtype 23 :paramtypmod -1 :paramcollid 0 :location -1} {CONST :consttype 23 :consttypmod -1 :constcollid 0 :constlen 4 :constbyval true :constisnull false :location 49 :constvalue 4 [ 160 134 1 0 0 0 0 0 ]}) :location 47}";
-    assert_eq!(text.matches(key).count(), 2, "cte-040's index key, in indexqual and indexqualorig");
+    assert_eq!(
+        text.matches(key).count(),
+        2,
+        "cte-040's index key, in indexqual and indexqualorig"
+    );
     let d1710 = text.replace(key, "{PARAM :paramkind 1 :paramid 1 :paramtype 23 :paramtypmod -1 :paramcollid 0 :location -1}").replace(") + 100000;", ");");
     if let Err(e) = common::lower_fixture(&d1710).expect("decomposes") {
         panic!("D1710's form refuses: {e}");
@@ -278,11 +457,25 @@ fn a_delete_end_beside_an_initplan_numbers_its_site_late() {
 /// holds no S2d no-widen line (only the rig's catalog gaps): D2194's name left the gated arm at item 14 part 4.
 #[test]
 fn a_gated_union_arm_in_a_nest_inner_serves_beside_a_hash_or_merge_join() {
-    let named = |x: &String| x.contains("(D2015)") || x.contains("(S2d)") || x.contains("(D2194 / D2147 / D2201)");
-    for rel in ["regress-full/join-104.plan", "regress-full/join-107.plan", "regress-full/join-111.plan"] {
+    let named = |x: &String| {
+        x.contains("(D2015)") || x.contains("(S2d)") || x.contains("(D2194 / D2147 / D2201)")
+    };
+    for rel in [
+        "regress-full/join-104.plan",
+        "regress-full/join-107.plan",
+        "regress-full/join-111.plan",
+    ] {
         let l = lower(rel, &[]);
-        assert!(l.blockers.is_empty() && !l.lines.iter().any(named), "{rel}: {:?}", l.lines);
+        assert!(
+            l.blockers.is_empty() && !l.lines.iter().any(named),
+            "{rel}: {:?}",
+            l.lines
+        );
     }
     let l = lower("regress-full/foreign_data-016.plan", &[]);
-    assert!(!l.lines.iter().any(named), "foreign_data-016: {:?}", l.lines);
+    assert!(
+        !l.lines.iter().any(named),
+        "foreign_data-016: {:?}",
+        l.lines
+    );
 }

@@ -15,14 +15,21 @@ fn pool(threads: usize) -> (WorkerPool, RuntimePool) {
 /// `parts` parts of `per` granules each, claimed whole (the runner's whole-part law).
 fn whole_parts(parts: u64, per: u64) -> GranuleRange {
     let starts: Vec<u64> = (0..parts).map(|p| p * per).collect();
-    let mut c = GranuleRange::over_parts(parts * per, ClaimSize::Adaptive { startup_c0: 1 }, &starts);
+    let mut c =
+        GranuleRange::over_parts(parts * per, ClaimSize::Adaptive { startup_c0: 1 }, &starts);
     c.set_whole_boundary_claims(true);
     c
 }
 
 /// Every claim of a section over `claims` at `width` on `pool`; the first `hold` claims wait until `hold` are in flight
 /// (or 20 s), so the runtime's live width reaches `hold`, and each claim then sleeps `per_granule` a granule.
-fn section(pool: &RuntimePool, width: u16, claims: &GranuleRange, hold: u64, per_granule: Duration) -> Vec<(u64, u64)> {
+fn section(
+    pool: &RuntimePool,
+    width: u16,
+    claims: &GranuleRange,
+    hold: u64,
+    per_granule: Duration,
+) -> Vec<(u64, u64)> {
     let ranges = Mutex::new(Vec::new());
     let (held, cv, seen) = (Mutex::new(0u64), Condvar::new(), AtomicU64::new(0));
     let job = |_ordinal: u16, range: gravity_abi::MorselRange| -> gravity_driver::Result<()> {
@@ -49,8 +56,14 @@ fn section(pool: &RuntimePool, width: u16, claims: &GranuleRange, hold: u64, per
 fn assert_tiles(ranges: &[(u64, u64)], total: u64, per: u64) {
     let mut next = 0;
     for &(lo, hi) in ranges {
-        assert_eq!(lo, next, "granules {next}..{lo} not claimed, or claimed twice ({ranges:?})");
-        assert!(lo < hi && lo / per == (hi - 1) / per, "claim {lo}..{hi} crosses a part");
+        assert_eq!(
+            lo, next,
+            "granules {next}..{lo} not claimed, or claimed twice ({ranges:?})"
+        );
+        assert!(
+            lo < hi && lo / per == (hi - 1) / per,
+            "claim {lo}..{hi} crosses a part"
+        );
         next = hi;
     }
     assert_eq!(next, total);
@@ -63,14 +76,26 @@ fn assert_tiles(ranges: &[(u64, u64)], total: u64, per: u64) {
 fn a_whole_part_cursor_with_the_endgame_split_off_is_never_cut_at_width_48() {
     let (workers, pool) = pool(48);
     let (parts, per) = (60u64, 8u64);
-    let on = section(&pool, 48, &whole_parts(parts, per), 34, Duration::from_micros(125));
+    let on = section(
+        &pool,
+        48,
+        &whole_parts(parts, per),
+        34,
+        Duration::from_micros(125),
+    );
     assert_tiles(&on, parts * per, per);
-    assert!(on.iter().any(|&(lo, hi)| lo % per != 0 || hi - lo != per), "no end-game split at width 48 ({on:?})");
+    assert!(
+        on.iter().any(|&(lo, hi)| lo % per != 0 || hi - lo != per),
+        "no end-game split at width 48 ({on:?})"
+    );
     let mut off = whole_parts(parts, per);
     off.set_endgame_split(false);
     let off = section(&pool, 48, &off, 34, Duration::from_micros(125));
     assert_tiles(&off, parts * per, per);
-    assert!(off.iter().all(|&(lo, hi)| lo % per == 0 && hi - lo == per), "a cursor with the split off was cut ({off:?})");
+    assert!(
+        off.iter().all(|&(lo, hi)| lo % per == 0 && hi - lo == per),
+        "a cursor with the split off was cut ({off:?})"
+    );
     workers.shutdown();
 }
 
@@ -85,8 +110,20 @@ fn a_tail_cursor_cuts_only_the_parts_past_its_tail() {
     // 200 us a granule: a whole part runs 3.2 ms, past the runtime's 2 ms claim target, so a tail claim is under a part
     let r = section(&pool, 8, &c, 0, Duration::from_micros(200));
     assert_tiles(&r, parts * per, per);
-    assert_eq!(r.iter().filter(|&&(lo, _)| lo < 8 * per).count(), 8, "{r:?}");
-    assert!(r.iter().filter(|&&(lo, _)| lo < 8 * per).all(|&(lo, hi)| lo % per == 0 && hi - lo == per), "a part before the tail was cut ({r:?})");
-    assert!(r.iter().filter(|&&(lo, _)| lo >= 8 * per).count() > 2, "the tail's parts were not cut ({r:?})");
+    assert_eq!(
+        r.iter().filter(|&&(lo, _)| lo < 8 * per).count(),
+        8,
+        "{r:?}"
+    );
+    assert!(
+        r.iter()
+            .filter(|&&(lo, _)| lo < 8 * per)
+            .all(|&(lo, hi)| lo % per == 0 && hi - lo == per),
+        "a part before the tail was cut ({r:?})"
+    );
+    assert!(
+        r.iter().filter(|&&(lo, _)| lo >= 8 * per).count() > 2,
+        "the tail's parts were not cut ({r:?})"
+    );
     workers.shutdown();
 }

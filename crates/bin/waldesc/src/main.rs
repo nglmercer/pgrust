@@ -25,7 +25,12 @@ struct WalDirSource {
 impl WalDirSource {
     fn seg_file_name(&self, segno: XLogSegNo) -> String {
         let per_id = 0x1_0000_0000u64 / self.segsize;
-        format!("{:08X}{:08X}{:08X}", self.tli, segno / per_id, segno % per_id)
+        format!(
+            "{:08X}{:08X}{:08X}",
+            self.tli,
+            segno / per_id,
+            segno % per_id
+        )
     }
 
     fn close_file(&mut self) {
@@ -79,7 +84,12 @@ impl XLogReaderRoutine for WalDirSource {
         let off = (target_page_ptr % self.segsize) as libc::off_t;
         // SAFETY: cur_page is the reader's XLOG_BLCKSZ buffer.
         let r = unsafe {
-            libc::pread(self.file, cur_page.as_mut_ptr() as *mut libc::c_void, XLOG_BLCKSZ, off)
+            libc::pread(
+                self.file,
+                cur_page.as_mut_ptr() as *mut libc::c_void,
+                XLOG_BLCKSZ,
+                off,
+            )
         };
         if r != XLOG_BLCKSZ as isize {
             return Ok(xlogreader::XLREAD_FAIL);
@@ -159,7 +169,9 @@ fn save_fpws(reader: &mut XLogReaderState<'_>, savepath: &str) {
             eprintln!("waldesc: {}", reader.errormsg_buf_raw().unwrap_or_default());
             std::process::exit(1);
         }
-        let (rnode, fork, blk, _) = reader.XLogRecGetBlockTagExtended(block_id).expect("block tag");
+        let (rnode, fork, blk, _) = reader
+            .XLogRecGetBlockTagExtended(block_id)
+            .expect("block tag");
         let Some(forkname) = FORK_NAMES.get(fork as i32 as usize) else {
             eprintln!("waldesc: invalid fork number: {}", fork as i32 as u32);
             std::process::exit(1);
@@ -230,7 +242,13 @@ fn main() {
     let ctx = Box::leak(Box::new(mcx::MemoryContext::new("waldesc")));
     let mcx = ctx.mcx();
 
-    let mut src = WalDirSource { dir: dir.to_string(), segsize, tli, file: -1, open_segno: 0 };
+    let mut src = WalDirSource {
+        dir: dir.to_string(),
+        segsize,
+        tli,
+        file: -1,
+        open_segno: 0,
+    };
     let mut reader = XLogReaderState::allocate(mcx, segsize as i32).expect("allocate reader");
 
     let start = reader
@@ -276,7 +294,9 @@ fn main() {
             None
         };
         let custom_name = builtin.is_none().then(|| format!("custom{rmid:03}"));
-        let rm_name = builtin.map(|d| d.rm_name).unwrap_or_else(|| custom_name.as_deref().unwrap());
+        let rm_name = builtin
+            .map(|d| d.rm_name)
+            .unwrap_or_else(|| custom_name.as_deref().unwrap());
 
         let _ = write!(
             out,
@@ -303,7 +323,11 @@ fn main() {
         buf.reset();
         if let Some(desc) = builtin {
             if let Err(e) = (desc.rm_desc)(&mut buf, &reader.v) {
-                eprintln!("waldesc: rm_desc failed at {:X}/{:X}: {e:?}", (lsn >> 32) as u32, lsn as u32);
+                eprintln!(
+                    "waldesc: rm_desc failed at {:X}/{:X}: {e:?}",
+                    (lsn >> 32) as u32,
+                    lsn as u32
+                );
             }
         } else {
             let _ = buf.append_str(&format!("rmid: {rmid}"));
@@ -329,9 +353,18 @@ mod truncation_tests {
     #[test]
     fn pre_epoch_microseconds_truncate_toward_zero() {
         assert_eq!(super::timestamptz_to_time_t(-1), super::PG_EPOCH_OFFSET);
-        assert_eq!(super::timestamptz_to_time_t(-999_999), super::PG_EPOCH_OFFSET);
-        assert_eq!(super::timestamptz_to_time_t(-1_000_000), super::PG_EPOCH_OFFSET - 1);
-        assert_eq!(super::timestamptz_to_time_t(1_500_000), super::PG_EPOCH_OFFSET + 1);
+        assert_eq!(
+            super::timestamptz_to_time_t(-999_999),
+            super::PG_EPOCH_OFFSET
+        );
+        assert_eq!(
+            super::timestamptz_to_time_t(-1_000_000),
+            super::PG_EPOCH_OFFSET - 1
+        );
+        assert_eq!(
+            super::timestamptz_to_time_t(1_500_000),
+            super::PG_EPOCH_OFFSET + 1
+        );
     }
 }
 

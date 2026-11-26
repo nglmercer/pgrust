@@ -84,8 +84,8 @@ fn release_snapshot_for_drain(fcinfo: &Fcinfo) -> PgResult<()> {
     }
     snapmgr_seams::invalidate_catalog_snapshot::call();
     let holds_snapshot = snapmgr_portal_seams::have_registered_or_active_snapshot::call();
-    let holds_xid = xact_seams::get_top_transaction_id_if_any::call()
-        != types_core::InvalidTransactionId;
+    let holds_xid =
+        xact_seams::get_top_transaction_id_if_any::call() != types_core::InvalidTransactionId;
     if holds_snapshot || holds_xid {
         return Err(Box::new(
             PgError::error(if holds_xid {
@@ -151,7 +151,13 @@ pub fn fc_pgrust_buffer_pool_stats(
         Datum::from_f64(crate::wss::stall_seconds()),
         Datum::from_bool(s.resizing),
     ];
-    composite_result(fcinfo, flinfo, "pgrust_buffer_pool_stats", &values, &[false; 15])
+    composite_result(
+        fcinfo,
+        flinfo,
+        "pgrust_buffer_pool_stats",
+        &values,
+        &[false; 15],
+    )
 }
 
 pub static BUFPOOL_BUILTINS: &[FmgrBuiltin] = &[

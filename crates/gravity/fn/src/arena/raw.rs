@@ -69,7 +69,11 @@ struct Chunk {
     host: bool,
 }
 
-const NO_CHUNK: Chunk = Chunk { base: 0, len: 0, host: false };
+const NO_CHUNK: Chunk = Chunk {
+    base: 0,
+    len: 0,
+    host: false,
+};
 
 struct Core {
     ctx: *mut Ctx,
@@ -140,7 +144,9 @@ impl Core {
             return false;
         }
         if self.charged {
-            self.shell.borrow_mut().commit(((m.capacity() - was) * core::mem::size_of::<Chunk>()) as u64);
+            self.shell
+                .borrow_mut()
+                .commit(((m.capacity() - was) * core::mem::size_of::<Chunk>()) as u64);
         }
         true
     }
@@ -162,9 +168,13 @@ impl Core {
     fn carve_new(&self, size: usize, align: usize) -> Result<usize, Refused> {
         let refused = Refused { bytes: size as u64 };
         let need = size.checked_add(align).ok_or(refused)?;
-        let want = need.max(self.next.get()).checked_next_multiple_of(4096).ok_or(refused)?;
+        let want = need
+            .max(self.next.get())
+            .checked_next_multiple_of(4096)
+            .ok_or(refused)?;
         let (base, len) = self.draw(want)?;
-        self.next.set(self.next.get().saturating_mul(2).min(ARENA_CHUNK_MAX));
+        self.next
+            .set(self.next.get().saturating_mul(2).min(ARENA_CHUNK_MAX));
         let p = (base + align - 1) & !(align - 1);
         self.cur.set(p + size);
         self.end.set(base + len);
@@ -182,8 +192,16 @@ impl Core {
         }
         // SAFETY: `ctx` is null or the ctx this arena was made on, live for the arena's life (the module doc).
         // SAFETY: as above.
-        let asked = if self.heap_only { None } else { unsafe { gravity_abi::program::arena_chunk(self.ctx, want as u64, self.owner.words()) } };
-        let pool = if asked.is_none() && self.pooled { pagepool::take(want, RIG_ALIGN, POOL_HINT) } else { None };
+        let asked = if self.heap_only {
+            None
+        } else {
+            unsafe { gravity_abi::program::arena_chunk(self.ctx, want as u64, self.owner.words()) }
+        };
+        let pool = if asked.is_none() && self.pooled {
+            pagepool::take(want, RIG_ALIGN, POOL_HINT)
+        } else {
+            None
+        };
         let (base, len, host) = match (asked, pool) {
             (Some(p), _) if p.is_null() => return Err(refused),
             (Some(p), _) => (p as usize, want, true),
@@ -248,7 +266,12 @@ impl Core {
             self.pool.borrow_mut().give(c.len as u64);
         } else {
             // SAFETY: allocated in `draw` with this layout, freed once (its entry cleared or popped by the caller).
-            unsafe { std::alloc::dealloc(c.base as *mut u8, Layout::from_size_align_unchecked(c.len, RIG_ALIGN)) };
+            unsafe {
+                std::alloc::dealloc(
+                    c.base as *mut u8,
+                    Layout::from_size_align_unchecked(c.len, RIG_ALIGN),
+                )
+            };
             self.rig.borrow_mut().free(c.len as u64);
         }
     }
@@ -256,7 +279,10 @@ impl Core {
     /// A growable buffer of `size` bytes at `align`, the arena's id in the 8 bytes below it.
     fn alloc_tagged(&self, size: usize, align: usize) -> Result<NonNull<u8>, Refused> {
         let a = align.max(HEADER);
-        let p = self.carve(size.checked_add(a).ok_or(Refused { bytes: size as u64 })?, a)? + a;
+        let p = self.carve(
+            size.checked_add(a).ok_or(Refused { bytes: size as u64 })?,
+            a,
+        )? + a;
         // SAFETY: `[p - a, p + size)` was just carved from a live chunk; the header word is inside it, 8-aligned.
         unsafe { ((p - HEADER) as *mut u64).write(self.id.get()) };
         // SAFETY: inside a chunk, never 0.
@@ -326,7 +352,15 @@ impl ArenaSeed {
     /// atomics; its chunks go back at its reset or drop (the owner stays its maker's). CONVERT1: a scratch arena's seed
     /// keeps the allocator's road (and an uncharged one charges no one), as its maker's did.
     pub fn arena(self, ctx: *mut Ctx) -> OpArena {
-        OpArena::make(ctx, self.owner, false, self.release, self.kind, self.heap_only, self.charged)
+        OpArena::make(
+            ctx,
+            self.owner,
+            false,
+            self.release,
+            self.kind,
+            self.heap_only,
+            self.charged,
+        )
     }
 }
 
@@ -351,7 +385,15 @@ impl OpArena {
         let parent = OpArena::slot_owner(ctx)?;
         let owner = memledger::charge::op_begin(parent, kind as u32, 0);
         // the owner's own release: a portal's when `op_begin` gave the parent back (its table full) and the parent is one
-        Some(OpArena::make(ctx, owner, owner != parent, memledger::charge::release_of(owner), kind, true, true))
+        Some(OpArena::make(
+            ctx,
+            owner,
+            owner != parent,
+            memledger::charge::release_of(owner),
+            kind,
+            true,
+            true,
+        ))
     }
 
     /// CONVERT1: the ledger owner of the breaker slot `ctx`'s pipeline runs for (the host's answer,
@@ -368,7 +410,10 @@ impl OpArena {
     pub fn slot_owner_kind(ctx: *mut Ctx) -> Option<(Owner, Kind)> {
         // SAFETY: as `slot_owner`.
         let (w, k) = unsafe { gravity_abi::program::arena_slot_owner_kind(ctx) }?;
-        Some((Owner::from_words(w)?, *Kind::ALL.get(usize::try_from(k).ok()?)?))
+        Some((
+            Owner::from_words(w)?,
+            *Kind::ALL.get(usize::try_from(k).ok()?)?,
+        ))
     }
 
     /// CONVERT wave 2 (wave2-base commit 7): the owner and ledger kind of the breaker slot `ctx`'s pipeline OWNS (the host's
@@ -379,7 +424,10 @@ impl OpArena {
     pub fn own_owner_kind(ctx: *mut Ctx) -> Option<(Owner, Kind)> {
         // SAFETY: as `slot_owner`.
         let (w, k) = unsafe { gravity_abi::program::arena_own_owner_kind(ctx) }?;
-        Some((Owner::from_words(w)?, *Kind::ALL.get(usize::try_from(k).ok()?)?))
+        Some((
+            Owner::from_words(w)?,
+            *Kind::ALL.get(usize::try_from(k).ok()?)?,
+        ))
     }
 
     /// CONVERT1: an operator call's working memory on the allocator's road, charged to `owner` ITSELF (the operator's own
@@ -391,11 +439,31 @@ impl OpArena {
     pub fn scratch_of(owner: Option<Owner>, kind: Kind) -> OpArena {
         let (o, charged) = owner.map_or((UNCHARGED, false), |o| (o, true));
         // the owner's own release (a cursor's portal holds its scratch past the statement that made it)
-        let release = if charged { memledger::charge::release_of(o) } else { Release::Statement };
-        OpArena::make(core::ptr::null_mut(), o, false, release, kind, true, charged)
+        let release = if charged {
+            memledger::charge::release_of(o)
+        } else {
+            Release::Statement
+        };
+        OpArena::make(
+            core::ptr::null_mut(),
+            o,
+            false,
+            release,
+            kind,
+            true,
+            charged,
+        )
     }
 
-    fn make(ctx: *mut Ctx, owner: Owner, began: bool, release: Release, kind: Kind, heap_only: bool, charged: bool) -> OpArena {
+    fn make(
+        ctx: *mut Ctx,
+        owner: Owner,
+        began: bool,
+        release: Release,
+        kind: Kind,
+        heap_only: bool,
+        charged: bool,
+    ) -> OpArena {
         let core = Rc::new(Core {
             ctx,
             owner,
@@ -412,11 +480,19 @@ impl OpArena {
             chunks: [const { Cell::new(NO_CHUNK) }; CHUNKS],
             held: Cell::new(0),
             draws: Cell::new(0),
-            rig: RefCell::new(if charged { Charge::open(owner, release, kind, Door::Heap, 0) } else { Charge::NONE }),
+            rig: RefCell::new(if charged {
+                Charge::open(owner, release, kind, Door::Heap, 0)
+            } else {
+                Charge::NONE
+            }),
             shell: RefCell::new(Charge::NONE),
             // pagepool P3: an uncharged arena keeps the allocator's road (its bytes on the allocating thread, as door 1's)
             pooled: charged && pooled(),
-            pool: RefCell::new(if charged && pooled() { Charge::open(owner, release, kind, Door::Pool, 0) } else { Charge::NONE }),
+            pool: RefCell::new(if charged && pooled() {
+                Charge::open(owner, release, kind, Door::Pool, 0)
+            } else {
+                Charge::NONE
+            }),
             more: RefCell::new(Vec::new()), // alloc: Exec charged owner
         });
         // the core's own heap bytes (the Rc's block) are the owner's too
@@ -431,12 +507,26 @@ impl OpArena {
     pub fn child(&self, kind: Kind, budget: u64) -> OpArena {
         let c = &*self.core;
         let owner = memledger::charge::op_begin(c.owner, kind as u32, budget);
-        OpArena::make(c.ctx, owner, owner != c.owner, c.release, kind, c.heap_only, c.charged)
+        OpArena::make(
+            c.ctx,
+            owner,
+            owner != c.owner,
+            c.release,
+            kind,
+            c.heap_only,
+            c.charged,
+        )
     }
 
     /// The seed of a worker's arena charged to this arena's owner (`ArenaSeed::arena` on the worker's thread and ctx).
     pub fn for_worker(&self) -> ArenaSeed {
-        ArenaSeed { owner: self.core.owner, release: self.core.release, kind: self.core.kind, heap_only: self.core.heap_only, charged: self.core.charged }
+        ArenaSeed {
+            owner: self.core.owner,
+            release: self.core.release,
+            kind: self.core.kind,
+            heap_only: self.core.heap_only,
+            charged: self.core.charged,
+        }
     }
 
     /// The arena's ledger owner and its numbers now (memledger `usage`: held, budget, spilled, its subtree's).
@@ -479,7 +569,9 @@ impl OpArena {
 
     /// `src` copied into the arena: a Copy handle read back through it (`read`).
     pub fn bytes(&self, src: &[u8]) -> Result<ABytes, Refused> {
-        let len = u32::try_from(src.len()).map_err(|_| Refused { bytes: src.len() as u64 })?;
+        let len = u32::try_from(src.len()).map_err(|_| Refused {
+            bytes: src.len() as u64,
+        })?;
         let c = &*self.core;
         let p = c.carve(src.len().max(1), 1)?;
         // SAFETY: `src.len()` bytes just carved at `p`, disjoint from `src` (a fresh carve).
@@ -488,15 +580,24 @@ impl OpArena {
         let ix = c.n.get() - 1;
         let off = (p - c.chunk(ix).base) as u64;
         if off > u32::MAX as u64 {
-            return Err(Refused { bytes: src.len() as u64 });
+            return Err(Refused {
+                bytes: src.len() as u64,
+            });
         }
-        Ok(ABytes { at: (ix as u64) << 48 | (c.tag() as u64) << 32 | off, len })
+        Ok(ABytes {
+            at: (ix as u64) << 48 | (c.tag() as u64) << 32 | off,
+            len,
+        })
     }
 
     /// The bytes `b` names (panics for a handle of another arena or of this one before a reset).
     pub fn read(&self, b: ABytes) -> &[u8] {
         let c = &*self.core;
-        let (ix, tag, off) = ((b.at >> 48) as usize, (b.at >> 32) as u16 as usize, (b.at & 0xffff_ffff) as usize);
+        let (ix, tag, off) = (
+            (b.at >> 48) as usize,
+            (b.at >> 32) as u16 as usize,
+            (b.at & 0xffff_ffff) as usize,
+        );
         if tag != c.tag() || ix >= c.n.get() {
             wrong_arena();
         }
@@ -520,7 +621,9 @@ impl OpArena {
 
     /// The allocator handle a map over this arena holds (a refcount: `reset` panics while one is live).
     fn handle(&self) -> ArenaAlloc {
-        ArenaAlloc { core: Rc::clone(&self.core) }
+        ArenaAlloc {
+            core: Rc::clone(&self.core),
+        }
     }
 
     #[inline]
@@ -565,12 +668,19 @@ impl<T: ForgetSafe> Default for AVec<T> {
 
 impl<T: ForgetSafe> AVec<T> {
     const SIZE: usize = {
-        assert!(core::mem::size_of::<T>() != 0, "an AVec of a zero-sized type");
+        assert!(
+            core::mem::size_of::<T>() != 0,
+            "an AVec of a zero-sized type"
+        );
         core::mem::size_of::<T>()
     };
 
     pub const fn new() -> AVec<T> {
-        AVec { ptr: NonNull::dangling(), len: 0, cap: 0 }
+        AVec {
+            ptr: NonNull::dangling(),
+            len: 0,
+            cap: 0,
+        }
     }
 
     pub fn with_capacity(a: &OpArena, n: usize) -> Result<AVec<T>, Refused> {
@@ -610,7 +720,10 @@ impl<T: ForgetSafe> AVec<T> {
 
     /// Room for `extra` more elements (growth: the arena's ownership checked, header included).
     pub fn reserve(&mut self, a: &OpArena, extra: usize) -> Result<(), Refused> {
-        let need = self.len.checked_add(extra).ok_or(Refused { bytes: u64::MAX })?;
+        let need = self
+            .len
+            .checked_add(extra)
+            .ok_or(Refused { bytes: u64::MAX })?;
         if need <= self.capacity() {
             self.owned(a, false);
             return Ok(());
@@ -623,7 +736,9 @@ impl<T: ForgetSafe> AVec<T> {
         self.owned(a, true);
         let old = self.capacity();
         let new = need.max(old.saturating_mul(2)).max(4);
-        let refused = Refused { bytes: (new as u64).saturating_mul(Self::SIZE as u64) };
+        let refused = Refused {
+            bytes: (new as u64).saturating_mul(Self::SIZE as u64),
+        };
         if new as u64 > CAP_MASK {
             return Err(refused);
         }
@@ -633,11 +748,17 @@ impl<T: ForgetSafe> AVec<T> {
             self.cap = new as u64 | (a.tag() as u64) << TAG_SHIFT;
             return Ok(());
         }
-        let p = c.alloc_tagged(bytes, core::mem::align_of::<T>())?.cast::<T>();
+        let p = c
+            .alloc_tagged(bytes, core::mem::align_of::<T>())?
+            .cast::<T>();
         if old != 0 {
             // SAFETY: `len` initialized elements at the old buffer, moved to the new one (disjoint: a fresh carve).
             unsafe { core::ptr::copy_nonoverlapping(self.ptr.as_ptr(), p.as_ptr(), self.len) };
-            c.free_tagged(self.ptr.cast(), old * Self::SIZE, core::mem::align_of::<T>());
+            c.free_tagged(
+                self.ptr.cast(),
+                old * Self::SIZE,
+                core::mem::align_of::<T>(),
+            );
         }
         self.ptr = p;
         self.cap = new as u64 | (a.tag() as u64) << TAG_SHIFT;
@@ -683,7 +804,9 @@ impl<T: ForgetSafe> AVec<T> {
         self.reserve(a, s.len())?;
         // SAFETY: room for `s.len()` more (reserved above); `s` is not this buffer (a shared borrow of it would hold `a`'s
         // slice, which needs `&self`, while this takes `&mut self`).
-        unsafe { core::ptr::copy_nonoverlapping(s.as_ptr(), self.ptr.as_ptr().add(self.len), s.len()) };
+        unsafe {
+            core::ptr::copy_nonoverlapping(s.as_ptr(), self.ptr.as_ptr().add(self.len), s.len())
+        };
         self.len += s.len();
         Ok(())
     }
@@ -728,7 +851,11 @@ impl<T: ForgetSafe> AVec<T> {
             return;
         }
         self.owned(a, true);
-        a.core.free_tagged(self.ptr.cast(), self.capacity() * Self::SIZE, core::mem::align_of::<T>());
+        a.core.free_tagged(
+            self.ptr.cast(),
+            self.capacity() * Self::SIZE,
+            core::mem::align_of::<T>(),
+        );
         *self = Self::new();
     }
 
@@ -753,7 +880,10 @@ unsafe impl Allocator for ArenaAlloc {
             let p = unsafe { NonNull::new_unchecked(layout.align() as *mut u8) };
             return Ok(NonNull::slice_from_raw_parts(p, 0));
         }
-        let p = self.core.alloc_tagged(layout.size(), layout.align()).map_err(|_| AllocError)?;
+        let p = self
+            .core
+            .alloc_tagged(layout.size(), layout.align())
+            .map_err(|_| AllocError)?;
         Ok(NonNull::slice_from_raw_parts(p, layout.size()))
     }
 
@@ -774,11 +904,15 @@ pub struct AMap<K: ForgetSafe, V: ForgetSafe, S = hashbrown::DefaultHashBuilder>
 
 impl<K: ForgetSafe + Eq + Hash, V: ForgetSafe, S: BuildHasher + Default> AMap<K, V, S> {
     pub fn new(a: &OpArena) -> Self {
-        AMap { map: hashbrown::HashMap::with_hasher_in(S::default(), a.handle()) }
+        AMap {
+            map: hashbrown::HashMap::with_hasher_in(S::default(), a.handle()),
+        }
     }
 
     pub fn try_reserve(&mut self, n: usize) -> Result<(), Refused> {
-        self.map.try_reserve(n).map_err(|_| Refused { bytes: n as u64 })
+        self.map
+            .try_reserve(n)
+            .map_err(|_| Refused { bytes: n as u64 })
     }
 
     /// `v` at `k` (the old value back), with room taken first: a refused growth inserts nothing.
@@ -791,7 +925,10 @@ impl<K: ForgetSafe + Eq + Hash, V: ForgetSafe, S: BuildHasher + Default> AMap<K,
         self.map.get(k)
     }
 
-    pub fn get_mut<Q: ?Sized + Hash + hashbrown::Equivalent<K>>(&mut self, k: &Q) -> Option<&mut V> {
+    pub fn get_mut<Q: ?Sized + Hash + hashbrown::Equivalent<K>>(
+        &mut self,
+        k: &Q,
+    ) -> Option<&mut V> {
         self.map.get_mut(k)
     }
 

@@ -7,7 +7,10 @@ pub(crate) fn road_off() -> Option<Option<String>> {
     if !guc_seams::get_config_option_missing_ok::is_installed() {
         return None;
     }
-    Some(guc_seams::get_config_option_missing_ok::call(crate::road_off::ROAD_OFF_GUC).unwrap_or_else(|e| std::panic::panic_any(e)))
+    Some(
+        guc_seams::get_config_option_missing_ok::call(crate::road_off::ROAD_OFF_GUC)
+            .unwrap_or_else(|e| std::panic::panic_any(e)),
+    )
 }
 
 /// `pgrust.gravity_front_check` (frame/program.rs `verify`): on, a lowering verifies its IR again even when the verified-IR
@@ -43,7 +46,9 @@ pub(crate) fn verify_always() -> bool {
     match guc_seams::get_config_option_missing_ok::call("pgrust.gravity_front_check") {
         Ok(v) => v.is_some_and(|v| {
             let t = v.trim();
-            ["on", "true", "1", "yes"].iter().any(|&k| t.eq_ignore_ascii_case(k))
+            ["on", "true", "1", "yes"]
+                .iter()
+                .any(|&k| t.eq_ignore_ascii_case(k))
         }),
         Err(_) => true,
     }

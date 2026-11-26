@@ -26,28 +26,33 @@ use std::rc::Rc;
 
 use gravity_abi::status::raise;
 use gravity_decompose::effects::{held_error, of_call, unobservable, Effects, Licence};
-use gravity_program::cost::expr::{EXTREME_PRIM_MIN, MAX_LIST, TEXT_SET_MIN};
 use gravity_expr::nodes::func::{ArgConv, How};
 use gravity_expr::nodes::var::Var;
 use gravity_expr::{Compiled, ExprNode, NodeId, Source as VarSource};
 use gravity_fn::{ArgKind, Shim};
 use gravity_ir::builder::FunctionBuilder;
-use gravity_lower::Place;
 use gravity_ir::{ConvOp, HostFlags, IntBinOp, IntCond, StateMask, Type, Value};
-use types_nodes::{Node, NodeTag};
+use gravity_lower::Place;
+use gravity_program::cost::expr::{EXTREME_PRIM_MIN, MAX_LIST, TEXT_SET_MIN};
 use mcx::{CollectIn, GrowIn, Mcx, PgVec};
+use types_nodes::{Node, NodeTag};
 
+use crate::admit::refusal::Reason;
 use crate::face::kinds::KindId;
 use crate::face::step::{Claim, ExprExtImpl, ExprExtMech, ExtPlan, SubEmit, EXT_AT};
 use crate::frame::env::Env;
 use crate::frame::px::{ExId, Px};
 use crate::frame::row::RowVals;
-use crate::admit::refusal::Reason;
 
-use crate::step::raw::saop_host::{fn2, native_keyed, saop_eval, saop_eval_keyed, Desc, Extreme, Hashed, FAILED, NULL, TRUE};
 use crate::rep::varlena::text_set;
+use crate::step::raw::saop_host::{
+    fn2, native_keyed, saop_eval, saop_eval_keyed, Desc, Extreme, Hashed, FAILED, NULL, TRUE,
+};
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { kinds: &[(KindId::ExprSaop, &ExprExtImpl(&SAOP))], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    kinds: &[(KindId::ExprSaop, &ExprExtImpl(&SAOP))],
+    ..crate::ops::NONE
+};
 
 struct Saop;
 static SAOP: Saop = Saop;
@@ -87,7 +92,11 @@ struct SetSite {
 /// A shim of `funcid` a pool worker may call with these argument forms (strict, no resolved types, a by-value result).
 fn strict_shim(px: &Px<'_, '_>, funcid: u32, nargs: u8) -> Option<&'static Shim> {
     let s = gravity_fn::shim_of(funcid)?;
-    (s.nargs == nargs && s.tyargs.is_empty() && !s.region && px.gx.catalog.func(funcid).ok()?.strict).then_some(s)
+    (s.nargs == nargs
+        && s.tyargs.is_empty()
+        && !s.region
+        && px.gx.catalog.func(funcid).ok()?.strict)
+        .then_some(s)
 }
 
 /// The claim for plan node `n` (a ScalarArrayOpExpr) compiled at program node `id`: `None` leaves it to gravity_expr.
@@ -96,26 +105,80 @@ fn strict_shim(px: &Px<'_, '_>, funcid: u32, nargs: u8) -> Option<&'static Shim>
 /// probe, saop_set `HELD`; `strict_shim` admits built-in shims only, so no user code, and `of_call` reads its acts;
 /// denied, the site keeps the linear form), a set of native keys, a byte set or an extreme calls nothing at bind
 /// (`effects::unobservable`), a user key's set none (built at its first probe).
-fn desc_of(px: &Px<'_, '_>, c: &Compiled<'_>, id: usize, n: Node<'_>) -> Option<(Desc, Option<Licence>)> {
+fn desc_of(
+    px: &Px<'_, '_>,
+    c: &Compiled<'_>,
+    id: usize,
+    n: Node<'_>,
+) -> Option<(Desc, Option<Licence>)> {
     let s = n.as_scalar_array_op_expr()?;
-    let ExprNode::ScalarArrayOp(op) = &c.prog.nodes[id] else { return None };
+    let ExprNode::ScalarArrayOp(op) = &c.prog.nodes[id] else {
+        return None;
+    };
     let call = &c.prog.sites[op.site.0 as usize];
     if !call.strict || call.nargs != 2 {
         return None;
     }
     let lhs_t = gravity_decompose::catalog::expr_type::result_type(s.args.nth(0));
-    let lens = [crate::rep::storage::of(px.gx.catalog, lhs_t).ok()?.len, op.elem.len];
+    let lens = [
+        crate::rep::storage::of(px.gx.catalog, lhs_t).ok()?.len,
+        op.elem.len,
+    ];
     let arr = &c.prog.nodes[c.prog.kids[call.args.start as usize + 1].0 as usize];
-    let How::Shim { shim, .. } = call.how else { return user_set(s, op, call, lhs_t, lens, arr).map(|d| (d, None)) };
+    let How::Shim { shim, .. } = call.how else {
+        return user_set(s, op, call, lhs_t, lens, arr).map(|d| (d, None));
+    };
     // LIST-FORM: a constant text list under a byte-equal collation is a byte set, PG's hashed one or not
     if let Some(trim) = list_form(&c.prog, c.root, NodeId(id as u32)) {
-        let hashed = Some(Hashed { eq: None, hash: None, bytes: true, images: false, extreme: None, trim });
-        return Some((Desc { use_or: op.use_or, coll: call.collation, op: Some(fn2(shim, lens)?), elem: op.elem, lens, hashed, user: 0, image_eq: 0, fp: 0 }.sealed(), unobservable(Effects::NONE)));
+        let hashed = Some(Hashed {
+            eq: None,
+            hash: None,
+            bytes: true,
+            images: false,
+            extreme: None,
+            trim,
+        });
+        return Some((
+            Desc {
+                use_or: op.use_or,
+                coll: call.collation,
+                op: Some(fn2(shim, lens)?),
+                elem: op.elem,
+                lens,
+                hashed,
+                user: 0,
+                image_eq: 0,
+                fp: 0,
+            }
+            .sealed(),
+            unobservable(Effects::NONE),
+        ));
     }
     // LIST-EXT: an ordering operator's constant list is its extreme element, found once a walk's worth of probes is spent
     if let Some(extreme) = extreme_of(px, c, id, n) {
-        let hashed = Some(Hashed { eq: None, hash: None, bytes: false, images: false, extreme: Some(extreme), trim: false });
-        return Some((Desc { use_or: op.use_or, coll: call.collation, op: Some(fn2(shim, lens)?), elem: op.elem, lens, hashed, user: 0, image_eq: 0, fp: 0 }.sealed(), unobservable(Effects::NONE)));
+        let hashed = Some(Hashed {
+            eq: None,
+            hash: None,
+            bytes: false,
+            images: false,
+            extreme: Some(extreme),
+            trim: false,
+        });
+        return Some((
+            Desc {
+                use_or: op.use_or,
+                coll: call.collation,
+                op: Some(fn2(shim, lens)?),
+                elem: op.elem,
+                lens,
+                hashed,
+                user: 0,
+                image_eq: 0,
+                fp: 0,
+            }
+            .sealed(),
+            unobservable(Effects::NONE),
+        ));
     }
     // PG hashed it: the literal-free set over the array's word, never read here (V4R-102); a hashable node whose shims
     // are missing takes the linear form over the word, as PG's would
@@ -126,19 +189,63 @@ fn desc_of(px: &Px<'_, '_>, c: &Compiled<'_>, id: usize, n: Node<'_>) -> Option<
             None
         } else {
             let h = strict_shim(px, s.hashfuncid, 1)?;
-            let conv = |l: i16| ArgConv { kind: h.args[0], typlen: if matches!(h.args[0], ArgKind::V | ArgKind::D) { 0 } else { l } };
+            let conv = |l: i16| ArgConv {
+                kind: h.args[0],
+                typlen: if matches!(h.args[0], ArgKind::V | ArgKind::D) {
+                    0
+                } else {
+                    l
+                },
+            };
             Some((h, [conv(lens[0]), conv(lens[1])]))
         };
-        let licence = if hash.is_some() { held_error(of_call(px.gx.facts, s.hashfuncid), false, None).ok()? } else { unobservable(Effects::NONE)? };
-        Some((Hashed { eq, hash, bytes: false, images: false, extreme: None, trim: false }, licence))
+        let licence = if hash.is_some() {
+            held_error(of_call(px.gx.facts, s.hashfuncid), false, None).ok()?
+        } else {
+            unobservable(Effects::NONE)?
+        };
+        Some((
+            Hashed {
+                eq,
+                hash,
+                bytes: false,
+                images: false,
+                extreme: None,
+                trim: false,
+            },
+            licence,
+        ))
     });
     let (hashed, licence) = hashed.flatten().unzip();
     // the type's own `=` (or its negator `<>`) over equal stored bytes, walked linearly: its images are compared, not its
     // shim called
     let own_image = || gravity_fn::typesem::expr::image_eq_len(lhs_t, call.funcid).unwrap_or(0);
-    let image_eq = if hashed.is_none() && lhs_t == op.elem.typ && !op.elem.byval && op.elem.len > 0 { own_image() } else { 0 };
-    let image_eq = if image_eq.abs() == op.elem.len { image_eq } else { 0 };
-    Some((Desc { use_or: op.use_or, coll: call.collation, op: Some(fn2(shim, lens)?), elem: op.elem, lens, hashed, user: 0, image_eq, fp: 0 }.sealed(), licence))
+    let image_eq = if hashed.is_none() && lhs_t == op.elem.typ && !op.elem.byval && op.elem.len > 0
+    {
+        own_image()
+    } else {
+        0
+    };
+    let image_eq = if image_eq.abs() == op.elem.len {
+        image_eq
+    } else {
+        0
+    };
+    Some((
+        Desc {
+            use_or: op.use_or,
+            coll: call.collation,
+            op: Some(fn2(shim, lens)?),
+            elem: op.elem,
+            lens,
+            hashed,
+            user: 0,
+            image_eq,
+            fp: 0,
+        }
+        .sealed(),
+        licence,
+    ))
 }
 
 /// D2125 (KeySem slice 5's piece, main 2026-10-04): a constant array PG hashed (`hashfuncid`) under an operator with no
@@ -149,14 +256,48 @@ fn desc_of(px: &Px<'_, '_>, c: &Compiled<'_>, id: usize, n: Node<'_>) -> Option<
 /// per row, the equality only on a hash match. typesem decides it (`hashed_user_key`, which also sends the pipeline to
 /// the leader: the procs are user code that reaches SPI). Any other shim-less node stays gravity_expr's (its unrolled
 /// compares).
-fn user_set(s: &types_nodes::primnodes::ScalarArrayOpExpr<'_>, op: &gravity_expr::nodes::op::ScalarArrayOp, call: &gravity_expr::nodes::func::Call, lhs_t: u32, lens: [i16; 2], arr: &ExprNode<'_>) -> Option<Desc> {
+fn user_set(
+    s: &types_nodes::primnodes::ScalarArrayOpExpr<'_>,
+    op: &gravity_expr::nodes::op::ScalarArrayOp,
+    call: &gravity_expr::nodes::func::Call,
+    lhs_t: u32,
+    lens: [i16; 2],
+    arr: &ExprNode<'_>,
+) -> Option<Desc> {
     if s.hashfuncid == 0 || !matches!(arr, ExprNode::Const(_)) || lhs_t != op.elem.typ {
         return None;
     }
     let eq_proc = if op.use_or { call.funcid } else { s.negfuncid };
-    let spec = gravity_fn::typesem::keysem::user::hashed_user_key(lhs_t, call.collation, eq_proc, s.hashfuncid).ok().flatten()?;
-    let hashed = Some(Hashed { eq: None, hash: None, bytes: false, images: false, extreme: None, trim: false });
-    Some(Desc { use_or: op.use_or, coll: call.collation, op: None, elem: op.elem, lens, hashed, user: spec, image_eq: 0, fp: 0 }.sealed())
+    let spec = gravity_fn::typesem::keysem::user::hashed_user_key(
+        lhs_t,
+        call.collation,
+        eq_proc,
+        s.hashfuncid,
+    )
+    .ok()
+    .flatten()?;
+    let hashed = Some(Hashed {
+        eq: None,
+        hash: None,
+        bytes: false,
+        images: false,
+        extreme: None,
+        trim: false,
+    });
+    Some(
+        Desc {
+            use_or: op.use_or,
+            coll: call.collation,
+            op: None,
+            elem: op.elem,
+            lens,
+            hashed,
+            user: spec,
+            image_eq: 0,
+            fp: 0,
+        }
+        .sealed(),
+    )
 }
 
 /// LIST-FORM (CAP-10 / STEP-14): whether the `= ANY` / `<> ALL` at `id` is a byte set's: texteq under ANY or textne
@@ -174,14 +315,22 @@ pub(crate) fn bytes_list(p: &gravity_expr::Program<'_>, root: NodeId, id: NodeId
 /// without their trailing blanks (bpchareq's bcTruelen on both sides; under a collation whose equality is byte equality
 /// what is left compares byte for byte, as bpchareq's memcmp). The road off, a bpchar list keeps gravity_expr's compares.
 pub(crate) fn list_form(p: &gravity_expr::Program<'_>, root: NodeId, id: NodeId) -> Option<bool> {
-    let ExprNode::ScalarArrayOp(s) = &p.nodes[id.0 as usize] else { return None };
+    let ExprNode::ScalarArrayOp(s) = &p.nodes[id.0 as usize] else {
+        return None;
+    };
     let call = &p.sites[s.site.0 as usize];
-    let ExprNode::Const(k) = &p.nodes[p.kids[call.args.start as usize + 1].0 as usize] else { return None };
+    let ExprNode::Const(k) = &p.nodes[p.kids[call.args.start as usize + 1].0 as usize] else {
+        return None;
+    };
     let lhs = p.kids[call.args.start as usize];
     let name = gravity_fn::row_of(call.funcid).map(|r| r.name);
     // D4794: bpchar's `=` / `<>` by catalog name over the column itself (no view: a view's text is text's), in an expression
     // whose comparisons road text.eq does not claim (cmp_text.rs `claims_some`: it would take them all hosted)
-    let bpchar = matches!((name, s.use_or), (Some("bpchareq"), true) | (Some("bpcharne"), false)) && stored(p, lhs) && text_set::bpchar_on()
+    let bpchar = matches!(
+        (name, s.use_or),
+        (Some("bpchareq"), true) | (Some("bpcharne"), false)
+    ) && stored(p, lhs)
+        && text_set::bpchar_on()
         && !crate::rep::varlena::cmp_text::claims_some(p, root);
     // road text.set: or a view of one (text_set.rs `is_view`: substring / rtrim1 of a column), read in place
     #[allow(clippy::nonminimal_bool)]
@@ -189,9 +338,18 @@ pub(crate) fn list_form(p: &gravity_expr::Program<'_>, root: NodeId, id: NodeId)
         return None;
     }
     // texteq / textne by catalog name: their inputs are text's bytes whatever the array's element type (varchar's, a domain's)
-    let sense = bpchar || matches!((name, s.use_or), (Some("texteq"), true) | (Some("textne"), false));
-    (sense && call.nargs == 2 && call.strict && s.elem.len == -1 && !s.elem.byval
-        && call.collation != 0 && gravity_fn::typesem::claims_coll_bytes(call.collation)
+    let sense = bpchar
+        || matches!(
+            (name, s.use_or),
+            (Some("texteq"), true) | (Some("textne"), false)
+        );
+    (sense
+        && call.nargs == 2
+        && call.strict
+        && s.elem.len == -1
+        && !s.elem.byval
+        && call.collation != 0
+        && gravity_fn::typesem::claims_coll_bytes(call.collation)
         && k.list_count(s.elem).is_some_and(|n| n >= text_set_min()))
     .then_some(bpchar)
 }
@@ -211,19 +369,35 @@ fn text_set_min() -> usize {
 /// and the server's widest width, `Facts::width`; `EXTREME_PRIM_MIN`, the rule of before, only for a table without them).
 fn extreme_of(px: &Px<'_, '_>, c: &Compiled<'_>, id: usize, n: Node<'_>) -> Option<Extreme> {
     let s = n.as_scalar_array_op_expr()?;
-    let ExprNode::ScalarArrayOp(op) = &c.prog.nodes[id] else { return None };
+    let ExprNode::ScalarArrayOp(op) = &c.prog.nodes[id] else {
+        return None;
+    };
     let call = &c.prog.sites[op.site.0 as usize];
-    let ExprNode::Const(k) = &c.prog.nodes[c.prog.kids[call.args.start as usize + 1].0 as usize] else { return None };
+    let ExprNode::Const(k) = &c.prog.nodes[c.prog.kids[call.args.start as usize + 1].0 as usize]
+    else {
+        return None;
+    };
     let count = k.list_count(op.elem)?;
     let prim = gravity_expr::emit::prim::is_prim(&c.prog, call, false);
-    let min = || gravity_program::cost::forms::extreme_prim_min(op.elem.typ, op.elem.len, px.gx.facts.width().unwrap_or(0)).unwrap_or(EXTREME_PRIM_MIN);
-    if !call.strict || call.nargs != 2 || count < 2 || (prim && count <= MAX_LIST && count < min()) {
+    let min = || {
+        gravity_program::cost::forms::extreme_prim_min(
+            op.elem.typ,
+            op.elem.len,
+            px.gx.facts.width().unwrap_or(0),
+        )
+        .unwrap_or(EXTREME_PRIM_MIN)
+    };
+    if !call.strict || call.nargs != 2 || count < 2 || (prim && count <= MAX_LIST && count < min())
+    {
         return None;
     }
     strict_shim(px, call.funcid, 2)?;
     let order = gravity_fn::typesem::expr::list_order(s.opno).ok()??;
     let less = fn2(strict_shim(px, order.less, 2)?, [op.elem.len, op.elem.len])?;
-    Some(Extreme { less, greatest: order.greatest == op.use_or })
+    Some(Extreme {
+        less,
+        greatest: order.greatest == op.use_or,
+    })
 }
 
 /// Node `id` reads a column's stored value: a Var of a user column (not a whole row, a system column or another claim's
@@ -244,7 +418,9 @@ fn stored(p: &gravity_expr::Program<'_>, id: NodeId) -> bool {
 /// `MAX_LIST` elements in line (PS4-08 / PS4-16: the generic `t IN ($1, $2)`, `k = ANY (ARRAY[g, g + 1])`, built per row
 /// by the host walk before), and road text.eq a text constant it claims.
 pub(crate) fn wants(p: &gravity_expr::Program<'_>, root: NodeId, id: NodeId, hashed: bool) -> bool {
-    let ExprNode::ScalarArrayOp(s) = &p.nodes[id.0 as usize] else { return false };
+    let ExprNode::ScalarArrayOp(s) = &p.nodes[id.0 as usize] else {
+        return false;
+    };
     if bytes_list(p, root, id) {
         return true;
     }
@@ -264,7 +440,8 @@ fn text_eq_keeps(p: &gravity_expr::Program<'_>, root: NodeId, id: NodeId, hashed
 
 /// Whether PG's plan hashed ScalarArrayOpExpr `n`.
 fn pg_hashed(n: Node<'_>) -> bool {
-    n.as_scalar_array_op_expr().is_some_and(|s| s.hashfuncid != 0)
+    n.as_scalar_array_op_expr()
+        .is_some_and(|s| s.hashfuncid != 0)
 }
 
 /// The plan's ScalarArrayOpExprs in walk order; `None` when one sits under another (the program's order would differ).
@@ -289,16 +466,34 @@ fn plan_saops<'p, 'g>(node: Node<'p>, mcx: Mcx<'g>) -> Option<PgVec<'g, Node<'p>
 
 impl ExprExtMech for Saop {
     /// Every long constant or non-constant `= ANY` / `ALL` of the expression, when none of its nodes is text.eq's.
-    fn attach<'p>(&self, px: &mut Px<'_, 'p>, _at: (usize, usize), node: Node<'p>, c: &mut Compiled<'p>, _ex: ExId, sub: &mut dyn FnMut(Node<'p>) -> u32) -> Option<Claim> {
+    fn attach<'p>(
+        &self,
+        px: &mut Px<'_, 'p>,
+        _at: (usize, usize),
+        node: Node<'p>,
+        c: &mut Compiled<'p>,
+        _ex: ExId,
+        sub: &mut dyn FnMut(Node<'p>) -> u32,
+    ) -> Option<Claim> {
         let mcx = px.mcx();
-        let ids: PgVec<'_, usize> = (0..c.prog.nodes.len()).filter(|&i| matches!(c.prog.nodes[i], ExprNode::ScalarArrayOp(_))).collect_in(mcx);
+        let ids: PgVec<'_, usize> = (0..c.prog.nodes.len())
+            .filter(|&i| matches!(c.prog.nodes[i], ExprNode::ScalarArrayOp(_)))
+            .collect_in(mcx);
         let plans = plan_saops(node, mcx)?;
-        if ids.is_empty() || ids.len() != plans.len() || ids.iter().zip(plans.iter()).any(|(&i, &n)| text_eq_keeps(&c.prog, c.root, NodeId(i as u32), pg_hashed(n))) {
+        if ids.is_empty()
+            || ids.len() != plans.len()
+            || ids
+                .iter()
+                .zip(plans.iter())
+                .any(|(&i, &n)| text_eq_keeps(&c.prog, c.root, NodeId(i as u32), pg_hashed(n)))
+        {
             return None;
         }
         let mut claimed = PgVec::new_in(mcx);
         for (&id, &n) in ids.iter().zip(plans.iter()) {
-            if !wants(&c.prog, c.root, NodeId(id as u32), pg_hashed(n)) && extreme_of(px, c, id, n).is_none() {
+            if !wants(&c.prog, c.root, NodeId(id as u32), pg_hashed(n))
+                && extreme_of(px, c, id, n).is_none()
+            {
                 continue;
             }
             if let Some((d, licence)) = desc_of(px, c, id, n) {
@@ -313,29 +508,57 @@ impl ExprExtMech for Saop {
             let s = n.as_scalar_array_op_expr()?;
             // road text.set: a byte set's operand read in line, a view's column its operand (its start / count operands
             // of their own, after it); the keyed count, read before the node is replaced
-            let call = &c.prog.sites[match &c.prog.nodes[id] { ExprNode::ScalarArrayOp(o) => o.site.0 as usize, _ => return None }];
-            let (lhs_id, arr_id) = (c.prog.kids[call.args.start as usize], c.prog.kids[call.args.start as usize + 1]);
-            let count = match &c.prog.nodes[arr_id.0 as usize] { ExprNode::Const(k) => k.list_count(d.elem).filter(|&n| n <= MAX_LIST), _ => None };
+            let call = &c.prog.sites[match &c.prog.nodes[id] {
+                ExprNode::ScalarArrayOp(o) => o.site.0 as usize,
+                _ => return None,
+            }];
+            let (lhs_id, arr_id) = (
+                c.prog.kids[call.args.start as usize],
+                c.prog.kids[call.args.start as usize + 1],
+            );
+            let count = match &c.prog.nodes[arr_id.0 as usize] {
+                ExprNode::Const(k) => k.list_count(d.elem).filter(|&n| n <= MAX_LIST),
+                _ => None,
+            };
             // D4794: a bpchar byte set's operand is its column, trimmed in line (text_set.rs `probe`) and in the view host
             let bpchar = d.hashed.as_ref().is_some_and(|h| h.trim);
             let view = match bpchar {
                 true => Some((s.args.nth(0), true, None)),
-                false => text_set::is_view(&c.prog, lhs_id).then(|| text_set::view_plan(s.args.nth(0))).flatten(),
+                false => text_set::is_view(&c.prog, lhs_id)
+                    .then(|| text_set::view_plan(s.args.nth(0)))
+                    .flatten(),
             };
             // a view whose plan side reads otherwise keeps the byte set over gravity_expr's operand
-            let set = d.hashed.as_ref().is_some_and(|h| h.bytes) && text_set::on() && (view.is_some() || !text_set::is_view(&c.prog, lhs_id));
+            let set = d.hashed.as_ref().is_some_and(|h| h.bytes)
+                && text_set::on()
+                && (view.is_some() || !text_set::is_view(&c.prog, lhs_id));
             let view = view.filter(|_| set);
             if let Some(h) = d.hashed.as_mut().filter(|_| set) {
                 // the bind lays the images out for this site alone (saop_bytes.rs `build_bytes`)
                 h.images = true;
                 d = d.sealed();
             }
-            c.prog.nodes[id] = ExprNode::Var(Var { src: VarSource::Scan, attno: EXT_AT + k as i16, typ: 16, desc: 0 });
+            c.prog.nodes[id] = ExprNode::Var(Var {
+                src: VarSource::Scan,
+                attno: EXT_AT + k as i16,
+                typ: 16,
+                desc: 0,
+            });
             let (lhs, desc) = (sub(view.map_or(s.args.nth(0), |v| v.0)), px.owned.len());
             let set = set.then(|| {
-                let substr = view.and_then(|v| v.2).map(|(st, n)| (sub(st), n.map(&mut *sub)));
+                let substr = view
+                    .and_then(|v| v.2)
+                    .map(|(st, n)| (sub(st), n.map(&mut *sub)));
                 fires::fire("text.set"); // textkeys witness signal: a byte set probed in line
-                SetSite { view: view.map(|v| text_set::SetView { trim: v.1, substr, bpchar }), n: count, use_or: d.use_or }
+                SetSite {
+                    view: view.map(|v| text_set::SetView {
+                        trim: v.1,
+                        substr,
+                        bpchar,
+                    }),
+                    n: count,
+                    use_or: d.use_or,
+                }
             });
             if bpchar {
                 fires::fire("text.set.bpchar"); // D4794 witness signal: a bpchar list's trimmed byte set (in line or hosted)
@@ -352,26 +575,64 @@ impl ExprExtMech for Saop {
                 ),
                 None => Arr::Sub(sub(s.args.nth(1))),
             };
-            sites.push(SitePlan { lhs, arr, desc, fp: d.fp, user: d.user != 0, set }); // alloc: Program
-            // D3438: shared, so a process-wide template holds the same descriptor
+            sites.push(SitePlan {
+                lhs,
+                arr,
+                desc,
+                fp: d.fp,
+                user: d.user != 0,
+                set,
+            }); // alloc: Program
+                // D3438: shared, so a process-wide template holds the same descriptor
             px.owned.push(Box::new(std::sync::Arc::new(d))); // alloc: Program
             skip.push(n.as_raw().as_ptr() as usize); // alloc: Program
         }
-        Some(Claim { plan: Rc::new(sites), skip })
+        Some(Claim {
+            plan: Rc::new(sites),
+            skip,
+        })
     }
 
     /// A hashed site's set, built once per execution at bind (V4R-122).
-    fn bind_set(&self, owner: Option<&dyn core::any::Any>, desc: u32, a: u64) -> Option<types_error::PgResult<gravity_driver::RegionBuf>> {
+    fn bind_set(
+        &self,
+        owner: Option<&dyn core::any::Any>,
+        desc: u32,
+        a: u64,
+    ) -> Option<types_error::PgResult<gravity_driver::RegionBuf>> {
         Some(crate::step::raw::saop_set::bound(owner, desc, a))
     }
 
-    fn emit(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, _row: &RowVals, ex: ExId, site: u32, sub: SubEmit<'_>) -> [Value; 3] {
-        let plan = ExtPlan::of(env.placed(ex)).and_then(|x| x.plan.downcast_ref::<Vec<SitePlan>>()).and_then(|v| v.get(site as usize)).map(|s| (s.lhs, s.arr, s.desc, s.fp, s.user, s.set));
-        let Some((lhs, arr, desc, fp, user, set)) = plan else { crate::refuse!(env.node, Reason::Bug { payload: "an expr.saop site without its plan" }) };
+    fn emit(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        _row: &RowVals,
+        ex: ExId,
+        site: u32,
+        sub: SubEmit<'_>,
+    ) -> [Value; 3] {
+        let plan = ExtPlan::of(env.placed(ex))
+            .and_then(|x| x.plan.downcast_ref::<Vec<SitePlan>>())
+            .and_then(|v| v.get(site as usize))
+            .map(|s| (s.lhs, s.arr, s.desc, s.fp, s.user, s.set));
+        let Some((lhs, arr, desc, fp, user, set)) = plan else {
+            crate::refuse!(
+                env.node,
+                Reason::Bug {
+                    payload: "an expr.saop site without its plan"
+                }
+            )
+        };
         let zero = env.zero;
         let [v, v_ok, v_err] = sub(b, env, lhs);
         let [a, a_ok, a_err] = match arr {
-            Arr::Sub(i) if crate::effects::visible::expr::volatile_sub(env, ex, i) && b.const_of(v_err).is_none_or(|(_, c)| c != 0) => after(b, env, v_err, &mut |b, env| sub(b, env, i)),
+            Arr::Sub(i)
+                if crate::effects::visible::expr::volatile_sub(env, ex, i)
+                    && b.const_of(v_err).is_none_or(|(_, c)| c != 0) =>
+            {
+                after(b, env, v_err, &mut |b, env| sub(b, env, i))
+            }
             Arr::Sub(i) => sub(b, env, i),
             // the set's word (a NULL array's: a null word)
             Arr::Set(Some(w), _) => {
@@ -379,7 +640,12 @@ impl ExprExtMech for Saop {
                 let ok = b.icmp(IntCond::Eq, nb, zero);
                 [b.load(Type::I64, env.params, w as i32 * 8), ok, zero]
             }
-            Arr::Set(None, _) => crate::refuse!(env.node, Reason::Shape { why: crate::admit::refusal::ShapeWhy("an IN list's set past the word budget") }),
+            Arr::Set(None, _) => crate::refuse!(
+                env.node,
+                Reason::Shape {
+                    why: crate::admit::refusal::ShapeWhy("an IN list's set past the word budget")
+                }
+            ),
         };
         let (v, a) = (word(b, v), word(b, a));
         // GV-D1: the scalar's raise before the array's (PG's order), never the lower code of the two
@@ -392,23 +658,74 @@ impl ExprExtMech for Saop {
         b.cond_br(raised, (l_join, &[skipped]), (l_call, &[]));
         b.switch_to(l_call);
         let host = |b: &mut FunctionBuilder<'_>, env: &mut Env| -> Value {
-            let flags = HostFlags { may_error: true, pure: false, touches_memory: true, worker: true, state: StateMask::NONE };
-            let h = (!user).then(|| b.declare_host_once("expr_saop::saop_eval", &[Type::Ptr, Type::I64, Type::I64, Type::I64, Type::I64, Type::I64], Some(Type::I64), saop_eval as *const () as usize, flags));
+            let flags = HostFlags {
+                may_error: true,
+                pure: false,
+                touches_memory: true,
+                worker: true,
+                state: StateMask::NONE,
+            };
+            let h = (!user).then(|| {
+                b.declare_host_once(
+                    "expr_saop::saop_eval",
+                    &[
+                        Type::Ptr,
+                        Type::I64,
+                        Type::I64,
+                        Type::I64,
+                        Type::I64,
+                        Type::I64,
+                    ],
+                    Some(Type::I64),
+                    saop_eval as *const () as usize,
+                    flags,
+                )
+            });
             // the Desc through the program's owner (V4R-101: no per-lowering address in the IR), which the host reads from
             // the ctx, whose owner a value's copy is charged to (CLASS E)
             let ctx = env.ctx;
-            let (d, fp) = (b.iconst(Type::I64, desc as i64), b.iconst(Type::I64, fp as i64));
+            let (d, fp) = (
+                b.iconst(Type::I64, desc as i64),
+                b.iconst(Type::I64, fp as i64),
+            );
             let (v_null, a_null) = (null_word(b, v_ok), null_word(b, a_ok));
             let a2 = b.int_bin(IntBinOp::Add, a_null, a_null);
             let nulls = b.int_bin(IntBinOp::Or, v_null, a2);
             match h {
-                Some(h) => b.call_host(h, &[ctx, d, v, a, nulls, fp], Some(Type::I64)).unwrap_or(zero),
+                Some(h) => b
+                    .call_host(h, &[ctx, d, v, a, nulls, fp], Some(Type::I64))
+                    .unwrap_or(zero),
                 // D4197: a user key's set and operand are classed in the run's classes (the leader's: no worker calls it)
                 None => {
-                    let Some(keys) = crate::frame::env::user_keys(b, env.ctx) else { crate::refuse!(env.node, Reason::Bug { payload: crate::frame::env::NO_USER_KEYS }) };
-                    let flags = HostFlags { worker: false, ..flags };
-                    let h = b.declare_host_once("expr_saop::saop_eval_keyed", &[Type::Ptr, Type::I64, Type::I64, Type::I64, Type::I64, Type::I64, Type::I64], Some(Type::I64), saop_eval_keyed as *const () as usize, flags);
-                    b.call_host(h, &[ctx, d, v, a, nulls, fp, keys], Some(Type::I64)).unwrap_or(zero)
+                    let Some(keys) = crate::frame::env::user_keys(b, env.ctx) else {
+                        crate::refuse!(
+                            env.node,
+                            Reason::Bug {
+                                payload: crate::frame::env::NO_USER_KEYS
+                            }
+                        )
+                    };
+                    let flags = HostFlags {
+                        worker: false,
+                        ..flags
+                    };
+                    let h = b.declare_host_once(
+                        "expr_saop::saop_eval_keyed",
+                        &[
+                            Type::Ptr,
+                            Type::I64,
+                            Type::I64,
+                            Type::I64,
+                            Type::I64,
+                            Type::I64,
+                            Type::I64,
+                        ],
+                        Some(Type::I64),
+                        saop_eval_keyed as *const () as usize,
+                        flags,
+                    );
+                    b.call_host(h, &[ctx, d, v, a, nulls, fp, keys], Some(Type::I64))
+                        .unwrap_or(zero)
                 }
             }
         };
@@ -422,15 +739,32 @@ impl ExprExtMech for Saop {
                 let null = b.iconst(Type::I64, NULL as i64);
                 b.br(l_join, &[null]);
                 b.switch_to(l_probe);
-                let mut int = |b: &mut FunctionBuilder<'_>, env: &mut Env, i: u32| { let [w, _, _] = sub(b, env, i); word(b, w) };
-                let words = ss.view.and_then(|vw| vw.substr).map(|(st, n)| (int(b, env, st), n.map(|n| int(b, env, n))));
+                let mut int = |b: &mut FunctionBuilder<'_>, env: &mut Env, i: u32| {
+                    let [w, _, _] = sub(b, env, i);
+                    word(b, w)
+                };
+                let words = ss
+                    .view
+                    .and_then(|vw| vw.substr)
+                    .map(|(st, n)| (int(b, env, st), n.map(|n| int(b, env, n))));
                 let view = ss.view.map(|vw| (vw.trim, words));
                 let form = text_set::form_word(ss.view, ss.use_or);
                 let mut cold = |b: &mut FunctionBuilder<'_>, env: &mut Env| match ss.view {
                     Some(_) => text_set::view_cold(b, env, v, v_ok, a, form, words),
                     None => host(b, env),
                 };
-                text_set::probe(b, env, a, v, v_ok, view, ss.view.is_some_and(|vw| vw.bpchar), ss.n, ss.use_or, &mut cold)
+                text_set::probe(
+                    b,
+                    env,
+                    a,
+                    v,
+                    v_ok,
+                    view,
+                    ss.view.is_some_and(|vw| vw.bpchar),
+                    ss.n,
+                    ss.use_or,
+                    &mut cold,
+                )
             }
             None => host(b, env),
         };
@@ -453,9 +787,17 @@ impl ExprExtMech for Saop {
 
 /// D946 (V4R-342): PG builds the array only after the scalar and never past its raise (`err`), so an array holding a
 /// VOLATILE call runs in its own block, entered where `err` is 0 (a NULL word with no raise past it; its memo its own).
-fn after(b: &mut FunctionBuilder<'_>, env: &mut Env, err: Value, sub: &mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env) -> [Value; 3]) -> [Value; 3] {
+fn after(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    err: Value,
+    sub: &mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env) -> [Value; 3],
+) -> [Value; 3] {
     let (zero, f) = (env.zero, b.bconst(false));
-    let (l_do, l_join) = (b.create_block(&[]), b.create_block(&[Type::I64, Type::Bool, Type::I64]));
+    let (l_do, l_join) = (
+        b.create_block(&[]),
+        b.create_block(&[Type::I64, Type::Bool, Type::I64]),
+    );
     let raised = b.icmp(IntCond::Ne, err, zero);
     b.cond_br(raised, (l_join, &[zero, f, zero]), (l_do, &[]));
     b.switch_to(l_do);
@@ -492,12 +834,12 @@ fn null_word(b: &mut FunctionBuilder<'_>, ok: Value) -> Value {
 #[cfg(test)]
 #[allow(unsafe_code)]
 mod tests {
-    use gravity_expr::nodes::func::{Call, How};
-    use gravity_fn::Datum;
     use gravity_expr::nodes::array::ElemFacts;
+    use gravity_expr::nodes::func::{Call, How};
     use gravity_expr::nodes::konst::ConstNode;
     use gravity_expr::nodes::op::ScalarArrayOp;
     use gravity_expr::{Kids, Program, SiteId};
+    use gravity_fn::Datum;
 
     use super::*;
 
@@ -520,17 +862,53 @@ mod tests {
         img.extend_from_slice(&1i32.to_le_bytes());
         img.extend_from_slice(&data);
         let mut w = vec![0u64; img.len().div_ceil(8)]; // alloc: Cold
-        unsafe { core::ptr::copy_nonoverlapping(img.as_ptr(), w.as_mut_ptr().cast::<u8>(), img.len()) };
+        unsafe {
+            core::ptr::copy_nonoverlapping(img.as_ptr(), w.as_mut_ptr().cast::<u8>(), img.len())
+        };
         w
     }
 
     /// `col = ANY (konst)` over column 2 of type `typ` with operator `funcid`.
     fn any<'a>(funcid: u32, typ: u32, konst: &'a [u64]) -> Program<'a> {
-        let k = ConstNode::new(gravity_fn::NullableDatum::value(Datum::from_usize(konst.as_ptr() as usize)), 1009, -1, false);
-        let call = Call { funcid, args: Kids { start: 0, len: 2 }, nargs: 2, strict: true, collation: 100, how: How::Fmgr(0), rettype: 16, volatile: false };
-        let op = ExprNode::ScalarArrayOp(ScalarArrayOp { site: SiteId(0), use_or: true, elem: ElemFacts { typ, len: -1, byval: false, align: b'i' as i8 } });
-        let v = ExprNode::Var(Var { src: VarSource::Scan, attno: 2, typ, desc: 0 });
-        { let mut p = Program::empty_in(crate::step::expr::test_lists()); p.nodes.extend_in([v, ExprNode::Const(k), op]); p.kids.extend_in([NodeId(0), NodeId(1)]); p.sites.extend_in([call]); p } // alloc: Cold
+        let k = ConstNode::new(
+            gravity_fn::NullableDatum::value(Datum::from_usize(konst.as_ptr() as usize)),
+            1009,
+            -1,
+            false,
+        );
+        let call = Call {
+            funcid,
+            args: Kids { start: 0, len: 2 },
+            nargs: 2,
+            strict: true,
+            collation: 100,
+            how: How::Fmgr(0),
+            rettype: 16,
+            volatile: false,
+        };
+        let op = ExprNode::ScalarArrayOp(ScalarArrayOp {
+            site: SiteId(0),
+            use_or: true,
+            elem: ElemFacts {
+                typ,
+                len: -1,
+                byval: false,
+                align: b'i' as i8,
+            },
+        });
+        let v = ExprNode::Var(Var {
+            src: VarSource::Scan,
+            attno: 2,
+            typ,
+            desc: 0,
+        });
+        {
+            let mut p = Program::empty_in(crate::step::expr::test_lists());
+            p.nodes.extend_in([v, ExprNode::Const(k), op]);
+            p.kids.extend_in([NodeId(0), NodeId(1)]);
+            p.sites.extend_in([call]);
+            p
+        } // alloc: Cold
     }
 
     /// Main 09-24: of text.eq and expr.saop exactly one takes a text / bpchar `= ANY` of a constant array; gravity_expr's
@@ -544,7 +922,10 @@ mod tests {
                 for hashed in [n >= 9, false] {
                     let img = text_array(typ, n);
                     let p = any(funcid, typ, &img);
-                    let (text, saop) = (text_eq_keeps(&p, NodeId(2), NodeId(2), hashed), wants(&p, NodeId(2), NodeId(2), hashed));
+                    let (text, saop) = (
+                        text_eq_keeps(&p, NodeId(2), NodeId(2), hashed),
+                        wants(&p, NodeId(2), NodeId(2), hashed),
+                    );
                     let want = match (typ, n) {
                         _ if hashed => (false, true),
                         // LIST-FORM: a text list of text_set_min() or more is the byte set's
@@ -553,7 +934,11 @@ mod tests {
                         (_, n) if n <= MAX_LIST => (false, false),
                         _ => (false, true),
                     };
-                    assert_eq!((text, saop), want, "funcid {funcid} over {n} elements, hashed {hashed}: (text.eq, expr.saop)");
+                    assert_eq!(
+                        (text, saop),
+                        want,
+                        "funcid {funcid} over {n} elements, hashed {hashed}: (text.eq, expr.saop)"
+                    );
                 }
             }
         }
@@ -567,7 +952,12 @@ mod tests {
         let mut p = any(67, 25, &img);
         assert!(bytes_list(&p, NodeId(2), NodeId(2)), "a column");
         for attno in [0, EXT_AT] {
-            p.nodes[0] = ExprNode::Var(Var { src: VarSource::Scan, attno, typ: 25, desc: 0 });
+            p.nodes[0] = ExprNode::Var(Var {
+                src: VarSource::Scan,
+                attno,
+                typ: 25,
+                desc: 0,
+            });
             assert!(!bytes_list(&p, NodeId(2), NodeId(2)), "attno {attno}");
         }
     }
@@ -578,10 +968,14 @@ mod tests {
         let img = text_array(25, 20);
         let p = any(67, 25, &img);
         let d = gravity_expr::bake::Scope::open();
-        let claimed = wants(&p, NodeId(2), NodeId(2), true) && !text_eq_keeps(&p, NodeId(2), NodeId(2), true);
+        let claimed =
+            wants(&p, NodeId(2), NodeId(2), true) && !text_eq_keeps(&p, NodeId(2), NodeId(2), true);
         let reads = d.reads();
         drop(d);
-        assert!(claimed && reads.is_empty(), "claimed {claimed}, reads {reads:?}");
+        assert!(
+            claimed && reads.is_empty(),
+            "claimed {claimed}, reads {reads:?}"
+        );
     }
 
     /// PS4-08 / PS4-16: an `= ANY (ARRAY[..])` of at most `MAX_LIST` elements in one dimension is gravity_expr's unrolled
@@ -592,29 +986,81 @@ mod tests {
         use gravity_expr::nodes::array::ArrayExpr;
         use gravity_expr::nodes::param::Param;
         use types_nodes::primnodes::ParamKind;
-        let int4 = ElemFacts { typ: 23, len: 4, byval: true, align: b'i' as i8 };
-        let param = |id: i32, typ: u32| ExprNode::Param(Param { kind: ParamKind::PARAM_EXTERN, id, typ });
+        let int4 = ElemFacts {
+            typ: 23,
+            len: 4,
+            byval: true,
+            align: b'i' as i8,
+        };
+        let param = |id: i32, typ: u32| {
+            ExprNode::Param(Param {
+                kind: ParamKind::PARAM_EXTERN,
+                id,
+                typ,
+            })
+        };
         // `col = ANY (ARRAY[$1, .., $n])` (or `= ANY ($1)` of an int4[] parameter, `param_array`)
         let prog = |n: u32, multidims: bool, param_array: bool| {
-            let mut nodes = vec![ExprNode::Var(Var { src: VarSource::Scan, attno: 1, typ: 23, desc: 0 })]; // alloc: Cold
+            let mut nodes = vec![ExprNode::Var(Var {
+                src: VarSource::Scan,
+                attno: 1,
+                typ: 23,
+                desc: 0,
+            })]; // alloc: Cold
             let mut kids = vec![NodeId(0)]; // alloc: Cold
             if param_array {
                 nodes.push(param(1, 1007));
                 kids.push(NodeId(1));
             } else {
                 nodes.extend((1..=n).map(|i| param(i as i32, 23)));
-                nodes.push(ExprNode::Array(ArrayExpr { elements: Kids { start: 2, len: n }, array_type: 1007, elem: int4, multidims, site: SiteId(1) }));
+                nodes.push(ExprNode::Array(ArrayExpr {
+                    elements: Kids { start: 2, len: n },
+                    array_type: 1007,
+                    elem: int4,
+                    multidims,
+                    site: SiteId(1),
+                }));
                 kids.push(NodeId(n + 1));
                 kids.extend((1..=n).map(NodeId));
             }
-            let call = Call { funcid: 65, args: Kids { start: 0, len: 2 }, nargs: 2, strict: true, collation: 0, how: How::Fmgr(0), rettype: 16, volatile: false };
-            nodes.push(ExprNode::ScalarArrayOp(ScalarArrayOp { site: SiteId(0), use_or: true, elem: int4 }));
-            { let mut p = Program::empty_in(crate::step::expr::test_lists()); p.nodes.extend_in(nodes); p.kids.extend_in(kids); p.sites.push_in(call); p } // alloc: Cold
+            let call = Call {
+                funcid: 65,
+                args: Kids { start: 0, len: 2 },
+                nargs: 2,
+                strict: true,
+                collation: 0,
+                how: How::Fmgr(0),
+                rettype: 16,
+                volatile: false,
+            };
+            nodes.push(ExprNode::ScalarArrayOp(ScalarArrayOp {
+                site: SiteId(0),
+                use_or: true,
+                elem: int4,
+            }));
+            {
+                let mut p = Program::empty_in(crate::step::expr::test_lists());
+                p.nodes.extend_in(nodes);
+                p.kids.extend_in(kids);
+                p.sites.push_in(call);
+                p
+            } // alloc: Cold
         };
-        for (n, multidims, param_array, want) in [(1u32, false, false, false), (3, false, false, false), (16, false, false, false), (17, false, false, true), (3, true, false, true), (0, false, true, true)] {
+        for (n, multidims, param_array, want) in [
+            (1u32, false, false, false),
+            (3, false, false, false),
+            (16, false, false, false),
+            (17, false, false, true),
+            (3, true, false, true),
+            (0, false, true, true),
+        ] {
             let p = prog(n, multidims, param_array);
             let at = NodeId(p.nodes.len() as u32 - 1);
-            assert_eq!(wants(&p, at, at, false), want, "{n} elements, multidims {multidims}, a parameter array {param_array}");
+            assert_eq!(
+                wants(&p, at, at, false),
+                want,
+                "{n} elements, multidims {multidims}, a parameter array {param_array}"
+            );
         }
     }
 
@@ -624,14 +1070,53 @@ mod tests {
         let mut img = vec![0u64; 5];
         let b = unsafe { core::slice::from_raw_parts_mut(img.as_mut_ptr().cast::<u8>(), 40) };
         #[allow(clippy::double_parens)]
-        let hdr: [i32; 6] = [((36 << 2)), 1, 0, 23, 3, 1];
-        hdr.iter().enumerate().for_each(|(i, x)| b[i * 4..i * 4 + 4].copy_from_slice(&x.to_le_bytes()));
-        [7i32, 8, 9].iter().enumerate().for_each(|(i, x)| b[24 + i * 4..28 + i * 4].copy_from_slice(&x.to_le_bytes()));
-        let k = ConstNode::new(gravity_fn::NullableDatum::value(Datum::from_usize(img.as_ptr() as usize)), 1007, -1, false);
-        let call = Call { funcid: 65, args: Kids { start: 0, len: 2 }, nargs: 2, strict: true, collation: 0, how: How::Fmgr(0), rettype: 16, volatile: false };
-        let op = ExprNode::ScalarArrayOp(ScalarArrayOp { site: SiteId(0), use_or: true, elem: ElemFacts { typ: 23, len: 4, byval: true, align: b'i' as i8 } });
-        let v = ExprNode::Var(Var { src: VarSource::Scan, attno: 1, typ: 23, desc: 0 });
-        let p = { let mut p = Program::empty_in(crate::step::expr::test_lists()); p.nodes.extend_in([v, ExprNode::Const(k), op]); p.kids.extend_in([NodeId(0), NodeId(1)]); p.sites.extend_in([call]); p }; // alloc: Cold
+        let hdr: [i32; 6] = [(36 << 2), 1, 0, 23, 3, 1];
+        hdr.iter()
+            .enumerate()
+            .for_each(|(i, x)| b[i * 4..i * 4 + 4].copy_from_slice(&x.to_le_bytes()));
+        [7i32, 8, 9]
+            .iter()
+            .enumerate()
+            .for_each(|(i, x)| b[24 + i * 4..28 + i * 4].copy_from_slice(&x.to_le_bytes()));
+        let k = ConstNode::new(
+            gravity_fn::NullableDatum::value(Datum::from_usize(img.as_ptr() as usize)),
+            1007,
+            -1,
+            false,
+        );
+        let call = Call {
+            funcid: 65,
+            args: Kids { start: 0, len: 2 },
+            nargs: 2,
+            strict: true,
+            collation: 0,
+            how: How::Fmgr(0),
+            rettype: 16,
+            volatile: false,
+        };
+        let op = ExprNode::ScalarArrayOp(ScalarArrayOp {
+            site: SiteId(0),
+            use_or: true,
+            elem: ElemFacts {
+                typ: 23,
+                len: 4,
+                byval: true,
+                align: b'i' as i8,
+            },
+        });
+        let v = ExprNode::Var(Var {
+            src: VarSource::Scan,
+            attno: 1,
+            typ: 23,
+            desc: 0,
+        });
+        let p = {
+            let mut p = Program::empty_in(crate::step::expr::test_lists());
+            p.nodes.extend_in([v, ExprNode::Const(k), op]);
+            p.kids.extend_in([NodeId(0), NodeId(1)]);
+            p.sites.extend_in([call]);
+            p
+        }; // alloc: Cold
         assert!(!wants(&p, NodeId(2), NodeId(2), false));
     }
 }

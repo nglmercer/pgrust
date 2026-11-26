@@ -399,10 +399,9 @@ fn gen_likeregex(g: &mut Gen) -> String {
     ]);
     if g.rng.chance(1, 4) {
         // Operator form: predicate over the whole document.
-        let pred = *g.rng.pick(&[
-            "$.s like_regex \"hello\"",
-            "$.name like_regex \"^post\"",
-        ]);
+        let pred = *g
+            .rng
+            .pick(&["$.s like_regex \"hello\"", "$.name like_regex \"^post\""]);
         format!("SELECT jsonb '{}' @@ '{}';", d, pred)
     } else {
         format!("SELECT jsonb_path_query_array(jsonb '{}', '{}');", d, p)
@@ -503,9 +502,15 @@ fn gen_mutidx(g: &mut Gen) -> Vec<StmtKind> {
         ("JSON_EXISTS(j, '$.c[*] ? (@ > 1)')", "e1 bool"),
         ("JSON_EXISTS(j, '$.** ? (@ starts with \"a\")')", "e2 bool"),
         ("JSON_EXISTS(j, '$.a ? (@ + 1 == 2)')", "e3 bool"),
-        ("JSON_EXISTS(j, '$.b ? (@ like_regex \"x\" flag \"i\")')", "e4 bool"),
+        (
+            "JSON_EXISTS(j, '$.b ? (@ like_regex \"x\" flag \"i\")')",
+            "e4 bool",
+        ),
         ("JSON_VALUE(j, '$.c[0]' RETURNING int)", "c0 int"),
-        ("JSON_VALUE(j, '$.a ? (@ > $x)' PASSING 0 AS x RETURNING int)", "vp int"),
+        (
+            "JSON_VALUE(j, '$.a ? (@ > $x)' PASSING 0 AS x RETURNING int)",
+            "vp int",
+        ),
     ];
     let mut out = vec![
         StmtKind::Raw("DROP TABLE IF EXISTS fz_jp_mut;".to_string()),
@@ -545,7 +550,8 @@ fn gen_mutidx(g: &mut Gen) -> Vec<StmtKind> {
     }
     // Deterministic probe then teardown.
     out.push(StmtKind::Raw(
-        "SELECT id, JSON_VALUE(j, '$.a' RETURNING int) AS a FROM fz_jp_mut ORDER BY id;".to_string(),
+        "SELECT id, JSON_VALUE(j, '$.a' RETURNING int) AS a FROM fz_jp_mut ORDER BY id;"
+            .to_string(),
     ));
     out.push(StmtKind::Raw("DROP TABLE fz_jp_mut;".to_string()));
     out
@@ -607,7 +613,10 @@ mod tests {
                 );
                 let low = sql.to_ascii_lowercase();
                 assert!(!low.contains("now("), "nondeterministic now(): {sql}");
-                assert!(!low.contains("current_"), "nondeterministic current_*: {sql}");
+                assert!(
+                    !low.contains("current_"),
+                    "nondeterministic current_*: {sql}"
+                );
                 assert!(!low.contains(".double("), ".double() float-text law: {sql}");
                 if low.contains("from fz_rich") {
                     assert!(low.contains("order by"), "unordered fz_rich rowset: {sql}");
@@ -649,7 +658,13 @@ mod tests {
                 let mut prods = Vec::new();
                 let mut g = Gen::new(&mut rng, &cat, &w, &mut prods, 4);
                 let stmts = gen_jsonpath_module(&mut g);
-                out.push(stmts.iter().map(|s| s.to_sql()).collect::<Vec<_>>().join("|"));
+                out.push(
+                    stmts
+                        .iter()
+                        .map(|s| s.to_sql())
+                        .collect::<Vec<_>>()
+                        .join("|"),
+                );
             }
             out
         };

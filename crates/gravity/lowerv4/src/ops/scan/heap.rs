@@ -15,29 +15,37 @@ use gravity_abi::site::site;
 use gravity_decompose::ops::shared::scan::{same_type_zone_op, zone_op};
 use gravity_decompose::{Am, Op, Source};
 use gravity_expr::emit::ParamNeed;
-use gravity_lower::Place;
 use gravity_ir::builder::{FunctionBuilder, ProgramBuilder};
 use gravity_ir::{Block, ConvOp, IntBinOp, IntCond, Type, Value};
-use gravity_program::protos::{Proto, ProtoKind, CMAX_AT, CMIN_AT, VERDICT_STREAM, XMAX_AT, XMIN_AT};
-use gravity_program::{End, ExprLife, ExprOut, LaneDesc, LaneId as SiteLane, OutCol, Parallel, Pipeline, Reason as Why, Rep, SiteDesc, SiteKind, ZoneOp};
+use gravity_lower::Place;
+use gravity_program::protos::{
+    Proto, ProtoKind, CMAX_AT, CMIN_AT, VERDICT_STREAM, XMAX_AT, XMIN_AT,
+};
+use gravity_program::{
+    End, ExprLife, ExprOut, LaneDesc, LaneId as SiteLane, OutCol, Parallel, Pipeline,
+    Reason as Why, Rep, SiteDesc, SiteKind, ZoneOp,
+};
 use mcx::{CollectIn, GrowIn, PgBox, PgVec};
 use types_core::catalog::OIDOID;
 use types_nodes::primnodes::ParamKind;
 use types_nodes::Node;
 
+use crate::admit::refusal::Reason;
 use crate::cell::{Cell, Nullable, TIDOID};
+use crate::face::end::TABLEOID_AT;
 use crate::face::kinds::KindId;
 use crate::face::source::{LaneForm, Locator, ReadForm, ReadPlan, SourceMech, WinConds};
 use crate::frame::env::Env;
 use crate::frame::frame::{SourceMaker, Win};
 use crate::frame::px::{Px, DRAFT_SITE};
 use crate::frame::row::{Carry, RowVals};
-use crate::face::end::TABLEOID_AT;
 use crate::frame::site::{Reader, CTID_AT};
-use crate::admit::refusal::Reason;
 use crate::ops::Table;
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::SrcHeap, &SourceMaker(make))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::SrcHeap, &SourceMaker(make))],
+    ..crate::ops::NONE
+};
 
 /// The heap site and its `ctid`: every by-value attribute lane read as the host's 8-byte datum word (v3 `site_of`); a scan
 /// reading no column publishes no attribute lane (the host's count-only recipe, M2-inventory P5). The rowid lane (always last) is not the host's:
@@ -58,7 +66,12 @@ pub(crate) fn site_of(px: &Px<'_, '_>, d: &SiteDesc, node: i32) -> (SiteDesc, Op
     add_sys_lanes(px, &mut s, node);
     let off = s.lanes().iter().position(|l| l.id == SiteLane::Offset);
     if rowid && off.is_none() {
-        crate::refuse!(node, Reason::Bug { payload: "a heap site reading ctid without its offset lane" });
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a heap site reading ctid without its offset lane"
+            }
+        );
     }
     (s, off, rowid)
 }
@@ -70,12 +83,30 @@ pub(crate) fn site_of(px: &Px<'_, '_>, d: &SiteDesc, node: i32) -> (SiteDesc, Op
 /// page window fills them (hosts heap_window.rs), an index, bitmap or tid site's fetched row (hosts heap_fetch.rs
 /// `project`, D2665).
 pub(crate) fn add_sys_lanes(px: &Px<'_, '_>, s: &mut SiteDesc, node: i32) {
-    let Some(sl) = px.gx.graph.scan_lanes.iter().find(|l| l.node_id == node) else { return };
-    let want: PgVec<'_, i16> = [("xmin", XMIN_AT), ("cmin", CMIN_AT), ("xmax", XMAX_AT), ("cmax", CMAX_AT)].into_iter().filter(|(n, _)| sl.names().any(|x| x == *n)).map(|(_, a)| a).collect_in(px.mcx());
+    let Some(sl) = px.gx.graph.scan_lanes.iter().find(|l| l.node_id == node) else {
+        return;
+    };
+    let want: PgVec<'_, i16> = [
+        ("xmin", XMIN_AT),
+        ("cmin", CMIN_AT),
+        ("xmax", XMAX_AT),
+        ("cmax", CMAX_AT),
+    ]
+    .into_iter()
+    .filter(|(n, _)| sl.names().any(|x| x == *n))
+    .map(|(_, a)| a)
+    .collect_in(px.mcx());
     if want.is_empty() {
         return;
     }
-    let (SiteKind::RangeSource { natts, .. } | SiteKind::IndexSource { natts, .. }) = s.kind else { crate::refuse!(node, Reason::Bug { payload: "system lanes on a heap site of another kind" }) };
+    let (SiteKind::RangeSource { natts, .. } | SiteKind::IndexSource { natts, .. }) = s.kind else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "system lanes on a heap site of another kind"
+            }
+        )
+    };
     // the lanes after the attributes (the offset lane) move behind the system lanes, their driving bits with them
     let n = natts as usize;
     let mut tail = PgVec::new_in(px.mcx());
@@ -91,8 +122,24 @@ pub(crate) fn add_sys_lanes(px: &Px<'_, '_>, s: &mut SiteDesc, node: i32) {
     }
     let wide = natts + want.len() as u16;
     s.kind = match s.kind {
-        SiteKind::IndexSource { nkeys, worker, leaves, ranges, .. } => SiteKind::IndexSource { natts: wide, nkeys, worker, leaves, ranges },
-        SiteKind::RangeSource { nkeys, zkeys, .. } => SiteKind::RangeSource { natts: wide, nkeys, zkeys },
+        SiteKind::IndexSource {
+            nkeys,
+            worker,
+            leaves,
+            ranges,
+            ..
+        } => SiteKind::IndexSource {
+            natts: wide,
+            nkeys,
+            worker,
+            leaves,
+            ranges,
+        },
+        SiteKind::RangeSource { nkeys, zkeys, .. } => SiteKind::RangeSource {
+            natts: wide,
+            nkeys,
+            zkeys,
+        },
         k => k,
     };
     for (l, driving) in tail.into_iter().rev() {
@@ -108,27 +155,55 @@ pub(crate) fn pipeline_desc(px: &Px<'_, '_>, k: usize) -> Pipeline {
     let d = p.desc;
     let limit = crate::frame::iface::holds_limit(&p.ops);
     if limit && crate::frame::iface::breaker_of(&d).is_none() {
-        return Pipeline { consumes: d.consumes, ..Pipeline::serial(d.driving_site, End::Sink, Why::Sink) };
+        return Pipeline {
+            consumes: d.consumes,
+            ..Pipeline::serial(d.driving_site, End::Sink, Why::Sink)
+        };
     }
     if limit {
-        return Pipeline { parallel: Parallel::Ineligible { site: d.driving_site, reason: Why::Sink }, ..d };
+        return Pipeline {
+            parallel: Parallel::Ineligible {
+                site: d.driving_site,
+                reason: Why::Sink,
+            },
+            ..d
+        };
     }
     match crate::hir::hosted_serial(px, k) {
-        Some(reason) => Pipeline { parallel: Parallel::Ineligible { site: d.driving_site, reason }, ..d },
+        Some(reason) => Pipeline {
+            parallel: Parallel::Ineligible {
+                site: d.driving_site,
+                reason,
+            },
+            ..d
+        },
         None => d,
     }
 }
 
 /// heap.stream (H03a) when its road is on: the host applies PostgreSQL's read-stream rule (readplan_heap.rs).
 pub(crate) fn read_plan() -> ReadPlan {
-    if ReadForm::Stream.on() { ReadPlan::PLAIN.with(ReadForm::Stream) } else { ReadPlan::PLAIN }
+    if ReadForm::Stream.on() {
+        ReadPlan::PLAIN.with(ReadForm::Stream)
+    } else {
+        ReadPlan::PLAIN
+    }
 }
 
 /// heap.stream's switch (Decision 15, V4R-32): the site's `src.verdicts` enables word carries `VERDICT_STREAM` when the
 /// road is on; the host applies PostgreSQL's rule itself (hosts v4/m2_heap.rs `ReadAhead`).
 fn declare_stream(px: &mut Px<'_, '_>, k: usize) {
-    let on = if ReadForm::Stream.on() { VERDICT_STREAM } else { 0 };
-    px.declare_proto(Proto::new(ProtoKind::Verdicts, k as u16).site(DRAFT_SITE).slot(0).arg(on));
+    let on = if ReadForm::Stream.on() {
+        VERDICT_STREAM
+    } else {
+        0
+    };
+    px.declare_proto(
+        Proto::new(ProtoKind::Verdicts, k as u16)
+            .site(DRAFT_SITE)
+            .slot(0)
+            .arg(on),
+    );
 }
 
 /// The ItemPointerData image `(bi_hi, bi_lo, ip_posid)` of `(block, off)` in a row-lived slot, as the `tid` cell's value
@@ -148,48 +223,85 @@ pub(crate) fn tid_image(b: &mut FunctionBuilder<'_>, block: Value, off: Value) -
 /// D3681: a relation-set site's row's own relation, the member its walk is in: the window's position's relation
 /// (`POS_REL`, hosts heap_source.rs `enter`), an `I32`.
 pub(crate) fn set_rel(b: &mut FunctionBuilder<'_>, env: &Env, site: usize) -> Value {
-    b.load(Type::I32, env.ctx, site_off(site) as i32 + site::POS_REL as i32)
+    b.load(
+        Type::I32,
+        env.ctx,
+        site_off(site) as i32 + site::POS_REL as i32,
+    )
 }
 
 /// D3681: whether pipeline `k`'s source, relation-set site `s`, reads `tableoid` (decompose `scan_lanes` of its first
 /// scan): each row's is its own relation's (`push_tableoid`), never the first relation's constant.
 pub(crate) fn set_tableoid(px: &Px<'_, '_>, k: usize, s: &SiteDesc) -> bool {
     let node = px.gx.pipelines()[k].node_id;
-    s.set.len() > 1 && px.gx.graph.scan_lanes.iter().any(|l| l.node_id == node && l.names().any(|n| n == "tableoid"))
+    s.set.len() > 1
+        && px
+            .gx
+            .graph
+            .scan_lanes
+            .iter()
+            .any(|l| l.node_id == node && l.names().any(|n| n == "tableoid"))
 }
 
 /// D3681: the `tableoid` cell (column `TABLEOID_AT`, step/expr.rs `compile_parts`) appended to `row`: `rel` (`set_rel`),
 /// the row's own relation's OID.
 pub(crate) fn push_tableoid(b: &mut FunctionBuilder<'_>, row: &mut RowVals, rel: Value) {
-    let out = ExprOut { rep: Rep::of_storage(4, true), typid: OIDOID, life: ExprLife::Row };
+    let out = ExprOut {
+        rep: Rep::of_storage(4, true),
+        typid: OIDOID,
+        life: ExprLife::Row,
+    };
     let n = row.row.cells.len() as u16;
     let at = TABLEOID_AT as usize - 1;
     if row.cols.len() <= at {
         row.cols.resize_in(at + 1, None);
     }
     row.cols[at] = Some(n);
-    row.row.cells.push_in(Cell::of_expr(out, n, 0, Nullable::Never));
-    row.vals.push_in((b.conv(ConvOp::Zext, Type::I64, rel), None));
+    row.row
+        .cells
+        .push_in(Cell::of_expr(out, n, 0, Nullable::Never));
+    row.vals
+        .push_in((b.conv(ConvOp::Zext, Type::I64, rel), None));
 }
 
 /// The `tid` cell column `CTID_AT` names, appended to `row`.
 pub(crate) fn push_ctid(row: &mut RowVals, img: Value) {
-    let out = ExprOut { rep: OutCol::new("", TIDOID, -1, 6, false).rep, typid: TIDOID, life: ExprLife::Row };
+    let out = ExprOut {
+        rep: OutCol::new("", TIDOID, -1, 6, false).rep,
+        typid: TIDOID,
+        life: ExprLife::Row,
+    };
     let n = row.row.cells.len() as u16;
     if let Some(c) = row.cols.get_mut(CTID_AT as usize - 1) {
         *c = Some(n);
     }
-    row.row.cells.push_in(Cell::of_expr(out, n, 0, Nullable::Never));
+    row.row
+        .cells
+        .push_in(Cell::of_expr(out, n, 0, Nullable::Never));
     row.vals.push_in((img, None));
 }
 
 fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
     let p = &px.gx.pipelines()[k];
     let node = p.node_id;
-    let Source::Range { site, am: Am::Heap, relid, scanrelid } = &p.source else { crate::refuse!(node, Reason::Bug { payload: "a heap entry over another source" }) };
+    let Source::Range {
+        site,
+        am: Am::Heap,
+        relid,
+        scanrelid,
+    } = &p.source
+    else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a heap entry over another source"
+            }
+        )
+    };
     // a wide top's fetch form (road topk.fetch) reads its winners' other columns by TID: the scan reads the keys alone
     // (D3585: never a relation set's, whose TIDs are each relation's own: `fetch::of`).
-    let narrowed = if site.rows_via_am { // PGRCSERVE G4: the AM's rows keep every lane, never walk pages (am_rows.rs)
+    let narrowed = if site.rows_via_am {
+        // PGRCSERVE G4: the AM's rows keep every lane, never walk pages (am_rows.rs)
         fires::fire("rows.road");
         site.copy_in(px.arena)
     } else if site.set.is_empty() {
@@ -211,7 +323,9 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
     }
     declare_stream(px, k);
     if LaneForm::HeapPages.on() && !site.rows_via_am {
-        if let Some(m) = crate::ops::scan::strategies::heap_pages::make(px, k, &s, *relid, off, ctid) {
+        if let Some(m) =
+            crate::ops::scan::strategies::heap_pages::make(px, k, &s, *relid, off, ctid)
+        {
             return m;
         }
     }
@@ -228,7 +342,9 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
 /// is IMMUTABLE and LEAKPROOF (`effects::am_pushable`) and reads no collation: the AM drops a row before any other
 /// conjunct sees it, so the comparison raises nothing on any row, and no text reaches the AM.
 pub fn rows_zone_form<'p>(q: Node<'p>, varno: i32) -> Option<(i16, ZoneOp, Node<'p>)> {
-    let o = q.as_op_expr().filter(|o| o.args.len() == 2 && o.inputcollid == 0)?;
+    let o = q
+        .as_op_expr()
+        .filter(|o| o.args.len() == 2 && o.inputcollid == 0)?;
     if !gravity_decompose::effects::am_pushable(o.opno, o.opfuncid) {
         return None;
     }
@@ -237,7 +353,9 @@ pub fn rows_zone_form<'p>(q: Node<'p>, varno: i32) -> Option<(i16, ZoneOp, Node<
             Some(f) if f.args.len() == 1 && types_core::quiet::int_widen(f.funcid) => f.args.nth(0),
             _ => n,
         };
-        n.as_var().filter(|v| v.varno == varno && v.varlevelsup == 0 && v.varattno > 0).map(|v| v.varattno)
+        n.as_var()
+            .filter(|v| v.varno == varno && v.varlevelsup == 0 && v.varattno > 0)
+            .map(|v| v.varattno)
     };
     let (a0, a1) = (o.args.nth(0), o.args.nth(1));
     let (attno, other, flipped) = match (col(a0), col(a1)) {
@@ -245,7 +363,11 @@ pub fn rows_zone_form<'p>(q: Node<'p>, varno: i32) -> Option<(i16, ZoneOp, Node<
         (None, Some(a)) => (a, a0, true),
         _ => return None,
     };
-    let bool_op = || same_type_zone_op(o.opno).filter(|&(_, t)| t == types_core::BOOLOID).map(|(op, _)| op);
+    let bool_op = || {
+        same_type_zone_op(o.opno)
+            .filter(|&(_, t)| t == types_core::BOOLOID)
+            .map(|(op, _)| op)
+    };
     let op = match (zone_op(o.opno).or_else(bool_op)?, flipped) {
         (ZoneOp::Lt, true) => ZoneOp::Gt,
         (ZoneOp::Le, true) => ZoneOp::Ge,
@@ -281,24 +403,62 @@ fn rows_params(px: &mut Px<'_, '_>, k: usize, node: i32, varno: i32) -> Vec<(i64
     let mut out = Vec::new(); // alloc: Program
     for j in 0..p.ops.len() {
         let Op::Filter(f) = p.ops[j] else { break };
-        if p.node_ops.iter().rev().find(|n| n.first_op as usize <= j).map_or(p.node_id, |n| n.node_id) != node {
+        if p.node_ops
+            .iter()
+            .rev()
+            .find(|n| n.first_op as usize <= j)
+            .map_or(p.node_id, |n| n.node_id)
+            != node
+        {
             break;
         }
         let qs = crate::step::expr::quals(px, k, j);
-        for (i, n) in f.as_list().map_or_else(|| vec![f], |l| l.iter().collect()).into_iter().enumerate() { // alloc: Program
-            let Some((attno, op, prm)) = rows_zone_form(n, varno).and_then(|(a, op, c)| Some((a, op, c.as_param()?))) else { continue };
-            let Some(tf) = crate::rep::storage::of(gx.catalog, prm.paramtype).ok().filter(|t| t.byval && [1, 2, 4, 8].contains(&t.len)) else { continue };
-            let word = |q| px.placed(q).needs.iter().zip(px.placed(q).places.iter()).find_map(|(need, place)| match (need, place) {
-                (ParamNeed::Extern { id, .. }, Place::Word(w)) if *id == prm.paramid => Some(*w),
-                _ => None,
-            });
-            let exec = matches!(crate::rerun::params::producer(gx, prm.paramid), Some(KindId::NestParam | KindId::NestSubplan)) && crate::rerun::params::set_before_open(gx, prm.paramid);
+        for (i, n) in f
+            .as_list()
+            .map_or_else(|| vec![f], |l| l.iter().collect())
+            .into_iter()
+            .enumerate()
+        {
+            // alloc: Program
+            let Some((attno, op, prm)) =
+                rows_zone_form(n, varno).and_then(|(a, op, c)| Some((a, op, c.as_param()?)))
+            else {
+                continue;
+            };
+            let Some(tf) = crate::rep::storage::of(gx.catalog, prm.paramtype)
+                .ok()
+                .filter(|t| t.byval && [1, 2, 4, 8].contains(&t.len))
+            else {
+                continue;
+            };
+            let word = |q| {
+                px.placed(q)
+                    .needs
+                    .iter()
+                    .zip(px.placed(q).places.iter())
+                    .find_map(|(need, place)| match (need, place) {
+                        (ParamNeed::Extern { id, .. }, Place::Word(w)) if *id == prm.paramid => {
+                            Some(*w)
+                        }
+                        _ => None,
+                    })
+            };
+            let exec = matches!(
+                crate::rerun::params::producer(gx, prm.paramid),
+                Some(KindId::NestParam | KindId::NestSubplan)
+            ) && crate::rerun::params::set_before_open(gx, prm.paramid);
             let from = match prm.paramkind {
-                ParamKind::PARAM_EXTERN => qs.get(i).and_then(|&q| word(q)).map_or(RowsParam::Unset, RowsParam::Word),
+                ParamKind::PARAM_EXTERN => qs
+                    .get(i)
+                    .and_then(|&q| word(q))
+                    .map_or(RowsParam::Unset, RowsParam::Word),
                 ParamKind::PARAM_EXEC if exec => RowsParam::Exec(prm.paramid),
                 _ => RowsParam::Unset,
             };
-            out.push((rows_param_desc(attno as u16, op, tf.len as u8, prm.paramtype), from)); // alloc: Program
+            out.push((
+                rows_param_desc(attno as u16, op, tf.len as u8, prm.paramtype),
+                from,
+            )); // alloc: Program
         }
     }
     out
@@ -306,7 +466,12 @@ fn rows_params(px: &mut Px<'_, '_>, k: usize, node: i32, varno: i32) -> Vec<(i64
 
 /// PSZP: each rows-road param cell pair at the open, before the seek reads them: the descriptor, then the value with its
 /// NULL byte (an unset or NULL parameter's is NULL: the host pushes nothing for it).
-fn rows_param_keys(b: &mut FunctionBuilder<'_>, env: &mut Env, k: usize, cells: &[(u16, i64, RowsParam)]) {
+fn rows_param_keys(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    k: usize,
+    cells: &[(u16, i64, RowsParam)],
+) {
     let s = site_off(k) as i32;
     let keys = b.load(Type::Ptr, env.ctx, s + site::KEYS as i32);
     let keys_null = b.load(Type::Ptr, env.ctx, s + site::KEYS_NULL as i32);
@@ -317,7 +482,10 @@ fn rows_param_keys(b: &mut FunctionBuilder<'_>, env: &mut Env, k: usize, cells: 
         b.store(keys, at * 8, d);
         b.store(keys_null, at, no);
         let (v, isnull) = match from {
-            RowsParam::Word(w) => (b.load(Type::I64, env.params, w as i32 * 8), b.load(Type::I8, env.params_null, w as i32)),
+            RowsParam::Word(w) => (
+                b.load(Type::I64, env.params, w as i32 * 8),
+                b.load(Type::I8, env.params_null, w as i32),
+            ),
             RowsParam::Exec(id) => {
                 let (v, null) = crate::rerun::params::load(b, env, env.node, id);
                 let set = crate::rerun::params::is_set(b, env, env.node, id);
@@ -336,7 +504,13 @@ fn rows_param_keys(b: &mut FunctionBuilder<'_>, env: &mut Env, k: usize, cells: 
 /// The bitmap heap scan's morsel form (bitmap.rs `make_morsel`) as this file's host-deformed heap range walk over
 /// site `s` (the decomposer's range site, its `param_slots` the bitmap keys' words exec's claims read): the claim's
 /// `[lo, hi)` seeks the host's frozen bitmap entries (hosts bitmap_morsel.rs), never the raw page road.
-pub(crate) fn make_over<'g>(px: &mut Px<'g, '_>, k: usize, s: SiteDesc, relid: u32, node: i32) -> PgBox<'g, dyn SourceMech + 'g> {
+pub(crate) fn make_over<'g>(
+    px: &mut Px<'g, '_>,
+    k: usize,
+    s: SiteDesc,
+    relid: u32,
+    node: i32,
+) -> PgBox<'g, dyn SourceMech + 'g> {
     let (s, off, ctid) = site_of(px, &s, node);
     declare_stream(px, k);
     let rd = Reader::new(px, &s, relid, node, None, ctid.then_some(CTID_AT));
@@ -362,7 +536,11 @@ impl HeapMech<'_> {
         let off = self.off?;
         let s = site_off(self.rd.k(env)) as i32;
         let block = b.load(Type::I32, env.ctx, s + site::POS_BLOCK as i32);
-        let offs = b.load(Type::Ptr, self.rd.vals().lane_arr, (off * lane::SIZE + lane::PTR) as i32);
+        let offs = b.load(
+            Type::Ptr,
+            self.rd.vals().lane_arr,
+            (off * lane::SIZE + lane::PTR) as i32,
+        );
         let at = b.ptr_add(offs, i, 2, 0);
         Some((block, b.load(Type::I16, at, 0)))
     }
@@ -397,10 +575,26 @@ impl SourceMech for HeapMech<'_> {
     fn next_window(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, l_eof: Block) -> Win {
         let (cursor, end) = self.rd.window(b, env, l_eof);
         let w = self.rd.vals();
-        Win { cursor, end, facts: WinConds { nonulls: self.rd.nonulls(b), nosel: Some(w.sel_null), ..WinConds::default() } }
+        Win {
+            cursor,
+            end,
+            facts: WinConds {
+                nonulls: self.rd.nonulls(b),
+                nosel: Some(w.sel_null),
+                ..WinConds::default()
+            },
+        }
     }
 
-    fn row<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e> {
+    fn row<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+        j: Value,
+        carry: Carry<'e>,
+        next: Value,
+    ) -> RowVals<'e> {
         let mut row = self.rd.row(b, env, j, carry, next);
         if self.ctid {
             let i = self.rd.row_index(b, env, j);
@@ -418,11 +612,21 @@ impl SourceMech for HeapMech<'_> {
 
     /// H28: the row's `(block, offset)`; the pinned buffer is not published (`pinned = None`). D3681: a relation set's
     /// row's own relation (`set_rel`).
-    fn locator(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals) -> Option<Locator> {
+    fn locator(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        row: &RowVals,
+    ) -> Option<Locator> {
         let i = self.rd.row_index(b, env, row.at);
         let (block, off) = self.tid(b, env, i)?;
         let rel = self.set.then(|| set_rel(b, env, self.rd.k(env)));
-        Some(Locator { block: b.conv(ConvOp::Zext, Type::I64, block), offset: b.conv(ConvOp::Zext, Type::I64, off), pinned: None, rel })
+        Some(Locator {
+            block: b.conv(ConvOp::Zext, Type::I64, block),
+            offset: b.conv(ConvOp::Zext, Type::I64, off),
+            pinned: None,
+            rel,
+        })
     }
 }
 
@@ -492,7 +696,13 @@ pub(crate) fn load_word(b: &mut FunctionBuilder<'_>, p: Value, w: u8) -> Value {
 /// `VARSIZE_ANY` by the header's form (1-byte `len << 1 | 1`, external `0x01` + tag: 18 bytes on disk, 10 in memory, 4-byte
 /// `len << 2`). `present`: `(present, tup)` reads the tuple header (a valid address) for an absent attribute. Returns
 /// `(offset past, header address)`.
-pub(crate) fn step_varlena(b: &mut FunctionBuilder<'_>, data: Value, off: Off, align: u8, present: Option<(Value, Value)>) -> (Value, Value) {
+pub(crate) fn step_varlena(
+    b: &mut FunctionBuilder<'_>,
+    data: Value,
+    off: Off,
+    align: u8,
+    present: Option<(Value, Value)>,
+) -> (Value, Value) {
     let zero = b.iconst(Type::I64, 0);
     let one = b.iconst(Type::I64, 1);
     let probe = |b: &mut FunctionBuilder<'_>, off: Value| -> Value {
@@ -513,7 +723,11 @@ pub(crate) fn step_varlena(b: &mut FunctionBuilder<'_>, data: Value, off: Off, a
     let hb = b.load_zext(Type::I8, p1, 0);
     let lo = b.int_bin(IntBinOp::And, hb, one);
     let short = b.icmp(IntCond::Ne, lo, zero);
-    let (l_1b, l_4b, l_join) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[Type::I64]));
+    let (l_1b, l_4b, l_join) = (
+        b.create_block(&[]),
+        b.create_block(&[]),
+        b.create_block(&[Type::I64]),
+    );
     b.cond_br(short, (l_1b, &[]), (l_4b, &[]));
     b.switch_to(l_1b);
     let external = b.icmp(IntCond::Eq, hb, one);

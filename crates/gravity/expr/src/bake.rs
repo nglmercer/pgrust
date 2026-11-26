@@ -45,7 +45,11 @@ fn open() -> usize {
 /// The reads of scope `depth` so far, sorted and deduplicated (none once it closed).
 fn reads(depth: usize) -> Vec<usize> {
     SCOPES.with(|s| {
-        let mut v = s.borrow().get(depth.wrapping_sub(1)).cloned().unwrap_or_default();
+        let mut v = s
+            .borrow()
+            .get(depth.wrapping_sub(1))
+            .cloned()
+            .unwrap_or_default();
         v.sort_unstable();
         v.dedup();
         v

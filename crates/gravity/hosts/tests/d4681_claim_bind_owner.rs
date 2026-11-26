@@ -9,8 +9,12 @@ use std::sync::atomic::AtomicU8;
 use std::sync::Arc;
 
 use gravity_abi::Lane;
-use gravity_driver::{blank_site, BindingRef, CommandId, Identity, PerTuple, Pins, Snapshot, Source, Window};
-use gravity_hosts::ops::scan::pgrc::granule_source::{GranuleRangeSource, GranuleRecipe, PartIoSpec, PartList, PartSpec, Resolved};
+use gravity_driver::{
+    blank_site, BindingRef, CommandId, Identity, PerTuple, Pins, Snapshot, Source, Window,
+};
+use gravity_hosts::ops::scan::pgrc::granule_source::{
+    GranuleRangeSource, GranuleRecipe, PartIoSpec, PartList, PartSpec, Resolved,
+};
 use gravity_parallel::{ClaimSize, GranuleRange, MorselSource};
 use memledger::charge::owner_row;
 use memledger::Owner;
@@ -26,12 +30,25 @@ const ROWS: u64 = 60_000;
 static FLAG: AtomicU8 = AtomicU8::new(0);
 
 fn binding_ref(resolved: &Resolved) -> BindingRef<'_> {
-    BindingRef { snapshot: Snapshot(0), command_id: CommandId(0), params: &[], abort_flag: &FLAG, pins: Pins(0), per_tuple: PerTuple(0), identity: Identity::default(), resolved: Some(resolved), ordinal: None }
+    BindingRef {
+        snapshot: Snapshot(0),
+        command_id: CommandId(0),
+        params: &[],
+        abort_flag: &FLAG,
+        pins: Pins(0),
+        per_tuple: PerTuple(0),
+        identity: Identity::default(),
+        resolved: Some(resolved),
+        ordinal: None,
+    }
 }
 
 /// A worker slot's bind (`Binding::fork`): only its sources park in the slot depot.
 fn slot_ref(resolved: &Resolved) -> BindingRef<'_> {
-    BindingRef { ordinal: Some(0), ..binding_ref(resolved) }
+    BindingRef {
+        ordinal: Some(0),
+        ..binding_ref(resolved)
+    }
 }
 
 fn pass(src: &mut GranuleRangeSource, claims: &GranuleRange) -> u64 {
@@ -55,8 +72,32 @@ fn pass(src: &mut GranuleRangeSource, claims: &GranuleRange) -> u64 {
 
 #[test]
 fn a_source_bound_on_a_claiming_thread_homes_its_kept_uses_on_the_statement() {
-    let bf = build_fixture(int8_fixture("gravity_d4681", REL as u64, ROWS, vec![], PartCutPolicy { max_rows: 20_000, ..PartCutPolicy::default() }, |i| Some((i as i64 * 31) % 1000)));
-    let parts: Vec<Arc<OpenPart>> = bf.manifest.parts.iter().enumerate().map(|(i, rec)| open_part_bytes(bf.files.get(&part_file_name(rec.part_no)).expect("part file"), 4681 + i as u64).expect("open part")).collect();
+    let bf = build_fixture(int8_fixture(
+        "gravity_d4681",
+        REL as u64,
+        ROWS,
+        vec![],
+        PartCutPolicy {
+            max_rows: 20_000,
+            ..PartCutPolicy::default()
+        },
+        |i| Some((i as i64 * 31) % 1000),
+    ));
+    let parts: Vec<Arc<OpenPart>> = bf
+        .manifest
+        .parts
+        .iter()
+        .enumerate()
+        .map(|(i, rec)| {
+            open_part_bytes(
+                bf.files
+                    .get(&part_file_name(rec.part_no))
+                    .expect("part file"),
+                4681 + i as u64,
+            )
+            .expect("open part")
+        })
+        .collect();
     assert_eq!(parts.len(), 3, "the fixture cut into three parts");
     let specs = bf
         .manifest
@@ -64,8 +105,22 @@ fn a_source_bound_on_a_claiming_thread_homes_its_kept_uses_on_the_statement() {
         .iter()
         .enumerate()
         .map(|(i, rec)| {
-            let bytes = bf.files.get(&part_file_name(rec.part_no)).expect("part file");
-            PartSpec { io: PartIoSpec::Mem { bytes: Arc::from(bytes.as_slice()), dev: 7, ino: 4681 + i as u64 }, expect: PartExpect::none(), rows: rec.rows, granules: rec.granule_count, deletes: None, part: Some(parts[i].clone()) }
+            let bytes = bf
+                .files
+                .get(&part_file_name(rec.part_no))
+                .expect("part file");
+            PartSpec {
+                io: PartIoSpec::Mem {
+                    bytes: Arc::from(bytes.as_slice()),
+                    dev: 7,
+                    ino: 4681 + i as u64,
+                },
+                expect: PartExpect::none(),
+                rows: rec.rows,
+                granules: rec.granule_count,
+                deletes: None,
+                part: Some(parts[i].clone()),
+            }
         })
         .collect();
     let list = Arc::new(PartList::new(specs));
@@ -80,7 +135,11 @@ fn a_source_bound_on_a_claiming_thread_homes_its_kept_uses_on_the_statement() {
         memledger::statement_begin();
         let resolved = Resolved::for_recipe(&recipe, list.clone());
         src.bind(&slot_ref(&resolved)).unwrap();
-        assert_eq!(pass(&mut src, &all), ROWS, "parked={parked}: statement 1 reads every part");
+        assert_eq!(
+            pass(&mut src, &all),
+            ROWS,
+            "parked={parked}: statement 1 reads every part"
+        );
         src.unbind();
         src.settle_kept();
         drop(resolved);
@@ -88,17 +147,28 @@ fn a_source_bound_on_a_claiming_thread_homes_its_kept_uses_on_the_statement() {
         // statement 2: the slot's bind and reads on a claiming thread, under the statement's owner as a claim runs
         memledger::statement_begin();
         let st = memledger::charge::context().0;
-        assert!(matches!(st, Owner::Statement { .. }), "parked={parked}: the leader's context is its statement");
+        assert!(
+            matches!(st, Owner::Statement { .. }),
+            "parked={parked}: the leader's context is its statement"
+        );
         let sess = Owner::Session(st.acct());
         let resolved = Resolved::for_recipe(&recipe, list.clone());
         let (st0, sess0) = (owner_row(st).committed, owner_row(sess).committed);
         let ((at_bind, st_bind, sess_bind), (mid, st_mid, sess_mid)) = std::thread::scope(|s| {
             s.spawn(|| {
                 let _claim = memledger::charge::enter_as(st);
-                assert_eq!(memledger::charge::context().0, st, "parked={parked}: the claiming thread charges the statement");
+                assert_eq!(
+                    memledger::charge::context().0,
+                    st,
+                    "parked={parked}: the claiming thread charges the statement"
+                );
                 src.bind(&slot_ref(&resolved)).unwrap();
                 let at_bind = (on(), owner_row(st).committed, owner_row(sess).committed);
-                assert_eq!(pass(&mut src, &all), ROWS, "parked={parked}: statement 2 reads every part on the claiming thread");
+                assert_eq!(
+                    pass(&mut src, &all),
+                    ROWS,
+                    "parked={parked}: statement 2 reads every part on the claiming thread"
+                );
                 let mid = (on(), owner_row(st).committed, owner_row(sess).committed);
                 // a worker slot's detach unbinds on its own thread
                 src.unbind();
@@ -113,20 +183,48 @@ fn a_source_bound_on_a_claiming_thread_homes_its_kept_uses_on_the_statement() {
         assert!(sess_bind <= sess0 && sess_mid <= sess0, "parked={parked}: nothing new on the session (session committed {sess0} -> bind {sess_bind}, mid {sess_mid})");
         let stmt_use = (st.acct().0, st.key(), 1);
         if parked == 0 {
-            assert_eq!(at_bind, vec![vec![stmt_use]; 3], "off: the claiming thread's bind takes every kept use onto the statement");
+            assert_eq!(
+                at_bind,
+                vec![vec![stmt_use]; 3],
+                "off: the claiming thread's bind takes every kept use onto the statement"
+            );
             // the kept use beside the reads' own (the count may be 2): every one the statement's
-            assert!(mid.iter().all(|u| matches!(u[..], [(a, k, n)] if (a, k) == (st.acct().0, st.key()) && n >= 1)), "off: every use of a part the statement's while it runs: {mid:?}");
+            assert!(
+                mid.iter().all(
+                    |u| matches!(u[..], [(a, k, n)] if (a, k) == (st.acct().0, st.key()) && n >= 1)
+                ),
+                "off: every use of a part the statement's while it runs: {mid:?}"
+            );
         } else {
             let parked_on = vec![vec![(sess.acct().0, sess.key(), 1)]; 3];
-            assert_eq!(at_bind, parked_on, "on: the bind leaves the kept uses parked where the last statement's end put them");
-            assert!(mid.iter().flatten().all(|&(a, k, _)| (a, k) == (st.acct().0, st.key()) || (a, k) == (sess.acct().0, sess.key())), "on: every use the statement's or still parked: {mid:?}");
+            assert_eq!(
+                at_bind, parked_on,
+                "on: the bind leaves the kept uses parked where the last statement's end put them"
+            );
+            assert!(
+                mid.iter()
+                    .flatten()
+                    .all(|&(a, k, _)| (a, k) == (st.acct().0, st.key())
+                        || (a, k) == (sess.acct().0, sess.key())),
+                "on: every use the statement's or still parked: {mid:?}"
+            );
         }
-        assert!(at_bind.iter().chain(mid.iter()).flatten().all(|&(a, _, _)| a == st.acct().0), "parked={parked}: no use on another account (the claiming thread's own, UNBOUND)");
+        assert!(
+            at_bind
+                .iter()
+                .chain(mid.iter())
+                .flatten()
+                .all(|&(a, _, _)| a == st.acct().0),
+            "parked={parked}: no use on another account (the claiming thread's own, UNBOUND)"
+        );
         src.settle_kept();
         drop(resolved);
         memledger::statement_end();
         drop(src.release_rel(0).expect("every relation's kept cursors"));
-        assert!(parts.iter().all(|p| p.users() == 0), "parked={parked}: released, no use left");
+        assert!(
+            parts.iter().all(|p| p.users() == 0),
+            "parked={parked}: released, no use left"
+        );
     }
     consts::reset();
     memledger::unbind_backend();

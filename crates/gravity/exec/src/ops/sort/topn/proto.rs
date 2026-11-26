@@ -4,15 +4,15 @@ use core::cell::OnceCell;
 use std::sync::Arc;
 
 use gravity_driver::{Exec, Merge};
-use gravity_hosts::{PartList, VerdictCell, VerdictClaim};
 use gravity_hosts::ops::agg::hosts as m1;
+use gravity_hosts::{PartList, VerdictCell, VerdictClaim};
 use gravity_kernels::table::AdmitHdr;
 use gravity_program::protos::{Proto, ProtoKind, RegionFn, NONE, NO_SLOT};
 use types_error::PgResult;
 use types_storage::lock::NoLock;
 
-use crate::ops::{Live, Prepare, Protocol};
 use crate::glue;
+use crate::ops::{Live, Prepare, Protocol};
 
 use gravity_abi::breaker::MIN_REGION;
 
@@ -62,24 +62,43 @@ impl Reader {
     /// kernel word's ordinal + 1 (0 = none), that word as bound for this execution (a literal never rides `arg`).
     fn of(p: &Proto, cx: &Prepare<'_>, what: &str) -> PgResult<Reader> {
         let (Some(read), true) = (p.read[0], p.slot != NO_SLOT && p.peer != NONE) else {
-            return Err(glue::internal(&format!("gravity: {what} without its reader or its producing pipeline"))); // alloc: Cold
+            return Err(glue::internal(&format!(
+                "gravity: {what} without its reader or its producing pipeline"
+            ))); // alloc: Cold
         };
         let (base, n) = (p.words.base as usize, p.words.n as usize);
-        let src = cx.words.get(base..base + n).ok_or_else(|| glue::internal("gravity: a v4 protocol's words past the kernel words"))?;
+        let src = cx.words.get(base..base + n).ok_or_else(|| {
+            glue::internal("gravity: a v4 protocol's words past the kernel words")
+        })?;
         let mut words: memledger::ChargedVec<u64> = cx.charged_vec();
-        words.with_vec(|v| { v.reserve_exact(n); v.extend_from_slice(src) }); // alloc: Exec charged cx.owner
+        words.with_vec(|v| {
+            v.reserve_exact(n);
+            v.extend_from_slice(src)
+        }); // alloc: Exec charged cx.owner
         words.with_vec(|v| v.push(p.arg)); // alloc: Exec charged cx.owner
-        // bits 48..62 (lowerv4 twopass.rs `Rule::pack`; bit 63 is the rule's GT-1 `spread`)
+                                           // bits 48..62 (lowerv4 twopass.rs `Rule::pack`; bit 63 is the rule's GT-1 `spread`)
         if let Some(b) = ((p.arg >> 48 & 0x7fff) as usize).checked_sub(1) {
-            let bound = *cx.words.get(b).ok_or_else(|| glue::internal("gravity: a reader's bound word past the kernel words"))?;
+            let bound = *cx.words.get(b).ok_or_else(|| {
+                glue::internal("gravity: a reader's bound word past the kernel words")
+            })?;
             words.with_vec(|v| v.push(bound)); // alloc: Exec charged cx.owner
         }
-        Ok(Reader { peer: p.peer as usize, slot: p.slot, read, words })
+        Ok(Reader {
+            peer: p.peer as usize,
+            slot: p.slot,
+            read,
+            words,
+        })
     }
 
     /// `f` over this reader's reading after pipeline `pipeline`, when that is the producer and its region was laid out (and
     /// the ledger owner of the slot read, `reading`'s).
-    fn after<T>(&self, pipeline: usize, exec: &mut Exec, f: impl FnOnce(m1::Reading<'_>, Option<memledger::Owner>) -> T) -> Option<T> {
+    fn after<T>(
+        &self,
+        pipeline: usize,
+        exec: &mut Exec,
+        f: impl FnOnce(m1::Reading<'_>, Option<memledger::Owner>) -> T,
+    ) -> Option<T> {
         if pipeline != self.peer {
             return None;
         }
@@ -89,11 +108,18 @@ impl Reader {
     /// `f` over this reader's reading of its slot's region, when the region was laid out, with that slot's ledger owner
     /// (`BuildNode::slot_owner`): the RegionFn charges its own working memory to it, and the host `f` calls (hosts agg
     /// hosts.rs, R5: an `(owner, kind)` pair, the kind the caller's by construction) charges its own.
-    fn reading<T>(&self, node: &mut dyn BuildNode, f: impl FnOnce(m1::Reading<'_>, Option<memledger::Owner>) -> T) -> Option<T> {
+    fn reading<T>(
+        &self,
+        node: &mut dyn BuildNode,
+        f: impl FnOnce(m1::Reading<'_>, Option<memledger::Owner>) -> T,
+    ) -> Option<T> {
         let owner = node.slot_owner(self.slot);
         let r = node.region(self.slot);
         let region = (r.len() >= MIN_REGION).then_some(&*r)?;
-        Some(f(&mut |emit| super::raw::region_read(self.read, region, &self.words, owner, emit), owner))
+        Some(f(
+            &mut |emit| super::raw::region_read(self.read, region, &self.words, owner, emit),
+            owner,
+        ))
     }
 
     /// D4054: pipeline `pipeline` finished the build `peer` names: `peer` itself, or the arm of its append.arms run that
@@ -104,7 +130,12 @@ impl Reader {
     }
 
     /// `after` for a build's reader: `f` over the reading after the pipeline that finished the build (`built`).
-    fn after_build<T>(&self, pipeline: usize, node: &mut dyn BuildNode, f: impl FnOnce(m1::Reading<'_>, Option<memledger::Owner>) -> T) -> Option<T> {
+    fn after_build<T>(
+        &self,
+        pipeline: usize,
+        node: &mut dyn BuildNode,
+        f: impl FnOnce(m1::Reading<'_>, Option<memledger::Owner>) -> T,
+    ) -> Option<T> {
         if !self.built(pipeline, node) {
             return None;
         }
@@ -144,11 +175,22 @@ impl Protocol for TwoPass {
         ProtoKind::TwoPass
     }
     fn prepare(&self, p: &Proto, cx: &mut Prepare<'_>) -> PgResult<Option<Box<dyn Live>>> {
-        let hdr = Box::new(super::raw::IrCell::new(AdmitHdr { set: gravity_abi::word(core::ptr::null()), mask: 0, count: 0, empty_key: 0, filter: gravity_abi::word(core::ptr::null()), filter_bits: 0 })); // alloc: Exec
+        let hdr = Box::new(super::raw::IrCell::new(AdmitHdr {
+            set: gravity_abi::word(core::ptr::null()),
+            mask: 0,
+            count: 0,
+            empty_key: 0,
+            filter: gravity_abi::word(core::ptr::null()),
+            filter_bits: 0,
+        })); // alloc: Exec
         let base = p.words.base as usize;
         match (p.words.n, cx.words.get_mut(base), cx.nulls.get_mut(base)) {
             (1, Some(w), Some(n)) => (*w, *n) = (hdr.addr(), 0),
-            _ => return Err(glue::internal("gravity: keyed.twopass without its header word")),
+            _ => {
+                return Err(glue::internal(
+                    "gravity: keyed.twopass without its header word",
+                ))
+            }
         }
         let r = Reader::of(p, cx, "keyed.twopass")?;
         let room = having_cost::room(cx.grant.bytes, cx.width);
@@ -158,11 +200,22 @@ impl Protocol for TwoPass {
         let est = p.arg >> 24 & 0x7f_ffff;
         if p.arg & 1 != 0 && est != 0 && crate::inputs::knobs::seam::report_on() {
             let (m, other) = having_cost::unpack(est).unwrap_or_default();
-            let bound = r.words.last().copied().filter(|_| p.arg >> 48 & 0x7fff != 0);
+            let bound = r
+                .words
+                .last()
+                .copied()
+                .filter(|_| p.arg >> 48 & 0x7fff != 0);
             let pass1 = having_cost::pass1_bytes(est).map_or(0, |b| b as u64 >> 10);
-            let _ = elog::ereport(types_error::LOG).errmsg(format!("gravity: twopass.having runs {} (mean group {m:.2}, folds {other:.3} reads, bound word {bound:?}, pass 1 {pass1} KiB, room {} KiB)", if one_pass { "one pass" } else { "two passes" }, room >> 10)).errhidestmt(true).errhidecontext(true).finish(types_error::ErrorLocation::new("gravity", 0, "twopass")); // alloc: Cold
+            let _ = elog::ereport(types_error::LOG).errmsg(format!("gravity: twopass.having runs {} (mean group {m:.2}, folds {other:.3} reads, bound word {bound:?}, pass 1 {pass1} KiB, room {} KiB)", if one_pass { "one pass" } else { "two passes" }, room >> 10)).errhidestmt(true).errhidecontext(true).finish(types_error::ErrorLocation::new("gravity", 0, "twopass"));
+            // alloc: Cold
         }
-        Ok(Some(Box::new(TwoPassLive { r, hdr, set: OnceCell::new(), one_pass, top }))) // alloc: Exec
+        Ok(Some(Box::new(TwoPassLive {
+            r,
+            hdr,
+            set: OnceCell::new(),
+            one_pass,
+            top,
+        }))) // alloc: Exec
     }
 }
 
@@ -170,13 +223,15 @@ impl TwoPassLive {
     /// 5c-F6: a top-count rule's admitted set `a` past `TWOPASS_TOP_ADMIT_CUT_PCT` of pass 1's records (its owners'
     /// count) is no cut worth a probe a row: pass 2 folds every key (the D459 set); under it, the exact set.
     fn tie_cut(&self, a: m1::AdmitSet, exec: &mut Exec) -> m1::AdmitSet {
-        let records = gravity_abi::breaker::Owned::counts(exec.node().slot_region(self.r.slot)).map_or(0, |c| c.0);
+        let records = gravity_abi::breaker::Owned::counts(exec.node().slot_region(self.r.slot))
+            .map_or(0, |c| c.0);
         if !tie_bail::past_cut(a.count, records) {
             return a;
         }
         fires::fire("keyed.twopass.tie_bail"); // shapecheck fire signal (5c-F6): pass 1 admitted past the cut, pass 2 folds every key
         if crate::inputs::knobs::seam::report_on() {
-            let _ = elog::ereport(types_error::LOG).errmsg(format!("gravity: twopass.count pass 1 admitted {} of {records} records: pass 2 folds every key", a.count)).errhidestmt(true).errhidecontext(true).finish(types_error::ErrorLocation::new("gravity", 0, "twopass")); // alloc: Cold
+            let _ = elog::ereport(types_error::LOG).errmsg(format!("gravity: twopass.count pass 1 admitted {} of {records} records: pass 2 folds every key", a.count)).errhidestmt(true).errhidecontext(true).finish(types_error::ErrorLocation::new("gravity", 0, "twopass"));
+            // alloc: Cold
         }
         m1::AdmitSet::whole(true)
     }
@@ -190,34 +245,77 @@ impl Live for TwoPassLive {
     fn pruned_whole(&self, pipeline: usize) -> bool {
         self.one_pass && pipeline == self.r.peer
     }
-    fn after_pipeline(&self, pipeline: usize, exec: &mut Exec) -> Option<gravity_driver::Result<()>> {
+    fn after_pipeline(
+        &self,
+        pipeline: usize,
+        exec: &mut Exec,
+    ) -> Option<gravity_driver::Result<()>> {
         // D459: pass 1 spilled partitions and its region is no finished owner result (`Reader::spilled`), so it names no
         // whole set: pass 2 folds every key (the fold PostgreSQL does; the top / HAVING after it cut exactly as over any
         // group). D3158: a pass 1 that spilled into a finished owner phase names its exact set (the owners folded the
         // spilled epochs), so pass 2 stays two-pass. KEYED-02: a pass 1 this execution's choice skipped folds every key
         // too (it ran whole empty: its region, if laid out, holds no key)
         let spilled = pipeline == self.r.peer && (self.one_pass || self.r.spilled(exec));
-        let parts = if pipeline == self.r.peer && !self.one_pass { self.r.spill_parts(exec) } else { 0 };
+        let parts = if pipeline == self.r.peer && !self.one_pass {
+            self.r.spill_parts(exec)
+        } else {
+            0
+        };
         if parts > 0 {
             if !spilled {
                 fires::fire("keyed.twopass.spilled_owned"); // shapecheck fire signal (D3158): a spilled pass 1's exact set read from its owner phase
             }
             if crate::inputs::knobs::seam::report_on() {
-                let _ = elog::ereport(types_error::LOG).errmsg(format!("gravity: keyed.twopass pass 1 spilled {parts} partitions: {}", if spilled { "no owner result, pass 2 admits every key (D459)" } else { "the owner phase's exact set (D3158)" })).errhidestmt(true).errhidecontext(true).finish(types_error::ErrorLocation::new("gravity", 0, "twopass")); // alloc: Cold
+                let _ = elog::ereport(types_error::LOG)
+                    .errmsg(format!(
+                        "gravity: keyed.twopass pass 1 spilled {parts} partitions: {}",
+                        if spilled {
+                            "no owner result, pass 2 admits every key (D459)"
+                        } else {
+                            "the owner phase's exact set (D3158)"
+                        }
+                    ))
+                    .errhidestmt(true)
+                    .errhidecontext(true)
+                    .finish(types_error::ErrorLocation::new("gravity", 0, "twopass"));
+                // alloc: Cold
             }
         }
-        let a = match if spilled { None } else { self.r.after(pipeline, exec, |read, o| m1::admit_set(read, o.map(|o| (o, memledger::Kind::HashAgg)))) } {
+        let a = match if spilled {
+            None
+        } else {
+            self.r.after(pipeline, exec, |read, o| {
+                m1::admit_set(read, o.map(|o| (o, memledger::Kind::HashAgg)))
+            })
+        } {
             _ if spilled => Some(m1::AdmitSet::whole(true)),
             Some(Ok(a)) => a,
             Some(Err(e)) => return Some(Err(gravity_hosts::stash(e))),
             None if pipeline == self.r.peer => Some(m1::AdmitSet::whole(false)),
             None => return None,
         };
-        let Some(a) = a else { return Some(Err(gravity_driver::Error::host("gravity: keyed.twopass could not read pass 1's result"))) };
-        let a = if self.top && pipeline == self.r.peer && !spilled && tie_bail::on() { self.tie_cut(a, exec) } else { a };
-        let hdr = AdmitHdr { set: gravity_abi::word(a.set.as_ptr()), mask: a.mask, count: a.count, empty_key: a.empty_key, filter: gravity_abi::word(a.filter.as_ptr()), filter_bits: a.filter_bits };
+        let Some(a) = a else {
+            return Some(Err(gravity_driver::Error::host(
+                "gravity: keyed.twopass could not read pass 1's result",
+            )));
+        };
+        let a = if self.top && pipeline == self.r.peer && !spilled && tie_bail::on() {
+            self.tie_cut(a, exec)
+        } else {
+            a
+        };
+        let hdr = AdmitHdr {
+            set: gravity_abi::word(a.set.as_ptr()),
+            mask: a.mask,
+            count: a.count,
+            empty_key: a.empty_key,
+            filter: gravity_abi::word(a.filter.as_ptr()),
+            filter_bits: a.filter_bits,
+        };
         if self.set.set(a).is_err() {
-            return Some(Err(gravity_driver::Error::host("gravity: keyed.twopass's pass 1 finished twice")));
+            return Some(Err(gravity_driver::Error::host(
+                "gravity: keyed.twopass's pass 1 finished twice",
+            )));
         }
         self.hdr.set(hdr);
         Some(Ok(()))
@@ -240,16 +338,28 @@ impl Protocol for TwoPassFloor {
     fn prepare(&self, p: &Proto, cx: &mut Prepare<'_>) -> PgResult<Option<Box<dyn Live>>> {
         let n = p.arg;
         if n == 0 || n > gravity_program::cost::TWOPASS_SHARED_KEYS_MAX {
-            return Err(glue::internal("gravity: twopass.floor over no top or past its key cap"));
+            return Err(glue::internal(
+                "gravity: twopass.floor over no top or past its key cap",
+            ));
         }
-        let words: Box<[core::sync::atomic::AtomicU64]> = (0..gravity_kernels::host_abi::pass1_shared_words(n)).map(|_| core::sync::atomic::AtomicU64::new(0)).collect(); // alloc: Exec
+        let words: Box<[core::sync::atomic::AtomicU64]> = (0
+            ..gravity_kernels::host_abi::pass1_shared_words(n))
+            .map(|_| core::sync::atomic::AtomicU64::new(0))
+            .collect(); // alloc: Exec
         let base = p.words.base as usize;
         match (p.words.n, cx.words.get_mut(base), cx.nulls.get_mut(base)) {
             (1, Some(w), Some(z)) => (*w, *z) = (words.as_ptr() as u64, 0),
-            _ => return Err(glue::internal("gravity: twopass.floor without its handle word")),
+            _ => {
+                return Err(glue::internal(
+                    "gravity: twopass.floor without its handle word",
+                ))
+            }
         }
         *cx.nparams = (*cx.nparams).max(base + 1);
-        Ok(Some(Box::new(TwoPassFloorLive { pipeline: p.pipeline as usize, words }))) // alloc: Exec
+        Ok(Some(Box::new(TwoPassFloorLive {
+            pipeline: p.pipeline as usize,
+            words,
+        }))) // alloc: Exec
     }
 }
 
@@ -262,7 +372,9 @@ impl Live for TwoPassFloorLive {
     /// this one's). On the leader, no claim running.
     fn reopen(&self, members: &[u16]) -> PgResult<()> {
         if members.contains(&(self.pipeline as u16)) {
-            self.words.iter().for_each(|w| w.store(0, core::sync::atomic::Ordering::Relaxed));
+            self.words
+                .iter()
+                .for_each(|w| w.store(0, core::sync::atomic::Ordering::Relaxed));
         }
         Ok(())
     }
@@ -288,9 +400,17 @@ impl Protocol for BuildSide {
     fn prepare(&self, p: &Proto, _cx: &mut Prepare<'_>) -> PgResult<Option<Box<dyn Live>>> {
         use gravity_lowerv4::face::{end::MergeImpl, kinds::KindId};
         let Some(m) = gravity_lowerv4::ops::kind_as::<MergeImpl>(KindId::JoinInner) else {
-            return Err(glue::internal("gravity: join.buildside without the build's merge"));
+            return Err(glue::internal(
+                "gravity: join.buildside without the build's merge",
+            ));
         };
-        Ok(Some(Box::new(BuildSideLive { pipeline: p.pipeline as usize, merge: m.0, slot: p.slot, read: p.read[0], arg: p.arg }))) // alloc: Exec
+        Ok(Some(Box::new(BuildSideLive {
+            pipeline: p.pipeline as usize,
+            merge: m.0,
+            slot: p.slot,
+            read: p.read[0],
+            arg: p.arg,
+        }))) // alloc: Exec
     }
 }
 
@@ -303,12 +423,22 @@ impl Live for BuildSideLive {
     /// to raise (`Merge::with_defer`), when the merge has one.
     fn merge_for(&self, pipeline: usize) -> Option<&dyn Merge> {
         let defer = self.arg & 1 != 0;
-        (pipeline == self.pipeline).then(|| if defer { self.merge.with_defer(true).unwrap_or(self.merge) } else { self.merge })
+        (pipeline == self.pipeline).then(|| {
+            if defer {
+                self.merge.with_defer(true).unwrap_or(self.merge)
+            } else {
+                self.merge
+            }
+        })
     }
 
     /// D276: after the build, an empty one (its reading's N 0; a spilled build is never read as empty) runs the masked
     /// outer-side producers as if no claim reached them (`Exec::run_empty`). The runner's own steps still run (`None`).
-    fn after_pipeline(&self, pipeline: usize, exec: &mut Exec) -> Option<gravity_driver::Result<()>> {
+    fn after_pipeline(
+        &self,
+        pipeline: usize,
+        exec: &mut Exec,
+    ) -> Option<gravity_driver::Result<()>> {
         self.read_empty(pipeline, exec);
         None
     }
@@ -320,12 +450,16 @@ impl BuildSideLive {
     /// a slot the later arms still append to: read then, a build whose rows all come later reads as empty.
     fn read_empty(&self, pipeline: usize, node: &mut dyn BuildNode) -> Option<()> {
         let mask = (self.arg >> 8) & ((1 << 40) - 1);
-        let read = self.read.filter(|_| mask != 0 && node.finishes(self.pipeline, pipeline) && node.spill_parts(self.slot) == 0)?;
+        let read = self.read.filter(|_| {
+            mask != 0 && node.finishes(self.pipeline, pipeline) && node.spill_parts(self.slot) == 0
+        })?;
         let owner = node.slot_owner(self.slot);
         let r = node.region(self.slot);
         let region = (r.len() >= MIN_REGION).then_some(&*r)?;
         let mut n = None;
-        super::raw::region_read(read, region, &[self.arg], owner, &mut |_, rows, _| n = Some(rows))?;
+        super::raw::region_read(read, region, &[self.arg], owner, &mut |_, rows, _| {
+            n = Some(rows)
+        })?;
         if n == Some(0) {
             node.skip_producers(mask);
         }
@@ -368,9 +502,23 @@ impl Protocol for RtFilter {
         if p.words.n == 1 {
             return Domain::prepare(p, r, cx); // D3148: the row-level form, a keyed hash end's admitted set
         }
-        let Some(g) = usize::try_from(p.site).ok().and_then(|s| cx.admitted.registry.granule_recipe(s)) else { return Ok(None) };
-        let nth = cx.program.v4.as_ref().and_then(|d| d.protos.iter().filter(|q| q.kind == ProtoKind::RtFilter && q.words.n != 1 && q.site == p.site).position(|q| (q.peer, q.slot) == (p.peer, p.slot)));
-        let slots = if p.arg & ARG_ONE != 0 { 1 } else { gravity_hosts::RT_SLOTS };
+        let Some(g) = usize::try_from(p.site)
+            .ok()
+            .and_then(|s| cx.admitted.registry.granule_recipe(s))
+        else {
+            return Ok(None);
+        };
+        let nth = cx.program.v4.as_ref().and_then(|d| {
+            d.protos
+                .iter()
+                .filter(|q| q.kind == ProtoKind::RtFilter && q.words.n != 1 && q.site == p.site)
+                .position(|q| (q.peer, q.slot) == (p.peer, p.slot))
+        });
+        let slots = if p.arg & ARG_ONE != 0 {
+            1
+        } else {
+            gravity_hosts::RT_SLOTS
+        };
         let slot = nth.filter(|&k| k < slots);
         let claim = slot.map(|k| g.verdicts.claim_rt_at(k));
         let cap = ((p.arg >> 16) as u32 as usize).max(gravity_program::cost::RTFILTER_SET_MAX);
@@ -382,7 +530,15 @@ impl Protocol for RtFilter {
         } else {
             None
         };
-        Ok(Some(Box::new(RtFilterLive { r, attno: p.arg as i16, cap, list, cell: Arc::clone(&g.verdicts), slot: slot.unwrap_or(0), claim }))) // alloc: Exec
+        Ok(Some(Box::new(RtFilterLive {
+            r,
+            attno: p.arg as i16,
+            cap,
+            list,
+            cell: Arc::clone(&g.verdicts),
+            slot: slot.unwrap_or(0),
+            claim,
+        }))) // alloc: Exec
     }
 }
 
@@ -391,15 +547,36 @@ impl Live for RtFilterLive {
         crate::ops::ask::AFTER | crate::ops::ask::REOPEN
     }
 
-    fn after_pipeline(&self, pipeline: usize, exec: &mut Exec) -> Option<gravity_driver::Result<()>> {
+    fn after_pipeline(
+        &self,
+        pipeline: usize,
+        exec: &mut Exec,
+    ) -> Option<gravity_driver::Result<()>> {
         // the owner of the site's rt claim alone reads its build's keys (D294). D2856 (colskip, D3138): after EVERY run of
         // the build its filter replaces the last run's, or clears it when this run gives none (a spilled build, a region
         // never laid out): a rerun set's probe never skips by an earlier run's keys
         // D4054: "after the build" is after the pipeline that finished it (`Reader::built`)
         let built = self.r.built(pipeline, exec);
         if built && self.claim.as_ref().is_some_and(VerdictClaim::owner) {
-            let clip = || self.list.as_deref().and_then(|l| gravity_hosts::part_extrema(l, self.attno as u32).ok().flatten());
-            match (self.r.spill_parts(exec) > 0, self.r.after_build(pipeline, exec, |read, o| m1::rt_filter(self.attno, self.cap, &clip, read, o.map(|o| (o, memledger::Kind::HashBuild))))) {
+            let clip = || {
+                self.list.as_deref().and_then(|l| {
+                    gravity_hosts::part_extrema(l, self.attno as u32)
+                        .ok()
+                        .flatten()
+                })
+            };
+            match (
+                self.r.spill_parts(exec) > 0,
+                self.r.after_build(pipeline, exec, |read, o| {
+                    m1::rt_filter(
+                        self.attno,
+                        self.cap,
+                        &clip,
+                        read,
+                        o.map(|o| (o, memledger::Kind::HashBuild)),
+                    )
+                }),
+            ) {
                 (false, Some(Some(f))) => self.cell.arm_rt_at(self.slot, f),
                 _ => self.cell.clear_rt_at(self.slot),
             }
@@ -411,7 +588,9 @@ impl Live for RtFilterLive {
     /// its keys, so a probe that seeks before the build runs again (a lazy build, D824) never reads the last run's. A set
     /// that keeps the build (D1018 item 9 b: it runs at the first run only) does not list it, and its filter stays.
     fn reopen(&self, members: &[u16]) -> PgResult<()> {
-        if members.contains(&(self.r.peer as u16)) && self.claim.as_ref().is_some_and(VerdictClaim::owner) {
+        if members.contains(&(self.r.peer as u16))
+            && self.claim.as_ref().is_some_and(VerdictClaim::owner)
+        {
             self.cell.clear_rt_at(self.slot);
         }
         Ok(())
@@ -434,20 +613,42 @@ struct Domain {
 
 impl Domain {
     fn prepare(p: &Proto, r: Reader, cx: &mut Prepare<'_>) -> PgResult<Option<Box<dyn Live>>> {
-        let hdr = Box::new(super::raw::IrCell::new(AdmitHdr { set: gravity_abi::word(core::ptr::null()), mask: 0, count: 0, empty_key: 0, filter: gravity_abi::word(core::ptr::null()), filter_bits: 0 })); // alloc: Exec
+        let hdr = Box::new(super::raw::IrCell::new(AdmitHdr {
+            set: gravity_abi::word(core::ptr::null()),
+            mask: 0,
+            count: 0,
+            empty_key: 0,
+            filter: gravity_abi::word(core::ptr::null()),
+            filter_bits: 0,
+        })); // alloc: Exec
         let base = p.words.base as usize;
         match (cx.words.get_mut(base), cx.nulls.get_mut(base)) {
             (Some(w), Some(n)) => (*w, *n) = (hdr.addr(), 0),
-            _ => return Err(glue::internal("gravity: join.domain without its header word")),
+            _ => {
+                return Err(glue::internal(
+                    "gravity: join.domain without its header word",
+                ))
+            }
         }
-        let live = Domain { r, hdr, set: core::cell::RefCell::new((m1::AdmitSet::whole(true), None)) };
+        let live = Domain {
+            r,
+            hdr,
+            set: core::cell::RefCell::new((m1::AdmitSet::whole(true), None)),
+        };
         live.lay(m1::AdmitSet::whole(true), None);
         Ok(Some(Box::new(live))) // alloc: Exec
     }
 
     /// Lays `a` (held by `held`) behind the header, then drops the set it replaces.
     fn lay(&self, a: m1::AdmitSet, held: Option<gravity_driver::mem::grant::Held>) {
-        self.hdr.set(AdmitHdr { set: gravity_abi::word(a.set.as_ptr()), mask: a.mask, count: a.count, empty_key: a.empty_key, filter: gravity_abi::word(a.filter.as_ptr()), filter_bits: a.filter_bits });
+        self.hdr.set(AdmitHdr {
+            set: gravity_abi::word(a.set.as_ptr()),
+            mask: a.mask,
+            count: a.count,
+            empty_key: a.empty_key,
+            filter: gravity_abi::word(a.filter.as_ptr()),
+            filter_bits: a.filter_bits,
+        });
         drop(self.set.replace((a, held)));
     }
 }
@@ -457,13 +658,23 @@ impl Live for Domain {
         crate::ops::ask::AFTER | crate::ops::ask::REOPEN
     }
 
-    fn after_pipeline(&self, pipeline: usize, exec: &mut Exec) -> Option<gravity_driver::Result<()>> {
+    fn after_pipeline(
+        &self,
+        pipeline: usize,
+        exec: &mut Exec,
+    ) -> Option<gravity_driver::Result<()>> {
         // D4054: after the pipeline that finished the build (`Reader::built`)
         if !self.r.built(pipeline, exec) {
             return None;
         }
         crate::phases::mark("domain.build"); // PHASES: the leader's serial lay-out of the set is `domain.laid`'s delta
-        let a = match if self.r.spilled(exec) { None } else { self.r.after_build(pipeline, exec, |read, o| m1::admit_set(read, o.map(|o| (o, memledger::Kind::HashBuild)))) } {
+        let a = match if self.r.spilled(exec) {
+            None
+        } else {
+            self.r.after_build(pipeline, exec, |read, o| {
+                m1::admit_set(read, o.map(|o| (o, memledger::Kind::HashBuild)))
+            })
+        } {
             Some(Err(e)) => return Some(Err(gravity_hosts::stash(e))),
             Some(Ok(a)) => a,
             None => None,
@@ -471,12 +682,27 @@ impl Live for Domain {
         // the set's bytes held against the statement's grant (G's room when admitted); refused: every key admitted. Grow
         // mode (D4559): G's room short, the set grows past G from the pool's room now (`hold_growing`), refused only there
         let res = exec.reservation();
-        let bytes = a.as_ref().map_or(0, |a| 8 * (a.set.len() + a.filter.len()) as u64);
-        let held = a.as_ref().and_then(|_| (!res.is_strict() && (res.grant_ctx().is_none() || res.grant.grow || bytes <= res.left())).then(|| res.hold_growing(bytes)).flatten());
+        let bytes = a
+            .as_ref()
+            .map_or(0, |a| 8 * (a.set.len() + a.filter.len()) as u64);
+        let held = a.as_ref().and_then(|_| {
+            (!res.is_strict()
+                && (res.grant_ctx().is_none() || res.grant.grow || bytes <= res.left()))
+            .then(|| res.hold_growing(bytes))
+            .flatten()
+        });
         crate::phases::mark("domain.laid");
         if crate::inputs::knobs::seam::report_on() {
             let n = a.as_ref().map_or(0, |a| a.count);
-            let _ = elog::ereport(types_error::LOG).errmsg(format!("gravity: join.domain laid {n} keys ({bytes} bytes, held {})", held.is_some())).errhidestmt(true).errhidecontext(true).finish(types_error::ErrorLocation::new("gravity", 0, "join.domain")); // alloc: Cold
+            let _ = elog::ereport(types_error::LOG)
+                .errmsg(format!(
+                    "gravity: join.domain laid {n} keys ({bytes} bytes, held {})",
+                    held.is_some()
+                ))
+                .errhidestmt(true)
+                .errhidecontext(true)
+                .finish(types_error::ErrorLocation::new("gravity", 0, "join.domain"));
+            // alloc: Cold
         }
         match (a, held) {
             (Some(a), Some(h)) => {
@@ -512,7 +738,9 @@ pub(crate) mod tie_bail {
         static MODE: AtomicU8 = AtomicU8::new(u8::MAX);
         match MODE.load(Relaxed) {
             u8::MAX => {
-                let m = gravity_driver::env::num::<u8>("PGRUST_GRAVITY_TIE_BAIL").unwrap_or(1).min(1);
+                let m = gravity_driver::env::num::<u8>("PGRUST_GRAVITY_TIE_BAIL")
+                    .unwrap_or(1)
+                    .min(1);
                 MODE.store(m, Relaxed);
                 m != 0
             }
@@ -531,9 +759,15 @@ pub(crate) mod tie_bail {
 
         #[test]
         fn the_cut_is_a_share_of_the_records() {
-            assert!(!past_cut(70, 100) && past_cut(71, 100), "past {TWOPASS_TOP_ADMIT_CUT_PCT} %");
+            assert!(
+                !past_cut(70, 100) && past_cut(71, 100),
+                "past {TWOPASS_TOP_ADMIT_CUT_PCT} %"
+            );
             assert!(!past_cut(5, 0), "no records counted: never");
-            assert!(past_cut(u64::MAX, u64::MAX / 2) && !past_cut(u64::MAX / 2, u64::MAX), "no overflow");
+            assert!(
+                past_cut(u64::MAX, u64::MAX / 2) && !past_cut(u64::MAX / 2, u64::MAX),
+                "no overflow"
+            );
         }
     }
 }
@@ -573,9 +807,16 @@ pub(crate) mod having_cost {
     fn normal_cdf(z: f64) -> f64 {
         let x = z.abs() / core::f64::consts::SQRT_2;
         let t = 1.0 / (1.0 + 0.327_591_1 * x);
-        let poly = t * (0.254_829_592 + t * (-0.284_496_736 + t * (1.421_413_741 + t * (-1.453_152_027 + t * 1.061_405_429))));
+        let poly = t
+            * (0.254_829_592
+                + t * (-0.284_496_736
+                    + t * (1.421_413_741 + t * (-1.453_152_027 + t * 1.061_405_429))));
         let erf = 1.0 - poly * (-x * x).exp();
-        if z >= 0.0 { 0.5 * (1.0 + erf) } else { 0.5 * (1.0 - erf) }
+        if z >= 0.0 {
+            0.5 * (1.0 + erf)
+        } else {
+            0.5 * (1.0 - erf)
+        }
     }
 
     /// The share of the input's rows in groups the floor drops: counts up to K when `gt` (`count(*) > K`), up to K - 1
@@ -594,13 +835,26 @@ pub(crate) mod having_cost {
     /// (`below`: `count(*) < K`, `<= K` when not `gt`) the rows of the groups over it, all but those of counts up to K - 1
     /// (up to K for `<=`).
     pub(crate) fn dropped(m: f64, k: i64, gt: bool, below: bool) -> f64 {
-        if below { 1.0 - dropped_share(m, k, !gt) } else { dropped_share(m, k, gt) }
+        if below {
+            1.0 - dropped_share(m, k, !gt)
+        } else {
+            dropped_share(m, k, gt)
+        }
     }
 
     /// Whether two passes cost less than one, per input row: `read` the scan's, `count` the count fold's, `probe` pass 2's
     /// admission probe's, `other` the other aggregates' folds together. Two passes: 2 read + count + probe + (count +
     /// other) x (1 - f); one pass: read + count + other; so two pay when (count + other) x f > read + count + probe.
-    pub(crate) fn two_passes_pay(m: f64, k: i64, gt: bool, below: bool, read: f64, count: f64, probe: f64, other: f64) -> bool {
+    pub(crate) fn two_passes_pay(
+        m: f64,
+        k: i64,
+        gt: bool,
+        below: bool,
+        read: f64,
+        count: f64,
+        probe: f64,
+        other: f64,
+    ) -> bool {
         (count + other) * dropped(m, k, gt, below) > read + count + probe
     }
 
@@ -648,13 +902,20 @@ pub(crate) mod having_cost {
         let Some((m, other)) = unpack(n) else {
             return false;
         };
-        let k = if int4 { raw as u32 as i32 as i64 } else { raw as i64 };
+        let k = if int4 {
+            raw as u32 as i32 as i64
+        } else {
+            raw as i64
+        };
         !two_passes_pay(m, k, gt, below, 1.0, COUNT, PROBE, other)
     }
 
     #[cfg(test)]
     mod tests {
-        use super::{dropped, dropped_share, one_pass, pass1_bytes, poisson_cdf, room, two_passes_pay, unpack};
+        use super::{
+            dropped, dropped_share, one_pass, pass1_bytes, poisson_cdf, room, two_passes_pay,
+            unpack,
+        };
 
         /// A grant no table in these tests outgrows.
         const ROOM: u64 = u64::MAX;
@@ -679,11 +940,23 @@ pub(crate) mod having_cost {
             assert!(!one_pass(floor_arg(0), Some(1), ROOM));
             // a bound on another final carries no mean (bits 0..7 zero): two passes, unless pass 1 would spill
             assert!(!one_pass(floor_arg(64 << 8) | 1 << 63, Some(1), ROOM));
-            assert!(one_pass(floor_arg(64 << 8 | 50 << 16) | 1 << 63, Some(1), 8 << 20));
+            assert!(one_pass(
+                floor_arg(64 << 8 | 50 << 16) | 1 << 63,
+                Some(1),
+                8 << 20
+            ));
             // a count ceiling over groups of about 1024 rows: count(*) < 2 drops every row (two passes), < 5000 none (one)
             assert!(!one_pass(floor_arg(41 | 64 << 8) | 1 << 63, Some(2), ROOM));
-            assert!(one_pass(floor_arg(41 | 64 << 8) | 1 << 63, Some(5000), ROOM));
-            assert!(!one_pass(floor_arg(41 | 64 << 8) & !(0xffff << 48), Some(1), ROOM));
+            assert!(one_pass(
+                floor_arg(41 | 64 << 8) | 1 << 63,
+                Some(5000),
+                ROOM
+            ));
+            assert!(!one_pass(
+                floor_arg(41 | 64 << 8) & !(0xffff << 48),
+                Some(1),
+                ROOM
+            ));
             assert!(!one_pass(floor_arg(41 | 64 << 8) & !1, Some(1), ROOM));
         }
 
@@ -743,7 +1016,9 @@ pub(crate) mod having_cost {
             assert!(two_passes_pay(50.0, 3, true, true, 1.0, 0.5, 0.5, 2.0));
             assert!(!two_passes_pay(1.1, 1, false, true, 1.0, 0.5, 0.5, 8.0));
             assert_eq!(dropped(4.0, 5, true, true), dropped(4.0, 4, false, true));
-            assert!((dropped(4.0, 5, false, true) + dropped(4.0, 5, true, false) - 1.0).abs() < 1e-12);
+            assert!(
+                (dropped(4.0, 5, false, true) + dropped(4.0, 5, true, false) - 1.0).abs() < 1e-12
+            );
         }
     }
 }
@@ -775,12 +1050,18 @@ mod build_tests {
 
     impl Run {
         fn new(ended: bool) -> Run {
-            Run { region: vec![0; 256], ended, lone: false, emptied: 0 } // alloc: Cold
+            Run {
+                region: vec![0; 256],
+                ended,
+                lone: false,
+                emptied: 0,
+            } // alloc: Cold
         }
 
         /// An arm appends `keys` to the build.
         fn append(&mut self, keys: &[i64]) {
-            let word = |r: &[u8], i: usize| u64::from_ne_bytes(r[8 * i..8 * i + 8].try_into().unwrap());
+            let word =
+                |r: &[u8], i: usize| u64::from_ne_bytes(r[8 * i..8 * i + 8].try_into().unwrap());
             let n = word(&self.region, 0) as usize;
             for (i, k) in keys.iter().enumerate() {
                 self.region[8 * (n + 1 + i)..8 * (n + 2 + i)].copy_from_slice(&k.to_ne_bytes());
@@ -820,16 +1101,35 @@ mod build_tests {
     /// `join.rtfilter`'s export after `pipeline`, as `RtFilterLive::after_pipeline` asks it: `None` when nothing is
     /// exported there, else the filter's key range and its runs.
     fn exported(r: &Reader, pipeline: usize, run: &mut Run) -> Option<(i64, i64, Vec<(i64, i64)>)> {
-        let f = r.after_build(pipeline, run, |read, o| m1::rt_filter(1, 64, &|| None, read, o.map(|o| (o, memledger::Kind::HashBuild))))?;
+        let f = r.after_build(pipeline, run, |read, o| {
+            m1::rt_filter(
+                1,
+                64,
+                &|| None,
+                read,
+                o.map(|o| (o, memledger::Kind::HashBuild)),
+            )
+        })?;
         f.map(|f| (f.lo, f.hi, f.runs.to_vec())) // alloc: Cold
     }
 
     fn reader(peer: usize) -> Reader {
-        Reader { peer, slot: 0, read: super::super::raw::test_keys, words: memledger::ChargedVec::none() } // alloc: Cold
+        Reader {
+            peer,
+            slot: 0,
+            read: super::super::raw::test_keys,
+            words: memledger::ChargedVec::none(),
+        } // alloc: Cold
     }
 
     fn build_side(pipeline: usize) -> BuildSideLive {
-        BuildSideLive { pipeline, merge: &NO_MERGE, slot: 0, read: Some(super::super::raw::test_rows), arg: MASK << 8 }
+        BuildSideLive {
+            pipeline,
+            merge: &NO_MERGE,
+            slot: 0,
+            read: Some(super::super::raw::test_rows),
+            arg: MASK << 8,
+        }
     }
 
     /// D4054 (R1): a build's keys are exported after the arm that finished its run, whichever arm the proto names. After
@@ -839,9 +1139,17 @@ mod build_tests {
         for peer in [Q, P] {
             let (r, mut run) = (reader(peer), Run::new(false));
             run.append(&[5]);
-            assert_eq!(exported(&r, Q, &mut run), None, "peer {peer}: no export after an arm that continues the run");
+            assert_eq!(
+                exported(&r, Q, &mut run),
+                None,
+                "peer {peer}: no export after an arm that continues the run"
+            );
             run.append(&[9, 12]);
-            assert_eq!(exported(&r, P, &mut run), Some((5, 12, vec![(5, 5), (9, 9), (12, 12)])), "peer {peer}: every arm's keys after the last arm"); // alloc: Cold
+            assert_eq!(
+                exported(&r, P, &mut run),
+                Some((5, 12, vec![(5, 5), (9, 9), (12, 12)])),
+                "peer {peer}: every arm's keys after the last arm"
+            ); // alloc: Cold
         }
     }
 
@@ -852,8 +1160,16 @@ mod build_tests {
         for peer in [Q, P] {
             let (r, mut run) = (reader(peer), Run::new(true));
             run.append(&[3, 4]);
-            assert_eq!(exported(&r, Q, &mut run), Some((3, 4, vec![(3, 4)])), "peer {peer}: the first arm finished the build"); // alloc: Cold
-            assert_eq!(exported(&r, P, &mut run), None, "peer {peer}: the stepped-past arm");
+            assert_eq!(
+                exported(&r, Q, &mut run),
+                Some((3, 4, vec![(3, 4)])),
+                "peer {peer}: the first arm finished the build"
+            ); // alloc: Cold
+            assert_eq!(
+                exported(&r, P, &mut run),
+                None,
+                "peer {peer}: the stepped-past arm"
+            );
         }
     }
 
@@ -864,10 +1180,16 @@ mod build_tests {
         for of in [Q, P] {
             let (b, mut run) = (build_side(of), Run::new(false));
             b.read_empty(Q, &mut run);
-            assert_eq!(run.emptied, 0, "declared on {of}: the run's later arm may still append rows");
+            assert_eq!(
+                run.emptied, 0,
+                "declared on {of}: the run's later arm may still append rows"
+            );
             run.append(&[7]);
             b.read_empty(P, &mut run);
-            assert_eq!(run.emptied, 0, "declared on {of}: the finished build holds a row");
+            assert_eq!(
+                run.emptied, 0,
+                "declared on {of}: the finished build holds a row"
+            );
         }
     }
 
@@ -878,23 +1200,38 @@ mod build_tests {
         for of in [Q, P] {
             let (b, mut run) = (build_side(of), Run::new(false));
             b.read_empty(Q, &mut run);
-            assert_eq!(run.emptied, 0, "declared on {of}: not after the arm that continues");
+            assert_eq!(
+                run.emptied, 0,
+                "declared on {of}: not after the arm that continues"
+            );
             b.read_empty(P, &mut run);
             assert_eq!(run.emptied, MASK, "declared on {of}: after the last arm");
             let mut ended = Run::new(true);
             b.read_empty(Q, &mut ended);
-            assert_eq!(ended.emptied, MASK, "declared on {of}: after the arm the run ended at");
+            assert_eq!(
+                ended.emptied, MASK,
+                "declared on {of}: after the arm the run ended at"
+            );
         }
     }
 
     /// A build of one pipeline is read after that pipeline, as before D4054.
     #[test]
     fn a_lone_build_is_read_after_its_own_pipeline() {
-        let mut run = Run { lone: true, ..Run::new(false) };
+        let mut run = Run {
+            lone: true,
+            ..Run::new(false)
+        };
         run.append(&[8]);
         assert_eq!(exported(&reader(Q), P, &mut run), None, "another pipeline");
-        assert_eq!(exported(&reader(Q), Q, &mut run), Some((8, 8, vec![(8, 8)]))); // alloc: Cold
-        let mut empty = Run { lone: true, ..Run::new(false) };
+        assert_eq!(
+            exported(&reader(Q), Q, &mut run),
+            Some((8, 8, vec![(8, 8)]))
+        ); // alloc: Cold
+        let mut empty = Run {
+            lone: true,
+            ..Run::new(false)
+        };
         build_side(Q).read_empty(P, &mut empty);
         assert_eq!(empty.emptied, 0, "another pipeline");
         build_side(Q).read_empty(Q, &mut empty);

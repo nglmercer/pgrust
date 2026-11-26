@@ -26,7 +26,12 @@ pub struct Words {
 /// `emit(a, b, c)` per item (an exported key, a granule mark `(key, part, bits)`, an unmatched entry …) and returns the items
 /// read, `None` when the region's layout is not the reader's. CONVERSION WAVE 1: `owner` is the ledger owner of the slot the
 /// region is (`Node::slot_owner`; `None` with none, or a test's stand-in): a reader's own working memory is charged to it.
-pub type RegionFn = unsafe fn(*const u8, &[u64], Option<memledger::Owner>, &mut dyn FnMut(u64, u64, u64)) -> Option<usize>;
+pub type RegionFn = unsafe fn(
+    *const u8,
+    &[u64],
+    Option<memledger::Owner>,
+    &mut dyn FnMut(u64, u64, u64),
+) -> Option<usize>;
 
 /// A bind fact the runner writes into a word before the section (`ProtoKind::Facts`), in this order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -45,7 +50,17 @@ pub enum Fact {
 
 impl Fact {
     pub const COUNT: usize = 9;
-    pub const ALL: [Fact; Fact::COUNT] = [Fact::TopK, Fact::DenseLo, Fact::DenseHi, Fact::SpillBits, Fact::Order, Fact::TableSize, Fact::RadixBits, Fact::Width, Fact::Rows];
+    pub const ALL: [Fact; Fact::COUNT] = [
+        Fact::TopK,
+        Fact::DenseLo,
+        Fact::DenseHi,
+        Fact::SpillBits,
+        Fact::Order,
+        Fact::TableSize,
+        Fact::RadixBits,
+        Fact::Width,
+        Fact::Rows,
+    ];
 }
 
 macro_rules! kinds {
@@ -286,11 +301,19 @@ pub const fn code_table(enables: u64) -> Option<usize> {
 // bits 32..48 are no other enables bit's (the flags are below 2^16, `const_key_arg`'s lane from bit 48), and a table
 // index round-trips beside a constant key
 const _: () = assert!(
-    code_sparse_table_arg(0xffff) & (const_key_arg(0xffff) | ((VERDICT_COUNT_SELECT << 1) - 1)) == VERDICT_CODE_SPARSE | VERDICT_CODE_SPARSE_TABLE
-        && matches!(code_sparse_table(code_sparse_table_arg(513) | const_key_arg(7)), Some(513))
+    code_sparse_table_arg(0xffff) & (const_key_arg(0xffff) | ((VERDICT_COUNT_SELECT << 1) - 1))
+        == VERDICT_CODE_SPARSE | VERDICT_CODE_SPARSE_TABLE
+        && matches!(
+            code_sparse_table(code_sparse_table_arg(513) | const_key_arg(7)),
+            Some(513)
+        )
         && code_sparse_table(VERDICT_CODE_SPARSE).is_none()
-        && code_table_arg(0xffff) & (const_key_arg(0xffff) | ((VERDICT_COUNT_SELECT << 1) - 1)) == VERDICT_CODE_TABLE
-        && matches!(code_table(code_table_arg(513) | code_sparse_table_arg(513) | const_key_arg(7)), Some(513))
+        && code_table_arg(0xffff) & (const_key_arg(0xffff) | ((VERDICT_COUNT_SELECT << 1) - 1))
+            == VERDICT_CODE_TABLE
+        && matches!(
+            code_table(code_table_arg(513) | code_sparse_table_arg(513) | const_key_arg(7)),
+            Some(513)
+        )
         && code_table(code_sparse_table_arg(9)).is_none()
 );
 
@@ -383,7 +406,11 @@ pub const fn word_zone_key_arg(lane: u16, op: u8, len: u8, cell: u16) -> u64 {
 
 /// The key cell of an open-time zone predicate's `arg` (`word_zone_key_arg`), `None` for a bind word's.
 pub const fn word_zone_key_of(arg: u64) -> Option<u16> {
-    if arg & (WORD_ZONE_KEY | WORD_ZONE_AT | WORD_ZONE_LIST) == WORD_ZONE_KEY { Some((arg >> 32) as u16) } else { None }
+    if arg & (WORD_ZONE_KEY | WORD_ZONE_AT | WORD_ZONE_LIST) == WORD_ZONE_KEY {
+        Some((arg >> 32) as u16)
+    } else {
+        None
+    }
 }
 
 /// NEW-72 (literal-free zone constants: a literal is never baked into a program): a `VERDICT_WORD_ZONE..` slot that binds static predicate
@@ -398,7 +425,11 @@ pub const fn word_zone_at_arg(lane: u16, op: u8, len: u8, at: u16) -> u64 {
 
 /// The static predicate a binding slot's `arg` names (`word_zone_at_arg`), `None` for any other slot's.
 pub const fn word_zone_at_of(arg: u64) -> Option<u16> {
-    if arg & WORD_ZONE_AT != 0 { Some((arg >> 32) as u16) } else { None }
+    if arg & WORD_ZONE_AT != 0 {
+        Some((arg >> 32) as u16)
+    } else {
+        None
+    }
 }
 
 /// NEW-72: a `VERDICT_WORD_ZONE..` slot whose word is an IN list's array literal (`lane = ANY (array)`, a by-value lane):
@@ -435,7 +466,11 @@ pub const fn word_zone_list_arg(facts: u64) -> u64 {
 
 /// The element facts word of a list slot's `arg` (`WORD_ZONE_LIST`), `None` for any other slot's.
 pub const fn word_zone_list_of(arg: u64) -> Option<u64> {
-    if arg & WORD_ZONE_LIST != 0 { Some(arg & LIST_FACTS) } else { None }
+    if arg & WORD_ZONE_LIST != 0 {
+        Some(arg & LIST_FACTS)
+    } else {
+        None
+    }
 }
 
 /// Whether a list slot's members are probe words (`WORD_ZONE_LIST_HASH`).
@@ -491,7 +526,8 @@ pub struct LiteralsStream {
 
 /// `LiteralsStream::params`' byte offset in the hook (the program loads the slots' address through the hook word).
 pub const LITERALS_STREAM_PARAMS: i32 = 16;
-const _: () = assert!(core::mem::offset_of!(LiteralsStream, params) == LITERALS_STREAM_PARAMS as usize);
+const _: () =
+    assert!(core::mem::offset_of!(LiteralsStream, params) == LITERALS_STREAM_PARAMS as usize);
 
 pub fn literals_mark(coded: impl IntoIterator<Item = (usize, usize)>) -> u16 {
     let (mut h, mut any) = (0xcbf2_9ce4_8422_2325u64, false);
@@ -528,7 +564,16 @@ pub struct Proto {
 
 impl Proto {
     pub const fn new(kind: ProtoKind, pipeline: u16) -> Proto {
-        Proto { kind, pipeline, peer: NONE, slot: NO_SLOT, site: -1, words: Words { base: 0, n: 0 }, arg: 0, read: [None, None] }
+        Proto {
+            kind,
+            pipeline,
+            peer: NONE,
+            slot: NO_SLOT,
+            site: -1,
+            words: Words { base: 0, n: 0 },
+            arg: 0,
+            read: [None, None],
+        }
     }
 
     pub const fn peer(mut self, p: u16) -> Proto {
@@ -564,7 +609,8 @@ impl Proto {
     /// D2674: a `BUILDSIDE_EPQ_FIRST` BuildSide proto's frame word (`BUILDSIDE_EPQ_WORD_SHIFT`).
     pub fn epq_word(&self) -> Option<u16> {
         let w = (self.arg >> BUILDSIDE_EPQ_WORD_SHIFT) as u16;
-        (self.kind == ProtoKind::BuildSide && self.arg & BUILDSIDE_EPQ_FIRST != 0 && w != 0).then(|| w - 1)
+        (self.kind == ProtoKind::BuildSide && self.arg & BUILDSIDE_EPQ_FIRST != 0 && w != 0)
+            .then(|| w - 1)
     }
 
     /// D2050: reading `i` over a finished breaker region, its first item's rows (the proto's `arg` as its words, as the
@@ -619,7 +665,14 @@ pub struct V4Descs<A: Allocator + Clone = Global> {
 /// Each list folds as its slice (as the boxed slices did), whatever its home.
 impl<A: Allocator + Clone> core::hash::Hash for V4Descs<A> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        let V4Descs { protos, rewind_reruns, soft_rewind, pull_exact, lifetimes, site_pins } = self;
+        let V4Descs {
+            protos,
+            rewind_reruns,
+            soft_rewind,
+            pull_exact,
+            lifetimes,
+            site_pins,
+        } = self;
         protos[..].hash(state);
         rewind_reruns.hash(state);
         soft_rewind.hash(state);
@@ -660,14 +713,23 @@ impl Default for V4Descs {
 
 impl V4Descs {
     pub fn new(protos: Vec<Proto>) -> V4Descs {
-        V4Descs { protos: crate::lifetime::heap_vec(protos), rewind_reruns: false, soft_rewind: false, pull_exact: false, lifetimes: crate::lifetime::Lifetimes::default(), site_pins: AVec::new() }
+        V4Descs {
+            protos: crate::lifetime::heap_vec(protos),
+            rewind_reruns: false,
+            soft_rewind: false,
+            pull_exact: false,
+            lifetimes: crate::lifetime::Lifetimes::default(),
+            site_pins: AVec::new(),
+        }
     }
 }
 
 impl<A: Allocator + Clone> V4Descs<A> {
     /// The bytes `freeze` takes from the program's arena: each list rounded up to the arena's 8-byte step.
     fn arena_bytes(&self) -> usize {
-        round8(size_of_val(&self.protos[..])) + round8(size_of_val(&self.site_pins[..])) + self.lifetimes.arena_bytes()
+        round8(size_of_val(&self.protos[..]))
+            + round8(size_of_val(&self.site_pins[..]))
+            + self.lifetimes.arena_bytes()
     }
 
     /// The program's frozen copy, in an arena of its own sized exactly: the program's arena, never a statement's; sized at
@@ -677,7 +739,11 @@ impl<A: Allocator + Clone> V4Descs<A> {
         let arena = Arena::new(bytes.max(8)); // alloc: Cold
         let a = arena.handle();
         let d = self.copy_in(&a);
-        assert!(a.used() <= bytes.max(8), "v4 descriptors' arena: {} of {bytes}", a.used());
+        assert!(
+            a.used() <= bytes.max(8),
+            "v4 descriptors' arena: {} of {bytes}",
+            a.used()
+        );
         (arena, d)
     }
 
@@ -694,7 +760,14 @@ impl<A: Allocator + Clone> V4Descs<A> {
         protos.extend_from_slice(&self.protos);
         let mut site_pins = AVec::with_capacity_in(self.site_pins.len(), b.clone()); // alloc: Program
         site_pins.extend_from_slice(&self.site_pins);
-        V4Descs { protos, rewind_reruns: self.rewind_reruns, soft_rewind: self.soft_rewind, pull_exact: self.pull_exact, lifetimes: self.lifetimes.copy_in(b), site_pins }
+        V4Descs {
+            protos,
+            rewind_reruns: self.rewind_reruns,
+            soft_rewind: self.soft_rewind,
+            pull_exact: self.pull_exact,
+            lifetimes: self.lifetimes.copy_in(b),
+            site_pins,
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -703,17 +776,25 @@ impl<A: Allocator + Clone> V4Descs<A> {
 
     /// The protocols declared on `pipeline`.
     pub fn on(&self, pipeline: usize) -> impl Iterator<Item = &Proto> {
-        self.protos.iter().filter(move |p| p.pipeline as usize == pipeline)
+        self.protos
+            .iter()
+            .filter(move |p| p.pipeline as usize == pipeline)
     }
 
     /// The pipelines `pipeline` follows (`ProtoKind::Follows`' peers): each ran to its end before `pipeline` opens.
     pub fn follows(&self, pipeline: usize) -> impl Iterator<Item = usize> + '_ {
-        self.on(pipeline).filter(|p| p.kind == ProtoKind::Follows).map(|p| p.peer as usize)
+        self.on(pipeline)
+            .filter(|p| p.kind == ProtoKind::Follows)
+            .map(|p| p.peer as usize)
     }
 
     /// The furthest milestone any declared protocol needs.
     pub fn milestone(&self) -> u8 {
-        self.protos.iter().map(|p| p.kind.milestone()).max().unwrap_or(0)
+        self.protos
+            .iter()
+            .map(|p| p.kind.milestone())
+            .max()
+            .unwrap_or(0)
     }
 }
 
@@ -729,7 +810,9 @@ impl Hasher for Fold {
     fn write(&mut self, bytes: &[u8]) {
         for &b in bytes {
             self.0 = (self.0 ^ b as u64).wrapping_mul(0x0000_0100_0000_01b3);
-            self.1 = (self.1 ^ b as u64).wrapping_mul(0xff51_afd7_ed55_8ccd).rotate_left(29);
+            self.1 = (self.1 ^ b as u64)
+                .wrapping_mul(0xff51_afd7_ed55_8ccd)
+                .rotate_left(29);
         }
     }
 }
@@ -788,7 +871,11 @@ pub struct Members {
 impl Program {
     /// THE on-demand closure, `members_in` over this program: exec's producer-order skip reads it.
     pub fn members(&self, p: usize) -> Members {
-        members_in(&self.pipelines[..], self.v4.as_deref().map_or(&[][..], |d| &d.protos[..]), p)
+        members_in(
+            &self.pipelines[..],
+            self.v4.as_deref().map_or(&[][..], |d| &d.protos[..]),
+            p,
+        )
     }
 }
 
@@ -799,11 +886,35 @@ impl Program {
 /// a `Program` exists: lowerv4's renumbering of deferred slots) and at run time alike. A pulled set's last pipeline is never
 /// one: a CTE's plan (`ProtoKind::Cte`, CT-2: its readers pull it, `m8_cte_pull`, RT-2f) and a window's pulled fill
 /// (`WINDOW_PULLED`: its object pulls it, `m10_win_ask`).
-pub fn producers_in<'a>(pipelines: &'a [crate::Pipeline], protos: &'a [Proto], q: usize) -> impl Iterator<Item = usize> + 'a {
-    let follows = protos.iter().filter(move |p| p.kind == ProtoKind::Follows && p.pipeline as usize == q).map(|p| p.peer as usize);
+pub fn producers_in<'a>(
+    pipelines: &'a [crate::Pipeline],
+    protos: &'a [Proto],
+    q: usize,
+) -> impl Iterator<Item = usize> + 'a {
+    let follows = protos
+        .iter()
+        .filter(move |p| p.kind == ProtoKind::Follows && p.pipeline as usize == q)
+        .map(|p| p.peer as usize);
     // D3037: a CTE whose producers run ahead takes none of them into its pulled set
-    let ahead = protos.iter().any(|p| p.kind == ProtoKind::Cte && p.pipeline as usize == q && p.arg & CTE_PRODUCERS_AHEAD != 0);
-    pipelines[q].consumes.iter().filter(move |_| !ahead).filter_map(move |&s| (0..q).rev().find(|&p| pipelines[p].produces() == Some(s)).filter(|&p| !protos.iter().any(|x| pulled(x) && x.pipeline as usize == p) && !table_fill(protos, p, q)).map(|p| (p, s))).flat_map(move |(p, s)| arms_of(pipelines, protos, p, s)).chain(follows)
+    let ahead = protos.iter().any(|p| {
+        p.kind == ProtoKind::Cte && p.pipeline as usize == q && p.arg & CTE_PRODUCERS_AHEAD != 0
+    });
+    pipelines[q]
+        .consumes
+        .iter()
+        .filter(move |_| !ahead)
+        .filter_map(move |&s| {
+            (0..q)
+                .rev()
+                .find(|&p| pipelines[p].produces() == Some(s))
+                .filter(|&p| {
+                    !protos.iter().any(|x| pulled(x) && x.pipeline as usize == p)
+                        && !table_fill(protos, p, q)
+                })
+                .map(|p| (p, s))
+        })
+        .flat_map(move |(p, s)| arms_of(pipelines, protos, p, s))
+        .chain(follows)
 }
 
 /// subselect#316 / #317: whether `p` fills a recursive union's table (its seed the working table, its term the intermediate
@@ -812,8 +923,15 @@ pub fn producers_in<'a>(pipelines: &'a [crate::Pipeline], protos: &'a [Proto], q
 /// The driver fills the table (the seed's run, then the swap after each generation), so `p` is never `q`'s on-demand
 /// producer: PG's CTE pull reads the working table as the generation left it, and never runs the seed again.
 fn table_fill(protos: &[Proto], p: usize, q: usize) -> bool {
-    let driver = |d: u16| d as usize != q && protos.iter().any(|g| g.kind == ProtoKind::Generation && g.pipeline == d);
-    protos.iter().any(|w| w.kind == ProtoKind::Spool && w.peer as usize == p && driver(w.pipeline))
+    let driver = |d: u16| {
+        d as usize != q
+            && protos
+                .iter()
+                .any(|g| g.kind == ProtoKind::Generation && g.pipeline == d)
+    };
+    protos
+        .iter()
+        .any(|w| w.kind == ProtoKind::Spool && w.peer as usize == p && driver(w.pipeline))
 }
 
 /// D2050 (lockrows): the BuildSide proto's `arg` bit of a build whose probe (`peer`, a rechecking write's pipeline) is an
@@ -880,7 +998,11 @@ pub const CTE_RANK_SHIFT: u32 = 48;
 pub const MERGE_PULLED: u64 = 1 << 33;
 
 /// D3190 (merge.cosplit): the co-split's range table layout (gravity_abi::program: the kernels read it too).
-pub use gravity_abi::program::{COSPLIT_HDR_WORDS, COSPLIT_MODE, COSPLIT_MODE_RESIDENT, COSPLIT_MODE_SLICES, COSPLIT_MODE_WHOLE, COSPLIT_PARTS, COSPLIT_PART_WORDS, COSPLIT_RUNS, COSPLIT_SLICES_AT, COSPLIT_WHOLE};
+pub use gravity_abi::program::{
+    COSPLIT_HDR_WORDS, COSPLIT_MODE, COSPLIT_MODE_RESIDENT, COSPLIT_MODE_SLICES,
+    COSPLIT_MODE_WHOLE, COSPLIT_PARTS, COSPLIT_PART_WORDS, COSPLIT_RUNS, COSPLIT_SLICES_AT,
+    COSPLIT_WHOLE,
+};
 
 /// D3190: the CoSplit proto's `arg`: the inner's slot (bits 0..8) and the merge keys the cut compares (bits 8..16).
 pub const fn cosplit_arg(inner_slot: u8, nkey: u8) -> u64 {
@@ -914,7 +1036,9 @@ pub const fn cosplit_window_word(arg: u64) -> usize {
 /// A proto naming a pulled set's last pipeline: a CTE's plan (CT-2), a window's pulled fill (`WINDOW_PULLED`) or a merge
 /// join's pulled inner (`MERGE_PULLED`).
 pub fn pulled(p: &Proto) -> bool {
-    p.kind == ProtoKind::Cte && p.arg & CTE_FILL_PARALLEL == 0 || (p.kind == ProtoKind::Window && p.arg & WINDOW_PULLED != 0) || (p.kind == ProtoKind::Markable && p.arg & MERGE_PULLED != 0)
+    p.kind == ProtoKind::Cte && p.arg & CTE_FILL_PARALLEL == 0
+        || (p.kind == ProtoKind::Window && p.arg & WINDOW_PULLED != 0)
+        || (p.kind == ProtoKind::Markable && p.arg & MERGE_PULLED != 0)
 }
 
 /// D393 (append.arms): the pipelines whose rows fold into one production of slot `s` with pipeline `x`, in program order:
@@ -925,10 +1049,14 @@ pub fn pulled(p: &Proto) -> bool {
 /// is no arm of such a run.
 pub fn arms_of(pipelines: &[crate::Pipeline], protos: &[Proto], x: usize, s: u8) -> Vec<usize> {
     let produces = |q: usize| pipelines.get(q).and_then(|p| p.produces()) == Some(s);
-    let run = protos.iter().filter(|a| a.kind == ProtoKind::Arms && a.slot == s).map(|a| a.pipeline as usize..(a.pipeline as usize).saturating_add(a.arg as usize)).find(|r| r.contains(&x) && produces(r.start) && produces(r.end - 1));
+    let run = protos
+        .iter()
+        .filter(|a| a.kind == ProtoKind::Arms && a.slot == s)
+        .map(|a| a.pipeline as usize..(a.pipeline as usize).saturating_add(a.arg as usize))
+        .find(|r| r.contains(&x) && produces(r.start) && produces(r.end - 1));
     match run {
         Some(r) => r.filter(|&q| produces(q)).collect(), // alloc: Exec
-        None => vec![x], // alloc: Exec
+        None => vec![x],                                 // alloc: Exec
     }
 }
 
@@ -948,9 +1076,32 @@ pub const RERUN_KEPT: u64 = 1 << 32;
 /// pulled set's pull phase), each nested run on a hosted lane of its own; lowerv4 refuses by name past gravity_driver's
 /// `NESTED_LANES`.
 pub fn on_demand_groups(pipelines: &[crate::Pipeline], protos: &[Proto]) -> usize {
-    let builds = pipelines.iter().filter(|p| usize::try_from(p.lazy_for).ok().and_then(|q| pipelines.get(q)).zip(p.produces()).is_some_and(|(q, s)| q.consumes.contains(&s))).count();
-    let reruns = protos.iter().enumerate().filter(|&(i, p)| p.kind == ProtoKind::Rerun && !protos[..i].iter().any(|q| q.kind == ProtoKind::Rerun && q.words.base == p.words.base));
-    builds + reruns.count() + protos.iter().filter(|p| p.kind == ProtoKind::Init || (p.kind == ProtoKind::SubHash && p.arg & SUBHASH_LAZY != 0) || pulled(p)).count()
+    let builds = pipelines
+        .iter()
+        .filter(|p| {
+            usize::try_from(p.lazy_for)
+                .ok()
+                .and_then(|q| pipelines.get(q))
+                .zip(p.produces())
+                .is_some_and(|(q, s)| q.consumes.contains(&s))
+        })
+        .count();
+    let reruns = protos.iter().enumerate().filter(|&(i, p)| {
+        p.kind == ProtoKind::Rerun
+            && !protos[..i]
+                .iter()
+                .any(|q| q.kind == ProtoKind::Rerun && q.words.base == p.words.base)
+    });
+    builds
+        + reruns.count()
+        + protos
+            .iter()
+            .filter(|p| {
+                p.kind == ProtoKind::Init
+                    || (p.kind == ProtoKind::SubHash && p.arg & SUBHASH_LAZY != 0)
+                    || pulled(p)
+            })
+            .count()
 }
 
 /// THE on-demand closure: `p` and its exclusive producers over `producers_in`; lowerv4's renumbering of
@@ -961,7 +1112,11 @@ pub fn members_in(pipelines: &[crate::Pipeline], protos: &[Proto], p: usize) -> 
 
 /// `Program::members` over `n` pipelines whose producers `producers(q)` names: the transitive producers of `p`, then, to a
 /// fixpoint, every one some pipeline outside the set reads moves to `shared` (and with it whatever only it read).
-pub fn members_over<I: IntoIterator<Item = usize>>(n: usize, p: usize, producers: impl Fn(usize) -> I) -> Members {
+pub fn members_over<I: IntoIterator<Item = usize>>(
+    n: usize,
+    p: usize,
+    producers: impl Fn(usize) -> I,
+) -> Members {
     let of: Vec<Vec<usize>> = (0..n).map(|q| producers(q).into_iter().collect()).collect(); // alloc: Exec
     let mut set = vec![p]; // alloc: Exec
     let mut i = 0;
@@ -974,12 +1129,18 @@ pub fn members_over<I: IntoIterator<Item = usize>>(n: usize, p: usize, producers
         i += 1;
     }
     let mut shared = Vec::new(); // alloc: Exec
-    while let Some(i) = set.iter().position(|&r| r != p && (r + 1..n).any(|c| of[c].contains(&r) && !set.contains(&c))) {
+    while let Some(i) = set
+        .iter()
+        .position(|&r| r != p && (r + 1..n).any(|c| of[c].contains(&r) && !set.contains(&c)))
+    {
         shared.push(set.swap_remove(i) as u16);
     }
     set.sort_unstable();
     shared.sort_unstable();
-    Members { members: set.into_iter().map(|x| x as u16).collect(), shared }
+    Members {
+        members: set.into_iter().map(|x| x as u16).collect(),
+        shared,
+    }
 }
 
 #[cfg(test)]
@@ -1019,17 +1180,53 @@ mod members_tests {
     #[test]
     fn each_init_and_each_lazy_build_its_probe_reads_is_one_on_demand_group() {
         use gravity_abi::breaker::{Breaker, BreakerKind};
-        let build = |slot: u8| crate::Pipeline::serial(0, crate::End::Breaker(Breaker::sized(BreakerKind::HashBuild, 64).in_slot(slot)), crate::Reason::NoDrivingSite);
+        let build = |slot: u8| {
+            crate::Pipeline::serial(
+                0,
+                crate::End::Breaker(Breaker::sized(BreakerKind::HashBuild, 64).in_slot(slot)),
+                crate::Reason::NoDrivingSite,
+            )
+        };
         // 0 a fed producer of the build (lazy for 2, read by 1 only), 1 the lazy build (read by 2), 2 the probe
-        let (mut fed, mut b, mut q) = (build(0), build(1), crate::Pipeline::serial(0, crate::End::Sink, crate::Reason::NoDrivingSite));
+        let (mut fed, mut b, mut q) = (
+            build(0),
+            build(1),
+            crate::Pipeline::serial(0, crate::End::Sink, crate::Reason::NoDrivingSite),
+        );
         (fed.lazy_for, b.lazy_for, b.consumes, q.consumes) = (2, 2, &[0], &[1]);
         let ps = [fed, b, q];
-        assert_eq!(on_demand_groups(&ps, &[]), 1, "the fed producer is its build's group");
-        assert_eq!(on_demand_groups(&ps, &[Proto::new(ProtoKind::Init, 0), Proto::new(ProtoKind::Width, 0), Proto::new(ProtoKind::Init, 1)]), 3);
-        let (eager, lazy) = (Proto::new(ProtoKind::SubHash, 0).arg(1 | 8 << 8), Proto::new(ProtoKind::SubHash, 0).arg(1 | 8 << 8 | SUBHASH_LAZY));
-        assert_eq!(on_demand_groups(&ps, &[eager, lazy]), 2, "a LAZY SubHash is a group, a set built in program order is not");
-        let rerun = |handle: u16, member: u16| Proto::new(ProtoKind::Rerun, member).words(handle, 1);
-        assert_eq!(on_demand_groups(&ps, &[rerun(4, 0), rerun(4, 1), rerun(9, 0)]), 3, "a rerun set is one group however many members its handle holds");
+        assert_eq!(
+            on_demand_groups(&ps, &[]),
+            1,
+            "the fed producer is its build's group"
+        );
+        assert_eq!(
+            on_demand_groups(
+                &ps,
+                &[
+                    Proto::new(ProtoKind::Init, 0),
+                    Proto::new(ProtoKind::Width, 0),
+                    Proto::new(ProtoKind::Init, 1)
+                ]
+            ),
+            3
+        );
+        let (eager, lazy) = (
+            Proto::new(ProtoKind::SubHash, 0).arg(1 | 8 << 8),
+            Proto::new(ProtoKind::SubHash, 0).arg(1 | 8 << 8 | SUBHASH_LAZY),
+        );
+        assert_eq!(
+            on_demand_groups(&ps, &[eager, lazy]),
+            2,
+            "a LAZY SubHash is a group, a set built in program order is not"
+        );
+        let rerun =
+            |handle: u16, member: u16| Proto::new(ProtoKind::Rerun, member).words(handle, 1);
+        assert_eq!(
+            on_demand_groups(&ps, &[rerun(4, 0), rerun(4, 1), rerun(9, 0)]),
+            3,
+            "a rerun set is one group however many members its handle holds"
+        );
         let cte = |arg: u64| Proto::new(ProtoKind::Cte, 1).arg(arg);
         let window = Proto::new(ProtoKind::Window, 1).arg(WINDOW_PULLED);
         assert_eq!(on_demand_groups(&ps, &[cte(0), cte(CTE_FILL_PARALLEL), window]), 3, "D3549: a pulled set is a group (a CTE's plan, a pulled window fill), a CTE filled ahead is not");
@@ -1038,7 +1235,13 @@ mod members_tests {
     #[test]
     fn every_arm_folding_into_the_production_an_init_reads_is_its_member() {
         use gravity_abi::breaker::{Breaker, BreakerKind};
-        let agg = |slot: u8| crate::Pipeline::serial(0, crate::End::Breaker(Breaker::sized(BreakerKind::PlainAgg, 64).in_slot(slot)), crate::Reason::NoDrivingSite);
+        let agg = |slot: u8| {
+            crate::Pipeline::serial(
+                0,
+                crate::End::Breaker(Breaker::sized(BreakerKind::PlainAgg, 64).in_slot(slot)),
+                crate::Reason::NoDrivingSite,
+            )
+        };
         let sink = |consumes: &'static [u8]| {
             let mut p = crate::Pipeline::serial(0, crate::End::Sink, crate::Reason::NoDrivingSite);
             p.consumes = consumes;
@@ -1054,8 +1257,16 @@ mod members_tests {
         let ps = [agg(0), agg(0), agg(0), sink(&[0]), agg(0), sink(&[0])];
         let m = members_in(&ps, &[arms(0, 3)], 3);
         assert_eq!((m.members, m.shared), (vec![0, 1, 2, 3], vec![]));
-        assert_eq!(members_in(&ps, &[arms(0, 3)], 5).members, vec![4, 5], "a later production of the slot is no arm");
-        assert_eq!(members_in(&ps, &[], 3).members, vec![2, 3], "without the Arms proto only the nearest producer");
+        assert_eq!(
+            members_in(&ps, &[arms(0, 3)], 5).members,
+            vec![4, 5],
+            "a later production of the slot is no arm"
+        );
+        assert_eq!(
+            members_in(&ps, &[], 3).members,
+            vec![2, 3],
+            "without the Arms proto only the nearest producer"
+        );
         // V4R-129: a MergeAppend run counts its pipelines (1 an arm's child Sort, another slot, read by arm 2); D559: 4
         // reuses slot 0 after the run, never one of its arms
         let mut arm = agg(0);
@@ -1063,8 +1274,16 @@ mod members_tests {
         let ps = [agg(0), agg(1), arm, sink(&[0]), agg(0), sink(&[0])];
         assert_eq!(arms_of(&ps, &[arms(0, 3)], 2, 0), vec![0, 2]);
         assert_eq!(members_in(&ps, &[arms(0, 3)], 3).members, vec![0, 1, 2, 3]);
-        assert_eq!(arms_of(&ps, &[arms(0, 3)], 4, 0), vec![4], "a production past the run");
-        assert_eq!(arms_of(&ps, &[arms(0, 2)], 0, 0), vec![0], "a run whose last pipeline does not produce the slot is none");
+        assert_eq!(
+            arms_of(&ps, &[arms(0, 3)], 4, 0),
+            vec![4],
+            "a production past the run"
+        );
+        assert_eq!(
+            arms_of(&ps, &[arms(0, 2)], 0, 0),
+            vec![0],
+            "a run whose last pipeline does not produce the slot is none"
+        );
     }
 
     #[test]
@@ -1074,16 +1293,34 @@ mod members_tests {
         // and 2 the drain, both reading the build, both arms of one keyed fold in slot 1 (the seeded form: ProtoKind::Arms
         // over 1 and 2), 2 following 1; 3 the fold's emit. The fold's readers take both arms (arms_of); the drain's Follows
         // brings the probe in before the drain opens
-        let (b, agg) = (Breaker::sized(BreakerKind::HashBuild, 64), Breaker::sized(BreakerKind::HashAgg, 64).in_slot(1));
+        let (b, agg) = (
+            Breaker::sized(BreakerKind::HashBuild, 64),
+            Breaker::sized(BreakerKind::HashAgg, 64).in_slot(1),
+        );
         let serial = |end| crate::Pipeline::serial(0, end, crate::Reason::NoDrivingSite);
         let arm = || serial(crate::End::Breaker(agg)).consuming(&[0]);
-        let ps = [serial(crate::End::Breaker(b)), arm(), arm(), serial(crate::End::Sink).consuming(&[1])];
-        let protos = [Proto::new(ProtoKind::Arms, 1).slot(1).arg(2), Proto::new(ProtoKind::Follows, 2).peer(1)];
+        let ps = [
+            serial(crate::End::Breaker(b)),
+            arm(),
+            arm(),
+            serial(crate::End::Sink).consuming(&[1]),
+        ];
+        let protos = [
+            Proto::new(ProtoKind::Arms, 1).slot(1).arg(2),
+            Proto::new(ProtoKind::Follows, 2).peer(1),
+        ];
         assert_eq!(producers_in(&ps, &protos, 2).collect::<Vec<_>>(), [0, 1]); // alloc: Cold
         assert_eq!(producers_in(&ps, &protos, 3).collect::<Vec<_>>(), [1, 2]); // alloc: Cold
-        assert_eq!(members_in(&ps, &protos, 3), Members { members: vec![0, 1, 2, 3], shared: vec![] }); // alloc: Cold
-        // without the edge the drain waits for its build only
-        assert_eq!(producers_in(&ps, &protos[..1], 2).collect::<Vec<_>>(), [0]); // alloc: Cold
+        assert_eq!(
+            members_in(&ps, &protos, 3),
+            Members {
+                members: vec![0, 1, 2, 3],
+                shared: vec![]
+            }
+        ); // alloc: Cold
+           // without the edge the drain waits for its build only
+        assert_eq!(producers_in(&ps, &protos[..1], 2).collect::<Vec<_>>(), [0]);
+        // alloc: Cold
     }
 
     #[test]
@@ -1099,13 +1336,44 @@ mod members_tests {
         // WorkTableScan into its store (slot 1), 2 the term's body over the CTE, 3 the union's driver (source slot 0,
         // Generation; its Spool protos name the seed and the body as the two tables' fillers)
         let serial = |end| crate::Pipeline::serial(0, end, crate::Reason::NoDrivingSite);
-        let fill = |slot: u8| serial(crate::End::Breaker(Breaker::sized(BreakerKind::Materialize, 64).in_slot(slot)));
-        let ps = [fill(0), fill(1).consuming(&[0]), fill(2).consuming(&[1]), serial(crate::End::Sink).consuming(&[0])];
-        let protos = [Proto::new(ProtoKind::Generation, 3), Proto::new(ProtoKind::Spool, 3).peer(0), Proto::new(ProtoKind::Spool, 3).peer(2), Proto::new(ProtoKind::Cte, 1)];
-        assert_eq!(members_in(&ps, &protos, 1), Members { members: vec![1], shared: vec![] }, "the CTE's pull never runs the seed"); // alloc: Cold
-        assert_eq!(members_in(&ps, &protos, 3).members, vec![0, 3], "the driver keeps the seed in its closure"); // alloc: Cold
-        // without the union's protos the seed is the CTE's producer, shared with the driver (the refusal before)
-        assert_eq!(members_in(&ps, &protos[3..], 1), Members { members: vec![1], shared: vec![0] }); // alloc: Cold
+        let fill = |slot: u8| {
+            serial(crate::End::Breaker(
+                Breaker::sized(BreakerKind::Materialize, 64).in_slot(slot),
+            ))
+        };
+        let ps = [
+            fill(0),
+            fill(1).consuming(&[0]),
+            fill(2).consuming(&[1]),
+            serial(crate::End::Sink).consuming(&[0]),
+        ];
+        let protos = [
+            Proto::new(ProtoKind::Generation, 3),
+            Proto::new(ProtoKind::Spool, 3).peer(0),
+            Proto::new(ProtoKind::Spool, 3).peer(2),
+            Proto::new(ProtoKind::Cte, 1),
+        ];
+        assert_eq!(
+            members_in(&ps, &protos, 1),
+            Members {
+                members: vec![1],
+                shared: vec![]
+            },
+            "the CTE's pull never runs the seed"
+        ); // alloc: Cold
+        assert_eq!(
+            members_in(&ps, &protos, 3).members,
+            vec![0, 3],
+            "the driver keeps the seed in its closure"
+        ); // alloc: Cold
+           // without the union's protos the seed is the CTE's producer, shared with the driver (the refusal before)
+        assert_eq!(
+            members_in(&ps, &protos[3..], 1),
+            Members {
+                members: vec![1],
+                shared: vec![0]
+            }
+        ); // alloc: Cold
     }
 }
 
@@ -1121,16 +1389,51 @@ mod frozen_tests {
 
     fn plain() -> Program {
         let st = Arena::new(1 << 12);
-        let sites = [SiteDesc::index_source(st.handle(), 12, 13, &[1, 2], &[0, 1], &[3, 4])];
-        Program::new(Layout { nsites: 1, out_natts: 1, out_rows: 64, scratch_bytes: 0, exec_bytes: 0 }, &sites, &[OutCol::new("a", 23, -1, 4, true)], WritePlan::SELECT, Code::hand(fake_entry))
+        let sites = [SiteDesc::index_source(
+            st.handle(),
+            12,
+            13,
+            &[1, 2],
+            &[0, 1],
+            &[3, 4],
+        )];
+        Program::new(
+            Layout {
+                nsites: 1,
+                out_natts: 1,
+                out_rows: 64,
+                scratch_bytes: 0,
+                exec_bytes: 0,
+            },
+            &sites,
+            &[OutCol::new("a", 23, -1, 4, true)],
+            WritePlan::SELECT,
+            Code::hand(fake_entry),
+        )
     }
 
     fn descs() -> V4Descs {
-        let mut d = V4Descs::new(vec![Proto::new(ProtoKind::Arms, 0), Proto::new(ProtoKind::Prune, 1), Proto::new(ProtoKind::Rerun, 2)]);
+        let mut d = V4Descs::new(vec![
+            Proto::new(ProtoKind::Arms, 0),
+            Proto::new(ProtoKind::Prune, 1),
+            Proto::new(ProtoKind::Rerun, 2),
+        ]);
         d.site_pins = [(1u16, 7i32), (2, 9)].into();
-        let member = |pipeline| RunMember { pipeline, runner: Runner::Set(0), life: RunLife::EveryRun, lazy_probe: NO_PROBE };
-        let rearms = SetRearms { inits: [(7, 3)].into(), prunes: [1].into(), windows: [2, 4].into(), ..Default::default() };
-        d.lifetimes = Lifetimes::new(vec![member(2), member(1)]).expect("one runner per member").with_rearms(vec![rearms]);
+        let member = |pipeline| RunMember {
+            pipeline,
+            runner: Runner::Set(0),
+            life: RunLife::EveryRun,
+            lazy_probe: NO_PROBE,
+        };
+        let rearms = SetRearms {
+            inits: [(7, 3)].into(),
+            prunes: [1].into(),
+            windows: [2, 4].into(),
+            ..Default::default()
+        };
+        d.lifetimes = Lifetimes::new(vec![member(2), member(1)])
+            .expect("one runner per member")
+            .with_rearms(vec![rearms]);
         d
     }
 
@@ -1141,32 +1444,66 @@ mod frozen_tests {
     fn a_programs_v4_descriptors_are_a_frozen_copy_in_its_own_exactly_sized_arena() {
         let d = descs();
         let p = plain().with_v4(&d);
-        let a = p.v4_arena().expect("with_v4 froze them into the program's arena").handle();
-        assert_eq!(a.used(), d.arena_bytes(), "sized at the freeze, nothing taken after");
+        let a = p
+            .v4_arena()
+            .expect("with_v4 froze them into the program's arena")
+            .handle();
+        assert_eq!(
+            a.used(),
+            d.arena_bytes(),
+            "sized at the freeze, nothing taken after"
+        );
         let f = p.v4.as_deref().expect("frozen");
         let in_arena = |ptr: *const u8, len: usize| len == 0 || a.offset_of(ptr) + len <= a.used();
-        assert!(in_arena(f.protos.as_ptr().cast(), size_of_val(&f.protos[..])));
-        assert!(in_arena(f.site_pins.as_ptr().cast(), size_of_val(&f.site_pins[..])));
-        assert!(in_arena(f.lifetimes.members().as_ptr().cast(), size_of_val(f.lifetimes.members())));
+        assert!(in_arena(
+            f.protos.as_ptr().cast(),
+            size_of_val(&f.protos[..])
+        ));
+        assert!(in_arena(
+            f.site_pins.as_ptr().cast(),
+            size_of_val(&f.site_pins[..])
+        ));
+        assert!(in_arena(
+            f.lifetimes.members().as_ptr().cast(),
+            size_of_val(f.lifetimes.members())
+        ));
         let r = f.lifetimes.rearms(0).expect("set 0's re-arms");
-        for (ptr, len) in [(r.inits.as_ptr().cast(), size_of_val(&r.inits[..])), (r.prunes.as_ptr().cast(), size_of_val(&r.prunes[..])), (r.windows.as_ptr().cast(), size_of_val(&r.windows[..]))] {
+        for (ptr, len) in [
+            (r.inits.as_ptr().cast(), size_of_val(&r.inits[..])),
+            (r.prunes.as_ptr().cast(), size_of_val(&r.prunes[..])),
+            (r.windows.as_ptr().cast(), size_of_val(&r.windows[..])),
+        ] {
             assert!(in_arena(ptr, len), "a re-arm list in the program's arena");
         }
         let key = p.key;
         drop(d);
         let again = descs();
-        assert!(*f == again, "the frozen copy reads as the lists it was made from, after they are gone");
-        assert_eq!(key, plain().with_v4(again.clone()).key, "the key: an owned set or a borrowed one");
+        assert!(
+            *f == again,
+            "the frozen copy reads as the lists it was made from, after they are gone"
+        );
+        assert_eq!(
+            key,
+            plain().with_v4(again.clone()).key,
+            "the key: an owned set or a borrowed one"
+        );
         let mut h = Fold(0, 0);
         again.hash(&mut h);
         let mut g = Fold(0, 0);
         f.hash(&mut g);
-        assert_eq!((h.0, h.1), (g.0, g.1), "the frozen copy hashes as its source");
+        assert_eq!(
+            (h.0, h.1),
+            (g.0, g.1),
+            "the frozen copy hashes as its source"
+        );
         assert_eq!(f.thaw(), again, "thaw: back on the heap, the same");
         let mut q = plain();
         q.set_v4(&again);
         assert_eq!(q.key, plain().key, "set_v4 leaves the key as it is");
-        assert_eq!(q.v4_arena().map(|a| a.handle().used()), Some(again.arena_bytes()));
+        assert_eq!(
+            q.v4_arena().map(|a| a.handle().used()),
+            Some(again.arena_bytes())
+        );
     }
 }
 
@@ -1178,13 +1515,24 @@ mod literals_tests {
     #[test]
     fn the_coded_cells_mark_is_zero_only_for_a_const_only_list() {
         assert_eq!(literals_mark([]), 0);
-        let marks: Vec<u16> = [(0, 0), (0, 1), (1, 0), (255, 3), (65_535, 0)].iter().map(|&c| literals_mark([c])).collect();
+        let marks: Vec<u16> = [(0, 0), (0, 1), (1, 0), (255, 3), (65_535, 0)]
+            .iter()
+            .map(|&c| literals_mark([c]))
+            .collect();
         assert!(marks.iter().all(|&m| m != 0), "{marks:?}");
         let mut uniq = marks.clone();
         uniq.sort_unstable();
         uniq.dedup();
-        assert_eq!(uniq.len(), marks.len(), "another cell, another mark: {marks:?}");
-        assert_ne!(literals_mark([(0, 0), (1, 0)]), literals_mark([(0, 0)]), "a second coded cell moves the mark");
+        assert_eq!(
+            uniq.len(),
+            marks.len(),
+            "another cell, another mark: {marks:?}"
+        );
+        assert_ne!(
+            literals_mark([(0, 0), (1, 0)]),
+            literals_mark([(0, 0)]),
+            "a second coded cell moves the mark"
+        );
         assert_eq!(LITERALS_CODED & 1, 0, "the coded bit is not the null bit");
     }
 }

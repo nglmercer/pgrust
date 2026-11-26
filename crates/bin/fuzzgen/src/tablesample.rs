@@ -300,12 +300,19 @@ macro_rules! need_set {
 /// BY pk. Fixed seed => deterministic sampled set; compared A vs B.
 fn gen_sample(g: &mut Gen, method: &str) -> Vec<StmtKind> {
     let n = need_set!(g);
-    let fam = if method == "BERNOULLI" { "tsm:bernoulli" } else { "tsm:system" };
+    let fam = if method == "BERNOULLI" {
+        "tsm:bernoulli"
+    } else {
+        "tsm:system"
+    };
     g.fire(fam);
     let t = names(n).main;
     let p = pick(g, P_POOL);
     let seed = pick(g, SEED_POOL);
-    let shape = g.weights.pick(g.rng, &["tsm:samp:plain", "tsm:samp:where", "tsm:samp:proj"]);
+    let shape = g.weights.pick(
+        g.rng,
+        &["tsm:samp:plain", "tsm:samp:where", "tsm:samp:proj"],
+    );
     g.fire(shape);
     let sql = match shape {
         "tsm:samp:where" => format!(
@@ -330,7 +337,11 @@ fn gen_sameseed(g: &mut Gen) -> Vec<StmtKind> {
     let n = need_set!(g);
     g.fire("tsm:sameseed");
     let t = names(n).main;
-    let method = if g.rng.chance(1, 2) { "BERNOULLI" } else { "SYSTEM" };
+    let method = if g.rng.chance(1, 2) {
+        "BERNOULLI"
+    } else {
+        "SYSTEM"
+    };
     let p = pick(g, P_POOL);
     let seed = pick(g, SEED_POOL);
     // Symmetric difference via two EXCEPTs; count must be 0 (deterministic
@@ -352,7 +363,11 @@ fn gen_join(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("tsm:join");
     let nm = names(n);
     let (t, j) = (&nm.main, &nm.join);
-    let method = if g.rng.chance(1, 2) { "BERNOULLI" } else { "SYSTEM" };
+    let method = if g.rng.chance(1, 2) {
+        "BERNOULLI"
+    } else {
+        "SYSTEM"
+    };
     let p = pick(g, P_POOL);
     let seed = pick(g, SEED_POOL);
     let sql = format!(
@@ -368,7 +383,11 @@ fn gen_inherit(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("tsm:inherit");
     let nm = names(n);
     let parent = &nm.parent;
-    let method = if g.rng.chance(1, 2) { "BERNOULLI" } else { "SYSTEM" };
+    let method = if g.rng.chance(1, 2) {
+        "BERNOULLI"
+    } else {
+        "SYSTEM"
+    };
     let p = pick(g, P_POOL);
     let seed = pick(g, SEED_POOL);
     // ONLY restricts to the parent's own heap; without ONLY the sample is
@@ -415,19 +434,26 @@ fn gen_limit(g: &mut Gen) -> Vec<StmtKind> {
         "tsm:limit:both" => {
             let k = count(g);
             let m = count(g);
-            one(format!("SELECT pk, a FROM {t} ORDER BY pk LIMIT {k} OFFSET {m};"))
+            one(format!(
+                "SELECT pk, a FROM {t} ORDER BY pk LIMIT {k} OFFSET {m};"
+            ))
         }
         "tsm:limit:all" => {
             let m = count(g);
-            one(format!("SELECT pk, a FROM {t} ORDER BY pk LIMIT ALL OFFSET {m};"))
+            one(format!(
+                "SELECT pk, a FROM {t} ORDER BY pk LIMIT ALL OFFSET {m};"
+            ))
         }
         // OFFSET past the end => empty result on both engines.
-        "tsm:limit:offend" => {
-            one(format!("SELECT pk, a FROM {t} ORDER BY pk OFFSET {};", MAIN_ROWS + 5000))
-        }
+        "tsm:limit:offend" => one(format!(
+            "SELECT pk, a FROM {t} ORDER BY pk OFFSET {};",
+            MAIN_ROWS + 5000
+        )),
         "tsm:limit:fetch" => {
             let k = 1 + count(g);
-            one(format!("SELECT pk, a FROM {t} ORDER BY pk FETCH FIRST {k} ROWS ONLY;"))
+            one(format!(
+                "SELECT pk, a FROM {t} ORDER BY pk FETCH FIRST {k} ROWS ONLY;"
+            ))
         }
         "tsm:limit:fetchoff" => {
             let k = 1 + count(g);
@@ -474,7 +500,12 @@ fn gen_distincton(g: &mut Gen) -> Vec<StmtKind> {
     let t = names(n).main;
     let shape = g.weights.pick(
         g.rng,
-        &["tsm:don:single", "tsm:don:multi", "tsm:don:desc", "tsm:don:expr"],
+        &[
+            "tsm:don:single",
+            "tsm:don:multi",
+            "tsm:don:desc",
+            "tsm:don:expr",
+        ],
     );
     g.fire(shape);
     let sql = match shape {
@@ -525,7 +556,11 @@ fn gen_err(g: &mut Gen) -> Vec<StmtKind> {
                 1 => "101",
                 _ => "150.5",
             };
-            let method = if g.rng.chance(1, 2) { "BERNOULLI" } else { "SYSTEM" };
+            let method = if g.rng.chance(1, 2) {
+                "BERNOULLI"
+            } else {
+                "SYSTEM"
+            };
             format!("SELECT pk FROM {t} TABLESAMPLE {method} ({bad}) REPEATABLE (1) ORDER BY pk;")
         }
         // TABLESAMPLE on a non-table (subquery alias) => rejected in
@@ -597,7 +632,11 @@ mod tests {
         for s in drain(0x7502, 600, &w) {
             assert!(s.ends_with(';'), "unterminated: {s}");
             assert!(!s.contains('\n'), "multi-line: {s}");
-            assert_eq!(s.matches('(').count(), s.matches(')').count(), "unbalanced: {s}");
+            assert_eq!(
+                s.matches('(').count(),
+                s.matches(')').count(),
+                "unbalanced: {s}"
+            );
         }
     }
 

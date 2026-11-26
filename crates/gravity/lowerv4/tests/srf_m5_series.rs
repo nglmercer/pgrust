@@ -14,8 +14,13 @@ const CASES: &[(&str, &str)] = &[
 ];
 
 fn entry(name: &str, pg: &str) -> Entry {
-    let plan = std::fs::read_to_string(common::plans_dir().join(format!("{name}.plan"))).unwrap_or_else(|e| panic!("{name}.plan: {e}"));
-    Entry { name: name.to_owned(), plan, golden: Some(parse_case(name, pg).unwrap_or_else(|e| panic!("{e}"))) }
+    let plan = std::fs::read_to_string(common::plans_dir().join(format!("{name}.plan")))
+        .unwrap_or_else(|e| panic!("{name}.plan: {e}"));
+    Entry {
+        name: name.to_owned(),
+        plan,
+        golden: Some(parse_case(name, pg).unwrap_or_else(|e| panic!("{e}"))),
+    }
 }
 
 #[test]
@@ -26,7 +31,10 @@ fn from_series_equal_pg_in_every_mode() {
         for mode in MODES {
             match run_fixture(&e.plan, mode) {
                 Some(Ok(got)) => bad.extend(check(&e, mode, &got).err()),
-                other => bad.push(format!("{name} {}: did not run: {other:?}", common::mode_name(mode))),
+                other => bad.push(format!(
+                    "{name} {}: did not run: {other:?}",
+                    common::mode_name(mode)
+                )),
             }
         }
     }

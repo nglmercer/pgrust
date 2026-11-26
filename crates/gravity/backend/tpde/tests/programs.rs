@@ -17,14 +17,18 @@ extern "C" fn host_sum8(a: i64, b: i64, c: i64, d: i64, e: i64, f: i64, g: i64, 
 /// Narrow arguments and a narrow result: the upper bits of the returned
 /// register are whatever the host leaves there.
 extern "C" fn host_mix(a: i32, b: i8, c: i16, d: bool) -> i32 {
-    a.wrapping_add(b as i32).wrapping_add(c as i32).wrapping_add(d as i32)
+    a.wrapping_add(b as i32)
+        .wrapping_add(c as i32)
+        .wrapping_add(d as i32)
 }
 
 fn load(src: &str) -> Program {
     parse_program(src, &|name| match name {
         "mul3" => Some(host_mul3 as extern "C" fn(i64, i64, i64) -> i64 as usize),
         "swap_i64" => Some(host_swap_i64 as extern "C" fn(*mut i64, *mut i64) as usize),
-        "sum8" => Some(host_sum8 as extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64) -> i64 as usize),
+        "sum8" => {
+            Some(host_sum8 as extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64) -> i64 as usize)
+        }
         "mix" => Some(host_mix as extern "C" fn(i32, i8, i16, bool) -> i32 as usize),
         _ => None,
     })
@@ -54,7 +58,13 @@ fn gcd_euclid() {
       (return g))))
 "#,
     );
-    for (a, b, g) in [(48, 18, 6), (17, 5, 1), (0, 9, 9), (100, 100, 100), (1071, 462, 21)] {
+    for (a, b, g) in [
+        (48, 18, 6),
+        (17, 5, 1),
+        (0, 9, 9),
+        (100, 100, 100),
+        (1071, 462, 21),
+    ] {
         assert_eq!(run(&p, "gcd", &[a, b]), vec![g]);
     }
 }
@@ -139,10 +149,24 @@ fn binary_search_i32_array() {
     );
     let arr: Vec<i32> = vec![-50, -3, 0, 4, 9, 15, 16, 100, 1000];
     for (i, &k) in arr.iter().enumerate() {
-        assert_eq!(run(&p, "bsearch", &[arr.as_ptr() as u64, arr.len() as u64, k as i64 as u64]), vec![i as u64]);
+        assert_eq!(
+            run(
+                &p,
+                "bsearch",
+                &[arr.as_ptr() as u64, arr.len() as u64, k as i64 as u64]
+            ),
+            vec![i as u64]
+        );
     }
     for k in [-100, -1, 5, 17, 5000] {
-        assert_eq!(run(&p, "bsearch", &[arr.as_ptr() as u64, arr.len() as u64, k as i64 as u64]), vec![u64::MAX]);
+        assert_eq!(
+            run(
+                &p,
+                "bsearch",
+                &[arr.as_ptr() as u64, arr.len() as u64, k as i64 as u64]
+            ),
+            vec![u64::MAX]
+        );
     }
 }
 
@@ -221,10 +245,15 @@ fn fnv1a_hash_bytes() {
 "#,
     );
     fn fnv(s: &[u8]) -> u64 {
-        s.iter().fold(0xcbf29ce484222325u64, |h, &b| (h ^ b as u64).wrapping_mul(0x100000001b3))
+        s.iter().fold(0xcbf29ce484222325u64, |h, &b| {
+            (h ^ b as u64).wrapping_mul(0x100000001b3)
+        })
     }
     for s in ["", "a", "hello", "the quick brown fox", "\u{ff}\u{fe}bytes"] {
-        assert_eq!(run(&p, "fnv", &[s.as_ptr() as u64, s.len() as u64]), vec![fnv(s.as_bytes())]);
+        assert_eq!(
+            run(&p, "fnv", &[s.as_ptr() as u64, s.len() as u64]),
+            vec![fnv(s.as_bytes())]
+        );
     }
 }
 
@@ -256,7 +285,15 @@ fn collatz_steps() {
       (return r))))
 "#,
     );
-    for (n, w) in [(1, 0), (2, 1), (3, 7), (6, 8), (7, 16), (27, 111), (97, 118)] {
+    for (n, w) in [
+        (1, 0),
+        (2, 1),
+        (3, 7),
+        (6, 8),
+        (7, 16),
+        (27, 111),
+        (97, 118),
+    ] {
         assert_eq!(run(&p, "collatz", &[n]), vec![w]);
     }
 }
@@ -296,8 +333,18 @@ fn switch_state_machine_counts_words() {
       (return r))))
 "#,
     );
-    for (s, w) in [("", 0), ("a", 1), ("hello world", 2), ("  leading  and   trailing  ", 3), ("one", 1), ("   ", 0)] {
-        assert_eq!(run(&p, "words", &[s.as_ptr() as u64, s.len() as u64]), vec![w]);
+    for (s, w) in [
+        ("", 0),
+        ("a", 1),
+        ("hello world", 2),
+        ("  leading  and   trailing  ", 3),
+        ("one", 1),
+        ("   ", 0),
+    ] {
+        assert_eq!(
+            run(&p, "words", &[s.as_ptr() as u64, s.len() as u64]),
+            vec![w]
+        );
     }
 }
 
@@ -446,7 +493,10 @@ fn strlen_pointer_walk() {
 "#,
     );
     for s in ["\0", "a\0", "hello\0", "with spaces and stuff\0"] {
-        assert_eq!(run(&p, "strlen", &[s.as_ptr() as u64]), vec![s.len() as u64 - 1]);
+        assert_eq!(
+            run(&p, "strlen", &[s.as_ptr() as u64]),
+            vec![s.len() as u64 - 1]
+        );
     }
 }
 
@@ -503,7 +553,16 @@ fn nested_loops_matrix_multiply() {
     let a: Vec<i64> = vec![1, 2, 3, 4, 5, 6, 7, 8, 9];
     let b: Vec<i64> = vec![9, 8, 7, 6, 5, 4, 3, 2, 1];
     let mut c = vec![0i64; 9];
-    run(&p, "matmul", &[a.as_ptr() as u64, b.as_ptr() as u64, c.as_mut_ptr() as u64, n as u64]);
+    run(
+        &p,
+        "matmul",
+        &[
+            a.as_ptr() as u64,
+            b.as_ptr() as u64,
+            c.as_mut_ptr() as u64,
+            n as u64,
+        ],
+    );
     let mut want = vec![0i64; 9];
     for i in 0..n {
         for j in 0..n {
@@ -553,7 +612,13 @@ fn sql_style_nullable_int4_add_with_overflow_error() {
       (return ok2 z2 v))))
 "#,
     );
-    let r = |a: i32, an: bool, b: i32, bn: bool| run(&p, "int4pl", &[a as i64 as u64, an as u64, b as i64 as u64, bn as u64]);
+    let r = |a: i32, an: bool, b: i32, bn: bool| {
+        run(
+            &p,
+            "int4pl",
+            &[a as i64 as u64, an as u64, b as i64 as u64, bn as u64],
+        )
+    };
     assert_eq!(r(2, false, 3, false), vec![0, 0, 5]);
     assert_eq!(r(2, true, 3, false), vec![0, 1, 0]);
     assert_eq!(r(2, false, 3, true), vec![0, 1, 0]);
@@ -566,13 +631,18 @@ fn sql_style_nullable_int4_add_with_overflow_error() {
 /// with every case feeding one join block through edge arguments (split
 /// edges), plus a sparse switch that must not become a table.
 fn switch50_program() -> Program {
-    let mut src = String::from("(program\n  (fn sw ((x i64)) (i64)\n    (block entry ((x i64))\n      (switch x");
+    let mut src = String::from(
+        "(program\n  (fn sw ((x i64)) (i64)\n    (block entry ((x i64))\n      (switch x",
+    );
     for k in 100..150 {
         src.push_str(&format!(" (case {k} (c{k}))"));
     }
     src.push_str(" (default (dflt))))\n");
     for k in 100..150 {
-        src.push_str(&format!("    (block c{k} () (v{k} (const i64 {})) (return v{k}))\n", k * 3 + 1));
+        src.push_str(&format!(
+            "    (block c{k} () (v{k} (const i64 {})) (return v{k}))\n",
+            k * 3 + 1
+        ));
     }
     src.push_str("    (block dflt () (m (const i64 -1)) (return m)))\n");
     // All cases into one block with an argument: every edge needs a split.
@@ -595,16 +665,51 @@ fn switch50_program() -> Program {
 #[test]
 fn switch_fifty_cases_jump_table() {
     let p = switch50_program();
-    for x in [99i64, 100, 101, 124, 149, 150, 151, -1, 1000, i64::MIN, i64::MAX] {
-        let want = if (100..150).contains(&x) { x * 3 + 1 } else { -1 };
+    for x in [
+        99i64,
+        100,
+        101,
+        124,
+        149,
+        150,
+        151,
+        -1,
+        1000,
+        i64::MIN,
+        i64::MAX,
+    ] {
+        let want = if (100..150).contains(&x) {
+            x * 3 + 1
+        } else {
+            -1
+        };
         assert_eq!(run(&p, "sw", &[x as u64]), vec![want as u64], "sw {x}");
     }
     for x in [-1i32, 0, 1, 7, 25, 48, 49, 50, 51, i32::MAX, i32::MIN] {
-        let want = if (0..50).contains(&x) { (x as i64) * (x as i64) + 7 } else { -1 };
-        assert_eq!(run(&p, "sw2", &[x as i64 as u64]), vec![want as u64], "sw2 {x}");
+        let want = if (0..50).contains(&x) {
+            (x as i64) * (x as i64) + 7
+        } else {
+            -1
+        };
+        assert_eq!(
+            run(&p, "sw2", &[x as i64 as u64]),
+            vec![want as u64],
+            "sw2 {x}"
+        );
     }
-    for (x, want) in [(0i8, 10), (-1, 20), (100, 30), (1, 40), (-128, 40), (127, 40)] {
-        assert_eq!(run(&p, "sparse", &[x as i64 as u64]), vec![want], "sparse {x}");
+    for (x, want) in [
+        (0i8, 10),
+        (-1, 20),
+        (100, 30),
+        (1, 40),
+        (-128, 40),
+        (127, 40),
+    ] {
+        assert_eq!(
+            run(&p, "sparse", &[x as i64 as u64]),
+            vec![want],
+            "sparse {x}"
+        );
     }
 }
 
@@ -633,16 +738,44 @@ fn host_call_with_eight_args_and_narrow_result() {
       (return v))))
 "#,
     );
-    let s = |v: &[i64]| v[0].wrapping_add(2 * v[1]).wrapping_add(3 * v[2]).wrapping_add(4 * v[3]).wrapping_add(5 * v[4]).wrapping_add(6 * v[5]).wrapping_add(7 * v[6]).wrapping_add(8 * v[7]);
-    for args in [[1i64, 2, 3, 4, 5, 6, 7, 8], [-1, 100, -1000, 7, 0, 3, -9, 11], [1 << 40, 1, 1, 1, 1, 1, 1, -(1 << 40)]] {
+    let s = |v: &[i64]| {
+        v[0].wrapping_add(2 * v[1])
+            .wrapping_add(3 * v[2])
+            .wrapping_add(4 * v[3])
+            .wrapping_add(5 * v[4])
+            .wrapping_add(6 * v[5])
+            .wrapping_add(7 * v[6])
+            .wrapping_add(8 * v[7])
+    };
+    for args in [
+        [1i64, 2, 3, 4, 5, 6, 7, 8],
+        [-1, 100, -1000, 7, 0, 3, -9, 11],
+        [1 << 40, 1, 1, 1, 1, 1, 1, -(1 << 40)],
+    ] {
         let mut rev = args;
         rev.reverse();
         let want = s(&args).wrapping_sub(s(&rev));
         assert_eq!(run(&p, "f", &args.map(|v| v as u64)), vec![want as u64]);
     }
-    for (a, b, c, d) in [(1i32, 2i8, 3i16, true), (-5, -128, 32767, false), (i32::MAX, 1, 0, false), (i32::MIN, -1, -1, true)] {
-        let want = a.wrapping_add(b as i32).wrapping_add(c as i32).wrapping_add(d as i32) as i64 + 1;
-        assert_eq!(run(&p, "m", &[a as i64 as u64, b as i64 as u64, c as i64 as u64, d as u64]), vec![want as u64]);
+    for (a, b, c, d) in [
+        (1i32, 2i8, 3i16, true),
+        (-5, -128, 32767, false),
+        (i32::MAX, 1, 0, false),
+        (i32::MIN, -1, -1, true),
+    ] {
+        let want = a
+            .wrapping_add(b as i32)
+            .wrapping_add(c as i32)
+            .wrapping_add(d as i32) as i64
+            + 1;
+        assert_eq!(
+            run(
+                &p,
+                "m",
+                &[a as i64 as u64, b as i64 as u64, c as i64 as u64, d as u64]
+            ),
+            vec![want as u64]
+        );
     }
 }
 
@@ -703,7 +836,20 @@ fn load_zext_and_fused_immediate_compares() {
     let buf: [u8; 8] = [0x80, 0xff, 0xfe, 0xff, 0x00, 0x00, 0x00, 0x80];
     let expect = (0x80i64 + 0xfffe + 0x8000_0000) - (-128i64);
     assert_eq!(run(&p, "lz", &[buf.as_ptr() as u64]), vec![expect as u64]);
-    for x in [0i64, 5, 9, 10, 11, -1, -4999, 70000, 70001, 1 << 40, -6000, i64::MIN] {
+    for x in [
+        0i64,
+        5,
+        9,
+        10,
+        11,
+        -1,
+        -4999,
+        70000,
+        70001,
+        1 << 40,
+        -6000,
+        i64::MIN,
+    ] {
         let want = if x == 0 {
             100
         } else if x < 10 {
@@ -737,7 +883,10 @@ fn int8_sub_overflow_branch() {
     );
     assert_eq!(run(&p, "f", &[10, 3]), vec![7]);
     assert_eq!(run(&p, "f", &[i64::MIN as u64, 1]), vec![u64::MAX]);
-    assert_eq!(run(&p, "f", &[i64::MAX as u64, (-1i64) as u64]), vec![u64::MAX]);
+    assert_eq!(
+        run(&p, "f", &[i64::MAX as u64, (-1i64) as u64]),
+        vec![u64::MAX]
+    );
     assert_eq!(run(&p, "f", &[(-5i64) as u64, (-7i64) as u64]), vec![2]);
 }
 
@@ -764,7 +913,16 @@ fn int4_add_overflow_by_self_sign_extension() {
     );
     assert_eq!(run(&p, "f", &[10, 3]), vec![13]);
     assert_eq!(run(&p, "f", &[i32::MAX as u64, 1]), vec![u64::MAX]);
-    assert_eq!(run(&p, "f", &[(i32::MIN as i64) as u64, (-1i64) as u64]), vec![u64::MAX]);
-    assert_eq!(run(&p, "f", &[(-5i64) as u64, (-7i64) as u64]), vec![(-12i64) as u64]);
-    assert_eq!(run(&p, "f", &[i32::MAX as u64, (-1i64) as u64]), vec![(i32::MAX - 1) as u64]);
+    assert_eq!(
+        run(&p, "f", &[(i32::MIN as i64) as u64, (-1i64) as u64]),
+        vec![u64::MAX]
+    );
+    assert_eq!(
+        run(&p, "f", &[(-5i64) as u64, (-7i64) as u64]),
+        vec![(-12i64) as u64]
+    );
+    assert_eq!(
+        run(&p, "f", &[i32::MAX as u64, (-1i64) as u64]),
+        vec![(i32::MAX - 1) as u64]
+    );
 }

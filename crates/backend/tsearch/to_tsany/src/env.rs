@@ -1,11 +1,11 @@
 use ::datum::Datum;
 use ::mcx::{Mcx, PgVec};
+use ::std::rc::Rc;
+use ::ts_cache::TSDictionaryCacheEntry;
 use ::ts_locale::{DictSubState, TsLexeme};
 use ::types_core::primitive::InvalidOid;
 use ::types_core::Oid;
 use ::types_error::PgResult;
-use ::std::rc::Rc;
-use ::ts_cache::TSDictionaryCacheEntry;
 use ::types_fmgr::{function_call1_coll_in, function_call2_coll_in, function_call3_coll};
 
 use crate::cache_bind::{self, ConfigMap, ParserFns};

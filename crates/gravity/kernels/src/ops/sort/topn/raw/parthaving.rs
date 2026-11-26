@@ -2,12 +2,18 @@
 //! back from the owner words, the floor's pigeonhole prune and the whole-record keep, moved here unchanged (rule R6: the
 //! family's unsafe code lives in raw). parthaving.rs keeps the spec, its word layout,
 //! `owner_fns`, `runs_area` and the prune's `GroupSet`.
-use gravity_abi::breaker::{FloatOverflow, HashAgg, OwnerTop, RecordLayout, DENSE, GROUPS_UNCOUNTED, HASHAGG_HDR, MINCODE_NONE, OWNERTOP_HDR, OWNER_MAX_RUNS, OWNER_PARAMS, OWNER_RUN_OFF};
+use gravity_abi::breaker::{
+    FloatOverflow, HashAgg, OwnerTop, RecordLayout, DENSE, GROUPS_UNCOUNTED, HASHAGG_HDR,
+    MINCODE_NONE, OWNERTOP_HDR, OWNER_MAX_RUNS, OWNER_PARAMS, OWNER_RUN_OFF,
+};
 use gravity_abi::status::{unsupported, ERROR, UNSUPPORTED_SCRATCH};
 use gravity_abi::Site;
 
 use crate::dict::reps::{render, unpack_slot, varlena_bytes, MAX_REPS, REP_NONE};
-use crate::ops::sort::topn::parthaving::{runs_area, GroupSet, PartHavingSpec, LAYOUT_WORDS, P_FLOOR, P_HEAD, P_LAYOUT, P_MINS, P_MINS_MORE};
+use crate::ops::sort::topn::parthaving::{
+    runs_area, GroupSet, PartHavingSpec, LAYOUT_WORDS, P_FLOOR, P_HEAD, P_LAYOUT, P_MINS,
+    P_MINS_MORE,
+};
 
 unsafe fn spec_of(params: *const u64) -> PartHavingSpec {
     let w = core::slice::from_raw_parts(params, OWNER_PARAMS);
@@ -15,7 +21,19 @@ unsafe fn spec_of(params: *const u64) -> PartHavingSpec {
     words.copy_from_slice(&w[P_LAYOUT..P_LAYOUT + LAYOUT_WORDS]);
     // SAFETY: the words `owner_fns` packed.
     let layout: RecordLayout = RecordLayout::from_words(words);
-    PartHavingSpec { layout, mins: unpack_slot(&core::array::from_fn(|i| if i == 0 { w[P_MINS] } else { w[P_MINS_MORE + i - 1] })), count_slot: w[P_HEAD] as u8, bits: (w[P_HEAD] >> 8) as u8, floor: w[P_FLOOR] as i64 }
+    PartHavingSpec {
+        layout,
+        mins: unpack_slot(&core::array::from_fn(|i| {
+            if i == 0 {
+                w[P_MINS]
+            } else {
+                w[P_MINS_MORE + i - 1]
+            }
+        })),
+        count_slot: w[P_HEAD] as u8,
+        bits: (w[P_HEAD] >> 8) as u8,
+        floor: w[P_FLOOR] as i64,
+    }
 }
 
 pub(in crate::ops::sort::topn) fn owner_min(params: *const u64, _owners: u32) -> u64 {
@@ -25,7 +43,11 @@ pub(in crate::ops::sort::topn) fn owner_min(params: *const u64, _owners: u32) ->
     OWNER_RUN_OFF as u64 + 2 * table
 }
 
-pub(in crate::ops::sort::topn) unsafe fn owner_open(params: *const u64, owner: *mut u8, bytes: usize) -> i64 {
+pub(in crate::ops::sort::topn) unsafe fn owner_open(
+    params: *const u64,
+    owner: *mut u8,
+    bytes: usize,
+) -> i64 {
     let sp = spec_of(params);
     let rec = sp.layout.size() as usize;
     let off = OWNER_RUN_OFF + runs_area(bytes);
@@ -33,7 +55,21 @@ pub(in crate::ops::sort::topn) unsafe fn owner_open(params: *const u64, owner: *
         return unsupported(UNSUPPORTED_SCRATCH);
     }
     // `n` carries the record's size: the runs form's reader without the words (`havingexport`)
-    *(owner as *mut OwnerTop) = OwnerTop { len: 0, n: rec as u32, table_off: off as u32, worst: 0, round2_off: 0, resume: 0, total: 0, groups: 0, records: 0, thr: 0, key_lo: gravity_abi::breaker::KEY_LO_NONE, key_hi: gravity_abi::breaker::KEY_HI_NONE, cell: core::cell::UnsafeCell::new([]) };
+    *(owner as *mut OwnerTop) = OwnerTop {
+        len: 0,
+        n: rec as u32,
+        table_off: off as u32,
+        worst: 0,
+        round2_off: 0,
+        resume: 0,
+        total: 0,
+        groups: 0,
+        records: 0,
+        thr: 0,
+        key_lo: gravity_abi::breaker::KEY_LO_NONE,
+        key_hi: gravity_abi::breaker::KEY_HI_NONE,
+        cell: core::cell::UnsafeCell::new([]),
+    };
     off as i64
 }
 
@@ -41,7 +77,14 @@ pub(in crate::ops::sort::topn) unsafe fn owner_end(_params: *const u64, _owner: 
     0
 }
 
-pub(in crate::ops::sort::topn) unsafe fn owner_reduce(params: *const u64, owner: *mut u8, table: *const HashAgg, site: *mut Site, _cand: *const u32, _ncand: i64) -> i64 {
+pub(in crate::ops::sort::topn) unsafe fn owner_reduce(
+    params: *const u64,
+    owner: *mut u8,
+    table: *const HashAgg,
+    site: *mut Site,
+    _cand: *const u32,
+    _ncand: i64,
+) -> i64 {
     let sp = spec_of(params);
     let h = &mut *(owner as *mut OwnerTop);
     let t = &mut *(table as *mut HashAgg);
@@ -64,7 +107,11 @@ pub(in crate::ops::sort::topn) unsafe fn owner_reduce(params: *const u64, owner:
         }
     }
     t.sort_dense_by_words(g);
-    let (n, cs, rec) = (t.len as usize, sp.count_slot as usize, sp.layout.size() as usize);
+    let (n, cs, rec) = (
+        t.len as usize,
+        sp.count_slot as usize,
+        sp.layout.size() as usize,
+    );
     let runs = h.worst as usize;
     let off = OWNER_RUN_OFF + h.total as usize;
     if runs >= OWNER_MAX_RUNS {
@@ -86,7 +133,9 @@ pub(in crate::ops::sort::topn) unsafe fn owner_reduce(params: *const u64, owner:
         if count >= sp.floor {
             if j > i + 1 {
                 let mut best = [MINCODE_NONE; MAX_REPS];
-                for (mi, &(slot, lane)) in sp.mins.iter().enumerate().filter(|(_, e)| e.0 != REP_NONE) {
+                for (mi, &(slot, lane)) in
+                    sp.mins.iter().enumerate().filter(|(_, e)| e.0 != REP_NONE)
+                {
                     let so = sp.layout.slot_off(slot as usize) as usize;
                     let mut bytes: Option<&[u8]> = None;
                     for k in i..j {
@@ -95,7 +144,9 @@ pub(in crate::ops::sort::topn) unsafe fn owner_reduce(params: *const u64, owner:
                             continue;
                         }
                         let w = *(r.as_ptr().add(so) as *const u64);
-                        let Ok(Some(p)) = render(site, lane, w) else { return ERROR };
+                        let Ok(Some(p)) = render(site, lane, w) else {
+                            return ERROR;
+                        };
                         let v = varlena_bytes(p);
                         if bytes.is_none_or(|b| v < b) {
                             (bytes, best[mi]) = (Some(v), w);
@@ -107,9 +158,13 @@ pub(in crate::ops::sort::topn) unsafe fn owner_reduce(params: *const u64, owner:
                         return FloatOverflow::STATUS;
                     }
                 }
-                for (mi, &(slot, _)) in sp.mins.iter().enumerate().filter(|(_, e)| e.0 != REP_NONE) {
+                for (mi, &(slot, _)) in sp.mins.iter().enumerate().filter(|(_, e)| e.0 != REP_NONE)
+                {
                     if best[mi] != MINCODE_NONE {
-                        *(first.as_ptr().add(sp.layout.slot_off(slot as usize) as usize) as *mut u64) = best[mi];
+                        *(first
+                            .as_ptr()
+                            .add(sp.layout.slot_off(slot as usize) as usize)
+                            as *mut u64) = best[mi];
                     }
                 }
             }
@@ -206,8 +261,17 @@ enum Prune {
 
 /// A record without a part word under a floor (the two-pass form's pass 1): the fold left one record per group, so the groups at the floor are copied
 /// out of the table as it stands and only THEY are sorted into the run — the table is neither compacted nor sorted (most groups are under the floor).
-unsafe fn keep_whole(sp: &PartHavingSpec, h: &mut OwnerTop, t: &mut HashAgg, owner: *mut u8) -> i64 {
-    let (g, cs, rec) = (sp.layout.partition_keys(), sp.count_slot as usize, sp.layout.size() as usize);
+unsafe fn keep_whole(
+    sp: &PartHavingSpec,
+    h: &mut OwnerTop,
+    t: &mut HashAgg,
+    owner: *mut u8,
+) -> i64 {
+    let (g, cs, rec) = (
+        sp.layout.partition_keys(),
+        sp.count_slot as usize,
+        sp.layout.size() as usize,
+    );
     let words = |p: *const u8| core::slice::from_raw_parts(p as *const u64, g);
     let runs = h.worst as usize;
     let off = OWNER_RUN_OFF + h.total as usize;

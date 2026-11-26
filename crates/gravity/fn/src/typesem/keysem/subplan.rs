@@ -29,7 +29,9 @@ pub fn float_cross(lt: Oid, rt: Oid, procs: &Procs) -> Option<(bool, bool)> {
     const FLOAT84EQ: Oid = 305;
     let hash = |t: Oid| if t == FLOAT4OID { 451 } else { 452 }; // hashfloat4 / hashfloat8
     match (lt, rt, procs.eq) {
-        (FLOAT4OID, FLOAT8OID, FLOAT48EQ) | (FLOAT8OID, FLOAT4OID, FLOAT84EQ) if procs.lhs_hash == hash(lt) && procs.rhs_hash == hash(rt) => {
+        (FLOAT4OID, FLOAT8OID, FLOAT48EQ) | (FLOAT8OID, FLOAT4OID, FLOAT84EQ)
+            if procs.lhs_hash == hash(lt) && procs.rhs_hash == hash(rt) =>
+        {
             Some((lt == FLOAT4OID, rt == FLOAT4OID))
         }
         _ => None,
@@ -47,8 +49,14 @@ pub fn user_set_key(t: Oid, coll: Oid, procs: &Procs) -> R<Option<u64>> {
     };
     let uk = super::user::spec(spec)?;
     let id = |p: Oid| -> R<Option<u32>> { Ok(crate::resolved::resolve(p)?.ok()) };
-    if uk.byval || uk.coll != coll || procs.eq == 0 || procs.rhs_eq != procs.eq || id(procs.eq)? != Some(uk.eq) || uk.hash == 0
-        || id(procs.lhs_hash)? != Some(uk.hash) || id(procs.rhs_hash)? != Some(uk.hash)
+    if uk.byval
+        || uk.coll != coll
+        || procs.eq == 0
+        || procs.rhs_eq != procs.eq
+        || id(procs.eq)? != Some(uk.eq)
+        || uk.hash == 0
+        || id(procs.lhs_hash)? != Some(uk.hash)
+        || id(procs.rhs_hash)? != Some(uk.hash)
     {
         return Ok(None);
     }
@@ -64,11 +72,20 @@ pub fn user_set_key(t: Oid, coll: Oid, procs: &Procs) -> R<Option<u64>> {
 pub fn element_raise(t: Oid, coll: Oid, procs: &Procs) -> R<Option<u64>> {
     const F_ARRAY_EQ: Oid = 744;
     const F_HASH_ARRAY: Oid = 626;
-    if coll != 0 || procs.eq != F_ARRAY_EQ || procs.rhs_eq != F_ARRAY_EQ || procs.lhs_hash != F_HASH_ARRAY || procs.rhs_hash != F_HASH_ARRAY {
+    if coll != 0
+        || procs.eq != F_ARRAY_EQ
+        || procs.rhs_eq != F_ARRAY_EQ
+        || procs.lhs_hash != F_HASH_ARRAY
+        || procs.rhs_hash != F_HASH_ARRAY
+    {
         return Ok(None);
     }
     let elem = lsyscache::get_element_type(t)?;
-    if elem == 0 || !types_core::quiet::hash_needs_collation(typcache::lookup_type_cache(elem, typcache::TYPECACHE_HASH_PROC)?.hash_proc()) {
+    if elem == 0
+        || !types_core::quiet::hash_needs_collation(
+            typcache::lookup_type_cache(elem, typcache::TYPECACHE_HASH_PROC)?.hash_proc(),
+        )
+    {
         return Ok(None);
     }
     Ok(super::super::form(t)?.ok().map(|(id, _)| id))
@@ -80,17 +97,44 @@ mod tests {
     use types_core::catalog::{FLOAT4OID, FLOAT8OID, INT4OID};
 
     fn procs(eq: u32, lhs_hash: u32, rhs_hash: u32) -> Procs {
-        Procs { eq, lhs_hash, rhs_hash, rhs_eq: 0, cmp: 0 }
+        Procs {
+            eq,
+            lhs_hash,
+            rhs_hash,
+            rhs_eq: 0,
+            cmp: 0,
+        }
     }
 
     /// D3682: float48eq / float84eq over their own hash procs key each side by its width; anything else is no answer
     #[test]
     fn float_cross_takes_the_float_ops_cross_members_only() {
-        assert_eq!(super::float_cross(FLOAT4OID, FLOAT8OID, &procs(299, 451, 452)), Some((true, false)));
-        assert_eq!(super::float_cross(FLOAT8OID, FLOAT4OID, &procs(305, 452, 451)), Some((false, true)));
-        assert_eq!(super::float_cross(FLOAT4OID, FLOAT8OID, &procs(305, 451, 452)), None, "the operator's own procedure");
-        assert_eq!(super::float_cross(FLOAT4OID, FLOAT8OID, &procs(299, 452, 452)), None, "each side's own hash");
-        assert_eq!(super::float_cross(FLOAT8OID, FLOAT8OID, &procs(293, 452, 452)), None, "one type is not a cross key");
-        assert_eq!(super::float_cross(INT4OID, FLOAT8OID, &procs(299, 451, 452)), None);
+        assert_eq!(
+            super::float_cross(FLOAT4OID, FLOAT8OID, &procs(299, 451, 452)),
+            Some((true, false))
+        );
+        assert_eq!(
+            super::float_cross(FLOAT8OID, FLOAT4OID, &procs(305, 452, 451)),
+            Some((false, true))
+        );
+        assert_eq!(
+            super::float_cross(FLOAT4OID, FLOAT8OID, &procs(305, 451, 452)),
+            None,
+            "the operator's own procedure"
+        );
+        assert_eq!(
+            super::float_cross(FLOAT4OID, FLOAT8OID, &procs(299, 452, 452)),
+            None,
+            "each side's own hash"
+        );
+        assert_eq!(
+            super::float_cross(FLOAT8OID, FLOAT8OID, &procs(293, 452, 452)),
+            None,
+            "one type is not a cross key"
+        );
+        assert_eq!(
+            super::float_cross(INT4OID, FLOAT8OID, &procs(299, 451, 452)),
+            None
+        );
     }
 }

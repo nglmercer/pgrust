@@ -13,14 +13,31 @@ use gravity_decompose::Op;
 fn an_embedded_inner_index_reads_through_the_pipes_view() {
     let rig = mcx::MemoryContext::new("GravityPlanRig");
     common::RigCatalog::install_seams();
-    let dirs = std::iter::once(common::plans_dir()).chain(std::iter::once(common::plans_dir().join("regress-full"))).chain((1..=8).map(common::milestone_dir));
+    let dirs = std::iter::once(common::plans_dir())
+        .chain(std::iter::once(common::plans_dir().join("regress-full")))
+        .chain((1..=8).map(common::milestone_dir));
     let (mut graphs, mut embedded, mut projecting, mut bad) = (0usize, 0usize, 0usize, Vec::new());
     for dir in dirs {
         for (name, text) in common::files(&dir, "plan") {
-            let (ctx, arena) = (mcx::MemoryContext::new("m8 embedded inner fixture"), gravity_program::Arena::new(1 << 20));
-            let Ok(fx) = gravity_decompose::corpus::load(ctx.mcx(), &text) else { continue };
-            let Ok(graph) = gravity_decompose::decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx) else { continue };
-            let gx = gravity_lowerv4::graph::Gx { graph: &graph, facts: &fx.facts, catalog: common::RigCatalog::get(), over: None, mcx: rig.mcx() };
+            let (ctx, arena) = (
+                mcx::MemoryContext::new("m8 embedded inner fixture"),
+                gravity_program::Arena::new(1 << 20),
+            );
+            let Ok(fx) = gravity_decompose::corpus::load(ctx.mcx(), &text) else {
+                continue;
+            };
+            let Ok(graph) =
+                gravity_decompose::decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx)
+            else {
+                continue;
+            };
+            let gx = gravity_lowerv4::graph::Gx {
+                graph: &graph,
+                facts: &fx.facts,
+                catalog: common::RigCatalog::get(),
+                over: None,
+                mcx: rig.mcx(),
+            };
             // `len()` is the graph's pipelines; the embedded inners follow them (pipes.rs `end`)
             let all = gx.pipelines().end();
             if all == graph.pipelines.len() {
@@ -32,7 +49,10 @@ fn an_embedded_inner_index_reads_through_the_pipes_view() {
                 let _ = gx.drains_grouping(k);
                 if k >= graph.pipelines.len() {
                     embedded += 1;
-                    projects |= gx.pipelines()[k].ops.iter().any(|o| matches!(o, Op::Project(_)));
+                    projects |= gx.pipelines()[k]
+                        .ops
+                        .iter()
+                        .any(|o| matches!(o, Op::Project(_)));
                 }
             }
             if !projects {
@@ -49,5 +69,10 @@ fn an_embedded_inner_index_reads_through_the_pipes_view() {
     }
     eprintln!("m8 embedded inners: {graphs} graphs with {embedded} embedded inners ({projecting} with a projection) read through Pipes");
     assert!(embedded > 0, "no census fixture embeds an inner");
-    assert!(bad.is_empty(), "{} fixtures panic lowering an embedded inner:\n{}", bad.len(), bad.join("\n"));
+    assert!(
+        bad.is_empty(),
+        "{} fixtures panic lowering an embedded inner:\n{}",
+        bad.len(),
+        bad.join("\n")
+    );
 }

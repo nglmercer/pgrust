@@ -50,7 +50,7 @@ struct DsmControlHeader {
 
 const ITEM_OFFSET: usize = {
     let a = std::mem::align_of::<DsmControlItem>();
-    std::mem::size_of::<DsmControlHeader>().div_ceil( a) * a
+    std::mem::size_of::<DsmControlHeader>().div_ceil(a) * a
 };
 
 unsafe fn control_item(control: *mut DsmControlHeader, i: u32) -> *mut DsmControlItem {
@@ -199,7 +199,11 @@ impl Drop for DsmSegment {
 
 impl std::fmt::Debug for DsmSegment {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "dynamic shared memory segment {}", dsm_segment_handle(self.id))
+        write!(
+            f,
+            "dynamic shared memory segment {}",
+            dsm_segment_handle(self.id)
+        )
     }
 }
 

@@ -20,7 +20,17 @@ use types_storage::lock::AccessShareLock;
 static FLAG: AtomicU8 = AtomicU8::new(0);
 
 fn binding_ref(snap: &Rc<SnapshotData<'static>>) -> BindingRef<'static> {
-    BindingRef { snapshot: Snapshot(snap as *const _ as u64), command_id: CommandId(0), params: &[], abort_flag: &FLAG, pins: Pins(0), per_tuple: PerTuple(0), identity: Identity::default(), resolved: None, ordinal: None }
+    BindingRef {
+        snapshot: Snapshot(snap as *const _ as u64),
+        command_id: CommandId(0),
+        params: &[],
+        abort_flag: &FLAG,
+        pins: Pins(0),
+        per_tuple: PerTuple(0),
+        identity: Identity::default(),
+        resolved: None,
+        ordinal: None,
+    }
 }
 
 /// An equality probe of the fixture index over column 1 (`col = $1`): a btree walk, whose scan the unbind parks in the
@@ -29,7 +39,15 @@ fn recipe(mcx: mcx::Mcx<'_>) -> SiteRecipe {
     let heap = Relation::open(heap_relation_data(mcx), None);
     let index = Relation::open(index_relation_data(mcx, false), None);
     let quals = indexqual_param(mcx, INDEX_VAR, OP_INT4EQ, F_INT4EQ);
-    SiteRecipe::from_plan(&heap, &index, &quals, &types_nodes::NodeList::nil(), AccessShareLock, &[1]).unwrap()
+    SiteRecipe::from_plan(
+        &heap,
+        &index,
+        &quals,
+        &types_nodes::NodeList::nil(),
+        AccessShareLock,
+        &[1],
+    )
+    .unwrap()
 }
 
 /// One bind's probes of `keys`, unbound after: the rows found.
@@ -71,23 +89,40 @@ fn an_index_sources_scratch_follows_its_node_to_the_binding_statement_and_the_sl
     let session = Owner::Session(stmt1.acct());
     let mut src = IndexSource::new(recipe(mcx));
     assert_eq!(walk(&mut src, &snap), 3);
-    assert!(ctx_bytes(stmt1) > 0, "statement 1 holds the scratch it built and bound");
+    assert!(
+        ctx_bytes(stmt1) > 0,
+        "statement 1 holds the scratch it built and bound"
+    );
     memledger::statement_end();
 
     // a worker set's park: the scratch leaves the backend's session for the depot's holder
     let (s0, d0) = (ctx_bytes(session), ctx_bytes(depot));
     src.transfer_held(depot, Release::Evict);
     let moved = ctx_bytes(depot) - d0;
-    assert!(moved > 0, "parked in the depot: the scratch is its holder's");
-    assert_eq!(s0 - ctx_bytes(session), moved, "and no longer the session's");
+    assert!(
+        moved > 0,
+        "parked in the depot: the scratch is its holder's"
+    );
+    assert_eq!(
+        s0 - ctx_bytes(session),
+        moved,
+        "and no longer the session's"
+    );
 
     // statement 2 takes the set: the scratch is the taking statement's, and its bind keeps it there
     memledger::statement_begin();
     let (stmt2, release) = charge::context();
     src.transfer_held(stmt2, release);
-    assert_eq!((ctx_bytes(depot) - d0, ctx_bytes(stmt2)), (0, moved), "taken: the taking statement's");
+    assert_eq!(
+        (ctx_bytes(depot) - d0, ctx_bytes(stmt2)),
+        (0, moved),
+        "taken: the taking statement's"
+    );
     assert_eq!(walk(&mut src, &snap), 3);
-    assert!(ctx_bytes(stmt2) >= moved, "bound by the taking statement: still its");
+    assert!(
+        ctx_bytes(stmt2) >= moved,
+        "bound by the taking statement: still its"
+    );
     memledger::statement_end();
 
     // statement 3 binds the parked source with no depot between: its bind homes the scratch on it
@@ -95,8 +130,14 @@ fn an_index_sources_scratch_follows_its_node_to_the_binding_statement_and_the_sl
     let stmt3 = charge::context().0;
     let s3 = ctx_bytes(session);
     assert_eq!(walk(&mut src, &snap), 3);
-    assert!(ctx_bytes(stmt3) >= moved, "bound again: the binding statement's");
-    assert!(s3 - ctx_bytes(session) >= moved, "and the session's no more");
+    assert!(
+        ctx_bytes(stmt3) >= moved,
+        "bound again: the binding statement's"
+    );
+    assert!(
+        s3 - ctx_bytes(session) >= moved,
+        "and the session's no more"
+    );
     memledger::statement_end();
 
     let s4 = ctx_bytes(session);

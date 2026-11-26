@@ -13,8 +13,8 @@
 //! is 0/1, `u32` (oid, xid, cid) zero-extends, `u64` is the bits, floats are `to_bits`.
 #![allow(clippy::missing_safety_doc, clippy::not_unsafe_ptr_arg_deref)]
 
-use gravity_abi::{word, PtrWord, Word};
 use core::cell::Cell;
+use gravity_abi::{word, PtrWord, Word};
 
 use adt_datetime::Interval;
 use mcx::Mcx;
@@ -45,16 +45,18 @@ pub mod srf;
 pub mod srf_fmgr;
 pub mod tier;
 
-pub use fmgr_call::FmgrCall;
-pub use result_life::{fresh_entry, result_life, site_life, CallTier, FreshEntry, ResultLife, FMGR_SITE_ALLOWANCE};
-pub use shims::catalog::SHIMS;
-pub use tier::{PENDING, ROWS};
+/// D2992: PostgreSQL's date vs timestamp(tz) comparators (kernels `zone_cross_bound`, an open-time zone bound's conversion).
+pub use adt_date::{date_cmp_timestamp_internal, date_cmp_timestamptz_internal};
 /// The session zone's constant UTC offset (kernels host_abi v4 m2.rs `tz_fixed_offset`, M2's expr.fusion).
 pub use adt_timestamp::session_fixed_offset;
 /// B2-31: the session zone's offset at one instant (kernels `tz_offset_at`, expr.fusion's word claim under a zone with DST).
 pub use adt_timestamp::session_offset_at;
-/// D2992: PostgreSQL's date vs timestamp(tz) comparators (kernels `zone_cross_bound`, an open-time zone bound's conversion).
-pub use adt_date::{date_cmp_timestamp_internal, date_cmp_timestamptz_internal};
+pub use fmgr_call::FmgrCall;
+pub use result_life::{
+    fresh_entry, result_life, site_life, CallTier, FreshEntry, ResultLife, FMGR_SITE_ALLOWANCE,
+};
+pub use shims::catalog::SHIMS;
+pub use tier::{PENDING, ROWS};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tier {
@@ -103,14 +105,18 @@ impl Arg {
     pub fn v(self) -> i64 {
         match self {
             Arg::V(v) => v,
-            Arg::R(_) => panic!("gravity_fn: a by-reference argument where a by-value one was declared"),
+            Arg::R(_) => {
+                panic!("gravity_fn: a by-reference argument where a by-value one was declared")
+            }
         }
     }
     #[inline(always)]
     pub fn r(self) -> View {
         match self {
             Arg::R(v) => v,
-            Arg::V(_) => panic!("gravity_fn: a by-value argument where a by-reference one was declared"),
+            Arg::V(_) => {
+                panic!("gravity_fn: a by-value argument where a by-reference one was declared")
+            }
         }
     }
 }
@@ -158,11 +164,16 @@ pub fn tier_of(oid: u32) -> Tier {
 }
 
 pub fn row_of(oid: u32) -> Option<&'static Row> {
-    ROWS.binary_search_by_key(&oid, |r| r.oid).ok().map(|i| &ROWS[i])
+    ROWS.binary_search_by_key(&oid, |r| r.oid)
+        .ok()
+        .map(|i| &ROWS[i])
 }
 
 pub fn shim_of(oid: u32) -> Option<&'static Shim> {
-    SHIMS.binary_search_by_key(&oid, |s| s.oid).ok().map(|i| &SHIMS[i])
+    SHIMS
+        .binary_search_by_key(&oid, |s| s.oid)
+        .ok()
+        .map(|i| &SHIMS[i])
 }
 
 /// A by-reference argument: the payload bytes (a varlena's data without its header; a name's
@@ -175,17 +186,26 @@ pub struct View {
 }
 
 impl View {
-    pub const EMPTY: View = View { ptr: core::ptr::NonNull::<u8>::dangling().as_ptr(), len: 0 };
+    pub const EMPTY: View = View {
+        ptr: core::ptr::NonNull::<u8>::dangling().as_ptr(),
+        len: 0,
+    };
 
     #[inline(always)]
     pub fn of(bytes: &[u8]) -> View {
-        View { ptr: bytes.as_ptr(), len: bytes.len() as u64 }
+        View {
+            ptr: bytes.as_ptr(),
+            len: bytes.len() as u64,
+        }
     }
 
     #[inline(always)]
     pub unsafe fn of_image(image: *const u8) -> View {
         let word = image.cast::<u32>().read_unaligned();
-        View { ptr: image.add(4), len: ((word >> 2) - 4) as u64 }
+        View {
+            ptr: image.add(4),
+            len: ((word >> 2) - 4) as u64,
+        }
     }
 
     /// The bytes behind the view. The shim boundary's contract: the caller's view is live for
@@ -193,14 +213,27 @@ impl View {
     #[inline(always)]
     pub fn bytes<'a>(self) -> &'a [u8] {
         // SAFETY: the shim boundary contract above; a null pointer only comes with `len == 0`.
-        unsafe { core::slice::from_raw_parts(if self.ptr.is_null() { Self::EMPTY.ptr } else { self.ptr }, self.len as usize) }
+        unsafe {
+            core::slice::from_raw_parts(
+                if self.ptr.is_null() {
+                    Self::EMPTY.ptr
+                } else {
+                    self.ptr
+                },
+                self.len as usize,
+            )
+        }
     }
 
     /// A fixed-size image (uuid, tid, point, ...) as its byte array.
     #[inline(always)]
     pub fn fixed<const N: usize>(self) -> &'static [u8; N] {
         let b = self.bytes();
-        assert!(b.len() >= N, "gravity_fn: a {N}-byte view of {} bytes", b.len());
+        assert!(
+            b.len() >= N,
+            "gravity_fn: a {N}-byte view of {} bytes",
+            b.len()
+        );
         // SAFETY: the view is live for the call and holds at least N bytes.
         unsafe { &*b.as_ptr().cast::<[u8; N]>() }
     }
@@ -208,14 +241,22 @@ impl View {
     #[inline(always)]
     pub fn interval_bytes(self) -> [u8; 16] {
         let b = self.bytes();
-        assert!(b.len() >= 16, "gravity_fn: an interval view of {} bytes", b.len());
+        assert!(
+            b.len() >= 16,
+            "gravity_fn: an interval view of {} bytes",
+            b.len()
+        );
         b[..16].try_into().unwrap()
     }
 
     #[inline(always)]
     pub fn interval(self) -> Interval {
         let b = self.bytes();
-        assert!(b.len() >= 16, "gravity_fn: an interval view of {} bytes", b.len());
+        assert!(
+            b.len() >= 16,
+            "gravity_fn: an interval view of {} bytes",
+            b.len()
+        );
         Interval {
             time: i64::from_ne_bytes(b[..8].try_into().unwrap()),
             day: i32::from_ne_bytes(b[8..12].try_into().unwrap()),
@@ -234,7 +275,9 @@ impl View {
 
     #[inline]
     pub fn name(self) -> NameData {
-        NameData { data: self.name64() }
+        NameData {
+            data: self.name64(),
+        }
     }
 }
 
@@ -250,7 +293,10 @@ pub struct Region {
 impl Region {
     pub fn over(bytes: &mut [u8]) -> Region {
         let r = bytes.as_mut_ptr_range();
-        Region { cur: word(r.start), end: word(r.end) }
+        Region {
+            cur: word(r.start),
+            end: word(r.end),
+        }
     }
 
     /// The `n` bytes at the returned pointer are UNINITIALIZED until the caller writes them (D848: a hosted result region
@@ -303,7 +349,8 @@ impl Region {
 /// registered), `false` to leave it full. # Safety — the region is live.
 pub type SpillHook = unsafe fn(&mut Region, usize) -> bool;
 
-static SPILL_HOOK: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static SPILL_HOOK: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 /// D641: the spill hook, set once by the crate that owns spillable regions.
 pub fn set_spill_hook(h: SpillHook) {
@@ -318,7 +365,9 @@ pub struct ErrSlot {
 }
 
 impl ErrSlot {
-    pub const NONE: ErrSlot = ErrSlot { err: word(core::ptr::null_mut()) };
+    pub const NONE: ErrSlot = ErrSlot {
+        err: word(core::ptr::null_mut()),
+    };
 
     pub fn take(&mut self) -> Option<Box<PgError>> {
         let p = core::mem::replace(&mut self.err, word(core::ptr::null_mut())).ptr();
@@ -346,7 +395,8 @@ pub struct Ret {
 pub const OK: i64 = gravity_abi::status::OK;
 pub const NULL: i64 = 1;
 pub const ERROR: i64 = gravity_abi::status::ERROR;
-pub const NO_SPACE: i64 = gravity_abi::status::unsupported(gravity_abi::status::UNSUPPORTED_SCRATCH);
+pub const NO_SPACE: i64 =
+    gravity_abi::status::unsupported(gravity_abi::status::UNSUPPORTED_SCRATCH);
 
 #[inline(always)]
 pub fn ok(v: i64) -> Ret {
@@ -355,7 +405,10 @@ pub fn ok(v: i64) -> Ret {
 
 #[inline(always)]
 pub fn null_ret() -> Ret {
-    Ret { val: 0, status: NULL }
+    Ret {
+        val: 0,
+        status: NULL,
+    }
 }
 
 #[cold]
@@ -365,13 +418,19 @@ pub fn fail(e: *mut ErrSlot, err: Box<PgError>) -> Ret {
     let slot = unsafe { &mut *e };
     drop(slot.take());
     slot.err = word(Box::into_raw(err));
-    Ret { val: 0, status: ERROR }
+    Ret {
+        val: 0,
+        status: ERROR,
+    }
 }
 
 #[cold]
 #[inline(never)]
 fn no_space() -> Ret {
-    Ret { val: 0, status: NO_SPACE }
+    Ret {
+        val: 0,
+        status: NO_SPACE,
+    }
 }
 
 /// A complete image (a varlena with its header, an interval's 16 bytes, a name block) copied
@@ -399,7 +458,8 @@ pub fn region_payload(r: *mut Region, payload: &[u8]) -> Ret {
         Some(p) => {
             // SAFETY: `p` has `n` bytes reserved.
             unsafe {
-                p.cast::<[u8; 4]>().write_unaligned(datum::set_varsize_4b(n));
+                p.cast::<[u8; 4]>()
+                    .write_unaligned(datum::set_varsize_4b(n));
                 core::ptr::copy_nonoverlapping(payload.as_ptr(), p.add(4), payload.len());
             }
             ok(p as i64)
@@ -417,7 +477,8 @@ pub fn region_payload2(r: *mut Region, a: &[u8], b: &[u8]) -> Ret {
         Some(p) => {
             // SAFETY: `p` has `n` bytes reserved.
             unsafe {
-                p.cast::<[u8; 4]>().write_unaligned(datum::set_varsize_4b(n));
+                p.cast::<[u8; 4]>()
+                    .write_unaligned(datum::set_varsize_4b(n));
                 core::ptr::copy_nonoverlapping(a.as_ptr(), p.add(4), a.len());
                 core::ptr::copy_nonoverlapping(b.as_ptr(), p.add(4 + a.len()), b.len());
             }
@@ -511,7 +572,8 @@ pub fn take_error() -> Option<Box<PgError>> {
 /// still alive), for a host's per-thread state that holds session memory (kernels' bound comparators, whose `fn_extra`
 /// lives in the session's contexts). A thread with no session teardown (a unit test) never runs it.
 pub fn at_session_end(f: fn()) {
-    mcx::register_session_cleanup_phase(mcx::SessionCleanupPhase::State, Box::new(f)); // alloc: Cold
+    mcx::register_session_cleanup_phase(mcx::SessionCleanupPhase::State, Box::new(f));
+    // alloc: Cold
 }
 
 thread_local! {
@@ -534,7 +596,8 @@ pub fn with_scratch(f: impl FnOnce(Mcx<'_>) -> Ret) -> Ret {
 /// `gravity_program::Code::call` once the program returns; the call fails meanwhile. The non-unwinding path is `f`.
 #[inline(always)]
 pub(crate) fn guarded<R>(f: impl FnOnce() -> Result<R, Box<PgError>>) -> Result<R, Box<PgError>> {
-    match std::panic::catch_unwind(core::panic::AssertUnwindSafe(f)) { // unwind-ok: c-callback
+    match std::panic::catch_unwind(core::panic::AssertUnwindSafe(f)) {
+        // unwind-ok: c-callback
         Ok(r) => r,
         Err(payload) => Err(caught(payload)),
     }
@@ -554,11 +617,16 @@ fn caught(payload: Box<dyn core::any::Any + Send>) -> Box<PgError> {
         Err(payload) => payload,
     };
     gravity_abi::status::unwind::park(payload);
-    Box::new(PgError::error("gravity: a host call unwound (resumed past the program)")) // alloc: Cold
+    Box::new(PgError::error(
+        "gravity: a host call unwound (resumed past the program)",
+    )) // alloc: Cold
 }
 
 /// The payload of the varlena at `datum` in any header form handed to `f`: a short or plain image in place, a compressed inline or external one detoasted into the scratch context for the call. # Safety — `datum` is a live varlena.
-pub unsafe fn with_payload<R>(datum: *const u8, f: impl FnOnce(&[u8]) -> R) -> Result<R, Box<PgError>> {
+pub unsafe fn with_payload<R>(
+    datum: *const u8,
+    f: impl FnOnce(&[u8]) -> R,
+) -> Result<R, Box<PgError>> {
     guarded(|| payload_of(datum, f))
 }
 
@@ -567,11 +635,17 @@ pub unsafe fn with_payload<R>(datum: *const u8, f: impl FnOnce(&[u8]) -> R) -> R
 unsafe fn payload_of<R>(datum: *const u8, f: impl FnOnce(&[u8]) -> R) -> Result<R, Box<PgError>> {
     let b0 = *datum;
     if b0 & 1 != 0 && b0 != 1 {
-        return Ok(f(core::slice::from_raw_parts(datum.add(1), (b0 >> 1) as usize - 1)));
+        return Ok(f(core::slice::from_raw_parts(
+            datum.add(1),
+            (b0 >> 1) as usize - 1,
+        )));
     }
     if b0 & 3 == 0 {
         let w = datum.cast::<u32>().read_unaligned();
-        return Ok(f(core::slice::from_raw_parts(datum.add(4), (w >> 2) as usize - 4)));
+        return Ok(f(core::slice::from_raw_parts(
+            datum.add(4),
+            (w >> 2) as usize - 4,
+        )));
     }
     let raw = core::slice::from_raw_parts(datum, types_tuple::varatt::varsize_any(datum));
     let mut out = Err(None);

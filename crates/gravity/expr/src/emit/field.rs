@@ -9,13 +9,23 @@ use crate::nodes::field::{word, FieldSelect};
 
 impl Em<'_, '_, '_> {
     pub(super) fn field_select(&mut self, n: &FieldSelect) -> Result<Lowered, EmitError> {
-        let Some(cells) = self.row.cells else { return Err(EmitError::NoCells) };
+        let Some(cells) = self.row.cells else {
+            return Err(EmitError::NoCells);
+        };
         let arg = self.node(n.arg)?;
         let cell = self.site_cell(cells, n.site.0 as usize);
         let desc = self.b.load(Type::I64, cell, CELL_AUX);
-        let d = Lowered { value: desc, valid: self.t, err: self.zero };
+        let d = Lowered {
+            value: desc,
+            valid: self.t,
+            err: self.zero,
+        };
         let value = self.b.iconst(Type::I64, word(n));
-        let w = Lowered { value, valid: self.t, err: self.zero };
+        let w = Lowered {
+            value,
+            valid: self.t,
+            err: self.zero,
+        };
         self.call(n.site, &[d, w, arg], false)
     }
 }

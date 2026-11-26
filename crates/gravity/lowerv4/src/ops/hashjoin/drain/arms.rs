@@ -9,22 +9,22 @@
 //! nodeHashjoin.c:351) and its outer-first path fetches from the arms in turn. A helper file (no rows). Owner M8-NEST
 //! (W3-D393-ARMS-ENDS).
 use gravity_abi::breaker::BreakerKind;
-use gravity_decompose::ops::shared::append::{AppendDesc, UnionRec};
 use gravity_decompose::graph::Source;
 use gravity_decompose::join::JoinDesc;
+use gravity_decompose::ops::shared::append::{AppendDesc, UnionRec};
 use gravity_decompose::Op;
 use gravity_program::LifeId;
 use mcx::{CollectIn, PgVec};
 use types_nodes::jointype::JoinType;
 use types_nodes::Node;
 
-use crate::effects::visible::errorhold::quiet_cmp;
 #[allow(unused_imports)]
 use crate::effects::initdb_index;
 #[allow(unused_imports)]
 use crate::effects::visible::drain::{source_still, steps, user_clause};
-use crate::frame::px::Px;
+use crate::effects::visible::errorhold::quiet_cmp;
 use crate::face::kinds::KindId;
+use crate::frame::px::Px;
 use crate::graph::{EndKind, Gx};
 use crate::ops::hashjoin::build_class::Side;
 
@@ -47,9 +47,22 @@ impl<'g> Gx<'g, '_> {
         let top = |q: usize| {
             let p = ps.get(q)?;
             #[allow(clippy::question_mark)]
-            let Some(b) = crate::frame::iface::breaker_of(&p.desc) else { return None };
-            let (j, i, n) = p.ops.iter().enumerate().rev().find_map(|(j, o)| if let Op::Append(AppendDesc::Arm { i, n, .. }) = o { Some((j, *i, *n)) } else { None })?;
-            let node = p.node_ops.iter().rev().find(|x| x.first_op as usize <= j).map_or(p.node_id, |x| x.node_id);
+            let Some(b) = crate::frame::iface::breaker_of(&p.desc) else {
+                return None;
+            };
+            let (j, i, n) = p.ops.iter().enumerate().rev().find_map(|(j, o)| {
+                if let Op::Append(AppendDesc::Arm { i, n, .. }) = o {
+                    Some((j, *i, *n))
+                } else {
+                    None
+                }
+            })?;
+            let node = p
+                .node_ops
+                .iter()
+                .rev()
+                .find(|x| x.first_op as usize <= j)
+                .map_or(p.node_id, |x| x.node_id);
             (b.kind == BreakerKind::Materialize).then_some((node, i as usize, n as usize, b.slot))
         };
         let (node, i, n, slot) = top(k)?;
@@ -58,7 +71,12 @@ impl<'g> Gx<'g, '_> {
         if n < 2 || !(first..=last).all(|q| top(q) == Some((node, q - first, n, slot))) {
             return None;
         }
-        let drains = |q: usize| ps[q].ops.iter().any(|o| matches!(o, Op::Join(JoinDesc::Drain { matches, .. }) if *matches == slot)) && self.life_of(q, slot) == Some(LifeId(last as u16));
+        let drains =
+            |q: usize| {
+                ps[q].ops.iter().any(
+                    |o| matches!(o, Op::Join(JoinDesc::Drain { matches, .. }) if *matches == slot),
+                ) && self.life_of(q, slot) == Some(LifeId(last as u16))
+            };
         (last + 1..ps.end()).any(drains).then_some((first, last))
     }
 
@@ -73,12 +91,33 @@ impl<'g> Gx<'g, '_> {
     /// quiet (join/drain.rs): PG runs them only over a non-empty build or past an empty first arm.
     pub(crate) fn fetched_arm(&self, q: usize) -> bool {
         let p = &self.pipelines()[q];
-        let still = |n: Node<'_>| (crate::effects::raise_free(self, n) || quiet_cmp(self, n)) && !crate::effects::user_fn(self, n) && !crate::effects::volatile(self, n);
-        let Some(j) = p.ops.iter().rposition(|o| matches!(o, Op::Join(JoinDesc::Probe { .. }))) else { return false };
-        let Op::Join(JoinDesc::Probe { slot, jointype: JoinType::JOIN_RIGHT_SEMI, outer_first: true, catalog: false, keys, qual, .. }) = &p.ops[j] else {
+        let still = |n: Node<'_>| {
+            (crate::effects::raise_free(self, n) || quiet_cmp(self, n))
+                && !crate::effects::user_fn(self, n)
+                && !crate::effects::volatile(self, n)
+        };
+        let Some(j) = p
+            .ops
+            .iter()
+            .rposition(|o| matches!(o, Op::Join(JoinDesc::Probe { .. })))
+        else {
             return false;
         };
-        let safe = self.life_of(q, *slot).is_some_and(|l| crate::ops::hashjoin::build_class::side(self, l.0 as usize) == Side::Safe);
+        let Op::Join(JoinDesc::Probe {
+            slot,
+            jointype: JoinType::JOIN_RIGHT_SEMI,
+            outer_first: true,
+            catalog: false,
+            keys,
+            qual,
+            ..
+        }) = &p.ops[j]
+        else {
+            return false;
+        };
+        let safe = self.life_of(q, *slot).is_some_and(|l| {
+            crate::ops::hashjoin::build_class::side(self, l.0 as usize) == Side::Safe
+        });
         // a FROM-clause set function (srf.function / srf.pl: a FunctionScan), its target list quiet
         let srf = |op: &Op<'_>| matches!(op, Op::Srf(d) if matches!(crate::graph::step_kind(op), KindId::SrfFunction | KindId::SrfPl) && d.tlist.iter().all(still));
         matches!(p.source, Source::Const)
@@ -101,14 +140,26 @@ impl<'g> Gx<'g, '_> {
     /// between too, and PG ran it already). A later drain arm's fused probe hands its rows on through its tail before this
     /// drain's: under a stop that picks other rows (an aggregate over the LIMIT sums them), so it is never unseen.
     pub(crate) fn between_unseen(&self, k: usize, d: usize) -> bool {
-        let Some((node, i, arms)) = arm_at(self, d) else { return false };
-        let probes: PgVec<'_, usize> = (0..self.pipelines().len()).filter(|&x| arm_at(self, x).is_some_and(|(at, _, m)| at == node && m == arms)).filter_map(|x| fused(self, x).map(|f| f.0)).collect_in(self.mcx);
-        (k + 1..d).all(|q| arm_at(self, q).is_some_and(|(at, j, m)| at == node && m == arms && j < i) || (!probes.contains(&q) && unseen(self, q)))
+        let Some((node, i, arms)) = arm_at(self, d) else {
+            return false;
+        };
+        let probes: PgVec<'_, usize> = (0..self.pipelines().len())
+            .filter(|&x| arm_at(self, x).is_some_and(|(at, _, m)| at == node && m == arms))
+            .filter_map(|x| fused(self, x).map(|f| f.0))
+            .collect_in(self.mcx);
+        (k + 1..d).all(|q| {
+            arm_at(self, q).is_some_and(|(at, j, m)| at == node && m == arms && j < i)
+                || (!probes.contains(&q) && unseen(self, q))
+        })
     }
 
     /// D1752: every union whose arms run in PG's Append order (`ArmRun`, `arm_run`).
     pub(crate) fn arm_runs(&self) -> PgVec<'g, ArmRun<'g>> {
-        self.graph.unions.iter().filter_map(|u| arm_run(self, u)).collect_in(self.mcx)
+        self.graph
+            .unions
+            .iter()
+            .filter_map(|u| arm_run(self, u))
+            .collect_in(self.mcx)
     }
 
     /// D1752 where union `r` runs its arms in PG's order, under a stop: probe `k`'s drain `d` has only its own child's
@@ -117,12 +168,23 @@ impl<'g> Gx<'g, '_> {
     /// LIMIT's copy (step/limit.rs `window`: a full count pulls no row; a cursor's stop runs nothing past it), and a
     /// pipeline the LIMIT's rows already read stop (rerun/union_arms.rs `full_fed`: its feeder's `Check::Full`, D1753; a
     /// later partition's build that raises).
-    pub(crate) fn arm_order_unseen(&self, px: &mut Px<'_, '_>, r: &ArmRun<'_>, k: usize, d: usize) -> bool {
+    pub(crate) fn arm_order_unseen(
+        &self,
+        px: &mut Px<'_, '_>,
+        r: &ArmRun<'_>,
+        k: usize,
+        d: usize,
+    ) -> bool {
         let own = r.starts[d - r.arms.start + 1];
-        let probes: PgVec<'_, usize> = r.arms.clone().filter_map(|q| fused(self, q).map(|f| f.0)).collect_in(px.mcx());
+        let probes: PgVec<'_, usize> = r
+            .arms
+            .clone()
+            .filter_map(|q| fused(self, q).map(|f| f.0))
+            .collect_in(px.mcx());
         let union = arm_at(self, r.arms.start).map_or(-1, |a| a.0);
         let mut stopped = |q: usize| crate::rerun::union_arms::full_fed(px, q, union);
-        (k + 1..own).all(|q| unseen(self, q)) && (own..r.arms.start).all(|q| probes.contains(&q) || unseen(self, q) || stopped(q))
+        (k + 1..own).all(|q| unseen(self, q))
+            && (own..r.arms.start).all(|q| probes.contains(&q) || unseen(self, q) || stopped(q))
     }
 
     /// D1752: the plan node of the Append whose arm pipeline `d` is (its outermost arm marker), if any.
@@ -137,11 +199,20 @@ impl<'g> Gx<'g, '_> {
 /// plain aggregate whose aggregates and FILTERs are as quiet (another arm's fold: D1758's form).
 fn unseen(gx: &Gx<'_, '_>, q: usize) -> bool {
     let p = &gx.pipelines()[q];
-    let still = |n: Node<'_>| (crate::effects::raise_free(gx, n) || quiet_cmp(gx, n)) && !crate::effects::user_fn(gx, n) && !crate::effects::volatile(gx, n);
-    let src = matches!(p.source, Source::Const | Source::Breaker { .. }) || source_still(gx, p, &still);
+    let still = |n: Node<'_>| {
+        (crate::effects::raise_free(gx, n) || quiet_cmp(gx, n))
+            && !crate::effects::user_fn(gx, n)
+            && !crate::effects::volatile(gx, n)
+    };
+    let src =
+        matches!(p.source, Source::Const | Source::Breaker { .. }) || source_still(gx, p, &still);
     let end = match gx.end_kind(q) {
         EndKind::Breaker(BreakerKind::HashBuild | BreakerKind::Materialize) => true,
-        EndKind::Breaker(BreakerKind::PlainAgg) => gx.group_at(q).is_some_and(|g| g.aggs.iter().all(|a| still(a.node) && a.filter.is_none_or(still))),
+        EndKind::Breaker(BreakerKind::PlainAgg) => gx.group_at(q).is_some_and(|g| {
+            g.aggs
+                .iter()
+                .all(|a| still(a.node) && a.filter.is_none_or(still))
+        }),
         _ => false,
     };
     src && end
@@ -150,7 +221,17 @@ fn unseen(gx: &Gx<'_, '_>, q: usize) -> bool {
             Op::Project(l) => l.iter().all(still),
             Op::Append(AppendDesc::Arm { prune: None, .. }) => true,
             Op::Join(JoinDesc::Build { keys, .. }) => keys.iter().all(still),
-            Op::Join(JoinDesc::Probe { keys, clauses, qual, catalog: false, .. }) => keys.iter().chain(clauses.iter()).chain(qual.iter()).all(still),
+            Op::Join(JoinDesc::Probe {
+                keys,
+                clauses,
+                qual,
+                catalog: false,
+                ..
+            }) => keys
+                .iter()
+                .chain(clauses.iter())
+                .chain(qual.iter())
+                .all(still),
             _ => false,
         })
 }
@@ -159,9 +240,16 @@ fn unseen(gx: &Gx<'_, '_>, q: usize) -> bool {
 /// ops past the Drain op are all tail ops, so the probe hands its joined rows on through the drain's tail).
 fn fused(gx: &Gx<'_, '_>, q: usize) -> Option<(usize, usize)> {
     let p = &gx.pipelines()[q];
-    let (jd, m) = p.ops.iter().enumerate().find_map(|(j, op)| if let Op::Join(JoinDesc::Drain { matches, .. }) = op { Some((j, *matches)) } else { None })?;
+    let (jd, m) = p.ops.iter().enumerate().find_map(|(j, op)| {
+        if let Op::Join(JoinDesc::Drain { matches, .. }) = op {
+            Some((j, *matches))
+        } else {
+            None
+        }
+    })?;
     let k = gx.life_of(q, m)?.0 as usize;
-    let spool = gx.pipelines().get(k)?.desc.produces() == Some(m) && matches!(gx.end_kind(k), EndKind::Breaker(BreakerKind::Materialize));
+    let spool = gx.pipelines().get(k)?.desc.produces() == Some(m)
+        && matches!(gx.end_kind(k), EndKind::Breaker(BreakerKind::Materialize));
     (spool && k < q && p.ops[jd + 1..].iter().all(super::lower::tail_op)).then_some((k, jd))
 }
 
@@ -187,30 +275,47 @@ fn arm_run<'g>(gx: &Gx<'g, '_>, u: &UnionRec<'_>) -> Option<ArmRun<'g>> {
         return None;
     }
     let node = arm_at(gx, arms.start)?.0;
-    if !arms.clone().all(|q| arm_at(gx, q) == Some((node, (q - arms.start) as u16, n as u16))) {
+    if !arms
+        .clone()
+        .all(|q| arm_at(gx, q) == Some((node, (q - arms.start) as u16, n as u16)))
+    {
         return None;
     }
     let starts: PgVec<'g, usize> = u.starts.iter().map(|&s| s as usize).collect_in(gx.mcx);
     if starts.windows(2).any(|w| w[0] > w[1]) || starts[n] > arms.start {
         return None;
     }
-    let early = |i: usize, q: usize| ps[q].desc.consumes.iter().all(|&s| gx.life_of(q, s).is_some_and(|l| (l.0 as usize) < starts[i + 1]));
+    let early = |i: usize, q: usize| {
+        ps[q].desc.consumes.iter().all(|&s| {
+            gx.life_of(q, s)
+                .is_some_and(|l| (l.0 as usize) < starts[i + 1])
+        })
+    };
     if !arms.clone().enumerate().all(|(i, q)| early(i, q)) {
         return None;
     }
     let held = |p: u16| (starts[0]..arms.end).contains(&(p as usize));
-    if gx.graph.reruns.iter().any(|r| r.pipelines.iter().any(|&p| held(p))) {
+    if gx
+        .graph
+        .reruns
+        .iter()
+        .any(|r| r.pipelines.iter().any(|&p| held(p)))
+    {
         return None;
     }
     if let Some(e) = ps[arms.start].desc.produces() {
-        if (starts[0]..arms.start).any(|q| ps[q].desc.produces() == Some(e) || ps[q].desc.consumes.contains(&e)) {
+        if (starts[0]..arms.start)
+            .any(|q| ps[q].desc.produces() == Some(e) || ps[q].desc.consumes.contains(&e))
+        {
             return None;
         }
     }
     // where neither shows, every arm runs whole in either order and graph order keeps the Arms run one span of arms (a full
     // sort merges that many runs; program.rs `to_program` reads lives inside it as the last arm's)
     let marker = ps[arms.start].ops.iter().rposition(crate::graph::is_arm)?;
-    let limit = ps[arms.start].ops[marker + 1..].iter().any(|o| crate::graph::step_kind(o) == crate::face::kinds::KindId::StepLimit);
+    let limit = ps[arms.start].ops[marker + 1..]
+        .iter()
+        .any(|o| crate::graph::step_kind(o) == crate::face::kinds::KindId::StepLimit);
     let stops = match gx.end_kind(arms.start) {
         EndKind::Sink => true,
         EndKind::Breaker(BreakerKind::PlainAgg) => limit,
@@ -218,7 +323,11 @@ fn arm_run<'g>(gx: &Gx<'g, '_>, u: &UnionRec<'_>) -> Option<ArmRun<'g>> {
     };
     let quiet = |q: usize| {
         let calm = |n: Node<'_>| crate::effects::expr_quiet(gx, n);
-        let aggs = gx.group_at(q).is_none_or(|g| g.aggs.iter().all(|a| calm(a.node) && a.filter.is_none_or(calm)));
+        let aggs = gx.group_at(q).is_none_or(|g| {
+            g.aggs
+                .iter()
+                .all(|a| calm(a.node) && a.filter.is_none_or(calm))
+        });
         unseen(gx, q) || (aggs && crate::effects::span_quiet(gx, &ps[q], 0, ps[q].ops.len(), false))
     };
     // D4124: graph order runs every child before the arms, so a later child's pipeline that makes a call whose place shows
@@ -227,7 +336,11 @@ fn arm_run<'g>(gx: &Gx<'g, '_>, u: &UnionRec<'_>) -> Option<ArmRun<'g>> {
     // order under a sort or a build end too. The children are read first (a partitioned table's arms have none between
     // them), the arms only up to the first such child.
     let shown = |q: usize| crate::effects::visible::order_shown(gx, q);
-    let order = || (1..n).find(|&i| (starts[i]..starts[i + 1]).any(shown)).is_some_and(|i| (0..i).any(|a| shown(arms.start + a)));
+    let order = || {
+        (1..n)
+            .find(|&i| (starts[i]..starts[i + 1]).any(shown))
+            .is_some_and(|i| (0..i).any(|a| shown(arms.start + a)))
+    };
     let shows = (stops && !(starts[1]..arms.start).all(quiet)) || order();
     // D3437: where two or more arms each read a breaker their own child filled, graph order keeps every child's finished
     // breaker resident until the first arm reads it; PG's order frees each child's slot after its arm (the driver frees a
@@ -236,23 +349,51 @@ fn arm_run<'g>(gx: &Gx<'g, '_>, u: &UnionRec<'_>) -> Option<ArmRun<'g>> {
     // and their own work raises nothing and calls nothing visible (effects.rs `arm_quiet`). Aggregates read in the fold
     // form (effects.rs `fold_quiet`).
     let child = |q: usize| {
-        let aggs = gx.group_at(q).is_none_or(|g| g.aggs.iter().all(|a| crate::effects::fold_quiet(gx, a.node) && a.filter.is_none_or(|f| crate::effects::fold_quiet(gx, f))));
+        let aggs = gx.group_at(q).is_none_or(|g| {
+            g.aggs.iter().all(|a| {
+                crate::effects::fold_quiet(gx, a.node)
+                    && a.filter.is_none_or(|f| crate::effects::fold_quiet(gx, f))
+            })
+        });
         unseen(gx, q) || (aggs && crate::effects::span_quiet(gx, &ps[q], 0, ps[q].ops.len(), false))
     };
-    let own = |i: usize, q: usize| ps[q].desc.consumes.iter().any(|&s| gx.life_of(q, s).is_some_and(|l| (starts[i]..starts[i + 1]).contains(&(l.0 as usize))));
-    let leased = gx.graph.held.iter().any(|&(a, z)| (a as usize) < arms.end && starts[0] < z as usize);
+    let own = |i: usize, q: usize| {
+        ps[q].desc.consumes.iter().any(|&s| {
+            gx.life_of(q, s)
+                .is_some_and(|l| (starts[i]..starts[i + 1]).contains(&(l.0 as usize)))
+        })
+    };
+    let leased = gx
+        .graph
+        .held
+        .iter()
+        .any(|&(a, z)| (a as usize) < arms.end && starts[0] < z as usize);
     let frees = || {
         let fed = arms.clone().enumerate().filter(|&(i, q)| own(i, q)).count() >= 2;
         let ended = matches!(gx.end_kind(arms.start), EndKind::Breaker(_));
-        fed && !leased && ((starts[1]..arms.start).all(child) || (ended && arms.clone().all(|q| crate::effects::arm_quiet(gx, q))))
+        fed && !leased
+            && ((starts[1]..arms.start).all(child)
+                || (ended && arms.clone().all(|q| crate::effects::arm_quiet(gx, q))))
     };
-    (shows || arms.clone().any(|q| fused(gx, q).is_some()) || frees()).then_some(ArmRun { arms, starts })
+    (shows || arms.clone().any(|q| fused(gx, q).is_some()) || frees())
+        .then_some(ArmRun { arms, starts })
 }
 
 /// The outermost Append arm marker of pipeline `q`: (the Append's node, arm, arms), as `drained_arms` reads it.
 fn arm_at(gx: &Gx<'_, '_>, q: usize) -> Option<(i32, u16, u16)> {
     let p = &gx.pipelines()[q];
-    let (j, i, n) = p.ops.iter().enumerate().rev().find_map(|(j, o)| if let Op::Append(AppendDesc::Arm { i, n, .. }) = o { Some((j, *i, *n)) } else { None })?;
-    let node = p.node_ops.iter().rev().find(|x| x.first_op as usize <= j).map_or(p.node_id, |x| x.node_id);
+    let (j, i, n) = p.ops.iter().enumerate().rev().find_map(|(j, o)| {
+        if let Op::Append(AppendDesc::Arm { i, n, .. }) = o {
+            Some((j, *i, *n))
+        } else {
+            None
+        }
+    })?;
+    let node = p
+        .node_ops
+        .iter()
+        .rev()
+        .find(|x| x.first_op as usize <= j)
+        .map_or(p.node_id, |x| x.node_id);
     Some((node, i, n))
 }

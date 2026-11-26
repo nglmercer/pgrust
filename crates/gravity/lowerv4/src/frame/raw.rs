@@ -51,9 +51,10 @@ impl<'p> Px<'_, 'p> {
     pub(crate) fn program_cx(&mut self, name: &'static str) -> mcx::Mcx<'p> {
         let root = self.hosted_root.get_or_insert_with(crate::hir::hosted_root);
         let cx = Box::new(root.new_child(name)); // alloc: Program
-        // SAFETY: the context is boxed, so its address holds when the box moves into `owned`, which the program keeps
-        // (frame/program.rs takes it into the hosted owner, whose root, its parent, drops after it) for as long as `'p`.
-        let m: mcx::Mcx<'p> = unsafe { core::mem::transmute::<mcx::Mcx<'_>, mcx::Mcx<'p>>(cx.mcx()) };
+                                                 // SAFETY: the context is boxed, so its address holds when the box moves into `owned`, which the program keeps
+                                                 // (frame/program.rs takes it into the hosted owner, whose root, its parent, drops after it) for as long as `'p`.
+        let m: mcx::Mcx<'p> =
+            unsafe { core::mem::transmute::<mcx::Mcx<'_>, mcx::Mcx<'p>>(cx.mcx()) };
         self.owned.push(cx); // alloc: Program
         m
     }
@@ -61,7 +62,12 @@ impl<'p> Px<'_, 'p> {
     /// memsig E-prog: the lowering's lists root (`lists_root`, made here at the first call, owned by the running
     /// statement), lent at the program's lifetime `'p`: a compiled expression's program builds its lists in it, in place.
     pub(crate) fn lists_mcx(&mut self) -> mcx::Mcx<'p> {
-        let root = self.lists_root.get_or_insert_with(|| mcx::SendRoot::new_owned_small("GravityHostedLists", memledger::charge::statement_owner()));
+        let root = self.lists_root.get_or_insert_with(|| {
+            mcx::SendRoot::new_owned_small(
+                "GravityHostedLists",
+                memledger::charge::statement_owner(),
+            )
+        });
         let ctx = root.mcx().context();
         // SAFETY: a SendRoot holds its context box raw, so the address holds when the root moves (the finish takes it,
         // `hir::finish_keeping`); every block made through the handle is a list of a program in `exs` or one dropped before
@@ -75,8 +81,13 @@ impl<'p> Px<'_, 'p> {
 /// memsig E-prog: `rep::expr_type::result_type`'s compile of `node` (its type when the decomposer's names none): the
 /// program's lists in a scratch root of the running statement's ('GravityTypeProbe'), which outlives the program read and
 /// dropped here.
-pub(crate) fn compiled_type<'p>(gx: &crate::graph::Gx<'_, 'p>, node: types_nodes::Node<'p>, id: i32) -> types_core::Oid {
-    let mut root = mcx::SendRoot::new_owned_small("GravityTypeProbe", memledger::charge::statement_owner());
+pub(crate) fn compiled_type<'p>(
+    gx: &crate::graph::Gx<'_, 'p>,
+    node: types_nodes::Node<'p>,
+    id: i32,
+) -> types_core::Oid {
+    let mut root =
+        mcx::SendRoot::new_owned_small("GravityTypeProbe", memledger::charge::statement_owner());
     let ctx = root.mcx().context();
     // SAFETY: a SendRoot holds its context box raw (address-stable); the compiled program (its lists in it) is a temporary
     // of the statement below and drops before `root`

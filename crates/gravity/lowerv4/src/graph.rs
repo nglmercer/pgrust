@@ -3,11 +3,11 @@
 //! kinds a node's descriptor decides alone. Kinds that need expressions, types or facts (fold classes, Rep × accessor
 //! arms, FILTER, HAVING, two-pass, array keys, PL functions) are `props.rs`'s.
 use gravity_abi::breaker::BreakerKind;
-use gravity_decompose::ops::shared::agg::{GroupDecl, GroupForm};
-use gravity_decompose::ops::shared::append::AppendDesc;
 use gravity_decompose::catalog::{Am, IndexAm};
 use gravity_decompose::graph::KeyForm;
 use gravity_decompose::join::JoinDesc;
+use gravity_decompose::ops::shared::agg::{GroupDecl, GroupForm};
+use gravity_decompose::ops::shared::append::AppendDesc;
 use gravity_decompose::ops::shared::setop::SetDesc;
 use gravity_decompose::ops::shared::sort::SortForm;
 use gravity_decompose::ops::shared::srf::SrfPlace;
@@ -101,7 +101,11 @@ pub use crate::effects::fold::{one_image_extremum, order_free, walk_free};
 
 /// Whether a group is keyed (its records live in a keyed table): hashed, distinct, two-pass or a grouping-sets arm.
 pub fn keyed(g: &GroupDecl<'_>) -> bool {
-    matches!(g.form, GroupForm::Hashed | GroupForm::Distinct | GroupForm::Pass1) || g.two_pass.is_some() || g.set.is_some()
+    matches!(
+        g.form,
+        GroupForm::Hashed | GroupForm::Distinct | GroupForm::Pass1
+    ) || g.two_pass.is_some()
+        || g.set.is_some()
 }
 
 /// Whether draining a group emits keyed groups (`keyed.emit_group`): a keyed group with a key or a grouping-sets arm, but
@@ -112,7 +116,8 @@ pub fn emits_groups(g: &GroupDecl<'_>) -> bool {
 
 /// Whether a group orders by group (a top-k over its finals is `runs.topk_groups`): every form but plain and Unique.
 pub fn grouping(g: &GroupDecl<'_>) -> bool {
-    !matches!(g.form, GroupForm::Plain | GroupForm::Unique) && (g.form != GroupForm::Distinct || grouped(g))
+    !matches!(g.form, GroupForm::Plain | GroupForm::Unique)
+        && (g.form != GroupForm::Distinct || grouped(g))
 }
 
 /// A write op's kind (decompose never builds a write op for `Cmd::Select`; it reads as DELETE's row-op end).
@@ -127,11 +132,15 @@ pub const fn write_kind(c: Cmd) -> KindId {
 
 pub const fn join_kind(jt: JoinType) -> KindId {
     match jt {
-        JoinType::JOIN_INNER | JoinType::JOIN_UNIQUE_OUTER | JoinType::JOIN_UNIQUE_INNER => KindId::JoinInner,
+        JoinType::JOIN_INNER | JoinType::JOIN_UNIQUE_OUTER | JoinType::JOIN_UNIQUE_INNER => {
+            KindId::JoinInner
+        }
         JoinType::JOIN_LEFT => KindId::JoinLeft,
         JoinType::JOIN_SEMI => KindId::JoinSemi,
         JoinType::JOIN_ANTI => KindId::JoinAnti,
-        JoinType::JOIN_RIGHT | JoinType::JOIN_RIGHT_SEMI | JoinType::JOIN_RIGHT_ANTI => KindId::JoinRight,
+        JoinType::JOIN_RIGHT | JoinType::JOIN_RIGHT_SEMI | JoinType::JOIN_RIGHT_ANTI => {
+            KindId::JoinRight
+        }
         JoinType::JOIN_FULL => KindId::JoinFull,
     }
 }
@@ -171,7 +180,13 @@ pub fn step_kind(op: &Op<'_>) -> KindId {
         Op::Srf(s) => match s.place {
             SrfPlace::TargetList => KindId::SrfProjectset,
             // a FROM list of PL / SQL functions only is srf.pl's (props adds srf.pl beside a library function)
-            SrfPlace::From { .. } if s.functions.iter().all(|f| gravity_decompose::effects::user_code(f.funcid)) => KindId::SrfPl,
+            SrfPlace::From { .. }
+                if s.functions
+                    .iter()
+                    .all(|f| gravity_decompose::effects::user_code(f.funcid)) =>
+            {
+                KindId::SrfPl
+            }
             SrfPlace::From { .. } => KindId::SrfFunction,
         },
     }
@@ -212,8 +227,14 @@ pub struct Gx<'g, 'p> {
 /// D3668: op `o` of pipeline `ops` is a SubPlan step only write `w`'s check options read (a WITH CHECK OPTION view's
 /// qual, an RLS WITH CHECK): nest.subplan lends it host-fed and the host evaluates it per written row where
 /// ExecWithCheckOptions reaches it (modifytable/rowop_sub.rs `fed`); no projection, filter, gate or RETURNING reads it.
-pub(crate) fn check_sub(w: &gravity_decompose::ops::shared::modifytable::WriteDesc<'_>, ops: &[Op<'_>], o: &Op<'_>) -> bool {
-    use gravity_decompose::ops::shared::subplan::{refers as subplan_refers, refers_list as subplan_refers_list};
+pub(crate) fn check_sub(
+    w: &gravity_decompose::ops::shared::modifytable::WriteDesc<'_>,
+    ops: &[Op<'_>],
+    o: &Op<'_>,
+) -> bool {
+    use gravity_decompose::ops::shared::subplan::{
+        refers as subplan_refers, refers_list as subplan_refers_list,
+    };
     let Op::SubPlan(s) = o else { return false };
     let id = s.plan_id;
     let read = |o: &Op<'_>| match o {
@@ -221,7 +242,9 @@ pub(crate) fn check_sub(w: &gravity_decompose::ops::shared::modifytable::WriteDe
         Op::Project(l) => subplan_refers_list(l, id),
         _ => false,
     };
-    w.checks.iter().any(|c| subplan_refers(c.qual, id)) && !ops.iter().any(read) && !w.returning.is_some_and(|r| subplan_refers_list(r, id))
+    w.checks.iter().any(|c| subplan_refers(c.qual, id))
+        && !ops.iter().any(read)
+        && !w.returning.is_some_and(|r| subplan_refers_list(r, id))
 }
 
 /// D1112 (writesubplan): op `o` is a nested-form SubPlan step PostgreSQL may skip for a row (decompose `conditional`); its id.
@@ -230,7 +253,9 @@ pub(crate) fn check_sub(w: &gravity_decompose::ops::shared::modifytable::WriteDe
 /// ExecBuildUpdateProjection runs each MULTIEXPR SubPlan of the action's list before any entry.
 pub fn lazy_nested_sub(o: &Op<'_>) -> Option<i32> {
     match o {
-        Op::SubPlan(d) if d.conditional && matches!(d.form, SubForm::Nested { .. }) => Some(d.plan_id),
+        Op::SubPlan(d) if d.conditional && matches!(d.form, SubForm::Nested { .. }) => {
+            Some(d.plan_id)
+        }
         _ => None,
     }
 }
@@ -243,14 +268,25 @@ pub fn is_arm(o: &Op<'_>) -> bool {
 
 /// An Append arm marker's arm and arm count `(i, n)`; `None` for any other op (D2084: hashjoin spill/build.rs `arm_run`).
 pub fn arm_at(o: &Op<'_>) -> Option<(u16, u16)> {
-    if let Op::Append(AppendDesc::Arm { i, n, .. }) = o { Some((*i, *n)) } else { None }
+    if let Op::Append(AppendDesc::Arm { i, n, .. }) = o {
+        Some((*i, *n))
+    } else {
+        None
+    }
 }
 
 /// Whether `o` is an Append op that holds no expression of its own: a feed, or an arm or union with no run-time pruning
 /// (its arms' rows are made in their own pipelines). A structural fact, no effects question: mergecmd insert-only nest's
 /// D2046 collation walk (nest_write.rs `loose`) has nothing to read in such an op.
 pub fn append_without_exprs(o: &Op<'_>) -> bool {
-    matches!(o, Op::Append(AppendDesc::Feed { .. } | AppendDesc::Arm { prune: None, .. } | AppendDesc::Union { prune: None, .. }))
+    matches!(
+        o,
+        Op::Append(
+            AppendDesc::Feed { .. }
+                | AppendDesc::Arm { prune: None, .. }
+                | AppendDesc::Union { prune: None, .. }
+        )
+    )
 }
 
 impl<'g, 'p> Gx<'g, 'p> {
@@ -261,7 +297,13 @@ impl<'g, 'p> Gx<'g, 'p> {
     /// D652: pipeline `k`'s write reads another pipeline's product: another pipeline produces, or is no arm of k's Append.
     pub fn reads_product(&self, k: usize) -> bool {
         let ps = &self.graph.pipelines;
-        let reads = |x: &PipelineNode<'_>| x.desc.produces().is_some() || !x.ops.iter().any(|o| matches!(o, Op::Append(AppendDesc::Arm { .. })));
+        let reads = |x: &PipelineNode<'_>| {
+            x.desc.produces().is_some()
+                || !x
+                    .ops
+                    .iter()
+                    .any(|o| matches!(o, Op::Append(AppendDesc::Arm { .. })))
+        };
         // D3681: in its lowering, the count of such pipelines is kept (memo.rs): each arm of a several-target write asks
         let key = crate::memo::key_of(ps);
         let kept = crate::memo::read(key, |m| m.products).map(|x| {
@@ -289,23 +331,42 @@ impl<'g, 'p> Gx<'g, 'p> {
     pub(crate) fn fills_share(&self, k: usize) -> bool {
         fn fills(p: &PipelineNode<'_>) -> usize {
             crate::stack_check();
-            p.ops.iter().map(|op| match op {
-                Op::Join(JoinDesc::Nest { jointype, inner, .. }) => usize::from(matches!(jointype, JoinType::JOIN_LEFT)) + fills(inner),
-                Op::Join(JoinDesc::Probe { jointype: JoinType::JOIN_LEFT | JoinType::JOIN_FULL, .. }) => 1,
-                Op::SubPlan(SubPlanDesc { form: SubForm::Nested { inner }, .. }) => fills(inner),
-                _ => 0,
-            }).sum()
+            p.ops
+                .iter()
+                .map(|op| match op {
+                    Op::Join(JoinDesc::Nest {
+                        jointype, inner, ..
+                    }) => usize::from(matches!(jointype, JoinType::JOIN_LEFT)) + fills(inner),
+                    Op::Join(JoinDesc::Probe {
+                        jointype: JoinType::JOIN_LEFT | JoinType::JOIN_FULL,
+                        ..
+                    }) => 1,
+                    Op::SubPlan(SubPlanDesc {
+                        form: SubForm::Nested { inner },
+                        ..
+                    }) => fills(inner),
+                    _ => 0,
+                })
+                .sum()
         }
         let ps = self.pipelines();
         let mut root = k;
         while let Some(o) = ps.owner_of(root) {
             root = o;
         }
-        fills(&ps[root]) >= gravity_program::cost::compile::FILL_SHARE_MIN_PROBES && !ps.iter().any(|p| p.ops.iter().any(|op| matches!(op, Op::Write(w) if w.cmd == Cmd::Merge)))
+        fills(&ps[root]) >= gravity_program::cost::compile::FILL_SHARE_MIN_PROBES
+            && !ps.iter().any(|p| {
+                p.ops
+                    .iter()
+                    .any(|op| matches!(op, Op::Write(w) if w.cmd == Cmd::Merge))
+            })
     }
 
     pub fn root_node(&self) -> i32 {
-        self.graph.pipelines.get(self.graph.root as usize).map_or(0, |p| p.node_id)
+        self.graph
+            .pipelines
+            .get(self.graph.root as usize)
+            .map_or(0, |p| p.node_id)
     }
 
     pub fn out_of(&self, n: Node<'_>) -> Option<ExprOut> {
@@ -318,15 +379,31 @@ impl<'g, 'p> Gx<'g, 'p> {
         match &p.source {
             // V4R-143 (D478): a pull-form MergeAppend arm reads nothing itself; its reader pulls the arm's rows (an index
             // arm's through its site, a Sort arm's run as a cursor)
-            Source::Breaker { .. } | Source::Index { .. } if crate::props::Merge::of_arm(self, k).is_some_and(|m| crate::props::merge_pull(self, &m)) => KindId::RunsMergeappend,
+            Source::Breaker { .. } | Source::Index { .. }
+                if crate::props::Merge::of_arm(self, k)
+                    .is_some_and(|m| crate::props::merge_pull(self, &m)) =>
+            {
+                KindId::RunsMergeappend
+            }
             // D3789: a CteScan arm of a nest inner's streamed union reads nothing itself either (rerun/inner_arms.rs)
-            Source::Breaker { .. } if crate::rerun::inner_arms::cte_arm(self, k) && crate::pipes::inner_union(self, k).is_some() => KindId::NestLoop,
+            Source::Breaker { .. }
+                if crate::rerun::inner_arms::cte_arm(self, k)
+                    && crate::pipes::inner_union(self, k).is_some() =>
+            {
+                KindId::NestLoop
+            }
             // D4620: a cascaded grouping set's producer reads its parents' owned records by claims (ops/agg/cascade.rs)
-            Source::Breaker { .. } if crate::ops::agg::cascade::at(self, k).is_some() => KindId::KeyedGsets,
+            Source::Breaker { .. } if crate::ops::agg::cascade::at(self, k).is_some() => {
+                KindId::KeyedGsets
+            }
             Source::Breaker { slot } => self.drain_kind(k, *slot),
             // M8-NEST S1: a plan Material's fill its nest inner pulls reads nothing itself; the inner makes its scan again
             // D3498: or a Result's one row (rerun/spool/form.rs `result_child`)
-            Source::Range { .. } | Source::Index { .. } | Source::Const if crate::pipes::spool_pull(self, k).is_ok() => KindId::NestSpool,
+            Source::Range { .. } | Source::Index { .. } | Source::Const
+                if crate::pipes::spool_pull(self, k).is_ok() =>
+            {
+                KindId::NestSpool
+            }
             _ if crate::pipes::inner_union(self, k).is_some() => KindId::NestLoop, // M8-NEST S2b: a nest inner's union streams this arm (nest/inner_arms.rs)
             _ if crate::rerun::union_arms::pulled_arm(self, k) => KindId::NestLoop, // G2(e) S1u: a Material's reader pulls this arm (inner_arms.rs `pulled`)
             s => source_kind_of(s, p.node_id),
@@ -336,12 +413,15 @@ impl<'g, 'p> Gx<'g, 'p> {
     /// Draining a life is its producer's kind: a keyed group's emit, a run's merge, a spool's walk by its role
     /// (`spool_kind`); a hash build's unmatched rows are the join drain's.
     fn drain_kind(&self, k: usize, slot: u8) -> KindId {
-        self.life_of(k, slot).map_or(KindId::NestSpool, |l| self.drain_life(l))
+        self.life_of(k, slot)
+            .map_or(KindId::NestSpool, |l| self.drain_life(l))
     }
 
     /// Draining `life` (`drain_kind`, and a nest inner's breaker source).
     fn drain_life(&self, life: LifeId) -> KindId {
-        let Some(p) = self.graph.pipelines.get(life.0 as usize) else { return KindId::NestSpool };
+        let Some(p) = self.graph.pipelines.get(life.0 as usize) else {
+            return KindId::NestSpool;
+        };
         match breaker_of(&p.desc) {
             Some(b) if b.kind == BreakerKind::HashBuild => KindId::JoinDrain,
             Some(_) => match self.group_at(life.0 as usize) {
@@ -357,13 +437,23 @@ impl<'g, 'p> Gx<'g, 'p> {
     pub fn group_at(&self, k: usize) -> Option<&'g GroupDecl<'p>> {
         let graph: &'g PipelineGraph<'p> = self.graph;
         #[allow(clippy::question_mark)]
-        let Some(b) = breaker_of(&self.pipelines()[k].desc) else { return None };
+        let Some(b) = breaker_of(&self.pipelines()[k].desc) else {
+            return None;
+        };
         // D3585: in its lowering, the graph's runs are walked once (an arm's walk to its run's end was quadratic in the arms)
         if let Some(next) = self.group_next() {
-            return next.get(k).filter(|&&j| j != u32::MAX).and_then(|&j| self.group_of(LifeId(j as u16)));
+            return next
+                .get(k)
+                .filter(|&&j| j != u32::MAX)
+                .and_then(|&j| self.group_of(LifeId(j as u16)));
         }
-        let same = |j: &usize| breaker_of(&graph.pipelines[*j].desc).is_some_and(|c| c.slot == b.slot && c.kind == b.kind);
-        (k..graph.pipelines.len()).take_while(same).find_map(|j| self.group_of(LifeId(j as u16)))
+        let same = |j: &usize| {
+            breaker_of(&graph.pipelines[*j].desc)
+                .is_some_and(|c| c.slot == b.slot && c.kind == b.kind)
+        };
+        (k..graph.pipelines.len())
+            .take_while(same)
+            .find_map(|j| self.group_of(LifeId(j as u16)))
     }
 
     /// D3585: `group_at`'s answer for every graph pipeline, kept for the lowering of this graph under this overlay (memo.rs):
@@ -397,7 +487,9 @@ impl<'g, 'p> Gx<'g, 'p> {
 
     /// The group `life` produces: the overlay's re-declaration (D1210), else the graph's.
     pub fn group_of(&self, life: LifeId) -> Option<&'g GroupDecl<'p>> {
-        self.over.and_then(|o| o.group(life)).or_else(|| self.graph_group(life))
+        self.over
+            .and_then(|o| o.group(life))
+            .or_else(|| self.graph_group(life))
     }
 
     /// The graph's own group `life` produces (decompose `PipelineGraph::group_of`), from a table built once per lowering
@@ -413,7 +505,10 @@ impl<'g, 'p> Gx<'g, 'p> {
             Some(None) => {
                 let mut ix = vec![u32::MAX; graph.pipelines.len()]; // alloc: Program
                 for (i, g) in graph.groups.iter().enumerate() {
-                    if let Some(e) = ix.get_mut(g.producer.0 as usize).filter(|e| **e == u32::MAX) {
+                    if let Some(e) = ix
+                        .get_mut(g.producer.0 as usize)
+                        .filter(|e| **e == u32::MAX)
+                    {
                         *e = i as u32;
                     }
                 }
@@ -422,18 +517,26 @@ impl<'g, 'p> Gx<'g, 'p> {
                 ix
             }
         };
-        ix.get(life.0 as usize).filter(|&&i| i != u32::MAX).map(|&i| &graph.groups[i as usize])
+        ix.get(life.0 as usize)
+            .filter(|&&i| i != u32::MAX)
+            .map(|&i| &graph.groups[i as usize])
     }
 
     /// Every breaker group, each as `group_of` reads it, then the streamed ones (D1071) as `stream` reads them.
     pub fn groups(&self) -> impl Iterator<Item = &'g GroupDecl<'p>> + '_ {
-        self.graph.groups.iter().map(|g| self.group_of(g.producer).unwrap_or(g)).chain(self.streams())
+        self.graph
+            .groups
+            .iter()
+            .map(|g| self.group_of(g.producer).unwrap_or(g))
+            .chain(self.streams())
     }
 
     /// The streamed group `Op::GroupRun(i)` runs (D1071): the overlay's re-declaration (G10), else the graph's.
     pub fn stream(&self, i: usize) -> Option<&'g GroupDecl<'p>> {
         let graph: &'g PipelineGraph<'p> = self.graph;
-        self.over.and_then(|o| o.stream(i)).or_else(|| graph.streams.get(i))
+        self.over
+            .and_then(|o| o.stream(i))
+            .or_else(|| graph.streams.get(i))
     }
 
     /// Every streamed group by its `Op::GroupRun` index, each as `stream` reads it.
@@ -447,14 +550,22 @@ impl<'g, 'p> Gx<'g, 'p> {
     pub fn drainers(&self, g: &GroupDecl<'_>) -> PgVec<'g, usize> {
         let a = (g as *const GroupDecl<'_>).cast::<u8>() as usize;
         let addr = |d: &GroupDecl<'_>| (d as *const GroupDecl<'_>).cast::<u8>() as usize;
-        let walk = || (0..self.pipelines().len()).filter(|&q| self.drained_group(q).is_some_and(|d| addr(d) == a)).collect_in(self.mcx);
+        let walk = || {
+            (0..self.pipelines().len())
+                .filter(|&q| self.drained_group(q).is_some_and(|d| addr(d) == a))
+                .collect_in(self.mcx)
+        };
         let key = crate::memo::key_of(&self.graph.pipelines);
         let over = self.over.map_or(0, |o| o as *const _ as usize);
-        let Some(kept) = crate::memo::read(key, |m| m.drains.clone()) else { return walk() };
+        let Some(kept) = crate::memo::read(key, |m| m.drains.clone()) else {
+            return walk();
+        };
         let table = match kept {
             Some((o, d)) if o == over => d,
             _ => {
-                let mut d: Vec<(usize, u32)> = (0..self.pipelines().len()).filter_map(|q| self.drained_group(q).map(|g| (addr(g), q as u32))).collect(); // alloc: Program
+                let mut d: Vec<(usize, u32)> = (0..self.pipelines().len())
+                    .filter_map(|q| self.drained_group(q).map(|g| (addr(g), q as u32)))
+                    .collect(); // alloc: Program
                 d.sort_unstable();
                 let d: std::rc::Rc<[(usize, u32)]> = d.into(); // alloc: Program
                 crate::memo::write(key, |m| m.drains = Some((over, d.clone())));
@@ -462,7 +573,11 @@ impl<'g, 'p> Gx<'g, 'p> {
             }
         };
         let lo = table.partition_point(|x| x.0 < a);
-        table[lo..].iter().take_while(|x| x.0 == a).map(|x| x.1 as usize).collect_in(self.mcx)
+        table[lo..]
+            .iter()
+            .take_while(|x| x.0 == a)
+            .map(|x| x.1 as usize)
+            .collect_in(self.mcx)
     }
 
     /// D3585: whether a sorted set operation reads `life` as its right input (`SetDesc::Set { hashed: false, right }`); in
@@ -472,7 +587,12 @@ impl<'g, 'p> Gx<'g, 'p> {
             let mut v: Vec<u16> = Vec::new(); // alloc: Program
             for (j, q) in self.pipelines().iter().enumerate() {
                 for op in q.ops.iter() {
-                    if let Op::SetOp(SetDesc::Set { hashed: false, right, .. }) = op {
+                    if let Op::SetOp(SetDesc::Set {
+                        hashed: false,
+                        right,
+                        ..
+                    }) = op
+                    {
                         if let Some(l) = self.life_of(j, *right) {
                             v.push(l.0);
                         }
@@ -506,12 +626,15 @@ impl<'g, 'p> Gx<'g, 'p> {
 
     /// The group pipeline `k` drains, when its source is a breaker holding a group's records.
     pub fn drained_group(&self, k: usize) -> Option<&'g GroupDecl<'p>> {
-        let Source::Breaker { slot } = self.pipelines()[k].source else { return None };
+        let Source::Breaker { slot } = self.pipelines()[k].source else {
+            return None;
+        };
         // D4620: a cascaded grouping set's producer folds its parent's records, it emits no group
         if !self.graph.cascades.is_empty() && crate::ops::agg::cascade::at(self, k).is_some() {
             return None;
         }
-        self.life_of(k, slot).and_then(|l| self.group_at(l.0 as usize))
+        self.life_of(k, slot)
+            .and_then(|l| self.group_at(l.0 as usize))
     }
 
     /// Whether pipeline `k` orders groups: it drains a grouping group (a top-k there is `runs.topk_groups`) and its sort
@@ -522,8 +645,16 @@ impl<'g, 'p> Gx<'g, 'p> {
     /// (topn `make_drain`), so that row is the top's only when every column resolves to it (A14 a).
     pub fn drains_grouping(&self, k: usize) -> bool {
         let ops = &self.pipelines()[k].ops;
-        let sort = ops.iter().position(|op| matches!(op, Op::Sort(_))).unwrap_or(ops.len());
-        self.drained_group(k).is_some_and(|g| grouping(g) && !crate::props::finals_once(self, g)) && ops[..sort].iter().all(|op| matches!(op, Op::Filter(_) | Op::Gate(_) | Op::Project(_))) && self.projects_group_row(k) // D1403
+        let sort = ops
+            .iter()
+            .position(|op| matches!(op, Op::Sort(_)))
+            .unwrap_or(ops.len());
+        self.drained_group(k)
+            .is_some_and(|g| grouping(g) && !crate::props::finals_once(self, g))
+            && ops[..sort]
+                .iter()
+                .all(|op| matches!(op, Op::Filter(_) | Op::Gate(_) | Op::Project(_)))
+            && self.projects_group_row(k) // D1403
     }
 
     /// Whether every column of pipeline `k`'s nearest projection before its sort resolves to the drained group's row
@@ -532,9 +663,16 @@ impl<'g, 'p> Gx<'g, 'p> {
     /// `drains_grouping` and form G `group_sort` ask it).
     pub fn projects_group_row(&self, k: usize) -> bool {
         let ops = &self.pipelines()[k].ops;
-        let sort = ops.iter().position(|op| matches!(op, Op::Sort(_))).unwrap_or(ops.len());
+        let sort = ops
+            .iter()
+            .position(|op| matches!(op, Op::Sort(_)))
+            .unwrap_or(ops.len());
         let ls = crate::ops::sort::topn::order_slot::projections(&ops[..sort], self.mcx);
-        ls.first().is_none_or(|l| l.iter().filter_map(|n| n.as_target_entry()).all(|te| crate::ops::sort::topn::order_slot::to_group_row(&ls[1..], te.expr).is_some()))
+        ls.first().is_none_or(|l| {
+            l.iter().filter_map(|n| n.as_target_entry()).all(|te| {
+                crate::ops::sort::topn::order_slot::to_group_row(&ls[1..], te.expr).is_some()
+            })
+        })
     }
 
     /// The kind that builds pipeline `k`'s end: an aggregate breaker's group's (`group_kind`), a Materialize's role's
@@ -543,15 +681,29 @@ impl<'g, 'p> Gx<'g, 'p> {
     /// A write pipeline that ends in a breaker (RETURNING into a CTE's spool) needs its row op's kind as well.
     pub fn end_need(&self, k: usize) -> KindId {
         // M8 L0-g: a non-CTE InitPlan's pipeline ends in nest.initplan's cell end (its parameters), never the out sink
-        if self.graph.init_plans.iter().any(|i| i.pipeline as usize == k && !matches!(i.link, SubLink::Cte)) {
+        if self
+            .graph
+            .init_plans
+            .iter()
+            .any(|i| i.pipeline as usize == k && !matches!(i.link, SubLink::Cte))
+        {
             return KindId::NestInitplan;
         }
-        let Some(b) = breaker_of(&self.pipelines()[k].desc) else { return self.end_kind(k).kind() };
+        let Some(b) = breaker_of(&self.pipelines()[k].desc) else {
+            return self.end_kind(k).kind();
+        };
         match b.kind {
             BreakerKind::Materialize => self.spool_kind(k),
             // D1339 row B: a member of a nest's or SubPlan's rerun set keeps its top's rows by value (`runs.topk_rows`, whose
             // run the owner's inner reads at its region, rerun/sets.rs `emit_ok`), as form G's full sort takes a row sort there
-            BreakerKind::TopK if self.drains_grouping(k) && !self.top_reused(k) && !self.drained_twice(k) && !crate::rerun::sets::in_owner_set(self, k) => KindId::RunsTopkGroups,
+            BreakerKind::TopK
+                if self.drains_grouping(k)
+                    && !self.top_reused(k)
+                    && !self.drained_twice(k)
+                    && !crate::rerun::sets::in_owner_set(self, k) =>
+            {
+                KindId::RunsTopkGroups
+            }
             BreakerKind::Sort if self.merge_inner(k) => KindId::MergeJoin, // D1237: before `merged` (by slot: a reused slot's MergeAppend)
             BreakerKind::Sort if self.merged(k) => KindId::RunsMergeappend,
             kind => match self.group_at(k) {
@@ -567,8 +719,14 @@ impl<'g, 'p> Gx<'g, 'p> {
     /// `make_drain`'s `again`): the top keeps its rows by value, `runs.topk_rows` for its end and its drain.
     pub fn top_reused(&self, k: usize) -> bool {
         let ps = &self.graph.pipelines;
-        let (Some(br), &Source::Breaker { slot }) = (breaker_of(&ps[k].desc), &ps[k].source) else { return false };
-        let Some(r) = (k + 1..ps.len()).find(|&j| matches!(ps[j].source, Source::Breaker { slot: s } if s == br.slot)) else { return false };
+        let (Some(br), &Source::Breaker { slot }) = (breaker_of(&ps[k].desc), &ps[k].source) else {
+            return false;
+        };
+        let Some(r) = (k + 1..ps.len())
+            .find(|&j| matches!(ps[j].source, Source::Breaker { slot: s } if s == br.slot))
+        else {
+            return false;
+        };
         let group = self.life_of(k, slot).map_or(k, |l| l.0 as usize);
         let again = |s: u8, from: usize| (from + 1..=r).any(|m| ps[m].desc.produces() == Some(s));
         again(slot, group) || again(br.slot, k)
@@ -581,16 +739,26 @@ impl<'g, 'p> Gx<'g, 'p> {
     /// it (a later scan's gather, or a merge's inner run lazily at its first outer row), so the drain would hand on the
     /// other's records in the other's order. Such a top or sort orders the rows by value (`runs.topk_rows`, `runs.sort`).
     pub fn drained_twice(&self, k: usize) -> bool {
-        let Some(g) = self.drained_group(k) else { return false };
+        let Some(g) = self.drained_group(k) else {
+            return false;
+        };
         self.drainers(g).iter().any(|&m| m != k)
     }
 
     /// Whether pipeline `k`'s runs are a MergeAppend's: the first later pipeline reading its slot merges it (`append
     /// merge`). Every child feeds the one slot, so the reader is found by slot, not by the life it names.
     pub fn merged(&self, k: usize) -> bool {
-        let Some(b) = breaker_of(&self.pipelines()[k].desc) else { return false };
-        let merges = |q: &PipelineNode<'p>| q.ops.iter().any(|op| matches!(op, Op::Append(AppendDesc::Merge { slot, .. }) if *slot == b.slot));
-        let reads = |q: &PipelineNode<'p>| merges(q) || matches!(q.source, Source::Breaker { slot } if slot == b.slot);
+        let Some(b) = breaker_of(&self.pipelines()[k].desc) else {
+            return false;
+        };
+        let merges = |q: &PipelineNode<'p>| {
+            q.ops.iter().any(
+                |op| matches!(op, Op::Append(AppendDesc::Merge { slot, .. }) if *slot == b.slot),
+            )
+        };
+        let reads = |q: &PipelineNode<'p>| {
+            merges(q) || matches!(q.source, Source::Breaker { slot } if slot == b.slot)
+        };
         match self.later_reader(b.slot, k) {
             Some(Some(merging)) => return merging,
             Some(None) => {}
@@ -609,7 +777,9 @@ impl<'g, 'p> Gx<'g, 'p> {
                 None => break o,
             }
         };
-        ins.iter().find(|x| root(x.0 .0) > k && reads(x.1)).is_some_and(|x| merges(x.1))
+        ins.iter()
+            .find(|x| root(x.0 .0) > k && reads(x.1))
+            .is_some_and(|x| merges(x.1))
     }
 
     /// D3585: in the graph's lowering (memo.rs), whether the first graph pipeline after `k` that reads slot `slot` (a
@@ -653,7 +823,10 @@ impl<'g, 'p> Gx<'g, 'p> {
         let ops = &self.pipelines()[k].ops;
         if let Some(r) = self.set_role(k) {
             r
-        } else if ops.iter().any(|op| matches!(op, Op::SetOp(SetDesc::Identity { .. }))) {
+        } else if ops
+            .iter()
+            .any(|op| matches!(op, Op::SetOp(SetDesc::Identity { .. })))
+        {
             KindId::SetopSetop
         } else if ops.iter().any(|op| matches!(op, Op::SubPlan(_))) {
             KindId::NestSubplan
@@ -670,7 +843,11 @@ impl<'g, 'p> Gx<'g, 'p> {
         let key = crate::memo::key_of(&self.graph.pipelines);
         let setops = crate::memo::read(key, |m| m.setops).map(|x| {
             x.unwrap_or_else(|| {
-                let any = self.graph.pipelines.iter().any(|q| q.ops.iter().any(|op| matches!(op, Op::SetOp(_))));
+                let any = self
+                    .graph
+                    .pipelines
+                    .iter()
+                    .any(|q| q.ops.iter().any(|op| matches!(op, Op::SetOp(_))));
                 crate::memo::write(key, |m| m.setops = Some(any));
                 any
             })
@@ -680,10 +857,22 @@ impl<'g, 'p> Gx<'g, 'p> {
         }
         self.graph.pipelines.iter().enumerate().find_map(|(j, q)| {
             q.ops.iter().find_map(|op| match op {
-                Op::SetOp(SetDesc::Iter(d)) if [d.work, d.next].into_iter().any(|s| self.life_of(j, s) == life) => Some(KindId::SetopRecursive),
+                Op::SetOp(SetDesc::Iter(d))
+                    if [d.work, d.next]
+                        .into_iter()
+                        .any(|s| self.life_of(j, s) == life) =>
+                {
+                    Some(KindId::SetopRecursive)
+                }
                 // with#170 / #171: an earlier arm of a UNION ALL term filling the intermediate table (`life_of` names the last)
-                Op::SetOp(SetDesc::Iter(_)) if self.term_arm(k) == Some(j) => Some(KindId::SetopRecursive),
-                Op::SetOp(SetDesc::Set { left, right, .. }) if self.life_of(j, *left) == life || self.life_of(j, *right) == life => Some(KindId::SetopSetop),
+                Op::SetOp(SetDesc::Iter(_)) if self.term_arm(k) == Some(j) => {
+                    Some(KindId::SetopRecursive)
+                }
+                Op::SetOp(SetDesc::Set { left, right, .. })
+                    if self.life_of(j, *left) == life || self.life_of(j, *right) == life =>
+                {
+                    Some(KindId::SetopSetop)
+                }
                 _ => None,
             })
         })
@@ -706,10 +895,14 @@ impl<'g, 'p> Gx<'g, 'p> {
         if let Some(kept) = crate::memo::read(key, |m| m.merge_lives.clone()) {
             let lives = kept.unwrap_or_else(|| {
                 let mut l: Vec<u16> = (0..ps.len() + ps.inners().len()) // alloc: Program
-                    .flat_map(|j| ps[j].ops.iter().filter_map(move |op| match op {
-                        Op::Join(JoinDesc::Merge { slot, .. }) => self.life_of(j, *slot).map(|l| l.0),
-                        _ => None,
-                    }))
+                    .flat_map(|j| {
+                        ps[j].ops.iter().filter_map(move |op| match op {
+                            Op::Join(JoinDesc::Merge { slot, .. }) => {
+                                self.life_of(j, *slot).map(|l| l.0)
+                            }
+                            _ => None,
+                        })
+                    })
                     .collect();
                 l.sort_unstable();
                 l.dedup();
@@ -718,9 +911,12 @@ impl<'g, 'p> Gx<'g, 'p> {
                 l
             });
             let read = |q: usize| lives.binary_search(&(q as u16)).is_ok();
-            return !lives.is_empty() && (read(k) || (k < ps.len() && self.run_arms(k).into_iter().any(read)));
+            return !lives.is_empty()
+                && (read(k) || (k < ps.len() && self.run_arms(k).into_iter().any(read)));
         }
-        let read = |q: usize| (0..ps.len() + ps.inners().len()).any(|j| ps[j].ops.iter().any(|op| matches!(op, Op::Join(JoinDesc::Merge { slot, .. }) if self.life_of(j, *slot) == Some(LifeId(q as u16)))));
+        let read = |q: usize| {
+            (0..ps.len() + ps.inners().len()).any(|j| ps[j].ops.iter().any(|op| matches!(op, Op::Join(JoinDesc::Merge { slot, .. }) if self.life_of(j, *slot) == Some(LifeId(q as u16)))))
+        };
         read(k) || (k < ps.len() && self.run_arms(k).into_iter().any(read))
     }
 
@@ -730,13 +926,22 @@ impl<'g, 'p> Gx<'g, 'p> {
         if crate::ops::agg::gsets_spool::fills(self, k) {
             return KindId::KeyedGsets;
         }
-        if self.graph.init_plans.iter().any(|i| i.pipeline as usize == k && matches!(i.link, SubLink::Cte)) {
+        if self
+            .graph
+            .init_plans
+            .iter()
+            .any(|i| i.pipeline as usize == k && matches!(i.link, SubLink::Cte))
+        {
             return KindId::NestCte;
         }
         if let Some(r) = self.set_role(k) {
             return r;
         }
-        if self.pipelines()[k].ops.iter().any(|op| matches!(op, Op::Append(AppendDesc::Feed { .. }))) {
+        if self.pipelines()[k]
+            .ops
+            .iter()
+            .any(|op| matches!(op, Op::Append(AppendDesc::Feed { .. })))
+        {
             return KindId::SrcAppend;
         }
         if self.merge_inner(k) {
@@ -744,13 +949,20 @@ impl<'g, 'p> Gx<'g, 'p> {
         }
         // a window reader that is a nest's or a nested SubPlan's inner too (material W-INNER: the WindowAgg PG rescans per
         // outer row or call, its fill a member of that owner's rerun set; rerun/inner.rs, rerun/sets.rs `emit_ok`)
-        let windows = |j: usize, q: &PipelineNode<'p>| matches!(q.source, Source::Breaker { slot } if self.life_of(j, slot) == life) && q.ops.iter().any(|op| matches!(op, Op::Window(_)));
+        let windows = |j: usize, q: &PipelineNode<'p>| {
+            matches!(q.source, Source::Breaker { slot } if self.life_of(j, slot) == life)
+                && q.ops.iter().any(|op| matches!(op, Op::Window(_)))
+        };
         let ps = self.pipelines();
         if (0..ps.len() + ps.inners().len()).any(|j| windows(j, &ps[j])) {
             return KindId::WindowAgg;
         }
-        let drains = |j: usize, q: &PipelineNode<'p>| q.ops.iter().any(|op| matches!(op, Op::Join(JoinDesc::Drain { matches, .. }) if self.life_of(j, *matches) == life));
-        if (0..ps.len() + ps.inners().len()).any(|j| drains(j, &ps[j])) || self.drained_arms(k).is_some() {
+        let drains = |j: usize, q: &PipelineNode<'p>| {
+            q.ops.iter().any(|op| matches!(op, Op::Join(JoinDesc::Drain { matches, .. }) if self.life_of(j, *matches) == life))
+        };
+        if (0..ps.len() + ps.inners().len()).any(|j| drains(j, &ps[j]))
+            || self.drained_arms(k).is_some()
+        {
             return KindId::JoinDrain;
         }
         KindId::NestSpool
@@ -760,7 +972,13 @@ impl<'g, 'p> Gx<'g, 'p> {
     /// RETURNING (`cte_write`) writes in its step and ends in its declared end, the CTE's store (`nest.cte`), not the client.
     pub fn end_kind(&self, k: usize) -> EndKind {
         let p = &self.pipelines()[k];
-        match p.ops.iter().find_map(|op| if let Op::Write(w) = op { Some((w.cmd, w.returning.is_some())) } else { None }) {
+        match p.ops.iter().find_map(|op| {
+            if let Op::Write(w) = op {
+                Some((w.cmd, w.returning.is_some()))
+            } else {
+                None
+            }
+        }) {
             Some((c, ret)) if c != Cmd::Select && !(ret && self.cte_write(k)) => EndKind::RowOp(c),
             _ => EndKind::of_desc(&p.desc),
         }
@@ -769,7 +987,10 @@ impl<'g, 'p> Gx<'g, 'p> {
     /// Pipeline `k` is a CTE's producer (an InitPlan's `Cte` link fills its spool): a write there is a data-modifying
     /// CTE's (its ModifyTable's `canSetTag` false), whose tag and row count are the main statement's.
     pub fn cte_write(&self, k: usize) -> bool {
-        self.graph.init_plans.iter().any(|i| i.pipeline as usize == k && matches!(i.link, SubLink::Cte))
+        self.graph
+            .init_plans
+            .iter()
+            .any(|i| i.pipeline as usize == k && matches!(i.link, SubLink::Cte))
     }
 
     /// Pipeline `k` runs in a recursive union's generation (a member of its `Iter`'s re-run set) and reads slot `s`, the
@@ -787,7 +1008,11 @@ impl<'g, 'p> Gx<'g, 'p> {
         let key = crate::memo::key_of(ps);
         let iters = crate::memo::read(key, |m| m.iters).map(|x| {
             x.unwrap_or_else(|| {
-                let any = ps.iter().any(|q| q.ops.iter().any(|op| matches!(op, Op::SetOp(SetDesc::Iter(_)))));
+                let any = ps.iter().any(|q| {
+                    q.ops
+                        .iter()
+                        .any(|op| matches!(op, Op::SetOp(SetDesc::Iter(_))))
+                });
                 crate::memo::write(key, |m| m.iters = Some(any));
                 any
             })
@@ -795,7 +1020,13 @@ impl<'g, 'p> Gx<'g, 'p> {
         if iters == Some(false) {
             return None;
         }
-        let member = |d: &gravity_decompose::ops::shared::setop::IterDesc| self.graph.reruns.iter().any(|r| r.plan_id == gravity_decompose::ops::shared::setop::RECURSIVE_SET && r.pipelines.contains(&d.body) && r.pipelines.contains(&(k as u16)));
+        let member = |d: &gravity_decompose::ops::shared::setop::IterDesc| {
+            self.graph.reruns.iter().any(|r| {
+                r.plan_id == gravity_decompose::ops::shared::setop::RECURSIVE_SET
+                    && r.pipelines.contains(&d.body)
+                    && r.pipelines.contains(&(k as u16))
+            })
+        };
         (k + 1..ps.len()).find(|&q| ps[q].ops.iter().any(|op| matches!(op, Op::SetOp(SetDesc::Iter(d)) if ps[k].desc.produces() == Some(d.next) && member(d))))
     }
 
@@ -808,7 +1039,9 @@ impl<'g, 'p> Gx<'g, 'p> {
     pub fn pipeline_kinds(&self, k: usize, out: &mut PgVec<'_, (KindId, i32)>) {
         let p = &self.pipelines()[k];
         push_kind_in(out, self.source_kind(k), p.node_id);
-        if !matches!(p.source, Source::Breaker { .. }) && matches!(self.source_kind(k), KindId::NestSpool | KindId::NestLoop) {
+        if !matches!(p.source, Source::Breaker { .. })
+            && matches!(self.source_kind(k), KindId::NestSpool | KindId::NestLoop)
+        {
             push_kind_in(out, source_kind_of(&p.source, p.node_id), p.node_id); // M8-NEST S1: the inner makes the scan again
         }
         // a Feed into a MergeAppend's runs is the merge's; an identity op filling a recursive union's dedup table is the
@@ -845,19 +1078,35 @@ impl<'g, 'p> Gx<'g, 'p> {
     fn op_kinds(&self, p: &PipelineNode<'p>, groups: bool, out: &mut PgVec<'_, (KindId, i32)>) {
         crate::stack_check(); // D3832
         for (i, op) in p.ops.iter().enumerate() {
-            let node = p.node_ops.iter().rev().find(|n| n.first_op as usize <= i).map_or(p.node_id, |n| n.node_id);
+            let node = p
+                .node_ops
+                .iter()
+                .rev()
+                .find(|n| n.first_op as usize <= i)
+                .map_or(p.node_id, |n| n.node_id);
             push_kind_in(out, op_need(op, groups), node);
             if let Op::Sort(d) = op {
                 if d.presorted > 0 && !matches!(d.form, SortForm::Runs) {
                     push_kind_in(out, KindId::RunsIncremental, node);
                 }
             }
-            if let Op::Join(JoinDesc::Nest { inner, inner_node, .. }) = op {
+            if let Op::Join(JoinDesc::Nest {
+                inner, inner_node, ..
+            }) = op
+            {
                 push_kind_in(out, self.inner_source_kind(inner, *inner_node), *inner_node);
                 self.op_kinds(inner, false, out);
             }
-            if let Op::SubPlan(SubPlanDesc { form: SubForm::Nested { inner }, .. }) = op {
-                push_kind_in(out, self.inner_source_kind(inner, inner.node_id), inner.node_id);
+            if let Op::SubPlan(SubPlanDesc {
+                form: SubForm::Nested { inner },
+                ..
+            }) = op
+            {
+                push_kind_in(
+                    out,
+                    self.inner_source_kind(inner, inner.node_id),
+                    inner.node_id,
+                );
                 self.op_kinds(inner, false, out);
             }
         }
@@ -866,9 +1115,15 @@ impl<'g, 'p> Gx<'g, 'p> {
     /// A nest inner's source kind: a breaker source is the drain of the life its descriptor reads (a CTE's spool, a
     /// Material's), else the source's own kind.
     fn inner_source_kind(&self, inner: &PipelineNode<'p>, node: i32) -> KindId {
-        let Source::Breaker { slot } = inner.source else { return source_kind_of(&inner.source, node) };
+        let Source::Breaker { slot } = inner.source else {
+            return source_kind_of(&inner.source, node);
+        };
         let d = &inner.desc;
-        let life = d.consumes.iter().position(|&s| s == slot).and_then(|j| d.consumes_from.get(j).copied());
+        let life = d
+            .consumes
+            .iter()
+            .position(|&s| s == slot)
+            .and_then(|j| d.consumes_from.get(j).copied());
         life.map_or(KindId::NestSpool, |l| self.drain_life(l))
     }
 
@@ -889,7 +1144,10 @@ impl<'g, 'p> Gx<'g, 'p> {
                 return Some(l);
             }
         }
-        (0..k.min(self.graph.pipelines.len())).rev().find(|&i| breaker_of(&self.graph.pipelines[i].desc).is_some_and(|b| b.slot == slot)).map(|i| LifeId(i as u16))
+        (0..k.min(self.graph.pipelines.len()))
+            .rev()
+            .find(|&i| breaker_of(&self.graph.pipelines[i].desc).is_some_and(|b| b.slot == slot))
+            .map(|i| LifeId(i as u16))
     }
 
     /// Pipelines `out` and, transitively, the producers of the slots they read, every arm of a union counted (D4153):
@@ -901,7 +1159,12 @@ impl<'g, 'p> Gx<'g, 'p> {
         let mut i = 0;
         while let Some(&q) = out.get(i) {
             i += 1;
-            let lives = self.pipelines()[q].desc.consumes.iter().filter_map(|&s| self.life_of(q, s)).map(|l| l.0 as usize);
+            let lives = self.pipelines()[q]
+                .desc
+                .consumes
+                .iter()
+                .filter_map(|&s| self.life_of(q, s))
+                .map(|l| l.0 as usize);
             for l in lives.chain(self.run_arms(q)).chain(self.union_feeds(q)) {
                 if !out.contains(&l) {
                     out.push_in(l);
@@ -920,9 +1183,27 @@ impl<'g, 'p> Gx<'g, 'p> {
     /// is no arm.
     pub fn run_arms(&self, x: usize) -> PgVec<'g, usize> {
         let ps = self.pipelines();
-        let arm = |p: usize| ps[p].ops.iter().rev().find_map(|op| if let Op::Append(AppendDesc::Arm { i, n, .. }) = op { Some((*i, *n)) } else { None });
-        let (Some((i, n)), Some(s)) = (arm(x), ps[x].desc.produces()) else { return PgVec::new_in(self.mcx) };
-        let of = |p: usize| arm(p).filter(|a| a.1 == n && ps[p].desc.produces() == Some(s) && !ps[p].desc.consumes.contains(&s)).map(|a| a.0);
+        let arm = |p: usize| {
+            ps[p].ops.iter().rev().find_map(|op| {
+                if let Op::Append(AppendDesc::Arm { i, n, .. }) = op {
+                    Some((*i, *n))
+                } else {
+                    None
+                }
+            })
+        };
+        let (Some((i, n)), Some(s)) = (arm(x), ps[x].desc.produces()) else {
+            return PgVec::new_in(self.mcx);
+        };
+        let of = |p: usize| {
+            arm(p)
+                .filter(|a| {
+                    a.1 == n
+                        && ps[p].desc.produces() == Some(s)
+                        && !ps[p].desc.consumes.contains(&s)
+                })
+                .map(|a| a.0)
+        };
         let mut out = PgVec::new_in(self.mcx);
         let (mut p, mut at) = (x, i);
         while at > 0 && p > 0 {
@@ -951,18 +1232,40 @@ impl<'g, 'p> Gx<'g, 'p> {
     pub fn stream_arms(&self, x: usize) -> PgVec<'g, usize> {
         let ps = self.pipelines();
         let at = |p: usize| ps[p].ops.iter().rposition(is_arm);
-        let n_of = |p: usize, j: usize| if let Op::Append(AppendDesc::Arm { n, .. }) = &ps[p].ops[j] { *n } else { 0 };
-        let tail = |p: usize, j: usize| ps[p].node_ops.iter().filter(move |o| o.first_op as usize >= j).map(|o| o.node_id);
-        let Some(jx) = at(x) else { return PgVec::new_in(self.mcx) };
+        let n_of = |p: usize, j: usize| {
+            if let Op::Append(AppendDesc::Arm { n, .. }) = &ps[p].ops[j] {
+                *n
+            } else {
+                0
+            }
+        };
+        let tail = |p: usize, j: usize| {
+            ps[p]
+                .node_ops
+                .iter()
+                .filter(move |o| o.first_op as usize >= j)
+                .map(|o| o.node_id)
+        };
+        let Some(jx) = at(x) else {
+            return PgVec::new_in(self.mcx);
+        };
         let n = n_of(x, jx);
-        (0..ps.len()).filter(|&p| p != x && at(p).is_some_and(|j| n_of(p, j) == n && tail(p, j).eq(tail(x, jx)))).collect_in(self.mcx)
+        (0..ps.len())
+            .filter(|&p| {
+                p != x && at(p).is_some_and(|j| n_of(p, j) == n && tail(p, j).eq(tail(x, jx)))
+            })
+            .collect_in(self.mcx)
     }
 
     /// Pipeline `k`'s leases (S6): the life it produces and every life it reads.
     pub fn leases(&self, k: usize) -> Leases {
         let d = &self.pipelines()[k].desc;
         let produces = breaker_of(d).is_some().then_some(LifeId(k as u16));
-        let reads = d.consumes.iter().filter_map(|&s| self.life_of(k, s)).collect(); // alloc: Program
+        let reads = d
+            .consumes
+            .iter()
+            .filter_map(|&s| self.life_of(k, s))
+            .collect(); // alloc: Program
         Leases { produces, reads }
     }
 }
@@ -971,19 +1274,65 @@ impl<'g, 'p> Gx<'g, 'p> {
 /// A scan over a table AM that is neither heap nor pgrc refuses `UnsupportedAm` at `node`: the heap source reads heap
 /// pages, so no kind serves another AM's format.
 pub fn source_kind_of(s: &Source<'_>, node: i32) -> KindId {
-    if let Source::Range { am: Am::Other, relid, .. } | Source::Tid { am: Am::Other, relid, .. } | Source::Sample { am: Am::Other, relid, .. } = s {
-        crate::refuse!(node, crate::admit::refusal::Reason::UnsupportedAm { relid: *relid });
+    if let Source::Range {
+        am: Am::Other,
+        relid,
+        ..
+    }
+    | Source::Tid {
+        am: Am::Other,
+        relid,
+        ..
+    }
+    | Source::Sample {
+        am: Am::Other,
+        relid,
+        ..
+    } = s
+    {
+        crate::refuse!(
+            node,
+            crate::admit::refusal::Reason::UnsupportedAm { relid: *relid }
+        );
     }
     match s {
-        Source::Range { am: Am::Pgrcolumnar, .. } => KindId::SrcPgrc,
+        Source::Range {
+            am: Am::Pgrcolumnar,
+            ..
+        } => KindId::SrcPgrc,
         Source::Range { .. } => KindId::SrcHeap,
         // L0-h: a btree index-only walk is src.index_only's (a constant `= ANY` key too); a btree walk with an `= ANY` key
         // is the array-key source's, one with an AM operator or an ORDER BY operator the any-AM source's, as is every walk
         // of another AM, index-only or not (source/index.rs and source/index_only.rs keep their guards as bugs)
-        Source::Index { only: true, iam: IndexAm::Btree, .. } => KindId::SrcIndexOnly,
-        Source::Index { iam: IndexAm::Btree, keys, .. } if keys.iter().any(|k| matches!(k.form, KeyForm::Any | KeyForm::AmAny)) => KindId::SrcIndexArray,
-        Source::Index { iam: IndexAm::Btree, keys, .. } if keys.iter().any(|k| matches!(k.form, KeyForm::AmOp | KeyForm::OrderBy)) => KindId::SrcIndexAm,
-        Source::Index { iam: IndexAm::Btree, .. } => KindId::SrcIndex,
+        Source::Index {
+            only: true,
+            iam: IndexAm::Btree,
+            ..
+        } => KindId::SrcIndexOnly,
+        Source::Index {
+            iam: IndexAm::Btree,
+            keys,
+            ..
+        } if keys
+            .iter()
+            .any(|k| matches!(k.form, KeyForm::Any | KeyForm::AmAny)) =>
+        {
+            KindId::SrcIndexArray
+        }
+        Source::Index {
+            iam: IndexAm::Btree,
+            keys,
+            ..
+        } if keys
+            .iter()
+            .any(|k| matches!(k.form, KeyForm::AmOp | KeyForm::OrderBy)) =>
+        {
+            KindId::SrcIndexAm
+        }
+        Source::Index {
+            iam: IndexAm::Btree,
+            ..
+        } => KindId::SrcIndex,
         Source::Index { .. } => KindId::SrcIndexAm,
         Source::Bitmap { .. } => KindId::SrcBitmap,
         Source::Tid { .. } => KindId::SrcTid,
@@ -1020,33 +1369,89 @@ mod tests {
     use gravity_program::{ArenaRef, SiteDesc};
 
     fn range(am: Am) -> Source<'static> {
-        Source::Range { site: SiteDesc::none_in(ArenaRef::EMPTY), am, scanrelid: 1, relid: 16500 }
+        Source::Range {
+            site: SiteDesc::none_in(ArenaRef::EMPTY),
+            am,
+            scanrelid: 1,
+            relid: 16500,
+        }
     }
 
     /// A scan over a table AM that is neither heap nor pgrc refuses by name, never reads as a heap scan.
     #[test]
     fn other_am_refuses() {
-        assert_eq!(crate::catch(7, || source_kind_of(&range(Am::Other), 7)), Err(Refusal { reason: Reason::UnsupportedAm { relid: 16500 }, node: 7, native_rel: 0 }));
-        assert_eq!(crate::catch(7, || source_kind_of(&range(Am::Heap), 7)), Ok(KindId::SrcHeap));
-        assert_eq!(crate::catch(7, || source_kind_of(&range(Am::Pgrcolumnar), 7)), Ok(KindId::SrcPgrc));
-        let seam = Refusal { reason: Reason::UnsupportedAm { relid: 16500 }, node: 7, native_rel: 0 }.to_seam();
-        assert_eq!((seam.what, seam.detail, seam.oid), ("UnsupportedAm", "relation", 16500));
+        assert_eq!(
+            crate::catch(7, || source_kind_of(&range(Am::Other), 7)),
+            Err(Refusal {
+                reason: Reason::UnsupportedAm { relid: 16500 },
+                node: 7,
+                native_rel: 0
+            })
+        );
+        assert_eq!(
+            crate::catch(7, || source_kind_of(&range(Am::Heap), 7)),
+            Ok(KindId::SrcHeap)
+        );
+        assert_eq!(
+            crate::catch(7, || source_kind_of(&range(Am::Pgrcolumnar), 7)),
+            Ok(KindId::SrcPgrc)
+        );
+        let seam = Refusal {
+            reason: Reason::UnsupportedAm { relid: 16500 },
+            node: 7,
+            native_rel: 0,
+        }
+        .to_seam();
+        assert_eq!(
+            (seam.what, seam.detail, seam.oid),
+            ("UnsupportedAm", "relation", 16500)
+        );
     }
 
     /// A Material's spool op is merge.join's only in a pipeline whose end is a merge join's inner (MERGE-1, main 17:59Z);
     /// under any other end it stays nest.spool's, and the recursive union's and MergeAppend's arms are unchanged.
     #[test]
     fn a_spool_op_is_merge_joins_only_under_a_merge_inner() {
-        assert_eq!(pipe_kind(KindId::NestSpool, false, KindId::MergeJoin), KindId::MergeJoin);
-        for end in [KindId::NestSpool, KindId::RunsSort, KindId::SetopRecursive, KindId::JoinDrain, KindId::WindowAgg, KindId::NestCte] {
-            assert_eq!(pipe_kind(KindId::NestSpool, false, end), KindId::NestSpool, "{end:?}");
+        assert_eq!(
+            pipe_kind(KindId::NestSpool, false, KindId::MergeJoin),
+            KindId::MergeJoin
+        );
+        for end in [
+            KindId::NestSpool,
+            KindId::RunsSort,
+            KindId::SetopRecursive,
+            KindId::JoinDrain,
+            KindId::WindowAgg,
+            KindId::NestCte,
+        ] {
+            assert_eq!(
+                pipe_kind(KindId::NestSpool, false, end),
+                KindId::NestSpool,
+                "{end:?}"
+            );
         }
-        assert_eq!(pipe_kind(KindId::SetopSetop, false, KindId::SetopRecursive), KindId::SetopRecursive);
+        assert_eq!(
+            pipe_kind(KindId::SetopSetop, false, KindId::SetopRecursive),
+            KindId::SetopRecursive
+        );
         for end in [KindId::MergeJoin, KindId::NestSpool, KindId::SetopSetop] {
-            assert_eq!(pipe_kind(KindId::SetopSetop, false, end), KindId::SetopSetop, "{end:?}");
+            assert_eq!(
+                pipe_kind(KindId::SetopSetop, false, end),
+                KindId::SetopSetop,
+                "{end:?}"
+            );
         }
-        assert_eq!(pipe_kind(KindId::SrcAppend, true, KindId::MergeJoin), KindId::RunsMergeappend);
-        assert_eq!(pipe_kind(KindId::SrcAppend, false, KindId::MergeJoin), KindId::SrcAppend);
-        assert_eq!(pipe_kind(KindId::StepFilter, false, KindId::MergeJoin), KindId::StepFilter);
+        assert_eq!(
+            pipe_kind(KindId::SrcAppend, true, KindId::MergeJoin),
+            KindId::RunsMergeappend
+        );
+        assert_eq!(
+            pipe_kind(KindId::SrcAppend, false, KindId::MergeJoin),
+            KindId::SrcAppend
+        );
+        assert_eq!(
+            pipe_kind(KindId::StepFilter, false, KindId::MergeJoin),
+            KindId::StepFilter
+        );
     }
 }

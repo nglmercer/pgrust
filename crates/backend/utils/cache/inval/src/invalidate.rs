@@ -3,8 +3,9 @@ use std::cell::RefCell;
 use datum::Datum;
 use mcx::{Mcx, MemoryContext, PgVec};
 use types_core::catalog::{
-    ACCESS_METHOD_OPERATOR_RELATION_ID, ACCESS_METHOD_PROCEDURE_RELATION_ID, ATTRIBUTE_RELATION_ID, CONSTRAINT_RELATION_ID,
-    INDEX_RELATION_ID, OPERATOR_CLASS_RELATION_ID, OPERATOR_FAMILY_RELATION_ID, RELATION_RELATION_ID,
+    ACCESS_METHOD_OPERATOR_RELATION_ID, ACCESS_METHOD_PROCEDURE_RELATION_ID, ATTRIBUTE_RELATION_ID,
+    CONSTRAINT_RELATION_ID, INDEX_RELATION_ID, OPERATOR_CLASS_RELATION_ID,
+    OPERATOR_FAMILY_RELATION_ID, RELATION_RELATION_ID,
 };
 use types_core::{InvalidOid, Oid};
 use types_error::{PgError, PgResult, ERROR, FATAL};
@@ -14,9 +15,7 @@ use types_storage::{
 };
 use types_tuple::HeapTupleData;
 
-use crate::registration::{
-    self, prepare_inplace_invalidation_state, prepare_invalidation_state,
-};
+use crate::registration::{self, prepare_inplace_invalidation_state, prepare_invalidation_state};
 use crate::{
     with_state, RelSyncCallbackFunction, RelcacheCallbackFunction, RelcacheCallbackItem,
     RelsyncCallbackItem, SyscacheCallbackFunction, SyscacheCallbackItem, CALLBACKS,
@@ -96,20 +95,31 @@ fn cache_invalidate_heap_tuple_common(
         let touched = if reqs.iter().any(|r| l2cache::row_stamped(r.cache_id))
             && changes_committed_row(tuple, newtuple, use_inplace)
         {
-            reqs.iter().fold(0u128, |m, r| m | crate::eoxact::stamp_bit(r.cache_id))
+            reqs.iter()
+                .fold(0u128, |m, r| m | crate::eoxact::stamp_bit(r.cache_id))
         } else {
             0
         };
 
         let rel_target: Option<(Oid, Oid)> = if tuple_rel_id == RELATION_RELATION_ID {
             let classtup = syscache_seams::pg_class_shape::call(tuple);
-            let database_id = if classtup.relisshared { InvalidOid } else { MyDatabaseId() };
+            let database_id = if classtup.relisshared {
+                InvalidOid
+            } else {
+                MyDatabaseId()
+            };
             Some((classtup.oid, database_id))
         } else if tuple_rel_id == ATTRIBUTE_RELATION_ID {
             // KLUGE ALERT (C): always MyDatabaseId, even for shared rels.
-            Some((syscache_seams::pg_attribute_attrelid::call(tuple), MyDatabaseId()))
+            Some((
+                syscache_seams::pg_attribute_attrelid::call(tuple),
+                MyDatabaseId(),
+            ))
         } else if tuple_rel_id == INDEX_RELATION_ID {
-            Some((syscache_seams::pg_index_indexrelid::call(tuple), MyDatabaseId()))
+            Some((
+                syscache_seams::pg_index_indexrelid::call(tuple),
+                MyDatabaseId(),
+            ))
         } else if tuple_rel_id == CONSTRAINT_RELATION_ID {
             syscache_seams::pg_constraint_fk_target::call(tuple)
                 .map(|conrelid| (conrelid, MyDatabaseId()))
@@ -122,46 +132,69 @@ fn cache_invalidate_heap_tuple_common(
         let storage_only = tuple_rel_id == RELATION_RELATION_ID
             && !use_inplace
             && newtuple.is_some_and(|n| pg_class_storage_only(relation, tuple, n));
-        let scope = if storage_only { crate::relcache_scope() | crate::REL_SCOPE_STORAGE } else { crate::relcache_scope() };
-        crate::with_relcache_scope(scope, || with_state(|state| {
-            let mcx = state.mcx;
-            let info = if use_inplace {
-                prepare_inplace_invalidation_state(state)
-            } else {
-                prepare_invalidation_state(state)?
-            };
-
-            if snapshots_only {
-                let database_id = if catalog_seams::is_shared_relation::call(tuple_rel_id) {
-                    InvalidOid
+        let scope = if storage_only {
+            crate::relcache_scope() | crate::REL_SCOPE_STORAGE
+        } else {
+            crate::relcache_scope()
+        };
+        crate::with_relcache_scope(scope, || {
+            with_state(|state| {
+                let mcx = state.mcx;
+                let info = if use_inplace {
+                    prepare_inplace_invalidation_state(state)
                 } else {
-                    MyDatabaseId()
+                    prepare_invalidation_state(state)?
                 };
-                registration::register_snapshot_invalidation(
-                    mcx, state, info, database_id, tuple_rel_id,
-                )?;
-            } else {
-                for req in reqs.iter() {
-                    registration::register_catcache_invalidation(
-                        mcx, state, info, req.cache_id, req.hash_value, req.db_id,
+
+                if snapshots_only {
+                    let database_id = if catalog_seams::is_shared_relation::call(tuple_rel_id) {
+                        InvalidOid
+                    } else {
+                        MyDatabaseId()
+                    };
+                    registration::register_snapshot_invalidation(
+                        mcx,
+                        state,
+                        info,
+                        database_id,
+                        tuple_rel_id,
                     )?;
-                }
-                state.stamp_touched |= touched;
-                // D3888: the family a support catalog row names, both images (`PreCommit_Inval` names its relations)
-                for t in core::iter::once(tuple).chain(newtuple) {
-                    if let Some(f) = support_family(relation, t).filter(|f| !state.support_families.contains(f)) {
-                        state.support_families.push(f);
+                } else {
+                    for req in reqs.iter() {
+                        registration::register_catcache_invalidation(
+                            mcx,
+                            state,
+                            info,
+                            req.cache_id,
+                            req.hash_value,
+                            req.db_id,
+                        )?;
+                    }
+                    state.stamp_touched |= touched;
+                    // D3888: the family a support catalog row names, both images (`PreCommit_Inval` names its relations)
+                    for t in core::iter::once(tuple).chain(newtuple) {
+                        if let Some(f) = support_family(relation, t)
+                            .filter(|f| !state.support_families.contains(f))
+                        {
+                            state.support_families.push(f);
+                        }
                     }
                 }
-            }
 
-            match rel_target {
-                Some((relation_id, database_id)) => registration::register_relcache_invalidation(
-                    mcx, state, info, database_id, relation_id,
-                ),
-                None => Ok(()),
-            }
-        }))
+                match rel_target {
+                    Some((relation_id, database_id)) => {
+                        registration::register_relcache_invalidation(
+                            mcx,
+                            state,
+                            info,
+                            database_id,
+                            relation_id,
+                        )
+                    }
+                    None => Ok(()),
+                }
+            })
+        })
     })
 }
 
@@ -194,7 +227,11 @@ const BTREE_AM_OID: Oid = 403;
 /// (`PG_CLASS_STORAGE_ATTS`), of a heap relation, a btree index or a sequence (another access method's catalog-held
 /// state is not audited: its updates stay whole). Every other column compares by image (a toasted or otherwise
 /// re-encoded equal value compares unequal: whole, never a missed change).
-fn pg_class_storage_only(relation: &RelationData<'_>, old: &HeapTupleData<'_>, new: &HeapTupleData<'_>) -> bool {
+fn pg_class_storage_only(
+    relation: &RelationData<'_>,
+    old: &HeapTupleData<'_>,
+    new: &HeapTupleData<'_>,
+) -> bool {
     let desc = relation.descr();
     let get = |t: &HeapTupleData<'_>, attnum: i32| {
         let mut null = false;
@@ -203,18 +240,21 @@ fn pg_class_storage_only(relation: &RelationData<'_>, old: &HeapTupleData<'_>, n
         (!null).then_some(d)
     };
     let am = get(new, ANUM_PG_CLASS_RELAM).map_or(InvalidOid, |d| d.as_oid());
-    let sequence = get(new, ANUM_PG_CLASS_RELKIND).is_some_and(|d| d.as_i8() == types_rel::RELKIND_SEQUENCE as i8);
+    let sequence = get(new, ANUM_PG_CLASS_RELKIND)
+        .is_some_and(|d| d.as_i8() == types_rel::RELKIND_SEQUENCE as i8);
     if !(am == HEAP_TABLE_AM_OID || am == BTREE_AM_OID || sequence) {
         return false;
     }
-    (1..=desc.natts).filter(|a| !PG_CLASS_STORAGE_ATTS.contains(a)).all(|a| {
-        let att = desc.attr(a as usize - 1);
-        match (get(old, a), get(new, a)) {
-            (None, None) => true,
-            (Some(x), Some(y)) => image_eq(x, y, att.attbyval, att.attlen),
-            _ => false,
-        }
-    })
+    (1..=desc.natts)
+        .filter(|a| !PG_CLASS_STORAGE_ATTS.contains(a))
+        .all(|a| {
+            let att = desc.attr(a as usize - 1);
+            match (get(old, a), get(new, a)) {
+                (None, None) => true,
+                (Some(x), Some(y)) => image_eq(x, y, att.attbyval, att.attlen),
+                _ => false,
+            }
+        })
 }
 
 /// `datumIsEqual`: the two images compare byte for byte (no detoasting).
@@ -231,7 +271,10 @@ fn image_eq(x: Datum, y: Datum, byval: bool, len: i16) -> bool {
     match (size(x), size(y)) {
         (Some(a), Some(b)) if a == b => {
             // SAFETY: both images live in their tuples for `a` bytes.
-            unsafe { core::slice::from_raw_parts(x.as_usize() as *const u8, a) == core::slice::from_raw_parts(y.as_usize() as *const u8, a) }
+            unsafe {
+                core::slice::from_raw_parts(x.as_usize() as *const u8, a)
+                    == core::slice::from_raw_parts(y.as_usize() as *const u8, a)
+            }
         }
         _ => false,
     }
@@ -323,7 +366,11 @@ pub fn CacheInvalidateRelcacheAll() -> PgResult<()> {
 pub fn CacheInvalidateRelcacheByTuple(classTuple: &HeapTupleData<'_>) -> PgResult<()> {
     let classtup = syscache_seams::pg_class_shape::call(classTuple);
     let relation_id = classtup.oid;
-    let database_id = if classtup.relisshared { InvalidOid } else { MyDatabaseId() };
+    let database_id = if classtup.relisshared {
+        InvalidOid
+    } else {
+        MyDatabaseId()
+    };
 
     with_state(|state| {
         let mcx = state.mcx;
@@ -338,7 +385,11 @@ pub fn CacheInvalidateRelcacheByRelid(relid: Oid) -> PgResult<()> {
         None => return Err(err_cache_lookup_failed(relid)),
     };
     let relation_id = classtup.oid;
-    let database_id = if classtup.relisshared { InvalidOid } else { MyDatabaseId() };
+    let database_id = if classtup.relisshared {
+        InvalidOid
+    } else {
+        MyDatabaseId()
+    };
 
     with_state(|state| {
         let mcx = state.mcx;
@@ -351,7 +402,9 @@ pub fn CacheInvalidateRelcacheByRelid(relid: Oid) -> PgResult<()> {
 #[cold]
 #[inline(never)]
 fn err_cache_lookup_failed(relid: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!("cache lookup failed for relation {relid}")))
+    Box::new(PgError::error(format!(
+        "cache lookup failed for relation {relid}"
+    )))
 }
 
 pub fn CacheInvalidateRelSync(relid: Oid) -> PgResult<()> {
@@ -398,9 +451,13 @@ pub fn CacheRegisterSyscacheCallback(
         // never unregistered, while a cache that registers when it is first built is built again by each session a
         // reused client thread runs (launch_backend cpool); a duplicate would run the same callback twice per message
         // and, session after session, run the table out of slots.
-        if t.syscache_list[..t.syscache_count].iter().flatten().any(|c| {
-            c.id == cacheid as i16 && core::ptr::fn_addr_eq(c.function, func) && c.arg == arg
-        }) {
+        if t.syscache_list[..t.syscache_count]
+            .iter()
+            .flatten()
+            .any(|c| {
+                c.id == cacheid as i16 && core::ptr::fn_addr_eq(c.function, func) && c.arg == arg
+            })
+        {
             return Ok(());
         }
         if t.syscache_count >= MAX_SYSCACHE_CALLBACKS {
@@ -416,7 +473,10 @@ pub fn CacheRegisterSyscacheCallback(
             while t.syscache_list[i].expect("linked slot populated").link > 0 {
                 i = (t.syscache_list[i].expect("linked slot populated").link - 1) as usize;
             }
-            t.syscache_list[i].as_mut().expect("linked slot populated").link = count + 1;
+            t.syscache_list[i]
+                .as_mut()
+                .expect("linked slot populated")
+                .link = count + 1;
         }
 
         t.syscache_list[t.syscache_count] = Some(SyscacheCallbackItem {
@@ -444,7 +504,10 @@ pub fn CacheRegisterRelcacheCallback(func: RelcacheCallbackFunction, arg: Datum)
         if t.relcache_count >= MAX_RELCACHE_CALLBACKS {
             return Err(err_out_of_slots("relcache_callback_list"));
         }
-        t.relcache_list[t.relcache_count] = Some(RelcacheCallbackItem { function: func, arg });
+        t.relcache_list[t.relcache_count] = Some(RelcacheCallbackItem {
+            function: func,
+            arg,
+        });
         t.relcache_count += 1;
         Ok(())
     })
@@ -464,7 +527,10 @@ pub fn CacheRegisterRelSyncCallback(func: RelSyncCallbackFunction, arg: Datum) -
         if t.relsync_count >= MAX_RELSYNC_CALLBACKS {
             return Err(err_out_of_slots("relsync_callback_list"));
         }
-        t.relsync_list[t.relsync_count] = Some(RelsyncCallbackItem { function: func, arg });
+        t.relsync_list[t.relsync_count] = Some(RelsyncCallbackItem {
+            function: func,
+            arg,
+        });
         t.relsync_count += 1;
         Ok(())
     })
@@ -506,7 +572,11 @@ pub fn CallRelSyncCallbacks(relid: Oid) -> PgResult<()> {
     let mut i = 0usize;
     while let Some(ccitem) = CALLBACKS.with(|c| {
         let t = c.borrow();
-        if i < t.relsync_count { t.relsync_list[i] } else { None }
+        if i < t.relsync_count {
+            t.relsync_list[i]
+        } else {
+            None
+        }
     }) {
         (ccitem.function)(ccitem.arg, relid);
         i += 1;

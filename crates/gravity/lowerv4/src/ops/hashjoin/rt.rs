@@ -10,9 +10,14 @@ use crate::face::end::MergeImpl;
 use crate::face::kinds::KindId;
 
 use crate::ops::hashjoin::build::{FAILED, FORM, HDR, KIND, N, PHASE};
-pub(crate) use crate::ops::hashjoin::raw::{append, dir_need, grow_to, head, headed, lay_out, rd, settle, tail, varlena_len, wr, Rt};
+pub(crate) use crate::ops::hashjoin::raw::{
+    append, dir_need, grow_to, head, headed, lay_out, rd, settle, tail, varlena_len, wr, Rt,
+};
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { kinds: &[(KindId::JoinInner, &MergeImpl(&BUILD_MERGE))], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    kinds: &[(KindId::JoinInner, &MergeImpl(&BUILD_MERGE))],
+    ..crate::ops::NONE
+};
 
 /// A lay-out without the room its grow provided (a bug by name; past the grant share the region grows, D254).
 pub(crate) fn past_share() -> Error {
@@ -27,7 +32,11 @@ pub(crate) static BUILD_MERGE: BuildMerge = BuildMerge { defer: false };
 static BUILD_DEFER: BuildMerge = BuildMerge { defer: true };
 
 impl Merge for BuildMerge {
-    fn merge_into(&self, leader: &mut State<'_>, partial: Partial<'_>) -> gravity_driver::Result<()> {
+    fn merge_into(
+        &self,
+        leader: &mut State<'_>,
+        partial: Partial<'_>,
+    ) -> gravity_driver::Result<()> {
         crate::ops::hashjoin::raw::merge_into(leader, partial)
     }
 
@@ -36,7 +45,11 @@ impl Merge for BuildMerge {
     }
 
     /// exactsize B1b (raw.rs `presize`).
-    fn prepare_serial(&self, leader: &mut State<'_>, partials: &[Partial<'_>]) -> gravity_driver::Result<()> {
+    fn prepare_serial(
+        &self,
+        leader: &mut State<'_>,
+        partials: &[Partial<'_>],
+    ) -> gravity_driver::Result<()> {
         crate::ops::hashjoin::raw::presize(leader, partials)
     }
 
@@ -50,11 +63,22 @@ impl Merge for BuildMerge {
         crate::ops::hashjoin::build_part::plan_within(partials, ceil)
     }
 
-    fn prepare_partitions_in(&self, leader: &mut State<'_>, _plan: PartitionPlan, partials: &[Partial<'_>]) -> gravity_driver::Result<()> {
+    fn prepare_partitions_in(
+        &self,
+        leader: &mut State<'_>,
+        _plan: PartitionPlan,
+        partials: &[Partial<'_>],
+    ) -> gravity_driver::Result<()> {
         crate::ops::hashjoin::build_part::prepare(leader, partials)
     }
 
-    fn merge_partition(&self, leader: Region, part: u32, plan: PartitionPlan, partials: &[Partial<'_>]) -> gravity_driver::Result<()> {
+    fn merge_partition(
+        &self,
+        leader: Region,
+        part: u32,
+        plan: PartitionPlan,
+        partials: &[Partial<'_>],
+    ) -> gravity_driver::Result<()> {
         crate::ops::hashjoin::build_part::merge(leader, part, plan, partials)
     }
 
@@ -93,21 +117,30 @@ impl Merge for BuildMerge {
 /// its lay-out, a pair region's, the partitioned merge's).
 pub(crate) fn dir_bits(rows: u64) -> u32 {
     let p = gravity_driver::machine::profile();
-    gravity_program::cost::hash::build_cap_bits(rows, &gravity_program::cost::Machine::detected(None, p.l2_bytes, p.smt, p.prefetch))
+    gravity_program::cost::hash::build_cap_bits(
+        rows,
+        &gravity_program::cost::Machine::detected(None, p.l2_bytes, p.smt, p.prefetch),
+    )
 }
 
 /// JOIN-03: the widest key span `rows` records lay dense on this machine (the cost home's `dense_span_max`, over the
 /// detected machine as `dir_bits`): the region's lay-out and the partitioned merge's plan read the same answer.
 pub(crate) fn dense_span_max(rows: u64) -> u64 {
     let p = gravity_driver::machine::profile();
-    gravity_program::cost::hash::dense_span_max(rows, &gravity_program::cost::Machine::detected(None, p.l2_bytes, p.smt, p.prefetch))
+    gravity_program::cost::hash::dense_span_max(
+        rows,
+        &gravity_program::cost::Machine::detected(None, p.l2_bytes, p.smt, p.prefetch),
+    )
 }
 
 #[cfg(test)]
 #[allow(unsafe_code)]
 mod tests {
-    use crate::ops::hashjoin::build::{ALLOW, A_KEEP, A_MARKS, A_TAGS, DIR, END, FLAGS, FORM, F_RANGE, F_SPLIT, HASH, HDR, HI, KEPT, LO, LOW, MARKS, N, NULLKEY, PHASE, REC, TOP, WORDS};
     use super::{dir_bits, dir_need, lay_out, rd, tail, wr, Rt};
+    use crate::ops::hashjoin::build::{
+        ALLOW, A_KEEP, A_MARKS, A_TAGS, DIR, END, FLAGS, FORM, F_RANGE, F_SPLIT, HASH, HDR, HI,
+        KEPT, LO, LOW, MARKS, N, NULLKEY, PHASE, REC, TOP, WORDS,
+    };
     use crate::ops::hashjoin::raw::kept;
 
     const LEN: usize = 1 << 16;
@@ -125,14 +158,24 @@ mod tests {
         // SAFETY: `buf` is the `len`-byte region; the records (24 B each) fit below its end.
         unsafe {
             core::ptr::write_bytes(d, 0, HDR);
-            wr::<u8>(d, PHASE, 1); wr::<u8>(d, WORDS, 1); wr::<u32>(d, REC, 24); crate::ops::hashjoin::layout::set_pay(d, 1); wr::<u8>(d, ALLOW, allow); wr::<u8>(d, FLAGS, F_RANGE);
+            wr::<u8>(d, PHASE, 1);
+            wr::<u8>(d, WORDS, 1);
+            wr::<u32>(d, REC, 24);
+            crate::ops::hashjoin::layout::set_pay(d, 1);
+            wr::<u8>(d, ALLOW, allow);
+            wr::<u8>(d, FLAGS, F_RANGE);
             let some = keys.iter().flatten();
-            wr::<i64>(d, LO, some.clone().copied().min().unwrap_or(i64::MAX)); wr::<i64>(d, HI, some.copied().max().unwrap_or(i64::MIN));
-wr::<u64>(d, N, keys.len() as u64); wr::<u64>(d, KEPT, keys.iter().filter(|k| k.is_none()).count() as u64);
-wr::<u64>(d, TOP, len as u64); wr::<u64>(d, END, len as u64);
+            wr::<i64>(d, LO, some.clone().copied().min().unwrap_or(i64::MAX));
+            wr::<i64>(d, HI, some.copied().max().unwrap_or(i64::MIN));
+            wr::<u64>(d, N, keys.len() as u64);
+            wr::<u64>(d, KEPT, keys.iter().filter(|k| k.is_none()).count() as u64);
+            wr::<u64>(d, TOP, len as u64);
+            wr::<u64>(d, END, len as u64);
             for (i, k) in keys.iter().enumerate() {
                 let r = d.add(HDR + 24 * i);
-                wr::<i64>(r, 0, k.unwrap_or(0)); wr::<u64>(r, 8, if k.is_none() { NULLKEY } else { 0 }); wr::<u64>(r, 16, i as u64);
+                wr::<i64>(r, 0, k.unwrap_or(0));
+                wr::<u64>(r, 8, if k.is_none() { NULLKEY } else { 0 });
+                wr::<u64>(r, 16, i as u64);
             }
         }
         buf
@@ -157,13 +200,34 @@ wr::<u64>(d, TOP, len as u64); wr::<u64>(d, END, len as u64);
         unsafe {
             lay_out(d, LEN).unwrap();
             let t = Rt::of(d, LEN);
-            assert_eq!((t.n, t.kept, kept(d), rd::<u8>(d, FLAGS) & F_SPLIT, rd::<u8>(d, FORM)), (4, 4, 4, F_SPLIT, HASH));
-            assert_eq!((rows(d, 0..4), rows(d, 4..8)), (vec![0, 2, 5, 6], vec![1, 3, 4, 7]));
-            assert!((4..8).all(|i| *t.link(i) & LOW == 0), "a kept record's link is cleared");
+            assert_eq!(
+                (
+                    t.n,
+                    t.kept,
+                    kept(d),
+                    rd::<u8>(d, FLAGS) & F_SPLIT,
+                    rd::<u8>(d, FORM)
+                ),
+                (4, 4, 4, F_SPLIT, HASH)
+            );
+            assert_eq!(
+                (rows(d, 0..4), rows(d, 4..8)),
+                (vec![0, 2, 5, 6], vec![1, 3, 4, 7])
+            );
+            assert!(
+                (4..8).all(|i| *t.link(i) & LOW == 0),
+                "a kept record's link is cleared"
+            );
             let m = rd::<u64>(d, MARKS) as usize;
             assert_eq!(m, t.marks_at());
-            assert!(m >= HDR + 8 * 24 && (m..m + 8).all(|o| *d.add(o) == 0), "one zeroed mark per record, past the records");
-            assert!(rd::<u64>(d, DIR) as usize >= m + 8, "the directory follows the marks");
+            assert!(
+                m >= HDR + 8 * 24 && (m..m + 8).all(|o| *d.add(o) == 0),
+                "one zeroed mark per record, past the records"
+            );
+            assert!(
+                rd::<u64>(d, DIR) as usize >= m + 8,
+                "the directory follows the marks"
+            );
         }
     }
 
@@ -173,18 +237,26 @@ wr::<u64>(d, TOP, len as u64); wr::<u64>(d, END, len as u64);
     /// "hash build region short of its grown size", when the heads were sized for all 2998).
     #[test]
     fn the_directory_is_sized_for_the_keyed_records_the_split_leaves() {
-        let keys: Vec<Option<i64>> = (0..3000i64).map(|i| (i % 3 != 0).then_some(i * 1_000_003)).collect();
+        let keys: Vec<Option<i64>> = (0..3000i64)
+            .map(|i| (i % 3 != 0).then_some(i * 1_000_003))
+            .collect();
         let allow = A_TAGS | A_KEEP | A_MARKS;
         let big = region_of(&keys, allow, 1 << 20);
         // SAFETY: the regions here, ours alone.
         unsafe {
             let t = Rt::of(big.as_ptr() as *mut u8, 1 << 20);
-            assert!(dir_need(&t) >= 8 << dir_bits(2000), "heads for the 2000 keyed records at the sparse load");
+            assert!(
+                dir_need(&t) >= 8 << dir_bits(2000),
+                "heads for the 2000 keyed records at the sparse load"
+            );
             let need = (t.dir() + dir_need(&t) + tail(t.d)).next_multiple_of(8);
             let mut buf = region_of(&keys, allow, need);
             let d = buf.as_mut_ptr() as *mut u8;
             lay_out(d, need).expect("a region of dir_need's bytes lays out");
-            assert_eq!((rd::<u64>(d, N), kept(d), rd::<u8>(d, FORM)), (2000, 1000, HASH));
+            assert_eq!(
+                (rd::<u64>(d, N), kept(d), rd::<u8>(d, FORM)),
+                (2000, 1000, HASH)
+            );
         }
     }
 
@@ -206,8 +278,15 @@ wr::<u64>(d, TOP, len as u64); wr::<u64>(d, END, len as u64);
         unsafe {
             lay_out(d, LEN).unwrap();
             let t = Rt::of(d, LEN);
-            assert_eq!((t.n, t.kept, t.marks, rd::<u8>(d, FLAGS) & F_SPLIT), (3, 0, false, 0));
-            assert_eq!(t.dir(), (HDR + 3 * 24).next_multiple_of(64), "no marks: the directory right past the records");
+            assert_eq!(
+                (t.n, t.kept, t.marks, rd::<u8>(d, FLAGS) & F_SPLIT),
+                (3, 0, false, 0)
+            );
+            assert_eq!(
+                t.dir(),
+                (HDR + 3 * 24).next_multiple_of(64),
+                "no marks: the directory right past the records"
+            );
             assert_eq!(rd::<u64>(d, MARKS), 0, "no MARKS word written");
         }
     }

@@ -5,8 +5,8 @@
 use gravity_driver::{ArenaRef, SourceBox};
 use gravity_program::SiteDesc;
 
-use crate::recipe::DeriveFn;
 use crate::ops::Recipe;
+use crate::recipe::DeriveFn;
 
 pub mod m4;
 pub mod m6;
@@ -15,14 +15,26 @@ pub mod m7;
 /// was `milestones!`).
 const DERIVES: &[(DeriveFn, usize)] = &[
     (crate::ops::agg::hosts::derive, crate::ops::agg::hosts::SIZE),
-    (crate::ops::scan::hosts::derive, crate::ops::scan::hosts::SIZE),
-    (crate::ops::sort::hosts::derive, crate::ops::sort::hosts::SIZE),
+    (
+        crate::ops::scan::hosts::derive,
+        crate::ops::scan::hosts::SIZE,
+    ),
+    (
+        crate::ops::sort::hosts::derive,
+        crate::ops::sort::hosts::SIZE,
+    ),
     (m4::derive, m4::SIZE),
     (crate::ops::srf::store::derive, crate::ops::srf::store::SIZE),
     (m6::derive, m6::SIZE),
     (m7::derive, m7::SIZE),
-    (crate::ops::subplan::stores::derive, crate::ops::subplan::stores::SIZE),
-    (crate::ops::window::object::derive, crate::ops::window::object::SIZE),
+    (
+        crate::ops::subplan::stores::derive,
+        crate::ops::subplan::stores::SIZE,
+    ),
+    (
+        crate::ops::window::object::derive,
+        crate::ops::window::object::SIZE,
+    ),
     (crate::instr::derive, crate::instr::SIZE),
 ];
 /// Recipe `i`'s source when a v4 milestone owns its kind (the first that does), else `None`.

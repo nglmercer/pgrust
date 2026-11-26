@@ -44,7 +44,7 @@ pub const PGRUST_NAMESPACE_OID: Oid = 9006;
 fn text_arg0(fcinfo: &mut Fcinfo) -> PgResult<String> {
     // SAFETY: null-checked by strictness; arg 0 is a text datum.
     let v = unsafe { fcinfo.arg_varlena_packed(0)? };
-    let bytes = ::mcx::std_vec_from_slice("janitor",v.data())?;
+    let bytes = ::mcx::std_vec_from_slice("janitor", v.data())?;
     String::from_utf8(bytes).map_err(|_| {
         Box::new(
             PgError::error("database name is not valid UTF-8".to_string())
@@ -286,11 +286,16 @@ mod tests {
             .filter(|l| l.starts_with("pg_"))
             .map(|l| {
                 let (cat, stmt) = l.split_once(' ').expect("catalog prefix");
-                let body = stmt.strip_prefix("insert ( ").and_then(|s| s.strip_suffix(" )"));
+                let body = stmt
+                    .strip_prefix("insert ( ")
+                    .and_then(|s| s.strip_suffix(" )"));
                 (cat, body.expect("insert ( ... )"))
             })
             .collect();
-        let has = |cat: &str, prefix: String| rows.iter().any(|&(c, b)| c == cat && b.starts_with(&prefix));
+        let has = |cat: &str, prefix: String| {
+            rows.iter()
+                .any(|&(c, b)| c == cat && b.starts_with(&prefix))
+        };
         let procs: Vec<Vec<&str>> = rows
             .iter()
             .filter(|&&(c, _)| c == "pg_proc")
@@ -309,12 +314,19 @@ mod tests {
             assert_eq!(p[13], if b.retset { "t" } else { "f" }, "proretset");
             assert_eq!(p[16], b.nargs.to_string(), "pronargs");
             assert_eq!(p[25], b.name, "prosrc");
-            assert!(has("pg_description", format!("{} 1255 0 '", b.foid)), "{} descr", b.name);
+            assert!(
+                has("pg_description", format!("{} 1255 0 '", b.foid)),
+                "{} descr",
+                b.name
+            );
             assert!(b.foid < 12000, "{} must be implicitly pinned", b.foid);
         }
         let nsp = format!("{PGRUST_NAMESPACE_OID} {PGRUST_NAMESPACE} ");
         assert!(has("pg_namespace", nsp), "pg_pgrust schema row");
-        assert!(has("pg_description", format!("{PGRUST_NAMESPACE_OID} 2615 0 '")));
+        assert!(has(
+            "pg_description",
+            format!("{PGRUST_NAMESPACE_OID} 2615 0 '")
+        ));
         #[allow(clippy::assertions_on_constants)]
         assert!(PGRUST_NAMESPACE_OID < 12000);
         assert!(PGRUST_NAMESPACE.starts_with("pg_") && PGRUST_NAMESPACE != "pg_catalog");

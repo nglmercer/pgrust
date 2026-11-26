@@ -54,8 +54,13 @@ pub fn save_ps_display_args() {
     // end_of_area - argv[0]: each argv and environ string plus its NUL,
     // less the final NUL.
     let area: usize = std::env::args_os().map(|a| a.len() + 1).sum::<usize>()
-        + std::env::vars_os().map(|(k, v)| k.len() + 1 + v.len() + 1).sum::<usize>();
-    PS_BUFFER_SIZE.store(area.saturating_sub(1).clamp(1, PS_BUFFER_MAX), Ordering::Relaxed);
+        + std::env::vars_os()
+            .map(|(k, v)| k.len() + 1 + v.len() + 1)
+            .sum::<usize>();
+    PS_BUFFER_SIZE.store(
+        area.saturating_sub(1).clamp(1, PS_BUFFER_MAX),
+        Ordering::Relaxed,
+    );
     SAVED_ARGS.store(true, Ordering::Relaxed);
 }
 

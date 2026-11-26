@@ -24,17 +24,33 @@ mod tests {
     /// money, date, time, timestamp, timestamptz, the reg* types, pg_lsn, xid8 (xid and cid have no btree comparator).
     #[test]
     fn the_word_ordered_rows() {
-        let got: Vec<u32> = ROWS.iter().filter(|r| ordered(r)).map(|r| r.typid).collect();
-        assert_eq!(got, [16, 18, 20, 21, 23, 24, 26, 790, 1082, 1083, 1114, 1184, 2202, 2203, 2204, 2205, 2206, 3220, 3734, 3769, 4089, 4096, 4191, 5069]);
+        let got: Vec<u32> = ROWS
+            .iter()
+            .filter(|r| ordered(r))
+            .map(|r| r.typid)
+            .collect();
+        assert_eq!(
+            got,
+            [
+                16, 18, 20, 21, 23, 24, 26, 790, 1082, 1083, 1114, 1184, 2202, 2203, 2204, 2205,
+                2206, 3220, 3734, 3769, 4089, 4096, 4191, 5069
+            ]
+        );
     }
 
     /// A domain orders as its base; a by-value type the table does not list (no known comparator) never does.
     #[test]
     fn a_domain_reads_its_base_and_an_unlisted_word_is_not_ordered() {
-        let dom = |base: u32| TypeFacts { typid: 90_001, ..*row_of(base).unwrap() };
+        let dom = |base: u32| TypeFacts {
+            typid: 90_001,
+            ..*row_of(base).unwrap()
+        };
         assert!(ordered(&dom(16)) && ordered(&dom(5069)));
         assert!(ordered(&dom(18)) && ordered(&dom(26)) && !ordered(&dom(28)) && !ordered(&dom(27)));
-        assert!(!ordered(&opaque(90_002, 90_002, 8, true, false)) && !ordered(&opaque(90_003, 90_003, 4, true, false)));
+        assert!(
+            !ordered(&opaque(90_002, 90_002, 8, true, false))
+                && !ordered(&opaque(90_003, 90_003, 4, true, false))
+        );
         assert!(!ordered(&opaque(90_004, 90_004, 4, true, true)));
     }
 }

@@ -10,8 +10,8 @@ use stringinfo::StringInfo;
 use types_core::{InvalidOid, Oid, FUNC_MAX_ARGS, NAMESPACE_RELATION_ID, PROCEDURE_RELATION_ID};
 use types_error::{
     PgResult, ERRCODE_FEATURE_NOT_SUPPORTED, ERRCODE_INVALID_BINARY_REPRESENTATION,
-    ERRCODE_INVALID_PARAMETER_VALUE, ERRCODE_PROTOCOL_VIOLATION, ERRCODE_UNDEFINED_FUNCTION,
-    ERROR, LOG,
+    ERRCODE_INVALID_PARAMETER_VALUE, ERRCODE_PROTOCOL_VIOLATION, ERRCODE_UNDEFINED_FUNCTION, ERROR,
+    LOG,
 };
 use types_fmgr::{FmgrInfo, LocalFcinfo, PackedVarlena};
 use types_nodes::parsenodes::ObjectType;
@@ -95,7 +95,9 @@ fn fetch_fp_info<'mcx>(mcx: Mcx<'mcx>, func_id: Oid) -> PgResult<FpInfo> {
     if pp.prokind != PROKIND_FUNCTION || pp.proretset {
         return Err(ereport(ERROR)
             .errcode(ERRCODE_FEATURE_NOT_SUPPORTED)
-            .errmsg(format!("cannot call function \"{fname}\" via fastpath interface"))
+            .errmsg(format!(
+                "cannot call function \"{fname}\" via fastpath interface"
+            ))
             .into_error()
             .into());
     }
@@ -249,7 +251,11 @@ pub fn HandleFunctionRequest<'mcx>(
 
     snapmgr::PopActiveSnapshot()?;
 
-    Ok(FunctionRequestOutcome { was_logged, fname: fip.fname, fid })
+    Ok(FunctionRequestOutcome {
+        was_logged,
+        fname: fip.fname,
+        fid,
+    })
 }
 
 fn parse_fcall_arguments<'mcx>(
@@ -346,8 +352,7 @@ fn parse_fcall_arguments<'mcx>(
             // exec_bind_message).
             fcinfo.args[i].value = retain_arg_datum(mcx, v, raw.is_none(), fip.argtypes[i])?;
         } else if aformat == 1 {
-            let (typreceive, typioparam) =
-                lsyscache::typ::getTypeBinaryInputInfo(fip.argtypes[i])?;
+            let (typreceive, typioparam) = lsyscache::typ::getTypeBinaryInputInfo(fip.argtypes[i])?;
             let mut finfo = fmgr_seams::fmgr_info::call(typreceive)?;
             match raw {
                 None => {
@@ -509,7 +514,11 @@ mod tests {
             // lookup needs a live catalog; the copy itself is the hazard fix).
             // typlen = 8 stands in for a fixed-length by-ref argument type.
             copied = datum_copy_in(msg, d, 8).unwrap();
-            assert_ne!(copied.as_usize(), d.as_usize(), "copy must be a fresh chunk");
+            assert_ne!(
+                copied.as_usize(),
+                d.as_usize(),
+                "copy must be a fresh chunk"
+            );
             // scratch_ctx drops here, freeing the source datum.
         }
 
@@ -581,7 +590,9 @@ mod oat_hook_tests {
             }
             _ => String::new(),
         };
-        log(format!("{access:?} class={class_id} obj={object_id} sub={sub_id}{detail}"));
+        log(format!(
+            "{access:?} class={class_id} obj={object_id} sub={sub_id}{detail}"
+        ));
         Ok(())
     }
 
@@ -604,7 +615,7 @@ mod oat_hook_tests {
     }
 
     fn proc_shape(funcid: Oid) -> PgResult<Option<PgProcShape>> {
-        Ok((funcid == FID).then_some( PgProcShape {
+        Ok((funcid == FID).then_some(PgProcShape {
             pronamespace: NSP,
             prorettype: INT4OID,
             provariadic: InvalidOid,
@@ -676,7 +687,10 @@ mod oat_hook_tests {
         miscinit::SetUserIdAndSecContext(BOOTSTRAP_SUPERUSERID, 0);
         let snap_ctx: &'static MemoryContext = mcx::session_root("fp-oat-snap");
         snapmgr::SetupHistoricSnapshot(
-            Rc::new(SnapshotData::sentinel(snap_ctx.mcx(), SnapshotType::SNAPSHOT_MVCC)),
+            Rc::new(SnapshotData::sentinel(
+                snap_ctx.mcx(),
+                SnapshotType::SNAPSHOT_MVCC,
+            )),
             None,
         );
         drain();
@@ -689,7 +703,11 @@ mod oat_hook_tests {
         assert_eq!(err.message(), "fp witness: function body reached");
         assert_eq!(
             drain(),
-            vec![namespace_search_event(), function_execute_event(), "BODY".to_string()]
+            vec![
+                namespace_search_event(),
+                function_execute_event(),
+                "BODY".to_string()
+            ]
         );
 
         // A hook that ereports on OAT_FUNCTION_EXECUTE stops the call: the
@@ -698,7 +716,10 @@ mod oat_hook_tests {
         objectaccess::set_object_access_hook(Some(refusing_hook));
         let err = run_request().expect_err("the refusing hook errors");
         assert_eq!(err.message(), "fp witness: hook refused");
-        assert_eq!(drain(), vec![namespace_search_event(), function_execute_event()]);
+        assert_eq!(
+            drain(),
+            vec![namespace_search_event(), function_execute_event()]
+        );
 
         objectaccess::set_object_access_hook(None);
         snapmgr::TeardownHistoricSnapshot(false);

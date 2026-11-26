@@ -45,7 +45,11 @@ impl Sketch {
     /// A sketch over `words` (`SKETCH_WORDS` zeroed words the caller allocated on its cache's `charge`).
     pub fn new(words: Box<[u64]>, charge: memledger::Charge) -> Sketch {
         debug_assert_eq!(words.len(), SKETCH_WORDS);
-        Sketch { _charge: charge, words, adds: 0 }
+        Sketch {
+            _charge: charge,
+            words,
+            adds: 0,
+        }
     }
 
     /// The bytes of a sketch's words (the caller's charge).
@@ -58,7 +62,10 @@ impl Sketch {
     #[inline]
     fn slot(h: u64, row: usize) -> (usize, u32) {
         let i = ((h >> (16 * row)) as usize) & (mempolicy::cache::TINYLFU_SKETCH_WIDTH - 1);
-        (row * mempolicy::cache::TINYLFU_SKETCH_WIDTH / 16 + i / 16, (i % 16) as u32 * 4)
+        (
+            row * mempolicy::cache::TINYLFU_SKETCH_WIDTH / 16 + i / 16,
+            (i % 16) as u32 * 4,
+        )
     }
 
     /// One lookup of `key`: its 4 counters up by one (each at most 15); past the reset, every counter halves.
@@ -89,12 +96,13 @@ impl Sketch {
     /// `key`'s estimated lookups (the least of its 4 counters, at most 15).
     pub fn estimate(&self, key: u64) -> u32 {
         let h = mix(key);
-        (0..4).map(|row| {
-            let (w, sh) = Self::slot(h, row);
-            ((self.words[w] >> sh) & 0xF) as u32
-        })
-        .min()
-        .unwrap_or(0)
+        (0..4)
+            .map(|row| {
+                let (w, sh) = Self::slot(h, row);
+                ((self.words[w] >> sh) & 0xF) as u32
+            })
+            .min()
+            .unwrap_or(0)
     }
 }
 
@@ -104,7 +112,16 @@ mod tests {
 
     fn sketch() -> Sketch {
         let words = vec![0u64; SKETCH_WORDS].into_boxed_slice(); // alloc: Cold
-        Sketch::new(words, memledger::Charge::open(memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::CondCache)), memledger::Release::Evict, memledger::Kind::Region, memledger::charge::Door::Heap, Sketch::bytes()))
+        Sketch::new(
+            words,
+            memledger::Charge::open(
+                memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::CondCache)),
+                memledger::Release::Evict,
+                memledger::Kind::Region,
+                memledger::charge::Door::Heap,
+                Sketch::bytes(),
+            ),
+        )
     }
 
     /// cachepolicy (C5): a key's estimate counts its adds (at most 15), a key never added reads (almost always) 0, and the
@@ -121,22 +138,38 @@ mod tests {
         }
         assert_eq!(s.estimate(7), 15, "4-bit counters saturate");
         let unseen = (1000..1100u64).filter(|k| s.estimate(*k) != 0).count();
-        assert!(unseen <= 2, "keys never added read 0 (count-min: a collision in all 4 rows is rare): {unseen}");
+        assert!(
+            unseen <= 2,
+            "keys never added read 0 (count-min: a collision in all 4 rows is rare): {unseen}"
+        );
         // keys that differ only in their high bits (a fp key's attno at bit 48, a cond key's words rotated) spread too
         let mut t = sketch();
         // bounded("const-domain: the test's 1 000 keys")
         for k in 0..1000u64 {
             t.add(0x0303_0303_0303_0303 ^ k.rotate_left(48));
         }
-        let over = (0..1000u64).filter(|k| t.estimate(0x0303_0303_0303_0303 ^ k.rotate_left(48)) != 1).count();
-        assert!(over <= 3, "1 000 keys added once each read 1: {over} read more");
+        let over = (0..1000u64)
+            .filter(|k| t.estimate(0x0303_0303_0303_0303 ^ k.rotate_left(48)) != 1)
+            .count();
+        assert!(
+            over <= 3,
+            "1 000 keys added once each read 1: {over} read more"
+        );
         s.halve();
-        assert_eq!((s.estimate(42), s.estimate(7)), (2, 7), "the reset halves every count");
+        assert_eq!(
+            (s.estimate(42), s.estimate(7)),
+            (2, 7),
+            "the reset halves every count"
+        );
         // the reset comes by itself after TINYLFU_RESET_ADDS adds
         let before = s.adds;
         for k in 0..(mempolicy::cache::TINYLFU_RESET_ADDS - before) {
             s.add(1 << 40 | k);
         }
-        assert!(s.adds < mempolicy::cache::TINYLFU_RESET_ADDS / 2 + 1, "halved at the reset: {}", s.adds);
+        assert!(
+            s.adds < mempolicy::cache::TINYLFU_RESET_ADDS / 2 + 1,
+            "halved at the reset: {}",
+            s.adds
+        );
     }
 }

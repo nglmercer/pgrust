@@ -55,7 +55,11 @@ fn idle_after_an_unwinding_body<S: Slot>() {
     S::run(|m| {
         let cx = m.context();
         assert_eq!(cx.name(), S::NAME, "the slot stayed busy after the unwind");
-        assert!(cx.mem_allocated() < MIB, "the unwound body's blocks are still held: {} bytes", cx.mem_allocated());
+        assert!(
+            cx.mem_allocated() < MIB,
+            "the unwound body's blocks are still held: {} bytes",
+            cx.mem_allocated()
+        );
     });
 }
 
@@ -64,13 +68,28 @@ fn nested_unwind_keeps_the_outer_busy<S: Slot>() {
         let mine = fill(m, 64, 0xA5);
         assert!(unwinds::<S>());
         S::run(|inner| {
-            assert_eq!(inner.context().name(), format!("{} (nested)", S::NAME), "the inner unwind gave the outer's context away");
+            assert_eq!(
+                inner.context().name(),
+                format!("{} (nested)", S::NAME),
+                "the inner unwind gave the outer's context away"
+            );
             fill(inner, 64, 0x5A);
         });
         // SAFETY: `mine` is 64 bytes of the outer's context, not reset before this call returns.
-        assert!(unsafe { core::slice::from_raw_parts(mine, 64) }.iter().all(|&b| b == 0xA5), "the outer's scratch bytes changed under it");
+        assert!(
+            unsafe { core::slice::from_raw_parts(mine, 64) }
+                .iter()
+                .all(|&b| b == 0xA5),
+            "the outer's scratch bytes changed under it"
+        );
     });
-    S::run(|m| assert_eq!(m.context().name(), S::NAME, "the outer's return did not give the slot back"));
+    S::run(|m| {
+        assert_eq!(
+            m.context().name(),
+            S::NAME,
+            "the outer's return did not give the slot back"
+        )
+    });
 }
 
 #[test]

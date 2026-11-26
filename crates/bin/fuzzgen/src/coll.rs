@@ -74,18 +74,52 @@ pub const C3_LOCALES: &[&str] = &[
 /// as 'entry'.
 pub const C3_STRINGS: &[&str] = &[
     // case pairs (en_US ranks aA together; C ranks all uppercase first)
-    "a", "A", "b", "B", "z", "Z",
+    "a",
+    "A",
+    "b",
+    "B",
+    "z",
+    "Z",
     // German: sharp s vs ss/SS, umlauts vs base vowels
-    "\u{00df}", "ss", "SS", "Stra\u{00df}e", "Strasse", "STRASSE",
-    "\u{00e4}", "\u{00c4}", "ae", "\u{00f6}", "\u{00d6}", "oe",
-    "\u{00fc}", "\u{00dc}", "ue",
+    "\u{00df}",
+    "ss",
+    "SS",
+    "Stra\u{00df}e",
+    "Strasse",
+    "STRASSE",
+    "\u{00e4}",
+    "\u{00c4}",
+    "ae",
+    "\u{00f6}",
+    "\u{00d6}",
+    "oe",
+    "\u{00fc}",
+    "\u{00dc}",
+    "ue",
     // Swedish: å ä ö sort after z in sv_SE, near a/o in de_DE/en_US
-    "\u{00e5}", "\u{00c5}", "\u{00e5}ngstr\u{00f6}m", "zebra", "Zebra",
+    "\u{00e5}",
+    "\u{00c5}",
+    "\u{00e5}ngstr\u{00f6}m",
+    "zebra",
+    "Zebra",
     // Turkish: dotless ı, dotted İ, ASCII i/I (case rules differ by locale)
-    "\u{0131}", "I", "i", "\u{0130}", "istanbul", "ISTANBUL", "\u{0130}stanbul",
+    "\u{0131}",
+    "I",
+    "i",
+    "\u{0130}",
+    "istanbul",
+    "ISTANBUL",
+    "\u{0130}stanbul",
     // accents + combining vs precomposed (NFC é vs e + U+0301)
-    "\u{00e9}", "e\u{0301}", "e", "E", "caf\u{00e9}", "cafe", "cafe\u{0301}",
-    "r\u{00e9}sum\u{00e9}", "resume",
+    "\u{00e9}",
+    "e\u{0301}",
+    "e",
+    "E",
+    "caf\u{00e9}",
+    "cafe",
+    "cafe\u{0301}",
+    "r\u{00e9}sum\u{00e9}",
+    "resume",
     // Japanese: hiragana/katakana/kanji (multibyte, non-Latin ranges).
     // HOST-LIBC HAZARD (banked, findings-c3-collation.md F2): macOS libc
     // ASSERTS in collate.c lookup_substsearch on strxfrm of kana carrying
@@ -95,18 +129,41 @@ pub const C3_STRINGS: &[&str] = &[
     // (convert_string_datum -> strxfrm). Every string here is
     // strxfrm-verified safe on macOS; re-run the perl sweep in the
     // findings doc before adding kana.
-    "\u{3042}", "\u{30a2}", "\u{3041}", "\u{65e5}\u{672c}", "\u{30c8}\u{30ad}\u{30aa}",
+    "\u{3042}",
+    "\u{30a2}",
+    "\u{3041}",
+    "\u{65e5}\u{672c}",
+    "\u{30c8}\u{30ad}\u{30aa}",
     // punctuation/space near-pairs (locales disagree with C on their weight)
-    "a b", "a-b", "ab", "a.b", "a_b", "A B", "a  b",
+    "a b",
+    "a-b",
+    "ab",
+    "a.b",
+    "a_b",
+    "A B",
+    "a  b",
     // leading/trailing space, empty
-    " a", "a ", "", " ",
+    " a",
+    "a ",
+    "",
+    " ",
     // digits vs letters
-    "0", "9", "a1", "A1", "1a",
+    "0",
+    "9",
+    "a1",
+    "A1",
+    "1a",
     // strxfrm / abbreviated-key length boundaries (7/8/15/16/23/24 bytes
     // with a multibyte or case flip at the boundary)
-    "aaaaaaa", "aaaaaaaa", "aaaaaaaA", "aaaaaaa\u{00e4}",
-    "aaaaaaaaaaaaaaa", "aaaaaaaaaaaaaaaa", "aaaaaaaaaaaaaaaB",
-    "aaaaaaaaaaaaaaa\u{00df}", "aaaaaaaaaaaaaaaaaaaaaaa\u{00e5}",
+    "aaaaaaa",
+    "aaaaaaaa",
+    "aaaaaaaA",
+    "aaaaaaa\u{00e4}",
+    "aaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaB",
+    "aaaaaaaaaaaaaaa\u{00df}",
+    "aaaaaaaaaaaaaaaaaaaaaaa\u{00e5}",
     "bbbbbbbbbbbbbbbbbbbbbbbb",
 ];
 
@@ -134,13 +191,33 @@ struct CollPick {
 /// LIKE/regex pattern fuel (paired with the string pool above; literal-
 /// safe, and every regex is valid so pattern errors can never diverge).
 const C3_LIKE_PATTERNS: &[&str] = &[
-    "%a%", "a%", "%e", "_", "__", "%ss%", "%\u{00df}%", "%i%", "%I%",
-    "%stra%", "STRA%", "a_b", "% %", "%",
+    "%a%",
+    "a%",
+    "%e",
+    "_",
+    "__",
+    "%ss%",
+    "%\u{00df}%",
+    "%i%",
+    "%I%",
+    "%stra%",
+    "STRA%",
+    "a_b",
+    "% %",
+    "%",
 ];
 
 const C3_REGEXES: &[&str] = &[
-    "^a", "a$", "[a-z]+", "[[:alpha:]]+", "^[[:upper:]]", "i", "^$",
-    "s{2}", "a.b", "[\u{00e0}-\u{00ff}]",
+    "^a",
+    "a$",
+    "[a-z]+",
+    "[[:alpha:]]+",
+    "^[[:upper:]]",
+    "i",
+    "^$",
+    "s{2}",
+    "a.b",
+    "[\u{00e0}-\u{00ff}]",
 ];
 
 fn pick_locale(g: &mut Gen) -> &'static str {
@@ -197,8 +274,7 @@ pub fn gen_coll_module(g: &mut Gen) -> Vec<StmtKind> {
 /// — the ICU-VERIFY surface; steer coll:pinned=0 on non-ICU A rigs).
 fn new_collation(g: &mut Gen) -> CollPick {
     if g.weights.pick(g.rng, &["coll:fresh", "coll:pinned"]) == "coll:pinned" {
-        let bare =
-            C3_PINNED_COLLATIONS[g.rng.below_usize(C3_PINNED_COLLATIONS.len())].to_string();
+        let bare = C3_PINNED_COLLATIONS[g.rng.below_usize(C3_PINNED_COLLATIONS.len())].to_string();
         g.fire("coll:pinned");
         let probe = StmtKind::Raw(format!(
             "SELECT collname, collprovider::text, collisdeterministic FROM pg_collation WHERE collname = '{}';",
@@ -214,10 +290,7 @@ fn new_collation(g: &mut Gen) -> CollPick {
     let loc = pick_locale(g);
     let cname = format!("fz_c3c_{}", g.coll.next_coll);
     g.coll.next_coll += 1;
-    let create = StmtKind::Raw(format!(
-        "CREATE COLLATION {} (locale = '{}');",
-        cname, loc
-    ));
+    let create = StmtKind::Raw(format!("CREATE COLLATION {} (locale = '{}');", cname, loc));
     let drop = StmtKind::Raw(format!("DROP COLLATION {};", cname));
     CollPick {
         name: cname.clone(),
@@ -273,7 +346,11 @@ fn gen_table_group(g: &mut Gen) -> Vec<StmtKind> {
         "CREATE TABLE {} (pk int4 PRIMARY KEY, s text COLLATE {});",
         t, c
     )));
-    out.push(StmtKind::Raw(format!("INSERT INTO {} VALUES {};", t, values_rows(g, n))));
+    out.push(StmtKind::Raw(format!(
+        "INSERT INTO {} VALUES {};",
+        t,
+        values_rows(g, n)
+    )));
     g.fire("coll:orderby");
     out.push(StmtKind::Raw(format!(
         "SELECT pk, s FROM {} ORDER BY s COLLATE {}, pk;",
@@ -352,7 +429,11 @@ fn gen_like_group(g: &mut Gen) -> Vec<StmtKind> {
         "CREATE TABLE {} (pk int4 PRIMARY KEY, s text COLLATE {});",
         t, c
     )));
-    out.push(StmtKind::Raw(format!("INSERT INTO {} VALUES {};", t, values_rows(g, 8))));
+    out.push(StmtKind::Raw(format!(
+        "INSERT INTO {} VALUES {};",
+        t,
+        values_rows(g, 8)
+    )));
     out.push(StmtKind::Raw(format!(
         "SELECT pk, s FROM {} WHERE s ILIKE {} ORDER BY s COLLATE {}, pk;",
         t, p, c
@@ -395,7 +476,11 @@ fn gen_index_group(g: &mut Gen) -> Vec<StmtKind> {
     let t = format!("fz_c3t_{}", g.coll.next_table);
     g.coll.next_table += 1;
     let pattern_ops = g.rng.chance(1, 3);
-    g.fire(if pattern_ops { "coll:idx:patops" } else { "coll:idx:btree" });
+    g.fire(if pattern_ops {
+        "coll:idx:patops"
+    } else {
+        "coll:idx:btree"
+    });
     let idxcols = if pattern_ops {
         format!("(s COLLATE {} text_pattern_ops)", c)
     } else {
@@ -596,7 +681,10 @@ mod tests {
             ] {
                 let ncreate = hay.matches(create).count();
                 let ndrop = hay.matches(drop).count();
-                assert_eq!(ncreate, ndrop, "unbalanced {create}/{drop} in group:\n{hay}");
+                assert_eq!(
+                    ncreate, ndrop,
+                    "unbalanced {create}/{drop} in group:\n{hay}"
+                );
             }
             // SET enable_seqscan always has its RESET in-group.
             assert_eq!(

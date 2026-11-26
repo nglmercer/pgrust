@@ -19,7 +19,13 @@ pub(crate) struct BtOpaque {
 pub(crate) fn bt_opaque(b: &[u8]) -> BtOpaque {
     let sp = pd_special(b) as usize;
     if sp + 16 > b.len() {
-        return BtOpaque { prev: 0, next: 0, level: 0, flags: 0, cycleid: 0 };
+        return BtOpaque {
+            prev: 0,
+            next: 0,
+            level: 0,
+            flags: 0,
+            cycleid: 0,
+        };
     }
     BtOpaque {
         prev: r_u32(b, sp),
@@ -391,7 +397,8 @@ fn bt_page_print_tuple(
         ))));
     }
     let mut dump = String::new();
-    dump.try_reserve(dlen * 3).map_err(|_| ::mcx::oom_named("pageinspect", dlen * 3))?;
+    dump.try_reserve(dlen * 3)
+        .map_err(|_| ::mcx::oom_named("pageinspect", dlen * 3))?;
     for (k, byte) in b[pos + data_off..pos + data_off + dlen].iter().enumerate() {
         if k > 0 {
             dump.push(' ');
@@ -659,7 +666,11 @@ pub(crate) fn fc_bt_metap(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) ->
     if btm_version >= types_nbtree::page::BTREE_NOVAC_VERSION {
         values.push(Some(format!("{}", btm_last_cleanup_num_delpages as i64)));
         values.push(Some(format!("{:.6}", btm_last_cleanup_num_heap_tuples)));
-        values.push(Some(if btm_allequalimage { "t".into() } else { "f".into() }));
+        values.push(Some(if btm_allequalimage {
+            "t".into()
+        } else {
+            "f".into()
+        }));
     } else {
         values.push(Some("0".into()));
         values.push(Some("-1".into()));

@@ -53,7 +53,10 @@ pub fn default_table() -> Vec<RuledEntry> {
         .iter()
         .map(|id| RuledEntry {
             id,
-            ruling: ledger.get(id).map(|r| r.reference.clone()).unwrap_or_else(|| panic!("ledger lacks migrated ruling {id}")),
+            ruling: ledger
+                .get(id)
+                .map(|r| r.reference.clone())
+                .unwrap_or_else(|| panic!("ledger lacks migrated ruling {id}")),
         })
         .collect()
 }
@@ -69,9 +72,16 @@ pub fn apply_ruled(table: &[RuledEntry], _sql: &str, raw: Classified) -> Classif
         .iter()
         .find(|e| e.id == candidate)
         .map(|e| e.ruling.clone())
-        .or_else(|| embedded_ledger().get(candidate).map(|r| r.reference.clone()));
+        .or_else(|| {
+            embedded_ledger()
+                .get(candidate)
+                .map(|r| r.reference.clone())
+        });
     match reference {
-        Some(r) => Classified { class: raw.class.clone(), detail: format!("{} [{}]", raw.detail, r) },
+        Some(r) => Classified {
+            class: raw.class.clone(),
+            detail: format!("{} [{}]", raw.detail, r),
+        },
         None => Classified {
             class: DiffClass::RowsetDiff,
             detail: format!("unruled divergence candidate {candidate:?}: {}", raw.detail),
@@ -84,24 +94,41 @@ mod tests {
     use super::*;
 
     fn candidate(id: &str) -> Classified {
-        Classified { class: DiffClass::Ruled(id.to_string()), detail: "d".to_string() }
+        Classified {
+            class: DiffClass::Ruled(id.to_string()),
+            detail: "d".to_string(),
+        }
     }
 
     #[test]
     fn migrated_ids_match_the_ledger_prefix() {
         let ledger = embedded_ledger();
-        let head: Vec<&str> = ledger.rulings.rulings.iter().take(MIGRATED_IDS.len()).map(|r| r.id.as_str()).collect();
+        let head: Vec<&str> = ledger
+            .rulings
+            .rulings
+            .iter()
+            .take(MIGRATED_IDS.len())
+            .map(|r| r.id.as_str())
+            .collect();
         assert_eq!(head, MIGRATED_IDS);
         assert_eq!(default_table().len(), 25);
     }
 
     #[test]
     fn known_ids_are_stamped_with_their_reference() {
-        let out = apply_ruled(&default_table(), "SELECT f FROM t;", candidate("b1-float-ulp"));
+        let out = apply_ruled(
+            &default_table(),
+            "SELECT f FROM t;",
+            candidate("b1-float-ulp"),
+        );
         assert_eq!(out.class, DiffClass::Ruled("b1-float-ulp".to_string()));
         assert!(out.detail.contains("B1"));
         let out = apply_ruled(&default_table(), "x", candidate("encoding-carve"));
-        assert!(out.detail.contains("carve-ratifications.md"), "{}", out.detail);
+        assert!(
+            out.detail.contains("carve-ratifications.md"),
+            "{}",
+            out.detail
+        );
         // Ledger rows outside the migrated table still resolve.
         let out = apply_ruled(&default_table(), "x", candidate("shared-catalog-tcu-a"));
         assert!(matches!(out.class, DiffClass::Ruled(_)));
@@ -112,7 +139,13 @@ mod tests {
         let out = apply_ruled(&default_table(), "SELECT 1;", candidate("float-ulp"));
         assert_eq!(out.class, DiffClass::RowsetDiff);
         assert!(out.detail.contains("unruled"));
-        let raw = Classified { class: DiffClass::Match, detail: String::new() };
-        assert_eq!(apply_ruled(&default_table(), "SELECT 1;", raw).class, DiffClass::Match);
+        let raw = Classified {
+            class: DiffClass::Match,
+            detail: String::new(),
+        };
+        assert_eq!(
+            apply_ruled(&default_table(), "SELECT 1;", raw).class,
+            DiffClass::Match
+        );
     }
 }

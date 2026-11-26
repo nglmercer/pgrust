@@ -1,5 +1,5 @@
 use ::adt_tsvector_core::layout::TsVec;
-use ::mcx::{MemoryContext, Mcx, PgVec};
+use ::mcx::{Mcx, MemoryContext, PgVec};
 use ::ts_locale::{DictSubState, TsLexeme};
 use ::ts_parse::{ParsedText, ParsedWord, TsParseEnv};
 use ::types_core::Oid;
@@ -12,7 +12,13 @@ use crate::{OP_AND, OP_OR, OP_PHRASE};
 fn word<'mcx>(mcx: Mcx<'mcx>, w: &str, pos: u16, nvariant: u16) -> ParsedWord<'mcx> {
     let mut v = PgVec::new_in(mcx);
     v.extend_from_slice(w.as_bytes());
-    ParsedWord { word: v.leak(), nvariant, flags: 0, pos, apos: &[] }
+    ParsedWord {
+        word: v.leak(),
+        nvariant,
+        flags: 0,
+        pos,
+        apos: &[],
+    }
 }
 
 #[test]
@@ -57,7 +63,11 @@ const D_MOCK: Oid = 900;
 
 impl<'mcx> MorphEnv<'mcx> {
     fn new(mcx: Mcx<'mcx>) -> Self {
-        MorphEnv { mcx, toks: Vec::new(), next: 0 }
+        MorphEnv {
+            mcx,
+            toks: Vec::new(),
+            next: 0,
+        }
     }
 }
 
@@ -119,7 +129,11 @@ impl<'mcx> TsParseEnv<'mcx> for MorphEnv<'mcx> {
         for (w, nv) in variants {
             let mut b = PgVec::new_in(self.mcx);
             b.extend_from_slice(w.as_bytes());
-            out.push(TsLexeme { nvariant: nv, flags: 0, lexeme: b });
+            out.push(TsLexeme {
+                nvariant: nv,
+                flags: 0,
+                lexeme: b,
+            });
         }
         Ok(Some(out))
     }
@@ -258,13 +272,22 @@ fn make_tsvector_rejects_empty_and_overlong_lexemes() {
     let ctx = MemoryContext::new("to-tsany-test");
     let mcx = ctx.mcx();
     for (len, want) in [
-        (2048usize, "lexeme is too long for tsvector (2048 bytes, max 2047 bytes)"),
-        (0usize, "lexeme is too long for tsvector (0 bytes, max 2047 bytes)"),
+        (
+            2048usize,
+            "lexeme is too long for tsvector (2048 bytes, max 2047 bytes)",
+        ),
+        (
+            0usize,
+            "lexeme is too long for tsvector (0 bytes, max 2047 bytes)",
+        ),
     ] {
         let mut prs = ParsedText::with_capacity(mcx, 2).unwrap();
         prs.words.push(word(mcx, &"a".repeat(len), 1, 0));
         let err = make_tsvector(mcx, &mut prs).expect_err("invalid lexeme length");
-        assert_eq!(err.sqlstate(), ::types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED);
+        assert_eq!(
+            err.sqlstate(),
+            ::types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED
+        );
         assert_eq!(err.message(), want);
     }
     let mut prs = ParsedText::with_capacity(mcx, 2).unwrap();

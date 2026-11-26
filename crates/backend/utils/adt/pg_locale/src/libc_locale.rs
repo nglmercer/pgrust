@@ -154,20 +154,30 @@ pub(crate) fn make_libc_collator(collate: &str, ctype: &str) -> PgResult<LibcLoc
         if is_c_or_posix(ctype) {
             return Ok(LibcLocale::NONE);
         }
-        let loc = newlocale(crate::lc::LC_COLLATE_MASK | crate::lc::LC_CTYPE_MASK, collate, core::ptr::null_mut())
-            .ok_or_else(|| report_newlocale_failure(collate))?;
+        let loc = newlocale(
+            crate::lc::LC_COLLATE_MASK | crate::lc::LC_CTYPE_MASK,
+            collate,
+            core::ptr::null_mut(),
+        )
+        .ok_or_else(|| report_newlocale_failure(collate))?;
         return Ok(LibcLocale(loc as usize));
     }
 
     let loc1 = if !is_c_or_posix(collate) {
-        Some(newlocale(crate::lc::LC_COLLATE_MASK, collate, core::ptr::null_mut())
-            .ok_or_else(|| report_newlocale_failure(collate))?)
+        Some(
+            newlocale(crate::lc::LC_COLLATE_MASK, collate, core::ptr::null_mut())
+                .ok_or_else(|| report_newlocale_failure(collate))?,
+        )
     } else {
         None
     };
 
     if !is_c_or_posix(ctype) {
-        match newlocale(crate::lc::LC_CTYPE_MASK, ctype, loc1.unwrap_or(core::ptr::null_mut())) {
+        match newlocale(
+            crate::lc::LC_CTYPE_MASK,
+            ctype,
+            loc1.unwrap_or(core::ptr::null_mut()),
+        ) {
             Some(loc) => Ok(LibcLocale(loc as usize)),
             None => {
                 let err = report_newlocale_failure(ctype);
@@ -247,8 +257,12 @@ pub fn pg_tolower(ch: u8) -> u8 {
     } else if ch >= 0x80 {
         // SAFETY: pure ctype calls on an unsigned-char value.
         with_backend_ctype_slot(|b| match *b {
-            BackendCtype::Process if unsafe { libc::isupper(ch as c_int) } != 0 => unsafe { libc::tolower(ch as c_int) as u8 },
-            BackendCtype::Libc(loc) if unsafe { isupper_l(ch as c_int, loc) } != 0 => unsafe { tolower_l(ch as c_int, loc) as u8 },
+            BackendCtype::Process if unsafe { libc::isupper(ch as c_int) } != 0 => unsafe {
+                libc::tolower(ch as c_int) as u8
+            },
+            BackendCtype::Libc(loc) if unsafe { isupper_l(ch as c_int, loc) } != 0 => unsafe {
+                tolower_l(ch as c_int, loc) as u8
+            },
             _ => ch,
         })
     } else {
@@ -262,8 +276,12 @@ pub fn pg_toupper(ch: u8) -> u8 {
     } else if ch >= 0x80 {
         // SAFETY: pure ctype calls on an unsigned-char value.
         with_backend_ctype_slot(|b| match *b {
-            BackendCtype::Process if unsafe { libc::islower(ch as c_int) } != 0 => unsafe { libc::toupper(ch as c_int) as u8 },
-            BackendCtype::Libc(loc) if unsafe { islower_l(ch as c_int, loc) } != 0 => unsafe { toupper_l(ch as c_int, loc) as u8 },
+            BackendCtype::Process if unsafe { libc::islower(ch as c_int) } != 0 => unsafe {
+                libc::toupper(ch as c_int) as u8
+            },
+            BackendCtype::Libc(loc) if unsafe { islower_l(ch as c_int, loc) } != 0 => unsafe {
+                toupper_l(ch as c_int, loc) as u8
+            },
             _ => ch,
         })
     } else {
@@ -336,10 +354,12 @@ fn with_backend_ctype_slot<R>(f: impl FnOnce(&BackendCtype) -> R) -> R {
         if matches!(b.borrow().0, BackendCtype::Unresolved) {
             let resolved = match crate::setup::thread_locale(crate::lc::LC_CTYPE) {
                 None => BackendCtype::Process,
-                Some(name) => match newlocale(crate::lc::LC_CTYPE_MASK, &name, core::ptr::null_mut()) {
-                    Some(loc) => BackendCtype::Libc(loc),
-                    None => BackendCtype::C,
-                },
+                Some(name) => {
+                    match newlocale(crate::lc::LC_CTYPE_MASK, &name, core::ptr::null_mut()) {
+                        Some(loc) => BackendCtype::Libc(loc),
+                        None => BackendCtype::C,
+                    }
+                }
             };
             *b.borrow_mut() = BackendCtypeSlot(resolved);
         }
@@ -654,8 +674,7 @@ fn case_libc_mb(
         } as wchar_t;
         if matches!(kind, MbCase::Title) {
             // SAFETY: pure wctype call.
-            wasalnum =
-                unsafe { iswalnum_l(workspace[curr_char] as wint_t, lt.get()) } != 0;
+            wasalnum = unsafe { iswalnum_l(workspace[curr_char] as wint_t, lt.get()) } != 0;
         }
         curr_char += 1;
     }

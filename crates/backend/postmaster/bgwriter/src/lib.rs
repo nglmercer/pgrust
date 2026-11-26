@@ -94,7 +94,10 @@ pub fn BackgroundWriterMain(startup_data: &StartupData) -> ! {
 
     {
         use procsignal::ThreadSignalHandler::{Ignore, Simple};
-        procsignal::pqsignal_thread(procsignal::signums::SIGHUP, Simple(interrupt::SignalHandlerForConfigReload));
+        procsignal::pqsignal_thread(
+            procsignal::signums::SIGHUP,
+            Simple(interrupt::SignalHandlerForConfigReload),
+        );
         procsignal::pqsignal_thread(procsignal::signums::SIGINT, Ignore);
         procsignal::pqsignal_thread(
             procsignal::signums::SIGTERM,
@@ -230,7 +233,9 @@ fn bgwriter_loop(state: &mut BgWriterState) -> PgResult<Never> {
         let rc = latch::WaitLatch(
             g::MyLatch(),
             WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-            state.giveback_wait_ms.map_or(BgWriterDelay() as i64, i64::from),
+            state
+                .giveback_wait_ms
+                .map_or(BgWriterDelay() as i64, i64::from),
             WAIT_EVENT_BGWRITER_MAIN,
         )?;
 

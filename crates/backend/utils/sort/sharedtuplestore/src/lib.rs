@@ -69,7 +69,11 @@ impl SharedTuplestore {
     /// `sts_initialize` (shared part); accessors attach separately. The
     /// name-length and meta-data-size guards are C's elog(ERROR)s
     /// (sharedtuplestore.c:143, 153).
-    pub fn new(nparticipants: i32, meta_data_size: usize, name: &str) -> PgResult<SharedTuplestore> {
+    pub fn new(
+        nparticipants: i32,
+        meta_data_size: usize,
+        name: &str,
+    ) -> PgResult<SharedTuplestore> {
         // C: strlen(name) > sizeof(sts->name) - 1, sts->name is char[NAMEDATALEN].
         if name.len() > NAMEDATALEN - 1 {
             return Err(Box::new(PgError::error("SharedTuplestore name too long")));
@@ -171,7 +175,10 @@ impl<'mcx> SharedTuplestoreAccessor<'mcx> {
 
     // `sts_flush_chunk`.
     fn flush_chunk(&mut self) -> PgResult<()> {
-        let chunk = self.write_chunk.as_mut().expect("flush without a write chunk");
+        let chunk = self
+            .write_chunk
+            .as_mut()
+            .expect("flush without a write chunk");
         self.write_file
             .as_mut()
             .expect("flush without a write file")
@@ -260,15 +267,14 @@ impl<'mcx> SharedTuplestoreAccessor<'mcx> {
                     let wp = self.write_pointer + meta_size;
                     let chunk = self.write_chunk.as_mut().expect("chunk allocated");
                     chunk[wp..wp + written].copy_from_slice(&tuple[..written]);
-                    let ntuples =
-                        i32::from_ne_bytes(chunk[0..4].try_into().unwrap()) + 1;
+                    let ntuples = i32::from_ne_bytes(chunk[0..4].try_into().unwrap()) + 1;
                     chunk[0..4].copy_from_slice(&ntuples.to_ne_bytes());
                 }
                 size -= meta_size;
                 size -= written;
                 while size > 0 {
                     self.flush_chunk()?;
-                    let overflow =size.div_ceil( STS_CHUNK_DATA_SIZE) as i32;
+                    let overflow = size.div_ceil(STS_CHUNK_DATA_SIZE) as i32;
                     let chunk = self.write_chunk.as_mut().expect("chunk allocated");
                     chunk[4..8].copy_from_slice(&overflow.to_ne_bytes());
                     let written_this_chunk = size.min(STS_CHUNK_SIZE - self.write_pointer);
@@ -296,7 +302,10 @@ impl<'mcx> SharedTuplestoreAccessor<'mcx> {
     // `sts_read_tuple`: the image is valid until the next call.
     fn read_tuple(&mut self, meta_data: &mut [u8]) -> PgResult<NonNull<MinimalTupleData>> {
         let meta_size = self.sts.meta_data_size;
-        let file = self.read_file.as_mut().expect("read_tuple without an open file");
+        let file = self
+            .read_file
+            .as_mut()
+            .expect("read_tuple without an open file");
         if meta_size > 0 {
             file.read_exact(meta_data)?;
             self.read_bytes += meta_size;
@@ -308,9 +317,8 @@ impl<'mcx> SharedTuplestoreAccessor<'mcx> {
         self.read_buffer.clear();
         ::mcx::pgvec_resize(&mut self.read_buffer, size.div_ceil(8), 0)?;
         // SAFETY: u64 backing reinterpreted as bytes; length covers size.
-        let image: &mut [u8] = unsafe {
-            core::slice::from_raw_parts_mut(self.read_buffer.as_mut_ptr().cast(), size)
-        };
+        let image: &mut [u8] =
+            unsafe { core::slice::from_raw_parts_mut(self.read_buffer.as_mut_ptr().cast(), size) };
         image[0..4].copy_from_slice(&size_buf);
         let mut remaining_size = size - 4;
         let mut this_chunk_size = remaining_size.min(STS_CHUNK_SIZE - self.read_bytes);
@@ -366,7 +374,11 @@ impl<'mcx> SharedTuplestoreAccessor<'mcx> {
 
             let (eof, read_page) = {
                 let slot = &self.sts.participants[self.read_participant as usize];
-                LWLockAcquire(&slot.lock.lock, LW_EXCLUSIVE, init_small::globals::MyProcNumber())?;
+                LWLockAcquire(
+                    &slot.lock.lock,
+                    LW_EXCLUSIVE,
+                    init_small::globals::MyProcNumber(),
+                )?;
                 // SAFETY: exclusive under the participant's lock.
                 let p = unsafe { &mut *slot.state.get() };
                 // Skip directly past overflow pages we know about.
@@ -422,8 +434,7 @@ impl<'mcx> SharedTuplestoreAccessor<'mcx> {
                 if let Some(f) = self.read_file.take() {
                     f.close()?;
                 }
-                self.read_participant =
-                    (self.read_participant + 1) % self.sts.nparticipants;
+                self.read_participant = (self.read_participant + 1) % self.sts.nparticipants;
                 if self.read_participant == self.participant {
                     break;
                 }

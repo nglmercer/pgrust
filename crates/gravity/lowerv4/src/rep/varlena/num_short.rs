@@ -30,7 +30,10 @@ crate::strategies! {
     NUM_SHORT = 27, "num.short", NumHeap;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(NUM_SHORT, &NumShortImpl(&SHORT))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(NUM_SHORT, &NumShortImpl(&SHORT))],
+    ..crate::ops::NONE
+};
 
 struct Short;
 static SHORT: Short = Short;
@@ -78,7 +81,14 @@ pub(crate) fn end_word(b: &mut FunctionBuilder<'_>, ptr: Value, len: Value) -> V
 }
 
 impl NumShortMech for Short {
-    fn decode(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, ptr: Value, scale: i16, ds: bool) -> (Value, Value, Option<Value>) {
+    fn decode(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        ptr: Value,
+        scale: i16,
+        ds: bool,
+    ) -> (Value, Value, Option<Value>) {
         let c = |b: &mut FunctionBuilder<'_>, v: i64| b.iconst(Type::I64, v);
         let bin = |b: &mut FunctionBuilder<'_>, op, x, y| b.int_bin(op, x, y);
         let (z, one) = (env.zero, env.one);
@@ -89,7 +99,11 @@ impl NumShortMech for Short {
         let b0 = b.load_zext(Type::I8, p, 0);
         let lo1 = bin(b, IntBinOp::And, b0, one);
         let is1 = b.icmp(IntCond::Ne, lo1, z);
-        let (l1, l4, lh) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[Type::I64, Type::I64, Type::Bool]));
+        let (l1, l4, lh) = (
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[Type::I64, Type::I64, Type::Bool]),
+        );
         b.mark_cold(l4);
         let cur = b.current();
         b.cond_br(is1, (l1, &[]), (l4, &[]));
@@ -106,7 +120,10 @@ impl NumShortMech for Short {
         let ok4 = b.icmp(IntCond::Eq, low4, z);
         b.br(lh, &[len4, four, ok4]);
         b.switch_to(lh);
-        let (len, off, hdr_ok) = { let v = b.block_params(lh); (v[0], v[1], v[2]) };
+        let (len, off, hdr_ok) = {
+            let v = b.block_params(lh);
+            (v[0], v[1], v[2])
+        };
         let two = c(b, 2);
         // payload: the 2-byte numeric header and 0..=4 groups (an even count of bytes, 2..=10): `rest` rotated right by
         // one is at most 4 exactly when it is even and at most 8
@@ -133,11 +150,28 @@ impl NumShortMech for Short {
         // D = d0 10^12 + d1 10^8 + d2 10^4 + d3: four independent multiply-adds
         let g = c(b, 0xFFFF);
         let mut d = z;
-        for (i, mul) in [1_000_000_000_000i64, 100_000_000, 10_000, 1].into_iter().enumerate() {
-            let x = if i == 0 { v } else { let s = c(b, 16 * i as i64); bin(b, IntBinOp::Ushr, v, s) };
-            let x = if i == 3 { x } else { bin(b, IntBinOp::And, x, g) };
+        for (i, mul) in [1_000_000_000_000i64, 100_000_000, 10_000, 1]
+            .into_iter()
+            .enumerate()
+        {
+            let x = if i == 0 {
+                v
+            } else {
+                let s = c(b, 16 * i as i64);
+                bin(b, IntBinOp::Ushr, v, s)
+            };
+            let x = if i == 3 {
+                x
+            } else {
+                bin(b, IntBinOp::And, x, g)
+            };
             let mv = c(b, mul);
-            d = if i == 3 { bin(b, IntBinOp::Add, d, x) } else { let x = bin(b, IntBinOp::Mul, x, mv); bin(b, IntBinOp::Add, d, x) };
+            d = if i == 3 {
+                bin(b, IntBinOp::Add, d, x)
+            } else {
+                let x = bin(b, IntBinOp::Mul, x, mv);
+                bin(b, IntBinOp::Add, d, x)
+            };
         }
         // the weight (7-bit two's complement) picks its `(k, c)` (below); the zero (no groups) is 0 at any weight
         let c57 = c(b, 57);
@@ -249,7 +283,9 @@ mod tests {
     fn varlena(p: &[u8], four: bool, compressed: bool) -> Vec<u8> {
         let mut v = Vec::new(); // alloc: Program
         if four {
-            v.extend_from_slice(&((((p.len() + 4) as u32) << 2) | if compressed { 2 } else { 0 }).to_le_bytes());
+            v.extend_from_slice(
+                &((((p.len() + 4) as u32) << 2) | if compressed { 2 } else { 0 }).to_le_bytes(),
+            );
         } else {
             v.push((((p.len() + 1) as u8) << 1) | 1); // alloc: Program
         }
@@ -280,7 +316,10 @@ mod tests {
         if matches!(m, MANT_NAN | MANT_PINF | MANT_NINF | NO_MANTISSA) {
             return (m, d);
         }
-        let m = 10i64.pow((scale as i64 - d) as u32).checked_mul(m).filter(|v| (MANT_NINF + 1..MANT_PINF).contains(v));
+        let m = 10i64
+            .pow((scale as i64 - d) as u32)
+            .checked_mul(m)
+            .filter(|v| (MANT_NINF + 1..MANT_PINF).contains(v));
         (m.unwrap_or(NO_MANTISSA), d)
     }
 
@@ -292,7 +331,11 @@ mod tests {
                 let ptr = b.iconst(Type::I64, p as i64);
                 let (m, ok, d) = SHORT.decode(b, env, ptr, scale, ds);
                 let none = b.iconst(Type::I64, NO_MANTISSA);
-                if dscale { d.unwrap() } else { b.select(ok, m, none) }
+                if dscale {
+                    d.unwrap()
+                } else {
+                    b.select(ok, m, none)
+                }
             })
         };
         let m = one(false);
@@ -303,19 +346,31 @@ mod tests {
     /// (the short form, <= 4 groups, a served weight, the dscale rule, a mantissa the host finds) fits. Returns the fits.
     fn check(img: &[u8], scale: i16, ds: bool, served: bool) -> usize {
         let mut fits = 0;
-        let ats: &[usize] = if img[0] & 1 == 0 { &[0, 4] } else { &[0, 1, 3, 4, 6, 7] };
+        let ats: &[usize] = if img[0] & 1 == 0 {
+            &[0, 4]
+        } else {
+            &[0, 1, 3, 4, 6, 7]
+        };
         for &at in ats {
-            let mut buf =[0xA5u8; 40]; // alloc: Program
+            let mut buf = [0xA5u8; 40]; // alloc: Program
             let base = (buf.as_ptr() as usize).next_multiple_of(8) - buf.as_ptr() as usize + 8 + at;
             buf[base..base + img.len()].copy_from_slice(img);
             let p = buf[base..].as_ptr();
             let (want, wd) = host(&buf[base..], scale, ds);
             let (m, ok, d) = decode(p, scale, ds);
             if ok {
-                assert_eq!((m, if ds { d } else { 0 }), (want, wd), "{img:02x?} at {at}, scale {scale}, ds {ds}");
+                assert_eq!(
+                    (m, if ds { d } else { 0 }),
+                    (want, wd),
+                    "{img:02x?} at {at}, scale {scale}, ds {ds}"
+                );
                 fits += 1;
             }
-            assert_eq!(ok, served && want != NO_MANTISSA, "{img:02x?} at {at}: served {served}, host {want}, scale {scale}, ds {ds}");
+            assert_eq!(
+                ok,
+                served && want != NO_MANTISSA,
+                "{img:02x?} at {at}: served {served}, host {want}, scale {scale}, ds {ds}"
+            );
         }
         fits
     }
@@ -328,7 +383,12 @@ mod tests {
         let mut vals: Vec<(i128, u32)> = Vec::new(); // alloc: Program
         for d in [0u32, 1, 2, 3, 5, 8, 9, 14, 20] {
             for digits in [1u32, 3, 4, 5, 8, 9, 13, 16, 17, 21] {
-                for v in [10i128.pow(digits - 1), 10i128.pow(digits) - 1, 10i128.pow(digits) / 7 + 1, 10i128.pow(digits - 1) * 5] {
+                for v in [
+                    10i128.pow(digits - 1),
+                    10i128.pow(digits) - 1,
+                    10i128.pow(digits) / 7 + 1,
+                    10i128.pow(digits - 1) * 5,
+                ] {
                     vals.extend([(v, d), (-v, d)]); // alloc: Program
                 }
             }
@@ -339,17 +399,37 @@ mod tests {
             let (wlo, whi) = weights(scale);
             for &(v, d) in vals.iter() {
                 let (neg, w, d, g) = parts(v, d);
-                if !( -64..= 63).contains(&w) || d > 63 {
+                if !(-64..=63).contains(&w) || d > 63 {
                     continue;
                 }
                 for ds in [false, true] {
-                    let dsok = if ds { d as i16 <= scale } else { d as i16 == scale };
-                    let served = g.len() <= 4 && dsok && (g.is_empty() || (wlo..=whi).contains(&(w as i64)));
+                    let dsok = if ds {
+                        d as i16 <= scale
+                    } else {
+                        d as i16 == scale
+                    };
+                    let served =
+                        g.len() <= 4 && dsok && (g.is_empty() || (wlo..=whi).contains(&(w as i64)));
                     for four in [false, true] {
-                        served_fits += check(&varlena(&payload(neg, w, d, &g, false), four, false), scale, ds, served);
-                        check(&varlena(&payload(neg, w, d, &g, true), four, false), scale, ds, false);
+                        served_fits += check(
+                            &varlena(&payload(neg, w, d, &g, false), four, false),
+                            scale,
+                            ds,
+                            served,
+                        );
+                        check(
+                            &varlena(&payload(neg, w, d, &g, true), four, false),
+                            scale,
+                            ds,
+                            false,
+                        );
                     }
-                    check(&varlena(&payload(neg, w, d, &g, false), true, true), scale, ds, false);
+                    check(
+                        &varlena(&payload(neg, w, d, &g, false), true, true),
+                        scale,
+                        ds,
+                        false,
+                    );
                 }
             }
         }
@@ -359,7 +439,11 @@ mod tests {
     /// NaN / ±Infinity decline under either header (the host's sentinel, cold); a TOAST pointer declines.
     #[test]
     fn specials_and_toast() {
-        for (h, m) in [(0xC000u16, MANT_NAN), (0xD000, MANT_PINF), (0xF000, MANT_NINF)] {
+        for (h, m) in [
+            (0xC000u16, MANT_NAN),
+            (0xD000, MANT_PINF),
+            (0xF000, MANT_NINF),
+        ] {
             for four in [false, true] {
                 for (scale, ds) in [(0, false), (2, true), (9, true)] {
                     let img = varlena(&h.to_le_bytes(), four, false);
@@ -380,14 +464,31 @@ mod tests {
     fn leaves_other_images_to_the_host() {
         let (neg, w, d, g) = parts(12_345_678_901_234_567_891, 2);
         assert!(g.len() > 4);
-        assert!(!decode(varlena(&payload(neg, w, d, &g, false), false, false).as_ptr(), 2, false).1);
+        assert!(
+            !decode(
+                varlena(&payload(neg, w, d, &g, false), false, false).as_ptr(),
+                2,
+                false
+            )
+            .1
+        );
         let (neg, w, d, g) = parts(1234, 2);
-        for img in [varlena(&payload(neg, w, d, &g, true), true, false), varlena(&payload(neg, w, d, &g, false), true, true)] {
+        for img in [
+            varlena(&payload(neg, w, d, &g, true), true, false),
+            varlena(&payload(neg, w, d, &g, false), true, true),
+        ] {
             assert!(!decode(img.as_ptr(), 2, false).1);
         }
         let img = varlena(&payload(neg, w, 3, &parts(12340, 3).3, false), false, false);
         assert!(!decode(img.as_ptr(), 2, true).1, "dscale 3 > scale 2");
-        assert_eq!(decode(varlena(&payload(neg, w, d, &g, false), false, false).as_ptr(), 2, false), (1234, true, 0));
+        assert_eq!(
+            decode(
+                varlena(&payload(neg, w, d, &g, false), false, false).as_ptr(),
+                2,
+                false
+            ),
+            (1234, true, 0)
+        );
     }
 
     /// PERF-SERIAL: a negative scale serves no image (an image's dscale is past it: the host declines); a scale past any
@@ -395,16 +496,28 @@ mod tests {
     #[test]
     fn far_scales() {
         for scale in [-8i16, -1, 64, 200] {
-            for (v, d) in [(0i128, 0u32), (0, 2), (5, 0), (-1234, 2), (123_456, 3), (-99_999_999, 0)] {
+            for (v, d) in [
+                (0i128, 0u32),
+                (0, 2),
+                (5, 0),
+                (-1234, 2),
+                (123_456, 3),
+                (-99_999_999, 0),
+            ] {
                 let (neg, w, d, g) = parts(v, d);
                 for four in [false, true] {
                     let img = varlena(&payload(neg, w, d, &g, false), four, false);
-                    let mut buf =[0xA5u8; 48]; // alloc: Program
-                    let base = (buf.as_ptr() as usize).next_multiple_of(8) - buf.as_ptr() as usize + 8;
+                    let mut buf = [0xA5u8; 48]; // alloc: Program
+                    let base =
+                        (buf.as_ptr() as usize).next_multiple_of(8) - buf.as_ptr() as usize + 8;
                     buf[base..base + img.len()].copy_from_slice(&img);
                     for ds in [false, true] {
                         let (m, ok, dsc) = decode(buf[base..].as_ptr(), scale, ds);
-                        assert_eq!(ok, scale >= 0 && v == 0 && ds, "{v} dscale {d} scale {scale} ds {ds} four {four}");
+                        assert_eq!(
+                            ok,
+                            scale >= 0 && v == 0 && ds,
+                            "{v} dscale {d} scale {scale} ds {ds} four {four}"
+                        );
                         if ok {
                             assert_eq!((m, dsc), (0, d as i64));
                         }
@@ -429,7 +542,11 @@ mod tests {
         // SAFETY: a private anonymous three-page mapping, its first and last pages made inaccessible; unmapped below.
         let (base, page) = unsafe {
             let page = getpagesize() as usize;
-            let map_anon = if cfg!(target_os = "macos") { 0x1000 } else { 0x20 };
+            let map_anon = if cfg!(target_os = "macos") {
+                0x1000
+            } else {
+                0x20
+            };
             let base = mmap(core::ptr::null_mut(), 3 * page, 3, 0x02 | map_anon, -1, 0);
             assert!(!base.is_null() && base as isize != -1, "mmap");
             assert_eq!(mprotect(base, page, 0), 0, "mprotect below");
@@ -437,12 +554,22 @@ mod tests {
             (base, page)
         };
         let mut fits = 0;
-        for (v, d) in [(0i128, 2u32), (7, 2), (-49_069, 2), (104_136, 2), (-123_456_789, 2), (1_234_567_890_123, 2)] {
+        for (v, d) in [
+            (0i128, 2u32),
+            (7, 2),
+            (-49_069, 2),
+            (104_136, 2),
+            (-123_456_789, 2),
+            (1_234_567_890_123, 2),
+        ] {
             let (neg, w, d, g) = parts(v, d);
             for four in [false, true] {
                 let img = varlena(&payload(neg, w, d, &g, false), four, false);
                 // a 4-byte header at its int alignment, as PG places it (the host reads its digits 2-byte aligned)
-                for at in (0..16).chain(page - 16..=page - img.len()).filter(|a| !four || a % 4 == 0) {
+                for at in (0..16)
+                    .chain(page - 16..=page - img.len())
+                    .filter(|a| !four || a % 4 == 0)
+                {
                     // SAFETY: `at + img.len() <= page`: the bytes lie in the middle page, which is read-write.
                     let p = unsafe {
                         let p = base.add(page + at);
@@ -450,7 +577,11 @@ mod tests {
                         p as *const u8
                     };
                     // SAFETY: `p` holds the image for the call.
-                    let (want, wd) = host(unsafe { core::slice::from_raw_parts(p, img.len()) }, 2, true);
+                    let (want, wd) = host(
+                        unsafe { core::slice::from_raw_parts(p, img.len()) },
+                        2,
+                        true,
+                    );
                     let (m, ok, dsc) = decode(p, 2, true);
                     if ok {
                         assert_eq!((m, dsc), (want, wd), "{img:02x?} at page offset {at}");
@@ -470,11 +601,22 @@ mod tests {
     #[test]
     fn decode_ops() {
         let (neg, w, d, g) = parts(12_345, 2);
-        let img = [vec![0u8; 8], varlena(&payload(neg, w, d, &g, false), false, false)].concat();
+        let img = [
+            vec![0u8; 8],
+            varlena(&payload(neg, w, d, &g, false), false, false),
+        ]
+        .concat();
         let mut n = 0;
         run1(&[], &mut |b, env| {
             let ptr = b.iconst(Type::I64, img[8..].as_ptr() as i64);
-            let count = |b: &FunctionBuilder<'_>| b.func().blocks.iter().flat_map(|k| k.insts.iter()).filter(|i| !matches!(i.op, gravity_ir::Op::Const { .. })).count();
+            let count = |b: &FunctionBuilder<'_>| {
+                b.func()
+                    .blocks
+                    .iter()
+                    .flat_map(|k| k.insts.iter())
+                    .filter(|i| !matches!(i.op, gravity_ir::Op::Const { .. }))
+                    .count()
+            };
             let n0 = count(b);
             let (m, _, _) = SHORT.decode(b, env, ptr, 2, true);
             n = count(b) - n0;

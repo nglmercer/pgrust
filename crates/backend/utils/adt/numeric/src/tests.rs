@@ -422,7 +422,10 @@ fn sum_accum_rescale_frees_old_digit_buffers() {
         do_numeric_accum(&mut state, ctx.mcx(), n(&format!("1e{}", 4 * i)).num()).unwrap();
     }
     assert!(ctx.used() < 200_000, "retained {} bytes", ctx.used());
-    assert_eq!(out(&numeric_sum(Some(&mut state)).unwrap().unwrap()).len(), 7997);
+    assert_eq!(
+        out(&numeric_sum(Some(&mut state)).unwrap().unwrap()).len(),
+        7997
+    );
 }
 
 #[test]
@@ -1748,7 +1751,7 @@ fn fixed_kernels_agree_randomized_wide() {
         let v1 = VarView {
             ndigits: n1 as i32,
             weight: (rng.next() % 31) as i32 - 15,
-            sign: if rng.next().is_multiple_of( 2) {
+            sign: if rng.next().is_multiple_of(2) {
                 NUMERIC_POS
             } else {
                 NUMERIC_NEG
@@ -1759,7 +1762,7 @@ fn fixed_kernels_agree_randomized_wide() {
         let v2 = VarView {
             ndigits: n2 as i32,
             weight: (rng.next() % 31) as i32 - 15,
-            sign: if rng.next().is_multiple_of( 2) {
+            sign: if rng.next().is_multiple_of(2) {
                 NUMERIC_POS
             } else {
                 NUMERIC_NEG
@@ -2230,10 +2233,35 @@ fn make_numeric_typmod_safe_soft_errors() {
 fn int128_to_var_digits_across_the_64_bit_boundary() {
     // the 128-bit digit loop hands over to the 64-bit one at 2^64: every value prints its own decimal
     let b = u64::MAX as i128;
-    let probes: &[i128] = &[0, 1, -1, 9999, 10000, -10000, 99999999, b - 1, b, b + 1, -b, -b - 1, 10i128.pow(19), 10i128.pow(20) - 1, 10i128.pow(20), -(10i128.pow(24)), 1234567890123456789012345678901234567, i128::MAX, i128::MIN + 1, i128::MIN];
+    let probes: &[i128] = &[
+        0,
+        1,
+        -1,
+        9999,
+        10000,
+        -10000,
+        99999999,
+        b - 1,
+        b,
+        b + 1,
+        -b,
+        -b - 1,
+        10i128.pow(19),
+        10i128.pow(20) - 1,
+        10i128.pow(20),
+        -(10i128.pow(24)),
+        1234567890123456789012345678901234567,
+        i128::MAX,
+        i128::MIN + 1,
+        i128::MIN,
+    ];
     for &v in probes {
         let mut var = crate::var::NumericVar::new();
         crate::var::int128_to_var(v, &mut var);
-        assert_eq!(out(&crate::var::make_result(var.view()).unwrap()), v.to_string(), "{v}");
+        assert_eq!(
+            out(&crate::var::make_result(var.view()).unwrap()),
+            v.to_string(),
+            "{v}"
+        );
     }
 }

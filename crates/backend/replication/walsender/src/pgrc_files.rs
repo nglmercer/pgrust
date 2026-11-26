@@ -23,8 +23,9 @@ use types_error::{ErrorLocation, PgResult, DEBUG1, ERRCODE_UNDEFINED_FILE, ERROR
 use types_storage::waiteventset::{WL_SOCKET_READABLE, WL_SOCKET_WRITEABLE};
 
 use crate::streaming::{
-    reset_my_latch, WalSndCheckTimeOut, WalSndComputeSleeptime, WalSndKeepalive, WalSndKeepaliveIfNecessary,
-    WalSndShutdown, WalSndWait, MAX_SEND_SIZE, WAIT_EVENT_WAL_SENDER_MAIN,
+    reset_my_latch, WalSndCheckTimeOut, WalSndComputeSleeptime, WalSndKeepalive,
+    WalSndKeepaliveIfNecessary, WalSndShutdown, WalSndWait, MAX_SEND_SIZE,
+    WAIT_EVENT_WAL_SENDER_MAIN,
 };
 
 /// The session option (OC-3).
@@ -74,7 +75,10 @@ fn stream_files_setting() -> bool {
     if !guc_seams::get_config_option_missing_ok::is_installed() {
         return false;
     }
-    let v = guc_seams::get_config_option_missing_ok::call(STREAM_FILES_GUC).ok().flatten().unwrap_or_default();
+    let v = guc_seams::get_config_option_missing_ok::call(STREAM_FILES_GUC)
+        .ok()
+        .flatten()
+        .unwrap_or_default();
     matches!(v.to_ascii_lowercase().as_str(), "on" | "true" | "yes" | "1")
 }
 
@@ -82,15 +86,34 @@ fn stream_files_setting() -> bool {
 /// stock stream starting where a base backup's stream starts carries that backup's WAL.
 pub(crate) fn start(startpoint: XLogRecPtr) {
     let on = stream_files_setting();
-    let backup = if on { None } else { pgrc_spool::backup_stream(startpoint) };
-    FILES.with(|f| *f.borrow_mut() = FileSender { active: true, on, backup, ..FileSender::default() });
+    let backup = if on {
+        None
+    } else {
+        pgrc_spool::backup_stream(startpoint)
+    };
+    FILES.with(|f| {
+        *f.borrow_mut() = FileSender {
+            active: true,
+            on,
+            backup,
+            ..FileSender::default()
+        }
+    });
 }
 
 /// The end a base backup's stock stream may send to: below the first reference at or past the backup's cover
 /// (`limit`), or only below the first reference at all while the backup lists (`None`). `refs` are sorted.
-pub(crate) fn backup_hold(refs: impl IntoIterator<Item = XLogRecPtr>, start: XLogRecPtr, end: XLogRecPtr, limit: Option<XLogRecPtr>) -> XLogRecPtr {
+pub(crate) fn backup_hold(
+    refs: impl IntoIterator<Item = XLogRecPtr>,
+    start: XLogRecPtr,
+    end: XLogRecPtr,
+    limit: Option<XLogRecPtr>,
+) -> XLogRecPtr {
     let cover = limit.unwrap_or(0);
-    refs.into_iter().find(|&l| l >= start && l < end && l >= cover).unwrap_or(end).max(start)
+    refs.into_iter()
+        .find(|&l| l >= start && l < end && l >= cover)
+        .unwrap_or(end)
+        .max(start)
 }
 
 /// One send's files on a streaming session: how many of the sorted pending references `refs` (all at or past the
@@ -119,9 +142,18 @@ pub(crate) fn file_step(
 /// stops after a header reads that page with only the header, fails it without a message, and restarts its walreceiver.
 pub(crate) fn wal_end_before(lsn: XLogRecPtr) -> XLogRecPtr {
     use transam_xlog::{SizeOfXLogLongPHD, SizeOfXLogShortPHD, XLOG_BLCKSZ};
-    let first_page = transam_xlog::XLogSegmentOffset(lsn, transam_xlog::wal_segment_size()) < XLOG_BLCKSZ as u32;
-    let header = (if first_page { SizeOfXLogLongPHD } else { SizeOfXLogShortPHD }) as u64;
-    if lsn % XLOG_BLCKSZ as u64 == header { lsn - header } else { lsn }
+    let first_page =
+        transam_xlog::XLogSegmentOffset(lsn, transam_xlog::wal_segment_size()) < XLOG_BLCKSZ as u32;
+    let header = (if first_page {
+        SizeOfXLogLongPHD
+    } else {
+        SizeOfXLogShortPHD
+    }) as u64;
+    if lsn % XLOG_BLCKSZ as u64 == header {
+        lsn - header
+    } else {
+        lsn
+    }
 }
 
 /// The stream ended: say what was sent (the reconnect leg counts it).
@@ -150,7 +182,11 @@ fn io_error(e: std::io::Error, what: String) -> PgResult<()> {
 /// Before sending WAL `[start, end)` (`rqst`: the flush pointer read for this send, `end <= rqst`): send the files
 /// of references below `end` that the standby lacks. Returns the end to send to: `end`, or clamped to the first
 /// reference while the standby's flush point is not known yet (the first reply is requested).
-pub(crate) fn before_send(start: XLogRecPtr, end: XLogRecPtr, rqst: XLogRecPtr) -> PgResult<XLogRecPtr> {
+pub(crate) fn before_send(
+    start: XLogRecPtr,
+    end: XLogRecPtr,
+    rqst: XLogRecPtr,
+) -> PgResult<XLogRecPtr> {
     let spool = Spool::data();
     // Refresh the listing. Every reference below `rqst` began before the flush pointer was read, so after settle it
     // is named; the first listing of a session also sees entries named before this process started.
@@ -190,7 +226,9 @@ pub(crate) fn before_send(start: XLogRecPtr, end: XLogRecPtr, rqst: XLogRecPtr) 
         }
         (f.on, f.cache.front().copied().filter(|&(l, _)| l < end))
     });
-    let Some((first_lsn, _)) = first else { return Ok(end) };
+    let Some((first_lsn, _)) = first else {
+        return Ok(end);
+    };
 
     if !on {
         let backup = FILES.with(|f| f.borrow().backup.clone());
@@ -203,7 +241,10 @@ pub(crate) fn before_send(start: XLogRecPtr, end: XLogRecPtr, rqst: XLogRecPtr) 
                 while f.cache.front().is_some_and(|&(l, _)| l < hold) {
                     f.cache.pop_front();
                 }
-                (hold, hold < end && limit.is_some() && !std::mem::replace(&mut f.logged, true))
+                (
+                    hold,
+                    hold < end && limit.is_some() && !std::mem::replace(&mut f.logged, true),
+                )
             });
             if first_hold {
                 let _ = ereport(DEBUG1)
@@ -252,7 +293,9 @@ pub(crate) fn before_send(start: XLogRecPtr, end: XLogRecPtr, rqst: XLogRecPtr) 
 
     let (n, to) = FILES.with(|f| file_step(f.borrow().cache.iter().map(|&(l, _)| l), end, flush));
     for _ in 0..n {
-        let Some((lsn, len)) = FILES.with(|f| f.borrow().cache.front().copied()) else { break };
+        let Some((lsn, len)) = FILES.with(|f| f.borrow().cache.front().copied()) else {
+            break;
+        };
         if lsn >= flush {
             send_file(&spool, lsn, len)?;
         }
@@ -282,7 +325,9 @@ fn send_file(spool: &Spool, lsn: XLogRecPtr, len: u64) -> PgResult<()> {
         Err(e) if e.raw_os_error() == Some(libc::ENOENT) => {
             return ereport(ERROR)
                 .errcode(ERRCODE_UNDEFINED_FILE)
-                .errmsg(format!("requested pgrc file {name} has already been removed"))
+                .errmsg(format!(
+                    "requested pgrc file {name} has already been removed"
+                ))
                 .finish(loc("pgrc_send_file"));
         }
         Err(e) => return io_error(e, format!("could not open pgrc spool file \"{name}\"")),
@@ -298,7 +343,9 @@ fn send_file(spool: &Spool, lsn: XLogRecPtr, len: u64) -> PgResult<()> {
         if got < want {
             return ereport(ERROR)
                 .errcode(ERRCODE_UNDEFINED_FILE)
-                .errmsg(format!("pgrc spool file \"{name}\" is shorter than its {len} bytes"))
+                .errmsg(format!(
+                    "pgrc spool file \"{name}\" is shorter than its {len} bytes"
+                ))
                 .finish(loc("pgrc_send_file"));
         }
         msg[0] = MSG_FILE;
@@ -331,7 +378,11 @@ fn drain() -> PgResult<()> {
         WalSndCheckTimeOut();
         WalSndKeepaliveIfNecessary()?;
         let sleep = WalSndComputeSleeptime(get_ts());
-        WalSndWait(WL_SOCKET_WRITEABLE | WL_SOCKET_READABLE, sleep, WAIT_EVENT_WAL_SENDER_WRITE_DATA)?;
+        WalSndWait(
+            WL_SOCKET_WRITEABLE | WL_SOCKET_READABLE,
+            sleep,
+            WAIT_EVENT_WAL_SENDER_WRITE_DATA,
+        )?;
         reset_my_latch();
         postgres_seams::check_for_interrupts::call()?;
     }
@@ -349,7 +400,12 @@ mod tests {
         while start < end {
             let chunk = (start + max).min(end);
             let (n, to) = file_step(pending.iter().copied(), chunk, flush);
-            out.extend(pending.drain(..n).filter(|&l| l >= flush).map(|l| format!("F{l}")));
+            out.extend(
+                pending
+                    .drain(..n)
+                    .filter(|&l| l >= flush)
+                    .map(|l| format!("F{l}")),
+            );
             assert!(to > start && to <= chunk, "no progress: {start} -> {to}");
             out.push(format!("W{to}"));
             start = to;
@@ -362,14 +418,27 @@ mod tests {
         // A parallel COPY's burst: five references inside one send. Each file goes, then the WAL up to the next
         // reference, so the standby replays each FILE_REF as its file lands (not all five files ahead of all WAL).
         let burst = [1000, 1100, 1200, 1300, 1400];
-        let each = ["F1000", "W1100", "F1100", "W1200", "F1200", "W1300", "F1300", "W1400", "F1400", "W2000"];
+        let each = [
+            "F1000", "W1100", "F1100", "W1200", "F1200", "W1300", "F1300", "W1400", "F1400",
+            "W2000",
+        ];
         assert_eq!(wire(&burst, 900, 2000, 131_072, 0), each);
         // Files the standby has (below its flush) are skipped without a WAL stop of their own.
-        assert_eq!(wire(&burst, 900, 2000, 131_072, 1250), ["F1300", "W1400", "F1400", "W2000"]);
+        assert_eq!(
+            wire(&burst, 900, 2000, 131_072, 1250),
+            ["F1300", "W1400", "F1400", "W2000"]
+        );
         // Sends of at most 500 bytes: the chunk end still bounds the WAL, and a reference past it waits its send.
-        assert_eq!(wire(&[1000, 1600], 900, 2000, 500, 0), ["F1000", "W1400", "F1600", "W1900", "W2000"]);
+        assert_eq!(
+            wire(&[1000, 1600], 900, 2000, 500, 0),
+            ["F1000", "W1400", "F1600", "W1900", "W2000"]
+        );
         assert_eq!(file_step([], 2000, 0), (0, 2000));
-        assert_eq!(file_step([2000, 2100], 2000, 0), (0, 2000), "references at or past the end wait");
+        assert_eq!(
+            file_step([2000, 2100], 2000, 0),
+            (0, 2000),
+            "references at or past the end wait"
+        );
     }
 
     #[test]
@@ -379,18 +448,42 @@ mod tests {
         // bytes, failed without a message and restarted its walreceiver. No end pointer lies inside a page header (C:
         // XLogBytePosToEndRecPtr): the WAL stops at the page start.
         const SEG: u64 = 16 << 20;
-        assert_eq!(file_step([0x300_A0B8, 0x300_C018], 0x301_0000, 0), (1, 0x300_C000), "short page header");
+        assert_eq!(
+            file_step([0x300_A0B8, 0x300_C018], 0x301_0000, 0),
+            (1, 0x300_C000),
+            "short page header"
+        );
         // A segment's first page has the long header.
-        assert_eq!(file_step([4 * SEG - 0x2000, 4 * SEG + 40], 4 * SEG + 0x1_0000, 0), (1, 4 * SEG), "long header");
+        assert_eq!(
+            file_step([4 * SEG - 0x2000, 4 * SEG + 40], 4 * SEG + 0x1_0000, 0),
+            (1, 4 * SEG),
+            "long header"
+        );
         // A reference after the page's first record: the WAL goes up to it.
-        assert_eq!(file_step([0x300_A0B8, 0x300_C060], 0x301_0000, 0), (1, 0x300_C060));
+        assert_eq!(
+            file_step([0x300_A0B8, 0x300_C060], 0x301_0000, 0),
+            (1, 0x300_C060)
+        );
         // On the wire: the WAL to the page start, the file, then the page.
         let each = ["F50372792", "W50380800", "F50380824", "W50397184"];
-        assert_eq!(wire(&[0x300_A0B8, 0x300_C018], 0x300_8000, 0x301_0000, 131_072, 0), each);
+        assert_eq!(
+            wire(
+                &[0x300_A0B8, 0x300_C018],
+                0x300_8000,
+                0x301_0000,
+                131_072,
+                0
+            ),
+            each
+        );
         // The first-reply clamp: the first reference, or its page's start.
         assert_eq!(wal_end_before(0x300_C018), 0x300_C000);
         assert_eq!(wal_end_before(4 * SEG + 40), 4 * SEG);
-        assert_eq!(wal_end_before(4 * SEG + 24), 4 * SEG + 24, "inside a long header is no record start");
+        assert_eq!(
+            wal_end_before(4 * SEG + 24),
+            4 * SEG + 24,
+            "inside a long header is no record start"
+        );
         assert_eq!(wal_end_before(0x300_C060), 0x300_C060);
     }
 
@@ -401,12 +494,24 @@ mod tests {
         assert_eq!(backup_hold(refs, 50, 400, Some(u64::MAX)), 400);
         // Listing: WAL up to the first reference only.
         assert_eq!(backup_hold(refs, 50, 400, None), 100);
-        assert_eq!(backup_hold(refs, 100, 400, None), 100, "held at the start: nothing to send");
+        assert_eq!(
+            backup_hold(refs, 100, 400, None),
+            100,
+            "held at the start: nothing to send"
+        );
         // Covered below 250: references 100 and 200 are in the archive, 300 is not.
         assert_eq!(backup_hold(refs, 50, 400, Some(250)), 300);
-        assert_eq!(backup_hold(refs, 50, 280, Some(250)), 280, "the hold is past this send");
+        assert_eq!(
+            backup_hold(refs, 50, 280, Some(250)),
+            280,
+            "the hold is past this send"
+        );
         assert_eq!(backup_hold(refs, 300, 400, Some(250)), 300);
-        assert_eq!(backup_hold(refs, 350, 400, Some(250)), 400, "references before the start are sent");
+        assert_eq!(
+            backup_hold(refs, 350, 400, Some(250)),
+            400,
+            "references before the start are sent"
+        );
         assert_eq!(backup_hold(std::iter::empty(), 50, 400, None), 400);
     }
 }

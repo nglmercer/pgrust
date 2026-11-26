@@ -38,9 +38,18 @@ const N_TIMEOUTS: usize = MAX_TIMEOUTS as usize;
 
 #[derive(Clone, Copy)]
 pub enum EnableTimeoutParams {
-    After { id: TimeoutId, delay_ms: i32 },
-    At { id: TimeoutId, fin_time: TimestampTz },
-    Every { id: TimeoutId, delay_ms: i32 },
+    After {
+        id: TimeoutId,
+        delay_ms: i32,
+    },
+    At {
+        id: TimeoutId,
+        fin_time: TimestampTz,
+    },
+    Every {
+        id: TimeoutId,
+        delay_ms: i32,
+    },
 }
 
 #[derive(Clone, Copy)]
@@ -132,7 +141,10 @@ fn alarm() -> &'static AlarmState {
 #[cold]
 #[inline(never)]
 fn claim_alarm() -> &'static AlarmState {
-    let a: &'static AlarmState = Box::leak(Box::new(AlarmState { enabled: AtomicBool::new(false), pending: AtomicBool::new(false) }));
+    let a: &'static AlarmState = Box::leak(Box::new(AlarmState {
+        enabled: AtomicBool::new(false),
+        pending: AtomicBool::new(false),
+    }));
     ALARM.set(Some(a));
     a
 }
@@ -197,7 +209,7 @@ fn timer_thread(shared: &'static TimerShared) -> ! {
                 if dl.expired() {
                     post_abort(slot);
                     fired = true;
-                } else if nearest.is_none_or( |n| dl < n) {
+                } else if nearest.is_none_or(|n| dl < n) {
                     nearest = Some(dl);
                 }
             }
@@ -210,7 +222,7 @@ fn timer_thread(shared: &'static TimerShared) -> ! {
                     // disabled timeout can never raise the abort byte.
                     let _ = post(slot);
                     fired = true;
-                } else if nearest.is_none_or( |n| dl < n) {
+                } else if nearest.is_none_or(|n| dl < n) {
                     nearest = Some(dl);
                 }
             }
@@ -294,7 +306,14 @@ pub fn fire_due() -> bool {
 // setitimer(ITIMER_REAL, {delay, no interval}): one relative one-shot timer
 // per backend, a new arm overwriting the previous.
 fn abort_class(id: TimeoutId) -> bool {
-    matches!(id, STATEMENT_TIMEOUT | LOCK_TIMEOUT | TRANSACTION_TIMEOUT | IDLE_IN_TRANSACTION_SESSION_TIMEOUT | IDLE_SESSION_TIMEOUT)
+    matches!(
+        id,
+        STATEMENT_TIMEOUT
+            | LOCK_TIMEOUT
+            | TRANSACTION_TIMEOUT
+            | IDLE_IN_TRANSACTION_SESSION_TIMEOUT
+            | IDLE_SESSION_TIMEOUT
+    )
 }
 
 fn arm_timer(delay: Duration, abort: bool, abort_after: Option<Duration>) {
@@ -307,7 +326,13 @@ fn arm_timer(delay: Duration, abort: bool, abort_after: Option<Duration>) {
     });
     let deadline = Deadline::after(delay);
     let abort_at = abort_after.map(Deadline::after);
-    DUE_NS.with(|c| c.set(if abort { deadline.as_ns().max(1) } else { abort_at.map_or(0, |dl| dl.as_ns().max(1)) }));
+    DUE_NS.with(|c| {
+        c.set(if abort {
+            deadline.as_ns().max(1)
+        } else {
+            abort_at.map_or(0, |dl| dl.as_ns().max(1))
+        })
+    });
     set_armed(Some(deadline));
     let mut slots = shared.slots.lock().unwrap();
     slots.insert(
@@ -354,7 +379,11 @@ fn retag_timer(abort: bool, abort_after: Option<Duration>) {
     if let Some(slot) = shared.slots.lock().unwrap().get_mut(&globals::MyProcPid()) {
         slot.abort_flag = abort.then(globals::abort_pending_flag);
         slot.abort_at = abort_after.map(|d| (Deadline::after(d), globals::abort_pending_flag()));
-        let due = if abort { slot.deadline } else { slot.abort_at.map(|(dl, _)| dl) };
+        let due = if abort {
+            slot.deadline
+        } else {
+            slot.abort_at.map(|(dl, _)| dl)
+        };
         DUE_NS.with(|c| c.set(due.map_or(0, |dl| dl.as_ns().max(1))));
     }
 }
@@ -504,10 +533,13 @@ fn schedule_alarm(data: &TimeoutData, now: TimestampTz) {
     let abort_after = if abort_class(nearest_id) {
         None
     } else {
-        data.active_timeouts[1..data.num_active].iter().find(|&&id| abort_class(id)).map(|&id| {
-            let (s, us) = timestamp_difference(now, data.all_timeouts[id as usize].fin_time);
-            Duration::new(s as u64, (us.max(1) * 1000) as u32)
-        })
+        data.active_timeouts[1..data.num_active]
+            .iter()
+            .find(|&&id| abort_class(id))
+            .map(|&id| {
+                let (s, us) = timestamp_difference(now, data.all_timeouts[id as usize].fin_time);
+                Duration::new(s as u64, (us.max(1) * 1000) as u32)
+            })
     };
 
     // C's setitimer avoidance where its early SIGALRM stays harmless: a pending wake of the non-abort class (DUE_NS 0:
@@ -538,7 +570,11 @@ fn schedule_alarm(data: &TimeoutData, now: TimestampTz) {
     set_signal_pending(true);
 
     // C's setitimer FATAL branch has no analog: arming cannot fail.
-    arm_timer(Duration::new(secs as u64, (usecs * 1000) as u32), abort_class(nearest_id), abort_after);
+    arm_timer(
+        Duration::new(secs as u64, (usecs * 1000) as u32),
+        abort_class(nearest_id),
+        abort_after,
+    );
 }
 
 fn handle_sig_alarm() {
@@ -606,7 +642,10 @@ pub fn ProcessTimeoutInterrupt() {
     // check (the ProcessClientRead/WriteInterrupt SIGALRM rendering), so the
     // no-wake case must not clone the Arc.
     let posted = POSTED.with(|p| {
-        p.borrow().as_ref().filter(|a| a.load(Ordering::SeqCst)).map(Arc::clone)
+        p.borrow()
+            .as_ref()
+            .filter(|a| a.load(Ordering::SeqCst))
+            .map(Arc::clone)
     });
     if let Some(posted) = posted {
         // the timer thread raises `posted`, InterruptPending and the abort byte under the slots lock; taking it
@@ -623,7 +662,10 @@ pub fn ProcessTimeoutInterrupt() {
     // A kernel delivers an itimer that expired while the process was stopped
     // before the process runs again; a waiter that wakes past its deadline
     // must not get ahead of the timer thread's post.
-    if ARMED_DEADLINE.with(|c| c.get()).is_some_and(|d| d.expired()) {
+    if ARMED_DEADLINE
+        .with(|c| c.get())
+        .is_some_and(|d| d.expired())
+    {
         take_own_expired_wake();
         handle_sig_alarm();
     }
@@ -813,7 +855,9 @@ pub fn enable_timeouts(timeouts: &[EnableTimeoutParams]) {
 
 pub fn disable_timeout(id: TimeoutId, keep_indicator: bool) {
     debug_assert!(ALL_TIMEOUTS_INITIALIZED.with(|c| c.get()));
-    debug_assert!(DATA.with(|d| d.borrow().all_timeouts[id as usize].timeout_handler.is_some()));
+    debug_assert!(DATA.with(|d| d.borrow().all_timeouts[id as usize]
+        .timeout_handler
+        .is_some()));
 
     disable_alarm();
     DATA.with(|d| {

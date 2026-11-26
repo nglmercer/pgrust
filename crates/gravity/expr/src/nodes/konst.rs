@@ -31,8 +31,18 @@ pub struct ConstNode<'mcx> {
 
 impl<'mcx> ConstNode<'mcx> {
     pub fn new(value: NullableDatum, typ: Oid, typlen: i16, byval: bool) -> ConstNode<'mcx> {
-        let value = if byval && !value.isnull { NullableDatum::value(word_canon(typ, value.value)) } else { value };
-        ConstNode { value, typ, typlen, byval, _arena: PhantomData }
+        let value = if byval && !value.isnull {
+            NullableDatum::value(word_canon(typ, value.value))
+        } else {
+            value
+        };
+        ConstNode {
+            value,
+            typ,
+            typlen,
+            byval,
+            _arena: PhantomData,
+        }
     }
 
     pub fn is_null(&self) -> bool {
@@ -67,24 +77,45 @@ impl<'mcx> ConstNode<'mcx> {
     /// the program of one whose literal is not.
     pub fn text_empty(&self) -> Option<bool> {
         // SAFETY: a non-null varlena constant points at a live image.
-        (!self.byval && !self.value.isnull && self.typlen == -1).then(|| unsafe { text_is_empty(self.value.value.as_usize()) })
+        (!self.byval && !self.value.isnull && self.typlen == -1)
+            .then(|| unsafe { text_is_empty(self.value.value.as_usize()) })
     }
 
     /// `list_len` of this constant's image (`None`: NULL, by value, or an image the keys take by its bytes).
     pub fn list_len(&self) -> Option<usize> {
         // SAFETY: a non-null by-reference constant points at a live image of its type.
-        (!self.byval && !self.value.isnull).then(|| unsafe { list_len(self.value.value.as_usize()) }).flatten()
+        (!self.byval && !self.value.isnull)
+            .then(|| unsafe { list_len(self.value.value.as_usize()) })
+            .flatten()
     }
 
     /// The list's element count (`list_len`, else its walk over `elem`: an image the keys take by its bytes), not a bake.
     pub fn list_count(&self, elem: crate::nodes::array::ElemFacts) -> Option<usize> {
         let d = self.list();
-        (!d.isnull).then(|| self.list_len().or_else(|| crate::nodes::array::Walk::over(d.value, elem, &mut gravity_fn::Region::over(&mut [])).ok().map(|w| w.len()))).flatten()
+        (!d.isnull)
+            .then(|| {
+                self.list_len().or_else(|| {
+                    crate::nodes::array::Walk::over(
+                        d.value,
+                        elem,
+                        &mut gravity_fn::Region::over(&mut []),
+                    )
+                    .ok()
+                    .map(|w| w.len())
+                })
+            })
+            .flatten()
     }
 
     /// Every field, the value read (the key stream's walk, D341: a field added here breaks its build).
     pub fn fields(&self) -> (Oid, i16, bool, NullableDatum) {
-        let ConstNode { value: _, typ, typlen, byval, _arena: _ } = *self;
+        let ConstNode {
+            value: _,
+            typ,
+            typlen,
+            byval,
+            _arena: _,
+        } = *self;
         (typ, typlen, byval, self.read())
     }
 
@@ -109,7 +140,9 @@ pub unsafe fn list_len(image: usize) -> Option<usize> {
         _ => return None,
     };
     let ndim = hdr.cast::<i32>().read_unaligned();
-    (0..ndim.max(0) as usize).try_fold(if ndim <= 0 { 0 } else { 1usize }, |n, k| n.checked_mul(hdr.add(12 + 4 * k).cast::<i32>().read_unaligned().max(0) as usize))
+    (0..ndim.max(0) as usize).try_fold(if ndim <= 0 { 0 } else { 1usize }, |n, k| {
+        n.checked_mul(hdr.add(12 + 4 * k).cast::<i32>().read_unaligned().max(0) as usize)
+    })
 }
 
 /// NEW-72 entry C: whether the varlena image at `image` holds no bytes: a plain or short header of its own length alone. A
@@ -144,12 +177,29 @@ mod tests {
         let mut short = vec![((33u8) << 1) | 1]; // alloc: Cold
         short.extend_from_slice(&img[4..]);
         assert_eq!(unsafe { super::list_len(short.as_ptr() as usize) }, Some(3));
-        let empty: Vec<u8> = [{16 << 2 }, 0, 0, 23].iter().flat_map(|x: &i32| x.to_le_bytes()).collect(); // alloc: Cold
+        let empty: Vec<u8> = [{ 16 << 2 }, 0, 0, 23]
+            .iter()
+            .flat_map(|x: &i32| x.to_le_bytes())
+            .collect(); // alloc: Cold
         assert_eq!(unsafe { super::list_len(empty.as_ptr() as usize) }, Some(0));
-        let two: Vec<u8> = [{40 << 2 }, 2, 0, 23, 2, 3, 1, 1].iter().flat_map(|x: &i32| x.to_le_bytes()).collect(); // alloc: Cold
+        let two: Vec<u8> = [{ 40 << 2 }, 2, 0, 23, 2, 3, 1, 1]
+            .iter()
+            .flat_map(|x: &i32| x.to_le_bytes())
+            .collect(); // alloc: Cold
         assert_eq!(unsafe { super::list_len(two.as_ptr() as usize) }, Some(6));
         let compressed = [0x02u8, 0, 0, 0];
-        assert_eq!(unsafe { super::list_len(compressed.as_ptr() as usize) }, None);
-        assert_eq!((super::list_class(3), super::list_class(16), super::list_class(17), super::list_class(100_000)), (3, 16, 17, 17));
+        assert_eq!(
+            unsafe { super::list_len(compressed.as_ptr() as usize) },
+            None
+        );
+        assert_eq!(
+            (
+                super::list_class(3),
+                super::list_class(16),
+                super::list_class(17),
+                super::list_class(100_000)
+            ),
+            (3, 16, 17, 17)
+        );
     }
 }

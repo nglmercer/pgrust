@@ -1,4 +1,3 @@
-
 use crate::device::Device;
 
 pub const BLOOM_K_MAX: u32 = 16;
@@ -30,11 +29,27 @@ mod tests {
         for (width, k) in [(1u64, 4u32), (2, 4), (4, 5), (8, 6), (16, 7)] {
             assert_eq!(bloom_k(8192, width, &Device::WARM), k, "width {width}");
             let p = 1.0 / bloom_inverse_rate(8192, width, &Device::WARM);
-            assert!(0.5f64.powi(k as i32) <= p && p < 0.5f64.powi(k as i32 - 1), "width {width}: p* {p}");
+            assert!(
+                0.5f64.powi(k as i32) <= p && p < 0.5f64.powi(k as i32 - 1),
+                "width {width}: p* {p}"
+            );
         }
         assert!(bloom_k(8192, 4, &Device::COLD) > bloom_k(8192, 4, &Device::WARM));
-        let free = Device { seq_ns_per_byte: 0.0, ..Device::WARM };
+        let free = Device {
+            seq_ns_per_byte: 0.0,
+            ..Device::WARM
+        };
         assert_eq!(bloom_k(8192, 4, &free), BLOOM_K_MAX);
-        assert_eq!(bloom_k(8192, 4, &Device { seq_ns_per_byte: f64::NAN, ..Device::WARM }), 1);
+        assert_eq!(
+            bloom_k(
+                8192,
+                4,
+                &Device {
+                    seq_ns_per_byte: f64::NAN,
+                    ..Device::WARM
+                }
+            ),
+            1
+        );
     }
 }

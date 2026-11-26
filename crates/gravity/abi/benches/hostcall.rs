@@ -22,14 +22,36 @@ static COL1: [u64; ROWS] = [9; ROWS];
 struct Resident;
 
 trait DynSource {
-    fn window(&mut self, lanes: &mut [Lane], rows: &mut u32, pos: &mut ScanPos) -> Result<u32, Cow<'static, str>>;
+    fn window(
+        &mut self,
+        lanes: &mut [Lane],
+        rows: &mut u32,
+        pos: &mut ScanPos,
+    ) -> Result<u32, Cow<'static, str>>;
 }
 
 impl DynSource for Resident {
     #[inline(never)]
-    fn window(&mut self, lanes: &mut [Lane], rows: &mut u32, pos: &mut ScanPos) -> Result<u32, Cow<'static, str>> {
-        lanes[0] = Lane::byval(COL0.as_ptr() as *const u8, core::ptr::null(), 8, lane::REGION_ARENA, lane::id(lane::ID_ATTR, 1));
-        lanes[1] = Lane::byval(COL1.as_ptr() as *const u8, core::ptr::null(), 8, lane::REGION_ARENA, lane::id(lane::ID_ATTR, 2));
+    fn window(
+        &mut self,
+        lanes: &mut [Lane],
+        rows: &mut u32,
+        pos: &mut ScanPos,
+    ) -> Result<u32, Cow<'static, str>> {
+        lanes[0] = Lane::byval(
+            COL0.as_ptr() as *const u8,
+            core::ptr::null(),
+            8,
+            lane::REGION_ARENA,
+            lane::id(lane::ID_ATTR, 1),
+        );
+        lanes[1] = Lane::byval(
+            COL1.as_ptr() as *const u8,
+            core::ptr::null(),
+            8,
+            lane::REGION_ARENA,
+            lane::id(lane::ID_ATTR, 2),
+        );
         *rows = ROWS as u32;
         *pos = ScanPos::new(77, 1, 0);
         Ok(ROWS as u32)
@@ -147,7 +169,12 @@ struct OldTable {
     scratch: unsafe extern "C" fn(*mut u8, i64) -> i64,
 }
 
-static OLD: OldTable = OldTable { window: old_window, push: old_push, check: old_check, scratch: old_scratch };
+static OLD: OldTable = OldTable {
+    window: old_window,
+    push: old_push,
+    check: old_check,
+    scratch: old_scratch,
+};
 
 struct Rig {
     buf: Vec<u64>,
@@ -164,10 +191,24 @@ impl Rig {
         let mut buf = vec![0u64; (HEADER_SIZE + SITE_SIZE) / 8];
         let ctx = buf.as_mut_ptr() as *mut Ctx;
         let mut lanes = vec![Lane::NONE; 4];
-        let mut out = Box::new(Out { values: core::ptr::null_mut(), isnull: core::ptr::null_mut(), count: 0, cap: 64, region: core::ptr::null_mut(), region_cap: 0, region_len: 0 });
+        let mut out = Box::new(Out {
+            values: core::ptr::null_mut(),
+            isnull: core::ptr::null_mut(),
+            count: 0,
+            cap: 64,
+            region: core::ptr::null_mut(),
+            region_cap: 0,
+            region_len: 0,
+        });
         let mut prog = Box::new(ProgramBlock::NONE);
         let site = unsafe { (ctx as *mut u8).add(HEADER_SIZE) as *mut Site };
-        let mut inner = Box::new(OldInner { source: Box::new(Resident), err: None, site, lanes: [Lane::NONE; 4], pushes: 0 });
+        let mut inner = Box::new(OldInner {
+            source: Box::new(Resident),
+            err: None,
+            site,
+            lanes: [Lane::NONE; 4],
+            pushes: 0,
+        });
         let mut arena = vec![0u64; (1 << 20) / 8];
         let rig_byte = core::sync::atomic::AtomicU8::new(0);
         prog.push = Some(v2_push);
@@ -186,7 +227,15 @@ impl Rig {
             (*site).env = prog.env;
             (*site).state = site::site::STATE_OPEN;
         }
-        Rig { buf, lanes, out, prog, inner, arena, byte: rig_byte }
+        Rig {
+            buf,
+            lanes,
+            out,
+            prog,
+            inner,
+            arena,
+            byte: rig_byte,
+        }
     }
 
     fn ctx(&mut self) -> *mut Ctx {
@@ -215,15 +264,23 @@ fn hostcall_table() {
     let mut rig = Rig::new();
     let (ctx, site, env) = (rig.ctx(), rig.site(), rig.env());
     // Site.next
-    let src_only = ns("source work alone (2 lanes + rows + pos, dyn call)", ITERS, || {
-        let s = unsafe { &mut *site };
-        let mut acc = 0u64;
-        for _ in 0..ITERS {
-            let lanes = unsafe { core::slice::from_raw_parts_mut(s.lanes, 2) };
-            acc += rig.inner.source.window(lanes, &mut s.rows, &mut s.pos).unwrap() as u64;
-        }
-        core::hint::black_box(acc);
-    });
+    let src_only = ns(
+        "source work alone (2 lanes + rows + pos, dyn call)",
+        ITERS,
+        || {
+            let s = unsafe { &mut *site };
+            let mut acc = 0u64;
+            for _ in 0..ITERS {
+                let lanes = unsafe { core::slice::from_raw_parts_mut(s.lanes, 2) };
+                acc += rig
+                    .inner
+                    .source
+                    .window(lanes, &mut s.rows, &mut s.pos)
+                    .unwrap() as u64;
+            }
+            core::hint::black_box(acc);
+        },
+    );
     let old_next = ns("Site.next, v3 guard+table+dyn+marshal", ITERS, || {
         let mut acc = 0i64;
         for _ in 0..ITERS {
@@ -323,46 +380,64 @@ fn hostcall_table() {
     });
     let end = unsafe { (*ctx).arena_end } as usize;
     let base = end - (1 << 20);
-    let warm_reg = ns("bump loop, cursor in a register, rewound in place", ITERS, || {
-        let mut acc = 0usize;
-        let (mut a, mut b, mut c, mut d) = (1usize, 2usize, 3usize, 4usize);
-        let mut cur = base;
-        for _ in 0..ITERS {
-            if cur + 8 > end {
-                cur = core::hint::black_box(base);
+    let warm_reg = ns(
+        "bump loop, cursor in a register, rewound in place",
+        ITERS,
+        || {
+            let mut acc = 0usize;
+            let (mut a, mut b, mut c, mut d) = (1usize, 2usize, 3usize, 4usize);
+            let mut cur = base;
+            for _ in 0..ITERS {
+                if cur + 8 > end {
+                    cur = core::hint::black_box(base);
+                }
+                let p = cur;
+                cur += 8;
+                a = a.wrapping_mul(31).wrapping_add(p);
+                b ^= a.rotate_left(7);
+                c = c.wrapping_add(b >> 3);
+                d = d.wrapping_mul(17) ^ c;
+                acc ^= d;
             }
-            let p = cur;
-            cur += 8;
-            a = a.wrapping_mul(31).wrapping_add(p);
-            b ^= a.rotate_left(7);
-            c = c.wrapping_add(b >> 3);
-            d = d.wrapping_mul(17) ^ c;
-            acc ^= d;
-        }
-        core::hint::black_box((acc, a, b, c, d, cur));
-    });
-    let cold_reg = ns("bump loop, cursor in a register, cold arena_grow at exhaustion", ITERS, || {
-        let mut acc = 0usize;
-        let (mut a, mut b, mut c, mut d) = (1usize, 2usize, 3usize, 4usize);
-        let mut cur = base;
-        for _ in 0..ITERS {
-            if cur + 8 > end {
-                unsafe { gravity_abi::program::arena_grow(ctx, 8) };
-                cur = unsafe { (*ctx).arena_cur } as usize;
+            core::hint::black_box((acc, a, b, c, d, cur));
+        },
+    );
+    let cold_reg = ns(
+        "bump loop, cursor in a register, cold arena_grow at exhaustion",
+        ITERS,
+        || {
+            let mut acc = 0usize;
+            let (mut a, mut b, mut c, mut d) = (1usize, 2usize, 3usize, 4usize);
+            let mut cur = base;
+            for _ in 0..ITERS {
+                if cur + 8 > end {
+                    unsafe { gravity_abi::program::arena_grow(ctx, 8) };
+                    cur = unsafe { (*ctx).arena_cur } as usize;
+                }
+                let p = cur;
+                cur += 8;
+                a = a.wrapping_mul(31).wrapping_add(p);
+                b ^= a.rotate_left(7);
+                c = c.wrapping_add(b >> 3);
+                d = d.wrapping_mul(17) ^ c;
+                acc ^= d;
             }
-            let p = cur;
-            cur += 8;
-            a = a.wrapping_mul(31).wrapping_add(p);
-            b ^= a.rotate_left(7);
-            c = c.wrapping_add(b >> 3);
-            d = d.wrapping_mul(17) ^ c;
-            acc ^= d;
-        }
-        core::hint::black_box((acc, a, b, c, d, cur));
-    });
-    println!("hostcall cold call, register cursor: loop cost {:.3} ns/iter (one call per 131072 bumps)", cold_reg - warm_reg);
+            core::hint::black_box((acc, a, b, c, d, cur));
+        },
+    );
+    println!(
+        "hostcall cold call, register cursor: loop cost {:.3} ns/iter (one call per 131072 bumps)",
+        cold_reg - warm_reg
+    );
     println!("hostcall table (ns): next v3 {old_next:.2} v2 {new_next:.2} (source alone {src_only:.2}); push v3 {old_push_ns:.2} v2 {new_push_ns:.2}; cancel v3 {old_check_ns:.2} v2 {new_check_ns:.2}; arena v3 {old_scratch_ns:.2} v2 {new_bump_ns:.2}; cold-call loop cost {:.3} ns/iter", cold_loop - warm_loop);
     let _ = (&rig.lanes, &rig.out, &rig.prog);
-    assert!(new_next - src_only <= 8.0 || cfg!(debug_assertions), "Site.next over the source's own work: {:.2} ns > 8", new_next - src_only);
-    assert!(new_push_ns <= 5.0 || cfg!(debug_assertions), "Program.push empty: {new_push_ns:.2} ns > 5");
+    assert!(
+        new_next - src_only <= 8.0 || cfg!(debug_assertions),
+        "Site.next over the source's own work: {:.2} ns > 8",
+        new_next - src_only
+    );
+    assert!(
+        new_push_ns <= 5.0 || cfg!(debug_assertions),
+        "Program.push empty: {new_push_ns:.2} ns > 5"
+    );
 }

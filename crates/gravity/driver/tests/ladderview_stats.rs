@@ -31,7 +31,15 @@ fn cancel_in_flight() -> bool {
 fn protected() -> u64 {
     0
 }
-static ACTS: mcx::ladder::Acts = mcx::ladder::Acts { read, reclaimable, reclaim, cancel, cancel_in_flight, protected, evict_protected: reclaim };
+static ACTS: mcx::ladder::Acts = mcx::ladder::Acts {
+    read,
+    reclaimable,
+    reclaim,
+    cancel,
+    cancel_in_flight,
+    protected,
+    evict_protected: reclaim,
+};
 
 fn armed(mode: u8) -> std::sync::MutexGuard<'static, ()> {
     let g = LOCK.lock().unwrap_or_else(|p| p.into_inner());
@@ -55,7 +63,15 @@ fn disarm() {
 fn full_until(after: Duration) -> std::thread::JoinHandle<()> {
     let (tx, rx) = std::sync::mpsc::channel();
     let h = std::thread::spawn(move || {
-        let admit = || POOL.admit_need_until(Grant::of(64 * MIB), &|g| g.bytes, Duration::from_secs(5), &|| false).expect("a statement");
+        let admit = || {
+            POOL.admit_need_until(
+                Grant::of(64 * MIB),
+                &|g| g.bytes,
+                Duration::from_secs(5),
+                &|| false,
+            )
+            .expect("a statement")
+        };
         let others = (admit(), admit());
         tx.send(()).expect("admitted");
         std::thread::sleep(after);
@@ -83,7 +99,14 @@ fn admission_waits_then_refuses(mode: u8) {
     let before = stats::site(Site::Admit);
     let giver = full_until(Duration::from_millis(300));
     let t0 = Instant::now();
-    let admitted = POOL.admit_need_until(Grant::of(64 * MIB), &|g| g.bytes, Duration::from_secs(5), &|| false).expect("admitted");
+    let admitted = POOL
+        .admit_need_until(
+            Grant::of(64 * MIB),
+            &|g| g.bytes,
+            Duration::from_secs(5),
+            &|| false,
+        )
+        .expect("admitted");
     let waited = t0.elapsed();
     giver.join().expect("giver");
     drop(admitted);
@@ -91,20 +114,47 @@ fn admission_waits_then_refuses(mode: u8) {
     let covered = last(Site::Admit).expect("the wait is in the ring");
     // the pool stays full past the refused one's bound
     let giver = full_until(Duration::from_millis(1500));
-    let refused = POOL.admit_need_until(Grant::of(64 * MIB), &|g| g.bytes, Duration::from_millis(200), &|| false);
+    let refused = POOL.admit_need_until(
+        Grant::of(64 * MIB),
+        &|g| g.bytes,
+        Duration::from_millis(200),
+        &|| false,
+    );
     let refused_ep = last(Site::Admit).expect("the refusal is in the ring");
     giver.join().expect("giver");
     let after = stats::site(Site::Admit);
     disarm();
-    assert!(waited >= Duration::from_millis(250), "it waited for the bytes given back ({waited:?})");
-    assert_eq!((mid.waits, mid.refusals), (before.waits + 1, before.refusals), "one wait, no refusal");
-    assert!(mid.wait_ns - before.wait_ns >= 250_000_000, "its wait's length is counted ({} ns)", mid.wait_ns - before.wait_ns);
+    assert!(
+        waited >= Duration::from_millis(250),
+        "it waited for the bytes given back ({waited:?})"
+    );
+    assert_eq!(
+        (mid.waits, mid.refusals),
+        (before.waits + 1, before.refusals),
+        "one wait, no refusal"
+    );
+    assert!(
+        mid.wait_ns - before.wait_ns >= 250_000_000,
+        "its wait's length is counted ({} ns)",
+        mid.wait_ns - before.wait_ns
+    );
     assert!(mid.wait_max_ns >= 250_000_000);
     assert_eq!(covered.outcome, Outcome::Covered);
     assert_eq!(covered.need, 64 * MIB);
-    assert_eq!(covered.ran != 0, mode == mcx::ladder::ON, "the climb's rungs are the episode's with the ladder on only");
-    assert!(refused.is_err(), "the full pool refused the second at its bound");
-    assert_eq!((after.waits, after.refusals), (mid.waits + 1, mid.refusals + 1), "one more wait, refused");
+    assert_eq!(
+        covered.ran != 0,
+        mode == mcx::ladder::ON,
+        "the climb's rungs are the episode's with the ladder on only"
+    );
+    assert!(
+        refused.is_err(),
+        "the full pool refused the second at its bound"
+    );
+    assert_eq!(
+        (after.waits, after.refusals),
+        (mid.waits + 1, mid.refusals + 1),
+        "one more wait, refused"
+    );
     assert!(after.misses >= after.waits);
     assert_eq!(refused_ep.outcome, Outcome::Refused);
     assert!(refused_ep.seq > covered.seq);
@@ -139,11 +189,28 @@ fn with_the_ladder_on_a_draws_wait_its_last_try_and_its_refusal_are_counted() {
     drop(kept);
     let after = stats::site(Site::Scratch);
     disarm();
-    assert_eq!((mid.waits, mid.refusals), (before.waits + 1, before.refusals));
-    assert!(mid.wait_ns - before.wait_ns >= 250_000_000, "its wait's length is counted");
+    assert_eq!(
+        (mid.waits, mid.refusals),
+        (before.waits + 1, before.refusals)
+    );
+    assert!(
+        mid.wait_ns - before.wait_ns >= 250_000_000,
+        "its wait's length is counted"
+    );
     assert_eq!((covered.outcome, covered.need), (Outcome::Covered, 2 * MIB));
-    assert!(covered.ran & (1 << mempolicy::ladder::Rung::EvictElastic as u16) != 0, "R2a ran in its climb: {:#x}", covered.ran);
-    assert_eq!((covered.read, covered.line), (2048 * MIB, 1024 * MIB), "the ladder's read and line at its start");
-    assert_eq!((after.waits, after.refusals, after.last_tries), (mid.waits + 1, mid.refusals + 1, mid.last_tries + 1));
+    assert!(
+        covered.ran & (1 << mempolicy::ladder::Rung::EvictElastic as u16) != 0,
+        "R2a ran in its climb: {:#x}",
+        covered.ran
+    );
+    assert_eq!(
+        (covered.read, covered.line),
+        (2048 * MIB, 1024 * MIB),
+        "the ladder's read and line at its start"
+    );
+    assert_eq!(
+        (after.waits, after.refusals, after.last_tries),
+        (mid.waits + 1, mid.refusals + 1, mid.last_tries + 1)
+    );
     assert_eq!(refused.outcome, Outcome::Refused);
 }

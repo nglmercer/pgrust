@@ -11,7 +11,9 @@ pub struct LaneSet {
 
 impl LaneSet {
     pub const fn new_in(a: ArenaRef) -> LaneSet {
-        LaneSet { words: ArenaVec::new_in(a) }
+        LaneSet {
+            words: ArenaVec::new_in(a),
+        }
     }
 
     /// The lanes of `mask` (bit `k` = lane `k`): the small sets tests and hand programs write.
@@ -25,7 +27,9 @@ impl LaneSet {
 
     pub fn from_words_in(a: ArenaRef, words: &[u64]) -> LaneSet {
         let n = words.iter().rposition(|&w| w != 0).map_or(0, |i| i + 1);
-        let mut s = LaneSet { words: ArenaVec::with_capacity_in(n, a) };
+        let mut s = LaneSet {
+            words: ArenaVec::with_capacity_in(n, a),
+        };
         s.words.extend_from_slice(&words[..n]);
         s
     }
@@ -75,7 +79,8 @@ impl LaneSet {
 
     /// `mask` names the same lanes (bit `k` = lane `k`; lanes past 64 make it false).
     pub fn eq_mask(&self, mask: u64) -> bool {
-        self.words.first().copied().unwrap_or(0) == mask && self.words.iter().skip(1).all(|&w| w == 0)
+        self.words.first().copied().unwrap_or(0) == mask
+            && self.words.iter().skip(1).all(|&w| w == 0)
     }
 
     fn trim(&mut self) {

@@ -13,32 +13,56 @@ use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::Block;
 use mcx::{CollectIn, PgBox};
 
+use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::face::step::{ExprFace, StepMech};
 use crate::frame::env::Env;
 use crate::frame::px::{ExId, Px};
 use crate::frame::row::{Carry, RowVals};
 use crate::graph::Gx;
-use crate::admit::refusal::{Reason, ShapeWhy};
 
 const WRITES: &str = "a union's arm under a one-time gate in a nest inner (S2d) in a statement that writes or locks rows (EvalPlanQual would recheck the gate over the new row's parameters) (D2015)";
 
 /// inner_arms.rs `admit_arm`'s hook: a gated arm refuses a writing or locking statement.
 pub(crate) fn admit(gx: &Gx<'_, '_>, body: &[Op<'_>], node: i32) {
-    if body.iter().any(|op| matches!(op, Op::Gate(_))) && gx.pipelines().iter().any(crate::rerun::inner_arms_index::writes) {
-        crate::refuse!(node, Reason::Shape { why: ShapeWhy(WRITES) })
+    if body.iter().any(|op| matches!(op, Op::Gate(_)))
+        && gx
+            .pipelines()
+            .iter()
+            .any(crate::rerun::inner_arms_index::writes)
+    {
+        crate::refuse!(
+            node,
+            Reason::Shape {
+                why: ShapeWhy(WRITES)
+            }
+        )
     }
 }
 
 /// Feed `kf`'s gates (its ops before the Feed), compiled under the maker's identity: `(node, qual)`, the upper Result's list
 /// first, each list in its order (D1915).
-pub(crate) fn compile<'p>(px: &mut Px<'_, 'p>, fp: &PipelineNode<'p>, kf: usize) -> Vec<(i32, ExId)> {
+pub(crate) fn compile<'p>(
+    px: &mut Px<'_, 'p>,
+    fp: &PipelineNode<'p>,
+    kf: usize,
+) -> Vec<(i32, ExId)> {
     let mut gates = Vec::new(); // alloc: Program
     for (j, op) in fp.ops[..fp.ops.len() - 1].iter().enumerate() {
         if let Op::Gate(g) = op {
-            let (n, ex): (i32, &'static ExprFace) = (crate::rerun::inner::op_node(fp, j), crate::frame::iface::expr_face(&fp.node_id));
+            let (n, ex): (i32, &'static ExprFace) = (
+                crate::rerun::inner::op_node(fp, j),
+                crate::frame::iface::expr_face(&fp.node_id),
+            );
             let mcx = px.mcx();
-            let quals = g.as_list().map_or_else(|| mcx::pg_vec![in mcx; *g], |l| l.iter().collect_in(mcx));
-            gates.splice(0..0, quals.into_iter().map(|q| (n, ex.0.compile_at(px, (kf, j), q, None, n)))); // alloc: Program
+            let quals = g
+                .as_list()
+                .map_or_else(|| mcx::pg_vec![in mcx; *g], |l| l.iter().collect_in(mcx));
+            gates.splice(
+                0..0,
+                quals
+                    .into_iter()
+                    .map(|q| (n, ex.0.compile_at(px, (kf, j), q, None, n))),
+            ); // alloc: Program
         }
     }
     gates
@@ -46,11 +70,25 @@ pub(crate) fn compile<'p>(px: &mut Px<'_, 'p>, fp: &PipelineNode<'p>, kf: usize)
 
 /// The arm's gates at its open, each while every earlier one passed: a false or NULL one branches to the block returned,
 /// which `shut` joins to the arm's end path. An arm with no gate makes no block (its IR is S2c's).
-pub(crate) fn check(b: &mut FunctionBuilder<'_>, env: &mut Env, gates: &[(i32, ExId)]) -> Option<Block> {
+pub(crate) fn check(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    gates: &[(i32, ExId)],
+) -> Option<Block> {
     if gates.is_empty() {
         return None;
     }
-    let (l_shut, none) = (b.create_block(&[]), RowVals { row: crate::cell::Row::new_in(env.mcx), vals: mcx::PgVec::new_in(env.mcx), cols: mcx::PgVec::new_in(env.mcx), carry: Carry::new(env.zero, env.mcx), next: env.zero, at: env.zero });
+    let (l_shut, none) = (
+        b.create_block(&[]),
+        RowVals {
+            row: crate::cell::Row::new_in(env.mcx),
+            vals: mcx::PgVec::new_in(env.mcx),
+            cols: mcx::PgVec::new_in(env.mcx),
+            carry: Carry::new(env.zero, env.mcx),
+            next: env.zero,
+            at: env.zero,
+        },
+    );
     for &(n, q) in gates {
         let ex: &'static ExprFace = crate::frame::iface::expr_face(&n);
         let (p, l_more) = (ex.0.pred(b, env, n, &none, q), b.create_block(&[]));
@@ -63,7 +101,9 @@ pub(crate) fn check(b: &mut FunctionBuilder<'_>, env: &mut Env, gates: &[(i32, E
 /// D3829: op `j` of arm body `body` is a hashed SubPlan's probe only the arm's one-time gates read. PG places it in the
 /// Result's resconstantqual, which reads no column of the arm, so the probe's left side is the nest's parameters only.
 pub(crate) fn gate_sub(body: &[Op<'_>], j: usize) -> bool {
-    let Some(Op::SubPlan(d)) = body.get(j) else { return false };
+    let Some(Op::SubPlan(d)) = body.get(j) else {
+        return false;
+    };
     if !matches!(d.form, SubForm::Hashed { .. }) {
         return false;
     }
@@ -84,7 +124,12 @@ pub(crate) fn gate_sub(body: &[Op<'_>], j: usize) -> bool {
 /// D3829: `check` with each probe of `lenders` lent: such a probe is a `Source` one (site.rs `gated`: read by gates
 /// alone), lent from its prologue, which a lender gets only here (the inner's prologue runs the arm's steps' alone, D4062),
 /// so it runs here and its entries go after the check.
-pub(crate) fn check_lent(b: &mut FunctionBuilder<'_>, env: &mut Env, lenders: &[PgBox<'_, dyn StepMech + '_>], gates: &[(i32, ExId)]) -> Option<Block> {
+pub(crate) fn check_lent(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    lenders: &[PgBox<'_, dyn StepMech + '_>],
+    gates: &[(i32, ExId)],
+) -> Option<Block> {
     let (held, x) = (env.subplans.len(), env.x);
     lenders.iter().for_each(|s| s.prologue(b, env, &x));
     let shut = check(b, env, gates);

@@ -5,7 +5,12 @@ use gravity_parallel::{install_pools, place, placed, FirstError, Job, MorselSour
 struct Idle;
 
 impl Pool for Idle {
-    fn run(&self, _width: u16, _claims: &dyn MorselSource, _job: &Job<'_>) -> Result<(), FirstError> {
+    fn run(
+        &self,
+        _width: u16,
+        _claims: &dyn MorselSource,
+        _job: &Job<'_>,
+    ) -> Result<(), FirstError> {
         Ok(())
     }
 }
@@ -24,7 +29,11 @@ fn a_nested_placement_restores_the_outer_index() {
         let c = place();
         assert_eq!((c.idx, placed()), (0, 0), "a tie goes to the lowest index");
     }
-    assert_eq!(placed(), 1, "the nested placement's drop restores the outer's index, not 0");
+    assert_eq!(
+        placed(),
+        1,
+        "the nested placement's drop restores the outer's index, not 0"
+    );
     assert_eq!(gravity_parallel::inflight(), vec![1, 1]);
     drop(b);
     assert_eq!(placed(), 0);

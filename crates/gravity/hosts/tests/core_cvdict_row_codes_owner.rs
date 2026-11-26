@@ -34,9 +34,14 @@ fn verbatim_fixture() -> BuiltFixture {
         db: 5,
         relfilenumber: 7331,
         schema: vec![text_col(1)],
-        oracle: vec![(0..ROWS).map(|i| Some(OracleVal::Bytes(value(i)))).collect()],
+        oracle: vec![(0..ROWS)
+            .map(|i| Some(OracleVal::Bytes(value(i))))
+            .collect()],
         plans: vec![],
-        policy: PartCutPolicy { max_rows: PART_ROWS, ..PartCutPolicy::default() },
+        policy: PartCutPolicy {
+            max_rows: PART_ROWS,
+            ..PartCutPolicy::default()
+        },
     };
     let cands = CodecCandidates::new(ColumnPosture::default());
     let sources: [&dyn CandidateSource; 2] = [&cands, &ReferenceCandidates];
@@ -51,8 +56,14 @@ fn verbatim_fixture() -> BuiltFixture {
     w.publish(&mut vfs, &probe).expect("publish");
     probe.mark(fxid, TxnVerdict::Committed);
     let files = vfs.snapshot_dir(&fx.dir);
-    let manifest = effective_manifest(&mut vfs, &fx.dir, &probe, None).expect("effective").expect("committed generation");
-    BuiltFixture { fx, files, manifest }
+    let manifest = effective_manifest(&mut vfs, &fx.dir, &probe, None)
+        .expect("effective")
+        .expect("committed generation");
+    BuiltFixture {
+        fx,
+        files,
+        manifest,
+    }
 }
 
 /// Each part's row codes, every part's dictionary built now under `owner` (`ino`: the parts' inode numbers, a fresh part
@@ -61,13 +72,25 @@ fn codes(bf: &BuiltFixture, ino: u64, owner: BuildOwner) -> Vec<Vec<u32>> {
     let binding = pgrc_am::scan::codec_binding();
     let mut out = Vec::new();
     for (i, rec) in bf.manifest.parts.iter().enumerate() {
-        let part = open_part_bytes(bf.files.get(&part_file_name(rec.part_no)).expect("part file"), ino + i as u64).expect("open part");
+        let part = open_part_bytes(
+            bf.files
+                .get(&part_file_name(rec.part_no))
+                .expect("part file"),
+            ino + i as u64,
+        )
+        .expect("open part");
         let mut cur = StreamCursor::open(Arc::clone(&part), binding, 1, 0).expect("cursor");
         let mut scratch = TextScratch::new();
         scratch.set_owner(owner);
-        let t = row_codes(&part, &mut cur, 1, &mut scratch, None).map_err(|e| format!("{e:?}")).expect("built");
+        let t = row_codes(&part, &mut cur, 1, &mut scratch, None)
+            .map_err(|e| format!("{e:?}"))
+            .expect("built");
         let r = t.ranks().expect("a verbatim part's ranks");
-        out.push((0..cur.granule_count()).flat_map(|lg| r.granule_codes(lg).to_vec()).collect());
+        out.push(
+            (0..cur.granule_count())
+                .flat_map(|lg| r.granule_codes(lg).to_vec())
+                .collect(),
+        );
     }
     out
 }
@@ -82,18 +105,28 @@ fn a_verbatim_parts_dictionary_build_is_its_owners_while_it_runs() {
         memledger::bind_backend(3976, 9976);
         memledger::statement_begin();
         let a = Acct::backend(3976);
-        let st = Owner::Statement { acct: a, stmt: memledger::running_statement(a) };
+        let st = Owner::Statement {
+            acct: a,
+            stmt: memledger::running_statement(a),
+        };
         let slot = memledger::charge::op_begin(st, Kind::TopK as u32, 0);
         let before = usage(slot).held;
         let charged = codes(&bf2, 4_431_100, Some((slot, Kind::TopK)));
-        assert_eq!(usage(slot).held, before, "nothing left on the owner after the builds");
+        assert_eq!(
+            usage(slot).held,
+            before,
+            "nothing left on the owner after the builds"
+        );
         let mut peak = 0;
         memledger::for_each_kind_row(|r| {
             if r.acct == a && r.kind == Kind::TopK {
                 peak = r.peak_bytes;
             }
         });
-        assert!(peak >= PART_ROWS * 199, "a part's copied column on its owner at the build's peak: {peak}");
+        assert!(
+            peak >= PART_ROWS * 199,
+            "a part's copied column on its owner at the build's peak: {peak}"
+        );
         assert_eq!(charged, plain, "the same codes as with no owner");
         memledger::charge::op_end(slot);
         let _ = memledger::statement_end();

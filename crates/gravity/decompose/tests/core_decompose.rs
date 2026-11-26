@@ -18,7 +18,8 @@ fn fixtures() -> Vec<PathBuf> {
 
 /// Every fixture's graph text, decomposed once per process on all cores, in fixture order.
 fn graphs() -> &'static [(PathBuf, String, Vec<Kind>, Option<Kind>)] {
-    static ALL: std::sync::OnceLock<Vec<(PathBuf, String, Vec<Kind>, Option<Kind>)>> = std::sync::OnceLock::new();
+    static ALL: std::sync::OnceLock<Vec<(PathBuf, String, Vec<Kind>, Option<Kind>)>> =
+        std::sync::OnceLock::new();
     ALL.get_or_init(|| {
         let fx = fixtures();
         harness::par_map(&fx, |f| {
@@ -55,7 +56,10 @@ fn every_fixture_reproduces_its_golden() {
         let g = dir("golden").join(f.with_extension("graph").file_name().unwrap());
         stats.check(&g, &harness::fixture_name(f), got);
     }
-    assert!(stats.loaded > 0 || harness::filter().is_some(), "no fixtures under tests/plans");
+    assert!(
+        stats.loaded > 0 || harness::filter().is_some(),
+        "no fixtures under tests/plans"
+    );
     stats.finish();
 }
 
@@ -67,7 +71,11 @@ fn every_golden_has_a_fixture() {
     let mut orphans = Vec::new();
     for e in fs::read_dir(dir("golden")).unwrap() {
         let p = e.unwrap().path();
-        if p.extension().is_some_and(|x| x == "graph") && !dir("plans").join(p.with_extension("plan").file_name().unwrap()).exists() {
+        if p.extension().is_some_and(|x| x == "graph")
+            && !dir("plans")
+                .join(p.with_extension("plan").file_name().unwrap())
+                .exists()
+        {
             orphans.push(p);
         }
     }
@@ -94,19 +102,35 @@ fn coverage_histogram() {
             Some(k) => *refused.entry(k.name()).or_default() += 1,
         }
     }
-    println!("served {served} / refused {}", refused.values().sum::<usize>());
+    println!(
+        "served {served} / refused {}",
+        refused.values().sum::<usize>()
+    );
     println!("mapped by kind: {mapped:?}");
     println!("refused by kind: {refused:?}");
-    for (k, _) in gravity_decompose::LEDGER.iter().filter(|(k, _)| gravity_decompose::ledger::is_mapped(*k)) {
-        if gravity_decompose::ledger::gated_by(*k).is_some_and(|g| !gravity_decompose::ledger::is_mapped(g)) || gravity_decompose::ledger::unplanned(*k) {
+    for (k, _) in gravity_decompose::LEDGER
+        .iter()
+        .filter(|(k, _)| gravity_decompose::ledger::is_mapped(*k))
+    {
+        if gravity_decompose::ledger::gated_by(*k)
+            .is_some_and(|g| !gravity_decompose::ledger::is_mapped(g))
+            || gravity_decompose::ledger::unplanned(*k)
+        {
             continue;
         }
-        assert!(mapped.contains_key(k.name()), "mapped kind {} appears in no served golden", k.name());
+        assert!(
+            mapped.contains_key(k.name()),
+            "mapped kind {} appears in no served golden",
+            k.name()
+        );
     }
     for k in refused.keys() {
         // Only the lookup matters: the name must be a known kind. (The former `!is_mapped || true` assertion could never
         // fail, so it is dropped rather than kept as if it checked something.)
- Kind::ALL.iter().find(|x| x.name() == *k).unwrap_or_else(|| panic!("refused kind {k} is unknown"));
+        Kind::ALL
+            .iter()
+            .find(|x| x.name() == *k)
+            .unwrap_or_else(|| panic!("refused kind {k} is unknown"));
     }
 }
 
@@ -117,7 +141,12 @@ fn loader_refuses_an_index_row_past_keys() {
     let keys: Vec<String> = (1..=32).map(|i| i.to_string()).collect();
     assert_eq!(facts.line(&format!("idx 5 rel=1 keys={} opts=0 unique=f am=btree partial=f deferrable=f excl=f primary=f nkeyatts=32", keys.join(","))), Ok(true));
     let keys: Vec<String> = (1..=33).map(|i| i.to_string()).collect();
-    let err = facts.line(&format!("idx 6 rel=1 keys={} opts=0 unique=f am=btree partial=f", keys.join(","))).unwrap_err();
+    let err = facts
+        .line(&format!(
+            "idx 6 rel=1 keys={} opts=0 unique=f am=btree partial=f",
+            keys.join(",")
+        ))
+        .unwrap_err();
     assert!(err.contains("index 6: more than 32 key columns"), "{err}");
 }
 
@@ -126,16 +155,50 @@ fn loader_refuses_an_index_row_past_keys() {
 #[test]
 fn loader_reads_trigext_lines() {
     use gravity_decompose::catalog::Facts;
-    use gravity_decompose::ops::modifytable::trig_facts::{TrigExt, TRIG_DELETE, TRIG_INSERT, TRIG_UPDATE};
+    use gravity_decompose::ops::modifytable::trig_facts::{
+        TrigExt, TRIG_DELETE, TRIG_INSERT, TRIG_UPDATE,
+    };
     let mut facts = corpus::FixtureFacts::default();
-    assert_eq!(facts.line("trigext 16390 before=- after=- instead=- stmt=- trans=- internal=- defer=- rules=f"), Ok(true));
-    assert_eq!(facts.line("trigext 16400 before=iu after=d instead=- stmt=iud trans=d internal=d defer=- rules=t"), Ok(true));
+    assert_eq!(
+        facts.line(
+            "trigext 16390 before=- after=- instead=- stmt=- trans=- internal=- defer=- rules=f"
+        ),
+        Ok(true)
+    );
+    assert_eq!(
+        facts.line(
+            "trigext 16400 before=iu after=d instead=- stmt=iud trans=d internal=d defer=- rules=t"
+        ),
+        Ok(true)
+    );
     assert_eq!(facts.trig_ext(16390), TrigExt::NONE);
     let t = facts.trig_ext(16400);
-    assert_eq!((t.before_row, t.after_row, t.instead_row, t.statement, t.transition, t.internal, t.deferrable, t.known),
-        (TRIG_INSERT | TRIG_UPDATE, TRIG_DELETE, 0, TRIG_INSERT | TRIG_UPDATE | TRIG_DELETE, TRIG_DELETE, TRIG_DELETE, 0, true));
+    assert_eq!(
+        (
+            t.before_row,
+            t.after_row,
+            t.instead_row,
+            t.statement,
+            t.transition,
+            t.internal,
+            t.deferrable,
+            t.known
+        ),
+        (
+            TRIG_INSERT | TRIG_UPDATE,
+            TRIG_DELETE,
+            0,
+            TRIG_INSERT | TRIG_UPDATE | TRIG_DELETE,
+            TRIG_DELETE,
+            TRIG_DELETE,
+            0,
+            true
+        )
+    );
     assert_eq!(facts.trig_ext(16401), TrigExt::UNKNOWN);
-    let err = facts.line("trigext 16402 before=x after=- instead=- stmt=- trans=- internal=- defer=- rules=f").unwrap_err();
+    let err = facts
+        .line("trigext 16402 before=x after=- instead=- stmt=- trans=- internal=- defer=- rules=f")
+        .unwrap_err();
     assert!(err.contains("bad trigext before="), "{err}");
 }
 
@@ -146,13 +209,34 @@ fn loader_reads_func_lines() {
     use gravity_decompose::catalog::Facts;
     use gravity_decompose::effects::{Parallel, Volatility};
     let mut facts = corpus::FixtureFacts::default();
-    assert_eq!(facts.line("func 16432 vol=s strict=t leakproof=f parallel=r retset=f nargs=1 lang=14 nodearg=f"), Ok(true));
+    assert_eq!(
+        facts.line(
+            "func 16432 vol=s strict=t leakproof=f parallel=r retset=f nargs=1 lang=14 nodearg=f"
+        ),
+        Ok(true)
+    );
     let f = facts.func(16432).expect("the line's props");
-    assert_eq!((f.volatility, f.strict, f.leakproof, f.parallel), (Volatility::Stable, true, false, Parallel::Restricted));
-    assert_eq!((facts.funcs[0].retset, facts.funcs[0].nargs, facts.funcs[0].lang, facts.funcs[0].node_arg), (false, 1, 14, false));
-    assert_eq!(facts.func(1066).map(|f| f.volatility), Some(Volatility::Immutable));
+    assert_eq!(
+        (f.volatility, f.strict, f.leakproof, f.parallel),
+        (Volatility::Stable, true, false, Parallel::Restricted)
+    );
+    assert_eq!(
+        (
+            facts.funcs[0].retset,
+            facts.funcs[0].nargs,
+            facts.funcs[0].lang,
+            facts.funcs[0].node_arg
+        ),
+        (false, 1, 14, false)
+    );
+    assert_eq!(
+        facts.func(1066).map(|f| f.volatility),
+        Some(Volatility::Immutable)
+    );
     assert_eq!(facts.func(16433), None);
-    let err = facts.line("func 16434 vol=s strict=x leakproof=f parallel=r retset=f nargs=1 lang=14 nodearg=f").unwrap_err();
+    let err = facts
+        .line("func 16434 vol=s strict=x leakproof=f parallel=r retset=f nargs=1 lang=14 nodearg=f")
+        .unwrap_err();
     assert!(err.contains("bad func strict="), "{err}");
 }
 
@@ -160,5 +244,9 @@ fn loader_reads_func_lines() {
 /// env!()'s path baked in at compile time: a test binary reused from another checkout would read that checkout's files.
 fn manifest_dir() -> &'static std::path::Path {
     static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| std::env::var_os("CARGO_MANIFEST_DIR").map(Into::into).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)"))
+    DIR.get_or_init(|| {
+        std::env::var_os("CARGO_MANIFEST_DIR")
+            .map(Into::into)
+            .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+    })
 }

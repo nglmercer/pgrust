@@ -11,6 +11,7 @@
 use gravity_decompose::ops::shared::agg::GroupForm;
 use mcx::PgBox;
 
+use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::face::end::EndMech;
 use crate::face::kinds::KindId;
 use crate::face::source::SourceMech;
@@ -18,11 +19,14 @@ use crate::face::step::StepMech;
 use crate::frame::frame::{EndMaker, SourceMaker, StepMaker};
 use crate::frame::iface::kind_impl;
 use crate::frame::px::Px;
-use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::ops::Table;
 
 pub(crate) const ROWS: Table = Table {
-    kinds: &[(KindId::RunsGroup, &EndMaker(make_end)), (KindId::RunsGroup, &SourceMaker(make_emit)), (KindId::RunsGroup, &StepMaker(make_step))],
+    kinds: &[
+        (KindId::RunsGroup, &EndMaker(make_end)),
+        (KindId::RunsGroup, &SourceMaker(make_emit)),
+        (KindId::RunsGroup, &StepMaker(make_step)),
+    ],
     ..crate::ops::NONE
 };
 
@@ -33,13 +37,22 @@ pub(crate) fn keyed_form(f: GroupForm) -> bool {
 
 fn make_end<'g, 'p>(px: &mut Px<'g, 'p>, k: usize) -> PgBox<'g, dyn EndMech + 'g> {
     let node = px.gx.pipelines()[k].node_id;
-    let Some(g) = px.gx.group_at(k) else { crate::refuse!(node, Reason::Bug { payload: "a sorted group end without its group" }) };
+    let Some(g) = px.gx.group_at(k) else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a sorted group end without its group"
+            }
+        )
+    };
     if g.empty_no_row && !crate::graph::grouped(g) {
         // D345 / D350: a GroupAggregate over no key column (every key the planner dropped as redundant) whose pinned
         // columns decompose could not key (V4R-144: agg.rs pinned_word, one image per row); keyed ones serve below
         crate::refuse!(node, Reason::Shape { why: ShapeWhy("runs.group D345: every key the planner dropped as redundant, a pinned column read") });
     }
-    if g.aggs.iter().any(crate::ops::shared::agg::sort_cols) && !crate::ops::group::regroup::riders_free(px.arena, px.gx.graph, g) {
+    if g.aggs.iter().any(crate::ops::shared::agg::sort_cols)
+        && !crate::ops::group::regroup::riders_free(px.arena, px.gx.graph, g)
+    {
         // D458: PG feeds a rider its GroupAggregate's input order (under aggpresorted, the ORDER BY's); the host sorts only
         // the ordered aggregate's own run
         crate::refuse!(node, Reason::Shape { why: ShapeWhy("runs.group D458: a rider whose value reads the row order beside an ordered aggregate (PG's presorted input)") });
@@ -47,7 +60,14 @@ fn make_end<'g, 'p>(px: &mut Px<'g, 'p>, k: usize) -> PgBox<'g, dyn EndMech + 'g
     if !keyed_form(g.form) {
         // D346: an ORDER BY inside an aggregate call (fold/plain.rs hands it here unless it is order-free, V4R-178); a
         // grouped one is keyed group_rec's to judge (the same D458 name); D458 (gravity_expr's aggorder flag) names it
-        crate::refuse!(node, Reason::Shape { why: ShapeWhy("runs.group D458: an ordered aggregate (gravity_expr's aggorder flag)") });
+        crate::refuse!(
+            node,
+            Reason::Shape {
+                why: ShapeWhy(
+                    "runs.group D458: an ordered aggregate (gravity_expr's aggorder flag)"
+                )
+            }
+        );
     }
     (kind_impl::<EndMaker>(&node, KindId::KeyedHashagg).0)(px, k)
 }

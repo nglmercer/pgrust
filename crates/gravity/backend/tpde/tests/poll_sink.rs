@@ -126,7 +126,10 @@ fn src() -> String {
 }
 
 fn load() -> Program {
-    parse_program(&src(), &|name| (name == KERNEL_POLL).then_some(host_poll as extern "C" fn(*mut PollCtx) -> i64 as usize)).unwrap_or_else(|e| panic!("{e}"))
+    parse_program(&src(), &|name| {
+        (name == KERNEL_POLL).then_some(host_poll as extern "C" fn(*mut PollCtx) -> i64 as usize)
+    })
+    .unwrap_or_else(|e| panic!("{e}"))
 }
 
 /// The loop's answer and poll count by hand: two polls per row with a set byte (the header's and the mid-body one) and
@@ -159,14 +162,50 @@ fn expect(n: i64, a: i64, b: i64, set: bool, left: i64) -> (i64, i64) {
 fn values_live_across_a_sunk_poll_keep_their_homes() {
     let p = load();
     let f = Func(0);
-    for (n, a, b) in [(0i64, 3i64, 5i64), (1, 3, 5), (7, -11, 13), (100, 7, -2), (1000, 12345, 678)] {
-        for (byte, left) in [(None, 0i64), (Some(0u8), 0), (Some(1), i64::MAX / 2), (Some(1), 0), (Some(1), 1), (Some(1), 2 * n), (Some(1), n + 3)] {
+    for (n, a, b) in [
+        (0i64, 3i64, 5i64),
+        (1, 3, 5),
+        (7, -11, 13),
+        (100, 7, -2),
+        (1000, 12345, 678),
+    ] {
+        for (byte, left) in [
+            (None, 0i64),
+            (Some(0u8), 0),
+            (Some(1), i64::MAX / 2),
+            (Some(1), 0),
+            (Some(1), 1),
+            (Some(1), 2 * n),
+            (Some(1), n + 3),
+        ] {
             let cell = byte.unwrap_or(0);
-            let mut ctx = PollCtx { byte: if byte.is_some() { &cell } else { core::ptr::null() }, left, polls: 0, me: core::ptr::null_mut() };
+            let mut ctx = PollCtx {
+                byte: if byte.is_some() {
+                    &cell
+                } else {
+                    core::ptr::null()
+                },
+                left,
+                polls: 0,
+                me: core::ptr::null_mut(),
+            };
             ctx.me = core::ptr::addr_of_mut!(ctx);
-            let got = common::native(&p, f, &[&mut ctx as *mut PollCtx as u64, n as u64, a as u64, b as u64]);
+            let got = common::native(
+                &p,
+                f,
+                &[
+                    &mut ctx as *mut PollCtx as u64,
+                    n as u64,
+                    a as u64,
+                    b as u64,
+                ],
+            );
             let (want, polls) = expect(n, a, b, byte == Some(1), left);
-            assert_eq!(got, vec![want as u64], "n={n} a={a} b={b} byte={byte:?} left={left}");
+            assert_eq!(
+                got,
+                vec![want as u64],
+                "n={n} a={a} b={b} byte={byte:?} left={left}"
+            );
             assert_eq!(ctx.polls, polls, "polls: n={n} byte={byte:?} left={left}");
         }
     }
@@ -308,11 +347,31 @@ fn expect_hand(n: i64, w: i64, x: i64, set: bool, left: i64) -> (i64, i64) {
 
 #[test]
 fn a_value_handed_to_a_loop_past_a_sunk_poll_keeps_its_register() {
-    let p = parse_program(&src_hand(), &|name| (name == KERNEL_POLL).then_some(host_poll_hand as extern "C" fn(*mut HandCtx) -> i64 as usize)).unwrap_or_else(|e| panic!("{e}"));
+    let p = parse_program(&src_hand(), &|name| {
+        (name == KERNEL_POLL)
+            .then_some(host_poll_hand as extern "C" fn(*mut HandCtx) -> i64 as usize)
+    })
+    .unwrap_or_else(|e| panic!("{e}"));
     for n in [1i64, 2, 5] {
-        for (byte, left) in [(None, 0i64), (Some(0u8), 0), (Some(1), i64::MAX / 2), (Some(1), 0), (Some(1), 2)] {
+        for (byte, left) in [
+            (None, 0i64),
+            (Some(0u8), 0),
+            (Some(1), i64::MAX / 2),
+            (Some(1), 0),
+            (Some(1), 2),
+        ] {
             let cell = byte.unwrap_or(0);
-            let mut ctx = HandCtx { byte: if byte.is_some() { &cell } else { core::ptr::null() }, w: 1000, x: 7, left, polls: 0 };
+            let mut ctx = HandCtx {
+                byte: if byte.is_some() {
+                    &cell
+                } else {
+                    core::ptr::null()
+                },
+                w: 1000,
+                x: 7,
+                left,
+                polls: 0,
+            };
             let got = common::native(&p, Func(0), &[&mut ctx as *mut HandCtx as u64, n as u64]);
             let (want, polls) = expect_hand(n, 1000, 7, byte == Some(1), left);
             assert_eq!(got, vec![want as u64], "n={n} byte={byte:?} left={left}");

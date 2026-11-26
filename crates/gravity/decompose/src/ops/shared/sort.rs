@@ -8,10 +8,10 @@ use types_nodes::list::NodeList;
 use types_nodes::Node;
 
 use crate::admit::Refusal;
+use crate::catalog::typefacts::{self, KeyColl};
 use crate::catalog::Facts;
 use crate::graph::{Bound, Layout};
 use crate::ledger::Kind;
-use crate::catalog::typefacts::{self, KeyColl};
 use crate::walk::Builder;
 
 pub use crate::catalog::keysem::image::KeyImage;
@@ -57,8 +57,19 @@ pub struct EqKey {
 
 pub enum SortForm<'p> {
     Runs,
-    TopK { count: Bound<'p>, offset: Bound<'p>, ties: bool },
-    Walk { attno: i16, desc: bool, nulls_first: bool, count: Bound<'p>, offset: Bound<'p>, ties: bool },
+    TopK {
+        count: Bound<'p>,
+        offset: Bound<'p>,
+        ties: bool,
+    },
+    Walk {
+        attno: i16,
+        desc: bool,
+        nulls_first: bool,
+        count: Bound<'p>,
+        offset: Bound<'p>,
+        ties: bool,
+    },
 }
 
 pub struct SortDesc<'p> {
@@ -69,13 +80,25 @@ pub struct SortDesc<'p> {
 }
 
 pub fn column_type(tlist: &NodeList<'_>, resno: i16, k: Kind, id: i32) -> Result<u32, Refusal> {
-    let e = (resno as usize).checked_sub(1).filter(|&i| i < tlist.len()).map(|i| tlist.nth(i)).and_then(|n| n.as_target_entry()).ok_or(Refusal::shape(k, id, "a key outside the target list"))?;
+    let e = (resno as usize)
+        .checked_sub(1)
+        .filter(|&i| i < tlist.len())
+        .map(|i| tlist.nth(i))
+        .and_then(|n| n.as_target_entry())
+        .ok_or(Refusal::shape(k, id, "a key outside the target list"))?;
     crate::catalog::expr_type::type_of(e.expr).ok_or(Refusal::shape(k, id, "a key of unknown type"))
 }
 
 /// The key-word layout of a set of kinds (`Fp128` two words), unbounded (decision 78).
 pub fn keys_layout<'p>(arena: ArenaRef, kinds: impl Iterator<Item = KeyKind>) -> Layout<'p> {
-    Layout::new(arena, kinds.flat_map(|kind| core::iter::repeat_n(kind, if kind == KeyKind::Fp128 { 2 } else { 1 })), core::iter::empty(), true)
+    Layout::new(
+        arena,
+        kinds.flat_map(|kind| {
+            core::iter::repeat_n(kind, if kind == KeyKind::Fp128 { 2 } else { 1 })
+        }),
+        core::iter::empty(),
+        true,
+    )
 }
 
 pub const ROW_LAYOUT: Layout<'static> = Layout::ROW;
@@ -85,14 +108,21 @@ pub const NO_SCALE: i16 = -1;
 /// A sort / equality key's record kind: the type's catalog facts (`typefacts::facts_of`: an enum keys as its oid word, a
 /// domain as its base; V4R-84); a type nothing knows keys by its canonical image.
 pub fn key_kind_of(facts: &dyn Facts, typid: u32) -> KeyKind {
-    typefacts::facts_of(facts, typid).map_or(KeyKind::Fp128, |r| typefacts::key_of(&r, NumTypmod::NONE).0)
+    typefacts::facts_of(facts, typid)
+        .map_or(KeyKind::Fp128, |r| typefacts::key_of(&r, NumTypmod::NONE).0)
 }
 
 pub fn column_kind_of_expr(facts: &dyn Facts, n: Node<'_>) -> KeyKind {
     crate::catalog::expr_type::type_of(n).map_or(KeyKind::I64, |t| key_kind_of(facts, t))
 }
 
-pub fn column_kind(facts: &dyn Facts, tlist: &NodeList<'_>, resno: i16, k: Kind, id: i32) -> Result<KeyKind, Refusal> {
+pub fn column_kind(
+    facts: &dyn Facts,
+    tlist: &NodeList<'_>,
+    resno: i16,
+    k: Kind,
+    id: i32,
+) -> Result<KeyKind, Refusal> {
     Ok(key_kind_of(facts, column_type(tlist, resno, k, id)?))
 }
 
@@ -104,10 +134,17 @@ pub fn column_kind(facts: &dyn Facts, tlist: &NodeList<'_>, resno: i16, k: Kind,
 /// A full Sort (`SortForm::Runs`, or `TopK` under a constant count past 0) decodes such a key and the effects home's
 /// `sort_raises` names it; lowerv4 serves PG's raise at the Sort's start (ops/sort/sort_raise.rs) or refuses by this
 /// name. Every other site keeps the refusal.
-pub const INDETERMINATE_COLL: &str = "D1292: a key over a collatable type with no collation (PG raises 42P22 at its first compare)";
+pub const INDETERMINATE_COLL: &str =
+    "D1292: a key over a collatable type with no collation (PG raises 42P22 at its first compare)";
 
 /// A key's collation (`coll`, the node's) over `typid`, or D1292's refusal when the type is collatable and `coll` is 0.
-pub fn key_coll(facts: &dyn Facts, typid: u32, coll: u32, k: Kind, id: i32) -> Result<KeyColl, Refusal> {
+pub fn key_coll(
+    facts: &dyn Facts,
+    typid: u32,
+    coll: u32,
+    k: Kind,
+    id: i32,
+) -> Result<KeyColl, Refusal> {
     if indeterminate(facts, typid, coll) {
         return Err(Refusal::shape(k, id, INDETERMINATE_COLL));
     }
@@ -121,14 +158,29 @@ pub fn indeterminate(facts: &dyn Facts, typid: u32, coll: u32) -> bool {
 
 pub fn dump_eq_keys(keys: &[EqKey], out: &mut dyn Write) -> fmt::Result {
     for (i, key) in keys.iter().enumerate() {
-        write!(out, "{}{}={}:{:?}", if i > 0 { "," } else { "" }, key.resno, key.opno, key.kind)?;
+        write!(
+            out,
+            "{}{}={}:{:?}",
+            if i > 0 { "," } else { "" },
+            key.resno,
+            key.opno,
+            key.kind
+        )?;
     }
     Ok(())
 }
 
 pub fn dump_keys(keys: &[SortKey], out: &mut dyn Write) -> fmt::Result {
     for (i, key) in keys.iter().enumerate() {
-        write!(out, "{}{}{}{}:{:?}", if i > 0 { "," } else { "" }, key.resno, if key.desc { "-" } else { "+" }, if key.nulls_first { "n" } else { "" }, key.kind)?;
+        write!(
+            out,
+            "{}{}{}{}:{:?}",
+            if i > 0 { "," } else { "" },
+            key.resno,
+            if key.desc { "-" } else { "+" },
+            if key.nulls_first { "n" } else { "" },
+            key.kind
+        )?;
         if !key.image.dump_plain() {
             write!(out, "/{:?}", key.image)?;
         }
@@ -185,10 +237,24 @@ pub(crate) fn reads_whole(n: Node<'_>) -> bool {
 
 /// The first of `n`'s children (its outer, its inner, a subquery scan's plan, the members) for which `f` answers, with
 /// whether it is the outer.
-pub(crate) fn below<'a, T>(n: Node<'a>, mut f: impl FnMut(Node<'a>) -> Option<T>) -> Option<(T, bool)> {
+pub(crate) fn below<'a, T>(
+    n: Node<'a>,
+    mut f: impl FnMut(Node<'a>) -> Option<T>,
+) -> Option<(T, bool)> {
     let p = n.as_plan()?;
-    let members = n.as_append().map(|a| &a.appendplans).or_else(|| n.as_merge_append().map(|m| &m.mergeplans));
+    let members = n
+        .as_append()
+        .map(|a| &a.appendplans)
+        .or_else(|| n.as_merge_append().map(|m| &m.mergeplans));
     let sub = n.as_subquery_scan().and_then(|s| s.subplan);
-    let found = [(p.lefttree, true), (p.righttree, false), (sub, true)].into_iter().filter_map(|(c, o)| Some((c?, o)));
-    found.chain(members.into_iter().flat_map(|l| l.iter().map(|c| (c, true)))).find_map(|(c, o)| f(c).map(|t| (t, o)))
+    let found = [(p.lefttree, true), (p.righttree, false), (sub, true)]
+        .into_iter()
+        .filter_map(|(c, o)| Some((c?, o)));
+    found
+        .chain(
+            members
+                .into_iter()
+                .flat_map(|l| l.iter().map(|c| (c, true))),
+        )
+        .find_map(|(c, o)| f(c).map(|t| (t, o)))
 }

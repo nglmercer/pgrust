@@ -19,11 +19,35 @@ use crate::frame::px::Px;
 const NAMED_FORM: &str = "a named tuplestore's record row the compiler refused";
 
 /// The row of named tuplestore record row `r` (its `named` relation), compiled into `c`.
-pub(crate) fn record<'p>(px: &mut Px<'_, 'p>, c: &mut Compiled<'p>, r: &RecordRow<'p>) -> Result<NodeId, &'static str> {
+pub(crate) fn record<'p>(
+    px: &mut Px<'_, 'p>,
+    c: &mut Compiled<'p>,
+    r: &RecordRow<'p>,
+) -> Result<NodeId, &'static str> {
     let names: PgVec<'_, &str> = r.cols.iter().map(|col| col.name).collect_in(px.mcx());
-    let mut b = gravity_expr::nodes::Builder { prog: &mut c.prog, state: &mut c.state, catalog: px.gx.catalog, outer: None, tableoid: None, aggorder: false, returning: None, folded: true };
-    let id = gravity_expr::nodes::tuple::compile_relation_record(&mut b, VarSource::Scan, r.named, &names[..]).map_err(|_| NAMED_FORM)?;
-    let key: Vec<u8> = r.named.to_le_bytes().into_iter().chain(r.cols.iter().flat_map(|col| col.name.bytes().chain([0]))).collect(); // alloc: Program
+    let mut b = gravity_expr::nodes::Builder {
+        prog: &mut c.prog,
+        state: &mut c.state,
+        catalog: px.gx.catalog,
+        outer: None,
+        tableoid: None,
+        aggorder: false,
+        returning: None,
+        folded: true,
+    };
+    let id = gravity_expr::nodes::tuple::compile_relation_record(
+        &mut b,
+        VarSource::Scan,
+        r.named,
+        &names[..],
+    )
+    .map_err(|_| NAMED_FORM)?;
+    let key: Vec<u8> = r
+        .named
+        .to_le_bytes()
+        .into_iter()
+        .chain(r.cols.iter().flat_map(|col| col.name.bytes().chain([0])))
+        .collect(); // alloc: Program
     px.data.push(key.into_boxed_slice());
     Ok(id)
 }

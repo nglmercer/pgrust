@@ -13,13 +13,16 @@ use gravity_decompose::ops::shared::agg::{AggDecl, Register as R};
 use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{ConvOp, IntBinOp, IntCond, Type, Value};
 
-use crate::face::fold::{AccShape, Acc, ClassImpl, FoldClass};
+use crate::admit::refusal::{Reason, ShapeWhy};
+use crate::face::fold::{Acc, AccShape, ClassImpl, FoldClass};
 use crate::face::kinds::KindId;
 use crate::frame::env::Env;
-use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::rep::CellRef;
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { kinds: &[(KindId::ClassMinmaxCode, &ClassImpl(&CODE))], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    kinds: &[(KindId::ClassMinmaxCode, &ClassImpl(&CODE))],
+    ..crate::ops::NONE
+};
 
 /// `.0`: a record slot holds keyed_parted's deferred minimum (a code word, never an image).
 struct Code(bool);
@@ -30,7 +33,12 @@ fn is_min(env: &Env, a: &AggDecl<'_>) -> bool {
     match a.reg {
         R::MinCode => true,
         R::MaxCode => false,
-        _ => crate::refuse!(env.node, Reason::Bug { payload: "class.minmax_code over another register" }),
+        _ => crate::refuse!(
+            env.node,
+            Reason::Bug {
+                payload: "class.minmax_code over another register"
+            }
+        ),
     }
 }
 
@@ -59,10 +67,15 @@ fn render(b: &mut FunctionBuilder<'_>, env: &mut Env, word: Value, at: Value) ->
     let k = b.int_bin(IntBinOp::Ushr, at, eight);
     let m = b.iconst(Type::I64, 0xff);
     let lane = b.int_bin(IntBinOp::And, at, m);
-    let p = b.call_host(f.hosts.render, &[f.ctx, k, lane, word], Some(Type::Ptr)).expect("render returns a pointer");
+    let p = b
+        .call_host(f.hosts.render, &[f.ctx, k, lane, word], Some(Type::Ptr))
+        .expect("render returns a pointer");
     let pi = b.conv(ConvOp::PtrToInt, Type::I64, p);
     let failed = b.icmp(IntCond::Slt, pi, env.zero);
-    let e = b.iconst(Type::I64, gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64);
+    let e = b.iconst(
+        Type::I64,
+        gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64,
+    );
     let l_ok = b.create_block(&[]);
     b.cond_br(failed, (env.l_raise, &[e]), (l_ok, &[]));
     b.switch_to(l_ok);
@@ -70,10 +83,18 @@ fn render(b: &mut FunctionBuilder<'_>, env: &mut Env, word: Value, at: Value) ->
 }
 
 /// A row into the register carry `w` where `ok`: its code ranked under `coll`, the better row's word kept.
-fn carry(cx: &mut crate::rep::Lx<'_, '_, '_>, min: bool, coll: gravity_decompose::catalog::typefacts::KeyColl, c: CellRef<'_>, w: &mut [Value], ok: Value) {
+fn carry(
+    cx: &mut crate::rep::Lx<'_, '_, '_>,
+    min: bool,
+    coll: gravity_decompose::catalog::typefacts::KeyColl,
+    c: CellRef<'_>,
+    w: &mut [Value],
+    ok: Value,
+) {
     let r = crate::rep::code::order::rank(cx, c, coll);
     let word = crate::rep::code::datum::word(cx, c);
-    let at = (crate::rep::code::datum::site(cx, c.cell) << 8 | crate::rep::code::datum::lane(cx, c.cell) as usize) as i64;
+    let at = (crate::rep::code::datum::site(cx, c.cell) << 8
+        | crate::rep::code::datum::lane(cx, c.cell) as usize) as i64;
     let take = better(cx.b, min, r, w[0]);
     let take = cx.b.int_bin(IntBinOp::And, take, ok);
     w[0] = cx.b.select(take, word, w[0]);
@@ -84,9 +105,23 @@ fn carry(cx: &mut crate::rep::Lx<'_, '_, '_>, min: bool, coll: gravity_decompose
 
 /// `step` with the end's image cursor (`images`: `cur, end, chunk`, the keyed ends' `AggState` arena; `None`: a pin per
 /// copy).
-fn step_at(b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, acc: Acc<'_>, args: &[CellRef<'_>], images: Option<Value>) {
+fn step_at(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    a: &AggDecl<'_>,
+    acc: Acc<'_>,
+    args: &[CellRef<'_>],
+    images: Option<Value>,
+) {
     let min = is_min(env, a);
-    let [c] = args else { crate::refuse!(env.node, Reason::Bug { payload: "class.minmax_code over other than one argument" }) };
+    let [c] = args else {
+        crate::refuse!(
+            env.node,
+            Reason::Bug {
+                payload: "class.minmax_code over other than one argument"
+            }
+        )
+    };
     let t = b.bconst(true);
     let ok = match c.null {
         Some(n) => b.int_bin(IntBinOp::Xor, n, t),
@@ -101,16 +136,27 @@ fn step_at(b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, acc: Acc
         Acc::Slot { base, off, valid } => {
             crate::rep::code::order::rank(&mut cx, *c, a.coll);
             let word = crate::rep::code::datum::word(&mut cx, *c);
-            let at = (crate::rep::code::datum::site(&cx, c.cell) << 8 | crate::rep::code::datum::lane(&cx, c.cell) as usize) as i64;
+            let at = (crate::rep::code::datum::site(&cx, c.cell) << 8
+                | crate::rep::code::datum::lane(&cx, c.cell) as usize) as i64;
             env.memo = cx.memo;
             let at = b.iconst(Type::I64, at);
-            crate::ops::agg::trans::code_copy::fold_word(b, env, base, off, valid, word, at, min, ok, images);
+            crate::ops::agg::trans::code_copy::fold_word(
+                b, env, base, off, valid, word, at, min, ok, images,
+            );
         }
     }
 }
 
 /// `merge` with the end's image cursor (see `step_at`); `words`: `from`'s slot is a deferred minimum's code word.
-fn merge_at(b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, into: Acc<'_>, from: Acc<'_>, images: Option<Value>, words: bool) {
+fn merge_at(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    a: &AggDecl<'_>,
+    into: Acc<'_>,
+    from: Acc<'_>,
+    images: Option<Value>,
+    words: bool,
+) {
     let min = is_min(env, a);
     match (into, from) {
         (Acc::Slot { base, off, valid }, Acc::Regs(f)) => {
@@ -139,27 +185,53 @@ fn merge_at(b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, into: A
 /// A keyed end's step into a record slot with its image cursor (D277: the copies packed into the claim's image arena,
 /// not a pinned region each): `class.step`, class.minmax_code folding with `images`.
 #[allow(clippy::too_many_arguments, dead_code)] // KEYED's Acc::Slot sites (D277)
-pub(crate) fn step_with(class: &'static dyn FoldClass, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, acc: Acc<'_>, args: &[CellRef<'_>], images: Option<Value>) {
+pub(crate) fn step_with(
+    class: &'static dyn FoldClass,
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    a: &AggDecl<'_>,
+    acc: Acc<'_>,
+    args: &[CellRef<'_>],
+    images: Option<Value>,
+) {
     match crate::props::class_kind(a) {
-        KindId::ClassMinmaxCode if !crate::ops::sort::topn::strategies::parted::deferred(class) => step_at(b, env, a, acc, args, images),
+        KindId::ClassMinmaxCode if !crate::ops::sort::topn::strategies::parted::deferred(class) => {
+            step_at(b, env, a, acc, args, images)
+        }
         // N13: a keyed numeric extreme's side copies take the cursor too
-        KindId::ClassNumPacked if crate::ops::shared::agg::order_keyed(a) => crate::ops::agg::numeric::class_num::step_keyed(b, env, a, acc, args, images),
+        KindId::ClassNumPacked if crate::ops::shared::agg::order_keyed(a) => {
+            crate::ops::agg::numeric::class_num::step_keyed(b, env, a, acc, args, images)
+        }
         _ => class.step(b, env, a, acc, args),
     }
 }
 
 /// `step_with`'s merge (a carry into a record slot, a record into another).
 #[allow(clippy::too_many_arguments, dead_code)] // KEYED's run close (D277)
-pub(crate) fn merge_with(class: &'static dyn FoldClass, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, into: Acc<'_>, from: Acc<'_>, images: Option<Value>) {
+pub(crate) fn merge_with(
+    class: &'static dyn FoldClass,
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    a: &AggDecl<'_>,
+    into: Acc<'_>,
+    from: Acc<'_>,
+    images: Option<Value>,
+) {
     match crate::props::class_kind(a) {
-        KindId::ClassMinmaxCode if !crate::ops::sort::topn::strategies::parted::deferred(class) => merge_at(b, env, a, into, from, images, false),
+        KindId::ClassMinmaxCode if !crate::ops::sort::topn::strategies::parted::deferred(class) => {
+            merge_at(b, env, a, into, from, images, false)
+        }
         _ => class.merge(b, env, a, into, from),
     }
 }
 
 impl FoldClass for Code {
     fn shape(&self, _a: &AggDecl<'_>) -> AccShape {
-        AccShape { words: 3, bytes: 8, align: 8 }
+        AccShape {
+            words: 3,
+            bytes: 8,
+            align: 8,
+        }
     }
 
     fn init(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, acc: Acc<'_>) {
@@ -176,16 +248,36 @@ impl FoldClass for Code {
 
     /// A row: its code's rank under the collation (`key.coll` refuses any collation not ordering by bytes); a register
     /// carry keeps the better word, a record slot folds the row's word into its copy (no image cursor: a pin per copy).
-    fn step(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, acc: Acc<'_>, args: &[CellRef<'_>]) {
+    fn step(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        a: &AggDecl<'_>,
+        acc: Acc<'_>,
+        args: &[CellRef<'_>],
+    ) {
         step_at(b, env, a, acc, args, None);
     }
 
-    fn merge(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, into: Acc<'_>, from: Acc<'_>) {
+    fn merge(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        a: &AggDecl<'_>,
+        into: Acc<'_>,
+        from: Acc<'_>,
+    ) {
         merge_at(b, env, a, into, from, None, self.0);
     }
 
     /// The image's address (a text / bytea datum), NULL over no row; a carry holding a record's copy (D1750) is its address.
-    fn finish(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, _a: &AggDecl<'_>, acc: Acc<'_>) -> (Value, Value) {
+    fn finish(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        _a: &AggDecl<'_>,
+        acc: Acc<'_>,
+    ) -> (Value, Value) {
         let (p, ok) = match acc {
             Acc::Slot { base, off, valid } => {
                 let ok = crate::ops::shared::slots::slot_ok(b, env, base, valid);
@@ -193,7 +285,11 @@ impl FoldClass for Code {
             }
             Acc::Regs(w) => {
                 let any = b.icmp(IntCond::Ne, w[2], env.zero);
-                let (l_r, l_code, l_out) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[Type::I64]));
+                let (l_r, l_code, l_out) = (
+                    b.create_block(&[]),
+                    b.create_block(&[]),
+                    b.create_block(&[Type::I64]),
+                );
                 b.cond_br(any, (l_r, &[]), (l_out, &[env.zero]));
                 b.switch_to(l_r);
                 let image = b.iconst(Type::I64, crate::ops::agg::trans::code_copy::IMAGE);
@@ -231,46 +327,101 @@ mod tests {
     /// Two rows' codes (part 3) folded by the register carry under `coll`: the carried `(word, where, n)`.
     fn fold2(min: bool, coll: KeyColl, codes: [u32; 2]) -> [u64; 3] {
         let rig = mcx::MemoryContext::new("GravityPlanRig");
-        let c = Cell { rep: Rep::Code { dict: DictRef::lane(2) }, typid: 25, num: NumTypmod::NONE, life: CellLife::of_lane(gravity_program::LaneLife::DICTIONARY), at: At::Lane(LaneId::col(2)), null: Nullable::Maybe };
+        let c = Cell {
+            rep: Rep::Code {
+                dict: DictRef::lane(2),
+            },
+            typid: 25,
+            num: NumTypmod::NONE,
+            life: CellLife::of_lane(gravity_program::LaneLife::DICTIONARY),
+            at: At::Lane(LaneId::col(2)),
+            null: Nullable::Maybe,
+        };
         let mut pb = gravity_ir::builder::ProgramBuilder::new();
-        let render = pb.declare_host("agg_render", &[Type::Ptr, Type::I64, Type::I64, Type::I64], Some(Type::Ptr), 0, Default::default());
-        let f = pb.declare_func("k", &[Type::Ptr, Type::Ptr], &[Type::I64, Type::I64, Type::I64]);
+        let render = pb.declare_host(
+            "agg_render",
+            &[Type::Ptr, Type::I64, Type::I64, Type::I64],
+            Some(Type::Ptr),
+            0,
+            Default::default(),
+        );
+        let f = pb.declare_func(
+            "k",
+            &[Type::Ptr, Type::Ptr],
+            &[Type::I64, Type::I64, Type::I64],
+        );
         let mut b = pb.define(f);
         let (ctx, elem) = (b.params()[0], b.params()[1]);
         let (id, zero, ok) = (ident(&mut b, min), b.iconst(Type::I64, 0), b.bconst(true));
         let mut w = [id, zero, zero];
         {
             let mut cx = crate::rep::Lx::new(&mut b, 1, rig.mcx());
-            cx.at = Some(crate::rep::Frame { ctx, site: Some(0), hosts: crate::rep::RepHosts { render }, tables: None });
+            cx.at = Some(crate::rep::Frame {
+                ctx,
+                site: Some(0),
+                hosts: crate::rep::RepHosts { render },
+                tables: None,
+            });
             for i in 0..2 {
                 let val = cx.b.ptr_add(elem, zero, 1, 4 * i);
-                carry(&mut cx, min, coll, CellRef { cell: &c, val, null: None }, &mut w, ok);
+                carry(
+                    &mut cx,
+                    min,
+                    coll,
+                    CellRef {
+                        cell: &c,
+                        val,
+                        null: None,
+                    },
+                    &mut w,
+                    ok,
+                );
             }
         }
         b.ret(&w);
         let prog = pb.finish();
         let mut ctxw = vec![0u64; site_off(1) / 8 + 1];
         // SAFETY: the words are the ctx image; PART_ID is a u32 field inside site 0.
-        unsafe { (ctxw.as_mut_ptr().cast::<u8>().add(site_off(0) + site::PART_ID) as *mut u32).write_unaligned(3) };
-        let got = gravity_interp::Interp::new(&prog).run(f, &[ctxw.as_ptr() as u64, codes.as_ptr() as u64]).expect("runs");
+        unsafe {
+            (ctxw
+                .as_mut_ptr()
+                .cast::<u8>()
+                .add(site_off(0) + site::PART_ID) as *mut u32)
+                .write_unaligned(3)
+        };
+        let got = gravity_interp::Interp::new(&prog)
+            .run(f, &[ctxw.as_ptr() as u64, codes.as_ptr() as u64])
+            .expect("runs");
         [got[0], got[1], got[2]]
     }
 
-    const C: KeyColl = KeyColl { oid: 950, bytes_eq: true, bytes_order: true };
+    const C: KeyColl = KeyColl {
+        oid: 950,
+        bytes_eq: true,
+        bytes_order: true,
+    };
 
     /// Under C the codes order as the bytes: min / max keep the extreme row's `part << 32 | code`, the dictionary lane 2.
     #[test]
     fn codes_rank_as_bytes_under_c() {
         assert_eq!(fold2(true, C, [41, 7]), [3 << 32 | 7, 2, 2]);
         assert_eq!(fold2(false, C, [41, 7]), [3 << 32 | 41, 2, 2]);
-        assert_eq!(fold2(true, C, [u32::MAX, u32::MAX]), [3 << 32 | u32::MAX as u64, 2, 2], "the top code is still taken");
+        assert_eq!(
+            fold2(true, C, [u32::MAX, u32::MAX]),
+            [3 << 32 | u32::MAX as u64, 2, 2],
+            "the top code is still taken"
+        );
     }
 
     /// A text MIN / MAX under a collation that does not sort by bytes refuses `key.coll` (M6) instead of answering in code
     /// order (D247, main 09-24).
     #[test]
     fn a_non_c_collation_refuses_key_coll() {
-        let en = KeyColl { oid: 16390, bytes_eq: true, bytes_order: false };
+        let en = KeyColl {
+            oid: 16390,
+            bytes_eq: true,
+            bytes_order: false,
+        };
         for min in [true, false] {
             let r = crate::catch(1, || fold2(min, en, [41, 7])).expect_err("refuses");
             assert!(matches!(r.reason, Reason::Shape { .. }), "{:?}", r.reason);

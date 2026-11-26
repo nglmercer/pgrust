@@ -42,7 +42,13 @@ pub fn fold_name(name: &str) -> String {
     // it, so the folded insert key diverged from find_index's raw lookup for
     // legal non-ASCII custom GUC names — every SET leaked a fresh placeholder.
     name.chars()
-        .map(|c| if c.is_ascii() { c.to_ascii_lowercase() } else { c })
+        .map(|c| {
+            if c.is_ascii() {
+                c.to_ascii_lowercase()
+            } else {
+                c
+            }
+        })
         .collect()
 }
 
@@ -104,7 +110,10 @@ pub fn hash_seq_order(reg: &crate::registry::GucRegistry) -> Vec<usize> {
         if gen.status & crate::model::GUC_REMOVED != 0 {
             continue;
         }
-        keyed.push((guc_name_hash(gen.name.as_ref()) & (C_GUC_HASH_NBUCKETS - 1), idx));
+        keyed.push((
+            guc_name_hash(gen.name.as_ref()) & (C_GUC_HASH_NBUCKETS - 1),
+            idx,
+        ));
     }
     keyed.sort_unstable();
     let mut out = Vec::new();
@@ -123,13 +132,19 @@ mod tests {
 
     #[test]
     fn the_names_tags_spread_over_the_top_bits() {
-        let names: Vec<String> = guc_tables::all_settings().map(|s| super::fold_name(s.name())).collect();
+        let names: Vec<String> = guc_tables::all_settings()
+            .map(|s| super::fold_name(s.name()))
+            .collect();
         assert!(names.len() > 300, "the built-ins: {}", names.len());
         let mut tags = [0u32; 128];
         for n in &names {
             let h = GucNameHasherBuilder.hash_one(n.as_str());
             tags[(h >> 57) as usize] += 1;
-            assert_eq!(h, GucNameHasherBuilder.hash_one(n.to_ascii_uppercase().as_str()), "{n}: case-blind");
+            assert_eq!(
+                h,
+                GucNameHasherBuilder.hash_one(n.to_ascii_uppercase().as_str()),
+                "{n}: case-blind"
+            );
         }
         let used = tags.iter().filter(|&&c| c != 0).count();
         // a uniform spread of ~450 names over 128 tags uses ~120; the zero-extended u32 used 1

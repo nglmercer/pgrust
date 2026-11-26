@@ -1,4 +1,3 @@
-
 use ::types_core::Oid;
 use ::types_error::{PgError, PgResult, ERRCODE_INVALID_CURSOR_STATE, ERRCODE_UNDEFINED_CURSOR};
 use ::types_portal::PortalStrategy;
@@ -108,4 +107,3 @@ pub(crate) fn cursor_plan_capture_batch_fill_seam(
 fn invalid_cursor_state(msg: String) -> Box<PgError> {
     Box::new(PgError::error(msg).with_sqlstate(ERRCODE_INVALID_CURSOR_STATE))
 }
-

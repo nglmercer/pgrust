@@ -123,7 +123,11 @@ fn owner_token_read_publishes_a_live_handle() {
                     }
                     thread::yield_now();
                 };
-                assert_ne!(slot.unpark_token(token), Unparked::Stale, "the owner's lock-free token is live");
+                assert_ne!(
+                    slot.unpark_token(token),
+                    Unparked::Stale,
+                    "the owner's lock-free token is live"
+                );
             })
         };
         word.store(slot.owner_token() as u64 + 1, Ordering::Release);
@@ -307,7 +311,8 @@ impl ModelLatch {
             if self.is_set.load(Ordering::SeqCst) != 0 {
                 return;
             }
-            self.waker.store(token as u64 | (1 << 32), Ordering::Release);
+            self.waker
+                .store(token as u64 | (1 << 32), Ordering::Release);
             // RMW store: see set() — the release ordering also publishes
             // the waker word to the setter's acquire-strength RMW read.
             self.maybe_sleeping.swap(1, Ordering::SeqCst);
@@ -475,10 +480,12 @@ impl ModelSema {
         loop {
             let mut c = self.count.load(Ordering::Acquire);
             while c > 0 {
-                match self
-                    .count
-                    .compare_exchange_weak(c, c - 1, Ordering::SeqCst, Ordering::Acquire)
-                {
+                match self.count.compare_exchange_weak(
+                    c,
+                    c - 1,
+                    Ordering::SeqCst,
+                    Ordering::Acquire,
+                ) {
                     Ok(_) => {
                         if published {
                             // Retire-on-return (production: store(0, SeqCst)).
@@ -935,8 +942,11 @@ impl ModelPipe {
         }
         let covered: Vec<usize> = {
             let mut list = self.list.lock().unwrap();
-            let covered: Vec<usize> =
-                list.iter().copied().filter(|&i| nodes[i].lsn <= flushed).collect();
+            let covered: Vec<usize> = list
+                .iter()
+                .copied()
+                .filter(|&i| nodes[i].lsn <= flushed)
+                .collect();
             list.retain(|&i| nodes[i].lsn > flushed);
             self.refresh_hint(&list, nodes);
             covered
@@ -953,7 +963,12 @@ impl ModelPipe {
 fn model_pipe_node(lsn: u64) -> ModelPipeNode {
     let slot = fresh_slot();
     let token = slot.issue_token();
-    ModelPipeNode { lsn, completed: AtomicU64::new(0), slot, token }
+    ModelPipeNode {
+        lsn,
+        completed: AtomicU64::new(0),
+        slot,
+        token,
+    }
 }
 
 #[test]
@@ -1087,7 +1102,13 @@ struct ModelQuietNode {
 fn model_quiet_node(lsn: u64) -> ModelQuietNode {
     let slot = fresh_slot();
     let token = slot.issue_token();
-    ModelQuietNode { lsn, completed: AtomicU64::new(0), lead: AtomicU64::new(0), slot, token }
+    ModelQuietNode {
+        lsn,
+        completed: AtomicU64::new(0),
+        lead: AtomicU64::new(0),
+        slot,
+        token,
+    }
 }
 
 struct ModelQuiet {
@@ -1162,10 +1183,17 @@ impl ModelQuiet {
         }
         let (covered, lead) = {
             let mut list = self.list.lock().unwrap();
-            let covered: Vec<usize> =
-                list.iter().copied().filter(|&i| nodes[i].lsn <= flushed).collect();
+            let covered: Vec<usize> = list
+                .iter()
+                .copied()
+                .filter(|&i| nodes[i].lsn <= flushed)
+                .collect();
             list.retain(|&i| nodes[i].lsn > flushed);
-            let lead = if list.is_empty() { None } else { Some(list.remove(0)) };
+            let lead = if list.is_empty() {
+                None
+            } else {
+                Some(list.remove(0))
+            };
             self.refresh_hint(&list, nodes);
             (covered, lead)
         };
@@ -1232,7 +1260,11 @@ fn flushpipe_handoff_leads_only_the_uncovered() {
             thread::spawn(move || m.flush(&nodes, 200))
         };
         let out = m.register_and_wait(&nodes, 0);
-        assert_ne!(out, QuietOutcome::Lead, "covered node 100 got a lead verdict");
+        assert_ne!(
+            out,
+            QuietOutcome::Lead,
+            "covered node 100 got a lead verdict"
+        );
         if matches!(out, QuietOutcome::SelfServed | QuietOutcome::Covered) {
             assert!(m.flush_result.load(Ordering::SeqCst) >= 100);
         }
@@ -1240,7 +1272,6 @@ fn flushpipe_handoff_leads_only_the_uncovered() {
         flusher.join().unwrap();
     });
 }
-
 
 // ---------------------------------------------------------------------------
 // 7. LWLock wakeup flag handoff (regression F-R1-5).
@@ -1339,7 +1370,12 @@ struct ModelTicketPipe {
 fn model_ticket(lsn: u64) -> ModelTicket {
     let slot = fresh_slot();
     let token = slot.issue_token();
-    ModelTicket { lsn, state: AtomicU64::new(TK_PENDING), slot, token }
+    ModelTicket {
+        lsn,
+        state: AtomicU64::new(TK_PENDING),
+        slot,
+        token,
+    }
 }
 
 impl ModelTicketPipe {
@@ -1352,7 +1388,11 @@ impl ModelTicketPipe {
     }
 
     fn refresh_hint(&self, reg: &[usize], tickets: &[ModelTicket]) {
-        let min = reg.iter().map(|&i| tickets[i].lsn).min().unwrap_or(u64::MAX);
+        let min = reg
+            .iter()
+            .map(|&i| tickets[i].lsn)
+            .min()
+            .unwrap_or(u64::MAX);
         self.min_pending.swap(min, Ordering::SeqCst);
     }
 
@@ -1381,7 +1421,10 @@ impl ModelTicketPipe {
             && self.claim(tickets, me)
         {
             // Born-covered self-claim: claimant owns PENDING->COMPLETED.
-            assert_eq!(tickets[me].state.swap(TK_COMPLETED, Ordering::SeqCst), TK_PENDING);
+            assert_eq!(
+                tickets[me].state.swap(TK_COMPLETED, Ordering::SeqCst),
+                TK_PENDING
+            );
         }
     }
 
@@ -1394,14 +1437,20 @@ impl ModelTicketPipe {
         }
         let claimed: Vec<usize> = {
             let mut reg = self.registry.lock().unwrap();
-            let claimed: Vec<usize> =
-                reg.iter().copied().filter(|&i| tickets[i].lsn <= flushed).collect();
+            let claimed: Vec<usize> = reg
+                .iter()
+                .copied()
+                .filter(|&i| tickets[i].lsn <= flushed)
+                .collect();
             reg.retain(|&i| tickets[i].lsn > flushed);
             self.refresh_hint(&reg, tickets);
             claimed
         };
         for i in claimed {
-            assert_eq!(tickets[i].state.swap(TK_COMPLETED, Ordering::SeqCst), TK_PENDING);
+            assert_eq!(
+                tickets[i].state.swap(TK_COMPLETED, Ordering::SeqCst),
+                TK_PENDING
+            );
             tickets[i].slot.unpark_token(tickets[i].token);
         }
     }

@@ -5,7 +5,10 @@
 #![allow(unsafe_code)]
 use std::collections::BTreeSet;
 
-use gravity_abi::breaker::{HashAgg, KeyKind, Owned, OwnerTop, RecordLayout, SlotKind, OWNED_HDR, OWNERTOP_HDR, OWNER_RUN_OFF, TABLE_OWNED};
+use gravity_abi::breaker::{
+    HashAgg, KeyKind, Owned, OwnerTop, RecordLayout, SlotKind, OWNED_HDR, OWNERTOP_HDR,
+    OWNER_RUN_OFF, TABLE_OWNED,
+};
 use gravity_abi::hash::KeyHash;
 use gravity_kernels::ops::sort::topn::twopass_top::{owner_fns, TopExportSpec};
 
@@ -21,7 +24,8 @@ struct Case {
 
 fn layout(c: &Case) -> RecordLayout {
     let keys = vec![KeyKind::I64; c.img];
-    RecordLayout::with_sentinel(&keys, &[SlotKind::Count], false, Some(0)).partitioned_by(c.img as u8)
+    RecordLayout::with_sentinel(&keys, &[SlotKind::Count], false, Some(0))
+        .partitioned_by(c.img as u8)
 }
 
 fn full_keys(w: &[u64]) -> Vec<u64> {
@@ -44,7 +48,18 @@ fn table(l: &RecordLayout, recs: &[(Vec<u64>, i64)]) -> (Vec<u64>, *mut HashAgg)
 fn owned(nowners: usize, owner_bytes: usize) -> Vec<u64> {
     let mut v = vec![0u64; (OWNED_HDR + nowners * owner_bytes).div_ceil(8)];
     let o = v.as_mut_ptr() as *mut Owned;
-    unsafe { *o = Owned { nowners: nowners as u32, owner_bytes: owner_bytes as u32, limit: 0, pad0: [0; 3], kind: TABLE_OWNED, base: 0, pad1: [0; 5], cell: core::cell::UnsafeCell::new([]) } };
+    unsafe {
+        *o = Owned {
+            nowners: nowners as u32,
+            owner_bytes: owner_bytes as u32,
+            limit: 0,
+            pad0: [0; 3],
+            kind: TABLE_OWNED,
+            base: 0,
+            pad1: [0; 5],
+            cell: core::cell::UnsafeCell::new([]),
+        }
+    };
     v
 }
 
@@ -56,7 +71,10 @@ fn admit(region: &[u64], rule: &Rule) -> BTreeSet<(Vec<u64>, i64)> {
     unsafe {
         admitted(region.as_ptr() as *const u8, &words, None, &mut |r, _| {
             let k = core::slice::from_raw_parts(r, nk).to_vec();
-            assert!(got.insert((k, *r.add(rule.count_word as usize) as i64)), "a record admitted once");
+            assert!(
+                got.insert((k, *r.add(rule.count_word as usize) as i64)),
+                "a record admitted once"
+            );
         })
         .expect("an owned region");
     }
@@ -66,11 +84,30 @@ fn admit(region: &[u64], rule: &Rule) -> BTreeSet<(Vec<u64>, i64)> {
 fn check(c: &Case, nowners: usize, n: u32, desc: bool, nulls_first: bool) {
     let l = layout(c);
     let rec = l.size() as usize;
-    let rule = Rule { desc, nulls_first, nullable: c.nullable, img_words: c.img as u8, rec_words: (rec / 8) as u8, count_word: (l.sentinel_off() / 8) as u8, n, ..Rule::default() };
+    let rule = Rule {
+        desc,
+        nulls_first,
+        nullable: c.nullable,
+        img_words: c.img as u8,
+        rec_words: (rec / 8) as u8,
+        count_word: (l.sentinel_off() / 8) as u8,
+        n,
+        ..Rule::default()
+    };
     // the merged pass-1 records
-    let (buf, t) = table(&l, &c.arrivals.iter().map(|(w, _, n)| (full_keys(w), *n)).collect::<Vec<_>>());
+    let (buf, t) = table(
+        &l,
+        &c.arrivals
+            .iter()
+            .map(|(w, _, n)| (full_keys(w), *n))
+            .collect::<Vec<_>>(),
+    );
     let t = unsafe { &*t };
-    let recs: Vec<(Vec<u64>, i64)> = (0..t.cap as usize).map(|i| t.record(i)).filter(|r| r.used()).map(|r| (r.keys().to_vec(), r.count(0))).collect();
+    let recs: Vec<(Vec<u64>, i64)> = (0..t.cap as usize)
+        .map(|i| t.record(i))
+        .filter(|r| r.used())
+        .map(|r| (r.keys().to_vec(), r.count(0)))
+        .collect();
     drop(buf);
     // before: the runs form, each record in the owner its full image routes to
     let obytes = OWNER_RUN_OFF + (recs.len() + 1) * rec;
@@ -93,33 +130,77 @@ fn check(c: &Case, nowners: usize, n: u32, desc: bool, nulls_first: bool) {
         }
     }
     // after: the export owners, each over its partitions (the image's route), a partition one reduce
-    let spec = TopExportSpec { layout: l, count_slot: 0, img_words: c.img as u8, n, desc, nulls_first, nullable: c.nullable, ext: false, ext_nn: false, spread: false };
+    let spec = TopExportSpec {
+        layout: l,
+        count_slot: 0,
+        img_words: c.img as u8,
+        n,
+        desc,
+        nulls_first,
+        nullable: c.nullable,
+        ext: false,
+        ext_nn: false,
+        spread: false,
+    };
     let fns = owner_fns(&spec);
-    let ebytes = (fns.min_bytes)(fns.params.as_ptr(), 1) as usize + 2 * (recs.len() + 1) * rec + (1 << 16);
+    let ebytes =
+        (fns.min_bytes)(fns.params.as_ptr(), 1) as usize + 2 * (recs.len() + 1) * rec + (1 << 16);
     let mut new = owned(nowners, ebytes);
     let o = unsafe { Owned::view(new.as_mut_ptr() as *const u8) };
     for j in 0..nowners {
         let base = o.owner(j);
-        unsafe { assert!((fns.open)(fns.params.as_ptr(), base, ebytes) > 0, "the owner opens") };
+        unsafe {
+            assert!(
+                (fns.open)(fns.params.as_ptr(), base, ebytes) > 0,
+                "the owner opens"
+            )
+        };
         for part in (0..16u32).filter(|p| *p as usize % nowners == j) {
-            let mine: Vec<(Vec<u64>, i64)> = recs.iter().filter(|(k, _)| KeyHash::of(&k[..c.img]).part(4) == part).cloned().collect();
+            let mine: Vec<(Vec<u64>, i64)> = recs
+                .iter()
+                .filter(|(k, _)| KeyHash::of(&k[..c.img]).part(4) == part)
+                .cloned()
+                .collect();
             if mine.is_empty() {
                 continue;
             }
             let (_tb, t) = table(&l, &mine);
-            unsafe { assert_eq!((fns.reduce)(fns.params.as_ptr(), base, t, core::ptr::null_mut(), core::ptr::null(), -1), 0, "the reduce") };
+            unsafe {
+                assert_eq!(
+                    (fns.reduce)(
+                        fns.params.as_ptr(),
+                        base,
+                        t,
+                        core::ptr::null_mut(),
+                        core::ptr::null(),
+                        -1
+                    ),
+                    0,
+                    "the reduce"
+                )
+            };
         }
         unsafe { assert_eq!((fns.end_round)(fns.params.as_ptr(), base), 0) };
     }
     let (a, b) = (admit(&old, &rule), admit(&new, &rule));
-    assert_eq!(a, b, "img {} nullable {} owners {nowners} n {n} desc {desc} nulls_first {nulls_first}", c.img, c.nullable);
+    assert_eq!(
+        a, b,
+        "img {} nullable {} owners {nowners} n {n} desc {desc} nulls_first {nulls_first}",
+        c.img, c.nullable
+    );
 }
 
 /// Keys 1..=400: every 3rd counted twice, the rest once; key 0 (the
 /// nullable image's NULL, `(0, 1)`) seen once; values spread so an n-cut lands between singles.
 fn case(img: usize, nullable: bool) -> Case {
     let mut a = Vec::new();
-    let key = |i: u64| if img == 1 { vec![i.wrapping_mul(7919) % 100_003] } else { vec![i.wrapping_mul(7919) % 100_003, 0] };
+    let key = |i: u64| {
+        if img == 1 {
+            vec![i.wrapping_mul(7919) % 100_003]
+        } else {
+            vec![i.wrapping_mul(7919) % 100_003, 0]
+        }
+    };
     for i in 1..=400u64 {
         match i % 3 {
             0 => a.push((key(i), i % 4, 2)),
@@ -132,7 +213,11 @@ fn case(img: usize, nullable: bool) -> Case {
     if nullable {
         a.push((vec![0, 1], 0, 1));
     }
-    Case { img, nullable, arrivals: a }
+    Case {
+        img,
+        nullable,
+        arrivals: a,
+    }
 }
 
 #[test]
@@ -141,7 +226,9 @@ fn the_export_admits_exactly_what_every_record_admits() {
         let c = case(img, nullable);
         for nowners in [1usize, 8] {
             for n in [0u32, 1, 3, 10, 150, 1000] {
-                for (desc, nulls_first) in [(false, false), (true, false), (false, true), (true, true)] {
+                for (desc, nulls_first) in
+                    [(false, false), (true, false), (false, true), (true, true)]
+                {
                     check(&c, nowners, n, desc, nulls_first);
                 }
             }
@@ -153,7 +240,12 @@ fn the_export_admits_exactly_what_every_record_admits() {
 type ExtKey = (u64, i64, i64, i64, i64);
 
 /// Every record of `keys` in the runs form (each in the owner its image routes to), and in the export owners' form.
-fn ext_regions(l: &RecordLayout, keys: &[ExtKey], nowners: usize, spec: &TopExportSpec) -> (Vec<u64>, Vec<u64>) {
+fn ext_regions(
+    l: &RecordLayout,
+    keys: &[ExtKey],
+    nowners: usize,
+    spec: &TopExportSpec,
+) -> (Vec<u64>, Vec<u64>) {
     let rec = l.size() as usize;
     let put = |d: *mut u8, &(k, c, e, nn, best): &ExtKey| unsafe {
         *(d as *mut u64) = k;
@@ -182,14 +274,23 @@ fn ext_regions(l: &RecordLayout, keys: &[ExtKey], nowners: usize, spec: &TopExpo
         }
     }
     let fns = owner_fns(spec);
-    let ebytes = (fns.min_bytes)(fns.params.as_ptr(), 1) as usize + 2 * (keys.len() + 1) * rec + (1 << 16);
+    let ebytes =
+        (fns.min_bytes)(fns.params.as_ptr(), 1) as usize + 2 * (keys.len() + 1) * rec + (1 << 16);
     let mut new = owned(nowners, ebytes);
     let o = unsafe { Owned::view(new.as_mut_ptr() as *const u8) };
     for j in 0..nowners {
         let base = o.owner(j);
-        unsafe { assert!((fns.open)(fns.params.as_ptr(), base, ebytes) > 0, "the owner opens") };
+        unsafe {
+            assert!(
+                (fns.open)(fns.params.as_ptr(), base, ebytes) > 0,
+                "the owner opens"
+            )
+        };
         for part in (0..16u32).filter(|p| *p as usize % nowners == j) {
-            let mine: Vec<&ExtKey> = keys.iter().filter(|k| KeyHash::of(&[k.0]).part(4) == part).collect();
+            let mine: Vec<&ExtKey> = keys
+                .iter()
+                .filter(|k| KeyHash::of(&[k.0]).part(4) == part)
+                .collect();
             if mine.is_empty() {
                 continue;
             }
@@ -201,7 +302,20 @@ fn ext_regions(l: &RecordLayout, keys: &[ExtKey], nowners: usize, spec: &TopExpo
                 put(t.find_or_insert(&[k.0]).expect("room").as_ptr(), k);
             }
             let t = t as *mut HashAgg;
-            unsafe { assert_eq!((fns.reduce)(fns.params.as_ptr(), base, t, core::ptr::null_mut(), core::ptr::null(), -1), 0, "the reduce") };
+            unsafe {
+                assert_eq!(
+                    (fns.reduce)(
+                        fns.params.as_ptr(),
+                        base,
+                        t,
+                        core::ptr::null_mut(),
+                        core::ptr::null(),
+                        -1
+                    ),
+                    0,
+                    "the reduce"
+                )
+            };
         }
         unsafe { assert_eq!((fns.end_round)(fns.params.as_ptr(), base), 0) };
     }
@@ -216,20 +330,57 @@ fn the_extreme_export_admits_exactly_what_every_record_admits() {
     let keys: Vec<ExtKey> = (1..=400u64)
         .map(|i| {
             let c = 1 + (i % 3) as i64;
-            let nn = if i % 11 == 0 { 0 } else if i % 5 == 0 { c - 1 } else { c };
+            let nn = if i % 11 == 0 {
+                0
+            } else if i % 5 == 0 {
+                c - 1
+            } else {
+                c
+            };
             let e = ((i * 37) % 97) as i64 - 40;
             (i.wrapping_mul(7919) % 100_003, c, e, nn, e)
         })
         .collect();
     for ext_nn in [false, true] {
-        let keys: Vec<ExtKey> = keys.iter().map(|&(k, c, e, nn, b)| (k, c, e, if ext_nn { nn } else { c }, b)).collect();
-        let slots: &[SlotKind] = if ext_nn { &[SlotKind::Count, SlotKind::MaxI64, SlotKind::Count] } else { &[SlotKind::Count, SlotKind::MaxI64] };
-        let l = RecordLayout::with_sentinel(&[KeyKind::I64], slots, true, Some(0)).partitioned_by(1);
+        let keys: Vec<ExtKey> = keys
+            .iter()
+            .map(|&(k, c, e, nn, b)| (k, c, e, if ext_nn { nn } else { c }, b))
+            .collect();
+        let slots: &[SlotKind] = if ext_nn {
+            &[SlotKind::Count, SlotKind::MaxI64, SlotKind::Count]
+        } else {
+            &[SlotKind::Count, SlotKind::MaxI64]
+        };
+        let l =
+            RecordLayout::with_sentinel(&[KeyKind::I64], slots, true, Some(0)).partitioned_by(1);
         for nowners in [1usize, 8] {
             for n in [0u32, 1, 3, 10, 150, 1000] {
-                for (desc, nulls_first) in [(false, false), (true, false), (false, true), (true, true)] {
-                    let spec = TopExportSpec { layout: l, count_slot: 0, img_words: 1, n, desc, nulls_first, nullable: false, ext: true, ext_nn, spread: false };
-                    let rule = Rule { ext: true, ext_nn, desc, nulls_first, img_words: 1, rec_words: (l.size() / 8) as u8, count_word: (l.sentinel_off() / 8) as u8, n, ..Rule::default() };
+                for (desc, nulls_first) in
+                    [(false, false), (true, false), (false, true), (true, true)]
+                {
+                    let spec = TopExportSpec {
+                        layout: l,
+                        count_slot: 0,
+                        img_words: 1,
+                        n,
+                        desc,
+                        nulls_first,
+                        nullable: false,
+                        ext: true,
+                        ext_nn,
+                        spread: false,
+                    };
+                    let rule = Rule {
+                        ext: true,
+                        ext_nn,
+                        desc,
+                        nulls_first,
+                        img_words: 1,
+                        rec_words: (l.size() / 8) as u8,
+                        count_word: (l.sentinel_off() / 8) as u8,
+                        n,
+                        ..Rule::default()
+                    };
                     let (old, new) = ext_regions(&l, &keys, nowners, &spec);
                     let (a, b) = (admit(&old, &rule), admit(&new, &rule));
                     assert_eq!(a, b, "ext_nn {ext_nn} owners {nowners} n {n} desc {desc} nulls_first {nulls_first}");
@@ -266,8 +417,19 @@ fn a_spread_rule_admits_every_key_of_a_group_that_can_rank_in_the_top() {
         Avg,
     }
     for round in 0..6u64 {
-        let (nkeys, rows) = ([5u64, 40, 300][round as usize % 3], [30u64, 400, 2000][round as usize % 3]);
-        let data: Vec<(u64, u64, Option<i64>)> = (0..rows).map(|_| (rnd(nkeys), rnd(4), (rnd(9) != 0).then(|| rnd(1000) as i64 - 300))).collect();
+        let (nkeys, rows) = (
+            [5u64, 40, 300][round as usize % 3],
+            [30u64, 400, 2000][round as usize % 3],
+        );
+        let data: Vec<(u64, u64, Option<i64>)> = (0..rows)
+            .map(|_| {
+                (
+                    rnd(nkeys),
+                    rnd(4),
+                    (rnd(9) != 0).then(|| rnd(1000) as i64 - 300),
+                )
+            })
+            .collect();
         let mut groups: BTreeMap<(u64, u64), Vec<Option<i64>>> = BTreeMap::new();
         let mut per_key: BTreeMap<u64, Vec<Option<i64>>> = BTreeMap::new();
         for &(k, k2, v) in &data {
@@ -281,20 +443,40 @@ fn a_spread_rule_admits_every_key_of_a_group_that_can_rank_in_the_top() {
                 Agg::Avg => Class::AvgI128,
             };
             for desc in [false, true] {
-                let (witness, best) = class.two_pass_bounds(desc).expect("min, max and avg are bounded");
+                let (witness, best) = class
+                    .two_pass_bounds(desc)
+                    .expect("min, max and avg are bounded");
                 let spread = best.is_some();
-                let ext = |vs: &[Option<i64>], max: bool| vs.iter().flatten().copied().reduce(|a, b| if max == (b > a) { b } else { a });
+                let ext = |vs: &[Option<i64>], max: bool| {
+                    vs.iter()
+                        .flatten()
+                        .copied()
+                        .reduce(|a, b| if max == (b > a) { b } else { a })
+                };
                 let keys: Vec<ExtKey> = per_key
                     .iter()
                     .map(|(&k, vs)| {
                         let nn = vs.iter().flatten().count() as i64;
-                        (k, vs.len() as i64, ext(vs, witness).unwrap_or(0), nn, best.and_then(|m| ext(vs, m)).unwrap_or(0))
+                        (
+                            k,
+                            vs.len() as i64,
+                            ext(vs, witness).unwrap_or(0),
+                            nn,
+                            best.and_then(|m| ext(vs, m)).unwrap_or(0),
+                        )
                     })
                     .collect();
-                let ext_kind = |max: bool| if max { SlotKind::MaxI64 } else { SlotKind::MinI64 };
+                let ext_kind = |max: bool| {
+                    if max {
+                        SlotKind::MaxI64
+                    } else {
+                        SlotKind::MinI64
+                    }
+                };
                 let mut slots = vec![SlotKind::Count, ext_kind(witness), SlotKind::Count];
                 slots.extend(best.map(ext_kind));
-                let l = RecordLayout::with_sentinel(&[KeyKind::I64], &slots, true, Some(0)).partitioned_by(1);
+                let l = RecordLayout::with_sentinel(&[KeyKind::I64], &slots, true, Some(0))
+                    .partitioned_by(1);
                 for nulls_first in [false, true] {
                     // each group's value on the top's order (smaller = first): NULL first or last, then the value
                     let rank = |vs: &[Option<i64>]| -> (u8, i128) {
@@ -306,15 +488,41 @@ fn a_spread_rule_admits_every_key_of_a_group_that_can_rank_in_the_top() {
                         let x: i128 = match agg {
                             Agg::Min => i128::from(*nn.iter().min().unwrap()) << 40,
                             Agg::Max => i128::from(*nn.iter().max().unwrap()) << 40,
-                            Agg::Avg => (nn.iter().map(|&v| i128::from(v)).sum::<i128>() << 40) / nn.len() as i128,
+                            Agg::Avg => {
+                                (nn.iter().map(|&v| i128::from(v)).sum::<i128>() << 40)
+                                    / nn.len() as i128
+                            }
                         };
                         (1, if desc { -x } else { x })
                     };
-                    let mut ranked: Vec<((u8, i128), u64)> = groups.iter().map(|(&(k, _), vs)| (rank(vs), k)).collect();
+                    let mut ranked: Vec<((u8, i128), u64)> =
+                        groups.iter().map(|(&(k, _), vs)| (rank(vs), k)).collect();
                     ranked.sort();
                     for n in [1u32, 3, 10] {
-                        let rule = Rule { ext: true, ext_nn: true, spread, desc, nulls_first, img_words: 1, rec_words: (l.size() / 8) as u8, count_word: (l.sentinel_off() / 8) as u8, n, ..Rule::default() };
-                        let spec = TopExportSpec { layout: l, count_slot: 0, img_words: 1, n, desc, nulls_first, nullable: false, ext: true, ext_nn: true, spread };
+                        let rule = Rule {
+                            ext: true,
+                            ext_nn: true,
+                            spread,
+                            desc,
+                            nulls_first,
+                            img_words: 1,
+                            rec_words: (l.size() / 8) as u8,
+                            count_word: (l.sentinel_off() / 8) as u8,
+                            n,
+                            ..Rule::default()
+                        };
+                        let spec = TopExportSpec {
+                            layout: l,
+                            count_slot: 0,
+                            img_words: 1,
+                            n,
+                            desc,
+                            nulls_first,
+                            nullable: false,
+                            ext: true,
+                            ext_nn: true,
+                            spread,
+                        };
                         for nowners in [1usize, 8] {
                             let (old, new) = ext_regions(&l, &keys, nowners, &spec);
                             let (a, b) = (admit(&old, &rule), admit(&new, &rule));
@@ -325,7 +533,11 @@ fn a_spread_rule_admits_every_key_of_a_group_that_can_rank_in_the_top() {
                                     assert!(admitted.contains(&k), "{agg:?} desc {desc} nulls_first {nulls_first} n {n}: key {k} of a group ranked {r:?} (cut {cut:?}) not admitted");
                                 }
                             } else {
-                                assert_eq!(admitted.len(), per_key.len(), "fewer groups than n: every key");
+                                assert_eq!(
+                                    admitted.len(),
+                                    per_key.len(),
+                                    "fewer groups than n: every key"
+                                );
                             }
                         }
                     }

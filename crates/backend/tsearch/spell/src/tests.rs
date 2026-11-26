@@ -46,21 +46,24 @@ fn make_dict(mcx: Mcx<'static>, dictfile: &str, afffile: &str) -> Result<DictISp
 }
 
 fn lexize(mcx: Mcx<'static>, d: &DictISpell, word: &str) -> Option<Vec<String>> {
-    dispell_lexize(mcx, d, word.as_bytes())
-        .unwrap()
-        .map(|r| {
-            r.0.iter()
-                .map(|l| String::from_utf8_lossy(&l.lexeme).into_owned())
-                .collect()
-        })
+    dispell_lexize(mcx, d, word.as_bytes()).unwrap().map(|r| {
+        r.0.iter()
+            .map(|l| String::from_utf8_lossy(&l.lexeme).into_owned())
+            .collect()
+    })
 }
 
-fn check(mcx: Mcx<'static>, d: &DictISpell, cases: &[(&str, Option<&[&str]>)], failures: &mut Vec<String>, tag: &str) {
+fn check(
+    mcx: Mcx<'static>,
+    d: &DictISpell,
+    cases: &[(&str, Option<&[&str]>)],
+    failures: &mut Vec<String>,
+    tag: &str,
+) {
     for (word, want) in cases {
         let got = lexize(mcx, d, word);
-        let got_ref: Option<Vec<&str>> = got
-            .as_ref()
-            .map(|v| v.iter().map(String::as_str).collect());
+        let got_ref: Option<Vec<&str>> =
+            got.as_ref().map(|v| v.iter().map(String::as_str).collect());
         let want_vec: Option<Vec<&str>> = want.map(|w| w.to_vec());
         if got_ref != want_vec {
             failures.push(format!("{tag} {word}: got {got:?}, want {want:?}"));
@@ -94,7 +97,14 @@ fn tsdicts_ts_lexize_oracle() {
         ("footklubber", Some(&["foot", "klubber"])),
         (
             "footballklubber",
-            Some(&["footballklubber", "foot", "ball", "klubber", "football", "klubber"]),
+            Some(&[
+                "footballklubber",
+                "foot",
+                "ball",
+                "klubber",
+                "football",
+                "klubber",
+            ]),
         ),
         ("ballyklubber", Some(&["ball", "klubber"])),
         ("footballyklubber", Some(&["foot", "ball", "klubber"])),
@@ -128,7 +138,12 @@ fn tsdicts_ts_lexize_oracle() {
         "hunspell_num",
     );
 
-    assert!(failures.is_empty(), "{} mismatches:\n{}", failures.len(), failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "{} mismatches:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
 }
 
 // Oracle: the affix/dict suitability errors in expected/tsdicts.out.
@@ -140,17 +155,23 @@ fn tsdicts_bad_pairs_oracle() {
     );
     let mcx = static_mcx();
 
-    let err = make_dict(mcx, "ispell_sample", "hunspell_sample_long").err().unwrap();
+    let err = make_dict(mcx, "ispell_sample", "hunspell_sample_long")
+        .err()
+        .unwrap();
     assert_eq!(err, "invalid affix alias \"GJUS\"");
 
-    let err = make_dict(mcx, "ispell_sample", "hunspell_sample_num").err().unwrap();
+    let err = make_dict(mcx, "ispell_sample", "hunspell_sample_num")
+        .err()
+        .unwrap();
     assert_eq!(err, "invalid affix flag \"SZ\\\"");
 
     assert!(make_dict(mcx, "hunspell_sample_long", "ispell_sample").is_ok());
     assert!(make_dict(mcx, "hunspell_sample_long", "hunspell_sample_num").is_ok());
     assert!(make_dict(mcx, "hunspell_sample_num", "ispell_sample").is_ok());
 
-    let err = make_dict(mcx, "hunspell_sample_num", "hunspell_sample_long").err().unwrap();
+    let err = make_dict(mcx, "hunspell_sample_num", "hunspell_sample_long")
+        .err()
+        .unwrap();
     assert_eq!(err, "invalid affix alias \"302,301,202,303\"");
 }
 
@@ -174,7 +195,10 @@ fn hunspell_af_alias_table_oracle() {
     let err = try_dict(mcx, "hunspell_af", "hunspell_af_short")
         .err()
         .expect("AF table shorter than declared must be rejected");
-    assert_eq!(err.message(), "number of aliases is less than specified number 3");
+    assert_eq!(
+        err.message(),
+        "number of aliases is less than specified number 3"
+    );
     assert_eq!(err.sqlstate(), ERRCODE_CONFIG_FILE_ERROR);
 
     // An AF line with an empty flag field fills its slot with "" (C stores
@@ -321,14 +345,23 @@ fn loader_open_failure_reports_fopen_errno() {
         !rendered.is_empty() && rendered != "%m" && rendered != "No such file or directory",
         "`%m` must render strerror(ENOTDIR), got {rendered:?}"
     );
-    assert_eq!(err.saved_errno(), Some(want_errno), "saved errno must be fopen's");
+    assert_eq!(
+        err.saved_errno(),
+        Some(want_errno),
+        "saved errno must be fopen's"
+    );
     assert_eq!(err.sqlstate(), ERRCODE_CONFIG_FILE_ERROR);
 
     // ENOENT still reports ENOENT — through the same errno path.
     let missing = dir.join("missing.dict");
-    let want_errno = std::fs::File::open(&missing).expect_err("missing").raw_os_error().unwrap();
+    let want_errno = std::fs::File::open(&missing)
+        .expect_err("missing")
+        .raw_os_error()
+        .unwrap();
     let missing_b = missing.as_os_str().as_encoded_bytes().to_vec();
-    let err = obj.ni_import_dictionary(&missing_b).expect_err("missing file");
+    let err = obj
+        .ni_import_dictionary(&missing_b)
+        .expect_err("missing file");
     assert_eq!(err.saved_errno(), Some(want_errno));
     assert_eq!(
         err.message(),
@@ -357,7 +390,9 @@ fn loader_errors_carry_readline_context() {
     let mcx = static_mcx();
     let path = |name: &str| format!("{fixtures}/tsearch_data/{name}");
 
-    let err = try_dict(mcx, "spell_plain", "spell_badentry").err().expect("syntax error");
+    let err = try_dict(mcx, "spell_plain", "spell_badentry")
+        .err()
+        .expect("syntax error");
     assert_eq!(err.message(), "syntax error");
     assert_eq!(err.sqlstate(), ERRCODE_CONFIG_FILE_ERROR);
     assert_eq!(
@@ -371,7 +406,9 @@ fn loader_errors_carry_readline_context() {
         )
     );
 
-    let err = try_dict(mcx, "spell_plain", "spell_badflag").err().expect("bad FLAG value");
+    let err = try_dict(mcx, "spell_plain", "spell_badflag")
+        .err()
+        .expect("bad FLAG value");
     assert_eq!(
         err.message(),
         "Ispell dictionary supports only \"default\", \"long\", and \"num\" flag values"
@@ -387,9 +424,12 @@ fn loader_errors_carry_readline_context() {
         )
     );
 
-    let err = try_dict(mcx, "spell_plain", "spell_badenc").err().expect("encoding violation");
+    let err = try_dict(mcx, "spell_plain", "spell_badenc")
+        .err()
+        .expect("encoding violation");
     assert!(
-        err.message().starts_with("invalid byte sequence for encoding"),
+        err.message()
+            .starts_with("invalid byte sequence for encoding"),
         "{:?}",
         err.message()
     );
@@ -420,7 +460,12 @@ fn equal_repl_affixes_keep_pg_qsort_tie_order() {
     let d = make_dict(mcx, "spell_qsort_ties", "spell_qsort_ties").unwrap();
     assert_eq!(
         lexize(mcx, &d, "flies"),
-        Some(vec!["fl", "fle", "fli", "fla", "flo", "fly", "flu"].into_iter().map(String::from).collect())
+        Some(
+            vec!["fl", "fle", "fli", "fla", "flo", "fly", "flu"]
+                .into_iter()
+                .map(String::from)
+                .collect()
+        )
     );
     assert_eq!(lexize(mcx, &d, "fles"), Some(vec!["fl".to_string()]));
 }
@@ -463,9 +508,11 @@ fn regexec_failure_is_no_match_not_an_error() {
     use ::regex::{RegexFailure, RegexecResult};
     assert!(crate::normalize::regexec_applies(&RegexecResult::Matched));
     assert!(!crate::normalize::regexec_applies(&RegexecResult::NoMatch));
-    assert!(!crate::normalize::regexec_applies(&RegexecResult::Failed(RegexFailure {
-        message: "regular expression is too complex".to_string(),
-    })));
+    assert!(!crate::normalize::regexec_applies(&RegexecResult::Failed(
+        RegexFailure {
+            message: "regular expression is too complex".to_string(),
+        }
+    )));
 }
 
 // strtol: a positive magnitude of exactly 2^63 is ERANGE (LONG_MAX), not a
@@ -475,7 +522,10 @@ fn strtol_positive_two_to_the_63_overflows() {
     assert_eq!(crate::strtol(b"9223372036854775808"), (i64::MAX, 19, false));
     assert_eq!(crate::strtol(b"9223372036854775807"), (i64::MAX, 19, true));
     assert_eq!(crate::strtol(b"-9223372036854775808"), (i64::MIN, 20, true));
-    assert_eq!(crate::strtol(b"-9223372036854775809"), (i64::MIN, 20, false));
+    assert_eq!(
+        crate::strtol(b"-9223372036854775809"),
+        (i64::MIN, 20, false)
+    );
 }
 
 // spell.c get_nextfield copies a field into a char[BUFSIZ]: an AF alias
@@ -513,12 +563,21 @@ fn spnode_affix_index_is_nineteen_bits() {
         word.extend_from_slice(b"cat");
         let mut flag = PgVec::new_in(mcx);
         flag.extend_from_slice(alias);
-        d.spell.push(crate::Spell { word, flag, affix: 0, len: 0 });
+        d.spell.push(crate::Spell {
+            word,
+            flag,
+            affix: 0,
+            len: 0,
+        });
         d.ni_sort_dictionary().unwrap();
         let mut node = d.dictionary.unwrap();
         let mut data = None;
         for ch in b"cat" {
-            let nd = d.sp_arena[node].data.iter().find(|nd| nd.val == *ch).unwrap();
+            let nd = d.sp_arena[node]
+                .data
+                .iter()
+                .find(|nd| nd.val == *ch)
+                .unwrap();
             data = Some(*nd);
             node = nd.node.unwrap_or(node);
         }

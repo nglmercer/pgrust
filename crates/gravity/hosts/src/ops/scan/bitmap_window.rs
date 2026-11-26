@@ -30,8 +30,8 @@ use types_snapshot::SnapshotData;
 use types_storage::lock::NoLock;
 use types_tuple::ItemPointerData;
 
-use crate::ops::scan::heap_window::PAGE_ROWS;
 use crate::ops::scan::bitmap_source::BitmapSource;
+use crate::ops::scan::heap_window::PAGE_ROWS;
 use crate::ops::scan::index_source::{open_index, park, KeyWord, SiteRecipe};
 use crate::ops::scan::raw::SeekImages;
 use crate::recipe::HostRecipe;
@@ -99,19 +99,47 @@ impl PageBatch {
     /// The buffers' capacity in bytes (`BitmapSource`'s kept heap, `Source::kept_bytes`).
     pub(crate) fn kept_bytes(&self) -> usize {
         use gravity_driver::vec_bytes as v;
-        let span = self.span.as_ref().map_or(0, |s| v(&s.rowids) + v(&s.byref) + v(&s.bytes));
-        v(&self.lanes) + v(&self.valid) + v(&self.offs) + v(&self.tids) + v(&self.vals) + v(&self.nulls) + span
+        let span = self
+            .span
+            .as_ref()
+            .map_or(0, |s| v(&s.rowids) + v(&s.byref) + v(&s.bytes));
+        v(&self.lanes)
+            + v(&self.valid)
+            + v(&self.offs)
+            + v(&self.tids)
+            + v(&self.vals)
+            + v(&self.nulls)
+            + span
     }
 
     /// D2988: the windows of a site that keeps a RowId lane (lane `natts`, each row's tid word); `arm` says whether they span.
     pub fn with_rowids(natts: usize) -> PageBatch {
         let cap = PAGE_ROWS + SPAN_ROWS;
-        Self::sized(natts, cap, Some(Span { rowids: vec![0; cap], byref: vec![0; natts], bytes: Vec::new(), on: false })) // alloc: Node
+        Self::sized(
+            natts,
+            cap,
+            Some(Span {
+                rowids: vec![0; cap],
+                byref: vec![0; natts],
+                bytes: Vec::new(),
+                on: false,
+            }),
+        ) // alloc: Node
     }
 
     fn sized(natts: usize, cap: usize, span: Option<Span>) -> PageBatch {
         let vw = cap.div_ceil(64);
-        PageBatch { lanes: vec![0; natts * cap], valid: vec![0; natts * vw], offs: vec![0; cap], tids: vec![ItemPointerData::invalid(); cap], vals: vec![0; natts], nulls: vec![0; natts], cap, vw, span } // alloc: Node
+        PageBatch {
+            lanes: vec![0; natts * cap],
+            valid: vec![0; natts * vw],
+            offs: vec![0; cap],
+            tids: vec![ItemPointerData::invalid(); cap],
+            vals: vec![0; natts],
+            nulls: vec![0; natts],
+            cap,
+            vw,
+            span,
+        } // alloc: Node
     }
 
     /// D2988: at a bind, a RowId site's by-reference columns (from `heap`'s descriptor) and whether its windows span pages
@@ -120,7 +148,14 @@ impl PageBatch {
         let Some(sp) = self.span.as_mut() else { return };
         // bounded("key-columns: one attlen read per scanned column, at most MaxTupleAttributeNumber (1664) columns")
         for (b, &a) in sp.byref.iter_mut().zip(attnos) {
-            *b = if a < 1 { 0 } else { heap.rd_att.compact_attrs.get(a as usize - 1).map_or(0, |c| if c.attbyval { 0 } else { c.attlen }) };
+            *b = if a < 1 {
+                0
+            } else {
+                heap.rd_att
+                    .compact_attrs
+                    .get(a as usize - 1)
+                    .map_or(0, |c| if c.attbyval { 0 } else { c.attlen })
+            };
         }
         sp.on = on;
     }
@@ -134,9 +169,27 @@ impl PageBatch {
         match self.span.as_mut() {
             Some(sp) => {
                 sp.rowids[0] = gravity_kernels::ops::scan::entries::tid_word(pos.block, pos.off);
-                w.set(natts, Lane::byval(sp.rowids.as_ptr() as *const u8, core::ptr::null(), 8, lane::REGION_ARENA, LaneId::RowId.encode()));
+                w.set(
+                    natts,
+                    Lane::byval(
+                        sp.rowids.as_ptr() as *const u8,
+                        core::ptr::null(),
+                        8,
+                        lane::REGION_ARENA,
+                        LaneId::RowId.encode(),
+                    ),
+                );
             }
-            None => w.set(natts, Lane::byval(self.offs.as_ptr() as *const u8, core::ptr::null(), 2, lane::REGION_ARENA, LaneId::Offset.encode())),
+            None => w.set(
+                natts,
+                Lane::byval(
+                    self.offs.as_ptr() as *const u8,
+                    core::ptr::null(),
+                    2,
+                    lane::REGION_ARENA,
+                    LaneId::Offset.encode(),
+                ),
+            ),
         }
     }
 
@@ -144,8 +197,18 @@ impl PageBatch {
     /// site's RowId lane), the base at the page's block. D2988: a spanning RowId window goes on to the next pages while
     /// it holds fewer than `SPAN_ROWS` rows (module header); its base is then the last page's block. Returns `(rows, the
     /// last row's position)`; 0 rows when the bitmap is exhausted.
-    pub fn fill(&mut self, p: PageParts<'_>, heap_oid: u32, attnos: &[i16], w: &mut Window<'_>) -> PgResult<(u32, ScanPos)> {
-        let tableam::TableScanDesc::Heap(h) = p.hscan else { return Err(crate::pg_err("gravity: a bitmap page window over a table AM other than heap")) };
+    pub fn fill(
+        &mut self,
+        p: PageParts<'_>,
+        heap_oid: u32,
+        attnos: &[i16],
+        w: &mut Window<'_>,
+    ) -> PgResult<(u32, ScanPos)> {
+        let tableam::TableScanDesc::Heap(h) = p.hscan else {
+            return Err(crate::pg_err(
+                "gravity: a bitmap page window over a table AM other than heap",
+            ));
+        };
         let (natts, cap, vw) = (attnos.len(), self.cap, self.vw);
         let spans = self.span.as_ref().is_some_and(|sp| sp.on);
         if let Some(sp) = self.span.as_mut() {
@@ -158,11 +221,21 @@ impl PageBatch {
         // bitmap's
         let mut step = cancelpoll::step("bitmap_window fill: one page of the bitmap");
         loop {
-            let n = heapam::bitmap::heap_scan_bitmap_next_pagebatch(p.mcx, h, p.tbm, p.iter, p.page_recheck, p.lossy, p.exact)?;
+            let n = heapam::bitmap::heap_scan_bitmap_next_pagebatch(
+                p.mcx,
+                h,
+                p.tbm,
+                p.iter,
+                p.page_recheck,
+                p.lossy,
+                p.exact,
+            )?;
             if n == 0 {
                 break;
             }
-            step.tick().map_err(|_| crate::pg_err("gravity: a bitmap page walk stopped for its statement's cancel"))?;
+            step.tick().map_err(|_| {
+                crate::pg_err("gravity: a bitmap page walk stopped for its statement's cancel")
+            })?;
             // the slot still pins the last page until its next store (this page's first row): its rows' images copied now
             if kept < rows {
                 self.keep(kept, rows);
@@ -188,17 +261,27 @@ impl PageBatch {
                         continue;
                     }
                 }
-                crate::ops::shared::heap_fetch::project(p.slot, attnos, &mut self.vals, &mut self.nulls)?;
+                crate::ops::shared::heap_fetch::project(
+                    p.slot,
+                    attnos,
+                    &mut self.vals,
+                    &mut self.nulls,
+                )?;
                 self.tids[rows] = p.slot.base().tts_tid;
                 self.offs[rows] = h.rs_vistuples[i as usize];
                 if let Some(sp) = self.span.as_mut() {
-                    sp.rowids[rows] = gravity_kernels::ops::scan::entries::tid_word(page, self.offs[rows]);
+                    sp.rowids[rows] =
+                        gravity_kernels::ops::scan::entries::tid_word(page, self.offs[rows]);
                 }
                 // bounded("key-columns: one cell per output column of a row (the row loop is the window's), at most MaxTupleAttributeNumber (1664) columns")
                 #[allow(clippy::needless_range_loop)]
                 for k in 0..natts {
                     self.valid[k * vw + rows / 64] |= ((self.nulls[k] == 0) as u64) << (rows % 64);
-                    self.lanes[k * cap + rows] = if attnos[k] == SELF_ITEM_POINTER { &self.tids[rows] as *const ItemPointerData as u64 } else { self.vals[k] };
+                    self.lanes[k * cap + rows] = if attnos[k] == SELF_ITEM_POINTER {
+                        &self.tids[rows] as *const ItemPointerData as u64
+                    } else {
+                        self.vals[k]
+                    };
                 }
                 rows += 1;
             }
@@ -220,15 +303,49 @@ impl PageBatch {
         for (k, &a) in attnos.iter().enumerate() {
             let words = &self.valid[k * vw..(k + 1) * vw];
             let all = (0..rows).all(|r| words[r / 64] >> (r % 64) & 1 != 0);
-            w.set(k, Lane::byval(self.lanes[k * cap..].as_ptr() as *const u8, if all { core::ptr::null() } else { words.as_ptr() }, 8, lane::REGION_ARENA, lane::id(lane::ID_ATTR, a as u16 as u32)));
+            w.set(
+                k,
+                Lane::byval(
+                    self.lanes[k * cap..].as_ptr() as *const u8,
+                    if all {
+                        core::ptr::null()
+                    } else {
+                        words.as_ptr()
+                    },
+                    8,
+                    lane::REGION_ARENA,
+                    lane::id(lane::ID_ATTR, a as u16 as u32),
+                ),
+            );
         }
         match self.span.as_ref() {
-            Some(sp) => w.set(natts, Lane::byval(sp.rowids.as_ptr() as *const u8, core::ptr::null(), 8, lane::REGION_ARENA, LaneId::RowId.encode())),
-            None => w.set(natts, Lane::byval(self.offs.as_ptr() as *const u8, core::ptr::null(), 2, lane::REGION_ARENA, LaneId::Offset.encode())),
+            Some(sp) => w.set(
+                natts,
+                Lane::byval(
+                    sp.rowids.as_ptr() as *const u8,
+                    core::ptr::null(),
+                    8,
+                    lane::REGION_ARENA,
+                    LaneId::RowId.encode(),
+                ),
+            ),
+            None => w.set(
+                natts,
+                Lane::byval(
+                    self.offs.as_ptr() as *const u8,
+                    core::ptr::null(),
+                    2,
+                    lane::REGION_ARENA,
+                    LaneId::Offset.encode(),
+                ),
+            ),
         }
         w.rows = rows as u32;
         w.set_base(WindowBase::at(ScanPos::new(heap_oid, blk, 0)));
-        Ok((rows as u32, ScanPos::row(heap_oid, blk, self.offs[rows - 1])))
+        Ok((
+            rows as u32,
+            ScanPos::row(heap_oid, blk, self.offs[rows - 1]),
+        ))
     }
 
     /// D2988: rows `from..to` (the page the slot pins until its next store) keep their by-reference cells: each non-null
@@ -243,7 +360,11 @@ impl PageBatch {
                 if self.valid[k * vw + r / 64] >> (r % 64) & 1 != 0 {
                     let cell = &mut self.lanes[k * cap + r];
                     // the slot's page pin holds the image (above)
-                    *cell = crate::ops::scan::index_window::copy_cell(&mut sp.bytes, *cell as *const u8, len);
+                    *cell = crate::ops::scan::index_window::copy_cell(
+                        &mut sp.bytes,
+                        *cell as *const u8,
+                        len,
+                    );
                 }
             }
         }
@@ -270,7 +391,7 @@ impl PageBatch {
 /// live as long as the owner, whose moves never move their buffers.
 pub(crate) fn row_members(recipe: &SiteRecipe, keys: &mut [ScanKeyData]) -> Vec<Vec<ScanKeyData>> {
     let rows: Vec<Vec<ScanKeyData>> = recipe.rows.iter().map(|r| r.members.clone()).collect(); // alloc: Node
-    // bounded("other: one pointer per row comparison of the probe's keys, which the statement's index quals bound")
+                                                                                               // bounded("other: one pointer per row comparison of the probe's keys, which the statement's index quals bound")
     for (r, m) in recipe.rows.iter().zip(rows.iter()) {
         keys[r.key].sk_argument = datum::Datum::from_usize(m.as_ptr() as usize);
     }
@@ -285,11 +406,26 @@ pub(crate) fn row_members(recipe: &SiteRecipe, keys: &mut [ScanKeyData]) -> Vec<
 /// ExecIndexEvalArrayKeys (DatumGetArrayTypeP) detoast it: bitmap_array's per-element scans and nbtree's preprocessing
 /// read a plain or short image only (index_source's V4R-44 rule). `reset` is true until the seek's first expansion,
 /// which empties the region (D2181: one seek's images, not one per rescan).
-pub(crate) fn bind_words(recipe: &SiteRecipe, keys: &mut [ScanKeyData], rows: &mut [Vec<ScanKeyData>], words: &[Word], nulls: &[u8], images: &mut SeekImages, reset: &mut bool) -> PgResult<bool> {
+pub(crate) fn bind_words(
+    recipe: &SiteRecipe,
+    keys: &mut [ScanKeyData],
+    rows: &mut [Vec<ScanKeyData>],
+    words: &[Word],
+    nulls: &[u8],
+    images: &mut SeekImages,
+    reset: &mut bool,
+) -> PgResult<bool> {
     if words.len() < recipe.words.len() || nulls.len() < recipe.words.len() {
-        return Err(crate::pg_err("gravity: a bitmap seek with fewer key words than its recipe"));
+        return Err(crate::pg_err(
+            "gravity: a bitmap seek with fewer key words than its recipe",
+        ));
     }
-    if recipe.words.iter().zip(nulls).any(|(w, &x)| x != 0 && matches!(w, KeyWord::Key(_))) {
+    if recipe
+        .words
+        .iter()
+        .zip(nulls)
+        .any(|(w, &x)| x != 0 && matches!(w, KeyWord::Key(_)))
+    {
         return Ok(false);
     }
     // bounded("other: one key word per scan key or row member of the probe, which the statement's index quals bound")
@@ -298,21 +434,31 @@ pub(crate) fn bind_words(recipe: &SiteRecipe, keys: &mut [ScanKeyData], rows: &m
             KeyWord::Key(i) if !recipe.host_keys[i as usize] => {
                 let k = &mut keys[i as usize];
                 k.sk_argument = datum::Datum::from_u64(words[w]);
-                if k.sk_flags & SK_SEARCHARRAY != 0 && !crate::ops::scan::index_source::search_array_plain(k.sk_argument) {
+                if k.sk_flags & SK_SEARCHARRAY != 0
+                    && !crate::ops::scan::index_source::search_array_plain(k.sk_argument)
+                {
                     let mcx = images.region(*reset);
                     *reset = false;
-                    k.sk_argument = crate::ops::scan::index_source::plain_array(mcx, k.sk_argument)?;
+                    k.sk_argument =
+                        crate::ops::scan::index_source::plain_array(mcx, k.sk_argument)?;
                 }
             }
             KeyWord::Key(_) => {}
             KeyWord::Member(r, j) => {
-                let (t, m) = (&recipe.rows[r as usize].members[j as usize], &mut rows[r as usize][j as usize]);
+                let (t, m) = (
+                    &recipe.rows[r as usize].members[j as usize],
+                    &mut rows[r as usize][j as usize],
+                );
                 let null = nulls[w] != 0;
                 m.sk_flags = t.sk_flags | if null { SK_ISNULL } else { 0 };
                 m.sk_strategy = t.sk_strategy;
                 m.sk_argument = datum::Datum::from_u64(if null { 0 } else { words[w] });
             }
-            KeyWord::OrderBy(_) => return Err(crate::pg_err("gravity: an ORDER BY key word under a bitmap walk")),
+            KeyWord::OrderBy(_) => {
+                return Err(crate::pg_err(
+                    "gravity: an ORDER BY key word under a bitmap walk",
+                ))
+            }
         }
     }
     Ok(true)
@@ -364,9 +510,25 @@ pub struct Tree {
 impl Tree {
     pub fn new(recipe: TreeRecipe) -> Tree {
         let n = recipe.leaves.len();
-        let mut keys: Vec<Vec<ScanKeyData>> = recipe.leaves.iter().map(|l| l.keys.clone()).collect(); // alloc: Node
-        let rows = recipe.leaves.iter().zip(keys.iter_mut()).map(|(l, k)| row_members(l, k)).collect(); // alloc: Node
-        Tree { recipe, keys, rows, index: (0..n).map(|_| None).collect(), parked: vec![None; n], scans: (0..n).map(|_| None).collect(), dead: vec![false; n], held: (0..n).map(|_| None).collect(), seek_images: SeekImages::default() } // alloc: Node
+        let mut keys: Vec<Vec<ScanKeyData>> =
+            recipe.leaves.iter().map(|l| l.keys.clone()).collect(); // alloc: Node
+        let rows = recipe
+            .leaves
+            .iter()
+            .zip(keys.iter_mut())
+            .map(|(l, k)| row_members(l, k))
+            .collect(); // alloc: Node
+        Tree {
+            recipe,
+            keys,
+            rows,
+            index: (0..n).map(|_| None).collect(),
+            parked: vec![None; n],
+            scans: (0..n).map(|_| None).collect(),
+            dead: vec![false; n],
+            held: (0..n).map(|_| None).collect(),
+            seek_images: SeekImages::default(),
+        } // alloc: Node
     }
 
     pub fn nkeys(&self) -> usize {
@@ -375,16 +537,33 @@ impl Tree {
 
     /// Every leaf's index opened (a validated relation of `heap`, in `mcx`) and its bitmap scan begun (in `smcx`, the
     /// source's per-bind context: D3195).
-    pub fn bind(&mut self, mcx: Mcx<'static>, smcx: Mcx<'static>, heap: u32, snapshot: &std::rc::Rc<SnapshotData<'static>>) -> PgResult<()> {
+    pub fn bind(
+        &mut self,
+        mcx: Mcx<'static>,
+        smcx: Mcx<'static>,
+        heap: u32,
+        snapshot: &std::rc::Rc<SnapshotData<'static>>,
+    ) -> PgResult<()> {
         // bounded("other: one index opened and one scan begun per leaf of the plan's bitmap tree (its BitmapIndexScan nodes), which the statement's quals bound")
         for (i, l) in self.recipe.leaves.iter().enumerate() {
             let index = open_index(mcx, &self.parked[i], l.index, l.index_lockmode)?;
-            if !index.rd_index.as_ref().is_some_and(|x| x.indisvalid && x.indrelid == heap) {
+            if !index
+                .rd_index
+                .as_ref()
+                .is_some_and(|x| x.indisvalid && x.indrelid == heap)
+            {
                 index.close(NoLock)?;
-                return Err(crate::pg_err("gravity: relation changed under the parked plan"));
+                return Err(crate::pg_err(
+                    "gravity: relation changed under the parked plan",
+                ));
             }
             // D4599: a leaf whose scan does not begin closes its index (the earlier leaves are the caller's `unbind`)
-            let scan = match indexam::index_beginscan_bitmap(smcx, &index, snapshot.clone(), l.nkeys as i32) {
+            let scan = match indexam::index_beginscan_bitmap(
+                smcx,
+                &index,
+                snapshot.clone(),
+                l.nkeys as i32,
+            ) {
                 Ok(scan) => scan,
                 Err(e) => {
                     let _ = index.close(NoLock);
@@ -415,12 +594,31 @@ impl Tree {
     pub fn seek(&mut self, keys: &[Word], keys_null: &[u8]) -> PgResult<bool> {
         let (mut w, mut reset) = (0, true);
         // bounded("other: one key binding per leaf of the plan's bitmap tree (its BitmapIndexScan nodes), which the statement's quals bound")
-        for ((((l, k), r), dead), held) in self.recipe.leaves.iter().zip(self.keys.iter_mut()).zip(self.rows.iter_mut()).zip(self.dead.iter_mut()).zip(self.held.iter()) {
+        for ((((l, k), r), dead), held) in self
+            .recipe
+            .leaves
+            .iter()
+            .zip(self.keys.iter_mut())
+            .zip(self.rows.iter_mut())
+            .zip(self.dead.iter_mut())
+            .zip(self.held.iter())
+        {
             let n = l.words.len();
             if keys.len() < w + n || keys_null.len() < w + n {
-                return Err(crate::pg_err("gravity: a bitmap tree seek with fewer key words than its leaves"));
+                return Err(crate::pg_err(
+                    "gravity: a bitmap tree seek with fewer key words than its leaves",
+                ));
             }
-            *dead = held.is_none() && !bind_words(l, k, r, &keys[w..w + n], &keys_null[w..w + n], &mut self.seek_images, &mut reset)?;
+            *dead = held.is_none()
+                && !bind_words(
+                    l,
+                    k,
+                    r,
+                    &keys[w..w + n],
+                    &keys_null[w..w + n],
+                    &mut self.seek_images,
+                    &mut reset,
+                )?;
             w += n;
         }
         Ok(self.held.iter().any(Option::is_some) || !self.empty(&self.recipe.shape))
@@ -459,12 +657,21 @@ impl Tree {
     }
 
     /// The tree's bitmap over this seek's keys, `maxbytes` per node (work_mem, as PostgreSQL's).
-    pub fn build<'m>(&mut self, mcx: Mcx<'m>, maxbytes: usize) -> PgResult<tidbitmap::TIDBitmap<'m>> {
+    pub fn build<'m>(
+        &mut self,
+        mcx: Mcx<'m>,
+        maxbytes: usize,
+    ) -> PgResult<tidbitmap::TIDBitmap<'m>> {
         let shape = self.recipe.shape.clone();
         self.node(mcx, &shape, maxbytes)
     }
 
-    fn node<'m>(&mut self, mcx: Mcx<'m>, s: &Shape, maxbytes: usize) -> PgResult<tidbitmap::TIDBitmap<'m>> {
+    fn node<'m>(
+        &mut self,
+        mcx: Mcx<'m>,
+        s: &Shape,
+        maxbytes: usize,
+    ) -> PgResult<tidbitmap::TIDBitmap<'m>> {
         stack_depth_core::check_stack_depth()?;
         match s {
             Shape::Leaf(i) => {
@@ -477,8 +684,12 @@ impl Tree {
                     return Ok(tbm);
                 }
                 let n = self.recipe.leaves[*i].nkeys;
-                let native = self.index[*i].as_ref().is_some_and(|x| x.rd_rel.relam == crate::ops::scan::index_source::BTREE_AM_OID);
-                let scan = self.scans[*i].as_mut().ok_or_else(|| crate::pg_err("gravity: a bitmap tree leaf on an unbound source"))?;
+                let native = self.index[*i].as_ref().is_some_and(|x| {
+                    x.rd_rel.relam == crate::ops::scan::index_source::BTREE_AM_OID
+                });
+                let scan = self.scans[*i].as_mut().ok_or_else(|| {
+                    crate::pg_err("gravity: a bitmap tree leaf on an unbound source")
+                })?;
                 // D433: a non-btree leaf's = ANY keys scan once per element (m2_bitmap_array.rs)
                 super::bitmap_array::getbitmap(mcx, scan, &self.keys[*i][..n], native, &mut tbm)?;
                 Ok(tbm)
@@ -486,9 +697,14 @@ impl Tree {
             Shape::And(kids) | Shape::Or(kids) => {
                 let and = matches!(s, Shape::And(_));
                 let mut acc: Option<tidbitmap::TIDBitmap<'m>> = None;
-                let mut step = cancelpoll::step("bitmap tree node: its children's bitmaps built and combined");
+                let mut step =
+                    cancelpoll::step("bitmap tree node: its children's bitmaps built and combined");
                 for k in kids {
-                    step.tick().map_err(|_| crate::pg_err("gravity: a bitmap tree build stopped for its statement's cancel"))?;
+                    step.tick().map_err(|_| {
+                        crate::pg_err(
+                            "gravity: a bitmap tree build stopped for its statement's cancel",
+                        )
+                    })?;
                     let b = self.node(mcx, k, maxbytes)?;
                     match acc.as_mut() {
                         None => acc = Some(b),
@@ -522,7 +738,12 @@ impl HostRecipe for BitmapTreeRecipe {
         core::mem::size_of::<BitmapSource>()
     }
     fn derive(&self, desc: &SiteDesc, a: ArenaRef) -> SourceBox {
-        box_source(BitmapSource::new(self.tree.leaves[0].clone(), self.recheck.clone()).with_tree(Tree::new(self.tree.clone())).paged_by(desc), a)
+        box_source(
+            BitmapSource::new(self.tree.leaves[0].clone(), self.recheck.clone())
+                .with_tree(Tree::new(self.tree.clone()))
+                .paged_by(desc),
+            a,
+        )
     }
     fn clone_box(&self) -> Box<dyn HostRecipe> {
         Box::new(self.clone()) // alloc: Program

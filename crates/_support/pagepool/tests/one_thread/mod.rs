@@ -24,12 +24,17 @@ pub fn main(tests: &[(&str, fn())]) {
         }
     }
     fn hit(exact: bool, n: &str, w: &str) -> bool {
-        if exact { n == w } else { n.contains(w) }
+        if exact {
+            n == w
+        } else {
+            n.contains(w)
+        }
     }
     let picked: Vec<&(&str, fn())> = tests
         .iter()
         .filter(|t| {
-            (names.is_empty() || names.iter().any(|w| hit(exact, t.0, w))) && !skips.iter().any(|w| hit(exact, t.0, w))
+            (names.is_empty() || names.iter().any(|w| hit(exact, t.0, w)))
+                && !skips.iter().any(|w| hit(exact, t.0, w))
         })
         .collect();
     println!("\nrunning {} tests", picked.len());

@@ -135,7 +135,10 @@ mod tests {
     fn a_group_counts_each_value_once_and_the_next_group_starts_empty() {
         let (mut set, mut pool) = ([0u64; 4], Vec::new());
         set[3] = 1; // the first group's open
-        let fresh: Vec<bool> = [5u64, 7, 5, 9, 7, 5].iter().map(|&k| offered(&mut set, &mut pool, &[k])).collect();
+        let fresh: Vec<bool> = [5u64, 7, 5, 9, 7, 5]
+            .iter()
+            .map(|&k| offered(&mut set, &mut pool, &[k]))
+            .collect();
         assert_eq!(fresh, [true, true, false, true, false, false]);
         assert_eq!(set[2], 3);
         (set[3], set[2]) = (2, 0); // the next group's open: nothing is held
@@ -148,7 +151,9 @@ mod tests {
         set[3] = 1;
         let keys: Vec<u64> = (0..3000u64).map(|k| k * 1_000_003 + 7).collect();
         assert!(keys.iter().all(|&k| offered(&mut set, &mut pool, &[k, !k])));
-        assert!(keys.iter().all(|&k| !offered(&mut set, &mut pool, &[k, !k])));
+        assert!(keys
+            .iter()
+            .all(|&k| !offered(&mut set, &mut pool, &[k, !k])));
         assert_eq!(set[2], 3000);
         // two-word images: the first table's 2048 entries fill 64 KiB, doubled at 1024 and at 2048 values
         assert_eq!((set[1], pool.len()), (8192, 3));
@@ -170,9 +175,17 @@ mod tests {
     /// The stashed error is PostgreSQL's "out of memory" (ERRCODE_OUT_OF_MEMORY), never nothing (the client's "an error
     /// without a message (raise code 7)").
     fn assert_out_of_memory() {
-        let e = gravity_fn::take_error().expect("a refused pin stashes its error for the HOST raise");
-        assert_eq!((e.message(), e.sqlstate()), ("out of memory", types_error::ERRCODE_OUT_OF_MEMORY));
-        assert!(e.detail().is_some_and(|d| d.contains("pinned region")), "{:?}", e.detail());
+        let e =
+            gravity_fn::take_error().expect("a refused pin stashes its error for the HOST raise");
+        assert_eq!(
+            (e.message(), e.sqlstate()),
+            ("out of memory", types_error::ERRCODE_OUT_OF_MEMORY)
+        );
+        assert!(
+            e.detail().is_some_and(|d| d.contains("pinned region")),
+            "{:?}",
+            e.detail()
+        );
     }
 
     #[test]
@@ -181,9 +194,15 @@ mod tests {
         let (mut set, key) = ([0, 0, 0, 1u64], [5u64]);
         drop(gravity_fn::take_error());
         // SAFETY: a bound ctx; `set` the four set words (generation 1); `key` one image word.
-        let r = unsafe { dset_insert((ctx.as_mut_ptr() as *mut Ctx) as u64, set.as_mut_ptr() as u64, key.as_ptr() as u64, 1) };
+        let r = unsafe {
+            dset_insert(
+                (ctx.as_mut_ptr() as *mut Ctx) as u64,
+                set.as_mut_ptr() as u64,
+                key.as_ptr() as u64,
+                1,
+            )
+        };
         assert!(r < 0, "no room: the raise exit");
         assert_out_of_memory();
     }
-
 }

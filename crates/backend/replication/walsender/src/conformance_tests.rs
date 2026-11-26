@@ -80,18 +80,34 @@ fn error_cleanup_releases_lwlocks_held_at_the_error() {
 #[test]
 fn truncated_standby_reply_is_a_protocol_violation_error() {
     let cases: [(&str, &[u8], &str); 4] = [
-        ("h + 3 bytes", b"h\x00\x00\x00", "insufficient data left in message"),
-        ("r + 11 bytes", b"r\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00", "insufficient data left in message"),
+        (
+            "h + 3 bytes",
+            b"h\x00\x00\x00",
+            "insufficient data left in message",
+        ),
+        (
+            "r + 11 bytes",
+            b"r\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+            "insufficient data left in message",
+        ),
         // Four complete int64s, then the replyRequested byte is missing.
         ("r + 32 bytes", &[b'r'; 33], "no data left in message"),
         // reply_time + 3 int32s complete, the last epoch is cut short.
-        ("h + 20 bytes", &[b'h'; 21], "insufficient data left in message"),
+        (
+            "h + 20 bytes",
+            &[b'h'; 21],
+            "insufficient data left in message",
+        ),
     ];
     for (what, body, expected) in cases {
         let err = replies::ProcessStandbyMessage(body)
             .err()
             .unwrap_or_else(|| panic!("{what}: truncated reply must ERROR"));
-        assert_eq!(err.sqlstate(), types_error::ERRCODE_PROTOCOL_VIOLATION, "{what}");
+        assert_eq!(
+            err.sqlstate(),
+            types_error::ERRCODE_PROTOCOL_VIOLATION,
+            "{what}"
+        );
         assert_eq!(err.message(), expected, "{what}");
     }
     // An empty CopyData has no message-type byte at all (pq_getmsgbyte).
@@ -106,14 +122,16 @@ fn truncated_standby_reply_is_a_protocol_violation_error() {
 // (elog.c:660), which the harness's proc_exit seam turns into the marker
 // panic caught below; the report itself is witnessed through emit_log_hook,
 // which errfinish runs before exiting.
-static FATAL_REPORTS: std::sync::Mutex<Vec<(types_error::ErrorLevel, types_error::SqlState, String)>> =
-    std::sync::Mutex::new(Vec::new());
+static FATAL_REPORTS: std::sync::Mutex<
+    Vec<(types_error::ErrorLevel, types_error::SqlState, String)>,
+> = std::sync::Mutex::new(Vec::new());
 
 fn fatal_capture_hook(e: &types_error::PgError, _output_to_server: &mut bool) {
-    FATAL_REPORTS
-        .lock()
-        .expect("fatal reports mutex")
-        .push((e.level(), e.sqlstate(), e.message().to_string()));
+    FATAL_REPORTS.lock().expect("fatal reports mutex").push((
+        e.level(),
+        e.sqlstate(),
+        e.message().to_string(),
+    ));
 }
 
 // The unwind policy exempts cfg(test) items; its checker scans per file and
@@ -136,8 +154,14 @@ fn invalid_standby_message_type_is_fatal_protocol_violation() {
     elog::set_emit_log_hook(prev);
 
     let payload = r.expect_err("'z' must be FATAL, which never returns");
-    let exit = payload.downcast_ref::<String>().cloned().unwrap_or_default();
-    assert_eq!(exit, "proc_exit(1) reached", "FATAL exits through proc_exit(1) (elog.c errfinish)");
+    let exit = payload
+        .downcast_ref::<String>()
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(
+        exit, "proc_exit(1) reached",
+        "FATAL exits through proc_exit(1) (elog.c errfinish)"
+    );
 
     let reports = FATAL_REPORTS.lock().expect("fatal reports mutex").clone();
     let (level, sqlstate, message) = reports
@@ -174,7 +198,10 @@ fn walsnd_done_sends_copy_command_complete_before_exit() {
     let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         streaming::WalSndDone(&mut |()| Ok(()))
     }));
-    assert!(r.is_err(), "WalSndDone must proc_exit(0) once caught up and replicated");
+    assert!(
+        r.is_err(),
+        "WalSndDone must proc_exit(0) once caught up and replicated"
+    );
 
     let w = wire();
     let expect = [b'C', 0, 0, 0, 11, b'C', b'O', b'P', b'Y', b' ', b'0', 0];
@@ -195,9 +222,10 @@ fn update_progress_skipped_xact_sends_keepalive_under_syncrep() {
     conformance_setup();
     assert_eq!(MY_WAL_SND.get(), -1);
     InitWalSenderSlot();
-    WalSndCtl()
-        .sync_standbys_status
-        .store(SYNC_STANDBY_INIT | SYNC_STANDBY_DEFINED, std::sync::atomic::Ordering::Relaxed);
+    WalSndCtl().sync_standbys_status.store(
+        SYNC_STANDBY_INIT | SYNC_STANDBY_DEFINED,
+        std::sync::atomic::Ordering::Relaxed,
+    );
     LAST_REPLY_TIMESTAMP.with(|c| c.set(0));
     WAITING_FOR_PING_RESPONSE.with(|c| c.set(false));
     SENT_PTR.with(|c| c.set(0x5000));
@@ -219,7 +247,9 @@ fn update_progress_skipped_xact_sends_keepalive_under_syncrep() {
         !WAITING_FOR_PING_RESPONSE.with(|c| c.get()),
         "the keepalive must not request a reply"
     );
-    WalSndCtl().sync_standbys_status.store(0, std::sync::atomic::Ordering::Relaxed);
+    WalSndCtl()
+        .sync_standbys_status
+        .store(0, std::sync::atomic::Ordering::Relaxed);
     WalSndKill(0, 0);
 }
 
@@ -231,15 +261,23 @@ fn update_progress_skipped_xact_is_silent_without_sync_standbys() {
     conformance_setup();
     assert_eq!(MY_WAL_SND.get(), -1);
     InitWalSenderSlot();
-    WalSndCtl().sync_standbys_status.store(SYNC_STANDBY_INIT, std::sync::atomic::Ordering::Relaxed);
+    WalSndCtl()
+        .sync_standbys_status
+        .store(SYNC_STANDBY_INIT, std::sync::atomic::Ordering::Relaxed);
     LAST_REPLY_TIMESTAMP.with(|c| c.set(0));
     WAITING_FOR_PING_RESPONSE.with(|c| c.set(false));
     WIRE.with(|w| w.borrow_mut().clear());
 
     logical_stream::wal_snd_update_progress(true, 0x1234, true).expect("update progress");
     pqcomm::pq_flush().expect("flush");
-    assert!(wire().is_empty(), "no keepalive without a sync standby (wire = {:?})", wire());
-    WalSndCtl().sync_standbys_status.store(0, std::sync::atomic::Ordering::Relaxed);
+    assert!(
+        wire().is_empty(),
+        "no keepalive without a sync standby (wire = {:?})",
+        wire()
+    );
+    WalSndCtl()
+        .sync_standbys_status
+        .store(0, std::sync::atomic::Ordering::Relaxed);
     WalSndKill(0, 0);
 }
 
@@ -272,7 +310,10 @@ fn keepalive_logs_debug2_before_sending() {
     pqcomm::pq_flush().expect("flush");
     let reports = debug2_reports();
     assert_eq!(reports, vec!["sending replication keepalive".to_string()]);
-    assert!(contains(&wire(), b"k"), "the keepalive itself is still sent");
+    assert!(
+        contains(&wire(), b"k"),
+        "the keepalive itself is still sent"
+    );
 }
 
 // walsender.c:2652-2668 ProcessStandbyHSFeedbackMessage: the decoded feedback

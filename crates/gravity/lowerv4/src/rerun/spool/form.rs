@@ -3,12 +3,12 @@
 //! inner that reads it (its reader: spool_readers.rs, D1919), and the refusals' names. Which form keeps the Material's
 //! rows is the lifetime home's answer (lifetime/material.rs `spool_fill`). Crate-level through pipes.rs's re-export
 //! (graph.rs `source_kind`, nest/inner.rs, source/append.rs, nest/spool.rs read it).
-use gravity_decompose::join::JoinDesc;
 use gravity_decompose::catalog::Am;
-use gravity_decompose::ops::shared::append::{AppendDesc, PruneDesc};
-use gravity_decompose::ops::shared::subplan::SubForm;
 use gravity_decompose::effects::Volatility;
 use gravity_decompose::graph::KeyForm;
+use gravity_decompose::join::JoinDesc;
+use gravity_decompose::ops::shared::append::{AppendDesc, PruneDesc};
+use gravity_decompose::ops::shared::subplan::SubForm;
 use gravity_decompose::{Op, Source};
 use types_nodes::primnodes::ParamKind;
 use types_nodes::Node;
@@ -39,10 +39,15 @@ pub(crate) const WALK_BOUND_AT_BIND: &str = "a nest inner's walk keyed by an exp
 /// executor parameter too (the pull form refuses that by D1107 first).
 pub(crate) fn expr_key(s: &Source<'_>) -> bool {
     let bare = |n: Node<'_>| n.as_const().is_some() || n.as_param().is_some();
-    let Source::Index { keys, .. } = s else { return false };
+    let Source::Index { keys, .. } = s else {
+        return false;
+    };
     keys.iter().any(|k| match k.form {
         KeyForm::Null | KeyForm::NotNull => false,
-        KeyForm::Row => k.value.as_row_compare_expr().is_none_or(|r| !r.rargs.iter().all(bare)),
+        KeyForm::Row => k
+            .value
+            .as_row_compare_expr()
+            .is_none_or(|r| !r.rargs.iter().all(bare)),
         _ => !bare(k.value),
     })
 }
@@ -79,7 +84,9 @@ pub(crate) fn result_child(p: &gravity_decompose::PipelineNode<'_>, body: &[Op<'
         && body.iter().all(|op| match op {
             Op::Filter(q) => !exec_param(*q),
             // a gate is the Result's resconstantqual, an implicit-AND list
-            Op::Gate(g) => g.as_list().map_or_else(|| !exec_param(*g), |l| !l.iter().any(exec_param)),
+            Op::Gate(g) => g
+                .as_list()
+                .map_or_else(|| !exec_param(*g), |l| !l.iter().any(exec_param)),
             Op::Project(l) => !l.iter().any(exec_param),
             _ => false,
         })
@@ -90,16 +97,32 @@ pub(crate) fn result_child(p: &gravity_decompose::PipelineNode<'_>, body: &[Op<'
 /// cannot take them (`licensed_arm`: the plan-order re-run, where the licence is denied, a statement that acts, as #424's
 /// UPDATE does, a fill that calls user code or a reader two levels down under a walk bound at bind): run whole at the
 /// nest's first outer row, PostgreSQL's own order, they need no licence.
-pub(crate) fn deferred_child(gx: &Gx<'_, '_>, k: usize, o: usize, inv: bool, rf: bool, vol: Volatility) -> bool {
-    let licensed = crate::effects::licensed_fill(inv, rf, vol) && !licensed_arm(gx, k, o, inv, rf, vol);
-    (crate::effects::deferred_fill(inv, rf, vol) || licensed) && !crate::effects::visible::material::quiet(gx, k)
+pub(crate) fn deferred_child(
+    gx: &Gx<'_, '_>,
+    k: usize,
+    o: usize,
+    inv: bool,
+    rf: bool,
+    vol: Volatility,
+) -> bool {
+    let licensed =
+        crate::effects::licensed_fill(inv, rf, vol) && !licensed_arm(gx, k, o, inv, rf, vol);
+    (crate::effects::deferred_fill(inv, rf, vol) || licensed)
+        && !crate::effects::visible::material::quiet(gx, k)
 }
 
 /// errorhold (D1108 row 2)'s arm of `spool_fill`: fill pipeline `k`, read by a nest of pipeline `o`, of licensed facts
 /// (invariant, IMMUTABLE, may raise) runs ahead in pipeline order under the recheck licence: its reader a one-level nest,
 /// or one two or more levels down when no inner of the graph walks by a word bound once at bind (D1630's guard), the
 /// licence available (`licensable`) and no user code in the fill (D2573).
-pub(crate) fn licensed_arm(gx: &Gx<'_, '_>, k: usize, o: usize, inv: bool, rf: bool, vol: Volatility) -> bool {
+pub(crate) fn licensed_arm(
+    gx: &Gx<'_, '_>,
+    k: usize,
+    o: usize,
+    inv: bool,
+    rf: bool,
+    vol: Volatility,
+) -> bool {
     crate::effects::licensed_fill(inv, rf, vol)
         && (o < gx.pipelines().len() || !crate::rerun::spool::readers::walk_bound(gx))
         && licensable(gx)
@@ -116,10 +139,19 @@ pub(crate) fn licensed_arm(gx: &Gx<'_, '_>, k: usize, o: usize, inv: bool, rf: b
 /// inner row; `DECISIONS.md` 4 (D) b, a data error from rows PostgreSQL's plan does not read) and where PostgreSQL fills it
 /// and raises the same error. Not when the reader nest is inside an embedded inner (`o` past the graph's pipelines): there
 /// the plan-order run refuses by D1108's name.
-pub(crate) fn unchecked_arm(gx: &Gx<'_, '_>, k: usize, o: usize, inv: bool, rf: bool, vol: Volatility) -> bool {
+pub(crate) fn unchecked_arm(
+    gx: &Gx<'_, '_>,
+    k: usize,
+    o: usize,
+    inv: bool,
+    rf: bool,
+    vol: Volatility,
+) -> bool {
     use gravity_decompose::effects::{licence_unchecked, Effects};
     crate::effects::unchecked_fill(inv, rf, vol)
-        && !(gravity_decompose::effects::denying() && crate::effects::licensed_fill(inv, rf, vol) && o >= gx.pipelines().len())
+        && !(gravity_decompose::effects::denying()
+            && crate::effects::licensed_fill(inv, rf, vol)
+            && o >= gx.pipelines().len())
         && (o < gx.pipelines().len() || !crate::rerun::spool::readers::walk_bound(gx))
         && !crate::effects::fed_user_code(gx, k)
         && licence_unchecked(Effects::RAISES, crate::effects::hides_user_code(gx, k)).is_ok()
@@ -127,17 +159,34 @@ pub(crate) fn unchecked_arm(gx: &Gx<'_, '_>, k: usize, o: usize, inv: bool, rf: 
 
 /// `spool_fill`'s arms of D1108 row 3 (the fill run whole at the nest's first outer row, PostgreSQL's own order) for fill
 /// pipeline `k` read at op `j` of pipeline `o`.
-fn deferred_form(gx: &Gx<'_, '_>, k: usize, o: usize, j: usize, many: bool, (inv, rf, vol): (bool, bool, Volatility)) -> bool {
-    deferred_child(gx, k, o, inv, rf, vol) && (whole_first(gx, k, o, j) || many && whole_first_arms(gx, k, o, j) || !many && (lock_fill(gx, k, o, j) || held_child(gx, k, o, j) || first_pull(gx, k, o, j) || first_sort(gx, k, o, j)))
+fn deferred_form(
+    gx: &Gx<'_, '_>,
+    k: usize,
+    o: usize,
+    j: usize,
+    many: bool,
+    (inv, rf, vol): (bool, bool, Volatility),
+) -> bool {
+    deferred_child(gx, k, o, inv, rf, vol)
+        && (whole_first(gx, k, o, j)
+            || many && whole_first_arms(gx, k, o, j)
+            || !many
+                && (lock_fill(gx, k, o, j)
+                    || held_child(gx, k, o, j)
+                    || first_pull(gx, k, o, j)
+                    || first_sort(gx, k, o, j)))
 }
 
 /// D1108 row 3: fill pipeline `k` takes the eager form by `whole_first` alone, so lazy.rs must defer it to the nest's first
 /// outer row or refuse.
 pub(crate) fn deferred(gx: &Gx<'_, '_>, k: usize) -> bool {
     let ps = gx.pipelines();
-    let Ok((reader, false)) = crate::lifetime::material::spool_fill(gx, k) else { return false };
+    let Ok((reader, false)) = crate::lifetime::material::spool_fill(gx, k) else {
+        return false;
+    };
     let (o, j) = ps.inners()[reader - ps.len()].0;
-    o < ps.len() && matches!(ps[o].ops.get(j).and_then(reader_facts), Some((inv, rf, vol)) if deferred_child(gx, k, o, inv, rf, vol))
+    o < ps.len()
+        && matches!(ps[o].ops.get(j).and_then(reader_facts), Some((inv, rf, vol)) if deferred_child(gx, k, o, inv, rf, vol))
 }
 
 /// D1108 row 3: PostgreSQL's Material over fill pipeline `k` runs its child once, whole, inside the first outer row's inner
@@ -158,29 +207,73 @@ pub(crate) fn whole_first(gx: &Gx<'_, '_>, k: usize, o: usize, j: usize) -> bool
     use gravity_decompose::effects::denying_bounded;
     use types_nodes::jointype::JoinType;
     let ps = gx.pipelines();
-    let Some(Op::Join(JoinDesc::Nest { jointype: JoinType::JOIN_INNER | JoinType::JOIN_LEFT, params, qual, unique: false, .. })) = ps[o].ops.get(j) else { return false };
-    let into = |to: usize| ps[o].ops[j + 1..to].iter().all(|op| matches!(op, Op::Filter(_) | Op::Project(_))) && crate::effects::span_quiet(gx, &ps[o], j + 1, to, false);
+    let Some(Op::Join(JoinDesc::Nest {
+        jointype: JoinType::JOIN_INNER | JoinType::JOIN_LEFT,
+        params,
+        qual,
+        unique: false,
+        ..
+    })) = ps[o].ops.get(j)
+    else {
+        return false;
+    };
+    let into = |to: usize| {
+        ps[o].ops[j + 1..to]
+            .iter()
+            .all(|op| matches!(op, Op::Filter(_) | Op::Project(_)))
+            && crate::effects::span_quiet(gx, &ps[o], j + 1, to, false)
+    };
     let end = ps[o].ops.len();
     let root = o == usize::from(gx.graph.root);
-    let write = if root { insert_at(gx, k, &ps[o].ops) } else { None };
+    let write = if root {
+        insert_at(gx, k, &ps[o].ops)
+    } else {
+        None
+    };
     let tail = if root {
         into(write.unwrap_or(end))
     } else {
-        let to = if crate::ops::mergejoin::lazy_outer::full(&ps[o]) { end - 1 } else { end };
+        let to = if crate::ops::mergejoin::lazy_outer::full(&ps[o]) {
+            end - 1
+        } else {
+            end
+        };
         // a graph pipeline (lazy.rs defers no fill for a nest inside an inner: its owner's call runs it)
-        o < ps.len() && to > j && into(to) && crate::ops::mergejoin::lazy_outer::reached(gx, o, j + 1)
+        o < ps.len()
+            && to > j
+            && into(to)
+            && crate::ops::mergejoin::lazy_outer::reached(gx, o, j + 1)
     };
-    let acts = ps.iter().enumerate().any(|(i, p)| p.ops.iter().enumerate().any(|(x, op)| matches!(op, Op::Write(_) | Op::Lock(_)) && (i, Some(x)) != (o, write)));
-    let src = if let Source::Breaker { slot } = ps[k].source { Some(slot) } else { None };
-    let child = crate::ops::hashjoin::build_class::feed(gx, k, ps[k].desc.consumes.iter().copied().chain(src));
+    let acts = ps.iter().enumerate().any(|(i, p)| {
+        p.ops
+            .iter()
+            .enumerate()
+            .any(|(x, op)| matches!(op, Op::Write(_) | Op::Lock(_)) && (i, Some(x)) != (o, write))
+    });
+    let src = if let Source::Breaker { slot } = ps[k].source {
+        Some(slot)
+    } else {
+        None
+    };
+    let child = crate::ops::hashjoin::build_class::feed(
+        gx,
+        k,
+        ps[k].desc.consumes.iter().copied().chain(src),
+    );
     params.is_nil()
         && tail
         && !acts
         && !denying_bounded()
         && qual.iter().all(|n| crate::effects::expr_quiet(gx, n))
         && crate::effects::span_quiet(gx, &ps[o], 0, j, false)
-        && !gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(o as u16)))
-        && core::iter::once(k).chain(child).all(|x| !reads_param(&ps[x]))
+        && !gx
+            .graph
+            .reruns
+            .iter()
+            .any(|r| r.pipelines.contains(&(o as u16)))
+        && core::iter::once(k)
+            .chain(child)
+            .all(|x| !reads_param(&ps[x]))
 }
 
 /// D3718 (LOCK-FILL): fill pipeline `k` takes its own row locks, a LIMIT .. FOR UPDATE subquery PostgreSQL plans apart
@@ -206,13 +299,29 @@ pub(crate) fn lock_fill(gx: &Gx<'_, '_>, k: usize, o: usize, j: usize) -> bool {
     if k >= ps.len() || o != usize::from(gx.graph.root) || o >= ps.len() {
         return false;
     }
-    let Some(Op::Join(JoinDesc::Nest { jointype: JoinType::JOIN_INNER | JoinType::JOIN_LEFT, params, qual, unique: false, .. })) = ps[o].ops.get(j) else { return false };
-    let Some((Op::Join(JoinDesc::Spool), body)) = ps[k].ops.split_last() else { return false };
+    let Some(Op::Join(JoinDesc::Nest {
+        jointype: JoinType::JOIN_INNER | JoinType::JOIN_LEFT,
+        params,
+        qual,
+        unique: false,
+        ..
+    })) = ps[o].ops.get(j)
+    else {
+        return false;
+    };
+    let Some((Op::Join(JoinDesc::Spool), body)) = ps[k].ops.split_last() else {
+        return false;
+    };
     let quiet = |n: Node<'_>| crate::effects::expr_quiet(gx, n) && !exec_param(n);
     // a scan of quiet keys; its ops quiet filters and projections, row locks and constant LIMIT / OFFSET bounds
     let source = |src: &Source<'_>| match src {
         Source::Range { am: Am::Heap, .. } => true,
-        Source::Index { am: Am::Heap, keys, recheck, .. } => keys.iter().all(|x| quiet(x.value)) && recheck.iter().all(quiet),
+        Source::Index {
+            am: Am::Heap,
+            keys,
+            recheck,
+            ..
+        } => keys.iter().all(|x| quiet(x.value)) && recheck.iter().all(quiet),
         _ => false,
     };
     let fixed = |b: &Bound<'_>| !matches!(b, Bound::Expr(_));
@@ -238,8 +347,16 @@ pub(crate) fn lock_fill(gx: &Gx<'_, '_>, k: usize, o: usize, j: usize) -> bool {
             _ => true,
         })
     });
-    let rerun = |x: usize| gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(x as u16)));
-    let tail = ps[o].ops[j + 1..].iter().all(|op| matches!(op, Op::Filter(_) | Op::Project(_))) && crate::effects::span_quiet(gx, &ps[o], j + 1, ps[o].ops.len(), false);
+    let rerun = |x: usize| {
+        gx.graph
+            .reruns
+            .iter()
+            .any(|r| r.pipelines.contains(&(x as u16)))
+    };
+    let tail = ps[o].ops[j + 1..]
+        .iter()
+        .all(|op| matches!(op, Op::Filter(_) | Op::Project(_)))
+        && crate::effects::span_quiet(gx, &ps[o], j + 1, ps[o].ops.len(), false);
     params.is_nil()
         && locks_in(body)
         && placed
@@ -247,7 +364,9 @@ pub(crate) fn lock_fill(gx: &Gx<'_, '_>, k: usize, o: usize, j: usize) -> bool {
         && ps[k].desc.consumes.is_empty()
         && side(body)
         && side(&ps[o].ops[..j])
-        && (source(&ps[o].source) || matches!(ps[o].source, Source::Breaker { .. } | Source::Const) && !locks_in(&ps[o].ops[..j]))
+        && (source(&ps[o].source)
+            || matches!(ps[o].source, Source::Breaker { .. } | Source::Const)
+                && !locks_in(&ps[o].ops[..j]))
         && qual.iter().all(|n| crate::effects::expr_quiet(gx, n))
         && tail
         && !denying_bounded()
@@ -259,8 +378,15 @@ pub(crate) fn lock_fill(gx: &Gx<'_, '_>, k: usize, o: usize, j: usize) -> bool {
 /// through it, pulled or run whole): lockrows' M4 pair takes its lock as A (ops/lockrows/plan.rs `Plan::role`).
 pub(crate) fn lock_fill_of(gx: &Gx<'_, '_>, q: usize) -> bool {
     let ps = gx.pipelines();
-    let Ok((reader, _)) = crate::lifetime::material::spool_fill(gx, q) else { return false };
-    if reader < ps.len() || !matches!(crate::rerun::spool::readers::reader_or_copies(gx, q), Ok((_, false))) {
+    let Ok((reader, _)) = crate::lifetime::material::spool_fill(gx, q) else {
+        return false;
+    };
+    if reader < ps.len()
+        || !matches!(
+            crate::rerun::spool::readers::reader_or_copies(gx, q),
+            Ok((_, false))
+        )
+    {
         return false;
     }
     let (o, j) = ps.inners()[reader - ps.len()].0;
@@ -278,7 +404,11 @@ pub(crate) fn lock_fill_pulls(gx: &Gx<'_, '_>, k: usize) -> bool {
     let last_lock = ops.iter().rposition(|o| matches!(o, Op::Lock(_)));
     match (limits.next(), limits.next()) {
         (None, _) => true,
-        (Some((i, o)), None) => last_lock.is_some_and(|l| l < i) && limit_settled(o) && demand(o).is_some_and(|d| !d.ties),
+        (Some((i, o)), None) => {
+            last_lock.is_some_and(|l| l < i)
+                && limit_settled(o)
+                && demand(o).is_some_and(|d| !d.ties)
+        }
         _ => false,
     }
 }
@@ -300,10 +430,14 @@ pub(crate) fn lock_fill_pulled(gx: &Gx<'_, '_>, q: usize) -> bool {
 fn insert_at(gx: &Gx<'_, '_>, k: usize, ops: &[Op<'_>]) -> Option<usize> {
     use gravity_decompose::ops::modifytable::trig_facts::{TrigExt, TRIG_INSERT};
     use gravity_program::Cmd;
-    let calls = |n: Node<'_>| crate::effects::user_or_volatile(gx, n) || gravity_decompose::expr::has_subplan(n);
+    let calls = |n: Node<'_>| {
+        crate::effects::user_or_volatile(gx, n) || gravity_decompose::expr::has_subplan(n)
+    };
     let (at, w) = match ops {
         [.., Op::Write(w)] => (ops.len() - 1, w),
-        [.., Op::Write(w), Op::Project(l)] if w.returning.is_some() && !l.iter().any(calls) => (ops.len() - 2, w),
+        [.., Op::Write(w), Op::Project(l)] if w.returning.is_some() && !l.iter().any(calls) => {
+            (ops.len() - 2, w)
+        }
         _ => return None,
     };
     let still = |t: TrigExt| t.known && (t.before_row | t.instead_row) & TRIG_INSERT == 0;
@@ -337,32 +471,64 @@ pub(crate) fn whole_first_arms(gx: &Gx<'_, '_>, k: usize, o: usize, j: usize) ->
     use gravity_decompose::effects::denying_bounded;
     use types_nodes::jointype::JoinType;
     let ps = gx.pipelines();
-    let Some(Op::Join(JoinDesc::Nest { jointype: JoinType::JOIN_INNER | JoinType::JOIN_LEFT, params, qual, unique: false, .. })) = ps[o].ops.get(j) else { return false };
+    let Some(Op::Join(JoinDesc::Nest {
+        jointype: JoinType::JOIN_INNER | JoinType::JOIN_LEFT,
+        params,
+        qual,
+        unique: false,
+        ..
+    })) = ps[o].ops.get(j)
+    else {
+        return false;
+    };
     let root = usize::from(gx.graph.root);
     let streamed = gx.stream_arms(root);
     let arms = || streamed.iter().copied().chain(core::iter::once(root));
-    let calls = |n: Node<'_>| crate::effects::user_fn(gx, n) || crate::effects::volatile(gx, n) || gravity_decompose::expr::has_subplan(n);
+    let calls = |n: Node<'_>| {
+        crate::effects::user_fn(gx, n)
+            || crate::effects::volatile(gx, n)
+            || gravity_decompose::expr::has_subplan(n)
+    };
     let after = ps[o].ops[j + 1..].iter().all(|op| match op {
         Op::Filter(n) => !calls(*n),
         Op::Project(l) => !l.iter().any(calls),
         Op::Write(w) => crate::effects::visible::rerun::write_calm(gx, w, &calls),
         _ => false,
     });
-    let acts = (0..ps.len()).any(|i| ps[i].ops.iter().any(|op| matches!(op, Op::Lock(_)) || matches!(op, Op::Write(_)) && !arms().any(|a| a == i)));
-    let src = if let Source::Breaker { slot } = ps[k].source { Some(slot) } else { None };
-    let child = crate::ops::hashjoin::build_class::feed(gx, k, ps[k].desc.consumes.iter().copied().chain(src));
+    let acts = (0..ps.len()).any(|i| {
+        ps[i].ops.iter().any(|op| {
+            matches!(op, Op::Lock(_)) || matches!(op, Op::Write(_)) && !arms().any(|a| a == i)
+        })
+    });
+    let src = if let Source::Breaker { slot } = ps[k].source {
+        Some(slot)
+    } else {
+        None
+    };
+    let child = crate::ops::hashjoin::build_class::feed(
+        gx,
+        k,
+        ps[k].desc.consumes.iter().copied().chain(src),
+    );
     params.is_nil()
         && arms().any(|a| a == o)
         && after
         && !acts
         && !denying_bounded()
         && qual.iter().all(|n| crate::effects::expr_quiet(gx, n))
-        && !gx.graph.reruns.iter().any(|r| arms().any(|a| r.pipelines.contains(&(a as u16))))
+        && !gx
+            .graph
+            .reruns
+            .iter()
+            .any(|r| arms().any(|a| r.pipelines.contains(&(a as u16))))
         && core::iter::once(k).chain(child).all(|x| {
             // D3714: or over InitPlans that may raise (`late_param`), which the run whole decides at its first arm's
             // start and whose parameters the arms read after it, as PostgreSQL's first Append call runs them
-            let loud: &dyn Fn(&PruneDesc<'_>) -> bool = &|d| d.exec && !init_prune(gx, x, d) && late_param(gx, x, d).is_none();
-            !reads_param_in(&ps[x], Some(loud), &|n| exec_param(n) && !init_read_by(n, &|id| init_late(gx, id)))
+            let loud: &dyn Fn(&PruneDesc<'_>) -> bool =
+                &|d| d.exec && !init_prune(gx, x, d) && late_param(gx, x, d).is_none();
+            !reads_param_in(&ps[x], Some(loud), &|n| {
+                exec_param(n) && !init_read_by(n, &|id| init_late(gx, id))
+            })
         })
 }
 
@@ -394,10 +560,21 @@ pub(crate) fn held_child(gx: &Gx<'_, '_>, k: usize, o: usize, j: usize) -> bool 
     if o >= ps.len() && crate::rerun::spool::readers::walk_bound(gx) {
         return false;
     }
-    let rerun = |x: usize| gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(x as u16)));
-    let Some(Op::Join(JoinDesc::Nest { .. })) = ps[o].ops.get(j) else { return false };
-    let Some((Op::Join(JoinDesc::Spool), body)) = ps[k].ops.split_last() else { return false };
-    !rerun(k) && !rerun(owner(gx, o)) && exact_child(gx, &ps[k].source,ps[k].desc.consumes, Some(k), body)
+    let rerun = |x: usize| {
+        gx.graph
+            .reruns
+            .iter()
+            .any(|r| r.pipelines.contains(&(x as u16)))
+    };
+    let Some(Op::Join(JoinDesc::Nest { .. })) = ps[o].ops.get(j) else {
+        return false;
+    };
+    let Some((Op::Join(JoinDesc::Spool), body)) = ps[k].ops.split_last() else {
+        return false;
+    };
+    !rerun(k)
+        && !rerun(owner(gx, o))
+        && exact_child(gx, &ps[k].source, ps[k].desc.consumes, Some(k), body)
 }
 
 /// The graph pipeline whose call runs pipeline `o`: `o` itself, or the owner an embedded inner's chain of owners ends in.
@@ -416,13 +593,23 @@ fn owner(gx: &Gx<'_, '_>, mut o: usize) -> usize {
 pub(crate) fn held_serial<'g>(gx: &Gx<'g, '_>, k: usize) -> mcx::PgVec<'g, usize> {
     use mcx::GrowIn;
     let ps = gx.pipelines();
-    let Ok((reader, false)) = crate::lifetime::material::spool_fill(gx, k) else { return mcx::PgVec::new_in(gx.mcx) };
+    let Ok((reader, false)) = crate::lifetime::material::spool_fill(gx, k) else {
+        return mcx::PgVec::new_in(gx.mcx);
+    };
     if ps.inners()[reader - ps.len()].0 .0 < ps.len() || held(gx, k).is_none() {
         return mcx::PgVec::new_in(gx.mcx);
     }
-    let src = if let Source::Breaker { slot } = ps[k].source { Some(slot) } else { None };
+    let src = if let Source::Breaker { slot } = ps[k].source {
+        Some(slot)
+    } else {
+        None
+    };
     let mut out = mcx::pg_vec![in gx.mcx; k];
-    out.extend_in(crate::ops::hashjoin::build_class::feed(gx, k, ps[k].desc.consumes.iter().copied().chain(src)));
+    out.extend_in(crate::ops::hashjoin::build_class::feed(
+        gx,
+        k,
+        ps[k].desc.consumes.iter().copied().chain(src),
+    ));
     out
 }
 
@@ -433,21 +620,42 @@ pub(crate) fn held_serial<'g>(gx: &Gx<'g, '_>, k: usize) -> mcx::PgVec<'g, usize
 /// row), a FROM function's one row or a VALUES list (each row's expressions as it is fetched); filters, one-time gates and
 /// projections; a FROM series or unnest call (it raises at its first call only, where PostgreSQL's FunctionScan, reading
 /// it whole there, raises too); a constant LIMIT; a nest over an inner of the same form, nothing feeding it.
-pub(crate) fn lazy_exact(gx: &Gx<'_, '_>, source: &Source<'_>, consumes: &[u8], ops: &[Op<'_>]) -> bool {
+pub(crate) fn lazy_exact(
+    gx: &Gx<'_, '_>,
+    source: &Source<'_>,
+    consumes: &[u8],
+    ops: &[Op<'_>],
+) -> bool {
     exact_child(gx, source, consumes, None, ops)
 }
 
 /// `lazy_exact`, and for `held_child` (`fill` = the fill pipeline) a nest inner or source reading a quiet plan Material
 /// (effects `store_quiet`) as well: its records come in its fill's order, the same at every read, and reading them shows nothing.
-fn exact_child(gx: &Gx<'_, '_>, source: &Source<'_>, consumes: &[u8], fill: Option<usize>, ops: &[Op<'_>]) -> bool {
+fn exact_child(
+    gx: &Gx<'_, '_>,
+    source: &Source<'_>,
+    consumes: &[u8],
+    fill: Option<usize>,
+    ops: &[Op<'_>],
+) -> bool {
     crate::stack_check();
     use gravity_decompose::ops::shared::srf::{SrfKind, SrfPlace};
-    let calm = |n: Node<'_>| !exec_param(n) && !crate::effects::user_or_volatile(gx, n) && !gravity_decompose::expr::has_subplan(n);
+    let calm = |n: Node<'_>| {
+        !exec_param(n)
+            && !crate::effects::user_or_volatile(gx, n)
+            && !gravity_decompose::expr::has_subplan(n)
+    };
     let list = |l: &types_nodes::list::NodeList<'_>| l.iter().all(calm);
-    let store = |s: u8| fill.is_some_and(|k| crate::effects::visible::material::store_quiet(gx, k, s));
+    let store =
+        |s: u8| fill.is_some_and(|k| crate::effects::visible::material::store_quiet(gx, k, s));
     let src = match source {
         Source::Range { am: Am::Heap, .. } | Source::Const => true,
-        Source::Index { am: Am::Heap, keys, recheck, .. } => keys.iter().all(|x| calm(x.value)) && list(recheck),
+        Source::Index {
+            am: Am::Heap,
+            keys,
+            recheck,
+            ..
+        } => keys.iter().all(|x| calm(x.value)) && list(recheck),
         Source::Values { lists, .. } => lists.iter().all(|l| l.as_list().is_some_and(list)),
         Source::Breaker { slot } => store(*slot),
         _ => false,
@@ -462,11 +670,24 @@ fn exact_child(gx: &Gx<'_, '_>, source: &Source<'_>, consumes: &[u8], fill: Opti
             Op::Project(l) => list(l),
             Op::Srf(d) => {
                 matches!(d.place, SrfPlace::From { .. })
-                    && d.functions.iter().all(|f| matches!(f.kind, SrfKind::SeriesInt { .. } | SrfKind::Unnest) && list(f.args))
+                    && d.functions.iter().all(|f| {
+                        matches!(f.kind, SrfKind::SeriesInt { .. } | SrfKind::Unnest)
+                            && list(f.args)
+                    })
                     && list(d.tlist)
             }
-            Op::Join(JoinDesc::Nest { params, qual, inner, .. }) => params.is_nil() && list(qual) && exact_child(gx, &inner.source,inner.desc.consumes, fill, &inner.ops),
-            op => crate::frame::iface::limit_bounds(op).is_some_and(|(count, offset)| bound(count) && bound(offset)),
+            Op::Join(JoinDesc::Nest {
+                params,
+                qual,
+                inner,
+                ..
+            }) => {
+                params.is_nil()
+                    && list(qual)
+                    && exact_child(gx, &inner.source, inner.desc.consumes, fill, &inner.ops)
+            }
+            op => crate::frame::iface::limit_bounds(op)
+                .is_some_and(|(count, offset)| bound(count) && bound(offset)),
         })
 }
 
@@ -476,15 +697,29 @@ fn exact_child(gx: &Gx<'_, '_>, source: &Source<'_>, consumes: &[u8], fill: Opti
 /// nowhere and the fill calls no user or VOLATILE function), None where the form is not taken.
 pub(crate) fn held(gx: &Gx<'_, '_>, k: usize) -> Option<gravity_decompose::effects::Licence> {
     let ps = gx.pipelines();
-    let Ok((reader, false)) = crate::lifetime::material::spool_fill(gx, k) else { return None };
-    if !matches!(crate::rerun::spool::readers::reader_or_copies(gx, k), Ok((_, false))) {
+    let Ok((reader, false)) = crate::lifetime::material::spool_fill(gx, k) else {
+        return None;
+    };
+    if !matches!(
+        crate::rerun::spool::readers::reader_or_copies(gx, k),
+        Ok((_, false))
+    ) {
         return None;
     }
     let (o, j) = ps.inners()[reader - ps.len()].0;
     let taken = matches!(ps[o].ops.get(j).and_then(reader_facts), Some((inv, rf, vol)) if deferred_child(gx, k, o, inv, rf, vol))
         && !whole_first(gx, k, o, j)
         && held_child(gx, k, o, j);
-    taken.then(|| gravity_decompose::effects::held_error(gravity_decompose::effects::Effects::RAISES, false, None).ok()).flatten()
+    taken
+        .then(|| {
+            gravity_decompose::effects::held_error(
+                gravity_decompose::effects::Effects::RAISES,
+                false,
+                None,
+            )
+            .ok()
+        })
+        .flatten()
 }
 
 /// D1108 (rxshape1, first pull): PostgreSQL's Material over fill pipeline `k` read by the nest at op `j` of graph pipeline
@@ -502,29 +737,56 @@ pub(crate) fn held(gx: &Gx<'_, '_>, k: usize) -> Option<gravity_decompose::effec
 pub(crate) fn first_pull(gx: &Gx<'_, '_>, k: usize, o: usize, j: usize) -> bool {
     use gravity_decompose::ops::shared::agg::GroupForm;
     let ps = gx.pipelines();
-    let acts = ps.iter().any(|p| p.ops.iter().any(|op| matches!(op, Op::Write(_) | Op::Lock(_))));
+    let acts = ps.iter().any(|p| {
+        p.ops
+            .iter()
+            .any(|op| matches!(op, Op::Write(_) | Op::Lock(_)))
+    });
     if k >= ps.len() || o >= ps.len() || acts || ps.iter().any(crate::lifetime::material::locks) {
         return false;
     }
-    let rerun = |x: usize| gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(x as u16)));
-    let Some(Op::Join(JoinDesc::Nest { params, .. })) = ps[o].ops.get(j) else { return false };
-    let Some((Op::Join(JoinDesc::Spool), body)) = ps[k].ops.split_last() else { return false };
-    let Source::Breaker { slot } = ps[k].source else { return false };
-    let Some(life) = gx.life_of(k, slot) else { return false };
-    let Some(g) = gx.graph.groups.iter().find(|g| g.producer == life) else { return false };
+    let rerun = |x: usize| {
+        gx.graph
+            .reruns
+            .iter()
+            .any(|r| r.pipelines.contains(&(x as u16)))
+    };
+    let Some(Op::Join(JoinDesc::Nest { params, .. })) = ps[o].ops.get(j) else {
+        return false;
+    };
+    let Some((Op::Join(JoinDesc::Spool), body)) = ps[k].ops.split_last() else {
+        return false;
+    };
+    let Source::Breaker { slot } = ps[k].source else {
+        return false;
+    };
+    let Some(life) = gx.life_of(k, slot) else {
+        return false;
+    };
+    let Some(g) = gx.graph.groups.iter().find(|g| g.producer == life) else {
+        return false;
+    };
     // an aggregate's value (its arguments ran in the transition, at the first fetch), or an expression over no aggregate
     // that raises and calls nothing
     let still = |n: Node<'_>| {
         let n = n.as_target_entry().map_or(n, |t| t.expr);
         let bare = gravity_decompose::expr::walk(n, &mut |x| x.as_aggref().is_none());
-        n.as_aggref().is_some() || bare && crate::effects::expr_quiet(gx, n) && !crate::effects::user_or_volatile(gx, n) && !gravity_decompose::expr::has_subplan(n)
+        n.as_aggref().is_some()
+            || bare
+                && crate::effects::expr_quiet(gx, n)
+                && !crate::effects::user_or_volatile(gx, n)
+                && !gravity_decompose::expr::has_subplan(n)
     };
     let quiet = |op: &Op<'_>| match op {
         Op::Filter(n) => still(*n),
         Op::Project(l) => l.iter().all(still),
         _ => false,
     };
-    let child = crate::ops::hashjoin::build_class::feed(gx, k, ps[k].desc.consumes.iter().copied().chain(Some(slot)));
+    let child = crate::ops::hashjoin::build_class::feed(
+        gx,
+        k,
+        ps[k].desc.consumes.iter().copied().chain(Some(slot)),
+    );
     params.is_nil()
         && !rerun(k)
         && !rerun(o)
@@ -534,7 +796,9 @@ pub(crate) fn first_pull(gx: &Gx<'_, '_>, k: usize, o: usize, j: usize) -> bool 
         && g.aggs.iter().all(crate::effects::visible::agg::final_quiet)
         && body.iter().all(quiet)
         && ps[k].desc.consumes.iter().all(|&s| s == slot)
-        && core::iter::once(k).chain(child).all(|x| !reads_param(&ps[x]))
+        && core::iter::once(k)
+            .chain(child)
+            .all(|x| !reads_param(&ps[x]))
 }
 
 /// D4102 (first sort): PostgreSQL's Material over fill pipeline `k`, whose child is a plan Sort node (ExecSort; a top-N
@@ -555,40 +819,76 @@ pub(crate) fn first_sort(gx: &Gx<'_, '_>, k: usize, o: usize, j: usize) -> bool 
     use gravity_abi::breaker::BreakerKind;
     use gravity_decompose::ops::shared::setop::RECURSIVE_SET;
     let ps = gx.pipelines();
-    let acts = ps.iter().any(|p| p.ops.iter().any(|op| matches!(op, Op::Write(_) | Op::Lock(_))));
+    let acts = ps.iter().any(|p| {
+        p.ops
+            .iter()
+            .any(|op| matches!(op, Op::Write(_) | Op::Lock(_)))
+    });
     if k >= ps.len() || o >= ps.len() || acts || ps.iter().any(crate::lifetime::material::locks) {
         return false;
     }
-    let Some(Op::Join(JoinDesc::Nest { params, .. })) = ps[o].ops.get(j) else { return false };
-    let Some((Op::Join(JoinDesc::Spool), body)) = ps[k].ops.split_last() else { return false };
-    let Source::Breaker { slot } = ps[k].source else { return false };
-    let Some(life) = gx.life_of(k, slot).map(|l| l.0 as usize).filter(|&l| l < ps.len()) else { return false };
-    if !matches!(crate::frame::iface::end_breaker(gx, life), Some(BreakerKind::Sort | BreakerKind::TopK)) {
+    let Some(Op::Join(JoinDesc::Nest { params, .. })) = ps[o].ops.get(j) else {
+        return false;
+    };
+    let Some((Op::Join(JoinDesc::Spool), body)) = ps[k].ops.split_last() else {
+        return false;
+    };
+    let Source::Breaker { slot } = ps[k].source else {
+        return false;
+    };
+    let Some(life) = gx
+        .life_of(k, slot)
+        .map(|l| l.0 as usize)
+        .filter(|&l| l < ps.len())
+    else {
+        return false;
+    };
+    if !matches!(
+        crate::frame::iface::end_breaker(gx, life),
+        Some(BreakerKind::Sort | BreakerKind::TopK)
+    ) {
         return false;
     }
     // the sort is the plan's own Sort node, the fill's source: a sort decompose puts over a node that streams (a sorted
     // grouping sets' order over its hashed form) runs its input whole where PostgreSQL's node hands on rows as it goes
-    let plan_sort = gx.graph.stmt.zip(ps[k].node_ops.first()).and_then(|(s, n)| gravity_decompose::lifetime::node_of(s, n.node_id));
+    let plan_sort = gx
+        .graph
+        .stmt
+        .zip(ps[k].node_ops.first())
+        .and_then(|(s, n)| gravity_decompose::lifetime::node_of(s, n.node_id));
     if !plan_sort.is_some_and(|(n, _)| n.node_tag() == types_nodes::NodeTag::T_Sort) {
         return false;
     }
     let still = |n: Node<'_>| {
         let n = n.as_target_entry().map_or(n, |t| t.expr);
-        crate::effects::expr_quiet(gx, n) && !crate::effects::user_or_volatile(gx, n) && !gravity_decompose::expr::has_subplan(n)
+        crate::effects::expr_quiet(gx, n)
+            && !crate::effects::user_or_volatile(gx, n)
+            && !gravity_decompose::expr::has_subplan(n)
     };
     let quiet = |op: &Op<'_>| match op {
         Op::Filter(n) => still(*n),
         Op::Project(l) => l.iter().all(still),
         _ => crate::effects::visible::quiet_limit(op),
     };
-    let sets = |x: usize| gx.graph.reruns.iter().filter(move |r| r.pipelines.contains(&(x as u16)));
+    let sets = |x: usize| {
+        gx.graph
+            .reruns
+            .iter()
+            .filter(move |r| r.pipelines.contains(&(x as u16)))
+    };
     let term = sets(o).count() <= 1 && sets(o).all(|r| r.plan_id == RECURSIVE_SET);
-    let child = crate::ops::hashjoin::build_class::feed(gx, k, ps[k].desc.consumes.iter().copied().chain(Some(slot)));
+    let child = crate::ops::hashjoin::build_class::feed(
+        gx,
+        k,
+        ps[k].desc.consumes.iter().copied().chain(Some(slot)),
+    );
     params.is_nil()
         && term
         && body.iter().all(quiet)
         && ps[k].desc.consumes.iter().all(|&s| s == slot)
-        && core::iter::once(k).chain(child).all(|x| sets(x).next().is_none() && !reads_param(&ps[x]))
+        && core::iter::once(k)
+            .chain(child)
+            .all(|x| sets(x).next().is_none() && !reads_param(&ps[x]))
 }
 
 /// D3803 (decompose nest.selfspool's tree form; a plan Material over such a child too): PostgreSQL's Material over fill
@@ -606,36 +906,72 @@ pub(crate) fn first_sort(gx: &Gx<'_, '_>, k: usize, o: usize, j: usize) -> bool 
 pub(crate) fn first_run(gx: &Gx<'_, '_>, k: usize, o: usize, j: usize) -> bool {
     use gravity_decompose::ops::shared::srf::SrfPlace;
     let ps = gx.pipelines();
-    let acts = ps.iter().any(|p| p.ops.iter().any(|op| matches!(op, Op::Write(_) | Op::Lock(_))));
+    let acts = ps.iter().any(|p| {
+        p.ops
+            .iter()
+            .any(|op| matches!(op, Op::Write(_) | Op::Lock(_)))
+    });
     if k >= ps.len() || o >= ps.len() || acts || ps.iter().any(crate::lifetime::material::locks) {
         return false;
     }
-    let rerun = |x: usize| gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(x as u16)));
-    let Some(Op::Join(JoinDesc::Nest { params, .. })) = ps[o].ops.get(j) else { return false };
-    let Some((Op::Join(JoinDesc::Spool), body)) = ps[k].ops.split_last() else { return false };
+    let rerun = |x: usize| {
+        gx.graph
+            .reruns
+            .iter()
+            .any(|r| r.pipelines.contains(&(x as u16)))
+    };
+    let Some(Op::Join(JoinDesc::Nest { params, .. })) = ps[o].ops.get(j) else {
+        return false;
+    };
+    let Some((Op::Join(JoinDesc::Spool), body)) = ps[k].ops.split_last() else {
+        return false;
+    };
     let quiet = |n: Node<'_>| crate::effects::expr_quiet(gx, n) && !exec_param(n);
     let list = |l: &types_nodes::list::NodeList<'_>| l.iter().all(quiet);
     let (from, rest) = match (body.split_first(), &ps[k].source) {
-        (Some((Op::Srf(d), rest)), Source::Const) if matches!(d.place, SrfPlace::From { .. }) && d.functions.iter().all(|f| !f.args.iter().any(exec_param)) && list(d.tlist) => (true, rest),
+        (Some((Op::Srf(d), rest)), Source::Const)
+            if matches!(d.place, SrfPlace::From { .. })
+                && d.functions.iter().all(|f| !f.args.iter().any(exec_param))
+                && list(d.tlist) =>
+        {
+            (true, rest)
+        }
         _ => (false, body),
     };
     let src = from
         || match &ps[k].source {
             Source::Range { am: Am::Heap, .. } => true,
-            Source::Index { am: Am::Heap, keys, recheck, .. } => keys.iter().all(|x| quiet(x.value)) && list(recheck),
+            Source::Index {
+                am: Am::Heap,
+                keys,
+                recheck,
+                ..
+            } => keys.iter().all(|x| quiet(x.value)) && list(recheck),
             _ => false,
         };
     let per_row = crate::effects::visible::material::rows_quiet(gx, rest);
     let child = crate::ops::hashjoin::build_class::feed(gx, k, ps[k].desc.consumes.iter().copied());
-    params.is_nil() && !rerun(k) && !rerun(o) && src && per_row && core::iter::once(k).chain(child).all(|x| !rerun(x) && !reads_param(&ps[x]))
+    params.is_nil()
+        && !rerun(k)
+        && !rerun(o)
+        && src
+        && per_row
+        && core::iter::once(k)
+            .chain(child)
+            .all(|x| !rerun(x) && !reads_param(&ps[x]))
 }
 
 /// Whether fill pipeline `k` takes `spool_fill`'s first-run form (`first_run`): its deferred facts where no form before it
 /// (`whole_first`, the held form, `first_pull`, `first_sort`) takes it.
 pub(crate) fn first_ran(gx: &Gx<'_, '_>, k: usize) -> bool {
     let ps = gx.pipelines();
-    let Ok((reader, false)) = crate::lifetime::material::spool_fill(gx, k) else { return false };
-    if !matches!(crate::rerun::spool::readers::reader_or_copies(gx, k), Ok((_, false))) {
+    let Ok((reader, false)) = crate::lifetime::material::spool_fill(gx, k) else {
+        return false;
+    };
+    if !matches!(
+        crate::rerun::spool::readers::reader_or_copies(gx, k),
+        Ok((_, false))
+    ) {
         return false;
     }
     let (o, j) = ps.inners()[reader - ps.len()].0;
@@ -652,8 +988,13 @@ pub(crate) fn first_ran(gx: &Gx<'_, '_>, k: usize) -> bool {
 /// `whole_first` nor the held form (`held_child`) takes it.
 pub(crate) fn first_pulled(gx: &Gx<'_, '_>, k: usize) -> bool {
     let ps = gx.pipelines();
-    let Ok((reader, false)) = crate::lifetime::material::spool_fill(gx, k) else { return false };
-    if !matches!(crate::rerun::spool::readers::reader_or_copies(gx, k), Ok((_, false))) {
+    let Ok((reader, false)) = crate::lifetime::material::spool_fill(gx, k) else {
+        return false;
+    };
+    if !matches!(
+        crate::rerun::spool::readers::reader_or_copies(gx, k),
+        Ok((_, false))
+    ) {
         return false;
     }
     let (o, j) = ps.inners()[reader - ps.len()].0;
@@ -668,8 +1009,13 @@ pub(crate) fn first_pulled(gx: &Gx<'_, '_>, k: usize) -> bool {
 /// before it (`whole_first`, the held form, `first_pull`) takes it.
 pub(crate) fn first_sorted(gx: &Gx<'_, '_>, k: usize) -> bool {
     let ps = gx.pipelines();
-    let Ok((reader, false)) = crate::lifetime::material::spool_fill(gx, k) else { return false };
-    if !matches!(crate::rerun::spool::readers::reader_or_copies(gx, k), Ok((_, false))) {
+    let Ok((reader, false)) = crate::lifetime::material::spool_fill(gx, k) else {
+        return false;
+    };
+    if !matches!(
+        crate::rerun::spool::readers::reader_or_copies(gx, k),
+        Ok((_, false))
+    ) {
         return false;
     }
     let (o, j) = ps.inners()[reader - ps.len()].0;
@@ -690,7 +1036,11 @@ pub(crate) fn reads_param(p: &gravity_decompose::PipelineNode<'_>) -> bool {
 /// `reads_param` where `param` names an expression that reads one; `union`: a settled union's Union op reads one only when
 /// its pruning is one `union` names (rowsecurity#343, the emit filling the Material the arm copies read: it reads its
 /// feeds' record; `None`: every Union op reads one).
-fn reads_param_in(p: &gravity_decompose::PipelineNode<'_>, union: Option<&dyn Fn(&PruneDesc<'_>) -> bool>, param: &dyn Fn(Node<'_>) -> bool) -> bool {
+fn reads_param_in(
+    p: &gravity_decompose::PipelineNode<'_>,
+    union: Option<&dyn Fn(&PruneDesc<'_>) -> bool>,
+    param: &dyn Fn(Node<'_>) -> bool,
+) -> bool {
     crate::stack_check(); // D3832
     use gravity_decompose::ops::shared::append::AppendDesc;
     use gravity_decompose::ops::shared::sort::SortForm;
@@ -700,13 +1050,17 @@ fn reads_param_in(p: &gravity_decompose::PipelineNode<'_>, union: Option<&dyn Fn
         Source::Range { .. } | Source::Breaker { .. } | Source::Const => false,
         Source::Index { keys, recheck, .. } => keys.iter().any(|x| param(x.value)) || any(recheck),
         // a VALUES list: each row's expressions (`lists` holds a List per row, a node `exec_param`'s walk does not know)
-        Source::Values { lists, .. } => lists.iter().any(|l| l.as_list().is_none_or(|r| r.iter().any(param))),
+        Source::Values { lists, .. } => lists
+            .iter()
+            .any(|l| l.as_list().is_none_or(|r| r.iter().any(param))),
         // D1108: a bitmap heap scan's index keys and recheck (its bitmap is built at the scan's first fetch)
         Source::Bitmap { plan, recheck, .. } => bitmap_reads(plan, param) || any(recheck),
         _ => true,
     };
     // D1108: a LIMIT under the Material reads one only through a computed bound (frame::iface's bounds)
-    let limit = |op: &Op<'_>| crate::frame::iface::limit_bounds(op).map(|(count, offset)| bound(count) || bound(offset));
+    let limit = |op: &Op<'_>| {
+        crate::frame::iface::limit_bounds(op).map(|(count, offset)| bound(count) || bound(offset))
+    };
     src || p.ops.iter().any(|op| limit(op).unwrap_or_else(|| match op {
         Op::Filter(n) | Op::Gate(n) => param(*n),
         Op::Project(l) => any(l),
@@ -736,12 +1090,17 @@ fn reads_param_in(p: &gravity_decompose::PipelineNode<'_>, union: Option<&dyn Fn
 }
 
 /// `reads_param_in`'s bitmap plan: an index key of a leaf `param` names.
-fn bitmap_reads(plan: &gravity_decompose::ops::shared::scan::BitmapPlan<'_>, param: &dyn Fn(Node<'_>) -> bool) -> bool {
+fn bitmap_reads(
+    plan: &gravity_decompose::ops::shared::scan::BitmapPlan<'_>,
+    param: &dyn Fn(Node<'_>) -> bool,
+) -> bool {
     crate::stack_check();
     use gravity_decompose::ops::shared::scan::BitmapPlan;
     match plan {
         BitmapPlan::Index { keys, .. } => keys.iter().any(|k| param(k.value)),
-        BitmapPlan::And { plans, .. } | BitmapPlan::Or { plans, .. } => plans.iter().any(|p| bitmap_reads(p, param)),
+        BitmapPlan::And { plans, .. } | BitmapPlan::Or { plans, .. } => {
+            plans.iter().any(|p| bitmap_reads(p, param))
+        }
     }
 }
 
@@ -749,7 +1108,14 @@ fn bitmap_reads(plan: &gravity_decompose::ops::shared::scan::BitmapPlan<'_>, par
 /// the statement acting nowhere): `Px::run_ahead`'s licence question without its per-pipeline half.
 pub(crate) fn licensable(gx: &Gx<'_, '_>) -> bool {
     use gravity_decompose::effects::{licence, Departure, Effects};
-    licence(Effects { acts: gx.graph.acts, ..Effects::RAISES }, Departure::Ahead).is_ok()
+    licence(
+        Effects {
+            acts: gx.graph.acts,
+            ..Effects::RAISES
+        },
+        Departure::Ahead,
+    )
+    .is_ok()
 }
 
 /// D3373 (lifetime/material.rs `spool_fill`'s last arm): D1107's eager refill of fill pipeline `k`, whose reader's facts
@@ -761,7 +1127,11 @@ pub(crate) fn refill_ahead(gx: &Gx<'_, '_>, k: usize, rf: bool, vol: Volatility)
     use gravity_decompose::effects::{licence_unchecked, Effects};
     crate::effects::waited_fill(rf, vol)
         && !crate::effects::fed_user_code(gx, k)
-        && !gx.graph.pipelines.iter().any(crate::lifetime::material::locks)
+        && !gx
+            .graph
+            .pipelines
+            .iter()
+            .any(crate::lifetime::material::locks)
         && licence_unchecked(Effects::RAISES, crate::effects::hides_user_code(gx, k)).is_ok()
 }
 
@@ -770,11 +1140,19 @@ pub(crate) fn refill_ahead(gx: &Gx<'_, '_>, k: usize, rf: bool, vol: Volatility)
 /// constants only (`quiet`), so its lowering asks the recheck licence and then `Px::ahead_unchecked`.
 pub(crate) fn eager_licensed(gx: &Gx<'_, '_>, k: usize) -> bool {
     let ps = gx.pipelines();
-    let Ok((reader, false)) = crate::lifetime::material::spool_fill(gx, k) else { return false };
+    let Ok((reader, false)) = crate::lifetime::material::spool_fill(gx, k) else {
+        return false;
+    };
     let (o, j) = ps.inners()[reader - ps.len()].0;
     let many = crate::rerun::spool::readers::reader_or_copies(gx, k).is_ok_and(|(_, many)| many);
-    let arm = |inv, rf, vol| licensed_arm(gx, k, o, inv, rf, vol) || !rf && !deferred_form(gx, k, o, j, many, (inv, rf, vol)) && unchecked_arm(gx, k, o, inv, rf, vol);
-    matches!(ps[o].ops.get(j).and_then(reader_facts), Some((inv, rf, vol)) if arm(inv, rf, vol)) && !crate::effects::visible::material::quiet(gx, k)
+    let arm = |inv, rf, vol| {
+        licensed_arm(gx, k, o, inv, rf, vol)
+            || !rf
+                && !deferred_form(gx, k, o, j, many, (inv, rf, vol))
+                && unchecked_arm(gx, k, o, inv, rf, vol)
+    };
+    matches!(ps[o].ops.get(j).and_then(reader_facts), Some((inv, rf, vol)) if arm(inv, rf, vol))
+        && !crate::effects::visible::material::quiet(gx, k)
 }
 
 /// G2(e), S1u (S1's pull form over a settled union's arms): pipeline `k` fills the plan Material from a settled union
@@ -790,16 +1168,35 @@ pub(crate) fn eager_licensed(gx: &Gx<'_, '_>, k: usize) -> bool {
 pub(crate) fn union_pull(gx: &Gx<'_, '_>, k: usize) -> Result<Vec<usize>, &'static str> {
     let ps = gx.pipelines();
     let p = ps.get(k).filter(|_| k < ps.len()).ok_or(LOUD_CHILD)?;
-    let Source::Breaker { slot } = p.source else { return Err(LOUD_CHILD) };
-    let Some((Op::Append(AppendDesc::Union { slot: s, children, prune }), rest)) = p.ops.split_first() else { return Err(LOUD_CHILD) };
-    let Some((Op::Join(JoinDesc::Spool), body)) = rest.split_last() else { return Err(LOUD_CHILD) };
-    if *s != slot || rest.iter().any(|op| matches!(op, Op::Append(_))) || !matches!(body.last(), Some(Op::Project(_))) {
+    let Source::Breaker { slot } = p.source else {
+        return Err(LOUD_CHILD);
+    };
+    let Some((
+        Op::Append(AppendDesc::Union {
+            slot: s,
+            children,
+            prune,
+        }),
+        rest,
+    )) = p.ops.split_first()
+    else {
+        return Err(LOUD_CHILD);
+    };
+    let Some((Op::Join(JoinDesc::Spool), body)) = rest.split_last() else {
+        return Err(LOUD_CHILD);
+    };
+    if *s != slot
+        || rest.iter().any(|op| matches!(op, Op::Append(_)))
+        || !matches!(body.last(), Some(Op::Project(_)))
+    {
         return Err(LOUD_CHILD);
     }
     // D3612: a run-time pruning over InitPlans that may raise or act (`pull_late`) is decided at the first pull, which runs
     // them there, so the arms' filters read their fixed parameters after it
     let late = pull_late(gx, k);
-    let read = |n: Node<'_>| !exec_param(n) || init_read(gx, n) || late && init_read_by(n, &|id| init_once(gx, id));
+    let read = |n: Node<'_>| {
+        !exec_param(n) || init_read(gx, n) || late && init_read_by(n, &|id| init_once(gx, id))
+    };
     let plain = |ops: &[Op<'_>]| {
         ops.iter().try_for_each(|op| match op {
             Op::Filter(q) if read(*q) => Ok(()),
@@ -818,13 +1215,30 @@ pub(crate) fn union_pull(gx: &Gx<'_, '_>, k: usize) -> Result<Vec<usize>, &'stat
     // parameters: decompose ops/subplan refuses one; none a rerun set re-runs: `init_fixed`), so it is the initial
     // pruning's form at the reader's first pull, when those InitPlans are unseen and the steps quiet (D2013
     // `quiet_prune` with those parameters bound: effects nestloop.rs `quiet_prune_bound`): which arms the steps let open is PG's
-    if prune.as_ref().is_some_and(|d| d.exec && !init_prune(gx, k, d)) && !late {
+    if prune
+        .as_ref()
+        .is_some_and(|d| d.exec && !init_prune(gx, k, d))
+        && !late
+    {
         return Err(LOUD_CHILD);
     }
     for &f in feeds.iter() {
         let q = &ps[f];
-        let Some((Op::Append(AppendDesc::Feed { slot: fs, ordered: false }), arm)) = q.ops.split_last() else { return Err(LOUD_CHILD) };
-        if *fs != slot || !matches!(q.source, Source::Range { am: Am::Heap, .. }) || !q.desc.consumes.is_empty() || !matches!(arm.last(), Some(Op::Project(_))) {
+        let Some((
+            Op::Append(AppendDesc::Feed {
+                slot: fs,
+                ordered: false,
+            }),
+            arm,
+        )) = q.ops.split_last()
+        else {
+            return Err(LOUD_CHILD);
+        };
+        if *fs != slot
+            || !matches!(q.source, Source::Range { am: Am::Heap, .. })
+            || !q.desc.consumes.is_empty()
+            || !matches!(arm.last(), Some(Op::Project(_)))
+        {
             return Err(LOUD_CHILD);
         }
         plain(arm)?;
@@ -842,8 +1256,14 @@ pub(crate) fn union_pull(gx: &Gx<'_, '_>, k: usize) -> Result<Vec<usize>, &'stat
 /// where PostgreSQL never runs the child.
 pub(crate) fn refilled(gx: &Gx<'_, '_>, k: usize, reader: usize) -> bool {
     let ps = gx.pipelines();
-    let mut sets = gx.graph.reruns.iter().filter(|r| r.pipelines.contains(&(k as u16)));
-    let (Some(r), None) = (sets.next(), sets.next()) else { return false };
+    let mut sets = gx
+        .graph
+        .reruns
+        .iter()
+        .filter(|r| r.pipelines.contains(&(k as u16)));
+    let (Some(r), None) = (sets.next(), sets.next()) else {
+        return false;
+    };
     if r.plan_id != 0 {
         return sub_refilled(gx, r, reader);
     }
@@ -866,13 +1286,25 @@ pub(crate) fn refilled(gx: &Gx<'_, '_>, k: usize, reader: usize) -> bool {
 /// changed parameter rewinds).
 pub(crate) fn one_set(gx: &Gx<'_, '_>, k: usize) -> bool {
     let ps = gx.pipelines();
-    let mut sets = gx.graph.reruns.iter().filter(|r| r.pipelines.contains(&(k as u16)));
-    let (Some(r), None) = (sets.next(), sets.next()) else { return false };
-    let src = if let Source::Breaker { slot } = ps[k].source { Some(slot) } else { None };
+    let mut sets = gx
+        .graph
+        .reruns
+        .iter()
+        .filter(|r| r.pipelines.contains(&(k as u16)));
+    let (Some(r), None) = (sets.next(), sets.next()) else {
+        return false;
+    };
+    let src = if let Source::Breaker { slot } = ps[k].source {
+        Some(slot)
+    } else {
+        None
+    };
     // a feeder outside the set is a nest spool's fill that reads no executor parameter: PostgreSQL's rescan of the child
     // rewinds that Material (no changed parameter under it), and the set's run reads the kept spool again
     let kept = |x: usize| gx.spool_kind(x) == KindId::NestSpool && !reads_param(&ps[x]);
-    crate::ops::hashjoin::build_class::feed(gx, k, ps[k].desc.consumes.iter().copied().chain(src)).into_iter().all(|x| r.pipelines.contains(&(x as u16)) || kept(x))
+    crate::ops::hashjoin::build_class::feed(gx, k, ps[k].desc.consumes.iter().copied().chain(src))
+        .into_iter()
+        .all(|x| r.pipelines.contains(&(x as u16)) || kept(x))
 }
 
 /// D1107 under a nested SubPlan (alter_table / foreign_key's psql trigger list: the parent trigger's SubPlan, a Nested Loop
@@ -887,7 +1319,9 @@ fn sub_refilled(gx: &Gx<'_, '_>, r: &gravity_decompose::graph::Rerun, reader: us
     let mut q = reader;
     while q >= ps.len() {
         let ((c, j), _) = ps.inners()[q - ps.len()];
-        if matches!(ps[c].ops.get(j), Some(Op::SubPlan(_))) && crate::rerun::sets::sub_set(gx, q).is_some_and(|s| core::ptr::eq(s, r)) {
+        if matches!(ps[c].ops.get(j), Some(Op::SubPlan(_)))
+            && crate::rerun::sets::sub_set(gx, q).is_some_and(|s| core::ptr::eq(s, r))
+        {
             return true;
         }
         q = c;
@@ -902,8 +1336,12 @@ fn sub_refilled(gx: &Gx<'_, '_>, r: &gravity_decompose::graph::Rerun, reader: us
 /// set empties its record and fills it again, and its one reader, inside the SubPlan's own inner, reads it from 0. So is a
 /// feed of a settled union the set refills whole (D1483 S2q, rerun/union_arms.rs `refed`), its emit a member too.
 pub(crate) fn refill_member(gx: &Gx<'_, '_>, m: usize) -> bool {
-    gx.graph.reruns.iter().any(|r| r.plan_id != 0 && r.pipelines.contains(&(m as u16)))
-        && (matches!(crate::lifetime::material::spool_fill(gx, m), Ok((_, false))) || crate::rerun::union_arms::refed(gx, m))
+    gx.graph
+        .reruns
+        .iter()
+        .any(|r| r.plan_id != 0 && r.pipelines.contains(&(m as u16)))
+        && (matches!(crate::lifetime::material::spool_fill(gx, m), Ok((_, false)))
+            || crate::rerun::union_arms::refed(gx, m))
 }
 
 /// The FACTS-1b facts the eager form reads off the op that embeds the reader, as (F1 invariant, F5 raise-free, the most
@@ -911,8 +1349,12 @@ pub(crate) fn refill_member(gx: &Gx<'_, '_>, m: usize) -> bool {
 /// SubPlan link: a superset of the inner's, so no weaker). `None`: another op (no reader of the spool's pull or eager form).
 pub(crate) fn reader_facts(op: &Op<'_>) -> Option<(bool, bool, Volatility)> {
     match op {
-        Op::Join(JoinDesc::Nest { facts, .. }) => Some((facts.invariant, facts.raise_free, facts.volatility)),
-        Op::SubPlan(d) if matches!(d.form, SubForm::Nested { .. }) => Some((d.invariant, d.raise_free, d.volatility)),
+        Op::Join(JoinDesc::Nest { facts, .. }) => {
+            Some((facts.invariant, facts.raise_free, facts.volatility))
+        }
+        Op::SubPlan(d) if matches!(d.form, SubForm::Nested { .. }) => {
+            Some((d.invariant, d.raise_free, d.volatility))
+        }
         _ => None,
     }
 }
@@ -925,7 +1367,13 @@ pub(crate) fn reader_facts(op: &Op<'_>) -> Option<(bool, bool, Volatility)> {
 /// nothing.
 pub(crate) fn init_fixed(gx: &Gx<'_, '_>, id: i32) -> bool {
     let rerun = |q: u16| gx.graph.reruns.iter().any(|r| r.pipelines.contains(&q));
-    crate::effects::visible::pgrc::init_unseen(gx, id) && gx.graph.init_plans.iter().filter(|i| i.params.iter().any(|p| p == id)).all(|i| !rerun(i.pipeline))
+    crate::effects::visible::pgrc::init_unseen(gx, id)
+        && gx
+            .graph
+            .init_plans
+            .iter()
+            .filter(|i| i.params.iter().any(|p| p == id))
+            .all(|i| !rerun(i.pipeline))
 }
 
 /// D3297: every executor parameter `n` reads is `init_fixed`, and the walk knows every node.
@@ -937,7 +1385,10 @@ pub(crate) fn init_read(gx: &Gx<'_, '_>, n: Node<'_>) -> bool {
 fn init_read_by(n: Node<'_>, fixed: &dyn Fn(i32) -> bool) -> bool {
     let mut ok = true;
     let known = gravity_decompose::expr::walk(n, &mut |x| {
-        if let Some(p) = x.as_param().filter(|p| p.paramkind == ParamKind::PARAM_EXEC) {
+        if let Some(p) = x
+            .as_param()
+            .filter(|p| p.paramkind == ParamKind::PARAM_EXEC)
+        {
             ok = fixed(p.paramid);
         }
         ok
@@ -949,7 +1400,12 @@ fn init_read_by(n: Node<'_>, fixed: &dyn Fn(i32) -> bool) -> bool {
 /// `init_unseen`: they may raise or act). PG runs such an InitPlan once, at the first read of its parameter.
 pub(crate) fn init_once(gx: &Gx<'_, '_>, id: i32) -> bool {
     let rerun = |q: u16| gx.graph.reruns.iter().any(|r| r.pipelines.contains(&q));
-    let mut sets = gx.graph.init_plans.iter().filter(|i| i.params.iter().any(|p| p == id)).peekable();
+    let mut sets = gx
+        .graph
+        .init_plans
+        .iter()
+        .filter(|i| i.params.iter().any(|p| p == id))
+        .peekable();
     sets.peek().is_some() && sets.all(|i| !rerun(i.pipeline))
 }
 
@@ -957,8 +1413,23 @@ pub(crate) fn init_once(gx: &Gx<'_, '_>, id: i32) -> bool {
 /// may raise only.
 pub(crate) fn init_late(gx: &Gx<'_, '_>, id: i32) -> bool {
     let ps = gx.pipelines();
-    let acts = |q: u16| gx.with_producers([usize::from(q)]).into_iter().any(|x| ps[x].ops.iter().any(|op| matches!(op, Op::Lock(_) | Op::Write(_))));
-    init_once(gx, id) && gx.graph.init_plans.iter().filter(|i| i.params.iter().any(|p| p == id)).all(|i| !gravity_decompose::effects::Effects::of_init_plan(i).acts && !acts(i.pipeline))
+    let acts = |q: u16| {
+        gx.with_producers([usize::from(q)]).into_iter().any(|x| {
+            ps[x]
+                .ops
+                .iter()
+                .any(|op| matches!(op, Op::Lock(_) | Op::Write(_)))
+        })
+    };
+    init_once(gx, id)
+        && gx
+            .graph
+            .init_plans
+            .iter()
+            .filter(|i| i.params.iter().any(|p| p == id))
+            .all(|i| {
+                !gravity_decompose::effects::Effects::of_init_plan(i).acts && !acts(i.pipeline)
+            })
 }
 
 /// D3714: the run-time pruning `d` of the settled union pipeline `e` emits reads `init_late` parameters, exactly one
@@ -969,14 +1440,32 @@ pub(crate) fn init_late(gx: &Gx<'_, '_>, id: i32) -> bool {
 /// with those parameters bound. `Some`: that parameter.
 pub(crate) fn late_param(gx: &Gx<'_, '_>, e: usize, d: &PruneDesc<'_>) -> Option<i32> {
     let ps = gx.pipelines();
-    let Source::Breaker { slot } = ps.get(e).filter(|_| e < ps.len())?.source else { return None };
+    let Source::Breaker { slot } = ps.get(e).filter(|_| e < ps.len())?.source else {
+        return None;
+    };
     let feeds = crate::rerun::union_join_arms::feeds(gx, e, slot);
     let mut late = None;
-    let over = d.exec_params_all(|id| init_fixed(gx, id) || init_late(gx, id) && *late.get_or_insert(id) == id);
-    let id = late.filter(|_| d.exec && over && crate::rerun::union_reads::init_pruned(gx, d, &feeds))?;
-    let alone = |r: &types_nodes::plannodes::PartitionedRelPruneInfo<'_>| r.execparamids.next_member(-1) == id && r.execparamids.next_member(id) < 0;
-    let root = d.info.prune_infos.iter().filter_map(|l| l.as_list()).any(|l| l.iter().next().and_then(|r| r.as_partitioned_rel_prune_info()).is_some_and(alone));
-    (root && crate::effects::visible::nestloop::quiet_prune_bound(gx, d, &|x| init_late(gx, x))).then_some(id)
+    let over = d.exec_params_all(|id| {
+        init_fixed(gx, id) || init_late(gx, id) && *late.get_or_insert(id) == id
+    });
+    let id =
+        late.filter(|_| d.exec && over && crate::rerun::union_reads::init_pruned(gx, d, &feeds))?;
+    let alone = |r: &types_nodes::plannodes::PartitionedRelPruneInfo<'_>| {
+        r.execparamids.next_member(-1) == id && r.execparamids.next_member(id) < 0
+    };
+    let root = d
+        .info
+        .prune_infos
+        .iter()
+        .filter_map(|l| l.as_list())
+        .any(|l| {
+            l.iter()
+                .next()
+                .and_then(|r| r.as_partitioned_rel_prune_info())
+                .is_some_and(alone)
+        });
+    (root && crate::effects::visible::nestloop::quiet_prune_bound(gx, d, &|x| init_late(gx, x)))
+        .then_some(id)
 }
 
 /// D3714: executor parameter `id` is `late_param` of a settled union's pruning that a deferred fill runs whole
@@ -993,12 +1482,35 @@ pub(crate) fn init_at_fill(gx: &Gx<'_, '_>, id: i32) -> bool {
 /// Material's first pull (rerun/inner_arms.rs `pulled`'s nest.prune object, exec reading the InitPlans' cells).
 pub(crate) fn pull_late(gx: &Gx<'_, '_>, e: usize) -> bool {
     let ps = gx.pipelines();
-    let Some(Op::Append(AppendDesc::Union { prune: Some(d), children, .. })) = ps.get(e).filter(|_| e < ps.len()).and_then(|p| p.ops.first()) else { return false };
-    let Source::Breaker { slot } = ps[e].source else { return false };
+    let Some(Op::Append(AppendDesc::Union {
+        prune: Some(d),
+        children,
+        ..
+    })) = ps
+        .get(e)
+        .filter(|_| e < ps.len())
+        .and_then(|p| p.ops.first())
+    else {
+        return false;
+    };
+    let Source::Breaker { slot } = ps[e].source else {
+        return false;
+    };
     let feeds = crate::rerun::union_join_arms::feeds(gx, e, slot);
-    let ids = || d.info.prune_infos.iter().filter_map(|l| l.as_list()).flat_map(|l| l.iter()).filter_map(|r| r.as_partitioned_rel_prune_info()).flat_map(|r| {
-        std::iter::successors(Some(r.execparamids.next_member(-1)).filter(|&x| x >= 0), move |&x| Some(r.execparamids.next_member(x)).filter(|&y| y >= 0))
-    });
+    let ids = || {
+        d.info
+            .prune_infos
+            .iter()
+            .filter_map(|l| l.as_list())
+            .flat_map(|l| l.iter())
+            .filter_map(|r| r.as_partitioned_rel_prune_info())
+            .flat_map(|r| {
+                std::iter::successors(
+                    Some(r.execparamids.next_member(-1)).filter(|&x| x >= 0),
+                    move |&x| Some(r.execparamids.next_member(x)).filter(|&y| y >= 0),
+                )
+            })
+    };
     d.exec
         && *children <= 63
         && d.index != gravity_decompose::facts::hoist::HOISTED
@@ -1012,32 +1524,45 @@ pub(crate) fn pull_late(gx: &Gx<'_, '_>, e: usize) -> bool {
 /// unseen InitPlans' parameters only (union_reads.rs `init_pruned` over its feeds, `init_steps`), its steps quiet with
 /// those parameters bound (effects nestloop.rs `quiet_prune_bound`).
 pub(crate) fn init_prune(gx: &Gx<'_, '_>, e: usize, d: &PruneDesc<'_>) -> bool {
-    let Source::Breaker { slot } = gx.pipelines()[e].source else { return false };
+    let Source::Breaker { slot } = gx.pipelines()[e].source else {
+        return false;
+    };
     let feeds = crate::rerun::union_join_arms::feeds(gx, e, slot);
-    crate::rerun::union_reads::init_pruned(gx, d, &feeds) && init_steps(gx, d) && crate::effects::visible::nestloop::quiet_prune_bound(gx, d, &|id| init_fixed(gx, id))
+    crate::rerun::union_reads::init_pruned(gx, d, &feeds)
+        && init_steps(gx, d)
+        && crate::effects::visible::nestloop::quiet_prune_bound(gx, d, &|id| init_fixed(gx, id))
 }
 
 /// D3297: every executor parameter a run-time pruning's steps read (each prune info's `execparamids`) is `init_fixed`
 /// (union_reads.rs `init_pruned` has them InitPlans' already).
 fn init_steps(gx: &Gx<'_, '_>, d: &gravity_decompose::ops::shared::append::PruneDesc<'_>) -> bool {
-    d.info.prune_infos.iter().filter_map(|l| l.as_list()).flat_map(|l| l.iter()).all(|r| {
-        let Some(r) = r.as_partitioned_rel_prune_info() else { return false };
-        let mut x = r.execparamids.next_member(-1);
-        while x >= 0 {
-            if !init_fixed(gx, x) {
+    d.info
+        .prune_infos
+        .iter()
+        .filter_map(|l| l.as_list())
+        .flat_map(|l| l.iter())
+        .all(|r| {
+            let Some(r) = r.as_partitioned_rel_prune_info() else {
                 return false;
+            };
+            let mut x = r.execparamids.next_member(-1);
+            while x >= 0 {
+                if !init_fixed(gx, x) {
+                    return false;
+                }
+                x = r.execparamids.next_member(x);
             }
-            x = r.execparamids.next_member(x);
-        }
-        true
-    })
+            true
+        })
 }
 
 /// Whether `n` reads an executor parameter, or holds a node the walk does not know (read as one; effects/visible/material.rs too).
 pub(crate) fn exec_param(n: Node<'_>) -> bool {
     let mut hit = false;
     let known = gravity_decompose::expr::walk(n, &mut |x| {
-        hit |= x.as_param().is_some_and(|p| p.paramkind == ParamKind::PARAM_EXEC);
+        hit |= x
+            .as_param()
+            .is_some_and(|p| p.paramkind == ParamKind::PARAM_EXEC);
         !hit
     });
     hit || !known
@@ -1047,7 +1572,13 @@ pub(crate) fn exec_param(n: Node<'_>) -> bool {
 fn exec_param_but(n: Node<'_>, own: &types_nodes::list::NodeList<'_>) -> bool {
     let mut hit = false;
     let known = gravity_decompose::expr::walk(n, &mut |x| {
-        hit |= x.as_param().is_some_and(|p| p.paramkind == ParamKind::PARAM_EXEC && !own.iter().any(|m| m.as_nest_loop_param().is_some_and(|o| o.paramno == p.paramid)));
+        hit |= x.as_param().is_some_and(|p| {
+            p.paramkind == ParamKind::PARAM_EXEC
+                && !own.iter().any(|m| {
+                    m.as_nest_loop_param()
+                        .is_some_and(|o| o.paramno == p.paramid)
+                })
+        });
         !hit
     });
     hit || !known

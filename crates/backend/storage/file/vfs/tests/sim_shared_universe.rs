@@ -60,7 +60,11 @@ fn shared_universe_boot_cwd_and_ingest() {
     assert!(fd >= 0);
     // SAFETY: fd was just minted by the active vfs and is owned only here.
     drop(unsafe { vfs::VfsFd::from_raw(fd) });
-    assert_eq!(v.close(fd), -1, "guard drop must close the shared-universe fd");
+    assert_eq!(
+        v.close(fd),
+        -1,
+        "guard drop must close the shared-universe fd"
+    );
     assert_eq!(vfs::get_errno(), libc::EBADF);
 
     // --- cross-thread visibility: the whole point of shared homing -------
@@ -78,7 +82,11 @@ fn shared_universe_boot_cwd_and_ingest() {
     })
     .join()
     .unwrap();
-    assert_eq!(seen.as_deref(), Some(&b"CTRL"[..]), "secondary thread sees the shared disk");
+    assert_eq!(
+        seen.as_deref(),
+        Some(&b"CTRL"[..]),
+        "secondary thread sees the shared disk"
+    );
 
     // --- writes from a secondary thread visible on the main thread -------
     std::thread::spawn(|| {

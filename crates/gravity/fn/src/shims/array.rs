@@ -29,7 +29,10 @@ pub extern "C-unwind" fn array_dims(_e: *mut ErrSlot, r: *mut Region, a0: View) 
     if ndim <= 0 || ndim > MAXDIM as i32 {
         return null_ret();
     }
-    let mut buf = Buf { bytes: [0; 24 * MAXDIM], len: 0 };
+    let mut buf = Buf {
+        bytes: [0; 24 * MAXDIM],
+        len: 0,
+    };
     for i in 0..ndim as usize {
         write!(buf, "[{}:{}]", lbs[i], dims[i] + lbs[i] - 1).unwrap();
     }

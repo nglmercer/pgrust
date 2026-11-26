@@ -17,11 +17,17 @@ use common::*;
 use gravity_abi::breaker::{Breaker, BreakerKind};
 use gravity_abi::ctx::lane;
 use gravity_abi::{Ctx, Datum, Lane, ScanPos};
-use gravity_driver::{box_source, ArenaBox, ArenaRef, Binding, BindingParts, BindingRef, BorrowedBatch, CommandId, Cursor, Derive, Entry, Error, Flow, Identity, LegRef, Locker, Merge, PerTuple, Pins, Result, Sink, SinkLeg, Snapshot, Source, SourceBox, Window, WindowBase, Writer};
+use gravity_driver::{
+    box_source, ArenaBox, ArenaRef, Binding, BindingParts, BindingRef, BorrowedBatch, CommandId,
+    Cursor, Derive, Entry, Error, Flow, Identity, LegRef, Locker, Merge, PerTuple, Pins, Result,
+    Sink, SinkLeg, Snapshot, Source, SourceBox, Window, WindowBase, Writer,
+};
 use gravity_kernels::par_scan_count;
-use gravity_parallel::{run_program, BlockRange, ClaimSize, MorselSource, Plan, PlainAggPartial};
+use gravity_parallel::{run_program, BlockRange, ClaimSize, MorselSource, PlainAggPartial, Plan};
 use gravity_pool::{Ambient, RuntimePool};
-use gravity_program::{Arena, Code, End, Layout, OutCol, Pipeline, Program, Reason, SiteDesc, WritePlan};
+use gravity_program::{
+    Arena, Code, End, Layout, OutCol, Pipeline, Program, Reason, SiteDesc, WritePlan,
+};
 use runtime::{Runtime, RuntimeConfig, WorkerPool};
 use types_error::{PgError, ERRCODE_DIVISION_BY_ZERO, ERROR, FATAL};
 
@@ -52,11 +58,16 @@ fn deaths() -> Vec<bool> {
 /// `WorkerPool::spawn_std`, each thread's death recorded: what reaches the top of a pool thread.
 fn spawn_recording(rt: &Arc<Runtime>) -> WorkerPool {
     WorkerPool::spawn_with(Arc::clone(rt), |ordinal, body| {
-        std::thread::Builder::new().name(format!("d314-rtworker-{ordinal}")).spawn(move || {
-            if let Err(payload) = catch_unwind(AssertUnwindSafe(body)) {
-                DEATHS.lock().unwrap_or_else(|p| p.into_inner()).push(payload.is::<types_error::PanicExitThread>());
-            }
-        })
+        std::thread::Builder::new()
+            .name(format!("d314-rtworker-{ordinal}"))
+            .spawn(move || {
+                if let Err(payload) = catch_unwind(AssertUnwindSafe(body)) {
+                    DEATHS
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .push(payload.is::<types_error::PanicExitThread>());
+                }
+            })
     })
     .expect("pool threads")
 }
@@ -77,7 +88,10 @@ fn raise() {
     match MODE.load(Ordering::Relaxed) {
         RAISE_BOXED => std::panic::panic_any(Box::new(err())),
         RAISE_PLAIN => std::panic::panic_any(err()),
-        RAISE_FATAL => std::panic::panic_any(Box::new(PgError::new(FATAL, "terminating connection (d314 fixture)".to_string()))),
+        RAISE_FATAL => std::panic::panic_any(Box::new(PgError::new(
+            FATAL,
+            "terminating connection (d314 fixture)".to_string(),
+        ))),
         BUG => panic!("d314 fixture: a host's bug"),
         _ => {}
     }
@@ -107,7 +121,16 @@ impl Source for Blocks {
         if self.g == RAISE_BLOCK {
             raise();
         }
-        w.set(0, Lane::byval(COL.as_ptr() as *const u8, core::ptr::null(), 8, lane::REGION_ARENA, lane::id(lane::ID_ATTR, 1)));
+        w.set(
+            0,
+            Lane::byval(
+                COL.as_ptr() as *const u8,
+                core::ptr::null(),
+                8,
+                lane::REGION_ARENA,
+                lane::id(lane::ID_ATTR, 1),
+            ),
+        );
         w.rows = ROWS as u32;
         w.set_base(WindowBase::at(ScanPos::new(REL, self.g as u32, 0)));
         self.g += 1;
@@ -143,7 +166,14 @@ impl Derive for BlocksDerive {
     }
 
     fn derive_source(&mut self, _desc: &SiteDesc, a: ArenaRef) -> SourceBox {
-        box_source(Blocks { cur: Cursor::new(), g: 0, hi: 0 }, a)
+        box_source(
+            Blocks {
+                cur: Cursor::new(),
+                g: 0,
+                hi: 0,
+            },
+            a,
+        )
     }
 
     fn writer_size_hint(&self) -> usize {
@@ -226,21 +256,75 @@ fn program() -> Program {
     let sites = [SiteDesc::range_source(st.handle(), REL, &[1])];
     let out = [OutCol::new("count", 20, -1, 8, true)];
     let pipes = [
-        (Pipeline::eligible(0, End::Breaker(Breaker::sized(BreakerKind::PlainAgg, par_scan_count::BYTES)), BLOCKS * ROWS as u64), Code::hand(k_count)),
-        (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), Code::hand(par_scan_count::par_scan_count_emit)),
+        (
+            Pipeline::eligible(
+                0,
+                End::Breaker(Breaker::sized(BreakerKind::PlainAgg, par_scan_count::BYTES)),
+                BLOCKS * ROWS as u64,
+            ),
+            Code::hand(k_count),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            Code::hand(par_scan_count::par_scan_count_emit),
+        ),
     ];
-    Program::with_pipelines(Layout { nsites: 1, out_natts: 1, out_rows: 1, scratch_bytes: 0, exec_bytes: 0 }, &sites, &out, WritePlan::SELECT, pipes)
+    Program::with_pipelines(
+        Layout {
+            nsites: 1,
+            out_natts: 1,
+            out_rows: 1,
+            scratch_bytes: 0,
+            exec_bytes: 0,
+        },
+        &sites,
+        &out,
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
-fn run(entry: &mut Entry, program: &Arc<Program>, pool: &RuntimePool, width: u16) -> std::thread::Result<Result<Vec<Vec<Datum>>>> {
+fn run(
+    entry: &mut Entry,
+    program: &Arc<Program>,
+    pool: &RuntimePool,
+    width: u16,
+) -> std::thread::Result<Result<Vec<Vec<Datum>>>> {
     let params = [2u64];
     let nulls = [0u8];
-    let mut sink = CountSink { rows: Mutex::new(Vec::new()), pushes: AtomicU64::new(0) };
+    let mut sink = CountSink {
+        rows: Mutex::new(Vec::new()),
+        pushes: AtomicU64::new(0),
+    };
     let r = catch_unwind(AssertUnwindSafe(|| {
-        let parts = BindingParts { snapshot: Snapshot(0), command_id: CommandId(0), params: &params, param_nulls: &nulls, abort_flag: &ABORT, pins: Pins(0), per_tuple: PerTuple(0), identity: Identity::default(), resolved: None };
+        let parts = BindingParts {
+            snapshot: Snapshot(0),
+            command_id: CommandId(0),
+            params: &params,
+            param_nulls: &nulls,
+            abort_flag: &ABORT,
+            pins: Pins(0),
+            per_tuple: PerTuple(0),
+            identity: Identity::default(),
+            resolved: None,
+        };
         let mut b = Binding::new(parts, &mut sink);
-        let mut exec = entry.start(None, program, &mut BlocksDerive, &mut b, std::rc::Rc::new(gravity_driver::Reservation::unadmitted(gravity_driver::Grant::of(8 << 20))))?;
-        let plan = RangePlan { width, blocks: [BlockRange::new(BLOCKS, ClaimSize::Fixed(1)), BlockRange::new(0, ClaimSize::Fixed(1))] };
+        let mut exec = entry.start(
+            None,
+            program,
+            &mut BlocksDerive,
+            &mut b,
+            std::rc::Rc::new(gravity_driver::Reservation::unadmitted(
+                gravity_driver::Grant::of(8 << 20),
+            )),
+        )?;
+        let plan = RangePlan {
+            width,
+            blocks: [
+                BlockRange::new(BLOCKS, ClaimSize::Fixed(1)),
+                BlockRange::new(0, ClaimSize::Fixed(1)),
+            ],
+        };
         let r = run_program(entry, &mut exec, &mut b, &mut BlocksDerive, pool, &plan);
         entry.end(exec, r.is_ok());
         r.map(|_| ())
@@ -261,19 +345,36 @@ fn a_workers_unwinding_raise_reaches_the_leader_with_its_sqlstate() {
     let all = vec![vec![BLOCKS * ROWS as u64]];
     for width in [4u16, 8] {
         MODE.store(QUIET, Ordering::Relaxed);
-        assert_eq!(run(&mut entry, &program, &pool, width).expect("no unwind"), Ok(all.clone()), "W{width}");
+        assert_eq!(
+            run(&mut entry, &program, &pool, width).expect("no unwind"),
+            Ok(all.clone()),
+            "W{width}"
+        );
         // an ERROR raised by unwinding on a worker, boxed or not: the statement's error, its SQLSTATE and message kept
         for mode in [RAISE_BOXED, RAISE_PLAIN] {
             MODE.store(mode, Ordering::Relaxed);
             RAISED_ON_WORKER.store(false, Ordering::Relaxed);
-            let r = run(&mut entry, &program, &pool, width).expect("a worker's raise never unwinds the leader");
-            assert!(RAISED_ON_WORKER.load(Ordering::Relaxed), "W{width} mode {mode}: the raising claim ran on a pool worker");
+            let r = run(&mut entry, &program, &pool, width)
+                .expect("a worker's raise never unwinds the leader");
+            assert!(
+                RAISED_ON_WORKER.load(Ordering::Relaxed),
+                "W{width} mode {mode}: the raising claim ran on a pool worker"
+            );
             assert_eq!(r, Err(Error::host("pg")), "W{width} mode {mode}");
-            let pg = gravity_hosts::take_error().expect("the worker's error, restashed on the leader");
-            assert_eq!((pg.message(), pg.sqlstate()), ("division by zero", ERRCODE_DIVISION_BY_ZERO), "W{width} mode {mode}");
+            let pg =
+                gravity_hosts::take_error().expect("the worker's error, restashed on the leader");
+            assert_eq!(
+                (pg.message(), pg.sqlstate()),
+                ("division by zero", ERRCODE_DIVISION_BY_ZERO),
+                "W{width} mode {mode}"
+            );
             assert_eq!(pg.level(), ERROR);
             // the leader's report: its emit decides the destinations (the worker's "no client" never reaches it)
-            assert_eq!((pg.output_to_server, pg.output_to_client), (None, None), "W{width} mode {mode}");
+            assert_eq!(
+                (pg.output_to_server, pg.output_to_client),
+                (None, None),
+                "W{width} mode {mode}"
+            );
         }
         // a bug's panic and a PgError above ERROR are not a typed ERROR: the claim's host error, as before D314
         for mode in [BUG, RAISE_FATAL] {
@@ -284,24 +385,42 @@ fn a_workers_unwinding_raise_reaches_the_leader_with_its_sqlstate() {
                 // (failed), then the leader PANICs (PanicExitThread: the crash restart in a server, whose fence retires
                 // every pool thread)
                 let payload = r.expect_err("a claim's bug panic PANICs the leader");
-                assert!(payload.is::<types_error::PanicExitThread>(), "W{width}: the leader's PANIC, not XX000");
+                assert!(
+                    payload.is::<types_error::PanicExitThread>(),
+                    "W{width}: the leader's PANIC, not XX000"
+                );
             } else {
                 let r = r.expect("a worker's FATAL payload never unwinds the leader");
-                assert_eq!(r, Err(Error::host("gravity: worker panicked in a claim")), "W{width} mode {mode}");
+                assert_eq!(
+                    r,
+                    Err(Error::host("gravity: worker panicked in a claim")),
+                    "W{width} mode {mode}"
+                );
             }
             let _ = gravity_hosts::take_error();
         }
         // the pool and the entry serve again
         MODE.store(QUIET, Ordering::Relaxed);
-        assert_eq!(run(&mut entry, &program, &pool, width).expect("no unwind"), Ok(all.clone()), "W{width}: served after the raises");
+        assert_eq!(
+            run(&mut entry, &program, &pool, width).expect("no unwind"),
+            Ok(all.clone()),
+            "W{width}: served after the raises"
+        );
     }
     // W1: the claims run on the leader, and its raise unwinds to the caller with the payload (the statement's catch)
     MODE.store(RAISE_BOXED, Ordering::Relaxed);
-    let payload = run(&mut entry, &program, &pool, 1).expect_err("the leader's raise unwinds to its caller");
-    let pg = payload.downcast_ref::<Box<PgError>>().expect("the PgError payload, intact");
+    let payload =
+        run(&mut entry, &program, &pool, 1).expect_err("the leader's raise unwinds to its caller");
+    let pg = payload
+        .downcast_ref::<Box<PgError>>()
+        .expect("the PgError payload, intact");
     assert_eq!(pg.sqlstate(), ERRCODE_DIVISION_BY_ZERO);
     MODE.store(QUIET, Ordering::Relaxed);
-    assert_eq!(run(&mut entry, &program, &pool, 1).expect("no unwind"), Ok(all), "W1: served after the raise");
+    assert_eq!(
+        run(&mut entry, &program, &pool, 1).expect("no unwind"),
+        Ok(all),
+        "W1: served after the raise"
+    );
     quiesced();
     threads.shutdown();
     // D2933: no pool thread died: the claim's panic settled its morsel and the leader took the crash path

@@ -4,11 +4,10 @@ use types_core::{TimestampTz, INVALID_PROC_NUMBER};
 use types_error::PgResult;
 use types_hash::hsearch::HASH_SEQ_STATUS;
 use types_storage::lock::{
-    ExclusiveLock, LockInstanceData, LOCKBIT_ON, LOCKMASK, LOCKTAG, NoLock, PROCLOCK,
+    ExclusiveLock, LockInstanceData, NoLock, LOCKBIT_ON, LOCKMASK, LOCKTAG, PROCLOCK,
 };
 use types_storage::storage::{
-    VirtualTransactionId, NUM_LOCK_PARTITIONS, PGPROC, PROC_ARRAY_LOCK,
-    FP_LOCK_SLOTS_PER_GROUP,
+    VirtualTransactionId, FP_LOCK_SLOTS_PER_GROUP, NUM_LOCK_PARTITIONS, PGPROC, PROC_ARRAY_LOCK,
 };
 
 use crate::fastpath::{fp_groups_per_backend, fp_info_lock, fp_view, FAST_PATH_LOCKNUMBER_OFFSET};
@@ -39,8 +38,10 @@ pub fn GetLockStatusData() -> PgResult<Vec<LockInstanceData>> {
     let procno = crate::my_procno();
     let hdr = lmgr_proc::ProcGlobal();
     // lock.c GetLockStatusData: palloc'd result arrays; failure is ERROR 53200.
-    let mut locks: Vec<LockInstanceData> =
-        ::mcx::std_vec_with_capacity("GetLockStatusData", init_small::globals::MaxBackends() as usize)?;
+    let mut locks: Vec<LockInstanceData> = ::mcx::std_vec_with_capacity(
+        "GetLockStatusData",
+        init_small::globals::MaxBackends() as usize,
+    )?;
 
     // Fast-path arrays first, one backend at a time (C's inconsistent-picture
     // caveat stands: none of these can be involved in conflicts).

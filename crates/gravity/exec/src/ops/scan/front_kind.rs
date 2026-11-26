@@ -5,8 +5,8 @@
 use gravity_hosts::ops::scan::am_rows::AmRowsRecipe;
 use gravity_hosts::ops::scan::tid_sample::{SampleRecipe, TidRecipe};
 
-use crate::ops::scan::sites_heap::{Local, MorselTpl, TreeTpl};
 use crate::admit::RecipeTpl;
+use crate::ops::scan::sites_heap::{Local, MorselTpl, TreeTpl};
 
 /// A recipe template's kind as far as the front key cares (D411). Exhaustive on purpose: a new `RecipeTpl` variant or
 /// rung recipe must say whether it binds from the admitting statement's graph before it compiles.
@@ -42,11 +42,21 @@ pub(crate) fn tpl_kind(t: &RecipeTpl) -> TplKind {
         RecipeTpl::Range(_) => TplKind::Range,
         RecipeTpl::Granule(_) => TplKind::Granule,
         RecipeTpl::Fetch(_) | RecipeTpl::HeapFetch(_) => TplKind::Fetch,
-        RecipeTpl::Rung(any) if any.downcast_ref::<Local<TreeTpl>>().is_some_and(|t| t.0.heap.is_some()) => TplKind::RungTreePlan,
+        RecipeTpl::Rung(any)
+            if any
+                .downcast_ref::<Local<TreeTpl>>()
+                .is_some_and(|t| t.0.heap.is_some()) =>
+        {
+            TplKind::RungTreePlan
+        }
         RecipeTpl::Rung(any) if any.downcast_ref::<Local<TreeTpl>>().is_some() => TplKind::RungTree,
         RecipeTpl::Rung(any) if any.downcast_ref::<TidRecipe>().is_some() => TplKind::RungTid,
-        RecipeTpl::Rung(any) if any.downcast_ref::<Local<SampleRecipe>>().is_some() => TplKind::RungSample,
-        RecipeTpl::Rung(any) if any.downcast_ref::<Local<MorselTpl>>().is_some() => TplKind::RungMorsel,
+        RecipeTpl::Rung(any) if any.downcast_ref::<Local<SampleRecipe>>().is_some() => {
+            TplKind::RungSample
+        }
+        RecipeTpl::Rung(any) if any.downcast_ref::<Local<MorselTpl>>().is_some() => {
+            TplKind::RungMorsel
+        }
         RecipeTpl::Rung(any) if any.downcast_ref::<AmRowsRecipe>().is_some() => TplKind::RungAmRows,
         RecipeTpl::Rung(_) => TplKind::RungOther,
     }
@@ -60,7 +70,16 @@ pub(crate) fn tpl_kind(t: &RecipeTpl) -> TplKind {
 pub(crate) fn graph_use(k: TplKind) -> bool {
     match k {
         TplKind::Bitmap | TplKind::RungTree | TplKind::RungOther => true,
-        TplKind::Index | TplKind::BitmapPlan | TplKind::Range | TplKind::Granule | TplKind::Fetch | TplKind::RungTreePlan | TplKind::RungTid | TplKind::RungSample | TplKind::RungMorsel | TplKind::RungAmRows => false,
+        TplKind::Index
+        | TplKind::BitmapPlan
+        | TplKind::Range
+        | TplKind::Granule
+        | TplKind::Fetch
+        | TplKind::RungTreePlan
+        | TplKind::RungTid
+        | TplKind::RungSample
+        | TplKind::RungMorsel
+        | TplKind::RungAmRows => false,
     }
 }
 
@@ -73,7 +92,15 @@ pub(crate) fn binds_from_graph(t: &RecipeTpl) -> bool {
 pub(crate) fn fixture_tpls() -> (RecipeTpl, RecipeTpl) {
     use gravity_hosts::ops::scan::bitmap_window::{Shape, TreeRecipe};
     use std::sync::Arc;
-    let tree = RecipeTpl::Rung(Arc::new(Local(TreeTpl { tree: TreeRecipe { leaves: Vec::new(), shape: Shape::Leaf(0) }, relid: 1, root: 2, heap: None }))); // alloc: Cold
+    let tree = RecipeTpl::Rung(Arc::new(Local(TreeTpl {
+        tree: TreeRecipe {
+            leaves: Vec::new(),
+            shape: Shape::Leaf(0),
+        },
+        relid: 1,
+        root: 2,
+        heap: None,
+    }))); // alloc: Cold
     let other = RecipeTpl::Rung(Arc::new(Local(7u8))); // alloc: Cold
     (tree, other)
 }

@@ -81,7 +81,10 @@ pub fn pgstat_count_buffer_write_time(n: PgStat_Counter) {
 /// This thread's pending block read and write time (pgStatBlockReadTime / pgStatBlockWriteTime), taken out: a Gravity
 /// pool claim's go to its leader's pending (`section::take_thread_deltas`, D4241), which reports them to its database.
 pub fn take_block_time_pending() -> (PgStat_Counter, PgStat_Counter) {
-    (BLOCK_READ_TIME.with(|c| c.replace(0)), BLOCK_WRITE_TIME.with(|c| c.replace(0)))
+    (
+        BLOCK_READ_TIME.with(|c| c.replace(0)),
+        BLOCK_WRITE_TIME.with(|c| c.replace(0)),
+    )
 }
 
 pub fn pgstat_count_conn_active_time(n: PgStat_Counter) {
@@ -293,9 +296,9 @@ pub fn pgstat_fetch_stat_dbentry(dboid: Oid) -> Option<PgStat_StatDBEntry> {
 }
 
 pub(crate) fn pgstat_prep_database_pending_in(
-    st: & mut PgStatState,
+    st: &mut PgStatState,
     dboid: Oid,
-) -> & mut PgStat_StatDBEntry {
+) -> &mut PgStat_StatDBEntry {
     debug_assert!(dboid == InvalidOid || MyDatabaseId() != InvalidOid);
     let key = PgStat_HashKey {
         kind: PGSTAT_KIND_DATABASE,
@@ -303,7 +306,7 @@ pub(crate) fn pgstat_prep_database_pending_in(
         objid: 0,
     };
     match st.prep_pending_entry(key) {
-        PendingData::Database(db) =>db,
+        PendingData::Database(db) => db,
         _ => unreachable!("database key holds non-database pending data"),
     }
 }

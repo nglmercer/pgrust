@@ -76,9 +76,15 @@ pub enum Directive {
     /// `@settle <id> max=<ms>`.
     Settle { id: String, max_ms: Option<u64> },
     /// `@storm n=<n> hold=<ms>`.
-    Storm { n: Option<u64>, hold_ms: Option<u64> },
+    Storm {
+        n: Option<u64>,
+        hold_ms: Option<u64>,
+    },
     /// `@pressure mb=<mb> queries=<n>`.
-    Pressure { mb: Option<u64>, queries: Option<u64> },
+    Pressure {
+        mb: Option<u64>,
+        queries: Option<u64>,
+    },
     /// `@ordered total|partial|none` — overrides the next statement.
     Ordered(Ordered),
     /// `@expect <expectation>` — `expect_c` for the next statement.
@@ -108,9 +114,15 @@ pub enum Item {
     Directive(Directive),
     /// A wire SQL statement: normalized text (trimmed, `;`-terminated) and
     /// an optional trailing same-line comment.
-    Stmt { text: String, trailing: Option<String> },
+    Stmt {
+        text: String,
+        trailing: Option<String>,
+    },
     /// Text run by stock psql (not wire).
-    Psql { kind: PsqlKind, lines: Vec<String> },
+    Psql {
+        kind: PsqlKind,
+        lines: Vec<String>,
+    },
     /// A `-- @manual` block: prose steps a harness performs (not wire).
     Manual(Vec<String>),
 }
@@ -184,7 +196,8 @@ fn skip_lexeme(b: &[u8], i: usize) -> Option<usize> {
         return Some(n);
     }
     if c == b'\'' {
-        let escaped = i > 0 && (b[i - 1] == b'E' || b[i - 1] == b'e') && (i < 2 || !is_ident_char(b[i - 2]));
+        let escaped =
+            i > 0 && (b[i - 1] == b'E' || b[i - 1] == b'e') && (i < 2 || !is_ident_char(b[i - 2]));
         let mut j = i + 1;
         while j < n {
             if escaped && b[j] == b'\\' {
@@ -245,7 +258,11 @@ fn skip_lexeme(b: &[u8], i: usize) -> Option<usize> {
 // ---------------------------------------------------------------------
 
 fn first_word(s: &str) -> String {
-    s.trim_start().chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect::<String>().to_ascii_lowercase()
+    s.trim_start()
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+        .collect::<String>()
+        .to_ascii_lowercase()
 }
 
 fn is_copy_from_stdin(stmt: &str) -> bool {
@@ -323,7 +340,10 @@ fn parse_kv_args(args: &str) -> Result<BTreeMap<String, String>, String> {
 fn arg_u64(m: &BTreeMap<String, String>, k: &str, what: &str) -> Result<Option<u64>, String> {
     match m.get(k) {
         None => Ok(None),
-        Some(v) => v.parse::<u64>().map(Some).map_err(|_| format!("{} {}= must be an integer, got {:?}", what, k, v)),
+        Some(v) => v
+            .parse::<u64>()
+            .map(Some)
+            .map_err(|_| format!("{} {}= must be an integer, got {:?}", what, k, v)),
     }
 }
 
@@ -343,7 +363,13 @@ impl Directive {
             Some(p) => (&line[..p], line[p..].trim()),
             None => (line, ""),
         };
-        let no_args = |d: Directive| if args.is_empty() { Ok(d) } else { Err(format!("@{} takes no arguments", name)) };
+        let no_args = |d: Directive| {
+            if args.is_empty() {
+                Ok(d)
+            } else {
+                Err(format!("@{} takes no arguments", name))
+            }
+        };
         let one_arg = |what: &str| -> Result<String, String> {
             if args.is_empty() || args.contains(char::is_whitespace) {
                 Err(format!("@{} takes exactly one {}", name, what))
@@ -377,7 +403,10 @@ impl Directive {
                         return Err(format!("@settle: unknown argument {:?}", k));
                     }
                 }
-                Ok(Directive::Settle { id: id.to_string(), max_ms: arg_u64(&m, "max", "@settle")? })
+                Ok(Directive::Settle {
+                    id: id.to_string(),
+                    max_ms: arg_u64(&m, "max", "@settle")?,
+                })
             }
             "storm" => {
                 let m = parse_kv_args(args)?;
@@ -386,7 +415,10 @@ impl Directive {
                         return Err(format!("@storm: unknown argument {:?}", k));
                     }
                 }
-                Ok(Directive::Storm { n: arg_u64(&m, "n", "@storm")?, hold_ms: arg_u64(&m, "hold", "@storm")? })
+                Ok(Directive::Storm {
+                    n: arg_u64(&m, "n", "@storm")?,
+                    hold_ms: arg_u64(&m, "hold", "@storm")?,
+                })
             }
             "pressure" => {
                 let m = parse_kv_args(args)?;
@@ -395,11 +427,16 @@ impl Directive {
                         return Err(format!("@pressure: unknown argument {:?}", k));
                     }
                 }
-                Ok(Directive::Pressure { mb: arg_u64(&m, "mb", "@pressure")?, queries: arg_u64(&m, "queries", "@pressure")? })
+                Ok(Directive::Pressure {
+                    mb: arg_u64(&m, "mb", "@pressure")?,
+                    queries: arg_u64(&m, "queries", "@pressure")?,
+                })
             }
             "ordered" => Ok(Directive::Ordered(Ordered::parse(&one_arg("value")?)?)),
             "batch" => {
-                let n: u32 = one_arg("count")?.parse().map_err(|e| format!("@batch count: {}", e))?;
+                let n: u32 = one_arg("count")?
+                    .parse()
+                    .map_err(|e| format!("@batch count: {}", e))?;
                 if n < 2 {
                     return Err("@batch needs a count of at least 2".into());
                 }
@@ -412,7 +449,9 @@ impl Directive {
                     Ok(Directive::Expect(args.to_string()))
                 }
             }
-            "psql" | "manual" | "end" => Err(format!("@{} is a block marker, not a directive", name)),
+            "psql" | "manual" | "end" => {
+                Err(format!("@{} is a block marker, not a directive", name))
+            }
             _ => Err(format!("unknown directive @{}", name)),
         }
     }
@@ -497,7 +536,11 @@ pub fn split_body(body: &str) -> Result<Vec<Item>, String> {
                 match name {
                     "psql" | "manual" => {
                         if !d[name.len()..].trim().is_empty() {
-                            return Err(format!("line {}: @{} takes no arguments", line_of(i), name));
+                            return Err(format!(
+                                "line {}: @{} takes no arguments",
+                                line_of(i),
+                                name
+                            ));
                         }
                         let mut lines = Vec::new();
                         let mut j = e + 1;
@@ -514,7 +557,10 @@ pub fn split_body(body: &str) -> Result<Vec<Item>, String> {
                             if name == "manual" {
                                 let t = l.trim_start();
                                 let Some(c) = t.strip_prefix("--") else {
-                                    return Err(format!("line {}: @manual block lines must be `-- ` comments", line_of(j)));
+                                    return Err(format!(
+                                        "line {}: @manual block lines must be `-- ` comments",
+                                        line_of(j)
+                                    ));
                                 };
                                 lines.push(c.strip_prefix(' ').unwrap_or(c).to_string());
                             } else {
@@ -523,19 +569,32 @@ pub fn split_body(body: &str) -> Result<Vec<Item>, String> {
                             j = le + 1;
                         }
                         if !closed {
-                            return Err(format!("line {}: @{} block without -- @end", line_of(i), name));
+                            return Err(format!(
+                                "line {}: @{} block without -- @end",
+                                line_of(i),
+                                name
+                            ));
                         }
                         items.push(if name == "manual" {
                             Item::Manual(lines)
                         } else {
-                            Item::Psql { kind: PsqlKind::Block, lines }
+                            Item::Psql {
+                                kind: PsqlKind::Block,
+                                lines,
+                            }
                         });
                         i = j.min(n);
                         continue;
                     }
-                    "end" => return Err(format!("line {}: -- @end without an open block", line_of(i))),
+                    "end" => {
+                        return Err(format!(
+                            "line {}: -- @end without an open block",
+                            line_of(i)
+                        ))
+                    }
                     _ => {
-                        let dir = Directive::parse(d).map_err(|m| format!("line {}: {}", line_of(i), m))?;
+                        let dir = Directive::parse(d)
+                            .map_err(|m| format!("line {}: {}", line_of(i), m))?;
                         items.push(Item::Directive(dir));
                         i = e;
                         continue;
@@ -555,7 +614,10 @@ pub fn split_body(body: &str) -> Result<Vec<Item>, String> {
         // psql meta-command line
         if b[i] == b'\\' {
             let e = line_end(b, i);
-            items.push(Item::Psql { kind: PsqlKind::Meta, lines: vec![body[i..e].trim_end().to_string()] });
+            items.push(Item::Psql {
+                kind: PsqlKind::Meta,
+                lines: vec![body[i..e].trim_end().to_string()],
+            });
             i = e;
             continue;
         }
@@ -585,7 +647,10 @@ pub fn split_body(body: &str) -> Result<Vec<Item>, String> {
         }
         if meta {
             let e = end.unwrap();
-            items.push(Item::Psql { kind: PsqlKind::Meta, lines: vec![body[start..e].trim_end().to_string()] });
+            items.push(Item::Psql {
+                kind: PsqlKind::Meta,
+                lines: vec![body[start..e].trim_end().to_string()],
+            });
             i = e;
             continue;
         }
@@ -629,9 +694,15 @@ pub fn split_body(body: &str) -> Result<Vec<Item>, String> {
                 lines.push(l.to_string());
             }
             if !closed {
-                return Err(format!("line {}: COPY ... FROM STDIN block without a closing \\.", line_of(start)));
+                return Err(format!(
+                    "line {}: COPY ... FROM STDIN block without a closing \\.",
+                    line_of(start)
+                ));
             }
-            items.push(Item::Psql { kind: PsqlKind::CopyIn, lines });
+            items.push(Item::Psql {
+                kind: PsqlKind::CopyIn,
+                lines,
+            });
             continue;
         }
         items.push(Item::Stmt { text, trailing });
@@ -672,24 +743,38 @@ fn lex(sql: &str) -> Vec<T> {
             i += 1;
             continue;
         }
-        if (c == b'-' && i + 1 < n && b[i + 1] == b'-') || (c == b'/' && i + 1 < n && b[i + 1] == b'*') {
+        if (c == b'-' && i + 1 < n && b[i + 1] == b'-')
+            || (c == b'/' && i + 1 < n && b[i + 1] == b'*')
+        {
             i = skip_lexeme(b, i).unwrap();
             continue;
         }
         if c == b'\'' || c == b'$' || c == b'"' {
             if let Some(e) = skip_lexeme(b, i) {
                 if c == b'"' {
-                    out.push(T { tok: Tok::Quoted(sql[i..e].to_string()), depth });
+                    out.push(T {
+                        tok: Tok::Quoted(sql[i..e].to_string()),
+                        depth,
+                    });
                 } else if c == b'\'' {
                     // E'...' : the E was lexed as a Word; drop it
                     if let Some(last) = out.last() {
-                        if last.tok == Tok::Word("e".into()) && i > 0 && (b[i - 1] == b'E' || b[i - 1] == b'e') {
+                        if last.tok == Tok::Word("e".into())
+                            && i > 0
+                            && (b[i - 1] == b'E' || b[i - 1] == b'e')
+                        {
                             out.pop();
                         }
                     }
-                    out.push(T { tok: Tok::Str, depth });
+                    out.push(T {
+                        tok: Tok::Str,
+                        depth,
+                    });
                 } else {
-                    out.push(T { tok: Tok::Str, depth });
+                    out.push(T {
+                        tok: Tok::Str,
+                        depth,
+                    });
                 }
                 i = e;
                 continue;
@@ -700,7 +785,10 @@ fn lex(sql: &str) -> Vec<T> {
             while j < n && b[j].is_ascii_digit() {
                 j += 1;
             }
-            out.push(T { tok: Tok::Num(sql[i..j].to_string()), depth });
+            out.push(T {
+                tok: Tok::Num(sql[i..j].to_string()),
+                depth,
+            });
             i = j;
             continue;
         }
@@ -709,7 +797,10 @@ fn lex(sql: &str) -> Vec<T> {
             while j < n && (b[j].is_ascii_alphanumeric() || b[j] == b'.' || b[j] == b'_') {
                 j += 1;
             }
-            out.push(T { tok: Tok::Num(sql[i..j].to_string()), depth });
+            out.push(T {
+                tok: Tok::Num(sql[i..j].to_string()),
+                depth,
+            });
             i = j;
             continue;
         }
@@ -718,29 +809,44 @@ fn lex(sql: &str) -> Vec<T> {
             while j < n && is_ident_char(b[j]) {
                 j += 1;
             }
-            out.push(T { tok: Tok::Word(sql[i..j].to_ascii_lowercase()), depth });
+            out.push(T {
+                tok: Tok::Word(sql[i..j].to_ascii_lowercase()),
+                depth,
+            });
             i = j;
             continue;
         }
         if c == b'(' {
-            out.push(T { tok: Tok::Punct("(".into()), depth });
+            out.push(T {
+                tok: Tok::Punct("(".into()),
+                depth,
+            });
             depth += 1;
             i += 1;
             continue;
         }
         if c == b')' {
             depth = depth.saturating_sub(1);
-            out.push(T { tok: Tok::Punct(")".into()), depth });
+            out.push(T {
+                tok: Tok::Punct(")".into()),
+                depth,
+            });
             i += 1;
             continue;
         }
         if c == b':' && i + 1 < n && b[i + 1] == b':' {
-            out.push(T { tok: Tok::Punct("::".into()), depth });
+            out.push(T {
+                tok: Tok::Punct("::".into()),
+                depth,
+            });
             i += 2;
             continue;
         }
         if b",.;[]:".contains(&c) {
-            out.push(T { tok: Tok::Punct((c as char).to_string()), depth });
+            out.push(T {
+                tok: Tok::Punct((c as char).to_string()),
+                depth,
+            });
             i += 1;
             continue;
         }
@@ -752,7 +858,10 @@ fn lex(sql: &str) -> Vec<T> {
         if j == i {
             j = i + 1;
         }
-        out.push(T { tok: Tok::Punct(sql[i..j].to_string()), depth });
+        out.push(T {
+            tok: Tok::Punct(sql[i..j].to_string()),
+            depth,
+        });
         i = j;
     }
     out
@@ -770,7 +879,10 @@ fn tok_text(t: &Tok) -> &str {
 }
 
 fn norm_text(ts: &[T]) -> String {
-    ts.iter().map(|t| tok_text(&t.tok)).collect::<Vec<_>>().join(" ")
+    ts.iter()
+        .map(|t| tok_text(&t.tok))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Statement shapes for the ordered pass and the summary.
@@ -786,28 +898,116 @@ pub enum Shape {
 }
 
 const SRF_NAMES: &[&str] = &[
-    "generate_series", "generate_subscripts", "unnest", "regexp_matches", "regexp_split_to_table", "string_to_table",
-    "json_each", "json_each_text", "jsonb_each", "jsonb_each_text", "json_array_elements", "json_array_elements_text",
-    "jsonb_array_elements", "jsonb_array_elements_text", "json_object_keys", "jsonb_object_keys",
-    "json_populate_recordset", "jsonb_populate_recordset", "json_to_recordset", "jsonb_to_recordset",
-    "jsonb_path_query", "pg_ls_dir", "pg_listening_channels", "pg_show_all_settings", "pg_get_keywords",
-    "pg_options_to_table", "pg_tablespace_databases", "pg_timezone_names", "pg_timezone_abbrevs",
-    "pg_stat_file", "pg_ls_waldir", "pg_available_extensions", "pg_available_extension_versions", "pg_cursor",
-    "pg_prepared_statement", "pg_prepared_xacts", "pg_locks", "pg_stat_get_activity", "txid_snapshot_xip",
-    "pg_snapshot_xip", "aclexplode", "pg_partition_tree", "pg_partition_ancestors", "ts_debug", "ts_parse",
-    "ts_token_type", "ts_stat", "pg_get_publication_tables", "pg_logical_slot_get_changes",
-    "pg_logical_slot_peek_changes", "pg_event_trigger_ddl_commands", "pg_event_trigger_dropped_objects",
-    "json_table", "xmltable", "rows_from", "brin_page_items", "bt_page_items", "gin_leafpage_items",
-    "heap_page_items", "page_header", "pg_control_checkpoint",
+    "generate_series",
+    "generate_subscripts",
+    "unnest",
+    "regexp_matches",
+    "regexp_split_to_table",
+    "string_to_table",
+    "json_each",
+    "json_each_text",
+    "jsonb_each",
+    "jsonb_each_text",
+    "json_array_elements",
+    "json_array_elements_text",
+    "jsonb_array_elements",
+    "jsonb_array_elements_text",
+    "json_object_keys",
+    "jsonb_object_keys",
+    "json_populate_recordset",
+    "jsonb_populate_recordset",
+    "json_to_recordset",
+    "jsonb_to_recordset",
+    "jsonb_path_query",
+    "pg_ls_dir",
+    "pg_listening_channels",
+    "pg_show_all_settings",
+    "pg_get_keywords",
+    "pg_options_to_table",
+    "pg_tablespace_databases",
+    "pg_timezone_names",
+    "pg_timezone_abbrevs",
+    "pg_stat_file",
+    "pg_ls_waldir",
+    "pg_available_extensions",
+    "pg_available_extension_versions",
+    "pg_cursor",
+    "pg_prepared_statement",
+    "pg_prepared_xacts",
+    "pg_locks",
+    "pg_stat_get_activity",
+    "txid_snapshot_xip",
+    "pg_snapshot_xip",
+    "aclexplode",
+    "pg_partition_tree",
+    "pg_partition_ancestors",
+    "ts_debug",
+    "ts_parse",
+    "ts_token_type",
+    "ts_stat",
+    "pg_get_publication_tables",
+    "pg_logical_slot_get_changes",
+    "pg_logical_slot_peek_changes",
+    "pg_event_trigger_ddl_commands",
+    "pg_event_trigger_dropped_objects",
+    "json_table",
+    "xmltable",
+    "rows_from",
+    "brin_page_items",
+    "bt_page_items",
+    "gin_leafpage_items",
+    "heap_page_items",
+    "page_header",
+    "pg_control_checkpoint",
 ];
 
 const AGG_NAMES: &[&str] = &[
-    "count", "sum", "min", "max", "avg", "array_agg", "string_agg", "bool_and", "bool_or", "every", "json_agg",
-    "jsonb_agg", "json_object_agg", "jsonb_object_agg", "bit_and", "bit_or", "bit_xor", "xmlagg", "stddev",
-    "stddev_pop", "stddev_samp", "variance", "var_pop", "var_samp", "corr", "covar_pop", "covar_samp", "regr_avgx",
-    "regr_avgy", "regr_count", "regr_intercept", "regr_r2", "regr_slope", "regr_sxx", "regr_sxy", "regr_syy",
-    "mode", "percentile_cont", "percentile_disc", "rank", "dense_rank", "percent_rank", "cume_dist", "any_value",
-    "range_agg", "range_intersect_agg",
+    "count",
+    "sum",
+    "min",
+    "max",
+    "avg",
+    "array_agg",
+    "string_agg",
+    "bool_and",
+    "bool_or",
+    "every",
+    "json_agg",
+    "jsonb_agg",
+    "json_object_agg",
+    "jsonb_object_agg",
+    "bit_and",
+    "bit_or",
+    "bit_xor",
+    "xmlagg",
+    "stddev",
+    "stddev_pop",
+    "stddev_samp",
+    "variance",
+    "var_pop",
+    "var_samp",
+    "corr",
+    "covar_pop",
+    "covar_samp",
+    "regr_avgx",
+    "regr_avgy",
+    "regr_count",
+    "regr_intercept",
+    "regr_r2",
+    "regr_slope",
+    "regr_sxx",
+    "regr_sxy",
+    "regr_syy",
+    "mode",
+    "percentile_cont",
+    "percentile_disc",
+    "rank",
+    "dense_rank",
+    "percent_rank",
+    "cume_dist",
+    "any_value",
+    "range_agg",
+    "range_intersect_agg",
 ];
 
 /// Skip a leading `WITH ... ` CTE prefix: returns the index of the first
@@ -819,7 +1019,10 @@ fn skip_cte_prefix(ts: &[T]) -> usize {
     for (i, t) in ts.iter().enumerate().skip(1) {
         if t.depth == 0 {
             if let Tok::Word(w) = &t.tok {
-                if matches!(w.as_str(), "select" | "values" | "table" | "insert" | "update" | "delete" | "merge") {
+                if matches!(
+                    w.as_str(),
+                    "select" | "values" | "table" | "insert" | "update" | "delete" | "merge"
+                ) {
                     // `WITH x AS (...) SELECT` — but not the `AS` list's names.
                     // A statement keyword right after ')' or ',' would be a
                     // CTE name only if followed by AS; check that.
@@ -838,7 +1041,9 @@ fn skip_cte_prefix(ts: &[T]) -> usize {
 pub fn shape_of(sql: &str) -> Shape {
     let ts = lex(sql);
     let s = skip_cte_prefix(&ts);
-    let Some(first) = ts.get(s) else { return Shape::Other };
+    let Some(first) = ts.get(s) else {
+        return Shape::Other;
+    };
     let w = match &first.tok {
         Tok::Word(w) => w.as_str(),
         Tok::Punct(p) if p == "(" => {
@@ -881,12 +1086,64 @@ fn split_commas(ts: &[T], base: usize) -> Vec<Vec<T>> {
 fn is_keyword_alias_blocker(w: &str) -> bool {
     matches!(
         w,
-        "from" | "where" | "group" | "having" | "window" | "order" | "limit" | "offset" | "fetch" | "for" | "union"
-            | "intersect" | "except" | "into" | "and" | "or" | "not" | "is" | "in" | "like" | "ilike" | "similar"
-            | "between" | "collate" | "at" | "over" | "filter" | "within" | "as" | "then" | "else" | "end" | "when"
-            | "case" | "null" | "true" | "false" | "asc" | "desc" | "nulls" | "first" | "last" | "using" | "escape"
-            | "distinct" | "all" | "array" | "row" | "cast" | "interval" | "on" | "with" | "select" | "any" | "some"
-            | "exists" | "isnull" | "notnull"
+        "from"
+            | "where"
+            | "group"
+            | "having"
+            | "window"
+            | "order"
+            | "limit"
+            | "offset"
+            | "fetch"
+            | "for"
+            | "union"
+            | "intersect"
+            | "except"
+            | "into"
+            | "and"
+            | "or"
+            | "not"
+            | "is"
+            | "in"
+            | "like"
+            | "ilike"
+            | "similar"
+            | "between"
+            | "collate"
+            | "at"
+            | "over"
+            | "filter"
+            | "within"
+            | "as"
+            | "then"
+            | "else"
+            | "end"
+            | "when"
+            | "case"
+            | "null"
+            | "true"
+            | "false"
+            | "asc"
+            | "desc"
+            | "nulls"
+            | "first"
+            | "last"
+            | "using"
+            | "escape"
+            | "distinct"
+            | "all"
+            | "array"
+            | "row"
+            | "cast"
+            | "interval"
+            | "on"
+            | "with"
+            | "select"
+            | "any"
+            | "some"
+            | "exists"
+            | "isnull"
+            | "notnull"
     )
 }
 
@@ -912,10 +1169,17 @@ fn column_keys(col: &[T], ordinal: usize) -> (Vec<String>, bool) {
     } else if col.len() >= 2 {
         // implicit alias: a trailing identifier after a non-operator token
         let prev = &col[col.len() - 2];
-        let last_is_name = matches!(&last.tok, Tok::Word(w) if !is_keyword_alias_blocker(w)) || matches!(&last.tok, Tok::Quoted(_));
+        let last_is_name = matches!(&last.tok, Tok::Word(w) if !is_keyword_alias_blocker(w))
+            || matches!(&last.tok, Tok::Quoted(_));
         let prev_ok = match &prev.tok {
             Tok::Punct(p) => p == ")" || p == "]",
-            Tok::Word(w) => !is_keyword_alias_blocker(w) || w == "null" || w == "true" || w == "false" || w == "end",
+            Tok::Word(w) => {
+                !is_keyword_alias_blocker(w)
+                    || w == "null"
+                    || w == "true"
+                    || w == "false"
+                    || w == "end"
+            }
             _ => true,
         };
         if last_is_name && prev_ok && prev.depth == last.depth {
@@ -938,7 +1202,10 @@ fn order_item_key(item: &[T]) -> Vec<String> {
     // strip ASC/DESC, NULLS FIRST/LAST, USING op
     let mut end = item.len();
     loop {
-        if end >= 2 && is_word(&item[end - 2], "nulls") && (is_word(&item[end - 1], "first") || is_word(&item[end - 1], "last")) {
+        if end >= 2
+            && is_word(&item[end - 2], "nulls")
+            && (is_word(&item[end - 1], "first") || is_word(&item[end - 1], "last"))
+        {
             end -= 2;
             continue;
         }
@@ -979,8 +1246,20 @@ pub fn infer_ordered(sql: &str) -> Ordered {
     let clause_kw = |w: &str| {
         matches!(
             w,
-            "from" | "where" | "group" | "having" | "window" | "order" | "limit" | "offset" | "fetch" | "for" | "union"
-                | "intersect" | "except" | "into"
+            "from"
+                | "where"
+                | "group"
+                | "having"
+                | "window"
+                | "order"
+                | "limit"
+                | "offset"
+                | "fetch"
+                | "for"
+                | "union"
+                | "intersect"
+                | "except"
+                | "into"
         )
     };
     // locate the last depth-0 ORDER BY
@@ -1010,21 +1289,41 @@ pub fn infer_ordered(sql: &str) -> Ordered {
     match shape {
         Shape::Values => {
             // count top-level rows
-            let rows = ts.iter().filter(|t| t.depth == base && t.tok == Tok::Punct(",".into())).count() + 1;
+            let rows = ts
+                .iter()
+                .filter(|t| t.depth == base && t.tok == Tok::Punct(",".into()))
+                .count()
+                + 1;
             if order_items.is_some() {
                 return Ordered::Partial;
             }
-            return if rows == 1 { Ordered::Total } else { Ordered::None };
+            return if rows == 1 {
+                Ordered::Total
+            } else {
+                Ordered::None
+            };
         }
         Shape::Table => {
-            return if order_items.is_some() { Ordered::Partial } else { Ordered::None };
+            return if order_items.is_some() {
+                Ordered::Partial
+            } else {
+                Ordered::None
+            };
         }
         _ => {}
     }
     // select list: after SELECT [ALL|DISTINCT [ON (...)]] up to a clause keyword
     let mut i = 0;
     // `( SELECT ...` set-op wrapper: analyse the first branch at depth 1
-    let base = if ts.first().map(|t| t.tok == Tok::Punct("(".into())).unwrap_or(false) { 1 } else { base };
+    let base = if ts
+        .first()
+        .map(|t| t.tok == Tok::Punct("(".into()))
+        .unwrap_or(false)
+    {
+        1
+    } else {
+        base
+    };
     while i < ts.len() && !(ts[i].depth == base && is_word(&ts[i], "select")) {
         i += 1;
     }
@@ -1094,7 +1393,11 @@ pub fn infer_ordered(sql: &str) -> Ordered {
                 break;
             }
         }
-        return if all && !cols.is_empty() { Ordered::Total } else { Ordered::Partial };
+        return if all && !cols.is_empty() {
+            Ordered::Total
+        } else {
+            Ordered::Partial
+        };
     }
     if has_setop {
         return Ordered::None;
@@ -1104,13 +1407,23 @@ pub fn infer_ordered(sql: &str) -> Ordered {
         .iter()
         .enumerate()
         .filter_map(|(k, t)| match &t.tok {
-            Tok::Word(w) if list.get(k + 1).map(|n| n.tok == Tok::Punct("(".into())).unwrap_or(false) => Some(w.as_str()),
+            Tok::Word(w)
+                if list
+                    .get(k + 1)
+                    .map(|n| n.tok == Tok::Punct("(".into()))
+                    .unwrap_or(false) =>
+            {
+                Some(w.as_str())
+            }
             _ => None,
         })
         .collect();
     let has_srf = calls.iter().any(|c| SRF_NAMES.contains(c));
     let has_agg = calls.iter().any(|c| AGG_NAMES.contains(c));
-    let has_star = cols.iter().enumerate().any(|(idx, c)| column_keys(c, idx + 1).1);
+    let has_star = cols
+        .iter()
+        .enumerate()
+        .any(|(idx, c)| column_keys(c, idx + 1).1);
     if !has_from && !has_srf && !has_star {
         return Ordered::Total;
     }
@@ -1217,15 +1530,20 @@ impl Recipe {
 
     /// The wire SQL statements in order.
     pub fn statements(&self) -> Vec<&str> {
-        self.items.iter().filter_map(|it| match it {
-            Item::Stmt { text, .. } => Some(text.as_str()),
-            _ => None,
-        }).collect()
+        self.items
+            .iter()
+            .filter_map(|it| match it {
+                Item::Stmt { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect()
     }
 
     /// True when every step is a wire step (no psql / manual items).
     pub fn is_wire(&self) -> bool {
-        self.items.iter().all(|it| !matches!(it, Item::Psql { .. } | Item::Manual(_)))
+        self.items
+            .iter()
+            .all(|it| !matches!(it, Item::Psql { .. } | Item::Manual(_)))
     }
 
     /// The recipe-wide `ordered:` summary: the weakest per-statement value
@@ -1258,9 +1576,16 @@ impl Recipe {
         let mut pending_expect: Option<String> = None;
         let mut open_bracket: BTreeMap<String, String> = BTreeMap::new();
         let mut bracket_seq = 0usize;
-        let has_expect_directive = self.items.iter().any(|it| matches!(it, Item::Directive(Directive::Expect(_))));
+        let has_expect_directive = self
+            .items
+            .iter()
+            .any(|it| matches!(it, Item::Directive(Directive::Expect(_))));
         let mut last_sql_step: Option<usize> = None;
-        let sql_kind = if self.header.protocol == "extended" { StepKind::Xproto } else { StepKind::Sql };
+        let sql_kind = if self.header.protocol == "extended" {
+            StepKind::Xproto
+        } else {
+            StepKind::Sql
+        };
         let mut batch_remaining: u32 = 0;
         let mut batch_buf: Vec<String> = Vec::new();
         for (idx, it) in self.items.iter().enumerate() {
@@ -1297,7 +1622,12 @@ impl Recipe {
                     }
                     Directive::Connect(m) => {
                         step.kind = StepKind::Connect;
-                        step.sql = Some(m.iter().map(|(k, v)| format!("{}={}", k, quote_kv(v))).collect::<Vec<_>>().join(" "));
+                        step.sql = Some(
+                            m.iter()
+                                .map(|(k, v)| format!("{}={}", k, quote_kv(v)))
+                                .collect::<Vec<_>>()
+                                .join(" "),
+                        );
                         step.slots = m.clone();
                     }
                     Directive::File(n) => {
@@ -1346,7 +1676,9 @@ impl Recipe {
                     let joined = batch_buf.join(" ");
                     batch_buf.clear();
                     step.kind = sql_kind.clone();
-                    step.ordered = pending_ordered.take().unwrap_or_else(|| infer_ordered(text));
+                    step.ordered = pending_ordered
+                        .take()
+                        .unwrap_or_else(|| infer_ordered(text));
                     step.expect_c = pending_expect.take();
                     step.sql = Some(joined);
                     last_sql_step = Some(out.len());
@@ -1361,7 +1693,9 @@ impl Recipe {
                     }
                     step.kind = sql_kind.clone();
                     step.sql = Some(text.clone());
-                    step.ordered = pending_ordered.take().unwrap_or_else(|| infer_ordered(text));
+                    step.ordered = pending_ordered
+                        .take()
+                        .unwrap_or_else(|| infer_ordered(text));
                     step.expect_c = pending_expect.take();
                     if txn_close(&w, text) {
                         open_bracket.remove(&session);
@@ -1370,7 +1704,11 @@ impl Recipe {
                 }
                 Item::Psql { kind, lines } => {
                     step.wire = false;
-                    step.kind = if *kind == PsqlKind::CopyIn { StepKind::CopyIn } else { StepKind::Env("psql".into()) };
+                    step.kind = if *kind == PsqlKind::CopyIn {
+                        StepKind::CopyIn
+                    } else {
+                        StepKind::Env("psql".into())
+                    };
                     step.sql = Some(lines.join("\n"));
                     step.expect_c = pending_expect.take();
                     pending_ordered = None;
@@ -1401,7 +1739,11 @@ impl Recipe {
                 if let Some(rest) = c.strip_prefix("-- note:") {
                     for tok in rest.split_whitespace() {
                         if let Some(f) = tok.strip_prefix("features=") {
-                            return f.split(',').filter(|x| !x.is_empty()).map(str::to_string).collect();
+                            return f
+                                .split(',')
+                                .filter(|x| !x.is_empty())
+                                .map(str::to_string)
+                                .collect();
                         }
                     }
                 }
@@ -1413,7 +1755,13 @@ impl Recipe {
     /// Emit `StepRecord`s for the stream: `scenario`, sequence numbers
     /// starting at `seq0`.
     pub fn to_steps(&self, scenario: &str, seq0: u64) -> Vec<StepRecord> {
-        let targets: Vec<String> = self.header.targets.iter().filter(|t| t.as_str() != "-").cloned().collect();
+        let targets: Vec<String> = self
+            .header
+            .targets
+            .iter()
+            .filter(|t| t.as_str() != "-")
+            .cloned()
+            .collect();
         self.steps()
             .into_iter()
             .enumerate()
@@ -1431,7 +1779,12 @@ impl Recipe {
                 } else {
                     None
                 };
-                let mut slots = self.header.slots.keys().map(|k| (k.clone(), String::new())).collect::<BTreeMap<_, _>>();
+                let mut slots = self
+                    .header
+                    .slots
+                    .keys()
+                    .map(|k| (k.clone(), String::new()))
+                    .collect::<BTreeMap<_, _>>();
                 for (k, v) in st.slots {
                     slots.insert(k, v);
                 }
@@ -1481,7 +1834,14 @@ mod tests {
     #[test]
     fn split_plain_and_multi_per_line() {
         let v = stmts("create table t(a int); insert into t values (1);\nselect 1\n");
-        assert_eq!(v, vec!["create table t(a int);", "insert into t values (1);", "select 1;"]);
+        assert_eq!(
+            v,
+            vec![
+                "create table t(a int);",
+                "insert into t values (1);",
+                "select 1;"
+            ]
+        );
     }
 
     #[test]
@@ -1513,24 +1873,69 @@ mod tests {
     fn split_comments_inside_and_between() {
         let items = split_body("-- lead\nselect 1, -- inner ; comment\n 2 /* block ; */;\n/* between\n;\n*/\nselect 3; -- trailing\n").unwrap();
         assert_eq!(items[0], Item::Comment("-- lead".into()));
-        assert!(matches!(&items[1], Item::Stmt { text, .. } if text.contains("-- inner ; comment") && text.ends_with("*/;")));
+        assert!(
+            matches!(&items[1], Item::Stmt { text, .. } if text.contains("-- inner ; comment") && text.ends_with("*/;"))
+        );
         assert!(matches!(&items[2], Item::Comment(c) if c.starts_with("/* between")));
-        assert_eq!(items[3], Item::Stmt { text: "select 3;".into(), trailing: Some("-- trailing".into()) });
+        assert_eq!(
+            items[3],
+            Item::Stmt {
+                text: "select 3;".into(),
+                trailing: Some("-- trailing".into())
+            }
+        );
     }
 
     #[test]
     fn split_copy_stdin_and_psql_meta() {
-        let items = split_body("copy t from stdin;\n1\tx\n2\ty\n\\.\n\\c otherdb\nselect 1;\n").unwrap();
+        let items =
+            split_body("copy t from stdin;\n1\tx\n2\ty\n\\.\n\\c otherdb\nselect 1;\n").unwrap();
         assert_eq!(items.len(), 3);
-        assert_eq!(items[0], Item::Psql { kind: PsqlKind::CopyIn, lines: vec!["copy t from stdin;".into(), "1\tx".into(), "2\ty".into(), "\\.".into()] });
-        assert_eq!(items[1], Item::Psql { kind: PsqlKind::Meta, lines: vec!["\\c otherdb".into()] });
+        assert_eq!(
+            items[0],
+            Item::Psql {
+                kind: PsqlKind::CopyIn,
+                lines: vec![
+                    "copy t from stdin;".into(),
+                    "1\tx".into(),
+                    "2\ty".into(),
+                    "\\.".into()
+                ]
+            }
+        );
+        assert_eq!(
+            items[1],
+            Item::Psql {
+                kind: PsqlKind::Meta,
+                lines: vec!["\\c otherdb".into()]
+            }
+        );
         assert!(matches!(&items[2], Item::Stmt { .. }));
         assert!(split_body("copy t from stdin;\n1\n").is_err());
         // a meta-command ending a statement makes the whole line psql text
-        let items = split_body("select $1::int \\parse p\n\\bind_named p 16 \\g\nselect 2;\n").unwrap();
-        assert_eq!(items[0], Item::Psql { kind: PsqlKind::Meta, lines: vec!["select $1::int \\parse p".into()] });
-        assert_eq!(items[1], Item::Psql { kind: PsqlKind::Meta, lines: vec!["\\bind_named p 16 \\g".into()] });
-        assert_eq!(items[2], Item::Stmt { text: "select 2;".into(), trailing: None });
+        let items =
+            split_body("select $1::int \\parse p\n\\bind_named p 16 \\g\nselect 2;\n").unwrap();
+        assert_eq!(
+            items[0],
+            Item::Psql {
+                kind: PsqlKind::Meta,
+                lines: vec!["select $1::int \\parse p".into()]
+            }
+        );
+        assert_eq!(
+            items[1],
+            Item::Psql {
+                kind: PsqlKind::Meta,
+                lines: vec!["\\bind_named p 16 \\g".into()]
+            }
+        );
+        assert_eq!(
+            items[2],
+            Item::Stmt {
+                text: "select 2;".into(),
+                trailing: None
+            }
+        );
         // COPY TO STDOUT / FROM a file are wire statements
         let v = stmts("copy t to stdout; copy t from '/tmp/x';");
         assert_eq!(v.len(), 2);
@@ -1539,8 +1944,17 @@ mod tests {
     #[test]
     fn split_explicit_blocks() {
         let items = split_body("-- @psql\n\\set x 1\nselect :x;\n-- @end\n-- @manual\n-- do the thing\n--\n-- then this\n-- @end\n").unwrap();
-        assert_eq!(items[0], Item::Psql { kind: PsqlKind::Block, lines: vec!["\\set x 1".into(), "select :x;".into()] });
-        assert_eq!(items[1], Item::Manual(vec!["do the thing".into(), "".into(), "then this".into()]));
+        assert_eq!(
+            items[0],
+            Item::Psql {
+                kind: PsqlKind::Block,
+                lines: vec!["\\set x 1".into(), "select :x;".into()]
+            }
+        );
+        assert_eq!(
+            items[1],
+            Item::Manual(vec!["do the thing".into(), "".into(), "then this".into()])
+        );
         assert!(split_body("-- @psql\nselect 1;\n").is_err());
         assert!(split_body("-- @end\n").is_err());
     }
@@ -1554,12 +1968,39 @@ mod tests {
             ("probe locks", Directive::Probe("locks".into())),
             ("expect-crash", Directive::ExpectCrash),
             ("hold", Directive::Hold),
-            ("settle apply-caught-up max=5000", Directive::Settle { id: "apply-caught-up".into(), max_ms: Some(5000) }),
-            ("settle p1", Directive::Settle { id: "p1".into(), max_ms: None }),
-            ("storm n=64 hold=200", Directive::Storm { n: Some(64), hold_ms: Some(200) }),
-            ("pressure mb=512 queries=8", Directive::Pressure { mb: Some(512), queries: Some(8) }),
+            (
+                "settle apply-caught-up max=5000",
+                Directive::Settle {
+                    id: "apply-caught-up".into(),
+                    max_ms: Some(5000),
+                },
+            ),
+            (
+                "settle p1",
+                Directive::Settle {
+                    id: "p1".into(),
+                    max_ms: None,
+                },
+            ),
+            (
+                "storm n=64 hold=200",
+                Directive::Storm {
+                    n: Some(64),
+                    hold_ms: Some(200),
+                },
+            ),
+            (
+                "pressure mb=512 queries=8",
+                Directive::Pressure {
+                    mb: Some(512),
+                    queries: Some(8),
+                },
+            ),
             ("ordered total", Directive::Ordered(Ordered::Total)),
-            ("expect E:42501:permission denied for schema s", Directive::Expect("E:42501:permission denied for schema s".into())),
+            (
+                "expect E:42501:permission denied for schema s",
+                Directive::Expect("E:42501:permission denied for schema s".into()),
+            ),
         ];
         for (text, want) in cases {
             let d = Directive::parse(text).unwrap();
@@ -1567,18 +2008,27 @@ mod tests {
             assert_eq!(d.render(), format!("-- @{}", text));
             assert_eq!(Directive::parse(&d.render()[4..]).unwrap(), want);
         }
-        let d = Directive::parse("connect user=u1 db=d1 options='-c work_mem=8MB' protocol=3.2 password=''").unwrap();
+        let d = Directive::parse(
+            "connect user=u1 db=d1 options='-c work_mem=8MB' protocol=3.2 password=''",
+        )
+        .unwrap();
         let Directive::Connect(m) = &d else { panic!() };
         assert_eq!(m["options"], "-c work_mem=8MB");
         assert_eq!(m["password"], "");
-        assert_eq!(d.render(), "-- @connect db=d1 options='-c work_mem=8MB' password='' protocol=3.2 user=u1");
+        assert_eq!(
+            d.render(),
+            "-- @connect db=d1 options='-c work_mem=8MB' password='' protocol=3.2 user=u1"
+        );
         assert!(Directive::parse("bogus").is_err());
         assert!(Directive::parse("storm n=x").is_err());
         assert!(Directive::parse("settle").is_err());
         assert!(Directive::parse("hold now").is_err());
         assert!(split_body("-- @nope\n").is_err());
         // an escaped '@' comment is a plain comment
-        assert_eq!(split_body("-- \\@nope\n").unwrap()[0], Item::Comment("-- \\@nope".into()));
+        assert_eq!(
+            split_body("-- \\@nope\n").unwrap()[0],
+            Item::Comment("-- \\@nope".into())
+        );
     }
 
     #[test]
@@ -1588,13 +2038,34 @@ mod tests {
         assert_eq!(t("select a, b from t order by a;"), Ordered::Partial);
         assert_eq!(t("select a, b from t;"), Ordered::None);
         assert_eq!(t("select * from t order by a;"), Ordered::Partial);
-        assert_eq!(t("select t.a, count(*) as c from t group by 1 order by 1, c desc nulls last;"), Ordered::Total);
-        assert_eq!(t("select t.a, count(*) c from t group by t.a order by a, 2;"), Ordered::Total);
-        assert_eq!(t("select x from (select a as x from t order by a) s;"), Ordered::None);
-        assert_eq!(t("select x from (select a as x from t order by a) s order by x;"), Ordered::Total);
-        assert_eq!(t("select (select max(a) from t) as m, b from u order by 1;"), Ordered::Partial);
-        assert_eq!(t("with c as (select a from t) select a from c order by a;"), Ordered::Total);
-        assert_eq!(t("with c as (select a from t order by a) select a from c;"), Ordered::None);
+        assert_eq!(
+            t("select t.a, count(*) as c from t group by 1 order by 1, c desc nulls last;"),
+            Ordered::Total
+        );
+        assert_eq!(
+            t("select t.a, count(*) c from t group by t.a order by a, 2;"),
+            Ordered::Total
+        );
+        assert_eq!(
+            t("select x from (select a as x from t order by a) s;"),
+            Ordered::None
+        );
+        assert_eq!(
+            t("select x from (select a as x from t order by a) s order by x;"),
+            Ordered::Total
+        );
+        assert_eq!(
+            t("select (select max(a) from t) as m, b from u order by 1;"),
+            Ordered::Partial
+        );
+        assert_eq!(
+            t("with c as (select a from t) select a from c order by a;"),
+            Ordered::Total
+        );
+        assert_eq!(
+            t("with c as (select a from t order by a) select a from c;"),
+            Ordered::None
+        );
         assert_eq!(t("select 1;"), Ordered::Total);
         assert_eq!(t("select cbrt(2::float8)::text;"), Ordered::Total);
         assert_eq!(t("select generate_series(1, 3);"), Ordered::None);
@@ -1602,8 +2073,14 @@ mod tests {
         assert_eq!(t("select count(*) from t group by a;"), Ordered::None);
         assert_eq!(t("select count(*) over () from t;"), Ordered::None);
         assert_eq!(t("select a from t union select a from u;"), Ordered::None);
-        assert_eq!(t("select a from t union select a from u order by 1;"), Ordered::Total);
-        assert_eq!(t("(select a from t) union (select a from u order by a);"), Ordered::None);
+        assert_eq!(
+            t("select a from t union select a from u order by 1;"),
+            Ordered::Total
+        );
+        assert_eq!(
+            t("(select a from t) union (select a from u order by a);"),
+            Ordered::None
+        );
         assert_eq!(t("values (1, 2);"), Ordered::Total);
         assert_eq!(t("values (1), (2);"), Ordered::None);
         assert_eq!(t("table t;"), Ordered::None);
@@ -1614,19 +2091,40 @@ mod tests {
         assert_eq!(t("insert into t values (1) returning a;"), Ordered::None);
         assert_eq!(t("create table t (a int);"), Ordered::None);
         assert_eq!(t("select a from t order by a using <;"), Ordered::Total);
-        assert_eq!(t("select a, b from t order by a limit 1;"), Ordered::Partial);
-        assert_eq!(t("select distinct on (a) a, b from t order by a, b;"), Ordered::Total);
-        assert_eq!(t("select a from t where b = 'order by' order by a;"), Ordered::Total);
-        assert_eq!(t("select a from t where b = 'x order by y';"), Ordered::None);
+        assert_eq!(
+            t("select a, b from t order by a limit 1;"),
+            Ordered::Partial
+        );
+        assert_eq!(
+            t("select distinct on (a) a, b from t order by a, b;"),
+            Ordered::Total
+        );
+        assert_eq!(
+            t("select a from t where b = 'order by' order by a;"),
+            Ordered::Total
+        );
+        assert_eq!(
+            t("select a from t where b = 'x order by y';"),
+            Ordered::None
+        );
         assert_eq!(t("select 'a', 1 as one;"), Ordered::Total);
         assert_eq!(t("select s.relname, l.mode from pg_locks l join pg_class s on l.relation = s.oid order by 1, 2;"), Ordered::Total);
     }
 
     #[test]
     fn shapes() {
-        assert_eq!(shape_of("with x as (select 1) insert into t select * from x;"), Shape::Other);
-        assert_eq!(shape_of("with x as (select 1) select * from x;"), Shape::Select);
-        assert_eq!(shape_of("with x as (select 1), select as (select 2) select * from x;"), Shape::Select);
+        assert_eq!(
+            shape_of("with x as (select 1) insert into t select * from x;"),
+            Shape::Other
+        );
+        assert_eq!(
+            shape_of("with x as (select 1) select * from x;"),
+            Shape::Select
+        );
+        assert_eq!(
+            shape_of("with x as (select 1), select as (select 2) select * from x;"),
+            Shape::Select
+        );
         assert_eq!(shape_of("(select 1) union (select 2);"), Shape::Select);
         assert_eq!(shape_of("EXPLAIN select 1;"), Shape::Sequential);
         assert_eq!(shape_of("update t set a = 1 returning a;"), Shape::Other);
@@ -1644,8 +2142,24 @@ mod tests {
         assert_eq!(
             kinds,
             vec![
-                "connect", "sql", "sql", "sleep_until_blocked", "sql", "probe:locks", "sql", "sql", "sql", "env:mark", "settle", "storm",
-                "pressure", "env:expect-crash", "sql", "copy_in", "env:psql", "env:manual"
+                "connect",
+                "sql",
+                "sql",
+                "sleep_until_blocked",
+                "sql",
+                "probe:locks",
+                "sql",
+                "sql",
+                "sql",
+                "env:mark",
+                "settle",
+                "storm",
+                "pressure",
+                "env:expect-crash",
+                "sql",
+                "copy_in",
+                "env:psql",
+                "env:manual"
             ]
         );
         assert_eq!(st[0].sql.as_deref(), Some("db=d1 user=u1"));
@@ -1673,12 +2187,18 @@ mod tests {
 
     #[test]
     fn expect_c_attachment() {
-        let text = format!("{}select 1;\nselect 2;\n", HDR).replace("-- ordered: none\n", "-- ordered: total\n-- expect_c: E:22012:division by zero\n");
+        let text = format!("{}select 1;\nselect 2;\n", HDR).replace(
+            "-- ordered: none\n",
+            "-- ordered: total\n-- expect_c: E:22012:division by zero\n",
+        );
         let r = Recipe::parse(&text).unwrap();
         let st = r.steps();
         assert_eq!(st[0].expect_c, None);
         assert_eq!(st[1].expect_c.as_deref(), Some("E:22012:division by zero"));
-        let text2 = format!("{}-- @expect E:22012:division by zero\nselect 1/0;\nselect 2;\n", HDR);
+        let text2 = format!(
+            "{}-- @expect E:22012:division by zero\nselect 1/0;\nselect 2;\n",
+            HDR
+        );
         let st = Recipe::parse(&text2).unwrap().steps();
         assert_eq!(st[0].expect_c.as_deref(), Some("E:22012:division by zero"));
         assert_eq!(st[1].expect_c, None);
@@ -1686,7 +2206,10 @@ mod tests {
 
     #[test]
     fn step_record_emission() {
-        let text = format!("{}begin;\nselect a from t order by a;\ncommit;\n", HDR).replace("-- targets: -\n", "-- targets: ereport:src/x.c:1, ereport:src/x.c:2\n-- slots: n:int4\n");
+        let text = format!("{}begin;\nselect a from t order by a;\ncommit;\n", HDR).replace(
+            "-- targets: -\n",
+            "-- targets: ereport:src/x.c:1, ereport:src/x.c:2\n-- slots: n:int4\n",
+        );
         let r = Recipe::parse(&text).unwrap();
         let recs = r.to_steps("scn", 10);
         assert_eq!(recs.len(), 3);
@@ -1699,13 +2222,20 @@ mod tests {
         assert_eq!(recs[1].recipe.as_deref(), Some("t/x/y"));
         assert_eq!(recs[1].role, "superuser");
         assert_eq!(recs[1].session, "s1");
-        assert_eq!(recs[1].targets, vec!["ereport:src/x.c:1".to_string(), "ereport:src/x.c:2".to_string()]);
+        assert_eq!(
+            recs[1].targets,
+            vec![
+                "ereport:src/x.c:1".to_string(),
+                "ereport:src/x.c:2".to_string()
+            ]
+        );
         assert_eq!(recs[1].slots.get("n").map(String::as_str), Some(""));
         // JSONL round trip through the contract
         let back = StepRecord::from_jsonl(&recs[1].to_jsonl()).unwrap();
         assert_eq!(back, recs[1]);
         // extended protocol → xproto steps
-        let r2 = Recipe::parse(&text.replace("-- protocol: simple", "-- protocol: extended")).unwrap();
+        let r2 =
+            Recipe::parse(&text.replace("-- protocol: simple", "-- protocol: extended")).unwrap();
         let recs2 = r2.to_steps("scn", 0);
         assert_eq!(recs2[1].kind, StepKind::Xproto);
         assert_eq!(recs2[1].xproto.as_ref().unwrap().mode, "parse_bind_execute");
@@ -1727,7 +2257,10 @@ mod tests {
     }
 
     fn workspace_root() -> std::path::PathBuf {
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..").canonicalize().unwrap()
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../..")
+            .canonicalize()
+            .unwrap()
     }
 
     #[test]
@@ -1739,6 +2272,9 @@ mod tests {
         assert_eq!(r.statements().len(), 4);
         let st = r.steps();
         assert_eq!(st[2].sql.as_deref(), Some("analyze verbose :t;"));
-        assert_eq!(st[3].expect_c.as_deref(), Some("N:INFO:analyzing \"public.%s\""));
+        assert_eq!(
+            st[3].expect_c.as_deref(),
+            Some("N:INFO:analyzing \"public.%s\"")
+        );
     }
 }

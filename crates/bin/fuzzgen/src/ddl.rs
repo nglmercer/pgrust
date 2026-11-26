@@ -259,7 +259,10 @@ fn column_check(g: &mut Gen, name: &str, ty: SqlType) -> Option<String> {
     if !(ty.is_integer() || ty.is_text_family()) {
         return None;
     }
-    if g.weights.pick(g.rng, &["ddl:col:check", "ddl:col:check:none"]) != "ddl:col:check" {
+    if g.weights
+        .pick(g.rng, &["ddl:col:check", "ddl:col:check:none"])
+        != "ddl:col:check"
+    {
         return None;
     }
     g.fire("ddl:col:check");
@@ -283,15 +286,33 @@ fn gen_create_table(g: &mut Gen) -> StmtKind {
     g.fire("ddl:create_table");
     let name = format!("fz_ddl_{}", g.ddl.next_table);
     g.ddl.next_table += 1;
-    let temp = g.weights.pick(g.rng, &["ddl:table:temp", "ddl:table:plain"]) == "ddl:table:temp";
+    let temp = g
+        .weights
+        .pick(g.rng, &["ddl:table:temp", "ddl:table:plain"])
+        == "ddl:table:temp";
     if temp {
         g.fire("ddl:table:temp");
     }
 
     let mut columns = vec![
-        Column { name: "pk".to_string(), ty: SqlType::Int4, nullable: false, ddl_type: None },
-        Column { name: "k_int".to_string(), ty: SqlType::Int4, nullable: true, ddl_type: None },
-        Column { name: "k_text".to_string(), ty: SqlType::Text, nullable: true, ddl_type: None },
+        Column {
+            name: "pk".to_string(),
+            ty: SqlType::Int4,
+            nullable: false,
+            ddl_type: None,
+        },
+        Column {
+            name: "k_int".to_string(),
+            ty: SqlType::Int4,
+            nullable: true,
+            ddl_type: None,
+        },
+        Column {
+            name: "k_text".to_string(),
+            ty: SqlType::Text,
+            nullable: true,
+            ddl_type: None,
+        },
     ];
     let mut defs = vec![
         "pk int4 PRIMARY KEY".to_string(),
@@ -310,7 +331,8 @@ fn gen_create_table(g: &mut Gen) -> StmtKind {
         if not_null {
             def.push_str(" NOT NULL");
         }
-        if g.weights.pick(g.rng, &["ddl:col:default", "ddl:col:default:none"])
+        if g.weights
+            .pick(g.rng, &["ddl:col:default", "ddl:col:default:none"])
             == "ddl:col:default"
         {
             g.fire("ddl:col:default");
@@ -322,7 +344,12 @@ fn gen_create_table(g: &mut Gen) -> StmtKind {
             checked.push(cname.clone());
         }
         defs.push(def);
-        columns.push(Column { name: cname, ty, nullable: !not_null, ddl_type: None });
+        columns.push(Column {
+            name: cname,
+            ty,
+            nullable: !not_null,
+            ddl_type: None,
+        });
     }
     // Occasional table-level CHECK over the (protected, monotonic) pk:
     // always satisfied, exercises the multi-constraint path.
@@ -334,7 +361,10 @@ fn gen_create_table(g: &mut Gen) -> StmtKind {
         name: name.clone(),
         columns,
         at_most_one_row: false,
-        pk: Some(Pk { column: "pk".to_string(), seeded_max: 0 }),
+        pk: Some(Pk {
+            column: "pk".to_string(),
+            seeded_max: 0,
+        }),
         unique_key: Some("pk".to_string()),
         pk_unique: true,
     };
@@ -361,7 +391,11 @@ fn gen_create_table(g: &mut Gen) -> StmtKind {
         if temp { "TEMPORARY " } else { "" },
         name,
         defs.join(", "),
-        if temp { "" } else { " WITH (autovacuum_enabled = off)" }
+        if temp {
+            ""
+        } else {
+            " WITH (autovacuum_enabled = off)"
+        }
     ))
 }
 
@@ -404,7 +438,9 @@ fn gen_truncate(g: &mut Gen) -> StmtKind {
             names.push(g.ddl.tables[b].table.name.clone());
         }
     }
-    let restart = g.weights.pick(g.rng, &["ddl:truncate:restart", "ddl:truncate:plain"])
+    let restart = g
+        .weights
+        .pick(g.rng, &["ddl:truncate:restart", "ddl:truncate:plain"])
         == "ddl:truncate:restart";
     if restart {
         g.fire("ddl:truncate:restart");
@@ -491,21 +527,25 @@ fn alter_add_col(g: &mut Gen, ti: usize) -> StmtKind {
     let ty = palette_type(g);
     let form = g.weights.pick(
         g.rng,
-        &["ddl:addcol:plain", "ddl:addcol:default", "ddl:addcol:notnull_default"],
+        &[
+            "ddl:addcol:plain",
+            "ddl:addcol:default",
+            "ddl:addcol:notnull_default",
+        ],
     );
     g.fire(form);
     let (suffix, nullable) = match form {
         // NOT NULL without DEFAULT would 23502 on any populated table.
-        "ddl:addcol:notnull_default" => {
-            (format!(" DEFAULT {} NOT NULL", g.gen_literal(ty)), false)
-        }
+        "ddl:addcol:notnull_default" => (format!(" DEFAULT {} NOT NULL", g.gen_literal(ty)), false),
         "ddl:addcol:default" => (format!(" DEFAULT {}", g.gen_literal(ty)), true),
         _ => (String::new(), true),
     };
-    g.ddl.tables[ti]
-        .table
-        .columns
-        .push(Column { name: cname.clone(), ty, nullable, ddl_type: None });
+    g.ddl.tables[ti].table.columns.push(Column {
+        name: cname.clone(),
+        ty,
+        nullable,
+        ddl_type: None,
+    });
     StmtKind::Raw(format!(
         "ALTER TABLE {} ADD COLUMN {} {}{};",
         tname,
@@ -532,7 +572,10 @@ fn alter_drop_col(g: &mut Gen, ti: usize) -> StmtKind {
             x.live = false;
         }
     }
-    StmtKind::Raw(format!("ALTER TABLE {} DROP COLUMN {} CASCADE;", tname, cname))
+    StmtKind::Raw(format!(
+        "ALTER TABLE {} DROP COLUMN {} CASCADE;",
+        tname, cname
+    ))
 }
 
 fn alter_type(g: &mut Gen, ti: usize) -> StmtKind {
@@ -607,7 +650,10 @@ fn alter_set_not_null(g: &mut Gen, ti: usize) -> StmtKind {
     // Optimistic model update (see module docs): a rejected SET NOT NULL
     // (matched 23502 both sides) leaves the model conservative, never wrong.
     g.ddl.tables[ti].table.columns[ci].nullable = false;
-    StmtKind::Raw(format!("ALTER TABLE {} ALTER COLUMN {} SET NOT NULL;", tname, cname))
+    StmtKind::Raw(format!(
+        "ALTER TABLE {} ALTER COLUMN {} SET NOT NULL;",
+        tname, cname
+    ))
 }
 
 fn alter_drop_not_null(g: &mut Gen, ti: usize) -> StmtKind {
@@ -620,7 +666,10 @@ fn alter_drop_not_null(g: &mut Gen, ti: usize) -> StmtKind {
     let tname = g.ddl.tables[ti].table.name.clone();
     let cname = g.ddl.tables[ti].table.columns[ci].name.clone();
     g.ddl.tables[ti].table.columns[ci].nullable = true;
-    StmtKind::Raw(format!("ALTER TABLE {} ALTER COLUMN {} DROP NOT NULL;", tname, cname))
+    StmtKind::Raw(format!(
+        "ALTER TABLE {} ALTER COLUMN {} DROP NOT NULL;",
+        tname, cname
+    ))
 }
 
 fn alter_rename_col(g: &mut Gen, ti: usize) -> StmtKind {
@@ -649,7 +698,10 @@ fn alter_rename_col(g: &mut Gen, ti: usize) -> StmtKind {
             }
         }
     }
-    StmtKind::Raw(format!("ALTER TABLE {} RENAME COLUMN {} TO {};", tname, old, new))
+    StmtKind::Raw(format!(
+        "ALTER TABLE {} RENAME COLUMN {} TO {};",
+        tname, old, new
+    ))
 }
 
 fn alter_add_check(g: &mut Gen, ti: usize) -> StmtKind {
@@ -728,7 +780,11 @@ fn fk_actions(g: &mut Gen) -> String {
     };
     let upd = g.weights.pick(
         g.rng,
-        &["ddl:fk:upd:noaction", "ddl:fk:upd:restrict", "ddl:fk:upd:cascade"],
+        &[
+            "ddl:fk:upd:noaction",
+            "ddl:fk:upd:restrict",
+            "ddl:fk:upd:cascade",
+        ],
     );
     g.fire(upd);
     let upd_sql = match upd {
@@ -778,9 +834,7 @@ fn gen_foreign_key(g: &mut Gen) -> StmtKind {
             // scan (RI_Initial_Check) bite as a matched 23503 — that error
             // path is a target, not a hazard; NOT VALID skips it.
             let actions = fk_actions(g);
-            let not_valid = if g
-                .weights
-                .pick(g.rng, &["ddl:fk:notvalid", "ddl:fk:valid"])
+            let not_valid = if g.weights.pick(g.rng, &["ddl:fk:notvalid", "ddl:fk:valid"])
                 == "ddl:fk:notvalid"
             {
                 g.fire("ddl:fk:notvalid");
@@ -801,7 +855,11 @@ fn gen_foreign_key(g: &mut Gen) -> StmtKind {
             // CREATE TABLE with a REFERENCES column: a fresh ddl-shaped
             // child (other modules will DML it via the effective catalog).
             let selfref = form == "ddl:fk:self";
-            g.fire(if selfref { "ddl:fk:self" } else { "ddl:fk:create_child" });
+            g.fire(if selfref {
+                "ddl:fk:self"
+            } else {
+                "ddl:fk:create_child"
+            });
             let name = format!("fz_ddl_{}", g.ddl.next_table);
             g.ddl.next_table += 1;
             let (parent, temp) = if selfref {
@@ -814,16 +872,39 @@ fn gen_foreign_key(g: &mut Gen) -> StmtKind {
             g.ddl.next_col += 1;
             let actions = fk_actions(g);
             let columns = vec![
-                Column { name: "pk".to_string(), ty: SqlType::Int4, nullable: false, ddl_type: None },
-                Column { name: "k_int".to_string(), ty: SqlType::Int4, nullable: true, ddl_type: None },
-                Column { name: "k_text".to_string(), ty: SqlType::Text, nullable: true, ddl_type: None },
-                Column { name: cname.clone(), ty: SqlType::Int4, nullable: true, ddl_type: None },
+                Column {
+                    name: "pk".to_string(),
+                    ty: SqlType::Int4,
+                    nullable: false,
+                    ddl_type: None,
+                },
+                Column {
+                    name: "k_int".to_string(),
+                    ty: SqlType::Int4,
+                    nullable: true,
+                    ddl_type: None,
+                },
+                Column {
+                    name: "k_text".to_string(),
+                    ty: SqlType::Text,
+                    nullable: true,
+                    ddl_type: None,
+                },
+                Column {
+                    name: cname.clone(),
+                    ty: SqlType::Int4,
+                    nullable: true,
+                    ddl_type: None,
+                },
             ];
             let table = Table {
                 name: name.clone(),
                 columns,
                 at_most_one_row: false,
-                pk: Some(Pk { column: "pk".to_string(), seeded_max: 0 }),
+                pk: Some(Pk {
+                    column: "pk".to_string(),
+                    seeded_max: 0,
+                }),
                 unique_key: Some("pk".to_string()),
                 pk_unique: true,
             };
@@ -849,7 +930,11 @@ fn gen_foreign_key(g: &mut Gen) -> StmtKind {
                 cname,
                 parent,
                 actions,
-                if temp { "" } else { " WITH (autovacuum_enabled = off)" }
+                if temp {
+                    ""
+                } else {
+                    " WITH (autovacuum_enabled = off)"
+                }
             ))
         }
     }
@@ -989,8 +1074,7 @@ fn gen_create_index(g: &mut Gen) -> StmtKind {
             // suitable column on the picked table).
             g.fire("ddl:idx:btree");
             unique = is_live_ddl_table(g, &tname)
-                && g.weights.pick(g.rng, &["ddl:idx:unique", "ddl:idx:plain"])
-                    == "ddl:idx:unique";
+                && g.weights.pick(g.rng, &["ddl:idx:unique", "ddl:idx:plain"]) == "ddl:idx:unique";
             if unique {
                 g.fire("ddl:idx:unique");
                 // Leading pk keeps creation infallible over existing rows.
@@ -1004,9 +1088,7 @@ fn gen_create_index(g: &mut Gen) -> StmtKind {
                     }
                 }
                 ("", ks.join(", "))
-            } else if g.weights.pick(g.rng, &["ddl:idx:expr", "ddl:idx:cols"])
-                == "ddl:idx:expr"
-            {
+            } else if g.weights.pick(g.rng, &["ddl:idx:expr", "ddl:idx:cols"]) == "ddl:idx:expr" {
                 g.fire("ddl:idx:expr");
                 // Immutable expression key: `% 97` cannot overflow, lower()
                 // is immutable; anything else degrades to the plain column.
@@ -1042,10 +1124,16 @@ fn gen_create_index(g: &mut Gen) -> StmtKind {
         if unique { "UNIQUE " } else { "" },
         name,
         tname,
-        if using.is_empty() { String::new() } else { format!(" USING {}", using) },
+        if using.is_empty() {
+            String::new()
+        } else {
+            format!(" USING {}", using)
+        },
         keys
     );
-    if g.weights.pick(g.rng, &["ddl:idx:partial", "ddl:idx:partial:none"]) == "ddl:idx:partial"
+    if g.weights
+        .pick(g.rng, &["ddl:idx:partial", "ddl:idx:partial:none"])
+        == "ddl:idx:partial"
     {
         g.fire("ddl:idx:partial");
         let (pred, pcols) = partial_pred(g, &cols);
@@ -1057,7 +1145,12 @@ fn gen_create_index(g: &mut Gen) -> StmtKind {
         }
     }
     sql.push(';');
-    g.ddl.indexes.push(DdlIndex { name, table: tname, cols: used, live: true });
+    g.ddl.indexes.push(DdlIndex {
+        name,
+        table: tname,
+        cols: used,
+        live: true,
+    });
     StmtKind::Raw(sql)
 }
 
@@ -1090,7 +1183,9 @@ fn gen_reindex(g: &mut Gen) -> StmtKind {
     }
     let opt = if concurrent { "(CONCURRENTLY) " } else { "" };
     let live = g.ddl.live_indexes();
-    let form = g.weights.pick(g.rng, &["ddl:reindex:index", "ddl:reindex:table"]);
+    let form = g
+        .weights
+        .pick(g.rng, &["ddl:reindex:index", "ddl:reindex:table"]);
     if form == "ddl:reindex:index" && !live.is_empty() {
         g.fire("ddl:reindex:index");
         let xi = live[g.rng.below_usize(live.len())];
@@ -1123,7 +1218,9 @@ fn gen_view_group(g: &mut Gen) -> Vec<StmtKind> {
     let body = body.trim_end_matches(';');
     // Explicit output column list: generated select items are unnamed
     // expressions and would all deparse as "?column?" (42701 on CREATE).
-    let collist: Vec<String> = (1..=select.items.len()).map(|i| format!("v{}", i)).collect();
+    let collist: Vec<String> = (1..=select.items.len())
+        .map(|i| format!("v{}", i))
+        .collect();
     let query = match g.weights.pick(g.rng, &["ddl:view:star", "ddl:view:count"]) {
         "ddl:view:count" => {
             g.fire("ddl:view:count");
@@ -1167,12 +1264,15 @@ fn gen_sequence(g: &mut Gen) -> StmtKind {
             let opts = match g.rng.below(5) {
                 0 => "".to_string(),
                 1 => " INCREMENT BY 5 START WITH 100".to_string(),
-                2 => " INCREMENT BY -3 MINVALUE -500 MAXVALUE 500 START WITH 0 CYCLE"
-                    .to_string(),
+                2 => " INCREMENT BY -3 MINVALUE -500 MAXVALUE 500 START WITH 0 CYCLE".to_string(),
                 3 => format!(" MINVALUE 1 MAXVALUE {} CYCLE", 5 + g.rng.below(20)),
                 _ => format!(" CACHE {}", 1 + g.rng.below(10)),
             };
-            g.ddl.seqs.push(DdlSeq { name: name.clone(), live: true, has_nextval: false });
+            g.ddl.seqs.push(DdlSeq {
+                name: name.clone(),
+                live: true,
+                has_nextval: false,
+            });
             StmtKind::Raw(format!("CREATE SEQUENCE {}{};", name, opts))
         }
         "ddl:seq:drop" => {
@@ -1227,7 +1327,12 @@ fn gen_aggregate_group(g: &mut Gen) -> Vec<StmtKind> {
     g.ddl.next_agg += 1;
     let variant = g.weights.pick(
         g.rng,
-        &["ddl:agg:sum4", "ddl:agg:max4", "ddl:agg:min4", "ddl:agg:sum8"],
+        &[
+            "ddl:agg:sum4",
+            "ddl:agg:max4",
+            "ddl:agg:min4",
+            "ddl:agg:sum8",
+        ],
     );
     g.fire(variant);
     let (in_ty, sfunc, stype, initcond) = match variant {
@@ -1258,7 +1363,11 @@ fn gen_aggregate_group(g: &mut Gen) -> Vec<StmtKind> {
     let (tname, cname) = cands[g.rng.below_usize(cands.len())].clone();
     let use_stmt = format!("SELECT {}(({})::{}) FROM {};", name, cname, in_ty, tname);
     let drop = format!("DROP AGGREGATE {}({});", name, in_ty);
-    vec![StmtKind::Raw(create), StmtKind::Raw(use_stmt), StmtKind::Raw(drop)]
+    vec![
+        StmtKind::Raw(create),
+        StmtKind::Raw(use_stmt),
+        StmtKind::Raw(drop),
+    ]
 }
 
 // ------------------------------------------------------------ triggers ----
@@ -1279,7 +1388,8 @@ fn gen_trigger_group(g: &mut Gen) -> Vec<StmtKind> {
         .filter(|&ti| !g.ddl.tables[ti].triggers.is_empty())
         .collect();
     if !with_triggers.is_empty()
-        && g.weights.pick(g.rng, &["ddl:trigger:create", "ddl:trigger:drop"])
+        && g.weights
+            .pick(g.rng, &["ddl:trigger:create", "ddl:trigger:drop"])
             == "ddl:trigger:drop"
     {
         g.fire("ddl:trigger:drop");
@@ -1315,7 +1425,11 @@ fn gen_trigger_group(g: &mut Gen) -> Vec<StmtKind> {
     if timing == "ddl:trigger:transition" {
         let event = g.weights.pick(
             g.rng,
-            &["ddl:trigger:insert", "ddl:trigger:update", "ddl:trigger:delete"],
+            &[
+                "ddl:trigger:insert",
+                "ddl:trigger:update",
+                "ddl:trigger:delete",
+            ],
         );
         g.fire(event);
         let (event_sql, refclause, reltab) = match event {
@@ -1346,7 +1460,11 @@ fn gen_trigger_group(g: &mut Gen) -> Vec<StmtKind> {
     if timing == "ddl:trigger:constraint" {
         let event = g.weights.pick(
             g.rng,
-            &["ddl:trigger:insert", "ddl:trigger:update", "ddl:trigger:delete"],
+            &[
+                "ddl:trigger:insert",
+                "ddl:trigger:update",
+                "ddl:trigger:delete",
+            ],
         );
         g.fire(event);
         let event_sql = match event {
@@ -1392,7 +1510,10 @@ fn gen_trigger_group(g: &mut Gen) -> Vec<StmtKind> {
             // suppression by pk arithmetic (pk is protected + monotonic, so
             // the suppressed set is deterministic and probe-visible).
             let body: String = if is_delete {
-                match g.weights.pick(g.rng, &["ddl:tgbody:ret", "ddl:tgbody:suppress"]) {
+                match g
+                    .weights
+                    .pick(g.rng, &["ddl:tgbody:ret", "ddl:tgbody:suppress"])
+                {
                     "ddl:tgbody:suppress" => {
                         g.fire("ddl:tgbody:suppress");
                         "BEGIN IF OLD.pk % 7 = 0 THEN RETURN NULL; END IF; RETURN OLD; END;"
@@ -1461,7 +1582,11 @@ fn gen_trigger_group(g: &mut Gen) -> Vec<StmtKind> {
         "CREATE FUNCTION {}() RETURNS trigger LANGUAGE plpgsql AS $fzt$ {} $fzt$;",
         fn_name, body
     );
-    let for_each = if row { "FOR EACH ROW" } else { "FOR EACH STATEMENT" };
+    let for_each = if row {
+        "FOR EACH ROW"
+    } else {
+        "FOR EACH STATEMENT"
+    };
     let create_tg = format!(
         "CREATE TRIGGER {} {} {} ON {} {}{} EXECUTE FUNCTION {}{};",
         tg_name, timing_kw, event_sql, tname, for_each, when, fn_name, args
@@ -1476,7 +1601,9 @@ impl Table {
     /// eligibility) hold.
     #[cfg(test)]
     pub(crate) fn table_is_ddl_shape(&self) -> bool {
-        self.pk.as_ref().is_some_and(|p| p.column == "pk" && p.seeded_max == 0)
+        self.pk
+            .as_ref()
+            .is_some_and(|p| p.column == "pk" && p.seeded_max == 0)
             && !self.at_most_one_row
             && self.unique_key.as_deref() == Some("pk")
             && ["pk", "k_int", "k_text"]
@@ -1619,9 +1746,19 @@ mod tests {
             })
         };
         for sql in &sqls {
-            for t in ["fz_scalar", "fz_mixed", "fz_wide", "fz_empty", "fz_rich", "fz_one"] {
+            for t in [
+                "fz_scalar",
+                "fz_mixed",
+                "fz_wide",
+                "fz_empty",
+                "fz_rich",
+                "fz_one",
+            ] {
                 assert!(!sql.starts_with(&format!("DROP TABLE {t}")), "{sql}");
-                assert!(!sql.starts_with(&format!("DROP TABLE IF EXISTS {t}")), "{sql}");
+                assert!(
+                    !sql.starts_with(&format!("DROP TABLE IF EXISTS {t}")),
+                    "{sql}"
+                );
                 assert!(!sql.starts_with(&format!("ALTER TABLE {t}")), "{sql}");
                 assert!(!sql.contains(&format!("TRUNCATE TABLE {t}")), "{sql}");
             }
@@ -1665,8 +1802,15 @@ mod tests {
                 let tname = tname.unwrap().to_string();
                 assert!(
                     live_tables.contains(&tname)
-                        || ["fz_scalar", "fz_mixed", "fz_wide", "fz_empty", "fz_rich", "fz_one"]
-                            .contains(&tname.as_str()),
+                        || [
+                            "fz_scalar",
+                            "fz_mixed",
+                            "fz_wide",
+                            "fz_empty",
+                            "fz_rich",
+                            "fz_one"
+                        ]
+                        .contains(&tname.as_str()),
                     "index on dead table: {sql}"
                 );
                 live_indexes.push(name);
@@ -1675,14 +1819,20 @@ mod tests {
                 .or_else(|| sql.strip_prefix("DROP INDEX "))
             {
                 let name = rest.trim_end_matches(';').to_string();
-                assert!(live_indexes.contains(&name), "drop of non-live index: {sql}");
+                assert!(
+                    live_indexes.contains(&name),
+                    "drop of non-live index: {sql}"
+                );
                 live_indexes.retain(|x| x != &name);
             } else if let Some(rest) = sql
                 .strip_prefix("REINDEX (CONCURRENTLY) INDEX ")
                 .or_else(|| sql.strip_prefix("REINDEX INDEX "))
             {
                 let name = rest.trim_end_matches(';').to_string();
-                assert!(live_indexes.contains(&name), "reindex of non-live index: {sql}");
+                assert!(
+                    live_indexes.contains(&name),
+                    "reindex of non-live index: {sql}"
+                );
             } else if let Some(rest) = sql
                 .strip_prefix("REINDEX (CONCURRENTLY) TABLE ")
                 .or_else(|| sql.strip_prefix("REINDEX TABLE "))
@@ -1690,8 +1840,15 @@ mod tests {
                 let name = rest.trim_end_matches(';').to_string();
                 assert!(
                     live_tables.contains(&name)
-                        || ["fz_scalar", "fz_mixed", "fz_wide", "fz_empty", "fz_rich", "fz_one"]
-                            .contains(&name.as_str()),
+                        || [
+                            "fz_scalar",
+                            "fz_mixed",
+                            "fz_wide",
+                            "fz_empty",
+                            "fz_rich",
+                            "fz_one"
+                        ]
+                        .contains(&name.as_str()),
                     "reindex of non-live table: {sql}"
                 );
             } else if let Some(rest) = sql.strip_prefix("CREATE SEQUENCE ") {
@@ -1701,9 +1858,15 @@ mod tests {
                 .or_else(|| sql.strip_prefix("DROP SEQUENCE "))
             {
                 let name = rest.trim_end_matches(';').to_string();
-                assert!(live_seqs.contains(&name), "drop of non-live sequence: {sql}");
+                assert!(
+                    live_seqs.contains(&name),
+                    "drop of non-live sequence: {sql}"
+                );
                 live_seqs.retain(|s| s != &name);
-            } else if sql.contains("nextval('") || sql.contains("currval('") || sql.contains("setval('") {
+            } else if sql.contains("nextval('")
+                || sql.contains("currval('")
+                || sql.contains("setval('")
+            {
                 let name = sql.split('\'').nth(1).unwrap().to_string();
                 assert!(live_seqs.contains(&name), "use of non-live sequence: {sql}");
             }
@@ -1754,7 +1917,10 @@ mod tests {
                 assert_eq!(open_agg.take().as_deref(), Some(name), "{sql}");
             }
         }
-        assert!(open_view.is_none() && open_agg.is_none(), "unclosed group at end");
+        assert!(
+            open_view.is_none() && open_agg.is_none(),
+            "unclosed group at end"
+        );
         assert!(sqls.iter().any(|s| s.starts_with("CREATE VIEW ")));
         assert!(sqls.iter().any(|s| s.starts_with("CREATE AGGREGATE ")));
     }
@@ -1771,8 +1937,14 @@ mod tests {
             if let Some(rest) = sql.strip_prefix("CREATE UNIQUE INDEX ") {
                 saw = true;
                 let keys = rest.split(" (").nth(1).unwrap();
-                assert!(keys.starts_with("pk"), "unique index without leading pk: {sql}");
-                assert!(sql.contains(" ON fz_ddl_"), "unique index off a ddl table: {sql}");
+                assert!(
+                    keys.starts_with("pk"),
+                    "unique index without leading pk: {sql}"
+                );
+                assert!(
+                    sql.contains(" ON fz_ddl_"),
+                    "unique index off a ddl table: {sql}"
+                );
             }
         }
         assert!(saw, "no unique index generated under heavy bias");
@@ -1797,8 +1969,7 @@ mod tests {
         let mut saw_alter_add = false;
         // Which tables were ever named as an FK parent, replayed textually.
         let mut parents: Vec<String> = Vec::new();
-        let mut temp_of: std::collections::HashMap<String, bool> =
-            std::collections::HashMap::new();
+        let mut temp_of: std::collections::HashMap<String, bool> = std::collections::HashMap::new();
         for sql in &sqls {
             if let Some(rest) = sql
                 .strip_prefix("CREATE TABLE ")
@@ -1819,7 +1990,10 @@ mod tests {
                     "FK not over pk: {sql}"
                 );
                 // Actions always fully spelled.
-                assert!(sql.contains(" ON DELETE ") && sql.contains(" ON UPDATE "), "{sql}");
+                assert!(
+                    sql.contains(" ON DELETE ") && sql.contains(" ON UPDATE "),
+                    "{sql}"
+                );
                 if sql.starts_with("ALTER TABLE ") {
                     saw_alter_add = true;
                     assert!(sql.contains(" ADD FOREIGN KEY (k_int) "), "{sql}");
@@ -1928,7 +2102,11 @@ mod tests {
                 // reads the relation the REFERENCING clause names.
                 if next.contains("REFERENCING") {
                     assert!(next.contains("FOR EACH STATEMENT"), "{next}");
-                    let reltab = if next.contains("NEW TABLE AS fz_nt") { "fz_nt" } else { "fz_ot" };
+                    let reltab = if next.contains("NEW TABLE AS fz_nt") {
+                        "fz_nt"
+                    } else {
+                        "fz_ot"
+                    };
                     assert!(sql.contains(&format!("FROM {reltab}")), "{sql}");
                 }
                 // Constraint triggers are row-level and deferred.
@@ -1938,7 +2116,10 @@ mod tests {
                 }
                 // TG_ARGV bodies always come with trigger arguments.
                 if sql.contains("TG_ARGV") {
-                    assert!(!next.ends_with("()) ;") && !next.contains("FUNCTION fz_tgf_() "), "{next}");
+                    assert!(
+                        !next.ends_with("()) ;") && !next.contains("FUNCTION fz_tgf_() "),
+                        "{next}"
+                    );
                     let tail = next.rsplit("EXECUTE FUNCTION ").next().unwrap();
                     assert!(tail.contains("('t"), "TG_ARGV body without args: {next}");
                 }

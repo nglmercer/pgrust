@@ -16,7 +16,9 @@ use types_storage::waiteventset::{
 
 pub mod conninfo;
 mod errmsg;
-pub use conninfo::{lookup_option, opt, parse_conninfo, resolve_conninfo, ConnOption, CONNINFO_OPTIONS};
+pub use conninfo::{
+    lookup_option, opt, parse_conninfo, resolve_conninfo, ConnOption, CONNINFO_OPTIONS,
+};
 
 mod auth;
 #[cfg(test)]
@@ -256,12 +258,19 @@ pub(crate) fn cstr_at(b: &[u8], pos: usize) -> (String, usize) {
     // without a NUL hands us pos == b.len() + 1; clamp instead of slicing
     // out of range.
     let pos = pos.min(b.len());
-    let end = b[pos..].iter().position(|&c| c == 0).map(|e| pos + e).unwrap_or(b.len());
+    let end = b[pos..]
+        .iter()
+        .position(|&c| c == 0)
+        .map(|e| pos + e)
+        .unwrap_or(b.len());
     (String::from_utf8_lossy(&b[pos..end]).into_owned(), end + 1)
 }
 
 pub(crate) fn parse_diag(body: &[u8]) -> ErrorFields {
-    let mut f = ErrorFields { severity: "ERROR".into(), ..Default::default() };
+    let mut f = ErrorFields {
+        severity: "ERROR".into(),
+        ..Default::default()
+    };
     let mut i = 0;
     while i < body.len() && body[i] != 0 {
         let code = body[i];
@@ -337,7 +346,9 @@ pub fn os_user_name() -> String {
     unsafe {
         let pw = libc::getpwuid(libc::geteuid());
         if !pw.is_null() && !(*pw).pw_name.is_null() {
-            return std::ffi::CStr::from_ptr((*pw).pw_name).to_string_lossy().into_owned();
+            return std::ffi::CStr::from_ptr((*pw).pw_name)
+                .to_string_lossy()
+                .into_owned();
         }
     }
     std::env::var("USER").unwrap_or_default()
@@ -418,10 +429,18 @@ fn check_requirepeer(sock: RawFd, want: &str) -> Result<(), String> {
     let mut result: *mut libc::passwd = std::ptr::null_mut();
     // SAFETY: getpwuid_r fills `pw` and strings into `buf` of the given size.
     let rc = unsafe {
-        libc::getpwuid_r(uid, &mut pw, buf.as_mut_ptr().cast(), buf.len(), &mut result)
+        libc::getpwuid_r(
+            uid,
+            &mut pw,
+            buf.as_mut_ptr().cast(),
+            buf.len(),
+            &mut result,
+        )
     };
     if rc != 0 || result.is_null() {
-        return Err(format!("could not look up local user ID {uid}: user does not exist"));
+        return Err(format!(
+            "could not look up local user ID {uid}: user does not exist"
+        ));
     }
     // SAFETY: pw_name points into `buf`, NUL-terminated by getpwuid_r.
     let name = unsafe { std::ffi::CStr::from_ptr(pw.pw_name) }.to_string_lossy();
@@ -453,13 +472,19 @@ fn unix_stream_connect(path: &str) -> Result<std::os::unix::net::UnixStream, Str
             None => e.to_string(),
         });
     }
-    let hint = ip::AddrInfoHint { flags: 0, family: libc::AF_UNIX, socktype: libc::SOCK_STREAM };
+    let hint = ip::AddrInfoHint {
+        flags: 0,
+        family: libc::AF_UNIX,
+        socktype: libc::SOCK_STREAM,
+    };
     let mut addrs = Vec::new();
     let rc = ip::pg_getaddrinfo_all(None, Some(path), &hint, &mut addrs);
     let Some(ai) = addrs.first().filter(|_| rc == 0) else {
         // SAFETY: gai_strerror returns a static NUL-terminated string.
         let why = unsafe { std::ffi::CStr::from_ptr(ip::sys::gai_strerror(rc)) }.to_string_lossy();
-        return Err(format!("could not translate Unix-domain socket path \"{path}\" to address: {why}"));
+        return Err(format!(
+            "could not translate Unix-domain socket path \"{path}\" to address: {why}"
+        ));
     };
     // SAFETY: socket syscalls on a descriptor this function owns until it is
     // wrapped or closed.
@@ -468,7 +493,12 @@ fn unix_stream_connect(path: &str) -> Result<std::os::unix::net::UnixStream, Str
         if fd < 0 {
             return Err(strerror(last_errno()));
         }
-        if libc::connect(fd, ai.addr.addr.as_ptr().cast::<libc::sockaddr>(), ai.addr.salen as libc::socklen_t) < 0 {
+        if libc::connect(
+            fd,
+            ai.addr.addr.as_ptr().cast::<libc::sockaddr>(),
+            ai.addr.salen as libc::socklen_t,
+        ) < 0
+        {
             let e = last_errno();
             libc::close(fd);
             return Err(connect_failure_message(e, true));
@@ -485,7 +515,9 @@ fn unix_connect(path: &str) -> Result<(Stream, RawFd), String> {
             let fd = s.as_raw_fd();
             Ok((Stream::Unix(s), fd))
         }
-        Err(e) => Err(format!("connection to server on socket \"{path}\" failed: {e}")),
+        Err(e) => Err(format!(
+            "connection to server on socket \"{path}\" failed: {e}"
+        )),
     }
 }
 
@@ -493,7 +525,9 @@ fn unix_connect(path: &str) -> Result<(Stream, RawFd), String> {
 fn strerror(errno: i32) -> String {
     // SAFETY: strerror returns a NUL-terminated string valid until the next
     // call on this thread; it is copied out at once.
-    unsafe { std::ffi::CStr::from_ptr(libc::strerror(errno)) }.to_string_lossy().into_owned()
+    unsafe { std::ffi::CStr::from_ptr(libc::strerror(errno)) }
+        .to_string_lossy()
+        .into_owned()
 }
 
 #[cfg(target_family = "wasm")]
@@ -519,12 +553,14 @@ fn host_addr_text(addr: &ip::SockAddr) -> String {
         libc::AF_INET => {
             // SAFETY: the buffer is sockaddr_storage-sized; a family of AF_INET
             // means it holds a sockaddr_in.
-            let sin: libc::sockaddr_in = unsafe { std::ptr::read_unaligned(addr.addr.as_ptr().cast()) };
+            let sin: libc::sockaddr_in =
+                unsafe { std::ptr::read_unaligned(addr.addr.as_ptr().cast()) };
             std::net::Ipv4Addr::from(u32::from_be(sin.sin_addr.s_addr)).to_string()
         }
         libc::AF_INET6 => {
             // SAFETY: as above, for sockaddr_in6.
-            let sin6: libc::sockaddr_in6 = unsafe { std::ptr::read_unaligned(addr.addr.as_ptr().cast()) };
+            let sin6: libc::sockaddr_in6 =
+                unsafe { std::ptr::read_unaligned(addr.addr.as_ptr().cast()) };
             pg_inet6_ntop(&sin6.sin6_addr.s6_addr)
         }
         _ => String::new(),
@@ -614,7 +650,11 @@ fn tcp_dial(
 ) -> PgResult<Result<(Stream, RawFd, DialTarget), String>> {
     use std::os::fd::FromRawFd;
     let numeric = !ch.hostaddr.is_empty();
-    let name = if numeric { ch.hostaddr.as_str() } else { ch.host.as_str() };
+    let name = if numeric {
+        ch.hostaddr.as_str()
+    } else {
+        ch.host.as_str()
+    };
     let hint = ip::AddrInfoHint {
         flags: if numeric { ip::sys::AI_NUMERICHOST } else { 0 },
         family: ip::sys::AF_UNSPEC,
@@ -648,7 +688,11 @@ fn tcp_dial(
                 // SAFETY: a connected socket this function owns.
                 let s = unsafe { std::net::TcpStream::from_raw_fd(fd) };
                 let _ = s.set_nodelay(true);
-                return Ok(Ok((Stream::Tcp(s), fd, DialTarget::Tcp(name.to_string(), port))));
+                return Ok(Ok((
+                    Stream::Tcp(s),
+                    fd,
+                    DialTarget::Tcp(name.to_string(), port),
+                )));
             }
             Err(e) => append_conn_error(&mut errs, &format!("{identity}{e}")),
         }
@@ -663,7 +707,11 @@ fn wait_writable(fd: RawFd, wait_event: u32) -> PgResult<()> {
     if init_small::globals::MyLatch().is_some() {
         return wait_socket(fd, WL_SOCKET_WRITEABLE, wait_event);
     }
-    let mut pfd = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
+    let mut pfd = libc::pollfd {
+        fd,
+        events: libc::POLLOUT,
+        revents: 0,
+    };
     // SAFETY: pfd is a valid pollfd for the duration of the call.
     while unsafe { libc::poll(&mut pfd, 1, -1) } < 0 && last_errno() == libc::EINTR {}
     Ok(())
@@ -676,18 +724,27 @@ fn tcp_connect_addr(ai: &ip::PgAddrInfo, wait_event: u32) -> PgResult<Result<Raw
     unsafe {
         let fd = libc::socket(ai.family, libc::SOCK_STREAM, ai.protocol);
         if fd < 0 {
-            return Ok(Err(format!("could not create socket: {}", strerror(last_errno()))));
+            return Ok(Err(format!(
+                "could not create socket: {}",
+                strerror(last_errno())
+            )));
         }
         let flags = libc::fcntl(fd, libc::F_GETFL);
         if flags < 0 || libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) < 0 {
             let e = last_errno();
             libc::close(fd);
-            return Ok(Err(format!("could not set socket to nonblocking mode: {}", strerror(e))));
+            return Ok(Err(format!(
+                "could not set socket to nonblocking mode: {}",
+                strerror(e)
+            )));
         }
         if libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) < 0 {
             let e = last_errno();
             libc::close(fd);
-            return Ok(Err(format!("could not set socket to close-on-exec mode: {}", strerror(e))));
+            return Ok(Err(format!(
+                "could not set socket to close-on-exec mode: {}",
+                strerror(e)
+            )));
         }
         let rc = libc::connect(
             fd,
@@ -716,7 +773,10 @@ fn tcp_connect_addr(ai: &ip::PgAddrInfo, wait_event: u32) -> PgResult<Result<Raw
             {
                 let e = last_errno();
                 libc::close(fd);
-                return Ok(Err(format!("could not get socket error status: {}", strerror(e))));
+                return Ok(Err(format!(
+                    "could not get socket error status: {}",
+                    strerror(e)
+                )));
             }
             if optval != 0 {
                 libc::close(fd);
@@ -765,7 +825,10 @@ fn parse_server_version(value: &str) -> i32 {
             Some(r) => (true, r),
             None => (false, t.strip_prefix('+').unwrap_or(t)),
         };
-        let end = digits.bytes().position(|b| !b.is_ascii_digit()).unwrap_or(digits.len());
+        let end = digits
+            .bytes()
+            .position(|b| !b.is_ascii_digit())
+            .unwrap_or(digits.len());
         if end == 0 {
             break;
         }
@@ -794,7 +857,10 @@ fn parse_int_param(value: &str, context: &str) -> Result<i32, String> {
         Some(r) => (true, r),
         None => (false, t.strip_prefix('+').unwrap_or(t)),
     };
-    let end = digits.bytes().position(|b| !b.is_ascii_digit()).unwrap_or(digits.len());
+    let end = digits
+        .bytes()
+        .position(|b| !b.is_ascii_digit())
+        .unwrap_or(digits.len());
     if end == 0 || !digits[end..].trim_start_matches(sp).is_empty() {
         return Err(err());
     }
@@ -868,22 +934,52 @@ fn setup_tcp_socket(fd: RawFd, opts: &[(String, String)]) -> Result<(), String> 
         setopt(fd, libc::SOL_SOCKET, libc::SO_KEEPALIVE, "SO_KEEPALIVE", 1)?;
         if let Some(idle) = int_opt("keepalives_idle")? {
             #[cfg(target_os = "linux")]
-            setopt(fd, libc::IPPROTO_TCP, libc::TCP_KEEPIDLE, "TCP_KEEPIDLE", idle)?;
+            setopt(
+                fd,
+                libc::IPPROTO_TCP,
+                libc::TCP_KEEPIDLE,
+                "TCP_KEEPIDLE",
+                idle,
+            )?;
             #[cfg(target_os = "macos")]
-            setopt(fd, libc::IPPROTO_TCP, libc::TCP_KEEPALIVE, "TCP_KEEPALIVE", idle)?;
+            setopt(
+                fd,
+                libc::IPPROTO_TCP,
+                libc::TCP_KEEPALIVE,
+                "TCP_KEEPALIVE",
+                idle,
+            )?;
         }
         if let Some(interval) = int_opt("keepalives_interval")? {
             #[cfg(any(target_os = "linux", target_os = "macos"))]
-            setopt(fd, libc::IPPROTO_TCP, libc::TCP_KEEPINTVL, "TCP_KEEPINTVL", interval)?;
+            setopt(
+                fd,
+                libc::IPPROTO_TCP,
+                libc::TCP_KEEPINTVL,
+                "TCP_KEEPINTVL",
+                interval,
+            )?;
         }
         if let Some(count) = int_opt("keepalives_count")? {
             #[cfg(any(target_os = "linux", target_os = "macos"))]
-            setopt(fd, libc::IPPROTO_TCP, libc::TCP_KEEPCNT, "TCP_KEEPCNT", count)?;
+            setopt(
+                fd,
+                libc::IPPROTO_TCP,
+                libc::TCP_KEEPCNT,
+                "TCP_KEEPCNT",
+                count,
+            )?;
         }
     }
     if let Some(timeout) = int_opt("tcp_user_timeout")? {
         #[cfg(target_os = "linux")]
-        setopt(fd, libc::IPPROTO_TCP, libc::TCP_USER_TIMEOUT, "TCP_USER_TIMEOUT", timeout)?;
+        setopt(
+            fd,
+            libc::IPPROTO_TCP,
+            libc::TCP_USER_TIMEOUT,
+            "TCP_USER_TIMEOUT",
+            timeout,
+        )?;
         let _ = timeout;
     }
     Ok(())
@@ -946,7 +1042,11 @@ fn conn_hosts(opts: &[(String, String)]) -> Result<Vec<ConnHost>, String> {
         1
     };
     let mut hosts: Vec<ConnHost> = (0..n)
-        .map(|_| ConnHost { host: String::new(), hostaddr: String::new(), port: String::new() })
+        .map(|_| ConnHost {
+            host: String::new(),
+            hostaddr: String::new(),
+            port: String::new(),
+        })
         .collect();
     if !hostaddr.is_empty() {
         for (h, a) in hosts.iter_mut().zip(hostaddr.split(',')) {
@@ -973,7 +1073,11 @@ fn conn_hosts(opts: &[(String, String)]) -> Result<Vec<ConnHost>, String> {
                 h.port = port.to_string();
             }
         } else if ports.len() != n {
-            return Err(format!("could not match {} port numbers to {} hosts", ports.len(), n));
+            return Err(format!(
+                "could not match {} port numbers to {} hosts",
+                ports.len(),
+                n
+            ));
         } else {
             for (h, p) in hosts.iter_mut().zip(ports) {
                 h.port = p.to_string();
@@ -986,7 +1090,11 @@ fn conn_hosts(opts: &[(String, String)]) -> Result<Vec<ConnHost>, String> {
 // pqParseInput3 (fe-protocol3.c:220): a RowDescription makes the result
 // PGRES_TUPLES_OK whatever its column count (a zero-column SELECT included).
 fn tuples_status(saw_row_description: bool) -> ExecStatus {
-    if saw_row_description { ExecStatus::TuplesOk } else { ExecStatus::CommandOk }
+    if saw_row_description {
+        ExecStatus::TuplesOk
+    } else {
+        ExecStatus::CommandOk
+    }
 }
 
 // libpq_append_conn_error: every attempt's message stays in the buffer.
@@ -1038,7 +1146,11 @@ fn dial(
     #[cfg(target_family = "wasm")]
     {
         let _ = (wait_event, prng);
-        let target = if !ch.hostaddr.is_empty() { ch.hostaddr.clone() } else { host.to_string() };
+        let target = if !ch.hostaddr.is_empty() {
+            ch.hostaddr.clone()
+        } else {
+            host.to_string()
+        };
         match std::net::TcpStream::connect((target.as_str(), port)) {
             Ok(s) => {
                 use std::os::fd::AsRawFd;
@@ -1076,7 +1188,9 @@ fn cancel_addrs(
     }
     match (host, port).to_socket_addrs() {
         Ok(a) => Ok(a.collect()),
-        Err(e) => Err(format!("could not translate host name \"{host}\" to address: {e}")),
+        Err(e) => Err(format!(
+            "could not translate host name \"{host}\" to address: {e}"
+        )),
     }
 }
 
@@ -1097,9 +1211,7 @@ fn tcp_connect_addrs_deadline(
             Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
                 return Err("cancel request timed out".into())
             }
-            Err(e) => {
-                last = format!("connection to server at \"{host}\", port {port} failed: {e}")
-            }
+            Err(e) => last = format!("connection to server at \"{host}\", port {port} failed: {e}"),
         }
     }
     Err(last)
@@ -1117,7 +1229,9 @@ fn check_sslmode(opts: &[(String, String)]) -> Result<(), String> {
         None | Some("disable") | Some("allow") | Some("prefer") => Ok(()),
         Some(m @ ("require" | "verify-ca" | "verify-full")) => {
             if cfg!(target_family = "wasm") {
-                Err(format!("sslmode value \"{m}\" invalid when SSL support is not compiled in"))
+                Err(format!(
+                    "sslmode value \"{m}\" invalid when SSL support is not compiled in"
+                ))
             } else {
                 Ok(())
             }
@@ -1151,7 +1265,9 @@ fn check_sslrootcert(opts: &[(String, String)]) -> Result<(), String> {
         return Ok(());
     }
     if cfg!(target_family = "wasm") {
-        return Err("sslrootcert value \"system\" invalid when SSL support is not compiled in".into());
+        return Err(
+            "sslrootcert value \"system\" invalid when SSL support is not compiled in".into(),
+        );
     }
     match opt(opts, "sslmode") {
         None | Some("verify-full") => Ok(()),
@@ -1167,7 +1283,8 @@ fn check_sslnegotiation(opts: &[(String, String)]) -> Result<(), String> {
         Some("direct") => {
             if cfg!(target_family = "wasm") {
                 return Err(
-                    "sslnegotiation value \"direct\" invalid when SSL support is not compiled in".into(),
+                    "sslnegotiation value \"direct\" invalid when SSL support is not compiled in"
+                        .into(),
                 );
             }
             let m = opt(opts, "sslmode").unwrap_or("prefer");
@@ -1186,7 +1303,10 @@ fn check_sslnegotiation(opts: &[(String, String)]) -> Result<(), String> {
 // sslVerifyProtocolVersion / sslVerifyProtocolRange (fe-connect.c:7620): the
 // bounds are checked on their text, independently of any TLS implementation.
 fn ssl_protocol_version_ok(v: &str) -> bool {
-    v.is_empty() || ["TLSv1", "TLSv1.1", "TLSv1.2", "TLSv1.3"].iter().any(|k| k.eq_ignore_ascii_case(v))
+    v.is_empty()
+        || ["TLSv1", "TLSv1.1", "TLSv1.2", "TLSv1.3"]
+            .iter()
+            .any(|k| k.eq_ignore_ascii_case(v))
 }
 
 fn ssl_protocol_range_ok(min: &str, max: &str) -> bool {
@@ -1202,7 +1322,10 @@ fn ssl_protocol_range_ok(min: &str, max: &str) -> bool {
 fn check_ssl_protocol_versions(opts: &[(String, String)]) -> Result<(), String> {
     let min = opt(opts, "ssl_min_protocol_version").unwrap_or("");
     let max = opt(opts, "ssl_max_protocol_version").unwrap_or("");
-    for (name, v) in [("ssl_min_protocol_version", min), ("ssl_max_protocol_version", max)] {
+    for (name, v) in [
+        ("ssl_min_protocol_version", min),
+        ("ssl_max_protocol_version", max),
+    ] {
         if !ssl_protocol_version_ok(v) {
             return Err(format!("invalid \"{name}\" value: \"{v}\""));
         }
@@ -1218,7 +1341,10 @@ fn check_sslcertmode(opts: &[(String, String)]) -> Result<(), String> {
         None | Some("disable") | Some("allow") => Ok(()),
         Some("require") => {
             if cfg!(target_family = "wasm") {
-                Err("sslcertmode value \"require\" invalid when SSL support is not compiled in".into())
+                Err(
+                    "sslcertmode value \"require\" invalid when SSL support is not compiled in"
+                        .into(),
+                )
             } else {
                 Ok(())
             }
@@ -1422,7 +1548,11 @@ fn connect_unreserved(
         .iter()
         .find(|(k, _)| *k == "database")
         .map(|(_, v)| v.to_string())
-        .or_else(|| opt(&opts, "dbname").filter(|s| !s.is_empty()).map(|s| s.to_string()))
+        .or_else(|| {
+            opt(&opts, "dbname")
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+        })
         .unwrap_or_else(|| user.clone());
     // pqConnectOptions2 (fe-connect.c:1429): without a password the password
     // file path is resolved into the options (PQconninfo shows it).
@@ -1433,7 +1563,11 @@ fn connect_unreserved(
             opts.push(("passfile".to_string(), f));
         }
     }
-    let passfile = if explicit_password.is_none() { conninfo::passfile_path(&opts) } else { None };
+    let passfile = if explicit_password.is_none() {
+        conninfo::passfile_path(&opts)
+    } else {
+        None
+    };
 
     // PQconnectPoll's host walk: a failed attempt appends its message and
     // the next host is tried; a server error other than "cannot connect
@@ -1452,7 +1586,11 @@ fn connect_unreserved(
             let password = match &explicit_password {
                 Some(p) => Some(p.clone()),
                 None => passfile.as_deref().and_then(|f| {
-                    let pwhost = if ch.host.is_empty() { &ch.hostaddr } else { &ch.host };
+                    let pwhost = if ch.host.is_empty() {
+                        &ch.hostaddr
+                    } else {
+                        &ch.host
+                    };
                     let p = conninfo::password_from_file(pwhost, &ch.port, &pw_dbname, &user, f)?;
                     from_file = Some(f);
                     Some(p)
@@ -1496,9 +1634,10 @@ fn connect_unreserved(
                         // host NAME whose looked-up address differs textually
                         // displays "name" (addr) (emitHostIdentityInfo's strcmp arm).
                         let peer_ip = match &stream {
-                            Stream::Tcp(s) => {
-                                s.peer_addr().map(|a| a.ip().to_string()).unwrap_or_default()
-                            }
+                            Stream::Tcp(s) => s
+                                .peer_addr()
+                                .map(|a| a.ip().to_string())
+                                .unwrap_or_default(),
                             #[cfg(not(target_family = "wasm"))]
                             Stream::Unix(_) => String::new(),
                         };
@@ -1681,11 +1820,16 @@ fn db_startup_params(
     encoding: Option<&str>,
 ) -> Vec<(&'static str, String)> {
     let user = resolve_user(opts);
-    let dbname = opt(opts, "dbname").filter(|s| !s.is_empty()).unwrap_or(&user).to_string();
+    let dbname = opt(opts, "dbname")
+        .filter(|s| !s.is_empty())
+        .unwrap_or(&user)
+        .to_string();
     let appname = opt(opts, "application_name")
         .or_else(|| opt(opts, "fallback_application_name"))
         .unwrap_or("");
-    let enc = encoding.or_else(|| opt(opts, "client_encoding")).unwrap_or("");
+    let enc = encoding
+        .or_else(|| opt(opts, "client_encoding"))
+        .unwrap_or("");
     let mut params = vec![("user", user.clone()), ("database", dbname)];
     for (k, v) in [
         ("replication", opt(opts, "replication").unwrap_or("")),
@@ -1760,7 +1904,10 @@ impl PgConn {
 
     /// PQparameterStatus.
     pub fn parameter_status(&self, name: &str) -> Option<&str> {
-        self.params.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
+        self.params
+            .iter()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.as_str())
     }
 
     /// PQclientEncoding, as the encoding NAME the server last reported.
@@ -1790,7 +1937,11 @@ impl PgConn {
             }
             out.push_str(o.keyword);
             out.push('=');
-            out.push_str(if o.dispchar.contains('*') { "********" } else { v });
+            out.push_str(if o.dispchar.contains('*') {
+                "********"
+            } else {
+                v
+            });
         }
         out
     }
@@ -1947,7 +2098,9 @@ impl PgConn {
     pub(crate) fn ssl_cert_state(&self) -> (bool, bool) {
         #[cfg(not(target_family = "wasm"))]
         {
-            self.tls.as_ref().map_or((false, false), |t| (t.cert_requested(), t.cert_sent()))
+            self.tls
+                .as_ref()
+                .map_or((false, false), |t| (t.cert_requested(), t.cert_sent()))
         }
         #[cfg(target_family = "wasm")]
         {
@@ -1985,7 +2138,12 @@ impl PgConn {
             while off < req.len() {
                 // SAFETY: req is valid readable memory of req.len() bytes.
                 let n = unsafe {
-                    libc::send(self.fd, req[off..].as_ptr().cast(), req.len() - off, libc::MSG_NOSIGNAL)
+                    libc::send(
+                        self.fd,
+                        req[off..].as_ptr().cast(),
+                        req.len() - off,
+                        libc::MSG_NOSIGNAL,
+                    )
                 };
                 if n > 0 {
                     off += n as usize;
@@ -2048,7 +2206,9 @@ impl PgConn {
         };
         if self.inpos < self.inbuf.len() {
             self.conn_ok = false;
-            return Ok(SslNegotiation::Fatal("received unencrypted data after SSL response".into()));
+            return Ok(SslNegotiation::Fatal(
+                "received unencrypted data after SSL response".into(),
+            ));
         }
         self.inbuf.clear();
         self.inpos = 0;
@@ -2231,12 +2391,17 @@ impl PgConn {
                 let be_pid = be_i32(pid_bytes);
                 let (channel, next) = cstr_at(body, 4);
                 let (extra, _) = cstr_at(body, next);
-                self.notifies.push_back(Notify { channel, be_pid, extra });
+                self.notifies.push_back(Notify {
+                    channel,
+                    be_pid,
+                    extra,
+                });
             }
             b'N' => {
                 // defaultNoticeProcessor (fe-connect.c:7857): remote notices
                 // go to this process's stderr, formatted like an error.
-                let text = errmsg::build_message(&parse_diag(body), self.last_query.as_deref(), false);
+                let text =
+                    errmsg::build_message(&parse_diag(body), self.last_query.as_deref(), false);
                 eprint!("{text}");
             }
             b'K' => {
@@ -2456,7 +2621,10 @@ impl PgConn {
             return false;
         }
         self.last_query = Some(query.to_string());
-        let mut pkt = msg(b'P', &parse_body(stmt_name, query, param_types, param_types.len()));
+        let mut pkt = msg(
+            b'P',
+            &parse_body(stmt_name, query, param_types, param_types.len()),
+        );
         pkt.extend_from_slice(&msg(b'S', &[]));
         if let Err(e) = self.send_all(&pkt) {
             self.err = e;
@@ -2565,8 +2733,11 @@ impl PgConn {
                     Err(e) => return Ok(self.proto_error(e)),
                 },
                 b'C' | b's' => {
-                    let tag =
-                        if t == b'C' { cstr_at(&mbody, 0).0 } else { String::new() };
+                    let tag = if t == b'C' {
+                        cstr_at(&mbody, 0).0
+                    } else {
+                        String::new()
+                    };
                     result = QueryResult {
                         status: tuples_status(tuples),
                         nfields,
@@ -2618,9 +2789,13 @@ impl PgConn {
     // The same wait under a caller-chosen wait event (C passes the event to
     // WaitLatchOrSocket per call site: PostgresFdwCleanupResult,
     // LogicalApplyMain).
-    pub fn wait_readable_timeout_ev(&self, timeout_ms: i64, wait_event_info: u32) -> PgResult<bool> {
-        let deadline = std::time::Instant::now()
-            + std::time::Duration::from_millis(timeout_ms.max(0) as u64);
+    pub fn wait_readable_timeout_ev(
+        &self,
+        timeout_ms: i64,
+        wait_event_info: u32,
+    ) -> PgResult<bool> {
+        let deadline =
+            std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms.max(0) as u64);
         loop {
             let left = deadline.saturating_duration_since(std::time::Instant::now());
             if left.is_zero() {
@@ -2779,13 +2954,19 @@ impl PgConn {
                 }
                 b'D' => match parse_data_row(&body) {
                     Ok(r) if r.len() != nfields => {
-                        return Ok(Some(self.proto_error(unexpected_field_count(r.len(), nfields))))
+                        return Ok(Some(
+                            self.proto_error(unexpected_field_count(r.len(), nfields)),
+                        ))
                     }
                     Ok(r) => rows.push(r),
                     Err(e) => return Ok(Some(self.proto_error(e))),
                 },
                 b'C' | b's' => {
-                    let tag = if t == b'C' { cstr_at(&body, 0).0 } else { String::new() };
+                    let tag = if t == b'C' {
+                        cstr_at(&body, 0).0
+                    } else {
+                        String::new()
+                    };
                     let status = tuples_status(tuples);
                     return Ok(Some(QueryResult {
                         status,
@@ -2842,11 +3023,7 @@ impl PgConn {
     // returned (PQexec's keep-the-last rule), and CHECK_FOR_INTERRUPTS runs
     // per row. On sink error the connection still holds unread results — the
     // caller drains in its error path (C's PG_CATCH does the same).
-    pub fn exec_streaming(
-        &mut self,
-        query: &str,
-        sink: &mut dyn RowSink,
-    ) -> PgResult<QueryResult> {
+    pub fn exec_streaming(&mut self, query: &str, sink: &mut dyn RowSink) -> PgResult<QueryResult> {
         if !self.send_query_raw(query) {
             return Ok(QueryResult::error(self.err.clone()));
         }
@@ -3094,7 +3271,6 @@ impl CancelTarget {
             }
         }
     }
-
 }
 
 impl PgConn {
@@ -3127,7 +3303,11 @@ impl PgConn {
     // SHOW / pg_is_in_recovery() round trip when it sent none) decide whether
     // this host satisfies target_session_attrs. A rejected host is told
     // Terminate and the walk moves on; a failed round trip ends the walk.
-    fn check_target(&mut self, target: TargetServerType, host_identity: &str) -> PgResult<TargetCheck> {
+    fn check_target(
+        &mut self,
+        target: TargetServerType,
+        host_identity: &str,
+    ) -> PgResult<TargetCheck> {
         let reported = |conn: &PgConn, name: &str| conn.parameter_status(name).map(|v| v == "on");
         match target {
             TargetServerType::Any => {}
@@ -3140,7 +3320,12 @@ impl PgConn {
                             read_only = Some(v.starts_with("on"));
                             hot_standby = read_only;
                         }
-                        Ok(None) => return Ok(self.reject_target(host_identity, "\"SHOW transaction_read_only\" failed")),
+                        Ok(None) => {
+                            return Ok(self.reject_target(
+                                host_identity,
+                                "\"SHOW transaction_read_only\" failed",
+                            ))
+                        }
                         Err(e) => return Ok(TargetCheck::Fail(e)),
                     }
                 }
@@ -3154,22 +3339,34 @@ impl PgConn {
                     return Ok(self.reject_target(host_identity, why));
                 }
             }
-            TargetServerType::Primary | TargetServerType::Standby | TargetServerType::PreferStandby => {
+            TargetServerType::Primary
+            | TargetServerType::Standby
+            | TargetServerType::PreferStandby => {
                 let mut hot_standby = reported(self, "in_hot_standby");
                 if self.server_version < 90000 {
                     hot_standby = Some(false);
                 }
                 if hot_standby.is_none() {
-                    match self.target_probe("SELECT pg_catalog.pg_is_in_recovery()", host_identity)? {
+                    match self
+                        .target_probe("SELECT pg_catalog.pg_is_in_recovery()", host_identity)?
+                    {
                         Ok(Some(v)) => hot_standby = Some(v.starts_with('t')),
-                        Ok(None) => return Ok(self.reject_target(host_identity, "\"SELECT pg_is_in_recovery()\" failed")),
+                        Ok(None) => {
+                            return Ok(self.reject_target(
+                                host_identity,
+                                "\"SELECT pg_is_in_recovery()\" failed",
+                            ))
+                        }
                         Err(e) => return Ok(TargetCheck::Fail(e)),
                     }
                 }
                 let (wrong, why) = if target == TargetServerType::Primary {
                     (hot_standby == Some(true), "server is in hot standby mode")
                 } else {
-                    (hot_standby == Some(false), "server is not in hot standby mode")
+                    (
+                        hot_standby == Some(false),
+                        "server is not in hot standby mode",
+                    )
                 };
                 if wrong {
                     return Ok(self.reject_target(host_identity, why));
@@ -3182,7 +3379,11 @@ impl PgConn {
     // CONNECTION_CHECK_WRITABLE / CHECK_STANDBY: Ok(Some(value)) for a
     // one-row reply, Ok(None) when the query itself failed (next host),
     // Err(message) when the connection did (error_return).
-    fn target_probe(&mut self, query: &str, host_identity: &str) -> PgResult<Result<Option<String>, String>> {
+    fn target_probe(
+        &mut self,
+        query: &str,
+        host_identity: &str,
+    ) -> PgResult<Result<Option<String>, String>> {
         let res = self.exec(query)?;
         if !self.conn_ok || (res.status == ExecStatus::Error && res.diag.is_none()) {
             return Ok(Err(format!("{host_identity}{}", res.err)));
@@ -3190,7 +3391,10 @@ impl PgConn {
         if res.status != ExecStatus::TuplesOk || res.rows.len() != 1 {
             return Ok(Ok(None));
         }
-        let v = res.rows[0].first().and_then(|c| c.as_deref()).unwrap_or(b"");
+        let v = res.rows[0]
+            .first()
+            .and_then(|c| c.as_deref())
+            .unwrap_or(b"");
         Ok(Ok(Some(String::from_utf8_lossy(v).into_owned())))
     }
 
@@ -3437,7 +3641,10 @@ mod tests {
         assert_eq!(conn.error_message(), "");
         assert_eq!(conn.last_query.as_deref(), Some("SELECT 1"));
         assert!(!conn.send_query("SELECT 2"));
-        assert_eq!(conn.error_message(), "another command is already in progress");
+        assert_eq!(
+            conn.error_message(),
+            "another command is already in progress"
+        );
         assert!(!conn.send_query_params("SELECT 2", &[], &[]));
         assert_eq!(
             conn.error_message(),
@@ -3450,7 +3657,11 @@ mod tests {
         let mut wire = Vec::new();
         std::thread::sleep(std::time::Duration::from_millis(20));
         let _ = server.read_to_end(&mut wire);
-        assert_eq!(wire, msg(b'Q', b"SELECT 1\0"), "only the first query reached the server");
+        assert_eq!(
+            wire,
+            msg(b'Q', b"SELECT 1\0"),
+            "only the first query reached the server"
+        );
         conn.inbuf = msg(b'Z', b"I");
         assert!(conn.get_result().unwrap().is_none());
         assert!(conn.send_query("SELECT 4"));
@@ -3475,7 +3686,10 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
         let n = got.unwrap();
-        assert_eq!((n.channel.as_str(), n.be_pid, n.extra.as_str()), ("chan", 42, "payload"));
+        assert_eq!(
+            (n.channel.as_str(), n.be_pid, n.extra.as_str()),
+            ("chan", 42, "payload")
+        );
         assert!(conn.next_notify().is_none());
 
         conn.pending_results = true;
@@ -3492,7 +3706,10 @@ mod tests {
         let (mut conn, _server) = test_conn();
         let params: Vec<Option<&str>> = vec![Some("1"); PQ_QUERY_PARAM_MAX_LIMIT + 1];
         assert!(!conn.send_query_params("SELECT 1", &[], &params));
-        assert_eq!(conn.error_message(), "number of parameters must be between 0 and 65535");
+        assert_eq!(
+            conn.error_message(),
+            "number of parameters must be between 0 and 65535"
+        );
         assert!(!conn.pending_results);
         assert!(!conn.send_query_prepared("s", &params));
         assert!(!conn.send_prepare("s", "SELECT 1", &vec![0; PQ_QUERY_PARAM_MAX_LIMIT + 1]));
@@ -3517,7 +3734,10 @@ mod tests {
         conn.inbuf = msg(b'E', body);
         conn.inbuf.extend_from_slice(&msg(b'Z', b"I"));
         conn.get_result().unwrap().unwrap();
-        assert_eq!(conn.error_message(), "ERROR:  syntax error at or near \"SELCT\" at character 1");
+        assert_eq!(
+            conn.error_message(),
+            "ERROR:  syntax error at or near \"SELCT\" at character 1"
+        );
     }
 
     #[test]
@@ -3542,18 +3762,29 @@ mod tests {
         for bad in ["abc", "12x", "", " ", "+", "99999999999"] {
             assert_eq!(
                 parse_int_param(bad, "keepalives_idle"),
-                Err(format!("invalid integer value \"{bad}\" for connection option \"keepalives_idle\""))
+                Err(format!(
+                    "invalid integer value \"{bad}\" for connection option \"keepalives_idle\""
+                ))
             );
         }
         let pv = |s: &str| check_protocol_versions(&parse_conninfo(s).unwrap());
-        assert_eq!(pv("min_protocol_version=abc"), Err("invalid min_protocol_version value: \"abc\"".into()));
-        assert_eq!(pv("max_protocol_version=3.1"), Err("invalid max_protocol_version value: \"3.1\"".into()));
+        assert_eq!(
+            pv("min_protocol_version=abc"),
+            Err("invalid min_protocol_version value: \"abc\"".into())
+        );
+        assert_eq!(
+            pv("max_protocol_version=3.1"),
+            Err("invalid max_protocol_version value: \"3.1\"".into())
+        );
         assert_eq!(
             pv("min_protocol_version=3.2 max_protocol_version=3.0"),
             Err("\"min_protocol_version\" is greater than \"max_protocol_version\"".into())
         );
         assert_eq!(pv("min_protocol_version=3.2"), Ok(()));
-        assert_eq!(pv("min_protocol_version=latest max_protocol_version=latest"), Ok(()));
+        assert_eq!(
+            pv("min_protocol_version=latest max_protocol_version=latest"),
+            Ok(())
+        );
         assert_eq!(pv("max_protocol_version=3.0"), Ok(()));
     }
 
@@ -3563,7 +3794,11 @@ mod tests {
     fn default_socket_dir_is_the_build_configured_one() {
         let want = option_env!("PGRUST_DEFAULT_PGSOCKET_DIR").unwrap_or("/tmp");
         assert_eq!(conninfo::DEFAULT_PGSOCKET_DIR, want);
-        let ch = ConnHost { host: String::new(), hostaddr: String::new(), port: String::new() };
+        let ch = ConnHost {
+            host: String::new(),
+            hostaddr: String::new(),
+            port: String::new(),
+        };
         assert_eq!(pq_host(&ch), want);
         assert!(dial_is_unix(&ch));
     }
@@ -3574,17 +3809,42 @@ mod tests {
             let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
             l.local_addr().unwrap().port()
         };
-        let we = WaitEvents { connect: 0, receive: 0 };
+        let we = WaitEvents {
+            connect: 0,
+            receive: 0,
+        };
         let p = free();
-        let opts = parse_conninfo(&format!("host=/nonexistent hostaddr=127.0.0.1 port={p} user=u")).unwrap();
+        let opts = parse_conninfo(&format!(
+            "host=/nonexistent hostaddr=127.0.0.1 port={p} user=u"
+        ))
+        .unwrap();
         let err = connect(opts, &[("user", "u")], we).unwrap().err().unwrap();
-        assert!(err.starts_with(&format!("connection to server at \"127.0.0.1\", port {p} failed: ")), "{err}");
+        assert!(
+            err.starts_with(&format!(
+                "connection to server at \"127.0.0.1\", port {p} failed: "
+            )),
+            "{err}"
+        );
         let opts = parse_conninfo(&format!("port={p} user=u")).unwrap();
         let err = connect(opts, &[("user", "u")], we).unwrap().err().unwrap();
         let dir = conninfo::DEFAULT_PGSOCKET_DIR;
-        assert!(err.starts_with(&format!("connection to server on socket \"{dir}/.s.PGSQL.{p}\" failed: ")), "{err}");
-        assert!(err.ends_with("\n\tIs the server running locally and accepting connections on that socket?"), "{err}");
-        let ch = |h: &str, a: &str| ConnHost { host: h.into(), hostaddr: a.into(), port: String::new() };
+        assert!(
+            err.starts_with(&format!(
+                "connection to server on socket \"{dir}/.s.PGSQL.{p}\" failed: "
+            )),
+            "{err}"
+        );
+        assert!(
+            err.ends_with(
+                "\n\tIs the server running locally and accepting connections on that socket?"
+            ),
+            "{err}"
+        );
+        let ch = |h: &str, a: &str| ConnHost {
+            host: h.into(),
+            hostaddr: a.into(),
+            port: String::new(),
+        };
         assert_eq!(pq_host(&ch("h", "1.2.3.4")), "h");
         assert_eq!(pq_host(&ch("", "1.2.3.4")), "1.2.3.4");
         assert_eq!(pq_host(&ch("", "")), conninfo::DEFAULT_PGSOCKET_DIR);
@@ -3594,8 +3854,15 @@ mod tests {
     fn tcp_options_are_validated_after_the_dial() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let p = listener.local_addr().unwrap().port();
-        let we = WaitEvents { connect: 0, receive: 0 };
-        for (o, what) in [("keepalives_idle=abc", "keepalives_idle"), ("keepalives=x", "keepalives"), ("tcp_user_timeout=1.5", "tcp_user_timeout")] {
+        let we = WaitEvents {
+            connect: 0,
+            receive: 0,
+        };
+        for (o, what) in [
+            ("keepalives_idle=abc", "keepalives_idle"),
+            ("keepalives=x", "keepalives"),
+            ("tcp_user_timeout=1.5", "tcp_user_timeout"),
+        ] {
             let opts = parse_conninfo(&format!("hostaddr=127.0.0.1 port={p} user=u {o}")).unwrap();
             let err = connect(opts, &[("user", "u")], we).unwrap().err().unwrap();
             let (_, v) = o.split_once('=').unwrap();
@@ -3606,17 +3873,36 @@ mod tests {
         }
         let s = std::net::TcpStream::connect(("127.0.0.1", p)).unwrap();
         use std::os::fd::AsRawFd;
-        let opts = parse_conninfo("keepalives_idle=30 keepalives_interval=5 keepalives_count=3 tcp_user_timeout=1000").unwrap();
+        let opts = parse_conninfo(
+            "keepalives_idle=30 keepalives_interval=5 keepalives_count=3 tcp_user_timeout=1000",
+        )
+        .unwrap();
         assert_eq!(setup_tcp_socket(s.as_raw_fd(), &opts), Ok(()));
         let mut on = 0i32;
         let mut len = std::mem::size_of::<i32>() as libc::socklen_t;
         // SAFETY: s is an open socket; `on` receives an int.
-        let rc = unsafe { libc::getsockopt(s.as_raw_fd(), libc::SOL_SOCKET, libc::SO_KEEPALIVE, (&mut on as *mut i32).cast(), &mut len) };
+        let rc = unsafe {
+            libc::getsockopt(
+                s.as_raw_fd(),
+                libc::SOL_SOCKET,
+                libc::SO_KEEPALIVE,
+                (&mut on as *mut i32).cast(),
+                &mut len,
+            )
+        };
         assert_eq!((rc, on != 0), (0, true));
         let opts = parse_conninfo("keepalives=0").unwrap();
         let s2 = std::net::TcpStream::connect(("127.0.0.1", p)).unwrap();
         assert_eq!(setup_tcp_socket(s2.as_raw_fd(), &opts), Ok(()));
-        let rc = unsafe { libc::getsockopt(s2.as_raw_fd(), libc::SOL_SOCKET, libc::SO_KEEPALIVE, (&mut on as *mut i32).cast(), &mut len) };
+        let rc = unsafe {
+            libc::getsockopt(
+                s2.as_raw_fd(),
+                libc::SOL_SOCKET,
+                libc::SO_KEEPALIVE,
+                (&mut on as *mut i32).cast(),
+                &mut len,
+            )
+        };
         assert_eq!((rc, on), (0, 0));
     }
 
@@ -3632,8 +3918,14 @@ mod tests {
             keys("user=u dbname=d replication=database options=-cx=1 fallback_application_name=fb client_encoding=UTF8"),
             ["user=u", "database=d", "replication=database", "options=-cx=1", "application_name=fb", "client_encoding=UTF8"]
         );
-        assert_eq!(keys("user=u dbname=d application_name=a fallback_application_name=fb"), ["user=u", "database=d", "application_name=a"]);
-        assert_eq!(keys("user=u dbname=d application_name='' fallback_application_name=fb"), ["user=u", "database=d"]);
+        assert_eq!(
+            keys("user=u dbname=d application_name=a fallback_application_name=fb"),
+            ["user=u", "database=d", "application_name=a"]
+        );
+        assert_eq!(
+            keys("user=u dbname=d application_name='' fallback_application_name=fb"),
+            ["user=u", "database=d"]
+        );
         assert_eq!(PG_WAIT_CLIENT, 0x0600_0000);
     }
 
@@ -3645,8 +3937,14 @@ mod tests {
 
     #[test]
     fn conninfo_parse_errors() {
-        assert!(parse_conninfo("hostonly").err().unwrap().contains("missing \"=\""));
-        assert!(parse_conninfo("host='x").err().unwrap().contains("unterminated"));
+        assert!(parse_conninfo("hostonly")
+            .err()
+            .unwrap()
+            .contains("missing \"=\""));
+        assert!(parse_conninfo("host='x")
+            .err()
+            .unwrap()
+            .contains("unterminated"));
     }
 
     // libpq dispatches "postgresql://" / "postgres://" strings to
@@ -3686,8 +3984,14 @@ mod tests {
     #[test]
     fn port_validation() {
         let parse = |s: &str| validate_port(&parse_conninfo(s).unwrap());
-        assert_eq!(parse("port=-1").err().unwrap(), "invalid port number: \"-1\"");
-        assert_eq!(parse("port=70000").err().unwrap(), "invalid port number: \"70000\"");
+        assert_eq!(
+            parse("port=-1").err().unwrap(),
+            "invalid port number: \"-1\""
+        );
+        assert_eq!(
+            parse("port=70000").err().unwrap(),
+            "invalid port number: \"70000\""
+        );
         assert_eq!(parse("port=0").err().unwrap(), "invalid port number: \"0\"");
         assert_eq!(
             parse("port=1foo").err().unwrap(),
@@ -3709,7 +4013,11 @@ mod tests {
         assert_eq!((h[0].port.as_str(), h[1].port.as_str()), ("7", "7"));
         let h = hosts("hostaddr=1.1.1.1,2.2.2.2").unwrap();
         assert_eq!(
-            (h[1].hostaddr.as_str(), h[1].host.as_str(), h[1].port.as_str()),
+            (
+                h[1].hostaddr.as_str(),
+                h[1].host.as_str(),
+                h[1].port.as_str()
+            ),
             ("2.2.2.2", "", "")
         );
         assert_eq!(
@@ -3740,7 +4048,10 @@ mod tests {
         let err = connect(
             opts,
             &[("user", "u"), ("database", "u")],
-            WaitEvents { connect: 0, receive: 0 },
+            WaitEvents {
+                connect: 0,
+                receive: 0,
+            },
         )
         .unwrap()
         .err()
@@ -3761,7 +4072,11 @@ mod tests {
         let start = std::time::Instant::now();
         let deadline_ns = pg_clock::mono_ns() + 300_000_000;
         assert!(tcp_connect_deadline("10.255.255.1", 9, deadline_ns).is_err());
-        assert!(start.elapsed() < std::time::Duration::from_secs(10), "{:?}", start.elapsed());
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(10),
+            "{:?}",
+            start.elapsed()
+        );
         let r = tcp_connect_deadline("127.0.0.1", 9, 0);
         assert_eq!(r.unwrap_err(), "cancel request timed out");
     }
@@ -3829,8 +4144,11 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("pgclient-svc-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("pg_service.conf");
-        std::fs::write(&f, "# c\n\n[test_ldap]\nldap://127.0.0.1:9/base?attribute?one?filter\n")
-            .unwrap();
+        std::fs::write(
+            &f,
+            "# c\n\n[test_ldap]\nldap://127.0.0.1:9/base?attribute?one?filter\n",
+        )
+        .unwrap();
         let mut opts = Vec::new();
         let mut found = false;
         let err = super::conninfo::parse_service_file(
@@ -3839,10 +4157,14 @@ mod tests {
             &mut opts,
             &mut found,
         )
-        .err().unwrap();
+        .err()
+        .unwrap();
         assert_eq!(
             err,
-            format!("syntax error in service file \"{}\", line 4", f.to_str().unwrap())
+            format!(
+                "syntax error in service file \"{}\", line 4",
+                f.to_str().unwrap()
+            )
         );
         std::fs::write(&f, "[svc]\nhost=h1\nport=5455\n[other]\nhost=h2\n").unwrap();
         let mut opts = vec![("port".to_string(), "1111".to_string())];
@@ -3903,7 +4225,10 @@ mod tests {
             params: Vec::new(),
             notifies: std::collections::VecDeque::new(),
             last_query: None,
-            we: WaitEvents { connect: 0, receive: 0 },
+            we: WaitEvents {
+                connect: 0,
+                receive: 0,
+            },
         };
         (conn, server)
     }
@@ -3989,7 +4314,10 @@ mod tests {
     fn datarow_missing_column_length_rejected() {
         // Declares 1 column but has no 4-byte length word.
         let body = 1u16.to_be_bytes().to_vec();
-        assert!(parse_data_row(&body).err().unwrap().contains("insufficient data"));
+        assert!(parse_data_row(&body)
+            .err()
+            .unwrap()
+            .contains("insufficient data"));
         // Only half a length word.
         let mut body = 1u16.to_be_bytes().to_vec();
         body.extend_from_slice(&[0, 0]);
@@ -4002,7 +4330,10 @@ mod tests {
         let mut body = 1u16.to_be_bytes().to_vec();
         body.extend_from_slice(&5i32.to_be_bytes());
         body.extend_from_slice(b"ab");
-        assert!(parse_data_row(&body).err().unwrap().contains("insufficient data"));
+        assert!(parse_data_row(&body)
+            .err()
+            .unwrap()
+            .contains("insufficient data"));
     }
 
     #[test]
@@ -4021,7 +4352,10 @@ mod tests {
         body.extend_from_slice(&1i32.to_be_bytes());
         body.extend_from_slice(b"x");
         body.push(0xEE); // leftover byte after the declared columns
-        assert!(parse_data_row(&body).err().unwrap().contains("extraneous data"));
+        assert!(parse_data_row(&body)
+            .err()
+            .unwrap()
+            .contains("extraneous data"));
         // Same via the borrowed (streaming) parser.
         let mut cols = Vec::new();
         assert!(parse_data_row_borrowed(&body, &mut cols).is_err());
@@ -4077,7 +4411,10 @@ mod tests {
         let r = conn.get_result().unwrap().unwrap();
         assert_eq!(r.status, ExecStatus::CopyOut);
         assert!(!conn.send_query("SELECT 7"));
-        assert_eq!(conn.error_message(), "another command is already in progress");
+        assert_eq!(
+            conn.error_message(),
+            "another command is already in progress"
+        );
         assert!(matches!(conn.get_copy_data().unwrap(), CopyData::Msg(_)));
         assert!(matches!(conn.get_copy_data().unwrap(), CopyData::End));
         let r = conn.get_result().unwrap().unwrap();
@@ -4177,7 +4514,10 @@ mod tests {
         assert!(matches!(conn.get_copy_data(), Ok(CopyData::Msg(m)) if m == b"x"));
         assert!(matches!(conn.get_copy_data(), Ok(CopyData::End)));
         assert!(!conn.connection_bad());
-        let r = conn.get_result().unwrap().expect("the CommandComplete is still there");
+        let r = conn
+            .get_result()
+            .unwrap()
+            .expect("the CommandComplete is still there");
         assert_eq!(r.status, ExecStatus::CommandOk);
         assert_eq!(r.cmd_tag, "COPY 0");
     }
@@ -4205,7 +4545,14 @@ mod tests {
 
     #[test]
     fn sslmode_accepts_the_six_libpq_values() {
-        for m in ["disable", "allow", "prefer", "require", "verify-ca", "verify-full"] {
+        for m in [
+            "disable",
+            "allow",
+            "prefer",
+            "require",
+            "verify-ca",
+            "verify-full",
+        ] {
             let opts = vec![("sslmode".to_string(), m.to_string())];
             assert!(check_sslmode(&opts).is_ok(), "sslmode={m:?} should be ok");
         }
@@ -4214,7 +4561,10 @@ mod tests {
         // empty one (fe-connect.c:1767 keeps "" and rejects it).
         for m in ["bogus", ""] {
             let opts = vec![("sslmode".to_string(), m.to_string())];
-            assert_eq!(check_sslmode(&opts).err().unwrap(), format!("invalid sslmode value: \"{m}\""));
+            assert_eq!(
+                check_sslmode(&opts).err().unwrap(),
+                format!("invalid sslmode value: \"{m}\"")
+            );
         }
         let opts = vec![("sslmode".to_string(), "bogus".to_string())];
         assert_eq!(
@@ -4227,7 +4577,10 @@ mod tests {
     fn transport_options_validate_like_libpq() {
         let o = |k: &str, v: &str| vec![(k.to_string(), v.to_string())];
         let two = |k1: &str, v1: &str, k2: &str, v2: &str| {
-            vec![(k1.to_string(), v1.to_string()), (k2.to_string(), v2.to_string())]
+            vec![
+                (k1.to_string(), v1.to_string()),
+                (k2.to_string(), v2.to_string()),
+            ]
         };
         // fe-connect.c:1845 / :1866: direct negotiation and the system root
         // store both refuse the weak sslmodes.
@@ -4240,35 +4593,79 @@ mod tests {
             "weak sslmode \"allow\" may not be used with sslnegotiation=direct (use \"require\", \"verify-ca\", or \"verify-full\")"
         );
         for m in ["require", "verify-ca", "verify-full"] {
-            assert_eq!(check_transport_options(&two("sslnegotiation", "direct", "sslmode", m)), Ok(ChannelBinding::Prefer));
+            assert_eq!(
+                check_transport_options(&two("sslnegotiation", "direct", "sslmode", m)),
+                Ok(ChannelBinding::Prefer)
+            );
         }
         assert_eq!(
             check_transport_options(&two("sslrootcert", "system", "sslmode", "require")).unwrap_err(),
             "weak sslmode \"require\" may not be used with sslrootcert=system (use \"verify-full\")"
         );
-        assert_eq!(check_transport_options(&two("sslrootcert", "system", "sslmode", "verify-full")), Ok(ChannelBinding::Prefer));
-        assert_eq!(check_transport_options(&o("sslrootcert", "system")), Ok(ChannelBinding::Prefer));
-        assert_eq!(check_transport_options(&o("sslcertmode", "require")), Ok(ChannelBinding::Prefer));
+        assert_eq!(
+            check_transport_options(&two("sslrootcert", "system", "sslmode", "verify-full")),
+            Ok(ChannelBinding::Prefer)
+        );
+        assert_eq!(
+            check_transport_options(&o("sslrootcert", "system")),
+            Ok(ChannelBinding::Prefer)
+        );
+        assert_eq!(
+            check_transport_options(&o("sslcertmode", "require")),
+            Ok(ChannelBinding::Prefer)
+        );
         assert_eq!(
             check_transport_options(&o("gssencmode", "require")).unwrap_err(),
             "gssencmode value \"require\" invalid when GSSAPI support is not compiled in"
         );
-        assert_eq!(check_transport_options(&o("sslnegotiation", "x")).unwrap_err(), "invalid sslnegotiation value: \"x\"");
-        assert_eq!(check_transport_options(&o("sslcertmode", "x")).unwrap_err(), "invalid sslcertmode value: \"x\"");
-        assert_eq!(check_transport_options(&o("gssencmode", "x")).unwrap_err(), "invalid gssencmode value: \"x\"");
-        assert_eq!(check_transport_options(&o("channel_binding", "x")).unwrap_err(), "invalid channel_binding value: \"x\"");
+        assert_eq!(
+            check_transport_options(&o("sslnegotiation", "x")).unwrap_err(),
+            "invalid sslnegotiation value: \"x\""
+        );
+        assert_eq!(
+            check_transport_options(&o("sslcertmode", "x")).unwrap_err(),
+            "invalid sslcertmode value: \"x\""
+        );
+        assert_eq!(
+            check_transport_options(&o("gssencmode", "x")).unwrap_err(),
+            "invalid gssencmode value: \"x\""
+        );
+        assert_eq!(
+            check_transport_options(&o("channel_binding", "x")).unwrap_err(),
+            "invalid channel_binding value: \"x\""
+        );
         // sslmode is validated before the sslrootcert=system pairing.
-        let both = vec![("sslmode".to_string(), "bogus".to_string()), ("sslrootcert".to_string(), "system".to_string())];
-        assert_eq!(check_transport_options(&both).unwrap_err(), "invalid sslmode value: \"bogus\"");
+        let both = vec![
+            ("sslmode".to_string(), "bogus".to_string()),
+            ("sslrootcert".to_string(), "system".to_string()),
+        ];
+        assert_eq!(
+            check_transport_options(&both).unwrap_err(),
+            "invalid sslmode value: \"bogus\""
+        );
         for (k, v) in [
-            ("sslrootcert", "/x/ca.crt"), ("sslnegotiation", "postgres"), ("sslcertmode", "disable"),
-            ("sslcertmode", "allow"), ("gssencmode", "disable"), ("gssencmode", "prefer"),
+            ("sslrootcert", "/x/ca.crt"),
+            ("sslnegotiation", "postgres"),
+            ("sslcertmode", "disable"),
+            ("sslcertmode", "allow"),
+            ("gssencmode", "disable"),
+            ("gssencmode", "prefer"),
             ("channel_binding", "prefer"),
         ] {
-            assert_eq!(check_transport_options(&o(k, v)), Ok(ChannelBinding::Prefer), "{k}={v}");
+            assert_eq!(
+                check_transport_options(&o(k, v)),
+                Ok(ChannelBinding::Prefer),
+                "{k}={v}"
+            );
         }
-        assert_eq!(check_transport_options(&o("channel_binding", "disable")), Ok(ChannelBinding::Disable));
-        assert_eq!(check_transport_options(&o("channel_binding", "require")), Ok(ChannelBinding::Require));
+        assert_eq!(
+            check_transport_options(&o("channel_binding", "disable")),
+            Ok(ChannelBinding::Disable)
+        );
+        assert_eq!(
+            check_transport_options(&o("channel_binding", "require")),
+            Ok(ChannelBinding::Require)
+        );
         assert_eq!(check_transport_options(&[]), Ok(ChannelBinding::Prefer));
     }
 
@@ -4301,8 +4698,14 @@ mod tests {
     fn encryption_method_order_follows_sslmode() {
         let o = |m: &str| vec![("sslmode".to_string(), m.to_string())];
         assert_eq!(encryption_methods(&o("disable"), false), vec![Enc::Plain]);
-        assert_eq!(encryption_methods(&o("allow"), false), vec![Enc::Plain, Enc::Ssl]);
-        assert_eq!(encryption_methods(&o("prefer"), false), vec![Enc::Ssl, Enc::Plain]);
+        assert_eq!(
+            encryption_methods(&o("allow"), false),
+            vec![Enc::Plain, Enc::Ssl]
+        );
+        assert_eq!(
+            encryption_methods(&o("prefer"), false),
+            vec![Enc::Ssl, Enc::Plain]
+        );
         assert_eq!(encryption_methods(&[], false), vec![Enc::Ssl, Enc::Plain]);
         for m in ["require", "verify-ca", "verify-full"] {
             assert_eq!(encryption_methods(&o(m), false), vec![Enc::Ssl], "{m}");
@@ -4316,9 +4719,18 @@ mod tests {
     fn channel_binding_require_never_sends_password() {
         use std::io::Read;
         for (areq, want) in [
-            (3i32, "channel binding required but not supported by server's authentication request"),
-            (5, "channel binding required but not supported by server's authentication request"),
-            (0, "channel binding required, but server authenticated client without channel binding"),
+            (
+                3i32,
+                "channel binding required but not supported by server's authentication request",
+            ),
+            (
+                5,
+                "channel binding required but not supported by server's authentication request",
+            ),
+            (
+                0,
+                "channel binding required, but server authenticated client without channel binding",
+            ),
             (10, "channel binding required, but SSL not in use"),
         ] {
             let (mut conn, mut srv) = test_conn();
@@ -4330,14 +4742,18 @@ mod tests {
                 body.extend_from_slice(b"SCRAM-SHA-256\0\0");
             }
             conn.inbuf = frame(b'R', 4 + body.len() as i32, &body);
-            let policy = auth::AuthPolicy::parse(None).unwrap().with_channel_binding_required(true);
+            let policy = auth::AuthPolicy::parse(None)
+                .unwrap()
+                .with_channel_binding_required(true);
             let auth_opts = auth::AuthOptions {
                 password: Some("secret"),
                 keys: auth::ScramKeys::default(),
                 policy,
                 passfile: None,
             };
-            let err = auth::handshake(&mut conn, "u", &auth_opts).unwrap().unwrap_err();
+            let err = auth::handshake(&mut conn, "u", &auth_opts)
+                .unwrap()
+                .unwrap_err();
             assert_eq!(err, want, "areq {areq}");
             srv.set_nonblocking(true).unwrap();
             let mut buf = [0u8; 64];
@@ -4449,7 +4865,10 @@ mod tests {
         }
         assert!(dead);
         assert_eq!(conn.error_message(), SERVER_CLOSED_MSG);
-        once_then_none(&mut conn, "before or while processing the request.\ninvalid socket");
+        once_then_none(
+            &mut conn,
+            "before or while processing the request.\ninvalid socket",
+        );
         // Malformed DataRow (proto_error).
         let (mut conn, _srv) = test_conn();
         conn.pending_results = true;
@@ -4467,7 +4886,9 @@ mod tests {
         for n in names {
             b.extend_from_slice(n.as_bytes());
             b.push(0);
-            b.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 25, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0, 0]);
+            b.extend_from_slice(&[
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 25, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0, 0,
+            ]);
         }
         b
     }
@@ -4516,10 +4937,17 @@ mod tests {
     #[test]
     fn zero_column_select_is_tuples_ok() {
         let (mut conn, _srv) = test_conn();
-        let reply = [msg(b'T', &row_desc(&[])), msg(b'C', b"SELECT 0\0"), msg(b'Z', b"I")];
+        let reply = [
+            msg(b'T', &row_desc(&[])),
+            msg(b'C', b"SELECT 0\0"),
+            msg(b'Z', b"I"),
+        ];
         preload(&mut conn, &reply);
         let r = conn.exec("SELECT WHERE false").unwrap();
-        assert_eq!((r.status, r.nfields, r.cmd_tag.as_str()), (ExecStatus::TuplesOk, 0, "SELECT 0"));
+        assert_eq!(
+            (r.status, r.nfields, r.cmd_tag.as_str()),
+            (ExecStatus::TuplesOk, 0, "SELECT 0")
+        );
         preload(&mut conn, &reply);
         assert!(conn.send_query("SELECT WHERE false"));
         let r = conn.get_result().unwrap().unwrap();
@@ -4544,7 +4972,10 @@ mod tests {
         );
         let r = conn.get_result().unwrap().unwrap();
         assert_eq!(r.status, ExecStatus::Error);
-        assert_eq!(r.err, "FATAL:  terminating connection due to administrator command");
+        assert_eq!(
+            r.err,
+            "FATAL:  terminating connection due to administrator command"
+        );
         drop(srv);
         let mut dead = false;
         for _ in 0..400 {
@@ -4599,13 +5030,22 @@ mod tests {
             );
         }
         let (mut conn, _srv) = test_conn();
-        preload(&mut conn, &[msg(b'S', b"server_version\x0018.6\0"), msg(b'Z', b"I")]);
+        preload(
+            &mut conn,
+            &[msg(b'S', b"server_version\x0018.6\0"), msg(b'Z', b"I")],
+        );
         assert_eq!(
             handshake_with(&mut conn, None),
             Err("expected authentication request from server, but received S".into())
         );
         let (mut conn, _srv) = test_conn();
-        preload(&mut conn, &[msg(b'R', &0i32.to_be_bytes()), msg(b'R', &0i32.to_be_bytes())]);
+        preload(
+            &mut conn,
+            &[
+                msg(b'R', &0i32.to_be_bytes()),
+                msg(b'R', &0i32.to_be_bytes()),
+            ],
+        );
         assert_eq!(
             handshake_with(&mut conn, None),
             Err("unexpected response from server; first received character was \"R\"".into())
@@ -4629,17 +5069,49 @@ mod tests {
     // before any socket is opened (port 1 would otherwise be dialed).
     #[test]
     fn target_session_attrs_is_validated_before_dial() {
-        let opts = parse_conninfo("host=127.0.0.1 port=1 user=u target_session_attrs=bogus").unwrap();
-        let err = connect(opts, &[("user", "u")], WaitEvents { connect: 0, receive: 0 }).unwrap().err().unwrap();
+        let opts =
+            parse_conninfo("host=127.0.0.1 port=1 user=u target_session_attrs=bogus").unwrap();
+        let err = connect(
+            opts,
+            &[("user", "u")],
+            WaitEvents {
+                connect: 0,
+                receive: 0,
+            },
+        )
+        .unwrap()
+        .err()
+        .unwrap();
         assert_eq!(err, "invalid target_session_attrs value: \"bogus\"");
-        assert_eq!(TargetServerType::parse(Some("")).unwrap_err(), "invalid target_session_attrs value: \"\"");
+        assert_eq!(
+            TargetServerType::parse(Some("")).unwrap_err(),
+            "invalid target_session_attrs value: \"\""
+        );
         assert_eq!(TargetServerType::parse(None), Ok(TargetServerType::Any));
-        assert_eq!(TargetServerType::parse(Some("any")), Ok(TargetServerType::Any));
-        assert_eq!(TargetServerType::parse(Some("read-write")), Ok(TargetServerType::ReadWrite));
-        assert_eq!(TargetServerType::parse(Some("read-only")), Ok(TargetServerType::ReadOnly));
-        assert_eq!(TargetServerType::parse(Some("primary")), Ok(TargetServerType::Primary));
-        assert_eq!(TargetServerType::parse(Some("standby")), Ok(TargetServerType::Standby));
-        assert_eq!(TargetServerType::parse(Some("prefer-standby")), Ok(TargetServerType::PreferStandby));
+        assert_eq!(
+            TargetServerType::parse(Some("any")),
+            Ok(TargetServerType::Any)
+        );
+        assert_eq!(
+            TargetServerType::parse(Some("read-write")),
+            Ok(TargetServerType::ReadWrite)
+        );
+        assert_eq!(
+            TargetServerType::parse(Some("read-only")),
+            Ok(TargetServerType::ReadOnly)
+        );
+        assert_eq!(
+            TargetServerType::parse(Some("primary")),
+            Ok(TargetServerType::Primary)
+        );
+        assert_eq!(
+            TargetServerType::parse(Some("standby")),
+            Ok(TargetServerType::Standby)
+        );
+        assert_eq!(
+            TargetServerType::parse(Some("prefer-standby")),
+            Ok(TargetServerType::PreferStandby)
+        );
     }
 
     fn next_host(check: TargetCheck) -> String {
@@ -4659,53 +5131,135 @@ mod tests {
         let (mut conn, _srv) = test_conn();
         conn.server_version = 180006;
         conn.params.push(("in_hot_standby".into(), "on".into()));
-        conn.params.push(("default_transaction_read_only".into(), "off".into()));
-        assert!(matches!(conn.check_target(TargetServerType::Any, id).unwrap(), TargetCheck::Ok));
-        assert!(matches!(conn.check_target(TargetServerType::Standby, id).unwrap(), TargetCheck::Ok));
-        assert!(matches!(conn.check_target(TargetServerType::PreferStandby, id).unwrap(), TargetCheck::Ok));
-        assert!(matches!(conn.check_target(TargetServerType::ReadOnly, id).unwrap(), TargetCheck::Ok));
-        assert_eq!(next_host(conn.check_target(TargetServerType::Primary, id).unwrap()), format!("{id}server is in hot standby mode"));
-        assert_eq!(next_host(conn.check_target(TargetServerType::ReadWrite, id).unwrap()), format!("{id}session is read-only"));
+        conn.params
+            .push(("default_transaction_read_only".into(), "off".into()));
+        assert!(matches!(
+            conn.check_target(TargetServerType::Any, id).unwrap(),
+            TargetCheck::Ok
+        ));
+        assert!(matches!(
+            conn.check_target(TargetServerType::Standby, id).unwrap(),
+            TargetCheck::Ok
+        ));
+        assert!(matches!(
+            conn.check_target(TargetServerType::PreferStandby, id)
+                .unwrap(),
+            TargetCheck::Ok
+        ));
+        assert!(matches!(
+            conn.check_target(TargetServerType::ReadOnly, id).unwrap(),
+            TargetCheck::Ok
+        ));
+        assert_eq!(
+            next_host(conn.check_target(TargetServerType::Primary, id).unwrap()),
+            format!("{id}server is in hot standby mode")
+        );
+        assert_eq!(
+            next_host(conn.check_target(TargetServerType::ReadWrite, id).unwrap()),
+            format!("{id}session is read-only")
+        );
         conn.params.clear();
         conn.params.push(("in_hot_standby".into(), "off".into()));
-        conn.params.push(("default_transaction_read_only".into(), "off".into()));
-        assert!(matches!(conn.check_target(TargetServerType::Primary, id).unwrap(), TargetCheck::Ok));
-        assert!(matches!(conn.check_target(TargetServerType::ReadWrite, id).unwrap(), TargetCheck::Ok));
-        assert_eq!(next_host(conn.check_target(TargetServerType::Standby, id).unwrap()), format!("{id}server is not in hot standby mode"));
-        assert_eq!(next_host(conn.check_target(TargetServerType::ReadOnly, id).unwrap()), format!("{id}session is not read-only"));
+        conn.params
+            .push(("default_transaction_read_only".into(), "off".into()));
+        assert!(matches!(
+            conn.check_target(TargetServerType::Primary, id).unwrap(),
+            TargetCheck::Ok
+        ));
+        assert!(matches!(
+            conn.check_target(TargetServerType::ReadWrite, id).unwrap(),
+            TargetCheck::Ok
+        ));
+        assert_eq!(
+            next_host(conn.check_target(TargetServerType::Standby, id).unwrap()),
+            format!("{id}server is not in hot standby mode")
+        );
+        assert_eq!(
+            next_host(conn.check_target(TargetServerType::ReadOnly, id).unwrap()),
+            format!("{id}session is not read-only")
+        );
 
         let (mut conn, _srv) = test_conn();
         conn.server_version = 180006;
         let show = |v: &str| {
-            [msg(b'T', &row_desc(&["transaction_read_only"])), msg(b'D', &data_row(&[v])), msg(b'C', b"SHOW\0"), msg(b'Z', b"I")]
+            [
+                msg(b'T', &row_desc(&["transaction_read_only"])),
+                msg(b'D', &data_row(&[v])),
+                msg(b'C', b"SHOW\0"),
+                msg(b'Z', b"I"),
+            ]
         };
         preload(&mut conn, &show("on"));
-        assert_eq!(next_host(conn.check_target(TargetServerType::ReadWrite, id).unwrap()), format!("{id}session is read-only"));
+        assert_eq!(
+            next_host(conn.check_target(TargetServerType::ReadWrite, id).unwrap()),
+            format!("{id}session is read-only")
+        );
         preload(&mut conn, &show("off"));
-        assert!(matches!(conn.check_target(TargetServerType::ReadWrite, id).unwrap(), TargetCheck::Ok));
+        assert!(matches!(
+            conn.check_target(TargetServerType::ReadWrite, id).unwrap(),
+            TargetCheck::Ok
+        ));
         let recovery = |v: &str| {
-            [msg(b'T', &row_desc(&["pg_is_in_recovery"])), msg(b'D', &data_row(&[v])), msg(b'C', b"SELECT 1\0"), msg(b'Z', b"I")]
+            [
+                msg(b'T', &row_desc(&["pg_is_in_recovery"])),
+                msg(b'D', &data_row(&[v])),
+                msg(b'C', b"SELECT 1\0"),
+                msg(b'Z', b"I"),
+            ]
         };
         preload(&mut conn, &recovery("t"));
-        assert_eq!(next_host(conn.check_target(TargetServerType::Primary, id).unwrap()), format!("{id}server is in hot standby mode"));
+        assert_eq!(
+            next_host(conn.check_target(TargetServerType::Primary, id).unwrap()),
+            format!("{id}server is in hot standby mode")
+        );
         preload(&mut conn, &recovery("f"));
-        assert!(matches!(conn.check_target(TargetServerType::Standby, id).unwrap(), TargetCheck::NextHost(_)));
+        assert!(matches!(
+            conn.check_target(TargetServerType::Standby, id).unwrap(),
+            TargetCheck::NextHost(_)
+        ));
         preload(&mut conn, &recovery("f"));
-        assert!(matches!(conn.check_target(TargetServerType::Primary, id).unwrap(), TargetCheck::Ok));
-        preload(&mut conn, &[msg(b'E', b"SERROR\0C42501\0Mdenied\0\0"), msg(b'Z', b"I")]);
-        assert_eq!(next_host(conn.check_target(TargetServerType::ReadOnly, id).unwrap()), format!("{id}\"SHOW transaction_read_only\" failed"));
-        preload(&mut conn, &[msg(b'E', b"SERROR\0C42501\0Mdenied\0\0"), msg(b'Z', b"I")]);
-        assert_eq!(next_host(conn.check_target(TargetServerType::Standby, id).unwrap()), format!("{id}\"SELECT pg_is_in_recovery()\" failed"));
+        assert!(matches!(
+            conn.check_target(TargetServerType::Primary, id).unwrap(),
+            TargetCheck::Ok
+        ));
+        preload(
+            &mut conn,
+            &[msg(b'E', b"SERROR\0C42501\0Mdenied\0\0"), msg(b'Z', b"I")],
+        );
+        assert_eq!(
+            next_host(conn.check_target(TargetServerType::ReadOnly, id).unwrap()),
+            format!("{id}\"SHOW transaction_read_only\" failed")
+        );
+        preload(
+            &mut conn,
+            &[msg(b'E', b"SERROR\0C42501\0Mdenied\0\0"), msg(b'Z', b"I")],
+        );
+        assert_eq!(
+            next_host(conn.check_target(TargetServerType::Standby, id).unwrap()),
+            format!("{id}\"SELECT pg_is_in_recovery()\" failed")
+        );
         // Servers before 9.0 have no standby mode: no probe is sent.
         conn.server_version = 80400;
-        assert!(matches!(conn.check_target(TargetServerType::Primary, id).unwrap(), TargetCheck::Ok));
+        assert!(matches!(
+            conn.check_target(TargetServerType::Primary, id).unwrap(),
+            TargetCheck::Ok
+        ));
     }
 
     #[test]
     fn empty_transport_option_values_are_invalid() {
-        for k in ["sslmode", "channel_binding", "sslnegotiation", "sslcertmode", "gssencmode"] {
+        for k in [
+            "sslmode",
+            "channel_binding",
+            "sslnegotiation",
+            "sslcertmode",
+            "gssencmode",
+        ] {
             let opts = vec![(k.to_string(), String::new())];
-            assert_eq!(check_transport_options(&opts).unwrap_err(), format!("invalid {k} value: \"\""));
+            assert_eq!(
+                check_transport_options(&opts).unwrap_err(),
+                format!("invalid {k} value: \"\"")
+            );
         }
         assert!(check_transport_options(&[]).is_ok());
     }
@@ -4726,8 +5280,14 @@ mod tests {
             check_transport_options(&o("", "bogus")).unwrap_err(),
             "invalid \"ssl_max_protocol_version\" value: \"bogus\""
         );
-        assert_eq!(check_transport_options(&o("TLSv1.3", "TLSv1.2")).unwrap_err(), "invalid SSL protocol version range");
-        assert_eq!(check_transport_options(&o("TLSv1.2", "TLSv1")).unwrap_err(), "invalid SSL protocol version range");
+        assert_eq!(
+            check_transport_options(&o("TLSv1.3", "TLSv1.2")).unwrap_err(),
+            "invalid SSL protocol version range"
+        );
+        assert_eq!(
+            check_transport_options(&o("TLSv1.2", "TLSv1")).unwrap_err(),
+            "invalid SSL protocol version range"
+        );
         assert!(check_transport_options(&o("tlsv1.2", "TLSV1.3")).is_ok());
         assert!(check_transport_options(&o("TLSv1", "TLSv1")).is_ok());
         assert!(check_transport_options(&o("TLSv1.1", "TLSv1.1")).is_ok());
@@ -4737,8 +5297,14 @@ mod tests {
     #[test]
     fn load_balance_hosts_is_validated_and_random_permutes() {
         let o = |v: &str| vec![("load_balance_hosts".to_string(), v.to_string())];
-        assert_eq!(load_balance_random(&o("bogus")).unwrap_err(), "invalid load_balance_hosts value: \"bogus\"");
-        assert_eq!(load_balance_random(&o("")).unwrap_err(), "invalid load_balance_hosts value: \"\"");
+        assert_eq!(
+            load_balance_random(&o("bogus")).unwrap_err(),
+            "invalid load_balance_hosts value: \"bogus\""
+        );
+        assert_eq!(
+            load_balance_random(&o("")).unwrap_err(),
+            "invalid load_balance_hosts value: \"\""
+        );
         assert!(!load_balance_random(&[]).unwrap());
         assert!(!load_balance_random(&o("disable")).unwrap());
         assert!(load_balance_random(&o("random")).unwrap());
@@ -4759,12 +5325,21 @@ mod tests {
         assert!(is_unixsock_path("@abstract"));
         assert!(is_unixsock_path("/tmp"));
         assert!(!is_unixsock_path("localhost"));
-        let e = unix_connect("@pgclient-b285-nonexistent/.s.PGSQL.1").err().expect("nothing listens there");
+        let e = unix_connect("@pgclient-b285-nonexistent/.s.PGSQL.1")
+            .err()
+            .expect("nothing listens there");
         assert!(
-            e.starts_with("connection to server on socket \"@pgclient-b285-nonexistent/.s.PGSQL.1\" failed: "),
+            e.starts_with(
+                "connection to server on socket \"@pgclient-b285-nonexistent/.s.PGSQL.1\" failed: "
+            ),
             "{e}"
         );
-        assert!(e.ends_with("\n\tIs the server running locally and accepting connections on that socket?"), "{e}");
+        assert!(
+            e.ends_with(
+                "\n\tIs the server running locally and accepting connections on that socket?"
+            ),
+            "{e}"
+        );
     }
 
     #[test]
@@ -4794,13 +5369,23 @@ mod tests {
     #[test]
     fn cancel_dials_the_connected_peer_not_a_fresh_lookup() {
         let peer: std::net::SocketAddr = "10.255.255.1:9".parse().unwrap();
-        assert_eq!(cancel_addrs("localhost", 5432, Some(peer)).unwrap(), vec![peer]);
+        assert_eq!(
+            cancel_addrs("localhost", 5432, Some(peer)).unwrap(),
+            vec![peer]
+        );
         let (mut conn, _srv) = test_conn();
         conn.peer = Some(peer);
         conn.target = DialTarget::Tcp("no-such-host.invalid".into(), 5432);
-        assert_eq!(conn.cancel(0).unwrap(), Some("cancel request timed out".into()));
+        assert_eq!(
+            conn.cancel(0).unwrap(),
+            Some("cancel request timed out".into())
+        );
         conn.peer = None;
-        assert!(conn.cancel(0).unwrap().unwrap().starts_with("could not translate host name \"no-such-host.invalid\""));
+        assert!(conn
+            .cancel(0)
+            .unwrap()
+            .unwrap()
+            .starts_with("could not translate host name \"no-such-host.invalid\""));
     }
 
     #[test]
@@ -4814,7 +5399,11 @@ mod tests {
             sin6.sin6_addr.s6_addr = std::net::Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1).octets();
             sin6.sin6_scope_id = 1;
             let n = std::mem::size_of::<libc::sockaddr_in6>();
-            std::ptr::copy_nonoverlapping(std::ptr::from_ref(&sin6).cast::<u8>(), sa.addr.as_mut_ptr(), n);
+            std::ptr::copy_nonoverlapping(
+                std::ptr::from_ref(&sin6).cast::<u8>(),
+                sa.addr.as_mut_ptr(),
+                n,
+            );
             sa.salen = n as u32;
             assert_eq!(host_addr_text(&sa), "fe80::1");
             let mut sa4 = ip::SockAddr::zeroed();
@@ -4822,7 +5411,11 @@ mod tests {
             sin.sin_family = libc::AF_INET as libc::sa_family_t;
             sin.sin_addr.s_addr = u32::from(std::net::Ipv4Addr::new(127, 0, 0, 1)).to_be();
             let n = std::mem::size_of::<libc::sockaddr_in>();
-            std::ptr::copy_nonoverlapping(std::ptr::from_ref(&sin).cast::<u8>(), sa4.addr.as_mut_ptr(), n);
+            std::ptr::copy_nonoverlapping(
+                std::ptr::from_ref(&sin).cast::<u8>(),
+                sa4.addr.as_mut_ptr(),
+                n,
+            );
             sa4.salen = n as u32;
             assert_eq!(host_addr_text(&sa4), "127.0.0.1");
         }

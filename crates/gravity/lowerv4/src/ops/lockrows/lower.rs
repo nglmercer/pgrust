@@ -109,7 +109,7 @@ use gravity_ir::{ConvOp, HostFlags, IntBinOp, IntCond, Type, Value};
 use gravity_program::program::LockSite;
 use gravity_program::{LockKind, Parallel, SiteDesc};
 
-use crate::ops::lockrows::plan::{Census, Form, Plan, RunnerAnswer};
+use crate::admit::refusal::{Reason, ShapeWhy, Variant};
 use crate::face::end::{EndMech, SinkKind};
 use crate::face::kinds::{Face, KindId};
 use crate::face::step::StepMech;
@@ -119,36 +119,50 @@ use crate::frame::iface::limit_bounds;
 use crate::frame::open::{Base, OpenWord, OpenWords};
 use crate::frame::px::Px;
 use crate::frame::row::{Carry, RowVals};
-use crate::admit::refusal::{Reason, ShapeWhy, Variant};
+use crate::ops::lockrows::plan::{Census, Form, Plan, RunnerAnswer};
 
-use crate::rerun::epq::epq_ir::Epq;
-use crate::ops::lockrows::epq::epq_of;
 use crate::effects::visible::lockrows::{calm_call, quiet_ref_build};
+use crate::ops::lockrows::epq::epq_of;
+use crate::rerun::epq::epq_ir::Epq;
 use gravity_decompose::catalog::typefacts::{self, TypeFacts};
 use gravity_decompose::join::JoinDesc;
 use types_nodes::jointype::JoinType;
 use types_nodes::plannodes::RowMarkType;
 use types_nodes::primnodes::OUTER_VAR;
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { kinds: &[(KindId::WriteLock, &StepMaker(make))], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    kinds: &[(KindId::WriteLock, &StepMaker(make))],
+    ..crate::ops::NONE
+};
 
 /// The named refusals (module doc).
 /// D3506 SETLOCK (rerun/epq/set_lock.rs): a lock whose SubPlan steps probe the sets of locks in hashed SubPlans' plans,
 /// beside no write it pairs with (plan.rs `Plan::write_pair`).
-pub(crate) const SET_UNPAIRED: ShapeWhy = ShapeWhy("a lock probing a hashed SubPlan whose plan locks, beside no write it pairs with (D3506)");
-pub(crate) const LIMIT_ABOVE: ShapeWhy = ShapeWhy("a LIMIT / OFFSET above LockRows over a join (the runner's EPQ, L0-h)");
+pub(crate) const SET_UNPAIRED: ShapeWhy = ShapeWhy(
+    "a lock probing a hashed SubPlan whose plan locks, beside no write it pairs with (D3506)",
+);
+pub(crate) const LIMIT_ABOVE: ShapeWhy =
+    ShapeWhy("a LIMIT / OFFSET above LockRows over a join (the runner's EPQ, L0-h)");
 /// V4R-316: a SubPlan op below the lock, which the in-IR recheck would run again over the newer version.
-const SUBPLAN_EPQ: ShapeWhy = ShapeWhy("a LIMIT / OFFSET above LockRows over a SubPlan (the recheck's subplan, L0-h)");
-pub(crate) const OP_ABOVE: ShapeWhy = ShapeWhy("an op above LockRows other than its projection (EPQ resume, L0-h)");
-pub(crate) const NOT_OWN: ShapeWhy = ShapeWhy("a row lock over a join, sort, subquery or non-heap source (EPQ over several sites)");
-pub(crate) const NOT_SINK: ShapeWhy = ShapeWhy("a row lock whose rows do not go to the client (EPQ sends the rechecked row there)");
+const SUBPLAN_EPQ: ShapeWhy =
+    ShapeWhy("a LIMIT / OFFSET above LockRows over a SubPlan (the recheck's subplan, L0-h)");
+pub(crate) const OP_ABOVE: ShapeWhy =
+    ShapeWhy("an op above LockRows other than its projection (EPQ resume, L0-h)");
+pub(crate) const NOT_OWN: ShapeWhy =
+    ShapeWhy("a row lock over a join, sort, subquery or non-heap source (EPQ over several sites)");
+pub(crate) const NOT_SINK: ShapeWhy =
+    ShapeWhy("a row lock whose rows do not go to the client (EPQ sends the rechecked row there)");
 /// L2: a partitioned / inheritance family's lock beside another relation's mark (a join's REFERENCE / COPY marks, D655).
-pub(crate) const FAMILY_JOIN: ShapeWhy = ShapeWhy("a row lock over a partitioned or inheritance parent beside another marked relation (D655)");
+pub(crate) const FAMILY_JOIN: ShapeWhy = ShapeWhy(
+    "a row lock over a partitioned or inheritance parent beside another marked relation (D655)",
+);
 /// L2: a family's rows read back from a breaker, not from each leaf's scan: the union kept in its Materialize form (an
 /// op the arms cannot copy), a MergeAppend, or a sort below the lock (EPQ over a leaf the breaker holds by position).
 const FAMILY_BREAKER: ShapeWhy = ShapeWhy("a row lock over a parent's leaves read back from a breaker (a Materialize union, a MergeAppend or a sort)");
 /// L2: every arm counts the LockRows node's loops, so EXPLAIN ANALYZE would read one loop per leaf.
-const ANALYZE_ARMS: ShapeWhy = ShapeWhy("EXPLAIN ANALYZE of a row lock over a parent's leaves (the LockRows node's loops per arm)");
+const ANALYZE_ARMS: ShapeWhy = ShapeWhy(
+    "EXPLAIN ANALYZE of a row lock over a parent's leaves (the LockRows node's loops per arm)",
+);
 
 /// A site number, placed at the make or (a family's arms) at emit (`Px::place_late_sites`), read while lowering.
 type Late = Rc<Cell<usize>>;
@@ -197,24 +211,68 @@ fn shape(node: i32, why: ShapeWhy) -> ! {
 
 fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMech + 'g> {
     let p = &px.gx.pipelines()[k];
-    let node = p.node_ops.iter().rev().find(|n| n.first_op as usize <= j).map_or(p.node_id, |n| n.node_id);
-    let Op::Lock(d) = &p.ops[j] else { crate::refuse!(node, Reason::Bug { payload: "a write.lock step over another op" }) };
+    let node = p
+        .node_ops
+        .iter()
+        .rev()
+        .find(|n| n.first_op as usize <= j)
+        .map_or(p.node_id, |n| n.node_id);
+    let Op::Lock(d) = &p.ops[j] else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a write.lock step over another op"
+            }
+        )
+    };
     if matches!(p.desc.parallel, Parallel::Eligible) {
-        crate::refuse!(node, Reason::Bug { payload: "a row lock on a parallel-eligible pipeline (decompose makes a lock serial)" });
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload:
+                    "a row lock on a parallel-eligible pipeline (decompose makes a lock serial)"
+            }
+        );
     }
-    let RunnerAnswer { mark, pair, sub_claim, product, subs, twin } = match Plan(px).form(k, j, node, d) {
+    let RunnerAnswer {
+        mark,
+        pair,
+        sub_claim,
+        product,
+        subs,
+        twin,
+    } = match Plan(px).form(k, j, node, d) {
         Form::NoRows => return mcx::pg_box_dyn!(px.mcx(), NoRows => dyn StepMech + 'g),
         Form::SetLock(site) => return set_lock(px, node, d, (k, j), site),
         Form::SubLock(s) => return sub_lock(px, node, d, (k, j), &s),
         Form::SortSubClaim { at, col } => return sort_sub_claim(px, node, d, at, col),
-        Form::Breaker { at, col, fetch, mark } => return breaker_lock(px, node, d, at, col, fetch.rows(), mark),
-        Form::Tail { at, col, fetch, mark } => return tail_lock(px, node, d, (at, (k, j)), col, fetch.rows(), mark),
-        Form::RefNest { ctid, fetch, mark } => return ref_nest_lock(px, node, d, (k, j), (ctid, fetch.rows()), mark),
+        Form::Breaker {
+            at,
+            col,
+            fetch,
+            mark,
+        } => return breaker_lock(px, node, d, at, col, fetch.rows(), mark),
+        Form::Tail {
+            at,
+            col,
+            fetch,
+            mark,
+        } => return tail_lock(px, node, d, (at, (k, j)), col, fetch.rows(), mark),
+        Form::RefNest { ctid, fetch, mark } => {
+            return ref_nest_lock(px, node, d, (k, j), (ctid, fetch.rows()), mark)
+        }
         Form::Probe { col, mark } => return probe_lock(px, node, d, (k, j), col, mark),
-        Form::LockNest { at, ctid, mark } => return lock_nest_lock(px, node, d, (k, j), at, ctid, mark),
+        Form::LockNest { at, ctid, mark } => {
+            return lock_nest_lock(px, node, d, (k, j), at, ctid, mark)
+        }
         Form::Pair(f) => return crate::ops::lockrows::pair::lock_pair(px, node, d, (k, j), f),
         Form::RefBuild(rb, mark) => return ref_build_lock(px, node, d, (k, j), &rb, mark),
-        Form::Family { arms, ctid, toid, mark } => return family_lock(px, node, d, &arms, ctid, toid, mark),
+        Form::Family {
+            arms,
+            ctid,
+            toid,
+            mark,
+        } => return family_lock(px, node, d, &arms, ctid, toid, mark),
         Form::SortChain(sc) => return sort_chain_lock(px, node, d, &sc),
         Form::Drain(rd, mark) => return drain_lock(px, node, d, &rd, mark),
         Form::Marks { fam } => return crate::ops::lockrows::marks::make(px, k, j, node, d, fam),
@@ -222,7 +280,18 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMech +
     };
     let marks = match product || subs {
         true => crate::rerun::epq::marks::Marks::none(px.mcx()),
-        false => crate::rerun::epq::marks::sites_in(px, k, node, &d.marks, &|rti| d.marks.iter().any(|m| m.rti == rti && m.lock != LockKind::None), true),
+        false => crate::rerun::epq::marks::sites_in(
+            px,
+            k,
+            node,
+            &d.marks,
+            &|rti| {
+                d.marks
+                    .iter()
+                    .any(|m| m.rti == rti && m.lock != LockKind::None)
+            },
+            true,
+        ),
     };
     let (relid, arm, limit) = admit(px, k, j, d, node, product, subs);
     // lockrows L1-RERUN (main 10-03 item 3): over a join the runner's recheck reruns each producer the REFERENCE / COPY
@@ -249,7 +318,10 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMech +
     }
     // V4R-316 (L0-h): under a LIMIT / OFFSET the recheck runs in the IR (`Epq`); over a join the runner's (D655)
     let epq = (limit || product || subs).then(|| match subs {
-        true => PgRc::new_in(crate::ops::lockrows::epq::epq_of_subs(px, k, j, node, relid).twinning(twin), px.mcx()),
+        true => PgRc::new_in(
+            crate::ops::lockrows::epq::epq_of_subs(px, k, j, node, relid).twinning(twin),
+            px.mcx(),
+        ),
         false => PgRc::new_in(epq_of(px, k, j, node, relid, limit), px.mcx()),
     });
     if arm && crate::frame::instr::on() {
@@ -263,8 +335,12 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMech +
     // one write plan per program (`Px::write`): a lock beside a data-modifying CTE is a second one (L0-d); a family's
     // later arms share the first arm's site and plan
     if px.write_plan().is_some() && mark == 0 {
-        let shared = px.ext::<LockArms>(Face::RowOp).filter(|c| arm && c.node == node && px.write_plan() == Some(&d.plan));
-        let Some(c) = shared else { crate::not_built!(node, Variant::Kind(KindId::NestCte)) };
+        let shared = px
+            .ext::<LockArms>(Face::RowOp)
+            .filter(|c| arm && c.node == node && px.write_plan() == Some(&d.plan));
+        let Some(c) = shared else {
+            crate::not_built!(node, Variant::Kind(KindId::NestCte))
+        };
         return mcx::pg_box_dyn!(px.mcx(), Lock { site: c.site.clone(), relid, node, marks, epq, mark, junk: None, fam: None, again } => dyn StepMech + 'g);
     }
     // lockrows JOBQ: the statement's own write keeps the program's write plan (its claim may come before or after this make)
@@ -274,8 +350,23 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMech +
     // D655: a lock over a join numbers its site late too (the other pipelines' source sites come first); V4R-527: so does
     // one beside an InitPlan (D1710's class: exec admit's host registry is positional over the source sites)
     // V4R-316: the recheck reads the newer version from the lock site's cells (RL1b), as wide as the widest leaf
-    let natts = if epq.is_some() { d.marks.iter().filter_map(|m| px.gx.facts.rel(m.relid)).map(|r| r.natts.max(0) as u16).max().unwrap_or(0) } else { 0 };
-    let init = px.gx.graph.init_plans.iter().any(|i| i.pipeline as usize != k && !matches!(i.link, gravity_decompose::ops::shared::subplan::SubLink::Cte));
+    let natts = if epq.is_some() {
+        d.marks
+            .iter()
+            .filter_map(|m| px.gx.facts.rel(m.relid))
+            .map(|r| r.natts.max(0) as u16)
+            .max()
+            .unwrap_or(0)
+    } else {
+        0
+    };
+    let init = px.gx.graph.init_plans.iter().any(|i| {
+        i.pipeline as usize != k
+            && !matches!(
+                i.link,
+                gravity_decompose::ops::shared::subplan::SubLink::Cte
+            )
+    });
     // D3276 (DRAINED LOCK): so does one beside drained CTEs (made first, their source sites numbered before its own);
     // D3379 LOCKPOST: or beside a post CTE (its pipelines made last, its source sites numbered before the lock's)
     let drained = !px.gx.after_emit().is_empty();
@@ -284,7 +375,10 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMech +
         false => Rc::new(Cell::new(px.add_site(SiteDesc::write(relid, natts)))),
     };
     if arm && mark == 0 {
-        *px.ext_mut::<LockArms>(Face::RowOp) = LockArms { node, site: site.clone() };
+        *px.ext_mut::<LockArms>(Face::RowOp) = LockArms {
+            node,
+            site: site.clone(),
+        };
     }
     mcx::pg_box_dyn!(px.mcx(), Lock { site, relid, node, marks, epq, mark, junk: None, fam: None, again } => dyn StepMech + 'g)
 }
@@ -296,7 +390,11 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMech +
 /// `epq_of_tail`).
 pub(crate) fn sort_tail(p: &gravity_decompose::PipelineNode<'_>, j: usize) -> bool {
     let ops = &p.ops[..j];
-    ops.iter().any(|o| matches!(o, Op::SubPlan(_))) && ops.iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_) | Op::SubPlan(_))) && ops.first().is_some_and(sort_emit)
+    ops.iter().any(|o| matches!(o, Op::SubPlan(_)))
+        && ops
+            .iter()
+            .all(|o| matches!(o, Op::Filter(_) | Op::Project(_) | Op::SubPlan(_)))
+        && ops.first().is_some_and(sort_emit)
 }
 
 /// Where plan.rs `breaker_limit`'s lock sits among the statement's pipelines: alone with its Sort's producer (15b), in a CTE's store
@@ -328,7 +426,12 @@ pub(crate) enum Beside {
 /// (REFNEST-FEED's hash plan): or direct with no LIMIT / OFFSET, its rows feeding a product only the later pipelines
 /// read (`above_only`), the probe INNER or LEFT. Some((producer, its ops before the sort build, the lock's junk ctid column, (build pipeline, the REFERENCE mark's junk
 /// ctid column, its relation))), else none.
-pub(crate) fn ref_limit(gx: &crate::graph::Gx<'_, '_>, k: usize, j: usize, d: &LockDesc<'_>) -> Option<(usize, usize, i16, (usize, i16, u32))> {
+pub(crate) fn ref_limit(
+    gx: &crate::graph::Gx<'_, '_>,
+    k: usize,
+    j: usize,
+    d: &LockDesc<'_>,
+) -> Option<(usize, usize, i16, (usize, i16, u32))> {
     let ps = gx.pipelines();
     let p = &ps[k];
     // lockrows REFFETCH direct (gen queue-0015 under a hash plan): the lock in the probe pipeline itself, over the locked
@@ -347,8 +450,16 @@ pub(crate) fn ref_limit(gx: &crate::graph::Gx<'_, '_>, k: usize, j: usize, d: &L
     let plain_op = |o: &Op<'_>| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_));
     let above = match slot {
         Some(_) => p.ops[..j].iter().all(sort_emit),
-        None if feed > 0 => j + 2 <= p.ops.len() && p.ops[j + 1..p.ops.len() - 1].iter().all(|o| plain_op(o) || limit_op(o)) && !matches!(p.ops.last(), Some(Op::Write(_) | Op::Lock(_))),
-        None => p.ops[j + 1..].iter().all(|o| matches!(o, Op::Project(_)) || limit_op(o)),
+        None if feed > 0 => {
+            j + 2 <= p.ops.len()
+                && p.ops[j + 1..p.ops.len() - 1]
+                    .iter()
+                    .all(|o| plain_op(o) || limit_op(o))
+                && !matches!(p.ops.last(), Some(Op::Write(_) | Op::Lock(_)))
+        }
+        None => p.ops[j + 1..]
+            .iter()
+            .all(|o| matches!(o, Op::Project(_)) || limit_op(o)),
     };
     // AGA-35: beside InitPlans that lock and write nothing, their pipelines counted out (`Census::plain_inits`); the
     // producer and the build pipeline are checked outside them below, and plan.rs `Plan::form` asks `admit_ir_ref` of the producer's part
@@ -359,36 +470,91 @@ pub(crate) fn ref_limit(gx: &crate::graph::Gx<'_, '_>, k: usize, j: usize, d: &L
     // recheck serves the join (L1-RERUN); beside them it would rerun first an InitPlan's producers, which PostgreSQL's
     // EvalPlanQual never runs again (RERUN_FIRST: EvalPlanQualStart copies the value), where this recheck copies it too
     let limited = p.ops[j + 1..].iter().any(limit_op) || inits.is_some_and(|n| n > 0) || feed > 0;
-    if !above || !limited || d.family_top().is_some() || !inits.is_some_and(|n| Census(gx).whole(own + n + feed)) || d.marks.len() != 2 {
+    if !above
+        || !limited
+        || d.family_top().is_some()
+        || !inits.is_some_and(|n| Census(gx).whole(own + n + feed))
+        || d.marks.len() != 2
+    {
         return None;
     }
     let m = d.marks.iter().find(|m| m.lock != LockKind::None)?;
     let r = d.marks.iter().find(|m| m.lock == LockKind::None)?;
-    if m.parent || m.ctid_col <= 0 || m.relid != d.plan.target_rel || r.parent || r.ctid_col <= 0 || r.mark != RowMarkType::ROW_MARK_REFERENCE || r.rti == m.rti {
+    if m.parent
+        || m.ctid_col <= 0
+        || m.relid != d.plan.target_rel
+        || r.parent
+        || r.ctid_col <= 0
+        || r.mark != RowMarkType::ROW_MARK_REFERENCE
+        || r.rti == m.rti
+    {
         return None;
     }
     let heap = |s: &Source<'_>, rti: u32, relid: u32| match s {
-        Source::Range { am: Am::Heap, scanrelid, relid: x, .. } | Source::Bitmap { am: Am::Heap, scanrelid, relid: x, .. } | Source::Index { am: Am::Heap, scanrelid, relid: x, only: false, .. } => u32::from(*scanrelid) == rti && *x == relid,
+        Source::Range {
+            am: Am::Heap,
+            scanrelid,
+            relid: x,
+            ..
+        }
+        | Source::Bitmap {
+            am: Am::Heap,
+            scanrelid,
+            relid: x,
+            ..
+        }
+        | Source::Index {
+            am: Am::Heap,
+            scanrelid,
+            relid: x,
+            only: false,
+            ..
+        } => u32::from(*scanrelid) == rti && *x == relid,
         _ => false,
     };
     let plain = |o: &Op<'_>| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_));
     let q = match slot {
-        Some(slot) => (0..k).rev().find(|&x| ps[x].desc.produces() == Some(slot))?,
+        Some(slot) => (0..k)
+            .rev()
+            .find(|&x| ps[x].desc.produces() == Some(slot))?,
         None => k,
     };
     let pq = &ps[q];
-    let jq = if slot.is_some() { pq.ops.iter().position(|o| matches!(o, Op::Sort(_))).unwrap_or(pq.ops.len()) } else { j };
+    let jq = if slot.is_some() {
+        pq.ops
+            .iter()
+            .position(|o| matches!(o, Op::Sort(_)))
+            .unwrap_or(pq.ops.len())
+    } else {
+        j
+    };
     let at = pq.ops[..jq].iter().position(|o| !plain(o))?;
     // lockrows REFMERGE (lock-0009): direct, or an INNER / SEMI merge join whose inner (spooled) is the REFERENCE relation's
     // own quiet scan: PostgreSQL's EvalPlanQual reruns the merge over the test tuple and that row refetched
     let (bs, merge) = match &pq.ops[at] {
-        Op::Join(JoinDesc::Probe { slot: bs, jointype: JoinType::JOIN_INNER, catalog: false, .. }) => (bs, false),
+        Op::Join(JoinDesc::Probe {
+            slot: bs,
+            jointype: JoinType::JOIN_INNER,
+            catalog: false,
+            ..
+        }) => (bs, false),
         // D3779: or, direct and feeding a product, a LEFT one (D3596's null-extended refetch, epq_ir.rs `Fetch::left`)
-        Op::Join(JoinDesc::Probe { slot: bs, jointype: JoinType::JOIN_LEFT, catalog: false, .. }) if slot.is_none() && feed > 0 => (bs, false),
-        Op::Join(JoinDesc::Merge { slot: bs, jointype: JoinType::JOIN_INNER | JoinType::JOIN_SEMI, .. }) if slot.is_none() => (bs, true),
+        Op::Join(JoinDesc::Probe {
+            slot: bs,
+            jointype: JoinType::JOIN_LEFT,
+            catalog: false,
+            ..
+        }) if slot.is_none() && feed > 0 => (bs, false),
+        Op::Join(JoinDesc::Merge {
+            slot: bs,
+            jointype: JoinType::JOIN_INNER | JoinType::JOIN_SEMI,
+            ..
+        }) if slot.is_none() => (bs, true),
         _ => return None,
     };
-    let after = pq.ops[at + 1..jq].iter().all(plain) && matches!(pq.ops[..jq].last(), Some(Op::Project(_))) && (slot.is_none() || pq.ops[jq..].iter().all(|o| matches!(o, Op::Sort(_))));
+    let after = pq.ops[at + 1..jq].iter().all(plain)
+        && matches!(pq.ops[..jq].last(), Some(Op::Project(_)))
+        && (slot.is_none() || pq.ops[jq..].iter().all(|o| matches!(o, Op::Sort(_))));
     if !heap(&pq.source, m.rti, m.relid) || !after || pq.desc.consumes.len() != 1 {
         return None;
     }
@@ -403,7 +569,8 @@ pub(crate) fn ref_limit(gx: &crate::graph::Gx<'_, '_>, k: usize, j: usize, d: &L
     };
     let quiet = quiet_ref_build(gx, pb, below);
     let outside = !Census(gx).init_member(q) && !Census(gx).init_member(bq);
-    (heap(&pb.source, r.rti, r.relid) && quiet && outside && pb.desc.consumes.is_empty()).then_some((q, jq, m.ctid_col, (bq, r.ctid_col, r.relid)))
+    (heap(&pb.source, r.rti, r.relid) && quiet && outside && pb.desc.consumes.is_empty())
+        .then_some((q, jq, m.ctid_col, (bq, r.ctid_col, r.relid)))
 }
 
 /// D3569 REFCOPY (rerun/epq/ref_copy.rs: Odoo's cron acquisition): the lock at op `j` of pipeline `k` over a Sort,
@@ -414,29 +581,61 @@ pub(crate) fn ref_limit(gx: &crate::graph::Gx<'_, '_>, k: usize, j: usize, d: &L
 /// recheck takes a lock's COPY row in a nest inner only over VALUES (marks.rs `lock_values`), so a bound is not needed
 /// here. Some((producer, its ops before the sort build, the lock's junk ctid column, the fetch: the inner, the COPY
 /// mark's whole-row column, `COPY_ROW`)), else none.
-pub(crate) fn ref_copy(gx: &crate::graph::Gx<'_, '_>, k: usize, j: usize, d: &LockDesc<'_>) -> Option<(usize, usize, i16, (usize, i16, u32))> {
+pub(crate) fn ref_copy(
+    gx: &crate::graph::Gx<'_, '_>,
+    k: usize,
+    j: usize,
+    d: &LockDesc<'_>,
+) -> Option<(usize, usize, i16, (usize, i16, u32))> {
     let ps = gx.pipelines();
     let p = &ps[k];
-    let Source::Breaker { slot } = p.source else { return None };
-    if !p.ops[..j].iter().all(sort_emit) || !p.ops[j + 1..].iter().all(|o| matches!(o, Op::Project(_)) || limit_op(o)) {
+    let Source::Breaker { slot } = p.source else {
+        return None;
+    };
+    if !p.ops[..j].iter().all(sort_emit)
+        || !p.ops[j + 1..]
+            .iter()
+            .all(|o| matches!(o, Op::Project(_)) || limit_op(o))
+    {
         return None;
     }
     let (m, c) = crate::rerun::epq::ref_copy::marks(d)?;
-    let q = (0..k).rev().find(|&x| ps[x].desc.produces() == Some(slot))?;
+    let q = (0..k)
+        .rev()
+        .find(|&x| ps[x].desc.produces() == Some(slot))?;
     let pq = &ps[q];
     let jq = pq.ops.iter().position(|o| matches!(o, Op::Sort(_)))?;
     let plain = |o: &Op<'_>| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_));
     let jn = pq.ops[..jq].iter().position(|o| !plain(o))?;
-    let ok = scan_rel(&pq.source) == Some((m.rti, m.relid)) && pq.ops[jn + 1..jq].iter().all(plain) && matches!(pq.ops[..jq].last(), Some(Op::Project(_))) && pq.ops[jq..].iter().all(|o| matches!(o, Op::Sort(_)));
+    let ok = scan_rel(&pq.source) == Some((m.rti, m.relid))
+        && pq.ops[jn + 1..jq].iter().all(plain)
+        && matches!(pq.ops[..jq].last(), Some(Op::Project(_)))
+        && pq.ops[jq..].iter().all(|o| matches!(o, Op::Sort(_)));
     if !ok || Census(gx).init_member(q) {
         return None;
     }
     let (x, at, _) = crate::rerun::epq::ref_copy::inner(gx, q, jn, c)?;
     let up = crate::rerun::epq::copy_row::upstream(gx, x, at);
-    let quiet = up.iter().all(|&u| u < ps.len() && !Census(gx).init_member(u) && !ps[u].ops.iter().any(|o| matches!(o, Op::Write(_) | Op::Lock(_))));
-    let fed = pq.desc.consumes.iter().all(|&s| up.iter().any(|&u| ps[u].desc.produces() == Some(s)));
+    let quiet = up.iter().all(|&u| {
+        u < ps.len()
+            && !Census(gx).init_member(u)
+            && !ps[u]
+                .ops
+                .iter()
+                .any(|o| matches!(o, Op::Write(_) | Op::Lock(_)))
+    });
+    let fed = pq
+        .desc
+        .consumes
+        .iter()
+        .all(|&s| up.iter().any(|&u| ps[u].desc.produces() == Some(s)));
     let n = Census(gx).inits(k, q)?;
-    (quiet && fed && Census(gx).whole(2 + n + up.len())).then_some((q, jq, m.ctid_col, (x, c.ctid_col, crate::rerun::epq::ref_copy::COPY_ROW)))
+    (quiet && fed && Census(gx).whole(2 + n + up.len())).then_some((
+        q,
+        jq,
+        m.ctid_col,
+        (x, c.ctid_col, crate::rerun::epq::ref_copy::COPY_ROW),
+    ))
 }
 
 /// D3567 REFCHAIN (Airflow's executable task instances: `SELECT task_instance.* FROM task_instance JOIN dag_run ON ..
@@ -454,27 +653,60 @@ pub(crate) fn ref_copy(gx: &crate::graph::Gx<'_, '_>, k: usize, j: usize, d: &Lo
 /// the statement's other pipelines the builds' and those of InitPlans that lock and write nothing. Some((producer, its
 /// ops before the sort build, the lock's junk ctid column, each join's fetch in op order: (the REFERENCE part's
 /// pipeline, its mark's junk ctid column, its relation))), else none.
-pub(crate) fn ref_chain<'g>(gx: &crate::graph::Gx<'g, '_>, k: usize, j: usize, d: &LockDesc<'_>) -> Option<(usize, usize, i16, PgVec<'g, (usize, i16, u32)>)> {
+pub(crate) fn ref_chain<'g>(
+    gx: &crate::graph::Gx<'g, '_>,
+    k: usize,
+    j: usize,
+    d: &LockDesc<'_>,
+) -> Option<(usize, usize, i16, PgVec<'g, (usize, i16, u32)>)> {
     let ps = gx.pipelines();
     let p = &ps[k];
-    let Source::Breaker { slot } = p.source else { return None };
-    if !p.ops[..j].iter().all(sort_emit) || !p.ops[j + 1..].iter().all(|o| matches!(o, Op::Project(_)) || limit_op(o)) || !p.ops[j + 1..].iter().any(limit_op) {
+    let Source::Breaker { slot } = p.source else {
+        return None;
+    };
+    if !p.ops[..j].iter().all(sort_emit)
+        || !p.ops[j + 1..]
+            .iter()
+            .all(|o| matches!(o, Op::Project(_)) || limit_op(o))
+        || !p.ops[j + 1..].iter().any(limit_op)
+    {
         return None;
     }
     if d.family().is_some() || d.family_top().is_some() || d.marks.len() < 2 {
         return None;
     }
     let mut locking = d.marks.iter().filter(|m| m.lock != LockKind::None);
-    let (Some(m), None) = (locking.next(), locking.next()) else { return None };
-    let refs: PgVec<'_, &gravity_decompose::ops::shared::modifytable::RowMark> = d.marks.iter().filter(|r| r.lock == LockKind::None).collect_in(gx.mcx);
-    if m.parent || m.ctid_col <= 0 || m.relid != d.plan.target_rel || refs.iter().any(|r| r.parent || r.ctid_col <= 0 || r.mark != RowMarkType::ROW_MARK_REFERENCE || r.rti == m.rti) {
+    let (Some(m), None) = (locking.next(), locking.next()) else {
+        return None;
+    };
+    let refs: PgVec<'_, &gravity_decompose::ops::shared::modifytable::RowMark> = d
+        .marks
+        .iter()
+        .filter(|r| r.lock == LockKind::None)
+        .collect_in(gx.mcx);
+    if m.parent
+        || m.ctid_col <= 0
+        || m.relid != d.plan.target_rel
+        || refs.iter().any(|r| {
+            r.parent
+                || r.ctid_col <= 0
+                || r.mark != RowMarkType::ROW_MARK_REFERENCE
+                || r.rti == m.rti
+        })
+    {
         return None;
     }
-    let q = (0..k).rev().find(|&x| ps[x].desc.produces() == Some(slot))?;
+    let q = (0..k)
+        .rev()
+        .find(|&x| ps[x].desc.produces() == Some(slot))?;
     let pq = &ps[q];
     let n = Census(gx).inits(k, q)?;
     let jq = pq.ops.iter().position(|o| matches!(o, Op::Sort(_)))?;
-    if scan_rel(&pq.source) != Some((m.rti, m.relid)) || !pq.ops[jq..].iter().all(|o| matches!(o, Op::Sort(_))) || !matches!(pq.ops[..jq].last(), Some(Op::Project(_))) || Census(gx).init_member(q) {
+    if scan_rel(&pq.source) != Some((m.rti, m.relid))
+        || !pq.ops[jq..].iter().all(|o| matches!(o, Op::Sort(_)))
+        || !matches!(pq.ops[..jq].last(), Some(Op::Project(_)))
+        || Census(gx).init_member(q)
+    {
         return None;
     }
     let mut fetches: PgVec<'g, (usize, i16, u32)> = PgVec::new_in(gx.mcx);
@@ -482,25 +714,55 @@ pub(crate) fn ref_chain<'g>(gx: &crate::graph::Gx<'g, '_>, k: usize, j: usize, d
     let mut builds = 0;
     let mut lefts = 0;
     for (i, o) in pq.ops[..jq].iter().enumerate() {
-        lefts += usize::from(matches!(o, Op::Join(JoinDesc::Probe { jointype: JoinType::JOIN_LEFT, .. } | JoinDesc::Nest { jointype: JoinType::JOIN_LEFT, .. })));
-        let free = |rti: u32| refs.iter().copied().find(|r| r.rti == rti && !used.contains(&r.rti));
+        lefts += usize::from(matches!(
+            o,
+            Op::Join(
+                JoinDesc::Probe {
+                    jointype: JoinType::JOIN_LEFT,
+                    ..
+                } | JoinDesc::Nest {
+                    jointype: JoinType::JOIN_LEFT,
+                    ..
+                }
+            )
+        ));
+        let free = |rti: u32| {
+            refs.iter()
+                .copied()
+                .find(|r| r.rti == rti && !used.contains(&r.rti))
+        };
         let (f, r) = match o {
             Op::Filter(_) | Op::Gate(_) | Op::Project(_) => continue,
             // D3596: INNER or LEFT (an ORM's select_related over a nullable relation)
-            Op::Join(JoinDesc::Probe { slot: bs, jointype: JoinType::JOIN_INNER | JoinType::JOIN_LEFT, catalog: false, .. }) => {
+            Op::Join(JoinDesc::Probe {
+                slot: bs,
+                jointype: JoinType::JOIN_INNER | JoinType::JOIN_LEFT,
+                catalog: false,
+                ..
+            }) => {
                 let bq = gx.life_of(q, *bs).map(|l| l.0 as usize)?;
                 let pb = &ps[bq];
-                let Some(Op::Join(JoinDesc::Build { .. })) = pb.ops.last() else { return None };
+                let Some(Op::Join(JoinDesc::Build { .. })) = pb.ops.last() else {
+                    return None;
+                };
                 let (rti, _) = scan_rel(&pb.source)?;
                 let r = free(rti)?;
                 let outside = !Census(gx).init_member(bq);
-                if scan_rel(&pb.source) != Some((r.rti, r.relid)) || !quiet_ref_build(gx, pb, &pb.ops[..pb.ops.len() - 1]) || !outside || !pb.desc.consumes.is_empty() {
+                if scan_rel(&pb.source) != Some((r.rti, r.relid))
+                    || !quiet_ref_build(gx, pb, &pb.ops[..pb.ops.len() - 1])
+                    || !outside
+                    || !pb.desc.consumes.is_empty()
+                {
                     return None;
                 }
                 builds += 1;
                 (bq, r)
             }
-            Op::Join(JoinDesc::Nest { jointype: JoinType::JOIN_INNER | JoinType::JOIN_LEFT, inner, .. }) => {
+            Op::Join(JoinDesc::Nest {
+                jointype: JoinType::JOIN_INNER | JoinType::JOIN_LEFT,
+                inner,
+                ..
+            }) => {
                 let (rti, _) = scan_rel(&inner.source)?;
                 let r = free(rti)?;
                 (crate::rerun::epq::ref_nest::ref_side(gx, q, i, r)?, r)
@@ -512,7 +774,11 @@ pub(crate) fn ref_chain<'g>(gx: &crate::graph::Gx<'g, '_>, k: usize, j: usize, d
     }
     // REFFETCH and SORTNEST take one INNER join (D3596: one LEFT join is this form's); the statement's pipelines: the
     // lock's, the producer, the builds, the InitPlans'
-    if fetches.len() < 2 && lefts == 0 || fetches.len() != refs.len() || !Census(gx).whole(2 + builds + n) || pq.desc.consumes.len() != builds {
+    if fetches.len() < 2 && lefts == 0
+        || fetches.len() != refs.len()
+        || !Census(gx).whole(2 + builds + n)
+        || pq.desc.consumes.len() != builds
+    {
         return None;
     }
     Some((q, jq, m.ctid_col, fetches))
@@ -521,7 +787,25 @@ pub(crate) fn ref_chain<'g>(gx: &crate::graph::Gx<'g, '_>, k: usize, j: usize, d
 /// A heap scan's (range, bitmap, index) (scanrelid, relid), else none.
 fn scan_rel(s: &Source<'_>) -> Option<(u32, u32)> {
     match s {
-        Source::Range { am: Am::Heap, scanrelid, relid, .. } | Source::Bitmap { am: Am::Heap, scanrelid, relid, .. } | Source::Index { am: Am::Heap, scanrelid, relid, only: false, .. } => Some((u32::from(*scanrelid), *relid)),
+        Source::Range {
+            am: Am::Heap,
+            scanrelid,
+            relid,
+            ..
+        }
+        | Source::Bitmap {
+            am: Am::Heap,
+            scanrelid,
+            relid,
+            ..
+        }
+        | Source::Index {
+            am: Am::Heap,
+            scanrelid,
+            relid,
+            only: false,
+            ..
+        } => Some((u32::from(*scanrelid), *relid)),
         _ => None,
     }
 }
@@ -565,7 +849,12 @@ pub(crate) struct RefBuild<'g> {
 /// projections and a LIMIT / OFFSET above the lock, then the product's sink. PostgreSQL's LockRows hands its EvalPlanQual
 /// row to its parent, so the rechecked row goes on through the ops above the lock into the product; the runner's recheck
 /// would send it to the client (rerun/epq/marks.rs EMIT_ONLY; lockrows/marks.rs OP_ABOVE).
-pub(crate) fn ref_build<'g>(gx: &crate::graph::Gx<'g, '_>, k: usize, j: usize, d: &LockDesc<'_>) -> Option<RefBuild<'g>> {
+pub(crate) fn ref_build<'g>(
+    gx: &crate::graph::Gx<'g, '_>,
+    k: usize,
+    j: usize,
+    d: &LockDesc<'_>,
+) -> Option<RefBuild<'g>> {
     use crate::ops::lockrows::lock_init::init_param;
     // D3777 LOCKMERGE: or the locked relation the inner of PostgreSQL's Merge Join
     if let Some(rb) = ref_merge(gx, k, j, d) {
@@ -578,12 +867,25 @@ pub(crate) fn ref_build<'g>(gx: &crate::graph::Gx<'g, '_>, k: usize, j: usize, d
     let n = Census(gx).inits(k, k)?;
     // D4688 REFBUILD-FEED: or the lock pipeline's rows feeding a product only the later pipelines read
     let feed = match lp.desc.produces() {
-        Some(_) if !matches!(lp.source, Source::Breaker { .. }) => Census(gx).above_only(k).filter(|&a| a > 0)?,
+        Some(_) if !matches!(lp.source, Source::Breaker { .. }) => {
+            Census(gx).above_only(k).filter(|&a| a > 0)?
+        }
         _ => 0,
     };
     let above = match feed {
-        0 => lp.desc.produces().is_none() && lp.ops[j + 1..].iter().all(|o| matches!(o, Op::Project(_)) || limit_op(o)),
-        _ => j + 2 <= lp.ops.len() && lp.ops[j + 1..lp.ops.len() - 1].iter().all(|o| plain(o) || limit_op(o)) && !matches!(lp.ops.last(), Some(Op::Write(_) | Op::Lock(_))),
+        0 => {
+            lp.desc.produces().is_none()
+                && lp.ops[j + 1..]
+                    .iter()
+                    .all(|o| matches!(o, Op::Project(_)) || limit_op(o))
+        }
+        _ => {
+            j + 2 <= lp.ops.len()
+                && lp.ops[j + 1..lp.ops.len() - 1]
+                    .iter()
+                    .all(|o| plain(o) || limit_op(o))
+                && !matches!(lp.ops.last(), Some(Op::Write(_) | Op::Lock(_)))
+        }
     };
     if !above {
         return None;
@@ -592,8 +894,15 @@ pub(crate) fn ref_build<'g>(gx: &crate::graph::Gx<'g, '_>, k: usize, j: usize, d
     // table built): one table under a LIMIT / OFFSET, the lock pipeline the Sort's emit, the probe pipeline its producer up to
     // the sort build (PostgreSQL's EvalPlanQual reruns the Sort over the join's one row)
     let (k, j, sorted) = match lp.source {
-        Source::Breaker { slot } if limit && d.family_top().is_none() && lp.ops[..j].iter().all(sort_emit) && lp.desc.consumes.len() == 1 => {
-            let q = (0..k).rev().find(|&x| ps[x].desc.produces() == Some(slot))?;
+        Source::Breaker { slot }
+            if limit
+                && d.family_top().is_none()
+                && lp.ops[..j].iter().all(sort_emit)
+                && lp.desc.consumes.len() == 1 =>
+        {
+            let q = (0..k)
+                .rev()
+                .find(|&x| ps[x].desc.produces() == Some(slot))?;
             let jq = ps[q].ops.iter().position(|o| matches!(o, Op::Sort(_)))?;
             if !ps[q].ops[jq..].iter().all(|o| matches!(o, Op::Sort(_))) {
                 return None;
@@ -607,16 +916,44 @@ pub(crate) fn ref_build<'g>(gx: &crate::graph::Gx<'g, '_>, k: usize, j: usize, d
         return None;
     }
     let jp = p.ops[..j].iter().position(|o| !plain(o))?;
-    let Op::Join(JoinDesc::Probe { slot: bs, jointype: JoinType::JOIN_INNER, catalog: false, .. }) = &p.ops[jp] else { return None };
+    let Op::Join(JoinDesc::Probe {
+        slot: bs,
+        jointype: JoinType::JOIN_INNER,
+        catalog: false,
+        ..
+    }) = &p.ops[jp]
+    else {
+        return None;
+    };
     let heap = |s: &Source<'_>| match s {
-        Source::Range { am: Am::Heap, scanrelid, relid, .. } | Source::Bitmap { am: Am::Heap, scanrelid, relid, .. } | Source::Index { am: Am::Heap, scanrelid, relid, only: false, .. } => Some((u32::from(*scanrelid), *relid)),
+        Source::Range {
+            am: Am::Heap,
+            scanrelid,
+            relid,
+            ..
+        }
+        | Source::Bitmap {
+            am: Am::Heap,
+            scanrelid,
+            relid,
+            ..
+        }
+        | Source::Index {
+            am: Am::Heap,
+            scanrelid,
+            relid,
+            only: false,
+            ..
+        } => Some((u32::from(*scanrelid), *relid)),
         _ => None,
     };
     // AGA-35 form 3: a counted-out InitPlan's parameter reads as a bound word (no InitPlan: `raise_free` and
     // `ops_raise_free` exactly, op_raise_free's filter, gate and projection arms and no other op)
     let bound = |id: i32| init_param(gx, id);
     // D3379 REFCALM: or a `calm_call` (REFMERGE's rule): the refetched probe row is the version the join read
-    let rf = |n: types_nodes::Node<'_>| crate::effects::raise_free_by(gx, n, &bound, false) || calm_call(gx, n);
+    let rf = |n: types_nodes::Node<'_>| {
+        crate::effects::raise_free_by(gx, n, &bound, false) || calm_call(gx, n)
+    };
     let op_rf = |o: &Op<'_>| match o {
         Op::Filter(n) | Op::Gate(n) => rf(*n),
         Op::Project(l) => l.iter().all(rf),
@@ -624,14 +961,23 @@ pub(crate) fn ref_build<'g>(gx: &crate::graph::Gx<'g, '_>, k: usize, j: usize, d
     };
     let quiet = |q: &gravity_decompose::PipelineNode<'_>, ops: &[Op<'_>]| {
         let recheck = match &q.source {
-            Source::Index { recheck, .. } | Source::Bitmap { recheck, .. } => recheck.iter().all(rf),
+            Source::Index { recheck, .. } | Source::Bitmap { recheck, .. } => {
+                recheck.iter().all(rf)
+            }
             _ => true,
         };
         recheck && ops.iter().all(op_rf)
     };
     let (prti, prel) = heap(&p.source)?;
     let r = d.marks.iter().find(|m| m.rti == prti)?;
-    if r.mark != RowMarkType::ROW_MARK_REFERENCE || r.lock != LockKind::None || r.parent || r.ctid_col <= 0 || r.relid != prel || !p.ops[jp + 1..j].iter().all(plain) || !quiet(p, &p.ops[..jp]) {
+    if r.mark != RowMarkType::ROW_MARK_REFERENCE
+        || r.lock != LockKind::None
+        || r.parent
+        || r.ctid_col <= 0
+        || r.relid != prel
+        || !p.ops[jp + 1..j].iter().all(plain)
+        || !quiet(p, &p.ops[..jp])
+    {
         return None;
     }
     let b = (0..k).rev().find(|&x| ps[x].desc.produces() == Some(*bs))?;
@@ -644,11 +990,27 @@ pub(crate) fn ref_build<'g>(gx: &crate::graph::Gx<'g, '_>, k: usize, j: usize, d
     let fetch = (r.ctid_col, r.relid);
     let Some(top) = d.family_top() else {
         // one table: its one locking mark, the build scan's own, under a LIMIT / OFFSET (D4688: or feeding a product)
-        let ([m], true) = (others.as_slice(), limit || feed > 0) else { return None };
-        let own = heap(&pb.source) == Some((m.rti, m.relid)) && pb.ops[..jb].iter().all(plain) && pb.desc.consumes.is_empty();
-        let mark = m.lock != LockKind::None && !m.parent && m.ctid_col > 0 && m.relid == d.plan.target_rel;
+        let ([m], true) = (others.as_slice(), limit || feed > 0) else {
+            return None;
+        };
+        let own = heap(&pb.source) == Some((m.rti, m.relid))
+            && pb.ops[..jb].iter().all(plain)
+            && pb.desc.consumes.is_empty();
+        let mark =
+            m.lock != LockKind::None && !m.parent && m.ctid_col > 0 && m.relid == d.plan.target_rel;
         let at = sorted.then_some((k, j));
-        return (own && mark && Census(gx).whole(n + feed + if sorted { 3 } else { 2 })).then(|| RefBuild { arms: mcx::pg_vec![in gx.mcx; (b, jb, m.relid)], union: None, jp, ctid: m.ctid_col, toid: None, fetch, at, so: None });
+        return (own && mark && Census(gx).whole(n + feed + if sorted { 3 } else { 2 })).then(
+            || RefBuild {
+                arms: mcx::pg_vec![in gx.mcx; (b, jb, m.relid)],
+                union: None,
+                jp,
+                ctid: m.ctid_col,
+                toid: None,
+                fetch,
+                at,
+                so: None,
+            },
+        );
     };
     // one family: the top parent's kin and the probe side's mark, nothing else (no feed: D4688's form is one table's)
     if feed > 0 || others.iter().any(|m| m.prti != top) {
@@ -656,32 +1018,72 @@ pub(crate) fn ref_build<'g>(gx: &crate::graph::Gx<'g, '_>, k: usize, j: usize, d
     }
     let ctid = others.iter().find(|m| m.rti == top)?.ctid_col;
     let toid = crate::ops::lockrows::marks::tableoid_col(d)?;
-    let Some(Op::Append(AppendDesc::Union { slot: us, children, prune: None })) = pb.ops.first() else {
+    let Some(Op::Append(AppendDesc::Union {
+        slot: us,
+        children,
+        prune: None,
+    })) = pb.ops.first()
+    else {
         // FAMJOIN (D655): a family the planner pruned to one leaf (its Append elided, the parent's mark kept):
         // that leaf's own heap scan builds, the one arm the row's tableoid names
         let kids: PgVec<'_, &&RowMark> = others.iter().filter(|m| m.rti != top).collect_in(gx.mcx);
-        let ([m], Some((rti, relid))) = (kids.as_slice(), heap(&pb.source)) else { return None };
+        let ([m], Some((rti, relid))) = (kids.as_slice(), heap(&pb.source)) else {
+            return None;
+        };
         let leaf = !m.parent && m.rti == rti && m.relid == relid && m.lock != LockKind::None;
-        let own = pb.ops[..jb].iter().all(plain) && pb.desc.consumes.is_empty() && Census(gx).whole(n + 2);
-        return (leaf && own && ctid > 0 && !sorted).then(|| RefBuild { arms: mcx::pg_vec![in gx.mcx; (b, jb, m.relid)], union: None, jp, ctid, toid: Some(toid), fetch, at: None, so: None });
+        let own = pb.ops[..jb].iter().all(plain)
+            && pb.desc.consumes.is_empty()
+            && Census(gx).whole(n + 2);
+        return (leaf && own && ctid > 0 && !sorted).then(|| RefBuild {
+            arms: mcx::pg_vec![in gx.mcx; (b, jb, m.relid)],
+            union: None,
+            jp,
+            ctid,
+            toid: Some(toid),
+            fetch,
+            at: None,
+            so: None,
+        });
     };
     if ctid <= 0 || !pb.ops[1..jb].iter().all(plain) || pb.desc.consumes.len() != 1 {
         return None;
     }
-    let last = gx.life_of(b, *us).map(|l| l.0 as usize).filter(|&l| l < b)?;
-    let feeds_slot = |q: usize| ps[q].ops.iter().position(|o| matches!(o, Op::Append(AppendDesc::Feed { slot, .. }) if slot == us));
-    let mut feeds: PgVec<'_, usize> = (0..=last).rev().filter(|&q| feeds_slot(q).is_some()).take(*children as usize).collect_in(gx.mcx);
+    let last = gx
+        .life_of(b, *us)
+        .map(|l| l.0 as usize)
+        .filter(|&l| l < b)?;
+    let feeds_slot = |q: usize| {
+        ps[q]
+            .ops
+            .iter()
+            .position(|o| matches!(o, Op::Append(AppendDesc::Feed { slot, .. }) if slot == us))
+    };
+    let mut feeds: PgVec<'_, usize> = (0..=last)
+        .rev()
+        .filter(|&q| feeds_slot(q).is_some())
+        .take(*children as usize)
+        .collect_in(gx.mcx);
     feeds.reverse();
-    if feeds.len() != *children as usize || feeds.last() != Some(&last) || !Census(gx).whole(feeds.len() + 2 + n) || feeds.iter().any(|&q| Census(gx).init_member(q)) {
+    if feeds.len() != *children as usize
+        || feeds.last() != Some(&last)
+        || !Census(gx).whole(feeds.len() + 2 + n)
+        || feeds.iter().any(|&q| Census(gx).init_member(q))
+    {
         return None;
     }
     let mut arms: PgVec<'g, (usize, usize, u32)> = mcx::reserved_in(feeds.len(), gx.mcx);
     for q in feeds {
         let pq = &ps[q];
         let (rti, relid) = heap(&pq.source)?;
-        let m = others.iter().find(|m| !m.parent && m.rti == rti && m.relid == relid && m.lock != LockKind::None)?;
+        let m = others
+            .iter()
+            .find(|m| !m.parent && m.rti == rti && m.relid == relid && m.lock != LockKind::None)?;
         let jq = feeds_slot(q)?;
-        if jq + 1 != pq.ops.len() || !pq.ops[..jq].iter().all(plain) || !pq.desc.consumes.is_empty() || arms.iter().any(|a: &(usize, usize, u32)| a.2 == m.relid) {
+        if jq + 1 != pq.ops.len()
+            || !pq.ops[..jq].iter().all(plain)
+            || !pq.desc.consumes.is_empty()
+            || arms.iter().any(|a: &(usize, usize, u32)| a.2 == m.relid)
+        {
             return None;
         }
         arms.push_in((q, jq, m.relid));
@@ -689,7 +1091,16 @@ pub(crate) fn ref_build<'g>(gx: &crate::graph::Gx<'g, '_>, k: usize, j: usize, d
     if sorted {
         return None;
     }
-    Some(RefBuild { arms, union: Some((b, jb)), jp, ctid, toid: Some(toid), fetch, at: None, so: None })
+    Some(RefBuild {
+        arms,
+        union: Some((b, jb)),
+        jp,
+        ctid,
+        toid: Some(toid),
+        fetch,
+        at: None,
+        so: None,
+    })
 }
 
 /// D3777 LOCKMERGE (REFBUILD's form over PostgreSQL's Merge Join; realapp-django's m2m `get()` FOR UPDATE OF the link
@@ -703,32 +1114,68 @@ pub(crate) fn ref_build<'g>(gx: &crate::graph::Gx<'g, '_>, k: usize, j: usize, d
 /// (`quiet_ref_build`: raise-free, or REFCALM's calm calls), so it passes again as it passed and the order cannot show.
 /// Lock op `j` of pipeline `k`, no InitPlan, family or product, filters, gates and projections around the merge up to the
 /// lock, projections and at least one LIMIT / OFFSET above, two marks, and no SubPlan in what the recheck evaluates.
-fn ref_merge<'g>(gx: &crate::graph::Gx<'g, '_>, k: usize, j: usize, d: &LockDesc<'_>) -> Option<RefBuild<'g>> {
+fn ref_merge<'g>(
+    gx: &crate::graph::Gx<'g, '_>,
+    k: usize,
+    j: usize,
+    d: &LockDesc<'_>,
+) -> Option<RefBuild<'g>> {
     use crate::rerun::epq::ref_nest::{merge_side, part_reads_subplan};
     let ps = gx.pipelines();
     let p = &ps[k];
     let plain = |o: &Op<'_>| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_));
-    if !gx.graph.init_plans.is_empty() || d.family().is_some() || d.family_top().is_some() || p.desc.produces().is_some() || d.marks.len() != 2 {
+    if !gx.graph.init_plans.is_empty()
+        || d.family().is_some()
+        || d.family_top().is_some()
+        || p.desc.produces().is_some()
+        || d.marks.len() != 2
+    {
         return None;
     }
-    if !p.ops[j + 1..].iter().all(|o| matches!(o, Op::Project(_)) || limit_op(o)) || !p.ops[j + 1..].iter().any(limit_op) {
+    if !p.ops[j + 1..]
+        .iter()
+        .all(|o| matches!(o, Op::Project(_)) || limit_op(o))
+        || !p.ops[j + 1..].iter().any(limit_op)
+    {
         return None;
     }
     let jp = p.ops[..j].iter().position(|o| !plain(o))?;
-    let Op::Join(JoinDesc::Merge { slot, jointype: JoinType::JOIN_INNER, clauses, qual, .. }) = &p.ops[jp] else { return None };
+    let Op::Join(JoinDesc::Merge {
+        slot,
+        jointype: JoinType::JOIN_INNER,
+        clauses,
+        qual,
+        ..
+    }) = &p.ops[jp]
+    else {
+        return None;
+    };
     if !p.ops[jp + 1..j].iter().all(plain) {
         return None;
     }
     let m = d.marks.iter().find(|m| m.lock != LockKind::None)?;
     let r = d.marks.iter().find(|m| m.lock == LockKind::None)?;
-    if m.parent || m.ctid_col <= 0 || m.relid != d.plan.target_rel || r.parent || r.ctid_col <= 0 || r.mark != RowMarkType::ROW_MARK_REFERENCE || r.rti == m.rti {
+    if m.parent
+        || m.ctid_col <= 0
+        || m.relid != d.plan.target_rel
+        || r.parent
+        || r.ctid_col <= 0
+        || r.mark != RowMarkType::ROW_MARK_REFERENCE
+        || r.rti == m.rti
+    {
         return None;
     }
-    let x = gx.life_of(k, *slot).map(|l| l.0 as usize).filter(|&x| x < k)?;
+    let x = gx
+        .life_of(k, *slot)
+        .map(|l| l.0 as usize)
+        .filter(|&x| x < k)?;
     let xe = merge_side(&ps[x])?;
     let so = match p.source {
         Source::Breaker { slot: os } => {
-            let q = gx.life_of(k, os).map(|l| l.0 as usize).filter(|&q| q < k && q != x)?;
+            let q = gx
+                .life_of(k, os)
+                .map(|l| l.0 as usize)
+                .filter(|&q| q < k && q != x)?;
             let qe = merge_side(&ps[q]).filter(|&e| e < ps[q].ops.len())?;
             Some((q, qe))
         }
@@ -736,12 +1183,33 @@ fn ref_merge<'g>(gx: &crate::graph::Gx<'g, '_>, k: usize, j: usize, d: &LockDesc
     };
     let sorted = usize::from(so.is_some());
     let (oq, oe) = so.unwrap_or((k, jp));
-    if p.desc.consumes.len() != 1 + sorted || !p.desc.consumes.contains(slot) || !Census(gx).whole(2 + sorted) || scan_rel(&ps[oq].source) != Some((r.rti, r.relid)) || scan_rel(&ps[x].source) != Some((m.rti, m.relid)) {
+    if p.desc.consumes.len() != 1 + sorted
+        || !p.desc.consumes.contains(slot)
+        || !Census(gx).whole(2 + sorted)
+        || scan_rel(&ps[oq].source) != Some((r.rti, r.relid))
+        || scan_rel(&ps[x].source) != Some((m.rti, m.relid))
+    {
         return None;
     }
-    let quiet = quiet_ref_build(gx, &ps[oq], &ps[oq].ops[..oe]) && quiet_ref_build(gx, p, &p.ops[..jp]);
-    let reads = part_reads_subplan(&ps[oq], oe) || part_reads_subplan(p, j) || part_reads_subplan(&ps[x], xe) || clauses.iter().chain(qual.iter()).any(gravity_decompose::expr::has_subplan);
-    (quiet && !reads).then(|| RefBuild { arms: mcx::pg_vec![in gx.mcx; (x, xe, m.relid)], union: None, jp, ctid: m.ctid_col, toid: None, fetch: (r.ctid_col, r.relid), at: None, so })
+    let quiet =
+        quiet_ref_build(gx, &ps[oq], &ps[oq].ops[..oe]) && quiet_ref_build(gx, p, &p.ops[..jp]);
+    let reads = part_reads_subplan(&ps[oq], oe)
+        || part_reads_subplan(p, j)
+        || part_reads_subplan(&ps[x], xe)
+        || clauses
+            .iter()
+            .chain(qual.iter())
+            .any(gravity_decompose::expr::has_subplan);
+    (quiet && !reads).then(|| RefBuild {
+        arms: mcx::pg_vec![in gx.mcx; (x, xe, m.relid)],
+        union: None,
+        jp,
+        ctid: m.ctid_col,
+        toid: None,
+        fetch: (r.ctid_col, r.relid),
+        at: None,
+        so,
+    })
 }
 
 /// D3777 MERGETAIL (REFMERGE with the locked outer under a Sort; realapp-django's m2m `get()` FOR UPDATE OF the outer
@@ -756,57 +1224,154 @@ fn ref_merge<'g>(gx: &crate::graph::Gx<'g, '_>, k: usize, j: usize, d: &LockDesc
 /// projections and at least one LIMIT / OFFSET above, two marks, and no SubPlan in what the recheck evaluates.
 /// Some((the producer, its sort build op, the lock's junk ctid column, (the inner's pipeline, the REFERENCE mark's junk
 /// ctid column, its relation))).
-pub(crate) fn merge_tail(gx: &crate::graph::Gx<'_, '_>, k: usize, j: usize, d: &LockDesc<'_>) -> Option<(usize, usize, i16, (usize, i16, u32))> {
+pub(crate) fn merge_tail(
+    gx: &crate::graph::Gx<'_, '_>,
+    k: usize,
+    j: usize,
+    d: &LockDesc<'_>,
+) -> Option<(usize, usize, i16, (usize, i16, u32))> {
     use crate::rerun::epq::ref_nest::{merge_side, part_reads_subplan};
     let ps = gx.pipelines();
     let p = &ps[k];
-    let Source::Breaker { slot: os } = p.source else { return None };
+    let Source::Breaker { slot: os } = p.source else {
+        return None;
+    };
     let plain = |o: &Op<'_>| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_));
-    if !gx.graph.init_plans.is_empty() || d.family().is_some() || d.family_top().is_some() || p.desc.produces().is_some() || d.marks.len() != 2 {
+    if !gx.graph.init_plans.is_empty()
+        || d.family().is_some()
+        || d.family_top().is_some()
+        || p.desc.produces().is_some()
+        || d.marks.len() != 2
+    {
         return None;
     }
-    if !p.ops[j + 1..].iter().all(|o| matches!(o, Op::Project(_)) || limit_op(o)) || !p.ops[j + 1..].iter().any(limit_op) {
+    if !p.ops[j + 1..]
+        .iter()
+        .all(|o| matches!(o, Op::Project(_)) || limit_op(o))
+        || !p.ops[j + 1..].iter().any(limit_op)
+    {
         return None;
     }
-    let jm = p.ops[..j].iter().position(|o| !matches!(o, Op::Project(_)))?;
-    let Op::Join(JoinDesc::Merge { slot, jointype: JoinType::JOIN_INNER, clauses, qual, .. }) = &p.ops[jm] else { return None };
+    let jm = p.ops[..j]
+        .iter()
+        .position(|o| !matches!(o, Op::Project(_)))?;
+    let Op::Join(JoinDesc::Merge {
+        slot,
+        jointype: JoinType::JOIN_INNER,
+        clauses,
+        qual,
+        ..
+    }) = &p.ops[jm]
+    else {
+        return None;
+    };
     if !p.ops[jm + 1..j].iter().all(plain) {
         return None;
     }
     let m = d.marks.iter().find(|m| m.lock != LockKind::None)?;
     let r = d.marks.iter().find(|m| m.lock == LockKind::None)?;
-    if m.parent || m.ctid_col <= 0 || m.relid != d.plan.target_rel || r.parent || r.ctid_col <= 0 || r.mark != RowMarkType::ROW_MARK_REFERENCE || r.rti == m.rti {
+    if m.parent
+        || m.ctid_col <= 0
+        || m.relid != d.plan.target_rel
+        || r.parent
+        || r.ctid_col <= 0
+        || r.mark != RowMarkType::ROW_MARK_REFERENCE
+        || r.rti == m.rti
+    {
         return None;
     }
     let q = gx.life_of(k, os).map(|l| l.0 as usize).filter(|&q| q < k)?;
     let qe = merge_side(&ps[q]).filter(|&e| e < ps[q].ops.len())?;
-    let x = gx.life_of(k, *slot).map(|l| l.0 as usize).filter(|&x| x < k && x != q)?;
+    let x = gx
+        .life_of(k, *slot)
+        .map(|l| l.0 as usize)
+        .filter(|&x| x < k && x != q)?;
     let xe = merge_side(&ps[x])?;
-    if p.desc.consumes.len() != 2 || !Census(gx).whole(3) || scan_rel(&ps[q].source) != Some((m.rti, m.relid)) || scan_rel(&ps[x].source) != Some((r.rti, r.relid)) || !quiet_ref_build(gx, &ps[x], &ps[x].ops[..xe]) {
+    if p.desc.consumes.len() != 2
+        || !Census(gx).whole(3)
+        || scan_rel(&ps[q].source) != Some((m.rti, m.relid))
+        || scan_rel(&ps[x].source) != Some((r.rti, r.relid))
+        || !quiet_ref_build(gx, &ps[x], &ps[x].ops[..xe])
+    {
         return None;
     }
-    let reads = part_reads_subplan(&ps[q], qe) || part_reads_subplan(p, j) || part_reads_subplan(&ps[x], xe) || clauses.iter().chain(qual.iter()).any(gravity_decompose::expr::has_subplan);
+    let reads = part_reads_subplan(&ps[q], qe)
+        || part_reads_subplan(p, j)
+        || part_reads_subplan(&ps[x], xe)
+        || clauses
+            .iter()
+            .chain(qual.iter())
+            .any(gravity_decompose::expr::has_subplan);
     (!reads).then_some((q, qe, m.ctid_col, (x, r.ctid_col, r.relid)))
 }
 
 /// lockrows REFBUILD (`ref_build`): the lock step, each arm's in-IR recheck (a family's chosen by the row's tableoid), its
 /// site a write site as wide as the widest leaf, numbered late (the scan sites and each recheck's fetch site first).
 /// D3657: `mark`, its `Program.locks` entry (`Plan::pair_entry`), whose host also fetches the probe side's row.
-fn ref_build_lock<'g>(px: &mut Px<'g, '_>, node: i32, d: &LockDesc<'_>, (k, j): (usize, usize), rb: &RefBuild<'_>, mark: usize) -> PgBox<'g, dyn StepMech + 'g> {
-    let Some(tf) = typefacts::facts_of(px.gx.facts, crate::cell::TIDOID) else { crate::refuse!(node, Reason::Bug { payload: "the tid type the catalog does not know" }) };
+fn ref_build_lock<'g>(
+    px: &mut Px<'g, '_>,
+    node: i32,
+    d: &LockDesc<'_>,
+    (k, j): (usize, usize),
+    rb: &RefBuild<'_>,
+    mark: usize,
+) -> PgBox<'g, dyn StepMech + 'g> {
+    let Some(tf) = typefacts::facts_of(px.gx.facts, crate::cell::TIDOID) else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "the tid type the catalog does not know"
+            }
+        )
+    };
     let (k, j) = rb.at.unwrap_or((k, j));
     let cx = px.mcx();
-    let epqs: PgVec<'_, (u32, PgRc<'_, Epq<'_>>)> = rb.arms.iter().map(|&(q, jq, relid)| (relid, PgRc::new_in(crate::ops::lockrows::epq::epq_of_build(px, (q, jq), rb.union, (k, rb.jp, j), rb.fetch, node, relid, rb.so).fetching_by(mark), cx))).collect_in(cx);
+    let epqs: PgVec<'_, (u32, PgRc<'_, Epq<'_>>)> = rb
+        .arms
+        .iter()
+        .map(|&(q, jq, relid)| {
+            (
+                relid,
+                PgRc::new_in(
+                    crate::ops::lockrows::epq::epq_of_build(
+                        px,
+                        (q, jq),
+                        rb.union,
+                        (k, rb.jp, j),
+                        rb.fetch,
+                        node,
+                        relid,
+                        rb.so,
+                    )
+                    .fetching_by(mark),
+                    cx,
+                ),
+            )
+        })
+        .collect_in(cx);
     if mark == 0 {
         px.claim_write(node, &d.plan);
     }
-    let natts = rb.arms.iter().filter_map(|a| px.gx.facts.rel(a.2)).map(|r| r.natts.max(0) as u16).max().unwrap_or(0);
+    let natts = rb
+        .arms
+        .iter()
+        .filter_map(|a| px.gx.facts.rel(a.2))
+        .map(|r| r.natts.max(0) as u16)
+        .max()
+        .unwrap_or(0);
     let site = px.add_late_site(SiteDesc::write(d.plan.target_rel, natts));
     let marks = crate::rerun::epq::marks::Marks::none(px.mcx());
     let junk = Some((rb.ctid, tf));
     match rb.toid {
         Some(col) => {
-            let Some(of) = typefacts::facts_of(px.gx.facts, types_core::catalog::OIDOID) else { crate::refuse!(node, Reason::Bug { payload: "the oid type the catalog does not know" }) };
+            let Some(of) = typefacts::facts_of(px.gx.facts, types_core::catalog::OIDOID) else {
+                crate::refuse!(
+                    node,
+                    Reason::Bug {
+                        payload: "the oid type the catalog does not know"
+                    }
+                )
+            };
             mcx::pg_box_dyn!(px.mcx(), Lock { site, relid: d.plan.target_rel, node, marks, epq: None, mark, junk, fam: Some(Fam { col, of, arms: epqs }), again: None } => dyn StepMech + 'g)
         }
         None => {
@@ -819,7 +1384,15 @@ fn ref_build_lock<'g>(px: &mut Px<'g, '_>, node: i32, d: &LockDesc<'_>, (k, j): 
 /// lockrows 15b: whether op `o` below the lock is the Sort emit's projection, each column the producer's same column.
 pub(crate) fn sort_emit(o: &Op<'_>) -> bool {
     match o {
-        Op::Project(l) => l.iter().all(|n| n.as_target_entry().is_some_and(|te| te.expr.as_var().is_some_and(|v| v.varno == OUTER_VAR && v.varlevelsup == 0 && i32::from(v.varattno) == i32::from(te.resno)))),
+        Op::Project(l) => l.iter().all(|n| {
+            n.as_target_entry().is_some_and(|te| {
+                te.expr.as_var().is_some_and(|v| {
+                    v.varno == OUTER_VAR
+                        && v.varlevelsup == 0
+                        && i32::from(v.varattno) == i32::from(te.resno)
+                })
+            })
+        }),
         _ => false,
     }
 }
@@ -842,15 +1415,24 @@ pub(crate) fn sort_emit(o: &Op<'_>) -> bool {
 /// pipelines counted out (`Census::plain_inits`; the paired form's write keeps it None) and no arm one of them
 /// (`init_member`); EvalPlanQualStart copies an evaluated InitPlan's value, and plan.rs `Plan::form` asks `admit_ir_family` of each
 /// arm's part.
-pub(crate) fn family_limit<'g>(gx: &crate::graph::Gx<'g, '_>, k: usize, j: usize, d: &LockDesc<'_>, paired: bool) -> Option<(PgVec<'g, (usize, usize, u32)>, i16, i16)> {
+pub(crate) fn family_limit<'g>(
+    gx: &crate::graph::Gx<'g, '_>,
+    k: usize,
+    j: usize,
+    d: &LockDesc<'_>,
+    paired: bool,
+) -> Option<(PgVec<'g, (usize, usize, u32)>, i16, i16)> {
     let ps = gx.pipelines();
     let p = &ps[k];
-    let Source::Breaker { slot } = p.source else { return None };
+    let Source::Breaker { slot } = p.source else {
+        return None;
+    };
     let top = d.family()?;
     // lockrows FAMMERGE (gen part-0048): or over a MergeAppend of the leaves (no run-time pruning), its projection passing
     // the merged rows through
     let merge = |o: &Op<'_>| matches!(o, Op::Append(AppendDesc::Merge { prune: None, .. }));
-    if !p.ops[..j].iter().all(|o| sort_emit(o) || merge(o)) || !p.ops[j + 1..].iter().any(limit_op) {
+    if !p.ops[..j].iter().all(|o| sort_emit(o) || merge(o)) || !p.ops[j + 1..].iter().any(limit_op)
+    {
         return None;
     }
     // D3287 FAMMERGE-INIT: beside an InitPlan too (AGA-35 form 4 held FAMMERGE back there only for its program's fixed
@@ -869,7 +1451,10 @@ pub(crate) fn family_limit<'g>(gx: &crate::graph::Gx<'g, '_>, k: usize, j: usize
     // the union's arms: the run of pipelines making the Sort's slot that ends at its producer for this read (`life_of`; an
     // InitPlan's or a CTE's pipeline may make the same slot number in an earlier life, D3379 INITCTE)
     let last = gx.life_of(k, slot).map(|l| l.0 as usize)?;
-    let first = (0..=last).rev().take_while(|&x| ps[x].desc.produces() == Some(slot)).last()?;
+    let first = (0..=last)
+        .rev()
+        .take_while(|&x| ps[x].desc.produces() == Some(slot))
+        .last()?;
     let qs: PgVec<'_, usize> = (first..=last).collect_in(gx.mcx);
     let alone = match paired {
         false => Census(gx).whole(qs.len() + 1 + n),
@@ -878,19 +1463,59 @@ pub(crate) fn family_limit<'g>(gx: &crate::graph::Gx<'g, '_>, k: usize, j: usize
     if ctid <= 0 || qs.is_empty() || !alone {
         return None;
     }
-    let arm = |o: &Op<'_>| matches!(o, Op::Append(AppendDesc::Arm { .. } | AppendDesc::Feed { .. }));
+    let arm = |o: &Op<'_>| {
+        matches!(
+            o,
+            Op::Append(AppendDesc::Arm { .. } | AppendDesc::Feed { .. })
+        )
+    };
     let mut arms: PgVec<'g, (usize, usize, u32)> = mcx::reserved_in(qs.len(), gx.mcx);
     for q in qs {
         let pq = &ps[q];
         let (scanrelid, relid) = match &pq.source {
-            Source::Range { am: Am::Heap, scanrelid, relid, .. } | Source::Bitmap { am: Am::Heap, scanrelid, relid, .. } | Source::Index { am: Am::Heap, scanrelid, relid, only: false, .. } => (u32::from(*scanrelid), *relid),
+            Source::Range {
+                am: Am::Heap,
+                scanrelid,
+                relid,
+                ..
+            }
+            | Source::Bitmap {
+                am: Am::Heap,
+                scanrelid,
+                relid,
+                ..
+            }
+            | Source::Index {
+                am: Am::Heap,
+                scanrelid,
+                relid,
+                only: false,
+                ..
+            } => (u32::from(*scanrelid), *relid),
             _ => return None,
         };
-        let m = d.marks.iter().find(|m| !m.parent && m.rti == scanrelid && m.relid == relid && m.lock != LockKind::None)?;
-        let jq = pq.ops.iter().position(|o| matches!(o, Op::Sort(_))).unwrap_or(pq.ops.len());
-        let below = pq.ops[..jq].iter().all(|o| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_)) || arm(o)) && matches!(pq.ops[..jq].iter().rev().find(|o| !arm(o)), Some(Op::Project(_)));
+        let m = d.marks.iter().find(|m| {
+            !m.parent && m.rti == scanrelid && m.relid == relid && m.lock != LockKind::None
+        })?;
+        let jq = pq
+            .ops
+            .iter()
+            .position(|o| matches!(o, Op::Sort(_)))
+            .unwrap_or(pq.ops.len());
+        let below = pq.ops[..jq]
+            .iter()
+            .all(|o| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_)) || arm(o))
+            && matches!(
+                pq.ops[..jq].iter().rev().find(|o| !arm(o)),
+                Some(Op::Project(_))
+            );
         let after = pq.ops[jq..].iter().all(|o| matches!(o, Op::Sort(_)));
-        if !below || !after || !pq.desc.consumes.is_empty() || arms.iter().any(|a: &(usize, usize, u32)| a.2 == m.relid) || Census(gx).init_member(q) {
+        if !below
+            || !after
+            || !pq.desc.consumes.is_empty()
+            || arms.iter().any(|a: &(usize, usize, u32)| a.2 == m.relid)
+            || Census(gx).init_member(q)
+        {
             return None;
         }
         arms.push_in((q, jq, m.relid));
@@ -901,18 +1526,60 @@ pub(crate) fn family_limit<'g>(gx: &crate::graph::Gx<'g, '_>, k: usize, j: usize
 /// lockrows FAMLIMIT (`family_limit`): the lock step, each arm's in-IR recheck, its site a write site as wide as the widest
 /// leaf (the newest version's cells, in the row's leaf's layout), numbered late (the arms' scan sites first).
 /// lockrows FAMCLAIM: `mark` 1, the lock is `Program.locks`' entry beside the statement's write, which keeps the write plan.
-fn family_lock<'g>(px: &mut Px<'g, '_>, node: i32, d: &LockDesc<'_>, arms: &[(usize, usize, u32)], ctid: i16, col: i16, mark: usize) -> PgBox<'g, dyn StepMech + 'g> {
-    let Some(tf) = typefacts::facts_of(px.gx.facts, crate::cell::TIDOID) else { crate::refuse!(node, Reason::Bug { payload: "the tid type the catalog does not know" }) };
-    let Some(of) = typefacts::facts_of(px.gx.facts, types_core::catalog::OIDOID) else { crate::refuse!(node, Reason::Bug { payload: "the oid type the catalog does not know" }) };
+fn family_lock<'g>(
+    px: &mut Px<'g, '_>,
+    node: i32,
+    d: &LockDesc<'_>,
+    arms: &[(usize, usize, u32)],
+    ctid: i16,
+    col: i16,
+    mark: usize,
+) -> PgBox<'g, dyn StepMech + 'g> {
+    let Some(tf) = typefacts::facts_of(px.gx.facts, crate::cell::TIDOID) else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "the tid type the catalog does not know"
+            }
+        )
+    };
+    let Some(of) = typefacts::facts_of(px.gx.facts, types_core::catalog::OIDOID) else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "the oid type the catalog does not know"
+            }
+        )
+    };
     let cx = px.mcx();
-    let epqs = arms.iter().map(|&(q, jq, relid)| (relid, PgRc::new_in(crate::ops::lockrows::epq::epq_of_breaker(px, q, jq, node, relid), cx))).collect_in(cx);
+    let epqs = arms
+        .iter()
+        .map(|&(q, jq, relid)| {
+            (
+                relid,
+                PgRc::new_in(
+                    crate::ops::lockrows::epq::epq_of_breaker(px, q, jq, node, relid),
+                    cx,
+                ),
+            )
+        })
+        .collect_in(cx);
     if mark == 0 {
         px.claim_write(node, &d.plan);
     }
-    let natts = arms.iter().filter_map(|a| px.gx.facts.rel(a.2)).map(|r| r.natts.max(0) as u16).max().unwrap_or(0);
+    let natts = arms
+        .iter()
+        .filter_map(|a| px.gx.facts.rel(a.2))
+        .map(|r| r.natts.max(0) as u16)
+        .max()
+        .unwrap_or(0);
     let site = px.add_late_site(SiteDesc::write(d.plan.target_rel, natts));
     let marks = crate::rerun::epq::marks::Marks::none(px.mcx());
-    let fam = Some(Fam { col, of, arms: epqs });
+    let fam = Some(Fam {
+        col,
+        of,
+        arms: epqs,
+    });
     mcx::pg_box_dyn!(px.mcx(), Lock { site, relid: d.plan.target_rel, node, marks, epq: None, mark, junk: Some((ctid, tf)), fam, again: None } => dyn StepMech + 'g)
 }
 
@@ -920,20 +1587,46 @@ fn family_lock<'g>(px: &mut Px<'g, '_>, node: i32, d: &LockDesc<'_>, arms: &[(us
 /// in-IR recheck reads them), numbered late (the producer's scan site first). lockrows REFFETCH (`ref_limit`): `fetch`, the
 /// join's REFERENCE-marked build, whose row the recheck refetches into its own late site.
 /// lockrows CTESORT: `mark` 1, the lock is `Program.locks`' entry beside the statement's write, which keeps the write plan.
-fn breaker_lock<'g>(px: &mut Px<'g, '_>, node: i32, d: &LockDesc<'_>, (q, jq): (usize, usize), col: i16, fetch: &[(usize, i16, u32)], mark: usize) -> PgBox<'g, dyn StepMech + 'g> {
+fn breaker_lock<'g>(
+    px: &mut Px<'g, '_>,
+    node: i32,
+    d: &LockDesc<'_>,
+    (q, jq): (usize, usize),
+    col: i16,
+    fetch: &[(usize, i16, u32)],
+    mark: usize,
+) -> PgBox<'g, dyn StepMech + 'g> {
     let relid = d.plan.target_rel;
-    let Some(tf) = typefacts::facts_of(px.gx.facts, crate::cell::TIDOID) else { crate::refuse!(node, Reason::Bug { payload: "the tid type the catalog does not know" }) };
+    let Some(tf) = typefacts::facts_of(px.gx.facts, crate::cell::TIDOID) else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "the tid type the catalog does not know"
+            }
+        )
+    };
     // D3506 SETLOCK: a producer probing the sets of locks in hashed SubPlans' plans (plan.rs `breaker_limit`'s CTE form): its
     // probes evaluated again in the redo against sets of its own, as the LockRows' fresh EvalPlanQual estate builds
     // them
     let sets = fetch.is_empty() && crate::rerun::epq::set_lock::probes_sets(px.gx, q, jq);
     let epq = match fetch.is_empty() {
-        false => PgRc::new_in(crate::ops::lockrows::epq::epq_of_ref(px, q, jq, node, relid, fetch).fetching_by(mark), px.mcx()),
+        false => PgRc::new_in(
+            crate::ops::lockrows::epq::epq_of_ref(px, q, jq, node, relid, fetch).fetching_by(mark),
+            px.mcx(),
+        ),
         true if sets => {
             let own = crate::rerun::epq::set_lock::redo_probes(px, q, jq, node);
-            PgRc::new_in(crate::ops::lockrows::epq::epq_of_subs(px, q, jq, node, relid).twinning(true).owning(own), px.mcx())
+            PgRc::new_in(
+                crate::ops::lockrows::epq::epq_of_subs(px, q, jq, node, relid)
+                    .twinning(true)
+                    .owning(own),
+                px.mcx(),
+            )
         }
-        true => PgRc::new_in(crate::ops::lockrows::epq::epq_of_breaker(px, q, jq, node, relid), px.mcx()),
+        true => PgRc::new_in(
+            crate::ops::lockrows::epq::epq_of_breaker(px, q, jq, node, relid),
+            px.mcx(),
+        ),
     };
     if mark == 0 {
         px.claim_write(node, &d.plan);
@@ -947,10 +1640,26 @@ fn breaker_lock<'g>(px: &mut Px<'g, '_>, node: i32, d: &LockDesc<'_>, (q, jq): (
 /// D3565 REFDRAIN (`ref_drain`): `breaker_lock`'s lock over the Sort of a Hash Right Anti Join's drain, the locked relation
 /// the join's build: its recheck redoes the build's part over the newest version, then the drain's ops (lockrows epq.rs
 /// `epq_of_drain`).
-fn drain_lock<'g>(px: &mut Px<'g, '_>, node: i32, d: &LockDesc<'_>, rd: &crate::ops::lockrows::plan::RefDrain, mark: usize) -> PgBox<'g, dyn StepMech + 'g> {
+fn drain_lock<'g>(
+    px: &mut Px<'g, '_>,
+    node: i32,
+    d: &LockDesc<'_>,
+    rd: &crate::ops::lockrows::plan::RefDrain,
+    mark: usize,
+) -> PgBox<'g, dyn StepMech + 'g> {
     let relid = d.plan.target_rel;
-    let Some(tf) = typefacts::facts_of(px.gx.facts, crate::cell::TIDOID) else { crate::refuse!(node, Reason::Bug { payload: "the tid type the catalog does not know" }) };
-    let epq = PgRc::new_in(crate::ops::lockrows::epq::epq_of_drain(px, rd.build, (rd.q, rd.jd, rd.jq), node, relid), px.mcx());
+    let Some(tf) = typefacts::facts_of(px.gx.facts, crate::cell::TIDOID) else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "the tid type the catalog does not know"
+            }
+        )
+    };
+    let epq = PgRc::new_in(
+        crate::ops::lockrows::epq::epq_of_drain(px, rd.build, (rd.q, rd.jd, rd.jq), node, relid),
+        px.mcx(),
+    );
     if mark == 0 {
         px.claim_write(node, &d.plan);
     }
@@ -962,12 +1671,35 @@ fn drain_lock<'g>(px: &mut Px<'g, '_>, node: i32, d: &LockDesc<'_>, rd: &crate::
 
 /// D3802 SORTCHAIN (rerun/epq/sort_chain.rs): `breaker_lock`'s lock over the Sort, its site made first: the recheck
 /// reads the locked inner's newest version from it (epq_ir.rs `Fetch::held`), its other rows refetched.
-fn sort_chain_lock<'g>(px: &mut Px<'g, '_>, node: i32, d: &LockDesc<'_>, sc: &crate::rerun::epq::sort_chain::SortChain) -> PgBox<'g, dyn StepMech + 'g> {
+fn sort_chain_lock<'g>(
+    px: &mut Px<'g, '_>,
+    node: i32,
+    d: &LockDesc<'_>,
+    sc: &crate::rerun::epq::sort_chain::SortChain,
+) -> PgBox<'g, dyn StepMech + 'g> {
     let relid = d.plan.target_rel;
-    let Some(tf) = typefacts::facts_of(px.gx.facts, crate::cell::TIDOID) else { crate::refuse!(node, Reason::Bug { payload: "the tid type the catalog does not know" }) };
+    let Some(tf) = typefacts::facts_of(px.gx.facts, crate::cell::TIDOID) else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "the tid type the catalog does not know"
+            }
+        )
+    };
     let natts = px.gx.facts.rel(relid).map_or(0, |r| r.natts.max(0) as u16);
     let site = px.add_late_site(SiteDesc::write(relid, natts));
-    let epq = PgRc::new_in(crate::ops::lockrows::epq::epq_of_sort_chain(px, (sc.q, sc.jq), node, relid, sc.from, &sc.fetch, &site), px.mcx());
+    let epq = PgRc::new_in(
+        crate::ops::lockrows::epq::epq_of_sort_chain(
+            px,
+            (sc.q, sc.jq),
+            node,
+            relid,
+            sc.from,
+            &sc.fetch,
+            &site,
+        ),
+        px.mcx(),
+    );
     px.claim_write(node, &d.plan);
     let marks = crate::rerun::epq::marks::Marks::none(px.mcx());
     mcx::pg_box_dyn!(px.mcx(), Lock { site, relid, node, marks, epq: Some(epq), mark: 0, junk: Some((sc.ctid, tf)), fam: None, again: None } => dyn StepMech + 'g)
@@ -975,10 +1707,27 @@ fn sort_chain_lock<'g>(px: &mut Px<'g, '_>, node: i32, d: &LockDesc<'_>, sc: &cr
 
 /// D3607 COPYPROBE: `breaker_lock` whose recheck redoes lock pipeline `k`'s ops before the lock `j`, its hash probes of
 /// COPY-marked rows matched again over the records they handed on (lockrows epq.rs `epq_of_copy_probe`).
-fn probe_lock<'g>(px: &mut Px<'g, '_>, node: i32, d: &LockDesc<'_>, (k, j): (usize, usize), col: i16, mark: usize) -> PgBox<'g, dyn StepMech + 'g> {
+fn probe_lock<'g>(
+    px: &mut Px<'g, '_>,
+    node: i32,
+    d: &LockDesc<'_>,
+    (k, j): (usize, usize),
+    col: i16,
+    mark: usize,
+) -> PgBox<'g, dyn StepMech + 'g> {
     let relid = d.plan.target_rel;
-    let Some(tf) = typefacts::facts_of(px.gx.facts, crate::cell::TIDOID) else { crate::refuse!(node, Reason::Bug { payload: "the tid type the catalog does not know" }) };
-    let epq = PgRc::new_in(crate::ops::lockrows::epq::epq_of_copy_probe(px, k, j, node, relid), px.mcx());
+    let Some(tf) = typefacts::facts_of(px.gx.facts, crate::cell::TIDOID) else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "the tid type the catalog does not know"
+            }
+        )
+    };
+    let epq = PgRc::new_in(
+        crate::ops::lockrows::epq::epq_of_copy_probe(px, k, j, node, relid),
+        px.mcx(),
+    );
     if mark == 0 {
         px.claim_write(node, &d.plan);
     }
@@ -991,10 +1740,29 @@ fn probe_lock<'g>(px: &mut Px<'g, '_>, node: i32, d: &LockDesc<'_>, (k, j): (usi
 /// D3563 (`sort_tail`): `breaker_lock`'s 15b lock whose recheck redoes the Sort's producer `q` up to its sort build,
 /// then lock pipeline `k`'s ops before the lock (the Result's SubPlan steps and projections) over that row.
 /// D3777 MERGETAIL (`merge_tail`): `fetch`, the merge's REFERENCE inner, its row refetched in the recheck.
-fn tail_lock<'g>(px: &mut Px<'g, '_>, node: i32, d: &LockDesc<'_>, ((q, jq), (k, j)): ((usize, usize), (usize, usize)), col: i16, fetch: &[(usize, i16, u32)], mark: usize) -> PgBox<'g, dyn StepMech + 'g> {
+fn tail_lock<'g>(
+    px: &mut Px<'g, '_>,
+    node: i32,
+    d: &LockDesc<'_>,
+    ((q, jq), (k, j)): ((usize, usize), (usize, usize)),
+    col: i16,
+    fetch: &[(usize, i16, u32)],
+    mark: usize,
+) -> PgBox<'g, dyn StepMech + 'g> {
     let relid = d.plan.target_rel;
-    let Some(tf) = typefacts::facts_of(px.gx.facts, crate::cell::TIDOID) else { crate::refuse!(node, Reason::Bug { payload: "the tid type the catalog does not know" }) };
-    let epq = PgRc::new_in(crate::ops::lockrows::epq::epq_of_tail(px, (q, jq), (k, j), node, relid, fetch).fetching_by(mark), px.mcx());
+    let Some(tf) = typefacts::facts_of(px.gx.facts, crate::cell::TIDOID) else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "the tid type the catalog does not know"
+            }
+        )
+    };
+    let epq = PgRc::new_in(
+        crate::ops::lockrows::epq::epq_of_tail(px, (q, jq), (k, j), node, relid, fetch)
+            .fetching_by(mark),
+        px.mcx(),
+    );
     if mark == 0 {
         px.claim_write(node, &d.plan);
     }
@@ -1008,10 +1776,27 @@ fn tail_lock<'g>(px: &mut Px<'g, '_>, node: i32, d: &LockDesc<'_>, ((q, jq), (k,
 /// `ctid` (as 15b's), its recheck the IR's over the nest (epq_ir.rs `Fetch` under the nest's parameters; D3564
 /// `chain_form`: one `fetch` per nest); the program's one lock. Its site a write site as wide as the relation (the
 /// newest version's cells), numbered late (the scan sites first).
-fn ref_nest_lock<'g>(px: &mut Px<'g, '_>, node: i32, d: &LockDesc<'_>, (k, j): (usize, usize), (ctid, fetch): (i16, &[(usize, i16, u32)]), mark: usize) -> PgBox<'g, dyn StepMech + 'g> {
+fn ref_nest_lock<'g>(
+    px: &mut Px<'g, '_>,
+    node: i32,
+    d: &LockDesc<'_>,
+    (k, j): (usize, usize),
+    (ctid, fetch): (i16, &[(usize, i16, u32)]),
+    mark: usize,
+) -> PgBox<'g, dyn StepMech + 'g> {
     let relid = d.plan.target_rel;
-    let Some(tf) = typefacts::facts_of(px.gx.facts, crate::cell::TIDOID) else { crate::refuse!(node, Reason::Bug { payload: "the tid type the catalog does not know" }) };
-    let epq = PgRc::new_in(crate::ops::lockrows::epq::epq_of_nest(px, k, j, node, relid, fetch).fetching_by(mark), px.mcx());
+    let Some(tf) = typefacts::facts_of(px.gx.facts, crate::cell::TIDOID) else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "the tid type the catalog does not know"
+            }
+        )
+    };
+    let epq = PgRc::new_in(
+        crate::ops::lockrows::epq::epq_of_nest(px, k, j, node, relid, fetch).fetching_by(mark),
+        px.mcx(),
+    );
     if mark == 0 {
         px.claim_write(node, &d.plan);
     }
@@ -1025,10 +1810,28 @@ fn ref_nest_lock<'g>(px: &mut Px<'g, '_>, node: i32, d: &LockDesc<'_>, (k, j): (
 /// nest op `jn`, its position the locked mark's junk ctid column `ctid`, its recheck the IR's (`epq_of_lock_nest`); the
 /// program's one lock (D3601 COPYNEST: or `Program.locks` entry `mark`), its site a write site as wide as the relation
 /// (the newest version's cells), numbered late.
-fn lock_nest_lock<'g>(px: &mut Px<'g, '_>, node: i32, d: &LockDesc<'_>, (k, j): (usize, usize), (jn, ik): (usize, usize), ctid: i16, mark: usize) -> PgBox<'g, dyn StepMech + 'g> {
+fn lock_nest_lock<'g>(
+    px: &mut Px<'g, '_>,
+    node: i32,
+    d: &LockDesc<'_>,
+    (k, j): (usize, usize),
+    (jn, ik): (usize, usize),
+    ctid: i16,
+    mark: usize,
+) -> PgBox<'g, dyn StepMech + 'g> {
     let relid = d.plan.target_rel;
-    let Some(tf) = typefacts::facts_of(px.gx.facts, crate::cell::TIDOID) else { crate::refuse!(node, Reason::Bug { payload: "the tid type the catalog does not know" }) };
-    let epq = PgRc::new_in(crate::ops::lockrows::epq::epq_of_lock_nest(px, (k, j), (jn, ik), node, relid), px.mcx());
+    let Some(tf) = typefacts::facts_of(px.gx.facts, crate::cell::TIDOID) else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "the tid type the catalog does not know"
+            }
+        )
+    };
+    let epq = PgRc::new_in(
+        crate::ops::lockrows::epq::epq_of_lock_nest(px, (k, j), (jn, ik), node, relid),
+        px.mcx(),
+    );
     // D3601 (6) COPYNEST: a claim beside the writes is a Program.locks entry (`mark`), the writes keep the write plan
     if mark == 0 {
         px.claim_write(node, &d.plan);
@@ -1043,8 +1846,21 @@ fn lock_nest_lock<'g>(px: &mut Px<'g, '_>, node: i32, d: &LockDesc<'_>, (k, j): 
 /// IR over its own scan as a product-form lock (its newest version goes on into the set), a `Program.locks` entry of
 /// its own after the claims' (`set_lock::mark`; plan.rs `Plan::write_pair` lays the claims' and appends these). Its site
 /// a write site as wide as the relation (the newest version's cells), numbered late.
-fn set_lock<'g>(px: &mut Px<'g, '_>, node: i32, d: &LockDesc<'_>, (k, j): (usize, usize), site: LockSite) -> PgBox<'g, dyn StepMech + 'g> {
-    let Some(mark) = Census(px.gx).set_entry(k, j, limit_op) else { crate::refuse!(node, Reason::Bug { payload: "a SETLOCK lock with no mark" }) };
+fn set_lock<'g>(
+    px: &mut Px<'g, '_>,
+    node: i32,
+    d: &LockDesc<'_>,
+    (k, j): (usize, usize),
+    site: LockSite,
+) -> PgBox<'g, dyn StepMech + 'g> {
+    let Some(mark) = Census(px.gx).set_entry(k, j, limit_op) else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a SETLOCK lock with no mark"
+            }
+        )
+    };
     let (relid, _, _) = admit(px, k, j, d, node, true, false);
     crate::ops::lockrows::lock_init::admit_ir(px, k, node);
     let epq = PgRc::new_in(epq_of(px, k, j, node, relid, false), px.mcx());
@@ -1059,19 +1875,37 @@ fn set_lock<'g>(px: &mut Px<'g, '_>, node: i32, d: &LockDesc<'_>, (k, j): (usize
 /// recheck the IR's over the inner's source and ops below it; beside the statement's write a `Program.locks` entry of its
 /// own (mark 1, lock_init.rs JOBQ's form), else the program's one lock. Its site a write site as wide as the relation (the
 /// newest version's cells), numbered late (the scan sites first).
-fn sub_lock<'g>(px: &mut Px<'g, '_>, node: i32, d: &LockDesc<'_>, (k, j): (usize, usize), s: &crate::rerun::epq::sub_lock::SubLock) -> PgBox<'g, dyn StepMech + 'g> {
+fn sub_lock<'g>(
+    px: &mut Px<'g, '_>,
+    node: i32,
+    d: &LockDesc<'_>,
+    (k, j): (usize, usize),
+    s: &crate::rerun::epq::sub_lock::SubLock,
+) -> PgBox<'g, dyn StepMech + 'g> {
     // D3379 SUBLOCK-LEADER: the SubPlan's pipeline runs on the leader, the lock host's (decompose leaves a plain SELECT's
     // pipeline parallel-eligible; PostgreSQL plans no parallel node in a query whose subquery holds row marks,
     // max_parallel_hazard_walker)
-    if matches!(px.gx.pipelines()[s.outer].desc.parallel, Parallel::Eligible) && !px.serial.contains(&s.outer) {
+    if matches!(px.gx.pipelines()[s.outer].desc.parallel, Parallel::Eligible)
+        && !px.serial.contains(&s.outer)
+    {
         px.serial.push(s.outer); // alloc: Program
     }
     // AGA-35 form 6: beside the outer query's InitPlans (plan.rs `Census::sub_inits`, lock_init.rs `admit_sub`): beside the write each one
     // read before any row reaches it
     crate::ops::lockrows::lock_init::admit_sub(px, node, s.outer, s.write);
     let relid = d.plan.target_rel;
-    let Some(tf) = typefacts::facts_of(px.gx.facts, crate::cell::TIDOID) else { crate::refuse!(node, Reason::Bug { payload: "the tid type the catalog does not know" }) };
-    let epq = PgRc::new_in(crate::ops::lockrows::epq::epq_of_sub(px, k, j, node, relid), px.mcx());
+    let Some(tf) = typefacts::facts_of(px.gx.facts, crate::cell::TIDOID) else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "the tid type the catalog does not know"
+            }
+        )
+    };
+    let epq = PgRc::new_in(
+        crate::ops::lockrows::epq::epq_of_sub(px, k, j, node, relid),
+        px.mcx(),
+    );
     // D3506 EXISTS: beside a claim of the outer pipeline instead (rerun/epq/sub_lock.rs `claim_above`): the claim's
     // entry 1
     let mark = match (s.write, s.claim) {
@@ -1110,11 +1944,27 @@ fn sub_lock<'g>(px: &mut Px<'g, '_>, node: i32, d: &LockDesc<'_>, (k, j): (usize
 /// D3506 EXISTS SORT (rerun/epq/sub_lock.rs `sort_claim`): `breaker_lock` for the claim, `Program.locks`' entry 1 (the
 /// inner lock's 2, `sub_lock`), whose recheck redoes the Sort producer `q`'s part before its sort build `jq` with its
 /// SubPlan steps made again for it (`redo_subs`), each EXISTS locking again as in PostgreSQL's EvalPlanQual.
-fn sort_sub_claim<'g>(px: &mut Px<'g, '_>, node: i32, d: &LockDesc<'_>, (q, jq): (usize, usize), col: i16) -> PgBox<'g, dyn StepMech + 'g> {
+fn sort_sub_claim<'g>(
+    px: &mut Px<'g, '_>,
+    node: i32,
+    d: &LockDesc<'_>,
+    (q, jq): (usize, usize),
+    col: i16,
+) -> PgBox<'g, dyn StepMech + 'g> {
     let relid = d.plan.target_rel;
-    let Some(tf) = typefacts::facts_of(px.gx.facts, crate::cell::TIDOID) else { crate::refuse!(node, Reason::Bug { payload: "the tid type the catalog does not know" }) };
+    let Some(tf) = typefacts::facts_of(px.gx.facts, crate::cell::TIDOID) else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "the tid type the catalog does not know"
+            }
+        )
+    };
     let own = crate::rerun::epq::sub_lock::redo_subs(px, q, jq);
-    let epq = PgRc::new_in(crate::ops::lockrows::epq::epq_of_subs(px, q, jq, node, relid), px.mcx());
+    let epq = PgRc::new_in(
+        crate::ops::lockrows::epq::epq_of_subs(px, q, jq, node, relid),
+        px.mcx(),
+    );
     let natts = px.gx.facts.rel(relid).map_or(0, |r| r.natts.max(0) as u16);
     let site = px.add_late_site(SiteDesc::write(relid, natts));
     let marks = crate::rerun::epq::marks::Marks::none(px.mcx());
@@ -1126,26 +1976,71 @@ fn sort_sub_claim<'g>(px: &mut Px<'g, '_>, node: i32, d: &LockDesc<'_>, (q, jq):
 /// pipeline is one arm of a family's Append (L2).
 /// `product` (V4R-512): the rechecked row goes on through every step above into the product, as any row: no op above refuses.
 /// `subs` (D652-S1's lock half): the recheck is the IR's over the SubPlan steps, so a LIMIT / OFFSET above counts its row.
-fn admit(px: &Px<'_, '_>, k: usize, j: usize, d: &LockDesc<'_>, node: i32, product: bool, subs: bool) -> (u32, bool, bool) {
+fn admit(
+    px: &Px<'_, '_>,
+    k: usize,
+    j: usize,
+    d: &LockDesc<'_>,
+    node: i32,
+    product: bool,
+    subs: bool,
+) -> (u32, bool, bool) {
     let p = &px.gx.pipelines()[k];
     if d.plan.lock == LockKind::None {
-        crate::refuse!(node, Reason::Bug { payload: "a LockRows whose plan takes no lock" });
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a LockRows whose plan takes no lock"
+            }
+        );
     }
     // a LockRows desc carries ParentMark (L2) and no other member: another is a bug
     if d.members.iter().any(|m| m != Member::ParentMark) {
-        crate::refuse!(node, Reason::Bug { payload: "a LockRows carrying a member write.lock does not bind" });
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a LockRows carrying a member write.lock does not bind"
+            }
+        );
     }
     // lockrows REFFAM: the locked family may sit beside other parents' whole REFERENCE families (marks.rs `lock_family`),
     // and a lock with no family beside them only (L1): rerun/epq/marks.rs `sites_in` gates each REFERENCE child
     let family = crate::ops::lockrows::marks::lock_family(d);
-    let top = d.marks.iter().find(|m| m.parent && m.prti == m.rti).map(|m| m.rti);
+    let top = d
+        .marks
+        .iter()
+        .find(|m| m.parent && m.prti == m.rti)
+        .map(|m| m.rti);
     let refs_only = crate::ops::lockrows::marks::refs_beside(d);
     if family.is_none() && !refs_only && top.is_some_and(|t| d.marks.iter().any(|m| m.prti != t)) {
         shape(node, FAMILY_JOIN);
     }
     let (am, scanrelid, src, only) = match &p.source {
-        Source::Range { am, scanrelid, relid, .. } | Source::Bitmap { am, scanrelid, relid, .. } | Source::Tid { am, scanrelid, relid, .. } => (*am, u32::from(*scanrelid), *relid, false),
-        Source::Index { am, scanrelid, relid, only, .. } => (*am, u32::from(*scanrelid), *relid, *only),
+        Source::Range {
+            am,
+            scanrelid,
+            relid,
+            ..
+        }
+        | Source::Bitmap {
+            am,
+            scanrelid,
+            relid,
+            ..
+        }
+        | Source::Tid {
+            am,
+            scanrelid,
+            relid,
+            ..
+        } => (*am, u32::from(*scanrelid), *relid, false),
+        Source::Index {
+            am,
+            scanrelid,
+            relid,
+            only,
+            ..
+        } => (*am, u32::from(*scanrelid), *relid, *only),
         _ if family.is_some() => shape(node, FAMILY_BREAKER),
         _ => shape(node, NOT_OWN),
     };
@@ -1153,28 +2048,69 @@ fn admit(px: &Px<'_, '_>, k: usize, j: usize, d: &LockDesc<'_>, node: i32, produ
         // L1: the one locking mark, the plan's relation
         None => {
             let mut locking = d.marks.iter().filter(|m| m.lock != LockKind::None);
-            let (Some(mark), None) = (locking.next(), locking.next()) else { crate::refuse!(node, Reason::Bug { payload: "a LockRows without exactly one locking mark" }) };
+            let (Some(mark), None) = (locking.next(), locking.next()) else {
+                crate::refuse!(
+                    node,
+                    Reason::Bug {
+                        payload: "a LockRows without exactly one locking mark"
+                    }
+                )
+            };
             if mark.relid != d.plan.target_rel {
-                crate::refuse!(node, Reason::Bug { payload: "a LockRows whose locking mark is not its plan's relation" });
+                crate::refuse!(
+                    node,
+                    Reason::Bug {
+                        payload: "a LockRows whose locking mark is not its plan's relation"
+                    }
+                );
             }
             mark
         }
         // L2: the family child this pipeline scans (ExecLockRows' ExecRowMark whose relid is the row's tableoid); FAMJOIN: a
         // pipeline over the joined relation's own scan (the family's leaf on the build side) is no family arm
-        Some(_) => d.marks.iter().find(|m| !m.parent && m.rti == scanrelid && m.lock != LockKind::None).unwrap_or_else(|| shape(node, if d.family().is_some() { NOT_OWN } else { FAMILY_JOIN })),
+        Some(_) => d
+            .marks
+            .iter()
+            .find(|m| !m.parent && m.rti == scanrelid && m.lock != LockKind::None)
+            .unwrap_or_else(|| {
+                shape(
+                    node,
+                    if d.family().is_some() {
+                        NOT_OWN
+                    } else {
+                        FAMILY_JOIN
+                    },
+                )
+            }),
     };
     let arm = |o: &Op<'_>| family.is_some() && matches!(o, Op::Append(AppendDesc::Arm { .. }));
     // D3287 (b): or a LEFT hash probe / LEFT nest whose inner is a REFERENCE relation (FOR UPDATE never reaches a nullable
     // side): a row the join null-extended holds that mark's ctid NULL, which gives the recheck no inner row (marks.rs
     // `sites_in` / `nest_scan`: null_empty, D2048), so the recheck null-extends again, as EvalPlanQualFetchRowMark's no-row does
-    let left = |o: &Op<'_>| crate::rerun::epq::marks::left_joins(o) || super::marks::spool_left_nest(px.gx, k, o);
+    let left = |o: &Op<'_>| {
+        crate::rerun::epq::marks::left_joins(o) || super::marks::spool_left_nest(px.gx, k, o)
+    };
     // D3287 (b): or an INNER nest whose inner is a VALUES list's scan: its COPY row is stored per row and the recheck's
     // re-open of the inner yields it alone (rerun/epq/marks.rs `lock_values_nest`); or one whose inner is a constant
     // Result (no mark; the recheck re-opens it: `nest_const`)
     // D3291: or an INNER nest whose inner holds one Memoize over a REFERENCE relation's scan (`nest_memo_joins`)
     // D3656: or an INNER nest whose inner reads the quiet fill of a COPY-marked VALUES list (`lock_values_spool`)
-    let join = |o: &Op<'_>| crate::rerun::epq::marks::joins(o) || crate::rerun::epq::marks::nest_joins(o) || crate::rerun::epq::marks::nest_memo_joins(o) || left(o) || crate::rerun::epq::marks::lock_values_nest(px.gx, k, o, &d.marks) || crate::rerun::epq::marks::lock_values_spool(px.gx, k, o, &d.marks) || crate::rerun::epq::marks::nest_const(o);
-    let below = p.ops[..j].iter().all(|o| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_) | Op::SubPlan(_)) || arm(o) || join(o));
+    let join = |o: &Op<'_>| {
+        crate::rerun::epq::marks::joins(o)
+            || crate::rerun::epq::marks::nest_joins(o)
+            || crate::rerun::epq::marks::nest_memo_joins(o)
+            || left(o)
+            || crate::rerun::epq::marks::lock_values_nest(px.gx, k, o, &d.marks)
+            || crate::rerun::epq::marks::lock_values_spool(px.gx, k, o, &d.marks)
+            || crate::rerun::epq::marks::nest_const(o)
+    };
+    let below = p.ops[..j].iter().all(|o| {
+        matches!(
+            o,
+            Op::Filter(_) | Op::Gate(_) | Op::Project(_) | Op::SubPlan(_)
+        ) || arm(o)
+            || join(o)
+    });
     if am != Am::Heap || only || src != mark.relid || scanrelid != mark.rti || !below {
         shape(node, NOT_OWN);
     }
@@ -1183,7 +2119,9 @@ fn admit(px: &Px<'_, '_>, k: usize, j: usize, d: &LockDesc<'_>, node: i32, produ
         match o {
             Op::Project(_) => {}
             o if limit_op(o) && p.ops[..j].iter().any(join) => shape(node, LIMIT_ABOVE),
-            o if limit_op(o) && !subs && p.ops[..j].iter().any(|o| matches!(o, Op::SubPlan(_))) => shape(node, SUBPLAN_EPQ),
+            o if limit_op(o) && !subs && p.ops[..j].iter().any(|o| matches!(o, Op::SubPlan(_))) => {
+                shape(node, SUBPLAN_EPQ)
+            }
             o if limit_op(o) => limit = true,
             _ if product => {}
             _ => shape(node, OP_ABOVE),
@@ -1199,16 +2137,39 @@ pub(crate) fn limit_op(o: &Op<'_>) -> bool {
 
 /// V4R-512: the lock's recheck is its own relation's alone: one locking mark and no other (no family, no REFERENCE / COPY
 /// mark), and only filters, gates and projections below it (no join, no SubPlan op: nothing another pipeline makes).
-pub(crate) fn one_site(p: &gravity_decompose::PipelineNode<'_>, j: usize, d: &LockDesc<'_>) -> bool {
-    let below = p.ops[..j].iter().all(|o| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_)));
-    d.family().is_none() && d.marks.iter().all(|m| m.lock != LockKind::None && !m.parent) && below
+pub(crate) fn one_site(
+    p: &gravity_decompose::PipelineNode<'_>,
+    j: usize,
+    d: &LockDesc<'_>,
+) -> bool {
+    let below = p.ops[..j]
+        .iter()
+        .all(|o| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_)));
+    d.family().is_none()
+        && d.marks
+            .iter()
+            .all(|m| m.lock != LockKind::None && !m.parent)
+        && below
 }
 
 /// D3506 SETLOCK: `one_site` beside SubPlan steps below the lock, each a hashed probe of a set whose plan locks
 /// (rerun/epq/set_lock.rs `probes_sets`, which the caller asks first).
-pub(crate) fn set_site(p: &gravity_decompose::PipelineNode<'_>, j: usize, d: &LockDesc<'_>) -> bool {
-    let below = p.ops[..j].iter().all(|o| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_) | Op::SubPlan(_)));
-    d.family().is_none() && d.marks.iter().all(|m| m.lock != LockKind::None && !m.parent) && below
+pub(crate) fn set_site(
+    p: &gravity_decompose::PipelineNode<'_>,
+    j: usize,
+    d: &LockDesc<'_>,
+) -> bool {
+    let below = p.ops[..j].iter().all(|o| {
+        matches!(
+            o,
+            Op::Filter(_) | Op::Gate(_) | Op::Project(_) | Op::SubPlan(_)
+        )
+    });
+    d.family().is_none()
+        && d.marks
+            .iter()
+            .all(|m| m.lock != LockKind::None && !m.parent)
+        && below
 }
 
 /// producerchain E (V4R-512 over L2): a family's lock (`LockDesc::family`: the parent marks and their children, every one
@@ -1216,13 +2177,28 @@ pub(crate) fn set_site(p: &gravity_decompose::PipelineNode<'_>, j: usize, d: &Lo
 /// planner's single leaf or an Append arm, with only filters, gates, projections and the arm's marker below it. Its recheck
 /// is that leaf's alone, as V4R-512's is its relation's: ExecLockRows skips the parent marks and gives the other children's
 /// scans no test tuple (their marks inactive for the row), so EvalPlanQual reruns only the leaf the row came from.
-pub(crate) fn own_leaf(p: &gravity_decompose::PipelineNode<'_>, j: usize, d: &LockDesc<'_>) -> bool {
-    let below = p.ops[..j].iter().all(|o| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_) | Op::Append(AppendDesc::Arm { .. })));
+pub(crate) fn own_leaf(
+    p: &gravity_decompose::PipelineNode<'_>,
+    j: usize,
+    d: &LockDesc<'_>,
+) -> bool {
+    let below = p.ops[..j].iter().all(|o| {
+        matches!(
+            o,
+            Op::Filter(_) | Op::Gate(_) | Op::Project(_) | Op::Append(AppendDesc::Arm { .. })
+        )
+    });
     let scan = match &p.source {
-        Source::Range { scanrelid, .. } | Source::Index { scanrelid, .. } | Source::Bitmap { scanrelid, .. } => u32::from(*scanrelid),
+        Source::Range { scanrelid, .. }
+        | Source::Index { scanrelid, .. }
+        | Source::Bitmap { scanrelid, .. } => u32::from(*scanrelid),
         _ => return false,
     };
-    d.family().is_some() && below && d.marks.iter().any(|m| !m.parent && m.rti == scan && m.lock != LockKind::None)
+    d.family().is_some()
+        && below
+        && d.marks
+            .iter()
+            .any(|m| !m.parent && m.rti == scan && m.lock != LockKind::None)
 }
 
 /// D652-S1's lock half (lockrows; modifytable's write/rowop_epq.rs `subs_in_ir`): a lock over its own relation alone (one
@@ -1235,9 +2211,19 @@ pub(crate) fn own_leaf(p: &gravity_decompose::PipelineNode<'_>, j: usize, d: &Lo
 /// and the recheck runs it again, D2112); `admit_ir` then asks each of them to be attached at the lock or above (INIT_BELOW)
 /// and read by a filter below the lock, an index scan's keys or a TID scan's quals at an unconditional position
 /// (INIT_READ), since a SubPlan step below the lock may read any of them. False keeps marks.rs's form and its refusals.
-pub(crate) fn subs_in_ir(gx: &crate::graph::Gx<'_, '_>, k: usize, j: usize, d: &LockDesc<'_>) -> bool {
+pub(crate) fn subs_in_ir(
+    gx: &crate::graph::Gx<'_, '_>,
+    k: usize,
+    j: usize,
+    d: &LockDesc<'_>,
+) -> bool {
     let p = &gx.pipelines()[k];
-    if d.family().is_some() || !d.marks.iter().all(|m| m.lock != LockKind::None && !m.parent) {
+    if d.family().is_some()
+        || !d
+            .marks
+            .iter()
+            .all(|m| m.lock != LockKind::None && !m.parent)
+    {
         return false;
     }
     for o in p.ops[..j].iter() {
@@ -1246,16 +2232,29 @@ pub(crate) fn subs_in_ir(gx: &crate::graph::Gx<'_, '_>, k: usize, j: usize, d: &
             _ => return false,
         }
     }
-    let member = |q: usize| gx.graph.reruns.iter().any(|r| p.ops[..j].iter().any(|o| matches!(o, Op::SubPlan(s) if s.plan_id == r.plan_id)) && r.pipelines.iter().any(|&m| usize::from(m) == q));
+    let member = |q: usize| {
+        gx.graph.reruns.iter().any(|r| {
+            p.ops[..j]
+                .iter()
+                .any(|o| matches!(o, Op::SubPlan(s) if s.plan_id == r.plan_id))
+                && r.pipelines.iter().any(|&m| usize::from(m) == q)
+        })
+    };
     // D3563: or SubPlan steps whose plans are embedded inners (no product: Django's annotate(Subquery(..)) on a claim,
     // `SELECT t.id, (SELECT q.name FROM app_queue q WHERE q.id = t.queue_id) .. LIMIT 4 FOR UPDATE SKIP LOCKED`) under
     // a LIMIT / OFFSET, where the runner's recheck would send the rechecked row past it (SUBPLAN_EPQ)
     // D3707: or the claim beside an inner lock (rerun/epq/sub_lock.rs `sub_claim`) with no LIMIT, which the runner's
     // recheck cannot take (SUBLOCK_RUNNER: its node never locks again)
-    if !p.ops[..j].iter().any(|o| matches!(o, Op::SubPlan(_))) || !gx.reads_product(k) && !p.ops[j + 1..].iter().any(limit_op) && !crate::rerun::epq::sub_lock::sub_claim(gx, k, j) {
+    if !p.ops[..j].iter().any(|o| matches!(o, Op::SubPlan(_)))
+        || !gx.reads_product(k)
+            && !p.ops[j + 1..].iter().any(limit_op)
+            && !crate::rerun::epq::sub_lock::sub_claim(gx, k, j)
+    {
         return false;
     }
-    let Some(init) = Census(gx).subs_inits(k, &member) else { return false };
+    let Some(init) = Census(gx).subs_inits(k, &member) else {
+        return false;
+    };
     (0..gx.pipelines().len()).all(|q| q == k || member(q) || init.contains(&q))
 }
 
@@ -1263,7 +2262,13 @@ pub(crate) fn subs_in_ir(gx: &crate::graph::Gx<'_, '_>, k: usize, j: usize, d: &
 struct NoRows;
 
 impl StepMech for NoRows {
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, next: Next<'_, 'e>) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        next: Next<'_, 'e>,
+    ) -> Carry<'e> {
         next(b, env, row)
     }
 }
@@ -1275,14 +2280,27 @@ impl Lock<'_> {
     }
 
     /// `store_pos` in relation `rel` (an I32: lockrows FAMLIMIT's row's leaf), else the lock's own.
-    fn store_pos_in(&self, b: &mut FunctionBuilder<'_>, env: &Env, block: Value, offset: Value, rel: Option<Value>) {
+    fn store_pos_in(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &Env,
+        block: Value,
+        offset: Value,
+        rel: Option<Value>,
+    ) {
         let rel = rel.unwrap_or_else(|| b.iconst(Type::I32, self.relid as i32 as i64));
         store_site_pos(b, env, self.site.get(), (block, offset), rel);
     }
 }
 
 /// Site `site`'s 12-byte position (`ScanPos`): flags | off << 16, relation `rel` (an I32), the block (write/rowop.rs's form).
-pub(crate) fn store_site_pos(b: &mut FunctionBuilder<'_>, env: &Env, site: usize, (block, offset): (Value, Value), rel: Value) {
+pub(crate) fn store_site_pos(
+    b: &mut FunctionBuilder<'_>,
+    env: &Env,
+    site: usize,
+    (block, offset): (Value, Value),
+    rel: Value,
+) {
     let s = site_off(site) as i32;
     let off = b.conv(ConvOp::Trunc, Type::I32, offset);
     let sixteen = b.iconst(Type::I32, 16);
@@ -1297,13 +2315,30 @@ pub(crate) fn store_site_pos(b: &mut FunctionBuilder<'_>, env: &Env, site: usize
 
 /// The row's junk ctid column `col` (an ItemPointerData image: bi_hi, bi_lo, ip_posid) as (block, offset): the position
 /// of a lock whose recheck is the IR's.
-pub(crate) fn junk_tid(b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals, (col, tf): (i16, &TypeFacts), node: i32) -> (Value, Value) {
-    let Some(cr) = row.col(col) else { crate::refuse!(node, Reason::Bug { payload: "a lock's ctid column past the row" }) };
+pub(crate) fn junk_tid(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    row: &RowVals,
+    (col, tf): (i16, &TypeFacts),
+    node: i32,
+) -> (Value, Value) {
+    let Some(cr) = row.col(col) else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a lock's ctid column past the row"
+            }
+        )
+    };
     let mut cx = env.lx(b, node);
     let (d, _null) = crate::rep::datum(&mut cx, cr, tf);
     env.memo = cx.memo;
     let p = b.conv(ConvOp::IntToPtr, Type::Ptr, d);
-    let (hi, lo, off) = (b.load_zext(Type::I16, p, 0), b.load_zext(Type::I16, p, 2), b.load_zext(Type::I16, p, 4));
+    let (hi, lo, off) = (
+        b.load_zext(Type::I16, p, 0),
+        b.load_zext(Type::I16, p, 2),
+        b.load_zext(Type::I16, p, 4),
+    );
     let sixteen = b.iconst(Type::I64, 16);
     let hi = b.int_bin(IntBinOp::Shl, hi, sixteen);
     (b.int_bin(IntBinOp::Or, hi, lo), off)
@@ -1328,11 +2363,23 @@ impl<'g> StepMech for Lock<'g> {
     /// D3289: the re-entry word starts clear at every open, as an expanding step's offset does.
     fn open_words(&self, w: &mut OpenWords) {
         if let Some(o) = self.again {
-            w.declare(OpenWord::open("write.lock re-entry", Base::Words, o, Type::I64, 0));
+            w.declare(OpenWord::open(
+                "write.lock re-entry",
+                Base::Words,
+                o,
+                Type::I64,
+                0,
+            ));
         }
     }
 
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, next: Next<'_, 'e>) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        next: Next<'_, 'e>,
+    ) -> Carry<'e> {
         // D3289: the row is here: a re-entry it waited for is over
         if let Some(w) = self.again {
             env.store_word(b, w, env.zero);
@@ -1345,7 +2392,14 @@ impl<'g> StepMech for Lock<'g> {
             Some((col, tf)) => {
                 let (block, off) = junk_tid(b, env, row, (*col, tf), self.node);
                 if let Some(f) = &self.fam {
-                    let Some(tr) = row.col(f.col) else { crate::refuse!(self.node, Reason::Bug { payload: "a lock's tableoid column past the row" }) };
+                    let Some(tr) = row.col(f.col) else {
+                        crate::refuse!(
+                            self.node,
+                            Reason::Bug {
+                                payload: "a lock's tableoid column past the row"
+                            }
+                        )
+                    };
                     let mut cx = env.lx(b, self.node);
                     leaf = Some(crate::rep::datum(&mut cx, tr, &f.of).0);
                     env.memo = cx.memo;
@@ -1360,23 +2414,63 @@ impl<'g> StepMech for Lock<'g> {
                 0
             }
             None => {
-                let Some(loc) = env.loc else { crate::refuse!(self.node, Reason::Bug { payload: "a row lock over a source without a locator" }) };
-                let Some(src) = env.site else { crate::refuse!(self.node, Reason::Bug { payload: "a row lock whose source has a locator but no site" }) };
+                let Some(loc) = env.loc else {
+                    crate::refuse!(
+                        self.node,
+                        Reason::Bug {
+                            payload: "a row lock over a source without a locator"
+                        }
+                    )
+                };
+                let Some(src) = env.site else {
+                    crate::refuse!(
+                        self.node,
+                        Reason::Bug {
+                            payload: "a row lock whose source has a locator but no site"
+                        }
+                    )
+                };
                 self.store_pos(b, env, loc.block, loc.offset);
                 src
             }
         };
         if self.junk.is_some() && self.epq.is_none() && self.fam.is_none() {
-            crate::refuse!(self.node, Reason::Bug { payload: "a junk-ctid row lock without its in-IR recheck" });
+            crate::refuse!(
+                self.node,
+                Reason::Bug {
+                    payload: "a junk-ctid row lock without its in-IR recheck"
+                }
+            );
         }
         crate::rerun::epq::marks::store(b, env, row, self.node, &self.marks);
-        let mem = HostFlags { touches_memory: true, ..HostFlags::default() };
+        let mem = HostFlags {
+            touches_memory: true,
+            ..HostFlags::default()
+        };
         let lock_row = gravity_kernels::ops::lockrows::entries::lock_row as *const () as usize;
-        let h = b.declare_host_once("lock_row", &[Type::Ptr, Type::I64], Some(Type::I64), lock_row, mem);
-        let arg = self.mark.checked_sub(1).map_or(self.site.get() as u64, |i| LockSite::arg(self.site.get(), i));
+        let h = b.declare_host_once(
+            "lock_row",
+            &[Type::Ptr, Type::I64],
+            Some(Type::I64),
+            lock_row,
+            mem,
+        );
+        let arg = self
+            .mark
+            .checked_sub(1)
+            .map_or(self.site.get() as u64, |i| {
+                LockSite::arg(self.site.get(), i)
+            });
         let site_c = b.iconst(Type::I64, arg as i64);
-        let st = b.call_host(h, &[env.ctx, site_c], Some(Type::I64)).unwrap_or(env.zero);
-        let types: PgVec<'_, Type> = row.carry.params().iter().map(|&v| b.value_type(v)).collect_in(env.mcx);
+        let st = b
+            .call_host(h, &[env.ctx, site_c], Some(Type::I64))
+            .unwrap_or(env.zero);
+        let types: PgVec<'_, Type> = row
+            .carry
+            .params()
+            .iter()
+            .map(|&v| b.value_type(v))
+            .collect_in(env.mcx);
         let l_join = b.create_block(&types[..]);
         // below zero: the host's error; above RECHECK: no lock answers it (CONFLICT is ON CONFLICT's)
         let (l_bad, l_ok) = (b.create_block(&[]), b.create_block(&[]));
@@ -1422,7 +2516,9 @@ impl<'g> StepMech for Lock<'g> {
                 let uns = b.iconst(Type::I64, unsupported(UNSUPPORTED_SHAPE));
                 b.br(env.x.l_stop_in, &[row.carry.out, row.at, uns]);
             }
-            _ => crate::ops::lockrows::marks::recheck_exit(b, env, row, self.again, &|b| b.iconst(Type::I64, recheck(src))),
+            _ => crate::ops::lockrows::marks::recheck_exit(b, env, row, self.again, &|b| {
+                b.iconst(Type::I64, recheck(src))
+            }),
         }
         // DONE: the locked row goes on
         b.switch_to(l_done);

@@ -17,7 +17,9 @@ pub fn root_context(name: &'static str) -> MemoryContext {
 /// Covered: the pure input functions of the soft-error row and the transaction / statement timestamps. Every other tier C
 /// row stays on the leader (the catalog readers, the privilege checks, current_setting, the SRF / window / record rows).
 pub fn pool_hosted(oid: u32) -> bool {
-    let Some(r) = crate::row_of(oid) else { return false };
+    let Some(r) = crate::row_of(oid) else {
+        return false;
+    };
     // a shim row bound through the function manager (CoerceViaIO's input half binds `textin` with its three I/O
     // arguments, the shim's arity is one): the same body a shim site runs on a pool thread
     if matches!(r.tier, crate::Tier::A | crate::Tier::B) {
@@ -30,10 +32,43 @@ pub fn pool_hosted(oid: u32) -> bool {
 }
 
 const POOL_INPUTS: &[&str] = &[
-    "int2in", "int4in", "int8in", "float4in", "float8in", "boolin", "uuid_in", "date_in", "time_in", "timetz_in", "timestamp_in",
-    "timestamptz_in", "interval_in", "bpcharin", "varcharin", "byteain", "inet_in", "cidr_in", "macaddr_in", "macaddr8_in", "pg_lsn_in",
-    "bit_in", "varbit_in", "json_in", "jsonb_in", "xidin", "xid8in", "cidin", "tidin", "oidin", "point_in", "lseg_in", "path_in", "box_in",
-    "poly_in", "circle_in", "line_in",
+    "int2in",
+    "int4in",
+    "int8in",
+    "float4in",
+    "float8in",
+    "boolin",
+    "uuid_in",
+    "date_in",
+    "time_in",
+    "timetz_in",
+    "timestamp_in",
+    "timestamptz_in",
+    "interval_in",
+    "bpcharin",
+    "varcharin",
+    "byteain",
+    "inet_in",
+    "cidr_in",
+    "macaddr_in",
+    "macaddr8_in",
+    "pg_lsn_in",
+    "bit_in",
+    "varbit_in",
+    "json_in",
+    "jsonb_in",
+    "xidin",
+    "xid8in",
+    "cidin",
+    "tidin",
+    "oidin",
+    "point_in",
+    "lseg_in",
+    "path_in",
+    "box_in",
+    "poly_in",
+    "circle_in",
+    "line_in",
 ];
 
 const POOL_SESSION: &[&str] = &["now", "transaction_timestamp", "statement_timestamp"];
@@ -58,4 +93,3 @@ pub fn claim_gen() -> u64 {
 pub fn arm_claim_gen(g: u64) -> u64 {
     crate::typesem::collation::CLAIM_GEN.with(|c| c.replace(g))
 }
-

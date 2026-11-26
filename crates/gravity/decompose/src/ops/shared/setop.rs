@@ -133,7 +133,9 @@ pub struct IterDesc {
 }
 
 pub enum SetDesc<'p> {
-    Identity { keys: ArenaVec<EqKey> },
+    Identity {
+        keys: ArenaVec<EqKey>,
+    },
     /// `form` (ops/setop/stream.rs): how the two inputs are read. Grouped and Ahead: `left` and `right` are the sides'
     /// group slots. Stream: the emit is the left input's own pipeline (`left` is `NO_LEFT`) and `right` the right input's
     /// spool.
@@ -142,7 +144,17 @@ pub enum SetDesc<'p> {
     /// PL/pgSQL FOR loop, a bounded Execute) stops where PG has read only the left rows it handed on, while the grouped form
     /// reads the left whole at the first pull. lowerv4 ops/setop/lower.rs sets the SetOp proto's `SETOP_ARG_LOUD` bit,
     /// which exec runner/admission.rs refuses on such a pull.
-    Set { cmd: SetCmd, hashed: bool, left: u8, right: u8, keys: ArenaVec<EqKey>, groups: u64, tlist: &'p NodeList<'p>, form: SetForm, pull_loud: bool },
+    Set {
+        cmd: SetCmd,
+        hashed: bool,
+        left: u8,
+        right: u8,
+        keys: ArenaVec<EqKey>,
+        groups: u64,
+        tlist: &'p NodeList<'p>,
+        form: SetForm,
+        pull_loud: bool,
+    },
     Iter(IterDesc),
 }
 

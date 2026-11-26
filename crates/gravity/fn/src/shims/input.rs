@@ -107,7 +107,13 @@ pub extern "C-unwind" fn timestamptz_in(e: *mut ErrSlot, a0: View, _a1: i64, a2:
     }
 }
 
-pub extern "C-unwind" fn interval_in(e: *mut ErrSlot, r: *mut Region, a0: View, _a1: i64, a2: i64) -> Ret {
+pub extern "C-unwind" fn interval_in(
+    e: *mut ErrSlot,
+    r: *mut Region,
+    a0: View,
+    _a1: i64,
+    a2: i64,
+) -> Ret {
     match adt_timestamp::interval::interval_in(&text(a0), a2 as i32, None) {
         Ok(v) => crate::region_interval(r, &v),
         Err(err) => fail(e, err),
@@ -121,7 +127,9 @@ pub extern "C-unwind" fn interval_in(e: *mut ErrSlot, r: *mut Region, a0: View, 
 #[cold]
 #[inline(never)]
 fn absorbed(f: &str) -> Box<crate::PgError> {
-    Box::new(crate::PgError::error(format!("{f}: soft-error escape without an escontext"))) // alloc: Cold
+    Box::new(crate::PgError::error(format!(
+        "{f}: soft-error escape without an escontext"
+    ))) // alloc: Cold
 }
 
 pub extern "C-unwind" fn byteain(e: *mut ErrSlot, r: *mut Region, a0: View) -> Ret {

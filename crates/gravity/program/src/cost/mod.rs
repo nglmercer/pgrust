@@ -83,7 +83,8 @@ pub const UNION_TOP_ARMS_MIN: usize = 256;
 /// declining wins, as the 50 % opened rule before it did (the fit's scope: cost_profile front.rs `PERCODE_CORPUS`). A
 /// parallel claim never declines: its front cuts the records every worker writes for the owner merge. Word: the code
 /// weight << 32 | the opened record's (0: never).
-pub const PERCODE_DECLINE: u64 = cost_profile::front::PERCODE_CODE_W << 32 | cost_profile::front::PERCODE_OPENED_W;
+pub const PERCODE_DECLINE: u64 =
+    cost_profile::front::PERCODE_CODE_W << 32 | cost_profile::front::PERCODE_OPENED_W;
 /// PS1-29: a per-code `PROGRAM` body over a code column with at least `PERCODE_DATUM_PCT` % as many entries as the
 /// relation has rows (each entry read about once) reads the column's datum per row instead (lowerv4 dict/percode.rs
 /// `attach`); under `PERCODE_DATUM_ROWS_MIN` rows the table stays (the forms differ by less than the bar's +0.2 ms).
@@ -102,7 +103,8 @@ pub const PERCODE_DATUM_ROWS_MIN: u64 = 4096;
 /// datum, where `forms::percode_datum`'s ends disagree) and decompose ops/scan `datum_text_lanes` (D3016: a column read
 /// only through calls is a by-reference lane).
 pub const fn near_unique(rows: u64, entries: u64) -> bool {
-    rows >= PERCODE_DATUM_ROWS_MIN && entries.saturating_mul(100) >= rows.saturating_mul(PERCODE_DATUM_PCT)
+    rows >= PERCODE_DATUM_ROWS_MIN
+        && entries.saturating_mul(100) >= rows.saturating_mul(PERCODE_DATUM_PCT)
 }
 
 /// D3016: the widest average datum (bytes) a near-unique text column read only through calls is laid down by reference
@@ -132,9 +134,10 @@ pub const DICT_POOL_MIN_WORDS: usize = 8 << 10;
 /// The memory policy's sizes (B, its reserves, every cache's cap, the grant pool's capacity) live in `mempolicy::sizes`;
 /// their names stay here for every caller.
 pub use mempolicy::sizes::{
-    budget_auto, budget_of, build_pool_cap, condition_cache_cap, derived_pool_cap, os_reserve, page_cache_floor_default, part_cache_cap, process_caches_cap, reserve_high, reserve_low,
-    resident_tables_cap, zone_store_cap, Budget, BUILD_POOL_RAM_64THS, CONDITION_CACHE_RAM_64THS, RECLAIM_INLINE_MAX, RECLAIM_TICK_MS, TABLES_RAM_64THS, WORK_POOL_MIN,
-    ZONE_STORE_RAM_64THS,
+    budget_auto, budget_of, build_pool_cap, condition_cache_cap, derived_pool_cap, os_reserve,
+    page_cache_floor_default, part_cache_cap, process_caches_cap, reserve_high, reserve_low,
+    resident_tables_cap, zone_store_cap, Budget, BUILD_POOL_RAM_64THS, CONDITION_CACHE_RAM_64THS,
+    RECLAIM_INLINE_MAX, RECLAIM_TICK_MS, TABLES_RAM_64THS, WORK_POOL_MIN, ZONE_STORE_RAM_64THS,
 };
 /// The code-range verdict (lowerv4 dict/strategies/verdict_coderange.rs): past this many table words (64 codes each) from
 /// a window's lowest code to its highest, the range goes unread (`Maybe`) and the window is read as without the verdict.
@@ -298,17 +301,27 @@ pub fn grant_need_of(pipelines: &[crate::Pipeline], max_live: u16, width: u16) -
 /// `grant_need_of` under `pgrust.gravity_exact_size` (`breaker::of_at`): exactsize B1c, `exact_build` asks a hash build's
 /// records alone; D3205, `end_rows` asks a serial pipeline's breaker by the planner's rows at its end, not 0. `false,
 /// false` is `grant_need_of`, byte for byte.
-pub fn grant_need_of_at(pipelines: &[crate::Pipeline], max_live: u16, width: u16, exact_build: bool, end_rows: bool) -> Option<u64> {
+pub fn grant_need_of_at(
+    pipelines: &[crate::Pipeline],
+    max_live: u16,
+    width: u16,
+    exact_build: bool,
+    end_rows: bool,
+) -> Option<u64> {
     let w = width.max(1) as u64;
     let mut sum = 0u64;
     let mut any = false;
     let mut most = 0u64;
     for p in pipelines.iter() {
-        let Some(c) = breaker::of_at(p, exact_build, end_rows) else { continue };
+        let Some(c) = breaker::of_at(p, exact_build, end_rows) else {
+            continue;
+        };
         any = true;
         let share = c.share_at(width);
         most = most.max(share).max(c.held);
-        sum = sum.saturating_add(share.saturating_mul(w + 1)).saturating_add(w.saturating_mul(c.t1()));
+        sum = sum
+            .saturating_add(share.saturating_mul(w + 1))
+            .saturating_add(w.saturating_mul(c.t1()));
     }
     any.then_some(sum.max(most.saturating_mul(max_live.max(1) as u64)))
 }
@@ -415,10 +428,16 @@ pub const ROWFILTER_RESAMPLE: u64 = 32;
 pub const BUILD_SIDE_BYTES: (u64, u64) = (12, 5);
 pub const BUILD_SIDE_ROWS: u64 = 4;
 
-pub const fn build_side_swaps(build_rows: u64, probe_rows: u64, build_words: u64, probe_words: u64) -> bool {
+pub const fn build_side_swaps(
+    build_rows: u64,
+    probe_rows: u64,
+    build_words: u64,
+    probe_words: u64,
+) -> bool {
     let (num, den) = BUILD_SIDE_BYTES;
     build_rows > probe_rows.saturating_mul(BUILD_SIDE_ROWS)
-        || build_rows.saturating_mul(build_words).saturating_mul(den) > probe_rows.saturating_mul(probe_words).saturating_mul(num)
+        || build_rows.saturating_mul(build_words).saturating_mul(den)
+            > probe_rows.saturating_mul(probe_words).saturating_mul(num)
 }
 
 /// The rows of one pgrc granule, the unit a zone summary covers: pgrc_format geom.rs `GRANULE_ROWS`, the writer's
@@ -444,7 +463,11 @@ pub const fn rtfilter_set_max(probe_rows: Option<u64>) -> usize {
         None => 0,
     };
     if granules > RTFILTER_SET_MAX as u64 {
-        if granules > u32::MAX as u64 { u32::MAX as usize } else { granules as usize }
+        if granules > u32::MAX as u64 {
+            u32::MAX as usize
+        } else {
+            granules as usize
+        }
     } else {
         RTFILTER_SET_MAX
     }

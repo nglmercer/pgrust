@@ -21,7 +21,6 @@ fn int_type() -> PlType {
     }
 }
 
-
 macro_rules! parser_for {
     ($cx:ident, $comp:ident, $src:expr) => {{
         let buf = mcx::slice_borrow_in($cx.mcx(), $src).unwrap();
@@ -57,9 +56,20 @@ fn block_label_after_declare_is_positioned_at_the_label() {
         let mut parser = parser_for!(cx, comp, src);
         let err = parser.parse_function_body().unwrap_err();
         assert_eq!(err.sqlstate, types_error::ERRCODE_SYNTAX_ERROR);
-        assert_eq!(err.message, "block label must be placed before DECLARE, not after");
-        assert_eq!(err.internal_position, Some(pos), "{:?}", core::str::from_utf8(src));
-        assert_eq!(err.internal_query.as_deref(), Some(core::str::from_utf8(src).unwrap()));
+        assert_eq!(
+            err.message,
+            "block label must be placed before DECLARE, not after"
+        );
+        assert_eq!(
+            err.internal_position,
+            Some(pos),
+            "{:?}",
+            core::str::from_utf8(src)
+        );
+        assert_eq!(
+            err.internal_query.as_deref(),
+            Some(core::str::from_utf8(src).unwrap())
+        );
         assert_eq!(err.cursor_position, None);
     }
 }
@@ -71,10 +81,18 @@ fn block_label_after_declare_is_positioned_at_the_label() {
 fn alias_for_an_unknown_variable_is_positioned_at_the_target() {
     for (src, name, pos) in [
         (&b"declare a alias for nosuch; begin end"[..], "nosuch", 21),
-        (&b"declare a alias for nosuch.f; begin end"[..], "nosuch.f", 21),
+        (
+            &b"declare a alias for nosuch.f; begin end"[..],
+            "nosuch.f",
+            21,
+        ),
         (&b"declare a alias for x.y.z; begin end"[..], "x.y.z", 21),
         (&b"declare a alias for row; begin end"[..], "row", 21),
-        (&b"declare\n  a alias for nosuch; begin end"[..], "nosuch", 23),
+        (
+            &b"declare\n  a alias for nosuch; begin end"[..],
+            "nosuch",
+            23,
+        ),
     ] {
         let cx = mcx::MemoryContext::new("plpgsql b202 alias");
         let mut comp = crate::comp::CompState::new();
@@ -82,8 +100,16 @@ fn alias_for_an_unknown_variable_is_positioned_at_the_target() {
         let err = parser.parse_function_body().unwrap_err();
         assert_eq!(err.sqlstate, types_error::ERRCODE_UNDEFINED_OBJECT);
         assert_eq!(err.message, format!("variable \"{name}\" does not exist"));
-        assert_eq!(err.internal_position, Some(pos), "{:?}", core::str::from_utf8(src));
-        assert_eq!(err.internal_query.as_deref(), Some(core::str::from_utf8(src).unwrap()));
+        assert_eq!(
+            err.internal_position,
+            Some(pos),
+            "{:?}",
+            core::str::from_utf8(src)
+        );
+        assert_eq!(
+            err.internal_query.as_deref(),
+            Some(core::str::from_utf8(src).unwrap())
+        );
         assert_eq!(err.cursor_position, None);
     }
 }

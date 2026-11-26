@@ -121,7 +121,9 @@ fn parse_endpoint(s: &str, name: &str) -> Result<Endpoint, String> {
         .ok_or_else(|| format!("{name} must be host:port, got {s:?}"))?;
     Ok(Endpoint {
         host: host.to_string(),
-        port: port.parse().map_err(|e| format!("bad {name} port {port:?}: {e}"))?,
+        port: port
+            .parse()
+            .map_err(|e| format!("bad {name} port {port:?}: {e}"))?,
     })
 }
 
@@ -161,8 +163,14 @@ fn parse_args() -> Result<Args, String> {
     let mut a = None;
     let mut b = None;
     let mut args = Args {
-        a: Endpoint { host: String::new(), port: 0 },
-        b: Endpoint { host: String::new(), port: 0 },
+        a: Endpoint {
+            host: String::new(),
+            port: 0,
+        },
+        b: Endpoint {
+            host: String::new(),
+            port: 0,
+        },
         db: "fuzz".to_string(),
         user: std::env::var("USER").unwrap_or_else(|_| "postgres".to_string()),
         seed: 0,
@@ -190,23 +198,26 @@ fn parse_args() -> Result<Args, String> {
     };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
-        let mut value = |name: &str| {
-            it.next().ok_or_else(|| format!("{name} requires a value"))
-        };
+        let mut value = |name: &str| it.next().ok_or_else(|| format!("{name} requires a value"));
         match arg.as_str() {
             "--a" => a = Some(parse_endpoint(&value("--a")?, "--a")?),
             "--b" => b = Some(parse_endpoint(&value("--b")?, "--b")?),
             "--db" => args.db = value("--db")?,
             "--user" => args.user = value("--user")?,
             "--seed" => {
-                args.seed = value("--seed")?.parse().map_err(|e| format!("bad --seed: {e}"))?
+                args.seed = value("--seed")?
+                    .parse()
+                    .map_err(|e| format!("bad --seed: {e}"))?
             }
             "--count" => {
-                args.count = value("--count")?.parse().map_err(|e| format!("bad --count: {e}"))?
+                args.count = value("--count")?
+                    .parse()
+                    .map_err(|e| format!("bad --count: {e}"))?
             }
             "--max-depth" => {
-                args.max_depth =
-                    value("--max-depth")?.parse().map_err(|e| format!("bad --max-depth: {e}"))?
+                args.max_depth = value("--max-depth")?
+                    .parse()
+                    .map_err(|e| format!("bad --max-depth: {e}"))?
             }
             "--modules" => args.modules = Some(value("--modules")?),
             "--weight" => args.weights.apply_spec(&value("--weight")?)?,
@@ -221,14 +232,20 @@ fn parse_args() -> Result<Args, String> {
             "--reduce" => args.reduce = true,
             "--repro-dir" => args.repro_dir = value("--repro-dir")?,
             "--live-catalog" => args.live_catalog = true,
-            "--ulp" => args.ulp = value("--ulp")?.parse().map_err(|e| format!("bad --ulp: {e}"))?,
+            "--ulp" => {
+                args.ulp = value("--ulp")?
+                    .parse()
+                    .map_err(|e| format!("bad --ulp: {e}"))?
+            }
             "--no-guc-pin" => args.guc_pin = false,
             "--profile" => args.profile = value("--profile")?,
             "--replay" => args.replay = Some(value("--replay")?),
             "--mask-explain-timing" => args.mask_explain_timing = true,
             "--xproto" => {
                 args.xproto = Some(
-                    value("--xproto")?.parse().map_err(|e| format!("bad --xproto: {e}"))?,
+                    value("--xproto")?
+                        .parse()
+                        .map_err(|e| format!("bad --xproto: {e}"))?,
                 )
             }
             "--copybin" => args.copybin = true,
@@ -307,7 +324,9 @@ impl ServerPairFactory<'_> {
         for sql in &self.setup_sql {
             for (side, ex) in [("A", &mut *a), ("B", &mut *b)] {
                 if let fuzzgen::diff::StmtOutcome::Error { sqlstate, message } = ex.apply(sql) {
-                    return Err(format!("setup on {side} failed ({sqlstate} {message}): {sql}"));
+                    return Err(format!(
+                        "setup on {side} failed ({sqlstate} {message}): {sql}"
+                    ));
                 }
             }
         }
@@ -342,15 +361,21 @@ fn run() -> Result<ExitCode, String> {
         // that a fixture-only re-setup would not clear — a later run's
         // streams would collide with them (42P07/42703 floods) and reducer
         // probe pairs would not start from the run's true initial state.
-        ["DROP SCHEMA public CASCADE;".to_string(), "CREATE SCHEMA public;".to_string()]
-            .into_iter()
-            .chain(fixture_ddl(&catalog).lines().map(|l| l.to_string()))
-            .chain(fixture_seed_sql())
-            .collect()
+        [
+            "DROP SCHEMA public CASCADE;".to_string(),
+            "CREATE SCHEMA public;".to_string(),
+        ]
+        .into_iter()
+        .chain(fixture_ddl(&catalog).lines().map(|l| l.to_string()))
+        .chain(fixture_seed_sql())
+        .collect()
     } else {
         Vec::new()
     };
-    let mut factory = ServerPairFactory { args: &args, setup_sql };
+    let mut factory = ServerPairFactory {
+        args: &args,
+        setup_sql,
+    };
 
     // Setup must land before a live-catalog introspection can see the schema.
     // The main pair gets the same RESET-proof pin wrapper as reducer pairs.
@@ -369,9 +394,9 @@ fn run() -> Result<ExitCode, String> {
         let table = fuzzgen::ruled::default_table();
         let (records, stats) = fuzzgen::copybin::run_suite(&mut *a, &mut *b, &table, args.ulp);
         let mut findings_out: Box<dyn Write> = match &args.findings {
-            Some(path) => Box::new(
-                std::fs::File::create(path).map_err(|e| format!("open {path}: {e}"))?,
-            ),
+            Some(path) => {
+                Box::new(std::fs::File::create(path).map_err(|e| format!("open {path}: {e}"))?)
+            }
             None => Box::new(std::io::stdout()),
         };
         writeln!(
@@ -392,25 +417,23 @@ fn run() -> Result<ExitCode, String> {
             stats.ruled,
             stats.findings
         );
-        return Ok(if stats.findings > 0 { ExitCode::from(2) } else { ExitCode::SUCCESS });
+        return Ok(if stats.findings > 0 {
+            ExitCode::from(2)
+        } else {
+            ExitCode::SUCCESS
+        });
     }
 
     if args.copytext {
         // COPY text/csv option-matrix suite (Q8). Seeded arm sized by
         // --count (deterministic in --seed).
         let table = fuzzgen::ruled::default_table();
-        let (records, stats) = fuzzgen::copytext::run_suite(
-            &mut *a,
-            &mut *b,
-            &table,
-            args.ulp,
-            args.seed,
-            args.count,
-        );
+        let (records, stats) =
+            fuzzgen::copytext::run_suite(&mut *a, &mut *b, &table, args.ulp, args.seed, args.count);
         let mut findings_out: Box<dyn Write> = match &args.findings {
-            Some(path) => Box::new(
-                std::fs::File::create(path).map_err(|e| format!("open {path}: {e}"))?,
-            ),
+            Some(path) => {
+                Box::new(std::fs::File::create(path).map_err(|e| format!("open {path}: {e}"))?)
+            }
             None => Box::new(std::io::stdout()),
         };
         writeln!(
@@ -433,25 +456,23 @@ fn run() -> Result<ExitCode, String> {
             stats.ruled,
             stats.findings
         );
-        return Ok(if stats.findings > 0 { ExitCode::from(2) } else { ExitCode::SUCCESS });
+        return Ok(if stats.findings > 0 {
+            ExitCode::from(2)
+        } else {
+            ExitCode::SUCCESS
+        });
     }
 
     if args.copyopts {
         // COPY options-matrix drain (lane COPYOPTS). Seeded round-trip arm
         // sized by --count (deterministic in --seed).
         let table = fuzzgen::ruled::default_table();
-        let (records, stats) = fuzzgen::copyopts::run_suite(
-            &mut *a,
-            &mut *b,
-            &table,
-            args.ulp,
-            args.seed,
-            args.count,
-        );
+        let (records, stats) =
+            fuzzgen::copyopts::run_suite(&mut *a, &mut *b, &table, args.ulp, args.seed, args.count);
         let mut findings_out: Box<dyn Write> = match &args.findings {
-            Some(path) => Box::new(
-                std::fs::File::create(path).map_err(|e| format!("open {path}: {e}"))?,
-            ),
+            Some(path) => {
+                Box::new(std::fs::File::create(path).map_err(|e| format!("open {path}: {e}"))?)
+            }
             None => Box::new(std::io::stdout()),
         };
         writeln!(
@@ -474,7 +495,11 @@ fn run() -> Result<ExitCode, String> {
             stats.ruled,
             stats.findings
         );
-        return Ok(if stats.findings > 0 { ExitCode::from(2) } else { ExitCode::SUCCESS });
+        return Ok(if stats.findings > 0 {
+            ExitCode::from(2)
+        } else {
+            ExitCode::SUCCESS
+        });
     }
 
     if args.dbddl {
@@ -501,9 +526,9 @@ fn run() -> Result<ExitCode, String> {
         )?;
         let (records, stats) = suite.run_suite(&table, args.ulp);
         let mut findings_out: Box<dyn Write> = match &args.findings {
-            Some(path) => Box::new(
-                std::fs::File::create(path).map_err(|e| format!("open {path}: {e}"))?,
-            ),
+            Some(path) => {
+                Box::new(std::fs::File::create(path).map_err(|e| format!("open {path}: {e}"))?)
+            }
             None => Box::new(std::io::stdout()),
         };
         writeln!(
@@ -525,7 +550,11 @@ fn run() -> Result<ExitCode, String> {
             stats.ruled,
             stats.findings
         );
-        return Ok(if stats.findings > 0 { ExitCode::from(2) } else { ExitCode::SUCCESS });
+        return Ok(if stats.findings > 0 {
+            ExitCode::from(2)
+        } else {
+            ExitCode::SUCCESS
+        });
     }
 
     let catalog = if args.live_catalog {
@@ -542,87 +571,86 @@ fn run() -> Result<ExitCode, String> {
 
     // Stream source: generated session (default) or a replayed .sql file
     // (ddmin-repro re-verification; no ddl windows, no soft-float masks).
-    let (stream, ddl_windows): (Vec<StreamStmt>, Vec<fuzzgen::session::DdlWindow>) =
-        match &args.replay {
-            Some(path) => {
-                let text =
-                    std::fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
-                // stmt_index is the 0-based position among KEPT statements
-                // (not the file line number): the reducer indexes the
-                // stream by stmt_index, exactly like generated sessions.
-                let stream: Vec<StreamStmt> = text
-                    .lines()
-                    .filter(|l| {
-                        let t = l.trim();
-                        !t.is_empty() && !t.starts_with("--")
-                    })
-                    .enumerate()
-                    .map(|(i, l)| StreamStmt {
-                        stmt_index: i as u32,
-                        sql: l.trim().to_string(),
-                        soft_float_cols: Vec::new(),
-                        mask_explain_timing: args.mask_explain_timing,
-                    })
-                    .collect();
-                if stream.is_empty() {
-                    return Err(format!("--replay {path}: no statements"));
-                }
-                (stream, Vec::new())
+    let (stream, ddl_windows): (Vec<StreamStmt>, Vec<fuzzgen::session::DdlWindow>) = match &args
+        .replay
+    {
+        Some(path) => {
+            let text = std::fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
+            // stmt_index is the 0-based position among KEPT statements
+            // (not the file line number): the reducer indexes the
+            // stream by stmt_index, exactly like generated sessions.
+            let stream: Vec<StreamStmt> = text
+                .lines()
+                .filter(|l| {
+                    let t = l.trim();
+                    !t.is_empty() && !t.starts_with("--")
+                })
+                .enumerate()
+                .map(|(i, l)| StreamStmt {
+                    stmt_index: i as u32,
+                    sql: l.trim().to_string(),
+                    soft_float_cols: Vec::new(),
+                    mask_explain_timing: args.mask_explain_timing,
+                })
+                .collect();
+            if stream.is_empty() {
+                return Err(format!("--replay {path}: no statements"));
             }
-            None => {
-                let toggles = match &args.modules {
-                    Some(spec) => ToggleVector::parse(spec)?,
-                    None => ToggleVector::all_on(),
-                };
-                let cfg = SessionConfig {
-                    seed: args.seed,
-                    toggles,
-                    weights: args.weights.clone(),
-                    budget: args.count,
-                    max_depth: args.max_depth,
-                };
-                let session = run_session_probed(&cfg, &catalog);
-                let stream = session
-                    .stmts
-                    .iter()
-                    .map(|s| {
-                        let is_gramwalk =
-                            s.productions.iter().any(|p| p == "module:gramwalk");
-                        StreamStmt {
-                            stmt_index: s.stmt_index,
-                            // FP-1: gramwalk's database-DDL name operands are
-                            // rebased into the batch-unique scratch-db
-                            // namespace so concurrent driver instances and
-                            // crash residue can never interfere through the
-                            // cluster-global database namespace.
-                            // RB-9 (round-9): tablespace names are the same
-                            // cluster-global hazard — ddldeep's fixed
-                            // dd_ts/dd_ts2 leaked across batches as B-only
-                            // 42710/55000 — but fixed-name decks exist in
-                            // several modules, so the tablespace rebase
-                            // applies to the WHOLE stream (pg_* built-ins
-                            // and quoted material excepted); helper_diffrun
-                            // reclaims {db}_* tablespaces at batch cleanup.
-                            // FP-12 (round-10): roles are the same
-                            // cluster-global hazard (pg_authid) — the
-                            // aclrls module's fixed fz_acl_* role deck
-                            // raced concurrent batches' DROP/CREATE
-                            // brackets (42704/2BP01 one-sided errors),
-                            // so its whole module-owned namespace is
-                            // rebased into {db}_fz_acl_*; helper_diffrun
-                            // reclaims {db}_* roles at batch cleanup.
-                            // RB-14 (round-10): gramwalk-derived ALTER
-                            // SYSTEM SET/RESET on a 3+-component or
-                            // `$`-bearing custom GUC name writes an
-                            // unquoted line postgresql.auto.conf can
-                            // never re-parse (guc-file.l QUALIFIED_ID is
-                            // exactly two components) — every later
-                            // ALTER SYSTEM errors F0000 and a restart
-                            // FATALs, wedging the history under fault
-                            // injection. PR #1553 rules the diff noise
-                            // (autoconf-shared-race); this pass prevents
-                            // the poison at generation time.
-                            sql: {
+            (stream, Vec::new())
+        }
+        None => {
+            let toggles = match &args.modules {
+                Some(spec) => ToggleVector::parse(spec)?,
+                None => ToggleVector::all_on(),
+            };
+            let cfg = SessionConfig {
+                seed: args.seed,
+                toggles,
+                weights: args.weights.clone(),
+                budget: args.count,
+                max_depth: args.max_depth,
+            };
+            let session = run_session_probed(&cfg, &catalog);
+            let stream = session
+                .stmts
+                .iter()
+                .map(|s| {
+                    let is_gramwalk = s.productions.iter().any(|p| p == "module:gramwalk");
+                    StreamStmt {
+                        stmt_index: s.stmt_index,
+                        // FP-1: gramwalk's database-DDL name operands are
+                        // rebased into the batch-unique scratch-db
+                        // namespace so concurrent driver instances and
+                        // crash residue can never interfere through the
+                        // cluster-global database namespace.
+                        // RB-9 (round-9): tablespace names are the same
+                        // cluster-global hazard — ddldeep's fixed
+                        // dd_ts/dd_ts2 leaked across batches as B-only
+                        // 42710/55000 — but fixed-name decks exist in
+                        // several modules, so the tablespace rebase
+                        // applies to the WHOLE stream (pg_* built-ins
+                        // and quoted material excepted); helper_diffrun
+                        // reclaims {db}_* tablespaces at batch cleanup.
+                        // FP-12 (round-10): roles are the same
+                        // cluster-global hazard (pg_authid) — the
+                        // aclrls module's fixed fz_acl_* role deck
+                        // raced concurrent batches' DROP/CREATE
+                        // brackets (42704/2BP01 one-sided errors),
+                        // so its whole module-owned namespace is
+                        // rebased into {db}_fz_acl_*; helper_diffrun
+                        // reclaims {db}_* roles at batch cleanup.
+                        // RB-14 (round-10): gramwalk-derived ALTER
+                        // SYSTEM SET/RESET on a 3+-component or
+                        // `$`-bearing custom GUC name writes an
+                        // unquoted line postgresql.auto.conf can
+                        // never re-parse (guc-file.l QUALIFIED_ID is
+                        // exactly two components) — every later
+                        // ALTER SYSTEM errors F0000 and a restart
+                        // FATALs, wedging the history under fault
+                        // injection. PR #1553 rules the diff noise
+                        // (autoconf-shared-race); this pass prevents
+                        // the poison at generation time.
+                        sql: {
                             // Round-11: gramwalk's grammar-derived ROLE
                             // DDL name operands are the same cluster-
                             // global hazard (short keyword-spelled names
@@ -632,49 +660,45 @@ fn run() -> Result<ExitCode, String> {
                             // into the batch namespace exactly like
                             // database names; helper_diffrun's `{db}_*`
                             // role reclaim covers them.
-                                let sql = if is_gramwalk {
-                                    let sql = fuzzgen::gramwalk::rebase_database_names(
-                                        &s.sql, &args.db,
-                                    );
-                                    let sql =
-                                        fuzzgen::gramwalk::rebase_role_names(&sql, &args.db);
-                                    fuzzgen::gramwalk::sanitize_alter_system_guc_names(&sql)
-                                } else {
-                                    s.sql.clone()
-                                };
+                            let sql = if is_gramwalk {
                                 let sql =
-                                    fuzzgen::gramwalk::rebase_tablespace_names(&sql, &args.db);
-                                let sql = fuzzgen::aclrls::rebase_role_names(&sql, &args.db);
-                                // Round-12: the nodes module's ns_role1/2
-                                // deck is the same cluster-global hazard
-                                // (one-sided 42704 on ALTER ROLE, seed
-                                // 1186240469902918316) — rebased into the
-                                // batch namespace like the aclrls deck;
-                                // helper_diffrun's {db}_* role reclaim
-                                // covers it.
-                                let sql =
-                                    fuzzgen::nodes::rebase_role_names(&sql, &args.db);
-                                // Round-13: the earm-family + ddldeep fixed
-                                // role decks raced concurrent batches the
-                                // same way (both-direction DROP ROLE
-                                // ea3_wown divergence, seeds
-                                // 4078551634953133971 /
-                                // 1653252951681713200) — token-rebased
-                                // into the batch namespace; helper_diffrun's
-                                // {db}_* role reclaim covers them.
-                                fuzzgen::earm::rebase_role_names(&sql, &args.db)
-                            },
-                            soft_float_cols: s.soft_float_cols.clone(),
-                            // Opt-in H1 mask: gramwalk derives raw EXPLAIN
-                            // ANALYZE straight from the grammar and cannot
-                            // carry the explain module's TIMING OFF hygiene.
-                            mask_explain_timing: is_gramwalk,
-                        }
-                    })
-                    .collect();
-                (stream, session.ddl_windows)
-            }
-        };
+                                    fuzzgen::gramwalk::rebase_database_names(&s.sql, &args.db);
+                                let sql = fuzzgen::gramwalk::rebase_role_names(&sql, &args.db);
+                                fuzzgen::gramwalk::sanitize_alter_system_guc_names(&sql)
+                            } else {
+                                s.sql.clone()
+                            };
+                            let sql = fuzzgen::gramwalk::rebase_tablespace_names(&sql, &args.db);
+                            let sql = fuzzgen::aclrls::rebase_role_names(&sql, &args.db);
+                            // Round-12: the nodes module's ns_role1/2
+                            // deck is the same cluster-global hazard
+                            // (one-sided 42704 on ALTER ROLE, seed
+                            // 1186240469902918316) — rebased into the
+                            // batch namespace like the aclrls deck;
+                            // helper_diffrun's {db}_* role reclaim
+                            // covers it.
+                            let sql = fuzzgen::nodes::rebase_role_names(&sql, &args.db);
+                            // Round-13: the earm-family + ddldeep fixed
+                            // role decks raced concurrent batches the
+                            // same way (both-direction DROP ROLE
+                            // ea3_wown divergence, seeds
+                            // 4078551634953133971 /
+                            // 1653252951681713200) — token-rebased
+                            // into the batch namespace; helper_diffrun's
+                            // {db}_* role reclaim covers them.
+                            fuzzgen::earm::rebase_role_names(&sql, &args.db)
+                        },
+                        soft_float_cols: s.soft_float_cols.clone(),
+                        // Opt-in H1 mask: gramwalk derives raw EXPLAIN
+                        // ANALYZE straight from the grammar and cannot
+                        // carry the explain module's TIMING OFF hygiene.
+                        mask_explain_timing: is_gramwalk,
+                    }
+                })
+                .collect();
+            (stream, session.ddl_windows)
+        }
+    };
 
     let table = fuzzgen::ruled::default_table();
     // Probeable tables: every pk-carrying catalog table (whole-stream
@@ -692,18 +716,27 @@ fn run() -> Result<ExitCode, String> {
         if tables.is_empty() {
             None
         } else {
-            Some(ProbeSpec { every: args.probe_every, tables })
+            Some(ProbeSpec {
+                every: args.probe_every,
+                tables,
+            })
         }
     } else {
         None
     };
-    let (records, stats) =
-        run_stream(&mut *a, &mut *b, &stream, &table, args.ulp, probe_spec.as_ref());
+    let (records, stats) = run_stream(
+        &mut *a,
+        &mut *b,
+        &stream,
+        &table,
+        args.ulp,
+        probe_spec.as_ref(),
+    );
 
     let mut findings_out: Box<dyn Write> = match &args.findings {
-        Some(path) => Box::new(
-            std::fs::File::create(path).map_err(|e| format!("open {path}: {e}"))?,
-        ),
+        Some(path) => {
+            Box::new(std::fs::File::create(path).map_err(|e| format!("open {path}: {e}"))?)
+        }
         None => Box::new(std::io::stdout()),
     };
     // Run-manifest meta line (first line, "meta" key distinguishes it from
@@ -841,7 +874,11 @@ fn run() -> Result<ExitCode, String> {
         }
     }
 
-    Ok(if stats.findings > 0 { ExitCode::from(2) } else { ExitCode::SUCCESS })
+    Ok(if stats.findings > 0 {
+        ExitCode::from(2)
+    } else {
+        ExitCode::SUCCESS
+    })
 }
 
 fn main() -> ExitCode {

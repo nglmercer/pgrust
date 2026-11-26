@@ -32,18 +32,21 @@ use gravity_expr::emit::hash::emit_key_hash;
 use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{ConvOp, IntBinOp, IntCond, Type, Value};
 
+use crate::frame::env::Env;
+use crate::frame::stop::Exits;
 use crate::table::bypass::{fail_on, host, open_record, state, HASHED};
 use crate::table::face::{TableDecl, TableImpl, TableMech};
 use crate::table::keyimg::ImageWords;
-use crate::frame::env::Env;
-use crate::frame::stop::Exits;
 
 crate::strategies! {
     /// Per-part code front.
     CODE_FRONT_PART = 46, "code.front_part", CodeKeyed;
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(CODE_FRONT_PART, &TableImpl(&FRONT))], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(CODE_FRONT_PART, &TableImpl(&FRONT))],
+    ..crate::ops::NONE
+};
 
 pub(crate) struct Front;
 pub(crate) static FRONT: Front = Front;
@@ -104,7 +107,13 @@ fn words(b: &mut FunctionBuilder<'_>, env: &Env, t: &TableDecl) -> (Value, i32) 
 impl Front {
     /// `l_front(record)` when the row's code is under the front's capacity, else `l_hash` (a NULL key's code is all ones:
     /// `ImageWords.code`).
-    pub(crate) fn route(&self, b: &mut FunctionBuilder<'_>, env: &Env, t: &TableDecl, code: Value) -> (gravity_ir::Block, gravity_ir::Block) {
+    pub(crate) fn route(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &Env,
+        t: &TableDecl,
+        code: Value,
+    ) -> (gravity_ir::Block, gravity_ir::Block) {
         let (st, fr) = words(b, env, t);
         let (l_front, l_hash) = (b.create_block(&[Type::Ptr]), b.create_block(&[]));
         let cap = b.load(Type::I64, st, fr + FR_CAP);
@@ -127,8 +136,15 @@ impl Front {
         let (st, fr) = words(b, env, t);
         let (n, rec) = (cap(t), t.layout.size() as u64);
         let bytes = b.iconst(Type::I64, (n * (rec + 8)) as i64);
-        let f = host(b, "agg_front_open", &[Type::Ptr, Type::I64], gravity_abi::host_words!(gravity_kernels::table::entries::agg_front_open(ctx, bytes)));
-        let p = b.call_host(f, &[env.ctx, bytes], Some(Type::I64)).expect("agg_front_open returns an address or 0");
+        let f = host(
+            b,
+            "agg_front_open",
+            &[Type::Ptr, Type::I64],
+            gravity_abi::host_words!(gravity_kernels::table::entries::agg_front_open(ctx, bytes)),
+        );
+        let p = b
+            .call_host(f, &[env.ctx, bytes], Some(Type::I64))
+            .expect("agg_front_open returns an address or 0");
         let refused = b.icmp(IntCond::Eq, p, env.zero);
         let full = b.iconst(Type::I64, n as i64);
         let capv = b.select(refused, env.zero, full);
@@ -151,7 +167,13 @@ impl Front {
     }
 
     /// The listed records merged into the hashed table and zeroed; the list emptied; the run cache forgotten.
-    pub(crate) fn flush(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &TableDecl, x: &Exits) {
+    pub(crate) fn flush(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        t: &TableDecl,
+        x: &Exits,
+    ) {
         self.forget(b, env, t);
         let (st, fr) = words(b, env, t);
         let n = b.load(Type::I64, st, fr + FR_N);
@@ -159,9 +181,21 @@ impl Front {
         let any = b.icmp(IntCond::Ne, n, env.zero);
         b.cond_br(any, (l_go, &[]), (l_done, &[]));
         b.switch_to(l_go);
-        let (base, list) = (b.load(Type::Ptr, st, fr + FR_BASE), b.load(Type::Ptr, st, fr + FR_LIST));
-        let f = host(b, "agg_front_flush", &[Type::Ptr, Type::Ptr, Type::Ptr, Type::Ptr, Type::I64], gravity_abi::host_words!(gravity_kernels::table::entries::agg_front_flush(ctx, st, front, touched, n)));
-        let r = b.call_host(f, &[env.ctx, st, base, list, n], Some(Type::I64)).expect("agg_front_flush returns a status");
+        let (base, list) = (
+            b.load(Type::Ptr, st, fr + FR_BASE),
+            b.load(Type::Ptr, st, fr + FR_LIST),
+        );
+        let f = host(
+            b,
+            "agg_front_flush",
+            &[Type::Ptr, Type::Ptr, Type::Ptr, Type::Ptr, Type::I64],
+            gravity_abi::host_words!(gravity_kernels::table::entries::agg_front_flush(
+                ctx, st, front, touched, n
+            )),
+        );
+        let r = b
+            .call_host(f, &[env.ctx, st, base, list, n], Some(Type::I64))
+            .expect("agg_front_flush returns a status");
         fail_on(b, env, x, r);
         b.store(st, fr + FR_N, env.zero);
         b.br(l_done, &[]);
@@ -173,7 +207,15 @@ impl Front {
     /// `run` (`code` is the row's exact code: code.front_part's) the run cache's when it holds `code`; under
     /// `Env::front_probed` the probe compared already and missed, so the arm only refills the cache.
     /// D3224 A2: `Env::rec_window` names the arm (true: the front's record, one window's rows).
-    pub(crate) fn upsert_at(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &TableDecl, img: &ImageWords, code: Value, run: bool) -> (Value, Value) {
+    pub(crate) fn upsert_at(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        t: &TableDecl,
+        img: &ImageWords,
+        code: Value,
+        run: bool,
+    ) -> (Value, Value) {
         let run = run && runs();
         let check = run && !env.front_probed;
         let l_out = b.create_block(&[Type::Ptr, Type::Bool, Type::Bool]);
@@ -187,7 +229,10 @@ impl Front {
         b.switch_to(l_open);
         open_record(b, rec, &t.layout, &img.words.words);
         let (st, fr) = words(b, env, t);
-        let (list, n) = (b.load(Type::Ptr, st, fr + FR_LIST), b.load(Type::I64, st, fr + FR_N));
+        let (list, n) = (
+            b.load(Type::Ptr, st, fr + FR_LIST),
+            b.load(Type::I64, st, fr + FR_N),
+        );
         let at = b.ptr_add(list, n, 8, 0);
         b.store(at, 0, code);
         let n1 = b.int_bin(IntBinOp::Add, n, env.one);
@@ -202,7 +247,11 @@ impl Front {
         if check {
             let (st, fr) = words(b, env, t);
             let last = b.load(Type::I64, st, fr + RW_CODE);
-            let (same, l_hit, l_new) = (b.icmp(IntCond::Eq, code, last), b.create_block(&[]), b.create_block(&[]));
+            let (same, l_hit, l_new) = (
+                b.icmp(IntCond::Eq, code, last),
+                b.create_block(&[]),
+                b.create_block(&[]),
+            );
             b.cond_br(same, (l_hit, &[]), (l_new, &[]));
             b.switch_to(l_hit);
             let r = b.load(Type::Ptr, st, fr + RW_REC);
@@ -226,8 +275,18 @@ impl Front {
     /// or, with `run` (`upsert_at`'s), the run cache holds `code` (the table's record, `window` false), else `l_cold` (a
     /// fresh record, a code past the capacity), the builder left in no block. Per row: the route's compare and the count's
     /// load.
-    pub(crate) fn probe_at(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &TableDecl, code: Value, run: bool) -> (gravity_ir::Block, gravity_ir::Block) {
-        let (l_hot, l_cold) = (b.create_block(&[Type::Ptr, Type::Bool]), b.create_block(&[]));
+    pub(crate) fn probe_at(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        t: &TableDecl,
+        code: Value,
+        run: bool,
+    ) -> (gravity_ir::Block, gravity_ir::Block) {
+        let (l_hot, l_cold) = (
+            b.create_block(&[Type::Ptr, Type::Bool]),
+            b.create_block(&[]),
+        );
         let (l_front, l_hash) = self.route(b, env, t, code);
         b.switch_to(l_front);
         let rec = b.block_params(l_front)[0];
@@ -252,7 +311,14 @@ impl Front {
     }
 
     /// The front's record of in-front index `code` (null while it holds none), else the table's (hashed in that arm).
-    pub(crate) fn find_at(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &TableDecl, img: &ImageWords, code: Value) -> Value {
+    pub(crate) fn find_at(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        t: &TableDecl,
+        img: &ImageWords,
+        code: Value,
+    ) -> Value {
         let l_out = b.create_block(&[Type::Ptr]);
         let (l_front, l_hash) = self.route(b, env, t, code);
         b.switch_to(l_front);
@@ -275,12 +341,23 @@ impl TableMech for Front {
     /// One code key, and no float slot: a front merges partial states (`Rec::fold`), and float partials reassociate,
     /// which can move or remove an overflow ERROR relative to PG's serial fold (V4R-2 keeps overflow exact).
     fn takes(&self, t: &TableDecl) -> bool {
-        let float = (0..t.layout.nslots()).any(|j| matches!(t.layout.slot_kind(j), SlotKind::SumF64 | SlotKind::SumF32 | SlotKind::F64Accum));
+        let float = (0..t.layout.nslots()).any(|j| {
+            matches!(
+                t.layout.slot_kind(j),
+                SlotKind::SumF64 | SlotKind::SumF32 | SlotKind::F64Accum
+            )
+        });
         t.key.code.is_some() && !float
     }
 
     fn state_bytes(&self, t: &TableDecl) -> u32 {
-        HASHED.state_bytes(t) + FR_WORDS + if runs() { core::mem::size_of::<RunWords>() as u32 } else { 0 }
+        HASHED.state_bytes(t)
+            + FR_WORDS
+            + if runs() {
+                core::mem::size_of::<RunWords>() as u32
+            } else {
+                0
+            }
     }
 
     fn open(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &TableDecl) {
@@ -289,7 +366,14 @@ impl TableMech for Front {
     }
 
     /// A plain image (no code) upserts into the table, which may move the record the run cache holds: forgotten.
-    fn upsert(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &TableDecl, img: &ImageWords, h: Value) -> (Value, Value) {
+    fn upsert(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        t: &TableDecl,
+        img: &ImageWords,
+        h: Value,
+    ) -> (Value, Value) {
         let Some(code) = img.code else {
             let r = HASHED.upsert(b, env, t, img, h);
             self.forget(b, env, t);
@@ -298,12 +382,27 @@ impl TableMech for Front {
         self.upsert_at(b, env, t, img, code, true)
     }
 
-    fn find(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &TableDecl, img: &ImageWords, h: Value) -> Value {
-        let Some(code) = img.code else { return HASHED.find(b, env, t, img, h) };
+    fn find(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        t: &TableDecl,
+        img: &ImageWords,
+        h: Value,
+    ) -> Value {
+        let Some(code) = img.code else {
+            return HASHED.find(b, env, t, img, h);
+        };
         self.find_at(b, env, t, img, code)
     }
 
-    fn probe(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &TableDecl, codes: &ImageWords) -> Option<(gravity_ir::Block, gravity_ir::Block)> {
+    fn probe(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        t: &TableDecl,
+        codes: &ImageWords,
+    ) -> Option<(gravity_ir::Block, gravity_ir::Block)> {
         Some(self.probe_at(b, env, t, codes.code?, true))
     }
 
@@ -323,9 +422,9 @@ mod tests {
     use gravity_abi::breaker::{KeyKind, RecordLayout, SlotKind};
     use gravity_abi::hash::Depth;
 
-    use crate::table::bypass::HASHED;
-    use crate::ops::agg::testkit::{fold, fold_records, want, Case};
     use super::FRONT;
+    use crate::ops::agg::testkit::{fold, fold_records, want, Case};
+    use crate::table::bypass::HASHED;
     use crate::table::face::{Domain, KeyShape, TableDecl, TableMech};
 
     /// The front against the hashed table over part-local codes (each window its own code permutation), 10 000 values
@@ -336,10 +435,33 @@ mod tests {
         let key: fn(i64) -> i64 = |i| i % 10_000;
         for null in [0, 97] {
             let n = 60_000;
-            let front = fold(Case { n, win: 4096, key, table: &FRONT, run: None, runs: None, code: true, null, dense: None });
-            let table = fold(Case { n, win: 4096, key, table: &HASHED, run: None, runs: None, code: true, null, dense: None });
+            let front = fold(Case {
+                n,
+                win: 4096,
+                key,
+                table: &FRONT,
+                run: None,
+                runs: None,
+                code: true,
+                null,
+                dense: None,
+            });
+            let table = fold(Case {
+                n,
+                win: 4096,
+                key,
+                table: &HASHED,
+                run: None,
+                runs: None,
+                code: true,
+                null,
+                dense: None,
+            });
             assert_eq!(front.0, want(n, key, null), "the front, null every {null}");
-            assert_eq!(front.0, table.0, "the front against the table, null every {null}");
+            assert_eq!(
+                front.0, table.0,
+                "the front against the table, null every {null}"
+            );
         }
     }
 
@@ -352,13 +474,39 @@ mod tests {
         let key: fn(i64) -> i64 = |i| (i / 2) % 400_000;
         let n = 100 * 4096;
         for null in [0, 97] {
-            let (front, bypass, recs) = fold_records(Case { n, win: 4096, key, table: &FRONT, run: None, runs: None, code: true, null, dense: None });
-            let (table, _, all) = fold_records(Case { n, win: 4096, key, table: &HASHED, run: None, runs: None, code: true, null, dense: None });
+            let (front, bypass, recs) = fold_records(Case {
+                n,
+                win: 4096,
+                key,
+                table: &FRONT,
+                run: None,
+                runs: None,
+                code: true,
+                null,
+                dense: None,
+            });
+            let (table, _, all) = fold_records(Case {
+                n,
+                win: 4096,
+                key,
+                table: &HASHED,
+                run: None,
+                runs: None,
+                code: true,
+                null,
+                dense: None,
+            });
             assert_eq!(front, want(n, key, null), "the front, null every {null}");
-            assert_eq!(front, table, "the front against the table, null every {null}");
+            assert_eq!(
+                front, table,
+                "the front against the table, null every {null}"
+            );
             assert!(bypass, "T1 bypasses, null every {null}");
             let most = (n / 2 + if null == 0 { 0 } else { n / null + 1 }) as usize;
-            assert!(recs <= most && recs < all, "{recs} records against at most {most} (the table's {all}), null every {null}");
+            assert!(
+                recs <= most && recs < all,
+                "{recs} records against at most {most} (the table's {all}), null every {null}"
+            );
         }
     }
 
@@ -373,13 +521,18 @@ mod tests {
             life: gravity_program::LifeId(0),
             layout: RecordLayout::with_sentinel(&[KeyKind::I64, KeyKind::I64], slots, false, None),
             state_off: 0,
-            key: KeyShape { code: Some((crate::cell::LaneId::col(1), 0)), dense: None, domain: Domain::Unknown },
+            key: KeyShape {
+                code: Some((crate::cell::LaneId::col(1), 0)),
+                dense: None,
+                domain: Domain::Unknown,
+            },
             facts: 0,
             copies: 0,
         };
         assert!(FRONT.takes(&decl(&[SlotKind::SumI64])));
         for f in [SlotKind::SumF64, SlotKind::SumF32, SlotKind::F64Accum] {
-            let slots: &'static [SlotKind] = Box::leak(vec![SlotKind::SumI64, f].into_boxed_slice());
+            let slots: &'static [SlotKind] =
+                Box::leak(vec![SlotKind::SumI64, f].into_boxed_slice());
             assert!(!FRONT.takes(&decl(slots)), "{f:?}");
         }
     }

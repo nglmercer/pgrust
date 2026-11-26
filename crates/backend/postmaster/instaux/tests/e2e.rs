@@ -13,7 +13,9 @@ use openssl::hash::MessageDigest;
 use openssl::nid::Nid;
 use openssl::pkey::{PKey, Private};
 use openssl::ssl::{SslConnector, SslFiletype, SslMethod};
-use openssl::x509::extension::{BasicConstraints, ExtendedKeyUsage, KeyUsage, SubjectAlternativeName};
+use openssl::x509::extension::{
+    BasicConstraints, ExtendedKeyUsage, KeyUsage, SubjectAlternativeName,
+};
 use openssl::x509::{X509Builder, X509NameBuilder, X509};
 use serde_json::{json, Value};
 
@@ -43,11 +45,18 @@ macro_rules! need_env {
 }
 
 fn free_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
+    TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port()
 }
 
 fn new_key() -> PKey<Private> {
-    PKey::from_ec_key(EcKey::generate(&EcGroup::from_curve_name(Nid::X9_62_PRIME256V1).unwrap()).unwrap()).unwrap()
+    PKey::from_ec_key(
+        EcKey::generate(&EcGroup::from_curve_name(Nid::X9_62_PRIME256V1).unwrap()).unwrap(),
+    )
+    .unwrap()
 }
 
 enum Usage {
@@ -56,7 +65,14 @@ enum Usage {
     Client,
 }
 
-fn make_cert(cn: &str, sans: &[&str], usage: Usage, issuer: Option<(&X509, &PKey<Private>)>, key: &PKey<Private>, expired: bool) -> X509 {
+fn make_cert(
+    cn: &str,
+    sans: &[&str],
+    usage: Usage,
+    issuer: Option<(&X509, &PKey<Private>)>,
+    key: &PKey<Private>,
+    expired: bool,
+) -> X509 {
     let mut name = X509NameBuilder::new().unwrap();
     name.append_entry_by_text("CN", cn).unwrap();
     let name = name.build();
@@ -64,21 +80,44 @@ fn make_cert(cn: &str, sans: &[&str], usage: Usage, issuer: Option<(&X509, &PKey
     b.set_version(2).unwrap();
     let mut serial = BigNum::new().unwrap();
     serial.rand(64, MsbOption::MAYBE_ZERO, false).unwrap();
-    b.set_serial_number(&serial.to_asn1_integer().unwrap()).unwrap();
+    b.set_serial_number(&serial.to_asn1_integer().unwrap())
+        .unwrap();
     b.set_subject_name(&name).unwrap();
-    b.set_issuer_name(issuer.map_or(&*name, |(c, _)| c.subject_name())).unwrap();
+    b.set_issuer_name(issuer.map_or(&*name, |(c, _)| c.subject_name()))
+        .unwrap();
     b.set_pubkey(key).unwrap();
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
-    let (from, to) = if expired { (now - 3 * 86_400, now - 86_400) } else { (now - 3600, now + 2 * 86_400) };
-    b.set_not_before(&Asn1Time::from_unix(from).unwrap()).unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    let (from, to) = if expired {
+        (now - 3 * 86_400, now - 86_400)
+    } else {
+        (now - 3600, now + 2 * 86_400)
+    };
+    b.set_not_before(&Asn1Time::from_unix(from).unwrap())
+        .unwrap();
     b.set_not_after(&Asn1Time::from_unix(to).unwrap()).unwrap();
     match usage {
         Usage::Ca => {
-            b.append_extension(BasicConstraints::new().critical().ca().build().unwrap()).unwrap();
-            b.append_extension(KeyUsage::new().critical().key_cert_sign().crl_sign().build().unwrap()).unwrap();
+            b.append_extension(BasicConstraints::new().critical().ca().build().unwrap())
+                .unwrap();
+            b.append_extension(
+                KeyUsage::new()
+                    .critical()
+                    .key_cert_sign()
+                    .crl_sign()
+                    .build()
+                    .unwrap(),
+            )
+            .unwrap();
         }
-        Usage::Server => b.append_extension(ExtendedKeyUsage::new().server_auth().build().unwrap()).unwrap(),
-        Usage::Client => b.append_extension(ExtendedKeyUsage::new().client_auth().build().unwrap()).unwrap(),
+        Usage::Server => b
+            .append_extension(ExtendedKeyUsage::new().server_auth().build().unwrap())
+            .unwrap(),
+        Usage::Client => b
+            .append_extension(ExtendedKeyUsage::new().client_auth().build().unwrap())
+            .unwrap(),
     }
     if !sans.is_empty() {
         let mut san = SubjectAlternativeName::new();
@@ -89,10 +128,13 @@ fn make_cert(cn: &str, sans: &[&str], usage: Usage, issuer: Option<(&X509, &PKey
                 san.dns(s);
             }
         }
-        let ext = san.build(&b.x509v3_context(issuer.map(|(c, _)| &**c), None)).unwrap();
+        let ext = san
+            .build(&b.x509v3_context(issuer.map(|(c, _)| &**c), None))
+            .unwrap();
         b.append_extension(ext).unwrap();
     }
-    b.sign(issuer.map_or(key, |(_, k)| k), MessageDigest::sha256()).unwrap();
+    b.sign(issuer.map_or(key, |(_, k)| k), MessageDigest::sha256())
+        .unwrap();
     b.build()
 }
 
@@ -126,20 +168,67 @@ fn make_certs(dir: &Path) -> Certs {
     let ca = make_cert("c1-test-ca", &[], Usage::Ca, None, &ca_key, false);
     let issuer = Some((&ca, &ca_key));
     let sk = new_key();
-    let server = write_pair(dir, "server", &make_cert("localhost", &["localhost", "127.0.0.1"], Usage::Server, issuer, &sk, false), &sk);
+    let server = write_pair(
+        dir,
+        "server",
+        &make_cert(
+            "localhost",
+            &["localhost", "127.0.0.1"],
+            Usage::Server,
+            issuer,
+            &sk,
+            false,
+        ),
+        &sk,
+    );
     let ak = new_key();
-    let admin = write_pair(dir, "admin", &make_cert("pfd", &["pfd"], Usage::Client, issuer, &ak, false), &ak);
+    let admin = write_pair(
+        dir,
+        "admin",
+        &make_cert("pfd", &["pfd"], Usage::Client, issuer, &ak, false),
+        &ak,
+    );
     let rk = new_key();
-    let reader = write_pair(dir, "reader", &make_cert("pfgw", &["pfgw"], Usage::Client, issuer, &rk, false), &rk);
+    let reader = write_pair(
+        dir,
+        "reader",
+        &make_cert("pfgw", &["pfgw"], Usage::Client, issuer, &rk, false),
+        &rk,
+    );
     let ek = new_key();
-    let expired = write_pair(dir, "expired", &make_cert("pfd", &["pfd"], Usage::Client, issuer, &ek, true), &ek);
+    let expired = write_pair(
+        dir,
+        "expired",
+        &make_cert("pfd", &["pfd"], Usage::Client, issuer, &ek, true),
+        &ek,
+    );
     let other_ca_key = new_key();
     let other_ca = make_cert("other-ca", &[], Usage::Ca, None, &other_ca_key, false);
     let fk = new_key();
-    let foreign = write_pair(dir, "foreign", &make_cert("pfd", &["pfd"], Usage::Client, Some((&other_ca, &other_ca_key)), &fk, false), &fk);
+    let foreign = write_pair(
+        dir,
+        "foreign",
+        &make_cert(
+            "pfd",
+            &["pfd"],
+            Usage::Client,
+            Some((&other_ca, &other_ca_key)),
+            &fk,
+            false,
+        ),
+        &fk,
+    );
     let ca_path = dir.join("ca.crt");
     std::fs::write(&ca_path, ca.to_pem().unwrap()).unwrap();
-    Certs { ca: ca_path, server_cert: server.cert, server_key: server.key, admin, reader, expired, foreign }
+    Certs {
+        ca: ca_path,
+        server_cert: server.cert,
+        server_key: server.key,
+        admin,
+        reader,
+        expired,
+        foreign,
+    }
 }
 
 #[derive(Clone)]
@@ -151,17 +240,28 @@ enum Target {
 trait Stream: Read + Write + std::fmt::Debug {}
 impl<T: Read + Write + std::fmt::Debug> Stream for T {}
 
-fn call(ca: &Path, target: &Target, who: Option<&Ident>, method: &str, path: &str, body: Option<&Value>, timeout: Duration) -> Result<(u16, Value), String> {
+fn call(
+    ca: &Path,
+    target: &Target,
+    who: Option<&Ident>,
+    method: &str,
+    path: &str,
+    body: Option<&Value>,
+    timeout: Duration,
+) -> Result<(u16, Value), String> {
     let mut b = SslConnector::builder(SslMethod::tls_client()).map_err(|e| e.to_string())?;
     b.set_ca_file(ca).map_err(|e| e.to_string())?;
     if let Some(id) = who {
-        b.set_certificate_file(&id.cert, SslFiletype::PEM).map_err(|e| e.to_string())?;
-        b.set_private_key_file(&id.key, SslFiletype::PEM).map_err(|e| e.to_string())?;
+        b.set_certificate_file(&id.cert, SslFiletype::PEM)
+            .map_err(|e| e.to_string())?;
+        b.set_private_key_file(&id.key, SslFiletype::PEM)
+            .map_err(|e| e.to_string())?;
     }
     let conn = b.build();
     let stream: Box<dyn Stream> = match target {
         Target::Tcp(p) => {
-            let s = TcpStream::connect_timeout(&format!("127.0.0.1:{p}").parse().unwrap(), timeout).map_err(|e| format!("connect: {e}"))?;
+            let s = TcpStream::connect_timeout(&format!("127.0.0.1:{p}").parse().unwrap(), timeout)
+                .map_err(|e| format!("connect: {e}"))?;
             s.set_read_timeout(Some(timeout)).unwrap();
             s.set_write_timeout(Some(timeout)).unwrap();
             Box::new(s)
@@ -173,15 +273,25 @@ fn call(ca: &Path, target: &Target, who: Option<&Ident>, method: &str, path: &st
             Box::new(s)
         }
     };
-    let mut tls = conn.connect("localhost", stream).map_err(|e| format!("handshake: {e}"))?;
+    let mut tls = conn
+        .connect("localhost", stream)
+        .map_err(|e| format!("handshake: {e}"))?;
     let payload = body.map(|v| v.to_string()).unwrap_or_default();
     let req = format!("{method} {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}", payload.len());
-    tls.write_all(req.as_bytes()).map_err(|e| format!("write: {e}"))?;
+    tls.write_all(req.as_bytes())
+        .map_err(|e| format!("write: {e}"))?;
     let mut out = Vec::new();
-    tls.read_to_end(&mut out).map_err(|e| format!("read: {e}"))?;
+    tls.read_to_end(&mut out)
+        .map_err(|e| format!("read: {e}"))?;
     let text = String::from_utf8_lossy(&out).to_string();
-    let (head, body) = text.split_once("\r\n\r\n").ok_or_else(|| format!("no response ({} bytes)", out.len()))?;
-    let status = head.split(' ').nth(1).and_then(|s| s.parse().ok()).ok_or("bad status line")?;
+    let (head, body) = text
+        .split_once("\r\n\r\n")
+        .ok_or_else(|| format!("no response ({} bytes)", out.len()))?;
+    let status = head
+        .split(' ')
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .ok_or("bad status line")?;
     Ok((status, serde_json::from_str(body).unwrap_or(Value::Null)))
 }
 
@@ -199,15 +309,32 @@ struct Server {
 
 impl Server {
     fn init(e: &Env, name: &str) -> Server {
-        let dir = PathBuf::from(format!("/tmp/c1e2e-{}-{}", std::process::id(), SEQ.fetch_add(1, Ordering::Relaxed)));
+        let dir = PathBuf::from(format!(
+            "/tmp/c1e2e-{}-{}",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let data = dir.join("data");
         let out = Command::new(e.pgbin.join("initdb"))
-            .args(["-D", data.to_str().unwrap(), "-U", "postgres", "-A", "trust", "--no-sync", "--no-instructions"])
+            .args([
+                "-D",
+                data.to_str().unwrap(),
+                "-U",
+                "postgres",
+                "-A",
+                "trust",
+                "--no-sync",
+                "--no-instructions",
+            ])
             .output()
             .unwrap();
-        assert!(out.status.success(), "initdb: {}", String::from_utf8_lossy(&out.stderr));
+        assert!(
+            out.status.success(),
+            "initdb: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
         let certs = make_certs(&dir.join("certs"));
         let s = Server {
             env_postgres: e.postgres.clone(),
@@ -235,7 +362,10 @@ impl Server {
             c.ca.display(),
             self.incarnation
         );
-        let mut f = std::fs::OpenOptions::new().append(true).open(self.data.join("postgresql.conf")).unwrap();
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(self.data.join("postgresql.conf"))
+            .unwrap();
         f.write_all(conf.as_bytes()).unwrap();
     }
 
@@ -248,7 +378,11 @@ impl Server {
             self.dir.display(),
             self.port
         );
-        let log = std::fs::File::create(self.dir.join(format!("server-{}.log", SEQ.fetch_add(1, Ordering::Relaxed)))).unwrap();
+        let log = std::fs::File::create(self.dir.join(format!(
+            "server-{}.log",
+            SEQ.fetch_add(1, Ordering::Relaxed)
+        )))
+        .unwrap();
         let child = Command::new("sh")
             .args(["-c", &cmd])
             .env("RUST_MIN_STACK", "67108864")
@@ -274,8 +408,15 @@ impl Server {
     }
 
     fn server_pid(&self) -> i32 {
-        let out = Command::new("pgrep").args(["-P", &self.pid().to_string()]).output().unwrap();
-        String::from_utf8_lossy(&out.stdout).lines().next().and_then(|l| l.trim().parse().ok()).unwrap_or(0)
+        let out = Command::new("pgrep")
+            .args(["-P", &self.pid().to_string()])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .next()
+            .and_then(|l| l.trim().parse().ok())
+            .unwrap_or(0)
     }
 
     fn signal_server(&self, sig: i32) {
@@ -331,11 +472,28 @@ impl Server {
     }
 
     fn admin(&self, method: &str, path: &str, body: Value) -> (u16, Value) {
-        call(&self.certs.ca, &self.tcp(), Some(&self.certs.admin), method, path, Some(&body), Duration::from_secs(150)).unwrap()
+        call(
+            &self.certs.ca,
+            &self.tcp(),
+            Some(&self.certs.admin),
+            method,
+            path,
+            Some(&body),
+            Duration::from_secs(150),
+        )
+        .unwrap()
     }
 
     fn get(&self, path: &str) -> Result<(u16, Value), String> {
-        call(&self.certs.ca, &self.unix(), Some(&self.certs.reader), "GET", path, None, Duration::from_secs(1))
+        call(
+            &self.certs.ca,
+            &self.unix(),
+            Some(&self.certs.reader),
+            "GET",
+            path,
+            None,
+            Duration::from_secs(1),
+        )
     }
 
     fn status(&self) -> Option<Value> {
@@ -357,9 +515,28 @@ impl Server {
         panic!("timed out waiting for {what}; last status {last}");
     }
 
-    fn psql(&self, user: &str, host: &str, password: Option<&str>, sql: &str) -> Result<String, String> {
+    fn psql(
+        &self,
+        user: &str,
+        host: &str,
+        password: Option<&str>,
+        sql: &str,
+    ) -> Result<String, String> {
         let mut c = Command::new(self.pgbin.join("psql"));
-        c.args(["-X", "-qAt", "-h", host, "-p", &self.port.to_string(), "-U", user, "-d", "postgres", "-c", sql]);
+        c.args([
+            "-X",
+            "-qAt",
+            "-h",
+            host,
+            "-p",
+            &self.port.to_string(),
+            "-U",
+            user,
+            "-d",
+            "postgres",
+            "-c",
+            sql,
+        ]);
         if let Some(p) = password {
             c.env("PGPASSWORD", p);
         }
@@ -372,7 +549,8 @@ impl Server {
     }
 
     fn sql(&self, sql: &str) -> String {
-        self.psql("postgres", self.dir.to_str().unwrap(), None, sql).unwrap_or_else(|e| panic!("{sql}: {e}"))
+        self.psql("postgres", self.dir.to_str().unwrap(), None, sql)
+            .unwrap_or_else(|e| panic!("{sql}: {e}"))
     }
 }
 
@@ -413,12 +591,40 @@ fn every_endpoint_requires_a_valid_client_certificate() {
     let body = json!({"epoch": 1, "incarnation": "1", "parameters": {}});
     for target in [s.tcp(), s.unix()] {
         for (m, p) in ENDPOINTS {
-            for (who, label) in [(None, "no certificate"), (Some(&c.foreign), "foreign CA"), (Some(&c.expired), "expired")] {
-                let r = call(&c.ca, &target, who, m, p, Some(&body), Duration::from_secs(5));
+            for (who, label) in [
+                (None, "no certificate"),
+                (Some(&c.foreign), "foreign CA"),
+                (Some(&c.expired), "expired"),
+            ] {
+                let r = call(
+                    &c.ca,
+                    &target,
+                    who,
+                    m,
+                    p,
+                    Some(&body),
+                    Duration::from_secs(5),
+                );
                 assert!(r.is_err(), "{m} {p} answered with {label}: {r:?}");
             }
-            let (status, _) = call(&c.ca, &target, Some(&c.reader), m, p, Some(&body), Duration::from_secs(30)).unwrap();
-            let admin_only = matches!(p, "/v1/config/apply" | "/v1/promote" | "/v1/fence" | "/v1/roles/apply" | "/v1/tls/reload");
+            let (status, _) = call(
+                &c.ca,
+                &target,
+                Some(&c.reader),
+                m,
+                p,
+                Some(&body),
+                Duration::from_secs(30),
+            )
+            .unwrap();
+            let admin_only = matches!(
+                p,
+                "/v1/config/apply"
+                    | "/v1/promote"
+                    | "/v1/fence"
+                    | "/v1/roles/apply"
+                    | "/v1/tls/reload"
+            );
             if admin_only {
                 assert_eq!(status, 403, "{m} {p} must refuse a non-admin identity");
             } else if p == "/update" {
@@ -428,7 +634,11 @@ fn every_endpoint_requires_a_valid_client_certificate() {
             }
         }
     }
-    let (st, v) = s.admin("POST", "/v1/tls/reload", json!({"epoch": 1, "incarnation": "1"}));
+    let (st, v) = s.admin(
+        "POST",
+        "/v1/tls/reload",
+        json!({"epoch": 1, "incarnation": "1"}),
+    );
     assert_eq!(st, 200, "{v}");
     assert!(v["aux"]["serial"].is_string());
 }
@@ -452,7 +662,9 @@ fn status_schema_on_a_live_primary() {
             for (k, c) in m {
                 let q = format!("{p}.{k}");
                 out.push(q.clone());
-                if ![".ext", ".disk.data", ".disk.wal", ".tls.aux", ".tls.server"].contains(&q.as_str()) {
+                if ![".ext", ".disk.data", ".disk.wal", ".tls.aux", ".tls.server"]
+                    .contains(&q.as_str())
+                {
                     keys(c, &q, out);
                 }
             }
@@ -470,7 +682,16 @@ fn status_schema_on_a_live_primary() {
 }
 
 fn check(s: &Server, params: Value) -> (u16, Value) {
-    call(&s.certs.ca, &s.tcp(), Some(&s.certs.reader), "POST", "/v1/config/check", Some(&json!({"parameters": params})), Duration::from_secs(30)).unwrap()
+    call(
+        &s.certs.ca,
+        &s.tcp(),
+        Some(&s.certs.reader),
+        "POST",
+        "/v1/config/check",
+        Some(&json!({"parameters": params})),
+        Duration::from_secs(30),
+    )
+    .unwrap()
 }
 
 fn first_code(v: &Value) -> String {
@@ -485,15 +706,27 @@ fn config_check_refuses_invalid_values_and_apply_orders_restarts() {
     let cases = [
         (json!({"log_diconnections=": "off"}), "invalid_name"),
         (json!({"#\narchive_command": "x"}), "invalid_name"),
-        (json!({"log_diconnections": "off"}), "unrecognized_parameter"),
-        (json!({"pgrust.no_such_setting": "1"}), "unrecognized_parameter"),
+        (
+            json!({"log_diconnections": "off"}),
+            "unrecognized_parameter",
+        ),
+        (
+            json!({"pgrust.no_such_setting": "1"}),
+            "unrecognized_parameter",
+        ),
         (json!({"log_disconnections": "maybe"}), "invalid_value"),
         (json!({"shared_buffers": "1GiB"}), "invalid_value"),
         (json!({"max_connections": "0"}), "invalid_value"),
-        (json!({"superuser_reserved_connections": "500"}), "startup_check"),
+        (
+            json!({"superuser_reserved_connections": "500"}),
+            "startup_check",
+        ),
         (json!({"wal_level": "minimal"}), "startup_check"),
         (json!({"min_wal_size": "16MB"}), "startup_check"),
-        (json!({"pgrust.instance_aux_listen": "0.0.0.0:1"}), "forbidden_parameter"),
+        (
+            json!({"pgrust.instance_aux_listen": "0.0.0.0:1"}),
+            "forbidden_parameter",
+        ),
         (json!({"data_directory": "/x"}), "forbidden_parameter"),
     ];
     for (params, code) in cases {
@@ -501,16 +734,35 @@ fn config_check_refuses_invalid_values_and_apply_orders_restarts() {
         assert_eq!(st, 422, "{params} should be refused: {v}");
         assert_eq!(first_code(&v), code, "{params}: {v}");
     }
-    let (st, v) = check(&s, json!({"work_mem": "64MB", "shared_buffers": "256MB", "custom.knob": "x"}));
+    let (st, v) = check(
+        &s,
+        json!({"work_mem": "64MB", "shared_buffers": "256MB", "custom.knob": "x"}),
+    );
     assert_eq!(st, 200, "{v}");
     assert_eq!(v["requires_restart"], json!(["shared_buffers"]));
     let before = s.status().unwrap()["config"]["applied_hash"].clone();
-    let (st, v) = s.admin("POST", "/v1/config/apply", json!({"epoch": 1, "incarnation": "1", "parameters": {"work_mem": "bogus"}}));
+    let (st, v) = s.admin(
+        "POST",
+        "/v1/config/apply",
+        json!({"epoch": 1, "incarnation": "1", "parameters": {"work_mem": "bogus"}}),
+    );
     assert_eq!(st, 422, "{v}");
-    assert_eq!(s.status().unwrap()["config"]["applied_hash"], before, "a refused apply must leave the config untouched");
-    let (st, v) = s.admin("POST", "/v1/config/apply", json!({"epoch": 1, "incarnation": "1", "hba": "host all all 127.0.0.1/32 bogusmethod\n"}));
+    assert_eq!(
+        s.status().unwrap()["config"]["applied_hash"],
+        before,
+        "a refused apply must leave the config untouched"
+    );
+    let (st, v) = s.admin(
+        "POST",
+        "/v1/config/apply",
+        json!({"epoch": 1, "incarnation": "1", "hba": "host all all 127.0.0.1/32 bogusmethod\n"}),
+    );
     assert_eq!((st, first_code(&v).as_str()), (422, "hba_invalid"), "{v}");
-    let (st, v) = s.admin("POST", "/v1/config/apply", json!({"epoch": 1, "incarnation": "1", "parameters": {"work_mem": "64MB"}}));
+    let (st, v) = s.admin(
+        "POST",
+        "/v1/config/apply",
+        json!({"epoch": 1, "incarnation": "1", "parameters": {"work_mem": "64MB"}}),
+    );
     assert_eq!(st, 200, "{v}");
     assert_eq!(v["applied"], json!(true));
     assert_eq!(s.sql("SHOW work_mem"), "64MB");
@@ -522,11 +774,26 @@ fn config_check_refuses_invalid_values_and_apply_orders_restarts() {
     );
     assert_eq!(st, 200, "{v}");
     assert_eq!(v["restart_order"][0]["order"], "primary_first", "{v}");
-    let pending: Vec<&str> = v["pending_restart"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
-    assert!(pending.contains(&"max_connections") && pending.contains(&"shared_buffers"), "{v}");
-    assert_eq!(v["decreased_sensitive"][0]["parameter"], "max_connections", "{v}");
+    let pending: Vec<&str> = v["pending_restart"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    assert!(
+        pending.contains(&"max_connections") && pending.contains(&"shared_buffers"),
+        "{v}"
+    );
+    assert_eq!(
+        v["decreased_sensitive"][0]["parameter"], "max_connections",
+        "{v}"
+    );
     assert_eq!(v["restart_ready"], json!(true));
-    let (st, v) = s.admin("POST", "/v1/config/apply", json!({"epoch": 1, "incarnation": "1", "parameters": {"work_mem": "1MB"}, "hash": "00"}));
+    let (st, v) = s.admin(
+        "POST",
+        "/v1/config/apply",
+        json!({"epoch": 1, "incarnation": "1", "parameters": {"work_mem": "1MB"}, "hash": "00"}),
+    );
     assert_eq!((st, v["error"].as_str()), (409, Some("hash_mismatch")));
 }
 
@@ -535,7 +802,13 @@ fn mutations_check_epoch_and_incarnation_across_restarts() {
     let e = need_env!();
     let mut s = Server::init(&e, "epoch-1");
     s.start();
-    let apply = |s: &Server, epoch: Value, inc: &str| s.admin("POST", "/v1/config/apply", json!({"epoch": epoch, "incarnation": inc, "parameters": {"work_mem": "8MB"}}));
+    let apply = |s: &Server, epoch: Value, inc: &str| {
+        s.admin(
+            "POST",
+            "/v1/config/apply",
+            json!({"epoch": epoch, "incarnation": inc, "parameters": {"work_mem": "8MB"}}),
+        )
+    };
     assert_eq!(apply(&s, json!(5), "1").0, 200);
     assert_eq!(apply(&s, json!(4), "1").1["error"], "stale_epoch");
     assert_eq!(apply(&s, json!(6), "2").1["error"], "wrong_incarnation");
@@ -554,29 +827,60 @@ fn fence_terminates_sessions_refuses_connections_and_persists() {
     s.start();
     s.wait_for("ready", 60, ready);
     let sleeper = Command::new(s.pgbin.join("psql"))
-        .args(["-X", "-h", s.dir.to_str().unwrap(), "-p", &s.port.to_string(), "-U", "postgres", "-c", "SELECT pg_sleep(60)"])
+        .args([
+            "-X",
+            "-h",
+            s.dir.to_str().unwrap(),
+            "-p",
+            &s.port.to_string(),
+            "-U",
+            "postgres",
+            "-c",
+            "SELECT pg_sleep(60)",
+        ])
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
     std::thread::sleep(Duration::from_secs(2));
-    let (st, v) = s.admin("POST", "/v1/fence", json!({"epoch": 1, "incarnation": "1", "fenced": true, "reason": "term superseded"}));
+    let (st, v) = s.admin(
+        "POST",
+        "/v1/fence",
+        json!({"epoch": 1, "incarnation": "1", "fenced": true, "reason": "term superseded"}),
+    );
     assert_eq!(st, 200, "{v}");
     assert!(v["terminated"].as_i64().unwrap() >= 1, "{v}");
     let out = sleeper.wait_with_output().unwrap();
-    assert!(!out.status.success(), "the running session must be terminated");
-    let err = s.psql("postgres", s.dir.to_str().unwrap(), None, "SELECT 1").unwrap_err();
+    assert!(
+        !out.status.success(),
+        "the running session must be terminated"
+    );
+    let err = s
+        .psql("postgres", s.dir.to_str().unwrap(), None, "SELECT 1")
+        .unwrap_err();
     assert!(err.contains("the database system is fenced"), "{err}");
     let st = s.status().unwrap();
-    assert_eq!((st["fenced"].clone(), st["fence_reason"].clone()), (json!(true), json!("term superseded")));
+    assert_eq!(
+        (st["fenced"].clone(), st["fence_reason"].clone()),
+        (json!(true), json!("term superseded"))
+    );
     assert!(!ready(&st));
     s.stop();
     s.start();
     let st = s.wait_for("accepting while fenced", 60, |s| s["server_state"] == "run");
     assert_eq!(st["fenced"], json!(true));
-    let err = s.psql("postgres", s.dir.to_str().unwrap(), None, "SELECT 1").unwrap_err();
-    assert!(err.contains("fenced"), "the fence must survive a restart: {err}");
-    let (st, _) = s.admin("POST", "/v1/fence", json!({"epoch": 1, "incarnation": "1", "fenced": false}));
+    let err = s
+        .psql("postgres", s.dir.to_str().unwrap(), None, "SELECT 1")
+        .unwrap_err();
+    assert!(
+        err.contains("fenced"),
+        "the fence must survive a restart: {err}"
+    );
+    let (st, _) = s.admin(
+        "POST",
+        "/v1/fence",
+        json!({"epoch": 1, "incarnation": "1", "fenced": false}),
+    );
     assert_eq!(st, 200);
     assert_eq!(s.sql("SELECT 1"), "1");
     s.wait_for("ready after unfence", 30, ready);
@@ -585,7 +889,14 @@ fn fence_terminates_sessions_refuses_connections_and_persists() {
 fn scram_verifier(password: &str, salt: &[u8]) -> String {
     use openssl::sign::Signer;
     let mut salted = [0u8; 32];
-    openssl::pkcs5::pbkdf2_hmac(password.as_bytes(), salt, 4096, MessageDigest::sha256(), &mut salted).unwrap();
+    openssl::pkcs5::pbkdf2_hmac(
+        password.as_bytes(),
+        salt,
+        4096,
+        MessageDigest::sha256(),
+        &mut salted,
+    )
+    .unwrap();
     let hmac = |key: &[u8], msg: &[u8]| {
         let k = PKey::hmac(key).unwrap();
         let mut s = Signer::new(MessageDigest::sha256(), &k).unwrap();
@@ -596,7 +907,12 @@ fn scram_verifier(password: &str, salt: &[u8]) -> String {
     let stored = openssl::sha::sha256(&client_key);
     let server = hmac(&salted, b"Server Key");
     let b64 = openssl::base64::encode_block;
-    format!("SCRAM-SHA-256$4096:{}${}:{}", b64(salt), b64(&stored), b64(&server))
+    format!(
+        "SCRAM-SHA-256$4096:{}${}:{}",
+        b64(salt),
+        b64(&stored),
+        b64(&server)
+    )
 }
 
 #[test]
@@ -606,37 +922,101 @@ fn roles_apply_in_engine_with_client_side_verifiers() {
     s.start();
     s.wait_for("ready", 60, ready);
     let hba = "local all all trust\nhost all app 127.0.0.1/32 scram-sha-256\nhost all all 127.0.0.1/32 trust\n";
-    let (st, v) = s.admin("POST", "/v1/config/apply", json!({"epoch": 1, "incarnation": "1", "hba": hba}));
+    let (st, v) = s.admin(
+        "POST",
+        "/v1/config/apply",
+        json!({"epoch": 1, "incarnation": "1", "hba": hba}),
+    );
     assert_eq!(st, 200, "{v}");
     let v1 = scram_verifier("first-secret", b"0123456789abcdef");
-    let apply = |roles: Value| s.admin("POST", "/v1/roles/apply", json!({"epoch": 1, "incarnation": "1", "roles": roles}));
-    let (st, v) = apply(json!([{"name": "app", "login": true, "verifier": v1, "in_roles": ["pg_read_all_data"]}]));
+    let apply = |roles: Value| {
+        s.admin(
+            "POST",
+            "/v1/roles/apply",
+            json!({"epoch": 1, "incarnation": "1", "roles": roles}),
+        )
+    };
+    let (st, v) = apply(
+        json!([{"name": "app", "login": true, "verifier": v1, "in_roles": ["pg_read_all_data"]}]),
+    );
     assert_eq!(st, 200, "{v}");
     assert_eq!(v["roles"][0]["action"], "created");
-    assert_eq!(v["roles"][0]["verifier"], json!(v1), "the stored verifier is read back");
-    assert_eq!(s.psql("app", "127.0.0.1", Some("first-secret"), "SELECT current_user").unwrap(), "app");
-    assert!(s.psql("app", "127.0.0.1", Some("wrong"), "SELECT 1").is_err());
+    assert_eq!(
+        v["roles"][0]["verifier"],
+        json!(v1),
+        "the stored verifier is read back"
+    );
+    assert_eq!(
+        s.psql(
+            "app",
+            "127.0.0.1",
+            Some("first-secret"),
+            "SELECT current_user"
+        )
+        .unwrap(),
+        "app"
+    );
+    assert!(s
+        .psql("app", "127.0.0.1", Some("wrong"), "SELECT 1")
+        .is_err());
     assert_eq!(s.sql("SELECT count(*) FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.roleid WHERE r.rolname = 'pg_read_all_data' AND m.member = 'app'::regrole"), "1");
-    let (_, v) = apply(json!([{"name": "app", "login": true, "verifier": v1, "in_roles": ["pg_read_all_data"]}]));
+    let (_, v) = apply(
+        json!([{"name": "app", "login": true, "verifier": v1, "in_roles": ["pg_read_all_data"]}]),
+    );
     assert_eq!(v["roles"][0]["action"], "unchanged", "{v}");
     let v2 = scram_verifier("second-secret", b"fedcba9876543210");
-    let (_, v) = apply(json!([{"name": "app", "login": true, "verifier": v2, "connection_limit": 5}]));
+    let (_, v) =
+        apply(json!([{"name": "app", "login": true, "verifier": v2, "connection_limit": 5}]));
     assert_eq!(v["roles"][0]["action"], "updated", "{v}");
-    assert!(s.psql("app", "127.0.0.1", Some("first-secret"), "SELECT 1").is_err());
-    assert_eq!(s.psql("app", "127.0.0.1", Some("second-secret"), "SELECT 1").unwrap(), "1");
-    assert_eq!(s.sql("SELECT rolconnlimit FROM pg_roles WHERE rolname = 'app'"), "5");
-    assert_eq!(s.sql("SELECT count(*) FROM pg_auth_members WHERE member = 'app'::regrole"), "0", "memberships converge to the request");
-    let (_, v) = apply(json!([{"name": "app", "login": true, "valid_until": "2001-01-01T00:00:00Z"}]));
+    assert!(s
+        .psql("app", "127.0.0.1", Some("first-secret"), "SELECT 1")
+        .is_err());
+    assert_eq!(
+        s.psql("app", "127.0.0.1", Some("second-secret"), "SELECT 1")
+            .unwrap(),
+        "1"
+    );
+    assert_eq!(
+        s.sql("SELECT rolconnlimit FROM pg_roles WHERE rolname = 'app'"),
+        "5"
+    );
+    assert_eq!(
+        s.sql("SELECT count(*) FROM pg_auth_members WHERE member = 'app'::regrole"),
+        "0",
+        "memberships converge to the request"
+    );
+    let (_, v) =
+        apply(json!([{"name": "app", "login": true, "valid_until": "2001-01-01T00:00:00Z"}]));
     assert_eq!(v["roles"][0]["action"], "updated", "{v}");
-    assert!(s.psql("app", "127.0.0.1", Some("second-secret"), "SELECT 1").is_err(), "an expired role cannot log in");
+    assert!(
+        s.psql("app", "127.0.0.1", Some("second-secret"), "SELECT 1")
+            .is_err(),
+        "an expired role cannot log in"
+    );
     let (st, v) = apply(json!([{"name": "app", "verifier": "plaintext"}]));
-    assert_eq!((st, v["error"].as_str()), (422, Some("plaintext_password_refused")));
-    let (_, v) = apply(json!([{"name": "app", "ensure": "absent"}, {"name": "pg_monitor", "ensure": "absent"}]));
+    assert_eq!(
+        (st, v["error"].as_str()),
+        (422, Some("plaintext_password_refused"))
+    );
+    let (_, v) = apply(
+        json!([{"name": "app", "ensure": "absent"}, {"name": "pg_monitor", "ensure": "absent"}]),
+    );
     assert_eq!(v["roles"][0]["action"], "dropped", "{v}");
     assert_eq!(v["roles"][1]["action"], "reserved", "{v}");
-    assert_eq!(s.sql("SELECT count(*) FROM pg_roles WHERE rolname = 'app'"), "0");
-    let log = std::fs::read_dir(&s.dir).unwrap().flatten().filter(|f| f.file_name().to_string_lossy().starts_with("server-")).map(|f| std::fs::read_to_string(f.path()).unwrap_or_default()).collect::<String>();
-    assert!(!log.contains(&v1) && !log.contains(&v2), "verifiers never reach the log");
+    assert_eq!(
+        s.sql("SELECT count(*) FROM pg_roles WHERE rolname = 'app'"),
+        "0"
+    );
+    let log = std::fs::read_dir(&s.dir)
+        .unwrap()
+        .flatten()
+        .filter(|f| f.file_name().to_string_lossy().starts_with("server-"))
+        .map(|f| std::fs::read_to_string(f.path()).unwrap_or_default())
+        .collect::<String>();
+    assert!(
+        !log.contains(&v1) && !log.contains(&v2),
+        "verifiers never reach the log"
+    );
 }
 
 #[test]
@@ -647,15 +1027,28 @@ fn probes_under_sigstop_of_the_postmaster() {
     s.wait_for("ready", 60, ready);
     s.signal(libc::SIGSTOP);
     std::thread::sleep(Duration::from_secs(2));
-    let st = s.status().expect("the server answers while only its crash supervisor is stopped");
-    assert!(ready(&st), "a stopped supervisor does not affect the server: {st}");
+    let st = s
+        .status()
+        .expect("the server answers while only its crash supervisor is stopped");
+    assert!(
+        ready(&st),
+        "a stopped supervisor does not affect the server: {st}"
+    );
     s.signal(libc::SIGCONT);
     let pid = s.server_pid();
     s.signal_server(libc::SIGSTOP);
     std::thread::sleep(Duration::from_millis(500));
-    for p in ["/v1/probe/live", "/v1/probe/ready", "/v1/probe/startup", "/v1/status"] {
+    for p in [
+        "/v1/probe/live",
+        "/v1/probe/ready",
+        "/v1/probe/startup",
+        "/v1/status",
+    ] {
         let r = s.get(p);
-        assert!(r.is_err(), "{p} must not answer while the postmaster is stopped: {r:?}");
+        assert!(
+            r.is_err(),
+            "{p} must not answer while the postmaster is stopped: {r:?}"
+        );
     }
     std::thread::sleep(Duration::from_secs(7));
     s.signal_server(libc::SIGCONT);
@@ -668,8 +1061,14 @@ fn probes_under_sigstop_of_the_postmaster() {
     assert!(live.is_some(), "liveness answers right after SIGCONT");
     let st = s.wait_for("ready after SIGCONT", 10, ready);
     assert_eq!(s.server_pid(), pid, "the postmaster was never restarted");
-    assert_eq!((st["crash_restart"].clone(), st["role"].clone()), (json!(false), json!("primary")));
-    eprintln!("ready again {} ms after SIGCONT", resumed.elapsed().as_millis());
+    assert_eq!(
+        (st["crash_restart"].clone(), st["role"].clone()),
+        (json!(false), json!("primary"))
+    );
+    eprintln!(
+        "ready again {} ms after SIGCONT",
+        resumed.elapsed().as_millis()
+    );
 }
 
 #[test]
@@ -679,7 +1078,9 @@ fn probes_during_crash_recovery() {
     s.start();
     s.wait_for("ready", 60, ready);
     let rows = std::env::var("C1_CRASH_ROWS").unwrap_or_else(|_| "1500000".into());
-    s.sql(&format!("CREATE TABLE t AS SELECT g, repeat('x', 200) AS pad FROM generate_series(1, {rows}) g"));
+    s.sql(&format!(
+        "CREATE TABLE t AS SELECT g, repeat('x', 200) AS pad FROM generate_series(1, {rows}) g"
+    ));
     let crashed = s.server_pid();
     s.signal_server(libc::SIGKILL);
     let mut answered = false;
@@ -703,8 +1104,16 @@ fn probes_during_crash_recovery() {
         }
         if let Some(st) = s.status() {
             if st["role"] == "recovering" {
-                assert_eq!(st["probes"]["startup"]["ok"], json!(true), "startup passes while recovery progresses: {st}");
-                assert_eq!(st["probes"]["ready"]["ok"], json!(false), "not ready during crash recovery: {st}");
+                assert_eq!(
+                    st["probes"]["startup"]["ok"],
+                    json!(true),
+                    "startup passes while recovery progresses: {st}"
+                );
+                assert_eq!(
+                    st["probes"]["ready"]["ok"],
+                    json!(false),
+                    "not ready during crash recovery: {st}"
+                );
                 saw_recovering += 1;
                 if let Ok((503, v)) = s.get("/v1/probe/ready") {
                     let why = v["reason"].as_str().unwrap_or("");
@@ -722,12 +1131,27 @@ fn probes_during_crash_recovery() {
         }
         std::thread::sleep(Duration::from_millis(20));
     };
-    eprintln!("ready {} ms after SIGKILL; {saw_recovering} recovering samples", killed.elapsed().as_millis());
-    assert!(ready_503 > 0 && startup_200 > 0, "the probe endpoints answered 503/200 during recovery ({ready_503}, {startup_200})");
-    assert!(saw_recovering > 0, "crash recovery was observed through the aux (raise C1_CRASH_ROWS if it finished too fast)");
-    assert_eq!(live_failures, 0, "liveness never failed once the aux answered");
+    eprintln!(
+        "ready {} ms after SIGKILL; {saw_recovering} recovering samples",
+        killed.elapsed().as_millis()
+    );
+    assert!(
+        ready_503 > 0 && startup_200 > 0,
+        "the probe endpoints answered 503/200 during recovery ({ready_503}, {startup_200})"
+    );
+    assert!(
+        saw_recovering > 0,
+        "crash recovery was observed through the aux (raise C1_CRASH_ROWS if it finished too fast)"
+    );
+    assert_eq!(
+        live_failures, 0,
+        "liveness never failed once the aux answered"
+    );
     assert_eq!(final_status["role"], "primary");
-    assert!(s.child.as_mut().unwrap().try_wait().unwrap().is_none(), "the supervisor restarted the server itself");
+    assert!(
+        s.child.as_mut().unwrap().try_wait().unwrap().is_none(),
+        "the supervisor restarted the server itself"
+    );
     assert_eq!(s.sql("SELECT count(*) > 0 FROM t"), "t");
 }
 
@@ -739,10 +1163,26 @@ fn promote_a_standby_through_the_aux() {
     let mut sb = Server::init(&e, "promote-s");
     std::fs::remove_dir_all(&sb.data).unwrap();
     let out = Command::new(e.pgbin.join("pg_basebackup"))
-        .args(["-D", sb.data.to_str().unwrap(), "-R", "-X", "stream", "-h", p.dir.to_str().unwrap(), "-p", &p.port.to_string(), "-U", "postgres"])
+        .args([
+            "-D",
+            sb.data.to_str().unwrap(),
+            "-R",
+            "-X",
+            "stream",
+            "-h",
+            p.dir.to_str().unwrap(),
+            "-p",
+            &p.port.to_string(),
+            "-U",
+            "postgres",
+        ])
         .output()
         .unwrap();
-    assert!(out.status.success(), "pg_basebackup: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "pg_basebackup: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let _ = std::fs::remove_file(sb.data.join("pgrust_instance_aux.state"));
     sb.incarnation = "2".into();
     sb.write_aux_conf("promote-s");
@@ -750,19 +1190,47 @@ fn promote_a_standby_through_the_aux() {
     let st = sb.wait_for("hot standby ready", 120, ready);
     assert_eq!(st["role"], "standby");
     assert!(st["lsn"]["replay"].is_string());
-    let (code, v) = sb.admin("POST", "/v1/roles/apply", json!({"epoch": 1, "incarnation": "2", "roles": []}));
+    let (code, v) = sb.admin(
+        "POST",
+        "/v1/roles/apply",
+        json!({"epoch": 1, "incarnation": "2", "roles": []}),
+    );
     assert_eq!((code, v["error"].as_str()), (409, Some("not_primary")));
-    let (code, v) = sb.admin("POST", "/v1/promote", json!({"epoch": 1, "incarnation": "2", "expected_term": 3}));
+    let (code, v) = sb.admin(
+        "POST",
+        "/v1/promote",
+        json!({"epoch": 1, "incarnation": "2", "expected_term": 3}),
+    );
     let refused = v["error"].as_str().unwrap_or("");
-    assert!(code == 409 && ["no_term_source", "term_mismatch"].contains(&refused), "an unverifiable expected_term fails closed: {v}");
-    let (code, v) = sb.admin("POST", "/v1/promote", json!({"epoch": 1, "incarnation": "1"}));
-    assert_eq!((code, v["error"].as_str()), (409, Some("wrong_incarnation")));
-    let (code, v) = sb.admin("POST", "/v1/promote", json!({"epoch": 1, "incarnation": "2"}));
+    assert!(
+        code == 409 && ["no_term_source", "term_mismatch"].contains(&refused),
+        "an unverifiable expected_term fails closed: {v}"
+    );
+    let (code, v) = sb.admin(
+        "POST",
+        "/v1/promote",
+        json!({"epoch": 1, "incarnation": "1"}),
+    );
+    assert_eq!(
+        (code, v["error"].as_str()),
+        (409, Some("wrong_incarnation"))
+    );
+    let (code, v) = sb.admin(
+        "POST",
+        "/v1/promote",
+        json!({"epoch": 1, "incarnation": "2"}),
+    );
     assert_eq!(code, 200, "{v}");
     assert_eq!(v["promoted"], json!(true));
-    let st = sb.wait_for("promoted and ready", 60, |s| s["role"] == "primary" && ready(s));
+    let st = sb.wait_for("promoted and ready", 60, |s| {
+        s["role"] == "primary" && ready(s)
+    });
     assert!(st["timeline"].as_u64().unwrap() >= 2);
-    let (code, v) = sb.admin("POST", "/v1/promote", json!({"epoch": 1, "incarnation": "2"}));
+    let (code, v) = sb.admin(
+        "POST",
+        "/v1/promote",
+        json!({"epoch": 1, "incarnation": "2"}),
+    );
     assert_eq!((code, v["error"].as_str()), (409, Some("not_in_recovery")));
     p.stop();
 }

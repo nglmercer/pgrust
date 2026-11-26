@@ -29,7 +29,9 @@ fn bad_format(input: &[u8]) -> Box<PgError> {
     msg.extend_from_slice(b"invalid parameter list format: \"");
     msg.extend_from_slice(input);
     msg.push(b'"');
-    PgError::error_raw_message(msg).with_sqlstate(ERRCODE_SYNTAX_ERROR).into()
+    PgError::error_raw_message(msg)
+        .with_sqlstate(ERRCODE_SYNTAX_ERROR)
+        .into()
 }
 
 // buildDefItem (tsearchcmds.c): unquoted values try integer (i32, exact, with
@@ -44,7 +46,9 @@ fn build_item<'mcx>(
     let mut name_v = vec_with_capacity_in(mcx, name.len())?;
     name_v.extend_from_slice(name);
     let int_value = if !was_quoted && !value.is_empty() {
-        core::str::from_utf8(value).ok().and_then(|s| s.parse::<i32>().ok())
+        core::str::from_utf8(value)
+            .ok()
+            .and_then(|s| s.parse::<i32>().ok())
     } else {
         None
     };
@@ -61,7 +65,11 @@ fn build_item<'mcx>(
             (val_v, None)
         }
     };
-    Ok(DefListItem { name: name_v, value: rendered, int_value })
+    Ok(DefListItem {
+        name: name_v,
+        value: rendered,
+        int_value,
+    })
 }
 
 // deserialize_deflist (tsearchcmds.c): parse a stored dictinitoption text

@@ -54,7 +54,9 @@ use types_error::PgResult;
 pub(crate) fn idle_passivate_secs() -> i32 {
     static ENV: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
     if let Some(v) = *ENV.get_or_init(|| {
-        std::env::var("PGRUST_IDLE_PASSIVATE_SECS").ok().and_then(|v| v.trim().parse().ok())
+        std::env::var("PGRUST_IDLE_PASSIVATE_SECS")
+            .ok()
+            .and_then(|v| v.trim().parse().ok())
     }) {
         return v;
     }
@@ -124,7 +126,11 @@ pub(crate) fn reset_release_stage() {
 /// left (the passivation delay's `rest` then starts once the cut is done), else `rest` (0: nothing).
 fn arm_after_tails(more: bool, rest: i32) -> PgResult<()> {
     TAIL_REST.with(|c| c.set(if more { rest.max(0) } else { -1 }));
-    let ms = if more { mempolicy::keep::IDLE_TAIL_SLICE_MS } else { rest };
+    let ms = if more {
+        mempolicy::keep::IDLE_TAIL_SLICE_MS
+    } else {
+        rest
+    };
     if ms > 0 {
         timeout_seams::enable_timeout_after::call(timeout_seams::IDLE_PASSIVATE_TIMEOUT, ms)?;
     }
@@ -137,8 +143,13 @@ fn arm_after_tails(more: bool, rest: i32) -> PgResult<()> {
 /// delay to arm in ms (0 = arm nothing).
 pub(crate) fn arm_idle_timer_ms(in_xact: bool) -> i32 {
     let worth = in_xact.then(|| {
-        let threshold = (guc_tables::backing::pgrust_memory_release_threshold().max(0) as u64).saturating_mul(1024);
-        mempolicy::keep::idle_in_xact(memledger::pool_reserved(memledger::current()), memledger::statement_peak_here(), threshold)
+        let threshold = (guc_tables::backing::pgrust_memory_release_threshold().max(0) as u64)
+            .saturating_mul(1024);
+        mempolicy::keep::idle_in_xact(
+            memledger::pool_reserved(memledger::current()),
+            memledger::statement_peak_here(),
+            threshold,
+        )
     });
     let release_ms = guc_tables::backing::pgrust_memory_release_idle();
     let passivate_ms = idle_passivate_secs().max(0).saturating_mul(1000);
@@ -171,7 +182,10 @@ pub(crate) fn idle_timer_fired(in_xact: bool) -> PgResult<()> {
         arm_after_tails(more, rest)?;
         return elog::elog(
             types_error::DEBUG1,
-            format!("idle memory release: allocator release {}", if released { "done" } else { "unavailable" }),
+            format!(
+                "idle memory release: allocator release {}",
+                if released { "done" } else { "unavailable" }
+            ),
         );
     }
     if !in_xact && idle_passivate_secs() > 0 {
@@ -192,7 +206,8 @@ pub(crate) fn release_after_statement() -> PgResult<()> {
         pagepool::flush_shelf();
     }
     let freed = mcx::global_footprint::thread_freed_since_peak_rebase();
-    let threshold = (guc_tables::backing::pgrust_memory_release_threshold().max(0) as usize).saturating_mul(1024);
+    let threshold = (guc_tables::backing::pgrust_memory_release_threshold().max(0) as usize)
+        .saturating_mul(1024);
     if !mempolicy::keep::end_release(freed, threshold) {
         return Ok(());
     }
@@ -206,7 +221,8 @@ fn release_after_statement_slow(freed: usize) -> PgResult<()> {
     // D4878: the pool's free memory (the release above only homes this thread's runs, warm) goes back to the OS under
     // ladder pressure: a canceled statement's bytes leave the read at its let-go, before the ladder's next sample
     if pagepool::on() {
-        match mempolicy::keep::pool_end(mcx::ladder::pressed_now(), mcx::ladder::past_cancel_line()) {
+        match mempolicy::keep::pool_end(mcx::ladder::pressed_now(), mcx::ladder::past_cancel_line())
+        {
             mempolicy::keep::PoolEnd::Now => {
                 pagepool::note_end_give(true, pagepool::return_warm_now(usize::MAX));
             }

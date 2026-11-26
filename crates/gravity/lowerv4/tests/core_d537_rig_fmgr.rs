@@ -6,8 +6,12 @@
 use gravity_lowerv4_it as common;
 
 fn lowered(id: &str) -> Result<(), String> {
-    let text = std::fs::read_to_string(common::plans_dir().join(format!("regress-full/{id}.plan"))).expect("plan fixture");
-    common::lower_fixture(&text).expect("decompose takes it").map(|_| ()).map_err(|e| e.to_string())
+    let text = std::fs::read_to_string(common::plans_dir().join(format!("regress-full/{id}.plan")))
+        .expect("plan fixture");
+    common::lower_fixture(&text)
+        .expect("decompose takes it")
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 #[test]

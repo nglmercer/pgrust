@@ -178,7 +178,11 @@ const SWITCH: &str = r#"
 fn diamond_phis_from_registers() {
     let p = load(DIAMOND);
     for (a, b) in [(1i64, 2i64), (5, 3), (0, 0), (-4, 7), (100, -100)] {
-        let want = if a < b { (a + b) - a * b } else { a * b - (a + b) };
+        let want = if a < b {
+            (a + b) - a * b
+        } else {
+            a * b - (a + b)
+        };
         assert_eq!(run(&p, "dia", &[a as u64, b as u64]), vec![want as u64]);
     }
 }
@@ -243,14 +247,26 @@ fn gcd_and_fib_still_correct() {
 #[cfg(target_arch = "aarch64")]
 #[test]
 fn loops_have_no_frame_spills() {
-    for (src, name) in [(GCD, "gcd"), (FIB, "fib"), (TWICE, "twice"), (DIAMOND, "dia")] {
+    for (src, name) in [
+        (GCD, "gcd"),
+        (FIB, "fib"),
+        (TWICE, "twice"),
+        (DIAMOND, "dia"),
+    ] {
         let p = load(src);
         let (stores, loads, text) = frame_traffic(&p, name);
         eprintln!("--- {name} ---\n{text}");
-        assert_eq!((stores, loads), (0, 0), "{name} spills to the frame:\n{text}");
+        assert_eq!(
+            (stores, loads),
+            (0, 0),
+            "{name} spills to the frame:\n{text}"
+        );
     }
     let p = load(NESTED);
     let (stores, loads, text) = frame_traffic(&p, "nest");
     eprintln!("--- nest ---\n{text}");
-    assert!(stores <= 2 && loads <= 2, "nest spills more than its two arguments:\n{text}");
+    assert!(
+        stores <= 2 && loads <= 2,
+        "nest spills more than its two arguments:\n{text}"
+    );
 }

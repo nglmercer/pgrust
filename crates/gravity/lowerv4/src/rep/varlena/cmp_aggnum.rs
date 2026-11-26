@@ -21,9 +21,13 @@ use types_core::catalog::NUMERICOID;
 use types_nodes::primnodes::ParamKind;
 use types_nodes::Node;
 
-use crate::face::step::{Claim, ExprExtImpl, ExprExtMech, ExtPlan, SubEmit, EXT_AT};
-use crate::frame::{env::Env, px::{ExId, Px}, row::RowVals};
 use crate::admit::refusal::Reason;
+use crate::face::step::{Claim, ExprExtImpl, ExprExtMech, ExtPlan, SubEmit, EXT_AT};
+use crate::frame::{
+    env::Env,
+    px::{ExId, Px},
+    row::RowVals,
+};
 use crate::rep::varlena::num_konst::{load_konst, store_konst, strip, CMP_OPS, KONST_NONE};
 
 crate::strategies! {
@@ -31,14 +35,24 @@ crate::strategies! {
     NUM_AGGCMP = 127, "num.aggcmp", NumHeap;
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(NUM_AGGCMP, &ExprExtImpl(&CMP))], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(NUM_AGGCMP, &ExprExtImpl(&CMP))],
+    ..crate::ops::NONE
+};
 struct Cmp;
 static CMP: Cmp = Cmp;
 
 /// A claimed compare: `agg(aggno) cond k`; `asub` / `ksub` the operands compiled on their own; `k` decoded at `scale`
 /// into frame word `word`.
 #[derive(Debug)]
-struct Site { aggno: i32, scale: i16, cond: IntCond, asub: u32, ksub: u32, word: i32 }
+struct Site {
+    aggno: i32,
+    scale: i16,
+    cond: IntCond,
+    asub: u32,
+    ksub: u32,
+    word: i32,
+}
 
 /// A constant or an external parameter of type numeric (an operand bound per execution).
 fn operand(n: Node<'_>) -> bool {
@@ -51,10 +65,20 @@ fn operand(n: Node<'_>) -> bool {
 
 /// Plan node `n` (program node `id`) as a claimable compare over pipeline `k`'s drained group: (the site with its subs
 /// unset, the aggregate's plan node, the operand's plan node).
-fn site_of<'p>(px: &Px<'_, 'p>, k: usize, p: &Program<'_>, id: NodeId, n: Node<'p>) -> Option<(Site, Node<'p>, Node<'p>)> {
-    let (ExprNode::Op(f) | ExprNode::Func(f)) = &p.nodes[id.0 as usize] else { return None };
+fn site_of<'p>(
+    px: &Px<'_, 'p>,
+    k: usize,
+    p: &Program<'_>,
+    id: NodeId,
+    n: Node<'p>,
+) -> Option<(Site, Node<'p>, Node<'p>)> {
+    let (ExprNode::Op(f) | ExprNode::Func(f)) = &p.nodes[id.0 as usize] else {
+        return None;
+    };
     let call = &p.sites[f.site.0 as usize];
-    let o = n.as_op_expr().filter(|o| o.opfuncid == call.funcid && o.args.len() == 2 && call.args.len == 2)?;
+    let o = n
+        .as_op_expr()
+        .filter(|o| o.opfuncid == call.funcid && o.args.len() == 2 && call.args.len == 2)?;
     let &(_, cond, swapped) = CMP_OPS.iter().find(|x| x.0 == call.funcid)?;
     let (a, b) = (strip(o.args.iter().next()?), strip(o.args.iter().nth(1)?));
     let (g, kn, cond) = match (a.as_aggref(), operand(b)) {
@@ -63,9 +87,29 @@ fn site_of<'p>(px: &Px<'_, 'p>, k: usize, p: &Program<'_>, id: NodeId, n: Node<'
         _ => return None,
     };
     let aggno = g.as_aggref()?.aggno;
-    let d = px.gx.drained_group(k)?.aggs.iter().find(|d| i32::from(d.aggno) == aggno)?;
-    let packed = matches!(d.reg, Register::SumNum | Register::MinNum | Register::MaxNum) && d.dscale_slot == NONE && d.scale >= 0;
-    packed.then_some((Site { aggno, scale: d.scale, cond, asub: 0, ksub: 0, word: 0 }, g, kn))
+    let d = px
+        .gx
+        .drained_group(k)?
+        .aggs
+        .iter()
+        .find(|d| i32::from(d.aggno) == aggno)?;
+    let packed = matches!(
+        d.reg,
+        Register::SumNum | Register::MinNum | Register::MaxNum
+    ) && d.dscale_slot == NONE
+        && d.scale >= 0;
+    packed.then_some((
+        Site {
+            aggno,
+            scale: d.scale,
+            cond,
+            asub: 0,
+            ksub: 0,
+            word: 0,
+        },
+        g,
+        kn,
+    ))
 }
 
 /// The walk's way into a CASE (`CASE WHEN sum(amount) >= 1000 THEN 'gold' ...`, the projection's CASE this file's header
@@ -74,8 +118,18 @@ fn site_of<'p>(px: &Px<'_, 'p>, k: usize, p: &Program<'_>, id: NodeId, n: Node<'
 /// site is emitted over the row before the expression (face/ext.rs), so a compare in a WHEN PostgreSQL does not reach
 /// runs anyway: it neither raises nor acts (the hot path a signed compare, the cold one `cmp_numerics` over the rendered
 /// final), so no row shows it.
-fn case_kids<'p>(c: &Compiled<'p>, cs: gravity_expr::nodes::case::Case, n: Node<'p>, stack: &mut PgVec<'_, (NodeId, Node<'p>)>) {
-    let Some(e) = n.as_case_expr().filter(|e| e.args.len() * 2 == cs.whens.len as usize) else { return };
+fn case_kids<'p>(
+    c: &Compiled<'p>,
+    cs: gravity_expr::nodes::case::Case,
+    n: Node<'p>,
+    stack: &mut PgVec<'_, (NodeId, Node<'p>)>,
+) {
+    let Some(e) = n
+        .as_case_expr()
+        .filter(|e| e.args.len() * 2 == cs.whens.len as usize)
+    else {
+        return;
+    };
     let kids = c.children(cs.whens);
     if !e.args.iter().all(|w| w.as_case_when().is_some()) {
         return;
@@ -94,43 +148,110 @@ fn case_kids<'p>(c: &Compiled<'p>, cs: gravity_expr::nodes::case::Case, n: Node<
 }
 
 impl ExprExtMech for Cmp {
-    fn ops(&self) -> &'static [u32] { &[1718, 1719, 1720, 1721, 1722, 1723] }
+    fn ops(&self) -> &'static [u32] {
+        &[1718, 1719, 1720, 1721, 1722, 1723]
+    }
 
-    fn attach<'p>(&self, px: &mut Px<'_, 'p>, at: (usize, usize), node: Node<'p>, c: &mut Compiled<'p>, ex: ExId, sub: &mut dyn FnMut(Node<'p>) -> u32) -> Option<Claim> {
+    fn attach<'p>(
+        &self,
+        px: &mut Px<'_, 'p>,
+        at: (usize, usize),
+        node: Node<'p>,
+        c: &mut Compiled<'p>,
+        ex: ExId,
+        sub: &mut dyn FnMut(Node<'p>) -> u32,
+    ) -> Option<Claim> {
         if at.0 == usize::MAX || px.gx.drained_group(at.0).is_none() {
             return None;
         }
-        let (mut stack, mut sites, mut skip) = (mcx::pg_vec![in px.mcx(); (c.root, node)], Vec::new(), Vec::new()); // alloc: Program
+        let (mut stack, mut sites, mut skip) = (
+            mcx::pg_vec![in px.mcx(); (c.root, node)],
+            Vec::new(),
+            Vec::new(),
+        ); // alloc: Program
         while let Some((id, n)) = stack.pop() {
             match (&c.prog.nodes[id.0 as usize], n.as_bool_expr()) {
-                (ExprNode::Bool(b), Some(e)) if e.args.len() == b.args.len as usize => stack.extend_in(c.children(b.args).iter().copied().zip(e.args.iter())),
+                (ExprNode::Bool(b), Some(e)) if e.args.len() == b.args.len as usize => {
+                    stack.extend_in(c.children(b.args).iter().copied().zip(e.args.iter()))
+                }
                 (ExprNode::Bool(_), _) => {}
                 (ExprNode::Case(cs), _) => case_kids(c, *cs, n, &mut stack),
-                _ => if let Some((s, g, kn)) = site_of(px, at.0, &c.prog, id, n).filter(|_| sites.len() < 64) {
-                    c.prog.nodes[id.0 as usize] = ExprNode::Var(Var { src: VarSource::Scan, attno: EXT_AT + sites.len() as i16, typ: 16, desc: 0 });
-                    let word = crate::rep::varlena::num_konst::konst_word(px, at, ex, sites.len() as u8);
-                    let (asub, ksub) = (sub(g), sub(kn));
-                    sites.push(Site { asub, ksub, word, ..s }); skip.push(n.as_raw().as_ptr() as usize); // alloc: Program
-                },
+                _ => {
+                    if let Some((s, g, kn)) =
+                        site_of(px, at.0, &c.prog, id, n).filter(|_| sites.len() < 64)
+                    {
+                        c.prog.nodes[id.0 as usize] = ExprNode::Var(Var {
+                            src: VarSource::Scan,
+                            attno: EXT_AT + sites.len() as i16,
+                            typ: 16,
+                            desc: 0,
+                        });
+                        let word = crate::rep::varlena::num_konst::konst_word(
+                            px,
+                            at,
+                            ex,
+                            sites.len() as u8,
+                        );
+                        let (asub, ksub) = (sub(g), sub(kn));
+                        sites.push(Site {
+                            asub,
+                            ksub,
+                            word,
+                            ..s
+                        });
+                        skip.push(n.as_raw().as_ptr() as usize); // alloc: Program
+                    }
+                }
             }
         }
         if !sites.is_empty() {
             fires::fire("num.aggcmp"); // shapecheck fire signal (D3024)
         }
-        (!sites.is_empty()).then(|| Claim { plan: Rc::new(sites), skip })
+        (!sites.is_empty()).then(|| Claim {
+            plan: Rc::new(sites),
+            skip,
+        })
     }
 
-    fn emit(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, _row: &RowVals, ex: ExId, site: u32, sub: SubEmit<'_>) -> [Value; 3] {
+    fn emit(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        _row: &RowVals,
+        ex: ExId,
+        site: u32,
+        sub: SubEmit<'_>,
+    ) -> [Value; 3] {
         let node = env.node;
         let sites = ExtPlan::of(env.placed(ex)).and_then(|x| x.plan.downcast_ref::<Vec<Site>>());
-        let Some(s) = sites.and_then(|v| v.get(site as usize)) else { crate::refuse!(node, Reason::Bug { payload: "a num.aggcmp site without its plan" }) };
-        let cell = env.aggs.as_ref().and_then(|a| Some((a.rec, *a.cells.get(s.aggno as usize)?)));
+        let Some(s) = sites.and_then(|v| v.get(site as usize)) else {
+            crate::refuse!(
+                node,
+                Reason::Bug {
+                    payload: "a num.aggcmp site without its plan"
+                }
+            )
+        };
+        let cell = env
+            .aggs
+            .as_ref()
+            .and_then(|a| Some((a.rec, *a.cells.get(s.aggno as usize)?)));
         let k = load_konst(b, env, s.word);
         let (z, f, t) = (env.zero, b.bconst(false), b.bconst(true));
-        let (l_out, l_cold) = (b.create_block(&[Type::I64, Type::Bool, Type::I64]), b.create_block(&[]));
+        let (l_out, l_cold) = (
+            b.create_block(&[Type::I64, Type::Bool, Type::I64]),
+            b.create_block(&[]),
+        );
         b.mark_cold(l_cold);
         match cell {
-            Some((area, c @ gravity_expr::emit::AggCell { form: CellForm::PackedNum { sum, scale, .. }, valid: CellValid::NonZeroAt(v), .. })) if scale as i16 == s.scale => {
+            Some((
+                area,
+                c @ gravity_expr::emit::AggCell {
+                    form: CellForm::PackedNum { sum, scale, .. },
+                    valid: CellValid::NonZeroAt(v),
+                    ..
+                },
+            )) if scale as i16 == s.scale => {
                 let ok = b.load(Type::I64, area, v as i32);
                 let ok = b.icmp(IntCond::Ne, ok, z);
                 let l_read = b.create_block(&[]);
@@ -140,13 +261,22 @@ impl ExprExtMech for Cmp {
                 let none = b.iconst(Type::I64, KONST_NONE);
                 let kok = b.icmp(IntCond::Ne, k, none);
                 let (hot, r) = if sum {
-                    let (lo, hi) = (b.load(Type::I64, area, off), b.load(Type::I64, area, off + 8));
+                    let (lo, hi) = (
+                        b.load(Type::I64, area, off),
+                        b.load(Type::I64, area, off + 8),
+                    );
                     let sent = b.iconst(Type::I64, SENT_HI);
                     let fin = b.icmp(IntCond::Ne, hi, sent);
-                    (b.int_bin(IntBinOp::And, fin, kok), i128_cmp(b, s.cond, (lo, hi), k))
+                    (
+                        b.int_bin(IntBinOp::And, fin, kok),
+                        i128_cmp(b, s.cond, (lo, hi), k),
+                    )
                 } else {
                     let m = b.load(Type::I64, area, off);
-                    let (lo, hi) = (b.iconst(Type::I64, MANT_NINF), b.iconst(Type::I64, MANT_PINF));
+                    let (lo, hi) = (
+                        b.iconst(Type::I64, MANT_NINF),
+                        b.iconst(Type::I64, MANT_PINF),
+                    );
                     let (above, below) = (b.icmp(IntCond::Sgt, m, lo), b.icmp(IntCond::Slt, m, hi));
                     let fin = b.int_bin(IntBinOp::And, above, below);
                     (b.int_bin(IntBinOp::And, fin, kok), b.icmp(s.cond, m, k))
@@ -171,9 +301,25 @@ impl ExprExtMech for Cmp {
         let e = b.int_bin(IntBinOp::Or, ae, ke);
         b.br(l_out, &[z, f, e]);
         b.switch_to(l_call);
-        let h = b.declare_host_once("num_cmp_cold", &[Type::I64; 2], Some(Type::I64), num_cmp_cold as *const () as usize, HostFlags { touches_memory: true, may_error: true, ..HostFlags::default() });
+        let h = b.declare_host_once(
+            "num_cmp_cold",
+            &[Type::I64; 2],
+            Some(Type::I64),
+            num_cmp_cold as *const () as usize,
+            HostFlags {
+                touches_memory: true,
+                may_error: true,
+                ..HostFlags::default()
+            },
+        );
         let r = b.call_host(h, &[av, kv], Some(Type::I64)).expect("returns");
-        let (min, raise) = (b.iconst(Type::I64, i64::MIN), b.iconst(Type::I64, gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64));
+        let (min, raise) = (
+            b.iconst(Type::I64, i64::MIN),
+            b.iconst(
+                Type::I64,
+                gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64,
+            ),
+        );
         let bad = b.icmp(IntCond::Eq, r, min);
         let e = b.select(bad, raise, z);
         let e = b.int_bin(IntBinOp::Or, e, ae);
@@ -188,12 +334,16 @@ impl ExprExtMech for Cmp {
     /// Each site's operand decoded once per call at its aggregate's scale into its frame word (`KONST_NONE` when declined:
     /// finer than the scale, past a word, special, NULL, or an operand with no bind word).
     fn entry(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, ex: ExId) {
-        let Some(x) = ExtPlan::of(env.placed(ex)) else { return };
+        let Some(x) = ExtPlan::of(env.placed(ex)) else {
+            return;
+        };
         let subs = mcx::to_vec_in(&x.subs.borrow()[..], env.mcx);
         for s in x.plan.downcast_ref::<Vec<Site>>().into_iter().flatten() {
             let id = subs[s.ksub as usize];
             let k = match env.placed(id).places.first() {
-                Some(&gravity_lower::Place::Word(_)) => crate::rep::varlena::num_konst::konst(b, env, id, s.scale).0,
+                Some(&gravity_lower::Place::Word(_)) => {
+                    crate::rep::varlena::num_konst::konst(b, env, id, s.scale).0
+                }
                 _ => b.iconst(Type::I64, KONST_NONE),
             };
             store_konst(b, env, s.word, k);
@@ -202,7 +352,12 @@ impl ExprExtMech for Cmp {
 }
 
 /// The i128 `(lo, hi)` against the sign-extended word `k` under `cond`.
-fn i128_cmp(b: &mut FunctionBuilder<'_>, cond: IntCond, (lo, hi): (Value, Value), k: Value) -> Value {
+fn i128_cmp(
+    b: &mut FunctionBuilder<'_>,
+    cond: IntCond,
+    (lo, hi): (Value, Value),
+    k: Value,
+) -> Value {
     let s63 = b.iconst(Type::I64, 63);
     let kh = b.int_bin(IntBinOp::Sshr, k, s63);
     let (hi_eq, lo_eq) = (b.icmp(IntCond::Eq, hi, kh), b.icmp(IntCond::Eq, lo, k));
@@ -224,4 +379,3 @@ fn i128_cmp(b: &mut FunctionBuilder<'_>, cond: IntCond, (lo, hi): (Value, Value)
 }
 
 use super::raw::cmp_num::num_cmp_cold;
-

@@ -65,9 +65,10 @@ mod sweep {
     use types_nodes::list::{NodeList, OidList};
     use types_nodes::plannodes::{Plan, PlannedStmt, Result as ResultPlan};
     use types_nodes::primnodes::{
-        Aggref, ArrayExpr, BoolExpr, BoolExprType, CoalesceExpr, CoerceToDomain, CoerceViaIO, CoercionForm, DistinctExpr, FuncExpr, MinMaxExpr, MinMaxOp,
-        NextValueExpr, NullIfExpr, NullTest, NullTestType, OpExpr, Param, ParamKind, RelabelType, RowExpr, SQLValueFunction, SQLValueFunctionOp,
-        ScalarArrayOpExpr, TargetEntry, Var, WindowFunc,
+        Aggref, ArrayExpr, BoolExpr, BoolExprType, CoalesceExpr, CoerceToDomain, CoerceViaIO,
+        CoercionForm, DistinctExpr, FuncExpr, MinMaxExpr, MinMaxOp, NextValueExpr, NullIfExpr,
+        NullTest, NullTestType, OpExpr, Param, ParamKind, RelabelType, RowExpr, SQLValueFunction,
+        SQLValueFunctionOp, ScalarArrayOpExpr, TargetEntry, Var, WindowFunc,
     };
     use types_nodes::{CmdType, Node};
 
@@ -139,48 +140,174 @@ mod sweep {
     /// pipeline readers read pipeline 0.
     const DECIDERS: &[(&str, Q, Decide)] = &[
         // decompose: the F5 walk (rerun.rs: what `of_node`, `of_plan` and the graph's facts read) and `of_plan` over a Result
-        ("decompose.f5", Q::Raise, |w| w.expr.map(|n| !gravity_decompose::rerun::of_expr_alone(w.gx.facts, w.arena, n).raise_free)),
-        ("decompose.of_plan", Q::Raise, |w| w.stmt.and_then(|s| s.planTree).map(|r| effects::of_plan(&Cx::new(w.stmt.unwrap(), w.gx.facts, w.arena), r).may_raise)),
-        ("decompose.of_plan", Q::Acts, |w| w.stmt.and_then(|s| s.planTree).map(|r| effects::of_plan(&Cx::new(w.stmt.unwrap(), w.gx.facts, w.arena), r).acts)),
+        ("decompose.f5", Q::Raise, |w| {
+            w.expr.map(|n| {
+                !gravity_decompose::rerun::of_expr_alone(w.gx.facts, w.arena, n).raise_free
+            })
+        }),
+        ("decompose.of_plan", Q::Raise, |w| {
+            w.stmt.and_then(|s| s.planTree).map(|r| {
+                effects::of_plan(&Cx::new(w.stmt.unwrap(), w.gx.facts, w.arena), r).may_raise
+            })
+        }),
+        ("decompose.of_plan", Q::Acts, |w| {
+            w.stmt
+                .and_then(|s| s.planTree)
+                .map(|r| effects::of_plan(&Cx::new(w.stmt.unwrap(), w.gx.facts, w.arena), r).acts)
+        }),
         // lowerv4's expression readers
-        ("lowerv4.raise_free", Q::Raise, |w| w.expr.map(|n| !crate::effects::raise_free(&w.gx, n))),
-        ("lowerv4.raise_free_each", Q::Raise, |w| w.expr.map(|n| !crate::effects::raise_free_each(&w.gx, n, &|_| false))),
-        ("lowerv4.merge.pure", Q::Raise, |w| w.expr.map(|n| !crate::effects::visible::merge::pure(&w.gx, n))),
-        ("lowerv4.nestloop.quiet_in", Q::Raise, |w| w.expr.map(|n| !crate::effects::visible::nestloop::quiet_in(&w.gx, n, false))),
-        ("lowerv4.pgrc.quiet_qual", Q::Raise, |w| w.expr.map(|n| !crate::effects::visible::pgrc::quiet_qual(&w.gx, n))),
-        ("lowerv4.volatile", Q::Acts, |w| w.expr.map(|n| crate::effects::volatile(&w.gx, n))),
-        ("lowerv4.nestloop.acts", Q::Acts, |w| w.expr.map(|n| crate::effects::visible::nestloop::acts(&w.gx, w.arena, n))),
-        ("lowerv4.srf.volatile", Q::Acts, |w| w.expr.map(|n| crate::effects::visible::srf::volatile(&w.gx, w.arena, n))),
-        ("lowerv4.dict.call_acts", Q::Acts, |w| w.expr.and_then(|n| n.as_func_expr().map(|f| f.funcid)).map(|f| crate::effects::visible::dict::call_acts(w.gx.facts, f))),
-        ("lowerv4.topn.order_volatile", Q::Acts, |w| w.expr.map(|n| crate::effects::visible::topn::order_volatile(&w.gx, n))),
-        ("lowerv4.user_fn", Q::User, |w| w.expr.map(|n| crate::effects::user_fn(&w.gx, n))),
-        ("lowerv4.user_or_volatile", Q::Calls, |w| w.expr.map(|n| crate::effects::user_or_volatile(&w.gx, n))),
-        ("lowerv4.side_calls", Q::Calls, |w| w.expr.map(|n| crate::effects::visible::hashjoin::side_calls(&w.gx, n))),
-        ("lowerv4.side_calls_body", Q::Calls, |w| w.expr.map(|n| crate::effects::visible::hashjoin::side_calls_body(&w.gx, n))),
-        ("lowerv4.lockrows.calm_call", Q::Calls, |w| w.expr.map(|n| !crate::effects::visible::lockrows::calm_call(&w.gx, n))),
-        ("lowerv4.expr_quiet", Q::Quiet, |w| w.expr.map(|n| crate::effects::expr_quiet(&w.gx, n))),
+        ("lowerv4.raise_free", Q::Raise, |w| {
+            w.expr.map(|n| !crate::effects::raise_free(&w.gx, n))
+        }),
+        ("lowerv4.raise_free_each", Q::Raise, |w| {
+            w.expr
+                .map(|n| !crate::effects::raise_free_each(&w.gx, n, &|_| false))
+        }),
+        ("lowerv4.merge.pure", Q::Raise, |w| {
+            w.expr
+                .map(|n| !crate::effects::visible::merge::pure(&w.gx, n))
+        }),
+        ("lowerv4.nestloop.quiet_in", Q::Raise, |w| {
+            w.expr
+                .map(|n| !crate::effects::visible::nestloop::quiet_in(&w.gx, n, false))
+        }),
+        ("lowerv4.pgrc.quiet_qual", Q::Raise, |w| {
+            w.expr
+                .map(|n| !crate::effects::visible::pgrc::quiet_qual(&w.gx, n))
+        }),
+        ("lowerv4.volatile", Q::Acts, |w| {
+            w.expr.map(|n| crate::effects::volatile(&w.gx, n))
+        }),
+        ("lowerv4.nestloop.acts", Q::Acts, |w| {
+            w.expr
+                .map(|n| crate::effects::visible::nestloop::acts(&w.gx, w.arena, n))
+        }),
+        ("lowerv4.srf.volatile", Q::Acts, |w| {
+            w.expr
+                .map(|n| crate::effects::visible::srf::volatile(&w.gx, w.arena, n))
+        }),
+        ("lowerv4.dict.call_acts", Q::Acts, |w| {
+            w.expr
+                .and_then(|n| n.as_func_expr().map(|f| f.funcid))
+                .map(|f| crate::effects::visible::dict::call_acts(w.gx.facts, f))
+        }),
+        ("lowerv4.topn.order_volatile", Q::Acts, |w| {
+            w.expr
+                .map(|n| crate::effects::visible::topn::order_volatile(&w.gx, n))
+        }),
+        ("lowerv4.user_fn", Q::User, |w| {
+            w.expr.map(|n| crate::effects::user_fn(&w.gx, n))
+        }),
+        ("lowerv4.user_or_volatile", Q::Calls, |w| {
+            w.expr.map(|n| crate::effects::user_or_volatile(&w.gx, n))
+        }),
+        ("lowerv4.side_calls", Q::Calls, |w| {
+            w.expr
+                .map(|n| crate::effects::visible::hashjoin::side_calls(&w.gx, n))
+        }),
+        ("lowerv4.side_calls_body", Q::Calls, |w| {
+            w.expr
+                .map(|n| crate::effects::visible::hashjoin::side_calls_body(&w.gx, n))
+        }),
+        ("lowerv4.lockrows.calm_call", Q::Calls, |w| {
+            w.expr
+                .map(|n| !crate::effects::visible::lockrows::calm_call(&w.gx, n))
+        }),
+        ("lowerv4.expr_quiet", Q::Quiet, |w| {
+            w.expr.map(|n| crate::effects::expr_quiet(&w.gx, n))
+        }),
         // lowerv4's pipeline readers
-        ("lowerv4.own_side", Q::Calls, |w| Some(own_side(&w.gx, 0) == Side::UserFn)),
-        ("lowerv4.own_side", Q::Quiet, |w| Some(own_side(&w.gx, 0) == Side::Safe)),
-        ("lowerv4.side_by", Q::Calls, |w| Some(side_by(&w.gx, 0, usize::MAX, false) == Side::UserFn)),
-        ("lowerv4.side_by", Q::Quiet, |w| Some(side_by(&w.gx, 0, usize::MAX, false) == Side::Safe)),
-        ("lowerv4.pipeline_effects", Q::Raise, |w| Some(crate::effects::pipeline_effects(&w.gx, w.arena, 0, false).may_raise)),
-        ("lowerv4.pipeline_effects", Q::Acts, |w| Some(crate::effects::pipeline_effects(&w.gx, w.arena, 0, false).acts)),
-        ("lowerv4.op_raise_free", Q::Raise, |w| Some(!crate::effects::op_raise_free(&w.gx, &w.gx.graph.pipelines[0].ops[0], None))),
+        ("lowerv4.own_side", Q::Calls, |w| {
+            Some(own_side(&w.gx, 0) == Side::UserFn)
+        }),
+        ("lowerv4.own_side", Q::Quiet, |w| {
+            Some(own_side(&w.gx, 0) == Side::Safe)
+        }),
+        ("lowerv4.side_by", Q::Calls, |w| {
+            Some(side_by(&w.gx, 0, usize::MAX, false) == Side::UserFn)
+        }),
+        ("lowerv4.side_by", Q::Quiet, |w| {
+            Some(side_by(&w.gx, 0, usize::MAX, false) == Side::Safe)
+        }),
+        ("lowerv4.pipeline_effects", Q::Raise, |w| {
+            Some(crate::effects::pipeline_effects(&w.gx, w.arena, 0, false).may_raise)
+        }),
+        ("lowerv4.pipeline_effects", Q::Acts, |w| {
+            Some(crate::effects::pipeline_effects(&w.gx, w.arena, 0, false).acts)
+        }),
+        ("lowerv4.op_raise_free", Q::Raise, |w| {
+            Some(!crate::effects::op_raise_free(
+                &w.gx,
+                &w.gx.graph.pipelines[0].ops[0],
+                None,
+            ))
+        }),
         // more lowerv4 readers: an expression reader's sum and the readings its consumers combine
-        ("lowerv4.nestloop.loud", Q::Loud, |w| w.expr.map(|n| crate::effects::visible::nestloop::loud(&w.gx, &w.gx.graph.pipelines[0], n))),
-        ("lowerv4.side_class", Q::Calls, |w| w.expr.map(|n| crate::effects::visible::hashjoin::side_calls(&w.gx, n) || crate::effects::visible::hashjoin::hidden(&w.gx, n))),
-        ("lowerv4.ahead_side", Q::Calls, |w| w.expr.map(|_| side_by(&w.gx, 0, usize::MAX, false) == Side::UserFn || crate::effects::hides_calls(&w.gx, 0, false))),
-        ("lowerv4.licence_side", Q::Calls, |w| w.expr.map(|_| side_by(&w.gx, 0, usize::MAX, false) == Side::UserFn || crate::effects::hides_user_code(&w.gx, 0))),
-        ("lowerv4.statement_user_code", Q::User, |w| w.stmt.map(|_| crate::effects::statement_user_code(&w.sx, w.arena))),
-        ("lowerv4.merge.ops_can_raise", Q::Raise, |w| Some(crate::effects::visible::merge::ops_can_raise(&w.gx, &w.gx.graph.pipelines[0].ops[..]))),
-        ("lowerv4.material.rows_quiet", Q::Quiet, |w| Some(crate::effects::visible::material::rows_quiet(&w.gx, &w.gx.graph.pipelines[0].ops[..]))),
-        ("lowerv4.merge.quiet", Q::Quiet, |w| Some(crate::effects::visible::merge::quiet(&w.gx, 0, usize::MAX))),
-        ("lowerv4.drain.pipe_acts", Q::Acts, |w| Some(crate::effects::visible::drain::pipe_acts(&w.gx, &w.gx.graph.pipelines[0], 0, 0))),
-        ("lowerv4.ops_raise_free", Q::Raise, |w| Some(!crate::effects::ops_raise_free(&w.gx, &w.gx.graph.pipelines[0].ops[..]))),
-        ("lowerv4.fed_user_code", Q::User, |w| Some(crate::effects::fed_user_code(&w.gx, 0))),
+        ("lowerv4.nestloop.loud", Q::Loud, |w| {
+            w.expr.map(|n| {
+                crate::effects::visible::nestloop::loud(&w.gx, &w.gx.graph.pipelines[0], n)
+            })
+        }),
+        ("lowerv4.side_class", Q::Calls, |w| {
+            w.expr.map(|n| {
+                crate::effects::visible::hashjoin::side_calls(&w.gx, n)
+                    || crate::effects::visible::hashjoin::hidden(&w.gx, n)
+            })
+        }),
+        ("lowerv4.ahead_side", Q::Calls, |w| {
+            w.expr.map(|_| {
+                side_by(&w.gx, 0, usize::MAX, false) == Side::UserFn
+                    || crate::effects::hides_calls(&w.gx, 0, false)
+            })
+        }),
+        ("lowerv4.licence_side", Q::Calls, |w| {
+            w.expr.map(|_| {
+                side_by(&w.gx, 0, usize::MAX, false) == Side::UserFn
+                    || crate::effects::hides_user_code(&w.gx, 0)
+            })
+        }),
+        ("lowerv4.statement_user_code", Q::User, |w| {
+            w.stmt
+                .map(|_| crate::effects::statement_user_code(&w.sx, w.arena))
+        }),
+        ("lowerv4.merge.ops_can_raise", Q::Raise, |w| {
+            Some(crate::effects::visible::merge::ops_can_raise(
+                &w.gx,
+                &w.gx.graph.pipelines[0].ops[..],
+            ))
+        }),
+        ("lowerv4.material.rows_quiet", Q::Quiet, |w| {
+            Some(crate::effects::visible::material::rows_quiet(
+                &w.gx,
+                &w.gx.graph.pipelines[0].ops[..],
+            ))
+        }),
+        ("lowerv4.merge.quiet", Q::Quiet, |w| {
+            Some(crate::effects::visible::merge::quiet(&w.gx, 0, usize::MAX))
+        }),
+        ("lowerv4.drain.pipe_acts", Q::Acts, |w| {
+            Some(crate::effects::visible::drain::pipe_acts(
+                &w.gx,
+                &w.gx.graph.pipelines[0],
+                0,
+                0,
+            ))
+        }),
+        ("lowerv4.ops_raise_free", Q::Raise, |w| {
+            Some(!crate::effects::ops_raise_free(
+                &w.gx,
+                &w.gx.graph.pipelines[0].ops[..],
+            ))
+        }),
+        ("lowerv4.fed_user_code", Q::User, |w| {
+            Some(crate::effects::fed_user_code(&w.gx, 0))
+        }),
         // one-sided: a comparison it reads as quiet must not raise; it says nothing of the others
-        ("lowerv4.errorhold.quiet_cmp", Q::Raise, |w| w.expr.and_then(|n| crate::effects::visible::errorhold::quiet_cmp(&w.gx, n).then_some(false))),
+        ("lowerv4.errorhold.quiet_cmp", Q::Raise, |w| {
+            w.expr.and_then(|n| {
+                crate::effects::visible::errorhold::quiet_cmp(&w.gx, n).then_some(false)
+            })
+        }),
     ];
 
     /// A ruled disagreement: each `decider QUESTION direction` of `deciders` on each subject of `subjects`, and the ruling that
@@ -310,18 +437,48 @@ mod sweep {
     const INHERITS: &[(&str, &[&str])] = &[
         (
             "D1236",
-            &["lowerv4.merge.ops_can_raise RAISE permissive", "lowerv4.ops_raise_free RAISE permissive", "lowerv4.merge.quiet QUIET permissive", "lowerv4.material.rows_quiet QUIET permissive"],
+            &[
+                "lowerv4.merge.ops_can_raise RAISE permissive",
+                "lowerv4.ops_raise_free RAISE permissive",
+                "lowerv4.merge.quiet QUIET permissive",
+                "lowerv4.material.rows_quiet QUIET permissive",
+            ],
         ),
-        ("D449", &["lowerv4.merge.ops_can_raise RAISE conservative", "lowerv4.material.rows_quiet QUIET conservative"]),
+        (
+            "D449",
+            &[
+                "lowerv4.merge.ops_can_raise RAISE conservative",
+                "lowerv4.material.rows_quiet QUIET conservative",
+            ],
+        ),
         ("D1902", &["lowerv4.nestloop.loud LOUD permissive"]),
         ("D2107", &["lowerv4.ops_raise_free RAISE conservative"]),
         ("user_fn-calls", &["lowerv4.fed_user_code USER permissive"]),
         (
             "T6j",
-            &["lowerv4.merge.ops_can_raise RAISE permissive", "lowerv4.merge.quiet QUIET permissive", "lowerv4.material.rows_quiet QUIET permissive", "lowerv4.drain.pipe_acts ACTS permissive"],
+            &[
+                "lowerv4.merge.ops_can_raise RAISE permissive",
+                "lowerv4.merge.quiet QUIET permissive",
+                "lowerv4.material.rows_quiet QUIET permissive",
+                "lowerv4.drain.pipe_acts ACTS permissive",
+            ],
         ),
-        ("D3897", &["lowerv4.merge.ops_can_raise RAISE permissive", "lowerv4.merge.quiet QUIET permissive", "lowerv4.drain.pipe_acts ACTS permissive"]),
-        ("D2731", &["lowerv4.merge.ops_can_raise RAISE permissive", "lowerv4.merge.quiet QUIET permissive", "lowerv4.drain.pipe_acts ACTS permissive"]),
+        (
+            "D3897",
+            &[
+                "lowerv4.merge.ops_can_raise RAISE permissive",
+                "lowerv4.merge.quiet QUIET permissive",
+                "lowerv4.drain.pipe_acts ACTS permissive",
+            ],
+        ),
+        (
+            "D2731",
+            &[
+                "lowerv4.merge.ops_can_raise RAISE permissive",
+                "lowerv4.merge.quiet QUIET permissive",
+                "lowerv4.drain.pipe_acts ACTS permissive",
+            ],
+        ),
     ];
 
     #[test]
@@ -330,21 +487,36 @@ mod sweep {
         let facts = FixtureFacts::default();
         let m = mcx();
         let subjects = subjects(m, &cat);
-        assert!(subjects.len() > 5000, "only {} subjects: the reference catalog's rows were not read", subjects.len());
+        assert!(
+            subjects.len() > 5000,
+            "only {} subjects: the reference catalog's rows were not read",
+            subjects.len()
+        );
         let mut found = BTreeSet::new();
         let mut asked = vec![0usize; DECIDERS.len()]; // alloc: Cold
         for s in &subjects {
             ask(s, &cat, &facts, m, &mut asked, &mut found);
         }
-        let idle: Vec<&str> = DECIDERS.iter().zip(&asked).filter(|(_, k)| **k == 0).map(|(d, _)| d.0).collect(); // alloc: Cold
-        assert!(idle.is_empty(), "deciders that answered no subject: {idle:?}");
+        let idle: Vec<&str> = DECIDERS
+            .iter()
+            .zip(&asked)
+            .filter(|(_, k)| **k == 0)
+            .map(|(d, _)| d.0)
+            .collect(); // alloc: Cold
+        assert!(
+            idle.is_empty(),
+            "deciders that answered no subject: {idle:?}"
+        );
         let mut known: BTreeMap<String, &str> = BTreeMap::new();
         let mut ids = BTreeSet::new();
         for k in KNOWN {
             assert!(ids.insert(k.id), "two KNOWN rows have the id `{}`", k.id);
             for d in k.deciders {
                 for s in k.subjects {
-                    assert!(known.insert(format!("{d} {s}"), k.ruling).is_none(), "KNOWN lists `{d} {s}` twice");
+                    assert!(
+                        known.insert(format!("{d} {s}"), k.ruling).is_none(),
+                        "KNOWN lists `{d} {s}` twice"
+                    );
                 }
             }
         }
@@ -355,22 +527,46 @@ mod sweep {
         // `decider QUESTION direction subject` -> the id of the KNOWN row it inherits
         let mut inherited: BTreeMap<String, &str> = BTreeMap::new();
         for &(id, ds) in INHERITS {
-            let k = KNOWN.iter().find(|k| k.id == id).unwrap_or_else(|| panic!("INHERITS names `{id}`, which is no KNOWN row's id"));
+            let k = KNOWN
+                .iter()
+                .find(|k| k.id == id)
+                .unwrap_or_else(|| panic!("INHERITS names `{id}`, which is no KNOWN row's id"));
             for d in ds {
                 let dir = d.rsplit(' ').next().unwrap_or_default();
-                assert!(k.deciders.iter().any(|x| x.rsplit(' ').next() == Some(dir)), "INHERITS reads `{d}` under `{id}`, which rules no {dir} reading");
+                assert!(
+                    k.deciders.iter().any(|x| x.rsplit(' ').next() == Some(dir)),
+                    "INHERITS reads `{d}` under `{id}`, which rules no {dir} reading"
+                );
                 for s in k.subjects {
                     let key = format!("{d} {s}");
-                    assert!(!known.contains_key(&key), "`{key}` is both KNOWN and inherited from `{id}`");
-                    assert!(inherited.insert(key, id).is_none(), "`{d} {s}` is inherited twice");
+                    assert!(
+                        !known.contains_key(&key),
+                        "`{key}` is both KNOWN and inherited from `{id}`"
+                    );
+                    assert!(
+                        inherited.insert(key, id).is_none(),
+                        "`{d} {s}` is inherited twice"
+                    );
                 }
             }
         }
-        let new: Vec<&String> = found.iter().filter(|k| !known.contains_key(k.as_str()) && !inherited.contains_key(k.as_str())).collect(); // alloc: Cold
-        let mut gone: Vec<String> = known.keys().filter(|k| !found.contains(*k)).cloned().collect(); // alloc: Cold
+        let new: Vec<&String> = found
+            .iter()
+            .filter(|k| !known.contains_key(k.as_str()) && !inherited.contains_key(k.as_str()))
+            .collect(); // alloc: Cold
+        let mut gone: Vec<String> = known
+            .keys()
+            .filter(|k| !found.contains(*k))
+            .cloned()
+            .collect(); // alloc: Cold
         for &(id, ds) in INHERITS {
             for d in ds {
-                if !inherited.iter().any(|(k, i)| *i == id && found.contains(k) && k.starts_with(d) && k.as_bytes().get(d.len()) == Some(&b' ')) {
+                if !inherited.iter().any(|(k, i)| {
+                    *i == id
+                        && found.contains(k)
+                        && k.starts_with(d)
+                        && k.as_bytes().get(d.len()) == Some(&b' ')
+                }) {
                     gone.push(format!("INHERITS {id}: {d}"));
                 }
             }
@@ -397,7 +593,14 @@ mod sweep {
 
     /// Asks every decider about subject `s` beside the home's reference reading; a disagreement goes into `found` as
     /// `decider QUESTION direction subject`, and `asked` counts the subjects each decider answered.
-    fn ask(s: &Subject, cat: &Dat, facts: &FixtureFacts, m: Mcx<'static>, asked: &mut [usize], found: &mut BTreeSet<String>) {
+    fn ask(
+        s: &Subject,
+        cat: &Dat,
+        facts: &FixtureFacts,
+        m: Mcx<'static>,
+        asked: &mut [usize],
+        found: &mut BTreeSet<String>,
+    ) {
         let rig = mcx::MemoryContext::new("GravityPlanRig");
         let arena = Arena::new(1 << 20);
         let a = arena.handle();
@@ -410,17 +613,49 @@ mod sweep {
         let reference = match expr {
             Some(n) => {
                 let e = effects::of_expr(&cx, n, &PLAIN);
-                Ref { raise: e.may_raise, acts: e.acts, user: gravity_decompose::rerun::of_expr_alone(facts, a, n).user_call }
+                Ref {
+                    raise: e.may_raise,
+                    acts: e.acts,
+                    user: gravity_decompose::rerun::of_expr_alone(facts, a, n).user_call,
+                }
             }
             None => {
                 let e = effects::of_ops(&cx, &g.pipelines[0].ops[..], &PLAIN);
-                Ref { raise: e.may_raise, acts: e.acts, user: false }
+                Ref {
+                    raise: e.may_raise,
+                    acts: e.acts,
+                    user: false,
+                }
             }
         };
         let stmt = expr.map(|n| statement(m, n));
-        let mut g2 = graph(a, match &s.what { What::Expr(n) => Op::Filter(*n), What::Step(f) => f(a, m) });
+        let mut g2 = graph(
+            a,
+            match &s.what {
+                What::Expr(n) => Op::Filter(*n),
+                What::Step(f) => f(a, m),
+            },
+        );
         g2.stmt = stmt;
-        let w = World { gx: Gx { graph: &g, facts, catalog: cat, over: None, mcx: rig.mcx() }, arena: a, expr, stmt, sx: Gx { graph: &g2, facts, catalog: cat, over: None, mcx: rig.mcx() } };
+        let w = World {
+            gx: Gx {
+                graph: &g,
+                facts,
+                catalog: cat,
+                over: None,
+                mcx: rig.mcx(),
+            },
+            arena: a,
+            expr,
+            stmt,
+            sx: Gx {
+                graph: &g2,
+                facts,
+                catalog: cat,
+                over: None,
+                mcx: rig.mcx(),
+            },
+        };
         for (i, &(name, q, decide)) in DECIDERS.iter().enumerate() {
             match catch_unwind(AssertUnwindSafe(|| decide(&w))) {
                 Ok(None) => {}
@@ -432,7 +667,11 @@ mod sweep {
                         if !permissive && ONE_WAY.iter().any(|o| o.0 == name) {
                             continue;
                         }
-                        let dir = if permissive { "permissive" } else { "conservative" };
+                        let dir = if permissive {
+                            "permissive"
+                        } else {
+                            "conservative"
+                        };
                         found.insert(format!("{name} {} {dir} {}", q.name(), s.name));
                     }
                 }
@@ -460,12 +699,25 @@ mod sweep {
         let mut found = BTreeSet::new();
         let mut asked = vec![0usize; DECIDERS.len()]; // alloc: Cold
         let mut seen = 0;
-        for s in subjects(m, &cat).iter().filter(|s| pins.contains(&s.name.as_str())) {
+        for s in subjects(m, &cat)
+            .iter()
+            .filter(|s| pins.contains(&s.name.as_str()))
+        {
             seen += 1;
             ask(s, &cat, &facts, m, &mut asked, &mut found);
         }
-        assert_eq!(seen, pins.len(), "a pinned subject is no longer built: {pins:?}");
-        let back: Vec<&String> = found.iter().filter(|k| k.starts_with("lowerv4.nestloop.loud ") || k.starts_with("lowerv4.merge.ops_can_raise ")).collect(); // alloc: Cold
+        assert_eq!(
+            seen,
+            pins.len(),
+            "a pinned subject is no longer built: {pins:?}"
+        );
+        let back: Vec<&String> = found
+            .iter()
+            .filter(|k| {
+                k.starts_with("lowerv4.nestloop.loud ")
+                    || k.starts_with("lowerv4.merge.ops_can_raise ")
+            })
+            .collect(); // alloc: Cold
         assert!(back.is_empty(), "D3954 / D3955 are back: {back:?}");
     }
 
@@ -473,14 +725,33 @@ mod sweep {
     fn statement(m: Mcx<'static>, n: Node<'static>) -> &'static PlannedStmt<'static> {
         let mut tl = NodeList::nil();
         tl.lappend(m, entry(m, n, 1)).expect("tlist");
-        let root = Node::mk(m, ResultPlan { plan: Plan { targetlist: tl, ..Default::default() }, resconstantqual: None }).expect("result");
-        Box::leak(Box::new(PlannedStmt { commandType: CmdType::CMD_SELECT, planTree: Some(root), ..Default::default() })) // alloc: Cold
+        let root = Node::mk(
+            m,
+            ResultPlan {
+                plan: Plan {
+                    targetlist: tl,
+                    ..Default::default()
+                },
+                resconstantqual: None,
+            },
+        )
+        .expect("result");
+        Box::leak(Box::new(PlannedStmt {
+            commandType: CmdType::CMD_SELECT,
+            planTree: Some(root),
+            ..Default::default()
+        })) // alloc: Cold
     }
 
     /// One pipeline over a breaker's rows (no producer: what feeds it is no subject's), running `op`, into the sink.
     fn graph(a: ArenaRef, op: Op<'static>) -> PipelineGraph<'static> {
         let mut g = PipelineGraph::new(a);
-        let mut p = PipelineNode::new(a, 1, Source::Breaker { slot: 0 }, Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite));
+        let mut p = PipelineNode::new(
+            a,
+            1,
+            Source::Breaker { slot: 0 },
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+        );
         p.push(op);
         g.pipelines.push(p);
         g.root = 0;
@@ -488,7 +759,8 @@ mod sweep {
     }
 
     fn mcx() -> Mcx<'static> {
-        let cx: &'static MemoryContext = Box::leak(Box::new(MemoryContext::new("effects agreement"))); // alloc: Cold
+        let cx: &'static MemoryContext =
+            Box::leak(Box::new(MemoryContext::new("effects agreement"))); // alloc: Cold
         cx.mcx()
     }
 
@@ -504,7 +776,17 @@ mod sweep {
     }
 
     fn var(m: Mcx<'static>, t: Oid, at: i16) -> Node<'static> {
-        Node::mk(m, Var { varno: 1, varattno: at, vartype: t, vartypmod: -1, ..Default::default() }).expect("var")
+        Node::mk(
+            m,
+            Var {
+                varno: 1,
+                varattno: at,
+                vartype: t,
+                vartypmod: -1,
+                ..Default::default()
+            },
+        )
+        .expect("var")
     }
 
     /// A column of each type in `ts`.
@@ -520,18 +802,63 @@ mod sweep {
     /// 'fortnight'), privilege ('SELECT') and empty-text classes decompose `quiet_args` reads.
     fn consts(m: Mcx<'static>, t: Oid) -> Vec<(String, Node<'static>)> {
         let mut out = Vec::new(); // alloc: Cold
-        let int = |v: i64, len: i32, d: Datum| (v.to_string(), Node::mk_const(m, t, -1, 0, len, d, false, true).expect("int const"));
+        let int = |v: i64, len: i32, d: Datum| {
+            (
+                v.to_string(),
+                Node::mk_const(m, t, -1, 0, len, d, false, true).expect("int const"),
+            )
+        };
         match t {
-            21 => for v in [0i16, -1, 2] { out.push(int(v.into(), 2, Datum::from_i16(v))) },
-            23 => for v in [0i32, -1, 2, i32::MIN] { out.push(int(v.into(), 4, Datum::from_i32(v))) },
-            20 => for v in [0i64, -1, 2] { out.push(int(v, 8, Datum::from_i64(v))) },
-            TEXT => for s in ["year", "SELECT", "fortnight", ""] {
-                out.push((format!("'{s}'"), gravity_decompose::normalize::text_const(m, s.as_bytes(), DEFAULT_COLLATION).expect("text const")))
-            },
+            21 => {
+                for v in [0i16, -1, 2] {
+                    out.push(int(v.into(), 2, Datum::from_i16(v)))
+                }
+            }
+            23 => {
+                for v in [0i32, -1, 2, i32::MIN] {
+                    out.push(int(v.into(), 4, Datum::from_i32(v)))
+                }
+            }
+            20 => {
+                for v in [0i64, -1, 2] {
+                    out.push(int(v, 8, Datum::from_i64(v)))
+                }
+            }
+            TEXT => {
+                for s in ["year", "SELECT", "fortnight", ""] {
+                    out.push((
+                        format!("'{s}'"),
+                        gravity_decompose::normalize::text_const(
+                            m,
+                            s.as_bytes(),
+                            DEFAULT_COLLATION,
+                        )
+                        .expect("text const"),
+                    ))
+                }
+            }
             _ => return out,
         }
-        let len = match t { 21 => 2, 23 => 4, 20 => 8, _ => -1 };
-        out.push(("NULL".into(), Node::mk_const(m, t, -1, if t == TEXT { DEFAULT_COLLATION } else { 0 }, len, Datum::from_usize(0), true, t != 25).expect("null const")));
+        let len = match t {
+            21 => 2,
+            23 => 4,
+            20 => 8,
+            _ => -1,
+        };
+        out.push((
+            "NULL".into(),
+            Node::mk_const(
+                m,
+                t,
+                -1,
+                if t == TEXT { DEFAULT_COLLATION } else { 0 },
+                len,
+                Datum::from_usize(0),
+                true,
+                t != 25,
+            )
+            .expect("null const"),
+        ));
         out
     }
 
@@ -539,20 +866,34 @@ mod sweep {
     fn cols_with(m: Mcx<'static>, ts: &[Oid], at: usize, c: Node<'static>) -> NodeList<'static> {
         let mut l = NodeList::nil();
         for (i, &t) in ts.iter().enumerate() {
-            l.lappend(m, if i == at { c } else { var(m, t, i as i16 + 1) }).expect("cols_with");
+            l.lappend(m, if i == at { c } else { var(m, t, i as i16 + 1) })
+                .expect("cols_with");
         }
         l
     }
 
     fn entry(m: Mcx<'static>, e: Node<'static>, resno: i16) -> Node<'static> {
-        Node::mk(m, TargetEntry { expr: e, resno, resname: None, ressortgroupref: 0, resorigtbl: 0, resorigcol: 0, resjunk: false }).expect("entry")
+        Node::mk(
+            m,
+            TargetEntry {
+                expr: e,
+                resno,
+                resname: None,
+                ressortgroupref: 0,
+                resorigtbl: 0,
+                resorigcol: 0,
+                resjunk: false,
+            },
+        )
+        .expect("entry")
     }
 
     /// An aggregate's arguments: a target entry over a column of each type in `ts`.
     fn entries(m: Mcx<'static>, ts: &[Oid], from: usize) -> NodeList<'static> {
         let mut l = NodeList::nil();
         for (i, &t) in ts.iter().enumerate() {
-            l.lappend(m, entry(m, var(m, t, (from + i) as i16 + 1), i as i16 + 1)).expect("entries");
+            l.lappend(m, entry(m, var(m, t, (from + i) as i16 + 1), i as i16 + 1))
+                .expect("entries");
         }
         l
     }
@@ -580,13 +921,33 @@ mod sweep {
     /// Every subject: the reference catalog's builtins, then the node kinds and plan steps.
     fn subjects(m: Mcx<'static>, cat: &Dat) -> Vec<Subject> {
         let mut out = Vec::new(); // alloc: Cold
-        let mut push = |name: String, n: Node<'static>| out.push(Subject { name, what: What::Expr(n) });
-        let sig = |ts: &[Oid]| ts.iter().map(|t| cat.type_name(*t)).collect::<Vec<_>>().join(",");
+        let mut push = |name: String, n: Node<'static>| {
+            out.push(Subject {
+                name,
+                what: What::Expr(n),
+            })
+        };
+        let sig = |ts: &[Oid]| {
+            ts.iter()
+                .map(|t| cat.type_name(*t))
+                .collect::<Vec<_>>()
+                .join(",")
+        };
         for (&oid, p) in &cat.procs {
             let name = format!("{oid} {}({})", p.name, sig(&p.args[..]));
             match p.kind {
                 b'f' => {
-                    let n = Node::mk(m, FuncExpr { funcid: oid, funcresulttype: p.ret, funcretset: p.facts.retset, args: cols(m, &p.args), ..Default::default() }).expect("func");
+                    let n = Node::mk(
+                        m,
+                        FuncExpr {
+                            funcid: oid,
+                            funcresulttype: p.ret,
+                            funcretset: p.facts.retset,
+                            args: cols(m, &p.args),
+                            ..Default::default()
+                        },
+                    )
+                    .expect("func");
                     push(format!("fn {name}"), n);
                 }
                 b'a' => {
@@ -605,7 +966,17 @@ mod sweep {
                     push(format!("agg {name}"), Node::mk(m, a).expect("agg"));
                 }
                 b'w' => {
-                    let n = Node::mk(m, WindowFunc { winfnoid: oid, wintype: p.ret, args: cols(m, &p.args), winref: 1, ..Default::default() }).expect("win");
+                    let n = Node::mk(
+                        m,
+                        WindowFunc {
+                            winfnoid: oid,
+                            wintype: p.ret,
+                            args: cols(m, &p.args),
+                            winref: 1,
+                            ..Default::default()
+                        },
+                    )
+                    .expect("win");
                     push(format!("win {name}"), n);
                 }
                 _ => {} // a procedure: CALL, never an expression
@@ -613,17 +984,59 @@ mod sweep {
         }
         for (&oid, o) in &cat.opers {
             let ts: Vec<Oid> = [o.left, o.right].into_iter().filter(|&t| t != 0).collect(); // alloc: Cold
-            let name = format!("{oid} {} {} {}", cat.type_name(o.left), o.name, cat.type_name(o.right));
-            let n = Node::mk(m, OpExpr { opno: oid, opfuncid: o.code, opresulttype: o.result, args: cols(m, &ts), ..Default::default() }).expect("op");
+            let name = format!(
+                "{oid} {} {} {}",
+                cat.type_name(o.left),
+                o.name,
+                cat.type_name(o.right)
+            );
+            let n = Node::mk(
+                m,
+                OpExpr {
+                    opno: oid,
+                    opfuncid: o.code,
+                    opresulttype: o.result,
+                    args: cols(m, &ts),
+                    ..Default::default()
+                },
+            )
+            .expect("op");
             push(format!("op {name}"), n);
             if o.name == "=" && o.result == BOOL && o.left != 0 {
-                let d = Node::mk(m, DistinctExpr { opno: oid, opfuncid: o.code, opresulttype: BOOL, args: cols(m, &ts), ..Default::default() }).expect("distinct");
+                let d = Node::mk(
+                    m,
+                    DistinctExpr {
+                        opno: oid,
+                        opfuncid: o.code,
+                        opresulttype: BOOL,
+                        args: cols(m, &ts),
+                        ..Default::default()
+                    },
+                )
+                .expect("distinct");
                 push(format!("distinct {name}"), d);
-                let x = Node::mk(m, NullIfExpr { opno: oid, opfuncid: o.code, opresulttype: o.left, args: cols(m, &ts), ..Default::default() }).expect("nullif");
+                let x = Node::mk(
+                    m,
+                    NullIfExpr {
+                        opno: oid,
+                        opfuncid: o.code,
+                        opresulttype: o.left,
+                        args: cols(m, &ts),
+                        ..Default::default()
+                    },
+                )
+                .expect("nullif");
                 push(format!("nullif {name}"), x);
             }
-            if let (true, true, Some(arr)) = (o.result == BOOL, o.left != 0, cat.array_of(o.right)) {
-                let x = ScalarArrayOpExpr { opno: oid, opfuncid: o.code, useOr: true, args: cols(m, &[o.left, arr]), ..Default::default() };
+            if let (true, true, Some(arr)) = (o.result == BOOL, o.left != 0, cat.array_of(o.right))
+            {
+                let x = ScalarArrayOpExpr {
+                    opno: oid,
+                    opfuncid: o.code,
+                    useOr: true,
+                    args: cols(m, &[o.left, arr]),
+                    ..Default::default()
+                };
                 push(format!("any {name}[]"), Node::mk(m, x).expect("saop"));
             }
         }
@@ -636,19 +1049,50 @@ mod sweep {
             for i in 0..p.args.len() {
                 for (label, c) in consts(m, p.args[i]) {
                     let args = cols_with(m, &p.args, i, c);
-                    let inputcollid = if p.args[i] == TEXT { DEFAULT_COLLATION } else { 0 };
-                    let n = Node::mk(m, FuncExpr { funcid: oid, funcresulttype: p.ret, funcretset: p.facts.retset, args, inputcollid, ..Default::default() }).expect("func");
+                    let inputcollid = if p.args[i] == TEXT {
+                        DEFAULT_COLLATION
+                    } else {
+                        0
+                    };
+                    let n = Node::mk(
+                        m,
+                        FuncExpr {
+                            funcid: oid,
+                            funcresulttype: p.ret,
+                            funcretset: p.facts.retset,
+                            args,
+                            inputcollid,
+                            ..Default::default()
+                        },
+                    )
+                    .expect("func");
                     push(format!("fn {name} ${}={label}", i + 1), n);
                 }
             }
         }
         for (&oid, o) in &cat.opers {
             let ts: Vec<Oid> = [o.left, o.right].into_iter().filter(|&t| t != 0).collect(); // alloc: Cold
-            let name = format!("{oid} {} {} {}", cat.type_name(o.left), o.name, cat.type_name(o.right));
+            let name = format!(
+                "{oid} {} {} {}",
+                cat.type_name(o.left),
+                o.name,
+                cat.type_name(o.right)
+            );
             for i in 0..ts.len() {
                 for (label, c) in consts(m, ts[i]) {
                     let inputcollid = if ts[i] == TEXT { DEFAULT_COLLATION } else { 0 };
-                    let n = Node::mk(m, OpExpr { opno: oid, opfuncid: o.code, opresulttype: o.result, args: cols_with(m, &ts, i, c), inputcollid, ..Default::default() }).expect("op");
+                    let n = Node::mk(
+                        m,
+                        OpExpr {
+                            opno: oid,
+                            opfuncid: o.code,
+                            opresulttype: o.result,
+                            args: cols_with(m, &ts, i, c),
+                            inputcollid,
+                            ..Default::default()
+                        },
+                    )
+                    .expect("op");
                     push(format!("op {name} ${}={label}", i + 1), n);
                 }
             }
@@ -656,9 +1100,35 @@ mod sweep {
             if ts.len() == 2 && ts.iter().all(|&t| matches!(t, 19 | 25 | 1042 | 1043)) {
                 let mut args = NodeList::nil();
                 for (i, (&t, coll)) in ts.iter().zip([C_COLLATION, POSIX_COLLATION]).enumerate() {
-                    args.lappend(m, Node::mk(m, Var { varno: 1, varattno: i as i16 + 1, vartype: t, vartypmod: -1, varcollid: coll, ..Default::default() }).expect("var")).expect("args");
+                    args.lappend(
+                        m,
+                        Node::mk(
+                            m,
+                            Var {
+                                varno: 1,
+                                varattno: i as i16 + 1,
+                                vartype: t,
+                                vartypmod: -1,
+                                varcollid: coll,
+                                ..Default::default()
+                            },
+                        )
+                        .expect("var"),
+                    )
+                    .expect("args");
                 }
-                let n = Node::mk(m, OpExpr { opno: oid, opfuncid: o.code, opresulttype: o.result, args, inputcollid: 0, ..Default::default() }).expect("op");
+                let n = Node::mk(
+                    m,
+                    OpExpr {
+                        opno: oid,
+                        opfuncid: o.code,
+                        opresulttype: o.result,
+                        args,
+                        inputcollid: 0,
+                        ..Default::default()
+                    },
+                )
+                .expect("op");
                 push(format!("op {name} C vs POSIX"), n);
             }
         }
@@ -669,7 +1139,22 @@ mod sweep {
             let mut l = NodeList::nil();
             for (i, t) in ts.iter().enumerate() {
                 let varcollid = if collatable(t) { c } else { 0 };
-                l.lappend(m, Node::mk(m, Var { varno: 1, varattno: i as i16 + 1, vartype: *t, vartypmod: -1, varcollid, ..Default::default() }).expect("var")).expect("cols");
+                l.lappend(
+                    m,
+                    Node::mk(
+                        m,
+                        Var {
+                            varno: 1,
+                            varattno: i as i16 + 1,
+                            vartype: *t,
+                            vartypmod: -1,
+                            varcollid,
+                            ..Default::default()
+                        },
+                    )
+                    .expect("var"),
+                )
+                .expect("cols");
             }
             l
         };
@@ -679,8 +1164,19 @@ mod sweep {
                     continue;
                 }
                 let funccollid = if collatable(&p.ret) { c } else { 0 };
-                let f = FuncExpr { funcid: oid, funcresulttype: p.ret, funcretset: p.facts.retset, funccollid, inputcollid: c, args: under(&p.args, c), ..Default::default() };
-                push(format!("fn {oid} {}({}) collate {label}", p.name, sig(&p.args[..])), Node::mk(m, f).expect("func"));
+                let f = FuncExpr {
+                    funcid: oid,
+                    funcresulttype: p.ret,
+                    funcretset: p.facts.retset,
+                    funccollid,
+                    inputcollid: c,
+                    args: under(&p.args, c),
+                    ..Default::default()
+                };
+                push(
+                    format!("fn {oid} {}({}) collate {label}", p.name, sig(&p.args[..])),
+                    Node::mk(m, f).expect("func"),
+                );
             }
             for (&oid, o) in &cat.opers {
                 let ts: Vec<Oid> = [o.left, o.right].into_iter().filter(|&t| t != 0).collect(); // alloc: Cold
@@ -688,21 +1184,52 @@ mod sweep {
                     continue;
                 }
                 let opcollid = if collatable(&o.result) { c } else { 0 };
-                let x = OpExpr { opno: oid, opfuncid: o.code, opresulttype: o.result, opcollid, inputcollid: c, args: under(&ts, c), ..Default::default() };
-                push(format!("op {oid} {} {} {} collate {label}", cat.type_name(o.left), o.name, cat.type_name(o.right)), Node::mk(m, x).expect("op"));
+                let x = OpExpr {
+                    opno: oid,
+                    opfuncid: o.code,
+                    opresulttype: o.result,
+                    opcollid,
+                    inputcollid: c,
+                    args: under(&ts, c),
+                    ..Default::default()
+                };
+                push(
+                    format!(
+                        "op {oid} {} {} {} collate {label}",
+                        cat.type_name(o.left),
+                        o.name,
+                        cat.type_name(o.right)
+                    ),
+                    Node::mk(m, x).expect("op"),
+                );
             }
         }
         for (&t, f) in &cat.types {
             if !matches!(f.typtype as u8, b'b' | b'r' | b'm') {
                 continue;
             }
-            let io = |arg: Node<'static>, to: Oid| CoerceViaIO { arg, resulttype: to, resultcollid: 0, coerceformat: CoercionForm::COERCE_EXPLICIT_CAST, location: -1 };
-            push(format!("io {}->text", cat.type_name(t)), Node::mk(m, io(var(m, t, 1), TEXT)).expect("io out"));
-            push(format!("io text->{}", cat.type_name(t)), Node::mk(m, io(var(m, TEXT, 1), t)).expect("io in"));
+            let io = |arg: Node<'static>, to: Oid| CoerceViaIO {
+                arg,
+                resulttype: to,
+                resultcollid: 0,
+                coerceformat: CoercionForm::COERCE_EXPLICIT_CAST,
+                location: -1,
+            };
+            push(
+                format!("io {}->text", cat.type_name(t)),
+                Node::mk(m, io(var(m, t, 1), TEXT)).expect("io out"),
+            );
+            push(
+                format!("io text->{}", cat.type_name(t)),
+                Node::mk(m, io(var(m, TEXT, 1), t)).expect("io in"),
+            );
         }
         nodes(m, &mut push);
         for (name, f) in STEPS {
-            out.push(Subject { name: format!("step {name}"), what: What::Step(*f) });
+            out.push(Subject {
+                name: format!("step {name}"),
+                what: What::Step(*f),
+            });
         }
         out
     }
@@ -713,66 +1240,248 @@ mod sweep {
         for t in [BOOL, INT4, TEXT, RECORD] {
             push(format!("node Var {t}"), var(m, t, 1));
         }
-        for (k, kind) in [("extern", ParamKind::PARAM_EXTERN), ("exec", ParamKind::PARAM_EXEC)] {
-            push(format!("node Param {k}"), mk(Node::mk(m, Param { paramkind: kind, paramid: 1, paramtype: INT4, paramtypmod: -1, ..Default::default() })));
+        for (k, kind) in [
+            ("extern", ParamKind::PARAM_EXTERN),
+            ("exec", ParamKind::PARAM_EXEC),
+        ] {
+            push(
+                format!("node Param {k}"),
+                mk(Node::mk(
+                    m,
+                    Param {
+                        paramkind: kind,
+                        paramid: 1,
+                        paramtype: INT4,
+                        paramtypmod: -1,
+                        ..Default::default()
+                    },
+                )),
+            );
         }
-        push("node NullTest".into(), mk(Node::mk(m, NullTest { arg: Some(var(m, INT4, 1)), nulltesttype: NullTestType::IS_NULL, ..Default::default() })));
-        push("node BoolExpr AND".into(), mk(Node::mk(m, BoolExpr { boolop: BoolExprType::AND_EXPR, args: cols(m, &[BOOL, BOOL]), ..Default::default() })));
-        push("node CoalesceExpr".into(), mk(Node::mk(m, CoalesceExpr { coalescetype: INT4, args: cols(m, &[INT4, INT4]), ..Default::default() })));
-        let relabel = RelabelType { arg: var(m, INT4, 1), resulttype: 26, resulttypmod: -1, resultcollid: 0, relabelformat: CoercionForm::COERCE_IMPLICIT_CAST, location: -1 };
-        push("node RelabelType int4->oid".into(), mk(Node::mk(m, relabel)));
+        push(
+            "node NullTest".into(),
+            mk(Node::mk(
+                m,
+                NullTest {
+                    arg: Some(var(m, INT4, 1)),
+                    nulltesttype: NullTestType::IS_NULL,
+                    ..Default::default()
+                },
+            )),
+        );
+        push(
+            "node BoolExpr AND".into(),
+            mk(Node::mk(
+                m,
+                BoolExpr {
+                    boolop: BoolExprType::AND_EXPR,
+                    args: cols(m, &[BOOL, BOOL]),
+                    ..Default::default()
+                },
+            )),
+        );
+        push(
+            "node CoalesceExpr".into(),
+            mk(Node::mk(
+                m,
+                CoalesceExpr {
+                    coalescetype: INT4,
+                    args: cols(m, &[INT4, INT4]),
+                    ..Default::default()
+                },
+            )),
+        );
+        let relabel = RelabelType {
+            arg: var(m, INT4, 1),
+            resulttype: 26,
+            resulttypmod: -1,
+            resultcollid: 0,
+            relabelformat: CoercionForm::COERCE_IMPLICIT_CAST,
+            location: -1,
+        };
+        push(
+            "node RelabelType int4->oid".into(),
+            mk(Node::mk(m, relabel)),
+        );
         for (t, multi) in [(INT4, false), (INT4, true)] {
-            let a = ArrayExpr { array_typeid: 1007, element_typeid: t, elements: cols(m, &[t, t]), multidims: multi, ..Default::default() };
-            push(format!("node ArrayExpr multidims={multi}"), mk(Node::mk(m, a)));
+            let a = ArrayExpr {
+                array_typeid: 1007,
+                element_typeid: t,
+                elements: cols(m, &[t, t]),
+                multidims: multi,
+                ..Default::default()
+            };
+            push(
+                format!("node ArrayExpr multidims={multi}"),
+                mk(Node::mk(m, a)),
+            );
         }
-        let row = RowExpr { args: cols(m, &[INT4, TEXT]), row_typeid: RECORD, row_format: CoercionForm::COERCE_IMPLICIT_CAST, colnames: NodeList::nil(), location: -1 };
+        let row = RowExpr {
+            args: cols(m, &[INT4, TEXT]),
+            row_typeid: RECORD,
+            row_format: CoercionForm::COERCE_IMPLICIT_CAST,
+            colnames: NodeList::nil(),
+            location: -1,
+        };
         push("node RowExpr".into(), mk(Node::mk(m, row)));
-        for t in [INT4, INT8, TEXT, 700, 701, 1700, 1082, 1184, 1186, 1043, 16, 2950, 3802, 114, 1007] {
-            let g = MinMaxExpr { minmaxtype: t, op: MinMaxOp::IS_GREATEST, args: cols(m, &[t, t]), ..Default::default() };
+        for t in [
+            INT4, INT8, TEXT, 700, 701, 1700, 1082, 1184, 1186, 1043, 16, 2950, 3802, 114, 1007,
+        ] {
+            let g = MinMaxExpr {
+                minmaxtype: t,
+                op: MinMaxOp::IS_GREATEST,
+                args: cols(m, &[t, t]),
+                ..Default::default()
+            };
             push(format!("node MinMaxExpr greatest {t}"), mk(Node::mk(m, g)));
         }
         use SQLValueFunctionOp as S;
         let svf = [
-            S::SVFOP_CURRENT_DATE, S::SVFOP_CURRENT_TIME, S::SVFOP_CURRENT_TIME_N, S::SVFOP_CURRENT_TIMESTAMP, S::SVFOP_CURRENT_TIMESTAMP_N, S::SVFOP_LOCALTIME,
-            S::SVFOP_LOCALTIME_N, S::SVFOP_LOCALTIMESTAMP, S::SVFOP_LOCALTIMESTAMP_N, S::SVFOP_CURRENT_ROLE, S::SVFOP_CURRENT_USER, S::SVFOP_USER,
-            S::SVFOP_SESSION_USER, S::SVFOP_CURRENT_CATALOG, S::SVFOP_CURRENT_SCHEMA,
+            S::SVFOP_CURRENT_DATE,
+            S::SVFOP_CURRENT_TIME,
+            S::SVFOP_CURRENT_TIME_N,
+            S::SVFOP_CURRENT_TIMESTAMP,
+            S::SVFOP_CURRENT_TIMESTAMP_N,
+            S::SVFOP_LOCALTIME,
+            S::SVFOP_LOCALTIME_N,
+            S::SVFOP_LOCALTIMESTAMP,
+            S::SVFOP_LOCALTIMESTAMP_N,
+            S::SVFOP_CURRENT_ROLE,
+            S::SVFOP_CURRENT_USER,
+            S::SVFOP_USER,
+            S::SVFOP_SESSION_USER,
+            S::SVFOP_CURRENT_CATALOG,
+            S::SVFOP_CURRENT_SCHEMA,
         ];
         for op in svf {
             let name = format!("node SQLValueFunction {}", op as u32);
-            push(name, mk(Node::mk(m, SQLValueFunction { op, typmod: -1, ..Default::default() })));
+            push(
+                name,
+                mk(Node::mk(
+                    m,
+                    SQLValueFunction {
+                        op,
+                        typmod: -1,
+                        ..Default::default()
+                    },
+                )),
+            );
         }
-        push("node NextValueExpr".into(), mk(Node::mk(m, NextValueExpr { seqid: USER_OBJECT, typeId: INT8 })));
-        let dom = CoerceToDomain { arg: var(m, INT4, 1), resulttype: USER_OBJECT, resulttypmod: -1, resultcollid: 0, coercionformat: CoercionForm::COERCE_IMPLICIT_CAST, location: -1 };
-        push("node CoerceToDomain (a domain no catalog row answers)".into(), mk(Node::mk(m, dom)));
+        push(
+            "node NextValueExpr".into(),
+            mk(Node::mk(
+                m,
+                NextValueExpr {
+                    seqid: USER_OBJECT,
+                    typeId: INT8,
+                },
+            )),
+        );
+        let dom = CoerceToDomain {
+            arg: var(m, INT4, 1),
+            resulttype: USER_OBJECT,
+            resulttypmod: -1,
+            resultcollid: 0,
+            coercionformat: CoercionForm::COERCE_IMPLICIT_CAST,
+            location: -1,
+        };
+        push(
+            "node CoerceToDomain (a domain no catalog row answers)".into(),
+            mk(Node::mk(m, dom)),
+        );
     }
 
     /// The plan steps the pipeline readers read apart from expressions.
     const STEPS: &[(&str, fn(ArenaRef, Mcx<'static>) -> Op<'static>)] = &[
-        ("nest (inner of no op, quiet facts)", |a, _| nest(a, Vec::new(), Volatility::Immutable, true)),
-        ("nest (inner filtering on int4 / int4, raising facts)", |a, m| {
-            let code = effects::builtin_oper(528).map_or(0, |o| o.code); // int4 / int4
-            let div = Node::mk(m, OpExpr { opno: 528, opfuncid: code, opresulttype: INT4, args: cols(m, &[INT4, INT4]), ..Default::default() }).expect("int4div");
-            nest(a, vec![Op::Filter(div)], Volatility::Immutable, false)
+        ("nest (inner of no op, quiet facts)", |a, _| {
+            nest(a, Vec::new(), Volatility::Immutable, true)
         }),
-        ("nest (inner projecting random(), VOLATILE facts)", |a, m| {
-            let random = Node::mk(m, FuncExpr { funcid: 1598, funcresulttype: 701, ..Default::default() }).expect("random");
-            let mut l = NodeList::nil();
-            l.lappend(m, random).expect("tlist");
-            nest(a, vec![Op::Project(Box::leak(Box::new(l)))], Volatility::Volatile, true) // alloc: Cold
+        (
+            "nest (inner filtering on int4 / int4, raising facts)",
+            |a, m| {
+                let code = effects::builtin_oper(528).map_or(0, |o| o.code); // int4 / int4
+                let div = Node::mk(
+                    m,
+                    OpExpr {
+                        opno: 528,
+                        opfuncid: code,
+                        opresulttype: INT4,
+                        args: cols(m, &[INT4, INT4]),
+                        ..Default::default()
+                    },
+                )
+                .expect("int4div");
+                nest(a, vec![Op::Filter(div)], Volatility::Immutable, false)
+            },
+        ),
+        (
+            "nest (inner projecting random(), VOLATILE facts)",
+            |a, m| {
+                let random = Node::mk(
+                    m,
+                    FuncExpr {
+                        funcid: 1598,
+                        funcresulttype: 701,
+                        ..Default::default()
+                    },
+                )
+                .expect("random");
+                let mut l = NodeList::nil();
+                l.lappend(m, random).expect("tlist");
+                nest(
+                    a,
+                    vec![Op::Project(Box::leak(Box::new(l)))],
+                    Volatility::Volatile,
+                    true,
+                ) // alloc: Cold
+            },
+        ),
+        ("limit 5", |_, _| Op::Limit {
+            count: Bound::Const(5),
+            offset: Bound::All,
+            ties: None,
         }),
-        ("limit 5", |_, _| Op::Limit { count: Bound::Const(5), offset: Bound::All, ties: None }),
         ("spool", |_, _| Op::Join(JoinDesc::Spool)),
-        ("drain right", |_, _| Op::Join(JoinDesc::Drain { matches: 1, jointype: JoinType::JOIN_RIGHT })),
+        ("drain right", |_, _| {
+            Op::Join(JoinDesc::Drain {
+                matches: 1,
+                jointype: JoinType::JOIN_RIGHT,
+            })
+        }),
     ];
 
     /// An inner nested loop without parameters or join qual over an embedded inner (a constant's rows) running `ops`, with
     /// the F5 facts `volatility` and `raise_free`.
-    fn nest(a: ArenaRef, ops: Vec<Op<'static>>, volatility: Volatility, raise_free: bool) -> Op<'static> {
+    fn nest(
+        a: ArenaRef,
+        ops: Vec<Op<'static>>,
+        volatility: Volatility,
+        raise_free: bool,
+    ) -> Op<'static> {
         let nil: &'static NodeList<'static> = Box::leak(Box::new(NodeList::nil())); // alloc: Cold
-        let mut inner = PipelineNode::new(a, 2, Source::Const, Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite));
+        let mut inner = PipelineNode::new(
+            a,
+            2,
+            Source::Const,
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+        );
         ops.into_iter().for_each(|op| inner.push(op));
-        let facts = NestFacts { node: 1, invariant: true, volatility, raise_free, eq: None };
-        Op::Join(JoinDesc::Nest { jointype: JoinType::JOIN_INNER, params: nil, inner: ArenaBox::new_in(inner, a), qual: nil, unique: false, inner_node: 2, facts })
+        let facts = NestFacts {
+            node: 1,
+            invariant: true,
+            volatility,
+            raise_free,
+            eq: None,
+        };
+        Op::Join(JoinDesc::Nest {
+            jointype: JoinType::JOIN_INNER,
+            params: nil,
+            inner: ArenaBox::new_in(inner, a),
+            qual: nil,
+            unique: false,
+            inner_node: 2,
+            facts,
+        })
     }
 
     /// The reference catalog (crates/postgres-18.6-reference .dat files) as lowering's `Catalog` reads it: pg_proc's rows,
@@ -807,9 +1516,15 @@ mod sweep {
     /// The reference catalog's `.dat` file `file`: one key -> value map per row (quoted values with backslash escapes, `#`
     /// lines skipped), as decompose's tests/effects_home.rs reads pg_proc.dat.
     fn dat(file: &str) -> Vec<BTreeMap<String, String>> {
-        let dir = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR unset: run under cargo test")).join("../../postgres-18.6-reference/src/include/catalog");
-        let text = std::fs::read_to_string(dir.join(file)).unwrap_or_else(|e| panic!("{file}: {e}"));
-        let (mut rows, mut cur, mut key) = (Vec::new(), None::<BTreeMap<String, String>>, String::new()); // alloc: Cold
+        let dir = PathBuf::from(
+            std::env::var_os("CARGO_MANIFEST_DIR")
+                .expect("CARGO_MANIFEST_DIR unset: run under cargo test"),
+        )
+        .join("../../postgres-18.6-reference/src/include/catalog");
+        let text =
+            std::fs::read_to_string(dir.join(file)).unwrap_or_else(|e| panic!("{file}: {e}"));
+        let (mut rows, mut cur, mut key) =
+            (Vec::new(), None::<BTreeMap<String, String>>, String::new()); // alloc: Cold
         let mut it = text.chars().peekable();
         while let Some(c) = it.next() {
             let Some(row) = cur.as_mut() else {
@@ -847,7 +1562,12 @@ mod sweep {
 
     impl Dat {
         fn load() -> Dat {
-            let (mut types, mut names, mut by_name, mut arrays) = (BTreeMap::new(), HashMap::new(), HashMap::new(), HashMap::new());
+            let (mut types, mut names, mut by_name, mut arrays) = (
+                BTreeMap::new(),
+                HashMap::new(),
+                HashMap::new(),
+                HashMap::new(),
+            );
             let mut elems = Vec::new(); // alloc: Cold
             for r in dat("pg_type.dat") {
                 let t = oid(&r["oid"]);
@@ -858,23 +1578,49 @@ mod sweep {
                     Some(s) => s.parse().unwrap_or(-1),
                     None => -1,
                 };
-                let byval = matches!(r.get("typbyval").map(String::as_str), Some("t" | "FLOAT8PASSBYVAL"));
+                let byval = matches!(
+                    r.get("typbyval").map(String::as_str),
+                    Some("t" | "FLOAT8PASSBYVAL")
+                );
                 let collation = match r.get("typcollation").map(String::as_str) {
                     Some("default") => 100,
                     Some("C") => 950,
                     _ => 0,
                 };
-                let f = TypeFacts { len, byval, align: letter("typalign", b'i') as i8, typtype: letter("typtype", b'b') as i8, collation, elem: 0 };
+                let f = TypeFacts {
+                    len,
+                    byval,
+                    align: letter("typalign", b'i') as i8,
+                    typtype: letter("typtype", b'b') as i8,
+                    collation,
+                    elem: 0,
+                };
                 types.insert(t, f);
                 // a true array's element (get_element_type: the array subscript handler); a fixed-length type's typelem is not one
-                if r.get("typsubscript").is_some_and(|s| s == "array_subscript_handler") {
+                if r.get("typsubscript")
+                    .is_some_and(|s| s == "array_subscript_handler")
+                {
                     elems.extend(r.get("typelem").map(|e| (t, e.clone())));
                 }
                 let name = r["typname"].clone();
                 if let Some(a) = r.get("array_type_oid") {
                     let a = oid(a);
-                    let align = if f.align == b'd' as i8 { b'd' as i8 } else { b'i' as i8 };
-                    types.insert(a, TypeFacts { len: -1, byval: false, align, typtype: b'b' as i8, collation, elem: t });
+                    let align = if f.align == b'd' as i8 {
+                        b'd' as i8
+                    } else {
+                        b'i' as i8
+                    };
+                    types.insert(
+                        a,
+                        TypeFacts {
+                            len: -1,
+                            byval: false,
+                            align,
+                            typtype: b'b' as i8,
+                            collation,
+                            elem: t,
+                        },
+                    );
                     arrays.insert(t, a);
                     names.insert(a, format!("_{name}"));
                     by_name.insert(format!("_{name}"), a);
@@ -886,10 +1632,17 @@ mod sweep {
                 let e = by_name[&e];
                 types.get_mut(&t).expect("the row").elem = e;
             }
-            let ty = |n: &str| by_name.get(n).copied().unwrap_or_else(|| panic!("no pg_type.dat row named {n}"));
+            let ty = |n: &str| {
+                by_name
+                    .get(n)
+                    .copied()
+                    .unwrap_or_else(|| panic!("no pg_type.dat row named {n}"))
+            };
             let mut procs = BTreeMap::new();
             for r in dat("pg_proc.dat") {
-                let args: Vec<Oid> = r.get("proargtypes").map_or_else(Vec::new, |s| s.split_whitespace().map(ty).collect()); // alloc: Cold
+                let args: Vec<Oid> = r
+                    .get("proargtypes")
+                    .map_or_else(Vec::new, |s| s.split_whitespace().map(ty).collect()); // alloc: Cold
                 let letter = |k: &str, d: u8| r.get(k).and_then(|v| v.bytes().next()).unwrap_or(d);
                 let prolang = match r.get("prolang").map(String::as_str) {
                     None | Some("internal") => 12,
@@ -897,42 +1650,98 @@ mod sweep {
                     Some("sql") => 14,
                     Some(_) => 0,
                 };
-                let poly = |t: &Oid| names[t] == "record" || names[t] == "internal" || names[t].starts_with("any");
+                let poly = |t: &Oid| {
+                    names[t] == "record" || names[t] == "internal" || names[t].starts_with("any")
+                };
                 let facts = FuncFacts {
                     strict: letter("proisstrict", b't') == b't',
                     retset: letter("proretset", b'f') == b't',
                     nargs: args.len() as i16,
                     volatility: Some(letter("provolatile", b'i')),
                     parallel: Some(letter("proparallel", b's')),
-                    node_arg: args.iter().any(poly) || r.get("provariadic").is_some_and(|v| v == "any"),
+                    node_arg: args.iter().any(poly)
+                        || r.get("provariadic").is_some_and(|v| v == "any"),
                     leakproof: Some(letter("proleakproof", b'f') == b't'),
                     prolang: Some(prolang),
                     body: 0,
                 };
-                procs.insert(oid(&r["oid"]), Proc { name: r["proname"].clone(), kind: letter("prokind", b'f'), ret: ty(r["prorettype"].as_str()), args, facts });
+                procs.insert(
+                    oid(&r["oid"]),
+                    Proc {
+                        name: r["proname"].clone(),
+                        kind: letter("prokind", b'f'),
+                        ret: ty(r["prorettype"].as_str()),
+                        args,
+                        facts,
+                    },
+                );
             }
             let mut opers = BTreeMap::new();
             for r in dat("pg_operator.dat") {
                 let o = oid(&r["oid"]);
-                let t = |k: &str| r.get(k).filter(|v| v.as_str() != "0").map_or(0, |n| ty(n.as_str()));
+                let t = |k: &str| {
+                    r.get(k)
+                        .filter(|v| v.as_str() != "0")
+                        .map_or(0, |n| ty(n.as_str()))
+                };
                 let code = effects::builtin_oper(o).map_or(0, |p| p.code);
-                opers.insert(o, Oper { name: r["oprname"].clone(), left: t("oprleft"), right: t("oprright"), result: t("oprresult"), code });
+                opers.insert(
+                    o,
+                    Oper {
+                        name: r["oprname"].clone(),
+                        left: t("oprleft"),
+                        right: t("oprright"),
+                        result: t("oprresult"),
+                        code,
+                    },
+                );
             }
             // pg_aggregate.dat names its function by signature, `name(type,..)`, or by a name no other pg_proc row has
-            let sig = |p: &Proc| format!("{}({})", p.name, p.args.iter().map(|t| names[t].as_str()).collect::<Vec<_>>().join(","));
+            let sig = |p: &Proc| {
+                format!(
+                    "{}({})",
+                    p.name,
+                    p.args
+                        .iter()
+                        .map(|t| names[t].as_str())
+                        .collect::<Vec<_>>()
+                        .join(",")
+                )
+            };
             let by_sig: HashMap<String, Oid> = procs.iter().map(|(&o, p)| (sig(p), o)).collect();
             let mut aggs = HashMap::new();
             for r in dat("pg_aggregate.dat") {
                 let f = &r["aggfnoid"];
                 let fnoid = by_sig.get(f.as_str()).copied().or_else(|| {
                     let mut named = procs.iter().filter(|(_, p)| p.kind == b'a' && &p.name == f);
-                    named.next().map(|(&o, _)| o).filter(|_| named.next().is_none())
+                    named
+                        .next()
+                        .map(|(&o, _)| o)
+                        .filter(|_| named.next().is_none())
                 });
-                let fnoid = fnoid.unwrap_or_else(|| panic!("pg_aggregate.dat's {f}: no pg_proc.dat row"));
-                let kind = r.get("aggkind").and_then(|k| k.bytes().next()).unwrap_or(b'n') as i8;
-                aggs.insert(fnoid, (kind, r.get("aggnumdirectargs").map_or(0, |n| n.parse().expect("aggnumdirectargs"))));
+                let fnoid =
+                    fnoid.unwrap_or_else(|| panic!("pg_aggregate.dat's {f}: no pg_proc.dat row"));
+                let kind = r
+                    .get("aggkind")
+                    .and_then(|k| k.bytes().next())
+                    .unwrap_or(b'n') as i8;
+                aggs.insert(
+                    fnoid,
+                    (
+                        kind,
+                        r.get("aggnumdirectargs")
+                            .map_or(0, |n| n.parse().expect("aggnumdirectargs")),
+                    ),
+                );
             }
-            Dat { procs, types, names, arrays, opers, aggs }
+            Dat {
+                procs,
+                types,
+                names,
+                arrays,
+                opers,
+                aggs,
+            }
         }
 
         fn type_name(&self, t: Oid) -> String {
@@ -953,13 +1762,23 @@ mod sweep {
 
     impl Catalog<'static> for Dat {
         fn func(&self, f: Oid) -> PgResult<FuncFacts> {
-            self.procs.get(&f).map(|p| p.facts).ok_or_else(|| no("function"))
+            self.procs
+                .get(&f)
+                .map(|p| p.facts)
+                .ok_or_else(|| no("function"))
         }
         fn opcode(&self, o: Oid) -> PgResult<Oid> {
-            self.opers.get(&o).map(|x| x.code).filter(|&c| c != 0).ok_or_else(|| no("operator"))
+            self.opers
+                .get(&o)
+                .map(|x| x.code)
+                .filter(|&c| c != 0)
+                .ok_or_else(|| no("operator"))
         }
         fn op_input_types(&self, o: Oid) -> PgResult<(Oid, Oid)> {
-            self.opers.get(&o).map(|x| (x.left, x.right)).ok_or_else(|| no("operator"))
+            self.opers
+                .get(&o)
+                .map(|x| (x.left, x.right))
+                .ok_or_else(|| no("operator"))
         }
         fn btree_cmp_proc(&self, _: Oid, _: Oid, _: Oid) -> PgResult<Oid> {
             Err(no("btree proc"))

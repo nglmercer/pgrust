@@ -27,20 +27,78 @@ fn setup() {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let (dir, attno, kind, arg) = (args.get(1).expect("dir"), args.get(2).expect("attno").parse::<u32>().unwrap(), args.get(3).expect("kind").as_str(), args.get(4).cloned().unwrap_or_default());
+    let (dir, attno, kind, arg) = (
+        args.get(1).expect("dir"),
+        args.get(2).expect("attno").parse::<u32>().unwrap(),
+        args.get(3).expect("kind").as_str(),
+        args.get(4).cloned().unwrap_or_default(),
+    );
     let w: usize = args.get(5).and_then(|s| s.parse().ok()).unwrap_or(16);
-    let mut files: Vec<_> = std::fs::read_dir(dir).expect("table dir").filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("part-") && n.to_string_lossy().ends_with(".pgrc"))).collect();
+    let mut files: Vec<_> = std::fs::read_dir(dir)
+        .expect("table dir")
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name().is_some_and(|n| {
+                n.to_string_lossy().starts_with("part-") && n.to_string_lossy().ends_with(".pgrc")
+            })
+        })
+        .collect();
     files.sort();
-    let parts: Vec<Arc<OpenPart>> = files.iter().enumerate().map(|(i, p)| Arc::new(OpenPart::open(Box::new(MemPartIo::new(std::fs::read(p).expect("part file"), 7, 1000 + i as u64)), &PartExpect::none()).expect("open part"))).collect();
+    let parts: Vec<Arc<OpenPart>> = files
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            Arc::new(
+                OpenPart::open(
+                    Box::new(MemPartIo::new(
+                        std::fs::read(p).expect("part file"),
+                        7,
+                        1000 + i as u64,
+                    )),
+                    &PartExpect::none(),
+                )
+                .expect("open part"),
+            )
+        })
+        .collect();
     let binding = pgrc_am::scan::codec_binding();
     let spec = match kind {
-        "like" | "nlike" => TableSpec { over: 0, func: TableFn::Like { pattern: arg.clone().into_bytes(), ilike: false, negated: kind == "nlike" } },
-        "regexp" => TableSpec { over: 0, func: TableFn::RegexpReplace { pattern: arg.clone().into_bytes(), replacement: b"\\1".to_vec(), collation: 950, encoding: 6, global: false } },
-        "len" => TableSpec { over: 0, func: TableFn::OctetLength },
+        "like" | "nlike" => TableSpec {
+            over: 0,
+            func: TableFn::Like {
+                pattern: arg.clone().into_bytes(),
+                ilike: false,
+                negated: kind == "nlike",
+            },
+        },
+        "regexp" => TableSpec {
+            over: 0,
+            func: TableFn::RegexpReplace {
+                pattern: arg.clone().into_bytes(),
+                replacement: b"\\1".to_vec(),
+                collation: 950,
+                encoding: 6,
+                global: false,
+            },
+        },
+        "len" => TableSpec {
+            over: 0,
+            func: TableFn::OctetLength,
+        },
         _ => panic!("kind"),
     };
     let next = AtomicUsize::new(0);
-    let (entries, mismatches, verbatim, build_ns, oracle_ns, pair_ns, finder_ns, stream_ns) = (AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0));
+    let (entries, mismatches, verbatim, build_ns, oracle_ns, pair_ns, finder_ns, stream_ns) = (
+        AtomicU64::new(0),
+        AtomicU64::new(0),
+        AtomicU64::new(0),
+        AtomicU64::new(0),
+        AtomicU64::new(0),
+        AtomicU64::new(0),
+        AtomicU64::new(0),
+        AtomicU64::new(0),
+    );
     let t0 = Instant::now();
     std::thread::scope(|s| {
         for _ in 0..w {
@@ -169,6 +227,9 @@ impl gravity_dict::EntryIndex for HitsIndex<'_> {
 
     fn span(&self, code: u32) -> (usize, usize) {
         let at = code as usize * 12;
-        (u32::from_le_bytes(self.index[at..at + 4].try_into().unwrap()) as usize + 4, u32::from_le_bytes(self.index[at + 4..at + 8].try_into().unwrap()) as usize)
+        (
+            u32::from_le_bytes(self.index[at..at + 4].try_into().unwrap()) as usize + 4,
+            u32::from_le_bytes(self.index[at + 4..at + 8].try_into().unwrap()) as usize,
+        )
     }
 }

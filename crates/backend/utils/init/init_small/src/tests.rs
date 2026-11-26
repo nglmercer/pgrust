@@ -3,8 +3,8 @@ use std::sync::{Mutex, MutexGuard, Once};
 
 use mcx::{Mcx, MemoryContext, PgString};
 use types_core::{
-    InvalidOid, Oid, UserContext, DATEORDER_MDY, INTSTYLE_POSTGRES, INVALID_PROC_NUMBER,
-    MAXPGPATH, MAX_CANCEL_KEY_LENGTH, PG_DIR_MODE_OWNER, SECURITY_RESTRICTED_OPERATION,
+    InvalidOid, Oid, UserContext, DATEORDER_MDY, INTSTYLE_POSTGRES, INVALID_PROC_NUMBER, MAXPGPATH,
+    MAX_CANCEL_KEY_LENGTH, PG_DIR_MODE_OWNER, SECURITY_RESTRICTED_OPERATION,
     USER_CONTEXT_NO_NEST_LEVEL, USE_ISO_DATES,
 };
 use types_error::{PgResult, ERRCODE_INSUFFICIENT_PRIVILEGE};
@@ -63,7 +63,10 @@ fn setup() {
 #[test]
 fn my_proc_port_shared_borrow_nests() {
     std::thread::spawn(|| {
-        let sock = types_startup::ClientSocket { sock: -1, raddr: ip::SockAddr::zeroed() };
+        let sock = types_startup::ClientSocket {
+            sock: -1,
+            raddr: ip::SockAddr::zeroed(),
+        };
         let mut port = types_startup::Port::new(&sock);
         port.user_name = Some("alice".to_string());
         globals::SetMyProcPort(port);
@@ -73,7 +76,10 @@ fn my_proc_port_shared_borrow_nests() {
         });
         assert_eq!(seen, (Some("alice".to_string()), Some("alice".to_string())));
         globals::WithMyProcPortMut(|p| p.database_name = Some("db".to_string()));
-        assert_eq!(globals::WithMyProcPort(|p| p.database_name.clone()).as_deref(), Some("db"));
+        assert_eq!(
+            globals::WithMyProcPort(|p| p.database_name.clone()).as_deref(),
+            Some("db")
+        );
         globals::SessionMemTeardownPort();
         assert!(!globals::HaveMyProcPort());
     })
@@ -407,7 +413,10 @@ fn clear_query_cancel_pending_clears_the_abort_byte() {
         globals::SetAbortPending(true);
         globals::ClearQueryCancelPending();
         assert!(!globals::QueryCancelPending());
-        assert!(!globals::AbortPending(), "the cancel's abort byte must go with it");
+        assert!(
+            !globals::AbortPending(),
+            "the cancel's abort byte must go with it"
+        );
 
         globals::SetProcDiePending(true);
         globals::SetQueryCancelPending(true);

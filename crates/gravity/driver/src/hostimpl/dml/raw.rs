@@ -2,8 +2,8 @@
 //! and stores they make, moved from dml.rs; `writer_at!`, `owns` and `value` stay there.
 #![allow(unsafe_code)]
 
-use gravity_abi::PtrWord;
 use super::*;
+use gravity_abi::PtrWord;
 
 gravity_abi::host! {
     /// `Program.write(ctx, op, site)`: the row in site `site`'s `values` / `isnull` at its `pos`.
@@ -27,7 +27,9 @@ gravity_abi::host! {
 /// # Safety — As `write`.
 unsafe fn sub_in(ctx: *mut Ctx, site: usize) -> i64 {
     let n = inner_of(ctx);
-    let Some(w) = writer_at!(n, site) else { return fail(n, Error::host("write host on a read-only program")) };
+    let Some(w) = writer_at!(n, site) else {
+        return fail(n, Error::host("write host on a read-only program"));
+    };
     match w.sub_call() {
         Ok(p) => p as i64,
         Err(e) => fail(n, e),
@@ -46,7 +48,9 @@ unsafe fn write_in(ctx: *mut Ctx, op: u32, site: u64) -> i64 {
     let s = site_ptr(ctx, i);
     if op == gravity_abi::program::WRITE_EPQ_ROW {
         // D655 Row C: the newest version the last `Recheck` locked, into the site's cells and position
-        let Some(w) = writer_at!(n, i) else { return fail(n, Error::host("write host on a read-only program")) };
+        let Some(w) = writer_at!(n, i) else {
+            return fail(n, Error::host("write host on a read-only program"));
+        };
         let values = core::slice::from_raw_parts_mut((*s).values.ptr() as *mut _, d.natts());
         let isnull = core::slice::from_raw_parts_mut((*s).isnull.ptr() as *mut _, d.natts());
         return match w.epq_row(values, isnull) {
@@ -58,7 +62,9 @@ unsafe fn write_in(ctx: *mut Ctx, op: u32, site: u64) -> i64 {
         };
     }
     if op == gravity_abi::program::WRITE_CONFLICT_CHECK {
-        let Some(w) = writer_at!(n, i.wrapping_sub(1)) else { return fail(n, Error::host("write host on a read-only program")) };
+        let Some(w) = writer_at!(n, i.wrapping_sub(1)) else {
+            return fail(n, Error::host("write host on a read-only program"));
+        };
         return match w.conflict_check() {
             Ok(()) => WRITE_DONE,
             Err(e) => fail(n, e),
@@ -66,15 +72,23 @@ unsafe fn write_in(ctx: *mut Ctx, op: u32, site: u64) -> i64 {
     }
     // D1112: the row op's resume after its check's SubPlan read (the site's row and position unchanged)
     let resume = op & gravity_abi::program::WRITE_RESUME != 0;
-    let Some(op) = WriteOp::from_u32(op & !gravity_abi::program::WRITE_RESUME) else { return fail(n, Error::BadReturn(op as i64)) };
+    let Some(op) = WriteOp::from_u32(op & !gravity_abi::program::WRITE_RESUME) else {
+        return fail(n, Error::BadReturn(op as i64));
+    };
     let pos = (*s).pos;
     // D1687: only the program's own write counts its rows for the tag and stops for the runner's recheck
     let main = !n.writers.iter().any(|(s, _)| owns(*s, i));
-    let Some(w) = writer_at!(n, i) else { return fail(n, Error::host("write host on a read-only program")) };
+    let Some(w) = writer_at!(n, i) else {
+        return fail(n, Error::host("write host on a read-only program"));
+    };
     let o = {
         let values = core::slice::from_raw_parts((*s).values.ptr(), d.natts());
         let isnull = core::slice::from_raw_parts((*s).isnull.ptr(), d.natts());
-        match if resume { w.resume(op, pos, values, isnull) } else { w.write(op, pos, values, isnull) } {
+        match if resume {
+            w.resume(op, pos, values, isnull)
+        } else {
+            w.write(op, pos, values, isnull)
+        } {
             Ok(o) => o,
             Err(e) => return fail(n, e),
         }
@@ -152,16 +166,32 @@ unsafe fn lock_in(ctx: *mut Ctx, arg: u64) -> i64 {
     // (EvalPlanQualFetchRowMark) into the site's cells, its position stored; nothing is locked
     let fetch = arg & gravity_program::program::LockSite::FETCH != 0;
     let arg = arg & !gravity_program::program::LockSite::FETCH;
-    let (i, mark) = ((arg & 0xffff_ffff) as usize, (arg >> gravity_program::program::LockSite::SHIFT) as usize);
-    if i >= n.descs.len() || fetch && !matches!(n.descs[i].kind, gravity_program::SiteKind::Write { .. }) {
+    let (i, mark) = (
+        (arg & 0xffff_ffff) as usize,
+        (arg >> gravity_program::program::LockSite::SHIFT) as usize,
+    );
+    if i >= n.descs.len()
+        || fetch && !matches!(n.descs[i].kind, gravity_program::SiteKind::Write { .. })
+    {
         return fail(n, Error::BadReturn(arg as i64));
     }
     let s = site_ptr(ctx, i);
     let pos = (*s).pos;
     // only a write-kind lock site (write.lock's SiteDesc::write) takes the traversed version's cells; a lock over a
     // scan site keeps the scan's cells
-    let natts = if matches!(n.descs[i].kind, gravity_program::SiteKind::Write { .. }) { n.descs[i].natts() } else { 0 };
-    let Some(l) = n.lockers.get_mut(mark.saturating_sub(1)).filter(|l| (mark == 0) == l.rel.is_none()).map(|l| &mut l.host) else { return fail(n, Error::host("lock host on a program without that lock")) };
+    let natts = if matches!(n.descs[i].kind, gravity_program::SiteKind::Write { .. }) {
+        n.descs[i].natts()
+    } else {
+        0
+    };
+    let Some(l) = n
+        .lockers
+        .get_mut(mark.saturating_sub(1))
+        .filter(|l| (mark == 0) == l.rel.is_none())
+        .map(|l| &mut l.host)
+    else {
+        return fail(n, Error::host("lock host on a program without that lock"));
+    };
     if fetch {
         let cv = core::slice::from_raw_parts_mut((*s).values.ptr() as *mut _, natts);
         let cn = core::slice::from_raw_parts_mut((*s).isnull.ptr() as *mut _, natts);

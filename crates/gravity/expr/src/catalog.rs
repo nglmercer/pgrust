@@ -110,7 +110,10 @@ pub struct IoFacts {
 
 pub enum DomainConstraint<'mcx> {
     NotNull,
-    Check { name: &'static str, expr: Node<'mcx> },
+    Check {
+        name: &'static str,
+        expr: Node<'mcx>,
+    },
 }
 
 pub struct DomainFacts<'mcx> {
@@ -203,17 +206,31 @@ pub trait Catalog<'mcx> {
     }
     /// A support-function lookup (`Support`); an error where the catalog has no such face: a caller refuses.
     fn support(&self, q: Support) -> PgResult<Oid> {
-        Err(Box::new(types_error::PgError::error(format!("no support face for {q:?}")))) // alloc: Cold
+        Err(Box::new(types_error::PgError::error(format!(
+            "no support face for {q:?}"
+        )))) // alloc: Cold
     }
     /// How a hashed key compares and hashes under equality operator `op` and collation `coll`: typesem's answer
     /// (`gravity_fn::typesem::resolve(.., &KeyReq::hash(op, coll))`, the one home of that decision); an error where the
     /// catalog has no such face: a caller refuses.
-    fn hash_key(&self, op: Oid, coll: Oid) -> PgResult<Result<gravity_fn::typesem::KeySem, gravity_fn::typesem::TypeClass>> {
-        Err(Box::new(types_error::PgError::error(format!("no hash key face for operator {op} collation {coll}")))) // alloc: Cold
+    fn hash_key(
+        &self,
+        op: Oid,
+        coll: Oid,
+    ) -> PgResult<Result<gravity_fn::typesem::KeySem, gravity_fn::typesem::TypeClass>> {
+        Err(Box::new(types_error::PgError::error(format!(
+            "no hash key face for operator {op} collation {coll}"
+        )))) // alloc: Cold
     }
     /// `hash_key` for a key whose two sides have types `lt` / `rt` as the plan types them (KeySem `KeyReq::typed`: read
     /// only in place of a polymorphic operator input type). A catalog with no typed face answers as `hash_key`.
-    fn hash_key_typed(&self, op: Oid, coll: Oid, lt: Oid, rt: Oid) -> PgResult<Result<gravity_fn::typesem::KeySem, gravity_fn::typesem::TypeClass>> {
+    fn hash_key_typed(
+        &self,
+        op: Oid,
+        coll: Oid,
+        lt: Oid,
+        rt: Oid,
+    ) -> PgResult<Result<gravity_fn::typesem::KeySem, gravity_fn::typesem::TypeClass>> {
         let _ = (lt, rt);
         self.hash_key(op, coll)
     }
@@ -227,17 +244,51 @@ impl<'mcx> Catalog<'mcx> for PgCatalog {
     fn func(&self, funcid: Oid) -> PgResult<FuncFacts> {
         let fi = fmgr_core::fmgr_info(funcid)?;
         let catalog = syscache_seams::lookup_pg_proc_shape::is_installed();
-        let volatility = if catalog { lsyscache::func_volatile(funcid).ok().map(|v| v as u8) } else { None };
-        let parallel = if catalog { lsyscache::func_parallel(funcid).ok().map(|v| v as u8) } else { None };
-        let leakproof = if catalog { lsyscache::get_func_leakproof(funcid).ok() } else { None };
+        let volatility = if catalog {
+            lsyscache::func_volatile(funcid).ok().map(|v| v as u8)
+        } else {
+            None
+        };
+        let parallel = if catalog {
+            lsyscache::func_parallel(funcid).ok().map(|v| v as u8)
+        } else {
+            None
+        };
+        let leakproof = if catalog {
+            lsyscache::get_func_leakproof(funcid).ok()
+        } else {
+            None
+        };
         let node_arg = !catalog || !syscache_seams::lookup_pg_proc_signature::is_installed() || {
             let mut cx = mcx::MemoryContext::new_bump("gravity_expr signature"); // alloc: Cold
-            let sig = lsyscache::get_func_signature(cx.mcx(), funcid).map(|(_, a)| a.iter().any(|&t| gravity_fn::typesem::expr::node_arg_type(t))).unwrap_or(true);
+            let sig = lsyscache::get_func_signature(cx.mcx(), funcid)
+                .map(|(_, a)| {
+                    a.iter()
+                        .any(|&t| gravity_fn::typesem::expr::node_arg_type(t))
+                })
+                .unwrap_or(true);
             cx.reset();
             sig || lsyscache::get_func_variadictype(funcid).is_ok_and(|v| v == 2276)
         };
-        let prolang = if catalog { syscache_seams::lookup_pg_proc_shape::call(funcid).ok().flatten().map(|s| s.prolang) } else { None };
-        Ok(FuncFacts { strict: fi.fn_strict, retset: fi.fn_retset, nargs: fi.fn_nargs, volatility, parallel, node_arg, leakproof, prolang, body: fi.fn_body })
+        let prolang = if catalog {
+            syscache_seams::lookup_pg_proc_shape::call(funcid)
+                .ok()
+                .flatten()
+                .map(|s| s.prolang)
+        } else {
+            None
+        };
+        Ok(FuncFacts {
+            strict: fi.fn_strict,
+            retset: fi.fn_retset,
+            nargs: fi.fn_nargs,
+            volatility,
+            parallel,
+            node_arg,
+            leakproof,
+            prolang,
+            body: fi.fn_body,
+        })
     }
 
     fn opcode(&self, opno: Oid) -> PgResult<Oid> {
@@ -261,7 +312,14 @@ impl<'mcx> Catalog<'mcx> for PgCatalog {
     }
 
     fn agg_finalfn(&self, aggfnoid: Oid) -> Option<Oid> {
-        syscache_seams::lookup_pg_aggregate_shape::is_installed().then(|| syscache_seams::lookup_pg_aggregate_shape::call(aggfnoid).ok().flatten()).flatten().map(|a| a.aggfinalfn)
+        syscache_seams::lookup_pg_aggregate_shape::is_installed()
+            .then(|| {
+                syscache_seams::lookup_pg_aggregate_shape::call(aggfnoid)
+                    .ok()
+                    .flatten()
+            })
+            .flatten()
+            .map(|a| a.aggfinalfn)
     }
 
     fn opclass(&self, opclass: Oid) -> PgResult<(Oid, Oid)> {
@@ -273,7 +331,14 @@ impl<'mcx> Catalog<'mcx> for PgCatalog {
         let typtype = lsyscache::get_typtype(typid)?;
         let collation = gravity_fn::typesem::expr::collation(typid)?;
         let elem = lsyscache::get_element_type(typid)?;
-        Ok(TypeFacts { len, byval, align, typtype, collation, elem })
+        Ok(TypeFacts {
+            len,
+            byval,
+            align,
+            typtype,
+            collation,
+            elem,
+        })
     }
 
     fn type_cmp_proc(&self, typid: Oid) -> PgResult<Oid> {
@@ -291,12 +356,22 @@ impl<'mcx> Catalog<'mcx> for PgCatalog {
     fn io(&self, typid: Oid) -> PgResult<IoFacts> {
         let (input, ioparam) = lsyscache::getTypeInputInfo(typid)?;
         let (output, varlena) = lsyscache::getTypeOutputInfo(typid)?;
-        Ok(IoFacts { input, ioparam, output, varlena })
+        Ok(IoFacts {
+            input,
+            ioparam,
+            output,
+            varlena,
+        })
     }
 
     fn text(&self, collation: Oid) -> PgResult<TextFacts> {
         let f = gravity_fn::typesem::collation::Facts::of(collation)?;
-        Ok(TextFacts { deterministic: f.deterministic, equality_is_bytes: f.equality_is_bytes(), order_is_bytes: f.order_is_bytes(), ctype_is_c: f.ctype_is_c })
+        Ok(TextFacts {
+            deterministic: f.deterministic,
+            equality_is_bytes: f.equality_is_bytes(),
+            order_is_bytes: f.order_is_bytes(),
+            ctype_is_c: f.ctype_is_c,
+        })
     }
 
     fn tier(&self, funcid: Oid) -> Tier {
@@ -320,16 +395,30 @@ impl<'mcx> Catalog<'mcx> for PgCatalog {
         gravity_fn::typesem::collation::regex_compiles(pattern, icase, collation)
     }
 
-    fn hash_key(&self, op: Oid, coll: Oid) -> PgResult<Result<gravity_fn::typesem::KeySem, gravity_fn::typesem::TypeClass>> {
+    fn hash_key(
+        &self,
+        op: Oid,
+        coll: Oid,
+    ) -> PgResult<Result<gravity_fn::typesem::KeySem, gravity_fn::typesem::TypeClass>> {
         let mut cx = mcx::MemoryContext::new_bump("gravity_expr hash_key"); // alloc: Cold
-        let k = gravity_fn::typesem::resolve(cx.mcx(), &gravity_fn::typesem::KeyReq::hash(op, coll));
+        let k =
+            gravity_fn::typesem::resolve(cx.mcx(), &gravity_fn::typesem::KeyReq::hash(op, coll));
         cx.reset();
         k
     }
 
-    fn hash_key_typed(&self, op: Oid, coll: Oid, lt: Oid, rt: Oid) -> PgResult<Result<gravity_fn::typesem::KeySem, gravity_fn::typesem::TypeClass>> {
+    fn hash_key_typed(
+        &self,
+        op: Oid,
+        coll: Oid,
+        lt: Oid,
+        rt: Oid,
+    ) -> PgResult<Result<gravity_fn::typesem::KeySem, gravity_fn::typesem::TypeClass>> {
         let mut cx = mcx::MemoryContext::new_bump("gravity_expr hash_key_typed"); // alloc: Cold
-        let k = gravity_fn::typesem::keysem::resolve(cx.mcx(), &gravity_fn::typesem::KeyReq::hash(op, coll).typed(lt, rt));
+        let k = gravity_fn::typesem::keysem::resolve(
+            cx.mcx(),
+            &gravity_fn::typesem::KeyReq::hash(op, coll).typed(lt, rt),
+        );
         cx.reset();
         k
     }
@@ -344,17 +433,32 @@ impl<'mcx> Catalog<'mcx> for PgCatalog {
         };
         Ok(match q {
             Support::Sort { op, num } => gravity_fn::typesem::expr::ordering_proc(op, num)?,
-            Support::Merge { op, family, num } => gravity_fn::typesem::expr::merge_proc(op, family, num)?,
+            Support::Merge { op, family, num } => {
+                gravity_fn::typesem::expr::merge_proc(op, family, num)?
+            }
             Support::Hash { op, rhs } => gravity_fn::typesem::expr::hash_proc(op, rhs)?,
             Support::EqOfSort(op) => gravity_fn::typesem::expr::eq_of_sort(op)?,
             Support::HashRhsEq(op) => gravity_fn::typesem::expr::hash_rhs_eq(op)?,
-            Support::TypeHash { typid, ext } => gravity_fn::typesem::keysem::of_type::hash_proc(typid, ext)?,
+            Support::TypeHash { typid, ext } => {
+                gravity_fn::typesem::keysem::of_type::hash_proc(typid, ext)?
+            }
             Support::RangeCmp(t) => gravity_fn::typesem::keysem::of_type::range_cmp_proc(t)?,
-            Support::RangeCanonical(t) => tc(t, typcache::TYPECACHE_RANGE_INFO)?.rng_canonical_finfo().fn_oid,
+            Support::RangeCanonical(t) => {
+                tc(t, typcache::TYPECACHE_RANGE_INFO)?
+                    .rng_canonical_finfo()
+                    .fn_oid
+            }
             Support::RangeSub(t) => lsyscache::get_range_subtype(t)?,
             Support::MultirangeRange(t) => lsyscache::get_multirange_range(t)?,
             Support::Natts(t) => row(t)?.map_or(0, |d| d.natts.max(0) as Oid),
-            Support::Field { typid, attno } => row(typid)?.and_then(|d| d.attrs.get((attno as usize).checked_sub(1)?).filter(|a| !a.attisdropped).map(|a| a.atttypid)).unwrap_or(0),
+            Support::Field { typid, attno } => row(typid)?
+                .and_then(|d| {
+                    d.attrs
+                        .get((attno as usize).checked_sub(1)?)
+                        .filter(|a| !a.attisdropped)
+                        .map(|a| a.atttypid)
+                })
+                .unwrap_or(0),
         })
     }
 }
@@ -387,7 +491,10 @@ pub fn domains_pinned<T>(f: impl FnOnce() -> T) -> (T, DomainPins) {
     PINNED.with(|p| *p.borrow_mut() = Some(Vec::new())); // alloc: Cold
     let _unpin = Unpin;
     let r = f();
-    (r, DomainPins(PINNED.with(|p| p.borrow_mut().take()).unwrap_or_default()))
+    (
+        r,
+        DomainPins(PINNED.with(|p| p.borrow_mut().take()).unwrap_or_default()),
+    )
 }
 
 /// D3177 (the main merge's audit): the constraint sets an admission read, kept for as long as the admission lives. Its
@@ -403,7 +510,9 @@ impl DomainPins {
     /// PostgreSQL's executor reads the set at each start (InitDomainConstraintRef), so a replaced one admits again. A kept
     /// set is never freed, so its identity is never another set's.
     pub fn current(&self) -> bool {
-        self.0.iter().all(|(t, r)| typcache::DomainConstraintRef::init(*t).is_ok_and(|now| now.dcc_addr() == r.dcc_addr()))
+        self.0.iter().all(|(t, r)| {
+            typcache::DomainConstraintRef::init(*t).is_ok_and(|now| now.dcc_addr() == r.dcc_addr())
+        })
     }
 }
 
@@ -417,12 +526,24 @@ pub fn domain_facts<'mcx>(typid: Oid) -> PgResult<DomainFacts<'mcx>> {
         for con in r.constraints() {
             constraints.push(match con.constrainttype {
                 typcache::DomConstraintType::NotNull => DomainConstraint::NotNull,
-                typcache::DomConstraintType::Check => DomainConstraint::Check { name: con.name, expr: con.check_expr.expect("a CHECK constraint carries its expression") },
+                typcache::DomConstraintType::Check => DomainConstraint::Check {
+                    name: con.name,
+                    expr: con
+                        .check_expr
+                        .expect("a CHECK constraint carries its expression"),
+                },
             });
         }
-        DomainFacts { typlen: r.typlen(), constraints }
+        DomainFacts {
+            typlen: r.typlen(),
+            constraints,
+        }
     }
-    if let Some(f) = PINNED.with(|p| p.borrow().as_ref().and_then(|v| v.iter().find(|(t, _)| *t == typid).map(|(_, r)| facts(r)))) {
+    if let Some(f) = PINNED.with(|p| {
+        p.borrow()
+            .as_ref()
+            .and_then(|v| v.iter().find(|(t, _)| *t == typid).map(|(_, r)| facts(r)))
+    }) {
         return Ok(f);
     }
     let cref = typcache::DomainConstraintRef::init(typid)?;

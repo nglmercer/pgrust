@@ -461,14 +461,14 @@ mod tests {
         let all = sqls.join("\n");
         // SUBPLAN-1 heartland: a subquery in each clause context.
         for frag in [
-            "GROUP BY b HAVING count(*) > (SELECT",     // HAVING (the banked bug)
-            "GROUP BY (a - (SELECT",                    // GROUP BY
-            "ORDER BY abs(a - (SELECT",                 // ORDER BY
-            "WHERE a > (SELECT",                        // WHERE / InitPlan
-            "CASE WHEN a > (SELECT",                    // CASE
-            "least(b, (SELECT",                         // function argument
-            "FROM (VALUES ((SELECT",                    // VALUES
-            "LIMIT (SELECT",                            // LIMIT
+            "GROUP BY b HAVING count(*) > (SELECT", // HAVING (the banked bug)
+            "GROUP BY (a - (SELECT",                // GROUP BY
+            "ORDER BY abs(a - (SELECT",             // ORDER BY
+            "WHERE a > (SELECT",                    // WHERE / InitPlan
+            "CASE WHEN a > (SELECT",                // CASE
+            "least(b, (SELECT",                     // function argument
+            "FROM (VALUES ((SELECT",                // VALUES
+            "LIMIT (SELECT",                        // LIMIT
         ] {
             assert!(all.contains(frag), "context fuel {frag:?} never generated");
         }
@@ -484,15 +484,30 @@ mod tests {
             "EXISTS (SELECT",
             "NOT EXISTS (SELECT",
         ] {
-            assert!(all.contains(frag), "sublink spelling {frag:?} never generated");
+            assert!(
+                all.contains(frag),
+                "sublink spelling {frag:?} never generated"
+            );
         }
         // Multi-param / row-expression InitPlan and nested SubPlan.
-        assert!(all.contains("= (SELECT max(b), min(c) FROM"), "row-expr InitPlan missing");
-        assert!(all.contains("(SELECT max((SELECT"), "nested SubPlan-in-SubPlan missing");
+        assert!(
+            all.contains("= (SELECT max(b), min(c) FROM"),
+            "row-expr InitPlan missing"
+        );
+        assert!(
+            all.contains("(SELECT max((SELECT"),
+            "nested SubPlan-in-SubPlan missing"
+        );
         // SubPlan inside an aggregate argument.
-        assert!(all.contains("sum((SELECT count(*)"), "SubPlan-in-aggregate missing");
+        assert!(
+            all.contains("sum((SELECT count(*)"),
+            "SubPlan-in-aggregate missing"
+        );
         // Forced-parallel Gather bracket.
-        assert!(all.contains("SET parallel_setup_cost = 0;"), "gather bracket missing");
+        assert!(
+            all.contains("SET parallel_setup_cost = 0;"),
+            "gather bracket missing"
+        );
     }
 
     /// Deterministic: same seed reproduces the exact statement stream.

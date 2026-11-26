@@ -268,10 +268,22 @@ fn stable_tables<'a>(g: &Gen<'a>) -> Vec<&'a Table> {
 // arities, pg_has_role, and the aclitem machinery.
 
 const TBL_PRIVS: &[&str] = &[
-    "SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", "MAINTAIN",
+    "SELECT",
+    "INSERT",
+    "UPDATE",
+    "DELETE",
+    "TRUNCATE",
+    "REFERENCES",
+    "TRIGGER",
+    "MAINTAIN",
 ];
-const BUILTIN_FUNCS: &[&str] =
-    &["abs(int4)", "length(text)", "lower(text)", "upper(text)", "int4pl(int4,int4)"];
+const BUILTIN_FUNCS: &[&str] = &[
+    "abs(int4)",
+    "length(text)",
+    "lower(text)",
+    "upper(text)",
+    "int4pl(int4,int4)",
+];
 
 /// Privilege-string list: 1-2 privileges, optional WITH GRANT OPTION
 /// suffix; err arm yields an unrecognized privilege name (22023 fuel).
@@ -343,7 +355,10 @@ fn gen_acl_probe(g: &mut Gen) -> Vec<StmtKind> {
                     who, st.name, c, p
                 )
             } else {
-                format!("SELECT has_column_privilege('{}', '{}', '{}');", st.name, c, p)
+                format!(
+                    "SELECT has_column_privilege('{}', '{}', '{}');",
+                    st.name, c, p
+                )
             }
         }
         4 => {
@@ -362,7 +377,11 @@ fn gen_acl_probe(g: &mut Gen) -> Vec<StmtKind> {
             )
         }
         5 => {
-            let schema = if err { "fz_no_such_schema" } else { pick_str(g, &["public", "pg_catalog", "information_schema"]) };
+            let schema = if err {
+                "fz_no_such_schema"
+            } else {
+                pick_str(g, &["public", "pg_catalog", "information_schema"])
+            };
             let p = priv_list(g, &["CREATE", "USAGE"], false);
             if g.rng.chance(1, 3) {
                 format!(
@@ -381,14 +400,20 @@ fn gen_acl_probe(g: &mut Gen) -> Vec<StmtKind> {
                     p
                 )
             } else {
-                format!("SELECT has_database_privilege(current_database(), '{}');", p)
+                format!(
+                    "SELECT has_database_privilege(current_database(), '{}');",
+                    p
+                )
             }
         }
         7 => {
             let f = pick_str(g, BUILTIN_FUNCS);
             let p = if err { "SELECT" } else { "EXECUTE" };
             if g.rng.chance(1, 3) {
-                format!("SELECT has_function_privilege(current_user, '{}', '{}');", f, p)
+                format!(
+                    "SELECT has_function_privilege(current_user, '{}', '{}');",
+                    f, p
+                )
             } else {
                 format!("SELECT has_function_privilege('{}', '{}');", f, p)
             }
@@ -397,7 +422,13 @@ fn gen_acl_probe(g: &mut Gen) -> Vec<StmtKind> {
             let who = role_arg(g, err);
             let p = pick_str(
                 g,
-                &["USAGE", "MEMBER", "SET", "MEMBER WITH ADMIN OPTION", "USAGE, SET"],
+                &[
+                    "USAGE",
+                    "MEMBER",
+                    "SET",
+                    "MEMBER WITH ADMIN OPTION",
+                    "USAGE, SET",
+                ],
             );
             if g.rng.chance(1, 3) {
                 format!("SELECT pg_has_role(current_user, {}, '{}');", who, p)
@@ -414,7 +445,10 @@ fn gen_acl_probe(g: &mut Gen) -> Vec<StmtKind> {
             1 => {
                 let p = pick_str(g, &["SET", "ALTER SYSTEM", "SET, ALTER SYSTEM"]);
                 if g.rng.chance(1, 2) {
-                    format!("SELECT has_parameter_privilege(current_user, 'work_mem', '{}');", p)
+                    format!(
+                        "SELECT has_parameter_privilege(current_user, 'work_mem', '{}');",
+                        p
+                    )
                 } else {
                     format!("SELECT has_parameter_privilege('work_mem', '{}');", p)
                 }
@@ -471,7 +505,18 @@ fn gen_aclitem(g: &mut Gen) -> Vec<StmtKind> {
             )
         }
         _ => {
-            let lit = if err { "not-an-aclitem" } else { pick_str(g, &["postgres=r/postgres", "postgres=arwdDxtm/postgres", "=r/postgres"]) };
+            let lit = if err {
+                "not-an-aclitem"
+            } else {
+                pick_str(
+                    g,
+                    &[
+                        "postgres=r/postgres",
+                        "postgres=arwdDxtm/postgres",
+                        "=r/postgres",
+                    ],
+                )
+            };
             format!("SELECT aclitemin('{}')::text;", lit)
         }
     };
@@ -508,8 +553,16 @@ fn gen_acl_grant(g: &mut Gen) -> Vec<StmtKind> {
             let stn = st.name.clone();
             let c1 = st.columns[g.rng.below_usize(st.columns.len())].name.clone();
             let c2 = st.columns[g.rng.below_usize(st.columns.len())].name.clone();
-            let go = if g.rng.chance(1, 3) { " WITH GRANT OPTION" } else { "" };
-            let probe_p = if g.rng.chance(1, 3) { "SELECT WITH GRANT OPTION" } else { "SELECT" };
+            let go = if g.rng.chance(1, 3) {
+                " WITH GRANT OPTION"
+            } else {
+                ""
+            };
+            let probe_p = if g.rng.chance(1, 3) {
+                "SELECT WITH GRANT OPTION"
+            } else {
+                "SELECT"
+            };
             let revoke = if g.rng.chance(1, 3) && !go.is_empty() {
                 format!(
                     "REVOKE GRANT OPTION FOR SELECT ({}) ON {} FROM {} CASCADE;",
@@ -566,10 +619,20 @@ fn gen_acl_grant(g: &mut Gen) -> Vec<StmtKind> {
             // ALTER DEFAULT PRIVILEGES bracket (SetDefaultACL /
             // ExecAlterDefaultPrivilegesStmt). GRANT and REVOKE mirror the
             // same IN SCHEMA clause so the default-acl entry is removed.
-            let in_schema = if g.rng.chance(1, 2) { " IN SCHEMA public" } else { "" };
+            let in_schema = if g.rng.chance(1, 2) {
+                " IN SCHEMA public"
+            } else {
+                ""
+            };
             let (obj, p) = *pick_str2(
                 g,
-                &[("TABLES", "SELECT"), ("TABLES", "SELECT, INSERT"), ("SEQUENCES", "USAGE"), ("FUNCTIONS", "EXECUTE"), ("TYPES", "USAGE")],
+                &[
+                    ("TABLES", "SELECT"),
+                    ("TABLES", "SELECT, INSERT"),
+                    ("SEQUENCES", "USAGE"),
+                    ("FUNCTIONS", "EXECUTE"),
+                    ("TYPES", "USAGE"),
+                ],
             );
             vec![
                 StmtKind::Raw(format!(
@@ -737,7 +800,11 @@ fn gen_acl_objx(g: &mut Gen) -> Vec<StmtKind> {
         }
         1 => {
             // Sequence bracket: all six has_sequence_privilege arities.
-            let go = if g.rng.chance(1, 3) { " WITH GRANT OPTION" } else { "" };
+            let go = if g.rng.chance(1, 3) {
+                " WITH GRANT OPTION"
+            } else {
+                ""
+            };
             vec![
                 StmtKind::Raw("DROP SEQUENCE IF EXISTS fz_adtm_seq;".to_string()),
                 StmtKind::Raw("CREATE SEQUENCE fz_adtm_seq;".to_string()),
@@ -784,7 +851,11 @@ fn gen_acl_objx(g: &mut Gen) -> Vec<StmtKind> {
         }
         3 => {
             // FDW + server bracket.
-            let go = if g.rng.chance(1, 3) { " WITH GRANT OPTION" } else { "" };
+            let go = if g.rng.chance(1, 3) {
+                " WITH GRANT OPTION"
+            } else {
+                ""
+            };
             vec![
                 StmtKind::Raw("DROP SERVER IF EXISTS fz_adtm_srv CASCADE;".to_string()),
                 StmtKind::Raw("DROP FOREIGN DATA WRAPPER IF EXISTS fz_adtm_fdw CASCADE;".to_string()),
@@ -842,7 +913,11 @@ fn gen_acl_grantby(g: &mut Gen) -> Vec<StmtKind> {
     let t = g.pick_table().name.clone();
     let by1 = pick_str(g, &["CURRENT_USER", "CURRENT_ROLE", "SESSION_USER"]);
     let by2 = pick_str(g, &["CURRENT_USER", "CURRENT_ROLE", "SESSION_USER"]);
-    let p = if g.rng.chance(1, 3) { "ALL PRIVILEGES".to_string() } else { priv_list(g, TBL_PRIVS, false) };
+    let p = if g.rng.chance(1, 3) {
+        "ALL PRIVILEGES".to_string()
+    } else {
+        priv_list(g, TBL_PRIVS, false)
+    };
     vec![
         StmtKind::Raw(format!("GRANT {} ON {} TO {} GRANTED BY {};", p, t, r, by1)),
         StmtKind::Raw(format!(
@@ -884,12 +959,21 @@ fn gen_acl_owned(g: &mut Gen) -> Vec<StmtKind> {
         )),
     ];
     if g.rng.chance(1, 2) {
-        out.push(StmtKind::Raw(format!("REASSIGN OWNED BY {} TO postgres;", r)));
+        out.push(StmtKind::Raw(format!(
+            "REASSIGN OWNED BY {} TO postgres;",
+            r
+        )));
     }
     // Close the bracket per the residual-grants invariant (no-ops after
     // DROP OWNED, but the schema + table grants are provably gone).
-    out.push(StmtKind::Raw(format!("REVOKE ALL ON SCHEMA public FROM {};", r)));
-    out.push(StmtKind::Raw(format!("REVOKE ALL PRIVILEGES ON {} FROM {};", t, r)));
+    out.push(StmtKind::Raw(format!(
+        "REVOKE ALL ON SCHEMA public FROM {};",
+        r
+    )));
+    out.push(StmtKind::Raw(format!(
+        "REVOKE ALL PRIVILEGES ON {} FROM {};",
+        t, r
+    )));
     out
 }
 
@@ -910,28 +994,41 @@ fn gen_acl_rls(g: &mut Gen) -> Vec<StmtKind> {
     let mut out = vec![
         StmtKind::Raw("DROP TABLE IF EXISTS fz_adtm_rls CASCADE;".to_string()),
         StmtKind::Raw("CREATE TABLE fz_adtm_rls (a int PRIMARY KEY, b text);".to_string()),
-        StmtKind::Raw("INSERT INTO fz_adtm_rls VALUES (1, 'one'), (2, 'two'), (3, 'three');".to_string()),
+        StmtKind::Raw(
+            "INSERT INTO fz_adtm_rls VALUES (1, 'one'), (2, 'two'), (3, 'three');".to_string(),
+        ),
         StmtKind::Raw("ALTER TABLE fz_adtm_rls ENABLE ROW LEVEL SECURITY;".to_string()),
         StmtKind::Raw(format!(
             "CREATE POLICY fz_adtm_p1 ON fz_adtm_rls FOR SELECT TO PUBLIC USING (a > {});",
             cut
         )),
-        StmtKind::Raw("CREATE POLICY fz_adtm_p2 ON fz_adtm_rls FOR INSERT TO PUBLIC WITH CHECK (a < 100);".to_string()),
+        StmtKind::Raw(
+            "CREATE POLICY fz_adtm_p2 ON fz_adtm_rls FOR INSERT TO PUBLIC WITH CHECK (a < 100);"
+                .to_string(),
+        ),
         StmtKind::Raw(format!("GRANT SELECT, INSERT ON fz_adtm_rls TO {};", r)),
         StmtKind::Raw(format!("GRANT USAGE ON SCHEMA public TO {};", r)),
         StmtKind::Raw(format!("SET ROLE {};", r)),
         StmtKind::Raw("SELECT a, b FROM fz_adtm_rls ORDER BY a;".to_string()),
-        StmtKind::Raw(format!("INSERT INTO fz_adtm_rls VALUES ({}, 'new');", 4 + g.rng.below(20))),
+        StmtKind::Raw(format!(
+            "INSERT INTO fz_adtm_rls VALUES ({}, 'new');",
+            4 + g.rng.below(20)
+        )),
     ];
     if g.rng.chance(1, 2) {
         // Matched RLS WITH CHECK violation (42501) for a plain role; a
         // SUPERUSER role inserts the row — dropped with the table either
         // way, identical on both sides.
-        out.push(StmtKind::Raw("INSERT INTO fz_adtm_rls VALUES (200, 'nope');".to_string()));
+        out.push(StmtKind::Raw(
+            "INSERT INTO fz_adtm_rls VALUES (200, 'nope');".to_string(),
+        ));
     }
     out.push(StmtKind::Raw("RESET ROLE;".to_string()));
     out.push(StmtKind::Raw("DROP TABLE fz_adtm_rls;".to_string()));
-    out.push(StmtKind::Raw(format!("REVOKE ALL ON SCHEMA public FROM {};", r)));
+    out.push(StmtKind::Raw(format!(
+        "REVOKE ALL ON SCHEMA public FROM {};",
+        r
+    )));
     out
 }
 
@@ -986,7 +1083,11 @@ fn gen_bit(g: &mut Gen) -> Vec<StmtKind> {
             // Binary logical ops need equal lengths; err arm mismatches.
             let n = 1 + g.rng.below(10);
             let a = bit_lit(g, n, n);
-            let b = if err { bit_lit(g, n + 1, n + 3) } else { bit_lit(g, n, n) };
+            let b = if err {
+                bit_lit(g, n + 1, n + 3)
+            } else {
+                bit_lit(g, n, n)
+            };
             let op = pick_str(g, &["&", "|", "#"]);
             format!("SELECT ({} {} {})::text;", a, op, b)
         }
@@ -1020,7 +1121,11 @@ fn gen_bit(g: &mut Gen) -> Vec<StmtKind> {
                 1 => format!(
                     "SELECT ({}::bit({}))::text;",
                     g.rng.range_i64(-300, 300),
-                    if g.rng.chance(1, 3) { 64 } else { 8 + g.rng.below(24) }
+                    if g.rng.chance(1, 3) {
+                        64
+                    } else {
+                        8 + g.rng.below(24)
+                    }
                 ),
                 2 => {
                     let a = bit_lit(g, 8, 8);
@@ -1042,7 +1147,11 @@ fn gen_bit(g: &mut Gen) -> Vec<StmtKind> {
         6 => {
             let n = 1 + g.rng.below(10);
             let a = bit_lit(g, n, n);
-            let i = if err { n as i64 + g.rng.below(3) as i64 } else { g.rng.below(n) as i64 };
+            let i = if err {
+                n as i64 + g.rng.below(3) as i64
+            } else {
+                g.rng.below(n) as i64
+            };
             if g.rng.chance(1, 2) {
                 format!("SELECT get_bit({}, {});", a, i)
             } else {
@@ -1052,7 +1161,11 @@ fn gen_bit(g: &mut Gen) -> Vec<StmtKind> {
         7 => {
             let a = bit_lit(g, 4, 10);
             let b = bit_lit(g, 1, 4);
-            let from = if err { 12 + g.rng.below(4) as i64 } else { 1 + g.rng.below(6) as i64 };
+            let from = if err {
+                12 + g.rng.below(4) as i64
+            } else {
+                1 + g.rng.below(6) as i64
+            };
             if g.rng.chance(1, 2) {
                 format!("SELECT overlay({} placing {} from {})::text;", a, b, from)
             } else {
@@ -1100,8 +1213,18 @@ fn gen_bit(g: &mut Gen) -> Vec<StmtKind> {
 
 /// Small quote-free text-literal pool (unicode included).
 const TEXT_POOL: &[&str] = &[
-    "", "a", "abc,def,ghi", "Hello World", "MiXeD CaSe", "  pad  ", "aaa", "x,y",
-    "Ünïcødé tex", "abcabcabc", "tab\tless", "comma,,double",
+    "",
+    "a",
+    "abc,def,ghi",
+    "Hello World",
+    "MiXeD CaSe",
+    "  pad  ",
+    "aaa",
+    "x,y",
+    "Ünïcødé tex",
+    "abcabcabc",
+    "tab\tless",
+    "comma,,double",
 ];
 
 fn text_lit(g: &mut Gen) -> String {
@@ -1120,7 +1243,16 @@ fn gen_vltext(g: &mut Gen) -> Vec<StmtKind> {
         }
         1 => {
             let t = text_lit(g);
-            let (from, to) = *pick_str2(g, &[("abc", "xy"), ("", "xy"), ("a", ""), ("abcdef", "ABCDEF"), ("aeiou", "*")]);
+            let (from, to) = *pick_str2(
+                g,
+                &[
+                    ("abc", "xy"),
+                    ("", "xy"),
+                    ("a", ""),
+                    ("abcdef", "ABCDEF"),
+                    ("aeiou", "*"),
+                ],
+            );
             format!("SELECT translate({}, '{}', '{}');", t, from, to)
         }
         2 => {
@@ -1182,14 +1314,17 @@ fn gen_vltext(g: &mut Gen) -> Vec<StmtKind> {
                     format!("SELECT format('{}');", bad)
                 }
             } else {
-                let pic = pick_str(g, &[
-                    "%s|%I|%L",
-                    "%10s|%-10s",
-                    "%1$s %1$s %2$L",
-                    "100%%",
-                    "%2$s %1$s",
-                    "%-5I end",
-                ]);
+                let pic = pick_str(
+                    g,
+                    &[
+                        "%s|%I|%L",
+                        "%10s|%-10s",
+                        "%1$s %1$s %2$L",
+                        "100%%",
+                        "%2$s %1$s",
+                        "%-5I end",
+                    ],
+                );
                 let a = text_lit(g);
                 let b = text_lit(g);
                 if pic == "100%%" {
@@ -1230,7 +1365,16 @@ fn gen_vltext(g: &mut Gen) -> Vec<StmtKind> {
             let u = if err {
                 pick_str(g, &["\\dfff", "\\+110000", "\\00zz"])
             } else {
-                pick_str(g, &["\\0041\\0042", "d\\0061t\\+000061", "", "\\00e9", "\\+01F600ok"])
+                pick_str(
+                    g,
+                    &[
+                        "\\0041\\0042",
+                        "d\\0061t\\+000061",
+                        "",
+                        "\\00e9",
+                        "\\+01F600ok",
+                    ],
+                )
             };
             format!("SELECT unistr('{}');", u)
         }
@@ -1244,7 +1388,11 @@ fn gen_vltext(g: &mut Gen) -> Vec<StmtKind> {
             }
         }
         12 => {
-            let n = if err { 0 } else { *pick_str2(g, &[65, 97, 233, 8364, 128512]) };
+            let n = if err {
+                0
+            } else {
+                *pick_str2(g, &[65, 97, 233, 8364, 128512])
+            };
             format!("SELECT chr({});", n)
         }
         13 => {
@@ -1269,7 +1417,11 @@ fn gen_vltext(g: &mut Gen) -> Vec<StmtKind> {
                     g.rng.range_i64(-2, 300)
                 ),
                 _ => {
-                    let id = if err { "a..b" } else { pick_str(g, &["a.b.c", "\"A b\".c", "abc"]) };
+                    let id = if err {
+                        "a..b"
+                    } else {
+                        pick_str(g, &["a.b.c", "\"A b\".c", "abc"])
+                    };
                     format!("SELECT parse_ident('{}')::text;", id.replace('"', "\"\""))
                 }
             }
@@ -1305,19 +1457,18 @@ fn gen_vlbytea(g: &mut Gen) -> Vec<StmtKind> {
         0 => {
             let n = 1 + g.rng.below(6);
             let a = bytea_lit(g, n, n);
-            let i = if err { n as i64 + g.rng.below(3) as i64 } else { g.rng.below(n) as i64 };
+            let i = if err {
+                n as i64 + g.rng.below(3) as i64
+            } else {
+                g.rng.below(n) as i64
+            };
             format!("SELECT get_byte({}, {});", a, i)
         }
         1 => {
             let n = 1 + g.rng.below(6);
             let a = bytea_lit(g, n, n);
             let i = if err { n as i64 } else { g.rng.below(n) as i64 };
-            format!(
-                "SELECT set_byte({}, {}, {})::text;",
-                a,
-                i,
-                g.rng.below(600)
-            )
+            format!("SELECT set_byte({}, {}, {})::text;", a, i, g.rng.below(600))
         }
         2 => {
             let a = bytea_lit(g, 3, 8);
@@ -1441,11 +1592,31 @@ struct MrKind {
 }
 
 const MR_KINDS: &[MrKind] = &[
-    MrKind { rangef: "int4range", mrf: "int4multirange", mrty: "int4multirange" },
-    MrKind { rangef: "int8range", mrf: "int8multirange", mrty: "int8multirange" },
-    MrKind { rangef: "numrange", mrf: "nummultirange", mrty: "nummultirange" },
-    MrKind { rangef: "daterange", mrf: "datemultirange", mrty: "datemultirange" },
-    MrKind { rangef: "tsrange", mrf: "tsmultirange", mrty: "tsmultirange" },
+    MrKind {
+        rangef: "int4range",
+        mrf: "int4multirange",
+        mrty: "int4multirange",
+    },
+    MrKind {
+        rangef: "int8range",
+        mrf: "int8multirange",
+        mrty: "int8multirange",
+    },
+    MrKind {
+        rangef: "numrange",
+        mrf: "nummultirange",
+        mrty: "nummultirange",
+    },
+    MrKind {
+        rangef: "daterange",
+        mrf: "datemultirange",
+        mrty: "datemultirange",
+    },
+    MrKind {
+        rangef: "tsrange",
+        mrf: "tsmultirange",
+        mrty: "tsmultirange",
+    },
 ];
 
 /// Ordered (lo < hi) bound pair for a base kind; occasionally NULL bounds.
@@ -1512,7 +1683,16 @@ fn mr_expr(g: &mut Gen, k: &MrKind) -> String {
                 // paired-paren bounds) for the stream textual invariants.
                 format!(
                     "'{}'::{}",
-                    pick_str(g, &["{}", "{[1,3], [5,9]}", "{(1,3), (2,9)}", "{(,5), (8,)}", "{empty}"]),
+                    pick_str(
+                        g,
+                        &[
+                            "{}",
+                            "{[1,3], [5,9]}",
+                            "{(1,3), (2,9)}",
+                            "{(,5), (8,)}",
+                            "{empty}"
+                        ]
+                    ),
                     k.mrty
                 )
             } else {
@@ -1583,9 +1763,16 @@ fn gen_multirange(g: &mut Gen) -> Vec<StmtKind> {
         }
         6 => {
             let a = mr_expr(g, k);
-            let f = pick_str(g, &[
-                "isempty", "lower_inc", "upper_inc", "lower_inf", "upper_inf",
-            ]);
+            let f = pick_str(
+                g,
+                &[
+                    "isempty",
+                    "lower_inc",
+                    "upper_inc",
+                    "lower_inf",
+                    "upper_inf",
+                ],
+            );
             format!("SELECT {}({});", f, a)
         }
         7 => {
@@ -1683,22 +1870,43 @@ fn custom_range_bounds(g: &mut Gen, ty: crate::catalog::SqlType) -> (String, Str
 
 /// Special float8 values (the always-legal pool).
 const F8_SPECIALS: &[&str] = &[
-    "'NaN'", "'Infinity'", "'-Infinity'", "'-0'", "0", "1", "-1", "0.5", "2", "2.5",
-    "'1e308'", "'1e-300'", "100",
+    "'NaN'",
+    "'Infinity'",
+    "'-Infinity'",
+    "'-0'",
+    "0",
+    "1",
+    "-1",
+    "0.5",
+    "2",
+    "2.5",
+    "'1e308'",
+    "'1e-300'",
+    "100",
 ];
 
 /// One-arg float functions total over the special pool (no domain error
 /// for any pool value — errors ride the dedicated err arms instead).
 const F8_TOTAL_FNS: &[&str] = &[
-    "exp", "atan", "sinh", "cosh", "tanh", "asinh", "degrees", "radians", "sign",
-    "trunc", "floor", "ceil", "round", "abs", "cbrt", "erf", "erfc",
+    "exp", "atan", "sinh", "cosh", "tanh", "asinh", "degrees", "radians", "sign", "trunc", "floor",
+    "ceil", "round", "abs", "cbrt", "erf", "erfc",
 ];
 
 /// (fn, arg) pairs raising domain/overflow errors identically both sides.
 const F8_ERR_CALLS: &[(&str, &str)] = &[
-    ("ln", "0"), ("ln", "-1"), ("sqrt", "-1"), ("asin", "2"), ("acos", "-2"),
-    ("acosh", "0.5"), ("atanh", "2"), ("gamma", "0"), ("gamma", "-1"), ("lgamma", "0"),
-    ("sin", "'Infinity'"), ("cos", "'-Infinity'"), ("tan", "'Infinity'"),
+    ("ln", "0"),
+    ("ln", "-1"),
+    ("sqrt", "-1"),
+    ("asin", "2"),
+    ("acos", "-2"),
+    ("acosh", "0.5"),
+    ("atanh", "2"),
+    ("gamma", "0"),
+    ("gamma", "-1"),
+    ("lgamma", "0"),
+    ("sin", "'Infinity'"),
+    ("cos", "'-Infinity'"),
+    ("tan", "'Infinity'"),
 ];
 
 fn gen_num_edges(g: &mut Gen) -> Vec<StmtKind> {
@@ -1732,7 +1940,10 @@ fn gen_num_edges(g: &mut Gen) -> Vec<StmtKind> {
             if err {
                 format!("SELECT {}(90);", pick_str(g, &["tand", "cotd"]))
             } else {
-                let f = pick_str(g, &["sind", "cosd", "tand", "cotd", "asind", "acosd", "atand"]);
+                let f = pick_str(
+                    g,
+                    &["sind", "cosd", "tand", "cotd", "asind", "acosd", "atand"],
+                );
                 let a = pick_str(g, &["0", "30", "45", "60", "0.5", "1", "'NaN'::float8"]);
                 format!("SELECT {}({})::text;", f, a)
             }
@@ -1754,51 +1965,68 @@ fn gen_num_edges(g: &mut Gen) -> Vec<StmtKind> {
                 let (a, b) = *pick_str2(g, &[("0", "-1"), ("-1", "0.5")]);
                 format!("SELECT power({}::{ty}, {}::{ty});", a, b, ty = ty)
             } else {
-                let (a, b) = *pick_str2(g, &[
-                    ("'NaN'", "0"), ("1", "'NaN'"), ("'Infinity'", "0"), ("2", "10"),
-                    ("'-Infinity'", "-1"), ("0", "'Infinity'"), ("2", "-3"),
-                ]);
+                let (a, b) = *pick_str2(
+                    g,
+                    &[
+                        ("'NaN'", "0"),
+                        ("1", "'NaN'"),
+                        ("'Infinity'", "0"),
+                        ("2", "10"),
+                        ("'-Infinity'", "-1"),
+                        ("0", "'Infinity'"),
+                        ("2", "-3"),
+                    ],
+                );
                 format!("SELECT power({}::float8, {}::float8)::text;", a, b)
             }
         }
         6 => {
             // Inf/NaN arithmetic + zero division (float and numeric).
             if err {
-                let d = pick_str(g, &[
-                    "1::float8 / 0::float8",
-                    "0::float8 / 0::float8",
-                    "1::numeric / 0::numeric",
-                    "mod(5, 0)",
-                    "mod(5::numeric, 0::numeric)",
-                    "div(5::numeric, 0::numeric)",
-                    "(-2147483648) / (-1)",
-                    "mod(-2147483648, -1)::text",
-                ]);
+                let d = pick_str(
+                    g,
+                    &[
+                        "1::float8 / 0::float8",
+                        "0::float8 / 0::float8",
+                        "1::numeric / 0::numeric",
+                        "mod(5, 0)",
+                        "mod(5::numeric, 0::numeric)",
+                        "div(5::numeric, 0::numeric)",
+                        "(-2147483648) / (-1)",
+                        "mod(-2147483648, -1)::text",
+                    ],
+                );
                 format!("SELECT {};", d)
             } else {
-                let e = pick_str(g, &[
-                    "'Infinity'::float8 - 'Infinity'::float8",
-                    "'Infinity'::float8 + '-Infinity'::float8",
-                    "'Infinity'::float8 * 0",
-                    "'-Infinity'::float8 * '-0'::float8",
-                    "'Infinity'::float8 / 'Infinity'::float8",
-                    "'Infinity'::numeric + 'NaN'::numeric",
-                    "'Infinity'::numeric - 'Infinity'::numeric",
-                    "'Infinity'::numeric * 0::numeric",
-                    "'-Infinity'::numeric / 3::numeric",
-                    "div('NaN'::numeric, 1)",
-                ]);
+                let e = pick_str(
+                    g,
+                    &[
+                        "'Infinity'::float8 - 'Infinity'::float8",
+                        "'Infinity'::float8 + '-Infinity'::float8",
+                        "'Infinity'::float8 * 0",
+                        "'-Infinity'::float8 * '-0'::float8",
+                        "'Infinity'::float8 / 'Infinity'::float8",
+                        "'Infinity'::numeric + 'NaN'::numeric",
+                        "'Infinity'::numeric - 'Infinity'::numeric",
+                        "'Infinity'::numeric * 0::numeric",
+                        "'-Infinity'::numeric / 3::numeric",
+                        "div('NaN'::numeric, 1)",
+                    ],
+                );
                 format!("SELECT ({})::text;", e)
             }
         }
         7 => {
             if err {
-                let c = pick_str(g, &[
-                    "gcd(-2147483648, -2147483648)",
-                    "gcd((-9223372036854775808)::int8, (-9223372036854775808)::int8)",
-                    "lcm(2147483647, 2147483646)",
-                    "factorial(-1)",
-                ]);
+                let c = pick_str(
+                    g,
+                    &[
+                        "gcd(-2147483648, -2147483648)",
+                        "gcd((-9223372036854775808)::int8, (-9223372036854775808)::int8)",
+                        "lcm(2147483647, 2147483646)",
+                        "factorial(-1)",
+                    ],
+                );
                 format!("SELECT {};", c)
             } else {
                 match g.rng.below(3) {
@@ -1817,13 +2045,16 @@ fn gen_num_edges(g: &mut Gen) -> Vec<StmtKind> {
         8 => {
             // width_bucket: 4-arg float8/numeric + array arity.
             if err {
-                let c = pick_str(g, &[
-                    "width_bucket(5::float8, 10::float8, 0::float8, 0)",
-                    "width_bucket(5::float8, 0::float8, 0::float8, 5)",
-                    "width_bucket('NaN'::float8, 0::float8, 10::float8, 5)",
-                    "width_bucket('NaN'::numeric, 0::numeric, 10::numeric, 5)",
-                    "width_bucket(5::numeric, 0::numeric, 10::numeric, -1)",
-                ]);
+                let c = pick_str(
+                    g,
+                    &[
+                        "width_bucket(5::float8, 10::float8, 0::float8, 0)",
+                        "width_bucket(5::float8, 0::float8, 0::float8, 5)",
+                        "width_bucket('NaN'::float8, 0::float8, 10::float8, 5)",
+                        "width_bucket('NaN'::numeric, 0::numeric, 10::numeric, 5)",
+                        "width_bucket(5::numeric, 0::numeric, 10::numeric, -1)",
+                    ],
+                );
                 format!("SELECT {};", c)
             } else {
                 match g.rng.below(4) {
@@ -1850,14 +2081,24 @@ fn gen_num_edges(g: &mut Gen) -> Vec<StmtKind> {
             if err {
                 "SELECT round(1.5e100::numeric, -101)::text;".to_string()
             } else {
-                let c = pick_str(g, &[
-                    "round(2.5::numeric)", "round(-2.5::numeric)",
-                    "round(1.234567::numeric, 3)", "round(123456.789::numeric, -2)",
-                    "round(123456.789::numeric, -7)", "round(1.5e100::numeric, -99)",
-                    "trunc(123.456::numeric, 1)", "trunc(123.456::numeric, -1)",
-                    "round('NaN'::numeric, 2)", "round('Infinity'::numeric, -5)",
-                    "trunc('NaN'::numeric)", "round(2.5::float8)", "round(-2.5::float8)",
-                ]);
+                let c = pick_str(
+                    g,
+                    &[
+                        "round(2.5::numeric)",
+                        "round(-2.5::numeric)",
+                        "round(1.234567::numeric, 3)",
+                        "round(123456.789::numeric, -2)",
+                        "round(123456.789::numeric, -7)",
+                        "round(1.5e100::numeric, -99)",
+                        "trunc(123.456::numeric, 1)",
+                        "trunc(123.456::numeric, -1)",
+                        "round('NaN'::numeric, 2)",
+                        "round('Infinity'::numeric, -5)",
+                        "trunc('NaN'::numeric)",
+                        "round(2.5::float8)",
+                        "round(-2.5::float8)",
+                    ],
+                );
                 format!("SELECT ({})::text;", c)
             }
         }
@@ -1869,71 +2110,102 @@ fn gen_num_edges(g: &mut Gen) -> Vec<StmtKind> {
                     pick_str(g, &["Infinity", "-Infinity"])
                 )
             } else {
-                let c = pick_str(g, &[
-                    "scale(1.230::numeric)", "scale('NaN'::numeric)",
-                    "min_scale(1.2300::numeric)", "min_scale(100::numeric)",
-                    "trim_scale(1.2300::numeric)::text", "trim_scale(0.0000::numeric)::text",
-                ]);
+                let c = pick_str(
+                    g,
+                    &[
+                        "scale(1.230::numeric)",
+                        "scale('NaN'::numeric)",
+                        "min_scale(1.2300::numeric)",
+                        "min_scale(100::numeric)",
+                        "trim_scale(1.2300::numeric)::text",
+                        "trim_scale(0.0000::numeric)::text",
+                    ],
+                );
                 format!("SELECT {};", c)
             }
         }
         11 => {
             // Extreme numeric magnitudes: 1e131071 boundary, scale 1000.
             if err {
-                let c = pick_str(g, &[
-                    "'1e131072'::numeric",
-                    "('1e131071'::numeric * 10::numeric)::text",
-                    "'1e-16384'::numeric",
-                    "(10.0::numeric ^ 131072::numeric)::text",
-                ]);
+                let c = pick_str(
+                    g,
+                    &[
+                        "'1e131072'::numeric",
+                        "('1e131071'::numeric * 10::numeric)::text",
+                        "'1e-16384'::numeric",
+                        "(10.0::numeric ^ 131072::numeric)::text",
+                    ],
+                );
                 format!("SELECT {};", c)
             } else {
-                let c = pick_str(g, &[
-                    "numeric_out('1e131071'::numeric) IS NOT NULL",
-                    "('1e-16383'::numeric)::text IS NOT NULL",
-                    "(10.0::numeric ^ 131071::numeric) IS NOT NULL",
-                    "('0.5'::numeric ^ 131072::numeric)::text",
-                    "exp(-20000::numeric)::text",
-                    "(1.0::numeric / 3::numeric)::text",
-                    "round(1.0::numeric / 3::numeric, 1000)::text",
-                ]);
+                let c = pick_str(
+                    g,
+                    &[
+                        "numeric_out('1e131071'::numeric) IS NOT NULL",
+                        "('1e-16383'::numeric)::text IS NOT NULL",
+                        "(10.0::numeric ^ 131071::numeric) IS NOT NULL",
+                        "('0.5'::numeric ^ 131072::numeric)::text",
+                        "exp(-20000::numeric)::text",
+                        "(1.0::numeric / 3::numeric)::text",
+                        "round(1.0::numeric / 3::numeric, 1000)::text",
+                    ],
+                );
                 format!("SELECT {};", c)
             }
         }
         12 => {
             // numeric ln/log/sqrt domain parity.
             if err {
-                let c = pick_str(g, &[
-                    "ln(0::numeric)", "log(0::numeric)", "log(-1::numeric, 10::numeric)",
-                    "sqrt(-1::numeric)", "ln(-2::numeric)",
-                ]);
+                let c = pick_str(
+                    g,
+                    &[
+                        "ln(0::numeric)",
+                        "log(0::numeric)",
+                        "log(-1::numeric, 10::numeric)",
+                        "sqrt(-1::numeric)",
+                        "ln(-2::numeric)",
+                    ],
+                );
                 format!("SELECT {};", c)
             } else {
-                let c = pick_str(g, &[
-                    "ln(1e-100::numeric)", "sqrt('NaN'::numeric)", "sqrt(2::numeric)",
-                    "log(2.5::numeric, 100::numeric)", "exp(1::numeric)", "ln(10::numeric)",
-                ]);
+                let c = pick_str(
+                    g,
+                    &[
+                        "ln(1e-100::numeric)",
+                        "sqrt('NaN'::numeric)",
+                        "sqrt(2::numeric)",
+                        "log(2.5::numeric, 100::numeric)",
+                        "exp(1::numeric)",
+                        "ln(10::numeric)",
+                    ],
+                );
                 format!("SELECT ({})::text;", c)
             }
         }
         _ => {
             // int8/int2 overflow edges + misc exact probes.
             if err {
-                let c = pick_str(g, &[
-                    "(-9223372036854775808)::int8 / (-1)::int8",
-                    "32767::int2 + 1::int2",
-                    "2147483647 + 1",
-                    "abs((-9223372036854775808)::int8)",
-                ]);
+                let c = pick_str(
+                    g,
+                    &[
+                        "(-9223372036854775808)::int8 / (-1)::int8",
+                        "32767::int2 + 1::int2",
+                        "2147483647 + 1",
+                        "abs((-9223372036854775808)::int8)",
+                    ],
+                );
                 format!("SELECT {};", c)
             } else {
-                let c = pick_str(g, &[
-                    "((-9223372036854775808)::int8 % (-1)::int8)::text",
-                    "(gamma(5::float8))::text",
-                    "(lgamma(100::float8))::text",
-                    "sign('-0'::float8)::text",
-                    "abs('-0'::float8)::text",
-                ]);
+                let c = pick_str(
+                    g,
+                    &[
+                        "((-9223372036854775808)::int8 % (-1)::int8)::text",
+                        "(gamma(5::float8))::text",
+                        "(lgamma(100::float8))::text",
+                        "sign('-0'::float8)::text",
+                        "abs('-0'::float8)::text",
+                    ],
+                );
                 format!("SELECT {};", c)
             }
         }
@@ -1943,7 +2215,13 @@ fn gen_num_edges(g: &mut Gen) -> Vec<StmtKind> {
 
 /// Money literal pool (C locale on both servers by charter).
 const MONEY_LITS: &[&str] = &[
-    "'12.34'", "'0'", "'-1.50'", "'$1,000.00'", "'-$4,564,321.98'", "'12.345'", "'0.005'",
+    "'12.34'",
+    "'0'",
+    "'-1.50'",
+    "'$1,000.00'",
+    "'-$4,564,321.98'",
+    "'12.345'",
+    "'0.005'",
 ];
 
 fn gen_money(g: &mut Gen) -> Vec<StmtKind> {
@@ -1975,13 +2253,16 @@ fn gen_money(g: &mut Gen) -> Vec<StmtKind> {
             if err {
                 "SELECT (92233720368547758.08::numeric)::money;".to_string()
             } else {
-                let c = pick_str(g, &[
-                    "('12.34'::money)::numeric::text",
-                    "(7::int4)::money::text",
-                    "(7.7::float8)::money::text",
-                    "(92233720368547758.07::numeric)::money::text",
-                    "(1234.567::numeric)::money::text",
-                ]);
+                let c = pick_str(
+                    g,
+                    &[
+                        "('12.34'::money)::numeric::text",
+                        "(7::int4)::money::text",
+                        "(7.7::float8)::money::text",
+                        "(92233720368547758.07::numeric)::money::text",
+                        "(1234.567::numeric)::money::text",
+                    ],
+                );
                 format!("SELECT {};", c)
             }
         }
@@ -2011,16 +2292,34 @@ fn gen_pseudo(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("adtm:pseudo");
     let sql = match g.rng.below(8) {
         0 => {
-            let f = pick_str(g, &[
-                "any_in", "trigger_in", "internal_in", "language_handler_in",
-                "fdw_handler_in", "index_am_handler_in", "tsm_handler_in",
-                "table_am_handler_in", "event_trigger_in", "pg_ddl_command_in",
-                "anyarray_in", "anyelement_in", "anynonarray_in", "anyenum_in",
-                "anyrange_in", "anymultirange_in", "anycompatible_in",
-                "anycompatiblearray_in", "anycompatiblenonarray_in",
-                "anycompatiblerange_in", "anycompatiblemultirange_in",
-                "shell_in", "pg_node_tree_in",
-            ]);
+            let f = pick_str(
+                g,
+                &[
+                    "any_in",
+                    "trigger_in",
+                    "internal_in",
+                    "language_handler_in",
+                    "fdw_handler_in",
+                    "index_am_handler_in",
+                    "tsm_handler_in",
+                    "table_am_handler_in",
+                    "event_trigger_in",
+                    "pg_ddl_command_in",
+                    "anyarray_in",
+                    "anyelement_in",
+                    "anynonarray_in",
+                    "anyenum_in",
+                    "anyrange_in",
+                    "anymultirange_in",
+                    "anycompatible_in",
+                    "anycompatiblearray_in",
+                    "anycompatiblenonarray_in",
+                    "anycompatiblerange_in",
+                    "anycompatiblemultirange_in",
+                    "shell_in",
+                    "pg_node_tree_in",
+                ],
+            );
             format!("SELECT {}('x'::cstring);", f)
         }
         1 => "SELECT void_out(''::void), ''::void::text;".to_string(),
@@ -2034,7 +2333,10 @@ fn gen_pseudo(g: &mut Gen) -> Vec<StmtKind> {
                 4 => ("pg_catalog", "regnamespace"),
                 _ => ("=(integer,integer)", "regoperator"),
             };
-            format!("SELECT ('{}'::{})::text, ('{}'::{})::oid::int8;", v, t, v, t)
+            format!(
+                "SELECT ('{}'::{})::text, ('{}'::{})::oid::int8;",
+                v, t, v, t
+            )
         }
         4 => {
             let t = pick_str(g, &["regconfig", "regdictionary", "regrole"]);
@@ -2047,10 +2349,14 @@ fn gen_pseudo(g: &mut Gen) -> Vec<StmtKind> {
         }
         5 => {
             // Cast-to-pseudotype error path (type-lookup naming the type).
-            let t = pick_str(g, &["internal", "trigger", "anyelement", "language_handler"]);
+            let t = pick_str(
+                g,
+                &["internal", "trigger", "anyelement", "language_handler"],
+            );
             format!("SELECT 'x'::text::{};", t)
         }
-        6 => "SELECT ('(0,1)'::tid)::text, ('10'::text::xid)::text, (cid_in('5'::cstring))::text;".to_string(),
+        6 => "SELECT ('(0,1)'::tid)::text, ('10'::text::xid)::text, (cid_in('5'::cstring))::text;"
+            .to_string(),
         _ => {
             // "char" / name IO + nameconcatoid.
             format!(
@@ -2262,11 +2568,19 @@ fn gen_inlist(g: &mut Gen) -> Vec<StmtKind> {
     let probe_hit = g.rng.chance(1, 2);
     let sql = if g.rng.chance(1, 2) {
         let list: Vec<String> = (1..=n).map(|i| i.to_string()).collect();
-        let probe = if probe_hit { 1 + g.rng.below(n) } else { n + 1 + g.rng.below(50) };
+        let probe = if probe_hit {
+            1 + g.rng.below(n)
+        } else {
+            n + 1 + g.rng.below(50)
+        };
         format!("SELECT {} IN ({});", probe, list.join(", "))
     } else {
         let list: Vec<String> = (0..n).map(|i| format!("'k{}'", i)).collect();
-        let probe = if probe_hit { format!("'k{}'", g.rng.below(n)) } else { "'zz'".to_string() };
+        let probe = if probe_hit {
+            format!("'k{}'", g.rng.below(n))
+        } else {
+            "'zz'".to_string()
+        };
         format!("SELECT {} IN ({});", probe, list.join(", "))
     };
     raw(sql)
@@ -2379,9 +2693,20 @@ fn gen_errpath(g: &mut Gen) -> Vec<StmtKind> {
         2 => format!("SELECT length('x', {});", g.rng.below(5)),
         3 => "SELECT ''::fz_adtm_no_such_type;".to_string(),
         4 => "SELECT repeat('x', 2000000000)::text || repeat('y', 2000000000);".to_string(),
-        5 => pick_str(g, &["SELECT E'\\ud800';", "SELECT E'\\uzzzz';", "SELECT U&'\\d800';"]).to_string(),
+        5 => pick_str(
+            g,
+            &[
+                "SELECT E'\\ud800';",
+                "SELECT E'\\uzzzz';",
+                "SELECT U&'\\d800';",
+            ],
+        )
+        .to_string(),
         6 => "SELECT 99999999999999999999 + 0.5;".to_string(),
-        7 => format!("SELECT length(repeat('{}', 8192) || 'tail');", pick_str(g, &["z", "ab", "\u{00e9}"])),
+        7 => format!(
+            "SELECT length(repeat('{}', 8192) || 'tail');",
+            pick_str(g, &["z", "ab", "\u{00e9}"])
+        ),
         _ => {
             // Qualified-reference / RTE-namespace error paths.
             let t = g.pick_table().name.clone();
@@ -2405,22 +2730,52 @@ fn rawv(stmts: Vec<String>) -> Vec<StmtKind> {
 
 /// Types whose input functions carry safe-error arms worth draining.
 const SAFE_TYPES: &[&str] = &[
-    "int2", "int4", "int8", "money", "bit(8)", "varbit", "inet", "cidr",
-    "uuid", "numeric", "macaddr", "macaddr8", "date", "interval", "box",
-    "bytea", "oid", "regtype",
+    "int2", "int4", "int8", "money", "bit(8)", "varbit", "inet", "cidr", "uuid", "numeric",
+    "macaddr", "macaddr8", "date", "interval", "box", "bytea", "oid", "regtype",
 ];
 
 /// Edge inputs for the numutils/cash/varbit/inet safe parsers: hex/octal/
 /// binary radix forms, digit-group underscores (valid and malformed),
 /// whitespace, signs, overflow at each width, and junk.
 const SAFE_INPUTS: &[&str] = &[
-    "0x1A", "0X7fff", "0o17", "0O777", "0b101", "0B11", "1_000_000",
-    "0x7fff_ffff", " 42 ", "  +7", "-32768", "32768", "-32769",
-    "2147483648", "-2147483649", "9223372036854775808",
-    "-9223372036854775809", "99999999999999999999999999", "12abc", "",
-    "   ", "+", "-", "0x", "0b", "1__0", "_1", "1_", "1e5", "1.5",
-    "0x8000000000000000", "nan", "10.0.0.1/33", "not-a-uuid",
-    "1.2.3.4.5", "$1,2,3", "--5", "£7",
+    "0x1A",
+    "0X7fff",
+    "0o17",
+    "0O777",
+    "0b101",
+    "0B11",
+    "1_000_000",
+    "0x7fff_ffff",
+    " 42 ",
+    "  +7",
+    "-32768",
+    "32768",
+    "-32769",
+    "2147483648",
+    "-2147483649",
+    "9223372036854775808",
+    "-9223372036854775809",
+    "99999999999999999999999999",
+    "12abc",
+    "",
+    "   ",
+    "+",
+    "-",
+    "0x",
+    "0b",
+    "1__0",
+    "_1",
+    "1_",
+    "1e5",
+    "1.5",
+    "0x8000000000000000",
+    "nan",
+    "10.0.0.1/33",
+    "not-a-uuid",
+    "1.2.3.4.5",
+    "$1,2,3",
+    "--5",
+    "£7",
 ];
 
 /// pg_input_is_valid / pg_input_error_info: reaches every soft-error arm
@@ -2434,9 +2789,7 @@ fn gen_strsafe(g: &mut Gen) -> Vec<StmtKind> {
             let ty = *g.rng.pick(SAFE_TYPES);
             let inp = esc_s(g.rng.pick(SAFE_INPUTS));
             if g.rng.chance(1, 3) {
-                format!(
-                    "(pg_input_error_info('{inp}', '{ty}')).sql_error_code"
-                )
+                format!("(pg_input_error_info('{inp}', '{ty}')).sql_error_code")
             } else {
                 format!("pg_input_is_valid('{inp}', '{ty}')")
             }
@@ -2460,11 +2813,31 @@ fn gen_strsafe(g: &mut Gen) -> Vec<StmtKind> {
 fn gen_regex2(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("adtm:regex2");
     let pats: &[&str] = &[
-        "%(b|d)%", "_a_", "%[abc]%", "(a|b)*c+", "a{2,4}b", "ab|cd",
-        "%#\"o#\"%", "a#%b", "50#%", "a_c%", "[^x]+", "(ab)?cd",
+        "%(b|d)%",
+        "_a_",
+        "%[abc]%",
+        "(a|b)*c+",
+        "a{2,4}b",
+        "ab|cd",
+        "%#\"o#\"%",
+        "a#%b",
+        "50#%",
+        "a_c%",
+        "[^x]+",
+        "(ab)?cd",
     ];
-    let flags: &[&str] = &["", "i", "g", "n", "p", "w", "x", "gi", "ic", "q", "s", "m", "t", "b", "z", "1"];
-    let subj: &[&str] = &["abcde", "banana", "50%", "aXcYe", "", "aaa bbb ccc", "AbCdAb"];
+    let flags: &[&str] = &[
+        "", "i", "g", "n", "p", "w", "x", "gi", "ic", "q", "s", "m", "t", "b", "z", "1",
+    ];
+    let subj: &[&str] = &[
+        "abcde",
+        "banana",
+        "50%",
+        "aXcYe",
+        "",
+        "aaa bbb ccc",
+        "AbCdAb",
+    ];
     let sql = match g.rng.below(7) {
         0 => {
             let e = *g.rng.pick(&["#", "\\", "", "x"]);
@@ -2610,7 +2983,12 @@ fn gen_amprop(g: &mut Gen) -> Vec<StmtKind> {
         "CREATE INDEX fz_amp_gin ON fz_amp USING gin (to_tsvector('simple', t));".to_string(),
     ];
     let idx = *g.rng.pick(&[
-        "fz_amp_bt", "fz_amp_hash", "fz_amp_gist", "fz_amp_spg", "fz_amp_brin", "fz_amp_gin",
+        "fz_amp_bt",
+        "fz_amp_hash",
+        "fz_amp_gist",
+        "fz_amp_spg",
+        "fz_amp_brin",
+        "fz_amp_gin",
     ]);
     stmts.push(format!(
         "SELECT p, pg_index_column_has_property('{idx}'::regclass, 1, p) \
@@ -2621,7 +2999,9 @@ fn gen_amprop(g: &mut Gen) -> Vec<StmtKind> {
         "SELECT p, pg_index_has_property('{idx}'::regclass, p) \
          FROM unnest(ARRAY['clusterable','index_scan','bitmap_scan','backward_scan','bogus']) p ORDER BY p;"
     ));
-    let am = *g.rng.pick(&["btree", "hash", "gist", "spgist", "brin", "gin"]);
+    let am = *g
+        .rng
+        .pick(&["btree", "hash", "gist", "spgist", "brin", "gin"]);
     stmts.push(format!(
         "SELECT p, pg_indexam_has_property((SELECT oid FROM pg_am WHERE amname = '{am}'), p) \
          FROM unnest(ARRAY['can_order','can_unique','can_multi_col','can_exclude','can_include','bogus']) p ORDER BY p;"
@@ -2635,13 +3015,26 @@ fn gen_amprop(g: &mut Gen) -> Vec<StmtKind> {
 fn gen_inet2(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("adtm:inet2");
     let cidrs: &[&str] = &[
-        "10/8", "10.1/16", "192.168/24", "172.16.5/24", "10.1.2.3/32",
-        "255.255.255.255/32", "0/0", "128.1.2/24", "2001:db8::/32",
-        "::ffff:1.2.3.4/120", "ff00::/8",
+        "10/8",
+        "10.1/16",
+        "192.168/24",
+        "172.16.5/24",
+        "10.1.2.3/32",
+        "255.255.255.255/32",
+        "0/0",
+        "128.1.2/24",
+        "2001:db8::/32",
+        "::ffff:1.2.3.4/120",
+        "ff00::/8",
     ];
     let inets: &[&str] = &[
-        "10.1.2.3/8", "192.168.1.226", "::1", "fe80::1%1/64",
-        "2001:db8::8:800:200c:417a/64", "0.0.0.0/32", "255.254.253.252",
+        "10.1.2.3/8",
+        "192.168.1.226",
+        "::1",
+        "fe80::1%1/64",
+        "2001:db8::8:800:200c:417a/64",
+        "0.0.0.0/32",
+        "255.254.253.252",
         "10.1.2.3/25",
     ];
     let sql = match g.rng.below(5) {
@@ -2703,11 +3096,14 @@ fn gen_misc2(g: &mut Gen) -> Vec<StmtKind> {
                 _ => format!("SELECT to_ascii('{}', 8);", s),
             }
         }
-        1 => pick_str(g, &[
-            "SELECT pg_current_logfile() IS NULL;",
-            "SELECT pg_current_logfile('stderr') IS NULL;",
-            "SELECT pg_current_logfile('csvlog') IS NULL;",
-        ])
+        1 => pick_str(
+            g,
+            &[
+                "SELECT pg_current_logfile() IS NULL;",
+                "SELECT pg_current_logfile('stderr') IS NULL;",
+                "SELECT pg_current_logfile('csvlog') IS NULL;",
+            ],
+        )
         .to_string(),
         2 => "SELECT current_query();".to_string(),
         3 => {
@@ -2721,7 +3117,10 @@ fn gen_misc2(g: &mut Gen) -> Vec<StmtKind> {
             let n2 = 2 + g.rng.below(8);
             match g.rng.below(3) {
                 0 => format!("SELECT ('abcdefgh'::varchar({}))::varchar({});", n1, n2),
-                1 => format!("SELECT ('ab'::varchar({}))::varchar({})::varchar({});", n2, n1, n2),
+                1 => format!(
+                    "SELECT ('ab'::varchar({}))::varchar({})::varchar({});",
+                    n2, n1, n2
+                ),
                 _ => format!("SELECT (B'1101'::varbit)::varbit({})::varbit({});", n1, n2),
             }
         }
@@ -2729,13 +3128,27 @@ fn gen_misc2(g: &mut Gen) -> Vec<StmtKind> {
             // ArrayCoerce element cast (func-over-CASE-test fast path) and
             // a bare Var over a virtual (VALUES) slot.
             match g.rng.below(3) {
-                0 => format!("SELECT '{{{},{}}}'::int4[]::int8[];", g.rng.below(100), g.rng.below(100)),
-                1 => format!("SELECT '{{{}}}'::int4[]::numeric[]::text;", g.rng.below(100)),
-                _ => format!("SELECT x FROM (VALUES ({}), ({})) v(x);", g.rng.below(50), g.rng.below(50)),
+                0 => format!(
+                    "SELECT '{{{},{}}}'::int4[]::int8[];",
+                    g.rng.below(100),
+                    g.rng.below(100)
+                ),
+                1 => format!(
+                    "SELECT '{{{}}}'::int4[]::numeric[]::text;",
+                    g.rng.below(100)
+                ),
+                _ => format!(
+                    "SELECT x FROM (VALUES ({}), ({})) v(x);",
+                    g.rng.below(50),
+                    g.rng.below(50)
+                ),
             }
         }
         6 => {
-            let s = pick_str(g, &["h\u{00e9}llo w\u{00f6}rld", "\u{65e5}\u{672c}\u{8a9e}abc"]);
+            let s = pick_str(
+                g,
+                &["h\u{00e9}llo w\u{00f6}rld", "\u{65e5}\u{672c}\u{8a9e}abc"],
+            );
             format!(
                 "SELECT substr('{}', {}, 3), char_length('{}'), position('\u{672c}' in '\u{65e5}\u{672c}\u{8a9e}');",
                 s,
@@ -2771,7 +3184,10 @@ fn gen_misc2(g: &mut Gen) -> Vec<StmtKind> {
             let n = 3000 + g.rng.below(3000);
             match g.rng.below(3) {
                 0 => format!("SELECT length(repeat('abcdefgh', {}));", n),
-                1 => format!("SELECT length(repeat('h\u{00e9}llo\u{65e5}\u{672c}', {}));", n),
+                1 => format!(
+                    "SELECT length(repeat('h\u{00e9}llo\u{65e5}\u{672c}', {}));",
+                    n
+                ),
                 _ => format!("SELECT octet_length(quote_literal(repeat('a', {})));", n),
             }
         }
@@ -2797,12 +3213,14 @@ fn gen_errhint(g: &mut Gen) -> Vec<StmtKind> {
         StmtKind::Raw("CREATE TABLE fz_q7eh (aa int, ab int, zz text);".to_string()),
     ];
     match g.rng.below(8) {
-        0 => v.push(StmtKind::Raw(
-            format!("SELECT {} FROM fz_q7eh;", pick_str(g, &["ac", "abb", "zzz", "az"])),
-        )),
-        1 => v.push(StmtKind::Raw(
-            format!("SELECT fz_q7eh.{} FROM fz_q7eh;", pick_str(g, &["ba", "zy"])),
-        )),
+        0 => v.push(StmtKind::Raw(format!(
+            "SELECT {} FROM fz_q7eh;",
+            pick_str(g, &["ac", "abb", "zzz", "az"])
+        ))),
+        1 => v.push(StmtKind::Raw(format!(
+            "SELECT fz_q7eh.{} FROM fz_q7eh;",
+            pick_str(g, &["ba", "zy"])
+        ))),
         2 => v.push(StmtKind::Raw(
             "SELECT * FROM fz_q7eh x, (SELECT x.aa) y;".to_string(),
         )),
@@ -2820,11 +3238,14 @@ fn gen_errhint(g: &mut Gen) -> Vec<StmtKind> {
             v.push(StmtKind::Raw("DROP TYPE fz_q7sh;".to_string()));
         }
         _ => v.push(StmtKind::Raw(
-            pick_str(g, &[
-                "SELECT E'\\uZZZZ';",
-                "SELECT E'\\ud800';",
-                "SELECT U&'\\+10FFFF' = 'x';",
-            ])
+            pick_str(
+                g,
+                &[
+                    "SELECT E'\\uZZZZ';",
+                    "SELECT E'\\ud800';",
+                    "SELECT U&'\\+10FFFF' = 'x';",
+                ],
+            )
             .to_string(),
         )),
     }
@@ -3007,8 +3428,12 @@ fn gen_toastslice(g: &mut Gen) -> Vec<StmtKind> {
         StmtKind::Raw(
             "INSERT INTO fz_q7ts VALUES (1, repeat('compressme', 20000) || 'TAIL');".to_string(),
         ),
-        StmtKind::Raw(format!("SELECT substr(t, {off}, 20) FROM fz_q7ts WHERE id = 1;")),
-        StmtKind::Raw(format!("SELECT substr(t, {far}, 30) FROM fz_q7ts WHERE id = 1;")),
+        StmtKind::Raw(format!(
+            "SELECT substr(t, {off}, 20) FROM fz_q7ts WHERE id = 1;"
+        )),
+        StmtKind::Raw(format!(
+            "SELECT substr(t, {far}, 30) FROM fz_q7ts WHERE id = 1;"
+        )),
         StmtKind::Raw("DROP TABLE fz_q7ts;".to_string()),
     ]
 }
@@ -3019,13 +3444,16 @@ fn gen_toastslice(g: &mut Gen) -> Vec<StmtKind> {
 fn gen_ri(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("adtm:ri");
     if g.rng.below(3) < 2 {
-        let action = pick_str(g, &[
-            "ON UPDATE CASCADE ON DELETE CASCADE",
-            "ON UPDATE SET NULL ON DELETE SET NULL",
-            "ON UPDATE SET DEFAULT",
-            "ON UPDATE RESTRICT",
-            "",
-        ])
+        let action = pick_str(
+            g,
+            &[
+                "ON UPDATE CASCADE ON DELETE CASCADE",
+                "ON UPDATE SET NULL ON DELETE SET NULL",
+                "ON UPDATE SET DEFAULT",
+                "ON UPDATE RESTRICT",
+                "",
+            ],
+        )
         .to_string();
         let k = 1 + g.rng.below(5);
         let mut v = vec![
@@ -3054,13 +3482,18 @@ fn gen_ri(g: &mut Gen) -> Vec<StmtKind> {
                 "CREATE TABLE fz_q7pp (a int PRIMARY KEY) PARTITION BY RANGE (a);".to_string(),
             ),
             StmtKind::Raw(
-                "CREATE TABLE fz_q7pp1 PARTITION OF fz_q7pp FOR VALUES FROM (0) TO (10);".to_string(),
+                "CREATE TABLE fz_q7pp1 PARTITION OF fz_q7pp FOR VALUES FROM (0) TO (10);"
+                    .to_string(),
             ),
             StmtKind::Raw(
-                "CREATE TABLE fz_q7pp2 PARTITION OF fz_q7pp FOR VALUES FROM (10) TO (20);".to_string(),
+                "CREATE TABLE fz_q7pp2 PARTITION OF fz_q7pp FOR VALUES FROM (10) TO (20);"
+                    .to_string(),
             ),
             StmtKind::Raw("CREATE TABLE fz_q7fk (a int REFERENCES fz_q7pp);".to_string()),
-            StmtKind::Raw(format!("INSERT INTO fz_q7pp VALUES ({}), (15);", g.rng.below(10))),
+            StmtKind::Raw(format!(
+                "INSERT INTO fz_q7pp VALUES ({}), (15);",
+                g.rng.below(10)
+            )),
             StmtKind::Raw(format!("INSERT INTO fz_q7fk VALUES ({});", g.rng.below(10))),
             StmtKind::Raw("ALTER TABLE fz_q7pp DETACH PARTITION fz_q7pp1;".to_string()),
             StmtKind::Raw("ALTER TABLE fz_q7pp DETACH PARTITION fz_q7pp2;".to_string()),
@@ -3123,7 +3556,10 @@ fn gen_deparse3(g: &mut Gen) -> Vec<StmtKind> {
                 StmtKind::Raw(format!("CREATE VIEW fz_q7dpv AS {};", body)),
                 StmtKind::Raw("SELECT pg_get_viewdef('fz_q7dpv');".to_string()),
                 StmtKind::Raw("SELECT pg_get_viewdef('fz_q7dpv', true);".to_string()),
-                StmtKind::Raw(format!("SELECT pg_get_viewdef('fz_q7dpv', {});", 10 + g.rng.below(60))),
+                StmtKind::Raw(format!(
+                    "SELECT pg_get_viewdef('fz_q7dpv', {});",
+                    10 + g.rng.below(60)
+                )),
                 StmtKind::Raw("DROP TABLE fz_q7dp CASCADE;".to_string()),
             ]
         }
@@ -3244,37 +3680,64 @@ fn gen_pseudo3(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("adtm:pseudo3");
     let sql = match g.rng.below(4) {
         0 => {
-            let f = pick_str(g, &[
-                "any_out(42)",
-                "anyarray_out('{1,2}'::int4[])",
-                "anyelement_out(42)",
-                "anynonarray_out(42)",
-                "anycompatible_out(42)",
-                "anycompatiblearray_out('{1,2}'::int4[])",
-                "anycompatiblenonarray_out(42)",
-                "anyrange_out('[1,2]'::int4range)",
-                "anycompatiblerange_out('[1,2]'::int4range)",
-                "anymultirange_out('{[1,2]}'::int4multirange)",
-                "anycompatiblemultirange_out('{[1,2]}'::int4multirange)",
-            ]);
+            let f = pick_str(
+                g,
+                &[
+                    "any_out(42)",
+                    "anyarray_out('{1,2}'::int4[])",
+                    "anyelement_out(42)",
+                    "anynonarray_out(42)",
+                    "anycompatible_out(42)",
+                    "anycompatiblearray_out('{1,2}'::int4[])",
+                    "anycompatiblenonarray_out(42)",
+                    "anyrange_out('[1,2]'::int4range)",
+                    "anycompatiblerange_out('[1,2]'::int4range)",
+                    "anymultirange_out('{[1,2]}'::int4multirange)",
+                    "anycompatiblemultirange_out('{[1,2]}'::int4multirange)",
+                ],
+            );
             format!("SELECT {};", f)
         }
         1 => {
-            let f = pick_str(g, &[
-                "internal_out", "trigger_out", "event_trigger_out", "fdw_handler_out",
-                "index_am_handler_out", "table_am_handler_out", "tsm_handler_out",
-                "language_handler_out", "pg_ddl_command_out", "shell_out",
-            ]);
+            let f = pick_str(
+                g,
+                &[
+                    "internal_out",
+                    "trigger_out",
+                    "event_trigger_out",
+                    "fdw_handler_out",
+                    "index_am_handler_out",
+                    "table_am_handler_out",
+                    "tsm_handler_out",
+                    "language_handler_out",
+                    "pg_ddl_command_out",
+                    "shell_out",
+                ],
+            );
             let arg = pick_str(g, &["NULL", "'x'"]);
             format!("SELECT {}({});", f, arg)
         }
         2 => {
-            let f = pick_str(g, &[
-                "any_in", "anyarray_in", "anycompatible_in", "anycompatiblemultirange_in",
-                "anycompatiblerange_in", "anyenum_in", "anymultirange_in", "anynonarray_in",
-                "anyrange_in", "fdw_handler_in", "index_am_handler_in", "internal_in",
-                "pg_ddl_command_in", "table_am_handler_in", "tsm_handler_in",
-            ]);
+            let f = pick_str(
+                g,
+                &[
+                    "any_in",
+                    "anyarray_in",
+                    "anycompatible_in",
+                    "anycompatiblemultirange_in",
+                    "anycompatiblerange_in",
+                    "anyenum_in",
+                    "anymultirange_in",
+                    "anynonarray_in",
+                    "anyrange_in",
+                    "fdw_handler_in",
+                    "index_am_handler_in",
+                    "internal_in",
+                    "pg_ddl_command_in",
+                    "table_am_handler_in",
+                    "tsm_handler_in",
+                ],
+            );
             format!("SELECT {}('x'::cstring);", f)
         }
         _ => {
@@ -3322,11 +3785,16 @@ fn gen_xmlfam(g: &mut Gen) -> Vec<StmtKind> {
         _ => "SELECT query_to_xml('SELECT 1 AS one, ''a''::text AS two', true, true, '');",
     };
     vec![
-        StmtKind::Raw("DROP SCHEMA IF EXISTS fz_q7xe CASCADE; DROP SCHEMA IF EXISTS fz_q7xs CASCADE;".to_string()),
+        StmtKind::Raw(
+            "DROP SCHEMA IF EXISTS fz_q7xe CASCADE; DROP SCHEMA IF EXISTS fz_q7xs CASCADE;"
+                .to_string(),
+        ),
         StmtKind::Raw("CREATE SCHEMA fz_q7xe;".to_string()),
         StmtKind::Raw("CREATE SCHEMA fz_q7xs;".to_string()),
         StmtKind::Raw("CREATE DOMAIN fz_q7xs.dom AS int CHECK (VALUE > 0);".to_string()),
-        StmtKind::Raw("CREATE TABLE fz_q7xs.t1 (a int, b text, d fz_q7xs.dom, ts timestamp);".to_string()),
+        StmtKind::Raw(
+            "CREATE TABLE fz_q7xs.t1 (a int, b text, d fz_q7xs.dom, ts timestamp);".to_string(),
+        ),
         StmtKind::Raw("INSERT INTO fz_q7xs.t1 VALUES (1, 'x', 5, '2020-01-01');".to_string()),
         StmtKind::Raw(probe.to_string()),
         StmtKind::Raw("DROP SCHEMA fz_q7xs CASCADE; DROP SCHEMA fz_q7xe CASCADE;".to_string()),
@@ -3387,8 +3855,8 @@ fn gen_bpchar(g: &mut Gen) -> Vec<StmtKind> {
 fn gen_fmtty(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("adtm:fmtty");
     let oids: &[u32] = &[
-        16, 17, 18, 19, 20, 21, 23, 25, 700, 701, 790, 1042, 1043, 1082,
-        1083, 1114, 1184, 1186, 1266, 1560, 1562, 1700, 0, 999999,
+        16, 17, 18, 19, 20, 21, 23, 25, 700, 701, 790, 1042, 1043, 1082, 1083, 1114, 1184, 1186,
+        1266, 1560, 1562, 1700, 0, 999999,
     ];
     let typmods: &[i64] = &[-1, 0, 4, 6, 8, 104, 458759, 1048576, 65540];
     let n = 3 + g.rng.below(4);
@@ -3441,9 +3909,17 @@ fn gen_trim2(g: &mut Gen) -> Vec<StmtKind> {
 fn gen_lev(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("adtm:lev");
     let miss = *g.rng.pick(&[
-        "colcount", "columnn", "colcnt", "the_column_counter", "clm",
-        "column_conut", "colun_count", "c", "kolumncount",
-        "日本語のカラム", "extremely_long_identifier_no_match_at_all_qq",
+        "colcount",
+        "columnn",
+        "colcnt",
+        "the_column_counter",
+        "clm",
+        "column_conut",
+        "colun_count",
+        "c",
+        "kolumncount",
+        "日本語のカラム",
+        "extremely_long_identifier_no_match_at_all_qq",
     ]);
     rawv(vec![
         "CREATE TABLE fz_lev (column_count int, colname text, col2 int);".to_string(),
@@ -3463,12 +3939,12 @@ fn gen_ident(g: &mut Gen) -> Vec<StmtKind> {
         ("x.y.z junk", "false"),
         ("\"quoted\"", "true"),
         ("a.\"b\"\"q\".c", "true"),
-        ("trailing.", "true"),   // error: no valid identifier after "."
-        (".leading", "true"),    // error: string is not a valid identifier
-        ("", "true"),            // error
-        ("a..b", "true"),        // error
-        ("x.y.z junk", "true"),  // error under strict
-        ("\"\"", "true"),        // error: empty quoted ident
+        ("trailing.", "true"),  // error: no valid identifier after "."
+        (".leading", "true"),   // error: string is not a valid identifier
+        ("", "true"),           // error
+        ("a..b", "true"),       // error
+        ("x.y.z junk", "true"), // error under strict
+        ("\"\"", "true"),       // error: empty quoted ident
     ];
     let (s, strict) = *g.rng.pick(idents);
     raw(format!(
@@ -3533,9 +4009,20 @@ fn gen_nametext(g: &mut Gen) -> Vec<StmtKind> {
 fn gen_cash2(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("adtm:cash2");
     let ins: &[&str] = &[
-        "$1,234.56", "(1234.56)", "($55.00)", "-$1.23", "$-1.23", "+$0.05",
-        "$0.009", "1234", ".55", "-.05", "92233720368547758.07",
-        "-92233720368547758.08", "$ 12 . 34", "  $99  ",
+        "$1,234.56",
+        "(1234.56)",
+        "($55.00)",
+        "-$1.23",
+        "$-1.23",
+        "+$0.05",
+        "$0.009",
+        "1234",
+        ".55",
+        "-.05",
+        "92233720368547758.07",
+        "-92233720368547758.08",
+        "$ 12 . 34",
+        "  $99  ",
     ];
     let sql = match g.rng.below(5) {
         0 => {
@@ -3704,9 +4191,12 @@ fn gen_xrec(g: &mut Gen) -> Vec<StmtKind> {
 fn gen_progress(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("adtm:progress");
     let v = *g.rng.pick(&[
-        "pg_stat_progress_vacuum", "pg_stat_progress_analyze",
-        "pg_stat_progress_cluster", "pg_stat_progress_create_index",
-        "pg_stat_progress_basebackup", "pg_stat_progress_copy",
+        "pg_stat_progress_vacuum",
+        "pg_stat_progress_analyze",
+        "pg_stat_progress_cluster",
+        "pg_stat_progress_create_index",
+        "pg_stat_progress_basebackup",
+        "pg_stat_progress_copy",
     ]);
     raw(format!("SELECT count(*) >= 0 FROM {v};"))
 }
@@ -3757,18 +4247,20 @@ mod tests {
 
     /// Generate n groups with a session-persistent ObjState carrying live
     /// roles/ranges (mirrors the session loop's swap).
-    fn gen_groups(
-        seed: u64,
-        n: usize,
-        with_roles: bool,
-    ) -> (Vec<Vec<String>>, Vec<String>) {
+    fn gen_groups(seed: u64, n: usize, with_roles: bool) -> (Vec<Vec<String>>, Vec<String>) {
         let cat = FixtureCatalog.load_catalog().unwrap();
         let w = WeightTable::defaults();
         let mut rng = Rng::new(seed);
         let mut state = ObjState::new();
         if with_roles {
-            state.roles.push(ObjRole { name: "fz_role_t_0".to_string(), live: true });
-            state.roles.push(ObjRole { name: "fz_role_t_1".to_string(), live: false });
+            state.roles.push(ObjRole {
+                name: "fz_role_t_0".to_string(),
+                live: true,
+            });
+            state.roles.push(ObjRole {
+                name: "fz_role_t_1".to_string(),
+                live: false,
+            });
         }
         let mut groups = Vec::new();
         let mut prods_all = Vec::new();
@@ -3803,7 +4295,10 @@ mod tests {
                 for banned in ["random(", "now()"] {
                     assert!(!sql.contains(banned), "volatile fn in {sql}");
                 }
-                if sql.contains("gen_random_uuid") || sql.contains("uuidv4()") || sql.contains("uuidv7(") {
+                if sql.contains("gen_random_uuid")
+                    || sql.contains("uuidv4()")
+                    || sql.contains("uuidv7(")
+                {
                     let stable = sql.contains("<> gen_random_uuid()")
                         || sql.contains("uuid_extract_version(")
                         || sql.contains("IS NOT NULL");
@@ -3920,9 +4415,10 @@ mod tests {
                 continue;
             }
             saw_grant = true;
-            let on = first.split(" ON ").nth(1).map(|s| {
-                s.split(" TO ").next().unwrap().trim().to_string()
-            });
+            let on = first
+                .split(" ON ")
+                .nth(1)
+                .map(|s| s.split(" TO ").next().unwrap().trim().to_string());
             let last = group.last().unwrap();
             assert!(last.starts_with("REVOKE "), "{group:?}");
             if let Some(on_obj) = on {

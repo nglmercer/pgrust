@@ -30,10 +30,11 @@ use gravity_ir::{Block, ConvOp, HostFlags, IntBinOp, IntCond, Type, Value};
 use gravity_kernels::host_abi::{agg_gather, agg_gather_at, GATHER_FRESH};
 use gravity_kernels::util::RESUME_OPEN;
 use gravity_program::{OwnerDesc, Pipeline, MAX_REPS, REP_NONE};
-use mcx::{Mcx, PgBox, PgVec};
 use mcx::GrowIn;
+use mcx::{Mcx, PgBox, PgVec};
 
 use crate::admit::refusal::{Reason, ShapeWhy};
+use crate::cell::Row;
 use crate::face::end::EndMech;
 use crate::face::kinds::{Face, KindId};
 use crate::face::source::{SourceMech, WinConds};
@@ -42,7 +43,6 @@ use crate::frame::env::{AggRow, Env};
 use crate::frame::frame::{EndMaker, Win};
 use crate::frame::open::{Base, OpenWord, OpenWords};
 use crate::frame::px::{Px, WordKey};
-use crate::cell::Row;
 use crate::frame::row::{Carry, RowVals};
 use crate::frame::stop::Exits;
 use crate::ops::agg::hashagg::GroupRec;
@@ -51,7 +51,10 @@ use crate::table::emit_group::{ES_KEPT, ES_PTRS};
 use crate::table::face::{Domain, KeyShape, TableDecl, TableMech};
 use crate::table::keyimg::ImageWords;
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::KeyedDistinctMulti, &EndMaker(make))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::KeyedDistinctMulti, &EndMaker(make))],
+    ..crate::ops::NONE
+};
 
 fn bug(node: i32, payload: &'static str) -> ! {
     crate::refuse!(node, Reason::Bug { payload })
@@ -60,16 +63,24 @@ fn bug(node: i32, payload: &'static str) -> ! {
 /// PSP2-34: whether plain group `g` counts the distinct values of more than one argument, each its own resno-0 key
 /// (decompose `multi_counts`'s form: every call a `PairCount` naming its key in `count_slot`).
 pub(crate) fn multi(g: &GroupDecl<'_>) -> bool {
-    g.keys.len() > 1 && g.keys.iter().all(|k| k.resno == 0) && g.aggs.iter().all(|d| d.final_ == FinalForm::PairCount && (d.count_slot as usize) < g.keys.len())
+    g.keys.len() > 1
+        && g.keys.iter().all(|k| k.resno == 0)
+        && g.aggs
+            .iter()
+            .all(|d| d.final_ == FinalForm::PairCount && (d.count_slot as usize) < g.keys.len())
 }
 
 fn make<'g, 'p>(px: &mut Px<'g, 'p>, k: usize) -> PgBox<'g, dyn EndMech + 'g> {
     let node = px.gx.pipelines()[k].node_id;
-    let Some(g) = px.gx.group_at(k) else { bug(node, "a keyed.distinct_multi end without its group") };
+    let Some(g) = px.gx.group_at(k) else {
+        bug(node, "a keyed.distinct_multi end without its group")
+    };
     if multi(g) {
         return make_counts(px, k, g, node);
     }
-    let why = crate::ops::group::regroup::blocked(px.arena, px.gx.graph, px.gx.facts, g).unwrap_or("a pair-form DISTINCT group the host-sorted form was not given (a Bug of regroup.rs)");
+    let why = crate::ops::group::regroup::blocked(px.arena, px.gx.graph, px.gx.facts, g).unwrap_or(
+        "a pair-form DISTINCT group the host-sorted form was not given (a Bug of regroup.rs)",
+    );
     crate::refuse!(node, Reason::Shape { why: ShapeWhy(why) })
 }
 
@@ -89,15 +100,40 @@ fn image_width(g: &GroupDecl<'_>) -> usize {
     1 + g.keys.iter().any(|k| k.kind == KeyKind::Fp128) as usize
 }
 
-fn make_counts<'g, 'p>(px: &mut Px<'g, 'p>, k: usize, g: &'g GroupDecl<'p>, node: i32) -> PgBox<'g, dyn EndMech + 'g> {
+fn make_counts<'g, 'p>(
+    px: &mut Px<'g, 'p>,
+    k: usize,
+    g: &'g GroupDecl<'p>,
+    node: i32,
+) -> PgBox<'g, dyn EndMech + 'g> {
     let mut rec = GroupRec::new(px, g);
-    if rec.wpk.iter().zip(&g.keys).any(|(&w, k)| w != 1 + (k.kind == KeyKind::Fp128) as u8) {
+    if rec
+        .wpk
+        .iter()
+        .zip(&g.keys)
+        .any(|(&w, k)| w != 1 + (k.kind == KeyKind::Fp128) as u8)
+    {
         bug(node, "a multi-argument count(DISTINCT) key that is neither one image word nor a text's Fp128 (decompose multi_counts)");
     }
     rec.compile_args(px, true);
     let w = image_width(g);
     let layout = pair_layout(w);
-    let mut t = TableDecl { image_words: layout.nkeys() as u16, record_bytes: layout.size() - 8 * layout.nkeys() as u32, expect: None, depth: Depth::TOP, life: rec.home, layout, state_off: 0, key: KeyShape { code: None, dense: None, domain: Domain::Unknown }, facts: 0, copies: 0 };
+    let mut t = TableDecl {
+        image_words: layout.nkeys() as u16,
+        record_bytes: layout.size() - 8 * layout.nkeys() as u32,
+        expect: None,
+        depth: Depth::TOP,
+        life: rec.home,
+        layout,
+        state_off: 0,
+        key: KeyShape {
+            code: None,
+            dense: None,
+            domain: Domain::Unknown,
+        },
+        facts: 0,
+        copies: 0,
+    };
     t.facts = crate::table::size::declare_facts(px, k, &t, 0);
     let table = crate::table::face::table(&node, &t);
     mcx::pg_box_dyn!(px.mcx(), CountsEnd { rec, t, table, groups: g.keys.len() as u32, w } => dyn EndMech + 'g)
@@ -133,7 +169,13 @@ impl EndMech for CountsEnd<'_, '_> {
 
     /// The row's argument images in key order, then per key: a NULL skips it, any other value upserts `[its key index,
     /// its image words, 0 words to the pair's width]`.
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, _x: &Exits) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        _x: &Exits,
+    ) -> Carry<'e> {
         let one = b.iconst(Type::I64, 1);
         let out = b.int_bin(IntBinOp::Add, row.carry.out, one);
         let keys = self.rec.key_vals(b, env, row);
@@ -149,7 +191,13 @@ impl EndMech for CountsEnd<'_, '_> {
             env.aside(|env| {
                 let tag = b.iconst(Type::I64, j as i64);
                 let mut words = vec![tag]; // alloc: Program
-                words.extend((0..self.w).map(|i| if i < n { img.words.words[at + i] } else { env.zero }));
+                words.extend((0..self.w).map(|i| {
+                    if i < n {
+                        img.words.words[at + i]
+                    } else {
+                        env.zero
+                    }
+                }));
                 let pair = ImageWords::plain(ImageValues { words }, true);
                 let h = emit_key_hash(b, &pair.words);
                 self.table.upsert(b, env, &self.t, &pair, h);
@@ -157,7 +205,10 @@ impl EndMech for CountsEnd<'_, '_> {
             b.br(l_next, &[]);
             b.switch_to(l_next);
         }
-        Carry { out, accs: mcx::to_vec_in(&row.carry.accs[..], env.mcx) }
+        Carry {
+            out,
+            accs: mcx::to_vec_in(&row.carry.accs[..], env.mcx),
+        }
     }
 
     fn window_end(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, _c: &Carry) {
@@ -172,7 +223,15 @@ impl EndMech for CountsEnd<'_, '_> {
     /// owner partition dedups its pairs, round 2 counts each tag's into its accumulator (exec owner.rs's distinct form).
     fn pipeline_desc(&self, px: &Px<'_, '_>, _k: usize, d: Pipeline) -> Pipeline {
         let (pair, acc) = (self.t.layout, acc_layout(px, self.w));
-        Pipeline { words: None, ..d }.owner(OwnerDesc::distinct(pair, acc, 1, self.groups, ORDER_NONE, 0, [(REP_NONE, 0); MAX_REPS]))
+        Pipeline { words: None, ..d }.owner(OwnerDesc::distinct(
+            pair,
+            acc,
+            1,
+            self.groups,
+            ORDER_NONE,
+            0,
+            [(REP_NONE, 0); MAX_REPS],
+        ))
     }
 }
 
@@ -190,11 +249,27 @@ struct CountsEmit<'g, 'p> {
 }
 
 /// PSP2-34's emit (distinct_plain.rs hands a `multi` group's drain here): one row, each call's count its tag's pairs.
-pub(crate) fn make_emit<'g, 'p>(px: &mut Px<'g, 'p>, k: usize, g: &'g GroupDecl<'p>) -> PgBox<'g, dyn SourceMech + 'g> {
-    let word = |px: &mut Px<'_, '_>, i: u8| px.frame_word(WordKey::Open { face: Face::Keyed, k, j: u64::MAX, i }) as i32 * 8;
+pub(crate) fn make_emit<'g, 'p>(
+    px: &mut Px<'g, 'p>,
+    k: usize,
+    g: &'g GroupDecl<'p>,
+) -> PgBox<'g, dyn SourceMech + 'g> {
+    let word = |px: &mut Px<'_, '_>, i: u8| {
+        px.frame_word(WordKey::Open {
+            face: Face::Keyed,
+            k,
+            j: u64::MAX,
+            i,
+        }) as i32
+            * 8
+    };
     let words = [word(px, W_CURSOR), word(px, W_STATE)];
     let tail = px.tails.iter().any(|t| t.ident == px.ident(k));
-    let at = (k >= px.gx.pipelines().len()).then(|| crate::rerun::sets::run_region(px, k, g.slot)).flatten().filter(|&i| i != 0 || tail).map(|i| i as u64);
+    let at = (k >= px.gx.pipelines().len())
+        .then(|| crate::rerun::sets::run_region(px, k, g.slot))
+        .flatten()
+        .filter(|&i| i != 0 || tail)
+        .map(|i| i as u64);
     mcx::pg_box_dyn!(px.mcx(), CountsEmit { g, acc: acc_layout(px, image_width(g)), words, at, mcx: px.mcx() } => dyn SourceMech + 'g)
 }
 
@@ -211,7 +286,10 @@ impl<'g> CountsEmit<'g, '_> {
     /// Each key's distinct count: the pairs of the kept accumulator whose tag is that key's index, 0 where none is.
     fn counts(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, st: Value) -> PgVec<'g, Value> {
         let n = self.g.keys.len();
-        let (ptrs, kept) = (b.load(Type::Ptr, st, ES_PTRS), b.load(Type::I64, st, ES_KEPT));
+        let (ptrs, kept) = (
+            b.load(Type::Ptr, st, ES_PTRS),
+            b.load(Type::I64, st, ES_KEPT),
+        );
         let params = mcx::pg_vec![in self.mcx; Type::I64; n + 1];
         let (h, body) = cancel::header(b, env.ctx, env.l_cancel, &params[..], env.mcx);
         let l_done = b.create_block(&params[1..]);
@@ -242,13 +320,22 @@ impl<'g> CountsEmit<'g, '_> {
     }
 
     /// Every call's count into a stack area, 16 bytes each (the datum, then its valid word: always), as the row's cells by aggno.
-    fn finals<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, st: Value) -> AggRow<'e> {
+    fn finals<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        st: Value,
+    ) -> AggRow<'e> {
         let aggs = &self.g.aggs;
         let area = {
             let slot = b.declare_stack_slot(16 * aggs.len() as u32, 8);
             b.stack_addr(slot)
         };
-        let naggno = aggs.iter().map(|d| d.aggno.max(0) as usize + 1).max().unwrap_or(0);
+        let naggno = aggs
+            .iter()
+            .map(|d| d.aggno.max(0) as usize + 1)
+            .max()
+            .unwrap_or(0);
         let mut cells = mcx::pg_vec![in env.mcx; AggCell::word(0, CellValid::Always); naggno];
         let counts = self.counts(b, env, st);
         for (i, d) in aggs.iter().enumerate() {
@@ -263,8 +350,17 @@ impl<'g> CountsEmit<'g, '_> {
 
 impl SourceMech for CountsEmit<'_, '_> {
     fn open_words(&self, w: &mut OpenWords) {
-        for (i, what) in ["distinct cursor", "distinct state"].into_iter().enumerate() {
-            w.declare(OpenWord::open(what, Base::Words, self.words[i], Type::I64, 0));
+        for (i, what) in ["distinct cursor", "distinct state"]
+            .into_iter()
+            .enumerate()
+        {
+            w.declare(OpenWord::open(
+                what,
+                Base::Words,
+                self.words[i],
+                Type::I64,
+                0,
+            ));
         }
     }
 
@@ -272,17 +368,39 @@ impl SourceMech for CountsEmit<'_, '_> {
     /// reads NONE around the call); a null state refuses.
     fn open(&self, b: &mut FunctionBuilder<'_>, env: &mut Env) -> Value {
         let desc = crate::table::emit_group::desc(b, &self.acc, &[], 0);
-        let mem = HostFlags { touches_memory: true, ..HostFlags::default() };
+        let mem = HostFlags {
+            touches_memory: true,
+            ..HostFlags::default()
+        };
         if let Some(at) = self.at {
-            let f = b.declare_host_once("agg_gather_at", &[Type::Ptr, Type::Ptr, Type::I64, Type::Ptr], Some(Type::Ptr), agg_gather_at as *const () as usize, mem);
-            let (at, scratch) = (b.iconst(Type::I64, (at | GATHER_FRESH) as i64), b.iconst(Type::Ptr, 0));
-            let st = b.call_host(f, &[env.ctx, desc, at, scratch], Some(Type::Ptr)).expect("the gather returns its state");
+            let f = b.declare_host_once(
+                "agg_gather_at",
+                &[Type::Ptr, Type::Ptr, Type::I64, Type::Ptr],
+                Some(Type::Ptr),
+                agg_gather_at as *const () as usize,
+                mem,
+            );
+            let (at, scratch) = (
+                b.iconst(Type::I64, (at | GATHER_FRESH) as i64),
+                b.iconst(Type::Ptr, 0),
+            );
+            let st = b
+                .call_host(f, &[env.ctx, desc, at, scratch], Some(Type::Ptr))
+                .expect("the gather returns its state");
             return self.filed(b, env, st);
         }
-        let gather = b.declare_host_once("agg_gather", &[Type::Ptr, Type::Ptr], Some(Type::Ptr), agg_gather as *const () as usize, mem);
+        let gather = b.declare_host_once(
+            "agg_gather",
+            &[Type::Ptr, Type::Ptr],
+            Some(Type::Ptr),
+            agg_gather as *const () as usize,
+            mem,
+        );
         let none = b.iconst(Type::I64, RESUME_NONE);
         b.store(env.ctx, hdr::RESUME as i32, none);
-        let st = b.call_host(gather, &[env.ctx, desc], Some(Type::Ptr)).expect("the gather returns its state");
+        let st = b
+            .call_host(gather, &[env.ctx, desc], Some(Type::Ptr))
+            .expect("the gather returns its state");
         let open = b.iconst(Type::I64, RESUME_OPEN);
         b.store(env.ctx, hdr::RESUME as i32, open);
         self.filed(b, env, st)
@@ -295,14 +413,35 @@ impl SourceMech for CountsEmit<'_, '_> {
         let l_win = b.create_block(&[]);
         b.cond_br(past, (l_eof, &[env.zero]), (l_win, &[]));
         b.switch_to(l_win);
-        Win { cursor, end: env.one, facts: WinConds::default() }
+        Win {
+            cursor,
+            end: env.one,
+            facts: WinConds::default(),
+        }
     }
 
-    fn row<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e> {
+    fn row<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+        j: Value,
+        carry: Carry<'e>,
+        next: Value,
+    ) -> RowVals<'e> {
         let st = env.load_word(b, self.words[W_STATE as usize]);
         let st = b.conv(ConvOp::IntToPtr, Type::Ptr, st);
         env.aggs = Some(self.finals(b, env, st));
-        RowVals { row: Row { cells: PgVec::new_in(env.mcx) }, vals: PgVec::new_in(env.mcx), cols: PgVec::new_in(env.mcx), carry, next, at: j }
+        RowVals {
+            row: Row {
+                cells: PgVec::new_in(env.mcx),
+            },
+            vals: PgVec::new_in(env.mcx),
+            cols: PgVec::new_in(env.mcx),
+            carry,
+            next,
+            at: j,
+        }
     }
 
     fn write_back(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, cur: Value, _out: Value) {
@@ -319,11 +458,22 @@ mod tests {
     fn the_tagged_pair_owns_one_accumulator_per_tag() {
         let pair = super::pair_layout(1);
         assert!(matches!(pair.key_kinds(), [KeyKind::I64, KeyKind::I64]));
-        assert!(matches!(super::pair_layout(2).key_kinds(), [KeyKind::I64, KeyKind::I64, KeyKind::I64]));
+        assert!(matches!(
+            super::pair_layout(2).key_kinds(),
+            [KeyKind::I64, KeyKind::I64, KeyKind::I64]
+        ));
         let acc = gravity_program::OwnerDesc::accumulator_of(&pair, 1);
         assert_eq!(acc.nkeys(), 1);
         assert!((ACC_PAIRS as usize) < acc.nslots());
-        let d = gravity_program::OwnerDesc::distinct(pair, acc, 1, 2, gravity_abi::breaker::ORDER_NONE, 0, [(gravity_program::REP_NONE, 0); gravity_program::MAX_REPS]);
+        let d = gravity_program::OwnerDesc::distinct(
+            pair,
+            acc,
+            1,
+            2,
+            gravity_abi::breaker::ORDER_NONE,
+            0,
+            [(gravity_program::REP_NONE, 0); gravity_program::MAX_REPS],
+        );
         assert_eq!(d.pair, 1);
     }
 }

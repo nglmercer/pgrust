@@ -7,9 +7,7 @@ use snapmgr::Snapshot;
 use types_core::{InvalidCommandId, Oid, TransactionId, XLogRecPtr};
 use types_snapshot::{SnapshotData, SnapshotType};
 use types_storage::{SharedInvalCatcacheMsg, SharedInvalidationMessage};
-use types_tuple::{
-    FormData_pg_attribute, NameData, TupleDescData, TYPALIGN_INT, TYPSTORAGE_PLAIN,
-};
+use types_tuple::{FormData_pg_attribute, NameData, TupleDescData, TYPALIGN_INT, TYPSTORAGE_PLAIN};
 
 use crate::*;
 
@@ -35,7 +33,11 @@ fn msg_change(text: &str) -> ReorderBufferChange {
 }
 
 fn inval_msg(hash: u32) -> SharedInvalidationMessage {
-    SharedInvalidationMessage::Catcache(SharedInvalCatcacheMsg { id: 1, dbId: 5, hashValue: hash })
+    SharedInvalidationMessage::Catcache(SharedInvalCatcacheMsg {
+        id: 1,
+        dbId: 5,
+        hashValue: hash,
+    })
 }
 
 #[test]
@@ -269,7 +271,8 @@ fn invalidations_accumulate_on_toplevel() {
     rb.process_xid(2, 11);
     rb.assign_child(1, 2, 11);
 
-    rb.add_invalidations(2, 12, &[inval_msg(1), inval_msg(2)]).unwrap();
+    rb.add_invalidations(2, 12, &[inval_msg(1), inval_msg(2)])
+        .unwrap();
     rb.add_invalidations(1, 13, &[inval_msg(3)]).unwrap();
 
     let top = rb.txn_by_xid(1, false, 0, false).0.unwrap();
@@ -298,7 +301,8 @@ fn distributed_invalidations_overflow_sets_flag_and_clears() {
     assert!(rb.txn(top).distr_inval_overflowed());
     assert!(rb.txn(top).invalidations_distributed.is_empty());
 
-    rb.add_distributed_invalidations(1, 13, &[inval_msg(9)]).unwrap();
+    rb.add_distributed_invalidations(1, 13, &[inval_msg(9)])
+        .unwrap();
     assert!(rb.txn(top).invalidations_distributed.is_empty());
     assert_eq!(rb.txn(top).nentries, 3);
 }
@@ -362,7 +366,10 @@ fn build_tuplecid_hash_and_resolve() {
     {
         let h = hash.borrow();
         let ent = h
-            .get(&ReorderBufferTupleCidKey { rlocator: locator, tid })
+            .get(&ReorderBufferTupleCidKey {
+                rlocator: locator,
+                tid,
+            })
             .unwrap();
         assert_eq!(ent.cmin, 2);
         assert_eq!(ent.cmax, 5);
@@ -383,7 +390,10 @@ fn build_tuplecid_hash_and_resolve() {
     };
     let got = ResolveCminCmaxDuringDecoding(Some(&any), &s, &htup2, locator).unwrap();
     assert_eq!(got, None);
-    assert_eq!(ResolveCminCmaxDuringDecoding(None, &s, &htup, locator).unwrap(), None);
+    assert_eq!(
+        ResolveCminCmaxDuringDecoding(None, &s, &htup, locator).unwrap(),
+        None
+    );
 }
 
 thread_local! {
@@ -423,14 +433,18 @@ fn non_transactional_message_delivered_with_historic_snapshot() {
     assert!(!snapmgr::HistoricSnapshotActive());
 
     DELIVERED.with(|d| {
-        assert_eq!(d.borrow().as_slice(), ["-1:42:false:pfx:payload".to_string()]);
+        assert_eq!(
+            d.borrow().as_slice(),
+            ["-1:42:false:pfx:payload".to_string()]
+        );
     });
 }
 
 #[test]
 fn transactional_message_is_queued() {
     let mut rb = rb();
-    rb.queue_message(4, None, 43, true, b"pfx", b"body").unwrap();
+    rb.queue_message(4, None, 43, true, b"pfx", b"body")
+        .unwrap();
     let txn = rb.txn_by_xid(4, false, 0, false).0.unwrap();
     assert_eq!(rb.txn(txn).nentries, 1);
     let cid = rb.txn(txn).changes.head;
@@ -461,11 +475,7 @@ fn attr(name: &str, num: i16, typid: Oid, len: i16, byval: bool) -> FormData_pg_
 
 fn toast_descs() -> (TupleDescData<'static>, TupleDescData<'static>) {
     let mcx = rb_mcx();
-    let main_desc = tupdesc::CreateTupleDesc(
-        mcx,
-        &[attr("payload", 1, 25, -1, false)],
-    )
-    .unwrap();
+    let main_desc = tupdesc::CreateTupleDesc(mcx, &[attr("payload", 1, 25, -1, false)]).unwrap();
     let toast_desc = tupdesc::CreateTupleDesc(
         mcx,
         &[
@@ -541,10 +551,12 @@ fn toast_chunks_reassemble_behind_an_indirect_pointer() {
             Datum::from_usize(chunk.as_ptr() as usize),
         ];
         let change = tuple_change(&rb, &toast_desc, &values, &[false, false, false]);
-        rb.queue_change(xid, 100 + seq as u64, change, true).unwrap();
+        rb.queue_change(xid, 100 + seq as u64, change, true)
+            .unwrap();
         let txn = rb.txn_by_xid(xid, false, 0, false).0.unwrap();
         let cid = unlink_tail(&mut rb, txn);
-        rb.toast_append_chunk_with_desc(txn, &toast_desc, cid).unwrap();
+        rb.toast_append_chunk_with_desc(txn, &toast_desc, cid)
+            .unwrap();
     }
 
     let txn = rb.txn_by_xid(xid, false, 0, false).0.unwrap();
@@ -563,11 +575,14 @@ fn toast_chunks_reassemble_behind_an_indirect_pointer() {
     let cid = rb.txn(txn).changes.tail;
 
     let size_before = rb.size;
-    rb.toast_replace_with_descs(txn, &main_desc, &toast_desc, cid).unwrap();
+    rb.toast_replace_with_descs(txn, &main_desc, &toast_desc, cid)
+        .unwrap();
     assert_ne!(rb.size, size_before);
 
     match &rb.change(cid).data {
-        ReorderBufferChangeData::Tp { newtuple: Some(t), .. } => {
+        ReorderBufferChangeData::Tp {
+            newtuple: Some(t), ..
+        } => {
             assert_eq!(t.t_len, 24 + 10);
             let mut values = [Datum::from_usize(0)];
             let mut isnull = [true];
@@ -583,7 +598,15 @@ fn toast_chunks_reassemble_behind_an_indirect_pointer() {
         }
         _ => panic!("expected Tp data"),
     }
-    assert!(rb.txn(txn).toast_hash.as_ref().unwrap().get(&valueid).unwrap().reconstructed.is_some());
+    assert!(rb
+        .txn(txn)
+        .toast_hash
+        .as_ref()
+        .unwrap()
+        .get(&valueid)
+        .unwrap()
+        .reconstructed
+        .is_some());
 
     rb.toast_reset(txn);
     assert!(rb.txn(txn).toast_hash.is_none());
@@ -605,7 +628,9 @@ fn toast_chunk_sequence_gap_errors() {
     rb.queue_change(31, 10, change, true).unwrap();
     let txn = rb.txn_by_xid(31, false, 0, false).0.unwrap();
     let cid = unlink_tail(&mut rb, txn);
-    let err = rb.toast_append_chunk_with_desc(txn, &toast_desc, cid).unwrap_err();
+    let err = rb
+        .toast_append_chunk_with_desc(txn, &toast_desc, cid)
+        .unwrap_err();
     assert!(err.message().contains("instead of seq 0"), "{err:?}");
 }
 
@@ -695,11 +720,11 @@ fn queued_change_to_aborted_txn_is_dropped() {
     rb.process_xid(13, 10);
     let txn = rb.txn_by_xid(13, false, 0, false).0.unwrap();
     rb.txn_mut(txn).txn_flags |= RBTXN_IS_ABORTED;
-    rb.queue_change(13, 11, msg_change("dropped"), false).unwrap();
+    rb.queue_change(13, 11, msg_change("dropped"), false)
+        .unwrap();
     assert_eq!(rb.txn(txn).nentries, 0);
     assert_eq!(rb.size, 0);
 }
-
 
 thread_local! {
     static TWOPC_EVENTS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
@@ -709,7 +734,11 @@ fn twopc_events() -> Vec<String> {
     TWOPC_EVENTS.with(|e| e.borrow().clone())
 }
 
-fn rec_prepare_cb(rb: &mut ReorderBuffer, txn: TxnId, lsn: XLogRecPtr) -> types_error::PgResult<()> {
+fn rec_prepare_cb(
+    rb: &mut ReorderBuffer,
+    txn: TxnId,
+    lsn: XLogRecPtr,
+) -> types_error::PgResult<()> {
     let gid = rb.txn(txn).gid.clone().unwrap_or_default();
     TWOPC_EVENTS.with(|e| e.borrow_mut().push(format!("prepare:{gid}:{lsn}")));
     Ok(())
@@ -733,8 +762,9 @@ fn rec_rollback_prepared_cb(
 ) -> types_error::PgResult<()> {
     let gid = rb.txn(txn).gid.clone().unwrap_or_default();
     TWOPC_EVENTS.with(|e| {
-        e.borrow_mut()
-            .push(format!("rollback_prepared:{gid}:{prepare_end_lsn}:{prepare_time}"))
+        e.borrow_mut().push(format!(
+            "rollback_prepared:{gid}:{prepare_end_lsn}:{prepare_time}"
+        ))
     });
     Ok(())
 }
@@ -854,7 +884,10 @@ fn finish_prepared_rollback_uses_prepare_record_info() {
     rb.finish_prepared(26, 600, 610, 200, 999, 0, 0, "gid_26", false)
         .unwrap();
 
-    assert_eq!(twopc_events(), ["rollback_prepared:gid_26:310:777".to_string()]);
+    assert_eq!(
+        twopc_events(),
+        ["rollback_prepared:gid_26:310:777".to_string()]
+    );
     assert!(rb.txn_by_xid(26, false, 0, false).0.is_none());
 }
 
@@ -865,7 +898,6 @@ fn finish_prepared_unknown_xid_is_noop() {
         .unwrap();
 }
 
-
 thread_local! {
     pub(crate) static DID_COMMIT_ANSWER: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
@@ -874,9 +906,7 @@ thread_local! {
 pub(crate) fn install_did_commit_stub() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
-        transam_seams::transaction_id_did_commit::set(|_| {
-            Ok(DID_COMMIT_ANSWER.with(|c| c.get()))
-        });
+        transam_seams::transaction_id_did_commit::set(|_| Ok(DID_COMMIT_ANSWER.with(|c| c.get())));
     });
 }
 
@@ -892,7 +922,10 @@ pub(crate) fn install_file_seams() {
         }
         if !waitevent_seams::pgstat_report_wait_start::is_installed() {
             waitevent_seams::pgstat_report_wait_start::set(|info| {
-                WAIT_STARTS.lock().unwrap().push((std::thread::current().id(), info));
+                WAIT_STARTS
+                    .lock()
+                    .unwrap()
+                    .push((std::thread::current().id(), info));
             });
             waitevent_seams::pgstat_report_wait_end::set(|| {
                 WAIT_ENDS.lock().unwrap().push(std::thread::current().id());
@@ -903,12 +936,23 @@ pub(crate) fn install_file_seams() {
 
 pub(crate) fn my_wait_starts() -> Vec<u32> {
     let me = std::thread::current().id();
-    WAIT_STARTS.lock().unwrap().iter().filter(|(t, _)| *t == me).map(|(_, i)| *i).collect()
+    WAIT_STARTS
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(t, _)| *t == me)
+        .map(|(_, i)| *i)
+        .collect()
 }
 
 pub(crate) fn my_wait_ends() -> usize {
     let me = std::thread::current().id();
-    WAIT_ENDS.lock().unwrap().iter().filter(|t| **t == me).count()
+    WAIT_ENDS
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|t| **t == me)
+        .count()
 }
 
 #[test]
@@ -957,7 +1001,6 @@ fn check_xid_guard_is_idempotent_when_clean() {
     assert!(!xact::bsysscan());
 }
 
-
 const TEST_SEG_SIZE: u64 = 16 * 1024 * 1024;
 
 fn spill_rb(slot: &str) -> ReorderBuffer {
@@ -1002,7 +1045,10 @@ fn snap_change(xmin: TransactionId, xips: &[TransactionId]) -> ReorderBufferChan
     s.suboverflowed = true;
     s.curcid.set(7);
     s.copied = true;
-    ReorderBufferChange::new(InternalSnapshot, ReorderBufferChangeData::Snapshot(Rc::new(s)))
+    ReorderBufferChange::new(
+        InternalSnapshot,
+        ReorderBufferChangeData::Snapshot(Rc::new(s)),
+    )
 }
 
 fn drain_lsns(rb: &mut ReorderBuffer, txn: TxnId) -> Vec<XLogRecPtr> {
@@ -1024,11 +1070,17 @@ fn spill_roundtrip_preserves_every_change_type() {
     let xid: TransactionId = 60;
     let (main_desc, _) = toast_descs();
 
-    rb.queue_change(xid, 100, msg_change("alpha"), false).unwrap();
+    rb.queue_change(xid, 100, msg_change("alpha"), false)
+        .unwrap();
     let payload = inline_varlena(b"spilled tuple payload");
     let values = [Datum::from_usize(payload.as_ptr() as usize)];
-    rb.queue_change(xid, 110, tuple_change(&rb, &main_desc, &values, &[false]), false)
-        .unwrap();
+    rb.queue_change(
+        xid,
+        110,
+        tuple_change(&rb, &main_desc, &values, &[false]),
+        false,
+    )
+    .unwrap();
     rb.queue_change(
         xid,
         120,
@@ -1045,7 +1097,8 @@ fn spill_roundtrip_preserves_every_change_type() {
         false,
     )
     .unwrap();
-    rb.queue_change(xid, 130, snap_change(500, &[501, 502, 503]), false).unwrap();
+    rb.queue_change(xid, 130, snap_change(500, &[501, 502, 503]), false)
+        .unwrap();
     rb.queue_change(
         xid,
         140,
@@ -1100,8 +1153,19 @@ fn spill_roundtrip_preserves_every_change_type() {
                 assert_eq!(&prefix[..], b"test");
                 assert_eq!(&message[..], b"alpha");
             }
-            (110, ReorderBufferChangeData::Tp { rlocator, clear_toast_afterwards, oldtuple, newtuple }) => {
-                assert_eq!(*rlocator, types_storage::RelFileLocator::new(1663, 5, 55555));
+            (
+                110,
+                ReorderBufferChangeData::Tp {
+                    rlocator,
+                    clear_toast_afterwards,
+                    oldtuple,
+                    newtuple,
+                },
+            ) => {
+                assert_eq!(
+                    *rlocator,
+                    types_storage::RelFileLocator::new(1663, 5, 55555)
+                );
                 assert!(*clear_toast_afterwards);
                 assert!(oldtuple.is_none());
                 let t = newtuple.as_ref().unwrap();
@@ -1127,7 +1191,14 @@ fn spill_roundtrip_preserves_every_change_type() {
                 assert!(s.copied);
             }
             (140, ReorderBufferChangeData::CommandId(c)) => assert_eq!(*c, 42),
-            (150, ReorderBufferChangeData::Truncate { cascade, restart_seqs, relids }) => {
+            (
+                150,
+                ReorderBufferChangeData::Truncate {
+                    cascade,
+                    restart_seqs,
+                    relids,
+                },
+            ) => {
                 assert!(*cascade);
                 assert!(!*restart_seqs);
                 assert_eq!(&relids[..], &[16384, 16400]);
@@ -1162,7 +1233,8 @@ fn spill_eviction_fires_from_queue_change_and_reports_stats() {
 
     let body = "x".repeat(1024);
     for i in 0..64u64 {
-        rb.queue_change(70, 1000 + i, msg_change(&body), false).unwrap();
+        rb.queue_change(70, 1000 + i, msg_change(&body), false)
+            .unwrap();
     }
 
     let limit = 8 * 1024;
@@ -1196,7 +1268,8 @@ fn spill_restore_runs_in_bounded_batches() {
     let n: u64 = 5000;
 
     for i in 0..n {
-        rb.queue_change(xid, 10_000 + i, msg_change(&format!("m{i}")), false).unwrap();
+        rb.queue_change(xid, 10_000 + i, msg_change(&format!("m{i}")), false)
+            .unwrap();
     }
     let txn = rb.txn_by_xid(xid, false, 0, false).0.unwrap();
     rb.serialize_txn(txn).unwrap();
@@ -1235,8 +1308,10 @@ fn spill_splits_files_per_wal_segment() {
     let mut rb = spill_rb(slot);
     let xid: TransactionId = 90;
 
-    rb.queue_change(xid, 100, msg_change("seg0"), false).unwrap();
-    rb.queue_change(xid, TEST_SEG_SIZE + 200, msg_change("seg1"), false).unwrap();
+    rb.queue_change(xid, 100, msg_change("seg0"), false)
+        .unwrap();
+    rb.queue_change(xid, TEST_SEG_SIZE + 200, msg_change("seg1"), false)
+        .unwrap();
     let txn = rb.txn_by_xid(xid, false, 0, false).0.unwrap();
     rb.serialize_txn(txn).unwrap();
 
@@ -1261,10 +1336,14 @@ fn spill_iterates_subtxns_merged_by_lsn() {
     let mut rb = spill_rb(slot);
     let (top_xid, sub_xid): (TransactionId, TransactionId) = (100, 101);
 
-    rb.queue_change(top_xid, 10, msg_change("t10"), false).unwrap();
-    rb.queue_change(sub_xid, 20, msg_change("s20"), false).unwrap();
-    rb.queue_change(top_xid, 30, msg_change("t30"), false).unwrap();
-    rb.queue_change(sub_xid, 40, msg_change("s40"), false).unwrap();
+    rb.queue_change(top_xid, 10, msg_change("t10"), false)
+        .unwrap();
+    rb.queue_change(sub_xid, 20, msg_change("s20"), false)
+        .unwrap();
+    rb.queue_change(top_xid, 30, msg_change("t30"), false)
+        .unwrap();
+    rb.queue_change(sub_xid, 40, msg_change("s40"), false)
+        .unwrap();
     rb.assign_child(top_xid, sub_xid, 20);
 
     let top = rb.txn_by_xid(top_xid, false, 0, false).0.unwrap();
@@ -1290,10 +1369,12 @@ fn spill_stats_count_a_txn_once_across_repeat_spills() {
     let mut rb = spill_rb(slot);
     let xid: TransactionId = 110;
 
-    rb.queue_change(xid, 100, msg_change("first"), false).unwrap();
+    rb.queue_change(xid, 100, msg_change("first"), false)
+        .unwrap();
     let txn = rb.txn_by_xid(xid, false, 0, false).0.unwrap();
     rb.serialize_txn(txn).unwrap();
-    rb.queue_change(xid, 200, msg_change("second"), false).unwrap();
+    rb.queue_change(xid, 200, msg_change("second"), false)
+        .unwrap();
     rb.serialize_txn(txn).unwrap();
 
     assert_eq!(rb.spillTxns, 1, "same txn spilled twice counts once");
@@ -1308,9 +1389,9 @@ fn spill_stats_count_a_txn_once_across_repeat_spills() {
 fn spill_immediate_debug_mode_serializes_every_change() {
     let slot = "spill_immediate";
     let mut rb = spill_rb(slot);
-    (guc_tables::vars::debug_logical_replication_streaming.get().set)(
-        guc_tables::consts::DEBUG_LOGICAL_REP_STREAMING_IMMEDIATE,
-    );
+    (guc_tables::vars::debug_logical_replication_streaming
+        .get()
+        .set)(guc_tables::consts::DEBUG_LOGICAL_REP_STREAMING_IMMEDIATE);
     let xid: TransactionId = 120;
 
     rb.queue_change(xid, 100, msg_change("a"), false).unwrap();
@@ -1323,9 +1404,9 @@ fn spill_immediate_debug_mode_serializes_every_change() {
     assert_eq!(rb.txn(txn).nentries, 2);
     assert_eq!(rb.txn(txn).nentries_mem, 0);
 
-    (guc_tables::vars::debug_logical_replication_streaming.get().set)(
-        guc_tables::consts::DEBUG_LOGICAL_REP_STREAMING_BUFFERED,
-    );
+    (guc_tables::vars::debug_logical_replication_streaming
+        .get()
+        .set)(guc_tables::consts::DEBUG_LOGICAL_REP_STREAMING_BUFFERED);
 
     let lsns = drain_lsns(&mut rb, txn);
     assert_eq!(lsns, vec![100, 110]);
@@ -1355,8 +1436,13 @@ fn spill_toast_chunks_reassemble_after_restore() {
     }
     let pointer = ondisk_toast_pointer(valueid, raw_len + 4, raw_len as u32);
     let values = [Datum::from_usize(pointer.as_ptr() as usize)];
-    rb.queue_change(xid, 110, tuple_change(&rb, &main_desc, &values, &[false]), false)
-        .unwrap();
+    rb.queue_change(
+        xid,
+        110,
+        tuple_change(&rb, &main_desc, &values, &[false]),
+        false,
+    )
+    .unwrap();
 
     let txn = rb.txn_by_xid(xid, false, 0, false).0.unwrap();
     rb.serialize_txn(txn).unwrap();
@@ -1369,15 +1455,19 @@ fn spill_toast_chunks_reassemble_after_restore() {
     while let Some(cid) = rb.iter_txn_next(&mut state).unwrap() {
         if rb.change(cid).lsn < 110 {
             rb.iter_extract_change(&mut state, cid);
-            rb.toast_append_chunk_with_desc(txn, &toast_desc, cid).unwrap();
+            rb.toast_append_chunk_with_desc(txn, &toast_desc, cid)
+                .unwrap();
         } else {
             main_cid = Some(cid);
-            rb.toast_replace_with_descs(txn, &main_desc, &toast_desc, cid).unwrap();
+            rb.toast_replace_with_descs(txn, &main_desc, &toast_desc, cid)
+                .unwrap();
         }
     }
     let main_cid = main_cid.unwrap();
     match &rb.change(main_cid).data {
-        ReorderBufferChangeData::Tp { newtuple: Some(t), .. } => {
+        ReorderBufferChangeData::Tp {
+            newtuple: Some(t), ..
+        } => {
             let mut values = [Datum::from_usize(0)];
             let mut isnull = [true];
             types_tuple::heap_deform_tuple(t.as_tuple(), &main_desc, &mut values, &mut isnull);
@@ -1445,7 +1535,12 @@ fn spill_old_and_new_tuples_roundtrip_identity_fields() {
     let mut state = state.unwrap();
     let cid = rb.iter_txn_next(&mut state).unwrap().unwrap();
     match &rb.change(cid).data {
-        ReorderBufferChangeData::Tp { clear_toast_afterwards, oldtuple, newtuple, .. } => {
+        ReorderBufferChangeData::Tp {
+            clear_toast_afterwards,
+            oldtuple,
+            newtuple,
+            ..
+        } => {
             assert!(!*clear_toast_afterwards);
             let o = oldtuple.as_ref().unwrap();
             assert_eq!(o.image(), &old_image[..], "old tuple image byte-exact");
@@ -1502,7 +1597,12 @@ fn spill_tuplecid_and_speculative_forms_roundtrip() {
     let cid = rb.iter_txn_next(&mut state).unwrap().unwrap();
     assert_eq!(rb.change(cid).action, InternalSpecConfirm);
     match &rb.change(cid).data {
-        ReorderBufferChangeData::Tp { rlocator, clear_toast_afterwards, oldtuple, newtuple } => {
+        ReorderBufferChangeData::Tp {
+            rlocator,
+            clear_toast_afterwards,
+            oldtuple,
+            newtuple,
+        } => {
             assert_eq!(rlocator.relNumber, 88888);
             assert!(*clear_toast_afterwards);
             assert!(oldtuple.is_none() && newtuple.is_none());
@@ -1514,21 +1614,27 @@ fn spill_tuplecid_and_speculative_forms_roundtrip() {
     rb.cleanup_txn(txn).unwrap();
 }
 
-
 #[test]
 fn largest_streamable_top_txn_selection_rules() {
     let mut rb = rb();
 
-    rb.queue_change(200, 100, msg_change(&"x".repeat(500)), false).unwrap();
-    rb.queue_change(200, 110, msg_change("small"), false).unwrap();
+    rb.queue_change(200, 100, msg_change(&"x".repeat(500)), false)
+        .unwrap();
+    rb.queue_change(200, 110, msg_change("small"), false)
+        .unwrap();
     rb.set_base_snapshot(200, 90, snap(200));
-    rb.queue_change(201, 120, msg_change(&"y".repeat(5000)), false).unwrap();
+    rb.queue_change(201, 120, msg_change(&"y".repeat(5000)), false)
+        .unwrap();
     rb.add_new_command_id(202, 130, 7).unwrap();
     rb.set_base_snapshot(202, 125, snap(202));
 
     let t200 = rb.txn_by_xid(200, false, 0, false).0.unwrap();
     let picked = rb.largest_streamable_top_txn();
-    assert_eq!(picked, Some(t200), "only the snapshot-bearing streamable txn qualifies");
+    assert_eq!(
+        picked,
+        Some(t200),
+        "only the snapshot-bearing streamable txn qualifies"
+    );
 
     rb.txn_mut(t200).txn_flags |= RBTXN_HAS_PARTIAL_CHANGE;
     assert_eq!(rb.largest_streamable_top_txn(), None);
@@ -1545,18 +1651,17 @@ fn can_start_streaming_needs_callbacks_and_ready_flag() {
     rb.streaming_ready = true;
     assert!(!rb.can_start_streaming(), "no stream callbacks installed");
 
-    fn noop_lsn_cb(
-        _: &mut ReorderBuffer,
-        _: TxnId,
-        _: XLogRecPtr,
-    ) -> types_error::PgResult<()> {
+    fn noop_lsn_cb(_: &mut ReorderBuffer, _: TxnId, _: XLogRecPtr) -> types_error::PgResult<()> {
         Ok(())
     }
     rb.callbacks.stream_start = Some(noop_lsn_cb);
     assert!(rb.can_stream());
     assert!(rb.can_start_streaming());
     rb.streaming_ready = false;
-    assert!(!rb.can_start_streaming(), "decode loop has not reached a consistent point");
+    assert!(
+        !rb.can_start_streaming(),
+        "decode loop has not reached a consistent point"
+    );
 }
 
 #[test]
@@ -1578,19 +1683,36 @@ fn save_txn_snapshot_copies_uncopied_snapshots() {
     let copied = rb.copy_snap(&snap(211), txn, 5);
     rb.save_txn_snapshot(txn, &copied, 5);
     let stored = rb.txn(txn).snapshot_now.as_ref().unwrap();
-    assert!(Rc::ptr_eq(stored, &copied), "copied snapshots are not re-copied");
+    assert!(
+        Rc::ptr_eq(stored, &copied),
+        "copied snapshots are not re-copied"
+    );
 }
-
 
 #[test]
 fn mapping_filename_parse_follows_sscanf() {
     use crate::visibility::parse_mapping_filename;
     let lsn = (3u64 << 32) | 4;
-    assert_eq!(parse_mapping_filename("map-1-2-3_4-5-6"), Some((1, 2, lsn, 5, 6)));
-    assert_eq!(parse_mapping_filename("map-1-2-3_4-5-6-extra"), Some((1, 2, lsn, 5, 6)));
-    assert_eq!(parse_mapping_filename("map-1-2-3_4-5-6extra"), Some((1, 2, lsn, 5, 0x6e)));
-    assert_eq!(parse_mapping_filename("map-1-2-3_4-5-6zzz"), Some((1, 2, lsn, 5, 6)));
-    assert_eq!(parse_mapping_filename("map-1-2-3_4-5-6.tmp"), Some((1, 2, lsn, 5, 6)));
+    assert_eq!(
+        parse_mapping_filename("map-1-2-3_4-5-6"),
+        Some((1, 2, lsn, 5, 6))
+    );
+    assert_eq!(
+        parse_mapping_filename("map-1-2-3_4-5-6-extra"),
+        Some((1, 2, lsn, 5, 6))
+    );
+    assert_eq!(
+        parse_mapping_filename("map-1-2-3_4-5-6extra"),
+        Some((1, 2, lsn, 5, 0x6e))
+    );
+    assert_eq!(
+        parse_mapping_filename("map-1-2-3_4-5-6zzz"),
+        Some((1, 2, lsn, 5, 6))
+    );
+    assert_eq!(
+        parse_mapping_filename("map-1-2-3_4-5-6.tmp"),
+        Some((1, 2, lsn, 5, 6))
+    );
     assert_eq!(parse_mapping_filename("map-1-2-3_4_5-6-7"), None);
     assert_eq!(parse_mapping_filename("map-1-2-3-4-5-6"), None);
     assert_eq!(parse_mapping_filename("map-1-2-3_4-5"), None);
@@ -1600,7 +1722,10 @@ fn mapping_filename_parse_follows_sscanf() {
         parse_mapping_filename("map-a-B-c_D-e-F"),
         Some((0xa, 0xb, (0xc << 32) | 0xd, 0xe, 0xf))
     );
-    assert_eq!(parse_mapping_filename("map-0x1-2-3_4-5-6"), Some((1, 2, lsn, 5, 6)));
+    assert_eq!(
+        parse_mapping_filename("map-0x1-2-3_4-5-6"),
+        Some((1, 2, lsn, 5, 6))
+    );
     assert_eq!(
         parse_mapping_filename("map-1-2-3_4-5--1"),
         Some((1, 2, lsn, 5, u32::MAX))
@@ -1615,8 +1740,9 @@ fn torn_mapping_entry_reports_c_message_with_relative_path() {
     std::fs::create_dir_all(&dir).unwrap();
     let fname = "map-1-2-3_4-5-6";
     std::fs::write(dir.join(fname), [0u8; 20]).unwrap();
-    let hash: RefCell<crate::visibility::TupleCidHash> =
-        RefCell::new(mcx::PgFxHashMap::with_hasher_in(Default::default(), rb_mcx()));
+    let hash: RefCell<crate::visibility::TupleCidHash> = RefCell::new(
+        mcx::PgFxHashMap::with_hasher_in(Default::default(), rb_mcx()),
+    );
     let err = crate::visibility::ApplyLogicalMappingFile(&hash, &dir, fname).unwrap_err();
     assert_eq!(
         err.message(),
@@ -1627,7 +1753,6 @@ fn torn_mapping_entry_reports_c_message_with_relative_path() {
     assert!(hash.borrow().is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }
-
 
 static MAPPED_RELOID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
@@ -1658,11 +1783,18 @@ fn apply_tuple_change_reports_relfilenumber_paths_like_c() {
     let cid = rb.txn(txn).changes.head;
 
     MAPPED_RELOID.store(types_core::InvalidOid, std::sync::atomic::Ordering::Relaxed);
-    let err = rb.apply_tuple_change(txn, cid, &mut None, &mut None, false).unwrap_err();
-    assert_eq!(err.message(), "could not map filenumber \"base/5/55555\" to relation OID");
+    let err = rb
+        .apply_tuple_change(txn, cid, &mut None, &mut None, false)
+        .unwrap_err();
+    assert_eq!(
+        err.message(),
+        "could not map filenumber \"base/5/55555\" to relation OID"
+    );
 
     MAPPED_RELOID.store(424242, std::sync::atomic::Ordering::Relaxed);
-    let err = rb.apply_tuple_change(txn, cid, &mut None, &mut None, false).unwrap_err();
+    let err = rb
+        .apply_tuple_change(txn, cid, &mut None, &mut None, false)
+        .unwrap_err();
     assert_eq!(
         err.message(),
         "could not open relation with OID 424242 (for filenumber \"base/5/55555\")"
@@ -1696,16 +1828,23 @@ fn spill_io_reports_reorder_buffer_wait_events() {
     (guc_tables::vars::logical_decoding_work_mem.get().set)(8);
     let body = "x".repeat(1024);
     for i in 0..64u64 {
-        rb.queue_change(71, 1000 + i, msg_change(&body), false).unwrap();
+        rb.queue_change(71, 1000 + i, msg_change(&body), false)
+            .unwrap();
     }
     let starts = my_wait_starts();
-    assert!(starts.contains(&(0x0A00_0000 + 44)), "ReorderBufferWrite reported: {starts:?}");
+    assert!(
+        starts.contains(&(0x0A00_0000 + 44)),
+        "ReorderBufferWrite reported: {starts:?}"
+    );
     assert!(!starts.contains(&(0x0A00_0000 + 43)));
     let txn = rb.txn_by_xid(71, false, 0, false).0.unwrap();
     let lsns = drain_lsns(&mut rb, txn);
     assert_eq!(lsns.len(), 64);
     let starts = my_wait_starts();
-    assert!(starts.contains(&(0x0A00_0000 + 43)), "ReorderBufferRead reported: {starts:?}");
+    assert!(
+        starts.contains(&(0x0A00_0000 + 43)),
+        "ReorderBufferRead reported: {starts:?}"
+    );
     assert_eq!(my_wait_ends(), starts.len());
     rb.cleanup_txn(txn).unwrap();
 }
@@ -1738,7 +1877,8 @@ fn serialize_and_abort_old_announce_at_debug2() {
     let slot = "spill_debug2";
     let mut rb = spill_rb(slot);
     for i in 0..4u64 {
-        rb.queue_change(90, 2000 + i, msg_change("m"), false).unwrap();
+        rb.queue_change(90, 2000 + i, msg_change("m"), false)
+            .unwrap();
     }
 
     static SEEN: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
@@ -1762,8 +1902,15 @@ fn serialize_and_abort_old_announce_at_debug2() {
     aborted.unwrap();
 
     let seen = SEEN.lock().unwrap();
-    assert!(seen.iter().any(|m| m == "spill 4 changes in XID 90 to disk"), "{seen:?}");
-    assert!(seen.iter().any(|m| m == "aborting old transaction 90"), "{seen:?}");
+    assert!(
+        seen.iter()
+            .any(|m| m == "spill 4 changes in XID 90 to disk"),
+        "{seen:?}"
+    );
+    assert!(
+        seen.iter().any(|m| m == "aborting old transaction 90"),
+        "{seen:?}"
+    );
     assert!(rb.txn_by_xid(90, false, 0, false).0.is_none());
 }
 
@@ -1773,7 +1920,8 @@ fn cleanup_releases_top_toast_chunks_owned_by_a_subxact() {
     let mut rb = rb();
     let (_, toast_desc) = toast_descs();
     let (top_xid, sub_xid): (TransactionId, TransactionId) = (120, 121);
-    rb.queue_change(top_xid, 10, msg_change("t10"), false).unwrap();
+    rb.queue_change(top_xid, 10, msg_change("t10"), false)
+        .unwrap();
     let chunk = inline_varlena(b"chunk");
     let values = [
         Datum::from_usize(4242usize),
@@ -1786,7 +1934,8 @@ fn cleanup_releases_top_toast_chunks_owned_by_a_subxact() {
     let top = rb.txn_by_xid(top_xid, false, 0, false).0.unwrap();
     let sub = rb.txn_by_xid(sub_xid, false, 0, false).0.unwrap();
     let cid = unlink_tail(&mut rb, sub);
-    rb.toast_append_chunk_with_desc(top, &toast_desc, cid).unwrap();
+    rb.toast_append_chunk_with_desc(top, &toast_desc, cid)
+        .unwrap();
     assert_eq!(rb.change(cid).txn, sub);
 
     rb.cleanup_txn(top).unwrap();
@@ -1809,7 +1958,8 @@ fn spill_error_path_is_datadir_relative() {
     std::fs::remove_file(&dir).unwrap();
     std::fs::create_dir(&dir).unwrap();
     assert!(
-        err.message().starts_with("could not open file \"pg_replslot/spill_relpath/xid-130-lsn-"),
+        err.message()
+            .starts_with("could not open file \"pg_replslot/spill_relpath/xid-130-lsn-"),
         "{}",
         err.message()
     );

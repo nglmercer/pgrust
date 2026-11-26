@@ -3,17 +3,23 @@ use std::rc::Rc;
 
 use gravity_program::Cmd;
 use mcx::Mcx;
-use trigger::{TransitionCaptureState, TrigTargetDesc, TriggerFmgrCache, TriggerWhenCache, TriggerWhenEval};
+use trigger::{
+    TransitionCaptureState, TrigTargetDesc, TriggerFmgrCache, TriggerWhenCache, TriggerWhenEval,
+};
 use types_core::Oid;
 use types_error::{PgError, PgResult, ERRCODE_E_R_I_E_TRIGGER_PROTOCOL_VIOLATED};
 use types_nodes::nodes_enums::CmdType;
 use types_rel::Relation;
 use types_storage::lock::NoLock;
-use types_trigger::{TriggerDesc, TRIGGER_EVENT_BEFORE, TRIGGER_EVENT_DELETE, TRIGGER_EVENT_INSERT, TRIGGER_EVENT_UPDATE, TRIGGER_TYPE_BEFORE, TRIGGER_TYPE_DELETE, TRIGGER_TYPE_INSERT, TRIGGER_TYPE_LEVEL_MASK, TRIGGER_TYPE_STATEMENT, TRIGGER_TYPE_TIMING_MASK, TRIGGER_TYPE_UPDATE};
+use types_trigger::{
+    TriggerDesc, TRIGGER_EVENT_BEFORE, TRIGGER_EVENT_DELETE, TRIGGER_EVENT_INSERT,
+    TRIGGER_EVENT_UPDATE, TRIGGER_TYPE_BEFORE, TRIGGER_TYPE_DELETE, TRIGGER_TYPE_INSERT,
+    TRIGGER_TYPE_LEVEL_MASK, TRIGGER_TYPE_STATEMENT, TRIGGER_TYPE_TIMING_MASK, TRIGGER_TYPE_UPDATE,
+};
 use types_trigger_call::TriggerData;
 
-use crate::scratch::NodeScratch;
 use crate::ops::modifytable::write_constraints::ModifiedCols;
+use crate::scratch::NodeScratch;
 
 /// The statement half of a served write's triggers (`fireBSTriggers` / `fireASTriggers`, one statement's
 /// `ExecSetupTransitionCaptureState`): the BEFORE STATEMENT twins run at the host's bind, once per (relation,
@@ -69,7 +75,11 @@ pub struct MergeOps {
 }
 
 impl MergeOps {
-    pub const NONE: MergeOps = MergeOps { insert: false, update: false, delete: false };
+    pub const NONE: MergeOps = MergeOps {
+        insert: false,
+        update: false,
+        delete: false,
+    };
 }
 
 /// `stmt_trigger_ops`: (insert, update, delete) statement events the command fires; ON CONFLICT DO UPDATE fires
@@ -95,7 +105,9 @@ fn cmd_type(cmd: Cmd) -> CmdType {
 }
 
 fn wants(desc: &TriggerDesc<'_>, ops: (bool, bool, bool)) -> bool {
-    (ops.0 && (desc.trig_insert_before_statement || desc.trig_insert_after_statement)) || (ops.1 && (desc.trig_update_before_statement || desc.trig_update_after_statement)) || (ops.2 && (desc.trig_delete_before_statement || desc.trig_delete_after_statement))
+    (ops.0 && (desc.trig_insert_before_statement || desc.trig_insert_after_statement))
+        || (ops.1 && (desc.trig_update_before_statement || desc.trig_update_after_statement))
+        || (ops.2 && (desc.trig_delete_before_statement || desc.trig_delete_after_statement))
 }
 
 impl StmtTriggers {
@@ -104,17 +116,39 @@ impl StmtTriggers {
     /// trigger and no transition table is wanted.
     /// A MERGE's captures are CMD_MERGE's (MakeTransitionCaptureState: each action's tables), its BS / AS twins its
     /// subcommands' (`merge`), in fireBSTriggers' / fireASTriggers' orders.
-    pub fn bind(heap: &Relation<'static>, desc: &Rc<TriggerDesc<'static>>, cmd: Cmd, conflict_update: bool, merge: MergeOps, modified: Option<ModifiedCols>) -> PgResult<Option<Rc<RefCell<StmtTriggers>>>> {
+    pub fn bind(
+        heap: &Relation<'static>,
+        desc: &Rc<TriggerDesc<'static>>,
+        cmd: Cmd,
+        conflict_update: bool,
+        merge: MergeOps,
+        modified: Option<ModifiedCols>,
+    ) -> PgResult<Option<Rc<RefCell<StmtTriggers>>>> {
         let ops = ops_of(cmd, conflict_update, merge);
         if ops == (false, false, false) {
             return Ok(None);
         }
         let capture = trigger::MakeTransitionCaptureState(desc, heap.rd_id, cmd_type(cmd))?;
-        let oc_capture = if conflict_update { trigger::MakeTransitionCaptureState(desc, heap.rd_id, CmdType::CMD_UPDATE)? } else { None };
+        let oc_capture = if conflict_update {
+            trigger::MakeTransitionCaptureState(desc, heap.rd_id, CmdType::CMD_UPDATE)?
+        } else {
+            None
+        };
         if !wants(desc, ops) && capture.is_none() && oc_capture.is_none() {
             return Ok(None);
         }
-        let mut s = StmtTriggers { relid: heap.rd_id, desc: Rc::clone(desc), ops, modified, capture, oc_capture, merge: cmd == Cmd::Merge, fmgr: TriggerFmgrCache::default(), when: TriggerWhenCache::default(), scratch: NodeScratch::new("GravityTriggerStmt") };
+        let mut s = StmtTriggers {
+            relid: heap.rd_id,
+            desc: Rc::clone(desc),
+            ops,
+            modified,
+            capture,
+            oc_capture,
+            merge: cmd == Cmd::Merge,
+            fmgr: TriggerFmgrCache::default(),
+            when: TriggerWhenCache::default(),
+            scratch: NodeScratch::new("GravityTriggerStmt"),
+        };
         if ops.0 {
             s.before(heap, TRIGGER_TYPE_INSERT, TRIGGER_EVENT_INSERT)?;
         }
@@ -125,13 +159,23 @@ impl StmtTriggers {
             s.before(heap, TRIGGER_TYPE_DELETE, TRIGGER_EVENT_DELETE)?;
         }
         let stmt = Rc::new(RefCell::new(s)); // alloc: Node
-        PENDING.with(|p| p.borrow_mut().push(Pending { depth: trigger::query_depth(), stmt: Rc::clone(&stmt), tag: 0 })); // alloc: Node
+        PENDING.with(|p| {
+            p.borrow_mut().push(Pending {
+                depth: trigger::query_depth(),
+                stmt: Rc::clone(&stmt),
+                tag: 0,
+            })
+        }); // alloc: Node
         Ok(Some(stmt))
     }
 
     /// The capture the row's AR twin takes: the conflict arm's UPDATE has its own (`mt_oc_transition_capture`).
     pub fn capture(&self, conflict_update: bool) -> Option<&TransitionCaptureState> {
-        if conflict_update { self.oc_capture.as_ref() } else { self.capture.as_ref() }
+        if conflict_update {
+            self.oc_capture.as_ref()
+        } else {
+            self.capture.as_ref()
+        }
     }
 
     /// MOVE: a MERGE's row moved across partitions is captured as a DELETE's old row and an INSERT's new row,
@@ -145,7 +189,12 @@ impl StmtTriggers {
         self.capture.is_some() || self.oc_capture.is_some()
     }
 
-    fn before(&mut self, rel: &Relation<'static>, tgtype_event: i16, event_op: u32) -> PgResult<()> {
+    fn before(
+        &mut self,
+        rel: &Relation<'static>,
+        tgtype_event: i16,
+        event_op: u32,
+    ) -> PgResult<()> {
         let has = match event_op {
             TRIGGER_EVENT_INSERT => self.desc.trig_insert_before_statement,
             TRIGGER_EVENT_UPDATE => self.desc.trig_update_before_statement,
@@ -156,20 +205,42 @@ impl StmtTriggers {
         }
         let tg_event = event_op | TRIGGER_EVENT_BEFORE;
         let desc = Rc::clone(&self.desc);
-        let cols = if event_op == TRIGGER_EVENT_UPDATE { self.modified.map(|m| m.1) } else { None };
-        let StmtTriggers { fmgr, when, scratch, .. } = self;
+        let cols = if event_op == TRIGGER_EVENT_UPDATE {
+            self.modified.map(|m| m.1)
+        } else {
+            None
+        };
+        let StmtTriggers {
+            fmgr,
+            when,
+            scratch,
+            ..
+        } = self;
         let mcx: Mcx<'static> = scratch.exec_mcx();
-        let mut w = TriggerWhenEval { mcx: scratch.mcx(), cache: when, modified_cols: cols };
+        let mut w = TriggerWhenEval {
+            mcx: scratch.mcx(),
+            cache: when,
+            modified_cols: cols,
+        };
         let r = (|| {
             // bounded("catalog-sized: one per trigger of the relation (its pg_trigger rows); a matching BEFORE STATEMENT trigger's function is called once, as ExecBSInsertTriggers loops them")
             for (i, t) in desc.triggers.iter().enumerate() {
-                if t.tgtype & (TRIGGER_TYPE_LEVEL_MASK | TRIGGER_TYPE_TIMING_MASK | tgtype_event) != TRIGGER_TYPE_STATEMENT | TRIGGER_TYPE_BEFORE | tgtype_event || !trigger::TriggerEnabled(t) || !w.check(i, t, rel, tg_event, None, None)? {
+                if t.tgtype & (TRIGGER_TYPE_LEVEL_MASK | TRIGGER_TYPE_TIMING_MASK | tgtype_event)
+                    != TRIGGER_TYPE_STATEMENT | TRIGGER_TYPE_BEFORE | tgtype_event
+                    || !trigger::TriggerEnabled(t)
+                    || !w.check(i, t, rel, tg_event, None, None)?
+                {
                     continue;
                 }
                 let finfo = fmgr.get(i, t.tgfoid)?;
                 let mut tdata = TriggerData::new(tg_event, rel, None, None, t);
                 if trigger::ExecCallTriggerFunc(mcx, &mut tdata, finfo, None)?.is_some() {
-                    return Err(Box::new(PgError::error("BEFORE STATEMENT trigger cannot return a value".to_string()).with_sqlstate(ERRCODE_E_R_I_E_TRIGGER_PROTOCOL_VIOLATED))); // alloc: Cold
+                    return Err(Box::new(
+                        PgError::error(
+                            "BEFORE STATEMENT trigger cannot return a value".to_string(),
+                        )
+                        .with_sqlstate(ERRCODE_E_R_I_E_TRIGGER_PROTOCOL_VIOLATED),
+                    )); // alloc: Cold
                 }
             }
             Ok(())
@@ -187,19 +258,46 @@ impl StmtTriggers {
     }
 
     fn after_on(&mut self, rel: &Relation<'static>) -> PgResult<()> {
-        let StmtTriggers { desc, ops, modified, capture, oc_capture, when, scratch, .. } = self;
+        let StmtTriggers {
+            desc,
+            ops,
+            modified,
+            capture,
+            oc_capture,
+            when,
+            scratch,
+            ..
+        } = self;
         let mcx = scratch.mcx();
         if ops.2 {
-            let mut w = TriggerWhenEval { mcx, cache: when, modified_cols: None };
+            let mut w = TriggerWhenEval {
+                mcx,
+                cache: when,
+                modified_cols: None,
+            };
             trigger::ExecASDeleteTriggers(rel, desc, capture.as_ref(), Some(&mut w))?;
         }
         if ops.1 {
             let cols = modified.map(|m| m.1);
-            let mut w = TriggerWhenEval { mcx, cache: when, modified_cols: cols };
-            trigger::ExecASUpdateTriggers(rel, desc, oc_capture.as_ref().or(capture.as_ref()), Some(&mut w), cols)?;
+            let mut w = TriggerWhenEval {
+                mcx,
+                cache: when,
+                modified_cols: cols,
+            };
+            trigger::ExecASUpdateTriggers(
+                rel,
+                desc,
+                oc_capture.as_ref().or(capture.as_ref()),
+                Some(&mut w),
+                cols,
+            )?;
         }
         if ops.0 {
-            let mut w = TriggerWhenEval { mcx, cache: when, modified_cols: None };
+            let mut w = TriggerWhenEval {
+                mcx,
+                cache: when,
+                modified_cols: None,
+            };
             trigger::ExecASInsertTriggers(rel, desc, capture.as_ref(), Some(&mut w))?;
         }
         Ok(())
@@ -249,7 +347,8 @@ pub fn finish_am() -> PgResult<()> {
     // bounded("catalog-sized: one table_finish_bulk_insert per leaf partition this query level wrote through its table AM (am_written files a relation once), at most the target's partitions; the statement's end, outside every kernel call")
     for relid in mine {
         let rel = table::table_open(scratch.mcx(), relid, NoLock)?;
-        let r = tableam::table_finish_bulk_insert(&rel, 0).and_then(|()| drain_placed(scratch.mcx(), &rel));
+        let r = tableam::table_finish_bulk_insert(&rel, 0)
+            .and_then(|()| drain_placed(scratch.mcx(), &rel));
         rel.close(NoLock)?;
         r?;
     }
@@ -268,7 +367,19 @@ pub fn drain_placed<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>) -> PgResult<()> 
             None => state.insert(execindexing::ExecOpenIndices(mcx, rel, false)?),
         };
         let cx = eval.get_or_insert_with(|| mcx::MemoryContext::new_bump("GravityIndexDrain"));
-        let out = execindexing::ExecInsertIndexTuples(mcx, cx.mcx(), st, rel, s, None, false, None, &[], false).map(|_| ());
+        let out = execindexing::ExecInsertIndexTuples(
+            mcx,
+            cx.mcx(),
+            st,
+            rel,
+            s,
+            None,
+            false,
+            None,
+            &[],
+            false,
+        )
+        .map(|_| ());
         cx.reset();
         out
     });
@@ -303,7 +414,8 @@ pub fn take_targets() -> Vec<TrigTargetDesc> {
         if !t.iter().any(|e| e.0 == d) {
             return Vec::new(); // alloc: Exec
         }
-        let (mine, keep): (Vec<(i32, TrigTargetDesc)>, Vec<(i32, TrigTargetDesc)>) = t.drain(..).partition(|e| e.0 == d); // alloc: Exec
+        let (mine, keep): (Vec<(i32, TrigTargetDesc)>, Vec<(i32, TrigTargetDesc)>) =
+            t.drain(..).partition(|e| e.0 == d); // alloc: Exec
         *t = keep;
         mine.into_iter().map(|e| e.1).collect() // alloc: Exec
     })
@@ -345,7 +457,12 @@ pub fn tag_since(mark: usize, tag: u32) {
     let d = trigger::query_depth();
     PENDING.with(|p| {
         // bounded("other: one per statement-trigger entry of this query level made since the mark, an entry per result relation a writer bound with statement triggers (the plan's own size); a store each")
-        for e in p.borrow_mut().iter_mut().skip(mark).filter(|e| e.depth == d && e.tag == 0) {
+        for e in p
+            .borrow_mut()
+            .iter_mut()
+            .skip(mark)
+            .filter(|e| e.depth == d && e.tag == 0)
+        {
             e.tag = tag;
         }
     });
@@ -361,7 +478,8 @@ pub fn fire_as_tagged(tag: u32) -> PgResult<()> {
         if !p.iter().any(|e| e.depth == d && e.tag == tag) {
             return Vec::new(); // alloc: Exec
         }
-        let (mine, keep): (Vec<Pending>, Vec<Pending>) = p.drain(..).partition(|e| e.depth == d && e.tag == tag); // alloc: Exec
+        let (mine, keep): (Vec<Pending>, Vec<Pending>) =
+            p.drain(..).partition(|e| e.depth == d && e.tag == tag); // alloc: Exec
         *p = keep;
         mine
     });

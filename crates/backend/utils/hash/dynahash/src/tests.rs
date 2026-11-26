@@ -20,7 +20,6 @@ fn search_hv(t: *mut HTAB, k: *const u8, hv: u32, a: HASHACTION) -> PgResult<(*m
     Ok((p, f))
 }
 
-
 static SEAMS: Once = Once::new();
 
 fn install_test_seams() {
@@ -108,7 +107,10 @@ fn freelist_recycles_removed_element() {
         assert_eq!(p1, r);
         let (p2, found) = search(table, 2u32.to_ne_bytes().as_ptr(), HASH_ENTER).unwrap();
         assert!(!found);
-        assert_eq!(p1, p2, "freed element must be recycled LIFO from the freelist");
+        assert_eq!(
+            p1, p2,
+            "freed element must be recycled LIFO from the freelist"
+        );
     }
     hash_destroy(table);
 }
@@ -139,11 +141,9 @@ fn string_keys_truncate_at_nul_and_keysize_minus_one() {
     unsafe {
         #[allow(clippy::manual_c_str_literals)]
         search(table, b"abc\0tail\0\0\0\0\0\0\0\0".as_ptr(), HASH_ENTER).unwrap();
-        let (_, found) =
-            search(table, b"abc\0zzzz\0\0\0\0\0\0\0\0".as_ptr(), HASH_FIND).unwrap();
+        let (_, found) = search(table, b"abc\0zzzz\0\0\0\0\0\0\0\0".as_ptr(), HASH_FIND).unwrap();
         assert!(found);
-        let (_, found) =
-            search(table, b"abcdzzzz\0\0\0\0\0\0\0\0".as_ptr(), HASH_FIND).unwrap();
+        let (_, found) = search(table, b"abcdzzzz\0\0\0\0\0\0\0\0".as_ptr(), HASH_FIND).unwrap();
         assert!(!found);
     }
     hash_destroy(table);
@@ -220,8 +220,14 @@ fn expansion_tracks_fill_factor_and_round_trips() {
         }
         assert_eq!(hash_get_num_entries(table), n as i64);
         let hctl = (*table).hctl;
-        assert!((*hctl).max_bucket as i64 + 1 >= n as i64, "ffactor 1: nentries <= max_bucket+1");
-        assert!((*hctl).nsegs > 1, "growth past ssize=256 buckets allocates segments");
+        assert!(
+            (*hctl).max_bucket as i64 + 1 >= n as i64,
+            "ffactor 1: nentries <= max_bucket+1"
+        );
+        assert!(
+            (*hctl).nsegs > 1,
+            "growth past ssize=256 buckets allocates segments"
+        );
         for i in 0..n {
             let key = i.to_ne_bytes();
             let (p, found) = search(table, key.as_ptr(), HASH_FIND).unwrap();
@@ -270,10 +276,17 @@ fn seq_scan_blocks_expansion_until_terminated() {
         for i in 0u32..64 {
             search(table, i.to_ne_bytes().as_ptr(), HASH_ENTER).unwrap();
         }
-        assert_eq!((*(*table).hctl).max_bucket, 3, "active scan must inhibit splits");
+        assert_eq!(
+            (*(*table).hctl).max_bucket,
+            3,
+            "active scan must inhibit splits"
+        );
         hash_seq_term(&mut scan).unwrap();
         search(table, 64u32.to_ne_bytes().as_ptr(), HASH_ENTER).unwrap();
-        assert!((*(*table).hctl).max_bucket > 3, "split resumes after scan ends");
+        assert!(
+            (*(*table).hctl).max_bucket > 3,
+            "split resumes after scan ends"
+        );
     }
     hash_destroy(table);
 }
@@ -381,10 +394,8 @@ fn partitioned_freelists_spread_lock_and_borrow() {
         let mut hit_nonzero_freelist = false;
         for i in 0u32..24 {
             let hv = get_hash_value(table, i.to_ne_bytes().as_ptr());
-            hit_nonzero_freelist |= ! (hv as usize).is_multiple_of( NUM_FREELISTS);
-            let (p, found) =
-                search_hv(table, i.to_ne_bytes().as_ptr(), hv, HASH_ENTER)
-                    .unwrap();
+            hit_nonzero_freelist |= !(hv as usize).is_multiple_of(NUM_FREELISTS);
+            let (p, found) = search_hv(table, i.to_ne_bytes().as_ptr(), hv, HASH_ENTER).unwrap();
             assert!(!found);
             assert!(!p.is_null(), "isfixed borrow path must scavenge freelist 0");
         }
@@ -412,12 +423,7 @@ fn partitioned_shared_fixed_create_works() {
         "part_shared",
         128,
         &info,
-        HASH_ELEM
-            | HASH_BLOBS
-            | HASH_PARTITION
-            | HASH_SHARED_MEM
-            | HASH_FIXED_SIZE
-            | HASH_DIRSIZE,
+        HASH_ELEM | HASH_BLOBS | HASH_PARTITION | HASH_SHARED_MEM | HASH_FIXED_SIZE | HASH_DIRSIZE,
     )
     .unwrap();
     unsafe {
@@ -435,7 +441,11 @@ fn partitioned_shared_fixed_create_works() {
             let (_, found) = search(table, i.to_ne_bytes().as_ptr(), HASH_FIND).unwrap();
             assert!(found);
         }
-        assert_eq!((*(*table).hctl).max_bucket, before, "partitioned tables never split");
+        assert_eq!(
+            (*(*table).hctl).max_bucket,
+            before,
+            "partitioned tables never split"
+        );
         for i in 0u32..96 {
             let (_, found) = search(table, i.to_ne_bytes().as_ptr(), HASH_REMOVE).unwrap();
             assert!(found);
@@ -454,12 +464,7 @@ fn reset_after_crash_restores_boot_image() {
         "part_shared_reset",
         128,
         &info,
-        HASH_ELEM
-            | HASH_BLOBS
-            | HASH_PARTITION
-            | HASH_SHARED_MEM
-            | HASH_FIXED_SIZE
-            | HASH_DIRSIZE,
+        HASH_ELEM | HASH_BLOBS | HASH_PARTITION | HASH_SHARED_MEM | HASH_FIXED_SIZE | HASH_DIRSIZE,
     )
     .unwrap();
     unsafe {
@@ -510,15 +515,24 @@ fn growable_shared_table_grows_through_its_shared_allocator() {
     .expect("dynahash.c:375: a shared table need not be HASH_FIXED_SIZE");
     unsafe {
         assert!((*table).isshared);
-        assert!(!(*table).isfixed, "dynahash.c:621: isfixed only under HASH_FIXED_SIZE");
+        assert!(
+            !(*table).isfixed,
+            "dynahash.c:621: isfixed only under HASH_FIXED_SIZE"
+        );
         let hctl = (*table).hctl;
-        assert_eq!(hctl, info.hctl, "dynahash.c:484: the preallocated header is the table's");
+        assert_eq!(
+            hctl, info.hctl,
+            "dynahash.c:484: the preallocated header is the table's"
+        );
         let initial_max_bucket = (*hctl).max_bucket;
         let calls_after_create = SHARED_ALLOC_CALLS.load(Ordering::Relaxed);
         for i in 0u32..2000 {
             let (p, found) = search(table, i.to_ne_bytes().as_ptr(), HASH_ENTER).unwrap();
             assert!(!found);
-            assert!(!p.is_null(), "growth past nelem=8 must not report out of shared memory");
+            assert!(
+                !p.is_null(),
+                "growth past nelem=8 must not report out of shared memory"
+            );
             entry(p)[4..8].copy_from_slice(&(i ^ 0x5a5a).to_ne_bytes());
         }
         assert_eq!(hash_get_num_entries(table), 2000);
@@ -530,8 +544,14 @@ fn growable_shared_table_grows_through_its_shared_allocator() {
             (*hctl).max_bucket > initial_max_bucket,
             "dynahash.c:1027: an unpartitioned shared table splits as it fills"
         );
-        assert!((*hctl).nsegs > 1, "dynahash.c:1019: new segments come from hashp->alloc");
-        assert!((*hctl).dsize <= info.max_dsize, "dynahash.c:1650: the directory never grows");
+        assert!(
+            (*hctl).nsegs > 1,
+            "dynahash.c:1019: new segments come from hashp->alloc"
+        );
+        assert!(
+            (*hctl).dsize <= info.max_dsize,
+            "dynahash.c:1650: the directory never grows"
+        );
         for i in 0u32..2000 {
             let (p, found) = search(table, i.to_ne_bytes().as_ptr(), HASH_FIND).unwrap();
             assert!(found);
@@ -575,7 +595,10 @@ fn growable_partitioned_shared_table_refills_its_freelists() {
             let hv = get_hash_value(table, i.to_ne_bytes().as_ptr());
             let (p, found) = search_hv(table, i.to_ne_bytes().as_ptr(), hv, HASH_ENTER).unwrap();
             assert!(!found);
-            assert!(!p.is_null(), "growth past nelem=64 must not report out of shared memory");
+            assert!(
+                !p.is_null(),
+                "growth past nelem=64 must not report out of shared memory"
+            );
         }
         assert_eq!(hash_get_num_entries(table), 1000);
         assert!(
@@ -604,8 +627,13 @@ fn growable_partitioned_shared_table_refills_its_freelists() {
 fn shared_without_alloc_or_fixed_size_is_a_typed_refusal() {
     install_test_seams();
     let ctl = ctl(4, 8);
-    let e = hash_create("shgrow_noalloc", 8, &ctl, HASH_ELEM | HASH_BLOBS | HASH_SHARED_MEM)
-        .expect_err("HASH_SHARED_MEM without HASH_ALLOC or HASH_FIXED_SIZE must be a typed refusal");
+    let e = hash_create(
+        "shgrow_noalloc",
+        8,
+        &ctl,
+        HASH_ELEM | HASH_BLOBS | HASH_SHARED_MEM,
+    )
+    .expect_err("HASH_SHARED_MEM without HASH_ALLOC or HASH_FIXED_SIZE must be a typed refusal");
     assert_eq!(e.level(), ERROR);
     assert_eq!(e.sqlstate(), ERRCODE_FEATURE_NOT_SUPPORTED);
     assert_eq!(
@@ -630,7 +658,10 @@ fn attach_is_a_typed_refusal() {
     .expect_err("HASH_ATTACH must be a typed refusal");
     assert_eq!(e.level(), ERROR);
     assert_eq!(e.sqlstate(), ERRCODE_FEATURE_NOT_SUPPORTED);
-    assert_eq!(e.message(), "attaching to hash table \"shattach\" is not supported");
+    assert_eq!(
+        e.message(),
+        "attaching to hash table \"shattach\" is not supported"
+    );
 }
 
 // audit-18.6 b163: C dynahash.c:1783-1793 hash_corrupted is elog(FATAL) for a
@@ -703,8 +734,7 @@ fn get_hash_value_matches_search_lane() {
     unsafe {
         search(table, key.as_ptr(), HASH_ENTER).unwrap();
         let hv = get_hash_value(table, key.as_ptr());
-        let (_, found) =
-            search_hv(table, key.as_ptr(), hv, HASH_FIND).unwrap();
+        let (_, found) = search_hv(table, key.as_ptr(), hv, HASH_FIND).unwrap();
         assert!(found);
     }
     hash_destroy(table);
@@ -715,7 +745,10 @@ fn estimate_size_overflow_raises_like_c() {
     // 2^62 buckets need 2^54 segments of 2048 bytes: 2^65 overflows.
     let err = hash_estimate_size(1 << 62, 8).unwrap_err();
     assert_eq!(err.sqlstate, ::types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED);
-    assert_eq!(err.message, "invalid memory allocation request size 18014398509481984 * 2048");
+    assert_eq!(
+        err.message,
+        "invalid memory allocation request size 18014398509481984 * 2048"
+    );
     assert!(hash_estimate_size(1 << 50, 1 << 20).is_err());
 }
 
@@ -754,7 +787,10 @@ fn subxact_cleanup_drops_only_deeper_scans() {
         let mut scan2 = HASH_SEQ_STATUS::new();
         hash_seq_init(&mut scan2, table).unwrap();
         AtEOSubXact_HashTables(false, 1);
-        assert!(hash_seq_term(&mut scan2).is_err(), "scan at level>=depth was dropped");
+        assert!(
+            hash_seq_term(&mut scan2).is_err(),
+            "scan at level>=depth was dropped"
+        );
     }
     hash_destroy(table);
 }
@@ -811,7 +847,11 @@ fn freelist_spin_uses_perform_spin_delay_backoff() {
         DELAY_CALLS.load(Ordering::Relaxed) >= 1,
         "contended acquire completed without any backoff call — it busy-spun"
     );
-    assert_eq!(LOCKWORD.load(Ordering::Relaxed), 1, "acquire must leave the lock held");
+    assert_eq!(
+        LOCKWORD.load(Ordering::Relaxed),
+        1,
+        "acquire must leave the lock held"
+    );
 }
 
 // dynahash.c:596: a long nelem is divided across the freelists before it is

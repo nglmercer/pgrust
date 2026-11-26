@@ -1,6 +1,9 @@
 use core::fmt::{self, Write};
 
-use gravity_program::{limits, ArenaVec, Cmd, IndexPlan, LockKind, Parallel, Pipeline, Reason, SiteDesc, WaitPolicy, WritePlan};
+use gravity_program::{
+    limits, ArenaVec, Cmd, IndexPlan, LockKind, Parallel, Pipeline, Reason, SiteDesc, WaitPolicy,
+    WritePlan,
+};
 use mcx::{GrowIn, PgVec};
 use types_nodes::list::{IntList, NodeList};
 use types_nodes::nodes_enums::{CmdType, LockWaitPolicy};
@@ -9,13 +12,16 @@ use types_nodes::plannodes::{ModifyTable, Plan, RowMarkType};
 use types_nodes::primnodes::{MergeMatchKind, VarReturningType};
 use types_nodes::{Node, NodeTag};
 
+use crate::admit::Refusal;
 use crate::catalog::{Am, IndexAm, IndexFact, InsteadOf, RelFact};
 use crate::graph::{Op, PipelineGraph};
 use crate::ledger::Kind;
 use crate::ops;
-use crate::admit::Refusal;
+use crate::ops::shared::modifytable::{
+    refers, CheckOpt, IndexDesc, LockDesc, Member, MemberSet, MergeAction, MergeActions, MergeDesc,
+    OldNew, OnConflict, RouteDesc, RowMark, Target, TargetKind, WriteDesc,
+};
 use crate::walk::{Builder, Open, STMT_NODE};
-use crate::ops::shared::modifytable::{refers, CheckOpt, IndexDesc, LockDesc, Member, MemberSet, MergeAction, MergeActions, MergeDesc, OldNew, OnConflict, RouteDesc, RowMark, Target, TargetKind, WriteDesc};
 pub mod carry;
 pub mod lockrows;
 pub mod merge;
@@ -25,7 +31,44 @@ pub mod trig_facts;
 
 impl Member {
     /// Every member, in declaration order.
-    pub const LIST: [Member; 36] = [Member::Insert, Member::Update, Member::Delete, Member::Merge, Member::Targets, Member::Route, Member::CrossPartition, Member::CheckView, Member::CheckRls, Member::ConflictNothing, Member::ConflictUpdate, Member::Returning, Member::ReturningOld, Member::ReturningNew, Member::MergeActionFn, Member::WriteSubPlan, Member::WriteMarks, Member::LockingWriteMark, Member::ParentMark, Member::MultiLock, Member::Generated, Member::GeneratedVirtual, Member::WholeRow, Member::IndexUnique, Member::IndexPlain, Member::IndexDeferrable, Member::IndexExclusion, Member::IndexPartial, Member::IndexExpression, Member::IndexInclude, Member::IndexNonBtree, Member::TargetView, Member::TargetForeign, Member::TargetOtherAm, Member::DirectForeign, Member::TargetAm];
+    pub const LIST: [Member; 36] = [
+        Member::Insert,
+        Member::Update,
+        Member::Delete,
+        Member::Merge,
+        Member::Targets,
+        Member::Route,
+        Member::CrossPartition,
+        Member::CheckView,
+        Member::CheckRls,
+        Member::ConflictNothing,
+        Member::ConflictUpdate,
+        Member::Returning,
+        Member::ReturningOld,
+        Member::ReturningNew,
+        Member::MergeActionFn,
+        Member::WriteSubPlan,
+        Member::WriteMarks,
+        Member::LockingWriteMark,
+        Member::ParentMark,
+        Member::MultiLock,
+        Member::Generated,
+        Member::GeneratedVirtual,
+        Member::WholeRow,
+        Member::IndexUnique,
+        Member::IndexPlain,
+        Member::IndexDeferrable,
+        Member::IndexExclusion,
+        Member::IndexPartial,
+        Member::IndexExpression,
+        Member::IndexInclude,
+        Member::IndexNonBtree,
+        Member::TargetView,
+        Member::TargetForeign,
+        Member::TargetOtherAm,
+        Member::DirectForeign,
+        Member::TargetAm,
+    ];
 }
 
 impl MemberSet {
@@ -71,7 +114,9 @@ impl LockDesc<'_> {
     pub fn family(&self) -> Option<u32> {
         let top = self.marks.iter().find(|m| m.parent && m.prti == m.rti)?;
         let mut kin = self.marks.iter().filter(|m| m.rti != top.rti);
-        let one = kin.clone().all(|m| m.prti == top.rti && m.lock == self.plan.lock && m.wait == self.plan.wait);
+        let one = kin
+            .clone()
+            .all(|m| m.prti == top.rti && m.lock == self.plan.lock && m.wait == self.plan.wait);
         (one && kin.any(|m| !m.parent)).then_some(top.rti)
     }
 
@@ -83,10 +128,20 @@ impl LockDesc<'_> {
             return Some(t);
         }
         let mut tops = self.marks.iter().filter(|m| m.parent && m.prti == m.rti);
-        let (Some(top), None) = (tops.next(), tops.next()) else { return None };
+        let (Some(top), None) = (tops.next(), tops.next()) else {
+            return None;
+        };
         let kin = |m: &RowMark| m.prti == top.rti;
-        let other = |m: &RowMark| m.lock == LockKind::None && !m.parent && m.mark == RowMarkType::ROW_MARK_REFERENCE;
-        let ok = self.marks.iter().all(|m| if kin(m) { m.lock == self.plan.lock && m.wait == self.plan.wait } else { other(m) });
+        let other = |m: &RowMark| {
+            m.lock == LockKind::None && !m.parent && m.mark == RowMarkType::ROW_MARK_REFERENCE
+        };
+        let ok = self.marks.iter().all(|m| {
+            if kin(m) {
+                m.lock == self.plan.lock && m.wait == self.plan.wait
+            } else {
+                other(m)
+            }
+        });
         (ok && self.marks.iter().any(|m| kin(m) && !m.parent)).then_some(top.rti)
     }
 }
@@ -105,8 +160,25 @@ impl Carried {
 fn index_desc(b: &Builder<'_, '_>, i: &IndexFact) -> IndexDesc {
     let e = b.facts.index_ext(i.indexid);
     let expression = i.nkeys == 0 || i.keys().iter().any(|&a| a <= 0);
-    let nkeyatts = if e.known && e.nkeyatts > 0 { e.nkeyatts } else { i.nkeys };
-    IndexDesc { indexid: i.indexid, am: b.facts.index_am(i.indexid), insertable: b.facts.index_insertable(i.indexid), nkeys: nkeyatts, unique: i.unique, primary: e.primary, deferrable: e.deferrable, exclusion: e.exclusion, partial: i.partial, expression, include: nkeyatts < i.nkeys, known: e.known }
+    let nkeyatts = if e.known && e.nkeyatts > 0 {
+        e.nkeyatts
+    } else {
+        i.nkeys
+    };
+    IndexDesc {
+        indexid: i.indexid,
+        am: b.facts.index_am(i.indexid),
+        insertable: b.facts.index_insertable(i.indexid),
+        nkeys: nkeyatts,
+        unique: i.unique,
+        primary: e.primary,
+        deferrable: e.deferrable,
+        exclusion: e.exclusion,
+        partial: i.partial,
+        expression,
+        include: nkeyatts < i.nkeys,
+        known: e.known,
+    }
 }
 
 const fn index_member(d: &IndexDesc) -> Member {
@@ -130,7 +202,13 @@ const fn index_member(d: &IndexDesc) -> Member {
 }
 
 /// Every index of the relation classified, the plain btree ones also as the frozen `IndexPlan`s.
-fn index_set(b: &Builder<'_, '_>, rel: RelFact, c: &mut Carried, k: Kind, id: i32) -> Result<(ArenaVec<IndexDesc>, ArenaVec<IndexPlan>), Refusal> {
+fn index_set(
+    b: &Builder<'_, '_>,
+    rel: RelFact,
+    c: &mut Carried,
+    k: Kind,
+    id: i32,
+) -> Result<(ArenaVec<IndexDesc>, ArenaVec<IndexPlan>), Refusal> {
     let mut descs = ArenaVec::new_in(b.arena);
     let mut plans = ArenaVec::new_in(b.arena);
     let mut err = None;
@@ -139,7 +217,11 @@ fn index_set(b: &Builder<'_, '_>, rel: RelFact, c: &mut Carried, k: Kind, id: i3
             return;
         }
         if descs.len() == limits::INDEXES {
-            err = Some(Refusal::shape(k, id, "more than 65535 indexes on the written relation (the u16 index count)"));
+            err = Some(Refusal::shape(
+                k,
+                id,
+                "more than 65535 indexes on the written relation (the u16 index count)",
+            ));
             return;
         }
         let d = index_desc(b, &i);
@@ -162,21 +244,46 @@ fn index_set(b: &Builder<'_, '_>, rel: RelFact, c: &mut Carried, k: Kind, id: i3
 }
 
 pub(crate) fn serial_after(open: &mut Open<'_>, reason: Reason) {
-    let site = if open.desc.driving_site >= 0 { open.desc.driving_site + 1 } else { 0 };
-    open.desc = Pipeline { parallel: Parallel::Ineligible { site, reason }, finish: false, ..open.desc };
+    let site = if open.desc.driving_site >= 0 {
+        open.desc.driving_site + 1
+    } else {
+        0
+    };
+    open.desc = Pipeline {
+        parallel: Parallel::Ineligible { site, reason },
+        finish: false,
+        ..open.desc
+    };
 }
 
 /// The child projection's junk column of that name (`ExecFindJunkAttributeInTlist`), or 0.
 fn junk_col(plan: &Plan<'_>, name: &str) -> i16 {
-    let Some(child) = plan.lefttree.and_then(|c| c.as_plan()) else { return 0 };
-    child.targetlist.iter().filter_map(|e| e.as_target_entry()).find(|te| te.resjunk && te.resname == Some(name)).map_or(0, |te| te.resno)
+    let Some(child) = plan.lefttree.and_then(|c| c.as_plan()) else {
+        return 0;
+    };
+    child
+        .targetlist
+        .iter()
+        .filter_map(|e| e.as_target_entry())
+        .find(|te| te.resjunk && te.resname == Some(name))
+        .map_or(0, |te| te.resno)
 }
 
 /// D655: the child projection's junk column `<prefix><rowmarkId>` (preprocess_targetlist's `ctid%u`), or 0.
 fn junk_mark_col(plan: &Plan<'_>, prefix: &str, id: u32) -> i16 {
-    let Some(child) = plan.lefttree.and_then(|c| c.as_plan()) else { return 0 };
-    let named = |n: &str| n.strip_prefix(prefix).is_some_and(|d| d.parse::<u32>() == Ok(id));
-    child.targetlist.iter().filter_map(|e| e.as_target_entry()).find(|te| te.resjunk && te.resname.is_some_and(named)).map_or(0, |te| te.resno)
+    let Some(child) = plan.lefttree.and_then(|c| c.as_plan()) else {
+        return 0;
+    };
+    let named = |n: &str| {
+        n.strip_prefix(prefix)
+            .is_some_and(|d| d.parse::<u32>() == Ok(id))
+    };
+    child
+        .targetlist
+        .iter()
+        .filter_map(|e| e.as_target_entry())
+        .find(|te| te.resjunk && te.resname.is_some_and(named))
+        .map_or(0, |te| te.resno)
 }
 
 /// A target's kind: a partitioned table, a view or a foreign table by its relkind; any other relation (a table, a
@@ -199,8 +306,20 @@ pub const fn writable_am(rel: &RelFact) -> bool {
 
 /// One `Target` per entry of `resultRelations` (decompose.md §3 decision 75): a partitioned parent
 /// carries no index plans of its own — routing opens the leaf's.
-fn targets_of<'p>(b: &mut Builder<'p, '_>, mt: &'p ModifyTable<'p>, plan: &'p Plan<'p>, cmd: Cmd, c: &mut Carried, k: Kind, id: i32) -> Result<ArenaVec<Target<'p>>, Refusal> {
-    let ctid = if cmd == Cmd::Insert { 0 } else { junk_col(plan, "ctid") };
+fn targets_of<'p>(
+    b: &mut Builder<'p, '_>,
+    mt: &'p ModifyTable<'p>,
+    plan: &'p Plan<'p>,
+    cmd: Cmd,
+    c: &mut Carried,
+    k: Kind,
+    id: i32,
+) -> Result<ArenaVec<Target<'p>>, Refusal> {
+    let ctid = if cmd == Cmd::Insert {
+        0
+    } else {
+        junk_col(plan, "ctid")
+    };
     let mut targets = ArenaVec::with_capacity_in(mt.resultRelations.len(), b.arena);
     for r in mt.resultRelations.iter() {
         let rti = r as u32;
@@ -214,29 +333,83 @@ fn targets_of<'p>(b: &mut Builder<'p, '_>, mt: &'p ModifyTable<'p>, plan: &'p Pl
             TargetKind::Am => c.add(Member::TargetAm),
             TargetKind::Partitioned | TargetKind::Heap => {}
         }
-        let (instead, wholerow) = if kind == TargetKind::View { view_target(b, rel, mt, cmd, plan, i, k, id)? } else { (InsteadOf::UNKNOWN, 0) };
+        let (instead, wholerow) = if kind == TargetKind::View {
+            view_target(b, rel, mt, cmd, plan, i, k, id)?
+        } else {
+            (InsteadOf::UNKNOWN, 0)
+        };
         // a DELETE maintains no index (heap_delete marks the tuple; the entries wait for vacuum): none is classified or frozen
-        let (indexes, plans) = if matches!(kind, TargetKind::Partitioned | TargetKind::View) || cmd == Cmd::Delete { (ArenaVec::new_in(b.arena), ArenaVec::new_in(b.arena)) } else { index_set(b, rel, c, k, id)? };
+        let (indexes, plans) =
+            if matches!(kind, TargetKind::Partitioned | TargetKind::View) || cmd == Cmd::Delete {
+                (ArenaVec::new_in(b.arena), ArenaVec::new_in(b.arena))
+            } else {
+                index_set(b, rel, c, k, id)?
+            };
         let mut generated = ArenaVec::new_in(b.arena);
         for a in 1..=rel.natts.max(0) {
             let g = b.facts.att_generated(rel.relid, a);
             if g != 0 {
-                c.add(if g == b'v' { Member::GeneratedVirtual } else { Member::Generated });
+                c.add(if g == b'v' {
+                    Member::GeneratedVirtual
+                } else {
+                    Member::Generated
+                });
                 generated.push((a, g));
             }
         }
         if targets.len() == limits::RESULT_RELATIONS {
-            return Err(Refusal::shape(k, id, "more than 65535 result relations (the u16 target index)"));
+            return Err(Refusal::shape(
+                k,
+                id,
+                "more than 65535 result relations (the u16 target index)",
+            ));
         }
         let set = match cmd {
             // `SET b = DEFAULT` on a generated column leaves no column to update: the empty list (an UPDATE's `onConflictCols` is the plan's own nil list of that lifetime)
-            Cmd::Update if mt.updateColnosLists.len() <= i || mt.updateColnosLists.nth(i).as_int_list().is_none_or(|l| l.is_nil()) => Some(&mt.onConflictCols),
-            Cmd::Update => Some(mt.updateColnosLists.nth(i).as_int_list().ok_or(Refusal::shape(k, id, "an UPDATE without its column list"))?),
+            Cmd::Update
+                if mt.updateColnosLists.len() <= i
+                    || mt
+                        .updateColnosLists
+                        .nth(i)
+                        .as_int_list()
+                        .is_none_or(|l| l.is_nil()) =>
+            {
+                Some(&mt.onConflictCols)
+            }
+            Cmd::Update => Some(
+                mt.updateColnosLists
+                    .nth(i)
+                    .as_int_list()
+                    .ok_or(Refusal::shape(k, id, "an UPDATE without its column list"))?,
+            ),
             _ => None,
         };
-        let returning = if mt.returningLists.len() > i { mt.returningLists.nth(i).as_list() } else { None };
-        let merge = if cmd == Cmd::Merge { Some(merge::merge_actions(b, mt, i, k, id)?) } else { None };
-        targets.push(Target { rti, relid: rel.relid, kind, site: SiteDesc::write(rel.relid, rel.natts.max(0) as u16), plan: WritePlan::write(b.arena, cmd, rel.relid, &plans), indexes, junk_col: if kind == TargetKind::View { 0 } else { ctid }, wholerow_col: wholerow, instead, generated, set, returning, merge, to_root: ArenaVec::new_in(b.arena) });
+        let returning = if mt.returningLists.len() > i {
+            mt.returningLists.nth(i).as_list()
+        } else {
+            None
+        };
+        let merge = if cmd == Cmd::Merge {
+            Some(merge::merge_actions(b, mt, i, k, id)?)
+        } else {
+            None
+        };
+        targets.push(Target {
+            rti,
+            relid: rel.relid,
+            kind,
+            site: SiteDesc::write(rel.relid, rel.natts.max(0) as u16),
+            plan: WritePlan::write(b.arena, cmd, rel.relid, &plans),
+            indexes,
+            junk_col: if kind == TargetKind::View { 0 } else { ctid },
+            wholerow_col: wholerow,
+            instead,
+            generated,
+            set,
+            returning,
+            merge,
+            to_root: ArenaVec::new_in(b.arena),
+        });
     }
     if targets.is_empty() {
         return Err(Refusal::shape(k, id, "a write without a result relation"));
@@ -249,7 +422,16 @@ fn targets_of<'p>(b: &mut Builder<'p, '_>, mt: &'p ModifyTable<'p>, plan: &'p Pl
 /// junk filter for a view). Refused by name: a command whose INSTEAD OF trigger the view lacks (the executor's
 /// `CheckValidResultRel` raises 55000 `cannot insert into view`: the row executor's error), a plan without the
 /// wholerow column. A MERGE's old row is that wholerow image too (`merge_carried`: no carry.rs row, no ctid).
-fn view_target<'p>(b: &Builder<'p, '_>, rel: RelFact, mt: &'p ModifyTable<'p>, cmd: Cmd, plan: &'p Plan<'p>, i: usize, k: Kind, id: i32) -> Result<(InsteadOf, i16), Refusal> {
+fn view_target<'p>(
+    b: &Builder<'p, '_>,
+    rel: RelFact,
+    mt: &'p ModifyTable<'p>,
+    cmd: Cmd,
+    plan: &'p Plan<'p>,
+    i: usize,
+    k: Kind,
+    id: i32,
+) -> Result<(InsteadOf, i16), Refusal> {
     let t = b.facts.instead_of(rel.relid);
     if t.known {
         let lacks = |c: Cmd| match c {
@@ -260,14 +442,20 @@ fn view_target<'p>(b: &Builder<'p, '_>, rel: RelFact, mt: &'p ModifyTable<'p>, c
         };
         let missing = match cmd {
             Cmd::Merge => {
-                let list = if mt.mergeActionLists.len() > i { mt.mergeActionLists.nth(i).as_list() } else { None };
+                let list = if mt.mergeActionLists.len() > i {
+                    mt.mergeActionLists.nth(i).as_list()
+                } else {
+                    None
+                };
                 list.is_some_and(|l| {
-                    l.iter().filter_map(|a| a.as_merge_action()).any(|a| match a.commandType {
-                        CmdType::CMD_INSERT => lacks(Cmd::Insert),
-                        CmdType::CMD_UPDATE => lacks(Cmd::Update),
-                        CmdType::CMD_DELETE => lacks(Cmd::Delete),
-                        _ => false,
-                    })
+                    l.iter()
+                        .filter_map(|a| a.as_merge_action())
+                        .any(|a| match a.commandType {
+                            CmdType::CMD_INSERT => lacks(Cmd::Insert),
+                            CmdType::CMD_UPDATE => lacks(Cmd::Update),
+                            CmdType::CMD_DELETE => lacks(Cmd::Delete),
+                            _ => false,
+                        })
                 })
             }
             c => lacks(c),
@@ -276,7 +464,11 @@ fn view_target<'p>(b: &Builder<'p, '_>, rel: RelFact, mt: &'p ModifyTable<'p>, c
             return Err(Refusal::shape(k, id, "a view target without the INSTEAD OF row trigger its command needs (the executor's 55000 'cannot insert/update/delete from view', CheckValidResultRel)"));
         }
     }
-    let wholerow = if cmd == Cmd::Insert { 0 } else { junk_col(plan, "wholerow") };
+    let wholerow = if cmd == Cmd::Insert {
+        0
+    } else {
+        junk_col(plan, "wholerow")
+    };
     if cmd != Cmd::Insert && wholerow == 0 {
         return Err(Refusal::shape(k, id, "a view target without its wholerow junk column (the old row image the INSTEAD OF trigger takes)"));
     }
@@ -285,14 +477,25 @@ fn view_target<'p>(b: &Builder<'p, '_>, rel: RelFact, mt: &'p ModifyTable<'p>, c
 
 /// The routing face (decompose.md §3 decision 75): a `rootRelation` (an inheritance or partition tree's
 /// UPDATE / DELETE) or a partitioned result relation (an INSERT through the parent).
-fn route_of(b: &Builder<'_, '_>, mt: &ModifyTable<'_>, targets: &[Target<'_>], c: &mut Carried, k: Kind, id: i32) -> Result<Option<RouteDesc>, Refusal> {
+fn route_of(
+    b: &Builder<'_, '_>,
+    mt: &ModifyTable<'_>,
+    targets: &[Target<'_>],
+    c: &mut Carried,
+    k: Kind,
+    id: i32,
+) -> Result<Option<RouteDesc>, Refusal> {
     let root_rti = if mt.rootRelation != 0 {
         mt.rootRelation
     } else if let Some(t) = targets.iter().find(|t| t.kind == TargetKind::Partitioned) {
         t.rti
     } else {
         if mt.partColsUpdated {
-            return Err(Refusal::shape(k, id, "an UPDATE of partition key columns without a partitioned root"));
+            return Err(Refusal::shape(
+                k,
+                id,
+                "an UPDATE of partition key columns without a partitioned root",
+            ));
         }
         if targets.len() > 1 {
             c.add(Member::Targets);
@@ -308,25 +511,62 @@ fn route_of(b: &Builder<'_, '_>, mt: &ModifyTable<'_>, targets: &[Target<'_>], c
     if mt.partColsUpdated {
         c.add(Member::CrossPartition);
     }
-    Ok(Some(RouteDesc { root_rti, root_relid: root.relid, root_natts: root.natts.max(0) as u16, cross_partition: mt.partColsUpdated }))
+    Ok(Some(RouteDesc {
+        root_rti,
+        root_relid: root.relid,
+        root_natts: root.natts.max(0) as u16,
+        cross_partition: mt.partColsUpdated,
+    }))
 }
 
 /// `withCheckOptionLists` in the targets' order (`ExecWithCheckOptions`).
-fn checks_of<'p>(b: &Builder<'p, '_>, mt: &'p ModifyTable<'p>, targets: &[Target<'_>], c: &mut Carried, k: Kind, id: i32) -> Result<ArenaVec<CheckOpt<'p>>, Refusal> {
+fn checks_of<'p>(
+    b: &Builder<'p, '_>,
+    mt: &'p ModifyTable<'p>,
+    targets: &[Target<'_>],
+    c: &mut Carried,
+    k: Kind,
+    id: i32,
+) -> Result<ArenaVec<CheckOpt<'p>>, Refusal> {
     let mut checks = ArenaVec::new_in(b.arena);
     if mt.withCheckOptionLists.is_nil() {
         return Ok(checks);
     }
     if mt.withCheckOptionLists.len() != targets.len() {
-        return Err(Refusal::shape(k, id, "a WITH CHECK OPTION list that is not one per result relation"));
+        return Err(Refusal::shape(
+            k,
+            id,
+            "a WITH CHECK OPTION list that is not one per result relation",
+        ));
     }
     for (t, l) in mt.withCheckOptionLists.iter().enumerate() {
-        let l = l.as_list().ok_or(Refusal::shape(k, id, "a withCheckOptionLists entry that is not a list"))?;
+        let l = l.as_list().ok_or(Refusal::shape(
+            k,
+            id,
+            "a withCheckOptionLists entry that is not a list",
+        ))?;
         for w in l.iter() {
-            let w = w.as_with_check_option().ok_or(Refusal::shape(k, id, "a check option that is not a WithCheckOption"))?;
-            let qual = w.qual.ok_or(Refusal::shape(k, id, "a check option without a qual"))?;
-            c.add(if w.kind == WCOKind::WCO_VIEW_CHECK { Member::CheckView } else { Member::CheckRls });
-            checks.push(CheckOpt { target: t as u16, kind: w.kind, relname: w.relname, polname: w.polname, qual, cascaded: w.cascaded });
+            let w = w.as_with_check_option().ok_or(Refusal::shape(
+                k,
+                id,
+                "a check option that is not a WithCheckOption",
+            ))?;
+            let qual = w
+                .qual
+                .ok_or(Refusal::shape(k, id, "a check option without a qual"))?;
+            c.add(if w.kind == WCOKind::WCO_VIEW_CHECK {
+                Member::CheckView
+            } else {
+                Member::CheckRls
+            });
+            checks.push(CheckOpt {
+                target: t as u16,
+                kind: w.kind,
+                relname: w.relname,
+                polname: w.polname,
+                qual,
+                cascaded: w.cascaded,
+            });
         }
     }
     Ok(checks)
@@ -334,10 +574,21 @@ fn checks_of<'p>(b: &Builder<'p, '_>, mt: &'p ModifyTable<'p>, targets: &[Target
 
 /// What the RETURNING list reads past the written row: the OLD / NEW images (a `Var`'s `varreturningtype`, or a
 /// view's `ReturningExpr`), `merge_action()`.
-fn returning_of<'p>(mt: &'p ModifyTable<'p>, returning: Option<&'p NodeList<'p>>, c: &mut Carried) -> Result<(OldNew<'p>, bool), Refusal> {
-    let mut on = OldNew { old_alias: mt.returningOldAlias, new_alias: mt.returningNewAlias, old: false, new: false };
+fn returning_of<'p>(
+    mt: &'p ModifyTable<'p>,
+    returning: Option<&'p NodeList<'p>>,
+    c: &mut Carried,
+) -> Result<(OldNew<'p>, bool), Refusal> {
+    let mut on = OldNew {
+        old_alias: mt.returningOldAlias,
+        new_alias: mt.returningNewAlias,
+        old: false,
+        new: false,
+    };
     let mut action = false;
-    let Some(r) = returning else { return Ok((on, false)) };
+    let Some(r) = returning else {
+        return Ok((on, false));
+    };
     c.add(Member::Returning);
     for n in r.iter() {
         crate::expr::walk(n, &mut |x| {
@@ -398,15 +649,29 @@ fn sub_read(n: Node<'_>, plan_id: i32, unknown: bool) -> bool {
 /// every member under it to the leaves.
 fn union_members<'p>(b: &Builder<'p, '_>, marks: &[RowMark]) -> ArenaVec<(u32, u32)> {
     let mut out = ArenaVec::new_in(b.arena);
-    let infos = || b.stmt.appendRelations.iter().filter_map(|n| n.as_append_rel_info());
-    let subquery = |rti: u32| b.rte(rti).is_some_and(|r| r.rtekind == types_nodes::parsenodes::RTEKind::RTE_SUBQUERY);
-    for m in marks.iter().filter(|m| m.mark == RowMarkType::ROW_MARK_COPY && subquery(m.rti)) {
+    let infos = || {
+        b.stmt
+            .appendRelations
+            .iter()
+            .filter_map(|n| n.as_append_rel_info())
+    };
+    let subquery = |rti: u32| {
+        b.rte(rti)
+            .is_some_and(|r| r.rtekind == types_nodes::parsenodes::RTEKind::RTE_SUBQUERY)
+    };
+    for m in marks
+        .iter()
+        .filter(|m| m.mark == RowMarkType::ROW_MARK_COPY && subquery(m.rti))
+    {
         // breadth first over `out` itself: the parent's members, then each member's
         let mut i = out.len();
         let mut p = m.rti;
         loop {
             for a in infos() {
-                if a.parent_relid == p && a.child_relid != p && !out.iter().any(|e: &(u32, u32)| e.1 == a.child_relid) {
+                if a.parent_relid == p
+                    && a.child_relid != p
+                    && !out.iter().any(|e: &(u32, u32)| e.1 == a.child_relid)
+                {
                     out.push((m.rti, a.child_relid));
                 }
             }
@@ -433,13 +698,23 @@ fn copy_unions<'p>(b: &mut Builder<'p, '_>, marks: &[RowMark], arms: &[(u32, u32
         NodeTag::T_BitmapHeapScan => n.as_bitmap_heap_scan().map(|s| s.scan.scanrelid),
         _ => None,
     };
-    for m in marks.iter().filter(|m| m.mark == RowMarkType::ROW_MARK_COPY && arms.iter().any(|e| e.0 == m.rti)) {
+    for m in marks
+        .iter()
+        .filter(|m| m.mark == RowMarkType::ROW_MARK_COPY && arms.iter().any(|e| e.0 == m.rti))
+    {
         let (mut held, mut lone): (bool, PgVec<'_, i32>) = (false, PgVec::new_in(mcx));
         crate::rerun::each_plan_node(b.stmt, &mut |n| {
-            if let Some(a) = n.as_append().filter(|a| a.apprelids.is_member(m.rti as i32)) {
+            if let Some(a) = n
+                .as_append()
+                .filter(|a| a.apprelids.is_member(m.rti as i32))
+            {
                 found.push_in((m.rti, a.plan.plan_node_id));
             }
-            held |= n.as_append().is_some_and(|a| a.apprelids.is_member(m.rti as i32)) || n.as_merge_append().is_some_and(|a| a.apprelids.is_member(m.rti as i32));
+            held |= n
+                .as_append()
+                .is_some_and(|a| a.apprelids.is_member(m.rti as i32))
+                || n.as_merge_append()
+                    .is_some_and(|a| a.apprelids.is_member(m.rti as i32));
             if scanrelid(n).is_some_and(|r| arms.iter().any(|e| e.0 == m.rti && e.1 == r)) {
                 lone.push_in(n.as_plan().map_or(-1, |p| p.plan_node_id));
             }
@@ -462,22 +737,40 @@ fn copy_unions<'p>(b: &mut Builder<'p, '_>, marks: &[RowMark], arms: &[(u32, u32
 /// reads the subquery but is no plain column of it (a PlaceHolderVar, an expression) leaves the one entry resno -1.
 /// D3496: an UPDATE's or DELETE's RETURNING (`whole` false) reads the ORIGINAL row too (ExecProcessReturning's planSlot)
 /// through the plain columns alone; its SET expressions read the re-joined row, so they leave no -1 entry.
-fn copy_union_cols<'p>(b: &mut Builder<'p, '_>, plan: &'p Plan<'p>, marks: &[RowMark], arms: &[(u32, u32)], whole: bool) {
-    let Some(child) = plan.lefttree.and_then(|c| c.as_plan()) else { return };
+fn copy_union_cols<'p>(
+    b: &mut Builder<'p, '_>,
+    plan: &'p Plan<'p>,
+    marks: &[RowMark],
+    arms: &[(u32, u32)],
+    whole: bool,
+) {
+    let Some(child) = plan.lefttree.and_then(|c| c.as_plan()) else {
+        return;
+    };
     let mcx = b.mcx;
     let mut found: PgVec<'_, (u32, i16, i16, u32)> = PgVec::new_in(mcx);
-    for m in marks.iter().filter(|m| m.mark == RowMarkType::ROW_MARK_COPY && arms.iter().any(|e| e.0 == m.rti)) {
+    for m in marks
+        .iter()
+        .filter(|m| m.mark == RowMarkType::ROW_MARK_COPY && arms.iter().any(|e| e.0 == m.rti))
+    {
         let mut odd = false;
         let at = found.len();
         for te in child.targetlist.iter().filter_map(|n| n.as_target_entry()) {
-            match te.expr.as_var().filter(|v| v.varlevelsup == 0 && v.varnosyn == m.rti) {
-                Some(v) if v.varattnosyn > 0 => found.push_in((m.rti, te.resno, v.varattnosyn, v.vartype)),
+            match te
+                .expr
+                .as_var()
+                .filter(|v| v.varlevelsup == 0 && v.varnosyn == m.rti)
+            {
+                Some(v) if v.varattnosyn > 0 => {
+                    found.push_in((m.rti, te.resno, v.varattnosyn, v.vartype))
+                }
                 // the mark's own whole row (`wholerow{rowmarkId}`)
                 Some(_) => {}
                 None => {
                     let mut hit = false;
                     let known = crate::expr::walk(te.expr, &mut |n| {
-                        hit |= n.as_var().is_some_and(|v| v.varnosyn == m.rti) || n.node_tag() == NodeTag::T_PlaceHolderVar;
+                        hit |= n.as_var().is_some_and(|v| v.varnosyn == m.rti)
+                            || n.node_tag() == NodeTag::T_PlaceHolderVar;
                         !hit
                     });
                     odd |= hit || !known;
@@ -506,13 +799,19 @@ fn copy_union_cols<'p>(b: &mut Builder<'p, '_>, plan: &'p Plan<'p>, marks: &[Row
 fn union_copy_rows<'p>(b: &mut Builder<'p, '_>, marks: &[RowMark], arms: &[(u32, u32)]) {
     let mcx = b.mcx;
     let mut rows: PgVec<'_, (u32, &'p Plan<'p>)> = PgVec::new_in(mcx);
-    for m in marks.iter().filter(|m| m.mark == RowMarkType::ROW_MARK_COPY) {
+    for m in marks
+        .iter()
+        .filter(|m| m.mark == RowMarkType::ROW_MARK_COPY)
+    {
         if !arms.iter().any(|e| e.0 == m.rti) {
             continue;
         }
         let mut hashed = None;
         crate::rerun::each_plan_node(b.stmt, &mut |n| {
-            let under = n.as_hash().and_then(|h| h.plan.lefttree).and_then(|c| c.as_append());
+            let under = n
+                .as_hash()
+                .and_then(|h| h.plan.lefttree)
+                .and_then(|c| c.as_append());
             if let Some(a) = under.filter(|a| a.apprelids.is_member(m.rti as i32)) {
                 hashed = Some(&a.plan);
             }
@@ -524,7 +823,15 @@ fn union_copy_rows<'p>(b: &mut Builder<'p, '_>, marks: &[RowMark], arms: &[(u32,
     }
 }
 
-pub(crate) fn marks_of<'p>(b: &Builder<'p, '_>, plan: &Plan<'p>, list: &'p NodeList<'p>, k: Kind, id: i32, c: &mut Carried, lock_plan: Option<&mut Option<WritePlan>>) -> Result<ArenaVec<RowMark>, Refusal> {
+pub(crate) fn marks_of<'p>(
+    b: &Builder<'p, '_>,
+    plan: &Plan<'p>,
+    list: &'p NodeList<'p>,
+    k: Kind,
+    id: i32,
+    c: &mut Carried,
+    lock_plan: Option<&mut Option<WritePlan>>,
+) -> Result<ArenaVec<RowMark>, Refusal> {
     let mut marks = ArenaVec::with_capacity_in(list.len(), b.arena);
     let mut lock_plan = lock_plan;
     let mut parent_lock = None;
@@ -533,12 +840,23 @@ pub(crate) fn marks_of<'p>(b: &Builder<'p, '_>, plan: &Plan<'p>, list: &'p NodeL
     let mut family: Option<u32> = None;
     let mut empty = false;
     for m in list.iter() {
-        let m = m.as_plan_row_mark().ok_or(Refusal::shape(k, id, "a rowMarks entry that is not a PlanRowMark"))?;
+        let m = m.as_plan_row_mark().ok_or(Refusal::shape(
+            k,
+            id,
+            "a rowMarks entry that is not a PlanRowMark",
+        ))?;
         let relid = b.rte(m.rti).map_or(0, |r| r.relid);
         let (lock, wait) = (lock_of(m.markType), wait_of(m.waitPolicy));
         // returning-019: a write's REFERENCE parent mark over a one-member family (an inheritance parent without children,
         // itself its one child) adds nothing: its child's mark carries the row (EvalPlanQualFetchRowMark by its ctid)
-        let lone = lock_plan.is_none() && lock == LockKind::None && list.iter().filter_map(|x| x.as_plan_row_mark()).filter(|x| !x.isParent && x.prti == m.rti).count() == 1;
+        let lone = lock_plan.is_none()
+            && lock == LockKind::None
+            && list
+                .iter()
+                .filter_map(|x| x.as_plan_row_mark())
+                .filter(|x| !x.isParent && x.prti == m.rti)
+                .count()
+                == 1;
         if m.isParent && !lone {
             c.add(Member::ParentMark);
         }
@@ -557,9 +875,17 @@ pub(crate) fn marks_of<'p>(b: &Builder<'p, '_>, plan: &Plan<'p>, list: &'p NodeL
                         empty = true;
                     } else if rel.am != Am::Heap && !rel.rows {
                         // PGRCSERVE M3: a relation on the rows road locks by its AM's TIDs (the lock host's tableam lock)
-                        return Err(Refusal::shape(k, id, "a row lock through a relation that is not a heap table"));
+                        return Err(Refusal::shape(
+                            k,
+                            id,
+                            "a row lock through a relation that is not a heap table",
+                        ));
                     }
-                    let sibling = m.prti != m.rti && family == Some(m.prti) && slot.as_ref().is_some_and(|p| p.lock == lock && p.wait == wait);
+                    let sibling = m.prti != m.rti
+                        && family == Some(m.prti)
+                        && slot
+                            .as_ref()
+                            .is_some_and(|p| p.lock == lock && p.wait == wait);
                     if slot.is_none() {
                         *slot = Some(WritePlan::locking(relid, lock, wait));
                         family = (m.prti != m.rti).then_some(m.prti);
@@ -570,9 +896,31 @@ pub(crate) fn marks_of<'p>(b: &Builder<'p, '_>, plan: &Plan<'p>, list: &'p NodeL
             }
         }
         // D732: a COPY mark's row travels whole (`wholerow{rowmarkId}`), a REFERENCE mark's as its ctid
-        let ctid_col = junk_mark_col(plan, if m.markType == RowMarkType::ROW_MARK_COPY { "wholerow" } else { "ctid" }, m.rowmarkId);
-        let toid_col = if m.isParent || m.prti != m.rti { junk_mark_col(plan, "tableoid", m.rowmarkId) } else { 0 };
-        marks.push(RowMark { rti: m.rti, relid, mark: m.markType, lock, wait, parent: m.isParent, prti: m.prti, ctid_col, toid_col });
+        let ctid_col = junk_mark_col(
+            plan,
+            if m.markType == RowMarkType::ROW_MARK_COPY {
+                "wholerow"
+            } else {
+                "ctid"
+            },
+            m.rowmarkId,
+        );
+        let toid_col = if m.isParent || m.prti != m.rti {
+            junk_mark_col(plan, "tableoid", m.rowmarkId)
+        } else {
+            0
+        };
+        marks.push(RowMark {
+            rti: m.rti,
+            relid,
+            mark: m.markType,
+            lock,
+            wait,
+            parent: m.isParent,
+            prti: m.prti,
+            ctid_col,
+            toid_col,
+        });
     }
     // a parent with no child marks (no partitions yet): the parent's own lock is the plan's
     if let Some(slot) = lock_plan {
@@ -585,10 +933,15 @@ pub(crate) fn marks_of<'p>(b: &Builder<'p, '_>, plan: &Plan<'p>, list: &'p NodeL
     Ok(marks)
 }
 
-fn map_modify_table<'p>(b: &mut Builder<'p, '_>, mt: &'p ModifyTable<'p>) -> Result<Open<'p>, Refusal> {
+fn map_modify_table<'p>(
+    b: &mut Builder<'p, '_>,
+    mt: &'p ModifyTable<'p>,
+) -> Result<Open<'p>, Refusal> {
     let (plan, k) = (&mt.plan, Kind::ModifyTable);
     let id = plan.plan_node_id;
-    let mut c = Carried { set: MemberSet::EMPTY };
+    let mut c = Carried {
+        set: MemberSet::EMPTY,
+    };
     let (cmd, m) = match mt.operation {
         CmdType::CMD_INSERT => (Cmd::Insert, Member::Insert),
         CmdType::CMD_UPDATE => (Cmd::Update, Member::Update),
@@ -607,15 +960,37 @@ fn map_modify_table<'p>(b: &mut Builder<'p, '_>, mt: &'p ModifyTable<'p>) -> Res
     let rti = targets[0].rti;
     let route = route_of(b, mt, &targets, &mut c, k, id)?;
     crate::ops::modifytable::partwrite::faces(b, &mut targets, route, k, id)?;
-    let (leaves, leaves_known) = crate::ops::modifytable::route_leaves::leaves(b, route.as_ref(), cmd);
+    let (leaves, leaves_known) =
+        crate::ops::modifytable::route_leaves::leaves(b, route.as_ref(), cmd);
     let checks = checks_of(b, mt, &targets, &mut c, k, id)?;
-    let tableoid_col = if targets.len() > 1 { junk_col(plan, "tableoid") } else { 0 };
+    let tableoid_col = if targets.len() > 1 {
+        junk_col(plan, "tableoid")
+    } else {
+        0
+    };
     if targets.len() > 1 && tableoid_col == 0 {
-        return Err(Refusal::shape(k, id, "a write over several result relations without the row's tableoid"));
+        return Err(Refusal::shape(
+            k,
+            id,
+            "a write over several result relations without the row's tableoid",
+        ));
     }
     let (set, returning) = (targets[0].set, targets[0].returning);
     let (old_new, returning_action) = returning_of(mt, returning, &mut c)?;
-    let merge_in = if cmd == Cmd::Merge { Some(merge::merge_desc(b, mt, &targets, route, returning_action, &mut c, k, id)?) } else { None };
+    let merge_in = if cmd == Cmd::Merge {
+        Some(merge::merge_desc(
+            b,
+            mt,
+            &targets,
+            route,
+            returning_action,
+            &mut c,
+            k,
+            id,
+        )?)
+    } else {
+        None
+    };
     if cmd == Cmd::Update {
         update_carry(b, &targets, set);
     }
@@ -626,7 +1001,11 @@ fn map_modify_table<'p>(b: &mut Builder<'p, '_>, mt: &'p ModifyTable<'p>) -> Res
     b.write_set = prev;
     let mut open = open?;
     let old_cols = update_carried(b, plan, k, id)?;
-    let view_row = if targets[0].kind == TargetKind::View { targets[0].wholerow_col } else { 0 };
+    let view_row = if targets[0].kind == TargetKind::View {
+        targets[0].wholerow_col
+    } else {
+        0
+    };
     let merge = match merge_in {
         Some(m) => Some(merge::merge_carried(b, plan, m, view_row, k, id)?),
         None => None,
@@ -634,8 +1013,19 @@ fn map_modify_table<'p>(b: &mut Builder<'p, '_>, mt: &'p ModifyTable<'p>) -> Res
     let on_conflict = match mt.onConflictAction {
         0 => None,
         1 | 2 => {
-            c.add(if mt.onConflictAction == 2 { Member::ConflictUpdate } else { Member::ConflictNothing });
-            Some(OnConflict { update: mt.onConflictAction == 2, arbiter: &mt.arbiterIndexes, set: &mt.onConflictSet, cols: &mt.onConflictCols, filter: mt.onConflictWhere, excl_rti: mt.exclRelRTI })
+            c.add(if mt.onConflictAction == 2 {
+                Member::ConflictUpdate
+            } else {
+                Member::ConflictNothing
+            });
+            Some(OnConflict {
+                update: mt.onConflictAction == 2,
+                arbiter: &mt.arbiterIndexes,
+                set: &mt.onConflictSet,
+                cols: &mt.onConflictCols,
+                filter: mt.onConflictWhere,
+                excl_rti: mt.exclRelRTI,
+            })
         }
         _ => return Err(Refusal::shape(k, id, "an unknown ON CONFLICT action")),
     };
@@ -654,7 +1044,29 @@ fn map_modify_table<'p>(b: &mut Builder<'p, '_>, mt: &'p ModifyTable<'p>) -> Res
     serial_after(&mut open, Reason::Write);
     let (site, mut wplan) = (targets[0].site.clone(), targets[0].plan.clone());
     wplan.defer = cmd == Cmd::Insert && insert_defer(b, mt);
-    open.push(Op::Write(WriteDesc { cmd, rti, site, plan: wplan, set, returning, on_conflict, epq: mt.epqParam, marks: &mt.rowMarks, merge, targets: targets.leak(), tableoid_col, checks: checks.leak(), route, leaves: leaves.leak(), leaves_known, old_new, mark_descs: mark_descs.leak(), copy_arms: copy_arms.leak(), members: c.set, old_cols: old_cols.leak() }));
+    open.push(Op::Write(WriteDesc {
+        cmd,
+        rti,
+        site,
+        plan: wplan,
+        set,
+        returning,
+        on_conflict,
+        epq: mt.epqParam,
+        marks: &mt.rowMarks,
+        merge,
+        targets: targets.leak(),
+        tableoid_col,
+        checks: checks.leak(),
+        route,
+        leaves: leaves.leak(),
+        leaves_known,
+        old_new,
+        mark_descs: mark_descs.leak(),
+        copy_arms: copy_arms.leak(),
+        members: c.set,
+        old_cols: old_cols.leak(),
+    }));
     if let Some(r) = returning {
         ops::project(&mut open, r);
     }
@@ -668,24 +1080,46 @@ fn map_modify_table<'p>(b: &mut Builder<'p, '_>, mt: &'p ModifyTable<'p>) -> Res
 /// PGRCSERVE M1 (`WritePlan::defer`, PGRCSERVE.md §1.4): not for a one-row source, RETURNING of a system column but tableoid,
 /// or a per-row call that acts past itself (source, RETURNING, check options, the statement's other subplans).
 fn insert_defer<'p>(b: &Builder<'p, '_>, mt: &'p ModifyTable<'p>) -> bool {
-    let Some(src) = mt.plan.lefttree else { return false };
+    let Some(src) = mt.plan.lefttree else {
+        return false;
+    };
     if src.node_tag() == NodeTag::T_Result && src.as_plan().is_some_and(|p| p.lefttree.is_none()) {
         return false;
     }
-    let sys = |n: Node<'p>| n.as_var().is_some_and(|v| v.varattno < 0 && v.varattno != -6 /* tableoid */);
-    let entries = |ls: &'p NodeList<'p>| ls.iter().filter_map(|l| l.as_list()).flat_map(|l| l.iter());
-    let returning: Vec<Node<'p>> = entries(&mt.returningLists).map(|e| e.as_target_entry().map_or(e, |te| te.expr)).collect(); // alloc: Cold
-    if returning.iter().any(|&e| !crate::expr::walk(e, &mut |n| !sys(n))) {
+    let sys = |n: Node<'p>| {
+        n.as_var()
+            .is_some_and(|v| v.varattno < 0 && v.varattno != -6 /* tableoid */)
+    };
+    let entries =
+        |ls: &'p NodeList<'p>| ls.iter().filter_map(|l| l.as_list()).flat_map(|l| l.iter());
+    let returning: Vec<Node<'p>> = entries(&mt.returningLists)
+        .map(|e| e.as_target_entry().map_or(e, |te| te.expr))
+        .collect(); // alloc: Cold
+    if returning
+        .iter()
+        .any(|&e| !crate::expr::walk(e, &mut |n| !sys(n)))
+    {
         return false;
     }
     let mut exprs = returning;
-    exprs.extend(entries(&mt.withCheckOptionLists).filter_map(|w| w.as_with_check_option().map_or(Some(w), |c| c.qual))); // alloc: Cold
+    exprs.extend(
+        entries(&mt.withCheckOptionLists)
+            .filter_map(|w| w.as_with_check_option().map_or(Some(w), |c| c.qual)),
+    ); // alloc: Cold
     let acts = |f: crate::effects::found::Found| f.acts_past_call;
-    if acts(crate::rerun::of_plan(b.stmt, b.facts, b.arena, src)) || exprs.iter().any(|&e| acts(crate::rerun::of_expr(b.stmt, b.facts, b.arena, e))) {
+    if acts(crate::rerun::of_plan(b.stmt, b.facts, b.arena, src))
+        || exprs
+            .iter()
+            .any(|&e| acts(crate::rerun::of_expr(b.stmt, b.facts, b.arena, e)))
+    {
         return false;
     }
     let me = mt as *const ModifyTable<'_> as *const u8;
-    !b.stmt.subplans.iter().flatten().any(|r| r.as_modify_table().is_none_or(|m| !core::ptr::eq(m as *const ModifyTable<'_> as *const u8, me)) && acts(crate::rerun::of_plan(b.stmt, b.facts, b.arena, r)))
+    !b.stmt.subplans.iter().flatten().any(|r| {
+        r.as_modify_table()
+            .is_none_or(|m| !core::ptr::eq(m as *const ModifyTable<'_> as *const u8, me))
+            && acts(crate::rerun::of_plan(b.stmt, b.facts, b.arena, r))
+    })
 }
 
 /// D3681: the plan node id of the Append under top-level UPDATE / DELETE `mt` whose twin scans may be read as one relation
@@ -696,11 +1130,40 @@ fn insert_defer<'p>(b: &Builder<'p, '_>, mt: &'p ModifyTable<'p>) -> bool {
 /// list; no RETURNING, check option, row mark, ON CONFLICT, direct foreign modify, InitPlan at the write or partition key
 /// update (every row stays in its leaf). Each row's leaf is then its member's, as PostgreSQL's ExecModifyTable looks up
 /// the result relation by the row's tableoid.
-fn set_write(b: &Builder<'_, '_>, mt: &ModifyTable<'_>, targets: &[Target<'_>], route: Option<&RouteDesc>, c: &Carried, cmd: Cmd) -> i32 {
-    let top = b.stmt.planTree.and_then(|n| n.as_modify_table()).is_some_and(|m| core::ptr::eq(m as *const ModifyTable<'_> as *const u8, mt as *const ModifyTable<'_> as *const u8));
-    let Some(a) = mt.plan.lefttree.and_then(|n| n.as_append()) else { return -1 };
-    let plain = matches!(cmd, Cmd::Update | Cmd::Delete) && top && targets.len() > 1 && a.appendplans.len() == targets.len() && route.is_some_and(|r| !r.cross_partition) && c.set.has(Member::Route) && !mt.partColsUpdated;
-    let bare = mt.returningLists.is_nil() && mt.withCheckOptionLists.is_nil() && mt.rowMarks.is_nil() && mt.onConflictAction == 0 && mt.fdwDirectModifyPlans.is_empty() && mt.plan.initPlan.is_nil();
+fn set_write(
+    b: &Builder<'_, '_>,
+    mt: &ModifyTable<'_>,
+    targets: &[Target<'_>],
+    route: Option<&RouteDesc>,
+    c: &Carried,
+    cmd: Cmd,
+) -> i32 {
+    let top = b
+        .stmt
+        .planTree
+        .and_then(|n| n.as_modify_table())
+        .is_some_and(|m| {
+            core::ptr::eq(
+                m as *const ModifyTable<'_> as *const u8,
+                mt as *const ModifyTable<'_> as *const u8,
+            )
+        });
+    let Some(a) = mt.plan.lefttree.and_then(|n| n.as_append()) else {
+        return -1;
+    };
+    let plain = matches!(cmd, Cmd::Update | Cmd::Delete)
+        && top
+        && targets.len() > 1
+        && a.appendplans.len() == targets.len()
+        && route.is_some_and(|r| !r.cross_partition)
+        && c.set.has(Member::Route)
+        && !mt.partColsUpdated;
+    let bare = mt.returningLists.is_nil()
+        && mt.withCheckOptionLists.is_nil()
+        && mt.rowMarks.is_nil()
+        && mt.onConflictAction == 0
+        && mt.fdwDirectModifyPlans.is_empty()
+        && mt.plan.initPlan.is_nil();
     if !plain || !bare || b.carry.is_some() {
         return -1;
     }
@@ -710,8 +1173,14 @@ fn set_write(b: &Builder<'_, '_>, mt: &ModifyTable<'_>, targets: &[Target<'_>], 
         (Some(x), Some(y)) => x.iter().eq(y.iter()),
         _ => false,
     };
-    let alike = |t: &Target<'_>| t.kind == TargetKind::Heap && t.to_root.iter().eq(first.to_root.iter()) && same_set(t);
-    if !alike(first) || !targets[1..].iter().all(|t| alike(t) && b.facts.write_twin(first.relid, t.relid)) {
+    let alike = |t: &Target<'_>| {
+        t.kind == TargetKind::Heap && t.to_root.iter().eq(first.to_root.iter()) && same_set(t)
+    };
+    if !alike(first)
+        || !targets[1..]
+            .iter()
+            .all(|t| alike(t) && b.facts.write_twin(first.relid, t.relid))
+    {
         return -1;
     }
     a.plan.plan_node_id
@@ -729,23 +1198,57 @@ fn update_carry<'p>(b: &mut Builder<'p, '_>, targets: &[Target<'p>], set: Option
     let natts = b.facts.rel(t.relid).map_or(0, |r| r.natts.max(0));
     let mut attnos = ArenaVec::with_capacity_in(natts as usize, b.arena);
     for a in 1..=natts {
-        if b.facts.att(t.relid, a).is_some() && !set.is_some_and(|s| s.iter().any(|x| x == a as i32)) {
+        if b.facts.att(t.relid, a).is_some()
+            && !set.is_some_and(|s| s.iter().any(|x| x == a as i32))
+        {
             attnos.push(a);
         }
     }
-    b.carry = Some(crate::ops::shared::carry::Carry { update: true, rti: t.rti, relid: t.relid, attnos, by_node: ArenaVec::new_in(b.arena), rowid_from: -1 });
+    b.carry = Some(crate::ops::shared::carry::Carry {
+        update: true,
+        rti: t.rti,
+        relid: t.relid,
+        attnos,
+        by_node: ArenaVec::new_in(b.arena),
+        rowid_from: -1,
+    });
 }
 
 /// After an UPDATE's child: the carried attributes' resnos in the child's projection. A child Result with no input (the
 /// planner's dummy rel under a constant-false filter) carries nothing: its row never comes.
-fn update_carried<'p>(b: &mut Builder<'p, '_>, plan: &'p Plan<'p>, k: Kind, id: i32) -> Result<ArenaVec<(i16, i16)>, Refusal> {
+fn update_carried<'p>(
+    b: &mut Builder<'p, '_>,
+    plan: &'p Plan<'p>,
+    k: Kind,
+    id: i32,
+) -> Result<ArenaVec<(i16, i16)>, Refusal> {
     let mut out = ArenaVec::new_in(b.arena);
-    let Some(carry) = b.carry.take_if(|c| c.update) else { return Ok(out) };
-    let child = plan.lefttree.and_then(|c| c.as_plan()).ok_or(Refusal::shape(k, id, "UPDATE without a child"))?;
-    match carry.by_node.iter().find(|(n, _)| *n == child.plan_node_id).map(|(_, r)| r) {
-        Some(r) if r.len() == carry.attnos.len() => out.extend(carry.attnos.iter().copied().zip(r.iter().copied())),
-        _ if carry.attnos.is_empty() || child.lefttree.is_none() && plan.lefttree.is_some_and(|c| c.as_result().is_some()) => {}
-        _ => return Err(Refusal::shape(k, id, "UPDATE: the target's old columns did not reach the write op")),
+    let Some(carry) = b.carry.take_if(|c| c.update) else {
+        return Ok(out);
+    };
+    let child = plan
+        .lefttree
+        .and_then(|c| c.as_plan())
+        .ok_or(Refusal::shape(k, id, "UPDATE without a child"))?;
+    match carry
+        .by_node
+        .iter()
+        .find(|(n, _)| *n == child.plan_node_id)
+        .map(|(_, r)| r)
+    {
+        Some(r) if r.len() == carry.attnos.len() => {
+            out.extend(carry.attnos.iter().copied().zip(r.iter().copied()))
+        }
+        _ if carry.attnos.is_empty()
+            || child.lefttree.is_none()
+                && plan.lefttree.is_some_and(|c| c.as_result().is_some()) => {}
+        _ => {
+            return Err(Refusal::shape(
+                k,
+                id,
+                "UPDATE: the target's old columns did not reach the write op",
+            ))
+        }
     }
     Ok(out)
 }
@@ -770,8 +1273,16 @@ const fn wait_of(w: LockWaitPolicy) -> WaitPolicy {
 
 /// The statement's marks when no LockRows / ModifyTable consumes them: each is a PlanRowMark.
 pub fn map_marks(b: &mut Builder<'_, '_>) -> Result<(), Refusal> {
-    if b.stmt.rowMarks.iter().any(|m| m.as_plan_row_mark().is_none()) {
-        return Err(Refusal::shape(Kind::PlanRowMark, STMT_NODE, "a rowMarks entry that is not a PlanRowMark"));
+    if b.stmt
+        .rowMarks
+        .iter()
+        .any(|m| m.as_plan_row_mark().is_none())
+    {
+        return Err(Refusal::shape(
+            Kind::PlanRowMark,
+            STMT_NODE,
+            "a rowMarks entry that is not a PlanRowMark",
+        ));
     }
     Ok(())
 }
@@ -780,7 +1291,11 @@ pub fn map<'p>(b: &mut Builder<'p, '_>, node: Node<'p>, k: Kind) -> Result<Open<
     match k {
         Kind::ModifyTable => map_modify_table(b, node.as_modify_table().unwrap()),
         Kind::LockRows => lockrows::map_lock_rows(b, node.as_lock_rows().unwrap()),
-        _ => Err(Refusal::shape(k, STMT_NODE, "a PlanRowMark is attached to a LockRows / ModifyTable, not a plan node")),
+        _ => Err(Refusal::shape(
+            k,
+            STMT_NODE,
+            "a PlanRowMark is attached to a LockRows / ModifyTable, not a plan node",
+        )),
     }
 }
 
@@ -797,8 +1312,16 @@ pub fn members_of(g: &PipelineGraph<'_>) -> MemberSet {
 /// The written relations' indexes whose constraint facts the facts source did not carry (`known` =
 /// false): zero over the corpus (`tests/write_matrix.rs`) — an unclassified index fails the test.
 pub fn unclassified(g: &PipelineGraph<'_>) -> usize {
-    let writes = g.pipelines.iter().flat_map(|p| p.ops.iter()).filter_map(|o| if let Op::Write(d) = o { Some(d) } else { None });
-    writes.flat_map(|d| d.targets.iter()).flat_map(|t| t.indexes.iter()).filter(|i| !i.known).count()
+    let writes = g
+        .pipelines
+        .iter()
+        .flat_map(|p| p.ops.iter())
+        .filter_map(|o| if let Op::Write(d) = o { Some(d) } else { None });
+    writes
+        .flat_map(|d| d.targets.iter())
+        .flat_map(|t| t.indexes.iter())
+        .filter(|i| !i.known)
+        .count()
 }
 
 impl MemberSet {
@@ -825,9 +1348,20 @@ impl WriteDesc<'_> {
     /// the WHERE) and by none of the write's other lists (its checks, RETURNING, a MERGE action): ExecOnConflictUpdate
     /// evaluates it over the existing row, where its ExecQual / ExecProject reaches it.
     pub fn conflict_only(&self, plan_id: i32) -> bool {
-        let Some(oc) = self.on_conflict.as_ref().filter(|oc| oc.update && self.cmd == Cmd::Insert) else { return false };
-        let read = oc.set.iter().any(|n| reads_sub(n, plan_id)) || oc.filter.is_some_and(|f| reads_sub(f, plan_id));
-        let other = self.checks.iter().any(|c| reads_sub(c.qual, plan_id)) || self.returning.is_some_and(|r| r.iter().any(|n| reads_sub(n, plan_id))) || self.merge.is_some();
+        let Some(oc) = self
+            .on_conflict
+            .as_ref()
+            .filter(|oc| oc.update && self.cmd == Cmd::Insert)
+        else {
+            return false;
+        };
+        let read = oc.set.iter().any(|n| reads_sub(n, plan_id))
+            || oc.filter.is_some_and(|f| reads_sub(f, plan_id));
+        let other = self.checks.iter().any(|c| reads_sub(c.qual, plan_id))
+            || self
+                .returning
+                .is_some_and(|r| r.iter().any(|n| reads_sub(n, plan_id)))
+            || self.merge.is_some();
         read && !other
     }
 
@@ -835,20 +1369,39 @@ impl WriteDesc<'_> {
     /// qual or a target list) and by none of the write's other lists (its checks, RETURNING): ExecMergeMatched /
     /// ExecMergeNotMatched evaluate it over the action's row, where its ExecQual / ExecProject reaches it.
     pub fn action_only(&self, plan_id: i32) -> bool {
-        let Some(m) = self.merge.as_ref() else { return false };
-        let (list, found) = (|l: &NodeList<'_>| l.iter().any(|n| reads_sub(n, plan_id)), |l: &NodeList<'_>| l.iter().any(|n| sub_read(n, plan_id, false)));
-        let read = m.actions.iter().any(|a| found(a.tlist) || a.quals.is_some_and(found));
-        let other = self.checks.iter().any(|c| reads_sub(c.qual, plan_id)) || self.returning.is_some_and(list);
+        let Some(m) = self.merge.as_ref() else {
+            return false;
+        };
+        let (list, found) = (
+            |l: &NodeList<'_>| l.iter().any(|n| reads_sub(n, plan_id)),
+            |l: &NodeList<'_>| l.iter().any(|n| sub_read(n, plan_id, false)),
+        );
+        let read = m
+            .actions
+            .iter()
+            .any(|a| found(a.tlist) || a.quals.is_some_and(found));
+        let other = self.checks.iter().any(|c| reads_sub(c.qual, plan_id))
+            || self.returning.is_some_and(list);
         read && !other
     }
 
     /// Whether one of the write's own lists reads SubPlan `plan_id`: a pre-write one (`refers`) or the RETURNING list.
     pub fn reads_own(&self, plan_id: i32) -> bool {
-        refers(self, plan_id) || self.returning.is_some_and(|r| r.iter().any(|n| reads_sub(n, plan_id)))
+        refers(self, plan_id)
+            || self
+                .returning
+                .is_some_and(|r| r.iter().any(|n| reads_sub(n, plan_id)))
     }
 
     pub fn dump(&self, out: &mut dyn Write) -> fmt::Result {
-        write!(out, "  write {} rel={} rti={} natts={} indexes=(", self.cmd.tag(), self.plan.target_rel, self.rti, self.site.natts())?;
+        write!(
+            out,
+            "  write {} rel={} rti={} natts={} indexes=(",
+            self.cmd.tag(),
+            self.plan.target_rel,
+            self.rti,
+            self.site.natts()
+        )?;
         dump_indexes(&self.targets[0], out)?;
         write!(out, ")")?;
         if let Some(s) = self.set {
@@ -859,7 +1412,11 @@ impl WriteDesc<'_> {
             write!(out, ")")?;
         }
         if let Some(c) = &self.on_conflict {
-            write!(out, " on_conflict={} arbiter=(", if c.update { "update" } else { "nothing" })?;
+            write!(
+                out,
+                " on_conflict={} arbiter=(",
+                if c.update { "update" } else { "nothing" }
+            )?;
             for (i, o) in c.arbiter.iter().enumerate() {
                 write!(out, "{}{o}", if i > 0 { "," } else { "" })?;
             }
@@ -897,11 +1454,28 @@ impl WriteDesc<'_> {
             write!(out, " tableoid=outer.{}", self.tableoid_col)?;
         }
         if let Some(r) = &self.route {
-            write!(out, " route=rti{}:{} natts={}{}", r.root_rti, r.root_relid, r.root_natts, if r.cross_partition { " cross-partition" } else { "" })?;
+            write!(
+                out,
+                " route=rti{}:{} natts={}{}",
+                r.root_rti,
+                r.root_relid,
+                r.root_natts,
+                if r.cross_partition {
+                    " cross-partition"
+                } else {
+                    ""
+                }
+            )?;
         }
         for (i, t) in self.targets.iter().enumerate() {
             if i > 0 {
-                write!(out, "\n    target rti={} rel={} natts={} indexes=(", t.rti, t.relid, t.site.natts())?;
+                write!(
+                    out,
+                    "\n    target rti={} rel={} natts={} indexes=(",
+                    t.rti,
+                    t.relid,
+                    t.site.natts()
+                )?;
                 dump_indexes(t, out)?;
                 write!(out, ")")?;
                 if let Some(s) = t.set {
@@ -931,7 +1505,12 @@ impl WriteDesc<'_> {
             if !t.generated.is_empty() {
                 write!(out, " generated=(")?;
                 for (j, (a, g)) in t.generated.iter().enumerate() {
-                    write!(out, "{}{a}{}", if j > 0 { "," } else { "" }, if *g == b'v' { "v" } else { "s" })?;
+                    write!(
+                        out,
+                        "{}{a}{}",
+                        if j > 0 { "," } else { "" },
+                        if *g == b'v' { "v" } else { "s" }
+                    )?;
                 }
                 write!(out, ")")?;
             }
@@ -1034,7 +1613,16 @@ pub fn dump_indexes(t: &Target<'_>, out: &mut dyn Write) -> fmt::Result {
         } else {
             write!(out, "[{}]", d.nkeys)?;
         }
-        for (flag, on) in [("u", d.unique), ("p", d.primary), ("d", d.deferrable), ("x", d.exclusion), ("w", d.partial), ("e", d.expression), ("i", d.include), ("?", !d.known)] {
+        for (flag, on) in [
+            ("u", d.unique),
+            ("p", d.primary),
+            ("d", d.deferrable),
+            ("x", d.exclusion),
+            ("w", d.partial),
+            ("e", d.expression),
+            ("i", d.include),
+            ("?", !d.known),
+        ] {
             if on {
                 write!(out, "{flag}")?;
             }
@@ -1049,16 +1637,34 @@ pub fn dump_indexes(t: &Target<'_>, out: &mut dyn Write) -> fmt::Result {
 fn dump_marks(marks: &[RowMark], out: &mut dyn Write) -> fmt::Result {
     write!(out, " (")?;
     for (i, m) in marks.iter().enumerate() {
-        write!(out, "{}rti{}:{:?}{}", if i > 0 { ", " } else { "" }, m.rti, m.mark, if m.parent { " parent" } else { "" })?;
+        write!(
+            out,
+            "{}rti{}:{:?}{}",
+            if i > 0 { ", " } else { "" },
+            m.rti,
+            m.mark,
+            if m.parent { " parent" } else { "" }
+        )?;
     }
     write!(out, ")")
 }
 
 impl LockDesc<'_> {
     pub fn dump(&self, out: &mut dyn Write) -> fmt::Result {
-        write!(out, "  lock rel={} {:?} {:?} marks=(", self.plan.target_rel, self.plan.lock, self.plan.wait)?;
+        write!(
+            out,
+            "  lock rel={} {:?} {:?} marks=(",
+            self.plan.target_rel, self.plan.lock, self.plan.wait
+        )?;
         for (i, m) in self.marks.iter().enumerate() {
-            write!(out, "{}rti{}:{:?}{}", if i > 0 { ", " } else { "" }, m.rti, m.mark, if m.parent { " parent" } else { "" })?;
+            write!(
+                out,
+                "{}rti{}:{:?}{}",
+                if i > 0 { ", " } else { "" },
+                m.rti,
+                m.mark,
+                if m.parent { " parent" } else { "" }
+            )?;
         }
         write!(out, ")")?;
         if self.epq != 0 {

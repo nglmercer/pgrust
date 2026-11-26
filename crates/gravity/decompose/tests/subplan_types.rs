@@ -40,11 +40,15 @@ fn subplans<'p>(n: Node<'p>, f: &mut dyn FnMut(Node<'p>)) {
 #[test]
 fn a_subplans_type_and_collation_are_postgresqls_per_sublink_type() {
     let mut files = harness::fixtures_in(&harness::plans_root());
-    files.extend(harness::fixtures_in(&harness::plans_root().join("regress-full")));
+    files.extend(harness::fixtures_in(
+        &harness::plans_root().join("regress-full"),
+    ));
     let rows = harness::par_map(&files, |path| {
         let text = fs::read_to_string(path).unwrap();
         let ctx = MemoryContext::new("subplan_types");
-        let Ok(fx) = corpus::load(ctx.mcx(), &text) else { return (BTreeMap::new(), Vec::new()) };
+        let Ok(fx) = corpus::load(ctx.mcx(), &text) else {
+            return (BTreeMap::new(), Vec::new());
+        };
         let (mut seen, mut bad) = (BTreeMap::new(), Vec::new());
         let mut check = |x: Node<'_>| {
             let s = x.as_sub_plan().unwrap();
@@ -54,14 +58,33 @@ fn a_subplans_type_and_collation_are_postgresqls_per_sublink_type() {
             let pin = match (s.subLinkType, s.firstColType) {
                 (SubLinkType::ARRAY_SUBLINK, 23) => Some(1007),
                 (SubLinkType::ARRAY_SUBLINK, 25) => Some(1009),
-                (SubLinkType::EXISTS_SUBLINK | SubLinkType::ANY_SUBLINK | SubLinkType::ALL_SUBLINK, _) => Some(16),
+                (
+                    SubLinkType::EXISTS_SUBLINK
+                    | SubLinkType::ANY_SUBLINK
+                    | SubLinkType::ALL_SUBLINK,
+                    _,
+                ) => Some(16),
                 _ => None,
             };
             if pin.is_some_and(|p| type_of(x) != Some(p)) {
-                bad.push(format!("{}: subplan {} {:?} over {}: type {:?}, pinned {pin:?}", path.display(), s.plan_id, s.subLinkType, s.firstColType, type_of(x)));
+                bad.push(format!(
+                    "{}: subplan {} {:?} over {}: type {:?}, pinned {pin:?}",
+                    path.display(),
+                    s.plan_id,
+                    s.subLinkType,
+                    s.firstColType,
+                    type_of(x)
+                ));
             }
             if type_of(x) != ty || collation_of(x) != coll {
-                bad.push(format!("{}: subplan {} {:?}: type {:?} coll {}, PostgreSQL {ty:?} {coll}", path.display(), s.plan_id, s.subLinkType, type_of(x), collation_of(x)));
+                bad.push(format!(
+                    "{}: subplan {} {:?}: type {:?} coll {}, PostgreSQL {ty:?} {coll}",
+                    path.display(),
+                    s.plan_id,
+                    s.subLinkType,
+                    type_of(x),
+                    collation_of(x)
+                ));
             }
         };
         rescan::each_plan_node(fx.stmt, &mut |n| {
@@ -82,8 +105,20 @@ fn a_subplans_type_and_collation_are_postgresqls_per_sublink_type() {
         }
     }
     eprintln!("SubPlans by subLinkType: {seen:?}");
-    for t in ["EXISTS_SUBLINK", "ALL_SUBLINK", "ANY_SUBLINK", "ROWCOMPARE_SUBLINK", "EXPR_SUBLINK", "MULTIEXPR_SUBLINK", "ARRAY_SUBLINK", "CTE_SUBLINK"] {
-        assert!(seen.get(t).is_some_and(|&n| n > 0), "no fixture holds a {t} SubPlan: {seen:?}");
+    for t in [
+        "EXISTS_SUBLINK",
+        "ALL_SUBLINK",
+        "ANY_SUBLINK",
+        "ROWCOMPARE_SUBLINK",
+        "EXPR_SUBLINK",
+        "MULTIEXPR_SUBLINK",
+        "ARRAY_SUBLINK",
+        "CTE_SUBLINK",
+    ] {
+        assert!(
+            seen.get(t).is_some_and(|&n| n > 0),
+            "no fixture holds a {t} SubPlan: {seen:?}"
+        );
     }
     let bad: Vec<&String> = rows.iter().flat_map(|r| r.1.iter()).collect();
     assert!(bad.is_empty(), "{bad:#?}");
@@ -96,13 +131,20 @@ fn a_subplans_type_and_collation_are_postgresqls_per_sublink_type() {
 fn a_projectsets_subplan_op_comes_before_its_srf_op() {
     use gravity_decompose::graph::Op;
     let mut files = harness::fixtures_in(&harness::plans_root());
-    files.extend(harness::fixtures_in(&harness::plans_root().join("regress-full")));
+    files.extend(harness::fixtures_in(
+        &harness::plans_root().join("regress-full"),
+    ));
     let rows = harness::par_map(&files, |path| {
         let text = fs::read_to_string(path).unwrap();
         let ctx = MemoryContext::new("subplan_types");
-        let Ok(fx) = corpus::load(ctx.mcx(), &text) else { return (0, Vec::new()) };
+        let Ok(fx) = corpus::load(ctx.mcx(), &text) else {
+            return (0, Vec::new());
+        };
         let arena = gravity_program::Arena::new(1 << 20);
-        let Ok(g) = gravity_decompose::decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx) else { return (0, Vec::new()) };
+        let Ok(g) = gravity_decompose::decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx)
+        else {
+            return (0, Vec::new());
+        };
         let (mut n, mut bad) = (0, Vec::new());
         for (k, p) in g.pipelines.iter().enumerate() {
             for (i, op) in p.ops.iter().enumerate() {
@@ -116,8 +158,14 @@ fn a_projectsets_subplan_op_comes_before_its_srf_op() {
                 }
                 for id in ids {
                     n += 1;
-                    if !p.ops[..i].iter().any(|o| matches!(o, Op::SubPlan(d) if d.plan_id == id)) {
-                        bad.push(format!("{}: p{k} Srf op {i} reads subplan {id} with no op before it", path.display()));
+                    if !p.ops[..i]
+                        .iter()
+                        .any(|o| matches!(o, Op::SubPlan(d) if d.plan_id == id))
+                    {
+                        bad.push(format!(
+                            "{}: p{k} Srf op {i} reads subplan {id} with no op before it",
+                            path.display()
+                        ));
                     }
                 }
             }
@@ -125,7 +173,10 @@ fn a_projectsets_subplan_op_comes_before_its_srf_op() {
         (n, bad)
     });
     let n: usize = rows.iter().map(|r| r.0).sum();
-    assert!(n > 0, "no fixture has a SubPlan in a ProjectSet's target list");
+    assert!(
+        n > 0,
+        "no fixture has a SubPlan in a ProjectSet's target list"
+    );
     let bad: Vec<&String> = rows.iter().flat_map(|r| r.1.iter()).collect();
     assert!(bad.is_empty(), "{bad:#?}");
 }
@@ -137,14 +188,21 @@ fn a_projectsets_subplan_op_comes_before_its_srf_op() {
 #[test]
 fn a_subplan_read_with_no_op_of_it_before_the_read_refuses_by_name() {
     let mut files = harness::fixtures_in(&harness::plans_root());
-    files.extend(harness::fixtures_in(&harness::plans_root().join("regress-full")));
+    files.extend(harness::fixtures_in(
+        &harness::plans_root().join("regress-full"),
+    ));
     let rows = harness::par_map(&files, |path| {
         let text = fs::read_to_string(path).unwrap();
         let ctx = MemoryContext::new("subplan_types");
-        let Ok(fx) = corpus::load(ctx.mcx(), &text) else { return None };
+        let Ok(fx) = corpus::load(ctx.mcx(), &text) else {
+            return None;
+        };
         let arena = gravity_program::Arena::new(1 << 20);
-        let r = gravity_decompose::decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx).err()?;
-        r.to_string().contains("a SubPlan read in a pipeline with no op of it before the read").then(|| harness::fixture_name(path))
+        let r =
+            gravity_decompose::decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx).err()?;
+        r.to_string()
+            .contains("a SubPlan read in a pipeline with no op of it before the read")
+            .then(|| harness::fixture_name(path))
     });
     let mut got: Vec<String> = rows.into_iter().flatten().collect();
     got.sort();

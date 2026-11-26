@@ -49,13 +49,11 @@ fn parse_xml_decl_absent_and_pi() {
 // the encoding absent, instead of reading an encoding from past the NUL.
 #[test]
 fn parse_xml_decl_quote_search_stops_at_nul() {
-    let (rc, _, version, encoding, _) =
-        decl(b"<?xml version='1.0\0' encoding='bogus'?><a/>");
+    let (rc, _, version, encoding, _) = decl(b"<?xml version='1.0\0' encoding='bogus'?><a/>");
     assert_eq!(rc, XML_ERR_VERSION_MISSING);
     assert!(version.is_none());
     assert!(encoding.is_none());
-    let (rc, _, _, encoding, _) =
-        decl(b"<?xml version='1.0' encoding='bo\0gus'?><a/>");
+    let (rc, _, _, encoding, _) = decl(b"<?xml version='1.0' encoding='bo\0gus'?><a/>");
     assert_eq!(rc, XML_ERR_MISSING_ENCODING);
     assert!(encoding.is_none());
 }
@@ -64,7 +62,10 @@ fn parse_xml_decl_quote_search_stops_at_nul() {
 fn xpath_numbers_print_like_float8out() {
     let eval = |expr: &[u8]| {
         let mut out = Vec::new();
-        assert_eq!(crate::xpath::xpath_internal(expr, b"<r/>", None, Some(&mut out)).unwrap(), 1);
+        assert_eq!(
+            crate::xpath::xpath_internal(expr, b"<r/>", None, Some(&mut out)).unwrap(),
+            1
+        );
         String::from_utf8(out.remove(0)).unwrap()
     };
     adt_float::set_extra_float_digits(1);
@@ -102,14 +103,19 @@ fn print_xml_decl_forms() {
 #[test]
 fn doctype_in_content_forms() {
     assert!(xml_doctype_in_content(b"<!DOCTYPE a><a/>\0"));
-    assert!(xml_doctype_in_content(b"  <!-- c --> <?pi x?> <!DOCTYPE a><a/>\0"));
+    assert!(xml_doctype_in_content(
+        b"  <!-- c --> <?pi x?> <!DOCTYPE a><a/>\0"
+    ));
     assert!(!xml_doctype_in_content(b"<a/>\0"));
     assert!(!xml_doctype_in_content(b"text\0"));
 }
 
 #[test]
 fn escape_xml_specials() {
-    assert_eq!(escape_xml(b"a<b>&c\rd"), b"a&lt;b&gt;&amp;c&#x0d;d".to_vec());
+    assert_eq!(
+        escape_xml(b"a<b>&c\rd"),
+        b"a&lt;b&gt;&amp;c&#x0d;d".to_vec()
+    );
 }
 
 #[test]
@@ -140,7 +146,10 @@ fn xmlroot_rewrites_decl() {
         XmlStandaloneType::XML_STANDALONE_YES,
     )
     .unwrap();
-    assert_eq!(out, b"<?xml version=\"1.1\" standalone=\"yes\"?><a/>".to_vec());
+    assert_eq!(
+        out,
+        b"<?xml version=\"1.1\" standalone=\"yes\"?><a/>".to_vec()
+    );
     let out = xmlroot(b"<a/>", None, XmlStandaloneType::XML_STANDALONE_OMITTED).unwrap();
     assert_eq!(out, b"<a/>".to_vec());
 }
@@ -164,7 +173,10 @@ fn map_identifiers_round() {
 #[test]
 fn errdetail_codes() {
     assert_eq!(errdetail_for_xml_code(9), "Invalid character value.");
-    assert_eq!(errdetail_for_xml_code(4242), "Unrecognized libxml error code: 4242.");
+    assert_eq!(
+        errdetail_for_xml_code(4242),
+        "Unrecognized libxml error code: 4242."
+    );
 }
 
 // upstream 4c777d6dd9c9 (18.6): Fix handling of namespace nodes in xpath() (xml)
@@ -229,7 +241,10 @@ fn xml_error_handler_reports_below_warning_level_as_notice() {
         reports,
         vec![
             (types_error::WARNING, "a warning".to_string()),
-            (types_error::NOTICE, "an informational diagnostic".to_string()),
+            (
+                types_error::NOTICE,
+                "an informational diagnostic".to_string()
+            ),
         ]
     );
     set_strictness_for_test(0);
@@ -298,7 +313,10 @@ fn xml_char_to_encoding_takes_raw_name_bytes() {
     assert_eq!(e.message(), "invalid encoding name \"bogus\"");
     assert_eq!(e.sqlstate(), ::types_error::ERRCODE_INVALID_PARAMETER_VALUE);
     let e = xmlChar_to_encoding(b"bo\xffgus").unwrap_err();
-    assert_eq!(e.message_raw.as_deref(), Some(&b"invalid encoding name \"bo\xffgus\""[..]));
+    assert_eq!(
+        e.message_raw.as_deref(),
+        Some(&b"invalid encoding name \"bo\xffgus\""[..])
+    );
 }
 
 #[test]
@@ -306,7 +324,10 @@ fn xmlconcat_growth_meets_the_stringinfo_ceiling() {
     // enlargeStringInfo: needed >= MaxAllocSize - len is ERROR 54000.
     assert!(stringinfo_room(0, ::mcx::MAX_ALLOC_SIZE - 1).is_ok());
     let err = stringinfo_room(10, ::mcx::MAX_ALLOC_SIZE - 10).unwrap_err();
-    assert_eq!(err.sqlstate(), ::types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED);
+    assert_eq!(
+        err.sqlstate(),
+        ::types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED
+    );
     assert_eq!(
         err.message(),
         "string buffer exceeds maximum allowed length (1073741823 bytes)"
@@ -325,7 +346,10 @@ fn escape_xml_guards_every_append_like_enlarge_string_info() {
     assert!(enlarge_string_info(max - 6, 5).is_ok());
     assert!(enlarge_string_info(max - 5, 5).is_err());
     let err = enlarge_string_info(max - 1, 1).unwrap_err();
-    assert_eq!(err.message(), "string buffer exceeds maximum allowed length (1073741823 bytes)");
+    assert_eq!(
+        err.message(),
+        "string buffer exceeds maximum allowed length (1073741823 bytes)"
+    );
     assert_eq!(
         err.detail(),
         Some("Cannot enlarge string buffer containing 1073741822 bytes by 1 more bytes.")
@@ -427,10 +451,15 @@ fn stringinfo_growth_matches_c_query_to_xml_limit() {
             Ok(())
         })()
         .unwrap_err();
-        assert_eq!(err.sqlstate(), ::types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED);
+        assert_eq!(
+            err.sqlstate(),
+            ::types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED
+        );
         assert_eq!(
             err.detail().unwrap(),
-            format!("Cannot enlarge string buffer containing {want_len} bytes by 100000011 more bytes.")
+            format!(
+                "Cannot enlarge string buffer containing {want_len} bytes by 100000011 more bytes."
+            )
         );
     }
 }

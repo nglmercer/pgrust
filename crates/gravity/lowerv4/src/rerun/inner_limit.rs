@@ -19,8 +19,13 @@ use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{Block, IntBinOp, IntCond, Type, Value};
 use mcx::{CollectIn, PgVec};
 
-use crate::frame::{env::Env, frame::reached, row::{Carry, RowVals}, stop::Exits};
 use crate::admit::refusal::{Reason, ShapeWhy};
+use crate::frame::{
+    env::Env,
+    frame::reached,
+    row::{Carry, RowVals},
+    stop::Exits,
+};
 
 /// D2121: the Shape of a rerun set re-running a union's later arm but not the pipeline whose open restarts its union words.
 pub(crate) const UNION_FIRST_ARM_OUT: &str = "a rerun set re-running a streamed union's arms whose LIMIT / OFFSET or streamed group counts across them, but not its first arm's pipeline (the union words restart there at each run, as PG's ExecReScanLimit: D2121)";
@@ -35,13 +40,34 @@ pub(crate) const UNION_FIRST_ARM_OUT: &str = "a rerun set re-running a streamed 
 /// each run and the arms, run in program order, write them once and keep counting across the arms. The first arm's
 /// pipeline stays serial (src.append's `Arm::serial`): one open per run. `true` at that pipeline; a set holding a later
 /// arm but not the first, an inner union's marker (no run of its own here) or arms that are not one run refuse by name.
-pub(crate) fn union_reset(px: &mut crate::frame::px::Px<'_, '_>, (k, j): (usize, usize), node: i32, run: Option<(usize, usize)>, top: bool) -> bool {
+pub(crate) fn union_reset(
+    px: &mut crate::frame::px::Px<'_, '_>,
+    (k, j): (usize, usize),
+    node: i32,
+    run: Option<(usize, usize)>,
+    top: bool,
+) -> bool {
     let gx = px.gx;
     let ps = gx.pipelines();
-    let member = |q: usize| gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(q as u16)));
+    let member = |q: usize| {
+        gx.graph
+            .reruns
+            .iter()
+            .any(|r| r.pipelines.contains(&(q as u16)))
+    };
     // the union words: a LIMIT / OFFSET or a streamed group past this marker, before the next (an outer union's) marker
-    let after = ps[k].ops[j + 1..].iter().take_while(|o| !matches!(o, Op::Append(AppendDesc::Arm { .. })));
-    if px.tailing() || k >= ps.len() || !after.map(crate::graph::step_kind).any(|x| matches!(x, crate::face::kinds::KindId::StepLimit | crate::face::kinds::KindId::RunsGroup)) {
+    let after = ps[k].ops[j + 1..]
+        .iter()
+        .take_while(|o| !matches!(o, Op::Append(AppendDesc::Arm { .. })));
+    if px.tailing()
+        || k >= ps.len()
+        || !after.map(crate::graph::step_kind).any(|x| {
+            matches!(
+                x,
+                crate::face::kinds::KindId::StepLimit | crate::face::kinds::KindId::RunsGroup
+            )
+        })
+    {
         return false;
     }
     match run {
@@ -49,17 +75,42 @@ pub(crate) fn union_reset(px: &mut crate::frame::px::Px<'_, '_>, (k, j): (usize,
             if k != first || !(first..first + len).any(member) {
                 return false;
             }
-            let Some(set) = gx.graph.reruns.iter().position(|r| r.pipelines.contains(&(first as u16))) else {
-                crate::refuse!(node, Reason::Shape { why: ShapeWhy(UNION_FIRST_ARM_OUT) });
+            let Some(set) = gx
+                .graph
+                .reruns
+                .iter()
+                .position(|r| r.pipelines.contains(&(first as u16)))
+            else {
+                crate::refuse!(
+                    node,
+                    Reason::Shape {
+                        why: ShapeWhy(UNION_FIRST_ARM_OUT)
+                    }
+                );
             };
-            let off = px.frame_word(crate::frame::px::WordKey::UnionFlag { union: node as u32 }) as i32 * 8;
-            let flag = crate::lifetime::Declared { what: UNION_FLAG, scope: crate::lifetime::Scope::OwnerRun { set: set as u16 }, place: crate::lifetime::Place::Word { off, ty: gravity_ir::Type::I64, init: 0 } };
+            let off = px.frame_word(crate::frame::px::WordKey::UnionFlag { union: node as u32 })
+                as i32
+                * 8;
+            let flag = crate::lifetime::Declared {
+                what: UNION_FLAG,
+                scope: crate::lifetime::Scope::OwnerRun { set: set as u16 },
+                place: crate::lifetime::Place::Word {
+                    off,
+                    ty: gravity_ir::Type::I64,
+                    init: 0,
+                },
+            };
             if px.lifetimes.declare(flag).is_err() {
                 crate::refuse!(node, Reason::Bug { payload: "a streamed union's written flag declared after its rerun set's owner captured its run (D2121)" });
             }
             true
         }
-        _ if member(k) => crate::refuse!(node, Reason::Shape { why: ShapeWhy(UNION_FIRST_ARM_OUT) }),
+        _ if member(k) => crate::refuse!(
+            node,
+            Reason::Shape {
+                why: ShapeWhy(UNION_FIRST_ARM_OUT)
+            }
+        ),
         _ => false,
     }
 }
@@ -72,7 +123,13 @@ const UNION_FLAG: &str = "a streamed union's written flag (D2121)";
 /// runs), or a constant 0 (D3378: limit/lower.rs `reopen` answers it as a constant shut). ALL and a positive constant
 /// never stop.
 pub(crate) fn may_zero(ip: &PipelineNode<'_>) -> bool {
-    crate::frame::iface::limit_count_late(&ip.ops) || ip.ops.iter().any(|o| matches!(crate::frame::iface::limit_bounds(o), Some((Bound::Const(0), _))))
+    crate::frame::iface::limit_count_late(&ip.ops)
+        || ip.ops.iter().any(|o| {
+            matches!(
+                crate::frame::iface::limit_bounds(o),
+                Some((Bound::Const(0), _))
+            )
+        })
 }
 
 /// `Side::full`: `Env::full`'s exits (`Exits::l_full`, `CarryExits::l_full`) and the stop exit (`Exits::l_stop_in`).
@@ -80,7 +137,11 @@ pub(crate) type Exit = (Block, Option<Block>, Block);
 
 /// nest/inner.rs `swap`'s `Side::full`: the exits set to `(x, c, stop)` (`c` only under carry exits); the old returned.
 pub(crate) fn swap_full(env: &mut Env, (x, c, stop): Exit) -> Exit {
-    let old = (core::mem::replace(&mut env.x.l_full, x), env.carry_exits.map(|e| e.l_full), core::mem::replace(&mut env.x.l_stop_in, stop));
+    let old = (
+        core::mem::replace(&mut env.x.l_full, x),
+        env.carry_exits.map(|e| e.l_full),
+        core::mem::replace(&mut env.x.l_stop_in, stop),
+    );
     if let (Some(e), Some(c)) = (env.carry_exits.as_mut(), c) {
         e.l_full = c;
     }
@@ -106,23 +167,44 @@ impl Ends {
         let full = b.create_block(&mcx::concat_in(&[&[Type::I64][..], ctypes], env.mcx)[..]);
         let back = b.create_block(&[Type::I64, Type::I64, Type::I64]);
         b.mark_cold(back);
-        Ends { end, window, full, back, stop: env.x.l_stop_in, word }
+        Ends {
+            end,
+            window,
+            full,
+            back,
+            stop: env.x.l_stop_in,
+            word,
+        }
     }
 
     /// `Side::full` under the window's carry exits or without them.
     pub(crate) fn side(&self, env: &Env) -> Exit {
-        (if env.carry_exits.is_some() { env.x.l_full } else { self.full }, env.carry_exits.map(|_| self.full), self.back)
+        (
+            if env.carry_exits.is_some() {
+                env.x.l_full
+            } else {
+                self.full
+            },
+            env.carry_exits.map(|_| self.full),
+            self.back,
+        )
     }
 
     /// The inner steps' exits: `l_done` the window's end.
     pub(crate) fn exits(&self, x: &Exits) -> Exits {
-        Exits { l_done: self.window, ..*x }
+        Exits {
+            l_done: self.window,
+            ..*x
+        }
     }
 
     /// At a hand-on, under the inner's environment: its steps' stop exit (a LIMIT's `through`) and the offset words whose
     /// being set makes the resume re-enter the inner row.
     pub(crate) fn at_row<'e>(&self, env: &Env<'e, '_>) -> (Block, PgVec<'e, i32>) {
-        (env.x.l_stop_in, env.expands.iter().map(|e| e.1).collect_in(env.mcx))
+        (
+            env.x.l_stop_in,
+            env.expands.iter().map(|e| e.1).collect_in(env.mcx),
+        )
     }
 
     /// Under the owner's environment: its continuation's stop exit set to a translation block, the owner's returned.
@@ -133,7 +215,14 @@ impl Ends {
     }
 
     /// The translation (`tr`): the outer cursor kept, the inner steps' stop exit taken with row `r`'s cursor.
-    pub(crate) fn tr_end(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, (tr, owner): (Block, Block), (stop, offs): (Block, PgVec<'_, i32>), r: &RowVals) {
+    pub(crate) fn tr_end(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        (tr, owner): (Block, Block),
+        (stop, offs): (Block, PgVec<'_, i32>),
+        r: &RowVals,
+    ) {
         env.x.l_stop_in = owner;
         if !reached(b, tr) {
             return;
@@ -170,7 +259,14 @@ impl Ends {
 
     /// The ends, lowered: to `l_done`, through the Memoize's done (the entry complete) when there is one; `back` to the
     /// owner's stop exit with the outer cursor.
-    pub(crate) fn seal(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, x: &Exits, memo: Option<&crate::ops::memoize::lower::Memo>, l_done: Block) {
+    pub(crate) fn seal(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        x: &Exits,
+        memo: Option<&crate::ops::memoize::lower::Memo>,
+        l_done: Block,
+    ) {
         if reached(b, self.back) {
             b.switch_to(self.back);
             let p = mcx::to_vec_in(b.block_params(self.back), env.mcx);

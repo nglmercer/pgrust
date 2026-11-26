@@ -6,9 +6,9 @@
 //! publishes each granule as one window; the per-part faces (the open part,
 //! its Stats bodies, its dictionaries) are filled once per statement and shared.
 
+use std::collections::HashMap;
 use std::ffi::CString;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use cancelpoll::Step;
@@ -17,34 +17,43 @@ use pgsync::{Mutex, OnceLock};
 use gravity_abi::ctx::lane;
 use gravity_abi::{Answer, Datum as Word, Lane, ScanPos, ANSWER_MINMAX};
 use gravity_driver::{BindingRef, Cursor, Error, Residency, Result, Source, Window, WindowBase};
-use gravity_program::{laneset, ZoneOp, ZonePred};
 use gravity_program::cost::pgrc::LaneDecode;
+use gravity_program::{laneset, ZoneOp, ZonePred};
 
 use crate::inputs::knob_kb;
-use crate::ops::scan::pgrc::lanebits::LaneBits;
 use crate::ops::scan::heap_source::{HeldCharge, HeldOwner};
+use crate::ops::scan::pgrc::lanebits::LaneBits;
 
+use gravity_abi::site::{PackedFrames, LANE_PACKED, PACKED_FRAMES};
+use gravity_program::protos::{
+    code_sparse_table, code_table, const_key_lane, word_zone_at_of, word_zone_key_of,
+    word_zone_list_of, word_zone_of, VERDICT_BLOOM, VERDICT_CLAIM, VERDICT_CODE_SPARSE,
+    VERDICT_CODE_TABLE, VERDICT_COND, VERDICT_CONST_KEY, VERDICT_COUNT_ONLY, VERDICT_COUNT_SELECT,
+    VERDICT_ELIDE, VERDICT_ELIDE_HIT, VERDICT_GUARD_SEL, VERDICT_LATE, VERDICT_PACKED,
+    VERDICT_PACKED_ZONE, VERDICT_PSMA, VERDICT_UNREAD, VERDICT_ZONE,
+};
 use pgrc_am::footer::ZoneColumn;
 use pgrc_format::abi::{ByteArena, DecodeOut, Selection, ValidityVerdict};
 use pgrc_format::class::StorageClass;
+use pgrc_format::class::TypeSemantics;
+use pgrc_format::enc::EncodingId;
 use pgrc_format::geom::{FRAMES_PER_GRANULE, FRAME_VALUES, GRANULE_ROWS};
+use pgrc_format::meta::Verdict as MetaVerdict;
 use pgrc_format::meta::{KeyKind, Sortedness, StatsRecord, STATSF_COMPUTED, STATS_RECORD_LEN};
 use pgrc_format::part::{SectionKind, StreamRole, SECTIONF_META_ZSTD};
 use pgrc_format::shredlane::{numeric_lane_scale, ShredLaneKind};
 use pgrc_format::wire::Cur;
-use pgrc_format::enc::EncodingId;
-use pgrc_format::meta::Verdict as MetaVerdict;
 use pgrc_meta::lower::{lower_const, ConstInput, Lowering};
 use pgrc_meta::profile::MetaProfile;
 use pgrc_meta::verdict::{evaluate, BloomEvidence, GrainFacts, ZonePredicate};
 use pgrc_meta::{bloom, psma};
-use gravity_abi::site::{PackedFrames, LANE_PACKED, PACKED_FRAMES};
-use gravity_program::protos::{code_sparse_table, code_table, const_key_lane, word_zone_at_of, word_zone_key_of, word_zone_list_of, word_zone_of, VERDICT_BLOOM, VERDICT_CLAIM, VERDICT_CODE_SPARSE, VERDICT_CODE_TABLE, VERDICT_COND, VERDICT_CONST_KEY, VERDICT_COUNT_ONLY, VERDICT_COUNT_SELECT, VERDICT_ELIDE, VERDICT_ELIDE_HIT, VERDICT_GUARD_SEL, VERDICT_LATE, VERDICT_PACKED, VERDICT_PACKED_ZONE, VERDICT_PSMA, VERDICT_UNREAD, VERDICT_ZONE};
-use pgrc_read::{DictHandle, DictTail, DictTouch, MemPartIo, OpenPart, PartExpect, PartIo, PartPin, PartRegistry, ReadResult, StreamCursor, VfsPartIo};
-use types_core::catalog::{NUMERICOID, RELPERSISTENCE_PERMANENT, RELPERSISTENCE_UNLOGGED};
-use pgrc_format::class::TypeSemantics;
+use pgrc_read::{
+    DictHandle, DictTail, DictTouch, MemPartIo, OpenPart, PartExpect, PartIo, PartPin,
+    PartRegistry, ReadResult, StreamCursor, VfsPartIo,
+};
 use pgrc_scan::{PartDeletes, DV_GRANULE_WORDS};
 use tableam_vocab::TableAm;
+use types_core::catalog::{NUMERICOID, RELPERSISTENCE_PERMANENT, RELPERSISTENCE_UNLOGGED};
 use types_core::Oid;
 use types_error::{PgError, PgResult};
 use types_rel::{Relation, RELKIND_MATVIEW, RELKIND_RELATION};
@@ -65,7 +74,6 @@ use self::sweep::{SharedSweep, StmtSweeps, SweepShare};
 mod verdicts;
 
 use self::raw::walk_sel;
-
 
 /// The 4B-U varlena image of `''` (`EMPTY_PART`'s value).
 static EMPTY_IMAGE: [u8; 4] = [16, 0, 0, 0];
@@ -102,7 +110,10 @@ const NULLS_SOME: u8 = 2;
 const NULLS_UNKNOWN: u8 = 3;
 /// A lane's `PackedFrames` in `datums` words.
 const PF_WORDS: usize = core::mem::size_of::<PackedFrames>() / 8;
-const _: () = assert!(PACKED_FRAMES == FRAMES_PER_GRANULE as usize && core::mem::size_of::<PackedFrames>().is_multiple_of( 8));
+const _: () = assert!(
+    PACKED_FRAMES == FRAMES_PER_GRANULE as usize
+        && core::mem::size_of::<PackedFrames>().is_multiple_of(8)
+);
 
 /// The datum words a `lw`-byte by-value lane holds, as i64 (`[lo, hi]`): sign-extended, or zero-extended for an unsigned
 /// stream (oid: `StorageClass::ByvalWord { signed: false }`; an 8-byte one only up to i64::MAX), so a packed frame's
@@ -116,7 +127,11 @@ fn packed_words(lw: u32, unsigned: bool) -> (i64, i64) {
 
 pub enum PartIoSpec {
     Path(CString),
-    Mem { bytes: Arc<[u8]>, dev: u64, ino: u64 },
+    Mem {
+        bytes: Arc<[u8]>,
+        dev: u64,
+        ino: u64,
+    },
 }
 
 pub struct PartSpec {
@@ -172,7 +187,10 @@ pub const MAX_FACE_ATTNO: usize = types_tuple::htup::MaxHeapAttributeNumber as u
 /// distinct lane `(attno, path, kind, scale)` its statements read, at `MAX_FACE_ATTNO + slot`, claimed on first use.
 pub const MAX_SHRED_FACES: usize = gravity_program::cost::pgrc::SHRED_FACES_MAX;
 // D1748: a shred face is never a column's (every attno below MAX_FACE_ATTNO), and every face fits a stream key's 16 bits
-const _: () = assert!(MAX_FACE_ATTNO > types_tuple::htup::MaxHeapAttributeNumber as usize && MAX_FACE_ATTNO + MAX_SHRED_FACES <= 1 << 16);
+const _: () = assert!(
+    MAX_FACE_ATTNO > types_tuple::htup::MaxHeapAttributeNumber as usize
+        && MAX_FACE_ATTNO + MAX_SHRED_FACES <= 1 << 16
+);
 
 /// The read-only faces of a list's parts (Stats faces, bodies, dictionaries per (face, part)), resident with the list for
 /// the generation (R2, §4b (d)). A face is a column's attno (its `path_ord` 0 streams) or a shred lane's slot (its path's
@@ -225,7 +243,13 @@ pub(super) struct ZoneBody {
 impl ZoneBody {
     /// `body`, just read on this thread, on the part cache's holder from now to its drop.
     fn new(body: Box<[u8]>) -> ZoneBody {
-        let held = memledger::Charge::open(memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache)), memledger::Release::Evict, memledger::Kind::Region, memledger::charge::Door::Heap, body.len() as u64);
+        let held = memledger::Charge::open(
+            memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache)),
+            memledger::Release::Evict,
+            memledger::Kind::Region,
+            memledger::charge::Door::Heap,
+            body.len() as u64,
+        );
         ZoneBody { _held: held, body }
     }
 }
@@ -242,13 +266,22 @@ pub(super) struct CodesEntry {
 
 impl CodesEntry {
     fn new(zones: Option<(ZoneBody, DictHandle)>) -> CodesEntry {
-        CodesEntry { held: OnceLock::new(), zones }
+        CodesEntry {
+            held: OnceLock::new(),
+            zones,
+        }
     }
 
     /// The entry, its `Arc` block just allocated on this thread, offered to a list's warm cell: the block on the part
     /// cache's holder.
     fn warm(&self) {
-        let _ = self.held.set(memledger::Charge::open(FACES_HOLDER, memledger::Release::Evict, memledger::Kind::Region, memledger::charge::Door::Heap, memledger::arc_bytes::<CodesEntry>()));
+        let _ = self.held.set(memledger::Charge::open(
+            FACES_HOLDER,
+            memledger::Release::Evict,
+            memledger::Kind::Region,
+            memledger::charge::Door::Heap,
+            memledger::arc_bytes::<CodesEntry>(),
+        ));
     }
 }
 
@@ -278,7 +311,11 @@ pub(super) struct FaceBodies {
 
 impl FaceBodies {
     fn new(hold: pgrc_read::FaceHold) -> FaceBodies {
-        FaceBodies { hold: Mutex::new(hold), body: OnceLock::new(), meta: OnceLock::new() }
+        FaceBodies {
+            hold: Mutex::new(hold),
+            body: OnceLock::new(),
+            meta: OnceLock::new(),
+        }
     }
 
     /// `n` bytes of a body just set on this thread are held.
@@ -296,7 +333,8 @@ impl FaceBodies {
 
 /// D4482: the holder of a list's faces (`Faces::held`): the part cache, whose parts the list keeps open for its
 /// generation and whose evictions let its warm cells go.
-const FACES_HOLDER: memledger::Owner = memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache));
+const FACES_HOLDER: memledger::Owner =
+    memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache));
 
 /// The bytes of a body a face keeps.
 fn body_bytes(b: &Option<Box<[u8]>>) -> usize {
@@ -305,9 +343,22 @@ fn body_bytes(b: &Option<Box<[u8]>>) -> usize {
 
 impl Faces {
     fn new(nparts: usize) -> Faces {
-        let held = Mutex::new(memledger::Charge::open(FACES_HOLDER, memledger::Release::Evict, memledger::Kind::Region, memledger::charge::Door::Heap, 0));
-        let lanes = (0..MAX_FACE_ATTNO + MAX_SHRED_FACES).map(|_| OnceLock::new()).collect(); // alloc: Cold
-        let f = Faces { held, lanes, shred: (0..MAX_SHRED_FACES).map(|_| OnceLock::new()).collect(), nparts }; // alloc: Cold
+        let held = Mutex::new(memledger::Charge::open(
+            FACES_HOLDER,
+            memledger::Release::Evict,
+            memledger::Kind::Region,
+            memledger::charge::Door::Heap,
+            0,
+        ));
+        let lanes = (0..MAX_FACE_ATTNO + MAX_SHRED_FACES)
+            .map(|_| OnceLock::new())
+            .collect(); // alloc: Cold
+        let f = Faces {
+            held,
+            lanes,
+            shred: (0..MAX_SHRED_FACES).map(|_| OnceLock::new()).collect(),
+            nparts,
+        }; // alloc: Cold
         f.hold(core::mem::size_of_val(&*f.lanes) + core::mem::size_of_val(&*f.shred));
         f
     }
@@ -330,8 +381,20 @@ impl Faces {
         let n = self.nparts;
         // bounded("small-fixed: the list's shred face slots, at most MAX_SHRED_FACES (64)")
         for (i, cell) in self.shred.iter().enumerate() {
-            let f = cell.get_or_init(|| ShredFace { attno, path: Arc::clone(&s.path), kind: s.kind, scale: s.scale, octet: s.octet, ords: (0..n).map(|_| OnceLock::new()).collect() }); // alloc: Cold
-            if f.attno == attno && *f.path == *s.path && f.kind == s.kind && f.scale == s.scale && f.octet == s.octet {
+            let f = cell.get_or_init(|| ShredFace {
+                attno,
+                path: Arc::clone(&s.path),
+                kind: s.kind,
+                scale: s.scale,
+                octet: s.octet,
+                ords: (0..n).map(|_| OnceLock::new()).collect(),
+            }); // alloc: Cold
+            if f.attno == attno
+                && *f.path == *s.path
+                && f.kind == s.kind
+                && f.scale == s.scale
+                && f.octet == s.octet
+            {
                 return Some((MAX_FACE_ATTNO + i) as u32);
             }
         }
@@ -342,8 +405,12 @@ impl Faces {
     /// shred lane's path as `part` elected it (resolved once per part). `None`: a shred lane `part` did not elect at its
     /// kind and scale, which the part publishes all-invalid (every invalid row walks its image).
     fn locate(&self, face: u32, p: usize, part: &OpenPart) -> PgResult<Option<(u32, u32)>> {
-        let Some(i) = (face as usize).checked_sub(MAX_FACE_ATTNO) else { return Ok(Some((face, 0))) };
-        let f = self.shred[i].get().ok_or_else(|| err("gravity: an unclaimed shred lane face"))?;
+        let Some(i) = (face as usize).checked_sub(MAX_FACE_ATTNO) else {
+            return Ok(Some((face, 0)));
+        };
+        let f = self.shred[i]
+            .get()
+            .ok_or_else(|| err("gravity: an unclaimed shred lane face"))?;
         if f.octet {
             return Ok(Some((f.attno, 0)));
         }
@@ -362,7 +429,11 @@ impl Faces {
     /// whose values are the part's stored octet-length lane where it sealed one (resolved once per part), else the
     /// column's own; its Stats, bloom, PSMA and dictionary stay the column's (`locate`).
     fn stream_of(&self, face: u32, p: usize, part: &OpenPart) -> PgResult<Option<(u32, u32)>> {
-        let Some(f) = (face as usize).checked_sub(MAX_FACE_ATTNO).and_then(|i| self.shred[i].get()).filter(|f| f.octet) else {
+        let Some(f) = (face as usize)
+            .checked_sub(MAX_FACE_ATTNO)
+            .and_then(|i| self.shred[i].get())
+            .filter(|f| f.octet)
+        else {
             return self.locate(face, p, part);
         };
         if let Some(&o) = f.ords[p].get() {
@@ -375,7 +446,13 @@ impl Faces {
 
     /// Whether face `face` is a shred lane part `p` resolved as not elected (`locate` ran first: the cursors' open).
     fn absent(&self, face: u32, p: usize) -> bool {
-        (face as usize).checked_sub(MAX_FACE_ATTNO).is_some_and(|i| self.shred[i].get().is_some_and(|f| f.ords[p].get() == Some(&ORD_ABSENT)))
+        (face as usize)
+            .checked_sub(MAX_FACE_ATTNO)
+            .is_some_and(|i| {
+                self.shred[i]
+                    .get()
+                    .is_some_and(|f| f.ords[p].get() == Some(&ORD_ABSENT))
+            })
     }
 
     /// FASTADD: the column `face` reads: its attno, or a shred (or octet) lane's jsonb / text column (`None`: an unclaimed
@@ -390,8 +467,18 @@ impl Faces {
     fn lane(&self, attno: u32) -> &LaneFaces {
         let n = self.nparts;
         self.lanes[attno as usize].get_or_init(|| {
-            let l = LaneFaces { stats: (0..n).map(|_| OnceLock::new()).collect(), faces: (0..n).map(|_| held::Warm::new()).collect(), dicts: (0..n).map(|_| held::Warm::new()).collect(), codes: (0..n).map(|_| held::Warm::new()).collect() }; // alloc: Cold
-            self.hold(core::mem::size_of_val(&*l.stats) + core::mem::size_of_val(&*l.faces) + core::mem::size_of_val(&*l.dicts) + core::mem::size_of_val(&*l.codes));
+            let l = LaneFaces {
+                stats: (0..n).map(|_| OnceLock::new()).collect(),
+                faces: (0..n).map(|_| held::Warm::new()).collect(),
+                dicts: (0..n).map(|_| held::Warm::new()).collect(),
+                codes: (0..n).map(|_| held::Warm::new()).collect(),
+            }; // alloc: Cold
+            self.hold(
+                core::mem::size_of_val(&*l.stats)
+                    + core::mem::size_of_val(&*l.faces)
+                    + core::mem::size_of_val(&*l.dicts)
+                    + core::mem::size_of_val(&*l.codes),
+            );
             l
         })
     }
@@ -402,7 +489,9 @@ impl Faces {
 const ORD_ABSENT: u32 = u32::MAX;
 
 fn fnv(h: u64, bytes: &[u8]) -> u64 {
-    bytes.iter().fold(h, |h, &b| (h ^ b as u64).wrapping_mul(0x0000_0100_0000_01b3))
+    bytes.iter().fold(h, |h, &b| {
+        (h ^ b as u64).wrapping_mul(0x0000_0100_0000_01b3)
+    })
 }
 
 impl PartList {
@@ -423,9 +512,14 @@ impl PartList {
             // The uuid is the open instance's (dev, ino, len, footer_off); the section table's crc is the content's, for an
             // inode the file system hands out again.
             generation = match (&p.part, &p.io) {
-                (Some(part), _) => fnv(fnv(generation, &part.uuid()), &part.footer().section_table_crc.to_le_bytes()),
+                (Some(part), _) => fnv(
+                    fnv(generation, &part.uuid()),
+                    &part.footer().section_table_crc.to_le_bytes(),
+                ),
                 (None, PartIoSpec::Path(c)) => fnv(generation, c.as_bytes()),
-                (None, PartIoSpec::Mem { dev, ino, .. }) => fnv(fnv(generation, &dev.to_le_bytes()), &ino.to_le_bytes()),
+                (None, PartIoSpec::Mem { dev, ino, .. }) => {
+                    fnv(fnv(generation, &dev.to_le_bytes()), &ino.to_le_bytes())
+                }
             };
             generation = fnv(generation, &p.rows.to_le_bytes());
             generation = fnv(generation, &p.granules.to_le_bytes());
@@ -433,10 +527,43 @@ impl PartList {
         }
         let faces = Faces::new(parts.len());
         // the paths are each part's own block (a `CString`'s bytes and its nul)
-        let paths: usize = parts.iter().map(|p| if let PartIoSpec::Path(c) = &p.io { c.as_bytes_with_nul().len() } else { 0 }).sum();
-        let own = parts.capacity() * core::mem::size_of::<PartSpec>() + starts.capacity() * core::mem::size_of::<u64>() + paths;
-        let held = memledger::Charge::open(FACES_HOLDER, memledger::Release::Evict, memledger::Kind::Region, memledger::charge::Door::Heap, own as u64);
-        PartList { held, parts, starts, granules, rows, deleted, generation, answers: None, faces, zones: OnceLock::new(), lacking: None, derived: Mutex::new(Vec::new()), warm_off: pgsync::atomic::AtomicBool::new(false), registered: pgsync::atomic::AtomicBool::new(false), zones_charge: OnceLock::new() } // alloc: Cold
+        let paths: usize = parts
+            .iter()
+            .map(|p| {
+                if let PartIoSpec::Path(c) = &p.io {
+                    c.as_bytes_with_nul().len()
+                } else {
+                    0
+                }
+            })
+            .sum();
+        let own = parts.capacity() * core::mem::size_of::<PartSpec>()
+            + starts.capacity() * core::mem::size_of::<u64>()
+            + paths;
+        let held = memledger::Charge::open(
+            FACES_HOLDER,
+            memledger::Release::Evict,
+            memledger::Kind::Region,
+            memledger::charge::Door::Heap,
+            own as u64,
+        );
+        PartList {
+            held,
+            parts,
+            starts,
+            granules,
+            rows,
+            deleted,
+            generation,
+            answers: None,
+            faces,
+            zones: OnceLock::new(),
+            lacking: None,
+            derived: Mutex::new(Vec::new()),
+            warm_off: pgsync::atomic::AtomicBool::new(false),
+            registered: pgsync::atomic::AtomicBool::new(false),
+            zones_charge: OnceLock::new(),
+        } // alloc: Cold
     }
 
     /// D4552 (a): the list about to be shared (the residency table's, its statements'): the `Arc` block it goes into joins
@@ -447,7 +574,10 @@ impl PartList {
     }
 
     /// The relation's generation as the scan resolved it: the identity of every part in order.
-    pub fn with_answers(parts: Vec<PartSpec>, answers: Option<Arc<pgrc_am::answers::Answers>>) -> PartList {
+    pub fn with_answers(
+        parts: Vec<PartSpec>,
+        answers: Option<Arc<pgrc_am::answers::Answers>>,
+    ) -> PartList {
         let mut l = PartList::new(parts);
         l.answers = answers;
         l
@@ -477,7 +607,12 @@ impl PartList {
     /// D2985: the dictionaries the list's shared cells hold (a statement that releases part by part opens none of them).
     /// D4410: its warm cells (`held::Warm`), empty once the part cache's evicted hook let them go.
     pub fn shared_dicts(&self) -> usize {
-        self.faces.lanes.iter().filter_map(OnceLock::get).map(|l| l.dicts.iter().filter(|c| c.is_set()).count()).sum()
+        self.faces
+            .lanes
+            .iter()
+            .filter_map(OnceLock::get)
+            .map(|l| l.dicts.iter().filter(|c| c.is_set()).count())
+            .sum()
     }
 
     /// The list's zone columns, set once: `resolve`'s from the relation footer, or an in-memory list's (tests, tools) as
@@ -490,11 +625,26 @@ impl PartList {
     fn set_zones(&self, cols: Vec<pgrc_am::footer::ZoneFacts>, own: bool) {
         let mut held = cols.len() * core::mem::size_of::<(u32, Arc<ZoneColumn>)>();
         if own {
-            held += cols.iter().map(pgrc_am::footer::ZoneFacts::heap_bytes).sum::<usize>();
+            held += cols
+                .iter()
+                .map(pgrc_am::footer::ZoneFacts::heap_bytes)
+                .sum::<usize>();
         }
-        if self.zones.set(cols.into_iter().map(|z| (z.attno, z.col)).collect()).is_ok() { // alloc: Cold charged the part cache (zones_charge)
-            const OWNER: memledger::Owner = memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache));
-            let _ = self.zones_charge.set(memledger::Charge::open(OWNER, memledger::Release::Evict, memledger::Kind::Region, memledger::charge::Door::Heap, held as u64));
+        if self
+            .zones
+            .set(cols.into_iter().map(|z| (z.attno, z.col)).collect())
+            .is_ok()
+        {
+            // alloc: Cold charged the part cache (zones_charge)
+            const OWNER: memledger::Owner =
+                memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache));
+            let _ = self.zones_charge.set(memledger::Charge::open(
+                OWNER,
+                memledger::Release::Evict,
+                memledger::Kind::Region,
+                memledger::charge::Door::Heap,
+                held as u64,
+            ));
         }
     }
 
@@ -529,7 +679,11 @@ impl PartList {
 
     /// The largest part in granules (the upper bound of a startup claim).
     pub fn max_part_granules(&self) -> u64 {
-        self.parts.iter().map(|p| p.granules as u64).max().unwrap_or(0)
+        self.parts
+            .iter()
+            .map(|p| p.granules as u64)
+            .max()
+            .unwrap_or(0)
     }
 
     pub fn part_of(&self, g: u64) -> usize {
@@ -555,7 +709,10 @@ pub struct Resolved {
     /// its recipe's). The qual: a parked Node's bitmap source was derived with the qual of the statement that built it,
     /// compiled in that execution's context and dropped at its unbind; each bind takes this execution's from here
     /// (`BitmapSource::bind`), as a granule source takes its verdict cell.
-    cells: Vec<(Option<Arc<VerdictCell>>, Option<crate::ops::scan::raw::LeaderFilter>)>, // alloc: Exec
+    cells: Vec<(
+        Option<Arc<VerdictCell>>,
+        Option<crate::ops::scan::raw::LeaderFilter>,
+    )>, // alloc: Exec
     /// V4R-310: the statement runs under a transaction snapshot (RR / SERIALIZABLE), read on the leader (`entries_safe`).
     xact_snapshot: bool,
     /// The walk orders by registry site (`usize::MAX`: a source at no site), never by relation: an InitPlan's zone walk and
@@ -630,16 +787,29 @@ struct StmtEntry {
 
 impl StmtTables {
     fn new() -> StmtTables {
-        StmtTables { map: Mutex::new(HashMap::new()), bytes: AtomicU64::new(0), cap: AtomicU64::new(0), tick: AtomicU64::new(0) } // alloc: Exec
+        StmtTables {
+            map: Mutex::new(HashMap::new()),
+            bytes: AtomicU64::new(0),
+            cap: AtomicU64::new(0),
+            tick: AtomicU64::new(0),
+        } // alloc: Exec
     }
 
     /// The table at `key`: built by `build` under the key's own lock when no source built it yet.
-    pub fn get_or_build(&self, key: StmtKey, build: &mut dyn FnMut() -> PgResult<crate::dict::text_hosts::FpTable>) -> PgResult<Arc<crate::dict::text_hosts::FpTable>> {
+    pub fn get_or_build(
+        &self,
+        key: StmtKey,
+        build: &mut dyn FnMut() -> PgResult<crate::dict::text_hosts::FpTable>,
+    ) -> PgResult<Arc<crate::dict::text_hosts::FpTable>> {
         let mut step = cancelpoll::step("granule_source StmtTables::get_or_build");
         let slot = {
             let mut m = self.map.lock().unwrap_or_else(|e| e.into_inner());
             let tick = self.tick.fetch_add(1, Ordering::Relaxed);
-            let e = m.entry(key).or_insert_with(|| StmtEntry { slot: Arc::new(Mutex::new(None)), bytes: 0, used: tick }); // alloc: Exec
+            let e = m.entry(key).or_insert_with(|| StmtEntry {
+                slot: Arc::new(Mutex::new(None)),
+                bytes: 0,
+                used: tick,
+            }); // alloc: Exec
             e.used = tick;
             Arc::clone(&e.slot)
         };
@@ -660,7 +830,14 @@ impl StmtTables {
         let cap = self.cap.load(Ordering::Relaxed);
         // a tick per table evicted; a cancel leaves the rest over the cap to the next build's check
         while self.bytes.load(Ordering::Relaxed) > cap {
-            let Some(oldest) = m.iter().filter(|(_, e)| e.bytes > 0).min_by_key(|(_, e)| e.used).map(|(k, _)| *k) else { break };
+            let Some(oldest) = m
+                .iter()
+                .filter(|(_, e)| e.bytes > 0)
+                .min_by_key(|(_, e)| e.used)
+                .map(|(k, _)| *k)
+            else {
+                break;
+            };
             let e = m.remove(&oldest).expect("present");
             self.bytes.fetch_sub(e.bytes, Ordering::Relaxed);
             if step.tick().is_err() {
@@ -673,7 +850,10 @@ impl StmtTables {
     /// The census: `(tables held, their bytes)`.
     pub fn held(&self) -> (u64, u64) {
         let m = self.map.lock().unwrap_or_else(|e| e.into_inner());
-        (m.values().filter(|e| e.bytes > 0).count() as u64, self.bytes.load(Ordering::Relaxed))
+        (
+            m.values().filter(|e| e.bytes > 0).count() as u64,
+            self.bytes.load(Ordering::Relaxed),
+        )
     }
 }
 
@@ -685,8 +865,34 @@ impl Default for Resolved {
 
 impl Resolved {
     pub fn new() -> Resolved {
-        let r = Resolved { rels: Vec::new(), tables: StmtTables::new(), fp_memo: crate::dict::text_hosts::FpMemo::new(), condition_cache_mode: crate::inputs::condition_cache_mode(), sweeps: StmtSweeps::new(), cells: Vec::new(), xact_snapshot: crate::xact_snapshot(), orders: Mutex::new(Vec::new()), part_release: false, part_uses: false, part_own_dicts: false, uses_rels: Box::default(), own_dicts_rels: Box::default(), part_share: None, part_release_at: None, probes: Vec::new(), kept: Vec::new(), leaf_cells: Vec::new(), range_cells: Vec::new(), rel_sets: Vec::new(), pruned: Vec::new(), token: pgrc_read::partcache::next_stmt_token() }; // alloc: Exec
-        r.fp_memo.set_cross_statement(r.condition_cache_mode >= guc_tables::ConditionCacheMode::Rows && crate::inputs::dict_filter_cache_on());
+        let r = Resolved {
+            rels: Vec::new(),
+            tables: StmtTables::new(),
+            fp_memo: crate::dict::text_hosts::FpMemo::new(),
+            condition_cache_mode: crate::inputs::condition_cache_mode(),
+            sweeps: StmtSweeps::new(),
+            cells: Vec::new(),
+            xact_snapshot: crate::xact_snapshot(),
+            orders: Mutex::new(Vec::new()),
+            part_release: false,
+            part_uses: false,
+            part_own_dicts: false,
+            uses_rels: Box::default(),
+            own_dicts_rels: Box::default(),
+            part_share: None,
+            part_release_at: None,
+            probes: Vec::new(),
+            kept: Vec::new(),
+            leaf_cells: Vec::new(),
+            range_cells: Vec::new(),
+            rel_sets: Vec::new(),
+            pruned: Vec::new(),
+            token: pgrc_read::partcache::next_stmt_token(),
+        }; // alloc: Exec
+        r.fp_memo.set_cross_statement(
+            r.condition_cache_mode >= guc_tables::ConditionCacheMode::Rows
+                && crate::inputs::dict_filter_cache_on(),
+        );
         r
     }
 
@@ -696,7 +902,15 @@ impl Resolved {
     /// entry's recheck qual beside it (`recheck`), in the same vector (one allocation per execution).
     pub fn cells_from(&mut self, registry: &crate::ops::HostRegistry) {
         self.cells.clear();
-        self.cells.extend((0..registry.len()).map(|i| (registry.granule_recipe(i).map(|r| Arc::clone(&r.verdicts)), registry.bitmap_recheck(i).cloned().map(crate::ops::scan::raw::LeaderFilter::new)))); // alloc: Exec
+        self.cells.extend((0..registry.len()).map(|i| {
+            (
+                registry.granule_recipe(i).map(|r| Arc::clone(&r.verdicts)),
+                registry
+                    .bitmap_recheck(i)
+                    .cloned()
+                    .map(crate::ops::scan::raw::LeaderFilter::new),
+            )
+        })); // alloc: Exec
         self.kept.clear();
         self.kept.resize_with(registry.len(), OnceLock::new); // alloc: Exec
     }
@@ -719,7 +933,11 @@ impl Resolved {
     /// worker slot's, whose binds run on the leader's thread (`LeaderFilter`). pglfast#3520: a worker's binding that got
     /// none left a parked worker set's source (its unbind dropped the qual it was derived with) without one at W8.
     pub fn recheck(&self, site: usize) -> Option<crate::FilterFn> {
-        self.cells.get(site)?.1.as_ref().map(crate::ops::scan::raw::LeaderFilter::get)
+        self.cells
+            .get(site)?
+            .1
+            .as_ref()
+            .map(crate::ops::scan::raw::LeaderFilter::get)
     }
 
     /// D3117: this execution's image of registry entry `site`'s index (`file_probe`).
@@ -728,7 +946,11 @@ impl Resolved {
     }
 
     /// Files this execution's leaf walk slot of registry entry `site` (an index-only site the pool reads).
-    pub fn file_leaf_cell(&mut self, site: usize, cell: Arc<crate::ops::scan::index_leaves::LeafCell>) {
+    pub fn file_leaf_cell(
+        &mut self,
+        site: usize,
+        cell: Arc<crate::ops::scan::index_leaves::LeafCell>,
+    ) {
         if self.leaf_cells.len() <= site {
             self.leaf_cells.resize(site + 1, None); // alloc: Exec
         }
@@ -741,7 +963,11 @@ impl Resolved {
     }
 
     /// Files this execution's ranges slot of registry entry `site` (an ordered site the pool reads in key ranges).
-    pub fn file_range_cell(&mut self, site: usize, cell: Arc<crate::ops::scan::index_ranges::RangeCell>) {
+    pub fn file_range_cell(
+        &mut self,
+        site: usize,
+        cell: Arc<crate::ops::scan::index_ranges::RangeCell>,
+    ) {
         if self.range_cells.len() <= site {
             self.range_cells.resize(site + 1, None); // alloc: Exec
         }
@@ -759,11 +985,16 @@ impl Resolved {
 
     /// Whether registry entry `site` was filed by `prune_site` for this execution.
     pub fn site_pruned(&self, site: usize) -> bool {
-        self.pruned.get(site / 64).is_some_and(|w| w >> (site % 64) & 1 != 0)
+        self.pruned
+            .get(site / 64)
+            .is_some_and(|w| w >> (site % 64) & 1 != 0)
     }
 
     /// This execution's ranges slot of registry entry `site` (`file_range_cell`).
-    pub fn range_cell(&self, site: usize) -> Option<&Arc<crate::ops::scan::index_ranges::RangeCell>> {
+    pub fn range_cell(
+        &self,
+        site: usize,
+    ) -> Option<&Arc<crate::ops::scan::index_ranges::RangeCell>> {
         self.range_cells.get(site).and_then(Option::as_ref)
     }
 
@@ -834,14 +1065,23 @@ impl Resolved {
     /// uses-only release does, once all of its `readers` sites' claims left each part; its dictionaries stay in the list's
     /// cells. Set before `install`; `set_part_release` / `set_part_uses_release` win.
     pub fn set_part_uses_rels(&mut self, rels: Box<[(Oid, u32)]>) {
-        self.uses_rels = if crate::inputs::part_release_enabled() { rels } else { Box::default() };
+        self.uses_rels = if crate::inputs::part_release_enabled() {
+            rels
+        } else {
+            Box::default()
+        };
     }
 
     /// D3823: of the relations `set_part_uses_rels` lists, those whose every site feeds a breaker that keeps code words, no
     /// dictionary image (`mempolicy::release::dicts_go_with_part`): their dictionaries past the part cache's level go with
     /// each part, as `set_part_own_dicts` does for one site. Set before `install`.
     pub fn set_part_own_dicts_rels(&mut self, rels: Box<[Oid]>) {
-        self.own_dicts_rels = if crate::inputs::part_release_enabled() && crate::inputs::release_dicts_enabled() { rels } else { Box::default() };
+        self.own_dicts_rels =
+            if crate::inputs::part_release_enabled() && crate::inputs::release_dicts_enabled() {
+                rels
+            } else {
+                Box::default()
+            };
     }
 
     /// D3823 gate: the part-cache level past which a uses-only release (D3268, D3823) gives a part back now; under it the
@@ -866,20 +1106,48 @@ impl Resolved {
 
     /// Dictionaries the statement opened in its own cells (past the part cache's budget), over every relation.
     pub fn part_release_private(&self) -> u64 {
-        self.rels.iter().filter_map(|r| r.stmt.as_deref()).map(release::StmtDicts::private_opens).sum()
+        self.rels
+            .iter()
+            .filter_map(|r| r.stmt.as_deref())
+            .map(release::StmtDicts::private_opens)
+            .sum()
     }
 
     /// `(parts released, dictionaries re-opened)` in this statement, over every relation.
     pub fn part_release_counts(&self) -> (u64, u64) {
-        self.rels.iter().filter_map(|r| r.stmt.as_deref()).map(release::StmtDicts::counts).fold((0, 0), |a, c| (a.0 + c.0, a.1 + c.1))
+        self.rels
+            .iter()
+            .filter_map(|r| r.stmt.as_deref())
+            .map(release::StmtDicts::counts)
+            .fold((0, 0), |a, c| (a.0 + c.0, a.1 + c.1))
     }
 
     /// Install `rel`'s list; a second install of a relation replaces the first.
     pub fn install(&mut self, rel: Oid, list: Arc<PartList>) {
         let n = list.len();
-        let readers = if self.part_release || self.part_uses { Some(1) } else { self.uses_rels.iter().find(|r| r.0 == rel).map(|r| r.1.max(1)) };
-        let own = (self.part_uses && self.part_own_dicts) || (!self.part_uses && self.uses_rels.iter().any(|r| r.0 == rel) && self.own_dicts_rels.contains(&rel));
-        let stmt = readers.map(|readers| Box::new(release::StmtDicts::new(&list, self.part_share, self.token, self.part_release, own, readers, self.part_release_at))); // alloc: Exec
+        let readers = if self.part_release || self.part_uses {
+            Some(1)
+        } else {
+            self.uses_rels
+                .iter()
+                .find(|r| r.0 == rel)
+                .map(|r| r.1.max(1))
+        };
+        let own = (self.part_uses && self.part_own_dicts)
+            || (!self.part_uses
+                && self.uses_rels.iter().any(|r| r.0 == rel)
+                && self.own_dicts_rels.contains(&rel));
+        let stmt = readers.map(|readers| {
+            Box::new(release::StmtDicts::new(
+                &list,
+                self.part_share,
+                self.token,
+                self.part_release,
+                own,
+                readers,
+                self.part_release_at,
+            ))
+        }); // alloc: Exec
         held::register(&list);
         let rp = RelParts {
             rel,
@@ -909,7 +1177,12 @@ impl Resolved {
     }
 
     pub fn order_of(&self, site: usize) -> Option<Arc<[u32]>> {
-        self.orders.lock().unwrap_or_else(|e| e.into_inner()).iter().find(|(s, _)| *s == site).map(|(_, o)| Arc::clone(o))
+        self.orders
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .find(|(s, _)| *s == site)
+            .map(|(_, o)| Arc::clone(o))
     }
 
     /// A statement over one recipe's relation (the tests, the tools).
@@ -925,7 +1198,11 @@ impl Resolved {
     }
 
     /// `for_recipe` with the zone walk's order over the granules, for a source at no site.
-    pub fn for_recipe_ordered(recipe: &GranuleRecipe, list: Arc<PartList>, order: Option<Arc<[u32]>>) -> Resolved {
+    pub fn for_recipe_ordered(
+        recipe: &GranuleRecipe,
+        list: Arc<PartList>,
+        order: Option<Arc<[u32]>>,
+    ) -> Resolved {
         let mut r = Resolved::new();
         r.install(recipe.rel, list);
         r.set_order(usize::MAX, order);
@@ -946,7 +1223,9 @@ impl Resolved {
 
     /// The statement's `Resolved` behind a binding.
     pub fn of<'b>(b: &BindingRef<'b>) -> PgResult<&'b Resolved> {
-        b.resolved.and_then(|r| r.downcast_ref::<Resolved>()).ok_or_else(|| err("gravity: granule source bound without a resolved relation"))
+        b.resolved
+            .and_then(|r| r.downcast_ref::<Resolved>())
+            .ok_or_else(|| err("gravity: granule source bound without a resolved relation"))
     }
 }
 
@@ -963,7 +1242,15 @@ impl<T> StmtSlice<T> {
     pub(super) fn collect(it: impl Iterator<Item = T>) -> StmtSlice<T> {
         let cells: Box<[T]> = it.collect(); // alloc: Exec charged gravity_driver::stmt_context()
         let bytes = core::mem::size_of_val(&*cells) as u64;
-        let _charge = gravity_driver::stmt_context().map_or(memledger::Charge::NONE, |(o, r)| memledger::Charge::open(o, r, memledger::Kind::Region, memledger::charge::Door::Heap, bytes));
+        let _charge = gravity_driver::stmt_context().map_or(memledger::Charge::NONE, |(o, r)| {
+            memledger::Charge::open(
+                o,
+                r,
+                memledger::Kind::Region,
+                memledger::charge::Door::Heap,
+                bytes,
+            )
+        });
         StmtSlice { _charge, cells }
     }
 }
@@ -1013,13 +1300,19 @@ impl RelParts {
     /// The live uses of part `p` (every statement's and every cursor's; 0 for a part this statement never opened): the
     /// release's witness (D3823).
     pub fn part_users(&self, p: usize) -> u32 {
-        self.parts.get(p).and_then(OnceLock::get).map_or(0, |part| part.users())
+        self.parts
+            .get(p)
+            .and_then(OnceLock::get)
+            .map_or(0, |part| part.users())
     }
 
     /// The parts open for the statement and their resident bytes.
     pub fn residency(&self) -> Residency {
         let held = self.parts.iter().filter_map(OnceLock::get);
-        Residency { parts: held.clone().count() as u32, bytes: held.map(|p| p.resident()).sum() }
+        Residency {
+            parts: held.clone().count() as u32,
+            bytes: held.map(|p| p.resident()).sum(),
+        }
     }
 
     /// Part `p` open: the resident table's handle, else opened through `registry` once for the statement.
@@ -1040,7 +1333,12 @@ impl RelParts {
             Some(part) => Arc::clone(part),
             None => {
                 self.opened.fetch_add(1, Ordering::Relaxed);
-                Arc::clone(registry.open_pinned(&spec.expect, || open_io(&spec.io)).map_err(read_err)?.part())
+                Arc::clone(
+                    registry
+                        .open_pinned(&spec.expect, || open_io(&spec.io))
+                        .map_err(read_err)?
+                        .part(),
+                )
             }
         };
         if part.footer().granule_count != spec.granules || part.grain().rows() as usize > ROWS {
@@ -1066,7 +1364,12 @@ impl RelParts {
 
     /// FASTADD: the part face `face` of part `p` reads, `part` (part `p`, open) or the stand-in for a column the part
     /// lacks (`granule_source/fastadd.rs`): its streams, sections and dictionary are the face's.
-    fn lane<'a>(&'a self, p: usize, face: u32, part: &'a Arc<OpenPart>) -> PgResult<&'a Arc<OpenPart>> {
+    fn lane<'a>(
+        &'a self,
+        p: usize,
+        face: u32,
+        part: &'a Arc<OpenPart>,
+    ) -> PgResult<&'a Arc<OpenPart>> {
         match (self.list.lacking.is_some(), self.list.faces.attno_of(face)) {
             (true, Some(attno)) => self.list.lane_part(p, attno, part),
             _ => Ok(part),
@@ -1088,17 +1391,28 @@ impl RelParts {
             // read for the path's zone walk (lane zones), the declared granule-walk reason
             let why = if Faces::is_shred(face) {
                 FirstTouch::GranuleWalk
-            } else if self.list.faces.attno_of(face).is_some_and(|a| self.list.lacks(p, a)) {
+            } else if self
+                .list
+                .faces
+                .attno_of(face)
+                .is_some_and(|a| self.list.lacks(p, a))
+            {
                 FirstTouch::StandIn
             } else {
                 FirstTouch::NoAnswers
             };
             match self.list.faces.locate(face, p, part)? {
-                Some((attno, ord)) => stats_body(part, attno, ord, why)?.map_or(StatsBody::None, StatsBody::Owned),
+                Some((attno, ord)) => {
+                    stats_body(part, attno, ord, why)?.map_or(StatsBody::None, StatsBody::Owned)
+                }
                 None => StatsBody::None,
             }
         };
-        let n = if let StatsBody::Owned(b) = &s { b.len() } else { 0 };
+        let n = if let StatsBody::Owned(b) = &s {
+            b.len()
+        } else {
+            0
+        };
         if cell.set(s).is_ok() {
             self.list.faces.hold(n);
         }
@@ -1117,10 +1431,15 @@ impl RelParts {
             Some(f) => f,
             None => {
                 // the part's `Arc` the statement opened (the list's otherwise): its faces are counted as that part's
-                let arc = self.part_if_open(p).or(self.list.parts()[p].part.as_ref()).filter(|a| core::ptr::eq(a.as_ref(), part));
-                let hold = arc.map_or_else(pgrc_read::FaceHold::unpinned, |a| pgrc_read::FaceHold::new(a, crate::inputs::metacache_enabled()));
+                let arc = self
+                    .part_if_open(p)
+                    .or(self.list.parts()[p].part.as_ref())
+                    .filter(|a| core::ptr::eq(a.as_ref(), part));
+                let hold = arc.map_or_else(pgrc_read::FaceHold::unpinned, |a| {
+                    pgrc_read::FaceHold::new(a, crate::inputs::metacache_enabled())
+                });
                 let f = Arc::new(FaceBodies::new(hold)); // alloc: Exec charged FaceHold
-                // its own block is its part's face too (an `Arc`'s two counts beside it)
+                                                         // its own block is its part's face too (an `Arc`'s two counts beside it)
                 f.hold(core::mem::size_of::<FaceBodies>() + 2 * core::mem::size_of::<usize>());
                 // the list keeps every entry, as its cells did before (the part cache's trim bounds them, metacache on)
                 cell.put_live(f, FaceBodies::stale)
@@ -1167,8 +1486,14 @@ impl RelParts {
         }
         let part = self.lane(p, face, part)?;
         let m = match self.list.faces.locate(face, p, part)? {
-            Some((attno, ord)) => MetaBodies { bloom: section_body(part, SectionKind::Bloom, attno, ord)?, psma: section_body(part, SectionKind::Psma, attno, ord)? },
-            None => MetaBodies { bloom: None, psma: None },
+            Some((attno, ord)) => MetaBodies {
+                bloom: section_body(part, SectionKind::Bloom, attno, ord)?,
+                psma: section_body(part, SectionKind::Psma, attno, ord)?,
+            },
+            None => MetaBodies {
+                bloom: None,
+                psma: None,
+            },
         };
         let n = body_bytes(&m.bloom) + body_bytes(&m.psma);
         if f.meta.set(m).is_ok() {
@@ -1182,20 +1507,40 @@ impl RelParts {
     /// so the per-section reads `stats` / `body` / `meta` make next hit the segment cache: otherwise a cold scan reads 3 small
     /// sections per part one pread each. A held face adds nothing, and fewer than two sections read as before. The run's read
     /// buffer is `owner`'s (the reading source's held owner: cvpread's `section_bytes_batch_for`).
-    fn prefault_meta(&self, p: usize, lanes: &[(u32, bool)], part: &OpenPart, owner: HeldOwner) -> PgResult<()> {
+    fn prefault_meta(
+        &self,
+        p: usize,
+        lanes: &[(u32, bool)],
+        part: &OpenPart,
+        owner: HeldOwner,
+    ) -> PgResult<()> {
         let mut idxs = Vec::with_capacity(3 * lanes.len()); // alloc: Cold
-        // bounded("key-columns: one face per asked lane, at most MaxTupleAttributeNumber (1664) columns; the reads are one batch after the loop")
+                                                            // bounded("key-columns: one face per asked lane, at most MaxTupleAttributeNumber (1664) columns; the reads are one batch after the loop")
         for &(face, meta) in lanes {
             // FASTADD: a stand-in's sections are in memory, never in `part`
-            if self.list.faces.attno_of(face).is_some_and(|a| self.list.lacks(p, a)) {
+            if self
+                .list
+                .faces
+                .attno_of(face)
+                .is_some_and(|a| self.list.lacks(p, a))
+            {
                 continue;
             }
             let lane = self.list.faces.lane(face);
             let f = self.face_bodies_if_read(p, face);
-            let (body_read, meta_read) = (f.is_some_and(|f| f.body.get().is_some()), f.is_some_and(|f| f.meta.get().is_some()));
+            let (body_read, meta_read) = (
+                f.is_some_and(|f| f.body.get().is_some()),
+                f.is_some_and(|f| f.meta.get().is_some()),
+            );
             let body_held = body_read || matches!(lane.stats[p].get(), Some(StatsBody::Owned(_)));
-            let want = [(SectionKind::Stats, !body_held), (SectionKind::Bloom, meta && !meta_read), (SectionKind::Psma, meta && !meta_read)];
-            let Some((attno, ord)) = self.list.faces.locate(face, p, part)? else { continue };
+            let want = [
+                (SectionKind::Stats, !body_held),
+                (SectionKind::Bloom, meta && !meta_read),
+                (SectionKind::Psma, meta && !meta_read),
+            ];
+            let Some((attno, ord)) = self.list.faces.locate(face, p, part)? else {
+                continue;
+            };
             // bounded("small-fixed: the three meta sections of a face: Stats, Bloom and PSMA")
             for (kind, on) in want {
                 if let Some(idx) = on.then(|| part.find_section(kind, attno, ord)).flatten() {
@@ -1206,7 +1551,8 @@ impl RelParts {
             }
         }
         if idxs.len() >= 2 {
-            part.section_bytes_batch_for(owner, &idxs, META_PREFAULT_GAP, &|_| true).map_err(read_err)?;
+            part.section_bytes_batch_for(owner, &idxs, META_PREFAULT_GAP, &|_| true)
+                .map_err(read_err)?;
         }
         Ok(())
     }
@@ -1214,7 +1560,12 @@ impl RelParts {
     /// sortpath (code-keyed zones): `face`'s CodeZones body in part `p` and the dictionary its codes index, read once per
     /// generation; `None` where the part sealed none, or the dictionary's section count does not match the body (a
     /// body of another part's geometry never answers).
-    fn code_zones(&self, p: usize, face: u32, part: &Arc<OpenPart>) -> PgResult<Option<&(ZoneBody, DictHandle)>> {
+    fn code_zones(
+        &self,
+        p: usize,
+        face: u32,
+        part: &Arc<OpenPart>,
+    ) -> PgResult<Option<&(ZoneBody, DictHandle)>> {
         if let Some(c) = self.held_codes.get(p, face) {
             return Ok(c.zones.as_ref());
         }
@@ -1231,9 +1582,14 @@ impl RelParts {
         let part = self.lane(p, face, part)?;
         let c = match self.list.faces.locate(face, p, part)? {
             Some((attno, ord)) => match section_body(part, SectionKind::CodeZones, attno, ord)? {
-                Some(body) if pgrc_format::meta::codezones_len(&body) == Some(part.footer().granule_count as usize + 1) => {
+                Some(body)
+                    if pgrc_format::meta::codezones_len(&body)
+                        == Some(part.footer().granule_count as usize + 1) =>
+                {
                     let binding = pgrc_am::scan::codec_binding();
-                    let d = DictHandle::open(Arc::clone(part), None, binding.unwrappers, attno, ord).map_err(read_err)?;
+                    let d =
+                        DictHandle::open(Arc::clone(part), None, binding.unwrappers, attno, ord)
+                            .map_err(read_err)?;
                     Some((ZoneBody::new(body), d))
                 }
                 _ => None,
@@ -1264,7 +1620,10 @@ impl RelParts {
         if let Some(StatsBody::Owned(b)) = lane.stats[p].get() {
             return Some(b);
         }
-        self.face_bodies_if_read(p, face)?.body.get().and_then(|b| b.as_deref())
+        self.face_bodies_if_read(p, face)?
+            .body
+            .get()
+            .and_then(|b| b.as_deref())
     }
 
     fn part_face(&self, p: usize, face: u32) -> Option<&[u8]> {
@@ -1281,8 +1640,20 @@ impl RelParts {
     /// Code lane `face`'s dictionary of part `p` (the writer's, else the verbatim part's ranks), opened once per generation.
     /// A shred lane's is the writer's only where the part sealed its codes executable (`DictHandle::exec_form`: the
     /// zero-null `DICT_EXEC` or the nullable twin, M6 P-a); a part that sealed them storage-only publishes its ranks.
-    fn dict(&self, p: usize, face: u32, part: &Arc<OpenPart>, cur: &mut StreamCursor<'static>, scratch: &mut crate::dict::text_hosts::TextScratch, touch: Option<DictTouch>, keep: bool) -> PgResult<&DictEntry> {
-        if let Some(d) = self.dict_if_open(p, face).or_else(|| self.adopt_warm(p, face, keep)) {
+    fn dict(
+        &self,
+        p: usize,
+        face: u32,
+        part: &Arc<OpenPart>,
+        cur: &mut StreamCursor<'static>,
+        scratch: &mut crate::dict::text_hosts::TextScratch,
+        touch: Option<DictTouch>,
+        keep: bool,
+    ) -> PgResult<&DictEntry> {
+        if let Some(d) = self
+            .dict_if_open(p, face)
+            .or_else(|| self.adopt_warm(p, face, keep))
+        {
             return Ok(d);
         }
         let goes = self.goes(keep);
@@ -1294,10 +1665,20 @@ impl RelParts {
         let binding = pgrc_am::scan::codec_binding();
         // FASTADD: a column the part lacks: its stand-in's dictionary
         let part = self.lane(p, face, part)?;
-        let (attno, ord) = self.list.faces.locate(face, p, part)?.ok_or_else(|| err("gravity: a dictionary of a shred lane the part did not elect"))?;
+        let (attno, ord) =
+            self.list.faces.locate(face, p, part)?.ok_or_else(|| {
+                err("gravity: a dictionary of a shred lane the part did not elect")
+            })?;
         let coded = if cur.entry().encoding == EncodingId::DictCodes as u16 {
             let d = match touch {
-                Some(t) => DictHandle::open_touch(Arc::clone(part), None, binding.unwrappers, attno, ord, t),
+                Some(t) => DictHandle::open_touch(
+                    Arc::clone(part),
+                    None,
+                    binding.unwrappers,
+                    attno,
+                    ord,
+                    t,
+                ),
                 None => DictHandle::open(Arc::clone(part), None, binding.unwrappers, attno, ord),
             }
             .map_err(read_err)?; // alloc: Exec
@@ -1308,8 +1689,18 @@ impl RelParts {
         let entry = if let Some(d) = coded {
             DictEntry::new(Dict::Part(d))
         } else {
-            let table = crate::dict::text_hosts::row_codes(part, cur, stream_key(attno, ord), scratch, None).map_err(table_err)?;
-            DictEntry::new(Dict::Ranked { table: crate::dict::text_hosts::FpPin::of(&table), epoch: part.dict_epoch(attno, ord) })
+            let table = crate::dict::text_hosts::row_codes(
+                part,
+                cur,
+                stream_key(attno, ord),
+                scratch,
+                None,
+            )
+            .map_err(table_err)?;
+            DictEntry::new(Dict::Ranked {
+                table: crate::dict::text_hosts::FpPin::of(&table),
+                epoch: part.dict_epoch(attno, ord),
+            })
         };
         // D2985: a streaming statement keeps its dictionaries warm in the list's cells for the next statement while the
         // process part cache, whose census counts their images, is under its budget; past it only in its own cells.
@@ -1333,7 +1724,9 @@ impl RelParts {
     /// derived table (`keep`), go with their part (its `StmtDicts` cells); the others it keeps to its end (`held`). D4410:
     /// either way the statement holds its own `Arc`, the list's warm cell at most one more.
     fn goes(&self, keep: bool) -> Option<&release::StmtDicts> {
-        self.stmt.as_deref().filter(|sd| sd.owns_dicts() && (sd.releases_dicts() || !keep))
+        self.stmt
+            .as_deref()
+            .filter(|sd| sd.owns_dicts() && (sd.releases_dicts() || !keep))
     }
 
     /// D4410: part `p`'s face `face` from the list's warm cell (another statement opened it), held by this statement from
@@ -1372,15 +1765,30 @@ pub fn entries_safe(spec: &PartSpec, r: &Resolved) -> bool {
 /// sortmerge T2 (merged.rs): whether part `p` of `recipe`'s relation sealed a sort witness (its SortKey section) whose
 /// leading entries are the columns `keys` in that order, each ascending, NULLS LAST, C-collated and no jsonb path: the
 /// order the seal's cluster sort put the part's rows in (pgrc_write seal.rs `cluster_sort`, which verifies it).
-pub(crate) fn part_sorted_on(resolved: &Resolved, recipe: &GranuleRecipe, p: usize, keys: &[i16]) -> PgResult<bool> {
+pub(crate) fn part_sorted_on(
+    resolved: &Resolved,
+    recipe: &GranuleRecipe,
+    p: usize,
+    keys: &[i16],
+) -> PgResult<bool> {
     use pgrc_format::class::CollationClass;
     use pgrc_format::sortkey::{NullsOrder, SortDir, SortKeyRecord};
-    let rp = resolved.rel(recipe.rel).ok_or_else(|| err("gravity: a merged source bound without its part list"))?;
+    let rp = resolved
+        .rel(recipe.rel)
+        .ok_or_else(|| err("gravity: a merged source bound without its part list"))?;
     let part = rp.part(p, &recipe.registry)?;
-    let Some(body) = section_body(part, SectionKind::SortKey, 0, 0)? else { return Ok(false) };
-    let rec = SortKeyRecord::decode(&body).map_err(|_| err("gravity: a pgrc part's SortKey record does not decode"))?;
+    let Some(body) = section_body(part, SectionKind::SortKey, 0, 0)? else {
+        return Ok(false);
+    };
+    let rec = SortKeyRecord::decode(&body)
+        .map_err(|_| err("gravity: a pgrc part's SortKey record does not decode"))?;
     let lead = |(e, &a): (&pgrc_format::sortkey::SortKeyEntry, &i16)| {
-        a > 0 && e.attno == a as u32 && e.dir == SortDir::Asc as u8 && e.nulls == NullsOrder::Last as u8 && e.collation_class == CollationClass::C.as_u8() && e.pad == 0
+        a > 0
+            && e.attno == a as u32
+            && e.dir == SortDir::Asc as u8
+            && e.nulls == NullsOrder::Last as u8
+            && e.collation_class == CollationClass::C.as_u8()
+            && e.pad == 0
     };
     Ok(rec.keys.len() >= keys.len() && rec.keys.iter().zip(keys.iter()).all(lead))
 }
@@ -1400,7 +1808,9 @@ impl KeyZone {
     /// NULL value (no row of a NULL comparison passes, and none is a verdict) or a cell past the seek's.
     pub fn pred(&self, keys: &[Word], keys_null: &[u8]) -> Option<ZonePred> {
         let c = self.cell as usize;
-        let (Some(&x), Some(0)) = (keys.get(c), keys_null.get(c)) else { return None };
+        let (Some(&x), Some(0)) = (keys.get(c), keys_null.get(c)) else {
+            return None;
+        };
         let value = match self.len {
             1 => x as u8 as i64,
             2 => x as i16 as i64,
@@ -1441,14 +1851,20 @@ pub fn word_value(x: u64, len: u8) -> Option<i64> {
 /// image the host does not read in place (external, compressed).
 pub fn image_key(x: u64, form: u8) -> Option<i64> {
     use gravity_decompose::ops::scan::{eq_bloom_key, fixed_order_key, text_prefix_key};
-    use gravity_program::{BOUND_FIXED_HASH, BOUND_FIXED_PREFIX, BOUND_TEXT_HASH, BOUND_TEXT_PREFIX};
+    use gravity_program::{
+        BOUND_FIXED_HASH, BOUND_FIXED_PREFIX, BOUND_TEXT_HASH, BOUND_TEXT_PREFIX,
+    };
     let fixed = (form & 0x3f) as usize;
     match form {
         BOUND_TEXT_PREFIX => super::raw::with_bind_image(x, None, text_prefix_key),
         BOUND_TEXT_HASH => super::raw::with_bind_image(x, None, eq_bloom_key),
         _ if fixed == 0 || fixed > 16 => None,
-        _ if form & 0xc0 == BOUND_FIXED_PREFIX => super::raw::with_bind_image(x, Some(fixed), fixed_order_key),
-        _ if form & 0xc0 == BOUND_FIXED_HASH => super::raw::with_bind_image(x, Some(fixed), eq_bloom_key),
+        _ if form & 0xc0 == BOUND_FIXED_PREFIX => {
+            super::raw::with_bind_image(x, Some(fixed), fixed_order_key)
+        }
+        _ if form & 0xc0 == BOUND_FIXED_HASH => {
+            super::raw::with_bind_image(x, Some(fixed), eq_bloom_key)
+        }
         _ => None,
     }
 }
@@ -1464,19 +1880,26 @@ pub fn text_image(x: u64) -> Option<Box<[u8]>> {
 /// no zone verdict over the site.
 pub fn bind_statics(statics: &mut [ZonePred], bound: &[(u16, i64)]) -> Option<()> {
     let mut seen = vec![false; statics.len()]; // alloc: Exec
-    // bounded("other: one bound value per zone predicate of the statement's own quals: the query text bounds them, and PG's ExecQual tests the same quals per row with no poll")
+                                               // bounded("other: one bound value per zone predicate of the statement's own quals: the query text bounds them, and PG's ExecQual tests the same quals per row with no poll")
     for &(at, value) in bound {
         if let Some(z) = statics.get_mut(at as usize).filter(|z| z.bound) {
             z.value = value;
             seen[at as usize] = true;
         }
     }
-    statics.iter().zip(seen.iter()).all(|(z, &s)| !z.bound || s).then_some(())
+    statics
+        .iter()
+        .zip(seen.iter())
+        .all(|(z, &s)| !z.bound || s)
+        .then_some(())
 }
 
 /// A word-valued zone predicate's op (`ZoneOp` ordinal, `word_zone_arg`); `NotNull` never takes a word.
 fn zone_op_of(op: u8) -> Option<ZoneOp> {
-    [ZoneOp::Lt, ZoneOp::Le, ZoneOp::Eq, ZoneOp::Ge, ZoneOp::Gt].get(op as usize).copied().or((op == ZoneOp::Ne as u8).then_some(ZoneOp::Ne))
+    [ZoneOp::Lt, ZoneOp::Le, ZoneOp::Eq, ZoneOp::Ge, ZoneOp::Gt]
+        .get(op as usize)
+        .copied()
+        .or((op == ZoneOp::Ne as u8).then_some(ZoneOp::Ne))
 }
 
 /// A scan site's host verdicts for one execution (`ProtoKind::Verdicts`, V4R-4): exec's protocol writes them at
@@ -1547,14 +1970,33 @@ struct RtSlot {
 }
 
 impl RtSlot {
-    const NONE: RtSlot = RtSlot { lane: usize::MAX, off: false, idle: false, rest: 0, seen: 0, cut: 0, f: None };
+    const NONE: RtSlot = RtSlot {
+        lane: usize::MAX,
+        off: false,
+        idle: false,
+        rest: 0,
+        seen: 0,
+        cut: 0,
+        f: None,
+    };
 
     fn from_window(w: RtWindow) -> RtSlot {
-        RtSlot { idle: w.idle, rest: w.rest, seen: w.seen, cut: w.cut, ..RtSlot::NONE }
+        RtSlot {
+            idle: w.idle,
+            rest: w.rest,
+            seen: w.seen,
+            cut: w.cut,
+            ..RtSlot::NONE
+        }
     }
 
     fn window(&self) -> RtWindow {
-        RtWindow { seen: self.seen, cut: self.cut, idle: self.idle, rest: self.rest }
+        RtWindow {
+            seen: self.seen,
+            cut: self.cut,
+            idle: self.idle,
+            rest: self.rest,
+        }
     }
 
     /// Armed on a lane of the site for this bind.
@@ -1636,18 +2078,37 @@ impl RtFilter {
     /// D4533: a filter whose own runs and images are copies charged to `owner`, the build's slot owner and kind (as
     /// agg hosts.rs `admit_set` charges its kept set; `None`: uncharged). Its bytes leave with the filter, when its slot
     /// is cleared or armed again. `None` when a copy is refused: no filter, so the probe reads every row.
-    pub fn charged(attno: i16, lo: i64, hi: i64, runs: &[(i64, i64)], fps: &[u128], owner: Option<(memledger::Owner, memledger::Kind)>) -> Option<RtFilter> {
-        let (o, k) = (owner.map(|o| o.0), owner.map_or(memledger::Kind::Region, |o| o.1));
+    pub fn charged(
+        attno: i16,
+        lo: i64,
+        hi: i64,
+        runs: &[(i64, i64)],
+        fps: &[u128],
+        owner: Option<(memledger::Owner, memledger::Kind)>,
+    ) -> Option<RtFilter> {
+        let (o, k) = (
+            owner.map(|o| o.0),
+            owner.map_or(memledger::Kind::Region, |o| o.1),
+        );
         let mut r = memledger::ChargedVec::new(o, k); // alloc: Exec charged o
         r.extend_from_slice(runs).ok()?; // alloc: Exec charged o
         let mut f = memledger::ChargedVec::new(o, k); // alloc: Exec charged o
         f.extend_from_slice(fps).ok()?; // alloc: Exec charged o
-        Some(RtFilter { attno, lo, hi, runs: r, fps: f })
+        Some(RtFilter {
+            attno,
+            lo,
+            hi,
+            runs: r,
+            fps: f,
+        })
     }
 
     /// D3245: ascending, deduplicated `keys` folded into maximal runs of consecutive keys, under `step` (a build's keys:
     /// a tick per `BATCH`).
-    pub fn runs_of(step: &mut Step, keys: &[i64]) -> core::result::Result<Vec<(i64, i64)>, cancelpoll::Canceled> {
+    pub fn runs_of(
+        step: &mut Step,
+        keys: &[i64],
+    ) -> core::result::Result<Vec<(i64, i64)>, cancelpoll::Canceled> {
         let mut runs: Vec<(i64, i64)> = Vec::new(); // alloc: Exec
         for (i, &k) in keys.iter().enumerate() {
             step.batch(i)?;
@@ -1661,7 +2122,11 @@ impl RtFilter {
 
     /// Whether no run meets `[min, max]` (there are runs: the filter is not the range alone).
     pub fn misses(&self, min: i64, max: i64) -> bool {
-        !self.runs.is_empty() && self.runs.get(self.runs.partition_point(|&(_, last)| last < min)).is_none_or(|&(first, _)| first > max)
+        !self.runs.is_empty()
+            && self
+                .runs
+                .get(self.runs.partition_point(|&(_, last)| last < min))
+                .is_none_or(|&(first, _)| first > max)
     }
 }
 
@@ -1672,7 +2137,24 @@ impl VerdictCell {
     const CONTESTED: u64 = u64::MAX;
 
     fn new() -> VerdictCell {
-        VerdictCell { words: [AtomicU64::new(VerdictCell::LEGACY), AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0)], rt: Mutex::new(Default::default()), zone: Mutex::new(Vec::new()), key_zone: Mutex::new(Vec::new()), bound: Mutex::new(Vec::new()), images: Mutex::new(Vec::new()), held: Held::default(), rt_held: Default::default(), rt_gen: AtomicU64::new(0), rt_win: Mutex::new([RtWindow::default(); RT_SLOTS]) } // alloc: Exec
+        VerdictCell {
+            words: [
+                AtomicU64::new(VerdictCell::LEGACY),
+                AtomicU64::new(0),
+                AtomicU64::new(0),
+                AtomicU64::new(0),
+                AtomicU64::new(0),
+            ],
+            rt: Mutex::new(Default::default()),
+            zone: Mutex::new(Vec::new()),
+            key_zone: Mutex::new(Vec::new()),
+            bound: Mutex::new(Vec::new()),
+            images: Mutex::new(Vec::new()),
+            held: Held::default(),
+            rt_held: Default::default(),
+            rt_gen: AtomicU64::new(0),
+            rt_win: Mutex::new([RtWindow::default(); RT_SLOTS]),
+        } // alloc: Exec
     }
 
     /// An execution's claim on the verdicts at prepare (src.verdicts' slot 0: one per site and execution). The first live
@@ -1699,13 +2181,19 @@ impl VerdictCell {
         let held = self.held(rt);
         if held.live.fetch_add(1, Ordering::AcqRel) == 0 {
             // owned only from none: a contest or a last drop still in flight leaves this claim unowned (LEGACY)
-            let _ = held.owner.compare_exchange(0, token, Ordering::AcqRel, Ordering::Acquire);
+            let _ = held
+                .owner
+                .compare_exchange(0, token, Ordering::AcqRel, Ordering::Acquire);
         } else {
             held.owner.store(VerdictCell::CONTESTED, Ordering::Release);
             CONTESTED.fetch_add(1, Ordering::Relaxed);
             self.clear(rt);
         }
-        VerdictClaim { cell: Arc::clone(self), token, rt }
+        VerdictClaim {
+            cell: Arc::clone(self),
+            token,
+            rt,
+        }
     }
 
     fn held(&self, rt: Option<usize>) -> &Held {
@@ -1772,12 +2260,22 @@ impl VerdictCell {
 
     /// D2856: the measuring window of slot `k` the site's last unbound source left (a fresh one before any).
     pub fn rt_window_at(&self, k: usize) -> RtWindow {
-        self.rt_win.lock().unwrap_or_else(|e| e.into_inner()).get(k).copied().unwrap_or_default()
+        self.rt_win
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(k)
+            .copied()
+            .unwrap_or_default()
     }
 
     /// D2856: a source's measuring window of slot `k` at its unbind, for the site's next bind in this execution.
     pub fn set_rt_window_at(&self, k: usize, w: RtWindow) {
-        if let Some(s) = self.rt_win.lock().unwrap_or_else(|e| e.into_inner()).get_mut(k) {
+        if let Some(s) = self
+            .rt_win
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get_mut(k)
+        {
             *s = w;
         }
     }
@@ -1790,7 +2288,12 @@ impl VerdictCell {
     /// its lane, op, length and cell (`key_zone`): its value is the seek's (`KeyZone::pred`).
     /// NEW-72: a `WORD_ZONE_AT` slot's value is the bound static predicate's (`bound`); a `WORD_ZONE_LIST` slot's
     /// predicates are exec's to add (`add_word_zone`: it walks the array).
-    pub fn set_word_zone(&self, preds: impl Iterator<Item = (u64, usize)>, words: &[u64], nulls: &[u8]) {
+    pub fn set_word_zone(
+        &self,
+        preds: impl Iterator<Item = (u64, usize)>,
+        words: &[u64],
+        nulls: &[u8],
+    ) {
         let mut zone = self.zone.lock().unwrap_or_else(|e| e.into_inner());
         let mut key_zone = self.key_zone.lock().unwrap_or_else(|e| e.into_inner());
         let mut bound = self.bound.lock().unwrap_or_else(|e| e.into_inner());
@@ -1807,18 +2310,34 @@ impl VerdictCell {
             }
             if let Some(cell) = word_zone_key_of(arg) {
                 if let (Some(op), true) = (zone_op_of(op), [1, 2, 4, 8].contains(&len)) {
-                    key_zone.push(KeyZone { lane, op, len, cell }); // alloc: Exec
+                    key_zone.push(KeyZone {
+                        lane,
+                        op,
+                        len,
+                        cell,
+                    }); // alloc: Exec
                 }
                 continue;
             }
-            let (Some(&x), Some(0)) = (words.get(w), nulls.get(w)) else { continue };
-            let Some(value) = word_value(x, len) else { continue };
+            let (Some(&x), Some(0)) = (words.get(w), nulls.get(w)) else {
+                continue;
+            };
+            let Some(value) = word_value(x, len) else {
+                continue;
+            };
             if let Some(at) = word_zone_at_of(arg) {
                 bound.push((at, value)); // alloc: Exec
-                // sortpath: a text prefix predicate's constant, for the parts' code zones
+                                         // sortpath: a text prefix predicate's constant, for the parts' code zones
                 if let (gravity_program::BOUND_TEXT_PREFIX, Some(op)) = (len, zone_op_of(op)) {
-                    if let Some(image) = super::raw::with_bind_image(x, None, |d| Box::<[u8]>::from(d)) {
-                        images.push(CodeImage { lane, op, key: value, image }); // alloc: Exec
+                    if let Some(image) =
+                        super::raw::with_bind_image(x, None, |d| Box::<[u8]>::from(d))
+                    {
+                        images.push(CodeImage {
+                            lane,
+                            op,
+                            key: value,
+                            image,
+                        }); // alloc: Exec
                     }
                 }
             } else if let Some(op) = zone_op_of(op) {
@@ -1835,7 +2354,7 @@ impl VerdictCell {
         let mut zone = self.zone.lock().unwrap_or_else(|e| e.into_inner());
         let n = zone.len();
         let mut seen: std::collections::HashSet<ZonePred> = std::collections::HashSet::new(); // alloc: Exec
-        // bounded("other: one zone predicate of the statement's own quals each (an IN list's member is one): the query text bounds them, and PG's ExecQual tests the same quals per row with no poll")
+                                                                                              // bounded("other: one zone predicate of the statement's own quals each (an IN list's member is one): the query text bounds them, and PG's ExecQual tests the same quals per row with no poll")
         for z in preds {
             if !zone[..n].contains(z) && seen.insert(*z) {
                 zone.push(*z); // alloc: Exec
@@ -1846,7 +2365,10 @@ impl VerdictCell {
     /// sortpath (code-keyed zones): the text constants of this execution's IN-list prefix predicates (exec's `list_preds`),
     /// after the bound ones `set_word_zone` wrote.
     pub fn add_code_images(&self, more: Vec<CodeImage>) {
-        self.images.lock().unwrap_or_else(|e| e.into_inner()).extend(more);
+        self.images
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .extend(more);
     }
 
     /// sortpath: this execution's text constants of its prefix predicates; none without a protocol.
@@ -1884,9 +2406,15 @@ impl VerdictCell {
             w.store(0, Ordering::Relaxed);
         }
         self.zone.lock().unwrap_or_else(|e| e.into_inner()).clear();
-        self.key_zone.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        self.key_zone
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
         self.bound.lock().unwrap_or_else(|e| e.into_inner()).clear();
-        self.images.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        self.images
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
     }
 
     /// Word 0 = the enables (`VERDICT_*`), 1 / 2 = the condition fingerprint's low / high word, 3 = the late lanes, 4 = the
@@ -1898,7 +2426,13 @@ impl VerdictCell {
     }
 
     pub fn get(&self) -> (u64, [u64; 2]) {
-        (self.words[0].load(Ordering::Acquire), [self.words[1].load(Ordering::Acquire), self.words[2].load(Ordering::Acquire)])
+        (
+            self.words[0].load(Ordering::Acquire),
+            [
+                self.words[1].load(Ordering::Acquire),
+                self.words[2].load(Ordering::Acquire),
+            ],
+        )
     }
 
     /// decode.late's lanes (bit k = site lane k), read with `VERDICT_LATE`.
@@ -2052,7 +2586,13 @@ impl ShredLane {
 
 /// The `path_ord` of shred path `path` of column `attno` in `part` at `kind`/`scale`: every PathTable position spelling the path is
 /// tried, the one whose Values stream sits at `(attno, ord)`; `None` when not elected, an error when elected at another kind or scale.
-pub fn shred_lane_ord(part: &OpenPart, attno: u32, path: &str, kind: ShredLaneKind, scale: i32) -> PgResult<Option<u32>> {
+pub fn shred_lane_ord(
+    part: &OpenPart,
+    attno: u32,
+    path: &str,
+    kind: ShredLaneKind,
+    scale: i32,
+) -> PgResult<Option<u32>> {
     match shred_lane_elected(part, attno, path, kind, scale)? {
         Elected::At(o) => Ok(Some(o)),
         Elected::No => Ok(None),
@@ -2075,25 +2615,51 @@ pub enum Elected {
 }
 
 /// `shred_lane_ord`'s answer without the refusal: a scan publishes every answer but `At` as an all-invalid lane.
-pub fn shred_lane_elected(part: &OpenPart, attno: u32, path: &str, kind: ShredLaneKind, scale: i32) -> PgResult<Elected> {
+pub fn shred_lane_elected(
+    part: &OpenPart,
+    attno: u32,
+    path: &str,
+    kind: ShredLaneKind,
+    scale: i32,
+) -> PgResult<Elected> {
     Ok(match shred_path_sealed(part, attno, path)? {
         None => Elected::No,
         Some((_, k, _)) if k != Some(kind) => Elected::OtherKind,
-        Some((_, _, s)) if kind == ShredLaneKind::NumericFs && s != Ok(scale) => Elected::OtherScale,
+        Some((_, _, s)) if kind == ShredLaneKind::NumericFs && s != Ok(scale) => {
+            Elected::OtherScale
+        }
         Some((ord, _, _)) => Elected::At(ord),
     })
 }
 
 /// Path `path` of column `attno` as `part` sealed it: its `path_ord`, its lane kind and its number scale; `None` when
 /// the part did not elect it.
-fn shred_path_sealed(part: &OpenPart, attno: u32, path: &str) -> PgResult<Option<(u32, Option<ShredLaneKind>, core::result::Result<i32, &'static str>)>> {
-    let Some(paths) = pgrc_read::read_path_table(part).map_err(read_err)? else { return Ok(None) };
+fn shred_path_sealed(
+    part: &OpenPart,
+    attno: u32,
+    path: &str,
+) -> PgResult<
+    Option<(
+        u32,
+        Option<ShredLaneKind>,
+        core::result::Result<i32, &'static str>,
+    )>,
+> {
+    let Some(paths) = pgrc_read::read_path_table(part).map_err(read_err)? else {
+        return Ok(None);
+    };
     let dir = part.stream_directory().map_err(read_err)?;
     // bounded("catalog-sized: one part's path table: the jsonb paths it shredded, at most the relation's pgrc_shred_max_paths reloption (64 by default)")
     for (pos, _) in paths.iter().enumerate().filter(|(_, p)| p.as_str() == path) {
         let ord = pos as u32 + 1;
-        let Some(v) = dir.lookup(attno, ord, StreamRole::Values) else { continue };
-        return Ok(Some((ord, ShredLaneKind::of_entry(v.entry.class, v.entry.fixed_len), numeric_lane_scale(v.entry.flags, v.entry.aux32))));
+        let Some(v) = dir.lookup(attno, ord, StreamRole::Values) else {
+            continue;
+        };
+        return Ok(Some((
+            ord,
+            ShredLaneKind::of_entry(v.entry.class, v.entry.fixed_len),
+            numeric_lane_scale(v.entry.flags, v.entry.aux32),
+        )));
     }
     Ok(None)
 }
@@ -2101,12 +2667,21 @@ fn shred_path_sealed(part: &OpenPart, attno: u32, path: &str) -> PgResult<Option
 /// D3038 (R1): the `path_ord` of column `attno`'s stored octet-length lane in `part` (`OCTET_LENGTH_PATH`, an int4 word
 /// a row), `None` where the part sealed none (a dictionary-coded column, a part sealed before the lane).
 pub fn octet_lane_ord(part: &OpenPart, attno: u32) -> PgResult<Option<u32>> {
-    let Some(paths) = pgrc_read::read_path_table(part).map_err(read_err)? else { return Ok(None) };
+    let Some(paths) = pgrc_read::read_path_table(part).map_err(read_err)? else {
+        return Ok(None);
+    };
     let dir = part.stream_directory().map_err(read_err)?;
     // bounded("catalog-sized: one part's path table: the jsonb paths it shredded, at most the relation's pgrc_shred_max_paths reloption (64 by default)")
-    for (pos, _) in paths.iter().enumerate().filter(|(_, p)| p.as_str() == pgrc_format::shredlane::OCTET_LENGTH_PATH) {
+    for (pos, _) in paths
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| p.as_str() == pgrc_format::shredlane::OCTET_LENGTH_PATH)
+    {
         let ord = pos as u32 + 1;
-        if dir.lookup(attno, ord, StreamRole::Values).is_some_and(|v| v.entry.class == pgrc_format::class::CLASS_BYVAL) {
+        if dir
+            .lookup(attno, ord, StreamRole::Values)
+            .is_some_and(|v| v.entry.class == pgrc_format::class::CLASS_BYVAL)
+        {
             return Ok(Some(ord));
         }
     }
@@ -2124,12 +2699,18 @@ pub fn shred_path(keys: &[&str]) -> String {
 /// every part's path table is asked until one did (no part count cap). `None`: none of them did (the value form). Any
 /// part, now or of a later generation, that did not elect it at that kind and scale publishes the lane all-invalid, and
 /// every such row walks its image: the answer is never a correctness fact.
-pub fn shred_election(list: &PartList, attno: u32, path: &str) -> PgResult<Option<(ShredLaneKind, i32)>> {
+pub fn shred_election(
+    list: &PartList,
+    attno: u32,
+    path: &str,
+) -> PgResult<Option<(ShredLaneKind, i32)>> {
     // a tick per part: each reads its path table
     let mut step = cancelpoll::step("granule_source shred_election: the parts' path tables");
     for spec in list.parts() {
         step.tick().map_err(|_| err(WALK_CANCELED))?;
-        let Some(part) = spec.part.as_ref() else { continue };
+        let Some(part) = spec.part.as_ref() else {
+            continue;
+        };
         if let Some((_, Some(kind), scale)) = shred_path_sealed(part, attno, path)? {
             return Ok(match (kind, scale) {
                 (ShredLaneKind::NumericFs, Ok(s)) => Some((kind, s)),
@@ -2150,11 +2731,20 @@ pub fn shred_object_roots(list: &PartList, attno: u32, path: &str) -> PgResult<b
     let mut step = cancelpoll::step("granule_source shred_object_roots: the parts' path tables");
     for spec in list.parts() {
         step.tick().map_err(|_| err(WALK_CANCELED))?;
-        let Some(part) = spec.part.as_ref() else { continue };
-        let Some(paths) = pgrc_read::read_path_table(part).map_err(read_err)? else { continue };
+        let Some(part) = spec.part.as_ref() else {
+            continue;
+        };
+        let Some(paths) = pgrc_read::read_path_table(part).map_err(read_err)? else {
+            continue;
+        };
         let dir = part.stream_directory().map_err(read_err)?;
-        let ord = paths.iter().position(|p| p.as_str() == path).map(|pos| pos as u32 + 1);
-        let Some(v) = ord.and_then(|o| dir.lookup(attno, o, StreamRole::Values)) else { continue };
+        let ord = paths
+            .iter()
+            .position(|p| p.as_str() == path)
+            .map(|pos| pos as u32 + 1);
+        let Some(v) = ord.and_then(|o| dir.lookup(attno, o, StreamRole::Values)) else {
+            continue;
+        };
         if ShredLaneKind::of_entry(v.entry.class, v.entry.fixed_len) != Some(ShredLaneKind::Text) {
             continue;
         }
@@ -2178,16 +2768,29 @@ pub fn shred_dict(list: &PartList, attno: u32, path: &str) -> PgResult<bool> {
     let mut step = cancelpoll::step("granule_source shred_dict: the parts' path tables");
     for spec in list.parts() {
         step.tick().map_err(|_| err(WALK_CANCELED))?;
-        let Some(part) = spec.part.as_ref() else { continue };
-        let Some(paths) = pgrc_read::read_path_table(part).map_err(read_err)? else { continue };
+        let Some(part) = spec.part.as_ref() else {
+            continue;
+        };
+        let Some(paths) = pgrc_read::read_path_table(part).map_err(read_err)? else {
+            continue;
+        };
         let dir = part.stream_directory().map_err(read_err)?;
-        let ord = paths.iter().position(|p| p.as_str() == path).map(|pos| pos as u32 + 1);
-        let Some((ord, v)) = ord.and_then(|o| dir.lookup(attno, o, StreamRole::Values).map(|v| (o, v))) else { continue };
+        let ord = paths
+            .iter()
+            .position(|p| p.as_str() == path)
+            .map(|pos| pos as u32 + 1);
+        let Some((ord, v)) =
+            ord.and_then(|o| dir.lookup(attno, o, StreamRole::Values).map(|v| (o, v)))
+        else {
+            continue;
+        };
         if ShredLaneKind::of_entry(v.entry.class, v.entry.fixed_len) != Some(ShredLaneKind::Text) {
             continue;
         }
         let f = v.entry.flags;
-        let exec = f & STREAMF_DICT_EXEC_NULLABLE != 0 || (f & STREAMF_DICT_EXEC != 0 && dir.lookup(attno, ord, StreamRole::Validity).is_none());
+        let exec = f & STREAMF_DICT_EXEC_NULLABLE != 0
+            || (f & STREAMF_DICT_EXEC != 0
+                && dir.lookup(attno, ord, StreamRole::Validity).is_none());
         if v.entry.encoding != EncodingId::DictCodes as u16 || !exec {
             return Ok(false);
         }
@@ -2242,8 +2845,12 @@ fn read_err(e: pgrc_read::ReadError) -> Box<PgError> {
 
 fn table_err(e: crate::dict::text_hosts::TableBuildError) -> Box<PgError> {
     match e {
-        crate::dict::text_hosts::TableBuildError::Region(gravity_dict::BuildError::TooManyCodes) => err("gravity: a dictionary past the table's code range"),
-        crate::dict::text_hosts::TableBuildError::Region(gravity_dict::BuildError::NoSeed) => err("gravity: the fingerprint seed is not installed"),
+        crate::dict::text_hosts::TableBuildError::Region(
+            gravity_dict::BuildError::TooManyCodes,
+        ) => err("gravity: a dictionary past the table's code range"),
+        crate::dict::text_hosts::TableBuildError::Region(gravity_dict::BuildError::NoSeed) => {
+            err("gravity: the fingerprint seed is not installed")
+        }
         crate::dict::text_hosts::TableBuildError::Region(_) => err("gravity: table build"),
         crate::dict::text_hosts::TableBuildError::Pg(e) => e,
         crate::dict::text_hosts::TableBuildError::Read(e) => read_err(e),
@@ -2256,7 +2863,13 @@ impl GranuleRecipe {
     /// them in its kept bytes, so they move with its charge.
     pub(crate) fn heap_bytes(&self) -> usize {
         use gravity_driver::vec_bytes as v;
-        v(&self.attnos) + v(&self.widths) + v(&self.kinds) + v(&self.scales) + self.numeric.heap_bytes() + self.dyn_scale.heap_bytes() + self.lens_only.heap_bytes()
+        v(&self.attnos)
+            + v(&self.widths)
+            + v(&self.kinds)
+            + v(&self.scales)
+            + self.numeric.heap_bytes()
+            + self.dyn_scale.heap_bytes()
+            + self.lens_only.heap_bytes()
     }
 
     /// A granule scan of `rel` projecting `attnos`: every column a lane by its storage class (`lane_of_class`; code lanes via `from_plan_codes`).
@@ -2268,15 +2881,26 @@ impl GranuleRecipe {
     /// varchar columns published as dictionary code lanes (step 4): a part that
     /// dictionary-coded the column publishes its codes, a part that stored it
     /// verbatim publishes the byte-ranked codes of its distinct values (`Dict::Ranked`, cached with its `Fp128` table).
-    pub fn from_plan_codes(rel: &Relation<'_>, attnos: &[i16], codes: &[u64]) -> PgResult<GranuleRecipe> {
+    pub fn from_plan_codes(
+        rel: &Relation<'_>,
+        attnos: &[i16],
+        codes: &[u64],
+    ) -> PgResult<GranuleRecipe> {
         GranuleRecipe::from_plan_lanes(rel, attnos, codes, &[])
     }
 
     /// `from_plan_codes` with the lanes in `packed` (a mask over `attnos`) being unconstrained numeric columns read as
     /// their packed codes (N14, `dyn_scale`): a packed stream's mantissas at its elected scale, a verbatim one's images.
-    pub fn from_plan_lanes(rel: &Relation<'_>, attnos: &[i16], codes: &[u64], packed: &[u64]) -> PgResult<GranuleRecipe> {
+    pub fn from_plan_lanes(
+        rel: &Relation<'_>,
+        attnos: &[i16],
+        codes: &[u64],
+        packed: &[u64],
+    ) -> PgResult<GranuleRecipe> {
         // D2989: a pgrcolumnar materialized view is the same storage as a pgrcolumnar table
-        if !matches!(rel.rd_rel.relkind, RELKIND_RELATION | RELKIND_MATVIEW) || TableAm::of(rel) != Some(TableAm::Pgrcolumnar) {
+        if !matches!(rel.rd_rel.relkind, RELKIND_RELATION | RELKIND_MATVIEW)
+            || TableAm::of(rel) != Some(TableAm::Pgrcolumnar)
+        {
             return Err(err("gravity: pgrc AM only"));
         }
         if rel.rd_islocaltemp || attnos.is_empty() {
@@ -2295,8 +2919,12 @@ impl GranuleRecipe {
             };
             if laneset::has(packed, k) {
                 // N14: an unconstrained numeric (no typmod, no domain), whose packed streams each elect their own scale
-                if c.semantics != TypeSemantics::NumericUnpacked || rel.rd_att.attrs.get(a as usize - 1).map(|t| t.atttypid) != Some(NUMERICOID) {
-                    return Err(err("gravity: a packed numeric lane needs an unconstrained numeric column"));
+                if c.semantics != TypeSemantics::NumericUnpacked
+                    || rel.rd_att.attrs.get(a as usize - 1).map(|t| t.atttypid) != Some(NUMERICOID)
+                {
+                    return Err(err(
+                        "gravity: a packed numeric lane needs an unconstrained numeric column",
+                    ));
                 }
                 (kinds[k], widths[k]) = (lane::KIND_FIXED, 8);
                 numeric.set(k);
@@ -2305,9 +2933,17 @@ impl GranuleRecipe {
             }
             if laneset::has(codes, k) {
                 // D2700: a domain over text / varchar / bpchar stores its base's bytes (pgrc_am's schema resolves it)
-                let typid = rel.rd_att.attrs.get(a as usize - 1).and_then(|t| lsyscache::typ::getBaseType(t.atttypid).ok());
-                if c.class != StorageClass::VarlenaVerbatim || !typid.is_some_and(gravity_fn::typesem::pgrc::code_text) {
-                    return Err(err("gravity: a code lane needs a text / varchar / bpchar column"));
+                let typid = rel
+                    .rd_att
+                    .attrs
+                    .get(a as usize - 1)
+                    .and_then(|t| lsyscache::typ::getBaseType(t.atttypid).ok());
+                if c.class != StorageClass::VarlenaVerbatim
+                    || !typid.is_some_and(gravity_fn::typesem::pgrc::code_text)
+                {
+                    return Err(err(
+                        "gravity: a code lane needs a text / varchar / bpchar column",
+                    ));
                 }
                 widths[k] = 4;
                 kinds[k] = lane::KIND_CODES;
@@ -2316,15 +2952,27 @@ impl GranuleRecipe {
             let (kind, w) = lane_of_class(c.class);
             kinds[k] = kind;
             widths[k] = w;
-            if let (TypeSemantics::PackedNumeric { scale }, Some(NUMERICOID)) = (c.semantics, rel.rd_att.attrs.get(a as usize - 1).map(|t| t.atttypid)) {
+            if let (TypeSemantics::PackedNumeric { scale }, Some(NUMERICOID)) = (
+                c.semantics,
+                rel.rd_att.attrs.get(a as usize - 1).map(|t| t.atttypid),
+            ) {
                 kinds[k] = lane::KIND_FIXED;
                 widths[k] = 8;
                 scales[k] = scale as u32;
                 numeric.set(k);
             }
         }
-        let mut r = GranuleRecipe::for_test_widths(rel.rd_id, attnos, &widths, pgrc_am::inval::registry());
-        r.profiles = attnos.iter().map(|&a| schemas.iter().find(|c| c.attno == a as u32).map(|c| MetaProfile::derive_or_opaque(c.class, c.collation_class, c.semantics))).collect();
+        let mut r =
+            GranuleRecipe::for_test_widths(rel.rd_id, attnos, &widths, pgrc_am::inval::registry());
+        r.profiles = attnos
+            .iter()
+            .map(|&a| {
+                schemas
+                    .iter()
+                    .find(|c| c.attno == a as u32)
+                    .map(|c| MetaProfile::derive_or_opaque(c.class, c.collation_class, c.semantics))
+            })
+            .collect();
         r.kinds = kinds;
         r.scales = scales;
         r.numeric = numeric;
@@ -2332,13 +2980,18 @@ impl GranuleRecipe {
         r.cond_ok = rel.rd_rel.relpersistence == RELPERSISTENCE_PERMANENT;
         r.cond_unlogged = rel.rd_rel.relpersistence == RELPERSISTENCE_UNLOGGED;
         let lead = pgrc_am::reloptions::sorted_by_lead_attno(rel);
-        r.key_lane = lead.and_then(|k| attnos.iter().position(|&a| a > 0 && a as u32 == k)).map(|k| k as u16);
+        r.key_lane = lead
+            .and_then(|k| attnos.iter().position(|&a| a > 0 && a as u32 == k))
+            .map(|k| k as u16);
         Ok(r)
     }
 
     /// Lane `k` as a `numeric(p, scale)` lane without a relation: the packed mantissa in place, a verbatim part's images by reference.
     pub fn with_numeric_lane(mut self, k: usize, scale: u32) -> GranuleRecipe {
-        assert!(k < self.natts && self.kinds[k] != lane::KIND_CODES, "a numeric lane over a plain lane");
+        assert!(
+            k < self.natts && self.kinds[k] != lane::KIND_CODES,
+            "a numeric lane over a plain lane"
+        );
         self.kinds[k] = lane::KIND_FIXED;
         self.widths[k] = 8;
         self.scales[k] = scale;
@@ -2347,8 +3000,15 @@ impl GranuleRecipe {
     }
 
     /// The recipe without a relation, lane `k` a dictionary code lane where `codes` (lane-set words) has `k`.
-    pub fn for_test_codes(rel: Oid, attnos: &[i16], codes: &[u64], registry: Arc<PartRegistry>) -> GranuleRecipe {
-        let widths: Vec<u8> = (0..attnos.len()).map(|k| if laneset::has(codes, k) { 4 } else { 8 }).collect(); // alloc: Cold
+    pub fn for_test_codes(
+        rel: Oid,
+        attnos: &[i16],
+        codes: &[u64],
+        registry: Arc<PartRegistry>,
+    ) -> GranuleRecipe {
+        let widths: Vec<u8> = (0..attnos.len())
+            .map(|k| if laneset::has(codes, k) { 4 } else { 8 })
+            .collect(); // alloc: Cold
         let mut r = GranuleRecipe::for_test_widths(rel, attnos, &widths, registry);
         // bounded("key-columns: one lane per column of a test recipe, at most MaxTupleAttributeNumber (1664) columns")
         for k in 0..attnos.len() {
@@ -2363,7 +3023,10 @@ impl GranuleRecipe {
     /// with `LaneDesc::table(i)` in the same order after the offset lane).
     /// The recipe with code lane `k` published as its parts' dictionary entries.
     pub fn with_entries(mut self, k: usize) -> GranuleRecipe {
-        assert!(k < self.natts && self.kinds[k] == lane::KIND_CODES, "the entries lane is a code lane");
+        assert!(
+            k < self.natts && self.kinds[k] == lane::KIND_CODES,
+            "the entries lane is a code lane"
+        );
         crate::ops::scan::pgrc::entry_runs::install();
         self.entries = Some(k);
         self
@@ -2372,7 +3035,13 @@ impl GranuleRecipe {
     /// The recipe with every lane (each a code lane, at least two) published as its parts' dictionary entries side by
     /// side (PS1-19, `stage_entries`): a part publishes them only when it would publish each lane's alone.
     pub fn with_entries_every(mut self) -> GranuleRecipe {
-        assert!(self.natts >= 2 && self.kinds[..self.natts].iter().all(|&k| k == lane::KIND_CODES), "every entries lane is a code lane");
+        assert!(
+            self.natts >= 2
+                && self.kinds[..self.natts]
+                    .iter()
+                    .all(|&k| k == lane::KIND_CODES),
+            "every entries lane is a code lane"
+        );
         self.entries = Some(0);
         self.entries_every = true;
         self
@@ -2394,7 +3063,10 @@ impl GranuleRecipe {
     /// RD-dict.entries: the entries window's declarer keeps NULL as a value (`SELECT DISTINCT x`, `GROUP BY x` alone): a
     /// part that holds a NULL in the lane publishes one NULL row after its entries, a part without stats records its rows.
     pub fn with_entries_nulls(mut self) -> GranuleRecipe {
-        assert!(!self.entries_every, "the every-lane window counts DISTINCT values only");
+        assert!(
+            !self.entries_every,
+            "the every-lane window counts DISTINCT values only"
+        );
         self.entries_nulls = true;
         self
     }
@@ -2411,7 +3083,10 @@ impl GranuleRecipe {
 
     /// D3038 (A): code lane `k` is read only through `OCTET_LENGTH` tables and the emptiness test (`lens_only`).
     pub fn with_lens_only(mut self, k: usize) -> GranuleRecipe {
-        assert!(k < self.natts && self.kinds[k] == lane::KIND_CODES, "a length-only lane is a code lane");
+        assert!(
+            k < self.natts && self.kinds[k] == lane::KIND_CODES,
+            "a length-only lane is a code lane"
+        );
         self.lens_only.set(k);
         self
     }
@@ -2456,7 +3131,9 @@ impl GranuleRecipe {
                 self.sample = Some((t, repeatable));
                 Ok(self)
             }
-            _ => Err(err("gravity: a pgrc TABLESAMPLE method other than BERNOULLI / SYSTEM")),
+            _ => Err(err(
+                "gravity: a pgrc TABLESAMPLE method other than BERNOULLI / SYSTEM",
+            )),
         }
     }
 
@@ -2485,10 +3162,19 @@ impl GranuleRecipe {
     /// Its faces are the path's (M6 Decision 8c): the Stats / bloom / PSMA and the dictionary sealed at its `path_ord`, and its
     /// metadata profile is the lane's class's, so zone verdicts, elision and answers read the path, never its column. A code
     /// lane (`with_shred_code_lane`) stays one: a Text path's codes (R13-L03).
-    pub fn with_shred_lane(mut self, k: usize, path: &str, kind: ShredLaneKind, scale: i32) -> GranuleRecipe {
+    pub fn with_shred_lane(
+        mut self,
+        k: usize,
+        path: &str,
+        kind: ShredLaneKind,
+        scale: i32,
+    ) -> GranuleRecipe {
         assert!(k < self.natts, "a shred lane outside the recipe");
         if self.kinds[k] == lane::KIND_CODES {
-            assert!(kind == ShredLaneKind::Text, "a shred code lane is a text path");
+            assert!(
+                kind == ShredLaneKind::Text,
+                "a shred code lane is a text path"
+            );
         } else {
             let (kind_k, width) = ShredLane::lane_of(kind, scale);
             self.kinds[k] = kind_k;
@@ -2499,10 +3185,28 @@ impl GranuleRecipe {
         let schema = kind.col_schema(attno);
         let mut profiles: Vec<Option<MetaProfile>> = self.profiles.to_vec(); // alloc: Cold
         profiles.resize(self.natts, None); // alloc: Cold
-        profiles[k] = Some(MetaProfile::derive_or_opaque(schema.class, schema.collation_class, schema.semantics));
+        profiles[k] = Some(MetaProfile::derive_or_opaque(
+            schema.class,
+            schema.collation_class,
+            schema.semantics,
+        ));
         self.profiles = Arc::from(profiles);
-        let mut v: Vec<ShredLane> = self.shred.iter().filter(|s| s.lane as usize != k).cloned().collect(); // alloc: Cold
-        v.push(ShredLane { lane: k as u8, path: Arc::from(path), kind, scale, presence: false, octet: false, nonempty: false, chars: false });
+        let mut v: Vec<ShredLane> = self
+            .shred
+            .iter()
+            .filter(|s| s.lane as usize != k)
+            .cloned()
+            .collect(); // alloc: Cold
+        v.push(ShredLane {
+            lane: k as u8,
+            path: Arc::from(path),
+            kind,
+            scale,
+            presence: false,
+            octet: false,
+            nonempty: false,
+            chars: false,
+        });
         self.shred = Arc::from(v);
         self
     }
@@ -2527,7 +3231,14 @@ impl GranuleRecipe {
         let mut r = self.with_shred_lane(k, path, ShredLaneKind::Text, 0);
         r.kinds[k] = lane::KIND_BYVAL;
         r.widths[k] = 8;
-        let v: Vec<ShredLane> = r.shred.iter().map(|s| ShredLane { presence: s.presence || s.lane as usize == k, ..s.clone() }).collect(); // alloc: Cold
+        let v: Vec<ShredLane> = r
+            .shred
+            .iter()
+            .map(|s| ShredLane {
+                presence: s.presence || s.lane as usize == k,
+                ..s.clone()
+            })
+            .collect(); // alloc: Cold
         r.shred = Arc::from(v);
         r
     }
@@ -2539,7 +3250,14 @@ impl GranuleRecipe {
         let mut r = self.with_shred_lane(k, "", ShredLaneKind::Text, 0);
         r.kinds[k] = lane::KIND_BYVAL;
         r.widths[k] = 8;
-        let v: Vec<ShredLane> = r.shred.iter().map(|s| ShredLane { octet: s.octet || s.lane as usize == k, ..s.clone() }).collect(); // alloc: Cold
+        let v: Vec<ShredLane> = r
+            .shred
+            .iter()
+            .map(|s| ShredLane {
+                octet: s.octet || s.lane as usize == k,
+                ..s.clone()
+            })
+            .collect(); // alloc: Cold
         r.shred = Arc::from(v);
         r
     }
@@ -2549,7 +3267,14 @@ impl GranuleRecipe {
     /// length is not 0.
     pub fn with_nonempty_lane(self, k: usize) -> GranuleRecipe {
         let mut r = self.with_octet_lane(k);
-        let v: Vec<ShredLane> = r.shred.iter().map(|s| ShredLane { nonempty: s.nonempty || s.lane as usize == k, ..s.clone() }).collect(); // alloc: Cold
+        let v: Vec<ShredLane> = r
+            .shred
+            .iter()
+            .map(|s| ShredLane {
+                nonempty: s.nonempty || s.lane as usize == k,
+                ..s.clone()
+            })
+            .collect(); // alloc: Cold
         r.shred = Arc::from(v);
         r
     }
@@ -2558,7 +3283,14 @@ impl GranuleRecipe {
     /// (`with_octet_lane`) whose word is the character count where the column's granule is not all ASCII.
     pub fn with_char_lane(self, k: usize) -> GranuleRecipe {
         let mut r = self.with_octet_lane(k);
-        let v: Vec<ShredLane> = r.shred.iter().map(|s| ShredLane { chars: s.chars || s.lane as usize == k, ..s.clone() }).collect(); // alloc: Cold
+        let v: Vec<ShredLane> = r
+            .shred
+            .iter()
+            .map(|s| ShredLane {
+                chars: s.chars || s.lane as usize == k,
+                ..s.clone()
+            })
+            .collect(); // alloc: Cold
         r.shred = Arc::from(v);
         r
     }
@@ -2566,7 +3298,13 @@ impl GranuleRecipe {
     /// M6 D2: jsonb column lane `col`, when late, is filled where shred lane `path` (one of its paths) is invalid
     /// (`late_guards`).
     pub fn with_late_guard(mut self, col: usize, path: usize) -> GranuleRecipe {
-        assert!(col < self.natts && path < self.natts && self.shred_of(path).is_some() && self.shred_of(col).is_none(), "a late guard's lanes");
+        assert!(
+            col < self.natts
+                && path < self.natts
+                && self.shred_of(path).is_some()
+                && self.shred_of(col).is_none(),
+            "a late guard's lanes"
+        );
         let mut v = self.late_guards.to_vec(); // alloc: Cold
         if !v.contains(&(col as u8, path as u8)) {
             v.push((col as u8, path as u8)); // alloc: Cold
@@ -2589,7 +3327,11 @@ impl GranuleRecipe {
     }
 
     pub fn with_tables(mut self, tables: Vec<crate::dict::text_hosts::TableSpec>) -> GranuleRecipe {
-        assert!(tables.iter().all(|t| (t.over as usize) < self.natts && self.kinds[t.over as usize] == lane::KIND_CODES), "a table lane over a code lane");
+        assert!(
+            tables.iter().all(|t| (t.over as usize) < self.natts
+                && self.kinds[t.over as usize] == lane::KIND_CODES),
+            "a table lane over a code lane"
+        );
         self.tables = Arc::from(tables);
         self
     }
@@ -2601,11 +3343,17 @@ impl GranuleRecipe {
 
     /// The recipe without a relation (width-8 lanes): the part list comes through the cell.
     pub fn for_test(rel: Oid, attnos: &[i16], registry: Arc<PartRegistry>) -> GranuleRecipe {
-        GranuleRecipe::for_test_widths(rel, attnos, &vec![8u8; attnos.len()], registry) // alloc: Cold
+        GranuleRecipe::for_test_widths(rel, attnos, &vec![8u8; attnos.len()], registry)
+        // alloc: Cold
     }
 
     /// The recipe without a relation, lane `k` of storage class `classes[k]` (`lane_of_class`).
-    pub fn for_test_classes(rel: Oid, attnos: &[i16], classes: &[StorageClass], registry: Arc<PartRegistry>) -> GranuleRecipe {
+    pub fn for_test_classes(
+        rel: Oid,
+        attnos: &[i16],
+        classes: &[StorageClass],
+        registry: Arc<PartRegistry>,
+    ) -> GranuleRecipe {
         let widths: Vec<u8> = classes.iter().map(|&c| lane_of_class(c).1).collect(); // alloc: Cold
         let mut r = GranuleRecipe::for_test_widths(rel, attnos, &widths, registry);
         // bounded("key-columns: one lane per column of a test recipe, at most MaxTupleAttributeNumber (1664) columns")
@@ -2616,10 +3364,50 @@ impl GranuleRecipe {
     }
 
     /// The recipe without a relation, each lane at its physical width (1 / 2 / 4 / 8).
-    pub fn for_test_widths(rel: Oid, attnos: &[i16], widths: &[u8], registry: Arc<PartRegistry>) -> GranuleRecipe {
-        assert!(widths.len() == attnos.len() && widths.iter().all(|w| matches!(w, 1 | 2 | 4 | 8)), "lane widths");
+    pub fn for_test_widths(
+        rel: Oid,
+        attnos: &[i16],
+        widths: &[u8],
+        registry: Arc<PartRegistry>,
+    ) -> GranuleRecipe {
+        assert!(
+            widths.len() == attnos.len() && widths.iter().all(|w| matches!(w, 1 | 2 | 4 | 8)),
+            "lane widths"
+        );
         let n = attnos.len();
-        GranuleRecipe { rel, natts: n, attnos: attnos.to_vec(), widths: widths.to_vec(), kinds: vec![lane::KIND_BYVAL; n], tables: Arc::from(Vec::new()), entries: None, entries_every: false, entries_filtered: false, entries_nulls: false, entries_desc: false, sparse_dicts: false, dict_renders: 0, head_prefault: false, lane_elide: false, scales: vec![0; n], numeric: LaneBits::new(n), dyn_scale: LaneBits::new(n), lens_only: LaneBits::new(n), shred: Arc::from(Vec::new()), late_guards: Arc::from(Vec::new()), profiles: Arc::from(vec![None; n]), verdicts: Arc::new(VerdictCell::new()), verdict_lane: None, cond_ok: true, cond_unlogged: false, sample: None, skipped: None, zone_keys: 0, key_lane: None, registry } // alloc: Program
+        GranuleRecipe {
+            rel,
+            natts: n,
+            attnos: attnos.to_vec(),
+            widths: widths.to_vec(),
+            kinds: vec![lane::KIND_BYVAL; n],
+            tables: Arc::from(Vec::new()),
+            entries: None,
+            entries_every: false,
+            entries_filtered: false,
+            entries_nulls: false,
+            entries_desc: false,
+            sparse_dicts: false,
+            dict_renders: 0,
+            head_prefault: false,
+            lane_elide: false,
+            scales: vec![0; n],
+            numeric: LaneBits::new(n),
+            dyn_scale: LaneBits::new(n),
+            lens_only: LaneBits::new(n),
+            shred: Arc::from(Vec::new()),
+            late_guards: Arc::from(Vec::new()),
+            profiles: Arc::from(vec![None; n]),
+            verdicts: Arc::new(VerdictCell::new()),
+            verdict_lane: None,
+            cond_ok: true,
+            cond_unlogged: false,
+            sample: None,
+            skipped: None,
+            zone_keys: 0,
+            key_lane: None,
+            registry,
+        } // alloc: Program
     }
 }
 
@@ -2628,12 +3416,18 @@ impl GranuleRecipe {
 /// first open ranks the whole column (`text_hosts::row_codes`: one decode and a sort of every row by its bytes) unless its
 /// table is resident. 0 without the relation's codec facts.
 pub fn verbatim_code_lanes(rel: &Relation<'_>, r: &GranuleRecipe) -> PgResult<u64> {
-    let Some(codecs) = pgrc_am::footer::footer_codecs(rel)? else { return Ok(0) };
+    let Some(codecs) = pgrc_am::footer::footer_codecs(rel)? else {
+        return Ok(0);
+    };
     let mut lanes = 0u64;
     // bounded("small-fixed: one per lane of the recipe, at most 64")
     for k in 0..r.natts.min(64) {
         let a = r.attnos[k];
-        if r.kinds[k] == lane::KIND_CODES && !r.lens_only.has(k) && a >= 1 && codecs.codec.get(a as usize - 1) == Some(&pgrc_am::footer::CODEC_TEXT) {
+        if r.kinds[k] == lane::KIND_CODES
+            && !r.lens_only.has(k)
+            && a >= 1
+            && codecs.codec.get(a as usize - 1) == Some(&pgrc_am::footer::CODEC_TEXT)
+        {
             lanes |= 1 << k;
         }
     }
@@ -2647,8 +3441,12 @@ pub fn ranks_pending(list: &PartList, r: &GranuleRecipe, lanes: u64, p: usize) -
     if lanes == 0 {
         return false;
     }
-    let Some(part) = list.parts().get(p).and_then(|s| s.part.as_ref()) else { return true };
-    (0..r.natts.min(64)).filter(|&k| lanes >> k & 1 != 0).any(|k| !crate::dict::text_hosts::ranks_resident(part, stream_key(r.attnos[k] as u32, 0)))
+    let Some(part) = list.parts().get(p).and_then(|s| s.part.as_ref()) else {
+        return true;
+    };
+    (0..r.natts.min(64))
+        .filter(|&k| lanes >> k & 1 != 0)
+        .any(|k| !crate::dict::text_hosts::ranks_resident(part, stream_key(r.attnos[k] as u32, 0)))
 }
 
 /// SCANSTATS: the end of a statement Gravity served: the read counts its granule sources added on this (the leader's)
@@ -2661,7 +3459,10 @@ pub fn scanstats_statement_end() {
 /// relation's manifest head is unchanged (no opens), else the AM's resolve.
 pub fn resolve(rel: &Relation<'_>, snapshot: Option<&SnapshotData<'_>>) -> PgResult<Arc<PartList>> {
     // FASTADD: parts that lack a column of the relation read it from stand-ins (a derived list)
-    let list = fastadd::reader_list(rel, crate::ops::scan::pgrc::residency::resident_parts(rel, snapshot)?)?;
+    let list = fastadd::reader_list(
+        rel,
+        crate::ops::scan::pgrc::residency::resident_parts(rel, snapshot)?,
+    )?;
     let _ = list_zones(rel, &list);
     Ok(list)
 }
@@ -2675,7 +3476,11 @@ pub fn resolve(rel: &Relation<'_>, snapshot: Option<&SnapshotData<'_>>) -> PgRes
 /// opens every part), asked again at the next resolve.
 fn list_zones<'a>(rel: &Relation<'_>, list: &'a PartList) -> Option<&'a [(u32, Arc<ZoneColumn>)]> {
     if list.zones.get().is_none() {
-        if let Some((cols, own)) = list_generation(rel, list).ok().flatten().and_then(|g| generation_zones(&g)) {
+        if let Some((cols, own)) = list_generation(rel, list)
+            .ok()
+            .flatten()
+            .and_then(|g| generation_zones(&g))
+        {
             list.set_zones(cols, own);
         }
     }
@@ -2686,16 +3491,25 @@ fn list_zones<'a>(rel: &Relation<'_>, list: &'a PartList) -> Option<&'a [(u32, A
 /// publish), else its facts image under the prime's rule (`serve_generation_without_catalog`, not installed); `None`
 /// without an image or when that rule needs the catalog (the census then excludes nothing). `true`: the columns are
 /// the caller's alone (not installed).
-fn generation_zones(g: &pgrc_am::catalog::Generation) -> Option<(Vec<pgrc_am::footer::ZoneFacts>, bool)> {
-    match g.facts(|_| Err(Box::new(PgError::error("gravity: zone facts: not served")))) { // alloc: Cold
+fn generation_zones(
+    g: &pgrc_am::catalog::Generation,
+) -> Option<(Vec<pgrc_am::footer::ZoneFacts>, bool)> {
+    match g.facts(|_| Err(Box::new(PgError::error("gravity: zone facts: not served")))) {
+        // alloc: Cold
         Ok(Some(f)) => Some((f.zones.clone(), false)), // alloc: Cold charged the part cache (PartList::zones_charge: the list's slice)
         Ok(None) => None,
-        Err(_) => pgrc_am::footer::serve_generation_without_catalog(g).ok().flatten().map(|f| (f.zones, true)),
+        Err(_) => pgrc_am::footer::serve_generation_without_catalog(g)
+            .ok()
+            .flatten()
+            .map(|f| (f.zones, true)),
     }
 }
 
 fn zone_of(zones: &[(u32, Arc<ZoneColumn>)], attno: u32) -> Option<Arc<ZoneColumn>> {
-    zones.iter().find(|(z, _)| *z == attno).map(|(_, c)| Arc::clone(c))
+    zones
+        .iter()
+        .find(|(z, _)| *z == attno)
+        .map(|(_, c)| Arc::clone(c))
 }
 
 /// `attno`'s zone column of the relation's latest committed generation (committed or this transaction's), from its
@@ -2752,13 +3566,19 @@ static IN_PLACE: [AtomicU64; 2] = [AtomicU64::new(0), AtomicU64::new(0)];
 
 /// V4R-19 (A) so far in this process: `[windows whose declared key lane is constant, windows asked]`.
 pub fn const_key_census() -> [u64; 2] {
-    [CONST_KEY[1].load(Ordering::Relaxed), CONST_KEY[0].load(Ordering::Relaxed) + CONST_KEY[1].load(Ordering::Relaxed)]
+    [
+        CONST_KEY[1].load(Ordering::Relaxed),
+        CONST_KEY[0].load(Ordering::Relaxed) + CONST_KEY[1].load(Ordering::Relaxed),
+    ]
 }
 
 /// PGRC-DECODE lever 2 so far in this process: `[lane-granules published in place, by-value lane-granules decoded whole
 /// into their slot]` (`GranuleRangeSource::in_place`).
 pub fn in_place_census() -> [u64; 2] {
-    [IN_PLACE[1].load(Ordering::Relaxed), IN_PLACE[0].load(Ordering::Relaxed)]
+    [
+        IN_PLACE[1].load(Ordering::Relaxed),
+        IN_PLACE[0].load(Ordering::Relaxed),
+    ]
 }
 
 /// decode.unread so far in this process: the condition-cache hits published as a count, no lane decoded.
@@ -2769,13 +3589,22 @@ pub fn unread_census() -> u64 {
 /// decode.packed so far in this process: `[windows packed, windows with candidates left unpacked]` (a selection, deletes,
 /// or a candidate the block path cannot read).
 pub fn packed_census() -> [u64; 2] {
-    [PACKED[0].load(Ordering::Relaxed), PACKED[1].load(Ordering::Relaxed)]
+    [
+        PACKED[0].load(Ordering::Relaxed),
+        PACKED[1].load(Ordering::Relaxed),
+    ]
 }
 
 /// The v4 host verdicts so far in this process: `[granules skipped by a bloom, skipped by an empty PSMA window, narrowed
 /// to a PSMA window, skipped by the condition cache, skipped by a join's runtime filter]`.
 pub fn verdict_census() -> [u64; 5] {
-    [BLOOM_SKIPPED.load(Ordering::Relaxed), PSMA_SKIPPED.load(Ordering::Relaxed), PSMA_NARROWED.load(Ordering::Relaxed), COND_SKIPPED.load(Ordering::Relaxed), RT_SKIPPED.load(Ordering::Relaxed)]
+    [
+        BLOOM_SKIPPED.load(Ordering::Relaxed),
+        PSMA_SKIPPED.load(Ordering::Relaxed),
+        PSMA_NARROWED.load(Ordering::Relaxed),
+        COND_SKIPPED.load(Ordering::Relaxed),
+        RT_SKIPPED.load(Ordering::Relaxed),
+    ]
 }
 
 /// One source's census counts, flushed into the process statics at a claim's end, at seek and at unbind (before the
@@ -2848,13 +3677,23 @@ pub fn lane_elided_census() -> u64 {
 /// Granules decoded, skipped on a `NoneMatch` verdict, answered from statistics, the parts
 /// answered whole, and the granules decoded selectively: the census' `granules=d/s/a/sel` deltas.
 pub fn granule_census() -> [u64; 5] {
-    [DECODED.load(Ordering::Relaxed), SKIPPED.load(Ordering::Relaxed), ANSWERED.load(Ordering::Relaxed), PARTS_ANSWERED.load(Ordering::Relaxed), SELECTED.load(Ordering::Relaxed)]
+    [
+        DECODED.load(Ordering::Relaxed),
+        SKIPPED.load(Ordering::Relaxed),
+        ANSWERED.load(Ordering::Relaxed),
+        PARTS_ANSWERED.load(Ordering::Relaxed),
+        SELECTED.load(Ordering::Relaxed),
+    ]
 }
 
 /// Stats bodies read from part files per declared reason (`[granule-walk, no-answers]`) and
 /// served from the catalog's answers, so far in this process: the census' `first_touch=` / `why=`.
 pub fn first_touch_census() -> [u64; 3] {
-    [STATS_SECTION_READS[0].load(Ordering::Relaxed), STATS_SECTION_READS[1].load(Ordering::Relaxed), ANSWERS_SERVED.load(Ordering::Relaxed)]
+    [
+        STATS_SECTION_READS[0].load(Ordering::Relaxed),
+        STATS_SECTION_READS[1].load(Ordering::Relaxed),
+        ANSWERS_SERVED.load(Ordering::Relaxed),
+    ]
 }
 
 static PF_RUNS: AtomicU64 = AtomicU64::new(0);
@@ -2931,14 +3770,29 @@ fn add_advised(calls: u64, bytes: u64) -> usize {
 
 /// The claim run reads so far in this process: `[preads, bytes, extents inserted, already resident, extent bytes inserted]`.
 pub fn read_census() -> [u64; 5] {
-    [PF_RUNS.load(Ordering::Relaxed), PF_BYTES.load(Ordering::Relaxed), PF_EXTENTS.load(Ordering::Relaxed), PF_RESIDENT.load(Ordering::Relaxed), PF_INSERTED_BYTES.load(Ordering::Relaxed)]
+    [
+        PF_RUNS.load(Ordering::Relaxed),
+        PF_BYTES.load(Ordering::Relaxed),
+        PF_EXTENTS.load(Ordering::Relaxed),
+        PF_RESIDENT.load(Ordering::Relaxed),
+        PF_INSERTED_BYTES.load(Ordering::Relaxed),
+    ]
 }
 
 /// The part files' I/O so far in this process (the served line's `io=`): `[preads, bytes, ns inside preads]`, then `read_census()`.
 pub fn io_census() -> [u64; 8] {
     let (calls, bytes) = pgrc_read::io::pread_census();
     let r = read_census();
-    [calls, bytes, pgrc_read::io::PREAD_NS.load(Ordering::Relaxed), r[0], r[1], r[2], r[3], r[4]]
+    [
+        calls,
+        bytes,
+        pgrc_read::io::PREAD_NS.load(Ordering::Relaxed),
+        r[0],
+        r[1],
+        r[2],
+        r[3],
+        r[4],
+    ]
 }
 
 /// The dictionaries' faults so far in this process (the served line's `dict=`): `[whole-section bytes, block faults, block bytes (compressed), frame faults, frame bytes]`.
@@ -2953,7 +3807,14 @@ pub fn dict_census() -> [u64; 5] {
 /// walked, executor rows gathered (fc), executor entries decoded (fc), renders through dict_value]`.
 pub fn entry_census() -> [u64; 6] {
     let (e, m, w, _) = pgrc_read::dicthandle::dict_entry_census();
-    [e, m, w, pgrc_codec::dictcodes::FC_GATHER_ROWS.load(Ordering::Relaxed), pgrc_codec::dictcodes::FC_GATHER_DECODES.load(Ordering::Relaxed), DICT_RENDERS.load(Ordering::Relaxed)]
+    [
+        e,
+        m,
+        w,
+        pgrc_codec::dictcodes::FC_GATHER_ROWS.load(Ordering::Relaxed),
+        pgrc_codec::dictcodes::FC_GATHER_DECODES.load(Ordering::Relaxed),
+        DICT_RENDERS.load(Ordering::Relaxed),
+    ]
 }
 
 static DICT_RENDERS: AtomicU64 = AtomicU64::new(0);
@@ -2978,9 +3839,20 @@ fn read_knobs() -> (u64, u64, u64, u64) {
         use gravity_program::cost::pgrc::{read_run_bytes, READ_HOLE_BYTES};
         // PostgreSQL's read stream on the session's settings (a process without them takes their boot values)
         let (blocks, ahead) = crate::inputs::read_stream_sizes();
-        let (combine, ahead) = (blocks.max(1) as u64 * types_core::BLCKSZ as u64, ahead.max(1) as u64);
-        let run = knob_kb("pgrust.gravity_read_run_kb", "PGRUST_GRAVITY_READ_RUN_KB", read_run_bytes(combine, ahead) >> 10);
-        let hole = knob_kb("pgrust.gravity_read_hole_kb", "PGRUST_GRAVITY_READ_HOLE_KB", READ_HOLE_BYTES >> 10);
+        let (combine, ahead) = (
+            blocks.max(1) as u64 * types_core::BLCKSZ as u64,
+            ahead.max(1) as u64,
+        );
+        let run = knob_kb(
+            "pgrust.gravity_read_run_kb",
+            "PGRUST_GRAVITY_READ_RUN_KB",
+            read_run_bytes(combine, ahead) >> 10,
+        );
+        let hole = knob_kb(
+            "pgrust.gravity_read_hole_kb",
+            "PGRUST_GRAVITY_READ_HOLE_KB",
+            READ_HOLE_BYTES >> 10,
+        );
         let (max_io, queue) = device_io();
         let (piece, budget) = advise_knobs(max_io, queue);
         (run, hole, piece, budget)
@@ -2992,9 +3864,17 @@ fn read_knobs() -> (u64, u64, u64, u64) {
 /// not describe takes PostgreSQL's own sizes, its combined read (io_combine_limit) and the I/Os it keeps in flight
 /// (effective_io_concurrency), as heap's read stream does (heap_window.rs `advice_piece` / `derive`).
 fn device_io() -> (u64, u64) {
-    let attr = |name: &str| crate::ops::scan::heap_window::device_attr(name).map(u64::from).filter(|&v| v > 0);
-    let max_io = attr("max_sectors_kb").map_or_else(|| crate::inputs::io_combine_blocks().max(1) as u64 * types_core::BLCKSZ as u64, |kb| kb << 10);
-    let queue = attr("nr_requests").unwrap_or_else(|| crate::inputs::effective_io_concurrency().max(1) as u64);
+    let attr = |name: &str| {
+        crate::ops::scan::heap_window::device_attr(name)
+            .map(u64::from)
+            .filter(|&v| v > 0)
+    };
+    let max_io = attr("max_sectors_kb").map_or_else(
+        || crate::inputs::io_combine_blocks().max(1) as u64 * types_core::BLCKSZ as u64,
+        |kb| kb << 10,
+    );
+    let queue = attr("nr_requests")
+        .unwrap_or_else(|| crate::inputs::effective_io_concurrency().max(1) as u64);
     (max_io, queue)
 }
 
@@ -3010,7 +3890,11 @@ static ADVISE_INFLIGHT: AtomicU64 = AtomicU64::new(0);
 /// `piece` bytes (the requests the device holds at once), effective_io_concurrency calls when sysfs does not name it.
 fn advise_budget() -> u64 {
     let b = read_knobs().3;
-    if b == 0 { u64::MAX } else { b }
+    if b == 0 {
+        u64::MAX
+    } else {
+        b
+    }
 }
 
 /// Bytes per WILLNEED call of a claim's advice (read once, `read_knobs`), `None` = off: `pgrust.gravity_read_advise_kb` /
@@ -3025,9 +3909,27 @@ fn advise_piece() -> Option<u64> {
 /// read.advise's `(piece, budget)` bytes, computed inside `read_knobs`' once: the sysfs probe of the data directory's device
 /// (`device_attr`), the device's request size and queue (`device_io`, which fall back to PostgreSQL's) and the two knobs.
 fn advise_knobs(max_io: u64, queue: u64) -> (u64, u64) {
-    let derived = ["max_sectors_kb", "read_ahead_kb"].into_iter().filter_map(crate::ops::scan::heap_window::device_attr).max().map(u64::from).filter(|&kb| kb > 0).unwrap_or(max_io >> 10);
-    let piece = knob_kb("pgrust.gravity_read_advise_kb", "PGRUST_GRAVITY_READ_ADVISE_KB", derived);
-    let budget = if piece == 0 { 0 } else { knob_kb("pgrust.gravity_read_advise_budget_kb", "PGRUST_GRAVITY_READ_ADVISE_BUDGET_KB", ( queue * piece) >> 10) };
+    let derived = ["max_sectors_kb", "read_ahead_kb"]
+        .into_iter()
+        .filter_map(crate::ops::scan::heap_window::device_attr)
+        .max()
+        .map(u64::from)
+        .filter(|&kb| kb > 0)
+        .unwrap_or(max_io >> 10);
+    let piece = knob_kb(
+        "pgrust.gravity_read_advise_kb",
+        "PGRUST_GRAVITY_READ_ADVISE_KB",
+        derived,
+    );
+    let budget = if piece == 0 {
+        0
+    } else {
+        knob_kb(
+            "pgrust.gravity_read_advise_budget_kb",
+            "PGRUST_GRAVITY_READ_ADVISE_BUDGET_KB",
+            (queue * piece) >> 10,
+        )
+    };
     (piece, budget)
 }
 
@@ -3047,24 +3949,48 @@ fn stream_key(attno: u32, ord: u32) -> u32 {
     attno | ord << 16
 }
 
-fn stats_body(part: &OpenPart, attno: u32, ord: u32, why: FirstTouch) -> PgResult<Option<Box<[u8]>>> {
-    let Some(idx) = part.find_section(SectionKind::Stats, attno, ord) else { return Ok(None) };
+fn stats_body(
+    part: &OpenPart,
+    attno: u32,
+    ord: u32,
+    why: FirstTouch,
+) -> PgResult<Option<Box<[u8]>>> {
+    let Some(idx) = part.find_section(SectionKind::Stats, attno, ord) else {
+        return Ok(None);
+    };
     match why {
         FirstTouch::StandIn => ANSWERS_SERVED.fetch_add(1, Ordering::Relaxed),
         _ => STATS_SECTION_READS[why as usize].fetch_add(1, Ordering::Relaxed),
     };
     let wrapped = part.sections()[idx].flags & SECTIONF_META_ZSTD != 0;
     let raw = part.section_bytes(idx).map_err(read_err)?;
-    let body = if wrapped { pgrc_codec::wrapper::meta_unwrap_body(raw.bytes()).map_err(|e| read_err(pgrc_read::ReadError::Format(e)))? } else { raw.bytes().to_vec() }; // alloc: Exec
+    let body = if wrapped {
+        pgrc_codec::wrapper::meta_unwrap_body(raw.bytes())
+            .map_err(|e| read_err(pgrc_read::ReadError::Format(e)))?
+    } else {
+        raw.bytes().to_vec()
+    }; // alloc: Exec
     Ok(Some(body.into_boxed_slice()))
 }
 
 /// Section `kind` of stream `(attno, ord)` in `part`, unwrapped (a bloom / PSMA body); `None` when the part sealed none.
-fn section_body(part: &OpenPart, kind: SectionKind, attno: u32, ord: u32) -> PgResult<Option<Box<[u8]>>> {
-    let Some(idx) = part.find_section(kind, attno, ord) else { return Ok(None) };
+fn section_body(
+    part: &OpenPart,
+    kind: SectionKind,
+    attno: u32,
+    ord: u32,
+) -> PgResult<Option<Box<[u8]>>> {
+    let Some(idx) = part.find_section(kind, attno, ord) else {
+        return Ok(None);
+    };
     let wrapped = part.sections()[idx].flags & SECTIONF_META_ZSTD != 0;
     let raw = part.section_bytes(idx).map_err(read_err)?;
-    let body = if wrapped { pgrc_codec::wrapper::meta_unwrap_body(raw.bytes()).map_err(|e| read_err(pgrc_read::ReadError::Format(e)))? } else { raw.bytes().to_vec() }; // alloc: Exec
+    let body = if wrapped {
+        pgrc_codec::wrapper::meta_unwrap_body(raw.bytes())
+            .map_err(|e| read_err(pgrc_read::ReadError::Format(e)))?
+    } else {
+        raw.bytes().to_vec()
+    }; // alloc: Exec
     Ok(Some(body.into_boxed_slice()))
 }
 
@@ -3129,7 +4055,18 @@ impl ZoneFacts {
     #[inline(always)]
     fn of(b: &[u8]) -> Option<ZoneFacts> {
         let r: &[u8; STATS_RECORD_LEN] = b.get(..STATS_RECORD_LEN)?.try_into().ok()?;
-        let word = |o: usize| i64::from_le_bytes([r[o], r[o + 1], r[o + 2], r[o + 3], r[o + 4], r[o + 5], r[o + 6], r[o + 7]]);
+        let word = |o: usize| {
+            i64::from_le_bytes([
+                r[o],
+                r[o + 1],
+                r[o + 2],
+                r[o + 3],
+                r[o + 4],
+                r[o + 5],
+                r[o + 6],
+                r[o + 7],
+            ])
+        };
         let key_kind = r[StatsRecord::OFF_KEY_KIND];
         KeyKind::from_u8(key_kind).ok()?;
         let sorted = r[StatsRecord::OFF_SORTEDNESS];
@@ -3139,9 +4076,19 @@ impl ZoneFacts {
             min_key: word(StatsRecord::OFF_MIN_KEY),
             max_key: word(StatsRecord::OFF_MAX_KEY),
             nonnull: u32::from_le_bytes([r[n], r[n + 1], r[n + 2], r[n + 3]]),
-            byte_len_min: { let m = StatsRecord::OFF_BYTE_LEN_MIN; u32::from_le_bytes([r[m], r[m + 1], r[m + 2], r[m + 3]]) },
-            byte_len_max: u32::from_le_bytes([r[OFF_BYTE_LEN_MAX], r[OFF_BYTE_LEN_MAX + 1], r[OFF_BYTE_LEN_MAX + 2], r[OFF_BYTE_LEN_MAX + 3]]),
-            computed: u16::from_le_bytes([r[OFF_FLAGS], r[OFF_FLAGS + 1]]) & pgrc_format::meta::STATSF_COMPUTED != 0,
+            byte_len_min: {
+                let m = StatsRecord::OFF_BYTE_LEN_MIN;
+                u32::from_le_bytes([r[m], r[m + 1], r[m + 2], r[m + 3]])
+            },
+            byte_len_max: u32::from_le_bytes([
+                r[OFF_BYTE_LEN_MAX],
+                r[OFF_BYTE_LEN_MAX + 1],
+                r[OFF_BYTE_LEN_MAX + 2],
+                r[OFF_BYTE_LEN_MAX + 3],
+            ]),
+            computed: u16::from_le_bytes([r[OFF_FLAGS], r[OFF_FLAGS + 1]])
+                & pgrc_format::meta::STATSF_COMPUTED
+                != 0,
             key_kind,
             sorted,
         })
@@ -3157,21 +4104,54 @@ mod d4709_stat_fold_tests {
     /// (The totals are read as deltas; no other test in this binary scans.)
     #[test]
     fn a_calls_counts_fold_once_and_exactly() {
-        let before = (read_census(), ADVISE_CALLS.load(Ordering::Relaxed), ADVISE_BYTES.load(Ordering::Relaxed));
-        let lanes = [[1u64, 100, 0, 4096, 1], [0, 0, 3, 0, 0], [2, 200, 0, 8192, 2], [0; 5]];
+        let before = (
+            read_census(),
+            ADVISE_CALLS.load(Ordering::Relaxed),
+            ADVISE_BYTES.load(Ordering::Relaxed),
+        );
+        let lanes = [
+            [1u64, 100, 0, 4096, 1],
+            [0, 0, 3, 0, 0],
+            [2, 200, 0, 8192, 2],
+            [0; 5],
+        ];
         let mut pf = [0u64; 5];
         for l in lanes {
             for (acc, n) in pf.iter_mut().zip(l) {
                 *acc += n;
             }
         }
-        assert_eq!(add_prefetched(pf), 5, "one add per nonzero total, not per lane and count (4 lanes x 5 counts = 20 before)");
+        assert_eq!(
+            add_prefetched(pf),
+            5,
+            "one add per nonzero total, not per lane and count (4 lanes x 5 counts = 20 before)"
+        );
         assert_eq!(add_advised(7, 9000), 2);
-        assert_eq!(add_prefetched([0; 5]), 0, "a hot call, everything resident and nothing advised, adds nothing");
+        assert_eq!(
+            add_prefetched([0; 5]),
+            0,
+            "a hot call, everything resident and nothing advised, adds nothing"
+        );
         assert_eq!(add_advised(0, 0), 0);
-        let after = (read_census(), ADVISE_CALLS.load(Ordering::Relaxed), ADVISE_BYTES.load(Ordering::Relaxed));
-        let d = |a: [u64; 5], b: [u64; 5]| [a[0] - b[0], a[1] - b[1], a[2] - b[2], a[3] - b[3], a[4] - b[4]];
-        assert_eq!(d(after.0, before.0), [3, 12288, 3, 3, 300], "[preads, bytes, extents, resident, extent bytes] sum over the lanes");
+        let after = (
+            read_census(),
+            ADVISE_CALLS.load(Ordering::Relaxed),
+            ADVISE_BYTES.load(Ordering::Relaxed),
+        );
+        let d = |a: [u64; 5], b: [u64; 5]| {
+            [
+                a[0] - b[0],
+                a[1] - b[1],
+                a[2] - b[2],
+                a[3] - b[3],
+                a[4] - b[4],
+            ]
+        };
+        assert_eq!(
+            d(after.0, before.0),
+            [3, 12288, 3, 3, 300],
+            "[preads, bytes, extents, resident, extent bytes] sum over the lanes"
+        );
         assert_eq!((after.1 - before.1, after.2 - before.2), (7, 9000));
     }
 }
@@ -3185,7 +4165,13 @@ mod d4482_zone_body_tests {
     #[test]
     fn a_code_zones_body_is_the_part_caches_from_its_read() {
         let z = ZoneBody::new((0..4096u32).map(|i| i as u8).collect()); // alloc: Cold
-        assert_eq!((z._held.committed(), z._held.owner()), (4096, memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache))));
+        assert_eq!(
+            (z._held.committed(), z._held.owner()),
+            (
+                4096,
+                memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache))
+            )
+        );
         assert_eq!((z.len(), z[4095]), (4096, 255));
     }
 }
@@ -3196,11 +4182,16 @@ mod d4537_zone_columns_tests {
     use pgrc_am::footer::ZoneFacts;
     use std::sync::Arc;
 
-    const PART_CACHE: memledger::Owner = memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache));
+    const PART_CACHE: memledger::Owner =
+        memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache));
 
     fn column() -> ZoneFacts {
         let ranges: Vec<(i64, i64)> = (0..64i64).map(|i| (i * 10, i * 10 + 9)).collect(); // alloc: Cold
-        ZoneFacts::new(1, pgrc_format::zonemap::ZoneMap::encode(&ranges).expect("encodes")).expect("decodes")
+        ZoneFacts::new(
+            1,
+            pgrc_format::zonemap::ZoneMap::encode(&ranges).expect("encodes"),
+        )
+        .expect("decodes")
     }
 
     /// D4537 4: a list that owns its zone columns (no generation holds them) charges its slice and the columns' bytes to
@@ -3220,7 +4211,13 @@ mod d4537_zone_columns_tests {
         let c = held.zones_charge.get().expect("charged at the set");
         assert_eq!((c.owner(), c.committed()), (PART_CACHE, slot));
         own.set_zone_columns(vec![column(), column()]); // alloc: Cold
-        assert_eq!((own.zones.get().map(|z| z.len()), own.zones_charge.get().map(|c| c.committed())), (Some(1), Some(slot + bytes)));
+        assert_eq!(
+            (
+                own.zones.get().map(|z| z.len()),
+                own.zones_charge.get().map(|c| c.committed())
+            ),
+            (Some(1), Some(slot + bytes))
+        );
     }
 }
 
@@ -3233,22 +4230,73 @@ mod zone_facts_tests {
     #[test]
     fn zone_facts_are_the_whole_decodes() {
         let mut seed = 0x9E37_79B9_7F4A_7C15u64;
-        let mut next = || { seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17; seed };
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
         for i in 0..64u32 {
-            let r = StatsRecord { min_key: next() as i64, max_key: next() as i64, sum_i128: next() as i128 * 3, zero_count: next(), byte_len_sum: next(), nonnull: next() as u32, byte_len_min: next() as u32, byte_len_max: next() as u32, char_len_min: 3, char_len_max: 4, ndv_est: 5, key_kind: (i % 4) as u8, sortedness: (i / 4 % 4) as u8, flags: i as u16, pad: 0 };
+            let r = StatsRecord {
+                min_key: next() as i64,
+                max_key: next() as i64,
+                sum_i128: next() as i128 * 3,
+                zero_count: next(),
+                byte_len_sum: next(),
+                nonnull: next() as u32,
+                byte_len_min: next() as u32,
+                byte_len_max: next() as u32,
+                char_len_min: 3,
+                char_len_max: 4,
+                ndv_est: 5,
+                key_kind: (i % 4) as u8,
+                sortedness: (i / 4 % 4) as u8,
+                flags: i as u16,
+                pad: 0,
+            };
             let mut b = Vec::new(); // alloc: Cold
             r.encode_into(&mut b);
             b.extend_from_slice(&[0xAB; 7]);
             let f = ZoneFacts::of(&b).expect("a valid record");
-            assert_eq!((f.min_key, f.max_key, f.nonnull, f.key_kind, f.sorted, f.byte_len_min), (r.min_key, r.max_key, r.nonnull, r.key_kind, r.sortedness, r.byte_len_min));
-            assert_eq!((f.byte_len_max, f.computed), (r.byte_len_max, r.flags & pgrc_format::meta::STATSF_COMPUTED != 0));
-            let d = StatsRecord::decode(&mut pgrc_format::wire::Cur::new(&b[..STATS_RECORD_LEN])).expect("decodes");
-            assert_eq!((f.min_key, f.max_key, f.nonnull, f.key_kind), (d.min_key, d.max_key, d.nonnull, d.key_kind));
+            assert_eq!(
+                (
+                    f.min_key,
+                    f.max_key,
+                    f.nonnull,
+                    f.key_kind,
+                    f.sorted,
+                    f.byte_len_min
+                ),
+                (
+                    r.min_key,
+                    r.max_key,
+                    r.nonnull,
+                    r.key_kind,
+                    r.sortedness,
+                    r.byte_len_min
+                )
+            );
+            assert_eq!(
+                (f.byte_len_max, f.computed),
+                (
+                    r.byte_len_max,
+                    r.flags & pgrc_format::meta::STATSF_COMPUTED != 0
+                )
+            );
+            let d = StatsRecord::decode(&mut pgrc_format::wire::Cur::new(&b[..STATS_RECORD_LEN]))
+                .expect("decodes");
+            assert_eq!(
+                (f.min_key, f.max_key, f.nonnull, f.key_kind),
+                (d.min_key, d.max_key, d.nonnull, d.key_kind)
+            );
             assert!(ZoneFacts::of(&b[..STATS_RECORD_LEN - 1]).is_none());
         }
         let mut b = Vec::new(); // alloc: Cold
         StatsRecord::absent().encode_into(&mut b);
-        assert_eq!(ZoneFacts::of(&b).map(|f| f.key_kind), Some(KeyKind::Absent.as_u8()));
+        assert_eq!(
+            ZoneFacts::of(&b).map(|f| f.key_kind),
+            Some(KeyKind::Absent.as_u8())
+        );
         b[StatsRecord::OFF_KEY_KIND] = 9;
         assert!(ZoneFacts::of(&b).is_none(), "a bad key kind");
         b[StatsRecord::OFF_KEY_KIND] = KeyKind::Exact.as_u8();
@@ -3265,10 +4313,22 @@ mod zone_facts_tests {
 fn zone_verdict(rec: &ZoneFacts, rows: u32, z: &ZonePred) -> u8 {
     let nonnull = rec.nonnull;
     if z.op == ZoneOp::NotNull {
-        return if nonnull == 0 { V_NONE } else if nonnull == rows { V_ALL } else { V_MIXED };
+        return if nonnull == 0 {
+            V_NONE
+        } else if nonnull == rows {
+            V_ALL
+        } else {
+            V_MIXED
+        };
     }
     if z.op == ZoneOp::IsNull {
-        return if nonnull == rows { V_NONE } else if nonnull == 0 { V_ALL } else { V_MIXED };
+        return if nonnull == rows {
+            V_NONE
+        } else if nonnull == 0 {
+            V_ALL
+        } else {
+            V_MIXED
+        };
     }
     if nonnull == 0 {
         return V_NONE;
@@ -3287,15 +4347,69 @@ fn zone_verdict(rec: &ZoneFacts, rows: u32, z: &ZonePred) -> u8 {
     }
     let (min, max, c) = (rec.min_key, rec.max_key, z.value);
     let v = match z.op {
-        ZoneOp::Lt => if max < c { V_ALL } else if min >= c { V_NONE } else { V_MIXED },
-        ZoneOp::Le => if max <= c { V_ALL } else if min > c { V_NONE } else { V_MIXED },
-        ZoneOp::Gt => if min > c { V_ALL } else if max <= c { V_NONE } else { V_MIXED },
-        ZoneOp::Ge => if min >= c { V_ALL } else if max < c { V_NONE } else { V_MIXED },
-        ZoneOp::Eq => if c < min || c > max { V_NONE } else if min == max { V_ALL } else { V_MIXED },
-        ZoneOp::Ne => if min == max && min == c { V_NONE } else if c < min || c > max { V_ALL } else { V_MIXED },
-        ZoneOp::NotNull | ZoneOp::IsNull | ZoneOp::InMember | ZoneOp::HashEq | ZoneOp::HashIn => V_MIXED,
+        ZoneOp::Lt => {
+            if max < c {
+                V_ALL
+            } else if min >= c {
+                V_NONE
+            } else {
+                V_MIXED
+            }
+        }
+        ZoneOp::Le => {
+            if max <= c {
+                V_ALL
+            } else if min > c {
+                V_NONE
+            } else {
+                V_MIXED
+            }
+        }
+        ZoneOp::Gt => {
+            if min > c {
+                V_ALL
+            } else if max <= c {
+                V_NONE
+            } else {
+                V_MIXED
+            }
+        }
+        ZoneOp::Ge => {
+            if min >= c {
+                V_ALL
+            } else if max < c {
+                V_NONE
+            } else {
+                V_MIXED
+            }
+        }
+        ZoneOp::Eq => {
+            if c < min || c > max {
+                V_NONE
+            } else if min == max {
+                V_ALL
+            } else {
+                V_MIXED
+            }
+        }
+        ZoneOp::Ne => {
+            if min == max && min == c {
+                V_NONE
+            } else if c < min || c > max {
+                V_ALL
+            } else {
+                V_MIXED
+            }
+        }
+        ZoneOp::NotNull | ZoneOp::IsNull | ZoneOp::InMember | ZoneOp::HashEq | ZoneOp::HashIn => {
+            V_MIXED
+        }
     };
-    if v == V_ALL && nonnull != rows { V_MIXED } else { v }
+    if v == V_ALL && nonnull != rows {
+        V_MIXED
+    } else {
+        v
+    }
 }
 
 /// `col = c` / `col <> c` (`op`) over a text lane by the byte length `len` of `c`'s payload, against the granule's
@@ -3311,7 +4425,13 @@ fn len_verdict(rec: &ZoneFacts, rows: u32, op: ZoneOp, len: u32) -> u8 {
     let miss = len < rec.byte_len_min || rec.computed && len > rec.byte_len_max;
     match op {
         ZoneOp::Eq if miss => V_NONE,
-        ZoneOp::Ne if miss => if rec.nonnull == rows { V_ALL } else { V_MIXED },
+        ZoneOp::Ne if miss => {
+            if rec.nonnull == rows {
+                V_ALL
+            } else {
+                V_MIXED
+            }
+        }
         _ => V_MIXED,
     }
 }
@@ -3324,13 +4444,47 @@ fn len_verdict(rec: &ZoneFacts, rows: u32, op: ZoneOp, len: u32) -> u8 {
 fn prefix_verdict(rec: &ZoneFacts, rows: u32, z: &ZonePred) -> u8 {
     let (min, max, c) = (rec.min_key, rec.max_key, z.value);
     let v = match z.op {
-        ZoneOp::Lt | ZoneOp::Le => if max < c { V_ALL } else if min > c { V_NONE } else { V_MIXED },
-        ZoneOp::Gt | ZoneOp::Ge => if min > c { V_ALL } else if max < c { V_NONE } else { V_MIXED },
-        ZoneOp::Eq => if c < min || c > max { V_NONE } else { V_MIXED },
-        ZoneOp::Ne => if c < min || c > max { V_ALL } else { V_MIXED },
-        ZoneOp::NotNull | ZoneOp::IsNull | ZoneOp::InMember | ZoneOp::HashEq | ZoneOp::HashIn => V_MIXED,
+        ZoneOp::Lt | ZoneOp::Le => {
+            if max < c {
+                V_ALL
+            } else if min > c {
+                V_NONE
+            } else {
+                V_MIXED
+            }
+        }
+        ZoneOp::Gt | ZoneOp::Ge => {
+            if min > c {
+                V_ALL
+            } else if max < c {
+                V_NONE
+            } else {
+                V_MIXED
+            }
+        }
+        ZoneOp::Eq => {
+            if c < min || c > max {
+                V_NONE
+            } else {
+                V_MIXED
+            }
+        }
+        ZoneOp::Ne => {
+            if c < min || c > max {
+                V_ALL
+            } else {
+                V_MIXED
+            }
+        }
+        ZoneOp::NotNull | ZoneOp::IsNull | ZoneOp::InMember | ZoneOp::HashEq | ZoneOp::HashIn => {
+            V_MIXED
+        }
     };
-    if v == V_ALL && rec.nonnull != rows { V_MIXED } else { v }
+    if v == V_ALL && rec.nonnull != rows {
+        V_MIXED
+    } else {
+        v
+    }
 }
 
 #[cfg(test)]
@@ -3344,8 +4498,25 @@ mod prefix_verdict_tests {
     #[test]
     fn prefix_verdicts_hold_for_every_value_in_the_range() {
         let key = |s: &[u8]| pgrc_meta::key::memcmp_var_prefix_key(s).raw();
-        let words: [&[u8]; 9] = [b"", b"a", b"ab", b"abcdefgh", b"abcdefghZ", b"abcdefgi", b"b", b"abcdefgh0", b"zz"];
-        let ops = [ZoneOp::Lt, ZoneOp::Le, ZoneOp::Gt, ZoneOp::Ge, ZoneOp::Eq, ZoneOp::Ne];
+        let words: [&[u8]; 9] = [
+            b"",
+            b"a",
+            b"ab",
+            b"abcdefgh",
+            b"abcdefghZ",
+            b"abcdefgi",
+            b"b",
+            b"abcdefgh0",
+            b"zz",
+        ];
+        let ops = [
+            ZoneOp::Lt,
+            ZoneOp::Le,
+            ZoneOp::Gt,
+            ZoneOp::Ge,
+            ZoneOp::Eq,
+            ZoneOp::Ne,
+        ];
         let holds = |op: ZoneOp, x: &[u8], c: &[u8]| match op {
             ZoneOp::Lt => x < c,
             ZoneOp::Le => x <= c,
@@ -3356,28 +4527,101 @@ mod prefix_verdict_tests {
         };
         for lo in words {
             for hi in words.into_iter().filter(|h| key(h) >= key(lo)) {
-                let rec = ZoneFacts { min_key: key(lo), max_key: key(hi), nonnull: 10, byte_len_min: 0, byte_len_max: 0, computed: false, key_kind: KeyKind::Coarse.as_u8(), sorted: 0 };
-                let inside: Vec<&[u8]> = words.into_iter().filter(|w| key(w) >= key(lo) && key(w) <= key(hi)).collect(); // alloc: Cold
+                let rec = ZoneFacts {
+                    min_key: key(lo),
+                    max_key: key(hi),
+                    nonnull: 10,
+                    byte_len_min: 0,
+                    byte_len_max: 0,
+                    computed: false,
+                    key_kind: KeyKind::Coarse.as_u8(),
+                    sorted: 0,
+                };
+                let inside: Vec<&[u8]> = words
+                    .into_iter()
+                    .filter(|w| key(w) >= key(lo) && key(w) <= key(hi))
+                    .collect(); // alloc: Cold
                 for c in words {
                     for op in ops {
                         let v = zone_verdict(&rec, 10, &ZonePred::prefix(0, op, key(c)));
                         if v == V_ALL {
-                            assert!(inside.iter().all(|x| holds(op, x, c)), "{op:?} {c:?} over {lo:?}..{hi:?}");
+                            assert!(
+                                inside.iter().all(|x| holds(op, x, c)),
+                                "{op:?} {c:?} over {lo:?}..{hi:?}"
+                            );
                         } else if v == V_NONE {
-                            assert!(inside.iter().all(|x| !holds(op, x, c)), "{op:?} {c:?} over {lo:?}..{hi:?}");
+                            assert!(
+                                inside.iter().all(|x| !holds(op, x, c)),
+                                "{op:?} {c:?} over {lo:?}..{hi:?}"
+                            );
                         }
                     }
                 }
             }
         }
-        let rec = |kind: KeyKind, nonnull| ZoneFacts { min_key: key(b"m"), max_key: key(b"n"), nonnull, byte_len_min: 0, byte_len_max: 0, computed: false, key_kind: kind.as_u8(), sorted: 0 };
+        let rec = |kind: KeyKind, nonnull| ZoneFacts {
+            min_key: key(b"m"),
+            max_key: key(b"n"),
+            nonnull,
+            byte_len_min: 0,
+            byte_len_max: 0,
+            computed: false,
+            key_kind: kind.as_u8(),
+            sorted: 0,
+        };
         // the empty string's key is i64::MIN, the code lane's sentinel: a prefix predicate still decides
-        assert_eq!(zone_verdict(&rec(KeyKind::Coarse, 10), 10, &ZonePred::prefix(0, ZoneOp::Lt, key(b""))), V_NONE);
-        assert_eq!(zone_verdict(&rec(KeyKind::Coarse, 10), 10, &ZonePred::prefix(0, ZoneOp::Gt, key(b"a"))), V_ALL);
-        assert_eq!(zone_verdict(&rec(KeyKind::Coarse, 9), 10, &ZonePred::prefix(0, ZoneOp::Gt, key(b"a"))), V_MIXED, "a NULL row");
-        assert_eq!(zone_verdict(&rec(KeyKind::Coarse, 0), 10, &ZonePred::prefix(0, ZoneOp::Gt, key(b"a"))), V_NONE, "NULL-only");
-        assert_eq!(zone_verdict(&rec(KeyKind::Exact, 10), 10, &ZonePred::prefix(0, ZoneOp::Gt, key(b"a"))), V_ALL, "an Exact record: exact keys");
-        assert_eq!(zone_verdict(&rec(KeyKind::Coarse, 10), 10, &ZonePred::word(0, ZoneOp::Gt, key(b"a"))), V_MIXED, "a word predicate never reads a Coarse record");
+        assert_eq!(
+            zone_verdict(
+                &rec(KeyKind::Coarse, 10),
+                10,
+                &ZonePred::prefix(0, ZoneOp::Lt, key(b""))
+            ),
+            V_NONE
+        );
+        assert_eq!(
+            zone_verdict(
+                &rec(KeyKind::Coarse, 10),
+                10,
+                &ZonePred::prefix(0, ZoneOp::Gt, key(b"a"))
+            ),
+            V_ALL
+        );
+        assert_eq!(
+            zone_verdict(
+                &rec(KeyKind::Coarse, 9),
+                10,
+                &ZonePred::prefix(0, ZoneOp::Gt, key(b"a"))
+            ),
+            V_MIXED,
+            "a NULL row"
+        );
+        assert_eq!(
+            zone_verdict(
+                &rec(KeyKind::Coarse, 0),
+                10,
+                &ZonePred::prefix(0, ZoneOp::Gt, key(b"a"))
+            ),
+            V_NONE,
+            "NULL-only"
+        );
+        assert_eq!(
+            zone_verdict(
+                &rec(KeyKind::Exact, 10),
+                10,
+                &ZonePred::prefix(0, ZoneOp::Gt, key(b"a"))
+            ),
+            V_ALL,
+            "an Exact record: exact keys"
+        );
+        assert_eq!(
+            zone_verdict(
+                &rec(KeyKind::Coarse, 10),
+                10,
+                &ZonePred::word(0, ZoneOp::Gt, key(b"a"))
+            ),
+            V_MIXED,
+            "a word predicate never reads a Coarse record"
+        );
     }
 
     /// P5-13: a memcmp-ordered fixed image's order key, by brute force over uuids that tie on their 8-byte prefix (Coarse
@@ -3385,11 +4629,39 @@ mod prefix_verdict_tests {
     /// every image in the granule's key range and every `NoneMatch` for none, for every operator and constant.
     #[test]
     fn fixed_image_keys_decide_soundly() {
-        let uuid = |hi: u64, lo: u64| -> [u8; 16] { let mut b = [0u8; 16]; b[..8].copy_from_slice(&hi.to_be_bytes()); b[8..].copy_from_slice(&lo.to_be_bytes()); b };
-        let uuids = [uuid(0, 0), uuid(0, 9), uuid(5, 0), uuid(5, 1), uuid(5, u64::MAX), uuid(6, 0), uuid(u64::MAX, 0), uuid(u64::MAX, u64::MAX), uuid(1 << 63, 3)];
-        let macs: [[u8; 6]; 6] = [[0; 6], [0, 0, 0, 0, 0, 1], [8, 0, 0x2b, 1, 2, 3], [8, 0, 0x2b, 1, 2, 4], [0x80, 0, 0, 0, 0, 0], [0xff; 6]];
+        let uuid = |hi: u64, lo: u64| -> [u8; 16] {
+            let mut b = [0u8; 16];
+            b[..8].copy_from_slice(&hi.to_be_bytes());
+            b[8..].copy_from_slice(&lo.to_be_bytes());
+            b
+        };
+        let uuids = [
+            uuid(0, 0),
+            uuid(0, 9),
+            uuid(5, 0),
+            uuid(5, 1),
+            uuid(5, u64::MAX),
+            uuid(6, 0),
+            uuid(u64::MAX, 0),
+            uuid(u64::MAX, u64::MAX),
+            uuid(1 << 63, 3),
+        ];
+        let macs: [[u8; 6]; 6] = [
+            [0; 6],
+            [0, 0, 0, 0, 0, 1],
+            [8, 0, 0x2b, 1, 2, 3],
+            [8, 0, 0x2b, 1, 2, 4],
+            [0x80, 0, 0, 0, 0, 0],
+            [0xff; 6],
+        ];
         fn check<const N: usize>(images: &[[u8; N]], kind: KeyKind) {
-            let key = |b: &[u8; N]| if N > 8 { pgrc_meta::key::memcmp_fixed_prefix_key(b).raw() } else { pgrc_meta::key::memcmp_fixed_exact_key(b).raw() };
+            let key = |b: &[u8; N]| {
+                if N > 8 {
+                    pgrc_meta::key::memcmp_fixed_prefix_key(b).raw()
+                } else {
+                    pgrc_meta::key::memcmp_fixed_exact_key(b).raw()
+                }
+            };
             let holds = |op: ZoneOp, x: &[u8; N], c: &[u8; N]| match op {
                 ZoneOp::Lt => x < c,
                 ZoneOp::Le => x <= c,
@@ -3400,13 +4672,38 @@ mod prefix_verdict_tests {
             };
             for lo in images {
                 for hi in images.iter().filter(|h| key(h) >= key(lo)) {
-                    let rec = ZoneFacts { min_key: key(lo), max_key: key(hi), nonnull: 10, byte_len_min: 0, byte_len_max: 0, computed: false, key_kind: kind.as_u8(), sorted: 0 };
-                    let inside: Vec<&[u8; N]> = images.iter().filter(|w| key(w) >= key(lo) && key(w) <= key(hi)).collect(); // alloc: Cold
+                    let rec = ZoneFacts {
+                        min_key: key(lo),
+                        max_key: key(hi),
+                        nonnull: 10,
+                        byte_len_min: 0,
+                        byte_len_max: 0,
+                        computed: false,
+                        key_kind: kind.as_u8(),
+                        sorted: 0,
+                    };
+                    let inside: Vec<&[u8; N]> = images
+                        .iter()
+                        .filter(|w| key(w) >= key(lo) && key(w) <= key(hi))
+                        .collect(); // alloc: Cold
                     for c in images {
-                        for op in [ZoneOp::Lt, ZoneOp::Le, ZoneOp::Gt, ZoneOp::Ge, ZoneOp::Eq, ZoneOp::Ne] {
+                        for op in [
+                            ZoneOp::Lt,
+                            ZoneOp::Le,
+                            ZoneOp::Gt,
+                            ZoneOp::Ge,
+                            ZoneOp::Eq,
+                            ZoneOp::Ne,
+                        ] {
                             let v = zone_verdict(&rec, 10, &ZonePred::prefix(0, op, key(c)));
-                            assert!(v != V_ALL || inside.iter().all(|x| holds(op, x, c)), "{op:?} {c:?} over {lo:?}..{hi:?} AllMatch");
-                            assert!(v != V_NONE || inside.iter().all(|x| !holds(op, x, c)), "{op:?} {c:?} over {lo:?}..{hi:?} NoneMatch");
+                            assert!(
+                                v != V_ALL || inside.iter().all(|x| holds(op, x, c)),
+                                "{op:?} {c:?} over {lo:?}..{hi:?} AllMatch"
+                            );
+                            assert!(
+                                v != V_NONE || inside.iter().all(|x| !holds(op, x, c)),
+                                "{op:?} {c:?} over {lo:?}..{hi:?} NoneMatch"
+                            );
                         }
                     }
                 }
@@ -3415,12 +4712,43 @@ mod prefix_verdict_tests {
         check(&uuids, KeyKind::Coarse);
         check(&macs, KeyKind::Exact);
         // a granule of one macaddr (an all-equal granule) is decided whole by `=` on its Exact record, a uuid's never
-        let one = |kind: KeyKind, k: i64| ZoneFacts { min_key: k, max_key: k, nonnull: 4, byte_len_min: 0, byte_len_max: 0, computed: false, key_kind: kind.as_u8(), sorted: 0 };
+        let one = |kind: KeyKind, k: i64| ZoneFacts {
+            min_key: k,
+            max_key: k,
+            nonnull: 4,
+            byte_len_min: 0,
+            byte_len_max: 0,
+            computed: false,
+            key_kind: kind.as_u8(),
+            sorted: 0,
+        };
         let m = pgrc_meta::key::memcmp_fixed_exact_key(&macs[2]).raw();
-        assert_eq!(zone_verdict(&one(KeyKind::Exact, m), 4, &ZonePred::prefix(0, ZoneOp::Eq, m)), V_ALL);
+        assert_eq!(
+            zone_verdict(
+                &one(KeyKind::Exact, m),
+                4,
+                &ZonePred::prefix(0, ZoneOp::Eq, m)
+            ),
+            V_ALL
+        );
         let u = pgrc_meta::key::memcmp_fixed_prefix_key(&uuids[3]).raw();
-        assert_eq!(zone_verdict(&one(KeyKind::Coarse, u), 4, &ZonePred::prefix(0, ZoneOp::Eq, u)), V_MIXED, "a prefix tie proves nothing");
-        assert_eq!(zone_verdict(&one(KeyKind::Coarse, u), 4, &ZonePred::prefix(0, ZoneOp::Eq, u + 1)), V_NONE);
+        assert_eq!(
+            zone_verdict(
+                &one(KeyKind::Coarse, u),
+                4,
+                &ZonePred::prefix(0, ZoneOp::Eq, u)
+            ),
+            V_MIXED,
+            "a prefix tie proves nothing"
+        );
+        assert_eq!(
+            zone_verdict(
+                &one(KeyKind::Coarse, u),
+                4,
+                &ZonePred::prefix(0, ZoneOp::Eq, u + 1)
+            ),
+            V_NONE
+        );
     }
 
     /// P5-11: a probe word (`HashEq` / `HashIn`) is no key of the lane: a record decides it only when the granule holds no
@@ -3429,13 +4757,34 @@ mod prefix_verdict_tests {
     fn probe_words_decide_only_null_granules() {
         for op in [ZoneOp::HashEq, ZoneOp::HashIn] {
             for kind in [KeyKind::Exact, KeyKind::Coarse, KeyKind::Absent] {
-                let rec = |nonnull| ZoneFacts { min_key: 7, max_key: 7, nonnull, byte_len_min: 0, byte_len_max: 0, computed: false, key_kind: kind.as_u8(), sorted: 0 };
+                let rec = |nonnull| ZoneFacts {
+                    min_key: 7,
+                    max_key: 7,
+                    nonnull,
+                    byte_len_min: 0,
+                    byte_len_max: 0,
+                    computed: false,
+                    key_kind: kind.as_u8(),
+                    sorted: 0,
+                };
                 for word in [7, 8, i64::MIN] {
                     let z = ZonePred::hashed(0, op, word);
                     assert!(z.is_hashed());
-                    assert_eq!(zone_verdict(&rec(10), 10, &z), V_MIXED, "{op:?} {kind:?} {word}");
-                    assert_eq!(zone_verdict(&rec(4), 10, &z), V_MIXED, "{op:?} {kind:?} {word}");
-                    assert_eq!(zone_verdict(&rec(0), 10, &z), V_NONE, "{op:?} {kind:?} {word}: NULL-only");
+                    assert_eq!(
+                        zone_verdict(&rec(10), 10, &z),
+                        V_MIXED,
+                        "{op:?} {kind:?} {word}"
+                    );
+                    assert_eq!(
+                        zone_verdict(&rec(4), 10, &z),
+                        V_MIXED,
+                        "{op:?} {kind:?} {word}"
+                    );
+                    assert_eq!(
+                        zone_verdict(&rec(0), 10, &z),
+                        V_NONE,
+                        "{op:?} {kind:?} {word}: NULL-only"
+                    );
                 }
             }
         }
@@ -3444,7 +4793,9 @@ mod prefix_verdict_tests {
 
 #[cfg(test)]
 mod null_verdict_tests {
-    use super::{len_verdict, zone_verdict, KeyKind, ZoneFacts, ZoneOp, ZonePred, V_ALL, V_MIXED, V_NONE};
+    use super::{
+        len_verdict, zone_verdict, KeyKind, ZoneFacts, ZoneOp, ZonePred, V_ALL, V_MIXED, V_NONE,
+    };
 
     /// A text equality by its constant's byte length, over every small length range and constant length (`''` is
     /// length 0): `=` matches no row and `<>` every non-NULL row exactly when the constant's length is below the least
@@ -3456,17 +4807,56 @@ mod null_verdict_tests {
         for computed in [false, true] {
             for min in 0..4u32 {
                 for max in min..6u32 {
-                    let rec = |nonnull| ZoneFacts { min_key: 0, max_key: 0, nonnull, byte_len_min: min, byte_len_max: max, computed, key_kind: KeyKind::Absent.as_u8(), sorted: 0 };
+                    let rec = |nonnull| ZoneFacts {
+                        min_key: 0,
+                        max_key: 0,
+                        nonnull,
+                        byte_len_min: min,
+                        byte_len_max: max,
+                        computed,
+                        key_kind: KeyKind::Absent.as_u8(),
+                        sorted: 0,
+                    };
                     for len in 0..8u32 {
                         let decides = len < min || computed && len > max;
-                        assert!(!(decides && computed && (min..=max).contains(&len)), "{min}..={max} {len}");
+                        assert!(
+                            !(decides && computed && (min..=max).contains(&len)),
+                            "{min}..={max} {len}"
+                        );
                         let at = format!("{computed} {min}..={max} len {len}"); // alloc: Cold
-                        assert_eq!(len_verdict(&rec(10), 10, ZoneOp::Eq, len), if decides { V_NONE } else { V_MIXED }, "{at}");
-                        assert_eq!(len_verdict(&rec(10), 10, ZoneOp::Ne, len), if decides { V_ALL } else { V_MIXED }, "{at}");
-                        assert_eq!(len_verdict(&rec(6), 10, ZoneOp::Eq, len), if decides { V_NONE } else { V_MIXED }, "{at}");
-                        assert_eq!(len_verdict(&rec(6), 10, ZoneOp::Ne, len), V_MIXED, "{at}: a NULL row fails <>");
-                        assert_eq!(len_verdict(&rec(0), 10, ZoneOp::Ne, len), V_NONE, "{at}: all NULL");
-                        for op in [ZoneOp::Lt, ZoneOp::Le, ZoneOp::Gt, ZoneOp::Ge, ZoneOp::InMember, ZoneOp::HashEq] {
+                        assert_eq!(
+                            len_verdict(&rec(10), 10, ZoneOp::Eq, len),
+                            if decides { V_NONE } else { V_MIXED },
+                            "{at}"
+                        );
+                        assert_eq!(
+                            len_verdict(&rec(10), 10, ZoneOp::Ne, len),
+                            if decides { V_ALL } else { V_MIXED },
+                            "{at}"
+                        );
+                        assert_eq!(
+                            len_verdict(&rec(6), 10, ZoneOp::Eq, len),
+                            if decides { V_NONE } else { V_MIXED },
+                            "{at}"
+                        );
+                        assert_eq!(
+                            len_verdict(&rec(6), 10, ZoneOp::Ne, len),
+                            V_MIXED,
+                            "{at}: a NULL row fails <>"
+                        );
+                        assert_eq!(
+                            len_verdict(&rec(0), 10, ZoneOp::Ne, len),
+                            V_NONE,
+                            "{at}: all NULL"
+                        );
+                        for op in [
+                            ZoneOp::Lt,
+                            ZoneOp::Le,
+                            ZoneOp::Gt,
+                            ZoneOp::Ge,
+                            ZoneOp::InMember,
+                            ZoneOp::HashEq,
+                        ] {
                             assert_eq!(len_verdict(&rec(10), 10, op, len), V_MIXED, "{at} {op:?}");
                         }
                     }
@@ -3479,11 +4869,35 @@ mod null_verdict_tests {
     /// granules, each the other's mirror.
     #[test]
     fn null_tests_answer_from_the_nonnull_count() {
-        for kind in [KeyKind::Exact.as_u8(), KeyKind::Exact.as_u8().wrapping_add(1)] {
-            for (nonnull, is_null, not_null) in [(0, V_ALL, V_NONE), (100, V_NONE, V_ALL), (40, V_MIXED, V_MIXED)] {
-                let f = ZoneFacts { min_key: 1, max_key: 9, nonnull, byte_len_min: 0, byte_len_max: 0, computed: false, key_kind: kind, sorted: 0 };
-                assert_eq!(zone_verdict(&f, 100, &ZonePred::word(0, ZoneOp::IsNull, 0)), is_null, "{nonnull} {kind}");
-                assert_eq!(zone_verdict(&f, 100, &ZonePred::word(0, ZoneOp::NotNull, 0)), not_null, "{nonnull} {kind}");
+        for kind in [
+            KeyKind::Exact.as_u8(),
+            KeyKind::Exact.as_u8().wrapping_add(1),
+        ] {
+            for (nonnull, is_null, not_null) in [
+                (0, V_ALL, V_NONE),
+                (100, V_NONE, V_ALL),
+                (40, V_MIXED, V_MIXED),
+            ] {
+                let f = ZoneFacts {
+                    min_key: 1,
+                    max_key: 9,
+                    nonnull,
+                    byte_len_min: 0,
+                    byte_len_max: 0,
+                    computed: false,
+                    key_kind: kind,
+                    sorted: 0,
+                };
+                assert_eq!(
+                    zone_verdict(&f, 100, &ZonePred::word(0, ZoneOp::IsNull, 0)),
+                    is_null,
+                    "{nonnull} {kind}"
+                );
+                assert_eq!(
+                    zone_verdict(&f, 100, &ZonePred::word(0, ZoneOp::NotNull, 0)),
+                    not_null,
+                    "{nonnull} {kind}"
+                );
             }
         }
     }
@@ -3520,15 +4934,26 @@ impl ZoneOrder {
     pub fn of(mins: &[i64], list: &PartList) -> PgResult<ZoneOrder> {
         let mut step = cancelpoll::step("granule_source ZoneOrder::of: the granules in walk order");
         let mut order: Vec<u32> = (0..mins.len() as u32).collect(); // alloc: Cold
-        let mut scratch = if order.len() > cancelpoll::SORT_RUN { vec![0u32; order.len()] } else { Vec::new() }; // alloc: Cold
-        cancelpoll::sort_by(&mut step, &mut order, &mut scratch, |&a, &b| (mins[a as usize], a).cmp(&(mins[b as usize], b))).map_err(|_| err(WALK_CANCELED))?;
+        let mut scratch = if order.len() > cancelpoll::SORT_RUN {
+            vec![0u32; order.len()]
+        } else {
+            Vec::new()
+        }; // alloc: Cold
+        cancelpoll::sort_by(&mut step, &mut order, &mut scratch, |&a, &b| {
+            (mins[a as usize], a).cmp(&(mins[b as usize], b))
+        })
+        .map_err(|_| err(WALK_CANCELED))?;
         let ordered: Vec<i64> = order.iter().map(|&g| mins[g as usize]).collect(); // alloc: Cold
         let mut part_of: Vec<u16> = Vec::with_capacity(mins.len()); // alloc: Cold
         for p in 0..list.len() {
             step.tick().map_err(|_| err(WALK_CANCELED))?;
             part_of.resize(list.end_of(p) as usize, p as u16);
         }
-        Ok(ZoneOrder { order: Arc::from(order), mins: ordered, part_of })
+        Ok(ZoneOrder {
+            order: Arc::from(order),
+            mins: ordered,
+            part_of,
+        })
     }
 
     fn bytes(&self) -> usize {
@@ -3564,8 +4989,12 @@ pub fn zone_store_held() -> usize {
 /// restarts, as an insert past its cap restarts it. The bytes it held.
 pub fn zone_store_clear(bytes: u64) -> u64 {
     // D4398: on the memory ladder's pass, nothing cleared while another thread holds the store
-    let Some(mut g) = memledger::ladder_pass::lock_or_skip(&ZONE_STORE) else { return 0 };
-    let Some((map, held)) = g.as_mut() else { return 0 };
+    let Some(mut g) = memledger::ladder_pass::lock_or_skip(&ZONE_STORE) else {
+        return 0;
+    };
+    let Some((map, held)) = g.as_mut() else {
+        return 0;
+    };
     if *held as u64 <= bytes {
         return 0;
     }
@@ -3585,13 +5014,24 @@ static ZONE_HELD: Mutex<Option<memledger::Charge>> = Mutex::new(None);
 fn zone_held(f: impl FnOnce(&mut memledger::Charge)) {
     let owner = memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::ZoneStore));
     let mut held = ZONE_HELD.lock().unwrap_or_else(|e| e.into_inner());
-    f(held.get_or_insert_with(|| memledger::Charge::open(owner, memledger::Release::Evict, memledger::Kind::Region, memledger::charge::Door::Heap, 0)));
+    f(held.get_or_insert_with(|| {
+        memledger::Charge::open(
+            owner,
+            memledger::Release::Evict,
+            memledger::Kind::Region,
+            memledger::charge::Door::Heap,
+            0,
+        )
+    }));
 }
 
 /// `[hits, built]` of the resident zone store so far in this process (the census's `zones=`).
 pub fn zone_store_counts() -> [u64; 2] {
     memledger::value::flush();
-    [memledger::value::stats(memledger::Consumer::ZoneStore).hits, ZONE_BUILT.load(Ordering::Relaxed)]
+    [
+        memledger::value::stats(memledger::Consumer::ZoneStore).hits,
+        ZONE_BUILT.load(Ordering::Relaxed),
+    ]
 }
 
 /// The word a zone ask's miss is timed by (memledger::value): its key.
@@ -3653,7 +5093,11 @@ fn zone_store(key: (u64, Oid, u64), entry: ZoneEntry, bytes: usize) {
     }
     drop(g);
     // a built answer: the zone store's miss, the bytes it keeps (none for a racing builder's repeat)
-    memledger::value::fault(memledger::Consumer::ZoneStore, zone_value_key(&key), if kept { (bytes + 64) as u64 } else { 0 });
+    memledger::value::fault(
+        memledger::Consumer::ZoneStore,
+        zone_value_key(&key),
+        if kept { (bytes + 64) as u64 } else { 0 },
+    );
 }
 
 /// A resident zone entry's key word: the ask's tag (1 census, 2 / 5 the ascending / descending walk order, 3 answers, 4
@@ -3662,7 +5106,11 @@ fn zone_store(key: (u64, Oid, u64), entry: ZoneEntry, bytes: usize) {
 /// first byte of the first word cancelled it (`(2, [a])` and `(5, [a ^ 7])` were one key), so a descending order could
 /// come back as another column's ascending one (PM13's DESC walk read the wrong granules).
 fn zone_ask(tag: u64, words: impl IntoIterator<Item = u64>) -> u64 {
-    words.into_iter().fold(fnv(0xcbf2_9ce4_8422_2325, &tag.to_le_bytes()), |h, w| fnv(h, &w.to_le_bytes()))
+    words
+        .into_iter()
+        .fold(fnv(0xcbf2_9ce4_8422_2325, &tag.to_le_bytes()), |h, w| {
+            fnv(h, &w.to_le_bytes())
+        })
 }
 
 #[cfg(test)]
@@ -3680,7 +5128,11 @@ mod zone_ask_tests {
                 }
             }
         }
-        assert_ne!(zone_ask(5, [1]), zone_ask(2, [6]), "the descending order of column 1 is not column 6's ascending one");
+        assert_ne!(
+            zone_ask(5, [1]),
+            zone_ask(2, [6]),
+            "the descending order of column 1 is not column 6's ascending one"
+        );
     }
 }
 
@@ -3696,12 +5148,21 @@ mod zone_store_switch_tests {
         let unkept = (0x7a0e_57a1_0002_u64, 4242 as Oid, zone_ask(9, [0x5eed]));
         guc_tables::backing::set_pgrust_zone_store(true);
         zone_store(kept, ZoneEntry::Parts(Some(3)), 16);
-        assert!(matches!(zone_lookup(&kept), Some(ZoneEntry::Parts(Some(3)))), "on: the answer is kept and read");
+        assert!(
+            matches!(zone_lookup(&kept), Some(ZoneEntry::Parts(Some(3)))),
+            "on: the answer is kept and read"
+        );
         guc_tables::backing::set_pgrust_zone_store(false);
         let skipped = zone_store_skipped();
-        assert!(zone_lookup(&kept).is_none(), "off: the resident entry is not read");
+        assert!(
+            zone_lookup(&kept).is_none(),
+            "off: the resident entry is not read"
+        );
         zone_store(unkept, ZoneEntry::Parts(Some(5)), 16);
-        assert!(zone_store_skipped() > skipped, "off: the built answer is counted as not kept");
+        assert!(
+            zone_store_skipped() > skipped,
+            "off: the built answer is counted as not kept"
+        );
         guc_tables::backing::set_pgrust_zone_store(true);
         assert!(zone_lookup(&unkept).is_none(), "off: nothing was kept");
     }
@@ -3720,7 +5181,9 @@ fn lane_decode(key: pgrc_format::abi::KernelKey, kind: u8, width: u8) -> Option<
         return None;
     }
     match key.encoding {
-        e if e == EncodingId::ByteFor as u16 && (1..=8).contains(&key.width) => Some(LaneDecode::ByteFor { delta: key.width }),
+        e if e == EncodingId::ByteFor as u16 && (1..=8).contains(&key.width) => {
+            Some(LaneDecode::ByteFor { delta: key.width })
+        }
         e if e == EncodingId::Verbatim as u16 && key.width == width => Some(LaneDecode::Verbatim),
         e if e == EncodingId::FforInterleave as u16 => Some(LaneDecode::Ffor),
         e if e == EncodingId::DeltaFor as u16 => Some(LaneDecode::DeltaFor),
@@ -3737,10 +5200,21 @@ fn frames_reached(first: u32, last: u32, n: usize) -> u64 {
 /// H09: whether a rest lane (stream `key`, lane `kind` and `width`) gathers the selection's `sel` rows (ascending, of a
 /// `rows`-row granule) rather than decoding whole: by the fitted gather and whole-decode costs of its stream
 /// (`LaneDecode::gather_pays`), or under the selective decode's bar where the fit did not measure it.
-fn gather_pays(key: pgrc_format::abi::KernelKey, kind: u8, width: u8, rows: usize, sel: &[u32]) -> bool {
+fn gather_pays(
+    key: pgrc_format::abi::KernelKey,
+    kind: u8,
+    width: u8,
+    rows: usize,
+    sel: &[u32],
+) -> bool {
     let n = sel.len();
     match lane_decode(key, kind, width) {
-        Some(d) if n > 0 => d.gather_pays(width, rows as u64, n as u64, frames_reached(sel[0], sel[n - 1], n)),
+        Some(d) if n > 0 => d.gather_pays(
+            width,
+            rows as u64,
+            n as u64,
+            frames_reached(sel[0], sel[n - 1], n),
+        ),
         _ => n * SELECT_DIV <= rows,
     }
 }
@@ -3753,45 +5227,94 @@ mod gather_tests {
     use pgrc_format::enc::EncodingId;
 
     fn key(enc: EncodingId, width: u8) -> KernelKey {
-        KernelKey { encoding: enc as u16, class: 0, width }
+        KernelKey {
+            encoding: enc as u16,
+            class: 0,
+            width,
+        }
     }
 
     #[test]
     fn a_lane_names_its_stream_only_where_the_fit_measured_it() {
         let byval = lane::KIND_BYVAL;
-        assert_eq!(lane_decode(key(EncodingId::ByteFor, 3), byval, 4), Some(LaneDecode::ByteFor { delta: 3 }));
-        assert_eq!(lane_decode(key(EncodingId::Verbatim, 8), byval, 8), Some(LaneDecode::Verbatim));
-        assert_eq!(lane_decode(key(EncodingId::FforInterleave, 0), byval, 2), Some(LaneDecode::Ffor));
-        assert_eq!(lane_decode(key(EncodingId::DeltaFor, 0), byval, 4), Some(LaneDecode::DeltaFor));
+        assert_eq!(
+            lane_decode(key(EncodingId::ByteFor, 3), byval, 4),
+            Some(LaneDecode::ByteFor { delta: 3 })
+        );
+        assert_eq!(
+            lane_decode(key(EncodingId::Verbatim, 8), byval, 8),
+            Some(LaneDecode::Verbatim)
+        );
+        assert_eq!(
+            lane_decode(key(EncodingId::FforInterleave, 0), byval, 2),
+            Some(LaneDecode::Ffor)
+        );
+        assert_eq!(
+            lane_decode(key(EncodingId::DeltaFor, 0), byval, 4),
+            Some(LaneDecode::DeltaFor)
+        );
         // a VERBATIM stream at another width, a 1-byte lane, a by-reference lane, another encoding: the bar
         assert_eq!(lane_decode(key(EncodingId::Verbatim, 4), byval, 8), None);
         assert_eq!(lane_decode(key(EncodingId::ByteFor, 1), byval, 1), None);
-        assert_eq!(lane_decode(key(EncodingId::ByteFor, 1), lane::KIND_BYREF, 8), None);
+        assert_eq!(
+            lane_decode(key(EncodingId::ByteFor, 1), lane::KIND_BYREF, 8),
+            None
+        );
         assert_eq!(lane_decode(key(EncodingId::Alp, 0), byval, 8), None);
-        assert_eq!(lane_decode(key(EncodingId::PackedNumeric, 0), byval, 8), None);
+        assert_eq!(
+            lane_decode(key(EncodingId::PackedNumeric, 0), byval, 8),
+            None
+        );
     }
 
     #[test]
     fn the_frames_a_selection_reaches() {
-        assert_eq!((frames_reached(0, 8191, 1024), frames_reached(0, 1023, 64), frames_reached(1000, 1100, 2), frames_reached(5, 5, 1)), (8, 1, 2, 1));
+        assert_eq!(
+            (
+                frames_reached(0, 8191, 1024),
+                frames_reached(0, 1023, 64),
+                frames_reached(1000, 1100, 2),
+                frames_reached(5, 5, 1)
+            ),
+            (8, 1, 2, 1)
+        );
         assert_eq!(frames_reached(0, 8191, 3), 3, "at most one frame a row");
     }
 
     #[test]
     fn a_rest_lane_gathers_by_its_streams_cost_or_under_the_bar() {
         let (byval, rows) = (lane::KIND_BYVAL, 8192usize);
-        let spread = |n: usize| (0..n as u32).map(|i| i * (rows / n) as u32).collect::<Vec<u32>>();
+        let spread = |n: usize| {
+            (0..n as u32)
+                .map(|i| i * (rows / n) as u32)
+                .collect::<Vec<u32>>()
+        };
         // BYTE_FOR i32 at 1 byte: a 32nd of the rows gathers, a tenth decodes whole (under the old bar it gathered)
         let bf = key(EncodingId::ByteFor, 1);
-        assert!(gather_pays(bf, byval, 4, rows, &spread(256)) && !gather_pays(bf, byval, 4, rows, &spread(819)));
+        assert!(
+            gather_pays(bf, byval, 4, rows, &spread(256))
+                && !gather_pays(bf, byval, 4, rows, &spread(819))
+        );
         // BYTE_FOR i32 at 3 bytes: a fifth still gathers (the masked whole decode is dear)
-        assert!(gather_pays(key(EncodingId::ByteFor, 3), byval, 4, rows, &spread(1638)));
+        assert!(gather_pays(
+            key(EncodingId::ByteFor, 3),
+            byval,
+            4,
+            rows,
+            &spread(1638)
+        ));
         // FFOR: 256 rows in one frame gather; 512 spread over every frame decode whole
         let ff = key(EncodingId::FforInterleave, 0);
-        assert!(gather_pays(ff, byval, 4, rows, &(0..256).collect::<Vec<u32>>()) && !gather_pays(ff, byval, 4, rows, &spread(512)));
+        assert!(
+            gather_pays(ff, byval, 4, rows, &(0..256).collect::<Vec<u32>>())
+                && !gather_pays(ff, byval, 4, rows, &spread(512))
+        );
         // a stream the fit did not measure: the bar, gather up to rows / SELECT_DIV
         let alp = key(EncodingId::Alp, 0);
-        assert!(gather_pays(alp, byval, 8, rows, &spread(rows / SELECT_DIV)) && !gather_pays(alp, byval, 8, rows, &spread(rows / SELECT_DIV + 1)));
+        assert!(
+            gather_pays(alp, byval, 8, rows, &spread(rows / SELECT_DIV))
+                && !gather_pays(alp, byval, 8, rows, &spread(rows / SELECT_DIV + 1))
+        );
     }
 }
 
@@ -3817,10 +5340,22 @@ mod mask_ne_tests {
     #[test]
     fn mask_ne_u32_matches_scalar() {
         let mut seed = 0x9E37_79B9_7F4A_7C15u64;
-        let mut next = || { seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17; seed };
-        for &(from, to) in &[(0usize, 64usize), (0, 200), (64, 320), (3, 3), (128, 128 + 64 * 5 + 17), (0, 1024)] {
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        for &(from, to) in &[
+            (0usize, 64usize),
+            (0, 200),
+            (64, 320),
+            (3, 3),
+            (128, 128 + 64 * 5 + 17),
+            (0, 1024),
+        ] {
             let codes: Vec<u32> = (0..to.max(1)).map(|_| (next() % 5) as u32).collect();
-            let words = (to - from).div_ceil( 64);
+            let words = (to - from).div_ceil(64);
             let init: Vec<u64> = (0..words).map(|_| next()).collect();
             for c in 0..5u32 {
                 let (mut got, mut want) = (init.clone(), init.clone());
@@ -3881,7 +5416,12 @@ mod words_to_sel_tests {
     #[test]
     fn words_to_sel_is_the_bit_walk() {
         let mut seed = 0x2545_F491_4F6C_DD1Du64;
-        let mut next = || { seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17; seed };
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
         let (mut sel, mut sel16) = (Vec::with_capacity(8192), Vec::with_capacity(8192));
         for len in [1usize, 2, 3, 63, 64, 127, 128] {
             for density in 0..8 {
@@ -3897,7 +5437,10 @@ mod words_to_sel_tests {
                         _ => next() & next(),
                     })
                     .collect();
-                let want: Vec<u32> = (0..len * 64).filter(|&i| words[i / 64] >> (i % 64) & 1 != 0).map(|i| i as u32).collect();
+                let want: Vec<u32> = (0..len * 64)
+                    .filter(|&i| words[i / 64] >> (i % 64) & 1 != 0)
+                    .map(|i| i as u32)
+                    .collect();
                 let k = words_to_sel(&words, &mut sel, &mut sel16);
                 assert_eq!(k, want.len(), "len={len} density={density}");
                 assert_eq!(sel, want, "len={len} density={density}");
@@ -3917,13 +5460,25 @@ fn pred_bounds(z: &ZonePred) -> Option<(i64, i64)> {
         ZoneOp::Gt => Some(c.checked_add(1).map_or((1, 0), |l| (l, i64::MAX))),
         ZoneOp::Ge => Some((c, i64::MAX)),
         ZoneOp::Eq => Some((c, c)),
-        ZoneOp::Ne | ZoneOp::NotNull | ZoneOp::IsNull | ZoneOp::InMember | ZoneOp::HashEq | ZoneOp::HashIn => None,
+        ZoneOp::Ne
+        | ZoneOp::NotNull
+        | ZoneOp::IsNull
+        | ZoneOp::InMember
+        | ZoneOp::HashEq
+        | ZoneOp::HashIn => None,
     }
 }
 
 /// L5a: `lo <= cells[i] <= hi` into the mask words of rows `from..to`, one pass for a lane's fused range (`x >= a AND
 /// x < b`: the miss path's row_select over a date range) where each predicate took its own; scalar (i8 / i64 lanes).
-fn mask_range<T: Copy + Into<i64>>(mask: &mut [u64], from: usize, to: usize, cells: &[T], lo: i64, hi: i64) {
+fn mask_range<T: Copy + Into<i64>>(
+    mask: &mut [u64],
+    from: usize,
+    to: usize,
+    cells: &[T],
+    lo: i64,
+    hi: i64,
+) {
     mask_rows(mask, from, to, |i| (lo..=hi).contains(&cells[i].into()));
 }
 
@@ -3937,19 +5492,64 @@ mod mask_range_tests {
     #[test]
     fn a_fused_range_is_its_predicates_one_by_one() {
         let mut seed = 0x6A09_E667_F3BC_C908u64;
-        let mut next = || { seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17; seed };
-        let cuts = [i64::MIN, -40_000, i32::MIN as i64, -32_769, -32_768, -5, 0, 3, 32_767, 32_768, i32::MAX as i64, i64::MAX];
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        let cuts = [
+            i64::MIN,
+            -40_000,
+            i32::MIN as i64,
+            -32_769,
+            -32_768,
+            -5,
+            0,
+            3,
+            32_767,
+            32_768,
+            i32::MAX as i64,
+            i64::MAX,
+        ];
         let ops = [ZoneOp::Lt, ZoneOp::Le, ZoneOp::Gt, ZoneOp::Ge, ZoneOp::Eq];
-        for &(from, to) in &[(0usize, 64usize), (0, 200), (64, 320), (3, 3), (128, 128 + 64 * 5 + 17), (0, 1024)] {
-            let v32: Vec<i32> = (0..to.max(1)).map(|i| match i % 7 { 0 => i32::MIN, 1 => i32::MAX, 2 => (next() % 9) as i32 - 4, _ => next() as i32 }).collect();
-            let v16: Vec<i16> = v32.iter().map(|&x| if x.unsigned_abs() < 8 { x as i16 } else { (x >> 16) as i16 }).collect();
+        for &(from, to) in &[
+            (0usize, 64usize),
+            (0, 200),
+            (64, 320),
+            (3, 3),
+            (128, 128 + 64 * 5 + 17),
+            (0, 1024),
+        ] {
+            let v32: Vec<i32> = (0..to.max(1))
+                .map(|i| match i % 7 {
+                    0 => i32::MIN,
+                    1 => i32::MAX,
+                    2 => (next() % 9) as i32 - 4,
+                    _ => next() as i32,
+                })
+                .collect();
+            let v16: Vec<i16> = v32
+                .iter()
+                .map(|&x| {
+                    if x.unsigned_abs() < 8 {
+                        x as i16
+                    } else {
+                        (x >> 16) as i16
+                    }
+                })
+                .collect();
             let words = (to - from).div_ceil(64);
             let init: Vec<u64> = (0..words).map(|_| next()).collect();
             for &a in &cuts {
                 for &b in &cuts {
-                    for (x, y) in [(ZoneOp::Ge, ZoneOp::Lt), (ops[(next() % 5) as usize], ops[(next() % 5) as usize])] {
+                    for (x, y) in [
+                        (ZoneOp::Ge, ZoneOp::Lt),
+                        (ops[(next() % 5) as usize], ops[(next() % 5) as usize]),
+                    ] {
                         let (za, zb) = (ZonePred::word(0, x, a), ZonePred::word(0, y, b));
-                        let ((l1, h1), (l2, h2)) = (pred_bounds(&za).unwrap(), pred_bounds(&zb).unwrap());
+                        let ((l1, h1), (l2, h2)) =
+                            (pred_bounds(&za).unwrap(), pred_bounds(&zb).unwrap());
                         let (lo, hi) = (l1.max(l2), h1.min(h2));
                         let (mut got, mut want) = (init.clone(), init.clone());
                         mask_range_i32(&mut got, from, to, &v32, lo, hi);
@@ -3993,17 +5593,34 @@ mod enc_mask_tests {
     fn mask_delta_is_the_wrapped_compare() {
         let mut seed = 0x1319_8A2E_0370_7344u64;
         for w in [1u8, 2, 4] {
-            let top = if w == 4 { u32::MAX } else { (1u32 << (8 * w)) - 1 };
+            let top = if w == 4 {
+                u32::MAX
+            } else {
+                (1u32 << (8 * w)) - 1
+            };
             for &n in &[1024usize, 1000, 64, 65, 7] {
                 let deltas: Vec<u8> = (0..n * w as usize).map(|_| rng(&mut seed) as u8).collect();
-                let cell = |i: usize| deltas[i * w as usize..(i + 1) * w as usize].iter().rev().fold(0u32, |x, &b| x << 8 | b as u32);
+                let cell = |i: usize| {
+                    deltas[i * w as usize..(i + 1) * w as usize]
+                        .iter()
+                        .rev()
+                        .fold(0u32, |x, &b| x << 8 | b as u32)
+                };
                 for _ in 0..24 {
                     let (a, b) = (rng(&mut seed) as u32 & top, rng(&mut seed) as u32 & top);
-                    for (dlo, span) in [(a.min(b), a.max(b) - a.min(b)), (0, a), (a, 0), (0, top), (a, top - a)] {
+                    for (dlo, span) in [
+                        (a.min(b), a.max(b) - a.min(b)),
+                        (0, a),
+                        (a, 0),
+                        (0, top),
+                        (a, top - a),
+                    ] {
                         let init: Vec<u64> = (0..n.div_ceil(64)).map(|_| rng(&mut seed)).collect();
                         let (mut got, mut want) = (init.clone(), init);
                         mask_delta(&mut got, &deltas, w, dlo, span);
-                        mask_rows(&mut want, 0, n, |i| (cell(i).wrapping_sub(dlo) & top) <= span);
+                        mask_rows(&mut want, 0, n, |i| {
+                            (cell(i).wrapping_sub(dlo) & top) <= span
+                        });
                         assert_eq!(got, want, "w={w} n={n} dlo={dlo} span={span}");
                     }
                 }
@@ -4022,50 +5639,95 @@ mod enc_mask_tests {
             let dmax = (1i64 << (8 * w)) - 1;
             for &rows in &[8192usize, 3000, 1024, 777, 1] {
                 let nf = rows.div_ceil(1024);
-                let refs: Vec<i64> = (0..nf).map(|f| match (f + w as usize) % 5 { 0 => i64::MIN, 1 => i64::MAX - dmax, 2 => -3, 3 => 1_000_000, _ => (rng(&mut seed) >> 2) as i64 - (1 << 61) }).collect();
+                let refs: Vec<i64> = (0..nf)
+                    .map(|f| match (f + w as usize) % 5 {
+                        0 => i64::MIN,
+                        1 => i64::MAX - dmax,
+                        2 => -3,
+                        3 => 1_000_000,
+                        _ => (rng(&mut seed) >> 2) as i64 - (1 << 61),
+                    })
+                    .collect();
                 let deltas: Vec<Vec<u8>> = (0..nf)
                     .map(|f| {
                         let n = (rows - f * 1024).min(1024);
-                        (0..n).flat_map(|i| {
-                            let d = match i % 9 { 0 => 0, 1 => dmax as u64, _ => rng(&mut seed) & dmax as u64 };
-                            d.to_le_bytes()[..w as usize].to_vec()
-                        }).collect()
+                        (0..n)
+                            .flat_map(|i| {
+                                let d = match i % 9 {
+                                    0 => 0,
+                                    1 => dmax as u64,
+                                    _ => rng(&mut seed) & dmax as u64,
+                                };
+                                d.to_le_bytes()[..w as usize].to_vec()
+                            })
+                            .collect()
                     })
                     .collect();
-                let cells: Vec<i64> = (0..rows).map(|i| {
-                    let (f, j) = (i / 1024, i % 1024);
-                    let d = deltas[f][j * w as usize..(j + 1) * w as usize].iter().rev().fold(0i64, |x, &b| x << 8 | b as i64);
-                    refs[f] + d
-                }).collect();
+                let cells: Vec<i64> = (0..rows)
+                    .map(|i| {
+                        let (f, j) = (i / 1024, i % 1024);
+                        let d = deltas[f][j * w as usize..(j + 1) * w as usize]
+                            .iter()
+                            .rev()
+                            .fold(0i64, |x, &b| x << 8 | b as i64);
+                        refs[f] + d
+                    })
+                    .collect();
                 for t in 0..40 {
                     let pick = |seed: &mut u64| match rng(seed) % 7 {
                         0 => i64::MIN,
                         1 => i64::MAX,
                         2 => cells[rng(seed) as usize % rows],
                         3 => refs[rng(seed) as usize % nf].saturating_sub(1),
-                        4 => refs[rng(seed) as usize % nf].saturating_add(dmax + (rng(seed) % 3) as i64 - 1),
-                        5 => cells[rng(seed) as usize % rows].saturating_add((rng(seed) % 5) as i64 - 2),
+                        4 => refs[rng(seed) as usize % nf]
+                            .saturating_add(dmax + (rng(seed) % 3) as i64 - 1),
+                        5 => cells[rng(seed) as usize % rows]
+                            .saturating_add((rng(seed) % 5) as i64 - 2),
                         _ => rng(seed) as i64,
                     };
                     let (lo, hi) = (pick(&mut seed), pick(&mut seed));
-                    let (lo, hi) = if t % 4 == 0 { (hi, lo) } else { (lo.min(hi), lo.max(hi)) };
-                    for (from, to) in [(0, rows), (0, rows.min(1024)), (1024.min(rows / 64 * 64), rows), (rows / 128 * 64, rows - rows / 3)] {
+                    let (lo, hi) = if t % 4 == 0 {
+                        (hi, lo)
+                    } else {
+                        (lo.min(hi), lo.max(hi))
+                    };
+                    for (from, to) in [
+                        (0, rows),
+                        (0, rows.min(1024)),
+                        (1024.min(rows / 64 * 64), rows),
+                        (rows / 128 * 64, rows - rows / 3),
+                    ] {
                         if from >= to {
                             continue;
                         }
                         // apply_preds' words: no bit past `to`
-                        let mut init: Vec<u64> = (0..to.div_ceil(64) - from / 64).map(|_| rng(&mut seed)).collect();
+                        let mut init: Vec<u64> = (0..to.div_ceil(64) - from / 64)
+                            .map(|_| rng(&mut seed))
+                            .collect();
                         if to % 64 != 0 {
                             *init.last_mut().unwrap() &= (1u64 << (to % 64)) - 1;
                         }
                         let (mut got, mut want) = (init.clone(), init);
                         mask_range(&mut want, from, to, &cells, lo, hi);
                         for f in 0..nf {
-                            if !frame_mask(&mut got, from, to, f * 1024, refs[f] as u64, &deltas[f], w, lo, hi) {
+                            if !frame_mask(
+                                &mut got,
+                                from,
+                                to,
+                                f * 1024,
+                                refs[f] as u64,
+                                &deltas[f],
+                                w,
+                                lo,
+                                hi,
+                            ) {
                                 break;
                             }
                         }
-                        assert_eq!(got, want, "w={w} rows={rows} from={from} to={to} lo={lo} hi={hi}");
+                        assert_eq!(
+                            got, want,
+                            "w={w} rows={rows} from={from} to={to} lo={lo} hi={hi}"
+                        );
                     }
                 }
             }
@@ -4073,7 +5735,13 @@ mod enc_mask_tests {
     }
 }
 
-fn int_pred<T: Copy + Into<i64>>(mask: &mut [u64], from: usize, to: usize, cells: &[T], z: &ZonePred) {
+fn int_pred<T: Copy + Into<i64>>(
+    mask: &mut [u64],
+    from: usize,
+    to: usize,
+    cells: &[T],
+    z: &ZonePred,
+) {
     let c = z.value;
     match z.op {
         ZoneOp::Lt => mask_rows(mask, from, to, |i| cells[i].into() < c),
@@ -4093,18 +5761,42 @@ fn int_pred<T: Copy + Into<i64>>(mask: &mut [u64], from: usize, to: usize, cells
 /// The survivor count and the granule ranges of the parts no survivor lies in (ascending, disjoint,
 /// adjacent parts merged): the claim cursor never hands those out (the per-statement floor was 511
 /// whole-part claims for 12 live parts).
-pub fn zone_census(rel: &Relation<'_>, list: &PartList, attnos: &[i16], preds: &[ZonePred]) -> PgResult<(u64, Arc<[(u64, u64)]>)> {
+pub fn zone_census(
+    rel: &Relation<'_>,
+    list: &PartList,
+    attnos: &[i16],
+    preds: &[ZonePred],
+) -> PgResult<(u64, Arc<[(u64, u64)]>)> {
     let storable = zone_storable(list);
-    let key = (list.generation(), rel.rd_id, zone_ask(1, preds.iter().flat_map(|z| [attnos.get(z.lane as usize).copied().unwrap_or(-1) as u64, z.op as u64 | (z.prefix as u64) << 8, z.value as u64])));
+    let key = (
+        list.generation(),
+        rel.rd_id,
+        zone_ask(
+            1,
+            preds.iter().flat_map(|z| {
+                [
+                    attnos.get(z.lane as usize).copied().unwrap_or(-1) as u64,
+                    z.op as u64 | (z.prefix as u64) << 8,
+                    z.value as u64,
+                ]
+            }),
+        ),
+    );
     if storable {
         if let Some(ZoneEntry::Census(n, dead)) = zone_lookup(&key) {
             return Ok((n, dead));
         }
     }
     // D336: zone facts of another generation than the list's census nothing and are never stored
-    let Some((n, dead)) = zone_census_walk(rel, list, attnos, preds)? else { return Ok((list.granules(), Arc::from(Vec::new()))) }; // alloc: Exec
+    let Some((n, dead)) = zone_census_walk(rel, list, attnos, preds)? else {
+        return Ok((list.granules(), Arc::from(Vec::new())));
+    }; // alloc: Exec
     if storable {
-        zone_store(key, ZoneEntry::Census(n, Arc::clone(&dead)), dead.len() * 16);
+        zone_store(
+            key,
+            ZoneEntry::Census(n, Arc::clone(&dead)),
+            dead.len() * 16,
+        );
     }
     Ok((n, dead))
 }
@@ -4115,15 +5807,25 @@ pub fn zone_census(rel: &Relation<'_>, list: &PartList, attnos: &[i16], preds: &
 /// has checked that every attribute lane is a filter or an answer lane. `false` at the first part that would be read, a
 /// record the catalog does not hold (a part's own Stats body is a read), or a shred / entries recipe. Kept in the zone
 /// store per (generation, relation, ask): the catalog's records are the generation's (a walk of 511 parts cost ~22 µs).
-pub fn answered_whole(list: &PartList, recipe: &GranuleRecipe, preds: &[ZonePred], answer: &[usize]) -> bool {
+pub fn answered_whole(
+    list: &PartList,
+    recipe: &GranuleRecipe,
+    preds: &[ZonePred],
+    answer: &[usize],
+) -> bool {
     if preds.is_empty() || !recipe.shred.is_empty() || recipe.entries.is_some() {
         return false;
     }
-    let key = (list.generation(), recipe.rel, answer_ask(3, recipe, preds, answer));
+    let key = (
+        list.generation(),
+        recipe.rel,
+        answer_ask(3, recipe, preds, answer),
+    );
     if let Some(ZoneEntry::Whole(w)) = zone_lookup(&key) {
         return w;
     }
-    let whole = (0..list.len()).all(|p| part_answered(list, recipe, preds, answer, p) == Some(true));
+    let whole =
+        (0..list.len()).all(|p| part_answered(list, recipe, preds, answer, p) == Some(true));
     if zone_storable(list) {
         zone_store(key, ZoneEntry::Whole(whole), 8);
     }
@@ -4134,18 +5836,29 @@ pub fn answered_whole(list: &PartList, recipe: &GranuleRecipe, preds: &[ZonePred
 /// (`answered_whole`'s rule per part); `None` when the records cannot say: a shred or entries recipe, or a part whose filter
 /// record the catalog does not hold (its own Stats body, read once the part is pinned, decides it). The runner's
 /// whole-part claims for an answerable site turn on it (exec runner/plan.rs `claims_of`). Kept as `answered_whole` is.
-pub fn answered_parts(list: &PartList, recipe: &GranuleRecipe, preds: &[ZonePred], answer: &[usize]) -> Option<u64> {
+pub fn answered_parts(
+    list: &PartList,
+    recipe: &GranuleRecipe,
+    preds: &[ZonePred],
+    answer: &[usize],
+) -> Option<u64> {
     if !recipe.shred.is_empty() || recipe.entries.is_some() {
         return None;
     }
     if preds.is_empty() {
         return Some(0);
     }
-    let key = (list.generation(), recipe.rel, answer_ask(9, recipe, preds, answer));
+    let key = (
+        list.generation(),
+        recipe.rel,
+        answer_ask(9, recipe, preds, answer),
+    );
     if let Some(ZoneEntry::Parts(n)) = zone_lookup(&key) {
         return n;
     }
-    let n = (0..list.len()).try_fold(0u64, |n, p| Some(n + part_answered(list, recipe, preds, answer, p)? as u64));
+    let n = (0..list.len()).try_fold(0u64, |n, p| {
+        Some(n + part_answered(list, recipe, preds, answer, p)? as u64)
+    });
     if zone_storable(list) {
         zone_store(key, ZoneEntry::Parts(n), 16);
     }
@@ -4156,12 +5869,30 @@ pub fn answered_parts(list: &PartList, recipe: &GranuleRecipe, preds: &[ZonePred
 /// then the answer lanes' attnos.
 fn answer_ask(tag: u64, recipe: &GranuleRecipe, preds: &[ZonePred], answer: &[usize]) -> u64 {
     let attno = |k: usize| recipe.attnos.get(k).copied().unwrap_or(-1) as u16 as u64;
-    zone_ask(tag, preds.iter().flat_map(|z| [attno(z.lane as usize), z.op as u64 | (z.prefix as u64) << 8 | (z.tallied as u64) << 9, z.value as u64]).chain(answer.iter().map(|&k| 1 << 32 | attno(k))))
+    zone_ask(
+        tag,
+        preds
+            .iter()
+            .flat_map(|z| {
+                [
+                    attno(z.lane as usize),
+                    z.op as u64 | (z.prefix as u64) << 8 | (z.tallied as u64) << 9,
+                    z.value as u64,
+                ]
+            })
+            .chain(answer.iter().map(|&k| 1 << 32 | attno(k))),
+    )
 }
 
 /// Part `p` under `stage_part`'s rule from the catalog's records: `Some(true)` skipped (`NoneMatch`) or answered (`AllMatch`,
 /// every `answer` lane's record exact), `Some(false)` read granule by granule, `None` a filter record the catalog does not hold.
-fn part_answered(list: &PartList, recipe: &GranuleRecipe, preds: &[ZonePred], answer: &[usize], p: usize) -> Option<bool> {
+fn part_answered(
+    list: &PartList,
+    recipe: &GranuleRecipe,
+    preds: &[ZonePred],
+    answer: &[usize],
+    p: usize,
+) -> Option<bool> {
     let record = |k: usize| -> Option<&[u8]> {
         let b = list.answer_record(p, *recipe.attnos.get(k)? as u32)?;
         let lg = (b.len() / STATS_RECORD_LEN).checked_sub(1)?;
@@ -4174,7 +5905,11 @@ fn part_answered(list: &PartList, recipe: &GranuleRecipe, preds: &[ZonePred], an
     let mut all = true;
     // bounded("other: one zone predicate of the statement's own quals each (an IN list's member is one): the query text bounds them, and PG's ExecQual tests the same quals per row with no poll")
     for (i, z) in preds.iter().enumerate() {
-        match zone_verdict(&record(z.lane as usize).and_then(ZoneFacts::of)?, spec.rows as u32, z) {
+        match zone_verdict(
+            &record(z.lane as usize).and_then(ZoneFacts::of)?,
+            spec.rows as u32,
+            z,
+        ) {
             V_NONE => return Some(true),
             V_ALL => {}
             // SRC-21: a tallied predicate over an answer lane answers a Mixed part from its tally (`tallied_mask`)
@@ -4182,7 +5917,11 @@ fn part_answered(list: &PartList, recipe: &GranuleRecipe, preds: &[ZonePred], an
             _ => all = false,
         }
     }
-    let exact = |k: usize| record(k).and_then(|b| StatsRecord::decode(&mut Cur::new(b)).ok()).is_some_and(|r| r.flags & STATSF_COMPUTED != 0 && r.key_kind == KeyKind::Exact.as_u8());
+    let exact = |k: usize| {
+        record(k)
+            .and_then(|b| StatsRecord::decode(&mut Cur::new(b)).ok())
+            .is_some_and(|r| r.flags & STATSF_COMPUTED != 0 && r.key_kind == KeyKind::Exact.as_u8())
+    };
     Some(all && answer.iter().all(|&k| exact(k)))
 }
 
@@ -4190,9 +5929,18 @@ fn part_answered(list: &PartList, recipe: &GranuleRecipe, preds: &[ZonePred], an
 /// own open parts in manifest order, else `None`. Its zone columns speak for the list's granules only then: the list is
 /// the statement snapshot's generation, and a granule-count match alone does not make two generations' granules the
 /// same. `None` also for a list without resident parts (the tests').
-fn list_generation(rel: &Relation<'_>, list: &PartList) -> PgResult<Option<Arc<pgrc_am::catalog::Generation>>> {
-    let pgrc_am::catalog::Lookup::Gen(g) = visible(rel)? else { return Ok(None) };
-    let same = g.parts.len() == list.parts.len() && g.parts.iter().zip(&list.parts).all(|(o, s)| s.part.as_ref().is_some_and(|p| Arc::ptr_eq(p, &o.part)));
+fn list_generation(
+    rel: &Relation<'_>,
+    list: &PartList,
+) -> PgResult<Option<Arc<pgrc_am::catalog::Generation>>> {
+    let pgrc_am::catalog::Lookup::Gen(g) = visible(rel)? else {
+        return Ok(None);
+    };
+    let same = g.parts.len() == list.parts.len()
+        && g.parts
+            .iter()
+            .zip(&list.parts)
+            .all(|(o, s)| s.part.as_ref().is_some_and(|p| Arc::ptr_eq(p, &o.part)));
     Ok(same.then_some(g))
 }
 
@@ -4211,7 +5959,10 @@ fn visible(rel: &Relation<'_>) -> PgResult<pgrc_am::catalog::Lookup> {
 /// list's generation) is `Some` both before the read and after it, the same (the latest committed
 /// generation only moves forward, so every read between saw that one); `None` otherwise. Public for its test
 /// (tests/d580_bracket.rs): a server-level test of a moved generation needs a retiring writer (M5e).
-pub fn bracketed<T>(gen: &mut dyn FnMut() -> PgResult<Option<u64>>, read: impl FnOnce() -> PgResult<T>) -> PgResult<Option<T>> {
+pub fn bracketed<T>(
+    gen: &mut dyn FnMut() -> PgResult<Option<u64>>,
+    read: impl FnOnce() -> PgResult<T>,
+) -> PgResult<Option<T>> {
     let Some(g) = gen()? else { return Ok(None) };
     let x = read()?;
     Ok((gen()? == Some(g)).then_some(x))
@@ -4219,17 +5970,42 @@ pub fn bracketed<T>(gen: &mut dyn FnMut() -> PgResult<Option<u64>>, read: impl F
 
 /// The census walk over the list's zone columns (`list_zones`); `None` when it has none (D336: not the latest committed
 /// generation's list).
-fn zone_census_walk(rel: &Relation<'_>, list: &PartList, attnos: &[i16], preds: &[ZonePred]) -> PgResult<Option<(u64, Arc<[(u64, u64)]>)>> {
-    let Some(zones) = list_zones(rel, list) else { return Ok(None) };
+fn zone_census_walk(
+    rel: &Relation<'_>,
+    list: &PartList,
+    attnos: &[i16],
+    preds: &[ZonePred],
+) -> PgResult<Option<(u64, Arc<[(u64, u64)]>)>> {
+    let Some(zones) = list_zones(rel, list) else {
+        return Ok(None);
+    };
     zone_walk(&|a| Ok(zone_of(zones, a)), list, attnos, preds).map(Some)
 }
 
 /// `zone_census`'s dead ranges for a source without the relation (the serial seek): the same walk and zone
 /// store entry over the zone columns `resolve` left on the list (read under D336's bracket there, so no walk-time
 /// bracket); `None` when it left none (a list no `resolve` built, or of a generation not the latest committed).
-fn zone_dead(list: &PartList, rel: Oid, attnos: &[i16], preds: &[ZonePred]) -> Option<Arc<[(u64, u64)]>> {
+fn zone_dead(
+    list: &PartList,
+    rel: Oid,
+    attnos: &[i16],
+    preds: &[ZonePred],
+) -> Option<Arc<[(u64, u64)]>> {
     let zones = list.zones.get()?;
-    let key = (list.generation(), rel, zone_ask(1, preds.iter().flat_map(|z| [attnos.get(z.lane as usize).copied().unwrap_or(-1) as u64, z.op as u64 | (z.prefix as u64) << 8, z.value as u64])));
+    let key = (
+        list.generation(),
+        rel,
+        zone_ask(
+            1,
+            preds.iter().flat_map(|z| {
+                [
+                    attnos.get(z.lane as usize).copied().unwrap_or(-1) as u64,
+                    z.op as u64 | (z.prefix as u64) << 8,
+                    z.value as u64,
+                ]
+            }),
+        ),
+    );
     let storable = zone_storable(list);
     if storable {
         if let Some(ZoneEntry::Census(_, dead)) = zone_lookup(&key) {
@@ -4238,14 +6014,22 @@ fn zone_dead(list: &PartList, rel: Oid, attnos: &[i16], preds: &[ZonePred]) -> O
     }
     let (n, dead) = zone_walk(&|a| Ok(zone_of(zones, a)), list, attnos, preds).ok()?;
     if storable {
-        zone_store(key, ZoneEntry::Census(n, Arc::clone(&dead)), dead.len() * 16);
+        zone_store(
+            key,
+            ZoneEntry::Census(n, Arc::clone(&dead)),
+            dead.len() * 16,
+        );
     }
     Some(dead)
 }
 
 /// D1536: the rows of granule `lg` of part `p` (`rows` of them) its delete mask leaves, the rows PostgreSQL's scan reads.
 fn visible_rows(list: &PartList, p: usize, lg: u32, rows: u32) -> u64 {
-    let deleted = list.parts()[p].deletes.as_ref().and_then(|d| d.granule_mask(lg)).map_or(0, |m| m.iter().map(|w| w.count_ones() as u64).sum());
+    let deleted = list.parts()[p]
+        .deletes
+        .as_ref()
+        .and_then(|d| d.granule_mask(lg))
+        .map_or(0, |m| m.iter().map(|w| w.count_ones() as u64).sum());
     (rows as u64).saturating_sub(deleted)
 }
 
@@ -4257,10 +6041,15 @@ fn dead_part(dead: &[(u64, u64)], lo: u64, hi: u64) -> bool {
 
 /// The census walk over the zone columns `col_of` gives: the survivor count and the ranges of the parts no survivor
 /// lies in.
-fn zone_walk(col_of: &dyn Fn(u32) -> PgResult<Option<Arc<ZoneColumn>>>, list: &PartList, attnos: &[i16], preds: &[ZonePred]) -> PgResult<(u64, Arc<[(u64, u64)]>)> {
+fn zone_walk(
+    col_of: &dyn Fn(u32) -> PgResult<Option<Arc<ZoneColumn>>>,
+    list: &PartList,
+    attnos: &[i16],
+    preds: &[ZonePred],
+) -> PgResult<(u64, Arc<[(u64, u64)]>)> {
     let n = list.granules() as usize;
     let mut alive: Vec<u64> = vec![!0u64; n.div_ceil(64)]; // alloc: Exec
-    // a tick per predicate and per part, one per BATCH granules tested
+                                                           // a tick per predicate and per part, one per BATCH granules tested
     let mut step = cancelpoll::step("granule_source zone_walk: the census over the zone columns");
     for z in preds {
         step.tick().map_err(|_| err(WALK_CANCELED))?;
@@ -4268,8 +6057,12 @@ fn zone_walk(col_of: &dyn Fn(u32) -> PgResult<Option<Arc<ZoneColumn>>>, list: &P
         if z.prefix || z.op == ZoneOp::IsNull {
             continue;
         }
-        let Some(&attno) = attnos.get(z.lane as usize) else { continue };
-        let Some(col) = col_of(attno as u32)? else { continue };
+        let Some(&attno) = attnos.get(z.lane as usize) else {
+            continue;
+        };
+        let Some(col) = col_of(attno as u32)? else {
+            continue;
+        };
         let ranges = col.ranges();
         if ranges.len() != n {
             continue;
@@ -4285,7 +6078,11 @@ fn zone_walk(col_of: &dyn Fn(u32) -> PgResult<Option<Arc<ZoneColumn>>>, list: &P
                     ZoneOp::Ge => max < c,
                     ZoneOp::Eq => c < min || c > max,
                     ZoneOp::Ne => min == max && min == c,
-                    ZoneOp::NotNull | ZoneOp::IsNull | ZoneOp::InMember | ZoneOp::HashEq | ZoneOp::HashIn => false,
+                    ZoneOp::NotNull
+                    | ZoneOp::IsNull
+                    | ZoneOp::InMember
+                    | ZoneOp::HashEq
+                    | ZoneOp::HashIn => false,
                 };
             if none {
                 alive[g / 64] &= !(1u64 << (g % 64));
@@ -4320,7 +6117,10 @@ fn zone_walk(col_of: &dyn Fn(u32) -> PgResult<Option<Arc<ZoneColumn>>>, list: &P
             _ => dead.push((lo, hi)), // alloc: Exec
         }
     }
-    Ok((alive.iter().map(|w| w.count_ones() as u64).sum(), Arc::from(dead)))
+    Ok((
+        alive.iter().map(|w| w.count_ones() as u64).sum(),
+        Arc::from(dead),
+    ))
 }
 
 /// A column's extrema over the keyed granules from the resident zone summary (`lo > hi`: none): the latest committed
@@ -4339,12 +6139,21 @@ fn extrema(col: &ZoneColumn) -> Option<(i64, i64)> {
 /// fold's domain (the owner's `t3_dense::word`, the dense front's bound) raises on a key outside it, so another
 /// generation's extrema (a retiring writer's: a merge, a compaction) are no bound; `None` without them, as with no zone
 /// column. Kept in the zone store per (generation, relation, column) like the census.
-pub fn zone_extrema_of(rel: &Relation<'_>, list: &PartList, attno: u32) -> PgResult<Option<(i64, i64)>> {
-    let (storable, key) = (zone_storable(list), (list.generation(), rel.rd_id, zone_ask(4, [attno as u64])));
+pub fn zone_extrema_of(
+    rel: &Relation<'_>,
+    list: &PartList,
+    attno: u32,
+) -> PgResult<Option<(i64, i64)>> {
+    let (storable, key) = (
+        zone_storable(list),
+        (list.generation(), rel.rd_id, zone_ask(4, [attno as u64])),
+    );
     if let Some(ZoneEntry::Extrema(x)) = storable.then(|| zone_lookup(&key)).flatten() {
         return Ok(x);
     }
-    let Some(x) = list_zones(rel, list).map(|z| zone_of(z, attno).and_then(|c| extrema(&c))) else { return Ok(None) };
+    let Some(x) = list_zones(rel, list).map(|z| zone_of(z, attno).and_then(|c| extrema(&c))) else {
+        return Ok(None);
+    };
     if storable {
         zone_store(key, ZoneEntry::Extrema(x), 16);
     }
@@ -4359,32 +6168,66 @@ pub fn zone_minima(rel: &Relation<'_>, list: &PartList, attno: u32) -> PgResult<
 
 /// `zone_minima` for a walk in either direction: descending, every granule's NOT of its key maximum (a DESC run's key word
 /// is the NOT of the ascending one, so the walk's ascending order and its bound test hold as they are).
-pub fn zone_walk_keys(rel: &Relation<'_>, list: &PartList, attno: u32, desc: bool) -> PgResult<Option<Vec<i64>>> {
+pub fn zone_walk_keys(
+    rel: &Relation<'_>,
+    list: &PartList,
+    attno: u32,
+    desc: bool,
+) -> PgResult<Option<Vec<i64>>> {
     // D336: the minima are the walk's lower bounds; another generation's are not the list's
-    let Some(col) = list_zones(rel, list).and_then(|z| zone_of(z, attno)) else { return Ok(None) };
+    let Some(col) = list_zones(rel, list).and_then(|z| zone_of(z, attno)) else {
+        return Ok(None);
+    };
     let r = col.ranges();
     if r.len() != list.granules() as usize {
         return Ok(None);
     }
-    Ok(Some(r.iter().map(|&(lo, hi)| if lo > hi { i64::MIN } else if desc { !hi } else { lo }).collect())) // alloc: Exec
+    Ok(Some(
+        r.iter()
+            .map(|&(lo, hi)| {
+                if lo > hi {
+                    i64::MIN
+                } else if desc {
+                    !hi
+                } else {
+                    lo
+                }
+            })
+            .collect(),
+    )) // alloc: Exec
 }
 
 /// The zone walk's order of `attno` over the list from the resident zone column, resident per
 /// `(generation, relation, column)`; `None` without a map of every granule (`granule_minima` then).
-pub fn zone_order(rel: &Relation<'_>, list: &PartList, attno: u32) -> PgResult<Option<Arc<ZoneOrder>>> {
+pub fn zone_order(
+    rel: &Relation<'_>,
+    list: &PartList,
+    attno: u32,
+) -> PgResult<Option<Arc<ZoneOrder>>> {
     zone_walk_order(rel, list, attno, false)
 }
 
 /// `zone_order` in either direction (`zone_walk_keys`), resident per direction too.
-pub fn zone_walk_order(rel: &Relation<'_>, list: &PartList, attno: u32, desc: bool) -> PgResult<Option<Arc<ZoneOrder>>> {
+pub fn zone_walk_order(
+    rel: &Relation<'_>,
+    list: &PartList,
+    attno: u32,
+    desc: bool,
+) -> PgResult<Option<Arc<ZoneOrder>>> {
     let storable = zone_storable(list);
-    let key = (list.generation(), rel.rd_id, zone_ask(if desc { 5 } else { 2 }, [attno as u64]));
+    let key = (
+        list.generation(),
+        rel.rd_id,
+        zone_ask(if desc { 5 } else { 2 }, [attno as u64]),
+    );
     if storable {
         if let Some(ZoneEntry::Order(o)) = zone_lookup(&key) {
             return Ok(Some(o));
         }
     }
-    let Some(mins) = zone_walk_keys(rel, list, attno, desc)? else { return Ok(None) };
+    let Some(mins) = zone_walk_keys(rel, list, attno, desc)? else {
+        return Ok(None);
+    };
     let o = Arc::new(ZoneOrder::of(&mins, list)?); // alloc: Cold
     if storable {
         zone_store(key, ZoneEntry::Order(Arc::clone(&o)), o.bytes());
@@ -4400,17 +6243,32 @@ pub fn zone_walk_order(rel: &Relation<'_>, list: &PartList, attno: u32, desc: bo
 /// granule, or over a list with deletes (its rows are fewer than the counts: the reach would come out short). Over a
 /// nullable key (a NULLS LAST walk: its NULL rows come after every value) a granule adds its non-null values only, from
 /// its stats record (`nonnull_counts`), so a granule's NULLs never stop the census early.
-pub fn zone_walk_reach(rel: &Relation<'_>, list: &PartList, attno: u32, desc: bool, n: u64) -> PgResult<Option<usize>> {
-    let Some(col) = list_zones(rel, list).and_then(|z| zone_of(z, attno)) else { return Ok(None) };
+pub fn zone_walk_reach(
+    rel: &Relation<'_>,
+    list: &PartList,
+    attno: u32,
+    desc: bool,
+    n: u64,
+) -> PgResult<Option<usize>> {
+    let Some(col) = list_zones(rel, list).and_then(|z| zone_of(z, attno)) else {
+        return Ok(None);
+    };
     if !zone_storable(list) || col.ranges().len() != list.granules() as usize {
         return Ok(None);
     }
-    let Some(o) = zone_walk_order(rel, list, attno, desc)? else { return Ok(None) };
+    let Some(o) = zone_walk_order(rel, list, attno, desc)? else {
+        return Ok(None);
+    };
     // D2838: a NOT VALID not-null constraint sets attnotnull over rows that may hold NULLs; only a VALID one (the
     // relcache's attnullability) says the column holds none
     let i = attno as usize - 1;
-    let nullable = rel.rd_att.attrs.get(i).is_some() && rel.rd_att.compact_attr(i).attnullability != types_tuple::ATTNULLABLE_VALID;
-    let counts = if nullable { Some(nonnull_counts(rel, list, attno)?) } else { None };
+    let nullable = rel.rd_att.attrs.get(i).is_some()
+        && rel.rd_att.compact_attr(i).attnullability != types_tuple::ATTNULLABLE_VALID;
+    let counts = if nullable {
+        Some(nonnull_counts(rel, list, attno)?)
+    } else {
+        None
+    };
     let rows_of = |g: u32| {
         if let Some(c) = &counts {
             return c.get(g as usize).copied().unwrap_or(0);
@@ -4418,11 +6276,20 @@ pub fn zone_walk_reach(rel: &Relation<'_>, list: &PartList, attno: u32, desc: bo
         let p = o.part_of[g as usize] as usize;
         let (spec, lg) = (&list.parts()[p], (g as u64 - list.starts()[p]) as u32);
         match &spec.part {
-            Some(part) => pgrc_format::geom::rows_in_granule_at(part.rows(), part.grain(), lg) as u64,
+            Some(part) => {
+                pgrc_format::geom::rows_in_granule_at(part.rows(), part.grain(), lg) as u64
+            }
             None => (spec.rows / (spec.granules.max(1) as u64)).max(1),
         }
     };
-    Ok(Some(walk_reach(&o.order, &o.mins, col.ranges(), rows_of, desc, n)))
+    Ok(Some(walk_reach(
+        &o.order,
+        &o.mins,
+        col.ranges(),
+        rows_of,
+        desc,
+        n,
+    )))
 }
 
 /// A nullable key column's non-null value count per granule (`granule_nonnull`), resident per `(generation, relation,
@@ -4441,7 +6308,7 @@ fn nonnull_counts(rel: &Relation<'_>, list: &PartList, attno: u32) -> PgResult<A
 /// column keeps each granule's (lo, hi) only); a granule without a record counts its rows.
 pub fn granule_nonnull(list: &PartList, attno: u32) -> PgResult<Vec<u64>> {
     let mut out = Vec::with_capacity(list.granules() as usize); // alloc: Exec
-    // a tick per part (its open and Stats body read), one per BATCH granules
+                                                                // a tick per part (its open and Stats body read), one per BATCH granules
     let mut step = cancelpoll::step("granule_source granule_nonnull: the parts' Stats records");
     for (p, spec) in list.parts().iter().enumerate() {
         step.tick().map_err(|_| err(WALK_CANCELED))?;
@@ -4450,7 +6317,8 @@ pub fn granule_nonnull(list: &PartList, attno: u32) -> PgResult<Vec<u64>> {
             // FASTADD: a column the part lacks: its stand-in's records
             Some(real) => list.lane_part(p, attno, real)?,
             None => {
-                opened = OpenPart::open(open_io(&spec.io).map_err(read_err)?, &spec.expect).map_err(read_err)?; // alloc: Cold
+                opened = OpenPart::open(open_io(&spec.io).map_err(read_err)?, &spec.expect)
+                    .map_err(read_err)?; // alloc: Cold
                 &opened
             }
         };
@@ -4478,7 +6346,9 @@ fn part_has_null(part: &OpenPart, body: &[u8]) -> Option<bool> {
         step.batch(g as usize).ok()?;
         let rows = pgrc_format::geom::rows_in_granule_at(part.rows(), part.grain(), g);
         let off = g as usize * STATS_RECORD_LEN;
-        let r = body.get(off..off + STATS_RECORD_LEN).and_then(|b| StatsRecord::decode(&mut Cur::new(b)).ok())?;
+        let r = body
+            .get(off..off + STATS_RECORD_LEN)
+            .and_then(|b| StatsRecord::decode(&mut Cur::new(b)).ok())?;
         if r.nonnull < rows {
             return Some(true);
         }
@@ -4487,7 +6357,14 @@ fn part_has_null(part: &OpenPart, body: &[u8]) -> Option<bool> {
 }
 
 /// `zone_walk_reach` over a walk order (`order` / `mins` as `ZoneOrder` holds them), every granule's zone range and rows.
-pub fn walk_reach(order: &[u32], mins: &[i64], ranges: &[(i64, i64)], rows_of: impl Fn(u32) -> u64, desc: bool, n: u64) -> usize {
+pub fn walk_reach(
+    order: &[u32],
+    mins: &[i64],
+    ranges: &[(i64, i64)],
+    rows_of: impl Fn(u32) -> u64,
+    desc: bool,
+    n: u64,
+) -> usize {
     let (mut rows, mut far) = (0u64, i64::MIN);
     // one tick per BATCH granules; a cancel answers every granule (the plain read's reach: the caller's next tick stops it)
     let mut step = cancelpoll::step("granule_source walk_reach: the walk's census");
@@ -4510,13 +6387,25 @@ pub fn walk_reach(order: &[u32], mins: &[i64], ranges: &[(i64, i64)], rows_of: i
 /// PL-06: the walk order of a NULLS FIRST run over a nullable key (`granule_walk_keys` with `nulls_first`: the resident
 /// zone column keeps no null counts, the granules' stats records do), resident per `(generation, relation, column,
 /// direction)` under its own tags; read once per list generation.
-pub fn nulls_first_walk_order(rel: &Relation<'_>, list: &PartList, attno: u32, desc: bool) -> PgResult<Arc<ZoneOrder>> {
+pub fn nulls_first_walk_order(
+    rel: &Relation<'_>,
+    list: &PartList,
+    attno: u32,
+    desc: bool,
+) -> PgResult<Arc<ZoneOrder>> {
     let storable = zone_storable(list);
-    let key = (list.generation(), rel.rd_id, zone_ask(if desc { 7 } else { 6 }, [attno as u64]));
+    let key = (
+        list.generation(),
+        rel.rd_id,
+        zone_ask(if desc { 7 } else { 6 }, [attno as u64]),
+    );
     if let Some(ZoneEntry::Order(o)) = storable.then(|| zone_lookup(&key)).flatten() {
         return Ok(o);
     }
-    let o = Arc::new(ZoneOrder::of(&granule_walk_keys(list, attno, desc, true)?, list)?); // alloc: Cold
+    let o = Arc::new(ZoneOrder::of(
+        &granule_walk_keys(list, attno, desc, true)?,
+        list,
+    )?); // alloc: Cold
     if storable {
         zone_store(key, ZoneEntry::Order(Arc::clone(&o)), o.bytes());
     }
@@ -4526,9 +6415,13 @@ pub fn nulls_first_walk_order(rel: &Relation<'_>, list: &PartList, attno: u32, d
 /// Whether the granules' zone ranges of `attno` are disjoint and ascending in scan order (a key
 /// value never spans two non-adjacent granules): the dominance form's gate (`t3::MISC_DOMINANT`).
 pub fn granules_ordered(rel: &Relation<'_>, attno: u32) -> PgResult<bool> {
-    let Some(col) = visible_zone_column(rel, attno)? else { return Ok(false) };
+    let Some(col) = visible_zone_column(rel, attno)? else {
+        return Ok(false);
+    };
     let r = col.ranges();
-    Ok(!r.is_empty() && r.iter().all(|&(lo, hi)| lo <= hi) && r.windows(2).all(|w| w[0].1 <= w[1].0))
+    Ok(!r.is_empty()
+        && r.iter().all(|&(lo, hi)| lo <= hi)
+        && r.windows(2).all(|w| w[0].1 <= w[1].0))
 }
 
 /// The exact key range of `attno` over the list's parts (this snapshot's parts, not the newest generation's), from each
@@ -4549,11 +6442,16 @@ pub fn part_extrema(list: &PartList, attno: u32) -> PgResult<Option<(i64, i64)>>
                     // FASTADD: a column the part lacks: its stand-in's record
                     Some(real) => list.lane_part(p, attno, real)?,
                     None => {
-                        opened = OpenPart::open(open_io(&spec.io).map_err(read_err)?, &spec.expect).map_err(read_err)?; // alloc: Cold
+                        opened = OpenPart::open(open_io(&spec.io).map_err(read_err)?, &spec.expect)
+                            .map_err(read_err)?; // alloc: Cold
                         &opened
                     }
                 };
-                let why = if list.lacks(p, attno) { FirstTouch::StandIn } else { FirstTouch::NoAnswers };
+                let why = if list.lacks(p, attno) {
+                    FirstTouch::StandIn
+                } else {
+                    FirstTouch::NoAnswers
+                };
                 let body = stats_body(part, attno, 0, why)?;
                 body.as_deref().and_then(|b| {
                     let at = (b.len() / STATS_RECORD_LEN).checked_sub(1)? * STATS_RECORD_LEN;
@@ -4563,7 +6461,11 @@ pub fn part_extrema(list: &PartList, attno: u32) -> PgResult<Option<(i64, i64)>>
         };
         match rec {
             Some(r) if r.nonnull == 0 => {}
-            Some(r) if r.key_kind == KeyKind::Exact.as_u8() && (r.min_key, r.max_key) != (i64::MIN, i64::MAX) && r.min_key <= r.max_key => {
+            Some(r)
+                if r.key_kind == KeyKind::Exact.as_u8()
+                    && (r.min_key, r.max_key) != (i64::MIN, i64::MAX)
+                    && r.min_key <= r.max_key =>
+            {
                 (lo, hi) = (lo.min(r.min_key), hi.max(r.max_key));
             }
             _ => return Ok(None),
@@ -4584,9 +6486,14 @@ pub fn granule_minima(list: &PartList, attno: u32) -> PgResult<Vec<i64>> {
 /// `nulls_first` (PL-06, a NULLS FIRST walk over a nullable key): a granule holding a NULL — its record's non-null count
 /// under its rows — keys `i64::MIN` too, so it walks first and no bound lies under it (a NULLS FIRST run's NULL row
 /// bounds at `i64::MIN`, exec merge.rs `run_bound`). A deleted row still counts: such a granule only walks early.
-pub fn granule_walk_keys(list: &PartList, attno: u32, desc: bool, nulls_first: bool) -> PgResult<Vec<i64>> {
+pub fn granule_walk_keys(
+    list: &PartList,
+    attno: u32,
+    desc: bool,
+    nulls_first: bool,
+) -> PgResult<Vec<i64>> {
     let mut out = Vec::with_capacity(list.granules() as usize); // alloc: Exec
-    // a tick per part (its open and Stats body read), one per BATCH granules
+                                                                // a tick per part (its open and Stats body read), one per BATCH granules
     let mut step = cancelpoll::step("granule_source granule_walk_keys: the parts' Stats records");
     for (p, spec) in list.parts().iter().enumerate() {
         step.tick().map_err(|_| err(WALK_CANCELED))?;
@@ -4595,7 +6502,8 @@ pub fn granule_walk_keys(list: &PartList, attno: u32, desc: bool, nulls_first: b
             // FASTADD: a column the part lacks: its stand-in's records
             Some(real) => list.lane_part(p, attno, real)?,
             None => {
-                opened = OpenPart::open(open_io(&spec.io).map_err(read_err)?, &spec.expect).map_err(read_err)?; // alloc: Cold
+                opened = OpenPart::open(open_io(&spec.io).map_err(read_err)?, &spec.expect)
+                    .map_err(read_err)?; // alloc: Cold
                 &opened
             }
         };
@@ -4605,9 +6513,11 @@ pub fn granule_walk_keys(list: &PartList, attno: u32, desc: bool, nulls_first: b
             let rows = pgrc_format::geom::rows_in_granule_at(part.rows(), part.grain(), g);
             let min = body.as_deref().and_then(|b| {
                 let off = g as usize * STATS_RECORD_LEN;
-                let rec = StatsRecord::decode(&mut Cur::new(b.get(off..off + STATS_RECORD_LEN)?)).ok()?;
+                let rec =
+                    StatsRecord::decode(&mut Cur::new(b.get(off..off + STATS_RECORD_LEN)?)).ok()?;
                 let nulls = nulls_first && rec.nonnull < rows;
-                (rec.key_kind == KeyKind::Exact.as_u8() && rec.nonnull > 0 && !nulls).then_some(if desc { !rec.max_key } else { rec.min_key })
+                (rec.key_kind == KeyKind::Exact.as_u8() && rec.nonnull > 0 && !nulls)
+                    .then_some(if desc { !rec.max_key } else { rec.min_key })
             });
             out.push(min.unwrap_or(i64::MIN));
         }
@@ -4615,11 +6525,12 @@ pub fn granule_walk_keys(list: &PartList, attno: u32, desc: bool, nulls_first: b
     Ok(out)
 }
 
-
 pub(crate) fn open_io(spec: &PartIoSpec) -> ReadResult<Box<dyn PartIo>> {
     match spec {
         PartIoSpec::Path(p) => Ok(Box::new(VfsPartIo::open(p)?)), // alloc: Exec
-        PartIoSpec::Mem { bytes, dev, ino } => Ok(Box::new(MemPartIo::new(bytes.to_vec(), *dev, *ino))), // alloc: Cold
+        PartIoSpec::Mem { bytes, dev, ino } => {
+            Ok(Box::new(MemPartIo::new(bytes.to_vec(), *dev, *ino)))
+        } // alloc: Cold
     }
 }
 
@@ -4629,7 +6540,10 @@ pub(crate) fn open_io(spec: &PartIoSpec) -> ReadResult<Box<dyn PartIo>> {
 #[allow(clippy::large_enum_variant)]
 enum Dict {
     Part(DictHandle),
-    Ranked { table: crate::dict::text_hosts::FpPin, epoch: u64 },
+    Ranked {
+        table: crate::dict::text_hosts::FpPin,
+        epoch: u64,
+    },
 }
 
 impl Dict {
@@ -4658,7 +6572,10 @@ pub struct DictEntry {
 
 impl DictEntry {
     fn new(dict: Dict) -> DictEntry {
-        DictEntry { held: OnceLock::new(), dict }
+        DictEntry {
+            held: OnceLock::new(),
+            dict,
+        }
     }
 
     /// D4482 b: `e`, just allocated on this thread, offered to a list's warm cell: its `Arc` block on the part cache's
@@ -4670,7 +6587,13 @@ impl DictEntry {
             Dict::Ranked { .. } => 0,
         };
         let bytes = core::mem::size_of::<DictEntry>() + 2 * core::mem::size_of::<usize>() + loose;
-        let _ = e.held.set(memledger::Charge::open(memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache)), memledger::Release::Evict, memledger::Kind::Region, memledger::charge::Door::Heap, bytes as u64));
+        let _ = e.held.set(memledger::Charge::open(
+            memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache)),
+            memledger::Release::Evict,
+            memledger::Kind::Region,
+            memledger::charge::Door::Heap,
+            bytes as u64,
+        ));
     }
 }
 
@@ -4678,7 +6601,7 @@ impl DictEntry {
 /// `part_gen` bumps at every part change, which frees every cell (by construction: a
 /// table lives while its part's windows are processed, never across statements).
 struct TableState {
-    cells: Vec<u64>,   // alloc: Node
+    cells: Vec<u64>, // alloc: Node
     once: Option<gravity_dict::OnceTable>,
     /// The tables' chunks: a build that overflows the last opens a new one (the earlier tables
     /// stay where a kernel holds them); all but the largest are dropped at the part change.
@@ -4691,7 +6614,11 @@ struct TableState {
     /// The process-resident `Fp128` tables published for this part (R2): pinned while a lane points at them.
     pinned: Vec<crate::dict::text_hosts::FpPin>, // alloc: Node
     /// The `TableFn::Program` tables allocated for the program's sweep, published at `LANE_DONE` (a sweep the statement never finishes drops the claim as failed).
-    pending: Vec<(usize, gravity_dict::once::Builder, *const gravity_dict::table::Header)>, // alloc: Node
+    pending: Vec<(
+        usize,
+        gravity_dict::once::Builder,
+        *const gravity_dict::table::Header,
+    )>, // alloc: Node
     /// D3115: this part's shared sweeps this source takes chunks of (published at `LANE_DONE`), and the swept ones its
     /// published headers read, pinned for the part.
     sweeps: Vec<SweepShare>, // alloc: Node
@@ -4716,12 +6643,18 @@ const ADAPT_HOSTED_PCT: u64 = gravity_program::cost::pgrc::ADAPT_HOSTED_PCT;
 
 const TABLE_REGION_MIN: usize = gravity_program::cost::pgrc::TABLE_REGION_MIN_BYTES;
 
-
 impl TableState {
     /// D3213: the chunks and lists kept between statements (`Source::kept_bytes`).
     fn kept_bytes(&self) -> usize {
         use gravity_driver::vec_bytes as v;
-        v(&self.cells) + v(&self.bufs) + self.bufs.iter().map(v).sum::<usize>() + v(&self.pinned) + v(&self.pending) + v(&self.sweeps) + v(&self.swept) + v(&self.adapt_lazy)
+        v(&self.cells)
+            + v(&self.bufs)
+            + self.bufs.iter().map(v).sum::<usize>()
+            + v(&self.pinned)
+            + v(&self.pending)
+            + v(&self.sweeps)
+            + v(&self.swept)
+            + v(&self.adapt_lazy)
     }
 
     /// D4536: a new chunk of at least `bytes` for the tables, charged to `held` as it is made: the lane that makes it
@@ -4743,7 +6676,22 @@ impl TableState {
     }
 
     fn new() -> TableState {
-        TableState { cells: Vec::new(), once: None, bufs: Vec::new(), used: 0, part_gen: 0, part: usize::MAX, fmgr: None, built: 0, pinned: Vec::new(), pending: Vec::new(), sweeps: Vec::new(), swept: Vec::new(), adapt_lazy: Vec::new(), adapt_hosted: 0 } // alloc: Node
+        TableState {
+            cells: Vec::new(),
+            once: None,
+            bufs: Vec::new(),
+            used: 0,
+            part_gen: 0,
+            part: usize::MAX,
+            fmgr: None,
+            built: 0,
+            pinned: Vec::new(),
+            pending: Vec::new(),
+            sweeps: Vec::new(),
+            swept: Vec::new(),
+            adapt_lazy: Vec::new(),
+            adapt_hosted: 0,
+        } // alloc: Node
     }
 
     /// Enter part `p`: a new generation, the region rewound. D1747: a once-cell per table lane of the recipe (`slots`): a
@@ -5239,11 +7187,11 @@ impl GranuleRangeSource {
             cursor_low: 0,
             seen_epoch: Vec::new(), // alloc: Node
             lanes_open: Vec::new(), // alloc: Node
-            part_bind: Vec::new(), // alloc: Node
+            part_bind: Vec::new(),  // alloc: Node
             binds: 0,
             held_parts: Vec::new(), // alloc: Node
-            held_mark: Vec::new(), // alloc: Node
-            touched: Vec::new(), // alloc: Node
+            held_mark: Vec::new(),  // alloc: Node
+            touched: Vec::new(),    // alloc: Node
             touch_live: false,
             park_bind: 0,
             bind_owner: None,
@@ -5262,14 +7210,14 @@ impl GranuleRangeSource {
             arenas: Vec::new(), // alloc: Node
             lane_byref: LaneBits::new(natts),
             inplace: vec![core::ptr::null(); natts], // alloc: Node
-            valid: Vec::new(), // alloc: Node
-            sel: Vec::new(), // alloc: Node
-            sel16: Vec::new(), // alloc: Node
+            valid: Vec::new(),                       // alloc: Node
+            sel: Vec::new(),                         // alloc: Node
+            sel16: Vec::new(),                       // alloc: Node
             sel16_ok: false,
-            dense: Vec::new(), // alloc: Node
+            dense: Vec::new(),                   // alloc: Node
             mask: Box::new([0; VALIDITY_WORDS]), // alloc: Node
             selected: false,
-            all_valid: vec![true; natts], // alloc: Node
+            all_valid: vec![true; natts],        // alloc: Node
             dv: Box::new([0; DV_GRANULE_WORDS]), // alloc: Node
             has_dv: false,
             lo: 0,
@@ -5290,7 +7238,7 @@ impl GranuleRangeSource {
             nzone_static: 0,
             has_bound: false,
             bound_ok: true,
-            any: Vec::new(), // alloc: Exec
+            any: Vec::new(),      // alloc: Exec
             any_ends: Vec::new(), // alloc: Exec
             any_base: 0,
             any_ok: false,
@@ -5298,7 +7246,7 @@ impl GranuleRangeSource {
             tallied_win: false,
             nzone_bind: 0,
             zcode_images: Vec::new(), // alloc: Exec
-            zcode_preds: Vec::new(), // alloc: Exec
+            zcode_preds: Vec::new(),  // alloc: Exec
             zcode_part: usize::MAX,
             zlen: Vec::new(), // alloc: Exec
             ne_codes: [None; ROW_PREDS],
@@ -5329,19 +7277,19 @@ impl GranuleRangeSource {
             packed: 0,
             packed_win: 0,
             late_g: (0, 0, 0),
-            late_done: Vec::new(),  // alloc: Node
-            late_at: Vec::new(),    // alloc: Node
-            late_more: Vec::new(),  // alloc: Node
-            late_sel: Vec::new(),   // alloc: Node
+            late_done: Vec::new(), // alloc: Node
+            late_at: Vec::new(),   // alloc: Node
+            late_more: Vec::new(), // alloc: Node
+            late_sel: Vec::new(),  // alloc: Node
             guard_sel: Vec::new(), // alloc: Node
             guard_late: 0,
             guard_null: 0,
-            late_sel16: Vec::new(), // alloc: Node
-            late_cnt: Vec::new(),   // alloc: Node
-            late_req: Vec::new(),   // alloc: Node
-            late_span: Vec::new(),  // alloc: Node
-            late_calls: Vec::new(), // alloc: Node
-            claim_runs: Vec::new(), // alloc: Node
+            late_sel16: Vec::new(),      // alloc: Node
+            late_cnt: Vec::new(),        // alloc: Node
+            late_req: Vec::new(),        // alloc: Node
+            late_span: Vec::new(),       // alloc: Node
+            late_calls: Vec::new(),      // alloc: Node
+            claim_runs: Vec::new(),      // alloc: Node
             claim_miss_runs: Vec::new(), // alloc: Node
             unpin: false,
             unpin_at: (usize::MAX, u32::MAX),
@@ -5377,7 +7325,7 @@ impl GranuleRangeSource {
             answered: false,
             entries_staged: false,
             runs_ok: false,
-            runs_seen: Vec::new(), // alloc: Node
+            runs_seen: Vec::new(),  // alloc: Node
             nulls_seen: Vec::new(), // alloc: Node
             runs: crate::ops::scan::pgrc::entry_runs::Runs::default(),
             answers: vec![Answer::NONE; natts], // alloc: Node
@@ -5393,8 +7341,8 @@ impl GranuleRangeSource {
             octet_memo: None,
             octet_bits: [0; VALIDITY_WORDS],
             octet_words: Vec::new(), // alloc: Node
-            char_lens: Vec::new(), // alloc: Node
-            char_src: Vec::new(), // alloc: Node
+            char_lens: Vec::new(),   // alloc: Node
+            char_src: Vec::new(),    // alloc: Node
             cursors_held: 0,
             kept_pool: None,
             render: Vec::new(), // alloc: Node
@@ -5472,10 +7420,17 @@ impl GranuleRangeSource {
             self.settle_pending();
         }
         let resolved = Resolved::of(b)?;
-        let rel = resolved.index_of(self.recipe.rel).ok_or_else(|| err("gravity: granule source bound without a part list"))?;
+        let rel = resolved
+            .index_of(self.recipe.rel)
+            .ok_or_else(|| err("gravity: granule source bound without a part list"))?;
         let rp = &resolved.rels[rel];
         let natts = self.recipe.natts;
-        if self.recipe.attnos.iter().any(|&a| a < 0 || a as usize >= MAX_FACE_ATTNO) {
+        if self
+            .recipe
+            .attnos
+            .iter()
+            .any(|&a| a < 0 || a as usize >= MAX_FACE_ATTNO)
+        {
             return Err(err("gravity: granule source lane outside the face table"));
         }
         let list = Arc::clone(&rp.list);
@@ -5484,18 +7439,26 @@ impl GranuleRangeSource {
         for k in 0..natts {
             let attno = self.recipe.attnos[k] as u32;
             let face = match self.recipe.shred_of(k) {
-                Some(s) => list.faces.shred_face(attno, s).ok_or_else(|| err("gravity: more shred lanes than the list's face slots"))?,
+                Some(s) => list
+                    .faces
+                    .shred_face(attno, s)
+                    .ok_or_else(|| err("gravity: more shred lanes than the list's face slots"))?,
                 None => attno,
             };
             self.faces.push(face); // alloc: Node
         }
-        self.rows_lane = (0..natts).find(|&k| self.recipe.shred_of(k).is_none()).unwrap_or(0);
+        self.rows_lane = (0..natts)
+            .find(|&k| self.recipe.shred_of(k).is_none())
+            .unwrap_or(0);
         if list.generation() != self.cursor_generation {
             self.drop_cursors()?;
             self.cursor_generation = list.generation();
         }
         // D4315: whether this execution's cursors pass behind them (`unpin_window`): a releasing scan in granule order
-        let unpin = crate::inputs::unpin_behind_enabled() && rp.stmt.is_some() && resolved.order_of(self.site).is_none() && self.recipe.sample.is_none();
+        let unpin = crate::inputs::unpin_behind_enabled()
+            && rp.stmt.is_some()
+            && resolved.order_of(self.site).is_none()
+            && self.recipe.sample.is_none();
         if mempolicy::keep::kept_parked() {
             self.bind_owner = Some(to);
             self.slot_bound = b.ordinal.is_some();
@@ -5520,7 +7483,12 @@ impl GranuleRangeSource {
             });
         }
         // D4554: their pooled tables with them, once (a rejoin homes a cursor's tables on its statement or portal)
-        if let Some(pool) = self.kept_pool.as_ref().filter(|_| matches!(to, memledger::Owner::Statement { .. } | memledger::Owner::Portal { .. })) {
+        if let Some(pool) = self.kept_pool.as_ref().filter(|_| {
+            matches!(
+                to,
+                memledger::Owner::Statement { .. } | memledger::Owner::Portal { .. }
+            )
+        }) {
             pool.home(Some((to, memledger::Kind::Region)));
         }
         self.binds += 1;
@@ -5595,11 +7563,18 @@ impl GranuleRangeSource {
         self.key_vals = None;
         // NEW-72: a bound static predicate takes this execution's value; without one (no protocol, a contested cell) the
         // site takes no zone verdict in this execution: every window decodes and its filter runs per row
-        self.bound_ok = !self.has_bound || bind_statics(&mut self.zone[..], &self.cell.bound()).is_some();
+        self.bound_ok =
+            !self.has_bound || bind_statics(&mut self.zone[..], &self.cell.bound()).is_some();
         if !self.any.is_empty() {
             // D3009: the disjunctions' bound values follow the static predicates' slots
             let base = self.any_base;
-            let bound: Vec<(u16, i64)> = self.cell.bound().iter().filter(|&&(at, _)| at as usize >= base).map(|&(at, v)| ((at as usize - base) as u16, v)).collect(); // alloc: Exec
+            let bound: Vec<(u16, i64)> = self
+                .cell
+                .bound()
+                .iter()
+                .filter(|&&(at, _)| at as usize >= base)
+                .map(|&(at, v)| ((at as usize - base) as u16, v))
+                .collect(); // alloc: Exec
             self.any_ok = bind_statics(&mut self.any[..], &bound).is_some();
         }
         if self.on(VERDICT_ZONE) && self.bound_ok {
@@ -5609,7 +7584,7 @@ impl GranuleRangeSource {
             let ns = self.nzone_static;
             let wz = self.cell.word_zone();
             self.zone.reserve(wz.len()); // alloc: Exec
-            // bounded("other: one zone predicate of the statement's own quals each (an IN list's member is one): the query text bounds them, and PG's ExecQual tests the same quals per row with no poll")
+                                         // bounded("other: one zone predicate of the statement's own quals each (an IN list's member is one): the query text bounds them, and PG's ExecQual tests the same quals per row with no poll")
             for z in wz.iter() {
                 if (z.lane as usize) < natts && !self.zone[..ns].contains(z) {
                     self.zone.push(*z); // alloc: Exec
@@ -5617,7 +7592,12 @@ impl GranuleRangeSource {
             }
             drop(wz);
             // PS1-05: the open-time ones are read at each seek (`key_zone_seek`), after these
-            self.key_zone.extend(self.cell.key_zone().iter().filter(|z| (z.lane as usize) < natts)); // alloc: Exec
+            self.key_zone.extend(
+                self.cell
+                    .key_zone()
+                    .iter()
+                    .filter(|z| (z.lane as usize) < natts),
+            ); // alloc: Exec
         }
         // sortpath: the text constants the parts' code zones place (read at each part's pin: `pin_codes`)
         self.zcode_images.clear();
@@ -5625,7 +7605,13 @@ impl GranuleRangeSource {
         self.ne_part = usize::MAX;
         self.part_dec_p = usize::MAX;
         if self.on(VERDICT_ZONE) && self.bound_ok {
-            self.zcode_images.extend(self.cell.code_images().iter().filter(|c| (c.lane as usize) < natts).cloned()); // alloc: Exec
+            self.zcode_images.extend(
+                self.cell
+                    .code_images()
+                    .iter()
+                    .filter(|c| (c.lane as usize) < natts)
+                    .cloned(),
+            ); // alloc: Exec
         }
         let n = self.zone.len();
         let mut zlen = core::mem::take(&mut self.zlen);
@@ -5647,12 +7633,23 @@ impl GranuleRangeSource {
             self.arm_record_lanes();
         }
         self.nzone_decl = if self.bound_ok { n } else { 0 };
-        self.nzone = if self.zone_on() && self.bound_ok { n } else { 0 };
+        self.nzone = if self.zone_on() && self.bound_ok {
+            n
+        } else {
+            0
+        };
         self.kept_mode = false;
         self.lens_mode = false;
         self.kept_mode = self.kept_mode_of();
         self.lens_mode = self.lens_mode_of();
-        self.cond_fp = if self.on(VERDICT_COND) && (self.recipe.cond_ok || self.recipe.cond_unlogged) && self.recipe.verdict_lane.is_some() { fp } else { [0, 0] };
+        self.cond_fp = if self.on(VERDICT_COND)
+            && (self.recipe.cond_ok || self.recipe.cond_unlogged)
+            && self.recipe.verdict_lane.is_some()
+        {
+            fp
+        } else {
+            [0, 0]
+        };
         self.cond_entry = None;
         self.cond_due = None;
         self.sparse_tab = None;
@@ -5665,15 +7662,43 @@ impl GranuleRangeSource {
         }
         self.rt_first = 0;
         self.rt_gen = u64::MAX;
-        let lanes = if natts >= 64 { u64::MAX } else { (1u64 << natts) - 1 };
+        let lanes = if natts >= 64 {
+            u64::MAX
+        } else {
+            (1u64 << natts) - 1
+        };
         // a shred lane decodes with the window, never late or packed: a part that did not elect its path has no cursor
-        let lanes = self.recipe.shred.iter().filter(|s| s.lane < 64).fold(lanes, |m, s| m & !(1u64 << s.lane));
-        self.late = if self.on(VERDICT_LATE) { self.cell.late() & lanes } else { 0 };
-        self.guard_late = self.recipe.late_guards.iter().filter(|g| g.0 < 64).fold(0u64, |m, g| m | 1 << g.0) & self.late;
-        self.guard_null = self.recipe.shred.iter().filter(|s| s.lane < 64 && !s.presence && !s.octet && null_when_absent(&s.path)).fold(0u64, |m, s| m | 1 << s.lane);
+        let lanes = self
+            .recipe
+            .shred
+            .iter()
+            .filter(|s| s.lane < 64)
+            .fold(lanes, |m, s| m & !(1u64 << s.lane));
+        self.late = if self.on(VERDICT_LATE) {
+            self.cell.late() & lanes
+        } else {
+            0
+        };
+        self.guard_late = self
+            .recipe
+            .late_guards
+            .iter()
+            .filter(|g| g.0 < 64)
+            .fold(0u64, |m, g| m | 1 << g.0)
+            & self.late;
+        self.guard_null = self
+            .recipe
+            .shred
+            .iter()
+            .filter(|s| s.lane < 64 && !s.presence && !s.octet && null_when_absent(&s.path))
+            .fold(0u64, |m, s| m | 1 << s.lane);
         self.late_pend = 0;
         let fits = natts * (ROWS + PF_WORDS) * 8 <= u32::MAX as usize;
-        self.packed = if self.on(VERDICT_PACKED) && fits { self.cell.packed() & lanes } else { 0 };
+        self.packed = if self.on(VERDICT_PACKED) && fits {
+            self.cell.packed() & lanes
+        } else {
+            0
+        };
         self.arm_map();
         self.packed_win = 0;
         if (self.late | self.packed) != 0 && self.late_at.len() < natts {
@@ -5697,8 +7722,21 @@ impl GranuleRangeSource {
             self.ss_at = match b.ordinal {
                 None => {
                     let key = self.recipe.key_lane;
-                    let keyed = key.is_some() && self.zone[..self.nzone].iter().any(|z| Some(z.lane) == key && matches!(z.op, ZoneOp::Lt | ZoneOp::Le | ZoneOp::Eq | ZoneOp::Ge | ZoneOp::Gt));
-                    pgrc_am::scanstats::granule_scan_start(self.recipe.rel, keyed, l.rows(), l.granules(), l.deleted())
+                    let keyed = key.is_some()
+                        && self.zone[..self.nzone].iter().any(|z| {
+                            Some(z.lane) == key
+                                && matches!(
+                                    z.op,
+                                    ZoneOp::Lt | ZoneOp::Le | ZoneOp::Eq | ZoneOp::Ge | ZoneOp::Gt
+                                )
+                        });
+                    pgrc_am::scanstats::granule_scan_start(
+                        self.recipe.rel,
+                        keyed,
+                        l.rows(),
+                        l.granules(),
+                        l.deleted(),
+                    )
                 }
                 Some(_) => pgrc_am::scanstats::gravity_slot(self.recipe.rel),
             };
@@ -5722,7 +7760,9 @@ impl GranuleRangeSource {
     /// qual: a NULL row fails it, the qual being strict). The table is the part's (`sparse_table`, kept for the part); a
     /// counting execution (D1536) never takes it.
     fn code_part_none(&mut self, p: usize) -> PgResult<bool> {
-        let Some((t, k)) = self.code_table().filter(|_| self.recipe.skipped.is_none()) else { return Ok(false) };
+        let Some((t, k)) = self.code_table().filter(|_| self.recipe.skipped.is_none()) else {
+            return Ok(false);
+        };
         if self.parts().list.faces.absent(self.face(k), p) {
             return Ok(false);
         }
@@ -5730,7 +7770,10 @@ impl GranuleRangeSource {
         if !matches!(self.dict_at(p, k).map(|e| &e.dict), Some(Dict::Part(_))) {
             return Ok(false);
         }
-        Ok(self.sparse_table(p, t)?.and_then(|v| v.bits()).is_some_and(|b| b.rejects_all()))
+        Ok(self
+            .sparse_table(p, t)?
+            .and_then(|v| v.bits())
+            .is_some_and(|b| b.rejects_all()))
     }
 
     /// PS1-05 (road `nest.eagersafe`): this seek's open-time zone predicates (`key_zone`: an eager-safe InitPlan's value the
@@ -5742,7 +7785,11 @@ impl GranuleRangeSource {
         if self.key_zone.is_empty() {
             return;
         }
-        let vals: Vec<Option<ZonePred>> = self.key_zone.iter().map(|z| z.pred(keys, keys_null)).collect(); // alloc: Exec
+        let vals: Vec<Option<ZonePred>> = self
+            .key_zone
+            .iter()
+            .map(|z| z.pred(keys, keys_null))
+            .collect(); // alloc: Exec
         if self.key_vals.as_ref() == Some(&vals) {
             return;
         }
@@ -5762,7 +7809,11 @@ impl GranuleRangeSource {
         }
         self.any_lanes();
         self.nzone_decl = if self.bound_ok { n } else { 0 };
-        self.nzone = if self.zone_on() && self.bound_ok { n } else { 0 };
+        self.nzone = if self.zone_on() && self.bound_ok {
+            n
+        } else {
+            0
+        };
         self.arm_map();
         self.dead_memo = None;
         self.stats_read = (usize::MAX, 0);
@@ -5808,7 +7859,9 @@ impl GranuleRangeSource {
         let part = rp.part_if_open(p).expect("pinned");
         for k in 0..self.recipe.natts {
             step.tick().map_err(|_| err(WALK_CANCELED))?;
-            if self.zone_lanes.has(k) && !self.mapped.has(k) && !self.record_lanes.has(k) || self.rt_measuring_lane(k) {
+            if self.zone_lanes.has(k) && !self.mapped.has(k) && !self.record_lanes.has(k)
+                || self.rt_measuring_lane(k)
+            {
                 rp.body(p, self.face(k), part)?;
             }
         }
@@ -5837,19 +7890,44 @@ impl GranuleRangeSource {
     /// width: the value every row holds, readable at the window's start though a late lane is not decoded yet.
     fn const_key_window(&mut self) -> PgResult<Option<usize>> {
         let k = const_key_lane(self.enables);
-        if self.has_dv || self.entries_staged || k >= self.recipe.natts || self.elided.has(k) || self.lane_byref.has(k) || self.recipe.kinds[k] != lane::KIND_BYVAL {
+        if self.has_dv
+            || self.entries_staged
+            || k >= self.recipe.natts
+            || self.elided.has(k)
+            || self.lane_byref.has(k)
+            || self.recipe.kinds[k] != lane::KIND_BYVAL
+        {
             return Ok(None);
         }
         let list = self.list.as_ref().expect("bound");
         let (p, attno, face) = (self.cur_part, self.recipe.attnos[k] as u32, self.face(k));
-        let (lg, prows) = ((self.staged - list.starts()[p]) as u32, list.parts()[p].rows);
-        let one = |f: ZoneFacts, rows: u64| f.key_kind == KeyKind::Exact.as_u8() && f.min_key == f.max_key && f.nonnull as u64 == rows;
+        let (lg, prows) = (
+            (self.staged - list.starts()[p]) as u32,
+            list.parts()[p].rows,
+        );
+        let one = |f: ZoneFacts, rows: u64| {
+            f.key_kind == KeyKind::Exact.as_u8()
+                && f.min_key == f.max_key
+                && f.nonnull as u64 == rows
+        };
         // the footer's zone map (in memory, per granule) vetoes before any Stats read: a window its map shows as two values
         // is not constant (a high-cardinality id: a pread per part for the record, or for the walk of a part recorded sorted, was
         // +1.5 % cold W0); without a map a record neither held nor catalogued is not read
-        let zone = list.zones.get().filter(|_| !Faces::is_shred(face)).and_then(|z| z.iter().find(|(a, _)| *a == attno)).map(|(_, c)| c.ranges()).filter(|r| r.len() as u64 == list.granules());
-        let single = zone.as_ref().map(|r| r[self.staged as usize].0 == r[self.staged as usize].1);
-        if single == Some(false) || single.is_none() && list.faces.lane(face).stats[p].get().is_none() && list.face_record(p, face).is_none() {
+        let zone = list
+            .zones
+            .get()
+            .filter(|_| !Faces::is_shred(face))
+            .and_then(|z| z.iter().find(|(a, _)| *a == attno))
+            .map(|(_, c)| c.ranges())
+            .filter(|r| r.len() as u64 == list.granules());
+        let single = zone
+            .as_ref()
+            .map(|r| r[self.staged as usize].0 == r[self.staged as usize].1);
+        if single == Some(false)
+            || single.is_none()
+                && list.faces.lane(face).stats[p].get().is_none()
+                && list.face_record(p, face).is_none()
+        {
             self.tally.const_key[0] += 1;
             return Ok(None);
         }
@@ -5858,10 +7936,20 @@ impl GranuleRangeSource {
         rp.stats(p, face, part)?;
         let pf = self.part_facts_of(p, k);
         let mut f = pf.filter(|&f| one(f, prows));
-        let sorted = |f: ZoneFacts| [Sortedness::Ascending, Sortedness::Descending, Sortedness::Constant].iter().any(|s| s.as_u8() == f.sorted);
+        let sorted = |f: ZoneFacts| {
+            [
+                Sortedness::Ascending,
+                Sortedness::Descending,
+                Sortedness::Constant,
+            ]
+            .iter()
+            .any(|s| s.as_u8() == f.sorted)
+        };
         if f.is_none() && pf.is_some_and(sorted) {
             rp.body(p, face, part)?;
-            f = self.facts_of(p, k, lg).filter(|&f| one(f, self.nrows as u64));
+            f = self
+                .facts_of(p, k, lg)
+                .filter(|&f| one(f, self.nrows as u64));
         }
         self.tally.const_key[f.is_some() as usize] += 1;
         let Some(f) = f else { return Ok(None) };
@@ -5883,7 +7971,10 @@ impl GranuleRangeSource {
         let body = self.parts().part_face(p, self.face(k))?;
         let n = body.len() / STATS_RECORD_LEN;
         let lg = n.checked_sub(1)?;
-        StatsRecord::decode(&mut Cur::new(body.get(lg * STATS_RECORD_LEN..(lg + 1) * STATS_RECORD_LEN)?)).ok()
+        StatsRecord::decode(&mut Cur::new(
+            body.get(lg * STATS_RECORD_LEN..(lg + 1) * STATS_RECORD_LEN)?,
+        ))
+        .ok()
     }
 
     /// Fill the answer records of the answer lanes for granule `lg` (`None`: the whole part `p`
@@ -5905,19 +7996,34 @@ impl GranuleRangeSource {
                 return false;
             }
             // NEW-47: an unsigned word's key is zero-extended; its min / max go as the program reads its 4-byte lane, signed
-            let word = |key: i64| if self.unsigned_key(k) { key as i32 as i64 } else { key };
+            let word = |key: i64| {
+                if self.unsigned_key(k) {
+                    key as i32 as i64
+                } else {
+                    key
+                }
+            };
             let (min, max) = (word(rec.min_key), word(rec.max_key));
             // a bool lane's record tallies its false rows (the record's `zero_count`, pgrc_meta `ZeroKind::BoolFalse`); no
             // other lane's tally is handed on: a comparison with a constant is answered from the zone verdict alone. A
             // one-byte lane with no profile may be a bool's: no exact answer then (the window decodes)
             let falses = match self.recipe.profiles.get(k) {
-                Some(Some(pr)) if pr.zero == pgrc_meta::profile::ZeroKind::BoolFalse => rec.zero_count,
+                Some(Some(pr)) if pr.zero == pgrc_meta::profile::ZeroKind::BoolFalse => {
+                    rec.zero_count
+                }
                 Some(Some(_)) => 0,
                 _ if self.recipe.widths.get(k) == Some(&1) => return false,
                 _ => 0,
             };
             let a = &mut self.answers[k];
-            *a = Answer { nonnull: rec.nonnull as u64, min, max, flags: ANSWER_MINMAX, false_count: falses, ..Answer::NONE };
+            *a = Answer {
+                nonnull: rec.nonnull as u64,
+                min,
+                max,
+                flags: ANSWER_MINMAX,
+                false_count: falses,
+                ..Answer::NONE
+            };
             a.set_sum(rec.sum_i128);
         }
         true
@@ -5944,7 +8050,13 @@ impl GranuleRangeSource {
     /// exact; false when the part goes granule by granule.
     fn stage_part(&mut self, list: &PartList, p: usize, unit: u64) -> PartStep {
         let spec = &list.parts()[p];
-        if self.order.is_some() || unit != list.starts()[p] || self.hi < list.end_of(p) || spec.deletes.is_some() || spec.rows > u32::MAX as u64 || self.nzone == 0 {
+        if self.order.is_some()
+            || unit != list.starts()[p]
+            || self.hi < list.end_of(p)
+            || spec.deletes.is_some()
+            || spec.rows > u32::MAX as u64
+            || self.nzone == 0
+        {
             return PartStep::Granules;
         }
         let rows = spec.rows as u32;
@@ -5963,7 +8075,12 @@ impl GranuleRangeSource {
             }
             V_ALL => {
                 // VERDICT_ELIDE_HIT: the zone does not decide the filter lanes' quals, so no part is answered whole
-                if self.on(VERDICT_ELIDE_HIT) || !self.filter_lanes.union_covers(&self.answer_lanes, self.recipe.natts) || !self.answer(p, None) {
+                if self.on(VERDICT_ELIDE_HIT)
+                    || !self
+                        .filter_lanes
+                        .union_covers(&self.answer_lanes, self.recipe.natts)
+                    || !self.answer(p, None)
+                {
                     return PartStep::Granules;
                 }
                 self.verdict = if mixed == 0 { V_ALL } else { V_MIXED };
@@ -5991,21 +8108,34 @@ impl GranuleRangeSource {
     /// row: `pgrc_write::elect` filters unreferenced entries at seal); a verbatim part walks its rows.
     /// PS1-25 (`path_entries`): the entries lane a text path's code lane, a part whose path dictionary is sealed publishes
     /// its entries, the guarded jsonb column each entry's one-key document (`path_docs`); a verbatim path's part its rows.
-    fn stage_entries(&mut self, list: &PartList, p: usize, unit: u64, g: u64) -> PgResult<PartStep> {
-        let Some(k) = self.recipe.entries else { return Ok(PartStep::Granules) };
+    fn stage_entries(
+        &mut self,
+        list: &PartList,
+        p: usize,
+        unit: u64,
+        g: u64,
+    ) -> PgResult<PartStep> {
+        let Some(k) = self.recipe.entries else {
+            return Ok(PartStep::Granules);
+        };
         if self.recipe.entries_every {
             return self.stage_entries_every(list, p, unit, g);
         }
         let spec = &list.parts()[p];
         let path = self.path_entries(k);
-        if !(path || self.recipe.natts == 1 && k == 0) || !entries_safe(spec, self.resolved_unbound()) || self.order.is_some() {
+        if !(path || self.recipe.natts == 1 && k == 0)
+            || !entries_safe(spec, self.resolved_unbound())
+            || self.order.is_some()
+        {
             return Ok(PartStep::Granules);
         }
         if path && !matches!(self.dict_at(p, k).map(|e| &e.dict), Some(Dict::Part(_))) {
             return Ok(PartStep::Granules);
         }
         let lg = g - list.starts()[p];
-        let Some(ncodes) = self.entry_count(p, k, lg == 0)? else { return Ok(PartStep::Granules) };
+        let Some(ncodes) = self.entry_count(p, k, lg == 0)? else {
+            return Ok(PartStep::Granules);
+        };
         // RD-dict.entries: a declarer that keeps NULL (`entries_nulls`) takes one NULL row after a part's entries when the
         // part's lane holds one (every row of a part with a NULL is not an entry, so `ncodes + 1` rows still fit its granules)
         let null = match self.recipe.entries_nulls {
@@ -6040,14 +8170,19 @@ impl GranuleRangeSource {
                 (true, true) => (ncodes - 1 - (lo + i as u64)) as u32,
             };
         }
-        debug_assert!(codes[..nv].windows(2).all(|w| if desc { w[0] > w[1] } else { w[0] < w[1] }), "an entries window's codes run in the declarer's order (code.cut's early end)");
+        debug_assert!(
+            codes[..nv]
+                .windows(2)
+                .all(|w| if desc { w[0] > w[1] } else { w[0] < w[1] }),
+            "an entries window's codes run in the declarer's order (code.cut's early end)"
+        );
         self.all_valid[k] = nv == n;
         if nv < n {
             // the part's NULL row (`entries_nulls`): row `nv`, the window's last, invalid
             let v = &mut self.valid[k * VALIDITY_WORDS..(k + 1) * VALIDITY_WORDS];
             v.fill(0);
             v[..nv / 64].fill(u64::MAX);
-            if ! nv.is_multiple_of( 64) {
+            if !nv.is_multiple_of(64) {
                 v[nv / 64] = (1u64 << (nv % 64)) - 1;
             }
         }
@@ -6057,7 +8192,10 @@ impl GranuleRangeSource {
     /// PS1-25: entries lane `k` is a text path's code lane (`with_shred_code_lane`) and the recipe's one other lane its
     /// jsonb column (the lane the path guards: `with_late_guard`).
     fn path_entries(&self, k: usize) -> bool {
-        self.recipe.natts == 2 && k < 2 && self.recipe.shred_of(k).is_some() && self.recipe.late_guards.contains(&((1 - k) as u8, k as u8))
+        self.recipe.natts == 2
+            && k < 2
+            && self.recipe.shred_of(k).is_some()
+            && self.recipe.late_guards.contains(&((1 - k) as u8, k as u8))
     }
 
     /// PS1-25: the jsonb column's cells of an entries window over path lane `k`'s sealed dictionary in part `p` (codes
@@ -6084,18 +8222,30 @@ impl GranuleRangeSource {
             }
             at
         };
-        if path.bytes().fold((false, false), |(esc, dot), b| (!esc && b == b'\\', dot || !esc && b == b'.')).1 {
+        if path
+            .bytes()
+            .fold((false, false), |(esc, dot), b| {
+                (!esc && b == b'\\', dot || !esc && b == b'.')
+            })
+            .1
+        {
             return Ok(false);
         }
         let klen = key(&mut []);
-        let Some(Dict::Part(d)) = self.dict_at(p, k).map(|e| &e.dict) else { return Ok(false) };
+        let Some(Dict::Part(d)) = self.dict_at(p, k).map(|e| &e.dict) else {
+            return Ok(false);
+        };
         let doc = |v: usize| (16 + klen + v).next_multiple_of(8);
         // a tick per entry sized and per entry copied (an entry's bytes are a value's)
         let mut step = cancelpoll::step("granule_source entries window: a path lane's documents");
         let mut total = 8;
         for i in 0..n {
             step.tick().map_err(|_| err(WALK_CANCELED))?;
-            total += doc(d.entry((lo as usize + i) as u32).map_err(read_err)?.bytes.len());
+            total += doc(d
+                .entry((lo as usize + i) as u32)
+                .map_err(read_err)?
+                .bytes
+                .len());
         }
         let arena = &mut self.arenas[c];
         if arena.len() < total {
@@ -6144,14 +8294,18 @@ impl GranuleRangeSource {
     /// granule that has no record is `NULLS_UNKNOWN` and walks its rows.
     fn part_nulls(&mut self, p: usize, k: usize) -> PgResult<u8> {
         if self.nulls_seen.len() <= p {
-            self.nulls_seen.resize(self.parts().list.len().max(p + 1), 0); // alloc: Node
+            self.nulls_seen
+                .resize(self.parts().list.len().max(p + 1), 0); // alloc: Node
         }
         if self.nulls_seen[p] == 0 {
             let face = self.face(k);
             let parts = self.parts();
             let fact = match parts.part_if_open(p) {
                 // the face's granule-grain body, read once per list generation (`body`, the granule walk's)
-                Some(part) => match parts.body(p, face, part)?.and_then(|b| part_has_null(part, b)) {
+                Some(part) => match parts
+                    .body(p, face, part)?
+                    .and_then(|b| part_has_null(part, b))
+                {
                     Some(true) => NULLS_SOME,
                     Some(false) => NULLS_NONE,
                     None => NULLS_UNKNOWN,
@@ -6168,7 +8322,13 @@ impl GranuleRangeSource {
     /// `j`'s own count its rows are invalid, a NULL the declarer's `count(DISTINCT)` skips. The window has the most rows any
     /// lane has (every lane's count is at most the part's rows, so the part's granules hold them). A part with a lane
     /// whose dictionary is not open walks its rows, every granule alike.
-    fn stage_entries_every(&mut self, list: &PartList, p: usize, unit: u64, g: u64) -> PgResult<PartStep> {
+    fn stage_entries_every(
+        &mut self,
+        list: &PartList,
+        p: usize,
+        unit: u64,
+        g: u64,
+    ) -> PgResult<PartStep> {
         let natts = self.recipe.natts;
         if !entries_safe(&list.parts()[p], self.resolved_unbound()) || self.order.is_some() {
             return Ok(PartStep::Granules);
@@ -6180,7 +8340,9 @@ impl GranuleRangeSource {
         let mut most = 0u64;
         for j in 0..natts {
             step.tick().map_err(|_| err(WALK_CANCELED))?;
-            let Some(nj) = self.entry_count(p, j, lg == 0)? else { return Ok(PartStep::Granules) };
+            let Some(nj) = self.entry_count(p, j, lg == 0)? else {
+                return Ok(PartStep::Granules);
+            };
             most = most.max(nj);
         }
         if lo >= most {
@@ -6189,7 +8351,11 @@ impl GranuleRangeSource {
         let n = (most - lo).min(ROWS as u64) as usize;
         for j in 0..natts {
             step.tick().map_err(|_| err(WALK_CANCELED))?;
-            let nj = self.entry_count(p, j, false)?.unwrap_or(0).saturating_sub(lo).min(n as u64) as usize;
+            let nj = self
+                .entry_count(p, j, false)?
+                .unwrap_or(0)
+                .saturating_sub(lo)
+                .min(n as u64) as usize;
             let codes = super::raw::words_as_u32_mut(&mut self.datums[j * ROWS..j * ROWS + n], n);
             // bounded("small-fixed: the codes of one entries window, at most GRANULE_ROWS (8192)")
             for (i, c) in codes.iter_mut().enumerate() {
@@ -6202,7 +8368,7 @@ impl GranuleRangeSource {
                 let v = &mut self.valid[j * VALIDITY_WORDS..(j + 1) * VALIDITY_WORDS];
                 v.fill(0);
                 v[..nj / 64].fill(u64::MAX);
-                if ! nj.is_multiple_of( 64) {
+                if !nj.is_multiple_of(64) {
                     v[nj / 64] = (1u64 << (nj % 64)) - 1;
                 }
             }
@@ -6253,7 +8419,9 @@ impl GranuleRangeSource {
         let tkey = self.table_key(p, 0, &part)?;
         let read_err_cell = core::cell::Cell::new(None);
         let fp = {
-            let Some(Dict::Part(d)) = self.dict_at(p, 0).map(|e| &e.dict) else { return Ok(false) };
+            let Some(Dict::Part(d)) = self.dict_at(p, 0).map(|e| &e.dict) else {
+                return Ok(false);
+            };
             let view = crate::dict::text_hosts::DictView::Part(d, &read_err_cell);
             crate::dict::text_hosts::fp_table_in(self.fp_memo(), &part, tkey, &view, 0, false)
         };
@@ -6264,7 +8432,11 @@ impl GranuleRangeSource {
             // the consumer's own table lane meets it again over the rows, where PG evaluates
             Err(crate::dict::text_hosts::TableBuildError::Region(_)) => None,
         };
-        self.runs_seen[p] = if runs.is_some() { RUNS_TAKEN } else { RUNS_ROWS };
+        self.runs_seen[p] = if runs.is_some() {
+            RUNS_TAKEN
+        } else {
+            RUNS_ROWS
+        };
         if let Some(t) = runs {
             self.runs.push(t);
         }
@@ -6284,7 +8456,9 @@ impl GranuleRangeSource {
     /// ticked after it (under the cgroup's reclaim one part's open and decode took up to 4.3 s whole).
     fn pin_part_step(&mut self, walk: &mut Step, list: &PartList, p: usize) -> PgResult<()> {
         {
-            let mut pin = cancelpoll::step("granule_source stage: a part's pin (lookup, zone stats and meta)");
+            let mut pin = cancelpoll::step(
+                "granule_source stage: a part's pin (lookup, zone stats and meta)",
+            );
             self.pin_part(&mut pin, list, p)?;
         }
         walk.tick().map_err(|_| err(WALK_CANCELED))
@@ -6302,16 +8476,31 @@ impl GranuleRangeSource {
         // run for the granules the map leaves Mixed (late_meta_need); the runtime filter's lane still reads its body here
         let rt = |k: usize| self.rt_measuring_lane(k);
         let pinned = |k: usize| !self.mapped.has(k) && !self.record_lanes.has(k) || rt(k);
-        if meta && self.zone[..self.nzone].iter().any(|z| pinned(z.lane as usize) && rp.meta_if_read(p, self.face(z.lane as usize)).is_none()) {
-            let lanes: Vec<(u32, bool)> = (0..self.recipe.natts) // alloc: Cold
-                .filter(|&k| self.zone_lanes.has(k) && pinned(k) || rt(k))
-                .map(|k| (self.face(k), self.zone[..self.nzone].iter().any(|z| z.lane as usize == k)))
-                .collect();
+        if meta
+            && self.zone[..self.nzone].iter().any(|z| {
+                pinned(z.lane as usize) && rp.meta_if_read(p, self.face(z.lane as usize)).is_none()
+            })
+        {
+            let lanes: Vec<(u32, bool)> =
+                (0..self.recipe.natts) // alloc: Cold
+                    .filter(|&k| self.zone_lanes.has(k) && pinned(k) || rt(k))
+                    .map(|k| {
+                        (
+                            self.face(k),
+                            self.zone[..self.nzone].iter().any(|z| z.lane as usize == k),
+                        )
+                    })
+                    .collect();
             rp.prefault_meta(p, &lanes, part, self.held.owner())?;
         }
         // D3155: the armed runtime filter's lane too, idle or measuring, when the catalog holds its part-grain record (no
         // part read): an idle sampled check reads it
-        let rt_part = |k: usize| self.rt.iter().any(|s| s.lane == k && s.armed() && !s.text()) && list.face_record(p, self.face(k)).is_some();
+        let rt_part = |k: usize| {
+            self.rt
+                .iter()
+                .any(|s| s.lane == k && s.armed() && !s.text())
+                && list.face_record(p, self.face(k)).is_some()
+        };
         for k in 0..self.recipe.natts {
             pin.tick().map_err(|_| err(WALK_CANCELED))?;
             if self.zone_lanes.has(k) || rt_part(k) {
@@ -6319,13 +8508,20 @@ impl GranuleRangeSource {
             }
         }
         if meta {
-            for z in self.zone[..self.nzone].iter().filter(|z| pinned(z.lane as usize)) {
+            for z in self.zone[..self.nzone]
+                .iter()
+                .filter(|z| pinned(z.lane as usize))
+            {
                 pin.tick().map_err(|_| err(WALK_CANCELED))?;
                 rp.meta(p, self.face(z.lane as usize), part)?;
             }
             // D3009: a disjunction's equality arms answer from their lanes' blooms
             if self.any_ok {
-                for z in self.any.iter().filter(|z| z.op == ZoneOp::Eq && pinned(z.lane as usize)) {
+                for z in self
+                    .any
+                    .iter()
+                    .filter(|z| z.op == ZoneOp::Eq && pinned(z.lane as usize))
+                {
                     pin.tick().map_err(|_| err(WALK_CANCELED))?;
                     rp.meta(p, self.face(z.lane as usize), part)?;
                 }
@@ -6340,7 +8536,11 @@ impl GranuleRangeSource {
         let rows = self.list.as_ref().map_or(0, |l| l.parts()[p].rows);
         // bounded("key-columns: one record lookup per mapped column, at most MaxTupleAttributeNumber (1664) columns")
         for k in 0..self.recipe.natts {
-            if self.mapped.has(k) && self.part_facts_of(p, k).is_some_and(|f| f.nonnull as u64 == rows) {
+            if self.mapped.has(k)
+                && self
+                    .part_facts_of(p, k)
+                    .is_some_and(|f| f.nonnull as u64 == rows)
+            {
                 all.set(k);
             }
         }
@@ -6354,7 +8554,8 @@ impl GranuleRangeSource {
     /// the whole part from the list alone.
     fn faces_known(&self, list: &PartList, p: usize) -> bool {
         let known = |k: usize| list.faces.lane(self.face(k)).stats[p].get().is_some();
-        (0..self.recipe.natts).all(|k| !(self.zone_lanes.has(k) || self.answer_lanes.has(k)) || known(k))
+        (0..self.recipe.natts)
+            .all(|k| !(self.zone_lanes.has(k) || self.answer_lanes.has(k)) || known(k))
     }
 
     /// Open part `p`'s lane cursors the first time a claim enters it; its dictionaries open at the
@@ -6383,8 +8584,13 @@ impl GranuleRangeSource {
                 // with no dictionary and no codes, its tables `raw::publish_empty_table`: M6 R3)
                 // FASTADD: a column the part lacks reads its stand-in
                 let lane = Arc::clone(self.parts().lane(p, self.face(k), &part)?);
-                let Some((attno, ord)) = self.parts().list.faces.stream_of(self.face(k), p, &lane)? else { continue };
-                let mut cur = Box::new(StreamCursor::open(lane, binding, attno, ord).map_err(read_err)?); // alloc: Exec
+                let Some((attno, ord)) =
+                    self.parts().list.faces.stream_of(self.face(k), p, &lane)?
+                else {
+                    continue;
+                };
+                let mut cur =
+                    Box::new(StreamCursor::open(lane, binding, attno, ord).map_err(read_err)?); // alloc: Exec
                 cur.set_pass_behind(self.unpin);
                 self.pool_cursor(&mut cur);
                 cur.set_owner(self.held.owner());
@@ -6427,7 +8633,11 @@ impl GranuleRangeSource {
         let (lo, hi) = (p * natts, (p + 1) * natts);
         let (nc, ns) = (self.cursors.len(), self.char_src.len());
         // bounded("key-columns: one part's cursors, two per read column at most")
-        for c in self.cursors[lo.min(nc)..hi.min(nc)].iter_mut().chain(self.char_src[lo.min(ns)..hi.min(ns)].iter_mut()).flatten() {
+        for c in self.cursors[lo.min(nc)..hi.min(nc)]
+            .iter_mut()
+            .chain(self.char_src[lo.min(ns)..hi.min(ns)].iter_mut())
+            .flatten()
+        {
             c.set_pass_behind(unpin);
             c.set_owner(owner);
         }
@@ -6436,7 +8646,17 @@ impl GranuleRangeSource {
     /// D4554: whether this source holds a cursor (decode or character-length) over part `q`.
     fn holds_part(&self, q: usize) -> bool {
         let natts = self.recipe.natts.max(1);
-        self.cursors.iter().skip(q * natts).take(natts).any(Option::is_some) || self.char_src.iter().skip(q * natts).take(natts).any(Option::is_some)
+        self.cursors
+            .iter()
+            .skip(q * natts)
+            .take(natts)
+            .any(Option::is_some)
+            || self
+                .char_src
+                .iter()
+                .skip(q * natts)
+                .take(natts)
+                .any(Option::is_some)
     }
 
     /// D4554: `held_parts` without the parts whose cursors all closed.
@@ -6445,7 +8665,16 @@ impl GranuleRangeSource {
         let (cursors, chars, mark) = (&self.cursors, &self.char_src, &mut self.held_mark);
         self.held_parts.retain(|&q| {
             let q = q as usize;
-            let open = cursors.iter().skip(q * natts).take(natts).any(Option::is_some) || chars.iter().skip(q * natts).take(natts).any(Option::is_some);
+            let open = cursors
+                .iter()
+                .skip(q * natts)
+                .take(natts)
+                .any(Option::is_some)
+                || chars
+                    .iter()
+                    .skip(q * natts)
+                    .take(natts)
+                    .any(Option::is_some);
             if !open {
                 if let Some(m) = mark.get_mut(q) {
                     *m = false;
@@ -6477,7 +8706,12 @@ impl GranuleRangeSource {
         // bounded("other: one check per part this source holds cursors over; it closes the stale ones")
         for i in 0..self.held_parts.len() {
             let q = self.held_parts[i] as usize;
-            if self.part_bind.get(q).is_some_and(|&b| mempolicy::keep::kept_stale(self.binds.saturating_sub(b))) && self.holds_part(q) {
+            if self
+                .part_bind
+                .get(q)
+                .is_some_and(|&b| mempolicy::keep::kept_stale(self.binds.saturating_sub(b)))
+                && self.holds_part(q)
+            {
                 self.close_cursors(q);
             }
         }
@@ -6486,7 +8720,10 @@ impl GranuleRangeSource {
     fn open_dicts(&mut self, p: usize) -> PgResult<()> {
         let mut step = cancelpoll::step("granule_source stage: a part's dictionaries opened");
         for k in 0..self.recipe.natts {
-            if self.recipe.kinds[k] == lane::KIND_CODES && !self.parts().list.faces.absent(self.face(k), p) && self.dict_at(p, k).is_none() {
+            if self.recipe.kinds[k] == lane::KIND_CODES
+                && !self.parts().list.faces.absent(self.face(k), p)
+                && self.dict_at(p, k).is_none()
+            {
                 self.open_dict(p, k)?;
                 // D3961: a tick per dictionary opened
                 step.tick().map_err(|_| err(WALK_CANCELED))?;
@@ -6506,7 +8743,12 @@ impl GranuleRangeSource {
     fn open_dict(&mut self, p: usize, k: usize) -> PgResult<()> {
         let j = self.face(k);
         // the open case first, with no Arc touched: every render asks
-        if self.cursors.get(p * self.recipe.natts + k).is_some_and(|c| c.is_some()) && self.dict_at(p, k).is_some() {
+        if self
+            .cursors
+            .get(p * self.recipe.natts + k)
+            .is_some_and(|c| c.is_some())
+            && self.dict_at(p, k).is_some()
+        {
             return Ok(());
         }
         let _step = cancelpoll::step("granule_source stage: a part's dictionary opened");
@@ -6519,8 +8761,12 @@ impl GranuleRangeSource {
         // this source's own cursor first: a render over a verbatim part decodes through it even when another source opened the dictionary
         if self.cursors[base + k].is_none() {
             let binding = pgrc_am::scan::codec_binding();
-            let Some((attno, ord)) = self.parts().list.faces.locate(j, p, &part)? else { return Ok(()) };
-            let mut cur = Box::new(StreamCursor::open(Arc::clone(&part), binding, attno, ord).map_err(read_err)?); // alloc: Exec
+            let Some((attno, ord)) = self.parts().list.faces.locate(j, p, &part)? else {
+                return Ok(());
+            };
+            let mut cur = Box::new(
+                StreamCursor::open(Arc::clone(&part), binding, attno, ord).map_err(read_err)?,
+            ); // alloc: Exec
             cur.set_pass_behind(self.unpin);
             self.pool_cursor(&mut cur);
             cur.set_owner(self.held.owner());
@@ -6543,12 +8789,31 @@ impl GranuleRangeSource {
         // grain — a lane whose only tables are its resident fingerprints, or tables whose builds read no entry
         // (`reads_no_entry`), walks nothing. A table that binary-searches the entries stays dense: its probes fault about
         // log2 of the payload's blocks, past the stream's break-even cold (`DictTouch`: two faults)
-        let mut over = self.recipe.tables.iter().filter(|t| t.over as usize == k && !t.func.reads_no_entry()).map(|t| &t.func).peekable();
+        let mut over = self
+            .recipe
+            .tables
+            .iter()
+            .filter(|t| t.over as usize == k && !t.func.reads_no_entry())
+            .map(|t| &t.func)
+            .peekable();
         let sparse = self.recipe.sparse_dicts
             && (over.peek().is_none()
-                || (over.clone().all(|f| matches!(f, crate::dict::text_hosts::TableFn::Fingerprint | crate::dict::text_hosts::TableFn::FingerprintBpchar)) && {
+                || (over.clone().all(|f| {
+                    matches!(
+                        f,
+                        crate::dict::text_hosts::TableFn::Fingerprint
+                            | crate::dict::text_hosts::TableFn::FingerprintBpchar
+                    )
+                }) && {
                     let tkey = self.table_key(p, k, &part)?;
-                    over.all(|f| crate::dict::text_hosts::fp_resident_as(&part, tkey, *f == crate::dict::text_hosts::TableFn::FingerprintBpchar).is_some())
+                    over.all(|f| {
+                        crate::dict::text_hosts::fp_resident_as(
+                            &part,
+                            tkey,
+                            *f == crate::dict::text_hosts::TableFn::FingerprintBpchar,
+                        )
+                        .is_some()
+                    })
                 }));
         // card C: a dictionary not brought by a values run (the entries road reads no codes) reads its wrapped index
         // and, when walked, its payload in one pread, not one each
@@ -6562,16 +8827,23 @@ impl GranuleRangeSource {
         let dense = sparse && renders != 0 && renders != u64::MAX && {
             let parts = self.parts().list.parts();
             let total = parts.iter().map(|s| s.rows as u128).sum::<u128>().max(1);
-            let share = (renders as u128 * parts[p].rows as u128 / total).min(u64::MAX as u128) as u64;
+            let share =
+                (renders as u128 * parts[p].rows as u128 / total).min(u64::MAX as u128) as u64;
             match self.parts().list.faces.locate(j, p, &part)? {
-                Some((attno, ord)) => pgrc_read::wrapped_dense_pays(&part, attno, ord, share).map_err(read_err)?,
+                Some((attno, ord)) => {
+                    pgrc_read::wrapped_dense_pays(&part, attno, ord, share).map_err(read_err)?
+                }
                 None => false,
             }
         };
         if dense {
             fires::fire_shared("dict.open.whole"); // shapecheck fire signal (REGISTRY P5-18): a bound's renders opened a part's dictionary whole
         }
-        let touch = (sparse && !dense).then_some(if renders == 0 { DictTouch::Sparse } else { DictTouch::Probe });
+        let touch = (sparse && !dense).then_some(if renders == 0 {
+            DictTouch::Sparse
+        } else {
+            DictTouch::Probe
+        });
         // D3823: a lane whose renders read a table derived from its dictionaries keeps them in the list's cells
         let keep = self.renders_derived(k);
         // D4347: a verbatim part's ranks walk (`row_codes`) reads the column whole, and a lane with a table over it (a LIKE
@@ -6584,7 +8856,11 @@ impl GranuleRangeSource {
             cur.hold_for_walks();
         }
         if run > 0 {
-            cur.stage_dict(tail.payload && pgrc_read::wrapped_payload_whole(touch), run, hole);
+            cur.stage_dict(
+                tail.payload && pgrc_read::wrapped_payload_whole(touch),
+                run,
+                hole,
+            );
         }
         rp.dict(p, j, &part, cur, &mut self.scratch, touch, keep)?;
         Ok(())
@@ -6595,7 +8871,16 @@ impl GranuleRangeSource {
     /// release would open the dictionary and build the table again (a `regexp_replace` key's emit opened 303 of them again).
     fn renders_derived(&self, k: usize) -> bool {
         use crate::dict::text_hosts::TableFn;
-        self.recipe.tables.iter().any(|t| t.over as usize == k && matches!(t.func, TableFn::RegexpReplace { .. } | TableFn::DerivedFingerprint { .. } | TableFn::DerivedCall { .. } | TableFn::Program { .. }))
+        self.recipe.tables.iter().any(|t| {
+            t.over as usize == k
+                && matches!(
+                    t.func,
+                    TableFn::RegexpReplace { .. }
+                        | TableFn::DerivedFingerprint { .. }
+                        | TableFn::DerivedCall { .. }
+                        | TableFn::Program { .. }
+                )
+        })
     }
 
     /// M2-ZONEREAD card C: whether code lane `k`'s dictionary payload in part `p` is walked entry by entry: a table whose
@@ -6605,19 +8890,42 @@ impl GranuleRangeSource {
     /// render may touch no row): those read as before.
     fn walks_payload(&self, p: usize, k: usize) -> bool {
         use crate::dict::text_hosts::TableFn;
-        let over = || self.recipe.tables.iter().filter(move |t| t.over as usize == k);
-        if over().any(|t| matches!(t.func, TableFn::Like { .. } | TableFn::LikeBound { .. } | TableFn::RankBpchar | TableFn::Canon | TableFn::CanonBpchar | TableFn::RegexpReplace { .. } | TableFn::DerivedFingerprint { .. } | TableFn::DerivedCall { .. } | TableFn::Program { .. })) {
+        let over = || {
+            self.recipe
+                .tables
+                .iter()
+                .filter(move |t| t.over as usize == k)
+        };
+        if over().any(|t| {
+            matches!(
+                t.func,
+                TableFn::Like { .. }
+                    | TableFn::LikeBound { .. }
+                    | TableFn::RankBpchar
+                    | TableFn::Canon
+                    | TableFn::CanonBpchar
+                    | TableFn::RegexpReplace { .. }
+                    | TableFn::DerivedFingerprint { .. }
+                    | TableFn::DerivedCall { .. }
+                    | TableFn::Program { .. }
+            )
+        }) {
             return true;
         }
         // the entries road reads the padded form (its runs); a bpchar key's trimmed form is its own table (D767)
-        let padded = self.recipe.entries == Some(k) || over().any(|t| t.func == TableFn::Fingerprint);
+        let padded =
+            self.recipe.entries == Some(k) || over().any(|t| t.func == TableFn::Fingerprint);
         let bpchar = over().any(|t| t.func == TableFn::FingerprintBpchar);
         if !padded && !bpchar {
             return false;
         }
         // FASTADD: the lane's part (a stand-in for a column the part lacks)
-        let Ok(part) = self.lane_part(p, k) else { return false };
-        let Ok(tkey) = self.table_key(p, k, &part) else { return true };
+        let Ok(part) = self.lane_part(p, k) else {
+            return false;
+        };
+        let Ok(tkey) = self.table_key(p, k, &part) else {
+            return true;
+        };
         let missing = |b: bool| crate::dict::text_hosts::fp_resident_as(&part, tkey, b).is_none();
         (padded && missing(false)) || (bpchar && missing(true))
     }
@@ -6633,8 +8941,14 @@ impl GranuleRangeSource {
             return DictTail::NONE;
         }
         match self.dict_at(p, k).map(|e| &e.dict) {
-            None => DictTail { index: true, payload: pgrc_read::wrapped_payload_whole(None) && self.walks_payload(p, k) },
-            Some(Dict::Part(d)) if !d.index_resident() => DictTail { index: true, payload: false },
+            None => DictTail {
+                index: true,
+                payload: pgrc_read::wrapped_payload_whole(None) && self.walks_payload(p, k),
+            },
+            Some(Dict::Part(d)) if !d.index_resident() => DictTail {
+                index: true,
+                payload: false,
+            },
             Some(_) => DictTail::NONE,
         }
     }
@@ -6649,9 +8963,15 @@ impl GranuleRangeSource {
     /// electing none of them; or the part's lanes not open) the part's own geometry.
     #[inline]
     fn granule_rows(&self, p: usize, lg: u32) -> u32 {
-        match self.cursors.get(p * self.recipe.natts + self.rows_lane).and_then(|c| c.as_deref()) {
+        match self
+            .cursors
+            .get(p * self.recipe.natts + self.rows_lane)
+            .and_then(|c| c.as_deref())
+        {
             Some(c) => c.rows_in_granule(lg),
-            None => self.parts().part_if_open(p).map_or(0, |part| pgrc_format::geom::rows_in_granule_at(part.rows(), part.grain(), lg)),
+            None => self.parts().part_if_open(p).map_or(0, |part| {
+                pgrc_format::geom::rows_in_granule_at(part.rows(), part.grain(), lg)
+            }),
         }
     }
 
@@ -6663,14 +8983,21 @@ impl GranuleRangeSource {
 
     /// Lane `k`'s part-resident table key in part `p` (`stream_key`): a column's attno, a shred lane's path key.
     fn table_key(&self, p: usize, k: usize, part: &OpenPart) -> PgResult<u32> {
-        let (attno, ord) = self.parts().list.faces.locate(self.face(k), p, part)?.ok_or_else(|| err("gravity: a table over a shred lane the part did not elect"))?;
+        let (attno, ord) = self
+            .parts()
+            .list
+            .faces
+            .locate(self.face(k), p, part)?
+            .ok_or_else(|| err("gravity: a table over a shred lane the part did not elect"))?;
         Ok(stream_key(attno, ord))
     }
 
     /// FASTADD: the part lane `k` of the pinned part `p` reads (`RelParts::lane`).
     fn lane_part(&self, p: usize, k: usize) -> PgResult<Arc<OpenPart>> {
         let rp = self.parts();
-        let real = rp.part_if_open(p).ok_or_else(|| err("gravity: a lane's part not pinned"))?;
+        let real = rp
+            .part_if_open(p)
+            .ok_or_else(|| err("gravity: a lane's part not pinned"))?;
         Ok(Arc::clone(rp.lane(p, self.face(k), real)?))
     }
 
@@ -6684,7 +9011,10 @@ impl GranuleRangeSource {
         }
         let spec = &list.parts()[p];
         let start = list.starts()[p];
-        let (lo, hi) = (g.saturating_sub(start), self.hi.min(list.end_of(p)).saturating_sub(start));
+        let (lo, hi) = (
+            g.saturating_sub(start),
+            self.hi.min(list.end_of(p)).saturating_sub(start),
+        );
         if lo >= hi || hi > u32::MAX as u64 {
             return;
         }
@@ -6714,20 +9044,35 @@ impl GranuleRangeSource {
         let claim = self.on(VERDICT_CLAIM) && self.cursors[base + self.rows_lane].is_some();
         // decode.unread: a hit reads no lane at all
         let unread = self.on(VERDICT_UNREAD);
-        let split = claim && self.cond_fp != [0, 0] && (unread || (self.filter_lanes.any() && (self.enables == VerdictCell::LEGACY || self.enables & VERDICT_ELIDE != 0)));
+        let split = claim
+            && self.cond_fp != [0, 0]
+            && (unread
+                || (self.filter_lanes.any()
+                    && (self.enables == VerdictCell::LEGACY || self.enables & VERDICT_ELIDE != 0)));
         if claim {
             for lg in lo as u32..hi as u32 {
                 if step.tick().is_err() {
                     break;
                 }
-                let rows = self.cursors[base + self.rows_lane].as_deref().expect("cursor").rows_in_granule(lg);
+                let rows = self.cursors[base + self.rows_lane]
+                    .as_deref()
+                    .expect("cursor")
+                    .rows_in_granule(lg);
                 if !self.admits(p, lg, rows) {
                     fires::fire_shared("pgrc.claim_hole"); // shapecheck fire signal (RD-read.claim): the run skips a refused granule
                     continue;
                 }
                 push(&mut runs, lg);
                 // admits asked the cache (cond_ready): an entry for `p` is the part's
-                if split && self.cond_entry.as_ref().is_none_or(|(q, e)| *q != p || matches!(e.get(lg as usize), crate::ops::scan::pgrc::cond_cache::Hit::Unknown)) {
+                if split
+                    && self.cond_entry.as_ref().is_none_or(|(q, e)| {
+                        *q != p
+                            || matches!(
+                                e.get(lg as usize),
+                                crate::ops::scan::pgrc::cond_cache::Hit::Unknown
+                            )
+                    })
+                {
                     push(&mut miss, lg);
                 }
             }
@@ -6748,10 +9093,17 @@ impl GranuleRangeSource {
                 if step.tick().is_err() {
                     break;
                 }
-                if elide.has(k) || (k < 64 && self.guard_late >> k & 1 != 0) || self.lens_unread(p, k) {
+                if elide.has(k)
+                    || (k < 64 && self.guard_late >> k & 1 != 0)
+                    || self.lens_unread(p, k)
+                {
                     continue;
                 }
-                let rs = if split && (unread || self.filter_lanes.has(k)) { &miss } else { &runs };
+                let rs = if split && (unread || self.filter_lanes.has(k)) {
+                    &miss
+                } else {
+                    &runs
+                };
                 let room = budget.saturating_sub(ADVISE_INFLIGHT.load(Ordering::Relaxed));
                 if room == 0 {
                     break;
@@ -6773,7 +9125,18 @@ impl GranuleRangeSource {
             self.ahead.fill(u32::MAX);
             self.ahead_split = (split, unread);
         }
-        self.prefetch_lanes(&mut step, p, lo as u32, true, &runs, &miss, &elide, (split, unread), run, hole);
+        self.prefetch_lanes(
+            &mut step,
+            p,
+            lo as u32,
+            true,
+            &runs,
+            &miss,
+            &elide,
+            (split, unread),
+            run,
+            hole,
+        );
         // the claim's reads ran: its advice leaves the budget
         if held > 0 {
             ADVISE_INFLIGHT.fetch_sub(held, Ordering::Relaxed);
@@ -6788,7 +9151,19 @@ impl GranuleRangeSource {
     /// lanes whose windows reached their end only after the first call (`first`: the claim's entry, which also brings the
     /// dictionary tail and the meta sections).
     #[allow(clippy::too_many_arguments)]
-    fn prefetch_lanes(&mut self, step: &mut cancelpoll::Step, p: usize, from: u32, first: bool, runs: &[(u32, u32)], miss: &[(u32, u32)], elide: &LaneBits, (split, unread): (bool, bool), run: u64, hole: u64) {
+    fn prefetch_lanes(
+        &mut self,
+        step: &mut cancelpoll::Step,
+        p: usize,
+        from: u32,
+        first: bool,
+        runs: &[(u32, u32)],
+        miss: &[(u32, u32)],
+        elide: &LaneBits,
+        (split, unread): (bool, bool),
+        run: u64,
+        hole: u64,
+    ) {
         let base = p * self.recipe.natts;
         // D4709: the call's read counts, added to the process totals once after the lanes (not five RMWs per lane)
         let mut pf = [0u64; 5];
@@ -6805,7 +9180,11 @@ impl GranuleRangeSource {
                 fires::fire_shared("octet.lens_unread"); // shapecheck fire signal (D3038 A): a claim skips a length-coded lane's column stream
                 continue;
             }
-            let rs = if split && (unread || self.filter_lanes.has(k)) { miss } else { runs };
+            let rs = if split && (unread || self.filter_lanes.has(k)) {
+                miss
+            } else {
+                runs
+            };
             // D4315: a lane reads ahead from `from` to its read-ahead end, again once its windows pass that end
             let mut clipped = core::mem::take(&mut self.ahead_runs);
             let rs = if self.unpin {
@@ -6823,7 +9202,11 @@ impl GranuleRangeSource {
                 let end = cur.read_ahead_end(from, run);
                 self.ahead[k] = end;
                 clipped.clear();
-                clipped.extend(rs.iter().map(|&(a, b)| (a.max(from), b.min(end))).filter(|r| r.0 < r.1)); // alloc: Node (kept at its high-water mark)
+                clipped.extend(
+                    rs.iter()
+                        .map(|&(a, b)| (a.max(from), b.min(end)))
+                        .filter(|r| r.0 < r.1),
+                ); // alloc: Node (kept at its high-water mark)
                 &clipped[..]
             } else {
                 rs
@@ -6845,7 +9228,11 @@ impl GranuleRangeSource {
                         }
                     }
                 }
-                let tail = if first { self.dict_tail(p, k) } else { DictTail::NONE };
+                let tail = if first {
+                    self.dict_tail(p, k)
+                } else {
+                    DictTail::NONE
+                };
                 let r = cur.prefetch_granule_runs_tail(rs, run, hole, tail, &secs[..ns]);
                 pf[0] += r[0];
                 pf[1] += r[1];
@@ -6878,7 +9265,12 @@ impl GranuleRangeSource {
             let base = p * self.recipe.natts;
             // bounded("key-columns: one cursor per lane of the part, at most MaxTupleAttributeNumber (1664)")
             for k in 0..self.recipe.natts {
-                if let Some(cur) = self.cursors.get_mut(base + k).and_then(|c| c.as_deref_mut()).filter(|c| c.walked()) {
+                if let Some(cur) = self
+                    .cursors
+                    .get_mut(base + k)
+                    .and_then(|c| c.as_deref_mut())
+                    .filter(|c| c.walked())
+                {
                     cur.pass_behind(lg);
                 }
             }
@@ -6889,9 +9281,15 @@ impl GranuleRangeSource {
             return;
         }
         let mut step = cancelpoll::step("granule_source stage: a lane's read-ahead");
-        let (runs, miss, elide) = (core::mem::take(&mut self.claim_runs), core::mem::take(&mut self.claim_miss_runs), core::mem::take(&mut self.scratch_b));
+        let (runs, miss, elide) = (
+            core::mem::take(&mut self.claim_runs),
+            core::mem::take(&mut self.claim_miss_runs),
+            core::mem::take(&mut self.scratch_b),
+        );
         let split = self.ahead_split;
-        self.prefetch_lanes(&mut step, p, lg, false, &runs, &miss, &elide, split, run, hole);
+        self.prefetch_lanes(
+            &mut step, p, lg, false, &runs, &miss, &elide, split, run, hole,
+        );
         self.claim_runs = runs;
         self.claim_miss_runs = miss;
         self.scratch_b = elide;
@@ -6902,12 +9300,16 @@ impl GranuleRangeSource {
         // D3887 (C9): the walk past granules and parts its zones and caches skip opens parts and reads their maps, unbounded
         // per call: a tick per granule and after each part-grain step; it stops on its statement's cancel (`crate::stash`
         // reports it as the cancel)
-        let mut step = cancelpoll::step("granule_source stage: the claim's walk to its next window");
+        let mut step =
+            cancelpoll::step("granule_source stage: the claim's walk to its next window");
         loop {
             step.tick().map_err(|_| err(WALK_CANCELED))?;
             // skewsplit (D3320): the granule step, before any part-grain step reads `hi`: an idle worker's ask moves the
             // claim's end to the midpoint of what is left (the back half is its claim now)
-            if let Some(mid) = self.cut.and_then(|c| c.step(self.g, self.granules_skipped.saturating_sub(self.cut_skip0))) {
+            if let Some(mid) = self
+                .cut
+                .and_then(|c| c.step(self.g, self.granules_skipped.saturating_sub(self.cut_skip0)))
+            {
                 self.hi = mid;
                 fires::fire_shared("pgrc.claim_cut");
             }
@@ -6919,7 +9321,9 @@ impl GranuleRangeSource {
                 return Ok(false);
             }
             // a borrow, not an Arc::clone per granule: every worker's clone and drop hit the list's one refcount line
-            let list: &PartList = self.list_unbound().ok_or_else(|| err("gravity: granule claim on an unbound source"))?;
+            let list: &PartList = self
+                .list_unbound()
+                .ok_or_else(|| err("gravity: granule claim on an unbound source"))?;
             // a walk order maps the claim's unit to its granule
             let unit = self.g;
             self.entries_staged = false;
@@ -6927,10 +9331,20 @@ impl GranuleRangeSource {
             self.sel_all = false;
             self.inplace.fill(core::ptr::null());
             let g = match &self.order {
-                Some(o) => *o.get(unit as usize).ok_or_else(|| err("gravity: walk unit outside the order"))? as u64,
+                Some(o) => *o
+                    .get(unit as usize)
+                    .ok_or_else(|| err("gravity: walk unit outside the order"))?
+                    as u64,
                 None => unit,
             };
-            let p = if self.cur_part < list.len() && g >= list.starts()[self.cur_part] && g < list.end_of(self.cur_part) { self.cur_part } else { list.part_of(g) };
+            let p = if self.cur_part < list.len()
+                && g >= list.starts()[self.cur_part]
+                && g < list.end_of(self.cur_part)
+            {
+                self.cur_part
+            } else {
+                list.part_of(g)
+            };
             if p != self.credit_part {
                 // D2985: the claim leaves the part it was in (never the previous claim's part: a claim credits only its own)
                 let q = core::mem::replace(&mut self.credit_part, p);
@@ -6947,7 +9361,13 @@ impl GranuleRangeSource {
                 // the serial census: a part wholly inside a dead range (no granule a zone predicate keeps) is
                 // jumped before it is armed, looked up or pinned, as the runner's census never claims it. D1536: a
                 // counting execution jumps only a whole part (a dead part has no deletes: its rows are its count)
-                if self.dead.as_deref().is_some_and(|d| dead_part(d, list.starts()[p], list.end_of(p))) && (self.recipe.skipped.is_none() || unit == list.starts()[p] && self.hi >= list.end_of(p)) {
+                if self
+                    .dead
+                    .as_deref()
+                    .is_some_and(|d| dead_part(d, list.starts()[p], list.end_of(p)))
+                    && (self.recipe.skipped.is_none()
+                        || unit == list.starts()[p] && self.hi >= list.end_of(p))
+                {
                     let end = self.hi.min(list.end_of(p));
                     self.count_skipped(list.parts()[p].rows);
                     self.granules_skipped += end - unit;
@@ -6969,7 +9389,7 @@ impl GranuleRangeSource {
                 // answers or skips a whole part before its lookup and pin, which a part the records decide never reads
                 late_pin = self.faces_known(list, p);
                 if !late_pin {
-                    self.pin_part_step(&mut step,list, p)?;
+                    self.pin_part_step(&mut step, list, p)?;
                 }
                 // PS1-22: a text key's runtime filter over the whole part from its dictionary's fingerprints (pinned first)
                 let mut text_cut = false;
@@ -6980,7 +9400,7 @@ impl GranuleRangeSource {
                         continue;
                     }
                     if late_pin {
-                        self.pin_part_step(&mut step,list, p)?;
+                        self.pin_part_step(&mut step, list, p)?;
                         late_pin = false;
                     }
                     let cut = self.rt_text_cuts(k, p)?;
@@ -7012,7 +9432,7 @@ impl GranuleRangeSource {
                 step.tick().map_err(|_| err(WALK_CANCELED))?;
             }
             if late_pin {
-                self.pin_part_step(&mut step,list, p)?;
+                self.pin_part_step(&mut step, list, p)?;
             }
             // P5-03 (the code verdict, `VERDICT_CODE_TABLE`): a part whose dictionary holds no code the leading code qual's
             // table may pass holds no survivor; the rest of the claim's granules in it are skipped before any lane opens
@@ -7076,7 +9496,12 @@ impl GranuleRangeSource {
             // a condition-cache hit decides the covered quals from its words, and the window is a covered one (the frame
             // skips its covered steps), so it leaves the filter-only lanes undecoded as an AllMatch window does
             let mut el = core::mem::take(&mut self.elided);
-            self.lane_elision_into(self.verdict, self.cond_hit == V_ALL, &self.lane_all, &mut el);
+            self.lane_elision_into(
+                self.verdict,
+                self.cond_hit == V_ALL,
+                &self.lane_all,
+                &mut el,
+            );
             self.elided = el;
             if (self.verdict != V_ALL || self.on(VERDICT_ELIDE_HIT)) && self.elided.any() {
                 self.tally.elided += self.elided.count() as u64;
@@ -7085,8 +9510,17 @@ impl GranuleRangeSource {
             // count deleted rows), every answer exact — a window of `rows` and records, no decode; never under
             // VERDICT_ELIDE_HIT, whose filter lanes' quals the zone does not decide. SRC-21: a window `Mixed` on its
             // tallied predicates alone is answered too (the fold counts its rows from the tally)
-            let deleted = list.parts()[p].deletes.as_ref().is_some_and(|d| d.granule_mask(lg).is_some());
-            self.answered = (self.verdict == V_ALL || self.verdict == V_MIXED && self.tallied_win) && !self.on(VERDICT_ELIDE_HIT) && self.filter_lanes.union_covers(&self.answer_lanes, self.recipe.natts) && !deleted && self.answer(p, Some(lg));
+            let deleted = list.parts()[p]
+                .deletes
+                .as_ref()
+                .is_some_and(|d| d.granule_mask(lg).is_some());
+            self.answered = (self.verdict == V_ALL || self.verdict == V_MIXED && self.tallied_win)
+                && !self.on(VERDICT_ELIDE_HIT)
+                && self
+                    .filter_lanes
+                    .union_covers(&self.answer_lanes, self.recipe.natts)
+                && !deleted
+                && self.answer(p, Some(lg));
             if self.answered {
                 fires::fire_shared("pgrc.answered");
                 self.nrows = rows as usize;
@@ -7099,7 +9533,11 @@ impl GranuleRangeSource {
             }
             // sortpath: a zone AllMatch window the zone covers passes every covered qual on every row (the frame elides the
             // covered steps and computes no words): the cache learns its all, so a later execution's hit takes it as one
-            if self.verdict == V_ALL && self.cond_hit == V_MIXED && !deleted && self.on(gravity_program::protos::VERDICT_ZONE_COVERS) {
+            if self.verdict == V_ALL
+                && self.cond_hit == V_MIXED
+                && !deleted
+                && self.on(gravity_program::protos::VERDICT_ZONE_COVERS)
+            {
                 if let Some((_, e)) = self.cond_entry.as_ref().filter(|(q, _)| *q == p) {
                     e.put(lg as usize, &[!0u64; VALIDITY_WORDS], rows as usize, 0);
                 }
@@ -7123,11 +9561,20 @@ impl GranuleRangeSource {
             // are granule-relative like the bits the program sets through it (lowerv4 frame/site.rs row_index); a window
             // no row survives publishes NoMatch now. Under VERDICT_ELIDE_HIT the zone does not cover every covered op, so
             // the frame tests them all in a zone AllMatch window too (no row dropped there): its words publish as well
-            debug_assert!(self.win.is_none() || !staged || self.selected, "a staged PSMA window is the host's selection (row_select)");
+            debug_assert!(
+                self.win.is_none() || !staged || self.selected,
+                "a staged PSMA window is the host's selection (row_select)"
+            );
             // sortpath: a zone AllMatch window the zone does not cover (VERDICT_ZONE_COVERS off: no covered step elided) tests
             // every covered op too, VERDICT_ELIDE_HIT's case among them
-            let tested = self.verdict == V_MIXED || (self.verdict == V_ALL && !self.on(gravity_program::protos::VERDICT_ZONE_COVERS));
-            if self.cond_hit == V_MIXED && tested && !self.has_dv && (self.win.is_none() || !staged || self.selected) {
+            let tested = self.verdict == V_MIXED
+                || (self.verdict == V_ALL
+                    && !self.on(gravity_program::protos::VERDICT_ZONE_COVERS));
+            if self.cond_hit == V_MIXED
+                && tested
+                && !self.has_dv
+                && (self.win.is_none() || !staged || self.selected)
+            {
                 if let Some((_, e)) = self.cond_entry.as_ref().filter(|(q, _)| *q == p) {
                     if staged {
                         self.cond_due = Some((Arc::clone(e), lg, rows as usize));
@@ -7154,15 +9601,30 @@ impl GranuleRangeSource {
     /// hit's every row) less the deleted rows; returns that count. The end counts it whole, reading no row.
     fn unread(&mut self, list: &PartList, p: usize, lg: u32, rows: usize) -> PgResult<usize> {
         self.open_dicts(p)?;
-        let dv = list.parts()[p].deletes.as_ref().and_then(|d| d.granule_mask(lg));
+        let dv = list.parts()[p]
+            .deletes
+            .as_ref()
+            .and_then(|d| d.granule_mask(lg));
         let nw = rows.div_ceil(64);
         // V4R-33: without a delete mask the hit's stored survivor count is the window's rows (the words' popcount)
-        let stored = dv.is_none().then(|| self.cond_entry.as_ref().filter(|(q, _)| *q == p).and_then(|(_, e)| e.count(lg as usize))).flatten();
+        let stored = dv
+            .is_none()
+            .then(|| {
+                self.cond_entry
+                    .as_ref()
+                    .filter(|(q, _)| *q == p)
+                    .and_then(|(_, e)| e.count(lg as usize))
+            })
+            .flatten();
         let mut n = 0;
         // bounded("small-fixed: the mask words of one granule, at most VALIDITY_WORDS (128)")
         for w in (0..nw).filter(|_| stored.is_none()) {
-            let mut m = if self.cond_mixed { self.cond_words[w] } else { !0 };
-            if w + 1 == nw && ! rows.is_multiple_of( 64) {
+            let mut m = if self.cond_mixed {
+                self.cond_words[w]
+            } else {
+                !0
+            };
+            if w + 1 == nw && !rows.is_multiple_of(64) {
                 m &= (1u64 << (rows % 64)) - 1;
             }
             if let Some(d) = dv {
@@ -7195,13 +9657,29 @@ impl GranuleRangeSource {
     /// - Never under a walk order, the runtime filter, an entries recipe, or without the unread verdict.
     fn whole_part_hit(&mut self, list: &PartList, p: usize, unit: u64) -> PgResult<bool> {
         let spec = &list.parts()[p];
-        if !self.on(VERDICT_UNREAD) || self.cond_fp == [0, 0] || self.order.is_some() || self.recipe.entries.is_some() || unit != list.starts()[p] || self.hi < list.end_of(p) || spec.deletes.is_some() || spec.rows > u32::MAX as u64 || self.rt_measuring() {
+        if !self.on(VERDICT_UNREAD)
+            || self.cond_fp == [0, 0]
+            || self.order.is_some()
+            || self.recipe.entries.is_some()
+            || unit != list.starts()[p]
+            || self.hi < list.end_of(p)
+            || spec.deletes.is_some()
+            || spec.rows > u32::MAX as u64
+            || self.rt_measuring()
+        {
             return Ok(false);
         }
         if !self.cond_ready(p) {
             return Ok(false);
         }
-        let Some(total) = self.cond_entry.as_ref().filter(|(q, _)| *q == p).and_then(|(_, e)| e.part_total()) else { return Ok(false) };
+        let Some(total) = self
+            .cond_entry
+            .as_ref()
+            .filter(|(q, _)| *q == p)
+            .and_then(|(_, e)| e.part_total())
+        else {
+            return Ok(false);
+        };
         self.open_dicts(p)?;
         let granules = spec.granules as u64;
         self.elided.clear();
@@ -7239,18 +9717,37 @@ impl GranuleRangeSource {
     /// else granule `g` (its rows less its delete mask's). `None` when the verdict is off or a walk order, an entries
     /// recipe, a sampler, a tid range or the runtime filter decides rows; `Some(0)` a unit with no live row (skipped).
     fn count_only(&mut self, list: &PartList, p: usize, unit: u64, g: u64) -> Option<usize> {
-        if !self.on(VERDICT_COUNT_ONLY) || self.order.is_some() || self.recipe.entries.is_some() || self.recipe.sample.is_some() || self.nzone != 0 || !self.any.is_empty() || self.rt.iter().any(|s| s.lane != usize::MAX) || self.rt_measuring() {
+        if !self.on(VERDICT_COUNT_ONLY)
+            || self.order.is_some()
+            || self.recipe.entries.is_some()
+            || self.recipe.sample.is_some()
+            || self.nzone != 0
+            || !self.any.is_empty()
+            || self.rt.iter().any(|s| s.lane != usize::MAX)
+            || self.rt_measuring()
+        {
             return None;
         }
         let spec = &list.parts()[p];
         let starts = list.starts()[p];
-        let (n, staged, next, granules) = if unit == starts && self.hi >= list.end_of(p) && spec.rows <= u32::MAX as u64 {
-            let deleted = spec.deletes.as_ref().map_or(0, |d| d.deleted_rows);
-            (spec.rows.saturating_sub(deleted), starts, list.end_of(p), spec.granules as u64)
-        } else {
-            let lg = (g - starts) as u32;
-            (visible_rows(list, p, lg, self.granule_rows(p, lg)), g, unit + 1, 1)
-        };
+        let (n, staged, next, granules) =
+            if unit == starts && self.hi >= list.end_of(p) && spec.rows <= u32::MAX as u64 {
+                let deleted = spec.deletes.as_ref().map_or(0, |d| d.deleted_rows);
+                (
+                    spec.rows.saturating_sub(deleted),
+                    starts,
+                    list.end_of(p),
+                    spec.granules as u64,
+                )
+            } else {
+                let lg = (g - starts) as u32;
+                (
+                    visible_rows(list, p, lg, self.granule_rows(p, lg)),
+                    g,
+                    unit + 1,
+                    1,
+                )
+            };
         self.elided.clear();
         // bounded("key-columns: one bit per scanned column, at most MaxTupleAttributeNumber (1664) columns")
         for k in 0..self.recipe.natts {
@@ -7278,7 +9775,14 @@ impl GranuleRangeSource {
     /// Decode granule `lg` of part `p` (global `g`) into the lane slots, the elided lanes left alone:
     /// the predicates' lanes and the code lanes whole, then the rest for the surviving rows only
     /// when few survive (`row_select`); false when none does (the granule is skipped).
-    fn decode(&mut self, list: &PartList, p: usize, lg: u32, g: u64, rows: usize) -> PgResult<bool> {
+    fn decode(
+        &mut self,
+        list: &PartList,
+        p: usize,
+        lg: u32,
+        g: u64,
+        rows: usize,
+    ) -> PgResult<bool> {
         self.open_dicts(p)?;
         // D3156: a granule outside the site's kept table of a code lane holds no row the bind's zone predicates pass
         if self.kept_mode && self.kept_skips(p, lg) {
@@ -7287,7 +9791,11 @@ impl GranuleRangeSource {
         }
         let natts = self.recipe.natts;
         self.lane_byref.clear();
-        self.has_dv = match list.parts()[p].deletes.as_ref().and_then(|d| d.granule_mask(lg)) {
+        self.has_dv = match list.parts()[p]
+            .deletes
+            .as_ref()
+            .and_then(|d| d.granule_mask(lg))
+        {
             Some(m) => {
                 *self.dv = *m;
                 true
@@ -7298,7 +9806,12 @@ impl GranuleRangeSource {
         // decode.packed's host half (FRAME lever 1 a, VERDICT_PACKED_ZONE): a window no PSMA window narrows and no cache
         // hit decides, whose packed candidates all stage and hold every zone lane (the first op their only reader), has the
         // program test its filter on the raw deltas: the host neither decodes those zone lanes first nor selects
-        let pre = if self.on(VERDICT_PACKED_ZONE) && self.win.is_none() && self.cond_hit != V_ALL && !self.has_dv && self.zones_packed() {
+        let pre = if self.on(VERDICT_PACKED_ZONE)
+            && self.win.is_none()
+            && self.cond_hit != V_ALL
+            && !self.has_dv
+            && self.zones_packed()
+        {
             self.packed_stage(p, lg, rows)?
         } else {
             0
@@ -7310,13 +9823,24 @@ impl GranuleRangeSource {
             }
         }
         // road code.sparse: its lane's non-base rows straight from the packed codes
-        let sparse = if pre == 0 && self.on(VERDICT_CODE_SPARSE) { self.sparse_stage(p, lg, rows)? } else { None };
+        let sparse = if pre == 0 && self.on(VERDICT_CODE_SPARSE) {
+            self.sparse_stage(p, lg, rows)?
+        } else {
+            None
+        };
         // D3223 S1: a window `row_select` filters (the branch below that calls it, and its own entry test) compares the zone
         // lanes it can on their stored deltas (`enc_stage`): those decode after the selection, with the rest
         self.enc.clear();
         self.enc_set.clear();
-        let selects = pre == 0 && sparse.is_none() && !self.cond_mixed && self.cond_hit != V_ALL && self.verdict == V_MIXED && (self.recipe.skipped.is_none() || self.on(VERDICT_COUNT_SELECT));
-        if selects && (self.win.is_some() || (0..natts).any(|k| !self.elided.has(k) && !self.first.has(k))) {
+        let selects = pre == 0
+            && sparse.is_none()
+            && !self.cond_mixed
+            && self.cond_hit != V_ALL
+            && self.verdict == V_MIXED
+            && (self.recipe.skipped.is_none() || self.on(VERDICT_COUNT_SELECT));
+        if selects
+            && (self.win.is_some() || (0..natts).any(|k| !self.elided.has(k) && !self.first.has(k)))
+        {
             self.enc_stage(p, lg, rows);
         }
         // a tick per lane decoded whole (its granule read and decoded)
@@ -7379,7 +9903,12 @@ impl GranuleRangeSource {
         // leading filters runs its covered body over the selection (those steps not run again), and the filter-only lanes
         // an AllMatch window elides (`lane_elision_into`) are not decoded. Not in a window the condition cache records (its
         // words are the program's fill, which a covered body skips), a counting execution, or one whose late lanes wait
-        if selective && self.sel_exact && late == 0 && self.recipe.skipped.is_none() && !(self.cond_hit == V_MIXED && self.cond_entry.as_ref().is_some_and(|(q, _)| *q == p)) {
+        if selective
+            && self.sel_exact
+            && late == 0
+            && self.recipe.skipped.is_none()
+            && !(self.cond_hit == V_MIXED && self.cond_entry.as_ref().is_some_and(|(q, _)| *q == p))
+        {
             self.sel_all = true;
             let mut el = core::mem::take(&mut self.scratch_a);
             self.lane_elision_into(V_ALL, false, &self.lane_all, &mut el);
@@ -7422,7 +9951,8 @@ impl GranuleRangeSource {
         self.selected = selective || self.has_dv;
         if self.has_dv && !selective {
             self.sel.clear();
-            self.sel.extend((0..rows as u32).filter(|&r| !PartDeletes::is_deleted(&self.dv, r)));
+            self.sel
+                .extend((0..rows as u32).filter(|&r| !PartDeletes::is_deleted(&self.dv, r)));
         }
         self.nrows = rows;
         self.staged = g;
@@ -7464,7 +9994,15 @@ impl GranuleRangeSource {
             seen |= 1 << c;
             self.datums[c * ROWS..c * ROWS + rows].fill(EMPTY_OBJECT.0.as_ptr() as u64);
             // the guard lanes read as NULL where invalid: elected by this part and `guard_null`
-            let null = guards.iter().filter(|g| g.0 == col && g.1 < 64 && self.guard_null >> g.1 & 1 != 0 && !self.absent(part, g.1 as usize)).fold(0u64, |m, g| m | 1 << g.1);
+            let null = guards
+                .iter()
+                .filter(|g| {
+                    g.0 == col
+                        && g.1 < 64
+                        && self.guard_null >> g.1 & 1 != 0
+                        && !self.absent(part, g.1 as usize)
+                })
+                .fold(0u64, |m, g| m | 1 << g.1);
             let mut sel = core::mem::take(&mut self.guard_sel);
             sel.clear();
             // bounded("small-fixed: the mask words of one granule, at most VALIDITY_WORDS (128)")
@@ -7473,7 +10011,10 @@ impl GranuleRangeSource {
                 let mut inv = 0u64;
                 // sortpath: an elided path lane (a covered window: no compare reads the cell) guards no row
                 // bounded("key-columns: the path lanes that guard one jsonb column, at most MaxTupleAttributeNumber (1664) columns")
-                for &(_, p) in guards.iter().filter(|g| g.0 == col && !self.elided.has(g.1 as usize)) {
+                for &(_, p) in guards
+                    .iter()
+                    .filter(|g| g.0 == col && !self.elided.has(g.1 as usize))
+                {
                     let p = p as usize;
                     #[allow(clippy::nonminimal_bool)]
                     if !self.all_valid[p] && !(p < 64 && null >> p & 1 != 0) {
@@ -7490,7 +10031,11 @@ impl GranuleRangeSource {
                     inv &= inv - 1;
                 }
             }
-            let r = if sel.is_empty() { Ok(1) } else { self.late_fill(c, &sel) };
+            let r = if sel.is_empty() {
+                Ok(1)
+            } else {
+                self.late_fill(c, &sel)
+            };
             self.guard_sel = sel;
             r?;
         }
@@ -7499,7 +10044,11 @@ impl GranuleRangeSource {
 
     /// Every zone predicate's lane is a packed candidate (bit l of `packed`: site lane l, below 64).
     fn zones_packed(&self) -> bool {
-        self.packed != 0 && self.nzone > 0 && self.zone[..self.nzone].iter().all(|z| z.lane < 64 && self.packed >> z.lane & 1 != 0)
+        self.packed != 0
+            && self.nzone > 0
+            && self.zone[..self.nzone]
+                .iter()
+                .all(|z| z.lane < 64 && self.packed >> z.lane & 1 != 0)
     }
 
     /// The lanes decoded whole before any selection (`first`): the code lanes and the predicates' lanes.
@@ -7535,10 +10084,19 @@ impl GranuleRangeSource {
             let k = m.trailing_zeros() as usize;
             m &= m - 1;
             let lw = self.recipe.widths[k] as u32;
-            if self.elided.has(k) || self.recipe.kinds[k] != lane::KIND_BYVAL || self.recipe.numeric.has(k) || !matches!(lw, 2 | 4 | 8) {
+            if self.elided.has(k)
+                || self.recipe.kinds[k] != lane::KIND_BYVAL
+                || self.recipe.numeric.has(k)
+                || !matches!(lw, 2 | 4 | 8)
+            {
                 return Ok(0);
             }
-            let unsigned = self.recipe.profiles.get(k).and_then(|p| p.as_ref()).is_some_and(|p| matches!(p.class, StorageClass::ByvalWord { signed: false, .. }));
+            let unsigned = self
+                .recipe
+                .profiles
+                .get(k)
+                .and_then(|p| p.as_ref())
+                .is_some_and(|p| matches!(p.class, StorageClass::ByvalWord { signed: false, .. }));
             let (lo, hi) = packed_words(lw, unsigned);
             // lane k's table words past the lane slots
             let t = raw::packed_frames(&mut self.datums[natts * ROWS + k * PF_WORDS..]);
@@ -7548,27 +10106,57 @@ impl GranuleRangeSource {
             let fits = if enc == EncodingId::Const as u16 {
                 let (mut one, mut small) = ([0u64; 1], [0u64; 8]);
                 let arena = ByteArena::new(super::raw::words_as_bytes_mut(&mut small));
-                cur.decode_sel(lg, &Selection { rows: &[0] }, &mut DecodeOut { datums: &mut one, arena }).map_err(read_err)?;
+                cur.decode_sel(
+                    lg,
+                    &Selection { rows: &[0] },
+                    &mut DecodeOut {
+                        datums: &mut one,
+                        arena,
+                    },
+                )
+                .map_err(read_err)?;
                 let r = one[0] as i64;
                 // bounded("small-fixed: the frames of one granule, at most FRAMES_PER_GRANULE (8)")
                 for (f, fr) in t.frames[..t.n as usize].iter_mut().enumerate() {
-                    (fr.deltas, fr.width, fr.reference, fr.fmax, fr.first_row) = (0, 0, r, r, (f * FRAME_VALUES as usize) as u64);
+                    (fr.deltas, fr.width, fr.reference, fr.fmax, fr.first_row) =
+                        (0, 0, r, r, (f * FRAME_VALUES as usize) as u64);
                 }
                 (lo..=hi).contains(&r)
             } else if enc == EncodingId::ByteFor as u16 && matches!(w, 1 | 2) {
                 cur.granule_ctx(lg, |ctx| {
                     let hdr = open_section(ctx.bytes, enc)?;
-                    let (payload, fbase) = (payload_region(&hdr, ctx.bytes)?, frame_base(&hdr, ctx.bytes, ctx.granule_in_extent)?);
+                    let (payload, fbase) = (
+                        payload_region(&hdr, ctx.bytes)?,
+                        frame_base(&hdr, ctx.bytes, ctx.granule_in_extent)?,
+                    );
                     if ctx.values as usize != rows {
                         return Ok(false);
                     }
                     // bounded("small-fixed: the frames of one granule, at most FRAMES_PER_GRANULE (8)")
                     for (f, fr) in t.frames[..t.n as usize].iter_mut().enumerate() {
-                        let (at, n) = (frame_start(ctx.frame_table, fbase + f as u32)?, (rows - f * FRAME_VALUES as usize).min(FRAME_VALUES as usize));
-                        let body = payload.get(at..at + 8 + n * w).ok_or(pgrc_format::FormatError::Bounds { at: "byte-for frame payload" })?;
+                        let (at, n) = (
+                            frame_start(ctx.frame_table, fbase + f as u32)?,
+                            (rows - f * FRAME_VALUES as usize).min(FRAME_VALUES as usize),
+                        );
+                        let body = payload.get(at..at + 8 + n * w).ok_or(
+                            pgrc_format::FormatError::Bounds {
+                                at: "byte-for frame payload",
+                            },
+                        )?;
                         let r = i64::from_le_bytes(body[..8].try_into().expect("8 bytes"));
-                        let Some(bound) = r.checked_add((1 << (8 * w)) - 1).filter(|_| (lo..=hi).contains(&r)) else { return Ok(false) };
-                        (fr.deltas, fr.width, fr.reference, fr.fmax, fr.first_row) = (body[8..].as_ptr() as u64, w as u64, r, bound.min(hi), (f * FRAME_VALUES as usize) as u64);
+                        let Some(bound) = r
+                            .checked_add((1 << (8 * w)) - 1)
+                            .filter(|_| (lo..=hi).contains(&r))
+                        else {
+                            return Ok(false);
+                        };
+                        (fr.deltas, fr.width, fr.reference, fr.fmax, fr.first_row) = (
+                            body[8..].as_ptr() as u64,
+                            w as u64,
+                            r,
+                            bound.min(hi),
+                            (f * FRAME_VALUES as usize) as u64,
+                        );
                     }
                     Ok(true)
                 })
@@ -7591,19 +10179,39 @@ impl GranuleRangeSource {
     /// comes here (`late_decode` fills the slot a published lane already points at). The pointer is published for the
     /// staged window only (`stage` clears it): the cursor keeps the extent image until it loads another values extent,
     /// which happens at a later `stage`. Consumers only read a lane.
-    fn in_place(&mut self, p: usize, k: usize, kind: u8, lg: u32, rows: usize, sel: Option<usize>) -> PgResult<Option<*const u8>> {
+    fn in_place(
+        &mut self,
+        p: usize,
+        k: usize,
+        kind: u8,
+        lg: u32,
+        rows: usize,
+        sel: Option<usize>,
+    ) -> PgResult<Option<*const u8>> {
         let w = self.recipe.widths[k];
-        if kind != lane::KIND_BYVAL || sel.is_some() || !matches!(w, 2 | 4 | 8) || self.recipe.numeric.has(k) {
+        if kind != lane::KIND_BYVAL
+            || sel.is_some()
+            || !matches!(w, 2 | 4 | 8)
+            || self.recipe.numeric.has(k)
+        {
             return Ok(None);
         }
         let got = if self.zone[..self.nzone].iter().any(|z| z.lane as usize == k) {
             None
         } else {
-            let cur = self.cursors[p * self.recipe.natts + k].as_deref_mut().expect("cursor");
+            let cur = self.cursors[p * self.recipe.natts + k]
+                .as_deref_mut()
+                .expect("cursor");
             if cur.key().width != w {
                 None
             } else {
-                cur.verbatim_body(lg, IN_PLACE_SLACK).map_err(read_err)?.filter(|b| b.len() == rows * w as usize && ( b.as_ptr() as usize).is_multiple_of( w as usize)).map(|b| b.as_ptr())
+                cur.verbatim_body(lg, IN_PLACE_SLACK)
+                    .map_err(read_err)?
+                    .filter(|b| {
+                        b.len() == rows * w as usize
+                            && (b.as_ptr() as usize).is_multiple_of(w as usize)
+                    })
+                    .map(|b| b.as_ptr())
             }
         };
         self.tally.in_place[got.is_some() as usize] += 1;
@@ -7617,8 +10225,12 @@ impl GranuleRangeSource {
         if !self.recipe.dyn_scale.has(k) {
             return self.recipe.scales[k];
         }
-        let cur = self.cursors.get(p.wrapping_mul(self.recipe.natts).wrapping_add(k)).and_then(|c| c.as_deref());
-        cur.filter(|c| c.key().encoding == EncodingId::PackedNumeric as u16).map_or(0, |c| c.entry().aux32)
+        let cur = self
+            .cursors
+            .get(p.wrapping_mul(self.recipe.natts).wrapping_add(k))
+            .and_then(|c| c.as_deref());
+        cur.filter(|c| c.key().encoding == EncodingId::PackedNumeric as u16)
+            .map_or(0, |c| c.entry().aux32)
     }
 
     /// jsonops (3): presence lane `k` of granule `lg` (`GranuleRecipe::with_shred_presence_lane`): the path lane's validity
@@ -7628,8 +10240,14 @@ impl GranuleRangeSource {
     fn decode_presence(&mut self, p: usize, k: usize, lg: u32, rows: usize) -> PgResult<()> {
         let natts = self.recipe.natts;
         let attno = self.recipe.attnos[k];
-        let doc = (0..natts).find(|&c| self.recipe.attnos[c] == attno && self.recipe.shred_of(c).is_none() && self.cursors[p * natts + c].is_some());
-        let flagged = self.cursors[p * natts + k].as_deref().is_some_and(|c| c.entry().flags & pgrc_format::part::STREAMF_SHRED_OBJECT_ROOTS != 0);
+        let doc = (0..natts).find(|&c| {
+            self.recipe.attnos[c] == attno
+                && self.recipe.shred_of(c).is_none()
+                && self.cursors[p * natts + c].is_some()
+        });
+        let flagged = self.cursors[p * natts + k]
+            .as_deref()
+            .is_some_and(|c| c.entry().flags & pgrc_format::part::STREAMF_SHRED_OBJECT_ROOTS != 0);
         let mut bits = [0u64; VALIDITY_WORDS];
         let mut docv = [0u64; VALIDITY_WORDS];
         let ones = |b: &mut [u64; VALIDITY_WORDS]| {
@@ -7645,11 +10263,21 @@ impl GranuleRangeSource {
                 if cur.rows_in_granule(lg) as usize != rows {
                     return Err(err("gravity: pgrc granule row skew"));
                 }
-                if !cur.has_validity_stream() || matches!(cur.validity(lg, &mut bits).map_err(read_err)?, ValidityVerdict::AllValid) {
+                if !cur.has_validity_stream()
+                    || matches!(
+                        cur.validity(lg, &mut bits).map_err(read_err)?,
+                        ValidityVerdict::AllValid
+                    )
+                {
                     ones(&mut bits);
                 }
                 let dcur = self.cursors[p * natts + c].as_deref_mut().expect("cursor");
-                if !dcur.has_validity_stream() || matches!(dcur.validity(lg, &mut docv).map_err(read_err)?, ValidityVerdict::AllValid) {
+                if !dcur.has_validity_stream()
+                    || matches!(
+                        dcur.validity(lg, &mut docv).map_err(read_err)?,
+                        ValidityVerdict::AllValid
+                    )
+                {
                     ones(&mut docv);
                 }
                 true
@@ -7657,12 +10285,22 @@ impl GranuleRangeSource {
             _ => false,
         };
         // shapecheck fire signals (jsonops (3)): a granule's presence lane answered, or every row takes PG's test
-        fires::fire_shared(if known { "jsonb.presence" } else if flagged { "jsonb.presence_nodoc" } else { "jsonb.presence_unflagged" });
+        fires::fire_shared(if known {
+            "jsonb.presence"
+        } else if flagged {
+            "jsonb.presence_nodoc"
+        } else {
+            "jsonb.presence_unflagged"
+        });
         // bounded("small-fixed: the rows of one granule, at most GRANULE_ROWS (8192); the claim's walk ticks per granule")
         for r in 0..rows {
             self.datums[k * ROWS + r] = u64::from(known && bits[r / 64] >> (r % 64) & 1 != 0);
         }
-        self.valid[k * VALIDITY_WORDS..(k + 1) * VALIDITY_WORDS].copy_from_slice(if known { &docv } else { &[0u64; VALIDITY_WORDS] });
+        self.valid[k * VALIDITY_WORDS..(k + 1) * VALIDITY_WORDS].copy_from_slice(if known {
+            &docv
+        } else {
+            &[0u64; VALIDITY_WORDS]
+        });
         self.all_valid[k] = false;
         self.inplace[k] = core::ptr::null();
         Ok(())
@@ -7674,7 +10312,17 @@ impl GranuleRangeSource {
     /// value's UTF-8 count over the column's own stream (a second cursor, `char_src`, where the lane reads the stored
     /// octet lane).
     #[allow(clippy::too_many_arguments)]
-    fn char_lengths(&mut self, p: usize, k: usize, lg: u32, rows: usize, coded: bool, stored: bool, all: bool, bits: &[u64; VALIDITY_WORDS]) -> PgResult<()> {
+    fn char_lengths(
+        &mut self,
+        p: usize,
+        k: usize,
+        lg: u32,
+        rows: usize,
+        coded: bool,
+        stored: bool,
+        all: bool,
+        bits: &[u64; VALIDITY_WORDS],
+    ) -> PgResult<()> {
         let natts = self.recipe.natts;
         if self.char_lens.len() < ROWS {
             self.char_lens.resize(ROWS, 0); // alloc: Node
@@ -7683,7 +10331,16 @@ impl GranuleRangeSource {
         let part = Arc::clone(self.parts().part(p, &self.recipe.registry)?);
         let live = |r: usize| all || bits[r / 64] >> (r % 64) & 1 != 0;
         if !coded {
-            let ascii = self.parts().body(p, attno, &part)?.and_then(|b| b.get(lg as usize * STATS_RECORD_LEN..(lg as usize + 1) * STATS_RECORD_LEN)).is_some_and(|r| StatsRecord::decode(&mut pgrc_format::wire::Cur::new(r)).is_ok_and(|r| r.flags & pgrc_format::meta::STATSF_ALL_ASCII != 0));
+            let ascii = self
+                .parts()
+                .body(p, attno, &part)?
+                .and_then(|b| {
+                    b.get(lg as usize * STATS_RECORD_LEN..(lg as usize + 1) * STATS_RECORD_LEN)
+                })
+                .is_some_and(|r| {
+                    StatsRecord::decode(&mut pgrc_format::wire::Cur::new(r))
+                        .is_ok_and(|r| r.flags & pgrc_format::meta::STATSF_ALL_ASCII != 0)
+                });
             if ascii {
                 self.char_lens[..rows].copy_from_slice(&self.octet_lens[..rows]);
                 fires::fire_shared("octet.chars_ascii");
@@ -7698,7 +10355,10 @@ impl GranuleRangeSource {
                 if self.char_src[i].is_none() {
                     // FASTADD: the column's own stream in the lane's part (a stand-in for a column the part lacks)
                     let lane = Arc::clone(self.parts().lane(p, self.face(k), &part)?);
-                    let mut cur = Box::new(StreamCursor::open(lane, pgrc_am::scan::codec_binding(), attno, 0).map_err(read_err)?); // alloc: Exec
+                    let mut cur = Box::new(
+                        StreamCursor::open(lane, pgrc_am::scan::codec_binding(), attno, 0)
+                            .map_err(read_err)?,
+                    ); // alloc: Exec
                     cur.set_pass_behind(self.unpin);
                     self.pool_cursor(&mut cur);
                     cur.set_owner(self.held.owner());
@@ -7706,15 +10366,26 @@ impl GranuleRangeSource {
                     self.cursors_held += CURSOR_BYTES;
                 }
             }
-            let cur = if stored { self.char_src[i].as_deref_mut() } else { self.cursors[i].as_deref_mut() }.expect("cursor");
-            self.scratch.granule_chars(cur, lg, &mut self.char_lens[..rows]).map_err(read_err)?;
+            let cur = if stored {
+                self.char_src[i].as_deref_mut()
+            } else {
+                self.cursors[i].as_deref_mut()
+            }
+            .expect("cursor");
+            self.scratch
+                .granule_chars(cur, lg, &mut self.char_lens[..rows])
+                .map_err(read_err)?;
             fires::fire_shared("octet.chars_decoded");
             return Ok(());
         }
         self.open_dict(p, k)?;
         let face = self.face(k);
         let rp = self.rel_unbound();
-        let Some(Dict::Part(d)) = rp.dict_if_open(p, face).map(|e| &e.dict) else { return Err(err("gravity: a character lane's coded part without its dictionary")) };
+        let Some(Dict::Part(d)) = rp.dict_if_open(p, face).map(|e| &e.dict) else {
+            return Err(err(
+                "gravity: a character lane's coded part without its dictionary",
+            ));
+        };
         let cur = self.cursors[p * natts + k].as_deref_mut().expect("cursor");
         let codes = &mut self.char_lens[..rows];
         if cur.decode_codes(lg, codes).map_err(read_err)? as usize != rows {
@@ -7723,10 +10394,18 @@ impl GranuleRangeSource {
         use pgrc_format::dict::DictCharLenForm;
         const AT: usize = pgrc_format::dict::DICT_INDEX_ENTRY_LEN;
         let (index, form) = (d.index_bytes().map_err(read_err)?, d.charlen_form());
-        let payload = if matches!(form, DictCharLenForm::Absent) { d.payload_bytes().map_err(read_err)? } else { None };
-        let word = |b: &[u8], at: usize| b.get(at..at + 4).map(|w| u32::from_le_bytes(w.try_into().expect("len 4")));
+        let payload = if matches!(form, DictCharLenForm::Absent) {
+            d.payload_bytes().map_err(read_err)?
+        } else {
+            None
+        };
+        let word = |b: &[u8], at: usize| {
+            b.get(at..at + 4)
+                .map(|w| u32::from_le_bytes(w.try_into().expect("len 4")))
+        };
         // a tick per row: a row with no stored length counts its value's characters
-        let mut step = cancelpoll::step("granule_source char_lengths: a granule's character counts");
+        let mut step =
+            cancelpoll::step("granule_source char_lengths: a granule's character counts");
         for (r, c) in codes.iter_mut().enumerate() {
             step.tick().map_err(|_| err(WALK_CANCELED))?;
             if !live(r) {
@@ -7734,11 +10413,15 @@ impl GranuleRangeSource {
                 continue;
             }
             let at = *c as usize * AT;
-            let (Some(off), Some(len)) = (word(index, at), word(index, at + 4)) else { return Err(err("gravity: pgrc character lane code past its dictionary")) };
+            let (Some(off), Some(len)) = (word(index, at), word(index, at + 4)) else {
+                return Err(err("gravity: pgrc character lane code past its dictionary"));
+            };
             *c = match form {
                 DictCharLenForm::Absolute => word(index, at + 8),
                 DictCharLenForm::Delta => word(index, at + 8).and_then(|f| len.checked_sub(f)),
-                DictCharLenForm::Absent => payload.and_then(|b| b.get(off as usize + 4..off as usize + 4 + len as usize)).map(|v| crate::dict::text_hosts::utf8_chars(v) as u32),
+                DictCharLenForm::Absent => payload
+                    .and_then(|b| b.get(off as usize + 4..off as usize + 4 + len as usize))
+                    .map(|v| crate::dict::text_hosts::utf8_chars(v) as u32),
             }
             .ok_or_else(|| err("gravity: pgrc character lane length past its dictionary"))?;
         }
@@ -7754,11 +10437,16 @@ impl GranuleRangeSource {
     fn decode_octet(&mut self, p: usize, k: usize, lg: u32, rows: usize) -> PgResult<()> {
         let natts = self.recipe.natts;
         let face = self.face(k);
-        let key = self.cursors[p * natts + k].as_deref().expect("cursor").key();
+        let key = self.cursors[p * natts + k]
+            .as_deref()
+            .expect("cursor")
+            .key();
         let stored = key.class == pgrc_format::class::CLASS_BYVAL;
         let coded = !stored && key.encoding == EncodingId::DictCodes as u16;
         let col = self.recipe.attnos[k];
-        let memo = self.octet_memo.filter(|&(mp, mc, mg, _)| (mp, mc, mg) == (p, col, lg) && self.octet_lens.len() >= rows);
+        let memo = self.octet_memo.filter(|&(mp, mc, mg, _)| {
+            (mp, mc, mg) == (p, col, lg) && self.octet_lens.len() >= rows
+        });
         if coded && memo.is_none() {
             self.open_dict(p, k)?;
         }
@@ -7782,19 +10470,35 @@ impl GranuleRangeSource {
             if cur.decode_i32(lg, words).map_err(read_err)? as usize != rows {
                 return Err(err("gravity: pgrc octet lane decoded count"));
             }
-            let all = !cur.has_validity_stream() || matches!(cur.validity(lg, &mut bits).map_err(read_err)?, ValidityVerdict::AllValid);
+            let all = !cur.has_validity_stream()
+                || matches!(
+                    cur.validity(lg, &mut bits).map_err(read_err)?,
+                    ValidityVerdict::AllValid
+                );
             // bounded("small-fixed: the rows of one granule, at most GRANULE_ROWS (8192); the claim's walk ticks per granule")
             for (r, (l, &w)) in lens.iter_mut().zip(words.iter()).enumerate() {
-                *l = if all || bits[r / 64] >> (r % 64) & 1 != 0 { w as u32 } else { 0 };
+                *l = if all || bits[r / 64] >> (r % 64) & 1 != 0 {
+                    w as u32
+                } else {
+                    0
+                };
             }
             fires::fire_shared("octet.stored");
             all
         } else if coded {
-            let Some(Dict::Part(d)) = rp.dict_if_open(p, face).map(|e| &e.dict) else { return Err(err("gravity: an octet lane's coded part without its dictionary")) };
+            let Some(Dict::Part(d)) = rp.dict_if_open(p, face).map(|e| &e.dict) else {
+                return Err(err(
+                    "gravity: an octet lane's coded part without its dictionary",
+                ));
+            };
             if cur.decode_codes(lg, lens).map_err(read_err)? as usize != rows {
                 return Err(err("gravity: pgrc octet lane decoded count"));
             }
-            let all = !cur.has_validity_stream() || matches!(cur.validity(lg, &mut bits).map_err(read_err)?, ValidityVerdict::AllValid);
+            let all = !cur.has_validity_stream()
+                || matches!(
+                    cur.validity(lg, &mut bits).map_err(read_err)?,
+                    ValidityVerdict::AllValid
+                );
             let index = d.index_bytes().map_err(read_err)?;
             const AT: usize = pgrc_format::dict::DICT_INDEX_ENTRY_LEN;
             // bounded("small-fixed: the rows of one granule, at most GRANULE_ROWS (8192); the claim's walk ticks per granule")
@@ -7804,12 +10508,17 @@ impl GranuleRangeSource {
                     continue;
                 }
                 let at = *l as usize * AT;
-                let rec = index.get(at + 4..at + 8).ok_or_else(|| err("gravity: pgrc octet lane code past its dictionary"))?;
+                let rec = index
+                    .get(at + 4..at + 8)
+                    .ok_or_else(|| err("gravity: pgrc octet lane code past its dictionary"))?;
                 *l = u32::from_le_bytes(rec.try_into().expect("len 4"));
             }
             all
         } else {
-            let all = self.scratch.granule_lengths(cur, lg, lens).map_err(read_err)?;
+            let all = self
+                .scratch
+                .granule_lengths(cur, lg, lens)
+                .map_err(read_err)?;
             if !all {
                 let w = rows.div_ceil(64);
                 bits[..w].copy_from_slice(&self.scratch.valid_words()[..w]);
@@ -7822,7 +10531,11 @@ impl GranuleRangeSource {
         if chars {
             self.char_lengths(p, k, lg, rows, coded, stored, all, &bits)?;
         }
-        let lens = if chars { &self.char_lens[..rows] } else { &self.octet_lens[..rows] };
+        let lens = if chars {
+            &self.char_lens[..rows]
+        } else {
+            &self.octet_lens[..rows]
+        };
         let out = &mut self.datums[k * ROWS..k * ROWS + rows];
         if self.recipe.shred_of(k).is_some_and(|s| s.nonempty) {
             // R2: the emptiness lane's word is the length's test
@@ -7843,7 +10556,11 @@ impl GranuleRangeSource {
         }
         self.all_valid[k] = all;
         self.inplace[k] = core::ptr::null();
-        fires::fire_shared(if coded { "octet.lane_coded" } else { "octet.lane_rows" });
+        fires::fire_shared(if coded {
+            "octet.lane_coded"
+        } else {
+            "octet.lane_rows"
+        });
         Ok(())
     }
 
@@ -7858,7 +10575,14 @@ impl GranuleRangeSource {
 
     /// Lane `k` of granule `lg`: whole, or the `n` rows of `sel16` gathered by `decode_sel` and scattered to their positions
     /// where the gather costs less than the whole decode (`gather_pays`).
-    fn decode_lane(&mut self, p: usize, k: usize, lg: u32, rows: usize, sel: Option<usize>) -> PgResult<()> {
+    fn decode_lane(
+        &mut self,
+        p: usize,
+        k: usize,
+        lg: u32,
+        rows: usize,
+        sel: Option<usize>,
+    ) -> PgResult<()> {
         let natts = self.recipe.natts;
         if self.cursors[p * natts + k].is_none() && self.absent(p, k) {
             // a shred lane this part did not elect (at its kind and scale): every row invalid, so every row walks its
@@ -7876,7 +10600,11 @@ impl GranuleRangeSource {
             return self.decode_octet(p, k, lg, rows);
         }
         // a code lane's dictionary, taken before the cursor's borrow (D3156: a kept-mode site's own, kept.rs `dict_at`)
-        let entry = if self.recipe.kinds[k] == lane::KIND_CODES { self.dict_at(p, k) } else { None };
+        let entry = if self.recipe.kinds[k] == lane::KIND_CODES {
+            self.dict_at(p, k)
+        } else {
+            None
+        };
         let cur = self.cursors[p * natts + k].as_deref_mut().expect("cursor");
         if cur.rows_in_granule(lg) as usize != rows {
             return Err(err("gravity: pgrc granule row skew"));
@@ -7892,7 +10620,8 @@ impl GranuleRangeSource {
             self.recipe.kinds[k]
         };
         // H09: the selection's rows gathered only where the stream's fitted costs make the gather the cheaper decode
-        let sel = sel.filter(|&n| gather_pays(cur.key(), kind, self.recipe.widths[k], rows, &self.sel[..n]));
+        let sel = sel
+            .filter(|&n| gather_pays(cur.key(), kind, self.recipe.widths[k], rows, &self.sel[..n]));
         // a by-reference lane decodes its images into its own arena (grown to the high-water mark on
         // `ArenaExhausted`, never per granule); the others never touch the 64-byte one
         let (want, decoded) = if packed {
@@ -7904,9 +10633,18 @@ impl GranuleRangeSource {
                 self.ensure_sel16();
             }
             let cur = self.cursors[p * natts + k].as_deref_mut().expect("cursor");
-            raw::decode_lane_mantissa(cur, scale, lg, rows, sel, &mut self.datums[k * ROWS..], &self.sel16)
+            raw::decode_lane_mantissa(
+                cur,
+                scale,
+                lg,
+                rows,
+                sel,
+                &mut self.datums[k * ROWS..],
+                &self.sel16,
+            )
         } else if kind == lane::KIND_CODES {
-            let codes = super::raw::words_as_u32_mut(&mut self.datums[k * ROWS..(k + 1) * ROWS], rows);
+            let codes =
+                super::raw::words_as_u32_mut(&mut self.datums[k * ROWS..(k + 1) * ROWS], rows);
             let r = match &entry.expect("dictionary").dict {
                 Dict::Part(_) => cur.decode_codes(lg, codes),
                 Dict::Ranked { table, .. } => {
@@ -7931,27 +10669,50 @@ impl GranuleRangeSource {
             }
             // bounded("small-fixed: one retry per doubling of the lane's arena chunk, at most 64 (a usize's bits)")
             loop {
-            let arena: &mut [u8] = if kind == lane::KIND_BYREF {
-                if self.arenas[k].is_empty() {
-                    self.arenas[k].resize(ARENA_FIRST, 0); // alloc: Cold
+                let arena: &mut [u8] = if kind == lane::KIND_BYREF {
+                    if self.arenas[k].is_empty() {
+                        self.arenas[k].resize(ARENA_FIRST, 0); // alloc: Cold
+                    }
+                    &mut self.arenas[k]
+                } else {
+                    super::raw::words_as_bytes_mut(&mut small)
+                };
+                let cur = self.cursors[p * natts + k].as_deref_mut().expect("cursor");
+                let (want, r) = raw::decode_lane_into(
+                    cur,
+                    kind,
+                    self.recipe.widths[k],
+                    lg,
+                    rows,
+                    sel,
+                    &mut self.datums[k * ROWS..],
+                    &mut self.dense,
+                    &self.sel16,
+                    &self.sel,
+                    arena,
+                    &mut 0,
+                );
+                match r {
+                    Err(pgrc_read::ReadError::Format(
+                        pgrc_format::FormatError::ArenaExhausted { .. },
+                    )) if kind == lane::KIND_BYREF && double_arena(&mut self.arenas[k]) => {}
+                    r => break (want, r),
                 }
-                &mut self.arenas[k]
-            } else {
-                super::raw::words_as_bytes_mut(&mut small)
-            };
-            let cur = self.cursors[p * natts + k].as_deref_mut().expect("cursor");
-            let (want, r) = raw::decode_lane_into(cur, kind, self.recipe.widths[k], lg, rows, sel, &mut self.datums[k * ROWS..], &mut self.dense, &self.sel16, &self.sel, arena, &mut 0);
-            match r {
-                Err(pgrc_read::ReadError::Format(pgrc_format::FormatError::ArenaExhausted { .. })) if kind == lane::KIND_BYREF && double_arena(&mut self.arenas[k]) => {}
-                r => break (want, r),
-            }
             }
         };
         if decoded.map_err(read_err)? as usize != want {
             return Err(err("gravity: pgrc granule decoded count"));
         }
         let cur = self.cursors[p * natts + k].as_deref_mut().expect("cursor");
-        self.all_valid[k] = !cur.has_validity_stream() || matches!(cur.validity(lg, &mut self.valid[k * VALIDITY_WORDS..(k + 1) * VALIDITY_WORDS]).map_err(read_err)?, ValidityVerdict::AllValid);
+        self.all_valid[k] = !cur.has_validity_stream()
+            || matches!(
+                cur.validity(
+                    lg,
+                    &mut self.valid[k * VALIDITY_WORDS..(k + 1) * VALIDITY_WORDS]
+                )
+                .map_err(read_err)?,
+                ValidityVerdict::AllValid
+            );
         Ok(())
     }
 }
@@ -7967,8 +10728,13 @@ impl GranuleRangeSource {
         }
         // a code lane's window names the part's dictionary even when the window was answered from
         // its records: the lanes open here when nothing decoded them
-        if self.cur_part != usize::MAX && self.answered && self.recipe.kinds[..self.recipe.natts].contains(&lane::KIND_CODES) {
-            let _step = cancelpoll::step("granule_source window: an answered part's lanes and dictionaries opened");
+        if self.cur_part != usize::MAX
+            && self.answered
+            && self.recipe.kinds[..self.recipe.natts].contains(&lane::KIND_CODES)
+        {
+            let _step = cancelpoll::step(
+                "granule_source window: an answered part's lanes and dictionaries opened",
+            );
             self.open_lanes(self.cur_part)?;
             self.open_dicts(self.cur_part)?;
         }
@@ -7978,11 +10744,18 @@ impl GranuleRangeSource {
             return Ok(0);
         }
         let rows = self.nrows;
-        let ck = if self.on(VERDICT_CONST_KEY) && !self.answered { self.const_key_window()? } else { None };
+        let ck = if self.on(VERDICT_CONST_KEY) && !self.answered {
+            self.const_key_window()?
+        } else {
+            None
+        };
         // M6 R3: each code lane's dictionary is named below; a shred path's the part did not elect is located (none opens)
         let mut step = cancelpoll::step("granule_source window: a code lane's dictionary opened");
         for k in 0..self.recipe.natts {
-            if !self.answered && self.recipe.kinds[k] == lane::KIND_CODES && self.dict_at(self.cur_part, k).is_none() {
+            if !self.answered
+                && self.recipe.kinds[k] == lane::KIND_CODES
+                && self.dict_at(self.cur_part, k).is_none()
+            {
                 step.tick().map_err(|_| err(WALK_CANCELED))?;
                 self.open_dict(self.cur_part, k)?;
             }
@@ -7991,7 +10764,13 @@ impl GranuleRangeSource {
         if self.answered {
             w.answer(self.answers.as_ptr());
             w.rows = rows as u32;
-            w.set_base(WindowBase { pos: ScanPos::new(self.recipe.rel, self.staged as u32, 0), part_id: self.cur_part as u32, dict_epoch: 0, granule: (self.staged - list.starts()[self.cur_part]) as u32, claim_id: self.lo as u32 });
+            w.set_base(WindowBase {
+                pos: ScanPos::new(self.recipe.rel, self.staged as u32, 0),
+                part_id: self.cur_part as u32,
+                dict_epoch: 0,
+                granule: (self.staged - list.starts()[self.cur_part]) as u32,
+                claim_id: self.lo as u32,
+            });
             return Ok(rows as u32);
         }
         let mut epoch = 0u32;
@@ -7999,13 +10778,31 @@ impl GranuleRangeSource {
         for k in 0..self.recipe.natts {
             let id = lane::id(lane::ID_ATTR, self.recipe.attnos[k] as u32);
             let mut l = if self.elided.has(k) {
-                Lane::byval(core::ptr::null(), core::ptr::null(), self.recipe.widths[k], lane::REGION_ARENA, id)
+                Lane::byval(
+                    core::ptr::null(),
+                    core::ptr::null(),
+                    self.recipe.widths[k],
+                    lane::REGION_ARENA,
+                    id,
+                )
             } else {
-                let valid = if self.all_valid[k] { core::ptr::null() } else { self.valid[k * VALIDITY_WORDS..].as_ptr() };
-                let ptr = if self.inplace[k].is_null() { self.datums[k * ROWS..].as_ptr() as *const u8 } else { self.inplace[k] };
+                let valid = if self.all_valid[k] {
+                    core::ptr::null()
+                } else {
+                    self.valid[k * VALIDITY_WORDS..].as_ptr()
+                };
+                let ptr = if self.inplace[k].is_null() {
+                    self.datums[k * ROWS..].as_ptr() as *const u8
+                } else {
+                    self.inplace[k]
+                };
                 Lane::byval(ptr, valid, self.recipe.widths[k], lane::REGION_ARENA, id)
             };
-            l.kind = if self.lane_byref.has(k) { lane::KIND_BYREF } else { self.recipe.kinds[k] };
+            l.kind = if self.lane_byref.has(k) {
+                lane::KIND_BYREF
+            } else {
+                self.recipe.kinds[k]
+            };
             l.ncodes_or_scale = self.lane_scale(self.cur_part, k);
             // M6 R3: a shred code lane the part did not elect is all-invalid: no dictionary, no codes
             if self.recipe.kinds[k] == lane::KIND_CODES && self.absent(self.cur_part, k) {
@@ -8019,7 +10816,9 @@ impl GranuleRangeSource {
                 if list.parts()[self.cur_part].deletes.is_some() {
                     l.flags |= lane::FLAG_DELETES;
                 }
-                if self.entries_staged && (self.recipe.entries == Some(k) || self.recipe.entries_every) {
+                if self.entries_staged
+                    && (self.recipe.entries == Some(k) || self.recipe.entries_every)
+                {
                     l.flags |= lane::FLAG_ENTRIES;
                 }
             }
@@ -8033,15 +10832,31 @@ impl GranuleRangeSource {
             w.set(k, l);
         }
         if let Some(vk) = self.recipe.verdict_lane.filter(|_| self.cond_fp != [0, 0]) {
-            let mut l = Lane::byval(self.cond_words.as_ptr() as *const u8, core::ptr::null(), 8, lane::REGION_ARENA, lane::id(lane::ID_VERDICT, 0));
-            l.flags |= if self.cond_hit == V_ALL { V_ALL } else { V_MIXED };
+            let mut l = Lane::byval(
+                self.cond_words.as_ptr() as *const u8,
+                core::ptr::null(),
+                8,
+                lane::REGION_ARENA,
+                lane::id(lane::ID_VERDICT, 0),
+            );
+            l.flags |= if self.cond_hit == V_ALL {
+                V_ALL
+            } else {
+                V_MIXED
+            };
             w.set(vk, l);
         }
         if self.selected {
             w.select(&self.sel);
         }
         w.rows = rows as u32;
-        w.set_base(WindowBase { pos: ScanPos::new(self.recipe.rel, self.staged as u32, 0), part_id: self.cur_part as u32, dict_epoch: epoch, granule: (self.staged - list.starts()[self.cur_part]) as u32, claim_id: self.lo as u32 });
+        w.set_base(WindowBase {
+            pos: ScanPos::new(self.recipe.rel, self.staged as u32, 0),
+            part_id: self.cur_part as u32,
+            dict_epoch: epoch,
+            granule: (self.staged - list.starts()[self.cur_part]) as u32,
+            claim_id: self.lo as u32,
+        });
         // NEW-45: the code cut seeds a part's entry from its dictionary only where every entry stands for a delivered row
         if entries_safe(&list.parts()[self.cur_part], self.resolved_unbound()) {
             w.set_part_facts(gravity_abi::site::site::PART_ENTRIES_SAFE);
@@ -8056,18 +10871,31 @@ impl GranuleRangeSource {
             return Ok((EMPTY_IMAGE.as_ptr() as Word, 0));
         }
         // the list's length, not an Arc::clone of it: a render per row put every worker on its refcount line
-        let nparts = self.list.as_ref().ok_or_else(|| err("gravity: dictionary lookup on an unbound source"))?.len();
+        let nparts = self
+            .list
+            .as_ref()
+            .ok_or_else(|| err("gravity: dictionary lookup on an unbound source"))?
+            .len();
         if p >= nparts || k >= self.recipe.natts || self.recipe.kinds[k] != lane::KIND_CODES {
-            return Err(Box::new(PgError::error(format!("gravity: dictionary lookup outside the plan (part {p} of {nparts}, lane {k} of {}, kind {}, code {code})", self.recipe.natts, self.recipe.kinds.get(k).copied().unwrap_or(u8::MAX))))); // alloc: Cold
+            return Err(Box::new(PgError::error(format!("gravity: dictionary lookup outside the plan (part {p} of {nparts}, lane {k} of {}, kind {}, code {code})", self.recipe.natts, self.recipe.kinds.get(k).copied().unwrap_or(u8::MAX)))));
+            // alloc: Cold
         }
         // D3823: a part-grain dictionary already in its cell renders from its handle, which owns its image and faults its
         // blocks through its own part: a render after the part's release (a HashAgg's code keys at the emit, a TopK's rows)
         // neither holds the part again to the statement's end nor opens a cursor; a verbatim part's render decodes its row
         // through this source's cursor, so it opens as before. One `dict_at` per render (`open_dict`'s open case inline):
         // a second, on every render of a verbatim part, cost a render-heavy grouped join 2.5 % of its instructions
-        let open = self.cursors.get(p * self.recipe.natts + k).is_some_and(|c| c.is_some());
-        if !self.dict_at(p, k).is_some_and(|e| open || matches!(e.dict, Dict::Part(_))) {
-            cancelpoll::step("granule_source dict_value: a render's dictionary opened").tick().map_err(|_| err(RENDER_CANCELED))?;
+        let open = self
+            .cursors
+            .get(p * self.recipe.natts + k)
+            .is_some_and(|c| c.is_some());
+        if !self
+            .dict_at(p, k)
+            .is_some_and(|e| open || matches!(e.dict, Dict::Part(_)))
+        {
+            cancelpoll::step("granule_source dict_value: a render's dictionary opened")
+                .tick()
+                .map_err(|_| err(RENDER_CANCELED))?;
             self.open_dict(p, k)?;
         }
         if pgrc_read::dict_census_on() {
@@ -8081,56 +10909,95 @@ impl GranuleRangeSource {
         // D4327: a part's dictionary the statement released (`StmtDicts::release`) and this render opened again has the
         // same `epoch` (one per open part) but a new image: the memo is keyed by the release count too, so no pointer into
         // the released image is handed out (an emit's render never enters the part, where `part_enter` resets the memo)
-        let opened = self.rel_unbound().stmt.as_deref().map_or(0, |sd| sd.epoch(p));
+        let opened = self
+            .rel_unbound()
+            .stmt
+            .as_deref()
+            .map_or(0, |sd| sd.epoch(p));
         // dict order 1: a fold renders every row, so a part's renders are memoised per code (a verbatim part's: its render table)
         // D4732 (c): a memo takes the held owner when it is made; a move of the held owner (`cursors_to`, at the bind's or a
         // window's re-home) reaches the memos made before it, so a render no longer asks for the owner each time
         if self.renders.len() <= k {
             let (made, owner) = (self.renders.len(), self.held.owner());
-            self.renders.resize_with(k + 1, crate::dict::text_hosts::RenderMemo::new); // alloc: Node
-            self.renders[made..].iter_mut().for_each(|m| m.set_owner(owner));
+            self.renders
+                .resize_with(k + 1, crate::dict::text_hosts::RenderMemo::new); // alloc: Node
+            self.renders[made..]
+                .iter_mut()
+                .for_each(|m| m.set_owner(owner));
         }
         if let Some((d, n)) = self.renders[k].get(p, epoch, opened, ncodes, code, verbatim) {
             return Ok((d as Word, n));
         }
         // D3963: an emit's renders past the memo ran back to back in one kernel call, 140-430 ms each under load, with no poll
-        cancelpoll::step("granule_source dict_value: a render past the memo").tick().map_err(|_| err(RENDER_CANCELED))?;
+        cancelpoll::step("granule_source dict_value: a render past the memo")
+            .tick()
+            .map_err(|_| err(RENDER_CANCELED))?;
         let hit = match &self.dict_at(p, k).expect("dictionary").dict {
             Dict::Part(d) => {
                 let e = d.entry(code).map_err(read_err)?;
                 (e.image.as_ptr() as Word, e.byte_len)
             }
             // D3038 (A): a lane coded by length renders nothing (its codes rank lengths: text_hosts `lane_codes`)
-            Dict::Ranked { table, .. } if table.ranks().is_some_and(|r| r.by_length().is_some()) => {
-                return Err(err("gravity: Reason::Bug: D3038: a render of a code lane coded by length"));
+            Dict::Ranked { table, .. }
+                if table.ranks().is_some_and(|r| r.by_length().is_some()) =>
+            {
+                return Err(err(
+                    "gravity: Reason::Bug: D3038: a render of a code lane coded by length",
+                ));
             }
             Dict::Ranked { table, .. } if self.renders[k].walk_due() => {
                 // a verbatim part's render decodes its code's row alone: its render table (one pass over the part's rows,
                 // resident and shared) renders every code
-                let _step = cancelpoll::step("granule_source dict_value: a verbatim part's render table");
+                let _step =
+                    cancelpoll::step("granule_source dict_value: a verbatim part's render table");
                 let table = table.arc_clone();
                 let ranks = table.ranks().expect("ranks");
                 let real = Arc::clone(self.parts().part(p, &self.recipe.registry)?);
                 // FASTADD: a column the part lacks renders from its stand-in
                 let part = Arc::clone(self.parts().lane(p, face, &real)?);
-                let (attno, ord) = self.parts().list.faces.locate(face, p, &part)?.ok_or_else(|| err("gravity: a render of a lane the part did not elect"))?;
+                let (attno, ord) = self
+                    .parts()
+                    .list
+                    .faces
+                    .locate(face, p, &part)?
+                    .ok_or_else(|| err("gravity: a render of a lane the part did not elect"))?;
                 let memo = self.fp_memo();
                 let rendered = {
                     let read_err_cell = core::cell::Cell::new(None);
-                    let cur_cell = core::cell::RefCell::new(self.cursors[p * self.recipe.natts + k].as_deref_mut().expect("cursor"));
+                    let cur_cell = core::cell::RefCell::new(
+                        self.cursors[p * self.recipe.natts + k]
+                            .as_deref_mut()
+                            .expect("cursor"),
+                    );
                     let scratch_cell = core::cell::RefCell::new(&mut self.scratch);
-                    let view = crate::dict::text_hosts::DictView::Ranked { ranks, cur: &cur_cell, scratch: &scratch_cell, err: &read_err_cell };
-                    crate::dict::text_hosts::render_table_in(memo, &part, stream_key(attno, ord), &view).map_err(read_err)?
+                    let view = crate::dict::text_hosts::DictView::Ranked {
+                        ranks,
+                        cur: &cur_cell,
+                        scratch: &scratch_cell,
+                        err: &read_err_cell,
+                    };
+                    crate::dict::text_hosts::render_table_in(
+                        memo,
+                        &part,
+                        stream_key(attno, ord),
+                        &view,
+                    )
+                    .map_err(read_err)?
                 };
                 self.renders[k].take_table(rendered);
                 if let Some((d, n)) = self.renders[k].get(p, epoch, opened, ncodes, code, true) {
                     return Ok((d as Word, n));
                 }
-                let (lg, i) = ranks.locator(code).ok_or_else(|| err("gravity: dictionary code outside the part's dictionary"))?;
+                let (lg, i) = ranks
+                    .locator(code)
+                    .ok_or_else(|| err("gravity: dictionary code outside the part's dictionary"))?;
                 self.render_row(p, k, lg, i)?
             }
             Dict::Ranked { table, .. } => {
-                let (lg, i) = table.ranks().expect("ranks").locator(code).ok_or_else(|| err("gravity: dictionary code outside the part's dictionary"))?;
+                let (lg, i) =
+                    table.ranks().expect("ranks").locator(code).ok_or_else(|| {
+                        err("gravity: dictionary code outside the part's dictionary")
+                    })?;
                 self.render_row(p, k, lg, i)?
             }
         };
@@ -8143,7 +11010,15 @@ impl GranuleRangeSource {
     fn unbind_pg(&mut self) {
         // SCANSTATS: this bind's granule census, a plain add at its bind's statement entry (landed with the statement's
         // other binds at its end)
-        pgrc_am::scanstats::granule_scan_end(self.ss_at, self.recipe.rel, [self.granules_decoded, self.granules_skipped, self.granules_answered]);
+        pgrc_am::scanstats::granule_scan_end(
+            self.ss_at,
+            self.recipe.rel,
+            [
+                self.granules_decoded,
+                self.granules_skipped,
+                self.granules_answered,
+            ],
+        );
         // a claim a stop left unfinished (a LIMIT) flushes here, before the statement's census reads the statics
         self.tally.flush();
         self.close_released();
@@ -8239,7 +11114,10 @@ impl GranuleRangeSource {
 
     /// D4554: `f` over each kept cursor (decode and character-length), a part's cursors in one group of part-use moves
     /// (`pgrc_read::UseMoves`: the part's user list locked and its parked count moved once a part, not once a cursor).
-    fn each_kept_by_part(&mut self, f: impl FnMut(&mut pgrc_read::UseMoves<'_>, &mut StreamCursor<'static>)) {
+    fn each_kept_by_part(
+        &mut self,
+        f: impl FnMut(&mut pgrc_read::UseMoves<'_>, &mut StreamCursor<'static>),
+    ) {
         self.each_kept_of(KeptParts::All, f);
     }
 
@@ -8252,19 +11130,35 @@ impl GranuleRangeSource {
         }
         self.park_pending = false;
         // one bind since (a Node's own source each statement): its `touched` list, not a pass over every held part
-        let parts = if self.binds == self.settle_bind + 1 { KeptParts::Touched } else { KeptParts::Since(self.settle_bind) };
+        let parts = if self.binds == self.settle_bind + 1 {
+            KeptParts::Touched
+        } else {
+            KeptParts::Since(self.settle_bind)
+        };
         self.each_kept_of(parts, |g, c| c.keep_past_statement_in(g));
         self.settle_bind = self.binds;
     }
 
     /// D4554: `each_kept_by_part` over the parts `parts` names (`KeptParts`).
-    fn each_kept_of(&mut self, parts: KeptParts, mut f: impl FnMut(&mut pgrc_read::UseMoves<'_>, &mut StreamCursor<'static>)) {
+    fn each_kept_of(
+        &mut self,
+        parts: KeptParts,
+        mut f: impl FnMut(&mut pgrc_read::UseMoves<'_>, &mut StreamCursor<'static>),
+    ) {
         let natts = self.recipe.natts.max(1);
         let touched = matches!(parts, KeptParts::Touched);
-        let n = if touched { self.touched.len() } else { self.held_parts.len() };
+        let n = if touched {
+            self.touched.len()
+        } else {
+            self.held_parts.len()
+        };
         // bounded("key-columns: one group a part this source keeps cursors over, one O(1) move per kept cursor")
         for i in 0..n {
-            let q = if touched { self.touched[i] } else { self.held_parts[i] } as usize;
+            let q = if touched {
+                self.touched[i]
+            } else {
+                self.held_parts[i]
+            } as usize;
             // a part no bind opened since bind `b` (its cursors' uses are where that park left them)
             if let KeptParts::Since(b) = parts {
                 if self.part_bind.get(q).is_some_and(|&opened| opened <= b) {
@@ -8301,13 +11195,21 @@ impl GranuleRangeSource {
     fn each_held_of(&mut self, touched: bool, mut f: impl FnMut(&mut StreamCursor<'static>)) {
         let natts = self.recipe.natts.max(1);
         let (cursors, chars) = (&mut self.cursors, &mut self.char_src);
-        let parts = if touched { &self.touched } else { &self.held_parts };
+        let parts = if touched {
+            &self.touched
+        } else {
+            &self.held_parts
+        };
         // bounded("key-columns: one O(1) step per kept cursor, one per read column of a part this source holds")
         for &q in parts {
             let (lo, hi) = (q as usize * natts, (q as usize + 1) * natts);
             let (nc, ns) = (cursors.len(), chars.len());
             // bounded("key-columns: one part's cursors, two per read column at most")
-            for c in cursors[lo.min(nc)..hi.min(nc)].iter_mut().chain(chars[lo.min(ns)..hi.min(ns)].iter_mut()).flatten() {
+            for c in cursors[lo.min(nc)..hi.min(nc)]
+                .iter_mut()
+                .chain(chars[lo.min(ns)..hi.min(ns)].iter_mut())
+                .flatten()
+            {
                 f(c);
             }
         }
@@ -8346,10 +11248,27 @@ impl GranuleRangeSource {
         shed(&mut self.dense);
         shed(&mut self.guard_sel);
         self.render = Vec::new(); // alloc: Node
-        let late = [gravity_driver::vec_bytes(&self.late_done), gravity_driver::vec_bytes(&self.late_sel), gravity_driver::vec_bytes(&self.late_sel16)].into_iter().sum::<usize>() + self.late_more.iter().flatten().map(gravity_driver::vec_bytes).sum::<usize>();
+        let late = [
+            gravity_driver::vec_bytes(&self.late_done),
+            gravity_driver::vec_bytes(&self.late_sel),
+            gravity_driver::vec_bytes(&self.late_sel16),
+        ]
+        .into_iter()
+        .sum::<usize>()
+            + self
+                .late_more
+                .iter()
+                .flatten()
+                .map(gravity_driver::vec_bytes)
+                .sum::<usize>();
         if late > SCRATCH_KEEP {
             (self.late_done, self.late_at, self.late_more) = (Vec::new(), Vec::new(), Vec::new()); // alloc: Node
-            (self.late_cnt, self.late_req, self.late_span, self.late_calls) = (Vec::new(), Vec::new(), Vec::new(), Vec::new()); // alloc: Node
+            (
+                self.late_cnt,
+                self.late_req,
+                self.late_span,
+                self.late_calls,
+            ) = (Vec::new(), Vec::new(), Vec::new(), Vec::new()); // alloc: Node
             (self.late_sel, self.late_sel16) = (Vec::new(), Vec::new()); // alloc: Node
         }
         self.held.sync(self.held_bytes());
@@ -8362,13 +11281,38 @@ impl GranuleRangeSource {
         }
         use gravity_driver::vec_bytes as v;
         let over = |n: usize| if n > SCRATCH_KEEP { n } else { 0 };
-        let lanes = [v(&self.datums), v(&self.valid), v(&self.sel), v(&self.sel16), v(&self.dense), v(&self.guard_sel)].into_iter().map(over).sum::<usize>();
+        let lanes = [
+            v(&self.datums),
+            v(&self.valid),
+            v(&self.sel),
+            v(&self.sel16),
+            v(&self.dense),
+            v(&self.guard_sel),
+        ]
+        .into_iter()
+        .map(over)
+        .sum::<usize>();
         let arenas = self.arenas.iter().map(|a| over(v(a))).sum::<usize>();
         let render = v(&self.render) + self.render.iter().map(v).sum::<usize>();
-        let late_sel = [v(&self.late_done), v(&self.late_sel), v(&self.late_sel16)].into_iter().sum::<usize>() + self.late_more.iter().flatten().map(v).sum::<usize>();
+        let late_sel = [v(&self.late_done), v(&self.late_sel), v(&self.late_sel16)]
+            .into_iter()
+            .sum::<usize>()
+            + self.late_more.iter().flatten().map(v).sum::<usize>();
         let late = if late_sel > SCRATCH_KEEP {
-            v(&self.late_done) + v(&self.late_at) + v(&self.late_more) + self.late_more.iter().map(|m| v(m) + m.iter().map(v).sum::<usize>()).sum::<usize>()
-                + v(&self.late_cnt) + v(&self.late_req) + v(&self.late_span) + v(&self.late_calls) + v(&self.late_sel) + v(&self.late_sel16)
+            v(&self.late_done)
+                + v(&self.late_at)
+                + v(&self.late_more)
+                + self
+                    .late_more
+                    .iter()
+                    .map(|m| v(m) + m.iter().map(v).sum::<usize>())
+                    .sum::<usize>()
+                + v(&self.late_cnt)
+                + v(&self.late_req)
+                + v(&self.late_span)
+                + v(&self.late_calls)
+                + v(&self.late_sel)
+                + v(&self.late_sel16)
         } else {
             0
         };
@@ -8377,7 +11321,12 @@ impl GranuleRangeSource {
 
     /// CONVERT wave 2: the bytes `held` charges: `kept_bytes` but the renders' memos (text_hosts charges its own).
     fn held_bytes(&self) -> u64 {
-        (Source::kept_bytes(self) - self.renders.iter().map(crate::dict::text_hosts::RenderMemo::kept_bytes).sum::<usize>()) as u64
+        (Source::kept_bytes(self)
+            - self
+                .renders
+                .iter()
+                .map(crate::dict::text_hosts::RenderMemo::kept_bytes)
+                .sum::<usize>()) as u64
     }
 
     /// X5: a `FLAG_BOUND` code set's spec with its values read from the site's key cells (`bound_keys`): `Eq` over the
@@ -8387,38 +11336,94 @@ impl GranuleRangeSource {
     /// entry a fault: each row evaluates the body, PG's answer; a NULL that makes the root NULL on every row, a LIKE's or
     /// an all-parameter code set's, the row reads as NULL without the table, gravity_expr emit `bound_null`). Any other
     /// spec is returned as it is.
-    pub(super) fn bound_spec(&self, spec: crate::dict::text_hosts::TableSpec) -> crate::dict::text_hosts::TableSpec {
+    pub(super) fn bound_spec(
+        &self,
+        spec: crate::dict::text_hosts::TableSpec,
+    ) -> crate::dict::text_hosts::TableSpec {
         use crate::dict::text_hosts::{TableFn, TableSpec};
-        let read = |cells: &[u16]| cells.iter().map(|&c| raw::key_cell(self.bound_keys, c as usize).filter(|k| k.1 == 0).and_then(|k| raw::bind_text(k.0))).collect::<Option<Vec<_>>>(); // alloc: Node
+        let read = |cells: &[u16]| {
+            cells
+                .iter()
+                .map(|&c| {
+                    raw::key_cell(self.bound_keys, c as usize)
+                        .filter(|k| k.1 == 0)
+                        .and_then(|k| raw::bind_text(k.0))
+                })
+                .collect::<Option<Vec<_>>>()
+        }; // alloc: Node
         let func = match &spec.func {
             // P5-02: a whole list's cells, every element of each array a value
-            TableFn::EqBound { values, cells, negated, list: true } => cells
+            TableFn::EqBound {
+                values,
+                cells,
+                negated,
+                list: true,
+            } => cells
                 .iter()
-                .map(|&c| raw::key_cell(self.bound_keys, c as usize).filter(|k| k.1 == 0).and_then(|k| raw::bind_text_list(k.0)))
+                .map(|&c| {
+                    raw::key_cell(self.bound_keys, c as usize)
+                        .filter(|k| k.1 == 0)
+                        .and_then(|k| raw::bind_text_list(k.0))
+                })
                 .collect::<Option<Vec<_>>>() // alloc: Node
-                .map(|v| TableFn::Eq { values: values.iter().cloned().chain(v.into_iter().flatten()).collect(), negated: *negated }), // alloc: Node
-            TableFn::EqBound { values, cells, negated, list: false } => read(cells).map(|v| TableFn::Eq { values: values.iter().cloned().chain(v).collect(), negated: *negated }), // alloc: Node
+                .map(|v| TableFn::Eq {
+                    values: values
+                        .iter()
+                        .cloned()
+                        .chain(v.into_iter().flatten())
+                        .collect(),
+                    negated: *negated,
+                }), // alloc: Node
+            TableFn::EqBound {
+                values,
+                cells,
+                negated,
+                list: false,
+            } => read(cells).map(|v| TableFn::Eq {
+                values: values.iter().cloned().chain(v).collect(),
+                negated: *negated,
+            }), // alloc: Node
             // NEW-72 entry C: a byte interval's bound end
-            TableFn::RangeBound { cells, below, nul } => read(cells).and_then(|v| v.into_iter().next()).map(|mut c| {
-                if *nul {
-                    c.push(0);
-                }
-                if *below { TableFn::Range { from: Vec::new(), to: Some(c) } } else { TableFn::Range { from: c, to: None } } // alloc: Node
-            }),
-            TableFn::LikeBound { parts, cells, ilike, negated } => read(cells).map(|v| {
+            TableFn::RangeBound { cells, below, nul } => {
+                read(cells).and_then(|v| v.into_iter().next()).map(|mut c| {
+                    if *nul {
+                        c.push(0);
+                    }
+                    if *below {
+                        TableFn::Range {
+                            from: Vec::new(),
+                            to: Some(c),
+                        }
+                    } else {
+                        TableFn::Range { from: c, to: None }
+                    } // alloc: Node
+                })
+            }
+            TableFn::LikeBound {
+                parts,
+                cells,
+                ilike,
+                negated,
+            } => read(cells).map(|v| {
                 let mut pattern = parts[0].clone(); // alloc: Node
-                // bounded("other: the pieces of one LIKE pattern of the statement's own quals, joined once per bind: the query text bounds them, as PG's like_fixed_prefix reads the same pattern with no poll")
+                                                    // bounded("other: the pieces of one LIKE pattern of the statement's own quals, joined once per bind: the query text bounds them, as PG's like_fixed_prefix reads the same pattern with no poll")
                 for (value, part) in v.iter().zip(&parts[1..]) {
                     pattern.extend_from_slice(value);
                     pattern.extend_from_slice(part);
                 }
-                TableFn::Like { pattern, ilike: *ilike, negated: *negated }
+                TableFn::Like {
+                    pattern,
+                    ilike: *ilike,
+                    negated: *negated,
+                }
             }),
             _ => return spec,
         };
-        TableSpec { over: spec.over, func: func.unwrap_or(TableFn::Faults) }
+        TableSpec {
+            over: spec.over,
+            func: func.unwrap_or(TableFn::Faults),
+        }
     }
-
 }
 
 impl Source for GranuleRangeSource {
@@ -8450,10 +11455,26 @@ impl Source for GranuleRangeSource {
         }
         // X5: the bound code sets' cells come after every other cell (lowerv4 dict/percode.rs `attach`), so the cell count
         // below is the site's own protocol's without them
-        self.bound_keys = (keys.as_ptr() as usize, keys_null.as_ptr() as usize, keys.len().min(keys_null.len()));
+        self.bound_keys = (
+            keys.as_ptr() as usize,
+            keys_null.as_ptr() as usize,
+            keys.len().min(keys_null.len()),
+        );
         // PS1-05: the open-time zone cells come after the source's own (`zone_keys`), never one of the counts below
-        let bound = self.recipe.tables.iter().map(|t| match &t.func { crate::dict::text_hosts::TableFn::EqBound { cells, .. } | crate::dict::text_hosts::TableFn::LikeBound { cells, .. } | crate::dict::text_hosts::TableFn::RangeBound { cells, .. } => cells.len(), _ => 0 }).sum::<usize>();
-        let nk = keys.len().saturating_sub(bound + self.recipe.zone_keys as usize);
+        let bound = self
+            .recipe
+            .tables
+            .iter()
+            .map(|t| match &t.func {
+                crate::dict::text_hosts::TableFn::EqBound { cells, .. }
+                | crate::dict::text_hosts::TableFn::LikeBound { cells, .. }
+                | crate::dict::text_hosts::TableFn::RangeBound { cells, .. } => cells.len(),
+                _ => 0,
+            })
+            .sum::<usize>();
+        let nk = keys
+            .len()
+            .saturating_sub(bound + self.recipe.zone_keys as usize);
         self.key_zone_seek(keys, keys_null);
         let total = self.total_granules();
         if keys_null[0] != 0 || keys_null[1] != 0 {
@@ -8479,9 +11500,28 @@ impl Source for GranuleRangeSource {
         self.dead = if self.order.is_none() && self.nzone > 0 && self.lo == 0 && self.hi == total {
             if self.dead_memo.is_none() {
                 // the footer's zone maps are the columns' (never a jsonb column's): a shred lane's predicates stay out of it
-                let mut cz = crate::ops::scan::heap_source::charged_scratch::<ZonePred>(self.held.owner());
-                cz.with_vec(|v| v.extend(self.zone[..self.nzone].iter().filter(|z| self.recipe.shred_of(z.lane as usize).is_none()).copied())); // alloc: Node charged self.held.owner()
-                self.dead_memo = Some(if cz.is_empty() { None } else { self.list.as_ref().and_then(|l| zone_dead(l, self.recipe.rel, &self.recipe.attnos[..self.recipe.natts], &cz)) });
+                let mut cz =
+                    crate::ops::scan::heap_source::charged_scratch::<ZonePred>(self.held.owner());
+                cz.with_vec(|v| {
+                    v.extend(
+                        self.zone[..self.nzone]
+                            .iter()
+                            .filter(|z| self.recipe.shred_of(z.lane as usize).is_none())
+                            .copied(),
+                    )
+                }); // alloc: Node charged self.held.owner()
+                self.dead_memo = Some(if cz.is_empty() {
+                    None
+                } else {
+                    self.list.as_ref().and_then(|l| {
+                        zone_dead(
+                            l,
+                            self.recipe.rel,
+                            &self.recipe.attnos[..self.recipe.natts],
+                            &cz,
+                        )
+                    })
+                });
             }
             self.dead_memo.clone().flatten()
         } else {
@@ -8505,8 +11545,10 @@ impl Source for GranuleRangeSource {
         self.nzone = if self.bound_ok { n } else { 0 };
         self.nzone_decl = self.nzone;
         self.nzone_static = n;
-        self.filter_lanes.assign(&LaneBits::from_words(self.recipe.natts, filter_lanes));
-        self.answer_lanes.assign(&LaneBits::from_words(self.recipe.natts, answer_lanes));
+        self.filter_lanes
+            .assign(&LaneBits::from_words(self.recipe.natts, filter_lanes));
+        self.answer_lanes
+            .assign(&LaneBits::from_words(self.recipe.natts, answer_lanes));
         self.zone_lanes.assign(&self.answer_lanes);
         // bounded("other: one zone predicate of the statement's own quals each (an IN list's member is one): the query text bounds them, and PG's ExecQual tests the same quals per row with no poll")
         for z in self.zone[..n].iter() {
@@ -8514,13 +11556,19 @@ impl Source for GranuleRangeSource {
         }
         self.any_lanes();
         let lanes = &self.answer_lanes;
-        self.tallied_mask = self.zone[..n].iter().enumerate().filter(|(i, z)| *i < 63 && z.tallied && lanes.has(z.lane as usize)).fold(0, |m, (i, _)| m | pred_bit(i));
+        self.tallied_mask = self.zone[..n]
+            .iter()
+            .enumerate()
+            .filter(|(i, z)| *i < 63 && z.tallied && lanes.has(z.lane as usize))
+            .fold(0, |m, (i, _)| m | pred_bit(i));
     }
 
     fn zone_any(&mut self, preds: &[ZonePred], ends: &[u16], base: usize) {
         self.any.clear();
         self.any_ends.clear();
-        if ends.last().is_some_and(|&e| e as usize == preds.len()) && preds.iter().all(|z| (z.lane as usize) < self.recipe.natts) {
+        if ends.last().is_some_and(|&e| e as usize == preds.len())
+            && preds.iter().all(|z| (z.lane as usize) < self.recipe.natts)
+        {
             self.any.extend_from_slice(preds); // alloc: Node
             self.any_ends.extend_from_slice(ends); // alloc: Node
         }
@@ -8540,7 +11588,8 @@ impl Source for GranuleRangeSource {
     }
 
     fn dict_value(&mut self, part_id: u32, lane: u16, code: u32) -> Result<(Word, u32)> {
-        self.dict_value_pg(part_id as usize, lane as usize, code).map_err(crate::stash)
+        self.dict_value_pg(part_id as usize, lane as usize, code)
+            .map_err(crate::stash)
     }
 
     fn lane(&mut self, k: u16, sel: &[u32], out: &mut Lane) -> Result<u32> {
@@ -8556,7 +11605,8 @@ impl Source for GranuleRangeSource {
     }
 
     fn lanes_hint(&self) -> usize {
-        (self.recipe.natts + 1 + self.recipe.tables.len()).max(self.recipe.verdict_lane.map_or(0, |k| k + 1))
+        (self.recipe.natts + 1 + self.recipe.tables.len())
+            .max(self.recipe.verdict_lane.map_or(0, |k| k + 1))
     }
 
     fn refetch(&mut self, _values: &mut [Word], _isnull: &mut [u8]) -> Result<bool> {
@@ -8567,9 +11617,25 @@ impl Source for GranuleRangeSource {
 
     fn unbind(&mut self) {
         self.unbind_pg();
-        debug_assert_eq!(self.cursors_held, self.cursors.iter().chain(self.char_src.iter()).flatten().count() * CURSOR_BYTES, "the boxed cursors' count");
+        debug_assert_eq!(
+            self.cursors_held,
+            self.cursors
+                .iter()
+                .chain(self.char_src.iter())
+                .flatten()
+                .count()
+                * CURSOR_BYTES,
+            "the boxed cursors' count"
+        );
         debug_assert!(
-            (0..self.cursors.len().max(self.char_src.len()).div_ceil(self.recipe.natts.max(1))).all(|q| !self.holds_part(q) || self.held_mark.get(q).copied().unwrap_or(false) && self.held_parts.contains(&(q as u32))),
+            (0..self
+                .cursors
+                .len()
+                .max(self.char_src.len())
+                .div_ceil(self.recipe.natts.max(1)))
+                .all(|q| !self.holds_part(q)
+                    || self.held_mark.get(q).copied().unwrap_or(false)
+                        && self.held_parts.contains(&(q as u32))),
             "D4554: a part with a cursor open is in held_parts"
         );
         self.held.park(self.held_bytes());
@@ -8598,7 +11664,12 @@ impl Source for GranuleRangeSource {
     /// order (no walk order, no sampler, no TID range narrowing it); any other read of the claim forbids further cuts and
     /// stops at a cut end already moved (every range site of the claim reads its units, so each stops at the same end).
     fn claim_cut(&mut self, cut: &gravity_driver::claimcut::Cut, drive: bool) -> Result<()> {
-        if drive && self.cut.is_none() && self.order.is_none() && self.recipe.sample.is_none() && (self.lo, self.hi) == cut.claim() {
+        if drive
+            && self.cut.is_none()
+            && self.order.is_none()
+            && self.recipe.sample.is_none()
+            && (self.lo, self.hi) == cut.claim()
+        {
             if let Some(token) = cut.adopt() {
                 self.cut = Some(token);
                 self.cut_skip0 = self.granules_skipped;
@@ -8628,7 +11699,8 @@ impl Source for GranuleRangeSource {
         if self.bound || (rel != 0 && rel != self.recipe.rel) {
             return None;
         }
-        let kept: Vec<Box<StreamCursor<'static>>> = self.cursors.iter_mut().filter_map(Option::take).collect(); // alloc: Cold
+        let kept: Vec<Box<StreamCursor<'static>>> =
+            self.cursors.iter_mut().filter_map(Option::take).collect(); // alloc: Cold
         self.cursors_held = 0;
         let pin = self.pin.take();
         self.lanes_open.fill(false);
@@ -8637,7 +11709,8 @@ impl Source for GranuleRangeSource {
         self.clear_held();
         self.cursor_generation = 0;
         self.held.sync(self.held_bytes());
-        (!kept.is_empty() || pin.is_some()).then(|| Box::new((kept, pin)) as Box<dyn core::any::Any>) // alloc: Cold
+        (!kept.is_empty() || pin.is_some())
+            .then(|| Box::new((kept, pin)) as Box<dyn core::any::Any>) // alloc: Cold
     }
 
     /// D4768: the relation of its recipe.
@@ -8673,7 +11746,11 @@ impl Source for GranuleRangeSource {
         // unbind left pending (or a settle moved to the session) are those of the cursors a bind opened since the last park
         // (several binds: a worker slot binds again at each section of a statement), so the park walks the parts those
         // binds opened
-        let parts = if mempolicy::keep::kept_parked() { KeptParts::Since(self.park_bind) } else { KeptParts::All };
+        let parts = if mempolicy::keep::kept_parked() {
+            KeptParts::Since(self.park_bind)
+        } else {
+            KeptParts::All
+        };
         self.each_kept_of(parts, |g, c| c.transfer_use_in(g, to, release));
         self.park_bind = self.binds;
         self.settle_bind = self.binds;
@@ -8701,27 +11778,115 @@ impl Source for GranuleRangeSource {
     /// are 64 KiB a column).
     fn kept_bytes(&self) -> usize {
         use gravity_driver::vec_bytes as v;
-        let fixed = core::mem::size_of::<[u64; VALIDITY_WORDS]>() * 2 + core::mem::size_of::<[u64; DV_GRANULE_WORDS]>();
-        let nested = self.arenas.iter().map(v).sum::<usize>() + self.late_more.iter().map(|m| v(m) + m.iter().map(v).sum::<usize>()).sum::<usize>() + self.render.iter().map(v).sum::<usize>();
-        let lanes = v(&self.cursors) + v(&self.seen_epoch) + v(&self.lanes_open) + v(&self.part_bind) + v(&self.held_mark) + v(&self.held_parts) + v(&self.touched) + v(&self.part_dec) + v(&self.faces) + v(&self.datums) + v(&self.arenas) + v(&self.inplace) + v(&self.valid) + v(&self.sel) + v(&self.sel16) + v(&self.dense) + v(&self.all_valid);
-        let zones = v(&self.zone) + v(&self.any) + v(&self.any_ends) + v(&self.zcode_images) + v(&self.zcode_preds) + v(&self.zlen) + v(&self.key_zone) + self.key_vals.as_ref().map_or(0, v) + v(&self.map_cols);
-        let late = v(&self.late_done) + v(&self.late_at) + v(&self.late_more) + v(&self.late_sel) + v(&self.guard_sel) + v(&self.late_sel16) + v(&self.late_cnt) + v(&self.late_req) + v(&self.late_span) + v(&self.late_calls);
-        let rest = v(&self.claim_runs) + v(&self.claim_miss_runs) + v(&self.runs_seen) + v(&self.nulls_seen) + v(&self.answers) + v(&self.octet_lens) + v(&self.render) + v(&self.renders) + self.renders.iter().map(crate::dict::text_hosts::RenderMemo::kept_bytes).sum::<usize>();
-        let reads = v(&self.char_src) + v(&self.char_lens) + v(&self.octet_words) + v(&self.ahead) + v(&self.ahead_runs) + v(&self.enc) + self.runs.kept_bytes();
+        let fixed = core::mem::size_of::<[u64; VALIDITY_WORDS]>() * 2
+            + core::mem::size_of::<[u64; DV_GRANULE_WORDS]>();
+        let nested = self.arenas.iter().map(v).sum::<usize>()
+            + self
+                .late_more
+                .iter()
+                .map(|m| v(m) + m.iter().map(v).sum::<usize>())
+                .sum::<usize>()
+            + self.render.iter().map(v).sum::<usize>();
+        let lanes = v(&self.cursors)
+            + v(&self.seen_epoch)
+            + v(&self.lanes_open)
+            + v(&self.part_bind)
+            + v(&self.held_mark)
+            + v(&self.held_parts)
+            + v(&self.touched)
+            + v(&self.part_dec)
+            + v(&self.faces)
+            + v(&self.datums)
+            + v(&self.arenas)
+            + v(&self.inplace)
+            + v(&self.valid)
+            + v(&self.sel)
+            + v(&self.sel16)
+            + v(&self.dense)
+            + v(&self.all_valid);
+        let zones = v(&self.zone)
+            + v(&self.any)
+            + v(&self.any_ends)
+            + v(&self.zcode_images)
+            + v(&self.zcode_preds)
+            + v(&self.zlen)
+            + v(&self.key_zone)
+            + self.key_vals.as_ref().map_or(0, v)
+            + v(&self.map_cols);
+        let late = v(&self.late_done)
+            + v(&self.late_at)
+            + v(&self.late_more)
+            + v(&self.late_sel)
+            + v(&self.guard_sel)
+            + v(&self.late_sel16)
+            + v(&self.late_cnt)
+            + v(&self.late_req)
+            + v(&self.late_span)
+            + v(&self.late_calls);
+        let rest = v(&self.claim_runs)
+            + v(&self.claim_miss_runs)
+            + v(&self.runs_seen)
+            + v(&self.nulls_seen)
+            + v(&self.answers)
+            + v(&self.octet_lens)
+            + v(&self.render)
+            + v(&self.renders)
+            + self
+                .renders
+                .iter()
+                .map(crate::dict::text_hosts::RenderMemo::kept_bytes)
+                .sum::<usize>();
+        let reads = v(&self.char_src)
+            + v(&self.char_lens)
+            + v(&self.octet_words)
+            + v(&self.ahead)
+            + v(&self.ahead_runs)
+            + v(&self.enc)
+            + self.runs.kept_bytes();
         // D4631: the lane sets and its own recipe copy, built with the source (a worker slot's build on whichever backend
         // made the slot) and kept for its life: on its charge, so whatever backend drops a parked slot takes them back first
-        let sets = [&self.lane_byref, &self.filter_lanes, &self.answer_lanes, &self.zone_lanes, &self.record_lanes, &self.mapped, &self.map_all, &self.meta_need, &self.lane_all, &self.elided, &self.first, &self.rest, &self.enc_set, &self.scratch_a, &self.scratch_b];
-        let own = sets.iter().map(|b| b.heap_bytes()).sum::<usize>() + match &self.recipe {
-            RecipeHome::Own(r) => r.heap_bytes(),
-            RecipeHome::Lent(_) => 0,
-        };
-        fixed + nested + lanes + zones + late + rest + reads + own + self.cursors_held + self.tables.kept_bytes() + self.scratch.kept_bytes()
+        let sets = [
+            &self.lane_byref,
+            &self.filter_lanes,
+            &self.answer_lanes,
+            &self.zone_lanes,
+            &self.record_lanes,
+            &self.mapped,
+            &self.map_all,
+            &self.meta_need,
+            &self.lane_all,
+            &self.elided,
+            &self.first,
+            &self.rest,
+            &self.enc_set,
+            &self.scratch_a,
+            &self.scratch_b,
+        ];
+        let own = sets.iter().map(|b| b.heap_bytes()).sum::<usize>()
+            + match &self.recipe {
+                RecipeHome::Own(r) => r.heap_bytes(),
+                RecipeHome::Lent(_) => 0,
+            };
+        fixed
+            + nested
+            + lanes
+            + zones
+            + late
+            + rest
+            + reads
+            + own
+            + self.cursors_held
+            + self.tables.kept_bytes()
+            + self.scratch.kept_bytes()
     }
 
     /// Bound: the statement's open parts of the relation; unbound: the parts this source's kept cursors hold.
     fn residency(&self) -> Residency {
         if !self.bound {
-            return Residency { parts: self.lanes_open.iter().filter(|o| **o).count() as u32, bytes: 0 };
+            return Residency {
+                parts: self.lanes_open.iter().filter(|o| **o).count() as u32,
+                bytes: 0,
+            };
         }
         self.parts().residency()
     }
@@ -8732,7 +11897,14 @@ impl Source for GranuleRangeSource {
     /// keeps every part's rows.
     fn entry_runs_offer(&mut self, layout: &gravity_abi::breaker::RecordLayout, bits: u8) {
         let own_fp = matches!(&self.recipe.tables[..], [t] if t.over == 0 && t.func == crate::dict::text_hosts::TableFn::Fingerprint);
-        self.runs_ok = self.bound && self.recipe.entries == Some(0) && !self.recipe.entries_filtered && !self.recipe.entries_nulls && self.recipe.natts == 1 && own_fp && self.order.is_none() && crate::ops::scan::pgrc::entry_runs::accepts(layout, bits);
+        self.runs_ok = self.bound
+            && self.recipe.entries == Some(0)
+            && !self.recipe.entries_filtered
+            && !self.recipe.entries_nulls
+            && self.recipe.natts == 1
+            && own_fp
+            && self.order.is_none()
+            && crate::ops::scan::pgrc::entry_runs::accepts(layout, bits);
     }
 
     fn owner_input(&self, pbits: u8) -> Option<&dyn gravity_driver::SpillFile> {
@@ -8743,4 +11915,3 @@ impl Source for GranuleRangeSource {
         !self.runs.is_empty()
     }
 }
-

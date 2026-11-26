@@ -17,9 +17,20 @@ pub(crate) fn read(px: &mut Px<'_, '_>, k: usize, own: Effects) -> Option<Licenc
         whole_read_local(own, None).ok()
     } else {
         // a row lock is an act `call_local` does not deny (it denies a write): whole_read_local grants it to no code
-        let s = px.gx.graph.stmt.filter(|s| s.rowMarks.iter().next().is_none())?;
+        let s = px
+            .gx
+            .graph
+            .stmt
+            .filter(|s| s.rowMarks.iter().next().is_none())?;
         let cx = Cx::new(s, px.gx.facts, px.arena);
-        whole_read_local(own, call_local(&cx, s.planTree.into_iter().chain(s.subplans.iter().flatten()))).ok()
+        whole_read_local(
+            own,
+            call_local(
+                &cx,
+                s.planTree.into_iter().chain(s.subplans.iter().flatten()),
+            ),
+        )
+        .ok()
     };
     // the tracer's stamp (`Px::hold`, recorded only while it runs)
     l.inspect(|l| px.hold(k, l))

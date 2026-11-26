@@ -359,7 +359,10 @@ fn io_wait_with_cross_thread_completion() {
         },
     );
     assert!(
-        matches!(outcome, io::IoWaitOutcome::Completed | io::IoWaitOutcome::Reaped),
+        matches!(
+            outcome,
+            io::IoWaitOutcome::Completed | io::IoWaitOutcome::Reaped
+        ),
         "unexpected outcome {outcome:?}"
     );
     completer.join().unwrap();
@@ -389,7 +392,10 @@ fn io_wait_with_spurious_notify_retests_and_reparks() {
         || panic!("reap unreachable"),
     );
     assert_eq!(outcome, io::IoWaitOutcome::Completed);
-    assert!(parks.load(Ordering::Relaxed) >= 2, "spurious notify must re-park");
+    assert!(
+        parks.load(Ordering::Relaxed) >= 2,
+        "spurious notify must re-park"
+    );
 }
 
 #[test]
@@ -477,7 +483,11 @@ mod signal_route {
         // SAFETY: restore the previous disposition.
         unsafe { libc::sigaction(libc::SIGUSR2, &old, std::ptr::null_mut()) };
 
-        assert_eq!(HANDLER_RESULT.load(Ordering::SeqCst), 0, "handler did not run to Delivered");
+        assert_eq!(
+            HANDLER_RESULT.load(Ordering::SeqCst),
+            0,
+            "handler did not run to Delivered"
+        );
         // The byte is in the pipe (a kernel block would have ended)...
         let mut b = [0u8; 1];
         // SAFETY: 1-byte read from this thread's nonblocking wake pipe.
@@ -512,7 +522,10 @@ mod signal_route {
         }
         let start = std::time::Instant::now();
         assert_eq!(unpark_word_from_signal(h.as_u64()), Unparked::Delivered);
-        assert!(start.elapsed() < Duration::from_millis(200), "signal route blocked");
+        assert!(
+            start.elapsed() < Duration::from_millis(200),
+            "signal route blocked"
+        );
         release.store(true, Ordering::SeqCst);
         assert_eq!(t.join().unwrap(), ParkResult::Notified);
     }
@@ -560,7 +573,10 @@ fn waiter_slab_scales_with_configured_backends() {
         global::release_slot_for_test(idx);
     }
     assert_eq!(got.len(), want, "slab exhausted after {} slots", got.len());
-    assert!(high >= WAITER_CAP, "high water {high} never left the boot slab");
+    assert!(
+        high >= WAITER_CAP,
+        "high water {high} never left the boot slab"
+    );
     let (unparked, described) = routed.expect("no extension slot allocated");
     assert_eq!(unparked, Unparked::Pending);
     assert_eq!(
@@ -590,11 +606,19 @@ fn owner_token_is_the_locked_token_through_a_slot_life() {
     assert_ne!(t3, t2);
 
     let before = current_handle();
-    assert_eq!(current_handle(), before, "the handle is stable between reissues");
+    assert_eq!(
+        current_handle(),
+        before,
+        "the handle is stable between reissues"
+    );
     reissue_current_token();
     let after = current_handle();
     assert_ne!(after, before, "a reissue publishes a fresh handle");
-    assert_eq!(unpark(before), Unparked::Stale, "the old incarnation's handle no longer wakes this thread");
+    assert_eq!(
+        unpark(before),
+        Unparked::Stale,
+        "the old incarnation's handle no longer wakes this thread"
+    );
     assert_eq!(unpark(after), Unparked::Pending);
     assert_eq!(park(), ParkResult::Notified);
 }

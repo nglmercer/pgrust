@@ -12,4 +12,7 @@ crate::strategies! {
     MERGE_WIDEEMIT = 137, "merge.wideemit", Merge;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(MERGE_KSORT, &()), (MERGE_WIDEEMIT, &())], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(MERGE_KSORT, &()), (MERGE_WIDEEMIT, &())],
+    ..crate::ops::NONE
+};

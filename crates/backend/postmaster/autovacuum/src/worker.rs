@@ -18,7 +18,7 @@ use types_core::{
 use types_error::{PgError, PgResult, DEBUG1, DEBUG3, FATAL, LOG, WARNING};
 use types_nodes::parsenodes::{DropBehavior, VacuumRelation};
 use types_nodes::{Node, NodeList};
-use types_rel::lock::{AccessShareLock, AccessExclusiveLock};
+use types_rel::lock::{AccessExclusiveLock, AccessShareLock};
 use types_rel::pg_class::{RELKIND_MATVIEW, RELKIND_RELATION, RELKIND_TOASTVALUE};
 use types_rel::reloptions::AutoVacOpts;
 use types_scan::scankey::{BTEqualStrategyNumber, ScanKeyData};
@@ -35,9 +35,10 @@ use crate::shmem::{
     self, AVW_BRIN_SUMMARIZE_RANGE, AV_REBALANCE, AV_STORAGE_PARAM_COST_DELAY,
     AV_STORAGE_PARAM_COST_LIMIT, MY_WORKER_INFO, NUM_WORKITEMS,
 };
-use crate::{autovacuum_anl_scale, autovacuum_anl_thresh,
-    autovacuum_vac_ins_scale, autovacuum_vac_ins_thresh, autovacuum_vac_max_thresh,
-    autovacuum_vac_scale, autovacuum_vac_thresh, AutoVacuumingActive, Log_autovacuum_min_duration,
+use crate::{
+    autovacuum_anl_scale, autovacuum_anl_thresh, autovacuum_vac_ins_scale,
+    autovacuum_vac_ins_thresh, autovacuum_vac_max_thresh, autovacuum_vac_scale,
+    autovacuum_vac_thresh, AutoVacuumingActive, Log_autovacuum_min_duration,
 };
 
 #[allow(non_upper_case_globals)] // C-parity name
@@ -92,14 +93,26 @@ pub fn AutoVacWorkerMain(startup_data: &StartupData) -> ! {
 
     {
         use procsignal::ThreadSignalHandler::{Fallible, Ignore, Simple};
-        procsignal::pqsignal_thread(procsignal::signums::SIGHUP, Simple(interrupt::SignalHandlerForConfigReload));
-        procsignal::pqsignal_thread(procsignal::signums::SIGINT, Simple(postgres::StatementCancelHandler));
+        procsignal::pqsignal_thread(
+            procsignal::signums::SIGHUP,
+            Simple(interrupt::SignalHandlerForConfigReload),
+        );
+        procsignal::pqsignal_thread(
+            procsignal::signums::SIGINT,
+            Simple(postgres::StatementCancelHandler),
+        );
         procsignal::pqsignal_thread(procsignal::signums::SIGTERM, Fallible(postgres::die));
         timeout_seams::initialize_timeouts::call();
         procsignal::pqsignal_thread(procsignal::signums::SIGPIPE, Ignore);
-        procsignal::pqsignal_thread(procsignal::signums::SIGUSR1, Simple(procsignal::procsignal_sigusr1_handler));
+        procsignal::pqsignal_thread(
+            procsignal::signums::SIGUSR1,
+            Simple(procsignal::procsignal_sigusr1_handler),
+        );
         procsignal::pqsignal_thread(procsignal::signums::SIGUSR2, Ignore);
-        procsignal::pqsignal_thread(procsignal::signums::SIGFPE, Fallible(postgres::FloatExceptionHandler));
+        procsignal::pqsignal_thread(
+            procsignal::signums::SIGFPE,
+            Fallible(postgres::FloatExceptionHandler),
+        );
         procsignal::pqsignal_thread(procsignal::signums::SIGCHLD, Ignore);
     }
 
@@ -135,7 +148,12 @@ fn worker_body() -> PgResult<()> {
     libpq_pqsignal::unblock_signals();
 
     guc::SetConfigOption("search_path", Some(""), PGC_SUSET, PGC_S_OVERRIDE)?;
-    guc::SetConfigOption("zero_damaged_pages", Some("false"), PGC_SUSET, PGC_S_OVERRIDE)?;
+    guc::SetConfigOption(
+        "zero_damaged_pages",
+        Some("false"),
+        PGC_SUSET,
+        PGC_S_OVERRIDE,
+    )?;
     guc::SetConfigOption("statement_timeout", Some("0"), PGC_SUSET, PGC_S_OVERRIDE)?;
     guc::SetConfigOption("transaction_timeout", Some("0"), PGC_SUSET, PGC_S_OVERRIDE)?;
     guc::SetConfigOption("lock_timeout", Some("0"), PGC_SUSET, PGC_S_OVERRIDE)?;
@@ -154,9 +172,19 @@ fn worker_body() -> PgResult<()> {
     if guc_tables::vars::synchronous_commit.read()
         > guc_tables::consts::SYNCHRONOUS_COMMIT_LOCAL_FLUSH
     {
-        guc::SetConfigOption("synchronous_commit", Some("local"), PGC_SUSET, PGC_S_OVERRIDE)?;
+        guc::SetConfigOption(
+            "synchronous_commit",
+            Some("local"),
+            PGC_SUSET,
+            PGC_S_OVERRIDE,
+        )?;
     }
-    guc::SetConfigOption("stats_fetch_consistency", Some("none"), PGC_SUSET, PGC_S_OVERRIDE)?;
+    guc::SetConfigOption(
+        "stats_fetch_consistency",
+        Some("none"),
+        PGC_SUSET,
+        PGC_S_OVERRIDE,
+    )?;
 
     let dbid = {
         let mut l = shmem::av_lock();
@@ -204,7 +232,10 @@ fn worker_body() -> PgResult<()> {
         miscinit::SetProcessingMode(ProcessingMode::NormalProcessing);
         // autovacuum.c:1581: ereport(DEBUG1, errmsg_internal("autovacuum:
         // processing database \"%s\"", dbname)).
-        elog::elog(DEBUG1, format!("autovacuum: processing database \"{dbname}\""))?;
+        elog::elog(
+            DEBUG1,
+            format!("autovacuum: processing database \"{dbname}\""),
+        )?;
 
         let post_auth_delay = guc_tables::vars::PostAuthDelay.read();
         if post_auth_delay > 0 {
@@ -224,7 +255,9 @@ fn free_worker_info_callback(_code: i32, _arg: usize) {
 }
 
 fn FreeWorkerInfo() {
-    let Some(idx) = MY_WORKER_INFO.get() else { return };
+    let Some(idx) = MY_WORKER_INFO.get() else {
+        return;
+    };
     let mut l = shmem::av_lock();
 
     // The launcher wake rides ProcKill via wake_autovacuum_launcher (C saves
@@ -277,9 +310,7 @@ fn decode_av_class_row(
     let relname = {
         let d = req(2);
         // SAFETY: NameData column: NAMEDATALEN readable bytes.
-        let bytes = unsafe {
-            std::slice::from_raw_parts(d.as_usize() as *const u8, 64)
-        };
+        let bytes = unsafe { std::slice::from_raw_parts(d.as_usize() as *const u8, 64) };
         let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
         String::from_utf8_lossy(&bytes[..end]).into_owned()
     };
@@ -287,9 +318,17 @@ fn decode_av_class_row(
     let relam = req(7).as_oid();
     // Only the relkinds autovacuum considers carry AutoVacOpts (C extracts
     // after its relkind filters).
-    let avopts = if matches!(relkind, RELKIND_RELATION | RELKIND_MATVIEW | RELKIND_TOASTVALUE) {
+    let avopts = if matches!(
+        relkind,
+        RELKIND_RELATION | RELKIND_MATVIEW | RELKIND_TOASTVALUE
+    ) {
         let (opts_datum, opts_null) = att(33);
-        extract_autovac_opts(mcx, relkind, relam, if opts_null { None } else { Some(opts_datum) })?
+        extract_autovac_opts(
+            mcx,
+            relkind,
+            relam,
+            if opts_null { None } else { Some(opts_datum) },
+        )?
     } else {
         None
     };
@@ -317,11 +356,16 @@ fn extract_autovac_opts(
     relam: Oid,
     opts_datum: Option<datum::Datum>,
 ) -> PgResult<Option<AutoVacOpts>> {
-    debug_assert!(matches!(relkind, RELKIND_RELATION | RELKIND_MATVIEW | RELKIND_TOASTVALUE));
-    Ok(reloptions::extractRelOptions(mcx, relkind, relam, opts_datum)?
-        .as_ref()
-        .and_then(|o| o.std())
-        .map(|s| s.autovacuum))
+    debug_assert!(matches!(
+        relkind,
+        RELKIND_RELATION | RELKIND_MATVIEW | RELKIND_TOASTVALUE
+    ));
+    Ok(
+        reloptions::extractRelOptions(mcx, relkind, relam, opts_datum)?
+            .as_ref()
+            .and_then(|o| o.std())
+            .map(|s| s.autovacuum),
+    )
 }
 
 fn fetch_av_class_row(mcx: Mcx<'_>, relid: Oid) -> PgResult<Option<AvClassRow>> {
@@ -354,7 +398,9 @@ struct ToastMap<'m> {
 
 impl<'m> ToastMap<'m> {
     fn new(mcx: Mcx<'m>) -> Self {
-        ToastMap { map: PgFxHashMap::with_hasher_in(Default::default(), mcx) }
+        ToastMap {
+            map: PgFxHashMap::with_hasher_in(Default::default(), mcx),
+        }
     }
 
     fn enter(&mut self, toastrelid: Oid, main_relopts: Option<AutoVacOpts>) {
@@ -517,8 +563,8 @@ pub fn do_autovacuum() -> PgResult<()> {
             continue;
         }
 
-        let datname = dbcommands_seams::get_database_name::call(g::MyDatabaseId())?
-            .unwrap_or_default();
+        let datname =
+            dbcommands_seams::get_database_name::call(g::MyDatabaseId())?.unwrap_or_default();
         let nspname = syscache_seams::pg_namespace_nspname::call(row.relnamespace)?
             .map(|n| String::from_utf8_lossy(n.name_str()).into_owned())
             .unwrap_or_default();
@@ -639,7 +685,9 @@ pub fn do_autovacuum() -> PgResult<()> {
             // unwind-ok: stmt-boundary
             let vac_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 #[cfg(debug_assertions)]
-                if std::env::var("PGRUST_TEST_AUTOVAC_PANIC_TABLE").as_deref() == Ok(relname.as_str()) {
+                if std::env::var("PGRUST_TEST_AUTOVAC_PANIC_TABLE").as_deref()
+                    == Ok(relname.as_str())
+                {
                     panic!("injected autovacuum panic for containment test: {relname}");
                 }
                 autovacuum_do_vac_analyze(tmcx, &tab, bstrategy.clone(), &nspname, &relname)
@@ -800,7 +848,11 @@ fn autovac_report_activity(tab: &AutovacTable, nspname: &str, relname: &str) {
         " {}.{}{}",
         nspname,
         relname,
-        if tab.at_params.is_wraparound { " (to prevent wraparound)" } else { "" }
+        if tab.at_params.is_wraparound {
+            " (to prevent wraparound)"
+        } else {
+            ""
+        }
     );
     let room = (MAX_AUTOVAC_ACTIV_LEN - 1).saturating_sub(activity.len());
     let mut end = suffix.len().min(room);
@@ -860,7 +912,10 @@ fn perform_work_item(workitem: &shmem::WorkItem) -> PgResult<()> {
                 )?;
             }
             other => {
-                elog::elog(WARNING, format!("unrecognized work item found: type {other}"))?;
+                elog::elog(
+                    WARNING,
+                    format!("unrecognized work item found: type {other}"),
+                )?;
             }
         }
         // Clear a possible query-cancel signal, to avoid a late reaction to
@@ -870,9 +925,7 @@ fn perform_work_item(workitem: &shmem::WorkItem) -> PgResult<()> {
         g::SetQueryCancelPending(false);
         Ok(())
     }))
-    .unwrap_or_else(|payload| {
-        Err(Box::new(pg_error_from_panic(payload)))
-    });
+    .unwrap_or_else(|payload| Err(Box::new(pg_error_from_panic(payload))));
     if let Err(mut err) = result {
         // C's PG_CATCH: adorn, report, abort, restart, continue. FATAL never
         // reaches C's PG_CATCH (errfinish proc_exits).
@@ -910,11 +963,7 @@ fn autovac_report_workitem(workitem: &shmem::WorkItem, nspname: &str, relname: &
 // The qualified name of the relation, and the block number if any, after C's
 // "autovacuum: BRIN summarize" prefix (autovac_report_workitem's snprintf
 // pair; the suffix write is capped at MAX_AUTOVAC_ACTIV_LEN - len).
-fn workitem_activity_string(
-    workitem: &shmem::WorkItem,
-    nspname: &str,
-    relname: &str,
-) -> String {
+fn workitem_activity_string(workitem: &shmem::WorkItem, nspname: &str, relname: &str) -> String {
     // AVW_BRINSummarizeRange is the only work-item type C defines (the sole
     // switch arm).
     debug_assert_eq!(workitem.avw_type, AVW_BRIN_SUMMARIZE_RANGE);
@@ -1058,15 +1107,13 @@ fn relation_needs_vacanalyze(
         _ => autovacuum_anl_thresh(),
     };
     let freeze_max_age = match relopts {
-        Some(r) if r.freeze_max_age >= 0 => {
-            r.freeze_max_age.min(g::autovacuum_freeze_max_age())
-        }
+        Some(r) if r.freeze_max_age >= 0 => r.freeze_max_age.min(g::autovacuum_freeze_max_age()),
         _ => g::autovacuum_freeze_max_age(),
     };
     let multixact_freeze_max_age = match relopts {
-        Some(r) if r.multixact_freeze_max_age >= 0 => {
-            r.multixact_freeze_max_age.min(effective_multixact_freeze_max_age)
-        }
+        Some(r) if r.multixact_freeze_max_age >= 0 => r
+            .multixact_freeze_max_age
+            .min(effective_multixact_freeze_max_age),
         _ => effective_multixact_freeze_max_age,
     };
     let av_enabled = relopts.map(|r| r.enabled).unwrap_or(true);
@@ -1078,8 +1125,9 @@ fn relation_needs_vacanalyze(
     let mut force_vacuum = TransactionIdIsNormal(row.relfrozenxid)
         && TransactionIdPrecedes(row.relfrozenxid, xid_force_limit);
     if !force_vacuum {
-        let mut multi_force_limit =
-            RECENT_MULTI.get().wrapping_sub(multixact_freeze_max_age as u32);
+        let mut multi_force_limit = RECENT_MULTI
+            .get()
+            .wrapping_sub(multixact_freeze_max_age as u32);
         if multi_force_limit < FirstMultiXactId {
             multi_force_limit = multi_force_limit.wrapping_sub(FirstMultiXactId);
         }
@@ -1099,7 +1147,11 @@ fn relation_needs_vacanalyze(
         let instuples = tabentry.ins_since_vacuum as f32;
         let anltuples = tabentry.mod_since_analyze as f32;
 
-        let reltuples = if row.reltuples < 0.0 { 0.0 } else { row.reltuples };
+        let reltuples = if row.reltuples < 0.0 {
+            0.0
+        } else {
+            row.reltuples
+        };
         let mut pcnt_unfrozen = 1.0f32;
         if row.relpages > 0 && row.relallfrozen > 0 {
             let relallfrozen = row.relallfrozen.min(row.relpages);
@@ -1142,7 +1194,11 @@ fn relation_needs_vacanalyze(
         doanalyze = false;
     }
 
-    let doanalyze = if relid == StatisticRelationId { false } else { doanalyze };
+    let doanalyze = if relid == StatisticRelationId {
+        false
+    } else {
+        doanalyze
+    };
     (dovacuum, doanalyze, wraparound)
 }
 
@@ -1187,7 +1243,11 @@ fn vacanalyze_debug_line(
     }
 }
 
-pub fn AutoVacuumRequestWork(av_type: i32, relation_id: Oid, blkno: types_core::BlockNumber) -> bool {
+pub fn AutoVacuumRequestWork(
+    av_type: i32,
+    relation_id: Oid,
+    blkno: types_core::BlockNumber,
+) -> bool {
     debug_assert_eq!(av_type, AVW_BRIN_SUMMARIZE_RANGE);
     let mut l = shmem::av_lock();
     for i in 0..NUM_WORKITEMS {
@@ -1225,7 +1285,10 @@ mod tests {
     fn toast_map_keeps_first_main_relation_and_scales() {
         let cx = MemoryContext::new("toast map");
         let mut m = ToastMap::new(cx.mcx());
-        let opts = AutoVacOpts { enabled: false, ..EMPTY_AV_OPTS };
+        let opts = AutoVacOpts {
+            enabled: false,
+            ..EMPTY_AV_OPTS
+        };
         m.enter(10, Some(opts));
         m.enter(10, None);
         m.enter(11, None);
@@ -1295,26 +1358,56 @@ mod tests {
     fn threshold_matrix() {
         setup();
         let r = row(1000.0, 10, 0);
-        assert_eq!(decide(&r, Some(&entry(251, 0, 0)), None), (true, false, false));
-        assert_eq!(decide(&r, Some(&entry(250, 0, 0)), None), (false, false, false));
-        assert_eq!(decide(&r, Some(&entry(0, 0, 151)), None), (false, true, false));
-        assert_eq!(decide(&r, Some(&entry(0, 0, 150)), None), (false, false, false));
-        assert_eq!(decide(&r, Some(&entry(0, 1201, 0)), None), (true, false, false));
-        assert_eq!(decide(&r, Some(&entry(0, 1200, 0)), None), (false, false, false));
+        assert_eq!(
+            decide(&r, Some(&entry(251, 0, 0)), None),
+            (true, false, false)
+        );
+        assert_eq!(
+            decide(&r, Some(&entry(250, 0, 0)), None),
+            (false, false, false)
+        );
+        assert_eq!(
+            decide(&r, Some(&entry(0, 0, 151)), None),
+            (false, true, false)
+        );
+        assert_eq!(
+            decide(&r, Some(&entry(0, 0, 150)), None),
+            (false, false, false)
+        );
+        assert_eq!(
+            decide(&r, Some(&entry(0, 1201, 0)), None),
+            (true, false, false)
+        );
+        assert_eq!(
+            decide(&r, Some(&entry(0, 1200, 0)), None),
+            (false, false, false)
+        );
 
         // Fully frozen table scales the insert threshold by pcnt_unfrozen = 0.
         let frozen = row(1000.0, 10, 10);
-        assert_eq!(decide(&frozen, Some(&entry(0, 1001, 0)), None), (true, false, false));
+        assert_eq!(
+            decide(&frozen, Some(&entry(0, 1001, 0)), None),
+            (true, false, false)
+        );
 
         // vac_max_thresh cap (autovacuum_vacuum_max_threshold = 100000000):
         // uncapped vacthresh would be 2e8+50. Values f32-exact (C float4 math).
         let big = row(1e9, 1000, 0);
-        assert_eq!(decide(&big, Some(&entry(200_000_000, 0, 0)), None), (true, false, false));
-        assert_eq!(decide(&big, Some(&entry(50_000_000, 0, 0)), None), (false, false, false));
+        assert_eq!(
+            decide(&big, Some(&entry(200_000_000, 0, 0)), None),
+            (true, false, false)
+        );
+        assert_eq!(
+            decide(&big, Some(&entry(50_000_000, 0, 0)), None),
+            (false, false, false)
+        );
 
         // reltuples < 0 (never vacuumed) is treated as 0.
         let unk = row(-1.0, 10, 0);
-        assert_eq!(decide(&unk, Some(&entry(51, 0, 0)), None), (true, false, false));
+        assert_eq!(
+            decide(&unk, Some(&entry(51, 0, 0)), None),
+            (true, false, false)
+        );
 
         // No pgstat entry: only the force arm can fire.
         assert_eq!(decide(&r, None, None), (false, false, false));
@@ -1326,13 +1419,19 @@ mod tests {
         RECENT_XID.set(250_000_000);
         // relfrozenxid 700 precedes 250M - 200M = 50M => force.
         let r = row(1000.0, 10, 0);
-        let disabled = AutoVacOpts { enabled: false, ..EMPTY_AV_OPTS };
+        let disabled = AutoVacOpts {
+            enabled: false,
+            ..EMPTY_AV_OPTS
+        };
         assert_eq!(decide(&r, None, Some(&disabled)), (true, false, true));
         assert_eq!(decide(&r, Some(&entry(0, 0, 0)), None), (true, false, true));
 
         // Not at risk => reloption-disabled table is skipped entirely.
         RECENT_XID.set(300_000);
-        assert_eq!(decide(&r, Some(&entry(9999, 0, 9999)), Some(&disabled)), (false, false, false));
+        assert_eq!(
+            decide(&r, Some(&entry(9999, 0, 9999)), Some(&disabled)),
+            (false, false, false)
+        );
     }
 
     #[test]
@@ -1346,8 +1445,14 @@ mod tests {
             analyze_scale_factor: 0.0,
             ..EMPTY_AV_OPTS
         };
-        assert_eq!(decide(&r, Some(&entry(11, 0, 11)), Some(&opts)), (true, true, false));
-        assert_eq!(decide(&r, Some(&entry(10, 0, 10)), Some(&opts)), (false, false, false));
+        assert_eq!(
+            decide(&r, Some(&entry(11, 0, 11)), Some(&opts)),
+            (true, true, false)
+        );
+        assert_eq!(
+            decide(&r, Some(&entry(10, 0, 10)), Some(&opts)),
+            (false, false, false)
+        );
     }
 
     #[test]
@@ -1355,7 +1460,10 @@ mod tests {
         setup();
         let mut r = row(1000.0, 10, 0);
         r.oid = StatisticRelationId;
-        assert_eq!(decide(&r, Some(&entry(9999, 0, 9999)), None), (true, false, false));
+        assert_eq!(
+            decide(&r, Some(&entry(9999, 0, 9999)), None),
+            (true, false, false)
+        );
     }
 
     // AutoVacuumRequestWork (autovacuum.c): a request claims a free slot with
@@ -1450,6 +1558,9 @@ mod tests {
     // autovacuum.c:1937: the database OID is part of the message.
     #[test]
     fn cache_lookup_failed_message_carries_oid() {
-        assert_eq!(cache_lookup_failed_for_database(16384), "cache lookup failed for database 16384");
+        assert_eq!(
+            cache_lookup_failed_for_database(16384),
+            "cache lookup failed for database 16384"
+        );
     }
 }

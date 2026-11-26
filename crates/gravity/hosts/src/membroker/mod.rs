@@ -98,7 +98,13 @@ pub fn pool_tick(resident: u64, room: Option<u64>) {
         // `grant_room_counts_cache` (USER 10-19: evict as memory is used): the reservation stays whole, the caches' bytes past
         // their floors are room it may take; the draws evict them inline as they map
         // (ladder_reconcile reads `room` itself, the resident room: the evictable bytes are their own term)
-        let grant = room.map(|r| mempolicy::sizes::grant_room(r, budget::caches_evictable_now(), mempolicy::consts::get(mempolicy::consts::K::GrantRoomCountsCache) != 0));
+        let grant = room.map(|r| {
+            mempolicy::sizes::grant_room(
+                r,
+                budget::caches_evictable_now(),
+                mempolicy::consts::get(mempolicy::consts::K::GrantRoomCountsCache) != 0,
+            )
+        });
         let capacity = mempolicy::sizes::pool_tick_capacity(capacity, held, grant);
         gravity_driver::POOL.arm(mempolicy::sizes::pool_follow(capacity, None, held));
         if mcx::reconcile::on() {
@@ -114,12 +120,18 @@ fn reconcile_terms(capacity: u64, held: u64, room: Option<u64>) {
     mcx::reconcile::put(Term::PoolCapacity, capacity);
     mcx::reconcile::put(Term::PoolHeld, held);
     mcx::reconcile::put(Term::PoolRoom, room.unwrap_or(NONE));
-    mcx::reconcile::put(Term::DepotMapped, gravity_driver::park::REGIONS.parked_bytes() as u64);
+    mcx::reconcile::put(
+        Term::DepotMapped,
+        gravity_driver::park::REGIONS.parked_bytes() as u64,
+    );
     let resident = |a: memledger::Acct| {
         let r = memledger::account_row(a);
         r.account_bytes.saturating_sub(r.not_resident_bytes).max(0) as u64
     };
-    mcx::reconcile::put(Term::DepotResident, resident(memledger::Acct::PARKED).saturating_add(resident(memledger::Acct::SLOT_DEPOT)));
+    mcx::reconcile::put(
+        Term::DepotResident,
+        resident(memledger::Acct::PARKED).saturating_add(resident(memledger::Acct::SLOT_DEPOT)),
+    );
 }
 
 /// D3992: the backstop's rungs (installed by `memruntime::set_backstop_rungs`): bytes it could free now, and reclaim.
@@ -169,12 +181,18 @@ const RESIDENCY_REPORT_NS: u64 = 10_000_000_000;
 /// One thread calls it (pg:memresident, the residency pass's): the window's state is its own.
 fn residency_report() {
     use core::sync::atomic::{AtomicU64, Ordering::Relaxed};
-    use gravity_driver::mem::resident::{PASSES, PASS_NS_LAST, PASS_NS_SUM, PASS_REGIONS_LAST, PASS_SCANNED_LAST};
+    use gravity_driver::mem::resident::{
+        PASSES, PASS_NS_LAST, PASS_NS_SUM, PASS_REGIONS_LAST, PASS_SCANNED_LAST,
+    };
     static AT: AtomicU64 = AtomicU64::new(0);
     static N: AtomicU64 = AtomicU64::new(0);
     static NS: AtomicU64 = AtomicU64::new(0);
     static MAX: AtomicU64 = AtomicU64::new(0);
-    let (now, n, ns) = (pg_clock::mono_ns(), PASSES.load(Relaxed), PASS_NS_SUM.load(Relaxed));
+    let (now, n, ns) = (
+        pg_clock::mono_ns(),
+        PASSES.load(Relaxed),
+        PASS_NS_SUM.load(Relaxed),
+    );
     MAX.fetch_max(PASS_NS_LAST.load(Relaxed), Relaxed);
     let at = AT.load(Relaxed);
     let restart = || {
@@ -189,7 +207,10 @@ fn residency_report() {
     if now.saturating_sub(at) < RESIDENCY_REPORT_NS {
         return;
     }
-    let (dn, dns) = (n.saturating_sub(N.load(Relaxed)), ns.saturating_sub(NS.load(Relaxed)));
+    let (dn, dns) = (
+        n.saturating_sub(N.load(Relaxed)),
+        ns.saturating_sub(NS.load(Relaxed)),
+    );
     // D4812: through elog's stderr writer, which hands a memory thread's write off the thread (the residency pass runs on
     // pg:memresident)
     elog::write_stderr(&format!( // alloc: Cold
@@ -301,7 +322,9 @@ pub fn tick(sec: u64) {
     }
     *pgsync::lock(&PUBLISHED) = Some(p);
     if report() {
-        let _ = elog::ereport(types_error::LOG).errmsg(line(&p)).finish(types_error::ErrorLocation::new("gravity", 0, "membroker"));
+        let _ = elog::ereport(types_error::LOG)
+            .errmsg(line(&p))
+            .finish(types_error::ErrorLocation::new("gravity", 0, "membroker"));
     }
 }
 
@@ -324,8 +347,16 @@ fn sample(b: &mut Broker) {
     let cur = signals::currents();
     let held = cur[Consumer::WorkPool as usize].unwrap_or(0);
     let sum = cur.iter().flatten().fold(0u64, |a, x| a.saturating_add(*x));
-    let projected = if mcx::governor::bar() != 0 { mcx::governor::projected() as u64 } else { 0 };
-    b.work.push(signals::work_sample(held, sum.saturating_sub(held), projected));
+    let projected = if mcx::governor::bar() != 0 {
+        mcx::governor::projected() as u64
+    } else {
+        0
+    };
+    b.work.push(signals::work_sample(
+        held,
+        sum.saturating_sub(held),
+        projected,
+    ));
     if projected != 0 {
         b.unattributed.push(projected.saturating_sub(sum));
     }
@@ -369,7 +400,8 @@ pub fn line(p: &Published) -> String {
     for c in Consumer::ALL {
         let k = c as usize;
         if p.plan.targeted[k] {
-            s.push_str(&format!( // alloc: Cold
+            s.push_str(&format!(
+                // alloc: Cold
                 " {}={}/{}/{}/{}/{}",
                 c.name(),
                 mib(p.signals.inputs[k].current),
@@ -381,7 +413,7 @@ pub fn line(p: &Published) -> String {
         }
     }
     s.push_str(" (MiB: current/floor/target/reused_900s/moved) "); // alloc: Cold
-    // memory step 5b: the reclaimer's counters since the process started
+                                                                   // memory step 5b: the reclaimer's counters since the process started
     s.push_str(&gravity_driver::mem::reclaim::line()); // alloc: Cold
     s
 }

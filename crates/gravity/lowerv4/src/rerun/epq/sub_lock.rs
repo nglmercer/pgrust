@@ -48,12 +48,11 @@
 //! (EvalPlanQualEnd never runs) where `armed`'s state ends at the walk's end.
 use gravity_decompose::ops::shared::subplan::SubLink;
 use gravity_decompose::{Am, InitPlan, Op, PipelineNode, Source};
-use gravity_program::program::LockSite;
 use gravity_ir::builder::{FunctionBuilder, ProgramBuilder};
+use gravity_program::program::LockSite;
 use gravity_program::{Cmd, LockKind};
 use mcx::{CollectIn, GrowIn, PgBox, PgVec};
 
-use crate::ops::lockrows::plan::Census;
 use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::face::end::EndMech;
 use crate::face::step::StepMech;
@@ -65,6 +64,7 @@ use crate::frame::row::{Carry, RowVals};
 use crate::frame::stop::Exits;
 use crate::graph::Gx;
 use crate::ops::lockrows::lock_init;
+use crate::ops::lockrows::plan::Census;
 
 /// The runner's recheck of a write or lock whose pipeline embeds an inner that locks: its node never locks (D604).
 const SUBLOCK_RUNNER: ShapeWhy = ShapeWhy("a runner-rechecked write or lock over an inner that locks rows (the recheck node never locks again, D604; lockrows SUBLOCK)");
@@ -101,51 +101,116 @@ pub(crate) fn form(gx: &Gx<'_, '_>, ik: usize, j: usize) -> Option<SubLock> {
     let n = ps.len();
     let inners = ps.inners();
     let &((k, jo), ip) = inners.get(ik.checked_sub(n)?)?;
-    let Some(Op::Lock(d)) = ip.ops.get(j) else { return None };
+    let Some(Op::Lock(d)) = ip.ops.get(j) else {
+        return None;
+    };
     // D3506 EXISTS: or one lock more, the claim above the SubPlan op (`claim_at`); EXISTS SORT: its pipeline one more
     let at = if k < n { claim_at(gx, k, jo) } else { None };
     let sorted = at.as_ref().is_some_and(|x| x.0 .0 != k);
-    if k >= n || !matches!(ps[k].ops.get(jo), Some(Op::SubPlan(_))) || n != 1 + usize::from(sorted) + inner_inits(gx, k, ip)? {
+    if k >= n
+        || !matches!(ps[k].ops.get(jo), Some(Op::SubPlan(_)))
+        || n != 1 + usize::from(sorted) + inner_inits(gx, k, ip)?
+    {
         return None;
     }
-    let locks = ps.iter().chain(inners.iter().map(|x| x.1)).flat_map(|p| p.ops.iter()).filter(|o| matches!(o, Op::Lock(_))).count();
+    let locks = ps
+        .iter()
+        .chain(inners.iter().map(|x| x.1))
+        .flat_map(|p| p.ops.iter())
+        .filter(|o| matches!(o, Op::Lock(_)))
+        .count();
     let claim = at.map(|x| x.1);
     // D3660: or, with no claim and no write, one lock more in a non-CTE InitPlan's pipelines (the M4 pair's A: its run
     // rechecks under its own EvalPlanQual, this lock's recheck copies the InitPlan's value)
-    let pair = claim.is_none() && ps.iter().enumerate().any(|(q, p)| Census(gx).init_member(q) && p.ops.iter().any(|o| matches!(o, Op::Lock(_))));
-    let (Some(m), None) = (d.marks.first(), d.marks.get(1)) else { return None };
-    if locks != 1 + usize::from(claim.is_some()) + usize::from(pair) || d.family().is_some() || m.lock == LockKind::None || m.parent || m.ctid_col <= 0 || m.relid != d.plan.target_rel {
+    let pair = claim.is_none()
+        && ps.iter().enumerate().any(|(q, p)| {
+            Census(gx).init_member(q) && p.ops.iter().any(|o| matches!(o, Op::Lock(_)))
+        });
+    let (Some(m), None) = (d.marks.first(), d.marks.get(1)) else {
+        return None;
+    };
+    if locks != 1 + usize::from(claim.is_some()) + usize::from(pair)
+        || d.family().is_some()
+        || m.lock == LockKind::None
+        || m.parent
+        || m.ctid_col <= 0
+        || m.relid != d.plan.target_rel
+    {
         return None;
     }
     let plain = |o: &Op<'_>| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_));
     // D3379 SUBLOCK-LIMIT (`limit`): or a LIMIT / OFFSET above the lock, not WITH TIES, when no InitPlan is attached inside
     // the inner
-    let inner_init = gx.graph.init_plans.iter().any(|i| ip.node_ops.iter().any(|x| x.node_id == i.attach));
-    let above = |o: &Op<'_>| matches!(o, Op::Project(_)) || !inner_init && crate::frame::iface::demand(o).is_some_and(|l| !l.ties);
-    if !own_scan(ip, m.rti, m.relid) || !ip.ops[..j].iter().all(plain) || !ip.ops[j + 1..].iter().all(above) {
+    let inner_init = gx
+        .graph
+        .init_plans
+        .iter()
+        .any(|i| ip.node_ops.iter().any(|x| x.node_id == i.attach));
+    let above = |o: &Op<'_>| {
+        matches!(o, Op::Project(_))
+            || !inner_init && crate::frame::iface::demand(o).is_some_and(|l| !l.ties)
+    };
+    if !own_scan(ip, m.rti, m.relid)
+        || !ip.ops[..j].iter().all(plain)
+        || !ip.ops[j + 1..].iter().all(above)
+    {
         return None;
     }
     // the scan's projection, last below the lock, carries the mark's junk ctid: the scanned relation's ctid
-    let Some(Op::Project(l)) = ip.ops[..j].last() else { return None };
-    let ctid = l.iter().filter_map(|x| x.as_target_entry()).any(|te| te.resno == m.ctid_col && te.expr.as_var().is_some_and(|v| v.varattno == -1 && v.varlevelsup == 0 && i64::from(v.varno) == i64::from(m.rti)));
+    let Some(Op::Project(l)) = ip.ops[..j].last() else {
+        return None;
+    };
+    let ctid = l.iter().filter_map(|x| x.as_target_entry()).any(|te| {
+        te.resno == m.ctid_col
+            && te.expr.as_var().is_some_and(|v| {
+                v.varattno == -1 && v.varlevelsup == 0 && i64::from(v.varno) == i64::from(m.rti)
+            })
+    });
     // the statement's one write, if any: that pipeline's own UPDATE / DELETE, outside every CTE. D3667: or only INITCTE's
     // INSERTs (`inner_inits` admitted their CTEs): PostgreSQL runs such a CTE when the InitPlan first reads it, before the
     // outer scan's first row reaches the SubPlan, and the inner lock's EvalPlanQual reruns only the inner's scan (no CTE,
     // no InitPlan of the outer query)
     let ctes = crate::rerun::epq::inits::init_ctes(gx)?;
-    let cte_ins = ps.iter().enumerate().any(|(q, p)| ctes.contains(&q) && p.ops.iter().any(|o| matches!(o, Op::Write(w) if w.cmd != Cmd::Select)));
-    let mut writes = ps.iter().enumerate().filter(|&(q, _)| !ctes.contains(&q)).flat_map(|(_, p)| p.ops.iter()).filter_map(|o| match o {
-        Op::Write(w) if w.cmd != Cmd::Select => Some(w.cmd),
-        _ => None,
+    let cte_ins = ps.iter().enumerate().any(|(q, p)| {
+        ctes.contains(&q)
+            && p.ops
+                .iter()
+                .any(|o| matches!(o, Op::Write(w) if w.cmd != Cmd::Select))
     });
+    let mut writes = ps
+        .iter()
+        .enumerate()
+        .filter(|&(q, _)| !ctes.contains(&q))
+        .flat_map(|(_, p)| p.ops.iter())
+        .filter_map(|o| match o {
+            Op::Write(w) if w.cmd != Cmd::Select => Some(w.cmd),
+            _ => None,
+        });
     let write = match (writes.next(), writes.next()) {
         (None, _) if cte_ins && (claim.is_some() || pair) => return None,
         (None, _) => false,
-        (Some(Cmd::Update | Cmd::Delete), None) if !gx.cte_write(k) && claim.is_none() && !pair && !cte_ins => true,
+        (Some(Cmd::Update | Cmd::Delete), None)
+            if !gx.cte_write(k) && claim.is_none() && !pair && !cte_ins =>
+        {
+            true
+        }
         _ => return None,
     };
-    let site = LockSite { rti: m.rti, relid: m.relid, lock: m.lock, wait: m.wait };
-    ctid.then_some(SubLock { ctid: m.ctid_col, site, outer: k, write, claim, init: pair, cte: cte_ins })
+    let site = LockSite {
+        rti: m.rti,
+        relid: m.relid,
+        lock: m.lock,
+        wait: m.wait,
+    };
+    ctid.then_some(SubLock {
+        ctid: m.ctid_col,
+        site,
+        outer: k,
+        write,
+        claim,
+        init: pair,
+        cte: cte_ins,
+    })
 }
 
 /// D3506 EXISTS (graphile-worker <= 0.13's get_job: `SELECT .. FROM jobs WHERE .. AND (jobs.queue_name IS NULL OR
@@ -166,29 +231,57 @@ pub(crate) fn form(gx: &Gx<'_, '_>, ik: usize, j: usize) -> Option<SubLock> {
 fn claim_at(gx: &Gx<'_, '_>, k: usize, jo: usize) -> Option<((usize, usize), LockSite)> {
     let ps = gx.pipelines();
     let p = ps.get(k)?;
-    let below = |o: &Op<'_>| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_) | Op::SubPlan(_));
+    let below = |o: &Op<'_>| {
+        matches!(
+            o,
+            Op::Filter(_) | Op::Gate(_) | Op::Project(_) | Op::SubPlan(_)
+        )
+    };
     let (c, jl, d, sorted) = match lock_of(p) {
         Some((jl, d)) => (k, jl, d, false),
         None => {
             let jq = p.ops.iter().position(|o| matches!(o, Op::Sort(_)))?;
             let slot = p.desc.produces()?;
-            let mut readers = ps.iter().enumerate().filter(|(_, x)| matches!(x.source, Source::Breaker { slot: s } if s == slot));
-            let (Some((c, pc)), None) = (readers.next(), readers.next()) else { return None };
+            let mut readers = ps
+                .iter()
+                .enumerate()
+                .filter(|(_, x)| matches!(x.source, Source::Breaker { slot: s } if s == slot));
+            let (Some((c, pc)), None) = (readers.next(), readers.next()) else {
+                return None;
+            };
             let (jl, d) = lock_of(pc)?;
             // nested SubPlan steps only (each made again for the recheck, `redo_subs`), the producer's row last
-            let nested = |(i, o): (usize, &Op<'_>)| !matches!(o, Op::SubPlan(_)) || ps.inner_of(k, i).is_some();
-            let part = jo < jq && p.ops[..jq].iter().all(below) && p.ops[..jq].iter().enumerate().all(nested) && matches!(p.ops[..jq].last(), Some(Op::Project(_)));
-            if c <= k || !part || !p.ops[jq..].iter().all(|o| matches!(o, Op::Sort(_))) || !pc.ops[..jl].iter().all(crate::ops::lockrows::lower::sort_emit) {
+            let nested = |(i, o): (usize, &Op<'_>)| {
+                !matches!(o, Op::SubPlan(_)) || ps.inner_of(k, i).is_some()
+            };
+            let part = jo < jq
+                && p.ops[..jq].iter().all(below)
+                && p.ops[..jq].iter().enumerate().all(nested)
+                && matches!(p.ops[..jq].last(), Some(Op::Project(_)));
+            if c <= k
+                || !part
+                || !p.ops[jq..].iter().all(|o| matches!(o, Op::Sort(_)))
+                || !pc.ops[..jl]
+                    .iter()
+                    .all(crate::ops::lockrows::lower::sort_emit)
+            {
                 return None;
             }
             (c, jl, d, true)
         }
     };
     let pc = &ps[c];
-    let limit = pc.ops[jl + 1..].iter().any(|o| crate::frame::iface::limit_bounds(o).is_some());
-    let (Some(m), None) = (d.marks.first(), d.marks.get(1)) else { return None };
+    let limit = pc.ops[jl + 1..]
+        .iter()
+        .any(|o| crate::frame::iface::limit_bounds(o).is_some());
+    let (Some(m), None) = (d.marks.first(), d.marks.get(1)) else {
+        return None;
+    };
     let own = d.family().is_none() && m.lock != LockKind::None && !m.parent;
-    let other = ps.iter().enumerate().any(|(q, x)| q != c && x.ops.iter().any(|o| matches!(o, Op::Lock(_))));
+    let other = ps
+        .iter()
+        .enumerate()
+        .any(|(q, x)| q != c && x.ops.iter().any(|o| matches!(o, Op::Lock(_))));
     // EXISTS SORT: the Sort carries the mark's junk ctid of the producer's own scan
     let fits = match sorted {
         true => m.ctid_col > 0 && m.relid == d.plan.target_rel && own_scan(p, m.rti, m.relid),
@@ -196,12 +289,31 @@ fn claim_at(gx: &Gx<'_, '_>, k: usize, jo: usize) -> Option<((usize, usize), Loc
     };
     // D3707 (lockrows_sublock :96, `.. WHERE j.id <= 12 AND EXISTS (.. FOR SHARE) FOR UPDATE OF j`): or, over the scan
     // itself, no LIMIT: ExecLockRows rechecks a newer version under the same EvalPlanQual with or without one
-    ((limit || !sorted) && own && !other && fits).then_some(((c, jl), LockSite { rti: m.rti, relid: m.relid, lock: m.lock, wait: m.wait }))
+    ((limit || !sorted) && own && !other && fits).then_some((
+        (c, jl),
+        LockSite {
+            rti: m.rti,
+            relid: m.relid,
+            lock: m.lock,
+            wait: m.wait,
+        },
+    ))
 }
 
 /// Pipeline `p`'s one LockRows: its op and description, else none.
-fn lock_of<'a, 'p>(p: &'a PipelineNode<'p>) -> Option<(usize, &'a gravity_decompose::ops::shared::modifytable::LockDesc<'p>)> {
-    let mut at = p.ops.iter().enumerate().filter_map(|(i, o)| if let Op::Lock(d) = o { Some((i, d)) } else { None });
+fn lock_of<'a, 'p>(
+    p: &'a PipelineNode<'p>,
+) -> Option<(
+    usize,
+    &'a gravity_decompose::ops::shared::modifytable::LockDesc<'p>,
+)> {
+    let mut at = p.ops.iter().enumerate().filter_map(|(i, o)| {
+        if let Op::Lock(d) = o {
+            Some((i, d))
+        } else {
+            None
+        }
+    });
     match (at.next(), at.next()) {
         (Some(x), None) => Some(x),
         _ => None,
@@ -213,27 +325,48 @@ fn lock_of<'a, 'p>(p: &'a PipelineNode<'p>) -> Option<(usize, &'a gravity_decomp
 pub(crate) fn sub_claim(gx: &Gx<'_, '_>, k: usize, j: usize) -> bool {
     let ps = gx.pipelines();
     let n = ps.len();
-    k < n && matches!(ps[k].ops.get(j), Some(Op::Lock(_))) && ps.inners().iter().enumerate().any(|(x, ((q, jo), ip))| *q < n && claim_at(gx, *q, *jo).is_some_and(|c| c.0 == (k, j)) && ip.ops.iter().enumerate().any(|(i, o)| matches!(o, Op::Lock(_)) && form(gx, n + x, i).is_some_and(|s| s.claim.is_some())))
+    k < n
+        && matches!(ps[k].ops.get(j), Some(Op::Lock(_)))
+        && ps.inners().iter().enumerate().any(|(x, ((q, jo), ip))| {
+            *q < n
+                && claim_at(gx, *q, *jo).is_some_and(|c| c.0 == (k, j))
+                && ip.ops.iter().enumerate().any(|(i, o)| {
+                    matches!(o, Op::Lock(_))
+                        && form(gx, n + x, i).is_some_and(|s| s.claim.is_some())
+                })
+        })
 }
 
 /// D3506 EXISTS SORT (`claim_at`): the claim at op `j` of graph pipeline `k` reads the Sort of the pipeline whose
 /// SubPlan step embeds the inner lock: that producer, its sort build's op and the mark's junk ctid column, else none.
 pub(crate) fn sort_claim(gx: &Gx<'_, '_>, k: usize, j: usize) -> Option<(usize, usize, i16)> {
     let ps = gx.pipelines();
-    let Source::Breaker { slot } = ps.get(k)?.source else { return None };
-    let q = (0..k).rev().find(|&x| ps[x].desc.produces() == Some(slot))?;
+    let Source::Breaker { slot } = ps.get(k)?.source else {
+        return None;
+    };
+    let q = (0..k)
+        .rev()
+        .find(|&x| ps[x].desc.produces() == Some(slot))?;
     let jq = ps[q].ops.iter().position(|o| matches!(o, Op::Sort(_)))?;
     let (_, d) = lock_of(&ps[k]).filter(|x| x.0 == j)?;
     let m = d.marks.first()?;
-    (ps.inners().iter().any(|((x, _), _)| *x == q) && sub_claim(gx, k, j)).then_some((q, jq, m.ctid_col))
+    (ps.inners().iter().any(|((x, _), _)| *x == q) && sub_claim(gx, k, j))
+        .then_some((q, jq, m.ctid_col))
 }
 
 /// D3506 EXISTS SORT: the SubPlan steps among the Sort producer `q`'s ops before its sort build `jq`, each made again
 /// for the claim's recheck (subplan per_row.rs `redo_sub`: its inner and the inner's lock made again), by SubPlan id;
 /// the claim lends them to its redo while it lowers (`SortClaim`): the producer's own steps lower in its function.
-pub(crate) fn redo_subs<'g>(px: &mut Px<'g, '_>, q: usize, jq: usize) -> PgVec<'g, (i32, PgBox<'g, dyn StepMech + 'g>)> {
+pub(crate) fn redo_subs<'g>(
+    px: &mut Px<'g, '_>,
+    q: usize,
+    jq: usize,
+) -> PgVec<'g, (i32, PgBox<'g, dyn StepMech + 'g>)> {
     let (gx, mcx) = (px.gx, px.mcx());
-    (0..jq).filter(|&i| matches!(gx.pipelines()[q].ops[i], Op::SubPlan(_))).map(|i| crate::ops::subplan::per_row::redo_sub(px, q, i)).collect_in(mcx)
+    (0..jq)
+        .filter(|&i| matches!(gx.pipelines()[q].ops[i], Op::SubPlan(_)))
+        .map(|i| crate::ops::subplan::per_row::redo_sub(px, q, i))
+        .collect_in(mcx)
 }
 
 /// D3506 EXISTS SORT: the claim's lock (`lock`) with the SubPlan steps of its Sort's producer made again for its
@@ -260,10 +393,25 @@ impl StepMech for SortClaim<'_> {
         self.own.iter().for_each(|s| s.1.prologue(b, env, x));
     }
 
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, next: Next<'_, 'e>) -> Carry<'e> {
-        let refs: PgVec<'_, &dyn StepMech> = self.own.iter().map(|s| &*s.1 as &dyn StepMech).collect_in(env.mcx);
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        next: Next<'_, 'e>,
+    ) -> Carry<'e> {
+        let refs: PgVec<'_, &dyn StepMech> = self
+            .own
+            .iter()
+            .map(|s| &*s.1 as &dyn StepMech)
+            .collect_in(env.mcx);
         let n = env.redo_own.len();
-        env.redo_own.extend_in(self.own.iter().zip(refs.iter()).map(|(s, r)| (s.0, r as *const &dyn StepMech as usize)));
+        env.redo_own.extend_in(
+            self.own
+                .iter()
+                .zip(refs.iter())
+                .map(|(s, r)| (s.0, r as *const &dyn StepMech as usize)),
+        );
         let c = self.lock.lower(b, env, row, next);
         env.redo_own.truncate(n);
         c
@@ -312,7 +460,8 @@ pub(crate) fn redo_own<'a>(env: &Env, id: i32) -> Option<&'a dyn StepMech> {
 /// INITCTE's, `init_ctes`), none holds pipeline `k` and none is attached inside another inner, else none (D1018 keeps those).
 fn inner_inits(gx: &Gx<'_, '_>, k: usize, ip: &PipelineNode<'_>) -> Option<usize> {
     let inners = gx.pipelines().inners();
-    let at = |p: &PipelineNode<'_>, i: &InitPlan<'_>| p.node_ops.iter().any(|n| n.node_id == i.attach);
+    let at =
+        |p: &PipelineNode<'_>, i: &InitPlan<'_>| p.node_ops.iter().any(|n| n.node_id == i.attach);
     // D3667: a CTE's InitPlan when the CTE is INITCTE's (rerun/epq/inits.rs `init_ctes`: only the non-CTE InitPlans read
     // it, it writes only by trigger-free INSERT, no row lock in it); its pipelines are among theirs (`init_pipelines`)
     let ctes = crate::rerun::epq::inits::init_ctes(gx)?;
@@ -330,7 +479,11 @@ fn inner_inits(gx: &Gx<'_, '_>, k: usize, ip: &PipelineNode<'_>) -> Option<usize
 /// D3274: whether a second run of InitPlan `i` shows nothing, so the IR recheck may read the statement's value where the
 /// inner lock's fresh recheck estate runs it again (the effects home's `init_rerun_alike` over the pipelines it runs).
 fn fresh_ok(gx: &Gx<'_, '_>, i: &InitPlan<'_>) -> bool {
-    crate::effects::visible::subplan::init_rerun_alike(gx, i, &gx.with_producers([usize::from(i.pipeline)]))
+    crate::effects::visible::subplan::init_rerun_alike(
+        gx,
+        i,
+        &gx.with_producers([usize::from(i.pipeline)]),
+    )
 }
 
 /// D3274 (ops/lockrows/epq.rs `epq_of_sub`): the InitPlans the IR recheck of the lock at op `j` of inner `ik` forces at its
@@ -341,10 +494,20 @@ fn fresh_ok(gx: &Gx<'_, '_>, i: &InitPlan<'_>) -> bool {
 pub(crate) fn forced<'g>(px: &mut Px<'g, '_>, ik: usize, j: usize) -> PgVec<'g, (i32, u16)> {
     let gx = px.gx;
     let mcx = px.mcx();
-    let Some(p) = gx.pipelines().get(ik) else { return PgVec::new_in(mcx) };
-    let mut ids: PgVec<'_, i32> = gx.graph.init_plans.iter().filter(|i| !matches!(i.link, SubLink::Cte) && lock_init::write_may_read(p, j, i.params)).map(|i| i.param).collect_in(px.mcx());
+    let Some(p) = gx.pipelines().get(ik) else {
+        return PgVec::new_in(mcx);
+    };
+    let mut ids: PgVec<'_, i32> = gx
+        .graph
+        .init_plans
+        .iter()
+        .filter(|i| !matches!(i.link, SubLink::Cte) && lock_init::write_may_read(p, j, i.params))
+        .map(|i| i.param)
+        .collect_in(px.mcx());
     ids.sort_unstable();
-    ids.into_iter().map(|id| (id, crate::rerun::params::init_handle(px, id))).collect_in(mcx)
+    ids.into_iter()
+        .map(|id| (id, crate::rerun::params::init_handle(px, id)))
+        .collect_in(mcx)
 }
 
 /// D3274 (ops/lockrows/epq.rs `epq_of_sub`): the InitPlans the IR recheck of the lock in inner `ik` arms in its own
@@ -354,15 +517,40 @@ pub(crate) fn forced<'g>(px: &mut Px<'g, '_>, ik: usize, j: usize) -> PgVec<'g, 
 pub(crate) fn armed<'g>(px: &mut Px<'g, '_>, ik: usize) -> PgVec<'g, (u16, i32, u32)> {
     let gx = px.gx;
     let mcx = px.mcx();
-    let Some(p) = gx.pipelines().get(ik) else { return PgVec::new_in(mcx) };
-    gx.graph.init_plans.iter().filter(|i| !matches!(i.link, SubLink::Cte) && p.node_ops.iter().any(|n| n.node_id == i.attach) && !fresh_ok(gx, i)).map(|i| (crate::rerun::params::init_handle(px, i.param), i.param, i.params.len() as u32)).collect_in(mcx)
+    let Some(p) = gx.pipelines().get(ik) else {
+        return PgVec::new_in(mcx);
+    };
+    gx.graph
+        .init_plans
+        .iter()
+        .filter(|i| {
+            !matches!(i.link, SubLink::Cte)
+                && p.node_ops.iter().any(|n| n.node_id == i.attach)
+                && !fresh_ok(gx, i)
+        })
+        .map(|i| {
+            (
+                crate::rerun::params::init_handle(px, i.param),
+                i.param,
+                i.params.len() as u32,
+            )
+        })
+        .collect_in(mcx)
 }
 
 /// The plan node of pipeline `p`'s write (lock_init.rs `admit_sub`'s): the last node starting at or before the write op,
 /// the ModifyTable whose recheck decompose's `recheck_inits` describe when it is the statement's `recheck_node`.
 fn write_node(p: &PipelineNode<'_>) -> i32 {
-    let jw = p.ops.iter().position(|o| matches!(o, Op::Write(_))).unwrap_or(p.ops.len());
-    p.node_ops.iter().rev().find(|n| usize::from(n.first_op) <= jw).map_or(p.node_id, |n| n.node_id)
+    let jw = p
+        .ops
+        .iter()
+        .position(|o| matches!(o, Op::Write(_)))
+        .unwrap_or(p.ops.len());
+    p.node_ops
+        .iter()
+        .rev()
+        .find(|n| usize::from(n.first_op) <= jw)
+        .map_or(p.node_id, |n| n.node_id)
 }
 
 /// A write recheck's InitPlans (`write_recheck`): those it forces at its start (first parameter, handle word), those it arms
@@ -382,7 +570,13 @@ pub(crate) fn write_recheck<'g>(px: &mut Px<'g, '_>, k: usize) -> Option<WriteIn
     let force = lock_init::forced(px, node);
     let n = ps.len();
     let mut arm = PgVec::new_in(px.mcx());
-    for ik in ps.inners().iter().enumerate().filter(|(_, ((q, _), _))| *q == k).map(|(x, _)| n + x) {
+    for ik in ps
+        .inners()
+        .iter()
+        .enumerate()
+        .filter(|(_, ((q, _), _))| *q == k)
+        .map(|(x, _)| n + x)
+    {
         arm.extend_in(armed(px, ik));
     }
     Some((force, arm, node as u32 + 1))
@@ -395,18 +589,44 @@ pub(crate) fn write_recheck<'g>(px: &mut Px<'g, '_>, k: usize) -> Option<WriteIn
 /// a computed index key or a conditional read over it rechecks as PostgreSQL's.
 pub(crate) fn write_inits_forced(gx: &Gx<'_, '_>, k: usize, j: usize) -> bool {
     let ps = gx.pipelines();
-    let Some(p) = ps.get(k).filter(|_| k < ps.len() && subs_lock(gx, k)) else { return false };
+    let Some(p) = ps.get(k).filter(|_| k < ps.len() && subs_lock(gx, k)) else {
+        return false;
+    };
     let inners = ps.inners();
-    let inner = |i: &InitPlan<'_>| inners.iter().any(|x| x.1.node_ops.iter().any(|n| n.node_id == i.attach));
+    let inner = |i: &InitPlan<'_>| {
+        inners
+            .iter()
+            .any(|x| x.1.node_ops.iter().any(|n| n.node_id == i.attach))
+    };
     let node = write_node(p);
-    let mut read = gx.graph.init_plans.iter().filter(|i| !matches!(i.link, SubLink::Cte) && !inner(i) && lock_init::write_may_read(p, j, i.params));
+    let mut read = gx.graph.init_plans.iter().filter(|i| {
+        !matches!(i.link, SubLink::Cte) && !inner(i) && lock_init::write_may_read(p, j, i.params)
+    });
     read.all(|i| lock_init::read_first(gx, p, j, i, true) || lock_init::forces(gx, node, i))
 }
 
 /// Inner `p`'s source is relation `relid`'s own heap scan at range table index `rti` (range, bitmap or index, not ONLY).
 fn own_scan(p: &PipelineNode<'_>, rti: u32, relid: u32) -> bool {
     match &p.source {
-        Source::Range { am: Am::Heap, scanrelid, relid: r, .. } | Source::Bitmap { am: Am::Heap, scanrelid, relid: r, .. } | Source::Index { am: Am::Heap, scanrelid, relid: r, only: false, .. } => u32::from(*scanrelid) == rti && *r == relid,
+        Source::Range {
+            am: Am::Heap,
+            scanrelid,
+            relid: r,
+            ..
+        }
+        | Source::Bitmap {
+            am: Am::Heap,
+            scanrelid,
+            relid: r,
+            ..
+        }
+        | Source::Index {
+            am: Am::Heap,
+            scanrelid,
+            relid: r,
+            only: false,
+            ..
+        } => u32::from(*scanrelid) == rti && *r == relid,
         _ => false,
     }
 }
@@ -416,13 +636,26 @@ fn own_scan(p: &PipelineNode<'_>, rti: u32, relid: u32) -> bool {
 pub(crate) fn subs_lock(gx: &Gx<'_, '_>, k: usize) -> bool {
     let ps = gx.pipelines();
     let n = ps.len();
-    ps.inners().iter().enumerate().any(|(x, ((q, j), ip))| *q == k && matches!(ps[k].ops.get(*j), Some(Op::SubPlan(_))) && ip.ops.iter().enumerate().any(|(i, o)| matches!(o, Op::Lock(_)) && form(gx, n + x, i).is_some()))
+    ps.inners().iter().enumerate().any(|(x, ((q, j), ip))| {
+        *q == k
+            && matches!(ps[k].ops.get(*j), Some(Op::SubPlan(_)))
+            && ip
+                .ops
+                .iter()
+                .enumerate()
+                .any(|(i, o)| matches!(o, Op::Lock(_)) && form(gx, n + x, i).is_some())
+    })
 }
 
 /// rerun/epq/marks.rs `sites_in`, the runner's recheck of pipeline `k`'s write or lock: refused by name (SUBLOCK_RUNNER) when
 /// a SubPlan step's inner holds a lock this file serves (any other inner lock refuses D1018 at its make).
 pub(crate) fn runner_check(gx: &Gx<'_, '_>, k: usize, node: i32) {
     if k < gx.pipelines().len() && subs_lock(gx, k) {
-        crate::refuse!(node, Reason::Shape { why: SUBLOCK_RUNNER });
+        crate::refuse!(
+            node,
+            Reason::Shape {
+                why: SUBLOCK_RUNNER
+            }
+        );
     }
 }

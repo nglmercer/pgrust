@@ -34,9 +34,9 @@ use ::types_error::{PgError, PgResult, ERRCODE_INVALID_REGULAR_EXPRESSION};
 pub use guc_tables::consts::{REGEX_ENGINE_AUTO, REGEX_ENGINE_RE2, REGEX_ENGINE_SPENCER};
 
 mod classify;
+pub use classify::{classify as classify_pattern, re2_compatible, Classification, Compat};
 /// The pattern program both tiers run: the per-row tier here (before RE2) and the dictionary path.
 pub use gravity_dict::regexp::program;
-pub use classify::{classify as classify_pattern, re2_compatible, Classification, Compat};
 
 guc_tables::session_guc_cluster!(RegexpAltGucs, REGEXP_ALT_GUCS:
     (regex_engine_cell, i32, regex_engine, set_regex_engine, guc_tables::consts::REGEX_ENGINE_AUTO),
@@ -108,7 +108,9 @@ impl Re2Pattern {
     // ICU's u_isspace counts FS..US as space. One pass over the subject.
     pub fn subject_ok(&self, subject: &[u8]) -> bool {
         if self.ascii_subject {
-            subject.iter().all(|&b| b != 0 && b < 0x80 && !(0x1C..=0x1F).contains(&b))
+            subject
+                .iter()
+                .all(|&b| b != 0 && b < 0x80 && !(0x1C..=0x1F).contains(&b))
         } else {
             subject_compatible(subject)
         }
@@ -321,7 +323,12 @@ fn compile_auto(
     } else {
         None
     };
-    Ok(Re2Pattern { inner, capture_safe, program, ascii_subject })
+    Ok(Re2Pattern {
+        inner,
+        capture_safe,
+        program,
+        ascii_subject,
+    })
 }
 
 // The forced path (regex_engine=re2): no classifier; ICASE/NLSTOP/NLANCH map
@@ -330,10 +337,10 @@ fn compile_forced(pattern: &[u8], cflags: i32) -> PgResult<Re2Pattern> {
     #[cfg(not(have_re2))]
     {
         let _ = (pattern, cflags);
-        Err(re2_error(
-            "engine not built in (libre2 development files were absent at compile time)",
+        Err(
+            re2_error("engine not built in (libre2 development files were absent at compile time)")
+                .into(),
         )
-        .into())
     }
     #[cfg(have_re2)]
     {
@@ -423,7 +430,15 @@ fn cache_put(pattern: &[u8], cflags: i32, forced: bool, verdict: Option<Re2Patte
         let mut pat = Vec::new();
         let _ = pat.try_reserve_exact(pattern.len());
         pat.extend_from_slice(pattern);
-        cache.insert(0, CachedDispatch { pat, cflags, forced, verdict });
+        cache.insert(
+            0,
+            CachedDispatch {
+                pat,
+                cflags,
+                forced,
+                verdict,
+            },
+        );
     });
 }
 
@@ -458,7 +473,10 @@ pub fn dispatch(pattern: &[u8], cflags: i32, subject: &[u8]) -> PgResult<Option<
                 Some(compile_forced(pattern, cflags)?)
             } else {
                 match classify_pattern(pattern, cflags) {
-                    Classification { tier: Compat::Incompatible, .. } => None,
+                    Classification {
+                        tier: Compat::Incompatible,
+                        ..
+                    } => None,
                     #[cfg(have_re2)]
                     c => compile_auto(
                         pattern,

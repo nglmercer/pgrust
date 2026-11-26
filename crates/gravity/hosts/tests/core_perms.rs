@@ -17,16 +17,30 @@ fn install() {
     INIT.call_once(|| {
         miscinit_seams::get_user_id::set(|| 10);
         aclchk_seams::pg_class_aclmask::set(|relid, userid, mask, _how| {
-            CALLS.with(|c| c.borrow_mut().push(format!("class({relid}, {userid}, {mask})")));
+            CALLS.with(|c| {
+                c.borrow_mut()
+                    .push(format!("class({relid}, {userid}, {mask})"))
+            });
             Ok(CLASS_MASK.with(|m| *m.borrow()) & mask)
         });
         aclchk_seams::pg_attribute_aclcheck::set(|relid, attno, _userid, mode| {
-            CALLS.with(|c| c.borrow_mut().push(format!("attr({relid}, {attno}, {mode})")));
-            Ok(if COL_OK.with(|v| v.borrow().contains(&attno)) { 0 } else { 1 })
+            CALLS.with(|c| {
+                c.borrow_mut()
+                    .push(format!("attr({relid}, {attno}, {mode})"))
+            });
+            Ok(if COL_OK.with(|v| v.borrow().contains(&attno)) {
+                0
+            } else {
+                1
+            })
         });
         aclchk_seams::pg_attribute_aclcheck_all::set(|relid, _userid, mode, all| {
             CALLS.with(|c| c.borrow_mut().push(format!("all({relid}, {mode}, {all})")));
-            Ok(if COL_OK.with(|v| !v.borrow().is_empty()) { 0 } else { 1 })
+            Ok(if COL_OK.with(|v| !v.borrow().is_empty()) {
+                0
+            } else {
+                1
+            })
         });
     });
 }
@@ -36,7 +50,12 @@ fn bits<'m>(mcx: mcx::Mcx<'m>, members: &[i32]) -> Bitmapset<'m> {
     for &m in members {
         b.add_member(mcx, m).unwrap();
     }
-    if members.is_empty() { Bitmapset::default() } else { b.del_member(0); b }
+    if members.is_empty() {
+        Bitmapset::default()
+    } else {
+        b.del_member(0);
+        b
+    }
 }
 
 fn calls() -> Vec<String> {
@@ -48,7 +67,12 @@ fn table_grant_then_column_grants_then_refusal() {
     install();
     let ctx = MemoryContext::new("t");
     let mcx = ctx.mcx();
-    let mut pi = RTEPermissionInfo { relid: 5000, requiredPerms: ACL_SELECT | ACL_UPDATE, checkAsUser: 0, ..Default::default() };
+    let mut pi = RTEPermissionInfo {
+        relid: 5000,
+        requiredPerms: ACL_SELECT | ACL_UPDATE,
+        checkAsUser: 0,
+        ..Default::default()
+    };
     pi.selectedCols = bits(mcx, &[7 + 1, 7 + 3]);
     pi.updatedCols = bits(mcx, &[7 + 3]);
     CLASS_MASK.with(|m| *m.borrow_mut() = ACL_SELECT | ACL_UPDATE);
@@ -56,13 +80,30 @@ fn table_grant_then_column_grants_then_refusal() {
     assert_eq!(calls(), ["class(5000, 10, 6)"]);
     CLASS_MASK.with(|m| *m.borrow_mut() = 0);
     COL_OK.with(|v| *v.borrow_mut() = vec![1, 3]);
-    assert!(check_one_rel(&pi).unwrap(), "column grants cover the selected and updated columns");
-    assert_eq!(calls(), ["class(5000, 10, 6)", "attr(5000, 1, 2)", "attr(5000, 3, 2)", "attr(5000, 3, 4)"]);
+    assert!(
+        check_one_rel(&pi).unwrap(),
+        "column grants cover the selected and updated columns"
+    );
+    assert_eq!(
+        calls(),
+        [
+            "class(5000, 10, 6)",
+            "attr(5000, 1, 2)",
+            "attr(5000, 3, 2)",
+            "attr(5000, 3, 4)"
+        ]
+    );
     COL_OK.with(|v| *v.borrow_mut() = vec![1]);
-    assert!(!check_one_rel(&pi).unwrap(), "a missing column grant refuses");
+    assert!(
+        !check_one_rel(&pi).unwrap(),
+        "a missing column grant refuses"
+    );
     calls();
     pi.requiredPerms = ACL_DELETE;
-    assert!(!check_one_rel(&pi).unwrap(), "DELETE cannot be satisfied at column level");
+    assert!(
+        !check_one_rel(&pi).unwrap(),
+        "DELETE cannot be satisfied at column level"
+    );
     assert_eq!(calls(), ["class(5000, 10, 8)"]);
     pi.checkAsUser = 42;
     pi.requiredPerms = ACL_SELECT;

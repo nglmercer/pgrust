@@ -8,7 +8,7 @@ use crate::container::{container_size, JsonbItem};
 use crate::getfield::PathResult;
 use datum::Datum;
 use mcx::{Mcx, PgVec};
-use types_core::{TEXTOID};
+use types_core::TEXTOID;
 use types_error::PgResult;
 use types_fmgr::{
     cstring_result, varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
@@ -35,9 +35,7 @@ pub(crate) fn arg_jsonb<'a, 'mcx>(
     // SAFETY: catalog arg i is a non-null jsonb varlena (strict functions only).
     let p = unsafe { fcinfo.arg_ptr(i) };
     // SAFETY: a live varlena readable through its full VARSIZE_ANY.
-    let image = unsafe {
-        core::slice::from_raw_parts(p, types_tuple::varatt::varsize_any(p))
-    };
+    let image = unsafe { core::slice::from_raw_parts(p, types_tuple::varatt::varsize_any(p)) };
     if image[0] & 0x01 == 0x01 && image[0] != 0x01 {
         let payload = &image[1..];
         let mut v: PgVec<'mcx, u8> = mcx::vec_with_capacity_in(mcx, 4 + payload.len())?;
@@ -50,9 +48,7 @@ pub(crate) fn arg_jsonb<'a, 'mcx>(
 
 /// C: json_get_first_token (jsonfuncs.c), throw_error=false form:
 /// None = lex error.
-pub fn json_get_first_token(
-    json: &[u8],
-) -> PgResult<Option<adt_json::jsonapi::JsonToken>> {
+pub fn json_get_first_token(json: &[u8]) -> PgResult<Option<adt_json::jsonapi::JsonToken>> {
     let mut lex = adt_json::jsonapi::JsonLex::new(json, mbutils::GetDatabaseEncoding());
     let r = lex.lex();
     if r != adt_json::jsonapi::JsonError::Success {
@@ -70,9 +66,7 @@ pub unsafe fn jsonb_payload_from_datum<'mcx>(
 ) -> PgResult<VarPayload<'mcx, 'mcx>> {
     let p = d.as_usize() as *const u8;
     // SAFETY: caller contract — a live varlena readable through VARSIZE_ANY.
-    let image = unsafe {
-        core::slice::from_raw_parts(p, types_tuple::varatt::varsize_any(p))
-    };
+    let image = unsafe { core::slice::from_raw_parts(p, types_tuple::varatt::varsize_any(p)) };
     if image[0] & 0x01 == 0x01 && image[0] != 0x01 {
         let payload = &image[1..];
         let mut v: PgVec<'mcx, u8> = mcx::vec_with_capacity_in(mcx, 4 + payload.len())?;
@@ -139,7 +133,10 @@ pub fn fc_gin_compare_jsonb(
     // SAFETY: catalog args of gin_compare_jsonb are non-null text (strict fn).
     let a = unsafe { fcinfo.arg_varlena_packed(0)? };
     let b = unsafe { fcinfo.arg_varlena_packed(1)? };
-    Ok(Datum::from_i32(crate::gin::gin_compare_jsonb(a.data(), b.data())))
+    Ok(Datum::from_i32(crate::gin::gin_compare_jsonb(
+        a.data(),
+        b.data(),
+    )))
 }
 
 pub fn fc_jsonb_object_field(
@@ -219,10 +216,14 @@ pub struct TextArrayElems<'mcx> {
 
 impl<'mcx> TextArrayElems<'mcx> {
     pub fn iter(&self) -> impl Iterator<Item = &'mcx [u8]> + '_ {
-        self.elems.iter().zip(self.nulls.iter()).filter(|(_, n)| !**n).map(|(d, _)| {
-            // SAFETY: non-null text element datums point into the flat image.
-            unsafe { PackedVarlena::from_ptr(d.as_usize() as *const u8) }.data()
-        })
+        self.elems
+            .iter()
+            .zip(self.nulls.iter())
+            .filter(|(_, n)| !**n)
+            .map(|(d, _)| {
+                // SAFETY: non-null text element datums point into the flat image.
+                unsafe { PackedVarlena::from_ptr(d.as_usize() as *const u8) }.data()
+            })
     }
 }
 
@@ -303,10 +304,7 @@ pub fn fc_jsonb_exists(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> P
     )))
 }
 
-pub fn fc_jsonb_exists_any(
-    _flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut Fcinfo,
-) -> PgResult<Datum> {
+pub fn fc_jsonb_exists_any(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let mcx = fcinfo.result_mcx();
     let jb = arg_jsonb(fcinfo, 0, mcx)?;
     let keys = text_array_elems(fcinfo, 1, mcx, true)?.expect("skip_nulls returns Some");
@@ -315,10 +313,7 @@ pub fn fc_jsonb_exists_any(
     Ok(Datum::from_bool(found))
 }
 
-pub fn fc_jsonb_exists_all(
-    _flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut Fcinfo,
-) -> PgResult<Datum> {
+pub fn fc_jsonb_exists_all(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let mcx = fcinfo.result_mcx();
     let jb = arg_jsonb(fcinfo, 0, mcx)?;
     let keys = text_array_elems(fcinfo, 1, mcx, true)?.expect("skip_nulls returns Some");
@@ -343,10 +338,7 @@ pub fn fc_jsonb_contains(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) ->
     contains_worker(fcinfo, false)
 }
 
-pub fn fc_jsonb_contained(
-    _flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut Fcinfo,
-) -> PgResult<Datum> {
+pub fn fc_jsonb_contained(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     contains_worker(fcinfo, true)
 }
 
@@ -485,10 +477,7 @@ pub fn fc_jsonb_delete(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> P
     Ok(d)
 }
 
-pub fn fc_jsonb_delete_idx(
-    _flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut Fcinfo,
-) -> PgResult<Datum> {
+pub fn fc_jsonb_delete_idx(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let mcx = fcinfo.result_mcx();
     let jb = arg_jsonb(fcinfo, 0, mcx)?;
     let idx = fcinfo.arg_i32(1);
@@ -714,7 +703,10 @@ fn item_kind(item: &JsonbItem<'_>) -> &'static str {
 // C: JsonbExtractScalar + the cast family's shared null screening.
 // Ok(None) = jsonb null → SQL NULL result.
 // pub for proofs (jsonb-probe cast rows; visibility-only edit).
-pub fn cast_scalar<'a>(payload: &'a [u8], sqltype: &'static str) -> PgResult<Option<JsonbItem<'a>>> {
+pub fn cast_scalar<'a>(
+    payload: &'a [u8],
+    sqltype: &'static str,
+) -> PgResult<Option<JsonbItem<'a>>> {
     let Some(v) = crate::io::extract_scalar(payload) else {
         let kind = if crate::container::container_is_array(payload) {
             "array"
@@ -746,7 +738,10 @@ pub fn fc_jsonb_bool(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgR
 }
 
 // pub for proofs (jsonb-probe cast rows; visibility-only edit).
-pub fn cast_numeric_image<'a>(payload: &'a [u8], sqltype: &'static str) -> PgResult<Option<&'a [u8]>> {
+pub fn cast_numeric_image<'a>(
+    payload: &'a [u8],
+    sqltype: &'static str,
+) -> PgResult<Option<&'a [u8]>> {
     match cast_scalar(payload, sqltype)? {
         None => Ok(None),
         Some(JsonbItem::Numeric(img)) => Ok(Some(img)),
@@ -789,10 +784,30 @@ macro_rules! jsonb_numeric_cast {
     };
 }
 
-jsonb_numeric_cast!(fc_jsonb_int2, "smallint", adt_numeric::numeric_int2, Datum::from_i16);
-jsonb_numeric_cast!(fc_jsonb_int4, "integer", adt_numeric::numeric_int4, Datum::from_i32);
-jsonb_numeric_cast!(fc_jsonb_int8, "bigint", adt_numeric::numeric_int8, Datum::from_i64);
-jsonb_numeric_cast!(fc_jsonb_float4, "real", adt_numeric::numeric_float4, Datum::from_f32);
+jsonb_numeric_cast!(
+    fc_jsonb_int2,
+    "smallint",
+    adt_numeric::numeric_int2,
+    Datum::from_i16
+);
+jsonb_numeric_cast!(
+    fc_jsonb_int4,
+    "integer",
+    adt_numeric::numeric_int4,
+    Datum::from_i32
+);
+jsonb_numeric_cast!(
+    fc_jsonb_int8,
+    "bigint",
+    adt_numeric::numeric_int8,
+    Datum::from_i64
+);
+jsonb_numeric_cast!(
+    fc_jsonb_float4,
+    "real",
+    adt_numeric::numeric_float4,
+    Datum::from_f32
+);
 jsonb_numeric_cast!(
     fc_jsonb_float8,
     "double precision",
@@ -842,10 +857,7 @@ pub fn fc_jsonb_build_object_noargs(
     Ok(d)
 }
 
-pub fn fc_jsonb_build_array(
-    flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut Fcinfo,
-) -> PgResult<Datum> {
+pub fn fc_jsonb_build_array(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let d = {
         let mcx = fcinfo.result_mcx();
         match funcapi::extract_variadic_args(mcx, flinfo.as_deref(), fcinfo, 0, true)? {
@@ -917,7 +929,9 @@ pub fn fc_jsonb_object_two_arg(
     let mcx = fcinfo.result_mcx();
     let keys = arg_flat_array(fcinfo, 0, mcx)?;
     let vals = arg_flat_array(fcinfo, 1, mcx)?;
-    Ok(image_result(crate::tojsonb::jsonb_object_two_arg(mcx, keys, vals)?))
+    Ok(image_result(crate::tojsonb::jsonb_object_two_arg(
+        mcx, keys, vals,
+    )?))
 }
 
 pub fn fc_jsonb_strip_nulls(
@@ -928,7 +942,11 @@ pub fn fc_jsonb_strip_nulls(
     let jb = arg_jsonb(fcinfo, 0, mcx)?;
     // jsonfuncs.c:4552: the second argument exists only when PG_NARGS() == 2.
     let strip_in_arrays = fcinfo.nargs() == 2 && fcinfo.arg(1).as_bool();
-    let d = image_result(crate::mutate::strip_nulls(mcx, jb.as_bytes(), strip_in_arrays)?);
+    let d = image_result(crate::mutate::strip_nulls(
+        mcx,
+        jb.as_bytes(),
+        strip_in_arrays,
+    )?);
     Ok(d)
 }
 
@@ -936,29 +954,119 @@ pub fn fc_jsonb_strip_nulls(
 pub const JSONB_BUILTINS: &[FmgrBuiltin] = &[
     // jsonb_gin.c opclass support + jsonbsubs.c handler: native dispatch;
     // fmgr-lookup parity rows.
-    b(3482, "gin_extract_jsonb", 3, ::types_fmgr::fc_internal_dispatch_only),
-    b(3483, "gin_extract_jsonb_query", 7, ::types_fmgr::fc_internal_dispatch_only),
-    b(3484, "gin_consistent_jsonb", 8, ::types_fmgr::fc_internal_dispatch_only),
-    b(3485, "gin_extract_jsonb_path", 3, ::types_fmgr::fc_internal_dispatch_only),
-    b(3486, "gin_extract_jsonb_query_path", 7, ::types_fmgr::fc_internal_dispatch_only),
-    b(3487, "gin_consistent_jsonb_path", 8, ::types_fmgr::fc_internal_dispatch_only),
-    b(3488, "gin_triconsistent_jsonb", 7, ::types_fmgr::fc_internal_dispatch_only),
-    b(3489, "gin_triconsistent_jsonb_path", 7, ::types_fmgr::fc_internal_dispatch_only),
-    b(6098, "jsonb_subscript_handler", 1, ::types_fmgr::fc_internal_dispatch_only),
+    b(
+        3482,
+        "gin_extract_jsonb",
+        3,
+        ::types_fmgr::fc_internal_dispatch_only,
+    ),
+    b(
+        3483,
+        "gin_extract_jsonb_query",
+        7,
+        ::types_fmgr::fc_internal_dispatch_only,
+    ),
+    b(
+        3484,
+        "gin_consistent_jsonb",
+        8,
+        ::types_fmgr::fc_internal_dispatch_only,
+    ),
+    b(
+        3485,
+        "gin_extract_jsonb_path",
+        3,
+        ::types_fmgr::fc_internal_dispatch_only,
+    ),
+    b(
+        3486,
+        "gin_extract_jsonb_query_path",
+        7,
+        ::types_fmgr::fc_internal_dispatch_only,
+    ),
+    b(
+        3487,
+        "gin_consistent_jsonb_path",
+        8,
+        ::types_fmgr::fc_internal_dispatch_only,
+    ),
+    b(
+        3488,
+        "gin_triconsistent_jsonb",
+        7,
+        ::types_fmgr::fc_internal_dispatch_only,
+    ),
+    b(
+        3489,
+        "gin_triconsistent_jsonb_path",
+        7,
+        ::types_fmgr::fc_internal_dispatch_only,
+    ),
+    b(
+        6098,
+        "jsonb_subscript_handler",
+        1,
+        ::types_fmgr::fc_internal_dispatch_only,
+    ),
     b(3480, "gin_compare_jsonb", 2, fc_gin_compare_jsonb),
     b(3207, "jsonb_array_length", 1, fc_jsonb_array_length),
     b(3262, "jsonb_strip_nulls", 2, fc_jsonb_strip_nulls),
     b(3263, "jsonb_object", 1, fc_jsonb_object),
     b(3264, "jsonb_object_two_arg", 2, fc_jsonb_object_two_arg),
-    b_lax(3209, "jsonb_populate_record", 2, crate::populate::fc_jsonb_populate_record),
-    b_lax(6338, "jsonb_populate_record_valid", 2, crate::populate::fc_jsonb_populate_record_valid),
-    b(3490, "jsonb_to_record", 1, crate::populate::fc_jsonb_to_record),
-    srf_lax(3475, "jsonb_populate_recordset", 2, crate::populate::fc_jsonb_populate_recordset),
-    srf_lax(3491, "jsonb_to_recordset", 1, crate::populate::fc_jsonb_to_recordset),
-    b_lax(3960, "json_populate_record", 3, crate::populate::fc_json_populate_record),
-    b(3204, "json_to_record", 1, crate::populate::fc_json_to_record),
-    srf_lax(3961, "json_populate_recordset", 3, crate::populate::fc_json_populate_recordset),
-    srf_lax(3205, "json_to_recordset", 1, crate::populate::fc_json_to_recordset),
+    b_lax(
+        3209,
+        "jsonb_populate_record",
+        2,
+        crate::populate::fc_jsonb_populate_record,
+    ),
+    b_lax(
+        6338,
+        "jsonb_populate_record_valid",
+        2,
+        crate::populate::fc_jsonb_populate_record_valid,
+    ),
+    b(
+        3490,
+        "jsonb_to_record",
+        1,
+        crate::populate::fc_jsonb_to_record,
+    ),
+    srf_lax(
+        3475,
+        "jsonb_populate_recordset",
+        2,
+        crate::populate::fc_jsonb_populate_recordset,
+    ),
+    srf_lax(
+        3491,
+        "jsonb_to_recordset",
+        1,
+        crate::populate::fc_jsonb_to_recordset,
+    ),
+    b_lax(
+        3960,
+        "json_populate_record",
+        3,
+        crate::populate::fc_json_populate_record,
+    ),
+    b(
+        3204,
+        "json_to_record",
+        1,
+        crate::populate::fc_json_to_record,
+    ),
+    srf_lax(
+        3961,
+        "json_populate_recordset",
+        3,
+        crate::populate::fc_json_populate_recordset,
+    ),
+    srf_lax(
+        3205,
+        "json_to_recordset",
+        1,
+        crate::populate::fc_json_to_recordset,
+    ),
     b(2580, "jsonb_float8", 1, fc_jsonb_float8),
     b(3301, "jsonb_concat", 2, fc_jsonb_concat),
     b(3302, "jsonb_delete", 2, fc_jsonb_delete),
@@ -967,9 +1075,19 @@ pub const JSONB_BUILTINS: &[FmgrBuiltin] = &[
     b(3305, "jsonb_set", 4, fc_jsonb_set),
     b(3306, "jsonb_pretty", 1, fc_jsonb_pretty),
     b_lax(3271, "jsonb_build_array", 1, fc_jsonb_build_array),
-    b_lax(3272, "jsonb_build_array_noargs", 0, fc_jsonb_build_array_noargs),
+    b_lax(
+        3272,
+        "jsonb_build_array_noargs",
+        0,
+        fc_jsonb_build_array_noargs,
+    ),
     b_lax(3273, "jsonb_build_object", 1, fc_jsonb_build_object),
-    b_lax(3274, "jsonb_build_object_noargs", 0, fc_jsonb_build_object_noargs),
+    b_lax(
+        3274,
+        "jsonb_build_object_noargs",
+        0,
+        fc_jsonb_build_object_noargs,
+    ),
     b(3343, "jsonb_delete", 2, fc_jsonb_delete_array),
     b(3449, "jsonb_numeric", 1, fc_jsonb_numeric),
     b(3450, "jsonb_int2", 1, fc_jsonb_int2),
@@ -979,24 +1097,89 @@ pub const JSONB_BUILTINS: &[FmgrBuiltin] = &[
     b(3556, "jsonb_bool", 1, fc_jsonb_bool),
     b(3579, "jsonb_insert", 4, fc_jsonb_insert),
     b(3787, "to_jsonb", 1, fc_to_jsonb),
-    b_lax(3265, "jsonb_agg_transfn", 2, crate::aggs::fc_jsonb_agg_transfn),
-    b_lax(3266, "jsonb_agg_finalfn", 1, crate::aggs::fc_jsonb_agg_finalfn),
-    b_lax(6283, "jsonb_agg_strict_transfn", 2, crate::aggs::fc_jsonb_agg_strict_transfn),
-    b_lax(3268, "jsonb_object_agg_transfn", 3, crate::aggs::fc_jsonb_object_agg_transfn),
-    b_lax(6285, "jsonb_object_agg_strict_transfn", 3, crate::aggs::fc_jsonb_object_agg_strict_transfn),
-    b_lax(6286, "jsonb_object_agg_unique_transfn", 3, crate::aggs::fc_jsonb_object_agg_unique_transfn),
-    b_lax(6287, "jsonb_object_agg_unique_strict_transfn", 3, crate::aggs::fc_jsonb_object_agg_unique_strict_transfn),
-    b_lax(3269, "jsonb_object_agg_finalfn", 1, crate::aggs::fc_jsonb_object_agg_finalfn),
+    b_lax(
+        3265,
+        "jsonb_agg_transfn",
+        2,
+        crate::aggs::fc_jsonb_agg_transfn,
+    ),
+    b_lax(
+        3266,
+        "jsonb_agg_finalfn",
+        1,
+        crate::aggs::fc_jsonb_agg_finalfn,
+    ),
+    b_lax(
+        6283,
+        "jsonb_agg_strict_transfn",
+        2,
+        crate::aggs::fc_jsonb_agg_strict_transfn,
+    ),
+    b_lax(
+        3268,
+        "jsonb_object_agg_transfn",
+        3,
+        crate::aggs::fc_jsonb_object_agg_transfn,
+    ),
+    b_lax(
+        6285,
+        "jsonb_object_agg_strict_transfn",
+        3,
+        crate::aggs::fc_jsonb_object_agg_strict_transfn,
+    ),
+    b_lax(
+        6286,
+        "jsonb_object_agg_unique_transfn",
+        3,
+        crate::aggs::fc_jsonb_object_agg_unique_transfn,
+    ),
+    b_lax(
+        6287,
+        "jsonb_object_agg_unique_strict_transfn",
+        3,
+        crate::aggs::fc_jsonb_object_agg_unique_strict_transfn,
+    ),
+    b_lax(
+        3269,
+        "jsonb_object_agg_finalfn",
+        1,
+        crate::aggs::fc_jsonb_object_agg_finalfn,
+    ),
     b_lax(5054, "jsonb_set_lax", 5, fc_jsonb_set_lax),
     b(3210, "jsonb_typeof", 1, fc_jsonb_typeof),
     srf(3208, "jsonb_each", 1, crate::srfs::fc_jsonb_each),
-    srf(3219, "jsonb_array_elements", 1, crate::srfs::fc_jsonb_array_elements),
-    srf(3465, "jsonb_array_elements_text", 1, crate::srfs::fc_jsonb_array_elements_text),
-    srf(3931, "jsonb_object_keys", 1, crate::srfs::fc_jsonb_object_keys),
+    srf(
+        3219,
+        "jsonb_array_elements",
+        1,
+        crate::srfs::fc_jsonb_array_elements,
+    ),
+    srf(
+        3465,
+        "jsonb_array_elements_text",
+        1,
+        crate::srfs::fc_jsonb_array_elements_text,
+    ),
+    srf(
+        3931,
+        "jsonb_object_keys",
+        1,
+        crate::srfs::fc_jsonb_object_keys,
+    ),
     srf(3932, "jsonb_each_text", 1, crate::srfs::fc_jsonb_each_text),
-    b(3214, "jsonb_object_field_text", 2, fc_jsonb_object_field_text),
+    b(
+        3214,
+        "jsonb_object_field_text",
+        2,
+        fc_jsonb_object_field_text,
+    ),
     b(3215, "jsonb_array_element", 2, fc_jsonb_array_element),
-    b(3216, "jsonb_array_element_text", 2, fc_jsonb_array_element_text),
+    b(
+        3216,
+        "jsonb_array_element_text",
+        2,
+        fc_jsonb_array_element_text,
+    ),
     b(3217, "jsonb_extract_path", 2, fc_jsonb_extract_path),
     b(3416, "jsonb_hash_extended", 2, fc_jsonb_hash_extended),
     b(3478, "jsonb_object_field", 2, fc_jsonb_object_field),
@@ -1004,7 +1187,12 @@ pub const JSONB_BUILTINS: &[FmgrBuiltin] = &[
     b(3804, "jsonb_out", 1, fc_jsonb_out),
     b(3805, "jsonb_recv", 1, fc_jsonb_recv),
     b(3806, "jsonb_in", 1, fc_jsonb_in),
-    b(3940, "jsonb_extract_path_text", 2, fc_jsonb_extract_path_text),
+    b(
+        3940,
+        "jsonb_extract_path_text",
+        2,
+        fc_jsonb_extract_path_text,
+    ),
     b(4038, "jsonb_ne", 2, fc_jsonb_ne),
     b(4039, "jsonb_lt", 2, fc_jsonb_lt),
     b(4040, "jsonb_gt", 2, fc_jsonb_gt),

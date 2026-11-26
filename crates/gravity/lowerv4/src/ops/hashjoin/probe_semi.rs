@@ -10,21 +10,36 @@ use gravity_decompose::Op;
 use mcx::PgBox;
 use types_nodes::jointype::JoinType;
 
+use crate::admit::refusal::Reason;
 use crate::face::kinds::KindId;
 use crate::face::step::StepMech;
 use crate::frame::frame::StepMaker;
-use crate::frame::px::Px;
-use crate::admit::refusal::Reason;
 use crate::frame::iface::kind_impl;
+use crate::frame::px::Px;
 use crate::ops::Table;
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::JoinSemi, &StepMaker(make))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::JoinSemi, &StepMaker(make))],
+    ..crate::ops::NONE
+};
 
 /// The SEMI probe `j` of pipeline `k`: join.inner's step maker.
 fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMech + 'g> {
     let p = &px.gx.pipelines()[k];
-    if !matches!(p.ops.get(j), Some(Op::Join(JoinDesc::Probe { jointype: JoinType::JOIN_SEMI, catalog: false, .. }))) {
-        crate::refuse!(p.node_id, Reason::Bug { payload: "join.semi over an op that is not a SEMI probe" });
+    if !matches!(
+        p.ops.get(j),
+        Some(Op::Join(JoinDesc::Probe {
+            jointype: JoinType::JOIN_SEMI,
+            catalog: false,
+            ..
+        }))
+    ) {
+        crate::refuse!(
+            p.node_id,
+            Reason::Bug {
+                payload: "join.semi over an op that is not a SEMI probe"
+            }
+        );
     }
     (kind_impl::<StepMaker>(&p.node_id, KindId::JoinInner).0)(px, k, j)
 }

@@ -14,7 +14,11 @@ fn wide() -> RecordLayout {
     let offs: &'static mut [u32] = Box::leak(vec![0u32; slots.len()].into_boxed_slice());
     let w: &'static WideLayout = Box::leak(Box::new(WideLayout::compute(keys, slots, offs, true)));
     let l = RecordLayout::wide(w, true, false);
-    assert!(l.is_wide() && l.size() > 256, "a record past the old fixed buffer: {} B", l.size());
+    assert!(
+        l.is_wide() && l.size() > 256,
+        "a record past the old fixed buffer: {} B",
+        l.size()
+    );
     l
 }
 
@@ -36,7 +40,11 @@ fn table(l: &RecordLayout, buf: &mut Vec<u64>) -> &'static mut HashAgg {
         }
         r.add_count(NSUMS, 1);
     }
-    assert!(t.cap >= 512, "grown in place from 8 slots past {GROUPS} groups: cap {}", t.cap);
+    assert!(
+        t.cap >= 512,
+        "grown in place from 8 slots past {GROUPS} groups: cap {}",
+        t.cap
+    );
     t
 }
 
@@ -53,7 +61,11 @@ fn d327_a_wide_group_table_grows_in_place_with_every_record_whole() {
     let mut buf = Vec::new();
     let t = table(&l, &mut buf);
     for g in 1..=GROUPS {
-        check(&t.find(&[g]).unwrap_or_else(|| panic!("group {g} lost in the grow")), g);
+        check(
+            &t.find(&[g])
+                .unwrap_or_else(|| panic!("group {g} lost in the grow")),
+            g,
+        );
     }
 }
 
@@ -71,7 +83,9 @@ fn d327_the_dense_sorts_move_wide_records_whole() {
     let mut buf = Vec::new();
     let t = table(&l, &mut buf);
     // SAFETY (the closure): each pointer is a live record whose first word is its key.
-    t.sort_dense_by(&mut |a, b| unsafe { (a as *const u64).read_unaligned() > (b as *const u64).read_unaligned() });
+    t.sort_dense_by(&mut |a, b| unsafe {
+        (a as *const u64).read_unaligned() > (b as *const u64).read_unaligned()
+    });
     for i in 0..GROUPS as usize {
         let r = t.record(i);
         assert_eq!(r.key(0), GROUPS - i as u64, "descending by the order given");
@@ -107,7 +121,11 @@ fn d327_a_sort_run_of_wide_rows_sorts_them_whole() {
         let k = unsafe { (row as *const u64).read_unaligned() };
         assert_eq!(k, i as u64, "ascending by the first two words");
         for b in 16..ROW as usize {
-            assert_eq!(unsafe { *row.add(b) }, (k as u8).wrapping_mul(13) ^ b as u8, "row {i} byte {b}");
+            assert_eq!(
+                unsafe { *row.add(b) },
+                (k as u8).wrapping_mul(13) ^ b as u8,
+                "row {i} byte {b}"
+            );
         }
     }
 }

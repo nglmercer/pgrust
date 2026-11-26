@@ -35,7 +35,15 @@ const DEPTH: usize = 256;
 /// Whether hash join `hj`'s build must stay serial: its within-key match order is visible.
 pub fn visible<'p>(b: &Builder<'p, '_>, hj: &'p HashJoin<'p>) -> bool {
     let raises = |l: &'p types_nodes::list::NodeList<'p>| {
-        l.iter().any(|n| crate::effects::Effects::of_found(crate::rerun::of_expr(b.stmt, b.facts, b.arena, n.as_target_entry().map_or(n, |t| t.expr))).may_raise)
+        l.iter().any(|n| {
+            crate::effects::Effects::of_found(crate::rerun::of_expr(
+                b.stmt,
+                b.facts,
+                b.arena,
+                n.as_target_entry().map_or(n, |t| t.expr),
+            ))
+            .may_raise
+        })
     };
     let (j, plan) = (&hj.join, &hj.join.plan);
     if j.inner_unique {
@@ -51,21 +59,40 @@ pub fn visible<'p>(b: &Builder<'p, '_>, hj: &'p HashJoin<'p>) -> bool {
 /// Whether a reader above plan node `p` may stop before `p`'s last row (the module doc's walk).
 fn stops_above<'p>(b: &Builder<'p, '_>, p: &'p Plan<'p>, depth: usize) -> bool {
     crate::walk::stack_check(); // D3748
-    let Some(depth) = depth.checked_sub(1) else { return true };
+    let Some(depth) = depth.checked_sub(1) else {
+        return true;
+    };
     let mut path = ArenaVec::new_in(b.arena); // alloc: Cold
-    let roots = b.stmt.planTree.into_iter().map(|r| (r, None)).chain(b.stmt.subplans.iter().enumerate().filter_map(|(i, r)| r.map(|r| (r, Some(i)))));
-    let Some(sub) = roots.into_iter().find_map(|(r, sub)| path_to(r, p, &mut path).then_some(sub)) else { return true };
+    let roots = b.stmt.planTree.into_iter().map(|r| (r, None)).chain(
+        b.stmt
+            .subplans
+            .iter()
+            .enumerate()
+            .filter_map(|(i, r)| r.map(|r| (r, Some(i)))),
+    );
+    let Some(sub) = roots
+        .into_iter()
+        .find_map(|(r, sub)| path_to(r, p, &mut path).then_some(sub))
+    else {
+        return true;
+    };
     // `path`: the ancestors, nearest first, each with whether the walk came up its inner side
     for &(n, inner) in path.iter() {
         if n.as_limit().is_some() || n.as_merge_join().is_some() {
             return true;
         }
-        if inner && n.as_nest_loop().is_some_and(|nl| nl.join.inner_unique || matches!(nl.join.jointype, JoinType::JOIN_SEMI | JoinType::JOIN_ANTI)) {
+        if inner
+            && n.as_nest_loop().is_some_and(|nl| {
+                nl.join.inner_unique
+                    || matches!(nl.join.jointype, JoinType::JOIN_SEMI | JoinType::JOIN_ANTI)
+            })
+        {
             return true;
         }
         let whole = n.as_sort().is_some()
             || n.as_hash().is_some()
-            || n.as_agg().is_some_and(|a| a.aggstrategy == AGG_PLAIN || a.aggstrategy == AGG_HASHED)
+            || n.as_agg()
+                .is_some_and(|a| a.aggstrategy == AGG_PLAIN || a.aggstrategy == AGG_HASHED)
             || n.as_set_op().is_some_and(|s| s.strategy == SETOP_HASHED)
             || n.as_modify_table().is_some();
         if whole {
@@ -79,7 +106,12 @@ fn stops_above<'p>(b: &Builder<'p, '_>, p: &'p Plan<'p>, depth: usize) -> bool {
         Some(i) => {
             let id = i as i32 + 1;
             let mut scans = ArenaVec::new_in(b.arena); // alloc: Cold
-            for r in b.stmt.planTree.into_iter().chain(b.stmt.subplans.iter().flatten()) {
+            for r in b
+                .stmt
+                .planTree
+                .into_iter()
+                .chain(b.stmt.subplans.iter().flatten())
+            {
                 cte_scans(r, id, &mut scans);
             }
             scans.is_empty() || scans.iter().any(|&s| stops_above(b, s, depth))
@@ -91,10 +123,22 @@ fn stops_above<'p>(b: &Builder<'p, '_>, p: &'p Plan<'p>, depth: usize) -> bool {
 /// an Append's or MergeAppend's members.
 fn children<'p>(n: Node<'p>) -> impl Iterator<Item = (Node<'p>, bool)> {
     let p = n.as_plan();
-    let sides = p.into_iter().flat_map(|p| [(p.lefttree, false), (p.righttree, true)]);
-    let sub = n.as_subquery_scan().and_then(|s| s.subplan).map(|s| (Some(s), false));
-    let members = n.as_append().map(|a| &a.appendplans).or_else(|| n.as_merge_append().map(|m| &m.mergeplans));
-    sides.chain(sub).filter_map(|(c, i)| Some((c?, i))).chain(members.into_iter().flat_map(|l| l.iter().map(|c| (c, false))))
+    let sides = p
+        .into_iter()
+        .flat_map(|p| [(p.lefttree, false), (p.righttree, true)]);
+    let sub = n
+        .as_subquery_scan()
+        .and_then(|s| s.subplan)
+        .map(|s| (Some(s), false));
+    let members = n
+        .as_append()
+        .map(|a| &a.appendplans)
+        .or_else(|| n.as_merge_append().map(|m| &m.mergeplans));
+    sides.chain(sub).filter_map(|(c, i)| Some((c?, i))).chain(
+        members
+            .into_iter()
+            .flat_map(|l| l.iter().map(|c| (c, false))),
+    )
 }
 
 /// Whether plan node `p` is under `n` (or is `n`); `path` then holds `p`'s ancestors up to `n`, nearest first.

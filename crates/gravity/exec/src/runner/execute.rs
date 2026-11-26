@@ -10,11 +10,19 @@ use types_nodes::nodes_enums::CmdType;
 /// Execute runs under the portal's resource owner, as PortalRun does, so the scan's buffer pins belong to the portal (a
 /// savepoint begun after the Bind and ended before the next Execute leaves them to it); portalmem ends the run under that
 /// owner too (PortalDrop, AtAbort_Portals, AtSubAbort_Portals).
-pub fn execute(portal: &Portal<'static>, max_rows: i64, receiver: &mut DestReceiver<'_>) -> PgResult<Option<Option<QueryCompletion>>> {
+pub fn execute(
+    portal: &Portal<'static>,
+    max_rows: i64,
+    receiver: &mut DestReceiver<'_>,
+) -> PgResult<Option<Option<QueryCompletion>>> {
     let r = pquery::with_portal_owner(portal, || step(portal, max_rows, receiver))?;
     if let Some(done) = &r {
         // D2085: the portal's position, kept as PortalRunSelect keeps it, so a later SQL FETCH of the portal moves on from here
-        let count = if max_rows == FETCH_ALL || max_rows <= 0 { 0 } else { max_rows };
+        let count = if max_rows == FETCH_ALL || max_rows <= 0 {
+            0
+        } else {
+            max_rows
+        };
         let rows = done.as_ref().map_or(count as u64, |qc| qc.nprocessed);
         let mut p = portal.borrow_mut();
         if rows > 0 {
@@ -30,7 +38,11 @@ pub fn execute(portal: &Portal<'static>, max_rows: i64, receiver: &mut DestRecei
 
 /// D2085: a SQL FETCH / MOVE forward over a portal bound here (pquery's PortalRunSelect, which keeps the portal's position):
 /// the next `count` rows (0: all) of the run the Execute messages step, to the fetch's receiver; the rows sent.
-pub fn fetch(portal: &Portal<'static>, count: i64, receiver: &mut DestReceiver<'_>) -> PgResult<u64> {
+pub fn fetch(
+    portal: &Portal<'static>,
+    count: i64,
+    receiver: &mut DestReceiver<'_>,
+) -> PgResult<u64> {
     let max_rows = if count <= 0 { FETCH_ALL } else { count };
     match step(portal, max_rows, receiver)? {
         Some(None) => Ok(count as u64),
@@ -39,7 +51,11 @@ pub fn fetch(portal: &Portal<'static>, count: i64, receiver: &mut DestReceiver<'
     }
 }
 
-fn step(portal: &Portal<'static>, max_rows: i64, receiver: &mut DestReceiver<'_>) -> PgResult<Option<Option<QueryCompletion>>> {
+fn step(
+    portal: &Portal<'static>,
+    max_rows: i64,
+    receiver: &mut DestReceiver<'_>,
+) -> PgResult<Option<Option<QueryCompletion>>> {
     let token = portal.borrow().gravity;
     if token == 0 {
         return Ok(None);
@@ -49,7 +65,11 @@ fn step(portal: &Portal<'static>, max_rows: i64, receiver: &mut DestReceiver<'_>
     }
     let (formats, params, owner): (Vec<i16>, ParamListHandle, types_resowner::ResourceOwner) = {
         let p = portal.borrow();
-        (p.formats.iter().copied().collect(), p.portalParams, p.resowner) // alloc: Cold
+        (
+            p.formats.iter().copied().collect(),
+            p.portalParams,
+            p.resowner,
+        ) // alloc: Cold
     };
     // D3547: a named portal a statement's start sent away (`send_away`) runs from there
     if let Some((w, k)) = take_away(token) {
@@ -58,8 +78,20 @@ fn step(portal: &Portal<'static>, max_rows: i64, receiver: &mut DestReceiver<'_>
     // D3547: the portal's own message borrows the level: its `send_away` leaves this portal at home
     let _stepping = Stepping::set(token);
     let r = crate::with_backend(|b| -> PgResult<Option<Option<QueryCompletion>>> {
-        let Some(idx) = slot_of(b, token) else { return Ok(None) };
-        step_slot(b, At::Home(idx), true, portal, &formats, params, owner, max_rows, receiver)
+        let Some(idx) = slot_of(b, token) else {
+            return Ok(None);
+        };
+        step_slot(
+            b,
+            At::Home(idx),
+            true,
+            portal,
+            &formats,
+            params,
+            owner,
+            max_rows,
+            receiver,
+        )
     });
     match r {
         Some(v) => v,
@@ -72,13 +104,37 @@ fn step(portal: &Portal<'static>, max_rows: i64, receiver: &mut DestReceiver<'_>
 /// a busy level (D2355), refused by name when the statement holding the home level runs inside this program's host state
 /// (`host_busy`). Away from its home the run opens under no key and its Node is torn down at its end (`release_run`).
 #[allow(clippy::too_many_arguments)]
-fn step_away(portal: &Portal<'static>, mut w: Away, k: usize, formats: &[i16], params: ParamListHandle, owner: types_resowner::ResourceOwner, max_rows: i64, receiver: &mut DestReceiver<'_>) -> PgResult<Option<Option<QueryCompletion>>> {
+fn step_away(
+    portal: &Portal<'static>,
+    mut w: Away,
+    k: usize,
+    formats: &[i16],
+    params: ParamListHandle,
+    owner: types_resowner::ResourceOwner,
+    max_rows: i64,
+    receiver: &mut DestReceiver<'_>,
+) -> PgResult<Option<Option<QueryCompletion>>> {
     let home = w.home;
     let hosted = host_busy(&w.a);
-    let r = crate::admit::reentry::enter(Some(crate::admit::reentry::built), Some(home), hosted, |b, depth| {
-        let Away { slots, a, .. } = &mut w;
-        step_slot(b, At::Away(&mut slots[k].1,a), depth == home, portal, formats, params, owner, max_rows, receiver)
-    });
+    let r = crate::admit::reentry::enter(
+        Some(crate::admit::reentry::built),
+        Some(home),
+        hosted,
+        |b, depth| {
+            let Away { slots, a, .. } = &mut w;
+            step_slot(
+                b,
+                At::Away(&mut slots[k].1, a),
+                depth == home,
+                portal,
+                formats,
+                params,
+                owner,
+                max_rows,
+                receiver,
+            )
+        },
+    );
     put_away(w);
     match r {
         Ok(Some(out)) => out,
@@ -99,13 +155,31 @@ enum At<'w> {
 /// no key and its Node is torn down at its end (D2190: a Node built over a lent admission is never parked at another
 /// level). The run's census, when it ends, is noted at `b`.
 #[allow(clippy::too_many_arguments)]
-fn step_slot(b: &mut Backend, at: At<'_>, home: bool, portal: &Portal<'static>, formats: &[i16], params: ParamListHandle, owner: types_resowner::ResourceOwner, max_rows: i64, receiver: &mut DestReceiver<'_>) -> PgResult<Option<Option<QueryCompletion>>> {
+fn step_slot(
+    b: &mut Backend,
+    at: At<'_>,
+    home: bool,
+    portal: &Portal<'static>,
+    formats: &[i16],
+    params: ParamListHandle,
+    owner: types_resowner::ResourceOwner,
+    max_rows: i64,
+    receiver: &mut DestReceiver<'_>,
+) -> PgResult<Option<Option<QueryCompletion>>> {
     let amcx = b.admit_mcx();
-    let Backend { entry, execs, plans, .. } = &mut *b;
+    let Backend {
+        entry,
+        execs,
+        plans,
+        ..
+    } = &mut *b;
     let (slot, a): (&mut ExecSlot, Option<&mut Admitted>) = match at {
         At::Home(idx) => {
             let slot = execs[idx].as_mut().expect("slot");
-            let a = plans.get_mut(slot.plan).and_then(Option::as_mut).map(|p| p.served.as_mut());
+            let a = plans
+                .get_mut(slot.plan)
+                .and_then(Option::as_mut)
+                .map(|p| p.served.as_mut());
             (&mut **slot, a)
         }
         At::Away(slot, a) => (slot, Some(a)),
@@ -125,8 +199,15 @@ fn step_slot(b: &mut Backend, at: At<'_>, home: bool, portal: &Portal<'static>, 
     let a = a.expect("admitted");
     // D4131: the PL state before the open and the step, for what a dropped held error's callee leaves (below)
     let start = PlState::now();
-    let remote = matches!(receiver.mydest(), CommandDest::Remote | CommandDest::RemoteExecute | CommandDest::RemoteSimple);
-    let fmts = if formats.is_empty() { None } else { Some(formats) };
+    let remote = matches!(
+        receiver.mydest(),
+        CommandDest::Remote | CommandDest::RemoteExecute | CommandDest::RemoteSimple
+    );
+    let fmts = if formats.is_empty() {
+        None
+    } else {
+        Some(formats)
+    };
     if !slot.active() {
         if a.eval_at_execute {
             // the words evaluated per execution (a volatile word) run under the portal's snapshot, pushed for them as
@@ -158,12 +239,23 @@ fn step_slot(b: &mut Backend, at: At<'_>, home: bool, portal: &Portal<'static>, 
         slot.pins.owner = owner;
         slot.served = 0;
         slot.rechecked = 0;
-        if slot.pins.run.as_ref().is_none_or(|_| slot.run_natts != a.program.out.len()) {
+        if slot
+            .pins
+            .run
+            .as_ref()
+            .is_none_or(|_| slot.run_natts != a.program.out.len())
+        {
             // memsig E-pub: the slot keeps its adapter from Bind to Bind (past each portal's end), so its buffer is the
             // session's, whose backend holds the slot
             let acct = memledger::current();
-            let session = acct.is_backend().then_some((memledger::Owner::Session(acct), memledger::Kind::Region));
-            slot.pins.run = Some(PullAdapter::new_on(a.program.out.len(), a.program.layout.out_rows as usize, session));
+            let session = acct
+                .is_backend()
+                .then_some((memledger::Owner::Session(acct), memledger::Kind::Region));
+            slot.pins.run = Some(PullAdapter::new_on(
+                a.program.out.len(),
+                a.program.layout.out_rows as usize,
+                session,
+            ));
             slot.run_natts = a.program.out.len();
         }
         slot.wired = false;
@@ -171,7 +263,18 @@ fn step_slot(b: &mut Backend, at: At<'_>, home: bool, portal: &Portal<'static>, 
             let snap = slot.pins.snap.clone().expect("registered");
             snapmgr::PushActiveSnapshot(&snap)?;
             let nk = a.nkparams;
-            let r = run_inits(amcx, entry, a, &snap, cid, &mut slot.kparams[..nk], &mut slot.knulls[..nk]).and_then(|_| crate::ops::append::prune::exec_skip(a, &slot.kparams[..nk], &slot.knulls[..nk]));
+            let r = run_inits(
+                amcx,
+                entry,
+                a,
+                &snap,
+                cid,
+                &mut slot.kparams[..nk],
+                &mut slot.knulls[..nk],
+            )
+            .and_then(|_| {
+                crate::ops::append::prune::exec_skip(a, &slot.kparams[..nk], &slot.knulls[..nk])
+            });
             snapmgr::PopActiveSnapshot()?;
             r?;
         }
@@ -182,21 +285,63 @@ fn step_slot(b: &mut Backend, at: At<'_>, home: bool, portal: &Portal<'static>, 
         // Node the last one parked; else under the slot's plan key
         // D3579: an orphaned plan's Node parks under no plan key (another admission of the key would take it)
         // D3547: nor does a run opened away from the slot's home level (its Node is built here and torn down at its end)
-        let key = if home { park_key(amcx, a).or((!s.pins.orphan).then_some(s.key)) } else { None };
+        let key = if home {
+            park_key(amcx, a).or((!s.pins.orphan).then_some(s.key))
+        } else {
+            None
+        };
         let run = s.pins.run.as_mut().expect("adapter");
         crate::ops::modifytable::after_query::begin(slot.cmd);
         let snap = s.pins.snap.clone().expect("registered");
         snapmgr::PushActiveSnapshot(&snap)?;
         // D264: a serial pull over a granule relation resolves the statement's relations itself (no producers here)
-        let opened = resolve_pull(amcx, &a.registry, &snap).and_then(|mut pulled| file_pull_sets(amcx, &a.program, &a.registry, a.pstmt, crate::ops::append::proto::Initial::params_of(a), pulled.as_deref_mut()).map(|()| pulled)).and_then(|pulled| {
-            s.pins.pulled = pulled;
-            // D288: its v4 protocols too (a serial pgrc program's src.verdicts), their words bound as the entry's serial pull's
-            s.pins.serial = pull_words(amcx, a, &snap, &s.kparams[..s.nkparams], &s.knulls[..s.nkparams])?;
-            let (kp, kn) = s.pins.serial.as_deref().map_or((&s.kparams[..s.nkparams], &s.knulls[..s.nkparams]), |w| w.words());
-            let parts = glue::binding_parts(s.pins.snap.as_ref().expect("registered"), cid, kp, kn, s.pins.pulled.as_deref());
-            // the extended protocol's pull is not admitted (F8: its grant is the GUCs', no longer an 8 MiB default)
-            run.open(entry, key, &a.program, &mut a.registry, parts, crate::inputs::knobs::grant::unadmitted_for(&a.program, 1)).map_err(glue::pg_error)
-        });
+        let opened = resolve_pull(amcx, &a.registry, &snap)
+            .and_then(|mut pulled| {
+                file_pull_sets(
+                    amcx,
+                    &a.program,
+                    &a.registry,
+                    a.pstmt,
+                    crate::ops::append::proto::Initial::params_of(a),
+                    pulled.as_deref_mut(),
+                )
+                .map(|()| pulled)
+            })
+            .and_then(|pulled| {
+                s.pins.pulled = pulled;
+                // D288: its v4 protocols too (a serial pgrc program's src.verdicts), their words bound as the entry's serial pull's
+                s.pins.serial = pull_words(
+                    amcx,
+                    a,
+                    &snap,
+                    &s.kparams[..s.nkparams],
+                    &s.knulls[..s.nkparams],
+                )?;
+                let (kp, kn) = s
+                    .pins
+                    .serial
+                    .as_deref()
+                    .map_or((&s.kparams[..s.nkparams], &s.knulls[..s.nkparams]), |w| {
+                        w.words()
+                    });
+                let parts = glue::binding_parts(
+                    s.pins.snap.as_ref().expect("registered"),
+                    cid,
+                    kp,
+                    kn,
+                    s.pins.pulled.as_deref(),
+                );
+                // the extended protocol's pull is not admitted (F8: its grant is the GUCs', no longer an 8 MiB default)
+                run.open(
+                    entry,
+                    key,
+                    &a.program,
+                    &mut a.registry,
+                    parts,
+                    crate::inputs::knobs::grant::unadmitted_for(&a.program, 1),
+                )
+                .map_err(glue::pg_error)
+            });
         snapmgr::PopActiveSnapshot()?;
         if let Err(e) = opened {
             release_run(slot, entry, home);
@@ -226,9 +371,19 @@ fn step_slot(b: &mut Backend, at: At<'_>, home: bool, portal: &Portal<'static>, 
     }
     match out {
         Ok(Some(rows)) => {
-            let (cmd, tag, shape, code, via_) = (slot.cmd, a.tag(), a.shape, a.program.code_of(0).kind(), via(a));
+            let (cmd, tag, shape, code, via_) = (
+                slot.cmd,
+                a.tag(),
+                a.shape,
+                a.program.code_of(0).kind(),
+                via(a),
+            );
             // the census counts the run's rows; the tag, this Execute's (D307)
-            let run_rows = if cmd == Cmd::Select { slot.served } else { rows };
+            let run_rows = if cmd == Cmd::Select {
+                slot.served
+            } else {
+                rows
+            };
             let protocols = slot.pins.serial.as_deref().map_or(Ok(()), SerialWords::end);
             release_run(slot, entry, home); // the slot's snapshot leaves its owner here (one release for a completed, failed or dropped run)
             slot.ended = true;
@@ -246,7 +401,11 @@ fn step_slot(b: &mut Backend, at: At<'_>, home: bool, portal: &Portal<'static>, 
             // D307: PostgreSQL's executor stops at the count-th row without looking past it, so an Execute that sends
             // exactly its max_rows suspends the portal though no row is left (atEnd only when fewer came); the next
             // Execute completes it with none (the `ended` slot above)
-            if cmd == Cmd::Select && max_rows > 0 && max_rows != FETCH_ALL && rows == max_rows as u64 {
+            if cmd == Cmd::Select
+                && max_rows > 0
+                && max_rows != FETCH_ALL
+                && rows == max_rows as u64
+            {
                 return Ok(Some(None));
             }
             Ok(Some(Some(gravity_wire::completion(tag, rows))))
@@ -262,18 +421,30 @@ fn step_slot(b: &mut Backend, at: At<'_>, home: bool, portal: &Portal<'static>, 
 /// One Execute's worth of a served run: up to `max_rows` rows to the receiver (all of them for FETCH_ALL). `Some(rows)` when the run has
 /// ended (a SELECT's rows sent by THIS Execute, PortalRun's nprocessed, D307; a write's count), `None` when it suspended.
 #[allow(clippy::too_many_arguments)]
-fn bounded_step(entry: &mut gravity_driver::Entry, a: &mut Admitted, slot: &mut ExecSlot, amcx: Mcx<'static>, max_rows: i64, remote: bool, receiver: &mut DestReceiver<'_>) -> PgResult<Option<u64>> {
+fn bounded_step(
+    entry: &mut gravity_driver::Entry,
+    a: &mut Admitted,
+    slot: &mut ExecSlot,
+    amcx: Mcx<'static>,
+    max_rows: i64,
+    remote: bool,
+    receiver: &mut DestReceiver<'_>,
+) -> PgResult<Option<u64>> {
     let cmd = slot.cmd;
     let _sent = gravity_driver::ahead_trace::statement(slot.served > 0); // construct C2 R3: an earlier Execute sent rows
     let rows_out = emits_rows(cmd, slot.out_natts);
     // a write here emits no row: a RETURNING write is the portal's own (`entry_routed`, D315)
-    let want = if max_rows == FETCH_ALL || max_rows <= 0 { usize::MAX } else { max_rows as usize };
+    let want = if max_rows == FETCH_ALL || max_rows <= 0 {
+        usize::MAX
+    } else {
+        max_rows as usize
+    };
     let dctx;
     let mut dest_sink = None;
     if rows_out && !remote {
         dctx = gravity_driver::mem::root::Root::new("GravityDestSink");
         let mcx: Mcx<'static> = super::raw::sink_mcx(&dctx);
-        dest_sink = Some(DestSink::new(mcx, desc_of(mcx,a), receiver));
+        dest_sink = Some(DestSink::new(mcx, desc_of(mcx, a), receiver));
     }
     let wire = &mut slot.wire as *mut gravity_wire::WireNode;
     let sp: *mut ExecSlot = slot;
@@ -288,7 +459,9 @@ fn bounded_step(entry: &mut gravity_driver::Entry, a: &mut Admitted, slot: &mut 
             return Ok(());
         }
         match dest_sink.as_mut() {
-            None => super::raw::wire(wire).send_row(v, n).map_err(gravity_hosts::stash),
+            None => super::raw::wire(wire)
+                .send_row(v, n)
+                .map_err(gravity_hosts::stash),
             Some(d) => d.send_row(v, n).map(|_| ()).map_err(gravity_hosts::stash),
         }
     };
@@ -308,19 +481,46 @@ fn bounded_step(entry: &mut gravity_driver::Entry, a: &mut Admitted, slot: &mut 
                         s.arm += 1; // a pruned arm (initial partition pruning at bind) is stepped over
                     }
                     g.arms.get_mut(s.arm)
-                }) else { break total };
+                }) else {
+                    break total;
+                };
                 run.close(entry, true);
                 s.pins.unpark_orphan(entry, s.key);
                 check_after_teardown()?; // D376: a cancel or timeout landing between the Append arms ends the statement
-                // D264: the arm's own granule relations (the closed run's are no longer read); D288: the main program's protocol words are
-                // not the arm's (an arm binds its key params, as the entry's open_next_arm)
+                                         // D264: the arm's own granule relations (the closed run's are no longer read); D288: the main program's protocol words are
+                                         // not the arm's (an arm binds its key params, as the entry's open_next_arm)
                 s.pins.serial.as_deref().map_or(Ok(()), SerialWords::end)?;
                 s.pins.serial = None;
-                s.pins.pulled = resolve_pull(amcx, &arm.registry, s.pins.snap.as_ref().expect("registered"))?;
-                file_pull_sets(amcx, &arm.program, &arm.registry, pstmt, params, s.pins.pulled.as_deref_mut())?;
-                let parts = glue::binding_parts(s.pins.snap.as_ref().expect("registered"), s.cid, &s.kparams[..s.nkparams], &s.knulls[..s.nkparams], s.pins.pulled.as_deref());
+                s.pins.pulled = resolve_pull(
+                    amcx,
+                    &arm.registry,
+                    s.pins.snap.as_ref().expect("registered"),
+                )?;
+                file_pull_sets(
+                    amcx,
+                    &arm.program,
+                    &arm.registry,
+                    pstmt,
+                    params,
+                    s.pins.pulled.as_deref_mut(),
+                )?;
+                let parts = glue::binding_parts(
+                    s.pins.snap.as_ref().expect("registered"),
+                    s.cid,
+                    &s.kparams[..s.nkparams],
+                    &s.knulls[..s.nkparams],
+                    s.pins.pulled.as_deref(),
+                );
                 arm.registry.rewind();
-                run.open(entry, None, &arm.program, &mut arm.registry, parts, crate::inputs::knobs::grant::unadmitted_for(&arm.program, 1)).map_err(glue::pg_error)?;
+                run.open(
+                    entry,
+                    None,
+                    &arm.program,
+                    &mut arm.registry,
+                    parts,
+                    crate::inputs::knobs::grant::unadmitted_for(&arm.program, 1),
+                )
+                .map_err(glue::pg_error)?;
                 s.arm += 1;
                 if total >= want {
                     break total;
@@ -331,7 +531,15 @@ fn bounded_step(entry: &mut gravity_driver::Entry, a: &mut Admitted, slot: &mut 
                 let pos = run.recheck_pos();
                 let positions: Vec<gravity_abi::ScanPos> = run.positions().to_vec(); // alloc: Cold
                 let binding = run.binding_mut().expect("open");
-                let more = crate::rerun::epq::recheck(entry, a, Some(slot.key), binding, &positions, site as usize, pos)?;
+                let more = crate::rerun::epq::recheck(
+                    entry,
+                    a,
+                    Some(slot.key),
+                    binding,
+                    &positions,
+                    site as usize,
+                    pos,
+                )?;
                 if cmd == Cmd::Select {
                     if run.exec().is_some_and(resumes) {
                         continue; // a multirow lock (write.rs): the rechecked row is buffered in order, the scan goes on
@@ -353,7 +561,11 @@ fn bounded_step(entry: &mut gravity_driver::Entry, a: &mut Admitted, slot: &mut 
     slot.rechecked += rechecked;
     slot.served += served as u64;
     if run.is_done() {
-        let rows = if cmd == Cmd::Select { served as u64 } else { run.rows_processed() + slot.rechecked };
+        let rows = if cmd == Cmd::Select {
+            served as u64
+        } else {
+            run.rows_processed() + slot.rechecked
+        };
         return Ok(Some(rows));
     }
     Ok(None)
@@ -364,7 +576,10 @@ fn bounded_step(entry: &mut gravity_driver::Entry, a: &mut Admitted, slot: &mut 
 #[inline(never)]
 fn cannot_run(portal: &Portal<'static>) -> Box<types_error::PgError> {
     let name = portal.borrow().name.as_str().to_string(); // alloc: Cold
-    Box::new(types_error::PgError::error(format!("portal \"{name}\" cannot be run")).with_sqlstate(types_error::error::ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE)) // alloc: Cold
+    Box::new(
+        types_error::PgError::error(format!("portal \"{name}\" cannot be run"))
+            .with_sqlstate(types_error::error::ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+    ) // alloc: Cold
 }
 
 /// D3198: an executor-hook module (contrib exec_hooks: pg_stat_statements tracking at this level, auto_explain loaded
@@ -402,16 +617,34 @@ pub(super) fn rewriter_added(pstmt: &PlannedStmt<'_>) -> bool {
 /// other tables' triggers); built-in output types (a user type's output function would run before the AFTER triggers).
 /// Anything else keeps route (b).
 fn held_bound(mcx: Mcx<'static>, pstmt: &'static PlannedStmt<'static>) -> PgResult<bool> {
-    let Some(mt) = pstmt.planTree.and_then(|n| n.as_modify_table()) else { return Ok(false) };
+    let Some(mt) = pstmt.planTree.and_then(|n| n.as_modify_table()) else {
+        return Ok(false);
+    };
     let rti = mt.resultRelations.first().unwrap_or(0) as u32;
-    let Some(r) = shapes::rte(pstmt, rti) else { return Ok(false) };
-    if pstmt.hasModifyingCTE || mt.resultRelations.len() != 1 || r.inh || r.relkind != types_rel::pg_class::RELKIND_RELATION {
+    let Some(r) = shapes::rte(pstmt, rti) else {
+        return Ok(false);
+    };
+    if pstmt.hasModifyingCTE
+        || mt.resultRelations.len() != 1
+        || r.inh
+        || r.relkind != types_rel::pg_class::RELKIND_RELATION
+    {
         return Ok(false);
     }
-    let builtin = mt.plan.targetlist.iter().all(|n| n.as_target_entry().is_some_and(|t| gravity_lowerv4::effects::visible::admit::builtin_type(execexpr::expr_type(t.expr))));
+    let builtin = mt.plan.targetlist.iter().all(|n| {
+        n.as_target_entry().is_some_and(|t| {
+            gravity_lowerv4::effects::visible::admit::builtin_type(execexpr::expr_type(t.expr))
+        })
+    });
     let facts = gravity_hosts::facts::RelcacheFacts::new(mcx);
-    let one = matches!(mt.operation, CmdType::CMD_INSERT | CmdType::CMD_UPDATE | CmdType::CMD_DELETE)
-        && mt.plan.lefttree.and_then(|n| gravity_decompose::catalog::rows::max_rows(&facts, pstmt, n)).is_some_and(|m| m <= 1);
+    let one = matches!(
+        mt.operation,
+        CmdType::CMD_INSERT | CmdType::CMD_UPDATE | CmdType::CMD_DELETE
+    ) && mt
+        .plan
+        .lefttree
+        .and_then(|n| gravity_decompose::catalog::rows::max_rows(&facts, pstmt, n))
+        .is_some_and(|m| m <= 1);
     #[allow(clippy::nonminimal_bool)]
     if !(one && builtin) || !relcache_seams::relation_get_trigger_desc::is_installed() {
         return Ok(false);
@@ -426,11 +659,22 @@ fn held_bound(mcx: Mcx<'static>, pstmt: &'static PlannedStmt<'static>) -> PgResu
     const F_RI_FKEY_SETNULL_UPD: types_core::Oid = 1651;
     const F_RI_FKEY_SETDEFAULT_DEL: types_core::Oid = 1652;
     const F_RI_FKEY_SETDEFAULT_UPD: types_core::Oid = 1653;
-    const RI_ACTIONS: [types_core::Oid; 6] =
-        [F_RI_FKEY_CASCADE_DEL, F_RI_FKEY_CASCADE_UPD, F_RI_FKEY_SETNULL_DEL, F_RI_FKEY_SETNULL_UPD, F_RI_FKEY_SETDEFAULT_DEL, F_RI_FKEY_SETDEFAULT_UPD];
-    Ok(relcache_seams::relation_get_trigger_desc::call(r.relid)?.is_none_or(|d| {
-        d.triggers.iter().all(|t| t.tgtype & (TRIGGER_TYPE_BEFORE | TRIGGER_TYPE_INSTEAD) != 0 || (t.tgisinternal && !RI_ACTIONS.contains(&t.tgfoid)))
-    }))
+    const RI_ACTIONS: [types_core::Oid; 6] = [
+        F_RI_FKEY_CASCADE_DEL,
+        F_RI_FKEY_CASCADE_UPD,
+        F_RI_FKEY_SETNULL_DEL,
+        F_RI_FKEY_SETNULL_UPD,
+        F_RI_FKEY_SETDEFAULT_DEL,
+        F_RI_FKEY_SETDEFAULT_UPD,
+    ];
+    Ok(
+        relcache_seams::relation_get_trigger_desc::call(r.relid)?.is_none_or(|d| {
+            d.triggers.iter().all(|t| {
+                t.tgtype & (TRIGGER_TYPE_BEFORE | TRIGGER_TYPE_INSTEAD) != 0
+                    || (t.tgisinternal && !RI_ACTIONS.contains(&t.tgfoid))
+            })
+        }),
+    )
 }
 
 pub(super) fn emits_rows(cmd: Cmd, out_natts: usize) -> bool {
@@ -471,7 +715,12 @@ pub(super) fn release_run(slot: &mut ExecSlot, entry: &mut gravity_driver::Entry
 /// statement's end. First field first: the child drops before its root. Field 0 is the box's own block on the per-backend
 /// holder (`crate::BACKEND_OWNER`: `KEPT` is the thread's, kept across statements), FIRST so it drops before the block is
 /// freed.
-type Kept = Box<(memledger::Charge, MemoryContext, gravity_wire::WireNode, gravity_driver::mem::root::Root)>;
+type Kept = Box<(
+    memledger::Charge,
+    MemoryContext,
+    gravity_wire::WireNode,
+    gravity_driver::mem::root::Root,
+)>;
 
 leader_tls::leader_tls! {
     thread_local! {
@@ -497,7 +746,10 @@ fn drop_kept_at_teardown() {
 /// D3517: the runner's kept state (KEPT, and the point path's run state) drops at the session's teardown, before the
 /// teardown frees the contexts it points into: one registration per session, by whichever keeps state first.
 pub(super) fn arm_teardown() {
-    if KEPT_CLEANUP_ARMED.try_with(|c| !c.replace(true)).unwrap_or(false) {
+    if KEPT_CLEANUP_ARMED
+        .try_with(|c| !c.replace(true))
+        .unwrap_or(false)
+    {
         ::mcx::register_session_cleanup(Box::new(drop_kept_at_teardown)); // alloc: Cold
     }
 }
@@ -509,8 +761,24 @@ fn kept_new() -> Kept {
     let root = gravity_driver::mem::root::Root::new("GravitySimpleRoot");
     let o = crate::BACKEND_OWNER;
     // the box's block, allocated just below on this thread
-    let held = memledger::Charge::open(o, memledger::charge::release_of(o), memledger::Kind::Region, memledger::charge::Door::Heap, core::mem::size_of::<(memledger::Charge, MemoryContext, gravity_wire::WireNode, gravity_driver::mem::root::Root)>() as u64);
-    Box::new((held, root.new_child_wholesale("GravitySimple"), gravity_wire::WireNode::new(), root)) // alloc: Cold charged crate::BACKEND_OWNER
+    let held = memledger::Charge::open(
+        o,
+        memledger::charge::release_of(o),
+        memledger::Kind::Region,
+        memledger::charge::Door::Heap,
+        core::mem::size_of::<(
+            memledger::Charge,
+            MemoryContext,
+            gravity_wire::WireNode,
+            gravity_driver::mem::root::Root,
+        )>() as u64,
+    );
+    Box::new((
+        held,
+        root.new_child_wholesale("GravitySimple"),
+        gravity_wire::WireNode::new(),
+        root,
+    )) // alloc: Cold charged crate::BACKEND_OWNER
 }
 
 impl KeptGuard {
@@ -530,7 +798,10 @@ impl Drop for KeptGuard {
     }
 }
 
-pub fn simple(pstmt: &PlannedStmt<'_>, dest: &mut DestReceiver<'_>) -> PgResult<Option<QueryCompletion>> {
+pub fn simple(
+    pstmt: &PlannedStmt<'_>,
+    dest: &mut DestReceiver<'_>,
+) -> PgResult<Option<QueryCompletion>> {
     ADMISSION_REFUSED.with(|c| c.set(false));
     let armed = REPLAN_ARMED.with(|c| c.replace(false));
     let r = simple_at(pstmt, dest, None, armed);
@@ -599,7 +870,9 @@ pub fn simple_refused_at_admission() -> bool {
 pub fn note_replanned(settings: &str) {
     let _ = crate::with_existing_backend(|b| {
         if b.reporting() {
-            b.report_line(&format!("gravity: replanned ({settings}) after an admission refusal")); // alloc: Cold
+            b.report_line(&format!(
+                "gravity: replanned ({settings}) after an admission refusal"
+            )); // alloc: Cold
         }
     });
 }
@@ -610,7 +883,12 @@ pub fn note_replanned(settings: &str) {
 /// pglfast C7: the most key words `simple_at` keeps on its frame (256 + 32 bytes); a statement with more takes the heap.
 const KEY_WORDS_ON_FRAME: usize = 32;
 
-fn simple_at(pstmt: &PlannedStmt<'_>, dest: &mut DestReceiver<'_>, mut kept_snap: Option<Rc<SnapshotData<'static>>>, armed: bool) -> PgResult<Option<QueryCompletion>> {
+fn simple_at(
+    pstmt: &PlannedStmt<'_>,
+    dest: &mut DestReceiver<'_>,
+    mut kept_snap: Option<Rc<SnapshotData<'static>>>,
+    armed: bool,
+) -> PgResult<Option<QueryCompletion>> {
     stack_depth_core::check_stack_depth()?;
     // D3198: an executor-hook module acts on this backend's statements: the statement takes the portal's way, whose
     // executor seams fire the hooks for a statement the entry serves (admit::entry)
@@ -626,7 +904,11 @@ fn simple_at(pstmt: &PlannedStmt<'_>, dest: &mut DestReceiver<'_>, mut kept_snap
         portalmem::PortalDrop(&unnamed, false)?;
     }
     prime_once();
-    if let Some(r) = kept_snap.is_none().then(|| super::point::serve(pstmt, dest)).flatten() {
+    if let Some(r) = kept_snap
+        .is_none()
+        .then(|| super::point::serve(pstmt, dest))
+        .flatten()
+    {
         return r;
     }
     crate::phases::reset();
@@ -646,13 +928,18 @@ fn simple_at(pstmt: &PlannedStmt<'_>, dest: &mut DestReceiver<'_>, mut kept_snap
         if rewriter_added(pstmt_s) {
             return Ok(None);
         }
-        let remote = matches!(dest.mydest(), CommandDest::Remote | CommandDest::RemoteExecute | CommandDest::RemoteSimple);
+        let remote = matches!(
+            dest.mydest(),
+            CommandDest::Remote | CommandDest::RemoteExecute | CommandDest::RemoteSimple
+        );
         // D3134: postgres --single's receiver (tcop routes DestDebug here too), started before the run and shut down after
         // it as ExecutorRun does for a statement that sends tuples; a licensed SELECT holds its header (debugtup's
         // `hold_header`) as the wire holds its RowDescription, so the plan-order run may print its own
         let debug = matches!(dest.mydest(), CommandDest::Debug);
         // D719 (V4R-254): a RETURNING write with a one-row bound stays here, its wire held to the statement's end
-        let held = entry_routed(pstmt_s, false) && remote && admit::redelivering(|| held_bound(mcx, pstmt_s))?;
+        let held = entry_routed(pstmt_s, false)
+            && remote
+            && admit::redelivering(|| held_bound(mcx, pstmt_s))?;
         if entry_routed(pstmt_s, false) && !held {
             return Ok(None);
         }
@@ -660,7 +947,18 @@ fn simple_at(pstmt: &PlannedStmt<'_>, dest: &mut DestReceiver<'_>, mut kept_snap
         // D4454: the admission is written once into this frame's slot and read there (never moved through the layers)
         let mut slot = None;
         DEFER_REFUSAL_LINE.with(|c| c.set(armed && kept_snap.is_none()));
-        let admitted = crate::admit::unfiled(|| admit_any(b, mcx, pstmt_s, ParamListHandle::NULL, false, false, WORDS, &mut slot));
+        let admitted = crate::admit::unfiled(|| {
+            admit_any(
+                b,
+                mcx,
+                pstmt_s,
+                ParamListHandle::NULL,
+                false,
+                false,
+                WORDS,
+                &mut slot,
+            )
+        });
         DEFER_REFUSAL_LINE.with(|c| c.set(false));
         if admitted.as_ref().is_err_and(|e| refusal_of(e).is_some()) && kept_snap.is_none() {
             ADMISSION_REFUSED.with(|c| c.set(true));
@@ -700,7 +998,9 @@ fn simple_at(pstmt: &PlannedStmt<'_>, dest: &mut DestReceiver<'_>, mut kept_snap
         }
         // D761: the relations the statement's ExecutorStart opens, held until the run is over (before its key expressions);
         // D2578: its initial pruning decided there once, under the snapshot (ExecDoInitialPruning's, after PortalStart's)
-        let _held = match a.graph.as_ref().map_or(Ok(held::Held::default()), |g| held::take(mcx, pstmt_s, &g.held, ParamListHandle::NULL, Some(&snap))) {
+        let _held = match a.graph.as_ref().map_or(Ok(held::Held::default()), |g| {
+            held::take(mcx, pstmt_s, &g.held, ParamListHandle::NULL, Some(&snap))
+        }) {
             Ok(h) => h,
             Err(e) => {
                 snapmgr::UnregisterSnapshot(Some(&snap));
@@ -715,8 +1015,14 @@ fn simple_at(pstmt: &PlannedStmt<'_>, dest: &mut DestReceiver<'_>, mut kept_snap
             let o = gravity_driver::stmt_context().map(|(o, _)| o);
             let mut p = memledger::ChargedVec::<u64>::new(o, memledger::Kind::Region);
             let mut n = memledger::ChargedVec::<u8>::new(o, memledger::Kind::Region);
-            p.with_vec(|v| { v.reserve_exact(nw); v.resize(nw, 0); }); // alloc: Exec charged o
-            n.with_vec(|v| { v.reserve_exact(nw); v.resize(nw, 0); }); // alloc: Exec charged o
+            p.with_vec(|v| {
+                v.reserve_exact(nw);
+                v.resize(nw, 0);
+            }); // alloc: Exec charged o
+            n.with_vec(|v| {
+                v.reserve_exact(nw);
+                v.resize(nw, 0);
+            }); // alloc: Exec charged o
             (p, n)
         });
         let (kparams, knulls): (&mut [u64], &mut [u8]) = match heap.as_mut() {
@@ -770,11 +1076,27 @@ fn simple_at(pstmt: &PlannedStmt<'_>, dest: &mut DestReceiver<'_>, mut kept_snap
         let token = b.reporting().then(|| b.entry.record_open(&a.program));
         // C5: the revoke counters around the run, for its report line (process-wide: one session's statement in a test)
         let revoked0 = b.reporting().then(gravity_driver::mem::grow::revoke_counts);
-        let loads0 = b.reporting().then(gravity_hosts::ops::scan::pgrc::residency::load_counts);
+        let loads0 = b
+            .reporting()
+            .then(gravity_hosts::ops::scan::pgrc::residency::load_counts);
         let reads0 = b.reporting().then(gravity_driver::mem::spill::read_counts);
         let uncapped0 = b.reporting().then(gravity_driver::mem::grow::uncapped_at);
         let named0 = b.reporting().then(gravity_driver::mem::grow::named_at);
-        let res = drive(mcx, &mut b.entry, &mut b.plan_scratch, a, None, &snap, &kparams[..nk], &knulls[..nk], cid, cmd, dest, Some(&mut *wire), None);
+        let res = drive(
+            mcx,
+            &mut b.entry,
+            &mut b.plan_scratch,
+            a,
+            None,
+            &snap,
+            &kparams[..nk],
+            &knulls[..nk],
+            cid,
+            cmd,
+            dest,
+            Some(&mut *wire),
+            None,
+        );
         let runs = token.map(|t| b.entry.record_close(t));
         // C10: one line when the run's spilling breakers grew or pinned past their grant on the uncapped road (an erroring
         // run's too): `unnamed` ones took a road no lowering named (a bug key), `named` ones a SPILL-DEBT row's, by row
@@ -844,34 +1166,77 @@ fn simple_at(pstmt: &PlannedStmt<'_>, dest: &mut DestReceiver<'_>, mut kept_snap
         if send {
             dest.shutdown()?;
         }
-        let pipes = runs.map_or_else(String::new, |(r, ns, _)| crate::admit::entry::instrument::served_pipes(&r, ns));
-        b.note_served_at(a.shape, ran.rows, ran.width, ran.sections, ran.claims, ran.opens, ran.granules, ran.first_touch, ran.cold, ran.p2, ran.io, ran.dict, ran.dictent, ran.elided, ran.node, via(a), a.program.code_of(0).kind(), &pipes);
+        let pipes = runs.map_or_else(String::new, |(r, ns, _)| {
+            crate::admit::entry::instrument::served_pipes(&r, ns)
+        });
+        b.note_served_at(
+            a.shape,
+            ran.rows,
+            ran.width,
+            ran.sections,
+            ran.claims,
+            ran.opens,
+            ran.granules,
+            ran.first_touch,
+            ran.cold,
+            ran.p2,
+            ran.io,
+            ran.dict,
+            ran.dictent,
+            ran.elided,
+            ran.node,
+            via(a),
+            a.program.code_of(0).kind(),
+            &pipes,
+        );
         b.note_program(&a.program);
         b.note_mechs(a.program.key.0, a.program.used);
         if let Some(u) = &uncapped {
             b.report_line(u);
         }
         if ran.spill.1 > 0 && b.reporting() {
-            b.report_line(&format!("gravity: spilled {} parts={} bytes={} generations={}", a.shape, ran.spill.0, ran.spill.1, ran.spill.2)); // alloc: Cold
+            b.report_line(&format!(
+                "gravity: spilled {} parts={} bytes={} generations={}",
+                a.shape, ran.spill.0, ran.spill.1, ran.spill.2
+            )); // alloc: Cold
         }
         if let Some(r0) = revoked0 {
             let r1 = gravity_driver::mem::grow::revoke_counts();
             if r1 != r0 {
-                b.report_line(&format!("gravity: revoked {} cuts={} refused={} given={}", a.shape, r1[0] - r0[0], r1[1] - r0[1], r1[2] - r0[2])); // alloc: Cold
+                b.report_line(&format!(
+                    "gravity: revoked {} cuts={} refused={} given={}",
+                    a.shape,
+                    r1[0] - r0[0],
+                    r1[1] - r0[1],
+                    r1[2] - r0[2]
+                )); // alloc: Cold
             }
         }
         // the part cache's LOAD GATE over the statement (process counters: concurrent statements' loads count too)
         if let Some(l0) = loads0 {
             let l1 = gravity_hosts::ops::scan::pgrc::residency::load_counts();
             if l1 != l0 {
-                b.report_line(&format!("gravity: load gate {} asks={} trimmed={} waits={} wait_ms={} over={}", a.shape, l1[0] - l0[0], l1[1] - l0[1], l1[2] - l0[2], l1[3] - l0[3], l1[4] - l0[4])); // alloc: Cold
+                b.report_line(&format!(
+                    "gravity: load gate {} asks={} trimmed={} waits={} wait_ms={} over={}",
+                    a.shape,
+                    l1[0] - l0[0],
+                    l1[1] - l0[1],
+                    l1[2] - l0[2],
+                    l1[3] - l0[3],
+                    l1[4] - l0[4]
+                )); // alloc: Cold
             }
         }
         // D4215 / D4408: the spilled bytes read back over the statement, by path (process counters, as the load gate's)
         if let Some(r0) = reads0 {
             let r1 = gravity_driver::mem::spill::read_counts();
             if r1 != r0 {
-                b.report_line(&format!("gravity: spill read {} part={} run={}", a.shape, r1[0] - r0[0], r1[1] - r0[1])); // alloc: Cold
+                b.report_line(&format!(
+                    "gravity: spill read {} part={} run={}",
+                    a.shape,
+                    r1[0] - r0[0],
+                    r1[1] - r0[1]
+                )); // alloc: Cold
             }
         }
         Ok(Some(gravity_wire::completion(a.tag(), ran.rows)))
@@ -900,7 +1265,10 @@ fn simple_at(pstmt: &PlannedStmt<'_>, dest: &mut DestReceiver<'_>, mut kept_snap
 /// v5 errorhold: a plan-order run that met a refusal (its admission's, a grant's or a run-time one) gives the failed
 /// licensed run's resource error back as the statement's (`surfaces_over_refusal`: an out-of-memory is never hidden
 /// behind a refusal).
-fn plan_order_or_first(r: PgResult<Option<QueryCompletion>>, mut first: Box<types_error::PgError>) -> PgResult<Option<QueryCompletion>> {
+fn plan_order_or_first(
+    r: PgResult<Option<QueryCompletion>>,
+    mut first: Box<types_error::PgError>,
+) -> PgResult<Option<QueryCompletion>> {
     match r {
         Err(e) if refusal_of(&e).is_some() => {
             crate::glue::note_debt_refused(&mut first); // the statement's now: an out of memory a SPILL-DEBT row names, its line

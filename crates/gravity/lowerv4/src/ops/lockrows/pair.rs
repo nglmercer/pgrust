@@ -52,19 +52,56 @@ pub(crate) struct LockPair<'g> {
 
 /// The step of lock op `j` of pipeline `k` in `pair_form`'s shape: `io` / `ii` the outer's and the inner's marks in
 /// `d.marks`, `jn` the nest op, `ik` its inner's `Pipes` index; `so` a merge outer's Sort producer and its sort build op.
-pub(crate) fn lock_pair<'g>(px: &mut Px<'g, '_>, node: i32, d: &LockDesc<'_>, (k, j): (usize, usize), (io, ii, jn, ik, so): (usize, usize, usize, usize, Option<(usize, usize)>)) -> PgBox<'g, dyn StepMech + 'g> {
-    let Some(tid) = typefacts::facts_of(px.gx.facts, crate::cell::TIDOID) else { crate::refuse!(node, Reason::Bug { payload: "the tid type the catalog does not know" }) };
+pub(crate) fn lock_pair<'g>(
+    px: &mut Px<'g, '_>,
+    node: i32,
+    d: &LockDesc<'_>,
+    (k, j): (usize, usize),
+    (io, ii, jn, ik, so): (usize, usize, usize, usize, Option<(usize, usize)>),
+) -> PgBox<'g, dyn StepMech + 'g> {
+    let Some(tid) = typefacts::facts_of(px.gx.facts, crate::cell::TIDOID) else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "the tid type the catalog does not know"
+            }
+        )
+    };
     px.second_write(node);
     let mcx = px.mcx();
     let mut marks = mcx::reserved_in(d.marks.len(), mcx);
     let mut locks = Vec::with_capacity(d.marks.len()); // alloc: Program
     for m in d.marks.iter() {
-        let natts = px.gx.facts.rel(m.relid).map_or(0, |r| r.natts.max(0) as u16);
-        marks.push_in(Mark { site: px.add_late_site(SiteDesc::write(m.relid, natts)), relid: m.relid, col: m.ctid_col });
-        locks.push(LockSite { rti: m.rti, relid: m.relid, lock: m.lock, wait: m.wait }); // alloc: Program
+        let natts = px
+            .gx
+            .facts
+            .rel(m.relid)
+            .map_or(0, |r| r.natts.max(0) as u16);
+        marks.push_in(Mark {
+            site: px.add_late_site(SiteDesc::write(m.relid, natts)),
+            relid: m.relid,
+            col: m.ctid_col,
+        });
+        locks.push(LockSite {
+            rti: m.rti,
+            relid: m.relid,
+            lock: m.lock,
+            wait: m.wait,
+        }); // alloc: Program
     }
     let rels = (d.marks[io].relid, d.marks[ii].relid);
-    let epq = PgRc::new_in(crate::ops::lockrows::epq::epq_of_pair(px, (k, j), (jn, ik), rels, marks[ii].site.clone(), node, so), mcx);
+    let epq = PgRc::new_in(
+        crate::ops::lockrows::epq::epq_of_pair(
+            px,
+            (k, j),
+            (jn, ik),
+            rels,
+            marks[ii].site.clone(),
+            node,
+            so,
+        ),
+        mcx,
+    );
     px.keep_write(d.plan.copy_in(px.arena));
     crate::ops::lockrows::plan::Plan(px).lay(locks);
     mcx::pg_box_dyn!(mcx, LockPair { node, marks, outer: io, tid, epq, mcx } => dyn StepMech + 'g)
@@ -76,25 +113,50 @@ impl<'g> StepMech for LockPair<'g> {
         false
     }
 
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, next: Next<'_, 'e>) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        next: Next<'_, 'e>,
+    ) -> Carry<'e> {
         for m in self.marks.iter() {
             let pos = junk_tid(b, env, row, (m.col, &self.tid), self.node);
             let rel = b.iconst(Type::I32, m.relid as i32 as i64);
             store_site_pos(b, env, m.site.get(), pos, rel);
         }
-        let mem = HostFlags { touches_memory: true, ..HostFlags::default() };
+        let mem = HostFlags {
+            touches_memory: true,
+            ..HostFlags::default()
+        };
         let lock_row = gravity_kernels::ops::lockrows::entries::lock_row as *const () as usize;
-        let h = b.declare_host_once("lock_row", &[Type::Ptr, Type::I64], Some(Type::I64), lock_row, mem);
-        let types: PgVec<'_, Type> = row.carry.params().iter().map(|&v| b.value_type(v)).collect_in(self.mcx);
+        let h = b.declare_host_once(
+            "lock_row",
+            &[Type::Ptr, Type::I64],
+            Some(Type::I64),
+            lock_row,
+            mem,
+        );
+        let types: PgVec<'_, Type> = row
+            .carry
+            .params()
+            .iter()
+            .map(|&v| b.value_type(v))
+            .collect_in(self.mcx);
         let l_join = b.create_block(&types[..]);
         let l_bad = b.create_block(&[Type::I64]);
         b.mark_cold(l_bad);
-        let (rc, sk) = (b.iconst(Type::I64, WRITE_RECHECK), b.iconst(Type::I64, WRITE_SKIPPED));
+        let (rc, sk) = (
+            b.iconst(Type::I64, WRITE_RECHECK),
+            b.iconst(Type::I64, WRITE_SKIPPED),
+        );
         // each mark's lock in PlanRowMark order, and whether it traversed to a newer version
         let mut traversed = mcx::reserved_in(self.marks.len(), self.mcx);
         for (i, m) in self.marks.iter().enumerate() {
             let arg = b.iconst(Type::I64, LockSite::arg(m.site.get(), i) as i64);
-            let st = b.call_host(h, &[env.ctx, arg], Some(Type::I64)).unwrap_or(env.zero);
+            let st = b
+                .call_host(h, &[env.ctx, arg], Some(Type::I64))
+                .unwrap_or(env.zero);
             // below zero: the host's error; above RECHECK: no lock answers it
             let odd = b.icmp(IntCond::Sgt, st, rc);
             let neg = b.icmp(IntCond::Slt, st, env.zero);
@@ -107,7 +169,10 @@ impl<'g> StepMech for LockPair<'g> {
             b.switch_to(l_on);
             traversed.push_in(b.icmp(IntCond::Eq, st, rc));
         }
-        let any = traversed.iter().skip(1).fold(traversed[0], |a, &t| b.int_bin(IntBinOp::Or, a, t));
+        let any = traversed
+            .iter()
+            .skip(1)
+            .fold(traversed[0], |a, &t| b.int_bin(IntBinOp::Or, a, t));
         let (l_rc, l_done) = (b.create_block(&[]), b.create_block(&[]));
         b.mark_cold(l_rc);
         b.cond_br(any, (l_rc, &[]), (l_done, &[]));
@@ -117,13 +182,25 @@ impl<'g> StepMech for LockPair<'g> {
             let (l_fetch, l_next) = (b.create_block(&[]), b.create_block(&[]));
             b.cond_br(t, (l_next, &[]), (l_fetch, &[]));
             b.switch_to(l_fetch);
-            let arg = b.iconst(Type::I64, (LockSite::FETCH | LockSite::arg(m.site.get(), i)) as i64);
-            let st = b.call_host(h, &[env.ctx, arg], Some(Type::I64)).unwrap_or(env.zero);
+            let arg = b.iconst(
+                Type::I64,
+                (LockSite::FETCH | LockSite::arg(m.site.get(), i)) as i64,
+            );
+            let st = b
+                .call_host(h, &[env.ctx, arg], Some(Type::I64))
+                .unwrap_or(env.zero);
             let neg = b.icmp(IntCond::Slt, st, env.zero);
             b.cond_br(neg, (l_bad, &[st]), (l_next, &[]));
             b.switch_to(l_next);
         }
-        let c = self.epq.lower(b, env, row, self.marks[self.outer].site.get(), self.node, &mut *next);
+        let c = self.epq.lower(
+            b,
+            env,
+            row,
+            self.marks[self.outer].site.get(),
+            self.node,
+            &mut *next,
+        );
         b.br(l_join, &c.params());
         // no lock traversed: the locked row goes on
         b.switch_to(l_done);

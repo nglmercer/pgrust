@@ -156,10 +156,17 @@ thread_local! {
     static CANON: core::cell::RefCell<Vec<u8>> = const { core::cell::RefCell::new(Vec::new()) }; // alloc: Cold
 }
 
-unsafe fn hosted_fp(datum: *const u8, form: &gravity_fn::typesem::Form) -> Result<[u64; 2], Box<PgError>> {
-    let keys = gravity_dict::fp::keys().ok_or_else(|| Box::new(PgError::error("gravity: a fingerprint seed before it is installed")))?; // alloc: Cold
-    // the exact form the program's lowering built (the leader's catalog read): a pool worker has no catalog, and a later
-    // ALTER TYPE never changes it
+unsafe fn hosted_fp(
+    datum: *const u8,
+    form: &gravity_fn::typesem::Form,
+) -> Result<[u64; 2], Box<PgError>> {
+    let keys = gravity_dict::fp::keys().ok_or_else(|| {
+        Box::new(PgError::error(
+            "gravity: a fingerprint seed before it is installed",
+        ))
+    })?; // alloc: Cold
+         // the exact form the program's lowering built (the leader's catalog read): a pool worker has no catalog, and a later
+         // ALTER TYPE never changes it
     CANON.with(|c| {
         let mut buf = c.borrow_mut();
         buf.clear();

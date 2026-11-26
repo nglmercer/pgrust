@@ -1,8 +1,8 @@
 //! blutils.c: BloomState, signValue, BloomFormTuple, page/buffer helpers.
 
 use bufmgr::{
-    ConditionalLockBuffer, LockBuffer, ReleaseBuffer, UnlockReleaseBuffer,
-    BUFFER_LOCK_SHARE, BUFFER_LOCK_UNLOCK,
+    ConditionalLockBuffer, LockBuffer, ReleaseBuffer, UnlockReleaseBuffer, BUFFER_LOCK_SHARE,
+    BUFFER_LOCK_UNLOCK,
 };
 use datum::Datum;
 use generic_xlog::{GenericXLogFinish, GenericXLogStart};
@@ -19,10 +19,7 @@ const BLOOM_AMSUPPORT: usize = BLOOM_NPROC as usize; // rd_support row width
 pub fn buf_page_bytes<'a>(buffer: Buffer) -> &'a [u8] {
     // SAFETY: caller holds at least a share lock on `buffer`.
     unsafe {
-        core::slice::from_raw_parts(
-            bufmgr_seams::buffer_get_page::call(buffer).as_ptr(),
-            BLCKSZ,
-        )
+        core::slice::from_raw_parts(bufmgr_seams::buffer_get_page::call(buffer).as_ptr(), BLCKSZ)
     }
 }
 
@@ -192,7 +189,10 @@ pub fn bloom_init_metapage<'mcx>(
         1,
     )?;
     debug_assert_eq!(extended_by, 1);
-    debug_assert_eq!(bufmgr::BufferGetBlockNumber(meta_buffer), BLOOM_METAPAGE_BLKNO);
+    debug_assert_eq!(
+        bufmgr::BufferGetBlockNumber(meta_buffer),
+        BLOOM_METAPAGE_BLKNO
+    );
 
     let opts = index_options_or_default(index);
 

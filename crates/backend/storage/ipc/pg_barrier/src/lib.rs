@@ -488,14 +488,20 @@ mod tests {
             .collect();
         assert!(b.arrive_and_wait(WAIT_EVENT_HASH_BUILD_ELECT).unwrap());
         assert!(!parked.join().unwrap());
-        assert!(!seen.is_empty(), "no wait event reported while parked on the barrier");
+        assert!(
+            !seen.is_empty(),
+            "no wait event reported while parked on the barrier"
+        );
         assert!(
             seen.iter().all(|&i| i == WAIT_EVENT_HASH_BUILD_ELECT),
             "wait events reported: {seen:x?}"
         );
         // Every park is bracketed: the parked participant has returned, so
         // its wait_end reports have landed.
-        assert!(ENDS.load(Ordering::SeqCst) >= seen.len(), "wait_end brackets missing");
+        assert!(
+            ENDS.load(Ordering::SeqCst) >= seen.len(),
+            "wait_end brackets missing"
+        );
     }
 
     #[test]

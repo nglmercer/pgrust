@@ -46,13 +46,39 @@ impl PullBuffer {
 
     /// memsig E-pub: a buffer of `cap_rows` rows of `natts` columns, its two arrays charged to `owner` (the holder that keeps
     /// the adapter: a served execution's portal or statement, a slot's session); `None`: uncharged.
-    pub fn new_on(natts: usize, cap_rows: usize, owner: Option<(memledger::Owner, memledger::Kind)>) -> PullBuffer {
+    pub fn new_on(
+        natts: usize,
+        cap_rows: usize,
+        owner: Option<(memledger::Owner, memledger::Kind)>,
+    ) -> PullBuffer {
         let n = (natts * cap_rows).max(1);
-        let (o, k) = (owner.map(|o| o.0), owner.map_or(memledger::Kind::Region, |o| o.1));
-        let (mut values, mut isnull) = (memledger::ChargedVec::new(o, k), memledger::ChargedVec::new(o, k)); // alloc: Exec charged owner
-        values.with_vec(|v| { v.reserve_exact(n); v.resize(n, 0) }); // alloc: Exec charged owner
-        isnull.with_vec(|v| { v.reserve_exact(n); v.resize(n, 0) }); // alloc: Exec charged owner
-        PullBuffer { values, isnull, region_charge: None, region: Vec::new(), byref: Vec::new(), natts, cap: cap_rows, count: 0, cursor: 0 } // alloc: Exec
+        let (o, k) = (
+            owner.map(|o| o.0),
+            owner.map_or(memledger::Kind::Region, |o| o.1),
+        );
+        let (mut values, mut isnull) = (
+            memledger::ChargedVec::new(o, k),
+            memledger::ChargedVec::new(o, k),
+        ); // alloc: Exec charged owner
+        values.with_vec(|v| {
+            v.reserve_exact(n);
+            v.resize(n, 0)
+        }); // alloc: Exec charged owner
+        isnull.with_vec(|v| {
+            v.reserve_exact(n);
+            v.resize(n, 0)
+        }); // alloc: Exec charged owner
+        PullBuffer {
+            values,
+            isnull,
+            region_charge: None,
+            region: Vec::new(),
+            byref: Vec::new(),
+            natts,
+            cap: cap_rows,
+            count: 0,
+            cursor: 0,
+        } // alloc: Exec
     }
 
     /// Sized for `program` (once per open): room for one block's region, the by-reference columns marked.
@@ -93,7 +119,12 @@ impl PullBuffer {
     #[inline]
     fn charge_region(&mut self) {
         let cap = self.region.capacity() as u64;
-        if cap != self.region_charge.as_ref().map_or(0, budget::Charge::committed) {
+        if cap
+            != self
+                .region_charge
+                .as_ref()
+                .map_or(0, budget::Charge::committed)
+        {
             charge_to(&mut self.region_charge, cap);
         }
     }
@@ -109,7 +140,13 @@ fn charge_to(charge: &mut Option<budget::Charge>, cap: u64) {
         if !a.is_backend() {
             return;
         }
-        *charge = Some(budget::Charge::open(budget::Owner::Session(a), budget::Release::Session, budget::Kind::Region, budget::charge::Door::Heap, 0));
+        *charge = Some(budget::Charge::open(
+            budget::Owner::Session(a),
+            budget::Release::Session,
+            budget::Kind::Region,
+            budget::charge::Door::Heap,
+            0,
+        ));
     }
     if let Some(c) = charge.as_mut() {
         let have = c.committed();
@@ -138,7 +175,13 @@ impl Sink for PullBuffer {
             self.region.extend_from_slice(batch.region); // alloc: Exec (past the reserved block)
             self.charge_region();
             let to = self.region[base..].as_ptr();
-            relocate(&mut self.values[at..at + batch.rows * n], &self.isnull[at..at + batch.rows * n], &self.byref, (batch.region.as_ptr() as u64, batch.region.len()), to);
+            relocate(
+                &mut self.values[at..at + batch.rows * n],
+                &self.isnull[at..at + batch.rows * n],
+                &self.byref,
+                (batch.region.as_ptr() as u64, batch.region.len()),
+                to,
+            );
         }
         self.count += batch.rows;
         Ok(Flow::Stop)
@@ -147,7 +190,13 @@ impl Sink for PullBuffer {
 
 /// The by-reference datums of `values` (the `byref` columns, not NULL) that point into `from` re-pointed
 /// into its copy at `to`: the same offset. A datum outside `from` (a dictionary image, statement-stable) stays.
-pub fn relocate(values: &mut [Datum], isnull: &[u8], byref: &[bool], from: (u64, usize), to: *const u8) {
+pub fn relocate(
+    values: &mut [Datum],
+    isnull: &[u8],
+    byref: &[bool],
+    from: (u64, usize),
+    to: *const u8,
+) {
     let (lo, hi) = (from.0, from.0 + from.1 as u64);
     let n = byref.len().max(1);
     for (i, v) in values.iter_mut().enumerate() {
@@ -194,11 +243,37 @@ impl<'a> PullAdapter<'a> {
     }
 
     /// memsig E-pub: the adapter's row buffer charged to `owner` (`PullBuffer::new_on`).
-    pub fn new_on(natts: usize, cap_rows: usize, owner: Option<(memledger::Owner, memledger::Kind)>) -> PullAdapter<'a> {
-        PullAdapter { buf: Box::new(PullBuffer::new_on(natts, cap_rows, owner)), binding: Box::new(None), exec: None, entries: 0, partial: 0, started: false, failed: None, external: false, volatile: false, owed: false, stepwise: false, ready: usize::MAX, locked: Vec::new() } // alloc: Exec
+    pub fn new_on(
+        natts: usize,
+        cap_rows: usize,
+        owner: Option<(memledger::Owner, memledger::Kind)>,
+    ) -> PullAdapter<'a> {
+        PullAdapter {
+            buf: Box::new(PullBuffer::new_on(natts, cap_rows, owner)),
+            binding: Box::new(None),
+            exec: None,
+            entries: 0,
+            partial: 0,
+            started: false,
+            failed: None,
+            external: false,
+            volatile: false,
+            owed: false,
+            stepwise: false,
+            ready: usize::MAX,
+            locked: Vec::new(),
+        } // alloc: Exec
     }
 
-    pub fn open(&mut self, entry: &mut Entry, key: Option<PlanKey>, program: &Arc<Program>, derive: &mut dyn Derive, parts: BindingParts<'a>, lease: std::rc::Rc<crate::mem::grant::Reservation>) -> Result<()> {
+    pub fn open(
+        &mut self,
+        entry: &mut Entry,
+        key: Option<PlanKey>,
+        program: &Arc<Program>,
+        derive: &mut dyn Derive,
+        parts: BindingParts<'a>,
+        lease: std::rc::Rc<crate::mem::grant::Reservation>,
+    ) -> Result<()> {
         assert!(self.exec.is_none(), "adapter already open");
         let sink: &'a mut PullBuffer = raw::lend_buffer(&mut self.buf);
         *self.binding = Some(Binding::new(parts, sink));
@@ -224,7 +299,12 @@ impl<'a> PullAdapter<'a> {
         }
     }
 
-    pub fn fetch(&mut self, entry: &mut Entry, n: usize, consume: &mut Consume<'_>) -> Result<usize> {
+    pub fn fetch(
+        &mut self,
+        entry: &mut Entry,
+        n: usize,
+        consume: &mut Consume<'_>,
+    ) -> Result<usize> {
         let exec = self.exec.as_mut().expect("fetch on a closed adapter");
         let binding = self.binding.as_mut().as_mut().expect("binding");
         let buf = &mut *self.buf;
@@ -257,8 +337,16 @@ impl<'a> PullAdapter<'a> {
             // D439: a program with a VOLATILE call is asked for the rows this fetch still owes (its sink stops at the cap), so
             // no call runs on a row the cursor may never fetch; any other program fills its block and the rest wait buffered
             let rows = exec.node().program().layout.out_rows;
-            let cap = if self.volatile || self.owed { rows.min(u32::try_from(n - served).unwrap_or(u32::MAX)) } else { rows };
-            let call = if self.started { Call::resume(cap) } else { Call::batch(cap) };
+            let cap = if self.volatile || self.owed {
+                rows.min(u32::try_from(n - served).unwrap_or(u32::MAX))
+            } else {
+                rows
+            };
+            let call = if self.started {
+                Call::resume(cap)
+            } else {
+                Call::batch(cap)
+            };
             self.started = true;
             // D3388 (D2772 POST): the execution's turn before its first post pipeline, which the adapter pulls after the
             // statement's own emit (entry/post.rs `turn`: a no-op for any other pipeline and once turned)
@@ -290,7 +378,10 @@ impl<'a> PullAdapter<'a> {
     /// The execution stands before a producer (a pipeline that does not end in the sink): `fetch` pulls nothing until the
     /// caller has run it through `with_open` (the producers of the next emit, multi-emit).
     pub fn producer_next(&self) -> bool {
-        self.external && self.exec.as_ref().is_some_and(|e| e.state() != ExecState::Done && !is_emit(e.node().program(), e.next_pipeline()))
+        self.external
+            && self.exec.as_ref().is_some_and(|e| {
+                e.state() != ExecState::Done && !is_emit(e.node().program(), e.next_pipeline())
+            })
     }
 
     /// M8 (L0-k): the caller takes a step before each emit's first call (until `close`): `fetch` pulls nothing from an emit
@@ -301,7 +392,12 @@ impl<'a> PullAdapter<'a> {
 
     /// M8 (L0-k): the execution stands before an emit the caller has not readied (`set_stepwise`).
     pub fn emit_next(&self) -> bool {
-        self.stepwise && self.exec.as_ref().is_some_and(|e| e.state() != ExecState::Done && e.next_pipeline() != self.ready && is_emit(e.node().program(), e.next_pipeline()))
+        self.stepwise
+            && self.exec.as_ref().is_some_and(|e| {
+                e.state() != ExecState::Done
+                    && e.next_pipeline() != self.ready
+                    && is_emit(e.node().program(), e.next_pipeline())
+            })
     }
 
     /// M8 (L0-k): the emit the execution stands before is readied: `fetch` pulls it.
@@ -322,7 +418,10 @@ impl<'a> PullAdapter<'a> {
 
     /// The open execution and its binding, before a pull: the producers of the next emit run to completion here (the
     /// runner's serial arm or a section), then `fetch` pulls that emit, and the ones after it, as a one-pipeline program's.
-    pub fn with_open<E>(&mut self, f: impl FnOnce(&mut Exec, &mut Binding<'a>) -> core::result::Result<(), E>) -> core::result::Result<(), E> {
+    pub fn with_open<E>(
+        &mut self,
+        f: impl FnOnce(&mut Exec, &mut Binding<'a>) -> core::result::Result<(), E>,
+    ) -> core::result::Result<(), E> {
         let exec = self.exec.as_mut().expect("with_open on a closed adapter");
         let binding = self.binding.as_mut().as_mut().expect("binding");
         f(exec, binding)
@@ -357,7 +456,10 @@ impl<'a> PullAdapter<'a> {
 
     /// True once the pipeline has run to `Done` and nothing is buffered.
     pub fn is_done(&self) -> bool {
-        self.exec.as_ref().is_none_or(|e| e.state() == ExecState::Done) && self.buf.buffered() == 0
+        self.exec
+            .as_ref()
+            .is_none_or(|e| e.state() == ExecState::Done)
+            && self.buf.buffered() == 0
     }
 
     pub fn is_open(&self) -> bool {
@@ -390,19 +492,26 @@ impl<'a> PullAdapter<'a> {
     }
 
     pub fn recheck_pos(&self) -> gravity_abi::ScanPos {
-        self.exec.as_ref().map_or(gravity_abi::ScanPos::NONE, Exec::recheck_pos)
+        self.exec
+            .as_ref()
+            .map_or(gravity_abi::ScanPos::NONE, Exec::recheck_pos)
     }
 
     /// D3580: the row the statement's emit pipeline last took from its source (`Node::taken`), `NONE` with no execution:
     /// WHERE CURRENT OF over a served portal without a lock.
     pub fn taken(&self) -> gravity_abi::ScanPos {
-        self.exec.as_ref().map_or(gravity_abi::ScanPos::NONE, |e| e.node().taken())
+        self.exec
+            .as_ref()
+            .map_or(gravity_abi::ScanPos::NONE, |e| e.node().taken())
     }
 
     /// C5b: the row the lock host of relation `rel` last left locked (`Node::locked`): WHERE CURRENT OF over a served
     /// FOR UPDATE portal.
     pub fn locked(&self, rel: u32) -> gravity_abi::ScanPos {
-        self.exec.as_ref().map_or_else(|| crate::node::locked_in(&self.locked, rel), |e| e.node().locked(rel))
+        self.exec.as_ref().map_or_else(
+            || crate::node::locked_in(&self.locked, rel),
+            |e| e.node().locked(rel),
+        )
     }
 
     pub fn binding_mut(&mut self) -> Option<&mut Binding<'a>> {
@@ -410,7 +519,10 @@ impl<'a> PullAdapter<'a> {
     }
 
     pub fn rows_processed(&self) -> u64 {
-        self.binding.as_ref().as_ref().map_or(0, |b| b.rows_processed)
+        self.binding
+            .as_ref()
+            .as_ref()
+            .map_or(0, |b| b.rows_processed)
     }
 
     /// D3547: `close` whose Node parks nowhere, torn down instead: the run ends at another statement level than the one it
@@ -450,23 +562,35 @@ impl<'a> PullAdapter<'a> {
 
 /// An emit: every pipeline that ends in the sink, the last one included (multi-emit).
 pub fn is_emit(program: &Program, p: usize) -> bool {
-    p + 1 >= program.pipelines.len() || program.pipelines[p].ends_in == gravity_program::End::Sink && !init_cell(program, p)
+    p + 1 >= program.pipelines.len()
+        || program.pipelines[p].ends_in == gravity_program::End::Sink && !init_cell(program, p)
 }
 
 /// M8 (RT-1): pipeline `p` is an InitPlan's (`nest.initplan`'s Init proto names it): it ends in the Init's cell, not the
 /// statement's sink, whatever its `ends_in` says (the graph's InitPlan pipeline ends in the sink).
 pub(crate) fn init_cell(program: &Program, p: usize) -> bool {
-    program.v4.as_ref().is_some_and(|d| d.protos.iter().any(|x| x.kind == gravity_program::protos::ProtoKind::Init && x.pipeline as usize == p))
+    program.v4.as_ref().is_some_and(|d| {
+        d.protos
+            .iter()
+            .any(|x| x.kind == gravity_program::protos::ProtoKind::Init && x.pipeline as usize == p)
+    })
 }
 
 /// D2998: pipeline `p` is an EXISTS InitPlan's (`INIT_EXISTS`): its end only stores true into the cell and stops, so it may
 /// run as a section, whose workers send no row to the sink (gravity_parallel `Section::plan`).
 pub fn exists_cell(program: &Program, p: usize) -> bool {
-    program.v4.as_ref().is_some_and(|d| d.protos.iter().any(|x| x.kind == gravity_program::protos::ProtoKind::Init && x.pipeline as usize == p && x.arg & gravity_abi::limits::INIT_EXISTS != 0))
+    program.v4.as_ref().is_some_and(|d| {
+        d.protos.iter().any(|x| {
+            x.kind == gravity_program::protos::ProtoKind::Init
+                && x.pipeline as usize == p
+                && x.arg & gravity_abi::limits::INIT_EXISTS != 0
+        })
+    })
 }
 
 /// D439: the lowering declared a VOLATILE call per row (`V4Descs::pull_exact`), or the program locks rows (`write.lock`,
 /// LockRows: PG locks a row per pull, so a FETCH n locks n rows, none ahead): a pull runs no row ahead of its count.
 pub fn pull_exact(program: &Program) -> bool {
-    program.write.lock != gravity_program::LockKind::None || program.v4.as_ref().is_some_and(|d| d.pull_exact)
+    program.write.lock != gravity_program::LockKind::None
+        || program.v4.as_ref().is_some_and(|d| d.pull_exact)
 }

@@ -27,7 +27,13 @@ pub(crate) fn next_emptied(b: &mut FunctionBuilder<'_>, env: &Env, nn: u16) {
 /// The two tables' words swapped (`work`'s handle and count words `(wh, wn)`, `next`'s `(nh, nn)`): `work` takes `next`'s
 /// handle and count, `next` takes `work`'s handle with no row, and the driver's `cursor` frame word goes back to the first
 /// row. The answer is the new generation's row count (0 ends the union).
-pub(crate) fn swapped(b: &mut FunctionBuilder<'_>, env: &Env, (wh, wn): (u16, u16), (nh, nn): (u16, u16), cursor: i32) -> Value {
+pub(crate) fn swapped(
+    b: &mut FunctionBuilder<'_>,
+    env: &Env,
+    (wh, wn): (u16, u16),
+    (nh, nn): (u16, u16),
+    cursor: i32,
+) -> Value {
     let (w, n, c) = (word(b, env, wh), word(b, env, nh), word(b, env, nn));
     set_word(b, env, wh, n);
     set_word(b, env, wn, c);

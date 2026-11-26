@@ -8,9 +8,8 @@ use types_core::xact::XACT_READ_COMMITTED;
 use types_error::{
     ErrorLocation, PgError, PgResult, DEBUG3, ERRCODE_FEATURE_NOT_SUPPORTED,
     ERRCODE_INSUFFICIENT_PRIVILEGE, ERRCODE_INVALID_PARAMETER_VALUE,
-    ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE,
-    ERRCODE_TOO_MANY_CONNECTIONS, ERRCODE_UNDEFINED_DATABASE, ERRCODE_UNDEFINED_OBJECT, ERROR,
-    FATAL, LOG, WARNING,
+    ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE, ERRCODE_TOO_MANY_CONNECTIONS,
+    ERRCODE_UNDEFINED_DATABASE, ERRCODE_UNDEFINED_OBJECT, ERROR, FATAL, LOG, WARNING,
 };
 use types_guc::{GucContext, GucSource};
 use types_storage::lock::{AccessShareLock, RowExclusiveLock, USER_LOCKMETHOD};
@@ -97,7 +96,10 @@ fn PerformAuthentication() -> PgResult<()> {
     if backend_startup::log_connections::get() & backend_startup::LOG_CONNECTION_AUTHORIZATION != 0
     {
         let logmsg = build_auth_logmsg();
-        ereport(LOG).errverbatim().errmsg_internal(logmsg).finish(loc(309, "PerformAuthentication"))?;
+        ereport(LOG)
+            .errverbatim()
+            .errmsg_internal(logmsg)
+            .finish(loc(309, "PerformAuthentication"))?;
     }
 
     ps_status_seams::set_ps_display::call("startup");
@@ -165,9 +167,7 @@ fn unsupported_database_encoding_error(name: &str, encoding: i32) -> Option<PgEr
 fn check_database_encoding_supported(name: &str, encoding: i32) -> PgResult<()> {
     match unsupported_database_encoding_error(name, encoding) {
         None => Ok(()),
-        Some(e) => {
-            elog::ThrowErrorData(e.with_error_location(loc(413, "CheckMyDatabase")))
-        }
+        Some(e) => elog::ThrowErrorData(e.with_error_location(loc(413, "CheckMyDatabase"))),
     }
 }
 
@@ -181,15 +181,19 @@ fn CheckMyDatabase(
 
     let Some(dbform) = pg_database_seams::search_database_syscache::call(mcx, my_database_id)?
     else {
-        return ereport(ERROR).errverbatim()
+        return ereport(ERROR)
+            .errverbatim()
             .errmsg_internal(format!("cache lookup failed for database {my_database_id}"))
             .finish(loc(335, "CheckMyDatabase"));
     };
 
     if name != dbform.datname.as_str() {
-        return ereport(FATAL).errverbatim()
+        return ereport(FATAL)
+            .errverbatim()
             .errcode(ERRCODE_UNDEFINED_DATABASE)
-            .errmsg(format!("database \"{name}\" has disappeared from pg_database"))
+            .errmsg(format!(
+                "database \"{name}\" has disappeared from pg_database"
+            ))
             .errdetail(format!(
                 "Database OID {} now seems to belong to \"{}\".",
                 my_database_id,
@@ -200,7 +204,8 @@ fn CheckMyDatabase(
 
     if init_small::globals::IsUnderPostmaster() {
         if !dbform.datallowconn && !override_allow_connections {
-            return ereport(FATAL).errverbatim()
+            return ereport(FATAL)
+                .errverbatim()
                 .errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE)
                 .errmsg(format!(
                     "database \"{name}\" is not currently accepting connections"
@@ -217,7 +222,8 @@ fn CheckMyDatabase(
                 ACL_CONNECT,
             )? != ACLCHECK_OK
         {
-            return ereport(FATAL).errverbatim()
+            return ereport(FATAL)
+                .errverbatim()
                 .errcode(ERRCODE_INSUFFICIENT_PRIVILEGE)
                 .errmsg(format!("permission denied for database \"{name}\""))
                 .errdetail("User does not have CONNECT privilege.")
@@ -229,7 +235,8 @@ fn CheckMyDatabase(
             && !am_superuser
             && procarray_seams::count_db_connections::call(my_database_id)? > dbform.datconnlimit
         {
-            return ereport(FATAL).errverbatim()
+            return ereport(FATAL)
+                .errverbatim()
                 .errcode(ERRCODE_TOO_MANY_CONNECTIONS)
                 .errmsg(format!("too many connections for database \"{name}\""))
                 .finish(loc(396, "CheckMyDatabase"));
@@ -289,7 +296,8 @@ fn CheckMyDatabase(
             match dbform.datlocale.as_ref() {
                 Some(l) => l.as_str(),
                 None => {
-                    return ereport(ERROR).errverbatim()
+                    return ereport(ERROR)
+                        .errverbatim()
                         .errmsg_internal("unexpected null datlocale in pg_database tuple")
                         .finish(loc(459, "CheckMyDatabase"));
                 }
@@ -413,8 +421,7 @@ pub fn InitializeFastPathLocks() -> i32 {
 
 // Unsigned arithmetic: 2^31 for max_locks_per_transaction > 2^30 must not go negative.
 fn fast_path_lock_groups(max_locks_per_xact: i32) -> i32 {
-    let groups = ((max_locks_per_xact as u32).next_power_of_two()
-        / FP_LOCK_SLOTS_PER_GROUP as u32)
+    let groups = ((max_locks_per_xact as u32).next_power_of_two() / FP_LOCK_SLOTS_PER_GROUP as u32)
         .clamp(1, FP_LOCK_GROUPS_PER_BACKEND_MAX as u32) as i32;
     debug_assert_eq!(groups, (groups as u32).next_power_of_two() as i32);
     groups
@@ -486,7 +493,9 @@ pub fn InitPostgres(
     let am_superuser: bool;
     let mut dbname = String::new();
 
-    ereport(DEBUG3).errmsg_internal("InitPostgres").finish(loc(723, "InitPostgres"))?;
+    ereport(DEBUG3)
+        .errmsg_internal("InitPostgres")
+        .finish(loc(723, "InitPostgres"))?;
 
     // Registered before any catalog access so cache teardowns (registered
     // lazily during boot lookups) drain FIRST in the LIFO order. Once per
@@ -639,7 +648,8 @@ pub fn InitPostgres(
         miscinit::InitializeSessionUserIdStandalone()?;
         am_superuser = true;
         if !ThereIsAtLeastOneRole(mcx)? {
-            ereport(WARNING).errverbatim()
+            ereport(WARNING)
+                .errverbatim()
                 .errcode(ERRCODE_UNDEFINED_OBJECT)
                 .errmsg("no roles are defined in this database system")
                 .errhint(format!(
@@ -678,7 +688,8 @@ pub fn InitPostgres(
     }
 
     if init_small::globals::IsBinaryUpgrade() && !am_superuser {
-        return ereport(FATAL).errverbatim()
+        return ereport(FATAL)
+            .errverbatim()
             .errcode(ERRCODE_INSUFFICIENT_PRIVILEGE)
             .errmsg("must be superuser to connect in binary upgrade mode")
             .finish(loc(922, "InitPostgres"));
@@ -713,10 +724,13 @@ pub fn InitPostgres(
     if am_walsender() {
         debug_assert!(!bootstrap);
         if !miscinit_seams::has_rolreplication::call(miscinit::GetUserId())? {
-            return ereport(FATAL).errverbatim()
+            return ereport(FATAL)
+                .errverbatim()
                 .errcode(ERRCODE_INSUFFICIENT_PRIVILEGE)
                 .errmsg("permission denied to start WAL sender")
-                .errdetail("Only roles with the REPLICATION attribute may start a WAL sender process.")
+                .errdetail(
+                    "Only roles with the REPLICATION attribute may start a WAL sender process.",
+                )
                 .finish(loc(960, "InitPostgres"));
         }
     }
@@ -752,7 +766,8 @@ pub fn InitPostgres(
             tuple = GetDatabaseTuple(mcx, in_dbname)?;
         }
         let Some(dbform) = tuple else {
-            return ereport(FATAL).errverbatim()
+            return ereport(FATAL)
+                .errverbatim()
                 .errcode(ERRCODE_UNDEFINED_DATABASE)
                 .errmsg(format!("database \"{in_dbname}\" does not exist"))
                 .finish(loc(1014, "InitPostgres"));
@@ -787,12 +802,14 @@ pub fn InitPostgres(
         };
         if tuple.is_none() || name_mismatch {
             return match in_dbname {
-                Some(req) => ereport(FATAL).errverbatim()
+                Some(req) => ereport(FATAL)
+                    .errverbatim()
                     .errcode(ERRCODE_UNDEFINED_DATABASE)
                     .errmsg(format!("database \"{req}\" does not exist"))
                     .errdetail("It seems to have just been dropped or renamed.")
                     .finish(loc(1078, "InitPostgres")),
-                None => ereport(FATAL).errverbatim()
+                None => ereport(FATAL)
+                    .errverbatim()
                     .errcode(ERRCODE_UNDEFINED_DATABASE)
                     .errmsg(format!("database {dboid} does not exist"))
                     .finish(loc(1083, "InitPostgres")),
@@ -803,7 +820,8 @@ pub fn InitPostgres(
         dbname = strlcpy_name(datform.datname.as_str());
 
         if datform.datconnlimit == DATCONNLIMIT_INVALID_DB {
-            return ereport(FATAL).errverbatim()
+            return ereport(FATAL)
+                .errverbatim()
                 .errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE)
                 .errmsg(format!("cannot connect to invalid database \"{dbname}\""))
                 .errhint("Use DROP DATABASE to drop invalid databases.")
@@ -842,7 +860,8 @@ pub fn InitPostgres(
         match std::fs::metadata(fullpath.as_str()) {
             Ok(_) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                return ereport(FATAL).errverbatim()
+                return ereport(FATAL)
+                    .errverbatim()
                     .errcode(ERRCODE_UNDEFINED_DATABASE)
                     .errmsg(format!("database \"{dbname}\" does not exist"))
                     .errdetail(format!(
@@ -893,7 +912,12 @@ pub fn InitPostgres(
     acl_seams::initialize_acl::call()?;
 
     if !bootstrap {
-        CheckMyDatabase(mcx, &dbname, am_superuser, (flags & INIT_PG_OVERRIDE_ALLOW_CONNS) != 0)?;
+        CheckMyDatabase(
+            mcx,
+            &dbname,
+            am_superuser,
+            (flags & INIT_PG_OVERRIDE_ALLOW_CONNS) != 0,
+        )?;
     }
 
     gtrace("p.checkdb");
@@ -909,7 +933,11 @@ pub fn InitPostgres(
         && parallel_seams::initializing_parallel_worker::is_installed()
         && parallel_seams::initializing_parallel_worker::call();
     if !takes_session_bind {
-        process_settings(mcx, init_small::globals::MyDatabaseId(), miscinit::GetSessionUserId())?;
+        process_settings(
+            mcx,
+            init_small::globals::MyDatabaseId(),
+            miscinit::GetSessionUserId(),
+        )?;
     }
     gtrace("p.settings");
 
@@ -988,7 +1016,7 @@ fn process_startup_options(am_superuser: bool) -> PgResult<()> {
     });
 
     if let Some(cmdline_options) = cmdline_options {
-        let maxac = 2 +cmdline_options.len().div_ceil( 2);
+        let maxac = 2 + cmdline_options.len().div_ceil(2);
         let mut av: Vec<String> = Vec::new();
         let _ = av.try_reserve(maxac);
         av.push("postgres".to_string());
@@ -1138,8 +1166,11 @@ pub fn ClientCheckTimeoutHandler() {
 }
 
 fn ThereIsAtLeastOneRole(mcx: Mcx<'_>) -> PgResult<bool> {
-    let pg_authid_rel =
-        table::table_open(mcx, types_core::catalog::AUTH_ID_RELATION_ID, AccessShareLock)?;
+    let pg_authid_rel = table::table_open(
+        mcx,
+        types_core::catalog::AUTH_ID_RELATION_ID,
+        AccessShareLock,
+    )?;
 
     let mut scan = genam::systable_beginscan(mcx, &pg_authid_rel, InvalidOid, false, None, &[])?;
     let result = genam::systable_getnext(mcx, &mut scan)?.is_some();

@@ -9,7 +9,12 @@ use gravity_ir::builder::FunctionBuilder;
 
 /// The instructions added from here on carry `<body>.<part>[.<mech>]`; returns the tag before (`restore_tag`).
 #[inline]
-pub(crate) fn tag(b: &mut FunctionBuilder<'_>, body: &str, part: fmt::Arguments<'_>, mech: &'static str) -> u32 {
+pub(crate) fn tag(
+    b: &mut FunctionBuilder<'_>,
+    body: &str,
+    part: fmt::Arguments<'_>,
+    mech: &'static str,
+) -> u32 {
     if !b.jit_on() {
         return 0;
     }
@@ -36,7 +41,10 @@ impl fmt::Display for Short {
 mod tests {
     #[test]
     fn short_names() {
-        assert_eq!(super::Short("gravity_lowerv4::step::filter::Filter<'g, X<Y>>").to_string(), "filter.Filter");
+        assert_eq!(
+            super::Short("gravity_lowerv4::step::filter::Filter<'g, X<Y>>").to_string(),
+            "filter.Filter"
+        );
         assert_eq!(super::Short("Plain").to_string(), "Plain");
         assert_eq!(super::Short("").to_string(), "");
     }

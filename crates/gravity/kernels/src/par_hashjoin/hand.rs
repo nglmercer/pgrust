@@ -1,15 +1,18 @@
 //! The `par_hashjoin_build` / `par_hashjoin_probe` kernels and the spilled part (the params, the spill helpers and the outer split `hashjoin_part` drives stay in `par_hashjoin.rs`).
 #![allow(unused_imports)]
-use gravity_abi::PtrWord;
 use super::*;
-use crate::util::{advance, consumed, done, emit, end, flush, index, lane, partial, range_seek, site as site_of, Cell, RESUME_OPEN};
+use crate::util::{
+    advance, consumed, done, emit, end, flush, index, lane, partial, range_seek, site as site_of,
+    Cell, RESUME_OPEN,
+};
 use crate::util::{HOST_CONTINUE, HOST_STOP};
-use gravity_abi::program::SPILL_SCATTER;
 use gravity_abi::breaker::{HashBuild, BUILD_PARTITION, BUILD_TABLE, USED_NULL};
-use gravity_abi::status::DONE;
-use gravity_abi::{Lane, Site};
-use gravity_abi::status::{suspend, unsupported, UNSUPPORTED_SCRATCH};
 use gravity_abi::ctx::RESUME_NONE;
+use gravity_abi::program::SPILL_SCATTER;
+use gravity_abi::status::DONE;
+use gravity_abi::status::{suspend, unsupported, UNSUPPORTED_SCRATCH};
+use gravity_abi::PtrWord;
+use gravity_abi::{Lane, Site};
 
 unsafe fn bits(ctx: *mut Ctx) -> i64 {
     let b = *(*ctx).params.ptr().add(PARAM_SPILL_BITS) as u8;
@@ -51,13 +54,27 @@ pub unsafe extern "C-unwind" fn par_hashjoin_build(ctx: *mut Ctx) -> i64 {
 }
 
 #[inline(always)]
-unsafe fn insert_k<K: Cell>(ctx: *mut Ctx, s: &mut Site, lk: &Lane, la: &Lane, build: *mut HashBuild, bits: i64) -> i64 {
+unsafe fn insert_k<K: Cell>(
+    ctx: *mut Ctx,
+    s: &mut Site,
+    lk: &Lane,
+    la: &Lane,
+    build: *mut HashBuild,
+    bits: i64,
+) -> i64 {
     crate::by_width!(la.width, insert::<K>(ctx, s, lk, la, build, bits))
 }
 
 /// Append every valid-key row of the window; a full partition scatters into an epoch and goes on.
 #[inline(always)]
-unsafe fn insert<K: Cell, A: Cell>(ctx: *mut Ctx, s: &mut Site, lk: &Lane, la: &Lane, build: *mut HashBuild, bits: i64) -> i64 {
+unsafe fn insert<K: Cell, A: Cell>(
+    ctx: *mut Ctx,
+    s: &mut Site,
+    lk: &Lane,
+    la: &Lane,
+    build: *mut HashBuild,
+    bits: i64,
+) -> i64 {
     let (kp, ap) = (lk.ptr.ptr() as *const K, la.ptr.ptr() as *const A);
     let mut out = 0u64;
     let mut code = 0i64;
@@ -65,7 +82,11 @@ unsafe fn insert<K: Cell, A: Cell>(ctx: *mut Ctx, s: &mut Site, lk: &Lane, la: &
         if !lk.is_valid(i) {
             return true;
         }
-        let (payload, used) = if la.is_valid(i) { ((*ap.add(i)).i64(), 1) } else { (0, USED_NULL) };
+        let (payload, used) = if la.is_valid(i) {
+            ((*ap.add(i)).i64(), 1)
+        } else {
+            (0, USED_NULL)
+        };
         out += 1;
         let k = (*kp.add(i)).i32();
         if !(*build).insert_tagged(k, payload, used) {
@@ -159,13 +180,25 @@ unsafe fn keep_outer(ctx: *mut Ctx) -> i64 {
 }
 
 #[inline(always)]
-unsafe fn probe_k<K: Cell>(ctx: *mut Ctx, s: &mut Site, lk: &Lane, lb: &Lane, table: &HashBuild) -> i64 {
+unsafe fn probe_k<K: Cell>(
+    ctx: *mut Ctx,
+    s: &mut Site,
+    lk: &Lane,
+    lb: &Lane,
+    table: &HashBuild,
+) -> i64 {
     crate::by_width!(lb.width, probe_rows::<K>(ctx, s, lk, lb, table))
 }
 
 /// Emit one build match against outer key `k` / payload `(b, bn)`.
 #[inline(always)]
-unsafe fn emit_match(ctx: *mut Ctx, k: i32, e: &gravity_abi::breaker::HashBuildEntry, b: u64, bn: u8) -> i64 {
+unsafe fn emit_match(
+    ctx: *mut Ctx,
+    k: i32,
+    e: &gravity_abi::breaker::HashBuildEntry,
+    b: u64,
+    bn: u8,
+) -> i64 {
     let v = [k as i64 as u64, e.payload as u64, b];
     let n = [0u8, (e.used == USED_NULL) as u8, bn];
     emit(ctx, 3, &[(v.as_ptr(), n.as_ptr(), 3)])
@@ -188,12 +221,19 @@ unsafe fn prefetch(p: *const u8) {
 #[inline(always)]
 unsafe fn prefetch_home(table: &HashBuild, key: i32) {
     let sub = (table.cap as usize) >> table.pbits;
-    let slot = HashBuild::partition_of(key, table.pbits) as usize * sub + table.probe(key).position();
+    let slot =
+        HashBuild::partition_of(key, table.pbits) as usize * sub + table.probe(key).position();
     prefetch(table.entry(slot) as *const gravity_abi::breaker::HashBuildEntry as *const u8);
 }
 
 #[inline(always)]
-unsafe fn probe_rows<K: Cell, B: Cell>(ctx: *mut Ctx, s: &mut Site, lk: &Lane, lb: &Lane, table: &HashBuild) -> i64 {
+unsafe fn probe_rows<K: Cell, B: Cell>(
+    ctx: *mut Ctx,
+    s: &mut Site,
+    lk: &Lane,
+    lb: &Lane,
+    table: &HashBuild,
+) -> i64 {
     let (kp, bp) = (lk.ptr.ptr() as *const K, lb.ptr.ptr() as *const B);
     let mut out = 0u64;
     let mut j = s.cursor;
@@ -211,7 +251,12 @@ unsafe fn probe_rows<K: Cell, B: Cell>(ctx: *mut Ctx, s: &mut Site, lk: &Lane, l
         let k = (*kp.add(i)).i32();
         let (b, bn) = ((*bp.add(i)).i64() as u64, !lb.is_valid(i) as u8);
         // a chain stopped mid-way resumes at its saved position; a fresh row counts once
-        let mut p = if s.cont != 0 { table.probe_from(k, s.cont as usize - 1) } else { out += 1; table.probe(k) };
+        let mut p = if s.cont != 0 {
+            table.probe_from(k, s.cont as usize - 1)
+        } else {
+            out += 1;
+            table.probe(k)
+        };
         while let Some(e) = p.next() {
             let f = emit_match(ctx, k, e, b, bn);
             if f < 0 {
@@ -279,15 +324,16 @@ pub unsafe extern "C-unwind" fn par_hashjoin_part(ctx: *mut Ctx) -> i64 {
                 // the same window (remembered, or forced on one that fit), and build sub-token
                 // `before + i` joins outer sub-token `olo + i` alone — the outer partition is read
                 // once per split, not once per build sub-token (8× per generation before)
-                let olo = match outer_split(ctx, outer_off, outer_token, &mut memo, stream(SLOT_OUTER)) {
-                    Ok((olo, ohi)) => {
-                        if ohi - olo != (after - before) as u32 {
-                            return unsupported(UNSUPPORTED_SCRATCH);
+                let olo =
+                    match outer_split(ctx, outer_off, outer_token, &mut memo, stream(SLOT_OUTER)) {
+                        Ok((olo, ohi)) => {
+                            if ohi - olo != (after - before) as u32 {
+                                return unsupported(UNSUPPORTED_SCRATCH);
+                            }
+                            olo
                         }
-                        olo
-                    }
-                    Err(e) => return e,
-                };
+                        Err(e) => return e,
+                    };
                 if sp + (after - before) as usize > STACK {
                     return unsupported(UNSUPPORTED_SCRATCH);
                 }
@@ -318,20 +364,37 @@ unsafe fn scratch_tables(own: *mut u8) -> (*mut HashBuild, *mut HashBuild, i64) 
         let half = (armed / 2) & !7;
         // the build table opens small and grows inside its half; the outer buffer takes the rest
         let build = HashBuild::at_sized(own, half, BUILD_TABLE, 1024) as *mut HashBuild;
-        core::ptr::write_bytes(own.add(half as usize), 0, gravity_abi::breaker::HASHBUILD_HDR);
+        core::ptr::write_bytes(
+            own.add(half as usize),
+            0,
+            gravity_abi::breaker::HASHBUILD_HDR,
+        );
         let cap_o = HashBuild::cap_of(armed - half);
         if cap_o == 0 {
-            gravity_abi::limits::exceeded(format_args!("a share too small for the join's scratch: {armed} bytes"));
+            gravity_abi::limits::exceeded(format_args!(
+                "a share too small for the join's scratch: {armed} bytes"
+            ));
         }
         let outer = HashBuild::at(own.add(half as usize), cap_o, BUILD_PARTITION) as *mut HashBuild;
         return (build, outer, half as i64);
     }
     let half = HashBuild::view(own).region;
     let cap_o = HashBuild::view(own.add(half as usize)).cap;
-    (own as *mut HashBuild, HashBuild::at(own.add(half as usize), cap_o, BUILD_PARTITION) as *mut HashBuild, half as i64)
+    (
+        own as *mut HashBuild,
+        HashBuild::at(own.add(half as usize), cap_o, BUILD_PARTITION) as *mut HashBuild,
+        half as i64,
+    )
 }
 
-unsafe fn join_outer(ctx: *mut Ctx, build: *mut HashBuild, outer: *mut HashBuild, outer_off: i64, token: u32, memo: &mut [(u32, u32, u32); MEMO]) -> i64 {
+unsafe fn join_outer(
+    ctx: *mut Ctx,
+    build: *mut HashBuild,
+    outer: *mut HashBuild,
+    outer_off: i64,
+    token: u32,
+    memo: &mut [(u32, u32, u32); MEMO],
+) -> i64 {
     let mut stack = [0u32; STACK];
     let mut sp = 1usize;
     stack[0] = token;

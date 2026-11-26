@@ -14,7 +14,6 @@ use std::ffi::CString;
 use types_core::{catalog, Oid};
 use types_error::{PgError, PgResult, ERRCODE_FEATURE_NOT_SUPPORTED, ERRCODE_WRONG_OBJECT_TYPE};
 use types_fmgr::{FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction};
-use types_tuple::tupdesc::TupleDescData;
 use types_rel::pg_class::{RELKIND_PARTITIONED_TABLE, RELKIND_RELATION};
 use types_storage::multixact::{MultiXactMember, MultiXactStatus};
 use types_tuple::htup::{
@@ -22,6 +21,7 @@ use types_tuple::htup::{
     HEAP_XMAX_IS_EXCL_LOCKED, HEAP_XMAX_IS_KEYSHR_LOCKED, HEAP_XMAX_IS_MULTI,
     HEAP_XMAX_IS_SHR_LOCKED, HEAP_XMAX_LOCK_ONLY,
 };
+use types_tuple::tupdesc::TupleDescData;
 
 const LIBRARY: &str = "pgrowlocks";
 
@@ -93,8 +93,13 @@ fn build_tuple_from_cstrings(
         match (att, values.get(i)) {
             (Some((flinfo, typioparam, typmod)), Some(s)) => {
                 let cstr = CString::new(s.as_str()).expect("pgrowlocks: interior NUL");
-                datums[i] =
-                    types_fmgr::input_function_call(flinfo, Some(&cstr), *typioparam, *typmod, mcx)?;
+                datums[i] = types_fmgr::input_function_call(
+                    flinfo,
+                    Some(&cstr),
+                    *typioparam,
+                    *typmod,
+                    mcx,
+                )?;
             }
             _ => nulls[i] = true,
         }
@@ -144,7 +149,7 @@ fn relation_open_by_text_arg<'m>(
                     names.join(".")
                 ))
                 .with_sqlstate(types_error::ERRCODE_SYNTAX_ERROR),
-            ))
+            ));
         }
     };
     let rv = rel_vocab::RangeVar {
@@ -214,21 +219,25 @@ fn fc_pgrowlocks(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult
     let mut attinmeta = att_in_metadata(&srf.tupdesc)?;
 
     #[allow(clippy::while_let_loop)]
-
     loop {
-        let (t_len, t_self, t_table_oid, hdr) =
-            match heapam::heap_getnext(&mut hscan, types_scan::sdir::ScanDirection::ForwardScanDirection)? {
-                Some(t) => (t.t_len, t.t_self, t.t_tableOid, t.header_ptr()),
-                None => break,
-            };
+        let (t_len, t_self, t_table_oid, hdr) = match heapam::heap_getnext(
+            &mut hscan,
+            types_scan::sdir::ScanDirection::ForwardScanDirection,
+        )? {
+            Some(t) => (t.t_len, t.t_self, t.t_tableOid, t.header_ptr()),
+            None => break,
+        };
 
         // A buffer lock must be held to call HeapTupleSatisfiesUpdate.
-        let buf = hscan.rs_cbuf.as_ref().expect("current scan buffer").buffer();
+        let buf = hscan
+            .rs_cbuf
+            .as_ref()
+            .expect("current scan buffer")
+            .buffer();
         bufmgr::LockBuffer(buf, bufmgr::BUFFER_LOCK_SHARE)?;
 
         // SAFETY: the tuple image lives in the pinned current buffer.
-        let mut htup =
-            unsafe { HeapTupleData::from_raw_parts(hdr, t_len, t_self, t_table_oid) };
+        let mut htup = unsafe { HeapTupleData::from_raw_parts(hdr, t_len, t_self, t_table_oid) };
         let htsu = heapam_visibility::HeapTupleSatisfiesUpdate(&mut htup, curcid, buf)?;
         // SAFETY: header in the locked, pinned buffer.
         let (xmax, infomask, infomask2) = unsafe {
@@ -251,7 +260,11 @@ fn fc_pgrowlocks(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult
                 members.extend_from_slice(m)
             })?;
             if nmembers == -1 {
-                ("{0}".to_string(), "{transient upgrade status}".to_string(), "{0}".to_string())
+                (
+                    "{0}".to_string(),
+                    "{transient upgrade status}".to_string(),
+                    "{0}".to_string(),
+                )
             } else {
                 let xids: Vec<String> = members.iter().map(|m| m.xid.to_string()).collect();
                 let modes: Vec<&str> = members.iter().map(|m| mode_name(m.status)).collect();
@@ -309,7 +322,10 @@ mod tests {
     #[test]
     fn single_locker_mode_arms() {
         // pgrowlocks.c lock-mode decode over the C infomask combinations.
-        assert_eq!(single_locker_mode(HEAP_XMAX_LOCK_ONLY | HEAP_XMAX_SHR_LOCK, 0), "For Share");
+        assert_eq!(
+            single_locker_mode(HEAP_XMAX_LOCK_ONLY | HEAP_XMAX_SHR_LOCK, 0),
+            "For Share"
+        );
         assert_eq!(
             single_locker_mode(HEAP_XMAX_LOCK_ONLY | HEAP_XMAX_KEYSHR_LOCK, 0),
             "For Key Share"
@@ -322,7 +338,10 @@ mod tests {
             single_locker_mode(HEAP_XMAX_LOCK_ONLY | HEAP_XMAX_EXCL_LOCK, 0),
             "For No Key Update"
         );
-        assert_eq!(single_locker_mode(HEAP_XMAX_LOCK_ONLY, 0), "transient upgrade status");
+        assert_eq!(
+            single_locker_mode(HEAP_XMAX_LOCK_ONLY, 0),
+            "transient upgrade status"
+        );
         assert_eq!(single_locker_mode(0, HEAP_KEYS_UPDATED), "Update");
         assert_eq!(single_locker_mode(0, 0), "No Key Update");
     }
@@ -333,7 +352,10 @@ mod tests {
         assert_eq!(mode_name(MultiXactStatusUpdate), "Update");
         assert_eq!(mode_name(MultiXactStatusNoKeyUpdate), "No Key Update");
         assert_eq!(mode_name(MultiXactStatusForUpdate), "For Update");
-        assert_eq!(mode_name(MultiXactStatusForNoKeyUpdate), "For No Key Update");
+        assert_eq!(
+            mode_name(MultiXactStatusForNoKeyUpdate),
+            "For No Key Update"
+        );
         assert_eq!(mode_name(MultiXactStatusForShare), "For Share");
         assert_eq!(mode_name(MultiXactStatusForKeyShare), "For Key Share");
     }

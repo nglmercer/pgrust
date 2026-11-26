@@ -56,12 +56,45 @@ pub struct Found {
 }
 
 impl Found {
-    pub const CLEAN: Found = Found { volatility: Volatility::Immutable, raise_free: true, rescan_stable: true, parallel: Parallel::Safe, user_call: false, acts_past_call: false, local_state: false, order_call: false, acts: false, may_write: false };
+    pub const CLEAN: Found = Found {
+        volatility: Volatility::Immutable,
+        raise_free: true,
+        rescan_stable: true,
+        parallel: Parallel::Safe,
+        user_call: false,
+        acts_past_call: false,
+        local_state: false,
+        order_call: false,
+        acts: false,
+        may_write: false,
+    };
     /// A coercion to a domain: PostgreSQL 18.6 runs every CHECK of the domain chain at each one (ExecEvalConstraintCheck),
     /// and a CHECK may call user or VOLATILE code. One whose constraints the facts cannot read (`Facts::domain_checks`;
     /// D3796: the F4 walk reads those it can) fails closed: it acts, calls user code and may raise.
-    pub const DOMAIN_CHECK: Found = Found { volatility: Volatility::Volatile, raise_free: false, rescan_stable: true, parallel: Parallel::Safe, user_call: true, acts_past_call: true, local_state: false, order_call: true, acts: true, may_write: true };
-    pub const UNKNOWN: Found = Found { volatility: Volatility::Volatile, raise_free: false, rescan_stable: false, parallel: Parallel::Unsafe, user_call: true, acts_past_call: true, local_state: false, order_call: true, acts: true, may_write: true };
+    pub const DOMAIN_CHECK: Found = Found {
+        volatility: Volatility::Volatile,
+        raise_free: false,
+        rescan_stable: true,
+        parallel: Parallel::Safe,
+        user_call: true,
+        acts_past_call: true,
+        local_state: false,
+        order_call: true,
+        acts: true,
+        may_write: true,
+    };
+    pub const UNKNOWN: Found = Found {
+        volatility: Volatility::Volatile,
+        raise_free: false,
+        rescan_stable: false,
+        parallel: Parallel::Unsafe,
+        user_call: true,
+        acts_past_call: true,
+        local_state: false,
+        order_call: true,
+        acts: true,
+        may_write: true,
+    };
 
     pub(crate) fn add(&mut self, o: Found) {
         self.parallel = self.parallel.max(o.parallel);
@@ -81,10 +114,17 @@ impl Found {
     /// C2 (the held-error allowlist): a call of `oid` whose pg_proc row is `p`. A VOLATILE call acts past its call unless
     /// the builtin is a `types_core::quiet::CALL_LOCAL_ACT` row; a `CALL_LOCAL_STATE` call is marked.
     pub(crate) fn local_marks(&mut self, oid: u32, p: &FuncProps) {
-        self.acts_past_call |= p.volatility == Volatility::Volatile && !types_core::quiet::call_local_act(oid);
+        self.acts_past_call |=
+            p.volatility == Volatility::Volatile && !types_core::quiet::call_local_act(oid);
         self.local_state |= types_core::quiet::call_local_state(oid);
-        let (act, draw) = (types_core::quiet::call_local_act(oid), types_core::quiet::call_local_draw(oid));
-        self.order_call |= p.volatility == Volatility::Volatile && (crate::effects::user_code(oid) || act && !draw || types_core::quiet::call_local_state(oid));
+        let (act, draw) = (
+            types_core::quiet::call_local_act(oid),
+            types_core::quiet::call_local_draw(oid),
+        );
+        self.order_call |= p.volatility == Volatility::Volatile
+            && (crate::effects::user_code(oid)
+                || act && !draw
+                || types_core::quiet::call_local_state(oid));
     }
 
     /// A node that reads the session's state at each run (CURRENT_DATE, CURRENT_USER, ..: an SQLValueFunction): stable
@@ -99,15 +139,27 @@ impl Found {
 /// raise or write, whatever its marking), nothing VOLATILE, and raise-free, or else its test, its args and its plan each
 /// raise-free (rerun.rs `of_expr` / `of_plan`: a nested SubPlan's own raise counts, a row lock raises, a data-modifying
 /// CTE is unknown).
-pub fn sub_plan_quiet_but_rows<'p>(stmt: &'p PlannedStmt<'p>, facts: &dyn Facts, arena: ArenaRef, s: &'p SubPlan<'p>, f: Found) -> bool {
+pub fn sub_plan_quiet_but_rows<'p>(
+    stmt: &'p PlannedStmt<'p>,
+    facts: &dyn Facts,
+    arena: ArenaRef,
+    s: &'p SubPlan<'p>,
+    f: Found,
+) -> bool {
     if f.user_call || f.volatility == Volatility::Volatile {
         return false;
     }
     if f.raise_free {
         return true;
     }
-    let Some(root) = crate::rerun::subplan_root(stmt, s.plan_id) else { return false };
-    s.testexpr.into_iter().chain(s.args.iter()).all(|n| crate::rerun::of_expr(stmt, facts, arena, n).raise_free) && crate::rerun::of_plan(stmt, facts, arena, root).raise_free
+    let Some(root) = crate::rerun::subplan_root(stmt, s.plan_id) else {
+        return false;
+    };
+    s.testexpr
+        .into_iter()
+        .chain(s.args.iter())
+        .all(|n| crate::rerun::of_expr(stmt, facts, arena, n).raise_free)
+        && crate::rerun::of_plan(stmt, facts, arena, root).raise_free
 }
 
 /// F5's raise-free answer for a call of `oid` whose pg_proc row is `p`, over `args` and the node's input collation where
@@ -124,17 +176,36 @@ pub fn sub_plan_quiet_but_rows<'p>(stmt: &'p PlannedStmt<'p>, facts: &dyn Facts,
 /// are a ScalarArrayOpExpr's (a scalar and an array): `quiet_pattern_list` reads its constant pattern list, the scalar
 /// rules (`quiet_args`, `quiet_pattern`) never apply. D3979: `quiet_collated` over the input collation too, as
 /// `quiet_node` reads a call: a case map under the default, C or POSIX collation.
-pub fn call_raise_free(facts: &dyn Facts, quiet_call: bool, p: &FuncProps, oid: u32, args: Option<(&NodeList<'_>, u32)>, list: bool) -> bool {
+pub fn call_raise_free(
+    facts: &dyn Facts,
+    quiet_call: bool,
+    p: &FuncProps,
+    oid: u32,
+    args: Option<(&NodeList<'_>, u32)>,
+    list: bool,
+) -> bool {
     if list {
-        let listed = args.is_some_and(|(a, coll)| crate::effects::quiet_pattern_list(facts, oid, a, coll) && crate::effects::collation_set(oid, coll, a));
+        let listed = args.is_some_and(|(a, coll)| {
+            crate::effects::quiet_pattern_list(facts, oid, a, coll)
+                && crate::effects::collation_set(oid, coll, a)
+        });
         return (quiet_call || listed) && p.strict;
     }
-    let by_args = args.is_some_and(|(a, coll)| crate::effects::quiet_args(oid, a) || crate::effects::quiet_pattern(facts, oid, a, coll) || crate::effects::quiet_collated(facts, oid, coll));
-    (quiet_call || by_args && p.strict) && args.is_none_or(|(a, coll)| crate::effects::collation_set(oid, coll, a))
+    let by_args = args.is_some_and(|(a, coll)| {
+        crate::effects::quiet_args(oid, a)
+            || crate::effects::quiet_pattern(facts, oid, a, coll)
+            || crate::effects::quiet_collated(facts, oid, coll)
+    });
+    (quiet_call || by_args && p.strict)
+        && args.is_none_or(|(a, coll)| crate::effects::collation_set(oid, coll, a))
 }
 
 /// The F5 tokens of a golden line: ` vol=s` / ` vol=v` (immutable prints none), ` raise-free`.
-pub fn dump_f5(out: &mut dyn core::fmt::Write, volatility: Volatility, raise_free: bool) -> core::fmt::Result {
+pub fn dump_f5(
+    out: &mut dyn core::fmt::Write,
+    volatility: Volatility,
+    raise_free: bool,
+) -> core::fmt::Result {
     if volatility != Volatility::Immutable {
         write!(out, " vol={}", volatility.letter())?;
     }

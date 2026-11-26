@@ -11,7 +11,10 @@ use std::sync::{Arc, OnceLock};
 use common::*;
 use datum::Datum;
 use gravity_abi::ScanPos;
-use gravity_driver::{BindingRef, CommandId, Identity, Locker, Outcome, PerTuple, Pins, Snapshot, Source, WriteOp, Writer};
+use gravity_driver::{
+    BindingRef, CommandId, Identity, Locker, Outcome, PerTuple, Pins, Snapshot, Source, WriteOp,
+    Writer,
+};
 use gravity_hosts::ops::modifytable::index_maint::IndexMaint;
 use gravity_hosts::ops::modifytable::write_check::CheckSpec;
 use gravity_hosts::{take_error, IndexSource, LockHost, SiteRecipe, WriteHost};
@@ -19,7 +22,10 @@ use gravity_program::{Cmd, Conflict, IndexPlan, LockKind, WaitPolicy, WritePlan}
 use mcx::MemoryContext;
 use types_core::Oid;
 #[allow(unused_imports)]
-use types_error::{PgResult, ERRCODE_CHECK_VIOLATION, ERRCODE_NOT_NULL_VIOLATION, ERRCODE_UNIQUE_VIOLATION, ERRCODE_WITH_CHECK_OPTION_VIOLATION};
+use types_error::{
+    PgResult, ERRCODE_CHECK_VIOLATION, ERRCODE_NOT_NULL_VIOLATION, ERRCODE_UNIQUE_VIOLATION,
+    ERRCODE_WITH_CHECK_OPTION_VIOLATION,
+};
 use types_nodes::parsenodes::WCOKind;
 use types_nodes::{Node, NodeList};
 use types_rel::{Relation, LOCKMODE};
@@ -32,7 +38,17 @@ static FLAG: AtomicU8 = AtomicU8::new(0);
 const BINDS: usize = 1000;
 
 fn binding_ref(snap: &Rc<SnapshotData<'static>>) -> BindingRef<'static> {
-    BindingRef { snapshot: Snapshot(snap as *const _ as u64), command_id: CommandId(0), params: &[], abort_flag: &FLAG, pins: Pins(0), per_tuple: PerTuple(0), identity: Identity::default(), resolved: None, ordinal: None }
+    BindingRef {
+        snapshot: Snapshot(snap as *const _ as u64),
+        command_id: CommandId(0),
+        params: &[],
+        abort_flag: &FLAG,
+        pins: Pins(0),
+        per_tuple: PerTuple(0),
+        identity: Identity::default(),
+        resolved: None,
+        ordinal: None,
+    }
 }
 
 fn plan(cmd: Cmd) -> WritePlan {
@@ -56,7 +72,11 @@ fn a_rebound_write_host_reads_the_relations_constraints_of_this_bind() {
 
     let mut w = WriteHost::new(&plan(Cmd::Insert));
     w.bind(&b).unwrap();
-    assert_eq!(w.write(WriteOp::Insert, ScanPos::NONE, &[0], &[1]).unwrap(), Outcome::Done, "no constraint yet: NULL is written");
+    assert_eq!(
+        w.write(WriteOp::Insert, ScanPos::NONE, &[0], &[1]).unwrap(),
+        Outcome::Done,
+        "no constraint yet: NULL is written"
+    );
     w.unbind();
 
     set_not_null(true);
@@ -65,8 +85,14 @@ fn a_rebound_write_host_reads_the_relations_constraints_of_this_bind() {
     let e = take_error();
     w.unbind();
     set_not_null(false);
-    assert!(r.is_err(), "the rebound host wrote a NULL into a NOT NULL column: {r:?}");
-    assert_eq!(e.expect("stashed pg error").sqlstate(), ERRCODE_NOT_NULL_VIOLATION);
+    assert!(
+        r.is_err(),
+        "the rebound host wrote a NULL into a NOT NULL column: {r:?}"
+    );
+    assert_eq!(
+        e.expect("stashed pg error").sqlstate(),
+        ERRCODE_NOT_NULL_VIOLATION
+    );
     drop(w);
     quiesced();
 }
@@ -92,15 +118,24 @@ fn a_write_hosts_constraint_state_outlives_its_rows() {
     w.bind(&b).unwrap();
     let mut got = Vec::new();
     for v in [5u64, 6, 7, 8] {
-        got.push(w.write(WriteOp::Insert, ScanPos::NONE, &[v], &[0]).map_err(|_| take_error().map(|e| e.message)));
+        got.push(
+            w.write(WriteOp::Insert, ScanPos::NONE, &[v], &[0])
+                .map_err(|_| take_error().map(|e| e.message)),
+        );
     }
     let r = w.write(WriteOp::Insert, ScanPos::NONE, &[0], &[1]);
     let e = take_error();
     w.unbind();
     set_check_not_null(false);
     assert_eq!(got, vec![Ok(Outcome::Done); 4], "rows 5..8 pass the CHECK");
-    assert!(r.is_err(), "a later row of the bind broke the CHECK and was written: {r:?}");
-    assert_eq!(e.expect("stashed pg error").sqlstate(), ERRCODE_CHECK_VIOLATION);
+    assert!(
+        r.is_err(),
+        "a later row of the bind broke the CHECK and was written: {r:?}"
+    );
+    assert_eq!(
+        e.expect("stashed pg error").sqlstate(),
+        ERRCODE_CHECK_VIOLATION
+    );
     drop(w);
     quiesced();
 }
@@ -121,16 +156,27 @@ fn a_write_host_with_armed_constraints_binds_a_thousand_times_in_flat_memory() {
 
     let mut w = WriteHost::new(&plan(Cmd::Insert));
     w.bind(&b).unwrap();
-    assert_eq!(w.write(WriteOp::Insert, ScanPos::NONE, &[1], &[0]).unwrap(), Outcome::Done);
+    assert_eq!(
+        w.write(WriteOp::Insert, ScanPos::NONE, &[1], &[0]).unwrap(),
+        Outcome::Done
+    );
     w.unbind();
     let used = w.scratch_used();
     for i in 0..BINDS {
         w.bind(&b).unwrap();
-        assert_eq!(w.write(WriteOp::Insert, ScanPos::NONE, &[i as u64 + 2], &[0]).unwrap(), Outcome::Done);
+        assert_eq!(
+            w.write(WriteOp::Insert, ScanPos::NONE, &[i as u64 + 2], &[0])
+                .unwrap(),
+            Outcome::Done
+        );
         w.unbind();
     }
     set_not_null(false);
-    assert_eq!(w.scratch_used(), used, "{BINDS} binds of a parked write host with armed constraints grew its node context");
+    assert_eq!(
+        w.scratch_used(),
+        used,
+        "{BINDS} binds of a parked write host with armed constraints grew its node context"
+    );
     drop(w);
     quiesced();
 }
@@ -148,26 +194,56 @@ fn an_epq_recheck_node_does_not_lock_again() {
     reset_fixture();
     let ctx = MemoryContext::new("t");
     let tids = load_rows(ctx.mcx(), &[5, 6]);
-    let pos = |i: usize| ScanPos::new(HEAP_OID, ItemPointerGetBlockNumber(&tids[i]), ItemPointerGetOffsetNumber(&tids[i]));
+    let pos = |i: usize| {
+        ScanPos::new(
+            HEAP_OID,
+            ItemPointerGetBlockNumber(&tids[i]),
+            ItemPointerGetOffsetNumber(&tids[i]),
+        )
+    };
     let snap = static_mvcc_snapshot();
     let b = binding_ref(&snap);
     let st = gravity_program::Arena::new(256);
-    let mut del = WriteHost::new(&WritePlan::write(st.handle(), Cmd::Delete, HEAP_OID, &[IndexPlan::new(st.handle(), IDX_OID, &[1], false)]));
+    let mut del = WriteHost::new(&WritePlan::write(
+        st.handle(),
+        Cmd::Delete,
+        HEAP_OID,
+        &[IndexPlan::new(st.handle(), IDX_OID, &[1], false)],
+    ));
     del.bind(&b).unwrap();
-    assert_eq!(del.write(WriteOp::Delete, pos(1), &[], &[]).unwrap(), Outcome::Done);
+    assert_eq!(
+        del.write(WriteOp::Delete, pos(1), &[], &[]).unwrap(),
+        Outcome::Done
+    );
     del.unbind();
 
-    let mut l = LockHost::new(&WritePlan::locking(HEAP_OID, LockKind::KeyShare, WaitPolicy::Block));
+    let mut l = LockHost::new(&WritePlan::locking(
+        HEAP_OID,
+        LockKind::KeyShare,
+        WaitPolicy::Block,
+    ));
     l.bind(&b).unwrap();
-    assert_eq!(l.lock(pos(1)).unwrap(), Outcome::Skipped, "a real lock reaches table_tuple_lock");
+    assert_eq!(
+        l.lock(pos(1)).unwrap(),
+        Outcome::Skipped,
+        "a real lock reaches table_tuple_lock"
+    );
     l.epq(true);
-    assert_eq!(l.lock(pos(1)).unwrap(), Outcome::Done, "the recheck node locked again");
+    assert_eq!(
+        l.lock(pos(1)).unwrap(),
+        Outcome::Done,
+        "the recheck node locked again"
+    );
     l.epq(false);
     assert_eq!(l.lock(pos(1)).unwrap(), Outcome::Skipped);
     l.epq(true);
     l.unbind();
     l.bind(&b).unwrap();
-    assert_eq!(l.lock(pos(1)).unwrap(), Outcome::Skipped, "unbind ends the recheck");
+    assert_eq!(
+        l.lock(pos(1)).unwrap(),
+        Outcome::Skipped,
+        "unbind ends the recheck"
+    );
     l.unbind();
     drop(l);
     drop(del);
@@ -197,7 +273,10 @@ fn counting_unlock(relid: Oid, mode: LOCKMODE) -> PgResult<()> {
 
 /// (taken since the last call, held now) of the index's RowExclusiveLock.
 fn idx_locks() -> (u32, i32) {
-    (IDX_TAKEN.swap(0, Ordering::Relaxed), IDX_HELD.load(Ordering::Relaxed))
+    (
+        IDX_TAKEN.swap(0, Ordering::Relaxed),
+        IDX_HELD.load(Ordering::Relaxed),
+    )
 }
 
 /// D613: a write host locked its target's indexes at the bind and kept the lock to the transaction's end (`IndexMaint::bind`
@@ -210,44 +289,97 @@ fn idx_locks() -> (u32, i32) {
 fn a_write_host_locks_its_indexes_from_the_first_row_to_the_unbind() {
     let _g = serial();
     install();
-    LOCK_PREV.get_or_init(|| (lmgr_seams::lock_relation_oid::wrap(counting_lock), lmgr_seams::unlock_relation_oid::wrap(counting_unlock)));
+    LOCK_PREV.get_or_init(|| {
+        (
+            lmgr_seams::lock_relation_oid::wrap(counting_lock),
+            lmgr_seams::unlock_relation_oid::wrap(counting_unlock),
+        )
+    });
     set_unique_index(false);
     set_not_null(false);
     reset_fixture();
     let ctx = MemoryContext::new("t");
     let tids = load_rows(ctx.mcx(), &[5, 6]);
-    let pos = |i: usize| ScanPos::new(HEAP_OID, ItemPointerGetBlockNumber(&tids[i]), ItemPointerGetOffsetNumber(&tids[i]));
+    let pos = |i: usize| {
+        ScanPos::new(
+            HEAP_OID,
+            ItemPointerGetBlockNumber(&tids[i]),
+            ItemPointerGetOffsetNumber(&tids[i]),
+        )
+    };
     let snap = static_mvcc_snapshot();
     let b = binding_ref(&snap);
     idx_locks();
 
     let mut ins = WriteHost::new(&plan(Cmd::Insert));
     ins.bind(&b).unwrap();
-    assert_eq!(idx_locks(), (0, 0), "an INSERT's bind locks no index (ExecOpenIndices runs at its first row)");
+    assert_eq!(
+        idx_locks(),
+        (0, 0),
+        "an INSERT's bind locks no index (ExecOpenIndices runs at its first row)"
+    );
     ins.unbind();
-    assert_eq!(idx_locks(), (0, 0), "an INSERT of no row never locked its indexes");
+    assert_eq!(
+        idx_locks(),
+        (0, 0),
+        "an INSERT of no row never locked its indexes"
+    );
     for round in 0..2 {
         ins.bind(&b).unwrap();
-        assert_eq!(ins.write(WriteOp::Insert, ScanPos::NONE, &[7 + round], &[0]).unwrap(), Outcome::Done);
-        assert_eq!(ins.write(WriteOp::Insert, ScanPos::NONE, &[9 + round], &[0]).unwrap(), Outcome::Done);
-        assert_eq!(idx_locks(), (1, 1), "the first row opened the index once, under RowExclusiveLock (round {round})");
+        assert_eq!(
+            ins.write(WriteOp::Insert, ScanPos::NONE, &[7 + round], &[0])
+                .unwrap(),
+            Outcome::Done
+        );
+        assert_eq!(
+            ins.write(WriteOp::Insert, ScanPos::NONE, &[9 + round], &[0])
+                .unwrap(),
+            Outcome::Done
+        );
+        assert_eq!(
+            idx_locks(),
+            (1, 1),
+            "the first row opened the index once, under RowExclusiveLock (round {round})"
+        );
         ins.unbind();
-        assert_eq!(idx_locks(), (0, 0), "the unbind released it, as ExecCloseIndices (round {round})");
+        assert_eq!(
+            idx_locks(),
+            (0, 0),
+            "the unbind released it, as ExecCloseIndices (round {round})"
+        );
     }
 
     let mut upd = WriteHost::new(&plan(Cmd::Update));
     upd.bind(&b).unwrap();
-    assert_eq!(idx_locks(), (0, 0), "an UPDATE's bind locks no index (ExecUpdatePrologue opens them)");
-    assert_eq!(upd.write(WriteOp::Update, pos(0), &[15], &[0]).unwrap(), Outcome::Done);
+    assert_eq!(
+        idx_locks(),
+        (0, 0),
+        "an UPDATE's bind locks no index (ExecUpdatePrologue opens them)"
+    );
+    assert_eq!(
+        upd.write(WriteOp::Update, pos(0), &[15], &[0]).unwrap(),
+        Outcome::Done
+    );
     assert_eq!(idx_locks(), (1, 1));
     upd.unbind();
-    assert_eq!(idx_locks(), (0, 0), "the UPDATE's own lock is released at the unbind");
+    assert_eq!(
+        idx_locks(),
+        (0, 0),
+        "the UPDATE's own lock is released at the unbind"
+    );
 
     let mut del = WriteHost::new(&plan(Cmd::Delete));
     del.bind(&b).unwrap();
-    assert_eq!(del.write(WriteOp::Delete, pos(1), &[], &[]).unwrap(), Outcome::Done);
+    assert_eq!(
+        del.write(WriteOp::Delete, pos(1), &[], &[]).unwrap(),
+        Outcome::Done
+    );
     del.unbind();
-    assert_eq!(idx_locks(), (0, 0), "a DELETE never opens its target's indexes");
+    assert_eq!(
+        idx_locks(),
+        (0, 0),
+        "a DELETE never opens its target's indexes"
+    );
     drop((ins, upd, del));
     quiesced();
 }
@@ -264,25 +396,53 @@ fn a_returning_delete_hands_back_the_deleted_version() {
     reset_fixture();
     let ctx = MemoryContext::new("t");
     let tids = load_rows(ctx.mcx(), &[41, 42, 43]);
-    let pos = |i: usize| ScanPos::new(HEAP_OID, ItemPointerGetBlockNumber(&tids[i]), ItemPointerGetOffsetNumber(&tids[i]));
+    let pos = |i: usize| {
+        ScanPos::new(
+            HEAP_OID,
+            ItemPointerGetBlockNumber(&tids[i]),
+            ItemPointerGetOffsetNumber(&tids[i]),
+        )
+    };
     let snap = static_mvcc_snapshot();
     let b = binding_ref(&snap);
     let mut del = WriteHost::new(&plan(Cmd::Delete));
     del.bind(&b).unwrap();
 
-    assert_eq!(del.write(WriteOp::Delete, pos(0), &[], &[]).unwrap(), Outcome::Done);
-    assert!(!del.written(&mut [], &mut []), "a site without cells hands nothing back");
+    assert_eq!(
+        del.write(WriteOp::Delete, pos(0), &[], &[]).unwrap(),
+        Outcome::Done
+    );
+    assert!(
+        !del.written(&mut [], &mut []),
+        "a site without cells hands nothing back"
+    );
 
-    assert_eq!(del.write(WriteOp::Delete, pos(1), &[7], &[1]).unwrap(), Outcome::Done);
+    assert_eq!(
+        del.write(WriteOp::Delete, pos(1), &[7], &[1]).unwrap(),
+        Outcome::Done
+    );
     let (mut v, mut n) = ([0u64; 1], [1u8; 1]);
-    assert!(del.written(&mut v, &mut n), "RETURNING's site reads the deleted row");
+    assert!(
+        del.written(&mut v, &mut n),
+        "RETURNING's site reads the deleted row"
+    );
     assert_eq!((v[0] as i32, n[0]), (42, 0));
 
-    assert_eq!(del.write(WriteOp::Delete, pos(1), &[7], &[1]).unwrap(), Outcome::Skipped, "this command deleted it already");
+    assert_eq!(
+        del.write(WriteOp::Delete, pos(1), &[7], &[1]).unwrap(),
+        Outcome::Skipped,
+        "this command deleted it already"
+    );
     let (mut v, mut n) = ([0u64; 1], [1u8; 1]);
-    assert!(!del.written(&mut v, &mut n), "the next row op released the last deleted version");
+    assert!(
+        !del.written(&mut v, &mut n),
+        "the next row op released the last deleted version"
+    );
 
-    assert_eq!(del.write(WriteOp::Delete, pos(2), &[0], &[1]).unwrap(), Outcome::Done);
+    assert_eq!(
+        del.write(WriteOp::Delete, pos(2), &[0], &[1]).unwrap(),
+        Outcome::Done
+    );
     del.unbind();
     drop(del);
     quiesced();
@@ -304,7 +464,13 @@ fn a_write_whose_plan_misses_a_ready_index_maintains_it_as_the_executor_does() {
     reset_fixture();
     let ctx = MemoryContext::new("t");
     let tids = load_rows(ctx.mcx(), &[5, 6]);
-    let pos = |i: usize| ScanPos::new(HEAP_OID, ItemPointerGetBlockNumber(&tids[i]), ItemPointerGetOffsetNumber(&tids[i]));
+    let pos = |i: usize| {
+        ScanPos::new(
+            HEAP_OID,
+            ItemPointerGetBlockNumber(&tids[i]),
+            ItemPointerGetOffsetNumber(&tids[i]),
+        )
+    };
     let snap = static_mvcc_snapshot();
     let b = binding_ref(&snap);
     let bare = |cmd: Cmd| {
@@ -312,22 +478,41 @@ fn a_write_whose_plan_misses_a_ready_index_maintains_it_as_the_executor_does() {
         WritePlan::write(a, cmd, HEAP_OID, &[])
     };
 
-    for (cmd, op, at, key) in [(Cmd::Insert, WriteOp::Insert, ScanPos::NONE, 7), (Cmd::Update, WriteOp::Update, pos(0), 9)] {
+    for (cmd, op, at, key) in [
+        (Cmd::Insert, WriteOp::Insert, ScanPos::NONE, 7),
+        (Cmd::Update, WriteOp::Update, pos(0), 9),
+    ] {
         let mut w = WriteHost::new(&bare(cmd));
         w.bind(&b).unwrap();
-        assert_eq!(w.write(op, at, &[key], &[0]).unwrap(), Outcome::Done, "{cmd:?} without the relation's index in its plan writes");
+        assert_eq!(
+            w.write(op, at, &[key], &[0]).unwrap(),
+            Outcome::Done,
+            "{cmd:?} without the relation's index in its plan writes"
+        );
         w.unbind();
-        assert!(indexed(ctx.mcx(), &b, key as i32), "{cmd:?}: the index outside the plan has the row's entry (ExecInsertIndexTuples)");
+        assert!(
+            indexed(ctx.mcx(), &b, key as i32),
+            "{cmd:?}: the index outside the plan has the row's entry (ExecInsertIndexTuples)"
+        );
     }
     let mut del = WriteHost::new(&bare(Cmd::Delete));
     del.bind(&b).unwrap();
-    assert_eq!(del.write(WriteOp::Delete, pos(1), &[], &[]).unwrap(), Outcome::Done, "a DELETE maintains no index");
+    assert_eq!(
+        del.write(WriteOp::Delete, pos(1), &[], &[]).unwrap(),
+        Outcome::Done,
+        "a DELETE maintains no index"
+    );
     del.unbind();
 
     set_index_unready(true);
     let mut ins = WriteHost::new(&bare(Cmd::Insert));
     ins.bind(&b).unwrap();
-    assert_eq!(ins.write(WriteOp::Insert, ScanPos::NONE, &[8], &[0]).unwrap(), Outcome::Done, "an index not ready for inserts gets no entry in PostgreSQL either");
+    assert_eq!(
+        ins.write(WriteOp::Insert, ScanPos::NONE, &[8], &[0])
+            .unwrap(),
+        Outcome::Done,
+        "an index not ready for inserts gets no entry in PostgreSQL either"
+    );
     ins.unbind();
     set_index_unready(false);
     drop((ins, del));
@@ -354,30 +539,59 @@ fn a_deferrable_unique_index_takes_a_duplicate_and_names_it_for_the_recheck() {
     let ctx: &'static MemoryContext = Box::leak(Box::new(MemoryContext::new("h-a2")));
     let mcx = ctx.mcx();
     let tids = load_rows(mcx, &[10, 20]);
-    let pos = ScanPos::new(HEAP_OID, ItemPointerGetBlockNumber(&tids[0]), ItemPointerGetOffsetNumber(&tids[0]));
+    let pos = ScanPos::new(
+        HEAP_OID,
+        ItemPointerGetBlockNumber(&tids[0]),
+        ItemPointerGetOffsetNumber(&tids[0]),
+    );
     let snap = static_mvcc_snapshot();
     let b = binding_ref(&snap);
 
     let mut ins = WriteHost::new(&unique_plan(Cmd::Insert));
     ins.bind(&b).unwrap();
-    assert_eq!(ins.write(WriteOp::Insert, ScanPos::NONE, &[20], &[0]).unwrap(), Outcome::Done, "a duplicate on a deferrable index is checked at the recheck, not at the row");
-    assert_eq!(ins.write(WriteOp::Insert, ScanPos::NONE, &[30], &[0]).unwrap(), Outcome::Done);
+    assert_eq!(
+        ins.write(WriteOp::Insert, ScanPos::NONE, &[20], &[0])
+            .unwrap(),
+        Outcome::Done,
+        "a duplicate on a deferrable index is checked at the recheck, not at the row"
+    );
+    assert_eq!(
+        ins.write(WriteOp::Insert, ScanPos::NONE, &[30], &[0])
+            .unwrap(),
+        Outcome::Done
+    );
     ins.unbind();
     let mut upd = WriteHost::new(&unique_plan(Cmd::Update));
     upd.bind(&b).unwrap();
-    assert_eq!(upd.write(WriteOp::Update, pos, &[30], &[0]).unwrap(), Outcome::Done, "an UPDATE to a duplicate key likewise");
+    assert_eq!(
+        upd.write(WriteOp::Update, pos, &[30], &[0]).unwrap(),
+        Outcome::Done,
+        "an UPDATE to a duplicate key likewise"
+    );
     upd.unbind();
 
     let heap = Relation::open(heap_relation_data(mcx), None);
     let a = Box::leak(Box::new(gravity_program::Arena::new(256))).handle();
     let mut m = IndexMaint::new(&[IndexPlan::new(a, IDX_OID, &[1], true)]);
     assert!(m.open(mcx, &heap).unwrap());
-    for (v, want) in [(10, &[IDX_OID][..]), (40, &[][..]), (40, &[IDX_OID][..]), (50, &[][..])] {
-        let mut t = heaptuple::heap_form_tuple(mcx, &heap.rd_att, &[datum::Datum::from_i32(v)], &[false]).unwrap();
+    for (v, want) in [
+        (10, &[IDX_OID][..]),
+        (40, &[][..]),
+        (40, &[IDX_OID][..]),
+        (50, &[][..]),
+    ] {
+        let mut t =
+            heaptuple::heap_form_tuple(mcx, &heap.rd_att, &[datum::Datum::from_i32(v)], &[false])
+                .unwrap();
         heapam::heap_insert(&heap, t.as_tuple_mut(), 0, 0, None).unwrap();
         let tid = t.as_tuple().t_self;
-        m.insert(mcx, &heap, &tid, &[v as u64], &[0], false, false).unwrap();
-        assert_eq!(m.rechecks(), want, "the recheckIndexes of the row with key {v}");
+        m.insert(mcx, &heap, &tid, &[v as u64], &[0], false, false)
+            .unwrap();
+        assert_eq!(
+            m.rechecks(),
+            want,
+            "the recheckIndexes of the row with key {v}"
+        );
     }
     m.unbind().unwrap();
     set_deferrable_index(false);
@@ -400,17 +614,41 @@ fn a_deferrable_exclusion_constraint_is_maintained() {
         f.indisexclusion = exclusion;
         Relation::open(d, None)
     };
-    let name = |r: &Relation<'_>| gravity_hosts::ops::modifytable::index_maint::unmaintainable(r).unwrap_or("maintained");
-    assert_eq!(name(&index(true)), "maintained", "a deferrable exclusion constraint (CEOUC_NOWAIT, the recheck list)");
-    assert_eq!(name(&index(false)), "maintained", "a deferrable unique index (UNIQUE_CHECK_PARTIAL, the recheck list)");
-    assert_eq!(name(&Relation::open(index_relation_data(mcx, true), None)), "maintained", "an immediate unique index");
+    let name = |r: &Relation<'_>| {
+        gravity_hosts::ops::modifytable::index_maint::unmaintainable(r).unwrap_or("maintained")
+    };
+    assert_eq!(
+        name(&index(true)),
+        "maintained",
+        "a deferrable exclusion constraint (CEOUC_NOWAIT, the recheck list)"
+    );
+    assert_eq!(
+        name(&index(false)),
+        "maintained",
+        "a deferrable unique index (UNIQUE_CHECK_PARTIAL, the recheck list)"
+    );
+    assert_eq!(
+        name(&Relation::open(index_relation_data(mcx, true), None)),
+        "maintained",
+        "an immediate unique index"
+    );
 }
 
 fn indexed(mcx: mcx::Mcx<'_>, b: &BindingRef<'static>, key: i32) -> bool {
     let heap = Relation::open(heap_relation_data(mcx), None);
     let index = Relation::open(index_relation_data(mcx, true), None);
     let quals = indexqual_param(mcx, INDEX_VAR, OP_INT4EQ, F_INT4EQ);
-    let mut src = IndexSource::new(SiteRecipe::from_plan(&heap, &index, &quals, &types_nodes::NodeList::nil(), AccessShareLock, &[1]).unwrap());
+    let mut src = IndexSource::new(
+        SiteRecipe::from_plan(
+            &heap,
+            &index,
+            &quals,
+            &types_nodes::NodeList::nil(),
+            AccessShareLock,
+            &[1],
+        )
+        .unwrap(),
+    );
     src.bind(b).unwrap();
     src.seek(&[key as u64], &[0]).unwrap();
     let (mut v, mut n) = ([0u64; 1], [0u8; 1]);
@@ -426,7 +664,14 @@ fn failing(kind: WCOKind) -> Rc<[CheckSpec]> {
     let qm = qctx.mcx();
     let f = Node::mk_const(qm, 16, -1, 0, 1, Datum::from_bool(false), false, true).unwrap();
     let node = Node::mk_list(qm, NodeList::make1(qm, f).unwrap()).unwrap();
-    Rc::from(vec![CheckSpec { kind, relname: Arc::from("t"), polname: Some(Arc::from("p")), node, target: 0, inits: Rc::from([]) }])
+    Rc::from(vec![CheckSpec {
+        kind,
+        relname: Arc::from("t"),
+        polname: Some(Arc::from("p")),
+        node,
+        target: 0,
+        inits: Rc::from([]),
+    }])
 }
 
 /// An upsert plan; a speculative insert that goes in releases its speculative-insertion lock (lmgr.c
@@ -454,14 +699,21 @@ fn an_upsert_insert_runs_the_rls_insert_check() {
     let snap = static_mvcc_snapshot();
     let b = binding_ref(&snap);
 
-    let mut w = WriteHost::new(&upsert_plan()).with_checks(Some(failing(WCOKind::WCO_RLS_INSERT_CHECK)));
+    let mut w =
+        WriteHost::new(&upsert_plan()).with_checks(Some(failing(WCOKind::WCO_RLS_INSERT_CHECK)));
     w.bind(&b).unwrap();
     let r = w.write(WriteOp::Insert, ScanPos::NONE, &[30], &[0]);
     let e = take_error();
     w.unbind();
-    assert!(r.is_err(), "the upsert's new row passed a failing RLS insert check: {r:?}");
+    assert!(
+        r.is_err(),
+        "the upsert's new row passed a failing RLS insert check: {r:?}"
+    );
     let e = e.expect("stashed pg error");
-    assert_eq!(e.message, "new row violates row-level security policy \"p\" for table \"t\"");
+    assert_eq!(
+        e.message,
+        "new row violates row-level security policy \"p\" for table \"t\""
+    );
     assert!(!indexed(ctx.mcx(), &b, 30));
     drop(w);
     quiesced();
@@ -482,16 +734,26 @@ fn a_do_update_runs_the_rls_conflict_check_on_the_existing_row() {
     let snap = static_mvcc_snapshot();
     let b = binding_ref(&snap);
 
-    let mut w = WriteHost::new(&upsert_plan()).with_checks(Some(failing(WCOKind::WCO_RLS_CONFLICT_CHECK)));
+    let mut w =
+        WriteHost::new(&upsert_plan()).with_checks(Some(failing(WCOKind::WCO_RLS_CONFLICT_CHECK)));
     w.bind(&b).unwrap();
     let o = w.write(WriteOp::Insert, ScanPos::NONE, &[10], &[0]);
-    assert!(matches!(o, Ok(Outcome::Conflict)), "the conflict is the arm's (its WHERE runs before the check): {o:?}");
+    assert!(
+        matches!(o, Ok(Outcome::Conflict)),
+        "the conflict is the arm's (its WHERE runs before the check): {o:?}"
+    );
     let r = w.conflict_check();
     let e = take_error();
     w.unbind();
-    assert!(r.is_err(), "the existing row passed a USING policy that rejects it: {r:?}");
+    assert!(
+        r.is_err(),
+        "the existing row passed a USING policy that rejects it: {r:?}"
+    );
     let e = e.expect("stashed pg error");
-    assert_eq!(e.message, "new row violates row-level security policy \"p\" (USING expression) for table \"t\"");
+    assert_eq!(
+        e.message,
+        "new row violates row-level security policy \"p\" (USING expression) for table \"t\""
+    );
     drop(w);
     quiesced();
 }
@@ -516,7 +778,10 @@ fn an_upsert_insert_runs_the_view_check_option() {
     let r = w.write(WriteOp::Insert, ScanPos::NONE, &[0], &[1]);
     let e = take_error();
     w.unbind();
-    assert!(r.is_err(), "the upsert's new row passed a failing view check option: {r:?}");
+    assert!(
+        r.is_err(),
+        "the upsert's new row passed a failing view check option: {r:?}"
+    );
     let e = e.expect("stashed pg error");
     assert_eq!(e.sqlstate(), ERRCODE_WITH_CHECK_OPTION_VIOLATION);
     assert_eq!(e.message, "new row violates check option for view \"t\"");
@@ -542,29 +807,85 @@ fn a_delete_over_several_result_relations_takes_each_row_to_its_own_target() {
     let t1 = load_rows(ctx.mcx(), &[1, 2]);
     let t2 = load_heap2_rows(ctx.mcx(), &[3, 4]);
     assert_eq!(t1[0], t2[0], "the fixture's first rows share a TID");
-    let at = |rel: Oid, tid: &types_tuple::ItemPointerData| ScanPos::new(rel, ItemPointerGetBlockNumber(tid), ItemPointerGetOffsetNumber(tid));
+    let at = |rel: Oid, tid: &types_tuple::ItemPointerData| {
+        ScanPos::new(
+            rel,
+            ItemPointerGetBlockNumber(tid),
+            ItemPointerGetOffsetNumber(tid),
+        )
+    };
     let snap = static_mvcc_snapshot();
     let b = binding_ref(&snap);
     let multi = |cmd: Cmd| {
         let a = Box::leak(Box::new(gravity_program::Arena::new(256))).handle();
-        let leaves = [RouteLeaf { relid: HEAP_OID, natts: 1, nindexes: 0, before_row: false }, RouteLeaf { relid: HEAP2_OID, natts: 1, nindexes: 0, before_row: false }];
+        let leaves = [
+            RouteLeaf {
+                relid: HEAP_OID,
+                natts: 1,
+                nindexes: 0,
+                before_row: false,
+            },
+            RouteLeaf {
+                relid: HEAP2_OID,
+                natts: 1,
+                nindexes: 0,
+                before_row: false,
+            },
+        ];
         WritePlan::write(a, cmd, HEAP_OID, &[]).with_route(a, HEAP_OID, &leaves)
     };
 
     let mut w = MultiTargetHost::new(&multi(Cmd::Delete));
     w.bind(&b).unwrap();
-    assert_eq!(w.write(WriteOp::Delete, at(HEAP2_OID, &t2[0]), &[], &[]).unwrap(), Outcome::Done, "the child's row, at the child");
-    assert_eq!(w.write(WriteOp::Delete, at(HEAP_OID, &t1[0]), &[], &[]).unwrap(), Outcome::Done, "the parent's row at the same TID is still there");
-    assert_eq!(w.write(WriteOp::Delete, at(HEAP2_OID, &t2[0]), &[], &[]).unwrap(), Outcome::Skipped, "this command deleted the child's row");
-    assert_eq!(w.write(WriteOp::Delete, at(HEAP2_OID, &t2[1]), &[], &[]).unwrap(), Outcome::Done);
-    assert!(w.write(WriteOp::Delete, at(HEAP_OID + 99, &t1[1]), &[], &[]).is_err(), "a row outside the targets");
+    assert_eq!(
+        w.write(WriteOp::Delete, at(HEAP2_OID, &t2[0]), &[], &[])
+            .unwrap(),
+        Outcome::Done,
+        "the child's row, at the child"
+    );
+    assert_eq!(
+        w.write(WriteOp::Delete, at(HEAP_OID, &t1[0]), &[], &[])
+            .unwrap(),
+        Outcome::Done,
+        "the parent's row at the same TID is still there"
+    );
+    assert_eq!(
+        w.write(WriteOp::Delete, at(HEAP2_OID, &t2[0]), &[], &[])
+            .unwrap(),
+        Outcome::Skipped,
+        "this command deleted the child's row"
+    );
+    assert_eq!(
+        w.write(WriteOp::Delete, at(HEAP2_OID, &t2[1]), &[], &[])
+            .unwrap(),
+        Outcome::Done
+    );
+    assert!(
+        w.write(WriteOp::Delete, at(HEAP_OID + 99, &t1[1]), &[], &[])
+            .is_err(),
+        "a row outside the targets"
+    );
     let e = take_error().expect("stashed pg error");
-    assert!(e.message.starts_with("gravity: Reason::Bug: a Delete of a row of relation 61099 outside"), "{}", e.message);
-    assert_eq!(w.write(WriteOp::Delete, at(HEAP_OID, &t1[1]), &[], &[]).unwrap(), Outcome::Done, "the host goes on after the refused row");
+    assert!(
+        e.message
+            .starts_with("gravity: Reason::Bug: a Delete of a row of relation 61099 outside"),
+        "{}",
+        e.message
+    );
+    assert_eq!(
+        w.write(WriteOp::Delete, at(HEAP_OID, &t1[1]), &[], &[])
+            .unwrap(),
+        Outcome::Done,
+        "the host goes on after the refused row"
+    );
     w.unbind();
 
     let mut u = MultiTargetHost::new(&multi(Cmd::Update));
-    assert_eq!(u.bind(&b), Err(gravity_hosts::unsupported()), "an UPDATE without its updated columns");
+    assert_eq!(
+        u.bind(&b),
+        Err(gravity_hosts::unsupported()),
+        "an UPDATE without its updated columns"
+    );
     u.unbind();
     drop((w, u));
     quiesced();
@@ -578,8 +899,8 @@ fn a_delete_over_several_result_relations_takes_each_row_to_its_own_target() {
 /// shows; each new version lands at the page's next offset (the fixture's heap), where the test reads it.
 #[test]
 fn an_update_over_several_result_relations_forms_each_targets_row_over_its_old_version() {
-    use gravity_hosts::ops::modifytable::write_route::MultiTargetHost;
     use gravity_hosts::ops::modifytable::write_constraints::ModifiedCols;
+    use gravity_hosts::ops::modifytable::write_route::MultiTargetHost;
     use gravity_program::RouteLeaf;
     use types_nodes::Bitmapset;
     use types_tuple::htup::FirstLowInvalidHeapAttributeNumber as FLIHAN;
@@ -592,7 +913,13 @@ fn an_update_over_several_result_relations_forms_each_targets_row_over_its_old_v
     let t1 = load_rows(ctx.mcx(), &[1, 2]);
     let t2 = load_heap2_rows(ctx.mcx(), &[3, 4]);
     assert_eq!(t1[0], t2[0], "the fixture's first rows share a TID");
-    let at = |rel: Oid, tid: &types_tuple::ItemPointerData| ScanPos::new(rel, ItemPointerGetBlockNumber(tid), ItemPointerGetOffsetNumber(tid));
+    let at = |rel: Oid, tid: &types_tuple::ItemPointerData| {
+        ScanPos::new(
+            rel,
+            ItemPointerGetBlockNumber(tid),
+            ItemPointerGetOffsetNumber(tid),
+        )
+    };
     let snap = static_mvcc_snapshot();
     let b = binding_ref(&snap);
     let stmt = MemoryContext::new("the statement's plan");
@@ -601,62 +928,143 @@ fn an_update_over_several_result_relations_forms_each_targets_row_over_its_old_v
     let upd = mcx::alloc_leak_in(sm, Bitmapset::make_singleton(sm, 1 - FLIHAN).unwrap()).unwrap();
     // SAFETY: the plan's bitmaps as the admission hands them in (`admit::modified_cols`: 'static over the statement's plan)
     #[allow(clippy::unnecessary_cast)]
-    let cols: ModifiedCols = unsafe { (&*(ins as *const Bitmapset<'_> as *const Bitmapset<'static>), &*(upd as *const Bitmapset<'_> as *const Bitmapset<'static>)) };
+    let cols: ModifiedCols = unsafe {
+        (
+            &*(ins as *const Bitmapset<'_> as *const Bitmapset<'static>),
+            &*(upd as *const Bitmapset<'_> as *const Bitmapset<'static>),
+        )
+    };
     let a = Box::leak(Box::new(gravity_program::Arena::new(256))).handle();
-    let leaves = [RouteLeaf { relid: HEAP_OID, natts: 1, nindexes: 1, before_row: false }, RouteLeaf { relid: HEAP2_OID, natts: 1, nindexes: 0, before_row: false }];
+    let leaves = [
+        RouteLeaf {
+            relid: HEAP_OID,
+            natts: 1,
+            nindexes: 1,
+            before_row: false,
+        },
+        RouteLeaf {
+            relid: HEAP2_OID,
+            natts: 1,
+            nindexes: 0,
+            before_row: false,
+        },
+    ];
     let plan = WritePlan::write(a, Cmd::Update, HEAP_OID, &[]).with_route(a, HEAP_OID, &leaves);
 
     let mut u = MultiTargetHost::new(&plan).with_modified(Some(cols));
     u.bind(&b).unwrap();
-    assert_eq!(u.write(WriteOp::Update, at(HEAP2_OID, &t2[0]), &[300], &[0]).unwrap(), Outcome::Done, "the child's row, at the child");
+    assert_eq!(
+        u.write(WriteOp::Update, at(HEAP2_OID, &t2[0]), &[300], &[0])
+            .unwrap(),
+        Outcome::Done,
+        "the child's row, at the child"
+    );
     // R5 (D764): RETURNING reads the target's new row back, in the target's layout
     let (mut v, mut n) = ([0; 1], [1; 1]);
-    assert!(u.written(&mut v, &mut n), "an UPDATE's new row is read back");
+    assert!(
+        u.written(&mut v, &mut n),
+        "an UPDATE's new row is read back"
+    );
     assert_eq!((v, n), ([300], [0]), "the child's new row");
-    assert_eq!(u.write(WriteOp::Update, at(HEAP_OID, &t1[0]), &[100], &[0]).unwrap(), Outcome::Done, "the parent's row at the same TID");
-    assert_eq!(u.write(WriteOp::Update, at(HEAP2_OID, &t2[0]), &[301], &[0]).unwrap(), Outcome::Skipped, "this command updated the child's row");
+    assert_eq!(
+        u.write(WriteOp::Update, at(HEAP_OID, &t1[0]), &[100], &[0])
+            .unwrap(),
+        Outcome::Done,
+        "the parent's row at the same TID"
+    );
+    assert_eq!(
+        u.write(WriteOp::Update, at(HEAP2_OID, &t2[0]), &[301], &[0])
+            .unwrap(),
+        Outcome::Skipped,
+        "this command updated the child's row"
+    );
     // a site wider than the SET cells is R5's (RETURNING); fewer cells than the SET columns is a bug
-    assert!(u.write(WriteOp::Update, at(HEAP_OID, &t1[1]), &[], &[]).is_err(), "no SET cell where the statement updates one column");
+    assert!(
+        u.write(WriteOp::Update, at(HEAP_OID, &t1[1]), &[], &[])
+            .is_err(),
+        "no SET cell where the statement updates one column"
+    );
     let e = take_error().expect("stashed pg error");
-    assert!(e.message.starts_with("gravity: Reason::Bug: an UPDATE row of 0 cells"), "{}", e.message);
-    assert!(!u.written(&mut [0], &mut [1]), "a failed row is not read back");
+    assert!(
+        e.message
+            .starts_with("gravity: Reason::Bug: an UPDATE row of 0 cells"),
+        "{}",
+        e.message
+    );
+    assert!(
+        !u.written(&mut [0], &mut [1]),
+        "a failed row is not read back"
+    );
     u.unbind();
     drop(stmt); // the deriving statement ends: a parked host reads its own copies of the columns from here on
 
     let m = ctx.mcx();
-    for (rel, data, want) in [(HEAP_OID, heap_relation_data(m), 100), (HEAP2_OID, heap2_relation_data(m), 300)] {
+    for (rel, data, want) in [
+        (HEAP_OID, heap_relation_data(m), 100),
+        (HEAP2_OID, heap2_relation_data(m), 300),
+    ] {
         let heap = Relation::open(data, None);
         let mut slot = tableam::table_slot_create(m, &heap).unwrap();
         let new = types_tuple::ItemPointerData::new(ItemPointerGetBlockNumber(&t1[0]), 3);
-        assert!(gravity_hosts::ops::shared::heap_fetch::fetch_any(m, &heap, &new, &mut slot).unwrap(), "{rel}: the new version");
+        assert!(
+            gravity_hosts::ops::shared::heap_fetch::fetch_any(m, &heap, &new, &mut slot).unwrap(),
+            "{rel}: the new version"
+        );
         let mut null = false;
-        assert_eq!((exectuples::slot_getattr(&mut slot, 1, &mut null).as_i32(), null), (want, false), "{rel}");
+        assert_eq!(
+            (
+                exectuples::slot_getattr(&mut slot, 1, &mut null).as_i32(),
+                null
+            ),
+            (want, false),
+            "{rel}"
+        );
         exectuples::exec_clear_tuple(&mut slot, m);
     }
     u.bind(&b).unwrap();
-    assert_eq!(u.write(WriteOp::Update, at(HEAP_OID, &t1[1]), &[200], &[0]).unwrap(), Outcome::Done, "a rebind after the statement's plan is gone");
+    assert_eq!(
+        u.write(WriteOp::Update, at(HEAP_OID, &t1[1]), &[200], &[0])
+            .unwrap(),
+        Outcome::Done,
+        "a rebind after the statement's plan is gone"
+    );
     u.unbind();
     drop(u);
     quiesced();
 }
 
-type SatUpdateFn = for<'a, 'tup> fn(&'a mut types_tuple::HeapTupleData<'tup>, types_core::CommandId, types_core::Buffer) -> PgResult<tableam_vocab::TM_Result>;
+type SatUpdateFn = for<'a, 'tup> fn(
+    &'a mut types_tuple::HeapTupleData<'tup>,
+    types_core::CommandId,
+    types_core::Buffer,
+) -> PgResult<tableam_vocab::TM_Result>;
 static SAT_PREV: OnceLock<SatUpdateFn> = OnceLock::new();
 /// heap_tuple_satisfies_update calls: one per heap_lock_tuple (the lock's own test of a version).
 static SAT_CALLS: AtomicU32 = AtomicU32::new(0);
 
-fn counting_satisfies_update(h: &mut types_tuple::HeapTupleData<'_>, cid: types_core::CommandId, buf: types_core::Buffer) -> PgResult<tableam_vocab::TM_Result> {
+fn counting_satisfies_update(
+    h: &mut types_tuple::HeapTupleData<'_>,
+    cid: types_core::CommandId,
+    buf: types_core::Buffer,
+) -> PgResult<tableam_vocab::TM_Result> {
     SAT_CALLS.fetch_add(1, Ordering::Relaxed);
     (SAT_PREV.get().expect("wrapped"))(h, cid, buf)
 }
 
 /// A version's header on its page, edited in place (the fixture's pages are the buffers).
-fn edit_header(tid: &types_tuple::ItemPointerData, f: impl FnOnce(&mut types_tuple::HeapTupleHeaderData)) {
+fn edit_header(
+    tid: &types_tuple::ItemPointerData,
+    f: impl FnOnce(&mut types_tuple::HeapTupleHeaderData),
+) {
     edit_header_in(heap_relation_data, tid, f)
 }
 
 /// `edit_header` on the heap `rd` describes (H-h: the second heap `t2`).
-fn edit_header_in(rd: fn(mcx::Mcx<'_>) -> types_rel::RelationData<'_>, tid: &types_tuple::ItemPointerData, f: impl FnOnce(&mut types_tuple::HeapTupleHeaderData)) {
+fn edit_header_in(
+    rd: fn(mcx::Mcx<'_>) -> types_rel::RelationData<'_>,
+    tid: &types_tuple::ItemPointerData,
+    f: impl FnOnce(&mut types_tuple::HeapTupleHeaderData),
+) {
     let ctx = MemoryContext::new("hdr");
     let heap = types_rel::Relation::open(rd(ctx.mcx()), None);
     let buf = bufmgr_seams::read_buffer::call(&heap, ItemPointerGetBlockNumber(tid)).unwrap();
@@ -678,7 +1086,9 @@ fn edit_header_in(rd: fn(mcx::Mcx<'_>) -> types_rel::RelationData<'_>, tid: &typ
 fn a_traversed_lock_hands_back_the_newest_version_without_locking_again() {
     let _g = serial();
     install();
-    SAT_PREV.get_or_init(|| heapam_visibility_seams::heap_tuple_satisfies_update::wrap(counting_satisfies_update));
+    SAT_PREV.get_or_init(|| {
+        heapam_visibility_seams::heap_tuple_satisfies_update::wrap(counting_satisfies_update)
+    });
     if !heapam_visibility_seams::heap_tuple_satisfies_dirty::is_installed() {
         heapam_visibility_seams::heap_tuple_satisfies_dirty::set(|_h, _snap, _buf| Ok(true));
     }
@@ -695,24 +1105,49 @@ fn a_traversed_lock_hands_back_the_newest_version_without_locking_again() {
         h.t_ctid = v2;
     });
     edit_header(&v2, |h| h.set_xmin(20));
-    let pos = |t: &types_tuple::ItemPointerData| ScanPos::new(HEAP_OID, ItemPointerGetBlockNumber(t), ItemPointerGetOffsetNumber(t));
+    let pos = |t: &types_tuple::ItemPointerData| {
+        ScanPos::new(
+            HEAP_OID,
+            ItemPointerGetBlockNumber(t),
+            ItemPointerGetOffsetNumber(t),
+        )
+    };
     let snap = static_mvcc_snapshot();
     let b = binding_ref(&snap);
 
-    let mut l = LockHost::new(&WritePlan::locking(HEAP_OID, LockKind::Exclusive, WaitPolicy::Block));
+    let mut l = LockHost::new(&WritePlan::locking(
+        HEAP_OID,
+        LockKind::Exclusive,
+        WaitPolicy::Block,
+    ));
     l.bind(&b).unwrap();
     let (mut v, mut n) = ([0u64; 1], [1u8; 1]);
     assert!(l.existing(&mut v, &mut n).is_err(), "nothing traversed yet");
     SAT_CALLS.store(0, Ordering::Relaxed);
-    assert_eq!(l.lock(pos(&v1)).unwrap(), Outcome::Recheck, "the lock followed v1's update to v2");
-    assert_eq!(SAT_CALLS.load(Ordering::Relaxed), 2, "v1 tested, then v2 locked");
+    assert_eq!(
+        l.lock(pos(&v1)).unwrap(),
+        Outcome::Recheck,
+        "the lock followed v1's update to v2"
+    );
+    assert_eq!(
+        SAT_CALLS.load(Ordering::Relaxed),
+        2,
+        "v1 tested, then v2 locked"
+    );
     assert_eq!(l.recheck_pos(), pos(&v2));
     assert_eq!(l.existing(&mut v, &mut n).unwrap(), pos(&v2));
     assert_eq!((v[0] as i32, n[0]), (70, 0), "v2's cells");
-    assert_eq!(SAT_CALLS.load(Ordering::Relaxed), 2, "existing locked nothing");
+    assert_eq!(
+        SAT_CALLS.load(Ordering::Relaxed),
+        2,
+        "existing locked nothing"
+    );
 
     assert_eq!(l.lock(pos(&tids[2])).unwrap(), Outcome::Done);
-    assert!(l.existing(&mut v, &mut n).is_err(), "a lock that did not traverse leaves nothing to hand back");
+    assert!(
+        l.existing(&mut v, &mut n).is_err(),
+        "a lock that did not traverse leaves nothing to hand back"
+    );
     l.unbind();
     drop(l);
     quiesced();
@@ -740,20 +1175,36 @@ fn a_generated_column_computes_a_thousand_rows_in_flat_bind_memory() {
     w.bind(&b).unwrap();
     let mut got = Vec::new();
     for v in [1u64, 2] {
-        got.push(w.write(WriteOp::Insert, ScanPos::NONE, &[v], &[0]).map_err(|_| take_error().map(|e| e.message)));
+        got.push(
+            w.write(WriteOp::Insert, ScanPos::NONE, &[v], &[0])
+                .map_err(|_| take_error().map(|e| e.message)),
+        );
     }
     let (mut c, mut n) = ([0u64; 1], [1u8; 1]);
     let written = w.written(&mut c, &mut n);
     let used = w.bind_scratch_used();
     for v in 0..BINDS as u64 {
-        got.push(w.write(WriteOp::Insert, ScanPos::NONE, &[v], &[0]).map_err(|_| take_error().map(|e| e.message)));
+        got.push(
+            w.write(WriteOp::Insert, ScanPos::NONE, &[v], &[0])
+                .map_err(|_| take_error().map(|e| e.message)),
+        );
     }
     let after = w.bind_scratch_used();
     w.unbind();
     set_generated(false);
-    assert!(got.iter().all(|r| *r == Ok(Outcome::Done)), "every row written: {:?}", got.iter().find(|r| **r != Ok(Outcome::Done)));
-    assert!(written && (c[0] as i32, n[0]) == (7, 0), "the written row is the computed one: {written} {c:?} {n:?}");
-    assert_eq!(after, used, "{BINDS} rows of one bind grew its per-bind context");
+    assert!(
+        got.iter().all(|r| *r == Ok(Outcome::Done)),
+        "every row written: {:?}",
+        got.iter().find(|r| **r != Ok(Outcome::Done))
+    );
+    assert!(
+        written && (c[0] as i32, n[0]) == (7, 0),
+        "the written row is the computed one: {written} {c:?} {n:?}"
+    );
+    assert_eq!(
+        after, used,
+        "{BINDS} rows of one bind grew its per-bind context"
+    );
     drop(w);
     quiesced();
 }
@@ -762,13 +1213,23 @@ fn a_generated_column_computes_a_thousand_rows_in_flat_bind_memory() {
 /// tuple other than NEW, as a PL function that assigns NEW.a returns).
 const ADD_100_FOID: Oid = 99_001;
 
-fn add_100(_fl: Option<&mut types_fmgr::FmgrInfo>, fcinfo: &mut types_fmgr::FunctionCallInfoBaseData) -> PgResult<Datum> {
+fn add_100(
+    _fl: Option<&mut types_fmgr::FmgrInfo>,
+    fcinfo: &mut types_fmgr::FunctionCallInfoBaseData,
+) -> PgResult<Datum> {
     // SAFETY: the trigger call keeps its TriggerData live for the call
-    let td = unsafe { types_trigger_call::trigger_data_from_fcinfo(fcinfo) }.expect("called as a trigger");
+    let td = unsafe { types_trigger_call::trigger_data_from_fcinfo(fcinfo) }
+        .expect("called as a trigger");
     // SAFETY: a BEFORE ROW INSERT call's NEW, live for the call
     let new = unsafe { td.tg_trigtuple.expect("NEW").as_ref() };
     let copy = heaptuple::heap_copytuple(fcinfo.result_mcx(), new)?;
-    let (hdr, len, tself, oid, hoff) = (copy.header_ptr(), copy.t_len, copy.t_self, copy.t_tableOid, copy.t_data().t_hoff as usize);
+    let (hdr, len, tself, oid, hoff) = (
+        copy.header_ptr(),
+        copy.t_len,
+        copy.t_self,
+        copy.t_tableOid,
+        copy.t_data().t_hoff as usize,
+    );
     // SAFETY: the copy's image: its one int4 column, not null, at t_hoff
     unsafe {
         let a = (hdr as *mut u8).add(hoff) as *mut i32;
@@ -777,7 +1238,9 @@ fn add_100(_fl: Option<&mut types_fmgr::FmgrInfo>, fcinfo: &mut types_fmgr::Func
     core::mem::forget(copy);
     // SAFETY: the forgotten copy's image, live in the call's result context
     let view = unsafe { types_tuple::HeapTupleData::from_raw_parts(hdr, len, tself, oid) };
-    Ok(Datum::from_usize(Box::leak(Box::new(view)) as *mut types_tuple::HeapTupleData<'_> as usize))
+    Ok(Datum::from_usize(
+        Box::leak(Box::new(view)) as *mut types_tuple::HeapTupleData<'_> as usize,
+    ))
 }
 
 static FMGR_PREV: OnceLock<fn(Oid) -> PgResult<types_fmgr::FmgrInfo>> = OnceLock::new();
@@ -792,12 +1255,57 @@ fn fmgr_with_add_100(foid: Oid) -> PgResult<types_fmgr::FmgrInfo> {
 /// The heap's trigger descriptor: one BEFORE ROW INSERT trigger calling `add_100`.
 fn add_100_desc() -> Rc<types_trigger::TriggerDesc<'static>> {
     use mcx::{PgString, PgVec};
-    use types_trigger::{Trigger, TriggerDesc, TRIGGER_TYPE_BEFORE, TRIGGER_TYPE_INSERT, TRIGGER_TYPE_ROW};
+    use types_trigger::{
+        Trigger, TriggerDesc, TRIGGER_TYPE_BEFORE, TRIGGER_TYPE_INSERT, TRIGGER_TYPE_ROW,
+    };
     let m = Box::leak(Box::new(MemoryContext::new("trigdesc"))).mcx();
-    let t = Trigger { tgoid: 99_002, tgname: PgString::from_str_in("t_add_100", m).unwrap(), tgfoid: ADD_100_FOID, tgtype: TRIGGER_TYPE_ROW | TRIGGER_TYPE_BEFORE | TRIGGER_TYPE_INSERT, tgenabled: b'O' as i8, tgisinternal: false, tgisclone: false, tgconstrrelid: 0, tgconstrindid: 0, tgconstraint: 0, tgdeferrable: false, tginitdeferred: false, tgnargs: 0, tgnattr: 0, tgattr: PgVec::new_in(m), tgargs: PgVec::new_in(m), tgqual: None, tgoldtable: None, tgnewtable: None };
+    let t = Trigger {
+        tgoid: 99_002,
+        tgname: PgString::from_str_in("t_add_100", m).unwrap(),
+        tgfoid: ADD_100_FOID,
+        tgtype: TRIGGER_TYPE_ROW | TRIGGER_TYPE_BEFORE | TRIGGER_TYPE_INSERT,
+        tgenabled: b'O' as i8,
+        tgisinternal: false,
+        tgisclone: false,
+        tgconstrrelid: 0,
+        tgconstrindid: 0,
+        tgconstraint: 0,
+        tgdeferrable: false,
+        tginitdeferred: false,
+        tgnargs: 0,
+        tgnattr: 0,
+        tgattr: PgVec::new_in(m),
+        tgargs: PgVec::new_in(m),
+        tgqual: None,
+        tgoldtable: None,
+        tgnewtable: None,
+    };
     let mut v = PgVec::new_in(m);
     v.push(t);
-    Rc::new(TriggerDesc { triggers: v, trig_insert_before_row: true, trig_insert_after_row: false, trig_insert_instead_row: false, trig_insert_before_statement: false, trig_insert_after_statement: false, trig_update_before_row: false, trig_update_after_row: false, trig_update_instead_row: false, trig_update_before_statement: false, trig_update_after_statement: false, trig_delete_before_row: false, trig_delete_after_row: false, trig_delete_instead_row: false, trig_delete_before_statement: false, trig_delete_after_statement: false, trig_truncate_before_statement: false, trig_truncate_after_statement: false, trig_insert_new_table: false, trig_update_old_table: false, trig_update_new_table: false, trig_delete_old_table: false })
+    Rc::new(TriggerDesc {
+        triggers: v,
+        trig_insert_before_row: true,
+        trig_insert_after_row: false,
+        trig_insert_instead_row: false,
+        trig_insert_before_statement: false,
+        trig_insert_after_statement: false,
+        trig_update_before_row: false,
+        trig_update_after_row: false,
+        trig_update_instead_row: false,
+        trig_update_before_statement: false,
+        trig_update_after_statement: false,
+        trig_delete_before_row: false,
+        trig_delete_after_row: false,
+        trig_delete_instead_row: false,
+        trig_delete_before_statement: false,
+        trig_delete_after_statement: false,
+        trig_truncate_before_statement: false,
+        trig_truncate_after_statement: false,
+        trig_insert_new_table: false,
+        trig_update_old_table: false,
+        trig_update_new_table: false,
+        trig_delete_old_table: false,
+    })
 }
 
 /// V4R-243 (D661 host (a)): ON CONFLICT DO UPDATE's EXCLUDED is the row ExecInsert formed before its arbiter check:
@@ -814,12 +1322,27 @@ fn excluded_is_the_row_execinsert_formed() {
     static SEAMS: std::sync::Once = std::sync::Once::new();
     SEAMS.call_once(|| {
         // TriggerEnabled reads session_replication_role (the default: origin)
-        guc_tables::vars::SessionReplicationRole.install_if_absent(guc_tables::GucVarAccessors { get: || guc_tables::consts::SESSION_REPLICATION_ROLE_ORIGIN, set: |_| {} });
-        relcache_seams::relation_get_trigger_desc::set(|relid| Ok(if relid == HEAP_OID { TRIG_DESC.with(|d| d.borrow().clone()) } else { None }));
+        guc_tables::vars::SessionReplicationRole.install_if_absent(guc_tables::GucVarAccessors {
+            get: || guc_tables::consts::SESSION_REPLICATION_ROLE_ORIGIN,
+            set: |_| {},
+        });
+        relcache_seams::relation_get_trigger_desc::set(|relid| {
+            Ok(if relid == HEAP_OID {
+                TRIG_DESC.with(|d| d.borrow().clone())
+            } else {
+                None
+            })
+        });
         if fmgr_seams::fmgr_info::is_installed() {
             FMGR_PREV.get_or_init(|| fmgr_seams::fmgr_info::wrap(fmgr_with_add_100));
         } else {
-            FMGR_PREV.get_or_init(|| |foid| Err(Box::new(types_error::PgError::error(format!("no function {foid} in the fixture")))));
+            FMGR_PREV.get_or_init(|| {
+                |foid| {
+                    Err(Box::new(types_error::PgError::error(format!(
+                        "no function {foid} in the fixture"
+                    ))))
+                }
+            });
             fmgr_seams::fmgr_info::set(fmgr_with_add_100);
         }
     });
@@ -840,10 +1363,22 @@ fn excluded_is_the_row_execinsert_formed() {
     load_rows(ctx.mcx(), &[110]);
     let mut w = WriteHost::new(&upsert_plan());
     w.bind(&b).unwrap();
-    let r = w.write(WriteOp::Insert, ScanPos::NONE, &[10], &[0]).map_err(|_| take_error().map(|e| e.message));
-    assert_eq!(r, Ok(Outcome::Conflict), "NEW 110 (the trigger's) conflicts with the existing 110");
-    assert_eq!(written(&mut w), Some((110, 0)), "EXCLUDED is the trigger's row");
-    let r = w.write(WriteOp::Insert, ScanPos::NONE, &[20], &[0]).map_err(|_| take_error().map(|e| e.message));
+    let r = w
+        .write(WriteOp::Insert, ScanPos::NONE, &[10], &[0])
+        .map_err(|_| take_error().map(|e| e.message));
+    assert_eq!(
+        r,
+        Ok(Outcome::Conflict),
+        "NEW 110 (the trigger's) conflicts with the existing 110"
+    );
+    assert_eq!(
+        written(&mut w),
+        Some((110, 0)),
+        "EXCLUDED is the trigger's row"
+    );
+    let r = w
+        .write(WriteOp::Insert, ScanPos::NONE, &[20], &[0])
+        .map_err(|_| take_error().map(|e| e.message));
     assert_eq!(r, Ok(Outcome::Done), "NEW 120 goes in");
     assert_eq!(written(&mut w), Some((120, 0)));
     w.unbind();
@@ -859,9 +1394,19 @@ fn excluded_is_the_row_execinsert_formed() {
     load_rows(ctx.mcx(), &[7]);
     let mut w = WriteHost::new(&upsert_plan());
     w.bind(&b).unwrap();
-    let r = w.write(WriteOp::Insert, ScanPos::NONE, &[5], &[0]).map_err(|_| take_error().map(|e| e.message));
-    assert_eq!(r, Ok(Outcome::Conflict), "the computed 7 conflicts with the existing 7");
-    assert_eq!(written(&mut w), Some((7, 0)), "EXCLUDED's generated column is the computed value");
+    let r = w
+        .write(WriteOp::Insert, ScanPos::NONE, &[5], &[0])
+        .map_err(|_| take_error().map(|e| e.message));
+    assert_eq!(
+        r,
+        Ok(Outcome::Conflict),
+        "the computed 7 conflicts with the existing 7"
+    );
+    assert_eq!(
+        written(&mut w),
+        Some((7, 0)),
+        "EXCLUDED's generated column is the computed value"
+    );
     w.unbind();
     drop(w);
     set_generated(false);
@@ -877,7 +1422,9 @@ fn excluded_is_the_row_execinsert_formed() {
 fn a_lock_takes_the_row_in_the_relation_its_position_names() {
     let _g = serial();
     install();
-    SAT_PREV.get_or_init(|| heapam_visibility_seams::heap_tuple_satisfies_update::wrap(counting_satisfies_update));
+    SAT_PREV.get_or_init(|| {
+        heapam_visibility_seams::heap_tuple_satisfies_update::wrap(counting_satisfies_update)
+    });
     if !heapam_visibility_seams::heap_tuple_satisfies_dirty::is_installed() {
         heapam_visibility_seams::heap_tuple_satisfies_dirty::set(|_h, _snap, _buf| Ok(true));
     }
@@ -887,7 +1434,11 @@ fn a_lock_takes_the_row_in_the_relation_its_position_names() {
     let ctx = MemoryContext::new("t");
     let t1 = load_rows(ctx.mcx(), &[1, 2, 3]);
     let t2 = load_heap2_rows(ctx.mcx(), &[7, 70, 8]);
-    assert_eq!((t1[0], t1[2]), (t2[0], t2[2]), "the fixture's heaps share TIDs");
+    assert_eq!(
+        (t1[0], t1[2]),
+        (t2[0], t2[2]),
+        "the fixture's heaps share TIDs"
+    );
     let (v1, v2) = (t2[0], t2[1]);
     edit_header_in(heap2_relation_data, &v1, |h| {
         h.set_xmax(20);
@@ -895,21 +1446,39 @@ fn a_lock_takes_the_row_in_the_relation_its_position_names() {
         h.t_ctid = v2;
     });
     edit_header_in(heap2_relation_data, &v2, |h| h.set_xmin(20));
-    let pos = |rel: Oid, t: &types_tuple::ItemPointerData| ScanPos::new(rel, ItemPointerGetBlockNumber(t), ItemPointerGetOffsetNumber(t));
+    let pos = |rel: Oid, t: &types_tuple::ItemPointerData| {
+        ScanPos::new(
+            rel,
+            ItemPointerGetBlockNumber(t),
+            ItemPointerGetOffsetNumber(t),
+        )
+    };
     let snap = static_mvcc_snapshot();
     let b = binding_ref(&snap);
 
-    let mut l = LockHost::new(&WritePlan::locking(HEAP_OID, LockKind::Exclusive, WaitPolicy::Block));
+    let mut l = LockHost::new(&WritePlan::locking(
+        HEAP_OID,
+        LockKind::Exclusive,
+        WaitPolicy::Block,
+    ));
     for _ in 0..2 {
         // twice: the leaf is opened at its first row of each bind and parked at unbind (the second bind's locks meet
         // this transaction's own: the same answers)
         l.bind(&b).unwrap();
-        assert_eq!(l.lock(pos(HEAP2_OID, &v1)).unwrap(), Outcome::Recheck, "t2's v1 was updated to v2");
+        assert_eq!(
+            l.lock(pos(HEAP2_OID, &v1)).unwrap(),
+            Outcome::Recheck,
+            "t2's v1 was updated to v2"
+        );
         assert_eq!(l.recheck_pos(), pos(HEAP2_OID, &v2));
         let (mut v, mut n) = ([0u64; 1], [1u8; 1]);
         assert_eq!(l.existing(&mut v, &mut n).unwrap(), pos(HEAP2_OID, &v2));
         assert_eq!((v[0] as i32, n[0]), (70, 0), "t2's v2 cells");
-        assert_eq!(l.lock(pos(HEAP_OID, &t1[2])).unwrap(), Outcome::Done, "the recipe's heap's own row");
+        assert_eq!(
+            l.lock(pos(HEAP_OID, &t1[2])).unwrap(),
+            Outcome::Done,
+            "the recipe's heap's own row"
+        );
         assert_eq!(l.lock(pos(HEAP2_OID, &t2[2])).unwrap(), Outcome::Done);
         l.unbind();
     }
@@ -930,31 +1499,55 @@ fn a_merge_action_runs_the_rls_using_check_on_the_target_row() {
     reset_fixture();
     let ctx = MemoryContext::new("t");
     let tids = load_rows(ctx.mcx(), &[10, 20, 30]);
-    let pos = |i: usize| ScanPos::new(HEAP_OID, ItemPointerGetBlockNumber(&tids[i]), ItemPointerGetOffsetNumber(&tids[i]));
+    let pos = |i: usize| {
+        ScanPos::new(
+            HEAP_OID,
+            ItemPointerGetBlockNumber(&tids[i]),
+            ItemPointerGetOffsetNumber(&tids[i]),
+        )
+    };
     let snap = static_mvcc_snapshot();
     let b = binding_ref(&snap);
 
-    for (op, kind, at) in [(WriteOp::Update, WCOKind::WCO_RLS_MERGE_UPDATE_CHECK, 0), (WriteOp::Delete, WCOKind::WCO_RLS_MERGE_DELETE_CHECK, 1)] {
+    for (op, kind, at) in [
+        (WriteOp::Update, WCOKind::WCO_RLS_MERGE_UPDATE_CHECK, 0),
+        (WriteOp::Delete, WCOKind::WCO_RLS_MERGE_DELETE_CHECK, 1),
+    ] {
         let mut w = WriteHost::new(&plan(Cmd::Merge)).with_checks(Some(failing(kind)));
         w.bind(&b).unwrap();
-        let r = if op == WriteOp::Update { w.write(op, pos(at), &[11], &[0]) } else { w.write(op, pos(at), &[], &[]) };
+        let r = if op == WriteOp::Update {
+            w.write(op, pos(at), &[11], &[0])
+        } else {
+            w.write(op, pos(at), &[], &[])
+        };
         let e = take_error();
         w.unbind();
-        assert!(r.is_err(), "MERGE {op:?} wrote a row its USING policy rejects: {r:?}");
+        assert!(
+            r.is_err(),
+            "MERGE {op:?} wrote a row its USING policy rejects: {r:?}"
+        );
         let e = e.expect("stashed pg error");
         assert_eq!(e.message, "target row violates row-level security policy \"p\" (USING expression) for table \"t\"");
         drop(w);
     }
 
     // the other action's option and a plain UPDATE leave the row op alone
-    let mut w = WriteHost::new(&plan(Cmd::Merge)).with_checks(Some(failing(WCOKind::WCO_RLS_MERGE_DELETE_CHECK)));
+    let mut w = WriteHost::new(&plan(Cmd::Merge))
+        .with_checks(Some(failing(WCOKind::WCO_RLS_MERGE_DELETE_CHECK)));
     w.bind(&b).unwrap();
-    assert_eq!(w.write(WriteOp::Update, pos(0), &[11], &[0]).unwrap(), Outcome::Done);
+    assert_eq!(
+        w.write(WriteOp::Update, pos(0), &[11], &[0]).unwrap(),
+        Outcome::Done
+    );
     w.unbind();
     drop(w);
-    let mut w = WriteHost::new(&plan(Cmd::Update)).with_checks(Some(failing(WCOKind::WCO_RLS_MERGE_UPDATE_CHECK)));
+    let mut w = WriteHost::new(&plan(Cmd::Update))
+        .with_checks(Some(failing(WCOKind::WCO_RLS_MERGE_UPDATE_CHECK)));
     w.bind(&b).unwrap();
-    assert_eq!(w.write(WriteOp::Update, pos(2), &[31], &[0]).unwrap(), Outcome::Done);
+    assert_eq!(
+        w.write(WriteOp::Update, pos(2), &[31], &[0]).unwrap(),
+        Outcome::Done
+    );
     w.unbind();
     drop(w);
     quiesced();

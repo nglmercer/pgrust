@@ -20,15 +20,45 @@ use crate::shapes::Admitted;
 /// `milestones!`).
 pub const RUNGS: &[(&[Admit], &[Bind])] = &[
     (crate::statement::ADMIT, crate::statement::BIND),
-    (crate::ops::scan::sites_heap::ADMIT, crate::ops::scan::sites_heap::BIND),
-    (crate::ops::sort::proto::ADMIT, crate::ops::sort::proto::BIND),
-    (crate::ops::modifytable::statement::ADMIT, crate::ops::modifytable::statement::BIND),
+    (
+        crate::ops::scan::sites_heap::ADMIT,
+        crate::ops::scan::sites_heap::BIND,
+    ),
+    (
+        crate::ops::sort::proto::ADMIT,
+        crate::ops::sort::proto::BIND,
+    ),
+    (
+        crate::ops::modifytable::statement::ADMIT,
+        crate::ops::modifytable::statement::BIND,
+    ),
     (crate::ops::srf::proto::ADMIT, crate::ops::srf::proto::BIND),
-    (crate::ops::agg::trans::arena::ADMIT, crate::ops::agg::trans::arena::BIND),
-    (crate::ops::hashjoin::drain::proto::ADMIT, crate::ops::hashjoin::drain::proto::BIND),
-    (&[crate::ops::scan::param_key::admit, crate::ops::scan::param_sample::admit], &[crate::ops::scan::param_key::bind, crate::ops::scan::param_sample::bind]),
-    (crate::ops::setop::proto::ADMIT, crate::ops::setop::proto::BIND),
-    (crate::ops::window::proto::ADMIT, crate::ops::window::proto::BIND),
+    (
+        crate::ops::agg::trans::arena::ADMIT,
+        crate::ops::agg::trans::arena::BIND,
+    ),
+    (
+        crate::ops::hashjoin::drain::proto::ADMIT,
+        crate::ops::hashjoin::drain::proto::BIND,
+    ),
+    (
+        &[
+            crate::ops::scan::param_key::admit,
+            crate::ops::scan::param_sample::admit,
+        ],
+        &[
+            crate::ops::scan::param_key::bind,
+            crate::ops::scan::param_sample::bind,
+        ],
+    ),
+    (
+        crate::ops::setop::proto::ADMIT,
+        crate::ops::setop::proto::BIND,
+    ),
+    (
+        crate::ops::window::proto::ADMIT,
+        crate::ops::window::proto::BIND,
+    ),
     (crate::admit::explain::ADMIT, crate::admit::explain::BIND),
 ];
 /// Each milestone's runtime protocols, in landing order.
@@ -42,7 +72,18 @@ const PROTOCOLS: &[&[&dyn Protocol]] = &[
     crate::ops::agg::emit_runs::PROTOCOLS,
     crate::ops::shared::user_keys::PROTOCOLS,
     crate::ops::hashjoin::drain::proto::PROTOCOLS,
-    &[&crate::ops::subplan::initplan::init::Init, &crate::ops::material::proto::Spool, &crate::ops::material::proto::SpoolChunks, &crate::ops::subplan::hash::SubHash, &crate::ops::subplan::hash::SubHashEpq, &crate::ops::subplan::hash::SubResult, &crate::ops::subplan::Rescan, &crate::rerun::Rerun, &crate::ops::memoize::proto::Memo, &crate::ops::ctescan::proto::Cte],
+    &[
+        &crate::ops::subplan::initplan::init::Init,
+        &crate::ops::material::proto::Spool,
+        &crate::ops::material::proto::SpoolChunks,
+        &crate::ops::subplan::hash::SubHash,
+        &crate::ops::subplan::hash::SubHashEpq,
+        &crate::ops::subplan::hash::SubResult,
+        &crate::ops::subplan::Rescan,
+        &crate::rerun::Rerun,
+        &crate::ops::memoize::proto::Memo,
+        &crate::ops::ctescan::proto::Cte,
+    ],
     crate::ops::setop::proto::PROTOCOLS,
     crate::ops::window::proto::PROTOCOLS,
     crate::ops::mergejoin::proto::PROTOCOLS,
@@ -151,7 +192,11 @@ pub trait Live {
         None
     }
     /// After `pipeline` completed; `None` when this protocol has nothing to do there.
-    fn after_pipeline(&self, _pipeline: usize, _exec: &mut Exec) -> Option<gravity_driver::Result<()>> {
+    fn after_pipeline(
+        &self,
+        _pipeline: usize,
+        _exec: &mut Exec,
+    ) -> Option<gravity_driver::Result<()>> {
         None
     }
     /// EXPLAIN ANALYZE: a memo object's handle word and its cache counters so far (hits, misses, evictions, overflows,
@@ -206,7 +251,11 @@ pub trait Live {
 
 /// The milestone implementation of `kind`, if it has landed.
 pub fn protocol(kind: ProtoKind) -> Option<&'static dyn Protocol> {
-    PROTOCOLS.iter().flat_map(|l| l.iter()).copied().find(|p| p.kind() == kind)
+    PROTOCOLS
+        .iter()
+        .flat_map(|l| l.iter())
+        .copied()
+        .find(|p| p.kind() == kind)
 }
 
 /// The v4 protocols of one execution (empty for a program that declares none).
@@ -228,11 +277,17 @@ impl State {
     /// lowerer refuses its kind first, so this is a bug's wall, never a served statement's).
     pub fn prepare(cx: &mut Prepare<'_>) -> PgResult<State> {
         let program = cx.program;
-        let Some(d) = program.v4.as_deref() else { return Ok(State::default()) };
+        let Some(d) = program.v4.as_deref() else {
+            return Ok(State::default());
+        };
         let mut lives = cx.charged_vec();
         for p in d.protos.iter() {
             let Some(imp) = protocol(p.kind) else {
-                let msg = format!("gravity: v4 protocol {} not built (M{})", p.kind.name(), p.kind.milestone()); // alloc: Cold
+                let msg = format!(
+                    "gravity: v4 protocol {} not built (M{})",
+                    p.kind.name(),
+                    p.kind.milestone()
+                ); // alloc: Cold
                 return Err(Box::new(PgError::error(msg))); // alloc: Cold
             };
             if let Some(l) = imp.prepare(p, cx)? {
@@ -241,7 +296,12 @@ impl State {
         }
         let mut asks = cx.charged_vec();
         asks.with_vec(|v| v.extend(lives.iter().map(|l| l.answers()))); // alloc: Exec charged cx.owner
-        Ok(State { lives, asks, frame: core::cell::Cell::new(None), owner: cx.owner })
+        Ok(State {
+            lives,
+            asks,
+            frame: core::cell::Cell::new(None),
+            owner: cx.owner,
+        })
     }
 
     /// An empty `ChargedVec` on the owner this execution's prepare charged (`Prepare::charged_vec`'s, kept past the
@@ -255,7 +315,11 @@ impl State {
 
     /// rearm E2: the lives that answer question `q` (`ask`), in declaration order.
     fn asked(&self, q: u16) -> impl Iterator<Item = &dyn Live> + '_ {
-        self.lives.iter().zip(self.asks.iter()).filter(move |(_, &a)| a & q != 0).map(|(l, _)| &**l)
+        self.lives
+            .iter()
+            .zip(self.asks.iter())
+            .filter(move |(_, &a)| a & q != 0)
+            .map(|(l, _)| &**l)
     }
 
     pub fn claims_for(&self, pipeline: usize) -> Option<&dyn MorselSource> {
@@ -268,7 +332,11 @@ impl State {
 
     /// Every protocol's step after `pipeline`, in declaration order: the first error stops; `Some` when any acted, so the
     /// runner's own after-pipeline steps (the shape table's) are skipped.
-    pub fn after_pipeline(&self, pipeline: usize, exec: &mut Exec) -> Option<gravity_driver::Result<()>> {
+    pub fn after_pipeline(
+        &self,
+        pipeline: usize,
+        exec: &mut Exec,
+    ) -> Option<gravity_driver::Result<()>> {
         let mut acted = None;
         for l in self.asked(ask::AFTER) {
             match l.after_pipeline(pipeline, exec) {
@@ -289,7 +357,12 @@ impl State {
             if ctr != MEMO_OF || i < 5 || i >= cells.len() {
                 continue;
             }
-            if let Some((_, s)) = self.lives.iter().filter_map(|l| l.memo_stats()).find(|(w, _)| *w as i64 == word as i64) {
+            if let Some((_, s)) = self
+                .lives
+                .iter()
+                .filter_map(|l| l.memo_stats())
+                .find(|(w, _)| *w as i64 == word as i64)
+            {
                 cells[i - 5..i].copy_from_slice(&s);
             }
         }
@@ -301,8 +374,13 @@ impl State {
     }
 
     /// M8 (L0-k): every protocol's late words for `pipeline`, appended to `out` (made by `charged_vec`).
-    pub fn late_words(&self, pipeline: usize, out: &mut gravity_parallel::LateWords) -> PgResult<()> {
-        self.asked(ask::LATE).try_for_each(|l| l.late_words(pipeline, out))
+    pub fn late_words(
+        &self,
+        pipeline: usize,
+        out: &mut gravity_parallel::LateWords,
+    ) -> PgResult<()> {
+        self.asked(ask::LATE)
+            .try_for_each(|l| l.late_words(pipeline, out))
     }
 
     /// D2105: whether a protocol pruned arm `pipeline` whole for this run (`Live::pruned_whole`).
@@ -322,12 +400,14 @@ impl State {
 
     /// M8 (RT-2e): the owner of the rerun set `pipeline` is a member of, if any protocol names one.
     pub fn rerun_owner(&self, pipeline: usize) -> Option<usize> {
-        self.asked(ask::RERUN_OWNER).find_map(|l| l.rerun_owner(pipeline))
+        self.asked(ask::RERUN_OWNER)
+            .find_map(|l| l.rerun_owner(pipeline))
     }
 
     /// M8 (RT-2f): the readers of the pulled CTE plan `pipeline`, if any protocol names them.
     pub fn pull_readers(&self, pipeline: usize) -> Option<&[usize]> {
-        self.asked(ask::PULL_READERS).find_map(|l| l.pull_readers(pipeline))
+        self.asked(ask::PULL_READERS)
+            .find_map(|l| l.pull_readers(pipeline))
     }
 
     /// M8 (RT-2f): every pulled set a protocol names to run to its end at the statement's end; D2605: the higher drain rank
@@ -338,8 +418,16 @@ impl State {
         if !self.answered(ask::DRAIN) {
             return gravity_parallel::DrainSets::none();
         }
-        let mut sets: memledger::ChargedVec<(core::cmp::Reverse<u16>, usize, &[u16])> = self.charged_vec();
-        sets.with_vec(|v| v.extend(self.asked(ask::DRAIN).filter_map(|l| l.drain_at_end().map(|m| (l.drain_rank(), m))).enumerate().map(|(i, (r, m))| (core::cmp::Reverse(r), i, m)))); // alloc: Exec charged v4.owner
+        let mut sets: memledger::ChargedVec<(core::cmp::Reverse<u16>, usize, &[u16])> =
+            self.charged_vec();
+        sets.with_vec(|v| {
+            v.extend(
+                self.asked(ask::DRAIN)
+                    .filter_map(|l| l.drain_at_end().map(|m| (l.drain_rank(), m)))
+                    .enumerate()
+                    .map(|(i, (r, m))| (core::cmp::Reverse(r), i, m)),
+            )
+        }); // alloc: Exec charged v4.owner
         sets.sort_unstable_by_key(|s| (s.0, s.1));
         let mut out = self.charged_vec();
         out.with_vec(|v| v.extend(sets.iter().map(|s| s.2))); // alloc: Exec charged v4.owner
@@ -368,7 +456,9 @@ impl State {
         if self.lives.is_empty() {
             return 0;
         }
-        (from..program.pipelines.len().min(64)).filter(|&p| gravity_driver::is_emit(program, p) && self.pruned_whole(p)).fold(0, |m, p| m | 1 << p)
+        (from..program.pipelines.len().min(64))
+            .filter(|&p| gravity_driver::is_emit(program, p) && self.pruned_whole(p))
+            .fold(0, |m, p| m | 1 << p)
     }
 }
 
@@ -458,10 +548,27 @@ mod nested_tests {
     fn program(protos: Vec<Proto>) -> gravity_program::Program {
         let st = Arena::new(1 << 16);
         let sites = [SiteDesc::range_source(st.handle(), 7, &[1])];
-        let layout = Layout { nsites: 1, out_natts: 0, out_rows: 1, scratch_bytes: 0, exec_bytes: 0 };
+        let layout = Layout {
+            nsites: 1,
+            out_natts: 0,
+            out_rows: 1,
+            scratch_bytes: 0,
+            exec_bytes: 0,
+        };
         let agg = |s| End::Breaker(Breaker::sized(BreakerKind::PlainAgg, 64).in_slot(s));
-        let pipes = [Pipeline::eligible(0, agg(0), 10), Pipeline::eligible(0, agg(1), 10).consuming(&[0]), Pipeline::eligible(0, agg(2), 10), Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming(&[1, 2])];
-        let p = gravity_program::Program::with_pipelines(layout, &sites, &[], WritePlan::SELECT, pipes.map(|p| (p, Code::hand(super::ctescan::raw::test_noop))));
+        let pipes = [
+            Pipeline::eligible(0, agg(0), 10),
+            Pipeline::eligible(0, agg(1), 10).consuming(&[0]),
+            Pipeline::eligible(0, agg(2), 10),
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming(&[1, 2]),
+        ];
+        let p = gravity_program::Program::with_pipelines(
+            layout,
+            &sites,
+            &[],
+            WritePlan::SELECT,
+            pipes.map(|p| (p, Code::hand(super::ctescan::raw::test_noop))),
+        );
         p.with_v4(V4Descs::new(protos))
     }
 
@@ -471,25 +578,91 @@ mod nested_tests {
     #[test]
     fn nested_members_are_the_on_demand_sets_that_never_run_ahead() {
         let at = |protos: Vec<Proto>| super::nested_members(&program(protos), false);
-        let init = |peer: u16, eager: bool| Proto::new(ProtoKind::Init, 1).peer(peer).arg(1 | if eager { abi::INIT_EAGER } else { 0 });
+        let init = |peer: u16, eager: bool| {
+            Proto::new(ProtoKind::Init, 1)
+                .peer(peer)
+                .arg(1 | if eager { abi::INIT_EAGER } else { 0 })
+        };
         assert_eq!(at(vec![]), [false; 4]); // alloc: Cold
-        assert_eq!(at(vec![init(NONE, false)]), [true, true, false, false], "an Init's members: its pipeline and its exclusive producer"); // alloc: Cold
-        assert_eq!(at(vec![init(NONE, true)]), [true, true, false, false], "INIT_EAGER with no reader named: lazy"); // alloc: Cold
-        assert_eq!(at(vec![init(2, true)]), [false; 4], "the eager Init, its reader eligible: run ahead at the statement's width"); // alloc: Cold
-        assert_eq!(at(vec![init(3, true)]), [true, true, false, false], "the eager Init read by the emit: nothing runs ahead"); // alloc: Cold
-        let eager2 = Proto::new(ProtoKind::Init, 2).peer(1).arg(1 | abi::INIT_EAGER);
-        assert_eq!(at(vec![init(NONE, false), eager2]), [true, true, true, false], "an eager Init read by a nested reader"); // alloc: Cold
-        assert_eq!(at(vec![eager2, init(NONE, false)]), [true, true, true, false], "the same, its reader's Init declared after it"); // alloc: Cold
-        assert_eq!(at(vec![eager2]), [false; 4], "the same reader, not nested: run ahead"); // alloc: Cold
+        assert_eq!(
+            at(vec![init(NONE, false)]),
+            [true, true, false, false],
+            "an Init's members: its pipeline and its exclusive producer"
+        ); // alloc: Cold
+        assert_eq!(
+            at(vec![init(NONE, true)]),
+            [true, true, false, false],
+            "INIT_EAGER with no reader named: lazy"
+        ); // alloc: Cold
+        assert_eq!(
+            at(vec![init(2, true)]),
+            [false; 4],
+            "the eager Init, its reader eligible: run ahead at the statement's width"
+        ); // alloc: Cold
+        assert_eq!(
+            at(vec![init(3, true)]),
+            [true, true, false, false],
+            "the eager Init read by the emit: nothing runs ahead"
+        ); // alloc: Cold
+        let eager2 = Proto::new(ProtoKind::Init, 2)
+            .peer(1)
+            .arg(1 | abi::INIT_EAGER);
+        assert_eq!(
+            at(vec![init(NONE, false), eager2]),
+            [true, true, true, false],
+            "an eager Init read by a nested reader"
+        ); // alloc: Cold
+        assert_eq!(
+            at(vec![eager2, init(NONE, false)]),
+            [true, true, true, false],
+            "the same, its reader's Init declared after it"
+        ); // alloc: Cold
+        assert_eq!(
+            at(vec![eager2]),
+            [false; 4],
+            "the same reader, not nested: run ahead"
+        ); // alloc: Cold
         let set = |arg: u64, peer: u16| Proto::new(ProtoKind::SubHash, 1).peer(peer).arg(arg);
-        assert_eq!(at(vec![set(abi::SUBHASH_LAZY, NONE)]), [true, true, false, false], "a LAZY set's build"); // alloc: Cold
-        assert_eq!(at(vec![set(abi::SUBHASH_LAZY | abi::SUBHASH_AHEAD, 2)]), [false; 4], "an AHEAD set's build, its reader eligible"); // alloc: Cold
-        assert_eq!(at(vec![set(abi::SUBHASH_LAZY | abi::SUBHASH_AHEAD, 3)]), [true, true, false, false], "an AHEAD set read by the emit"); // alloc: Cold
-        assert_eq!(at(vec![set(0, NONE)]), [false; 4], "a set built in program order"); // alloc: Cold
-        assert_eq!(at(vec![Proto::new(ProtoKind::Rerun, 2).peer(3)]), [false, false, true, false], "a rerun set's member, one proto each"); // alloc: Cold
-        assert_eq!(at(vec![Proto::new(ProtoKind::Cte, 1)]), [true, true, false, false], "a CTE's pulled plan"); // alloc: Cold
-        assert_eq!(at(vec![Proto::new(ProtoKind::Window, 1).arg(WINDOW_PULLED)]), [true, true, false, false], "a window's pulled fill"); // alloc: Cold
-        assert_eq!(at(vec![Proto::new(ProtoKind::Window, 1)]), [false; 4], "a window that reads its fill whole"); // alloc: Cold
+        assert_eq!(
+            at(vec![set(abi::SUBHASH_LAZY, NONE)]),
+            [true, true, false, false],
+            "a LAZY set's build"
+        ); // alloc: Cold
+        assert_eq!(
+            at(vec![set(abi::SUBHASH_LAZY | abi::SUBHASH_AHEAD, 2)]),
+            [false; 4],
+            "an AHEAD set's build, its reader eligible"
+        ); // alloc: Cold
+        assert_eq!(
+            at(vec![set(abi::SUBHASH_LAZY | abi::SUBHASH_AHEAD, 3)]),
+            [true, true, false, false],
+            "an AHEAD set read by the emit"
+        ); // alloc: Cold
+        assert_eq!(
+            at(vec![set(0, NONE)]),
+            [false; 4],
+            "a set built in program order"
+        ); // alloc: Cold
+        assert_eq!(
+            at(vec![Proto::new(ProtoKind::Rerun, 2).peer(3)]),
+            [false, false, true, false],
+            "a rerun set's member, one proto each"
+        ); // alloc: Cold
+        assert_eq!(
+            at(vec![Proto::new(ProtoKind::Cte, 1)]),
+            [true, true, false, false],
+            "a CTE's pulled plan"
+        ); // alloc: Cold
+        assert_eq!(
+            at(vec![Proto::new(ProtoKind::Window, 1).arg(WINDOW_PULLED)]),
+            [true, true, false, false],
+            "a window's pulled fill"
+        ); // alloc: Cold
+        assert_eq!(
+            at(vec![Proto::new(ProtoKind::Window, 1)]),
+            [false; 4],
+            "a window that reads its fill whole"
+        ); // alloc: Cold
     }
 
     /// D3137: with nested sections on, a rerun set's member and every Init's keep the statement's width (D3014 S2':
@@ -498,16 +671,54 @@ mod nested_tests {
     #[test]
     fn d3137_rerun_and_init_members_keep_the_width_while_nested_sections_are_on() {
         let at = |protos: Vec<Proto>| super::nested_members(&program(protos), true);
-        let init = |peer: u16, eager: bool| Proto::new(ProtoKind::Init, 1).peer(peer).arg(1 | if eager { abi::INIT_EAGER } else { 0 });
-        assert_eq!(at(vec![Proto::new(ProtoKind::Rerun, 2).peer(3)]), [false; 4], "a rerun set's member"); // alloc: Cold
-        assert_eq!(at(vec![init(NONE, false)]), [false; 4], "a lazy Init's members"); // alloc: Cold
-        assert_eq!(at(vec![init(3, true)]), [false; 4], "the eager Init read by the emit"); // alloc: Cold
-        let eager2 = Proto::new(ProtoKind::Init, 2).peer(1).arg(1 | abi::INIT_EAGER);
-        assert_eq!(at(vec![init(NONE, false), eager2]), [false; 4], "an eager Init read by an Init's member"); // alloc: Cold
-        assert_eq!(at(vec![Proto::new(ProtoKind::SubHash, 1).arg(abi::SUBHASH_LAZY)]), [true, true, false, false], "a LAZY set's build"); // alloc: Cold
-        // D3095: a CTE's pulled pipeline runs nested; its producer, which the pull runs whole, keeps the width
-        assert_eq!(at(vec![Proto::new(ProtoKind::Cte, 1)]), [false, true, false, false], "a CTE's pulled plan"); // alloc: Cold
-        let eager_cte = Proto::new(ProtoKind::Init, 2).peer(1).arg(1 | abi::INIT_EAGER);
-        assert_eq!(at(vec![Proto::new(ProtoKind::Cte, 1), eager_cte]), [false, true, false, false], "an eager Init read by a pulled member keeps the width"); // alloc: Cold
+        let init = |peer: u16, eager: bool| {
+            Proto::new(ProtoKind::Init, 1)
+                .peer(peer)
+                .arg(1 | if eager { abi::INIT_EAGER } else { 0 })
+        };
+        assert_eq!(
+            at(vec![Proto::new(ProtoKind::Rerun, 2).peer(3)]),
+            [false; 4],
+            "a rerun set's member"
+        ); // alloc: Cold
+        assert_eq!(
+            at(vec![init(NONE, false)]),
+            [false; 4],
+            "a lazy Init's members"
+        ); // alloc: Cold
+        assert_eq!(
+            at(vec![init(3, true)]),
+            [false; 4],
+            "the eager Init read by the emit"
+        ); // alloc: Cold
+        let eager2 = Proto::new(ProtoKind::Init, 2)
+            .peer(1)
+            .arg(1 | abi::INIT_EAGER);
+        assert_eq!(
+            at(vec![init(NONE, false), eager2]),
+            [false; 4],
+            "an eager Init read by an Init's member"
+        ); // alloc: Cold
+        assert_eq!(
+            at(vec![
+                Proto::new(ProtoKind::SubHash, 1).arg(abi::SUBHASH_LAZY)
+            ]),
+            [true, true, false, false],
+            "a LAZY set's build"
+        ); // alloc: Cold
+           // D3095: a CTE's pulled pipeline runs nested; its producer, which the pull runs whole, keeps the width
+        assert_eq!(
+            at(vec![Proto::new(ProtoKind::Cte, 1)]),
+            [false, true, false, false],
+            "a CTE's pulled plan"
+        ); // alloc: Cold
+        let eager_cte = Proto::new(ProtoKind::Init, 2)
+            .peer(1)
+            .arg(1 | abi::INIT_EAGER);
+        assert_eq!(
+            at(vec![Proto::new(ProtoKind::Cte, 1), eager_cte]),
+            [false, true, false, false],
+            "an eager Init read by a pulled member keeps the width"
+        ); // alloc: Cold
     }
 }

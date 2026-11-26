@@ -29,8 +29,20 @@ pub fn cmd_bits(cmd: Cmd) -> u8 {
 }
 
 impl TrigExt {
-    pub const UNKNOWN: TrigExt = TrigExt { before_row: 0, after_row: 0, instead_row: 0, statement: 0, transition: 0, internal: 0, deferrable: 0, known: false };
-    pub const NONE: TrigExt = TrigExt { known: true, ..TrigExt::UNKNOWN };
+    pub const UNKNOWN: TrigExt = TrigExt {
+        before_row: 0,
+        after_row: 0,
+        instead_row: 0,
+        statement: 0,
+        transition: 0,
+        internal: 0,
+        deferrable: 0,
+        known: false,
+    };
+    pub const NONE: TrigExt = TrigExt {
+        known: true,
+        ..TrigExt::UNKNOWN
+    };
 
     /// The trigger property the command's write cannot serve, by name (rung 10 step 7: row, statement, transition-table and
     /// deferrable constraint triggers are served, a MERGE target's statement triggers and transition tables too, fired by
@@ -69,12 +81,25 @@ mod tests {
     /// triggers too (the actions' prologue). INSTEAD OF and unknown facts stay refused.
     #[test]
     fn a_merge_target_refuses_only_instead_of_and_unknown_facts() {
-        let stmt = TrigExt { statement: TRIG_UPDATE, transition: TRIG_INSERT, after_row: TRIG_DELETE, ..TrigExt::NONE };
+        let stmt = TrigExt {
+            statement: TRIG_UPDATE,
+            transition: TRIG_INSERT,
+            after_row: TRIG_DELETE,
+            ..TrigExt::NONE
+        };
         assert_eq!(stmt.refusal(Cmd::Merge), None);
-        let before = TrigExt { before_row: TRIG_INSERT | TRIG_UPDATE | TRIG_DELETE, ..TrigExt::NONE };
+        let before = TrigExt {
+            before_row: TRIG_INSERT | TRIG_UPDATE | TRIG_DELETE,
+            ..TrigExt::NONE
+        };
         assert_eq!(before.refusal(Cmd::Merge), None);
         assert_eq!(before.refusal(Cmd::Update), None);
-        assert!(TrigExt { instead_row: TRIG_UPDATE, ..TrigExt::NONE }.refusal(Cmd::Merge).is_some());
+        assert!(TrigExt {
+            instead_row: TRIG_UPDATE,
+            ..TrigExt::NONE
+        }
+        .refusal(Cmd::Merge)
+        .is_some());
         assert!(TrigExt::UNKNOWN.refusal(Cmd::Merge).is_some());
     }
 }

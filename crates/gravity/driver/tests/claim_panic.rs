@@ -13,9 +13,15 @@ use common::*;
 use gravity_abi::status::{DONE, ERROR};
 use gravity_abi::{Ctx, MorselRange};
 use gravity_driver::{Claimed, Entry};
-use gravity_program::{Arena, Code, End, Generation, Handle, Layout, OutCol, Pipeline, PlanKey, Program, SiteDesc, WritePlan};
+use gravity_program::{
+    Arena, Code, End, Generation, Handle, Layout, OutCol, Pipeline, PlanKey, Program, SiteDesc,
+    WritePlan,
+};
 
-const KEY: PlanKey = PlanKey { handle: Handle(28), generation: Generation(1) };
+const KEY: PlanKey = PlanKey {
+    handle: Handle(28),
+    generation: Generation(1),
+};
 const NULLS: [u8; 1] = [0];
 const WIDTH: u16 = 4;
 const BLOCKS: u64 = 24;
@@ -28,9 +34,27 @@ fn p_panic_row() -> Program {
     let st = Arena::new(1 << 14);
     let a = st.handle();
     let sites = [SiteDesc::range_source(a, 2001, &[1, 2])];
-    let cols = [OutCol::new("c0", 20, -1, 8, true), OutCol::new("c1", 20, -1, 8, true)];
-    let layout = Layout { nsites: 1, out_natts: 2, out_rows: 4, scratch_bytes: 0, exec_bytes: 0 };
-    Program::with_pipelines(layout, &sites, &cols, WritePlan::SELECT, [(Pipeline::eligible(0, End::Sink, 1000), Code::hand(k_panic_row))])
+    let cols = [
+        OutCol::new("c0", 20, -1, 8, true),
+        OutCol::new("c1", 20, -1, 8, true),
+    ];
+    let layout = Layout {
+        nsites: 1,
+        out_natts: 2,
+        out_rows: 4,
+        scratch_bytes: 0,
+        exec_bytes: 0,
+    };
+    Program::with_pipelines(
+        layout,
+        &sites,
+        &cols,
+        WritePlan::SELECT,
+        [(
+            Pipeline::eligible(0, End::Sink, 1000),
+            Code::hand(k_panic_row),
+        )],
+    )
 }
 
 /// # Safety — `ctx` is bound to `p_panic_row`.
@@ -44,7 +68,8 @@ unsafe extern "C-unwind" fn k_panic_row(ctx: *mut Ctx) -> i64 {
 }
 
 #[test]
-fn a_w4_claim_that_panics_with_a_pin_releases_it_on_its_own_thread_and_the_node_serves_again_1000_times() {
+fn a_w4_claim_that_panics_with_a_pin_releases_it_on_its_own_thread_and_the_node_serves_again_1000_times(
+) {
     let table = RangeTable::new(BLOCKS, 10);
     let mut derive = FakeDerive::ranges(table.clone());
     let program = Arc::new(p_panic_row());
@@ -55,26 +80,67 @@ fn a_w4_claim_that_panics_with_a_pin_releases_it_on_its_own_thread_and_the_node_
             PANIC_ROW.store(panics, Ordering::Relaxed);
             let mut sink = LegSink::new();
             let mut b = binding(&[0], &NULLS, &mut sink, &flag);
-            let mut exec = entry.start(Some(KEY), &program, &mut derive, &mut b, lease(gravity_driver::Grant::of(8 << 20))).unwrap();
-            let open = entry.open_section(&mut exec, &b, &mut derive, 0, WIDTH).unwrap();
+            let mut exec = entry
+                .start(
+                    Some(KEY),
+                    &program,
+                    &mut derive,
+                    &mut b,
+                    lease(gravity_driver::Grant::of(8 << 20)),
+                )
+                .unwrap();
+            let open = entry
+                .open_section(&mut exec, &b, &mut derive, 0, WIDTH)
+                .unwrap();
             // each claim on its own thread, caught there as the pool's run_morsel catches it
             let claims: Vec<_> = std::thread::scope(|s| {
                 let open = &open;
-                let hs: Vec<_> = (0..WIDTH).map(|o| s.spawn(move || catch_unwind(AssertUnwindSafe(|| open.run_claim(o, MorselRange::new(o as u64 * 6, o as u64 * 6 + 6)))).map_err(|_| ()))).collect();
+                let hs: Vec<_> = (0..WIDTH)
+                    .map(|o| {
+                        s.spawn(move || {
+                            catch_unwind(AssertUnwindSafe(|| {
+                                open.run_claim(o, MorselRange::new(o as u64 * 6, o as u64 * 6 + 6))
+                            }))
+                            .map_err(|_| ())
+                        })
+                    })
+                    .collect();
                 hs.into_iter().map(|h| h.join().unwrap()).collect()
             });
             if panics {
-                assert!(claims.iter().all(|c| c.is_err()), "iteration {i}: every claim panicked: {claims:?}");
+                assert!(
+                    claims.iter().all(|c| c.is_err()),
+                    "iteration {i}: every claim panicked: {claims:?}"
+                );
                 assert_eq!(table.pins.load(Ordering::Relaxed), 0, "iteration {i}: the unwind released every claim's pin before the leader saw the failure");
-                assert_eq!(entry.close_section(open, &mut b, &NoMerge, false), Ok(()), "iteration {i}: a failed section closes without a pin left");
+                assert_eq!(
+                    entry.close_section(open, &mut b, &NoMerge, false),
+                    Ok(()),
+                    "iteration {i}: a failed section closes without a pin left"
+                );
             } else {
-                assert!(claims.iter().all(|c| *c == Ok(Ok(Claimed::Done))), "iteration {i}: the next execution serves: {claims:?}");
+                assert!(
+                    claims.iter().all(|c| *c == Ok(Ok(Claimed::Done))),
+                    "iteration {i}: the next execution serves: {claims:?}"
+                );
                 entry.close_section(open, &mut b, &NoMerge, true).unwrap();
-                assert_eq!(sink.rows.lock().unwrap().len(), WIDTH as usize, "iteration {i}: one row per worker");
+                assert_eq!(
+                    sink.rows.lock().unwrap().len(),
+                    WIDTH as usize,
+                    "iteration {i}: one row per worker"
+                );
             }
             entry.end(exec, !panics);
-            assert_eq!(table.pins.load(Ordering::Relaxed), 0, "iteration {i}: no pin leaked");
-            assert_eq!(table.foreign_unpins.load(Ordering::Relaxed), 0, "iteration {i}: every pin released on the thread that took it");
+            assert_eq!(
+                table.pins.load(Ordering::Relaxed),
+                0,
+                "iteration {i}: no pin leaked"
+            );
+            assert_eq!(
+                table.foreign_unpins.load(Ordering::Relaxed),
+                0,
+                "iteration {i}: every pin released on the thread that took it"
+            );
         }
     }
     PANIC_ROW.store(true, Ordering::Relaxed);
@@ -90,11 +156,27 @@ fn a_pin_a_claim_leaves_behind_fails_the_section_by_name() {
     table.leak.store(true, Ordering::Relaxed);
     let mut sink = LegSink::new();
     let mut b = binding(&[0], &NULLS, &mut sink, &flag);
-    let mut exec = entry.start(Some(KEY), &program, &mut derive, &mut b, lease(gravity_driver::Grant::of(8 << 20))).unwrap();
-    let open = entry.open_section(&mut exec, &b, &mut derive, 0, 2).unwrap();
-    assert!(open.run_claim(0, MorselRange::new(0, 6)).is_err(), "the claim's settle sees its pin");
+    let mut exec = entry
+        .start(
+            Some(KEY),
+            &program,
+            &mut derive,
+            &mut b,
+            lease(gravity_driver::Grant::of(8 << 20)),
+        )
+        .unwrap();
+    let open = entry
+        .open_section(&mut exec, &b, &mut derive, 0, 2)
+        .unwrap();
+    assert!(
+        open.run_claim(0, MorselRange::new(0, 6)).is_err(),
+        "the claim's settle sees its pin"
+    );
     let r = entry.close_section(open, &mut b, &NoMerge, false);
-    assert!(matches!(&r, Err(e) if format!("{e:?}").contains("D1408")), "the section fails by name: {r:?}");
+    assert!(
+        matches!(&r, Err(e) if format!("{e:?}").contains("D1408")),
+        "the section fails by name: {r:?}"
+    );
     entry.end(exec, false);
     table.leak.store(false, Ordering::Relaxed);
 }

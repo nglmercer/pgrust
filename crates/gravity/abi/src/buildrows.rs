@@ -19,7 +19,7 @@ pub const SLICE_HDR: usize = 8;
 /// A carve's cut (the store's start = the entry table's end) is a whole number of entries, so the table below it
 /// holds no partial entry; an entry (16 B) also covers the store header's 8-byte alignment (`open`).
 const ALIGN: usize = HASHBUILD_ENTRY;
-const _: () = assert!(ALIGN.is_multiple_of( 8));
+const _: () = assert!(ALIGN.is_multiple_of(8));
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
@@ -28,7 +28,8 @@ struct Slice {
     used: u32,
 }
 
-const fn round_up(n: usize, a: usize) -> usize {n.div_ceil( a) * a
+const fn round_up(n: usize, a: usize) -> usize {
+    n.div_ceil(a) * a
 }
 
 impl RowStore {
@@ -38,7 +39,9 @@ impl RowStore {
 
     /// The bytes a store of `cap_rows` rows of `row_bytes` in `parts` slices needs.
     pub const fn bytes(cap_rows: u32, row_bytes: u32, parts: u16) -> usize {
-        RowStore::dir_end(parts) + parts as usize * SLICE_HDR + round_up(cap_rows as usize * row_bytes as usize, 8)
+        RowStore::dir_end(parts)
+            + parts as usize * SLICE_HDR
+            + round_up(cap_rows as usize * row_bytes as usize, 8)
     }
 
     /// The store's share of a build region of `region` bytes whose rows are `row_bytes` each beside a 16-byte entry at up to half load; 0 = no store.
@@ -46,13 +49,19 @@ impl RowStore {
         if row_bytes == 0 {
             return 0;
         }
-        let s = (region as u64 * row_bytes as u64 / (row_bytes as u64 + 2 * HASHBUILD_ENTRY as u64)) as u32;
+        let s = (region as u64 * row_bytes as u64 / (row_bytes as u64 + 2 * HASHBUILD_ENTRY as u64))
+            as u32;
         s / ALIGN as u32 * ALIGN as u32
     }
 
     /// # Safety
     /// `p` points at `bytes` writable bytes, 8-aligned, the header zeroed or a live store of the same shape.
-    pub unsafe fn open<'a>(p: *mut u8, bytes: usize, parts: u16, row_hdr: u16) -> Option<&'a mut RowStore> {
+    pub unsafe fn open<'a>(
+        p: *mut u8,
+        bytes: usize,
+        parts: u16,
+        row_hdr: u16,
+    ) -> Option<&'a mut RowStore> {
         let s = crate::breaker::aligned_mut::<RowStore>(p);
         if s.cap != ROWS_NONE {
             return (s.parts == parts).then_some(s);
@@ -68,7 +77,10 @@ impl RowStore {
         s.len = 0;
         for i in 0..parts as usize {
             let start = (i * slice) as u32;
-            *s.dir_mut().add(i) = Slice { start, used: SLICE_HDR as u32 };
+            *s.dir_mut().add(i) = Slice {
+                start,
+                used: SLICE_HDR as u32,
+            };
             *(s.rows_mut().add(start as usize) as *mut u64) = start as u64;
         }
         Some(s)
@@ -107,12 +119,20 @@ impl RowStore {
     /// reduced) or laid out with room past its entries (`region` reduced) — and lay it out; `None` = no room.
     /// # Safety
     /// `build` points at a share-armed or live build over its whole region.
-    pub unsafe fn carve<'a>(build: *mut u8, row_bytes: u32, parts: u16) -> Option<&'a mut RowStore> {
+    pub unsafe fn carve<'a>(
+        build: *mut u8,
+        row_bytes: u32,
+        parts: u16,
+    ) -> Option<&'a mut RowStore> {
         let b = crate::breaker::aligned_mut::<HashBuild>(build);
         if b.pad2 != 0 {
             return RowStore::of_mut(build);
         }
-        let (armed, total) = if b.cap == 0 { (true, b.table) } else { (false, b.region) };
+        let (armed, total) = if b.cap == 0 {
+            (true, b.table)
+        } else {
+            (false, b.region)
+        };
         let store = RowStore::split(total, row_bytes);
         let off = total.saturating_sub(store) as usize / ALIGN * ALIGN;
         if store == 0 || off < ROWSTORE_HDR || (!armed && HashBuild::bytes(b.cap) as usize > off) {
@@ -120,7 +140,12 @@ impl RowStore {
         }
         // fresh carve: a recycled region's tail may hold an earlier statement's store, never `open` it (D103)
         core::ptr::write_bytes(build.add(off), 0, ROWSTORE_HDR);
-        let s = RowStore::open(build.add(off), total as usize - off, parts, row_bytes.min(u16::MAX as u32) as u16)?;
+        let s = RowStore::open(
+            build.add(off),
+            total as usize - off,
+            parts,
+            row_bytes.min(u16::MAX as u32) as u16,
+        )?;
         if armed {
             b.table = off as u32;
         } else {
@@ -181,7 +206,11 @@ impl RowStore {
         }
         let off = s.start + s.used;
         unsafe {
-            core::ptr::copy_nonoverlapping(row.as_ptr(), self.rows_mut().add(off as usize), row.len());
+            core::ptr::copy_nonoverlapping(
+                row.as_ptr(),
+                self.rows_mut().add(off as usize),
+                row.len(),
+            );
             (*self.dir_mut().add(part as usize)).used += row.len() as u32;
         }
         self.len += 1;
@@ -220,7 +249,11 @@ impl RowStore {
             return None;
         }
         unsafe {
-            core::ptr::copy_nonoverlapping(bytes.as_ptr(), self.rows_mut().add((s.start + s.used) as usize), bytes.len());
+            core::ptr::copy_nonoverlapping(
+                bytes.as_ptr(),
+                self.rows_mut().add((s.start + s.used) as usize),
+                bytes.len(),
+            );
             (*self.dir_mut().add(part as usize)).used += bytes.len() as u32;
         }
         Some(())
@@ -232,7 +265,8 @@ impl RowStore {
         if image.len() < SLICE_HDR {
             return Some(0);
         }
-        let origin = u64::from_ne_bytes(image[..SLICE_HDR].try_into().expect("a slice origin word")) as u32;
+        let origin =
+            u64::from_ne_bytes(image[..SLICE_HDR].try_into().expect("a slice origin word")) as u32;
         let rows = &image[SLICE_HDR..];
         let s = self.slice(part);
         if s.used as usize + rows.len() > self.slice_bytes() {
@@ -240,7 +274,11 @@ impl RowStore {
         }
         let at = s.start + s.used;
         unsafe {
-            core::ptr::copy_nonoverlapping(rows.as_ptr(), self.rows_mut().add(at as usize), rows.len());
+            core::ptr::copy_nonoverlapping(
+                rows.as_ptr(),
+                self.rows_mut().add(at as usize),
+                rows.len(),
+            );
             (*self.dir_mut().add(part as usize)).used += rows.len() as u32;
         }
         Some(at.wrapping_sub(origin + SLICE_HDR as u32))
@@ -259,7 +297,9 @@ impl RowStore {
             }
         }
         for p in 0..self.parts {
-            rebase[p as usize] = self.append_slice(p, partial.part_bytes(p)).expect("room checked");
+            rebase[p as usize] = self
+                .append_slice(p, partial.part_bytes(p))
+                .expect("room checked");
         }
         self.len += partial.len;
         true
@@ -267,13 +307,18 @@ impl RowStore {
 
     /// Room for every slice of `partial` on top of this store's.
     pub fn room_for(&self, partial: &RowStore) -> bool {
-        partial.parts == self.parts && (0..self.parts).all(|p| { let (lo, hi) = partial.part_range(p); self.slice(p).used as usize + (hi - lo) as usize - SLICE_HDR <= self.slice_bytes() })
+        partial.parts == self.parts
+            && (0..self.parts).all(|p| {
+                let (lo, hi) = partial.part_range(p);
+                self.slice(p).used as usize + (hi - lo) as usize - SLICE_HDR <= self.slice_bytes()
+            })
     }
 
     /// # Safety
     /// `this` is a live store shared by the partition jobs (`len += n` atomically).
     pub unsafe fn add_len(this: *mut RowStore, n: u32) {
-        (*(core::ptr::addr_of_mut!((*this).len) as *const core::sync::atomic::AtomicU32)).fetch_add(n, core::sync::atomic::Ordering::Relaxed);
+        (*(core::ptr::addr_of_mut!((*this).len) as *const core::sync::atomic::AtomicU32))
+            .fetch_add(n, core::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn clear(&mut self) {

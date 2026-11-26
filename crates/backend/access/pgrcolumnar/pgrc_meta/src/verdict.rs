@@ -367,7 +367,11 @@ fn ne_evidence(
             (v, false)
         }
         (TypedKeys::Coarse { min, max }, Some(TypedKey::Coarse(ck))) => {
-            let v = if ck < min || ck > max { Verdict::AllPass } else { Verdict::Mixed };
+            let v = if ck < min || ck > max {
+                Verdict::AllPass
+            } else {
+                Verdict::Mixed
+            };
             (v, true)
         }
         (TypedKeys::Absent, _) | (_, None) => (Verdict::Mixed, false),

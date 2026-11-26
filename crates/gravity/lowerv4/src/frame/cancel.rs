@@ -27,9 +27,20 @@ pub fn check(b: &mut FunctionBuilder<'_>, ctx: Value, l_cancel: Block) {
     b.set_likely(l_read, false);
     b.mark_cold(l_poll);
     b.switch_to(l_poll);
-    let mem = HostFlags { touches_memory: true, ..HostFlags::default() };
-    let poll = b.declare_host_once(gravity_ir::KERNEL_POLL, &[Type::Ptr], Some(Type::I64), gravity_kernels::contract::entry0::<gravity_kernels::host_abi::Poll> as *const () as usize, mem);
-    let stop = b.call_host(poll, &[ctx], Some(Type::I64)).expect("poll returns a word");
+    let mem = HostFlags {
+        touches_memory: true,
+        ..HostFlags::default()
+    };
+    let poll = b.declare_host_once(
+        gravity_ir::KERNEL_POLL,
+        &[Type::Ptr],
+        Some(Type::I64),
+        gravity_kernels::contract::entry0::<gravity_kernels::host_abi::Poll> as *const () as usize,
+        mem,
+    );
+    let stop = b
+        .call_host(poll, &[ctx], Some(Type::I64))
+        .expect("poll returns a word");
     let zero = b.iconst(Type::I64, 0);
     let go = b.icmp(IntCond::Eq, stop, zero);
     b.cond_br(go, (l_on, &[]), (l_cancel, &[]));
@@ -37,7 +48,13 @@ pub fn check(b: &mut FunctionBuilder<'_>, ctx: Value, l_cancel: Block) {
 }
 
 /// A checked loop header `h(params…)`: the check first, then the body block `(h, body)` with the same parameters.
-pub fn header(b: &mut FunctionBuilder<'_>, ctx: Value, l_cancel: Block, params: &[Type], mcx: Mcx<'_>) -> (Block, Block) {
+pub fn header(
+    b: &mut FunctionBuilder<'_>,
+    ctx: Value,
+    l_cancel: Block,
+    params: &[Type],
+    mcx: Mcx<'_>,
+) -> (Block, Block) {
     let h = b.create_block(params);
     b.mark_loop_header(h);
     let body = b.create_block(params);
@@ -59,9 +76,15 @@ pub fn header(b: &mut FunctionBuilder<'_>, ctx: Value, l_cancel: Block, params: 
 /// and the checking blocks found once (the walks are unchanged, so the verdict and the block it names are too); it was
 /// O(edges x (exempt edges + bounded headers + a block's instructions)), 40 s of a 14-join program a cancel waited for.
 pub fn verify(f: &Function, bounded: &[Block], mcx: Mcx<'_>) -> Result<(), Block> {
-    let Some(&ctx) = f.blocks.get(f.entry.index()).and_then(|e| e.params.first()) else { return Ok(()) };
+    let Some(&ctx) = f.blocks.get(f.entry.index()).and_then(|e| e.params.first()) else {
+        return Ok(());
+    };
     let n = f.blocks.len();
-    let succ: PgVec<'_, PgVec<'_, usize>> = f.blocks.iter().map(|b| b.term.edges().map(|e| e.target.index()).collect_in(mcx)).collect_in(mcx);
+    let succ: PgVec<'_, PgVec<'_, usize>> = f
+        .blocks
+        .iter()
+        .map(|b| b.term.edges().map(|e| e.target.index()).collect_in(mcx))
+        .collect_in(mcx);
     let mut is_bounded = mcx::pg_vec![in mcx; false; n];
     for h in bounded {
         if let Some(x) = is_bounded.get_mut(h.index()) {
@@ -75,13 +98,29 @@ pub fn verify(f: &Function, bounded: &[Block], mcx: Mcx<'_>) -> Result<(), Block
         }
         false
     };
-    walk(&succ, f.entry.index()..f.entry.index() + 1, &|_| true, &|_, _| true, &mut into_bounded, &mut reached, mcx);
+    walk(
+        &succ,
+        f.entry.index()..f.entry.index() + 1,
+        &|_| true,
+        &|_, _| true,
+        &mut into_bounded,
+        &mut reached,
+        mcx,
+    );
     exempt.sort_unstable();
     exempt.dedup();
     let loads: PgVec<'_, bool> = f.blocks.iter().map(|b| b.insts.iter().any(|i| matches!(i.op, Op::Load { ty: Type::Ptr, ptr, offset, .. } if ptr == ctx && offset == hdr::CANCEL as i32))).collect_in(mcx);
     let open = |v: usize| reached[v] != 0 && !loads[v];
     let mut state = mcx::pg_vec![in mcx; 0u8; n];
-    match walk(&succ, 0..n, &open, &|v, w| exempt.binary_search(&(v, w)).is_err(), &mut |_, _| true, &mut state, mcx) {
+    match walk(
+        &succ,
+        0..n,
+        &open,
+        &|v, w| exempt.binary_search(&(v, w)).is_err(),
+        &mut |_, _| true,
+        &mut state,
+        mcx,
+    ) {
         Some(w) => Err(Block(w as u32)),
         None => Ok(()),
     }
@@ -89,7 +128,15 @@ pub fn verify(f: &Function, bounded: &[Block], mcx: Mcx<'_>) -> Result<(), Block
 
 /// A depth-first walk from each of `roots` over the blocks `open` admits by the edges `edge` admits; `back(v, w)` at each
 /// edge to a block on the walk's stack, the walk ending (with `w`) when it returns true. `seen`: 1 on the stack, 2 done.
-fn walk<S: core::ops::Deref<Target = [usize]>>(succ: &[S], roots: core::ops::Range<usize>, open: &dyn Fn(usize) -> bool, edge: &dyn Fn(usize, usize) -> bool, back: &mut dyn FnMut(usize, usize) -> bool, seen: &mut [u8], mcx: Mcx<'_>) -> Option<usize> {
+fn walk<S: core::ops::Deref<Target = [usize]>>(
+    succ: &[S],
+    roots: core::ops::Range<usize>,
+    open: &dyn Fn(usize) -> bool,
+    edge: &dyn Fn(usize, usize) -> bool,
+    back: &mut dyn FnMut(usize, usize) -> bool,
+    seen: &mut [u8],
+    mcx: Mcx<'_>,
+) -> Option<usize> {
     for root in roots {
         if !open(root) || seen[root] != 0 {
             continue;
@@ -133,7 +180,13 @@ mod tests {
         let l_try = {
             let mut b = pb.define(func);
             let ctx = b.params()[0];
-            let (l_try, l_full, l_store, l_done, l_cancel) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));
+            let (l_try, l_full, l_store, l_done, l_cancel) = (
+                b.create_block(&[]),
+                b.create_block(&[]),
+                b.create_block(&[]),
+                b.create_block(&[]),
+                b.create_block(&[]),
+            );
             let zero = b.iconst(Type::I64, 0);
             b.br(l_try, &[]);
             for (at, then, els) in [(l_try, l_full, l_store), (l_store, l_full, l_done)] {
@@ -167,11 +220,18 @@ mod tests {
     fn graph(succ: &[&[usize]], checked: &[usize], bounded: &[usize]) -> Result<(), Block> {
         let (p, func, ls) = build(succ, checked);
         let bounded: Vec<Block> = bounded.iter().map(|&i| ls[i]).collect();
-        verify(p.func(func), &bounded, mcx::MemoryContext::new("test").mcx())
+        verify(
+            p.func(func),
+            &bounded,
+            mcx::MemoryContext::new("test").mcx(),
+        )
     }
 
     /// `graph`'s function, built: the program, the function and its blocks `0..succ.len()`.
-    fn build(succ: &[&[usize]], checked: &[usize]) -> (gravity_ir::Program, gravity_ir::Func, Vec<Block>) {
+    fn build(
+        succ: &[&[usize]],
+        checked: &[usize],
+    ) -> (gravity_ir::Program, gravity_ir::Func, Vec<Block>) {
         let mut pb = ProgramBuilder::new();
         let func = pb.declare_func("t", &[Type::Ptr], &[Type::I64]);
         let ls = {
@@ -205,9 +265,15 @@ mod tests {
 
     /// The lint as it was before D3837 (linear scans per edge), kept as the reference the linear one must equal.
     fn verify_quadratic(f: &Function, bounded: &[Block]) -> Result<(), Block> {
-        let Some(&ctx) = f.blocks.get(f.entry.index()).and_then(|e| e.params.first()) else { return Ok(()) };
+        let Some(&ctx) = f.blocks.get(f.entry.index()).and_then(|e| e.params.first()) else {
+            return Ok(());
+        };
         let n = f.blocks.len();
-        let succ: Vec<Vec<usize>> = f.blocks.iter().map(|b| b.term.edges().map(|e| e.target.index()).collect()).collect();
+        let succ: Vec<Vec<usize>> = f
+            .blocks
+            .iter()
+            .map(|b| b.term.edges().map(|e| e.target.index()).collect())
+            .collect();
         let (mut reached, mut exempt) = (vec![0u8; n], Vec::new());
         let mut into_bounded = |v: usize, w: usize| {
             if bounded.contains(&Block(w as u32)) {
@@ -216,11 +282,29 @@ mod tests {
             false
         };
         let rig = mcx::MemoryContext::new("test");
-        walk(&succ, f.entry.index()..f.entry.index() + 1, &|_| true, &|_, _| true, &mut into_bounded, &mut reached, rig.mcx());
-        let loads = |v: usize| f.blocks[v].insts.iter().any(|i| matches!(i.op, Op::Load { ty: Type::Ptr, ptr, offset, .. } if ptr == ctx && offset == hdr::CANCEL as i32));
+        walk(
+            &succ,
+            f.entry.index()..f.entry.index() + 1,
+            &|_| true,
+            &|_, _| true,
+            &mut into_bounded,
+            &mut reached,
+            rig.mcx(),
+        );
+        let loads = |v: usize| {
+            f.blocks[v].insts.iter().any(|i| matches!(i.op, Op::Load { ty: Type::Ptr, ptr, offset, .. } if ptr == ctx && offset == hdr::CANCEL as i32))
+        };
         let open = |v: usize| reached[v] != 0 && !loads(v);
         let mut state = vec![0u8; n];
-        match walk(&succ, 0..n, &open, &|v, w| !exempt.contains(&(v, w)), &mut |_, _| true, &mut state, rig.mcx()) {
+        match walk(
+            &succ,
+            0..n,
+            &open,
+            &|v, w| !exempt.contains(&(v, w)),
+            &mut |_, _| true,
+            &mut state,
+            rig.mcx(),
+        ) {
             Some(w) => Err(Block(w as u32)),
             None => Ok(()),
         }
@@ -242,17 +326,32 @@ mod tests {
         let rig = mcx::MemoryContext::new("test");
         for _ in 0..4000 {
             let n = 1 + next(12);
-            let succ: Vec<Vec<usize>> = (0..n).map(|_| (0..next(3)).map(|_| next(n)).collect()).collect();
+            let succ: Vec<Vec<usize>> = (0..n)
+                .map(|_| (0..next(3)).map(|_| next(n)).collect())
+                .collect();
             let checked: Vec<usize> = (0..n).filter(|_| next(4) == 0).collect();
             let heads: Vec<usize> = (0..n).filter(|_| next(3) == 0).collect();
             let refs: Vec<&[usize]> = succ.iter().map(|s| s.as_slice()).collect();
             let (p, func, ls) = build(&refs, &checked);
             let bounded: Vec<Block> = heads.iter().map(|&i| ls[i]).collect();
-            let (got, want) = (verify(p.func(func), &bounded, rig.mcx()), verify_quadratic(p.func(func), &bounded));
-            assert_eq!(got, want, "succ {succ:?} checked {checked:?} bounded {heads:?}");
-            if got.is_err() { errs += 1 } else { oks += 1 }
+            let (got, want) = (
+                verify(p.func(func), &bounded, rig.mcx()),
+                verify_quadratic(p.func(func), &bounded),
+            );
+            assert_eq!(
+                got, want,
+                "succ {succ:?} checked {checked:?} bounded {heads:?}"
+            );
+            if got.is_err() {
+                errs += 1
+            } else {
+                oks += 1
+            }
         }
-        assert!(errs > 400 && oks > 400, "both verdicts drawn often: {errs} refused, {oks} verified");
+        assert!(
+            errs > 400 && oks > 400,
+            "both verdicts drawn often: {errs} refused, {oks} verified"
+        );
     }
 
     /// A nested loop: 1 the outer header, 2 the inner one (3 -> 2 its back edge, 4 -> 1 the outer's). The outer's check
@@ -264,7 +363,10 @@ mod tests {
         assert!(graph(nest, &[1], &[]).is_err());
         assert_eq!(graph(nest, &[1, 2], &[]), Ok(()));
         assert_eq!(graph(nest, &[1], &[2]), Ok(()));
-        assert!(graph(nest, &[], &[2]).is_err(), "the outer cycle still needs its check");
+        assert!(
+            graph(nest, &[], &[2]).is_err(),
+            "the outer cycle still needs its check"
+        );
     }
 
     /// An irreducible cycle 2 <-> 3 entered at both from 1: a check in either block covers it, whichever the walk meets

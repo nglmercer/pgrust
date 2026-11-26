@@ -19,7 +19,7 @@ use types_core::Oid;
 use types_error::PgResult;
 use types_tuple::{HeapTupleData, ItemPointerData};
 
-use crate::compute::{CatCKey, CCFastKind};
+use crate::compute::{CCFastKind, CatCKey};
 use crate::graph::build_positive_payload;
 #[allow(unused_imports)]
 use crate::{eq_stored, pack_ref, stored_bytes, with_state, CATCACHE_MAXKEYS, IMG_PREFIX};
@@ -134,7 +134,10 @@ pub(crate) fn entry_matches(
 /// `CatalogCacheCreateEntry` (positive), L2 shape: identical image copy and
 /// key computation as `create_entry_positive`, but into a shareable buffer.
 pub(crate) fn build_positive(cache_id: i32, ntp: &HeapTupleData<'_>) -> PgResult<Arc<CatL2Entry>> {
-    debug_assert!(!ntp.has_external(), "caller flattens via l2_entry_from_scan");
+    debug_assert!(
+        !ntp.has_external(),
+        "caller flattens via l2_entry_from_scan"
+    );
     let (tupdesc, nkeys, kinds, keyno) = with_state(|st| {
         let c = st.cache(cache_id);
         (c.cc_tupdesc, c.cc_nkeys, c.cc_kind, c.cc_keyno)
@@ -163,14 +166,20 @@ pub(crate) fn build_positive(cache_id: i32, ntp: &HeapTupleData<'_>) -> PgResult
 }
 
 /// `CatalogCacheCreateEntry` (negative), L2 shape (`CatCacheCopyKeys`).
-pub(crate) fn build_negative(cache_id: i32, probes: &[CatCKey<'_>; 4]) -> PgResult<Arc<CatL2Entry>> {
+pub(crate) fn build_negative(
+    cache_id: i32,
+    probes: &[CatCKey<'_>; 4],
+) -> PgResult<Arc<CatL2Entry>> {
     let (nkeys, kinds) = with_state(|st| {
         let c = st.cache(cache_id);
         (c.cc_nkeys, c.cc_kind)
     });
     let mut byref_len = 0usize;
     for i in 0..nkeys as usize {
-        if matches!(kinds[i], CCFastKind::Name | CCFastKind::Text | CCFastKind::OidVector) {
+        if matches!(
+            kinds[i],
+            CCFastKind::Name | CCFastKind::Text | CCFastKind::OidVector
+        ) {
             byref_len += crate::stored_key_bytes(kinds[i], &probes[i]).len();
         }
     }

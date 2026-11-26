@@ -19,11 +19,14 @@ use gravity_decompose::{Am, Source};
 use gravity_ir::builder::{FunctionBuilder, ProgramBuilder};
 use gravity_ir::{Block, ConvOp, IntBinOp, Type, Value};
 use gravity_lower::Place;
-use gravity_program::{ExprLife, ExprOut, LaneId as SiteLane, OutCol, Pipeline, SiteDesc, SiteKind};
+use gravity_program::{
+    ExprLife, ExprOut, LaneId as SiteLane, OutCol, Pipeline, SiteDesc, SiteKind,
+};
+use mcx::{GrowIn, PgBox, PgVec};
 #[allow(unused_imports)]
 use types_nodes::Node;
-use mcx::{GrowIn, PgBox, PgVec};
 
+use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::cell::{Cell, Nullable, TIDOID};
 use crate::face::kinds::KindId;
 use crate::face::source::{SourceMech, WinConds};
@@ -34,11 +37,13 @@ use crate::frame::row::{Carry, RowVals};
 use crate::frame::site::{Reader, CTID_AT};
 #[allow(unused_imports)]
 use crate::graph::Gx;
-use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::lifetime::bound::{self, BoundAt, Feed};
 use crate::ops::Table;
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::SrcSample, &SourceMaker(make))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::SrcSample, &SourceMaker(make))],
+    ..crate::ops::NONE
+};
 
 fn shape(node: i32, why: &'static str) -> ! {
     crate::refuse!(node, Reason::Shape { why: ShapeWhy(why) })
@@ -54,9 +59,26 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
     let gx = px.gx;
     let p = &gx.pipelines()[k];
     let node = p.node_id;
-    let Source::Sample { site, am, relid, sample, .. } = &p.source else { crate::refuse!(node, Reason::Bug { payload: "a sample entry over another source" }) };
+    let Source::Sample {
+        site,
+        am,
+        relid,
+        sample,
+        ..
+    } = &p.source
+    else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a sample entry over another source"
+            }
+        )
+    };
     if !matches!(am, Am::Heap | Am::Pgrcolumnar) {
-        shape(node, "a TABLESAMPLE over a relation that is not a heap or pgrc table");
+        shape(
+            node,
+            "a TABLESAMPLE over a relation that is not a heap or pgrc table",
+        );
     }
     // the host's key cells (hosts `TsmFilter::start`): the method's argument, then the REPEATABLE value
     if sample.args.len() != 1 {
@@ -79,8 +101,13 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
                 bound::declare(px, Feed::Sample, k, a, node, BoundAt::Rescan);
                 slots.push_in(crate::rerun::params_key::computed_key(node, a, &mut ids));
             }
-            Place::Fold if gravity_lower::rerun::words::has_exec(a) => crate::rerun::params::key(px.gx, node, a),
-            Place::Fold => shape(node, "a TABLESAMPLE argument without a parameter word (the statement's words are full)"),
+            Place::Fold if gravity_lower::rerun::words::has_exec(a) => {
+                crate::rerun::params::key(px.gx, node, a)
+            }
+            Place::Fold => shape(
+                node,
+                "a TABLESAMPLE argument without a parameter word (the statement's words are full)",
+            ),
             Place::Exec(id) => {
                 let w = crate::rerun::params::exec_key(px, node, id);
                 slots.push_in(w);
@@ -95,13 +122,26 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
     // (D1643) and an InitPlan's refuse by name)
     if *am == Am::Pgrcolumnar {
         use crate::frame::site::{EXEC_KEY, HOST_KEY, INIT_KEY};
-        if !ids.is_empty() || slots.iter().any(|&w| w == HOST_KEY || (w & EXEC_KEY != 0 && w & INIT_KEY != 0)) {
+        if !ids.is_empty()
+            || slots
+                .iter()
+                .any(|&w| w == HOST_KEY || (w & EXEC_KEY != 0 && w & INIT_KEY != 0))
+        {
             shape(node, "a TABLESAMPLE over pgrc whose argument is computed from executor parameters, VOLATILE or may raise (D1643), or an InitPlan's");
         }
         return crate::ops::scan::pgrc::lower::make_sample(px, k, slots);
     }
     let mut attnos = PgVec::new_in(px.mcx());
-    crate::rerun::params_key::input_cells_opening(px, node, &ids, &ids, sample.args.iter().chain(sample.repeatable), &mut slots, &mut attnos, |v| sample.opens(v));
+    crate::rerun::params_key::input_cells_opening(
+        px,
+        node,
+        &ids,
+        &ids,
+        sample.args.iter().chain(sample.repeatable),
+        &mut slots,
+        &mut attnos,
+        |v| sample.opens(v),
+    );
     let ctid = site.lanes().iter().any(|l| l.id == SiteLane::RowId);
     let mut s = site_of(px, site);
     // V4R-88 (scan-0050): the system columns the scan reads, filled by the sampled range source's window as the range site's
@@ -110,9 +150,18 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
     if let SiteKind::RangeSource { nkeys, .. } = &mut s.kind {
         *nkeys = (*nkeys).max(slots.len() as u16);
     }
-    let offset = if ctid { s.lane_index(SiteLane::Offset) } else { None };
+    let offset = if ctid {
+        s.lane_index(SiteLane::Offset)
+    } else {
+        None
+    };
     if ctid && offset.is_none() {
-        crate::refuse!(node, Reason::Bug { payload: "a heap range site without its offset lane" });
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a heap range site without its offset lane"
+            }
+        );
     }
     let rd = Reader::new(px, &s, *relid, node, Some(slots), None);
     px.set_site(k, s);
@@ -156,17 +205,40 @@ impl SourceMech for Sample<'_> {
     fn next_window(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, l_eof: Block) -> Win {
         let (cursor, end) = self.rd.window(b, env, l_eof);
         let nonulls = self.rd.nonulls(b);
-        Win { cursor, end, facts: WinConds { nonulls, ..WinConds::default() } }
+        Win {
+            cursor,
+            end,
+            facts: WinConds {
+                nonulls,
+                ..WinConds::default()
+            },
+        }
     }
 
-    fn row<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e> {
+    fn row<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+        j: Value,
+        carry: Carry<'e>,
+        next: Value,
+    ) -> RowVals<'e> {
         let mut r = self.rd.row(b, env, j, carry, next);
         if let Some(o) = self.offset {
             // the ItemPointerData image (bi_hi, bi_lo, ip_posid) of the window's block and the row's offset
             let k = self.rd.k(env);
-            let block = b.load(Type::I32, env.ctx, site_off(k) as i32 + site::POS_BLOCK as i32);
+            let block = b.load(
+                Type::I32,
+                env.ctx,
+                site_off(k) as i32 + site::POS_BLOCK as i32,
+            );
             let i = self.rd.row_index(b, env, j);
-            let lp = b.load(Type::Ptr, self.rd.vals().lane_arr, (o * lane::SIZE + lane::PTR) as i32);
+            let lp = b.load(
+                Type::Ptr,
+                self.rd.vals().lane_arr,
+                (o * lane::SIZE + lane::PTR) as i32,
+            );
             let at = b.ptr_add(lp, i, 2, 0);
             let off = b.load(Type::I16, at, 0);
             let slot = b.declare_stack_slot(8, 8);
@@ -177,13 +249,23 @@ impl SourceMech for Sample<'_> {
             let bi = b.int_bin(IntBinOp::Or, hi, lo);
             b.store(img, 0, bi);
             b.store(img, 4, off);
-            let out = ExprOut { rep: OutCol::new("", TIDOID, -1, 6, false).rep, typid: TIDOID, life: ExprLife::Row };
+            let out = ExprOut {
+                rep: OutCol::new("", TIDOID, -1, 6, false).rep,
+                typid: TIDOID,
+                life: ExprLife::Row,
+            };
             if r.cols.len() < CTID_AT as usize {
                 r.cols.resize_in(CTID_AT as usize, None);
             }
             r.cols[CTID_AT as usize - 1] = Some(r.row.cells.len() as u16);
-            r.row.cells.push_in(Cell::of_expr(out, r.row.cells.len() as u16, 0, Nullable::Never));
-            r.vals.push_in((b.conv(ConvOp::PtrToInt, Type::I64, img), None));
+            r.row.cells.push_in(Cell::of_expr(
+                out,
+                r.row.cells.len() as u16,
+                0,
+                Nullable::Never,
+            ));
+            r.vals
+                .push_in((b.conv(ConvOp::PtrToInt, Type::I64, img), None));
         }
         r
     }

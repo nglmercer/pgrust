@@ -1,8 +1,8 @@
 use super::*;
-use types_storage::storage::NUM_AUXILIARY_PROCS;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
 use std::sync::{Condvar, Mutex, Once, OnceLock};
+use types_storage::storage::NUM_AUXILIARY_PROCS;
 
 const CFG: ProcGlobalConfig = ProcGlobalConfig {
     autovacuum_worker_slots: 3,
@@ -172,15 +172,27 @@ fn init_proc_global_shapes() {
     thread_globals(9001);
     let hdr = ProcGlobal();
 
-    assert_eq!(hdr.allProcs.len(), (MAX_BACKENDS + NUM_AUXILIARY_PROCS + 2) as usize);
-    assert_eq!(hdr.allProcCount, (MAX_BACKENDS + NUM_AUXILIARY_PROCS) as u32);
+    assert_eq!(
+        hdr.allProcs.len(),
+        (MAX_BACKENDS + NUM_AUXILIARY_PROCS + 2) as usize
+    );
+    assert_eq!(
+        hdr.allProcCount,
+        (MAX_BACKENDS + NUM_AUXILIARY_PROCS) as u32
+    );
     assert_eq!(hdr.xids.len(), hdr.allProcs.len());
     assert_eq!(hdr.subxidStates.len(), hdr.allProcs.len());
     assert_eq!(hdr.statusFlags.len(), hdr.allProcs.len());
     assert_eq!(hdr.fpLockGroupsPerBackend, 1);
-    assert_eq!(unsafe { hdr.spins_per_delay.get() }, DEFAULT_SPINS_PER_DELAY);
+    assert_eq!(
+        unsafe { hdr.spins_per_delay.get() },
+        DEFAULT_SPINS_PER_DELAY
+    );
     assert_eq!(hdr.startupBufferPinWaitBufId.load(SeqCst), -1);
-    assert_eq!(SEMA_CREATED.load(SeqCst), (MAX_BACKENDS + NUM_AUXILIARY_PROCS) as usize);
+    assert_eq!(
+        SEMA_CREATED.load(SeqCst),
+        (MAX_BACKENDS + NUM_AUXILIARY_PROCS) as usize
+    );
 
     assert_eq!(AuxiliaryProcsBase(), MAX_BACKENDS);
     assert_eq!(PreparedXactProcsBase(), MAX_BACKENDS + NUM_AUXILIARY_PROCS);
@@ -192,7 +204,10 @@ fn init_proc_global_shapes() {
     let prepared = GetPGProcByNumber(PreparedXactProcsBase());
     assert!(!prepared.procLatch.is_shared.load(SeqCst));
     assert!(!unsafe { GetPGProcByNumber(0).fpLockBits.get() }.is_null());
-    assert_eq!(GetPGProcByNumber(0).fpInfoLock.tranche, LWTRANCHE_LOCK_FASTPATH as u16);
+    assert_eq!(
+        GetPGProcByNumber(0).fpInfoLock.tranche,
+        LWTRANCHE_LOCK_FASTPATH as u16
+    );
 
     assert_eq!(
         freelist_len(FreeListId::Autovac),
@@ -245,11 +260,17 @@ fn prockill_forgets_the_last_interrupt_raised() {
     let _guard = freelist_guard();
     thread_globals(141);
     InitProcess(BackendType::Backend).unwrap();
-    let fatal = types_error::PgError::new(types_error::FATAL, "terminating connection due to administrator command")
-        .with_sqlstate(types_error::ERRCODE_ADMIN_SHUTDOWN);
+    let fatal = types_error::PgError::new(
+        types_error::FATAL,
+        "terminating connection due to administrator command",
+    )
+    .with_sqlstate(types_error::ERRCODE_ADMIN_SHUTDOWN);
     g::NoteInterruptRaised(&fatal);
     ProcKill(0, 0);
-    assert!(g::TakeInterruptRaised().is_none(), "the error's copy outlived the backend's ProcKill");
+    assert!(
+        g::TakeInterruptRaised().is_none(),
+        "the error's copy outlived the backend's ProcKill"
+    );
 }
 
 #[test]
@@ -282,9 +303,14 @@ fn backend_lifecycle_and_lock_groups() {
         thread_globals(102);
         InitProcess(BackendType::BgWorker).unwrap();
         let me = MyProc().unwrap();
-        assert!(unsafe { GetPGProcByNumber(me).procgloballist.get() } == Some(FreeListId::Bgworker));
+        assert!(
+            unsafe { GetPGProcByNumber(me).procgloballist.get() } == Some(FreeListId::Bgworker)
+        );
         assert!(BecomeLockGroupMember(leader_no, 101).unwrap());
-        assert_eq!(GetPGProcByNumber(me).lockGroupLeader.load(SeqCst), leader_no);
+        assert_eq!(
+            GetPGProcByNumber(me).lockGroupLeader.load(SeqCst),
+            leader_no
+        );
         ProcKill(0, 0);
         assert!(MyProc().is_none());
     });
@@ -498,10 +524,7 @@ fn guc_storage_and_installed_seams() {
     let node = lmgr_proc_seams::proclist_node { next: 5, prev: 6 };
     lmgr_proc_seams::set_proc_lw_wait_link::call(probe, node);
     assert_eq!(lmgr_proc_seams::proc_lw_wait_link::call(probe), node);
-    lmgr_proc_seams::set_proc_lw_wait_link::call(
-        probe,
-        lmgr_proc_seams::proclist_node::default(),
-    );
+    lmgr_proc_seams::set_proc_lw_wait_link::call(probe, lmgr_proc_seams::proclist_node::default());
 
     // The sema delegate reaches the pg_sema owner: unlock then lock returns.
     lmgr_proc_seams::pg_semaphore_unlock::call(0);
@@ -609,7 +632,11 @@ fn kill_retained_proc_disowns_latch_before_freelisting() {
             InitProcess(BackendType::Backend).unwrap();
             let procno = MyProc().unwrap();
             let proc = GetPGProcByNumber(procno);
-            assert_eq!(proc.procLatch.owner_pid.load(SeqCst), 304, "InitProcess owns the latch");
+            assert_eq!(
+                proc.procLatch.owner_pid.load(SeqCst),
+                304,
+                "InitProcess owns the latch"
+            );
             KillRetainedProc(); // kill path: no ProcKill ran before this
             assert!(MyProc().is_none());
             assert_eq!(proc.pid.load(SeqCst), 0);
@@ -672,7 +699,10 @@ fn proc_wait_for_signal_checks_for_interrupts() {
     CANCEL_PENDING.with(|c| c.set(true));
     let interrupted = ProcWaitForSignal(0).interrupted();
     CANCEL_PENDING.with(|c| c.set(false));
-    assert!(interrupted, "a pending query cancel must surface from ProcWaitForSignal");
+    assert!(
+        interrupted,
+        "a pending query cancel must surface from ProcWaitForSignal"
+    );
 }
 
 // proc.c:221-380 ShmemInitStruct sizes at C 18.6 LP64: TotalProcs =

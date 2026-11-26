@@ -25,7 +25,11 @@ fn discontiguous_extend_pads_prior_segment_with_io_aligned_zero_block() {
     let dir = common::setup("direct_io_pad");
     fd::set_io_direct_flags(IO_DIRECT_DATA);
     let key = RelFileLocatorBackend {
-        locator: RelFileLocator { spcOid: 1663, dbOid: 5, relNumber: 16386 },
+        locator: RelFileLocator {
+            spcOid: 1663,
+            dbOid: 5,
+            relNumber: 16386,
+        },
         backend: INVALID_PROC_NUMBER,
     };
     let fork = ForkNumber::MAIN_FORKNUM;
@@ -50,8 +54,12 @@ fn discontiguous_extend_pads_prior_segment_with_io_aligned_zero_block() {
     // Block RELSEG_SIZE lives in segment 1; segment 0 (1 block) must first be
     // padded to RELSEG_SIZE with the zero block (sparse on disk). C: succeeds
     // under debug_io_direct=data.
-    smgr::smgrextend(key, fork, RELSEG_SIZE, &block.0, false)
-        .unwrap_or_else(|e| panic!("discontiguous extend under io_direct=data failed: {}", e.message));
+    smgr::smgrextend(key, fork, RELSEG_SIZE, &block.0, false).unwrap_or_else(|e| {
+        panic!(
+            "discontiguous extend under io_direct=data failed: {}",
+            e.message
+        )
+    });
     assert_eq!(smgr::smgrnblocks(key, fork).unwrap(), RELSEG_SIZE + 1);
 
     fd::set_io_direct_flags(0);

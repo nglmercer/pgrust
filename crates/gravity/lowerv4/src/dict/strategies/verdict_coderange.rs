@@ -26,7 +26,10 @@ crate::strategies! {
     VERDICT_CODERANGE = 14, "verdict.coderange", CodeFilter;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(VERDICT_CODERANGE, &VerdictImpl(&CodeRange))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(VERDICT_CODERANGE, &VerdictImpl(&CodeRange))],
+    ..crate::ops::NONE
+};
 
 struct CodeRange;
 
@@ -59,14 +62,23 @@ pub(crate) fn of_list(px: &Px<'_, '_>, q: ExId) -> Option<Range> {
 
 fn verdict(px: &Px<'_, '_>, q: ExId, lists: bool) -> Option<Range> {
     let e = px.placed(q);
-    let pl = e.ext.as_deref().and_then(|x| x.downcast_ref::<crate::dict::percode::Plan>())?;
-    let &[(attno, _, _)] = &pl.cols[..] else { return None };
+    let pl = e
+        .ext
+        .as_deref()
+        .and_then(|x| x.downcast_ref::<crate::dict::percode::Plan>())?;
+    let &[(attno, _, _)] = &pl.cols[..] else {
+        return None;
+    };
     let c = &e.c;
     let plan = c.percode(&[CodeCol { attno }], px.mcx()).ok()?;
     let root = unrelabel(c, c.root);
     let r = plan.root_at(c.root).or_else(|| plan.root_at(root))?;
     let (t, class) = *pl.tables.get(r.table? as usize)?;
-    let bits = matches!(r.form, Form::Bits) && matches!(class, crate::dict::percode::Class::Bits | crate::dict::percode::Class::Set);
+    let bits = matches!(r.form, Form::Bits)
+        && matches!(
+            class,
+            crate::dict::percode::Class::Bits | crate::dict::percode::Class::Set
+        );
     (bits && strict(c, root, attno, lists)).then_some(Range { t, attno })
 }
 
@@ -91,7 +103,8 @@ fn strict(c: &Compiled<'_>, id: NodeId, attno: i16, lists: bool) -> bool {
                 return false;
             }
             let arr = unrelabel(c, p.kids[call.args.start as usize + 1]);
-            if !matches!(&p.nodes[arr.0 as usize], ExprNode::Const(k) if k.list_len().is_some_and(|l| l > 0)) {
+            if !matches!(&p.nodes[arr.0 as usize], ExprNode::Const(k) if k.list_len().is_some_and(|l| l > 0))
+            {
                 return false;
             }
             n.site
@@ -101,18 +114,29 @@ fn strict(c: &Compiled<'_>, id: NodeId, attno: i16, lists: bool) -> bool {
     let call = &p.sites[site.0 as usize];
     let kids = &p.kids[call.args.start as usize..][..call.args.len as usize];
     call.strict
-        && kids.iter().all(|&k| match &p.nodes[unrelabel(c, k).0 as usize] {
-            ExprNode::Var(v) => v.src == VarSource::Scan && v.attno == attno,
-            ExprNode::Const(_) => true,
-            _ => false,
-        })
+        && kids
+            .iter()
+            .all(|&k| match &p.nodes[unrelabel(c, k).0 as usize] {
+                ExprNode::Var(v) => v.src == VarSource::Scan && v.attno == attno,
+                ExprNode::Const(_) => true,
+                _ => false,
+            })
 }
 
 /// Whether every row of `[cursor, end)` fails range `r` (a window without a selection): no entry of the table's bits or
 /// faults between the rows' lowest and highest code (the lane at `codes`, a `u32` per row) is set. `false` for a range
 /// wider than `cost::CODERANGE_WORDS_MAX` words; the loops are bounded by the window and by that cap.
-pub(crate) fn none(b: &mut FunctionBuilder<'_>, env: &mut Env, r: Range, codes: Value, cursor: Value, end: Value) -> Value {
-    let Some(tabs) = env.tables else { return b.bconst(false) };
+pub(crate) fn none(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    r: Range,
+    codes: Value,
+    cursor: Value,
+    end: Value,
+) -> Value {
+    let Some(tabs) = env.tables else {
+        return b.bconst(false);
+    };
     // the window test is emitted: the source's scan (ops/scan/pgrc/lower.rs) takes `of`, never `declare`
     fires::fire("verdict.coderange");
     let (i64t, v4) = (Type::I64, Type::V4I32);
@@ -125,18 +149,29 @@ pub(crate) fn none(b: &mut FunctionBuilder<'_>, env: &mut Env, r: Range, codes: 
     let (ones32, zero32) = (b.iconst(Type::I32, -1), b.iconst(Type::I32, 0));
     let (vlo0, vhi0) = (b.vsplat(v4, ones32), b.vsplat(v4, zero32));
     // four codes a turn
-    let (l_vh, l_vb, l_vd) = (b.create_block(&[i64t, v4, v4]), b.create_block(&[]), b.create_block(&[v4, v4]));
+    let (l_vh, l_vb, l_vd) = (
+        b.create_block(&[i64t, v4, v4]),
+        b.create_block(&[]),
+        b.create_block(&[v4, v4]),
+    );
     b.br(l_vh, &[cursor, vlo0, vhi0]);
     b.mark_loop_header(l_vh);
     env.bounded.push_in(l_vh);
     b.switch_to(l_vh);
-    let (i, vlo, vhi) = (b.block_params(l_vh)[0], b.block_params(l_vh)[1], b.block_params(l_vh)[2]);
+    let (i, vlo, vhi) = (
+        b.block_params(l_vh)[0],
+        b.block_params(l_vh)[1],
+        b.block_params(l_vh)[2],
+    );
     let more = b.icmp(IntCond::Ult, i, e4);
     b.cond_br(more, (l_vb, &[]), (l_vd, &[vlo, vhi]));
     b.switch_to(l_vb);
     let p = b.ptr_add(codes, i, 4, 0);
     let v = b.vload_unaligned(v4, p, 0);
-    let (vlo1, vhi1) = (b.vbin(VecBinOp::Umin, vlo, v), b.vbin(VecBinOp::Umax, vhi, v));
+    let (vlo1, vhi1) = (
+        b.vbin(VecBinOp::Umin, vlo, v),
+        b.vbin(VecBinOp::Umax, vhi, v),
+    );
     let i4 = b.int_bin(IntBinOp::Add, i, four);
     b.br(l_vh, &[i4, vlo1, vhi1]);
     b.switch_to(l_vd);
@@ -148,12 +183,20 @@ pub(crate) fn none(b: &mut FunctionBuilder<'_>, env: &mut Env, r: Range, codes: 
         (lo, hi) = (umin(b, lo, x), umax(b, hi, y));
     }
     // the tail, a code a turn
-    let (l_sh, l_sb, l_sd) = (b.create_block(&[i64t, i64t, i64t]), b.create_block(&[]), b.create_block(&[i64t, i64t]));
+    let (l_sh, l_sb, l_sd) = (
+        b.create_block(&[i64t, i64t, i64t]),
+        b.create_block(&[]),
+        b.create_block(&[i64t, i64t]),
+    );
     b.br(l_sh, &[e4, lo, hi]);
     b.mark_loop_header(l_sh);
     env.bounded.push_in(l_sh);
     b.switch_to(l_sh);
-    let (i, lo, hi) = (b.block_params(l_sh)[0], b.block_params(l_sh)[1], b.block_params(l_sh)[2]);
+    let (i, lo, hi) = (
+        b.block_params(l_sh)[0],
+        b.block_params(l_sh)[1],
+        b.block_params(l_sh)[2],
+    );
     let more = b.icmp(IntCond::Ult, i, end);
     b.cond_br(more, (l_sb, &[]), (l_sd, &[lo, hi]));
     b.switch_to(l_sb);
@@ -167,10 +210,16 @@ pub(crate) fn none(b: &mut FunctionBuilder<'_>, env: &mut Env, r: Range, codes: 
     // the table's words from lo's to hi's, the ends masked to [lo, hi]; an empty window (lo > hi) fails nothing
     let l_out = b.create_block(&[i64t]);
     let (six, m63, all) = (b.iconst(i64t, 6), b.iconst(i64t, 63), b.iconst(i64t, -1));
-    let (w0, w1) = (b.int_bin(IntBinOp::Ushr, lo, six), b.int_bin(IntBinOp::Ushr, hi, six));
+    let (w0, w1) = (
+        b.int_bin(IntBinOp::Ushr, lo, six),
+        b.int_bin(IntBinOp::Ushr, hi, six),
+    );
     let span = b.int_bin(IntBinOp::Sub, w1, w0);
     let cap = b.iconst(i64t, gravity_program::cost::CODERANGE_WORDS_MAX);
-    let (empty, wide) = (b.icmp(IntCond::Ugt, lo, hi), b.icmp(IntCond::Sge, span, cap));
+    let (empty, wide) = (
+        b.icmp(IntCond::Ugt, lo, hi),
+        b.icmp(IntCond::Sge, span, cap),
+    );
     let (l_rd, l_ok) = (b.create_block(&[]), b.create_block(&[]));
     b.cond_br(empty, (l_out, &[env.one]), (l_ok, &[]));
     b.switch_to(l_ok);
@@ -181,7 +230,11 @@ pub(crate) fn none(b: &mut FunctionBuilder<'_>, env: &mut Env, r: Range, codes: 
     let hi_s = b.int_bin(IntBinOp::And, hi, m63);
     let hi_r = b.int_bin(IntBinOp::Sub, m63, hi_s);
     let m_hi = b.int_bin(IntBinOp::Ushr, all, hi_r);
-    let (l_wh, l_wb, l_wd) = (b.create_block(&[i64t, i64t]), b.create_block(&[]), b.create_block(&[i64t]));
+    let (l_wh, l_wb, l_wd) = (
+        b.create_block(&[i64t, i64t]),
+        b.create_block(&[]),
+        b.create_block(&[i64t]),
+    );
     b.br(l_wh, &[w0, env.zero]);
     b.mark_loop_header(l_wh);
     env.bounded.push_in(l_wh);

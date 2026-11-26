@@ -8,24 +8,25 @@
 //! sortsupport abbreviation, regex tails, misc encoding. External/compressed
 //! images and non-C collations go through detoast_seams / pg_locale_seams.
 
-pub mod builtins;
 pub mod abbrev;
+pub mod builtins;
 pub mod bytea;
 pub mod concat_format;
 pub mod levenshtein;
-pub mod split_text;
 pub mod replace_regexp;
+pub mod split_text;
 pub mod string_agg;
-pub mod unicode;
 #[cfg(test)]
 mod tests;
-
+pub mod unicode;
 
 use datum::{Bytea, Varlena};
 use mcx::{Mcx, PgVec};
 use stringinfo::StringInfo;
-use types_core::{C_COLLATION_OID, Oid, OidIsValid, POSIX_COLLATION_OID};
-use types_error::{PgError, PgResult, ERRCODE_FEATURE_NOT_SUPPORTED, ERRCODE_INDETERMINATE_COLLATION};
+use types_core::{Oid, OidIsValid, C_COLLATION_OID, POSIX_COLLATION_OID};
+use types_error::{
+    PgError, PgResult, ERRCODE_FEATURE_NOT_SUPPORTED, ERRCODE_INDETERMINATE_COLLATION,
+};
 use types_tuple::varatt;
 
 pub const VARHDRSZ: usize = datum::varlena::VARHDRSZ;
@@ -253,21 +254,27 @@ pub fn bttextcmp(t1: &[u8], t2: &[u8], collid: Oid) -> PgResult<i32> {
 
 // C returns one of the argument pointers; the winner is the borrowed input.
 pub fn text_larger<'a>(t1: &'a [u8], t2: &'a [u8], collid: Oid) -> PgResult<&'a [u8]> {
-    Ok(if text_cmp(t1, t2, collid)? > 0 { t1 } else { t2 })
+    Ok(if text_cmp(t1, t2, collid)? > 0 {
+        t1
+    } else {
+        t2
+    })
 }
 
 pub fn text_smaller<'a>(t1: &'a [u8], t2: &'a [u8], collid: Oid) -> PgResult<&'a [u8]> {
-    Ok(if text_cmp(t1, t2, collid)? < 0 { t1 } else { t2 })
+    Ok(if text_cmp(t1, t2, collid)? < 0 {
+        t1
+    } else {
+        t2
+    })
 }
 
 pub(crate) fn check_substring_collation(collid: Oid) -> PgResult<()> {
     check_collation_set(collid)?;
     if !collation_is_deterministic(collid)? {
         return Err(Box::new(
-            PgError::error(
-                "nondeterministic collations are not supported for substring searches",
-            )
-            .with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED),
+            PgError::error("nondeterministic collations are not supported for substring searches")
+                .with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED),
         ));
     }
     Ok(())
@@ -489,7 +496,11 @@ pub fn text_overlay<'mcx>(
 // C: convert_to_base (workhorse for to_bin/to_oct/to_hex); base in 2..=16.
 // Pure frame core factored out for proofs/bytea-cmp (behavior identical):
 // fills the tail of the 64-byte frame, returns the start index of the digits.
-pub fn convert_to_base_frame(mut value: u64, base: u64, buf: &mut [u8; u64::BITS as usize]) -> usize {
+pub fn convert_to_base_frame(
+    mut value: u64,
+    base: u64,
+    buf: &mut [u8; u64::BITS as usize],
+) -> usize {
     debug_assert!(base > 1 && base <= 16);
     const DIGITS: &[u8; 16] = b"0123456789abcdef";
     let mut i = buf.len();
@@ -679,8 +690,7 @@ fn text_position_next_internal(
         }
         // SAFETY: the masked index is <= skiptablemask; setup initialized
         // 0..=skiptablemask whenever this arm runs (len1 >= len2 && len2 > 1).
-        hptr +=
-            unsafe { state.skiptable[haystack[hptr] as usize & mask].assume_init() } as usize;
+        hptr += unsafe { state.skiptable[haystack[hptr] as usize & mask].assume_init() } as usize;
     }
     Ok(None)
 }
@@ -701,7 +711,10 @@ fn text_position_next_nondeterministic(
     };
     let mut hptr = start;
     while hptr < haystack.len() {
-        if !state.greedy && haystack.len() - hptr >= needle_len && eq(&haystack[hptr..hptr + needle_len])? {
+        if !state.greedy
+            && haystack.len() - hptr >= needle_len
+            && eq(&haystack[hptr..hptr + needle_len])?
+        {
             return Ok(Some((hptr, needle_len)));
         }
         let mut result: Option<(usize, usize)> = None;
@@ -963,12 +976,14 @@ pub fn split_identifier_string(
     separator: u8,
     encoding: wchar::pg_enc,
 ) -> PgResult<Option<Vec<String>>> {
-    Ok(split_identifier_bytes(mcx, rawstring.as_bytes(), separator, encoding)?.map(|names| {
-        names
-            .iter()
-            .map(|n| String::from_utf8_lossy(n).into_owned())
-            .collect()
-    }))
+    Ok(
+        split_identifier_bytes(mcx, rawstring.as_bytes(), separator, encoding)?.map(|names| {
+            names
+                .iter()
+                .map(|n| String::from_utf8_lossy(n).into_owned())
+                .collect()
+        }),
+    )
 }
 
 // SplitIdentifierString on the raw bytes C scans (text_to_cstring output):

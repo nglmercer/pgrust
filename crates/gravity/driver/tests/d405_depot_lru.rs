@@ -42,14 +42,27 @@ fn over_the_park_budget_a_put_evicts_the_least_recently_put_region_not_itself() 
     let before = REGIONS.stats();
     REGIONS.put(fresh);
     let after = REGIONS.stats();
-    assert_eq!(after.puts, before.puts + 1, "the returned region is parked, not dropped");
+    assert_eq!(
+        after.puts,
+        before.puts + 1,
+        "the returned region is parked, not dropped"
+    );
     assert_eq!(after.entries, 8, "one older region made room");
     assert_eq!(after.evictions, before.evictions + 1);
     assert!(!POOL.over_park_budget(), "the park budget stays bounded");
     let parked = drain();
-    assert!(parked.contains(&fresh_ptr), "the running statement's region is parked");
-    assert!(!parked.contains(&old[0]), "the least recently put region was the one evicted");
-    assert!(old[1..].iter().all(|p| parked.contains(p)), "the other older regions stay parked");
+    assert!(
+        parked.contains(&fresh_ptr),
+        "the running statement's region is parked"
+    );
+    assert!(
+        !parked.contains(&old[0]),
+        "the least recently put region was the one evicted"
+    );
+    assert!(
+        old[1..].iter().all(|p| parked.contains(p)),
+        "the other older regions stay parked"
+    );
     assert_eq!(POOL.held(), 0);
 
     // does not apply: the live bytes alone hold the pool over the budget, so no eviction can make room; the depot is left
@@ -62,8 +75,16 @@ fn over_the_park_budget_a_put_evicts_the_least_recently_put_region_not_itself() 
     let before = REGIONS.stats();
     REGIONS.put(back);
     let after = REGIONS.stats();
-    assert_eq!((after.entries, after.puts), (before.entries, before.puts), "the depot is untouched");
-    assert_eq!(after.evictions, before.evictions + 1, "the returned region is the one dropped");
+    assert_eq!(
+        (after.entries, after.puts),
+        (before.entries, before.puts),
+        "the depot is untouched"
+    );
+    assert_eq!(
+        after.evictions,
+        before.evictions + 1,
+        "the returned region is the one dropped"
+    );
     drop(live);
     REGIONS.trim();
     assert_eq!(POOL.held(), 0);

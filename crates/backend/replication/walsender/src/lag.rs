@@ -175,7 +175,8 @@ pub(crate) fn LagTrackerRead(head: usize, lsn: XLogRecPtr, now: TimestampTz) -> 
                 let fraction = (lsn - prev.lsn) as f64 / (next.lsn - prev.lsn) as f64;
 
                 // Scale the local flush time proportionally.
-                time = (prev.time as f64 + (next.time - prev.time) as f64 * fraction) as TimestampTz;
+                time =
+                    (prev.time as f64 + (next.time - prev.time) as f64 * fraction) as TimestampTz;
             } else {
                 // We have only a future sample: we were entirely caught up
                 // and now there is a new burst of WAL the standby hasn't

@@ -4,7 +4,9 @@
 
 use ::mcx::{alloc_in, vec_with_capacity_in, Mcx, PgVec};
 use ::ts_locale::dict_api::{def_get_boolean, def_get_string, DictInitData, LexizeResult};
-use ::ts_locale::{could_not_open_error, get_tsearch_config_filename, lowerstr, tsearch_readline_begin, TsLexeme};
+use ::ts_locale::{
+    could_not_open_error, get_tsearch_config_filename, lowerstr, tsearch_readline_begin, TsLexeme,
+};
 use ::types_error::{PgError, PgResult, ERRCODE_INVALID_PARAMETER_VALUE};
 use ::types_fmgr::{FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction};
 use datum::Datum;
@@ -34,7 +36,9 @@ impl DictSyn {
 
 #[cold]
 fn invalid_param(msg: String) -> Box<PgError> {
-    PgError::error(msg).with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE).into()
+    PgError::error(msg)
+        .with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE)
+        .into()
 }
 
 /// find_word: the next whitespace-delimited word at or after `pos`; a word
@@ -149,8 +153,13 @@ pub fn dxsyn_init(init: &DictInitData<'static>) -> PgResult<DictSyn> {
     };
     let mut filename: Option<&[u8]> = None;
     for (i, (name, value)) in init.dict_options.iter().enumerate() {
-        let boolean =
-            || def_get_boolean(name, value.as_ref().map(|v| v.as_slice()), init.int_options[i]);
+        let boolean = || {
+            def_get_boolean(
+                name,
+                value.as_ref().map(|v| v.as_slice()),
+                init.int_options[i],
+            )
+        };
         match name.as_slice() {
             b"matchorig" => d.matchorig = boolean()?,
             b"keeporig" => d.keeporig = boolean()?,
@@ -203,7 +212,11 @@ pub fn dxsyn_lexize<'mcx>(
     for (start, end) in line_output(value, d.keeporig, d.keepsynonyms) {
         let mut lexeme = vec_with_capacity_in(mcx, end - start)?;
         lexeme.extend_from_slice(&value[start..end]);
-        out.push(TsLexeme { nvariant: 0, flags: 0, lexeme });
+        out.push(TsLexeme {
+            nvariant: 0,
+            flags: 0,
+            lexeme,
+        });
     }
     Ok(Some(LexizeResult(out)))
 }
@@ -257,17 +270,26 @@ mod tests {
     fn comments_and_blank_lines_have_no_words() {
         assert_eq!(find_word(b"# comment\n", 0), None);
         assert_eq!(find_word(b"   \n", 0), None);
-        assert_eq!(words(b"a b #c d", line_output(b"a b #c d", true, true)), vec![&b"a"[..], b"b"]);
+        assert_eq!(
+            words(b"a b #c d", line_output(b"a b #c d", true, true)),
+            vec![&b"a"[..], b"b"]
+        );
     }
 
     #[test]
     fn key_selection_follows_match_flags() {
-        assert_eq!(words(LINE, line_keys(LINE, true, false)), vec![&b"supernova"[..]]);
+        assert_eq!(
+            words(LINE, line_keys(LINE, true, false)),
+            vec![&b"supernova"[..]]
+        );
         assert_eq!(
             words(LINE, line_keys(LINE, true, true)),
             vec![&b"supernova"[..], b"sn", b"sne", b"1987a"]
         );
-        assert_eq!(words(LINE, line_keys(LINE, false, true)), vec![&b"sn"[..], b"sne", b"1987a"]);
+        assert_eq!(
+            words(LINE, line_keys(LINE, false, true)),
+            vec![&b"sn"[..], b"sne", b"1987a"]
+        );
         assert!(line_keys(LINE, false, false).is_empty());
     }
 
@@ -277,8 +299,14 @@ mod tests {
             words(LINE, line_output(LINE, true, true)),
             vec![&b"supernova"[..], b"sn", b"sne", b"1987a"]
         );
-        assert_eq!(words(LINE, line_output(LINE, false, true)), vec![&b"sn"[..], b"sne", b"1987a"]);
-        assert_eq!(words(LINE, line_output(LINE, true, false)), vec![&b"supernova"[..]]);
+        assert_eq!(
+            words(LINE, line_output(LINE, false, true)),
+            vec![&b"sn"[..], b"sne", b"1987a"]
+        );
+        assert_eq!(
+            words(LINE, line_output(LINE, true, false)),
+            vec![&b"supernova"[..]]
+        );
         assert!(line_output(LINE, false, false).is_empty());
     }
 

@@ -16,9 +16,12 @@ pub const fn tid_of_word(w: u64) -> (u32, u16) {
     ((w >> 16) as u32, w as u16)
 }
 
-pub use crate::ops::scan::entries_heap::{heap_page_lane, heap_page_next, PageWin, LANE_LATE, PAGE_ALL_VISIBLE};
+pub use crate::ops::scan::entries_heap::{
+    heap_page_lane, heap_page_next, PageWin, LANE_LATE, PAGE_ALL_VISIBLE,
+};
 /// The session zone offset entry: ops/scan/raw.rs (`host!`).
 pub use crate::ops::scan::raw::tz_fixed_offset;
 pub use crate::ops::scan::raw::tz_offset_at;
-pub use crate::ops::scan::raw::{zone_cross_bound, CROSS_DATE_TS, CROSS_DATE_TSTZ, CROSS_NONE, CROSS_TSTZ_DATE, CROSS_TS_DATE};
-
+pub use crate::ops::scan::raw::{
+    zone_cross_bound, CROSS_DATE_TS, CROSS_DATE_TSTZ, CROSS_NONE, CROSS_TSTZ_DATE, CROSS_TS_DATE,
+};

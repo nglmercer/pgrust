@@ -16,14 +16,47 @@ use crate::graph::{Op, PipelineGraph, PipelineNode, Source};
 use crate::join::JoinDesc;
 
 /// Nest `op` among `ops` (a streamed union's parent ops, the union's `arms`) may be copied into every arm (the module doc).
-pub(crate) fn per_arm(g: &PipelineGraph<'_>, op: &Op<'_>, ops: &[Op<'_>], arms: &[PipelineNode<'_>]) -> bool {
-    let Op::Join(JoinDesc::Nest { params, inner, facts, .. }) = op else { return false };
-    let targets = |w: &crate::ops::shared::modifytable::WriteDesc<'_>| arms.iter().all(|a| a.source.relation().is_some_and(|(rti, _, _)| w.targets.iter().any(|t| t.rti == u32::from(rti))));
+pub(crate) fn per_arm(
+    g: &PipelineGraph<'_>,
+    op: &Op<'_>,
+    ops: &[Op<'_>],
+    arms: &[PipelineNode<'_>],
+) -> bool {
+    let Op::Join(JoinDesc::Nest {
+        params,
+        inner,
+        facts,
+        ..
+    }) = op
+    else {
+        return false;
+    };
+    let targets = |w: &crate::ops::shared::modifytable::WriteDesc<'_>| {
+        arms.iter().all(|a| {
+            a.source
+                .relation()
+                .is_some_and(|(rti, _, _)| w.targets.iter().any(|t| t.rti == u32::from(rti)))
+        })
+    };
     let write = ops.iter().any(|o| matches!(o, Op::Write(w) if w.targets.len() > 1 && matches!(w.cmd, Cmd::Update | Cmd::Delete) && w.merge.is_none() && w.on_conflict.is_none() && targets(w)));
-    let spool = |s: u8| crate::breakers::decl_of(g, s).is_some_and(|d| g.pipelines.get(d.producer as usize).is_some_and(|p| matches!(p.ops.last(), Some(Op::Join(JoinDesc::Spool)))));
+    let spool = |s: u8| {
+        crate::breakers::decl_of(g, s).is_some_and(|d| {
+            g.pipelines
+                .get(d.producer as usize)
+                .is_some_and(|p| matches!(p.ops.last(), Some(Op::Join(JoinDesc::Spool))))
+        })
+    };
     let source = matches!(inner.source, Source::Breaker { slot } if spool(slot));
-    let plain = inner.union.is_none() && inner.ops.iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_)));
-    (write || select(g, ops, facts.node)) && params.is_nil() && source && plain && !g.reruns.iter().any(|r| r.node_id == facts.node)
+    let plain = inner.union.is_none()
+        && inner
+            .ops
+            .iter()
+            .all(|o| matches!(o, Op::Filter(_) | Op::Project(_)));
+    (write || select(g, ops, facts.node))
+        && params.is_nil()
+        && source
+        && plain
+        && !g.reruns.iter().any(|r| r.node_id == facts.node)
 }
 
 /// D4569: the SELECT half (a channel's sales UNION ALL returns under a nest over a small dimension). A nest over a
@@ -39,7 +72,10 @@ fn select(g: &PipelineGraph<'_>, ops: &[Op<'_>], node: i32) -> bool {
 /// D4569: a streamed union's parent ops `ops` (ops/append.rs `push_union`) carry a SELECT's union nest into its arms: the
 /// shapecheck fire signal `append.nest` (lowerv4 road append.nest, read by exec admission ahead of this decomposition).
 pub(crate) fn fire_copies(g: &PipelineGraph<'_>, ops: &[Op<'_>]) {
-    if ops.iter().any(|o| matches!(o, Op::Join(JoinDesc::Nest { facts, .. }) if select(g, ops, facts.node))) {
+    if ops
+        .iter()
+        .any(|o| matches!(o, Op::Join(JoinDesc::Nest { facts, .. }) if select(g, ops, facts.node)))
+    {
         fires::fire("append.nest");
     }
 }
@@ -47,8 +83,21 @@ pub(crate) fn fire_copies(g: &PipelineGraph<'_>, ops: &[Op<'_>]) {
 /// A copy of nest `op` for one arm: the same descriptor over a copy of its inner (`dup` copies the inner's ops). `None`
 /// for anything `per_arm` does not take.
 pub(crate) fn dup_nest<'p>(op: &Op<'p>, dup: fn(&Op<'p>) -> Option<Op<'p>>) -> Option<Op<'p>> {
-    let Op::Join(JoinDesc::Nest { jointype, params, inner, qual, unique, inner_node, facts }) = op else { return None };
-    let Source::Breaker { slot } = inner.source else { return None };
+    let Op::Join(JoinDesc::Nest {
+        jointype,
+        params,
+        inner,
+        qual,
+        unique,
+        inner_node,
+        facts,
+    }) = op
+    else {
+        return None;
+    };
+    let Source::Breaker { slot } = inner.source else {
+        return None;
+    };
     if inner.union.is_some() {
         return None;
     }
@@ -57,7 +106,23 @@ pub(crate) fn dup_nest<'p>(op: &Op<'p>, dup: fn(&Op<'p>) -> Option<Op<'p>>) -> O
     for o in inner.ops.iter() {
         ops.push(dup(o)?);
     }
-    let copy = PipelineNode { node_id: inner.node_id, source: Source::Breaker { slot }, ops, desc: inner.desc, union: None, node_ops: inner.node_ops.clone(), mark: inner.mark };
+    let copy = PipelineNode {
+        node_id: inner.node_id,
+        source: Source::Breaker { slot },
+        ops,
+        desc: inner.desc,
+        union: None,
+        node_ops: inner.node_ops.clone(),
+        mark: inner.mark,
+    };
     #[allow(clippy::redundant_field_names)]
-    Some(Op::Join(JoinDesc::Nest { jointype: *jointype, params:params, inner: ArenaBox::new_in(copy, arena), qual:qual, unique: *unique, inner_node: *inner_node, facts: *facts }))
+    Some(Op::Join(JoinDesc::Nest {
+        jointype: *jointype,
+        params: params,
+        inner: ArenaBox::new_in(copy, arena),
+        qual: qual,
+        unique: *unique,
+        inner_node: *inner_node,
+        facts: *facts,
+    }))
 }

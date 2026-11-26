@@ -17,7 +17,10 @@ use crate::rep::{self, CellRef, Lx, OrderArm, Words};
 
 use crate::rep::varlena::hash::{payload, ptr, release};
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::RepVarlenaOrder, &ARM)], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::RepVarlenaOrder, &ARM)],
+    ..crate::ops::NONE
+};
 
 pub(crate) const ARM: OrderArm = OrderArm { image, name: None };
 
@@ -27,7 +30,10 @@ fn image(lx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, tf: &TypeFacts, coll: KeyColl)
         return (rep::arm::<OrderArm>(&*lx, KindId::RepHostedOrder).image)(lx, c, tf, coll);
     }
     let w = crate::rep::varkey::order_prefix(lx, c, tf, coll, bytes_prefix);
-    Words { w: [Some(w), None], exact: false }
+    Words {
+        w: [Some(w), None],
+        exact: false,
+    }
 }
 
 /// The bytes-order prefix word of the cell's value (0 on a NULL row; the caller's fold places NULLs).
@@ -39,9 +45,21 @@ pub(crate) fn bytes_prefix(lx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, tf: &TypeFac
     lx.b.switch_to(l_val);
     let p = ptr(lx.b, p);
     let (bytes, len, mark) = payload(lx, p, tf);
-    let flags = HostFlags { touches_memory: true, pure: true, ..HostFlags::default() };
-    let h = lx.b.declare_host_once("m6_text_prefix", &[Type::Ptr, Type::I64], Some(Type::I64), gravity_abi::host_words!(prefix8(p, len)), flags);
-    let w = lx.b.call_host(h, &[bytes, len], Some(Type::I64)).expect("returns the prefix word");
+    let flags = HostFlags {
+        touches_memory: true,
+        pure: true,
+        ..HostFlags::default()
+    };
+    let h = lx.b.declare_host_once(
+        "m6_text_prefix",
+        &[Type::Ptr, Type::I64],
+        Some(Type::I64),
+        gravity_abi::host_words!(prefix8(p, len)),
+        flags,
+    );
+    let w =
+        lx.b.call_host(h, &[bytes, len], Some(Type::I64))
+            .expect("returns the prefix word");
     release(lx, mark);
     lx.b.br(l_out, &[w]);
     lx.b.switch_to(l_out);
@@ -58,7 +76,19 @@ mod tests {
     fn prefixes_order_as_bytes() {
         // SAFETY: each slice is readable for its length.
         let img = |s: &[u8]| unsafe { super::prefix8(s.as_ptr(), s.len() as u64) as i64 };
-        let words: Vec<i64> = [&b""[..], b"\x01", b"a", b"a\x01", b"ab", b"abcdefgh", b"b", b"\xff"].iter().map(|s| img(s)).collect();
+        let words: Vec<i64> = [
+            &b""[..],
+            b"\x01",
+            b"a",
+            b"a\x01",
+            b"ab",
+            b"abcdefgh",
+            b"b",
+            b"\xff",
+        ]
+        .iter()
+        .map(|s| img(s))
+        .collect();
         assert!(words.windows(2).all(|w| w[0] < w[1]), "{words:x?}");
         assert_eq!(img(b"abcdefghX"), img(b"abcdefghY"));
     }

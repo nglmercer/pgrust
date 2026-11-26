@@ -44,7 +44,10 @@ fn assert_pool_consistent() {
         if st == ACTIVE || st == DRAINING {
             live += hi - lo;
         }
-        assert_ne!(st, DRAINING, "no extent stays draining after a resize returns");
+        assert_ne!(
+            st, DRAINING,
+            "no extent stays draining after a resize returns"
+        );
     }
     assert_eq!(extent::active_buffers(), live);
     assert_eq!(extent::span(), extent::computed_span());
@@ -56,8 +59,16 @@ fn assert_pool_consistent() {
         UnlockBufHdr(desc, st);
         let e = id >> crate::extent::EXTENT_SHIFT;
         if extent::state(e) == RETIRED {
-            assert_eq!(st & BM_TAG_VALID, 0, "buffer {id} valid in retired extent {e}");
-            assert_eq!(st & BUF_REFCOUNT_MASK, 0, "buffer {id} pinned in retired extent {e}");
+            assert_eq!(
+                st & BM_TAG_VALID,
+                0,
+                "buffer {id} valid in retired extent {e}"
+            );
+            assert_eq!(
+                st & BUF_REFCOUNT_MASK,
+                0,
+                "buffer {id} pinned in retired extent {e}"
+            );
         }
         if st & BM_TAG_VALID != 0 {
             assert_eq!(lookup(&tag), id, "mapping for buffer {id} ({tag:?})");
@@ -90,7 +101,13 @@ fn page_block_stamp(b: Buffer) -> u32 {
     let p = BufferGetBlockPtr(b);
     // SAFETY: pinned page image, BLCKSZ bytes; valid_page_into stamps the
     // block number at offset 24.
-    unsafe { u32::from_ne_bytes(core::slice::from_raw_parts(p.add(24), 4).try_into().unwrap()) }
+    unsafe {
+        u32::from_ne_bytes(
+            core::slice::from_raw_parts(p.add(24), 4)
+                .try_into()
+                .unwrap(),
+        )
+    }
 }
 
 fn pin_id(id: i32) {
@@ -106,22 +123,41 @@ fn unpin_id(id: i32) {
 #[test]
 fn bp1_geometry_plan() {
     let inert = extent::plan_geometry(1000, 0, false).unwrap();
-    assert_eq!((inert.max_buffers, inert.boot_buffers, inert.n_extents), (1000, 1000, 4));
+    assert_eq!(
+        (inert.max_buffers, inert.boot_buffers, inert.n_extents),
+        (1000, 1000, 4)
+    );
     let same = extent::plan_geometry(1000, 1000, false).unwrap();
     assert_eq!(same, inert, "max == shared_buffers is the inert shape");
     let engaged = extent::plan_geometry(1000, 4096, false).unwrap();
-    assert_eq!((engaged.max_buffers, engaged.boot_buffers, engaged.n_extents), (4096, 1024, 16));
+    assert_eq!(
+        (engaged.max_buffers, engaged.boot_buffers, engaged.n_extents),
+        (4096, 1024, 16)
+    );
     let tight = extent::plan_geometry(1000, 1010, false).unwrap();
-    assert_eq!((tight.boot_buffers, tight.n_extents), (1010, 4), "boot rounds up, clamped to max");
+    assert_eq!(
+        (tight.boot_buffers, tight.n_extents),
+        (1010, 4),
+        "boot rounds up, clamped to max"
+    );
     let err = extent::plan_geometry(1000, 999, false).unwrap_err();
-    assert!(err.message.contains("must be 0 or at least \"shared_buffers\""), "{}", err.message);
+    assert!(
+        err.message
+            .contains("must be 0 or at least \"shared_buffers\""),
+        "{}",
+        err.message
+    );
     assert_eq!(err.sqlstate, types_error::ERRCODE_CONFIG_FILE_ERROR);
     let thp = extent::plan_geometry(1000, 0, true);
     if cfg!(target_os = "linux") {
         assert!(thp.unwrap().thp);
     } else {
         let e = thp.unwrap_err();
-        assert!(e.message.contains("not supported on this platform"), "{}", e.message);
+        assert!(
+            e.message.contains("not supported on this platform"),
+            "{}",
+            e.message
+        );
     }
 }
 
@@ -139,7 +175,11 @@ fn bp1_boot_shape_is_the_resizable_harness_pool() {
     }
     assert!(NBuffersInited() >= TEST_NBUFFERS);
     let blocks = BufferGetBlockPtr(1) as usize;
-    assert_eq!(blocks % crate::extent::EXTENT_BYTES, 0, "blocks are 2 MiB aligned");
+    assert_eq!(
+        blocks % crate::extent::EXTENT_BYTES,
+        0,
+        "blocks are 2 MiB aligned"
+    );
 }
 
 #[test]
@@ -147,22 +187,41 @@ fn bp1_refusals_are_typed_and_loud() {
     let _g = setup();
     let above = BufferPoolResize((TEST_POOL_MAX as i64 + 1) * BLCKSZ as i64, 0).unwrap_err();
     assert_eq!(above.sqlstate, types_error::ERRCODE_INVALID_PARAMETER_VALUE);
-    assert!(above.message.contains("exceeds \"pgrust.buffer_pool_max\""), "{}", above.message);
+    assert!(
+        above.message.contains("exceeds \"pgrust.buffer_pool_max\""),
+        "{}",
+        above.message
+    );
     let floor = extent::pin_floor_buffers();
     let below = BufferPoolResize((floor as i64 - 1) * BLCKSZ as i64, 0).unwrap_err();
     assert_eq!(below.sqlstate, types_error::ERRCODE_INVALID_PARAMETER_VALUE);
-    assert!(below.message.contains("below the pin floor"), "{}", below.message);
+    assert!(
+        below.message.contains("below the pin floor"),
+        "{}",
+        below.message
+    );
     let neg = BufferPoolResize(TEST_NBUFFERS as i64 * BLCKSZ as i64, -1).unwrap_err();
-    assert!(neg.message.contains("timeout must not be negative"), "{}", neg.message);
+    assert!(
+        neg.message.contains("timeout must not be negative"),
+        "{}",
+        neg.message
+    );
     TEST_IN_RECOVERY.store(true, Ordering::Relaxed);
     let rec = BufferPoolResize(TEST_NBUFFERS as i64 * BLCKSZ as i64, 0).unwrap_err();
     TEST_IN_RECOVERY.store(false, Ordering::Relaxed);
-    assert_eq!(rec.sqlstate, types_error::ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE);
+    assert_eq!(
+        rec.sqlstate,
+        types_error::ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE
+    );
     crate::resize::testing::set_resizing(true);
     let busy = BufferPoolResize(TEST_NBUFFERS as i64 * BLCKSZ as i64, 0).unwrap_err();
     crate::resize::testing::set_resizing(false);
     assert_eq!(busy.sqlstate, types_error::ERRCODE_OBJECT_IN_USE);
-    assert_eq!(extent::active_buffers(), TEST_NBUFFERS, "refusals change nothing");
+    assert_eq!(
+        extent::active_buffers(),
+        TEST_NBUFFERS,
+        "refusals change nothing"
+    );
 }
 
 #[test]
@@ -192,21 +251,34 @@ fn bp1_shrink_relocates_hot_pages_then_grow_restores() {
     assert_eq!(out.shortfall_bytes, 0);
     assert_pool_consistent();
     let stats = crate::resize::BufferPoolStats();
-    let active = (0..extent::n_extents()).filter(|&e| extent::state(e) == ACTIVE).count();
+    let active = (0..extent::n_extents())
+        .filter(|&e| extent::state(e) == ACTIVE)
+        .count();
     assert_eq!(active as i32, 4096 / EXTENT_BUFFERS);
     assert!(stats.retired_extents >= (TEST_NBUFFERS - 4096) as i64 / EXTENT_BUFFERS as i64);
-    assert!(stats.relocated > relocated0, "hot pages moved into survivors");
+    assert!(
+        stats.relocated > relocated0,
+        "hot pages moved into survivors"
+    );
 
     let after = resident_blocks(rel);
     assert!(after.len() <= 4096);
-    assert!(after.len() >= 3000, "the shrunk pool keeps what fits: {}", after.len());
+    assert!(
+        after.len() >= 3000,
+        "the shrunk pool keeps what fits: {}",
+        after.len()
+    );
     let reads0 = SMGR_READS.load(Ordering::Relaxed);
     for &(blk, _) in after.iter().take(500) {
         let b = read_blk(rel, blk);
         assert_eq!(page_block_stamp(b), blk, "relocated page content intact");
         ReleaseBuffer(b).unwrap();
     }
-    assert_eq!(SMGR_READS.load(Ordering::Relaxed), reads0, "resident pages hit after relocation");
+    assert_eq!(
+        SMGR_READS.load(Ordering::Relaxed),
+        reads0,
+        "resident pages hit after relocation"
+    );
 
     let out = resize_to(TEST_NBUFFERS, 1000);
     assert_eq!(out.active_bytes, TEST_NBUFFERS as i64 * BLCKSZ as i64);
@@ -250,14 +322,20 @@ fn bp1_shrink_writes_dirty_pages() {
     let writes0 = WRITES.lock().unwrap().len();
     resize_to(4096, 10_000);
     let s = crate::resize::BufferPoolStats();
-    assert!(s.written >= w0 + dirtied.len() as i64, "every dirty page in a drained extent written");
+    assert!(
+        s.written >= w0 + dirtied.len() as i64,
+        "every dirty page in a drained extent written"
+    );
     let written: HashSet<u32> = WRITES.lock().unwrap()[writes0..]
         .iter()
         .filter(|w| w.2 == rel)
         .map(|w| w.4)
         .collect();
     for blk in &dirtied {
-        assert!(written.contains(blk), "block {blk} written before its extent retired");
+        assert!(
+            written.contains(blk),
+            "block {blk} written before its extent retired"
+        );
     }
     for id in 0..NBuffersInited() {
         let st = GetBufferDescriptor(id).state.load(Ordering::Relaxed);
@@ -277,7 +355,9 @@ fn bp1_pinned_extents_give_shortfall_then_complete() {
     let rel = 9631;
     fill(rel, 9000);
     let keep = POOL_FLOOR_TARGET / EXTENT_BUFFERS;
-    let active: Vec<i32> = (0..extent::n_extents()).filter(|&e| extent::state(e) == ACTIVE).collect();
+    let active: Vec<i32> = (0..extent::n_extents())
+        .filter(|&e| extent::state(e) == ACTIVE)
+        .collect();
     let total = active.len() as i32;
     assert_eq!(total, TEST_NBUFFERS / EXTENT_BUFFERS);
     let unpinned = 3;
@@ -292,8 +372,12 @@ fn bp1_pinned_extents_give_shortfall_then_complete() {
     }
     let out = resize_to(POOL_FLOOR_TARGET, 300);
     let need = (total - keep) as i64;
-    let retired_now = (TEST_NBUFFERS as i64 * BLCKSZ as i64 - out.active_bytes) / (EXTENT_BUFFERS as i64 * BLCKSZ as i64);
-    assert_eq!(retired_now, unpinned as i64, "the unpinned extents go first");
+    let retired_now = (TEST_NBUFFERS as i64 * BLCKSZ as i64 - out.active_bytes)
+        / (EXTENT_BUFFERS as i64 * BLCKSZ as i64);
+    assert_eq!(
+        retired_now, unpinned as i64,
+        "the unpinned extents go first"
+    );
     assert_eq!(out.target_bytes, POOL_FLOOR_TARGET as i64 * BLCKSZ as i64);
     assert_eq!(
         out.shortfall_bytes,
@@ -328,7 +412,10 @@ fn bp1_single_pin_falls_back_to_a_lower_extent() {
         .unwrap();
     pin_id(id);
     let out = resize_to(TEST_NBUFFERS - 4 * EXTENT_BUFFERS, 2000);
-    assert_eq!(out.shortfall_bytes, 0, "a lower extent retires in the pinned one's place");
+    assert_eq!(
+        out.shortfall_bytes, 0,
+        "a lower extent retires in the pinned one's place"
+    );
     assert_eq!(extent::state(top), ACTIVE);
     assert_pool_consistent();
     unpin_id(id);
@@ -356,7 +443,11 @@ fn bp1_victim_paths_never_use_retired_buffers() {
         )
         .unwrap();
         let e = (b - 1) >> crate::extent::EXTENT_SHIFT;
-        assert_eq!(extent::state(e), ACTIVE, "victim {b} from a non-active extent");
+        assert_eq!(
+            extent::state(e),
+            ACTIVE,
+            "victim {b} from a non-active extent"
+        );
         ReleaseBuffer(b).unwrap();
     }
     resize_to(POOL_FLOOR_TARGET, 10_000);
@@ -371,7 +462,11 @@ fn bp1_victim_paths_never_use_retired_buffers() {
         )
         .unwrap();
         let e = (b - 1) >> crate::extent::EXTENT_SHIFT;
-        assert_eq!(extent::state(e), ACTIVE, "ring handed out retired buffer {b}");
+        assert_eq!(
+            extent::state(e),
+            ACTIVE,
+            "ring handed out retired buffer {b}"
+        );
         ReleaseBuffer(b).unwrap();
     }
     FreeAccessStrategy(strategy);
@@ -389,11 +484,18 @@ fn bp1_grow_past_boot_initializes_new_extents() {
     assert_eq!(NBuffersInited(), TEST_POOL_MAX);
     assert_eq!(extent::span(), TEST_POOL_MAX);
     fill(9661, 15000);
-    let top = resident_blocks(9661).iter().filter(|&&(_, id)| id >= TEST_NBUFFERS).count();
+    let top = resident_blocks(9661)
+        .iter()
+        .filter(|&&(_, id)| id >= TEST_NBUFFERS)
+        .count();
     assert!(top > 5000, "grown extents take pages: {top}");
     assert_pool_consistent();
     restore_boot_pool();
-    assert_eq!(NBuffersInited(), TEST_POOL_MAX, "descriptors stay initialized (BP2 releases them)");
+    assert_eq!(
+        NBuffersInited(),
+        TEST_POOL_MAX,
+        "descriptors stay initialized (BP2 releases them)"
+    );
 }
 
 #[test]
@@ -404,7 +506,10 @@ fn bp1_mapping_table_halves_after_shrink_and_regrows() {
     let before = crate::buf_table::total_capacity();
     resize_to(POOL_FLOOR_TARGET, 10_000);
     let after = crate::buf_table::total_capacity();
-    assert!(after < before, "sparse partitions halved: {before} -> {after}");
+    assert!(
+        after < before,
+        "sparse partitions halved: {before} -> {after}"
+    );
     assert_pool_consistent();
     restore_boot_pool();
     fill(9672, 8000);
@@ -431,7 +536,11 @@ fn bp1_released_extents_leave_residency() {
     let p = BufferGetBlockPtr(lo + 1);
     // SAFETY: inside the reservation; the retired extent is never read by
     // the pool, and a released range reads as zeroes on every platform.
-    let zero = unsafe { core::slice::from_raw_parts(p, BLCKSZ).iter().all(|&b| b == 0) };
+    let zero = unsafe {
+        core::slice::from_raw_parts(p, BLCKSZ)
+            .iter()
+            .all(|&b| b == 0)
+    };
     assert!(zero, "released block memory is zero-fill");
     restore_boot_pool();
 }
@@ -495,7 +604,7 @@ fn bp1_thrash_under_concurrent_readers() {
                 let blk = (x % UNIVERSE as u64) as u32;
                 let b = read_blk(9700 + t % 2, blk);
                 assert_eq!(page_block_stamp(b), blk, "page content under thrash");
-                if x.is_multiple_of( 7) {
+                if x.is_multiple_of(7) {
                     LockBuffer(b, BUFFER_LOCK_EXCLUSIVE).unwrap();
                     MarkBufferDirty(b).unwrap();
                     LockBuffer(b, BUFFER_LOCK_UNLOCK).unwrap();
@@ -508,7 +617,14 @@ fn bp1_thrash_under_concurrent_readers() {
             n
         }));
     }
-    let targets = [POOL_FLOOR_TARGET, TEST_POOL_MAX, 5000, 12000, POOL_FLOOR_TARGET, 9000];
+    let targets = [
+        POOL_FLOOR_TARGET,
+        TEST_POOL_MAX,
+        5000,
+        12000,
+        POOL_FLOOR_TARGET,
+        9000,
+    ];
     let mut shortfalls = 0;
     for round in 0..18 {
         let out = resize_to(targets[round % targets.len()], 150);
@@ -519,7 +635,8 @@ fn bp1_thrash_under_concurrent_readers() {
     // On a loaded host the resizes can finish before the readers have done much: they keep reading (bounded) until they
     // have made the progress checked below, so a stall still fails and a slow box does not.
     let t0 = std::time::Instant::now();
-    while done.load(Ordering::Relaxed) <= 1000 && t0.elapsed() < std::time::Duration::from_secs(120) {
+    while done.load(Ordering::Relaxed) <= 1000 && t0.elapsed() < std::time::Duration::from_secs(120)
+    {
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
     stop.store(true, Ordering::Relaxed);
@@ -555,7 +672,11 @@ fn bp1_wss_zipf_estimate_within_five_percent() {
     let _g = setup();
     let now = 2_000_000_000u32;
     let mut worst = 0.0f64;
-    for (universe, draws, seed) in [(200_000u32, 400_000usize, 7u64), (1_000_000, 2_000_000, 11), (2_000_000, 2_500_000, 13)] {
+    for (universe, draws, seed) in [
+        (200_000u32, 400_000usize, 7u64),
+        (1_000_000, 2_000_000, 11),
+        (2_000_000, 2_500_000, 13),
+    ] {
         crate::wss::reset();
         let mut exact = HashSet::new();
         for blk in zipf_blocks(universe, draws, 1.05, seed) {
@@ -567,7 +688,12 @@ fn bp1_wss_zipf_estimate_within_five_percent() {
         let est = crate::wss::testing::estimate(now, 60);
         let err = (est - exact.len() as f64).abs() / exact.len() as f64;
         worst = worst.max(err);
-        assert!(err < 0.05, "universe {universe}: exact {} est {est:.0} err {:.2}%", exact.len(), err * 100.0);
+        assert!(
+            err < 0.05,
+            "universe {universe}: exact {} est {est:.0} err {:.2}%",
+            exact.len(),
+            err * 100.0
+        );
     }
     eprintln!("bp1 wss worst relative error {:.2}%", worst * 100.0);
     crate::wss::reset();
@@ -588,8 +714,14 @@ fn bp1_wss_windows_forget_old_pages() {
     }
     let one = crate::wss::testing::estimate(t0 + 250, 60);
     let five = crate::wss::testing::estimate(t0 + 250, 300);
-    assert!((one - 50_000.0).abs() / 50_000.0 < 0.05, "1-minute window {one:.0}");
-    assert!((five - 250_000.0).abs() / 250_000.0 < 0.05, "5-minute window {five:.0}");
+    assert!(
+        (one - 50_000.0).abs() / 50_000.0 < 0.05,
+        "1-minute window {one:.0}"
+    );
+    assert!(
+        (five - 250_000.0).abs() / 250_000.0 < 0.05,
+        "5-minute window {five:.0}"
+    );
     crate::wss::reset();
 }
 
@@ -602,7 +734,10 @@ fn bp1_wss_sampling_rate_is_one_in_sixteen() {
             sampled += 1;
         }
     }
-    assert!((9_300..10_700).contains(&sampled), "sampled {sampled} of 160000");
+    assert!(
+        (9_300..10_700).contains(&sampled),
+        "sampled {sampled} of 160000"
+    );
 }
 
 struct GivebackKnob;
@@ -632,7 +767,9 @@ impl Drop for GivebackKnob {
 }
 
 fn draining_extents() -> usize {
-    (0..extent::n_extents()).filter(|&e| extent::state(e) == DRAINING).count()
+    (0..extent::n_extents())
+        .filter(|&e| extent::state(e) == DRAINING)
+        .count()
 }
 
 /// Runs the background writer's slices until the give-back is done; returns the slices. Every slice returns
@@ -641,10 +778,16 @@ fn run_background(max_slices: usize) -> usize {
     for i in 0..max_slices {
         let t = std::time::Instant::now();
         let step = crate::giveback_step().unwrap();
-        assert!(t.elapsed() < std::time::Duration::from_millis(500), "slice {i} took {:?}", t.elapsed());
+        assert!(
+            t.elapsed() < std::time::Duration::from_millis(500),
+            "slice {i} took {:?}",
+            t.elapsed()
+        );
         match step {
             crate::GivebackStep::Idle => return i,
-            crate::GivebackStep::Again(ms) => std::thread::sleep(std::time::Duration::from_millis(ms as u64)),
+            crate::GivebackStep::Again(ms) => {
+                std::thread::sleep(std::time::Duration::from_millis(ms as u64))
+            }
         }
     }
     panic!("the give-back did not finish in {max_slices} slices");
@@ -666,7 +809,10 @@ fn giveback_off_keeps_the_timeout_and_revert() {
     TEST_DRAIN_RATE.store(2000, Ordering::Relaxed);
     let out = resize_to(POOL_FLOOR_TARGET, 20);
     TEST_DRAIN_RATE.store(0, Ordering::Relaxed);
-    assert!(out.shortfall_bytes > 0, "a paced shrink stops at its timeout");
+    assert!(
+        out.shortfall_bytes > 0,
+        "a paced shrink stops at its timeout"
+    );
     assert_eq!(draining_extents(), 0, "and reverts what it had in flight");
     assert!(!crate::resize::BufferPoolStats().resizing);
     assert_eq!(crate::giveback_stats().goal_bytes, 0);
@@ -683,8 +829,15 @@ fn giveback_at_the_default_a_timed_out_shrink_hands_off_and_the_background_finis
     let _k = GivebackKnob::at_default();
     fill(9831, 7500);
     let out = resize_to(4096, 0);
-    assert_eq!(out.active_bytes, bytes_of(TEST_NBUFFERS), "timeout 0: the whole shrink is the background's");
-    assert!(draining_extents() > 0, "the default keeps the draining extents");
+    assert_eq!(
+        out.active_bytes,
+        bytes_of(TEST_NBUFFERS),
+        "timeout 0: the whole shrink is the background's"
+    );
+    assert!(
+        draining_extents() > 0,
+        "the default keeps the draining extents"
+    );
     run_background(10_000);
     assert_eq!(extent::active_buffers(), 4096);
     assert_pool_consistent();
@@ -709,8 +862,14 @@ fn giveback_timeout_hands_off_and_the_background_finishes() {
     let out = resize_to(4096, 20);
     TEST_DRAIN_RATE.store(0, Ordering::Relaxed);
     assert!(out.shortfall_bytes > 0);
-    assert!(draining_extents() > 0, "the timeout keeps its draining extents");
-    assert!(crate::resize::BufferPoolStats().resizing, "a pending give-back reads as resizing");
+    assert!(
+        draining_extents() > 0,
+        "the timeout keeps its draining extents"
+    );
+    assert!(
+        crate::resize::BufferPoolStats().resizing,
+        "a pending give-back reads as resizing"
+    );
     let g = crate::giveback_stats();
     assert!(g.on);
     assert_eq!(g.goal_bytes, bytes_of(4096));
@@ -720,20 +879,34 @@ fn giveback_timeout_hands_off_and_the_background_finishes() {
     assert_eq!(extent::active_buffers(), 4096);
     assert_eq!(draining_extents(), 0);
     let g = crate::giveback_stats();
-    assert_eq!((g.goal_bytes, g.landing_bytes, g.dirty_pending_bytes), (0, 0, 0));
+    assert_eq!(
+        (g.goal_bytes, g.landing_bytes, g.dirty_pending_bytes),
+        (0, 0, 0)
+    );
     assert!(g.slices > 0);
     assert!(!crate::resize::BufferPoolStats().resizing);
-    assert_eq!(crate::resize::BufferPoolStats().target_bytes, bytes_of(4096));
+    assert_eq!(
+        crate::resize::BufferPoolStats().target_bytes,
+        bytes_of(4096)
+    );
     assert_pool_consistent();
     let after = resident_blocks(rel);
-    assert!(after.len() >= 3000, "the shrunk pool keeps what fits: {}", after.len());
+    assert!(
+        after.len() >= 3000,
+        "the shrunk pool keeps what fits: {}",
+        after.len()
+    );
     let reads0 = SMGR_READS.load(Ordering::Relaxed);
     for &(blk, _) in after.iter().take(500) {
         let b = read_blk(rel, blk);
         assert_eq!(page_block_stamp(b), blk, "relocated page content intact");
         ReleaseBuffer(b).unwrap();
     }
-    assert_eq!(SMGR_READS.load(Ordering::Relaxed), reads0, "resident pages hit after the background drain");
+    assert_eq!(
+        SMGR_READS.load(Ordering::Relaxed),
+        reads0,
+        "resident pages hit after the background drain"
+    );
     restore_boot_pool();
 }
 
@@ -755,9 +928,17 @@ fn giveback_background_writes_dirty_pages() {
     assert!(!dirtied.is_empty());
     let writes0 = WRITES.lock().unwrap().len();
     let out = resize_to(4096, 0);
-    assert_eq!(out.active_bytes, bytes_of(TEST_NBUFFERS), "timeout 0: the whole shrink is the background's");
+    assert_eq!(
+        out.active_bytes,
+        bytes_of(TEST_NBUFFERS),
+        "timeout 0: the whole shrink is the background's"
+    );
     let g = crate::giveback_stats();
-    assert!(g.dirty_pending_bytes >= bytes_of(dirtied.len() as i32), "dirty pending {}", g.dirty_pending_bytes);
+    assert!(
+        g.dirty_pending_bytes >= bytes_of(dirtied.len() as i32),
+        "dirty pending {}",
+        g.dirty_pending_bytes
+    );
 
     run_background(10_000);
     assert_eq!(extent::active_buffers(), 4096);
@@ -770,11 +951,17 @@ fn giveback_background_writes_dirty_pages() {
         .map(|w| w.4)
         .collect();
     for blk in &dirtied {
-        assert!(written.contains(blk), "block {blk} written before its extent retired");
+        assert!(
+            written.contains(blk),
+            "block {blk} written before its extent retired"
+        );
     }
     for id in 0..NBuffersInited() {
         if extent::state(id >> crate::extent::EXTENT_SHIFT) == RETIRED {
-            assert_eq!(GetBufferDescriptor(id).state.load(Ordering::Relaxed) & BM_DIRTY, 0);
+            assert_eq!(
+                GetBufferDescriptor(id).state.load(Ordering::Relaxed) & BM_DIRTY,
+                0
+            );
         }
     }
     assert_pool_consistent();
@@ -800,7 +987,9 @@ fn giveback_skips_pins_and_finishes_after_unpin() {
     restore_boot_pool();
     let _k = GivebackKnob::on();
     fill(9731, 9000);
-    let active: Vec<i32> = (0..extent::n_extents()).filter(|&e| extent::state(e) == ACTIVE).collect();
+    let active: Vec<i32> = (0..extent::n_extents())
+        .filter(|&e| extent::state(e) == ACTIVE)
+        .collect();
     let unpinned = 3;
     let mut pinned = HeldPins(Vec::new());
     for &e in &active[unpinned..] {
@@ -836,7 +1025,11 @@ fn giveback_skips_pins_and_finishes_after_unpin() {
     );
     for id in &pinned.0 {
         assert!(GetBufferDescriptor(*id).state.load(Ordering::Relaxed) & BM_TAG_VALID != 0);
-        assert_ne!(extent::state(id >> crate::extent::EXTENT_SHIFT), RETIRED, "a pinned extent is never retired");
+        assert_ne!(
+            extent::state(id >> crate::extent::EXTENT_SHIFT),
+            RETIRED,
+            "a pinned extent is never retired"
+        );
     }
     for id in pinned.0.drain(..) {
         unpin_id(id);
@@ -857,7 +1050,11 @@ fn giveback_call_supersedes_and_knob_off_reverts() {
     assert!(draining_extents() > 0);
     let out = resize_to(TEST_NBUFFERS, 1000);
     assert_eq!(out.active_bytes, bytes_of(TEST_NBUFFERS));
-    assert_eq!(draining_extents(), 0, "a resize call drops the pending give-back");
+    assert_eq!(
+        draining_extents(),
+        0,
+        "a resize call drops the pending give-back"
+    );
     assert_eq!(crate::giveback_stats().goal_bytes, 0);
     assert_eq!(crate::giveback_step().unwrap(), crate::GivebackStep::Idle);
     assert_pool_consistent();
@@ -865,7 +1062,11 @@ fn giveback_call_supersedes_and_knob_off_reverts() {
     resize_to(4096, 0);
     assert!(draining_extents() > 0);
     drop(k);
-    assert_eq!(crate::giveback_step().unwrap(), crate::GivebackStep::Idle, "knob off: the drain stops");
+    assert_eq!(
+        crate::giveback_step().unwrap(),
+        crate::GivebackStep::Idle,
+        "knob off: the drain stops"
+    );
     assert_eq!(draining_extents(), 0, "and its extents go back to ACTIVE");
     assert_eq!(extent::active_buffers(), TEST_NBUFFERS);
     assert_pool_consistent();
@@ -882,20 +1083,45 @@ fn giveback_request_frees_only_above_the_configured_size() {
     fill(9751, 15000);
     let above = TEST_POOL_MAX - TEST_NBUFFERS;
     assert_eq!(crate::giveback_reclaimable(), bytes_of(above) as u64);
-    assert_eq!(crate::giveback_request(100), 0, "under one extent schedules nothing");
+    assert_eq!(
+        crate::giveback_request(100),
+        0,
+        "under one extent schedules nothing"
+    );
     let first = 8 * EXTENT_BUFFERS;
-    assert_eq!(crate::giveback_request(bytes_of(first) as u64), bytes_of(first) as u64);
-    assert_eq!(extent::active_buffers(), TEST_POOL_MAX, "a request never drains inline");
+    assert_eq!(
+        crate::giveback_request(bytes_of(first) as u64),
+        bytes_of(first) as u64
+    );
+    assert_eq!(
+        extent::active_buffers(),
+        TEST_POOL_MAX,
+        "a request never drains inline"
+    );
     assert_eq!(crate::giveback_landing(), bytes_of(first) as u64);
-    assert_eq!(crate::giveback_reclaimable(), bytes_of(above - first) as u64);
-    assert_eq!(crate::giveback_request(u64::MAX / 2), bytes_of(above - first) as u64, "capped at the configured size");
-    assert_eq!(crate::giveback_request(1 << 30), 0, "nothing left above the configured size");
+    assert_eq!(
+        crate::giveback_reclaimable(),
+        bytes_of(above - first) as u64
+    );
+    assert_eq!(
+        crate::giveback_request(u64::MAX / 2),
+        bytes_of(above - first) as u64,
+        "capped at the configured size"
+    );
+    assert_eq!(
+        crate::giveback_request(1 << 30),
+        0,
+        "nothing left above the configured size"
+    );
     assert_eq!(crate::giveback_reclaimable(), 0);
 
     run_background(10_000);
     assert_eq!(extent::active_buffers(), TEST_NBUFFERS);
     assert_eq!(crate::giveback_landing(), 0);
-    assert_eq!(crate::giveback_stats().minimum_bytes, bytes_of(TEST_NBUFFERS));
+    assert_eq!(
+        crate::giveback_stats().minimum_bytes,
+        bytes_of(TEST_NBUFFERS)
+    );
     assert_pool_consistent();
     restore_boot_pool();
 }
@@ -932,7 +1158,10 @@ fn giveback_paces_dirty_writes_to_the_write_budget() {
     assert_eq!(extent::active_buffers(), 4096);
     let bytes = (dirtied * BLCKSZ) as f64;
     let floor = (bytes - (rate / 10) as f64) / rate as f64;
-    assert!(secs >= floor * 0.9, "{dirtied} dirty pages at {rate} B/s took {secs:.3} s, under {floor:.3} s");
+    assert!(
+        secs >= floor * 0.9,
+        "{dirtied} dirty pages at {rate} B/s took {secs:.3} s, under {floor:.3} s"
+    );
     assert!(g.written_bytes >= bytes as i64);
     assert_pool_consistent();
     restore_boot_pool();
@@ -958,10 +1187,16 @@ fn giveback_leaves_unflushed_wal_pages_then_flushes_after_the_wait() {
         }
     }
     assert!(later > 0);
-    assert!(extent::active_buffers() > 4096, "pages whose WAL is not flushed are not written in the first 100 ms");
+    assert!(
+        extent::active_buffers() > 4096,
+        "pages whose WAL is not flushed are not written in the first 100 ms"
+    );
     run_background(100_000);
     TEST_WAL_UNFLUSHED.store(false, Ordering::Relaxed);
-    assert!(t.elapsed() >= std::time::Duration::from_millis(200), "the drain flushes WAL itself only after its wait");
+    assert!(
+        t.elapsed() >= std::time::Duration::from_millis(200),
+        "the drain flushes WAL itself only after its wait"
+    );
     assert_eq!(extent::active_buffers(), 4096);
     assert_pool_consistent();
     restore_boot_pool();
@@ -981,7 +1216,9 @@ fn giveback_retires_extents_top_down_in_step_with_paced_writes() {
     let target = 4096;
     let mut per_extent = std::collections::HashMap::new();
     for (blk, id) in resident_blocks(rel) {
-        let n = per_extent.entry(id >> crate::extent::EXTENT_SHIFT).or_insert(0);
+        let n = per_extent
+            .entry(id >> crate::extent::EXTENT_SHIFT)
+            .or_insert(0);
         if id >= target && *n < 4 {
             dirty_block(rel, blk);
             *n += 1;
@@ -990,7 +1227,11 @@ fn giveback_retires_extents_top_down_in_step_with_paced_writes() {
     let cut: Vec<i32> = (target >> crate::extent::EXTENT_SHIFT..extent::n_extents())
         .filter(|&e| extent::state(e) == ACTIVE)
         .collect();
-    assert!(cut.len() > 4 * crate::resize::GIVEBACK_WINDOW, "cut {} extents", cut.len());
+    assert!(
+        cut.len() > 4 * crate::resize::GIVEBACK_WINDOW,
+        "cut {} extents",
+        cut.len()
+    );
     resize_to(target, 0);
     let mut retired = HashSet::new();
     for slice in 0.. {
@@ -998,7 +1239,10 @@ fn giveback_retires_extents_top_down_in_step_with_paced_writes() {
         let step = crate::giveback_step().unwrap();
         for &e in &cut {
             if extent::state(e) == RETIRED && retired.insert(e) {
-                let above = cut.iter().filter(|&&a| a > e && extent::state(a) == DRAINING).count();
+                let above = cut
+                    .iter()
+                    .filter(|&&a| a > e && extent::state(a) == DRAINING)
+                    .count();
                 assert!(
                     above < crate::resize::GIVEBACK_WINDOW,
                     "extent {e} retired with {above} extents above it still draining (slice {slice})"
@@ -1007,7 +1251,9 @@ fn giveback_retires_extents_top_down_in_step_with_paced_writes() {
         }
         match step {
             crate::GivebackStep::Idle => break,
-            crate::GivebackStep::Again(ms) => std::thread::sleep(std::time::Duration::from_millis(ms as u64)),
+            crate::GivebackStep::Again(ms) => {
+                std::thread::sleep(std::time::Duration::from_millis(ms as u64))
+            }
         }
     }
     mempolicy::consts::set(k, mempolicy::consts::KNOBS[k as usize].default);
@@ -1037,13 +1283,21 @@ fn giveback_relocation_never_writes_a_victim() {
             below.push(blk);
         }
     }
-    assert!(below.len() * 2 > target as usize, "most of the pool below the cut is dirty: {}", below.len());
+    assert!(
+        below.len() * 2 > target as usize,
+        "most of the pool below the cut is dirty: {}",
+        below.len()
+    );
     let writes0 = WRITES.lock().unwrap().len();
     let written0 = crate::resize::written();
     resize_to(target, 0);
     run_background(10_000);
     assert_eq!(extent::active_buffers(), target);
-    assert_eq!(crate::resize::written(), written0, "nothing above the cut was dirty");
+    assert_eq!(
+        crate::resize::written(),
+        written0,
+        "nothing above the cut was dirty"
+    );
     assert_eq!(
         WRITES.lock().unwrap().len(),
         writes0,
@@ -1052,7 +1306,11 @@ fn giveback_relocation_never_writes_a_victim() {
     let still_dirty = (0..target)
         .filter(|&id| GetBufferDescriptor(id).state.load(Ordering::Relaxed) & BM_DIRTY != 0)
         .count();
-    assert!(still_dirty >= below.len(), "dirty below the cut: {still_dirty} of {}", below.len());
+    assert!(
+        still_dirty >= below.len(),
+        "dirty below the cut: {still_dirty} of {}",
+        below.len()
+    );
     assert_pool_consistent();
     restore_boot_pool();
 }
@@ -1095,7 +1353,15 @@ fn ladder_pressure_asks_the_pool_above_its_configured_size_only_with_buf_givebac
     // the read at the line: no headroom, so the drain aims at HIGH
     let squeeze = |cache: u64| {
         elastic.set(cache);
-        mcx::ladder::background_pass_with(&reclaim, &|| elastic.get(), limit, line, line, false, None)
+        mcx::ladder::background_pass_with(
+            &reclaim,
+            &|| elastic.get(),
+            limit,
+            line,
+            line,
+            false,
+            None,
+        )
     };
     squeeze(0);
     assert_eq!(crate::giveback_landing(), 0, "buf_giveback = 0: no request");
@@ -1103,14 +1369,32 @@ fn ladder_pressure_asks_the_pool_above_its_configured_size_only_with_buf_givebac
     {
         let _k = GivebackKnob::on();
         squeeze(2 * high);
-        assert_eq!(crate::giveback_landing(), 0, "the caches' elastic bytes cover the drain: the pool stays");
+        assert_eq!(
+            crate::giveback_landing(),
+            0,
+            "the caches' elastic bytes cover the drain: the pool stays"
+        );
         squeeze(80 * mib);
         let want = (high - 80 * mib).div_ceil(2 * mib) * 2 * mib;
-        assert_eq!(crate::giveback_landing(), want, "the pool is asked for what the caches cannot cover, in whole extents");
-        assert_eq!(extent::active_buffers(), TEST_POOL_MAX, "a request never drains inline");
+        assert_eq!(
+            crate::giveback_landing(),
+            want,
+            "the pool is asked for what the caches cannot cover, in whole extents"
+        );
+        assert_eq!(
+            extent::active_buffers(),
+            TEST_POOL_MAX,
+            "a request never drains inline"
+        );
         run_background(10_000);
-        assert_eq!(extent::active_buffers() as u64, TEST_POOL_MAX as u64 - want / BLCKSZ as u64);
-        assert!(extent::active_buffers() >= TEST_NBUFFERS, "never under the configured size");
+        assert_eq!(
+            extent::active_buffers() as u64,
+            TEST_POOL_MAX as u64 - want / BLCKSZ as u64
+        );
+        assert!(
+            extent::active_buffers() >= TEST_NBUFFERS,
+            "never under the configured size"
+        );
         assert_pool_consistent();
     }
     restore_boot_pool();
@@ -1125,17 +1409,46 @@ fn buf_grow_reservation_is_three_quarters_of_memory_with_the_ladder_on_at_the_st
     let _g = setup();
     let _k = GivebackKnob::on();
     let gib = 1u64 << 30;
-    assert_eq!(extent::grow_max_buffers(16384, false, 32 * gib), 0, "the ladder off at the start: shared_buffers exactly");
-    assert_eq!(extent::grow_max_buffers(16384, true, 32 * gib), (24 * gib / BLCKSZ as u64) as i32, "75 % of 32 GiB");
-    assert_eq!(extent::grow_max_buffers(4_000_000, true, 32 * gib), 0, "not past shared_buffers: inert");
+    assert_eq!(
+        extent::grow_max_buffers(16384, false, 32 * gib),
+        0,
+        "the ladder off at the start: shared_buffers exactly"
+    );
+    assert_eq!(
+        extent::grow_max_buffers(16384, true, 32 * gib),
+        (24 * gib / BLCKSZ as u64) as i32,
+        "75 % of 32 GiB"
+    );
+    assert_eq!(
+        extent::grow_max_buffers(4_000_000, true, 32 * gib),
+        0,
+        "not past shared_buffers: inert"
+    );
     set(K::BufGrow, 0);
-    assert_eq!(extent::grow_max_buffers(16384, true, 32 * gib), 0, "buf_grow 0");
+    assert_eq!(
+        extent::grow_max_buffers(16384, true, 32 * gib),
+        0,
+        "buf_grow 0"
+    );
     set(K::BufGrow, 1);
     set(K::BufGiveback, 0);
-    assert_eq!(extent::grow_max_buffers(16384, true, 32 * gib), 0, "buf_giveback 0: nothing could give it back");
+    assert_eq!(
+        extent::grow_max_buffers(16384, true, 32 * gib),
+        0,
+        "buf_giveback 0: nothing could give it back"
+    );
     set(K::BufGiveback, 1);
-    let engaged = extent::plan_geometry(16384, extent::grow_max_buffers(16384, true, 32 * gib), false).unwrap();
-    assert_eq!((engaged.boot_buffers, engaged.max_buffers), (16384, 3_145_728), "boot at shared_buffers, room to grow");
+    let engaged = extent::plan_geometry(
+        16384,
+        extent::grow_max_buffers(16384, true, 32 * gib),
+        false,
+    )
+    .unwrap();
+    assert_eq!(
+        (engaged.boot_buffers, engaged.max_buffers),
+        (16384, 3_145_728),
+        "boot at shared_buffers, room to grow"
+    );
 }
 
 /// buf_grow: the ladder's grow request raises a goal in whole extents and wakes the background writer, whose next
@@ -1152,24 +1465,59 @@ fn buf_grow_a_request_is_applied_by_the_background_writer_within_the_reservation
     let ext = bytes_of(EXTENT_BUFFERS) as u64;
     let evicted0 = crate::evicted_bytes();
     fill(9811, TEST_NBUFFERS as u32 + 2000);
-    assert!(crate::evicted_bytes() >= evicted0 + 1000 * BLCKSZ as u64, "a full pool's misses evict valid pages, counted");
+    assert!(
+        crate::evicted_bytes() >= evicted0 + 1000 * BLCKSZ as u64,
+        "a full pool's misses evict valid pages, counted"
+    );
     let (grows0, grown0) = crate::grow_counts();
     assert_eq!(crate::grow_request(ext / 2), 0, "under one extent: nothing");
-    assert_eq!(crate::grow_request(4 * ext), 4 * ext, "four extents scheduled");
-    assert_eq!(extent::active_buffers(), TEST_NBUFFERS, "not applied until the background writer's cycle");
+    assert_eq!(
+        crate::grow_request(4 * ext),
+        4 * ext,
+        "four extents scheduled"
+    );
+    assert_eq!(
+        extent::active_buffers(),
+        TEST_NBUFFERS,
+        "not applied until the background writer's cycle"
+    );
     assert_eq!(crate::giveback_step().unwrap(), crate::GivebackStep::Idle);
-    assert_eq!(extent::active_buffers(), TEST_NBUFFERS + 4 * EXTENT_BUFFERS, "applied");
+    assert_eq!(
+        extent::active_buffers(),
+        TEST_NBUFFERS + 4 * EXTENT_BUFFERS,
+        "applied"
+    );
     assert_eq!(crate::grow_counts(), (grows0 + 1, grown0 + 4 * ext));
     assert_pool_consistent();
     fill(9812, 4 * EXTENT_BUFFERS as u32);
-    assert!(resident_blocks(9812).iter().any(|&(_, id)| id >= TEST_NBUFFERS), "the grown extents take pages");
+    assert!(
+        resident_blocks(9812)
+            .iter()
+            .any(|&(_, id)| id >= TEST_NBUFFERS),
+        "the grown extents take pages"
+    );
     let top = bytes_of(TEST_POOL_MAX - extent::active_buffers()) as u64;
-    assert_eq!(crate::grow_request(u64::MAX / 4), top, "capped at the reservation");
+    assert_eq!(
+        crate::grow_request(u64::MAX / 4),
+        top,
+        "capped at the reservation"
+    );
     assert_eq!(crate::giveback_step().unwrap(), crate::GivebackStep::Idle);
     assert_eq!(extent::active_buffers(), TEST_POOL_MAX);
-    assert_eq!(crate::grow_request(ext), 0, "at the reservation's top: nothing");
-    assert_eq!(crate::giveback_reclaimable(), bytes_of(TEST_POOL_MAX - TEST_NBUFFERS) as u64, "grown extents: the give-back's");
-    assert!(crate::giveback_request(4 * ext) > 0, "the ladder takes some back");
+    assert_eq!(
+        crate::grow_request(ext),
+        0,
+        "at the reservation's top: nothing"
+    );
+    assert_eq!(
+        crate::giveback_reclaimable(),
+        bytes_of(TEST_POOL_MAX - TEST_NBUFFERS) as u64,
+        "grown extents: the give-back's"
+    );
+    assert!(
+        crate::giveback_request(4 * ext) > 0,
+        "the ladder takes some back"
+    );
     assert_eq!(crate::grow_request(ext), 0, "a give-back draining: no grow");
     run_background(10_000);
     set(K::BufGrow, 0);

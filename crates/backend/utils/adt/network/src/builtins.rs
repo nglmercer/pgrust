@@ -2,7 +2,6 @@
 //! varlena values: args read in place via PackedVarlena (PG_GETARG_INET_PP),
 //! new values built as SET_INET_VARSIZE images into the armed result mcx.
 
-
 use ::datum::{Datum, Varlena};
 use ::mcx::Mcx;
 use ::types_error::PgResult;
@@ -20,7 +19,7 @@ fn arg_inet<'a>(fcinfo: &'a Fcinfo, i: usize) -> InetRef<'a> {
 }
 
 // Raw cstring bytes: C quotes them verbatim in its message (network.c:99).
-fn in_arg(fcinfo: & Fcinfo) -> & [u8] {
+fn in_arg(fcinfo: &Fcinfo) -> &[u8] {
     // SAFETY: catalog arg 0 of inet_in/cidr_in is cstring (typlen -2).
     unsafe { fcinfo.arg_cstring(0) }.to_bytes()
 }
@@ -132,13 +131,21 @@ pub fn fc_network_cmp(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> Pg
 
 pub fn fc_network_smaller(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let (a, b) = (arg_inet(fcinfo, 0), arg_inet(fcinfo, 1));
-    let i = if crate::network_cmp_internal(a, b) < 0 { 0 } else { 1 };
+    let i = if crate::network_cmp_internal(a, b) < 0 {
+        0
+    } else {
+        1
+    };
     Ok(fcinfo.arg(i))
 }
 
 pub fn fc_network_larger(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let (a, b) = (arg_inet(fcinfo, 0), arg_inet(fcinfo, 1));
-    let i = if crate::network_cmp_internal(a, b) > 0 { 0 } else { 1 };
+    let i = if crate::network_cmp_internal(a, b) > 0 {
+        0
+    } else {
+        1
+    };
     Ok(fcinfo.arg(i))
 }
 
@@ -164,10 +171,7 @@ pub fn fc_hashinet(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRes
     Ok(Datum::from_u32(crate::hashinet_bytes(arg_inet(fcinfo, 0))))
 }
 
-pub fn fc_hashinetextended(
-    _flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut Fcinfo,
-) -> PgResult<Datum> {
+pub fn fc_hashinetextended(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let seed = fcinfo.arg(1).as_u64();
     Ok(Datum::from_u64(crate::hashinet_bytes_extended(
         arg_inet(fcinfo, 0),
@@ -224,10 +228,7 @@ pub fn fc_inet_to_cidr(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> P
     inet_result(fcinfo, &v)
 }
 
-pub fn fc_inet_set_masklen(
-    _flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut Fcinfo,
-) -> PgResult<Datum> {
+pub fn fc_inet_set_masklen(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let bits = fcinfo.arg_i32(1);
     let v = crate::inet_set_masklen(arg_inet(fcinfo, 0), bits)?;
     // network.c:337-343 clones VARSIZE_ANY(src) bytes and patches ip_bits, so
@@ -238,15 +239,16 @@ pub fn fc_inet_set_masklen(
     let src = unsafe { core::slice::from_raw_parts(p, ::types_tuple::varatt::varsize_any(p)) };
     let mut img = [0u8; 22];
     img[..src.len()].copy_from_slice(src);
-    let hdr = if unsafe { ::types_tuple::varatt::varatt_is_1b(p) } { 1 } else { 4 };
+    let hdr = if unsafe { ::types_tuple::varatt::varatt_is_1b(p) } {
+        1
+    } else {
+        4
+    };
     img[hdr + 1] = v.bits;
     byref_result(fcinfo.result_mcx(), &img[..src.len()])
 }
 
-pub fn fc_cidr_set_masklen(
-    _flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut Fcinfo,
-) -> PgResult<Datum> {
+pub fn fc_cidr_set_masklen(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let bits = fcinfo.arg_i32(1);
     let v = crate::cidr_set_masklen(arg_inet(fcinfo, 0), bits)?;
     inet_result(fcinfo, &v)
@@ -327,12 +329,7 @@ fn session_addr(fcinfo: &mut Fcinfo, local: bool) -> PgResult<Datum> {
         return Ok(fcinfo.return_null());
     };
     let mut host = String::new();
-    let rc = ::ip::pg_getnameinfo_all(
-        &sa,
-        Some(&mut host),
-        None,
-        NI_NUMERICHOST | NI_NUMERICSERV,
-    );
+    let rc = ::ip::pg_getnameinfo_all(&sa, Some(&mut host), None, NI_NUMERICHOST | NI_NUMERICSERV);
     if rc != 0 {
         return Ok(fcinfo.return_null());
     }
@@ -346,12 +343,7 @@ fn session_port(fcinfo: &mut Fcinfo, local: bool) -> PgResult<Datum> {
         return Ok(fcinfo.return_null());
     };
     let mut serv = String::new();
-    let rc = ::ip::pg_getnameinfo_all(
-        &sa,
-        None,
-        Some(&mut serv),
-        NI_NUMERICHOST | NI_NUMERICSERV,
-    );
+    let rc = ::ip::pg_getnameinfo_all(&sa, None, Some(&mut serv), NI_NUMERICHOST | NI_NUMERICSERV);
     if rc != 0 {
         return Ok(fcinfo.return_null());
     }
@@ -455,5 +447,10 @@ pub const NETWORK_BUILTINS: &[FmgrBuiltin] = &[
     b(4063, "inet_merge", 2, fc_inet_merge),
     b(4071, "inet_same_family", 2, fc_inet_same_family),
     // sortsupport: native comparator resolution; fmgr-lookup parity row.
-    b(5033, "network_sortsupport", 1, ::types_fmgr::fc_internal_dispatch_only),
+    b(
+        5033,
+        "network_sortsupport",
+        1,
+        ::types_fmgr::fc_internal_dispatch_only,
+    ),
 ];

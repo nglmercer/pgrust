@@ -44,7 +44,10 @@ fn sql_function_advertises_its_pid_and_reset_clears_it() {
     // A second sync while one is advertised is the concurrent-sync error.
     check_and_set_sync_info(778).unwrap();
     let err = check_and_set_sync_info(779).unwrap_err();
-    assert_eq!(err.message(), "cannot synchronize replication slots concurrently");
+    assert_eq!(
+        err.message(),
+        "cannot synchronize replication slots concurrently"
+    );
     reset_syncing_flag();
 }
 
@@ -201,7 +204,12 @@ fn slot_harness() {
             });
         }
         guc_tables::vars::PrimaryConnInfo.install_if_absent(guc_tables::GucVarAccessors {
-            get: || PRIMARY_CONNINFO.lock().unwrap_or_else(|e| e.into_inner()).clone(),
+            get: || {
+                PRIMARY_CONNINFO
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone()
+            },
             set: |v| *PRIMARY_CONNINFO.lock().unwrap_or_else(|e| e.into_inner()) = v,
         });
 
@@ -267,7 +275,11 @@ fn a_run_leaves_nothing_behind() {
         return;
     }
     let child = std::process::Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "tests::a_run_leaves_nothing_behind", "--nocapture"])
+        .args([
+            "--exact",
+            "tests::a_run_leaves_nothing_behind",
+            "--nocapture",
+        ])
         .env(CHILD, "1")
         .stdout(std::process::Stdio::piped())
         .spawn()
@@ -302,7 +314,10 @@ fn become_backend() {
     }
 }
 
-fn synced_slot_entry(name: &str, persistency: slot::ReplicationSlotPersistency) -> &'static ReplicationSlot {
+fn synced_slot_entry(
+    name: &str,
+    persistency: slot::ReplicationSlotPersistency,
+) -> &'static ReplicationSlot {
     let s = &ReplicationSlotCtl()[0];
     let mut d = slot::ReplicationSlotPersistentData::default();
     d.name.namestrcpy(name);
@@ -360,7 +375,10 @@ fn noop_advance_is_not_an_update() {
     assert!(!updated, "a no-op advance was reported as an update");
     assert!(!found_consistent_snapshot);
     // SAFETY: as above.
-    assert!(!unsafe { s.dirty.get() }, "nothing changed, nothing to save");
+    assert!(
+        !unsafe { s.dirty.get() },
+        "nothing changed, nothing to save"
+    );
     slot::SetMyReplicationSlot(None);
     // SAFETY: as above.
     unsafe { s.in_use.set(false) };
@@ -385,13 +403,18 @@ fn obsolete_slot_dropped_concurrently_is_not_logged_as_dropped() {
     r.unwrap();
 
     let logs = LOGS.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    assert!(logs.iter().any(|m| m == "hook probe"), "log capture is not wired: {logs:?}");
+    assert!(
+        logs.iter().any(|m| m == "hook probe"),
+        "log capture is not wired: {logs:?}"
+    );
     assert!(
         !INJECT_CONCURRENT_DROP.load(std::sync::atomic::Ordering::SeqCst),
         "the concurrent drop was not injected"
     );
     assert!(
-        !logs.iter().any(|m| m.starts_with("dropped replication slot")),
+        !logs
+            .iter()
+            .any(|m| m.starts_with("dropped replication slot")),
         "logged a drop that did not happen: {logs:?}"
     );
     // SAFETY: as in synced_slot_entry.
@@ -401,7 +424,9 @@ fn obsolete_slot_dropped_concurrently_is_not_logged_as_dropped() {
 static LOGS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
 fn capture_log(error: &types_error::PgError, output_to_server: &mut bool) {
-    LOGS.lock().unwrap_or_else(|e| e.into_inner()).push(error.message().to_string());
+    LOGS.lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push(error.message().to_string());
     *output_to_server = false;
 }
 
@@ -510,7 +535,11 @@ fn update_synced_slots_inactive_since_holds_control_lock_shared() {
     r.unwrap();
 
     // SAFETY: as above.
-    assert_eq!(unsafe { s.inactive_since.get() }, TEST_TIMESTAMP, "the synced slot was not stamped");
+    assert_eq!(
+        unsafe { s.inactive_since.get() },
+        TEST_TIMESTAMP,
+        "the synced slot was not stamped"
+    );
     assert!(
         TIMESTAMP_SEEN_CONTROL_LOCK_SHARED.load(SeqCst),
         "update_synced_slots_inactive_since stamped the slots without ReplicationSlotControlLock"
@@ -571,7 +600,10 @@ fn worker_sigint_disposition_is_statement_cancel() {
     init_small::globals::SetQueryCancelPending(false);
 
     install_signal_handlers();
-    assert_eq!(procsignal::SendThreadSignal(pid, procsignal::signums::SIGINT), 0);
+    assert_eq!(
+        procsignal::SendThreadSignal(pid, procsignal::signums::SIGINT),
+        0
+    );
     procsignal::DrainThreadSignals().unwrap();
     assert!(init_small::globals::QueryCancelPending());
 
@@ -586,7 +618,10 @@ fn worker_sigint_disposition_is_statement_cancel() {
 fn nfields_mismatch_detail_matches_libpqrcv_process_tuples() {
     assert_eq!(nfields_text(9), "9 fields");
     assert_eq!(
-        format!("Expected {SLOT_QUERY_NFIELDS} fields, got {}.", nfields_text(9)),
+        format!(
+            "Expected {SLOT_QUERY_NFIELDS} fields, got {}.",
+            nfields_text(9)
+        ),
         "Expected 10 fields, got 9 fields."
     );
 }
@@ -597,7 +632,10 @@ fn nfields_mismatch_detail_matches_libpqrcv_process_tuples() {
 #[test]
 fn remote_slot_row_uses_the_column_types_input_functions() {
     fn row(cells: [Option<&str>; SLOT_QUERY_NFIELDS]) -> Vec<Option<Vec<u8>>> {
-        cells.iter().map(|c| c.map(|s| s.as_bytes().to_vec())).collect()
+        cells
+            .iter()
+            .map(|c| c.map(|s| s.as_bytes().to_vec()))
+            .collect()
     }
     let good = row([
         Some("s1"),
@@ -624,14 +662,29 @@ fn remote_slot_row_uses_the_column_types_input_functions() {
     nulls[3] = None;
     nulls[4] = None;
     let slot = remote_slot_from_row(&nulls).unwrap().unwrap();
-    assert_eq!((slot.confirmed_lsn, slot.restart_lsn, slot.catalog_xmin), (0, 0, 0));
+    assert_eq!(
+        (slot.confirmed_lsn, slot.restart_lsn, slot.catalog_xmin),
+        (0, 0, 0)
+    );
 
     for (col, text, message) in [
         (2, "junk", "invalid input syntax for type pg_lsn: \"junk\""),
         (4, "12x", "invalid input syntax for type xid: \"12x\""),
-        (4, "4294967296", "value \"4294967296\" is out of range for type xid"),
-        (5, "maybe", "invalid input syntax for type boolean: \"maybe\""),
-        (6, "0x10/0", "invalid input syntax for type pg_lsn: \"0x10/0\""),
+        (
+            4,
+            "4294967296",
+            "value \"4294967296\" is out of range for type xid",
+        ),
+        (
+            5,
+            "maybe",
+            "invalid input syntax for type boolean: \"maybe\"",
+        ),
+        (
+            6,
+            "0x10/0",
+            "invalid input syntax for type pg_lsn: \"0x10/0\"",
+        ),
         (7, "", "invalid input syntax for type boolean: \"\""),
     ] {
         let mut bad = good.clone();
@@ -640,7 +693,11 @@ fn remote_slot_row_uses_the_column_types_input_functions() {
         assert_eq!(err.message(), message);
         assert_eq!(
             err.sqlstate(),
-            if message.starts_with("value") { ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE } else { ERRCODE_INVALID_TEXT_REPRESENTATION }
+            if message.starts_with("value") {
+                ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE
+            } else {
+                ERRCODE_INVALID_TEXT_REPRESENTATION
+            }
         );
     }
 }
@@ -653,19 +710,23 @@ fn sql_sync_proc_exit_clears_shared_state_before_shmem_teardown() {
     init_small::globals::SetIsUnderPostmaster(true);
     static CLEAN_BEFORE_SHMEM: std::sync::atomic::AtomicBool =
         std::sync::atomic::AtomicBool::new(false);
-    ipc::on_shmem_exit(|_, _| {
-        CLEAN_BEFORE_SHMEM.store(
-            with_ctx(|ctx| !ctx.syncing && ctx.pid == InvalidPid)
-                && !slot::syncing_replication_slots(),
-            std::sync::atomic::Ordering::SeqCst,
-        );
-    }, 0);
+    ipc::on_shmem_exit(
+        |_, _| {
+            CLEAN_BEFORE_SHMEM.store(
+                with_ctx(|ctx| !ctx.syncing && ctx.pid == InvalidPid)
+                    && !slot::syncing_replication_slots(),
+                std::sync::atomic::Ordering::SeqCst,
+            );
+        },
+        0,
+    );
     let exit = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         with_sync_cleanup(|| {
             check_and_set_sync_info(4242)?;
             ipc::proc_exit(1, init_small::globals::MyProcPid());
         })
-    })).unwrap_err();
+    }))
+    .unwrap_err();
     assert_eq!(exit.downcast_ref::<ipc::ProcExitThread>().unwrap().code, 1);
     assert_eq!(ipc::run_deferred_exit_callbacks(1), 1);
     assert!(CLEAN_BEFORE_SHMEM.load(std::sync::atomic::Ordering::SeqCst));
@@ -679,7 +740,8 @@ fn sql_sync_proc_exit_clears_shared_state_before_shmem_teardown() {
     let err = with_sync_cleanup(|| {
         check_and_set_sync_info(4242)?;
         ereport(ERROR).errmsg("sync failed").finish(loc("test"))
-    }).unwrap_err();
+    })
+    .unwrap_err();
     assert_eq!(err.message(), "sync failed");
     assert!(with_ctx(|ctx| !ctx.syncing && ctx.pid == InvalidPid));
     check_and_set_sync_info(4243).unwrap();
@@ -691,7 +753,8 @@ fn sql_sync_proc_exit_clears_shared_state_before_shmem_teardown() {
         check_and_set_sync_info(4242)?;
         reset_syncing_flag();
         Ok(())
-    }).unwrap();
+    })
+    .unwrap();
     check_and_set_sync_info(4243).unwrap();
     ipc::shmem_exit(0).unwrap();
     assert!(with_ctx(|ctx| ctx.syncing && ctx.pid == 4243));

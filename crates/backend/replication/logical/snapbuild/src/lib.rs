@@ -15,15 +15,13 @@ use types_core::{
     TransactionId, TransactionIdFollows, TransactionIdFollowsOrEquals, TransactionIdIsNormal,
     TransactionIdIsValid, TransactionIdPrecedes, TransactionIdPrecedesOrEquals, XLogRecPtr,
 };
-use xact::XACT_XINFO_HAS_INVALS;
 use types_error::{
     ErrorLocation, PgResult, DEBUG1, DEBUG2, DEBUG3, ERRCODE_DATA_CORRUPTED, ERROR, LOG,
 };
 use types_snapshot::{SnapshotData, SNAPSHOT_HISTORIC_MVCC};
+use xact::XACT_XINFO_HAS_INVALS;
 
-pub use ondisk::{
-    SnapBuildOnDisk, PG_LOGICAL_SNAPSHOTS_DIR, SNAPBUILD_MAGIC, SNAPBUILD_VERSION,
-};
+pub use ondisk::{SnapBuildOnDisk, PG_LOGICAL_SNAPSHOTS_DIR, SNAPBUILD_MAGIC, SNAPBUILD_VERSION};
 
 #[track_caller]
 pub(crate) fn loc(func: &'static str) -> ErrorLocation {
@@ -164,7 +162,11 @@ pub(crate) fn write_all_or_enospc(fd: i32, image: &[u8]) -> Result<(), i32> {
     let written = unsafe { libc::write(fd, image.as_ptr().cast(), image.len()) };
     if written != image.len() as isize {
         let save_errno = errno::current_errno();
-        return Err(if save_errno != 0 { save_errno } else { libc::ENOSPC });
+        return Err(if save_errno != 0 {
+            save_errno
+        } else {
+            libc::ENOSPC
+        });
     }
     Ok(())
 }
@@ -265,7 +267,10 @@ impl SnapBuild {
         // Don't allow older snapshots: about to overwrite MyProc->xmin.
         snapmgr::InvalidateCatalogSnapshot();
         if snapmgr::HaveRegisteredOrActiveSnapshot() {
-            elog(ERROR, "cannot build an initial slot snapshot when snapshots exist")?;
+            elog(
+                ERROR,
+                "cannot build an initial slot snapshot when snapshots exist",
+            )?;
             unreachable!();
         }
 
@@ -461,7 +466,7 @@ impl SnapBuild {
     ) -> PgResult<()> {
         // C fetches the committing xid's invalidations per iteration; the list
         // is loop-invariant, so it is hoisted (and copied out of rb's borrow).
-        let msgs = ::mcx::std_vec_from_slice("replication",rb.get_invalidations(xid))?;
+        let msgs = ::mcx::std_vec_from_slice("replication", rb.get_invalidations(xid))?;
         let txns: Vec<reorderbuffer::TxnId> = rb.toplevel_txns().collect();
 
         for id in txns {
@@ -486,7 +491,10 @@ impl SnapBuild {
                 ),
             )?;
 
-            let snap = self.snapshot.clone().expect("distributing a built snapshot");
+            let snap = self
+                .snapshot
+                .clone()
+                .expect("distributing a built snapshot");
             rb.add_snapshot(txn_xid, lsn, snap)?;
 
             if txn_xid != xid && !msgs.is_empty() {
@@ -793,10 +801,7 @@ impl SnapBuild {
                 .finish(loc("SnapBuildFindSnapshot"))?;
 
             return Ok(false);
-        } else if !self.building_full_snapshot
-            && !self.in_slot_creation
-            && self.restore(rb, lsn)?
-        {
+        } else if !self.building_full_snapshot && !self.in_slot_creation && self.restore(rb, lsn)? {
             return Ok(false);
         } else if self.state == Start {
             self.state = Building;
@@ -1085,7 +1090,10 @@ pub fn snap_build_clear_exported_snapshot() -> PgResult<()> {
         return Ok(());
     }
     if !xact::IsTransactionState() {
-        elog(ERROR, "clearing exported snapshot in wrong transaction state")?;
+        elog(
+            ERROR,
+            "clearing exported snapshot in wrong transaction state",
+        )?;
     }
     // AbortCurrentTransaction takes care of resetting the snapshot state.
     let saved = SAVED_RESOURCE_OWNER_DURING_EXPORT.take();

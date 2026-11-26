@@ -7,9 +7,7 @@ use elog::{elog, ereport};
 use types_core::{InvalidXLogRecPtr, Oid, TEXTOID};
 use types_error::{ErrorLocation, PgResult, ERRCODE_CANT_CHANGE_RUNTIME_PARAM, ERROR};
 use types_fmgr::builtin;
-use types_fmgr::{
-    datum_varlena_packed, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
-};
+use types_fmgr::{datum_varlena_packed, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 use types_rel::{AccessShareLock, RowExclusiveLock};
 
 #[track_caller]
@@ -34,12 +32,12 @@ fn null_arg(funcname: &'static str) -> PgResult<()> {
     elog(ERROR, format!("null argument to {funcname} is not allowed")).map(|_| ())
 }
 
-fn arg_bytes(fcinfo: & Fcinfo, i: usize) -> PgResult<& [u8]> {
+fn arg_bytes(fcinfo: &Fcinfo, i: usize) -> PgResult<&[u8]> {
     // SAFETY: catalog arg `i` is text, non-null per caller.
     Ok(unsafe { fcinfo.arg_varlena_packed(i)? }.data())
 }
 
-fn arg_str(fcinfo: & Fcinfo, i: usize) -> PgResult<& str> {
+fn arg_str(fcinfo: &Fcinfo, i: usize) -> PgResult<&str> {
     // SAFETY: catalog arg `i` is text (or name-shaped text), non-null per caller.
     let bytes = unsafe { fcinfo.arg_varlena_packed(i)? }.data();
     Ok(core::str::from_utf8(bytes).expect("pg_upgrade_support: text arg is UTF-8"))
@@ -251,7 +249,11 @@ pub fn fc_binary_upgrade_replorigin_advance(
     };
 
     let mcx = fcinfo.result_mcx();
-    let rel = table::table_open(mcx, pg_subscription::SubscriptionRelationId, RowExclusiveLock)?;
+    let rel = table::table_open(
+        mcx,
+        pg_subscription::SubscriptionRelationId,
+        RowExclusiveLock,
+    )?;
     let subid = lsyscache::get_subscription_oid(subname, false)?;
 
     // ReplicationOriginNameForLogicalRep(subid, InvalidOid) (worker.c):
@@ -300,7 +302,11 @@ pub fn fc_binary_upgrade_add_sub_rel_state(
     };
 
     let mcx = fcinfo.result_mcx();
-    let subrel = table::table_open(mcx, pg_subscription::SubscriptionRelationId, RowExclusiveLock)?;
+    let subrel = table::table_open(
+        mcx,
+        pg_subscription::SubscriptionRelationId,
+        RowExclusiveLock,
+    )?;
     let subid = lsyscache::get_subscription_oid(subname, false)?;
     let rel = relation::relation_open(mcx, relid, AccessShareLock)?;
 
@@ -328,8 +334,16 @@ pub fn fc_binary_upgrade_create_empty_extension(
     let relocatable = fcinfo.arg_bool(2);
     let ext_version = arg_bytes(fcinfo, 3)?;
 
-    let ext_config = if fcinfo.argisnull(4) { None } else { Some(fcinfo.arg(4)) };
-    let ext_condition = if fcinfo.argisnull(5) { None } else { Some(fcinfo.arg(5)) };
+    let ext_config = if fcinfo.argisnull(4) {
+        None
+    } else {
+        Some(fcinfo.arg(4))
+    };
+    let ext_condition = if fcinfo.argisnull(5) {
+        None
+    } else {
+        Some(fcinfo.arg(5))
+    };
 
     let mut required_extensions: mcx::PgVec<'_, Oid> = mcx::vec_with_capacity_in(mcx, 0)?;
     if !fcinfo.argisnull(6) {
@@ -360,25 +374,158 @@ pub fn fc_binary_upgrade_create_empty_extension(
 }
 
 pub const PG_UPGRADE_SUPPORT_BUILTINS: &[FmgrBuiltin] = &[
-    builtin(3582, "binary_upgrade_set_next_pg_type_oid", 1, true, false, fc_binary_upgrade_set_next_pg_type_oid),
-    builtin(3584, "binary_upgrade_set_next_array_pg_type_oid", 1, true, false, fc_binary_upgrade_set_next_array_pg_type_oid),
-    builtin(3586, "binary_upgrade_set_next_heap_pg_class_oid", 1, true, false, fc_binary_upgrade_set_next_heap_pg_class_oid),
-    builtin(3587, "binary_upgrade_set_next_index_pg_class_oid", 1, true, false, fc_binary_upgrade_set_next_index_pg_class_oid),
-    builtin(3588, "binary_upgrade_set_next_toast_pg_class_oid", 1, true, false, fc_binary_upgrade_set_next_toast_pg_class_oid),
-    builtin(3589, "binary_upgrade_set_next_pg_enum_oid", 1, true, false, fc_binary_upgrade_set_next_pg_enum_oid),
-    builtin(3590, "binary_upgrade_set_next_pg_authid_oid", 1, true, false, fc_binary_upgrade_set_next_pg_authid_oid),
-    builtin(3591, "binary_upgrade_create_empty_extension", 7, false, false, fc_binary_upgrade_create_empty_extension),
-    builtin(4083, "binary_upgrade_set_record_init_privs", 1, true, false, fc_binary_upgrade_set_record_init_privs),
-    builtin(4101, "binary_upgrade_set_missing_value", 3, true, false, fc_binary_upgrade_set_missing_value),
-    builtin(4390, "binary_upgrade_set_next_multirange_pg_type_oid", 1, true, false, fc_binary_upgrade_set_next_multirange_pg_type_oid),
-    builtin(4391, "binary_upgrade_set_next_multirange_array_pg_type_oid", 1, true, false, fc_binary_upgrade_set_next_multirange_array_pg_type_oid),
-    builtin(4545, "binary_upgrade_set_next_heap_relfilenode", 1, true, false, fc_binary_upgrade_set_next_heap_relfilenode),
-    builtin(4546, "binary_upgrade_set_next_index_relfilenode", 1, true, false, fc_binary_upgrade_set_next_index_relfilenode),
-    builtin(4547, "binary_upgrade_set_next_toast_relfilenode", 1, true, false, fc_binary_upgrade_set_next_toast_relfilenode),
-    builtin(4548, "binary_upgrade_set_next_pg_tablespace_oid", 1, true, false, fc_binary_upgrade_set_next_pg_tablespace_oid),
-    builtin(6312, "binary_upgrade_logical_slot_has_caught_up", 1, true, false, fc_binary_upgrade_logical_slot_has_caught_up),
-    builtin(6319, "binary_upgrade_add_sub_rel_state", 4, false, false, fc_binary_upgrade_add_sub_rel_state),
-    builtin(6320, "binary_upgrade_replorigin_advance", 2, false, false, fc_binary_upgrade_replorigin_advance),
+    builtin(
+        3582,
+        "binary_upgrade_set_next_pg_type_oid",
+        1,
+        true,
+        false,
+        fc_binary_upgrade_set_next_pg_type_oid,
+    ),
+    builtin(
+        3584,
+        "binary_upgrade_set_next_array_pg_type_oid",
+        1,
+        true,
+        false,
+        fc_binary_upgrade_set_next_array_pg_type_oid,
+    ),
+    builtin(
+        3586,
+        "binary_upgrade_set_next_heap_pg_class_oid",
+        1,
+        true,
+        false,
+        fc_binary_upgrade_set_next_heap_pg_class_oid,
+    ),
+    builtin(
+        3587,
+        "binary_upgrade_set_next_index_pg_class_oid",
+        1,
+        true,
+        false,
+        fc_binary_upgrade_set_next_index_pg_class_oid,
+    ),
+    builtin(
+        3588,
+        "binary_upgrade_set_next_toast_pg_class_oid",
+        1,
+        true,
+        false,
+        fc_binary_upgrade_set_next_toast_pg_class_oid,
+    ),
+    builtin(
+        3589,
+        "binary_upgrade_set_next_pg_enum_oid",
+        1,
+        true,
+        false,
+        fc_binary_upgrade_set_next_pg_enum_oid,
+    ),
+    builtin(
+        3590,
+        "binary_upgrade_set_next_pg_authid_oid",
+        1,
+        true,
+        false,
+        fc_binary_upgrade_set_next_pg_authid_oid,
+    ),
+    builtin(
+        3591,
+        "binary_upgrade_create_empty_extension",
+        7,
+        false,
+        false,
+        fc_binary_upgrade_create_empty_extension,
+    ),
+    builtin(
+        4083,
+        "binary_upgrade_set_record_init_privs",
+        1,
+        true,
+        false,
+        fc_binary_upgrade_set_record_init_privs,
+    ),
+    builtin(
+        4101,
+        "binary_upgrade_set_missing_value",
+        3,
+        true,
+        false,
+        fc_binary_upgrade_set_missing_value,
+    ),
+    builtin(
+        4390,
+        "binary_upgrade_set_next_multirange_pg_type_oid",
+        1,
+        true,
+        false,
+        fc_binary_upgrade_set_next_multirange_pg_type_oid,
+    ),
+    builtin(
+        4391,
+        "binary_upgrade_set_next_multirange_array_pg_type_oid",
+        1,
+        true,
+        false,
+        fc_binary_upgrade_set_next_multirange_array_pg_type_oid,
+    ),
+    builtin(
+        4545,
+        "binary_upgrade_set_next_heap_relfilenode",
+        1,
+        true,
+        false,
+        fc_binary_upgrade_set_next_heap_relfilenode,
+    ),
+    builtin(
+        4546,
+        "binary_upgrade_set_next_index_relfilenode",
+        1,
+        true,
+        false,
+        fc_binary_upgrade_set_next_index_relfilenode,
+    ),
+    builtin(
+        4547,
+        "binary_upgrade_set_next_toast_relfilenode",
+        1,
+        true,
+        false,
+        fc_binary_upgrade_set_next_toast_relfilenode,
+    ),
+    builtin(
+        4548,
+        "binary_upgrade_set_next_pg_tablespace_oid",
+        1,
+        true,
+        false,
+        fc_binary_upgrade_set_next_pg_tablespace_oid,
+    ),
+    builtin(
+        6312,
+        "binary_upgrade_logical_slot_has_caught_up",
+        1,
+        true,
+        false,
+        fc_binary_upgrade_logical_slot_has_caught_up,
+    ),
+    builtin(
+        6319,
+        "binary_upgrade_add_sub_rel_state",
+        4,
+        false,
+        false,
+        fc_binary_upgrade_add_sub_rel_state,
+    ),
+    builtin(
+        6320,
+        "binary_upgrade_replorigin_advance",
+        2,
+        false,
+        false,
+        fc_binary_upgrade_replorigin_advance,
+    ),
 ];
 
 #[cfg(test)]
@@ -403,5 +550,4 @@ mod tests {
         assert!(check_is_binary_upgrade("binary_upgrade_set_next_pg_type_oid").is_ok());
         init_small::globals::SetIsBinaryUpgrade(false);
     }
-
 }

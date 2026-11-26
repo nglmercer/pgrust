@@ -9,19 +9,48 @@ use std::sync::Arc;
 
 use common::*;
 use gravity_abi::breaker::{Breaker, BreakerKind, Budget, Spill};
-use gravity_driver::{no_owner_phase, Entry, Error, Grant, Merge, Partial, Region, Result, State, OWN_PINNED, TEST_OWNER_WALL};
-use gravity_program::{Arena, Code, End, Layout, OutCol, Pipeline, Program, Reason, SiteDesc, WritePlan};
+use gravity_driver::{
+    no_owner_phase, Entry, Error, Grant, Merge, Partial, Region, Result, State, OWN_PINNED,
+    TEST_OWNER_WALL,
+};
+use gravity_program::{
+    Arena, Code, End, Layout, OutCol, Pipeline, Program, Reason, SiteDesc, WritePlan,
+};
 
 /// A partitioned hash aggregate's producer of slot 0, then the emit that reads it.
 fn program() -> Program {
     let st = Arena::new(1 << 14);
     let sites = [SiteDesc::range_source(st.handle(), 2001, &[1, 2])];
-    let b = End::Breaker(Breaker { kind: BreakerKind::HashAgg, slot: 0, bytes: 0, budget: Budget::Share, spill: Spill::Partitioned { bits: 3 } });
+    let b = End::Breaker(Breaker {
+        kind: BreakerKind::HashAgg,
+        slot: 0,
+        bytes: 0,
+        budget: Budget::Share,
+        spill: Spill::Partitioned { bits: 3 },
+    });
     let pipes = [
-        (Pipeline::eligible(0, b, 1000), Code::hand(k_range_group_spill)),
-        (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming_one(0), Code::hand(k_emit_groups_spill)),
+        (
+            Pipeline::eligible(0, b, 1000),
+            Code::hand(k_range_group_spill),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming_one(0),
+            Code::hand(k_emit_groups_spill),
+        ),
     ];
-    Program::with_pipelines(Layout { nsites: 1, out_natts: 3, out_rows: 64, scratch_bytes: 0, exec_bytes: 0 }, &sites, &core::array::from_fn::<_, 3, _>(|i| OutCol::new(["c0", "c1", "c2"][i], 20, -1, 8, true)), WritePlan::SELECT, pipes)
+    Program::with_pipelines(
+        Layout {
+            nsites: 1,
+            out_natts: 3,
+            out_rows: 64,
+            scratch_bytes: 0,
+            exec_bytes: 0,
+        },
+        &sites,
+        &core::array::from_fn::<_, 3, _>(|i| OutCol::new(["c0", "c1", "c2"][i], 20, -1, 8, true)),
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
 /// A hash aggregate's merge with no owner functions (parallel `HashAggPartial`): its owner open refuses.
@@ -46,7 +75,15 @@ fn own(merge: &dyn Merge) -> (Result<()>, u64) {
     let mut sink = LegSink::new();
     let params = [7u64, 3];
     let mut b = binding(&params, &[0, 0], &mut sink, &flag);
-    let mut exec = entry.start(None, &program, &mut derive, &mut b, lease(Grant::of(64 << 20))).unwrap();
+    let mut exec = entry
+        .start(
+            None,
+            &program,
+            &mut derive,
+            &mut b,
+            lease(Grant::of(64 << 20)),
+        )
+        .unwrap();
     let pinned = OWN_PINNED.load(Ordering::Relaxed);
     let r = entry.own_single_of(&mut exec, 0, merge, 3);
     let pins = OWN_PINNED.load(Ordering::Relaxed) - pinned;
@@ -59,9 +96,18 @@ fn own(merge: &dyn Merge) -> (Result<()>, u64) {
 fn an_owner_fold_over_a_merge_with_no_owner_phase_refuses_by_name_and_pins_once() {
     // a wall the regrowth reaches in a few doublings
     TEST_OWNER_WALL.store(1 << 20, Ordering::Relaxed);
-    for (what, merge) in [("the default own_partition", &NoMerge as &dyn Merge), ("a refused owner open", &NoOwnerFns)] {
+    for (what, merge) in [
+        ("the default own_partition", &NoMerge as &dyn Merge),
+        ("a refused owner open", &NoOwnerFns),
+    ] {
         let (r, pins) = own(merge);
-        assert!(matches!(&r, Err(Error::Refused(t)) if t.contains("no owner phase")), "{what}: a refusal that names the missing owner phase, not a size: {r:?} ({pins} pins)");
-        assert!(pins <= 1, "{what}: the owner region pinned once, never grown ({pins} pins)");
+        assert!(
+            matches!(&r, Err(Error::Refused(t)) if t.contains("no owner phase")),
+            "{what}: a refusal that names the missing owner phase, not a size: {r:?} ({pins} pins)"
+        );
+        assert!(
+            pins <= 1,
+            "{what}: the owner region pinned once, never grown ({pins} pins)"
+        );
     }
 }

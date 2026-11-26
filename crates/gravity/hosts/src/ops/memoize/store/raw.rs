@@ -5,7 +5,10 @@
 use datum::Datum;
 use types_error::PgResult;
 
-use super::{key_bytes, murmur32, Col, Cold, Hot, Lookup, MemoTable, Probe, Stored, COMPLETE, ENTRY_BYTES, LIVE, MINTUPLE_HEADER, NIL, TUPLE_BYTES, WORD1};
+use super::{
+    key_bytes, murmur32, Col, Cold, Hot, Lookup, MemoTable, Probe, Stored, COMPLETE, ENTRY_BYTES,
+    LIVE, MINTUPLE_HEADER, NIL, TUPLE_BYTES, WORD1,
+};
 
 impl Stored {
     fn bytes(&self) -> &[u8] {
@@ -73,7 +76,10 @@ impl MemoTable {
             let same = if binary {
                 match (&k.image, p.len) {
                     (None, 0) => k.word == p.word,
-                    (Some(_), n) if n as usize == k.len => k.bytes() == core::slice::from_raw_parts(p.word as usize as *const u8, n as usize),
+                    (Some(_), n) if n as usize == k.len => {
+                        k.bytes()
+                            == core::slice::from_raw_parts(p.word as usize as *const u8, n as usize)
+                    }
                     _ => false,
                 }
             } else if fns[i].word_eq && k.image.is_none() && p.len == 0 {
@@ -144,7 +150,10 @@ impl MemoTable {
         self.stats.misses += 1;
         let key: Vec<Stored> = probe.iter().map(|p| store_key(p)).collect(); // alloc: Exec charged self.charge
         let mem = ENTRY_BYTES + key_bytes(&key);
-        let images = key.iter().map(|k| k.image.as_ref().map_or(0, |b| b.len() as u64 * 8)).sum::<u64>();
+        let images = key
+            .iter()
+            .map(|k| k.image.as_ref().map_or(0, |b| b.len() as u64 * 8))
+            .sum::<u64>();
         let heap = (key.capacity() * core::mem::size_of::<Stored>()) as u64 + images;
         let (word, flags) = match key.as_slice() {
             [k] if !k.null && k.image.is_none() => (k.word, LIVE | WORD1),
@@ -158,11 +167,25 @@ impl MemoTable {
                 self.hot.len() - 1
             }
         };
-        self.cold[s] = Cold { key, rows: vec![0, 0], copies: Vec::new(), mem, heap }; // alloc: Exec charged self.charge
+        self.cold[s] = Cold {
+            key,
+            rows: vec![0, 0],
+            copies: Vec::new(),
+            mem,
+            heap,
+        }; // alloc: Exec charged self.charge
         let heap = heap + self.cold[s].rows.capacity() as u64 * 8;
         (self.cold[s].heap, self.entries_heap) = (heap, self.entries_heap + heap);
         let rows = self.cold[s].rows.as_ptr() as u64;
-        self.hot[s] = Hot { hash: h, prev: NIL, next: NIL, chain: NIL, word, rows, flags };
+        self.hot[s] = Hot {
+            hash: h,
+            prev: NIL,
+            next: NIL,
+            chain: NIL,
+            word,
+            rows,
+            flags,
+        };
         self.chain_in(s);
         self.push_tail(s);
         self.mem_used += mem;
@@ -188,11 +211,17 @@ impl MemoTable {
         let singlerow = self.singlerow;
         if self.hot[s].flags & COMPLETE != 0 {
             // PG: an elog(ERROR) when the planner's singlerow was wrong
-            return Err(Box::new(types_error::PgError::error("cache entry already complete").with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR))); // alloc: Cold
+            return Err(Box::new(
+                types_error::PgError::error("cache entry already complete")
+                    .with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR),
+            )); // alloc: Cold
         }
         let e = &mut self.cold[s];
         let mut bytes = TUPLE_BYTES + MINTUPLE_HEADER;
-        let (cap0, mut copied) = ((e.rows.capacity() * 8 + e.copies.capacity() * entry(&e.copies)) as u64, 0u64);
+        let (cap0, mut copied) = (
+            (e.rows.capacity() * 8 + e.copies.capacity() * entry(&e.copies)) as u64,
+            0u64,
+        );
         // bounded("key-columns: one cell per column of the inner's row; PG polls no deeper (a datum copy is one unit there too), at most MaxTupleAttributeNumber (1664) columns")
         for c in row.iter() {
             let (w, n) = match (c.null, c.len) {
@@ -216,7 +245,8 @@ impl MemoTable {
         e.rows[0] += 1;
         e.rows[1] = row.len() as u64;
         e.mem += bytes;
-        let grew = (e.rows.capacity() * 8 + e.copies.capacity() * entry(&e.copies)) as u64 + copied - cap0;
+        let grew =
+            (e.rows.capacity() * 8 + e.copies.capacity() * entry(&e.copies)) as u64 + copied - cap0;
         e.heap += grew;
         self.entries_heap += grew;
         let rows = e.rows.as_ptr() as u64;
@@ -242,9 +272,24 @@ impl MemoTable {
 /// As `MemoTable::hash`.
 unsafe fn store_key(p: &Probe) -> Stored {
     match (p.null, p.len) {
-        (true, _) => Stored { null: true, word: 0, image: None, len: 0 },
-        (false, 0) => Stored { null: false, word: p.word, image: None, len: 0 },
-        (false, n) => Stored { null: false, word: 0, image: Some(copy_image(p.word, n as usize)), len: n as usize },
+        (true, _) => Stored {
+            null: true,
+            word: 0,
+            image: None,
+            len: 0,
+        },
+        (false, 0) => Stored {
+            null: false,
+            word: p.word,
+            image: None,
+            len: 0,
+        },
+        (false, n) => Stored {
+            null: false,
+            word: 0,
+            image: Some(copy_image(p.word, n as usize)),
+            len: n as usize,
+        },
     }
 }
 
@@ -279,7 +324,9 @@ unsafe fn image_hash(p: &Probe) -> u32 {
     if p.len == 0 {
         p.word.to_le_bytes().into_iter().for_each(&mut mix);
     } else {
-        core::slice::from_raw_parts(p.word as usize as *const u8, p.len as usize).iter().for_each(|&b| mix(b));
+        core::slice::from_raw_parts(p.word as usize as *const u8, p.len as usize)
+            .iter()
+            .for_each(|&b| mix(b));
     }
     (h ^ (h >> 32)) as u32
 }

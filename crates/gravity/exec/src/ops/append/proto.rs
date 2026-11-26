@@ -22,12 +22,17 @@ use memledger::ChargedVec;
 use types_error::PgResult;
 use types_portal::ParamListHandle;
 
-use crate::ops::{Live, Prepare, Protocol};
 use crate::glue;
 use crate::ops::append::prune;
 use crate::ops::append::prune::{ArmSet, ExecPrune, ExecWord, EXEC_WORDS};
+use crate::ops::{Live, Prepare, Protocol};
 
-pub const PROTOCOLS: &[&dyn Protocol] = &[&Prune, &Arms, &Volatile, &crate::ops::append::prune::NestPrune];
+pub const PROTOCOLS: &[&dyn Protocol] = &[
+    &Prune,
+    &Arms,
+    &Volatile,
+    &crate::ops::append::prune::NestPrune,
+];
 
 /// `src.prune`'s fields out of `arg` (see the module doc).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,10 +46,20 @@ pub struct PruneArg {
 
 impl PruneArg {
     pub const fn arg(self) -> u64 {
-        self.index as u64 | (self.nsubplans as u64) << 16 | (self.first as u64) << 32 | ((self.count & 0x7fff) as u64) << 48 | (self.exec as u64) << 63
+        self.index as u64
+            | (self.nsubplans as u64) << 16
+            | (self.first as u64) << 32
+            | ((self.count & 0x7fff) as u64) << 48
+            | (self.exec as u64) << 63
     }
     pub const fn of(arg: u64) -> PruneArg {
-        PruneArg { index: arg as u16, nsubplans: (arg >> 16) as u16, first: (arg >> 32) as u16, count: ((arg >> 48) & 0x7fff) as u16, exec: arg >> 63 != 0 }
+        PruneArg {
+            index: arg as u16,
+            nsubplans: (arg >> 16) as u16,
+            first: (arg >> 32) as u16,
+            count: ((arg >> 48) & 0x7fff) as u16,
+            exec: arg >> 63 != 0,
+        }
     }
 }
 
@@ -68,7 +83,10 @@ impl SkipWords {
     }
     /// `n` zero words: no arm skipped before the first decision.
     pub(crate) fn zeroed(n: usize, mut words: memledger::ChargedVec<u64>) -> SkipWords {
-        words.with_vec(|v| { v.reserve_exact(n); v.resize(n, 0); }); // alloc: Exec charged words.owner()
+        words.with_vec(|v| {
+            v.reserve_exact(n);
+            v.resize(n, 0);
+        }); // alloc: Exec charged words.owner()
         SkipWords::new(words)
     }
     /// The words of arms outside `valid` (`skip_words`), kept.
@@ -78,7 +96,10 @@ impl SkipWords {
     }
     /// Whether arm `i` is skipped.
     pub(crate) fn skipped(&self, i: usize) -> bool {
-        self.0.borrow().get(i / 64).is_some_and(|w| w >> (i % 64) & 1 != 0)
+        self.0
+            .borrow()
+            .get(i / 64)
+            .is_some_and(|w| w >> (i % 64) & 1 != 0)
     }
     /// Word `k` (0 past the end).
     pub(crate) fn word(&self, k: usize) -> u64 {
@@ -104,17 +125,27 @@ pub struct Initial {
 
 impl Initial {
     /// The initial-steps prunes of `program` (`a`'s, or an arm's swapped in) under `a`'s plan and parameters.
-    pub fn decide(program: &gravity_program::Program, a: &crate::shapes::Admitted) -> PgResult<Initial> {
+    pub fn decide(
+        program: &gravity_program::Program,
+        a: &crate::shapes::Admitted,
+    ) -> PgResult<Initial> {
         Initial::decide_in(program, a.pstmt, Initial::params_of(a))
     }
 
     /// `a`'s execution parameters as its pruning reads them (`GraphWords::prune`'s handle; null without one).
     pub fn params_of(a: &crate::shapes::Admitted) -> ParamListHandle {
-        a.graph.as_ref().and_then(|g| g.prune).map_or(ParamListHandle::NULL, |e| e.params)
+        a.graph
+            .as_ref()
+            .and_then(|g| g.prune)
+            .map_or(ParamListHandle::NULL, |e| e.params)
     }
 
     /// `decide` of `program` (a statement's, an arm's or an InitPlan's) under plan `pstmt` and parameters `params`.
-    pub fn decide_in(program: &gravity_program::Program, pstmt: Option<&'static types_nodes::plannodes::PlannedStmt<'static>>, params: ParamListHandle) -> PgResult<Initial> {
+    pub fn decide_in(
+        program: &gravity_program::Program,
+        pstmt: Option<&'static types_nodes::plannodes::PlannedStmt<'static>>,
+        params: ParamListHandle,
+    ) -> PgResult<Initial> {
         let mut out = Initial::default();
         let protos = program.v4.as_deref().map_or(&[][..], |d| &d.protos[..]);
         let Some(pstmt) = pstmt else { return Ok(out) };
@@ -135,7 +166,9 @@ impl Initial {
         }
         for (s, d) in program.sites.iter().enumerate() {
             if let Some(index) = d.set_prune {
-                out.sites.push((s, prune::initial_valid(pstmt, index as usize, params)?)); // alloc: Exec
+                out.sites
+                    .push((s, prune::initial_valid(pstmt, index as usize, params)?));
+                // alloc: Exec
             }
         }
         Ok(out)
@@ -154,12 +187,17 @@ impl Initial {
 
     /// Whether the initial pruning removed pipeline `pipeline`'s arm.
     pub fn pruned(&self, pipeline: usize) -> bool {
-        self.pruned.get(pipeline / 64).is_some_and(|w| w >> (pipeline % 64) & 1 != 0)
+        self.pruned
+            .get(pipeline / 64)
+            .is_some_and(|w| w >> (pipeline % 64) & 1 != 0)
     }
 
     /// Proto `p`'s surviving subplans, when `decide` decided it.
     fn set_of(&self, p: &Proto) -> Option<&ArmSet> {
-        self.sets.iter().find(|(k, _)| *k == (p.pipeline, p.arg)).map(|(_, v)| v)
+        self.sets
+            .iter()
+            .find(|(k, _)| *k == (p.pipeline, p.arg))
+            .map(|(_, v)| v)
     }
 
     /// The sites of `program` whose every driving pipeline the pruning removed: no pipeline this execution runs reads
@@ -172,7 +210,9 @@ impl Initial {
         // per site: a pipeline drives it, and one this execution runs does
         let (mut driven, mut runs) = (vec![false; n], vec![false; n]); // alloc: Exec
         for (q, pipe) in program.pipelines.iter().enumerate() {
-            let Some(s) = usize::try_from(pipe.driving_site).ok().filter(|&s| s < n) else { continue };
+            let Some(s) = usize::try_from(pipe.driving_site).ok().filter(|&s| s < n) else {
+                continue;
+            };
             driven[s] = true;
             runs[s] |= !self.pruned(q);
         }
@@ -190,33 +230,61 @@ impl Protocol for Prune {
         let a = PruneArg::of(p.arg);
         let (base, n) = (p.words.base as usize, p.words.n as usize);
         if n != (a.count as usize).div_ceil(64) || base + n > cx.words.len() {
-            return Err(glue::internal("gravity: src.prune's skip words do not cover its arms"));
+            return Err(glue::internal(
+                "gravity: src.prune's skip words do not cover its arms",
+            ));
         }
-        let Some(pstmt) = cx.admitted.pstmt else { return Err(glue::internal("gravity: src.prune without its plan")) };
+        let Some(pstmt) = cx.admitted.pstmt else {
+            return Err(glue::internal("gravity: src.prune without its plan"));
+        };
         let g = cx.admitted.graph.as_ref();
-        let params = g.and_then(|g| g.prune).map_or(ParamListHandle::NULL, |e| e.params);
+        let params = g
+            .and_then(|g| g.prune)
+            .map_or(ParamListHandle::NULL, |e| e.params);
         // M8 (L0-h): arms a rerun set re-runs decide at each rerun, over the owner's params (v4/m8_rerun.rs `prunes`); D2106:
         // the set decides initial steps only once, at its prepare, and skips the arms they remove whole
         if crate::rerun::prunes(p, cx.program.v4.as_ref().map_or(&[][..], |d| &d.protos[..])) {
             return Ok(None);
         }
         // M8 (L0-k): exec steps over an in-program InitPlan's param decide at the first arm's start (v4/m8_prune.rs)
-        if let Some(late) = if a.exec { crate::ops::append::prune_exec::late(p, a, pstmt, params, cx)? } else { None } {
+        if let Some(late) = if a.exec {
+            crate::ops::append::prune_exec::late(p, a, pstmt, params, cx)?
+        } else {
+            None
+        } {
             return Ok(Some(late));
         }
         let valid: Cow<'_, ArmSet> = if a.exec {
-            let mut words = [ExecWord { param: -1, value: 0, null: 1 }; EXEC_WORDS];
+            let mut words = [ExecWord {
+                param: -1,
+                value: 0,
+                null: 1,
+            }; EXEC_WORDS];
             let mut k = 0;
             for i in g.map_or(&[][..], |g| &g.inits[..]) {
                 if k == EXEC_WORDS {
-                    return Err(glue::internal("gravity: src.prune over more InitPlans than prune::EXEC_WORDS"));
+                    return Err(glue::internal(
+                        "gravity: src.prune over more InitPlans than prune::EXEC_WORDS",
+                    ));
                 }
                 if let (Some(&value), Some(&null)) = (cx.words.get(i.word), cx.nulls.get(i.word)) {
-                    words[k] = ExecWord { param: i.param, value, null };
+                    words[k] = ExecWord {
+                        param: i.param,
+                        value,
+                        null,
+                    };
                     k += 1;
                 }
             }
-            let v = prune::exec_valid(pstmt, ExecPrune { index: a.index as u32, nsubplans: a.nsubplans, params }, &words[..k])?;
+            let v = prune::exec_valid(
+                pstmt,
+                ExecPrune {
+                    index: a.index as u32,
+                    nsubplans: a.nsubplans,
+                    params,
+                },
+                &words[..k],
+            )?;
             fires::fire("append.exec_prune"); // shapecheck NEW-kernels-exec-121: a v4 program's exec-time arm skips (V4R-37 b)
             Cow::Owned(v)
         } else if let Some(v) = cx.initial.and_then(|i| i.set_of(p)) {
@@ -226,14 +294,35 @@ impl Protocol for Prune {
             Cow::Owned(prune::initial_valid(pstmt, a.index as usize, params)?)
         };
         skip_words(&valid, a, &mut cx.words[base..base + n]);
-        cx.nulls.get_mut(base..base + n).into_iter().flatten().for_each(|b| *b = 0);
+        cx.nulls
+            .get_mut(base..base + n)
+            .into_iter()
+            .flatten()
+            .for_each(|b| *b = 0);
         let mut pruned: ChargedVec<u16> = cx.charged_vec();
-        pruned.with_vec(|v| v.extend((0..a.count).filter(|&i| !prune::member(&valid, (a.first + i) as usize)).map(|i| p.pipeline + i))); // alloc: Exec charged cx.owner
+        pruned.with_vec(|v| {
+            v.extend(
+                (0..a.count)
+                    .filter(|&i| !prune::member(&valid, (a.first + i) as usize))
+                    .map(|i| p.pipeline + i),
+            )
+        }); // alloc: Exec charged cx.owner
         if crate::inputs::knobs::seam::report_on() {
             // D509: the pruned arms, report-only (the e2e's witness that pruning fired)
-            let _ = elog::ereport(types_error::LOG).errmsg(format!("gravity: src.prune pruned {} of {} arms (pipelines {:?})", pruned.len(), a.count, pruned.as_slice())).errhidestmt(true).errhidecontext(true).finish(types_error::ErrorLocation::new("gravity", 0, "prune")); // alloc: Cold
+            let _ = elog::ereport(types_error::LOG)
+                .errmsg(format!(
+                    "gravity: src.prune pruned {} of {} arms (pipelines {:?})",
+                    pruned.len(),
+                    a.count,
+                    pruned.as_slice()
+                ))
+                .errhidestmt(true)
+                .errhidecontext(true)
+                .finish(types_error::ErrorLocation::new("gravity", 0, "prune"));
+            // alloc: Cold
         }
-        Ok((!pruned.is_empty()).then(|| Box::new(Pruned { pipelines: pruned }) as Box<dyn Live>)) // alloc: Exec
+        Ok((!pruned.is_empty()).then(|| Box::new(Pruned { pipelines: pruned }) as Box<dyn Live>))
+        // alloc: Exec
     }
 }
 
@@ -297,7 +386,9 @@ impl Protocol for Arms {
     }
     fn prepare(&self, p: &Proto, cx: &mut Prepare<'_>) -> PgResult<Option<Box<dyn Live>>> {
         if p.arg == 0 || p.pipeline as u64 + p.arg > cx.program.pipelines.len() as u64 {
-            return Err(glue::internal("gravity: append.arms over pipelines the program does not have"));
+            return Err(glue::internal(
+                "gravity: append.arms over pipelines the program does not have",
+            ));
         }
         Ok(None)
     }
@@ -323,7 +414,13 @@ mod tests {
     /// The arg round-trips; the skip bits are the arms outside the surviving set, shifted to the proto's first subplan.
     #[test]
     fn prune_arg_and_skip_bits() {
-        let a = PruneArg { index: 3, nsubplans: 70, first: 2, count: 67, exec: true };
+        let a = PruneArg {
+            index: 3,
+            nsubplans: 70,
+            first: 2,
+            count: 67,
+            exec: true,
+        };
         assert_eq!(PruneArg::of(a.arg()), a);
         let mut valid = vec![0u64; 2]; // alloc: Cold
         for s in [2usize, 5, 68] {
@@ -344,7 +441,13 @@ mod tests {
     /// D3017: an Append past 256 subplans prunes: the kept set and the skip words reach every arm (5,000 here).
     #[test]
     fn skip_bits_past_256_arms() {
-        let a = PruneArg { index: 0, nsubplans: 5001, first: 1, count: 5000, exec: true };
+        let a = PruneArg {
+            index: 0,
+            nsubplans: 5001,
+            first: 1,
+            count: 5000,
+            exec: true,
+        };
         let kept = [1usize, 257, 300, 5000];
         let mut words = vec![0u64; 5001usize.div_ceil(64)]; // alloc: Cold
         for s in kept {
@@ -354,9 +457,20 @@ mod tests {
         let skip = SkipWords::zeroed(5000usize.div_ceil(64), memledger::ChargedVec::none());
         skip.decide(&valid, a);
         let alive: Vec<usize> = (0..5000).filter(|&i| !skip.skipped(i)).collect();
-        assert_eq!(alive, [0, 256, 299, 4999], "subplans 1, 257, 300, 5000 are arms 0, 256, 299, 4999");
-        assert_eq!(skip.word(78), !(1 << (4999 % 64)) & ((1 << (5000 % 64)) - 1), "the last word: arm 4999 alone kept of its 8");
-        assert!(prune::member(&prune::ALL, 70_000) && !prune::member(&prune::ArmSet::Of(Box::new([])), 3)); // alloc: Cold
+        assert_eq!(
+            alive,
+            [0, 256, 299, 4999],
+            "subplans 1, 257, 300, 5000 are arms 0, 256, 299, 4999"
+        );
+        assert_eq!(
+            skip.word(78),
+            !(1 << (4999 % 64)) & ((1 << (5000 % 64)) - 1),
+            "the last word: arm 4999 alone kept of its 8"
+        );
+        assert!(
+            prune::member(&prune::ALL, 70_000)
+                && !prune::member(&prune::ArmSet::Of(Box::new([])), 3)
+        ); // alloc: Cold
     }
 
     /// Does not apply: a pruned arm's claim source hands out nothing; an arm that survives keeps the runner's own.

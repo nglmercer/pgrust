@@ -36,13 +36,21 @@ static A: Largest = Largest;
 #[test]
 fn a_hosted_lowering_allocates_no_large_region() {
     // SELECT x, sind(x), sind(x) IN (...) FROM (VALUES ...): sind is a hosted call
-    let text = std::fs::read_to_string(common::plans_dir().join("regress-full/float8-010.plan")).expect("plan fixture");
-    common::lower_fixture(&text).expect("decompose takes it").expect("float8-010 lowers"); // warm: seams, caches
+    let text = std::fs::read_to_string(common::plans_dir().join("regress-full/float8-010.plan"))
+        .expect("plan fixture");
+    common::lower_fixture(&text)
+        .expect("decompose takes it")
+        .expect("float8-010 lowers"); // warm: seams, caches
     MAX.store(0, Ordering::Relaxed);
     ON.store(true, Ordering::Relaxed);
-    let r = common::lower_fixture(&text).expect("decompose takes it").map(|_| ());
+    let r = common::lower_fixture(&text)
+        .expect("decompose takes it")
+        .map(|_| ());
     ON.store(false, Ordering::Relaxed);
     assert!(r.is_ok(), "float8-010 lowers");
     let max = MAX.load(Ordering::Relaxed);
-    assert!(max < 4 << 20, "a hosted lowering's largest allocation is {max} bytes (D848: was an 8 MiB zeroed region)");
+    assert!(
+        max < 4 << 20,
+        "a hosted lowering's largest allocation is {max} bytes (D848: was an 8 MiB zeroed region)"
+    );
 }

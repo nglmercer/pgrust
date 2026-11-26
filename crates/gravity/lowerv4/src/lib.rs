@@ -28,12 +28,12 @@ pub mod frame;
 /// The session inputs the lowering reads (the inputs home: its GUC reads).
 pub mod inputs;
 
-use std::panic::resume_unwind;
 use gravity_decompose::{Facts, PipelineGraph};
 use gravity_expr::Catalog;
 use gravity_lower::{Lowered, WordPlan};
 use gravity_program::ArenaRef;
 use mcx::Mcx;
+use std::panic::resume_unwind;
 
 pub use crate::admit::refusal::{Milestone, Reason, Refusal, Variant};
 pub mod admit;
@@ -79,40 +79,100 @@ pub fn catch<T>(node: i32, f: impl FnOnce() -> T) -> Result<T, Refusal> {
         },
     };
     // D2962: every designed exit (types_error::is_exit_payload), not only PanicExitThread
-    if payload.is::<types_error::PgError>() || payload.is::<Box<types_error::PgError>>() || types_error::is_exit_payload(&*payload) {
+    if payload.is::<types_error::PgError>()
+        || payload.is::<Box<types_error::PgError>>()
+        || types_error::is_exit_payload(&*payload)
+    {
         resume_unwind(payload);
     }
     Err(crate::admit::refusal::bug(node, payload))
 }
 
 /// The lowerer hook (`gravity_lower`'s seam): the graph lowered, or its first refusal by name (field values logged once).
-pub fn lower_graph<'p>(arena: ArenaRef, mcx: Mcx<'_>, graph: &PipelineGraph<'p>, facts: &dyn Facts, catalog: &dyn Catalog<'p>, plan: &mut dyn WordPlan<'p>, opts: gravity_lower::LowerOpts) -> gravity_lower::Result<Lowered> {
-    lower_in(arena, mcx, graph, facts, catalog, plan, opts, frame::diag::on().then_some(&mut frame::diag::Report::default()))
+pub fn lower_graph<'p>(
+    arena: ArenaRef,
+    mcx: Mcx<'_>,
+    graph: &PipelineGraph<'p>,
+    facts: &dyn Facts,
+    catalog: &dyn Catalog<'p>,
+    plan: &mut dyn WordPlan<'p>,
+    opts: gravity_lower::LowerOpts,
+) -> gravity_lower::Result<Lowered> {
+    lower_in(
+        arena,
+        mcx,
+        graph,
+        facts,
+        catalog,
+        plan,
+        opts,
+        frame::diag::on().then_some(&mut frame::diag::Report::default()),
+    )
 }
 
 /// `lower_graph`; `Some(report)`: in the all-blockers mode, `report` its blockers (frame/diag.rs `lower_graph_diag`).
 /// D2597: inside `facts::order::lowering`, so a statement that acts keeps its raising folds in plan order and a licensed
 /// one's float folds raise wherever an input order could overflow.
-pub(crate) fn lower_in<'p>(arena: ArenaRef, mcx: Mcx<'_>, graph: &PipelineGraph<'p>, facts: &dyn Facts, catalog: &dyn Catalog<'p>, plan: &mut dyn WordPlan<'p>, opts: gravity_lower::LowerOpts, diag: Option<&mut frame::diag::Report>) -> gravity_lower::Result<Lowered> {
-    gravity_decompose::facts::order::lowering(graph, || memo::scoped(graph, || lower_scoped(arena, mcx, graph, facts, catalog, plan, opts, diag)))
+pub(crate) fn lower_in<'p>(
+    arena: ArenaRef,
+    mcx: Mcx<'_>,
+    graph: &PipelineGraph<'p>,
+    facts: &dyn Facts,
+    catalog: &dyn Catalog<'p>,
+    plan: &mut dyn WordPlan<'p>,
+    opts: gravity_lower::LowerOpts,
+    diag: Option<&mut frame::diag::Report>,
+) -> gravity_lower::Result<Lowered> {
+    gravity_decompose::facts::order::lowering(graph, || {
+        memo::scoped(graph, || {
+            lower_scoped(arena, mcx, graph, facts, catalog, plan, opts, diag)
+        })
+    })
 }
 
 /// D1752 / D3437: the graph's pipelines in program order (frame/mechs.rs `arm_order` over drain/arms.rs `arm_runs`),
 /// before the passes a maker adds; read where `lower_in` reads it. The dump's `order` line and the arm-order tests.
-pub fn program_order<'p>(arena: ArenaRef, mcx: Mcx<'_>, graph: &PipelineGraph<'p>, facts: &dyn Facts, catalog: &dyn Catalog<'p>) -> Vec<usize> {
+pub fn program_order<'p>(
+    arena: ArenaRef,
+    mcx: Mcx<'_>,
+    graph: &PipelineGraph<'p>,
+    facts: &dyn Facts,
+    catalog: &dyn Catalog<'p>,
+) -> Vec<usize> {
     gravity_decompose::facts::order::lowering(graph, || {
         memo::scoped(graph, || {
             let over = crate::ops::group::regroup::regroup(arena, mcx, graph, facts, catalog);
-            let gx = graph::Gx { graph, facts, catalog, over: over.as_ref(), mcx };
+            let gx = graph::Gx {
+                graph,
+                facts,
+                catalog,
+                over: over.as_ref(),
+                mcx,
+            };
             let runs = gx.arm_runs();
             frame::mechs::arm_order(graph.pipelines.len(), &runs, mcx)
         })
     })
 }
 
-fn lower_scoped<'p>(arena: ArenaRef, mcx: Mcx<'_>, graph: &PipelineGraph<'p>, facts: &dyn Facts, catalog: &dyn Catalog<'p>, plan: &mut dyn WordPlan<'p>, opts: gravity_lower::LowerOpts, diag: Option<&mut frame::diag::Report>) -> gravity_lower::Result<Lowered> {
+fn lower_scoped<'p>(
+    arena: ArenaRef,
+    mcx: Mcx<'_>,
+    graph: &PipelineGraph<'p>,
+    facts: &dyn Facts,
+    catalog: &dyn Catalog<'p>,
+    plan: &mut dyn WordPlan<'p>,
+    opts: gravity_lower::LowerOpts,
+    diag: Option<&mut frame::diag::Report>,
+) -> gravity_lower::Result<Lowered> {
     let over = crate::ops::group::regroup::regroup(arena, mcx, graph, facts, catalog); // D1210: the pair groups the pair set cannot hold, re-declared
-    let gx = graph::Gx { graph, facts, catalog, over: over.as_ref(), mcx };
+    let gx = graph::Gx {
+        graph,
+        facts,
+        catalog,
+        over: over.as_ref(),
+        mcx,
+    };
     crate::rerun::params::supply(&gx, plan); // M8 L0-w: every executor parameter's word, in both modes
     road_off::apply();
     // V4R-110: a program that read a list the content key keys by its class is its list's: run once, never filed
@@ -126,7 +186,7 @@ fn lower_scoped<'p>(arena: ArenaRef, mcx: Mcx<'_>, graph: &PipelineGraph<'p>, fa
     });
     r.map(|mut l| {
         crate::effects::end_check::check(&gx, arena); // C1: the three expression readers agree (off unless asked)
-        // v5 errorhold: the plan-order program (every licence denied, `effects::deny_all`) is its statement's, never filed
+                                                      // v5 errorhold: the plan-order program (every licence denied, `effects::deny_all`) is its statement's, never filed
         let hold = gravity_decompose::effects::denying();
         if !l.descs.no_cache && (lists || hold) {
             l.descs.no_cache_why = if hold { "errorhold" } else { "list" };

@@ -20,34 +20,58 @@ pub struct Arrays {
 }
 
 impl Arrays {
-
     /// The proto's `arg`: 0 = copy-only; else the element type oid in bits 0-31 (upper bits reserved at 0).
     pub fn of(arg: u64) -> PgResult<Arrays> {
         if arg >> 32 != 0 {
-            return Err(crate::glue::internal(&format!("gravity: nest.subplan.result: arg {arg:#x} has bits past the element type"))); // alloc: Cold
+            return Err(crate::glue::internal(&format!(
+                "gravity: nest.subplan.result: arg {arg:#x} has bits past the element type"
+            ))); // alloc: Cold
         }
-        Ok(Arrays::with((arg != 0).then(|| elem_shape(arg as u32)).transpose()?))
+        Ok(Arrays::with(
+            (arg != 0).then(|| elem_shape(arg as u32)).transpose()?,
+        ))
     }
 
     pub fn with(elem: Option<ElemShape>) -> Arrays {
         let n = if elem.is_some() { LANES } else { 0 };
-        Arrays { elem, lanes: (0..n).map(|_| UnsafeCell::new(None)).collect(), charged: core::cell::Cell::new(0) } // alloc: Exec
+        Arrays {
+            elem,
+            lanes: (0..n).map(|_| UnsafeCell::new(None)).collect(),
+            charged: core::cell::Cell::new(0),
+        } // alloc: Exec
     }
-
 }
 
 #[cfg(test)]
 #[allow(unsafe_code)]
 mod tests {
-    use crate::ops::subplan::hash::new_result;
     use super::*;
+    use crate::ops::subplan::hash::new_result;
     use gravity_abi::status::ERROR;
     use gravity_abi::Ctx;
     use gravity_kernels::ops::shared::object::entries as abi;
 
-    const INT4: ElemShape = ElemShape { oid: 23, typlen: 4, byval: true, align: b'i', sub: None };
-    const TEXT: ElemShape = ElemShape { oid: 25, typlen: -1, byval: false, align: b'i', sub: None };
-    const INT8: ElemShape = ElemShape { oid: 20, typlen: 8, byval: true, align: b'd', sub: None };
+    const INT4: ElemShape = ElemShape {
+        oid: 23,
+        typlen: 4,
+        byval: true,
+        align: b'i',
+        sub: None,
+    };
+    const TEXT: ElemShape = ElemShape {
+        oid: 25,
+        typlen: -1,
+        byval: false,
+        align: b'i',
+        sub: None,
+    };
+    const INT8: ElemShape = ElemShape {
+        oid: 20,
+        typlen: 8,
+        byval: true,
+        align: b'd',
+        sub: None,
+    };
 
     fn ctx(worker: u8) -> Ctx {
         // SAFETY: Ctx is plain data; zero is its idle state.
@@ -76,10 +100,16 @@ mod tests {
             let rd = |o: usize| i32::from_le_bytes(*(base.add(o) as *const [u8; 4]));
             let (ndim, dataoff, elemtype) = (rd(4), rd(8), rd(12) as u32);
             let dims: Vec<i32> = (0..ndim as usize).map(|i| rd(16 + 4 * i)).collect();
-            let lbs: Vec<i32> = (0..ndim as usize).map(|i| rd(16 + 4 * ndim as usize + 4 * i)).collect();
+            let lbs: Vec<i32> = (0..ndim as usize)
+                .map(|i| rd(16 + 4 * ndim as usize + 4 * i))
+                .collect();
             let n = dims.first().copied().unwrap_or(0) as usize;
             let bitmap = base.add(16 + 8 * ndim as usize);
-            let hdr = if dataoff != 0 { dataoff as usize } else { (16 + 8 * ndim as usize + 7) & !7 };
+            let hdr = if dataoff != 0 {
+                dataoff as usize
+            } else {
+                (16 + 8 * ndim as usize + 7) & !7
+            };
             let mut at = hdr;
             let mut out = vec![]; // alloc: Cold
             for i in 0..n {
@@ -87,7 +117,12 @@ mod tests {
                     out.push(None);
                     continue;
                 }
-                let al = match e.align { b'd' => 8, b'i' => 4, b's' => 2, _ => 1 };
+                let al = match e.align {
+                    b'd' => 8,
+                    b'i' => 4,
+                    b's' => 2,
+                    _ => 1,
+                };
                 let len = if e.typlen > 0 {
                     at = (at + al - 1) & !(al - 1);
                     e.typlen as usize
@@ -109,7 +144,11 @@ mod tests {
 
     /// A varlena element's payload, whichever header it carries.
     fn body(v: &[u8]) -> &[u8] {
-        if v[0] & 1 == 1 { &v[1..] } else { &v[4..] }
+        if v[0] & 1 == 1 {
+            &v[1..]
+        } else {
+            &v[4..]
+        }
     }
 
     fn arr(e: ElemShape) -> Box<crate::ops::subplan::hash::ResultObj> {
@@ -127,7 +166,14 @@ mod tests {
             }
             let (ndim, dims, lbs, t, els) = read(abi::m8_array_end(&mut c, h(&o.head)), &INT4);
             assert_eq!((ndim, dims, lbs, t), (1, vec![3], vec![1], 23)); // alloc: Cold
-            assert_eq!(els, vec![Some(7i32.to_le_bytes().to_vec()), None, Some((-1i32).to_le_bytes().to_vec())]); // alloc: Cold
+            assert_eq!(
+                els,
+                vec![
+                    Some(7i32.to_le_bytes().to_vec()),
+                    None,
+                    Some((-1i32).to_le_bytes().to_vec())
+                ]
+            ); // alloc: Cold
         }
     }
 
@@ -140,7 +186,11 @@ mod tests {
             let p = abi::m8_array_end(&mut c, h(&o.head));
             let (ndim, dims, lbs, t, els) = read(p, &INT8);
             assert_eq!((ndim, dims, lbs, t, els.len()), (0, vec![], vec![], 20, 0)); // alloc: Cold
-            assert_eq!(i32::from_le_bytes(*(p as *const [u8; 4])) >> 2, 16, "PG's empty array is its 16-byte header");
+            assert_eq!(
+                i32::from_le_bytes(*(p as *const [u8; 4])) >> 2,
+                16,
+                "PG's empty array is its 16-byte header"
+            );
         }
     }
 
@@ -153,7 +203,10 @@ mod tests {
         unsafe {
             assert_eq!(abi::m8_array_begin(&mut c, h(&o.head)), 0);
             for v in &vals {
-                assert_eq!(abi::m8_array_push(&mut c, h(&o.head), v.as_ptr() as u64, 0), 0);
+                assert_eq!(
+                    abi::m8_array_push(&mut c, h(&o.head), v.as_ptr() as u64, 0),
+                    0
+                );
             }
             assert_eq!(abi::m8_array_push(&mut c, h(&o.head), 0, 1), 0);
             // the inner's rows move on: the accumulator holds its own copies
@@ -183,12 +236,18 @@ mod tests {
                 // the previous call's array is intact up to this lane's next begin
                 if let Some((p, pc)) = prev {
                     let (_, _, _, _, els) = read(p, &TEXT);
-                    assert!(els.iter().enumerate().all(|(k, e)| body(e.as_ref().unwrap()) == &want(pc, k as u64)[..]));
+                    assert!(els
+                        .iter()
+                        .enumerate()
+                        .all(|(k, e)| body(e.as_ref().unwrap()) == &want(pc, k as u64)[..]));
                 }
                 assert_eq!(abi::m8_array_begin(&mut c, h(&o.head)), 0);
                 for k in 0..(call % 7) {
                     let v = text(&want(call, k));
-                    assert_eq!(abi::m8_array_push(&mut c, h(&o.head), v.as_ptr() as u64, 0), 0);
+                    assert_eq!(
+                        abi::m8_array_push(&mut c, h(&o.head), v.as_ptr() as u64, 0),
+                        0
+                    );
                 }
                 let p = abi::m8_array_end(&mut c, h(&o.head));
                 let (_, dims, _, _, _) = read(p, &TEXT);
@@ -202,7 +261,10 @@ mod tests {
                 }
             }
         }
-        assert!(early > 0 && late <= early, "the lane's context stays flat: {late} bytes late vs {early} in the first 100 calls");
+        assert!(
+            early > 0 && late <= early,
+            "the lane's context stays flat: {late} bytes late vs {early} in the first 100 calls"
+        );
     }
 
     #[test]
@@ -213,13 +275,18 @@ mod tests {
             for w in 0..8u8 {
                 s.spawn(move || {
                     let mut c = ctx(w);
-                    let vals: Vec<Vec<u8>> = (0..250_000u32 / 8).map(|i| text(format!("w{w}-{i}").as_bytes())).collect(); // alloc: Cold
+                    let vals: Vec<Vec<u8>> = (0..250_000u32 / 8)
+                        .map(|i| text(format!("w{w}-{i}").as_bytes()))
+                        .collect(); // alloc: Cold
                     for round in 0..4 {
                         unsafe {
                             assert_eq!(abi::m8_array_begin(&mut c, at), 0);
                             for (i, v) in vals.iter().enumerate() {
                                 let null = (i + round) % 97 == 0;
-                                assert_eq!(abi::m8_array_push(&mut c, at, v.as_ptr() as u64, null as u64), 0);
+                                assert_eq!(
+                                    abi::m8_array_push(&mut c, at, v.as_ptr() as u64, null as u64),
+                                    0
+                                );
                             }
                             let (_, dims, lbs, _, els) = read(abi::m8_array_end(&mut c, at), &TEXT);
                             assert_eq!((dims, lbs), (vec![vals.len() as i32], vec![1])); // alloc: Cold
@@ -227,7 +294,11 @@ mod tests {
                                 if (i + round) % 97 == 0 {
                                     assert_eq!(e, &None);
                                 } else {
-                                    assert_eq!(body(e.as_ref().unwrap()), format!("w{w}-{i}").as_bytes(), "lane {w} element {i}"); // alloc: Cold
+                                    assert_eq!(
+                                        body(e.as_ref().unwrap()),
+                                        format!("w{w}-{i}").as_bytes(),
+                                        "lane {w} element {i}"
+                                    ); // alloc: Cold
                                 }
                             }
                         }
@@ -244,10 +315,21 @@ mod tests {
         let mut c = ctx(0);
         unsafe {
             assert_eq!(abi::m8_array_begin(&mut c, h(&copy_only.head)), ERROR);
-            assert_eq!(abi::m8_array_push(&mut c, h(&o.head), 1, 0), ERROR, "a push before any begin");
-            assert_eq!(abi::m8_array_end(&mut c, h(&o.head)), ERROR, "an end before any begin");
+            assert_eq!(
+                abi::m8_array_push(&mut c, h(&o.head), 1, 0),
+                ERROR,
+                "a push before any begin"
+            );
+            assert_eq!(
+                abi::m8_array_end(&mut c, h(&o.head)),
+                ERROR,
+                "an end before any begin"
+            );
         }
         assert!(Arrays::of(1 << 32).is_err(), "bits past the element type");
-        assert!(Arrays::of(0).map(|a| a.elem.is_none()).unwrap_or(false), "arg 0 = copy-only");
+        assert!(
+            Arrays::of(0).map(|a| a.elem.is_none()).unwrap_or(false),
+            "arg 0 = copy-only"
+        );
     }
 }

@@ -30,9 +30,21 @@ impl Sink for Client {
 fn buffer(legs: &mut LegSink<'_, Client>, claims: u64) {
     for c in 0..claims {
         let lo = c * 10;
-        legs.leg(0).expect("the leader's leg").claim_begin(MorselRange::new(lo, lo + 10));
+        legs.leg(0)
+            .expect("the leader's leg")
+            .claim_begin(MorselRange::new(lo, lo + 10));
         let v: Vec<u64> = (lo..lo + 10).rev().collect();
-        Sink::push(legs, BorrowedBatch { natts: 1, rows: 10, values: &v, isnull: &[0; 10], region: &[] }).unwrap();
+        Sink::push(
+            legs,
+            BorrowedBatch {
+                natts: 1,
+                rows: 10,
+                values: &v,
+                isnull: &[0; 10],
+                region: &[],
+            },
+        )
+        .unwrap();
         legs.leg(0).expect("the leader's leg").claim_end(true);
     }
 }
@@ -57,7 +69,10 @@ fn a_cancel_during_the_post_run_drain_is_seen_before_the_next_claim() {
         "a cancel delivered during the drain must end it (Error::Cancelled), got {:?}",
         r.ok()
     );
-    assert_eq!(rows, 10, "only the claim sent before the cancel reaches the client");
+    assert_eq!(
+        rows, 10,
+        "only the claim sent before the cancel reaches the client"
+    );
     // sorted (a Sort root over the legs): seen before the next row
     let (r, rows) = drain(8, &[0]);
     assert!(
@@ -65,7 +80,10 @@ fn a_cancel_during_the_post_run_drain_is_seen_before_the_next_claim() {
         "sorted: a cancel delivered during the drain must end it, got {:?}",
         r.ok()
     );
-    assert_eq!(rows, 1, "sorted: only the row sent before the cancel reaches the client");
+    assert_eq!(
+        rows, 1,
+        "sorted: only the row sent before the cancel reaches the client"
+    );
     // the backend's next statement: a drain with no cancel sends every claim (nothing left pending by the one above)
     init_small::globals::SetAbortPending(false);
     struct Quiet(u64);
@@ -78,10 +96,26 @@ fn a_cancel_during_the_post_run_drain_is_seen_before_the_next_claim() {
     let mut quiet = Quiet(0);
     let mut legs = LegSink::new(&mut quiet, 1, 0, 0, true, false, &[0], None);
     for c in 0..8u64 {
-        legs.leg(0).expect("the leader's leg").claim_begin(MorselRange::new(c * 10, c * 10 + 10));
+        legs.leg(0)
+            .expect("the leader's leg")
+            .claim_begin(MorselRange::new(c * 10, c * 10 + 10));
         let v: Vec<u64> = (c * 10..c * 10 + 10).collect();
-        Sink::push(&mut legs, BorrowedBatch { natts: 1, rows: 10, values: &v, isnull: &[0; 10], region: &[] }).unwrap();
+        Sink::push(
+            &mut legs,
+            BorrowedBatch {
+                natts: 1,
+                rows: 10,
+                values: &v,
+                isnull: &[0; 10],
+                region: &[],
+            },
+        )
+        .unwrap();
         legs.leg(0).expect("the leader's leg").claim_end(true);
     }
-    assert_eq!(legs.drain(&[]).unwrap(), 80, "the next drain sends all 8 claims");
+    assert_eq!(
+        legs.drain(&[]).unwrap(),
+        80,
+        "the next drain sends all 8 claims"
+    );
 }

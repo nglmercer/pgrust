@@ -7,19 +7,34 @@ use types_nodes::Node;
 /// function returning one row, `Other` any other set-returning function (its body the library's).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SrfKind {
-    SeriesInt { width: u8, step: bool },
-    SeriesNumeric { step: bool },
-    SeriesTime { tz: bool },
+    SeriesInt {
+        width: u8,
+        step: bool,
+    },
+    SeriesNumeric {
+        step: bool,
+    },
+    SeriesTime {
+        tz: bool,
+    },
     Subscripts,
     Unnest,
     RegexpMatches,
     RegexpSplit,
     StringToTable,
-    JsonbArrayElements { text: bool },
-    JsonbEach { text: bool },
+    JsonbArrayElements {
+        text: bool,
+    },
+    JsonbEach {
+        text: bool,
+    },
     JsonbObjectKeys,
-    JsonArrayElements { text: bool },
-    JsonEach { text: bool },
+    JsonArrayElements {
+        text: bool,
+    },
+    JsonEach {
+        text: bool,
+    },
     JsonObjectKeys,
     JsonbPathQuery,
     Scalar,

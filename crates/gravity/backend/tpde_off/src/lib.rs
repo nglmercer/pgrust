@@ -13,7 +13,15 @@ pub const MAPPING_REFUSED: &str = "gravity_tpde: mapping refused on this platfor
 pub const NATIVE_CODE: bool = false;
 
 pub mod view {
-    pub const FUSION_NAMES: [&str; 7] = ["tpde.cmp_branch", "tpde.imm", "tpde.narrow_op", "tpde.narrow_move", "tpde.addr", "tpde.store_pair", "tpde.flag_reuse"];
+    pub const FUSION_NAMES: [&str; 7] = [
+        "tpde.cmp_branch",
+        "tpde.imm",
+        "tpde.narrow_op",
+        "tpde.narrow_move",
+        "tpde.addr",
+        "tpde.store_pair",
+        "tpde.flag_reuse",
+    ];
 }
 
 pub mod adaptor {
@@ -136,11 +144,20 @@ pub fn compile<'m>(_mcx: Mcx<'m>, _program: &Program) -> PgResult<Compiled<'m>> 
     refused()
 }
 
-pub fn compile_owned<'m>(_mcx: Mcx<'m>, _program: &Program, _own: impl Fn(&mcx::MemoryContext)) -> PgResult<Compiled<'m>> {
+pub fn compile_owned<'m>(
+    _mcx: Mcx<'m>,
+    _program: &Program,
+    _own: impl Fn(&mcx::MemoryContext),
+) -> PgResult<Compiled<'m>> {
     refused()
 }
 
-pub fn compile_tagged<'m>(_mcx: Mcx<'m>, _program: &Program, _own: impl Fn(&mcx::MemoryContext), _tags: Option<&gravity_ir::JitTags>) -> PgResult<Compiled<'m>> {
+pub fn compile_tagged<'m>(
+    _mcx: Mcx<'m>,
+    _program: &Program,
+    _own: impl Fn(&mcx::MemoryContext),
+    _tags: Option<&gravity_ir::JitTags>,
+) -> PgResult<Compiled<'m>> {
     refused()
 }
 
@@ -148,6 +165,10 @@ pub fn compile_recording<'m>(_mcx: Mcx<'m>, _program: &Program) -> PgResult<Comp
     refused()
 }
 
-pub fn compile_with<'m>(_mcx: Mcx<'m>, _program: &Program, _scratch: &mut Scratch) -> PgResult<Compiled<'m>> {
+pub fn compile_with<'m>(
+    _mcx: Mcx<'m>,
+    _program: &Program,
+    _scratch: &mut Scratch,
+) -> PgResult<Compiled<'m>> {
     refused()
 }

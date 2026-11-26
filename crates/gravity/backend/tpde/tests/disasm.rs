@@ -26,9 +26,13 @@ fn dump_add() {
         let w = u32::from_le_bytes(bytes[i..i + 4].try_into().unwrap());
         let mut s = [0u8; 128];
         let ddi = tpde_disarm::decode(w);
-        let text = tpde_disarm::da64_format(&ddi, &mut s).map(|n| String::from_utf8_lossy(&s[..n]).into_owned()).unwrap_or_else(|_| "??".into());
+        let text = tpde_disarm::da64_format(&ddi, &mut s)
+            .map(|n| String::from_utf8_lossy(&s[..n]).into_owned())
+            .unwrap_or_else(|_| "??".into());
         eprintln!("{:#06x}: {w:08x}  {text}", i - off);
-        if w == 0xd65f03c0 { break; }
+        if w == 0xd65f03c0 {
+            break;
+        }
         i += 4;
     }
 }

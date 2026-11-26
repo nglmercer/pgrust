@@ -37,12 +37,7 @@ fn debug_print_tree<'mcx>(
     title: &str,
     dump: PgResult<::mcx::PgString<'mcx>>,
 ) -> PgResult<()> {
-    nodes_core::print::debug_print_tree(
-        mcx,
-        title,
-        dump,
-        guc_tables::backing::Debug_pretty_print(),
-    )
+    nodes_core::print::debug_print_tree(mcx, title, dump, guc_tables::backing::Debug_pretty_print())
 }
 
 pub fn pg_parse_query<'mcx>(
@@ -53,8 +48,11 @@ pub fn pg_parse_query<'mcx>(
         ResetUsage();
     }
 
-    let raw_parsetree_list =
-        parser_seams::raw_parser::call(mcx, query_string, parser_seams::RawParseMode::RAW_PARSE_DEFAULT)?;
+    let raw_parsetree_list = parser_seams::raw_parser::call(
+        mcx,
+        query_string,
+        parser_seams::RawParseMode::RAW_PARSE_DEFAULT,
+    )?;
 
     if log_parser_stats() {
         ShowUsage("PARSER STATISTICS")?;
@@ -89,11 +87,18 @@ pub fn pg_analyze_and_rewrite_fixedparams<'a, 'mcx>(
     pg_rewrite_query(mcx, query)
 }
 
-pub fn pg_rewrite_query<'mcx>(mcx: Mcx<'mcx>, query: Query<'mcx>) -> PgResult<PgVec<'mcx, Query<'mcx>>> {
+pub fn pg_rewrite_query<'mcx>(
+    mcx: Mcx<'mcx>,
+    query: Query<'mcx>,
+) -> PgResult<PgVec<'mcx, Query<'mcx>>> {
     // postgres.c:803: debug_print_parse dumps the analyzed Query here (the
     // raw parse tree is never dumped in a stock build).
     if guc_tables::backing::Debug_print_parse() {
-        debug_print_tree(mcx, "parse tree", outfuncs::queryToStringWithLocations(mcx, &query))?;
+        debug_print_tree(
+            mcx,
+            "parse tree",
+            outfuncs::queryToStringWithLocations(mcx, &query),
+        )?;
     }
 
     if log_parser_stats() {
@@ -149,7 +154,11 @@ pub fn pg_plan_query<'mcx>(
     }
 
     if guc_tables::backing::Debug_print_plan() {
-        debug_print_tree(mcx, "plan", outfuncs::plannedStmtToStringWithLocations(mcx, &plan))?;
+        debug_print_tree(
+            mcx,
+            "plan",
+            outfuncs::plannedStmtToStringWithLocations(mcx, &plan),
+        )?;
     }
 
     Ok(Some(plan))
@@ -183,9 +192,8 @@ pub fn pg_plan_queries<'mcx>(
                 ..PlannedStmt::default()
             });
         } else {
-            let stmt =
-                pg_plan_query(mcx, query, query_string, cursor_options, bound_params)?
-                    .expect("pg_plan_query returned None for a non-utility query");
+            let stmt = pg_plan_query(mcx, query, query_string, cursor_options, bound_params)?
+                .expect("pg_plan_query returned None for a non-utility query");
             stmt_list.push(stmt);
         }
     }
@@ -208,14 +216,11 @@ fn crash_backend_injection(args: &str) -> PgResult<()> {
     }
 
     let mut parts = args.split_whitespace();
-    let pid: i32 = parts
-        .next()
-        .and_then(|s| s.parse().ok())
-        .ok_or_else(|| {
-            ereport(ERROR)
-                .errmsg("crash backend: expected 'pgrust: crash backend <vpid> quit|kill'")
-                .into_error()
-        })?;
+    let pid: i32 = parts.next().and_then(|s| s.parse().ok()).ok_or_else(|| {
+        ereport(ERROR)
+            .errmsg("crash backend: expected 'pgrust: crash backend <vpid> quit|kill'")
+            .into_error()
+    })?;
     let mode = parts.next().unwrap_or("quit");
 
     let rc = match mode {
@@ -223,7 +228,9 @@ fn crash_backend_injection(args: &str) -> PgResult<()> {
         "kill" => procsignal::SendThreadKill(pid),
         other => {
             return Err(ereport(ERROR)
-                .errmsg(format!("crash backend: unknown mode {other:?} (want quit|kill)"))
+                .errmsg(format!(
+                    "crash backend: unknown mode {other:?} (want quit|kill)"
+                ))
                 .into_error()
                 .into());
         }
@@ -253,7 +260,10 @@ fn memctx_dump() -> PgResult<()> {
             .into());
     }
     let say = |msg: String| -> PgResult<()> {
-        ereport(NOTICE).errmsg(msg).finish(loc(0, "memctx_dump")).map(|_| ())
+        ereport(NOTICE)
+            .errmsg(msg)
+            .finish(loc(0, "memctx_dump"))
+            .map(|_| ())
     };
 
     // Context forest (chunk-exact charges; block slack not included).
@@ -263,7 +273,12 @@ fn memctx_dump() -> PgResult<()> {
         tot.1 += t.used;
         out.push(format!(
             "{:indent$}{}: total={} used={} blocks={} [{}]",
-            "", t.name, total, t.used, t.nblocks.max(1), t.kind,
+            "",
+            t.name,
+            total,
+            t.used,
+            t.nblocks.max(1),
+            t.kind,
             indent = depth * 2
         ));
         for c in &t.children {
@@ -275,8 +290,12 @@ fn memctx_dump() -> PgResult<()> {
     for root in mcxt_stats::backend_context_forest() {
         walk(&root, 0, &mut lines, &mut tot);
     }
-    say(format!("memctx: context forest ({} roots): grand total={} used={}",
-        lines.len(), tot.0, tot.1))?;
+    say(format!(
+        "memctx: context forest ({} roots): grand total={} used={}",
+        lines.len(),
+        tot.0,
+        tot.1
+    ))?;
     for l in lines {
         say(l)?;
     }
@@ -306,12 +325,19 @@ fn memctx_dump() -> PgResult<()> {
             "memctx:   cache id={} rel={} ntup={} nlist={} pinned={} shared={} payload={} arena={}",
             r.id,
             r.relname.as_deref().unwrap_or("?"),
-            r.ntup, r.nlist, r.pinned, r.shared, r.payload_bytes, r.arena_bytes
+            r.ntup,
+            r.nlist,
+            r.pinned,
+            r.shared,
+            r.payload_bytes,
+            r.arena_bytes
         ))?;
     }
 
     let (nsrc, nplan, nsaved) = plancache::PlanCacheCensus();
-    say(format!("memctx: plancache sources={nsrc} plans={nplan} saved={nsaved}"))?;
+    say(format!(
+        "memctx: plancache sources={nsrc} plans={nplan} saved={nsaved}"
+    ))?;
 
     // memgrowth-discriminator (suspect-A census): THIS backend thread's raw-
     // Rust slot registries (querydesc/stmt_list/queryenv/tuplestore/resowner)
@@ -431,9 +457,7 @@ fn admission_stats_command() -> PgResult<()> {
 fn pgrust_debug_command(query_string: &str) -> PgResult<bool> {
     // Crash-restart test injection: PANIC-class fault on demand, env-gated so
     // the surface is inert in production (notes/crash-restart-design.md).
-    if query_string == "pgrust: inject panic"
-        && std::env::var_os("PGRUST_CRASH_TEST").is_some()
-    {
+    if query_string == "pgrust: inject panic" && std::env::var_os("PGRUST_CRASH_TEST").is_some() {
         if !superuser_seams::superuser::call()? {
             return Err(ereport(ERROR)
                 .errmsg("crash-backend injection requires superuser")
@@ -449,7 +473,8 @@ fn pgrust_debug_command(query_string: &str) -> PgResult<bool> {
     // SIGQUIT/SIGKILL'd. TAP crash tests kill by OS pid; thread-model vpids
     // aren't OS-signalable, so the recovery rig routes pg_ctl kill here
     // (notes/crash-tap-kill-design.md). Env-gated: inert in production.
-    if query_string.starts_with("pgrust: crash ") && std::env::var_os("PGRUST_CRASH_TEST").is_some() {
+    if query_string.starts_with("pgrust: crash ") && std::env::var_os("PGRUST_CRASH_TEST").is_some()
+    {
         if let Some(args) = query_string.strip_prefix("pgrust: crash backend ") {
             return crash_backend_injection(args).map(|()| true);
         }
@@ -496,7 +521,12 @@ fn log_statement_line(parsetree_list: &[RawStmt<'_>], query_string: &str) -> PgR
 // D4563: log_duration's line (check_log_duration's 1 = duration only, 2 = with the statement), out of line and cold.
 #[cold]
 #[inline(never)]
-fn log_duration_line(kind: i32, msec_str: &str, parsetree_list: &[RawStmt<'_>], query_string: &str) -> PgResult<()> {
+fn log_duration_line(
+    kind: i32,
+    msec_str: &str,
+    parsetree_list: &[RawStmt<'_>],
+    query_string: &str,
+) -> PgResult<()> {
     if kind == 1 {
         return ereport(LOG)
             .errmsg(format!("duration: {msec_str} ms"))
@@ -504,7 +534,9 @@ fn log_duration_line(kind: i32, msec_str: &str, parsetree_list: &[RawStmt<'_>], 
             .finish(loc(1362, "exec_simple_query"));
     }
     let mut rep = ereport(LOG)
-        .errmsg(format!("duration: {msec_str} ms  statement: {query_string}"))
+        .errmsg(format!(
+            "duration: {msec_str} ms  statement: {query_string}"
+        ))
         .errhidestmt(true);
     if let Some(detail) = errdetail_execute(parsetree_list)? {
         rep = rep.errdetail(detail);
@@ -525,11 +557,24 @@ const REPLAN_SETTINGS: &[(bool, &[(&str, &str)])] = &[
     (false, &[("enable_nestloop", "off")]),
     (false, &[("enable_hashagg", "off")]),
     (false, &[("max_parallel_workers_per_gather", "0")]),
-    (false, &[("enable_material", "off"), ("enable_memoize", "off")]),
-    (false, &[("enable_indexscan", "off"), ("enable_indexonlyscan", "off"), ("enable_bitmapscan", "off")]),
+    (
+        false,
+        &[("enable_material", "off"), ("enable_memoize", "off")],
+    ),
+    (
+        false,
+        &[
+            ("enable_indexscan", "off"),
+            ("enable_indexonlyscan", "off"),
+            ("enable_bitmapscan", "off"),
+        ],
+    ),
     (true, &[]),
     (true, &[("enable_hashagg", "off")]),
-    (true, &[("enable_material", "off"), ("enable_memoize", "off")]),
+    (
+        true,
+        &[("enable_material", "off"), ("enable_memoize", "off")],
+    ),
     (true, &[("enable_nestloop", "off")]),
 ];
 
@@ -578,9 +623,13 @@ fn user_operator(opno: u32) -> PgResult<bool> {
 fn user_index(relid: u32) -> PgResult<bool> {
     let scratch = ::mcx::MemoryContext::new("replan index check");
     for index in relcache::RelationGetIndexList(scratch.mcx(), relid)?.iter() {
-        let Some(ix) = syscache_seams::lookup_pg_index_ls_shape::call(*index)? else { continue };
+        let Some(ix) = syscache_seams::lookup_pg_index_ls_shape::call(*index)? else {
+            continue;
+        };
         for col in 0..ix.indnkeyatts.max(0) as i32 {
-            if syscache_seams::pg_index_indclass_element::call(*index, col)?.is_some_and(|c| c >= FIRST_NORMAL_OBJECT_ID) {
+            if syscache_seams::pg_index_indclass_element::call(*index, col)?
+                .is_some_and(|c| c >= FIRST_NORMAL_OBJECT_ID)
+            {
                 return Ok(true);
             }
         }
@@ -594,20 +643,38 @@ impl<'mcx> nodes_core::NodeWalker<'mcx> for PlanDependent {
             return Ok(true);
         }
         let dependent = match node.node_tag() {
-            NodeTag::T_Aggref => !matches!(node.as_aggref().map(|a| a.aggfnoid), Some(F_COUNT_STAR | F_COUNT_ANY)),
+            NodeTag::T_Aggref => !matches!(
+                node.as_aggref().map(|a| a.aggfnoid),
+                Some(F_COUNT_STAR | F_COUNT_ANY)
+            ),
             NodeTag::T_WindowFunc => true,
-            NodeTag::T_CoerceToDomain => node.as_coerce_to_domain().is_some_and(|c| c.resulttype >= FIRST_NORMAL_OBJECT_ID),
+            NodeTag::T_CoerceToDomain => node
+                .as_coerce_to_domain()
+                .is_some_and(|c| c.resulttype >= FIRST_NORMAL_OBJECT_ID),
             NodeTag::T_OpExpr => user_operator(node.as_op_expr().expect("T_OpExpr").opno)?,
-            NodeTag::T_DistinctExpr => user_operator(node.as_distinct_expr().expect("T_DistinctExpr").opno)?,
-            NodeTag::T_NullIfExpr => user_operator(node.as_null_if_expr().expect("T_NullIfExpr").opno)?,
-            NodeTag::T_ScalarArrayOpExpr => user_operator(node.as_scalar_array_op_expr().expect("T_ScalarArrayOpExpr").opno)?,
+            NodeTag::T_DistinctExpr => {
+                user_operator(node.as_distinct_expr().expect("T_DistinctExpr").opno)?
+            }
+            NodeTag::T_NullIfExpr => {
+                user_operator(node.as_null_if_expr().expect("T_NullIfExpr").opno)?
+            }
+            NodeTag::T_ScalarArrayOpExpr => user_operator(
+                node.as_scalar_array_op_expr()
+                    .expect("T_ScalarArrayOpExpr")
+                    .opno,
+            )?,
             NodeTag::T_RowCompareExpr => {
                 let r = node.as_row_compare_expr().expect("T_RowCompareExpr");
-                r.opfamilies.iter().any(|f| f >= FIRST_NORMAL_OBJECT_ID) || r.opnos.iter().try_fold(false, |u, o| Ok::<_, Box<types_error::PgError>>(u || user_operator(o)?))?
+                r.opfamilies.iter().any(|f| f >= FIRST_NORMAL_OBJECT_ID)
+                    || r.opnos.iter().try_fold(false, |u, o| {
+                        Ok::<_, Box<types_error::PgError>>(u || user_operator(o)?)
+                    })?
             }
             NodeTag::T_SubLink => node.as_sub_link().is_some_and(|s| {
                 s.subLinkType == types_nodes::primnodes::SubLinkType::ARRAY_SUBLINK
-                    && s.subselect.as_query().is_some_and(|q| q.sortClause.is_nil())
+                    && s.subselect
+                        .as_query()
+                        .is_some_and(|q| q.sortClause.is_nil())
             }),
             _ => false,
         };
@@ -633,7 +700,9 @@ impl<'mcx> nodes_core::NodeWalker<'mcx> for PlanDependent {
             }
         }
         for rte in q.rtable.iter().filter_map(|n| n.as_range_tbl_entry()) {
-            if rte.rtekind == types_nodes::parsenodes::RTEKind::RTE_RELATION && user_index(rte.relid)? {
+            if rte.rtekind == types_nodes::parsenodes::RTEKind::RTE_RELATION
+                && user_index(rte.relid)?
+            {
                 return Ok(true);
             }
         }
@@ -644,7 +713,11 @@ impl<'mcx> nodes_core::NodeWalker<'mcx> for PlanDependent {
 /// Re-plan and retry: query `q` sends at most one row whatever plan runs it: a plain aggregate (no GROUP BY, grouping
 /// sets, set-returning target or set operation), so no plan choice orders its rows.
 fn one_row(q: &Query<'_>) -> bool {
-    q.hasAggs && q.groupClause.is_nil() && q.groupingSets.is_nil() && !q.hasTargetSRFs && q.setOperations.is_none()
+    q.hasAggs
+        && q.groupClause.is_nil()
+        && q.groupingSets.is_nil()
+        && !q.hasTargetSRFs
+        && q.setOperations.is_none()
 }
 
 /// Re-plan and retry: plan `p` is one the road may plan again (a plain SELECT: no row lock, no data-modifying WITH), with
@@ -690,9 +763,11 @@ fn replan_refused<'mcx>(
                 // another plan was served: the first plan's refusal line goes
                 gravity_entry_seams::replan_end::call(true);
                 if gravity_entry_seams::note_replanned::is_installed() {
-                    let mut named: Vec<String> = settings.iter().map(|(n, v)| format!("{n}={v}")).collect(); // alloc: Cold
+                    let mut named: Vec<String> =
+                        settings.iter().map(|(n, v)| format!("{n}={v}")).collect(); // alloc: Cold
                     if defaults {
-                        named.insert(0, "plan methods at their defaults".to_string()); // alloc: Cold
+                        named.insert(0, "plan methods at their defaults".to_string());
+                        // alloc: Cold
                     }
                     gravity_entry_seams::note_replanned::call(&named.join(" "));
                 }
@@ -715,7 +790,9 @@ fn replan_under<'mcx>(
     settings: &[(&str, &str)],
 ) -> PgResult<Option<PlannedStmt<'mcx>>> {
     let raw = pg_parse_query(mcx, query_string)?;
-    let Some(parsetree) = raw.get(idx) else { return Ok(None) };
+    let Some(parsetree) = raw.get(idx) else {
+        return Ok(None);
+    };
     let snapshot_set = if analyze_seams::analyze_requires_snapshot::call(parsetree) {
         let snap = snapmgr::GetTransactionSnapshot()?;
         snapmgr::PushActiveSnapshot(&snap)?;
@@ -725,7 +802,10 @@ fn replan_under<'mcx>(
     };
     let nest = guc::NewGUCNestLevel();
     let planned = (|| -> PgResult<Option<PlannedStmt<'mcx>>> {
-        let on = REPLAN_DEFAULTS.iter().filter(|_| defaults).map(|&n| (n, "on"));
+        let on = REPLAN_DEFAULTS
+            .iter()
+            .filter(|_| defaults)
+            .map(|&n| (n, "on"));
         for (name, value) in on.chain(settings.iter().copied()) {
             guc::set_config_option(
                 name,
@@ -738,12 +818,22 @@ fn replan_under<'mcx>(
                 false,
             )?;
         }
-        let queries = pg_analyze_and_rewrite_fixedparams(mcx, parsetree, query_string, &[], QueryEnvHandle::NULL)?;
+        let queries = pg_analyze_and_rewrite_fixedparams(
+            mcx,
+            parsetree,
+            query_string,
+            &[],
+            QueryEnvHandle::NULL,
+        )?;
         if queries.len() != 1 {
             return Ok(None);
         }
         let query = queries.into_iter().next().expect("one query");
-        if query.commandType != CmdType::CMD_SELECT || query.utilityStmt.is_some() || query.hasModifyingCTE || !query.rowMarks.is_nil() {
+        if query.commandType != CmdType::CMD_SELECT
+            || query.utilityStmt.is_some()
+            || query.hasModifyingCTE
+            || !query.rowMarks.is_nil()
+        {
             return Ok(None);
         }
         // the order of the rows sent is the plan's (a hash join and a merge join emit one result in two orders; an ORDER
@@ -754,15 +844,24 @@ fn replan_under<'mcx>(
             return Ok(None);
         }
         let node = Node::mk(mcx, query)?;
-        if clauses::contain_volatile_functions(node)? || nodes_core::NodeWalker::visit(&mut PlanDependent, node)? {
+        if clauses::contain_volatile_functions(node)?
+            || nodes_core::NodeWalker::visit(&mut PlanDependent, node)?
+        {
             return Ok(None);
         }
         // SAFETY: a fresh node; this call holds its only access.
-        let query: Query<'mcx> = unsafe { node.with_mut::<Query, _>(core::mem::take) }.expect("the analyzed query");
+        let query: Query<'mcx> =
+            unsafe { node.with_mut::<Query, _>(core::mem::take) }.expect("the analyzed query");
         let mut one = PgVec::new_in(mcx);
         one.try_reserve_exact(1).map_err(|_| mcx.oom(1))?;
         one.push(query);
-        let plans = pg_plan_queries(mcx, one, query_string, CURSOR_OPT_PARALLEL_OK, ParamListHandle::NULL)?;
+        let plans = pg_plan_queries(
+            mcx,
+            one,
+            query_string,
+            CURSOR_OPT_PARALLEL_OK,
+            ParamListHandle::NULL,
+        )?;
         Ok(plans.into_iter().next())
     })();
     guc::AtEOXact_GUC(false, nest);
@@ -779,8 +878,15 @@ fn replan_under<'mcx>(
 fn leave_failed_unnamed_portal(query_string: &str, command_tag: CommandTag) {
     if let Ok(failed) = portalmem::CreatePortal("", true, true) {
         failed.borrow_mut().visible = false;
-        let _ = portalmem::PortalDefineQuery(&failed, None, query_string, command_tag, types_portal::StmtListHandle::NULL, CachedPlanHandle::NULL)
-            .and_then(|()| portalmem::MarkPortalFailed(&failed));
+        let _ = portalmem::PortalDefineQuery(
+            &failed,
+            None,
+            query_string,
+            command_tag,
+            types_portal::StmtListHandle::NULL,
+            CachedPlanHandle::NULL,
+        )
+        .and_then(|()| portalmem::MarkPortalFailed(&failed));
     }
 }
 
@@ -825,12 +931,16 @@ pub fn exec_simple_query<'mcx>(mcx: Mcx<'mcx>, query_string: &'mcx str) -> PgRes
     // on every exit path (Ok, Err unwind, panic).
     let _admission = crate::admission::acquire_for_statement(|| {
         let bytes = query_string.as_bytes();
-        let mentions = bytes.windows(8).any(|w| w.eq_ignore_ascii_case(b"prepared"));
+        let mentions = bytes
+            .windows(8)
+            .any(|w| w.eq_ignore_ascii_case(b"prepared"));
         mentions
             && pg_parse_query(mcx, query_string).is_ok_and(|list| {
                 list.iter().any(|raw| {
                     raw.stmt.is_some_and(|stmt| {
-                        crate::admission::finishes_prepared(utility_seams::create_command_tag::call(stmt))
+                        crate::admission::finishes_prepared(
+                            utility_seams::create_command_tag::call(stmt),
+                        )
                     })
                 })
             })
@@ -844,7 +954,6 @@ pub fn exec_simple_query<'mcx>(mcx: Mcx<'mcx>, query_string: &'mcx str) -> PgRes
     crate::stmt_trace::probe("q.xact");
 
     drop_unnamed_stmt();
-
 
     let parsetree_list = pg_parse_query(mcx, query_string)?;
     crate::stmt_trace::probe("q.parse");
@@ -874,7 +983,9 @@ pub fn exec_simple_query<'mcx>(mcx: Mcx<'mcx>, query_string: &'mcx str) -> PgRes
         tcop_dest::BeginCommand(command_tag, dest);
 
         if xact::IsAbortedTransactionBlockState() && !IsTransactionExitStmt(Some(stmt)) {
-            return Err(crate::extended_query::aborted_xact_error("exec_simple_query"));
+            return Err(crate::extended_query::aborted_xact_error(
+                "exec_simple_query",
+            ));
         }
 
         start_xact_command()?;
@@ -897,8 +1008,10 @@ pub fn exec_simple_query<'mcx>(mcx: Mcx<'mcx>, query_string: &'mcx str) -> PgRes
         // path the failed portal still points into it, so it is parked in
         // MessageContext's reset, which runs after error recovery has dropped
         // the portals.
-        let per_parsetree_context =
-            (!is_last).then(|| mcx.context().new_child_wholesale("per-parsetree message context"));
+        let per_parsetree_context = (!is_last).then(|| {
+            mcx.context()
+                .new_child_wholesale("per-parsetree message context")
+        });
         let smcx: Mcx<'_> = per_parsetree_context.as_ref().map_or(mcx, |c| c.mcx());
         let result = (|| -> PgResult<()> {
             let querytree_list = pg_analyze_and_rewrite_fixedparams(
@@ -918,7 +1031,13 @@ pub fn exec_simple_query<'mcx>(mcx: Mcx<'mcx>, query_string: &'mcx str) -> PgRes
             };
             let plantree_list = match skipped {
                 Ok(plans) => plans,
-                Err(querytree_list) => pg_plan_queries(smcx, querytree_list, query_string, CURSOR_OPT_PARALLEL_OK, ParamListHandle::NULL)?,
+                Err(querytree_list) => pg_plan_queries(
+                    smcx,
+                    querytree_list,
+                    query_string,
+                    CURSOR_OPT_PARALLEL_OK,
+                    ParamListHandle::NULL,
+                )?,
             };
             crate::stmt_trace::probe("q.plan");
 
@@ -935,7 +1054,8 @@ pub fn exec_simple_query<'mcx>(mcx: Mcx<'mcx>, query_string: &'mcx str) -> PgRes
             // --single's (DestDebug, the browser's postgres.wasm) too, so a
             // statement there is the server's uncounted simple-query run, not a
             // portal pull Gravity must assume may count its rows.
-            if plantree_list.len() == 1 && matches!(dest, CommandDest::Remote | CommandDest::Debug) {
+            if plantree_list.len() == 1 && matches!(dest, CommandDest::Remote | CommandDest::Debug)
+            {
                 let mut greceiver = tcop_dest::CreateDestReceiver(dest);
                 // D3550: the statement holds the unnamed portal's place while
                 // Gravity runs it (an unnamed portal left by the extended
@@ -945,17 +1065,21 @@ pub fn exec_simple_query<'mcx>(mcx: Mcx<'mcx>, query_string: &'mcx str) -> PgRes
                 if replan {
                     gravity_entry_seams::replan_arm::call();
                 }
-                let served = match gravity_entry_seams::simple::call(&plantree_list[0], &mut greceiver) {
-                    Err(e) if replan && gravity_entry_seams::simple_refused_at_admission::call() => {
-                        replan_refused(smcx, query_string, idx, &mut greceiver, e)
-                    }
-                    r => {
-                        if replan {
-                            gravity_entry_seams::replan_end::call(false);
+                let served =
+                    match gravity_entry_seams::simple::call(&plantree_list[0], &mut greceiver) {
+                        Err(e)
+                            if replan
+                                && gravity_entry_seams::simple_refused_at_admission::call() =>
+                        {
+                            replan_refused(smcx, query_string, idx, &mut greceiver, e)
                         }
-                        r
-                    }
-                };
+                        r => {
+                            if replan {
+                                gravity_entry_seams::replan_end::call(false);
+                            }
+                            r
+                        }
+                    };
                 drop(held);
                 if served.is_err() {
                     leave_failed_unnamed_portal(query_string, command_tag);
@@ -1065,8 +1189,8 @@ pub fn exec_simple_query<'mcx>(mcx: Mcx<'mcx>, query_string: &'mcx str) -> PgRes
         tcop_dest::NullCommand(dest)?;
     }
 
-    if let
-        (kind @ (1 | 2), msec_str) = check_log_duration(was_logged) { log_duration_line(kind, &msec_str, &parsetree_list, query_string)?
+    if let (kind @ (1 | 2), msec_str) = check_log_duration(was_logged) {
+        log_duration_line(kind, &msec_str, &parsetree_list, query_string)?
     }
 
     if save_log_statement_stats {
@@ -1089,7 +1213,9 @@ fn end_parsetree(stmt: Node<'_>, is_last: bool, use_implicit_block: bool) -> PgR
     } else if stmt.node_tag() == NodeTag::T_TransactionStmt {
         finish_xact_command()
     } else {
-        debug_assert!((xact::MyXactFlags() & types_core::xact::XACT_FLAGS_NEEDIMMEDIATECOMMIT) == 0);
+        debug_assert!(
+            (xact::MyXactFlags() & types_core::xact::XACT_FLAGS_NEEDIMMEDIATECOMMIT) == 0
+        );
         xact::CommandCounterIncrement()?;
         disable_statement_timeout()
     }
@@ -1106,7 +1232,10 @@ fn errdetail_execute(raw_parsetree_list: &[RawStmt<'_>]) -> PgResult<Option<Stri
             stmt.name.unwrap_or(""),
             false,
         )? {
-            return Ok(Some(format!("prepare: {}", plancache::CachedPlanQueryString(psrc))));
+            return Ok(Some(format!(
+                "prepare: {}",
+                plancache::CachedPlanQueryString(psrc)
+            )));
         }
     }
     Ok(None)
@@ -1164,7 +1293,6 @@ pub(crate) fn IsTransactionExitStmt(parsetree: Option<Node<'_>>) -> bool {
     }
 }
 
-
 use crate::extended_query::drop_unnamed_stmt;
 
 // check_log_statement (postgres.c): GetCommandLogLevel ereports out of the
@@ -1204,8 +1332,7 @@ pub(crate) fn check_log_duration(was_logged: bool) -> (i32, String) {
         sample_rate: guc_tables::backing::log_statement_sample_rate(),
         xact_is_sampled: xact::xact_is_sampled(),
     };
-    let diff_us =
-        crate::get_current_timestamp() - xact::GetCurrentStatementStartTimestamp();
+    let diff_us = crate::get_current_timestamp() - xact::GetCurrentStatementStartTimestamp();
     check_log_duration_impl(was_logged, diff_us, &gucs, || {
         pg_prng::global_prng(pg_prng::PgPrng::next_f64)
     })
@@ -1233,12 +1360,12 @@ pub(crate) fn check_log_duration_impl(
     // TimestampDifference (timestamp.c:1697): a nonpositive difference is 0/0.
     let diff_us = diff_us.max(0);
     let secs = diff_us / 1_000_000;
-    let usecs =diff_us % 1_000_000;
+    let usecs = diff_us % 1_000_000;
     let msecs = usecs / 1000;
 
     let exceeded_duration = g.log_min == 0
-        || (g.log_min > 0 && (secs > i64::from(g.log_min) / 1000
-            || secs * 1000 + msecs >= i64::from(g.log_min)));
+        || (g.log_min > 0
+            && (secs > i64::from(g.log_min) / 1000 || secs * 1000 + msecs >= i64::from(g.log_min)));
 
     let exceeded_sample_duration = g.log_min_sample == 0
         || (g.log_min_sample > 0

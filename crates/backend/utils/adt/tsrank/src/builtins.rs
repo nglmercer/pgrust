@@ -14,7 +14,11 @@ use crate::rank_cd::calc_rank_cd;
 fn arg_weights(mcx: Mcx<'_>, fcinfo: &Fcinfo, i: usize) -> PgResult<[f32; NUM_WEIGHTS]> {
     // SAFETY: catalog arg is a non-null live float4[] varlena.
     let pv = unsafe { fcinfo.arg_varlena_packed(i) }?;
-    let payload = if pv.is_short() { pv.data_expanded(mcx)? } else { pv.data() };
+    let payload = if pv.is_short() {
+        pv.data_expanded(mcx)?
+    } else {
+        pv.data()
+    };
     let mut full = vec_with_capacity_in(mcx, payload.len() + 4)?;
     full.extend_from_slice(&[0u8; 4]);
     ::mcx::vec_append_bytes(&mut full, payload)?;
@@ -74,7 +78,13 @@ pub fn fc_ts_rank_wtt(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> Pg
     let w = arg_weights(mcx, fcinfo, 0)?;
     let txt = arg_tsvector(fcinfo, 1)?;
     let query = arg_tsquery(fcinfo, 2)?;
-    Ok(Datum::from_f32(calc_rank(mcx, &w, txt, query, DEF_NORM_METHOD)?))
+    Ok(Datum::from_f32(calc_rank(
+        mcx,
+        &w,
+        txt,
+        query,
+        DEF_NORM_METHOD,
+    )?))
 }
 
 pub fn fc_ts_rank_ttf(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -83,7 +93,13 @@ pub fn fc_ts_rank_ttf(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> Pg
     let txt = arg_tsvector(fcinfo, 0)?;
     let query = arg_tsquery(fcinfo, 1)?;
     let method = fcinfo.arg_i32(2);
-    Ok(Datum::from_f32(calc_rank(mcx, &DEFAULT_WEIGHTS, txt, query, method)?))
+    Ok(Datum::from_f32(calc_rank(
+        mcx,
+        &DEFAULT_WEIGHTS,
+        txt,
+        query,
+        method,
+    )?))
 }
 
 pub fn fc_ts_rank_tt(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -91,7 +107,13 @@ pub fn fc_ts_rank_tt(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgR
     let mcx = unsafe { fcinfo.result_mcx_detached() };
     let txt = arg_tsvector(fcinfo, 0)?;
     let query = arg_tsquery(fcinfo, 1)?;
-    Ok(Datum::from_f32(calc_rank(mcx, &DEFAULT_WEIGHTS, txt, query, DEF_NORM_METHOD)?))
+    Ok(Datum::from_f32(calc_rank(
+        mcx,
+        &DEFAULT_WEIGHTS,
+        txt,
+        query,
+        DEF_NORM_METHOD,
+    )?))
 }
 
 pub fn fc_ts_rankcd_wttf(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -110,7 +132,13 @@ pub fn fc_ts_rankcd_wtt(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> 
     let w = arg_weights(mcx, fcinfo, 0)?;
     let txt = arg_tsvector(fcinfo, 1)?;
     let query = arg_tsquery(fcinfo, 2)?;
-    Ok(Datum::from_f32(calc_rank_cd(mcx, &w, txt, query, DEF_NORM_METHOD)?))
+    Ok(Datum::from_f32(calc_rank_cd(
+        mcx,
+        &w,
+        txt,
+        query,
+        DEF_NORM_METHOD,
+    )?))
 }
 
 pub fn fc_ts_rankcd_ttf(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -119,7 +147,13 @@ pub fn fc_ts_rankcd_ttf(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> 
     let txt = arg_tsvector(fcinfo, 0)?;
     let query = arg_tsquery(fcinfo, 1)?;
     let method = fcinfo.arg_i32(2);
-    Ok(Datum::from_f32(calc_rank_cd(mcx, &DEFAULT_WEIGHTS, txt, query, method)?))
+    Ok(Datum::from_f32(calc_rank_cd(
+        mcx,
+        &DEFAULT_WEIGHTS,
+        txt,
+        query,
+        method,
+    )?))
 }
 
 pub fn fc_ts_rankcd_tt(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -127,7 +161,13 @@ pub fn fc_ts_rankcd_tt(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> P
     let mcx = unsafe { fcinfo.result_mcx_detached() };
     let txt = arg_tsvector(fcinfo, 0)?;
     let query = arg_tsquery(fcinfo, 1)?;
-    Ok(Datum::from_f32(calc_rank_cd(mcx, &DEFAULT_WEIGHTS, txt, query, DEF_NORM_METHOD)?))
+    Ok(Datum::from_f32(calc_rank_cd(
+        mcx,
+        &DEFAULT_WEIGHTS,
+        txt,
+        query,
+        DEF_NORM_METHOD,
+    )?))
 }
 
 use ::types_fmgr::builtin_strict as b;

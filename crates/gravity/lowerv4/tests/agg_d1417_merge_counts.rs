@@ -8,7 +8,10 @@ use gravity_lowerv4_it as common;
 fn a_count_arm_under_the_limit_lowers() {
     let p = common::plans_dir().join("regress-full/partition_aggregate-010.plan");
     let text = std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
-    assert!(text.contains("SELECT count(*) FROM pagg_tab GROUP BY c ORDER BY c LIMIT 1"), "the fixture's statement moved");
+    assert!(
+        text.contains("SELECT count(*) FROM pagg_tab GROUP BY c ORDER BY c LIMIT 1"),
+        "the fixture's statement moved"
+    );
     match common::lower_fixture(&text).expect("regress-full-partition_aggregate-010 decomposes") {
         Ok(_) => {}
         Err(e) => panic!("refused: {e:?}"),

@@ -7,8 +7,7 @@ use ::types_error::{
     ERRCODE_INVALID_PARAMETER_VALUE, ERRCODE_NULL_VALUE_NOT_ALLOWED, ERRCODE_UNDEFINED_FUNCTION,
     ERRCODE_UNDEFINED_OBJECT,
 };
-use ::types_fmgr::{
-    byref_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, };
+use ::types_fmgr::{byref_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 
 use crate::{
     accum_array_result_arr, array_append_internal, array_cat_internal, array_position_internal,
@@ -31,7 +30,12 @@ fn arg_array_bytes<'m>(fcinfo: &Fcinfo, i: usize, mcx: Mcx<'m>) -> PgResult<PgVe
 
 fn elem_meta(element_type: Oid) -> PgResult<ElemMeta> {
     let (typlen, typbyval, typalign) = ::lsyscache::get_typlenbyvalalign(element_type)?;
-    Ok(ElemMeta { element_type, typlen: typlen as i32, typbyval, typalign: typalign as u8 })
+    Ok(ElemMeta {
+        element_type,
+        typlen: typlen as i32,
+        typbyval,
+        typalign: typalign as u8,
+    })
 }
 
 fn cached_elem_meta(flinfo: &mut FmgrInfo, element_type: Oid) -> PgResult<ElemMeta> {
@@ -112,7 +116,10 @@ fn append_prepend_common(
             ));
         }
         let meta = cached_elem_meta(flinfo, element_type)?;
-        (::arrayfuncs::construct::construct_empty_array(mcx, element_type)?, meta)
+        (
+            ::arrayfuncs::construct::construct_empty_array(mcx, element_type)?,
+            meta,
+        )
     };
 
     let elem_null = fcinfo.argisnull(elem_i);
@@ -152,7 +159,11 @@ fn append_prepend_expanded(
     use ::arrayfuncs::expanded::{array_set_element_expanded, rw_expanded_array};
     let arr_null = fcinfo.argisnull(arr_i);
     // SAFETY: a non-null array argument is a live varlena datum.
-    let rw = if arr_null { None } else { unsafe { rw_expanded_array(fcinfo.arg(arr_i)) } };
+    let rw = if arr_null {
+        None
+    } else {
+        unsafe { rw_expanded_array(fcinfo.arg(arr_i)) }
+    };
     let eah = match rw {
         Some(eah) => eah,
         None => {
@@ -164,7 +175,8 @@ fn append_prepend_expanded(
             let Some(node) = (unsafe { fcinfo.agg_state_node() }) else {
                 return Ok(None);
             };
-            if !node.expanded_trans() || arr_null || !flat_state_reaches_expanded_min(fcinfo, arr_i) {
+            if !node.expanded_trans() || arr_null || !flat_state_reaches_expanded_min(fcinfo, arr_i)
+            {
                 return Ok(None);
             }
             let d = ::arrayfuncs::expand_array(fcinfo.arg(arr_i), node.aggcontext_ctx(), None)?;
@@ -177,7 +189,9 @@ fn append_prepend_expanded(
     let eah = unsafe { &mut *eah };
     let lb0 = if eah.ndims == 0 { 1 } else { eah.lbound[0] };
     let indx = match eah.ndims {
-        1 if is_append => lb0.checked_add(eah.dims[0]).ok_or_else(integer_out_of_range)?,
+        1 if is_append => lb0
+            .checked_add(eah.dims[0])
+            .ok_or_else(integer_out_of_range)?,
         1 => lb0.checked_sub(1).ok_or_else(integer_out_of_range)?,
         0 => 1,
         _ => return Err(not_one_dimensional()),
@@ -200,7 +214,9 @@ fn append_prepend_expanded(
         eah.lbound[0] = lb0;
     }
     // SAFETY: eah is an initialized expanded object.
-    Ok(Some(unsafe { ::datum::expandeddatum::eohp_get_rw_datum(&raw const eah.hdr) }))
+    Ok(Some(unsafe {
+        ::datum::expandeddatum::eohp_get_rw_datum(&raw const eah.hdr)
+    }))
 }
 
 pub fn fc_array_append(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -215,14 +231,18 @@ pub fn fc_array_append_support(
     _flinfo: Option<&mut FmgrInfo>,
     fcinfo: &mut Fcinfo,
 ) -> PgResult<Datum> {
-    Ok(::arrayfuncs::builtins::modify_in_place_support(fcinfo, 0, false))
+    Ok(::arrayfuncs::builtins::modify_in_place_support(
+        fcinfo, 0, false,
+    ))
 }
 
 pub fn fc_array_prepend_support(
     _flinfo: Option<&mut FmgrInfo>,
     fcinfo: &mut Fcinfo,
 ) -> PgResult<Datum> {
-    Ok(::arrayfuncs::builtins::modify_in_place_support(fcinfo, 1, false))
+    Ok(::arrayfuncs::builtins::modify_in_place_support(
+        fcinfo, 1, false,
+    ))
 }
 
 pub fn fc_array_cat(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -276,7 +296,11 @@ fn larger_smaller(
     )?
     .as_i32();
     let pick_first = if larger { r > 0 } else { r < 0 };
-    Ok(if pick_first { fcinfo.arg(0) } else { fcinfo.arg(1) })
+    Ok(if pick_first {
+        fcinfo.arg(0)
+    } else {
+        fcinfo.arg(1)
+    })
 }
 
 struct PosMemo {
@@ -284,10 +308,7 @@ struct PosMemo {
     proc: FmgrInfo,
 }
 
-fn cached_pos_memo(
-    flinfo: & mut FmgrInfo,
-    element_type: Oid,
-) -> PgResult<& mut PosMemo> {
+fn cached_pos_memo(flinfo: &mut FmgrInfo, element_type: Oid) -> PgResult<&mut PosMemo> {
     let need = match flinfo.fn_extra_ref::<PosMemo>() {
         Some(m) => m.meta.element_type != element_type,
         None => true,
@@ -329,7 +350,11 @@ fn position_compute(
     if null_search && !::arrayfuncs::array_contains_nulls(&array)? {
         return Ok(None);
     }
-    let searched = if null_search { Datum::null() } else { fcinfo.arg(1) };
+    let searched = if null_search {
+        Datum::null()
+    } else {
+        fcinfo.arg(1)
+    };
 
     let position_min = if has_start {
         if fcinfo.argisnull(2) {
@@ -353,10 +378,7 @@ fn position_compute(
     array_position_internal(mcx, &array, &s, &memo.meta.clone(), &mut memo.proc)
 }
 
-fn position_common(
-    flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut Fcinfo,
-) -> PgResult<Datum> {
+fn position_common(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     if fcinfo.argisnull(0) {
         return Ok(fcinfo.return_null());
     }
@@ -394,7 +416,11 @@ pub fn fc_array_positions(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) ->
         let empty = ::arrayfuncs::construct::construct_empty_array(mcx, 23)?;
         return byref_result(mcx, &empty);
     }
-    let searched = if null_search { Datum::null() } else { fcinfo.arg(1) };
+    let searched = if null_search {
+        Datum::null()
+    } else {
+        fcinfo.arg(1)
+    };
     let memo = cached_pos_memo(flinfo, arr_elemtype(&array))?;
     let s = PositionSearch {
         searched,
@@ -417,14 +443,16 @@ pub fn fc_array_agg_array_transfn(
     }
     // SAFETY: fcinfo.context is the executor's live AggStateNode.
     let Some(aggmcx) = (unsafe { fcinfo.agg_context() }) else {
-        return Err(non_aggregate_context("array_agg_array_transfn called in non-aggregate context"));
+        return Err(non_aggregate_context(
+            "array_agg_array_transfn called in non-aggregate context",
+        ));
     };
 
     let stp: *mut ArrayBuildStateArr<'_> = if fcinfo.argisnull(0) {
         let st = init_array_result_arr(aggmcx, arg1_typeid, 0)?;
         let layout = core::alloc::Layout::new::<ArrayBuildStateArr<'_>>();
-        let raw = ::mcx::Allocator::allocate(&aggmcx, layout)
-            .map_err(|_| aggmcx.oom(layout.size()))?;
+        let raw =
+            ::mcx::Allocator::allocate(&aggmcx, layout).map_err(|_| aggmcx.oom(layout.size()))?;
         let p: *mut ArrayBuildStateArr<'_> = raw.cast().as_ptr();
         // SAFETY: fresh aggcontext allocation of the exact layout; no drop
         // glue runs (PgVec fields are arena-plain).
@@ -453,8 +481,7 @@ fn alloc_state_arr<'m>(
     st: ArrayBuildStateArr<'m>,
 ) -> PgResult<*mut ArrayBuildStateArr<'m>> {
     let layout = core::alloc::Layout::new::<ArrayBuildStateArr<'_>>();
-    let raw =
-        ::mcx::Allocator::allocate(&mcx, layout).map_err(|_| mcx.oom(layout.size()))?;
+    let raw = ::mcx::Allocator::allocate(&mcx, layout).map_err(|_| mcx.oom(layout.size()))?;
     let p: *mut ArrayBuildStateArr<'m> = raw.cast().as_ptr();
     // SAFETY: fresh allocation of the exact layout; no drop glue runs
     // (PgVec fields are arena-plain).
@@ -468,7 +495,9 @@ pub fn fc_array_agg_array_combine(
 ) -> PgResult<Datum> {
     // SAFETY: fcinfo.context is the executor's live AggStateNode.
     let Some(aggmcx) = (unsafe { fcinfo.agg_context() }) else {
-        return Err(non_aggregate_context("aggregate function called in non-aggregate context"));
+        return Err(non_aggregate_context(
+            "aggregate function called in non-aggregate context",
+        ));
     };
     let state1 = if fcinfo.argisnull(0) {
         None
@@ -652,7 +681,11 @@ fn sort_common(
                 .with_sqlstate(ERRCODE_UNDEFINED_OBJECT),
             ));
         }
-        (typarray, if descending { ARRAY_GT_OP } else { ARRAY_LT_OP }, Some(typarray))
+        (
+            typarray,
+            if descending { ARRAY_GT_OP } else { ARRAY_LT_OP },
+            Some(typarray),
+        )
     };
     if sort_opr == 0 {
         return Err(Box::new(
@@ -709,20 +742,50 @@ pub const ARRAY_USERFUNCS_BUILTINS: &[FmgrBuiltin] = &[
     ns(3277, "array_position", 2, fc_array_position),
     ns(3278, "array_position_start", 3, fc_array_position_start),
     ns(3279, "array_positions", 2, fc_array_positions),
-    ns(4051, "array_agg_array_transfn", 2, fc_array_agg_array_transfn),
-    ns(4052, "array_agg_array_finalfn", 2, fc_array_agg_array_finalfn),
+    ns(
+        4051,
+        "array_agg_array_transfn",
+        2,
+        fc_array_agg_array_transfn,
+    ),
+    ns(
+        4052,
+        "array_agg_array_finalfn",
+        2,
+        fc_array_agg_array_finalfn,
+    ),
     b(6172, "trim_array", 2, fc_trim_array),
     b(6215, "array_shuffle", 1, fc_array_shuffle),
     b(6216, "array_sample", 2, fc_array_sample),
-    ns(6296, "array_agg_array_combine", 2, fc_array_agg_array_combine),
-    b(6297, "array_agg_array_serialize", 1, fc_array_agg_array_serialize),
-    b(6298, "array_agg_array_deserialize", 2, fc_array_agg_array_deserialize),
+    ns(
+        6296,
+        "array_agg_array_combine",
+        2,
+        fc_array_agg_array_combine,
+    ),
+    b(
+        6297,
+        "array_agg_array_serialize",
+        1,
+        fc_array_agg_array_serialize,
+    ),
+    b(
+        6298,
+        "array_agg_array_deserialize",
+        2,
+        fc_array_agg_array_deserialize,
+    ),
     b(6378, "array_append_support", 1, fc_array_append_support),
     b(6379, "array_prepend_support", 1, fc_array_prepend_support),
     b(6381, "array_reverse", 1, fc_array_reverse),
     b(6388, "array_sort", 1, fc_array_sort),
     b(6389, "array_sort_order", 2, fc_array_sort_order),
-    b(6390, "array_sort_order_nulls_first", 3, fc_array_sort_order_nulls_first),
+    b(
+        6390,
+        "array_sort_order_nulls_first",
+        3,
+        fc_array_sort_order_nulls_first,
+    ),
 ];
 
 #[track_caller]

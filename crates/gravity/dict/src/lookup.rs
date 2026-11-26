@@ -7,7 +7,11 @@ use core::cmp::Ordering;
 
 /// The code of the entry whose bytes are `v` in a dictionary of `ncodes` entries in ascending byte order (`entry(code)`:
 /// that entry's bytes), `None` when no entry equals `v`; `entry`'s error ends the search.
-pub fn code_of<'a, E>(ncodes: u32, v: &[u8], entry: &mut dyn FnMut(u32) -> Result<&'a [u8], E>) -> Result<Option<u32>, E> {
+pub fn code_of<'a, E>(
+    ncodes: u32,
+    v: &[u8],
+    entry: &mut dyn FnMut(u32) -> Result<&'a [u8], E>,
+) -> Result<Option<u32>, E> {
     let (mut lo, mut hi) = (0u32, ncodes);
     while lo < hi {
         let mid = lo + (hi - lo) / 2;
@@ -20,17 +24,25 @@ pub fn code_of<'a, E>(ncodes: u32, v: &[u8], entry: &mut dyn FnMut(u32) -> Resul
     Ok(None)
 }
 
-
 /// The first code whose entry's bytes are at or after `v` in byte order, in a dictionary of `ncodes` entries in ascending
 /// byte order (`entry` as `code_of`'s), `ncodes` when every entry is before `v`: the entries in `[a, b)` are the codes
 /// `[lower_bound(a), lower_bound(b))`, about `log2 n` entries read each; `entry`'s error ends the search.
-pub fn lower_bound<'a, E>(ncodes: u32, v: &[u8], entry: &mut dyn FnMut(u32) -> Result<&'a [u8], E>) -> Result<u32, E> {
+pub fn lower_bound<'a, E>(
+    ncodes: u32,
+    v: &[u8],
+    entry: &mut dyn FnMut(u32) -> Result<&'a [u8], E>,
+) -> Result<u32, E> {
     first_not(0, ncodes, entry, &|e: &[u8]| e < v)
 }
 
 /// The first code of `[lo, hi)` whose entry `before` does not hold (`hi` when it holds for all), `before` true on a
 /// leading run of the codes (a byte order bound).
-fn first_not<'a, E>(mut lo: u32, mut hi: u32, entry: &mut dyn FnMut(u32) -> Result<&'a [u8], E>, before: &dyn Fn(&[u8]) -> bool) -> Result<u32, E> {
+fn first_not<'a, E>(
+    mut lo: u32,
+    mut hi: u32,
+    entry: &mut dyn FnMut(u32) -> Result<&'a [u8], E>,
+    before: &dyn Fn(&[u8]) -> bool,
+) -> Result<u32, E> {
     while lo < hi {
         let mid = lo + (hi - lo) / 2;
         if before(entry(mid)?) {
@@ -52,16 +64,22 @@ pub fn successor(prefix: &[u8]) -> Option<(&[u8], u8)> {
 
 /// The codes `[lo, hi)` of the entries that start with `prefix` (LIKE 'prefix%'): from `prefix`'s lower bound to its
 /// `successor`'s, to `ncodes` when it has none.
-pub fn prefix_run<'a, E>(ncodes: u32, prefix: &[u8], entry: &mut dyn FnMut(u32) -> Result<&'a [u8], E>) -> Result<(u32, u32), E> {
+pub fn prefix_run<'a, E>(
+    ncodes: u32,
+    prefix: &[u8],
+    entry: &mut dyn FnMut(u32) -> Result<&'a [u8], E>,
+) -> Result<(u32, u32), E> {
     let lo = lower_bound(ncodes, prefix, entry)?;
-    let Some((stem, byte)) = successor(prefix) else { return Ok((lo, ncodes)) };
+    let Some((stem, byte)) = successor(prefix) else {
+        return Ok((lo, ncodes));
+    };
     // `e < stem ++ [byte]`: e's bytes before the stem's end decide, else a shorter e is before, else e's next byte
     let before = |e: &[u8]| {
         let k = e.len().min(stem.len());
         match e[..k].cmp(&stem[..k]) {
             Ordering::Less => true,
             Ordering::Greater => false,
-            Ordering::Equal => e.get(stem.len()).is_none_or( |&x| x < byte),
+            Ordering::Equal => e.get(stem.len()).is_none_or(|&x| x < byte),
         }
     };
     Ok((lo, first_not(lo, ncodes, entry, &before)?))

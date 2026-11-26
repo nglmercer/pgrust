@@ -5,10 +5,10 @@ use types_core::Oid;
 use types_error::{PgError, PgResult};
 use types_tuple::{HeapTupleData, ItemPointerData};
 
-use crate::compute::{compute_hash_value, hash_index, CatCKey, CCFastKind};
+use crate::compute::{compute_hash_value, hash_index, CCFastKind, CatCKey};
 use crate::graph::{
     compute_tuple_hash_value, create_entry_from_scan, pop_in_progress, push_in_progress,
-    remove_cl, remove_ct, rehash_cat_cache_lists,
+    rehash_cat_cache_lists, remove_cl, remove_ct,
 };
 use crate::search::build_scan_keys;
 use crate::{pack_ref, payload_alloc, with_state, CATCACHE_MAXKEYS, NONE};
@@ -35,7 +35,12 @@ impl MemberTuple<'_> {
         // SAFETY: the pinned list holds each member's refcount-protected
         // image alive; images are write-once.
         unsafe {
-            HeapTupleData::from_raw_parts(self.image.as_ptr(), self.t_len, self.t_self, self.t_tableoid)
+            HeapTupleData::from_raw_parts(
+                self.image.as_ptr(),
+                self.t_len,
+                self.t_self,
+                self.t_tableoid,
+            )
         }
     }
 }
@@ -131,7 +136,12 @@ fn search_list(
 
     let (l_hash, found) = hit;
     if let Some((slot, n_members, ordered)) = found {
-        return Ok(CatCList { cache_id, slot, n_members, ordered });
+        return Ok(CatCList {
+            cache_id,
+            slot,
+            n_members,
+            ordered,
+        });
     }
 
     build_list(cache_id, nkeys, l_hash, &keys)
@@ -177,7 +187,12 @@ fn build_list(
 
     let (slot, n_members) = adopt_members(cache_id, nkeys, l_hash, keys, &members, ordered)?;
 
-    Ok(CatCList { cache_id, slot, n_members, ordered })
+    Ok(CatCList {
+        cache_id,
+        slot,
+        n_members,
+        ordered,
+    })
 }
 
 /// The list's allocation + CatCacheCopyKeys + member adoption; on failure the
@@ -198,7 +213,10 @@ pub(crate) fn adopt_members(
         /* CatCacheCopyKeys */
         let mut byref_len = 0usize;
         for i in 0..nkeys as usize {
-            if matches!(kinds[i], CCFastKind::Name | CCFastKind::Text | CCFastKind::OidVector) {
+            if matches!(
+                kinds[i],
+                CCFastKind::Name | CCFastKind::Text | CCFastKind::OidVector
+            ) {
                 byref_len += crate::stored_key_bytes(kinds[i], &keys[i]).len();
             }
         }
@@ -291,7 +309,10 @@ fn build_list_scan(
 ) -> PgResult<bool> {
     loop {
         with_state(|st| {
-            st.in_progress.last_mut().expect("in-progress underflow").dead = false;
+            st.in_progress
+                .last_mut()
+                .expect("in-progress underflow")
+                .dead = false;
         });
         members.clear();
 
@@ -316,7 +337,10 @@ fn build_list_scan(
                 Ok(None) => {
                     /* C: member create failed stale — mark the list build dead. */
                     with_state(|st| {
-                        st.in_progress.last_mut().expect("in-progress underflow").dead = true;
+                        st.in_progress
+                            .last_mut()
+                            .expect("in-progress underflow")
+                            .dead = true;
                     });
                     Ok(false)
                 }
@@ -350,7 +374,12 @@ fn build_list_scan(
 fn reuse_or_create_member(cache_id: i32, ntp: &HeapTupleData<'_>) -> PgResult<Option<u32>> {
     let (kinds, nkeys, keyno, tupdesc) = with_state(|st| {
         let c = st.cache(cache_id);
-        (c.cc_kind, c.cc_nkeys, c.cc_keyno, c.cc_tupdesc.expect("list build before phase-2 init"))
+        (
+            c.cc_kind,
+            c.cc_nkeys,
+            c.cc_keyno,
+            c.cc_tupdesc.expect("list build before phase-2 init"),
+        )
     });
     // Outside the state borrow: detoasting an external text key re-enters the caches.
     let hv = compute_tuple_hash_value(&kinds, nkeys, &keyno, tupdesc, ntp)?;

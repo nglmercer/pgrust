@@ -9,15 +9,13 @@ use core::sync::atomic::Ordering;
 
 use elog::ereport;
 use mcx::{MemoryContext, PgFxHashMap};
-use types_core::{
-    BlockNumber, Buffer, ForkNumber, MaxBlockNumber, BLCKSZ,
+use pgstat::io::{
+    pgstat_count_io_op, pgstat_count_io_op_time, pgstat_prepare_io_time, IOObject, IOOp,
 };
+use types_core::{BlockNumber, Buffer, ForkNumber, MaxBlockNumber, BLCKSZ};
 use types_error::{
     ErrorLocation, PgResult, ERRCODE_INSUFFICIENT_RESOURCES, ERRCODE_INVALID_TRANSACTION_STATE,
     ERRCODE_PROGRAM_LIMIT_EXCEEDED, ERROR,
-};
-use pgstat::io::{
-    pgstat_count_io_op, pgstat_count_io_op_time, pgstat_prepare_io_time, IOObject, IOOp,
 };
 use types_storage::buf::{
     buftag, IOContext, BM_DIRTY, BM_JUST_DIRTIED, BM_MAX_USAGE_COUNT, BM_TAG_VALID, BM_VALID,
@@ -111,7 +109,11 @@ fn init_local_buffers(slot: &mut Option<LocalBufs>) -> PgResult<()> {
         ereport(ERROR)
             .errcode(ERRCODE_INVALID_TRANSACTION_STATE)
             .errmsg("cannot access temporary tables during a parallel operation")
-            .finish(ErrorLocation::new(file!(), line!() as i32, "InitLocalBuffers"))?;
+            .finish(ErrorLocation::new(
+                file!(),
+                line!() as i32,
+                "InitLocalBuffers",
+            ))?;
     }
     let nbufs = {
         let n = num_temp_buffers().max(1) as usize;
@@ -136,7 +138,11 @@ fn init_local_buffers(slot: &mut Option<LocalBufs>) -> PgResult<()> {
         Box::new(
             types_error::PgError::new(types_error::FATAL, "out of memory")
                 .with_sqlstate(types_error::ERRCODE_OUT_OF_MEMORY)
-                .with_error_location(ErrorLocation::new(file!(), line!() as i32, "InitLocalBuffers")),
+                .with_error_location(ErrorLocation::new(
+                    file!(),
+                    line!() as i32,
+                    "InitLocalBuffers",
+                )),
         )
     };
     let mut descs: Vec<BufferDesc> = Vec::new();
@@ -425,7 +431,11 @@ pub(crate) fn GetLocalVictimBuffer() -> PgResult<Buffer> {
             ereport(ERROR)
                 .errcode(ERRCODE_INSUFFICIENT_RESOURCES)
                 .errmsg("no empty local buffer available")
-                .finish(ErrorLocation::new(file!(), line!() as i32, "GetLocalVictimBuffer"))?;
+                .finish(ErrorLocation::new(
+                    file!(),
+                    line!() as i32,
+                    "GetLocalVictimBuffer",
+                ))?;
             unreachable!("ERROR reported");
         }
     };
@@ -477,7 +487,11 @@ fn InvalidateLocalBuffer(buffer: Buffer, check_unreferenced: bool) -> PgResult<(
                         lb.ref_counts[id].get()
                     ),
                 )
-                .with_error_location(ErrorLocation::new(file!(), line!() as i32, "InvalidateLocalBuffer")),
+                .with_error_location(ErrorLocation::new(
+                    file!(),
+                    line!() as i32,
+                    "InvalidateLocalBuffer",
+                )),
             ));
         }
         let removed = lb.hash.remove(&tag);
@@ -667,11 +681,14 @@ pub(crate) fn ExtendBufferedRelLocal(
                 crate::read::relpath_backend_desc(smgr.locator, smgr.backend, fork),
                 MaxBlockNumber
             ))
-            .finish(ErrorLocation::new(file!(), line!() as i32, "ExtendBufferedRelLocal"))?;
+            .finish(ErrorLocation::new(
+                file!(),
+                line!() as i32,
+                "ExtendBufferedRelLocal",
+            ))?;
     }
 
     #[allow(clippy::needless_range_loop)]
-
     for i in 0..extend_by as usize {
         let victim = buffers[i];
         let tag = init_buffer_tag(smgr.locator, fork, first_block + i as u32);
@@ -695,9 +712,7 @@ pub(crate) fn ExtendBufferedRelLocal(
                 let id = local_bufid(victim);
                 let desc = &lb.descs[id];
                 let state = state_of(desc);
-                debug_assert!(
-                    state & (BM_VALID | BM_TAG_VALID | BM_DIRTY | BM_JUST_DIRTIED) == 0
-                );
+                debug_assert!(state & (BM_VALID | BM_TAG_VALID | BM_DIRTY | BM_JUST_DIRTIED) == 0);
                 // SAFETY: single-threaded local descriptor; only our pin.
                 unsafe { desc.set_tag(tag) };
                 set_state(desc, state | BM_TAG_VALID | BUF_USAGECOUNT_ONE);
@@ -794,7 +809,11 @@ fn CheckForLocalBufferLeaks() {
                 if rc.get() != 0 {
                     let _ = elog::elog(
                         types_error::WARNING,
-                        format!("local buffer refcount leak: [{}] (refcount={})", -(i as i32) - 1, rc.get()),
+                        format!(
+                            "local buffer refcount leak: [{}] (refcount={})",
+                            -(i as i32) - 1,
+                            rc.get()
+                        ),
                     );
                     errors += 1;
                 }

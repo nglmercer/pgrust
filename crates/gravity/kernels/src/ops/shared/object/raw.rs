@@ -5,7 +5,13 @@
 use gravity_abi::status::ERROR;
 use gravity_abi::Ctx;
 
-use super::entries::{ARRAY_MAGIC, CTE_MAGIC, INIT_MAGIC, MEMO_MAGIC, OP_ARRAY_BEGIN, OP_ARRAY_END, OP_ARRAY_PUSH, OP_CTE_PULL, OP_INIT_COPY, OP_INIT_EPQ, OP_INIT_RUN, OP_MEMO_DONE, OP_MEMO_MISS, OP_MEMO_STORE, OP_RERUN, OP_RERUN_PULL, OP_RERUN_REARM, OP_SPOOL_COPY, OP_SPOOL_GROW, OP_SUBHASH_EXACT, OP_SUBHASH_INSERT, OP_SUBHASH_PROBE, OP_SUBHASH_RESET, OP_SUBHASH_RUN, OP_SUBHASH_SEAL, OP_SUB_COPY, RAISE_CARDINALITY, RERUN_MAGIC, SPOOL_MAGIC, SUBHASH_MAGIC};
+use super::entries::{
+    ARRAY_MAGIC, CTE_MAGIC, INIT_MAGIC, MEMO_MAGIC, OP_ARRAY_BEGIN, OP_ARRAY_END, OP_ARRAY_PUSH,
+    OP_CTE_PULL, OP_INIT_COPY, OP_INIT_EPQ, OP_INIT_RUN, OP_MEMO_DONE, OP_MEMO_MISS, OP_MEMO_STORE,
+    OP_RERUN, OP_RERUN_PULL, OP_RERUN_REARM, OP_SPOOL_COPY, OP_SPOOL_GROW, OP_SUBHASH_EXACT,
+    OP_SUBHASH_INSERT, OP_SUBHASH_PROBE, OP_SUBHASH_RESET, OP_SUBHASH_RUN, OP_SUBHASH_SEAL,
+    OP_SUB_COPY, RAISE_CARDINALITY, RERUN_MAGIC, SPOOL_MAGIC, SUBHASH_MAGIC,
+};
 use crate::contract::Host;
 
 /// The first field of every subquery runtime object a handle word points at.
@@ -30,14 +36,18 @@ unsafe fn call(ctx: *mut Ctx, h: u64, magic: u64, code: u64, a: u64, b: u64, ent
 #[cold]
 #[inline(never)]
 fn stale(entry: &str, h: u64) -> i64 {
-    crate::host_abi::bare(&format!("{entry}: a stale or foreign M8 handle {h:#x}")) // alloc: Cold
+    crate::host_abi::bare(&format!("{entry}: a stale or foreign M8 handle {h:#x}"))
+    // alloc: Cold
 }
 
 #[cold]
 #[inline(never)]
 fn raise(code: u64) -> i64 {
     let (msg, state) = match code {
-        RAISE_CARDINALITY => ("more than one row returned by a subquery used as an expression", *b"21000"),
+        RAISE_CARDINALITY => (
+            "more than one row returned by a subquery used as an expression",
+            *b"21000",
+        ),
         _ => return crate::host_abi::bare(&format!("m8_raise: no error for code {code}")), // alloc: Cold
     };
     crate::contract::raise(msg, None, state)
@@ -224,7 +234,9 @@ impl Host for RerunRearm {
     unsafe fn run(ctx: *mut Ctx, (h,): (u64,)) -> u64 {
         let head = h as *mut Head;
         if head.is_null() || (*head).magic != RERUN_MAGIC {
-            return crate::host_abi::bare(&format!("m8_rerun_rearm: a stale or foreign M8 handle {h:#x}")) as u64; // alloc: Cold
+            return crate::host_abi::bare(&format!(
+                "m8_rerun_rearm: a stale or foreign M8 handle {h:#x}"
+            )) as u64; // alloc: Cold
         }
         ((*head).op)(head, ctx, OP_RERUN_REARM, 0, 0) as u64
     }
@@ -242,7 +254,15 @@ impl Host for RerunPull {
     /// As `RerunRearm`'s: `h` is a rerun set's handle word or a stale one, which its magic refuses by name; `ctx` is the
     /// caller's context, bound for the call.
     unsafe fn run(ctx: *mut Ctx, (h, budget, first): (u64, u64, u64)) -> u64 {
-        call(ctx, h, RERUN_MAGIC, OP_RERUN_PULL, budget, first, "m8_rerun_pull") as u64
+        call(
+            ctx,
+            h,
+            RERUN_MAGIC,
+            OP_RERUN_PULL,
+            budget,
+            first,
+            "m8_rerun_pull",
+        ) as u64
     }
 }
 
@@ -252,7 +272,9 @@ mod tests {
 
     use super::{RerunPull, RerunRearm};
     use crate::contract::{entry1, entry3};
-    use crate::ops::shared::object::entries::{Head, MEMO_MAGIC, OP_RERUN_PULL, OP_RERUN_REARM, RERUN_MAGIC};
+    use crate::ops::shared::object::entries::{
+        Head, MEMO_MAGIC, OP_RERUN_PULL, OP_RERUN_REARM, RERUN_MAGIC,
+    };
 
     unsafe fn record(_h: *mut Head, _ctx: *mut gravity_abi::Ctx, code: u64, a: u64, b: u64) -> i64 {
         (code * 100 + a + b) as i64
@@ -262,15 +284,29 @@ mod tests {
     #[test]
     fn the_rearm_runs_the_sets_op_and_refuses_a_foreign_handle_by_name() {
         let _ = gravity_fn::take_error();
-        let set = Box::new(Head { magic: RERUN_MAGIC, op: record }); // alloc: Cold
-        // SAFETY: a live head whose op reads no pointer.
-        assert_eq!(unsafe { entry1::<RerunRearm>(0, &*set as *const Head as u64) }, OP_RERUN_REARM * 100);
+        let set = Box::new(Head {
+            magic: RERUN_MAGIC,
+            op: record,
+        }); // alloc: Cold
+            // SAFETY: a live head whose op reads no pointer.
+        assert_eq!(
+            unsafe { entry1::<RerunRearm>(0, &*set as *const Head as u64) },
+            OP_RERUN_REARM * 100
+        );
         // SAFETY: a null handle: nothing is read.
         assert_eq!(unsafe { entry1::<RerunRearm>(0, 0) } as i64, ERROR);
-        assert!(gravity_fn::take_error().is_some_and(|e| e.message().contains("m8_rerun_rearm: a stale or foreign M8 handle 0x0")));
-        let memo = Box::new(Head { magic: MEMO_MAGIC, op: record }); // alloc: Cold
-        // SAFETY: a live head of another kind: only its magic is read.
-        assert_eq!(unsafe { entry1::<RerunRearm>(0, &*memo as *const Head as u64) } as i64, ERROR);
+        assert!(gravity_fn::take_error().is_some_and(|e| e
+            .message()
+            .contains("m8_rerun_rearm: a stale or foreign M8 handle 0x0")));
+        let memo = Box::new(Head {
+            magic: MEMO_MAGIC,
+            op: record,
+        }); // alloc: Cold
+            // SAFETY: a live head of another kind: only its magic is read.
+        assert_eq!(
+            unsafe { entry1::<RerunRearm>(0, &*memo as *const Head as u64) } as i64,
+            ERROR
+        );
         assert!(gravity_fn::take_error().is_some_and(|e| e.message().contains("stale or foreign")));
     }
 
@@ -278,15 +314,29 @@ mod tests {
     #[test]
     fn the_pull_runs_the_sets_op_and_refuses_a_foreign_handle_by_name() {
         let _ = gravity_fn::take_error();
-        let set = Box::new(Head { magic: RERUN_MAGIC, op: record }); // alloc: Cold
-        // SAFETY: a live head whose op reads no pointer.
-        assert_eq!(unsafe { entry3::<RerunPull>(0, &*set as *const Head as u64, 7, 1) }, OP_RERUN_PULL * 100 + 8);
+        let set = Box::new(Head {
+            magic: RERUN_MAGIC,
+            op: record,
+        }); // alloc: Cold
+            // SAFETY: a live head whose op reads no pointer.
+        assert_eq!(
+            unsafe { entry3::<RerunPull>(0, &*set as *const Head as u64, 7, 1) },
+            OP_RERUN_PULL * 100 + 8
+        );
         // SAFETY: a null handle: nothing is read.
         assert_eq!(unsafe { entry3::<RerunPull>(0, 0, 1, 0) } as i64, ERROR);
-        assert!(gravity_fn::take_error().is_some_and(|e| e.message().contains("m8_rerun_pull: a stale or foreign M8 handle 0x0")));
-        let memo = Box::new(Head { magic: MEMO_MAGIC, op: record }); // alloc: Cold
-        // SAFETY: a live head of another kind: only its magic is read.
-        assert_eq!(unsafe { entry3::<RerunPull>(0, &*memo as *const Head as u64, 1, 0) } as i64, ERROR);
+        assert!(gravity_fn::take_error().is_some_and(|e| e
+            .message()
+            .contains("m8_rerun_pull: a stale or foreign M8 handle 0x0")));
+        let memo = Box::new(Head {
+            magic: MEMO_MAGIC,
+            op: record,
+        }); // alloc: Cold
+            // SAFETY: a live head of another kind: only its magic is read.
+        assert_eq!(
+            unsafe { entry3::<RerunPull>(0, &*memo as *const Head as u64, 1, 0) } as i64,
+            ERROR
+        );
         assert!(gravity_fn::take_error().is_some_and(|e| e.message().contains("stale or foreign")));
     }
 }

@@ -1,4 +1,4 @@
-#![allow(non_snake_case,non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 use std::cell::{Cell, UnsafeCell};
 use std::mem::ManuallyDrop;
@@ -15,9 +15,9 @@ use types_error::{ErrorLocation, PgResult, ERROR, WARNING};
 use types_resowner::ResourceOwner;
 use types_snapshot::{SnapshotData, SnapshotType};
 
+mod regheap;
 #[cfg(test)]
 mod tests;
-mod regheap;
 
 pub type Snapshot = Rc<SnapshotData<'static>>;
 
@@ -507,8 +507,13 @@ pub fn RestoreTransactionSnapshot(
 
 #[derive(Clone, Copy)]
 enum SnapshotSource {
-    Imported { vxid: types_core::VirtualTransactionId, pid: i32 },
-    Restored { source_proc: ProcNumber },
+    Imported {
+        vxid: types_core::VirtualTransactionId,
+        pid: i32,
+    },
+    Restored {
+        source_proc: ProcNumber,
+    },
 }
 
 fn SetTransactionSnapshot(sourcesnap: &SerializedSnapshot, source: SnapshotSource) -> PgResult<()> {
@@ -591,7 +596,10 @@ fn SetTransactionSnapshot(sourcesnap: &SerializedSnapshot, source: SnapshotSourc
 }
 
 pub fn PushActiveSnapshot(snapshot: &Snapshot) -> PgResult<()> {
-    PushActiveSnapshotWithLevel(snapshot, xact_seams::get_current_transaction_nest_level::call())
+    PushActiveSnapshotWithLevel(
+        snapshot,
+        xact_seams::get_current_transaction_nest_level::call(),
+    )
 }
 
 pub fn PushActiveSnapshotWithLevel(snapshot: &Snapshot, snap_level: i32) -> PgResult<()> {
@@ -611,7 +619,10 @@ pub fn PushActiveSnapshotWithLevel(snapshot: &Snapshot, snap_level: i32) -> PgRe
             snapshot.clone()
         };
         as_snap.active_count.set(as_snap.active_count.get() + 1);
-        s.active.push(ActiveSnapshotElt { as_snap, as_level: snap_level });
+        s.active.push(ActiveSnapshotElt {
+            as_snap,
+            as_level: snap_level,
+        });
     });
     Ok(())
 }
@@ -825,7 +836,10 @@ pub fn AtEOXact_Snapshot(is_commit: bool, reset_xmin: bool) -> PgResult<()> {
             if fd::pg_unlink(&esnap.snapfile) < 0 {
                 let _ = ereport(types_error::WARNING)
                     .with_saved_errno(fd::get_errno())
-                    .errmsg(format!("could not unlink file \"{}\": {PCT_M}", esnap.snapfile))
+                    .errmsg(format!(
+                        "could not unlink file \"{}\": {PCT_M}",
+                        esnap.snapfile
+                    ))
                     .finish(loc("AtEOXact_Snapshot"));
             }
             registered_remove(s, &esnap.snapshot);
@@ -839,7 +853,10 @@ pub fn AtEOXact_Snapshot(is_commit: bool, reset_xmin: bool) -> PgResult<()> {
 
         let leftover_registered = is_commit && !s.registered.is_empty();
         let leftover_active: Vec<usize> = if is_commit {
-            s.active.iter().map(|elt| elt as *const ActiveSnapshotElt as usize).collect()
+            s.active
+                .iter()
+                .map(|elt| elt as *const ActiveSnapshotElt as usize)
+                .collect()
         } else {
             Vec::new()
         };
@@ -938,7 +955,8 @@ pub fn ExportSnapshot(snapshot: &Snapshot) -> PgResult<String> {
 
     let children = xact_seams::xact_get_committed_children::call()?;
 
-    let my_proc = lmgr_proc::GetPGProcByNumber(lmgr_proc::MyProc().expect("ExportSnapshot requires MyProc"));
+    let my_proc =
+        lmgr_proc::GetPGProcByNumber(lmgr_proc::MyProc().expect("ExportSnapshot requires MyProc"));
     let proc_number = my_proc.vxid.procNumber.load(Relaxed);
     let lxid = my_proc.vxid.lxid.load(Relaxed);
 
@@ -948,7 +966,10 @@ pub fn ExportSnapshot(snapshot: &Snapshot) -> PgResult<String> {
             s.exported.len() + 1
         );
         let copy = copy_snapshot_locked(s, snapshot);
-        s.exported.push(ExportedSnapshot { snapfile: path.clone(), snapshot: copy.clone() });
+        s.exported.push(ExportedSnapshot {
+            snapfile: path.clone(),
+            snapshot: copy.clone(),
+        });
         copy.regd_count.set(copy.regd_count.get() + 1);
         s.registered.push(copy.clone());
         (path, copy)
@@ -1083,7 +1104,10 @@ pub fn ImportSnapshot(idstr: &str) -> PgResult<()> {
     }
 
     // Only 0-9, A-F and hyphens: prevents reading arbitrary files.
-    if !idstr.bytes().all(|b| b.is_ascii_digit() || (b'A'..=b'F').contains(&b) || b == b'-') {
+    if !idstr
+        .bytes()
+        .all(|b| b.is_ascii_digit() || (b'A'..=b'F').contains(&b) || b == b'-')
+    {
         return Err(ereport(ERROR)
             .errcode(types_error::ERRCODE_INVALID_PARAMETER_VALUE)
             .errmsg(format!("invalid snapshot identifier: \"{idstr}\""))
@@ -1101,7 +1125,9 @@ pub fn ImportSnapshot(idstr: &str) -> PgResult<()> {
             return Err(ereport(ERROR)
                 .with_saved_errno(errno)
                 .errcode_for_file_access()
-                .errmsg(format!("could not open file \"{path}\" for reading: {PCT_M}"))
+                .errmsg(format!(
+                    "could not open file \"{path}\" for reading: {PCT_M}"
+                ))
                 .into_error()
                 .with_error_location(loc("ImportSnapshot"))
                 .into());
@@ -1147,7 +1173,7 @@ pub fn ImportSnapshot(idstr: &str) -> PgResult<()> {
     let mut lines = text.lines();
     let mut field = |prefix: &str| -> PgResult<&str> {
         let line = lines.next().ok_or_else(invalid)?;
-        line.strip_prefix(prefix).ok_or_else(& invalid)
+        line.strip_prefix(prefix).ok_or_else(&invalid)
     };
 
     let vxid_raw = field("vxid:")?;

@@ -11,11 +11,15 @@ use core::fmt;
 use gravity_decompose::{PipelineGraph, Source};
 use gravity_expr::Catalog;
 use gravity_ir::Func;
-use gravity_program::{ArenaRef, ArenaVec, Code, Layout, OutCol, Pipeline, Program, SiteDesc, WritePlan};
+use gravity_program::{
+    ArenaRef, ArenaVec, Code, Layout, OutCol, Pipeline, Program, SiteDesc, WritePlan,
+};
 use types_error::{PgError, PgResult};
 use types_nodes::primnodes::INDEX_VAR;
 
-pub use crate::rerun::words::{reads_deferred, Located, Place, Sequential, WordPlan, WordSrc, DEFERRED_AHEAD};
+pub use crate::rerun::words::{
+    reads_deferred, Located, Place, Sequential, WordPlan, WordSrc, DEFERRED_AHEAD,
+};
 
 /// PostgreSQL's check_stack_depth at a level of one of the seam's recursions over the plan and its expressions (the
 /// content key's walks): decompose's guard, 54001 past max_stack_depth, never the thread's stack end.
@@ -37,7 +41,14 @@ pub struct Refusal {
 
 impl Refusal {
     pub const fn not_lowered(module: &'static str, what: &'static str, node: i32) -> Refusal {
-        Refusal { module, what, node, detail: "", oid: 0, native_rel: 0 }
+        Refusal {
+            module,
+            what,
+            node,
+            detail: "",
+            oid: 0,
+            native_rel: 0,
+        }
     }
 
     /// The lowerer stopped for a pending interrupt (D231): the admission raises it, never logs or remembers the refusal.
@@ -47,7 +58,15 @@ impl Refusal {
 
     pub fn naming(self, c: &gravity_expr::Compiled<'_>) -> Refusal {
         match gravity_expr::nodes::hostcall::first(&c.prog) {
-            Some(h) => Refusal { detail: if h.name.is_empty() { "user-defined" } else { h.name }, oid: h.oid, ..self },
+            Some(h) => Refusal {
+                detail: if h.name.is_empty() {
+                    "user-defined"
+                } else {
+                    h.name
+                },
+                oid: h.oid,
+                ..self
+            },
             None => self,
         }
     }
@@ -61,13 +80,19 @@ impl fmt::Display for Refusal {
         if self.oid == 0 {
             return write!(f, "{}: {} (node {})", self.module, self.what, self.node);
         }
-        write!(f, "{}: {} [{} {}] (node {})", self.module, self.what, self.oid, self.detail, self.node)
+        write!(
+            f,
+            "{}: {} [{} {}] (node {})",
+            self.module, self.what, self.oid, self.detail, self.node
+        )
     }
 }
 
 impl From<Refusal> for Box<PgError> {
     fn from(r: Refusal) -> Box<PgError> {
-        Box::new(PgError::error(r.to_string()).with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED)) // alloc: Cold
+        Box::new(
+            PgError::error(r.to_string()).with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED),
+        ) // alloc: Cold
     }
 }
 
@@ -105,10 +130,19 @@ pub fn no_owner() -> Owner {
 /// `ArenaRef` borrows nothing, so a `Descs` can drop after its arena (a `match` tail temporary): forget the vectors — their drop glue walks `SiteDesc`s in the unmapped block and an arena frees nothing.
 impl Drop for Descs {
     fn drop(&mut self) {
-        core::mem::forget(core::mem::replace(&mut self.sites, ArenaVec::new_in(ArenaRef::EMPTY)));
-        core::mem::forget(core::mem::replace(&mut self.out, ArenaVec::new_in(ArenaRef::EMPTY)));
+        core::mem::forget(core::mem::replace(
+            &mut self.sites,
+            ArenaVec::new_in(ArenaRef::EMPTY),
+        ));
+        core::mem::forget(core::mem::replace(
+            &mut self.out,
+            ArenaVec::new_in(ArenaRef::EMPTY),
+        ));
         core::mem::forget(core::mem::replace(&mut self.write, WritePlan::SELECT));
-        core::mem::forget(core::mem::replace(&mut self.pipelines, ArenaVec::new_in(ArenaRef::EMPTY)));
+        core::mem::forget(core::mem::replace(
+            &mut self.pipelines,
+            ArenaVec::new_in(ArenaRef::EMPTY),
+        ));
     }
 }
 
@@ -140,9 +174,16 @@ pub fn code_key(ir: &gravity_ir::Program) -> u128 {
 /// The JIT perf map's note of a lowering (gravity_backend `perfmap::note`), filed only while the map is on: the plan
 /// node of each pipeline function (`funcs[i]` runs pipeline `i`, `nodes[i]` its plan node) and the IR's tags (mode
 /// `tags`: `jit_tags_on`), under the program's code key.
-pub fn jit_note(key: Option<u128>, funcs: &[Func], nodes: &[i32], tags: Option<gravity_ir::JitTags>) {
+pub fn jit_note(
+    key: Option<u128>,
+    funcs: &[Func],
+    nodes: &[i32],
+    tags: Option<gravity_ir::JitTags>,
+) {
     let mode = gravity_backend::perfmap::mode();
-    let Some(key) = key.filter(|_| mode != gravity_backend::perfmap::OFF) else { return };
+    let Some(key) = key.filter(|_| mode != gravity_backend::perfmap::OFF) else {
+        return;
+    };
     gravity_backend::perfmap::note(key, mode, funcs, nodes, tags);
 }
 
@@ -159,13 +200,22 @@ pub enum Backend {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct LowerOpts { // what the executor asks of a lowering beyond the graph (ENTRY E1)
+pub struct LowerOpts {
+    // what the executor asks of a lowering beyond the graph (ENTRY E1)
     pub instrument: bool, // EXPLAIN ANALYZE: counted per plan node into the program block's counter region; never filed in L2
     pub publish: bool, // D2798: the row the sink's pipeline is on, stored before its quals (a cursor whose user code may say WHERE CURRENT OF it)
     pub shape: Option<u128>, // D3168: the admission's content key, the staged probe's memo key (gravity_program `stage_memo`); None: no memo
 }
 
-pub type LowerFn = for<'p> fn(ArenaRef, mcx::Mcx<'_>, &PipelineGraph<'p>, &dyn gravity_decompose::Facts, &dyn Catalog<'p>, &mut dyn WordPlan<'p>, LowerOpts) -> Result<Lowered>;
+pub type LowerFn = for<'p> fn(
+    ArenaRef,
+    mcx::Mcx<'_>,
+    &PipelineGraph<'p>,
+    &dyn gravity_decompose::Facts,
+    &dyn Catalog<'p>,
+    &mut dyn WordPlan<'p>,
+    LowerOpts,
+) -> Result<Lowered>;
 
 pub struct LowererHook {
     pub lower: LowerFn,
@@ -180,14 +230,27 @@ pub fn set_lowerer(h: LowererHook) {
 }
 
 /// The stub's one named refusal: every graph meets it until a lowerer is registered (`pgrust.gravity_lowerer` `auto`).
-pub const NOT_BUILT: &str = "lowerer v4 not built yet; lowerv3 removed (tags lowerv3-final, lowerv3-landed)";
+pub const NOT_BUILT: &str =
+    "lowerer v4 not built yet; lowerv3 removed (tags lowerv3-final, lowerv3-landed)";
 
 /// The lowerer that serves a graph: the registered one, else the stub's refusal (`NOT_BUILT`); `pgrust.gravity_lowerer`
 /// `v1` / `v2` / `v3` are refused at SET (tags `ladder-final`, `lowerv2-final`, `lowerv3-final`).
-pub fn lower_graph<'p>(arena: ArenaRef, mcx: mcx::Mcx<'_>, graph: &PipelineGraph<'p>, facts: &dyn gravity_decompose::Facts, catalog: &dyn Catalog<'p>, plan: &mut dyn WordPlan<'p>, opts: LowerOpts) -> Result<Lowered> {
+pub fn lower_graph<'p>(
+    arena: ArenaRef,
+    mcx: mcx::Mcx<'_>,
+    graph: &PipelineGraph<'p>,
+    facts: &dyn gravity_decompose::Facts,
+    catalog: &dyn Catalog<'p>,
+    plan: &mut dyn WordPlan<'p>,
+    opts: LowerOpts,
+) -> Result<Lowered> {
     match LOWERER.get() {
         Some(h) => (h.lower)(arena, mcx, graph, facts, catalog, plan, opts),
-        None => Err(Refusal::not_lowered("lowerv4", NOT_BUILT, graph.root().node_id)),
+        None => Err(Refusal::not_lowered(
+            "lowerv4",
+            NOT_BUILT,
+            graph.root().node_id,
+        )),
     }
 }
 
@@ -208,13 +271,21 @@ pub mod rerun;
 
 /// A graph whose root writes or locks rows (the entry's write gates read this before lowering).
 pub fn is_write_graph(graph: &PipelineGraph<'_>) -> bool {
-    graph.root().ops.iter().any(|o| matches!(o, gravity_decompose::Op::Write(_) | gravity_decompose::Op::Lock(_)))
+    graph.root().ops.iter().any(|o| {
+        matches!(
+            o,
+            gravity_decompose::Op::Write(_) | gravity_decompose::Op::Lock(_)
+        )
+    })
 }
 
 /// The range table index a pipeline's `Var`s carry: a scan's `scanrelid`, `INDEX_VAR` for the rest.
 pub fn varno_of(source: &Source<'_>) -> i32 {
     match source {
-        Source::Range { scanrelid, .. } | Source::Index { scanrelid, .. } | Source::Bitmap { scanrelid, .. } | Source::Values { scanrelid, .. } => *scanrelid as i32,
+        Source::Range { scanrelid, .. }
+        | Source::Index { scanrelid, .. }
+        | Source::Bitmap { scanrelid, .. }
+        | Source::Values { scanrelid, .. } => *scanrelid as i32,
         _ => INDEX_VAR,
     }
 }
@@ -222,33 +293,70 @@ pub fn varno_of(source: &Source<'_>) -> i32 {
 /// The backend over every pipeline function.
 pub fn compile(l: &Lowered, backend: Backend) -> PgResult<Vec<Code>> {
     if let Backend::Tpde = backend {
-        return Ok(gravity_backend::mapped_cached_keyed(&l.ir, &l.funcs, l.key.map(gravity_backend::cache::CodeKey), &[])?.0);
+        return Ok(gravity_backend::mapped_cached_keyed(
+            &l.ir,
+            &l.funcs,
+            l.key.map(gravity_backend::cache::CodeKey),
+            &[],
+        )?
+        .0);
     }
     let mut codes = Vec::with_capacity(l.funcs.len()); // alloc: Program
     for &f in l.funcs.iter() {
-        codes.push(gravity_backend::interp(l.ir.clone(), f).map_err(|e| Box::new(PgError::error(e)))?); // alloc: Program
+        codes.push(
+            gravity_backend::interp(l.ir.clone(), f).map_err(|e| Box::new(PgError::error(e)))?,
+        ); // alloc: Program
     }
     Ok(codes)
 }
 
 pub fn assemble(l: &Lowered, codes: Vec<Code>) -> Program {
-    let codes = codes.into_iter().enumerate().map(|(i, c)| match l.funcs.get(i).and_then(|f| l.staged.as_slice().iter().find(|s| s.0 == *f)) {
-        Some((_, Some(side), tag)) => {
-            let interp = c.is_interp();
-            c.with_staged(gravity_backend::staged(side, interp, *tag))
+    let codes = codes.into_iter().enumerate().map(|(i, c)| {
+        match l
+            .funcs
+            .get(i)
+            .and_then(|f| l.staged.as_slice().iter().find(|s| s.0 == *f))
+        {
+            Some((_, Some(side), tag)) => {
+                let interp = c.is_interp();
+                c.with_staged(gravity_backend::staged(side, interp, *tag))
+            }
+            Some((_, None, tag)) => c.with_want(*tag),
+            None => c,
         }
-        Some((_, None, tag)) => c.with_want(*tag),
-        None => c,
     });
-    let p = Program::with_declared_pipelines(l.descs.layout, &l.descs.sites, &l.descs.out, l.descs.write.copy_in(*l.descs.sites.allocator()), l.descs.pipelines.iter().copied().zip(codes));
-    let p = if l.descs.out_region == 0 { p } else { p.with_out_region(l.descs.out_region) };
-    let p = if l.descs.instr.is_empty() { p } else { p.with_instr(&l.descs.instr) };
-    let p = p.with_v4(&l.descs.v4).with_used(l.descs.used).as_lowered().with_locks(&l.descs.locks); // alloc: Program
-    // the list `with_writes` copies into the program's own arena: built in the lowering's, beside the plans' copies
+    let p = Program::with_declared_pipelines(
+        l.descs.layout,
+        &l.descs.sites,
+        &l.descs.out,
+        l.descs.write.copy_in(*l.descs.sites.allocator()),
+        l.descs.pipelines.iter().copied().zip(codes),
+    );
+    let p = if l.descs.out_region == 0 {
+        p
+    } else {
+        p.with_out_region(l.descs.out_region)
+    };
+    let p = if l.descs.instr.is_empty() {
+        p
+    } else {
+        p.with_instr(&l.descs.instr)
+    };
+    let p = p
+        .with_v4(&l.descs.v4)
+        .with_used(l.descs.used)
+        .as_lowered()
+        .with_locks(&l.descs.locks); // alloc: Program
+                                     // the list `with_writes` copies into the program's own arena: built in the lowering's, beside the plans' copies
     let a = *l.descs.sites.allocator();
     let mut writes = ArenaVec::with_capacity_in(l.descs.writes.len(), a);
     for w in l.descs.writes.iter() {
-        writes.push(gravity_program::program::WriteAt { site: w.site, plan: w.plan.copy_in(a), end: w.end, node: w.node });
+        writes.push(gravity_program::program::WriteAt {
+            site: w.site,
+            plan: w.plan.copy_in(a),
+            end: w.end,
+            node: w.node,
+        });
     }
     let p = p.with_writes(&writes).with_write_end(l.descs.write_end);
     // the owner stays with the descriptors: a second `assemble` (the rig's, under the interpreter) shares it

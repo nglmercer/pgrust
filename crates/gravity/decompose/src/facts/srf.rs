@@ -11,10 +11,21 @@ use crate::ops::shared::srf::SrfPlace;
 pub fn ordinality_order(op: Option<&Op<'_>>) -> Order {
     let mut o = Order::NONE;
     if let Some(Op::Srf(s)) = op {
-        if let SrfPlace::From { scanrelid, ordinality: true } = s.place {
+        if let SrfPlace::From {
+            scanrelid,
+            ordinality: true,
+        } = s.place
+        {
             let cols: u32 = s.functions.iter().map(|f| u32::from(f.cols)).sum();
             if let Ok(attno) = i16::try_from(cols + 1) {
-                o.push(OrderKey { col: Col { varno: i32::from(scanrelid), attno }, desc: false, nulls_first: false });
+                o.push(OrderKey {
+                    col: Col {
+                        varno: i32::from(scanrelid),
+                        attno,
+                    },
+                    desc: false,
+                    nulls_first: false,
+                });
             }
         }
     }

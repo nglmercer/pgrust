@@ -65,15 +65,31 @@ pub(crate) fn refill_bound(gx: &Gx<'_, '_>, id: i32) -> bool {
 /// read as one that may raise (decompose effects read.rs: an unbound PARAM_EXEC); for the set's refill it shows nothing.
 pub(crate) fn refill_union_quiet(gx: &Gx<'_, '_>, k: usize) -> bool {
     let ps = gx.pipelines();
-    let Some(p) = ps.get(k).filter(|_| k < gx.graph.pipelines.len()) else { return false };
-    let Some((Op::Append(AppendDesc::Union { slot, prune, .. }), rest)) = p.ops.split_first() else { return false };
-    let Some((Op::Join(JoinDesc::Spool), body)) = rest.split_last() else { return false };
-    let q = |n: Node<'_>| gx.fx(n).quiet_in(&Reading::union_arms(&|id| refill_bound(gx, id)));
+    let Some(p) = ps.get(k).filter(|_| k < gx.graph.pipelines.len()) else {
+        return false;
+    };
+    let Some((Op::Append(AppendDesc::Union { slot, prune, .. }), rest)) = p.ops.split_first()
+    else {
+        return false;
+    };
+    let Some((Op::Join(JoinDesc::Spool), body)) = rest.split_last() else {
+        return false;
+    };
+    let q = |n: Node<'_>| {
+        gx.fx(n)
+            .quiet_in(&Reading::union_arms(&|id| refill_bound(gx, id)))
+    };
     let feeds = crate::rerun::union_join_arms::feeds(gx, k, *slot);
     !feeds.is_empty()
         && quiet_ops(body, &q)
-        && feeds.iter().all(|&f| quiet_arm_by(gx, &ps[f], true, true, &|id| super::pgrc::init_unseen(gx, id)))
-        && prune.as_ref().is_none_or(|d| quiet_prune_bound(gx, d, &|id| refill_bound(gx, id)))
+        && feeds.iter().all(|&f| {
+            quiet_arm_by(gx, &ps[f], true, true, &|id| {
+                super::pgrc::init_unseen(gx, id)
+            })
+        })
+        && prune
+            .as_ref()
+            .is_none_or(|d| quiet_prune_bound(gx, d, &|id| refill_bound(gx, id)))
 }
 
 /// D3614 (rerun/union_arms.rs `refills_whole`): a nest in a refilled union's emit `e`, INNER or LEFT, whose inner reads a
@@ -83,54 +99,118 @@ pub(crate) fn refill_union_quiet(gx: &Gx<'_, '_>, k: usize) -> bool {
 /// fill can. The Material's fill pipeline, for the caller's form test, else none.
 pub(crate) fn refill_nest(gx: &Gx<'_, '_>, e: usize, op: &Op<'_>) -> Option<usize> {
     use types_nodes::jointype::JoinType;
-    let Op::Join(JoinDesc::Nest { jointype, params, qual, inner, .. }) = op else { return None };
-    let Source::Breaker { slot } = inner.source else { return None };
+    let Op::Join(JoinDesc::Nest {
+        jointype,
+        params,
+        qual,
+        inner,
+        ..
+    }) = op
+    else {
+        return None;
+    };
+    let Source::Breaker { slot } = inner.source else {
+        return None;
+    };
     let (ps, d) = (gx.pipelines(), &inner.desc);
-    let life = d.consumes.iter().position(|&s| s == slot).and_then(|j| d.consumes_from.get(j).copied());
-    let f = life.map(|l| l.0 as usize).or_else(|| (0..e).rev().find(|&x| ps[x].desc.produces() == Some(slot)))?;
-    let q = |n: Node<'_>| gx.fx(n).quiet_in(&Reading::union_arms(&|id| refill_bound(gx, id)));
+    let life = d
+        .consumes
+        .iter()
+        .position(|&s| s == slot)
+        .and_then(|j| d.consumes_from.get(j).copied());
+    let f = life
+        .map(|l| l.0 as usize)
+        .or_else(|| (0..e).rev().find(|&x| ps[x].desc.produces() == Some(slot)))?;
+    let q = |n: Node<'_>| {
+        gx.fx(n)
+            .quiet_in(&Reading::union_arms(&|id| refill_bound(gx, id)))
+    };
     (matches!(jointype, JoinType::JOIN_INNER | JoinType::JOIN_LEFT)
         && f < e
         && refill_union_quiet(gx, f)
         && d.consumes.iter().all(|&s| s == slot)
-        && params.iter().all(|p| p.as_nest_loop_param().is_some_and(|p| q(p.paramval)))
+        && params
+            .iter()
+            .all(|p| p.as_nest_loop_param().is_some_and(|p| q(p.paramval)))
         && qual.iter().all(q)
         && quiet_ops(&inner.ops, &q))
-        .then_some(f)
+    .then_some(f)
 }
 
 /// `quiet_arm_in`, the PARAM_EXEC ids `more` names read as bound words too when `exec` (D3614: an unseen InitPlan's
 /// output that a rerun set's run re-arms, pgrc.rs `init_unseen`: the arm's read may run it, which shows nothing).
-pub(crate) fn quiet_arm_by(gx: &Gx<'_, '_>, p: &PipelineNode<'_>, exec: bool, nests: bool, more: &dyn Fn(i32) -> bool) -> bool {
+pub(crate) fn quiet_arm_by(
+    gx: &Gx<'_, '_>,
+    p: &PipelineNode<'_>,
+    exec: bool,
+    nests: bool,
+    more: &dyn Fn(i32) -> bool,
+) -> bool {
     let q = |n: Node<'_>| quiet_more(gx, n, exec, more);
     arm_by(gx, p, exec, nests, &q, &q)
 }
 
 /// `quiet_arm_in` with the arm's filters, gates and projections read by `body` (D1483, rerun/union_arms.rs
 /// `refills_whole`: under an emit that reads every arm whole, they may raise); the source's keys and recheck stay quiet.
-pub(crate) fn arm_in(gx: &Gx<'_, '_>, p: &PipelineNode<'_>, exec: bool, nests: bool, body: &dyn Fn(Node<'_>) -> bool) -> bool {
+pub(crate) fn arm_in(
+    gx: &Gx<'_, '_>,
+    p: &PipelineNode<'_>,
+    exec: bool,
+    nests: bool,
+    body: &dyn Fn(Node<'_>) -> bool,
+) -> bool {
     arm_by(gx, p, exec, nests, &|n| quiet_in(gx, n, exec), body)
 }
 
 /// `quiet_in` with the PARAM_EXEC ids `more` names read as bound words too when `exec`.
 fn quiet_more(gx: &Gx<'_, '_>, n: Node<'_>, exec: bool, more: &dyn Fn(i32) -> bool) -> bool {
-    gx.fx(n).quiet_in(&Reading::union_arms(&|id| exec && (gx.graph.params.iter().any(|p| p.0 == id) || more(id))))
+    gx.fx(n).quiet_in(&Reading::union_arms(&|id| {
+        exec && (gx.graph.params.iter().any(|p| p.0 == id) || more(id))
+    }))
 }
 
 /// `arm_in` with the source's keys and recheck read by `q`.
-fn arm_by(gx: &Gx<'_, '_>, p: &PipelineNode<'_>, exec: bool, nests: bool, q: &dyn Fn(Node<'_>) -> bool, body: &dyn Fn(Node<'_>) -> bool) -> bool {
+fn arm_by(
+    gx: &Gx<'_, '_>,
+    p: &PipelineNode<'_>,
+    exec: bool,
+    nests: bool,
+    q: &dyn Fn(Node<'_>) -> bool,
+    body: &dyn Fn(Node<'_>) -> bool,
+) -> bool {
     let src = match &p.source {
         Source::Range { .. } | Source::Const => true,
-        Source::Index { keys, recheck, .. } => keys.iter().all(|x| q(x.value) && (!exec || x.opno == 0 || gravity_decompose::effects::builtin_oper(x.opno).is_some())) && recheck.iter().all(q),
-        Source::Bitmap { plan, recheck, .. } if exec => crate::rerun::union_join_arms::leaves(plan, &|x| q(x.value) && (x.opno == 0 || gravity_decompose::effects::builtin_oper(x.opno).is_some())) && recheck.iter().all(q),
-        Source::Values { lists, .. } => lists.iter().all(|l| l.as_list().is_some_and(|l| l.iter().all(q))),
+        Source::Index { keys, recheck, .. } => {
+            keys.iter().all(|x| {
+                q(x.value)
+                    && (!exec
+                        || x.opno == 0
+                        || gravity_decompose::effects::builtin_oper(x.opno).is_some())
+            }) && recheck.iter().all(q)
+        }
+        Source::Bitmap { plan, recheck, .. } if exec => {
+            crate::rerun::union_join_arms::leaves(plan, &|x| {
+                q(x.value)
+                    && (x.opno == 0 || gravity_decompose::effects::builtin_oper(x.opno).is_some())
+            }) && recheck.iter().all(q)
+        }
+        Source::Values { lists, .. } => lists
+            .iter()
+            .all(|l| l.as_list().is_some_and(|l| l.iter().all(q))),
         _ => false,
     };
-    let Some((Op::Append(AppendDesc::Feed { .. }), ops)) = p.ops.split_last() else { return false };
+    let Some((Op::Append(AppendDesc::Feed { .. }), ops)) = p.ops.split_last() else {
+        return false;
+    };
     src && ops.iter().all(|op| match op {
         Op::Filter(n) | Op::Gate(n) => body(*n),
         Op::Project(l) => l.iter().all(body),
-        Op::Join(JoinDesc::Nest { params, qual, inner, .. }) if nests => quiet_nest(gx, None, params, qual, inner),
+        Op::Join(JoinDesc::Nest {
+            params,
+            qual,
+            inner,
+            ..
+        }) if nests => quiet_nest(gx, None, params, qual, inner),
         // a constant row bound under a window that reads only the union's first rows (ops/limit `const_bound`)
         _ => crate::ops::limit::lower::const_bound(op),
     })
@@ -141,13 +221,29 @@ fn arm_by(gx: &Gx<'_, '_>, p: &PipelineNode<'_>, exec: bool, nests: bool, q: &dy
 /// built-in support (GUARD-G1 `support`).
 pub(crate) fn quiet_build(gx: &Gx<'_, '_>, emit: usize, keys: &types_nodes::NodeList<'_>) -> bool {
     let ps = gx.pipelines();
-    let inner = ps.inners().into_iter().enumerate().map(|(i, (_, p))| (ps.len() + i, p));
-    let mut probes = (0..ps.len()).map(|q| (q, &ps[q])).chain(inner).flat_map(|(q, p)| p.ops.iter().filter_map(move |op| match op {
-        Op::Join(JoinDesc::Probe { slot, clauses, .. }) if gx.life_of(q, *slot).is_some_and(|l| l.0 as usize == emit) => Some(*clauses),
-        _ => None,
-    }));
-    let builtin = |clauses: &types_nodes::NodeList<'_>| clauses.iter().all(|c| gx.fx(c).hash_builtin());
-    keys.iter().all(|n| quiet_in(gx, n, true)) && probes.next().is_some_and(builtin) && probes.all(builtin)
+    let inner = ps
+        .inners()
+        .into_iter()
+        .enumerate()
+        .map(|(i, (_, p))| (ps.len() + i, p));
+    let mut probes = (0..ps.len())
+        .map(|q| (q, &ps[q]))
+        .chain(inner)
+        .flat_map(|(q, p)| {
+            p.ops.iter().filter_map(move |op| match op {
+                Op::Join(JoinDesc::Probe { slot, clauses, .. })
+                    if gx.life_of(q, *slot).is_some_and(|l| l.0 as usize == emit) =>
+                {
+                    Some(*clauses)
+                }
+                _ => None,
+            })
+        });
+    let builtin =
+        |clauses: &types_nodes::NodeList<'_>| clauses.iter().all(|c| gx.fx(c).hash_builtin());
+    keys.iter().all(|n| quiet_in(gx, n, true))
+        && probes.next().is_some_and(builtin)
+        && probes.all(builtin)
 }
 
 /// D2013: every call PostgreSQL's run-time pruning makes per re-open is quiet: each step's key expressions, and its support
@@ -158,7 +254,11 @@ pub(crate) fn quiet_prune(gx: &Gx<'_, '_>, d: &PruneDesc<'_>) -> bool {
 
 /// `quiet_prune` with the PARAM_EXEC ids `bound` names read as bound words (D3297, rerun/spool/form.rs `union_pull`: the
 /// raise-free walk's `union_arms` reading over fixed, unseen InitPlans' parameters).
-pub(crate) fn quiet_prune_bound(gx: &Gx<'_, '_>, d: &PruneDesc<'_>, bound: &dyn Fn(i32) -> bool) -> bool {
+pub(crate) fn quiet_prune_bound(
+    gx: &Gx<'_, '_>,
+    d: &PruneDesc<'_>,
+    bound: &dyn Fn(i32) -> bool,
+) -> bool {
     quiet_prune_by(d, &|e| gx.fx(e).quiet_in(&Reading::union_arms(bound)))
 }
 
@@ -168,8 +268,27 @@ pub(crate) fn quiet_prune_bound(gx: &Gx<'_, '_>, d: &PruneDesc<'_>, bound: &dyn 
 /// extended hashes take two arguments and return integer or bigint as CREATE OPERATOR CLASS requires of either
 /// (opclasscmds.c assignProcTypes), and they run the element, field or subtype's functions.
 fn quiet_prune_by(d: &PruneDesc<'_>, q: &dyn Fn(Node<'_>) -> bool) -> bool {
-    let op = |s: Node<'_>| s.as_partition_prune_step_op().is_none_or(|o| o.exprs.iter().all(q) && o.cmpfns.iter().all(|f| gravity_decompose::effects::builtin_func(f).is_some() && types_core::quiet::dispatch(f).is_none()));
-    d.info.prune_infos.iter().flat_map(|l| l.as_list().into_iter().flat_map(|l| l.iter())).all(|r| r.as_partitioned_rel_prune_info().is_some_and(|r| r.initial_pruning_steps.iter().chain(r.exec_pruning_steps.iter()).all(op)))
+    let op = |s: Node<'_>| {
+        s.as_partition_prune_step_op().is_none_or(|o| {
+            o.exprs.iter().all(q)
+                && o.cmpfns.iter().all(|f| {
+                    gravity_decompose::effects::builtin_func(f).is_some()
+                        && types_core::quiet::dispatch(f).is_none()
+                })
+        })
+    };
+    d.info
+        .prune_infos
+        .iter()
+        .flat_map(|l| l.as_list().into_iter().flat_map(|l| l.iter()))
+        .all(|r| {
+            r.as_partitioned_rel_prune_info().is_some_and(|r| {
+                r.initial_pruning_steps
+                    .iter()
+                    .chain(r.exec_pruning_steps.iter())
+                    .all(op)
+            })
+        })
 }
 
 /// `n` raises nothing on any input and calls nothing with an effect: the raise-free walk's shared leaf set (raise_free.rs
@@ -181,18 +300,34 @@ pub(crate) fn quiet_in(gx: &Gx<'_, '_>, n: Node<'_>, exec: bool) -> bool {
     // the effects home's one raise-free walk under its `union_arms` reading; an implicit-AND list (a Result's one-time
     // filter: decompose `map_result`'s Gate holds resconstantqual whole) is quiet when every member is (each arm a Result
     // gated on the outer row over a bitmap walk, say)
-    gx.fx(n).quiet_in(&Reading::union_arms(&|id| exec && gx.graph.params.iter().any(|p| p.0 == id)))
+    gx.fx(n).quiet_in(&Reading::union_arms(&|id| {
+        exec && gx.graph.params.iter().any(|p| p.0 == id)
+    }))
 }
 
 /// A bitmap heap scan whose index keys (every leaf of its AND / OR tree) and recheck quals are quiet (PG keeps
 /// a one-batch Hash over it as over a heap or index scan; its bitmap is read before any row, as an index scan's keys are).
-pub(crate) fn bitmap_quiet(plan: &gravity_decompose::ops::shared::scan::BitmapPlan<'_>, recheck: &types_nodes::list::NodeList<'_>, q: &dyn Fn(Node<'_>) -> bool) -> bool {
-    crate::effects::bitmap_all(plan, &|_, keys, _| keys.iter().all(|k| q(k.value))) && recheck.iter().all(q)
+pub(crate) fn bitmap_quiet(
+    plan: &gravity_decompose::ops::shared::scan::BitmapPlan<'_>,
+    recheck: &types_nodes::list::NodeList<'_>,
+    q: &dyn Fn(Node<'_>) -> bool,
+) -> bool {
+    crate::effects::bitmap_all(plan, &|_, keys, _| keys.iter().all(|k| q(k.value)))
+        && recheck.iter().all(q)
 }
 
 /// A probe whose hash keys, hash clauses and join qual are quiet (the probe op itself raises nothing and calls nothing).
 pub(crate) fn probe_quiet(op: &Op<'_>, q: &dyn Fn(Node<'_>) -> bool) -> bool {
-    let Op::Join(JoinDesc::Probe { keys, clauses, qual, catalog: false, .. }) = op else { return false };
+    let Op::Join(JoinDesc::Probe {
+        keys,
+        clauses,
+        qual,
+        catalog: false,
+        ..
+    }) = op
+    else {
+        return false;
+    };
     keys.iter().chain(clauses.iter()).chain(qual.iter()).all(q)
 }
 

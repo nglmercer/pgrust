@@ -24,12 +24,16 @@ fn rows(plan_rows: f64) -> u64 {
 #[test]
 fn a_hash_build_carries_the_rows_its_hash_receives_not_its_driving_scans() {
     let mut files = harness::fixtures_in(&harness::plans_root());
-    files.extend(harness::fixtures_in(&harness::plans_root().join("regress-full")));
+    files.extend(harness::fixtures_in(
+        &harness::plans_root().join("regress-full"),
+    ));
     let (mut builds, mut fewer) = (0usize, 0usize);
     for f in files {
         let text = fs::read_to_string(&f).unwrap();
         let ctx = MemoryContext::new("fixture");
-        let Ok(fx) = corpus::load(ctx.mcx(), &text) else { continue };
+        let Ok(fx) = corpus::load(ctx.mcx(), &text) else {
+            continue;
+        };
         let mut hashes: HashMap<i32, u64> = HashMap::new();
         rescan::each_plan_node(fx.stmt, &mut |n| {
             if let Some(h) = n.as_hash() {
@@ -37,18 +41,39 @@ fn a_hash_build_carries_the_rows_its_hash_receives_not_its_driving_scans() {
             }
         });
         let arena = Arena::new(1 << 20);
-        let Ok(g) = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx) else { continue };
+        let Ok(g) = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx) else {
+            continue;
+        };
         let name = &fx.name;
         for (i, p) in g.pipelines.iter().enumerate() {
-            let End::Breaker(b) = p.desc.ends_in else { continue };
+            let End::Breaker(b) = p.desc.ends_in else {
+                continue;
+            };
             if b.kind != BreakerKind::HashBuild {
                 continue;
             }
             // the Hash is its build's last node (map_hash_join's close_node); a catalog nest loop's build ends in its inner
-            let Some((hid, &want)) = p.node_ops.last().and_then(|o| hashes.get_key_value(&o.node_id)) else { continue };
+            let Some((hid, &want)) = p
+                .node_ops
+                .last()
+                .and_then(|o| hashes.get_key_value(&o.node_id))
+            else {
+                continue;
+            };
             builds += 1;
-            assert_eq!(p.desc.build_rows, want, "{name} p{i}: the build names its Hash's rows (node {hid})");
-            assert_eq!(p.desc.build_estimate(), if want != 0 { want } else { p.desc.predicted_rows }, "{name} p{i}");
+            assert_eq!(
+                p.desc.build_rows, want,
+                "{name} p{i}: the build names its Hash's rows (node {hid})"
+            );
+            assert_eq!(
+                p.desc.build_estimate(),
+                if want != 0 {
+                    want
+                } else {
+                    p.desc.predicted_rows
+                },
+                "{name} p{i}"
+            );
             if want != 0 && want < p.desc.predicted_rows {
                 fewer += 1;
             }
@@ -56,5 +81,8 @@ fn a_hash_build_carries_the_rows_its_hash_receives_not_its_driving_scans() {
     }
     println!("v4r481: {builds} hash builds over a Hash node, {fewer} sized under their driving scan's rows");
     assert!(builds > 100, "the corpus's hash joins ({builds})");
-    assert!(fewer > 0, "some build is fed through a join or a filter ({fewer})");
+    assert!(
+        fewer > 0,
+        "some build is fed through a join or a filter ({fewer})"
+    );
 }

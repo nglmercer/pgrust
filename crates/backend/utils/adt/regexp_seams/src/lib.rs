@@ -1,9 +1,9 @@
 #![allow(non_snake_case)]
 
 use ::mcx::{Mcx, PgVec};
+use ::regex::{RegMatch, RegexCompiled};
 use ::types_core::Oid;
 use ::types_error::PgResult;
-use ::regex::{RegMatch, RegexCompiled};
 
 seam_core::seam!(
     pub fn RE_compile_and_cache<'mcx>(

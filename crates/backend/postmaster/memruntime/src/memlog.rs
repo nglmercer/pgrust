@@ -53,7 +53,14 @@ pub(crate) struct Ring {
 
 impl Ring {
     pub(crate) const fn new() -> Self {
-        Ring { buf: [0; RING_BYTES], head: 0, len: 0, busy: false, closed: false, lost: 0 }
+        Ring {
+            buf: [0; RING_BYTES],
+            head: 0,
+            len: 0,
+            busy: false,
+            closed: false,
+            lost: 0,
+        }
     }
 
     fn copy_in(&mut self, at: usize, src: &[u8]) {
@@ -158,7 +165,11 @@ static WRITE_US_LONGEST: AtomicU64 = AtomicU64::new(0);
 
 /// `(writes queued, writes dropped, the longest write to the sink in ms)` since start.
 pub fn counts() -> (u64, u64, u64) {
-    (QUEUED.load(Relaxed), DROPPED.load(Relaxed), WRITE_US_LONGEST.load(Relaxed) / 1000)
+    (
+        QUEUED.load(Relaxed),
+        DROPPED.load(Relaxed),
+        WRITE_US_LONGEST.load(Relaxed) / 1000,
+    )
 }
 
 /// The writes kept cut to `WRITE_BYTES` since start.
@@ -172,16 +183,22 @@ pub fn start() -> bool {
         return true;
     }
     // the drainer's own line (the drops) carries the postmaster's prefix and time zone, as the watchdog's do
-    let (prefix, tz) = (elog::config::log_line_prefix_format(), localtime::globals::log_timezone());
-    let spawned = std::thread::Builder::new().name("pg:memlog".into()).stack_size(STACK).spawn(pagegive::pinned(move || {
-        elog::config::set_log_line_prefix(prefix);
-        localtime::globals::set_log_timezone(tz);
-        // unwind-ok: log-then-die
-        let _ = std::panic::catch_unwind(run);
-        // the drainer is gone: every push from here on is written by its own thread
-        pgsync::lock(&RING).closed = true;
-        EMPTIED.notify_all();
-    }));
+    let (prefix, tz) = (
+        elog::config::log_line_prefix_format(),
+        localtime::globals::log_timezone(),
+    );
+    let spawned = std::thread::Builder::new()
+        .name("pg:memlog".into())
+        .stack_size(STACK)
+        .spawn(pagegive::pinned(move || {
+            elog::config::set_log_line_prefix(prefix);
+            localtime::globals::set_log_timezone(tz);
+            // unwind-ok: log-then-die
+            let _ = std::panic::catch_unwind(run);
+            // the drainer is gone: every push from here on is written by its own thread
+            pgsync::lock(&RING).closed = true;
+            EMPTIED.notify_all();
+        }));
     match spawned {
         Ok(h) => THREAD.set(h.thread().clone()).is_ok(),
         Err(_) => false,
@@ -360,7 +377,15 @@ mod tests {
         let mut out = [0u8; WRITE_BYTES];
         // each round leaves the head further on, so records straddle the end of the buffer
         for round in 0..40u32 {
-            let lines: Vec<Vec<u8>> = (0..9u32).map(|i| format!("line {round}.{i} {}\n", "x".repeat((round * 97 + i * 31) as usize % 900)).into_bytes()).collect();
+            let lines: Vec<Vec<u8>> = (0..9u32)
+                .map(|i| {
+                    format!(
+                        "line {round}.{i} {}\n",
+                        "x".repeat((round * 97 + i * 31) as usize % 900)
+                    )
+                    .into_bytes()
+                })
+                .collect();
             for l in &lines {
                 assert!(r.put(l));
             }
@@ -397,7 +422,10 @@ mod tests {
         assert_eq!(r.put_cut(b"next\n"), (true, false));
         let n = r.take(&mut out).expect("the cut record");
         assert_eq!(n, WRITE_BYTES);
-        assert!(out[..n - CUT.len()].iter().all(|&b| b == b'q') && out[..n].ends_with(CUT), "its head, then the mark");
+        assert!(
+            out[..n - CUT.len()].iter().all(|&b| b == b'q') && out[..n].ends_with(CUT),
+            "its head, then the mark"
+        );
         let n = r.take(&mut out).expect("the next one");
         assert_eq!(&out[..n], b"next\n");
     }
@@ -408,7 +436,9 @@ mod tests {
         let mut r = ring();
         let mut out = [0u8; WRITE_BYTES];
         let first = b"2026-10-18 17:00:42.009 UTC [66537] LOG:  give-back service: 4 arenas' purge is pg:mempurge's\n".to_vec();
-        let lines: Vec<Vec<u8>> = (0..40u32).map(|i| format!("line {i} {}\n", "y".repeat(i as usize * 211 % 3000)).into_bytes()).collect();
+        let lines: Vec<Vec<u8>> = (0..40u32)
+            .map(|i| format!("line {i} {}\n", "y".repeat(i as usize * 211 % 3000)).into_bytes())
+            .collect();
         assert!(r.put(&first));
         for l in &lines {
             assert!(r.put(l));
@@ -445,7 +475,9 @@ mod tests {
         let mut r = ring();
         let mut out = [0u8; WRITE_BYTES];
         let line = [b'z'; 700];
-        let (all, allocs) = crate::tests::counted(|| (0..1000).all(|_| r.put(&line) && r.take(&mut out) == Some(line.len())));
+        let (all, allocs) = crate::tests::counted(|| {
+            (0..1000).all(|_| r.put(&line) && r.take(&mut out) == Some(line.len()))
+        });
         assert!(all);
         assert_eq!(allocs, 0, "no allocation per line");
     }

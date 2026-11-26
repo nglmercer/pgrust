@@ -36,13 +36,34 @@ impl ProgramBuilder {
 
     fn of(mut program: Program) -> Self {
         let m = program.mint();
-        Self { scratch: Scratch { consts: m.vec(), marks: HintMarks::new(&m) }, program, tagged: Vec::new(), jit: None }
+        Self {
+            scratch: Scratch {
+                consts: m.vec(),
+                marks: HintMarks::new(&m),
+            },
+            program,
+            tagged: Vec::new(),
+            jit: None,
+        }
     }
 
-    pub fn declare_host(&mut self, name: &str, params: &[Type], ret: Option<Type>, addr: usize, flags: HostFlags) -> HostFn {
+    pub fn declare_host(
+        &mut self,
+        name: &str,
+        params: &[Type],
+        ret: Option<Type>,
+        addr: usize,
+        flags: HostFlags,
+    ) -> HostFn {
         let id = HostFn(self.program.host_fns.len() as u32);
         let m = self.program.mint();
-        self.program.host_fns.push(HostFnDecl { name: m.str(name), params: m.vec_from(params), ret, addr, flags });
+        self.program.host_fns.push(HostFnDecl {
+            name: m.str(name),
+            params: m.vec_from(params),
+            ret,
+            addr,
+            flags,
+        });
         id
     }
 
@@ -59,7 +80,9 @@ impl ProgramBuilder {
     /// created with the function's parameters as its block parameters.
     pub fn define(&mut self, func: Func) -> FunctionBuilder<'_> {
         let mint = self.program.mint();
-        let Program { funcs, host_fns, .. } = &mut self.program;
+        let Program {
+            funcs, host_fns, ..
+        } = &mut self.program;
         let f = &mut funcs[func.index()];
         assert!(f.blocks.is_empty(), "function {} already defined", f.name);
         let tagged = &mut self.tagged;
@@ -71,7 +94,18 @@ impl ProgramBuilder {
         let Scratch { consts, marks } = &mut self.scratch;
         consts.clear();
         marks.clear();
-        let mut fb = FunctionBuilder { func: f, host_fns, tagged, jit, mint, current: None, consts, marks, pushed: 0, filled: 0 };
+        let mut fb = FunctionBuilder {
+            func: f,
+            host_fns,
+            tagged,
+            jit,
+            mint,
+            current: None,
+            consts,
+            marks,
+            pushed: 0,
+            filled: 0,
+        };
         let params = fb.mint.vec_from(&fb.func.params);
         let entry = fb.create_block(&params);
         fb.func.entry = entry;
@@ -95,7 +129,8 @@ impl ProgramBuilder {
     /// Record the JIT map's tags from here on (`FunctionBuilder::set_tag`; gravity_backend perfmap mode `tags`).
     pub fn jit_tags(&mut self) {
         let owner = self.program.owner();
-        self.jit.get_or_insert_with(|| crate::jit_tags::JitState::new(owner));
+        self.jit
+            .get_or_insert_with(|| crate::jit_tags::JitState::new(owner));
     }
 
     /// The JIT map's tags recorded so far, taken (`None` unless `jit_tags`).
@@ -152,11 +187,25 @@ struct HintMarks {
 
 impl HintMarks {
     fn new(m: &Mint) -> HintMarks {
-        HintMarks { cold: m.vec(), header: m.vec(), likely: m.vec(), freq: m.vec(), remat: m.vec(), nowrap: m.vec() }
+        HintMarks {
+            cold: m.vec(),
+            header: m.vec(),
+            likely: m.vec(),
+            freq: m.vec(),
+            remat: m.vec(),
+            nowrap: m.vec(),
+        }
     }
 
     fn clear(&mut self) {
-        for set in [&mut self.cold, &mut self.header, &mut self.likely, &mut self.freq, &mut self.remat, &mut self.nowrap] {
+        for set in [
+            &mut self.cold,
+            &mut self.header,
+            &mut self.likely,
+            &mut self.freq,
+            &mut self.remat,
+            &mut self.nowrap,
+        ] {
             set.clear();
         }
     }
@@ -195,14 +244,30 @@ impl<'a> FunctionBuilder<'a> {
     /// address, asserted) is returned instead of duplicated, so every
     /// call site of a builtin's shim in every function of the program
     /// shares one declaration and the program text carries it once.
-    pub fn declare_host_once(&mut self, name: &str, params: &[Type], ret: Option<Type>, addr: usize, flags: HostFlags) -> HostFn {
+    pub fn declare_host_once(
+        &mut self,
+        name: &str,
+        params: &[Type],
+        ret: Option<Type>,
+        addr: usize,
+        flags: HostFlags,
+    ) -> HostFn {
         if let Some(i) = self.host_fns.iter().position(|h| h.name == name) {
             let h = &self.host_fns[i];
-            assert!(h.params == params && h.ret == ret && h.addr == addr, "host {name} redeclared with another signature");
+            assert!(
+                h.params == params && h.ret == ret && h.addr == addr,
+                "host {name} redeclared with another signature"
+            );
             return HostFn(i as u32);
         }
         let id = HostFn(self.host_fns.len() as u32);
-        let decl = HostFnDecl { name: self.mint.str(name), params: self.mint.vec_from(params), ret, addr, flags };
+        let decl = HostFnDecl {
+            name: self.mint.str(name),
+            params: self.mint.vec_from(params),
+            ret,
+            addr,
+            flags,
+        };
         self.host_fns.push(decl);
         id
     }
@@ -232,7 +297,11 @@ impl<'a> FunctionBuilder<'a> {
         }
         let id = Block(self.func.blocks.len() as u32);
         let insts = self.mint.vec();
-        self.func.blocks.push(BasicBlock { params: IrSlice::from_vec(params), insts, term: Terminator::Unreachable });
+        self.func.blocks.push(BasicBlock {
+            params: IrSlice::from_vec(params),
+            insts,
+            term: Terminator::Unreachable,
+        });
         id
     }
 
@@ -282,13 +351,30 @@ impl<'a> FunctionBuilder<'a> {
             self.consts.resize(z.index() + 1, None);
         }
         self.consts[z.index()] = Some((Type::I64, 0));
-        let store = Instruction { result: None, op: Op::Store { ptr, offset, value: z, unaligned: false } };
+        let store = Instruction {
+            result: None,
+            op: Op::Store {
+                ptr,
+                offset,
+                value: z,
+                unaligned: false,
+            },
+        };
         if let Some(j) = self.jit.as_deref_mut() {
             j.inserted(at.0 .0, at.1 as u32, 2);
         }
         let insts = &mut self.func.blocks[at.0.index()].insts;
         insts.insert(at.1, store); // alloc: Program
-        insts.insert(at.1, Instruction { result: Some(z), op: Op::Const { ty: Type::I64, bits: 0 } }); // alloc: Program
+        insts.insert(
+            at.1,
+            Instruction {
+                result: Some(z),
+                op: Op::Const {
+                    ty: Type::I64,
+                    bits: 0,
+                },
+            },
+        ); // alloc: Program
         self.pushed += 2;
     }
 
@@ -448,21 +534,36 @@ impl<'a> FunctionBuilder<'a> {
         let ty = self.value_type(a);
         // Boolean identities and absorption: no instruction at all.
         if ty == Type::Bool {
-            let (ca, cb) = (self.const_of(a).map(|c| c.1 & 1), self.const_of(b).map(|c| c.1 & 1));
+            let (ca, cb) = (
+                self.const_of(a).map(|c| c.1 & 1),
+                self.const_of(b).map(|c| c.1 & 1),
+            );
             match (op, ca, cb) {
-                (IntBinOp::Or, _, Some(0)) | (IntBinOp::And, _, Some(1)) | (IntBinOp::Xor, _, Some(0)) => return a,
-                (IntBinOp::Or, Some(0), _) | (IntBinOp::And, Some(1), _) | (IntBinOp::Xor, Some(0), _) => return b,
-                (IntBinOp::Or, _, Some(1)) | (IntBinOp::Or, Some(1), _) => return self.bconst(true),
-                (IntBinOp::And, _, Some(0)) | (IntBinOp::And, Some(0), _) => return self.bconst(false),
+                (IntBinOp::Or, _, Some(0))
+                | (IntBinOp::And, _, Some(1))
+                | (IntBinOp::Xor, _, Some(0)) => return a,
+                (IntBinOp::Or, Some(0), _)
+                | (IntBinOp::And, Some(1), _)
+                | (IntBinOp::Xor, Some(0), _) => return b,
+                (IntBinOp::Or, _, Some(1)) | (IntBinOp::Or, Some(1), _) => {
+                    return self.bconst(true)
+                }
+                (IntBinOp::And, _, Some(0)) | (IntBinOp::And, Some(0), _) => {
+                    return self.bconst(false)
+                }
                 _ => {}
             }
         } else if ty.is_int() {
             // zero identities and absorption (a raise mask's `or` over constant-0 masks stays constant)
             let (ca, cb) = (self.const_of(a).map(|c| c.1), self.const_of(b).map(|c| c.1));
             match (op, ca, cb) {
-                (IntBinOp::Or | IntBinOp::Xor | IntBinOp::Add | IntBinOp::Sub, _, Some(0)) => return a,
+                (IntBinOp::Or | IntBinOp::Xor | IntBinOp::Add | IntBinOp::Sub, _, Some(0)) => {
+                    return a
+                }
                 (IntBinOp::Or | IntBinOp::Xor | IntBinOp::Add, Some(0), _) => return b,
-                (IntBinOp::And, _, Some(0)) | (IntBinOp::And, Some(0), _) => return self.iconst(ty, 0),
+                (IntBinOp::And, _, Some(0)) | (IntBinOp::And, Some(0), _) => {
+                    return self.iconst(ty, 0)
+                }
                 _ => {}
             }
         }
@@ -503,10 +604,19 @@ impl<'a> FunctionBuilder<'a> {
         }
         // Integer conversions of constants fold to a constant of the target.
         if let Some((_, bits)) = self.const_of(a) {
-            if matches!(op, ConvOp::Sext | ConvOp::Zext | ConvOp::Trunc | ConvOp::PtrToInt | ConvOp::IntToPtr) && !to.is_float() {
+            if matches!(
+                op,
+                ConvOp::Sext | ConvOp::Zext | ConvOp::Trunc | ConvOp::PtrToInt | ConvOp::IntToPtr
+            ) && !to.is_float()
+            {
                 let from = self.value_type(a);
                 let v = match op {
-                    ConvOp::Zext => match from.bytes() { 1 => bits & 0xff, 2 => bits & 0xffff, 4 => bits & 0xffff_ffff, _ => bits },
+                    ConvOp::Zext => match from.bytes() {
+                        1 => bits & 0xff,
+                        2 => bits & 0xffff,
+                        4 => bits & 0xffff_ffff,
+                        _ => bits,
+                    },
                     _ => bits,
                 };
                 return self.const_raw(to, v);
@@ -514,7 +624,10 @@ impl<'a> FunctionBuilder<'a> {
             // A bit pattern reinterpreted is still a constant (so float
             // constants built from Datum bits are visible as constants).
             if op == ConvOp::Bitcast {
-                let v = match to.bytes() { 4 => bits & 0xffff_ffff, _ => bits };
+                let v = match to.bytes() {
+                    4 => bits & 0xffff_ffff,
+                    _ => bits,
+                };
                 return self.const_raw(to, v);
             }
         }
@@ -532,26 +645,74 @@ impl<'a> FunctionBuilder<'a> {
         self.push_val(ty, Op::Select { cond, a, b })
     }
     pub fn load(&mut self, ty: Type, ptr: Value, offset: i32) -> Value {
-        self.push_val(ty, Op::Load { ty, ptr, offset, unaligned: false })
+        self.push_val(
+            ty,
+            Op::Load {
+                ty,
+                ptr,
+                offset,
+                unaligned: false,
+            },
+        )
     }
     pub fn load_unaligned(&mut self, ty: Type, ptr: Value, offset: i32) -> Value {
-        self.push_val(ty, Op::Load { ty, ptr, offset, unaligned: true })
+        self.push_val(
+            ty,
+            Op::Load {
+                ty,
+                ptr,
+                offset,
+                unaligned: true,
+            },
+        )
     }
     /// Zero-extending load of a narrow integer to `I64`.
     pub fn load_zext(&mut self, ty: Type, ptr: Value, offset: i32) -> Value {
         debug_assert!(matches!(ty, Type::I8 | Type::I16 | Type::I32));
-        self.push_val(Type::I64, Op::LoadZext { ty, ptr, offset, unaligned: false })
+        self.push_val(
+            Type::I64,
+            Op::LoadZext {
+                ty,
+                ptr,
+                offset,
+                unaligned: false,
+            },
+        )
     }
     /// `load_zext` of a narrow integer at any alignment (text bytes).
     pub fn load_zext_unaligned(&mut self, ty: Type, ptr: Value, offset: i32) -> Value {
         debug_assert!(matches!(ty, Type::I8 | Type::I16 | Type::I32));
-        self.push_val(Type::I64, Op::LoadZext { ty, ptr, offset, unaligned: true })
+        self.push_val(
+            Type::I64,
+            Op::LoadZext {
+                ty,
+                ptr,
+                offset,
+                unaligned: true,
+            },
+        )
     }
     pub fn store(&mut self, ptr: Value, offset: i32, value: Value) {
-        self.push(None, Op::Store { ptr, offset, value, unaligned: false });
+        self.push(
+            None,
+            Op::Store {
+                ptr,
+                offset,
+                value,
+                unaligned: false,
+            },
+        );
     }
     pub fn store_unaligned(&mut self, ptr: Value, offset: i32, value: Value) {
-        self.push(None, Op::Store { ptr, offset, value, unaligned: true });
+        self.push(
+            None,
+            Op::Store {
+                ptr,
+                offset,
+                value,
+                unaligned: true,
+            },
+        );
     }
     /// Prefetch hint for `ptr + offset` (no result).
     pub fn prefetch(&mut self, ptr: Value, offset: i32) {
@@ -569,7 +730,15 @@ impl<'a> FunctionBuilder<'a> {
         self.push_val(Type::Ptr, Op::StackAddr { slot })
     }
     pub fn ptr_add(&mut self, base: Value, index: Value, scale: u8, offset: i32) -> Value {
-        self.push_val(Type::Ptr, Op::PtrAdd { base, index, scale, offset })
+        self.push_val(
+            Type::Ptr,
+            Op::PtrAdd {
+                base,
+                index,
+                scale,
+                offset,
+            },
+        )
     }
 
     /// Call an internal function. `ret` is its return type (`None` for void);
@@ -578,7 +747,12 @@ impl<'a> FunctionBuilder<'a> {
         let args = self.mint.slice_from(args);
         self.push(ret, Op::Call { callee, args })
     }
-    pub fn call_host(&mut self, callee: HostFn, args: &[Value], ret: Option<Type>) -> Option<Value> {
+    pub fn call_host(
+        &mut self,
+        callee: HostFn,
+        args: &[Value],
+        ret: Option<Type>,
+    ) -> Option<Value> {
         let args = self.mint.slice_from(args);
         self.push(ret, Op::CallHost { callee, args })
     }
@@ -587,17 +761,49 @@ impl<'a> FunctionBuilder<'a> {
 
     pub fn vload(&mut self, ty: Type, ptr: Value, offset: i32) -> Value {
         debug_assert!(ty.is_vector());
-        self.push_val(ty, Op::VecLoad { ty, ptr, offset, unaligned: false })
+        self.push_val(
+            ty,
+            Op::VecLoad {
+                ty,
+                ptr,
+                offset,
+                unaligned: false,
+            },
+        )
     }
     pub fn vload_unaligned(&mut self, ty: Type, ptr: Value, offset: i32) -> Value {
         debug_assert!(ty.is_vector());
-        self.push_val(ty, Op::VecLoad { ty, ptr, offset, unaligned: true })
+        self.push_val(
+            ty,
+            Op::VecLoad {
+                ty,
+                ptr,
+                offset,
+                unaligned: true,
+            },
+        )
     }
     pub fn vstore(&mut self, ptr: Value, offset: i32, value: Value) {
-        self.push(None, Op::VecStore { ptr, offset, value, unaligned: false });
+        self.push(
+            None,
+            Op::VecStore {
+                ptr,
+                offset,
+                value,
+                unaligned: false,
+            },
+        );
     }
     pub fn vstore_unaligned(&mut self, ptr: Value, offset: i32, value: Value) {
-        self.push(None, Op::VecStore { ptr, offset, value, unaligned: true });
+        self.push(
+            None,
+            Op::VecStore {
+                ptr,
+                offset,
+                value,
+                unaligned: true,
+            },
+        );
     }
     pub fn vbin(&mut self, op: VecBinOp, a: Value, b: Value) -> Value {
         let ty = self.value_type(a);
@@ -640,11 +846,17 @@ impl<'a> FunctionBuilder<'a> {
         self.push_val(ty, Op::VecInsert { a, lane, value })
     }
     pub fn vwiden(&mut self, a: Value, signed: bool, high: bool) -> Value {
-        let ty = self.value_type(a).widened().expect("vwiden of a widenable vector");
+        let ty = self
+            .value_type(a)
+            .widened()
+            .expect("vwiden of a widenable vector");
         self.push_val(ty, Op::VecWiden { a, signed, high })
     }
     pub fn vnarrow(&mut self, a: Value, b: Value) -> Value {
-        let ty = self.value_type(a).narrowed().expect("vnarrow of a narrowable vector");
+        let ty = self
+            .value_type(a)
+            .narrowed()
+            .expect("vnarrow of a narrowable vector");
         self.push_val(ty, Op::VecNarrow { a, b })
     }
     /// Reinterpret the 128 bits of `a` as vector type `to` (free in the
@@ -653,7 +865,14 @@ impl<'a> FunctionBuilder<'a> {
         if self.value_type(a) == to {
             return a;
         }
-        self.push_val(to, Op::Conv { op: ConvOp::Bitcast, to, a })
+        self.push_val(
+            to,
+            Op::Conv {
+                op: ConvOp::Bitcast,
+                to,
+                a,
+            },
+        )
     }
 
     // -- terminators ---------------------------------------------------------
@@ -669,16 +888,32 @@ impl<'a> FunctionBuilder<'a> {
             return self.br(b, args);
         }
         let (then_edge, else_edge) = (self.mint.edge(then.0, then.1), self.mint.edge(els.0, els.1));
-        self.terminate(Terminator::CondBr { cond, then_edge, else_edge });
+        self.terminate(Terminator::CondBr {
+            cond,
+            then_edge,
+            else_edge,
+        });
     }
     /// A multi-way branch on `value`: each case `(bits, target, args)`, then `default`.
-    pub fn switch<A: AsRef<[Value]>>(&mut self, value: Value, cases: impl IntoIterator<Item = (u64, Block, A)>, default: (Block, &[Value])) {
+    pub fn switch<A: AsRef<[Value]>>(
+        &mut self,
+        value: Value,
+        cases: impl IntoIterator<Item = (u64, Block, A)>,
+        default: (Block, &[Value]),
+    ) {
         let mut cs = self.mint.vec();
         for (v, t, args) in cases {
-            cs.push(SwitchCase { value: v, edge: self.mint.edge(t, args.as_ref()) });
+            cs.push(SwitchCase {
+                value: v,
+                edge: self.mint.edge(t, args.as_ref()),
+            });
         }
         let default = self.mint.edge(default.0, default.1);
-        self.terminate(Terminator::Switch { value, cases: IrSlice::from_vec(cs), default });
+        self.terminate(Terminator::Switch {
+            value,
+            cases: IrSlice::from_vec(cs),
+            default,
+        });
     }
     pub fn ret(&mut self, values: &[Value]) {
         let vs = self.mint.slice_from(values);

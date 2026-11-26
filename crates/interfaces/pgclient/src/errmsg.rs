@@ -64,7 +64,10 @@ fn atoi(s: &str) -> i32 {
         Some(r) => (true, r),
         None => (false, t.strip_prefix('+').unwrap_or(t)),
     };
-    let end = digits.bytes().position(|b| !b.is_ascii_digit()).unwrap_or(digits.len());
+    let end = digits
+        .bytes()
+        .position(|b| !b.is_ascii_digit())
+        .unwrap_or(digits.len());
     let v: i64 = digits[..end].parse().unwrap_or(0);
     let v = v.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
     if neg {
@@ -225,7 +228,10 @@ mod tests {
             hint: "h".into(),
             ..Default::default()
         };
-        assert_eq!(build_message(&f, Some("select f()"), false), "NOTICE:  n\nDETAIL:  d\nHINT:  h\n");
+        assert_eq!(
+            build_message(&f, Some("select f()"), false),
+            "NOTICE:  n\nDETAIL:  d\nHINT:  h\n"
+        );
         assert_eq!(
             build_message(&f, Some("select f()"), true),
             "NOTICE:  n\nDETAIL:  d\nHINT:  h\nCONTEXT:  PL/pgSQL function f() line 1\n"

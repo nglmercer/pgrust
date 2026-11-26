@@ -21,7 +21,10 @@ unsafe fn run_of(words: &mut [u64], keys: &[u64]) -> *mut u8 {
     let run = words.as_mut_ptr() as *mut u8;
     TopK::at_cap(run, keys.len() as u32, keys.len() as u32, 2, 0);
     for &k in keys {
-        assert_eq!(topk_insert(run, [k, 10 * k].as_ptr(), [0u8, 0].as_ptr(), 2), 1);
+        assert_eq!(
+            topk_insert(run, [k, 10 * k].as_ptr(), [0u8, 0].as_ptr(), 2),
+            1
+        );
     }
     run
 }
@@ -34,11 +37,21 @@ fn a_bug_panic_in_an_entry_is_its_error_not_an_abort() {
     unsafe {
         let run = run_of(&mut words, &[7, 3]);
         (*(run as *mut TopK)).flags |= TOPK_SECOND_PAIR;
-        assert_eq!(topk_order(run, 2), ERROR, "the entry's failure word, the process alive");
+        assert_eq!(
+            topk_order(run, 2),
+            ERROR,
+            "the entry's failure word, the process alive"
+        );
     }
     let payload = resumed().expect("the panic parked for the program's caller");
-    let msg = payload.downcast_ref::<String>().map(String::as_str).unwrap_or("");
-    assert!(msg.contains("index out of bounds"), "the bug's own payload: {msg:?}");
+    let msg = payload
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .unwrap_or("");
+    assert!(
+        msg.contains("index out of bounds"),
+        "the bug's own payload: {msg:?}"
+    );
     assert!(resumed().is_none(), "one park, one resume");
 }
 
@@ -78,9 +91,21 @@ fn an_error_raised_inside_an_entry_keeps_its_sqlstate() {
     }
     set_entry_runs_offer(raising);
     let layout = [0u64; LAYOUT_WORDS];
-    let r = unsafe { entry_runs_offer(core::ptr::null_mut(), 0, layout.as_ptr() as *const RecordLayout, 4) };
+    let r = unsafe {
+        entry_runs_offer(
+            core::ptr::null_mut(),
+            0,
+            layout.as_ptr() as *const RecordLayout,
+            4,
+        )
+    };
     assert_eq!(r, 0, "an offer never fails the claim");
     let payload = resumed().expect("the ERROR parked for the program's caller");
-    let pg = payload.downcast_ref::<Box<PgError>>().expect("the PgError payload, intact");
-    assert_eq!((pg.message(), pg.sqlstate().0), ("division by zero", SQLSTATE_22012));
+    let pg = payload
+        .downcast_ref::<Box<PgError>>()
+        .expect("the PgError payload, intact");
+    assert_eq!(
+        (pg.message(), pg.sqlstate().0),
+        ("division by zero", SQLSTATE_22012)
+    );
 }

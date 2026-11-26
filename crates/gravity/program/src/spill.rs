@@ -162,19 +162,50 @@ impl NoSpill {
 
     /// Every reason, in code order (`ALL[c].code() == c`).
     pub const ALL: [NoSpill; NoSpill::Unrouted as usize + 1] = [
-        NoSpill::BuildNoProbe, NoSpill::BuildNestInner, NoSpill::BuildNoProbeOp,
-        NoSpill::BuildGuarded, NoSpill::BuildSwapped, NoSpill::BuildCompact, NoSpill::BuildFaceOff,
-        NoSpill::ArmsNotOneRun, NoSpill::ArmsOpNotProbe, NoSpill::ArmsDrainEnd, NoSpill::ArmsApart,
-        NoSpill::SpooledDrain, NoSpill::ProbeShape, NoSpill::VolatileDomainKey, NoSpill::JoinTypeOutside,
-        NoSpill::ProbeSlotApart, NoSpill::ConsumesMore, NoSpill::ChainTail, NoSpill::ResidentInRerun,
-        NoSpill::ProgramWrites, NoSpill::RemadeSet, NoSpill::DrainShape, NoSpill::DrainShared,
-        NoSpill::SinkNotEndSink, NoSpill::EndArmsFaceOff, NoSpill::SortNotPair, NoSpill::PlainScanRegister,
-        NoSpill::HashAggNotPair, NoSpill::EndHashBuild, NoSpill::EndOther, NoSpill::EndRowOp,
-        NoSpill::MergeRunPulled, NoSpill::UnionArmRun, NoSpill::KeyCopies,
-        NoSpill::TwoPassPass1, NoSpill::SetOpRightSide, NoSpill::SetOpSortedSide,
-        NoSpill::ConstantPastCap, NoSpill::BuildPartitionPastGrant, NoSpill::BuildLeaderMerge,
-        NoSpill::BuildSpillMerge, NoSpill::AggOwnerAll,
-        NoSpill::AggPartitionPastGrant, NoSpill::LoadSealPastLine,
+        NoSpill::BuildNoProbe,
+        NoSpill::BuildNestInner,
+        NoSpill::BuildNoProbeOp,
+        NoSpill::BuildGuarded,
+        NoSpill::BuildSwapped,
+        NoSpill::BuildCompact,
+        NoSpill::BuildFaceOff,
+        NoSpill::ArmsNotOneRun,
+        NoSpill::ArmsOpNotProbe,
+        NoSpill::ArmsDrainEnd,
+        NoSpill::ArmsApart,
+        NoSpill::SpooledDrain,
+        NoSpill::ProbeShape,
+        NoSpill::VolatileDomainKey,
+        NoSpill::JoinTypeOutside,
+        NoSpill::ProbeSlotApart,
+        NoSpill::ConsumesMore,
+        NoSpill::ChainTail,
+        NoSpill::ResidentInRerun,
+        NoSpill::ProgramWrites,
+        NoSpill::RemadeSet,
+        NoSpill::DrainShape,
+        NoSpill::DrainShared,
+        NoSpill::SinkNotEndSink,
+        NoSpill::EndArmsFaceOff,
+        NoSpill::SortNotPair,
+        NoSpill::PlainScanRegister,
+        NoSpill::HashAggNotPair,
+        NoSpill::EndHashBuild,
+        NoSpill::EndOther,
+        NoSpill::EndRowOp,
+        NoSpill::MergeRunPulled,
+        NoSpill::UnionArmRun,
+        NoSpill::KeyCopies,
+        NoSpill::TwoPassPass1,
+        NoSpill::SetOpRightSide,
+        NoSpill::SetOpSortedSide,
+        NoSpill::ConstantPastCap,
+        NoSpill::BuildPartitionPastGrant,
+        NoSpill::BuildLeaderMerge,
+        NoSpill::BuildSpillMerge,
+        NoSpill::AggOwnerAll,
+        NoSpill::AggPartitionPastGrant,
+        NoSpill::LoadSealPastLine,
         NoSpill::Unrouted,
     ];
 
@@ -191,7 +222,10 @@ impl NoSpill {
     /// one list `agrees` admits a disagreement for. A site leaves it when it spills or its descriptor says `Spill::None`.
     pub const fn keeps_declared(self) -> bool {
         use NoSpill::*;
-        !matches!(self, KeyCopies | TwoPassPass1 | ConstantPastCap | LoadSealPastLine | Unrouted)
+        !matches!(
+            self,
+            KeyCopies | TwoPassPass1 | ConstantPastCap | LoadSealPastLine | Unrouted
+        )
     }
 
     /// The one plain sentence a user reads for this reason: its SPILL-DEBT row's field 8 (lint/SPILL-DEBT/<reason>, which
@@ -282,12 +316,18 @@ impl Holds {
 /// Bug, answered `Unrouted` so `agrees` names it.
 pub const fn plan(b: &Breaker, shape: Shape) -> Holds {
     match shape {
-        Shape::Spills(Spill::None | Spill::Partitioned { bits: 0 }) => Holds::Bounded(Proof::Estimate(NoSpill::Unrouted)),
+        Shape::Spills(Spill::None | Spill::Partitioned { bits: 0 }) => {
+            Holds::Bounded(Proof::Estimate(NoSpill::Unrouted))
+        }
         Shape::Spills(s) => Holds::Spills(s),
         Shape::Constant(n) if n <= CONSTANT_PROOF_BYTES => Holds::Bounded(Proof::Constant(n)),
         Shape::Constant(_) => Holds::Bounded(Proof::Estimate(NoSpill::ConstantPastCap)),
-        Shape::PgHolds(PgHolds::SetOpSide) if matches!(b.budget, Budget::Pool) => Holds::Bounded(Proof::PgHoldsToo(PgHolds::SetOpSide)),
-        Shape::PgHolds(PgHolds::HashedSubPlan) if matches!(b.kind, BreakerKind::Distinct) => Holds::Bounded(Proof::PgHoldsToo(PgHolds::HashedSubPlan)),
+        Shape::PgHolds(PgHolds::SetOpSide) if matches!(b.budget, Budget::Pool) => {
+            Holds::Bounded(Proof::PgHoldsToo(PgHolds::SetOpSide))
+        }
+        Shape::PgHolds(PgHolds::HashedSubPlan) if matches!(b.kind, BreakerKind::Distinct) => {
+            Holds::Bounded(Proof::PgHoldsToo(PgHolds::HashedSubPlan))
+        }
         Shape::PgHolds(_) => Holds::Bounded(Proof::Estimate(NoSpill::Unrouted)),
         Shape::Grows(w) => Holds::Bounded(Proof::Estimate(w)),
     }
@@ -311,10 +351,15 @@ pub const fn declared(b: &Breaker) -> Holds {
 pub const fn agrees(b: &Breaker, h: Holds) -> bool {
     match (b.spill, h) {
         (_, Holds::Bounded(Proof::Estimate(NoSpill::Unrouted))) => false,
-        (Spill::Partitioned { .. }, Holds::Spills(Spill::Partitioned { .. })) | (Spill::Runs, Holds::Spills(Spill::Runs)) => true,
+        (Spill::Partitioned { .. }, Holds::Spills(Spill::Partitioned { .. }))
+        | (Spill::Runs, Holds::Spills(Spill::Runs)) => true,
         (Spill::None, Holds::Bounded(_)) => true,
-        (Spill::Partitioned { .. }, Holds::Bounded(Proof::PgHoldsToo(PgHolds::HashedSubPlan))) => true,
-        (Spill::Partitioned { .. } | Spill::Runs, Holds::Bounded(Proof::Estimate(w))) => w.keeps_declared(),
+        (Spill::Partitioned { .. }, Holds::Bounded(Proof::PgHoldsToo(PgHolds::HashedSubPlan))) => {
+            true
+        }
+        (Spill::Partitioned { .. } | Spill::Runs, Holds::Bounded(Proof::Estimate(w))) => {
+            w.keeps_declared()
+        }
         _ => false,
     }
 }
@@ -324,23 +369,56 @@ mod tests {
     use super::*;
 
     fn br(kind: BreakerKind, budget: Budget, spill: Spill) -> Breaker {
-        Breaker { kind, slot: 0, bytes: 0, budget, spill }
+        Breaker {
+            kind,
+            slot: 0,
+            bytes: 0,
+            budget,
+            spill,
+        }
     }
 
     #[test]
     fn a_declared_spill_spills_and_a_constant_is_bounded_up_to_the_cap() {
-        let agg = br(BreakerKind::HashAgg, Budget::Share, Spill::Partitioned { bits: 5 });
-        assert_eq!(declared(&agg), Holds::Spills(Spill::Partitioned { bits: 5 }));
-        assert_eq!(declared(&br(BreakerKind::Sort, Budget::Share, Spill::Runs)), Holds::Spills(Spill::Runs));
+        let agg = br(
+            BreakerKind::HashAgg,
+            Budget::Share,
+            Spill::Partitioned { bits: 5 },
+        );
+        assert_eq!(
+            declared(&agg),
+            Holds::Spills(Spill::Partitioned { bits: 5 })
+        );
+        assert_eq!(
+            declared(&br(BreakerKind::Sort, Budget::Share, Spill::Runs)),
+            Holds::Spills(Spill::Runs)
+        );
         let plain = br(BreakerKind::PlainAgg, Budget::Fixed(64), Spill::None);
         assert_eq!(declared(&plain), Holds::Bounded(Proof::Constant(64)));
-        let big = br(BreakerKind::TopK, Budget::Fixed(CONSTANT_PROOF_BYTES + 1), Spill::None);
-        assert_eq!(declared(&big), Holds::Bounded(Proof::Estimate(NoSpill::ConstantPastCap)));
+        let big = br(
+            BreakerKind::TopK,
+            Budget::Fixed(CONSTANT_PROOF_BYTES + 1),
+            Spill::None,
+        );
+        assert_eq!(
+            declared(&big),
+            Holds::Bounded(Proof::Estimate(NoSpill::ConstantPastCap))
+        );
         let side = br(BreakerKind::HashAgg, Budget::Pool, Spill::None);
-        assert_eq!(declared(&side), Holds::Bounded(Proof::PgHoldsToo(PgHolds::SetOpSide)));
+        assert_eq!(
+            declared(&side),
+            Holds::Bounded(Proof::PgHoldsToo(PgHolds::SetOpSide))
+        );
         let top = br(BreakerKind::TopK, Budget::Share, Spill::Runs);
-        assert_eq!(declared(&top), Holds::Spills(Spill::Runs), "a top over the share spills its runs");
-        assert_eq!(declared(&br(BreakerKind::TopK, Budget::Share, Spill::None)), Holds::Bounded(Proof::Estimate(NoSpill::Unrouted)));
+        assert_eq!(
+            declared(&top),
+            Holds::Spills(Spill::Runs),
+            "a top over the share spills its runs"
+        );
+        assert_eq!(
+            declared(&br(BreakerKind::TopK, Budget::Share, Spill::None)),
+            Holds::Bounded(Proof::Estimate(NoSpill::Unrouted))
+        );
         for b in [agg, plain, big, side, top] {
             assert!(agrees(&b, declared(&b)), "{b:?}");
         }
@@ -349,17 +427,34 @@ mod tests {
     #[test]
     fn a_road_of_no_spill_and_a_misplaced_pg_form_are_unrouted() {
         let sort = br(BreakerKind::Sort, Budget::Share, Spill::Runs);
-        for s in [Shape::Spills(Spill::None), Shape::Spills(Spill::Partitioned { bits: 0 }), Shape::PgHolds(PgHolds::SetOpSide), Shape::PgHolds(PgHolds::HashedSubPlan)] {
-            assert_eq!(plan(&sort, s), Holds::Bounded(Proof::Estimate(NoSpill::Unrouted)), "{s:?}");
+        for s in [
+            Shape::Spills(Spill::None),
+            Shape::Spills(Spill::Partitioned { bits: 0 }),
+            Shape::PgHolds(PgHolds::SetOpSide),
+            Shape::PgHolds(PgHolds::HashedSubPlan),
+        ] {
+            assert_eq!(
+                plan(&sort, s),
+                Holds::Bounded(Proof::Estimate(NoSpill::Unrouted)),
+                "{s:?}"
+            );
             assert!(!agrees(&sort, plan(&sort, s)));
         }
         let keyed = br(BreakerKind::HashAgg, Budget::Share, Spill::None);
-        assert_eq!(declared(&keyed), Holds::Bounded(Proof::Estimate(NoSpill::Unrouted)), "a keyed share with no spill names its site");
+        assert_eq!(
+            declared(&keyed),
+            Holds::Bounded(Proof::Estimate(NoSpill::Unrouted)),
+            "a keyed share with no spill names its site"
+        );
     }
 
     #[test]
     fn every_reason_answers_its_code() {
-        assert_eq!(NoSpill::ALL.len(), NoSpill::Unrouted as usize + 1, "ALL lists every reason");
+        assert_eq!(
+            NoSpill::ALL.len(),
+            NoSpill::Unrouted as usize + 1,
+            "ALL lists every reason"
+        );
         for (c, w) in NoSpill::ALL.iter().enumerate() {
             assert_eq!(w.code() as usize, c, "{w:?}");
             assert_eq!(NoSpill::from_code(c as u8), Some(*w));
@@ -369,12 +464,35 @@ mod tests {
 
     #[test]
     fn a_kept_declared_spill_agrees_only_for_a_listed_site() {
-        let build = br(BreakerKind::HashBuild, Budget::Share, Spill::Partitioned { bits: 4 });
-        assert!(agrees(&build, plan(&build, Shape::Grows(NoSpill::BuildGuarded))));
-        assert!(agrees(&build, plan(&build, Shape::Spills(Spill::Partitioned { bits: 6 }))), "the lowered bits are the build's own");
-        assert!(!agrees(&build, plan(&build, Shape::Grows(NoSpill::KeyCopies))), "a resident keyed end says Spill::None");
+        let build = br(
+            BreakerKind::HashBuild,
+            Budget::Share,
+            Spill::Partitioned { bits: 4 },
+        );
+        assert!(agrees(
+            &build,
+            plan(&build, Shape::Grows(NoSpill::BuildGuarded))
+        ));
+        assert!(
+            agrees(
+                &build,
+                plan(&build, Shape::Spills(Spill::Partitioned { bits: 6 }))
+            ),
+            "the lowered bits are the build's own"
+        );
+        assert!(
+            !agrees(&build, plan(&build, Shape::Grows(NoSpill::KeyCopies))),
+            "a resident keyed end says Spill::None"
+        );
         assert!(!agrees(&build, Holds::Spills(Spill::Runs)));
-        let set = br(BreakerKind::Distinct, Budget::Share, Spill::Partitioned { bits: 3 });
-        assert!(agrees(&set, plan(&set, Shape::PgHolds(PgHolds::HashedSubPlan))));
+        let set = br(
+            BreakerKind::Distinct,
+            Budget::Share,
+            Spill::Partitioned { bits: 3 },
+        );
+        assert!(agrees(
+            &set,
+            plan(&set, Shape::PgHolds(PgHolds::HashedSubPlan))
+        ));
     }
 }

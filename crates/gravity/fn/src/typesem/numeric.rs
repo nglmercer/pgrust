@@ -29,11 +29,22 @@ impl Mantissa {
     /// held or its negation overflows.
     pub fn rounded(&self, down: bool) -> Option<i128> {
         let v = self.value?;
-        let Some(p) = u32::try_from(self.dscale).ok().and_then(|d| 10i128.checked_pow(d)) else {
+        let Some(p) = u32::try_from(self.dscale)
+            .ok()
+            .and_then(|d| 10i128.checked_pow(d))
+        else {
             // 10^dscale past an i128 while the mantissa is held: |value| < 1
-            return Some(if down { -((v < 0) as i128) } else { (v > 0) as i128 });
+            return Some(if down {
+                -((v < 0) as i128)
+            } else {
+                (v > 0) as i128
+            });
         };
-        if down { Some(v.div_euclid(p)) } else { Some(-(v.checked_neg()?.div_euclid(p))) }
+        if down {
+            Some(v.div_euclid(p))
+        } else {
+            Some(-(v.checked_neg()?.div_euclid(p)))
+        }
     }
 }
 
@@ -46,23 +57,42 @@ pub fn mantissa(payload: &[u8]) -> Option<Mantissa> {
 
 /// `mantissa`; `fast` false sums every digit's term in an i128 (the reference its u64 path is tested against).
 fn read(payload: &[u8], fast: bool) -> Option<Mantissa> {
-    if ! payload.len().is_multiple_of( 2) {
+    if !payload.len().is_multiple_of(2) {
         return None;
     }
-    let rd = |i: usize| payload.get(2 * i..2 * i + 2).map(|b| u16::from_le_bytes([b[0], b[1]]));
+    let rd = |i: usize| {
+        payload
+            .get(2 * i..2 * i + 2)
+            .map(|b| u16::from_le_bytes([b[0], b[1]]))
+    };
     let h = rd(0)?;
     // numeric.c's header word: 0xC000 special; 0x8000 short (sign 0x2000, dscale bits 7..12, weight bits 0..6 with its
     // sign at 0x40); else long (sign 0x4000, dscale the low 14 bits, the weight in the next word)
     let (neg, dscale, mut weight, first) = match h & 0xC000 {
         0xC000 => return None,
-        0x8000 => (h & 0x2000 != 0, ((h & 0x1F80) >> 7) as i32, if h & 0x40 != 0 { (h | !0x3F) as i16 as i32 } else { (h & 0x3F) as i32 }, 1),
+        0x8000 => (
+            h & 0x2000 != 0,
+            ((h & 0x1F80) >> 7) as i32,
+            if h & 0x40 != 0 {
+                (h | !0x3F) as i16 as i32
+            } else {
+                (h & 0x3F) as i32
+            },
+            1,
+        ),
         s => (s == 0x4000, (h & 0x3FFF) as i32, rd(1)? as i16 as i32, 2),
     };
     // leading zero digits (numeric.c strips them; a hand-built image still reads) each lower the weight by one place
     let n = payload.len() / 2;
     let start = (first..n).find(|&i| rd(i) != Some(0)).unwrap_or(n);
     weight -= (start - first) as i32;
-    let Some(lead) = rd(start).filter(|_| start < n) else { return Some(Mantissa { dscale, digits: 1, value: Some(0) }) };
+    let Some(lead) = rd(start).filter(|_| start < n) else {
+        return Some(Mantissa {
+            dscale,
+            digits: 1,
+            value: Some(0),
+        });
+    };
     // the leading digit's place: its own decimal digits, 4 per base-10000 place above it, then the dscale
     let width = 4 * weight + dscale + (lead.checked_ilog10()? + 1) as i32;
     // D4723: a mantissa of at most 18 digits whose last base-10000 digit sits at most 3 places past the dscale (every image
@@ -91,7 +121,11 @@ fn read(payload: &[u8], fast: bool) -> Option<Mantissa> {
             }
             acc * 10u64.pow((4 + last) as u32) + (d / p) as u64
         };
-        return Some(Mantissa { dscale, digits: width as u32, value: Some(if neg { -(v as i128) } else { v as i128 }) });
+        return Some(Mantissa {
+            dscale,
+            digits: width as u32,
+            value: Some(if neg { -(v as i128) } else { v as i128 }),
+        });
     }
     let mut value = Some(0i128);
     for (i, d) in (start..n).filter_map(rd).enumerate() {
@@ -100,10 +134,12 @@ fn read(payload: &[u8], fast: bool) -> Option<Mantissa> {
         }
         let e = 4 * (weight - i as i32) + dscale;
         let term = if e >= 0 {
-            10i128.checked_pow(e as u32).and_then(|p| p.checked_mul(d as i128))
+            10i128
+                .checked_pow(e as u32)
+                .and_then(|p| p.checked_mul(d as i128))
         } else {
             let p = 10u32.checked_pow(e.unsigned_abs()).unwrap_or(u32::MAX);
-            if !( d as u32).is_multiple_of( p) {
+            if !(d as u32).is_multiple_of(p) {
                 return None;
             }
             Some((d as u32 / p) as i128)
@@ -111,7 +147,11 @@ fn read(payload: &[u8], fast: bool) -> Option<Mantissa> {
         value = value.zip(term).and_then(|(v, t)| v.checked_add(t));
     }
     let digits = u32::try_from(width).ok().filter(|&w| w >= 1)?;
-    Some(Mantissa { dscale, digits, value: value.map(|v| if neg { -v } else { v }) })
+    Some(Mantissa {
+        dscale,
+        digits,
+        value: value.map(|v| if neg { -v } else { v }),
+    })
 }
 
 /// A numeric payload's order word (numeric.c `numeric_abbrev_convert_var`, the 64-bit abbreviation, its sign turned so the
@@ -121,11 +161,23 @@ fn read(payload: &[u8], fast: bool) -> Option<Mantissa> {
 /// weight 83 or under weight -44 share one, so a tie is the comparator's to decide. A payload numeric.c never writes
 /// reads 0.
 pub fn order_word(payload: &[u8]) -> i64 {
-    let rd = |i: usize| payload.get(2 * i..2 * i + 2).map_or(0, |b| u16::from_le_bytes([b[0], b[1]]));
+    let rd = |i: usize| {
+        payload
+            .get(2 * i..2 * i + 2)
+            .map_or(0, |b| u16::from_le_bytes([b[0], b[1]]))
+    };
     let h = rd(0);
     let (neg, weight, first) = match h & 0xC000 {
         0xC000 => return if h == 0xF000 { i64::MIN } else { i64::MAX },
-        0x8000 => (h & 0x2000 != 0, if h & 0x40 != 0 { (h | !0x3F) as i16 as i32 } else { (h & 0x3F) as i32 }, 1),
+        0x8000 => (
+            h & 0x2000 != 0,
+            if h & 0x40 != 0 {
+                (h | !0x3F) as i16 as i32
+            } else {
+                (h & 0x3F) as i32
+            },
+            1,
+        ),
         s => (s == 0x4000, rd(1) as i16 as i32, 2),
     };
     let n = (payload.len() / 2).saturating_sub(first);
@@ -134,9 +186,17 @@ pub fn order_word(payload: &[u8]) -> i64 {
     } else if weight > 83 {
         i64::MAX
     } else {
-        (0..4).filter(|&i| i < n).fold(((weight + 44) as i64) << 56, |m, i| m | ((rd(first + i) & 0x3FFF) as i64) << (42 - 14 * i))
+        (0..4)
+            .filter(|&i| i < n)
+            .fold(((weight + 44) as i64) << 56, |m, i| {
+                m | ((rd(first + i) & 0x3FFF) as i64) << (42 - 14 * i)
+            })
     };
-    if neg { -m } else { m }
+    if neg {
+        -m
+    } else {
+        m
+    }
 }
 
 /// The order key's specials, set apart from every finite key in `key >> 4` (its value part): NaN above +Infinity above
@@ -173,7 +233,9 @@ pub fn order_key(payload: &[u8]) -> i64 {
             _ => NO_KEY,
         };
     };
-    let (Some(v), d) = (m.word(), m.dscale as i64) else { return NO_KEY };
+    let (Some(v), d) = (m.word(), m.dscale as i64) else {
+        return NO_KEY;
+    };
     if !(0..=15).contains(&d) {
         return NO_KEY;
     }
@@ -200,7 +262,7 @@ fn key_at(v: i64, d: i64, n: i64) -> i64 {
     let a = v.unsigned_abs();
     let c = if n > 16 {
         let p = 10u64.pow((n - 16) as u32);
-        if ! a.is_multiple_of( p) {
+        if !a.is_multiple_of(p) {
             return NO_KEY;
         }
         a / p
@@ -209,7 +271,11 @@ fn key_at(v: i64, d: i64, n: i64) -> i64 {
     };
     // n <= 19 and d <= 15: (n - d + 15) is 1..=34, so the key stays under 5.6e18
     let k = ((n - d + 15) * 10i64.pow(16) + c as i64) * 16;
-    if v > 0 { k + d } else { d - k }
+    if v > 0 {
+        k + d
+    } else {
+        d - k
+    }
 }
 
 /// `order_key`'s value back: `(mantissa, dscale)`, the mantissa at the dscale, an agg_final mantissa word (its sentinels
@@ -227,9 +293,16 @@ pub fn order_key_value(k: i64) -> (i64, i64) {
     if p == 0 {
         return (0, d);
     }
-    let (e, c) = ((p.unsigned_abs() / 10u64.pow(16)) as i64, p.unsigned_abs() % 10u64.pow(16));
+    let (e, c) = (
+        (p.unsigned_abs() / 10u64.pow(16)) as i64,
+        p.unsigned_abs() % 10u64.pow(16),
+    );
     let n = e - 15 + d;
-    let a = if n > 16 { c * 10u64.pow((n - 16) as u32) } else { c / 10u64.pow((16 - n) as u32) };
+    let a = if n > 16 {
+        c * 10u64.pow((n - 16) as u32)
+    } else {
+        c / 10u64.pow((16 - n) as u32)
+    };
     (if p < 0 { -(a as i64) } else { a as i64 }, d)
 }
 
@@ -262,7 +335,12 @@ pub fn pair_text_key(typid: u32, typmod: i32, bytes: u32) -> bool {
 /// numeric's typmod as `(precision, scale)` (numeric.c's NUMERIC_TYPMOD_PRECISION / _SCALE: the scale is 11 bits,
 /// signed); `None` for no typmod (-1).
 pub fn typmod_parts(typmod: i32) -> Option<(i32, i32)> {
-    adt_numeric::is_valid_numeric_typmod(typmod).then(|| (adt_numeric::numeric_typmod_precision(typmod), adt_numeric::numeric_typmod_scale(typmod)))
+    adt_numeric::is_valid_numeric_typmod(typmod).then(|| {
+        (
+            adt_numeric::numeric_typmod_precision(typmod),
+            adt_numeric::numeric_typmod_scale(typmod),
+        )
+    })
 }
 
 /// PS4-21: the error `x::numeric(p, s)` raises for an `x` that rounds past p digits at scale s: apply_typmod's own
@@ -270,9 +348,12 @@ pub fn typmod_parts(typmod: i32) -> Option<(i32, i32)> {
 #[cold]
 pub fn typmod_overflow(typmod: i32) -> Box<crate::PgError> {
     let (p, s) = typmod_parts(typmod).unwrap_or((0, 0));
-    match adt_numeric::numeric_in(&format!("1e{}", p - s), typmod, None) { // alloc: Cold
+    match adt_numeric::numeric_in(&format!("1e{}", p - s), typmod, None) {
+        // alloc: Cold
         Err(e) => e,
-        Ok(_) => Box::new(crate::PgError::error("gravity: a typmod cast's overflow that apply_typmod passes".to_string())), // alloc: Cold
+        Ok(_) => Box::new(crate::PgError::error(
+            "gravity: a typmod cast's overflow that apply_typmod passes".to_string(),
+        )), // alloc: Cold
     }
 }
 
@@ -281,14 +362,41 @@ mod tests {
     /// A numeric rounded for an integer compare: floor under `>`, ceiling under `>=`, exact at integers.
     #[test]
     fn a_value_rounds_down_and_up_to_integers() {
-        let m = |value: i128, dscale: i32| super::Mantissa { dscale, digits: 1, value: Some(value) };
-        assert_eq!((m(15, 1).rounded(true), m(15, 1).rounded(false)), (Some(1), Some(2))); // 1.5
-        assert_eq!((m(20, 1).rounded(true), m(20, 1).rounded(false)), (Some(2), Some(2))); // 2.0
-        assert_eq!((m(-5, 1).rounded(true), m(-5, 1).rounded(false)), (Some(-1), Some(0))); // -0.5
-        assert_eq!((m(3, 60).rounded(true), m(3, 60).rounded(false)), (Some(0), Some(1))); // 3e-60
-        assert_eq!((m(-3, 60).rounded(true), m(-3, 60).rounded(false)), (Some(-1), Some(0)));
+        let m = |value: i128, dscale: i32| super::Mantissa {
+            dscale,
+            digits: 1,
+            value: Some(value),
+        };
+        assert_eq!(
+            (m(15, 1).rounded(true), m(15, 1).rounded(false)),
+            (Some(1), Some(2))
+        ); // 1.5
+        assert_eq!(
+            (m(20, 1).rounded(true), m(20, 1).rounded(false)),
+            (Some(2), Some(2))
+        ); // 2.0
+        assert_eq!(
+            (m(-5, 1).rounded(true), m(-5, 1).rounded(false)),
+            (Some(-1), Some(0))
+        ); // -0.5
+        assert_eq!(
+            (m(3, 60).rounded(true), m(3, 60).rounded(false)),
+            (Some(0), Some(1))
+        ); // 3e-60
+        assert_eq!(
+            (m(-3, 60).rounded(true), m(-3, 60).rounded(false)),
+            (Some(-1), Some(0))
+        );
         assert_eq!(m(i128::MIN, 0).rounded(false), None);
-        assert_eq!(super::Mantissa { dscale: 0, digits: 40, value: None }.rounded(true), None);
+        assert_eq!(
+            super::Mantissa {
+                dscale: 0,
+                digits: 40,
+                value: None
+            }
+            .rounded(true),
+            None
+        );
     }
 
     use super::*;
@@ -297,10 +405,33 @@ mod tests {
     #[test]
     fn a_typmod_overflow_is_apply_typmods_error() {
         let tm = |p: i32, s: i32| ((p << 16) | (s & 0x7ff)) + 4;
-        for (p, s, detail) in [(12, 2, "precision 12, scale 2 must round to an absolute value less than 10^10."), (4, 4, "precision 4, scale 4 must round to an absolute value less than 1."), (2, 4, "precision 2, scale 4 must round to an absolute value less than 10^-2.")] {
+        for (p, s, detail) in [
+            (
+                12,
+                2,
+                "precision 12, scale 2 must round to an absolute value less than 10^10.",
+            ),
+            (
+                4,
+                4,
+                "precision 4, scale 4 must round to an absolute value less than 1.",
+            ),
+            (
+                2,
+                4,
+                "precision 2, scale 4 must round to an absolute value less than 10^-2.",
+            ),
+        ] {
             let e = typmod_overflow(tm(p, s));
-            assert_eq!((e.message(), e.sqlstate()), ("numeric field overflow", types_error::ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE));
-            assert_eq!(e.detail(), Some(format!("A field with {detail}").as_str())); // alloc: Cold
+            assert_eq!(
+                (e.message(), e.sqlstate()),
+                (
+                    "numeric field overflow",
+                    types_error::ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE
+                )
+            );
+            assert_eq!(e.detail(), Some(format!("A field with {detail}").as_str()));
+            // alloc: Cold
         }
     }
 
@@ -310,32 +441,123 @@ mod tests {
     fn only_types_of_a_word_of_bytes_pair() {
         use types_core::catalog::{BPCHAROID, INT4OID, TEXTOID, VARCHAROID};
         let n = |c: i32| adt_varchar::VARHDRSZ as i32 + c;
-        assert!([1, 2, 8].iter().all(|&c| pair_text_key(BPCHAROID, n(c), 0) && pair_text_key(VARCHAROID, n(c), 0)), "char / varchar(1 .. 8)");
-        assert!(!pair_text_key(BPCHAROID, n(9), 9) && !pair_text_key(VARCHAROID, n(10), 0), "char(9) (padded), varchar(10) without statistics");
-        assert!(pair_text_key(VARCHAROID, n(40), 5), "varchar(40) of short values: the statistics");
-        assert!(pair_text_key(TEXTOID, -1, 6) && pair_text_key(VARCHAROID, -1, 8) && pair_text_key(BPCHAROID, -1, 1), "values of 6, 8, 1 bytes");
-        assert!(!pair_text_key(TEXTOID, -1, 9) && !pair_text_key(TEXTOID, -1, 0), "past a word; no statistics (or empty values)");
+        assert!(
+            [1, 2, 8]
+                .iter()
+                .all(|&c| pair_text_key(BPCHAROID, n(c), 0) && pair_text_key(VARCHAROID, n(c), 0)),
+            "char / varchar(1 .. 8)"
+        );
+        assert!(
+            !pair_text_key(BPCHAROID, n(9), 9) && !pair_text_key(VARCHAROID, n(10), 0),
+            "char(9) (padded), varchar(10) without statistics"
+        );
+        assert!(
+            pair_text_key(VARCHAROID, n(40), 5),
+            "varchar(40) of short values: the statistics"
+        );
+        assert!(
+            pair_text_key(TEXTOID, -1, 6)
+                && pair_text_key(VARCHAROID, -1, 8)
+                && pair_text_key(BPCHAROID, -1, 1),
+            "values of 6, 8, 1 bytes"
+        );
+        assert!(
+            !pair_text_key(TEXTOID, -1, 9) && !pair_text_key(TEXTOID, -1, 0),
+            "past a word; no statistics (or empty values)"
+        );
         assert!(!pair_text_key(INT4OID, n(1), 4) && !pair_text_key(INT4OID, -1, 4));
-        assert!(one_char_key(BPCHAROID, n(1)) && one_char_key(VARCHAROID, n(1)) && !one_char_key(BPCHAROID, n(2)) && !one_char_key(TEXTOID, -1));
+        assert!(
+            one_char_key(BPCHAROID, n(1))
+                && one_char_key(VARCHAROID, n(1))
+                && !one_char_key(BPCHAROID, n(2))
+                && !one_char_key(TEXTOID, -1)
+        );
     }
 
     fn payload(text: &str) -> Vec<u8> {
-        adt_numeric::numeric_in(text, -1, None).unwrap().unwrap().as_bytes()[4..].to_vec()
+        adt_numeric::numeric_in(text, -1, None)
+            .unwrap()
+            .unwrap()
+            .as_bytes()[4..]
+            .to_vec()
     }
 
     /// D2356: a constant's mantissa, its digits and its dscale, past one i64 word and past an i128 too (the width alone).
     #[test]
     fn a_constant_reads_at_its_dscale_with_its_width() {
         let m = |t: &str| mantissa(&payload(t)).expect(t);
-        assert_eq!(m("13619314596827451335.1"), Mantissa { dscale: 1, digits: 21, value: Some(136_193_145_968_274_513_351) });
-        assert_eq!(m("1e35"), Mantissa { dscale: 0, digits: 36, value: Some(10i128.pow(35)) });
-        assert_eq!(m("-0.050"), Mantissa { dscale: 3, digits: 2, value: Some(-50) });
-        assert_eq!(m("0.5"), Mantissa { dscale: 1, digits: 1, value: Some(5) });
-        assert_eq!(m("0"), Mantissa { dscale: 0, digits: 1, value: Some(0) });
-        assert_eq!(m("0.000"), Mantissa { dscale: 3, digits: 1, value: Some(0) });
-        assert_eq!(m("10000"), Mantissa { dscale: 0, digits: 5, value: Some(10_000) });
-        assert_eq!(m("1e40"), Mantissa { dscale: 0, digits: 41, value: None });
-        assert_eq!(m("-98765432109876543210987654321098765432.5"), Mantissa { dscale: 1, digits: 39, value: None });
+        assert_eq!(
+            m("13619314596827451335.1"),
+            Mantissa {
+                dscale: 1,
+                digits: 21,
+                value: Some(136_193_145_968_274_513_351)
+            }
+        );
+        assert_eq!(
+            m("1e35"),
+            Mantissa {
+                dscale: 0,
+                digits: 36,
+                value: Some(10i128.pow(35))
+            }
+        );
+        assert_eq!(
+            m("-0.050"),
+            Mantissa {
+                dscale: 3,
+                digits: 2,
+                value: Some(-50)
+            }
+        );
+        assert_eq!(
+            m("0.5"),
+            Mantissa {
+                dscale: 1,
+                digits: 1,
+                value: Some(5)
+            }
+        );
+        assert_eq!(
+            m("0"),
+            Mantissa {
+                dscale: 0,
+                digits: 1,
+                value: Some(0)
+            }
+        );
+        assert_eq!(
+            m("0.000"),
+            Mantissa {
+                dscale: 3,
+                digits: 1,
+                value: Some(0)
+            }
+        );
+        assert_eq!(
+            m("10000"),
+            Mantissa {
+                dscale: 0,
+                digits: 5,
+                value: Some(10_000)
+            }
+        );
+        assert_eq!(
+            m("1e40"),
+            Mantissa {
+                dscale: 0,
+                digits: 41,
+                value: None
+            }
+        );
+        assert_eq!(
+            m("-98765432109876543210987654321098765432.5"),
+            Mantissa {
+                dscale: 1,
+                digits: 39,
+                value: None
+            }
+        );
         for s in ["NaN", "Infinity", "-Infinity"] {
             assert_eq!(mantissa(&payload(s)), None, "{s}");
         }
@@ -346,16 +568,42 @@ mod tests {
     #[test]
     fn one_word_is_where_num_mantissa_reads_one() {
         use crate::agg_final::{num_mantissa, NO_MANTISSA};
-        let lits = ["1.5", "-1.50", "922337203685477580.5", "9223372036854775805", "-9223372036854775805", "9223372036854775806", "-9223372036854775806",
-            "9223372036854775807", "123456789012345678901", "0.000000000000000001", "-0.0000001234", "99999999.9999", "1e18", "1e19", "42"];
+        let lits = [
+            "1.5",
+            "-1.50",
+            "922337203685477580.5",
+            "9223372036854775805",
+            "-9223372036854775805",
+            "9223372036854775806",
+            "-9223372036854775806",
+            "9223372036854775807",
+            "123456789012345678901",
+            "0.000000000000000001",
+            "-0.0000001234",
+            "99999999.9999",
+            "1e18",
+            "1e19",
+            "42",
+        ];
         for t in lits {
             let img = adt_numeric::numeric_in(t, -1, None).unwrap().unwrap();
             let w = mantissa(&img.as_bytes()[4..]).expect(t);
             // SAFETY: a live numeric varlena with a 4-byte header; the error slot is unused by the decoder.
-            let host = unsafe { num_mantissa(core::ptr::null_mut(), img.as_bytes().as_ptr(), w.dscale as i64) }.val;
+            let host = unsafe {
+                num_mantissa(
+                    core::ptr::null_mut(),
+                    img.as_bytes().as_ptr(),
+                    w.dscale as i64,
+                )
+            }
+            .val;
             assert_eq!(w.word(), (host != NO_MANTISSA).then_some(host), "{t}");
             if let Some(v) = w.word() {
-                assert_eq!(w.digits, v.unsigned_abs().checked_ilog10().map_or(1, |l| l + 1), "{t}");
+                assert_eq!(
+                    w.digits,
+                    v.unsigned_abs().checked_ilog10().map_or(1, |l| l + 1),
+                    "{t}"
+                );
             }
         }
     }
@@ -364,28 +612,84 @@ mod tests {
     /// zeros, short and long forms, values tied in their first four digits, past weight 83 and under weight -44.
     #[test]
     fn order_words_order_as_cmp_numerics() {
-        let lits = ["NaN", "Infinity", "-Infinity", "0", "0.000", "-0.0", "1", "1.0", "1.00000", "-1", "0.5", "-0.5", "9999", "10000",
-            "10000.0001", "12345678.9012345678", "12345678.9012345679", "-12345678.9012345678", "-12345678.9012345679", "1e-170", "-1e-170",
-            "1e-176", "1e-180", "-1e-180", "1e330", "1e331", "-1e330", "1e300", "999999999999999999999.5", "-999999999999999999999.5",
-            "0.0001", "0.00010001", "-0.0001", "123.45", "123.450", "-123.45", "77", "-77", "1e20", "1.0000000000000001e20"];
-        let imgs: Vec<_> = lits.iter().map(|t| adt_numeric::numeric_in(t, -1, None).unwrap().unwrap()).collect(); // alloc: Program
+        let lits = [
+            "NaN",
+            "Infinity",
+            "-Infinity",
+            "0",
+            "0.000",
+            "-0.0",
+            "1",
+            "1.0",
+            "1.00000",
+            "-1",
+            "0.5",
+            "-0.5",
+            "9999",
+            "10000",
+            "10000.0001",
+            "12345678.9012345678",
+            "12345678.9012345679",
+            "-12345678.9012345678",
+            "-12345678.9012345679",
+            "1e-170",
+            "-1e-170",
+            "1e-176",
+            "1e-180",
+            "-1e-180",
+            "1e330",
+            "1e331",
+            "-1e330",
+            "1e300",
+            "999999999999999999999.5",
+            "-999999999999999999999.5",
+            "0.0001",
+            "0.00010001",
+            "-0.0001",
+            "123.45",
+            "123.450",
+            "-123.45",
+            "77",
+            "-77",
+            "1e20",
+            "1.0000000000000001e20",
+        ];
+        let imgs: Vec<_> = lits
+            .iter()
+            .map(|t| adt_numeric::numeric_in(t, -1, None).unwrap().unwrap())
+            .collect(); // alloc: Program
         let p = |i: usize| &imgs[i].as_bytes()[4..];
         for i in 0..lits.len() {
             for j in 0..lits.len() {
-                let c = adt_numeric::cmp_numerics(adt_numeric::Num::from_payload(p(i)), adt_numeric::Num::from_payload(p(j)));
+                let c = adt_numeric::cmp_numerics(
+                    adt_numeric::Num::from_payload(p(i)),
+                    adt_numeric::Num::from_payload(p(j)),
+                );
                 let (wi, wj) = (order_word(p(i)), order_word(p(j)));
                 if c == 0 {
                     assert_eq!(wi, wj, "{} = {}", lits[i], lits[j]);
                 }
                 if wi < wj {
-                    assert!(c < 0, "{} word below {} but not the value", lits[i], lits[j]);
+                    assert!(
+                        c < 0,
+                        "{} word below {} but not the value",
+                        lits[i],
+                        lits[j]
+                    );
                 }
             }
         }
         let mut odd = vec![0u8; p(15).len() + 1]; // alloc: Program
         odd[1..].copy_from_slice(p(15));
-        assert_eq!(order_word(&odd[1..]), order_word(p(15)), "an odd-aligned payload reads the same");
-        assert!(order_word(p(13)) < order_word(p(15)) && order_word(p(16)) == order_word(p(15)), "apart in the first digit, then tied past four");
+        assert_eq!(
+            order_word(&odd[1..]),
+            order_word(p(15)),
+            "an odd-aligned payload reads the same"
+        );
+        assert!(
+            order_word(p(13)) < order_word(p(15)) && order_word(p(16)) == order_word(p(15)),
+            "apart in the first digit, then tied past four"
+        );
     }
 
     /// A 1-byte-header image's payload sits at an odd address: it reads the same there.
@@ -395,7 +699,11 @@ mod tests {
         let mut buf = vec![0u8; p.len() + 1]; // alloc: Program
         buf[1..].copy_from_slice(&p);
         assert_eq!(mantissa(&buf[1..]), mantissa(&p));
-        assert_eq!(mantissa(&p[..p.len() - 1]), None, "an odd length is no image");
+        assert_eq!(
+            mantissa(&p[..p.len() - 1]),
+            None,
+            "an odd length is no image"
+        );
     }
 
     /// NEW-numeric-1: the order key gives each value back at its dscale and orders as numeric_cmp: equal values of two
@@ -403,26 +711,68 @@ mod tests {
     /// dscale 15 there is no key.
     #[test]
     fn the_order_key_is_exact_and_orders_as_numeric() {
-        let vals = ["0", "0.00", "1", "1.0", "1.00", "-1", "-1.000", "0.5", "-0.5", "12.34", "-12.34", "9999999999999999",
-            "-9999999999999999", "1234567890123456000", "-1234567890123456000", "0.000000000000001", "-0.000000000000001",
-            "123456789.012345", "100", "1e15", "99.99", "-0.01", "3.141592653589793", "7000000000000000000"];
-        let keyed: Vec<(i64, i128)> = vals.iter().map(|t| { // alloc: Cold
-            let p = payload(t);
-            let (k, m) = (order_key(&p), mantissa(&p).unwrap());
-            assert_ne!(k, NO_KEY, "{t}");
-            assert_eq!(order_key_value(k), (m.word().unwrap(), m.dscale as i64), "{t}");
-            (k, m.value.unwrap() * 10i128.pow((15 - m.dscale) as u32))
-        }).collect();
+        let vals = [
+            "0",
+            "0.00",
+            "1",
+            "1.0",
+            "1.00",
+            "-1",
+            "-1.000",
+            "0.5",
+            "-0.5",
+            "12.34",
+            "-12.34",
+            "9999999999999999",
+            "-9999999999999999",
+            "1234567890123456000",
+            "-1234567890123456000",
+            "0.000000000000001",
+            "-0.000000000000001",
+            "123456789.012345",
+            "100",
+            "1e15",
+            "99.99",
+            "-0.01",
+            "3.141592653589793",
+            "7000000000000000000",
+        ];
+        let keyed: Vec<(i64, i128)> = vals
+            .iter()
+            .map(|t| {
+                // alloc: Cold
+                let p = payload(t);
+                let (k, m) = (order_key(&p), mantissa(&p).unwrap());
+                assert_ne!(k, NO_KEY, "{t}");
+                assert_eq!(
+                    order_key_value(k),
+                    (m.word().unwrap(), m.dscale as i64),
+                    "{t}"
+                );
+                (k, m.value.unwrap() * 10i128.pow((15 - m.dscale) as u32))
+            })
+            .collect();
         for &(k1, v1) in &keyed {
             for &(k2, v2) in &keyed {
                 assert_eq!((k1 >> 4).cmp(&(k2 >> 4)), v1.cmp(&v2), "{k1} {k2}");
             }
-            assert!(KEY_NINF >> 4 < k1 >> 4 && k1 >> 4 < KEY_PINF >> 4 && KEY_PINF >> 4 < KEY_NAN >> 4);
+            assert!(
+                KEY_NINF >> 4 < k1 >> 4 && k1 >> 4 < KEY_PINF >> 4 && KEY_PINF >> 4 < KEY_NAN >> 4
+            );
         }
-        for (t, k) in [("NaN", KEY_NAN), ("Infinity", KEY_PINF), ("-Infinity", KEY_NINF)] {
+        for (t, k) in [
+            ("NaN", KEY_NAN),
+            ("Infinity", KEY_PINF),
+            ("-Infinity", KEY_NINF),
+        ] {
             assert_eq!(order_key(&payload(t)), k, "{t}");
         }
-        for t in ["0.0000000000000001", "12345678901234567", "-1.234567890123456789", "10000000000000000000"] {
+        for t in [
+            "0.0000000000000001",
+            "12345678901234567",
+            "-1.234567890123456789",
+            "10000000000000000000",
+        ] {
             assert_eq!(order_key(&payload(t)), NO_KEY, "{t}");
         }
     }
@@ -433,17 +783,47 @@ mod tests {
     fn a_packed_codes_key_is_its_images_key() {
         let text = |m: i64, s: u32| {
             let a = m.unsigned_abs().to_string(); // alloc: Cold
-            let a = if a.len() <= s as usize { format!("{}{a}", "0".repeat(s as usize + 1 - a.len())) } else { a }; // alloc: Cold
+            let a = if a.len() <= s as usize {
+                format!("{}{a}", "0".repeat(s as usize + 1 - a.len()))
+            } else {
+                a
+            }; // alloc: Cold
             let (i, f) = a.split_at(a.len() - s as usize);
-            format!("{}{i}{}{f}", if m < 0 { "-" } else { "" }, if s > 0 { "." } else { "" }) // alloc: Cold
+            format!(
+                "{}{i}{}{f}",
+                if m < 0 { "-" } else { "" },
+                if s > 0 { "." } else { "" }
+            ) // alloc: Cold
         };
-        let ms = [0i64, 1, -1, 7, -7, 10, 100, 12345, -12345, 99_999, 1_000_000, 9_999_999_999_999_999, -9_999_999_999_999_999,
-            10_000_000_000_000_000, 12_345_678_901_234_567, 12_345_678_901_234_560, -36_028_797_018_963_967, 36_028_797_018_963_960];
+        let ms = [
+            0i64,
+            1,
+            -1,
+            7,
+            -7,
+            10,
+            100,
+            12345,
+            -12345,
+            99_999,
+            1_000_000,
+            9_999_999_999_999_999,
+            -9_999_999_999_999_999,
+            10_000_000_000_000_000,
+            12_345_678_901_234_567,
+            12_345_678_901_234_560,
+            -36_028_797_018_963_967,
+            36_028_797_018_963_960,
+        ];
         for s in 0..=17u32 {
             for &m in &ms {
                 let t = text(m, s);
                 let p = payload(&t);
-                assert_eq!(mantissa(&p).map(|x| (x.value, x.dscale)), Some((Some(m as i128), s as i32)), "{t}");
+                assert_eq!(
+                    mantissa(&p).map(|x| (x.value, x.dscale)),
+                    Some((Some(m as i128), s as i32)),
+                    "{t}"
+                );
                 assert_eq!(order_key_of(m, s as i64), order_key(&p), "{m} at {s} ({t})");
             }
         }
@@ -473,7 +853,10 @@ mod tests {
                                 let h = if long {
                                     (if neg { 0x4000 } else { 0 }) | dscale
                                 } else {
-                                    0x8000 | (if neg { 0x2000 } else { 0 }) | (dscale << 7 & 0x1F80) | (weight as u16 & 0x7F)
+                                    0x8000
+                                        | (if neg { 0x2000 } else { 0 })
+                                        | (dscale << 7 & 0x1F80)
+                                        | (weight as u16 & 0x7F)
                                 };
                                 p.extend_from_slice(&h.to_le_bytes());
                                 if long {
@@ -481,7 +864,11 @@ mod tests {
                                 }
                                 for _ in 0..nd {
                                     let r = next();
-                                    let d = if r & 3 == 0 { (r >> 8) as u16 % 10_000 } else { pick[(r >> 8) as usize % pick.len()] };
+                                    let d = if r & 3 == 0 {
+                                        (r >> 8) as u16 % 10_000
+                                    } else {
+                                        pick[(r >> 8) as usize % pick.len()]
+                                    };
                                     p.extend_from_slice(&d.to_le_bytes());
                                 }
                                 let (a, b) = (read(&p, true), read(&p, false));
@@ -495,7 +882,14 @@ mod tests {
             }
         }
         assert!(fast > seen / 8, "the u64 path ran: {fast} of {seen}");
-        for t in ["999999999999999999", "-999999999999999999", "1000000000000000000", "99999999.9999999999", "0.000000000000000001", "123.4500"] {
+        for t in [
+            "999999999999999999",
+            "-999999999999999999",
+            "1000000000000000000",
+            "99999999.9999999999",
+            "0.000000000000000001",
+            "123.4500",
+        ] {
             assert_eq!(read(&payload(t), true), read(&payload(t), false), "{t}");
         }
     }

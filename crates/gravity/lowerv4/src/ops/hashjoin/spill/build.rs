@@ -27,17 +27,22 @@ use gravity_ir::{HostFlags, IntBinOp, IntCond, Type, Value};
 use gravity_program::spill::NoSpill;
 use mcx::CollectIn;
 
+use crate::admit::refusal::Reason;
 use crate::face::kinds::KindId;
 use crate::face::spill::{SpillDecl, SpillImpl, SpillMech};
 use crate::frame::env::Env;
 use crate::frame::px::Px;
 use crate::frame::stop::Exits;
-use crate::admit::refusal::Reason;
 
-pub(crate) use crate::ops::hashjoin::spill::raw::region::{any_spilled, finish_room, grow_leader, image, merge_into, put_record, serialized_len, spilling};
+pub(crate) use crate::ops::hashjoin::spill::raw::region::{
+    any_spilled, finish_room, grow_leader, image, merge_into, put_record, serialized_len, spilling,
+};
 use crate::ops::hashjoin::spill::raw::region::{spill_flush, spill_grow, spill_route};
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { kinds: &[(KindId::JoinInner, &SpillImpl(&BUILD))], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    kinds: &[(KindId::JoinInner, &SpillImpl(&BUILD))],
+    ..crate::ops::NONE
+};
 
 pub(crate) const SPILL: usize = 112; // u8
 pub(crate) const PBITS: usize = 113; // u8
@@ -46,7 +51,12 @@ pub(crate) const SPILLED: usize = 120; // u64
 /// this open: the driver zeroes it at every open, as the spill words).
 pub(crate) const KEYS_DONE: usize = 115;
 // A build that never spills stores none of its spill words (`init`): the driver zeroes them at every open (V4R-359).
-const _: () = assert!(SPILL < SPILLED && PBITS < SPILLED && KEYS_DONE < SPILLED && SPILLED + 8 <= gravity_driver::node::ZERO_PREFIX);
+const _: () = assert!(
+    SPILL < SPILLED
+        && PBITS < SPILLED
+        && KEYS_DONE < SPILLED
+        && SPILLED + 8 <= gravity_driver::node::ZERO_PREFIX
+);
 /// A spilling build routes at the finest partition count its `SPILLED` mask holds (64), and a spill sends out only the
 /// share of them its grant needs (`wider`), so the share written follows the build's bytes over its grant (JOIN-12). One
 /// level, no recursive repartition: measured, 64 partitions cost nothing at W0 against 2 and spread the pair pass better at
@@ -91,7 +101,11 @@ pub(crate) fn emit_route(b: &mut FunctionBuilder<'_>, h: Value, bits: Value) -> 
 /// of one that passes it twice, as PostgreSQL's ExecHashIncreaseNumBatches doubles nbatch, where a fixed share sent
 /// every partition but 0 out of a build just past its grant. Partition 0 goes last; when all are out, `m`.
 pub(crate) fn wider(m: u64, bits: u8) -> u64 {
-    let all = if bits >= 6 { u64::MAX } else { (1u64 << (1u32 << bits)) - 1 };
+    let all = if bits >= 6 {
+        u64::MAX
+    } else {
+        (1u64 << (1u32 << bits)) - 1
+    };
     match (m & all).trailing_zeros().min(all.count_ones()) {
         0 => m | all,
         1 => all,
@@ -103,12 +117,30 @@ struct Build;
 static BUILD: Build = Build;
 
 impl SpillMech for Build {
-    fn spill_row(&self, _b: &mut FunctionBuilder<'_>, env: &mut Env, _d: &SpillDecl, _h: Value, _row: Value, _bytes: Value) {
-        crate::refuse!(env.node, Reason::Bug { payload: "a kind-7 build spills through its grow, not spill_row" })
+    fn spill_row(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        _d: &SpillDecl,
+        _h: Value,
+        _row: Value,
+        _bytes: Value,
+    ) {
+        crate::refuse!(
+            env.node,
+            Reason::Bug {
+                payload: "a kind-7 build spills through its grow, not spill_row"
+            }
+        )
     }
 
     fn reload(&self, _b: &mut FunctionBuilder<'_>, env: &mut Env, _d: &SpillDecl, _x: &Exits) {
-        crate::refuse!(env.node, Reason::Bug { payload: "a kind-7 build reloads in its pair pipeline, not reload" })
+        crate::refuse!(
+            env.node,
+            Reason::Bug {
+                payload: "a kind-7 build reloads in its pair pipeline, not reload"
+            }
+        )
     }
 
     /// B3: the build may spill when all of these hold. Its probe is op `j` of `q`, an INNER, LEFT, SEMI or ANTI
@@ -127,13 +159,18 @@ pub(crate) fn build_bits(px: &Px<'_, '_>, k: usize, q: usize, j: usize) -> Optio
         return None;
     }
     let node = px.gx.pipelines()[k].node_id;
-    SpillForm::Build.need::<SpillImpl>(&node).0.build_bits(px, k, q, j)
+    SpillForm::Build
+        .need::<SpillImpl>(&node)
+        .0
+        .build_bits(px, k, q, j)
 }
 
 /// C10: why build `k` probed at op `j` of `q` keeps growing past its grant when `build_bits` gives it no bits: the probe's
 /// shape (`eligible`'s reason), else the face (off, or a spill form with no build road).
 pub(crate) fn no_bits(px: &Px<'_, '_>, k: usize, q: usize, j: usize) -> NoSpill {
-    eligible_why(px, k, q, j).err().unwrap_or(NoSpill::BuildFaceOff)
+    eligible_why(px, k, q, j)
+        .err()
+        .unwrap_or(NoSpill::BuildFaceOff)
 }
 
 /// D2084: a probe under a union's arm spills when every arm of its one union (`arm_run`: consecutive pipelines, no inner
@@ -151,15 +188,26 @@ fn eligible_why(px: &Px<'_, '_>, k: usize, q: usize, j: usize) -> Result<(), NoS
         return alone(px, k, q, j);
     }
     let gx = px.gx;
-    let Some((first, n)) = arm_run(gx, q) else { return Err(NoSpill::ArmsNotOneRun) };
-    let Some(Op::Join(JoinDesc::Probe { slot, .. })) = gx.pipelines()[q].ops.get(j) else { return Err(NoSpill::ArmsOpNotProbe) };
-    let probe_at = |a: usize| gx.pipelines()[a].ops.iter().position(|o| matches!(o, Op::Join(JoinDesc::Probe { slot: s, .. }) if s == slot));
+    let Some((first, n)) = arm_run(gx, q) else {
+        return Err(NoSpill::ArmsNotOneRun);
+    };
+    let Some(Op::Join(JoinDesc::Probe { slot, .. })) = gx.pipelines()[q].ops.get(j) else {
+        return Err(NoSpill::ArmsOpNotProbe);
+    };
+    let probe_at = |a: usize| {
+        gx.pipelines()[a]
+            .ops
+            .iter()
+            .position(|o| matches!(o, Op::Join(JoinDesc::Probe { slot: s, .. }) if s == slot))
+    };
     if gx.end_maker(q) == KindId::JoinDrain {
         return Err(NoSpill::ArmsDrainEnd);
     }
     for a in first..first + n {
         match probe_at(a) {
-            Some(ja) if gx.life_of(a, *slot) == Some(gravity_program::LifeId(k as u16)) => alone(px, k, a, ja)?,
+            Some(ja) if gx.life_of(a, *slot) == Some(gravity_program::LifeId(k as u16)) => {
+                alone(px, k, a, ja)?
+            }
             _ => return Err(NoSpill::ArmsApart),
         }
     }
@@ -172,7 +220,12 @@ fn eligible_why(px: &Px<'_, '_>, k: usize, q: usize, j: usize) -> Result<(), NoS
 /// failed (a constant, VALUES, SRF or aggregated arm): the spilled partitions had no reader (the runner's D133 error). A
 /// join's Drain op registers a union too, but it is none here: its tail's probe answers `alone` at the build and at `pair`.
 fn under_arm(gx: &crate::graph::Gx<'_, '_>, q: usize, j: usize) -> bool {
-    gx.pipelines().get(q).is_some_and(|p| p.ops.iter().take(j).any(|o| crate::graph::arm_at(o).is_some()))
+    gx.pipelines().get(q).is_some_and(|p| {
+        p.ops
+            .iter()
+            .take(j)
+            .any(|o| crate::graph::arm_at(o).is_some())
+    })
 }
 
 /// D2084: the run of the streamed union pipeline `q` is an arm of (`Gx::run_arms`, the arms writing its slot; a sink end's:
@@ -180,7 +233,11 @@ fn under_arm(gx: &crate::graph::Gx<'_, '_>, q: usize, j: usize) -> bool {
 /// the union present, and each holds exactly one `Arm` marker (no inner union); `None` otherwise.
 pub(crate) fn arm_run(gx: &crate::graph::Gx<'_, '_>, q: usize) -> Option<(usize, usize)> {
     let run = gx.run_arms(q);
-    let run = if run.is_empty() { gx.stream_arms(q) } else { run };
+    let run = if run.is_empty() {
+        gx.stream_arms(q)
+    } else {
+        run
+    };
     if run.is_empty() {
         return None;
     }
@@ -195,7 +252,12 @@ pub(crate) fn arm_run(gx: &crate::graph::Gx<'_, '_>, q: usize) -> Option<(usize,
             _ => None,
         }
     };
-    (arms.windows(2).all(|w| w[1] == w[0] + 1) && arms.iter().enumerate().all(|(x, &p)| marker(p) == Some((x as u16, n as u16)))).then_some((arms[0], n))
+    (arms.windows(2).all(|w| w[1] == w[0] + 1)
+        && arms
+            .iter()
+            .enumerate()
+            .all(|(x, &p)| marker(p) == Some((x as u16, n as u16))))
+    .then_some((arms[0], n))
 }
 
 /// The B3 rule (`build_bits`) for probe `j` of `q` alone, with the reason it does not hold (C10).
@@ -204,12 +266,25 @@ fn alone(px: &Px<'_, '_>, k: usize, q: usize, j: usize) -> Result<(), NoSpill> {
     use gravity_decompose::Op;
     use types_nodes::jointype::JoinType;
     let gx = px.gx;
-    let (Some(b), Some(p)) = (gx.pipelines().get(k), gx.pipelines().get(q)) else { return Err(NoSpill::ProbeShape) };
+    let (Some(b), Some(p)) = (gx.pipelines().get(k), gx.pipelines().get(q)) else {
+        return Err(NoSpill::ProbeShape);
+    };
     if gx.spooled_drain(q).is_some() {
         return Err(NoSpill::SpooledDrain); // A1b N2 (join/drain.rs): a pair would remake the spooled probe's end, a second spool of one probe
     }
-    let Some(br) = crate::frame::iface::breaker_of(&b.desc) else { return Err(NoSpill::ProbeShape) };
-    let Some(Op::Join(JoinDesc::Probe { slot, jointype, catalog: false, keys, .. })) = p.ops.get(j) else { return Err(NoSpill::ProbeShape) };
+    let Some(br) = crate::frame::iface::breaker_of(&b.desc) else {
+        return Err(NoSpill::ProbeShape);
+    };
+    let Some(Op::Join(JoinDesc::Probe {
+        slot,
+        jointype,
+        catalog: false,
+        keys,
+        ..
+    })) = p.ops.get(j)
+    else {
+        return Err(NoSpill::ProbeShape);
+    };
     // D1899: a key whose domain CHECK calls VOLATILE runs once per row (PG keeps a batch's outer hash values), where the
     // pair pipeline would run a kept row's key again
     if keys.iter().any(|n| crate::effects::volatile_check(gx, n)) {
@@ -217,7 +292,17 @@ fn alone(px: &Px<'_, '_>, k: usize, q: usize, j: usize) -> Result<(), NoSpill> {
     }
     // B4a: LEFT, SEMI and ANTI keep as INNER does; B4c: FULL and the RIGHT forms spill, their drain sending
     // each partition's drain part (spill_load.rs, drain_src.rs phase 2)
-    if !matches!(jointype, JoinType::JOIN_INNER | JoinType::JOIN_LEFT | JoinType::JOIN_SEMI | JoinType::JOIN_ANTI | JoinType::JOIN_RIGHT | JoinType::JOIN_FULL | JoinType::JOIN_RIGHT_SEMI | JoinType::JOIN_RIGHT_ANTI) {
+    if !matches!(
+        jointype,
+        JoinType::JOIN_INNER
+            | JoinType::JOIN_LEFT
+            | JoinType::JOIN_SEMI
+            | JoinType::JOIN_ANTI
+            | JoinType::JOIN_RIGHT
+            | JoinType::JOIN_FULL
+            | JoinType::JOIN_RIGHT_SEMI
+            | JoinType::JOIN_RIGHT_ANTI
+    ) {
         return Err(NoSpill::JoinTypeOutside);
     }
     if *slot != br.slot {
@@ -236,14 +321,26 @@ fn alone(px: &Px<'_, '_>, k: usize, q: usize, j: usize) -> Result<(), NoSpill> {
     // `Pass`: the end takes the row as it is). This rule kept every probe under a plan Sort from B4b-1's end
     // (`end_takes_pair`), its build growing by name. `P'` makes that step again with the end. A form-G sort
     // (`run_holds_rows`: it orders a drained group's records), a top and a presorted run are other kinds' steps.
-    let sort = |i: usize| i + 1 == p.ops.len() && gx.step_need(q, i) == KindId::RunsSort && gx.end_maker(q) == KindId::RunsSort && crate::frame::iface::run_holds_rows(gx, q);
-    if !(j + 1..p.ops.len()).all(|i| matches!(gx.step_need(q, i), KindId::StepFilter | KindId::StepProject) || sort(i)) {
+    let sort = |i: usize| {
+        i + 1 == p.ops.len()
+            && gx.step_need(q, i) == KindId::RunsSort
+            && gx.end_maker(q) == KindId::RunsSort
+            && crate::frame::iface::run_holds_rows(gx, q)
+    };
+    if !(j + 1..p.ops.len())
+        .all(|i| matches!(gx.step_need(q, i), KindId::StepFilter | KindId::StepProject) || sort(i))
+    {
         return Err(NoSpill::ChainTail);
     }
     if crate::lifetime::hashjoin::resident_in_rerun(gx, k, q, br.slot) {
         return Err(NoSpill::ResidentInRerun);
     }
-    if gx.pipelines().iter().any(|x| x.ops.iter().any(|o| matches!(o, Op::Lock(_)) || matches!(o, Op::Write(w) if w.cmd != gravity_program::Cmd::Select))) {
+    if gx.pipelines().iter().any(|x| {
+        x.ops.iter().any(|o| {
+            matches!(o, Op::Lock(_))
+                || matches!(o, Op::Write(w) if w.cmd != gravity_program::Cmd::Select)
+        })
+    }) {
         return Err(NoSpill::ProgramWrites);
     }
     match remade_set(gx, q, j) {
@@ -259,7 +356,11 @@ fn alone(px: &Px<'_, '_>, k: usize, q: usize, j: usize) -> Result<(), NoSpill> {
 /// kept partitions right (gen sp-0111 / 0114, witness subplan_spill_pass_region). The build keeps named growth instead.
 fn remade_set(gx: &crate::graph::Gx<'_, '_>, q: usize, j: usize) -> bool {
     let ps = gx.pipelines();
-    let j0 = (0..j).rev().take_while(|&i| matches!(ps[q].ops[i], gravity_decompose::Op::SubPlan(_))).last().unwrap_or(j);
+    let j0 = (0..j)
+        .rev()
+        .take_while(|&i| matches!(ps[q].ops[i], gravity_decompose::Op::SubPlan(_)))
+        .last()
+        .unwrap_or(j);
     let inners = ps.inners();
     let under = |mut at: (usize, usize)| {
         while let Some(x) = at.0.checked_sub(ps.len()) {
@@ -267,7 +368,10 @@ fn remade_set(gx: &crate::graph::Gx<'_, '_>, q: usize, j: usize) -> bool {
         }
         at.0 == q && at.1 >= j0
     };
-    inners.iter().enumerate().any(|(x, i)| under(i.0) && crate::rerun::sets::owner_set(gx, ps.len() + x).is_some())
+    inners
+        .iter()
+        .enumerate()
+        .any(|(x, i)| under(i.0) && crate::rerun::sets::owner_set(gx, ps.len() + x).is_some())
 }
 
 /// B4b-1 (V4R-404; the B4b split, PlainAgg + Sort first): the probe pipeline `q`'s end takes the pair pipeline's rows: a sink, or a plain fold / full sort end
@@ -283,41 +387,81 @@ pub(crate) fn end_takes_pair(gx: &crate::graph::Gx<'_, '_>, q: usize) -> bool {
 /// is a drain pipeline whose end the probe's rows reach, D4053's G1).
 fn pair_end(gx: &crate::graph::Gx<'_, '_>, q: usize, via_drain: bool) -> Result<(), NoSpill> {
     crate::stack_check();
+    use crate::frame::iface::breaker_of;
+    use gravity_abi::breaker::BreakerKind;
     use gravity_decompose::join::JoinDesc;
     use gravity_decompose::Op;
-    use gravity_abi::breaker::BreakerKind;
-    use crate::frame::iface::breaker_of;
     let d = gx.pipelines()[q].desc;
     // B4c-2: a RIGHT / FULL probe's end is the drain's spool `m`; the end the rows reach is the drain pipeline's (join/drain.rs
     // fuses a sink onto the probe or seeds a fold / full sort), and P' takes it the same way. A drain end another pipeline
     // also feeds (an Append's arms: a partitionwise join's seeded drain per partition, D1187) keeps named growth: the pair
     // would splice into that run of arms (partition_join-007 / -079)
     if gx.end_maker(q) == KindId::JoinDrain {
-        let Some(m) = breaker_of(&d) else { return Err(NoSpill::DrainShape) };
-        let drain = |p: &gravity_decompose::graph::PipelineNode<'_>| p.ops.iter().any(|o| matches!(o, Op::Join(JoinDesc::Drain { matches, .. }) if *matches == m.slot));
-        let Some((x, _)) = gx.pipelines().iter().enumerate().skip(q + 1).find(|(x, p)| drain(p) && gx.life_of(*x, m.slot) == Some(gravity_program::LifeId(q as u16))) else { return Err(NoSpill::DrainShape) };
-        let shared = breaker_of(&gx.pipelines()[x].desc)
-            .is_some_and(|e| gx.pipelines().iter().enumerate().any(|(y, p)| y != x && breaker_of(&p.desc).is_some_and(|o| o.slot == e.slot)));
-        return if shared { Err(NoSpill::DrainShared) } else { pair_end(gx, x, true) };
+        let Some(m) = breaker_of(&d) else {
+            return Err(NoSpill::DrainShape);
+        };
+        let drain = |p: &gravity_decompose::graph::PipelineNode<'_>| {
+            p.ops.iter().any(
+                |o| matches!(o, Op::Join(JoinDesc::Drain { matches, .. }) if *matches == m.slot),
+            )
+        };
+        let Some((x, _)) = gx
+            .pipelines()
+            .iter()
+            .enumerate()
+            .skip(q + 1)
+            .find(|(x, p)| {
+                drain(p) && gx.life_of(*x, m.slot) == Some(gravity_program::LifeId(q as u16))
+            })
+        else {
+            return Err(NoSpill::DrainShape);
+        };
+        let shared = breaker_of(&gx.pipelines()[x].desc).is_some_and(|e| {
+            gx.pipelines()
+                .iter()
+                .enumerate()
+                .any(|(y, p)| y != x && breaker_of(&p.desc).is_some_and(|o| o.slot == e.slot))
+        });
+        return if shared {
+            Err(NoSpill::DrainShared)
+        } else {
+            pair_end(gx, x, true)
+        };
     }
     let ok = |t: bool, w: NoSpill| if t { Ok(()) } else { Err(w) };
     match (gx.end_kind(q), breaker_of(&d)) {
-        (crate::graph::EndKind::Sink, _) => ok(gx.end_maker(q) == KindId::EndSink, NoSpill::SinkNotEndSink),
-        (crate::graph::EndKind::Breaker(_), Some(_)) if !crate::face::end::Parallel::Arms.on() => Err(NoSpill::EndArmsFaceOff),
+        (crate::graph::EndKind::Sink, _) => {
+            ok(gx.end_maker(q) == KindId::EndSink, NoSpill::SinkNotEndSink)
+        }
+        (crate::graph::EndKind::Breaker(_), Some(_)) if !crate::face::end::Parallel::Arms.on() => {
+            Err(NoSpill::EndArmsFaceOff)
+        }
         (crate::graph::EndKind::Breaker(_), Some(b)) => match b.kind {
-            BreakerKind::Sort => ok(gx.end_maker(q) == KindId::RunsSort && !crate::ops::shared::sort::unlike_pair(gx, q), NoSpill::SortNotPair),
-            BreakerKind::PlainAgg => {
-                ok(gx.end_maker(q) == KindId::FoldPlain && gx.group_at(q).is_some_and(|g| regs_take_pair(gx, q, g, via_drain)), NoSpill::PlainScanRegister)
-            }
+            BreakerKind::Sort => ok(
+                gx.end_maker(q) == KindId::RunsSort
+                    && !crate::ops::shared::sort::unlike_pair(gx, q),
+                NoSpill::SortNotPair,
+            ),
+            BreakerKind::PlainAgg => ok(
+                gx.end_maker(q) == KindId::FoldPlain
+                    && gx
+                        .group_at(q)
+                        .is_some_and(|g| regs_take_pair(gx, q, g, via_drain)),
+                NoSpill::PlainScanRegister,
+            ),
             // D3057 (JOIN-12b) S1: a keyed group's end takes `P'` as the group's next arm, as a seeded drain's arm continues
             // it (drain/lower.rs `continues`: an owner phase, a partitioned spill). A key past the probe keeps its value
             // (outer_kept declines whenever this answers yes), so `q` and `P'` key alike; a scan-form register keeps named growth
             BreakerKind::HashAgg => {
                 use gravity_abi::breaker::Spill;
-                let pair = matches!(gx.end_maker(q), KindId::KeyedHashagg | KindId::KeyedEmitGroup)
-                    && d.owner.is_some()
+                let pair = matches!(
+                    gx.end_maker(q),
+                    KindId::KeyedHashagg | KindId::KeyedEmitGroup
+                ) && d.owner.is_some()
                     && matches!(b.spill, Spill::Partitioned { .. })
-                    && gx.group_at(q).is_some_and(|g| regs_take_pair(gx, q, g, via_drain));
+                    && gx
+                        .group_at(q)
+                        .is_some_and(|g| regs_take_pair(gx, q, g, via_drain));
                 ok(pair, NoSpill::HashAggNotPair)
             }
             // D3057: another hash build's end keeps named growth. `P'` would be another arm of that build's records, and its
@@ -335,35 +479,67 @@ fn pair_end(gx: &crate::graph::Gx<'_, '_>, q: usize, via_drain: bool) -> Result<
 /// G1 the end is reached through a seeded drain (`via_drain`, dsx-0065), G2 the probe consumes a rerun set's slot (rnd-1062)
 /// or G3 an Fp128 group key past the probe reaches a scan column (PS1-16's outer_kept keys it by its code; without G3 such
 /// a fold measured 11 % more instructions at W8).
-fn regs_take_pair(gx: &crate::graph::Gx<'_, '_>, q: usize, g: &gravity_decompose::ops::shared::agg::GroupDecl<'_>, via_drain: bool) -> bool {
+fn regs_take_pair(
+    gx: &crate::graph::Gx<'_, '_>,
+    q: usize,
+    g: &gravity_decompose::ops::shared::agg::GroupDecl<'_>,
+    via_drain: bool,
+) -> bool {
     use gravity_decompose::ops::shared::agg::Register;
-    if g.aggs.iter().any(|a| matches!(a.reg, Register::MinCode | Register::MaxCode)) {
+    if g.aggs
+        .iter()
+        .any(|a| matches!(a.reg, Register::MinCode | Register::MaxCode))
+    {
         return false;
     }
-    !g.aggs.iter().any(|a| scan_register(a.reg)) || (!via_drain && !g2_rerun_slot(gx, q) && !g3_fp_key(gx, q, g))
+    !g.aggs.iter().any(|a| scan_register(a.reg))
+        || (!via_drain && !g2_rerun_slot(gx, q) && !g3_fp_key(gx, q, g))
 }
 
 /// G2 (D4053): probe pipeline `q` consumes a slot a rerun set holds (rnd-1062: `P'` copies `q`'s consumed slots and would open
 /// over the set's slot, which only its owner may: driver node/mod.rs RT-2e).
 fn g2_rerun_slot(gx: &crate::graph::Gx<'_, '_>, q: usize) -> bool {
-    gx.pipelines()[q].desc.consumes.iter().any(|&s| gx.graph.reruns.iter().any(|r| gravity_decompose::graph::slot_has(&r.slots, s)))
+    gx.pipelines()[q].desc.consumes.iter().any(|&s| {
+        gx.graph
+            .reruns
+            .iter()
+            .any(|r| gravity_decompose::graph::slot_has(&r.slots, s))
+    })
 }
 
 /// G3 (D4053): an Fp128 group key of `g` that walks back through `q`'s projections, filters and probes to a scan column
 /// (emit_group.rs `past_var` with every probe taken as outer_kept): the key PS1-16 keys by its code when the end takes no
 /// pair (outer_kept declines whenever `end_takes_pair` answers yes).
-fn g3_fp_key(gx: &crate::graph::Gx<'_, '_>, q: usize, g: &gravity_decompose::ops::shared::agg::GroupDecl<'_>) -> bool {
+fn g3_fp_key(
+    gx: &crate::graph::Gx<'_, '_>,
+    q: usize,
+    g: &gravity_decompose::ops::shared::agg::GroupDecl<'_>,
+) -> bool {
     use gravity_abi::breaker::KeyKind;
     use gravity_decompose::Op;
     use types_nodes::primnodes::{INNER_VAR, OUTER_VAR};
     let ops = &gx.pipelines()[q].ops;
-    let Some(i0) = ops.iter().rposition(|op| matches!(op, Op::Project(_))) else { return false };
+    let Some(i0) = ops.iter().rposition(|op| matches!(op, Op::Project(_))) else {
+        return false;
+    };
     let reaches = |mut pos: usize, mut a: i16| -> bool {
         loop {
-            let Some(i) = ops[..pos].iter().rposition(|op| !matches!(op, Op::Filter(_))) else { return false };
+            let Some(i) = ops[..pos]
+                .iter()
+                .rposition(|op| !matches!(op, Op::Filter(_)))
+            else {
+                return false;
+            };
             match &ops[i] {
                 Op::Project(l) => {
-                    let Some(v) = l.iter().filter_map(|n| n.as_target_entry()).find(|te| te.resno == a).and_then(|te| crate::table::emit_group::bare(te.expr).as_var()) else { return false };
+                    let Some(v) = l
+                        .iter()
+                        .filter_map(|n| n.as_target_entry())
+                        .find(|te| te.resno == a)
+                        .and_then(|te| crate::table::emit_group::bare(te.expr).as_var())
+                    else {
+                        return false;
+                    };
                     if v.varlevelsup != 0 || v.varno == INNER_VAR {
                         return false;
                     }
@@ -377,7 +553,12 @@ fn g3_fp_key(gx: &crate::graph::Gx<'_, '_>, q: usize, g: &gravity_decompose::ops
             }
         }
     };
-    g.keys.iter().filter(|k| k.kind == KeyKind::Fp128 && k.resno > 0).filter_map(|k| k.expr.node().as_var()).filter(|v| v.varno == OUTER_VAR && v.varlevelsup == 0).any(|v| reaches(i0, v.varattno))
+    g.keys
+        .iter()
+        .filter(|k| k.kind == KeyKind::Fp128 && k.resno > 0)
+        .filter_map(|k| k.expr.node().as_var())
+        .filter(|v| v.varno == OUTER_VAR && v.varlevelsup == 0)
+        .any(|v| reaches(i0, v.varattno))
 }
 
 /// An aggregate register decompose chose from a scan lane's code or packed-numeric form (MinCode / MaxCode, SumNum / AvgNum /
@@ -385,20 +566,35 @@ fn g3_fp_key(gx: &crate::graph::Gx<'_, '_>, q: usize, g: &gravity_decompose::ops
 /// numeric ones take it again behind those two statements' guards (`regs_take_pair`: G1, G2, plus G3).
 fn scan_register(r: gravity_decompose::ops::shared::agg::Register) -> bool {
     use gravity_decompose::ops::shared::agg::Register;
-    matches!(r, Register::MinCode | Register::MaxCode | Register::SumNum | Register::AvgNum | Register::MinNum | Register::MaxNum)
+    matches!(
+        r,
+        Register::MinCode
+            | Register::MaxCode
+            | Register::SumNum
+            | Register::AvgNum
+            | Register::MinNum
+            | Register::MaxNum
+    )
 }
 
 // ---- the build end's IR (join/build.rs) ----
 
 fn host(b: &mut FunctionBuilder<'_>, name: &str, params: &[Type], f: usize) -> gravity_ir::HostFn {
-    let flags = HostFlags { may_error: true, touches_memory: true, ..HostFlags::default() };
+    let flags = HostFlags {
+        may_error: true,
+        touches_memory: true,
+        ..HostFlags::default()
+    };
     b.declare_host_once(name, params, Some(Type::I64), f, flags)
 }
 
 /// A negative status of a host call raises its held error (the HOST raise).
 pub(crate) fn raise_neg(b: &mut FunctionBuilder<'_>, env: &Env, st: Value) {
     let failed = b.icmp(IntCond::Slt, st, env.zero);
-    let (e, l_ok) = (b.iconst(Type::I64, raise::bit(raise::HOST) as i64), b.create_block(&[]));
+    let (e, l_ok) = (
+        b.iconst(Type::I64, raise::bit(raise::HOST) as i64),
+        b.create_block(&[]),
+    );
     b.cond_br(failed, (env.l_raise, &[e]), (l_ok, &[]));
     b.switch_to(l_ok);
 }
@@ -410,20 +606,50 @@ pub(crate) fn init(b: &mut FunctionBuilder<'_>, r: Value, bits: u8) {
     if bits == 0 {
         return;
     }
-    let (z8, pb, z) = (b.iconst(Type::I8, 0), b.iconst(Type::I8, bits as i64), b.iconst(Type::I64, 0));
-    b.store(r, SPILL as i32, z8); b.store(r, PBITS as i32, pb); b.store(r, SPILLED as i32, z);
+    let (z8, pb, z) = (
+        b.iconst(Type::I8, 0),
+        b.iconst(Type::I8, bits as i64),
+        b.iconst(Type::I64, 0),
+    );
+    b.store(r, SPILL as i32, z8);
+    b.store(r, PBITS as i32, pb);
+    b.store(r, SPILLED as i32, z);
 }
 
 /// A row that found no room in region `r` (`n` records of `rec` bytes, its images undone to `top0`, the header stamped):
 /// the region grown within its limit, else spilled (`spill_grow`); the base and the records kept (`I64`, `I64`).
-pub(crate) fn grow(b: &mut FunctionBuilder<'_>, env: &Env, r: Value, n: Value, rec: usize, top0: Value) -> (Value, Value) {
-    let h = host(b, "m7_spill_grow", &[Type::Ptr, Type::Ptr, Type::I64, Type::I64, Type::I64, Type::Ptr], gravity_abi::host_words!(spill_grow(ctx, r, n, rec, top0, out)));
+pub(crate) fn grow(
+    b: &mut FunctionBuilder<'_>,
+    env: &Env,
+    r: Value,
+    n: Value,
+    rec: usize,
+    top0: Value,
+) -> (Value, Value) {
+    let h = host(
+        b,
+        "m7_spill_grow",
+        &[
+            Type::Ptr,
+            Type::Ptr,
+            Type::I64,
+            Type::I64,
+            Type::I64,
+            Type::Ptr,
+        ],
+        gravity_abi::host_words!(spill_grow(ctx, r, n, rec, top0, out)),
+    );
     let slot = b.declare_stack_slot(8, 8);
     let out = b.stack_addr(slot);
     let recc = b.iconst(Type::I64, rec as i64);
-    let base = b.call_host(h, &[env.ctx, r, n, recc, top0, out], Some(Type::I64)).expect("m7_spill_grow returns the base");
+    let base = b
+        .call_host(h, &[env.ctx, r, n, recc, top0, out], Some(Type::I64))
+        .expect("m7_spill_grow returns the base");
     let failed = b.icmp(IntCond::Eq, base, env.zero);
-    let (e, l_ok) = (b.iconst(Type::I64, raise::bit(raise::HOST) as i64), b.create_block(&[]));
+    let (e, l_ok) = (
+        b.iconst(Type::I64, raise::bit(raise::HOST) as i64),
+        b.create_block(&[]),
+    );
     b.cond_br(failed, (env.l_raise, &[e]), (l_ok, &[]));
     b.switch_to(l_ok);
     (base, b.load(Type::I64, out, 0))
@@ -431,14 +657,27 @@ pub(crate) fn grow(b: &mut FunctionBuilder<'_>, env: &Env, r: Value, n: Value, r
 
 /// After record `n` of region `r` is stored (its images from `top0` down): 1 when it stays, 0 when its partition spilled
 /// and it went to the file (`spill_route`). The host is called only while `SPILL` is set; otherwise it is one branch per row.
-pub(crate) fn route_row(b: &mut FunctionBuilder<'_>, env: &Env, r: Value, n: Value, top0: Value) -> Value {
+pub(crate) fn route_row(
+    b: &mut FunctionBuilder<'_>,
+    env: &Env,
+    r: Value,
+    n: Value,
+    top0: Value,
+) -> Value {
     let sp = b.load_zext(Type::I8, r, SPILL as i32);
     let on = b.icmp(IntCond::Ne, sp, env.zero);
     let (l_route, l_join) = (b.create_block(&[]), b.create_block(&[Type::I64]));
     b.cond_br(on, (l_route, &[]), (l_join, &[env.one]));
     b.switch_to(l_route);
-    let h = host(b, "m7_spill_route", &[Type::Ptr, Type::Ptr, Type::I64, Type::I64], gravity_abi::host_words!(spill_route(ctx, r, n, top0)));
-    let kept = b.call_host(h, &[env.ctx, r, n, top0], Some(Type::I64)).expect("m7_spill_route returns its verdict");
+    let h = host(
+        b,
+        "m7_spill_route",
+        &[Type::Ptr, Type::Ptr, Type::I64, Type::I64],
+        gravity_abi::host_words!(spill_route(ctx, r, n, top0)),
+    );
+    let kept = b
+        .call_host(h, &[env.ctx, r, n, top0], Some(Type::I64))
+        .expect("m7_spill_route returns its verdict");
     raise_neg(b, env, kept);
     b.br(l_join, &[kept]);
     b.switch_to(l_join);
@@ -453,28 +692,35 @@ pub(crate) fn flush(b: &mut FunctionBuilder<'_>, env: &Env, r: Value, stream: u6
     let (l_f, l_go) = (b.create_block(&[]), b.create_block(&[]));
     b.cond_br(on, (l_f, &[]), (l_go, &[]));
     b.switch_to(l_f);
-    let h = host(b, "m7_spill_flush", &[Type::Ptr, Type::I64, Type::I64], gravity_abi::host_words!(spill_flush(ctx, stream, bits)));
+    let h = host(
+        b,
+        "m7_spill_flush",
+        &[Type::Ptr, Type::I64, Type::I64],
+        gravity_abi::host_words!(spill_flush(ctx, stream, bits)),
+    );
     let s = b.iconst(Type::I64, stream as i64);
-    let st = b.call_host(h, &[env.ctx, s, sp], Some(Type::I64)).expect("m7_spill_flush returns its status");
+    let st = b
+        .call_host(h, &[env.ctx, s, sp], Some(Type::I64))
+        .expect("m7_spill_flush returns its status");
     raise_neg(b, env, st);
     b.br(l_go, &[]);
     b.switch_to(l_go);
 }
 
-
 /// A record or kept row of at most these bytes is laid out on its host's stack on its way to a file (`spill_route`, load.rs
 /// `kept_put`): one per row of a spilled partition.
 pub(crate) const ROW_STACK: usize = 1024;
-
 
 #[cfg(test)]
 #[allow(unsafe_code)]
 mod tests {
     use super::*;
-    use crate::ops::hashjoin::build::{D_VARLENA, END, FLAGS, HDR, LIMIT, N, PHASE, REC, TOP, WORDS};
+    use crate::ops::hashjoin::build::DESC;
+    use crate::ops::hashjoin::build::{
+        D_VARLENA, END, FLAGS, HDR, LIMIT, N, PHASE, REC, TOP, WORDS,
+    };
     use crate::ops::hashjoin::rt::{rd, wr, Rt};
     use crate::ops::hashjoin::spill::raw::region::scatter;
-    use crate::ops::hashjoin::build::DESC;
     use gravity_abi::hash::KeyHash;
 
     /// `route` spreads a run of consecutive keys over every partition, and the spread does not depend on the directory's
@@ -492,7 +738,11 @@ mod tests {
             }
         }
         assert!(parts.iter().all(|&c| c > 700 && c < 1300), "{parts:?}");
-        assert!(homes.len() > 600, "partition 3's keys reach {} of 1024 homes", homes.len());
+        assert!(
+            homes.len() > 600,
+            "partition 3's keys reach {} of 1024 homes",
+            homes.len()
+        );
     }
 
     /// A region of one-word keys `keys`, each with a text payload `"v<key>"` repeated `key % 7 + 1` times (a varlena
@@ -501,8 +751,14 @@ mod tests {
         let mut r = vec![0u64; len / 8];
         let d = r.as_mut_ptr() as *mut u8;
         // SAFETY: every offset below is inside `r`'s `len` bytes.
-        unsafe {wr::<u8>(d, WORDS, 1); crate::ops::hashjoin::layout::set_pay(d, 1); wr::<u32>(d, REC, 24); wr::<u16>(d, DESC, D_VARLENA); wr::<u8>(d, PHASE, 1);
-wr::<u64>(d, END, len as u64); wr::<u32>(d, LIMIT, len as u32);
+        unsafe {
+            wr::<u8>(d, WORDS, 1);
+            crate::ops::hashjoin::layout::set_pay(d, 1);
+            wr::<u32>(d, REC, 24);
+            wr::<u16>(d, DESC, D_VARLENA);
+            wr::<u8>(d, PHASE, 1);
+            wr::<u64>(d, END, len as u64);
+            wr::<u32>(d, LIMIT, len as u32);
             let mut top = len;
             for (i, &k) in keys.iter().enumerate() {
                 let text = format!("v{k}").repeat(k as usize % 7 + 1);
@@ -511,8 +767,12 @@ wr::<u64>(d, END, len as u64); wr::<u32>(d, LIMIT, len as u32);
                 wr::<u32>(d, top, (n as u32) << 2);
                 core::ptr::copy_nonoverlapping(text.as_ptr(), d.add(top + 4), text.len());
                 let rec = d.add(HDR + 24 * i);
-                wr::<i64>(rec, 0, k); wr::<u64>(rec, 8, 0); wr::<u64>(rec, 16, (len - top) as u64);
-            }wr::<u64>(d, TOP, top as u64); wr::<u64>(d, N, keys.len() as u64);
+                wr::<i64>(rec, 0, k);
+                wr::<u64>(rec, 8, 0);
+                wr::<u64>(rec, 16, (len - top) as u64);
+            }
+            wr::<u64>(d, TOP, top as u64);
+            wr::<u64>(d, N, keys.len() as u64);
         }
         r
     }
@@ -520,10 +780,18 @@ wr::<u64>(d, END, len as u64); wr::<u32>(d, LIMIT, len as u32);
     /// Each record's key and text (read through its distance from `END`).
     unsafe fn records(d: *mut u8) -> Vec<(i64, String)> {
         let t = Rt::of(d, usize::MAX);
-        (0..t.n).map(|i| {
-            let (off, len) = image(&t, i, 0).expect("a text image");
-            (t.key(i), String::from_utf8(core::slice::from_raw_parts(d.add(off + 4), len - 4).to_vec()).unwrap())
-        }).collect()
+        (0..t.n)
+            .map(|i| {
+                let (off, len) = image(&t, i, 0).expect("a text image");
+                (
+                    t.key(i),
+                    String::from_utf8(
+                        core::slice::from_raw_parts(d.add(off + 4), len - 4).to_vec(),
+                    )
+                    .unwrap(),
+                )
+            })
+            .collect()
     }
 
     /// `scatter` hands out exactly the records of the masked partitions and keeps the rest with their images compacted up
@@ -539,26 +807,47 @@ wr::<u64>(d, END, len as u64); wr::<u32>(d, LIMIT, len as u32);
             let before = records(d);
             let mask = wider(0, BITS) & 0x5555_5555_5555_5554;
             let mut out: Vec<(u32, Vec<u8>)> = Vec::new();
-            let a = gravity_fn::arena::OpArena::scratch_of(None, gravity_fn::arena::Kind::HashBuild);
-            let kept = scatter(&a, d, len, keys.len(), mask, BITS, &mut |p, b| {out.push((p, b.to_vec()));
+            let a =
+                gravity_fn::arena::OpArena::scratch_of(None, gravity_fn::arena::Kind::HashBuild);
+            let kept = scatter(&a, d, len, keys.len(), mask, BITS, &mut |p, b| {
+                out.push((p, b.to_vec()));
                 Ok(())
-            }).unwrap();
+            })
+            .unwrap();
             let t = Rt::of(d, len);
             let routed = |k: i64| route(KeyHash::of(&[k as u64]).to_abi(), BITS);
-            assert!(out.iter().all(|(p, _)| mask >> p & 1 == 1) && (0..t.n).all(|i| mask >> routed(t.key(i)) & 1 == 0));
+            assert!(
+                out.iter().all(|(p, _)| mask >> p & 1 == 1)
+                    && (0..t.n).all(|i| mask >> routed(t.key(i)) & 1 == 0)
+            );
             assert_eq!(kept + out.len(), keys.len());
             let after = records(d);
-            let expect: Vec<_> = before.iter().filter(|(k, _)| mask >> routed(*k) & 1 == 0).cloned().collect();
-            assert_eq!(after, expect, "the kept records in order, their texts intact");
+            let expect: Vec<_> = before
+                .iter()
+                .filter(|(k, _)| mask >> routed(*k) & 1 == 0)
+                .cloned()
+                .collect();
+            assert_eq!(
+                after, expect,
+                "the kept records in order, their texts intact"
+            );
             assert!(rd::<u64>(d, TOP) as usize >= HDR + 24 * kept);
             let mut r2 = region(&[], len);
             let d2 = r2.as_mut_ptr() as *mut u8;
             for (_, b) in out.iter() {
-                assert_eq!((put_record(d2, b), serialized_len(d2, b.as_ptr())), (b.len(), b.len()));
+                assert_eq!(
+                    (put_record(d2, b), serialized_len(d2, b.as_ptr())),
+                    (b.len(), b.len())
+                );
             }
             let mut back = records(d2);
-            let mut gone: Vec<_> = before.iter().filter(|(k, _)| mask >> routed(*k) & 1 == 1).cloned().collect();
-            back.sort(); gone.sort();
+            let mut gone: Vec<_> = before
+                .iter()
+                .filter(|(k, _)| mask >> routed(*k) & 1 == 1)
+                .cloned()
+                .collect();
+            back.sort();
+            gone.sort();
             assert_eq!(back, gone);
         }
     }
@@ -568,43 +857,72 @@ wr::<u64>(d, END, len as u64); wr::<u32>(d, LIMIT, len as u32);
     /// records at the lay-out, with one zeroed mark per record; together they hold every record once.
     #[test]
     fn a_keeping_build_scatters_its_null_key_records_and_both_sides_split_them() {
-        use crate::ops::hashjoin::build::{ALLOW, A_KEEP, A_MARKS, A_TAGS, F_RANGE, KEPT, LOW, NULLKEY};
+        use crate::ops::hashjoin::build::{
+            ALLOW, A_KEEP, A_MARKS, A_TAGS, F_RANGE, KEPT, LOW, NULLKEY,
+        };
         let keys: Vec<i64> = (0..300).map(|k| k * 37 % 1000).collect();
-        let is_null = |i: usize| i.is_multiple_of( 5);
+        let is_null = |i: usize| i.is_multiple_of(5);
         let len = 64 << 10;
         let (mut r, mut r2) = (region(&keys, len), region(&[], len));
         let (d, d2) = (r.as_mut_ptr() as *mut u8, r2.as_mut_ptr() as *mut u8);
         // SAFETY: both regions are `region`'s, `len` bytes each, ours alone.
         unsafe {
-            for d in [d, d2] {wr::<u8>(d, ALLOW, A_TAGS | A_KEEP | A_MARKS); wr::<u8>(d, FLAGS, F_RANGE);
+            for d in [d, d2] {
+                wr::<u8>(d, ALLOW, A_TAGS | A_KEEP | A_MARKS);
+                wr::<u8>(d, FLAGS, F_RANGE);
             }
             for i in (0..keys.len()).filter(|&i| is_null(i)) {
                 // a NULL-key row's image word is 0 (the build stores no key), its link says NULLKEY
-wr::<i64>(d.add(HDR + 24 * i), 0, 0); wr::<u64>(d.add(HDR + 24 * i), 8, NULLKEY);
+                wr::<i64>(d.add(HDR + 24 * i), 0, 0);
+                wr::<u64>(d.add(HDR + 24 * i), 8, NULLKEY);
             }
             wr::<u64>(d, KEPT, keys.len().div_ceil(5) as u64);
             let null_part = route(KeyHash::of(&[0]).to_abi(), BITS);
             let mask = 1u64 << null_part;
             let mut out: Vec<Vec<u8>> = Vec::new();
-            let a = gravity_fn::arena::OpArena::scratch_of(None, gravity_fn::arena::Kind::HashBuild);
-            let kept = scatter(&a, d, len, keys.len(), mask, BITS, &mut |_, b| {out.push(b.to_vec());
+            let a =
+                gravity_fn::arena::OpArena::scratch_of(None, gravity_fn::arena::Kind::HashBuild);
+            let kept = scatter(&a, d, len, keys.len(), mask, BITS, &mut |_, b| {
+                out.push(b.to_vec());
                 Ok(())
-            }).unwrap();
-            let nulls_out = out.iter().filter(|b| rd::<u64>(b.as_ptr(), 8) & LOW == NULLKEY).count();
-            assert_eq!(nulls_out, keys.len().div_ceil(5), "every NULL-key record went with its partition, NULLKEY intact");
+            })
+            .unwrap();
+            let nulls_out = out
+                .iter()
+                .filter(|b| rd::<u64>(b.as_ptr(), 8) & LOW == NULLKEY)
+                .count();
+            assert_eq!(
+                nulls_out,
+                keys.len().div_ceil(5),
+                "every NULL-key record went with its partition, NULLKEY intact"
+            );
             for b in &out {
                 put_record(d2, b);
             }
             let split = |d: *mut u8| {
                 crate::ops::hashjoin::rt::lay_out(d, len).unwrap();
                 let t = Rt::of(d, len);
-                assert!((t.n..t.n + t.kept).all(|i| rd::<u64>(t.rec(i), 8) & LOW == 0), "a kept record's link is cleared");
-                assert!((0..t.n + t.kept).all(|i| *d.add(t.marks_at() + i) == 0), "one zeroed mark per record");
+                assert!(
+                    (t.n..t.n + t.kept).all(|i| rd::<u64>(t.rec(i), 8) & LOW == 0),
+                    "a kept record's link is cleared"
+                );
+                assert!(
+                    (0..t.n + t.kept).all(|i| *d.add(t.marks_at() + i) == 0),
+                    "one zeroed mark per record"
+                );
                 (t.n, t.kept)
             };
             let ((n1, k1), (n2, k2)) = (split(d), split(d2));
-            assert_eq!((k1, k2), (0, nulls_out), "the resident region keeps none of the moved NULL-key records");
-            assert_eq!((n1 + k1, n1 + n2 + k1 + k2), (kept, keys.len()), "every record once");
+            assert_eq!(
+                (k1, k2),
+                (0, nulls_out),
+                "the resident region keeps none of the moved NULL-key records"
+            );
+            assert_eq!(
+                (n1 + k1, n1 + n2 + k1 + k2),
+                (kept, keys.len()),
+                "every record once"
+            );
         }
     }
 
@@ -612,14 +930,37 @@ wr::<i64>(d.add(HDR + 24 * i), 0, 0); wr::<u64>(d.add(HDR + 24 * i), 8, NULLKEY)
     #[test]
     fn a_spill_halves_the_resident_partitions_then_takes_partition_0() {
         let mut m = 0;
-        for want in [0xFFFF_FFFF_0000_0000u64, 0xFFFF_FFFF_FFFF_0000, 0xFFFF_FFFF_FFFF_FF00, u64::MAX << 4, u64::MAX << 2, u64::MAX << 1, u64::MAX, u64::MAX] {
+        for want in [
+            0xFFFF_FFFF_0000_0000u64,
+            0xFFFF_FFFF_FFFF_0000,
+            0xFFFF_FFFF_FFFF_FF00,
+            u64::MAX << 4,
+            u64::MAX << 2,
+            u64::MAX << 1,
+            u64::MAX,
+            u64::MAX,
+        ] {
             m = wider(m, 6);
             assert_eq!(m, want);
         }
-        assert_eq!((wider(0, 5), wider(0xFFFF_0000, 5), wider(0xFFFF_FFFE, 5), wider(0xFFFF_FFFF, 5)), (0xFFFF_0000, 0xFFFF_FF00, 0xFFFF_FFFF, 0xFFFF_FFFF));
-        assert_eq!((wider(0, 1), wider(0b10, 1), wider(0b11, 1)), (0b10, 0b11, 0b11));
+        assert_eq!(
+            (
+                wider(0, 5),
+                wider(0xFFFF_0000, 5),
+                wider(0xFFFF_FFFE, 5),
+                wider(0xFFFF_FFFF, 5)
+            ),
+            (0xFFFF_0000, 0xFFFF_FF00, 0xFFFF_FFFF, 0xFFFF_FFFF)
+        );
+        assert_eq!(
+            (wider(0, 1), wider(0b10, 1), wider(0b11, 1)),
+            (0b10, 0b11, 0b11)
+        );
         // two owners' masks (resident prefixes 0 .. 16 and 0 .. 8) unite to the smaller prefix, which widens to 0 .. 4
-        assert_eq!(wider(0xFFFF_FFFF_FFFF_0000 | 0xFFFF_FFFF_FFFF_FF00, 6), u64::MAX << 4);
+        assert_eq!(
+            wider(0xFFFF_FFFF_FFFF_0000 | 0xFFFF_FFFF_FFFF_FF00, 6),
+            u64::MAX << 4
+        );
     }
 
     /// D4275: build B0 (p0) probed through a UNION ALL's two arms, a scan (p1) and a constant (p2, no driving site), each
@@ -631,8 +972,8 @@ wr::<i64>(d.add(HDR + 24 * i), 0, 0); wr::<u64>(d.add(HDR + 24 * i), 8, NULLKEY)
     fn a_union_probed_build_decides_from_every_arm_before_the_arms_are_made() {
         let rig = mcx::MemoryContext::new("GravityPlanRig");
         use gravity_abi::breaker::{Breaker, BreakerKind};
-        use gravity_decompose::ops::shared::append::AppendDesc;
         use gravity_decompose::join::JoinDesc;
+        use gravity_decompose::ops::shared::append::AppendDesc;
         use gravity_decompose::{Am, NoFacts, Op, PipelineGraph, PipelineNode, Source};
         use gravity_program::{Arena, ArenaVec, End, Pipeline, SiteDesc};
         use types_nodes::jointype::JoinType;
@@ -640,38 +981,124 @@ wr::<i64>(d.add(HDR + 24 * i), 0, 0); wr::<u64>(d.add(HDR + 24 * i), 8, NULLKEY)
         let arena = Arena::new(1 << 16);
         let a = arena.handle();
         let nil: &NodeList<'_> = Box::leak(Box::new(NodeList::nil()));
-        let scan = || Source::Range { site: SiteDesc::none_in(a), am: Am::Heap, scanrelid: 1, relid: 16384 };
+        let scan = || Source::Range {
+            site: SiteDesc::none_in(a),
+            am: Am::Heap,
+            scanrelid: 1,
+            relid: 16384,
+        };
         let why = gravity_program::Reason::NoDrivingSite;
-        let mut b0 = PipelineNode::new(a, 2, scan(), Pipeline::serial(-1, End::Breaker(Breaker::sized(BreakerKind::HashBuild, 4096).in_slot(0)), why));
-        b0.push(Op::Project(nil)); b0.push(Op::Join(JoinDesc::Build { keys: nil, decls: ArenaVec::new_in(a), pg_tuple: u32::MAX }));
-        let probe = || Op::Join(JoinDesc::Probe { slot: 0, jointype: JoinType::JOIN_INNER, clauses: nil, keys: nil, qual: nil, unique: false, marks: false, decls: ArenaVec::new_in(a), inner_node: 2, outer_first: false, catalog: false });
-        let arm = |i: u16| Op::Append(AppendDesc::Arm { i, n: 2, ordered: false, prune: None });
+        let mut b0 = PipelineNode::new(
+            a,
+            2,
+            scan(),
+            Pipeline::serial(
+                -1,
+                End::Breaker(Breaker::sized(BreakerKind::HashBuild, 4096).in_slot(0)),
+                why,
+            ),
+        );
+        b0.push(Op::Project(nil));
+        b0.push(Op::Join(JoinDesc::Build {
+            keys: nil,
+            decls: ArenaVec::new_in(a),
+            pg_tuple: u32::MAX,
+        }));
+        let probe = || {
+            Op::Join(JoinDesc::Probe {
+                slot: 0,
+                jointype: JoinType::JOIN_INNER,
+                clauses: nil,
+                keys: nil,
+                qual: nil,
+                unique: false,
+                marks: false,
+                decls: ArenaVec::new_in(a),
+                inner_node: 2,
+                outer_first: false,
+                catalog: false,
+            })
+        };
+        let arm = |i: u16| {
+            Op::Append(AppendDesc::Arm {
+                i,
+                n: 2,
+                ordered: false,
+                prune: None,
+            })
+        };
         let pipe = |source, site: i16, ops: Vec<_>| {
-            let mut p = PipelineNode::new(a, 1, source, Pipeline::serial(site, End::Sink, why).consuming(&[0]));
+            let mut p = PipelineNode::new(
+                a,
+                1,
+                source,
+                Pipeline::serial(site, End::Sink, why).consuming(&[0]),
+            );
             ops.into_iter().for_each(|o| p.push(o));
             p
         };
         let mut g = PipelineGraph::new(a);
         g.pipelines.push(b0);
-        g.pipelines.push(pipe(scan(), 0, vec![arm(0), probe(), Op::Project(nil)]));
-        g.pipelines.push(pipe(Source::Const, -1, vec![arm(1), probe(), Op::Project(nil)]));
-        g.pipelines.push(pipe(scan(), 0, vec![probe(), Op::Project(nil)]));
-        let gx = crate::graph::Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
+        g.pipelines
+            .push(pipe(scan(), 0, vec![arm(0), probe(), Op::Project(nil)]));
+        g.pipelines.push(pipe(
+            Source::Const,
+            -1,
+            vec![arm(1), probe(), Op::Project(nil)],
+        ));
+        g.pipelines
+            .push(pipe(scan(), 0, vec![probe(), Op::Project(nil)]));
+        let gx = crate::graph::Gx {
+            graph: &g,
+            facts: &NoFacts,
+            catalog: &gravity_expr::PgCatalog,
+            over: None,
+            mcx: rig.mcx(),
+        };
         let mut plan = gravity_lower::Sequential::new(a);
         let mut px = Px::new(a, &gx, &mut plan);
-        assert_eq!((super::alone(&px, 0, 1, 1), super::alone(&px, 0, 2, 1)), (Ok(()), Err(NoSpill::ConsumesMore)), "the scan arm alone may spill");
+        assert_eq!(
+            (super::alone(&px, 0, 1, 1), super::alone(&px, 0, 2, 1)),
+            (Ok(()), Err(NoSpill::ConsumesMore)),
+            "the scan arm alone may spill"
+        );
         assert_eq!(super::arm_run(px.gx, 1), Some((1, 2)));
         // the build's question (no union registered yet), then each arm's after its marker registered the union
-        let at_build = [super::eligible_why(&px, 0, 1, 1), super::eligible_why(&px, 0, 2, 1)];
-        assert_eq!(at_build, [Err(NoSpill::ConsumesMore), Err(NoSpill::ConsumesMore)], "every arm answers at the build");
+        let at_build = [
+            super::eligible_why(&px, 0, 1, 1),
+            super::eligible_why(&px, 0, 2, 1),
+        ];
+        assert_eq!(
+            at_build,
+            [Err(NoSpill::ConsumesMore), Err(NoSpill::ConsumesMore)],
+            "every arm answers at the build"
+        );
         // the resident build's declared debt (build.rs `make`: no bits, so `holds` answers Grows(no_bits)) is the failing
         // arm's own reason, ConsumesMore, the row its closing (a driving site for the arm) retires
-        assert_eq!((super::build_bits(&px, 0, 1, 1), super::no_bits(&px, 0, 1, 1)), (None, NoSpill::ConsumesMore));
-        px.set_union(1, 1, 0); px.set_union(2, 1, 0);
-        assert_eq!([super::eligible_why(&px, 0, 1, 1), super::eligible_why(&px, 0, 2, 1)], at_build, "pair answers as the build did");
+        assert_eq!(
+            (
+                super::build_bits(&px, 0, 1, 1),
+                super::no_bits(&px, 0, 1, 1)
+            ),
+            (None, NoSpill::ConsumesMore)
+        );
+        px.set_union(1, 1, 0);
+        px.set_union(2, 1, 0);
+        assert_eq!(
+            [
+                super::eligible_why(&px, 0, 1, 1),
+                super::eligible_why(&px, 0, 2, 1)
+            ],
+            at_build,
+            "pair answers as the build did"
+        );
         // a union a Drain op registers is no arm: p3's probe answers alone
         assert_eq!(super::eligible_why(&px, 0, 3, 0), Ok(()));
         px.set_union(3, 1, 0);
-        assert_eq!(super::eligible_why(&px, 0, 3, 0), Ok(()), "a Drain's union is none");
+        assert_eq!(
+            super::eligible_why(&px, 0, 3, 0),
+            Ok(()),
+            "a Drain's union is none"
+        );
     }
 }

@@ -18,8 +18,7 @@ const RANKS: usize = RANK_BITS as usize + 1;
 const SAMPLE_SCALE: f64 = (1u32 << SAMPLE_BITS) as f64;
 const MIX: u32 = 0x9E37_79B1;
 
-static SKETCH: [[AtomicU32; RANKS]; REGS] =
-    [const { [const { AtomicU32::new(0) }; RANKS] }; REGS];
+static SKETCH: [[AtomicU32; RANKS]; REGS] = [const { [const { AtomicU32::new(0) }; RANKS] }; REGS];
 
 // Coarse monotonic seconds + 1 (0 marks a never-stamped slot). Advanced by
 // stamping, by every timed buffer read, by the bgwriter's cycle and by each

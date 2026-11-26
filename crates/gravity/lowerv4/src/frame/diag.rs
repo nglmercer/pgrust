@@ -18,18 +18,18 @@ use gravity_lower::{LowerOpts, Lowered, WordPlan};
 use gravity_program::ArenaRef;
 use mcx::{Mcx, PgBox};
 
+use crate::admit::refusal::{raise, Reason, Refusal, Variant};
+use crate::applies;
 use crate::face::end::EndMech;
-use crate::face::strategy::{Strategy, StrategySet};
 use crate::face::source::SourceMech;
 use crate::face::step::StepMech;
+use crate::face::strategy::{Strategy, StrategySet};
 use crate::frame::env::Env;
 use crate::frame::frame::{Next, Win};
 use crate::frame::px::Px;
 use crate::frame::row::{Carry, RowVals};
 use crate::frame::stop::Exits;
 use crate::graph::Gx;
-use crate::admit::refusal::{raise, Reason, Refusal, Variant};
-use crate::applies;
 
 /// The process's mode: off until the executor sets it (exec knobs/lowerer.rs, from knobs/diag.rs's `PGRUST_GRAVITY_DIAG`).
 static MODE: AtomicBool = AtomicBool::new(false);
@@ -84,15 +84,40 @@ pub struct Report {
 
 /// `lower_graph` in the mode whatever the process's (the unit tests): the outcome and the blocker report. PLANMEM: in a
 /// planning context of its own, dropped when it returns.
-pub fn lower_graph_diag<'p>(arena: ArenaRef, graph: &PipelineGraph<'p>, facts: &dyn Facts, catalog: &dyn Catalog<'p>, plan: &mut dyn WordPlan<'p>, opts: LowerOpts) -> (gravity_lower::Result<Lowered>, Report) {
+pub fn lower_graph_diag<'p>(
+    arena: ArenaRef,
+    graph: &PipelineGraph<'p>,
+    facts: &dyn Facts,
+    catalog: &dyn Catalog<'p>,
+    plan: &mut dyn WordPlan<'p>,
+    opts: LowerOpts,
+) -> (gravity_lower::Result<Lowered>, Report) {
     let rig = gravity_driver::mem::root::Root::new("GravityPlanRig");
     let mut report = Report::default();
-    (crate::lower_in(arena, rig.mcx(), graph, facts, catalog, plan, opts, Some(&mut report)), report)
+    (
+        crate::lower_in(
+            arena,
+            rig.mcx(),
+            graph,
+            facts,
+            catalog,
+            plan,
+            opts,
+            Some(&mut report),
+        ),
+        report,
+    )
 }
 
 /// The lowering in the mode (lib.rs `lower_in`): admission recorded, the program lowered past every maker's refusal;
 /// the blocker lines logged into `report`; the mode-off lowering's refusal, or the program when nothing blocked.
-pub fn lower<'p>(arena: ArenaRef, gx: &Gx<'_, 'p>, plan: &mut dyn WordPlan<'p>, opts: LowerOpts, report: &mut Report) -> Result<Lowered, Refusal> {
+pub fn lower<'p>(
+    arena: ArenaRef,
+    gx: &Gx<'_, 'p>,
+    plan: &mut dyn WordPlan<'p>,
+    opts: LowerOpts,
+    report: &mut Report,
+) -> Result<Lowered, Refusal> {
     let log = RefCell::new(Log::default());
     let r = crate::catch(gx.root_node(), || {
         let p = crate::props::Props::of(gx);
@@ -109,7 +134,10 @@ pub fn lower<'p>(arena: ArenaRef, gx: &Gx<'_, 'p>, plan: &mut dyn WordPlan<'p>, 
         r => r,
     };
     l.log();
-    *report = Report { blockers: l.blockers, lines: l.lines };
+    *report = Report {
+        blockers: l.blockers,
+        lines: l.lines,
+    };
     r
 }
 
@@ -120,7 +148,16 @@ fn admit(log: &RefCell<Log>, gx: &Gx<'_, '_>, p: &crate::props::Props) {
     let mut l = log.borrow_mut();
     l.admit = admit;
     for (k, node) in applies::unbuilt(p) {
-        l.push(None, "admit", Refusal { reason: Variant::Kind(k).not_built(), node, native_rel: 0 }, false);
+        l.push(
+            None,
+            "admit",
+            Refusal {
+                reason: Variant::Kind(k).not_built(),
+                node,
+                native_rel: 0,
+            },
+            false,
+        );
     }
     l.later = applies::unbuilt_later(p);
 }
@@ -128,8 +165,17 @@ fn admit(log: &RefCell<Log>, gx: &Gx<'_, '_>, p: &crate::props::Props) {
 impl Log {
     /// A blocker, once per pipeline, stage, reason and node (a maker asked twice for one unbuilt road is one wall).
     fn push(&mut self, pipe: Option<usize>, stage: &'static str, refusal: Refusal, cascade: bool) {
-        if !self.blockers.iter().any(|b| (b.pipe, b.stage, b.refusal) == (pipe, stage, refusal)) {
-            self.blockers.push(Blocker { pipe, stage, refusal, cascade }); // alloc: Cold
+        if !self
+            .blockers
+            .iter()
+            .any(|b| (b.pipe, b.stage, b.refusal) == (pipe, stage, refusal))
+        {
+            self.blockers.push(Blocker {
+                pipe,
+                stage,
+                refusal,
+                cascade,
+            }); // alloc: Cold
         }
     }
 
@@ -137,14 +183,21 @@ impl Log {
     /// it blocked (`pipe=`), which counts as blocked.
     fn record(&mut self, pipe: Option<usize>, stage: &'static str, r: Refusal) {
         let admitted = |b: &Blocker| b.stage == "admit" && b.refusal.reason == r.reason;
-        let listed = matches!(r.reason, Reason::NotBuilt { .. }) && self.blockers.iter().any(admitted);
-        if let Some(b) = self.blockers.iter_mut().filter(|b| listed && admitted(b)).find(|b| b.pipe.is_none()) {
+        let listed =
+            matches!(r.reason, Reason::NotBuilt { .. }) && self.blockers.iter().any(admitted);
+        if let Some(b) = self
+            .blockers
+            .iter_mut()
+            .filter(|b| listed && admitted(b))
+            .find(|b| b.pipe.is_none())
+        {
             b.pipe = pipe;
         }
-        let cascade = !matches!(r.reason, Reason::NotBuilt { .. }) && match pipe {
-            Some(k) => self.blocked.iter().any(|&j| j <= k),
-            None => self.first.is_some(),
-        };
+        let cascade = !matches!(r.reason, Reason::NotBuilt { .. })
+            && match pipe {
+                Some(k) => self.blocked.iter().any(|&j| j <= k),
+                None => self.first.is_some(),
+            };
         self.first.get_or_insert(r);
         if let Some(k) = pipe {
             self.blocked.push(k); // alloc: Cold
@@ -164,7 +217,11 @@ impl Log {
                 _ => "-",
             };
             let pipe = b.pipe.map_or_else(|| "-".to_string(), |k| k.to_string()); // alloc: Cold
-            let oid = if s.oid == 0 { String::new() } else { format!(" [{} {}]", s.oid, s.detail) }; // alloc: Cold
+            let oid = if s.oid == 0 {
+                String::new()
+            } else {
+                format!(" [{} {}]", s.oid, s.detail)
+            }; // alloc: Cold
             let line = format!( // alloc: Cold
                 "gravity: blocker pipe={pipe} node={} stage={} milestone={ms} reason={} k={}/{n} cascade={} text={}{oid}",
                 b.refusal.node, b.stage, b.refusal.reason.variant(), i + 1, b.cascade as u8, s.what
@@ -181,12 +238,19 @@ impl Log {
 /// The exit-report line for unbuilt strategy `r` (applies.rs `unbuilt_later`), logged by a lowering in the mode served or
 /// not; never a blocker (not in `Report::lines`).
 pub fn unbuilt_strategy_line(r: Strategy) -> String {
-    format!("gravity: unbuilt-strategy strategy={} text=an applicable strategy with no mechanism; the statement takes its straight form", r.name()) // alloc: Cold
+    format!("gravity: unbuilt-strategy strategy={} text=an applicable strategy with no mechanism; the statement takes its straight form", r.name())
+    // alloc: Cold
 }
 
 /// A maker under the mode: its mechanism, or on a refusal the placeholder (the refusal recorded); off, the maker alone.
 #[inline]
-pub fn make<'a, 'g, 'p, T: ?Sized + 'g>(px: &'a mut Px<'g, 'p>, k: usize, node: i32, f: impl FnOnce(&'a mut Px<'g, 'p>) -> PgBox<'g, T>, hold: fn(Mcx<'g>) -> PgBox<'g, T>) -> PgBox<'g, T> {
+pub fn make<'a, 'g, 'p, T: ?Sized + 'g>(
+    px: &'a mut Px<'g, 'p>,
+    k: usize,
+    node: i32,
+    f: impl FnOnce(&'a mut Px<'g, 'p>) -> PgBox<'g, T>,
+    hold: fn(Mcx<'g>) -> PgBox<'g, T>,
+) -> PgBox<'g, T> {
     let mcx = px.mcx();
     let Some(log) = px.diag else {
         return f(px);
@@ -249,19 +313,39 @@ impl SourceMech for Hold {
     fn next_window(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env, _l_eof: Block) -> Win {
         unreachable!("{NEVER}")
     }
-    fn row<'e>(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env<'e, '_>, _win: &Win, _j: Value, _carry: Carry<'e>, _next: Value) -> RowVals<'e> {
+    fn row<'e>(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        _env: &mut Env<'e, '_>,
+        _win: &Win,
+        _j: Value,
+        _carry: Carry<'e>,
+        _next: Value,
+    ) -> RowVals<'e> {
         unreachable!("{NEVER}")
     }
 }
 
 impl StepMech for Hold {
-    fn lower<'e>(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env<'e, '_>, _row: &RowVals, _next: Next<'_, 'e>) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        _env: &mut Env<'e, '_>,
+        _row: &RowVals,
+        _next: Next<'_, 'e>,
+    ) -> Carry<'e> {
         unreachable!("{NEVER}")
     }
 }
 
 impl EndMech for Hold {
-    fn lower<'e>(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env<'e, '_>, _row: &RowVals, _x: &Exits) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        _env: &mut Env<'e, '_>,
+        _row: &RowVals,
+        _x: &Exits,
+    ) -> Carry<'e> {
         unreachable!("{NEVER}")
     }
 }

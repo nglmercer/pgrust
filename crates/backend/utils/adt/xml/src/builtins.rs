@@ -3,13 +3,11 @@
 use ::datum::{Datum, Varlena};
 use ::mcx::Mcx;
 use ::types_error::PgResult;
-use ::types_fmgr::{
-    varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
-};
+use ::types_fmgr::{varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 
 use crate::XmlStandaloneType;
 
-fn arg_text(fcinfo: & Fcinfo, i: usize) -> PgResult<& [u8]> {
+fn arg_text(fcinfo: &Fcinfo, i: usize) -> PgResult<&[u8]> {
     // SAFETY: catalog arg i is a non-null text/xml varlena (strict fn).
     Ok(unsafe { fcinfo.arg_varlena_packed(i)? }.data())
 }
@@ -28,7 +26,7 @@ fn payload_varlena<'mcx>(mcx: Mcx<'mcx>, payload: &[u8]) -> PgResult<Varlena<'mc
 
 pub fn fc_xml_in(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     // SAFETY: catalog arg 0 of the in-function is cstring (typlen -2).
-    let s = ::mcx::std_vec_from_slice("adt",unsafe { fcinfo.arg_cstring(0) }.to_bytes())?;
+    let s = ::mcx::std_vec_from_slice("adt", unsafe { fcinfo.arg_cstring(0) }.to_bytes())?;
     // SAFETY: context, if set, rides per the ErrorSaveNode contract.
     let esc = unsafe { fcinfo.soft_error_context() };
     match crate::xml_in(&s, esc)? {
@@ -102,18 +100,23 @@ pub fn fc_xmltext(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResu
 }
 
 pub fn fc_xmlconcat2(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
-    let a1 = if fcinfo.argisnull(0) { None } else { Some(arg_text(fcinfo, 0)?) };
-    let a2 = if fcinfo.argisnull(1) { None } else { Some(arg_text(fcinfo, 1)?) };
+    let a1 = if fcinfo.argisnull(0) {
+        None
+    } else {
+        Some(arg_text(fcinfo, 0)?)
+    };
+    let a2 = if fcinfo.argisnull(1) {
+        None
+    } else {
+        Some(arg_text(fcinfo, 1)?)
+    };
     match crate::xmlconcat2(a1, a2)? {
         Some(v) => ret_xml(fcinfo.result_mcx(), &v),
         None => Ok(fcinfo.return_null()),
     }
 }
 
-fn wellformed(
-    fcinfo: &mut Fcinfo,
-    f: fn(&[u8]) -> PgResult<bool>,
-) -> PgResult<Datum> {
+fn wellformed(fcinfo: &mut Fcinfo, f: fn(&[u8]) -> PgResult<bool>) -> PgResult<Datum> {
     Ok(Datum::from_bool(f(arg_text(fcinfo, 0)?)?))
 }
 
@@ -140,7 +143,11 @@ use ::types_core::catalog::XMLOID;
 // xml.c:4527 / 4573 PG_GETARG_ARRAYTYPE_P(2): the namespace-mapping array is
 // detoasted (out-of-line, compressed, or a 1-byte-header image straight off a
 // heap tuple) before xpath_internal reads its dimensions.
-fn arg_array_image<'mcx>(fcinfo: &Fcinfo, i: usize, mcx: Mcx<'mcx>) -> PgResult<::mcx::PgVec<'mcx, u8>> {
+fn arg_array_image<'mcx>(
+    fcinfo: &Fcinfo,
+    i: usize,
+    mcx: Mcx<'mcx>,
+) -> PgResult<::mcx::PgVec<'mcx, u8>> {
     arrayfuncs::builtins::arg_array_bytes(fcinfo, i, mcx)
 }
 
@@ -215,7 +222,17 @@ pub const XML_BUILTINS: &[FmgrBuiltin] = &[
     b(2931, "xpath", 3, fc_xpath),
     b(3049, "xpath_exists", 3, fc_xpath_exists),
     b(3051, "xml_is_well_formed", 1, fc_xml_is_well_formed),
-    b(3052, "xml_is_well_formed_document", 1, fc_xml_is_well_formed_document),
-    b(3053, "xml_is_well_formed_content", 1, fc_xml_is_well_formed_content),
+    b(
+        3052,
+        "xml_is_well_formed_document",
+        1,
+        fc_xml_is_well_formed_document,
+    ),
+    b(
+        3053,
+        "xml_is_well_formed_content",
+        1,
+        fc_xml_is_well_formed_content,
+    ),
     b(3813, "xmltext", 1, fc_xmltext),
 ];

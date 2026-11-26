@@ -10,8 +10,14 @@ pub mod builtins;
 mod tests;
 
 // size_pretty_units name/unitbits pairs + the "B" alias for bytes.
-const UNITS: &[(&str, u32)] =
-    &[("bytes", 0), ("kB", 10), ("MB", 20), ("GB", 30), ("TB", 40), ("PB", 50)];
+const UNITS: &[(&str, u32)] = &[
+    ("bytes", 0),
+    ("kB", 10),
+    ("MB", 20),
+    ("GB", 30),
+    ("TB", 40),
+    ("PB", 50),
+];
 
 fn c_isspace(c: u8) -> bool {
     c == b' ' || (0x09..=0x0d).contains(&c)
@@ -54,8 +60,8 @@ fn invalid_unit(arg: &[u8], unit: &[u8]) -> Box<PgError> {
     };
     Box::new(
         e.with_hint(
-                "Valid units are \"bytes\", \"B\", \"kB\", \"MB\", \"GB\", \"TB\", and \"PB\".",
-            ),
+            "Valid units are \"bytes\", \"B\", \"kB\", \"MB\", \"GB\", \"TB\", and \"PB\".",
+        ),
     )
 }
 
@@ -108,8 +114,7 @@ pub fn pg_size_bytes(arg: impl AsRef<[u8]>) -> PgResult<i64> {
 
     // The scanned number run is ASCII (sign, digits, '.', 'e').
     let numstr = core::str::from_utf8(&arg[numstart..e]).expect("ASCII number run");
-    let mut num = adt_numeric::numeric_in(numstr, -1, None)?
-        .expect("hard-error path returns Err");
+    let mut num = adt_numeric::numeric_in(numstr, -1, None)?.expect("hard-error path returns Err");
 
     let mut p = e;
     while p < s.len() && c_isspace(s[p]) {

@@ -1,12 +1,14 @@
 //! The `par_topk` kernel and its emit (`MAX_N` and `bytes` stay in `par_topk.rs`).
 #![allow(unused_imports)]
-use gravity_abi::PtrWord;
 use super::*;
-use crate::util::{advance, done, emit, end, for_each_row, lane, partial, range_seek, site as site_of, stopped};
 use crate::util::HOST_STOP;
-use gravity_abi::status::{unsupported, DONE, ERROR, UNSUPPORTED_SCRATCH};
-use gravity_abi::{Ctx, Datum};
+use crate::util::{
+    advance, done, emit, end, for_each_row, lane, partial, range_seek, site as site_of, stopped,
+};
 use gravity_abi::ctx::RESUME_NONE;
+use gravity_abi::status::{unsupported, DONE, ERROR, UNSUPPORTED_SCRATCH};
+use gravity_abi::PtrWord;
+use gravity_abi::{Ctx, Datum};
 
 /// `SELECT cols FROM t ORDER BY cols[0] LIMIT n` over the zone walk (§1.10 increment 3 step
 #[allow(clippy::missing_safety_doc)]
@@ -60,11 +62,19 @@ pub unsafe extern "C-unwind" fn par_topk_emit(ctx: *mut Ctx) -> i64 {
     let n = *(*ctx).params.ptr() as u32;
     let natts = *(*ctx).params.ptr().add(1) as usize;
     let run = TopK::at(partial(ctx), n, natts as u32);
-    let mut i = if (*ctx).resume == RESUME_NONE { 0 } else { (*ctx).resume as usize };
+    let mut i = if (*ctx).resume == RESUME_NONE {
+        0
+    } else {
+        (*ctx).resume as usize
+    };
     while i < run.len as usize {
         let (v, nl) = run.row(i);
         i += 1;
-        let f = emit(ctx, natts, &[(v.as_ptr() as *const Datum, nl.as_ptr(), natts)]);
+        let f = emit(
+            ctx,
+            natts,
+            &[(v.as_ptr() as *const Datum, nl.as_ptr(), natts)],
+        );
         if f < 0 {
             return ERROR;
         }

@@ -3,11 +3,11 @@
 //! `guard!(FAIL, body)` they ran under), and the page-window read they share, moved as is from entries.rs and
 //! entries_heap.rs. Those files re-export the entries under their old paths, so the lowerers' addresses and the IR's host
 //! names are unchanged.
-use gravity_abi::PtrWord;
 use gravity_abi::ctx::site_ptr;
 use gravity_abi::site::{self, Site};
 use gravity_abi::status::ERROR;
 use gravity_abi::Ctx;
+use gravity_abi::PtrWord;
 
 use super::entries_heap::PageWin;
 
@@ -109,7 +109,11 @@ fn cross_bound(kind: u8, op: u8, v: u64) -> u64 {
         _ => -dtz(v as i32, x),
     };
     // the domain in order: its least and greatest values, and the finite span searched between them
-    let (first, last, lo, hi) = if date_lane { (i32::MIN as i64, i32::MAX as i64, MIN_DATE, END_DATE - 1) } else { (i64::MIN, i64::MAX, i64::MIN, i64::MAX) };
+    let (first, last, lo, hi) = if date_lane {
+        (i32::MIN as i64, i32::MAX as i64, MIN_DATE, END_DATE - 1)
+    } else {
+        (i64::MIN, i64::MAX, i64::MIN, i64::MAX)
+    };
     // the least value whose `pass` holds (false then true over the domain)
     let least = |pass: &dyn Fn(i64) -> bool| {
         if pass(first) {
@@ -162,6 +166,16 @@ fn cross_bound(kind: u8, op: u8, v: u64) -> u64 {
 /// The window's `PageWin`: the line-pointer count read from `pd_lower` (the page header's u16 at 12, 24 header bytes,
 /// 4 per line pointer).
 pub(super) unsafe fn page_win(s: &Site) -> PageWin {
-    let lower = if s.page.ptr().is_null() { 0 } else { core::ptr::read_unaligned(s.page.ptr().add(12) as *const u16) as u32 };
-    PageWin { page: s.page.ptr() as u64, nlp: lower.saturating_sub(24) / 4, flags: s.page_flags as u32, block: s.pos.block, buf: s.granule }
+    let lower = if s.page.ptr().is_null() {
+        0
+    } else {
+        core::ptr::read_unaligned(s.page.ptr().add(12) as *const u16) as u32
+    };
+    PageWin {
+        page: s.page.ptr() as u64,
+        nlp: lower.saturating_sub(24) / 4,
+        flags: s.page_flags as u32,
+        block: s.pos.block,
+        buf: s.granule,
+    }
 }

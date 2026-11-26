@@ -23,9 +23,9 @@ use types_error::PgResult;
 use gravity_fn::arena::{AVec, Kind, OpArena, Refused};
 
 use super::raw::{key_len, owned_each, Record};
-use crate::ops::{Live, Prepare, Protocol};
 use crate::admit::{Admit, Bind};
 use crate::glue;
+use crate::ops::{Live, Prepare, Protocol};
 
 pub const ADMIT: &[Admit] = &[];
 pub const BIND: &[Bind] = &[];
@@ -47,7 +47,10 @@ const ARG_PLAIN_RIGHT_SHIFT: u32 = 48;
 /// D2805: a keyed setop.setop proto (it holds its word, ARG_PLAIN clear) that lowerv4 marked with the kernels'
 /// `SETOP_ARG_LOUD` bit: a root-path sorted set operation whose left streams a raise (runner/admission.rs).
 pub(crate) fn counted_pull_mark(p: &Proto) -> bool {
-    p.kind == ProtoKind::SetOp && p.words.n != 0 && p.arg & ARG_PLAIN == 0 && p.arg & gravity_kernels::ops::setop::entries::SETOP_ARG_LOUD != 0
+    p.kind == ProtoKind::SetOp
+        && p.words.n != 0
+        && p.arg & ARG_PLAIN == 0
+        && p.arg & gravity_kernels::ops::setop::entries::SETOP_ARG_LOUD != 0
 }
 pub(crate) use gravity_abi::breaker::MIN_REGION;
 
@@ -83,13 +86,24 @@ struct PlainLive {
 
 /// D2197: the right slot as `p`'s peer makes it (lowerv4's renumber_deferred never renames `arg`'s), if its emit reads it.
 fn right_slot(p: &Proto, program: &Program) -> Option<u8> {
-    program.pipelines.get(p.peer as usize)?.produces().filter(|s| program.pipelines.get(p.pipeline as usize).is_some_and(|e| e.consumes.contains(s)))
+    program
+        .pipelines
+        .get(p.peer as usize)?
+        .produces()
+        .filter(|s| {
+            program
+                .pipelines
+                .get(p.pipeline as usize)
+                .is_some_and(|e| e.consumes.contains(s))
+        })
 }
 
 fn owner_layout(cx: &Prepare<'_>, p: usize) -> PgResult<RecordLayout> {
     match cx.program.pipelines.get(p).and_then(|q| q.owner.as_ref()) {
         Some(o) => Ok(o.layout),
-        None => Err(glue::internal("gravity: setop.setop over a side without its owner layout")),
+        None => Err(glue::internal(
+            "gravity: setop.setop over a side without its owner layout",
+        )),
     }
 }
 
@@ -102,9 +116,17 @@ impl Protocol for SetOp {
         if p.words.n == 0 {
             // the skip form rides the left producer (`pipeline`) and names the right producer (`peer`); the emit is the
             // pipeline that reads the left slot from it
-            return Ok(crate::ops::setop::skip::prepare(p, cx.program, cx.charged_vec()));
+            return Ok(crate::ops::setop::skip::prepare(
+                p,
+                cx.program,
+                cx.charged_vec(),
+            ));
         }
-        let Some(right) = right_slot(p, cx.program) else { return Err(glue::internal("gravity: setop.setop's emit does not read its right producer's slot")) };
+        let Some(right) = right_slot(p, cx.program) else {
+            return Err(glue::internal(
+                "gravity: setop.setop's emit does not read its right producer's slot",
+            ));
+        };
         let base = p.words.base as usize;
         if p.arg & ARG_PLAIN != 0 {
             let count = Box::new(Cell::new(0i64)); // alloc: Exec
@@ -112,24 +134,55 @@ impl Protocol for SetOp {
                 (1, Some(w), Some(n)) => (*w, *n) = (count.as_ptr() as u64, 0),
                 _ => return Err(glue::internal("gravity: setop.setop without its word")),
             }
-            let (lsent, rsent) = (((p.arg >> ARG_PLAIN_LEFT_SHIFT) & 0xffff) as usize, ((p.arg >> ARG_PLAIN_RIGHT_SHIFT) & 0xffff) as usize);
-            let at = crate::ops::setop::skip::producer_of(cx.program, k, p.slot).map_or(peer, |lp| lp.max(peer));
-            return Ok(Some(Box::new(PlainLive { left: p.slot, right, at, cmd: p.arg & ARG_CMD_MASK, lsent, rsent, count }))); // alloc: Exec
+            let (lsent, rsent) = (
+                ((p.arg >> ARG_PLAIN_LEFT_SHIFT) & 0xffff) as usize,
+                ((p.arg >> ARG_PLAIN_RIGHT_SHIFT) & 0xffff) as usize,
+            );
+            let at = crate::ops::setop::skip::producer_of(cx.program, k, p.slot)
+                .map_or(peer, |lp| lp.max(peer));
+            return Ok(Some(Box::new(PlainLive {
+                left: p.slot,
+                right,
+                at,
+                cmd: p.arg & ARG_CMD_MASK,
+                lsent,
+                rsent,
+                count,
+            }))); // alloc: Exec
         }
         let Some(lp) = crate::ops::setop::skip::producer_of(cx.program, k, p.slot) else {
-            return Err(glue::internal("gravity: setop.setop's emit does not read its left group"));
+            return Err(glue::internal(
+                "gravity: setop.setop's emit does not read its left group",
+            ));
         };
         let (llay, rlay) = (owner_layout(cx, lp)?, owner_layout(cx, peer)?);
         let s = llay.sentinel_slot();
-        let Some(copy) = (0..llay.nslots()).find(|&j| j != s && llay.slot_kind(j) == SlotKind::Count) else {
-            return Err(glue::internal("gravity: setop.setop's left record without its copy slot"));
+        let Some(copy) =
+            (0..llay.nslots()).find(|&j| j != s && llay.slot_kind(j) == SlotKind::Count)
+        else {
+            return Err(glue::internal(
+                "gravity: setop.setop's left record without its copy slot",
+            ));
         };
         match (p.words.n, cx.words.get_mut(base), cx.nulls.get_mut(base)) {
             (1, Some(w), Some(n)) => (*w, *n) = (llay.slot_off(copy) as u64 + 1, 0),
             _ => return Err(glue::internal("gravity: setop.setop without its word")),
         }
-        let (nkeys, words) = (((p.arg >> ARG_NKEYS_SHIFT) & ARG_NKEYS_MASK) as usize, ((p.arg >> ARG_WORDS_SHIFT) & ARG_WORDS_MASK) as usize);
-        Ok(Some(Box::new(CopiesLive { left: p.slot, right, at: lp.max(peer), cmd: p.arg & ARG_CMD_MASK, nkeys, words, llay, rlay, copy }))) // alloc: Exec
+        let (nkeys, words) = (
+            ((p.arg >> ARG_NKEYS_SHIFT) & ARG_NKEYS_MASK) as usize,
+            ((p.arg >> ARG_WORDS_SHIFT) & ARG_WORDS_MASK) as usize,
+        );
+        Ok(Some(Box::new(CopiesLive {
+            left: p.slot,
+            right,
+            at: lp.max(peer),
+            cmd: p.arg & ARG_CMD_MASK,
+            nkeys,
+            words,
+            llay,
+            rlay,
+            copy,
+        }))) // alloc: Exec
     }
 }
 
@@ -141,7 +194,12 @@ pub(crate) fn plain_count(exec: &mut Exec, slot: u8, sent: usize) -> Option<i64>
 
 /// Every record of slot `slot`'s owned region handed to `f` (`agg_gather`'s runs-form walk, raw.rs `owned_each`, no list
 /// made): their number, or `None` when the region is not an owned table; 0 when it was never laid out.
-fn each_record(exec: &mut Exec, slot: u8, lay: &RecordLayout, f: impl FnMut(Record)) -> Option<usize> {
+fn each_record(
+    exec: &mut Exec,
+    slot: u8,
+    lay: &RecordLayout,
+    f: impl FnMut(Record),
+) -> Option<usize> {
     let r = exec.node_mut().slot_region(slot);
     if r.len() < MIN_REGION {
         return Some(0);
@@ -164,7 +222,11 @@ impl Live for CopiesLive {
         crate::ops::ask::AFTER
     }
 
-    fn after_pipeline(&self, pipeline: usize, exec: &mut Exec) -> Option<gravity_driver::Result<()>> {
+    fn after_pipeline(
+        &self,
+        pipeline: usize,
+        exec: &mut Exec,
+    ) -> Option<gravity_driver::Result<()>> {
         if pipeline != self.at {
             return None;
         }
@@ -173,12 +235,24 @@ impl Live for CopiesLive {
         // census is not a test: the owner phase's in-memory runs count there too. A region that is not an owned table is
         // the unreachable case.
         // both sides counted first (the directories only): either one not an owned table is the unreachable case
-        let (Some(_), Some(nr)) = (each_record(exec, self.left, &self.llay, |_| ()), each_record(exec, self.right, &self.rlay, |_| ())) else {
-            return Some(Err(gravity_driver::Error::host("gravity: bug: setop.setop over a side that is not an owned table")));
+        let (Some(_), Some(nr)) = (
+            each_record(exec, self.left, &self.llay, |_| ()),
+            each_record(exec, self.right, &self.rlay, |_| ()),
+        ) else {
+            return Some(Err(gravity_driver::Error::host(
+                "gravity: bug: setop.setop over a side that is not an owned table",
+            )));
         };
-        let (sl, sr, n, w) = (self.llay.sentinel_slot(), self.rlay.sentinel_slot(), self.nkeys, self.words);
+        let (sl, sr, n, w) = (
+            self.llay.sentinel_slot(),
+            self.rlay.sentinel_slot(),
+            self.nkeys,
+            self.words,
+        );
         if self.llay.nkeys() < w || self.rlay.nkeys() < w {
-            return Some(Err(gravity_driver::Error::host("gravity: setop.setop's sides are narrower than their keys")));
+            return Some(Err(gravity_driver::Error::host(
+                "gravity: setop.setop's sides are narrower than their keys",
+            )));
         }
         // CONVERT (wave 2): the right side's count index is that side's working memory: carved from a scratch arena on the
         // right slot's operator owner (`Node::slot_owner`, its HashAgg kind: a keyed set side is a hashed or sorted group,
@@ -206,7 +280,10 @@ impl Live for CopiesLive {
             let c = l.count(self.llay.slot_off(sl) as usize);
             l.key_into(&self.llay, n, w, right.probe());
             let r = right.get();
-            l.set_count(self.llay.slot_off(self.copy) as usize, copies(self.cmd, c, r));
+            l.set_count(
+                self.llay.slot_off(self.copy) as usize,
+                copies(self.cmd, c, r),
+            );
         });
         Some(Ok(()))
     }
@@ -236,7 +313,15 @@ impl<'a> Counts<'a> {
         let mut probe = AVec::with_capacity(a, len)?;
         probe.resize(a, len, 0)?;
         let (keys, counts) = (AVec::with_capacity(a, n * len)?, AVec::with_capacity(a, n)?);
-        Ok(Counts { a, len, bits, slots, keys, counts, probe })
+        Ok(Counts {
+            a,
+            len,
+            bits,
+            slots,
+            keys,
+            counts,
+            probe,
+        })
     }
 
     /// The probe key's words, for the caller to write.
@@ -246,7 +331,11 @@ impl<'a> Counts<'a> {
 
     /// The probe key's slot: the one holding it, else the empty one where it goes.
     fn slot(&self) -> usize {
-        let (slots, keys, probe) = (self.slots.as_slice(self.a), self.keys.as_slice(self.a), self.probe.as_slice(self.a));
+        let (slots, keys, probe) = (
+            self.slots.as_slice(self.a),
+            self.keys.as_slice(self.a),
+            self.probe.as_slice(self.a),
+        );
         let mask = slots.len() - 1;
         let mut i = KeyHash::of(probe).home(self.bits, Depth::TOP);
         loop {
@@ -293,12 +382,21 @@ impl Live for PlainLive {
         crate::ops::ask::AFTER
     }
 
-    fn after_pipeline(&self, pipeline: usize, exec: &mut Exec) -> Option<gravity_driver::Result<()>> {
+    fn after_pipeline(
+        &self,
+        pipeline: usize,
+        exec: &mut Exec,
+    ) -> Option<gravity_driver::Result<()>> {
         if pipeline != self.at {
             return None;
         }
-        let (Some(l), Some(r)) = (plain_count(exec, self.left, self.lsent), plain_count(exec, self.right, self.rsent)) else {
-            return Some(Err(gravity_driver::Error::host("gravity: bug: setop.setop over a plain side that is not a record table")));
+        let (Some(l), Some(r)) = (
+            plain_count(exec, self.left, self.lsent),
+            plain_count(exec, self.right, self.rsent),
+        ) else {
+            return Some(Err(gravity_driver::Error::host(
+                "gravity: bug: setop.setop over a plain side that is not a record table",
+            )));
         };
         self.count.set(copies(self.cmd, l, r));
         Some(Ok(()))
@@ -320,7 +418,17 @@ mod tests {
     /// NULL in each position meets only its own NULL; two texts differing only in the second Fp128 word differ.
     #[test]
     fn a_set_key_reads_its_flags_past_every_image_word() {
-        let l = RecordLayout::new(&[KeyKind::Fp128, KeyKind::Fp128, KeyKind::I64, KeyKind::Fp128, KeyKind::Fp128, KeyKind::I64], &[SlotKind::Count]);
+        let l = RecordLayout::new(
+            &[
+                KeyKind::Fp128,
+                KeyKind::Fp128,
+                KeyKind::I64,
+                KeyKind::Fp128,
+                KeyKind::Fp128,
+                KeyKind::I64,
+            ],
+            &[SlotKind::Count],
+        );
         let (n, w) = (3, 5);
         let rec = |words: [u64; 5], flags: u64| {
             let mut r = vec![0u64; (l.size() as usize).div_ceil(8)]; // alloc: Cold
@@ -332,10 +440,22 @@ mod tests {
         // SAFETY: each record is a zeroed buffer of `l`'s size holding its six key words
         let k = |r: &Vec<u64>| unsafe { key(r.as_ptr() as *const u8, &l, n, w) };
         let full = rec([1, 2, 7, 3, 4], 0);
-        assert_eq!(k(&full), vec![1, 2, 7, 3, 4, 0], "five image words, then the flags"); // alloc: Cold
-        assert_ne!(k(&full), k(&rec([1, 9, 7, 3, 4], 0)), "a text differing only past its first word");
+        assert_eq!(
+            k(&full),
+            vec![1, 2, 7, 3, 4, 0],
+            "five image words, then the flags"
+        ); // alloc: Cold
+        assert_ne!(
+            k(&full),
+            k(&rec([1, 9, 7, 3, 4], 0)),
+            "a text differing only past its first word"
+        );
         // a NULL key's words are zero (emit_image); its flag bit i is key i's, read from word 5, not word 3
-        let nulls = [rec([0, 0, 7, 3, 4], 1), rec([1, 2, 0, 3, 4], 2), rec([1, 2, 7, 0, 0], 4)];
+        let nulls = [
+            rec([0, 0, 7, 3, 4], 1),
+            rec([1, 2, 0, 3, 4], 2),
+            rec([1, 2, 7, 0, 0], 4),
+        ];
         for (i, a) in nulls.iter().enumerate() {
             assert_eq!(k(a)[w], 1 << i, "key {i}'s NULL flag");
             for (j, b) in nulls.iter().enumerate() {
@@ -343,7 +463,11 @@ mod tests {
             }
             assert_ne!(k(a), k(&full), "a NULL key {i} meets no value");
         }
-        assert_eq!(k(&rec([0, 0, 0, 3, 4], 0))[w], 0, "a zero image with no flag is a value, not a NULL");
+        assert_eq!(
+            k(&rec([0, 0, 0, 3, 4], 0))[w],
+            0,
+            "a zero image with no flag is a value, not a NULL"
+        );
     }
 
     /// CAP-28: past 64 columns the flags take one word per 64 keys (bit i % 64 of word i / 64, emit_image's): a NULL in key
@@ -352,7 +476,12 @@ mod tests {
     #[test]
     fn a_set_key_past_64_columns_reads_one_flags_word_per_64_keys() {
         let arena = gravity_program::Arena::new(1 << 16);
-        let l = gravity_program::record_layout(arena.handle(), &[KeyKind::I64; 67], &[SlotKind::Count], true);
+        let l = gravity_program::record_layout(
+            arena.handle(),
+            &[KeyKind::I64; 67],
+            &[SlotKind::Count],
+            true,
+        );
         let (n, w) = (65, 65);
         let rec = |flags: [u64; 2]| {
             let mut r = vec![0u64; (l.size() as usize).div_ceil(8)]; // alloc: Cold
@@ -362,9 +491,17 @@ mod tests {
         // SAFETY: each record is a zeroed buffer of `l`'s size holding its 67 key words
         let k = |r: &Vec<u64>| unsafe { key(r.as_ptr() as *const u8, &l, n, w) };
         let (null0, null64) = (rec([1, 0]), rec([0, 1]));
-        assert_eq!(k(&null0).len(), w + 2, "65 image words, then two flags words");
+        assert_eq!(
+            k(&null0).len(),
+            w + 2,
+            "65 image words, then two flags words"
+        );
         assert_ne!(k(&null0), k(&null64), "a NULL in key 0 vs a NULL in key 64");
-        assert_eq!(k(&rec([0, 0b11])), k(&null64), "a bit past key 64 is no key's");
+        assert_eq!(
+            k(&rec([0, 0b11])),
+            k(&null64),
+            "a bit past key 64 is no key's"
+        );
     }
 
     /// F-ZERO: a plain side's implicit sentinel holds rows + 1 (`Rec::open`'s used mark): n rows count n, a record opened
@@ -377,11 +514,19 @@ mod tests {
         let (p, len) = (buf.as_mut_ptr() as *mut u8, buf.len() * 8);
         // SAFETY: `buf` is `len` zeroed, 8-aligned bytes, alive for the test
         let bytes = || unsafe { core::slice::from_raw_parts(p, len) };
-        assert_eq!(region_count(bytes(), sent), Some(0), "a zeroed region never laid out");
+        assert_eq!(
+            region_count(bytes(), sent),
+            Some(0),
+            "a zeroed region never laid out"
+        );
         // SAFETY: as above: a record table of one for `l` in `buf`
         let t = unsafe { HashAgg::at(p, &l, 1, len as u32) };
         let rec = t.single();
-        assert_eq!(region_count(bytes(), sent), Some(0), "a record opened on no row");
+        assert_eq!(
+            region_count(bytes(), sent),
+            Some(0),
+            "a record opened on no row"
+        );
         for n in 1..=3 {
             rec.add_count(j, 1);
             assert_eq!(region_count(bytes(), sent), Some(n), "{n} rows");
@@ -400,19 +545,60 @@ mod tests {
         unsafe extern "C-unwind" fn noop(_: *mut gravity_abi::Ctx) -> i64 {
             0
         }
-        let layout = Layout { nsites: 0, out_natts: 0, out_rows: 1, scratch_bytes: 0, exec_bytes: 0 };
-        let group = |s: u8| Pipeline::serial(-1, End::Breaker(Breaker::sized(BreakerKind::HashAgg, 64).in_slot(s)), Reason::NoDrivingSite);
-        let emit = |reads: &'static [u8]| Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming(reads);
-        let program = |ps: Vec<Pipeline>| Program::with_declared_pipelines(layout, &[], &[], WritePlan::SELECT, ps.into_iter().map(|p| (p, Code::hand(noop))));
+        let layout = Layout {
+            nsites: 0,
+            out_natts: 0,
+            out_rows: 1,
+            scratch_bytes: 0,
+            exec_bytes: 0,
+        };
+        let group = |s: u8| {
+            Pipeline::serial(
+                -1,
+                End::Breaker(Breaker::sized(BreakerKind::HashAgg, 64).in_slot(s)),
+                Reason::NoDrivingSite,
+            )
+        };
+        let emit = |reads: &'static [u8]| {
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming(reads)
+        };
+        let program = |ps: Vec<Pipeline>| {
+            Program::with_declared_pipelines(
+                layout,
+                &[],
+                &[],
+                WritePlan::SELECT,
+                ps.into_iter().map(|p| (p, Code::hand(noop))),
+            )
+        };
         // as renumber_deferred leaves an InitPlan's INTERSECT: the left group 0 -> 2, the right 1 -> 3; `arg` still names 1
-        let setop = |emit: u16, peer: u16| Proto::new(ProtoKind::SetOp, emit).peer(peer).slot(2).words(0, 1).arg(1 | 1 << 8);
+        let setop = |emit: u16, peer: u16| {
+            Proto::new(ProtoKind::SetOp, emit)
+                .peer(peer)
+                .slot(2)
+                .words(0, 1)
+                .arg(1 | 1 << 8)
+        };
         let renamed = program(vec![group(2), group(3), emit(&[2, 3])]); // alloc: Cold
-        assert_eq!(super::right_slot(&setop(2, 1), &renamed), Some(3), "the producer's renamed slot, not arg's stale 1");
+        assert_eq!(
+            super::right_slot(&setop(2, 1), &renamed),
+            Some(3),
+            "the producer's renamed slot, not arg's stale 1"
+        );
         // a top-level set op (nothing renumbered): the slot arg names too
-        assert_eq!(super::right_slot(&setop(2, 1), &program(vec![group(0), group(1), emit(&[0, 1])])), Some(1)); // alloc: Cold
-        // a peer that is not a breaker, one the emit does not read, one past the program: none
+        assert_eq!(
+            super::right_slot(
+                &setop(2, 1),
+                &program(vec![group(0), group(1), emit(&[0, 1])])
+            ),
+            Some(1)
+        ); // alloc: Cold
+           // a peer that is not a breaker, one the emit does not read, one past the program: none
         let other = program(vec![group(2), group(3), group(4), emit(&[2, 3])]); // alloc: Cold
-        assert_eq!([3, 2, 9].map(|peer| super::right_slot(&setop(3, peer), &other)), [None, None, None]);
+        assert_eq!(
+            [3, 2, 9].map(|peer| super::right_slot(&setop(3, peer), &other)),
+            [None, None, None]
+        );
         assert_eq!(super::right_slot(&setop(3, 1), &other), Some(3));
     }
 
@@ -447,7 +633,12 @@ mod tests {
     /// PG's output counts: nodeSetOp.c set_output_count over (numLeft, numRight).
     #[test]
     fn the_copy_rule_is_pgs() {
-        let cases = [(3, 2, [1, 2, 0, 1]), (1, 0, [0, 0, 1, 1]), (2, 5, [1, 2, 0, 0]), (0, 4, [0, 0, 0, 0])];
+        let cases = [
+            (3, 2, [1, 2, 0, 1]),
+            (1, 0, [0, 0, 1, 1]),
+            (2, 5, [1, 2, 0, 0]),
+            (0, 4, [0, 0, 0, 0]),
+        ];
         for (l, r, want) in cases {
             for (cmd, w) in want.iter().enumerate() {
                 assert_eq!(copies(cmd as u64, l, r), *w, "cmd {cmd} over ({l}, {r})");

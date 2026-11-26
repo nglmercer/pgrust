@@ -12,7 +12,9 @@ use std::time::Duration;
 
 use common::*;
 use gravity_abi::breaker::{KeyKind, RecordLayout, SlotKind, ORDER_NONE};
-use gravity_driver::{footprint, footprint_regions, Entry, Grant, Step, ARENA_ALLOWANCE, POOL, REGIONS, worker_arena};
+use gravity_driver::{
+    footprint, footprint_regions, worker_arena, Entry, Grant, Step, ARENA_ALLOWANCE, POOL, REGIONS,
+};
 use gravity_program::Program;
 
 static LOCK: Mutex<()> = Mutex::new(());
@@ -22,8 +24,17 @@ const NULLS: [u8; 1] = [0];
 
 /// (name, program, runs here): the D193 owner's shape is admitted only (its fold runs in exec/tests/owner_leader.rs).
 fn shapes() -> Vec<(&'static str, Arc<Program>, bool)> {
-    let d = gravity_program::OwnerDesc::generic(RecordLayout::new_nn(&[KeyKind::I64], &[SlotKind::Count]), ORDER_NONE, 0);
-    vec![("share group", Arc::new(p_group_share(64)), true), ("two-breaker chain", Arc::new(p_group_chain(64)), true), ("unequal peaks", Arc::new(p_group_peaks(64)), true), ("D193 owner", Arc::new(p_group_share_owned(64, d)), false)]
+    let d = gravity_program::OwnerDesc::generic(
+        RecordLayout::new_nn(&[KeyKind::I64], &[SlotKind::Count]),
+        ORDER_NONE,
+        0,
+    );
+    vec![
+        ("share group", Arc::new(p_group_share(64)), true),
+        ("two-breaker chain", Arc::new(p_group_chain(64)), true),
+        ("unequal peaks", Arc::new(p_group_peaks(64)), true),
+        ("D193 owner", Arc::new(p_group_share_owned(64, d)), false),
+    ]
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -63,9 +74,18 @@ fn pass(n: usize, capacity: u64, trunk: bool, want: Grant) -> (Pass, Vec<u64>) {
                     while turn.load(Ordering::Acquire) != i {
                         std::hint::spin_loop();
                     }
-                    let need = |g: Grant| if trunk { footprint_regions(g, &program, W) } else { footprint(g, &program, W) };
+                    let need = |g: Grant| {
+                        if trunk {
+                            footprint_regions(g, &program, W)
+                        } else {
+                            footprint(g, &program, W)
+                        }
+                    };
                     pending.store(t0.elapsed().as_millis() as u64 + 1, Ordering::Release);
-                    let a = std::rc::Rc::new(POOL.admit_need(want, &need, Duration::from_secs(20)).unwrap_or_else(|r| panic!("{name}: refused {r:?}")));
+                    let a = std::rc::Rc::new(
+                        POOL.admit_need(want, &need, Duration::from_secs(20))
+                            .unwrap_or_else(|r| panic!("{name}: refused {r:?}")),
+                    );
                     pending.store(0, Ordering::Release);
                     peak.fetch_max(POOL.held() as usize, Ordering::AcqRel);
                     turn.store(i + 1, Ordering::Release);
@@ -76,14 +96,25 @@ fn pass(n: usize, capacity: u64, trunk: bool, want: Grant) -> (Pass, Vec<u64>) {
                         let flag = AtomicU8::new(0);
                         let mut sink = LegSink::new();
                         let mut b = binding(&[8], &NULLS, &mut sink, &flag);
-                        let mut exec = entry.start(None, &program, &mut derive, &mut b, a.clone()).unwrap();
-                        assert_eq!(entry.run(&mut exec, &mut b, gravity_driver::Call::batch(64)).unwrap_or_else(|e| panic!("{name}: {e:?}")), Step::Done, "{name}");
+                        let mut exec = entry
+                            .start(None, &program, &mut derive, &mut b, a.clone())
+                            .unwrap();
+                        assert_eq!(
+                            entry
+                                .run(&mut exec, &mut b, gravity_driver::Call::batch(64))
+                                .unwrap_or_else(|e| panic!("{name}: {e:?}")),
+                            Step::Done,
+                            "{name}"
+                        );
                         entry.end(exec, true);
                         drawn = a.drawn();
                         assert_eq!(a.borrowed(), 0, "{name}: borrowed past its grant");
                     }
                     while turn.load(Ordering::Acquire) < n {
-                        let (p, now) = (pending.load(Ordering::Acquire), t0.elapsed().as_millis() as u64 + 1);
+                        let (p, now) = (
+                            pending.load(Ordering::Acquire),
+                            t0.elapsed().as_millis() as u64 + 1,
+                        );
                         if next_end.load(Ordering::Acquire) == i && p != 0 && now > p + 2_300 {
                             pending.store(now, Ordering::Release);
                             break;
@@ -97,7 +128,9 @@ fn pass(n: usize, capacity: u64, trunk: bool, want: Grant) -> (Pass, Vec<u64>) {
                 })
             })
             .collect();
-        hs.into_iter().map(|h| h.join().unwrap()).collect::<Vec<_>>()
+        hs.into_iter()
+            .map(|h| h.join().unwrap())
+            .collect::<Vec<_>>()
     })
     .into_iter()
     .map(|(name, r, t, drawn)| {
@@ -109,7 +142,14 @@ fn pass(n: usize, capacity: u64, trunk: bool, want: Grant) -> (Pass, Vec<u64>) {
     let trims = reserved.iter().filter(|r| *r >> 63 != 0).count() as u64;
     let reserved: Vec<u64> = reserved.iter().map(|r| r & !(1 << 63)).collect();
     let unreserved = reserved.iter().filter(|r| **r == 0).count() as u64;
-    let p = Pass { reserved: reserved.iter().sum(), trims, waits: s1.waits - s0.waits, peak: peak.load(Ordering::Acquire) as u64, refusals: s1.refusals - s0.refusals, unreserved };
+    let p = Pass {
+        reserved: reserved.iter().sum(),
+        trims,
+        waits: s1.waits - s0.waits,
+        peak: peak.load(Ordering::Acquire) as u64,
+        refusals: s1.refusals - s0.refusals,
+        unreserved,
+    };
     REGIONS.trim();
     POOL.arm(0);
     (p, reserved)
@@ -123,18 +163,38 @@ fn four_and_eight_concurrent_statements_reserve_trunks_regions_plus_the_arena_an
     for (name, program, _) in shapes() {
         for g in [want, Grant::of(512 * MIB), Grant::of(64 * MIB)] {
             let (trunk, tip) = (footprint_regions(g, &program, W), footprint(g, &program, W));
-            assert!(tip <= trunk + ARENA_ALLOWANCE + W as u64 * worker_arena(g, W), "{name} at {} MiB: reserves {tip} past trunk's {trunk} + the arena allowances", g.bytes >> 20);
+            assert!(
+                tip <= trunk + ARENA_ALLOWANCE + W as u64 * worker_arena(g, W),
+                "{name} at {} MiB: reserves {tip} past trunk's {trunk} + the arena allowances",
+                g.bytes >> 20
+            );
         }
     }
     for n in [4usize, 8] {
-        let trunk_need: u64 = (0..n).map(|i| footprint_regions(want, &shapes()[i % 4].1, W)).sum();
+        let trunk_need: u64 = (0..n)
+            .map(|i| footprint_regions(want, &shapes()[i % 4].1, W))
+            .sum();
         let capacity = trunk_need * 5 / 8;
         let (t, tr) = pass(n, capacity, true, want);
         let (m, mr) = pass(n, capacity, false, want);
-        eprintln!("CONCRIG n={n} capacity={} MiB trunk {t:?} tip {m:?} reserved trunk {:?} tip {:?}", capacity >> 20, tr.iter().map(|r| r >> 20).collect::<Vec<_>>(), mr.iter().map(|r| r >> 20).collect::<Vec<_>>());
+        eprintln!(
+            "CONCRIG n={n} capacity={} MiB trunk {t:?} tip {m:?} reserved trunk {:?} tip {:?}",
+            capacity >> 20,
+            tr.iter().map(|r| r >> 20).collect::<Vec<_>>(),
+            mr.iter().map(|r| r >> 20).collect::<Vec<_>>()
+        );
         // S4: every statement reserves W × its worker arena beyond trunk's regions; at n = 8 that trims one grant more
-        assert!(m.trims <= t.trims + 1, "n={n}: {} trimmed grants past trunk's {} + 1", m.trims, t.trims);
+        assert!(
+            m.trims <= t.trims + 1,
+            "n={n}: {} trimmed grants past trunk's {} + 1",
+            m.trims,
+            t.trims
+        );
         assert_eq!(m.refusals, 0, "n={n}: a draw refused");
-        assert_eq!((m.unreserved, t.unreserved), (0, 0), "n={n}: a statement admitted with nothing reserved (S7)");
+        assert_eq!(
+            (m.unreserved, t.unreserved),
+            (0, 0),
+            "n={n}: a statement admitted with nothing reserved (S7)"
+        );
     }
 }

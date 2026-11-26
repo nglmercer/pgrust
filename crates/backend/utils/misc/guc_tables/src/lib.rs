@@ -140,7 +140,9 @@ pub fn init_seams() {
 pub fn pgrust_condition_cache_bytes() -> u64 {
     match backing::pgrust_condition_cache_size() {
         kb if kb >= 0 => kb as u64 * 1024,
-        _ if hooks::derive_pgrust_condition_cache_size.installed() => (hooks::derive_pgrust_condition_cache_size.get())(),
+        _ if hooks::derive_pgrust_condition_cache_size.installed() => {
+            (hooks::derive_pgrust_condition_cache_size.get())()
+        }
         _ => 0,
     }
 }
@@ -157,15 +159,31 @@ pub fn show_pgrust_condition_cache_size() -> String {
 // wal_level_options[] (xlogdesc.c); archive/hot_standby are hidden aliases of
 // replica.
 const WAL_LEVEL_OPTIONS: &[types_guc::config_enum_entry] = &[
-    types_guc::config_enum_entry { name: "minimal", val: 0, hidden: false },
-    types_guc::config_enum_entry { name: "replica", val: consts::WAL_LEVEL_REPLICA, hidden: false },
-    types_guc::config_enum_entry { name: "archive", val: consts::WAL_LEVEL_REPLICA, hidden: true },
+    types_guc::config_enum_entry {
+        name: "minimal",
+        val: 0,
+        hidden: false,
+    },
+    types_guc::config_enum_entry {
+        name: "replica",
+        val: consts::WAL_LEVEL_REPLICA,
+        hidden: false,
+    },
+    types_guc::config_enum_entry {
+        name: "archive",
+        val: consts::WAL_LEVEL_REPLICA,
+        hidden: true,
+    },
     types_guc::config_enum_entry {
         name: "hot_standby",
         val: consts::WAL_LEVEL_REPLICA,
         hidden: true,
     },
-    types_guc::config_enum_entry { name: "logical", val: 2, hidden: false },
+    types_guc::config_enum_entry {
+        name: "logical",
+        val: 2,
+        hidden: false,
+    },
 ];
 
 // recovery_target_action_options[] (xlogrecovery.c).
@@ -175,8 +193,16 @@ const RECOVERY_TARGET_ACTION_OPTIONS: &[types_guc::config_enum_entry] = &[
         val: consts::RECOVERY_TARGET_ACTION_PAUSE,
         hidden: false,
     },
-    types_guc::config_enum_entry { name: "promote", val: 1, hidden: false },
-    types_guc::config_enum_entry { name: "shutdown", val: 2, hidden: false },
+    types_guc::config_enum_entry {
+        name: "promote",
+        val: 1,
+        hidden: false,
+    },
+    types_guc::config_enum_entry {
+        name: "shutdown",
+        val: 2,
+        hidden: false,
+    },
 ];
 
 // Accessors for GUCs whose C conf->variable is a global defined in
@@ -268,7 +294,7 @@ fn install_guc_tables_owned_vars() {
         get: backing::pgrust_gravity_admit,
         set: backing::set_pgrust_gravity_admit,
     });
-        vars::pgrust_gravity_lowerer.install(GucVarAccessors {
+    vars::pgrust_gravity_lowerer.install(GucVarAccessors {
         get: backing::pgrust_gravity_lowerer,
         set: backing::set_pgrust_gravity_lowerer,
     });

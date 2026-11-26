@@ -3,8 +3,8 @@
 //! through `execexpr`); the named and positional arguments evaluate into region cells, the
 //! result is an xml image in the region.
 
-use mcx::GrowIn;
 use gravity_fn::{Datum, NullableDatum, Region};
+use mcx::GrowIn;
 use mcx::Mcx;
 use types_core::Oid;
 use types_error::PgResult;
@@ -20,7 +20,10 @@ use crate::CompileResult;
 pub fn compile<'mcx>(b: &mut Builder<'_, 'mcx>, x: &XmlExprTree<'mcx>) -> CompileResult<NodeId> {
     let names = b.prog.names.len() as u32;
     for n in x.arg_names.iter() {
-        let s = n.as_string().expect("an XML argument name is a String node").sval;
+        let s = n
+            .as_string()
+            .expect("an XML argument name is a String node")
+            .sval;
         // SAFETY: the node arena outlives the program (the harness's and the planner's contract).
         b.name(s);
     }
@@ -31,7 +34,17 @@ pub fn compile<'mcx>(b: &mut Builder<'_, 'mcx>, x: &XmlExprTree<'mcx>) -> Compil
     }
     let named_args = b.kids(&x.named_args)?;
     let args = b.kids(&x.args)?;
-    Ok(b.push(ExprNode::Xml(Xml { op: x.op, args, named_args, typ: x.r#type, name, names, types, xmloption: x.xmloption, indent: x.indent })))
+    Ok(b.push(ExprNode::Xml(Xml {
+        op: x.op,
+        args,
+        named_args,
+        typ: x.r#type,
+        name,
+        names,
+        types,
+        xmloption: x.xmloption,
+        indent: x.indent,
+    })))
 }
 
 fn xml_opt(v: XmlOptionType) -> adt_xml::XmlOptionType {
@@ -47,7 +60,12 @@ fn cells<'a>(region: &mut Region, n: usize) -> PgResult<&'a mut [NullableDatum]>
     Ok(unsafe { core::slice::from_raw_parts_mut(p.cast(), n) })
 }
 
-pub fn eval_xml(p: &Prog<'_, '_>, st: &mut St<'_>, n: &Xml, cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
+pub fn eval_xml(
+    p: &Prog<'_, '_>,
+    st: &mut St<'_>,
+    n: &Xml,
+    cx: &mut Cx<'_, '_>,
+) -> PgResult<NullableDatum> {
     let named = cells(cx.region, n.named_args.len as usize)?;
     for (i, c) in named.iter_mut().enumerate() {
         *c = eval(p, st, p.kids[n.named_args.start as usize + i], cx)?;
@@ -95,19 +113,33 @@ pub fn eval_xml(p: &Prog<'_, '_>, st: &mut St<'_>, n: &Xml, cx: &mut Cx<'_, '_>)
                 buf
             }
             XmlExprOp::IS_XMLELEMENT => {
-                let mut named_strs: Vec<(String, Option<Vec<u8>>)> = Vec::with_capacity(named.len()); // alloc: Cold
+                let mut named_strs: Vec<(String, Option<Vec<u8>>)> =
+                    Vec::with_capacity(named.len()); // alloc: Cold
                 for (i, a) in named.iter().enumerate() {
                     let argname = p.names[n.names as usize + i].to_string(); // alloc: Cold
-                    let v = if a.isnull { None } else { Some(map(mcx, a.value, p.oids[n.types as usize + i], false)?) };
+                    let v = if a.isnull {
+                        None
+                    } else {
+                        Some(map(mcx, a.value, p.oids[n.types as usize + i], false)?)
+                    };
                     named_strs.push((argname, v));
                 }
                 let mut content: Vec<Vec<u8>> = Vec::with_capacity(args.len()); // alloc: Cold
                 for (i, a) in args.iter().enumerate() {
                     if !a.isnull {
-                        content.push(map(mcx, a.value, p.oids[n.types as usize + named.len() + i], true)?);
+                        content.push(map(
+                            mcx,
+                            a.value,
+                            p.oids[n.types as usize + named.len() + i],
+                            true,
+                        )?);
                     }
                 }
-                adt_xml::xmlelement(p.names[n.name.expect("XMLELEMENT carries a name") as usize], &named_strs, &content)?
+                adt_xml::xmlelement(
+                    p.names[n.name.expect("XMLELEMENT carries a name") as usize],
+                    &named_strs,
+                    &content,
+                )?
             }
             XmlExprOp::IS_XMLPARSE => {
                 if args[0].isnull || args[1].isnull {
@@ -126,7 +158,11 @@ pub fn eval_xml(p: &Prog<'_, '_>, st: &mut St<'_>, n: &Xml, cx: &mut Cx<'_, '_>)
                     buf.extend_from_slice(b"?>");
                     buf
                 } else {
-                    let arg = if args[0].isnull { None } else { Some(payload_view(args[0].value, -1, region)?.bytes()) };
+                    let arg = if args[0].isnull {
+                        None
+                    } else {
+                        Some(payload_view(args[0].value, -1, region)?.bytes())
+                    };
                     match adt_xml::xmlpi(name, arg)? {
                         Some(out) => out,
                         None => return Ok(NullableDatum::null()),
@@ -138,7 +174,11 @@ pub fn eval_xml(p: &Prog<'_, '_>, st: &mut St<'_>, n: &Xml, cx: &mut Cx<'_, '_>)
                     return Ok(NullableDatum::null());
                 }
                 let data = payload_view(args[0].value, -1, region)?.bytes();
-                let version = if args[1].isnull { None } else { Some(payload_view(args[1].value, -1, region)?.bytes()) };
+                let version = if args[1].isnull {
+                    None
+                } else {
+                    Some(payload_view(args[1].value, -1, region)?.bytes())
+                };
                 let standalone = match args[2].value.as_i32() {
                     0 => adt_xml::XmlStandaloneType::XML_STANDALONE_YES,
                     1 => adt_xml::XmlStandaloneType::XML_STANDALONE_NO,
@@ -159,7 +199,9 @@ pub fn eval_xml(p: &Prog<'_, '_>, st: &mut St<'_>, n: &Xml, cx: &mut Cx<'_, '_>)
                     return Ok(NullableDatum::null());
                 }
                 let data = payload_view(args[0].value, -1, region)?.bytes();
-                return Ok(NullableDatum::value(Datum::from_bool(adt_xml::xml_is_document(data)?)));
+                return Ok(NullableDatum::value(Datum::from_bool(
+                    adt_xml::xml_is_document(data)?,
+                )));
             }
         };
         let r = gravity_fn::region_payload(region, &out);

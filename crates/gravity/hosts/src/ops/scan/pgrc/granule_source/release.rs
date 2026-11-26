@@ -41,12 +41,19 @@ static DICTS_REOPENED: AtomicU64 = AtomicU64::new(0);
 
 /// `(parts released, dictionaries re-opened after their part's release)` since process start (the PHASES census).
 pub fn part_release_census() -> (u64, u64) {
-    (PARTS_RELEASED.load(Ordering::Relaxed), DICTS_REOPENED.load(Ordering::Relaxed))
+    (
+        PARTS_RELEASED.load(Ordering::Relaxed),
+        DICTS_REOPENED.load(Ordering::Relaxed),
+    )
 }
 
 /// The process part cache's `(bytes, budget, held)` in MiB (the PHASES line).
 pub fn part_cache_mib() -> (u64, u64, u64) {
-    (pgrc_read::partcache::bytes() >> 20, pgrc_read::partcache::budget() >> 20, part_cache_held() >> 20)
+    (
+        pgrc_read::partcache::bytes() >> 20,
+        pgrc_read::partcache::budget() >> 20,
+        part_cache_held() >> 20,
+    )
 }
 
 /// The part cache's images the governor's account still charges past the resident census: images a holder keeps after
@@ -96,13 +103,29 @@ pub(super) struct StmtDicts {
 }
 
 impl StmtDicts {
-    pub(super) fn new(list: &PartList, share: Option<u64>, token: u64, dicts: bool, own_dicts: bool, readers: u32, release_at: Option<u64>) -> StmtDicts {
+    pub(super) fn new(
+        list: &PartList,
+        share: Option<u64>,
+        token: u64,
+        dicts: bool,
+        own_dicts: bool,
+        readers: u32,
+        release_at: Option<u64>,
+    ) -> StmtDicts {
         let n = list.len();
         StmtDicts {
-            faces: StmtSlice::collect((0..MAX_FACE_ATTNO + MAX_SHRED_FACES).map(|_| OnceLock::new())), // alloc: Exec charged gravity_driver::stmt_context()
-            touched: StmtSlice::collect((0..(MAX_FACE_ATTNO + MAX_SHRED_FACES).div_ceil(64)).map(|_| AtomicU64::new(0))), // alloc: Exec charged gravity_driver::stmt_context()
+            faces: StmtSlice::collect(
+                (0..MAX_FACE_ATTNO + MAX_SHRED_FACES).map(|_| OnceLock::new()),
+            ), // alloc: Exec charged gravity_driver::stmt_context()
+            touched: StmtSlice::collect(
+                (0..(MAX_FACE_ATTNO + MAX_SHRED_FACES).div_ceil(64)).map(|_| AtomicU64::new(0)),
+            ), // alloc: Exec charged gravity_driver::stmt_context()
             nparts: n,
-            granules: StmtSlice::collect(list.parts().iter().map(|p| p.granules as u64 * readers.max(1) as u64)), // alloc: Exec charged gravity_driver::stmt_context()
+            granules: StmtSlice::collect(
+                list.parts()
+                    .iter()
+                    .map(|p| p.granules as u64 * readers.max(1) as u64),
+            ), // alloc: Exec charged gravity_driver::stmt_context()
             done: StmtSlice::collect((0..n).map(|_| AtomicU64::new(0))), // alloc: Exec charged gravity_driver::stmt_context()
             epoch: StmtSlice::collect((0..n).map(|_| AtomicU32::new(0))), // alloc: Exec charged gravity_driver::stmt_context()
             uses: StmtSlice::collect((0..n).map(|_| Mutex::new(None))), // alloc: Exec charged gravity_driver::stmt_context()
@@ -141,7 +164,11 @@ impl StmtDicts {
         if self.release_auto.load(Ordering::Relaxed) {
             let level = pgrc_read::partcache::budget();
             // the short signal only when the level alone keeps the part: one load past the budget
-            return mempolicy::release::part_release_due(bytes, level, bytes <= level && crate::ops::scan::pgrc::residency::release_short());
+            return mempolicy::release::part_release_due(
+                bytes,
+                level,
+                bytes <= level && crate::ops::scan::pgrc::residency::release_short(),
+            );
         }
         mempolicy::release::part_release_due(bytes, self.release_at.load(Ordering::Relaxed), false)
     }
@@ -154,7 +181,11 @@ impl StmtDicts {
         if !self.deferred[p].swap(true, Ordering::AcqRel) {
             self.ndeferred.fetch_add(1, Ordering::AcqRel);
         }
-        if let Some(u) = self.uses[p].lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        if let Some(u) = self.uses[p]
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_mut()
+        {
             u.defer();
         }
     }
@@ -163,17 +194,26 @@ impl StmtDicts {
     /// back in the cache's floor until its claims leave it again (`defer`). The gate's own hold (`take_deferred`) is
     /// unchanged. One load while the statement deferred nothing.
     pub(super) fn reclaim_entered(&self, p: usize) {
-        if self.ndeferred.load(Ordering::Acquire) == 0 || !self.deferred[p].load(Ordering::Acquire) {
+        if self.ndeferred.load(Ordering::Acquire) == 0 || !self.deferred[p].load(Ordering::Acquire)
+        {
             return;
         }
-        if let Some(u) = self.uses[p].lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        if let Some(u) = self.uses[p]
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_mut()
+        {
             u.undefer();
         }
     }
 
     /// D3823 gate: the parts `defer` kept, each handed out once (the caller releases them); one load while none is kept.
     pub(super) fn take_deferred(&self) -> impl Iterator<Item = usize> + '_ {
-        let n = if self.ndeferred.load(Ordering::Acquire) > 0 { self.nparts } else { 0 };
+        let n = if self.ndeferred.load(Ordering::Acquire) > 0 {
+            self.nparts
+        } else {
+            0
+        };
         (0..n).filter(move |&p| {
             let took = self.deferred[p].swap(false, Ordering::AcqRel);
             if took {
@@ -202,29 +242,34 @@ impl StmtDicts {
             return true;
         }
         // the governor's account keeps evicted images a holder still keeps (the pgrc line's held class) until their last drop
-        pgrc_read::partcache::bytes().max(mcx::governor::cache_bytes() as u64) < self.share.unwrap_or_else(pgrc_read::partcache::budget)
+        pgrc_read::partcache::bytes().max(mcx::governor::cache_bytes() as u64)
+            < self.share.unwrap_or_else(pgrc_read::partcache::budget)
     }
 
     fn cells(&self, face: u32) -> &[AtomicPtr<DictEntry>] {
         self.faces[face as usize].get_or_init(|| {
             self.touched[face as usize / 64].fetch_or(1 << (face % 64), Ordering::Release);
-            StmtSlice::collect((0..self.nparts).map(|_| AtomicPtr::new(core::ptr::null_mut()))) // alloc: Exec charged gravity_driver::stmt_context()
+            StmtSlice::collect((0..self.nparts).map(|_| AtomicPtr::new(core::ptr::null_mut())))
+            // alloc: Exec charged gravity_driver::stmt_context()
         })
     }
 
     fn touched_faces(&self) -> impl Iterator<Item = &[AtomicPtr<DictEntry>]> + '_ {
-        self.touched.iter().enumerate().flat_map(|(w, word)| {
-            let mut bits = word.load(Ordering::Acquire);
-            core::iter::from_fn(move || {
-                if bits == 0 {
-                    return None;
-                }
-                let b = bits.trailing_zeros() as usize;
-                bits &= bits - 1;
-                Some(w * 64 + b)
+        self.touched
+            .iter()
+            .enumerate()
+            .flat_map(|(w, word)| {
+                let mut bits = word.load(Ordering::Acquire);
+                core::iter::from_fn(move || {
+                    if bits == 0 {
+                        return None;
+                    }
+                    let b = bits.trailing_zeros() as usize;
+                    bits &= bits - 1;
+                    Some(w * 64 + b)
+                })
             })
-        })
-        .filter_map(|f| self.faces[f].get().map(|c| &**c))
+            .filter_map(|f| self.faces[f].get().map(|c| &**c))
     }
 
     pub(super) fn get(&self, p: usize, face: u32) -> Option<&DictEntry> {
@@ -234,9 +279,17 @@ impl StmtDicts {
     /// Hold `entry` as part `p`'s face `face` until the part's release (a racing reader's entry wins; this clone drops).
     /// D4410: the cells hold an `Arc` each; `private`: the list's warm cell keeps no clone (opened past the level);
     /// `opened`: this statement opened the dictionary (a clone of the warm cell's is no re-open).
-    pub(super) fn set(&self, p: usize, face: u32, entry: Arc<DictEntry>, private: bool, opened: bool) -> &DictEntry {
+    pub(super) fn set(
+        &self,
+        p: usize,
+        face: u32,
+        entry: Arc<DictEntry>,
+        private: bool,
+        opened: bool,
+    ) -> &DictEntry {
         let (e, published) = raw::arc_cell_publish(&self.cells(face)[p], entry);
-        self.private.fetch_add((published && private) as u64, Ordering::Relaxed);
+        self.private
+            .fetch_add((published && private) as u64, Ordering::Relaxed);
         if published && opened && self.epoch[p].load(Ordering::Relaxed) > 0 {
             self.reopened.fetch_add(1, Ordering::Relaxed);
             DICTS_REOPENED.fetch_add(1, Ordering::Relaxed);
@@ -266,7 +319,7 @@ impl StmtDicts {
     pub(super) fn credit(&self, p: usize, n: u64) -> bool {
         let g = self.granules[p];
         let now = self.done[p].fetch_add(n, Ordering::AcqRel) + n;
-        g > 0 && now.is_multiple_of( g)
+        g > 0 && now.is_multiple_of(g)
     }
 
     /// Drop part `p`'s dictionaries and the statement's use of it: every claim of the pass left the part.
@@ -275,7 +328,9 @@ impl StmtDicts {
         // bounded("key-columns: the dictionary faces the statement touched, one per scanned column's lane or shred face, at most MAX_FACE_ATTNO + MAX_SHRED_FACES (1665); each drops one part's dictionary")
         for f in self.touched_faces() {
             // no claim of the pass reads part p any more
-            let Some(e) = raw::arc_cell_take(&f[p]) else { continue };
+            let Some(e) = raw::arc_cell_take(&f[p]) else {
+                continue;
+            };
             // D4410: an entry the list's warm cell (or another holder) keeps too is no released image: never poisoned
             if poison && Arc::strong_count(&e) == 1 {
                 if let Dict::Part(d) = &e.dict {
@@ -285,10 +340,15 @@ impl StmtDicts {
             drop(e);
         }
         self.held[p].store(false, Ordering::Release);
-        let u = self.uses[p].lock().unwrap_or_else(|e| e.into_inner()).take();
+        let u = self.uses[p]
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
         // D3823: a uses-only release poisons the part's segment images no holder shares once no use of the part is left, so a
         // by-reference datum a breaker kept past its window (D3003: its retain must have copied it) reads 0xDB bytes
-        let part = (poison && !self.dicts).then(|| u.as_ref().map(|u| Arc::clone(u.part()))).flatten();
+        let part = (poison && !self.dicts)
+            .then(|| u.as_ref().map(|u| Arc::clone(u.part())))
+            .flatten();
         drop(u);
         if let Some(part) = part.filter(|part| part.users() == 0) {
             part.debug_poison_contents();
@@ -304,7 +364,10 @@ impl StmtDicts {
     }
 
     pub(super) fn counts(&self) -> (u64, u64) {
-        (self.released.load(Ordering::Relaxed), self.reopened.load(Ordering::Relaxed))
+        (
+            self.released.load(Ordering::Relaxed),
+            self.reopened.load(Ordering::Relaxed),
+        )
     }
 }
 
@@ -452,7 +515,10 @@ impl GranuleRangeSource {
         if !self.bound {
             return (0, 0);
         }
-        self.rel_unbound().stmt.as_deref().map_or((0, 0), StmtDicts::counts)
+        self.rel_unbound()
+            .stmt
+            .as_deref()
+            .map_or((0, 0), StmtDicts::counts)
     }
 }
 
@@ -472,12 +538,27 @@ mod tests {
             memledger::statement_begin();
             let (stmt, _) = memledger::charge::context();
             let c = || memledger::charge::owner_row(stmt).committed;
-            let cells = StmtSlice::collect((0..1000).map(|_| AtomicPtr::<DictEntry>::new(core::ptr::null_mut())));
+            let cells = StmtSlice::collect(
+                (0..1000).map(|_| AtomicPtr::<DictEntry>::new(core::ptr::null_mut())),
+            );
             assert_eq!(c(), 8000, "a part table's bytes on the statement");
-            let d = StmtDicts::new(&PartList::new(Vec::new()), None, pgrc_read::partcache::next_stmt_token(), true, false, 1, None); // alloc: Cold
-            let fixed = (core::mem::size_of_val(&*d.faces) + core::mem::size_of_val(&*d.touched)) as i64;
+            let d = StmtDicts::new(
+                &PartList::new(Vec::new()),
+                None,
+                pgrc_read::partcache::next_stmt_token(),
+                true,
+                false,
+                1,
+                None,
+            ); // alloc: Cold
+            let fixed =
+                (core::mem::size_of_val(&*d.faces) + core::mem::size_of_val(&*d.touched)) as i64;
             assert!(fixed > 0);
-            assert_eq!(c(), 8000 + fixed, "the statement's dictionary cells: the face table and its bitmap");
+            assert_eq!(
+                c(),
+                8000 + fixed,
+                "the statement's dictionary cells: the face table and its bitmap"
+            );
             drop(d);
             drop(cells);
             assert_eq!(c(), 0, "left at the drops");
@@ -494,13 +575,25 @@ mod tests {
     /// reads the level.
     #[test]
     fn shares_counts_the_held_images_beside_the_resident_ones() {
-        let level = pgrc_read::partcache::bytes().max(mcx::governor::cache_bytes() as u64) + (64 << 30);
-        let d = StmtDicts::new(&PartList::new(Vec::new()), Some(level), pgrc_read::partcache::next_stmt_token(), true, false, 1, None); // alloc: Cold
+        let level =
+            pgrc_read::partcache::bytes().max(mcx::governor::cache_bytes() as u64) + (64 << 30);
+        let d = StmtDicts::new(
+            &PartList::new(Vec::new()),
+            Some(level),
+            pgrc_read::partcache::next_stmt_token(),
+            true,
+            false,
+            1,
+            None,
+        ); // alloc: Cold
         assert!(d.shares(), "under the level");
         let mut rec = mcx::governor::CacheCharge::default();
         mcx::governor::charge_cache(128 << 30, "pgrc part cache", &mut rec);
         assert!(!d.shares(), "held images count against the level");
-        assert!(part_cache_mib().2 >= 64 << 10, "the PHASES line reports them");
+        assert!(
+            part_cache_mib().2 >= 64 << 10,
+            "the PHASES line reports them"
+        );
         mcx::governor::release_cache(128 << 30, &mut rec);
         assert!(d.shares(), "released");
     }
@@ -509,8 +602,20 @@ mod tests {
     /// none), not all `MAX_FACE_ATTNO + MAX_SHRED_FACES` slots per part.
     #[test]
     fn release_walks_only_the_faces_the_statement_allocated() {
-        let d = StmtDicts::new(&PartList::new(Vec::new()), None, pgrc_read::partcache::next_stmt_token(), false, false, 1, None); // alloc: Cold
-        assert_eq!(d.touched_faces().count(), 0, "a uses-only release opens no face of its own");
+        let d = StmtDicts::new(
+            &PartList::new(Vec::new()),
+            None,
+            pgrc_read::partcache::next_stmt_token(),
+            false,
+            false,
+            1,
+            None,
+        ); // alloc: Cold
+        assert_eq!(
+            d.touched_faces().count(),
+            0,
+            "a uses-only release opens no face of its own"
+        );
         let shred = (MAX_FACE_ATTNO + 2) as u32;
         let last = (MAX_FACE_ATTNO + MAX_SHRED_FACES - 1) as u32;
         for f in [3, 3, 64, shred, last] {
@@ -519,8 +624,20 @@ mod tests {
         assert_eq!(d.touched_faces().count(), 4, "each allocated face once");
         assert_eq!(d.touched[0].load(Ordering::Relaxed), 1 << 3);
         assert_eq!(d.touched[1].load(Ordering::Relaxed), 1);
-        assert_ne!(d.touched[shred as usize / 64].load(Ordering::Relaxed) & (1 << (shred % 64)), 0);
-        assert_ne!(d.touched[last as usize / 64].load(Ordering::Relaxed) & (1 << (last % 64)), 0);
-        assert_eq!(d.touched.iter().map(|w| w.load(Ordering::Relaxed).count_ones()).sum::<u32>(), 4);
+        assert_ne!(
+            d.touched[shred as usize / 64].load(Ordering::Relaxed) & (1 << (shred % 64)),
+            0
+        );
+        assert_ne!(
+            d.touched[last as usize / 64].load(Ordering::Relaxed) & (1 << (last % 64)),
+            0
+        );
+        assert_eq!(
+            d.touched
+                .iter()
+                .map(|w| w.load(Ordering::Relaxed).count_ones())
+                .sum::<u32>(),
+            4
+        );
     }
 }

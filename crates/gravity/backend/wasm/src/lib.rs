@@ -10,13 +10,14 @@
 pub mod cfg;
 pub mod embed;
 mod func;
-mod locals;
 pub mod irreduce;
+mod locals;
 mod raw;
 
 use gravity_ir::*;
 use wasm_encoder::{
-    CodeSection, EntityType, ExportKind, ExportSection, FuncType, FunctionSection, GlobalType, ImportSection, MemoryType, Module, RefType, TableType, TypeSection, ValType,
+    CodeSection, EntityType, ExportKind, ExportSection, FuncType, FunctionSection, GlobalType,
+    ImportSection, MemoryType, Module, RefType, TableType, TypeSection, ValType,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -27,15 +28,27 @@ pub enum Refusal {
     /// `HostFnDecl::addr` does not fit a table index.
     HostIndex { host: HostFn, addr: usize },
     /// An operation the backend has no form for.
-    Unsupported { func: Func, block: Block, what: &'static str },
+    Unsupported {
+        func: Func,
+        block: Block,
+        what: &'static str,
+    },
 }
 
 impl core::fmt::Display for Refusal {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Refusal::Irreducible { func, from, to } => write!(f, "irreducible control flow in f{} (b{} -> b{})", func.0, from.0, to.0),
-            Refusal::HostIndex { host, addr } => write!(f, "host h{} addr {addr:#x} is not a table index", host.0),
-            Refusal::Unsupported { func, block, what } => write!(f, "unsupported in f{} b{}: {what}", func.0, block.0),
+            Refusal::Irreducible { func, from, to } => write!(
+                f,
+                "irreducible control flow in f{} (b{} -> b{})",
+                func.0, from.0, to.0
+            ),
+            Refusal::HostIndex { host, addr } => {
+                write!(f, "host h{} addr {addr:#x} is not a table index", host.0)
+            }
+            Refusal::Unsupported { func, block, what } => {
+                write!(f, "unsupported in f{} b{}: {what}", func.0, block.0)
+            }
         }
     }
 }
@@ -78,24 +91,40 @@ pub(crate) struct Types {
 
 impl Types {
     fn new() -> Self {
-        Types { section: TypeSection::new(), seen: Vec::new() }
+        Types {
+            section: TypeSection::new(),
+            seen: Vec::new(),
+        }
     }
     pub(crate) fn index(&mut self, params: &[ValType], results: &[ValType]) -> u32 {
-        if let Some(i) = self.seen.iter().position(|(p, r)| p == params && r == results) {
+        if let Some(i) = self
+            .seen
+            .iter()
+            .position(|(p, r)| p == params && r == results)
+        {
             return i as u32;
         }
-        self.section.ty().func_type(&FuncType::new(params.iter().copied(), results.iter().copied()));
+        self.section.ty().func_type(&FuncType::new(
+            params.iter().copied(),
+            results.iter().copied(),
+        ));
         self.seen.push((params.to_vec(), results.to_vec()));
         (self.seen.len() - 1) as u32
     }
 }
 
 pub(crate) fn host_sig(d: &HostFnDecl) -> (Vec<ValType>, Vec<ValType>) {
-    (d.params.iter().map(|&t| val_type(t)).collect(), d.ret.map(val_type).into_iter().collect())
+    (
+        d.params.iter().map(|&t| val_type(t)).collect(),
+        d.ret.map(val_type).into_iter().collect(),
+    )
 }
 
 fn func_sig(f: &Function) -> (Vec<ValType>, Vec<ValType>) {
-    (f.params.iter().map(|&t| val_type(t)).collect(), f.returns.iter().map(|&t| val_type(t)).collect())
+    (
+        f.params.iter().map(|&t| val_type(t)).collect(),
+        f.returns.iter().map(|&t| val_type(t)).collect(),
+    )
 }
 
 /// The shared shadow stack's floor for a module running inside the server (wasm32, the install path): a generated
@@ -148,51 +177,112 @@ pub fn compile(program: &Program, entry: Func) -> Result<Vec<u8>, Refusal> {
 /// Compile `program` to one module whose `entries` are each exported as `entry<i>` (`entry_export_name`), an
 /// `(i32) -> i64` wrapper: the whole program in one compile however many pipelines enter it (D230's rule for TPDE).
 /// Every entry must be `fn(Ptr) -> I64` (`gravity_backend::check_entry`).
-pub fn compile_entries(program: &Program, entries: &[Func], opts: Options) -> Result<Vec<u8>, Refusal> {
+pub fn compile_entries(
+    program: &Program,
+    entries: &[Func],
+    opts: Options,
+) -> Result<Vec<u8>, Refusal> {
     for &e in entries {
         let f = program.func(e);
         if f.params != [Type::Ptr] || f.returns != [Type::I64] {
-            return Err(Refusal::Unsupported { func: e, block: f.entry, what: "an entry that is not fn(ptr) -> i64" });
+            return Err(Refusal::Unsupported {
+                func: e,
+                block: f.entry,
+                what: "an entry that is not fn(ptr) -> i64",
+            });
         }
     }
     module(program, entries, opts, true)
 }
 
-fn module(program: &Program, entries: &[Func], opts: Options, numbered: bool) -> Result<Vec<u8>, Refusal> {
+fn module(
+    program: &Program,
+    entries: &[Func],
+    opts: Options,
+    numbered: bool,
+) -> Result<Vec<u8>, Refusal> {
     for (k, h) in program.host_fns.iter().enumerate() {
         if h.addr > u32::MAX as usize {
-            return Err(Refusal::HostIndex { host: HostFn(k as u32), addr: h.addr });
+            return Err(Refusal::HostIndex {
+                host: HostFn(k as u32),
+                addr: h.addr,
+            });
         }
     }
     let mut types = Types::new();
     let mut imports = ImportSection::new();
-    imports.import(IMPORT_MODULE, MEMORY_IMPORT, EntityType::Memory(MemoryType { minimum: 0, maximum: None, memory64: false, shared: false, page_size_log2: None }));
+    imports.import(
+        IMPORT_MODULE,
+        MEMORY_IMPORT,
+        EntityType::Memory(MemoryType {
+            minimum: 0,
+            maximum: None,
+            memory64: false,
+            shared: false,
+            page_size_log2: None,
+        }),
+    );
     let mut link = Link::default();
     if opts.import_hosts {
         for h in program.host_fns.iter() {
             let (p, r) = host_sig(h);
             let ty = types.index(&p, &r);
-            imports.import(IMPORT_MODULE, &host_import_name(h.addr), EntityType::Function(ty));
+            imports.import(
+                IMPORT_MODULE,
+                &host_import_name(h.addr),
+                EntityType::Function(ty),
+            );
             link.hosts.push(link.base);
             link.base += 1;
         }
         if let Some(g) = opts.stack_guard {
             let ty = types.index(&[], &[]);
-            imports.import(IMPORT_MODULE, &host_import_name(g.overflow as usize), EntityType::Function(ty));
+            imports.import(
+                IMPORT_MODULE,
+                &host_import_name(g.overflow as usize),
+                EntityType::Function(ty),
+            );
             link.overflow = Some(link.base);
             link.base += 1;
         }
     } else {
-        imports.import(IMPORT_MODULE, TABLE_IMPORT, EntityType::Table(TableType { element_type: RefType::FUNCREF, table64: false, minimum: 0, maximum: None, shared: false }));
+        imports.import(
+            IMPORT_MODULE,
+            TABLE_IMPORT,
+            EntityType::Table(TableType {
+                element_type: RefType::FUNCREF,
+                table64: false,
+                minimum: 0,
+                maximum: None,
+                shared: false,
+            }),
+        );
     }
-    imports.import(IMPORT_MODULE, STACK_POINTER_IMPORT, EntityType::Global(GlobalType { val_type: ValType::I32, mutable: true, shared: false }));
+    imports.import(
+        IMPORT_MODULE,
+        STACK_POINTER_IMPORT,
+        EntityType::Global(GlobalType {
+            val_type: ValType::I32,
+            mutable: true,
+            shared: false,
+        }),
+    );
     let sigs: Vec<(Vec<ValType>, Vec<ValType>)> = program.funcs.iter().map(func_sig).collect();
     let func_types: Vec<u32> = sigs.iter().map(|(p, r)| types.index(p, r)).collect();
     let mut helpers: Vec<Helper> = Vec::new();
     let nfuncs = program.funcs.len() as u32;
     let mut bodies = Vec::with_capacity(program.funcs.len());
     for (k, f) in program.funcs.iter().enumerate() {
-        bodies.push(func::emit(program, Func(k as u32), f, &mut types, &mut helpers, nfuncs, opts.stack_guard, &link)?);
+        bodies.push(func::emit(
+            program,
+            Func(k as u32),
+            f,
+            &mut types,
+            &mut helpers,
+            nfuncs,
+            opts.stack_guard,
+            &link,
+        )?);
     }
     let mut functions = FunctionSection::new();
     let mut code = CodeSection::new();
@@ -212,7 +302,11 @@ fn module(program: &Program, entries: &[Func], opts: Options, numbered: bool) ->
     let mut next = link.base + nfuncs + helpers.len() as u32;
     for (i, &entry) in entries.iter().enumerate() {
         let ef = program.func(entry);
-        let name = if numbered { entry_export_name(i) } else { ENTRY_EXPORT.to_string() };
+        let name = if numbered {
+            entry_export_name(i)
+        } else {
+            ENTRY_EXPORT.to_string()
+        };
         if ef.params == [Type::Ptr] && ef.returns == [Type::I64] {
             functions.function(types.index(&[ValType::I32], &[ValType::I64]));
             code.function(&func::entry_wrapper(entry, link.base));
@@ -242,6 +336,12 @@ pub fn frame_layout(f: &Function) -> (Vec<u32>, u32) {
         offsets.push(size);
         size += s.bytes;
     }
-    let max_align = f.stack_slots.iter().map(|s| s.align).max().unwrap_or(16).max(16);
+    let max_align = f
+        .stack_slots
+        .iter()
+        .map(|s| s.align)
+        .max()
+        .unwrap_or(16)
+        .max(16);
     (offsets, (size + max_align - 1) & !(max_align - 1))
 }

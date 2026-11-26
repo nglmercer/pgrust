@@ -39,7 +39,11 @@ fn read_dir_info(what: &str, dirname: &str, err: &std::io::Error) -> PgResult<()
         .with_saved_errno(errno)
         .errcode_for_file_access()
         .errmsg(format!("could not {what} directory \"{dirname}\": {PCT_M}"))
-        .finish(ErrorLocation::new(file!(), line!() as i32, "ReadDirExtended"))
+        .finish(ErrorLocation::new(
+            file!(),
+            line!() as i32,
+            "ReadDirExtended",
+        ))
 }
 
 // ReorderBufferCleanupSerializedTXNs (reorderbuffer.c:4874). Every path it
@@ -92,14 +96,20 @@ pub fn StartupReorderBuffer() -> PgResult<()> {
     };
     let entries = std::fs::read_dir(&dir).map_err(|e| {
         rb_file_error(
-            format!("could not open directory \"{}\": {PCT_M}", datadir_relative(&dir)),
+            format!(
+                "could not open directory \"{}\": {PCT_M}",
+                datadir_relative(&dir)
+            ),
             &e,
         )
     })?;
     for entry in entries {
         let entry = entry.map_err(|e| {
             rb_file_error(
-                format!("could not read directory \"{}\": {PCT_M}", datadir_relative(&dir)),
+                format!(
+                    "could not read directory \"{}\": {PCT_M}",
+                    datadir_relative(&dir)
+                ),
                 &e,
             )
         })?;

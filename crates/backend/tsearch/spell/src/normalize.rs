@@ -24,7 +24,9 @@ impl SplitVar {
         SplitVar { stem: Vec::new() }
     }
     fn copy_from(other: &SplitVar) -> Self {
-        SplitVar { stem: other.stem.clone() }
+        SplitVar {
+            stem: other.stem.clone(),
+        }
     }
     fn add_stem(&mut self, word: Vec<u8>) {
         self.stem.push(word);
@@ -191,7 +193,7 @@ impl<'mcx> IspellDict<'mcx> {
         let mut pnewword: Vec<u8> = Vec::new();
 
         if self.find_word(word, &[], flag)? != 0 {
-            forms.push(::mcx::std_vec_from_slice("tsearch",word)?);
+            forms.push(::mcx::std_vec_from_slice("tsearch", word)?);
         }
 
         let mut pnode = self.prefix;
@@ -214,7 +216,10 @@ impl<'mcx> IspellDict<'mcx> {
                     None,
                 )?;
                 if ok {
-                    let affflag = ::mcx::std_vec_from_slice("tsearch", self.affixes[aff_idx].flag.as_slice())?;
+                    let affflag = ::mcx::std_vec_from_slice(
+                        "tsearch",
+                        self.affixes[aff_idx].flag.as_slice(),
+                    )?;
                     if self.find_word(&newword, &affflag, flag)? != 0 {
                         Self::add_to_result(&mut forms, &newword);
                     }
@@ -243,7 +248,8 @@ impl<'mcx> IspellDict<'mcx> {
                     Some(0),
                 )?;
                 if ok {
-                    let aff_i_flag = ::mcx::std_vec_from_slice("tsearch", self.affixes[aff_i].flag.as_slice())?;
+                    let aff_i_flag =
+                        ::mcx::std_vec_from_slice("tsearch", self.affixes[aff_i].flag.as_slice())?;
                     let aff_i_flagflags = self.affixes[aff_i].flagflags;
                     if self.find_word(&newword, &aff_i_flag, flag)? != 0 {
                         Self::add_to_result(&mut forms, &newword);
@@ -280,15 +286,15 @@ impl<'mcx> IspellDict<'mcx> {
                             baselen = new_bl;
                             if pok {
                                 let aff_j_flagflags = self.affixes[aff_j].flagflags;
-                                let ff: Vec<u8> = if (aff_j_flagflags
-                                    & aff_i_flagflags
-                                    & FF_CROSSPRODUCT)
-                                    != 0
-                                {
-                                    Vec::new()
-                                } else {
-                                    ::mcx::std_vec_from_slice("tsearch", self.affixes[aff_j].flag.as_slice())?
-                                };
+                                let ff: Vec<u8> =
+                                    if (aff_j_flagflags & aff_i_flagflags & FF_CROSSPRODUCT) != 0 {
+                                        Vec::new()
+                                    } else {
+                                        ::mcx::std_vec_from_slice(
+                                            "tsearch",
+                                            self.affixes[aff_j].flag.as_slice(),
+                                        )?
+                                    };
                                 if self.find_word(&pnewword, &ff, flag)? != 0 {
                                     Self::add_to_result(&mut forms, &pnewword);
                                 }
@@ -353,7 +359,11 @@ impl<'mcx> IspellDict<'mcx> {
     ) -> PgResult<Vec<SplitVar>> {
         check_stack_depth()?;
 
-        let mut node = if snode.is_some() { snode } else { self.dictionary };
+        let mut node = if snode.is_some() {
+            snode
+        } else {
+            self.dictionary
+        };
         let mut level = if snode.is_some() { minpos } else { startpos };
 
         let mut notprobed = ::mcx::std_vec_from_elem("tsearch", 1u8, wordlen as usize)?;
@@ -392,7 +402,10 @@ impl<'mcx> IspellDict<'mcx> {
                 }
 
                 let buf: Vec<u8> = if lenaff > 0 {
-                    ::mcx::std_vec_from_slice("tsearch", &word[startpos as usize..(startpos + lenaff) as usize])?
+                    ::mcx::std_vec_from_slice(
+                        "tsearch",
+                        &word[startpos as usize..(startpos + lenaff) as usize],
+                    )?
                 } else {
                     Vec::new()
                 };
@@ -462,21 +475,33 @@ impl<'mcx> IspellDict<'mcx> {
                 if d_isword
                     && (d_compoundflag & compoundflag as u32) != 0
                     && notprobed[level as usize] != 0
-                    && level > minpos {
-                        if wordlen == level + 1 {
-                            var.add_stem(::mcx::std_vec_from_slice("tsearch", &word[startpos as usize..wordlen as usize])?);
-                            result.insert(0, var);
-                            return Ok(result);
-                        } else {
-                            let mut more = self.split_to_variants(
-                                node, Some(&var), word, wordlen, startpos, level,
-                            )?;
-                            level += 1;
-                            var.add_stem(::mcx::std_vec_from_slice("tsearch", &word[startpos as usize..level as usize])?);
-                            node = self.dictionary;
-                            startpos = level;
-                            result.append(&mut more);
-                            continue;
+                    && level > minpos
+                {
+                    if wordlen == level + 1 {
+                        var.add_stem(::mcx::std_vec_from_slice(
+                            "tsearch",
+                            &word[startpos as usize..wordlen as usize],
+                        )?);
+                        result.insert(0, var);
+                        return Ok(result);
+                    } else {
+                        let mut more = self.split_to_variants(
+                            node,
+                            Some(&var),
+                            word,
+                            wordlen,
+                            startpos,
+                            level,
+                        )?;
+                        level += 1;
+                        var.add_stem(::mcx::std_vec_from_slice(
+                            "tsearch",
+                            &word[startpos as usize..level as usize],
+                        )?);
+                        node = self.dictionary;
+                        startpos = level;
+                        result.append(&mut more);
+                        continue;
                     }
                 }
                 node = d_node;
@@ -486,7 +511,10 @@ impl<'mcx> IspellDict<'mcx> {
             level += 1;
         }
 
-        var.add_stem(::mcx::std_vec_from_slice("tsearch", &word[startpos as usize..wordlen as usize])?);
+        var.add_stem(::mcx::std_vec_from_slice(
+            "tsearch",
+            &word[startpos as usize..wordlen as usize],
+        )?);
         result.insert(0, var);
         Ok(result)
     }
@@ -545,7 +573,11 @@ fn add_norm<'out>(
         let lexeme = new_bytes(out, word)?;
         lres.try_reserve(1)
             .map_err(|_| out.oom(core::mem::size_of::<TsLexeme>()))?;
-        lres.push(TsLexeme { nvariant, flags: flags as u16, lexeme });
+        lres.push(TsLexeme {
+            nvariant,
+            flags: flags as u16,
+            lexeme,
+        });
     }
     Ok(())
 }

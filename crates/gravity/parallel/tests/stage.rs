@@ -5,15 +5,20 @@
 //! set and the candidates' keys are identical over every shape and the generic layout; `FOLD_RIG=1` prints the
 //! three roads' ns per image at a one-key count's shapes (the per-run road won on 2026-09-21: the arms stay here as the rig).
 
+use gravity_abi::breaker::{
+    hash_at, Candidates, HashAgg, KeyKind, Rec, RecordLayout, SlotKind, SubSplit, HASHAGG_HDR,
+    MOVING,
+};
 use gravity_abi::hash::KeyHash;
-use gravity_abi::breaker::{hash_at, Candidates, HashAgg, KeyKind, Rec, RecordLayout, SlotKind, SubSplit, HASHAGG_HDR, MOVING};
 use gravity_kernels::table::owner_fold::{generated, owner_fold};
 
 /// The candidate list room these tables carry.
 const CAND_MAX: usize = 4096;
 
 fn lcg(s: &mut u64) -> u64 {
-    *s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+    *s = s
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
     *s >> 17
 }
 
@@ -23,7 +28,9 @@ fn records(layout: &RecordLayout, n: usize, domain: u64, seed: u64) -> Vec<u8> {
     let mut buf = [0u8; 256];
     for _ in 0..n {
         buf.fill(0);
-        let keys: Vec<u64> = (0..layout.nkeys()).map(|_| lcg(&mut rng) % domain).collect();
+        let keys: Vec<u64> = (0..layout.nkeys())
+            .map(|_| lcg(&mut rng) % domain)
+            .collect();
         let r = unsafe { Rec::at(buf.as_mut_ptr(), layout) };
         r.open(&keys);
         let v = lcg(&mut rng);
@@ -52,11 +59,21 @@ struct Table {
 
 impl Table {
     fn new(layout: &RecordLayout, cap: u32) -> Table {
-        Table { region: vec![0u64; (HASHAGG_HDR + cap as usize * layout.size() as usize) / 8 + 1], cand: vec![0u32; CAND_MAX] }
+        Table {
+            region: vec![0u64; (HASHAGG_HDR + cap as usize * layout.size() as usize) / 8 + 1],
+            cand: vec![0u32; CAND_MAX],
+        }
     }
 
     fn open(&mut self, layout: &RecordLayout, cap: u32) -> *mut HashAgg {
-        unsafe { HashAgg::at(self.region.as_mut_ptr() as *mut u8, layout, cap, (self.region.len() * 8) as u32) }
+        unsafe {
+            HashAgg::at(
+                self.region.as_mut_ptr() as *mut u8,
+                layout,
+                cap,
+                (self.region.len() * 8) as u32,
+            )
+        }
     }
 }
 
@@ -73,17 +90,30 @@ fn folded_set(t: &HashAgg, layout: &RecordLayout, cand: &[u32]) -> (Vec<Vec<u8>>
         set.push(bytes);
     }
     set.sort();
-    let mut keys: Vec<Vec<u64>> = cand.iter().map(|&j| t.record(j as usize).keys().to_vec()).collect();
+    let mut keys: Vec<Vec<u64>> = cand
+        .iter()
+        .map(|&j| t.record(j as usize).keys().to_vec())
+        .collect();
     keys.sort();
     (set, keys)
 }
 
 /// The three roads over the same images in blocks of `block` records: the per-run road (`owner_fold` per
 /// block), the staged road (`stage_fold`) and the sorted road (`sort_fold`); the folded sets equal. The walls in ns.
-fn stage_both(layout: &RecordLayout, recs: &[u8], n: usize, block: usize, cap: u32, thr: i64) -> (u128, u128, u128) {
+fn stage_both(
+    layout: &RecordLayout,
+    recs: &[u8],
+    n: usize,
+    block: usize,
+    cap: u32,
+    thr: i64,
+) -> (u128, u128, u128) {
     let rec = layout.size() as usize;
     let off = layout.sentinel_off as usize;
-    let blocks: Vec<(*const u8, usize)> = (0..n).step_by(block).map(|i| (unsafe { recs.as_ptr().add(i * rec) }, block.min(n - i))).collect();
+    let blocks: Vec<(*const u8, usize)> = (0..n)
+        .step_by(block)
+        .map(|i| (unsafe { recs.as_ptr().add(i * rec) }, block.min(n - i)))
+        .collect();
     // both roads' memory touched before the clocks (a fresh mapping's page faults are not the fold)
     let mut a = Table::new(layout, cap);
     let mut b = Table::new(layout, cap);
@@ -107,11 +137,17 @@ fn stage_both(layout: &RecordLayout, recs: &[u8], n: usize, block: usize, cap: u
     let t1 = std::time::Instant::now();
     let mut vb = 0i64;
     let r = unsafe {
-        stage_fold(tb, stage.as_mut_ptr() as *mut u8, stage.len() * 8, |f| blocks.iter().for_each(|&(p, k)| f(p, k)), |p, k| {
-            let v = owner_fold(core::ptr::null(), tb, p, k, SubSplit::NONE, &mut cb);
-            vb += v.max(-1 - v);
-            v >= 0
-        })
+        stage_fold(
+            tb,
+            stage.as_mut_ptr() as *mut u8,
+            stage.len() * 8,
+            |f| blocks.iter().for_each(|&(p, k)| f(p, k)),
+            |p, k| {
+                let v = owner_fold(core::ptr::null(), tb, p, k, SubSplit::NONE, &mut cb);
+                vb += v.max(-1 - v);
+                v >= 0
+            },
+        )
     };
     let wall_b = t1.elapsed().as_nanos();
     assert_eq!(r, Some(true), "the staged road");
@@ -122,18 +158,34 @@ fn stage_both(layout: &RecordLayout, recs: &[u8], n: usize, block: usize, cap: u
     let tc = c.open(layout, cap);
     let mut cc = unsafe { Candidates::at(c.cand.as_mut_ptr() as *mut u8, CAND_MAX, off, thr) };
     let t2 = std::time::Instant::now();
-    let vc = unsafe { sort_fold(tc, SubSplit::NONE, &mut cc, stage.as_mut_ptr() as *mut u8, stage.len() * 8, |f| blocks.iter().for_each(|&(p, k)| f(p, k))) };
+    let vc = unsafe {
+        sort_fold(
+            tc,
+            SubSplit::NONE,
+            &mut cc,
+            stage.as_mut_ptr() as *mut u8,
+            stage.len() * 8,
+            |f| blocks.iter().for_each(|&(p, k)| f(p, k)),
+        )
+    };
     let wall_c = t2.elapsed().as_nanos();
     assert_eq!(vc, Some(va), "the sorted road");
     let (ta, tb, tc) = unsafe { (&*ta, &*tb, &*tc) };
     assert_eq!((ta.len, ta.len), (tb.len, tc.len), "the groups");
-    assert_eq!(((ca.overflow, ca.len), (ca.overflow, ca.len)), ((cb.overflow, cb.len), (cc.overflow, cc.len)), "the candidate list");
+    assert_eq!(
+        ((ca.overflow, ca.len), (ca.overflow, ca.len)),
+        ((cb.overflow, cb.len), (cc.overflow, cc.len)),
+        "the candidate list"
+    );
     let (sa, ka) = folded_set(ta, layout, &a.cand[..ca.len]);
     let (sb, kb) = folded_set(tb, layout, &b.cand[..cb.len]);
     let (sc, kc) = folded_set(tc, layout, &c.cand[..cc.len]);
     assert!(sa == sb && sa == sc, "the folded set");
     // an overflowed list is not read (the reduce walks the table): its members follow the fold order
-    assert!(ca.overflow || (ka == kb && ka == kc), "the candidates' keys");
+    assert!(
+        ca.overflow || (ka == kb && ka == kc),
+        "the candidates' keys"
+    );
     // the sorted road's table is a linear-probing table: every key is found from its home
     for r in tc.records() {
         let mut j = tc.home(r.hash());
@@ -168,7 +220,12 @@ fn the_staged_fold_folds_the_per_run_roads_record_set_over_every_shape_and_the_g
     ];
     for (li, layout) in layouts.iter().enumerate() {
         assert!(layout.size() % 8 == 0);
-        for (n, domain, block, cap) in [(3000usize, 2300u64, 256usize, 8192u32), (700, 40, 100, 2048), (5000, 1 << 40, 256, 16384), (1, 5, 256, 64)] {
+        for (n, domain, block, cap) in [
+            (3000usize, 2300u64, 256usize, 8192u32),
+            (700, 40, 100, 2048),
+            (5000, 1 << 40, 256, 16384),
+            (1, 5, 256, 64),
+        ] {
             let recs = records(layout, n, domain, li as u64 * 7919 + n as u64);
             stage_both(layout, &recs, n, block, cap, 2);
         }
@@ -182,10 +239,18 @@ fn the_staged_fold_rig() {
     if std::env::var("FOLD_RIG").is_err() {
         return;
     }
-    for (nw, kinds) in [(1usize, &[SlotKind::Count][..]), (1, &[SlotKind::Count, SlotKind::SumI64][..]), (2, &[SlotKind::Count][..])] {
+    for (nw, kinds) in [
+        (1usize, &[SlotKind::Count][..]),
+        (1, &[SlotKind::Count, SlotKind::SumI64][..]),
+        (2, &[SlotKind::Count][..]),
+    ] {
         let layout = RecordLayout::new_nn(&vec![KeyKind::I64; nw], kinds);
         assert!(generated(&layout), "the generated fold");
-        for (n, groups) in [(21_000usize, 16_000u64), (45_000, 34_000), (1_000_000, 770_000)] {
+        for (n, groups) in [
+            (21_000usize, 16_000u64),
+            (45_000, 34_000),
+            (1_000_000, 770_000),
+        ] {
             let cap = (groups * 2).next_power_of_two() as u32;
             let recs = records(&layout, n, groups, n as u64);
             let mut best = (u128::MAX, u128::MAX, u128::MAX);
@@ -213,7 +278,13 @@ const STAGE_BUCKETS: usize = 1024;
 /// # Safety
 /// `t` is the owner's live table; `stage` is `stage_bytes` of this thread's scratch, 8-aligned; `walk`'s
 /// records are whole records of the table's layout, read-only for the call.
-unsafe fn stage_fold(t: *const HashAgg, stage: *mut u8, stage_bytes: usize, mut walk: impl FnMut(&mut dyn FnMut(*const u8, usize)), mut run: impl FnMut(*const u8, usize) -> bool) -> Option<bool> {
+unsafe fn stage_fold(
+    t: *const HashAgg,
+    stage: *mut u8,
+    stage_bytes: usize,
+    mut walk: impl FnMut(&mut dyn FnMut(*const u8, usize)),
+    mut run: impl FnMut(*const u8, usize) -> bool,
+) -> Option<bool> {
     let layout = &(*t).layout;
     let (rec, nkeys) = (layout.size() as usize, layout.nkeys());
     let cap = (*t).cap as usize;
@@ -300,9 +371,21 @@ unsafe fn stage_fold(t: *const HashAgg, stage: *mut u8, stage_bytes: usize, mut 
 /// A home slot of a record the split drops (never a slot: `cap` ≤ 2^31).
 const DROPPED: u32 = u32::MAX;
 
-unsafe fn sort_fold(t: *mut HashAgg, split: SubSplit, cand: *mut Candidates, stage: *mut u8, stage_bytes: usize, mut walk: impl FnMut(&mut dyn FnMut(*const u8, usize))) -> Option<i64> {
+unsafe fn sort_fold(
+    t: *mut HashAgg,
+    split: SubSplit,
+    cand: *mut Candidates,
+    stage: *mut u8,
+    stage_bytes: usize,
+    mut walk: impl FnMut(&mut dyn FnMut(*const u8, usize)),
+) -> Option<i64> {
     let layout = (*t).layout;
-    let (rec, nkeys, pkeys, sent) = (layout.size() as usize, layout.nkeys(), layout.partition_keys(), layout.sentinel_off() as usize);
+    let (rec, nkeys, pkeys, sent) = (
+        layout.size() as usize,
+        layout.nkeys(),
+        layout.partition_keys(),
+        layout.sentinel_off() as usize,
+    );
     let cap = (*t).cap as usize;
     if rec % 8 != 0 || rec == 0 || cap < 2 {
         return None;
@@ -317,7 +400,9 @@ unsafe fn sort_fold(t: *mut HashAgg, split: SubSplit, cand: *mut Candidates, sta
     let homes = stage.add(counts_bytes) as *mut u32;
     let recs = stage.add((counts_bytes + 4 * n_max + 7) & !7);
     core::ptr::write_bytes(counts, 0, cap + 1);
-    let keeps = |p: *const u8, h: KeyHash| split.depth == 0 || split.keeps(if pkeys == nkeys { h } else { hash_at(p, pkeys) });
+    let keeps = |p: *const u8, h: KeyHash| {
+        split.depth == 0 || split.keeps(if pkeys == nkeys { h } else { hash_at(p, pkeys) })
+    };
     let mut i = 0usize;
     walk(&mut |p: *const u8, n: usize| {
         let mut k = 0;

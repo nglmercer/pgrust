@@ -87,12 +87,18 @@ pub struct Split {
     pub images: Share,
 }
 
-pub use gravity_program::cost::runtime::{FLOOR_CHARGED_MIN, GRANT_FLOOR, IMAGES_MIN, SHARE_FLOOR};
 use gravity_program::cost::runtime::LEADER_CAP;
+pub use gravity_program::cost::runtime::{FLOOR_CHARGED_MIN, GRANT_FLOOR, IMAGES_MIN, SHARE_FLOOR};
 
 /// An owner's part of the leader region `breaker`: behind the 64-byte `Owned` header, cut `width` ways (`Open::owner_region`).
 pub fn owner_cut(breaker: Share, width: u16) -> Share {
-    Share { bytes: (breaker.bytes.saturating_sub(gravity_abi::breaker::OWNED_HDR as u32) / width.max(1) as u32) & !7 }
+    Share {
+        bytes: (breaker
+            .bytes
+            .saturating_sub(gravity_abi::breaker::OWNED_HDR as u32)
+            / width.max(1) as u32)
+            & !7,
+    }
 }
 
 pub fn image_cut(share: u32) -> u32 {
@@ -102,7 +108,21 @@ pub fn image_cut(share: u32) -> u32 {
 
 impl Grant {
     pub const fn of(bytes: u64) -> Grant {
-        Grant { bytes, sort_floor: 0, hash_floor: 0, sort_ceil: 0, hash_ceil: 0, exact: 0, start: StartSize::Small, spill_every: 0, revoke_every: 0, owner_wall: 0, refuse_debt: false, trimmed: false, grow: false }
+        Grant {
+            bytes,
+            sort_floor: 0,
+            hash_floor: 0,
+            sort_ceil: 0,
+            hash_ceil: 0,
+            exact: 0,
+            start: StartSize::Small,
+            spill_every: 0,
+            revoke_every: 0,
+            owner_wall: 0,
+            refuse_debt: false,
+            trimmed: false,
+            grow: false,
+        }
     }
 
     /// `self` in grow mode (`grow`) or not.
@@ -138,23 +158,44 @@ impl Grant {
 
     /// `self` with the forced-spill test fault at every `n`th room ask (`spill_every`; 0 = off).
     pub const fn with_spill_every(self, spill_every: u32) -> Grant {
-        Grant { spill_every, ..self }
+        Grant {
+            spill_every,
+            ..self
+        }
     }
 
     /// `self` with C5's revoke test lever at every `n`th room ask (`revoke_every`; 0 = off).
     pub const fn with_revoke_every(self, revoke_every: u32) -> Grant {
-        Grant { revoke_every, ..self }
+        Grant {
+            revoke_every,
+            ..self
+        }
     }
 
     /// `self` with NR-6's test lever (`refuse_debt`; false = off).
     pub const fn with_refuse_debt(self, refuse_debt: bool) -> Grant {
-        Grant { refuse_debt, ..self }
+        Grant {
+            refuse_debt,
+            ..self
+        }
     }
 
     /// The pool's trim of `self` to `bytes`: no floors (as `of`), its ceilings, exact sizing, start, owner wall, test
     /// fault and grow mode kept; marked `trimmed` (D4043: its shares are its own bytes' split).
     pub const fn trimmed(self, bytes: u64) -> Grant {
-        Grant { exact: self.exact, sort_ceil: self.sort_ceil, hash_ceil: self.hash_ceil, start: self.start, spill_every: self.spill_every, revoke_every: self.revoke_every, owner_wall: self.owner_wall, refuse_debt: self.refuse_debt, trimmed: true, grow: self.grow, ..Grant::of(bytes) }
+        Grant {
+            exact: self.exact,
+            sort_ceil: self.sort_ceil,
+            hash_ceil: self.hash_ceil,
+            start: self.start,
+            spill_every: self.spill_every,
+            revoke_every: self.revoke_every,
+            owner_wall: self.owner_wall,
+            refuse_debt: self.refuse_debt,
+            trimmed: true,
+            grow: self.grow,
+            ..Grant::of(bytes)
+        }
     }
 
     /// exactsize B1 (`EXACT_BUILD`).
@@ -175,12 +216,21 @@ impl Grant {
     /// `self` with PostgreSQL's per-node budgets as its breakers' floors (D2587); a trim with its floors given back (an
     /// estimate's grant, exec `ask`) is no longer `trimmed`: its learned starts are capped at those budgets.
     pub const fn with_floors(self, sort_floor: u64, hash_floor: u64) -> Grant {
-        Grant { sort_floor, hash_floor, trimmed: false, ..self }
+        Grant {
+            sort_floor,
+            hash_floor,
+            trimmed: false,
+            ..self
+        }
     }
 
     /// `self` with PostgreSQL's per-node budgets as its breakers' ceilings (`sort_ceil`, `hash_ceil`).
     pub const fn with_ceilings(self, sort_ceil: u64, hash_ceil: u64) -> Grant {
-        Grant { sort_ceil, hash_ceil, ..self }
+        Grant {
+            sort_ceil,
+            hash_ceil,
+            ..self
+        }
     }
 
     /// The most one participant's region of a breaker of `kind` holds before it spills: PostgreSQL's budget for its node
@@ -223,13 +273,28 @@ impl Grant {
     /// `split_at_least` with each worker's own share floored at `worker_floor` (exactsize D3215, `worker_floor`), the
     /// leader's at `floor`.
     pub fn split_at_least_w(&self, live: u16, width: u16, floor: u64, worker_floor: u64) -> Split {
-        let per = |bytes: u64, n: u64| -> Share { Share { bytes: (bytes / n.max(1)).clamp(SHARE_FLOOR as u64, u32::MAX as u64) as u32 & !7 } };
+        let per = |bytes: u64, n: u64| -> Share {
+            Share {
+                bytes: (bytes / n.max(1)).clamp(SHARE_FLOOR as u64, u32::MAX as u64) as u32 & !7,
+            }
+        };
         let t = (self.bytes / live.max(1) as u64).max(floor);
         let breaker = per(t, 1);
-        let cut = if width >= 2 && t > 2 * LEADER_CAP { per(t - LEADER_CAP, width as u64) } else { per(breaker.bytes as u64, width as u64) };
+        let cut = if width >= 2 && t > 2 * LEADER_CAP {
+            per(t - LEADER_CAP, width as u64)
+        } else {
+            per(breaker.bytes as u64, width as u64)
+        };
         // never past the leader's share (t >= floor): an owner cut or an image cut taken from it stays inside the breaker
-        let worker = Share { bytes: cut.bytes.max(per(worker_floor, 1).bytes.min(breaker.bytes)) };
-        Split { breaker, worker, owner: owner_cut(breaker, width), images: Share { bytes: 0 } }
+        let worker = Share {
+            bytes: cut.bytes.max(per(worker_floor, 1).bytes.min(breaker.bytes)),
+        };
+        Split {
+            breaker,
+            worker,
+            owner: owner_cut(breaker, width),
+            images: Share { bytes: 0 },
+        }
     }
 
     /// `split` with the image cut taken when the program pins group images: one cut per owner, sized from the worker share.
@@ -243,31 +308,75 @@ impl Grant {
     }
 
     /// `split_for_at_least` over `split_at_least_w`.
-    pub fn split_for_at_least_w(&self, live: u16, width: u16, images: bool, floor: u64, worker_floor: u64) -> Split {
+    pub fn split_for_at_least_w(
+        &self,
+        live: u16,
+        width: u16,
+        images: bool,
+        floor: u64,
+        worker_floor: u64,
+    ) -> Split {
         self.split_within(live, width, images, floor, worker_floor, u64::MAX)
     }
 
     /// `split_for_at_least_w` with the leader's share and each worker's at most `cap` (a row top's bounded region,
     /// `top_share_cap`; `u64::MAX` = none) and the floors held to it, so no floor raises a share past it; an image cut
     /// comes out of the capped share.
-    pub fn split_within(&self, live: u16, width: u16, images: bool, floor: u64, worker_floor: u64, cap: u64) -> Split {
+    pub fn split_within(
+        &self,
+        live: u16,
+        width: u16,
+        images: bool,
+        floor: u64,
+        worker_floor: u64,
+        cap: u64,
+    ) -> Split {
         // at width >= 2 the leader merges every participant's run into its own region: its cap is theirs together, so a
         // bounded top's merge never grows past G where the floor-sized share held it
-        let lead = if width >= 2 { cap.saturating_mul(width as u64 + 1) } else { cap };
+        let lead = if width >= 2 {
+            cap.saturating_mul(width as u64 + 1)
+        } else {
+            cap
+        };
         self.split_capped(live, width, images, floor, worker_floor, cap, lead)
     }
 
     /// `split_within` with the leader's share at most `lead` (a breaker's leader ceiling, `leader_ceiling`).
-    pub fn split_capped(&self, live: u16, width: u16, images: bool, floor: u64, worker_floor: u64, cap: u64, lead: u64) -> Split {
+    pub fn split_capped(
+        &self,
+        live: u16,
+        width: u16,
+        images: bool,
+        floor: u64,
+        worker_floor: u64,
+        cap: u64,
+        lead: u64,
+    ) -> Split {
         let s = self.split_at_least_w(live, width, floor.min(cap), worker_floor.min(cap));
-        let held = |sh: Share, cap: u64| Share { bytes: (sh.bytes as u64).min(cap) as u32 & !7 };
-        let s = Split { breaker: held(s.breaker, lead), worker: held(s.worker, cap), owner: owner_cut(held(s.breaker, lead), width), images: s.images };
+        let held = |sh: Share, cap: u64| Share {
+            bytes: (sh.bytes as u64).min(cap) as u32 & !7,
+        };
+        let s = Split {
+            breaker: held(s.breaker, lead),
+            worker: held(s.worker, cap),
+            owner: owner_cut(held(s.breaker, lead), width),
+            images: s.images,
+        };
         if !images {
             return s;
         }
         let cut = image_cut(s.worker.bytes);
-        let breaker = Share { bytes: s.breaker.bytes - cut };
-        Split { breaker, worker: Share { bytes: s.worker.bytes - cut }, owner: owner_cut(breaker, width), images: Share { bytes: cut } }
+        let breaker = Share {
+            bytes: s.breaker.bytes - cut,
+        };
+        Split {
+            breaker,
+            worker: Share {
+                bytes: s.worker.bytes - cut,
+            },
+            owner: owner_cut(breaker, width),
+            images: Share { bytes: cut },
+        }
     }
 }
 
@@ -315,7 +424,25 @@ pub struct Counters {
 
 impl Counters {
     pub fn snapshot(&self) -> Accounting {
-        Accounting { opens: self.opens.get(), frees: self.frees.get(), armed: self.armed.get(), largest_share: self.largest_share.get(), grown_bytes: self.grown_bytes.get(), spills: self.spills.get(), merged: self.merged.get(), p2_refused: self.p2_refused.get(), p2_refused_at: [self.p2_refused_at[0].get(), self.p2_refused_at[1].get(), self.p2_refused_at[2].get()], p2_fail: self.p2_fail.get(), limits: self.limits.get(), past_share: self.past_share.get(), past_share_bytes: self.past_share_bytes.get() }
+        Accounting {
+            opens: self.opens.get(),
+            frees: self.frees.get(),
+            armed: self.armed.get(),
+            largest_share: self.largest_share.get(),
+            grown_bytes: self.grown_bytes.get(),
+            spills: self.spills.get(),
+            merged: self.merged.get(),
+            p2_refused: self.p2_refused.get(),
+            p2_refused_at: [
+                self.p2_refused_at[0].get(),
+                self.p2_refused_at[1].get(),
+                self.p2_refused_at[2].get(),
+            ],
+            p2_fail: self.p2_fail.get(),
+            limits: self.limits.get(),
+            past_share: self.past_share.get(),
+            past_share_bytes: self.past_share_bytes.get(),
+        }
     }
 
     /// A limit opened at `add` in place of one of `sub` (0 = fresh; `add` 0 = freed): `limits` keeps the peak of the live sum.
@@ -338,8 +465,11 @@ impl Counters {
 use core::sync::atomic::{AtomicU64, Ordering};
 
 // The admission policy (its constants, D3214's stall clock, D3127's settle, the floor's road) lives in `mempolicy::admit`.
-pub use mempolicy::admit::{Admitted, StallBounds, BYTES_WAIT, GOVERNOR_SETTLE, QUEUE_STALL, SETTLE_FALL, SETTLE_FLAT_POLLS, STALL_PROGRESS, TURN_CAP};
 use mempolicy::admit::{self as policy, settle_on_track, StallClock};
+pub use mempolicy::admit::{
+    Admitted, StallBounds, BYTES_WAIT, GOVERNOR_SETTLE, QUEUE_STALL, SETTLE_FALL,
+    SETTLE_FLAT_POLLS, STALL_PROGRESS, TURN_CAP,
+};
 
 /// A site that takes pool bytes past the capacity, never refused and never waiting (D1378 and D622 share one code path:
 /// `GrantPool::overdraw_take`): what PostgreSQL holds there has no spill road and no refusal, so a refusal would be a 53200
@@ -423,8 +553,10 @@ pub struct GrantPool {
 
 /// D4923 diag: the pool's failed takes by why (`mempolicy::admit::TAKE_FAIL_*`), admissions [1] and draws [0] apart:
 /// counts and bytes asked; no decision reads them (the ladder view's `takefail` rows).
-static TAKE_FAILS: [[AtomicU64; mempolicy::admit::TAKE_FAILS]; 2] = [const { [const { AtomicU64::new(0) }; mempolicy::admit::TAKE_FAILS] }; 2];
-static TAKE_FAIL_BYTES: [[AtomicU64; mempolicy::admit::TAKE_FAILS]; 2] = [const { [const { AtomicU64::new(0) }; mempolicy::admit::TAKE_FAILS] }; 2];
+static TAKE_FAILS: [[AtomicU64; mempolicy::admit::TAKE_FAILS]; 2] =
+    [const { [const { AtomicU64::new(0) }; mempolicy::admit::TAKE_FAILS] }; 2];
+static TAKE_FAIL_BYTES: [[AtomicU64; mempolicy::admit::TAKE_FAILS]; 2] =
+    [const { [const { AtomicU64::new(0) }; mempolicy::admit::TAKE_FAILS] }; 2];
 
 fn note_take_fail(admit: bool, why: usize, bytes: u64) {
     TAKE_FAILS[usize::from(admit)][why].fetch_add(1, Ordering::Relaxed);
@@ -433,10 +565,48 @@ fn note_take_fail(admit: bool, why: usize, bytes: u64) {
 
 /// D4923 diag (the view): the failed takes by why, draws [0] and admissions [1]: (count, bytes asked).
 pub fn take_fails() -> [[(u64, u64); mempolicy::admit::TAKE_FAILS]; 2] {
-    core::array::from_fn(|a| core::array::from_fn(|w| (TAKE_FAILS[a][w].load(Ordering::Relaxed), TAKE_FAIL_BYTES[a][w].load(Ordering::Relaxed))))
+    core::array::from_fn(|a| {
+        core::array::from_fn(|w| {
+            (
+                TAKE_FAILS[a][w].load(Ordering::Relaxed),
+                TAKE_FAIL_BYTES[a][w].load(Ordering::Relaxed),
+            )
+        })
+    })
 }
 
-pub static POOL: GrantPool = GrantPool { capacity: AtomicU64::new(0), held: AtomicU64::new(0), kept: AtomicU64::new(0), inflight: AtomicU64::new(0), max_inflight: AtomicU64::new(0), waits: AtomicU64::new(0), wait_ns: AtomicU64::new(0), trims: AtomicU64::new(0), sheds: AtomicU64::new(0), refusals: AtomicU64::new(0), reserve: AtomicU64::new(0), small_held: AtomicU64::new(0), small_admits: AtomicU64::new(0), small_fallbacks: AtomicU64::new(0), small_overflows: AtomicU64::new(0), buffer: AtomicU64::new(0), buffer_b: AtomicU64::new(0), small_draws: AtomicU64::new(0), small_waits: AtomicU64::new(0), small_refusals: AtomicU64::new(0), borrows: AtomicU64::new(0), borrowed: AtomicU64::new(0), unadmitted: AtomicU64::new(0), unadmitted_bytes: AtomicU64::new(0), overdraw_n: [const { AtomicU64::new(0) }; Overdraw::N], overdraw_bytes: [const { AtomicU64::new(0) }; Overdraw::N], ended: AtomicU64::new(0), turn: AtomicU64::new(0), tickets: AtomicU64::new(0), solo: core::sync::atomic::AtomicBool::new(false) };
+pub static POOL: GrantPool = GrantPool {
+    capacity: AtomicU64::new(0),
+    held: AtomicU64::new(0),
+    kept: AtomicU64::new(0),
+    inflight: AtomicU64::new(0),
+    max_inflight: AtomicU64::new(0),
+    waits: AtomicU64::new(0),
+    wait_ns: AtomicU64::new(0),
+    trims: AtomicU64::new(0),
+    sheds: AtomicU64::new(0),
+    refusals: AtomicU64::new(0),
+    reserve: AtomicU64::new(0),
+    small_held: AtomicU64::new(0),
+    small_admits: AtomicU64::new(0),
+    small_fallbacks: AtomicU64::new(0),
+    small_overflows: AtomicU64::new(0),
+    buffer: AtomicU64::new(0),
+    buffer_b: AtomicU64::new(0),
+    small_draws: AtomicU64::new(0),
+    small_waits: AtomicU64::new(0),
+    small_refusals: AtomicU64::new(0),
+    borrows: AtomicU64::new(0),
+    borrowed: AtomicU64::new(0),
+    unadmitted: AtomicU64::new(0),
+    unadmitted_bytes: AtomicU64::new(0),
+    overdraw_n: [const { AtomicU64::new(0) }; Overdraw::N],
+    overdraw_bytes: [const { AtomicU64::new(0) }; Overdraw::N],
+    ended: AtomicU64::new(0),
+    turn: AtomicU64::new(0),
+    tickets: AtomicU64::new(0),
+    solo: core::sync::atomic::AtomicBool::new(false),
+};
 
 std::thread_local! {
     /// In-flight slots this thread's live reservations hold (a count: they end in any order).
@@ -462,12 +632,15 @@ static IDLE_HOLDERS: AtomicU64 = AtomicU64::new(0);
 
 /// D3982: per ledger account (a worker's draws show on its leader's), its statement's part of the pool for its workers'
 /// draws past W and G: the granted floor in whole MiB above 20 bits of the fraction's parts per million; 0 = no cap.
-static WORKER_TERMS: [AtomicU64; memledger::ACCOUNT_SLOTS] = [const { AtomicU64::new(0) }; memledger::ACCOUNT_SLOTS];
+static WORKER_TERMS: [AtomicU64; memledger::ACCOUNT_SLOTS] =
+    [const { AtomicU64::new(0) }; memledger::ACCOUNT_SLOTS];
 
 /// D3982: a worker's draw of `bytes` past W and G would take its leader's account past the statement's part of the pool.
 pub(crate) fn worker_past_cap(bytes: u64) -> bool {
     let a = memledger::current();
-    let terms = WORKER_TERMS.get(a.0 as usize).map_or(0, |t| t.load(Ordering::Acquire));
+    let terms = WORKER_TERMS
+        .get(a.0 as usize)
+        .map_or(0, |t| t.load(Ordering::Acquire));
     let ppm = (terms & 0xF_FFFF) as u32;
     if ppm == 0 {
         return false;
@@ -485,7 +658,10 @@ static WORKER_CAP_REFUSED: [AtomicU64; 2] = [const { AtomicU64::new(0) }; 2];
 
 /// `(draws, bytes)` of the workers' draws past W and G refused at their statement's part of the pool (`worker_past_cap`).
 pub fn worker_cap_refused() -> (u64, u64) {
-    (WORKER_CAP_REFUSED[0].load(Ordering::Relaxed), WORKER_CAP_REFUSED[1].load(Ordering::Relaxed))
+    (
+        WORKER_CAP_REFUSED[0].load(Ordering::Relaxed),
+        WORKER_CAP_REFUSED[1].load(Ordering::Relaxed),
+    )
 }
 
 /// D3910 (a): a holder's portal suspended (`true`) or resumed / ended suspended (`false`).
@@ -494,7 +670,9 @@ fn note_idle(suspended: bool) {
         IDLE_HOLDERS.fetch_add(1, Ordering::AcqRel);
         IDLE_HERE.with(|h| h.set(h.get() + 1));
     } else {
-        let _ = IDLE_HOLDERS.fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| Some(n.saturating_sub(1)));
+        let _ = IDLE_HOLDERS.fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+            Some(n.saturating_sub(1))
+        });
         IDLE_HERE.with(|h| h.set(h.get().saturating_sub(1)));
     }
     mcx::governor::idle_holder(suspended);
@@ -527,8 +705,10 @@ thread_local! {
     static MEM_WAITING: Cell<bool> = const { Cell::new(false) };
 }
 
-static MEM_WAIT_START: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
-static MEM_WAIT_END: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static MEM_WAIT_START: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static MEM_WAIT_END: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 /// W1: the backend layer's wait-event report around a memory wait; `end` is stored first, so a wait that saw `start`
 /// always finds `end`.
@@ -572,7 +752,10 @@ impl MemWait {
     fn park_free(&mut self, seen: u64) {
         self.report();
         let word = waiter::current_handle().as_u64();
-        let Some(cell) = PARKED_DRAWS.iter().find(|c| c.compare_exchange(0, word, Ordering::SeqCst, Ordering::Relaxed).is_ok()) else {
+        let Some(cell) = PARKED_DRAWS.iter().find(|c| {
+            c.compare_exchange(0, word, Ordering::SeqCst, Ordering::Relaxed)
+                .is_ok()
+        }) else {
             PARK_FALLBACKS.fetch_add(1, Ordering::Relaxed);
             waiter::sleep(core::time::Duration::from_millis(2));
             return;
@@ -825,7 +1008,12 @@ impl Purse {
             if cur & PURSE_CLOSED != 0 || cur < bytes {
                 return false;
             }
-            match self.n.compare_exchange_weak(cur, cur - bytes, Ordering::AcqRel, Ordering::Acquire) {
+            match self.n.compare_exchange_weak(
+                cur,
+                cur - bytes,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
                 Ok(_) => return true,
                 Err(now) => cur = now,
             }
@@ -836,11 +1024,18 @@ impl Purse {
     fn take_up_to(&self, bytes: u64) -> u64 {
         let mut cur = self.n.load(Ordering::Acquire);
         loop {
-            let m = if cur & PURSE_CLOSED != 0 { 0 } else { cur.min(bytes) };
+            let m = if cur & PURSE_CLOSED != 0 {
+                0
+            } else {
+                cur.min(bytes)
+            };
             if m == 0 {
                 return 0;
             }
-            match self.n.compare_exchange_weak(cur, cur - m, Ordering::AcqRel, Ordering::Acquire) {
+            match self
+                .n
+                .compare_exchange_weak(cur, cur - m, Ordering::AcqRel, Ordering::Acquire)
+            {
                 Ok(_) => return m,
                 Err(now) => cur = now,
             }
@@ -855,7 +1050,12 @@ impl Purse {
                 POOL.release(bytes as usize);
                 return;
             }
-            match self.n.compare_exchange_weak(cur, cur + bytes, Ordering::AcqRel, Ordering::Acquire) {
+            match self.n.compare_exchange_weak(
+                cur,
+                cur + bytes,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
                 Ok(_) => return,
                 Err(now) => cur = now,
             }
@@ -864,7 +1064,11 @@ impl Purse {
 
     /// Everything in it taken out (for G's room); `close`: closed too, so a draw given back later goes to the pool.
     fn empty(&self, close: bool) -> u64 {
-        let was = if close { self.n.swap(PURSE_CLOSED, Ordering::AcqRel) } else { self.n.fetch_and(PURSE_CLOSED, Ordering::AcqRel) };
+        let was = if close {
+            self.n.swap(PURSE_CLOSED, Ordering::AcqRel)
+        } else {
+            self.n.fetch_and(PURSE_CLOSED, Ordering::AcqRel)
+        };
         was & !PURSE_CLOSED
     }
 
@@ -878,7 +1082,16 @@ impl Purse {
         PURSE_DRAWS.fetch_add(1, Ordering::Relaxed);
         PURSE_BYTES.fetch_add(bytes, Ordering::Relaxed);
         fires::fire_shared("grant.purse_draw"); // shapecheck: a draw past W or G's room served from the statement's purse (D4043)
-        Held { charged: None, pool: bytes, kept: false, past: None, shown: None, gov: None, purse: Some((self.clone(), bytes)), small: 0 }
+        Held {
+            charged: None,
+            pool: bytes,
+            kept: false,
+            past: None,
+            shown: None,
+            gov: None,
+            purse: Some((self.clone(), bytes)),
+            small: 0,
+        }
     }
 }
 
@@ -913,7 +1126,34 @@ pub use gravity_program::cost::runtime::{POOL_FRACTION_DEFAULT, POOL_FRACTION_WH
 impl Reservation {
     /// A statement outside the pool (tests; the runner's unadmitted pull of a program with breakers): its draws take from the capacity.
     pub fn unadmitted(grant: Grant) -> Reservation {
-        Reservation { grant, asked: grant, reserved: 0, waited_ms: 0, small: false, how: Admitted::Whole, g: None, drawn: Cell::new(0), borrowed: Cell::new(0), grown: Cell::new(0), past: core::cell::OnceCell::new(), charged_peak: Cell::new(0), peak: Cell::new(0), hosted: Cell::new(0), slot: Cell::new(false), parked: Cell::new(false), refused: Cell::new(0), id: crate::grant_ledger::next_id(), strict: false, pool_ppm: Cell::new(POOL_FRACTION_DEFAULT), terms_prev: Cell::new(None), ledger: memledger::current(), owner: memledger::charge::context().0, purse: core::cell::RefCell::new(None), purse_depth: Cell::new(0), own: Cell::new(0) }
+        Reservation {
+            grant,
+            asked: grant,
+            reserved: 0,
+            waited_ms: 0,
+            small: false,
+            how: Admitted::Whole,
+            g: None,
+            drawn: Cell::new(0),
+            borrowed: Cell::new(0),
+            grown: Cell::new(0),
+            past: core::cell::OnceCell::new(),
+            charged_peak: Cell::new(0),
+            peak: Cell::new(0),
+            hosted: Cell::new(0),
+            slot: Cell::new(false),
+            parked: Cell::new(false),
+            refused: Cell::new(0),
+            id: crate::grant_ledger::next_id(),
+            strict: false,
+            pool_ppm: Cell::new(POOL_FRACTION_DEFAULT),
+            terms_prev: Cell::new(None),
+            ledger: memledger::current(),
+            owner: memledger::charge::context().0,
+            purse: core::cell::RefCell::new(None),
+            purse_depth: Cell::new(0),
+            own: Cell::new(0),
+        }
     }
 
     /// H16 (a): a serial, breakerless, single-pipeline program outside the pool on either protocol, on the premise
@@ -921,17 +1161,89 @@ impl Reservation {
     /// grow under it is `UNADMITTED_DREW` (a debug assertion first). Its arena chunks come from the capacity, as an unadmitted
     /// pull's do (counted in `PoolStats::unadmitted*`).
     pub fn unadmitted_strict(grant: Grant) -> Reservation {
-        Reservation { grant, asked: grant, reserved: 0, waited_ms: 0, small: false, how: Admitted::Whole, g: None, drawn: Cell::new(0), borrowed: Cell::new(0), grown: Cell::new(0), past: core::cell::OnceCell::new(), charged_peak: Cell::new(0), peak: Cell::new(0), hosted: Cell::new(0), slot: Cell::new(false), parked: Cell::new(false), refused: Cell::new(0), id: crate::grant_ledger::next_id(), strict: true, pool_ppm: Cell::new(POOL_FRACTION_DEFAULT), terms_prev: Cell::new(None), ledger: memledger::current(), owner: memledger::charge::context().0, purse: core::cell::RefCell::new(None), purse_depth: Cell::new(0), own: Cell::new(0) }
+        Reservation {
+            grant,
+            asked: grant,
+            reserved: 0,
+            waited_ms: 0,
+            small: false,
+            how: Admitted::Whole,
+            g: None,
+            drawn: Cell::new(0),
+            borrowed: Cell::new(0),
+            grown: Cell::new(0),
+            past: core::cell::OnceCell::new(),
+            charged_peak: Cell::new(0),
+            peak: Cell::new(0),
+            hosted: Cell::new(0),
+            slot: Cell::new(false),
+            parked: Cell::new(false),
+            refused: Cell::new(0),
+            id: crate::grant_ledger::next_id(),
+            strict: true,
+            pool_ppm: Cell::new(POOL_FRACTION_DEFAULT),
+            terms_prev: Cell::new(None),
+            ledger: memledger::current(),
+            owner: memledger::charge::context().0,
+            purse: core::cell::RefCell::new(None),
+            purse_depth: Cell::new(0),
+            own: Cell::new(0),
+        }
     }
 
-    fn new(grant: Grant, asked: Grant, reserved: u64, waited_ms: u64, small: bool, slot: bool, how: Admitted) -> Reservation {
+    fn new(
+        grant: Grant,
+        asked: Grant,
+        reserved: u64,
+        waited_ms: u64,
+        small: bool,
+        slot: bool,
+        how: Admitted,
+    ) -> Reservation {
         if slot {
             RUNNING.fetch_add(1, Ordering::AcqRel); // D3147: an admitted statement (`running`)
         }
         let ledger = memledger::current();
         let (owner, release) = memledger::charge::context();
-        let room = memledger::Charge::reserve(owner, release, memledger::Kind::Region, memledger::charge::Door::Heap, reserved);
-        Reservation { grant, asked, reserved, waited_ms, small, how, g: Some(StmtCtx::root(reserved, room, mcx::governor::Charge::promise("Gravity grant", reserved as usize))), drawn: Cell::new(0), borrowed: Cell::new(0), grown: Cell::new(0), past: core::cell::OnceCell::new(), charged_peak: Cell::new(reserved), peak: Cell::new(0), hosted: Cell::new(0), slot: Cell::new(slot), parked: Cell::new(false), refused: Cell::new(0), id: crate::grant_ledger::next_id(), strict: false, pool_ppm: Cell::new(POOL_FRACTION_DEFAULT), terms_prev: Cell::new(None), ledger, owner, purse: core::cell::RefCell::new(None), purse_depth: Cell::new(0), own: Cell::new(0) }
+        let room = memledger::Charge::reserve(
+            owner,
+            release,
+            memledger::Kind::Region,
+            memledger::charge::Door::Heap,
+            reserved,
+        );
+        Reservation {
+            grant,
+            asked,
+            reserved,
+            waited_ms,
+            small,
+            how,
+            g: Some(StmtCtx::root(
+                reserved,
+                room,
+                mcx::governor::Charge::promise("Gravity grant", reserved as usize),
+            )),
+            drawn: Cell::new(0),
+            borrowed: Cell::new(0),
+            grown: Cell::new(0),
+            past: core::cell::OnceCell::new(),
+            charged_peak: Cell::new(reserved),
+            peak: Cell::new(0),
+            hosted: Cell::new(0),
+            slot: Cell::new(slot),
+            parked: Cell::new(false),
+            refused: Cell::new(0),
+            id: crate::grant_ledger::next_id(),
+            strict: false,
+            pool_ppm: Cell::new(POOL_FRACTION_DEFAULT),
+            terms_prev: Cell::new(None),
+            ledger,
+            owner,
+            purse: core::cell::RefCell::new(None),
+            purse_depth: Cell::new(0),
+            own: Cell::new(0),
+        }
     }
 
     pub fn is_strict(&self) -> bool {
@@ -979,7 +1291,11 @@ impl Reservation {
     /// (`Purse`; carved, as a W is), the purse returned for its claims (`claim_purse`). `None` unadmitted (no G).
     pub(crate) fn fill_purse(&self) -> Option<Arc<Purse>> {
         let g = self.g.as_ref()?;
-        let p = self.purse.borrow_mut().get_or_insert_with(|| Arc::new(Purse::default())).clone(); // alloc: Exec
+        let p = self
+            .purse
+            .borrow_mut()
+            .get_or_insert_with(|| Arc::new(Purse::default()))
+            .clone(); // alloc: Exec
         self.purse_depth.set(self.purse_depth.get() + 1);
         let m = g.carve(g.room());
         if m != 0 {
@@ -991,9 +1307,12 @@ impl Reservation {
     /// D4043: a section closed (`close`; else after its close's folds): once no section is open the purse's bytes go back to
     /// G's room (its workers are done; what their draws give back later goes back into it until the next close or the drop).
     pub(crate) fn drain_purse(&self, close: bool) {
-        let Some(p) = self.purse.borrow().clone() else { return };
+        let Some(p) = self.purse.borrow().clone() else {
+            return;
+        };
         if close {
-            self.purse_depth.set(self.purse_depth.get().saturating_sub(1));
+            self.purse_depth
+                .set(self.purse_depth.get().saturating_sub(1));
         }
         if self.purse_depth.get() == 0 {
             self.unkeep(p.empty(false));
@@ -1004,14 +1323,22 @@ impl Reservation {
     fn unkeep(&self, n: u64) {
         if let Some(g) = self.g.as_ref().filter(|_| n != 0) {
             let g = g.g();
-            debug_assert!(g.kept.get() >= n, "gravity: a purse gave back {n} B past G's kept {}", g.kept.get());
+            debug_assert!(
+                g.kept.get() >= n,
+                "gravity: a purse gave back {n} B past G's kept {}",
+                g.kept.get()
+            );
             g.kept.set(g.kept.get().saturating_sub(n));
         }
     }
 
     /// D4043: `bytes` from its purse whole (the leader's `hold` past G's room), or none.
     fn purse_take(&self, bytes: u64) -> Option<Arc<Purse>> {
-        self.purse.borrow().as_ref().filter(|p| p.take(bytes)).cloned()
+        self.purse
+            .borrow()
+            .as_ref()
+            .filter(|p| p.take(bytes))
+            .cloned()
     }
 
     pub fn drawn(&self) -> u64 {
@@ -1198,12 +1525,23 @@ impl Reservation {
     /// (`granted_floor`): an Estimate admission grants more than it reserves, and the breakers' shares are cut from the
     /// grant, so their region opens past the reservation are draws past G, and a region open has no spill road.
     pub(crate) fn grow_fits(&self, bytes: u64) -> bool {
-        let held = self.reserved.saturating_add(self.grown.get()).saturating_add(bytes);
-        if !within_bounds(held, granted_floor(self.grant.bytes, self.reserved), POOL.statement_cap(self.pool_ppm.get())) {
+        let held = self
+            .reserved
+            .saturating_add(self.grown.get())
+            .saturating_add(bytes);
+        if !within_bounds(
+            held,
+            granted_floor(self.grant.bytes, self.reserved),
+            POOL.statement_cap(self.pool_ppm.get()),
+        ) {
             fires::fire_shared("grant.statement_cap"); // shapecheck: a draw past G refused at the statement's part of the pool (D2990)
             return false;
         }
-        if !self.g.as_ref().is_none_or(|g| g.mem.borrow().fits(bytes as usize)) {
+        if !self
+            .g
+            .as_ref()
+            .is_none_or(|g| g.mem.borrow().fits(bytes as usize))
+        {
             fires::fire_shared("grant.statement_mem_limit"); // shapecheck: a draw past G refused at the statement's memory limit
             return false;
         }
@@ -1215,7 +1553,12 @@ impl Reservation {
     pub fn set_pool_fraction(&self, ppm: u32) {
         self.pool_ppm.set(ppm.clamp(1, POOL_FRACTION_WHOLE));
         // D3982: its parallel workers' draws past W and G are held to the same part, counted on its ledger account
-        let terms = if self.pool_ppm.get() >= POOL_FRACTION_WHOLE { 0 } else { ((granted_floor(self.grant.bytes, self.reserved) >> 20) << 20) | self.pool_ppm.get() as u64 };
+        let terms = if self.pool_ppm.get() >= POOL_FRACTION_WHOLE {
+            0
+        } else {
+            ((granted_floor(self.grant.bytes, self.reserved) >> 20) << 20)
+                | self.pool_ppm.get() as u64
+        };
         if let Some(t) = WORKER_TERMS.get(self.ledger.0 as usize) {
             let prev = t.swap(terms, Ordering::AcqRel);
             if self.terms_prev.get().is_none() {
@@ -1239,9 +1582,23 @@ impl Reservation {
                 Some((a, owner, release)) if a == self.ledger => (owner, release),
                 _ => memledger::charge::context_of(self.ledger),
             };
-            let room = memledger::Charge::reserve(owner, release, memledger::Kind::Region, memledger::charge::Door::Heap, 0);
-            let gov = if self.g.is_some() { mcx::governor::Charge::new("Gravity grant", 0) } else { mcx::governor::Charge::NONE };
-            Arc::new(PastCount { n: AtomicU64::new(0), room: pgsync::Mutex::new(room), gov: pgsync::Mutex::new(gov) }) // alloc: Exec
+            let room = memledger::Charge::reserve(
+                owner,
+                release,
+                memledger::Kind::Region,
+                memledger::charge::Door::Heap,
+                0,
+            );
+            let gov = if self.g.is_some() {
+                mcx::governor::Charge::new("Gravity grant", 0)
+            } else {
+                mcx::governor::Charge::NONE
+            };
+            Arc::new(PastCount {
+                n: AtomicU64::new(0),
+                room: pgsync::Mutex::new(room),
+                gov: pgsync::Mutex::new(gov),
+            }) // alloc: Exec
         });
         past.n.fetch_add(bytes, Ordering::AcqRel);
         // a draw past G is pages at once (C8 move 3c): committed on the statement's memory ledger, not room
@@ -1252,7 +1609,8 @@ impl Reservation {
         room.grow(bytes);
         room.back(bytes);
         drop(room);
-        self.charged_peak.set(self.charged_peak.get().max(self.charged()));
+        self.charged_peak
+            .set(self.charged_peak.get().max(self.charged()));
         past.clone()
     }
 
@@ -1295,7 +1653,9 @@ fn fit_statement_limit(mut want: Grant, need_of: &dyn Fn(Grant) -> u64) -> Grant
     if limit == 0 {
         return want;
     }
-    while let Some(half) = mempolicy::admit::halve_for_limit(need_of(want), limit, want.bytes, GRANT_FLOOR) {
+    while let Some(half) =
+        mempolicy::admit::halve_for_limit(need_of(want), limit, want.bytes, GRANT_FLOOR)
+    {
         want = want.trimmed(half);
     }
     want
@@ -1328,7 +1688,10 @@ impl Drop for StmtCtx {
         if self.parent.is_some() {
             return;
         }
-        POOL.held.fetch_sub(self.reserved - self.kept.get() - self.lent.get(), Ordering::AcqRel);
+        POOL.held.fetch_sub(
+            self.reserved - self.kept.get() - self.lent.get(),
+            Ordering::AcqRel,
+        );
         POOL.ended.fetch_add(1, Ordering::AcqRel);
         HELD_HERE.with(|h| h.set(h.get().saturating_sub(self.reserved - self.lent.get())));
         // D3242: after its bytes went back, so a wait that sees the holder gone finds them in the pool
@@ -1343,7 +1706,12 @@ impl Drop for StmtCtx {
 
 impl core::fmt::Debug for StmtCtx {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "StmtCtx({} of {})", self.ctx.subtree_used(), self.ctx.limit())
+        write!(
+            f,
+            "StmtCtx({} of {})",
+            self.ctx.subtree_used(),
+            self.ctx.limit()
+        )
     }
 }
 
@@ -1352,7 +1720,15 @@ impl StmtCtx {
         HELD_HERE.with(|h| h.set(h.get() + reserved));
         HOLDERS.fetch_add(1, Ordering::AcqRel);
         HOLDERS_HERE.with(|h| h.set(h.get() + 1));
-        Rc::new(StmtCtx { ctx: mcx::MemoryContext::new("GravityGrant").with_limit(reserved as usize), parent: None, reserved, kept: Cell::new(0), lent: Cell::new(0), charge: core::cell::RefCell::new(charge), mem: core::cell::RefCell::new(mem) }) // alloc: Exec
+        Rc::new(StmtCtx {
+            ctx: mcx::MemoryContext::new("GravityGrant").with_limit(reserved as usize),
+            parent: None,
+            reserved,
+            kept: Cell::new(0),
+            lent: Cell::new(0),
+            charge: core::cell::RefCell::new(charge),
+            mem: core::cell::RefCell::new(mem),
+        }) // alloc: Exec
     }
 
     fn g(&self) -> &StmtCtx {
@@ -1361,7 +1737,8 @@ impl StmtCtx {
 
     pub fn room(&self) -> u64 {
         let g = self.g();
-        g.reserved.saturating_sub(g.used() + g.kept.get() + g.lent.get())
+        g.reserved
+            .saturating_sub(g.used() + g.kept.get() + g.lent.get())
     }
 
     pub(crate) fn carve(&self, bytes: u64) -> u64 {
@@ -1372,7 +1749,15 @@ impl StmtCtx {
     }
 
     pub(crate) fn child(self: &Rc<Self>, name: &'static str, limit: u64) -> Rc<StmtCtx> {
-        Rc::new(StmtCtx { ctx: self.ctx.new_child(name).with_limit(limit as usize), parent: Some(self.clone()), reserved: 0, kept: Cell::new(0), lent: Cell::new(0), charge: core::cell::RefCell::new(memledger::Charge::NONE), mem: core::cell::RefCell::new(mcx::governor::Charge::NONE) }) // alloc: Exec
+        Rc::new(StmtCtx {
+            ctx: self.ctx.new_child(name).with_limit(limit as usize),
+            parent: Some(self.clone()),
+            reserved: 0,
+            kept: Cell::new(0),
+            lent: Cell::new(0),
+            charge: core::cell::RefCell::new(memledger::Charge::NONE),
+            mem: core::cell::RefCell::new(mcx::governor::Charge::NONE),
+        }) // alloc: Exec
     }
 
     pub fn used(&self) -> u64 {
@@ -1380,7 +1765,10 @@ impl StmtCtx {
     }
 
     /// Up to `bytes` charged here and on every limited ancestor: what fits this context's limit and G's room.
-    fn charge_fit(self: &Rc<Self>, bytes: u64) -> Option<(mcx::ExternalAllocationGuard<'static>, Rc<StmtCtx>, u64)> {
+    fn charge_fit(
+        self: &Rc<Self>,
+        bytes: u64,
+    ) -> Option<(mcx::ExternalAllocationGuard<'static>, Rc<StmtCtx>, u64)> {
         let own = (self.ctx.limit() as u64).saturating_sub(self.used());
         let n = bytes.min(self.room()).min(own);
         if n == 0 {
@@ -1445,21 +1833,57 @@ pub(crate) fn give_back(pool: u64, kept: bool) {
 }
 
 impl Held {
-    pub const NONE: Held = Held { charged: None, pool: 0, kept: false, past: None, shown: None, gov: None, purse: None, small: 0 };
+    pub const NONE: Held = Held {
+        charged: None,
+        pool: 0,
+        kept: false,
+        past: None,
+        shown: None,
+        gov: None,
+        purse: None,
+        small: 0,
+    };
 
     pub(crate) fn pool(n: u64) -> Held {
-        Held { charged: None, pool: n, kept: false, past: None, shown: None, gov: None, purse: None, small: 0 }
+        Held {
+            charged: None,
+            pool: n,
+            kept: false,
+            past: None,
+            shown: None,
+            gov: None,
+            purse: None,
+            small: 0,
+        }
     }
 
     /// Take-back: the settled hold `take_pool` took out of a region (`(pool bytes, a keep)`), its region's again.
     pub(crate) fn settled(n: u64, kept: bool) -> Held {
-        Held { charged: None, pool: n, kept, past: None, shown: None, gov: None, purse: None, small: 0 }
+        Held {
+            charged: None,
+            pool: n,
+            kept,
+            past: None,
+            shown: None,
+            gov: None,
+            purse: None,
+            small: 0,
+        }
     }
 
     /// `n` pool bytes drawn past G, counted on `past` (the leader statement's `Reservation::note_grown`; `None` for a worker's
     /// draw) until they are given back.
     pub(crate) fn grown(n: u64, past: Option<Arc<PastCount>>) -> Held {
-        Held { charged: None, pool: n, kept: false, past: past.map(|p| (p, n)), shown: None, gov: None, purse: None, small: 0 }
+        Held {
+            charged: None,
+            pool: n,
+            kept: false,
+            past: past.map(|p| (p, n)),
+            shown: None,
+            gov: None,
+            purse: None,
+            small: 0,
+        }
     }
 
     /// G1-B: a worker's `n` pool bytes drawn past W and G, shown on the calling thread's memory ledger account (a claim's:
@@ -1475,12 +1899,21 @@ impl Held {
     pub(crate) fn show_worker(&mut self, n: u64) {
         self.uncount(0);
         let (owner, release) = memledger::charge::context();
-        let mut shown = memledger::Charge::reserve(owner, release, memledger::Kind::Region, memledger::charge::Door::Heap, n);
+        let mut shown = memledger::Charge::reserve(
+            owner,
+            release,
+            memledger::Kind::Region,
+            memledger::charge::Door::Heap,
+            n,
+        );
         // C8 move 3c: the region it holds has its pages on the doors: the room is backed (counted once)
         shown.back(n);
         self.shown = Some(shown);
         // D4373 (a): on the statement's governor count too (none outside a statement's claim: no ledger entered)
-        self.gov = Some((mcx::governor::Charge::new("gravity worker grown", n as usize), n));
+        self.gov = Some((
+            mcx::governor::Charge::new("gravity worker grown", n as usize),
+            n,
+        ));
     }
 
     /// A parked region's settled hold taken past G by a leader (`road_region`): `n` bytes of it counted on that statement's
@@ -1639,9 +2072,20 @@ impl Held {
     }
 
     /// The hold charged whole to `stmt`'s `life` (else G; D191); false = it does not fit (S7), the caller takes an exact one.
-    pub(crate) fn recharge(&mut self, stmt: Option<&Reservation>, life: Option<&Rc<StmtCtx>>, bytes: usize) -> bool {
-        let Some(ctx) = life.or_else(|| stmt.and_then(Reservation::g)) else { return true };
-        if self.charged.as_ref().is_some_and(|(_, c, _)| Rc::ptr_eq(c, ctx)) {
+    pub(crate) fn recharge(
+        &mut self,
+        stmt: Option<&Reservation>,
+        life: Option<&Rc<StmtCtx>>,
+        bytes: usize,
+    ) -> bool {
+        let Some(ctx) = life.or_else(|| stmt.and_then(Reservation::g)) else {
+            return true;
+        };
+        if self
+            .charged
+            .as_ref()
+            .is_some_and(|(_, c, _)| Rc::ptr_eq(c, ctx))
+        {
             return true;
         }
         self.unsmall();
@@ -1665,7 +2109,11 @@ impl Held {
             self.pool = rest;
             self.uncount(rest);
         }
-        if self.purse.as_ref().is_some_and(|&(_, m)| m == 0 || rest == 0) {
+        if self
+            .purse
+            .as_ref()
+            .is_some_and(|&(_, m)| m == 0 || rest == 0)
+        {
             self.unpurse();
         }
         rest == 0
@@ -1680,7 +2128,10 @@ impl Drop for Reservation {
             self.unkeep(p.empty(true));
         }
         let pool = &POOL;
-        if let (Some(prev), Some(t)) = (self.terms_prev.get(), WORKER_TERMS.get(self.ledger.0 as usize)) {
+        if let (Some(prev), Some(t)) = (
+            self.terms_prev.get(),
+            WORKER_TERMS.get(self.ledger.0 as usize),
+        ) {
             t.store(prev, Ordering::Release);
         }
         // C8: its promised room (`reserved` less the lent part) given back, though a settled hold keeps G alive
@@ -1691,7 +2142,10 @@ impl Drop for Reservation {
         }
         // a hold that outlives the statement gives nothing back on the next statement's count (it restarts at 0)
         if let Some(p) = self.past.get() {
-            drop(core::mem::replace(&mut *p.gov(), mcx::governor::Charge::NONE));
+            drop(core::mem::replace(
+                &mut *p.gov(),
+                mcx::governor::Charge::NONE,
+            ));
         }
         if self.small {
             pool.small_held.fetch_sub(self.reserved, Ordering::AcqRel);
@@ -1750,54 +2204,111 @@ pub struct PoolStats {
 /// The one divisor (S2): pipeline `pipeline`'s shares at `grant` over `width`; every reservation and opened limit reads it.
 /// D2587: a breaker's part is at least its kind's PostgreSQL budget (`Grant::floor_of`) up to its modeled need (D2894,
 /// `charged_floor`), so the reservation covers the floors too.
-pub fn share(program: &gravity_program::Program, pipeline: usize, grant: Grant, width: u16) -> Split {
-    share_with(program, pipeline, grant, width, crate::node::program_images(program))
+pub fn share(
+    program: &gravity_program::Program,
+    pipeline: usize,
+    grant: Grant,
+    width: u16,
+) -> Split {
+    share_with(
+        program,
+        pipeline,
+        grant,
+        width,
+        crate::node::program_images(program),
+    )
 }
 
 /// `share` with the program's `node::program_images` already read (it walks every pipeline): a Node's `lives::Schedule`
 /// holds it, `footprint` and exec's run-time bits bind (runner/plan.rs `Bound`) read it once per program.
-pub fn share_with(program: &gravity_program::Program, pipeline: usize, grant: Grant, width: u16, images: bool) -> Split {
-    share_of(program, pipeline, &program.pipelines[pipeline], grant, width, images)
+pub fn share_with(
+    program: &gravity_program::Program,
+    pipeline: usize,
+    grant: Grant,
+    width: u16,
+    images: bool,
+) -> Split {
+    share_of(
+        program,
+        pipeline,
+        &program.pipelines[pipeline],
+        grant,
+        width,
+        images,
+    )
 }
 
 /// `share_with` over `pipe`, `program`'s pipeline `p` as the grant reads it (exactsize B4: `Node::share` passes a
 /// slot-fed hash table with its producer's counted rows).
 /// A participant's share is at most its breaker's ceiling (`ceiling_of`; the leader's `leader_ceiling`), so no share opens
 /// past what the breaker may hold.
-pub(crate) fn share_of(program: &gravity_program::Program, p: usize, pipe: &gravity_program::Pipeline, grant: Grant, width: u16, images: bool) -> Split {
+pub(crate) fn share_of(
+    program: &gravity_program::Program,
+    p: usize,
+    pipe: &gravity_program::Pipeline,
+    grant: Grant,
+    width: u16,
+    images: bool,
+) -> Split {
     if spooled(program, p, pipe) {
-        let (live, floor) = (program.slots.share_live(pipe.produces()), SHARE_FLOOR as u64);
+        let (live, floor) = (
+            program.slots.share_live(pipe.produces()),
+            SHARE_FLOOR as u64,
+        );
         return grant.split_capped(live, width.max(1), false, 0, 0, floor, floor);
     }
     if grant.grow {
         return grow_share(program, pipe, grant, width, images);
     }
     let budget = floor_for(grant, pipe);
-    let floor = pipe.breaker().map_or(0, |b| charged_floor(budget, b.kind, pipe, grant));
+    let floor = pipe
+        .breaker()
+        .map_or(0, |b| charged_floor(budget, b.kind, pipe, grant));
     // a breaker that starts small is never raised: it starts small (or on a warm parked region) and grows in place; a
     // learned peak, committed or prepaid, cost more than the growth it saved (fresh pages, a full reservation).
     // D3412: nor is one a serial owner folds (`footprint_parts`' pin of twice the slot's bytes beside it): its slot's
     // learned peak is the fold the pin already holds, so a raise reserved three times that peak and drew it twice
-    let serial_owner = pipe.owner.is_some() && !(width >= 2 && pipe.parallel == gravity_program::Parallel::Eligible);
+    let serial_owner = pipe.owner.is_some()
+        && !(width >= 2 && pipe.parallel == gravity_program::Parallel::Eligible);
     // D4043: nor is one under a trim (`Grant::trimmed`): the trim is what the pool could seat, its shares are its own bytes'
     // split. Raised (a trim has no budgets, so uncapped), a W4 sort trimmed to 64 MiB of 16384 MiB asked opened a 1.7 GiB
     // leader and four 1 GiB worker shares (reserved 5.8 GiB): halving never lowered the need, the floor road admitted it
     // alone past the pool, and the first open past G's remainder was an unnamed 53200
     let (floor, wf) = match pipe.breaker() {
         #[allow(clippy::nonminimal_bool)]
-        Some(b) if !(starts_small(pipe, grant) && !program.code_of(p).is_hand()) && !serial_owner && !grant.trimmed => {
+        Some(b)
+            if !(starts_small(pipe, grant) && !program.code_of(p).is_hand())
+                && !serial_owner
+                && !grant.trimmed =>
+        {
             let worker = worker_floor(pipe, floor, width);
-            let (raised, raised_w) = crate::mem::feedback::raise(program.key.0, b.slot, floor, worker);
+            let (raised, raised_w) =
+                crate::mem::feedback::raise(program.key.0, b.slot, floor, worker);
             // a learned start never passes the kind's PostgreSQL budget (work_mem, hash_mem: `floor_for`): past it the
             // breaker would hold in memory what PostgreSQL spills (a sort's runs under a temp_file_limit PostgreSQL
             // raises at). A grant with no budgets (0) keeps the raise as learned
-            if budget == 0 { (raised, raised_w) } else { (raised.min(budget.max(floor)), raised_w.min(worker_floor(pipe, budget, width).max(worker))) }
+            if budget == 0 {
+                (raised, raised_w)
+            } else {
+                (
+                    raised.min(budget.max(floor)),
+                    raised_w.min(worker_floor(pipe, budget, width).max(worker)),
+                )
+            }
         }
         _ => (floor, worker_floor(pipe, floor, width)),
     };
     let (live, width) = (program.slots.share_live(pipe.produces()), width.max(1));
     match (ceiling_of(grant, pipe), pipe.breaker()) {
-        (c, Some(b)) if c != 0 => grant.split_capped(live, width, images, floor, wf, c, leader_ceiling(c, width, b.kind)),
+        (c, Some(b)) if c != 0 => grant.split_capped(
+            live,
+            width,
+            images,
+            floor,
+            wf,
+            c,
+            leader_ceiling(c, width, b.kind),
+        ),
         _ => grant.split_within(live, width, images, floor, wf, top_share_cap(pipe)),
     }
 }
@@ -1808,9 +2319,17 @@ pub(crate) fn share_of(program: &gravity_program::Program, p: usize, pipe: &grav
 /// admission would give it, so the start's reservation is never past today's. No learned raise: what today's raise would
 /// claim at admission, grow mode leaves to growth, which the ceiling bounds (`ceiling_of`: the region wall with work_mem
 /// unset) and the pool's room refuses.
-fn grow_share(program: &gravity_program::Program, pipe: &gravity_program::Pipeline, grant: Grant, width: u16, images: bool) -> Split {
+fn grow_share(
+    program: &gravity_program::Program,
+    pipe: &gravity_program::Pipeline,
+    grant: Grant,
+    width: u16,
+    images: bool,
+) -> Split {
     let (live, width) = (program.slots.share_live(pipe.produces()), width.max(1));
-    let Some(b) = pipe.breaker() else { return grant.split_within(live, width, images, 0, 0, top_share_cap(pipe)) };
+    let Some(b) = pipe.breaker() else {
+        return grant.split_within(live, width, images, 0, 0, top_share_cap(pipe));
+    };
     let cap = match (floor_for(grant, pipe), ceiling_of(grant, pipe)) {
         (0, c) => c,
         (f, 0) => f,
@@ -1819,7 +2338,15 @@ fn grow_share(program: &gravity_program::Program, pipe: &gravity_program::Pipeli
     if cap == 0 {
         return grant.split_within(live, width, images, 0, 0, top_share_cap(pipe));
     }
-    grant.split_capped(live, width, images, 0, 0, cap, leader_ceiling(cap, width, b.kind))
+    grant.split_capped(
+        live,
+        width,
+        images,
+        0,
+        0,
+        cap,
+        leader_ceiling(cap, width, b.kind),
+    )
 }
 
 /// Whether pipeline `p` (`pipe`) ends in a Materialize breaker whose rows go to an exec Spool object: a
@@ -1827,10 +2354,19 @@ fn grow_share(program: &gravity_program::Program, pipe: &gravity_program::Pipeli
 /// nest.spool's Material, a rerun set's spool; exec ops/material). Its slot holds no row (its region is armed, its header
 /// written), so each participant's share is `SHARE_FLOOR` and admission reserves that, not work_mem. A slot-run spool (its
 /// rows in the slot as a sort run, rowsort `spool_full`, no Spool protocol) keeps its share: DESIGN.md's named debt.
-pub(crate) fn spooled(program: &gravity_program::Program, p: usize, pipe: &gravity_program::Pipeline) -> bool {
+pub(crate) fn spooled(
+    program: &gravity_program::Program,
+    p: usize,
+    pipe: &gravity_program::Pipeline,
+) -> bool {
     use gravity_program::protos::ProtoKind;
-    pipe.breaker().is_some_and(|b| b.kind == gravity_abi::breaker::BreakerKind::Materialize)
-        && program.v4.as_deref().is_some_and(|v| v.protos.iter().any(|x| x.kind == ProtoKind::Spool && x.peer as usize == p))
+    pipe.breaker()
+        .is_some_and(|b| b.kind == gravity_abi::breaker::BreakerKind::Materialize)
+        && program.v4.as_deref().is_some_and(|v| {
+            v.protos
+                .iter()
+                .any(|x| x.kind == ProtoKind::Spool && x.peer as usize == p)
+        })
 }
 
 /// The most one participant's region of `pipe`'s breaker holds before its spill road runs (`Grant::ceil_of`: work_mem, x
@@ -1853,7 +2389,12 @@ pub fn ceiling_of(grant: Grant, pipe: &gravity_program::Pipeline) -> u64 {
 /// 1) x `c` at width >= 2, at most the largest region. Serially `c`.
 pub fn leader_ceiling(c: u64, width: u16, kind: gravity_abi::breaker::BreakerKind) -> u64 {
     use gravity_abi::breaker::BreakerKind::*;
-    mempolicy::grow::leader_ceiling(c, width, matches!(kind, HashAgg | Distinct), crate::mem::grow::MAX_REGION)
+    mempolicy::grow::leader_ceiling(
+        c,
+        width,
+        matches!(kind, HashAgg | Distinct),
+        crate::mem::grow::MAX_REGION,
+    )
 }
 
 /// The first bytes a breaker region that starts small commits: the memory policy's (`mempolicy::grow::START_BYTES`).
@@ -1864,10 +2405,15 @@ pub use mempolicy::grow::START_BYTES;
 /// start small, as E1 had it; unset or anything else = `decide_start` by the pool.
 pub fn start_forced() -> Option<StartSize> {
     static FORCED: pgsync::OnceLock<Option<StartSize>> = pgsync::OnceLock::new();
-    *FORCED.get_or_init(|| match crate::env::text("PGRUST_GRAVITY_START").as_deref().map(str::trim) {
-        Some("share") => Some(StartSize::Share),
-        Some("small") => Some(StartSize::Small),
-        _ => None,
+    *FORCED.get_or_init(|| {
+        match crate::env::text("PGRUST_GRAVITY_START")
+            .as_deref()
+            .map(str::trim)
+        {
+            Some("share") => Some(StartSize::Share),
+            Some("small") => Some(StartSize::Small),
+            _ => None,
+        }
     })
 }
 
@@ -1880,7 +2426,9 @@ pub fn start_for() -> StartSize {
 
 /// `start_for` under grow mode (`grow`: `mempolicy::admit::decide_start_in`, small beside others too).
 pub fn start_for_in(grow: bool) -> StartSize {
-    let others = POOL.inflight().saturating_sub(SLOTS_HERE.with(core::cell::Cell::get) as u64);
+    let others = POOL
+        .inflight()
+        .saturating_sub(SLOTS_HERE.with(core::cell::Cell::get) as u64);
     mempolicy::admit::start(others, running(), start_forced(), grow)
 }
 
@@ -1890,8 +2438,17 @@ pub fn start_for_in(grow: bool) -> StartSize {
 /// when the pool is unarmed. Read once per admission into its `Grant::owner_wall`, never again while it runs.
 pub fn owner_wall_for() -> u64 {
     let follows = crate::mem::budget::pool_follows();
-    let row_cap = if follows { crate::mem::budget::row_cap() } else { 0 };
-    mempolicy::admit::owner_wall(follows, row_cap, POOL.capacity().saturating_sub(POOL.reserve()), crate::section::OWNER_WALL as u64)
+    let row_cap = if follows {
+        crate::mem::budget::row_cap()
+    } else {
+        0
+    };
+    mempolicy::admit::owner_wall(
+        follows,
+        row_cap,
+        POOL.capacity().saturating_sub(POOL.reserve()),
+        crate::section::OWNER_WALL as u64,
+    )
 }
 
 /// Whether `pipe`'s breaker region starts small under `grant` (its statement's `Grant::start`): `may_start_small` and a
@@ -1906,7 +2463,11 @@ pub fn starts_small(pipe: &gravity_program::Pipeline, grant: Grant) -> bool {
 /// rather than its share at the open.
 pub fn cascade_starts_small(pipe: &gravity_program::Pipeline) -> bool {
     use gravity_abi::breaker::{BreakerKind, Budget};
-    pipe.cascade && start_forced() != Some(StartSize::Share) && pipe.breaker().is_some_and(|b| b.budget == Budget::Share && b.kind == BreakerKind::HashAgg)
+    pipe.cascade
+        && start_forced() != Some(StartSize::Share)
+        && pipe
+            .breaker()
+            .is_some_and(|b| b.budget == Budget::Share && b.kind == BreakerKind::HashAgg)
 }
 
 /// Whether `pipe`'s breaker region can start small: a partitioned hash aggregate or DISTINCT (its T1 is laid out at the
@@ -1921,7 +2482,9 @@ pub fn may_start_small(pipe: &gravity_program::Pipeline) -> bool {
             b.budget == Budget::Share
                 && match b.kind {
                     BreakerKind::HashBuild => true,
-                    BreakerKind::HashAgg | BreakerKind::Distinct => matches!(b.spill, Spill::Partitioned { .. }),
+                    BreakerKind::HashAgg | BreakerKind::Distinct => {
+                        matches!(b.spill, Spill::Partitioned { .. })
+                    }
                     // a full sort's run grows in place at its full before it is put (kernels sort `sort_grow`)
                     BreakerKind::Sort => b.spill == Spill::Runs,
                     _ => false,
@@ -1934,7 +2497,9 @@ pub fn may_start_small(pipe: &gravity_program::Pipeline) -> bool {
 /// layout (`RESERVE_LAYOUT`), so a region that started small would spill at its start where its share holds the groups:
 /// it opens at its share. Every lowered program's table asks the layout and grows in place.
 pub fn starts_small_in(program: &gravity_program::Program, p: usize, grant: Grant) -> bool {
-    ((grant.start == StartSize::Small && may_start_small(&program.pipelines[p])) || cascade_starts_small(&program.pipelines[p])) && !program.code_of(p).is_hand()
+    ((grant.start == StartSize::Small && may_start_small(&program.pipelines[p]))
+        || cascade_starts_small(&program.pipelines[p]))
+        && !program.code_of(p).is_hand()
 }
 
 /// `may_start_small` for pipeline `p` of `program` as its code runs it (a hand kernel opens at its share).
@@ -1958,7 +2523,11 @@ pub fn start_bytes(share: u32) -> u32 {
 pub(crate) fn worker_floor(pipe: &gravity_program::Pipeline, floor: u64, width: u16) -> u64 {
     use gravity_abi::breaker::{BreakerKind, Spill};
     match pipe.breaker() {
-        Some(b) if width >= 2 && matches!(b.kind, BreakerKind::HashAgg | BreakerKind::Distinct) && matches!(b.spill, Spill::Partitioned { .. }) => {
+        Some(b)
+            if width >= 2
+                && matches!(b.kind, BreakerKind::HashAgg | BreakerKind::Distinct)
+                && matches!(b.spill, Spill::Partitioned { .. }) =>
+        {
             let held = gravity_program::cost::breaker::of(pipe).map_or(0, |c| c.held);
             floor.min((held / width as u64).max(FLOOR_CHARGED_MIN))
         }
@@ -1969,7 +2538,8 @@ pub(crate) fn worker_floor(pipe: &gravity_program::Pipeline, floor: u64, width: 
 /// A breaker's PostgreSQL floor (D2587, `Grant::floor_of`) held to its bounded region (`top_share_cap`): the floor both
 /// the one divisor (`share_with`) and the floor's reservation (`grow::floor_reserve`) read; 0 for a sink.
 pub(crate) fn floor_for(grant: Grant, pipe: &gravity_program::Pipeline) -> u64 {
-    pipe.breaker().map_or(0, |b| grant.floor_of(b.kind).min(top_share_cap(pipe)))
+    pipe.breaker()
+        .map_or(0, |b| grant.floor_of(b.kind).min(top_share_cap(pipe)))
 }
 
 /// The rounding of a row top's bounded region: the transparent huge page a region of 2 MiB or more asks for (`advise_huge`).
@@ -1983,7 +2553,11 @@ const TOP_SHARE_STEP: u64 = 2 << 20;
 pub(crate) fn top_share_cap(pipe: &gravity_program::Pipeline) -> u64 {
     match pipe.breaker() {
         Some(b) if b.kind == gravity_abi::breaker::BreakerKind::Sort && pipe.top_rows != 0 => {
-            let bytes = pipe.top_rows.saturating_mul(gravity_program::cost::breaker::record(pipe)).saturating_mul(2).min(u32::MAX as u64);
+            let bytes = pipe
+                .top_rows
+                .saturating_mul(gravity_program::cost::breaker::record(pipe))
+                .saturating_mul(2)
+                .min(u32::MAX as u64);
             (crate::park::region_bytes(bytes as usize) as u64).next_multiple_of(TOP_SHARE_STEP)
         }
         _ => u64::MAX,
@@ -1997,7 +2571,9 @@ pub(crate) fn top_share_cap(pipe: &gravity_program::Pipeline) -> u64 {
 pub(crate) fn charged_share(pipe: &gravity_program::Pipeline, grant: Grant) -> u64 {
     use gravity_abi::breaker::BreakerKind::*;
     match pipe.breaker() {
-        Some(b) if matches!(b.kind, HashAgg | HashBuild | Distinct) => charged_floor(grant.floor_of(b.kind), b.kind, pipe, grant),
+        Some(b) if matches!(b.kind, HashAgg | HashBuild | Distinct) => {
+            charged_floor(grant.floor_of(b.kind), b.kind, pipe, grant)
+        }
         _ => 0,
     }
 }
@@ -2005,7 +2581,13 @@ pub(crate) fn charged_share(pipe: &gravity_program::Pipeline, grant: Grant) -> u
 /// D2242's cut of an on-demand open's `share` to `left` (the grant's room split with the members still to open), at least
 /// `SHARE_FLOOR` and (D3088) at least `charged` (`charged_share`), never past `share`; 8-aligned.
 pub(crate) fn cut_share(share: Share, left: u64, charged: u64) -> Share {
-    Share { bytes: share.bytes.min(left.max(SHARE_FLOOR as u64).max(charged).min(u32::MAX as u64) as u32) & !7 }
+    Share {
+        bytes: share.bytes.min(
+            left.max(SHARE_FLOOR as u64)
+                .max(charged)
+                .min(u32::MAX as u64) as u32,
+        ) & !7,
+    }
 }
 
 /// D2894: a breaker's PostgreSQL floor (D2587) up to what its shape is modeled to fill, `cost::breaker::of`'s largest table
@@ -2025,10 +2607,20 @@ pub(crate) fn cut_share(share: Share, left: u64, charged: u64) -> Share {
 ///
 /// exactsize B1c / D3205: `grant`'s exact sizing reads the breaker as the ask does (`cost::breaker::of_at`: a hash build's
 /// records alone, a serial pipeline's breaker by the rows at its end).
-fn charged_floor(floor: u64, kind: gravity_abi::breaker::BreakerKind, pipe: &gravity_program::Pipeline, grant: Grant) -> u64 {
+fn charged_floor(
+    floor: u64,
+    kind: gravity_abi::breaker::BreakerKind,
+    pipe: &gravity_program::Pipeline,
+    grant: Grant,
+) -> u64 {
     use gravity_abi::breaker::BreakerKind::*;
     match kind {
-        HashAgg | HashBuild | Distinct => gravity_program::cost::breaker::of_at(pipe, grant.exact_build(), grant.exact_rows()).map_or(floor, |c| floor.min(c.table.max(c.held).max(FLOOR_CHARGED_MIN))),
+        HashAgg | HashBuild | Distinct => {
+            gravity_program::cost::breaker::of_at(pipe, grant.exact_build(), grant.exact_rows())
+                .map_or(floor, |c| {
+                    floor.min(c.table.max(c.held).max(FLOOR_CHARGED_MIN))
+                })
+        }
         Sort | TopK | Materialize | PlainAgg => floor,
     }
 }
@@ -2060,12 +2652,14 @@ fn footprint_parts(grant: Grant, program: &gravity_program::Program, width: u16)
     let scratch = mcx::MemoryContext::new_bump("gravity_footprint"); // alloc: Cold
     let mut held: mcx::PgVec<'_, u64> = mcx::PgVec::with_capacity_in(plan.nslots(), scratch.mcx()); // alloc: Exec
     held.resize(plan.nslots(), 0); // alloc: Exec
-    // per slot, the pipeline after which it frees: its latest producer's last consumer (an earlier producer's last consumer
-    // comes before the slot's next producer, so one per slot is due at a time)
+                                   // per slot, the pipeline after which it frees: its latest producer's last consumer (an earlier producer's last consumer
+                                   // comes before the slot's next producer, so one per slot is due at a time)
     let mut due: mcx::PgVec<'_, usize> = mcx::PgVec::with_capacity_in(plan.nslots(), scratch.mcx()); // alloc: Exec
     due.resize(plan.nslots(), usize::MAX); // alloc: Exec
     let (mut leader, mut share_w, mut fixed_w, mut peak) = (0u64, 0u64, 0u64, 0u64);
-    let parallel = |pipe: &gravity_program::Pipeline| width >= 2 && pipe.parallel == gravity_program::Parallel::Eligible;
+    let parallel = |pipe: &gravity_program::Pipeline| {
+        width >= 2 && pipe.parallel == gravity_program::Parallel::Eligible
+    };
     let mut pinned = arena_allowance(program);
     let kept = rerun_kept(program);
     let arms = crate::lives::ArmRuns::of_in(program, scratch.mcx());
@@ -2077,14 +2671,24 @@ fn footprint_parts(grant: Grant, program: &gravity_program::Program, width: u16)
             let split = share_with(program, p, grant, width, images);
             let region = |bytes: u64| crate::park::region_bytes(bytes as usize) as u64;
             // a leader slot counts its cut region and the images its pins charge; a worker its uncut share (`Counters::limit`)
-            let opened = if plan.shared[s] { region(split.breaker.bytes as u64) + split.images.bytes as u64 } else { region(plan.bytes[s] as u64) };
+            let opened = if plan.shared[s] {
+                region(split.breaker.bytes as u64) + split.images.bytes as u64
+            } else {
+                region(plan.bytes[s] as u64)
+            };
             // a region that starts small (`starts_small`) counts its start, what its open commits; its growth is charged as
             // it commits. The owner pins below read the share as before. A full sort's region counts its share, as before it
             // started small: its runs grow in place within what admission reserved for them, so a merge join's Sort inner
             // grows within W and G and puts its run past them (D3105 (b)); counted at its start, the inner's growth passed
             // the grant whenever the statement's other regions had taken G (rowexecfix_d3105_b at W8: 9-39 MiB grown)
-            let small = plan.shared[s] && starts_small_in(program, p, grant) && b.kind != gravity_abi::breaker::BreakerKind::Sort;
-            let counted = if small { region(start_bytes(split.breaker.bytes) as u64) + split.images.bytes as u64 } else { opened };
+            let small = plan.shared[s]
+                && starts_small_in(program, p, grant)
+                && b.kind != gravity_abi::breaker::BreakerKind::Sort;
+            let counted = if small {
+                region(start_bytes(split.breaker.bytes) as u64) + split.images.bytes as u64
+            } else {
+                opened
+            };
             // D193: a serial owner pins its fold beside the slot it reads; a parallel one folds in the idle leader region (`own_single`).
             // An append.arms run's arms all produce one slot and only its last arm runs that fold (D393b), so the pin is counted once
             // per run: per arm, 4150 hash partitions' arms pinned 296 GB at the floor grant and the statement refused (crt-0384).
@@ -2094,10 +2698,17 @@ fn footprint_parts(grant: Grant, program: &gravity_program::Program, width: u16)
             // ran 16204-16600 ms (2.4 %, not monotonic), the bench 2990-3050 ms; refused 15 / 16 / 16, 14 of them in every arm
             // D2845: and at least the records' bound the breaker cost holds, the region its owner phase lays (`own_all`)
             if pipe.owner.is_some() && !parallel(pipe) && !arms.continues(p) {
-                let bytes = if plan.shared[s] { split.breaker.bytes as u64 + split.images.bytes as u64 } else { plan.bytes[s] as u64 };
+                let bytes = if plan.shared[s] {
+                    split.breaker.bytes as u64 + split.images.bytes as u64
+                } else {
+                    plan.bytes[s] as u64
+                };
                 // D4078: at most the statement's one-owner wall (`Grant::owner_wall`), the region past which its owner
                 // splits (`own_split`) and a chunk the pool refuses is a temp file (D491), never the format's ~4 GiB past it
-                pinned += (4u64 << 20).saturating_add(bytes.saturating_mul(2)).max(owner_bound(pipe, wall)).min(wall);
+                pinned += (4u64 << 20)
+                    .saturating_add(bytes.saturating_mul(2))
+                    .max(owner_bound(pipe, wall))
+                    .min(wall);
             }
             // DR-12 (D285): a parallel owner whose records outgrow the idle leader region pins them past G at their bound
             // (`own_all`), reserved here at the records the breaker cost holds (D365's `held`)
@@ -2106,9 +2717,15 @@ fn footprint_parts(grant: Grant, program: &gravity_program::Program, width: u16)
             }
             leader = leader + counted - core::mem::replace(&mut held[s], counted);
             if parallel(pipe) {
-                let worker = if small { start_bytes(split.worker.bytes) } else { split.worker.bytes };
+                let worker = if small {
+                    start_bytes(split.worker.bytes)
+                } else {
+                    split.worker.bytes
+                };
                 match b.budget {
-                    Budget::Share | Budget::Pool => share_w = share_w.max(worker as u64 + split.images.bytes as u64),
+                    Budget::Share | Budget::Pool => {
+                        share_w = share_w.max(worker as u64 + split.images.bytes as u64)
+                    }
                     Budget::Fixed(f) => fixed_w = fixed_w.max(f as u64),
                 }
             }
@@ -2139,9 +2756,18 @@ fn footprint_parts(grant: Grant, program: &gravity_program::Program, width: u16)
 /// keeps them (`every`). A pulled set (`skip_pulled`, freed after its readers) has no Rerun proto and is not counted here.
 fn rerun_kept(program: &gravity_program::Program) -> Vec<bool> {
     let mut kept = vec![false; program.slots.nslots()]; // alloc: Cold
-    let Some(v4) = program.v4.as_deref() else { return kept };
-    for m in v4.protos.iter().filter(|x| x.kind == gravity_program::protos::ProtoKind::Rerun).map(|x| x.pipeline as usize) {
-        let Some(pipe) = program.pipelines.get(m) else { continue };
+    let Some(v4) = program.v4.as_deref() else {
+        return kept;
+    };
+    for m in v4
+        .protos
+        .iter()
+        .filter(|x| x.kind == gravity_program::protos::ProtoKind::Rerun)
+        .map(|x| x.pipeline as usize)
+    {
+        let Some(pipe) = program.pipelines.get(m) else {
+            continue;
+        };
         for s in pipe.consumes.iter().copied().chain(pipe.produces()) {
             if let Some(k) = kept.get_mut(s as usize) {
                 *k = true;
@@ -2169,7 +2795,9 @@ pub(crate) fn owner_past_leader(pipe: &gravity_program::Pipeline, opened: u64, w
 /// `wall` (D4078: the statement's, `Grant::owner_wall_bytes`); 0 for a breaker that holds no records (an unpartitioned one).
 pub(crate) fn owner_bound(pipe: &gravity_program::Pipeline, wall: u64) -> u64 {
     match gravity_program::cost::breaker::of(pipe) {
-        Some(c) if c.held > 0 => (crate::section::one_owner_bytes(c.held as usize, c.record as usize) as u64).min(wall),
+        Some(c) if c.held > 0 => {
+            (crate::section::one_owner_bytes(c.held as usize, c.record as usize) as u64).min(wall)
+        }
         _ => 0,
     }
 }
@@ -2197,12 +2825,14 @@ fn seen_slot(key: gravity_program::ContentKey) -> (&'static AtomicU64, u64) {
 pub fn arena_seen(key: gravity_program::ContentKey) -> Option<(u64, u64)> {
     let (slot, tag) = seen_slot(key);
     let w = slot.load(Ordering::Relaxed);
-    (w >> 48 == tag).then_some( ((w >> 24 & 0xFF_FFFF) << 10, (w & 0xFF_FFFF) << 10))
+    (w >> 48 == tag).then_some(((w >> 24 & 0xFF_FFFF) << 10, (w & 0xFF_FFFF) << 10))
 }
 
 /// DR-12: forget every program's seen arena draws (the priors stand again): a re-fit, and tests that pin the priors.
 pub fn forget_arena_draws() {
-    ARENA_SEEN.iter().for_each(|w| w.store(0, Ordering::Relaxed));
+    ARENA_SEEN
+        .iter()
+        .for_each(|w| w.store(0, Ordering::Relaxed));
 }
 
 /// DR-12: note a run of `key` that drew `leader` bytes of leader grow chunks and `worker` bytes in its widest worker arena
@@ -2211,7 +2841,11 @@ pub fn note_arena(key: gravity_program::ContentKey, leader: u64, worker: u64) {
     let (slot, tag) = seen_slot(key);
     let kib = |b: u64| b.div_ceil(1024).min(0xFF_FFFF);
     let _ = slot.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |w| {
-        let (l0, w0) = if w >> 48 == tag { (w >> 24 & 0xFF_FFFF, w & 0xFF_FFFF) } else { (0, 0) };
+        let (l0, w0) = if w >> 48 == tag {
+            (w >> 24 & 0xFF_FFFF, w & 0xFF_FFFF)
+        } else {
+            (0, 0)
+        };
         Some(tag << 48 | kib(leader).max(l0) << 24 | kib(worker).max(w0))
     });
 }
@@ -2266,7 +2900,10 @@ impl GrantPool {
     /// small buffer, set once here and not re-clamped.
     pub fn set_reserve(&self, bytes: u64) {
         self.buffer.store(0, Ordering::Release);
-        self.reserve.store(bytes.min(gravity_program::cost::fraction(self.capacity(), 1, 2)), Ordering::Release);
+        self.reserve.store(
+            bytes.min(gravity_program::cost::fraction(self.capacity(), 1, 2)),
+            Ordering::Release,
+        );
     }
 
     /// D4403: the small buffer of every grant mode but lanes (`policy::small_buffer_default` on a derived pool; an explicit
@@ -2298,7 +2935,14 @@ impl GrantPool {
         if bytes == 0 {
             return;
         }
-        self.reserve.store(policy::small_buffer(bytes, self.capacity(), self.buffer_b.load(Ordering::Acquire)), Ordering::Release);
+        self.reserve.store(
+            policy::small_buffer(
+                bytes,
+                self.capacity(),
+                self.buffer_b.load(Ordering::Acquire),
+            ),
+            Ordering::Release,
+        );
     }
 
     pub fn reserve(&self) -> u64 {
@@ -2337,7 +2981,12 @@ impl GrantPool {
             if max != 0 && cur >= max {
                 return None;
             }
-            match self.inflight.compare_exchange_weak(cur, cur + 1, Ordering::AcqRel, Ordering::Acquire) {
+            match self.inflight.compare_exchange_weak(
+                cur,
+                cur + 1,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
                 Ok(_) => {
                     SLOTS_HERE.with(|s| s.set(s.get() + 1));
                     return Some(true);
@@ -2359,7 +3008,9 @@ impl GrantPool {
     /// back. D3254: a parked region is no statement's (an admission trims what it needs of them, `trim_depots`), so an ask
     /// that halves beside nothing else held halves at once, as it did when admission dropped the whole depot first.
     pub fn held_by_statements(&self) -> u64 {
-        self.held().saturating_sub(self.kept.load(Ordering::Acquire)).saturating_sub(crate::park::REGIONS.parked_bytes() as u64)
+        self.held()
+            .saturating_sub(self.kept.load(Ordering::Acquire))
+            .saturating_sub(crate::park::REGIONS.parked_bytes() as u64)
     }
 
     /// D4403: `held_by_statements` less the small buffer's holders (small statements' reservations, draws with no
@@ -2370,7 +3021,29 @@ impl GrantPool {
     }
 
     pub fn stats(&self) -> PoolStats {
-        PoolStats { capacity: self.capacity(), held: self.held(), inflight: self.inflight(), max_inflight: self.max_inflight(), waits: self.waits.load(Ordering::Relaxed), wait_ms: self.wait_ns.load(Ordering::Relaxed) / 1_000_000, trims: self.trims.load(Ordering::Relaxed), sheds: self.sheds.load(Ordering::Relaxed), refusals: self.refusals.load(Ordering::Relaxed), reserve: self.reserve(), small_held: self.small_held(), small_admits: self.small_admits.load(Ordering::Relaxed), small_fallbacks: self.small_fallbacks.load(Ordering::Relaxed), small_overflows: self.small_overflows.load(Ordering::Relaxed), small_draws: self.small_draws.load(Ordering::Relaxed), small_waits: self.small_waits.load(Ordering::Relaxed), small_refusals: self.small_refusals.load(Ordering::Relaxed), borrows: self.borrows.load(Ordering::Relaxed), borrowed: self.borrowed.load(Ordering::Relaxed), unadmitted: self.unadmitted.load(Ordering::Relaxed), unadmitted_bytes: self.unadmitted_bytes.load(Ordering::Relaxed) }
+        PoolStats {
+            capacity: self.capacity(),
+            held: self.held(),
+            inflight: self.inflight(),
+            max_inflight: self.max_inflight(),
+            waits: self.waits.load(Ordering::Relaxed),
+            wait_ms: self.wait_ns.load(Ordering::Relaxed) / 1_000_000,
+            trims: self.trims.load(Ordering::Relaxed),
+            sheds: self.sheds.load(Ordering::Relaxed),
+            refusals: self.refusals.load(Ordering::Relaxed),
+            reserve: self.reserve(),
+            small_held: self.small_held(),
+            small_admits: self.small_admits.load(Ordering::Relaxed),
+            small_fallbacks: self.small_fallbacks.load(Ordering::Relaxed),
+            small_overflows: self.small_overflows.load(Ordering::Relaxed),
+            small_draws: self.small_draws.load(Ordering::Relaxed),
+            small_waits: self.small_waits.load(Ordering::Relaxed),
+            small_refusals: self.small_refusals.load(Ordering::Relaxed),
+            borrows: self.borrows.load(Ordering::Relaxed),
+            borrowed: self.borrowed.load(Ordering::Relaxed),
+            unadmitted: self.unadmitted.load(Ordering::Relaxed),
+            unadmitted_bytes: self.unadmitted_bytes.load(Ordering::Relaxed),
+        }
     }
 
     /// D622 (A): a whole admission past the pool, `want` reserving `need` (its `footprint`), taken at once through
@@ -2413,7 +3086,13 @@ impl GrantPool {
     /// not refuse (`governor::fits_raw_admit`: only the draws past a grant are its own road).
     fn take_leaving(&self, bytes: u64, kept: u64, admit: bool) -> bool {
         let budget = crate::mem::reclaim::applies();
-        let fits = |n: u64| if admit { mcx::governor::fits_raw_admit(n as usize) } else { mcx::governor::fits_raw(n as usize) };
+        let fits = |n: u64| {
+            if admit {
+                mcx::governor::fits_raw_admit(n as usize)
+            } else {
+                mcx::governor::fits_raw(n as usize)
+            }
+        };
         // D3063 (c): past the memory governor's bar (the process's sampled resident memory) the pool is full
         if !budget && !fits(bytes) {
             note_take_fail(admit, mempolicy::admit::TAKE_FAIL_BAR, bytes);
@@ -2423,13 +3102,25 @@ impl GrantPool {
         // ladder C1 (C0's finding 1): the pool armed with the caches at their floors counts the cache bytes past them its
         // trims cannot drop (`mcx::ladder::caches_stuck`; 0 with C1 off)
         let stuck = mcx::ladder::caches_stuck();
-        let limit = cap.saturating_sub(self.reserve()).saturating_add(self.small_held()).saturating_sub(kept).saturating_sub(stuck);
+        let limit = cap
+            .saturating_sub(self.reserve())
+            .saturating_add(self.small_held())
+            .saturating_sub(kept)
+            .saturating_sub(stuck);
         let mut cur = self.held.load(Ordering::Acquire);
         // take-back TB4 (give_back_spill_overdraft): a draw past the limit holds on the give-back lane's landing (the pool
         // bytes its queued jobs hold, back as they land), under the cancel line only; never an admission
-        let od = if cap != 0 && !admit && cur.saturating_add(bytes) > limit { crate::mem::giveback::overdraft_room() } else { 0 };
+        let od = if cap != 0 && !admit && cur.saturating_add(bytes) > limit {
+            crate::mem::giveback::overdraft_room()
+        } else {
+            0
+        };
         if cap != 0 && cur.saturating_add(bytes) > limit.saturating_add(od) {
-            note_take_fail(admit, mempolicy::admit::past_limit_why(cur, bytes, limit.saturating_add(od), stuck), bytes);
+            note_take_fail(
+                admit,
+                mempolicy::admit::past_limit_why(cur, bytes, limit.saturating_add(od), stuck),
+                bytes,
+            );
             return false;
         }
         // memory step 5b: under the one memory budget a draw the pool has room for also needs B's free bytes. The
@@ -2445,22 +3136,39 @@ impl GrantPool {
         crate::mem::reclaim::ladder_room(bytes);
         loop {
             if cap != 0 && cur.saturating_add(bytes) > limit.saturating_add(od) {
-                note_take_fail(admit, mempolicy::admit::past_limit_why(cur, bytes, limit.saturating_add(od), stuck), bytes);
+                note_take_fail(
+                    admit,
+                    mempolicy::admit::past_limit_why(cur, bytes, limit.saturating_add(od), stuck),
+                    bytes,
+                );
                 return false;
             }
-            match self.held.compare_exchange_weak(cur, cur + bytes, Ordering::AcqRel, Ordering::Acquire) {
+            match self.held.compare_exchange_weak(
+                cur,
+                cur + bytes,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
                 Ok(_) => {
                     if cap != 0 && cur + bytes > limit {
-                        crate::mem::giveback::note_overdraft(bytes.min(cur + bytes - limit), cur + bytes - limit);
+                        crate::mem::giveback::note_overdraft(
+                            bytes.min(cur + bytes - limit),
+                            cur + bytes - limit,
+                        );
                     }
                     // the C1 try (`inline_on_draw`) in a pool armed with the caches at their floors: the room this take
                     // left, with the parked regions the pool's own trim frees first, bounds the ladder's raises
                     // (`mcx::ladder::note_pool_room`), so no raise grows the bytes counted above into it. Only a take that
                     // landed: an admission's first ask past the room and a take before the depots' trim are the pool's
                     // own probing, not a cache's bytes in the way
-                    if cap != 0 && crate::mem::reclaim::pool_floors() && mempolicy::ladder::inline_on_draw() {
+                    if cap != 0
+                        && crate::mem::reclaim::pool_floors()
+                        && mempolicy::ladder::inline_on_draw()
+                    {
                         let parked = crate::park::REGIONS.parked_bytes() as u64;
-                        mcx::ladder::note_pool_room(limit.saturating_add(parked).saturating_sub(cur + bytes));
+                        mcx::ladder::note_pool_room(
+                            limit.saturating_add(parked).saturating_sub(cur + bytes),
+                        );
                     }
                     return true;
                 }
@@ -2472,7 +3180,11 @@ impl GrantPool {
     /// The turn's need an admission holding `ticket` leaves free: none when no waiter holds the turn or `ticket` does.
     fn turn_kept(&self, ticket: u32) -> u64 {
         let turn = self.turn.load(Ordering::Acquire);
-        if turn == 0 || (turn >> 32) as u32 == ticket { 0 } else { (turn & u32::MAX as u64) << 20 }
+        if turn == 0 || (turn >> 32) as u32 == ticket {
+            0
+        } else {
+            (turn & u32::MAX as u64) << 20
+        }
     }
 
     /// D3924: the need the oldest waiter keeps free (`Turn`; 0 = no waiter holds the turn), whole MiB. Tests wait on it for
@@ -2485,16 +3197,32 @@ impl GrantPool {
     /// D3127: whether the pool alone would seat `bytes` for an admission holding `ticket` (`take_admit` without the governor).
     fn seats(&self, bytes: u64, ticket: u32) -> bool {
         let cap = self.capacity();
-        cap == 0 || self.held().saturating_add(bytes) <= cap.saturating_sub(self.reserve()).saturating_add(self.small_held()).saturating_sub(self.turn_kept(ticket))
+        cap == 0
+            || self.held().saturating_add(bytes)
+                <= cap
+                    .saturating_sub(self.reserve())
+                    .saturating_add(self.small_held())
+                    .saturating_sub(self.turn_kept(ticket))
     }
 
     /// D3214: the bytes a waiter holding `ticket` could take now: the least of the pool's room beside what is held and the
     /// turn's need (`turn_kept`), and the memory governor's (its bar less the projected resident bytes; off: no limit).
     fn room_for(&self, ticket: u32) -> u64 {
         let cap = self.capacity();
-        let pool = if cap == 0 { u64::MAX } else { cap.saturating_sub(self.reserve()).saturating_add(self.small_held()).saturating_sub(self.turn_kept(ticket)).saturating_sub(self.held()) };
+        let pool = if cap == 0 {
+            u64::MAX
+        } else {
+            cap.saturating_sub(self.reserve())
+                .saturating_add(self.small_held())
+                .saturating_sub(self.turn_kept(ticket))
+                .saturating_sub(self.held())
+        };
         let bar = mcx::governor::bar();
-        let governor = if bar == 0 { u64::MAX } else { bar.saturating_sub(mcx::governor::projected()) as u64 };
+        let governor = if bar == 0 {
+            u64::MAX
+        } else {
+            bar.saturating_sub(mcx::governor::projected()) as u64
+        };
         pool.min(governor)
     }
 
@@ -2511,11 +3239,20 @@ impl GrantPool {
         if self.held_by_big_statements() != 0 || !mcx::governor::fits_raw_admit(bytes as usize) {
             return false;
         }
-        if self.solo.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_err() {
+        if self
+            .solo
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
             return false;
         }
         // D4403: the buffer's holders left out, as `held_by_big_statements`
-        let idle = |held: u64| held.saturating_sub(self.kept.load(Ordering::Acquire)).saturating_sub(crate::park::REGIONS.parked_bytes() as u64).saturating_sub(self.small_held()) == 0;
+        let idle = |held: u64| {
+            held.saturating_sub(self.kept.load(Ordering::Acquire))
+                .saturating_sub(crate::park::REGIONS.parked_bytes() as u64)
+                .saturating_sub(self.small_held())
+                == 0
+        };
         let mut cur = self.held.load(Ordering::Acquire);
         loop {
             // an admission between the check and the take holds bytes now: wait for it as for any other
@@ -2523,7 +3260,12 @@ impl GrantPool {
                 self.solo.store(false, Ordering::Release);
                 return false;
             }
-            match self.held.compare_exchange_weak(cur, cur.saturating_add(bytes), Ordering::AcqRel, Ordering::Acquire) {
+            match self.held.compare_exchange_weak(
+                cur,
+                cur.saturating_add(bytes),
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
                 Ok(_) => return true,
                 Err(now) => cur = now,
             }
@@ -2554,13 +3296,23 @@ impl GrantPool {
             return false;
         }
         // D4403: the buffer's holders left out, as `held_by_big_statements`
-        let idle = |held: u64| held.saturating_sub(self.kept.load(Ordering::Acquire)).saturating_sub(crate::park::REGIONS.parked_bytes() as u64).saturating_sub(self.small_held()) == 0;
+        let idle = |held: u64| {
+            held.saturating_sub(self.kept.load(Ordering::Acquire))
+                .saturating_sub(crate::park::REGIONS.parked_bytes() as u64)
+                .saturating_sub(self.small_held())
+                == 0
+        };
         let mut cur = self.held.load(Ordering::Acquire);
         loop {
             if !idle(cur) {
                 return false;
             }
-            match self.held.compare_exchange_weak(cur, cur.saturating_add(bytes), Ordering::AcqRel, Ordering::Acquire) {
+            match self.held.compare_exchange_weak(
+                cur,
+                cur.saturating_add(bytes),
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
                 Ok(_) => {
                     self.solo.store(true, Ordering::Release);
                     return true;
@@ -2580,7 +3332,12 @@ impl GrantPool {
             if cur.saturating_add(bytes) > reserve {
                 return false;
             }
-            match self.small_held.compare_exchange_weak(cur, cur + bytes, Ordering::AcqRel, Ordering::Acquire) {
+            match self.small_held.compare_exchange_weak(
+                cur,
+                cur + bytes,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
                 Ok(_) => {
                     // D4403: `held` may sit past the capacity beside an overdraft, a keep or a Solo floor (none takes the
                     // buffer), so only the buffer's own bound is asserted
@@ -2594,7 +3351,12 @@ impl GrantPool {
     }
 
     /// `bytes` charged to `life` (else G); past it `None` (S7: the caller spills or ERRORs), with no statement from capacity (L1).
-    pub(crate) fn hold(&self, bytes: usize, stmt: Option<&Reservation>, life: Option<&Rc<StmtCtx>>) -> Option<Held> {
+    pub(crate) fn hold(
+        &self,
+        bytes: usize,
+        stmt: Option<&Reservation>,
+        life: Option<&Rc<StmtCtx>>,
+    ) -> Option<Held> {
         self.hold_draw(bytes, stmt, life, true)
     }
 
@@ -2607,11 +3369,20 @@ impl GrantPool {
     }
 
     /// `hold`; `l1` false: no L1 for a draw with no statement (`hold_in_list_set`).
-    fn hold_draw(&self, bytes: usize, stmt: Option<&Reservation>, life: Option<&Rc<StmtCtx>>, l1: bool) -> Option<Held> {
+    fn hold_draw(
+        &self,
+        bytes: usize,
+        stmt: Option<&Reservation>,
+        life: Option<&Rc<StmtCtx>>,
+        l1: bool,
+    ) -> Option<Held> {
         // D4043: past G's room the statement's purse (G's room carved for a section's workers) serves the rest, unless the
         // life's own limit is what cut it (S7: the caller spills)
-        let own_fits = life.is_none_or(|l| (l.ctx.limit() as u64).saturating_sub(l.used()) >= bytes as u64);
-        let charged = life.or_else(|| stmt.and_then(Reservation::g)).and_then(|c| c.charge_fit(bytes as u64));
+        let own_fits =
+            life.is_none_or(|l| (l.ctx.limit() as u64).saturating_sub(l.used()) >= bytes as u64);
+        let charged = life
+            .or_else(|| stmt.and_then(Reservation::g))
+            .and_then(|c| c.charge_fit(bytes as u64));
         let extra = bytes as u64 - charged.as_ref().map_or(0, |c| c.2);
         if let Some(s) = stmt.filter(|_| extra > 0 && own_fits) {
             if let Some(p) = s.purse_take(extra) {
@@ -2636,7 +3407,26 @@ impl GrantPool {
         let pull = stmt.is_some_and(|s| s.g.is_none());
         if extra > 0 && !pull && l1 && crate::grant_ledger::on() {
             let id = stmt.map_or(0, Reservation::id);
-            crate::grant_ledger::violation(crate::grant_ledger::Check::L1, id, format_args!("draw of {bytes} B past the grant ({} B left{}){}", stmt.map_or(0, Reservation::left), stmt.and_then(Reservation::g).map_or(String::new(), |g| format!(": reserved {} used {} kept {}", g.g().reserved, g.g().used(), g.g().kept.get())), if stmt.is_none() { " with no statement" } else { "" })); // alloc: Cold
+            crate::grant_ledger::violation(
+                crate::grant_ledger::Check::L1,
+                id,
+                format_args!(
+                    "draw of {bytes} B past the grant ({} B left{}){}",
+                    stmt.map_or(0, Reservation::left),
+                    stmt.and_then(Reservation::g)
+                        .map_or(String::new(), |g| format!(
+                            ": reserved {} used {} kept {}",
+                            g.g().reserved,
+                            g.g().used(),
+                            g.g().kept.get()
+                        )),
+                    if stmt.is_none() {
+                        " with no statement"
+                    } else {
+                        ""
+                    }
+                ),
+            ); // alloc: Cold
         }
         if extra > 0 && stmt.is_some_and(|s| s.g.is_some()) {
             self.refusals.fetch_add(1, Ordering::Relaxed);
@@ -2670,11 +3460,24 @@ impl GrantPool {
             s.borrowed.set(s.borrowed.get() + extra);
         }
         if extra > 0 {
-            let (n, b) = if pull { (&self.unadmitted, &self.unadmitted_bytes) } else { (&self.borrows, &self.borrowed) };
+            let (n, b) = if pull {
+                (&self.unadmitted, &self.unadmitted_bytes)
+            } else {
+                (&self.borrows, &self.borrowed)
+            };
             n.fetch_add(1, Ordering::Relaxed);
             b.fetch_add(extra, Ordering::Relaxed);
         }
-        let h = Held { charged, pool: extra, kept: false, past: None, shown: None, gov: None, purse: None, small };
+        let h = Held {
+            charged,
+            pool: extra,
+            kept: false,
+            past: None,
+            shown: None,
+            gov: None,
+            purse: None,
+            small,
+        };
         h.back_g();
         Some(h)
     }
@@ -2711,9 +3514,16 @@ impl GrantPool {
     /// Up to `bytes` of `stmt`'s G carved for a worker's W (pool-held; its image cut, D187); what moved. D4043: past G's
     /// room, from its purse (a section opened inside another's: the outer one's purse holds the room; both are carved).
     pub(crate) fn carve_worker(&self, stmt: Option<&Reservation>, bytes: u64) -> u64 {
-        let Some((s, g)) = stmt.and_then(|s| s.g().map(|g| (s, g))) else { return 0 };
+        let Some((s, g)) = stmt.and_then(|s| s.g().map(|g| (s, g))) else {
+            return 0;
+        };
         let m = g.carve(bytes);
-        m + s.purse.borrow().as_ref().filter(|_| m < bytes).map_or(0, |p| p.take_up_to(bytes - m))
+        m + s
+            .purse
+            .borrow()
+            .as_ref()
+            .filter(|_| m < bytes)
+            .map_or(0, |p| p.take_up_to(bytes - m))
     }
 
     /// Parked capacity freed for `bytes` more: the parked regions the pool is short of them, least recently put first, then
@@ -2755,7 +3565,11 @@ impl GrantPool {
 
     /// D4098: `trim_depots` for a draw inside a kernel call (`take_wait`): its waits for the reaper tick the draw's step, and
     /// the statement's cancel ends the trim there (the draw then refuses as the cancel).
-    fn trim_depots_polled(&self, bytes: u64, step: &mut cancelpoll::Step) -> Result<usize, cancelpoll::Canceled> {
+    fn trim_depots_polled(
+        &self,
+        bytes: u64,
+        step: &mut cancelpoll::Step,
+    ) -> Result<usize, cancelpoll::Canceled> {
         crate::mem::reap::drain_polled(step)?;
         let mut canceled = false;
         let freed = self.trim_depots_drained(bytes, &mut || {
@@ -2773,7 +3587,9 @@ impl GrantPool {
     /// the draw's cancel ended the wait, and the trim stops there).
     fn trim_depots_drained(&self, bytes: u64, drain: &mut dyn FnMut() -> bool) -> usize {
         let cap = self.capacity();
-        let limit = cap.saturating_sub(self.reserve()).saturating_add(self.small_held());
+        let limit = cap
+            .saturating_sub(self.reserve())
+            .saturating_add(self.small_held());
         if cap != 0 && bytes > limit {
             let slots = crate::slots::DEPOT.trim_for(usize::MAX);
             drain();
@@ -2781,8 +3597,15 @@ impl GrantPool {
             return slots;
         }
         let room = || limit.saturating_sub(self.held());
-        let regions = match bytes.checked_sub(room()).filter(|&short| cap != 0 && short > 0) {
-            Some(short) => crate::park::REGIONS.trim_to(crate::park::REGIONS.parked_bytes().saturating_sub(short as usize)),
+        let regions = match bytes
+            .checked_sub(room())
+            .filter(|&short| cap != 0 && short > 0)
+        {
+            Some(short) => crate::park::REGIONS.trim_to(
+                crate::park::REGIONS
+                    .parked_bytes()
+                    .saturating_sub(short as usize),
+            ),
             None => {
                 let regions = crate::park::REGIONS.trim_handed();
                 // pagepool P3 (C.11): the pool has the room and the memory governor refused (resident bytes): pressure,
@@ -2820,13 +3643,22 @@ impl GrantPool {
     /// The one gate a draw past W and G asks through (ladder step 1.1; a growth step's entry point when grow is built):
     /// `bytes` more held, `asker` naming the caller's road past the pool (`Spills`: a mapped temp file; `Refuses`: its
     /// refusal). With `gate_now` off, `take_wait`'s wait whatever the asker; on, `gate_wait_now`'s.
-    pub(crate) fn take_gate(&self, bytes: u64, worker: bool, gate: mcx::ladder::Gate, asker: policy::Asker) -> bool {
+    pub(crate) fn take_gate(
+        &self,
+        bytes: u64,
+        worker: bool,
+        gate: mcx::ladder::Gate,
+        asker: policy::Asker,
+    ) -> bool {
         if self.take(bytes) {
             return true;
         }
         // the C1 try (`inline_on_draw`) in a pool armed with the caches at their floors: a draw past its grant the pool
         // had no room for is the pool at its edge (its climb's R2a takes cache bytes next): no raise for a window
-        if self.capacity() != 0 && crate::mem::reclaim::pool_floors() && mempolicy::ladder::inline_on_draw() {
+        if self.capacity() != 0
+            && crate::mem::reclaim::pool_floors()
+            && mempolicy::ladder::inline_on_draw()
+        {
             mcx::ladder::note_pool_room(0);
         }
         // D4439 (`draw_wait_cap`, with the ladder on): the statement's draw-gate waits are capped in all; spent, the
@@ -2864,7 +3696,14 @@ impl GrantPool {
             let ladder = mcx::ladder::on();
             // D4353: R5 is counted (with its measured yield) when the climb left a need; a spent wait hands R2b / R6 to
             // the ladder thread once and waits on
-            let (wait, mut handed) = if ladder { (mcx::ladder::wait_begin(&mcx::ladder::climb_at(gate, bytes)), false) } else { (None, true) };
+            let (wait, mut handed) = if ladder {
+                (
+                    mcx::ladder::wait_begin(&mcx::ladder::climb_at(gate, bytes)),
+                    false,
+                )
+            } else {
+                (None, true)
+            };
             let (mut seen, mut since) = (mcx::ladder::epoch(), t0);
             loop {
                 if self.take(bytes) {
@@ -2880,20 +3719,32 @@ impl GrantPool {
                     if e != seen {
                         (seen, since) = (e, MonoStamp::now());
                     }
-                    let mut spent = mempolicy::ladder::wait_spent(waited(since), waited(t0), policy::bytes_wait());
+                    let mut spent = mempolicy::ladder::wait_spent(
+                        waited(since),
+                        waited(t0),
+                        policy::bytes_wait(),
+                    );
                     if spent && !handed {
                         handed = true;
                         if mcx::ladder::hand_off(bytes) {
                             (since, spent) = (MonoStamp::now(), false);
                         }
                     }
-                    if spent { policy::bytes_wait() } else { core::time::Duration::ZERO }
+                    if spent {
+                        policy::bytes_wait()
+                    } else {
+                        core::time::Duration::ZERO
+                    }
                 } else {
                     waited(t0)
                 };
                 // D4439: the statement's cap spent while this draw waited: its road
                 let capped = cap_left.is_some_and(|l| waited(t0) >= l);
-                match if capped { policy::DrawWait::Refuse } else { policy::draw_wait(could, due, spent) } {
+                match if capped {
+                    policy::DrawWait::Refuse
+                } else {
+                    policy::draw_wait(could, due, spent)
+                } {
                     policy::DrawWait::LastTry => {
                         ep.last_try();
                         // no other holder can give bytes back. One more take after any that ended gave theirs (a holder
@@ -2916,7 +3767,11 @@ impl GrantPool {
                         break;
                     }
                     policy::DrawWait::Refuse => {
-                        why = if capped { mcx::ladder_stats::Why::DrawCapped } else { mcx::ladder_stats::Why::WaitSpent };
+                        why = if capped {
+                            mcx::ladder_stats::Why::DrawCapped
+                        } else {
+                            mcx::ladder_stats::Why::WaitSpent
+                        };
                         break;
                     }
                     // D3887: a draw inside a kernel call stops waiting once its statement is canceled (its refusal becomes
@@ -2960,7 +3815,14 @@ impl GrantPool {
     /// a `Refuses` asker waits `gate_refuse_ms` for room from its first miss, then refuses (`policy::gate_wait`). With the
     /// ladder on the asker climbs R1-R4b once first, and a `Refuses` asker past its wait hands R2b / R6 to the ladder thread
     /// once and waits for one pass to read it: a cancel that pass raises is bytes on their way.
-    fn gate_wait_now(&self, bytes: u64, worker: bool, gate: mcx::ladder::Gate, asker: policy::Asker, cap_left: Option<core::time::Duration>) -> bool {
+    fn gate_wait_now(
+        &self,
+        bytes: u64,
+        worker: bool,
+        gate: mcx::ladder::Gate,
+        asker: policy::Asker,
+        cap_left: Option<core::time::Duration>,
+    ) -> bool {
         if mcx::governor::spills_itself() {
             note_refusal(mcx::ladder_stats::Why::SpillsItself, bytes);
             self.refusals.fetch_add(1, Ordering::Relaxed);
@@ -2988,7 +3850,11 @@ impl GrantPool {
             let t0 = MonoStamp::now();
             let mut w = MemWait::default();
             let ladder = mcx::ladder::on();
-            let wait = if ladder { mcx::ladder::wait_begin(&mcx::ladder::climb_at(gate, bytes)) } else { None };
+            let wait = if ladder {
+                mcx::ladder::wait_begin(&mcx::ladder::climb_at(gate, bytes))
+            } else {
+                None
+            };
             let mut handed: Option<u64> = None;
             let (mut seen, mut since) = (mcx::ladder::epoch_seq(), t0);
             loop {
@@ -3002,7 +3868,11 @@ impl GrantPool {
                 if capped {
                     handed = handed.or(Some(0));
                 }
-                match if capped { policy::DrawWait::Refuse } else { policy::gate_wait(asker, bytes_coming(handed), waited(since), waited(t0)) } {
+                match if capped {
+                    policy::DrawWait::Refuse
+                } else {
+                    policy::gate_wait(asker, bytes_coming(handed), waited(since), waited(t0))
+                } {
                     policy::DrawWait::Wait => {
                         if step.tick().is_err() {
                             break;
@@ -3029,7 +3899,11 @@ impl GrantPool {
                             note_draw_wait(cap_left, t0);
                             return true;
                         }
-                        why = if capped { mcx::ladder_stats::Why::DrawCapped } else { mcx::ladder_stats::Why::WaitSpent };
+                        why = if capped {
+                            mcx::ladder_stats::Why::DrawCapped
+                        } else {
+                            mcx::ladder_stats::Why::WaitSpent
+                        };
                         break;
                     }
                 }
@@ -3059,7 +3933,16 @@ impl GrantPool {
     pub fn keep(&self, bytes: u64) -> Held {
         self.held.fetch_add(bytes, Ordering::AcqRel);
         self.kept.fetch_add(bytes, Ordering::AcqRel);
-        Held { charged: None, pool: bytes, kept: true, past: None, shown: None, gov: None, purse: None, small: 0 }
+        Held {
+            charged: None,
+            pool: bytes,
+            kept: true,
+            past: None,
+            shown: None,
+            gov: None,
+            purse: None,
+            small: 0,
+        }
     }
 
     /// The one code path of every overdraft (`Overdraw`): `bytes` held at once, past the capacity too, never refused and never
@@ -3093,18 +3976,35 @@ impl GrantPool {
 
     /// The overdrafts taken so far per site, `Overdraw::ALL`'s order: (count, bytes).
     pub fn overdraws(&self) -> [(u64, u64); Overdraw::N] {
-        Overdraw::ALL.map(|o| (self.overdraw_n[o as usize].load(Ordering::Relaxed), self.overdraw_bytes[o as usize].load(Ordering::Relaxed)))
+        Overdraw::ALL.map(|o| {
+            (
+                self.overdraw_n[o as usize].load(Ordering::Relaxed),
+                self.overdraw_bytes[o as usize].load(Ordering::Relaxed),
+            )
+        })
     }
 
     /// `want` when its regions fit beside what is held (and the turn's need), else `want` once enough grants came back, waiting
     /// while they do (both depots trimmed), else the largest halving that fits, never under `GRANT_FLOOR`; unarmed: `want`.
-    pub fn admit(&self, want: Grant, live: u16, width: u16, wait: core::time::Duration) -> Result<Reservation, AdmitRefused> {
+    pub fn admit(
+        &self,
+        want: Grant,
+        live: u16,
+        width: u16,
+        wait: core::time::Duration,
+    ) -> Result<Reservation, AdmitRefused> {
         self.admit_for(want, live, width, false, wait)
     }
 
     /// The small lane: `want`'s regions from the slice at once, no slot, no wait; `None` (nothing touched) when the slice
     /// is full or there is none — the statement then goes the big lane's way.
-    pub fn admit_small(&self, want: Grant, live: u16, width: u16, images: bool) -> Option<Reservation> {
+    pub fn admit_small(
+        &self,
+        want: Grant,
+        live: u16,
+        width: u16,
+        images: bool,
+    ) -> Option<Reservation> {
         self.admit_small_need(want, regions_for(want, live, width, images))
     }
 
@@ -3118,7 +4018,15 @@ impl GrantPool {
             return None;
         }
         self.small_admits.fetch_add(1, Ordering::Relaxed);
-        Some(Reservation::new(want, want, need, 0, true, false, Admitted::Whole))
+        Some(Reservation::new(
+            want,
+            want,
+            need,
+            0,
+            true,
+            false,
+            Admitted::Whole,
+        ))
     }
 
     /// D4403: a small statement's admission, `need_of(want)` its reservation at its unchanged ask
@@ -3129,7 +4037,13 @@ impl GrantPool {
     /// interrupt: an `interrupted` refusal its caller processes), then the refusal (S7). No in-flight slot, as the slice's
     /// admissions. `None` (nothing touched) with no buffer, unarmed, or a need past the buffer: the caller takes the big
     /// lane's road.
-    pub fn admit_small_until(&self, want: Grant, need_of: &dyn Fn(Grant) -> u64, wait: core::time::Duration, stop: &dyn Fn() -> bool) -> Option<Result<Reservation, AdmitRefused>> {
+    pub fn admit_small_until(
+        &self,
+        want: Grant,
+        need_of: &dyn Fn(Grant) -> u64,
+        wait: core::time::Duration,
+        stop: &dyn Fn() -> bool,
+    ) -> Option<Result<Reservation, AdmitRefused>> {
         if self.capacity() == 0 || self.reserve() == 0 {
             return None;
         }
@@ -3165,18 +4079,40 @@ impl GrantPool {
         let ns = t0.elapsed_ns();
         self.wait_ns.fetch_add(ns, Ordering::Relaxed);
         Some(match out {
-            Ok(small) => Ok(Reservation::new(want, want, need, ns / 1_000_000, small, false, Admitted::Whole)),
+            Ok(small) => Ok(Reservation::new(
+                want,
+                want,
+                need,
+                ns / 1_000_000,
+                small,
+                false,
+                Admitted::Whole,
+            )),
             Err(interrupted) => {
                 if !interrupted {
                     self.small_refusals.fetch_add(1, Ordering::Relaxed);
                     self.refusals.fetch_add(1, Ordering::Relaxed);
                 }
-                Err(AdmitRefused { grant: want, need, held: self.held(), capacity: self.capacity(), waited_ms: ns / 1_000_000, interrupted })
+                Err(AdmitRefused {
+                    grant: want,
+                    need,
+                    held: self.held(),
+                    capacity: self.capacity(),
+                    waited_ms: ns / 1_000_000,
+                    interrupted,
+                })
             }
         })
     }
 
-    pub fn admit_for(&self, want: Grant, live: u16, width: u16, images: bool, wait: core::time::Duration) -> Result<Reservation, AdmitRefused> {
+    pub fn admit_for(
+        &self,
+        want: Grant,
+        live: u16,
+        width: u16,
+        images: bool,
+        wait: core::time::Duration,
+    ) -> Result<Reservation, AdmitRefused> {
         self.admit_need(want, &|g| regions_for(g, live, width, images), wait)
     }
 
@@ -3184,7 +4120,12 @@ impl GrantPool {
     /// refuses (S7: never admitted with nothing reserved). D3380: a floor need past the big lane's whole room waits for the
     /// pool to empty and then runs alone past it (`Admitted::Solo`); a nested one, or one past the memory governor's bar
     /// itself, refuses at once.
-    pub fn admit_need(&self, want: Grant, need_of: &dyn Fn(Grant) -> u64, wait: core::time::Duration) -> Result<Reservation, AdmitRefused> {
+    pub fn admit_need(
+        &self,
+        want: Grant,
+        need_of: &dyn Fn(Grant) -> u64,
+        wait: core::time::Duration,
+    ) -> Result<Reservation, AdmitRefused> {
         self.admit_need_until(want, need_of, wait, &|| false)
     }
 
@@ -3195,19 +4136,39 @@ impl GrantPool {
             self.inflight.fetch_sub(1, Ordering::AcqRel);
             SLOTS_HERE.with(|s| s.set(s.get().saturating_sub(1)));
         }
-        AdmitRefused { grant: want, need, held: self.held(), capacity: self.capacity(), waited_ms: waited(t0).as_millis() as u64, interrupted: true }
+        AdmitRefused {
+            grant: want,
+            need,
+            held: self.held(),
+            capacity: self.capacity(),
+            waited_ms: waited(t0).as_millis() as u64,
+            interrupted: true,
+        }
     }
 
     /// `admit_need` whose waits end early when `stop` is true (D599): the backend's pending interrupt (a statement
     /// timeout, a cancel, a termination), polled at every pause as PostgreSQL's lock waits honour them; the refusal says
     /// `interrupted` and releases what the wait took.
-    pub fn admit_need_until(&self, want: Grant, need_of: &dyn Fn(Grant) -> u64, wait: core::time::Duration, stop: &dyn Fn() -> bool) -> Result<Reservation, AdmitRefused> {
+    pub fn admit_need_until(
+        &self,
+        want: Grant,
+        need_of: &dyn Fn(Grant) -> u64,
+        wait: core::time::Duration,
+        stop: &dyn Fn() -> bool,
+    ) -> Result<Reservation, AdmitRefused> {
         self.admit_need_within(want, need_of, wait, stop, StallBounds::current())
     }
 
     /// `admit_need_until` with the queue's stall bounds given (D3214's tests run them in milliseconds).
     #[doc(hidden)]
-    pub fn admit_need_within(&self, want: Grant, need_of: &dyn Fn(Grant) -> u64, wait: core::time::Duration, stop: &dyn Fn() -> bool, bounds: StallBounds) -> Result<Reservation, AdmitRefused> {
+    pub fn admit_need_within(
+        &self,
+        want: Grant,
+        need_of: &dyn Fn(Grant) -> u64,
+        wait: core::time::Duration,
+        stop: &dyn Fn() -> bool,
+        bounds: StallBounds,
+    ) -> Result<Reservation, AdmitRefused> {
         if self.capacity() == 0 {
             return Ok(Reservation::unadmitted(want));
         }
@@ -3229,19 +4190,37 @@ impl GrantPool {
             w.pause();
         };
         if !slot && stop() {
-            return Err(AdmitRefused { grant: want, need: need_of(want), held: self.held(), capacity: self.capacity(), waited_ms: waited(t0).as_millis() as u64, interrupted: true });
+            return Err(AdmitRefused {
+                grant: want,
+                need: need_of(want),
+                held: self.held(),
+                capacity: self.capacity(),
+                waited_ms: waited(t0).as_millis() as u64,
+                interrupted: true,
+            });
         }
         // C3 (decide Start): under projection a top-level start waits while F < F* (`throttle_max_ms` and this wait at
         // most; an interrupt ends it), unless its need is within the grant floor (`start_holds`). A nested start never
         // waits: its caller holds bytes here and ends after it.
         let need = need_of(want);
-        if mempolicy::decide::start_holds(mcx::governor::throttled(), need) && HELD_HERE.with(core::cell::Cell::get) == 0 && !throttle_wait(wait.saturating_sub(waited(t0)), stop, &mut w) {
+        if mempolicy::decide::start_holds(mcx::governor::throttled(), need)
+            && HELD_HERE.with(core::cell::Cell::get) == 0
+            && !throttle_wait(wait.saturating_sub(waited(t0)), stop, &mut w)
+        {
             return Err(self.interrupted(want, need, t0, slot));
         }
         let done = |grant: Grant, reserved: u64, how: Admitted| {
             let ns = t0.elapsed_ns();
             self.wait_ns.fetch_add(ns, Ordering::Relaxed);
-            Ok(Reservation::new(grant, want, reserved, ns / 1_000_000, false, slot, how))
+            Ok(Reservation::new(
+                grant,
+                want,
+                reserved,
+                ns / 1_000_000,
+                false,
+                slot,
+                how,
+            ))
         };
         if self.take_admit(need, 0) {
             return done(want, need, Admitted::Whole);
@@ -3253,9 +4232,16 @@ impl GrantPool {
         // D4353 (pgrust.memory_ladder = on): admission is a gate (LADDER-DESIGN section 3). Its asker climbs R1-R4b once
         // with its need; the wait below is R5, counted with its measured yield at every exit (`AdmitWait`)
         let ladder = mcx::ladder::on();
-        let _r5 = AdmitWait(if ladder { mcx::ladder::wait_begin(&mcx::ladder::climb_at(mcx::ladder::Gate::Admit, need)) } else { None });
+        let _r5 = AdmitWait(if ladder {
+            mcx::ladder::wait_begin(&mcx::ladder::climb_at(mcx::ladder::Gate::Admit, need))
+        } else {
+            None
+        });
         // ladder C1 (C0's finding 1): less the stuck cache bytes, as the take counts them (0 with C1 off)
-        let limit = self.capacity().saturating_sub(self.reserve()).saturating_sub(mcx::ladder::caches_stuck());
+        let limit = self
+            .capacity()
+            .saturating_sub(self.reserve())
+            .saturating_sub(mcx::ladder::caches_stuck());
         // the whole ask, in the queue: the oldest waiter holds the turn, whose need later admissions leave free; a halved grant
         // spills and holds its bytes the longer, so the next waiter halves too. A waiter whose room (`room_for`) made no new
         // high by `STALL_PROGRESS` for `QUEUE_STALL`, or that held its ticket for `TURN_CAP`, halves (D3214). A need that
@@ -3272,9 +4258,17 @@ impl GrantPool {
         let mut others = Others::here(false);
         let mut turn = whole().then(|| {
             let ticket = (self.tickets.fetch_add(1, Ordering::AcqRel) % u32::MAX as u64) as u32 + 1;
-            Turn { pool: self, ticket, clock: StallClock::new(self.room_for(ticket), MonoStamp::now().as_ns()) }
+            Turn {
+                pool: self,
+                ticket,
+                clock: StallClock::new(self.room_for(ticket), MonoStamp::now().as_ns()),
+            }
         });
-        let mut short = wait.min(if turn.is_some() { bounds.stall } else { policy::bytes_wait() });
+        let mut short = wait.min(if turn.is_some() {
+            bounds.stall
+        } else {
+            policy::bytes_wait()
+        });
         let (mut seen, mut since) = (self.ended.load(Ordering::Acquire), MonoStamp::now());
         // D3127: the settle wait's start, its first fresh resident sample, the lowest one and the samples since it fell
         let mut settle: Option<(u64, usize, usize, u32)> = None;
@@ -3287,7 +4281,8 @@ impl GrantPool {
             }
             // nothing to wait for: no statement holds bytes, and no other waiter is ahead (its grant would come back); read
             // before the take, so a grant that comes back in between is taken whole, not halved
-            let idle = self.held_by_big_statements() == 0 && !turn.as_ref().is_some_and(|t| t.ahead());
+            let idle =
+                self.held_by_big_statements() == 0 && !turn.as_ref().is_some_and(|t| t.ahead());
             if self.take_admit(need, turn.as_ref().map_or(0, |t| t.ticket)) {
                 return done(want, need, Admitted::Whole);
             }
@@ -3307,7 +4302,11 @@ impl GrantPool {
                 settle = None;
             }
             let mut settling = false;
-            if idle && !mcx::governor::fits_raw_admit(need as usize) && self.seats(need, ticket) && mcx::governor::resample() {
+            if idle
+                && !mcx::governor::fits_raw_admit(need as usize)
+                && self.seats(need, ticket)
+                && mcx::governor::resample()
+            {
                 if self.take_admit(need, ticket) {
                     return done(want, need, Admitted::Whole);
                 }
@@ -3315,13 +4314,22 @@ impl GrantPool {
                 let began = settle.is_none();
                 match settle.as_mut() {
                     None => settle = Some((settle_now_ns(), now, now, 0)),
-                    Some((_, _, low, flat)) if now.saturating_add(policy::settle_fall()) <= *low => (*low, *flat) = (now, 0),
+                    Some((_, _, low, flat))
+                        if now.saturating_add(policy::settle_fall()) <= *low =>
+                    {
+                        (*low, *flat) = (now, 0)
+                    }
                     Some((_, _, _, flat)) => *flat += 1,
                 }
                 if let Some((settle_t0, first, _, flat)) = settle {
-                    let on = core::time::Duration::from_nanos(settle_now_ns().saturating_sub(settle_t0));
-                    let deficit = now.saturating_add(need as usize).saturating_sub(mcx::governor::bar());
-                    settling = flat < policy::settle_flat_polls() && on < policy::governor_settle() && (began || settle_on_track(first.saturating_sub(now), deficit, on));
+                    let on =
+                        core::time::Duration::from_nanos(settle_now_ns().saturating_sub(settle_t0));
+                    let deficit = now
+                        .saturating_add(need as usize)
+                        .saturating_sub(mcx::governor::bar());
+                    settling = flat < policy::settle_flat_polls()
+                        && on < policy::governor_settle()
+                        && (began || settle_on_track(first.saturating_sub(now), deficit, on));
                 }
             }
             if idle && !settling {
@@ -3343,7 +4351,14 @@ impl GrantPool {
                 }
                 // D3214: an end is progress only if the room it leaves is a new high
                 let room = self.room_for(t.ticket);
-                if let Some(how) = t.clock.observe(room, MonoStamp::now().as_ns(), StallBounds { stall: short, ..bounds }) {
+                if let Some(how) = t.clock.observe(
+                    room,
+                    MonoStamp::now().as_ns(),
+                    StallBounds {
+                        stall: short,
+                        ..bounds
+                    },
+                ) {
                     break how;
                 }
             } else if waited(since) >= short {
@@ -3381,7 +4396,8 @@ impl GrantPool {
             }
             grant = half;
             let need = need_of(grant);
-            if self.take_admit(need, 0) || (self.trim_depots(need) > 0 && self.take_admit(need, 0)) {
+            if self.take_admit(need, 0) || (self.trim_depots(need) > 0 && self.take_admit(need, 0))
+            {
                 return done(grant, need, forced);
             }
         }
@@ -3391,11 +4407,22 @@ impl GrantPool {
         // held past the lane once no other statement holds bytes (`take_solo`); past the lane otherwise, refused at once
         // D3804: past the lane beside the kept holds; under the one budget applied, a floor also starts once nothing is held
         let on = crate::mem::budget::mode() == crate::mem::budget::Mode::On;
-        let road = policy::floor(need, self.kept(), limit, nested, mcx::governor::bar() as u64, on);
+        let road = policy::floor(
+            need,
+            self.kept(),
+            limit,
+            nested,
+            mcx::governor::bar() as u64,
+            on,
+        );
         let solo = road.alone;
         let solo_turn = solo.then(|| {
             let ticket = (self.tickets.fetch_add(1, Ordering::AcqRel) % u32::MAX as u64) as u32 + 1;
-            Turn { pool: self, ticket, clock: StallClock::new(self.room_for(ticket), MonoStamp::now().as_ns()) }
+            Turn {
+                pool: self,
+                ticket,
+                clock: StallClock::new(self.room_for(ticket), MonoStamp::now().as_ns()),
+            }
         });
         loop {
             if let Some(turn) = solo_turn.as_ref() {
@@ -3435,7 +4462,14 @@ impl GrantPool {
             self.inflight.fetch_sub(1, Ordering::AcqRel);
             SLOTS_HERE.with(|s| s.set(s.get().saturating_sub(1)));
         }
-        Err(AdmitRefused { grant, need, held: self.held(), capacity: self.capacity(), waited_ms, interrupted: stop() })
+        Err(AdmitRefused {
+            grant,
+            need,
+            held: self.held(),
+            capacity: self.capacity(),
+            waited_ms,
+            interrupted: stop(),
+        })
     }
 }
 
@@ -3462,10 +4496,14 @@ impl Turn<'_> {
         loop {
             let holder = (cur >> 32) as u32;
             // tickets wrap: older = behind by less than half the ring
-            if holder == self.ticket || (cur != 0 && (holder.wrapping_sub(self.ticket) as i32) < 0) {
+            if holder == self.ticket || (cur != 0 && (holder.wrapping_sub(self.ticket) as i32) < 0)
+            {
                 return;
             }
-            match p.turn.compare_exchange_weak(cur, mine, Ordering::AcqRel, Ordering::Acquire) {
+            match p
+                .turn
+                .compare_exchange_weak(cur, mine, Ordering::AcqRel, Ordering::Acquire)
+            {
                 Ok(_) => return,
                 Err(now) => cur = now,
             }
@@ -3502,7 +4540,10 @@ impl Drop for Turn<'_> {
         let p = self.pool;
         let mut cur = p.turn.load(Ordering::Acquire);
         while (cur >> 32) as u32 == self.ticket {
-            match p.turn.compare_exchange_weak(cur, 0, Ordering::AcqRel, Ordering::Acquire) {
+            match p
+                .turn
+                .compare_exchange_weak(cur, 0, Ordering::AcqRel, Ordering::Acquire)
+            {
                 Ok(_) => return,
                 Err(now) => cur = now,
             }
@@ -3535,7 +4576,8 @@ pub fn idle_release() {
 /// reach): every parked region's account bytes but the newest's (`RegionDepot::trimmable_account_bytes`, never the
 /// regions' lengths), and every parked slot set but the newest (the slot depot's own count, as R2a's and the backstop's).
 pub fn parked_bytes() -> u64 {
-    (crate::park::REGIONS.trimmable_account_bytes() as u64).saturating_add(crate::slots::DEPOT.trimmable_bytes() as u64)
+    (crate::park::REGIONS.trimmable_account_bytes() as u64)
+        .saturating_add(crate::slots::DEPOT.trimmable_bytes() as u64)
 }
 
 /// P3, R2p's trim of up to `want` bytes (R2a's depot step under the knob): the least recently parked regions first, by
@@ -3551,7 +4593,8 @@ pub fn trim_parked(want: u64, job: bool) -> u64 {
     crate::slots::drain_released();
     let mut freed = crate::park::REGIONS.trim_account_but_newest(want as usize) as u64;
     if freed < want {
-        freed = freed.saturating_add(crate::slots::DEPOT.trim_but_newest((want - freed) as usize) as u64);
+        freed = freed
+            .saturating_add(crate::slots::DEPOT.trim_but_newest((want - freed) as usize) as u64);
     }
     parked_trim_settle(freed, job);
     // pagepool P3 (C.11): R2p's take is the ladder's, so pressure: the depots' pool bytes go back to the OS too, as at
@@ -3583,7 +4626,8 @@ pub fn pressure_trim() {
 
 /// D3147: the idle backend's own parked Nodes' pool regions (its `Park`, thread-local: no other backend reaches it) put in
 /// the depot, which `idle_release` then trims; installed by the layer that owns the backend's `Entry`.
-static IDLE_SHED: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static IDLE_SHED: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 pub fn set_idle_shed(f: fn()) {
     IDLE_SHED.store(f as *mut (), Ordering::Release);
@@ -3608,12 +4652,19 @@ struct Others {
 impl Others {
     fn here(worker: bool) -> Others {
         // D3910 (a): this thread's suspended portals are no holder a wait could see give back, nor are any others'
-        let here = HOLDERS_HERE.with(core::cell::Cell::get).saturating_sub(IDLE_HERE.with(core::cell::Cell::get));
-        Others { mine: if worker { here.max(1) } else { here }, seen: false }
+        let here = HOLDERS_HERE
+            .with(core::cell::Cell::get)
+            .saturating_sub(IDLE_HERE.with(core::cell::Cell::get));
+        Others {
+            mine: if worker { here.max(1) } else { here },
+            seen: false,
+        }
     }
 
     fn could_give(&mut self) -> bool {
-        let active = HOLDERS.load(Ordering::Acquire).saturating_sub(IDLE_HOLDERS.load(Ordering::Acquire));
+        let active = HOLDERS
+            .load(Ordering::Acquire)
+            .saturating_sub(IDLE_HOLDERS.load(Ordering::Acquire));
         let some = policy::others_hold(active, self.mine);
         self.seen |= some;
         some
@@ -3624,7 +4675,9 @@ impl Others {
 /// the ladder's relief in flight (R4b's asks, R6's landing, the reaper's unmaps, an asker's hand-off no pass has read:
 /// `mcx::ladder::relief_coming`), and the governor's pending revoke asks and cancels within their landing windows.
 fn bytes_coming(handed: Option<u64>) -> bool {
-    crate::mem::reclaim::pending() || mcx::ladder::relief_coming(handed) || mcx::governor::decide_inputs().pending != 0
+    crate::mem::reclaim::pending()
+        || mcx::ladder::relief_coming(handed)
+        || mcx::governor::decide_inputs().pending != 0
 }
 
 /// D3147: `RUNNING` now: the statements admitted to the big lane (the grant end line names it).
@@ -3644,7 +4697,17 @@ mod ceilings {
     const MIB: u64 = 1 << 20;
 
     fn pipe(kind: BreakerKind, spill: Spill) -> Pipeline {
-        Pipeline::eligible(0, End::Breaker(Breaker { kind, slot: 0, bytes: 0, budget: Budget::Share, spill }), 1000)
+        Pipeline::eligible(
+            0,
+            End::Breaker(Breaker {
+                kind,
+                slot: 0,
+                bytes: 0,
+                budget: Budget::Share,
+                spill,
+            }),
+            1000,
+        )
     }
 
     /// Each breaker's ceiling is PostgreSQL's budget for its node: work_mem for a Sort, top-N or Material, work_mem x
@@ -3652,18 +4715,56 @@ mod ceilings {
     /// ceilings; a trim keeps the ceilings (it drops the floors).
     #[test]
     fn a_breakers_ceiling_is_its_nodes_postgresql_budget() {
-        let g = Grant::of(64 * MIB).with_floors(4 * MIB, 8 * MIB).with_ceilings(4 * MIB, 8 * MIB);
+        let g = Grant::of(64 * MIB)
+            .with_floors(4 * MIB, 8 * MIB)
+            .with_ceilings(4 * MIB, 8 * MIB);
         let parts = Spill::Partitioned { bits: 3 };
-        assert_eq!(ceiling_of(g, &pipe(BreakerKind::HashAgg, parts)), 8 * MIB, "a hash aggregate: hash_mem");
-        assert_eq!(ceiling_of(g, &pipe(BreakerKind::HashBuild, parts)), 8 * MIB, "a hash build: hash_mem");
-        assert_eq!(ceiling_of(g, &pipe(BreakerKind::Distinct, parts)), 8 * MIB, "a hashed DISTINCT: hash_mem");
-        assert_eq!(ceiling_of(g, &pipe(BreakerKind::Sort, Spill::Runs)), 4 * MIB, "a Sort: work_mem");
-        assert_eq!(ceiling_of(g, &pipe(BreakerKind::Materialize, Spill::Runs)), 4 * MIB, "a Material: work_mem");
-        assert_eq!(ceiling_of(g, &pipe(BreakerKind::PlainAgg, Spill::None)), 0, "a plain aggregate: none");
-        assert_eq!(ceiling_of(g, &pipe(BreakerKind::HashAgg, Spill::None)), 0, "no spill road (a set operation side): none");
-        assert_eq!(ceiling_of(Grant::of(64 * MIB), &pipe(BreakerKind::HashAgg, parts)), 0, "a grant without ceilings: none");
+        assert_eq!(
+            ceiling_of(g, &pipe(BreakerKind::HashAgg, parts)),
+            8 * MIB,
+            "a hash aggregate: hash_mem"
+        );
+        assert_eq!(
+            ceiling_of(g, &pipe(BreakerKind::HashBuild, parts)),
+            8 * MIB,
+            "a hash build: hash_mem"
+        );
+        assert_eq!(
+            ceiling_of(g, &pipe(BreakerKind::Distinct, parts)),
+            8 * MIB,
+            "a hashed DISTINCT: hash_mem"
+        );
+        assert_eq!(
+            ceiling_of(g, &pipe(BreakerKind::Sort, Spill::Runs)),
+            4 * MIB,
+            "a Sort: work_mem"
+        );
+        assert_eq!(
+            ceiling_of(g, &pipe(BreakerKind::Materialize, Spill::Runs)),
+            4 * MIB,
+            "a Material: work_mem"
+        );
+        assert_eq!(
+            ceiling_of(g, &pipe(BreakerKind::PlainAgg, Spill::None)),
+            0,
+            "a plain aggregate: none"
+        );
+        assert_eq!(
+            ceiling_of(g, &pipe(BreakerKind::HashAgg, Spill::None)),
+            0,
+            "no spill road (a set operation side): none"
+        );
+        assert_eq!(
+            ceiling_of(Grant::of(64 * MIB), &pipe(BreakerKind::HashAgg, parts)),
+            0,
+            "a grant without ceilings: none"
+        );
         let t = g.trimmed(16 * MIB);
-        assert_eq!((t.sort_floor, t.hash_floor, t.sort_ceil, t.hash_ceil), (0, 0, 4 * MIB, 8 * MIB), "a trim drops the floors, keeps the ceilings");
+        assert_eq!(
+            (t.sort_floor, t.hash_floor, t.sort_ceil, t.hash_ceil),
+            (0, 0, 4 * MIB, 8 * MIB),
+            "a trim drops the floors, keeps the ceilings"
+        );
     }
 
     /// Each participant its own budget, node by node as PostgreSQL has it: a worker's region the ceiling; the leader's a
@@ -3674,18 +4775,52 @@ mod ceilings {
         use BreakerKind::*;
         assert_eq!(leader_ceiling(8 * MIB, 0, HashBuild), 8 * MIB);
         assert_eq!(leader_ceiling(8 * MIB, 1, HashBuild), 8 * MIB);
-        assert_eq!(leader_ceiling(8 * MIB, 8, HashBuild), 72 * MIB, "Parallel Hash: hash_mem x the participants");
-        assert_eq!(leader_ceiling(8 * MIB, 8, Sort), 72 * MIB, "a Sort's merge: the participants' runs");
-        assert_eq!(leader_ceiling(8 * MIB, 8, HashAgg), 8 * MIB, "Finalize HashAgg: one hash_mem");
-        assert_eq!(leader_ceiling(8 * MIB, 8, Distinct), 8 * MIB, "a hashed DISTINCT's final table: one hash_mem");
+        assert_eq!(
+            leader_ceiling(8 * MIB, 8, HashBuild),
+            72 * MIB,
+            "Parallel Hash: hash_mem x the participants"
+        );
+        assert_eq!(
+            leader_ceiling(8 * MIB, 8, Sort),
+            72 * MIB,
+            "a Sort's merge: the participants' runs"
+        );
+        assert_eq!(
+            leader_ceiling(8 * MIB, 8, HashAgg),
+            8 * MIB,
+            "Finalize HashAgg: one hash_mem"
+        );
+        assert_eq!(
+            leader_ceiling(8 * MIB, 8, Distinct),
+            8 * MIB,
+            "a hashed DISTINCT's final table: one hash_mem"
+        );
         assert_eq!(leader_ceiling(0, 8, HashBuild), 0, "no ceiling stays none");
         let g = Grant::of(1024 * MIB).with_ceilings(4 * MIB, 8 * MIB);
         let s = g.split_within(1, 1, false, 0, 0, 4 * MIB);
-        assert_eq!(s.breaker.bytes as u64, 4 * MIB, "serial: the share held to the ceiling");
+        assert_eq!(
+            s.breaker.bytes as u64,
+            4 * MIB,
+            "serial: the share held to the ceiling"
+        );
         let s = g.split_within(1, 4, false, 0, 0, 8 * MIB);
-        assert!(s.worker.bytes as u64 <= 8 * MIB && s.breaker.bytes as u64 <= 40 * MIB, "W4: a worker's share at most one budget, the leader's five ({s:?})");
-        let s = g.split_capped(1, 4, false, 0, 0, 8 * MIB, leader_ceiling(8 * MIB, 4, HashAgg));
-        assert!(s.worker.bytes as u64 <= 8 * MIB && s.breaker.bytes as u64 <= 8 * MIB, "W4 hash aggregate: the leader's Finalize table one budget ({s:?})");
+        assert!(
+            s.worker.bytes as u64 <= 8 * MIB && s.breaker.bytes as u64 <= 40 * MIB,
+            "W4: a worker's share at most one budget, the leader's five ({s:?})"
+        );
+        let s = g.split_capped(
+            1,
+            4,
+            false,
+            0,
+            0,
+            8 * MIB,
+            leader_ceiling(8 * MIB, 4, HashAgg),
+        );
+        assert!(
+            s.worker.bytes as u64 <= 8 * MIB && s.breaker.bytes as u64 <= 8 * MIB,
+            "W4 hash aggregate: the leader's Finalize table one budget ({s:?})"
+        );
     }
 }
 
@@ -3703,10 +4838,22 @@ mod d3147 {
     #[test]
     fn the_bound_past_g_is_the_users_cap_alone() {
         let floor = granted_floor(GIB, 8 * GIB);
-        assert!(within_bounds(80 * GIB, floor, 0), "no cap: no bound (the pool's own room and wait)");
-        assert!(within_bounds(6 * GIB, floor, 6 * GIB), "within the user's cap");
-        assert!(!within_bounds(9 * GIB, floor, 6 * GIB), "past the user's cap and its floor");
-        assert!(within_bounds(8 * GIB + GRANT_FLOOR, floor, 6 * GIB), "reserved past the cap: one floor past the reservation");
+        assert!(
+            within_bounds(80 * GIB, floor, 0),
+            "no cap: no bound (the pool's own room and wait)"
+        );
+        assert!(
+            within_bounds(6 * GIB, floor, 6 * GIB),
+            "within the user's cap"
+        );
+        assert!(
+            !within_bounds(9 * GIB, floor, 6 * GIB),
+            "past the user's cap and its floor"
+        );
+        assert!(
+            within_bounds(8 * GIB + GRANT_FLOOR, floor, 6 * GIB),
+            "reserved past the cap: one floor past the reservation"
+        );
         assert!(!within_bounds(8 * GIB + GRANT_FLOOR + 1, floor, 6 * GIB));
     }
 
@@ -3718,18 +4865,37 @@ mod d3147 {
     fn region_opens_within_the_grant_are_never_refused_beside_another_statement() {
         let (granted, lane) = (7870 * MIB, 14757 * MIB);
         let region = crate::park::region_bytes((granted / 9) as usize) as u64;
-        assert!(9 * region > granted, "the nine regions round past the grant");
+        assert!(
+            9 * region > granted,
+            "the nine regions round past the grant"
+        );
         let reserved = 5 * region + 37_747_776;
         let floor = granted_floor(granted, reserved);
         let mut grown = 0;
         for open in 0..4 {
-            assert!(within_bounds(reserved + grown + region, floor, 0), "open {open} past G, no cap");
-            assert!(within_bounds(reserved + grown + region, floor, lane / 2), "open {open} past G under a half-lane cap");
+            assert!(
+                within_bounds(reserved + grown + region, floor, 0),
+                "open {open} past G, no cap"
+            );
+            assert!(
+                within_bounds(reserved + grown + region, floor, lane / 2),
+                "open {open} past G under a half-lane cap"
+            );
             grown += region;
         }
-        assert!(lane / 2 < floor, "the case: the half-lane cap is under the grant");
-        assert!(!within_bounds(floor + 1, floor, lane / 2), "past the floor the user's cap bounds again");
-        assert_eq!(granted_floor(1024 * MIB, 3072 * MIB), 3072 * MIB + GRANT_FLOOR, "reserved past the grant: one floor past the reservation");
+        assert!(
+            lane / 2 < floor,
+            "the case: the half-lane cap is under the grant"
+        );
+        assert!(
+            !within_bounds(floor + 1, floor, lane / 2),
+            "past the floor the user's cap bounds again"
+        );
+        assert_eq!(
+            granted_floor(1024 * MIB, 3072 * MIB),
+            3072 * MIB + GRANT_FLOOR,
+            "reserved past the grant: one floor past the reservation"
+        );
     }
 }
 
@@ -3743,13 +4909,35 @@ mod d3088 {
     /// CTE's HashAgg charged 2.5 GiB stays 2.5 GiB beside a 1 GiB room, where it was cut to 1 GiB and grew to its floor.
     #[test]
     fn the_cut_keeps_the_charged_floor() {
-        let share = Share { bytes: (5 * GIB / 2) as u32 };
-        assert_eq!(cut_share(share, GIB, 5 * GIB / 2), share, "charged its modeled table: kept whole");
-        assert_eq!(cut_share(share, GIB, 0).bytes as u64, GIB, "no floor charged: the room");
-        assert_eq!(cut_share(share, GIB, 3 * GIB / 2).bytes as u64, 3 * GIB / 2, "the charged part beside a smaller room");
+        let share = Share {
+            bytes: (5 * GIB / 2) as u32,
+        };
+        assert_eq!(
+            cut_share(share, GIB, 5 * GIB / 2),
+            share,
+            "charged its modeled table: kept whole"
+        );
+        assert_eq!(
+            cut_share(share, GIB, 0).bytes as u64,
+            GIB,
+            "no floor charged: the room"
+        );
+        assert_eq!(
+            cut_share(share, GIB, 3 * GIB / 2).bytes as u64,
+            3 * GIB / 2,
+            "the charged part beside a smaller room"
+        );
         assert_eq!(cut_share(share, 4 * GIB, 0), share, "never past the share");
-        assert_eq!(cut_share(share, 0, 0).bytes, SHARE_FLOOR & !7, "at least SHARE_FLOOR");
-        assert_eq!(cut_share(Share { bytes: 1 << 20 }, 0, 8 * GIB).bytes, 1 << 20, "a charge past the share keeps the share");
+        assert_eq!(
+            cut_share(share, 0, 0).bytes,
+            SHARE_FLOOR & !7,
+            "at least SHARE_FLOOR"
+        );
+        assert_eq!(
+            cut_share(Share { bytes: 1 << 20 }, 0, 8 * GIB).bytes,
+            1 << 20,
+            "a charge past the share keeps the share"
+        );
         assert_eq!(cut_share(share, GIB + 3, 0).bytes % 8, 0, "8-aligned");
     }
 }
@@ -3791,7 +4979,11 @@ mod w1 {
                 let mut inner = MemWait::default();
                 inner.pause();
             }
-            assert_eq!(seen(), (1, 0), "the nested wait neither reports nor ends the outer event");
+            assert_eq!(
+                seen(),
+                (1, 0),
+                "the nested wait neither reports nor ends the outer event"
+            );
         }
         assert_eq!(seen(), (1, 1), "the event ends with the wait");
         {
@@ -3805,7 +4997,9 @@ mod w1 {
 mod top_rows {
     use super::{footprint, footprint_regions, share, top_share_cap, Grant};
     use gravity_abi::breaker::{Breaker, BreakerKind, Budget, Spill};
-    use gravity_program::{Arena, Code, End, Layout, OutCol, Pipeline, Program, Reason, SiteDesc, WritePlan};
+    use gravity_program::{
+        Arena, Code, End, Layout, OutCol, Pipeline, Program, Reason, SiteDesc, WritePlan,
+    };
 
     const MIB: u64 = 1 << 20;
     const GIB: u64 = 1 << 30;
@@ -3819,10 +5013,32 @@ mod top_rows {
     fn program(top: u64) -> Program {
         let st = Arena::new(1 << 14);
         let sites = [SiteDesc::range_source(st.handle(), 3840, &[1, 2])];
-        let sort = End::Breaker(Breaker { kind: BreakerKind::Sort, slot: 0, bytes: 0, budget: Budget::Share, spill: Spill::Runs });
-        let scan = Pipeline::eligible(0, sort, 100_000_000).storing_rows(24).keeping_rows(top);
+        let sort = End::Breaker(Breaker {
+            kind: BreakerKind::Sort,
+            slot: 0,
+            bytes: 0,
+            budget: Budget::Share,
+            spill: Spill::Runs,
+        });
+        let scan = Pipeline::eligible(0, sort, 100_000_000)
+            .storing_rows(24)
+            .keeping_rows(top);
         let emit = Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming_one(0);
-        Program::with_pipelines(Layout { nsites: 1, out_natts: 3, out_rows: 64, scratch_bytes: 0, exec_bytes: 0 }, &sites, &core::array::from_fn::<_, 3, _>(|i| OutCol::new(["c0", "c1", "c2"][i], 20, -1, 8, true)), WritePlan::SELECT, [(scan, Code::hand(noop)), (emit, Code::hand(noop))])
+        Program::with_pipelines(
+            Layout {
+                nsites: 1,
+                out_natts: 3,
+                out_rows: 64,
+                scratch_bytes: 0,
+                exec_bytes: 0,
+            },
+            &sites,
+            &core::array::from_fn::<_, 3, _>(|i| {
+                OutCol::new(["c0", "c1", "c2"][i], 20, -1, 8, true)
+            }),
+            WritePlan::SELECT,
+            [(scan, Code::hand(noop)), (emit, Code::hand(noop))],
+        )
     }
 
     /// A row top under LIMIT 1024 (its soft cap 4096 rows of 24 bytes, twice for the copies: one 2 MiB step) at W8 and a 1
@@ -3834,16 +5050,37 @@ mod top_rows {
         let grant = Grant::of(64 * MIB).with_floors(GIB, GIB);
         let (bounded, open) = (program(4096), program(0));
         assert_eq!(top_share_cap(&bounded.pipelines[0]), 2 * MIB);
-        assert_eq!(top_share_cap(&open.pipelines[0]), u64::MAX, "no bound: no cap");
+        assert_eq!(
+            top_share_cap(&open.pipelines[0]),
+            u64::MAX,
+            "no bound: no cap"
+        );
         let s = share(&bounded, 0, grant, 8);
         assert_eq!(s.worker.bytes as u64, 2 * MIB, "each worker's share");
-        assert!((2 * MIB..=9 * 2 * MIB).contains(&(s.breaker.bytes as u64)), "the leader merges nine runs: at most nine caps");
-        assert!(footprint_regions(grant, &bounded, 8) <= (9 + 8) * 2 * MIB, "the leader's nine caps and eight 2 MiB shares");
-        assert!(footprint(grant, &bounded, 8) < 64 * MIB, "a few MiB a participant beside the arenas");
+        assert!(
+            (2 * MIB..=9 * 2 * MIB).contains(&(s.breaker.bytes as u64)),
+            "the leader merges nine runs: at most nine caps"
+        );
+        assert!(
+            footprint_regions(grant, &bounded, 8) <= (9 + 8) * 2 * MIB,
+            "the leader's nine caps and eight 2 MiB shares"
+        );
+        assert!(
+            footprint(grant, &bounded, 8) < 64 * MIB,
+            "a few MiB a participant beside the arenas"
+        );
         let s = share(&open, 0, grant, 8);
-        assert_eq!(s, grant.split_for_at_least(1, 8, false, GIB), "unbounded: the floored split as before");
+        assert_eq!(
+            s,
+            grant.split_for_at_least(1, 8, false, GIB),
+            "unbounded: the floored split as before"
+        );
         assert_eq!((s.breaker.bytes as u64, s.worker.bytes as u64), (GIB, GIB));
-        assert_eq!(footprint_regions(grant, &open, 8), 9 * GIB, "nine 1 GiB floors");
+        assert_eq!(
+            footprint_regions(grant, &open, 8),
+            9 * GIB,
+            "nine 1 GiB floors"
+        );
     }
 }
 
@@ -3852,7 +5089,9 @@ mod e3b {
     use super::{footprint_regions, share, spooled, Grant, Overdraw, POOL, SHARE_FLOOR};
     use gravity_abi::breaker::{Breaker, BreakerKind, Budget, Spill};
     use gravity_program::protos::{Proto, ProtoKind, V4Descs};
-    use gravity_program::{Arena, Code, End, Layout, OutCol, Pipeline, Program, Reason, SiteDesc, WritePlan};
+    use gravity_program::{
+        Arena, Code, End, Layout, OutCol, Pipeline, Program, Reason, SiteDesc, WritePlan,
+    };
 
     const MIB: u64 = 1 << 20;
 
@@ -3866,12 +5105,34 @@ mod e3b {
     fn program(spool: bool) -> Program {
         let st = Arena::new(1 << 14);
         let sites = [SiteDesc::range_source(st.handle(), 3840, &[1, 2])];
-        let mat = End::Breaker(Breaker { kind: BreakerKind::Materialize, slot: 0, bytes: 0, budget: Budget::Share, spill: Spill::Runs });
+        let mat = End::Breaker(Breaker {
+            kind: BreakerKind::Materialize,
+            slot: 0,
+            bytes: 0,
+            budget: Budget::Share,
+            spill: Spill::Runs,
+        });
         let scan = Pipeline::eligible(0, mat, 10_000_000).storing_rows(24);
         let read = Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming_one(0);
-        let mut p = Program::with_pipelines(Layout { nsites: 1, out_natts: 3, out_rows: 64, scratch_bytes: 0, exec_bytes: 0 }, &sites, &core::array::from_fn::<_, 3, _>(|i| OutCol::new(["c0", "c1", "c2"][i], 20, -1, 8, true)), WritePlan::SELECT, [(scan, Code::hand(noop)), (read, Code::hand(noop))]);
+        let mut p = Program::with_pipelines(
+            Layout {
+                nsites: 1,
+                out_natts: 3,
+                out_rows: 64,
+                scratch_bytes: 0,
+                exec_bytes: 0,
+            },
+            &sites,
+            &core::array::from_fn::<_, 3, _>(|i| {
+                OutCol::new(["c0", "c1", "c2"][i], 20, -1, 8, true)
+            }),
+            WritePlan::SELECT,
+            [(scan, Code::hand(noop)), (read, Code::hand(noop))],
+        );
         if spool {
-            p.set_v4(&V4Descs::new(vec![Proto::new(ProtoKind::Spool, 1).peer(0).arg(48)])); // alloc: Cold
+            p.set_v4(&V4Descs::new(vec![Proto::new(ProtoKind::Spool, 1)
+                .peer(0)
+                .arg(48)])); // alloc: Cold
         }
         p
     }
@@ -3883,13 +5144,27 @@ mod e3b {
         let grant = Grant::of(256 * MIB).with_floors(64 * MIB, 64 * MIB);
         let (spool, run) = (program(true), program(false));
         assert!(spooled(&spool, 0, &spool.pipelines[0]) && !spooled(&run, 0, &run.pipelines[0]));
-        assert!(!spooled(&spool, 1, &spool.pipelines[1]), "the reader ends in no Materialize breaker");
+        assert!(
+            !spooled(&spool, 1, &spool.pipelines[1]),
+            "the reader ends in no Materialize breaker"
+        );
         for w in [1u16, 8] {
             let s = share(&spool, 0, grant, w);
-            assert_eq!((s.breaker.bytes, s.worker.bytes), (SHARE_FLOOR, SHARE_FLOOR), "W{w}: the header's floor, leader and workers");
+            assert_eq!(
+                (s.breaker.bytes, s.worker.bytes),
+                (SHARE_FLOOR, SHARE_FLOOR),
+                "W{w}: the header's floor, leader and workers"
+            );
             let r = share(&run, 0, grant, w);
-            assert!(r.breaker.bytes as u64 >= 64 * MIB, "W{w}: a slot-run spool keeps its floor ({})", r.breaker.bytes);
-            assert!(footprint_regions(grant, &spool, w) < footprint_regions(grant, &run, w) / 64, "W{w}: the footprint reserves the floor");
+            assert!(
+                r.breaker.bytes as u64 >= 64 * MIB,
+                "W{w}: a slot-run spool keeps its floor ({})",
+                r.breaker.bytes
+            );
+            assert!(
+                footprint_regions(grant, &spool, w) < footprint_regions(grant, &run, w) / 64,
+                "W{w}: the footprint reserves the floor"
+            );
         }
     }
 
@@ -3898,13 +5173,30 @@ mod e3b {
     /// pool when the hold drops.
     #[test]
     fn an_overdraft_is_never_refused_and_is_counted_for_its_site() {
-        let (seen0, nested0) = (POOL.overdraws()[Overdraw::Seen as usize], POOL.overdraws()[Overdraw::Nested as usize]);
+        let (seen0, nested0) = (
+            POOL.overdraws()[Overdraw::Seen as usize],
+            POOL.overdraws()[Overdraw::Nested as usize],
+        );
         let h = POOL.overdraw(3 * MIB, None, Overdraw::Seen);
-        assert_eq!((h.pool, h.kept, h.past.is_none()), (3 * MIB, false, true), "a pool hold, not kept, no statement to count past G");
-        let (seen1, nested1) = (POOL.overdraws()[Overdraw::Seen as usize], POOL.overdraws()[Overdraw::Nested as usize]);
-        assert_eq!((seen1.0 - seen0.0, seen1.1 - seen0.1), (1, 3 * MIB), "one overdraft of 3 MiB for the seen set");
+        assert_eq!(
+            (h.pool, h.kept, h.past.is_none()),
+            (3 * MIB, false, true),
+            "a pool hold, not kept, no statement to count past G"
+        );
+        let (seen1, nested1) = (
+            POOL.overdraws()[Overdraw::Seen as usize],
+            POOL.overdraws()[Overdraw::Nested as usize],
+        );
+        assert_eq!(
+            (seen1.0 - seen0.0, seen1.1 - seen0.1),
+            (1, 3 * MIB),
+            "one overdraft of 3 MiB for the seen set"
+        );
         assert_eq!(nested1, nested0, "no other site's");
-        assert_eq!((Overdraw::Seen.name(), Overdraw::Nested.name()), ("seen_past", "nested_past"));
+        assert_eq!(
+            (Overdraw::Seen.name(), Overdraw::Nested.name()),
+            ("seen_past", "nested_past")
+        );
         drop(h);
     }
 }
@@ -3918,9 +5210,21 @@ mod d3798_s2 {
     #[test]
     fn the_start_rides_the_grant() {
         assert_eq!(decide_start(0, None), StartSize::Small);
-        assert_eq!(Grant::of(1 << 30).start, StartSize::Small, "a grant no admission decided: small, as before S2");
-        let g = Grant::of(1 << 30).with_start(StartSize::Share).with_floors(1, 2).with_ceilings(3, 4).with_exact(1);
-        assert_eq!(g.trimmed(1 << 20).start, StartSize::Share, "a trim keeps the start");
+        assert_eq!(
+            Grant::of(1 << 30).start,
+            StartSize::Small,
+            "a grant no admission decided: small, as before S2"
+        );
+        let g = Grant::of(1 << 30)
+            .with_start(StartSize::Share)
+            .with_floors(1, 2)
+            .with_ceilings(3, 4)
+            .with_exact(1);
+        assert_eq!(
+            g.trimmed(1 << 20).start,
+            StartSize::Share,
+            "a trim keeps the start"
+        );
     }
 }
 
@@ -3942,7 +5246,11 @@ mod g1b {
             let shown = || memledger::pool_reserved(a);
             let unbacked = || memledger::account_row(a).pool_reserved_bytes;
             let mut h = Held::grown_worker(8 * MIB);
-            assert_eq!((h.pool, h.past.is_none(), shown()), (8 * MIB, true, (8 * MIB) as i64), "no statement count; the ledger shows it");
+            assert_eq!(
+                (h.pool, h.past.is_none(), shown()),
+                (8 * MIB, true, (8 * MIB) as i64),
+                "no statement count; the ledger shows it"
+            );
             assert_eq!(unbacked(), 0, "backed: counted once, as the pages it holds");
             h.uncount(3 * MIB);
             assert_eq!(shown(), (3 * MIB) as i64, "cut with its pool part");
@@ -3969,7 +5277,38 @@ mod d4098 {
 
     /// A pool of its own (the process pool's statics, fresh).
     fn fresh() -> GrantPool {
-        GrantPool { capacity: AtomicU64::new(0), held: AtomicU64::new(0), kept: AtomicU64::new(0), inflight: AtomicU64::new(0), max_inflight: AtomicU64::new(0), waits: AtomicU64::new(0), wait_ns: AtomicU64::new(0), trims: AtomicU64::new(0), sheds: AtomicU64::new(0), refusals: AtomicU64::new(0), reserve: AtomicU64::new(0), small_held: AtomicU64::new(0), small_admits: AtomicU64::new(0), small_fallbacks: AtomicU64::new(0), small_overflows: AtomicU64::new(0), buffer: AtomicU64::new(0), buffer_b: AtomicU64::new(0), small_draws: AtomicU64::new(0), small_waits: AtomicU64::new(0), small_refusals: AtomicU64::new(0), borrows: AtomicU64::new(0), borrowed: AtomicU64::new(0), unadmitted: AtomicU64::new(0), unadmitted_bytes: AtomicU64::new(0), overdraw_n: [const { AtomicU64::new(0) }; Overdraw::N], overdraw_bytes: [const { AtomicU64::new(0) }; Overdraw::N], ended: AtomicU64::new(0), turn: AtomicU64::new(0), tickets: AtomicU64::new(0), solo: core::sync::atomic::AtomicBool::new(false) }
+        GrantPool {
+            capacity: AtomicU64::new(0),
+            held: AtomicU64::new(0),
+            kept: AtomicU64::new(0),
+            inflight: AtomicU64::new(0),
+            max_inflight: AtomicU64::new(0),
+            waits: AtomicU64::new(0),
+            wait_ns: AtomicU64::new(0),
+            trims: AtomicU64::new(0),
+            sheds: AtomicU64::new(0),
+            refusals: AtomicU64::new(0),
+            reserve: AtomicU64::new(0),
+            small_held: AtomicU64::new(0),
+            small_admits: AtomicU64::new(0),
+            small_fallbacks: AtomicU64::new(0),
+            small_overflows: AtomicU64::new(0),
+            buffer: AtomicU64::new(0),
+            buffer_b: AtomicU64::new(0),
+            small_draws: AtomicU64::new(0),
+            small_waits: AtomicU64::new(0),
+            small_refusals: AtomicU64::new(0),
+            borrows: AtomicU64::new(0),
+            borrowed: AtomicU64::new(0),
+            unadmitted: AtomicU64::new(0),
+            unadmitted_bytes: AtomicU64::new(0),
+            overdraw_n: [const { AtomicU64::new(0) }; Overdraw::N],
+            overdraw_bytes: [const { AtomicU64::new(0) }; Overdraw::N],
+            ended: AtomicU64::new(0),
+            turn: AtomicU64::new(0),
+            tickets: AtomicU64::new(0),
+            solo: core::sync::atomic::AtomicBool::new(false),
+        }
     }
 
     /// D4098 (born red): a draw past the pool inside a canceled kernel call stops waiting on the reaper at once. The
@@ -3988,11 +5327,19 @@ mod d4098 {
             drop(busy);
         });
         let t0 = std::time::Instant::now();
-        let (took, seen) = cancelpoll::scoped(&byte, || (pool.take_wait(128 << 20, false), cancelpoll::seen()));
+        let (took, seen) = cancelpoll::scoped(&byte, || {
+            (pool.take_wait(128 << 20, false), cancelpoll::seen())
+        });
         let waited = t0.elapsed();
         release.join().unwrap();
-        assert!(!took && seen, "refused as the statement's cancel (took {took}, seen {seen})");
-        assert!(waited < core::time::Duration::from_millis(250), "the cancel ended the wait on the reaper: waited {waited:?}");
+        assert!(
+            !took && seen,
+            "refused as the statement's cancel (took {took}, seen {seen})"
+        );
+        assert!(
+            waited < core::time::Duration::from_millis(250),
+            "the cancel ended the wait on the reaper: waited {waited:?}"
+        );
     }
 }
 
@@ -4005,17 +5352,37 @@ mod grow_mode {
     const MIB: u64 = 1 << 20;
 
     fn pipe(kind: BreakerKind, spill: Spill) -> Pipeline {
-        Pipeline::eligible(0, End::Breaker(Breaker { kind, slot: 0, bytes: 0, budget: Budget::Share, spill }), 1000)
+        Pipeline::eligible(
+            0,
+            End::Breaker(Breaker {
+                kind,
+                slot: 0,
+                bytes: 0,
+                budget: Budget::Share,
+                spill,
+            }),
+            1000,
+        )
     }
 
     /// Grow mode rides the grant: off unless an admission set it (flag off = today's grants), kept by a trim and by the
     /// estimate start's floors (the PostgreSQL budgets, the caps of its shares).
     #[test]
     fn grow_mode_rides_the_grant_and_is_off_by_default() {
-        assert!(!Grant::of(64 * MIB).grow, "a grant no grow-mode admission made: off");
-        let g = Grant::of(64 * MIB).with_floors(4 * MIB, 8 * MIB).with_ceilings(4 * MIB, 8 * MIB).with_start(StartSize::Small).with_grow(true);
+        assert!(
+            !Grant::of(64 * MIB).grow,
+            "a grant no grow-mode admission made: off"
+        );
+        let g = Grant::of(64 * MIB)
+            .with_floors(4 * MIB, 8 * MIB)
+            .with_ceilings(4 * MIB, 8 * MIB)
+            .with_start(StartSize::Small)
+            .with_grow(true);
         assert!(g.trimmed(16 * MIB).grow, "a trim keeps it");
-        assert!(g.trimmed(16 * MIB).with_floors(4 * MIB, 8 * MIB).grow, "the estimate start keeps it");
+        assert!(
+            g.trimmed(16 * MIB).with_floors(4 * MIB, 8 * MIB).grow,
+            "the estimate start keeps it"
+        );
         assert!(!Grant::of(64 * MIB).with_grow(false).trimmed(MIB).grow);
     }
 
@@ -4029,12 +5396,36 @@ mod grow_mode {
         let today = Grant::of(64 * MIB).with_ceilings(4 * MIB, 8 * MIB);
         let grow = today.with_grow(true).with_ceilings(c, c);
         let parts = Spill::Partitioned { bits: 3 };
-        assert_eq!(ceiling_of(today, &pipe(BreakerKind::HashAgg, parts)), 8 * MIB, "today: hash_mem");
-        assert_eq!(ceiling_of(grow, &pipe(BreakerKind::HashAgg, parts)), wall, "grow: the region wall");
-        assert_eq!(ceiling_of(grow, &pipe(BreakerKind::Sort, Spill::Runs)), wall, "grow: a Sort's too");
-        assert_eq!(ceiling_of(grow, &pipe(BreakerKind::HashAgg, Spill::None)), 0, "no spill road: none, as today");
-        assert_eq!(leader_ceiling(wall, 8, BreakerKind::HashBuild), wall, "the leader's at the wall too");
-        assert_eq!(ceiling_of(today.with_grow(true), &pipe(BreakerKind::HashAgg, parts)), 8 * MIB, "grow + explicit work_mem: hash_mem");
+        assert_eq!(
+            ceiling_of(today, &pipe(BreakerKind::HashAgg, parts)),
+            8 * MIB,
+            "today: hash_mem"
+        );
+        assert_eq!(
+            ceiling_of(grow, &pipe(BreakerKind::HashAgg, parts)),
+            wall,
+            "grow: the region wall"
+        );
+        assert_eq!(
+            ceiling_of(grow, &pipe(BreakerKind::Sort, Spill::Runs)),
+            wall,
+            "grow: a Sort's too"
+        );
+        assert_eq!(
+            ceiling_of(grow, &pipe(BreakerKind::HashAgg, Spill::None)),
+            0,
+            "no spill road: none, as today"
+        );
+        assert_eq!(
+            leader_ceiling(wall, 8, BreakerKind::HashBuild),
+            wall,
+            "the leader's at the wall too"
+        );
+        assert_eq!(
+            ceiling_of(today.with_grow(true), &pipe(BreakerKind::HashAgg, parts)),
+            8 * MIB,
+            "grow + explicit work_mem: hash_mem"
+        );
     }
 }
 
@@ -4060,7 +5451,13 @@ mod p3_tests {
         super::parked_trim_settle(1, false);
         let climbing = t1.elapsed();
         release.join().unwrap();
-        assert!(job < Duration::from_millis(100), "the service's job waited for the reaper: {job:?}");
-        assert!(climbing >= Duration::from_millis(500), "a climbing thread outside the pass waits for the reaper: {climbing:?}");
+        assert!(
+            job < Duration::from_millis(100),
+            "the service's job waited for the reaper: {job:?}"
+        );
+        assert!(
+            climbing >= Duration::from_millis(500),
+            "a climbing thread outside the pass waits for the reaper: {climbing:?}"
+        );
     }
 }

@@ -3,7 +3,10 @@
 //! finished set side's breaker region (proto.rs, skip.rs): a plain record's count, an owned table's records, each
 //! record's key and count words.
 #![allow(unsafe_code)]
-use gravity_abi::breaker::{table_kind, HashAgg, Owned, OwnerTop, RecordLayout, HASHAGG_HDR, LAYOUT_IMPLICIT_COUNT, OWNERTOP_HDR, TABLE_AGG, TABLE_OWNED};
+use gravity_abi::breaker::{
+    table_kind, HashAgg, Owned, OwnerTop, RecordLayout, HASHAGG_HDR, LAYOUT_IMPLICIT_COUNT,
+    OWNERTOP_HDR, TABLE_AGG, TABLE_OWNED,
+};
 use gravity_abi::Ctx;
 use gravity_kernels::ops::setop::entries as abi;
 use gravity_kernels::ops::shared::object::entries as abi8;
@@ -30,7 +33,9 @@ impl HeldWord {
     /// The held word of `cell`, a generation cell `lay` laid, whose heap block the caller keeps beside this word to the
     /// execution's end.
     pub(crate) fn of(cell: &mut [u64]) -> HeldWord {
-        HeldWord(core::ptr::from_mut(&mut cell[gravity_kernels::ops::setop::entries::GEN_HELD / 8]))
+        HeldWord(core::ptr::from_mut(
+            &mut cell[gravity_kernels::ops::setop::entries::GEN_HELD / 8],
+        ))
     }
 
     /// The word zeroed, outside every call of the object (the caller holds the object's state borrowed).
@@ -53,10 +58,16 @@ impl HeldWord {
 pub(crate) fn lay_cell(rt: u64) -> Box<[u64]> {
     use super::generation::WORDS;
     let mut cell = vec![0u64; WORDS].into_boxed_slice(); // alloc: Exec
-    // SAFETY: `cell` is WORDS words: the cell (its head written here, the held word zero), then the state's address.
+                                                         // SAFETY: `cell` is WORDS words: the cell (its head written here, the held word zero), then the state's address.
     unsafe {
         let c = cell.as_mut_ptr();
-        c.cast::<abi::GenCell>().write(abi::GenCell { head: abi8::Head { magic: abi::GEN_MAGIC, op: gen_op }, held: 0 });
+        c.cast::<abi::GenCell>().write(abi::GenCell {
+            head: abi8::Head {
+                magic: abi::GEN_MAGIC,
+                op: gen_op,
+            },
+            held: 0,
+        });
         c.add(WORDS - 1).write(rt);
     }
     cell
@@ -70,15 +81,29 @@ pub(crate) fn lay_cell(rt: u64) -> Box<[u64]> {
 unsafe fn gen_op(h: *mut abi8::Head, ctx: *mut Ctx, code: u64, a: u64, b: u64) -> i64 {
     use super::generation::{op, GenRt, WORDS};
     // SAFETY: the caller's: the cell's held word, then its state's address, laid by `lay_cell` for this execution.
-    let (held_word, rt) = unsafe { (HeldWord(h.cast::<u8>().add(abi::GEN_HELD).cast::<u64>()), &*(*h.cast::<u64>().add(WORDS - 1) as *const GenRt)) };
+    let (held_word, rt) = unsafe {
+        (
+            HeldWord(h.cast::<u8>().add(abi::GEN_HELD).cast::<u64>()),
+            &*(*h.cast::<u64>().add(WORDS - 1) as *const GenRt),
+        )
+    };
     // SAFETY: the IR's `1 + b` words at `a` (kernels raw.rs `GenSeen`, typesem userfp.rs `UserCollideProbe`): the KeyHash,
     // then the image.
-    let img = if code == abi::OP_GEN_SEEN || code == abi::OP_GEN_HAS { unsafe { image(a as *const u64, b) } } else { None };
+    let img = if code == abi::OP_GEN_SEEN || code == abi::OP_GEN_HAS {
+        unsafe { image(a as *const u64, b) }
+    } else {
+        None
+    };
     // The seen set's growth billed to the execution `ctx` runs (none without one: a unit test's call)
     // SAFETY: a non-null `ctx` is the bound context the IR's host call passes.
-    let mut overdraw = |bytes: u64| (!ctx.is_null()).then(|| unsafe { gravity_driver::hostimpl::arena::object_overdraw(ctx, bytes) });
+    let mut overdraw = |bytes: u64| {
+        (!ctx.is_null())
+            .then(|| unsafe { gravity_driver::hostimpl::arena::object_overdraw(ctx, bytes) })
+    };
     // CONVERT wave 2 (site 2): the set's bytes on the ledger, to the slot this pipeline produces into, else the statement
-    op(rt, &held_word, code, img, b, &mut overdraw, &|| gravity_fn::arena::OpArena::slot_owner_kind(ctx))
+    op(rt, &held_word, code, img, b, &mut overdraw, &|| {
+        gravity_fn::arena::OpArena::slot_owner_kind(ctx)
+    })
 }
 
 /// A plain side's row count over its breaker region `r`: its one record's sentinel at byte `sent`, 0 when no record was
@@ -99,7 +124,11 @@ pub(crate) fn region_count(r: &[u8], sent: usize) -> Option<i64> {
         }
         let n = *(t.record(0).as_ptr().add(sent) as *const i64);
         // an implicit sentinel is the rows + 1 (`Rec::open` marks the record used with 1; abi's merge takes the 1 off too)
-        Some(if t.layout.flags & LAYOUT_IMPLICIT_COUNT != 0 { (n - 1).max(0) } else { n })
+        Some(if t.layout.flags & LAYOUT_IMPLICIT_COUNT != 0 {
+            (n - 1).max(0)
+        } else {
+            n
+        })
     }
 }
 
@@ -180,14 +209,29 @@ pub(crate) fn owned_empty(r: &mut [u8]) -> bool {
 ///
 /// # Safety
 /// `rec` is a record of layout `lay` with at least `w` key words; `out` holds `key_len(n, w)` words.
-pub(crate) unsafe fn key_into(rec: *const u8, lay: &RecordLayout, n: usize, w: usize, out: &mut [u64]) {
+pub(crate) unsafe fn key_into(
+    rec: *const u8,
+    lay: &RecordLayout,
+    n: usize,
+    w: usize,
+    out: &mut [u64],
+) {
     for (i, o) in out[..w].iter_mut().enumerate() {
         *o = *(rec.add(lay.key_off(i)) as *const u64);
     }
     for (f, o) in out[w..key_len(n, w)].iter_mut().enumerate() {
-        let flags = if lay.nkeys() > w + f { *(rec.add(lay.key_off(w + f)) as *const u64) } else { 0 };
+        let flags = if lay.nkeys() > w + f {
+            *(rec.add(lay.key_off(w + f)) as *const u64)
+        } else {
+            0
+        };
         let bits = n.saturating_sub(64 * f);
-        *o = flags & if bits >= 64 { u64::MAX } else { (1u64 << bits) - 1 };
+        *o = flags
+            & if bits >= 64 {
+                u64::MAX
+            } else {
+                (1u64 << bits) - 1
+            };
     }
 }
 
@@ -203,7 +247,7 @@ pub(crate) fn key_len(n: usize, w: usize) -> usize {
 #[cfg(test)]
 pub(crate) unsafe fn key(rec: *const u8, lay: &RecordLayout, n: usize, w: usize) -> Vec<u64> {
     let mut k = vec![0u64; key_len(n, w)]; // alloc: Cold
-    // SAFETY: the caller's
+                                           // SAFETY: the caller's
     unsafe { key_into(rec, lay, n, w, &mut k) };
     k
 }

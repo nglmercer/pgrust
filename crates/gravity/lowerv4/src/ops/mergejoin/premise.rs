@@ -10,7 +10,9 @@ use crate::rep::{key_kind, Accessor};
 impl<'p> Walk<'_, '_, 'p> {
     /// One Op::Join(JoinDesc::Merge).
     pub(crate) fn mergejoin(&mut self, j: &JoinDesc<'p>) {
-        let JoinDesc::Merge { clauses, qual, .. } = j else { return };
+        let JoinDesc::Merge { clauses, qual, .. } = j else {
+            return;
+        };
         let packed = self.p.has(Prop::Packed);
         self.add(key_kind(KeyKind::I64, None, packed, Accessor::Order));
         self.list(clauses);

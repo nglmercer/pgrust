@@ -11,7 +11,10 @@ const F_PG_COLUMN_TOAST_CHUNK_ID: Oid = 6316;
 /// Function `funcid` reads its argument's stored image size: `pg_column_size`, `pg_column_compression`,
 /// `pg_column_toast_chunk_id`.
 pub fn reads_stored_image_size(funcid: Oid) -> bool {
-    matches!(funcid, F_PG_COLUMN_SIZE | F_PG_COLUMN_COMPRESSION | F_PG_COLUMN_TOAST_CHUNK_ID)
+    matches!(
+        funcid,
+        F_PG_COLUMN_SIZE | F_PG_COLUMN_COMPRESSION | F_PG_COLUMN_TOAST_CHUNK_ID
+    )
 }
 
 /// Function `funcid` reads its argument's header width, which a tuple copy changes (D2954): `pg_column_size` answers 1 +
@@ -59,16 +62,28 @@ mod tests {
     #[test]
     fn only_the_size_reader_sees_a_copy_s_header() {
         assert!(reads_header_width(1269), "pg_column_size");
-        assert!(!reads_header_width(2121), "pg_column_compression: a copy keeps the method");
-        assert!(!reads_header_width(6316), "pg_column_toast_chunk_id: a copy keeps the pointer");
+        assert!(
+            !reads_header_width(2121),
+            "pg_column_compression: a copy keeps the method"
+        );
+        assert!(
+            !reads_header_width(6316),
+            "pg_column_toast_chunk_id: a copy keeps the pointer"
+        );
         assert!(!reads_header_width(1257), "textlen: a value reader");
     }
 
     #[test]
     fn only_the_size_reader_is_set_exactly_when_its_argument_is() {
         assert!(sized_when_set(1269), "pg_column_size");
-        assert!(!sized_when_set(2121), "pg_column_compression: NULL for an uncompressed image");
-        assert!(!sized_when_set(6316), "pg_column_toast_chunk_id: NULL for an inline image");
+        assert!(
+            !sized_when_set(2121),
+            "pg_column_compression: NULL for an uncompressed image"
+        );
+        assert!(
+            !sized_when_set(6316),
+            "pg_column_toast_chunk_id: NULL for an inline image"
+        );
         assert!(!sized_when_set(1257), "textlen");
     }
 

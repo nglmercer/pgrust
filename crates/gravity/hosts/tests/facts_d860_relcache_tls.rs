@@ -32,26 +32,34 @@ fn a_test_thread_s_relcache_teardown_does_not_race_another_thread_s_relation_ope
         let t = std::thread::spawn(move || {
             let ctx = MemoryContext::new("d860 opener");
             for _ in 0..8 {
-                let h = relation_seams::relation_open::call(ctx.mcx(), HEAP_OID, AccessShareLock).unwrap();
-                let i = relation_seams::relation_open::call(ctx.mcx(), IDX_OID, AccessShareLock).unwrap();
+                let h = relation_seams::relation_open::call(ctx.mcx(), HEAP_OID, AccessShareLock)
+                    .unwrap();
+                let i = relation_seams::relation_open::call(ctx.mcx(), IDX_OID, AccessShareLock)
+                    .unwrap();
                 drop((h, i));
                 rebuild_relcache(); // the entries go, the next open rebuilds them: frees + allocations in the relcache memory
             }
-            let _h = relation_seams::relation_open::call(ctx.mcx(), HEAP_OID, AccessShareLock).unwrap();
+            let _h =
+                relation_seams::relation_open::call(ctx.mcx(), HEAP_OID, AccessShareLock).unwrap();
             d.store(true, Ordering::Release);
             // the thread exits here: its RELCACHE thread-local drops its entries (the frees D860 raced)
         });
         let ctx = MemoryContext::new("d860 main");
         // until the opener has finished, its thread-local teardown included (a panicked opener finishes too)
         while !t.is_finished() {
-            let h = relation_seams::relation_open::call(ctx.mcx(), HEAP2_OID, AccessShareLock).unwrap();
+            let h =
+                relation_seams::relation_open::call(ctx.mcx(), HEAP2_OID, AccessShareLock).unwrap();
             drop(h);
-            let h = relation_seams::relation_open::call(ctx.mcx(), HEAP_OID, AccessShareLock).unwrap();
+            let h =
+                relation_seams::relation_open::call(ctx.mcx(), HEAP_OID, AccessShareLock).unwrap();
             drop(h);
             rebuild_relcache();
         }
         t.join().expect("the opener thread");
-        assert!(done.load(Ordering::Acquire), "the opener did not finish its opens");
+        assert!(
+            done.load(Ordering::Acquire),
+            "the opener did not finish its opens"
+        );
     }
     quiesced();
 }

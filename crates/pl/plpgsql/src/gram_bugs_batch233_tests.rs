@@ -43,9 +43,17 @@ fn int_type() -> PlType {
 fn unknown_compiler_directive_is_a_syntax_error() {
     for (src, msg, pos) in [
         (&b"#foo begin end"[..], "syntax error at or near \"foo\"", 2),
-        (&b"#\"foo\" begin end"[..], "syntax error at or near \"\"foo\"\"", 2),
+        (
+            &b"#\"foo\" begin end"[..],
+            "syntax error at or near \"\"foo\"\"",
+            2,
+        ),
         (&b"# 12 begin end"[..], "syntax error at or near \"12\"", 3),
-        (&b"#option foo begin end"[..], "syntax error at or near \"foo\"", 9),
+        (
+            &b"#option foo begin end"[..],
+            "syntax error at or near \"foo\"",
+            9,
+        ),
     ] {
         let cx = mcx::MemoryContext::new("plpgsql b233 comp option");
         let mut comp = crate::comp::CompState::new();
@@ -65,14 +73,38 @@ fn unknown_compiler_directive_is_a_syntax_error() {
 #[test]
 fn end_of_input_inside_sql_construct_reports_the_eof() {
     for (src, msg, pos) in [
-        (&b"begin for r in execute 'select 1'"[..], "syntax error at end of input", 34),
-        (&b"begin for r in execute 'select 1' end"[..], "syntax error at end of input", 38),
-        (&b"begin for r in execute 'select 1' using 1"[..], "syntax error at end of input", 42),
-        (&b"begin for r in select 1"[..], "syntax error at end of input", 24),
+        (
+            &b"begin for r in execute 'select 1'"[..],
+            "syntax error at end of input",
+            34,
+        ),
+        (
+            &b"begin for r in execute 'select 1' end"[..],
+            "syntax error at end of input",
+            38,
+        ),
+        (
+            &b"begin for r in execute 'select 1' using 1"[..],
+            "syntax error at end of input",
+            42,
+        ),
+        (
+            &b"begin for r in select 1"[..],
+            "syntax error at end of input",
+            24,
+        ),
         (&b"begin x := 1"[..], "syntax error at end of input", 13),
-        (&b"begin x := (1"[..], "mismatched parentheses at end of input", 14),
+        (
+            &b"begin x := (1"[..],
+            "mismatched parentheses at end of input",
+            14,
+        ),
         (&b"begin if true"[..], "syntax error at end of input", 14),
-        (&b"begin for r in execute 'select 1' loop"[..], "syntax error at end of input", 39),
+        (
+            &b"begin for r in execute 'select 1' loop"[..],
+            "syntax error at end of input",
+            39,
+        ),
         (
             &b"begin for r in execute 'select 1'; end loop; end"[..],
             "missing \"LOOP or USING\" at end of SQL expression",

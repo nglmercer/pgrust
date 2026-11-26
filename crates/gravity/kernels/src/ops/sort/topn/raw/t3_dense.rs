@@ -6,7 +6,9 @@
 //! re-exports it as `ops::sort::topn::t3_dense`, the path its readers name. It reads the t3 plan's words beside it.
 
 use crate::ops::sort::topn::t3::{Plan, K_INT, NPARAMS, P_OUTVAL};
-use gravity_abi::breaker::{HashAgg, Rec, RecordLayout, SubSplit, T1, DENSE_TABLE_FLOOR as FLOOR, REDUCE_FLUSH};
+use gravity_abi::breaker::{
+    HashAgg, Rec, RecordLayout, SubSplit, DENSE_TABLE_FLOOR as FLOOR, REDUCE_FLUSH, T1,
+};
 use gravity_abi::hash::KeyHash;
 
 const LO_BITS: u32 = 40;
@@ -132,7 +134,15 @@ impl Dense {
         if b + MARKER + FLOOR > space {
             return None;
         }
-        Some(Dense { base: start, lo, span, acc, nslots, quiet: 0, fill: core::ptr::null_mut() })
+        Some(Dense {
+            base: start,
+            lo,
+            span,
+            acc,
+            nslots,
+            quiet: 0,
+            fill: core::ptr::null_mut(),
+        })
     }
 
     /// The table space at `start` laid: the area (opened) + its marker, or the marker alone (0: the form without the room); the bytes taken.
@@ -158,7 +168,15 @@ impl Dense {
     pub(crate) unsafe fn at_table(params: *const u64, t: *const HashAgg) -> Option<Dense> {
         let (lo, span, acc, nslots) = Dense::form(params)?;
         let b = *(t as *const u64).sub(1) as usize;
-        (b != 0).then(|| Dense { base: (t as *mut u8).sub(MARKER + b), lo, span, acc, nslots, quiet: 0, fill: core::ptr::null_mut() })
+        (b != 0).then(|| Dense {
+            base: (t as *mut u8).sub(MARKER + b),
+            lo,
+            span,
+            acc,
+            nslots,
+            quiet: 0,
+            fill: core::ptr::null_mut(),
+        })
     }
 
     pub(crate) fn bytes(&self) -> usize {
@@ -210,7 +228,8 @@ impl Dense {
 
     #[inline(always)]
     unsafe fn rec(&self, j: u32) -> *mut u8 {
-        self.base.add(idx_bytes(self.span) + j as usize * self.acc.size() as usize)
+        self.base
+            .add(idx_bytes(self.span) + j as usize * self.acc.size() as usize)
     }
 
     pub(crate) unsafe fn len(&self) -> u32 {
@@ -236,8 +255,17 @@ impl Dense {
 
     /// `new`: the identity table opened the pair. The group's accumulator opens on first sight.
     #[inline(always)]
-    pub(crate) unsafe fn note(&self, ri: u64, src: *const u8, new: bool, f: &crate::table::owner_fold::Fold) {
-        debug_assert!(ri < self.span as u64, "a group key outside its zone extrema");
+    pub(crate) unsafe fn note(
+        &self,
+        ri: u64,
+        src: *const u8,
+        new: bool,
+        f: &crate::table::owner_fold::Fold,
+    ) {
+        debug_assert!(
+            ri < self.span as u64,
+            "a group key outside its zone extrema"
+        );
         let slot = (self.base.add(HDR) as *mut u32).add(ri as usize);
         let mut j = *slot;
         if j == 0 {
@@ -264,7 +292,8 @@ impl Dense {
         let mut i = *self.hdr().add(1);
         while i < n {
             let src = self.rec(i);
-            let part = (KeyHash::of(core::slice::from_raw_parts(src as *const u64, 1))).part(pbits as u32);
+            let part =
+                (KeyHash::of(core::slice::from_raw_parts(src as *const u64, 1))).part(pbits as u32);
             if !ap.append(part, src) {
                 ap.finish();
                 *self.hdr().add(1) = i;
@@ -306,8 +335,28 @@ impl Area {
     /// index words (the group's 1-based accumulator), `recs` room for `span` accumulators of `acc` bytes,
     /// `fill` a writable word.
     #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
-    pub unsafe fn over(groups: *mut u32, bad: *mut u32, slots: *mut u32, recs: *mut u8, acc: usize, lo: i64, span: u32, quiet: usize, fill: *mut u64) -> Area {
-        Area { groups, bad, slots, recs, acc, lo, span, quiet, fill }
+    pub unsafe fn over(
+        groups: *mut u32,
+        bad: *mut u32,
+        slots: *mut u32,
+        recs: *mut u8,
+        acc: usize,
+        lo: i64,
+        span: u32,
+        quiet: usize,
+        fill: *mut u64,
+    ) -> Area {
+        Area {
+            groups,
+            bad,
+            slots,
+            recs,
+            acc,
+            lo,
+            span,
+            quiet,
+            fill,
+        }
     }
 
     /// The accumulator of group index `ri` (its key `lo + ri`), opened on first sight.
@@ -356,13 +405,19 @@ impl Area {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ops::sort::topn::t3::{misc_word, packed, shape_word_nn, K_INT, MODE_HASH, ORDER_COUNT_DESC, OUT_COUNT, OUT_DISTINCT, OUT_KEY, P_KEYS, P_LIMIT, P_MISC, P_OUT, P_SHAPE, P_SLOTS, S_AVG, S_COUNT, S_SUM};
+    use crate::ops::sort::topn::t3::{
+        misc_word, packed, shape_word_nn, K_INT, MODE_HASH, ORDER_COUNT_DESC, OUT_COUNT,
+        OUT_DISTINCT, OUT_KEY, P_KEYS, P_LIMIT, P_MISC, P_OUT, P_SHAPE, P_SLOTS, S_AVG, S_COUNT,
+        S_SUM,
+    };
     use crate::table::owner_fold::Fold;
     use gravity_abi::breaker::{KeyKind, SlotKind, HASHAGG_HDR, T1_HDR};
     use std::collections::BTreeMap;
 
     fn lcg(s: &mut u64) -> u64 {
-        *s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        *s = s
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         *s >> 17
     }
 
@@ -373,7 +428,11 @@ mod tests {
         let ns = if slots { 3 } else { 0 };
         p[P_SHAPE] = shape_word_nn(2, ns, ORDER_COUNT_DESC, MODE_HASH, 0, None, 0, 2 + ns, true);
         p[P_KEYS] = packed(&[(0, K_INT), (1, K_INT)], 4);
-        p[P_SLOTS] = if slots { packed(&[(0, S_COUNT), (2, S_SUM), (3, S_AVG)], 4) } else { 0 };
+        p[P_SLOTS] = if slots {
+            packed(&[(0, S_COUNT), (2, S_SUM), (3, S_AVG)], 4)
+        } else {
+            0
+        };
         p[P_OUT] = packed(&[(0, OUT_KEY), (0, OUT_DISTINCT), (0, OUT_COUNT)], 4);
         p[P_OUTVAL] = word(lo, hi);
         p[P_MISC] = misc_word(4, 0, 9_040);
@@ -382,9 +441,23 @@ mod tests {
 
     /// `n` distinct `(region, user)` pairs over `span` regions from `lo` in a `cap`-slot table (slot values from the
     /// pair's hash), and per region: pairs, count(*), sum, avg sum / n.
-    fn pairs(lo: i64, span: u32, n: usize, cap: u32, seed: u64, pair: &RecordLayout) -> (Vec<u64>, BTreeMap<i64, (i64, i64, i64, i128, i64)>) {
+    fn pairs(
+        lo: i64,
+        span: u32,
+        n: usize,
+        cap: u32,
+        seed: u64,
+        pair: &RecordLayout,
+    ) -> (Vec<u64>, BTreeMap<i64, (i64, i64, i64, i128, i64)>) {
         let mut region = vec![0u64; (HASHAGG_HDR + cap as usize * pair.size() as usize) / 8 + 1]; // alloc: Cold
-        let t = unsafe { HashAgg::at(region.as_mut_ptr() as *mut u8, pair, cap, (region.len() * 8) as u32) };
+        let t = unsafe {
+            HashAgg::at(
+                region.as_mut_ptr() as *mut u8,
+                pair,
+                cap,
+                (region.len() * 8) as u32,
+            )
+        };
         let mut rng = seed;
         let mut model = BTreeMap::new();
         let mut seen = std::collections::BTreeSet::new();
@@ -420,7 +493,13 @@ mod tests {
 
     #[test]
     fn domain_word_round_trips() {
-        for &(lo, hi) in &[(0i64, 0i64), (0, 249_999), (-5, 5), (1 << 30, (1 << 30) + 12_207), (-(1 << 39), -(1 << 39) + 3)] {
+        for &(lo, hi) in &[
+            (0i64, 0i64),
+            (0, 249_999),
+            (-5, 5),
+            (1 << 30, (1 << 30) + 12_207),
+            (-(1 << 39), -(1 << 39) + 3),
+        ] {
             let w = word(lo, hi);
             assert_ne!(w, 0, "{lo}..{hi}");
             assert_eq!(domain(w), Some((lo, (hi - lo + 1) as u32)), "{lo}..{hi}");
@@ -430,7 +509,10 @@ mod tests {
         assert_eq!(word(0, SPAN_MAX as i64), 0);
         assert_ne!(word(0, SPAN_MAX as i64 - 1), 0);
         // the widest span round-trips through the 23 span bits
-        assert_eq!(domain(word(-5, SPAN_MAX as i64 - 6)), Some((-5, SPAN_MAX as u32)));
+        assert_eq!(
+            domain(word(-5, SPAN_MAX as i64 - 6)),
+            Some((-5, SPAN_MAX as u32))
+        );
         assert_eq!(word(1 << 39, (1 << 39) + 1), 0);
         assert_eq!(word(i64::MIN, i64::MIN + 1), 0);
     }
@@ -444,12 +526,27 @@ mod tests {
         let (acc, pair) = (pl.layout_of(1, 1), pl.layout());
         assert_eq!(acc.nslots(), 4);
         let (mut region, model) = pairs(lo, span, n, 8_192, 7, &pair);
-        let t = unsafe { HashAgg::at(region.as_mut_ptr() as *mut u8, &pair, 8_192, (region.len() * 8) as u32) };
+        let t = unsafe {
+            HashAgg::at(
+                region.as_mut_ptr() as *mut u8,
+                &pair,
+                8_192,
+                (region.len() * 8) as u32,
+            )
+        };
         let mut space = vec![0u64; (bytes(span, acc.size()) + MARKER + FLOOR) / 8 + 1]; // alloc: Cold
         let start = space.as_mut_ptr() as *mut u8;
-        let d = unsafe { Dense::of(p.as_ptr(), start, space.len() * 8) }.expect("the plan takes the dense index");
+        let d = unsafe { Dense::of(p.as_ptr(), start, space.len() * 8) }
+            .expect("the plan takes the dense index");
         assert!(unsafe { Dense::of(p.as_ptr(), start, d.bytes() + MARKER + FLOOR - 8) }.is_none());
-        assert!(unsafe { Dense::of(plan(lo, lo + span as i64 - 1, false).as_ptr(), start, space.len() * 8) }.is_some());
+        assert!(unsafe {
+            Dense::of(
+                plan(lo, lo + span as i64 - 1, false).as_ptr(),
+                start,
+                space.len() * 8,
+            )
+        }
+        .is_some());
         unsafe { d.open() };
         let f = Fold::dense(&pair).expect("the pair layout takes the dense hook");
         // every table record noted once as new, then every record again as a repeat (its slots fold twice, its pair once)
@@ -466,20 +563,44 @@ mod tests {
         for j in 0..unsafe { d.len() } {
             let r = unsafe { Rec::at(d.rec(j), &acc) };
             let (s, an) = r.avg(3);
-            assert!(got.insert(r.key(0) as i64, (r.count(0), r.count(1) / 2, r.i64(2) / 2, s / 2, an / 2)).is_none());
+            assert!(got
+                .insert(
+                    r.key(0) as i64,
+                    (r.count(0), r.count(1) / 2, r.i64(2) / 2, s / 2, an / 2)
+                )
+                .is_none());
         }
         assert_eq!(got, model);
         let mut small = vec![0u64; 640]; // alloc: Cold
-        let r2 = unsafe { T1::at(small.as_mut_ptr() as *mut u8, &acc, 3, 4_096, (small.len() * 8) as u32) as *mut T1 };
+        let r2 = unsafe {
+            T1::at(
+                small.as_mut_ptr() as *mut u8,
+                &acc,
+                3,
+                4_096,
+                (small.len() * 8) as u32,
+            ) as *mut T1
+        };
         assert_eq!(unsafe { d.append(r2) }, REDUCE_FLUSH);
         let done1 = unsafe { *d.hdr().add(1) };
         assert!(done1 > 0 && (done1 as usize) < model.len());
         assert_eq!(unsafe { (*r2).buffered }, done1 as u64);
         let mut large = vec![0u64; 1 << 16]; // alloc: Cold
-        let r2 = unsafe { T1::at(large.as_mut_ptr() as *mut u8, &acc, 3, 4_096, (large.len() * 8) as u32) as *mut T1 };
+        let r2 = unsafe {
+            T1::at(
+                large.as_mut_ptr() as *mut u8,
+                &acc,
+                3,
+                4_096,
+                (large.len() * 8) as u32,
+            ) as *mut T1
+        };
         #[allow(unused_attributes)]
         assert_eq!(unsafe { d.append(r2) }, 0);
-        assert_eq!(unsafe { (*r2).buffered } as usize, model.len() - done1 as usize);
+        assert_eq!(
+            unsafe { (*r2).buffered } as usize,
+            model.len() - done1 as usize
+        );
         assert!(T1_HDR < 640 * 8);
     }
 
@@ -503,19 +624,37 @@ mod tests {
         // the floor short by a word: the marker alone, zero, and the table is the pair mode's
         let mut region = vec![0u64; (b + MARKER + FLOOR - 8) / 8]; // alloc: Cold
         let start = region.as_mut_ptr() as *mut u8;
-        assert_eq!(unsafe { Dense::lay(p.as_ptr(), start, region.len() * 8) }, MARKER);
-        let t = unsafe { HashAgg::at(start.add(MARKER), &pair, 64, (region.len() * 8 - MARKER) as u32) as *const HashAgg };
+        assert_eq!(
+            unsafe { Dense::lay(p.as_ptr(), start, region.len() * 8) },
+            MARKER
+        );
+        let t = unsafe {
+            HashAgg::at(
+                start.add(MARKER),
+                &pair,
+                64,
+                (region.len() * 8 - MARKER) as u32,
+            ) as *const HashAgg
+        };
         assert!(unsafe { Dense::at_table(p.as_ptr(), t) }.is_none());
         // a plan without the form takes nothing
         let mut q = p;
         q[P_OUTVAL] = 0;
-        assert_eq!(unsafe { Dense::lay(q.as_ptr(), start, region.len() * 8) }, 0);
+        assert_eq!(
+            unsafe { Dense::lay(q.as_ptr(), start, region.len() * 8) },
+            0
+        );
     }
 
     #[test]
     fn the_fills_keep_the_noted_prefix_quiet_across_the_re_read_and_the_split() {
         let mut w = [0u64; Fills::WORDS];
-        let at = |depth: u8, reread: u8| SubSplit { pbits: 3, depth, reread, sub: 0 };
+        let at = |depth: u8, reread: u8| SubSplit {
+            pbits: 3,
+            depth,
+            reread,
+            sub: 0,
+        };
         // depth 0: two runs, the third fills at its 7th record → fill[0] = 27, the stream rewound
         unsafe {
             assert_eq!(Fills::quiet(w.as_ptr(), at(0, 0)), 0);

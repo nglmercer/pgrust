@@ -11,7 +11,11 @@ pub(crate) fn walk_of<'a, 'p>(p: &'a PipelineNode<'p>, id: i32) -> Option<&'a Pi
         return Some(p);
     }
     p.ops.iter().find_map(|op| match op {
-        Op::Join(JoinDesc::Nest { inner, .. }) | Op::SubPlan(SubPlanDesc { form: SubForm::Nested { inner }, .. }) => walk_of(inner, id),
+        Op::Join(JoinDesc::Nest { inner, .. })
+        | Op::SubPlan(SubPlanDesc {
+            form: SubForm::Nested { inner },
+            ..
+        }) => walk_of(inner, id),
         _ => None,
     })
 }

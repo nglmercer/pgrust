@@ -22,7 +22,8 @@ fn mode() -> u8 {
 }
 
 fn statement() -> String {
-    elog::with_debug_query_string(|q| q.unwrap_or("unknown").replace(['\n', '\r', '\t'], " ")) // alloc: Cold
+    elog::with_debug_query_string(|q| q.unwrap_or("unknown").replace(['\n', '\r', '\t'], " "))
+    // alloc: Cold
 }
 
 /// Registers the map's hooks with the code cache (once per process).

@@ -14,8 +14,8 @@
 //! (`interval_sum_final` / `interval_avg_final`) by one host call (raw.rs `interval_sum_final`).
 use gravity_abi::breaker::{IVSUM_LICENSED, IVSUM_OVERFLOWED};
 use gravity_decompose::ops::shared::agg::{AggDecl, Register as R};
-use gravity_ir::builder::FunctionBuilder;
 use gravity_expr::emit::CellValid;
+use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{Block, ConvOp, HostFlags, IntBinOp, IntCond, Type, Value};
 use mcx::{CollectIn, GrowIn, PgVec};
 
@@ -48,7 +48,12 @@ fn is_avg(env: &Env, a: &AggDecl<'_>) -> bool {
     match a.reg {
         R::SumInterval => false,
         R::AvgInterval => true,
-        _ => crate::refuse!(env.node, Reason::Bug { payload: "class.other's interval sum over another register" }),
+        _ => crate::refuse!(
+            env.node,
+            Reason::Bug {
+                payload: "class.other's interval sum over another register"
+            }
+        ),
     }
 }
 
@@ -87,8 +92,16 @@ fn store(b: &mut FunctionBuilder<'_>, env: &Env, acc: Acc<'_>, w: [Value; WORDS]
 }
 
 /// The words `ks` of a record's slot (zero when the slot holds no state yet), or of the registers `s`.
-fn read<'e>(b: &mut FunctionBuilder<'_>, env: &Env<'e, '_>, slot: Option<(Value, i32, CellValid)>, s: &[Value; WORDS], ks: &[usize]) -> PgVec<'e, Value> {
-    let Some((base, off, valid)) = slot else { return ks.iter().map(|&k| s[k]).collect_in(env.mcx) };
+fn read<'e>(
+    b: &mut FunctionBuilder<'_>,
+    env: &Env<'e, '_>,
+    slot: Option<(Value, i32, CellValid)>,
+    s: &[Value; WORDS],
+    ks: &[usize],
+) -> PgVec<'e, Value> {
+    let Some((base, off, valid)) = slot else {
+        return ks.iter().map(|&k| s[k]).collect_in(env.mcx);
+    };
     let ok = crate::ops::shared::slots::slot_ok(b, env, base, valid);
     let mut out = mcx::reserved_in(ks.len(), env.mcx);
     for &k in ks {
@@ -99,8 +112,17 @@ fn read<'e>(b: &mut FunctionBuilder<'_>, env: &Env<'e, '_>, slot: Option<(Value,
 }
 
 /// The words `ks` of `w` stored to a record's slot (marked valid), then to `l_j`; or all of `w` to `l_j` (registers).
-fn write(b: &mut FunctionBuilder<'_>, env: &Env, slot: Option<(Value, i32, CellValid)>, w: &[Value; WORDS], ks: &[usize], l_j: Block) {
-    let Some((base, off, valid)) = slot else { return b.br(l_j, w) };
+fn write(
+    b: &mut FunctionBuilder<'_>,
+    env: &Env,
+    slot: Option<(Value, i32, CellValid)>,
+    w: &[Value; WORDS],
+    ks: &[usize],
+    l_j: Block,
+) {
+    let Some((base, off, valid)) = slot else {
+        return b.br(l_j, w);
+    };
     for &k in ks {
         b.store(base, off + 8 * k as i32, w[k]);
     }
@@ -115,9 +137,21 @@ fn raise_range(b: &mut FunctionBuilder<'_>, env: &Env, bad: Value) {
     b.cond_br(bad, (l_bad, &[]), (l_ok, &[]));
     b.switch_to(l_bad);
     let host = crate::ops::agg::raw::interval_range as *const () as usize;
-    let h = b.declare_host_once("class_interval_sum::interval_range", &[], Some(Type::I64), host, HostFlags { may_error: true, ..HostFlags::default() });
+    let h = b.declare_host_once(
+        "class_interval_sum::interval_range",
+        &[],
+        Some(Type::I64),
+        host,
+        HostFlags {
+            may_error: true,
+            ..HostFlags::default()
+        },
+    );
     b.call_host(h, &[], Some(Type::I64));
-    let e = b.iconst(Type::I64, gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64);
+    let e = b.iconst(
+        Type::I64,
+        gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64,
+    );
     b.br(env.l_raise, &[e]);
     b.switch_to(l_ok);
 }
@@ -175,10 +209,22 @@ fn add_sum(b: &mut FunctionBuilder<'_>, t: Value, dm: Value, xt: Value, xdm: Val
 
 /// Under the licence: `(t, dm) + (xt, xdm)` wrapping, the halves of `dm` added apart (each sum's low 32 bits; the high
 /// word's carry from the day half is masked off), exact wherever the absolute sums leave every component in range.
-fn add_fast(b: &mut FunctionBuilder<'_>, t: Value, dm: Value, xt: Value, xdm: Value) -> (Value, Value) {
+fn add_fast(
+    b: &mut FunctionBuilder<'_>,
+    t: Value,
+    dm: Value,
+    xt: Value,
+    xdm: Value,
+) -> (Value, Value) {
     let t2 = b.int_bin(IntBinOp::Add, t, xt);
-    let (hm, lm) = (b.iconst(Type::I64, 0xFFFF_FFFF_0000_0000u64 as i64), b.iconst(Type::I64, 0xFFFF_FFFF));
-    let (h0, h1) = (b.int_bin(IntBinOp::And, dm, hm), b.int_bin(IntBinOp::And, xdm, hm));
+    let (hm, lm) = (
+        b.iconst(Type::I64, 0xFFFF_FFFF_0000_0000u64 as i64),
+        b.iconst(Type::I64, 0xFFFF_FFFF),
+    );
+    let (h0, h1) = (
+        b.int_bin(IntBinOp::And, dm, hm),
+        b.int_bin(IntBinOp::And, xdm, hm),
+    );
     let h = b.int_bin(IntBinOp::Add, h0, h1);
     let l = b.int_bin(IntBinOp::Add, dm, xdm);
     let l = b.int_bin(IntBinOp::And, l, lm);
@@ -187,27 +233,49 @@ fn add_fast(b: &mut FunctionBuilder<'_>, t: Value, dm: Value, xt: Value, xdm: Va
 
 /// Whether `finite_interval_pl((t, _), (xt, _))` raises for the sum `add_sum` made: a component past its range, or the sum an
 /// infinity image.
-fn pl_raises(b: &mut FunctionBuilder<'_>, env: &Env, t: Value, xt: Value, sum: [Value; 4]) -> Value {
+fn pl_raises(
+    b: &mut FunctionBuilder<'_>,
+    env: &Env,
+    t: Value,
+    xt: Value,
+    sum: [Value; 4],
+) -> Value {
     let [t2, dm2, day, month] = sum;
-    let (a, c) = (b.int_bin(IntBinOp::Xor, t, t2), b.int_bin(IntBinOp::Xor, xt, t2));
+    let (a, c) = (
+        b.int_bin(IntBinOp::Xor, t, t2),
+        b.int_bin(IntBinOp::Xor, xt, t2),
+    );
     let both = b.int_bin(IntBinOp::And, a, c);
     let ovf_t = b.icmp(IntCond::Slt, both, env.zero);
     let (ovf_d, ovf_m) = (past_i32(b, day), past_i32(b, month));
     let (p, n) = infinite(b, t2, dm2);
-    [ovf_d, ovf_m, p, n].into_iter().fold(ovf_t, |acc, v| b.int_bin(IntBinOp::Or, acc, v))
+    [ovf_d, ovf_m, p, n]
+        .into_iter()
+        .fold(ovf_t, |acc, v| b.int_bin(IntBinOp::Or, acc, v))
 }
 
 /// Whether some absolute sum reached its component's maximum (abi `IntervalSum::may_overflow`).
 fn may_overflow(b: &mut FunctionBuilder<'_>, at: Value, ad: Value, am: Value) -> Value {
-    let (tm, im) = (b.iconst(Type::I64, i64::MAX), b.iconst(Type::I64, i32::MAX as i64));
-    let (x, y, z) = (b.icmp(IntCond::Uge, at, tm), b.icmp(IntCond::Uge, ad, im), b.icmp(IntCond::Uge, am, im));
+    let (tm, im) = (
+        b.iconst(Type::I64, i64::MAX),
+        b.iconst(Type::I64, i32::MAX as i64),
+    );
+    let (x, y, z) = (
+        b.icmp(IntCond::Uge, at, tm),
+        b.icmp(IntCond::Uge, ad, im),
+        b.icmp(IntCond::Uge, am, im),
+    );
     let xy = b.int_bin(IntBinOp::Or, x, y);
     b.int_bin(IntBinOp::Or, xy, z)
 }
 
 impl FoldClass for IntervalSum {
     fn shape(&self, _a: &AggDecl<'_>) -> AccShape {
-        AccShape { words: WORDS as u8, bytes: 64, align: 8 }
+        AccShape {
+            words: WORDS as u8,
+            bytes: 64,
+            align: 8,
+        }
     }
 
     /// A hashed end steps each row into the record (the straight road): a run carry would merge eight words at every key
@@ -219,14 +287,29 @@ impl FoldClass for IntervalSum {
     fn init(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, acc: Acc<'_>) {
         is_avg(env, a);
         let mut w = [env.zero; WORDS];
-        w[FL] = b.iconst(Type::I64, if licensed() { IVSUM_LICENSED as i64 } else { 0 });
+        w[FL] = b.iconst(
+            Type::I64,
+            if licensed() { IVSUM_LICENSED as i64 } else { 0 },
+        );
         store(b, env, acc, w);
     }
 
-    fn step(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, acc: Acc<'_>, args: &[CellRef<'_>]) {
+    fn step(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        a: &AggDecl<'_>,
+        acc: Acc<'_>,
+        args: &[CellRef<'_>],
+    ) {
         is_avg(env, a);
         if args.len() != 1 {
-            crate::refuse!(env.node, Reason::Bug { payload: "class.other's interval sum over other than one argument" });
+            crate::refuse!(
+                env.node,
+                Reason::Bug {
+                    payload: "class.other's interval sum over other than one argument"
+                }
+            );
         }
         let (d, ok) = crate::ops::agg::trans::plain::args_ok(b, env, a, args);
         // a record's slot is read and written only in the words a row changes (a NULL row touches none); registers join
@@ -234,19 +317,41 @@ impl FoldClass for IntervalSum {
             Acc::Slot { base, off, valid } => Some((base, off, valid)),
             Acc::Regs(_) => None,
         };
-        let s = if slot.is_some() { [env.zero; WORDS] } else { load(b, env, &acc) };
-        let (l_do, l_j) = (b.create_block(&[]), b.create_block(if slot.is_some() { &[] } else { &[Type::I64; WORDS] }));
-        b.cond_br(ok, (l_do, &[]), (l_j, if slot.is_some() { &[] } else { &s }));
+        let s = if slot.is_some() {
+            [env.zero; WORDS]
+        } else {
+            load(b, env, &acc)
+        };
+        let (l_do, l_j) = (
+            b.create_block(&[]),
+            b.create_block(if slot.is_some() {
+                &[]
+            } else {
+                &[Type::I64; WORDS]
+            }),
+        );
+        b.cond_br(
+            ok,
+            (l_do, &[]),
+            (l_j, if slot.is_some() { &[] } else { &s }),
+        );
         b.switch_to(l_do);
         let p = b.conv(ConvOp::IntToPtr, Type::Ptr, d);
-        let (xt, xdm) = (b.load_unaligned(Type::I64, p, 0), b.load_unaligned(Type::I64, p, 8));
+        let (xt, xdm) = (
+            b.load_unaligned(Type::I64, p, 0),
+            b.load_unaligned(Type::I64, p, 8),
+        );
         let one = b.iconst(Type::I64, 1);
         // an infinity's time is i64::MAX / MIN: those rows take a cold block, which counts the image and sends any other
         // value of that time back to the finite add
         let (tmax, tmin) = (b.iconst(Type::I64, i64::MAX), b.iconst(Type::I64, i64::MIN));
         let (e0, e1) = (b.icmp(IntCond::Eq, xt, tmax), b.icmp(IntCond::Eq, xt, tmin));
         let edge = b.int_bin(IntBinOp::Or, e0, e1);
-        let (l_edge, l_fin, l_inf) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));
+        let (l_edge, l_fin, l_inf) = (
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         b.mark_cold(l_edge);
         b.mark_cold(l_inf);
         b.cond_br(edge, (l_edge, &[]), (l_fin, &[]));
@@ -291,7 +396,14 @@ impl FoldClass for IntervalSum {
         }
     }
 
-    fn merge(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, into: Acc<'_>, from: Acc<'_>) {
+    fn merge(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        a: &AggDecl<'_>,
+        into: Acc<'_>,
+        from: Acc<'_>,
+    ) {
         is_avg(env, a);
         // an empty `from` (a run whose rows FILTER skipped, or registers still at init) leaves `into` as it is
         let y = load(b, env, &from);
@@ -300,11 +412,23 @@ impl FoldClass for IntervalSum {
             return;
         }
         // registers join at `l_out` (the skip passes them on as they are); a record's slot is stored on the merging path
-        let regs = if let Acc::Regs(_) = into { Some(load(b, env, &into)) } else { None };
-        let l_out = b.create_block(if regs.is_some() { &[Type::I64; WORDS] } else { &[] });
+        let regs = if let Acc::Regs(_) = into {
+            Some(load(b, env, &into))
+        } else {
+            None
+        };
+        let l_out = b.create_block(if regs.is_some() {
+            &[Type::I64; WORDS]
+        } else {
+            &[]
+        });
         if known.is_none() {
             let (l_on, some) = (b.create_block(&[]), b.icmp(IntCond::Ne, y[VALID], env.zero));
-            b.cond_br(some, (l_on, &[]), (l_out, regs.as_ref().map_or(&[][..], |r| &r[..])));
+            b.cond_br(
+                some,
+                (l_on, &[]),
+                (l_out, regs.as_ref().map_or(&[][..], |r| &r[..])),
+            );
             b.switch_to(l_on);
         }
         let x = match regs {
@@ -341,7 +465,13 @@ impl FoldClass for IntervalSum {
         }
     }
 
-    fn finish(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, acc: Acc<'_>) -> (Value, Value) {
+    fn finish(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        a: &AggDecl<'_>,
+        acc: Acc<'_>,
+    ) -> (Value, Value) {
         let avg = is_avg(env, a);
         let w = load(b, env, &acc);
         let none = b.icmp(IntCond::Eq, w[VALID], env.zero);
@@ -359,7 +489,14 @@ impl FoldClass for IntervalSum {
         raise_range(b, env, bad);
         let host = crate::ops::agg::raw::interval_sum_final as *const () as usize;
         let k = b.iconst(Type::I64, avg as i64);
-        let v = crate::ops::agg::trans::slots::host_final(b, env, "class_interval_sum::interval_sum_final", host, &[w[T], w[DM], w[N], w[INF], k], none);
+        let v = crate::ops::agg::trans::slots::host_final(
+            b,
+            env,
+            "class_interval_sum::interval_sum_final",
+            host,
+            &[w[T], w[DM], w[N], w[INF], k],
+            none,
+        );
         (v, none)
     }
 }

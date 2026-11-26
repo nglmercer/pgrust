@@ -19,7 +19,8 @@ use pgrc_format::enc::{EncodingId, Wrapper};
 use pgrc_format::manifest::{CommitPointer, Manifest};
 use pgrc_format::part::{
     ExtentRecord, FooterFixed, PartTail, SectionEntry, SectionKind, StreamEntry, StreamRole,
-    EXTENT_RECORD_LEN, PART_HEADER_LEN, SECTION_ENTRY_LEN, STREAM_ENTRY_LEN, STREAM_SECTION_HDR_LEN,
+    EXTENT_RECORD_LEN, PART_HEADER_LEN, SECTION_ENTRY_LEN, STREAM_ENTRY_LEN,
+    STREAM_SECTION_HDR_LEN,
 };
 use pgrc_format::wire::{crc32c, Cur};
 use pgrc_read::{DictHandle, MemPartIo, OpenPart, PartExpect};
@@ -49,7 +50,7 @@ fn part_files(dir: &str) -> Vec<(u32, std::path::PathBuf)> {
 }
 
 fn pad8(v: &mut Vec<u8>) {
-    while ! v.len().is_multiple_of( 8) {
+    while !v.len().is_multiple_of(8) {
         v.push(0);
     }
 }
@@ -82,7 +83,9 @@ fn unwrapped_section(bytes: &[u8], sec: &SectionEntry, entry: &StreamEntry) -> V
             pgrc_codec::wrapper::unwrap_section(raw, &mut out).expect("unwrap");
             out
         }
-        Wrapper::FrontZstd | Wrapper::PackedZstd | Wrapper::FrontOnPairZstd => panic!("source bank already carries the pgrc format 2.2 layers"),
+        Wrapper::FrontZstd | Wrapper::PackedZstd | Wrapper::FrontOnPairZstd => {
+            panic!("source bank already carries the pgrc format 2.2 layers")
+        }
     }
 }
 
@@ -91,26 +94,57 @@ fn rewrite_part(bytes: &[u8]) -> Rewritten {
     let footer = FooterFixed::decode(&bytes[tail.footer_off as usize..]).expect("footer");
     let st = footer.section_table_off as usize;
     let sections: Vec<SectionEntry> = (0..footer.section_count as usize)
-        .map(|i| SectionEntry::decode(&mut Cur::new(&bytes[st + i * SECTION_ENTRY_LEN..st + (i + 1) * SECTION_ENTRY_LEN])).expect("section"))
+        .map(|i| {
+            SectionEntry::decode(&mut Cur::new(
+                &bytes[st + i * SECTION_ENTRY_LEN..st + (i + 1) * SECTION_ENTRY_LEN],
+            ))
+            .expect("section")
+        })
         .collect();
-    let sd = sections.iter().position(|s| s.kind == SectionKind::StreamDir.as_u16()).expect("stream dir");
+    let sd = sections
+        .iter()
+        .position(|s| s.kind == SectionKind::StreamDir.as_u16())
+        .expect("stream dir");
     let sdb = &bytes[sections[sd].off as usize..][..sections[sd].len as usize];
     let mut streams: Vec<(StreamEntry, Vec<ExtentRecord>)> = Vec::new();
     for i in 0..footer.stream_count as usize {
-        let e = StreamEntry::decode(&mut Cur::new(&sdb[i * STREAM_ENTRY_LEN..(i + 1) * STREAM_ENTRY_LEN])).expect("entry");
+        let e = StreamEntry::decode(&mut Cur::new(
+            &sdb[i * STREAM_ENTRY_LEN..(i + 1) * STREAM_ENTRY_LEN],
+        ))
+        .expect("entry");
         let t = e.extent_table_off as usize;
         let ex: Vec<ExtentRecord> = (0..e.extent_count as usize)
-            .map(|k| ExtentRecord::decode(&mut Cur::new(&sdb[t + k * EXTENT_RECORD_LEN..t + (k + 1) * EXTENT_RECORD_LEN])).expect("extent"))
+            .map(|k| {
+                ExtentRecord::decode(&mut Cur::new(
+                    &sdb[t + k * EXTENT_RECORD_LEN..t + (k + 1) * EXTENT_RECORD_LEN],
+                ))
+                .expect("extent")
+            })
             .collect();
         streams.push((e, ex));
     }
     // Dictionary streams: (attno, path_ord) -> (index stream ix, payload stream ix), their sections.
-    let sec_at = |off: u64| sections.iter().position(|s| s.kind == SectionKind::Stream.as_u16() && s.off == off).expect("dict section");
+    let sec_at = |off: u64| {
+        sections
+            .iter()
+            .position(|s| s.kind == SectionKind::Stream.as_u16() && s.off == off)
+            .expect("dict section")
+    };
     let mut dicts: BTreeMap<(u32, u32), (usize, usize)> = BTreeMap::new();
     for (i, (e, _)) in streams.iter().enumerate() {
         match StreamRole::from_u8(e.role).expect("role") {
-            StreamRole::DictIndex => dicts.entry((e.attno, e.path_ord)).or_insert((usize::MAX, usize::MAX)).0 = i,
-            StreamRole::DictPayload => dicts.entry((e.attno, e.path_ord)).or_insert((usize::MAX, usize::MAX)).1 = i,
+            StreamRole::DictIndex => {
+                dicts
+                    .entry((e.attno, e.path_ord))
+                    .or_insert((usize::MAX, usize::MAX))
+                    .0 = i
+            }
+            StreamRole::DictPayload => {
+                dicts
+                    .entry((e.attno, e.path_ord))
+                    .or_insert((usize::MAX, usize::MAX))
+                    .1 = i
+            }
             _ => {}
         }
     }
@@ -125,15 +159,24 @@ fn rewrite_part(bytes: &[u8]) -> Rewritten {
         let index = unwrapped_section(bytes, &sections[isec], ie);
         let payload = unwrapped_section(bytes, &sections[psec], pe);
         let index_recs = &index[STREAM_SECTION_HDR_LEN..];
-        let mut cb = ColBytes { parts: 1, entries: ie.values, ..ColBytes::default() };
+        let mut cb = ColBytes {
+            parts: 1,
+            entries: ie.values,
+            ..ColBytes::default()
+        };
         cb.index_before = iex.iter().map(|x| x.len).sum();
         cb.payload_before = pex.iter().map(|x| x.len).sum();
         // Index: packed beneath zstd (Absolute char form only), under the writer's ≥20% law.
         let form = DictCharLenForm::from_flags(ie.flags).expect("form");
         let mut new_index = Vec::new();
         let index_wrapper = if form == DictCharLenForm::Absolute {
-            pgrc_codec::wrapper::wrap_dict_index_section(&index, &mut new_index).expect("pack index");
-            if pgrc_codec::wins_by_twenty_percent(new_index.len(), index.len()) { Wrapper::PackedZstd } else { Wrapper::None }
+            pgrc_codec::wrapper::wrap_dict_index_section(&index, &mut new_index)
+                .expect("pack index");
+            if pgrc_codec::wins_by_twenty_percent(new_index.len(), index.len()) {
+                Wrapper::PackedZstd
+            } else {
+                Wrapper::None
+            }
         } else {
             Wrapper::None
         };
@@ -147,7 +190,8 @@ fn rewrite_part(bytes: &[u8]) -> Rewritten {
             let mut recs = index_recs.to_vec();
             for c in 0..(recs.len() / DICT_INDEX_ENTRY_LEN) {
                 let off = u32::from_le_bytes(recs[c * 12..c * 12 + 4].try_into().unwrap()) as usize;
-                let len = u32::from_le_bytes(recs[c * 12 + 4..c * 12 + 8].try_into().unwrap()) as usize;
+                let len =
+                    u32::from_le_bytes(recs[c * 12 + 4..c * 12 + 8].try_into().unwrap()) as usize;
                 let ch = utf8_char_count(&ppay[off + 4..off + 4 + len]);
                 recs[c * 12 + 8..c * 12 + 12].copy_from_slice(&ch.to_le_bytes());
             }
@@ -157,14 +201,16 @@ fn rewrite_part(bytes: &[u8]) -> Rewritten {
             cb.index_utf8 = (STREAM_SECTION_HDR_LEN + 8 + z.len()) as u64;
         }
         let mut new_payload = Vec::new();
-        pgrc_codec::wrapper::wrap_dict_payload_section(&payload, index_recs, &mut new_payload).expect("front code");
-        let payload_wrapper = if pgrc_codec::wins_by_twenty_percent(new_payload.len(), payload.len()) {
-            Wrapper::FrontZstd
-        } else {
-            new_payload = payload.clone();
-            cb.kept += 1;
-            Wrapper::None
-        };
+        pgrc_codec::wrapper::wrap_dict_payload_section(&payload, index_recs, &mut new_payload)
+            .expect("front code");
+        let payload_wrapper =
+            if pgrc_codec::wins_by_twenty_percent(new_payload.len(), payload.len()) {
+                Wrapper::FrontZstd
+            } else {
+                new_payload = payload.clone();
+                cb.kept += 1;
+                Wrapper::None
+            };
         cb.index_after = new_index.len() as u64;
         cb.payload_after = new_payload.len() as u64;
         census.push((attno, cb));
@@ -186,7 +232,12 @@ fn rewrite_part(bytes: &[u8]) -> Rewritten {
         if let Some((img, si, wrapper)) = rebuilt.get(&i) {
             assert!(!seen_dir);
             out.extend_from_slice(img);
-            new_secs[i] = SectionEntry { off: new_off, len: img.len() as u64, crc: crc32c(img), ..*s };
+            new_secs[i] = SectionEntry {
+                off: new_off,
+                len: img.len() as u64,
+                crc: crc32c(img),
+                ..*s
+            };
             let (e, ex) = &mut new_streams[*si];
             e.wrapper = *wrapper;
             e.extent_count = 1;
@@ -213,7 +264,12 @@ fn rewrite_part(bytes: &[u8]) -> Rewritten {
             }
             body.extend_from_slice(&tables);
             out.extend_from_slice(&body);
-            new_secs[i] = SectionEntry { off: new_off, len: body.len() as u64, crc: crc32c(&body), ..*s };
+            new_secs[i] = SectionEntry {
+                off: new_off,
+                len: body.len() as u64,
+                crc: crc32c(&body),
+                ..*s
+            };
         } else {
             assert!(!seen_dir || s.kind != SectionKind::Stream.as_u16());
             out.extend_from_slice(&bytes[s.off as usize..][..s.len as usize]);
@@ -239,9 +295,19 @@ fn rewrite_part(bytes: &[u8]) -> Rewritten {
     out.extend_from_slice(&table);
     pad8(&mut out);
     let footer_off = out.len() as u64;
-    FooterFixed { section_table_off, section_table_crc, footer_crc: 0, ..footer }.encode_into(&mut out);
+    FooterFixed {
+        section_table_off,
+        section_table_crc,
+        footer_crc: 0,
+        ..footer
+    }
+    .encode_into(&mut out);
     PartTail::new(footer_off).encode_into(&mut out);
-    Rewritten { bytes: out, footer_off, census }
+    Rewritten {
+        bytes: out,
+        footer_off,
+        census,
+    }
 }
 
 fn reseal(src: &str, dst: &str, w: usize) {
@@ -256,12 +322,18 @@ fn reseal(src: &str, dst: &str, w: usize) {
         for _ in 0..w {
             s.spawn(|| loop {
                 let pi = next.fetch_add(1, Ordering::Relaxed);
-                let Some((no, path)) = parts.get(pi) else { break };
+                let Some((no, path)) = parts.get(pi) else {
+                    break;
+                };
                 let bytes = std::fs::read(path).expect("part");
                 let r = rewrite_part(&bytes);
-                let out = std::path::Path::new(dst).join(pgrc_format::dirlayout::part_file_name(*no));
+                let out =
+                    std::path::Path::new(dst).join(pgrc_format::dirlayout::part_file_name(*no));
                 std::fs::write(&out, &r.bytes).expect("write part");
-                footers.lock().unwrap().insert(*no, (r.bytes.len() as u64, r.footer_off));
+                footers
+                    .lock()
+                    .unwrap()
+                    .insert(*no, (r.bytes.len() as u64, r.footer_off));
                 let mut t = totals.lock().unwrap();
                 for (attno, cb) in r.census {
                     let e = t.entry(attno).or_default();
@@ -287,7 +359,8 @@ fn reseal(src: &str, dst: &str, w: usize) {
         }
         let to = std::path::Path::new(dst).join(&n);
         if let Some(gen) = pgrc_format::dirlayout::parse_manifest_file_name(&n) {
-            let mut m = Manifest::decode(&std::fs::read(e.path()).expect("manifest")).expect("manifest decode");
+            let mut m = Manifest::decode(&std::fs::read(e.path()).expect("manifest"))
+                .expect("manifest decode");
             for p in m.parts.iter_mut() {
                 let (len, fo) = footers[&p.part_no];
                 p.file_len = len;
@@ -299,7 +372,8 @@ fn reseal(src: &str, dst: &str, w: usize) {
             let cp = CommitPointer::decode(&cur).expect("commit pointer");
             if cp.gen == gen {
                 let cp = CommitPointer::new(gen, img.len() as u64, crc32c(&img[..img.len() - 4]));
-                std::fs::write(std::path::Path::new(dst).join("CURRENT"), cp.encode()).expect("CURRENT");
+                std::fs::write(std::path::Path::new(dst).join("CURRENT"), cp.encode())
+                    .expect("CURRENT");
             }
         } else if pgrc_format::bankstats::parse_bankstats_file_name(&n).is_some() {
             let mut b = std::fs::read(e.path()).expect("bankstats");
@@ -319,7 +393,11 @@ fn reseal(src: &str, dst: &str, w: usize) {
         }
     }
     let mb = |b: u64| b as f64 / 1e6;
-    println!("reseal: {} parts, W = {w}, wall {:.1} s -> {dst}", parts.len(), t0.elapsed().as_secs_f64());
+    println!(
+        "reseal: {} parts, W = {w}, wall {:.1} s -> {dst}",
+        parts.len(),
+        t0.elapsed().as_secs_f64()
+    );
     for (attno, c) in totals.lock().unwrap().iter() {
         println!(
             "attno {attno}: {} dict parts, {} entries; index on disk {:.1} -> {:.1} MB ({:.3}; with real UTF-8 char deltas {:.1} MB, {:.3}); payload on disk {:.1} -> {:.1} MB ({:.3}); {} sections kept unwrapped by the 20% law",
@@ -343,7 +421,9 @@ struct DiffStats {
 
 fn open_mem(path: &std::path::Path, ino: u64) -> std::sync::Arc<OpenPart> {
     let bytes = std::fs::read(path).expect("part");
-    std::sync::Arc::new(OpenPart::open(Box::new(MemPartIo::new(bytes, 1, ino)), &PartExpect::none()).expect("open"))
+    std::sync::Arc::new(
+        OpenPart::open(Box::new(MemPartIo::new(bytes, 1, ino)), &PartExpect::none()).expect("open"),
+    )
 }
 
 fn diff(src: &str, dst: &str, w: usize) {
@@ -375,13 +455,30 @@ fn diff(src: &str, dst: &str, w: usize) {
                     if va.entry.encoding != EncodingId::DictCodes.as_u16() {
                         continue;
                     }
-                    let mut st = DiffStats { parts: 1, ..DiffStats::default() };
+                    let mut st = DiffStats {
+                        parts: 1,
+                        ..DiffStats::default()
+                    };
                     for role in [StreamRole::DictIndex, StreamRole::DictPayload] {
-                        st.src_bytes += da.lookup(attno, 0, role).expect("s").extents.iter().map(|x| x.len).sum::<u64>();
-                        st.dst_bytes += db.lookup(attno, 0, role).expect("s").extents.iter().map(|x| x.len).sum::<u64>();
+                        st.src_bytes += da
+                            .lookup(attno, 0, role)
+                            .expect("s")
+                            .extents
+                            .iter()
+                            .map(|x| x.len)
+                            .sum::<u64>();
+                        st.dst_bytes += db
+                            .lookup(attno, 0, role)
+                            .expect("s")
+                            .extents
+                            .iter()
+                            .map(|x| x.len)
+                            .sum::<u64>();
                     }
-                    let ha = DictHandle::open(pa.clone(), None, binding.unwrappers, attno, 0).expect("dict a");
-                    let hb = DictHandle::open(pb.clone(), None, binding.unwrappers, attno, 0).expect("dict b");
+                    let ha = DictHandle::open(pa.clone(), None, binding.unwrappers, attno, 0)
+                        .expect("dict a");
+                    let hb = DictHandle::open(pb.clone(), None, binding.unwrappers, attno, 0)
+                        .expect("dict b");
                     let t = Instant::now();
                     ha.prewarm_payload().expect("prewarm a");
                     st.src_ns = t.elapsed().as_nanos() as u64;
@@ -394,14 +491,20 @@ fn diff(src: &str, dst: &str, w: usize) {
                     if ha.index_bytes().expect("ia") != hb.index_bytes().expect("ib") {
                         st.image_mismatch += 1;
                     }
-                    let (pa_img, pb_img) = (ha.payload_bytes().expect("pa"), hb.payload_bytes().expect("pb"));
+                    let (pa_img, pb_img) = (
+                        ha.payload_bytes().expect("pa"),
+                        hb.payload_bytes().expect("pb"),
+                    );
                     if pa_img != pb_img {
                         st.image_mismatch += 1;
                     }
                     for c in 0..n {
                         let ea = ha.entry(c).expect("entry a");
                         let eb = hb.entry(c).expect("entry b");
-                        if ea.image != eb.image || ea.byte_len != eb.byte_len || ea.char_len != eb.char_len {
+                        if ea.image != eb.image
+                            || ea.byte_len != eb.byte_len
+                            || ea.char_len != eb.char_len
+                        {
                             st.mismatches += 1;
                         }
                         let (la, lb) = (ha.lengths(c).expect("la"), hb.lengths(c).expect("lb"));
@@ -423,7 +526,11 @@ fn diff(src: &str, dst: &str, w: usize) {
             });
         }
     });
-    println!("diff: {} part pairs, W = {w}, wall {:.1} s", a.len(), t0.elapsed().as_secs_f64());
+    println!(
+        "diff: {} part pairs, W = {w}, wall {:.1} s",
+        a.len(),
+        t0.elapsed().as_secs_f64()
+    );
     let (mut te, mut tm) = (0u64, 0u64);
     for (attno, s) in totals.lock().unwrap().iter() {
         te += s.entries;

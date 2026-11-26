@@ -52,7 +52,10 @@ fn join_is_bounded_to_maxpgpath() {
     );
     let long_head = "a".repeat(MAXPGPATH + 5);
     assert_eq!(join_path_components(&long_head, "x").len(), MAXPGPATH - 1);
-    assert_eq!(join_path_components_bytes(long_head.as_bytes(), b"").len(), MAXPGPATH - 1);
+    assert_eq!(
+        join_path_components_bytes(long_head.as_bytes(), b"").len(),
+        MAXPGPATH - 1
+    );
     // C's join then canonicalize turns the repeated-prefix candidate into
     // "po", never "postgres" (fp-port-path#2 shape).
     assert_eq!(canonicalize_path(&joined), "po");
@@ -156,7 +159,10 @@ fn validate_and_find_my_exec() {
         logged,
         vec![(
             ExecLogCode::WrongObjectType,
-            format!("invalid binary \"{}\": Is a directory", dir.to_str().unwrap())
+            format!(
+                "invalid binary \"{}\": Is a directory",
+                dir.to_str().unwrap()
+            )
         )]
     );
     assert_eq!(ExecLogCode::WrongObjectType.sqlstate(), Some(*b"42809"));
@@ -174,7 +180,9 @@ fn validate_and_find_my_exec() {
     // exec.c:188 getenv("PATH") is raw bytes: a non-UTF-8 component ahead
     // of the real one is searched (and missed) rather than aborting the scan.
     let mut raw_path = b"/tmp/\xff:".to_vec();
-    raw_path.extend_from_slice(format!("{}:{}", dir2.to_str().unwrap(), dir.to_str().unwrap()).as_bytes());
+    raw_path.extend_from_slice(
+        format!("{}:{}", dir2.to_str().unwrap(), dir.to_str().unwrap()).as_bytes(),
+    );
     let raw_path: std::ffi::OsString = std::os::unix::ffi::OsStringExt::from_vec(raw_path);
     std::env::set_var("PATH", raw_path);
     let mut logged = Vec::new();
@@ -206,9 +214,10 @@ fn validate_and_find_my_exec() {
     long_invalid.unwrap_err();
     assert_eq!(slash_logged.len(), 1);
     assert_eq!(slash_logged[0].0, ExecLogCode::WrongObjectType);
-    assert!(slash_logged[0]
-        .1
-        .starts_with(&format!("invalid binary \"{}\": ", &long_slash[..MAXPGPATH - 2])));
+    assert!(slash_logged[0].1.starts_with(&format!(
+        "invalid binary \"{}\": ",
+        &long_slash[..MAXPGPATH - 2]
+    )));
     miss.unwrap_err();
     assert_eq!(
         miss_logged,
@@ -316,7 +325,10 @@ fn pipe_first_line_discards_partial_line_on_stream_error() {
     // SAFETY: the write end is open; the buffer outlives the call.
     assert_eq!(unsafe { libc::write(fds[1], b"ab".as_ptr().cast(), 2) }, 2);
     // SAFETY: fcntl on an open descriptor with an integer flag argument.
-    assert_eq!(unsafe { libc::fcntl(fds[0], libc::F_SETFL, libc::O_NONBLOCK) }, 0);
+    assert_eq!(
+        unsafe { libc::fcntl(fds[0], libc::F_SETFL, libc::O_NONBLOCK) },
+        0
+    );
     // SAFETY: fds[0] is open; the stream owns it and is fclose'd below.
     let stream = unsafe { libc::fdopen(fds[0], c"r".as_ptr()) };
     assert!(!stream.is_null());
@@ -332,7 +344,10 @@ fn pipe_first_line_discards_partial_line_on_stream_error() {
         logged,
         vec![(
             ExecLogCode::FileAccess,
-            format!("could not read from command \"cmd\": {}", strerror(libc::EAGAIN))
+            format!(
+                "could not read from command \"cmd\": {}",
+                strerror(libc::EAGAIN)
+            )
         )]
     );
 
@@ -341,7 +356,10 @@ fn pipe_first_line_discards_partial_line_on_stream_error() {
     // SAFETY: as above.
     assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
     // SAFETY: as above.
-    assert_eq!(unsafe { libc::write(fds[1], b"x\ny".as_ptr().cast(), 3) }, 3);
+    assert_eq!(
+        unsafe { libc::write(fds[1], b"x\ny".as_ptr().cast(), 3) },
+        3
+    );
     // SAFETY: as above.
     unsafe { libc::close(fds[1]) };
     // SAFETY: as above.
@@ -358,7 +376,10 @@ fn pipe_first_line_discards_partial_line_on_stream_error() {
     assert_eq!(line, None);
     assert_eq!(
         logged,
-        vec![(ExecLogCode::NoData, "no data was returned by command \"cmd\"".to_string())]
+        vec![(
+            ExecLogCode::NoData,
+            "no data was returned by command \"cmd\"".to_string()
+        )]
     );
 }
 
@@ -403,10 +424,15 @@ fn find_other_exec_runs_target_dash_v() {
     // exec.c:310 happy path: the resolved sibling path, version line
     // compared newline-included (pg_get_line keeps it).
     let mut logged = Vec::new();
-    let found = find_other_exec(me, "other", "other (Fake) 1.0\n", |c, m| logged.push((c, m)));
+    let found = find_other_exec(me, "other", "other (Fake) 1.0\n", |c, m| {
+        logged.push((c, m))
+    });
     // find_my_exec realpath()s, so compare against the canonical directory.
     let real_dir = std::fs::canonicalize(&dir).unwrap();
-    assert_eq!(found.as_deref(), Ok(real_dir.join("other").to_str().unwrap()));
+    assert_eq!(
+        found.as_deref(),
+        Ok(real_dir.join("other").to_str().unwrap())
+    );
     assert!(logged.is_empty());
 
     // -2: ran, wrong version string.
@@ -428,8 +454,14 @@ fn find_other_exec_runs_target_dash_v() {
     assert_eq!(
         logged,
         vec![
-            (ExecLogCode::NoData, format!("no data was returned by command \"{cmd}\"")),
-            (ExecLogCode::SystemError, "child process exited with exit code 3".to_string()),
+            (
+                ExecLogCode::NoData,
+                format!("no data was returned by command \"{cmd}\"")
+            ),
+            (
+                ExecLogCode::SystemError,
+                "child process exited with exit code 3".to_string()
+            ),
         ]
     );
 

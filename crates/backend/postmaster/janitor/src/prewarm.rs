@@ -178,7 +178,10 @@ mod tests {
         // FIFO up to the in-flight cap; dedupe by oid; drained entries are
         // in flight until finished or expired.
         assert!(registry::enqueue_touch("tv_t1", 91001));
-        assert!(!registry::enqueue_touch("tv_t1_dup", 91001), "dedupe by oid");
+        assert!(
+            !registry::enqueue_touch("tv_t1_dup", 91001),
+            "dedupe by oid"
+        );
         assert!(registry::enqueue_touch("tv_t2", 91002));
         assert!(registry::enqueue_touch("tv_t3", 91003));
 

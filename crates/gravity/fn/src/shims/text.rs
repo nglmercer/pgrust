@@ -7,9 +7,18 @@ use core::cell::RefCell;
 
 use adt_like::IcScratch;
 
-use crate::{fail, ok, region_cstring, region_copy, region_payload, region_payload2, with_scratch, Addr, ArgKind, ErrSlot, Family, RawFn, Region, Ret, Shim, View};
+use crate::{
+    fail, ok, region_copy, region_cstring, region_payload, region_payload2, with_scratch, Addr,
+    ArgKind, ErrSlot, Family, RawFn, Region, Ret, Shim, View,
+};
 
-pub extern "C-unwind" fn textcat(_e: *mut ErrSlot, r: *mut Region, _coll: u32, a0: View, a1: View) -> Ret {
+pub extern "C-unwind" fn textcat(
+    _e: *mut ErrSlot,
+    r: *mut Region,
+    _coll: u32,
+    a0: View,
+    a1: View,
+) -> Ret {
     region_payload2(r, a0.bytes(), a1.bytes())
 }
 
@@ -18,34 +27,60 @@ pub extern "C-unwind" fn textcat(_e: *mut ErrSlot, r: *mut Region, _coll: u32, a
 /// the substring reaches (DatumGetTextPSlice), never detoasted whole; a short or plain one is read in place.
 fn substr(e: *mut ErrSlot, r: *mut Region, d: i64, start: i32, len: i32, no_len: bool) -> Ret {
     let image = super::raw::varlena_image(d);
-    with_scratch(|mcx| match varlena::text_substring(mcx, image, start, len, no_len) {
-        Ok(v) => region_copy(r, v.as_bytes()),
-        Err(err) => fail(e, err),
-    })
+    with_scratch(
+        |mcx| match varlena::text_substring(mcx, image, start, len, no_len) {
+            Ok(v) => region_copy(r, v.as_bytes()),
+            Err(err) => fail(e, err),
+        },
+    )
 }
 
 /// D3151: PostgreSQL's text_substring over a plain text's payload `p` (lowerv4 road text.eq's cold view, rep/varlena
 /// text_view.rs), the result's payload handed to `f`: its errors (a negative count) are text_substring's own. The whole
 /// value's re-headered copy is charged to `owner` for its life (CLASS E: a memledger `ChargedVec`, filled as the plain
 /// `Vec` was; `None`: under the caller's floor or no owner, uncharged).
-pub fn substring_of<T>(p: &[u8], start: i32, len: i32, no_len: bool, owner: Option<(memledger::Owner, memledger::Kind)>, f: impl FnOnce(&[u8]) -> T) -> types_error::PgResult<T> {
-    let mut img = memledger::ChargedVec::new(owner.map(|o| o.0), owner.map_or(memledger::Kind::Region, |o| o.1)); // alloc: Cold charged owner
+pub fn substring_of<T>(
+    p: &[u8],
+    start: i32,
+    len: i32,
+    no_len: bool,
+    owner: Option<(memledger::Owner, memledger::Kind)>,
+    f: impl FnOnce(&[u8]) -> T,
+) -> types_error::PgResult<T> {
+    let mut img = memledger::ChargedVec::new(
+        owner.map(|o| o.0),
+        owner.map_or(memledger::Kind::Region, |o| o.1),
+    ); // alloc: Cold charged owner
     img.with_vec(|v| {
         v.reserve_exact(p.len() + 4); // alloc: Cold charged owner
         v.extend_from_slice(&((p.len() as u32 + 4) << 2).to_le_bytes()); // alloc: Cold charged owner
         v.extend_from_slice(p); // alloc: Cold charged owner
     });
     let mut cx = mcx::MemoryContext::new_bump("gravity_fn substring_of"); // alloc: Cold
-    let out = varlena::text_substring(cx.mcx(), img.as_slice(), start, len, no_len).map(|v| f(v.data()));
+    let out =
+        varlena::text_substring(cx.mcx(), img.as_slice(), start, len, no_len).map(|v| f(v.data()));
     cx.reset();
     out
 }
 
-pub extern "C-unwind" fn text_substr(e: *mut ErrSlot, r: *mut Region, _coll: u32, a0: i64, a1: i64, a2: i64) -> Ret {
+pub extern "C-unwind" fn text_substr(
+    e: *mut ErrSlot,
+    r: *mut Region,
+    _coll: u32,
+    a0: i64,
+    a1: i64,
+    a2: i64,
+) -> Ret {
     substr(e, r, a0, a1 as i32, a2 as i32, false)
 }
 
-pub extern "C-unwind" fn text_substr_no_len(e: *mut ErrSlot, r: *mut Region, _coll: u32, a0: i64, a1: i64) -> Ret {
+pub extern "C-unwind" fn text_substr_no_len(
+    e: *mut ErrSlot,
+    r: *mut Region,
+    _coll: u32,
+    a0: i64,
+    a1: i64,
+) -> Ret {
     substr(e, r, a0, a1 as i32, -1, true)
 }
 
@@ -87,7 +122,14 @@ pub fn ascii_slice(image: &[u8], start: i32, len: i32, no_len: bool) -> Option<&
 }
 
 /// D4822: `substr` with `ascii_slice` first (the result written as a fresh 4-byte-header text, as text_substring's).
-fn substr_ascii(e: *mut ErrSlot, r: *mut Region, d: i64, start: i32, len: i32, no_len: bool) -> Ret {
+fn substr_ascii(
+    e: *mut ErrSlot,
+    r: *mut Region,
+    d: i64,
+    start: i32,
+    len: i32,
+    no_len: bool,
+) -> Ret {
     match ascii_slice(super::raw::varlena_image(d), start, len, no_len) {
         Some(p) => region_payload(r, p),
         None => substr(e, r, d, start, len, no_len),
@@ -95,21 +137,66 @@ fn substr_ascii(e: *mut ErrSlot, r: *mut Region, d: i64, start: i32, len: i32, n
 }
 
 /// D4822: text_substr's twin under lowerv4 road text.substr.ascii (catalog.rs `TEXT_SUBSTR_ASCII`).
-pub extern "C-unwind" fn text_substr_ascii(e: *mut ErrSlot, r: *mut Region, _coll: u32, a0: i64, a1: i64, a2: i64) -> Ret {
+pub extern "C-unwind" fn text_substr_ascii(
+    e: *mut ErrSlot,
+    r: *mut Region,
+    _coll: u32,
+    a0: i64,
+    a1: i64,
+    a2: i64,
+) -> Ret {
     substr_ascii(e, r, a0, a1 as i32, a2 as i32, false)
 }
 
 /// D4822: text_substr_no_len's twin under lowerv4 road text.substr.ascii (catalog.rs `TEXT_SUBSTR_NO_LEN_ASCII`).
-pub extern "C-unwind" fn text_substr_no_len_ascii(e: *mut ErrSlot, r: *mut Region, _coll: u32, a0: i64, a1: i64) -> Ret {
+pub extern "C-unwind" fn text_substr_no_len_ascii(
+    e: *mut ErrSlot,
+    r: *mut Region,
+    _coll: u32,
+    a0: i64,
+    a1: i64,
+) -> Ret {
     substr_ascii(e, r, a0, a1 as i32, -1, true)
 }
 
 /// D4822: the twins gravity_expr binds in place of text_substr (oids 877, 936) and text_substr_no_len (883, 937) while a
 /// lowering runs with lowerv4 road text.substr.ascii on (`ascii_twin`); never in `SHIMS` (no catalog row of their own).
-pub static TEXT_SUBSTR_ASCII: Shim = Shim { oid: 877, name: "text_substr_ascii", family: Family::ByRefRef, nargs: 3, coll: true, region: true, args: &[ArgKind::D, ArgKind::V, ArgKind::V], tyargs: &[], addr: Addr(unsafe { core::mem::transmute::<extern "C-unwind" fn(*mut ErrSlot, *mut Region, u32, i64, i64, i64) -> Ret, RawFn>(text_substr_ascii) }), call: |e, r, coll, _ty, a| text_substr_ascii(e, r, coll, a[0].v(), a[1].v(), a[2].v()) };
+pub static TEXT_SUBSTR_ASCII: Shim = Shim {
+    oid: 877,
+    name: "text_substr_ascii",
+    family: Family::ByRefRef,
+    nargs: 3,
+    coll: true,
+    region: true,
+    args: &[ArgKind::D, ArgKind::V, ArgKind::V],
+    tyargs: &[],
+    addr: Addr(unsafe {
+        core::mem::transmute::<
+            extern "C-unwind" fn(*mut ErrSlot, *mut Region, u32, i64, i64, i64) -> Ret,
+            RawFn,
+        >(text_substr_ascii)
+    }),
+    call: |e, r, coll, _ty, a| text_substr_ascii(e, r, coll, a[0].v(), a[1].v(), a[2].v()),
+};
 
 /// D4822: text_substr_no_len's twin (`TEXT_SUBSTR_ASCII`).
-pub static TEXT_SUBSTR_NO_LEN_ASCII: Shim = Shim { oid: 883, name: "text_substr_no_len_ascii", family: Family::ByRefRef, nargs: 2, coll: true, region: true, args: &[ArgKind::D, ArgKind::V], tyargs: &[], addr: Addr(unsafe { core::mem::transmute::<extern "C-unwind" fn(*mut ErrSlot, *mut Region, u32, i64, i64) -> Ret, RawFn>(text_substr_no_len_ascii) }), call: |e, r, coll, _ty, a| text_substr_no_len_ascii(e, r, coll, a[0].v(), a[1].v()) };
+pub static TEXT_SUBSTR_NO_LEN_ASCII: Shim = Shim {
+    oid: 883,
+    name: "text_substr_no_len_ascii",
+    family: Family::ByRefRef,
+    nargs: 2,
+    coll: true,
+    region: true,
+    args: &[ArgKind::D, ArgKind::V],
+    tyargs: &[],
+    addr: Addr(unsafe {
+        core::mem::transmute::<
+            extern "C-unwind" fn(*mut ErrSlot, *mut Region, u32, i64, i64) -> Ret,
+            RawFn,
+        >(text_substr_no_len_ascii)
+    }),
+    call: |e, r, coll, _ty, a| text_substr_no_len_ascii(e, r, coll, a[0].v(), a[1].v()),
+};
 
 /// D4822: a catalog shim's ASCII twin (`TEXT_SUBSTR_ASCII`, `TEXT_SUBSTR_NO_LEN_ASCII`), the shim itself for any other.
 pub fn ascii_twin(s: &'static Shim) -> &'static Shim {
@@ -142,9 +229,11 @@ thread_local! {
 fn iclike(e: *mut ErrSlot, coll: u32, s: View, p: View, negate: bool) -> Ret {
     IC.with(|ic| {
         let mut ic = ic.borrow_mut();
-        with_scratch(|mcx| match adt_like::generic_text_ic_like(mcx, s.bytes(), p.bytes(), coll, &mut ic) {
-            Ok(v) => ok(((v == adt_like::LIKE_TRUE) != negate) as i64),
-            Err(err) => fail(e, err),
+        with_scratch(|mcx| {
+            match adt_like::generic_text_ic_like(mcx, s.bytes(), p.bytes(), coll, &mut ic) {
+                Ok(v) => ok(((v == adt_like::LIKE_TRUE) != negate) as i64),
+                Err(err) => fail(e, err),
+            }
         })
     })
 }
@@ -160,10 +249,12 @@ pub extern "C-unwind" fn texticnlike(e: *mut ErrSlot, coll: u32, a0: View, a1: V
 fn name_iclike(e: *mut ErrSlot, coll: u32, s: View, p: View, negate: bool) -> Ret {
     IC.with(|ic| {
         let mut ic = ic.borrow_mut();
-        with_scratch(|mcx| match adt_like::nameiclike(mcx, &s.name64(), p.bytes(), coll, &mut ic) {
-            Ok(v) => ok((v != negate) as i64),
-            Err(err) => fail(e, err),
-        })
+        with_scratch(
+            |mcx| match adt_like::nameiclike(mcx, &s.name64(), p.bytes(), coll, &mut ic) {
+                Ok(v) => ok((v != negate) as i64),
+                Err(err) => fail(e, err),
+            },
+        )
     })
 }
 
@@ -221,9 +312,17 @@ mod ascii_tests {
     /// PostgreSQL's substring over an ASCII text, by characters: positions `[max(start, 1), start + len)` (no count: to
     /// the end), clipped to the text; `start + len <= 1` is empty.
     fn reference(s: &str, start: i32, len: i32, no_len: bool) -> String {
-        let end = if no_len { i64::MAX } else { start as i64 + len as i64 };
+        let end = if no_len {
+            i64::MAX
+        } else {
+            start as i64 + len as i64
+        };
         let from = start.max(1) as i64;
-        s.chars().enumerate().filter(|(i, _)| (*i as i64 + 1) >= from && ((*i as i64) + 1) < end).map(|(_, c)| c).collect()
+        s.chars()
+            .enumerate()
+            .filter(|(i, _)| (*i as i64 + 1) >= from && ((*i as i64) + 1) < end)
+            .map(|(_, c)| c)
+            .collect()
     }
 
     fn short(p: &[u8]) -> Vec<u8> {
@@ -240,15 +339,30 @@ mod ascii_tests {
 
     #[test]
     fn ascii_bytes_are_the_characters() {
-        for s in ["", "a", "abc", "Conventional childr", "warehouse number one, long", "0123456789012345678901234"] {
+        for s in [
+            "",
+            "a",
+            "abc",
+            "Conventional childr",
+            "warehouse number one, long",
+            "0123456789012345678901234",
+        ] {
             for img in [short(s.as_bytes()), long(s.as_bytes())] {
                 for start in -3..=30 {
                     for len in 0..=30 {
                         let want = reference(s, start, len, false);
-                        assert_eq!(ascii_slice(&img, start, len, false), Some(want.as_bytes()), "{s:?} from {start} for {len}");
+                        assert_eq!(
+                            ascii_slice(&img, start, len, false),
+                            Some(want.as_bytes()),
+                            "{s:?} from {start} for {len}"
+                        );
                     }
                     let want = reference(s, start, 0, true);
-                    assert_eq!(ascii_slice(&img, start, 0, true), Some(want.as_bytes()), "{s:?} from {start}");
+                    assert_eq!(
+                        ascii_slice(&img, start, 0, true),
+                        Some(want.as_bytes()),
+                        "{s:?} from {start}"
+                    );
                 }
             }
         }
@@ -258,16 +372,52 @@ mod ascii_tests {
     fn the_walk_runs_where_it_must() {
         let s = "abc\u{e9}def".as_bytes();
         for img in [short(s), long(s)] {
-            assert_eq!(ascii_slice(&img, 1, 3, false), Some(&b"abc"[..]), "a multibyte character past the result's end is not read");
+            assert_eq!(
+                ascii_slice(&img, 1, 3, false),
+                Some(&b"abc"[..]),
+                "a multibyte character past the result's end is not read"
+            );
             assert_eq!(ascii_slice(&img, 2, 3, false), None, "one before it is");
-            assert_eq!(ascii_slice(&img, 5, 2, false), None, "characters before the start are counted, so they must be ASCII");
-            assert_eq!(ascii_slice(&img, 1, 0, true), None, "no count reads the whole text");
-            assert_eq!(ascii_slice(&img, -5, 6, false), Some(&b""[..]), "start + count <= 1 is the empty text, unread");
+            assert_eq!(
+                ascii_slice(&img, 5, 2, false),
+                None,
+                "characters before the start are counted, so they must be ASCII"
+            );
+            assert_eq!(
+                ascii_slice(&img, 1, 0, true),
+                None,
+                "no count reads the whole text"
+            );
+            assert_eq!(
+                ascii_slice(&img, -5, 6, false),
+                Some(&b""[..]),
+                "start + count <= 1 is the empty text, unread"
+            );
         }
-        assert_eq!(ascii_slice(&short(b"a\0b"), 1, 3, false), None, "a NUL byte is left to the walk's validation");
-        assert_eq!(ascii_slice(&short(b"abc"), 1, -1, false), None, "a negative count is PostgreSQL's error");
-        assert_eq!(ascii_slice(&short(b"abc"), i32::MAX, 5, false), None, "start + count past i32");
-        assert_eq!(ascii_slice(&[0x01, 18, 0, 0, 0, 0, 0, 0, 0, 0], 1, 2, false), None, "an external pointer");
-        assert_eq!(ascii_slice(&[0x12, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0], 1, 2, false), None, "a compressed inline image");
+        assert_eq!(
+            ascii_slice(&short(b"a\0b"), 1, 3, false),
+            None,
+            "a NUL byte is left to the walk's validation"
+        );
+        assert_eq!(
+            ascii_slice(&short(b"abc"), 1, -1, false),
+            None,
+            "a negative count is PostgreSQL's error"
+        );
+        assert_eq!(
+            ascii_slice(&short(b"abc"), i32::MAX, 5, false),
+            None,
+            "start + count past i32"
+        );
+        assert_eq!(
+            ascii_slice(&[0x01, 18, 0, 0, 0, 0, 0, 0, 0, 0], 1, 2, false),
+            None,
+            "an external pointer"
+        );
+        assert_eq!(
+            ascii_slice(&[0x12, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0], 1, 2, false),
+            None,
+            "a compressed inline image"
+        );
     }
 }

@@ -10,7 +10,9 @@ use types_core::BLCKSZ;
 use types_error::PgResult;
 
 use crate::extent;
-use crate::resize::{self, GivebackStep, BG_DIRTY, BG_END_NS, BG_GOAL, BG_SLICES, BG_T0_NS, BG_W0, GROW_GOAL};
+use crate::resize::{
+    self, GivebackStep, BG_DIRTY, BG_END_NS, BG_GOAL, BG_SLICES, BG_T0_NS, BG_W0, GROW_GOAL,
+};
 
 /// The background writer's longest slice of drain work per cycle.
 pub const GIVEBACK_SLICE: Duration = Duration::from_millis(10);
@@ -66,7 +68,8 @@ pub fn giveback_request(bytes_wanted: u64) -> u64 {
     if !resize::giveback_on() || in_recovery() {
         return 0;
     }
-    let want = (bytes_wanted / BLCKSZ as u64).min(i32::MAX as u64) as i32 & !(extent::EXTENT_BUFFERS - 1);
+    let want =
+        (bytes_wanted / BLCKSZ as u64).min(i32::MAX as u64) as i32 & !(extent::EXTENT_BUFFERS - 1);
     if want == 0 {
         return 0;
     }
@@ -79,7 +82,10 @@ pub fn giveback_request(bytes_wanted: u64) -> u64 {
             return 0;
         }
         let next = if cur == 0 { target } else { target.min(cur) };
-        if BG_GOAL.compare_exchange(cur, next, Ordering::AcqRel, Ordering::Acquire).is_err() {
+        if BG_GOAL
+            .compare_exchange(cur, next, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
             continue;
         }
         if cur == 0 {
@@ -91,7 +97,8 @@ pub fn giveback_request(bytes_wanted: u64) -> u64 {
 }
 
 fn in_recovery() -> bool {
-    transam_xlog_seams::recovery_in_progress::is_installed() && transam_xlog_seams::recovery_in_progress::call()
+    transam_xlog_seams::recovery_in_progress::is_installed()
+        && transam_xlog_seams::recovery_in_progress::call()
 }
 
 /// buf_grow: the valid pages the pool evicted since start, striped by buffer id so many backends' misses never write one
@@ -103,12 +110,18 @@ static EVICTED: [Stripe; 16] = [const { Stripe(AtomicU64::new(0)) }; 16];
 /// buf_grow: buffer `buf_id`'s valid page was evicted (a miss reusing it).
 #[inline]
 pub(crate) fn note_evicted(buf_id: i32) {
-    EVICTED[buf_id as usize & 15].0.fetch_add(1, Ordering::Relaxed);
+    EVICTED[buf_id as usize & 15]
+        .0
+        .fetch_add(1, Ordering::Relaxed);
 }
 
 /// buf_grow: the bytes of the valid pages evicted since start (only growing).
 pub fn evicted_bytes() -> u64 {
-    EVICTED.iter().map(|s| s.0.load(Ordering::Relaxed)).sum::<u64>().saturating_mul(BLCKSZ as u64)
+    EVICTED
+        .iter()
+        .map(|s| s.0.load(Ordering::Relaxed))
+        .sum::<u64>()
+        .saturating_mul(BLCKSZ as u64)
 }
 
 /// buf_grow (user 10-18: the buffer pool grows into free memory; with `buf_giveback`, whose rung gives it back).
@@ -123,7 +136,8 @@ pub fn grow_request(bytes_wanted: u64) -> u64 {
     if !grow_on() || in_recovery() || BG_GOAL.load(Ordering::Acquire) != 0 {
         return 0;
     }
-    let want = (bytes_wanted / BLCKSZ as u64).min(i32::MAX as u64 / 2) as i32 & !(extent::EXTENT_BUFFERS - 1);
+    let want = (bytes_wanted / BLCKSZ as u64).min(i32::MAX as u64 / 2) as i32
+        & !(extent::EXTENT_BUFFERS - 1);
     if want == 0 {
         return 0;
     }
@@ -135,7 +149,10 @@ pub fn grow_request(bytes_wanted: u64) -> u64 {
         if target <= base {
             return 0;
         }
-        if GROW_GOAL.compare_exchange(cur, target, Ordering::AcqRel, Ordering::Acquire).is_err() {
+        if GROW_GOAL
+            .compare_exchange(cur, target, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
             continue;
         }
         wake_drainer();
@@ -153,14 +170,13 @@ pub fn giveback_landing() -> u64 {
 
 /// L6: these hooks as the memory ladder's shared_buffers rung reads them (`mcx::ladder::install_buffers`, from
 /// `init_seams`): after R2a, before any cancel, on the ladder thread's passes only; inert with `buf_giveback` off.
-pub(crate) static LADDER_BUFFERS: mcx::ladder::Buffers =
-    mcx::ladder::Buffers {
-        reclaimable: giveback_reclaimable,
-        request: giveback_request,
-        landing: giveback_landing,
-        grow: grow_request,
-        evicted: evicted_bytes,
-    };
+pub(crate) static LADDER_BUFFERS: mcx::ladder::Buffers = mcx::ladder::Buffers {
+    reclaimable: giveback_reclaimable,
+    request: giveback_request,
+    landing: giveback_landing,
+    grow: grow_request,
+    evicted: evicted_bytes,
+};
 
 pub fn giveback_stats() -> GivebackStats {
     let goal = BG_GOAL.load(Ordering::Acquire);
@@ -179,7 +195,11 @@ pub fn giveback_stats() -> GivebackStats {
         landing_bytes: giveback_landing() as i64,
         dirty_pending_bytes: bytes(BG_DIRTY.load(Ordering::Relaxed)) as i64,
         written_bytes: written as i64,
-        write_bytes_per_s: if elapsed_ns == 0 { 0 } else { (written as u128 * 1_000_000_000 / elapsed_ns as u128) as i64 },
+        write_bytes_per_s: if elapsed_ns == 0 {
+            0
+        } else {
+            (written as u128 * 1_000_000_000 / elapsed_ns as u128) as i64
+        },
         elapsed_ms: (elapsed_ns / 1_000_000) as i64,
         slices: BG_SLICES.load(Ordering::Relaxed) as i64,
     }

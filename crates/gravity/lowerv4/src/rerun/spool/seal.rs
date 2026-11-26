@@ -14,7 +14,10 @@ crate::strategies! {
     SPOOL_SEAL = 155, "spool.seal", Cte;
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(SPOOL_SEAL, &())], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(SPOOL_SEAL, &())],
+    ..crate::ops::NONE
+};
 
 /// The bits road `spool.seal` adds to an owned spool's proto `arg`: `SPOOL_SEAL_WIDE` while the road is on, else none.
 pub(crate) fn bits() -> u64 {

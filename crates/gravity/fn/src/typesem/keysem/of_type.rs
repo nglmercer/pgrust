@@ -23,7 +23,12 @@ pub fn lt_opr(typid: Oid) -> PgResult<Oid> {
 /// read for the type itself (`KeyReq::typed`: an array's, range's, enum's or composite's polymorphic `=` keys by the
 /// type's own word, form and collatability). `Ok(Err)`: the type has no such operator (`NoHash(0)` / `NoOrder(0)`), or
 /// the coordinate `resolve` names; `Err`: a catalog read failed.
-pub fn key(mcx: mcx::Mcx<'_>, typid: Oid, coll: Oid, use_: super::KeyUse) -> PgResult<Result<super::KeySem, super::TypeClass>> {
+pub fn key(
+    mcx: mcx::Mcx<'_>,
+    typid: Oid,
+    coll: Oid,
+    use_: super::KeyUse,
+) -> PgResult<Result<super::KeySem, super::TypeClass>> {
     use super::{KeyReq, KeyUse, TypeClass};
     let req = match use_ {
         KeyUse::Hash => match eq_opr(typid)? {
@@ -34,7 +39,9 @@ pub fn key(mcx: mcx::Mcx<'_>, typid: Oid, coll: Oid, use_: super::KeyUse) -> PgR
             0 => return Ok(Err(TypeClass::NoOrder(0))),
             op => KeyReq::sort(op).under(coll),
         },
-        KeyUse::Eq | KeyUse::Merge => unreachable!("of_type::key answers KeyUse::Hash and KeyUse::Sort"),
+        KeyUse::Eq | KeyUse::Merge => {
+            unreachable!("of_type::key answers KeyUse::Hash and KeyUse::Sort")
+        }
     };
     super::resolve(mcx, &req.typed(typid, typid))
 }
@@ -49,12 +56,17 @@ pub fn cmp_proc(typid: Oid) -> PgResult<Oid> {
 pub fn hash_proc(typid: Oid, ext: bool) -> PgResult<Oid> {
     Ok(match ext {
         false => typcache::lookup_type_cache(typid, typcache::TYPECACHE_HASH_PROC)?.hash_proc(),
-        true => typcache::lookup_type_cache(typid, typcache::TYPECACHE_HASH_EXTENDED_PROC)?.hash_extended_proc(),
+        true => typcache::lookup_type_cache(typid, typcache::TYPECACHE_HASH_EXTENDED_PROC)?
+            .hash_extended_proc(),
     })
 }
 
 /// `TYPECACHE_RANGE_INFO`: range type `typid`'s subtype comparator (`rng_cmp_proc_finfo`, the range's subtype opclass's
 /// support 1, which orders and compares its bounds).
 pub fn range_cmp_proc(typid: Oid) -> PgResult<Oid> {
-    Ok(typcache::lookup_type_cache(typid, typcache::TYPECACHE_RANGE_INFO)?.rng_cmp_proc_finfo().fn_oid)
+    Ok(
+        typcache::lookup_type_cache(typid, typcache::TYPECACHE_RANGE_INFO)?
+            .rng_cmp_proc_finfo()
+            .fn_oid,
+    )
 }

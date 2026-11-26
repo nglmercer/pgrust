@@ -23,7 +23,9 @@ struct InnerState {
 fn inner_shutdown(flinfo: &mut FmgrInfo) -> PgResult<()> {
     // Panics with "fmgr fn_extra: downcast ... failed" if handed the outer
     // FmgrInfo (its fn_extra is the SecurityDefinerCache).
-    let st = flinfo.fn_extra_mut::<InnerState>().expect("inner state planted");
+    let st = flinfo
+        .fn_extra_mut::<InnerState>()
+        .expect("inner state planted");
     assert_eq!(st.calls, 2);
     SHUTDOWNS.fetch_add(1, Ordering::Relaxed);
     Ok(())
@@ -101,7 +103,10 @@ fn security_definer_routes_srf_shutdown_to_inner_flinfo() {
     let mut fci = fmgr::LocalFcinfo::<0>::fresh(0);
     fci.resultinfo = rsi.as_fmnode_ptr();
     assert_eq!(outer.invoke(&mut fci).unwrap().as_i32(), 1);
-    assert!(rsi.srf_shutdown.is_some(), "hook surfaces on the outer rsinfo");
+    assert!(
+        rsi.srf_shutdown.is_some(),
+        "hook surfaces on the outer rsinfo"
+    );
     let hook1 = rsi.srf_shutdown.unwrap();
 
     // Call 2 plants nothing: the interposed hook stays registered.

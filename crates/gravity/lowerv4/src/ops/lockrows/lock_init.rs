@@ -41,25 +41,29 @@
 //! host). INITCTE, those
 //! forms beside a data-modifying CTE only the InitPlans read (`init_ctes`: trigger-free INSERTs, run once; no recheck runs
 //! them again), its writer one of `Program.writes` beside the lock's plan (modifytable rowop.rs `lock_beside_drained`).
-use gravity_decompose::ops::shared::append::AppendDesc;
-use gravity_decompose::ops::shared::subplan::{walk_cond, SubLink};
-use gravity_decompose::ops::shared::scan::{BitmapPlan, TidForm};
 use gravity_decompose::join::JoinDesc;
+use gravity_decompose::ops::shared::append::AppendDesc;
+use gravity_decompose::ops::shared::scan::{BitmapPlan, TidForm};
+use gravity_decompose::ops::shared::subplan::{walk_cond, SubLink};
 use gravity_decompose::{Op, PipelineNode, Source};
+use mcx::{CollectIn, GrowIn, PgVec};
 use types_nodes::primnodes::ParamKind;
 use types_nodes::{Node, NodeTag};
-use mcx::{CollectIn, GrowIn, PgVec};
 
+use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::frame::px::Px;
 use crate::graph::Gx;
-use crate::admit::refusal::{Reason, ShapeWhy};
 
 /// The named refusals (module doc).
 pub const INIT_BELOW: ShapeWhy = ShapeWhy("a row lock beside an InitPlan attached below the lock (EvalPlanQual re-arms and re-evaluates it: D652)");
 pub const INIT_READ: ShapeWhy = ShapeWhy("a row lock beside an InitPlan its quals below the lock do not read unconditionally (EvalPlanQualStart forces a pending one: D652)");
-pub const LOCK_INIT_FAMILY: ShapeWhy = ShapeWhy("a row lock beside an InitPlan whose own row lock is over a partitioned or inheritance parent");
+pub const LOCK_INIT_FAMILY: ShapeWhy = ShapeWhy(
+    "a row lock beside an InitPlan whose own row lock is over a partitioned or inheritance parent",
+);
 pub const LOCK_INIT_FORM: ShapeWhy = ShapeWhy("a row lock beside an InitPlan whose own row lock is not rechecked in the IR (a join, a SubPlan, no product: a runner recheck inside the Init's run)");
-pub const LOCK_INIT_MULTI: ShapeWhy = ShapeWhy("a row lock beside an InitPlan's row lock where one of the two locks several relations");
+pub const LOCK_INIT_MULTI: ShapeWhy = ShapeWhy(
+    "a row lock beside an InitPlan's row lock where one of the two locks several relations",
+);
 /// D4157: the M4 pair's B of several marks that marks.rs should make (plan.rs `PlanState`, laid after A's) made by another
 /// form, its marks numbered from the program's first entry over A's.
 pub const LOCK_INIT_UNCLAIMED: ShapeWhy = ShapeWhy("a row lock beside an InitPlan's row lock that another form makes, its entries over the InitPlan's");
@@ -69,10 +73,24 @@ pub const LOCK_INIT_WRITE: ShapeWhy = ShapeWhy("a row lock beside an InitPlan's 
 /// too), or whose conditional children `walk_cond` marks (AND / OR, COALESCE, CASE, a row comparison). A read under any
 /// other node (a SubPlan's test or arguments, an array coercion's element, a JSON behavior, a subscript) does not count.
 const EVERY: &[NodeTag] = &[
-    NodeTag::T_OpExpr, NodeTag::T_FuncExpr, NodeTag::T_BoolExpr, NodeTag::T_CoalesceExpr, NodeTag::T_CaseExpr, NodeTag::T_CaseWhen,
-    NodeTag::T_RowCompareExpr, NodeTag::T_RelabelType, NodeTag::T_CoerceViaIO, NodeTag::T_CollateExpr, NodeTag::T_NullTest,
-    NodeTag::T_BooleanTest, NodeTag::T_DistinctExpr, NodeTag::T_NullIfExpr, NodeTag::T_ScalarArrayOpExpr, NodeTag::T_MinMaxExpr,
-    NodeTag::T_RowExpr, NodeTag::T_ArrayExpr,
+    NodeTag::T_OpExpr,
+    NodeTag::T_FuncExpr,
+    NodeTag::T_BoolExpr,
+    NodeTag::T_CoalesceExpr,
+    NodeTag::T_CaseExpr,
+    NodeTag::T_CaseWhen,
+    NodeTag::T_RowCompareExpr,
+    NodeTag::T_RelabelType,
+    NodeTag::T_CoerceViaIO,
+    NodeTag::T_CollateExpr,
+    NodeTag::T_NullTest,
+    NodeTag::T_BooleanTest,
+    NodeTag::T_DistinctExpr,
+    NodeTag::T_NullIfExpr,
+    NodeTag::T_ScalarArrayOpExpr,
+    NodeTag::T_MinMaxExpr,
+    NodeTag::T_RowExpr,
+    NodeTag::T_ArrayExpr,
     // D3842 (Hibernate's XmlHolder UPDATE: `SET aggregate = xmlelement(name "e", xmlconcat(xmlelement(name "theString",
     // (SELECT xmlagg(..) ..)), ..))`): ExecInitExprRec evaluates an XmlExpr's named arguments and arguments, every one,
     // before its EEOP_XMLEXPR step
@@ -85,7 +103,13 @@ fn shape(node: i32, why: ShapeWhy) -> ! {
 
 /// marks.rs sites(): the InitPlans' members (`all`, W5a's) a recheck of pipeline `k`'s write never reruns, or its lock's
 /// at plan node `node` once `admit` passes.
-pub fn members<'g>(px: &Px<'g, '_>, k: usize, node: i32, write: bool, all: fn(&Px<'g, '_>) -> PgVec<'g, usize>) -> PgVec<'g, usize> {
+pub fn members<'g>(
+    px: &Px<'g, '_>,
+    k: usize,
+    node: i32,
+    write: bool,
+    all: fn(&Px<'g, '_>) -> PgVec<'g, usize>,
+) -> PgVec<'g, usize> {
     if !write {
         admit(px, k, node);
     }
@@ -158,26 +182,58 @@ enum Part {
 fn checks(px: &Px<'_, '_>, k: usize, node: i32, ir: bool, at: Option<(usize, usize)>, part: Part) {
     let lp = &px.gx.pipelines()[k];
     // the lock's node and the nodes above it in this pipeline (a Limit, the root): `node_ops` lists them source first
-    let above = lp.node_ops.iter().position(|n| n.node_id == node).map_or(&[][..], |a| &lp.node_ops[a..]);
+    let above = lp
+        .node_ops
+        .iter()
+        .position(|n| n.node_id == node)
+        .map_or(&[][..], |a| &lp.node_ops[a..]);
     let (p, j) = match at {
         Some((q, jq)) => (&px.gx.pipelines()[q], jq),
-        None => (lp, lp.ops.iter().position(|o| matches!(o, Op::Lock(_))).unwrap_or(lp.ops.len())),
+        None => (
+            lp,
+            lp.ops
+                .iter()
+                .position(|o| matches!(o, Op::Lock(_)))
+                .unwrap_or(lp.ops.len()),
+        ),
     };
     // D4150 INITFAM: a streamed union's arm is held with the others (`with_producers` follows a slot to its last arm only,
     // `run_arms`): a family's lock arms inside an InitPlan all run in its on-demand run
     let run = px.gx.run_arms(k);
     let holds = |i: &gravity_decompose::InitPlan<'_>| {
         let of = px.gx.with_producers([i.pipeline as usize]);
-        of.contains(&k) || run.iter().any(|a| of.contains(a)) || at.is_some_and(|(q, _)| of.contains(&q))
+        of.contains(&k)
+            || run.iter().any(|a| of.contains(a))
+            || at.is_some_and(|(q, _)| of.contains(&q))
     };
-    let inside = ir && px.gx.graph.init_plans.iter().any(& holds);
+    let inside = ir && px.gx.graph.init_plans.iter().any(&holds);
     // lockrows M4 (lk-0061): one attached inside another InitPlan's pipelines (a min() sublink's MinMaxAgg InitPlan) is
     // read there alone; the recheck copies the outer one's value, so neither PG's nor the runner's recheck runs it again
     let nested = |i: &gravity_decompose::InitPlan<'_>| {
         let ps = px.gx.pipelines();
-        px.gx.graph.init_plans.iter().filter(|o| o.plan_id != i.plan_id).any(|o| px.gx.with_producers([o.pipeline as usize]).iter().any(|&q| ps[q].node_id == i.attach || ps[q].node_ops.iter().any(|n| n.node_id == i.attach)))
+        px.gx
+            .graph
+            .init_plans
+            .iter()
+            .filter(|o| o.plan_id != i.plan_id)
+            .any(|o| {
+                px.gx
+                    .with_producers([o.pipeline as usize])
+                    .iter()
+                    .any(|&q| {
+                        ps[q].node_id == i.attach
+                            || ps[q].node_ops.iter().any(|n| n.node_id == i.attach)
+                    })
+            })
     };
-    let beside = |i: &&gravity_decompose::InitPlan<'_>| !matches!(i.link, SubLink::Cte) && if ir { !holds(i) && may_read(p, j, i.params, part) } else { !nested(i) };
+    let beside = |i: &&gravity_decompose::InitPlan<'_>| {
+        !matches!(i.link, SubLink::Cte)
+            && if ir {
+                !holds(i) && may_read(p, j, i.params, part)
+            } else {
+                !nested(i)
+            }
+    };
     for i in px.gx.graph.init_plans.iter().filter(beside) {
         // D3272: one the recheck arms afresh (`arms`) is PostgreSQL's re-armed InitPlan, read where the recheck reads it
         if arms(px.gx, node, i) {
@@ -190,7 +246,11 @@ fn checks(px: &Px<'_, '_>, k: usize, node: i32, ir: bool, at: Option<(usize, usi
         // hash join below the lock, or below the breaker under it (D4157 INITSORT; `fed_reads`)
         let pair_b = !ir && crate::ops::lockrows::plan::multi_b(px, node);
         #[allow(clippy::nonminimal_bool)]
-        if !read_first(px.gx, p, j, i, false) && !forces(px.gx, node, i) && !unread(px.gx, node, i) && !(pair_b && fed_reads(px.gx, at.map_or(k, |a| a.0), j, i)) {
+        if !read_first(px.gx, p, j, i, false)
+            && !forces(px.gx, node, i)
+            && !unread(px.gx, node, i)
+            && !(pair_b && fed_reads(px.gx, at.map_or(k, |a| a.0), j, i))
+        {
             shape(node, INIT_READ);
         }
     }
@@ -213,9 +273,14 @@ fn fed_reads(gx: &Gx<'_, '_>, q: usize, j: usize, i: &gravity_decompose::InitPla
         }
     }
     ps[q].ops[..j].iter().any(|o| match o {
-        Op::Join(JoinDesc::Probe { slot, jointype: types_nodes::jointype::JoinType::JOIN_INNER, .. }) => {
-            (0..q).rev().find(|&b| ps[b].desc.produces() == Some(*slot)).is_some_and(|b| read_first(gx, &ps[b], ps[b].ops.len(), i, false))
-        }
+        Op::Join(JoinDesc::Probe {
+            slot,
+            jointype: types_nodes::jointype::JoinType::JOIN_INNER,
+            ..
+        }) => (0..q)
+            .rev()
+            .find(|&b| ps[b].desc.produces() == Some(*slot))
+            .is_some_and(|b| read_first(gx, &ps[b], ps[b].ops.len(), i, false)),
         _ => false,
     })
 }
@@ -226,7 +291,9 @@ fn fed_reads(gx: &Gx<'_, '_>, q: usize, j: usize, i: &gravity_decompose::InitPla
 /// or in a CTE) and `i` one of decompose's `recheck_inits` (`plain_init`).
 /// The runner's recheck forces those (exec rerun/epq.rs `forced`), an IR recheck at its start (`forced`, epq_ir.rs).
 pub(crate) fn forces(gx: &Gx<'_, '_>, node: i32, i: &gravity_decompose::InitPlan<'_>) -> bool {
-    gx.graph.recheck_node == node && gx.graph.recheck_inits.contains(&i.plan_id) && plain_init(gx, i)
+    gx.graph.recheck_node == node
+        && gx.graph.recheck_inits.contains(&i.plan_id)
+        && plain_init(gx, i)
 }
 
 /// D3271: whether the recheck of the lock at plan node `node` copies InitPlan `i`'s value and never reads it: `i` is attached
@@ -234,7 +301,11 @@ pub(crate) fn forces(gx: &Gx<'_, '_>, node: i32, i: &gravity_decompose::InitPlan
 /// `recheck_inits`), as a LIMIT count above the lock. PostgreSQL's EvalPlanQualStart then neither forces nor re-arms it,
 /// and a pending one stays pending through the recheck.
 fn unread(gx: &Gx<'_, '_>, node: i32, i: &gravity_decompose::InitPlan<'_>) -> bool {
-    gx.graph.recheck_node == node && gx.graph.recheck_above.contains(&i.plan_id) && !gx.graph.recheck_inits.contains(&i.plan_id) && !gx.graph.epq_fresh.contains(&i.plan_id) && plain_init(gx, i)
+    gx.graph.recheck_node == node
+        && gx.graph.recheck_above.contains(&i.plan_id)
+        && !gx.graph.recheck_inits.contains(&i.plan_id)
+        && !gx.graph.epq_fresh.contains(&i.plan_id)
+        && plain_init(gx, i)
 }
 
 /// D3272: whether InitPlan `i` is one the recheck of the lock at plan node `node` arms afresh, as PostgreSQL's
@@ -245,7 +316,10 @@ fn unread(gx: &Gx<'_, '_>, node: i32, i: &gravity_decompose::InitPlan<'_>) -> bo
 /// member InitPlan is re-armed at every re-open instead, D1262). The runner's recheck arms those (exec rerun/epq.rs
 /// `fresh_inits`, D2673), an IR recheck around its redo (`armed`, epq_ir.rs).
 fn arms(gx: &Gx<'_, '_>, node: i32, i: &gravity_decompose::InitPlan<'_>) -> bool {
-    !matches!(i.link, SubLink::Cte) && gx.graph.recheck_node == node && gx.graph.epq_fresh.contains(&i.plan_id) && plain_init(gx, i)
+    !matches!(i.link, SubLink::Cte)
+        && gx.graph.recheck_node == node
+        && gx.graph.epq_fresh.contains(&i.plan_id)
+        && plain_init(gx, i)
 }
 
 /// D3271: a lock's recheck runs a re-armed InitPlan (`INIT_EPQ_FRESH`) again after the statement's own run of it, so every
@@ -253,18 +327,44 @@ fn arms(gx: &Gx<'_, '_>, node: i32, i: &gravity_decompose::InitPlan<'_>) -> bool
 /// a CTE's lock) is held through the program's last rechecking pipeline, as PostgreSQL's re-run reads the
 /// statement's CTE store again (EvalPlanQualStart copies the CTE param naming its leader). A slot whose number another
 /// pipeline produces again before that recheck cannot be held there: INIT_BELOW, as before.
-pub(crate) fn hold_epq_reads(px: &Px<'_, '_>, mechs: &[crate::frame::frame::Mechs<'_>], pipelines: &mut [gravity_program::Pipeline], node: i32) {
+pub(crate) fn hold_epq_reads(
+    px: &Px<'_, '_>,
+    mechs: &[crate::frame::frame::Mechs<'_>],
+    pipelines: &mut [gravity_program::Pipeline],
+    node: i32,
+) {
     use gravity_kernels::ops::shared::object::entries::INIT_EPQ_FRESH;
     let gx = px.gx;
-    let rechecking = |i: usize| mechs.get(i).is_some_and(|m| gx.pipelines()[px.after_of(m.k)].ops.iter().any(|o| matches!(o, Op::Lock(_) | Op::Write(_))));
-    let Some(last) = (0..pipelines.len()).rev().find(|&i| rechecking(i)) else { return };
-    for p in px.protos.iter().filter(|p| p.kind == gravity_program::protos::ProtoKind::Init && p.arg & INIT_EPQ_FRESH != 0).map(|p| p.pipeline as usize) {
+    let rechecking = |i: usize| {
+        mechs.get(i).is_some_and(|m| {
+            gx.pipelines()[px.after_of(m.k)]
+                .ops
+                .iter()
+                .any(|o| matches!(o, Op::Lock(_) | Op::Write(_)))
+        })
+    };
+    let Some(last) = (0..pipelines.len()).rev().find(|&i| rechecking(i)) else {
+        return;
+    };
+    for p in px
+        .protos
+        .iter()
+        .filter(|p| {
+            p.kind == gravity_program::protos::ProtoKind::Init && p.arg & INIT_EPQ_FRESH != 0
+        })
+        .map(|p| p.pipeline as usize)
+    {
         let members = gravity_program::protos::members_in(pipelines, &px.protos, p).members;
         for &x in members.iter() {
             let x = x as usize;
             for k in 0..pipelines[x].consumes.len() {
                 let slot = pipelines[x].consumes[k];
-                let Some(q) = (0..x).rev().find(|&q| pipelines[q].produces() == Some(slot)) else { continue };
+                let Some(q) = (0..x)
+                    .rev()
+                    .find(|&q| pipelines[q].produces() == Some(slot))
+                else {
+                    continue;
+                };
                 if members.contains(&(q as u16)) || last <= x {
                     continue;
                 }
@@ -282,8 +382,16 @@ pub(crate) fn hold_epq_reads(px: &Px<'_, '_>, mechs: &[crate::frame::frame::Mech
 pub(crate) fn plain_init(gx: &Gx<'_, '_>, i: &gravity_decompose::InitPlan<'_>) -> bool {
     let ps = gx.pipelines();
     let own = gx.with_producers([i.pipeline as usize]);
-    let held = gx.graph.reruns.iter().any(|r| r.pipelines.iter().any(|&m| own.contains(&usize::from(m))));
-    !held && !own.iter().flat_map(|&q| ps[q].ops.iter()).any(|o| matches!(o, Op::Lock(_) | Op::Write(_)))
+    let held = gx
+        .graph
+        .reruns
+        .iter()
+        .any(|r| r.pipelines.iter().any(|&m| own.contains(&usize::from(m))));
+    !held
+        && !own
+            .iter()
+            .flat_map(|&q| ps[q].ops.iter())
+            .any(|o| matches!(o, Op::Lock(_) | Op::Write(_)))
 }
 
 /// D3272: the InitPlans an IR recheck of the lock at plan node `node` arms (`arms`): each one's handle word
@@ -292,7 +400,11 @@ pub(crate) fn armed<'g>(px: &mut Px<'g, '_>, node: i32) -> PgVec<'g, (u16, i32, 
     let gx = px.gx;
     let mut out = PgVec::new_in(px.mcx());
     for i in gx.graph.init_plans.iter().filter(|i| arms(gx, node, i)) {
-        out.push_in((crate::rerun::params::init_handle(px, i.param), i.param, i.params.len() as u32));
+        out.push_in((
+            crate::rerun::params::init_handle(px, i.param),
+            i.param,
+            i.params.len() as u32,
+        ));
     }
     out
 }
@@ -301,10 +413,18 @@ pub(crate) fn armed<'g>(px: &mut Px<'g, '_>, node: i32) -> PgVec<'g, (u16, i32, 
 /// handle word (rerun/params.rs `init_handle`), by that parameter, the order ExecSetParamPlanMulti walks extParam in.
 pub(crate) fn forced<'g>(px: &mut Px<'g, '_>, node: i32) -> PgVec<'g, (i32, u16)> {
     let gx = px.gx;
-    let mut ids: PgVec<'_, i32> = gx.graph.init_plans.iter().filter(|i| !matches!(i.link, SubLink::Cte) && forces(gx, node, i)).map(|i| i.param).collect_in(px.mcx());
+    let mut ids: PgVec<'_, i32> = gx
+        .graph
+        .init_plans
+        .iter()
+        .filter(|i| !matches!(i.link, SubLink::Cte) && forces(gx, node, i))
+        .map(|i| i.param)
+        .collect_in(px.mcx());
     ids.sort_unstable();
     let mcx = px.mcx();
-    ids.into_iter().map(|id| (id, crate::rerun::params::init_handle(px, id))).collect_in(mcx)
+    ids.into_iter()
+        .map(|id| (id, crate::rerun::params::init_handle(px, id)))
+        .collect_in(mcx)
 }
 
 /// INIT_READ's rule: whether pipeline `p`'s part before op `j` reads InitPlan `i` at an unconditional position, so every
@@ -312,7 +432,13 @@ pub(crate) fn forced<'g>(px: &mut Px<'g, '_>, node: i32) -> PgVec<'g, (i32, u16)
 /// its own `Op::Filter`, in ExecQual's order; inside one, decompose `walk_cond`'s rule). Also D2904's (rerun/epq/inits.rs),
 /// with `proj`: a write's part also forces it in a projection below the write (ModifyTable's subplan projects every row it
 /// hands on, ExecProject over its whole target list, so an UPDATE's SET expressions run before the write sees the row).
-pub(crate) fn read_first(gx: &Gx<'_, '_>, p: &PipelineNode<'_>, j: usize, i: &gravity_decompose::InitPlan<'_>, proj: bool) -> bool {
+pub(crate) fn read_first(
+    gx: &Gx<'_, '_>,
+    p: &PipelineNode<'_>,
+    j: usize,
+    i: &gravity_decompose::InitPlan<'_>,
+    proj: bool,
+) -> bool {
     // an index scan's keys run at its first fetch, before any row reaches the lock (lk-0061: `id = (SELECT min(id) ..)`)
     let mut read = match &p.source {
         Source::Index { keys, .. } => keys.iter().any(|k| key_reads(gx, k.value, i.params)),
@@ -321,21 +447,31 @@ pub(crate) fn read_first(gx: &Gx<'_, '_>, p: &PipelineNode<'_>, j: usize, i: &gr
     // so do a TID scan's TID quals (`ctid = (SELECT ctid ..)`, the TIDINIT form), every one (TidListEval at
     // the first TidNext skips none: a NULL is only no TID); a TID range scan stops at its first NULL bound, so not its
     let tid = match &p.source {
-        Source::Tid { form: TidForm::Points, quals, .. } => Some(*quals),
+        Source::Tid {
+            form: TidForm::Points,
+            quals,
+            ..
+        } => Some(*quals),
         _ => None,
     };
     let mut below = PgVec::new_in(gx.mcx);
     for o in p.ops[..j].iter() {
         match o {
             Op::Filter(q) | Op::Gate(q) => below.push_in(*q),
-            Op::Project(l) if proj => below.extend_in(l.iter().filter_map(|x| x.as_target_entry()).map(|te| te.expr)),
+            Op::Project(l) if proj => below.extend_in(
+                l.iter()
+                    .filter_map(|x| x.as_target_entry())
+                    .map(|te| te.expr),
+            ),
             _ => {}
         }
     }
     for q in tid.into_iter().flat_map(|l| l.iter()).chain(below) {
         walk_cond(q, false, &mut |x, cond| match x.as_param() {
             Some(r) => {
-                read |= !cond && r.paramkind == ParamKind::PARAM_EXEC && i.params.iter().any(|id| id == r.paramid);
+                read |= !cond
+                    && r.paramkind == ParamKind::PARAM_EXEC
+                    && i.params.iter().any(|id| id == r.paramid);
                 false
             }
             None => EVERY.contains(&x.node_tag()),
@@ -354,8 +490,17 @@ pub fn admit_sub(px: &Px<'_, '_>, node: i32, k: usize, write: bool) {
     let ps = px.gx.pipelines();
     if write {
         let p = &ps[k];
-        let jw = p.ops.iter().position(|o| matches!(o, Op::Write(_))).unwrap_or(p.ops.len());
-        let wn = p.node_ops.iter().rev().find(|n| usize::from(n.first_op) <= jw).map_or(node, |n| n.node_id);
+        let jw = p
+            .ops
+            .iter()
+            .position(|o| matches!(o, Op::Write(_)))
+            .unwrap_or(p.ops.len());
+        let wn = p
+            .node_ops
+            .iter()
+            .rev()
+            .find(|n| usize::from(n.first_op) <= jw)
+            .map_or(node, |n| n.node_id);
         checks(px, k, wn, true, Some((k, jw)), Part::Own);
     }
 }
@@ -364,7 +509,10 @@ pub fn admit_sub(px: &Px<'_, '_>, node: i32, k: usize, write: bool) {
 /// REFERENCE side's ops rerun in the recheck over the refetched row with such a value copied from the main run
 /// (EvalPlanQualStart), a bound word there once `admit_ir_at` has seen the build part read it unconditionally.
 pub fn init_param(gx: &Gx<'_, '_>, id: i32) -> bool {
-    gx.graph.init_plans.iter().any(|i| !matches!(i.link, SubLink::Cte) && i.params.iter().any(|p| p == id))
+    gx.graph
+        .init_plans
+        .iter()
+        .any(|i| !matches!(i.link, SubLink::Cte) && i.params.iter().any(|p| p == id))
 }
 
 /// Whether index key `n` reads one of `params` before any row reaches the lock: the key itself, a plain run-time key, or
@@ -377,7 +525,9 @@ pub fn init_param(gx: &Gx<'_, '_>, id: i32) -> bool {
 /// EvalPlanQual's estate), so a key that did not raise at the seek does not raise there.
 fn key_reads(gx: &Gx<'_, '_>, n: Node<'_>, params: &types_nodes::list::IntList<'_>) -> bool {
     let ours = |exec: bool, id: i32| exec && params.iter().any(|p| p == id);
-    if n.as_param().is_some_and(|r| ours(r.paramkind == ParamKind::PARAM_EXEC, r.paramid)) {
+    if n.as_param()
+        .is_some_and(|r| ours(r.paramkind == ParamKind::PARAM_EXEC, r.paramid))
+    {
         return true;
     }
     let mut read = false;
@@ -393,11 +543,19 @@ fn key_reads(gx: &Gx<'_, '_>, n: Node<'_>, params: &types_nodes::list::IntList<'
 
 /// lockrows D2112: whether pipeline `p`'s rechecked part (its source's keys and recheck quals, its ops below the lock op `j`)
 /// may read one of `params`; any other source or op, or a node `expr::walk` does not know, may.
-fn may_read(p: &PipelineNode<'_>, j: usize, params: &types_nodes::list::IntList<'_>, part: Part) -> bool {
+fn may_read(
+    p: &PipelineNode<'_>,
+    j: usize,
+    params: &types_nodes::list::IntList<'_>,
+    part: Part,
+) -> bool {
     let hit = |n: Node<'_>| {
         let mut found = false;
         let known = gravity_decompose::expr::walk(n, &mut |x| match x.as_param() {
-            Some(r) if r.paramkind == ParamKind::PARAM_EXEC && params.iter().any(|id| id == r.paramid) => {
+            Some(r)
+                if r.paramkind == ParamKind::PARAM_EXEC
+                    && params.iter().any(|id| id == r.paramid) =>
+            {
                 found = true;
                 false
             }
@@ -409,12 +567,16 @@ fn may_read(p: &PipelineNode<'_>, j: usize, params: &types_nodes::list::IntList<
         crate::stack_check();
         match b {
             BitmapPlan::Index { keys, .. } => keys.iter().any(|k| hit(k.value)),
-            BitmapPlan::And { plans, .. } | BitmapPlan::Or { plans, .. } => plans.iter().any(|b| bitmap(b, hit)),
+            BitmapPlan::And { plans, .. } | BitmapPlan::Or { plans, .. } => {
+                plans.iter().any(|b| bitmap(b, hit))
+            }
         }
     }
     let src = match &p.source {
         Source::Range { .. } => false,
-        Source::Index { keys, recheck, .. } => keys.iter().any(|k| hit(k.value)) || recheck.iter().any(hit),
+        Source::Index { keys, recheck, .. } => {
+            keys.iter().any(|k| hit(k.value)) || recheck.iter().any(hit)
+        }
         Source::Bitmap { plan, recheck, .. } => bitmap(plan, &hit) || recheck.iter().any(hit),
         // `Family` (`admit_ir_family`): a union emit's slot hands on the arms' rows, each arm asked on its own
         Source::Breaker { .. } if part == Part::Family => false,
@@ -424,20 +586,41 @@ fn may_read(p: &PipelineNode<'_>, j: usize, params: &types_nodes::list::IntList<
         Op::Filter(n) | Op::Gate(n) => hit(*n),
         Op::Project(l) => l.iter().any(hit),
         // `probe` (`admit_ir_ref`): a hash probe reads through its own expressions; its build part is checked on its own
-        Op::Join(JoinDesc::Probe { clauses, keys, qual, .. }) if part == Part::Probe => clauses.iter().chain(keys.iter()).chain(qual.iter()).any(hit),
+        Op::Join(JoinDesc::Probe {
+            clauses,
+            keys,
+            qual,
+            ..
+        }) if part == Part::Probe => clauses
+            .iter()
+            .chain(keys.iter())
+            .chain(qual.iter())
+            .any(hit),
         // `Nest` (`admit_ir_nest`): a nest reads through its join qual and its parameters' values; its inner is asked on its own
-        Op::Join(JoinDesc::Nest { params, qual, .. }) if part == Part::Nest => qual.iter().any(hit) || crate::rerun::epq::ref_nest::param_values(params).any(hit),
+        Op::Join(JoinDesc::Nest { params, qual, .. }) if part == Part::Nest => {
+            qual.iter().any(hit) || crate::rerun::epq::ref_nest::param_values(params).any(hit)
+        }
         // `Write` (rerun/epq/inits.rs): a SubPlan step reads this query level's InitPlans only through its test (an ANY /
         // ALL / row comparison's left side) and its args; its own subquery's InitPlans are attached inside its plan
-        Op::SubPlan(s) if part == Part::Write => s.test.iter().any(|t| hit(*t)) || s.args.iter().any(hit),
+        Op::SubPlan(s) if part == Part::Write => {
+            s.test.iter().any(|t| hit(*t)) || s.args.iter().any(hit)
+        }
         // `Family`: the append markers (no run-time pruning) read nothing
-        Op::Append(AppendDesc::Union { prune: None, .. } | AppendDesc::Arm { prune: None, .. } | AppendDesc::Feed { .. }) if part == Part::Family => false,
+        Op::Append(
+            AppendDesc::Union { prune: None, .. }
+            | AppendDesc::Arm { prune: None, .. }
+            | AppendDesc::Feed { .. },
+        ) if part == Part::Family => false,
         _ => true,
     })
 }
 
 /// D2904 (rerun/epq/inits.rs `write_inits_read`): `may_read` over a write's part before its op `j` (`Part::Write`).
-pub(crate) fn write_may_read(p: &PipelineNode<'_>, j: usize, params: &types_nodes::list::IntList<'_>) -> bool {
+pub(crate) fn write_may_read(
+    p: &PipelineNode<'_>,
+    j: usize,
+    params: &types_nodes::list::IntList<'_>,
+) -> bool {
     may_read(p, j, params, Part::Write)
 }
 
@@ -447,5 +630,12 @@ pub(crate) fn write_may_read(p: &PipelineNode<'_>, j: usize, params: &types_node
 /// its LockRows rechecks under its own EvalPlanQual inside the InitPlan's run, over the plan below it, which reads no
 /// param of its own InitPlan, and hands the row on to the sink.
 pub(crate) fn init_sink(gx: &Gx<'_, '_>, k: usize) -> bool {
-    gx.pipelines()[k].desc.produces().is_none() && gx.graph.init_plans.iter().any(|i| i.pipeline as usize == k && matches!(i.link, SubLink::Expr | SubLink::MultiExpr | SubLink::RowCompare))
+    gx.pipelines()[k].desc.produces().is_none()
+        && gx.graph.init_plans.iter().any(|i| {
+            i.pipeline as usize == k
+                && matches!(
+                    i.link,
+                    SubLink::Expr | SubLink::MultiExpr | SubLink::RowCompare
+                )
+        })
 }

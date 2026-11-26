@@ -74,7 +74,8 @@ fn holds_whole_pmd(lo: usize, len: usize) -> bool {
 }
 
 #[test]
-fn an_idle_trim_keeps_parked_pool_bytes_warm_and_a_ladder_take_releases_them_on_the_loop_thread_only() {
+fn an_idle_trim_keeps_parked_pool_bytes_warm_and_a_ladder_take_releases_them_on_the_loop_thread_only(
+) {
     let _one = on();
     REGIONS.clear();
 
@@ -83,22 +84,46 @@ fn an_idle_trim_keeps_parked_pool_bytes_warm_and_a_ladder_take_releases_them_on_
     let s0 = pagepool::stats();
     on_loop_thread(gravity_driver::mem::grant::idle_release);
     let s1 = pagepool::stats();
-    assert_eq!(REGIONS.parked_bytes(), 0, "the idle release dropped the depot");
-    assert_eq!((s1.releases, s1.released_bytes), (s0.releases, s0.released_bytes), "an idle trim releases nothing (0 remaps)");
-    assert!(s1.warm_free() >= s0.warm_free() + BYTES / 2, "its bytes went back warm: {} -> {}", s0.warm_free(), s1.warm_free());
+    assert_eq!(
+        REGIONS.parked_bytes(),
+        0,
+        "the idle release dropped the depot"
+    );
+    assert_eq!(
+        (s1.releases, s1.released_bytes),
+        (s0.releases, s0.released_bytes),
+        "an idle trim releases nothing (0 remaps)"
+    );
+    assert!(
+        s1.warm_free() >= s0.warm_free() + BYTES / 2,
+        "its bytes went back warm: {} -> {}",
+        s0.warm_free(),
+        s1.warm_free()
+    );
     // the next region takes them warm: its pages fault no more (a fresh one: 32 huge pages, or 16384 base pages)
     let f0 = minflt();
     let r = written();
     let faults = minflt() - f0;
-    assert!(faults < 8, "{faults} faults writing a region the idle trim left warm");
+    assert!(
+        faults < 8,
+        "{faults} faults writing a region the idle trim left warm"
+    );
 
     // pressure on the loop thread: the ladder's take drops the parked region and the pool releases its bytes now, by remap
     REGIONS.put(r);
     hooks::clear();
     let freed = on_loop_thread(|| gravity_driver::mem::reclaim::ladder_reclaim(BYTES as u64));
     let s2 = pagepool::stats();
-    assert!(freed >= BYTES as u64, "the ladder's take dropped the parked region ({freed})");
-    assert!(s2.released_bytes >= s1.released_bytes + (BYTES / 2) as u64, "released inline: {} -> {}", s1.released_bytes, s2.released_bytes);
+    assert!(
+        freed >= BYTES as u64,
+        "the ladder's take dropped the parked region ({freed})"
+    );
+    assert!(
+        s2.released_bytes >= s1.released_bytes + (BYTES / 2) as u64,
+        "released inline: {} -> {}",
+        s1.released_bytes,
+        s2.released_bytes
+    );
     let (mut gives, mut bad) = (0, Vec::new());
     let complete = hooks::each(|op, at, len, arg| match op {
         Op::Madvise if arg == ADVICE_DONTNEED && holds_whole_pmd(at, len) => bad.push((at, len)),
@@ -106,7 +131,10 @@ fn an_idle_trim_keeps_parked_pool_bytes_warm_and_a_ladder_take_releases_them_on_
         _ => {}
     });
     assert!(complete, "the pool's syscall log overflowed");
-    assert!(bad.is_empty(), "MADV_DONTNEED over a whole 2 MiB range: {bad:x?}");
+    assert!(
+        bad.is_empty(),
+        "MADV_DONTNEED over a whole 2 MiB range: {bad:x?}"
+    );
     assert!(gives > 0, "the release went through pagegive::give_back");
 
     // pressure on a query thread (this one): the purger is asked (none runs in this test), nothing released inline
@@ -114,8 +142,15 @@ fn an_idle_trim_keeps_parked_pool_bytes_warm_and_a_ladder_take_releases_them_on_
     let s3 = pagepool::stats();
     let freed = gravity_driver::mem::reclaim::ladder_reclaim(BYTES as u64);
     let s4 = pagepool::stats();
-    assert!(freed >= BYTES as u64, "the ladder's take dropped the parked region ({freed})");
-    assert_eq!((s4.releases, s4.released_bytes), (s3.releases, s3.released_bytes), "no remap on a query thread");
+    assert!(
+        freed >= BYTES as u64,
+        "the ladder's take dropped the parked region ({freed})"
+    );
+    assert_eq!(
+        (s4.releases, s4.released_bytes),
+        (s3.releases, s3.released_bytes),
+        "no remap on a query thread"
+    );
 }
 
 /// pagepool P3 (b): a pool reservation charges its ask's pages, as the mapped road does (`map_reserved`), never the span
@@ -131,16 +166,30 @@ fn a_pool_reservation_charges_its_ask_not_the_span_it_took() {
     let (mut r, rw) = reservation_witness(RUN, 8 * MIB).expect("a pool reservation");
     assert_eq!(rw, RUN, "the ask's pages charged, not the span's");
     let d1 = pagepool::stats().dead;
-    assert!(d1 >= d0 + 8 * MIB - 2 * RUN, "the span's pages past the ask are dead in the pool: {d0} -> {d1}");
+    assert!(
+        d1 >= d0 + 8 * MIB - 2 * RUN,
+        "the span's pages past the ask are dead in the pool: {d0} -> {d1}"
+    );
     // a commit opens 3 MiB more: charged in 2 MiB steps, those pages live first
     let rw2 = commit_witness(&mut r, 3 * MIB).expect("a commit inside the reservation");
-    assert!(( RUN + 3 * MIB..= RUN + 3 * MIB + SUPER).contains(&rw2), "charged to the opened extent: {rw2}");
+    assert!(
+        (RUN + 3 * MIB..=RUN + 3 * MIB + SUPER).contains(&rw2),
+        "charged to the opened extent: {rw2}"
+    );
     let d2 = pagepool::stats().dead;
-    assert!(d2 + (rw2 - rw - RUN) <= d1, "the opened extent came live: {d1} -> {d2} (opened {})", rw2 - rw);
+    assert!(
+        d2 + (rw2 - rw - RUN) <= d1,
+        "the opened extent came live: {d1} -> {d2} (opened {})",
+        rw2 - rw
+    );
     // SAFETY: the ask and the commit are the region's writable bytes
     unsafe { core::ptr::write_bytes(r.as_mut_ptr(), 0x5a, RUN + 3 * MIB) };
     drop(r);
-    assert_eq!(pagepool::stats().dead, d0, "the span went back whole: its dead runs live in the pool again");
+    assert_eq!(
+        pagepool::stats().dead,
+        d0,
+        "the span went back whole: its dead runs live in the pool again"
+    );
 
     // a lazy span (512 MiB): its first owner commits 256 MiB, the next asks 64 KiB of a span of the same size
     let (first, rw) = reservation_witness(256 * MIB, 512 * MIB).expect("a lazy pool reservation");
@@ -149,13 +198,23 @@ fn a_pool_reservation_charges_its_ask_not_the_span_it_took() {
     drop(first);
     let d3 = pagepool::stats().dead;
     let (next, rw) = reservation_witness(RUN, 512 * MIB).expect("a lazy pool reservation");
-    assert_eq!(rw, RUN, "the ask's pages charged, not the warm span's last commit");
+    assert_eq!(
+        rw, RUN,
+        "the ask's pages charged, not the warm span's last commit"
+    );
     if next.as_ptr() as usize == base {
         let d4 = pagepool::stats().dead;
-        assert!(d4 >= d3 + 256 * MIB - 2 * RUN, "the warm span's last commit is dead in the pool: {d3} -> {d4}");
+        assert!(
+            d4 >= d3 + 256 * MIB - 2 * RUN,
+            "the warm span's last commit is dead in the pool: {d3} -> {d4}"
+        );
     }
     drop(next);
-    assert_eq!(pagepool::stats().dead, d3, "its dead runs live in the pool again at the drop");
+    assert_eq!(
+        pagepool::stats().dead,
+        d3,
+        "its dead runs live in the pool again at the drop"
+    );
 }
 
 /// The resident read for the R1 witness: a base plus the pool's claimed bytes (what it holds from the OS).
@@ -176,21 +235,41 @@ fn a_draw_never_counts_the_pools_landing_release_as_room() {
     let regions: Vec<_> = (0..4).map(|_| written()).collect();
     drop(regions);
     let warm = pagepool::releasable();
-    assert!(warm >= 4 * BYTES, "four written regions went back warm: {warm}");
+    assert!(
+        warm >= 4 * BYTES,
+        "four written regions went back warm: {warm}"
+    );
     mcx::governor::set_resident_probe(resident_now);
     budget::set_fallback_limit(32 << 30);
-    budget::configure(Cfg { mode: Mode::On, actuators: actuator::ALL, ..Cfg::DEFAULT });
+    budget::configure(Cfg {
+        mode: Mode::On,
+        actuators: actuator::ALL,
+        ..Cfg::DEFAULT
+    });
     let free = budget::snapshot().expect("the budget is on").free_b;
     let ask = free + BYTES as u64;
-    assert!(!reclaim::make_room(ask), "only the pool's warm bytes could make the room: refused");
+    assert!(
+        !reclaim::make_room(ask),
+        "only the pool's warm bytes could make the room: refused"
+    );
 
     // R1 off the loop thread: the purger is asked, nothing released here; landing until its pass
     let s0 = pagepool::stats();
     let landing = pagepool::return_warm();
     assert_eq!(landing, warm, "every releasable byte asked");
-    assert_eq!((pagepool::stats().releases, pagepool::stats().released_bytes), (s0.releases, s0.released_bytes), "no remap on this thread");
-    assert!(gravity_driver::mem::reap::landing_credit() >= landing as u64, "the ladder's landing credit shows the ask");
-    assert!(!reclaim::make_room(ask), "landing is no room: still refused");
+    assert_eq!(
+        (pagepool::stats().releases, pagepool::stats().released_bytes),
+        (s0.releases, s0.released_bytes),
+        "no remap on this thread"
+    );
+    assert!(
+        gravity_driver::mem::reap::landing_credit() >= landing as u64,
+        "the ladder's landing credit shows the ask"
+    );
+    assert!(
+        !reclaim::make_room(ask),
+        "landing is no room: still refused"
+    );
 
     // the purger's pass (this test starts no pool thread): released by remap, the read falls, the draw has its room
     hooks::clear();
@@ -204,9 +283,15 @@ fn a_draw_never_counts_the_pools_landing_release_as_room() {
         _ => {}
     });
     assert!(complete, "the pool's syscall log overflowed");
-    assert!(bad.is_empty(), "MADV_DONTNEED over a whole 2 MiB range: {bad:x?}");
+    assert!(
+        bad.is_empty(),
+        "MADV_DONTNEED over a whole 2 MiB range: {bad:x?}"
+    );
     assert!(gives > 0, "the release went through pagegive::give_back");
-    assert!(reclaim::make_room(ask), "released: the read fell by {got} bytes, the draw has its room");
+    assert!(
+        reclaim::make_room(ask),
+        "released: the read fell by {got} bytes, the draw has its room"
+    );
     budget::configure(Cfg::DEFAULT);
 }
 
@@ -224,14 +309,24 @@ fn a_reclaims_settle_returns_the_pools_warm_runs_before_the_resample() {
     // four written regions back warm, then a fifth parked (it may take one of them: three at least stay warm)
     drop((0..4).map(|_| written()).collect::<Vec<_>>());
     REGIONS.put(written());
-    assert!(pagepool::releasable() >= 3 * BYTES, "the written regions went back warm: {}", pagepool::releasable());
+    assert!(
+        pagepool::releasable() >= 3 * BYTES,
+        "the written regions went back warm: {}",
+        pagepool::releasable()
+    );
     hooks::clear();
     let s0 = pagepool::stats();
     let freed = on_loop_thread(|| reclaim::reclaim_fast(BYTES as u64));
     let s1 = pagepool::stats();
-    assert!(freed >= BYTES as u64, "the cut dropped the parked region ({freed})");
+    assert!(
+        freed >= BYTES as u64,
+        "the cut dropped the parked region ({freed})"
+    );
     let released = s1.released_bytes - s0.released_bytes;
-    assert!(released >= freed + (BYTES / 2) as u64, "settle released the pool's warm runs too: {released} for a cut of {freed}");
+    assert!(
+        released >= freed + (BYTES / 2) as u64,
+        "settle released the pool's warm runs too: {released} for a cut of {freed}"
+    );
     let (mut gives, mut bad) = (0, Vec::new());
     let complete = hooks::each(|op, at, len, arg| match op {
         Op::Madvise if arg == ADVICE_DONTNEED && holds_whole_pmd(at, len) => bad.push((at, len)),
@@ -239,7 +334,10 @@ fn a_reclaims_settle_returns_the_pools_warm_runs_before_the_resample() {
         _ => {}
     });
     assert!(complete, "the pool's syscall log overflowed");
-    assert!(bad.is_empty(), "MADV_DONTNEED over a whole 2 MiB range: {bad:x?}");
+    assert!(
+        bad.is_empty(),
+        "MADV_DONTNEED over a whole 2 MiB range: {bad:x?}"
+    );
     assert!(gives > 0, "the release went through pagegive::give_back");
 
     // a query thread (this one): the purger asked for every releasable byte, nothing released here
@@ -249,11 +347,24 @@ fn a_reclaims_settle_returns_the_pools_warm_runs_before_the_resample() {
     let s2 = pagepool::stats();
     let freed = reclaim::reclaim_fast(BYTES as u64);
     let s3 = pagepool::stats();
-    assert!(freed >= BYTES as u64, "the cut dropped the parked region ({freed})");
-    assert_eq!((s3.releases, s3.released_bytes), (s2.releases, s2.released_bytes), "no remap on a query thread");
+    assert!(
+        freed >= BYTES as u64,
+        "the cut dropped the parked region ({freed})"
+    );
+    assert_eq!(
+        (s3.releases, s3.released_bytes),
+        (s2.releases, s2.released_bytes),
+        "no remap on a query thread"
+    );
     let landing = pagepool::landing(u32::MAX);
-    assert!(landing >= 3 * BYTES, "settle asked the purger for the warm runs: {landing} landing");
-    assert!(gravity_driver::mem::reap::landing_credit() >= landing as u64, "the ladder's landing credit shows the ask");
+    assert!(
+        landing >= 3 * BYTES,
+        "settle asked the purger for the warm runs: {landing} landing"
+    );
+    assert!(
+        gravity_driver::mem::reap::landing_credit() >= landing as u64,
+        "the ladder's landing credit shows the ask"
+    );
     let _ = pagepool::serve_ask_now();
     assert_eq!(pagepool::landing(u32::MAX), 0, "served: no longer landing");
 }
@@ -287,7 +398,10 @@ fn past_the_cancel_line_the_pools_landing_never_holds_off_r6() {
     let _ = pagepool::serve_ask_now();
     drop((0..4).map(|_| written()).collect::<Vec<_>>());
     let landing = pagepool::return_warm();
-    assert!(landing >= 4 * BYTES, "the pool's R1 ask is landing: {landing}");
+    assert!(
+        landing >= 4 * BYTES,
+        "the pool's R1 ask is landing: {landing}"
+    );
 
     const LINE: u64 = 8 << 30;
     LADDER_READ.store(LINE + 128 * MIB as u64, Relaxed);
@@ -297,17 +411,34 @@ fn past_the_cancel_line_the_pools_landing_never_holds_off_r6() {
     let now = mcx::governor::decide_ms();
 
     let under = mcx::ladder::hook_pass(now);
-    assert_eq!(under.ran, 0, "under the cancel line the pool's landing covers the read: no rung");
+    assert_eq!(
+        under.ran, 0,
+        "under the cancel line the pool's landing covers the read: no rung"
+    );
     assert_eq!(LADDER_CANCELS.load(Relaxed), 0);
 
     mcx::ladder::waive_wait();
-    assert!(mcx::ladder::past_cancel(), "the sample is past the cancel line");
-    assert!(gravity_driver::mem::reap::landing_credit() < landing as u64, "past it the pool's landing is no credit");
+    assert!(
+        mcx::ladder::past_cancel(),
+        "the sample is past the cancel line"
+    );
+    assert!(
+        gravity_driver::mem::reap::landing_credit() < landing as u64,
+        "past it the pool's landing is no credit"
+    );
     let past = mcx::ladder::hook_pass(now + 1);
-    assert_ne!(past.ran & (1 << mempolicy::ladder::Rung::Cancel as u8), 0, "R6 ran: {:#b}", past.ran);
+    assert_ne!(
+        past.ran & (1 << mempolicy::ladder::Rung::Cancel as u8),
+        0,
+        "R6 ran: {:#b}",
+        past.ran
+    );
     assert!(LADDER_CANCELS.load(Relaxed) >= 1, "a cancel raised");
     assert!(!mcx::ladder::past_cancel(), "the flag ends with the pass");
-    assert!(gravity_driver::mem::reap::landing_credit() >= landing as u64, "after the pass the pool's landing counts again");
+    assert!(
+        gravity_driver::mem::reap::landing_credit() >= landing as u64,
+        "after the pass the pool's landing counts again"
+    );
 
     mcx::ladder::publish(mcx::ladder::OFF, 0);
     let _ = mcx::ladder::hook_pass(now + 2);
@@ -322,13 +453,32 @@ fn the_driver_never_huge_advises_a_pool_span() {
     let _one = on();
     let mut r = written();
     assert!(pagepool::owns(r.as_mut_ptr()), "the region is the pool's");
-    assert!(!gravity_driver::mem::region::advise_huge_witness(r.as_mut_ptr(), BYTES), "no advice over a pool span");
+    assert!(
+        !gravity_driver::mem::region::advise_huge_witness(r.as_mut_ptr(), BYTES),
+        "no advice over a pool span"
+    );
     let (mut lazy, _) = reservation_witness(RUN, 64 * MIB).expect("a lazy pool reservation");
-    assert!(pagepool::owns(lazy.as_mut_ptr()), "the reservation is the pool's");
-    assert!(!gravity_driver::mem::region::advise_huge_witness(lazy.as_mut_ptr(), 64 * MIB), "no advice over a pool reservation");
+    assert!(
+        pagepool::owns(lazy.as_mut_ptr()),
+        "the reservation is the pool's"
+    );
+    assert!(
+        !gravity_driver::mem::region::advise_huge_witness(lazy.as_mut_ptr(), 64 * MIB),
+        "no advice over a pool reservation"
+    );
     drop(lazy);
-    let thp = std::fs::read_to_string("/sys/kernel/mm/transparent_hugepage/hpage_pmd_size").ok().and_then(|t| t.trim().parse::<usize>().ok()).is_some_and(|h| h > 4096);
+    let thp = std::fs::read_to_string("/sys/kernel/mm/transparent_hugepage/hpage_pmd_size")
+        .ok()
+        .and_then(|t| t.trim().parse::<usize>().ok())
+        .is_some_and(|h| h > 4096);
     let mut v = vec![0u8; 8 * MIB];
-    assert!(!pagepool::owns(v.as_mut_ptr()), "the allocator's, not the pool's");
-    assert_eq!(gravity_driver::mem::region::advise_huge_witness(v.as_mut_ptr(), v.len()), thp, "allocator memory advised as before");
+    assert!(
+        !pagepool::owns(v.as_mut_ptr()),
+        "the allocator's, not the pool's"
+    );
+    assert_eq!(
+        gravity_driver::mem::region::advise_huge_witness(v.as_mut_ptr(), v.len()),
+        thp,
+        "allocator memory advised as before"
+    );
 }

@@ -108,7 +108,9 @@ pub fn gen_cmm(g: &mut Gen) -> Vec<StmtKind> {
     let mut out = vec![StmtKind::Raw(format!("SET client_min_messages = {value};"))];
     if value == "log" {
         out.push(StmtKind::Raw("SET log_statement = 'all';".to_string()));
-        out.push(StmtKind::Raw("SET log_min_duration_statement = 0;".to_string()));
+        out.push(StmtKind::Raw(
+            "SET log_min_duration_statement = 0;".to_string(),
+        ));
     }
     out
 }
@@ -146,14 +148,20 @@ const SYSVIEW_PROBES: &[(&str, &str)] = &[
     // with an unmatched B row). Existence-only projection, per the
     // round-9/10 hba/progress-view precedent; the classifier's
     // instance-config net covers gramwalk-derived raw references.
-    ("locks_ungranted", "SELECT count(*) >= 0 FROM pg_locks WHERE NOT granted;"),
+    (
+        "locks_ungranted",
+        "SELECT count(*) >= 0 FROM pg_locks WHERE NOT granted;",
+    ),
     // The scan itself guarantees a relation-lock row; DISTINCT + the
     // equality filter pins the output to exactly one stable value.
     (
         "locks_locktype",
         "SELECT DISTINCT locktype FROM pg_locks WHERE locktype = 'relation';",
     ),
-    ("locks_self", "SELECT count(*) > 0 FROM pg_locks WHERE pid = pg_backend_pid();"),
+    (
+        "locks_self",
+        "SELECT count(*) > 0 FROM pg_locks WHERE pid = pg_backend_pid();",
+    ),
     // Own-backend rows of pg_stat_activity, stable columns only.
     (
         "activity_state",
@@ -176,7 +184,8 @@ fn pick_guc(g: &mut Gen) -> (&'static str, &'static str) {
 }
 
 fn comment_text(g: &mut Gen) -> String {
-    if g.weights.pick(g.rng, &["util:comment:text", "util:comment:null"])
+    if g.weights
+        .pick(g.rng, &["util:comment:text", "util:comment:null"])
         == "util:comment:null"
     {
         g.fire("util:comment:null");
@@ -255,7 +264,9 @@ pub fn gen_util_module(g: &mut Gen) -> Vec<StmtKind> {
         "util:comment:column" => {
             let table = g.pick_table();
             let t = table.name.clone();
-            let c = table.columns[g.rng.below_usize(table.columns.len())].name.clone();
+            let c = table.columns[g.rng.below_usize(table.columns.len())]
+                .name
+                .clone();
             let txt = comment_text(g);
             vec![raw(format!("COMMENT ON COLUMN {}.{} IS {};", t, c, txt))]
         }
@@ -299,7 +310,10 @@ mod tests {
             let mut prods = Vec::new();
             let mut g = Gen::new(&mut rng, &cat, w, &mut prods, 3);
             groups.push(
-                gen_util_module(&mut g).iter().map(|s| s.to_sql()).collect::<Vec<_>>(),
+                gen_util_module(&mut g)
+                    .iter()
+                    .map(|s| s.to_sql())
+                    .collect::<Vec<_>>(),
             );
             prods_all.extend(prods);
         }
@@ -352,7 +366,12 @@ mod tests {
                 // The only other multi-statement group is SET-then-SHOW
                 // over the same GUC.
                 assert!(first.starts_with("SET "), "{group:?}");
-                let guc = first.strip_prefix("SET ").unwrap().split(' ').next().unwrap();
+                let guc = first
+                    .strip_prefix("SET ")
+                    .unwrap()
+                    .split(' ')
+                    .next()
+                    .unwrap();
                 assert_eq!(group[1], format!("SHOW {};", guc));
             } else {
                 assert_eq!(group.len(), 1, "{group:?}");
@@ -375,8 +394,14 @@ mod tests {
         for p in SHAPES {
             assert!(prods.iter().any(|q| q == p), "shape {p} never fired");
         }
-        for p in ["util", "util:prepare:once", "util:prepare:many", "util:comment:text",
-                  "util:comment:null", "cmm"] {
+        for p in [
+            "util",
+            "util:prepare:once",
+            "util:prepare:many",
+            "util:comment:text",
+            "util:comment:null",
+            "cmm",
+        ] {
             assert!(prods.iter().any(|q| q == p), "production {p} never fired");
         }
     }
@@ -425,8 +450,14 @@ mod tests {
             .iter()
             .filter(|s| s.productions.iter().any(|p| p == "cmm"))
             .collect();
-        assert!(!cmm.is_empty(), "cmm never fired in a 40k default all-on stream");
-        assert!(cmm.iter().any(|s| is_cmm_set(&s.sql)), "cmm group without its SET");
+        assert!(
+            !cmm.is_empty(),
+            "cmm never fired in a 40k default all-on stream"
+        );
+        assert!(
+            cmm.iter().any(|s| is_cmm_set(&s.sql)),
+            "cmm group without its SET"
+        );
         for s in &cmm {
             if s.productions.iter().any(|p| p == "cmm:log") {
                 let sql = &s.sql;
@@ -482,7 +513,8 @@ mod tests {
             assert!(sql.ends_with(';') && !sql.contains('\n'), "{sql}");
             // Curated: either a listed probe or the per-table stat shape.
             let curated = SYSVIEW_PROBES.iter().any(|(_, s)| s == sql)
-                || (sql.starts_with("SELECT count(*) > 0 FROM pg_stat_all_tables WHERE relname = '")
+                || (sql
+                    .starts_with("SELECT count(*) > 0 FROM pg_stat_all_tables WHERE relname = '")
                     && sql.ends_with("';"));
             assert!(curated, "un-curated system-view probe: {sql}");
             // Volatile columns are never projected: the select list (up to
@@ -490,10 +522,26 @@ mod tests {
             // columns state/datname/locktype.
             let list = sql["SELECT ".len()..sql.find(" FROM ").unwrap()].to_string();
             for volatile in [
-                "pid", "backend_start", "xact_start", "query_start", "state_change",
-                "backend_xid", "backend_xmin", "wait_event", "query", "transactionid",
-                "virtualtransaction", "objid", "classid", "relation", "n_tup",
-                "seq_scan", "last_vacuum", "blks_", "tup_", "xact_commit",
+                "pid",
+                "backend_start",
+                "xact_start",
+                "query_start",
+                "state_change",
+                "backend_xid",
+                "backend_xmin",
+                "wait_event",
+                "query",
+                "transactionid",
+                "virtualtransaction",
+                "objid",
+                "classid",
+                "relation",
+                "n_tup",
+                "seq_scan",
+                "last_vacuum",
+                "blks_",
+                "tup_",
+                "xact_commit",
             ] {
                 assert!(
                     !list.contains(volatile),

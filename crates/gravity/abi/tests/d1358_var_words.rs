@@ -24,7 +24,11 @@ fn every_reservation_takes_its_own_slot_below_the_last() {
     let mut last = top0;
     for n in [40u32, 8, 16, 72] {
         let at = run.reserve_var(n).expect("room");
-        assert_eq!(at, last - n, "a reservation of {n} B sits right below the previous one");
+        assert_eq!(
+            at,
+            last - n,
+            "a reservation of {n} B sits right below the previous one"
+        );
         assert_eq!(run.var_top(), at, "var_top moved to the reservation");
         last = at;
     }
@@ -41,6 +45,10 @@ fn a_reservation_past_the_next_row_is_refused_and_leaves_var_top() {
     assert_eq!(run.var_top(), top);
     run.push();
     run.clear();
-    assert_eq!(run.var_top(), top, "clear puts var_top back at the rows' end");
+    assert_eq!(
+        run.var_top(),
+        top,
+        "clear puts var_top back at the rows' end"
+    );
     assert_eq!(run.var_bytes(), 0);
 }

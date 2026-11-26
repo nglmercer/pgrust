@@ -55,12 +55,20 @@ enum Shape<'s> {
     Or(PgVec<'s, Shape<'s>>),
 }
 
-fn leaf_of(p: &Program<'_>, plan: &Plan, w: &WordRefs<'_>, site: crate::nodes::SiteId) -> Result<(Leaf, bool), EmitError> {
+fn leaf_of(
+    p: &Program<'_>,
+    plan: &Plan,
+    w: &WordRefs<'_>,
+    site: crate::nodes::SiteId,
+) -> Result<(Leaf, bool), EmitError> {
     let call = &p.sites[site.0 as usize];
     if call.args.len != 2 {
         return Err(EmitError::NotVector);
     }
-    let (a, b) = (p.kids[call.args.start as usize], p.kids[call.args.start as usize + 1]);
+    let (a, b) = (
+        p.kids[call.args.start as usize],
+        p.kids[call.args.start as usize + 1],
+    );
     let (var, konst, swapped) = match (&p.nodes[a.0 as usize], &p.nodes[b.0 as usize]) {
         (ExprNode::Var(v), ExprNode::Const(_)) => (v, b, false),
         (ExprNode::Const(_), ExprNode::Var(v)) => (v, a, true),
@@ -69,20 +77,51 @@ fn leaf_of(p: &Program<'_>, plan: &Plan, w: &WordRefs<'_>, site: crate::nodes::S
     if var.src != Source::Scan {
         return Err(EmitError::NotVector);
     }
-    let lane = w.lanes.get(var.attno as usize - 1).copied().flatten().ok_or(EmitError::NotVector)?;
+    let lane = w
+        .lanes
+        .get(var.attno as usize - 1)
+        .copied()
+        .flatten()
+        .ok_or(EmitError::NotVector)?;
     let cond = prim::vector_cond(call.funcid, lane.width, swapped).ok_or(EmitError::NotVector)?;
     let ci = plan.index(konst).ok_or(EmitError::NotVector)?;
-    Ok((Leaf { attno: var.attno, cond, consts: ci..ci + 1, bits: None }, lane.kind == gravity_abi::ctx::lane::KIND_BYVAL))
+    Ok((
+        Leaf {
+            attno: var.attno,
+            cond,
+            consts: ci..ci + 1,
+            bits: None,
+        },
+        lane.kind == gravity_abi::ctx::lane::KIND_BYVAL,
+    ))
 }
 
-fn shape<'s>(p: &Program<'_>, plan: &Plan, w: &WordRefs<'s>, id: NodeId, pc: Codes<'_>) -> Result<Shape<'s>, EmitError> {
+fn shape<'s>(
+    p: &Program<'_>,
+    plan: &Plan,
+    w: &WordRefs<'s>,
+    id: NodeId,
+    pc: Codes<'_>,
+) -> Result<Shape<'s>, EmitError> {
     crate::stack_check();
     if let Some((pc, codes)) = pc {
         if let Some(r) = pc.root_at(id) {
-            let cr = codes.iter().find(|c| c.attno == r.attno).filter(|_| r.null.is_none()).ok_or(EmitError::NotVector)?;
+            let cr = codes
+                .iter()
+                .find(|c| c.attno == r.attno)
+                .filter(|_| r.null.is_none())
+                .ok_or(EmitError::NotVector)?;
             return match r.form {
                 Form::Bits => match r.table.and_then(|t| w.tables.get(t as usize)) {
-                    Some(TableRef::Bits { words, faults: None }) => Ok(Shape::Leaf(Leaf { attno: r.attno, cond: IntCond::Ne, consts: 0..0, bits: Some((cr.lane, *words)) })),
+                    Some(TableRef::Bits {
+                        words,
+                        faults: None,
+                    }) => Ok(Shape::Leaf(Leaf {
+                        attno: r.attno,
+                        cond: IntCond::Ne,
+                        consts: 0..0,
+                        bits: Some((cr.lane, *words)),
+                    })),
                     _ => Err(EmitError::NotVector),
                 },
                 _ => Err(EmitError::NotVector),
@@ -102,18 +141,37 @@ fn shape<'s>(p: &Program<'_>, plan: &Plan, w: &WordRefs<'s>, id: NodeId, pc: Cod
                 return Err(EmitError::NotVector);
             }
             let call = &p.sites[n.site.0 as usize];
-            let (a, arr) = (p.kids[call.args.start as usize], p.kids[call.args.start as usize + 1]);
-            let ExprNode::Var(v) = &p.nodes[a.0 as usize] else { return Err(EmitError::NotVector) };
-            let lane = w.lanes.get(v.attno as usize - 1).copied().flatten().ok_or(EmitError::NotVector)?;
-            let cond = prim::vector_cond(call.funcid, lane.width, false).ok_or(EmitError::NotVector)?;
-            if cond != IntCond::Eq || v.src != Source::Scan || lane.kind != gravity_abi::ctx::lane::KIND_BYVAL {
+            let (a, arr) = (
+                p.kids[call.args.start as usize],
+                p.kids[call.args.start as usize + 1],
+            );
+            let ExprNode::Var(v) = &p.nodes[a.0 as usize] else {
+                return Err(EmitError::NotVector);
+            };
+            let lane = w
+                .lanes
+                .get(v.attno as usize - 1)
+                .copied()
+                .flatten()
+                .ok_or(EmitError::NotVector)?;
+            let cond =
+                prim::vector_cond(call.funcid, lane.width, false).ok_or(EmitError::NotVector)?;
+            if cond != IntCond::Eq
+                || v.src != Source::Scan
+                || lane.kind != gravity_abi::ctx::lane::KIND_BYVAL
+            {
                 return Err(EmitError::NotVector);
             }
             let (start, count, null) = plan.elems_of(arr).ok_or(EmitError::NotVector)?;
             if null || count == 0 || count as usize > gravity_program::cost::expr::MAX_LIST {
                 return Err(EmitError::NotVector);
             }
-            Ok(Shape::Leaf(Leaf { attno: v.attno, cond, consts: start..start + count, bits: None }))
+            Ok(Shape::Leaf(Leaf {
+                attno: v.attno,
+                cond,
+                consts: start..start + count,
+                bits: None,
+            }))
         }
         ExprNode::Bool(n) => {
             let ks = crate::percode::walk_kids(p, id);
@@ -166,7 +224,13 @@ pub(super) fn vec_ty(width: u8) -> (Type, Type) {
 
 /// Whether the constant compares at the lane's width as it does sign-extended (`I64` 0 / 1); a
 /// null constant never vectorises.
-pub(super) fn fits(b: &mut FunctionBuilder<'_>, v: Value, null: Value, width: u8, cond: IntCond) -> Value {
+pub(super) fn fits(
+    b: &mut FunctionBuilder<'_>,
+    v: Value,
+    null: Value,
+    width: u8,
+    cond: IntCond,
+) -> Value {
     let nn = {
         let t = b.bconst(true);
         b.int_bin(gravity_ir::IntBinOp::Xor, null, t)
@@ -180,20 +244,37 @@ pub(super) fn fits(b: &mut FunctionBuilder<'_>, v: Value, null: Value, width: u8
     }
     let (_, lty) = vec_ty(width);
     let t = b.conv(ConvOp::Trunc, lty, v);
-    let back = if width == 1 { b.conv(ConvOp::Zext, Type::I64, t) } else { b.conv(ConvOp::Sext, Type::I64, t) };
+    let back = if width == 1 {
+        b.conv(ConvOp::Zext, Type::I64, t)
+    } else {
+        b.conv(ConvOp::Sext, Type::I64, t)
+    };
     let same = b.icmp(IntCond::Eq, back, v);
     let s = b.conv(ConvOp::Zext, Type::I64, same);
     b.int_bin(gravity_ir::IntBinOp::And, s, nn)
 }
 
 #[allow(private_interfaces)]
-pub fn ok(p: &Program<'_>, root: NodeId, b: &mut FunctionBuilder<'_>, w: &WordRefs<'_>, plan: &Plan, pc: Codes<'_>) -> Result<Value, EmitError> {
+pub fn ok(
+    p: &Program<'_>,
+    root: NodeId,
+    b: &mut FunctionBuilder<'_>,
+    w: &WordRefs<'_>,
+    plan: &Plan,
+    pc: Codes<'_>,
+) -> Result<Value, EmitError> {
     let s = shape(p, plan, w, root, pc)?;
     let mut acc = b.iconst(Type::I64, 1);
     each_leaf(&s, &mut |l| {
         let lane = l.lane(w);
         for c in l.consts.start..l.consts.end {
-            let f = fits(b, w.consts[c as usize], w.consts_null[c as usize], lane.width, l.cond);
+            let f = fits(
+                b,
+                w.consts[c as usize],
+                w.consts_null[c as usize],
+                lane.width,
+                l.cond,
+            );
             acc = b.int_bin(gravity_ir::IntBinOp::And, acc, f);
         }
     });
@@ -229,7 +310,11 @@ impl Word<'_, '_, '_> {
     }
 
     fn bit_of(b: &mut FunctionBuilder<'_>, words: Value, code: Value) -> Value {
-        let (six, m63, one) = (b.iconst(Type::I64, 6), b.iconst(Type::I64, 63), b.iconst(Type::I64, 1));
+        let (six, m63, one) = (
+            b.iconst(Type::I64, 6),
+            b.iconst(Type::I64, 63),
+            b.iconst(Type::I64, 1),
+        );
         let wi = b.int_bin(gravity_ir::IntBinOp::Ushr, code, six);
         let wp = b.ptr_add(words, wi, 8, 0);
         let word = b.load(Type::I64, wp, 0);
@@ -249,7 +334,8 @@ impl Word<'_, '_, '_> {
         let lim = self.b.iconst(Type::I64, SPARSE_MAX);
         let dense = self.b.icmp(IntCond::Ugt, pop, lim);
         let zero = self.b.iconst(Type::I64, 0);
-        self.b.cond_br(dense, (l_dense, &[]), (l_walk, &[within, zero]));
+        self.b
+            .cond_br(dense, (l_dense, &[]), (l_walk, &[within, zero]));
         self.b.switch_to(l_dense);
         let m = self.gather(lane, words);
         self.b.br(l_join, &[m]);
@@ -304,7 +390,11 @@ impl Word<'_, '_, '_> {
 
     fn splat_value(&mut self, v: Value, width: u8) -> Value {
         let (vty, lty) = vec_ty(width);
-        let t = if width == 8 { v } else { self.b.conv(ConvOp::Trunc, lty, v) };
+        let t = if width == 8 {
+            v
+        } else {
+            self.b.conv(ConvOp::Trunc, lty, v)
+        };
         self.b.vsplat(vty, t)
     }
 
@@ -314,7 +404,12 @@ impl Word<'_, '_, '_> {
         let b = &mut *self.b;
         let mut acc: [Option<Value>; 8] = [None; 8];
         for i in 0..64u32 {
-            let cp = b.ptr_add(lane.ptr, self.base, lane.width, (i * lane.width as u32) as i32);
+            let cp = b.ptr_add(
+                lane.ptr,
+                self.base,
+                lane.width,
+                (i * lane.width as u32) as i32,
+            );
             let code = Self::code_of(b, lane, cp);
             let bit = Self::bit_of(b, words, code);
             let at = if i == 0 {
@@ -329,7 +424,11 @@ impl Word<'_, '_, '_> {
                 None => at,
             });
         }
-        acc.iter().flatten().copied().reduce(|x, y| b.int_bin(gravity_ir::IntBinOp::Or, x, y)).expect("eight chains")
+        acc.iter()
+            .flatten()
+            .copied()
+            .reduce(|x, y| b.int_bin(gravity_ir::IntBinOp::Or, x, y))
+            .expect("eight chains")
     }
 
     fn leaf(&mut self, l: &Leaf) -> Value {
@@ -379,11 +478,18 @@ impl Word<'_, '_, '_> {
             Shape::Leaf(l) => self.leaf(l),
             Shape::And(v) | Shape::Or(v) => {
                 let and = matches!(s, Shape::And(_));
-                let op = if and { gravity_ir::IntBinOp::And } else { gravity_ir::IntBinOp::Or };
+                let op = if and {
+                    gravity_ir::IntBinOp::And
+                } else {
+                    gravity_ir::IntBinOp::Or
+                };
                 let outer = self.within;
                 let mut acc: Option<Value> = None;
                 // an AND's `Bits` leaves last, gathered within the earlier members' mask
-                let order = v.iter().filter(|x| !(and && is_bits(x))).chain(v.iter().filter(|x| and && is_bits(x)));
+                let order = v
+                    .iter()
+                    .filter(|x| !(and && is_bits(x)))
+                    .chain(v.iter().filter(|x| and && is_bits(x)));
                 for x in order {
                     if and && is_bits(x) {
                         self.within = acc.or(outer);
@@ -402,23 +508,55 @@ impl Word<'_, '_, '_> {
 }
 
 #[allow(private_interfaces)]
-pub fn emit(p: &Program<'_>, root: NodeId, b: &mut FunctionBuilder<'_>, w: &WordRefs<'_>, plan: &Plan, base: Value, pc: Codes<'_>) -> Result<Value, EmitError> {
+pub fn emit(
+    p: &Program<'_>,
+    root: NodeId,
+    b: &mut FunctionBuilder<'_>,
+    w: &WordRefs<'_>,
+    plan: &Plan,
+    base: Value,
+    pc: Codes<'_>,
+) -> Result<Value, EmitError> {
     emit_within(p, root, b, w, plan, base, pc, None)
 }
 
 /// `emit` with `within`: the rows the caller's earlier words keep — a `Bits` leaf gathers only those
 /// when at most `SPARSE_MAX` are set. The result is exact over every row (the caller ANDs it in).
 #[allow(private_interfaces)]
-pub fn emit_within(p: &Program<'_>, root: NodeId, b: &mut FunctionBuilder<'_>, w: &WordRefs<'_>, plan: &Plan, base: Value, pc: Codes<'_>, within: Option<Value>) -> Result<Value, EmitError> {
+pub fn emit_within(
+    p: &Program<'_>,
+    root: NodeId,
+    b: &mut FunctionBuilder<'_>,
+    w: &WordRefs<'_>,
+    plan: &Plan,
+    base: Value,
+    pc: Codes<'_>,
+    within: Option<Value>,
+) -> Result<Value, EmitError> {
     let s = shape(p, plan, w, root, pc)?;
-    let mut wd = Word { b, w, base, loads: PgVec::new_in(w.scratch), splats: PgVec::new_in(w.scratch), within };
+    let mut wd = Word {
+        b,
+        w,
+        base,
+        loads: PgVec::new_in(w.scratch),
+        splats: PgVec::new_in(w.scratch),
+        within,
+    };
     Ok(wd.shape(&s))
 }
 
 /// Whether the word is one `Bits` leaf (a per-row table gather): the driver orders it after the compares.
 #[allow(private_interfaces)]
-pub fn is_bits_root(p: &Program<'_>, root: NodeId, w: &WordRefs<'_>, plan: &Plan, pc: Codes<'_>) -> bool {
-    shape(p, plan, w, root, pc).map(|s| is_bits(&s)).unwrap_or(false)
+pub fn is_bits_root(
+    p: &Program<'_>,
+    root: NodeId,
+    w: &WordRefs<'_>,
+    plan: &Plan,
+    pc: Codes<'_>,
+) -> bool {
+    shape(p, plan, w, root, pc)
+        .map(|s| is_bits(&s))
+        .unwrap_or(false)
 }
 
 fn is_bits(s: &Shape<'_>) -> bool {

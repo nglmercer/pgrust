@@ -58,7 +58,9 @@ impl Host for MergeHold {
 #[cold]
 #[inline(never)]
 fn stale(h: u64) -> i64 {
-    crate::host_abi::bare(&format!("m11_pull: a stale or foreign merge inner handle {h:#x}")) // alloc: Cold
+    crate::host_abi::bare(&format!(
+        "m11_pull: a stale or foreign merge inner handle {h:#x}"
+    )) // alloc: Cold
 }
 
 /// Whether consumed region `r`'s run may have been put (`SPILL_RUN_ROWS` says): a fill's opened run left unsealed, or a
@@ -214,7 +216,11 @@ unsafe fn grow(ctx: *mut Ctx, run: *mut u8, tbl: *const u32, within: bool) -> i6
         return crate::host_abi::bare("Bug: m11_run_grow over a sized or malformed run");
     }
     let (need, head) = ((rb + words) as u64, (end + words) as u64);
-    let nb = if within { gravity_abi::program::region_grow_in(ctx, need, head, 0) } else { gravity_abi::program::region_grow(ctx, need, head, 0) };
+    let nb = if within {
+        gravity_abi::program::region_grow_in(ctx, need, head, 0)
+    } else {
+        gravity_abi::program::region_grow(ctx, need, head, 0)
+    };
     if nb <= 1 {
         return nb as i64; // 0: the allocation failed; 1 (within): the limit refused it, nothing drawn
     }
@@ -255,17 +261,39 @@ mod tests {
     /// A live head runs its op; a null or foreign handle is an error by the entry's name, never a call.
     #[test]
     fn a_pull_checks_its_handle() {
-        let mut live = PullHead { magic: PULL_MAGIC, op: once, hold: once };
+        let mut live = PullHead {
+            magic: PULL_MAGIC,
+            op: once,
+            hold: once,
+        };
         // SAFETY: a live head on this stack frame; `run` reads its magic and calls its op.
-        assert_eq!(unsafe { MergePull::run(core::ptr::null_mut(), (&mut live as *mut PullHead as u64,)) }, 1);
+        assert_eq!(
+            unsafe { MergePull::run(core::ptr::null_mut(), (&mut live as *mut PullHead as u64,)) },
+            1
+        );
         // SAFETY: as above, through the hold.
-        assert_eq!(unsafe { MergeHold::run(core::ptr::null_mut(), (&mut live as *mut PullHead as u64,)) }, 1);
-        let mut foreign = PullHead { magic: 7, op: once, hold: once };
+        assert_eq!(
+            unsafe { MergeHold::run(core::ptr::null_mut(), (&mut live as *mut PullHead as u64,)) },
+            1
+        );
+        let mut foreign = PullHead {
+            magic: 7,
+            op: once,
+            hold: once,
+        };
         for h in [0u64, &mut foreign as *mut PullHead as u64] {
             // SAFETY: 0, or a live head of another kind: only its magic is read.
-            assert_eq!(unsafe { MergePull::run(core::ptr::null_mut(), (h,)) } as i64, ERROR);
-            let msg = gravity_fn::take_error().map(|e| e.message().to_owned()).unwrap_or_default();
-            assert!(msg.contains("m11_pull: a stale or foreign merge inner handle"), "{msg}");
+            assert_eq!(
+                unsafe { MergePull::run(core::ptr::null_mut(), (h,)) } as i64,
+                ERROR
+            );
+            let msg = gravity_fn::take_error()
+                .map(|e| e.message().to_owned())
+                .unwrap_or_default();
+            assert!(
+                msg.contains("m11_pull: a stale or foreign merge inner handle"),
+                "{msg}"
+            );
         }
     }
 }

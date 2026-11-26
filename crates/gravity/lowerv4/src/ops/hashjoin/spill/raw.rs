@@ -14,23 +14,26 @@ pub(crate) mod load;
 /// The spilling build region's runtime: the build end's host entries and the merge's spill half (spill/build.rs re-exports
 /// what the rest of the family reads).
 pub(crate) mod region;
-use gravity_abi::{word, PtrWord, Word};
 use gravity_abi::ctx::{Ctx, Partials};
 use gravity_abi::hash::KeyHash;
+use gravity_abi::{word, PtrWord, Word};
 use gravity_driver::mem::spill_host::v4;
 use gravity_driver::Error;
+use gravity_fn::arena::{ChargedVec, Kind, Owner};
 use gravity_kernels::table::image::AlignedImage;
 use gravity_program::cost::JOIN_SPILL_EPOCH;
-use gravity_fn::arena::{ChargedVec, Kind, Owner};
 
 use crate::ops::hashjoin::build::{D_CSTR, D_VARLENA, REC, WORDS};
-use gravity_abi::limits::JOIN_KEY_IMAGE_WORDS;
+use crate::ops::hashjoin::drain::spill::{drain_bytes, drain_each, drain_head, u_part};
 use crate::ops::hashjoin::layout;
 use crate::ops::hashjoin::rt::{rd, varlena_len, wr, Rt};
 use crate::ops::hashjoin::spill::build::{image, remix, serialized_len};
 use crate::ops::hashjoin::spill::load::{arg_bits, close, part_len, part_region, records, Buf};
-use crate::ops::hashjoin::drain::spill::{drain_bytes, drain_each, drain_head, u_part};
-use crate::ops::hashjoin::spill::pair::{DRAIN, DRAIN_MARKED, FILL, FIRST, MAGIC, META, MORE, M_BND, M_DCAP, M_DLEN, M_DP, M_GRP, M_HI, M_KBND, M_KEPT, M_KOFF, M_MORE, M_NKEPT, M_OFFS, M_ORIG, M_PART, M_SBITS, M_SUB, M_TABLE};
+use crate::ops::hashjoin::spill::pair::{
+    DRAIN, DRAIN_MARKED, FILL, FIRST, MAGIC, META, MORE, M_BND, M_DCAP, M_DLEN, M_DP, M_GRP, M_HI,
+    M_KBND, M_KEPT, M_KOFF, M_MORE, M_NKEPT, M_OFFS, M_ORIG, M_PART, M_SBITS, M_SUB, M_TABLE,
+};
+use gravity_abi::limits::JOIN_KEY_IMAGE_WORDS;
 
 /// A split partition's state in its pair region's header: the open sub-partition and the split bits, the grouped records
 /// and their bounds, the grouped kept rows' offsets and their bounds, a drained build's drain records so far. `NONE`: an
@@ -52,18 +55,45 @@ impl Split {
     pub(crate) const NONE: Split = Split::of(0, 0, [core::ptr::null_mut(); 4]);
 
     pub(crate) const fn of(sub: u64, sbits: u8, [grp, bnd, koff, kbnd]: [*mut u8; 4]) -> Split {
-        Split { sub, sbits, grp, bnd, koff, kbnd, dp: core::ptr::null_mut(), dcap: 0, dlen: 0 }
+        Split {
+            sub,
+            sbits,
+            grp,
+            bnd,
+            koff,
+            kbnd,
+            dp: core::ptr::null_mut(),
+            dcap: 0,
+            dlen: 0,
+        }
     }
 
     unsafe fn load(m: *const u8) -> Split {
         let ptr = |off: usize| rd::<u64>(m, off) as usize as *mut u8;
         let (dcap, dlen) = (rd::<u64>(m, M_DCAP) as usize, rd::<u64>(m, M_DLEN) as usize);
-        Split { sub: rd::<u64>(m, M_SUB), sbits: rd::<u64>(m, M_SBITS) as u8, grp: ptr(M_GRP), bnd: ptr(M_BND), koff: ptr(M_KOFF), kbnd: ptr(M_KBND), dp: ptr(M_DP), dcap, dlen }
+        Split {
+            sub: rd::<u64>(m, M_SUB),
+            sbits: rd::<u64>(m, M_SBITS) as u8,
+            grp: ptr(M_GRP),
+            bnd: ptr(M_BND),
+            koff: ptr(M_KOFF),
+            kbnd: ptr(M_KBND),
+            dp: ptr(M_DP),
+            dcap,
+            dlen,
+        }
     }
 
-    unsafe fn store(&self, m: *mut u8) {wr::<u64>(m, M_SUB, self.sub); wr::<u64>(m, M_SBITS, self.sbits as u64); wr::<u64>(m, M_GRP, self.grp as u64); wr::<u64>(m, M_BND, self.bnd as u64);
-wr::<u64>(m, M_KOFF, self.koff as u64); wr::<u64>(m, M_KBND, self.kbnd as u64);
-wr::<u64>(m, M_DP, self.dp as u64); wr::<u64>(m, M_DCAP, self.dcap as u64); wr::<u64>(m, M_DLEN, self.dlen as u64);
+    unsafe fn store(&self, m: *mut u8) {
+        wr::<u64>(m, M_SUB, self.sub);
+        wr::<u64>(m, M_SBITS, self.sbits as u64);
+        wr::<u64>(m, M_GRP, self.grp as u64);
+        wr::<u64>(m, M_BND, self.bnd as u64);
+        wr::<u64>(m, M_KOFF, self.koff as u64);
+        wr::<u64>(m, M_KBND, self.kbnd as u64);
+        wr::<u64>(m, M_DP, self.dp as u64);
+        wr::<u64>(m, M_DCAP, self.dcap as u64);
+        wr::<u64>(m, M_DLEN, self.dlen as u64);
     }
 
     /// Room for `more` bytes past the drain records, their buffer doubling (`v4::take_reload`).
@@ -72,7 +102,9 @@ wr::<u64>(m, M_DP, self.dp as u64); wr::<u64>(m, M_DCAP, self.dcap as u64); wr::
             let cap = (2 * self.dcap).max(self.dlen + more).max(FIRST);
             let n = v4::take_reload(ctx, cap);
             if n.is_null() {
-                return Err(Error::host("gravity: a split partition's drain records were refused"));
+                return Err(Error::host(
+                    "gravity: a split partition's drain records were refused",
+                ));
             }
             if !self.dp.is_null() {
                 core::ptr::copy_nonoverlapping(self.dp, n, self.dlen);
@@ -93,8 +125,15 @@ wr::<u64>(m, M_DP, self.dp as u64); wr::<u64>(m, M_DCAP, self.dcap as u64); wr::
 
     /// Group `k`'s serialized records.
     unsafe fn group(&self, k: u64) -> &'static [u8] {
-        let (lo, hi) = (rd::<u64>(self.bnd, 8 * k as usize) as usize, rd::<u64>(self.bnd, 8 * (k as usize + 1)) as usize);
-        if hi == lo { &[] } else { core::slice::from_raw_parts(self.grp.add(lo), hi - lo) }
+        let (lo, hi) = (
+            rd::<u64>(self.bnd, 8 * k as usize) as usize,
+            rd::<u64>(self.bnd, 8 * (k as usize + 1)) as usize,
+        );
+        if hi == lo {
+            &[]
+        } else {
+            core::slice::from_raw_parts(self.grp.add(lo), hi - lo)
+        }
     }
 }
 
@@ -102,8 +141,24 @@ wr::<u64>(m, M_DP, self.dp as u64); wr::<u64>(m, M_DCAP, self.dcap as u64); wr::
 /// on at `offs`), the partition `p` of the claim's `..end`, D2715's split (`Split`); then the probe's build `i` and the
 /// owner's `more` table (a copy of the original's) point at `d`.
 #[allow(clippy::type_complexity)]
-pub(crate) unsafe fn install(pp: *mut Partials, i: usize, ncons: usize, (m, d): (*mut u8, *mut u8), orig: *const u8, (kept, offs, rows): (*mut u8, *mut u8, usize), (p, end): (u32, u64), split: Split) {wr::<u64>(m, 0, MAGIC); wr::<u64>(m, M_ORIG, orig as u64); wr::<u64>(m, M_KEPT, kept as u64); wr::<u64>(m, M_OFFS, offs as u64);
-wr::<u64>(m, M_NKEPT, rows as u64); wr::<u64>(m, M_MORE, (*pp).more.ptr() as usize as u64); wr::<u64>(m, M_PART, p as u64); wr::<u64>(m, M_HI, end);
+pub(crate) unsafe fn install(
+    pp: *mut Partials,
+    i: usize,
+    ncons: usize,
+    (m, d): (*mut u8, *mut u8),
+    orig: *const u8,
+    (kept, offs, rows): (*mut u8, *mut u8, usize),
+    (p, end): (u32, u64),
+    split: Split,
+) {
+    wr::<u64>(m, 0, MAGIC);
+    wr::<u64>(m, M_ORIG, orig as u64);
+    wr::<u64>(m, M_KEPT, kept as u64);
+    wr::<u64>(m, M_OFFS, offs as u64);
+    wr::<u64>(m, M_NKEPT, rows as u64);
+    wr::<u64>(m, M_MORE, (*pp).more.ptr() as usize as u64);
+    wr::<u64>(m, M_PART, p as u64);
+    wr::<u64>(m, M_HI, end);
     split.store(m);
     let table = m.add(M_TABLE) as *mut Word<*mut u8>;
     if !(*pp).more.ptr().is_null() {
@@ -125,7 +180,8 @@ const FINE_BITS: u8 = 16;
 /// partition's open (a cold path), never cached.
 pub(crate) fn part_cap() -> usize {
     let max = u32::MAX as usize - META;
-    gravity_driver::env::num::<usize>("PGRUST_GRAVITY_PAIR_PART_BYTES").map_or(max, |c| c.clamp(4096, max))
+    gravity_driver::env::num::<usize>("PGRUST_GRAVITY_PAIR_PART_BYTES")
+        .map_or(max, |c| c.clamp(4096, max))
 }
 
 /// KeyHash `h`'s finest sub-partition under a partition of `bits`: the `FINE_BITS` bits of `route`'s remixed hash
@@ -156,7 +212,11 @@ unsafe fn raw_hash(orig: *const u8, one: *const u8) -> u64 {
 
 /// The bytes record `i` takes in a file (`serialize_over`).
 pub(crate) unsafe fn file_len(t: &Rt, i: usize) -> usize {
-    t.rec + (0..t.pay).filter_map(|c| image(t, i, c)).map(|(_, len)| len.next_multiple_of(8)).sum::<usize>()
+    t.rec
+        + (0..t.pay)
+            .filter_map(|c| image(t, i, c))
+            .map(|(_, len)| len.next_multiple_of(8))
+            .sum::<usize>()
 }
 
 /// Record `i` as a file holds it (spill/build.rs's module doc), written over `out` (`file_len` bytes).
@@ -164,7 +224,9 @@ pub(crate) unsafe fn serialize_over(t: &Rt, i: usize, out: &mut [u8]) {
     out[..t.rec].copy_from_slice(core::slice::from_raw_parts(t.rec(i), t.rec));
     let mut at = t.rec;
     for c in 0..t.pay {
-        let Some((off, len)) = image(t, i, c) else { continue };
+        let Some((off, len)) = image(t, i, c) else {
+            continue;
+        };
         wr::<u64>(out.as_mut_ptr(), 8 * (t.words + 1 + c), len as u64);
         out[at..at + len].copy_from_slice(core::slice::from_raw_parts(t.d.add(off), len));
         let end = (at + len).next_multiple_of(8);
@@ -175,11 +237,17 @@ pub(crate) unsafe fn serialize_over(t: &Rt, i: usize, out: &mut [u8]) {
 
 /// Record `i` as a file holds it (`serialize_over`'s bytes), handed to `emit` in pieces read in place: the record's words
 /// up to each image word, that image's length, the words after the last; then each image and its pad. No buffer.
-pub(crate) unsafe fn serialize_each<E>(t: &Rt, i: usize, emit: &mut dyn FnMut(&[u8]) -> Result<(), E>) -> Result<(), E> {
+pub(crate) unsafe fn serialize_each<E>(
+    t: &Rt,
+    i: usize,
+    emit: &mut dyn FnMut(&[u8]) -> Result<(), E>,
+) -> Result<(), E> {
     let rec = core::slice::from_raw_parts(t.rec(i), t.rec);
     let mut at = 0;
     for c in 0..t.pay {
-        let Some((_, len)) = image(t, i, c) else { continue };
+        let Some((_, len)) = image(t, i, c) else {
+            continue;
+        };
         let w = 8 * (t.words + 1 + c);
         emit(&rec[at..w])?;
         emit(&(len as u64).to_ne_bytes())?;
@@ -188,7 +256,9 @@ pub(crate) unsafe fn serialize_each<E>(t: &Rt, i: usize, emit: &mut dyn FnMut(&[
     emit(&rec[at..])?;
     let mut at = t.rec;
     for c in 0..t.pay {
-        let Some((off, len)) = image(t, i, c) else { continue };
+        let Some((off, len)) = image(t, i, c) else {
+            continue;
+        };
         emit(core::slice::from_raw_parts(t.d.add(off), len))?;
         let end = (at + len).next_multiple_of(8);
         emit(&[0u8; 8][..end - at - len])?;
@@ -202,7 +272,9 @@ unsafe fn image_len(kind: u16, d: u64) -> usize {
     let at = d as usize as *const u8;
     match kind {
         D_VARLENA => varlena_len(at),
-        D_CSTR => core::ffi::CStr::from_ptr(at as *const core::ffi::c_char).to_bytes_with_nul().len(),
+        D_CSTR => core::ffi::CStr::from_ptr(at as *const core::ffi::c_char)
+            .to_bytes_with_nul()
+            .len(),
         l => l as usize,
     }
 }
@@ -210,7 +282,10 @@ unsafe fn image_len(kind: u16, d: u64) -> usize {
 /// The bytes of the kept row of `cells` (`kept_fill`).
 pub(crate) unsafe fn kept_len(cells: &[u64]) -> usize {
     let n = cells.len() / 3;
-    let images: usize = (0..n).filter(|&i| cells[3 * i + 2] == 0 && cells[3 * i] != 0).map(|i| image_len(cells[3 * i] as u16, cells[3 * i + 1]).next_multiple_of(8)).sum();
+    let images: usize = (0..n)
+        .filter(|&i| cells[3 * i + 2] == 0 && cells[3 * i] != 0)
+        .map(|i| image_len(cells[3 * i] as u16, cells[3 * i + 1]).next_multiple_of(8))
+        .sum();
     8 + 8 * n.div_ceil(64) + 8 * n + images
 }
 
@@ -231,7 +306,8 @@ pub(crate) unsafe fn kept_fill(cells: &[u64], h: u64, row: &mut [u8]) {
         } else {
             let len = image_len(kind, d);
             let at = off;
-            row[at..at + len].copy_from_slice(core::slice::from_raw_parts(d as usize as *const u8, len));
+            row[at..at + len]
+                .copy_from_slice(core::slice::from_raw_parts(d as usize as *const u8, len));
             off = (at + len).next_multiple_of(8);
             row[at + len..off].fill(0);
             at as u64
@@ -253,8 +329,17 @@ pub(crate) unsafe fn kept_mix(row: *const u8) -> u64 {
 /// past the cap, and at 4 GiB `take_pair` refuses it by name); else `FINE_BITS`.
 /// CONVERT wave 2: the finest buckets' counts are charged to `owner` (the pair claim's: the slot its pipeline produces into,
 /// else the statement's, `OpArena::slot_owner_kind`); `None`: uncharged.
-pub(crate) unsafe fn split_bits(orig: *const u8, raw: &[u8], bits: u8, cap: usize, owner: Option<(Owner, Kind)>) -> gravity_driver::Result<u8> {
-    let (rec, base) = (rd::<u32>(orig, REC) as usize, layout::base(layout::pay_of(orig)));
+pub(crate) unsafe fn split_bits(
+    orig: *const u8,
+    raw: &[u8],
+    bits: u8,
+    cap: usize,
+    owner: Option<(Owner, Kind)>,
+) -> gravity_driver::Result<u8> {
+    let (rec, base) = (
+        rd::<u32>(orig, REC) as usize,
+        layout::base(layout::pay_of(orig)),
+    );
     // `part_len` is under base + 3 x raw + 256 kB (the directory at load 1/2 over records of 16 bytes or more, 1/8 up to
     // 2048 records): far under the cap, no record is walked
     if base + 5 * raw.len() + (1 << 20) <= cap {
@@ -265,7 +350,8 @@ pub(crate) unsafe fn split_bits(orig: *const u8, raw: &[u8], bits: u8, cap: usiz
         return Ok(0);
     }
     let mut each = ChargedVec::new(owner.map(|o| o.0), owner.map_or(Kind::Region, |o| o.1));
-    each.resize(1 << FINE_BITS, (0usize, 0usize)).map_err(|_| Error::out_of_memory(16 << FINE_BITS))?; // alloc: Exec charged owner
+    each.resize(1 << FINE_BITS, (0usize, 0usize))
+        .map_err(|_| Error::out_of_memory(16 << FINE_BITS))?; // alloc: Exec charged owner
     let mut o = 0;
     while o < raw.len() {
         let one = raw.as_ptr().add(o);
@@ -276,24 +362,52 @@ pub(crate) unsafe fn split_bits(orig: *const u8, raw: &[u8], bits: u8, cap: usiz
     let fits = |n: usize, i: usize| part_len(orig, n, i, base) <= cap / 2;
     let ok = |c: &[(usize, usize)]| {
         let (n, i) = c.iter().fold((0, 0), |a, e| (a.0 + e.0, a.1 + e.1));
-        let big = c.iter().copied().max_by_key(|e| e.0 * rec + e.1).unwrap_or((0, 0));
+        let big = c
+            .iter()
+            .copied()
+            .max_by_key(|e| e.0 * rec + e.1)
+            .unwrap_or((0, 0));
         fits(n, i) || (!fits(big.0, big.1) && fits(n - big.0, i - big.1))
     };
-    Ok((1..=FINE_BITS).find(|&s| each.chunks(1 << (FINE_BITS - s)).all(ok)).unwrap_or(FINE_BITS))
+    Ok((1..=FINE_BITS)
+        .find(|&s| each.chunks(1 << (FINE_BITS - s)).all(ok))
+        .unwrap_or(FINE_BITS))
 }
 
 /// Kept rows `kept` (`klen` bytes, `rows` of them) grouped by sub-partition at `s` split bits: their offsets in
 /// sub-partition order and the groups' bounds (`2^s + 1` indexes into them, `kept_group_into`).
-pub(crate) unsafe fn kept_groups(ctx: *mut Ctx, (kept, klen, rows): (*const u8, usize, usize), bits: u8, s: u8) -> gravity_driver::Result<(Buf, Buf)> {
+pub(crate) unsafe fn kept_groups(
+    ctx: *mut Ctx,
+    (kept, klen, rows): (*const u8, usize, usize),
+    bits: u8,
+    s: u8,
+) -> gravity_driver::Result<(Buf, Buf)> {
     let g = 1usize << s;
-    let (koff, kbnd) = (Buf::new(ctx, (8 * rows).max(8))?, Buf::new(ctx, 8 * (g + 1))?);
-    kept_group_into(kept, klen, bits, s, core::slice::from_raw_parts_mut(kbnd.p as *mut u64, g + 1), core::slice::from_raw_parts_mut(koff.p as *mut u64, rows));
+    let (koff, kbnd) = (
+        Buf::new(ctx, (8 * rows).max(8))?,
+        Buf::new(ctx, 8 * (g + 1))?,
+    );
+    kept_group_into(
+        kept,
+        klen,
+        bits,
+        s,
+        core::slice::from_raw_parts_mut(kbnd.p as *mut u64, g + 1),
+        core::slice::from_raw_parts_mut(koff.p as *mut u64, rows),
+    );
     Ok((koff, kbnd))
 }
 
 /// The offsets of kept rows `kept` (`klen` bytes) in the order of their sub-partitions at `s` split bits (their KeyHash,
 /// `kept_mix`); `offs[bnd[k]..bnd[k + 1]]` are sub-partition `k`'s.
-unsafe fn kept_group_into(kept: *const u8, klen: usize, bits: u8, s: u8, bnd: &mut [u64], offs: &mut [u64]) {
+unsafe fn kept_group_into(
+    kept: *const u8,
+    klen: usize,
+    bits: u8,
+    s: u8,
+    bnd: &mut [u64],
+    offs: &mut [u64],
+) {
     let sub = |o: usize| fine_mix(kept_mix(kept.add(o)), bits) >> (FINE_BITS - s);
     let each = |f: &mut dyn FnMut(usize)| {
         let mut o = 0;
@@ -319,23 +433,46 @@ unsafe fn kept_group_into(kept: *const u8, klen: usize, bits: u8, s: u8, bnd: &m
 
 /// `raw`'s records (under `orig`) grouped by sub-partition at `s` split bits into a buffer of their own, and the
 /// groups' bounds (`2^s + 1` offsets into it, `group_into`). The pair gives both back at its partition's end.
-pub(crate) unsafe fn group(ctx: *mut Ctx, orig: *const u8, raw: &[u8], bits: u8, s: u8) -> gravity_driver::Result<(Buf, Buf)> {
+pub(crate) unsafe fn group(
+    ctx: *mut Ctx,
+    orig: *const u8,
+    raw: &[u8],
+    bits: u8,
+    s: u8,
+) -> gravity_driver::Result<(Buf, Buf)> {
     let g = 1usize << s;
     let bnd = Buf::new(ctx, 8 * (g + 1))?;
     let mut grp = Buf::new(ctx, raw.len().max(8))?;
-    group_into(orig, raw, bits, s, core::slice::from_raw_parts_mut(bnd.p as *mut u64, g + 1), core::slice::from_raw_parts_mut(grp.p, raw.len()));
+    group_into(
+        orig,
+        raw,
+        bits,
+        s,
+        core::slice::from_raw_parts_mut(bnd.p as *mut u64, g + 1),
+        core::slice::from_raw_parts_mut(grp.p, raw.len()),
+    );
     grp.len = raw.len();
     Ok((grp, bnd))
 }
 
 /// `raw`'s records copied into `out` in the order of their sub-partitions at `s` split bits; `bnd[k]..bnd[k + 1]` is
 /// sub-partition `k`'s bytes.
-unsafe fn group_into(orig: *const u8, raw: &[u8], bits: u8, s: u8, bnd: &mut [u64], out: &mut [u8]) {
+unsafe fn group_into(
+    orig: *const u8,
+    raw: &[u8],
+    bits: u8,
+    s: u8,
+    bnd: &mut [u64],
+    out: &mut [u8],
+) {
     let sub = |one: *const u8| fine(raw_hash(orig, one), bits) >> (FINE_BITS - s);
     let each = |f: &mut dyn FnMut(*const u8, usize)| {
         let mut o = 0;
         while o < raw.len() {
-            let (one, l) = (raw.as_ptr().add(o), serialized_len(orig, raw.as_ptr().add(o)));
+            let (one, l) = (
+                raw.as_ptr().add(o),
+                serialized_len(orig, raw.as_ptr().add(o)),
+            );
             f(one, l);
             o += l;
         }
@@ -348,7 +485,8 @@ unsafe fn group_into(orig: *const u8, raw: &[u8], bits: u8, s: u8, bnd: &mut [u6
     // each group's start is its cursor; past the walk it is the group's end, so the bounds move up one place
     each(&mut |one, l| {
         let k = sub(one);
-        out[bnd[k] as usize..bnd[k] as usize + l].copy_from_slice(core::slice::from_raw_parts(one, l));
+        out[bnd[k] as usize..bnd[k] as usize + l]
+            .copy_from_slice(core::slice::from_raw_parts(one, l));
         bnd[k] += l as u64;
     });
     bnd.copy_within(..bnd.len() - 1, 1);
@@ -362,10 +500,23 @@ unsafe fn group_into(orig: *const u8, raw: &[u8], bits: u8, s: u8, bnd: &mut [u6
 /// send every record (`gather`), but RIGHT SEMI's (none matched). The kept rows and the groups stay for the partition's
 /// later sub-partitions.
 #[allow(clippy::too_many_arguments)]
-pub(crate) unsafe fn open_sub(ctx: *mut Ctx, pp: *mut Partials, i: usize, arg: u64, ncons: usize, orig: *const u8, kept: *mut u8, (p, end): (u32, u64), mut split: Split) -> Result<(), Option<Error>> {
+pub(crate) unsafe fn open_sub(
+    ctx: *mut Ctx,
+    pp: *mut Partials,
+    i: usize,
+    arg: u64,
+    ncons: usize,
+    orig: *const u8,
+    kept: *mut u8,
+    (p, end): (u32, u64),
+    mut split: Split,
+) -> Result<(), Option<Error>> {
     let (fill, g) = (arg & FILL != 0, 1u64 << split.sbits);
     let at = |b: *mut u8, k: u64| rd::<u64>(b, 8 * k as usize) as usize;
-    let (sub, rows) = match (split.sub..g).find(|&k| at(split.kbnd, k + 1) > at(split.kbnd, k) && (fill || at(split.bnd, k + 1) > at(split.bnd, k))) {
+    let (sub, rows) = match (split.sub..g).find(|&k| {
+        at(split.kbnd, k + 1) > at(split.kbnd, k)
+            && (fill || at(split.bnd, k + 1) > at(split.bnd, k))
+    }) {
         Some(k) => (k, at(split.kbnd, k + 1) - at(split.kbnd, k)),
         None => (g, 0),
     };
@@ -377,18 +528,45 @@ pub(crate) unsafe fn open_sub(ctx: *mut Ctx, pp: *mut Partials, i: usize, arg: u
     let raw: &[u8] = if rows == 0 { &[] } else { split.group(sub) };
     let (m, d, _, _) = part_region(ctx, META, orig, raw)?;
     split.sub = sub.min(g - 1);
-    install(pp, i, ncons, (m, d), orig, (kept, split.koff.add(8 * at(split.kbnd, sub.min(g - 1))), rows), (p, end), split);
+    install(
+        pp,
+        i,
+        ncons,
+        (m, d),
+        orig,
+        (
+            kept,
+            split.koff.add(8 * at(split.kbnd, sub.min(g - 1))),
+            rows,
+        ),
+        (p, end),
+        split,
+    );
     Ok(())
 }
 
 /// The pair at `m`'s next sub-partition opened in its place (`open_sub`): a drained build's sub-pass first gathers its
 /// drain records, then the current one is closed (load.rs `close`, its kept rows and groups kept for the next).
-pub(crate) unsafe fn next_sub(ctx: *mut Ctx, pp: *mut Partials, i: usize, m: *mut u8, (stream, arg): (u64, u64), ncons: usize) -> Result<(), Option<Error>> {
+pub(crate) unsafe fn next_sub(
+    ctx: *mut Ctx,
+    pp: *mut Partials,
+    i: usize,
+    m: *mut u8,
+    (stream, arg): (u64, u64),
+    ncons: usize,
+) -> Result<(), Option<Error>> {
     if arg & DRAIN != 0 {
         drain_sub(ctx, arg, m)?;
     }
-    let (orig, kept) = (rd::<u64>(m, M_ORIG) as usize as *const u8, rd::<u64>(m, M_KEPT) as usize as *mut u8);
-    let (p, end, mut split) = (rd::<u64>(m, M_PART) as u32, rd::<u64>(m, M_HI), Split::load(m));
+    let (orig, kept) = (
+        rd::<u64>(m, M_ORIG) as usize as *const u8,
+        rd::<u64>(m, M_KEPT) as usize as *mut u8,
+    );
+    let (p, end, mut split) = (
+        rd::<u64>(m, M_PART) as u32,
+        rd::<u64>(m, M_HI),
+        Split::load(m),
+    );
     if close(ctx, pp, i, m, stream, arg, false) < 0 {
         return Err(None);
     }
@@ -405,7 +583,12 @@ unsafe fn drain_sub(ctx: *mut Ctx, arg: u64, m: *mut u8) -> gravity_driver::Resu
     if !split.dp.is_null() {
         let room = core::slice::from_raw_parts_mut(split.dp, split.dcap);
         let mut at = split.dlen;
-        let _ = drain_each(d, marked, &mut |t, i| -> Result<(), core::convert::Infallible> {
+        let _ = drain_each(d, marked, &mut |t,
+                                            i|
+         -> Result<
+            (),
+            core::convert::Infallible,
+        > {
             let len = file_len(t, i);
             serialize_over(t, i, &mut room[at..at + len]);
             at += len;
@@ -427,12 +610,19 @@ pub(crate) unsafe fn drain_end(ctx: *mut Ctx, stream: u64, arg: u64, m: *mut u8)
         return v4::fail(ctx, e);
     }
     let split = Split::load(m);
-    let body: &[u8] = if split.dlen == 0 { &[] } else { core::slice::from_raw_parts(split.dp, split.dlen) };
+    let body: &[u8] = if split.dlen == 0 {
+        &[]
+    } else {
+        core::slice::from_raw_parts(split.dp, split.dlen)
+    };
     let n = match records(rd::<u64>(m, M_ORIG) as usize as *const u8, body) {
         Ok((n, _)) => n,
         Err(e) => return v4::fail(ctx, e),
     };
-    let (bits, at) = (arg_bits(arg), u_part(arg_bits(arg), rd::<u64>(m, M_PART) as u32));
+    let (bits, at) = (
+        arg_bits(arg),
+        u_part(arg_bits(arg), rd::<u64>(m, M_PART) as u32),
+    );
     let head = drain_head(n as u32);
     for piece in core::iter::once(&head[..]).chain(body.chunks(JOIN_SPILL_EPOCH)) {
         if v4::put(ctx, stream, bits, at, piece) == v4::FAILED {
@@ -444,7 +634,12 @@ pub(crate) unsafe fn drain_end(ctx: *mut Ctx, stream: u64, arg: u64, m: *mut u8)
 
 /// The drain's chunk of a spilled part's records `body` (under `orig`) from byte `from`: its end, so a region of the
 /// records `from..end` fits half of `cap` (one record at least); the whole when the whole fits `cap`.
-pub(crate) unsafe fn chunk_of(orig: *const u8, body: &[u8], from: usize, cap: usize) -> gravity_driver::Result<usize> {
+pub(crate) unsafe fn chunk_of(
+    orig: *const u8,
+    body: &[u8],
+    from: usize,
+    cap: usize,
+) -> gravity_driver::Result<usize> {
     let base = layout::base(layout::pay_of(orig));
     let rec = rd::<u32>(orig, REC) as usize;
     if from == 0 && base + 5 * body.len() + (1 << 20) <= cap {
@@ -454,7 +649,9 @@ pub(crate) unsafe fn chunk_of(orig: *const u8, body: &[u8], from: usize, cap: us
     while o < body.len() {
         let l = serialized_len(orig, body.as_ptr().add(o));
         if o + l > body.len() {
-            return Err(Error::host("gravity: a spill drain part ends inside a record"));
+            return Err(Error::host(
+                "gravity: a spill drain part ends inside a record",
+            ));
         }
         if n > 0 && part_len(orig, n + 1, imgs + (l - rec), base) > cap / 2 {
             break;
@@ -467,15 +664,26 @@ pub(crate) unsafe fn chunk_of(orig: *const u8, body: &[u8], from: usize, cap: us
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ops::hashjoin::build::{ALLOW, A_TAGS, DIR, FLAGS, F_RANGE, HDR, KEPT, MARKS, N, PHASE};
+    use crate::ops::hashjoin::build::{
+        ALLOW, A_TAGS, DIR, FLAGS, F_RANGE, HDR, KEPT, MARKS, N, PHASE,
+    };
 
     /// A build header: one image word, one payload word, no record yet (load.rs's test region).
     fn orig() -> Vec<u64> {
         let mut buf = vec![0u64; HDR / 8 + 1];
         let d = buf.as_mut_ptr() as *mut u8;
         // SAFETY: `buf` covers the header.
-        unsafe {wr::<u8>(d, PHASE, 1); wr::<u8>(d, WORDS, 1); wr::<u32>(d, REC, 24); crate::ops::hashjoin::layout::set_pay(d, 1); wr::<u8>(d, ALLOW, A_TAGS); wr::<u8>(d, FLAGS, F_RANGE);
-wr::<u64>(d, N, 99); wr::<u64>(d, KEPT, 7); wr::<u64>(d, MARKS, 4096); wr::<u64>(d, DIR, 4096);
+        unsafe {
+            wr::<u8>(d, PHASE, 1);
+            wr::<u8>(d, WORDS, 1);
+            wr::<u32>(d, REC, 24);
+            crate::ops::hashjoin::layout::set_pay(d, 1);
+            wr::<u8>(d, ALLOW, A_TAGS);
+            wr::<u8>(d, FLAGS, F_RANGE);
+            wr::<u64>(d, N, 99);
+            wr::<u64>(d, KEPT, 7);
+            wr::<u64>(d, MARKS, 4096);
+            wr::<u64>(d, DIR, 4096);
         }
         buf
     }
@@ -521,7 +729,10 @@ wr::<u64>(d, N, 99); wr::<u64>(d, KEPT, 7); wr::<u64>(d, MARKS, 4096); wr::<u64>
                 for rec in part.chunks(24) {
                     let key = i64::from_ne_bytes(rec[..8].try_into().unwrap());
                     assert_eq!(fine(raw_hash(op, rec.as_ptr()), 6) >> (FINE_BITS - s), k);
-                    assert_eq!(fine(KeyHash::of(&[key as u64]).to_abi(), 6) >> (FINE_BITS - s), k);
+                    assert_eq!(
+                        fine(KeyHash::of(&[key as u64]).to_abi(), 6) >> (FINE_BITS - s),
+                        k
+                    );
                     assert_eq!(*home.entry(key).or_insert(k), k);
                 }
             }
@@ -529,7 +740,10 @@ wr::<u64>(d, N, 99); wr::<u64>(d, KEPT, 7); wr::<u64>(d, MARKS, 4096); wr::<u64>
             // the probe's kept rows (one cell, the key) group by the KeyHash `exit` writes, into their keys' groups
             let mut kept = Vec::new();
             for key in (0..1200i64).rev() {
-                kept.extend(crate::ops::hashjoin::spill::load::kept_row(&[0, key as u64, 0], KeyHash::of(&[key as u64]).to_abi()));
+                kept.extend(crate::ops::hashjoin::spill::load::kept_row(
+                    &[0, key as u64, 0],
+                    KeyHash::of(&[key as u64]).to_abi(),
+                ));
             }
             let (mut kb, mut ko) = (vec![0u64; g + 1], vec![0u64; 1200]);
             kept_group_into(kept.as_ptr(), kept.len(), 6, s, &mut kb, &mut ko);
@@ -542,7 +756,6 @@ wr::<u64>(d, N, 99); wr::<u64>(d, KEPT, 7); wr::<u64>(d, MARKS, 4096); wr::<u64>
             }
         }
     }
-
 
     /// D2715: the drain loads a part past its cap in chunks of whole records, each within half the cap, covering the part;
     /// a part far under its cap loads whole.
@@ -559,8 +772,11 @@ wr::<u64>(d, N, 99); wr::<u64>(d, KEPT, 7); wr::<u64>(d, MARKS, 4096); wr::<u64>
             let (mut from, mut chunks) = (0, 0);
             while from < r.len() {
                 let to = chunk_of(op, &r, from, cap).unwrap();
-                assert!(to > from && (to - from).is_multiple_of( 24), "{from}..{to}");
-                assert!((to - from) / 24 > 1 && part_len(op, (to - from) / 24, 0, HDR) <= cap / 2, "{from}..{to}");
+                assert!(to > from && (to - from).is_multiple_of(24), "{from}..{to}");
+                assert!(
+                    (to - from) / 24 > 1 && part_len(op, (to - from) / 24, 0, HDR) <= cap / 2,
+                    "{from}..{to}"
+                );
                 (from, chunks) = (to, chunks + 1);
             }
             assert!(chunks > 1, "{chunks}");

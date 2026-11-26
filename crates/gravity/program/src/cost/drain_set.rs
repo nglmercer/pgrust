@@ -45,7 +45,8 @@ use cost_profile::fit::Fitted;
 
 const MACHINE: &str = "box 63: c8g, Graviton 4 (Neoverse V2), 16 vCPU, held whole (PERF-BOX-QUEUE)";
 const CORPUS: &str = "NEW-41 size-gate sweep n41g (fi 200 k FULL JOIN fr 100 k, int + text DISTINCT keys, 300 .. 100 k joined rows; 4 rounds, medians)";
-const WIDE_MACHINE: &str = "box 54: c8g.4xlarge, Graviton 4 (Neoverse V2), 16 vCPU, held whole (PERF-BOX-QUEUE)";
+const WIDE_MACHINE: &str =
+    "box 54: c8g.4xlarge, Graviton 4 (Neoverse V2), 16 vCPU, held whole (PERF-BOX-QUEUE)";
 const WIDE_CORPUS: &str = "n41g text-key cells (fi 200 k FULL JOIN fr 100 k, 932 .. 49 k joined rows) on NEW-53's keyed end (drain arms at the statement's width), each form forced; 4 rounds, medians";
 
 /// A form's cost over the joined rows: `fixed` ns a statement plus `row` ns a joined row (PostgreSQL's estimate).
@@ -71,18 +72,49 @@ const fn wide_line(fixed_ms: f64, row_ns: f64, anchor: Anchor) -> Line {
     line_on(fixed_ms, row_ns, WIDE_MACHINE, WIDE_CORPUS, anchor)
 }
 
-const fn line_on(fixed_ms: f64, row_ns: f64, machine: &'static str, corpus: &'static str, anchor: Anchor) -> Line {
-    Line { fixed: Fitted { ns: fixed_ms * 1e6, machine, corpus, anchor }, row: Fitted { ns: row_ns, machine, corpus, anchor } }
+const fn line_on(
+    fixed_ms: f64,
+    row_ns: f64,
+    machine: &'static str,
+    corpus: &'static str,
+    anchor: Anchor,
+) -> Line {
+    Line {
+        fixed: Fitted {
+            ns: fixed_ms * 1e6,
+            machine,
+            corpus,
+            anchor,
+        },
+        row: Fitted {
+            ns: row_ns,
+            machine,
+            corpus,
+            anchor,
+        },
+    }
 }
 
 /// A key of one by-value word (int) at W0: 11 cells, 275 .. 99,773 estimated rows; the lines cross at 12,834 rows.
-pub const WORD_W0: Pair = Pair { sort: line(1.3027, 145.39, Anchor::Sort), set: line(2.4616, 55.09, Anchor::Update) };
+pub const WORD_W0: Pair = Pair {
+    sort: line(1.3027, 145.39, Anchor::Sort),
+    set: line(2.4616, 55.09, Anchor::Update),
+};
 /// A key of one by-value word (int) at W8; the lines cross at 5,312 rows.
-pub const WORD_W8: Pair = Pair { sort: line(1.0200, 145.03, Anchor::Sort), set: line(1.5313, 48.77, Anchor::Update) };
+pub const WORD_W8: Pair = Pair {
+    sort: line(1.0200, 145.03, Anchor::Sort),
+    set: line(1.5313, 48.77, Anchor::Update),
+};
 /// A varlena key (text) at W0: 5 cells, 932 .. 49,360 estimated rows; the lines cross at 3,843 rows.
-pub const WIDE_W0: Pair = Pair { sort: wide_line(1.4804, 423.14, Anchor::Sort), set: wide_line(2.7895, 82.53, Anchor::Update) };
+pub const WIDE_W0: Pair = Pair {
+    sort: wide_line(1.4804, 423.14, Anchor::Sort),
+    set: wide_line(2.7895, 82.53, Anchor::Update),
+};
 /// A varlena key (text) at W8: the set's line lies under the Sort's at every size (`crossover` 0).
-pub const WIDE_W8: Pair = Pair { sort: wide_line(1.5218, 228.43, Anchor::Sort), set: wide_line(0.9893, 49.10, Anchor::Update) };
+pub const WIDE_W8: Pair = Pair {
+    sort: wide_line(1.5218, 228.43, Anchor::Sort),
+    set: wide_line(0.9893, 49.10, Anchor::Update),
+};
 
 /// The width a statement is costed at off a backend (no `Facts::width`): PostgreSQL's default `max_parallel_workers`.
 pub const DEFAULT_WIDTH: u16 = 8;
@@ -136,15 +168,33 @@ mod tests {
     #[test]
     fn the_lines_cross_where_the_sweep_flipped() {
         let r = |w: bool, width: u16| set_rows(w, width).round() as u64;
-        assert_eq!((r(true, 8), r(false, 8), r(true, 0), r(false, 0)), (5_312, 0, 12_834, 3_843));
+        assert_eq!(
+            (r(true, 8), r(false, 8), r(true, 0), r(false, 0)),
+            (5_312, 0, 12_834, 3_843)
+        );
     }
 
     #[test]
     fn a_set_that_saves_nothing_a_row_never_pays() {
-        let flat = Pair { sort: line(1.0, 50.0, Anchor::Sort), set: line(2.0, 50.0, Anchor::Update) };
-        let cheap = Pair { sort: line(2.0, 50.0, Anchor::Sort), set: line(1.0, 40.0, Anchor::Update) };
+        let flat = Pair {
+            sort: line(1.0, 50.0, Anchor::Sort),
+            set: line(2.0, 50.0, Anchor::Update),
+        };
+        let cheap = Pair {
+            sort: line(2.0, 50.0, Anchor::Sort),
+            set: line(1.0, 40.0, Anchor::Update),
+        };
         assert_eq!((crossover(flat), crossover(cheap)), (f64::INFINITY, 0.0));
-        assert_eq!(crossover(Pair { sort: line(1.0, 100.0, Anchor::Sort), set: line(2.0, 50.0, Anchor::Update) }), 20_000.0);
-        assert_eq!((pair(true, 7), pair(true, 8), pair(true, 64), pair(false, 0)), (WORD_W0, WORD_W8, WORD_W8, WIDE_W0));
+        assert_eq!(
+            crossover(Pair {
+                sort: line(1.0, 100.0, Anchor::Sort),
+                set: line(2.0, 50.0, Anchor::Update)
+            }),
+            20_000.0
+        );
+        assert_eq!(
+            (pair(true, 7), pair(true, 8), pair(true, 64), pair(false, 0)),
+            (WORD_W0, WORD_W8, WORD_W8, WIDE_W0)
+        );
     }
 }

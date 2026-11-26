@@ -195,7 +195,9 @@ fn trace_cb(_seg: DsmSegmentId, arg: usize) -> types_error::PgResult<()> {
 
 fn err_cb(_seg: DsmSegmentId, arg: usize) -> types_error::PgResult<()> {
     CB_TRACE.lock().unwrap().push(arg);
-    Err(Box::new(types_error::PgError::error("detach callback failed")))
+    Err(Box::new(types_error::PgError::error(
+        "detach callback failed",
+    )))
 }
 
 #[test]
@@ -412,8 +414,15 @@ fn create_reports_unrepresentable_size_as_error_not_panic() {
     let handle: types_storage::dsm_handle = 0xDEAD_BEE0;
     let mut ma: *mut u8 = std::ptr::null_mut();
     let mut ms: usize = 0;
-    let err = dsm_impl_op(DsmOp::Create, handle, usize::MAX, &mut ma, &mut ms, types_error::ERROR)
-        .expect_err("oversized create is an ERROR, not a panic");
+    let err = dsm_impl_op(
+        DsmOp::Create,
+        handle,
+        usize::MAX,
+        &mut ma,
+        &mut ms,
+        types_error::ERROR,
+    )
+    .expect_err("oversized create is an ERROR, not a panic");
     assert!(
         err.message.starts_with("could not resize shared memory segment \"/PostgreSQL.3735928544\" to 18446744073709551615 bytes: "),
         "{}",

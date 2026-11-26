@@ -13,8 +13,22 @@ use super::scalar::Em;
 use super::{EmitError, Lowered};
 use crate::nodes::{ExprNode, NodeId, SiteId};
 
-const NUMERIC_CMP: [(u32, IntCond); 6] = [(1718, IntCond::Eq), (1719, IntCond::Ne), (1720, IntCond::Sgt), (1721, IntCond::Sge), (1722, IntCond::Slt), (1723, IntCond::Sle)];
-const INTERVAL_CMP: [(u32, IntCond); 6] = [(1162, IntCond::Eq), (1163, IntCond::Ne), (1164, IntCond::Slt), (1165, IntCond::Sle), (1166, IntCond::Sge), (1167, IntCond::Sgt)];
+const NUMERIC_CMP: [(u32, IntCond); 6] = [
+    (1718, IntCond::Eq),
+    (1719, IntCond::Ne),
+    (1720, IntCond::Sgt),
+    (1721, IntCond::Sge),
+    (1722, IntCond::Slt),
+    (1723, IntCond::Sle),
+];
+const INTERVAL_CMP: [(u32, IntCond); 6] = [
+    (1162, IntCond::Eq),
+    (1163, IntCond::Ne),
+    (1164, IntCond::Slt),
+    (1165, IntCond::Sle),
+    (1166, IntCond::Sge),
+    (1167, IntCond::Sgt),
+];
 const NUMERICOID: u32 = 1700;
 const INTERVALOID: u32 = 1186;
 const USECS_PER_DAY: i128 = 86_400_000_000;
@@ -49,14 +63,21 @@ fn cmp_word(em: &mut Em<'_, '_, '_>, c: IntCond, x: Value, k: i64) -> Value {
 pub(super) fn fused(em: &mut Em<'_, '_, '_>, site: SiteId) -> Result<Option<Lowered>, EmitError> {
     let call = &em.p.sites[site.0 as usize];
     if call.nargs == 1 {
-        let Some(w) = int_cast(call.funcid) else { return Ok(None) };
-        let Some((form, _, ext)) = extract_form(em, em.p.kids[call.args.start as usize]) else { return Ok(None) };
+        let Some(w) = int_cast(call.funcid) else {
+            return Ok(None);
+        };
+        let Some((form, _, ext)) = extract_form(em, em.p.kids[call.args.start as usize]) else {
+            return Ok(None);
+        };
         return extract_int(em, site, ext, form, w).map(Some);
     }
     if call.nargs != 2 {
         return Ok(None);
     }
-    let (k0, k1) = (em.p.kids[call.args.start as usize], em.p.kids[call.args.start as usize + 1]);
+    let (k0, k1) = (
+        em.p.kids[call.args.start as usize],
+        em.p.kids[call.args.start as usize + 1],
+    );
     if let Some(&(_, c)) = NUMERIC_CMP.iter().find(|(o, _)| *o == call.funcid) {
         for (x, k, c) in [(k0, k1, c), (k1, k0, flip(c))] {
             if let (Some((form, ts, _)), Some(k)) = (extract_form(em, x), integral_numeric(em, k)) {
@@ -77,7 +98,9 @@ pub(super) fn fused(em: &mut Em<'_, '_, '_>, site: SiteId) -> Result<Option<Lowe
 /// `extract_timestamp(unit, ts)` / `extract_date(unit, d)` with a unit the integer field form serves: the form, the
 /// source node and the extract's site.
 fn extract_form(em: &Em<'_, '_, '_>, id: NodeId) -> Option<(DtForm, NodeId, SiteId)> {
-    let (ExprNode::Func(n) | ExprNode::Op(n)) = &em.p.nodes[id.0 as usize] else { return None };
+    let (ExprNode::Func(n) | ExprNode::Op(n)) = &em.p.nodes[id.0 as usize] else {
+        return None;
+    };
     let call = &em.p.sites[n.site.0 as usize];
     let name = gravity_fn::row_of(call.funcid)?.name;
     if !matches!(name, "extract_timestamp" | "extract_date") || call.nargs != 2 {
@@ -99,7 +122,9 @@ fn int_cast(funcid: u32) -> Option<u8> {
 
 /// A non-null numeric constant whose value is an integer strictly inside the 64-bit range.
 fn integral_numeric(em: &Em<'_, '_, '_>, id: NodeId) -> Option<i64> {
-    let ExprNode::Const(c) = &em.p.nodes[id.0 as usize] else { return None };
+    let ExprNode::Const(c) = &em.p.nodes[id.0 as usize] else {
+        return None;
+    };
     if c.typ != NUMERICOID || c.is_null() {
         return None;
     }
@@ -116,7 +141,9 @@ fn integral_numeric(em: &Em<'_, '_, '_>, id: NodeId) -> Option<i64> {
 
 /// A non-null interval constant whose `interval_cmp_value` span is strictly inside the 64-bit range.
 fn interval_span(em: &Em<'_, '_, '_>, id: NodeId) -> Option<i64> {
-    let ExprNode::Const(c) = &em.p.nodes[id.0 as usize] else { return None };
+    let ExprNode::Const(c) = &em.p.nodes[id.0 as usize] else {
+        return None;
+    };
     if c.typ != INTERVALOID || c.is_null() {
         return None;
     }
@@ -134,22 +161,38 @@ fn interval_span(em: &Em<'_, '_, '_>, id: NodeId) -> Option<i64> {
 
 /// `timestamp_mi(a, b)`: its site and the two timestamp nodes.
 fn tsmi_form(em: &Em<'_, '_, '_>, id: NodeId) -> Option<(SiteId, NodeId, NodeId)> {
-    let (ExprNode::Func(n) | ExprNode::Op(n)) = &em.p.nodes[id.0 as usize] else { return None };
+    let (ExprNode::Func(n) | ExprNode::Op(n)) = &em.p.nodes[id.0 as usize] else {
+        return None;
+    };
     let call = &em.p.sites[n.site.0 as usize];
     if !gravity_fn::typesem::expr::timestamp_minus(call.funcid) || call.nargs != 2 {
         return None;
     }
-    Some((n.site, em.p.kids[call.args.start as usize], em.p.kids[call.args.start as usize + 1]))
+    Some((
+        n.site,
+        em.p.kids[call.args.start as usize],
+        em.p.kids[call.args.start as usize + 1],
+    ))
 }
 
-fn extract_cmp(em: &mut Em<'_, '_, '_>, form: DtForm, ts: NodeId, c: IntCond, k: i64) -> Result<Lowered, EmitError> {
+fn extract_cmp(
+    em: &mut Em<'_, '_, '_>,
+    form: DtForm,
+    ts: NodeId,
+    c: IntCond,
+    k: i64,
+) -> Result<Lowered, EmitError> {
     fires::fire("expr.extract.cmp"); // the fused compare of an integral extract (a cached program does not re-emit)
     let ts = em.node(ts)?;
     let (out, finite) = datetime::emit(em.b, form, ts.value);
     let value = cmp_word(em, c, out.value, k);
     if let Some(finite) = finite {
         let valid = em.and(ts.valid, finite);
-        return Ok(Lowered { value, valid, err: ts.err });
+        return Ok(Lowered {
+            value,
+            valid,
+            err: ts.err,
+        });
     }
     // D3149: a monotonic unit's word spells an infinite row's ±Infinity itself (no validity); the compare decides it here
     let (finite, nobegin) = datetime::source_inf(em.b, form, ts.value);
@@ -157,7 +200,11 @@ fn extract_cmp(em: &mut Em<'_, '_, '_>, form: DtForm, ts: NodeId, c: IntCond, k:
     let pos = em.b.iconst(Type::I64, inf_answer(c, false) as i64);
     let inf = em.b.select(nobegin, neg, pos);
     let value = em.b.select(finite, value, inf);
-    Ok(Lowered { value, valid: ts.valid, err: ts.err })
+    Ok(Lowered {
+        value,
+        valid: ts.valid,
+        err: ts.err,
+    })
 }
 
 /// `numeric_int<w>(extract(unit FROM x))` (`cast` over `ext`): the field word, which every finite source's field gives
@@ -165,7 +212,13 @@ fn extract_cmp(em: &mut Em<'_, '_, '_>, form: DtForm, ts: NodeId, c: IntCond, k:
 /// oscillating field is NULL, the cast's too. A row the cast raises on (a monotonic field of an infinite source,
 /// PostgreSQL's "cannot convert infinity to ..", or an int2 out of range) takes the two sites' cell road, which raises
 /// PostgreSQL's own error.
-fn extract_int(em: &mut Em<'_, '_, '_>, cast: SiteId, ext: SiteId, form: DtForm, w: u8) -> Result<Lowered, EmitError> {
+fn extract_int(
+    em: &mut Em<'_, '_, '_>,
+    cast: SiteId,
+    ext: SiteId,
+    form: DtForm,
+    w: u8,
+) -> Result<Lowered, EmitError> {
     let k = em.p.sites[ext.0 as usize].args.start as usize;
     let (k0, k1) = (em.p.kids[k], em.p.kids[k + 1]);
     fires::fire("expr.extract.int"); // the fused cast: an integral extract under an integer cast as its word (a cached program does not re-emit)
@@ -184,7 +237,13 @@ fn extract_int(em: &mut Em<'_, '_, '_>, cast: SiteId, ext: SiteId, form: DtForm,
         em.b.icmp(IntCond::Ne, back, out.value)
     });
     let bad = match (inf, past) {
-        (None, None) => return Ok(Lowered { value: out.value, valid, err: x.err }),
+        (None, None) => {
+            return Ok(Lowered {
+                value: out.value,
+                valid,
+                err: x.err,
+            })
+        }
         (Some(a), None) | (None, Some(a)) => a,
         (Some(a), Some(b)) => em.or(a, b),
     };
@@ -202,10 +261,21 @@ fn extract_int(em: &mut Em<'_, '_, '_>, cast: SiteId, ext: SiteId, form: DtForm,
     em.b.br(l_join, &[out.value, valid, x.err]);
     em.b.switch_to(l_join);
     let ps = em.b.block_params(l_join);
-    Ok(Lowered { value: ps[0], valid: ps[1], err: ps[2] })
+    Ok(Lowered {
+        value: ps[0],
+        valid: ps[1],
+        err: ps[2],
+    })
 }
 
-fn tsmi_cmp(em: &mut Em<'_, '_, '_>, mi: SiteId, a: NodeId, b: NodeId, c: IntCond, k: i64) -> Result<Lowered, EmitError> {
+fn tsmi_cmp(
+    em: &mut Em<'_, '_, '_>,
+    mi: SiteId,
+    a: NodeId,
+    b: NodeId,
+    c: IntCond,
+    k: i64,
+) -> Result<Lowered, EmitError> {
     let a = em.node(a)?;
     let b = em.after(a.err, b)?; // D775: PG's order
     let valid = em.and(a.valid, b.valid);
@@ -246,5 +316,9 @@ fn tsmi_cmp(em: &mut Em<'_, '_, '_>, mi: SiteId, a: NodeId, b: NodeId, c: IntCon
     em.b.br(l_join, &[value, valid, err]);
     em.b.switch_to(l_join);
     let ps = em.b.block_params(l_join);
-    Ok(Lowered { value: ps[0], valid: ps[1], err: ps[2] })
+    Ok(Lowered {
+        value: ps[0],
+        valid: ps[1],
+        err: ps[2],
+    })
 }

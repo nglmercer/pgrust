@@ -1,4 +1,3 @@
-
 use super::consts::*;
 use super::context::PgpContext;
 use super::pull::{read_fixed, Dcx, PRes, Pull, SliceReader};
@@ -51,7 +50,7 @@ pub fn read_mpi(data: &[u8], pos: &mut usize, ctx: &mut PgpContext) -> Result<Mp
 pub fn read_mpi_pull(src: &mut dyn Pull, cx: &mut Dcx) -> PRes<Mpi> {
     let hdr = read_fixed(src, cx, 2)?;
     let bits = ((hdr[0] as usize) << 8) | hdr[1] as usize;
-    let value = read_fixed(src, cx,bits.div_ceil( 8))?;
+    let value = read_fixed(src, cx, bits.div_ceil(8))?;
     Ok(Mpi::from_bytes(value, bits))
 }
 
@@ -82,7 +81,7 @@ fn rand_bits(bits: usize) -> Result<BigUint, MathError> {
     if bits == 0 {
         return Ok(BigUint::zero());
     }
-    let nbytes =bits.div_ceil( 8);
+    let nbytes = bits.div_ceil(8);
     let mut buf = vec![0u8; nbytes];
     // pgp-mpi-openssl.c:123: a BN_rand failure leaves res = PXE_PGP_MATH_FAILED.
     if !pg_strong_random(&mut buf) {
@@ -126,7 +125,10 @@ fn to_bn(m: &Mpi) -> Result<BigUint, String> {
     let bn = m.to_biguint();
     let bits = bn.bits() as usize;
     if bits != m.bits {
-        return Err(format!("mpi_to_bn: bignum conversion failed: mpi={}, bn={bits}", m.bits));
+        return Err(format!(
+            "mpi_to_bn: bignum conversion failed: mpi={}, bn={bits}",
+            m.bits
+        ));
     }
     Ok(bn)
 }
@@ -147,7 +149,11 @@ fn to_bns<const N: usize>(mpis: [&Mpi; N]) -> Result<[BigUint; N], MathError> {
 /// for every caller in pgp-mpi-openssl.c.
 fn mod_exp(base: &BigUint, exp: &BigUint, modulus: &BigUint) -> Result<BigUint, MathError> {
     if exp.is_zero() {
-        return Ok(if modulus.is_one() { BigUint::zero() } else { BigUint::one() });
+        return Ok(if modulus.is_one() {
+            BigUint::zero()
+        } else {
+            BigUint::one()
+        });
     }
     if modulus.is_zero() {
         return Err(math_failed());

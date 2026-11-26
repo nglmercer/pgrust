@@ -38,7 +38,11 @@ pub(crate) fn create_physical_replication_slot(
     slot::ReplicationSlotCreate(
         name,
         false,
-        if temporary { RS_TEMPORARY } else { RS_PERSISTENT },
+        if temporary {
+            RS_TEMPORARY
+        } else {
+            RS_PERSISTENT
+        },
         false,
         false,
         false,
@@ -72,7 +76,11 @@ pub(crate) fn create_logical_replication_slot(
     slot::ReplicationSlotCreate(
         name,
         true,
-        if temporary { RS_TEMPORARY } else { slot::RS_EPHEMERAL },
+        if temporary {
+            RS_TEMPORARY
+        } else {
+            slot::RS_EPHEMERAL
+        },
         two_phase,
         failover,
         false,
@@ -133,7 +141,11 @@ pub(crate) fn get_wal_availability(target_lsn: XLogRecPtr) -> PgResult<WALAvaila
 
     let curr_seg = transam_xlog::XLByteToSeg(currpos, segsize);
     let keep_segs = convert_to_xsegs(guc_tables::vars::max_wal_size_mb.read(), segsize) + 1;
-    let oldest_seg_max_wal_size = if curr_seg > keep_segs { curr_seg - keep_segs } else { 1 };
+    let oldest_seg_max_wal_size = if curr_seg > keep_segs {
+        curr_seg - keep_segs
+    } else {
+        1
+    };
 
     let target_seg = transam_xlog::XLByteToSeg(target_lsn, segsize);
     let spool = transam_xlog::spool_bytes_from(target_lsn);
@@ -214,7 +226,8 @@ pub(crate) fn LogicalSlotAdvanceAndCheckSnapState(
 
         slot::WaitForStandbyConfirmation(moveto)?;
 
-        ctx.reader.XLogBeginRead(unsafe { ctx.slot.data.get() }.restart_lsn);
+        ctx.reader
+            .XLogBeginRead(unsafe { ctx.slot.data.get() }.restart_lsn);
         inval::local::InvalidateSystemCaches()?;
 
         let mut routine = LocalPageRead { wait_for_wal: true };
@@ -255,11 +268,13 @@ pub(crate) fn LogicalSlotAdvanceAndCheckSnapState(
 
     match attempt {
         Ok(ctx) => {
-            let retlsn = unsafe { slot::MyReplicationSlot()
-                .expect("LogicalSlotAdvanceAndCheckSnapState: no slot")
-                .data
-                .get() }
-                .confirmed_flush;
+            let retlsn = unsafe {
+                slot::MyReplicationSlot()
+                    .expect("LogicalSlotAdvanceAndCheckSnapState: no slot")
+                    .data
+                    .get()
+            }
+            .confirmed_flush;
             ctx.free()?;
             inval::local::InvalidateSystemCaches()?;
             Ok(retlsn)
@@ -278,26 +293,21 @@ pub(crate) fn LogicalSlotAdvanceAndCheckSnapState(
 // the same reason as LogicalSlotAdvanceAndCheckSnapState (the record loop
 // drives logical_decode). Consumer: binary_upgrade_logical_slot_has_caught_up.
 pub fn LogicalReplicationSlotHasPendingWal(end_of_wal: XLogRecPtr) -> PgResult<bool> {
-    let slot = slot::MyReplicationSlot()
-        .expect("LogicalReplicationSlotHasPendingWal: no acquired slot");
+    let slot =
+        slot::MyReplicationSlot().expect("LogicalReplicationSlotHasPendingWal: no acquired slot");
     let mut has_pending_wal = false;
 
     let attempt: PgResult<()> = (|| {
         // Create our decoding context in fast_forward mode, passing start_lsn
         // as InvalidXLogRecPtr, so that we start processing from the slot's
         // confirmed_flush.
-        let mut ctx = logical::CreateDecodingContext(
-            InvalidXLogRecPtr,
-            Vec::new(),
-            true,
-            None,
-            None,
-            None,
-        )?;
+        let mut ctx =
+            logical::CreateDecodingContext(InvalidXLogRecPtr, Vec::new(), true, None, None, None)?;
 
         // Start reading at the slot's restart_lsn, which we know points to a
         // valid record.
-        ctx.reader.XLogBeginRead(unsafe { slot.data.get() }.restart_lsn);
+        ctx.reader
+            .XLogBeginRead(unsafe { slot.data.get() }.restart_lsn);
 
         // Invalidate non-timetravel entries.
         inval::local::InvalidateSystemCaches()?;
@@ -407,7 +417,9 @@ pub(crate) fn copy_replication_slot(
     if first.invalidated != slot::RS_INVAL_NONE {
         return ereport(ERROR)
             .errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE)
-            .errmsg(format!("cannot copy invalidated replication slot \"{src_name}\""))
+            .errmsg(format!(
+                "cannot copy invalidated replication slot \"{src_name}\""
+            ))
             .finish(loc("copy_replication_slot"));
     }
 
@@ -446,7 +458,9 @@ pub(crate) fn copy_replication_slot(
     if src_islogical && second.confirmed_flush == InvalidXLogRecPtr {
         return ereport(ERROR)
             .errcode(ERRCODE_FEATURE_NOT_SUPPORTED)
-            .errmsg(format!("cannot copy unfinished logical replication slot \"{src_name}\""))
+            .errmsg(format!(
+                "cannot copy unfinished logical replication slot \"{src_name}\""
+            ))
             .errhint("Retry when the source replication slot's confirmed_flush_lsn is valid.")
             .finish(loc("copy_replication_slot"));
     }
@@ -460,7 +474,10 @@ pub(crate) fn copy_replication_slot(
     let dst = slot::MyReplicationSlot().expect("copy_replication_slot: destination not acquired");
     dst.with_mutex(|| {
         unsafe { dst.effective_xmin.set(second.effective_xmin) };
-        unsafe { dst.effective_catalog_xmin.set(second.effective_catalog_xmin) };
+        unsafe {
+            dst.effective_catalog_xmin
+                .set(second.effective_catalog_xmin)
+        };
         let mut d = unsafe { dst.data.get() };
         d.xmin = second.xmin;
         d.catalog_xmin = second.catalog_xmin;

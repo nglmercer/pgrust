@@ -23,32 +23,60 @@ fn opened(program: &Arc<Program>, grant: Grant, width: u16, merge: &dyn Merge) -
     opened_under(program, lease(grant), width, merge)
 }
 
-fn opened_under(program: &Arc<Program>, res: std::rc::Rc<gravity_driver::Reservation>, width: u16, merge: &dyn Merge) -> u64 {
+fn opened_under(
+    program: &Arc<Program>,
+    res: std::rc::Rc<gravity_driver::Reservation>,
+    width: u16,
+    merge: &dyn Merge,
+) -> u64 {
     let grant = res.grant;
     let mut derive = FakeDerive::ranges(RangeTable::new(BLOCKS, 10));
     let mut entry = Entry::new(2);
     let flag = AtomicU8::new(0);
     let mut sink = LegSink::new();
     let mut b = binding(&[8], &NULLS, &mut sink, &flag);
-    let mut exec = entry.start(None, program, &mut derive, &mut b, res).unwrap();
+    let mut exec = entry
+        .start(None, program, &mut derive, &mut b, res)
+        .unwrap();
     for p in 0..program.pipelines.len() {
         if width > 1 && program.pipelines[p].parallel == Parallel::Eligible {
-            let open = entry.open_section(&mut exec, &b, &mut derive, p, width).unwrap();
+            let open = entry
+                .open_section(&mut exec, &b, &mut derive, p, width)
+                .unwrap();
             let split = share(program, p, grant, width);
-            assert_eq!(open.owner_bytes(), split.owner.bytes, "pipeline {p} W{width}: the owners' cut is share(..).owner");
-            assert_eq!(split.owner.bytes, ((split.breaker.bytes - gravity_abi::breaker::OWNED_HDR as u32) / width as u32) & !7, "behind the Owned header, width ways");
+            assert_eq!(
+                open.owner_bytes(),
+                split.owner.bytes,
+                "pipeline {p} W{width}: the owners' cut is share(..).owner"
+            );
+            assert_eq!(
+                split.owner.bytes,
+                ((split.breaker.bytes - gravity_abi::breaker::OWNED_HDR as u32) / width as u32)
+                    & !7,
+                "behind the Owned header, width ways"
+            );
             let cursor = AtomicU64::new(0);
             for o in 0..width {
                 loop {
                     let lo = cursor.fetch_add(5, Ordering::AcqRel);
-                    if lo >= BLOCKS || open.run_claim(o, MorselRange::new(lo, (lo + 5).min(BLOCKS))).unwrap() == Claimed::Stopped {
+                    if lo >= BLOCKS
+                        || open
+                            .run_claim(o, MorselRange::new(lo, (lo + 5).min(BLOCKS)))
+                            .unwrap()
+                            == Claimed::Stopped
+                    {
                         break;
                     }
                 }
             }
             entry.close_section(open, &mut b, merge, true).unwrap();
         } else {
-            assert_eq!(entry.run_pipeline(&mut exec, &mut b, Call::batch(64)).unwrap(), Step::Done);
+            assert_eq!(
+                entry
+                    .run_pipeline(&mut exec, &mut b, Call::batch(64))
+                    .unwrap(),
+                Step::Done
+            );
         }
     }
     let limits = exec.node().accounting().limits;
@@ -76,10 +104,15 @@ fn the_reservation_is_the_sum_of_the_opened_limits_for_every_breaker_kind_at_w1_
         for (g, tag) in [(grant, ""), (floored, " floored")] {
             for width in [1u16, 4] {
                 REGIONS.trim();
-                let (reserved, got) = (footprint_regions(g, &program, width), opened(&program, g, width, merge));
+                let (reserved, got) = (
+                    footprint_regions(g, &program, width),
+                    opened(&program, g, width, merge),
+                );
                 eprintln!("ONE-DIVISOR {name}{tag} W{width}: reserved {reserved} opened {got}");
                 if reserved != got {
-                    bad.push(format!("{name}{tag} W{width}: reserved {reserved}, opened {got}"));
+                    bad.push(format!(
+                        "{name}{tag} W{width}: reserved {reserved}, opened {got}"
+                    ));
                 }
             }
         }
@@ -94,25 +127,48 @@ fn the_reservation_is_the_sum_of_the_opened_limits_for_every_breaker_kind_at_w1_
 /// reserves the grant's split, not three 4 GiB regions.
 #[test]
 fn d2894_a_floor_stops_at_the_modeled_need_and_the_reservation_sums_the_opened_limits() {
-    assert_eq!(FALLBACK_RECORD, 64, "the chain's breakers have no owner layout: the fallback record");
+    assert_eq!(
+        FALLBACK_RECORD, 64,
+        "the chain's breakers have no owner layout: the fallback record"
+    );
     let floored = Grant::of(32 * MIB).with_floors(24 * MIB, 48 * MIB);
-    for (rows, model) in [(1000u64, None), (500_000, Some(32 * MIB)), (10_000_000, Some(48 * MIB))] {
+    for (rows, model) in [
+        (1000u64, None),
+        (500_000, Some(32 * MIB)),
+        (10_000_000, Some(48 * MIB)),
+    ] {
         let program = Arc::new(p_group_chain_rows(4, rows));
         for width in [1u16, 4] {
             let split = share(&program, 0, Grant::of(32 * MIB), width).breaker.bytes as u64;
-            assert!(split < 32 * MIB, "{rows} rows W{width}: the even split {split} is under the model");
+            assert!(
+                split < 32 * MIB,
+                "{rows} rows W{width}: the even split {split} is under the model"
+            );
             // a floor's first FLOOR_CHARGED_MIN (8 MiB) is charged whatever the model; the rest of it is address space
-            assert_eq!(share(&program, 0, floored, width).breaker.bytes as u64, model.unwrap_or(split.max(gravity_driver::FLOOR_CHARGED_MIN)), "{rows} rows W{width}");
+            assert_eq!(
+                share(&program, 0, floored, width).breaker.bytes as u64,
+                model.unwrap_or(split.max(gravity_driver::FLOOR_CHARGED_MIN)),
+                "{rows} rows W{width}"
+            );
             REGIONS.trim();
-            let (reserved, got) = (footprint_regions(floored, &program, width), opened(&program, floored, width, &GroupMerge));
-            assert_eq!(reserved, got, "{rows} rows W{width}: the reservation is the opened limits");
+            let (reserved, got) = (
+                footprint_regions(floored, &program, width),
+                opened(&program, floored, width, &GroupMerge),
+            );
+            assert_eq!(
+                reserved, got,
+                "{rows} rows W{width}: the reservation is the opened limits"
+            );
         }
     }
     let bar = Grant::of(364 * MIB).with_floors(512 * MIB, 4096 * MIB);
     let program = p_group_chain_rows(4, 1000);
     for width in [1u16, 8] {
         let fp = gravity_driver::footprint(bar, &program, width);
-        assert!(fp <= gravity_driver::footprint(Grant::of(364 * MIB), &program, width), "W{width}: {fp} past the floorless grant's");
+        assert!(
+            fp <= gravity_driver::footprint(Grant::of(364 * MIB), &program, width),
+            "W{width}: {fp} past the floorless grant's"
+        );
     }
 }
 
@@ -126,7 +182,14 @@ fn the_resident_peak_covers_the_live_limits_at_w1_and_w4() {
         let res = std::rc::Rc::new(gravity_driver::Reservation::unadmitted(Grant::of(64 * MIB)));
         assert_eq!(res.resident_peak(), 0);
         let limits = opened_under(&program, res.clone(), width, &GroupMerge);
-        eprintln!("RESIDENT-PEAK W{width}: peak {} limits {limits}", res.resident_peak());
-        assert!(limits > 0 && res.resident_peak() >= limits, "W{width}: peak {} under the live limits {limits}", res.resident_peak());
+        eprintln!(
+            "RESIDENT-PEAK W{width}: peak {} limits {limits}",
+            res.resident_peak()
+        );
+        assert!(
+            limits > 0 && res.resident_peak() >= limits,
+            "W{width}: peak {} under the live limits {limits}",
+            res.resident_peak()
+        );
     }
 }

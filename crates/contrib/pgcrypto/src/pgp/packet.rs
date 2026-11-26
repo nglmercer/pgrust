@@ -109,7 +109,11 @@ impl Body {
                 return start + left.min(len);
             }
             if left == len {
-                return rest.iter().find(|c| c.1 > 0).unwrap_or(&rest[rest.len() - 1]).0;
+                return rest
+                    .iter()
+                    .find(|c| c.1 > 0)
+                    .unwrap_or(&rest[rest.len() - 1])
+                    .0;
             }
             left -= len;
         }
@@ -136,7 +140,11 @@ pub struct PktHdr {
 
 impl<'a> PktReader<'a> {
     pub fn new(data: &'a [u8]) -> PktReader<'a> {
-        PktReader { data, pos: 0, allow_ctx: false }
+        PktReader {
+            data,
+            pos: 0,
+            allow_ctx: false,
+        }
     }
 
     #[allow(dead_code)] // C-parity: PktReader surface kept complete
@@ -164,7 +172,11 @@ impl<'a> PktReader<'a> {
         if p & 0x40 != 0 {
             let tag = (p & 0x3f) as i32;
             let (len, partial) = self.parse_new_len()?;
-            Ok(Some(PktHdr { tag, len: Some(len), partial }))
+            Ok(Some(PktHdr {
+                tag,
+                len: Some(len),
+                partial,
+            }))
         } else {
             let lentype = p & 3;
             let tag = ((p >> 2) & 0x0f) as i32;
@@ -246,7 +258,8 @@ impl<'a> PktReader<'a> {
         loop {
             let avail = len.min(self.data.len() - self.pos);
             body.chunks.push((self.pos, avail));
-            body.data.extend_from_slice(&self.data[self.pos..self.pos + avail]);
+            body.data
+                .extend_from_slice(&self.data[self.pos..self.pos + avail]);
             self.pos += avail;
             if avail < len {
                 body.truncated = true;

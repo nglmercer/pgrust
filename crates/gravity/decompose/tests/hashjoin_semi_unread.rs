@@ -21,7 +21,8 @@ const TH20_KEPT: &str = "project (1=outer.1, 2=outer.2, 3=outer.3, 4=inner.1)";
 const PJ_NULL: &str = "project (1=outer.1, 2=c23:null, 3=c23:null)";
 const PJ_KEPT: &str = "project (1=outer.1, 2=inner.1, 3=inner.2)";
 /// The first Append member's HashAggregate fields (partition_join-029 has one per member, in member order).
-const PJ_AGG: &str = ":aggstrategy 2 :aggsplit 0 :numCols 1 :grpColIdx ( 1) :grpOperators ( 96) :grpCollations ( 0)";
+const PJ_AGG: &str =
+    ":aggstrategy 2 :aggsplit 0 :numCols 1 :grpColIdx ( 1) :grpOperators ( 96) :grpCollations ( 0)";
 /// A plpgsql user function's oid (outside the builtin catalog).
 const USER_FN: u32 = 26167;
 
@@ -62,14 +63,20 @@ impl Facts for Server<'_> {
     fn att_generated(&self, relid: u32, attno: i16) -> u8 {
         self.fx.att_generated(relid, attno)
     }
-    fn key(&self, req: gravity_decompose::catalog::KeyReq) -> Option<gravity_decompose::catalog::KeyOrder> {
+    fn key(
+        &self,
+        req: gravity_decompose::catalog::KeyReq,
+    ) -> Option<gravity_decompose::catalog::KeyOrder> {
         self.fx.key(req)
     }
     fn op_image_eq(&self, opno: u32) -> Option<(u32, u32)> {
         self.fx.op_image_eq(opno)
     }
     fn rel_ext(&self, relid: u32) -> RelExt {
-        RelExt { known: self.fx.rel(relid).is_some(), ..self.fx.rel_ext(relid) }
+        RelExt {
+            known: self.fx.rel(relid).is_some(),
+            ..self.fx.rel_ext(relid)
+        }
     }
     fn instead_of(&self, relid: u32) -> gravity_decompose::InsteadOf {
         self.fx.instead_of(relid)
@@ -85,7 +92,12 @@ impl Facts for Server<'_> {
     }
     fn func(&self, funcid: u32) -> Option<FuncProps> {
         match funcid {
-            USER_FN => Some(FuncProps { volatility: self.user, strict: true, leakproof: false, parallel: Parallel::Unsafe }),
+            USER_FN => Some(FuncProps {
+                volatility: self.user,
+                strict: true,
+                leakproof: false,
+                parallel: Parallel::Unsafe,
+            }),
             f => self.fx.func(f),
         }
     }
@@ -109,7 +121,10 @@ fn graph_as(text: &str, user: Option<Volatility>) -> String {
 fn decomposed(text: &str, user: Option<Volatility>) -> Result<String, &'static str> {
     let ctx = MemoryContext::new("semi_unread");
     let fx = corpus::load(ctx.mcx(), text).unwrap();
-    let server = user.map(|user| Server { fx: &fx.facts, user });
+    let server = user.map(|user| Server {
+        fx: &fx.facts,
+        user,
+    });
     let facts: &dyn Facts = match &server {
         Some(s) => s,
         None => &fx.facts,
@@ -178,7 +193,10 @@ fn th20_upper_entry() -> String {
 #[test]
 fn the_captures_null_the_unread_semi_columns() {
     let th20 = graph(&read(TH20));
-    assert!(th20.contains(TH20_NULL) && !th20.contains(TH20_KEPT), "{th20}");
+    assert!(
+        th20.contains(TH20_NULL) && !th20.contains(TH20_KEPT),
+        "{th20}"
+    );
     // three members: each semi's projection and each HashAggregate's bare passengers over it
     let pj = graph(&read(PJ));
     assert_eq!(pj.matches(PJ_NULL).count(), 6, "{pj}");
@@ -189,10 +207,16 @@ fn the_captures_null_the_unread_semi_columns() {
 #[test]
 fn under_the_fixture_facts_every_column_stays() {
     let th20 = graph_as(&read(TH20), None);
-    assert!(th20.contains(TH20_KEPT) && !th20.contains(TH20_NULL), "{th20}");
+    assert!(
+        th20.contains(TH20_KEPT) && !th20.contains(TH20_NULL),
+        "{th20}"
+    );
     let pj = graph_as(&read(PJ), None);
     // D3375: the HashAggregates' unread passengers ride as NULLs whatever the lazy reading (`a_lazy_build_anywhere..`)
-    assert!(pj.matches(PJ_KEPT).count() == 3 && pj.matches(PJ_NULL).count() == 3, "{pj}");
+    assert!(
+        pj.matches(PJ_KEPT).count() == 3 && pj.matches(PJ_NULL).count() == 3,
+        "{pj}"
+    );
 }
 
 #[test]
@@ -201,14 +225,36 @@ fn a_read_above_keeps_the_inner_column() {
     let reads_it = var(-1, 4, (8, 1), 306); // node 2 reading the Hash's column 4 (the semi's p_partkey)
     let cases = [
         // D3375: an expression over it (a bare entry handed on to no reader is dead too: `a_bare_hand_on_no_one_reads_is_dead`)
-        ("the upper join's target list", edit(&t, &th20_upper_entry(), &format!("{} :resno 1", relabel(&reads_it)))),
-        ("the upper join's join filter", edit(&t, &var(-1, 3, (4, 3), 202), &var(-1, 4, (8, 1), 202))),
+        (
+            "the upper join's target list",
+            edit(
+                &t,
+                &th20_upper_entry(),
+                &format!("{} :resno 1", relabel(&reads_it)),
+            ),
+        ),
+        (
+            "the upper join's join filter",
+            edit(&t, &var(-1, 3, (4, 3), 202), &var(-1, 4, (8, 1), 202)),
+        ),
         // a node kind expr::kids does not list hides the read: the unread proof fails closed (FIX-2; the F5 walk does too)
-        ("a kind the walker does not know", edit(&t, &th20_upper_entry(), &format!("{{RETURNINGEXPR :retlevelsup 0 :retold true :retexpr {reads_it}}} :resno 1"))),
+        (
+            "a kind the walker does not know",
+            edit(
+                &t,
+                &th20_upper_entry(),
+                &format!(
+                    "{{RETURNINGEXPR :retlevelsup 0 :retold true :retexpr {reads_it}}} :resno 1"
+                ),
+            ),
+        ),
     ];
     for (why, text) in cases {
         let g = graph(&text);
-        assert!(g.contains(TH20_KEPT) && !g.contains(TH20_NULL), "{why}: {g}");
+        assert!(
+            g.contains(TH20_KEPT) && !g.contains(TH20_NULL),
+            "{why}: {g}"
+        );
     }
 }
 
@@ -232,16 +278,44 @@ fn the_semi_itself_decides_too() {
         var(-1, 1, (8, 1), 149)
     );
     let cases = [
-        ("its own qual reads it", edit(&t, &format!("{}{tail}<>", th20_semi_entry()), &format!("{}{tail}{qual}", th20_semi_entry()))),
+        (
+            "its own qual reads it",
+            edit(
+                &t,
+                &format!("{}{tail}<>", th20_semi_entry()),
+                &format!("{}{tail}{qual}", th20_semi_entry()),
+            ),
+        ),
         // setrefs keeps the syntactic attno: a system column's (ctid -1) or a whole row's (0) rowmark junk (FIX-1)
-        ("a system column", edit(&t, &th20_semi_entry(), &format!("{} :resno 4", var(-1, 1, (8, -1), 149)))),
-        ("a whole row", edit(&t, &th20_semi_entry(), &format!("{} :resno 4", var(-1, 1, (8, 0), 149)))),
+        (
+            "a system column",
+            edit(
+                &t,
+                &th20_semi_entry(),
+                &format!("{} :resno 4", var(-1, 1, (8, -1), 149)),
+            ),
+        ),
+        (
+            "a whole row",
+            edit(
+                &t,
+                &th20_semi_entry(),
+                &format!("{} :resno 4", var(-1, 1, (8, 0), 149)),
+            ),
+        ),
     ];
     for (why, text) in cases {
         let g = graph(&text);
-        assert!(g.contains(TH20_KEPT) && !g.contains(TH20_NULL), "{why}: {g}");
+        assert!(
+            g.contains(TH20_KEPT) && !g.contains(TH20_NULL),
+            "{why}: {g}"
+        );
     }
-    let g = graph(&edit(&t, &th20_semi_entry(), &format!("{} :resno 4", relabel(&var(-1, 1, (8, 1), 149)))));
+    let g = graph(&edit(
+        &t,
+        &th20_semi_entry(),
+        &format!("{} :resno 4", relabel(&var(-1, 1, (8, 1), 149))),
+    ));
     assert!(!g.contains("4=c23:null"), "an expression entry: {g}");
 }
 
@@ -250,9 +324,14 @@ fn a_parent_outside_the_rule_keeps_the_inner_columns() {
     let t = read(PJ);
     let (at, end) = {
         let at = t.find(PJ_AGG).unwrap();
-        (at, at + t[at..].find(" :chain <>").unwrap() + " :chain <>".len())
+        (
+            at,
+            at + t[at..].find(" :chain <>").unwrap() + " :chain <>".len(),
+        )
     };
-    let agg_as = |tag: &str, fields: &str| format!("{}{fields}{}", t[..at].replacen("{AGG ", tag, 1), &t[end..]);
+    let agg_as = |tag: &str, fields: &str| {
+        format!("{}{fields}{}", t[..at].replacen("{AGG ", tag, 1), &t[end..])
+    };
     let cases = [
         ("the HashAggregate groups by one", edit_first(&t, PJ_AGG, ":aggstrategy 2 :aggsplit 0 :numCols 2 :grpColIdx ( 1 2) :grpOperators ( 96 96) :grpCollations ( 0 0)")),
         ("the HashAggregate emits one in an expression", edit(&t, &format!("{{TARGETENTRY :expr {} :resno 2", var(-2, 2, (12, 1), -1)), &format!("{{TARGETENTRY :expr {} :resno 2", relabel(&var(-2, 2, (12, 1), -1))))),
@@ -292,39 +371,108 @@ fn a_parent_outside_the_rule_keeps_the_inner_columns() {
 fn a_lazy_build_anywhere_keeps_every_inner_column() {
     let pj = read(PJ);
     let tail = ") :scan.plan.lefttree <> :scan.plan.righttree <> :scan.plan.initPlan <> :scan.plan.extParam (b) :scan.plan.allParam (b) :scan.scanrelid 12 :cb_scan_cols (b 1 2 3)}";
-    let pj_and = |term: &str| edit(&pj, &format!(":location -1}}{tail}"), &format!(":location -1}} {term}{tail}"));
+    let pj_and = |term: &str| {
+        edit(
+            &pj,
+            &format!(":location -1}}{tail}"),
+            &format!(":location -1}} {term}{tail}"),
+        )
+    };
     let th20 = read(TH20);
-    let part_and = |term: &str| edit(&th20, ":location 182})", &format!(":location 182}} {term})"));
-    let empty = |rti: u32| format!(":scan.plan.qual <> :scan.plan.lefttree <> :scan.plan.righttree <> :scan.plan.initPlan <> :scan.plan.extParam (b) :scan.plan.allParam (b) :scan.scanrelid {rti} ");
-    let scan_where = |rti: u32, term: &str| edit(&th20, &empty(rti), &empty(rti).replacen(":scan.plan.qual <>", &format!(":scan.plan.qual ({term})"), 1));
+    let part_and = |term: &str| {
+        edit(
+            &th20,
+            ":location 182})",
+            &format!(":location 182}} {term})"),
+        )
+    };
+    let empty = |rti: u32| {
+        format!(":scan.plan.qual <> :scan.plan.lefttree <> :scan.plan.righttree <> :scan.plan.initPlan <> :scan.plan.extParam (b) :scan.plan.allParam (b) :scan.scanrelid {rti} ")
+    };
+    let scan_where = |rti: u32, term: &str| {
+        edit(
+            &th20,
+            &empty(rti),
+            &empty(rti).replacen(
+                ":scan.plan.qual <>",
+                &format!(":scan.plan.qual ({term})"),
+                1,
+            ),
+        )
+    };
     let (imm, stb) = (Some(Volatility::Immutable), Some(Volatility::Stable));
     let pj_cases = [
-        ("random() on a semi's build side", pj_and(&over_minus_one(1598)), imm),
-        ("an IMMUTABLE user function on a semi's build side", pj_and(&user_call()), imm),
-        ("a STABLE user function on a semi's build side", pj_and(&user_call()), stb),
+        (
+            "random() on a semi's build side",
+            pj_and(&over_minus_one(1598)),
+            imm,
+        ),
+        (
+            "an IMMUTABLE user function on a semi's build side",
+            pj_and(&user_call()),
+            imm,
+        ),
+        (
+            "a STABLE user function on a semi's build side",
+            pj_and(&user_call()),
+            stb,
+        ),
     ];
     // D3375: each semi keeps its inner columns; the HashAggregate over it emits them to a Nested Loop that reads only its
     // key, so its passengers ride as NULLs (demand/readers.rs `rewrite`: an aggregate over a lazy build no longer crashes, D2147)
     for (why, text, user) in pj_cases {
         let g = graph_as(&text, user);
-        assert!(g.matches(PJ_KEPT).count() == 3 && g.matches(PJ_NULL).count() == 3, "{why}: {g}");
+        assert!(
+            g.matches(PJ_KEPT).count() == 3 && g.matches(PJ_NULL).count() == 3,
+            "{why}: {g}"
+        );
     }
     let th20_cases = [
-        ("an IMMUTABLE user function on the semi's build side", part_and(&user_call()), imm),
-        ("a STABLE user function on the semi's build side", part_and(&user_call()), stb),
-        ("random() on the semi's outer side (the join above's build)", scan_where(4, &over_minus_one(1598)), imm),
-        ("an IMMUTABLE user function on the semi's outer side", scan_where(4, &user_call()), imm),
-        ("a STABLE user function on another scan", scan_where(1, &user_call()), stb),
+        (
+            "an IMMUTABLE user function on the semi's build side",
+            part_and(&user_call()),
+            imm,
+        ),
+        (
+            "a STABLE user function on the semi's build side",
+            part_and(&user_call()),
+            stb,
+        ),
+        (
+            "random() on the semi's outer side (the join above's build)",
+            scan_where(4, &over_minus_one(1598)),
+            imm,
+        ),
+        (
+            "an IMMUTABLE user function on the semi's outer side",
+            scan_where(4, &user_call()),
+            imm,
+        ),
+        (
+            "a STABLE user function on another scan",
+            scan_where(1, &user_call()),
+            stb,
+        ),
     ];
     for (why, text, user) in th20_cases {
         let g = graph_as(&text, user);
-        assert!(g.contains(TH20_KEPT) && !g.contains(TH20_NULL), "{why}: {g}");
+        assert!(
+            g.contains(TH20_KEPT) && !g.contains(TH20_NULL),
+            "{why}: {g}"
+        );
     }
     // does not apply: an IMMUTABLE parallel-safe builtin calls no user code
     let g = graph(&pj_and(&over_minus_one(1610)));
-    assert_eq!(g.matches(PJ_NULL).count(), 6, "pi() on a semi's build side: {g}");
+    assert_eq!(
+        g.matches(PJ_NULL).count(),
+        6,
+        "pi() on a semi's build side: {g}"
+    );
     let g = graph(&part_and(&over_minus_one(1610)));
-    assert!(g.contains(TH20_NULL) && !g.contains(TH20_KEPT), "pi() on the semi's build side: {g}");
+    assert!(
+        g.contains(TH20_NULL) && !g.contains(TH20_KEPT),
+        "pi() on the semi's build side: {g}"
+    );
 }
 
 /// regress-090's plan tree (`SELECT p FROM ba WHERE p = 3 OR q = 5`: a Bitmap Heap Scan over a BitmapOr of two btree
@@ -359,15 +507,29 @@ fn bitmap() -> Bitmap {
     let or = node_at(&tree, tree.find("{BITMAPOR ").unwrap()).to_string();
     let l1 = or.find("{BITMAPINDEXSCAN ").unwrap();
     let leaf1 = node_at(&or, l1).to_string();
-    let leaf2 = node_at(&or, l1 + leaf1.len() + or[l1 + leaf1.len()..].find("{BITMAPINDEXSCAN ").unwrap()).to_string();
-    Bitmap { tree, or, leaf1, leaf2 }
+    let leaf2 = node_at(
+        &or,
+        l1 + leaf1.len() + or[l1 + leaf1.len()..].find("{BITMAPINDEXSCAN ").unwrap(),
+    )
+    .to_string();
+    Bitmap {
+        tree,
+        or,
+        leaf1,
+        leaf2,
+    }
 }
 
 impl Bitmap {
     /// A BitmapOr (`and`: a BitmapAnd) over `a` and `b`.
     fn of(&self, and: bool, a: &str, b: &str) -> String {
         let head = &self.or[..self.or.find(":bitmapplans (").unwrap() + ":bitmapplans (".len()];
-        let head = if and { head.replacen("{BITMAPOR ", "{BITMAPAND ", 1).replacen(" :isshared false", "", 1) } else { head.to_string() };
+        let head = if and {
+            head.replacen("{BITMAPOR ", "{BITMAPAND ", 1)
+                .replacen(" :isshared false", "", 1)
+        } else {
+            head.to_string()
+        };
         format!("{head}{a} {b})}}")
     }
     /// TH20 with the plan tree, its BitmapOr as `bitmap`, as one more subplans entry.
@@ -379,7 +541,11 @@ impl Bitmap {
 /// TH20 with `trees` as more subplans entries (`lazy_build` reads every plan tree of the statement; decompose maps only the
 /// ones the statement reads).
 fn th20_with(trees: &[&str]) -> String {
-    edit(&read(TH20), ":subplans <>", &format!(":subplans ({})", trees.join(" ")))
+    edit(
+        &read(TH20),
+        ":subplans <>",
+        &format!(":subplans ({})", trees.join(" ")),
+    )
 }
 
 /// union-043's plan tree (`select intersect select`: a SetOp over two Results).
@@ -395,8 +561,10 @@ const BO: &str = "plans/regress-090.plan";
 /// The key of leaf 1 (`p = 3`) and of leaf 2 (`q = 5`), each first in its leaf's indexqual.
 const KEY1: &str = "{CONST :consttype 23 :consttypmod -1 :constcollid 0 :constlen 4 :constbyval true :constisnull false :location 27 :constvalue 4 [ 3 0 0 0 0 0 0 0 ]}";
 const KEY2: &str = "{CONST :consttype 23 :consttypmod -1 :constcollid 0 :constlen 4 :constbyval true :constisnull false :location 36 :constvalue 4 [ 5 0 0 0 0 0 0 0 ]}";
-const EXTERN: &str = "{PARAM :paramkind 0 :paramid 1 :paramtype 23 :paramtypmod -1 :paramcollid 0 :location -1}";
-const EXEC: &str = "{PARAM :paramkind 1 :paramid 0 :paramtype 23 :paramtypmod -1 :paramcollid 0 :location -1}";
+const EXTERN: &str =
+    "{PARAM :paramkind 0 :paramid 1 :paramtype 23 :paramtypmod -1 :paramcollid 0 :location -1}";
+const EXEC: &str =
+    "{PARAM :paramkind 1 :paramid 0 :paramtype 23 :paramtypmod -1 :paramcollid 0 :location -1}";
 const NULL_KEY: &str = "{CONST :consttype 23 :consttypmod -1 :constcollid 0 :constlen 4 :constbyval true :constisnull true :location -1 :constvalue <>}";
 
 /// The former no-widen forms, each served now that its root fix landed: a BitmapOr whose subtree has a key other than a
@@ -407,44 +575,95 @@ fn a_former_no_widen_form_serves() {
     let bm = bitmap();
     let (l1, l2) = (bm.leaf1.as_str(), bm.leaf2.as_str());
     let key1 = |k: &str| edit_first(l1, KEY1, k);
-    let null_test = edit_first(l1, &l1[l1.find(":indexqual (").unwrap()..l1.find(" :indexqualorig").unwrap()], &format!(":indexqual ({{NULLTEST :arg {} :nulltesttype 0 :argisrow false :location -1}})", node_at(l1, l1.find("{VAR :varno -3 ").unwrap())));
+    let null_test = edit_first(
+        l1,
+        &l1[l1.find(":indexqual (").unwrap()..l1.find(" :indexqualorig").unwrap()],
+        &format!(
+            ":indexqual ({{NULLTEST :arg {} :nulltesttype 0 :argisrow false :location -1}})",
+            node_at(l1, l1.find("{VAR :varno -3 ").unwrap())
+        ),
+    );
     let served = [
         ("Const keys", bm.or.clone()),
-        ("a parameter key under a BitmapAnd alone", bm.of(true, &key1(EXTERN), l2)),
+        (
+            "a parameter key under a BitmapAnd alone",
+            bm.of(true, &key1(EXTERN), l2),
+        ),
         ("a null test leaf", bm.of(false, &null_test, l2)),
-        ("an EXTERN parameter key (a generic plan's $1)", bm.of(false, &key1(EXTERN), l2)),
-        ("an executor parameter key", bm.of(false, l1, &edit_first(l2, KEY2, EXEC))),
+        (
+            "an EXTERN parameter key (a generic plan's $1)",
+            bm.of(false, &key1(EXTERN), l2),
+        ),
+        (
+            "an executor parameter key",
+            bm.of(false, l1, &edit_first(l2, KEY2, EXEC)),
+        ),
         ("a NULL Const key", bm.of(false, &key1(NULL_KEY), l2)),
-        ("the key under a BitmapAnd under the BitmapOr", bm.of(false, &bm.of(true, &key1(EXTERN), l2), l2)),
-        ("the BitmapOr under a BitmapAnd", bm.of(true, &bm.of(false, &key1(EXTERN), l2), l2)),
+        (
+            "the key under a BitmapAnd under the BitmapOr",
+            bm.of(false, &bm.of(true, &key1(EXTERN), l2), l2),
+        ),
+        (
+            "the BitmapOr under a BitmapAnd",
+            bm.of(true, &bm.of(false, &key1(EXTERN), l2), l2),
+        ),
     ];
     for (why, bitmap) in served {
         let g = graph(&bm.th20(&bitmap));
-        assert!(g.contains(TH20_NULL) && !g.contains(TH20_KEPT), "{why}: {g}");
+        assert!(
+            g.contains(TH20_NULL) && !g.contains(TH20_KEPT),
+            "{why}: {g}"
+        );
     }
     let g = graph_as(&bm.th20(&bm.of(false, &key1(EXTERN), l2)), None);
-    assert!(g.contains(TH20_KEPT) && !g.contains(TH20_NULL), "the rule does not apply: {g}");
+    assert!(
+        g.contains(TH20_KEPT) && !g.contains(TH20_NULL),
+        "the rule does not apply: {g}"
+    );
     let setop = setop_tree();
     let merge = node_of("plans/regress-full/aggregates-034.plan", "{MERGEJOIN ");
-    let bitmap_run = bm.tree.replacen(&bm.or, &bm.of(false, &key1(EXTERN), l2), 1);
+    let bitmap_run = bm
+        .tree
+        .replacen(&bm.or, &bm.of(false, &key1(EXTERN), l2), 1);
     let serves = |why: &str, trees: &[&str]| {
         let g = graph(&th20_with(trees));
-        assert!(g.contains(TH20_NULL) && !g.contains(TH20_KEPT), "{why}: {g}");
+        assert!(
+            g.contains(TH20_NULL) && !g.contains(TH20_KEPT),
+            "{why}: {g}"
+        );
     };
     serves("a SetOp", &[&setop]);
-    serves("a SetOp beside a BitmapOr over a run-time key", &[&setop, &bitmap_run]);
+    serves(
+        "a SetOp beside a BitmapOr over a run-time key",
+        &[&setop, &bitmap_run],
+    );
     let g = graph_as(&th20_with(&[&setop]), None);
-    assert!(g.contains(TH20_KEPT) && !g.contains(TH20_NULL), "a SetOp where the rule does not apply: {g}");
+    assert!(
+        g.contains(TH20_KEPT) && !g.contains(TH20_NULL),
+        "a SetOp where the rule does not apply: {g}"
+    );
     let cte_scan = node_of("plans/regress-full/conversion-005.plan", "{CTESCAN ");
     let cte_init = node_of("plans/regress-full/rowtypes-037.plan", ":planTree {RESULT ");
-    assert!(cte_init.contains(":subLinkType 7") && !cte_init.contains("{CTESCAN "), "a Result whose InitPlan is a CTE no scan reads");
+    assert!(
+        cte_init.contains(":subLinkType 7") && !cte_init.contains("{CTESCAN "),
+        "a Result whose InitPlan is a CTE no scan reads"
+    );
     serves("a CteScan", &[&cte_scan]);
-    serves("a CTE InitPlan alone (an unread or data-modifying CTE)", &[&cte_init]);
-    serves("a CteScan beside a merge join and a SetOp", &[&merge, &setop, &cte_scan]);
+    serves(
+        "a CTE InitPlan alone (an unread or data-modifying CTE)",
+        &[&cte_init],
+    );
+    serves(
+        "a CteScan beside a merge join and a SetOp",
+        &[&merge, &setop, &cte_scan],
+    );
     serves("a merge join", &[&merge]);
     serves("a merge join beside a SetOp", &[&merge, &setop]);
     let g = graph_as(&th20_with(&[&merge, &cte_scan, &cte_init]), None);
-    assert!(g.contains(TH20_KEPT) && !g.contains(TH20_NULL), "a CTE or a merge join where the rule does not apply: {g}");
+    assert!(
+        g.contains(TH20_KEPT) && !g.contains(TH20_NULL),
+        "a CTE or a merge join where the rule does not apply: {g}"
+    );
 }
 
 /// The first node of fixture `path` whose text opens with `open` (from its `{`), balanced.
@@ -460,11 +679,16 @@ fn node_of(path: &str, open: &str) -> String {
 #[test]
 #[ignore = "timing probe: SEMI_UNREAD_SCALE=<plan> cargo test --test semi_unread -- --ignored --nocapture"]
 fn decompose_time_of_a_wide_partitionwise_plan() {
-    let Some(path) = std::env::var_os("SEMI_UNREAD_SCALE") else { return };
+    let Some(path) = std::env::var_os("SEMI_UNREAD_SCALE") else {
+        return;
+    };
     let text = fs::read_to_string(path).unwrap();
     let ctx = MemoryContext::new("semi_unread_scale");
     let fx = corpus::load(ctx.mcx(), &text).unwrap();
-    let facts = Server { fx: &fx.facts, user: Volatility::Immutable };
+    let facts = Server {
+        fx: &fx.facts,
+        user: Volatility::Immutable,
+    };
     let (mut ms, mut what) = (Vec::new(), String::new());
     for _ in 0..5 {
         let arena = Arena::new(1 << 28);
@@ -481,12 +705,19 @@ fn decompose_time_of_a_wide_partitionwise_plan() {
         };
     }
     ms.sort_by(f64::total_cmp);
-    println!("semi_unread scale: {what}; decompose ms min {:.2} median {:.2}", ms[0], ms[2]);
+    println!(
+        "semi_unread scale: {what}; decompose ms min {:.2} median {:.2}",
+        ms[0], ms[2]
+    );
 }
 
 /// D793-b: the checkout under test, read at run time (cargo sets CARGO_MANIFEST_DIR for every test process), never
 /// env!()'s path baked in at compile time: a test binary reused from another checkout would read that checkout's files.
 fn manifest_dir() -> &'static std::path::Path {
     static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| std::env::var_os("CARGO_MANIFEST_DIR").map(Into::into).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)"))
+    DIR.get_or_init(|| {
+        std::env::var_os("CARGO_MANIFEST_DIR")
+            .map(Into::into)
+            .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+    })
 }

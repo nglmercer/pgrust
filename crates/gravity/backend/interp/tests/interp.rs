@@ -45,7 +45,9 @@ fn sum_positive_loop() {
 "#,
     );
     let data: Vec<i32> = vec![5, -3, 7, 0, -100, 11];
-    let r = Interp::new(&p).run(Func(0), &[data.as_ptr() as u64, data.len() as u64]).unwrap();
+    let r = Interp::new(&p)
+        .run(Func(0), &[data.as_ptr() as u64, data.len() as u64])
+        .unwrap();
     assert_eq!(r, vec![23]);
 }
 
@@ -91,7 +93,10 @@ fn host_calls_and_stack_slots() {
       (return r))))
 "#,
     );
-    assert_eq!(Interp::new(&p).run(Func(0), &[-7i64 as u64, 4]).unwrap(), vec![7]);
+    assert_eq!(
+        Interp::new(&p).run(Func(0), &[-7i64 as u64, 4]).unwrap(),
+        vec![7]
+    );
 }
 
 /// D3229: a stack slot sits at the same address call after call along the same call path, as compiled code's does (the
@@ -130,7 +135,8 @@ fn stack_slots_keep_their_address_call_after_call() {
     // between calls the heap is taken in the sizes a frame's bytes had (a frame's own allocation came back at the same
     // address only while the allocator handed the freed block out again: the run-to-run variation of D3229)
     let mut hold: Vec<Vec<u8>> = Vec::new();
-    let churn = |hold: &mut Vec<Vec<u8>>| (16..=96).step_by(8).for_each(|n| hold.push(vec![1u8; n]));
+    let churn =
+        |hold: &mut Vec<Vec<u8>>| (16..=96).step_by(8).for_each(|n| hold.push(vec![1u8; n]));
     let i = Interp::new(&p);
     let leaf = i.run(Func(0), &[7]).unwrap();
     for k in 0..3 {
@@ -142,10 +148,18 @@ fn stack_slots_keep_their_address_call_after_call() {
     assert_eq!((nested[0] % 16, nested[1] % 8), (0, 0));
     for k in 0..3 {
         churn(&mut hold);
-        assert_eq!(Interp::new(&p).run(Func(1), &[10 + k]).unwrap(), nested, "the nested call path moved");
+        assert_eq!(
+            Interp::new(&p).run(Func(1), &[10 + k]).unwrap(),
+            nested,
+            "the nested call path moved"
+        );
     }
     for k in 0..3 {
-        assert_eq!(i.run(Func(2), &[20 + k]).unwrap(), vec![0], "a call's slots start zeroed");
+        assert_eq!(
+            i.run(Func(2), &[20 + k]).unwrap(),
+            vec![0],
+            "a call's slots start zeroed"
+        );
     }
 }
 
@@ -164,9 +178,15 @@ fn overflow_flags_and_widths() {
     );
     let i = Interp::new(&p);
     let max = i32::MAX as i64 as u64;
-    assert_eq!(i.run(Func(0), &[max, 1]).unwrap(), vec![i32::MIN as i64 as u64, 1, 0]);
+    assert_eq!(
+        i.run(Func(0), &[max, 1]).unwrap(),
+        vec![i32::MIN as i64 as u64, 1, 0]
+    );
     assert_eq!(i.run(Func(0), &[3, 4]).unwrap(), vec![7, 0, 0]);
-    assert_eq!(i.run(Func(0), &[65536, 65536]).unwrap(), vec![0x20000, 0, 1]);
+    assert_eq!(
+        i.run(Func(0), &[65536, 65536]).unwrap(),
+        vec![0x20000, 0, 1]
+    );
 }
 
 #[test]
@@ -191,8 +211,14 @@ fn switch_and_traps() {
     let i = Interp::new(&p);
     assert_eq!(i.run(Func(0), &[1, 0]).unwrap(), vec![100]);
     assert_eq!(i.run(Func(0), &[2, 8]).unwrap(), vec![125]);
-    assert!(matches!(i.run(Func(0), &[2, 0]), Err(Trap::DivideByZero { .. })));
-    assert!(matches!(i.run(Func(0), &[9, 0]), Err(Trap::Unreachable { .. })));
+    assert!(matches!(
+        i.run(Func(0), &[2, 0]),
+        Err(Trap::DivideByZero { .. })
+    ));
+    assert!(matches!(
+        i.run(Func(0), &[9, 0]),
+        Err(Trap::Unreachable { .. })
+    ));
 }
 
 #[test]
@@ -209,7 +235,9 @@ fn floats() {
       (return r nan t))))
 "#,
     );
-    let r = Interp::new(&p).run(Func(0), &[9.0f64.to_bits(), 7.0f64.to_bits()]).unwrap();
+    let r = Interp::new(&p)
+        .run(Func(0), &[9.0f64.to_bits(), 7.0f64.to_bits()])
+        .unwrap();
     assert_eq!(f64::from_bits(r[0]), 4.0);
     assert_eq!(r[1], 0);
     assert_eq!(r[2], 4);

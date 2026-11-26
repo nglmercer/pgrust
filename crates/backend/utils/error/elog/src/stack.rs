@@ -77,8 +77,14 @@ fn push_context_callback(callback: ContextCallback, emit: bool, walk: bool) -> u
         n.set(id + 1);
         id
     });
-    EMIT_CONTEXT_CALLBACKS
-        .with(|s| s.borrow_mut().push(EmitContextCallback { id, callback, emit, walk }));
+    EMIT_CONTEXT_CALLBACKS.with(|s| {
+        s.borrow_mut().push(EmitContextCallback {
+            id,
+            callback,
+            emit,
+            walk,
+        })
+    });
     id
 }
 
@@ -95,16 +101,29 @@ pub fn push_context_frame(callback: Box<dyn FnMut(&mut PgError)>, emit: bool) ->
 /// `callback` must stay alive, and must not move, until `pop_emit_context_callback` has run for the returned id. Hold
 /// the id in a guard declared after the closure in the same scope (it drops first, unwinding included) and never leak it.
 #[inline]
-pub unsafe fn push_context_frame_borrowed(callback: &mut (dyn FnMut(&mut PgError) + '_), emit: bool) -> u64 {
+pub unsafe fn push_context_frame_borrowed(
+    callback: &mut (dyn FnMut(&mut PgError) + '_),
+    emit: bool,
+) -> u64 {
     let raw: core::ptr::NonNull<dyn FnMut(&mut PgError) + '_> = core::ptr::NonNull::from(callback);
     // SAFETY: only the lifetime is erased; the contract above keeps the closure alive while the entry exists.
-    let callback: core::ptr::NonNull<dyn FnMut(&mut PgError) + 'static> = unsafe { core::mem::transmute(raw) };
+    let callback: core::ptr::NonNull<dyn FnMut(&mut PgError) + 'static> =
+        unsafe { core::mem::transmute(raw) };
     let id = EMIT_CONTEXT_NEXT_ID.with(|n| {
         let id = n.get();
         n.set(id + 1);
         id
     });
-    if !BORROWED_FRAMES.with(|b| b.push(id, BorrowedFrame { callback, emit, walk: true })) {
+    if !BORROWED_FRAMES.with(|b| {
+        b.push(
+            id,
+            BorrowedFrame {
+                callback,
+                emit,
+                walk: true,
+            },
+        )
+    }) {
         push_borrowed_spill(id, callback, emit);
     }
     id
@@ -113,7 +132,14 @@ pub unsafe fn push_context_frame_borrowed(callback: &mut (dyn FnMut(&mut PgError
 #[inline(never)]
 fn push_borrowed_spill(id: u64, callback: core::ptr::NonNull<dyn FnMut(&mut PgError)>, emit: bool) {
     let callback = ContextCallback::Borrowed(callback.as_ptr());
-    EMIT_CONTEXT_CALLBACKS.with(|s| s.borrow_mut().push(EmitContextCallback { id, callback, emit, walk: true }));
+    EMIT_CONTEXT_CALLBACKS.with(|s| {
+        s.borrow_mut().push(EmitContextCallback {
+            id,
+            callback,
+            emit,
+            walk: true,
+        })
+    });
 }
 
 const BORROWED_SLOTS: usize = 32;
@@ -256,7 +282,9 @@ fn pop_emit_context_callback_slow(id: u64) {
         if st.last().is_some_and(|c| c.id == id) {
             st.pop()
         } else {
-            st.iter().rposition(|c| c.id == id).map(|pos| st.remove(pos))
+            st.iter()
+                .rposition(|c| c.id == id)
+                .map(|pos| st.remove(pos))
         }
     });
     drop(popped);
@@ -295,7 +323,10 @@ fn run_context_callbacks(emit: bool) {
 fn context_read_by_no_one() -> bool {
     !sink::emit_log_hook_installed()
         && STACK.with(|s| {
-            s.borrow().frames.last().is_some_and(|f| f.error.hide_context && !f.output_to_client)
+            s.borrow()
+                .frames
+                .last()
+                .is_some_and(|f| f.error.hide_context && !f.output_to_client)
         })
 }
 
@@ -348,7 +379,8 @@ pub fn clear_emit_context_callbacks() {
 }
 
 fn no_context_frames() -> bool {
-    BORROWED_FRAMES.with(|b| b.len.get() == 0) && EMIT_CONTEXT_CALLBACKS.with(|s| s.borrow().is_empty())
+    BORROWED_FRAMES.with(|b| b.len.get() == 0)
+        && EMIT_CONTEXT_CALLBACKS.with(|s| s.borrow().is_empty())
 }
 
 #[cold]
@@ -422,10 +454,9 @@ pub fn errstart(elevel: ErrorLevel, domain: Option<&str>) -> bool {
         let mut st = s.borrow_mut();
 
         st.recursion_depth += 1;
-        if st.recursion_depth > 1 && elevel >= ERROR
-            && st.recursion_depth > 2 {
-                // in_error_recursion_trouble(): abandon statement logging.
-                STATEMENT_SUPPRESSED.with(|c| c.set(true));
+        if st.recursion_depth > 1 && elevel >= ERROR && st.recursion_depth > 2 {
+            // in_error_recursion_trouble(): abandon statement logging.
+            STATEMENT_SUPPRESSED.with(|c| c.set(true));
         }
 
         if st.frames.len() >= ERRORDATA_STACK_SIZE {

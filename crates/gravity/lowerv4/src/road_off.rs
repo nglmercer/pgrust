@@ -155,7 +155,12 @@ pub const FALLBACK: &[strategy::Strategy] = &[strategy::MASK_WORD];
 pub const fn default_off() -> strategy::StrategySet {
     let (mut w, mut i) = ([0u128; 2], 0);
     while i < DEFAULT_OFF.len() + PLANNED.len() {
-        let b = if i < DEFAULT_OFF.len() { DEFAULT_OFF[i] } else { PLANNED[i - DEFAULT_OFF.len()] }.bit();
+        let b = if i < DEFAULT_OFF.len() {
+            DEFAULT_OFF[i]
+        } else {
+            PLANNED[i - DEFAULT_OFF.len()]
+        }
+        .bit();
         w[b / 128] |= 1u128 << (b % 128);
         i += 1;
     }
@@ -176,11 +181,17 @@ pub(crate) fn apply() {
 /// statement's ERROR (22023) until the value is fixed.
 /// With no option table (the seam uninstalled: unit tests, tools) the forced-off set stands as `strategy::set_off` left it.
 pub(crate) fn read() {
-    let Some(v) = crate::inputs::road_off() else { return };
+    let Some(v) = crate::inputs::road_off() else {
+        return;
+    };
     match parse(v.as_deref().unwrap_or("")) {
         Ok((named, on)) => {
             let mut set = named;
-            DEFAULT_OFF.iter().chain(PLANNED).filter(|r| !on.has(**r)).for_each(|r| set.add(*r));
+            DEFAULT_OFF
+                .iter()
+                .chain(PLANNED)
+                .filter(|r| !on.has(**r))
+                .for_each(|r| set.add(*r));
             NAMED_OFF.with(|c| c.set(named));
             strategy::set_off(set)
         }
@@ -190,7 +201,10 @@ pub(crate) fn read() {
                 None => "unknown road",
             };
             let msg = format!("invalid value for parameter \"{ROAD_OFF_GUC}\": {what} \"{id}\""); // alloc: Cold
-            std::panic::panic_any(types_error::PgError::error(msg).with_sqlstate(types_error::error::ERRCODE_INVALID_PARAMETER_VALUE));
+            std::panic::panic_any(
+                types_error::PgError::error(msg)
+                    .with_sqlstate(types_error::error::ERRCODE_INVALID_PARAMETER_VALUE),
+            );
         }
     }
 }
@@ -230,7 +244,10 @@ mod tests {
     }
 
     fn guc(name: &str) -> types_error::PgResult<Option<String>> {
-        Ok(GUC.with(core::cell::Cell::get).filter(|_| name == ROAD_OFF_GUC).map(str::to_owned))
+        Ok(GUC
+            .with(core::cell::Cell::get)
+            .filter(|_| name == ROAD_OFF_GUC)
+            .map(str::to_owned))
     }
 
     /// The option seam, once per process (the tests share it; each thread's value is its own `GUC`).
@@ -245,18 +262,33 @@ mod tests {
     fn road_off_is_the_set_able_guc() {
         install();
         let ctx = gravity_driver::mem::root::context("test", true);
-        let p = crate::props::Props { need: mcx::PgVec::new_in(ctx.mcx()), kinds: crate::face::kinds::KindSet::EMPTY, props: crate::applies::PropSet::default(), max_rows: 0, pipelines: 1 };
+        let p = crate::props::Props {
+            need: mcx::PgVec::new_in(ctx.mcx()),
+            kinds: crate::face::kinds::KindSet::EMPTY,
+            props: crate::applies::PropSet::default(),
+            max_rows: 0,
+            pipelines: 1,
+        };
         let with = |v: Option<&'static str>| {
             GUC.with(|g| g.set(v));
             read();
             crate::applies::applicable(&p).has(strategy::FLOOR)
         };
         assert!(with(None), "floor applies with the option never set");
-        assert!(!with(Some("floor")), "SET gravity_road_off = floor takes floor off admission");
+        assert!(
+            !with(Some("floor")),
+            "SET gravity_road_off = floor takes floor off admission"
+        );
         assert!(with(Some("")), "RESET puts floor back");
-        let e = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| with(Some("floor, no_such_road")))).expect_err("an unknown id errors");
+        let e = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            with(Some("floor, no_such_road"))
+        }))
+        .expect_err("an unknown id errors");
         let e = e.downcast_ref::<types_error::PgError>().expect("a PgError");
-        assert_eq!(e.sqlstate(), types_error::error::ERRCODE_INVALID_PARAMETER_VALUE);
+        assert_eq!(
+            e.sqlstate(),
+            types_error::error::ERRCODE_INVALID_PARAMETER_VALUE
+        );
     }
 
     /// D4497: every road decompose reads (`gravity_decompose::ROADS`, through `Facts::road_on`) is a strategy, so
@@ -265,7 +297,8 @@ mod tests {
     #[test]
     fn decompose_roads_are_strategies() {
         for r in gravity_decompose::ROADS {
-            let s = strategy::Strategy::from_name(r).unwrap_or_else(|| panic!("decompose reads road {r}, which no strategy declares"));
+            let s = strategy::Strategy::from_name(r)
+                .unwrap_or_else(|| panic!("decompose reads road {r}, which no strategy declares"));
             assert!(DEFAULT_OFF.contains(&s), "decompose reads road {r} as default off (Facts::road_on), lowerv4 does not list it");
         }
     }
@@ -278,9 +311,13 @@ mod tests {
     #[test]
     fn decompose_default_on_roads_are_default_on() {
         for r in gravity_decompose::ROADS_DEFAULT_ON {
-            let s = strategy::Strategy::from_name(r).unwrap_or_else(|| panic!("decompose reads road {r}, which no strategy declares"));
+            let s = strategy::Strategy::from_name(r)
+                .unwrap_or_else(|| panic!("decompose reads road {r}, which no strategy declares"));
             assert!(!DEFAULT_OFF.contains(&s), "decompose reads road {r} as on by default (Facts::default_on_road_on), lowerv4 lists it default off");
-            assert!(!gravity_decompose::ROADS.contains(r), "road {r} on both decompose lists");
+            assert!(
+                !gravity_decompose::ROADS.contains(r),
+                "road {r} on both decompose lists"
+            );
         }
     }
 
@@ -301,7 +338,13 @@ mod tests {
         let set = |v: Option<&'static str>| {
             GUC.with(|g| g.set(v));
             read();
-            (strategy::off().has(strategy::JOIN_ROWFILTER), NAMED_OFF.with(core::cell::Cell::get).has(strategy::JOIN_ROWFILTER), strategy::off().has(strategy::FLOOR))
+            (
+                strategy::off().has(strategy::JOIN_ROWFILTER),
+                NAMED_OFF
+                    .with(core::cell::Cell::get)
+                    .has(strategy::JOIN_ROWFILTER),
+                strategy::off().has(strategy::FLOOR),
+            )
         };
         assert!(
             DEFAULT_OFF
@@ -322,56 +365,127 @@ mod tests {
                 ],
             "the default-off roads (D4585, D3324 R3, D4497, D3227, D3227 (b), D4676, D4628, textkeys text.lean, D4620, textkeys text.set, D4567 (a), textkeys key.canon, D3336 A2 (iii), D4723, D3336 A1a, brfix, D4821 join.dedup, D4822 text.substr.ascii, D4794 text.set.bpchar; D4565 / D4567 / D3323 / D3168 flipped on)"
         );
-        assert!(!default_off().has(strategy::SCAN_MERGEFREE) && default_off().has(strategy::SCAN_MERGEFREE_BUILD) && default_off().has(strategy::KEY_CARRY) && !default_off().has(strategy::CASE_SELECT) && !default_off().has(strategy::JOIN_ROWFILTER));
         assert!(
-            [strategy::NEST_KEEP_INITPLAN, strategy::NEST_KEEP_SUBQUERY, strategy::NEST_KEEP_SEMI, strategy::NEST_KEEP_MATERIAL].iter().all(|r| !default_off().has(*r)),
+            !default_off().has(strategy::SCAN_MERGEFREE)
+                && default_off().has(strategy::SCAN_MERGEFREE_BUILD)
+                && default_off().has(strategy::KEY_CARRY)
+                && !default_off().has(strategy::CASE_SELECT)
+                && !default_off().has(strategy::JOIN_ROWFILTER)
+        );
+        assert!(
+            [
+                strategy::NEST_KEEP_INITPLAN,
+                strategy::NEST_KEEP_SUBQUERY,
+                strategy::NEST_KEEP_SEMI,
+                strategy::NEST_KEEP_MATERIAL
+            ]
+            .iter()
+            .all(|r| !default_off().has(*r)),
             "D4497 / D3227's nest.keep roads on by default (decompose ROADS_DEFAULT_ON)"
         );
         assert!(
             [strategy::NEST_KEY_EQ, strategy::TEXT_LEAN, strategy::TEXT_SET, strategy::GSETS_CASCADE].iter().all(|r| !default_off().has(*r)),
             "D3227 (b)'s nest.key.eq, textkeys' text.lean / text.set and D4620's agg.gsets.cascade on by default since their flip"
         );
-        assert!(!default_off().has(strategy::MERGE_WIDEEMIT) && !default_off().has(strategy::EMIT_PARMERGE), "D3336's roads on by default");
+        assert!(
+            !default_off().has(strategy::MERGE_WIDEEMIT)
+                && !default_off().has(strategy::EMIT_PARMERGE),
+            "D3336's roads on by default"
+        );
         let off = |v: Option<&'static str>| {
             GUC.with(|g| g.set(v));
             read();
-            (strategy::off().has(strategy::SCAN_MERGEFREE), strategy::off().has(strategy::SCAN_MERGEFREE_BUILD))
+            (
+                strategy::off().has(strategy::SCAN_MERGEFREE),
+                strategy::off().has(strategy::SCAN_MERGEFREE_BUILD),
+            )
         };
-        assert_eq!(off(None), (false, true), "by default: the narrowed road on, its hash-build half off");
-        assert_eq!(off(Some("+scan.mergefree")), (false, true), "+scan.mergefree on a road already on changes nothing");
-        assert_eq!(off(Some("+scan.mergefree.build")), (false, false), "+scan.mergefree.build: S1 as it landed");
-        assert_eq!(off(Some("scan.mergefree")), (true, true), "a plain name takes it off");
-        assert_eq!(off(Some("scan.mergefree.build")), (false, true), "a plain name keeps the build half off");
-        assert_eq!(off(Some("+join.rowfilter")), (false, true), "another road's +<id> leaves them at their defaults");
+        assert_eq!(
+            off(None),
+            (false, true),
+            "by default: the narrowed road on, its hash-build half off"
+        );
+        assert_eq!(
+            off(Some("+scan.mergefree")),
+            (false, true),
+            "+scan.mergefree on a road already on changes nothing"
+        );
+        assert_eq!(
+            off(Some("+scan.mergefree.build")),
+            (false, false),
+            "+scan.mergefree.build: S1 as it landed"
+        );
+        assert_eq!(
+            off(Some("scan.mergefree")),
+            (true, true),
+            "a plain name takes it off"
+        );
+        assert_eq!(
+            off(Some("scan.mergefree.build")),
+            (false, true),
+            "a plain name keeps the build half off"
+        );
+        assert_eq!(
+            off(Some("+join.rowfilter")),
+            (false, true),
+            "another road's +<id> leaves them at their defaults"
+        );
         let stat = |v: Option<&'static str>| {
             GUC.with(|g| g.set(v));
             read();
             strategy::off().has(strategy::STAT_REG)
         };
-        assert!(!default_off().has(strategy::STAT_REG) && !stat(None), "agg.stat_reg on by default (D4565 flip)");
-        assert!(!stat(Some("+agg.stat_reg")), "+agg.stat_reg on a road already on changes nothing");
-        assert!(stat(Some("agg.stat_reg")) && stat(Some("+agg.stat_reg, agg.stat_reg")), "a plain name takes it off");
+        assert!(
+            !default_off().has(strategy::STAT_REG) && !stat(None),
+            "agg.stat_reg on by default (D4565 flip)"
+        );
+        assert!(
+            !stat(Some("+agg.stat_reg")),
+            "+agg.stat_reg on a road already on changes nothing"
+        );
+        assert!(
+            stat(Some("agg.stat_reg")) && stat(Some("+agg.stat_reg, agg.stat_reg")),
+            "a plain name takes it off"
+        );
         let scale = |v: Option<&'static str>| {
             GUC.with(|g| g.set(v));
             read();
             strategy::off().has(strategy::NUM_SCALE)
         };
-        assert!(!default_off().has(strategy::NUM_SCALE) && !scale(None), "agg.num_scale on by default (D4567 flip)");
-        assert!(scale(Some("agg.num_scale")) && !scale(Some("agg.stat_reg")), "its plain name takes it off, another road's does not");
+        assert!(
+            !default_off().has(strategy::NUM_SCALE) && !scale(None),
+            "agg.num_scale on by default (D4567 flip)"
+        );
+        assert!(
+            scale(Some("agg.num_scale")) && !scale(Some("agg.stat_reg")),
+            "its plain name takes it off, another road's does not"
+        );
         let div = |v: Option<&'static str>| {
             GUC.with(|g| g.set(v));
             read();
             strategy::off().has(strategy::NUM_DIV)
         };
-        assert!(default_off().has(strategy::NUM_DIV) && div(None), "agg.num_div off by default (D4567 (a))");
-        assert!(!div(Some("+agg.num_div")) && div(Some("agg.num_div")) && div(Some("+agg.num_scale")), "on under +agg.num_div alone");
+        assert!(
+            default_off().has(strategy::NUM_DIV) && div(None),
+            "agg.num_div off by default (D4567 (a))"
+        );
+        assert!(
+            !div(Some("+agg.num_div")) && div(Some("agg.num_div")) && div(Some("+agg.num_scale")),
+            "on under +agg.num_div alone"
+        );
         let cte = |v: Option<&'static str>| {
             GUC.with(|g| g.set(v));
             read();
             strategy::off().has(strategy::NUM_CTE)
         };
-        assert!(default_off().has(strategy::NUM_CTE) && cte(None), "agg.num_cte off by default (D4723)");
-        assert!(!cte(Some("+agg.num_cte")) && cte(Some("+agg.num_div")), "on under +agg.num_cte alone");
+        assert!(
+            default_off().has(strategy::NUM_CTE) && cte(None),
+            "agg.num_cte off by default (D4723)"
+        );
+        assert!(
+            !cte(Some("+agg.num_cte")) && cte(Some("+agg.num_div")),
+            "on under +agg.num_cte alone"
+        );
         let carry = |v: Option<&'static str>| {
             GUC.with(|g| g.set(v));
             read();
@@ -379,122 +493,293 @@ mod tests {
         };
         assert!(carry(None), "key.carry off by default (D3324 R3)");
         assert!(!carry(Some("+key.carry")), "on under +key.carry");
-        assert!(carry(Some("key.carry")) && carry(Some("+scan.mergefree")), "a plain name or another road's +<id> keeps it off");
+        assert!(
+            carry(Some("key.carry")) && carry(Some("+scan.mergefree")),
+            "a plain name or another road's +<id> keeps it off"
+        );
         let d3336 = |v: Option<&'static str>| {
             GUC.with(|g| g.set(v));
             read();
-            (strategy::off().has(strategy::MERGE_WIDEEMIT), strategy::off().has(strategy::EMIT_PARMERGE))
+            (
+                strategy::off().has(strategy::MERGE_WIDEEMIT),
+                strategy::off().has(strategy::EMIT_PARMERGE),
+            )
         };
         assert_eq!(d3336(None), (false, false), "D3336's roads on by default");
-        assert_eq!(d3336(Some("+merge.wideemit,+emit.parmerge")), (false, false), "both on by name, as by default");
-        assert_eq!(d3336(Some("merge.wideemit")), (true, false), "each off by its own name");
-        assert_eq!(d3336(Some("merge.wideemit,emit.parmerge")), (true, true), "both named off");
+        assert_eq!(
+            d3336(Some("+merge.wideemit,+emit.parmerge")),
+            (false, false),
+            "both on by name, as by default"
+        );
+        assert_eq!(
+            d3336(Some("merge.wideemit")),
+            (true, false),
+            "each off by its own name"
+        );
+        assert_eq!(
+            d3336(Some("merge.wideemit,emit.parmerge")),
+            (true, true),
+            "both named off"
+        );
         let nest = |v: Option<&'static str>| {
             GUC.with(|g| g.set(v));
             read();
-            (strategy::off().has(strategy::APPEND_NEST), NAMED_OFF.with(core::cell::Cell::get).has(strategy::APPEND_NEST))
+            (
+                strategy::off().has(strategy::APPEND_NEST),
+                NAMED_OFF
+                    .with(core::cell::Cell::get)
+                    .has(strategy::APPEND_NEST),
+            )
         };
-        assert_eq!(nest(None), (false, false), "append.nest on by default (D4569)");
-        assert_eq!(nest(Some("+append.nest")), (false, false), "+append.nest on a road already on changes nothing");
-        assert_eq!(nest(Some("append.nest")), (true, true), "a plain name takes it off, named");
+        assert_eq!(
+            nest(None),
+            (false, false),
+            "append.nest on by default (D4569)"
+        );
+        assert_eq!(
+            nest(Some("+append.nest")),
+            (false, false),
+            "+append.nest on a road already on changes nothing"
+        );
+        assert_eq!(
+            nest(Some("append.nest")),
+            (true, true),
+            "a plain name takes it off, named"
+        );
         let arms = |v: Option<&'static str>| {
             GUC.with(|g| g.set(v));
             read();
-            (strategy::off().has(strategy::JOIN_RTFILTER_ARMS), strategy::off().has(strategy::JOIN_RTFILTER), strategy::off().has(strategy::APPEND_NEST))
+            (
+                strategy::off().has(strategy::JOIN_RTFILTER_ARMS),
+                strategy::off().has(strategy::JOIN_RTFILTER),
+                strategy::off().has(strategy::APPEND_NEST),
+            )
         };
-        assert_eq!(arms(None), (false, false, false), "join.rtfilter.arms on by default, beside join.rtfilter and append.nest");
-        assert_eq!(arms(Some("join.rtfilter.arms")), (true, false, false), "a plain name takes it off alone");
-        assert_eq!(arms(Some("append.nest, join.rtfilter.arms")), (true, false, true), "both D4569 roads named off");
+        assert_eq!(
+            arms(None),
+            (false, false, false),
+            "join.rtfilter.arms on by default, beside join.rtfilter and append.nest"
+        );
+        assert_eq!(
+            arms(Some("join.rtfilter.arms")),
+            (true, false, false),
+            "a plain name takes it off alone"
+        );
+        assert_eq!(
+            arms(Some("append.nest, join.rtfilter.arms")),
+            (true, false, true),
+            "both D4569 roads named off"
+        );
         let select = |v: Option<&'static str>| {
             GUC.with(|g| g.set(v));
             read();
             strategy::off().has(strategy::CASE_SELECT)
         };
-        assert!(!select(None) && !select(Some("+key.carry")), "case.select on by default and under another road's +<id> (D3233)");
-        assert!(!select(Some("+case.select")) && select(Some("case.select")), "+case.select changes nothing, a plain name takes it off");
+        assert!(
+            !select(None) && !select(Some("+key.carry")),
+            "case.select on by default and under another road's +<id> (D3233)"
+        );
+        assert!(
+            !select(Some("+case.select")) && select(Some("case.select")),
+            "+case.select changes nothing, a plain name takes it off"
+        );
         let wide = |v: Option<&'static str>| {
             GUC.with(|g| g.set(v));
             read();
-            (strategy::off().has(strategy::DRAIN_SPOOL_WIDE), strategy::off().has(strategy::APPEND_NEST))
+            (
+                strategy::off().has(strategy::DRAIN_SPOOL_WIDE),
+                strategy::off().has(strategy::APPEND_NEST),
+            )
         };
-        assert_eq!(wide(None), (false, false), "drain.spool.wide on by default, beside append.nest (D4569)");
-        assert_eq!(wide(Some("+drain.spool.wide")), (false, false), "+drain.spool.wide on a road already on changes nothing");
-        assert_eq!(wide(Some("drain.spool.wide")), (true, false), "a plain name takes it off alone");
+        assert_eq!(
+            wide(None),
+            (false, false),
+            "drain.spool.wide on by default, beside append.nest (D4569)"
+        );
+        assert_eq!(
+            wide(Some("+drain.spool.wide")),
+            (false, false),
+            "+drain.spool.wide on a road already on changes nothing"
+        );
+        assert_eq!(
+            wide(Some("drain.spool.wide")),
+            (true, false),
+            "a plain name takes it off alone"
+        );
         let rf = |v: Option<&'static str>| {
             GUC.with(|g| g.set(v));
             read();
-            (strategy::off().has(strategy::JOIN_ROWFILTER_SINGLE), strategy::off().has(strategy::JOIN_ROWFILTER_COST), strategy::off().has(strategy::JOIN_ROWFILTER))
+            (
+                strategy::off().has(strategy::JOIN_ROWFILTER_SINGLE),
+                strategy::off().has(strategy::JOIN_ROWFILTER_COST),
+                strategy::off().has(strategy::JOIN_ROWFILTER),
+            )
         };
-        assert_eq!(rf(None), (false, false, false), "D3323's roads on by default since their flip, join.rowfilter on");
-        assert_eq!(rf(Some("+join.rowfilter.single,+join.rowfilter.cost")), (false, false, false), "+<id> on a road already on changes nothing");
-        assert_eq!(rf(Some("join.rowfilter.cost")), (false, true, false), "each off alone under its plain name");
-        assert_eq!(rf(Some("join.rowfilter.single,join.rowfilter.cost")), (true, true, false), "both off");
-        assert_eq!(rf(Some("join.rowfilter")), (false, false, true), "join.rowfilter named off; D3323's roads stay on");
+        assert_eq!(
+            rf(None),
+            (false, false, false),
+            "D3323's roads on by default since their flip, join.rowfilter on"
+        );
+        assert_eq!(
+            rf(Some("+join.rowfilter.single,+join.rowfilter.cost")),
+            (false, false, false),
+            "+<id> on a road already on changes nothing"
+        );
+        assert_eq!(
+            rf(Some("join.rowfilter.cost")),
+            (false, true, false),
+            "each off alone under its plain name"
+        );
+        assert_eq!(
+            rf(Some("join.rowfilter.single,join.rowfilter.cost")),
+            (true, true, false),
+            "both off"
+        );
+        assert_eq!(
+            rf(Some("join.rowfilter")),
+            (false, false, true),
+            "join.rowfilter named off; D3323's roads stay on"
+        );
         let staged = |v: Option<&'static str>| {
             GUC.with(|g| g.set(v));
             read();
             strategy::off().has(strategy::JOIN_PROBE_STAGED)
         };
-        assert!(!default_off().has(strategy::JOIN_PROBE_STAGED) && !staged(None), "join.probe.staged on by default since its flip (D3168)");
-        assert!(!staged(Some("+join.probe.staged")) && !staged(Some("join.rowfilter.cost")), "+<id> on a road already on changes nothing, another road's name leaves it on");
-        assert!(staged(Some("join.probe.staged")) && staged(Some("+join.probe.staged, join.probe.staged")), "a plain name takes it off");
+        assert!(
+            !default_off().has(strategy::JOIN_PROBE_STAGED) && !staged(None),
+            "join.probe.staged on by default since its flip (D3168)"
+        );
+        assert!(
+            !staged(Some("+join.probe.staged")) && !staged(Some("join.rowfilter.cost")),
+            "+<id> on a road already on changes nothing, another road's name leaves it on"
+        );
+        assert!(
+            staged(Some("join.probe.staged"))
+                && staged(Some("+join.probe.staged, join.probe.staged")),
+            "a plain name takes it off"
+        );
         let key = |v: Option<&'static str>| {
             GUC.with(|g| g.set(v));
             read();
             strategy::off().has(strategy::NEST_KEY_EQ)
         };
         assert!(!key(None), "nest.key.eq on by default (D3227 (b) flip)");
-        assert!(!key(Some("+nest.key.eq")), "+<id> on a road already on changes nothing");
-        assert!(key(Some("nest.key.eq")), "nest.key.eq off under its plain name");
-        assert!(!key(Some("nest.keep.material")), "another nest road's plain name leaves it at its default");
+        assert!(
+            !key(Some("+nest.key.eq")),
+            "+<id> on a road already on changes nothing"
+        );
+        assert!(
+            key(Some("nest.key.eq")),
+            "nest.key.eq off under its plain name"
+        );
+        assert!(
+            !key(Some("nest.keep.material")),
+            "another nest road's plain name leaves it at its default"
+        );
         let chain = |v: Option<&'static str>| {
             GUC.with(|g| g.set(v));
             read();
             strategy::off().has(strategy::GROUP_HASHCHAIN)
         };
-        assert!(default_off().has(strategy::GROUP_HASHCHAIN) && chain(None), "group.hashchain off by default (D4676)");
-        assert!(!chain(Some("+group.hashchain")) && chain(Some("join.probe.staged")), "on under its +<id>, not another road's");
-        assert!(chain(Some("+group.hashchain, group.hashchain")), "a plain name keeps it off");
+        assert!(
+            default_off().has(strategy::GROUP_HASHCHAIN) && chain(None),
+            "group.hashchain off by default (D4676)"
+        );
+        assert!(
+            !chain(Some("+group.hashchain")) && chain(Some("join.probe.staged")),
+            "on under its +<id>, not another road's"
+        );
+        assert!(
+            chain(Some("+group.hashchain, group.hashchain")),
+            "a plain name keeps it off"
+        );
         let lean = |v: Option<&'static str>| {
             GUC.with(|g| g.set(v));
             read();
             strategy::off().has(strategy::TEXT_LEAN)
         };
-        assert!(!default_off().has(strategy::TEXT_LEAN) && !lean(None), "text.lean on by default (textkeys step 1 flip)");
-        assert!(!lean(Some("+text.lean")) && !lean(Some("text.set")) && lean(Some("text.lean")), "off under its plain name only");
+        assert!(
+            !default_off().has(strategy::TEXT_LEAN) && !lean(None),
+            "text.lean on by default (textkeys step 1 flip)"
+        );
+        assert!(
+            !lean(Some("+text.lean")) && !lean(Some("text.set")) && lean(Some("text.lean")),
+            "off under its plain name only"
+        );
         let tset = |v: Option<&'static str>| {
             GUC.with(|g| g.set(v));
             read();
             strategy::off().has(strategy::TEXT_SET)
         };
-        assert!(!default_off().has(strategy::TEXT_SET) && !tset(None), "text.set on by default (textkeys step 2 flip)");
-        assert!(!tset(Some("+text.set")) && !tset(Some("text.lean")) && tset(Some("text.set")), "off under its plain name only");
+        assert!(
+            !default_off().has(strategy::TEXT_SET) && !tset(None),
+            "text.set on by default (textkeys step 2 flip)"
+        );
+        assert!(
+            !tset(Some("+text.set")) && !tset(Some("text.lean")) && tset(Some("text.set")),
+            "off under its plain name only"
+        );
         let cascade = |v: Option<&'static str>| {
             GUC.with(|g| g.set(v));
             read();
             strategy::off().has(strategy::GSETS_CASCADE)
         };
-        assert!(!default_off().has(strategy::GSETS_CASCADE) && !cascade(None), "agg.gsets.cascade on by default (D4620 flip)");
-        assert!(!cascade(Some("+agg.gsets.cascade")) && !cascade(Some("agg.num_div")) && cascade(Some("agg.gsets.cascade")), "off under its plain name only");
+        assert!(
+            !default_off().has(strategy::GSETS_CASCADE) && !cascade(None),
+            "agg.gsets.cascade on by default (D4620 flip)"
+        );
+        assert!(
+            !cascade(Some("+agg.gsets.cascade"))
+                && !cascade(Some("agg.num_div"))
+                && cascade(Some("agg.gsets.cascade")),
+            "off under its plain name only"
+        );
         let canon = |v: Option<&'static str>| {
             GUC.with(|g| g.set(v));
             read();
             strategy::off().has(strategy::KEY_CANON)
         };
-        assert!(default_off().has(strategy::KEY_CANON) && canon(None), "key.canon off by default (textkeys step 3)");
-        assert!(!canon(Some("+key.canon")) && canon(Some("+text.set")) && canon(Some("key.canon")), "on under its +<id> only");
+        assert!(
+            default_off().has(strategy::KEY_CANON) && canon(None),
+            "key.canon off by default (textkeys step 3)"
+        );
+        assert!(
+            !canon(Some("+key.canon")) && canon(Some("+text.set")) && canon(Some("key.canon")),
+            "on under its +<id> only"
+        );
         let rows = |v: Option<&'static str>| {
             GUC.with(|g| g.set(v));
             read();
             strategy::off().has(strategy::MASK_ROWS)
         };
-        assert!(default_off().has(strategy::MASK_ROWS) && rows(None), "mask.rows off by default (brfix)");
-        assert!(!rows(Some("+mask.rows")) && rows(Some("+join.probe.staged")), "on under its +<id>, not another road's");
+        assert!(
+            default_off().has(strategy::MASK_ROWS) && rows(None),
+            "mask.rows off by default (brfix)"
+        );
+        assert!(
+            !rows(Some("+mask.rows")) && rows(Some("+join.probe.staged")),
+            "on under its +<id>, not another road's"
+        );
         assert_eq!(set(None), (false, false, false), "on by default");
-        assert_eq!(set(Some("+join.rowfilter")), (false, false, false), "on, as before");
-        assert_eq!(set(Some("floor, +join.rowfilter")), (false, false, true), "on beside a forced-off road");
-        assert_eq!(set(Some("join.rowfilter")), (true, true, false), "named off");
-        assert!(std::panic::catch_unwind(|| set(Some("+no_such_road"))).is_err(), "an unknown id errors");
+        assert_eq!(
+            set(Some("+join.rowfilter")),
+            (false, false, false),
+            "on, as before"
+        );
+        assert_eq!(
+            set(Some("floor, +join.rowfilter")),
+            (false, false, true),
+            "on beside a forced-off road"
+        );
+        assert_eq!(
+            set(Some("join.rowfilter")),
+            (true, true, false),
+            "named off"
+        );
+        assert!(
+            std::panic::catch_unwind(|| set(Some("+no_such_road"))).is_err(),
+            "an unknown id errors"
+        );
     }
 
     /// D4628: `spool.seal` is off by default, on under its own `+<id>` only, and a plain name keeps it off.
@@ -506,9 +791,18 @@ mod tests {
             read();
             strategy::off().has(strategy::SPOOL_SEAL)
         };
-        assert!(default_off().has(strategy::SPOOL_SEAL) && off(None), "spool.seal off by default (D4628)");
-        assert!(!off(Some("+spool.seal")) && off(Some("+join.probe.staged")), "on under its +<id>, not another road's");
-        assert!(off(Some("+spool.seal, spool.seal")), "a plain name keeps it off");
+        assert!(
+            default_off().has(strategy::SPOOL_SEAL) && off(None),
+            "spool.seal off by default (D4628)"
+        );
+        assert!(
+            !off(Some("+spool.seal")) && off(Some("+join.probe.staged")),
+            "on under its +<id>, not another road's"
+        );
+        assert!(
+            off(Some("+spool.seal, spool.seal")),
+            "a plain name keeps it off"
+        );
     }
 
     /// D3336 (A2 (iii)): `cte.wholefill` is off by default, on under its own `+<id>` only, and a plain name keeps it off.
@@ -520,9 +814,18 @@ mod tests {
             read();
             strategy::off().has(strategy::CTE_WHOLEFILL)
         };
-        assert!(default_off().has(strategy::CTE_WHOLEFILL) && off(None), "cte.wholefill off by default (D3336 A2 (iii))");
-        assert!(!off(Some("+cte.wholefill")) && off(Some("+spool.seal")), "on under its +<id>, not another road's");
-        assert!(off(Some("+cte.wholefill, cte.wholefill")), "a plain name keeps it off");
+        assert!(
+            default_off().has(strategy::CTE_WHOLEFILL) && off(None),
+            "cte.wholefill off by default (D3336 A2 (iii))"
+        );
+        assert!(
+            !off(Some("+cte.wholefill")) && off(Some("+spool.seal")),
+            "on under its +<id>, not another road's"
+        );
+        assert!(
+            off(Some("+cte.wholefill, cte.wholefill")),
+            "a plain name keeps it off"
+        );
     }
 
     /// D3336 (A1a): `win.partfill` is off by default, on under its own `+<id>` only, and a plain name keeps it off.
@@ -534,10 +837,22 @@ mod tests {
             read();
             strategy::off().has(strategy::WIN_PARTFILL)
         };
-        assert!(default_off().has(strategy::WIN_PARTFILL) && off(None), "win.partfill off by default (D3336 A1a)");
-        assert!(!off(Some("+win.partfill")) && off(Some("+spool.seal")), "on under its +<id>, not another road's");
-        assert!(off(Some("+win.partfill, win.partfill")), "a plain name keeps it off");
-        assert!(!default_off().has(strategy::WIN_PARTRUNS), "win.partruns stays on by default");
+        assert!(
+            default_off().has(strategy::WIN_PARTFILL) && off(None),
+            "win.partfill off by default (D3336 A1a)"
+        );
+        assert!(
+            !off(Some("+win.partfill")) && off(Some("+spool.seal")),
+            "on under its +<id>, not another road's"
+        );
+        assert!(
+            off(Some("+win.partfill, win.partfill")),
+            "a plain name keeps it off"
+        );
+        assert!(
+            !default_off().has(strategy::WIN_PARTRUNS),
+            "win.partruns stays on by default"
+        );
     }
 
     /// D4821: `join.dedup` is off by default, on under its own `+<id>` only, and a plain name keeps it off.
@@ -549,10 +864,22 @@ mod tests {
             read();
             strategy::off().has(strategy::JOIN_DEDUP)
         };
-        assert!(default_off().has(strategy::JOIN_DEDUP) && off(None), "join.dedup off by default (D4821)");
-        assert!(!off(Some("+join.dedup")) && off(Some("+join.probe.staged")), "on under its +<id>, not another road's");
-        assert!(off(Some("+join.dedup, join.dedup")), "a plain name keeps it off");
-        assert!(!default_off().has(strategy::JOIN_MULT), "join.mult stays on by default");
+        assert!(
+            default_off().has(strategy::JOIN_DEDUP) && off(None),
+            "join.dedup off by default (D4821)"
+        );
+        assert!(
+            !off(Some("+join.dedup")) && off(Some("+join.probe.staged")),
+            "on under its +<id>, not another road's"
+        );
+        assert!(
+            off(Some("+join.dedup, join.dedup")),
+            "a plain name keeps it off"
+        );
+        assert!(
+            !default_off().has(strategy::JOIN_MULT),
+            "join.mult stays on by default"
+        );
     }
 
     /// D4822: `text.substr.ascii` is off by default and on under its own `+<id>` only.
@@ -564,8 +891,14 @@ mod tests {
             read();
             strategy::off().has(strategy::TEXT_SUBSTR_ASCII)
         };
-        assert!(default_off().has(strategy::TEXT_SUBSTR_ASCII) && off(None), "text.substr.ascii off by default (D4822)");
-        assert!(!off(Some("+text.substr.ascii")) && off(Some("+join.dedup")), "on under its +<id>, not another road's");
+        assert!(
+            default_off().has(strategy::TEXT_SUBSTR_ASCII) && off(None),
+            "text.substr.ascii off by default (D4822)"
+        );
+        assert!(
+            !off(Some("+text.substr.ascii")) && off(Some("+join.dedup")),
+            "on under its +<id>, not another road's"
+        );
     }
 
     /// D4794: `text.set.bpchar` is off by default and on under its own `+<id>` only, while text.set stays on.
@@ -577,9 +910,18 @@ mod tests {
             read();
             strategy::off().has(strategy::TEXT_SET_BPCHAR)
         };
-        assert!(default_off().has(strategy::TEXT_SET_BPCHAR) && off(None), "text.set.bpchar off by default (D4794)");
-        assert!(!off(Some("+text.set.bpchar")) && off(Some("+text.substr.ascii")), "on under its +<id>, not another road's");
-        assert!(!default_off().has(strategy::TEXT_SET), "text.set stays on by default");
+        assert!(
+            default_off().has(strategy::TEXT_SET_BPCHAR) && off(None),
+            "text.set.bpchar off by default (D4794)"
+        );
+        assert!(
+            !off(Some("+text.set.bpchar")) && off(Some("+text.substr.ascii")),
+            "on under its +<id>, not another road's"
+        );
+        assert!(
+            !default_off().has(strategy::TEXT_SET),
+            "text.set stays on by default"
+        );
     }
 
     /// genreg P6 (§10 item 7): `join.payload_fp` and `join.drain.fp` (ops/hashjoin/strategies/payload_fp.rs) are on by
@@ -590,14 +932,37 @@ mod tests {
         let off = |v: Option<&'static str>| {
             GUC.with(|g| g.set(v));
             read();
-            (strategy::off().has(strategy::JOIN_PAYLOAD_FP), strategy::off().has(strategy::JOIN_DRAIN_FP))
+            (
+                strategy::off().has(strategy::JOIN_PAYLOAD_FP),
+                strategy::off().has(strategy::JOIN_DRAIN_FP),
+            )
         };
-        assert!(!default_off().has(strategy::JOIN_PAYLOAD_FP) && !default_off().has(strategy::JOIN_DRAIN_FP), "both on by default");
+        assert!(
+            !default_off().has(strategy::JOIN_PAYLOAD_FP)
+                && !default_off().has(strategy::JOIN_DRAIN_FP),
+            "both on by default"
+        );
         assert_eq!(off(None), (false, false), "both on with no option");
-        assert_eq!(off(Some("+join.payload_fp")), (false, false), "+<id> on a road already on changes nothing");
-        assert_eq!(off(Some("join.payload_fp")), (true, false), "a plain name takes join.payload_fp off alone");
-        assert_eq!(off(Some("join.drain.fp")), (false, true), "a plain name takes join.drain.fp off alone");
-        assert_eq!(off(Some("join.payload_fp, join.drain.fp")), (true, true), "both named off");
+        assert_eq!(
+            off(Some("+join.payload_fp")),
+            (false, false),
+            "+<id> on a road already on changes nothing"
+        );
+        assert_eq!(
+            off(Some("join.payload_fp")),
+            (true, false),
+            "a plain name takes join.payload_fp off alone"
+        );
+        assert_eq!(
+            off(Some("join.drain.fp")),
+            (false, true),
+            "a plain name takes join.drain.fp off alone"
+        );
+        assert_eq!(
+            off(Some("join.payload_fp, join.drain.fp")),
+            (true, true),
+            "both named off"
+        );
     }
 
     /// The planned roads are off by default and `+<id>` names them on with no error; a core road takes no name in the
@@ -607,38 +972,100 @@ mod tests {
     fn planned_roads_are_off_core_roads_take_no_switch_and_distinct_identity_is_gone() {
         install();
         const PLANNED_IDS: &[&str] = &[
-            "merge.mult", "merge.skip", "nest.batch", "nest.eagersafe", "nest.groupjoin", "nest.selfspool", "spool.alias",
-            "win.frameclass", "win.inverse", "win.prefix", "win.topn", "join.emit_build", "marks.testset", "nest.bulk",
-            "nest.cache", "nest.eqkey", "semijoin.marks", "semijoin.runs", "setop.count", "win.ownedview", "win.parttable",
-            "prefetch.table", "srf.limitcut", "key.surrogate", "write.checks",
+            "merge.mult",
+            "merge.skip",
+            "nest.batch",
+            "nest.eagersafe",
+            "nest.groupjoin",
+            "nest.selfspool",
+            "spool.alias",
+            "win.frameclass",
+            "win.inverse",
+            "win.prefix",
+            "win.topn",
+            "join.emit_build",
+            "marks.testset",
+            "nest.bulk",
+            "nest.cache",
+            "nest.eqkey",
+            "semijoin.marks",
+            "semijoin.runs",
+            "setop.count",
+            "win.ownedview",
+            "win.parttable",
+            "prefetch.table",
+            "srf.limitcut",
+            "key.surrogate",
+            "write.checks",
         ];
-        const CORE_IDS: &[&str] =
-            &["table.radix", "distinct.total", "run.pergroup", "nest.catalog_left", "merge.markable", "write.literals", "write.route", "table.bypass",
-              "expr.monotone"];
-        let road = |id: &str| strategy::Strategy::from_name(id).unwrap_or_else(|| panic!("road {id} is declared"));
+        const CORE_IDS: &[&str] = &[
+            "table.radix",
+            "distinct.total",
+            "run.pergroup",
+            "nest.catalog_left",
+            "merge.markable",
+            "write.literals",
+            "write.route",
+            "table.bypass",
+            "expr.monotone",
+        ];
+        let road = |id: &str| {
+            strategy::Strategy::from_name(id).unwrap_or_else(|| panic!("road {id} is declared"))
+        };
         let set = |v: &'static str| {
             GUC.with(|g| g.set(Some(v)));
             std::panic::catch_unwind(read)
                 .map(|()| strategy::off())
-                .map_err(|e| e.downcast_ref::<types_error::PgError>().map(|e| e.sqlstate() == types_error::error::ERRCODE_INVALID_PARAMETER_VALUE))
+                .map_err(|e| {
+                    e.downcast_ref::<types_error::PgError>().map(|e| {
+                        e.sqlstate() == types_error::error::ERRCODE_INVALID_PARAMETER_VALUE
+                    })
+                })
         };
         let off = set("").expect("the option empty");
         for &id in PLANNED_IDS {
-            assert!(default_off().has(road(id)) && off.has(road(id)), "planned road {id} is off by default");
+            assert!(
+                default_off().has(road(id)) && off.has(road(id)),
+                "planned road {id} is off by default"
+            );
         }
-        let named_on: &'static str = Box::leak(PLANNED_IDS.iter().map(|id| format!("+{id}")).collect::<Vec<_>>().join(",").into_boxed_str());
+        let named_on: &'static str = Box::leak(
+            PLANNED_IDS
+                .iter()
+                .map(|id| format!("+{id}"))
+                .collect::<Vec<_>>()
+                .join(",")
+                .into_boxed_str(),
+        );
         let on = set(named_on).expect("+<id> names a planned road on");
-        assert!(PLANNED_IDS.iter().all(|&id| !on.has(road(id))), "+<id> names every planned road on");
+        assert!(
+            PLANNED_IDS.iter().all(|&id| !on.has(road(id))),
+            "+<id> names every planned road on"
+        );
         for &id in CORE_IDS {
             assert!(!default_off().has(road(id)), "core road {id} is on");
             let plus: &'static str = Box::leak(format!("+{id}").into_boxed_str());
             for v in [id, plus] {
-                assert_eq!(set(v).err(), Some(Some(true)), "gravity_road_off = {v}: a core road has no switch (ERROR 22023)");
+                assert_eq!(
+                    set(v).err(),
+                    Some(Some(true)),
+                    "gravity_road_off = {v}: a core road has no switch (ERROR 22023)"
+                );
             }
         }
-        assert!(set("mask.word").is_ok_and(|o| o.has(road("mask.word"))), "the fallback mask.word keeps its switch");
-        assert!(strategy::Strategy::from_name("distinct.identity").is_none(), "distinct.identity is deleted");
-        assert_eq!(set("distinct.identity").err(), Some(Some(true)), "its name is an unknown id");
+        assert!(
+            set("mask.word").is_ok_and(|o| o.has(road("mask.word"))),
+            "the fallback mask.word keeps its switch"
+        );
+        assert!(
+            strategy::Strategy::from_name("distinct.identity").is_none(),
+            "distinct.identity is deleted"
+        );
+        assert_eq!(
+            set("distinct.identity").err(),
+            Some(Some(true)),
+            "its name is an unknown id"
+        );
         set("").expect("the option empty");
     }
 
@@ -652,17 +1079,36 @@ mod tests {
             GUC.with(|g| g.set(Some(v)));
             std::panic::catch_unwind(read)
                 .map(|()| strategy::off())
-                .map_err(|e| e.downcast_ref::<types_error::PgError>().map(|e| e.sqlstate() == types_error::error::ERRCODE_INVALID_PARAMETER_VALUE))
+                .map_err(|e| {
+                    e.downcast_ref::<types_error::PgError>().map(|e| {
+                        e.sqlstate() == types_error::error::ERRCODE_INVALID_PARAMETER_VALUE
+                    })
+                })
         };
         for id in ["join.sorted", "nest.key.wide"] {
-            assert!(strategy::Strategy::from_name(id).is_none(), "{id} is deleted");
+            assert!(
+                strategy::Strategy::from_name(id).is_none(),
+                "{id} is deleted"
+            );
             let plus: &'static str = Box::leak(format!("+{id}").into_boxed_str());
             for v in [id, plus] {
-                assert_eq!(set(v).err(), Some(Some(true)), "gravity_road_off = {v}: an unknown id (ERROR 22023)");
+                assert_eq!(
+                    set(v).err(),
+                    Some(Some(true)),
+                    "gravity_road_off = {v}: an unknown id (ERROR 22023)"
+                );
             }
         }
-        assert!(!gravity_decompose::ROADS_DEFAULT_ON.contains(&"nest.key.wide"), "decompose reads no nest.key.wide");
-        assert!(set("nest.key.eq").expect("nest.key.eq keeps its switch").has(strategy::NEST_KEY_EQ), "nest.key.eq off under its plain name");
+        assert!(
+            !gravity_decompose::ROADS_DEFAULT_ON.contains(&"nest.key.wide"),
+            "decompose reads no nest.key.wide"
+        );
+        assert!(
+            set("nest.key.eq")
+                .expect("nest.key.eq keeps its switch")
+                .has(strategy::NEST_KEY_EQ),
+            "nest.key.eq off under its plain name"
+        );
         set("").expect("the option empty");
     }
 
@@ -676,13 +1122,29 @@ mod tests {
             GUC.with(|g| g.set(Some(v)));
             std::panic::catch_unwind(read)
                 .map(|()| strategy::off())
-                .map_err(|e| e.downcast_ref::<types_error::PgError>().map(|e| e.sqlstate() == types_error::error::ERRCODE_INVALID_PARAMETER_VALUE))
+                .map_err(|e| {
+                    e.downcast_ref::<types_error::PgError>().map(|e| {
+                        e.sqlstate() == types_error::error::ERRCODE_INVALID_PARAMETER_VALUE
+                    })
+                })
         };
-        assert!(strategy::Strategy::from_name("code.ties").is_none(), "code.ties is deleted");
+        assert!(
+            strategy::Strategy::from_name("code.ties").is_none(),
+            "code.ties is deleted"
+        );
         for v in ["code.ties", "+code.ties"] {
-            assert_eq!(set(v).err(), Some(Some(true)), "gravity_road_off = {v}: an unknown id (ERROR 22023)");
+            assert_eq!(
+                set(v).err(),
+                Some(Some(true)),
+                "gravity_road_off = {v}: an unknown id (ERROR 22023)"
+            );
         }
-        assert!(set("code.cut").expect("code.cut keeps its switch").has(strategy::CODE_CUT), "code.cut off under its plain name");
+        assert!(
+            set("code.cut")
+                .expect("code.cut keeps its switch")
+                .has(strategy::CODE_CUT),
+            "code.cut off under its plain name"
+        );
         set("").expect("the option empty");
     }
 
@@ -696,13 +1158,29 @@ mod tests {
             GUC.with(|g| g.set(Some(v)));
             std::panic::catch_unwind(read)
                 .map(|()| strategy::off())
-                .map_err(|e| e.downcast_ref::<types_error::PgError>().map(|e| e.sqlstate() == types_error::error::ERRCODE_INVALID_PARAMETER_VALUE))
+                .map_err(|e| {
+                    e.downcast_ref::<types_error::PgError>().map(|e| {
+                        e.sqlstate() == types_error::error::ERRCODE_INVALID_PARAMETER_VALUE
+                    })
+                })
         };
-        assert!(strategy::Strategy::from_name("twopass.marks").is_none(), "twopass.marks is deleted");
+        assert!(
+            strategy::Strategy::from_name("twopass.marks").is_none(),
+            "twopass.marks is deleted"
+        );
         for v in ["twopass.marks", "+twopass.marks"] {
-            assert_eq!(set(v).err(), Some(Some(true)), "gravity_road_off = {v}: an unknown id (ERROR 22023)");
+            assert_eq!(
+                set(v).err(),
+                Some(Some(true)),
+                "gravity_road_off = {v}: an unknown id (ERROR 22023)"
+            );
         }
-        assert!(set("twopass.having").expect("twopass.having keeps its switch").has(strategy::TWOPASS_HAVING), "twopass.having off under its plain name");
+        assert!(
+            set("twopass.having")
+                .expect("twopass.having keeps its switch")
+                .has(strategy::TWOPASS_HAVING),
+            "twopass.having off under its plain name"
+        );
         set("").expect("the option empty");
     }
 
@@ -715,14 +1193,33 @@ mod tests {
             GUC.with(|g| g.set(Some(v)));
             std::panic::catch_unwind(read)
                 .map(|()| strategy::off())
-                .map_err(|e| e.downcast_ref::<types_error::PgError>().map(|e| e.sqlstate() == types_error::error::ERRCODE_INVALID_PARAMETER_VALUE))
+                .map_err(|e| {
+                    e.downcast_ref::<types_error::PgError>().map(|e| {
+                        e.sqlstate() == types_error::error::ERRCODE_INVALID_PARAMETER_VALUE
+                    })
+                })
         };
-        assert!(strategy::Strategy::from_name("run.measure").is_none(), "run.measure is deleted");
+        assert!(
+            strategy::Strategy::from_name("run.measure").is_none(),
+            "run.measure is deleted"
+        );
         for v in ["run.measure", "+run.measure"] {
-            assert_eq!(set(v).err(), Some(Some(true)), "gravity_road_off = {v}: an unknown id (ERROR 22023)");
+            assert_eq!(
+                set(v).err(),
+                Some(Some(true)),
+                "gravity_road_off = {v}: an unknown id (ERROR 22023)"
+            );
         }
-        assert!(set("num.partial").expect("num.partial keeps its off name").has(strategy::NUM_PARTIAL), "num.partial off under its name");
-        assert!(strategy::Strategy::all().all(|r| r.bit() != 126), "bit 126 stays free");
+        assert!(
+            set("num.partial")
+                .expect("num.partial keeps its off name")
+                .has(strategy::NUM_PARTIAL),
+            "num.partial off under its name"
+        );
+        assert!(
+            strategy::Strategy::all().all(|r| r.bit() != 126),
+            "bit 126 stays free"
+        );
         set("").expect("the option empty");
     }
 
@@ -734,13 +1231,25 @@ mod tests {
         let lists = [DEFAULT_OFF, PLANNED, CORE, FALLBACK];
         for (i, a) in lists.iter().enumerate() {
             for r in a.iter() {
-                assert!(lists[i + 1..].iter().all(|b| !b.contains(r)), "{} in two road classes", r.name());
+                assert!(
+                    lists[i + 1..].iter().all(|b| !b.contains(r)),
+                    "{} in two road classes",
+                    r.name()
+                );
             }
         }
         let built = crate::ops::built_strategies();
         for r in PLANNED {
-            assert_eq!(built.has(*r), [strategy::SRF_LIMITCUT, strategy::WRITE_CHECKS].contains(r), "planned road {} registered", r.name());
+            assert_eq!(
+                built.has(*r),
+                [strategy::SRF_LIMITCUT, strategy::WRITE_CHECKS].contains(r),
+                "planned road {} registered",
+                r.name()
+            );
         }
-        assert!(CORE.iter().chain(FALLBACK).all(|r| built.has(*r)), "a core or fallback road with no registered row");
+        assert!(
+            CORE.iter().chain(FALLBACK).all(|r| built.has(*r)),
+            "a core or fallback road with no registered row"
+        );
     }
 }

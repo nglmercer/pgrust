@@ -73,13 +73,23 @@ pub mod re {
     enum Node {
         Char(char),
         Any,
-        Class { neg: bool, items: Vec<ClassItem> },
+        Class {
+            neg: bool,
+            items: Vec<ClassItem>,
+        },
         Start,
         End,
         WordBoundary,
         Group(Alt),
-        Look { neg: bool, alt: Alt },
-        Repeat { node: Box<Node>, min: u32, max: Option<u32> },
+        Look {
+            neg: bool,
+            alt: Alt,
+        },
+        Repeat {
+            node: Box<Node>,
+            min: u32,
+            max: Option<u32>,
+        },
     }
 
     #[derive(Clone, Debug, PartialEq)]
@@ -108,7 +118,10 @@ pub mod re {
 
     impl<'a> Parser<'a> {
         fn err<T>(&self, what: &str) -> Result<T, String> {
-            Err(format!("regex {:?}: {} at offset {}", self.src, what, self.pos))
+            Err(format!(
+                "regex {:?}: {} at offset {}",
+                self.src, what, self.pos
+            ))
         }
         fn peek(&self) -> Option<char> {
             self.chars.get(self.pos).copied()
@@ -195,12 +208,19 @@ pub mod re {
                 }
                 _ => return Ok(atom),
             };
-            if matches!(atom, Node::Start | Node::End | Node::WordBoundary | Node::Look { .. }) {
+            if matches!(
+                atom,
+                Node::Start | Node::End | Node::WordBoundary | Node::Look { .. }
+            ) {
                 return self.err("quantifier on an anchor or lookahead");
             }
             // Lazy marker: accepted, greedy semantics (match/no-match is identical).
             self.eat('?');
-            Ok(Node::Repeat { node: Box::new(atom), min, max })
+            Ok(Node::Repeat {
+                node: Box::new(atom),
+                min,
+                max,
+            })
         }
 
         fn parse_int(&mut self) -> Option<u32> {
@@ -211,7 +231,11 @@ pub mod re {
             if start == self.pos {
                 return None;
             }
-            self.chars[start..self.pos].iter().collect::<String>().parse().ok()
+            self.chars[start..self.pos]
+                .iter()
+                .collect::<String>()
+                .parse()
+                .ok()
         }
 
         fn parse_atom(&mut self) -> Result<Node, String> {
@@ -224,8 +248,14 @@ pub mod re {
                     let node = if self.eat('?') {
                         match self.bump() {
                             Some(':') => Node::Group(self.parse_alt()?),
-                            Some('=') => Node::Look { neg: false, alt: self.parse_alt()? },
-                            Some('!') => Node::Look { neg: true, alt: self.parse_alt()? },
+                            Some('=') => Node::Look {
+                                neg: false,
+                                alt: self.parse_alt()?,
+                            },
+                            Some('!') => Node::Look {
+                                neg: true,
+                                alt: self.parse_alt()?,
+                            },
                             _ => return self.err("unsupported (? construct"),
                         }
                     } else {
@@ -252,12 +282,30 @@ pub mod re {
                 None => return self.err("trailing backslash"),
             };
             Ok(match c {
-                'd' => Node::Class { neg: false, items: vec![ClassItem::Digit(true)] },
-                'D' => Node::Class { neg: false, items: vec![ClassItem::Digit(false)] },
-                'w' => Node::Class { neg: false, items: vec![ClassItem::Word(true)] },
-                'W' => Node::Class { neg: false, items: vec![ClassItem::Word(false)] },
-                's' => Node::Class { neg: false, items: vec![ClassItem::Space(true)] },
-                'S' => Node::Class { neg: false, items: vec![ClassItem::Space(false)] },
+                'd' => Node::Class {
+                    neg: false,
+                    items: vec![ClassItem::Digit(true)],
+                },
+                'D' => Node::Class {
+                    neg: false,
+                    items: vec![ClassItem::Digit(false)],
+                },
+                'w' => Node::Class {
+                    neg: false,
+                    items: vec![ClassItem::Word(true)],
+                },
+                'W' => Node::Class {
+                    neg: false,
+                    items: vec![ClassItem::Word(false)],
+                },
+                's' => Node::Class {
+                    neg: false,
+                    items: vec![ClassItem::Space(true)],
+                },
+                'S' => Node::Class {
+                    neg: false,
+                    items: vec![ClassItem::Space(false)],
+                },
                 'b' if !in_class => Node::WordBoundary,
                 'n' => Node::Char('\n'),
                 't' => Node::Char('\t'),
@@ -292,7 +340,9 @@ pub mod re {
                 } else {
                     c
                 };
-                if self.peek() == Some('-') && self.chars.get(self.pos + 1).is_some_and(|&n| n != ']') {
+                if self.peek() == Some('-')
+                    && self.chars.get(self.pos + 1).is_some_and(|&n| n != ']')
+                {
                     self.pos += 1;
                     let hi = match self.bump() {
                         Some('\\') => match self.parse_escape(true)? {
@@ -348,7 +398,13 @@ pub mod re {
     }
 
     /// Match `seq[i..]` at `pos`, then the continuation `k` on the end position.
-    fn m_seq(ctx: &Ctx, seq: &[Node], i: usize, pos: usize, k: &mut dyn FnMut(usize) -> bool) -> bool {
+    fn m_seq(
+        ctx: &Ctx,
+        seq: &[Node],
+        i: usize,
+        pos: usize,
+        k: &mut dyn FnMut(usize) -> bool,
+    ) -> bool {
         if i == seq.len() {
             return k(pos);
         }
@@ -401,11 +457,15 @@ pub mod re {
         let t = ctx.text;
         match node {
             Node::Char(c) => {
-                t.get(pos).is_some_and(|&x| fold(x, ctx.icase) == fold(*c, ctx.icase)) && k(pos + 1)
+                t.get(pos)
+                    .is_some_and(|&x| fold(x, ctx.icase) == fold(*c, ctx.icase))
+                    && k(pos + 1)
             }
             Node::Any => t.get(pos).is_some_and(|&x| x != '\n') && k(pos + 1),
             Node::Class { neg, items } => {
-                t.get(pos).is_some_and(|&x| class_hit(items, x, ctx.icase) != *neg) && k(pos + 1)
+                t.get(pos)
+                    .is_some_and(|&x| class_hit(items, x, ctx.icase) != *neg)
+                    && k(pos + 1)
             }
             Node::Start => pos == 0 && k(pos),
             Node::End => pos == t.len() && k(pos),
@@ -429,12 +489,20 @@ pub mod re {
                 Some(rest) => (true, rest),
                 None => (false, pattern),
             };
-            let mut p = Parser { chars: body.chars().collect(), pos: 0, src: pattern };
+            let mut p = Parser {
+                chars: body.chars().collect(),
+                pos: 0,
+                src: pattern,
+            };
             let alt = p.parse_alt()?;
             if p.pos != p.chars.len() {
                 return p.err("unbalanced ')'");
             }
-            Ok(Regex { alt, icase, source: pattern.to_string() })
+            Ok(Regex {
+                alt,
+                icase,
+                source: pattern.to_string(),
+            })
         }
 
         pub fn as_str(&self) -> &str {
@@ -444,7 +512,10 @@ pub mod re {
         /// Unanchored search: true when the pattern matches anywhere.
         pub fn is_match(&self, text: &str) -> bool {
             let chars: Vec<char> = text.chars().collect();
-            let ctx = Ctx { text: &chars, icase: self.icase };
+            let ctx = Ctx {
+                text: &chars,
+                icase: self.icase,
+            };
             (0..=chars.len()).any(|start| m_alt(&ctx, &self.alt, start, &mut |_| true))
         }
     }
@@ -578,7 +649,8 @@ pub struct Ledger {
 
 impl Clone for Ledger {
     fn clone(&self) -> Ledger {
-        let mut l = Ledger::from_rulings(self.rulings.clone()).expect("a compiled ledger re-compiles");
+        let mut l =
+            Ledger::from_rulings(self.rulings.clone()).expect("a compiled ledger re-compiles");
         l.hits = Mutex::new(self.hits());
         l
     }
@@ -586,7 +658,12 @@ impl Clone for Ledger {
 
 impl std::fmt::Debug for Ledger {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Ledger({} rulings, hits {:?})", self.rulings.rulings.len(), self.hits())
+        write!(
+            f,
+            "Ledger({} rulings, hits {:?})",
+            self.rulings.rulings.len(),
+            self.hits()
+        )
     }
 }
 
@@ -611,7 +688,11 @@ pub fn normalize_stmt(sql: &str) -> String {
 
 impl Ledger {
     pub fn empty() -> Ledger {
-        Ledger { rulings: Rulings::default(), compiled: Vec::new(), hits: Mutex::new(BTreeMap::new()) }
+        Ledger {
+            rulings: Rulings::default(),
+            compiled: Vec::new(),
+            hits: Mutex::new(BTreeMap::new()),
+        }
     }
 
     /// Parse ledger text (TOML subset per `contracts::toml`), compile every
@@ -626,17 +707,23 @@ impl Ledger {
             let rx = |s: &Option<String>, what: &str| -> Result<Option<Regex>, String> {
                 match s {
                     None => Ok(None),
-                    Some(p) => Regex::new(p).map(Some).map_err(|e| format!("ruling {:?} {}: {}", r.id, what, e)),
+                    Some(p) => Regex::new(p)
+                        .map(Some)
+                        .map_err(|e| format!("ruling {:?} {}: {}", r.id, what, e)),
                 }
             };
             let stmt = match &r.stmt {
                 None => None,
                 Some(p) => Some(
-                    Regex::new(&format!("(?i){}", p)).map_err(|e| format!("ruling {:?} stmt: {}", r.id, e))?,
+                    Regex::new(&format!("(?i){}", p))
+                        .map_err(|e| format!("ruling {:?} stmt: {}", r.id, e))?,
                 ),
             };
             if (r.a.is_some() || r.b.is_some()) && r.field.is_none() {
-                return Err(format!("ruling {:?}: a/b regexes need a field to apply to", r.id));
+                return Err(format!(
+                    "ruling {:?}: a/b regexes need a field to apply to",
+                    r.id
+                ));
             }
             if r.expires.is_some() != is_cosmetic_ruling(r) {
                 return Err(format!(
@@ -649,14 +736,23 @@ impl Ledger {
                     return Err(format!("ruling {:?}: expires before created", r.id));
                 }
             }
-            compiled.push(Compiled { a: rx(&r.a, "a")?, b: rx(&r.b, "b")?, stmt });
+            compiled.push(Compiled {
+                a: rx(&r.a, "a")?,
+                b: rx(&r.b, "b")?,
+                stmt,
+            });
         }
         let hits = rulings.rulings.iter().map(|r| (r.id.clone(), 0)).collect();
-        Ok(Ledger { rulings, compiled, hits: Mutex::new(hits) })
+        Ok(Ledger {
+            rulings,
+            compiled,
+            hits: Mutex::new(hits),
+        })
     }
 
     pub fn load(path: &std::path::Path) -> Result<Ledger, String> {
-        let text = std::fs::read_to_string(path).map_err(|e| format!("read {}: {}", path.display(), e))?;
+        let text =
+            std::fs::read_to_string(path).map_err(|e| format!("read {}: {}", path.display(), e))?;
         Ledger::parse(&text)
     }
 
@@ -692,7 +788,8 @@ impl Ledger {
             (Some(field), true) => {
                 let va = (c.value_a)(field).unwrap_or_default();
                 let vb = (c.value_b)(field).unwrap_or_default();
-                cx.a.as_ref().is_none_or(|rx| rx.is_match(&va)) && cx.b.as_ref().is_none_or(|rx| rx.is_match(&vb))
+                cx.a.as_ref().is_none_or(|rx| rx.is_match(&va))
+                    && cx.b.as_ref().is_none_or(|rx| rx.is_match(&vb))
             }
             (Some(field), false) => c.differing.len() == 1 && &c.differing[0] == field,
             (None, _) => true,
@@ -701,7 +798,9 @@ impl Ledger {
 
     /// First matching ruling, in file order; no hit is recorded.
     pub fn find(&self, c: &Candidate) -> Option<&Ruling> {
-        (0..self.rulings.rulings.len()).find(|&i| self.matches(i, c)).map(|i| &self.rulings.rulings[i])
+        (0..self.rulings.rulings.len())
+            .find(|&i| self.matches(i, c))
+            .map(|i| &self.rulings.rulings[i])
     }
 
     /// `find` plus a hit on the matched row; returns the id.
@@ -739,16 +838,29 @@ impl Ledger {
 
     /// The `rulings audit` verdict. `hits_over_runs` is one map (id ->
     /// hits) per CI cluster run, most recent last; `today` is `YYYY-MM-DD`.
-    pub fn audit(&self, hits_over_runs: &[BTreeMap<String, u64>], today: &str) -> Result<AuditReport, String> {
+    pub fn audit(
+        &self,
+        hits_over_runs: &[BTreeMap<String, u64>],
+        today: &str,
+    ) -> Result<AuditReport, String> {
         let today_days = parse_date(today)?;
         let recent = &hits_over_runs[hits_over_runs.len().saturating_sub(AUDIT_RUNS)..];
-        let mut report = AuditReport { runs: recent.len(), ..AuditReport::default() };
+        let mut report = AuditReport {
+            runs: recent.len(),
+            ..AuditReport::default()
+        };
         for r in &self.rulings.rulings {
             let created = parse_date(&r.created)?;
             if created > today_days {
-                return Err(format!("ruling {:?}: created {} is after today {}", r.id, r.created, today));
+                return Err(format!(
+                    "ruling {:?}: created {} is after today {}",
+                    r.id, r.created, today
+                ));
             }
-            let total: u64 = recent.iter().map(|m| m.get(&r.id).copied().unwrap_or(0)).sum();
+            let total: u64 = recent
+                .iter()
+                .map(|m| m.get(&r.id).copied().unwrap_or(0))
+                .sum();
             let expired = match &r.expires {
                 Some(e) => parse_date(e)? < today_days,
                 None => false,
@@ -815,7 +927,10 @@ impl AuditReport {
     pub fn render(&self) -> String {
         let mut out = format!("rulings audit over {} run(s)\n", self.runs);
         for id in &self.stale {
-            out.push_str(&format!("FAIL stale: {} (0 hits over {} runs)\n", id, self.runs));
+            out.push_str(&format!(
+                "FAIL stale: {} (0 hits over {} runs)\n",
+                id, self.runs
+            ));
         }
         for r in &self.expired_firing {
             out.push_str(&format!(
@@ -890,8 +1005,14 @@ mod tests {
         assert!(ok("^[^a-c]$", "d"));
         assert!(!ok("^[^a-c]$", "b"));
         assert!(ok("^\\w+\\s\\S$", "ab_1 x"));
-        assert!(ok("tuple concurrently (updated|deleted)$", "tuple concurrently deleted"));
-        assert!(ok("^VACUUM ?(\\([^)]*\\bFULL\\b|FULL\\b)", "VACUUM (ANALYZE, FULL) t"));
+        assert!(ok(
+            "tuple concurrently (updated|deleted)$",
+            "tuple concurrently deleted"
+        ));
+        assert!(ok(
+            "^VACUUM ?(\\([^)]*\\bFULL\\b|FULL\\b)",
+            "VACUUM (ANALYZE, FULL) t"
+        ));
         assert!(ok("^a{2}b{1,}c{0,1}$", "aabbb"));
         assert!(ok("x{", "x{"));
         assert!(Regex::new("(").is_err());
@@ -934,7 +1055,13 @@ mod tests {
         va: &'a dyn Fn(&str) -> Option<String>,
         vb: &'a dyn Fn(&str) -> Option<String>,
     ) -> Candidate<'a> {
-        Candidate { plane, differing, stmt, value_a: va, value_b: vb }
+        Candidate {
+            plane,
+            differing,
+            stmt,
+            value_a: va,
+            value_b: vb,
+        }
     }
 
     #[test]
@@ -943,15 +1070,25 @@ mod tests {
         let d = vec!["C".to_string(), "M".to_string()];
         let va = |f: &str| (f == "CM").then(|| "0A000: unsupported XML feature".to_string());
         let vb = |f: &str| (f == "CM").then(|| "22023: something else".to_string());
-        assert_eq!(l.resolve(&cand("wire:E", &d, "SELECT xml", &va, &vb)).as_deref(), Some("x"));
+        assert_eq!(
+            l.resolve(&cand("wire:E", &d, "SELECT xml", &va, &vb))
+                .as_deref(),
+            Some("x")
+        );
         // B panicked: the b regex refuses.
         let vb2 = |f: &str| (f == "CM").then(|| "XX000: boom".to_string());
-        assert!(l.find(&cand("wire:E", &d, "SELECT xml", &va, &vb2)).is_none());
+        assert!(l
+            .find(&cand("wire:E", &d, "SELECT xml", &va, &vb2))
+            .is_none());
         // B absent (succeeded): "" matches the negative lookahead.
         let vb3 = |_: &str| None;
-        assert!(l.find(&cand("wire:E", &d, "SELECT xml", &va, &vb3)).is_some());
+        assert!(l
+            .find(&cand("wire:E", &d, "SELECT xml", &va, &vb3))
+            .is_some());
         // Wrong plane never matches.
-        assert!(l.find(&cand("wire:N", &d, "SELECT xml", &va, &vb)).is_none());
+        assert!(l
+            .find(&cand("wire:N", &d, "SELECT xml", &va, &vb))
+            .is_none());
         assert_eq!(l.hits().get("x"), Some(&1));
     }
 
@@ -960,15 +1097,29 @@ mod tests {
         let l = ledger(ROW_DELTA);
         let none = |_: &str| None;
         let only_r = vec!["R".to_string()];
-        assert!(l.find(&cand("wire:E", &only_r, "SELECT 1", &none, &none)).is_some());
+        assert!(l
+            .find(&cand("wire:E", &only_r, "SELECT 1", &none, &none))
+            .is_some());
         // R present on A only (first LIVE smoke: A R="jsonb_delete", B no R
         // on `cannot delete from scalar`): the differing set is still {R}.
         let va = |f: &str| (f == "R").then(|| "jsonb_delete".to_string());
-        assert!(l.find(&cand("wire:E", &only_r, "SELECT '\"\"'::jsonb - 'b'", &va, &none)).is_some());
+        assert!(l
+            .find(&cand(
+                "wire:E",
+                &only_r,
+                "SELECT '\"\"'::jsonb - 'b'",
+                &va,
+                &none
+            ))
+            .is_some());
         let r_and_p = vec!["R".to_string(), "P".to_string()];
-        assert!(l.find(&cand("wire:E", &r_and_p, "SELECT 1", &none, &none)).is_none());
+        assert!(l
+            .find(&cand("wire:E", &r_and_p, "SELECT 1", &none, &none))
+            .is_none());
         let m = vec!["M".to_string()];
-        assert!(l.find(&cand("wire:E", &m, "SELECT 1", &none, &none)).is_none());
+        assert!(l
+            .find(&cand("wire:E", &m, "SELECT 1", &none, &none))
+            .is_none());
     }
 
     #[test]
@@ -976,9 +1127,21 @@ mod tests {
         let l = ledger(ROW_PLANE);
         let none = |_: &str| None;
         let d = vec!["count".to_string()];
-        assert!(l.find(&cand("rows", &d, "select count(*)\n  from PG_LOCKS where not granted", &none, &none)).is_some());
-        assert!(l.find(&cand("rows", &d, "select * from t", &none, &none)).is_none());
-        assert!(l.find(&cand("meta", &d, "select * from pg_locks", &none, &none)).is_none());
+        assert!(l
+            .find(&cand(
+                "rows",
+                &d,
+                "select count(*)\n  from PG_LOCKS where not granted",
+                &none,
+                &none
+            ))
+            .is_some());
+        assert!(l
+            .find(&cand("rows", &d, "select * from t", &none, &none))
+            .is_none());
+        assert!(l
+            .find(&cand("meta", &d, "select * from pg_locks", &none, &none))
+            .is_none());
     }
 
     #[test]
@@ -991,7 +1154,12 @@ mod tests {
         let l = ledger(&two);
         let none = |_: &str| None;
         let d = vec!["cell".to_string()];
-        assert_eq!(l.find(&cand("rows", &d, "select * from pg_locks", &none, &none)).unwrap().id, "first");
+        assert_eq!(
+            l.find(&cand("rows", &d, "select * from pg_locks", &none, &none))
+                .unwrap()
+                .id,
+            "first"
+        );
     }
 
     #[test]
@@ -1014,7 +1182,11 @@ mod tests {
     fn audit_stale_and_expired_with_fixed_dates() {
         let l = ledger(&format!("{}{}{}", ROW_REGEX, ROW_DELTA, ROW_PLANE));
         let run = |x: u64, r: u64, i: u64| {
-            BTreeMap::from([("x".to_string(), x), ("r-field".to_string(), r), ("inst".to_string(), i)])
+            BTreeMap::from([
+                ("x".to_string(), x),
+                ("r-field".to_string(), r),
+                ("inst".to_string(), i),
+            ])
         };
         // Four runs only: nothing can be stale yet.
         let four = vec![run(0, 0, 0); 4];
@@ -1027,7 +1199,10 @@ mod tests {
         let rep = l.audit(&five, "2026-10-01").unwrap();
         assert_eq!(rep.stale, vec!["inst".to_string()]);
         assert!(rep.hard_fail());
-        assert!(rep.expired_firing.is_empty(), "not yet expired on 2026-10-01");
+        assert!(
+            rep.expired_firing.is_empty(),
+            "not yet expired on 2026-10-01"
+        );
         // Past expiry (2026-10-17) and still firing: warn + renewal queue,
         // proposed = expiry_for(today) (2026-10-20 is ISO week 43, 43 mod 4 = 3).
         let rep = l.audit(&five, "2026-10-20").unwrap();
@@ -1077,7 +1252,12 @@ mod tests {
         // Cosmetic rows expire per policy; nothing else does.
         for r in &l.rulings.rulings {
             if is_cosmetic_ruling(r) {
-                assert_eq!(r.expires.as_deref(), Some(expiry_for(&r.created).unwrap().as_str()), "{}", r.id);
+                assert_eq!(
+                    r.expires.as_deref(),
+                    Some(expiry_for(&r.created).unwrap().as_str()),
+                    "{}",
+                    r.id
+                );
             } else {
                 assert!(r.expires.is_none(), "{}", r.id);
             }

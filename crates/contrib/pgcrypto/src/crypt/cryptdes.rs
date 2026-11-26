@@ -19,8 +19,7 @@ fn crypt3_null() -> CryptError {
     CryptError::Message("crypt(3) returned NULL".to_string())
 }
 
-const CRYPT_A64: &[u8; 64] =
-    b"./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+const CRYPT_A64: &[u8; 64] = b"./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
 const IP: [u8; 64] = [
     58, 50, 42, 34, 26, 18, 10, 2, 60, 52, 44, 36, 28, 20, 12, 4, 62, 54, 46, 38, 30, 22, 14, 6,
@@ -487,7 +486,12 @@ impl DesState {
 
     /// `des_cipher(in, out, salt, count)` — encrypt one 8-byte block.
     /// Fails only as `do_des` fails (count == 0, or a raised interrupt).
-    fn des_cipher(&mut self, input: &[u8; 8], salt: i64, count: i32) -> Result<[u8; 8], CryptError> {
+    fn des_cipher(
+        &mut self,
+        input: &[u8; 8],
+        salt: i64,
+        count: i32,
+    ) -> Result<[u8; 8], CryptError> {
         self.setup_salt(salt);
         let rawl = u32::from_be_bytes([input[0], input[1], input[2], input[3]]);
         let rawr = u32::from_be_bytes([input[4], input[5], input[6], input[7]]);
@@ -669,7 +673,10 @@ mod tests {
 
     #[test]
     fn cryptdes_xdes_adversarial_bang_salt() {
-        assert_eq!(xdes(b"password", b"_/!!!!!!!").unwrap(), "_/!!!!!!!zqM49hRzxko");
+        assert_eq!(
+            xdes(b"password", b"_/!!!!!!!").unwrap(),
+            "_/!!!!!!!zqM49hRzxko"
+        );
     }
 
     #[test]

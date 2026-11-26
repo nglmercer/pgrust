@@ -11,8 +11,8 @@ use std::sync::Mutex;
 use ::elog::{ereport, message_level_is_interesting, PCT_M};
 use ::fmgr::PGFunction;
 use ::types_error::{
-    ErrorLocation, PgError, PgResult, DEBUG3, ERRCODE_INSUFFICIENT_PRIVILEGE,
-    ERRCODE_INVALID_NAME, ERRCODE_UNDEFINED_FILE, ERRCODE_UNDEFINED_FUNCTION, ERROR,
+    ErrorLocation, PgError, PgResult, DEBUG3, ERRCODE_INSUFFICIENT_PRIVILEGE, ERRCODE_INVALID_NAME,
+    ERRCODE_UNDEFINED_FILE, ERRCODE_UNDEFINED_FUNCTION, ERROR,
 };
 
 pub const DLSUFFIX: &str = if cfg!(target_os = "macos") {
@@ -129,7 +129,12 @@ pub fn is_builtin_library(name: &str) -> bool {
 }
 
 fn registered(key: &str) -> Option<BuiltinLibraryEntry> {
-    BUILTIN_LIBRARIES.lock().unwrap().iter().find(|e| e.name == key).copied()
+    BUILTIN_LIBRARIES
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|e| e.name == key)
+        .copied()
 }
 
 fn pkglib_path() -> String {
@@ -289,9 +294,13 @@ fn expand_dynamic_library_name(name: &str) -> PgResult<String> {
     let path = dynamic_library_path_get().unwrap_or_default();
     for candidate in [name.to_owned(), format!("{name}{DLSUFFIX}")] {
         if !have_slash {
-            if let Some(full) =
-                find_in_path(&candidate, &path, "dynamic_library_path", LIBDIR_MACRO, &pkglib)?
-            {
+            if let Some(full) = find_in_path(
+                &candidate,
+                &path,
+                "dynamic_library_path",
+                LIBDIR_MACRO,
+                &pkglib,
+            )? {
                 return Ok(full);
             }
         } else {
@@ -321,8 +330,13 @@ pub fn check_restricted_library_name(name: &str) -> PgResult<()> {
 // file cannot be dlopen'd (carve §2), so its basename keys the registry. The
 // entry is the module identity (C's SAME_INODE scan).
 fn internal_load_library(libname: &str) -> PgResult<BuiltinLibraryEntry> {
-    let known = FILE_LIST
-        .with(|s| s.borrow().list.iter().find(|f| f.filename == libname).map(|f| f.entry));
+    let known = FILE_LIST.with(|s| {
+        s.borrow()
+            .list
+            .iter()
+            .find(|f| f.filename == libname)
+            .map(|f| f.entry)
+    });
     if let Some(entry) = known {
         return Ok(entry);
     }
@@ -350,7 +364,10 @@ fn internal_load_library(libname: &str) -> PgResult<BuiltinLibraryEntry> {
             FILE_LIST.with(|s| s.borrow_mut().initialized.push(entry.name));
         }
         FILE_LIST.with(|s| {
-            s.borrow_mut().list.push(LoadedFile { filename: libname.to_owned(), entry })
+            s.borrow_mut().list.push(LoadedFile {
+                filename: libname.to_owned(),
+                entry,
+            })
         });
     }
     Ok(entry)
@@ -409,9 +426,16 @@ pub fn file_list_inherit(list: &FileList) {
     FILE_LIST.with(|s| {
         let mut st = s.borrow_mut();
         let initialized = std::mem::take(&mut st.initialized);
-        *st = FileListState { list: list.0.clone(), inherited: list.0.len(), initialized };
+        *st = FileListState {
+            list: list.0.clone(),
+            inherited: list.0.len(),
+            initialized,
+        };
     });
-    let inits = BACKEND_INITS.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let inits = BACKEND_INITS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
     for f in &list.0 {
         if let Some((_, init)) = inits.iter().find(|(n, _)| *n == f.entry.name) {
             let _ = init();
@@ -423,7 +447,13 @@ pub fn file_list_inherit(list: &FileList) {
 /// (launch_backend's inherited globals), so the libraries the last session loaded are forgotten as a new thread
 /// would have them: a LOAD runs _PG_init again and defines its GUCs in the new registry.
 pub fn reset_for_thread_reuse() {
-    FILE_LIST.with(|s| *s.borrow_mut() = FileListState { list: Vec::new(), inherited: 0, initialized: Vec::new() });
+    FILE_LIST.with(|s| {
+        *s.borrow_mut() = FileListState {
+            list: Vec::new(),
+            inherited: 0,
+            initialized: Vec::new(),
+        }
+    });
 }
 
 // A preloaded library whose _PG_init state is per-thread here (C's fork
@@ -509,8 +539,12 @@ fn undefined_function(funcname: &str, fullname: &str) -> Box<PgError> {
 // block function and every pg_finfo_<v1> record, none of which carries a
 // record of its own. One registry lookup per name (fmgr_core caches the
 // resolved function and counts these).
-const MODULE_ENTRY_POINTS: &[&str] =
-    &["_PG_init", "_PG_fini", "_PG_output_plugin_init", "_PG_archive_module_init"];
+const MODULE_ENTRY_POINTS: &[&str] = &[
+    "_PG_init",
+    "_PG_fini",
+    "_PG_output_plugin_init",
+    "_PG_archive_module_init",
+];
 
 pub fn load_sql_callable_function(filename: &str, funcname: &str) -> PgResult<PGFunction> {
     let (fullname, entry) = resolve_library(filename)?;
@@ -551,7 +585,11 @@ mod tests {
     }
 
     fn setup() -> String {
-        register_builtin_library(BuiltinLibraryEntry { name: "tlib", lookup: |_| None, pg_init: None });
+        register_builtin_library(BuiltinLibraryEntry {
+            name: "tlib",
+            lookup: |_| None,
+            pg_init: None,
+        });
         let pkglib = format!("/nonexistent-pkglib-{}", std::process::id());
         set_pkglib(&pkglib);
         dynamic_library_path_set(Some("$libdir".to_owned()));
@@ -559,7 +597,10 @@ mod tests {
     }
 
     fn loaded_module_names() -> Vec<&'static str> {
-        loaded_modules().into_iter().filter_map(|m| m.module_name).collect()
+        loaded_modules()
+            .into_iter()
+            .filter_map(|m| m.module_name)
+            .collect()
     }
 
     #[track_caller]
@@ -580,15 +621,25 @@ mod tests {
         assert_err(
             load_external_function("$libdir/tlib", "nosuchsymbol", true),
             ERRCODE_UNDEFINED_FUNCTION,
-            &format!("could not find function \"nosuchsymbol\" in file \"{pkglib}/tlib{DLSUFFIX}\""),
+            &format!(
+                "could not find function \"nosuchsymbol\" in file \"{pkglib}/tlib{DLSUFFIX}\""
+            ),
         );
-        assert!(load_external_function("$libdir/tlib", "nosuchsymbol", false).unwrap().is_none());
+        assert!(
+            load_external_function("$libdir/tlib", "nosuchsymbol", false)
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]
     fn intarray_reports_its_magic_block_name() {
         setup();
-        register_builtin_library(BuiltinLibraryEntry { name: "_int", lookup: |_| None, pg_init: None });
+        register_builtin_library(BuiltinLibraryEntry {
+            name: "_int",
+            lookup: |_| None,
+            pg_init: None,
+        });
         load_file("_int", false).unwrap_or_else(|e| panic!("{}", e.message()));
         assert_eq!(loaded_module_names(), vec!["intarray"]);
     }
@@ -610,8 +661,18 @@ mod tests {
     #[test]
     fn directory_component_and_foreign_suffix_are_file_misses() {
         setup();
-        let foreign = if DLSUFFIX == ".so" { "tlib.dylib" } else { "tlib.so" };
-        for name in ["/nonexistent/dir/tlib", "sub/tlib", foreign, "$libdir/plugins/tlib", "$libdir/sub/tlib"] {
+        let foreign = if DLSUFFIX == ".so" {
+            "tlib.dylib"
+        } else {
+            "tlib.so"
+        };
+        for name in [
+            "/nonexistent/dir/tlib",
+            "sub/tlib",
+            foreign,
+            "$libdir/plugins/tlib",
+            "$libdir/sub/tlib",
+        ] {
             assert_err(
                 load_file(name, false),
                 ERRCODE_UNDEFINED_FILE,
@@ -639,7 +700,13 @@ mod tests {
             ERRCODE_UNDEFINED_FILE,
             "could not access file \"$libdir/plugins/tlib\": No such file or directory",
         );
-        for name in ["tlib", "$libdir/tlib", "$libdir/plugins/../tlib", "$libdir/plugins/a/b", "/tmp/tlib"] {
+        for name in [
+            "tlib",
+            "$libdir/tlib",
+            "$libdir/plugins/../tlib",
+            "$libdir/plugins/a/b",
+            "/tmp/tlib",
+        ] {
             assert_err(
                 load_file(name, true),
                 ERRCODE_INSUFFICIENT_PRIVILEGE,
@@ -670,19 +737,33 @@ mod tests {
         let up_and_back = format!("$libdir/../{base}/tlib");
         let abs_double = format!("{pkglib}//tlib");
         let dot_suffix = format!("$libdir/.//tlib{DLSUFFIX}");
-        for name in ["$libdir//tlib", "$libdir/./tlib", &up_and_back, &abs_double, &dot_suffix] {
+        for name in [
+            "$libdir//tlib",
+            "$libdir/./tlib",
+            &up_and_back,
+            &abs_double,
+            &dot_suffix,
+        ] {
             load_file(name, false).unwrap_or_else(|e| panic!("{name}: {}", e.message()));
         }
         assert_eq!(loaded_module_names(), vec!["tlib"]);
         assert_err(
             load_external_function("$libdir//tlib", "nosuchsymbol", true),
             ERRCODE_UNDEFINED_FUNCTION,
-            &format!("could not find function \"nosuchsymbol\" in file \"{pkglib}//tlib{DLSUFFIX}\""),
+            &format!(
+                "could not find function \"nosuchsymbol\" in file \"{pkglib}//tlib{DLSUFFIX}\""
+            ),
         );
         let trailing_slash = format!("$libdir/tlib{DLSUFFIX}/");
         let trailing_dot = format!("$libdir/tlib{DLSUFFIX}/.");
         let through_file = format!("$libdir/tlib{DLSUFFIX}/../tlib");
-        for name in ["$libdir/plugins/../tlib", "$libdir/tlib/../tlib", &trailing_slash, &trailing_dot, &through_file] {
+        for name in [
+            "$libdir/plugins/../tlib",
+            "$libdir/tlib/../tlib",
+            &trailing_slash,
+            &trailing_dot,
+            &through_file,
+        ] {
             assert_err(
                 load_file(name, false),
                 ERRCODE_UNDEFINED_FILE,
@@ -727,21 +808,57 @@ mod tests {
     fn dynamic_library_path_is_validated() {
         setup();
         for (path, state, msg) in [
-            ("$foo", ERRCODE_INVALID_NAME, "invalid macro name in path: $foo"),
-            (":/tmp", ERRCODE_INVALID_NAME, "zero-length component in parameter \"dynamic_library_path\""),
-            ("/tmp::$libdir", ERRCODE_INVALID_NAME, "zero-length component in parameter \"dynamic_library_path\""),
-            ("relative/dir", ERRCODE_INVALID_NAME, "component in parameter \"dynamic_library_path\" is not an absolute path"),
-            ("$libdir:", ERRCODE_INVALID_NAME, "component in parameter \"dynamic_library_path\" is not an absolute path"),
-            ("", ERRCODE_UNDEFINED_FILE, "could not access file \"tlib\": No such file or directory"),
-            ("$libdir/sub", ERRCODE_UNDEFINED_FILE, "could not access file \"tlib\": No such file or directory"),
+            (
+                "$foo",
+                ERRCODE_INVALID_NAME,
+                "invalid macro name in path: $foo",
+            ),
+            (
+                ":/tmp",
+                ERRCODE_INVALID_NAME,
+                "zero-length component in parameter \"dynamic_library_path\"",
+            ),
+            (
+                "/tmp::$libdir",
+                ERRCODE_INVALID_NAME,
+                "zero-length component in parameter \"dynamic_library_path\"",
+            ),
+            (
+                "relative/dir",
+                ERRCODE_INVALID_NAME,
+                "component in parameter \"dynamic_library_path\" is not an absolute path",
+            ),
+            (
+                "$libdir:",
+                ERRCODE_INVALID_NAME,
+                "component in parameter \"dynamic_library_path\" is not an absolute path",
+            ),
+            (
+                "",
+                ERRCODE_UNDEFINED_FILE,
+                "could not access file \"tlib\": No such file or directory",
+            ),
+            (
+                "$libdir/sub",
+                ERRCODE_UNDEFINED_FILE,
+                "could not access file \"tlib\": No such file or directory",
+            ),
         ] {
             dynamic_library_path_set(Some(path.to_owned()));
             assert_err(load_file("tlib", false), state, msg);
         }
         dynamic_library_path_set(Some("/tmp:$libdir".to_owned()));
         load_file("tlib", false).unwrap();
-        assert_err(load_file("$foo/bar", false), ERRCODE_INVALID_NAME, "invalid macro name in path: $foo/bar");
-        assert_err(load_file("$libdirx/tlib", false), ERRCODE_INVALID_NAME, "invalid macro name in path: $libdirx/tlib");
+        assert_err(
+            load_file("$foo/bar", false),
+            ERRCODE_INVALID_NAME,
+            "invalid macro name in path: $foo/bar",
+        );
+        assert_err(
+            load_file("$libdirx/tlib", false),
+            ERRCODE_INVALID_NAME,
+            "invalid macro name in path: $libdirx/tlib",
+        );
         assert_err(
             load_file("$foo", false),
             ERRCODE_UNDEFINED_FILE,
@@ -766,7 +883,11 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static INITS: AtomicUsize = AtomicUsize::new(0);
         let pkglib = setup();
-        register_builtin_library(BuiltinLibraryEntry { name: "tbinit", lookup: |_| None, pg_init: None });
+        register_builtin_library(BuiltinLibraryEntry {
+            name: "tbinit",
+            lookup: |_| None,
+            pg_init: None,
+        });
         register_backend_init("tbinit", || {
             INITS.fetch_add(1, Ordering::SeqCst);
             Ok(())
@@ -863,7 +984,10 @@ mod tests {
                 format!("{pkglib}/tlib{DLSUFFIX}")
             ]
         );
-        let (pre, ses) = (INITS_PRE.load(Ordering::SeqCst), INITS_SES.load(Ordering::SeqCst));
+        let (pre, ses) = (
+            INITS_PRE.load(Ordering::SeqCst),
+            INITS_SES.load(Ordering::SeqCst),
+        );
         std::thread::spawn(move || {
             set_pkglib(&pkglib);
             dynamic_library_path_set(Some("$libdir".to_owned()));
@@ -948,7 +1072,9 @@ mod tests {
             assert_err(
                 load_sql_callable_function("$libdir/tfinfo", funcname),
                 ERRCODE_UNDEFINED_FUNCTION,
-                &format!("could not find function \"{funcname}\" in file \"{pkglib}/tfinfo{DLSUFFIX}\""),
+                &format!(
+                    "could not find function \"{funcname}\" in file \"{pkglib}/tfinfo{DLSUFFIX}\""
+                ),
             );
         }
         // No _PG_init in the library (tlib): C's dlsym misses it too.

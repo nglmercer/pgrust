@@ -40,7 +40,10 @@ crate::strategies! {
     JOIN_DEDUP = 49, "join.dedup", JoinFold;
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(JOIN_DEDUP, &Dedup)], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(JOIN_DEDUP, &Dedup)],
+    ..crate::ops::NONE
+};
 
 /// `Shape::dedup`: no, a candidate (make), on (the end takes it: `decide`), one record per key (a SEMI / ANTI probe: `keys`).
 pub(crate) const CAND: u8 = 1;
@@ -58,14 +61,34 @@ pub(crate) fn set_keys(on: bool) {
 fn lone(px: &Px<'_, '_>, sh: &Shape) -> bool {
     let gx = px.gx;
     let ps = gx.pipelines();
-    let probes_slot = |p: &gravity_decompose::PipelineNode<'_>| p.ops.iter().any(|op| matches!(op, Op::Join(JoinDesc::Probe { slot: s, .. }) if *s == sh.slot));
-    let probes = ps.iter().enumerate().filter(|(q, p)| probes_slot(p) && gx.life_of(*q, sh.slot).is_some_and(|l| l.0 as usize == sh.build)).count();
+    let probes_slot = |p: &gravity_decompose::PipelineNode<'_>| {
+        p.ops
+            .iter()
+            .any(|op| matches!(op, Op::Join(JoinDesc::Probe { slot: s, .. }) if *s == sh.slot))
+    };
+    let probes = ps
+        .iter()
+        .enumerate()
+        .filter(|(q, p)| {
+            probes_slot(p)
+                && gx
+                    .life_of(*q, sh.slot)
+                    .is_some_and(|l| l.0 as usize == sh.build)
+        })
+        .count();
     probes == 1 && !ps.inners().into_iter().any(|(_, p)| probes_slot(p))
 }
 
 /// Whether probe op `j` of pipeline `k` over build `sh` may drop its build's copies, as far as the probe and the ops after
 /// it tell (the end answers later, `decide`); records the answer on the shape.
-pub(crate) fn candidate(px: &Px<'_, '_>, k: usize, j: usize, jt: JoinType, catalog: bool, sh: &Shape) -> bool {
+pub(crate) fn candidate(
+    px: &Px<'_, '_>,
+    k: usize,
+    j: usize,
+    jt: JoinType,
+    catalog: bool,
+    sh: &Shape,
+) -> bool {
     let gx = px.gx;
     let ps = gx.pipelines();
     let ok = crate::face::source::on(Variant::Strategy(JOIN_DEDUP))
@@ -95,7 +118,14 @@ pub(crate) fn candidate(px: &Px<'_, '_>, k: usize, j: usize, jt: JoinType, catal
 /// ANTI (a RIGHT one marks or fills the build), reads no build column (an empty payload), is not a catalog or nest probe,
 /// its build not swapped and probed by this probe alone; the frame counts no rows (EXPLAIN ANALYZE counts the Hash's
 /// rows). A NULL key never reaches the build (only a probe that fills the build keeps one).
-pub(crate) fn keys(px: &Px<'_, '_>, k: usize, jt: JoinType, qual_empty: bool, catalog: bool, sh: &Shape) -> bool {
+pub(crate) fn keys(
+    px: &Px<'_, '_>,
+    k: usize,
+    jt: JoinType,
+    qual_empty: bool,
+    catalog: bool,
+    sh: &Shape,
+) -> bool {
     let ok = SEMI_KEYS.load(core::sync::atomic::Ordering::Relaxed)
         && matches!(jt, JoinType::JOIN_SEMI | JoinType::JOIN_ANTI)
         && qual_empty
@@ -127,21 +157,40 @@ pub(crate) fn decide(sh: &Shape, mult: bool, end: &dyn EndMech) -> bool {
 mod tests {
     use gravity_abi::hash::{Depth, KeyHash};
 
-    use crate::ops::hashjoin::build::{ALLOW, A_DENSE, A_TAGS, BITS, DCHAIN, DENSE, DIR, FLAGS, FORM, F_DEDUP, F_RANGE, HASH, HDR, HI, IDX, LO, LOW, N, PAY, PHASE, REC, SLOTS, TOP, WORDS};
+    use crate::ops::hashjoin::build::{
+        ALLOW, A_DENSE, A_TAGS, BITS, DCHAIN, DENSE, DIR, FLAGS, FORM, F_DEDUP, F_RANGE, HASH, HDR,
+        HI, IDX, LO, LOW, N, PAY, PHASE, REC, SLOTS, TOP, WORDS,
+    };
     use crate::ops::hashjoin::rt::{lay_out, rd, wr};
 
     /// Records (one-word key, its payload NULL bit, one payload word) laid out under `allow` and `flags`: the form, and per
     /// probe key the payloads (`-1`: the NULL bit) of the records its walk reaches, sorted.
-    fn reached(recs: &[(i64, bool, i64)], allow: u8, flags: u8, probes: &[i64]) -> (u8, Vec<Vec<i64>>) {
+    fn reached(
+        recs: &[(i64, bool, i64)],
+        allow: u8,
+        flags: u8,
+        probes: &[i64],
+    ) -> (u8, Vec<Vec<i64>>) {
         let len = 1usize << 16;
         let mut buf = vec![0u64; len / 8];
         let d = buf.as_mut_ptr() as *mut u8;
         // SAFETY: `buf` is the region; records of 24 bytes (the key word, the link word, the payload word) from HDR.
-        unsafe {wr::<u8>(d, PHASE, 1); wr::<u8>(d, WORDS, 1); wr::<u32>(d, REC, 24); wr::<u8>(d, ALLOW, allow); wr::<u8>(d, FLAGS, flags); wr::<u8>(d, PAY, 1);
-wr::<u64>(d, N, recs.len() as u64); wr::<u64>(d, TOP, len as u64);
-wr::<i64>(d, LO, recs.iter().map(|r| r.0).min().unwrap()); wr::<i64>(d, HI, recs.iter().map(|r| r.0).max().unwrap());
+        unsafe {
+            wr::<u8>(d, PHASE, 1);
+            wr::<u8>(d, WORDS, 1);
+            wr::<u32>(d, REC, 24);
+            wr::<u8>(d, ALLOW, allow);
+            wr::<u8>(d, FLAGS, flags);
+            wr::<u8>(d, PAY, 1);
+            wr::<u64>(d, N, recs.len() as u64);
+            wr::<u64>(d, TOP, len as u64);
+            wr::<i64>(d, LO, recs.iter().map(|r| r.0).min().unwrap());
+            wr::<i64>(d, HI, recs.iter().map(|r| r.0).max().unwrap());
             let rec = |i: usize| d.add(HDR + 24 * i);
-            for (i, &(k, null, v)) in recs.iter().enumerate() {wr::<i64>(rec(i), 0, k); wr::<u64>(rec(i), 8, if null { 1 << 32 } else { 0 }); wr::<i64>(rec(i), 16, v);
+            for (i, &(k, null, v)) in recs.iter().enumerate() {
+                wr::<i64>(rec(i), 0, k);
+                wr::<u64>(rec(i), 8, if null { 1 << 32 } else { 0 });
+                wr::<i64>(rec(i), 16, v);
             }
             lay_out(d, len).unwrap();
             let (form, lo) = (rd::<u8>(d, FORM), rd::<i64>(d, LO));
@@ -160,13 +209,27 @@ wr::<i64>(d, LO, recs.iter().map(|r| r.0).min().unwrap()); wr::<i64>(d, HI, recs
             let of = |k: i64| -> Vec<i64> {
                 let off = (k - lo) as usize;
                 let mut v = match form {
-                    DENSE if rd::<u64>(d, rd::<u64>(d, DIR) as usize + 8 * (off >> 6)) >> (off & 63) & 1 == 0 => vec![],
+                    DENSE
+                        if rd::<u64>(d, rd::<u64>(d, DIR) as usize + 8 * (off >> 6))
+                            >> (off & 63)
+                            & 1
+                            == 0 =>
+                    {
+                        vec![]
+                    }
                     DENSE => {
                         let s = d.add(rd::<u64>(d, SLOTS) as usize + 16 * off);
                         vec![pay(rd::<u64>(s, 0), rd::<i64>(s, 8))]
                     }
                     DCHAIN => walk(rd::<u32>(d, rd::<u64>(d, DIR) as usize + 4 * off) as u64, k),
-                    _ => walk(rd::<u64>(d, rd::<u64>(d, DIR) as usize + 8 * KeyHash::of(&[k as u64]).home(rd::<u32>(d, BITS), Depth::TOP)) & IDX, k),
+                    _ => walk(
+                        rd::<u64>(
+                            d,
+                            rd::<u64>(d, DIR) as usize
+                                + 8 * KeyHash::of(&[k as u64]).home(rd::<u32>(d, BITS), Depth::TOP),
+                        ) & IDX,
+                        k,
+                    ),
                 };
                 v.sort_unstable();
                 v
@@ -180,18 +243,63 @@ wr::<i64>(d, LO, recs.iter().map(|r| r.0).min().unwrap()); wr::<i64>(d, HI, recs
     #[test]
     fn copies_chain_once_in_every_form() {
         let (on, off) = (F_RANGE | F_DEDUP, F_RANGE);
-        assert_eq!(reached(&[(5, false, 1), (5, false, 1), (7, false, 2), (5, false, 1)], A_DENSE, on, &[5, 6, 7]), (DENSE, vec![vec![1], vec![], vec![2]]));
-        assert_eq!(reached(&[(5, false, 1), (5, false, 2), (5, false, 1), (7, false, 3), (5, true, 1)], A_DENSE, on, &[5, 7]), (DCHAIN, vec![vec![-1, 1, 2], vec![3]]));
-        assert_eq!(reached(&[(5, false, 1), (5, false, 2), (5, false, 1), (7, false, 3)], A_DENSE, off, &[5, 7]), (DCHAIN, vec![vec![1, 1, 2], vec![3]]));
-        let wide = [(1, false, 9), (1_000_000, false, 8), (1, false, 9), (1_000_000, false, 7), (42, false, 9), (1_000_000, false, 8)];
-        assert_eq!(reached(&wide, A_DENSE | A_TAGS, on, &[1, 42, 1_000_000, 3]), (HASH, vec![vec![9], vec![9], vec![7, 8], vec![]]));
-        assert_eq!(reached(&wide, A_DENSE | A_TAGS, off, &[1, 1_000_000]), (HASH, vec![vec![9, 9], vec![7, 8, 8]]));
+        assert_eq!(
+            reached(
+                &[(5, false, 1), (5, false, 1), (7, false, 2), (5, false, 1)],
+                A_DENSE,
+                on,
+                &[5, 6, 7]
+            ),
+            (DENSE, vec![vec![1], vec![], vec![2]])
+        );
+        assert_eq!(
+            reached(
+                &[
+                    (5, false, 1),
+                    (5, false, 2),
+                    (5, false, 1),
+                    (7, false, 3),
+                    (5, true, 1)
+                ],
+                A_DENSE,
+                on,
+                &[5, 7]
+            ),
+            (DCHAIN, vec![vec![-1, 1, 2], vec![3]])
+        );
+        assert_eq!(
+            reached(
+                &[(5, false, 1), (5, false, 2), (5, false, 1), (7, false, 3)],
+                A_DENSE,
+                off,
+                &[5, 7]
+            ),
+            (DCHAIN, vec![vec![1, 1, 2], vec![3]])
+        );
+        let wide = [
+            (1, false, 9),
+            (1_000_000, false, 8),
+            (1, false, 9),
+            (1_000_000, false, 7),
+            (42, false, 9),
+            (1_000_000, false, 8),
+        ];
+        assert_eq!(
+            reached(&wide, A_DENSE | A_TAGS, on, &[1, 42, 1_000_000, 3]),
+            (HASH, vec![vec![9], vec![9], vec![7, 8], vec![]])
+        );
+        assert_eq!(
+            reached(&wide, A_DENSE | A_TAGS, off, &[1, 1_000_000]),
+            (HASH, vec![vec![9, 9], vec![7, 8, 8]])
+        );
     }
 
     /// A chain walk compares a new record with `raw::SEEN` kept records at most: a copy past them chains (only its cost).
     #[test]
     fn the_walk_is_bounded() {
-        let mut recs: Vec<(i64, bool, i64)> = (0..super::raw::SEEN as i64 + 1).map(|v| (1_000_000, false, v)).collect();
+        let mut recs: Vec<(i64, bool, i64)> = (0..super::raw::SEEN as i64 + 1)
+            .map(|v| (1_000_000, false, v))
+            .collect();
         recs.push((1_000_000, false, 0));
         recs.push((1, false, 0));
         let (form, got) = reached(&recs, A_TAGS, F_RANGE | F_DEDUP, &[1_000_000]);
@@ -213,8 +321,14 @@ wr::<i64>(d, LO, recs.iter().map(|r| r.0).min().unwrap()); wr::<i64>(d, HI, recs
             let mut buf = vec![0u64; len / 8];
             let d = buf.as_mut_ptr() as *mut u8;
             // SAFETY: `buf` is the region; records of `rec` bytes (the image words, the link word) from HDR, no payload.
-            unsafe {wr::<u8>(d, PHASE, 1); wr::<u8>(d, WORDS, words as u8); wr::<u32>(d, REC, rec as u32); wr::<u8>(d, FLAGS, flags); wr::<u8>(d, PAY, 0);
-wr::<u64>(d, N, keys.len() as u64); wr::<u64>(d, TOP, len as u64);
+            unsafe {
+                wr::<u8>(d, PHASE, 1);
+                wr::<u8>(d, WORDS, words as u8);
+                wr::<u32>(d, REC, rec as u32);
+                wr::<u8>(d, FLAGS, flags);
+                wr::<u8>(d, PAY, 0);
+                wr::<u64>(d, N, keys.len() as u64);
+                wr::<u64>(d, TOP, len as u64);
                 for (i, k) in keys.iter().enumerate() {
                     for (w, &v) in k.iter().enumerate() {
                         wr::<i64>(d.add(HDR + rec * i), 8 * w, v);
@@ -222,19 +336,47 @@ wr::<u64>(d, N, keys.len() as u64); wr::<u64>(d, TOP, len as u64);
                 }
                 let got = super::compact(&a, d, len, keys.len());
                 let n = rd::<u64>(d, N) as usize;
-                let kept = (0..n).map(|i| (0..words).map(|w| rd::<i64>(d.add(HDR + rec * i), 8 * w)).collect()).collect();
+                let kept = (0..n)
+                    .map(|i| {
+                        (0..words)
+                            .map(|w| rd::<i64>(d.add(HDR + rec * i), 8 * w))
+                            .collect()
+                    })
+                    .collect();
                 (got, kept, rd::<u8>(d, KEYS_DONE) != 0)
             }
         };
         let one = |v: &[i64]| v.iter().map(|&k| vec![k]).collect::<Vec<_>>();
-        assert_eq!(run(&one(&[5, 7, 5, 5, 9, 7, 1, 5]), F_KEYS | F_RANGE), (Some(4), one(&[5, 7, 9, 1]), false));
-        let two = [vec![1, 2], vec![1, 3], vec![1, 2], vec![2, 1], vec![1, 3], vec![2, 1]];
-        assert_eq!(run(&two, F_KEYS), (Some(3), vec![vec![1, 2], vec![1, 3], vec![2, 1]], false));
-        assert_eq!(run(&one(&[1, 2, 3, 4, 5, 6, 7, 1]), F_KEYS | F_RANGE), (Some(7), one(&[1, 2, 3, 4, 5, 6, 7]), true));
-        assert_eq!(run(&one(&[5, 7, 5, 5]), F_RANGE), (None, one(&[5, 7, 5, 5]), false));
+        assert_eq!(
+            run(&one(&[5, 7, 5, 5, 9, 7, 1, 5]), F_KEYS | F_RANGE),
+            (Some(4), one(&[5, 7, 9, 1]), false)
+        );
+        let two = [
+            vec![1, 2],
+            vec![1, 3],
+            vec![1, 2],
+            vec![2, 1],
+            vec![1, 3],
+            vec![2, 1],
+        ];
+        assert_eq!(
+            run(&two, F_KEYS),
+            (Some(3), vec![vec![1, 2], vec![1, 3], vec![2, 1]], false)
+        );
+        assert_eq!(
+            run(&one(&[1, 2, 3, 4, 5, 6, 7, 1]), F_KEYS | F_RANGE),
+            (Some(7), one(&[1, 2, 3, 4, 5, 6, 7]), true)
+        );
+        assert_eq!(
+            run(&one(&[5, 7, 5, 5]), F_RANGE),
+            (None, one(&[5, 7, 5, 5]), false)
+        );
         let many: Vec<i64> = (0..10_000).map(|i| (i * 7919) % 300).collect();
         let (got, kept, _) = run(&one(&many), F_KEYS | F_RANGE);
         assert_eq!((got, kept.len()), (Some(300), 300));
-        assert!(kept.iter().enumerate().all(|(i, k)| k[0] == many[i]), "the first of each image, in order");
+        assert!(
+            kept.iter().enumerate().all(|(i, k)| k[0] == many[i]),
+            "the first of each image, in order"
+        );
     }
 }

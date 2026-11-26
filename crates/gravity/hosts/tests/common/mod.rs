@@ -13,8 +13,9 @@ use ::types_core::{
     RELPERSISTENCE_PERMANENT,
 };
 use ::types_nbtree::{
+    BTMetaPageData, BTPageOpaqueData,
     IndexUniqueCheck::{UNIQUE_CHECK_NO, UNIQUE_CHECK_YES},
-    BTMetaPageData, BTPageOpaqueData, BTP_META, BTREE_MAGIC, BTREE_VERSION, P_NONE,
+    BTP_META, BTREE_MAGIC, BTREE_VERSION, P_NONE,
 };
 use ::types_nodes::node_tree::Node;
 use ::types_nodes::primnodes::OpExpr;
@@ -152,26 +153,47 @@ pub fn install() {
                 Ok(buf)
             })
         });
-        bufmgr_seams::read_buffer_strategy::set(|rel, block, _strategy| bufmgr_seams::read_buffer::call(rel, block));
+        bufmgr_seams::read_buffer_strategy::set(|rel, block, _strategy| {
+            bufmgr_seams::read_buffer::call(rel, block)
+        });
         bufmgr_seams::get_access_strategy::set(|_| None);
         bufmgr_seams::free_access_strategy::set(|_| {});
-        bufmgr_seams::read_buffer_without_relcache::set(|loc, _fork, block, _mode, _strategy, _permanent| {
-            if FAIL_BLOCK.load(std::sync::atomic::Ordering::Relaxed) == block as u64 {
-                return Err(Box::new(::types_error::PgError::error("could not read block (fixture)".to_string())));
-            }
-            with_fake(|f| {
-                let buf = f.tables[&loc.relNumber][block as usize];
-                f.pins[(buf - 1) as usize] += 1;
-                Ok(buf)
-            })
-        });
+        bufmgr_seams::read_buffer_without_relcache::set(
+            |loc, _fork, block, _mode, _strategy, _permanent| {
+                if FAIL_BLOCK.load(std::sync::atomic::Ordering::Relaxed) == block as u64 {
+                    return Err(Box::new(::types_error::PgError::error(
+                        "could not read block (fixture)".to_string(),
+                    )));
+                }
+                with_fake(|f| {
+                    let buf = f.tables[&loc.relNumber][block as usize];
+                    f.pins[(buf - 1) as usize] += 1;
+                    Ok(buf)
+                })
+            },
+        );
         // the combined read: the fake pins the first block alone and records the run it was asked for
-        bufmgr_seams::read_buffer_batched_without_relcache::set(|loc, block, hint, strategy, permanent| {
-            BATCHED_HINT_MAX.fetch_max(hint as u64, std::sync::atomic::Ordering::Relaxed);
-            let _ = BATCHED_FIRST.compare_exchange(u64::MAX, block as u64, std::sync::atomic::Ordering::Relaxed, std::sync::atomic::Ordering::Relaxed);
-            BATCHED_CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            bufmgr_seams::read_buffer_without_relcache::call(loc, ::types_core::ForkNumber::MAIN_FORKNUM, block, ::types_storage::ReadBufferMode::Normal, strategy, permanent).map(|b| (b, true))
-        });
+        bufmgr_seams::read_buffer_batched_without_relcache::set(
+            |loc, block, hint, strategy, permanent| {
+                BATCHED_HINT_MAX.fetch_max(hint as u64, std::sync::atomic::Ordering::Relaxed);
+                let _ = BATCHED_FIRST.compare_exchange(
+                    u64::MAX,
+                    block as u64,
+                    std::sync::atomic::Ordering::Relaxed,
+                    std::sync::atomic::Ordering::Relaxed,
+                );
+                BATCHED_CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                bufmgr_seams::read_buffer_without_relcache::call(
+                    loc,
+                    ::types_core::ForkNumber::MAIN_FORKNUM,
+                    block,
+                    ::types_storage::ReadBufferMode::Normal,
+                    strategy,
+                    permanent,
+                )
+                .map(|b| (b, true))
+            },
+        );
         // C `ReadRecentBuffer`: the guessed buffer pinned when it still holds the block, else nothing.
         bufmgr_seams::read_recent_buffer::set(|loc, _fork, block, recent| {
             // the block whose read fails is not resident: no guess or hint pins it
@@ -277,7 +299,9 @@ pub fn install() {
         }
         // a fetch of an invisible row asks whether its chain is surely dead (HIDE_ROWS)
         if !procarray_seams::global_vis_test_for::is_installed() {
-            procarray_seams::global_vis_test_for::set(|_rel| ::types_core::GlobalVisStateHandle::new(0));
+            procarray_seams::global_vis_test_for::set(|_rel| {
+                ::types_core::GlobalVisStateHandle::new(0)
+            });
         }
         if !lock_seams::do_lock_modes_conflict::is_installed() {
             lock_seams::do_lock_modes_conflict::set(|_a, _b| false);
@@ -307,7 +331,13 @@ pub fn install() {
                 v.push(1i16);
                 v
             };
-            Ok(Rc::new(relcache_seams::IndexAttrBitmaps { hot_blocking: one(), summarized: PgVec::new_in(mcx), key: one(), pk: one(), identity: one() }))
+            Ok(Rc::new(relcache_seams::IndexAttrBitmaps {
+                hot_blocking: one(),
+                summarized: PgVec::new_in(mcx),
+                key: one(),
+                pk: one(),
+                identity: one(),
+            }))
         });
         xact_seams::get_current_command_id::set(|_used| Ok(CURRENT_CID.with(Cell::get)));
         xact_seams::set_xact_accessed_temp_namespace::set(|| ());
@@ -318,7 +348,9 @@ pub fn install() {
         miscinit_seams::get_user_id::set(|| 10);
         aclchk_seams::object_aclcheck::set(|_classid, _objid, _roleid, _mode| Ok(0));
         // a constraint violation's row description (execMain.c ExecBuildSlotValueDescription): no RLS, SELECT granted
-        rls_seams::check_enable_rls::set(|_relid, _user, _no_error| Ok(rls_seams::CheckEnableRls::RlsNone));
+        rls_seams::check_enable_rls::set(|_relid, _user, _no_error| {
+            Ok(rls_seams::CheckEnableRls::RlsNone)
+        });
         aclchk_seams::pg_class_aclcheck_ext::set(|_relid, _roleid, _mode| Ok((0, false)));
 
         predicate_seams::check_for_serializable_conflict_in::set(|_rel, _tid, _blk| Ok(()));
@@ -336,8 +368,12 @@ pub fn install() {
         });
         catalog_seams::is_catalog_relation::set(|_rel| false);
 
-        heapam_visibility_seams::heap_tuple_satisfies_visibility::set(|_h, _s, _b| Ok(!HIDE_ROWS.load(std::sync::atomic::Ordering::Relaxed)));
-        heapam_visibility_seams::heap_tuple_satisfies_mvcc_page::set(|_h, _s, _b, _m| Ok(!HIDE_ROWS.load(std::sync::atomic::Ordering::Relaxed)));
+        heapam_visibility_seams::heap_tuple_satisfies_visibility::set(|_h, _s, _b| {
+            Ok(!HIDE_ROWS.load(std::sync::atomic::Ordering::Relaxed))
+        });
+        heapam_visibility_seams::heap_tuple_satisfies_mvcc_page::set(|_h, _s, _b, _m| {
+            Ok(!HIDE_ROWS.load(std::sync::atomic::Ordering::Relaxed))
+        });
         heapam_visibility_seams::heap_tuple_is_surely_dead::set(|_h, _v| Ok(false));
         heapam_visibility_seams::heap_tuple_header_is_only_locked::set(|_h| Ok(false));
         heapam_visibility_seams::heap_tuple_satisfies_update::set(|htup, _cid, _buf| {
@@ -351,7 +387,13 @@ pub fn install() {
             if xmax == 10 {
                 return Ok(TM_SelfModified);
             }
-            Ok(if ::types_tuple::ItemPointerEquals(&h.t_ctid, &htup.t_self) { TM_Deleted } else { TM_Updated })
+            Ok(
+                if ::types_tuple::ItemPointerEquals(&h.t_ctid, &htup.t_self) {
+                    TM_Deleted
+                } else {
+                    TM_Updated
+                },
+            )
         });
 
         relation_seams::relation_open::set(|_mcx, relid, _lockmode| {
@@ -361,7 +403,10 @@ pub fn install() {
                 let mut c = c.borrow_mut();
                 let (heap, index) = c.get_or_insert_with(|| {
                     let unique = UNIQUE_IDX.with(Cell::get);
-                    (Rc::new(heap_relation_data(mcx)), Rc::new(index_relation_data(mcx, unique)))
+                    (
+                        Rc::new(heap_relation_data(mcx)),
+                        Rc::new(index_relation_data(mcx, unique)),
+                    )
                 });
                 match relid {
                     HEAP_OID => Ok(Relation::open_rc(heap.clone(), None)),
@@ -415,31 +460,35 @@ pub fn install() {
                 amoprighttype: INT4OID,
             }))
         });
-        syscache_seams::lookup_pg_amop_by_strategy::set(|opfamily, lefttype, righttype, strategy| {
-            assert_eq!(
-                (opfamily, lefttype, righttype),
-                (INT4_BTREE_OPFAMILY, INT4OID, INT4OID)
-            );
-            Ok(match strategy {
-                3 => OP_INT4EQ,
-                5 => OP_INT4GT,
-                _ => 0,
-            })
-        });
+        syscache_seams::lookup_pg_amop_by_strategy::set(
+            |opfamily, lefttype, righttype, strategy| {
+                assert_eq!(
+                    (opfamily, lefttype, righttype),
+                    (INT4_BTREE_OPFAMILY, INT4OID, INT4OID)
+                );
+                Ok(match strategy {
+                    3 => OP_INT4EQ,
+                    5 => OP_INT4GT,
+                    _ => 0,
+                })
+            },
+        );
         syscache_seams::lookup_pg_operator_shape::set(|opno| {
-            Ok((opno == OP_INT4EQ).then_some(syscache_seams::PgOperatorShape {
-                oprnamespace: 11,
-                oprleft: INT4OID,
-                oprright: INT4OID,
-                oprresult: 16,
-                oprcom: OP_INT4EQ,
-                oprnegate: 0,
-                oprcode: F_INT4EQ,
-                oprrest: 0,
-                oprjoin: 0,
-                oprcanmerge: true,
-                oprcanhash: true,
-            }))
+            Ok(
+                (opno == OP_INT4EQ).then_some(syscache_seams::PgOperatorShape {
+                    oprnamespace: 11,
+                    oprleft: INT4OID,
+                    oprright: INT4OID,
+                    oprresult: 16,
+                    oprcom: OP_INT4EQ,
+                    oprnegate: 0,
+                    oprcode: F_INT4EQ,
+                    oprrest: 0,
+                    oprjoin: 0,
+                    oprcanmerge: true,
+                    oprcanhash: true,
+                }),
+            )
         });
         syscache_seams::lookup_pg_amproc::set(|opfamily, lefttype, righttype, procnum| {
             assert_eq!(
@@ -501,7 +550,11 @@ const GENERATED_7: &str = "{CONST :consttype 23 :consttypmod -1 :constcollid 0 :
 /// `set_check_not_null` (D608).
 fn heap_tupdesc(mcx: Mcx<'_>) -> TupleDescData<'_> {
     let mut d = int4_tupdesc(mcx);
-    let (nn, ck, gen) = (NOT_NULL.with(|n| n.get()), CHECK_NN.with(|c| c.get()), GENERATED.with(|g| g.get()));
+    let (nn, ck, gen) = (
+        NOT_NULL.with(|n| n.get()),
+        CHECK_NN.with(|c| c.get()),
+        GENERATED.with(|g| g.get()),
+    );
     if nn {
         d.attrs[0].attnotnull = true;
     }
@@ -512,13 +565,33 @@ fn heap_tupdesc(mcx: Mcx<'_>) -> TupleDescData<'_> {
     if nn || ck || gen {
         let mut check = PgVec::new_in(mcx);
         if ck {
-            check.push(::types_tuple::tupdesc::ConstrCheck { ccname: Some(::mcx::PgString::from_str_in("t_a_check", mcx).unwrap()), ccbin: Some(::mcx::PgString::from_str_in(CHECK_A_NN, mcx).unwrap()), ccenforced: true, ccvalid: true, ccnoinherit: false });
+            check.push(::types_tuple::tupdesc::ConstrCheck {
+                ccname: Some(::mcx::PgString::from_str_in("t_a_check", mcx).unwrap()),
+                ccbin: Some(::mcx::PgString::from_str_in(CHECK_A_NN, mcx).unwrap()),
+                ccenforced: true,
+                ccvalid: true,
+                ccnoinherit: false,
+            });
         }
         let mut defval = PgVec::new_in(mcx);
         if gen {
-            defval.push(::types_tuple::tupdesc::AttrDefault { adnum: 1, adbin: Some(::mcx::PgString::from_str_in(GENERATED_7, mcx).unwrap()) });
+            defval.push(::types_tuple::tupdesc::AttrDefault {
+                adnum: 1,
+                adbin: Some(::mcx::PgString::from_str_in(GENERATED_7, mcx).unwrap()),
+            });
         }
-        let constr = ::types_tuple::tupdesc::TupleConstr { defval, check, missing: PgVec::new_in(mcx), missing_store: PgVec::new_in(mcx), num_defval: gen as u16, num_check: ck as u16, relchecks: ck as i16, has_not_null: nn, has_generated_stored: gen, has_generated_virtual: false };
+        let constr = ::types_tuple::tupdesc::TupleConstr {
+            defval,
+            check,
+            missing: PgVec::new_in(mcx),
+            missing_store: PgVec::new_in(mcx),
+            num_defval: gen as u16,
+            num_check: ck as u16,
+            relchecks: ck as i16,
+            has_not_null: nn,
+            has_generated_stored: gen,
+            has_generated_virtual: false,
+        };
         d.constr = Some(::mcx::box_new_in(mcx, constr));
     }
     d
@@ -592,9 +665,18 @@ pub fn heap_relation_data(mcx: Mcx<'_>) -> RelationData<'_> {
         rd_firstRelfilelocatorSubid: Cell::new(0),
         rd_droppedSubid: Cell::new(0),
         rd_lockInfo: LockInfoData {
-            lockRelId: LockRelId { relId: HEAP_OID, dbId: 5 },
+            lockRelId: LockRelId {
+                relId: HEAP_OID,
+                dbId: 5,
+            },
         },
-        rd_rel: pg_class("t", HEAP_OID, ::tableam::HEAP_TABLE_AM_OID, RELKIND_RELATION, true),
+        rd_rel: pg_class(
+            "t",
+            HEAP_OID,
+            ::tableam::HEAP_TABLE_AM_OID,
+            RELKIND_RELATION,
+            true,
+        ),
         rd_att: Rc::new(heap_tupdesc(mcx)),
         rd_index: None,
         rd_opcintype: PgVec::new_in(mcx),
@@ -605,13 +687,17 @@ pub fn heap_relation_data(mcx: Mcx<'_>) -> RelationData<'_> {
         pgstat_enabled: Cell::new(false),
         pgstat_link: core::cell::Cell::new((0, core::ptr::null_mut())),
         rd_amcache: Default::default(),
-        rd_amcache_hash: Default::default(), rd_amcache_gin: Default::default(), rd_amcache_spgist: Default::default(), rd_amcache_bloom: Default::default(),
+        rd_amcache_hash: Default::default(),
+        rd_amcache_gin: Default::default(),
+        rd_amcache_spgist: Default::default(),
+        rd_amcache_bloom: Default::default(),
         rd_support: PgVec::new_in(mcx),
         rd_supportinfo: Default::default(),
         rd_opcoptions: Default::default(),
         rd_indexlist: Default::default(),
-            rd_trigdesc: Default::default(),
-            rd_hastriggers: HAS_TRIGGERS.with(|t| t.get()), rd_hasrules: false,
+        rd_trigdesc: Default::default(),
+        rd_hastriggers: HAS_TRIGGERS.with(|t| t.get()),
+        rd_hasrules: false,
     }
 }
 
@@ -620,8 +706,19 @@ pub fn heap2_relation_data(mcx: Mcx<'_>) -> RelationData<'_> {
     let mut d = heap_relation_data(mcx);
     d.rd_locator = Cell::new(::types_storage::RelFileLocator::new(1663, 5, HEAP2_OID));
     d.rd_id = HEAP2_OID;
-    d.rd_lockInfo = LockInfoData { lockRelId: LockRelId { relId: HEAP2_OID, dbId: 5 } };
-    d.rd_rel = pg_class("t2", HEAP2_OID, ::tableam::HEAP_TABLE_AM_OID, RELKIND_RELATION, false);
+    d.rd_lockInfo = LockInfoData {
+        lockRelId: LockRelId {
+            relId: HEAP2_OID,
+            dbId: 5,
+        },
+    };
+    d.rd_rel = pg_class(
+        "t2",
+        HEAP2_OID,
+        ::tableam::HEAP_TABLE_AM_OID,
+        RELKIND_RELATION,
+        false,
+    );
     d
 }
 
@@ -630,7 +727,9 @@ pub fn load_heap2_rows(mcx: Mcx<'_>, rows: &[i32]) -> Vec<ItemPointerData> {
     let heap = Relation::open(heap2_relation_data(mcx), None);
     rows.iter()
         .map(|&v| {
-            let mut tuple = ::heaptuple::heap_form_tuple(mcx, &heap.rd_att, &[Datum::from_i32(v)], &[false]).unwrap();
+            let mut tuple =
+                ::heaptuple::heap_form_tuple(mcx, &heap.rd_att, &[Datum::from_i32(v)], &[false])
+                    .unwrap();
             ::heapam::heap_insert(&heap, tuple.as_tuple_mut(), 0, 0, None).unwrap();
             tuple.as_tuple().t_self
         })
@@ -659,9 +758,18 @@ pub fn index_relation_data(mcx: Mcx<'_>, unique: bool) -> RelationData<'_> {
         rd_firstRelfilelocatorSubid: Cell::new(0),
         rd_droppedSubid: Cell::new(0),
         rd_lockInfo: LockInfoData {
-            lockRelId: LockRelId { relId: IDX_OID, dbId: 5 },
+            lockRelId: LockRelId {
+                relId: IDX_OID,
+                dbId: 5,
+            },
         },
-        rd_rel: pg_class("t_idx", IDX_OID, ::types_core::BTREE_AM_OID, RELKIND_INDEX, false),
+        rd_rel: pg_class(
+            "t_idx",
+            IDX_OID,
+            ::types_core::BTREE_AM_OID,
+            RELKIND_INDEX,
+            false,
+        ),
         rd_att: Rc::new(int4_tupdesc(mcx)),
         rd_index: Some(FormData_pg_index {
             indexrelid: IDX_OID,
@@ -679,8 +787,8 @@ pub fn index_relation_data(mcx: Mcx<'_>, unique: bool) -> RelationData<'_> {
             indxmin: 0,
             indkey,
             has_indpred: false,
-        indexprs_src: None,
-        indpred_src: None,
+            indexprs_src: None,
+            indpred_src: None,
         }),
         rd_opcintype: one(INT4OID),
         rd_opfamily: one(INT4_BTREE_OPFAMILY),
@@ -690,29 +798,55 @@ pub fn index_relation_data(mcx: Mcx<'_>, unique: bool) -> RelationData<'_> {
         pgstat_enabled: Cell::new(false),
         pgstat_link: core::cell::Cell::new((0, core::ptr::null_mut())),
         rd_amcache: Default::default(),
-        rd_amcache_hash: Default::default(), rd_amcache_gin: Default::default(), rd_amcache_spgist: Default::default(), rd_amcache_bloom: Default::default(),
+        rd_amcache_hash: Default::default(),
+        rd_amcache_gin: Default::default(),
+        rd_amcache_spgist: Default::default(),
+        rd_amcache_bloom: Default::default(),
         rd_support: PgVec::new_in(mcx),
         rd_supportinfo: Default::default(),
         rd_opcoptions: Default::default(),
         rd_indexlist: Default::default(),
-            rd_trigdesc: Default::default(),
-            rd_hastriggers: false, rd_hasrules: false,
+        rd_trigdesc: Default::default(),
+        rd_hastriggers: false,
+        rd_hasrules: false,
     }
 }
 
-pub fn insert_row<'mcx>(mcx: Mcx<'mcx>, heap: &Relation<'mcx>, index: &Relation<'mcx>, val: i32) -> ::types_error::PgResult<ItemPointerData> {
-    let mut tuple = ::heaptuple::heap_form_tuple(mcx, &heap.rd_att, &[Datum::from_i32(val)], &[false])?;
+pub fn insert_row<'mcx>(
+    mcx: Mcx<'mcx>,
+    heap: &Relation<'mcx>,
+    index: &Relation<'mcx>,
+    val: i32,
+) -> ::types_error::PgResult<ItemPointerData> {
+    let mut tuple =
+        ::heaptuple::heap_form_tuple(mcx, &heap.rd_att, &[Datum::from_i32(val)], &[false])?;
     ::heapam::heap_insert(heap, tuple.as_tuple_mut(), 0, 0, None)?;
     let tid = tuple.as_tuple().t_self;
     let mut cache = None;
-    ::indexam::index_insert(mcx, index, &[Datum::from_i32(val)], &[false], &tid, heap, if index.rd_index.as_ref().unwrap().indisunique { UNIQUE_CHECK_YES } else { UNIQUE_CHECK_NO }, false, &mut cache)?;
+    ::indexam::index_insert(
+        mcx,
+        index,
+        &[Datum::from_i32(val)],
+        &[false],
+        &tid,
+        heap,
+        if index.rd_index.as_ref().unwrap().indisunique {
+            UNIQUE_CHECK_YES
+        } else {
+            UNIQUE_CHECK_NO
+        },
+        false,
+        &mut cache,
+    )?;
     Ok(tid)
 }
 
 pub fn load_rows(mcx: Mcx<'_>, rows: &[i32]) -> Vec<ItemPointerData> {
     let heap = Relation::open(heap_relation_data(mcx), None);
     let index = Relation::open(index_relation_data(mcx, UNIQUE_IDX.with(Cell::get)), None);
-    rows.iter().map(|&v| insert_row(mcx, &heap, &index, v).unwrap()).collect()
+    rows.iter()
+        .map(|&v| insert_row(mcx, &heap, &index, v).unwrap())
+        .collect()
 }
 
 pub fn set_unique_index(unique: bool) {
@@ -760,19 +894,19 @@ pub fn set_not_null(on: bool) {
 
 pub fn static_mvcc_snapshot() -> Rc<SnapshotData<'static>> {
     let ctx: &'static MemoryContext = Box::leak(Box::new(MemoryContext::new("snap-test")));
-    Rc::new(SnapshotData::sentinel(ctx.mcx(), SnapshotType::SNAPSHOT_MVCC))
+    Rc::new(SnapshotData::sentinel(
+        ctx.mcx(),
+        SnapshotType::SNAPSHOT_MVCC,
+    ))
 }
-
-
-
-
 
 /// The locator read path fails on this block (u64::MAX = never).
 pub static FAIL_BLOCK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
 /// The combined reads asked of the fake and the longest run (the blocks-ahead hint) among them.
 pub static BATCHED_CALLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 pub static BATCHED_HINT_MAX: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-pub static BATCHED_FIRST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
+pub static BATCHED_FIRST: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(u64::MAX);
 
 pub fn nblocks(rel: Oid) -> u64 {
     with_fake(|f| f.tables.get(&rel).map_or(0, |v| v.len()) as u64)
@@ -801,10 +935,39 @@ pub fn quiesced() {
     });
 }
 
-pub fn indexqual_param<'mcx>(mcx: Mcx<'mcx>, varno: i32, opno: Oid, opfuncid: Oid) -> NodeList<'mcx> {
+pub fn indexqual_param<'mcx>(
+    mcx: Mcx<'mcx>,
+    varno: i32,
+    opno: Oid,
+    opfuncid: Oid,
+) -> NodeList<'mcx> {
     let var = Node::mk_var(mcx, varno, 1, INT4OID, -1, 0, 0).unwrap();
-    let p = Node::mk(mcx, ::types_nodes::primnodes::Param { paramkind: ::types_nodes::primnodes::ParamKind::PARAM_EXTERN, paramid: 1, paramtype: INT4OID, paramtypmod: -1, paramcollid: 0, location: -1 }).unwrap();
+    let p = Node::mk(
+        mcx,
+        ::types_nodes::primnodes::Param {
+            paramkind: ::types_nodes::primnodes::ParamKind::PARAM_EXTERN,
+            paramid: 1,
+            paramtype: INT4OID,
+            paramtypmod: -1,
+            paramcollid: 0,
+            location: -1,
+        },
+    )
+    .unwrap();
     let args = NodeList::make2(mcx, var, p).unwrap();
-    let op = Node::mk(mcx, OpExpr { opno, opfuncid, opresulttype: 16, opretset: false, opcollid: 0, inputcollid: 0, args, location: -1 }).unwrap();
+    let op = Node::mk(
+        mcx,
+        OpExpr {
+            opno,
+            opfuncid,
+            opresulttype: 16,
+            opretset: false,
+            opcollid: 0,
+            inputcollid: 0,
+            args,
+            location: -1,
+        },
+    )
+    .unwrap();
     NodeList::make1(mcx, op).unwrap()
 }

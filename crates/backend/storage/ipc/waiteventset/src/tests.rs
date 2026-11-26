@@ -101,7 +101,10 @@ fn socket_readiness_and_modify_to_closed() {
     // C's kqueue arm); epoll merges them into one.
     let n = WaitEventSetWait(set, 1000, &mut occurred, 0).unwrap();
     assert!(n >= 1);
-    let union: u32 = occurred[..n as usize].iter().map(|e| e.events).fold(0, |a, e| a | e);
+    let union: u32 = occurred[..n as usize]
+        .iter()
+        .map(|e| e.events)
+        .fold(0, |a, e| a | e);
     assert_eq!(union, WL_SOCKET_READABLE | WL_SOCKET_WRITEABLE);
     assert!(occurred[..n as usize].iter().all(|e| e.fd == a));
 
@@ -366,13 +369,19 @@ fn latch_plus_socket_wakes_on_late_socket_data() {
     let mut occurred = [WaitEvent::default(); 3];
     let n = WaitEventSetWait(set, 5000, &mut occurred, 0).unwrap();
     writer.join().unwrap();
-    assert!(start.elapsed().as_millis() < 3000, "timed out instead of waking on socket");
+    assert!(
+        start.elapsed().as_millis() < 3000,
+        "timed out instead of waking on socket"
+    );
     assert_eq!(n, 1);
     assert_eq!(occurred[0].events & WL_SOCKET_READABLE, WL_SOCKET_READABLE);
 
     FreeWaitEventSet(set);
     // SAFETY: closing our socketpair.
-    unsafe { libc::close(a); libc::close(b); }
+    unsafe {
+        libc::close(a);
+        libc::close(b);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -416,8 +425,14 @@ fn add_latch_with_postmaster_death_events_is_an_error() {
     setup_backend();
     let latch = owned_latch();
     let set = CreateWaitEventSet(2).unwrap();
-    let err =
-        AddWaitEventToSet(set, WL_POSTMASTER_DEATH, PGINVALID_SOCKET, Some(latch), None).unwrap_err();
+    let err = AddWaitEventToSet(
+        set,
+        WL_POSTMASTER_DEATH,
+        PGINVALID_SOCKET,
+        Some(latch),
+        None,
+    )
+    .unwrap_err();
     assert_eq!(err.message, "latch events only support being set");
     assert_eq!(GetNumRegisteredWaitEvents(set), 0);
     FreeWaitEventSet(set);
@@ -511,7 +526,10 @@ fn stale_wake_before_park_does_not_turn_an_infinite_wait_into_a_spin() {
     AddWaitEventToSet(set, WL_LATCH_SET, PGINVALID_SOCKET, Some(latch), None).unwrap();
     AddWaitEventToSet(set, WL_SOCKET_READABLE, a, None, None).unwrap();
 
-    assert_eq!(waiter::unpark(waiter::current_handle()), waiter::Unparked::Pending);
+    assert_eq!(
+        waiter::unpark(waiter::current_handle()),
+        waiter::Unparked::Pending
+    );
     let writer = std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(200));
         // SAFETY: b is the open peer of the registered socket.
@@ -526,7 +544,10 @@ fn stale_wake_before_park_does_not_turn_an_infinite_wait_into_a_spin() {
     assert_eq!(n, 1);
     assert_eq!(occurred[0].events & WL_SOCKET_READABLE, WL_SOCKET_READABLE);
     let laps = SPY_BLOCKS.load(SeqCst);
-    assert!(laps <= 3, "{laps} kernel blocks for one degraded poll plus a blocking wait");
+    assert!(
+        laps <= 3,
+        "{laps} kernel blocks for one degraded poll plus a blocking wait"
+    );
     FreeWaitEventSet(set);
     // SAFETY: both ends were created by socketpair above.
     unsafe {

@@ -1,5 +1,5 @@
-use gravity_abi::{word, PtrWord, Word};
 use crate::host_abi::*;
+use gravity_abi::{word, PtrWord, Word};
 
 // ---- the keyed fold's entries (group.rs h_open_sized / h_block / h_miss / h_finish) ----
 
@@ -41,13 +41,23 @@ pub fn t1_bytes(groups: u64, rec: u64) -> u32 {
         return t1_default_bytes();
     }
     // past 2^60 groups no power of two is above `groups × ADAPT_FACTOR` (D371): the largest table, the default's
-    let slots = groups.saturating_mul(ADAPT_FACTOR).checked_next_power_of_two().unwrap_or(u64::MAX).max(AGG_MIN_SLOTS);
-    slots.saturating_mul(rec).min(t1_open_bytes(groups, rec) as u64) as u32
+    let slots = groups
+        .saturating_mul(ADAPT_FACTOR)
+        .checked_next_power_of_two()
+        .unwrap_or(u64::MAX)
+        .max(AGG_MIN_SLOTS);
+    slots
+        .saturating_mul(rec)
+        .min(t1_open_bytes(groups, rec) as u64) as u32
 }
 
 /// The IR's radix bits (lowerv4 table/radix.rs: the bound's records over the reference slice), 0 = the breaker's default.
 fn radix_bits(bits: u64) -> u8 {
-    if bits as u8 == 0 { gravity_abi::breaker::PARTITION_DEFAULT_BITS } else { (bits as u8).min(T1_MAX_PARTS.trailing_zeros() as u8) }
+    if bits as u8 == 0 {
+        gravity_abi::breaker::PARTITION_DEFAULT_BITS
+    } else {
+        (bits as u8).min(T1_MAX_PARTS.trailing_zeros() as u8)
+    }
 }
 
 /// A keyed table's partition bits from the IR's (`agg_open`, entries.rs `agg_open_grown`; lowerv4 table/radix.rs `bits_for`):
@@ -57,7 +67,11 @@ fn radix_bits(bits: u64) -> u8 {
 /// (posture DEV t1e / log t1z, group). Only the partitions: the open's no-estimate bypass rule reads the IR's bits as they
 /// are (`bypass_from_open`), and `pass1_open`'s DR-6 bits (3 and up, `params::spill_bits`) are not a bound's.
 pub fn table_bits(bits: u64) -> u64 {
-    if (bits as u8) < gravity_abi::breaker::PARTITION_DEFAULT_BITS { 0 } else { bits }
+    if (bits as u8) < gravity_abi::breaker::PARTITION_DEFAULT_BITS {
+        0
+    } else {
+        bits
+    }
 }
 
 /// B3-16 / B3-17: the bits a fold's phase-1 table opens with (agg_open, entries.rs agg_open_grown, pass1_open), DR-6's rule at
@@ -75,7 +89,14 @@ pub fn table_bits(bits: u64) -> u64 {
 /// (`open_cut`), never by its own smaller limit: every phase-1 partial of one owner phase holds the same partitions.
 /// # Safety
 /// `ctx` is the claim's, its partial region armed with the share.
-pub unsafe fn fold_bits(ctx: *const Ctx, bits: u64, arm_run: bool, groups: u64, rec: u64, lay: u64) -> u8 {
+pub unsafe fn fold_bits(
+    ctx: *const Ctx,
+    bits: u64,
+    arm_run: bool,
+    groups: u64,
+    rec: u64,
+    lay: u64,
+) -> u8 {
     use gravity_abi::breaker::TABLE_T1;
     let t = T1::view(partial(ctx as *mut Ctx));
     // a live table keeps the partitions it was laid with, whatever its limit now. Its shape is asserted at every reopen
@@ -84,24 +105,41 @@ pub unsafe fn fold_bits(ctx: *const Ctx, bits: u64, arm_run: bool, groups: u64, 
     if t.cap != 0 && t.kind == TABLE_T1 {
         return t.pbits;
     }
-    cut_bits(bits, if lay != 0 { lay } else { t.limit as u64 }, (*ctx).width, arm_run, groups, rec)
+    cut_bits(
+        bits,
+        if lay != 0 { lay } else { t.limit as u64 },
+        (*ctx).width,
+        arm_run,
+        groups,
+        rec,
+    )
 }
 
 /// `fold_bits`' rule over the bytes a table is cut by (`share`), the one rule for both roads (a share-committed region's
 /// limit, a started-small region's share): the radix bits re-cut to the machine slice, capped by the share, below the wide
 /// width no further than each partition's groups still fit it, then floored by width.
 fn cut_bits(bits: u64, share: u64, width: u16, arm_run: bool, groups: u64, rec: u64) -> u8 {
-    use gravity_abi::breaker::{fit_bits, granted_bits, machine_bits, machine_slice, opened_bits, PARTITION_WIDE_WIDTH};
+    use gravity_abi::breaker::{
+        fit_bits, granted_bits, machine_bits, machine_slice, opened_bits, PARTITION_WIDE_WIDTH,
+    };
     let b = machine_bits(radix_bits(bits), machine_slice());
     let granted = granted_bits(b, share, t1_default_bytes() as u64);
-    let capped = if width < PARTITION_WIDE_WIDTH { granted.max(fit_bits(b, groups, rec, share)) } else { granted };
+    let capped = if width < PARTITION_WIDE_WIDTH {
+        granted.max(fit_bits(b, groups, rec, share))
+    } else {
+        granted
+    };
     opened_bits(capped, width, arm_run)
 }
 
 /// D3809: the bytes a started-small region's partitions are cut by, from the driver's `need` 0 answer: its share, else
 /// (an answer without one) its reservation, as before.
 pub fn laid_cut(reserve: u64, share: u64) -> u64 {
-    if share != 0 { share } else { reserve }
+    if share != 0 {
+        share
+    } else {
+        reserve
+    }
 }
 
 /// The bytes `fold_bits` cuts a table's partitions by (its `lay`), from the driver's `need` 0 answer
@@ -111,7 +149,11 @@ pub fn laid_cut(reserve: u64, share: u64) -> u64 {
 /// holds the same partitions. Cut by its own smaller limit, it opened fewer, and the owner phase's partitions past them read
 /// past its head words. 0 (no share carried): the table's limit, as before.
 pub fn open_cut(reserve: u64, laid: bool, share: u64) -> u64 {
-    if laid { laid_cut(reserve, share) } else { share }
+    if laid {
+        laid_cut(reserve, share)
+    } else {
+        share
+    }
 }
 
 /// The bypass rule at open for a shape with no estimate: the partition space `2^bits × 512 KiB` past `ADAPT_FACTOR` times the
@@ -152,7 +194,11 @@ fn estimate_asks_bypass(t: &T1, groups: u64, width: u16) -> bool {
 /// spread keys gained 0.73-0.84x (24-byte GROUP BY, 24k..128k keys). Telling the two apart needs a sign that an evicted
 /// key came back (DESIGN-OPEN, HITS9-E5).
 fn est_bypass_load(width: u16) -> u64 {
-    if width >= gravity_abi::breaker::PARTITION_WIDE_WIDTH { 1 } else { ADAPT_FACTOR }
+    if width >= gravity_abi::breaker::PARTITION_WIDE_WIDTH {
+        1
+    } else {
+        ADAPT_FACTOR
+    }
 }
 
 /// A bit on `agg_open`'s `groups`: the estimate sizes the table but never sets the bypass — the table is HELD (`T1_HOLD`: the floor form's
@@ -222,7 +268,10 @@ fn no_pin(_what: &str, bytes: usize) -> i64 {
 /// statement-lived image copy (a kept group key, a text extreme, a pulled run's copy) names it the same way.
 #[cold]
 pub fn pin_refused(bytes: usize) {
-    gravity_fn::stash_error(crate::ops::agg::trans::entries::out_of_memory_in(bytes, "a Gravity pinned region (the statement's pinned pool is full)"));
+    gravity_fn::stash_error(crate::ops::agg::trans::entries::out_of_memory_in(
+        bytes,
+        "a Gravity pinned region (the statement's pinned pool is full)",
+    ));
 }
 
 crate::contract::host! {
@@ -277,9 +326,15 @@ pub(crate) unsafe fn agg_flush(ctx: *mut Ctx, st: *mut AggState) -> Result<(), i
         return Ok(());
     }
     match spill(ctx, SPILL_SCATTER, (*st).pbits as i64) {
-        n if n < 0 && matches!(gravity_abi::status::Status::decode(n), gravity_abi::status::Status::Bad(_)) => {
+        n if n < 0
+            && matches!(
+                gravity_abi::status::Status::decode(n),
+                gravity_abi::status::Status::Bad(_)
+            ) =>
+        {
             let t = (*st).t.ptr();
-            Err(bare(&format!("agg_flush: scatter returned {n:#x} (T1 buffered {} len {} cap {} parts {} block_bytes {} nblocks {} next_block {} flushes {} kind {} limit {}; worker {}/{} claim {}..{})", (*t).buffered, (*t).len, (*t).cap, (*t).parts(), (*t).block_bytes, (*t).nblocks, (*t).next_block, (*t).flushes, (*t).kind, (*t).limit, (*ctx).worker_ordinal, (*ctx).width, (*ctx).claim.lo, (*ctx).claim.hi))) // alloc: Cold
+            Err(bare(&format!("agg_flush: scatter returned {n:#x} (T1 buffered {} len {} cap {} parts {} block_bytes {} nblocks {} next_block {} flushes {} kind {} limit {}; worker {}/{} claim {}..{})", (*t).buffered, (*t).len, (*t).cap, (*t).parts(), (*t).block_bytes, (*t).nblocks, (*t).next_block, (*t).flushes, (*t).kind, (*t).limit, (*ctx).worker_ordinal, (*ctx).width, (*ctx).claim.lo, (*ctx).claim.hi)))
+            // alloc: Cold
         }
         n if n < 0 => Err(n),
         _ => Ok(()),
@@ -308,20 +363,40 @@ unsafe fn folded_in_memory(ctx: *mut Ctx, st: *mut AggState) -> Result<bool, i64
     let (t, layout) = ((*st).t.ptr(), &*(*st).layout.ptr());
     // a never-compacted table that started small (`T1_GROWS`, pass 1's bare table) still grows its pool in place first
     let nofold = (*t).flags & (T1_NOFOLD | gravity_abi::breaker::T1_GROWS) == T1_NOFOLD;
-    if (*t).flags & (T1_HOLD | T1_FLOOR) == T1_FLOOR && !nofold && (*t).buffered != 0 && floor_grown(ctx, t) {
+    if (*t).flags & (T1_HOLD | T1_FLOOR) == T1_FLOOR
+        && !nofold
+        && (*t).buffered != 0
+        && floor_grown(ctx, t)
+    {
         return Ok(true);
     }
-    let raises = |k: SlotKind| matches!(k, SlotKind::SumF64 | SlotKind::SumF32 | SlotKind::F64Accum | SlotKind::AggState);
-    if (*t).flags & (T1_HOLD | T1_NOFOLD) != 0 || (*t).buffered == 0 || layout.slot_kinds().iter().any(|&k| raises(k)) {
+    let raises = |k: SlotKind| {
+        matches!(
+            k,
+            SlotKind::SumF64 | SlotKind::SumF32 | SlotKind::F64Accum | SlotKind::AggState
+        )
+    };
+    if (*t).flags & (T1_HOLD | T1_NOFOLD) != 0
+        || (*t).buffered == 0
+        || layout.slot_kinds().iter().any(|&k| raises(k))
+    {
         return Ok(false);
     }
-    let refused = |r: gravity_fn::arena::Refused| crate::ops::agg::trans::entries::failed(crate::ops::agg::trans::entries::out_of_memory(r.bytes as usize));
+    let refused = |r: gravity_fn::arena::Refused| {
+        crate::ops::agg::trans::entries::failed(crate::ops::agg::trans::entries::out_of_memory(
+            r.bytes as usize,
+        ))
+    };
     // the slot's own owner and ledger kind (a HashAgg, a Distinct or a set-op side), as the host answers them, when the
     // lists may reach ARENA_SCRATCH_MIN: the map (4 bytes a block), the index (4 bytes a slot, at most four slots a
     // record of the longest chain: bounded by the records the pool's blocks can hold) and the reclaim's
-    let recs = (*t).nblocks as usize * (gravity_abi::breaker::BLOCK_BYTES as usize / (layout.size() as usize).max(1));
+    let recs = (*t).nblocks as usize
+        * (gravity_abi::breaker::BLOCK_BYTES as usize / (layout.size() as usize).max(1));
     let most = 4 * (*t).nblocks as usize + 16 * recs + crate::table::img_reclaim::scratch_bound(t);
-    let owner = match most >= gravity_abi::program::ARENA_SCRATCH_MIN { true => OpArena::own_owner_kind(ctx), false => None };
+    let owner = match most >= gravity_abi::program::ARENA_SCRATCH_MIN {
+        true => OpArena::own_owner_kind(ctx),
+        false => None,
+    };
     let (o, k) = owner.map_or((None, Kind::HashAgg), |(o, k)| (Some(o), k));
     let a = OpArena::scratch_of(o, k);
     let mut map = AVec::<u32>::new();
@@ -330,8 +405,19 @@ unsafe fn folded_in_memory(ctx: *mut Ctx, st: *mut AggState) -> Result<bool, i64
         let drained = T1::drain(t);
         let before = (*t).next_block;
         let mut index = AVec::<u32>::new();
-        index.resize(&a, (2 * (*t).longest_chain()).max(2).next_power_of_two(), 0).map_err(refused)?;
-        T1::compact(t, index.as_mut_slice(&a), map.as_mut_slice(&a), &mut |into, from| Rec::at(into, layout).fold_newer(&Rec::at(from as *mut u8, layout)).is_ok());
+        index
+            .resize(&a, (2 * (*t).longest_chain()).max(2).next_power_of_two(), 0)
+            .map_err(refused)?;
+        T1::compact(
+            t,
+            index.as_mut_slice(&a),
+            map.as_mut_slice(&a),
+            &mut |into, from| {
+                Rec::at(into, layout)
+                    .fold_newer(&Rec::at(from as *mut u8, layout))
+                    .is_ok()
+            },
+        );
         // the newest carve back: the map's growth below extends it in place
         index.release(&a);
         let free = |t: *mut T1| 4 * ((*t).nblocks - (*t).next_block) >= (*t).nblocks;
@@ -380,7 +466,10 @@ unsafe fn pool_grown(ctx: *mut Ctx, t: *mut T1) -> bool {
         return false;
     }
     let grown = T1::grow_pool(t, need);
-    debug_assert!(grown, "a drawn growth fits the reservation the table was laid in");
+    debug_assert!(
+        grown,
+        "a drawn growth fits the reservation the table was laid in"
+    );
     grown
 }
 
@@ -401,7 +490,9 @@ pub(crate) fn cmp_failed(what: &str) -> i64 {
 /// A host's own `ERROR` (no driver error behind it): the reason stashed so the statement's error names it.
 #[cold]
 pub(crate) fn bare(what: &str) -> i64 {
-    gravity_fn::stash_error(Box::new(gravity_fn::PgError::error(format!("gravity: {what}")))); // alloc: Cold
+    gravity_fn::stash_error(Box::new(gravity_fn::PgError::error(format!(
+        "gravity: {what}"
+    )))); // alloc: Cold
     ERROR
 }
 
@@ -432,7 +523,11 @@ crate::contract::host! {
     }
 }
 
-pub(crate) unsafe fn locate(ctx: *mut Ctx, st: *mut AggState, keys: &[u64]) -> Result<*mut u8, i64> {
+pub(crate) unsafe fn locate(
+    ctx: *mut Ctx,
+    st: *mut AggState,
+    keys: &[u64],
+) -> Result<*mut u8, i64> {
     let t = (*st).t.ptr();
     let pbits = (*st).pbits as u8;
     let hash = KeyHash::of(keys);
@@ -450,7 +545,10 @@ pub(crate) unsafe fn locate(ctx: *mut Ctx, st: *mut AggState, keys: &[u64]) -> R
     if let Some(p) = T1::probe(t, keys, hash) {
         return Ok(p);
     }
-    if (*t).flags & T1_EST != 0 && (*t).evictions >= EST_CONFIRM && 2 * (*t).len as u64 >= (*t).cap as u64 {
+    if (*t).flags & T1_EST != 0
+        && (*t).evictions >= EST_CONFIRM
+        && 2 * (*t).len as u64 >= (*t).cap as u64
+    {
         // the estimate's bypass, confirmed by evictions: the table drained, the claim's row loop told (its bypass word), this record appended
         while !T1::drain(t) {
             agg_flush(ctx, st)?;
@@ -467,7 +565,11 @@ pub(crate) unsafe fn locate(ctx: *mut Ctx, st: *mut AggState, keys: &[u64]) -> R
     let r = T1::open_at_hashed(t, home, keys, hash);
     let size = (*(*st).layout.ptr()).size() as usize;
     // a record wider than the copy below stays in table mode
-    if size <= 256 && (*t).flags & T1_EST == 0 && (*t).observe() && !hosted_layout(&*(*st).layout.ptr()) {
+    if size <= 256
+        && (*t).flags & T1_EST == 0
+        && (*t).observe()
+        && !hosted_layout(&*(*st).layout.ptr())
+    {
         // the observation says bypass: the table drained, this record moved to its partition's buffer
         let mut tmp = [0u8; 256];
         core::ptr::copy_nonoverlapping(r, tmp.as_mut_ptr(), size);
@@ -836,7 +938,8 @@ unsafe fn shared_merge(st: *mut Pass1State) -> usize {
     }
     let slen = shared_word(st, PASS1_SHARED_LEN).load(Relaxed) as usize;
     let key = |i: usize| shared_word(st, PASS1_SHARED_KEYS + i).load(Relaxed) as i64;
-    let out = |o: usize, k: i64| shared_word(st, PASS1_SHARED_KEYS + n + o).store(k as u64, Relaxed);
+    let out =
+        |o: usize, k: i64| shared_word(st, PASS1_SHARED_KEYS + n + o).store(k as u64, Relaxed);
     let (mut i, mut j, mut o, mut kept) = (0, 0, 0, 0);
     while o < n && (i < slen || j < len) {
         // the claim's key next when the shared one ranks after it (or the shared ones ran out); an equal key once, as shared
@@ -857,7 +960,10 @@ unsafe fn shared_merge(st: *mut Pass1State) -> usize {
     }
     if kept > 0 {
         for x in 0..o {
-            shared_word(st, PASS1_SHARED_KEYS + x).store(shared_word(st, PASS1_SHARED_KEYS + n + x).load(Relaxed), Relaxed);
+            shared_word(st, PASS1_SHARED_KEYS + x).store(
+                shared_word(st, PASS1_SHARED_KEYS + n + x).load(Relaxed),
+                Relaxed,
+            );
         }
         if o == n {
             shared_word(st, PASS1_SHARED_BOUND).store(key(n - 1) as u64, Release);
@@ -885,9 +991,21 @@ unsafe fn empty_bound(st: *mut Pass1State) -> i64 {
 
 /// `a` ranks after `b` in the top's tie order on the key (its words compared as its type orders them).
 unsafe fn worse(st: *mut Pass1State, a: i64, b: i64) -> bool {
-    let after = if (*st).unsigned != 0 { (a as u64) > (b as u64) } else { a > b };
-    let before = if (*st).unsigned != 0 { (a as u64) < (b as u64) } else { a < b };
-    if (*st).desc != 0 { before } else { after }
+    let after = if (*st).unsigned != 0 {
+        (a as u64) > (b as u64)
+    } else {
+        a > b
+    };
+    let before = if (*st).unsigned != 0 {
+        (a as u64) < (b as u64)
+    } else {
+        a < b
+    };
+    if (*st).desc != 0 {
+        before
+    } else {
+        after
+    }
 }
 
 crate::contract::host! {
@@ -971,14 +1089,21 @@ mod d1392_pin_refused_tests {
     fn a_refused_image_pin_names_out_of_memory() {
         let mut program = Box::new(gravity_abi::ProgramBlock::NONE); // alloc: Cold
         let mut ctx = vec![0u64; gravity_abi::ctx::ctx_size(1) / 8]; // alloc: Cold
-        // SAFETY: the words are a ctx image; `program` outlives every use.
+                                                                     // SAFETY: the words are a ctx image; `program` outlives every use.
         unsafe { (*(ctx.as_mut_ptr() as *mut Ctx)).program = &mut *program };
         drop(gravity_fn::take_error());
         let text = b"MAIL";
         // SAFETY: a bound ctx; `text` 4 readable bytes.
-        let r = unsafe { agg_image_pin(ctx.as_mut_ptr() as *mut Ctx, text.as_ptr(), text.len() as u64) };
+        let r = unsafe {
+            agg_image_pin(
+                ctx.as_mut_ptr() as *mut Ctx,
+                text.as_ptr(),
+                text.len() as u64,
+            )
+        };
         assert_eq!(r, 0, "no room: the image host's failure");
-        let e = gravity_fn::take_error().expect("a refused pin stashes its error for the HOST raise");
+        let e =
+            gravity_fn::take_error().expect("a refused pin stashes its error for the HOST raise");
         assert_eq!((e.message(), e.sqlstate().0), ("out of memory", 8389));
         assert_eq!(e.detail(), Some("Failed on request of size 8 in a Gravity pinned region (the statement's pinned pool is full)."));
     }
@@ -1027,8 +1152,11 @@ mod pass1_floor_order_tests {
         assert_eq!(floor(0, 2, &keys), (vec![1u64 << 63, u64::MAX - 1], -2)); // alloc: Cold
         assert_eq!(floor(PASS1_DESC, 2, &keys), (vec![5, 7], 5)); // alloc: Cold
         assert_eq!(floor(PASS1_UNSIGNED, 2, &keys), (vec![1, 3], 3)); // alloc: Cold
-        assert_eq!(floor(PASS1_UNSIGNED | PASS1_DESC, 2, &keys), (vec![1u64 << 63, u64::MAX - 1], (1u64 << 63) as i64)); // alloc: Cold
-        // not full: the bound admits every key
+        assert_eq!(
+            floor(PASS1_UNSIGNED | PASS1_DESC, 2, &keys),
+            (vec![1u64 << 63, u64::MAX - 1], (1u64 << 63) as i64)
+        ); // alloc: Cold
+           // not full: the bound admits every key
         assert_eq!(floor(PASS1_UNSIGNED, 8, &[9, 2]).1, u64::MAX as i64);
         assert_eq!(floor(PASS1_UNSIGNED | PASS1_DESC, 8, &[9, 2]).1, 0);
     }
@@ -1038,8 +1166,22 @@ mod pass1_floor_order_tests {
     #[test]
     fn the_floor_keeps_the_n_best_distinct_keys() {
         let mut x = 0x9e37_79b9_7f4a_7c15u64;
-        let keys: Vec<u64> = (0..5000).map(|_| { x ^= x << 13; x ^= x >> 7; x ^= x << 17; x % 900 }).collect(); // alloc: Cold
-        for (order, n) in [(0, 1), (0, 37), (PASS1_DESC, 37), (PASS1_UNSIGNED, 64), (PASS1_DESC, 899), (0, 1000)] {
+        let keys: Vec<u64> = (0..5000)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                x % 900
+            })
+            .collect(); // alloc: Cold
+        for (order, n) in [
+            (0, 1),
+            (0, 37),
+            (PASS1_DESC, 37),
+            (PASS1_UNSIGNED, 64),
+            (PASS1_DESC, 899),
+            (0, 1000),
+        ] {
             let mut want: Vec<u64> = keys.clone(); // alloc: Cold
             want.sort_unstable();
             want.dedup();
@@ -1047,7 +1189,11 @@ mod pass1_floor_order_tests {
                 want.reverse();
             }
             want.truncate(n);
-            let bound = if want.len() == n { *want.last().unwrap() as i64 } else { floor(order, n, &[]).1 };
+            let bound = if want.len() == n {
+                *want.last().unwrap() as i64
+            } else {
+                floor(order, n, &[]).1
+            };
             want.sort_unstable();
             assert_eq!(floor(order, n, &keys), (want, bound), "order {order} n {n}");
         }
@@ -1061,7 +1207,13 @@ mod d3157_shared_floor_tests {
     /// One claim of the bare pass 1 over `rows` (a run per row) beside the shared floor `shared` (0: none), as the IR and
     /// the hosts run it: a row under the bound is offered to the claim's floor, the claim's end merges it (`shared_merge`).
     /// Each row's key is sighted once, and each floor key the claim keeps once more: `sighted` counts them.
-    fn claim(order: u64, n: usize, rows: &[u64], shared: u64, sighted: &mut std::collections::BTreeMap<u64, u32>) -> usize {
+    fn claim(
+        order: u64,
+        n: usize,
+        rows: &[u64],
+        shared: u64,
+        sighted: &mut std::collections::BTreeMap<u64, u32>,
+    ) -> usize {
         let mut buf = vec![0u64; size_of::<Pass1State>() / 8 + n]; // alloc: Cold
         let st = buf.as_mut_ptr() as *mut Pass1State;
         // SAFETY: `buf` holds the state and its `n` floor words (the claim arena's, as `pass1_open` draws them); `shared` is
@@ -1096,9 +1248,21 @@ mod d3157_shared_floor_tests {
 
     /// The top's `n` groups: count descending, then the key in the tie order (signed or unsigned, ascending or descending).
     fn top(order: u64, n: usize, counts: &std::collections::BTreeMap<u64, u32>) -> Vec<u64> {
-        let rank = |k: u64| if order & PASS1_UNSIGNED != 0 { k as i128 } else { k as i64 as i128 };
+        let rank = |k: u64| {
+            if order & PASS1_UNSIGNED != 0 {
+                k as i128
+            } else {
+                k as i64 as i128
+            }
+        };
         let mut all: Vec<(u32, u64)> = counts.iter().map(|(&k, &c)| (c, k)).collect(); // alloc: Cold
-        all.sort_by(|a, b| b.0.cmp(&a.0).then(if order & PASS1_DESC != 0 { rank(b.1).cmp(&rank(a.1)) } else { rank(a.1).cmp(&rank(b.1)) }));
+        all.sort_by(|a, b| {
+            b.0.cmp(&a.0).then(if order & PASS1_DESC != 0 {
+                rank(b.1).cmp(&rank(a.1))
+            } else {
+                rank(a.1).cmp(&rank(b.1))
+            })
+        });
         all.into_iter().take(n).map(|(_, k)| k).collect() // alloc: Cold
     }
 
@@ -1114,36 +1278,91 @@ mod d3157_shared_floor_tests {
             x ^= x << 17;
             x
         };
-        for (order, n, domain) in [(0, 1, 1u64 << 40), (0, 10, 1 << 40), (PASS1_DESC, 10, 1 << 40), (PASS1_UNSIGNED, 37, u64::MAX), (PASS1_UNSIGNED | PASS1_DESC, 37, u64::MAX), (0, 100, 5000), (PASS1_DESC, 7, 300)] {
-            let claims: Vec<Vec<u64>> = (0..200).map(|_| (0..400).map(|_| rnd() % domain).map(|k| if order & PASS1_UNSIGNED != 0 { k } else { k.wrapping_sub(domain / 2) }).collect()).collect(); // alloc: Cold
+        for (order, n, domain) in [
+            (0, 1, 1u64 << 40),
+            (0, 10, 1 << 40),
+            (PASS1_DESC, 10, 1 << 40),
+            (PASS1_UNSIGNED, 37, u64::MAX),
+            (PASS1_UNSIGNED | PASS1_DESC, 37, u64::MAX),
+            (0, 100, 5000),
+            (PASS1_DESC, 7, 300),
+        ] {
+            let claims: Vec<Vec<u64>> = (0..200)
+                .map(|_| {
+                    (0..400)
+                        .map(|_| rnd() % domain)
+                        .map(|k| {
+                            if order & PASS1_UNSIGNED != 0 {
+                                k
+                            } else {
+                                k.wrapping_sub(domain / 2)
+                            }
+                        })
+                        .collect()
+                })
+                .collect(); // alloc: Cold
             let mut words = vec![0u64; pass1_shared_words(n as u64)]; // alloc: Cold
-            let (mut own, mut shared) = (std::collections::BTreeMap::new(), std::collections::BTreeMap::new());
+            let (mut own, mut shared) = (
+                std::collections::BTreeMap::new(),
+                std::collections::BTreeMap::new(),
+            );
             let (mut own_kept, mut shared_kept) = (0, 0);
             for c in &claims {
                 own_kept += claim(order, n, c, 0, &mut own);
                 shared_kept += claim(order, n, c, words.as_mut_ptr() as u64, &mut shared);
             }
-            let rows: std::collections::BTreeMap<u64, u32> = claims.iter().flatten().fold(Default::default(), |mut m, &k| {
-                *m.entry(k).or_default() += 1;
-                m
-            });
+            let rows: std::collections::BTreeMap<u64, u32> =
+                claims
+                    .iter()
+                    .flatten()
+                    .fold(Default::default(), |mut m, &k| {
+                        *m.entry(k).or_default() += 1;
+                        m
+                    });
             for (name, sighted) in [("own", &own), ("shared", &shared)] {
                 for k in top(order, n, &rows) {
-                    assert!(sighted.get(&k).copied().unwrap_or(0) >= 2, "{name} floors: top key {k} not admitted (order {order} n {n})");
+                    assert!(
+                        sighted.get(&k).copied().unwrap_or(0) >= 2,
+                        "{name} floors: top key {k} not admitted (order {order} n {n})"
+                    );
                 }
             }
-            assert_eq!(own_kept, claims.len() * n, "the own floors append n a claim");
-            assert!(shared_kept * 3 < own_kept, "order {order} n {n}: the shared floor appended {shared_kept} of {own_kept}");
+            assert_eq!(
+                own_kept,
+                claims.len() * n,
+                "the own floors append n a claim"
+            );
+            assert!(
+                shared_kept * 3 < own_kept,
+                "order {order} n {n}: the shared floor appended {shared_kept} of {own_kept}"
+            );
             // the shared floor holds the statement's n best distinct keys
             let mut best: Vec<u64> = rows.keys().copied().collect(); // alloc: Cold
-            let rank = |k: &u64| if order & PASS1_UNSIGNED != 0 { *k as i128 } else { *k as i64 as i128 };
+            let rank = |k: &u64| {
+                if order & PASS1_UNSIGNED != 0 {
+                    *k as i128
+                } else {
+                    *k as i64 as i128
+                }
+            };
             best.sort_by_key(rank);
             if order & PASS1_DESC != 0 {
                 best.reverse();
             }
             best.truncate(n);
-            assert_eq!(&words[PASS1_SHARED_KEYS..PASS1_SHARED_KEYS + n], &best[..], "order {order} n {n}");
-            assert_eq!((words[PASS1_SHARED_LOCK], words[PASS1_SHARED_LEN], words[PASS1_SHARED_BOUND]), (0, n as u64, best[n - 1]));
+            assert_eq!(
+                &words[PASS1_SHARED_KEYS..PASS1_SHARED_KEYS + n],
+                &best[..],
+                "order {order} n {n}"
+            );
+            assert_eq!(
+                (
+                    words[PASS1_SHARED_LOCK],
+                    words[PASS1_SHARED_LEN],
+                    words[PASS1_SHARED_BOUND]
+                ),
+                (0, n as u64, best[n - 1])
+            );
         }
     }
 }
@@ -1160,15 +1379,28 @@ mod laid_cut_tests {
         let reserve = 2_056_486_912u64;
         for (width, groups, rec) in [(16u16, 0u64, 48u64), (4, 600_000, 48), (1, 5_000_000, 64)] {
             for share in [13_500_416u64, 64 << 20, 6 << 30] {
-                let carried = gravity_abi::program::reserve_answer(gravity_abi::program::reserve_share_word(share)).3;
+                let carried = gravity_abi::program::reserve_answer(
+                    gravity_abi::program::reserve_share_word(share),
+                )
+                .3;
                 let laid = cut_bits(11, laid_cut(reserve, carried), width, false, groups, rec);
-                assert_eq!(laid, cut_bits(11, share, width, false, groups, rec), "width {width} share {share}: the committed road's bits");
+                assert_eq!(
+                    laid,
+                    cut_bits(11, share, width, false, groups, rec),
+                    "width {width} share {share}: the committed road's bits"
+                );
             }
             // no share carried: the reservation, as before D3809
-            assert_eq!(cut_bits(11, laid_cut(reserve, 0), width, false, groups, rec), cut_bits(11, reserve, width, false, groups, rec));
+            assert_eq!(
+                cut_bits(11, laid_cut(reserve, 0), width, false, groups, rec),
+                cut_bits(11, reserve, width, false, groups, rec)
+            );
         }
         let (share, wide) = (13_500_416u64, 16u16);
-        assert!(cut_bits(11, share, wide, false, 0, 48) < cut_bits(11, reserve, wide, false, 0, 48), "the share opens fewer partitions than the reservation");
+        assert!(
+            cut_bits(11, share, wide, false, 0, 48) < cut_bits(11, reserve, wide, false, 0, 48),
+            "the share opens fewer partitions than the reservation"
+        );
     }
 
     /// D4033: a worker share the pool's room opened smaller (not laid) is cut by its section's share, which the driver's
@@ -1179,15 +1411,36 @@ mod laid_cut_tests {
     #[test]
     fn a_share_opened_smaller_is_cut_by_its_sections_share() {
         let share = 56_784_384u64;
-        let carried = gravity_abi::program::reserve_answer(gravity_abi::program::reserve_share_word(share)).3;
-        for (width, groups, rec, bits) in [(8u16, 0u64, 48u64, 10u64), (16, 0, 32, 11), (4, 600_000, 48, 11), (2, 5_000_000, 64, 9)] {
+        let carried =
+            gravity_abi::program::reserve_answer(gravity_abi::program::reserve_share_word(share)).3;
+        for (width, groups, rec, bits) in [
+            (8u16, 0u64, 48u64, 10u64),
+            (16, 0, 32, 11),
+            (4, 600_000, 48, 11),
+            (2, 5_000_000, 64, 9),
+        ] {
             let section = cut_bits(bits, share, width, false, groups, rec);
-            assert_eq!(cut_bits(bits, open_cut(0, false, carried), width, false, groups, rec), section, "width {width}: the section's bits");
+            assert_eq!(
+                cut_bits(bits, open_cut(0, false, carried), width, false, groups, rec),
+                section,
+                "width {width}: the section's bits"
+            );
         }
-        assert_eq!(open_cut(0, false, 0), 0, "no share carried: the table's limit");
-        assert_eq!(open_cut(1 << 30, true, share), laid_cut(1 << 30, share), "a laid region: D3809's cut");
+        assert_eq!(
+            open_cut(0, false, 0),
+            0,
+            "no share carried: the table's limit"
+        );
+        assert_eq!(
+            open_cut(1 << 30, true, share),
+            laid_cut(1 << 30, share),
+            "a laid region: D3809's cut"
+        );
         for smaller in [7_094_272u64, 1_773_568] {
-            assert!(cut_bits(10, smaller, 8, false, 0, 48) < cut_bits(10, share, 8, false, 0, 48), "cut by its own limit {smaller}, it opened fewer");
+            assert!(
+                cut_bits(10, smaller, 8, false, 0, 48) < cut_bits(10, share, 8, false, 0, 48),
+                "cut by its own limit {smaller}, it opened fewer"
+            );
         }
     }
 }

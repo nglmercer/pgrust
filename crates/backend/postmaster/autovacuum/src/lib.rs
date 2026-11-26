@@ -181,7 +181,14 @@ mod tests {
     // -1 (fallback) and clamps every other value below 64kB up to 64.
     #[test]
     fn check_autovacuum_work_mem_clamps_to_64kb() {
-        for (input, expected) in [(-1, -1), (0, 64), (32, 64), (63, 64), (64, 64), (1024, 1024)] {
+        for (input, expected) in [
+            (-1, -1),
+            (0, 64),
+            (32, 64),
+            (63, 64),
+            (64, 64),
+            (1024, 1024),
+        ] {
             let mut v = input;
             let mut extra = None;
             assert!(check_autovacuum_work_mem(&mut v, &mut extra, GucSource::PGC_S_FILE).unwrap());

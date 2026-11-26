@@ -28,6 +28,10 @@ fn a_claims_temp_blocks_land_in_the_leaders_counters() {
     pool.run(4, &claims, &job).expect("section");
     let after = fd::buffile::temp_snapshot();
     let got: [i64; 4] = core::array::from_fn(|i| after[i] - before[i]);
-    assert_eq!(got, [32, 64, 96, 128], "the leader counts every claim's temp blocks and times");
+    assert_eq!(
+        got,
+        [32, 64, 96, 128],
+        "the leader counts every claim's temp blocks and times"
+    );
     workers.shutdown();
 }

@@ -25,4 +25,7 @@ pub use memledger::Owner;
 // gravity_kernels (its boundary allows gravity_fn, not memledger)
 pub use memledger::charge::Door;
 pub use memledger::{Charge, ChargedVec, Release, VALUE_FLOOR};
-pub use raw::{ABytes, AMap, AVec, ArenaAlloc, ArenaSeed, ForgetSafe, Kind, OpArena, Refused, Usage, CHUNKS, UNCHARGED};
+pub use raw::{
+    ABytes, AMap, AVec, ArenaAlloc, ArenaSeed, ForgetSafe, Kind, OpArena, Refused, Usage, CHUNKS,
+    UNCHARGED,
+};

@@ -14,9 +14,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
 
+use gravity_decompose::admit::Refusal;
 use gravity_decompose::graph::{Op, PipelineGraph, PipelineNode};
 use gravity_decompose::join::JoinDesc;
-use gravity_decompose::admit::Refusal;
 use gravity_decompose::ops::shared::subplan::{SubForm, SubLink};
 use gravity_decompose::{corpus, decompose_in, ledger, Kind};
 use gravity_program::Arena;
@@ -29,15 +29,31 @@ mod harness;
 fn fixture(sql: &str) -> PathBuf {
     let hits: Vec<PathBuf> = harness::fixtures_in(&harness::plans_root())
         .into_iter()
-        .filter(|p| p.file_name().and_then(|f| f.to_str()).is_some_and(|f| f.starts_with("cte-")))
-        .filter(|p| fs::read_to_string(p).unwrap().lines().any(|l| l.strip_prefix("-- sql: ").is_some_and(|q| q.trim().trim_end_matches(';') == sql)))
+        .filter(|p| {
+            p.file_name()
+                .and_then(|f| f.to_str())
+                .is_some_and(|f| f.starts_with("cte-"))
+        })
+        .filter(|p| {
+            fs::read_to_string(p).unwrap().lines().any(|l| {
+                l.strip_prefix("-- sql: ")
+                    .is_some_and(|q| q.trim().trim_end_matches(';') == sql)
+            })
+        })
         .collect();
-    assert_eq!(hits.len(), 1, "cte fixtures of {sql}: {hits:?} (re-capture: scripts/gravity-capture-plans.sh cte)");
+    assert_eq!(
+        hits.len(),
+        1,
+        "cte fixtures of {sql}: {hits:?} (re-capture: scripts/gravity-capture-plans.sh cte)"
+    );
     hits.into_iter().next().unwrap()
 }
 
 /// Decompose fixture `path` and hand the graph (or the refusal) and the statement to `f`.
-fn with_graph<R>(path: &PathBuf, f: impl FnOnce(Result<&PipelineGraph<'_>, &Refusal>, &types_nodes::plannodes::PlannedStmt<'_>) -> R) -> R {
+fn with_graph<R>(
+    path: &PathBuf,
+    f: impl FnOnce(Result<&PipelineGraph<'_>, &Refusal>, &types_nodes::plannodes::PlannedStmt<'_>) -> R,
+) -> R {
     let text = fs::read_to_string(path).unwrap();
     let ctx = MemoryContext::new("facts_m8");
     let fx = corpus::load(ctx.mcx(), &text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
@@ -73,9 +89,21 @@ fn pipes<'a, 'p>(g: &'a PipelineGraph<'p>) -> Vec<&'a PipelineNode<'p>> {
 #[test]
 fn an_init_plan_carries_every_set_param() {
     for (sql, link, n) in [
-        ("SELECT a FROM t WHERE (a, b) = (SELECT x, y FROM u WHERE x = 7)", SubLink::RowCompare, 2),
-        ("UPDATE u SET (y, z) = (SELECT max(b), min(c) FROM t) WHERE x = 6", SubLink::MultiExpr, 2),
-        ("SELECT a FROM t WHERE a < 3 AND (SELECT count(*) FROM u) > 10", SubLink::Expr, 1),
+        (
+            "SELECT a FROM t WHERE (a, b) = (SELECT x, y FROM u WHERE x = 7)",
+            SubLink::RowCompare,
+            2,
+        ),
+        (
+            "UPDATE u SET (y, z) = (SELECT max(b), min(c) FROM t) WHERE x = 6",
+            SubLink::MultiExpr,
+            2,
+        ),
+        (
+            "SELECT a FROM t WHERE a < 3 AND (SELECT count(*) FROM u) > 10",
+            SubLink::Expr,
+            1,
+        ),
     ] {
         with_graph(&fixture(sql), |g, stmt| {
             let g = g.unwrap_or_else(|r| panic!("{sql}: refused {r}"));
@@ -83,8 +111,15 @@ fn an_init_plan_carries_every_set_param() {
             let ip = &g.init_plans[0];
             let set = stmt.subplans.iter().flatten().count(); // the statement's subplans, for the message
             let params: Vec<i32> = ip.params.iter().collect();
-            assert_eq!((ip.link, params.len()), (link, n), "{sql}: {params:?} ({set} subplans)");
-            assert_eq!(ip.param, params[0], "{sql}: `param` is the first of `params`");
+            assert_eq!(
+                (ip.link, params.len()),
+                (link, n),
+                "{sql}: {params:?} ({set} subplans)"
+            );
+            assert_eq!(
+                ip.param, params[0],
+                "{sql}: `param` is the first of `params`"
+            );
             let mut distinct = params.clone();
             distinct.dedup();
             assert_eq!(distinct, params, "{sql}: one exec parameter per column");
@@ -130,7 +165,9 @@ fn a_conditional_subplan_is_one_postgres_may_skip() {
         let got_c: Vec<(i32, bool)> = got.iter().map(|(k, v)| (*k, v.0)).collect();
         println!("facts_m8 conditional\t{sql}\t{got:?}");
         if got_c != want {
-            bad.push(format!("{sql}: SubPlans (plan id, conditional) {got_c:?}, want {want:?}"));
+            bad.push(format!(
+                "{sql}: SubPlans (plan id, conditional) {got_c:?}, want {want:?}"
+            ));
         }
     }
     // D1047 (the placement gap, its INTERIM refusal closed): a right join's probe qual SubPlan goes on the probe pipeline,
@@ -142,9 +179,13 @@ fn a_conditional_subplan_is_one_postgres_may_skip() {
         bad.push(format!("{rj}: SubPlans (plan id, (conditional, filtered)) {got:?}, want each placed and conditional"));
     }
     // a qual conjunct's SubPlan runs after the conjuncts before it: its op follows their filter ops
-    let q = subplans("SELECT a FROM t WHERE a < 3 AND b < (SELECT y FROM u WHERE u.x = t.a) AND c <> 'x'");
+    let q = subplans(
+        "SELECT a FROM t WHERE a < 3 AND b < (SELECT y FROM u WHERE u.x = t.a) AND c <> 'x'",
+    );
     if !q.get(&1).is_some_and(|v| v.1) {
-        bad.push(format!("the qual's SubPlan op does not follow the cheaper conjunct's filter: {q:?}"));
+        bad.push(format!(
+            "the qual's SubPlan op does not follow the cheaper conjunct's filter: {q:?}"
+        ));
     }
     assert!(bad.is_empty(), "{}", bad.join("\n"));
 }
@@ -156,7 +197,12 @@ fn plan_nodes<'p>(n: Node<'p>, out: &mut Vec<Node<'p>>) {
     for c in [p.lefttree, p.righttree].into_iter().flatten() {
         plan_nodes(c, out);
     }
-    let lists = [n.as_append().map(|a| &a.appendplans), n.as_merge_append().map(|m| &m.mergeplans), n.as_bitmap_and().map(|b| &b.bitmapplans), n.as_bitmap_or().map(|b| &b.bitmapplans)];
+    let lists = [
+        n.as_append().map(|a| &a.appendplans),
+        n.as_merge_append().map(|m| &m.mergeplans),
+        n.as_bitmap_and().map(|b| &b.bitmapplans),
+        n.as_bitmap_or().map(|b| &b.bitmapplans),
+    ];
     for l in lists.into_iter().flatten() {
         for c in l.iter() {
             plan_nodes(c, out);
@@ -171,15 +217,39 @@ fn plan_nodes<'p>(n: Node<'p>, out: &mut Vec<Node<'p>>) {
 /// `INDEX_VAR` column `k` as the index target list's entry `k`, a column of the relation. `None` on another node, or when
 /// an entry is no plain column.
 fn heap_form<'p>(mcx: mcx::Mcx<'p>, n: Node<'p>, q: Node<'p>) -> Option<Node<'p>> {
-    fn rw<'p>(mcx: mcx::Mcx<'p>, x: Node<'p>, cols: &[&'p types_nodes::primnodes::Var]) -> types_error::PgResult<Option<Node<'p>>> {
-        if let Some(v) = x.as_var().filter(|v| v.varno == types_nodes::primnodes::INDEX_VAR) {
-            let Some(c) = usize::try_from(v.varattno).ok().and_then(|a| a.checked_sub(1)).and_then(|i| cols.get(i)) else { return Ok(None) };
-            return Node::mk(mcx, types_nodes::primnodes::Var { varnullingrels: c.varnullingrels.clone_in(mcx)?, ..**c }).map(Some);
+    fn rw<'p>(
+        mcx: mcx::Mcx<'p>,
+        x: Node<'p>,
+        cols: &[&'p types_nodes::primnodes::Var],
+    ) -> types_error::PgResult<Option<Node<'p>>> {
+        if let Some(v) = x
+            .as_var()
+            .filter(|v| v.varno == types_nodes::primnodes::INDEX_VAR)
+        {
+            let Some(c) = usize::try_from(v.varattno)
+                .ok()
+                .and_then(|a| a.checked_sub(1))
+                .and_then(|i| cols.get(i))
+            else {
+                return Ok(None);
+            };
+            return Node::mk(
+                mcx,
+                types_nodes::primnodes::Var {
+                    varnullingrels: c.varnullingrels.clone_in(mcx)?,
+                    ..**c
+                },
+            )
+            .map(Some);
         }
         nodes_core::expression_tree_mutator_dyn(mcx, x, &mut |y| rw(mcx, y, cols))
     }
     let ios = n.as_index_only_scan()?;
-    let cols: Vec<&'p types_nodes::primnodes::Var> = ios.indextlist.iter().map(|t| t.as_target_entry().and_then(|t| t.expr.as_var())).collect::<Option<_>>()?;
+    let cols: Vec<&'p types_nodes::primnodes::Var> = ios
+        .indextlist
+        .iter()
+        .map(|t| t.as_target_entry().and_then(|t| t.expr.as_var()))
+        .collect::<Option<_>>()?;
     rw(mcx, q, &cols).ok().flatten()
 }
 
@@ -190,13 +260,19 @@ fn heap_form<'p>(mcx: mcx::Mcx<'p>, n: Node<'p>, q: Node<'p>) -> Option<Node<'p>
 #[test]
 fn a_plans_qual_conjuncts_keep_their_order() {
     let mut files = harness::fixtures_in(&harness::plans_root());
-    files.extend(harness::fixtures_in(&harness::plans_root().join("regress-full")));
+    files.extend(harness::fixtures_in(
+        &harness::plans_root().join("regress-full"),
+    ));
     let rows = harness::par_map(&files, |path| {
         let text = fs::read_to_string(path).unwrap();
         let ctx = MemoryContext::new("facts_m8");
-        let Ok(fx) = corpus::load(ctx.mcx(), &text) else { return (0, 0, Vec::new()) };
+        let Ok(fx) = corpus::load(ctx.mcx(), &text) else {
+            return (0, 0, Vec::new());
+        };
         let arena = Arena::new(1 << 20);
-        let Ok(g) = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx) else { return (0, 0, Vec::new()) };
+        let Ok(g) = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx) else {
+            return (0, 0, Vec::new());
+        };
         let ps = pipes(&g);
         // a conjunct normalize rewrote is its canonical form in the graph (equal, not the same node); two conjuncts can
         // share a canonical form (`1 < a AND a > 1`), so each filter op is claimed once, the first unclaimed one
@@ -223,19 +299,29 @@ fn a_plans_qual_conjuncts_keep_their_order() {
         for n in nodes {
             let qual = &n.as_plan().unwrap().qual;
             // an index-only scan read as the heap range filters its conjuncts over the relation's columns
-            let found: Vec<(Node<'_>, Option<(usize, usize)>)> = qual.iter().map(|q| (q, at(q).or_else(|| heap_form(fx.mcx, n, q).and_then(& at)))).collect();
+            let found: Vec<(Node<'_>, Option<(usize, usize)>)> = qual
+                .iter()
+                .map(|q| (q, at(q).or_else(|| heap_form(fx.mcx, n, q).and_then(&at))))
+                .collect();
             for (q, pos) in found.iter() {
                 if gravity_decompose::expr::has_subplan(*q) {
                     subs += 1;
                     if pos.is_none() {
-                        bad.push(format!("{}: node {}: a qual conjunct with a SubPlan is no filter op", path.display(), n.as_plan().unwrap().plan_node_id));
+                        bad.push(format!(
+                            "{}: node {}: a qual conjunct with a SubPlan is no filter op",
+                            path.display(),
+                            n.as_plan().unwrap().plan_node_id
+                        ));
                     }
                 }
             }
             let placed: Vec<(usize, usize)> = found.iter().filter_map(|f| f.1).collect();
             if placed.len() >= 2 {
                 lists += 1;
-                if placed.windows(2).any(|w| w[0].0 != w[1].0 || w[0].1 >= w[1].1) {
+                if placed
+                    .windows(2)
+                    .any(|w| w[0].0 != w[1].0 || w[0].1 >= w[1].1)
+                {
                     bad.push(format!("{}: node {}: qual conjuncts as filter ops at {placed:?}, not in the qual's order", path.display(), n.as_plan().unwrap().plan_node_id));
                 }
             }
@@ -246,7 +332,10 @@ fn a_plans_qual_conjuncts_keep_their_order() {
     let bad: Vec<&String> = rows.iter().flat_map(|r| r.2.iter()).collect();
     eprintln!("facts_m8 qual order: {lists} multi-conjunct quals as filter ops, {subs} conjuncts with a SubPlan");
     assert!(bad.is_empty(), "{} quals:\n{bad:#?}", bad.len());
-    assert!(harness::filter().is_some() || (lists > 0 && subs > 0), "no qual to check ({lists} / {subs})");
+    assert!(
+        harness::filter().is_some() || (lists > 0 && subs > 0),
+        "no qual to check ({lists} / {subs})"
+    );
 }
 
 /// Every NestLoop of `n` (the plan tree below it): inner root's node id -> inner_unique.
@@ -260,7 +349,12 @@ fn nest_loops(n: Node<'_>, out: &mut BTreeMap<i32, bool>) {
     for c in [p.lefttree, p.righttree].into_iter().flatten() {
         nest_loops(c, out);
     }
-    let lists = [n.as_append().map(|a| &a.appendplans), n.as_merge_append().map(|m| &m.mergeplans), n.as_bitmap_and().map(|b| &b.bitmapplans), n.as_bitmap_or().map(|b| &b.bitmapplans)];
+    let lists = [
+        n.as_append().map(|a| &a.appendplans),
+        n.as_merge_append().map(|m| &m.mergeplans),
+        n.as_bitmap_and().map(|b| &b.bitmapplans),
+        n.as_bitmap_or().map(|b| &b.bitmapplans),
+    ];
     for l in lists.into_iter().flatten() {
         for c in l.iter() {
             nest_loops(c, out);
@@ -276,13 +370,19 @@ fn nest_loops(n: Node<'_>, out: &mut BTreeMap<i32, bool>) {
 #[test]
 fn a_nest_carries_its_nest_loops_inner_unique() {
     let mut files = harness::fixtures_in(&harness::plans_root());
-    files.extend(harness::fixtures_in(&harness::plans_root().join("regress-full")));
+    files.extend(harness::fixtures_in(
+        &harness::plans_root().join("regress-full"),
+    ));
     let rows = harness::par_map(&files, |path| {
         let text = fs::read_to_string(path).unwrap();
         let ctx = MemoryContext::new("facts_m8");
-        let Ok(fx) = corpus::load(ctx.mcx(), &text) else { return (0, 0, Vec::new()) };
+        let Ok(fx) = corpus::load(ctx.mcx(), &text) else {
+            return (0, 0, Vec::new());
+        };
         let arena = Arena::new(1 << 20);
-        let Ok(g) = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx) else { return (0, 0, Vec::new()) };
+        let Ok(g) = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx) else {
+            return (0, 0, Vec::new());
+        };
         let mut want = BTreeMap::new();
         if let Some(t) = fx.stmt.planTree {
             nest_loops(t, &mut want);
@@ -293,7 +393,10 @@ fn a_nest_carries_its_nest_loops_inner_unique() {
         let (mut yes, mut no, mut bad) = (0, 0, Vec::new());
         for p in pipes(&g) {
             for op in p.ops.iter() {
-                if let Op::Join(JoinDesc::Nest { unique, inner_node, .. }) = op {
+                if let Op::Join(JoinDesc::Nest {
+                    unique, inner_node, ..
+                }) = op
+                {
                     match want.get(inner_node) {
                         Some(u) if u == unique => {
                             yes += *unique as usize;
@@ -310,7 +413,10 @@ fn a_nest_carries_its_nest_loops_inner_unique() {
     let bad: Vec<&String> = rows.iter().flat_map(|r| r.2.iter()).collect();
     eprintln!("facts_m8 F3: {yes} unique nests, {no} not");
     assert!(bad.is_empty(), "{bad:#?}");
-    assert!(harness::filter().is_some() || (yes > 0 && no > 0), "F3 needs both an inner_unique nest and one that is not ({yes} / {no})");
+    assert!(
+        harness::filter().is_some() || (yes > 0 && no > 0),
+        "F3 needs both an inner_unique nest and one that is not ({yes} / {no})"
+    );
 }
 
 /// The index of the `}` closing the node whose `{` is at `open` (outfuncs escapes a brace inside a token with `\\`).

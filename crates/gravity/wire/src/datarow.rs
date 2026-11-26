@@ -6,7 +6,10 @@ use gravity_driver::mem::root::Root;
 use gravity_driver::{WireFormat, MAX_WIRE_ATTS};
 use gravity_program::{ContentKey, OutCol, Program};
 use mcx::{Mcx, MemoryContext, PgVec};
-use pqformat::{pq_beginmessage_reuse, pq_endmessage_reuse, pq_sendbytes, pq_sendcountedtext, pq_sendint16, pq_sendint32};
+use pqformat::{
+    pq_beginmessage_reuse, pq_endmessage_reuse, pq_sendbytes, pq_sendcountedtext, pq_sendint16,
+    pq_sendint32,
+};
 use stringinfo::StringInfo;
 use types_core::catalog::{BOOLOID, FLOAT4OID, FLOAT8OID, INT2OID, INT4OID, INT8OID};
 use types_core::{primitive::InvalidOid, Oid};
@@ -44,7 +47,12 @@ impl Formats {
     fn of(out: &[OutCol], formats: Option<&[i16]>) -> PgResult<Formats> {
         let natts = out.len();
         if natts > MAX_FORMATS {
-            return Err(Box::new(PgError::error(format!("target lists can have at most {MAX_FORMATS} entries")).with_sqlstate(types_error::ERRCODE_TOO_MANY_COLUMNS))); // alloc: Cold
+            return Err(Box::new(
+                PgError::error(format!(
+                    "target lists can have at most {MAX_FORMATS} entries"
+                ))
+                .with_sqlstate(types_error::ERRCODE_TOO_MANY_COLUMNS),
+            )); // alloc: Cold
         }
         let mut binary = [0u64; FORMAT_WORDS];
         for (i, col) in out.iter().enumerate() {
@@ -228,18 +236,36 @@ fn num_head(pay: &[u8]) -> Option<NumHead<'_>> {
             if n < 4 {
                 return None;
             }
-            (sign == 0x4000, (h & 0x3FFF) as u32, i16::from_ne_bytes([pay[2], pay[3]]) as i32, &pay[4..])
+            (
+                sign == 0x4000,
+                (h & 0x3FFF) as u32,
+                i16::from_ne_bytes([pay[2], pay[3]]) as i32,
+                &pay[4..],
+            )
         }
     };
     let intd = match (weight >= 0, digits.len() >= 2) {
         (true, true) => weight as usize * 4 + dec_len(u16::from_ne_bytes([digits[0], digits[1]])),
         _ => 0,
     };
-    (intd + dscale as usize <= NUM_DIGITS).then_some(NumHead { digits, dscale, weight, neg })
+    (intd + dscale as usize <= NUM_DIGITS).then_some(NumHead {
+        digits,
+        dscale,
+        weight,
+        neg,
+    })
 }
 
 const fn dec_len(d: u16) -> usize {
-    if d >= 1000 { 4 } else if d >= 100 { 3 } else if d >= 10 { 2 } else { 1 }
+    if d >= 1000 {
+        4
+    } else if d >= 100 {
+        3
+    } else if d >= 10 {
+        2
+    } else {
+        1
+    }
 }
 
 /// 10^0 .. 10^38.
@@ -349,7 +375,11 @@ fn put_numeric(pay: &[u8], out: &mut [u8]) -> Option<usize> {
 }
 
 fn unsupported_format_code(format: i16) -> Box<PgError> {
-    Box::new(PgError::error(format!("unsupported format code: {format}")).with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE).with_funcname("printtup_prepare_info")) // alloc: Cold
+    Box::new(
+        PgError::error(format!("unsupported format code: {format}"))
+            .with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE)
+            .with_funcname("printtup_prepare_info"),
+    ) // alloc: Cold
 }
 
 impl Default for WireNode {
@@ -360,7 +390,26 @@ impl Default for WireNode {
 
 impl WireNode {
     pub fn new() -> WireNode {
-        WireNode { node_ctx: Root::bump("GravityWireNode"), desc_ctx: Root::bump("GravityWireDesc"), send_ctx: None, buf: None, attrs: None, rowdesc: None, program: None, cols: None, prepared: None, natts: 0, rows: 0, fast: None, frame_charge: None, frame: Vec::new(), hold: None, defer: false, pending: false, desc_converted: false } // alloc: Node
+        WireNode {
+            node_ctx: Root::bump("GravityWireNode"),
+            desc_ctx: Root::bump("GravityWireDesc"),
+            send_ctx: None,
+            buf: None,
+            attrs: None,
+            rowdesc: None,
+            program: None,
+            cols: None,
+            prepared: None,
+            natts: 0,
+            rows: 0,
+            fast: None,
+            frame_charge: None,
+            frame: Vec::new(),
+            hold: None,
+            defer: false,
+            pending: false,
+            desc_converted: false,
+        } // alloc: Node
     }
 
     fn rebuild_rowdesc(&mut self) -> PgResult<()> {
@@ -383,7 +432,11 @@ impl WireNode {
 
     pub fn send_rowdesc(&mut self) -> PgResult<()> {
         self.pending = self.defer;
-        if self.defer { Ok(()) } else { self.put_rowdesc() }
+        if self.defer {
+            Ok(())
+        } else {
+            self.put_rowdesc()
+        }
     }
 
     /// D1509: the next `send_rowdesc` waits for the first row or `release` (`unsent` until then).
@@ -397,7 +450,11 @@ impl WireNode {
 
     pub fn flush_rowdesc(&mut self) -> PgResult<()> {
         self.defer = false;
-        if core::mem::take(&mut self.pending) { self.put_rowdesc() } else { Ok(()) }
+        if core::mem::take(&mut self.pending) {
+            self.put_rowdesc()
+        } else {
+            Ok(())
+        }
     }
 
     fn put_rowdesc(&mut self) -> PgResult<()> {
@@ -421,7 +478,10 @@ impl WireNode {
     /// The held bytes are charged to the statement's (or the executing portal's) owner on this leader thread
     /// (`gravity_driver::stmt_context`): RETURNING rows held until the statement ends grow with the data.
     pub fn hold(&mut self) {
-        self.hold = Some(memledger::ChargedVec::new(gravity_driver::stmt_context().map(|(o, _)| o), memledger::Kind::Region)); // alloc: Exec charged gravity_driver::stmt_context().map(|(o, _)| o)
+        self.hold = Some(memledger::ChargedVec::new(
+            gravity_driver::stmt_context().map(|(o, _)| o),
+            memledger::Kind::Region,
+        )); // alloc: Exec charged gravity_driver::stmt_context().map(|(o, _)| o)
     }
 
     /// D719: the held messages to the wire in one pass (the statement ended, after its AFTER triggers: RunFromStore's place).
@@ -453,7 +513,10 @@ impl WireNode {
     /// `prepare` for an out row no program carries (runner point.rs); kept while the next row's columns and formats match.
     pub fn prepare_cols(&mut self, cols: &[OutCol], formats: Option<&[i16]>) -> PgResult<()> {
         let key = (ContentKey(0), Formats::of(cols, formats)?);
-        if self.prepared == Some(key) && self.program.is_none() && self.cols.as_deref() == Some(cols) {
+        if self.prepared == Some(key)
+            && self.program.is_none()
+            && self.cols.as_deref() == Some(cols)
+        {
             return Ok(());
         }
         self.program = None;
@@ -466,7 +529,8 @@ impl WireNode {
         // Bytes: one `OutCol` per column, at most MAX_TUPLE_ATTRIBUTE_NUMBER (1,664; `Formats::of` refuses more), on
         // pgrust_memory_owners' GravityWireNode row (kind unnamed_root), not in unattributed.
         let mut own: PgVec<'static, OutCol> = PgVec::new_in(mcx);
-        own.try_reserve_exact(cols.len()).map_err(|_| mcx.oom(core::mem::size_of_val(cols)))?;
+        own.try_reserve_exact(cols.len())
+            .map_err(|_| mcx.oom(core::mem::size_of_val(cols)))?;
         own.extend_from_slice(cols);
         self.cols = Some(own);
         self.rebuild_rowdesc()
@@ -481,22 +545,41 @@ impl WireNode {
         let mcx = self.mcx();
         let natts = out.len();
         let mut info: PgVec<'static, AttrInfo> = PgVec::new_in(mcx);
-        info.try_reserve_exact(natts).map_err(|_| mcx.oom(natts * core::mem::size_of::<AttrInfo>()))?;
+        info.try_reserve_exact(natts)
+            .map_err(|_| mcx.oom(natts * core::mem::size_of::<AttrInfo>()))?;
         for (i, col) in out.iter().enumerate() {
             let format = key.1.get(i);
             let entry = match format {
                 0 => {
-                    let (typoutput, typisvarlena) = lsyscache_seams::get_type_output_info::call(col.typid)?;
+                    let (typoutput, typisvarlena) =
+                        lsyscache_seams::get_type_output_info::call(col.typid)?;
                     let fast = match typoutput {
-                        TEXTOUT | BPCHAROUT | VARCHAROUT if !col.typbyval && col.typlen == -1 => FAST_TEXT,
+                        TEXTOUT | BPCHAROUT | VARCHAROUT if !col.typbyval && col.typlen == -1 => {
+                            FAST_TEXT
+                        }
                         NUMERICOUT if !col.typbyval && col.typlen == -1 => FAST_NUMERIC,
                         _ => fast_of(col.typid),
                     };
-                    AttrInfo { typoutput, typsend: InvalidOid, typisvarlena, format, fast, finfo: fmgr_seams::fmgr_info::call(typoutput)? }
+                    AttrInfo {
+                        typoutput,
+                        typsend: InvalidOid,
+                        typisvarlena,
+                        format,
+                        fast,
+                        finfo: fmgr_seams::fmgr_info::call(typoutput)?,
+                    }
                 }
                 1 => {
-                    let (typsend, typisvarlena) = lsyscache_seams::get_type_binary_output_info::call(col.typid)?;
-                    AttrInfo { typoutput: InvalidOid, typsend, typisvarlena, format, fast: 0, finfo: fmgr_seams::fmgr_info::call(typsend)? }
+                    let (typsend, typisvarlena) =
+                        lsyscache_seams::get_type_binary_output_info::call(col.typid)?;
+                    AttrInfo {
+                        typoutput: InvalidOid,
+                        typsend,
+                        typisvarlena,
+                        format,
+                        fast: 0,
+                        finfo: fmgr_seams::fmgr_info::call(typsend)?,
+                    }
                 }
                 _ => return Err(unsupported_format_code(format)),
             };
@@ -522,14 +605,22 @@ impl WireNode {
 
     fn format_of(&self, text: bool) -> Option<WireFormat> {
         let attrs = self.attrs.as_ref()?;
-        if attrs.is_empty() || attrs.len() > MAX_WIRE_ATTS || attrs.iter().any(|a| a.fast == 0 || (!text && matches!(a.fast, FAST_TEXT | FAST_NUMERIC))) {
+        if attrs.is_empty()
+            || attrs.len() > MAX_WIRE_ATTS
+            || attrs
+                .iter()
+                .any(|a| a.fast == 0 || (!text && matches!(a.fast, FAST_TEXT | FAST_NUMERIC)))
+        {
             return None;
         }
         let mut kinds = [0u8; MAX_WIRE_ATTS];
         for (k, a) in kinds.iter_mut().zip(attrs.iter()) {
             *k = a.fast;
         }
-        Some(WireFormat { natts: attrs.len() as u8, kinds })
+        Some(WireFormat {
+            natts: attrs.len() as u8,
+            kinds,
+        })
     }
 
     /// `rows` DataRow messages a leg framed (`wire_format`), appended to the wire in one pass.
@@ -578,7 +669,10 @@ impl WireNode {
         let Some(fmt) = self.fast else {
             let natts = self.natts;
             for r in 0..rows {
-                self.send_row(&values[r * natts..(r + 1) * natts], &isnull[r * natts..(r + 1) * natts])?;
+                self.send_row(
+                    &values[r * natts..(r + 1) * natts],
+                    &isnull[r * natts..(r + 1) * natts],
+                )?;
             }
             return Ok(());
         };
@@ -588,19 +682,27 @@ impl WireNode {
         frame.clear();
         // a numeric's text is ASCII, the same in every client encoding; a text column's needs no conversion
         let framed = if text || kinds.contains(&FAST_NUMERIC) {
-            !(text && mbutils_seams::server_to_client_conversion_needed::call()) && frame_rows_text(&mut frame, &fmt, values, isnull, rows)
+            !(text && mbutils_seams::server_to_client_conversion_needed::call())
+                && frame_rows_text(&mut frame, &fmt, values, isnull, rows)
         } else {
             frame_rows(&mut frame, &fmt, values, isnull, rows);
             true
         };
-        let r = if framed { self.send_framed(&frame, rows as u64) } else { Ok(()) };
+        let r = if framed {
+            self.send_framed(&frame, rows as u64)
+        } else {
+            Ok(())
+        };
         self.keep_frame(frame);
         if framed {
             return r;
         }
         let natts = self.natts;
         for r in 0..rows {
-            self.send_row(&values[r * natts..(r + 1) * natts], &isnull[r * natts..(r + 1) * natts])?;
+            self.send_row(
+                &values[r * natts..(r + 1) * natts],
+                &isnull[r * natts..(r + 1) * natts],
+            )?;
         }
         Ok(())
     }
@@ -610,7 +712,12 @@ impl WireNode {
     /// 113 KB to 2 MB). Its capacity is the session's (`frame_charge`); a block within it costs one compare.
     #[inline]
     fn keep_frame(&mut self, frame: Vec<u8>) {
-        if frame.capacity() as u64 != self.frame_charge.as_ref().map_or(0, budget::Charge::committed) {
+        if frame.capacity() as u64
+            != self
+                .frame_charge
+                .as_ref()
+                .map_or(0, budget::Charge::committed)
+        {
             self.charge_frame(frame.capacity() as u64);
         }
         self.frame = frame;
@@ -634,7 +741,13 @@ impl WireNode {
             if !a.is_backend() {
                 return;
             }
-            self.frame_charge = Some(budget::Charge::open(budget::Owner::Session(a), budget::Release::Session, budget::Kind::Region, budget::charge::Door::Heap, 0));
+            self.frame_charge = Some(budget::Charge::open(
+                budget::Owner::Session(a),
+                budget::Release::Session,
+                budget::Kind::Region,
+                budget::charge::Door::Heap,
+                0,
+            ));
         }
         if let Some(c) = self.frame_charge.as_mut() {
             let have = c.committed();
@@ -658,7 +771,15 @@ impl WireNode {
         let send_ctx = self.send_ctx.as_mut().expect("wire node before prepare");
         let natts = self.natts;
         pq_beginmessage_reuse(buf, PQMSG_DATA_ROW);
-        put_cols(attrs, natts, conv_needed, buf, send_ctx.mcx(), values, isnull)?;
+        put_cols(
+            attrs,
+            natts,
+            conv_needed,
+            buf,
+            send_ctx.mcx(),
+            values,
+            isnull,
+        )?;
         match self.hold.as_mut() {
             Some(h) => h.with_vec(|v| frame_into(v, PQMSG_DATA_ROW, buf.as_bytes())), // alloc: Exec charged h.owner()
             None => pq_endmessage_reuse(buf)?,
@@ -681,7 +802,15 @@ impl WireNode {
         let attrs = self.attrs.as_mut().expect("wire node before prepare");
         let mut buf = StringInfo::new_in(row)?;
         pq_beginmessage_reuse(&mut buf, PQMSG_DATA_ROW);
-        put_cols(attrs, self.natts, conv_needed, &mut buf, row, values, isnull)?;
+        put_cols(
+            attrs,
+            self.natts,
+            conv_needed,
+            &mut buf,
+            row,
+            values,
+            isnull,
+        )?;
         match self.hold.as_mut() {
             Some(h) => h.with_vec(|v| frame_into(v, PQMSG_DATA_ROW, buf.as_bytes())), // alloc: Exec charged h.owner()
             None => pq_endmessage_reuse(&buf)?,
@@ -695,7 +824,15 @@ impl WireNode {
 /// column a NULL's -1, a fast kind's text from the word, or the column's output (text) / send (binary) function called in
 /// `out`, the per-row context its result is fresh in (fmgr's contract).
 #[inline(always)]
-fn put_cols<'b>(attrs: &mut [AttrInfo], natts: usize, conv_needed: bool, buf: &mut StringInfo<'b>, out: Mcx<'_>, values: &[u64], isnull: &[u8]) -> PgResult<()> {
+fn put_cols<'b>(
+    attrs: &mut [AttrInfo],
+    natts: usize,
+    conv_needed: bool,
+    buf: &mut StringInfo<'b>,
+    out: Mcx<'_>,
+    values: &[u64],
+    isnull: &[u8],
+) -> PgResult<()> {
     pq_sendint16(buf, natts as u16)?;
     for i in 0..natts {
         if isnull[i] != 0 {
@@ -756,13 +893,36 @@ mod num_render_tests {
         let want = |neg: bool, v: u128, scale: u32| {
             let d = format!("{v:0>w$}", w = scale as usize + 1); // alloc: Cold
             let (i, f) = d.split_at(d.len() - scale as usize);
-            format!("{}{i}{}{f}", if neg { "-" } else { "" }, if scale > 0 { "." } else { "" }) // alloc: Cold
+            format!(
+                "{}{i}{}{f}",
+                if neg { "-" } else { "" },
+                if scale > 0 { "." } else { "" }
+            ) // alloc: Cold
         };
-        let vals = [0u128, 1, 9, 10, 99, 100, 12345, u64::MAX as u128 - 1, u64::MAX as u128, u64::MAX as u128 + 1, 10u128.pow(20), 10u128.pow(37), 10u128.pow(38) - 1, 123456789012345678901234567890123456];
+        let vals = [
+            0u128,
+            1,
+            9,
+            10,
+            99,
+            100,
+            12345,
+            u64::MAX as u128 - 1,
+            u64::MAX as u128,
+            u64::MAX as u128 + 1,
+            10u128.pow(20),
+            10u128.pow(37),
+            10u128.pow(38) - 1,
+            123456789012345678901234567890123456,
+        ];
         for scale in 0..=38u32 {
             for &v in &vals {
                 for neg in [false, true] {
-                    assert_eq!(render(neg, v, scale), want(neg, v, scale), "{v} scale {scale}");
+                    assert_eq!(
+                        render(neg, v, scale),
+                        want(neg, v, scale),
+                        "{v} scale {scale}"
+                    );
                 }
             }
         }

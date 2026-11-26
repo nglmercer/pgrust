@@ -15,8 +15,13 @@ impl<'p> Walk<'_, '_, 'p> {
     pub(crate) fn source(&mut self, p: &PipelineNode<'p>) {
         match &p.source {
             Source::Range { .. } => self.p.add(Prop::Seq),
-            Source::Index { keys, recheck, iam, .. } => {
-                if keys.iter().any(|key| matches!(key.form, KeyForm::Any | KeyForm::AmAny)) {
+            Source::Index {
+                keys, recheck, iam, ..
+            } => {
+                if keys
+                    .iter()
+                    .any(|key| matches!(key.form, KeyForm::Any | KeyForm::AmAny))
+                {
                     self.add(KindId::SrcIndexArray);
                 }
                 // a btree walk's keys are exact: PostgreSQL evaluates indexqualorig only under EvalPlanQual (IndexRecheck),
@@ -36,8 +41,14 @@ impl<'p> Walk<'_, '_, 'p> {
             // D4449: a row of Consts names no premise (a Const is no call, CASE, `= ANY`, whole-row reference or json
             // call), so only the rows holding another cell are walked: a literal table's rows cost no walk each, and a
             // list of Consts alone (`consts_only`) no walk at all
-            Source::Values { lists, .. } if !crate::ops::shared::values::consts_only(self.gx.graph, lists) && !crate::ops::shared::values::streams_past_cut(lists) => {
-                for l in lists.iter().filter(|l| !crate::ops::shared::values::all_consts(*l)) {
+            Source::Values { lists, .. }
+                if !crate::ops::shared::values::consts_only(self.gx.graph, lists)
+                    && !crate::ops::shared::values::streams_past_cut(lists) =>
+            {
+                for l in lists
+                    .iter()
+                    .filter(|l| !crate::ops::shared::values::all_consts(*l))
+                {
                     self.expr(l);
                 }
             }
@@ -47,7 +58,19 @@ impl<'p> Walk<'_, '_, 'p> {
             _ => {}
         }
         if let Some((_, _, site)) = p.source.relation() {
-            self.p.add(if matches!(p.source, Source::Range { am: gravity_decompose::Am::Pgrcolumnar, .. }) { Prop::Pgrc } else { Prop::Heap });
+            self.p.add(
+                if matches!(
+                    p.source,
+                    Source::Range {
+                        am: gravity_decompose::Am::Pgrcolumnar,
+                        ..
+                    }
+                ) {
+                    Prop::Pgrc
+                } else {
+                    Prop::Heap
+                },
+            );
             for d in site.lanes.iter() {
                 let arm = datum_kind(d.rep);
                 self.add(arm);

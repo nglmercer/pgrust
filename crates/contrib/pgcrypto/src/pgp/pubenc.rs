@@ -1,10 +1,10 @@
-
 use super::consts::*;
 use super::context::PgpContext;
 use super::mpi::{self, write_mpi, Mpi};
 use super::packet::write_stream_packet;
-use super::pubkey::{KeyMaterial, PubKey, PGP_PUB_ELG_ENCRYPT, PGP_PUB_RSA_ENCRYPT,
-    PGP_PUB_RSA_ENCRYPT_SIGN};
+use super::pubkey::{
+    KeyMaterial, PubKey, PGP_PUB_ELG_ENCRYPT, PGP_PUB_RSA_ENCRYPT, PGP_PUB_RSA_ENCRYPT_SIGN,
+};
 
 /// `res_len` bytes (pad must be >= 8 nonzero random bytes). `res_len` is
 /// the key's byte length minus one, so a zero-bit modulus makes it -1.

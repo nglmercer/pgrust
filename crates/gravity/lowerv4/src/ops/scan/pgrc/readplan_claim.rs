@@ -10,4 +10,7 @@ crate::strategies! {
     READ_CLAIM = 17, "read.claim", Pgrc;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(READ_CLAIM, &())], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(READ_CLAIM, &())],
+    ..crate::ops::NONE
+};

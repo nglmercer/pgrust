@@ -13,9 +13,24 @@ pub trait LazyMech: Sync {
     /// The pipelines to defer for build `b` read by pipeline `q` at its first row (producers ascending, `b` last), or `None`
     /// where running them later reorders anything PG would see (join/build_class.rs `lazy_group`). `first`: the slots of `q`
     /// whose producers PG runs before it (a merge's outer), exempt from the quiet rule.
-    fn group<'g>(&self, px: &Px<'g, '_>, b: usize, q: usize, consumed: usize, slot: u8, first: &[u8]) -> Option<PgVec<'g, usize>>;
+    fn group<'g>(
+        &self,
+        px: &Px<'g, '_>,
+        b: usize,
+        q: usize,
+        consumed: usize,
+        slot: u8,
+        first: &[u8],
+    ) -> Option<PgVec<'g, usize>>;
     /// The row stops the call while the group is pending (`BUILD_WAIT`) and resumes here once it ran (probe_wait.rs `wait`).
-    fn wait(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals, offset: i32, consumed: usize);
+    fn wait(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        row: &RowVals,
+        offset: i32,
+        consumed: usize,
+    );
 }
 
 pub struct LazyImpl(pub &'static dyn LazyMech);

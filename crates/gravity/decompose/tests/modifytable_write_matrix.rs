@@ -13,15 +13,41 @@ use gravity_decompose::{corpus, decompose_in, MemberSet};
 use gravity_program::Arena;
 use mcx::MemoryContext;
 
-const CORPORA: &[&str] = &["regress-full", "fieldobs", "oltp", "regress", "window", "setops", "tpch", "srf", "cte", "part"];
+const CORPORA: &[&str] = &[
+    "regress-full",
+    "fieldobs",
+    "oltp",
+    "regress",
+    "window",
+    "setops",
+    "tpch",
+    "srf",
+    "cte",
+    "part",
+];
 
 fn dir(name: &str) -> PathBuf {
     manifest_dir().join("tests").join(name)
 }
 
 fn plans(corpus: &str) -> Vec<PathBuf> {
-    let (d, prefix) = if corpus == "regress-full" { (dir("plans").join("regress-full"), String::new()) } else { (dir("plans"), format!("{corpus}-")) };
-    let mut v: Vec<PathBuf> = fs::read_dir(d).unwrap().map(|e| e.unwrap().path()).filter(|p| p.extension().is_some_and(|e| e == "plan") && p.file_name().unwrap().to_str().unwrap().starts_with(&prefix)).collect();
+    let (d, prefix) = if corpus == "regress-full" {
+        (dir("plans").join("regress-full"), String::new())
+    } else {
+        (dir("plans"), format!("{corpus}-"))
+    };
+    let mut v: Vec<PathBuf> = fs::read_dir(d)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| {
+            p.extension().is_some_and(|e| e == "plan")
+                && p.file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .starts_with(&prefix)
+        })
+        .collect();
     v.sort();
     v
 }
@@ -32,9 +58,11 @@ fn outcome(path: &Path) -> (MemberSet, Option<&'static str>, usize) {
     let ctx = MemoryContext::new("fixture");
     let fx = corpus::load(ctx.mcx(), &text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     let arena = Arena::new(1 << 20);
-    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx) {
-        Ok(g) => (members_of(&g), None, unclassified(&g)),
-        Err(r) => (MemberSet::EMPTY, Some(r.reason), 0),
+    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        match decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx) {
+            Ok(g) => (members_of(&g), None, unclassified(&g)),
+            Err(r) => (MemberSet::EMPTY, Some(r.reason), 0),
+        }
     }));
     r.unwrap_or((MemberSet::EMPTY, None, 0))
 }
@@ -63,8 +91,19 @@ fn write_matrix() {
     assert!(unknowns.is_empty(), "indexes of a written relation without constraint facts (re-capture: `-- idx … nkeyatts=`): {unknowns:#?}");
     // W5 multilock (main 09-29 04:31Z): PG 18's planner never makes a locking mark on a ModifyTable (planner.c:2238; the
     // lowering refuses one as a Bug), so no fixture of any corpus, the full regress run's shapes among them, carries it
-    let bug = CORPORA.iter().map(|&c| served.get(&(c, Member::LockingWriteMark as u8)).copied().unwrap_or(0)).sum::<usize>();
-    assert_eq!(bug, 0, "fixtures carrying LockingWriteMark (planner.c:2238)");
+    let bug = CORPORA
+        .iter()
+        .map(|&c| {
+            served
+                .get(&(c, Member::LockingWriteMark as u8))
+                .copied()
+                .unwrap_or(0)
+        })
+        .sum::<usize>();
+    assert_eq!(
+        bug, 0,
+        "fixtures carrying LockingWriteMark (planner.c:2238)"
+    );
     let mut out = String::new();
     write!(out, "| member |").unwrap();
     for c in CORPORA {
@@ -79,7 +118,12 @@ fn write_matrix() {
     for m in Member::LIST {
         write!(out, "| {m:?} |").unwrap();
         for &c in CORPORA {
-            write!(out, " {} |", served.get(&(c, m as u8)).copied().unwrap_or(0)).unwrap();
+            write!(
+                out,
+                " {} |",
+                served.get(&(c, m as u8)).copied().unwrap_or(0)
+            )
+            .unwrap();
         }
         writeln!(out).unwrap();
     }
@@ -95,12 +139,20 @@ fn write_matrix() {
         return;
     }
     let want = fs::read_to_string(&g).unwrap_or_default();
-    assert!(want == out, "{}: differs from its golden\n--- want\n{want}\n--- got\n{out}", g.display());
+    assert!(
+        want == out,
+        "{}: differs from its golden\n--- want\n{want}\n--- got\n{out}",
+        g.display()
+    );
 }
 
 /// D793-b: the checkout under test, read at run time (cargo sets CARGO_MANIFEST_DIR for every test process), never
 /// env!()'s path baked in at compile time: a test binary reused from another checkout would read that checkout's files.
 fn manifest_dir() -> &'static std::path::Path {
     static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| std::env::var_os("CARGO_MANIFEST_DIR").map(Into::into).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)"))
+    DIR.get_or_init(|| {
+        std::env::var_os("CARGO_MANIFEST_DIR")
+            .map(Into::into)
+            .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+    })
 }

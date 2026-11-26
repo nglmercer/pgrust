@@ -32,7 +32,11 @@ fn an_exiting_thread_folds_what_it_moved_since_its_last_fold() {
     })
     .join()
     .unwrap();
-    assert_eq!(unbound() - before, 0, "a session's teardown after its unbind must not stay on UNBOUND");
+    assert_eq!(
+        unbound() - before,
+        0,
+        "a session's teardown after its unbind must not stay on UNBOUND"
+    );
     // a thread-local whose destructor was armed before the bind: its free at the thread's exit reaches UNBOUND too
     std::thread::spawn(move || {
         LATE.with(|l| l.0.set(64 << 10));
@@ -43,7 +47,11 @@ fn an_exiting_thread_folds_what_it_moved_since_its_last_fold() {
     })
     .join()
     .unwrap();
-    assert_eq!(unbound() - before, 0, "a free in a thread-local's destructor must reach UNBOUND too");
+    assert_eq!(
+        unbound() - before,
+        0,
+        "a free in a thread-local's destructor must reach UNBOUND too"
+    );
     // a thread that ends without an unbind (a crash-class exit) leaves its pending bytes on its own account
     std::thread::spawn(move || {
         bind_backend(4011, 2);

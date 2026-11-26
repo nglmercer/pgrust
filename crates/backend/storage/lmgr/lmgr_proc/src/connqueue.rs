@@ -81,7 +81,9 @@ struct Queue {
     waiters: VecDeque<Arc<Waiter>>,
 }
 
-static QUEUE: Mutex<Queue> = Mutex::new(Queue { waiters: VecDeque::new() });
+static QUEUE: Mutex<Queue> = Mutex::new(Queue {
+    waiters: VecDeque::new(),
+});
 
 // Stats (readable via `pgrust: admission stats` in tcop simple-query).
 static TOTAL_QUEUED: AtomicU64 = AtomicU64::new(0);
@@ -112,7 +114,10 @@ pub fn bypass_claimed() -> bool {
         if options_claim_bypass(port.cmdline_options.as_deref(), &port.guc_options) {
             return true;
         }
-        match (&port.application_name, guc_tables::backing::pgrust_admission_bypass_applications()) {
+        match (
+            &port.application_name,
+            guc_tables::backing::pgrust_admission_bypass_applications(),
+        ) {
             (Some(app), Some(list)) => application_matches(&list, app),
             _ => false,
         }
@@ -182,7 +187,11 @@ fn parse_bool_lite(value: &str) -> Option<bool> {
     let prefix_of = |word: &str| word.starts_with(v.as_str());
     if prefix_of("true") || prefix_of("yes") || v == "on" || v == "1" {
         Some(true)
-    } else if prefix_of("false") || prefix_of("no") || (v.len() >= 2 && prefix_of("off")) || v == "0" {
+    } else if prefix_of("false")
+        || prefix_of("no")
+        || (v.len() >= 2 && prefix_of("off"))
+        || v == "0"
+    {
         Some(false)
     } else {
         None
@@ -328,7 +337,10 @@ pub(crate) fn queue_for_slot(
     let queue_size = guc_tables::backing::connection_queue_size().max(0) as usize;
     let timeout_ms = guc_tables::backing::connection_queue_timeout();
 
-    let me = Arc::new(Waiter { granted: Mutex::new(false), cv: Condvar::new() });
+    let me = Arc::new(Waiter {
+        granted: Mutex::new(false),
+        cv: Condvar::new(),
+    });
     let depth = {
         let mut q = lock_queue();
         if q.waiters.len() >= queue_size {
@@ -340,8 +352,7 @@ pub(crate) fn queue_for_slot(
     };
     TOTAL_QUEUED.fetch_add(1, Relaxed);
     let entered = Instant::now();
-    let deadline =
-        (timeout_ms > 0).then(|| entered + Duration::from_millis(timeout_ms as u64));
+    let deadline = (timeout_ms > 0).then(|| entered + Duration::from_millis(timeout_ms as u64));
     let _ = elog::elog(
         LOG,
         format!(
@@ -349,7 +360,10 @@ pub(crate) fn queue_for_slot(
         ),
     );
 
-    let mut guard = QueueGuard { me: Arc::clone(&me), consumed_token: false };
+    let mut guard = QueueGuard {
+        me: Arc::clone(&me),
+        consumed_token: false,
+    };
 
     loop {
         // Shutdown / termination FIRST — during a shutdown cascade freed
@@ -406,9 +420,7 @@ pub(crate) fn queue_for_slot(
                 drop(guard);
                 let _ = elog::elog(
                     LOG,
-                    format!(
-                        "connection admission queue: timeout after {timeout_ms} ms"
-                    ),
+                    format!("connection admission queue: timeout after {timeout_ms} ms"),
                 );
                 return Err(too_many_error());
             }
@@ -475,13 +487,22 @@ mod tests {
         assert!(!application_matches("", "psql"));
         assert!(!application_matches("  ", "psql"));
         // A quoted entry with spaces matches the spaced name.
-        assert!(application_matches("\"pgAdmin 4\"", "pgAdmin 4 - DB:postgres"));
+        assert!(application_matches(
+            "\"pgAdmin 4\"",
+            "pgAdmin 4 - DB:postgres"
+        ));
     }
 
     #[test]
     fn default_list_admits_interactive_tools_not_drivers() {
         let d = guc_tables::backing::ADMISSION_BYPASS_APPLICATIONS_DEFAULT;
-        for app in ["psql", "pgcli", "pgAdmin 4 - CONN:42", "DBeaver 24.3.0 - SQLEditor <x>", "DataGrip 2024.2"] {
+        for app in [
+            "psql",
+            "pgcli",
+            "pgAdmin 4 - CONN:42",
+            "DBeaver 24.3.0 - SQLEditor <x>",
+            "DataGrip 2024.2",
+        ] {
             assert!(application_matches(d, app), "{app} should claim");
         }
         for app in [
@@ -505,29 +526,76 @@ mod tests {
 
     #[test]
     fn startup_packet_pairs_claim() {
-        assert!(options_claim_bypass(None, &sv(&["pgrust.admission_bypass", "on"])));
-        assert!(options_claim_bypass(None, &sv(&["PGRUST.Admission_Bypass", "true"])));
-        assert!(options_claim_bypass(None, &sv(&["application_name", "x", "pgrust.admission_bypass", "1"])));
-        assert!(!options_claim_bypass(None, &sv(&["pgrust.admission_bypass", "off"])));
-        assert!(!options_claim_bypass(None, &sv(&["pgrust.admission_bypass", "garbage"])));
-        assert!(!options_claim_bypass(None, &sv(&["pgrust.admission_bypass_applications", "on"])));
+        assert!(options_claim_bypass(
+            None,
+            &sv(&["pgrust.admission_bypass", "on"])
+        ));
+        assert!(options_claim_bypass(
+            None,
+            &sv(&["PGRUST.Admission_Bypass", "true"])
+        ));
+        assert!(options_claim_bypass(
+            None,
+            &sv(&["application_name", "x", "pgrust.admission_bypass", "1"])
+        ));
+        assert!(!options_claim_bypass(
+            None,
+            &sv(&["pgrust.admission_bypass", "off"])
+        ));
+        assert!(!options_claim_bypass(
+            None,
+            &sv(&["pgrust.admission_bypass", "garbage"])
+        ));
+        assert!(!options_claim_bypass(
+            None,
+            &sv(&["pgrust.admission_bypass_applications", "on"])
+        ));
         assert!(!options_claim_bypass(None, &[]));
         // Last spelling wins.
-        assert!(!options_claim_bypass(None, &sv(&["pgrust.admission_bypass", "on", "pgrust.admission_bypass", "off"])));
+        assert!(!options_claim_bypass(
+            None,
+            &sv(&[
+                "pgrust.admission_bypass",
+                "on",
+                "pgrust.admission_bypass",
+                "off"
+            ])
+        ));
     }
 
     #[test]
     fn options_string_claims() {
-        assert!(options_claim_bypass(Some("-c pgrust.admission_bypass=on"), &[]));
-        assert!(options_claim_bypass(Some("-cpgrust.admission_bypass=yes"), &[]));
-        assert!(options_claim_bypass(Some("--pgrust.admission_bypass=on"), &[]));
-        assert!(options_claim_bypass(Some("-c work_mem=4MB -c pgrust.admission-bypass=t"), &[]));
-        assert!(!options_claim_bypass(Some("-c pgrust.admission_bypass=off"), &[]));
+        assert!(options_claim_bypass(
+            Some("-c pgrust.admission_bypass=on"),
+            &[]
+        ));
+        assert!(options_claim_bypass(
+            Some("-cpgrust.admission_bypass=yes"),
+            &[]
+        ));
+        assert!(options_claim_bypass(
+            Some("--pgrust.admission_bypass=on"),
+            &[]
+        ));
+        assert!(options_claim_bypass(
+            Some("-c work_mem=4MB -c pgrust.admission-bypass=t"),
+            &[]
+        ));
+        assert!(!options_claim_bypass(
+            Some("-c pgrust.admission_bypass=off"),
+            &[]
+        ));
         assert!(!options_claim_bypass(Some("-c work_mem=4MB"), &[]));
-        assert!(!options_claim_bypass(Some("-c pgrust.admission_bypass"), &[]));
+        assert!(!options_claim_bypass(
+            Some("-c pgrust.admission_bypass"),
+            &[]
+        ));
         assert!(!options_claim_bypass(Some(""), &[]));
         // Escaped space inside a value does not break tokenization.
-        assert!(options_claim_bypass(Some("-c application_name=a\\ b -c pgrust.admission_bypass=on"), &[]));
+        assert!(options_claim_bypass(
+            Some("-c application_name=a\\ b -c pgrust.admission_bypass=on"),
+            &[]
+        ));
         // Packet pairs are applied after the options switches, so they win.
         assert!(!options_claim_bypass(
             Some("-c pgrust.admission_bypass=on"),

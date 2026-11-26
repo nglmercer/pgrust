@@ -69,7 +69,13 @@ impl Feed {
     /// - Qual: ExecQual evaluates the qual's operands for each row it tests.
     pub const fn pg(self) -> BoundAt {
         match self {
-            Feed::Limit | Feed::TupleBound | Feed::IndexKey | Feed::ArrayKey | Feed::Tid | Feed::Sample | Feed::Recheck => BoundAt::Rescan,
+            Feed::Limit
+            | Feed::TupleBound
+            | Feed::IndexKey
+            | Feed::ArrayKey
+            | Feed::Tid
+            | Feed::Sample
+            | Feed::Recheck => BoundAt::Rescan,
             Feed::Qual => BoundAt::Row,
         }
     }
@@ -94,13 +100,27 @@ mod tests {
 
     #[test]
     fn ranks_order_the_phases() {
-        let all = [BoundAt::Plan, BoundAt::Bind, BoundAt::Open, BoundAt::Rescan, BoundAt::Row];
+        let all = [
+            BoundAt::Plan,
+            BoundAt::Bind,
+            BoundAt::Open,
+            BoundAt::Rescan,
+            BoundAt::Row,
+        ];
         assert!(all.windows(2).all(|w| w[0].rank() < w[1].rank()));
     }
 
     #[test]
     fn every_feed_is_evaluated_at_every_rescan() {
-        for f in [Feed::Limit, Feed::TupleBound, Feed::IndexKey, Feed::ArrayKey, Feed::Tid, Feed::Sample, Feed::Recheck] {
+        for f in [
+            Feed::Limit,
+            Feed::TupleBound,
+            Feed::IndexKey,
+            Feed::ArrayKey,
+            Feed::Tid,
+            Feed::Sample,
+            Feed::Recheck,
+        ] {
             assert_eq!(f.pg(), BoundAt::Rescan, "{f:?}");
         }
         assert_eq!(Feed::Qual.pg(), BoundAt::Row);

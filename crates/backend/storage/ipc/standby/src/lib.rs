@@ -119,7 +119,11 @@ fn LogCurrentRunningXacts(running: &procarray::RunningTransactions<'_>) -> PgRes
     let xids_bytes: &[u8] =
         unsafe { core::slice::from_raw_parts(running.xids.as_ptr().cast::<u8>(), xid_count * 4) };
 
-    let main_data: &[&[u8]] = if xid_count > 0 { &[&hdr, xids_bytes] } else { &[&hdr] };
+    let main_data: &[&[u8]] = if xid_count > 0 {
+        &[&hdr, xids_bytes]
+    } else {
+        &[&hdr]
+    };
     let recptr = xloginsert::insert_record(
         RM_STANDBY_ID,
         XLOG_RUNNING_XACTS,
@@ -136,7 +140,10 @@ fn LogCurrentRunningXacts(running: &procarray::RunningTransactions<'_>) -> PgRes
 }
 
 fn standby_locks_body(locks: &[xl_standby_lock]) -> PgResult<Vec<u8>> {
-    let mut body = ::mcx::std_vec_with_capacity("LogAccessExclusiveLocks", locks.len() * SIZE_OF_XL_STANDBY_LOCK)?;
+    let mut body = ::mcx::std_vec_with_capacity(
+        "LogAccessExclusiveLocks",
+        locks.len() * SIZE_OF_XL_STANDBY_LOCK,
+    )?;
     for l in locks {
         body.extend_from_slice(&l.xid.to_ne_bytes());
         body.extend_from_slice(&l.dbOid.to_ne_bytes());
@@ -179,7 +186,10 @@ pub fn LogAccessExclusiveLockPrepare() -> PgResult<()> {
     Ok(())
 }
 
-fn invalidations_header(relcache_init_file_inval: bool, nmsgs: usize) -> [u8; MIN_SIZE_OF_INVALIDATIONS] {
+fn invalidations_header(
+    relcache_init_file_inval: bool,
+    nmsgs: usize,
+) -> [u8; MIN_SIZE_OF_INVALIDATIONS] {
     let mut xlrec = [0u8; MIN_SIZE_OF_INVALIDATIONS];
     xlrec[0..4].copy_from_slice(&init_small::globals::MyDatabaseId().to_ne_bytes());
     xlrec[4..8].copy_from_slice(&init_small::globals::MyDatabaseTableSpace().to_ne_bytes());
@@ -193,7 +203,10 @@ pub fn LogStandbyInvalidations(
     relcache_init_file_inval: bool,
 ) -> PgResult<()> {
     let xlrec = invalidations_header(relcache_init_file_inval, msgs.len());
-    let mut body = ::mcx::std_vec_with_capacity("LogStandbyInvalidations", msgs.len() * SHARED_INVALIDATION_MESSAGE_SIZE)?;
+    let mut body = ::mcx::std_vec_with_capacity(
+        "LogStandbyInvalidations",
+        msgs.len() * SHARED_INVALIDATION_MESSAGE_SIZE,
+    )?;
     for msg in msgs {
         body.extend_from_slice(&msg.to_wire_bytes());
     }
@@ -248,7 +261,9 @@ fn validate_count(
         .checked_mul(elem_size)
         .and_then(|body| header.checked_add(body))
         .ok_or_else(|| {
-            corrupt_record(format!("invalid {what} record: count {count} overflows record length"))
+            corrupt_record(format!(
+                "invalid {what} record: count {count} overflows record length"
+            ))
         })?;
     if data_len < need {
         return Err(corrupt_record(format!(
@@ -329,7 +344,11 @@ pub fn standby_redo(record: &mut xlogreader_seams::XLogReaderState) -> PgResult<
             let running = procarray::RunningTransactionsData {
                 xcnt,
                 subxcnt,
-                subxid_status: if subxid_overflow { SUBXIDS_MISSING } else { SUBXIDS_IN_ARRAY },
+                subxid_status: if subxid_overflow {
+                    SUBXIDS_MISSING
+                } else {
+                    SUBXIDS_IN_ARRAY
+                },
                 nextXid: next_xid,
                 oldestRunningXid: oldest_running_xid,
                 // Not carried by xl_running_xacts; unused on the redo side.
@@ -362,7 +381,9 @@ pub fn standby_redo(record: &mut xlogreader_seams::XLogReaderState) -> PgResult<
                 let base = MIN_SIZE_OF_INVALIDATIONS + i * SHARED_INVALIDATION_MESSAGE_SIZE;
                 msgs.push(
                     SharedInvalidationMessage::from_wire_bytes(
-                        data[base..base + SHARED_INVALIDATION_MESSAGE_SIZE].try_into().unwrap(),
+                        data[base..base + SHARED_INVALIDATION_MESSAGE_SIZE]
+                            .try_into()
+                            .unwrap(),
                     )
                     .ok_or_else(|| {
                         corrupt_record(

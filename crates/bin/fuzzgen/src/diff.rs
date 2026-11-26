@@ -23,7 +23,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::OnceLock;
 
 use crate::canon::{self, CanonCtx, CanonSide, ErrTuple, ResultGroup, ERR_FIELD_ORDER};
-use crate::contracts::{self, json, Class, ColDesc, ObservationRecord, Ordered, Severity, Status, StepKind, StepRecord, WireMsg};
+use crate::contracts::{
+    self, json, Class, ColDesc, ObservationRecord, Ordered, Severity, Status, StepKind, StepRecord,
+    WireMsg,
+};
 use crate::rulings::{normalize_stmt, Candidate, Ledger};
 
 pub const FLOAT4_OID: u32 = 700;
@@ -45,15 +48,29 @@ pub const GEO_ULP_FACTOR: u64 = 8;
 /// What one side produced for one statement.
 #[derive(Clone, Debug)]
 pub enum StmtOutcome {
-    Rows { col_oids: Vec<u32>, rows: Vec<Vec<Option<String>>> },
-    Command { tag: String, affected: Option<u64> },
+    Rows {
+        col_oids: Vec<u32>,
+        rows: Vec<Vec<Option<String>>>,
+    },
+    Command {
+        tag: String,
+        affected: Option<u64>,
+    },
     /// A COPY data transfer: the raw payload of COPY ... TO STDOUT (empty
     /// for COPY FROM STDIN feeds) plus the command tag. X2: with FORMAT
     /// binary the payload is copyto.c's binary emit — compared
     /// byte-for-byte, any byte diff is a finding.
-    CopyOut { bytes: Vec<u8>, tag: String },
-    Error { sqlstate: String, message: String },
-    ConnLost { detail: String },
+    CopyOut {
+        bytes: Vec<u8>,
+        tag: String,
+    },
+    Error {
+        sqlstate: String,
+        message: String,
+    },
+    ConnLost {
+        detail: String,
+    },
 }
 
 /// Divergence class per charter §3.2. `Ruled` carries the matched ruling id.
@@ -250,7 +267,11 @@ fn cmp_geo_text(x: &str, y: &str, geo_tol: u64) -> CellCmp {
             _ => return CellCmp::Diff,
         }
     }
-    if any_ulp { CellCmp::EqualUlp } else { CellCmp::Equal }
+    if any_ulp {
+        CellCmp::EqualUlp
+    } else {
+        CellCmp::Equal
+    }
 }
 
 fn parse_pg_float(s: &str) -> Option<f64> {
@@ -299,18 +320,18 @@ fn cmp_cell(a: &Option<String>, b: &Option<String>, mode: ColCmp, ulp_tol: u64) 
     }
 }
 
-fn cmp_row(
-    a: &[Option<String>],
-    b: &[Option<String>],
-    modes: &[ColCmp],
-    ulp_tol: u64,
-) -> CellCmp {
+fn cmp_row(a: &[Option<String>], b: &[Option<String>], modes: &[ColCmp], ulp_tol: u64) -> CellCmp {
     if a.len() != b.len() {
         return CellCmp::Diff;
     }
     let mut worst = CellCmp::Equal;
     for (i, (x, y)) in a.iter().zip(b.iter()).enumerate() {
-        match cmp_cell(x, y, modes.get(i).copied().unwrap_or(ColCmp::Exact), ulp_tol) {
+        match cmp_cell(
+            x,
+            y,
+            modes.get(i).copied().unwrap_or(ColCmp::Exact),
+            ulp_tol,
+        ) {
             CellCmp::Diff => return CellCmp::Diff,
             CellCmp::EqualSoft => worst = CellCmp::EqualSoft,
             CellCmp::EqualUlp => {
@@ -431,7 +452,10 @@ pub fn cmp_rows_multiset(
             return RowsetCmp::Diff(format!("unmatched row on A: [{}]", render_row(ra)));
         }
     }
-    debug_assert!(any_ulp, "exact multiset differed but greedy match used no tolerant cell");
+    debug_assert!(
+        any_ulp,
+        "exact multiset differed but greedy match used no tolerant cell"
+    );
     if any_soft {
         RowsetCmp::EqualSoft
     } else {
@@ -511,9 +535,7 @@ pub fn is_scroll_declare_explain_stmt(sql: &str) -> bool {
 /// Margin-level summary rows (Planning/Execution Time, Planning:,
 /// "  Buffers:" etc.) pass through untouched. Returns None when the
 /// rows do not have that exact shape.
-fn strip_top_materialize_rows(
-    rows: &[Vec<Option<String>>],
-) -> Option<Vec<Vec<Option<String>>>> {
+fn strip_top_materialize_rows(rows: &[Vec<Option<String>>]) -> Option<Vec<Vec<Option<String>>>> {
     let cell = |r: &Vec<Option<String>>| -> Option<String> {
         if r.len() != 1 {
             return None;
@@ -687,10 +709,7 @@ pub fn normalize_explain_cell(s: &str) -> String {
                             if bytes[j] == b',' {
                                 break;
                             }
-                            if bytes[j] == b' '
-                                && j + 1 < bytes.len()
-                                && bytes[j + 1] == b' '
-                            {
+                            if bytes[j] == b' ' && j + 1 < bytes.len() && bytes[j + 1] == b' ' {
                                 break;
                             }
                         }
@@ -733,9 +752,7 @@ pub fn normalize_explain_timing_cell(s: &str) -> String {
     out
 }
 
-fn normalize_explain_timing_rows(
-    rows: &[Vec<Option<String>>],
-) -> Vec<Vec<Option<String>>> {
+fn normalize_explain_timing_rows(rows: &[Vec<Option<String>>]) -> Vec<Vec<Option<String>>> {
     rows.iter()
         .map(|r| {
             r.iter()
@@ -777,7 +794,9 @@ pub fn strip_planning_buffer_rows(rows: &[Vec<Option<String>>]) -> Vec<Vec<Optio
     let mut i = 0;
     while i < rows.len() {
         let header = rows[i].len() == 1
-            && rows[i][0].as_deref().is_some_and(|s| s.trim() == "Planning:");
+            && rows[i][0]
+                .as_deref()
+                .is_some_and(|s| s.trim() == "Planning:");
         if !header {
             out.push(rows[i].clone());
             i += 1;
@@ -789,13 +808,9 @@ pub fn strip_planning_buffer_rows(rows: &[Vec<Option<String>>]) -> Vec<Vec<Optio
             let child = rows[i].len() == 1
                 && rows[i][0].as_deref().is_some_and(|s| {
                     indent_of(s) > hdr_indent
-                        && [
-                            "Buffers:",
-                            "I/O Timings:",
-                            "Memory:",
-                        ]
-                        .iter()
-                        .any(|p| s.trim_start().starts_with(p))
+                        && ["Buffers:", "I/O Timings:", "Memory:"]
+                            .iter()
+                            .any(|p| s.trim_start().starts_with(p))
                 });
             if !child {
                 break;
@@ -832,7 +847,9 @@ pub fn normalize_oid_literal_cell(s: &str) -> Option<String> {
         let is_user_oid = digits_start > 0
             && head[..digits_start].ends_with('\'')
             && !digits.is_empty()
-            && digits.parse::<u64>().is_ok_and(|v| v >= u64::from(FIRST_NORMAL_OBJECT_ID));
+            && digits
+                .parse::<u64>()
+                .is_ok_and(|v| v >= u64::from(FIRST_NORMAL_OBJECT_ID));
         if is_user_oid {
             out.push_str(&head[..digits_start]);
             out.push_str("<oid>");
@@ -1291,26 +1308,48 @@ pub fn class_rank(c: Class) -> u8 {
 pub fn default_severity(c: Class) -> Severity {
     match c {
         Class::Crash => Severity::Critical,
-        Class::MissingError | Class::SpuriousError | Class::WrongResult | Class::WrongSqlstate | Class::Hang => {
-            Severity::High
+        Class::MissingError
+        | Class::SpuriousError
+        | Class::WrongResult
+        | Class::WrongSqlstate
+        | Class::Hang => Severity::High,
+        Class::WrongMessage | Class::WrongPosition | Class::PlanShape | Class::MissingFeature => {
+            Severity::Medium
         }
-        Class::WrongMessage | Class::WrongPosition | Class::PlanShape | Class::MissingFeature => Severity::Medium,
         Class::Cosmetic => Severity::Low,
         Class::Leak => Severity::High,
         Class::AllocPolicy => Severity::Medium,
     }
 }
 
-const PLANE_ORDER: &[&str] =
-    &["session", "panic", "crash", "hang", "wire:E", "wire:N", "rows", "explain", "copy", "meta", "notify", "log"];
+const PLANE_ORDER: &[&str] = &[
+    "session", "panic", "crash", "hang", "wire:E", "wire:N", "rows", "explain", "copy", "meta",
+    "notify", "log",
+];
 
 pub fn plane_order(plane: &str) -> usize {
-    PLANE_ORDER.iter().position(|p| *p == plane).unwrap_or(PLANE_ORDER.len())
+    PLANE_ORDER
+        .iter()
+        .position(|p| *p == plane)
+        .unwrap_or(PLANE_ORDER.len())
 }
 
 /// `plane | unit-or-message-template | sqlstate pair | field delta`.
-pub fn signature(plane: &str, unit: &str, sa: Option<&str>, sb: Option<&str>, delta: &str) -> String {
-    format!("{} | {} | {}/{} | {}", plane, unit, sa.unwrap_or("-"), sb.unwrap_or("-"), delta)
+pub fn signature(
+    plane: &str,
+    unit: &str,
+    sa: Option<&str>,
+    sb: Option<&str>,
+    delta: &str,
+) -> String {
+    format!(
+        "{} | {} | {}/{} | {}",
+        plane,
+        unit,
+        sa.unwrap_or("-"),
+        sb.unwrap_or("-"),
+        delta
+    )
 }
 
 /// The step's verdict: the highest-precedence unruled divergence, else
@@ -1339,7 +1378,12 @@ pub fn missing_feature_rule(mb: &str, ma: Option<&str>) -> Option<String> {
 }
 
 /// Compare two sides of one step with default options.
-pub fn compare_planes(a: &ObservationRecord, b: &ObservationRecord, step: &StepRecord, rulings: &Ledger) -> Vec<Divergence> {
+pub fn compare_planes(
+    a: &ObservationRecord,
+    b: &ObservationRecord,
+    step: &StepRecord,
+    rulings: &Ledger,
+) -> Vec<Divergence> {
     compare_planes_with(a, b, step, rulings, &CompareOpts::default())
 }
 
@@ -1354,7 +1398,14 @@ pub fn compare_planes_with(
 ) -> Vec<Divergence> {
     let ca = canon::canonicalize(a, &opts.ctx_a);
     let cb = canon::canonicalize(b, &opts.ctx_b);
-    let cmp = Cmp { ca: &ca, cb: &cb, step, opts, ledger: rulings, sql: step.sql.clone().unwrap_or_default() };
+    let cmp = Cmp {
+        ca: &ca,
+        cb: &cb,
+        step,
+        opts,
+        ledger: rulings,
+        sql: step.sql.clone().unwrap_or_default(),
+    };
     let mut out = Vec::new();
     let liveness_planes = cmp.liveness_planes();
     let wire_ok = liveness_planes.is_empty();
@@ -1398,7 +1449,14 @@ struct PlaneDiff {
 }
 
 impl PlaneDiff {
-    fn new(plane: &str, class: Class, field: &str, a: Option<String>, b: Option<String>, detail: String) -> PlaneDiff {
+    fn new(
+        plane: &str,
+        class: Class,
+        field: &str,
+        a: Option<String>,
+        b: Option<String>,
+        detail: String,
+    ) -> PlaneDiff {
         PlaneDiff {
             plane: plane.to_string(),
             class,
@@ -1428,7 +1486,10 @@ fn short(s: &str) -> bool {
 }
 
 fn render_rows(rows: &[Vec<Option<String>>]) -> String {
-    rows.iter().map(|r| format!("[{}]", render_row(r))).collect::<Vec<_>>().join(" ")
+    rows.iter()
+        .map(|r| format!("[{}]", render_row(r)))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 impl<'a> Cmp<'a> {
@@ -1448,8 +1509,16 @@ impl<'a> Cmp<'a> {
 
     fn sqlstates(&self) -> (Option<String>, Option<String>) {
         (
-            self.ca.error.as_ref().and_then(|e| e.get('C')).map(str::to_string),
-            self.cb.error.as_ref().and_then(|e| e.get('C')).map(str::to_string),
+            self.ca
+                .error
+                .as_ref()
+                .and_then(|e| e.get('C'))
+                .map(str::to_string),
+            self.cb
+                .error
+                .as_ref()
+                .and_then(|e| e.get('C'))
+                .map(str::to_string),
         )
     }
 
@@ -1488,7 +1557,13 @@ impl<'a> Cmp<'a> {
                 delta.push_str(&format!(" {}→{}", x, y));
             }
         }
-        let sig = signature(&pd.plane, &self.unit(message), sqlstates.0.as_deref(), sqlstates.1.as_deref(), &delta);
+        let sig = signature(
+            &pd.plane,
+            &self.unit(message),
+            sqlstates.0.as_deref(),
+            sqlstates.1.as_deref(),
+            &delta,
+        );
         Divergence {
             severity: pd.severity.unwrap_or_else(|| default_severity(pd.class)),
             plane: pd.plane,
@@ -1501,7 +1576,11 @@ impl<'a> Cmp<'a> {
             sqlstate_b: sqlstates.1,
             detail,
             signature: sig,
-            status: if rule.is_some() { Status::Ruled } else { Status::New },
+            status: if rule.is_some() {
+                Status::Ruled
+            } else {
+                Status::New
+            },
             rule,
         }
     }
@@ -1541,7 +1620,12 @@ impl<'a> Cmp<'a> {
                     "panicked",
                     (side == "A").then(|| p.site.clone()),
                     (side == "B").then(|| p.site.clone()),
-                    format!("{} panicked at {}: {}", side, p.site, canon::bytes_text(&p.message.0)),
+                    format!(
+                        "{} panicked at {}: {}",
+                        side,
+                        p.site,
+                        canon::bytes_text(&p.message.0)
+                    ),
                 );
                 out.push(self.emit_plain(pd));
             }
@@ -1555,7 +1639,10 @@ impl<'a> Cmp<'a> {
                     "died",
                     (side == "A").then(|| sig.clone()),
                     (side == "B").then(|| sig.clone()),
-                    format!("{} died (signal {}), restarted as generation {}", side, sig, c.generation),
+                    format!(
+                        "{} died (signal {}), restarted as generation {}",
+                        side, sig, c.generation
+                    ),
                 );
                 out.push(self.emit_plain(pd));
             }
@@ -1569,7 +1656,10 @@ impl<'a> Cmp<'a> {
                     "deadline",
                     (side == "A").then(|| ladder.clone()),
                     (side == "B").then(|| ladder.clone()),
-                    format!("{} exceeded the {} ms step deadline; ladder reached {}", side, h.ms, ladder),
+                    format!(
+                        "{} exceeded the {} ms step deadline; ladder reached {}",
+                        side, h.ms, ladder
+                    ),
                 );
                 if h.ladder.as_deref().is_some_and(|l| l != "cancel") {
                     pd.severity = Some(Severity::Critical);
@@ -1595,7 +1685,11 @@ impl<'a> Cmp<'a> {
                 "presence",
                 Some(a.cm()),
                 None,
-                format!("A errored {} ({}); B succeeded", a.get('C').unwrap_or(""), a.get('M').unwrap_or("")),
+                format!(
+                    "A errored {} ({}); B succeeded",
+                    a.get('C').unwrap_or(""),
+                    a.get('M').unwrap_or("")
+                ),
             ),
             (None, Some(b)) => PlaneDiff::new(
                 "wire:E",
@@ -1603,7 +1697,11 @@ impl<'a> Cmp<'a> {
                 "presence",
                 None,
                 Some(b.cm()),
-                format!("A succeeded; B errored {} ({})", b.get('C').unwrap_or(""), b.get('M').unwrap_or("")),
+                format!(
+                    "A succeeded; B errored {} ({})",
+                    b.get('C').unwrap_or(""),
+                    b.get('M').unwrap_or("")
+                ),
             ),
             (Some(a), Some(b)) => {
                 let (differing, first) = err_diff(a, b);
@@ -1618,7 +1716,13 @@ impl<'a> Cmp<'a> {
                         b.get('M').unwrap_or("")
                     )
                 } else {
-                    format!("both {}: field {} differs: {:?} vs {:?}", a.get('C').unwrap_or(""), code, x, y)
+                    format!(
+                        "both {}: field {} differs: {:?} vs {:?}",
+                        a.get('C').unwrap_or(""),
+                        code,
+                        x,
+                        y
+                    )
                 };
                 let mut pd = PlaneDiff::new("wire:E", class, &code.to_string(), x, y, detail);
                 pd.differing = differing;
@@ -1630,7 +1734,12 @@ impl<'a> Cmp<'a> {
         Some(self.emit(pd, &va, &vb, msg.as_deref(), ss))
     }
 
-    fn apply_missing_feature(&self, mut pd: PlaneDiff, ea: Option<&ErrTuple>, eb: Option<&ErrTuple>) -> PlaneDiff {
+    fn apply_missing_feature(
+        &self,
+        mut pd: PlaneDiff,
+        ea: Option<&ErrTuple>,
+        eb: Option<&ErrTuple>,
+    ) -> PlaneDiff {
         if let Some(mb) = eb.and_then(|e| e.get('M')) {
             if let Some(label) = missing_feature_rule(mb, ea.and_then(|e| e.get('M'))) {
                 pd.class = Class::MissingFeature;
@@ -1678,7 +1787,12 @@ impl<'a> Cmp<'a> {
                         "presence",
                         Some(x.get('M').unwrap_or("").to_string()),
                         None,
-                        format!("notice #{} present on A only: {} {}", i, x.get('S').unwrap_or(""), x.get('M').unwrap_or("")),
+                        format!(
+                            "notice #{} present on A only: {} {}",
+                            i,
+                            x.get('S').unwrap_or(""),
+                            x.get('M').unwrap_or("")
+                        ),
                     );
                     let va = move |f: &str| x.value(f);
                     let msg = x.get('M').map(str::to_string);
@@ -1692,7 +1806,12 @@ impl<'a> Cmp<'a> {
                         "presence",
                         None,
                         Some(y.get('M').unwrap_or("").to_string()),
-                        format!("notice #{} present on B only: {} {}", i, y.get('S').unwrap_or(""), y.get('M').unwrap_or("")),
+                        format!(
+                            "notice #{} present on B only: {} {}",
+                            i,
+                            y.get('S').unwrap_or(""),
+                            y.get('M').unwrap_or("")
+                        ),
                     );
                     let vb = move |f: &str| y.value(f);
                     let msg = y.get('M').map(str::to_string);
@@ -1719,7 +1838,10 @@ impl<'a> Cmp<'a> {
                     let va = move |f: &str| x.value(f);
                     let vb = move |f: &str| y.value(f);
                     let msg = x.get('M').map(str::to_string);
-                    let ss = (x.get('C').map(str::to_string), y.get('C').map(str::to_string));
+                    let ss = (
+                        x.get('C').map(str::to_string),
+                        y.get('C').map(str::to_string),
+                    );
                     return Some(self.emit(pd, &va, &vb, msg.as_deref(), ss));
                 }
                 (None, None) => {}
@@ -1739,7 +1861,13 @@ impl<'a> Cmp<'a> {
                 "groups",
                 Some(ga.len().to_string()),
                 Some(gb.len().to_string()),
-                format!("result groups: A {} vs B {} (shapes {:?} vs {:?})", ga.len(), gb.len(), self.ca.shape, self.cb.shape),
+                format!(
+                    "result groups: A {} vs B {} (shapes {:?} vs {:?})",
+                    ga.len(),
+                    gb.len(),
+                    self.ca.shape,
+                    self.cb.shape
+                ),
             );
             return (Some(self.emit_plain(pd)), None);
         }
@@ -1776,7 +1904,8 @@ impl<'a> Cmp<'a> {
                     if explain {
                         if let (Some(la), Some(lb)) = (x.explain_lines(), y.explain_lines()) {
                             if explain_div.is_none() {
-                                explain_div = self.compare_explain(&la, &lb).map(|pd| self.emit_plain(pd));
+                                explain_div =
+                                    self.compare_explain(&la, &lb).map(|pd| self.emit_plain(pd));
                             }
                             continue;
                         }
@@ -1805,35 +1934,76 @@ impl<'a> Cmp<'a> {
         };
         let (fa, fb, at) = first_cell_diff(&ra, &rb);
         let structural = |name: &str, detail: String| {
-            let mut pd = PlaneDiff::new("rows", Class::WrongResult, name, fa.clone(), fb.clone(), detail);
+            let mut pd = PlaneDiff::new(
+                "rows",
+                Class::WrongResult,
+                name,
+                fa.clone(),
+                fb.clone(),
+                detail,
+            );
             pd.structural = true;
             pd
         };
         let d = match cmp(&ra, &rb) {
             RowsetCmp::Equal => return None,
-            RowsetCmp::EqualUlp => return Some(structural("ulp", "equal within float ulp tolerance".to_string())),
+            RowsetCmp::EqualUlp => {
+                return Some(structural(
+                    "ulp",
+                    "equal within float ulp tolerance".to_string(),
+                ))
+            }
             RowsetCmp::EqualSoft => {
-                return Some(structural("soft", "equal outside ruled-soft float-aggregate columns".to_string()))
+                return Some(structural(
+                    "soft",
+                    "equal outside ruled-soft float-aggregate columns".to_string(),
+                ))
             }
             RowsetCmp::Diff(d) => d,
         };
-        let equal = |na: &[Vec<Option<String>>], nb: &[Vec<Option<String>>]| !matches!(cmp(na, nb), RowsetCmp::Diff(_));
-        if equal(&normalize_oid_literal_rows(&ra), &normalize_oid_literal_rows(&rb)) {
-            return Some(structural("oid-literal", format!("equal after masking user-range '<n>'::oid literals: {}", d)));
+        let equal = |na: &[Vec<Option<String>>], nb: &[Vec<Option<String>>]| {
+            !matches!(cmp(na, nb), RowsetCmp::Diff(_))
+        };
+        if equal(
+            &normalize_oid_literal_rows(&ra),
+            &normalize_oid_literal_rows(&rb),
+        ) {
+            return Some(structural(
+                "oid-literal",
+                format!("equal after masking user-range '<n>'::oid literals: {}", d),
+            ));
         }
-        if equal(&normalize_toast_name_rows(&ra), &normalize_toast_name_rows(&rb)) {
-            return Some(structural("toast-name", format!("equal after masking user-range pg_toast_<n> names: {}", d)));
+        if equal(
+            &normalize_toast_name_rows(&ra),
+            &normalize_toast_name_rows(&rb),
+        ) {
+            return Some(structural(
+                "toast-name",
+                format!("equal after masking user-range pg_toast_<n> names: {}", d),
+            ));
         }
-        if equal(&normalize_binary_udt_rows(&ra), &normalize_binary_udt_rows(&rb)) {
+        if equal(
+            &normalize_binary_udt_rows(&ra),
+            &normalize_binary_udt_rows(&rb),
+        ) {
             return Some(structural(
                 "binary-udt-oid",
                 format!("equal after masking embedded user-range type oids in binary container images: {}", d),
             ));
         }
         if calls_cmp_builtin(&self.sql)
-            && equal(&normalize_int4_sign_rows(&ra, &oids), &normalize_int4_sign_rows(&rb, &oids))
+            && equal(
+                &normalize_int4_sign_rows(&ra, &oids),
+                &normalize_int4_sign_rows(&rb, &oids),
+            )
         {
-            return Some(structural("cmp-sign", format!("int4 *cmp() results equal in sign, magnitude differs: {}", d)));
+            return Some(structural(
+                "cmp-sign",
+                format!(
+                    "int4 *cmp() results equal in sign, magnitude differs: {}",
+                    d
+                ),
+            ));
         }
         if ordered && !matches!(cmp_rows_multiset(&ra, &rb, &modes, tol), RowsetCmp::Diff(_)) {
             let total = self.step.ordered == Ordered::Total;
@@ -1846,7 +2016,10 @@ impl<'a> Cmp<'a> {
                 if total {
                     format!("multiset-equal reorder under ordered: total (a wrong result, never tie-order): {}", d)
                 } else {
-                    format!("multiset-equal, order differs under ordered: partial: {}", d)
+                    format!(
+                        "multiset-equal, order differs under ordered: partial: {}",
+                        d
+                    )
                 },
             );
             pd.ruleable = !total;
@@ -1866,8 +2039,14 @@ impl<'a> Cmp<'a> {
         if let Some(at) = at {
             pd.detail = format!("{} ({})", pd.detail, at);
         }
-        if let Some(suf) = pd.b.as_deref().and_then(|b| canon::foreign_dlsuffix(b, &self.opts.ctx_b)) {
-            pd.detail = format!("{}; B names a {} shared object where the host DLSUFFIX is {}", pd.detail, suf, self.opts.ctx_b.dlsuffix);
+        if let Some(suf) =
+            pd.b.as_deref()
+                .and_then(|b| canon::foreign_dlsuffix(b, &self.opts.ctx_b))
+        {
+            pd.detail = format!(
+                "{}; B names a {} shared object where the host DLSUFFIX is {}",
+                pd.detail, suf, self.opts.ctx_b.dlsuffix
+            );
         }
         Some(pd)
     }
@@ -1876,7 +2055,9 @@ impl<'a> Cmp<'a> {
         if la == lb {
             return None;
         }
-        let lines = |l: &[String]| -> Vec<Vec<Option<String>>> { l.iter().map(|s| vec![Some(s.clone())]).collect() };
+        let lines = |l: &[String]| -> Vec<Vec<Option<String>>> {
+            l.iter().map(|s| vec![Some(s.clone())]).collect()
+        };
         let (ra, rb) = (lines(la), lines(lb));
         let equal = |na: &[Vec<Option<String>>], nb: &[Vec<Option<String>>]| {
             matches!(cmp_rows_ordered(na, nb, &[], 0), RowsetCmp::Equal)
@@ -1888,19 +2069,36 @@ impl<'a> Cmp<'a> {
                 r.to_vec()
             }
         };
-        let (fa, fb, _) = first_cell_diff(&normalize_explain_rows(&ra), &normalize_explain_rows(&rb));
+        let (fa, fb, _) =
+            first_cell_diff(&normalize_explain_rows(&ra), &normalize_explain_rows(&rb));
         let structural = |name: &str, detail: &str| {
-            let mut pd = PlaneDiff::new("explain", Class::PlanShape, name, fa.clone(), fb.clone(), detail.to_string());
+            let mut pd = PlaneDiff::new(
+                "explain",
+                Class::PlanShape,
+                name,
+                fa.clone(),
+                fb.clone(),
+                detail.to_string(),
+            );
             pd.structural = true;
             pd
         };
         if equal(&normalize_explain_rows(&ra), &normalize_explain_rows(&rb)) {
-            return Some(structural("counter", "equal after masking runtime resource counters"));
+            return Some(structural(
+                "counter",
+                "equal after masking runtime resource counters",
+            ));
         }
         if self.opts.mask_explain_timing
-            && equal(&timing(&normalize_explain_rows(&ra)), &timing(&normalize_explain_rows(&rb)))
+            && equal(
+                &timing(&normalize_explain_rows(&ra)),
+                &timing(&normalize_explain_rows(&rb)),
+            )
         {
-            return Some(structural("timing", "equal after masking wall-clock timing text"));
+            return Some(structural(
+                "timing",
+                "equal after masking wall-clock timing text",
+            ));
         }
         if equal(
             &timing(&normalize_explain_rows(&strip_planning_buffer_rows(&ra))),
@@ -1913,23 +2111,42 @@ impl<'a> Cmp<'a> {
         }
         if is_scroll_declare_explain_stmt(&self.sql) {
             if let Some(stripped) = strip_top_materialize_rows(&ra) {
-                if equal(&timing(&normalize_explain_rows(&stripped)), &timing(&normalize_explain_rows(&rb))) {
-                    return Some(structural("materialize", "equal after stripping C's top-level Materialize SCROLL wrap"));
+                if equal(
+                    &timing(&normalize_explain_rows(&stripped)),
+                    &timing(&normalize_explain_rows(&rb)),
+                ) {
+                    return Some(structural(
+                        "materialize",
+                        "equal after stripping C's top-level Materialize SCROLL wrap",
+                    ));
                 }
             }
         }
         let detail = match &fa {
-            Some(x) => format!("plan shape differs: {:?} vs {:?}", x, fb.clone().unwrap_or_default()),
+            Some(x) => format!(
+                "plan shape differs: {:?} vs {:?}",
+                x,
+                fb.clone().unwrap_or_default()
+            ),
             None => format!("plan shape differs: {} vs {} lines", la.len(), lb.len()),
         };
-        Some(PlaneDiff::new("explain", Class::PlanShape, "shape", fa, fb, detail))
+        Some(PlaneDiff::new(
+            "explain",
+            Class::PlanShape,
+            "shape",
+            fa,
+            fb,
+            detail,
+        ))
     }
 
     // ---- meta / tag / copy / notify --------------------------------
 
     fn plane_meta(&self) -> Option<Divergence> {
         for (x, y) in self.ca.groups.iter().zip(&self.cb.groups) {
-            let (Some(cx), Some(cy)) = (&x.columns, &y.columns) else { continue };
+            let (Some(cx), Some(cy)) = (&x.columns, &y.columns) else {
+                continue;
+            };
             if cx.len() != cy.len() {
                 let pd = PlaneDiff::new(
                     "meta",
@@ -1956,25 +2173,52 @@ impl<'a> Cmp<'a> {
                     continue;
                 };
                 let detail = if field.0 == "typ" {
-                    format!("column {} type oids differ: {} vs {} ({} vs {})", i, field.1, field.2, a.render(), b.render())
+                    format!(
+                        "column {} type oids differ: {} vs {} ({} vs {})",
+                        i,
+                        field.1,
+                        field.2,
+                        a.render(),
+                        b.render()
+                    )
                 } else {
-                    format!("column {} {} differs: {} vs {} ({} vs {})", i, field.0, field.1, field.2, a.render(), b.render())
+                    format!(
+                        "column {} {} differs: {} vs {} ({} vs {})",
+                        i,
+                        field.0,
+                        field.1,
+                        field.2,
+                        a.render(),
+                        b.render()
+                    )
                 };
-                let pd = PlaneDiff::new("meta", Class::WrongResult, field.0, Some(field.1), Some(field.2), detail);
+                let pd = PlaneDiff::new(
+                    "meta",
+                    Class::WrongResult,
+                    field.0,
+                    Some(field.1),
+                    Some(field.2),
+                    detail,
+                );
                 return Some(self.emit_plain(pd));
             }
         }
         let ka: BTreeSet<&String> = self.ca.params.keys().collect();
         let kb: BTreeSet<&String> = self.cb.params.keys().collect();
         if ka != kb {
-            let j = |k: &BTreeSet<&String>| k.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(",");
+            let j =
+                |k: &BTreeSet<&String>| k.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(",");
             let pd = PlaneDiff::new(
                 "meta",
                 Class::WrongResult,
                 "params",
                 Some(j(&ka)),
                 Some(j(&kb)),
-                format!("ParameterStatus key set differs: {{{}}} vs {{{}}}", j(&ka), j(&kb)),
+                format!(
+                    "ParameterStatus key set differs: {{{}}} vs {{{}}}",
+                    j(&ka),
+                    j(&kb)
+                ),
             );
             return Some(self.emit_plain(pd));
         }
@@ -1998,7 +2242,11 @@ impl<'a> Cmp<'a> {
         if ta == tb {
             return None;
         }
-        let i = ta.iter().zip(&tb).position(|(x, y)| x != y).unwrap_or(ta.len().min(tb.len()));
+        let i = ta
+            .iter()
+            .zip(&tb)
+            .position(|(x, y)| x != y)
+            .unwrap_or(ta.len().min(tb.len()));
         let a = ta.get(i).cloned().flatten();
         let b = tb.get(i).cloned().flatten();
         // The full CommandComplete text is meta (plan §4.1 `meta|tag`):
@@ -2026,13 +2274,21 @@ impl<'a> Cmp<'a> {
             );
             return Some(self.emit_plain(pd));
         }
-        if self.ca.copy_out_fmt != self.cb.copy_out_fmt || self.ca.copy_in_fmt != self.cb.copy_in_fmt {
+        if self.ca.copy_out_fmt != self.cb.copy_out_fmt
+            || self.ca.copy_in_fmt != self.cb.copy_in_fmt
+        {
             let pd = PlaneDiff::new(
                 "copy",
                 Class::WrongResult,
                 "fmt",
-                Some(format!("{:?}/{:?}", self.ca.copy_in_fmt, self.ca.copy_out_fmt)),
-                Some(format!("{:?}/{:?}", self.cb.copy_in_fmt, self.cb.copy_out_fmt)),
+                Some(format!(
+                    "{:?}/{:?}",
+                    self.ca.copy_in_fmt, self.ca.copy_out_fmt
+                )),
+                Some(format!(
+                    "{:?}/{:?}",
+                    self.cb.copy_in_fmt, self.cb.copy_out_fmt
+                )),
                 "COPY response formats differ".to_string(),
             );
             return Some(self.emit_plain(pd));
@@ -2045,7 +2301,10 @@ impl<'a> Cmp<'a> {
             return None;
         }
         let render = |m: &BTreeMap<(String, String), u32>| {
-            m.iter().map(|((c, p), n)| format!("{}:{}x{}", c, p, n)).collect::<Vec<_>>().join(" ")
+            m.iter()
+                .map(|((c, p), n)| format!("{}:{}x{}", c, p, n))
+                .collect::<Vec<_>>()
+                .join(" ")
         };
         let pd = PlaneDiff::new(
             "notify",
@@ -2053,7 +2312,11 @@ impl<'a> Cmp<'a> {
             "channel",
             Some(render(&self.ca.notify)),
             Some(render(&self.cb.notify)),
-            format!("notification multiset differs: {{{}}} vs {{{}}}", render(&self.ca.notify), render(&self.cb.notify)),
+            format!(
+                "notification multiset differs: {{{}}} vs {{{}}}",
+                render(&self.ca.notify),
+                render(&self.cb.notify)
+            ),
         );
         Some(self.emit_plain(pd))
     }
@@ -2075,7 +2338,11 @@ impl<'a> Cmp<'a> {
                         "presence",
                         x.map(|l| l.raw.clone()),
                         y.map(|l| l.raw.clone()),
-                        format!("log line #{} present on {} only", i, if x.is_some() { "A" } else { "B" }),
+                        format!(
+                            "log line #{} present on {} only",
+                            i,
+                            if x.is_some() { "A" } else { "B" }
+                        ),
                     );
                     return Some(self.emit_plain(pd));
                 }
@@ -2106,7 +2373,13 @@ impl<'a> Cmp<'a> {
                 field,
                 x.value(field),
                 y.value(field),
-                format!("log line #{}: {} differs: {:?} vs {:?}", i, field, x.value(field), y.value(field)),
+                format!(
+                    "log line #{}: {} differs: {:?} vs {:?}",
+                    i,
+                    field,
+                    x.value(field),
+                    y.value(field)
+                ),
             );
             let va = move |f: &str| x.value(f);
             let vb = move |f: &str| y.value(f);
@@ -2135,7 +2408,10 @@ impl<'a> Cmp<'a> {
                 continue;
             }
             let plane = format!("probe:{}", deck);
-            let parse = |s: Option<&String>| s.and_then(|t| json::parse(t).ok()).unwrap_or(json::Value::Null);
+            let parse = |s: Option<&String>| {
+                s.and_then(|t| json::parse(t).ok())
+                    .unwrap_or(json::Value::Null)
+            };
             let (va, vb) = (parse(a), parse(b));
             for (key, ka, kb) in probe_key_deltas(&va, &vb) {
                 let sa = ka.as_ref().and_then(|v| json::to_canonical(v).ok());
@@ -2147,7 +2423,10 @@ impl<'a> Cmp<'a> {
                     &key,
                     sa,
                     sb,
-                    format!("probe deck {} statement {} differs (delta {})", deck, key, hash),
+                    format!(
+                        "probe deck {} statement {} differs (delta {})",
+                        deck, key, hash
+                    ),
                 );
                 pd.severity = Some(Severity::Critical);
                 let mut d = self.emit_plain(pd);
@@ -2161,7 +2440,10 @@ impl<'a> Cmp<'a> {
 
 /// The statement keys of a deck whose results differ, with each side's
 /// per-key result (None = the side has no such key).
-pub fn probe_key_deltas(a: &json::Value, b: &json::Value) -> Vec<(String, Option<json::Value>, Option<json::Value>)> {
+pub fn probe_key_deltas(
+    a: &json::Value,
+    b: &json::Value,
+) -> Vec<(String, Option<json::Value>, Option<json::Value>)> {
     let keys: BTreeSet<String> = a
         .as_obj()
         .into_iter()
@@ -2192,7 +2474,11 @@ pub fn probe_delta_hash(a: Option<&json::Value>, b: Option<&json::Value>) -> Str
     let rows = |v: Option<&json::Value>| -> BTreeSet<String> {
         v.and_then(|v| v.get("rows"))
             .and_then(|r| r.as_arr())
-            .map(|rs| rs.iter().filter_map(|r| json::to_canonical(r).ok()).collect())
+            .map(|rs| {
+                rs.iter()
+                    .filter_map(|r| json::to_canonical(r).ok())
+                    .collect()
+            })
             .unwrap_or_default()
     };
     let (ra, rb) = (rows(a), rows(b));
@@ -2203,7 +2489,10 @@ pub fn probe_delta_hash(a: Option<&json::Value>, b: Option<&json::Value>) -> Str
     for r in rb.difference(&ra) {
         parts.push(format!("B{}", r));
     }
-    let cols = |v: Option<&json::Value>| v.and_then(|v| v.get("columns")).and_then(|c| json::to_canonical(c).ok());
+    let cols = |v: Option<&json::Value>| {
+        v.and_then(|v| v.get("columns"))
+            .and_then(|c| json::to_canonical(c).ok())
+    };
     if cols(a) != cols(b) {
         parts.push(format!("cols {:?}→{:?}", cols(a), cols(b)));
     }
@@ -2218,12 +2507,19 @@ pub fn probe_delta_hash(a: Option<&json::Value>, b: Option<&json::Value>) -> Str
         parts.push(format!("value {:?}→{:?}", non_rows(a), non_rows(b)));
     }
     let digest = pg_sha2::sha256(parts.join("\n").as_bytes());
-    digest.iter().take(8).map(|b| format!("{:02x}", b)).collect()
+    digest
+        .iter()
+        .take(8)
+        .map(|b| format!("{:02x}", b))
+        .collect()
 }
 
 /// Differing E/N fields in classification order, plus the first one with
 /// its (pairwise-masked) values.
-fn err_diff(a: &ErrTuple, b: &ErrTuple) -> (Vec<String>, Option<(char, Option<String>, Option<String>)>) {
+fn err_diff(
+    a: &ErrTuple,
+    b: &ErrTuple,
+) -> (Vec<String>, Option<(char, Option<String>, Option<String>)>) {
     let mut differing = Vec::new();
     let mut first = None;
     let extra: Vec<char> = a
@@ -2259,17 +2555,28 @@ fn err_field_class(code: char, hint_added: bool) -> Class {
 
 /// First differing cell pair: positional when the shapes allow, else the
 /// first unmatched row on each side (multiset view).
-fn first_cell_diff(ra: &[Vec<Option<String>>], rb: &[Vec<Option<String>>]) -> (Option<String>, Option<String>, Option<String>) {
+fn first_cell_diff(
+    ra: &[Vec<Option<String>>],
+    rb: &[Vec<Option<String>>],
+) -> (Option<String>, Option<String>, Option<String>) {
     let text = |c: &Option<String>| c.clone().unwrap_or_else(|| "NULL".to_string());
     if ra.len() == rb.len() {
         for (i, (x, y)) in ra.iter().zip(rb).enumerate() {
             for (j, (cx, cy)) in x.iter().zip(y).enumerate() {
                 if cx != cy {
-                    return (Some(text(cx)), Some(text(cy)), Some(format!("row {} col {}", i, j)));
+                    return (
+                        Some(text(cx)),
+                        Some(text(cy)),
+                        Some(format!("row {} col {}", i, j)),
+                    );
                 }
             }
             if x.len() != y.len() {
-                return (Some(render_row(x)), Some(render_row(y)), Some(format!("row {} width", i)));
+                return (
+                    Some(render_row(x)),
+                    Some(render_row(y)),
+                    Some(format!("row {} width", i)),
+                );
             }
         }
         return (None, None, None);
@@ -2330,7 +2637,11 @@ pub fn outcome_record(o: &StmtOutcome, side: contracts::Side) -> ObservationReco
                     .collect(),
             ));
             for r in rows {
-                wire.push(WireMsg::DataRow(r.iter().map(|c| c.as_ref().map(|s| contracts::Bytes::text(s))).collect()));
+                wire.push(WireMsg::DataRow(
+                    r.iter()
+                        .map(|c| c.as_ref().map(|s| contracts::Bytes::text(s)))
+                        .collect(),
+                ));
             }
             // No row count in the tag: a legacy rowset carries none, and a
             // synthetic count would double-report every row-count diff.
@@ -2342,7 +2653,10 @@ pub fn outcome_record(o: &StmtOutcome, side: contracts::Side) -> ObservationReco
             wire.push(WireMsg::ReadyForQuery { status: 'I' });
         }
         StmtOutcome::CopyOut { bytes, tag } => {
-            wire.push(WireMsg::CopyOutResponse { fmt: 0, col_fmts: Vec::new() });
+            wire.push(WireMsg::CopyOutResponse {
+                fmt: 0,
+                col_fmts: Vec::new(),
+            });
             if !bytes.is_empty() {
                 wire.push(WireMsg::CopyData(contracts::Bytes(bytes.clone())));
             }
@@ -2392,7 +2706,11 @@ pub fn legacy_step(sql: &str) -> StepRecord {
         xproto: None,
         productions: Vec::new(),
         targets: Vec::new(),
-        ordered: if has_order_by(sql) { Ordered::Partial } else { Ordered::None },
+        ordered: if has_order_by(sql) {
+            Ordered::Partial
+        } else {
+            Ordered::None
+        },
         expect_c: None,
         bracket: None,
         recipe: None,
@@ -2404,37 +2722,62 @@ pub fn legacy_step(sql: &str) -> StepRecord {
 /// Map the plane verdict back onto the legacy class vocabulary.
 pub fn legacy_class(divs: &[Divergence], a: &StmtOutcome, b: &StmtOutcome) -> Classified {
     let Some(d) = step_verdict(divs) else {
-        return Classified { class: DiffClass::Match, detail: String::new() };
+        return Classified {
+            class: DiffClass::Match,
+            detail: String::new(),
+        };
     };
     if d.plane == "session" {
-        let (la, lb) = (matches!(a, StmtOutcome::ConnLost { .. }), matches!(b, StmtOutcome::ConnLost { .. }));
+        let (la, lb) = (
+            matches!(a, StmtOutcome::ConnLost { .. }),
+            matches!(b, StmtOutcome::ConnLost { .. }),
+        );
         let detail_of = |o: &StmtOutcome| match o {
             StmtOutcome::ConnLost { detail } => detail.clone(),
             _ => String::new(),
         };
         let (side, detail) = match (la, lb) {
-            (true, true) => (Side::Both, format!("both connections lost; A: {}", detail_of(a))),
+            (true, true) => (
+                Side::Both,
+                format!("both connections lost; A: {}", detail_of(a)),
+            ),
             (true, false) => (Side::A, format!("A connection lost: {}", detail_of(a))),
             _ => (Side::B, format!("B connection lost: {}", detail_of(b))),
         };
-        return Classified { class: DiffClass::SessionDiverged(side), detail };
+        return Classified {
+            class: DiffClass::SessionDiverged(side),
+            detail,
+        };
     }
     if let Some(id) = &d.rule {
-        return Classified { class: DiffClass::Ruled(id.clone()), detail: d.detail.clone() };
+        return Classified {
+            class: DiffClass::Ruled(id.clone()),
+            detail: d.detail.clone(),
+        };
     }
     let class = match (d.plane.as_str(), d.field.as_str()) {
         ("wire:E" | "wire:N", _) => DiffClass::ErrorDiff,
         ("meta", "tag") => DiffClass::CountDiff,
         _ => DiffClass::RowsetDiff,
     };
-    Classified { class, detail: d.detail.clone() }
+    Classified {
+        class,
+        detail: d.detail.clone(),
+    }
 }
 
 /// Legacy classification of one statement's two outcomes: the plane
 /// comparator over a synthetic wire, against the embedded ledger. Ruled
 /// divergences come back as `Ruled(<ledger id>)`.
 pub fn classify(input: &DiffInput) -> Classified {
-    let DiffInput { sql, a, b, ulp_tol, soft_cols, mask_explain_timing } = *input;
+    let DiffInput {
+        sql,
+        a,
+        b,
+        ulp_tol,
+        soft_cols,
+        mask_explain_timing,
+    } = *input;
     let ra = outcome_record(a, contracts::Side::A);
     let rb = outcome_record(b, contracts::Side::B);
     let step = legacy_step(sql);
@@ -2454,7 +2797,10 @@ mod tests {
     use crate::contracts::{Bytes, ErrFields, LogLine, Side as CSide};
 
     fn rows(cells: &[&[Option<&str>]]) -> Vec<Vec<Option<String>>> {
-        cells.iter().map(|r| r.iter().map(|c| c.map(|s| s.to_string())).collect()).collect()
+        cells
+            .iter()
+            .map(|r| r.iter().map(|c| c.map(|s| s.to_string())).collect())
+            .collect()
     }
 
     fn rowset(col_oids: Vec<u32>, r: Vec<Vec<Option<String>>>) -> StmtOutcome {
@@ -2462,19 +2808,48 @@ mod tests {
     }
 
     fn classify_sql(sql: &str, a: &StmtOutcome, b: &StmtOutcome) -> Classified {
-        classify(&DiffInput { sql, a, b, ulp_tol: 4, soft_cols: &[], mask_explain_timing: false })
+        classify(&DiffInput {
+            sql,
+            a,
+            b,
+            ulp_tol: 4,
+            soft_cols: &[],
+            mask_explain_timing: false,
+        })
     }
 
     fn classify_timing(sql: &str, a: &StmtOutcome, b: &StmtOutcome) -> Classified {
-        classify(&DiffInput { sql, a, b, ulp_tol: 4, soft_cols: &[], mask_explain_timing: true })
+        classify(&DiffInput {
+            sql,
+            a,
+            b,
+            ulp_tol: 4,
+            soft_cols: &[],
+            mask_explain_timing: true,
+        })
     }
 
-    fn classify_soft(sql: &str, a: &StmtOutcome, b: &StmtOutcome, soft_cols: &[usize]) -> Classified {
-        classify(&DiffInput { sql, a, b, ulp_tol: 4, soft_cols, mask_explain_timing: false })
+    fn classify_soft(
+        sql: &str,
+        a: &StmtOutcome,
+        b: &StmtOutcome,
+        soft_cols: &[usize],
+    ) -> Classified {
+        classify(&DiffInput {
+            sql,
+            a,
+            b,
+            ulp_tol: 4,
+            soft_cols,
+            mask_explain_timing: false,
+        })
     }
 
     fn err(sqlstate: &str, message: &str) -> StmtOutcome {
-        StmtOutcome::Error { sqlstate: sqlstate.to_string(), message: message.to_string() }
+        StmtOutcome::Error {
+            sqlstate: sqlstate.to_string(),
+            message: message.to_string(),
+        }
     }
 
     fn ok1() -> StmtOutcome {
@@ -2531,7 +2906,15 @@ mod tests {
     fn t(cols: &[(&str, u32)]) -> WireMsg {
         WireMsg::RowDescription(
             cols.iter()
-                .map(|(name, oid)| ColDesc { name: Bytes::text(name), tableoid: 0, attnum: 0, typoid: *oid, typlen: -1, typmod: -1, fmt: 0 })
+                .map(|(name, oid)| ColDesc {
+                    name: Bytes::text(name),
+                    tableoid: 0,
+                    attnum: 0,
+                    typoid: *oid,
+                    typlen: -1,
+                    typmod: -1,
+                    fmt: 0,
+                })
                 .collect(),
         )
     }
@@ -2558,8 +2941,14 @@ mod tests {
         let divs = compare(a.clone(), b, &step("analyze verbose t;", Ordered::None));
         assert_eq!(divs.len(), 1, "{:?}", divs);
         let dv = &divs[0];
-        assert_eq!((dv.plane.as_str(), dv.class, dv.field.as_str()), ("wire:N", Class::WrongMessage, "presence"));
-        assert_eq!(dv.signature, "wire:N | analyzing \"%s\" | 00000/- | N.presence");
+        assert_eq!(
+            (dv.plane.as_str(), dv.class, dv.field.as_str()),
+            ("wire:N", Class::WrongMessage, "presence")
+        );
+        assert_eq!(
+            dv.signature,
+            "wire:N | analyzing \"%s\" | 00000/- | N.presence"
+        );
         assert_eq!(dv.severity, Severity::Medium);
         assert!(dv.rule.is_none());
         // A different INFO text on B (a row count) is wrong-message on M,
@@ -2571,7 +2960,10 @@ mod tests {
         ];
         let divs = compare(a.clone(), b2, &step("analyze verbose t;", Ordered::None));
         assert_eq!(divs.len(), 1, "{:?}", divs);
-        assert_eq!((divs[0].plane.as_str(), divs[0].field.as_str()), ("wire:N", "M"));
+        assert_eq!(
+            (divs[0].plane.as_str(), divs[0].field.as_str()),
+            ("wire:N", "M")
+        );
         // Identical stream modulo F/L: no divergence.
         let b3 = vec![
             n(&[('S', "INFO"), ('V', "INFO"), ('C', "00000"), ('M', "analyzing \"public.t\""), ('F', "lib.rs"), ('L', "1"), ('R', "do_analyze_rel")]),
@@ -2588,15 +2980,38 @@ mod tests {
             ("42501", "permission denied for schema d_sch", "15"),
             ("42601", "invalid sequence option SEQUENCE NAME", "32"),
         ] {
-            let a = vec![e(&[('S', "ERROR"), ('V', "ERROR"), ('C', code), ('M', msg), ('P', pos), ('F', "aclchk.c"), ('L', "2793")])];
-            let b = vec![e(&[('S', "ERROR"), ('V', "ERROR"), ('C', code), ('M', msg), ('F', "x.rs"), ('L', "1")])];
+            let a = vec![e(&[
+                ('S', "ERROR"),
+                ('V', "ERROR"),
+                ('C', code),
+                ('M', msg),
+                ('P', pos),
+                ('F', "aclchk.c"),
+                ('L', "2793"),
+            ])];
+            let b = vec![e(&[
+                ('S', "ERROR"),
+                ('V', "ERROR"),
+                ('C', code),
+                ('M', msg),
+                ('F', "x.rs"),
+                ('L', "1"),
+            ])];
             let divs = compare(a, b, &step("SELECT * FROM d_sch.t;", Ordered::None));
             assert_eq!(divs.len(), 1, "{:?}", divs);
             let dv = &divs[0];
-            assert_eq!((dv.plane.as_str(), dv.class, dv.field.as_str()), ("wire:E", Class::WrongPosition, "P"));
+            assert_eq!(
+                (dv.plane.as_str(), dv.class, dv.field.as_str()),
+                ("wire:E", Class::WrongPosition, "P")
+            );
             assert_eq!(dv.a.as_deref(), Some(pos));
             assert_eq!(dv.b, None);
-            assert!(dv.signature.ends_with(&format!("| {}/{} | E.P", code, code)), "{}", dv.signature);
+            assert!(
+                dv.signature
+                    .ends_with(&format!("| {}/{} | E.P", code, code)),
+                "{}",
+                dv.signature
+            );
         }
     }
 
@@ -2604,18 +3019,55 @@ mod tests {
     /// user OIDs at the same template position are masked.
     #[test]
     fn message_digits_masked_only_at_same_template_position() {
-        let a = vec![e(&[('S', "ERROR"), ('C', "42601"), ('M', "improper qualified name (too many dotted names): a.b.c.d.+")])];
-        let b = vec![e(&[('S', "ERROR"), ('C', "42601"), ('M', "improper qualified name (too many dotted names): a.b.c.d")])];
-        let divs = compare(a, b, &step("SELECT 1 OPERATOR(a.b.c.d.+) 1;", Ordered::None));
+        let a = vec![e(&[
+            ('S', "ERROR"),
+            ('C', "42601"),
+            (
+                'M',
+                "improper qualified name (too many dotted names): a.b.c.d.+",
+            ),
+        ])];
+        let b = vec![e(&[
+            ('S', "ERROR"),
+            ('C', "42601"),
+            (
+                'M',
+                "improper qualified name (too many dotted names): a.b.c.d",
+            ),
+        ])];
+        let divs = compare(
+            a,
+            b,
+            &step("SELECT 1 OPERATOR(a.b.c.d.+) 1;", Ordered::None),
+        );
         assert_eq!(divs.len(), 1);
-        assert_eq!((divs[0].class, divs[0].field.as_str()), (Class::WrongMessage, "M"));
+        assert_eq!(
+            (divs[0].class, divs[0].field.as_str()),
+            (Class::WrongMessage, "M")
+        );
         // Same template, user-range OIDs on both sides: masked, no divergence.
-        let a = vec![e(&[('S', "ERROR"), ('C', "42704"), ('M', "type with OID 16401 does not exist")])];
-        let b = vec![e(&[('S', "ERROR"), ('C', "42704"), ('M', "type with OID 16455 does not exist")])];
+        let a = vec![e(&[
+            ('S', "ERROR"),
+            ('C', "42704"),
+            ('M', "type with OID 16401 does not exist"),
+        ])];
+        let b = vec![e(&[
+            ('S', "ERROR"),
+            ('C', "42704"),
+            ('M', "type with OID 16455 does not exist"),
+        ])];
         assert!(compare(a, b, &step("SELECT 1;", Ordered::None)).is_empty());
         // Builtin OID on one side stays compared.
-        let a = vec![e(&[('S', "ERROR"), ('C', "42704"), ('M', "type with OID 23 does not exist")])];
-        let b = vec![e(&[('S', "ERROR"), ('C', "42704"), ('M', "type with OID 16455 does not exist")])];
+        let a = vec![e(&[
+            ('S', "ERROR"),
+            ('C', "42704"),
+            ('M', "type with OID 23 does not exist"),
+        ])];
+        let b = vec![e(&[
+            ('S', "ERROR"),
+            ('C', "42704"),
+            ('M', "type with OID 16455 does not exist"),
+        ])];
         assert_eq!(compare(a, b, &step("SELECT 1;", Ordered::None)).len(), 1);
     }
 
@@ -2629,30 +3081,95 @@ mod tests {
         opts.ctx_b.libdir = Some("/opt/pgrust/lib".into());
         opts.ctx_b.dlsuffix = ".dylib".into();
         let a = vec![e(&[('S', "ERROR"), ('C', "42883"), ('M', "could not find function \"no_such_symbol\" in file \"/usr/local/pg186/lib/postgresql/pg_trgm.dylib\"")])];
-        let b = vec![e(&[('S', "ERROR"), ('C', "42883"), ('M', "could not find function \"no_such_symbol\" in file \"$libdir/pg_trgm\"")])];
-        let st = step("CREATE FUNCTION f() RETURNS int AS '$libdir/pg_trgm', 'no_such_symbol' LANGUAGE C;", Ordered::None);
-        let divs = compare_planes_with(&obs(CSide::A, a), &obs(CSide::B, b), &st, embedded_ledger(), &opts);
+        let b = vec![e(&[
+            ('S', "ERROR"),
+            ('C', "42883"),
+            (
+                'M',
+                "could not find function \"no_such_symbol\" in file \"$libdir/pg_trgm\"",
+            ),
+        ])];
+        let st = step(
+            "CREATE FUNCTION f() RETURNS int AS '$libdir/pg_trgm', 'no_such_symbol' LANGUAGE C;",
+            Ordered::None,
+        );
+        let divs = compare_planes_with(
+            &obs(CSide::A, a),
+            &obs(CSide::B, b),
+            &st,
+            embedded_ledger(),
+            &opts,
+        );
         assert_eq!(divs.len(), 1, "{:?}", divs);
-        assert_eq!((divs[0].class, divs[0].field.as_str()), (Class::WrongMessage, "M"));
-        assert_eq!(divs[0].a.as_deref(), Some("could not find function \"no_such_symbol\" in file \"<LIBDIR>/pg_trgm.dylib\""));
+        assert_eq!(
+            (divs[0].class, divs[0].field.as_str()),
+            (Class::WrongMessage, "M")
+        );
+        assert_eq!(
+            divs[0].a.as_deref(),
+            Some("could not find function \"no_such_symbol\" in file \"<LIBDIR>/pg_trgm.dylib\"")
+        );
         // Same file under each side's own libdir: no divergence.
         let a = vec![e(&[('S', "ERROR"), ('C', "42883"), ('M', "could not find function \"x\" in file \"/usr/local/pg186/lib/postgresql/pg_trgm.dylib\"")])];
-        let b = vec![e(&[('S', "ERROR"), ('C', "42883"), ('M', "could not find function \"x\" in file \"/opt/pgrust/lib/pg_trgm.dylib\"")])];
-        assert!(compare_planes_with(&obs(CSide::A, a), &obs(CSide::B, b), &st, embedded_ledger(), &opts).is_empty());
+        let b = vec![e(&[
+            ('S', "ERROR"),
+            ('C', "42883"),
+            (
+                'M',
+                "could not find function \"x\" in file \"/opt/pgrust/lib/pg_trgm.dylib\"",
+            ),
+        ])];
+        assert!(compare_planes_with(
+            &obs(CSide::A, a),
+            &obs(CSide::B, b),
+            &st,
+            embedded_ledger(),
+            &opts
+        )
+        .is_empty());
         // dfmgr-9: file_name pg_trgm.dylib vs pg_trgm.so stays a wrong-result.
-        let a = vec![t(&[("file_name", 25)]), d(&[Some("pg_trgm.dylib")]), c("SELECT 1")];
-        let b = vec![t(&[("file_name", 25)]), d(&[Some("pg_trgm.so")]), c("SELECT 1")];
-        let st = step("SELECT file_name FROM pg_get_loaded_modules() ORDER BY 1;", Ordered::Total);
-        let divs = compare_planes_with(&obs(CSide::A, a), &obs(CSide::B, b), &st, embedded_ledger(), &opts);
+        let a = vec![
+            t(&[("file_name", 25)]),
+            d(&[Some("pg_trgm.dylib")]),
+            c("SELECT 1"),
+        ];
+        let b = vec![
+            t(&[("file_name", 25)]),
+            d(&[Some("pg_trgm.so")]),
+            c("SELECT 1"),
+        ];
+        let st = step(
+            "SELECT file_name FROM pg_get_loaded_modules() ORDER BY 1;",
+            Ordered::Total,
+        );
+        let divs = compare_planes_with(
+            &obs(CSide::A, a),
+            &obs(CSide::B, b),
+            &st,
+            embedded_ledger(),
+            &opts,
+        );
         assert_eq!(divs.len(), 1, "{:?}", divs);
-        assert_eq!((divs[0].plane.as_str(), divs[0].class, divs[0].field.as_str()), ("rows", Class::WrongResult, "cell"));
-        assert!(divs[0].detail.contains("host DLSUFFIX is .dylib"), "{}", divs[0].detail);
+        assert_eq!(
+            (
+                divs[0].plane.as_str(),
+                divs[0].class,
+                divs[0].field.as_str()
+            ),
+            ("rows", Class::WrongResult, "cell")
+        );
+        assert!(
+            divs[0].detail.contains("host DLSUFFIX is .dylib"),
+            "{}",
+            divs[0].detail
+        );
     }
 
     /// ISO-OBS-1b / postgres-7: %m masked, the zone token compared.
     #[test]
     fn log_timestamp_masked_but_zone_token_compared() {
-        let line = |ts: &str, raw: &str| LogLine {
+        let line = |ts: &str, raw: &str| {
+            LogLine {
             source: "stderr".into(),
             raw: Bytes::text(raw),
             ts: Some(ts.into()),
@@ -2663,6 +3180,7 @@ mod tests {
             sqlstate: Some("00000".into()),
             message: Some(Bytes::text("disconnection: session time: 0:00:00.001 user=postgres database=postgres host=[local]")),
             location: None,
+        }
         };
         let mut a = obs(CSide::A, vec![c("SELECT 1")]);
         a.log = vec![line("2026-09-02 08:25:09.562 PDT", "2026-09-02 08:25:09.562 PDT [41233] LOG:  disconnection: session time: 0:00:00.001 user=postgres database=postgres host=[local]")];
@@ -2671,8 +3189,18 @@ mod tests {
         let st = step("SELECT 1;", Ordered::None);
         let divs = compare_planes(&a, &b, &st, embedded_ledger());
         assert_eq!(divs.len(), 1, "{:?}", divs);
-        assert_eq!((divs[0].plane.as_str(), divs[0].class, divs[0].field.as_str()), ("log", Class::Cosmetic, "zone"));
-        assert_eq!((divs[0].a.as_deref(), divs[0].b.as_deref()), (Some("PDT"), Some("GMT")));
+        assert_eq!(
+            (
+                divs[0].plane.as_str(),
+                divs[0].class,
+                divs[0].field.as_str()
+            ),
+            ("log", Class::Cosmetic, "zone")
+        );
+        assert_eq!(
+            (divs[0].a.as_deref(), divs[0].b.as_deref()),
+            (Some("PDT"), Some("GMT"))
+        );
         // Same zone, different digits and pid: nothing.
         b.log = vec![line("2026-09-02 08:25:10.001 PDT", "2026-09-02 08:25:10.001 PDT [41240] LOG:  disconnection: session time: 0:00:00.002 user=postgres database=postgres host=[local]")];
         assert!(compare_planes(&a, &b, &st, embedded_ledger()).is_empty());
@@ -2684,15 +3212,58 @@ mod tests {
         let b = vec![c("INSERT 3")];
         let divs = compare(a, b, &step("INSERT INTO t SELECT 1;", Ordered::None));
         assert_eq!(divs.len(), 1, "{:?}", divs);
-        assert_eq!((divs[0].plane.as_str(), divs[0].class, divs[0].field.as_str()), ("meta", Class::WrongResult, "tag"));
-        assert!(divs[0].signature.starts_with("meta | INSERT INTO t SELECT 1; | -/- | tag INSERT 0 3→INSERT 3"), "{}", divs[0].signature);
+        assert_eq!(
+            (
+                divs[0].plane.as_str(),
+                divs[0].class,
+                divs[0].field.as_str()
+            ),
+            ("meta", Class::WrongResult, "tag")
+        );
+        assert!(
+            divs[0]
+                .signature
+                .starts_with("meta | INSERT INTO t SELECT 1; | -/- | tag INSERT 0 3→INSERT 3"),
+            "{}",
+            divs[0].signature
+        );
         // RowDescription typmod / ParameterStatus key set are meta too.
-        let a = vec![WireMsg::RowDescription(vec![ColDesc { name: Bytes::text("v"), tableoid: 0, attnum: 0, typoid: 1043, typlen: -1, typmod: 36, fmt: 0 }]), d(&[Some("x")]), c("SELECT 1")];
-        let b = vec![WireMsg::RowDescription(vec![ColDesc { name: Bytes::text("v"), tableoid: 0, attnum: 0, typoid: 1043, typlen: -1, typmod: -1, fmt: 0 }]), d(&[Some("x")]), c("SELECT 1")];
+        let a = vec![
+            WireMsg::RowDescription(vec![ColDesc {
+                name: Bytes::text("v"),
+                tableoid: 0,
+                attnum: 0,
+                typoid: 1043,
+                typlen: -1,
+                typmod: 36,
+                fmt: 0,
+            }]),
+            d(&[Some("x")]),
+            c("SELECT 1"),
+        ];
+        let b = vec![
+            WireMsg::RowDescription(vec![ColDesc {
+                name: Bytes::text("v"),
+                tableoid: 0,
+                attnum: 0,
+                typoid: 1043,
+                typlen: -1,
+                typmod: -1,
+                fmt: 0,
+            }]),
+            d(&[Some("x")]),
+            c("SELECT 1"),
+        ];
         let divs = compare(a, b, &step("SELECT v FROM t;", Ordered::None));
         assert_eq!(divs.len(), 1);
         assert_eq!(divs[0].field, "typmod");
-        let a = vec![WireMsg::ParameterStatus { name: Bytes::text("search_path"), value: Bytes::text("x") }, c("SET")];
+        let a = vec![
+            WireMsg::ParameterStatus {
+                name: Bytes::text("search_path"),
+                value: Bytes::text("x"),
+            },
+            c("SET"),
+        ];
         let b = vec![c("SET")];
         let divs = compare(a, b, &step("SET search_path = x;", Ordered::None));
         assert_eq!((divs.len(), divs[0].field.as_str()), (1, "params"));
@@ -2702,35 +3273,73 @@ mod tests {
     fn ruled_hit_is_still_recorded_and_counted() {
         let ledger = Ledger::embedded();
         let a = vec![t(&[("count", 20)]), d(&[Some("1")]), c("SELECT 1")];
-        let b = vec![e(&[('S', "ERROR"), ('C', "55000"), ('M', "parallel worker failed to initialize")])];
+        let b = vec![e(&[
+            ('S', "ERROR"),
+            ('C', "55000"),
+            ('M', "parallel worker failed to initialize"),
+        ])];
         let st = step("select count(*) from big;", Ordered::None);
         let divs = compare_planes(&obs(CSide::A, a), &obs(CSide::B, b), &st, &ledger);
         assert_eq!(divs.len(), 1, "{:?}", divs);
         let dv = &divs[0];
-        assert_eq!((dv.plane.as_str(), dv.class), ("wire:E", Class::SpuriousError));
+        assert_eq!(
+            (dv.plane.as_str(), dv.class),
+            ("wire:E", Class::SpuriousError)
+        );
         assert_eq!(dv.rule.as_deref(), Some("parallel-worker-init"));
         assert_eq!(dv.status, Status::Ruled);
         assert_eq!(dv.triage(), "ruled:parallel-worker-init");
         assert_eq!(ledger.hits().get("parallel-worker-init"), Some(&1));
-        assert!(json::to_canonical(&dv.to_json()).unwrap().contains("\"triage\":\"ruled:parallel-worker-init\""));
+        assert!(json::to_canonical(&dv.to_json())
+            .unwrap()
+            .contains("\"triage\":\"ruled:parallel-worker-init\""));
         assert_eq!(step_verdict(&divs).map(|d| d.rule.is_some()), Some(true));
     }
 
     #[test]
     fn ordered_mode_decides_reorder_class() {
-        let a = vec![t(&[("c", 23)]), d(&[Some("1")]), d(&[Some("2")]), c("SELECT 2")];
-        let b = vec![t(&[("c", 23)]), d(&[Some("2")]), d(&[Some("1")]), c("SELECT 2")];
+        let a = vec![
+            t(&[("c", 23)]),
+            d(&[Some("1")]),
+            d(&[Some("2")]),
+            c("SELECT 2"),
+        ];
+        let b = vec![
+            t(&[("c", 23)]),
+            d(&[Some("2")]),
+            d(&[Some("1")]),
+            c("SELECT 2"),
+        ];
         // total: a multiset-equal reorder is a wrong result, never ruled.
-        let divs = compare(a.clone(), b.clone(), &step("SELECT c FROM t ORDER BY c;", Ordered::Total));
+        let divs = compare(
+            a.clone(),
+            b.clone(),
+            &step("SELECT c FROM t ORDER BY c;", Ordered::Total),
+        );
         assert_eq!(divs.len(), 1, "{:?}", divs);
-        assert_eq!((divs[0].plane.as_str(), divs[0].class, divs[0].field.as_str()), ("rows", Class::WrongResult, "order"));
+        assert_eq!(
+            (
+                divs[0].plane.as_str(),
+                divs[0].class,
+                divs[0].field.as_str()
+            ),
+            ("rows", Class::WrongResult, "order")
+        );
         assert!(divs[0].rule.is_none());
         // partial: the tie-order ruling absorbs it (still recorded).
-        let divs = compare(a.clone(), b.clone(), &step("SELECT c FROM t ORDER BY c;", Ordered::Partial));
+        let divs = compare(
+            a.clone(),
+            b.clone(),
+            &step("SELECT c FROM t ORDER BY c;", Ordered::Partial),
+        );
         assert_eq!(divs.len(), 1);
         assert_eq!(divs[0].rule.as_deref(), Some("tie-ordering"));
         // ... unless the statement is a COPY: copy-order comes first.
-        let divs = compare(a.clone(), b.clone(), &step("COPY t TO STDOUT;", Ordered::Partial));
+        let divs = compare(
+            a.clone(),
+            b.clone(),
+            &step("COPY t TO STDOUT;", Ordered::Partial),
+        );
         assert_eq!(divs[0].rule.as_deref(), Some("copy-order"));
         // none: multiset compare, a match.
         assert!(compare(a, b, &step("SELECT c FROM t;", Ordered::None)).is_empty());
@@ -2738,60 +3347,168 @@ mod tests {
 
     #[test]
     fn missing_feature_text_rule() {
-        let a = vec![e(&[('S', "ERROR"), ('C', "0A000"), ('M', "some feature is not supported")])];
+        let a = vec![e(&[
+            ('S', "ERROR"),
+            ('C', "0A000"),
+            ('M', "some feature is not supported"),
+        ])];
         let b = vec![e(&[('S', "ERROR"), ('C', "0A000"), ('M', "this SQL construct is not yet implemented (grammar rule 2445: AexprConst, gram.y:17387)")])];
         let divs = compare(a, b, &step("SELECT int4(1) '42';", Ordered::None));
         assert_eq!(divs.len(), 1);
         assert_eq!(divs[0].class, Class::MissingFeature);
-        assert!(divs[0].detail.contains("UNPORTED grammar rule 2445"), "{}", divs[0].detail);
+        assert!(
+            divs[0].detail.contains("UNPORTED grammar rule 2445"),
+            "{}",
+            divs[0].detail
+        );
         // B-only "unported" error: missing-feature, not spurious-error.
-        let b = vec![e(&[('S', "ERROR"), ('C', "0A000"), ('M', "xmltable is unported")])];
+        let b = vec![e(&[
+            ('S', "ERROR"),
+            ('C', "0A000"),
+            ('M', "xmltable is unported"),
+        ])];
         let divs = compare(vec![c("SELECT 1")], b, &step("SELECT 1;", Ordered::None));
         assert_eq!(divs[0].class, Class::MissingFeature);
         assert_eq!(divs[0].field, "presence");
         // Both say "not supported" with different wording: wrong-message.
-        let a = vec![e(&[('S', "ERROR"), ('C', "0A000"), ('M', "X is not supported")])];
-        let b = vec![e(&[('S', "ERROR"), ('C', "0A000"), ('M', "Y is not supported")])];
-        assert_eq!(compare(a, b, &step("SELECT 1;", Ordered::None))[0].class, Class::WrongMessage);
+        let a = vec![e(&[
+            ('S', "ERROR"),
+            ('C', "0A000"),
+            ('M', "X is not supported"),
+        ])];
+        let b = vec![e(&[
+            ('S', "ERROR"),
+            ('C', "0A000"),
+            ('M', "Y is not supported"),
+        ])];
+        assert_eq!(
+            compare(a, b, &step("SELECT 1;", Ordered::None))[0].class,
+            Class::WrongMessage
+        );
     }
 
     #[test]
     fn hint_and_routine_fields() {
         // A pgrust-only HINT is cosmetic until ruled.
-        let a = vec![e(&[('S', "ERROR"), ('C', "42P01"), ('M', "relation \"t\" does not exist")])];
-        let b = vec![e(&[('S', "ERROR"), ('C', "42P01"), ('M', "relation \"t\" does not exist"), ('H', "Did you mean \"tt\"?")])];
+        let a = vec![e(&[
+            ('S', "ERROR"),
+            ('C', "42P01"),
+            ('M', "relation \"t\" does not exist"),
+        ])];
+        let b = vec![e(&[
+            ('S', "ERROR"),
+            ('C', "42P01"),
+            ('M', "relation \"t\" does not exist"),
+            ('H', "Did you mean \"tt\"?"),
+        ])];
         let divs = compare(a.clone(), b, &step("SELECT * FROM t;", Ordered::None));
-        assert_eq!((divs[0].class, divs[0].field.as_str(), divs[0].rule.is_none()), (Class::Cosmetic, "H", true));
+        assert_eq!(
+            (
+                divs[0].class,
+                divs[0].field.as_str(),
+                divs[0].rule.is_none()
+            ),
+            (Class::Cosmetic, "H", true)
+        );
         // An R-only delta is ruled by r-field (expiring, still recorded).
-        let a = vec![e(&[('S', "ERROR"), ('C', "42P01"), ('M', "m"), ('R', "parserOpenTable")])];
-        let b = vec![e(&[('S', "ERROR"), ('C', "42P01"), ('M', "m"), ('R', "parse_relation::open")])];
+        let a = vec![e(&[
+            ('S', "ERROR"),
+            ('C', "42P01"),
+            ('M', "m"),
+            ('R', "parserOpenTable"),
+        ])];
+        let b = vec![e(&[
+            ('S', "ERROR"),
+            ('C', "42P01"),
+            ('M', "m"),
+            ('R', "parse_relation::open"),
+        ])];
         let divs = compare(a, b, &step("SELECT * FROM t;", Ordered::None));
         assert_eq!((divs.len(), divs[0].rule.as_deref()), (1, Some("r-field")));
         // R plus P differing: the P delta is not hidden by r-field.
-        let a = vec![e(&[('S', "ERROR"), ('C', "42P01"), ('M', "m"), ('R', "x"), ('P', "5")])];
+        let a = vec![e(&[
+            ('S', "ERROR"),
+            ('C', "42P01"),
+            ('M', "m"),
+            ('R', "x"),
+            ('P', "5"),
+        ])];
         let b = vec![e(&[('S', "ERROR"), ('C', "42P01"), ('M', "m"), ('R', "y")])];
         let divs = compare(a, b, &step("SELECT * FROM t;", Ordered::None));
-        assert_eq!((divs[0].rule.is_none(), divs[0].differing.clone()), (true, vec!["R".to_string(), "P".to_string()]));
+        assert_eq!(
+            (divs[0].rule.is_none(), divs[0].differing.clone()),
+            (true, vec!["R".to_string(), "P".to_string()])
+        );
         // C differs: wrong-sqlstate whatever else differs.
         let a = vec![e(&[('S', "ERROR"), ('C', "42P01"), ('M', "m")])];
         let b = vec![e(&[('S', "ERROR"), ('C', "3F000"), ('M', "n")])];
-        assert_eq!(compare(a, b, &step("SELECT 1;", Ordered::None))[0].class, Class::WrongSqlstate);
+        assert_eq!(
+            compare(a, b, &step("SELECT 1;", Ordered::None))[0].class,
+            Class::WrongSqlstate
+        );
     }
 
     #[test]
     fn notify_and_liveness_planes() {
-        let a = vec![c("NOTIFY"), WireMsg::NotificationResponse { pid: 1, channel: Bytes::text("ch"), payload: Bytes::text("p") }];
-        let b = vec![c("NOTIFY"), WireMsg::NotificationResponse { pid: 9, channel: Bytes::text("ch"), payload: Bytes::text("p") }];
+        let a = vec![
+            c("NOTIFY"),
+            WireMsg::NotificationResponse {
+                pid: 1,
+                channel: Bytes::text("ch"),
+                payload: Bytes::text("p"),
+            },
+        ];
+        let b = vec![
+            c("NOTIFY"),
+            WireMsg::NotificationResponse {
+                pid: 9,
+                channel: Bytes::text("ch"),
+                payload: Bytes::text("p"),
+            },
+        ];
         assert!(compare(a.clone(), b, &step("NOTIFY ch, 'p';", Ordered::None)).is_empty());
-        let divs = compare(a, vec![c("NOTIFY")], &step("NOTIFY ch, 'p';", Ordered::None));
-        assert_eq!((divs[0].plane.as_str(), divs[0].field.as_str()), ("notify", "channel"));
+        let divs = compare(
+            a,
+            vec![c("NOTIFY")],
+            &step("NOTIFY ch, 'p';", Ordered::None),
+        );
+        assert_eq!(
+            (divs[0].plane.as_str(), divs[0].field.as_str()),
+            ("notify", "channel")
+        );
         // A B-side panic marker is a crash even with the same XX000 on both.
-        let a = obs(CSide::A, vec![e(&[('S', "ERROR"), ('C', "XX000"), ('M', "too few entries in indexprs list")])]);
-        let mut b = obs(CSide::B, vec![e(&[('S', "ERROR"), ('C', "XX000"), ('M', "too few entries in indexprs list")])]);
-        b.panic = Some(contracts::Panic { site: "crates/backend/commands/analyze/src/lib.rs:606:44".into(), message: Bytes::text("too few entries in indexprs list"), query: None });
-        let divs = compare_planes(&a, &b, &step("analyze s475_t;", Ordered::None), embedded_ledger());
+        let a = obs(
+            CSide::A,
+            vec![e(&[
+                ('S', "ERROR"),
+                ('C', "XX000"),
+                ('M', "too few entries in indexprs list"),
+            ])],
+        );
+        let mut b = obs(
+            CSide::B,
+            vec![e(&[
+                ('S', "ERROR"),
+                ('C', "XX000"),
+                ('M', "too few entries in indexprs list"),
+            ])],
+        );
+        b.panic = Some(contracts::Panic {
+            site: "crates/backend/commands/analyze/src/lib.rs:606:44".into(),
+            message: Bytes::text("too few entries in indexprs list"),
+            query: None,
+        });
+        let divs = compare_planes(
+            &a,
+            &b,
+            &step("analyze s475_t;", Ordered::None),
+            embedded_ledger(),
+        );
         assert_eq!(divs.len(), 1);
-        assert_eq!((divs[0].plane.as_str(), divs[0].class, divs[0].severity), ("panic", Class::Crash, Severity::Critical));
+        assert_eq!(
+            (divs[0].plane.as_str(), divs[0].class, divs[0].severity),
+            ("panic", Class::Crash, Severity::Critical)
+        );
         // Precedence: a crash outranks everything.
         assert!(class_rank(Class::Crash) < class_rank(Class::Hang));
         assert!(class_rank(Class::WrongSqlstate) < class_rank(Class::WrongResult));
@@ -2825,10 +3542,7 @@ mod tests {
             rows(&[&[Some("Execution Time: 1 ms")]])
         );
         // Non-counter children terminate the block.
-        let r = rows(&[
-            &[Some("Planning:")],
-            &[Some("  Something Else: 3")],
-        ]);
+        let r = rows(&[&[Some("Planning:")], &[Some("  Something Else: 3")]]);
         assert_eq!(
             strip_planning_buffer_rows(&r),
             rows(&[&[Some("  Something Else: 3")]])
@@ -2900,7 +3614,9 @@ mod tests {
         // JSON format: quoted keys; Sort Method masks to end-of-line,
         // numeric counter values to the comma.
         assert_eq!(
-            normalize_explain_cell("\"Sort Method\": \"external merge\",\n\"Sort Space Used\": 2408,"),
+            normalize_explain_cell(
+                "\"Sort Method\": \"external merge\",\n\"Sort Space Used\": 2408,"
+            ),
             "\"Sort Method\": X\n\"Sort Space Used\": X,"
         );
         // Not a counter context: "rows=" and plan node text untouched.
@@ -2946,7 +3662,10 @@ mod tests {
         );
         // "Buffers" left-boundary: a plan node name containing the word
         // without the colon separator stays untouched.
-        assert_eq!(normalize_explain_cell("SharedBuffers: 3"), "SharedBuffers: 3");
+        assert_eq!(
+            normalize_explain_cell("SharedBuffers: 3"),
+            "SharedBuffers: 3"
+        );
         // LD4 additions — WAL usage: TEXT tail masks to end-of-line
         // (which counters print is runtime state), JSON keys value-wise.
         assert_eq!(
@@ -3032,14 +3751,26 @@ mod tests {
         let e1 = err("22012", "division by zero");
         let e2 = err("22012", "division by zero somewhere");
         let e3 = err("22003", "out of range");
-        assert_eq!(classify_sql("SELECT 1/0;", &e1, &e1).class, DiffClass::Match);
+        assert_eq!(
+            classify_sql("SELECT 1/0;", &e1, &e1).class,
+            DiffClass::Match
+        );
         // Same SQLSTATE, drifted message: a finding (wrong-message), no longer MATCH.
         let c = classify_sql("SELECT 1/0;", &e1, &e2);
         assert_eq!(c.class, DiffClass::ErrorDiff);
         assert!(c.detail.contains("field M differs"), "{}", c.detail);
-        assert_eq!(classify_sql("SELECT 1/0;", &e1, &e3).class, DiffClass::ErrorDiff);
-        assert_eq!(classify_sql("SELECT 1;", &e1, &ok1()).class, DiffClass::ErrorDiff);
-        assert_eq!(classify_sql("SELECT 1;", &ok1(), &e1).class, DiffClass::ErrorDiff);
+        assert_eq!(
+            classify_sql("SELECT 1/0;", &e1, &e3).class,
+            DiffClass::ErrorDiff
+        );
+        assert_eq!(
+            classify_sql("SELECT 1;", &e1, &ok1()).class,
+            DiffClass::ErrorDiff
+        );
+        assert_eq!(
+            classify_sql("SELECT 1;", &ok1(), &e1).class,
+            DiffClass::ErrorDiff
+        );
     }
 
     #[test]
@@ -3048,82 +3779,242 @@ mod tests {
         let b = err("0A000", "this SQL construct is not yet implemented (grammar rule 2445: AexprConst, gram.y:17387)");
         let c = classify_sql("SELECT int4(1) '42';", &a, &b);
         assert_eq!(c.class, DiffClass::ErrorDiff);
-        assert!(c.detail.contains("UNPORTED grammar rule 2445"), "{}", c.detail);
+        assert!(
+            c.detail.contains("UNPORTED grammar rule 2445"),
+            "{}",
+            c.detail
+        );
     }
 
     #[test]
     fn legacy_build_config_and_carve_rulings() {
         let xml = err("0A000", "unsupported XML feature");
-        assert_eq!(classify_sql("SELECT xml '<a/>';", &xml, &ok1()).class, ruled("xml-config"));
-        assert_eq!(classify_sql("SELECT xml '<a/>';", &xml, &err("22000", "other")).class, ruled("xml-config"));
-        assert_eq!(classify_sql("SELECT xml '<a/>';", &xml, &err("XX000", "panicked")).class, DiffClass::ErrorDiff);
+        assert_eq!(
+            classify_sql("SELECT xml '<a/>';", &xml, &ok1()).class,
+            ruled("xml-config")
+        );
+        assert_eq!(
+            classify_sql("SELECT xml '<a/>';", &xml, &err("22000", "other")).class,
+            ruled("xml-config")
+        );
+        assert_eq!(
+            classify_sql("SELECT xml '<a/>';", &xml, &err("XX000", "panicked")).class,
+            DiffClass::ErrorDiff
+        );
         let lz4 = err("0A000", "compression method lz4 not supported");
-        assert_eq!(classify_sql("ALTER TABLE t ALTER c SET COMPRESSION lz4;", &lz4, &ok1()).class, ruled("lz4-config"));
-        assert_eq!(classify_sql("x;", &lz4, &err("XX000", "boom")).class, DiffClass::ErrorDiff);
+        assert_eq!(
+            classify_sql("ALTER TABLE t ALTER c SET COMPRESSION lz4;", &lz4, &ok1()).class,
+            ruled("lz4-config")
+        );
+        assert_eq!(
+            classify_sql("x;", &lz4, &err("XX000", "boom")).class,
+            DiffClass::ErrorDiff
+        );
         let carve = err("0A000", "server encoding \"EUC_CN\" is not supported by pgrust; only the \"UTF8\" server encoding is accepted (UTF-8-only carve, docs/design/carve-ratifications.md)");
-        assert_eq!(classify_sql("CREATE DATABASE d ENCODING 'EUC_CN';", &ok1(), &carve).class, ruled("encoding-carve"));
-        assert_eq!(classify_sql("CREATE DATABASE d ENCODING 'EUC_CN';", &err("22023", "mismatch"), &carve).class, ruled("encoding-carve"));
-        assert_eq!(classify_sql("x;", &err("XX000", "boom"), &carve).class, DiffClass::ErrorDiff);
+        assert_eq!(
+            classify_sql("CREATE DATABASE d ENCODING 'EUC_CN';", &ok1(), &carve).class,
+            ruled("encoding-carve")
+        );
+        assert_eq!(
+            classify_sql(
+                "CREATE DATABASE d ENCODING 'EUC_CN';",
+                &err("22023", "mismatch"),
+                &carve
+            )
+            .class,
+            ruled("encoding-carve")
+        );
+        assert_eq!(
+            classify_sql("x;", &err("XX000", "boom"), &carve).class,
+            DiffClass::ErrorDiff
+        );
         // Other encoding errors escalate.
-        assert_eq!(classify_sql("x;", &ok1(), &err("0A000", "encoding X is not supported")).class, DiffClass::ErrorDiff);
+        assert_eq!(
+            classify_sql("x;", &ok1(), &err("0A000", "encoding X is not supported")).class,
+            DiffClass::ErrorDiff
+        );
         let tid = err("22P02", "invalid input syntax for type tid: \"(0,)\"");
-        assert_eq!(classify_sql("SELECT '(0,)'::tid;", &ok1(), &tid).class, ruled("tid-input-upstream"));
-        assert_eq!(classify_sql("SELECT '(0,)'::tid;", &tid, &ok1()).class, DiffClass::ErrorDiff);
+        assert_eq!(
+            classify_sql("SELECT '(0,)'::tid;", &ok1(), &tid).class,
+            ruled("tid-input-upstream")
+        );
+        assert_eq!(
+            classify_sql("SELECT '(0,)'::tid;", &tid, &ok1()).class,
+            DiffClass::ErrorDiff
+        );
     }
 
     #[test]
     fn legacy_asymmetric_fault_rulings() {
         let pw = err("55000", "parallel worker failed to initialize");
-        assert_eq!(classify_sql("select count(*) from big ;", &ok1(), &pw).class, ruled("parallel-worker-init"));
-        assert_eq!(classify_sql("select 1 ;", &ok1(), &err("55000", "object not in prerequisite state")).class, DiffClass::ErrorDiff);
-        assert_eq!(classify_sql("select 1 ;", &pw, &ok1()).class, DiffClass::ErrorDiff);
+        assert_eq!(
+            classify_sql("select count(*) from big ;", &ok1(), &pw).class,
+            ruled("parallel-worker-init")
+        );
+        assert_eq!(
+            classify_sql(
+                "select 1 ;",
+                &ok1(),
+                &err("55000", "object not in prerequisite state")
+            )
+            .class,
+            DiffClass::ErrorDiff
+        );
+        assert_eq!(
+            classify_sql("select 1 ;", &pw, &ok1()).class,
+            DiffClass::ErrorDiff
+        );
         let to = err("57014", "canceling statement due to statement timeout");
-        assert_eq!(classify_sql("SELECT * FROM fz_par_0 ORDER BY pk;", &ok1(), &to).class, ruled("fault-stmt-timeout"));
-        assert_eq!(classify_sql("select 1 ;", &ok1(), &err("57014", "canceling statement due to user request")).class, DiffClass::ErrorDiff);
-        assert_eq!(classify_sql("select 1 ;", &to, &ok1()).class, DiffClass::ErrorDiff);
+        assert_eq!(
+            classify_sql("SELECT * FROM fz_par_0 ORDER BY pk;", &ok1(), &to).class,
+            ruled("fault-stmt-timeout")
+        );
+        assert_eq!(
+            classify_sql(
+                "select 1 ;",
+                &ok1(),
+                &err("57014", "canceling statement due to user request")
+            )
+            .class,
+            DiffClass::ErrorDiff
+        );
+        assert_eq!(
+            classify_sql("select 1 ;", &to, &ok1()).class,
+            DiffClass::ErrorDiff
+        );
         let dl = err("40P01", "deadlock detected");
-        assert_eq!(classify_sql("DROP TABLE fz_pa_t1, fz_pa_t2;", &ok1(), &dl).class, ruled("drop-autovacuum-deadlock"));
-        assert_eq!(classify_sql("VACUUM (ANALYZE, FULL) t;", &ok1(), &dl).class, ruled("drop-autovacuum-deadlock"));
-        assert_eq!(classify_sql("vacuum full t;", &ok1(), &dl).class, ruled("drop-autovacuum-deadlock"));
-        assert_eq!(classify_sql("update fz_one set k_int = 2 ;", &ok1(), &dl).class, DiffClass::ErrorDiff);
-        assert_eq!(classify_sql("DROP TABLE t;", &dl, &ok1()).class, DiffClass::ErrorDiff);
+        assert_eq!(
+            classify_sql("DROP TABLE fz_pa_t1, fz_pa_t2;", &ok1(), &dl).class,
+            ruled("drop-autovacuum-deadlock")
+        );
+        assert_eq!(
+            classify_sql("VACUUM (ANALYZE, FULL) t;", &ok1(), &dl).class,
+            ruled("drop-autovacuum-deadlock")
+        );
+        assert_eq!(
+            classify_sql("vacuum full t;", &ok1(), &dl).class,
+            ruled("drop-autovacuum-deadlock")
+        );
+        assert_eq!(
+            classify_sql("update fz_one set k_int = 2 ;", &ok1(), &dl).class,
+            DiffClass::ErrorDiff
+        );
+        assert_eq!(
+            classify_sql("DROP TABLE t;", &dl, &ok1()).class,
+            DiffClass::ErrorDiff
+        );
         let dup = err("23505", "duplicate key value violates unique constraint \"pg_db_role_setting_databaseid_rol_index\"");
-        assert_eq!(classify_sql("ALTER ROLE ALL SET work_mem = '1MB';", &ok1(), &dup).class, ruled("role-setting-shared-race"));
-        assert_eq!(classify_sql("alter user all reset work_mem;", &ok1(), &dup).class, ruled("role-setting-shared-race"));
-        assert_eq!(classify_sql("ALTER ROLE r SET work_mem = '1MB';", &ok1(), &dup).class, DiffClass::ErrorDiff);
+        assert_eq!(
+            classify_sql("ALTER ROLE ALL SET work_mem = '1MB';", &ok1(), &dup).class,
+            ruled("role-setting-shared-race")
+        );
+        assert_eq!(
+            classify_sql("alter user all reset work_mem;", &ok1(), &dup).class,
+            ruled("role-setting-shared-race")
+        );
+        assert_eq!(
+            classify_sql("ALTER ROLE r SET work_mem = '1MB';", &ok1(), &dup).class,
+            DiffClass::ErrorDiff
+        );
     }
 
     #[test]
     fn legacy_shared_state_races_rule_either_side() {
         let tcu = err("XX000", "tuple concurrently updated");
-        assert_eq!(classify_sql("alter user current_user encrypted password 'x' ;", &ok1(), &tcu).class, ruled("shared-catalog-tcu"));
-        assert_eq!(classify_sql("ALTER ROLE r SET x = 1;", &tcu, &ok1()).class, ruled("shared-catalog-tcu-a"));
-        assert_eq!(classify_sql("REVOKE SET ON PARAMETER work_mem FROM r;", &ok1(), &err("XX000", "tuple concurrently deleted")).class, ruled("shared-catalog-tcu"));
-        assert_eq!(classify_sql("ALTER TABLE t ADD COLUMN c int4;", &ok1(), &tcu).class, DiffClass::ErrorDiff);
-        assert_eq!(classify_sql("GRANT SELECT ON TABLE t TO PUBLIC;", &ok1(), &tcu).class, DiffClass::ErrorDiff);
-        assert_eq!(classify_sql("ALTER ROLE r SET x = 1;", &ok1(), &err("XX000", "other")).class, DiffClass::ErrorDiff);
-        let ac = err("F0000", "could not parse contents of file \"postgresql.auto.conf\"");
-        assert_eq!(classify_sql("alter system reset flag . fz_scalar . trim ;", &ok1(), &ac).class, ruled("autoconf-shared-race"));
-        assert_eq!(classify_sql("ALTER SYSTEM SET x = 1;", &ac, &err("42704", "unrecognized")).class, ruled("autoconf-shared-race-a"));
-        assert_eq!(classify_sql("SELECT 1;", &ok1(), &ac).class, DiffClass::ErrorDiff);
+        assert_eq!(
+            classify_sql(
+                "alter user current_user encrypted password 'x' ;",
+                &ok1(),
+                &tcu
+            )
+            .class,
+            ruled("shared-catalog-tcu")
+        );
+        assert_eq!(
+            classify_sql("ALTER ROLE r SET x = 1;", &tcu, &ok1()).class,
+            ruled("shared-catalog-tcu-a")
+        );
+        assert_eq!(
+            classify_sql(
+                "REVOKE SET ON PARAMETER work_mem FROM r;",
+                &ok1(),
+                &err("XX000", "tuple concurrently deleted")
+            )
+            .class,
+            ruled("shared-catalog-tcu")
+        );
+        assert_eq!(
+            classify_sql("ALTER TABLE t ADD COLUMN c int4;", &ok1(), &tcu).class,
+            DiffClass::ErrorDiff
+        );
+        assert_eq!(
+            classify_sql("GRANT SELECT ON TABLE t TO PUBLIC;", &ok1(), &tcu).class,
+            DiffClass::ErrorDiff
+        );
+        assert_eq!(
+            classify_sql("ALTER ROLE r SET x = 1;", &ok1(), &err("XX000", "other")).class,
+            DiffClass::ErrorDiff
+        );
+        let ac = err(
+            "F0000",
+            "could not parse contents of file \"postgresql.auto.conf\"",
+        );
+        assert_eq!(
+            classify_sql("alter system reset flag . fz_scalar . trim ;", &ok1(), &ac).class,
+            ruled("autoconf-shared-race")
+        );
+        assert_eq!(
+            classify_sql(
+                "ALTER SYSTEM SET x = 1;",
+                &ac,
+                &err("42704", "unrecognized")
+            )
+            .class,
+            ruled("autoconf-shared-race-a")
+        );
+        assert_eq!(
+            classify_sql("SELECT 1;", &ok1(), &ac).class,
+            DiffClass::ErrorDiff
+        );
     }
 
     #[test]
     fn legacy_rowset_compare_and_order_mapping() {
         let a = rowset(vec![23], rows(&[&[Some("1")], &[Some("2")]]));
         let b = rowset(vec![23], rows(&[&[Some("2")], &[Some("1")]]));
-        assert_eq!(classify_sql("SELECT c FROM t;", &a, &a).class, DiffClass::Match);
+        assert_eq!(
+            classify_sql("SELECT c FROM t;", &a, &a).class,
+            DiffClass::Match
+        );
         // No ORDER BY: multiset (ordered: none).
-        assert_eq!(classify_sql("SELECT c FROM t;", &a, &b).class, DiffClass::Match);
+        assert_eq!(
+            classify_sql("SELECT c FROM t;", &a, &b).class,
+            DiffClass::Match
+        );
         // ORDER BY: ordered: partial — tie-order ruling, never a total key.
-        assert_eq!(legacy_step("SELECT c FROM t ORDER BY 1;").ordered, Ordered::Partial);
-        assert_eq!(classify_sql("SELECT c FROM t ORDER BY 1;", &a, &b).class, ruled("tie-ordering"));
-        assert_eq!(classify_sql("COPY t TO STDOUT;", &a, &b).class, DiffClass::Match);
+        assert_eq!(
+            legacy_step("SELECT c FROM t ORDER BY 1;").ordered,
+            Ordered::Partial
+        );
+        assert_eq!(
+            classify_sql("SELECT c FROM t ORDER BY 1;", &a, &b).class,
+            ruled("tie-ordering")
+        );
+        assert_eq!(
+            classify_sql("COPY t TO STDOUT;", &a, &b).class,
+            DiffClass::Match
+        );
         let c3 = rowset(vec![23], rows(&[&[Some("3")]]));
-        assert_eq!(classify_sql("SELECT c FROM t ORDER BY 1;", &a, &c3).class, DiffClass::RowsetDiff);
+        assert_eq!(
+            classify_sql("SELECT c FROM t ORDER BY 1;", &a, &c3).class,
+            DiffClass::RowsetDiff
+        );
         let nul = rowset(vec![25], rows(&[&[None]]));
         let emp = rowset(vec![25], rows(&[&[Some("")]]));
-        assert_eq!(classify_sql("SELECT c FROM t;", &nul, &emp).class, DiffClass::RowsetDiff);
+        assert_eq!(
+            classify_sql("SELECT c FROM t;", &nul, &emp).class,
+            DiffClass::RowsetDiff
+        );
     }
 
     #[test]
@@ -3131,49 +4022,109 @@ mod tests {
         let x = 0.1f64 + 0.2f64;
         let fa = rowset(vec![FLOAT8_OID], rows(&[&[Some(&format!("{x:?}"))]]));
         let fb = rowset(vec![FLOAT8_OID], rows(&[&[Some("0.3")]]));
-        assert_eq!(classify_sql("SELECT f FROM t ORDER BY 1;", &fa, &fb).class, ruled("b1-float-ulp"));
-        assert_eq!(classify_sql("SELECT f FROM t;", &fa, &fb).class, ruled("b1-float-ulp"));
+        assert_eq!(
+            classify_sql("SELECT f FROM t ORDER BY 1;", &fa, &fb).class,
+            ruled("b1-float-ulp")
+        );
+        assert_eq!(
+            classify_sql("SELECT f FROM t;", &fa, &fb).class,
+            ruled("b1-float-ulp")
+        );
         let one = rowset(vec![FLOAT8_OID], rows(&[&[Some("1.0")]]));
         let off = rowset(vec![FLOAT8_OID], rows(&[&[Some("1.001")]]));
-        assert_eq!(classify_sql("SELECT f FROM t ORDER BY 1;", &one, &off).class, DiffClass::RowsetDiff);
+        assert_eq!(
+            classify_sql("SELECT f FROM t ORDER BY 1;", &one, &off).class,
+            DiffClass::RowsetDiff
+        );
         // numeric columns compare exactly.
         let na = rowset(vec![1700], rows(&[&[Some("0.30000000000000004")]]));
         let nb = rowset(vec![1700], rows(&[&[Some("0.3")]]));
-        assert_eq!(classify_sql("SELECT n FROM t ORDER BY 1;", &na, &nb).class, DiffClass::RowsetDiff);
+        assert_eq!(
+            classify_sql("SELECT n FROM t ORDER BY 1;", &na, &nb).class,
+            DiffClass::RowsetDiff
+        );
         // Specials.
         let inf = rowset(vec![FLOAT8_OID], rows(&[&[Some("Infinity")]]));
         let ninf = rowset(vec![FLOAT8_OID], rows(&[&[Some("-Infinity")]]));
-        assert_eq!(classify_sql("SELECT f FROM t;", &inf, &inf).class, DiffClass::Match);
-        assert_eq!(classify_sql("SELECT f FROM t;", &inf, &ninf).class, DiffClass::RowsetDiff);
+        assert_eq!(
+            classify_sql("SELECT f FROM t;", &inf, &inf).class,
+            DiffClass::Match
+        );
+        assert_eq!(
+            classify_sql("SELECT f FROM t;", &inf, &ninf).class,
+            DiffClass::RowsetDiff
+        );
         // Soft columns accept any float divergence, never NULL vs value or non-float columns.
         let tiny = rowset(vec![FLOAT8_OID], rows(&[&[Some("1e-10")]]));
         let zero = rowset(vec![FLOAT8_OID], rows(&[&[Some("0")]]));
-        assert_eq!(classify_soft("SELECT sum(f) FROM t;", &tiny, &zero, &[0]).class, ruled("b1-float-agg-soft"));
-        assert_eq!(classify_soft("SELECT sum(f) FROM t;", &tiny, &zero, &[]).class, DiffClass::RowsetDiff);
+        assert_eq!(
+            classify_soft("SELECT sum(f) FROM t;", &tiny, &zero, &[0]).class,
+            ruled("b1-float-agg-soft")
+        );
+        assert_eq!(
+            classify_soft("SELECT sum(f) FROM t;", &tiny, &zero, &[]).class,
+            DiffClass::RowsetDiff
+        );
         let nul = rowset(vec![FLOAT8_OID], rows(&[&[None]]));
-        assert_eq!(classify_soft("SELECT sum(f) FROM t;", &tiny, &nul, &[0]).class, DiffClass::RowsetDiff);
-        assert_eq!(classify_soft("SELECT sum(n) FROM t;", &na, &nb, &[0]).class, DiffClass::RowsetDiff);
-        let two_a = rowset(vec![FLOAT8_OID, FLOAT8_OID], rows(&[&[Some("1.0"), Some("5.0")]]));
-        let two_b = rowset(vec![FLOAT8_OID, FLOAT8_OID], rows(&[&[Some("1.001"), Some("6.0")]]));
-        assert_eq!(classify_soft("SELECT f, sum(g) FROM t;", &two_a, &two_b, &[1]).class, DiffClass::RowsetDiff);
+        assert_eq!(
+            classify_soft("SELECT sum(f) FROM t;", &tiny, &nul, &[0]).class,
+            DiffClass::RowsetDiff
+        );
+        assert_eq!(
+            classify_soft("SELECT sum(n) FROM t;", &na, &nb, &[0]).class,
+            DiffClass::RowsetDiff
+        );
+        let two_a = rowset(
+            vec![FLOAT8_OID, FLOAT8_OID],
+            rows(&[&[Some("1.0"), Some("5.0")]]),
+        );
+        let two_b = rowset(
+            vec![FLOAT8_OID, FLOAT8_OID],
+            rows(&[&[Some("1.001"), Some("6.0")]]),
+        );
+        assert_eq!(
+            classify_soft("SELECT f, sum(g) FROM t;", &two_a, &two_b, &[1]).class,
+            DiffClass::RowsetDiff
+        );
         // Geometry composites: token-wise ulp under the widened budget.
         let ga = rowset(vec![718], rows(&[&[Some("<(1,2),2.6925824035672523>")]]));
         let gb = rowset(vec![718], rows(&[&[Some("<(1,2),2.692582403567252>")]]));
-        assert_eq!(classify_sql("SELECT circle(p) FROM t;", &ga, &gb).class, ruled("b1-float-ulp"));
+        assert_eq!(
+            classify_sql("SELECT circle(p) FROM t;", &ga, &gb).class,
+            ruled("b1-float-ulp")
+        );
         let y = f64::from_bits(2.6925824035672523f64.to_bits() + 15);
-        let pa = rowset(vec![602], rows(&[&[Some(&format!("(({:?},1),(2,3))", 2.6925824035672523f64))]]));
+        let pa = rowset(
+            vec![602],
+            rows(&[&[Some(&format!("(({:?},1),(2,3))", 2.6925824035672523f64))]]),
+        );
         let pb = rowset(vec![602], rows(&[&[Some(&format!("(({y:?},1),(2,3))"))]]));
-        assert_eq!(classify_sql("SELECT pth FROM t;", &pa, &pb).class, ruled("b1-float-ulp"));
+        assert_eq!(
+            classify_sql("SELECT pth FROM t;", &pa, &pb).class,
+            ruled("b1-float-ulp")
+        );
         let ca = rowset(vec![718], rows(&[&[Some("<(1,2),3>")]]));
         let cb = rowset(vec![718], rows(&[&[Some("<(1,2),4>")]]));
-        assert_eq!(classify_sql("SELECT c FROM t;", &ca, &cb).class, DiffClass::RowsetDiff);
+        assert_eq!(
+            classify_sql("SELECT c FROM t;", &ca, &cb).class,
+            DiffClass::RowsetDiff
+        );
         let pa = rowset(vec![604], rows(&[&[Some("((0,0),(1,1))")]]));
         let pb = rowset(vec![604], rows(&[&[Some("((0,0),(1,1),(2,2))")]]));
-        assert_eq!(classify_sql("SELECT g FROM t;", &pa, &pb).class, DiffClass::RowsetDiff);
+        assert_eq!(
+            classify_sql("SELECT g FROM t;", &pa, &pb).class,
+            DiffClass::RowsetDiff
+        );
         let nan = rowset(vec![600], rows(&[&[Some("(NaN,1)")]]));
         let pt = rowset(vec![600], rows(&[&[Some("(0,1)")]]));
-        assert_eq!(classify_sql("SELECT p FROM t;", &nan, &nan).class, DiffClass::Match);
-        assert_eq!(classify_sql("SELECT p FROM t;", &nan, &pt).class, DiffClass::RowsetDiff);
+        assert_eq!(
+            classify_sql("SELECT p FROM t;", &nan, &nan).class,
+            DiffClass::Match
+        );
+        assert_eq!(
+            classify_sql("SELECT p FROM t;", &nan, &pt).class,
+            DiffClass::RowsetDiff
+        );
     }
 
     #[test]
@@ -3184,77 +4135,207 @@ mod tests {
         assert_eq!(c.class, DiffClass::RowsetDiff);
         assert!(c.detail.contains("column 0 type oids"), "{}", c.detail);
         // User-range oids pair with user-range unconditionally (round-7 FP-3).
-        let a = rowset(vec![23, 16385, 16401], rows(&[&[Some("1"), Some("x"), Some("y")]]));
-        let b = rowset(vec![23, 16394, 16411], rows(&[&[Some("1"), Some("x"), Some("y")]]));
-        assert_eq!(classify_sql("SELECT a, b, c FROM t;", &a, &b).class, DiffClass::Match);
+        let a = rowset(
+            vec![23, 16385, 16401],
+            rows(&[&[Some("1"), Some("x"), Some("y")]]),
+        );
+        let b = rowset(
+            vec![23, 16394, 16411],
+            rows(&[&[Some("1"), Some("x"), Some("y")]]),
+        );
+        assert_eq!(
+            classify_sql("SELECT a, b, c FROM t;", &a, &b).class,
+            DiffClass::Match
+        );
         let a = rowset(vec![16385], rows(&[&[Some("x")]]));
         let b = rowset(vec![25], rows(&[&[Some("x")]]));
-        assert_eq!(classify_sql("SELECT b FROM t;", &a, &b).class, DiffClass::RowsetDiff);
+        assert_eq!(
+            classify_sql("SELECT b FROM t;", &a, &b).class,
+            DiffClass::RowsetDiff
+        );
         // Rows vs command tag: a rowset diff.
-        let cmd = StmtOutcome::Command { tag: "UPDATE 1".to_string(), affected: Some(1) };
-        assert_eq!(classify_sql("x;", &ok1(), &cmd).class, DiffClass::RowsetDiff);
-        assert_eq!(classify_sql("x;", &cmd, &ok1()).class, DiffClass::RowsetDiff);
+        let cmd = StmtOutcome::Command {
+            tag: "UPDATE 1".to_string(),
+            affected: Some(1),
+        };
+        assert_eq!(
+            classify_sql("x;", &ok1(), &cmd).class,
+            DiffClass::RowsetDiff
+        );
+        assert_eq!(
+            classify_sql("x;", &cmd, &ok1()).class,
+            DiffClass::RowsetDiff
+        );
     }
 
     #[test]
     fn legacy_count_copy_and_session() {
-        let a = StmtOutcome::Command { tag: "UPDATE 3".to_string(), affected: Some(3) };
-        let b = StmtOutcome::Command { tag: "UPDATE 2".to_string(), affected: Some(2) };
-        assert_eq!(classify_sql("UPDATE t SET c = 1;", &a, &b).class, DiffClass::CountDiff);
-        assert_eq!(classify_sql("UPDATE t SET c = 1;", &a, &a.clone()).class, DiffClass::Match);
+        let a = StmtOutcome::Command {
+            tag: "UPDATE 3".to_string(),
+            affected: Some(3),
+        };
+        let b = StmtOutcome::Command {
+            tag: "UPDATE 2".to_string(),
+            affected: Some(2),
+        };
+        assert_eq!(
+            classify_sql("UPDATE t SET c = 1;", &a, &b).class,
+            DiffClass::CountDiff
+        );
+        assert_eq!(
+            classify_sql("UPDATE t SET c = 1;", &a, &a.clone()).class,
+            DiffClass::Match
+        );
         // Full tag text compares: equal counts, different text is a CountDiff.
-        let m = StmtOutcome::Command { tag: "MERGE 3".to_string(), affected: Some(3) };
-        assert_eq!(classify_sql("MERGE INTO t ...;", &a, &m).class, DiffClass::CountDiff);
-        let co = |bytes: &[u8], tag: &str| StmtOutcome::CopyOut { bytes: bytes.to_vec(), tag: tag.to_string() };
+        let m = StmtOutcome::Command {
+            tag: "MERGE 3".to_string(),
+            affected: Some(3),
+        };
+        assert_eq!(
+            classify_sql("MERGE INTO t ...;", &a, &m).class,
+            DiffClass::CountDiff
+        );
+        let co = |bytes: &[u8], tag: &str| StmtOutcome::CopyOut {
+            bytes: bytes.to_vec(),
+            tag: tag.to_string(),
+        };
         let sql = "COPY t TO STDOUT (FORMAT binary);";
-        assert_eq!(classify_sql(sql, &co(b"PGCOPY\n\xff\x0d\x0a\x00abc", "COPY 2"), &co(b"PGCOPY\n\xff\x0d\x0a\x00abc", "COPY 2")).class, DiffClass::Match);
-        let c = classify_sql(sql, &co(b"PGCOPY\n\xff\x0d\x0a\x00abc", "COPY 2"), &co(b"PGCOPY\n\xff\x0d\x0a\x00abd", "COPY 2"));
+        assert_eq!(
+            classify_sql(
+                sql,
+                &co(b"PGCOPY\n\xff\x0d\x0a\x00abc", "COPY 2"),
+                &co(b"PGCOPY\n\xff\x0d\x0a\x00abc", "COPY 2")
+            )
+            .class,
+            DiffClass::Match
+        );
+        let c = classify_sql(
+            sql,
+            &co(b"PGCOPY\n\xff\x0d\x0a\x00abc", "COPY 2"),
+            &co(b"PGCOPY\n\xff\x0d\x0a\x00abd", "COPY 2"),
+        );
         assert_eq!(c.class, DiffClass::RowsetDiff);
         assert!(c.detail.contains("differ at byte 13"), "{}", c.detail);
         let c = classify_sql(sql, &co(b"PGCOPY", "COPY 2"), &co(b"PGCOPY\n", "COPY 2"));
         assert!(c.detail.contains("len 6 vs 7"), "{}", c.detail);
-        assert_eq!(classify_sql(sql, &co(b"x", "COPY 2"), &co(b"x", "COPY 3")).class, DiffClass::CountDiff);
-        let cmd = StmtOutcome::Command { tag: "COPY 2".to_string(), affected: Some(2) };
-        assert_eq!(classify_sql(sql, &co(b"x", "COPY 2"), &cmd).class, DiffClass::RowsetDiff);
-        assert_eq!(classify_sql(sql, &cmd, &co(b"x", "COPY 2")).class, DiffClass::RowsetDiff);
-        assert_eq!(classify_sql(sql, &err("42601", "m"), &co(b"x", "COPY 2")).class, DiffClass::ErrorDiff);
-        let lost = StmtOutcome::ConnLost { detail: "server closed".to_string() };
-        assert_eq!(classify_sql("SELECT 1;", &lost, &ok1()).class, DiffClass::SessionDiverged(Side::A));
-        assert_eq!(classify_sql("SELECT 1;", &ok1(), &lost).class, DiffClass::SessionDiverged(Side::B));
-        assert_eq!(classify_sql("SELECT 1;", &lost, &lost).class, DiffClass::SessionDiverged(Side::Both));
+        assert_eq!(
+            classify_sql(sql, &co(b"x", "COPY 2"), &co(b"x", "COPY 3")).class,
+            DiffClass::CountDiff
+        );
+        let cmd = StmtOutcome::Command {
+            tag: "COPY 2".to_string(),
+            affected: Some(2),
+        };
+        assert_eq!(
+            classify_sql(sql, &co(b"x", "COPY 2"), &cmd).class,
+            DiffClass::RowsetDiff
+        );
+        assert_eq!(
+            classify_sql(sql, &cmd, &co(b"x", "COPY 2")).class,
+            DiffClass::RowsetDiff
+        );
+        assert_eq!(
+            classify_sql(sql, &err("42601", "m"), &co(b"x", "COPY 2")).class,
+            DiffClass::ErrorDiff
+        );
+        let lost = StmtOutcome::ConnLost {
+            detail: "server closed".to_string(),
+        };
+        assert_eq!(
+            classify_sql("SELECT 1;", &lost, &ok1()).class,
+            DiffClass::SessionDiverged(Side::A)
+        );
+        assert_eq!(
+            classify_sql("SELECT 1;", &ok1(), &lost).class,
+            DiffClass::SessionDiverged(Side::B)
+        );
+        assert_eq!(
+            classify_sql("SELECT 1;", &lost, &lost).class,
+            DiffClass::SessionDiverged(Side::Both)
+        );
     }
 
     #[test]
     fn legacy_explain_masks() {
-        let mk = |lines: &[&str]| rowset(vec![25], lines.iter().map(|l| vec![Some(l.to_string())]).collect());
+        let mk = |lines: &[&str]| {
+            rowset(
+                vec![25],
+                lines.iter().map(|l| vec![Some(l.to_string())]).collect(),
+            )
+        };
         let sql = "EXPLAIN (COSTS OFF, SUMMARY OFF, ANALYZE, TIMING OFF, BUFFERS OFF) SELECT t0.s_int4 FROM fz_scalar t0;";
-        let a = mk(&["Sort (actual rows=5 loops=1)", "  Sort Method: quicksort  Memory: 25kB"]);
-        let b = mk(&["Sort (actual rows=5 loops=1)", "  Sort Method: external merge  Disk: 48kB"]);
+        let a = mk(&[
+            "Sort (actual rows=5 loops=1)",
+            "  Sort Method: quicksort  Memory: 25kB",
+        ]);
+        let b = mk(&[
+            "Sort (actual rows=5 loops=1)",
+            "  Sort Method: external merge  Disk: 48kB",
+        ]);
         assert_eq!(classify_sql(sql, &a, &b).class, ruled("explain-counter"));
         let s = mk(&["Index Scan using fz_pk on fz_scalar t0 (actual rows=5 loops=1)"]);
         assert_eq!(classify_sql(sql, &a, &s).class, DiffClass::RowsetDiff);
-        assert_eq!(classify_sql("SELECT c FROM t;", &a, &b).class, DiffClass::RowsetDiff);
+        assert_eq!(
+            classify_sql("SELECT c FROM t;", &a, &b).class,
+            DiffClass::RowsetDiff
+        );
         // Timing: opt-in only, shape strict.
         let mkt = |t: &str| mk(&[t, "Planning Time: 0.100 ms", "Execution Time: 0.200 ms"]);
-        let ta = mkt("Result  (cost=0.00..0.01 rows=1 width=4) (actual time=0.003..0.004 rows=1.00 loops=1)");
-        let tb = mkt("Result  (cost=0.00..0.01 rows=1 width=4) (actual time=0.011..0.190 rows=1.00 loops=1)");
-        assert_eq!(classify_sql("explain analyze select 1 ;", &ta, &tb).class, DiffClass::RowsetDiff);
-        assert_eq!(classify_timing("explain analyze select 1 ;", &ta, &tb).class, ruled("explain-timing"));
+        let ta = mkt(
+            "Result  (cost=0.00..0.01 rows=1 width=4) (actual time=0.003..0.004 rows=1.00 loops=1)",
+        );
+        let tb = mkt(
+            "Result  (cost=0.00..0.01 rows=1 width=4) (actual time=0.011..0.190 rows=1.00 loops=1)",
+        );
+        assert_eq!(
+            classify_sql("explain analyze select 1 ;", &ta, &tb).class,
+            DiffClass::RowsetDiff
+        );
+        assert_eq!(
+            classify_timing("explain analyze select 1 ;", &ta, &tb).class,
+            ruled("explain-timing")
+        );
         let tb2 = mkt("Materialize  (cost=0.00..0.01 rows=1 width=4) (actual time=0.011..0.190 rows=1.00 loops=1)");
-        assert_eq!(classify_timing("explain analyze select 1 ;", &ta, &tb2).class, DiffClass::RowsetDiff);
+        assert_eq!(
+            classify_timing("explain analyze select 1 ;", &ta, &tb2).class,
+            DiffClass::RowsetDiff
+        );
         // Planning: block presence.
-        let pa = mk(&["Seq Scan on t  (cost=0.00..1.00 rows=1 width=4)", "Planning:", "  Buffers: shared hit=5 read=2"]);
+        let pa = mk(&[
+            "Seq Scan on t  (cost=0.00..1.00 rows=1 width=4)",
+            "Planning:",
+            "  Buffers: shared hit=5 read=2",
+        ]);
         let pb = mk(&["Seq Scan on t  (cost=0.00..1.00 rows=1 width=4)"]);
-        assert_eq!(classify_sql("explain select * from t ;", &pa, &pb).class, ruled("explain-planning-buffers"));
+        assert_eq!(
+            classify_sql("explain select * from t ;", &pa, &pb).class,
+            ruled("explain-planning-buffers")
+        );
         let pb3 = mk(&["Index Scan using t_pkey on t  (cost=0.00..1.00 rows=1 width=4)"]);
-        assert_eq!(classify_sql("explain select * from t ;", &pa, &pb3).class, DiffClass::RowsetDiff);
-        assert_eq!(classify_sql("select * from t ;", &pa, &pb).class, DiffClass::RowsetDiff);
+        assert_eq!(
+            classify_sql("explain select * from t ;", &pa, &pb3).class,
+            DiffClass::RowsetDiff
+        );
+        assert_eq!(
+            classify_sql("select * from t ;", &pa, &pb).class,
+            DiffClass::RowsetDiff
+        );
         // SCROLL Materialize wrap.
-        let scroll_sql = "explain verbose declare xmlforest scroll asensitive scroll binary cursor for select ;";
-        let ma = mk(&["Materialize  (cost=0.00..0.01 rows=1 width=0)", "  ->  Result  (cost=0.00..0.01 rows=1 width=0)"]);
+        let scroll_sql =
+            "explain verbose declare xmlforest scroll asensitive scroll binary cursor for select ;";
+        let ma = mk(&[
+            "Materialize  (cost=0.00..0.01 rows=1 width=0)",
+            "  ->  Result  (cost=0.00..0.01 rows=1 width=0)",
+        ]);
         let mb = mk(&["Result  (cost=0.00..0.01 rows=1 width=0)"]);
-        assert_eq!(classify_sql(scroll_sql, &ma, &mb).class, ruled("scroll-materialize"));
-        assert_eq!(classify_sql("explain declare c no scroll cursor for select ;", &ma, &mb).class, DiffClass::RowsetDiff);
+        assert_eq!(
+            classify_sql(scroll_sql, &ma, &mb).class,
+            ruled("scroll-materialize")
+        );
+        assert_eq!(
+            classify_sql("explain declare c no scroll cursor for select ;", &ma, &mb).class,
+            DiffClass::RowsetDiff
+        );
         let va = mk(&[
             "Materialize (actual time=0.001..0.001 rows=1.00 loops=1)",
             "  Output: 1",
@@ -3263,11 +4344,27 @@ mod tests {
             "Planning Time: 0.030 ms",
             "Execution Time: 0.003 ms",
         ]);
-        let vb = mk(&["Result (actual time=0.002..0.005 rows=1.00 loops=1)", "  Output: 1", "Planning Time: 0.051 ms", "Execution Time: 0.009 ms"]);
+        let vb = mk(&[
+            "Result (actual time=0.002..0.005 rows=1.00 loops=1)",
+            "  Output: 1",
+            "Planning Time: 0.051 ms",
+            "Execution Time: 0.009 ms",
+        ]);
         let scroll_analyze_sql = "explain analyse verbose declare close binary insensitive scroll insensitive cursor for select 1 ;";
-        assert_eq!(classify_timing(scroll_analyze_sql, &va, &vb).class, ruled("scroll-materialize"));
-        let vb2 = mk(&["Result (actual time=0.002..0.005 rows=1.00 loops=1)", "  Output: 2", "Planning Time: 0.051 ms", "Execution Time: 0.009 ms"]);
-        assert_eq!(classify_timing(scroll_analyze_sql, &va, &vb2).class, DiffClass::RowsetDiff);
+        assert_eq!(
+            classify_timing(scroll_analyze_sql, &va, &vb).class,
+            ruled("scroll-materialize")
+        );
+        let vb2 = mk(&[
+            "Result (actual time=0.002..0.005 rows=1.00 loops=1)",
+            "  Output: 2",
+            "Planning Time: 0.051 ms",
+            "Execution Time: 0.009 ms",
+        ]);
+        assert_eq!(
+            classify_timing(scroll_analyze_sql, &va, &vb2).class,
+            DiffClass::RowsetDiff
+        );
     }
 
     #[test]
@@ -3281,31 +4378,73 @@ mod tests {
             "SELECT count(*) FROM pg_locks WHERE NOT granted;",
             "SELECT pg_stat_get_backend_pid(1);",
         ] {
-            assert_eq!(classify_sql(sql, &one, &two).class, ruled("instance-config"), "{sql}");
+            assert_eq!(
+                classify_sql(sql, &one, &two).class,
+                ruled("instance-config"),
+                "{sql}"
+            );
         }
-        assert_eq!(classify_sql("SELECT * FROM t;", &one, &two).class, DiffClass::RowsetDiff);
+        assert_eq!(
+            classify_sql("SELECT * FROM t;", &one, &two).class,
+            DiffClass::RowsetDiff
+        );
         let la = rowset(vec![3220], rows(&[&[Some("0/16000028")]]));
         let lb = rowset(vec![3220], rows(&[&[Some("0/1A000060")]]));
-        assert_eq!(classify_sql("SELECT pg_backup_start('fz_q5_dup', true);", &la, &lb).class, ruled("instance-lsn"));
-        assert_eq!(classify_sql("SELECT pg_switch_wal();", &la, &lb).class, ruled("instance-lsn"));
-        assert_eq!(classify_sql("SELECT lsn FROM t;", &la, &lb).class, DiffClass::RowsetDiff);
+        assert_eq!(
+            classify_sql("SELECT pg_backup_start('fz_q5_dup', true);", &la, &lb).class,
+            ruled("instance-lsn")
+        );
+        assert_eq!(
+            classify_sql("SELECT pg_switch_wal();", &la, &lb).class,
+            ruled("instance-lsn")
+        );
+        assert_eq!(
+            classify_sql("SELECT lsn FROM t;", &la, &lb).class,
+            DiffClass::RowsetDiff
+        );
         // GUC inventory: row-count shape only; a value diff stays a finding.
-        assert_eq!(classify_sql("show all ;", &one, &two).class, ruled("guc-inventory"));
-        assert_eq!(classify_sql("select name from pg_settings ;", &one, &two).class, ruled("guc-inventory"));
+        assert_eq!(
+            classify_sql("show all ;", &one, &two).class,
+            ruled("guc-inventory")
+        );
+        assert_eq!(
+            classify_sql("select name from pg_settings ;", &one, &two).class,
+            ruled("guc-inventory")
+        );
         let c1 = rowset(vec![20], rows(&[&[Some("370")]]));
         let c2 = rowset(vec![20], rows(&[&[Some("412")]]));
-        assert_eq!(classify_sql("select count(*) from pg_settings ;", &c1, &c2).class, ruled("guc-inventory-count"));
+        assert_eq!(
+            classify_sql("select count(*) from pg_settings ;", &c1, &c2).class,
+            ruled("guc-inventory-count")
+        );
         let v1 = rowset(vec![25], rows(&[&[Some("4MB")]]));
         let v2 = rowset(vec![25], rows(&[&[Some("8MB")]]));
-        assert_eq!(classify_sql("select setting from pg_settings where name = 'work_mem';", &v1, &v2).class, DiffClass::RowsetDiff);
-        assert_eq!(classify_sql("SHOW work_mem;", &v1, &v2).class, DiffClass::RowsetDiff);
+        assert_eq!(
+            classify_sql(
+                "select setting from pg_settings where name = 'work_mem';",
+                &v1,
+                &v2
+            )
+            .class,
+            DiffClass::RowsetDiff
+        );
+        assert_eq!(
+            classify_sql("SHOW work_mem;", &v1, &v2).class,
+            DiffClass::RowsetDiff
+        );
     }
 
     #[test]
     fn legacy_oid_masks_and_cmp_sign() {
         let sql = "select pg_get_partition_constraintdef(oid) from pg_class ;";
-        let a = rowset(vec![25], rows(&[&[Some("satisfies_hash_partition('48594'::oid, 8, 5, k)")]]));
-        let b = rowset(vec![25], rows(&[&[Some("satisfies_hash_partition('37725'::oid, 8, 5, k)")]]));
+        let a = rowset(
+            vec![25],
+            rows(&[&[Some("satisfies_hash_partition('48594'::oid, 8, 5, k)")]]),
+        );
+        let b = rowset(
+            vec![25],
+            rows(&[&[Some("satisfies_hash_partition('37725'::oid, 8, 5, k)")]]),
+        );
         assert_eq!(classify_sql(sql, &a, &b).class, ruled("oid-literal"));
         let a = rowset(vec![25], rows(&[&[Some("f('23'::oid)")]]));
         let b = rowset(vec![25], rows(&[&[Some("f('25'::oid)")]]));
@@ -3347,7 +4486,10 @@ mod tests {
         assert_eq!(classify_sql(sql, &a, &b).class, ruled("cmp-magnitude"));
         let flip = rowset(vec![23], rows(&[&[Some("238")]]));
         assert_eq!(classify_sql(sql, &a, &flip).class, DiffClass::RowsetDiff);
-        assert_eq!(classify_sql("select a - b from t ;", &a, &b).class, DiffClass::RowsetDiff);
+        assert_eq!(
+            classify_sql("select a - b from t ;", &a, &b).class,
+            DiffClass::RowsetDiff
+        );
         let a8 = rowset(vec![20], rows(&[&[Some("-238")]]));
         let b8 = rowset(vec![20], rows(&[&[Some("-1")]]));
         assert_eq!(classify_sql(sql, &a8, &b8).class, DiffClass::RowsetDiff);

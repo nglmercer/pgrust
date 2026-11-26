@@ -24,7 +24,10 @@ fn tablespace_dir_paths() {
     assert_eq!(builtins::tablespace_dir_path(1664), "global");
     assert_eq!(
         builtins::tablespace_dir_path(16385),
-        format!("pg_tblspc/16385/{}", types_storage::TABLESPACE_VERSION_DIRECTORY)
+        format!(
+            "pg_tblspc/16385/{}",
+            types_storage::TABLESPACE_VERSION_DIRECTORY
+        )
     );
 }
 
@@ -80,10 +83,16 @@ fn stat_failures_are_file_access_errors() {
         let err = r.unwrap_err();
         assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
         let msg = err.message();
-        assert!(msg.starts_with(&format!("could not stat file \"{}/loop\": ", d.display())), "{msg}");
+        assert!(
+            msg.starts_with(&format!("could not stat file \"{}/loop\": ", d.display())),
+            "{msg}"
+        );
         assert!(!msg.contains("os error"), "{msg}");
     }
-    assert_eq!(builtins::tablespace_dir_size(&d.join("absent")).unwrap(), -1);
+    assert_eq!(
+        builtins::tablespace_dir_size(&d.join("absent")).unwrap(),
+        -1
+    );
     let _ = std::fs::remove_dir_all(&d);
 }
 
@@ -107,10 +116,19 @@ fn non_utf8_names_are_lookup_failures() {
 #[test]
 fn errors_quote_raw_input_bytes() {
     let e = pg_size_bytes(b"1 x\xff".as_slice()).unwrap_err();
-    assert_eq!(e.message_raw.as_deref(), Some(b"invalid size: \"1 x\xff\"".as_slice()));
-    assert_eq!(e.detail_raw.as_deref(), Some(b"Invalid size unit: \"x\xff\".".as_slice()));
+    assert_eq!(
+        e.message_raw.as_deref(),
+        Some(b"invalid size: \"1 x\xff\"".as_slice())
+    );
+    assert_eq!(
+        e.detail_raw.as_deref(),
+        Some(b"Invalid size unit: \"x\xff\".".as_slice())
+    );
     let e = pg_size_bytes(b"\xff".as_slice()).unwrap_err();
-    assert_eq!(e.message_raw.as_deref(), Some(b"invalid size: \"\xff\"".as_slice()));
+    assert_eq!(
+        e.message_raw.as_deref(),
+        Some(b"invalid size: \"\xff\"".as_slice())
+    );
     assert!(e.detail_raw.is_none());
     let e = pg_size_bytes("1 xB").unwrap_err();
     assert!(e.message_raw.is_none());

@@ -39,7 +39,9 @@ fn read(t: &mut SpillTable, i: u32) -> Vec<u64> {
             out.extend_from_slice(&buf[..n]);
         }
     }
-    out.chunks(8).map(|c| u64::from_le_bytes(c.try_into().unwrap())).collect()
+    out.chunks(8)
+        .map(|c| u64::from_le_bytes(c.try_into().unwrap()))
+        .collect()
 }
 
 fn put(t: &mut SpillTable, owner: usize, tag: u64) {
@@ -51,7 +53,10 @@ fn put(t: &mut SpillTable, owner: usize, tag: u64) {
 fn fenced(t: &SpillTable) -> (Vec<u32>, usize) {
     let n = t.stream(0).total_runs();
     let toks: Vec<u32> = (0..n).filter(|&i| t.run_fences(0, i).is_some()).collect(); // alloc: Exec
-    let bytes = toks.iter().map(|&i| t.run_fences(0, i).unwrap().bytes()).sum();
+    let bytes = toks
+        .iter()
+        .map(|&i| t.run_fences(0, i).unwrap().bytes())
+        .sum();
     (toks, bytes)
 }
 
@@ -65,7 +70,11 @@ fn an_owners_runs_past_maxorder_keep_no_fences_and_read_back() {
         put(&mut t, 1, i);
     }
     let (toks, held) = fenced(&t);
-    assert_eq!(toks.len(), MAXORDER, "an owner's first MAXORDER runs keep their fences");
+    assert_eq!(
+        toks.len(),
+        MAXORDER,
+        "an owner's first MAXORDER runs keep their fences"
+    );
     assert!(held > 0);
     // owner 2's runs (tokens after owner 1's), then owner 1 past MAXORDER runs
     put(&mut t, 2, 1_000_000);
@@ -77,10 +86,21 @@ fn an_owners_runs_past_maxorder_keep_no_fences_and_read_back() {
     let total = t.stream(0).total_runs();
     assert_eq!(total as u64, n1 + 2);
     let (toks, held2) = fenced(&t);
-    assert_eq!(toks, vec![n1 as u32, n1 as u32 + 1], "owner 1 past MAXORDER runs keeps no fences; owner 2's two are kept");
-    assert!(held2 < held, "fences held {held2} B, under the {held} B of MAXORDER runs");
+    assert_eq!(
+        toks,
+        vec![n1 as u32, n1 as u32 + 1],
+        "owner 1 past MAXORDER runs keeps no fences; owner 2's two are kept"
+    );
+    assert!(
+        held2 < held,
+        "fences held {held2} B, under the {held} B of MAXORDER runs"
+    );
     for i in 0..n1 as u32 {
-        assert_eq!(read(&mut t, i), vec![i as u64, 7], "owner 1's run {i} reads back");
+        assert_eq!(
+            read(&mut t, i),
+            vec![i as u64, 7],
+            "owner 1's run {i} reads back"
+        );
     }
     assert_eq!(read(&mut t, n1 as u32), vec![1_000_000, 7]);
     assert_eq!(read(&mut t, n1 as u32 + 1), vec![1_000_001, 7]);

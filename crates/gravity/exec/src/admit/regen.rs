@@ -38,7 +38,14 @@ leader_tls::leader_tls! {
 /// The growth of `s.rel` since the baseline filed under `s.key`; a first sight files `s` as the baseline.
 pub fn note(table: &mut Vec<Stamp>, s: Stamp) -> Growth {
     if let Some(b) = table.iter().find(|b| b.key == s.key && b.rel == s.rel) {
-        return if s.rows > b.rows { Growth::Grown { then: b.rows, now: s.rows } } else { Growth::Same };
+        return if s.rows > b.rows {
+            Growth::Grown {
+                then: b.rows,
+                now: s.rows,
+            }
+        } else {
+            Growth::Same
+        };
     }
     if table.len() >= STAMPS {
         table.clear();
@@ -70,28 +77,60 @@ pub fn check_build(a: &Admitted, mcx: Mcx<'static>) -> PgResult<Option<Refused>>
     if admit::lean::on() && a.program.v4.is_some() {
         return Ok(None);
     }
-    let Some(p0) = runner::lowered_build(a).filter(|_| a.program.v4.is_none()) else { return Ok(None) };
-    if a.program.pipelines.get(1).and_then(|p| p.breaker()).is_some_and(|b| matches!(b.spill, gravity_abi::breaker::Spill::Partitioned { .. })) || p0.driving_site < 0 {
+    let Some(p0) = runner::lowered_build(a).filter(|_| a.program.v4.is_none()) else {
+        return Ok(None);
+    };
+    if a.program
+        .pipelines
+        .get(1)
+        .and_then(|p| p.breaker())
+        .is_some_and(|b| matches!(b.spill, gravity_abi::breaker::Spill::Partitioned { .. }))
+        || p0.driving_site < 0
+    {
         return Ok(None);
     }
-    let Some(r) = a.registry.granule_recipe(p0.driving_site as usize) else { return Ok(None) };
+    let Some(r) = a.registry.granule_recipe(p0.driving_site as usize) else {
+        return Ok(None);
+    };
     let rel = table::table_open(mcx, r.rel, NoLock)?;
     let list = gravity_hosts::ops::scan::pgrc::granule_source::resolve(&rel, None);
     rel.close(NoLock)?;
-    let key = a.graph.as_ref().map_or_else(|| a.program.front_key(), |g| g.key);
+    let key = a
+        .graph
+        .as_ref()
+        .map_or_else(|| a.program.front_key(), |g| g.key);
     // KEY-PREDICTED-ROWS road (b): the content key holds no estimate, so the baseline is filed per (key, build estimate): a
     // new estimate is planned against the rows now and starts its own (the key's exact rows did this before road (b))
-    let key = ContentKey(key.0 ^ (u128::from(p0.build_estimate()) << 64 | u128::from(p0.predicted_rows)).wrapping_mul(0x9e37_79b9_7f4a_7c15_f39c_c6a1_2f4e_d5b3));
-    let stamp = Stamp { key, rel: r.rel, rows: list?.rows() };
-    let Growth::Grown { then, now } = TABLE.with(|t| note(&mut t.borrow_mut(), stamp)) else { return Ok(None) };
-    let width = if a.is_parallel() && !admit::leader_only() { runner::granted_width() } else { 1 };
-    let share = gravity_driver::share(&a.program, 0, runner::granted_memory(width), 1).breaker.bytes;
-    Ok(overflows(p0.predicted_rows, then, now, runner::build_room(share)).then(|| Refused { stage: "join", what: format!("a build whose relation grew from {then} to {now} rows since the plan: the estimate scaled to {} passes the hash grant (need 6)", scaled(p0.predicted_rows, then, now)) })) // alloc: Cold
+    let key = ContentKey(
+        key.0
+            ^ (u128::from(p0.build_estimate()) << 64 | u128::from(p0.predicted_rows))
+                .wrapping_mul(0x9e37_79b9_7f4a_7c15_f39c_c6a1_2f4e_d5b3),
+    );
+    let stamp = Stamp {
+        key,
+        rel: r.rel,
+        rows: list?.rows(),
+    };
+    let Growth::Grown { then, now } = TABLE.with(|t| note(&mut t.borrow_mut(), stamp)) else {
+        return Ok(None);
+    };
+    let width = if a.is_parallel() && !admit::leader_only() {
+        runner::granted_width()
+    } else {
+        1
+    };
+    let share = gravity_driver::share(&a.program, 0, runner::granted_memory(width), 1)
+        .breaker
+        .bytes;
+    Ok(overflows(p0.predicted_rows, then, now, runner::build_room(share)).then(|| Refused { stage: "join", what: format!("a build whose relation grew from {then} to {now} rows since the plan: the estimate scaled to {} passes the hash grant (need 6)", scaled(p0.predicted_rows, then, now)) }))
+    // alloc: Cold
 }
 
 /// A memo hit's verdict against the bank now: `true` when a bound refuses it, so the caller re-admits (and refuses by name).
 pub fn stale(b: &mut Backend, idx: usize, key: gravity_program::PlanKey) -> PgResult<bool> {
-    let Some(a) = b.admitted(idx, key) else { return Ok(true) };
+    let Some(a) = b.admitted(idx, key) else {
+        return Ok(true);
+    };
     if runner::lowered_build(a).is_none() {
         return Ok(false);
     }

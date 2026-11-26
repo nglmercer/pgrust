@@ -17,7 +17,9 @@ use gravity_abi::breaker::{Breaker, BreakerKind, Budget, Spill};
 use gravity_abi::status::{raise, raised, DONE, ERROR};
 use gravity_abi::{Ctx, MorselRange, PtrWord};
 use gravity_driver::{Call, Claimed, Entry, Error, Grant, Merge, Partial, Result, State};
-use gravity_program::{Arena, Code, End, Layout, OutCol, Pipeline, Program, Reason, SiteDesc, WritePlan};
+use gravity_program::{
+    Arena, Code, End, Layout, OutCol, Pipeline, Program, Reason, SiteDesc, WritePlan,
+};
 
 const NULLS: [u8; 1] = [0];
 
@@ -57,7 +59,15 @@ fn node_call(k: unsafe extern "C-unwind" fn(*mut Ctx) -> i64) -> Result<gravity_
     let sink = FakeSink::new();
     let mut sink_ref = &sink;
     let mut b = binding(&[], &NULLS, &mut sink_ref, &flag);
-    let mut exec = entry.start(None, &program, &mut derive, &mut b, lease(Grant::of(8 << 20))).unwrap();
+    let mut exec = entry
+        .start(
+            None,
+            &program,
+            &mut derive,
+            &mut b,
+            lease(Grant::of(8 << 20)),
+        )
+        .unwrap();
     let r = entry.run(&mut exec, &mut b, Call::batch(1));
     entry.end(exec, false);
     r
@@ -65,12 +75,29 @@ fn node_call(k: unsafe extern "C-unwind" fn(*mut Ctx) -> i64) -> Result<gravity_
 
 #[test]
 fn a_nodes_call_that_failed_after_its_host_code_stopped_is_the_cancel() {
-    for (k, raise_form) in [(k_error as unsafe extern "C-unwind" fn(*mut Ctx) -> i64, false), (k_raise, true)] {
+    for (k, raise_form) in [
+        (
+            k_error as unsafe extern "C-unwind" fn(*mut Ctx) -> i64,
+            false,
+        ),
+        (k_raise, true),
+    ] {
         CANCEL.set(false);
         let r = node_call(k);
-        assert!(if raise_form { matches!(r, Err(Error::Raised(_))) } else { matches!(r, Err(Error::Host(_))) }, "no stop: the error stands, {r:?}");
+        assert!(
+            if raise_form {
+                matches!(r, Err(Error::Raised(_)))
+            } else {
+                matches!(r, Err(Error::Host(_)))
+            },
+            "no stop: the error stands, {r:?}"
+        );
         CANCEL.set(true);
-        assert_eq!(node_call(k), Err(Error::Cancelled), "a stop: the statement's cancel");
+        assert_eq!(
+            node_call(k),
+            Err(Error::Cancelled),
+            "a stop: the statement's cancel"
+        );
     }
 }
 
@@ -90,9 +117,36 @@ fn section_program() -> Program {
     let st = Arena::new(1 << 12);
     let sites = [SiteDesc::range_source(st.handle(), 2001, &[1, 2])];
     let out = [OutCol::new("n", 20, -1, 8, true)];
-    let breaker = Breaker { kind: BreakerKind::HashBuild, slot: 0, bytes: 0, budget: Budget::Share, spill: Spill::None };
-    let pipes = [(Pipeline::eligible(0, End::Breaker(breaker), 1000), Code::hand(k_claim)), (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), Code::hand(k_none))];
-    Program::with_pipelines(Layout { nsites: 1, out_natts: 1, out_rows: 8, scratch_bytes: 0, exec_bytes: 0 }, &sites, &out, WritePlan::SELECT, pipes)
+    let breaker = Breaker {
+        kind: BreakerKind::HashBuild,
+        slot: 0,
+        bytes: 0,
+        budget: Budget::Share,
+        spill: Spill::None,
+    };
+    let pipes = [
+        (
+            Pipeline::eligible(0, End::Breaker(breaker), 1000),
+            Code::hand(k_claim),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            Code::hand(k_none),
+        ),
+    ];
+    Program::with_pipelines(
+        Layout {
+            nsites: 1,
+            out_natts: 1,
+            out_rows: 8,
+            scratch_bytes: 0,
+            exec_bytes: 0,
+        },
+        &sites,
+        &out,
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
 /// The leader's fold of a partial: polls, then fails as a hosted combine does (`FOLD_HOST`'s raise).
@@ -116,8 +170,12 @@ fn section(fails: bool) -> (Result<Claimed>, Result<()>) {
     let flag = AtomicU8::new(0);
     let mut sink = LegSink::new();
     let mut b = binding(&[0], &NULLS, &mut sink, &flag);
-    let mut exec = entry.start(None, &program, &mut derive, &mut b, lease(Grant::of(1))).unwrap();
-    let open = entry.open_section(&mut exec, &b, &mut derive, 0, 2).unwrap();
+    let mut exec = entry
+        .start(None, &program, &mut derive, &mut b, lease(Grant::of(1)))
+        .unwrap();
+    let open = entry
+        .open_section(&mut exec, &b, &mut derive, 0, 2)
+        .unwrap();
     CLAIM_FAILS.set(fails);
     let claim = open.run_claim(0, MorselRange::new(0, 2));
     if !fails {
@@ -131,9 +189,16 @@ fn section(fails: bool) -> (Result<Claimed>, Result<()>) {
 #[test]
 fn a_workers_claim_that_failed_after_its_host_code_stopped_is_the_cancel() {
     CANCEL.set(false);
-    assert!(matches!(section(true).0, Err(Error::Host(_))), "no stop: the claim's error stands");
+    assert!(
+        matches!(section(true).0, Err(Error::Host(_))),
+        "no stop: the claim's error stands"
+    );
     CANCEL.set(true);
-    assert_eq!(section(true).0, Err(Error::Cancelled), "a stop: the statement's cancel");
+    assert_eq!(
+        section(true).0,
+        Err(Error::Cancelled),
+        "a stop: the statement's cancel"
+    );
 }
 
 #[test]
@@ -141,7 +206,15 @@ fn the_leaders_fold_that_failed_after_its_host_code_stopped_is_the_cancel() {
     CANCEL.set(false);
     let (claim, closed) = section(false);
     assert_eq!(claim, Ok(Claimed::Done));
-    assert_eq!(closed, Err(Error::Raised(raise::bit(raise::HOST))), "no stop: the fold's raise stands");
+    assert_eq!(
+        closed,
+        Err(Error::Raised(raise::bit(raise::HOST))),
+        "no stop: the fold's raise stands"
+    );
     CANCEL.set(true);
-    assert_eq!(section(false).1, Err(Error::Cancelled), "a stop: the statement's cancel");
+    assert_eq!(
+        section(false).1,
+        Err(Error::Cancelled),
+        "a stop: the statement's cancel"
+    );
 }

@@ -18,14 +18,19 @@ use gravity_decompose::ops::window::WindowDesc;
 use gravity_decompose::Source;
 use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{Type, Value};
-use gravity_program::protos::{Proto, ProtoKind, WINDOW_PARTED, WINDOW_PARTS_AT, WINDOW_PARTS_COUNT};
+use gravity_program::protos::{
+    Proto, ProtoKind, WINDOW_PARTED, WINDOW_PARTS_AT, WINDOW_PARTS_COUNT,
+};
 use types_nodes::Node;
 
 use crate::face::runs::WIN_PARTRUNS;
 use crate::frame::env::Env;
 use crate::frame::px::Px;
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(WIN_PARTRUNS, &())], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(WIN_PARTRUNS, &())],
+    ..crate::ops::NONE
+};
 
 /// A window read by claims: its pipelines, its table word and the reader's nominal site.
 #[derive(Clone, Copy)]
@@ -92,8 +97,12 @@ fn upstream_site(px: &Px<'_, '_>, k: usize) -> Option<usize> {
         if let Some(s) = px.claims_site(q) {
             return Some(s);
         }
-        let Source::Breaker { slot } = gx.pipelines()[q].source else { continue };
-        let Some(l) = gx.life_of(q, slot).map(|l| l.0 as usize).filter(|&l| l < q) else { continue };
+        let Source::Breaker { slot } = gx.pipelines()[q].source else {
+            continue;
+        };
+        let Some(l) = gx.life_of(q, slot).map(|l| l.0 as usize).filter(|&l| l < q) else {
+            continue;
+        };
         // bounded("other: one step per pipeline up to the run's last producer, at most the program's pipelines")
         for p in (0..=l).rev() {
             if n < UP && same_run(gx, p, l) {
@@ -107,19 +116,50 @@ fn upstream_site(px: &Px<'_, '_>, k: usize) -> Option<usize> {
 
 /// The form for WindowAgg `d` filled by pipeline `fill` and read by `reader`: its nominal site when it holds (`decide` in
 /// the module's text). Read before any proto of the window is declared.
-pub(crate) fn decide<'p>(px: &Px<'_, 'p>, d: &WindowDesc<'p>, node: i32, fill: usize, reader: usize) -> Option<usize> {
+pub(crate) fn decide<'p>(
+    px: &Px<'_, 'p>,
+    d: &WindowDesc<'p>,
+    node: i32,
+    fill: usize,
+    reader: usize,
+) -> Option<usize> {
     use crate::ops::window::lower::{lazy_cells, proj_first, pulled, window_after_args};
     use types_nodes::rawnodes::{FRAMEOPTION_END_OFFSET, FRAMEOPTION_START_OFFSET};
     let gx = px.gx;
-    if !road_on(px) || fill >= gx.pipelines().len() || reader >= gx.pipelines().len() || d.partition.is_empty() {
+    if !road_on(px)
+        || fill >= gx.pipelines().len()
+        || reader >= gx.pipelines().len()
+        || d.partition.is_empty()
+    {
         return None;
     }
     let r = &gx.pipelines()[reader];
-    let quiet = !d.volatile_args && !d.volatile_proj && !pulled(px, node) && !lazy_cells(gx, d).contains(&true) && d.plan.frameOptions & (FRAMEOPTION_START_OFFSET | FRAMEOPTION_END_OFFSET) == 0;
-    let first = window_after_args(&r.ops).is_some_and(|(w, _)| w == 0) && proj_first(px, reader) == 0;
-    let cells = d.functions.iter().all(|f| f.func.args.iter().chain(f.func.aggfilter).all(plain));
-    let rerun = |q: usize| gx.graph.reruns.iter().any(|s| s.pipelines.contains(&(q as u16)));
-    let recheck = gx.graph.recheck || gx.pipelines().iter().any(|q| q.ops.iter().any(|op| matches!(op, gravity_decompose::Op::Write(_) | gravity_decompose::Op::Lock(_))));
+    let quiet = !d.volatile_args
+        && !d.volatile_proj
+        && !pulled(px, node)
+        && !lazy_cells(gx, d).contains(&true)
+        && d.plan.frameOptions & (FRAMEOPTION_START_OFFSET | FRAMEOPTION_END_OFFSET) == 0;
+    let first =
+        window_after_args(&r.ops).is_some_and(|(w, _)| w == 0) && proj_first(px, reader) == 0;
+    let cells = d
+        .functions
+        .iter()
+        .all(|f| f.func.args.iter().chain(f.func.aggfilter).all(plain));
+    let rerun = |q: usize| {
+        gx.graph
+            .reruns
+            .iter()
+            .any(|s| s.pipelines.contains(&(q as u16)))
+    };
+    let recheck = gx.graph.recheck
+        || gx.pipelines().iter().any(|q| {
+            q.ops.iter().any(|op| {
+                matches!(
+                    op,
+                    gravity_decompose::Op::Write(_) | gravity_decompose::Op::Lock(_)
+                )
+            })
+        });
     // a hash build takes every row before any reader reads one, in an order its readers never see (D4532's reading);
     // any other end: `wide_visible`'s, a sort whose run only windows read taken as free (`sort_into_windows`)
     use gravity_abi::breaker::BreakerKind as B;
@@ -128,13 +168,25 @@ pub(crate) fn decide<'p>(px: &Px<'_, 'p>, d: &WindowDesc<'p>, node: i32, fill: u
     let end = crate::frame::iface::end_breaker(gx, reader);
     let ends = match end {
         Some(B::HashBuild | B::HashAgg | B::PlainAgg) => true,
-        Some(B::Sort | B::TopK) => matches!(gx.end_need(reader), crate::face::kinds::KindId::RunsSort | crate::face::kinds::KindId::RunsTopkRows),
+        Some(B::Sort | B::TopK) => matches!(
+            gx.end_need(reader),
+            crate::face::kinds::KindId::RunsSort | crate::face::kinds::KindId::RunsTopkRows
+        ),
         _ => false,
     };
     let build = end == Some(B::HashBuild);
-    let visible = if build { crate::effects::visible::wide_build_visible(gx, reader) } else { crate::effects::visible::wide_visible(gx, reader) };
-    let order_free = r.desc.produces().is_some() && (visible.is_none() || matches!(visible, Some(crate::effects::visible::Why::Rows)) && sort_into_windows(px, reader));
-    let alone = [fill, reader].into_iter().all(|q| !rerun(q) && !px.serial.contains(&q) && !px.lazy.iter().any(|l| l.0 == q || l.1 == q));
+    let visible = if build {
+        crate::effects::visible::wide_build_visible(gx, reader)
+    } else {
+        crate::effects::visible::wide_visible(gx, reader)
+    };
+    let order_free = r.desc.produces().is_some()
+        && (visible.is_none()
+            || matches!(visible, Some(crate::effects::visible::Why::Rows))
+                && sort_into_windows(px, reader));
+    let alone = [fill, reader].into_iter().all(|q| {
+        !rerun(q) && !px.serial.contains(&q) && !px.lazy.iter().any(|l| l.0 == q || l.1 == q)
+    });
     if !quiet || !first || !cells || !ends || !order_free || recheck || !alone {
         return None;
     }
@@ -150,32 +202,71 @@ pub(crate) fn decide<'p>(px: &Px<'_, 'p>, d: &WindowDesc<'p>, node: i32, fill: u
 /// (ops/sort raw.rs).
 fn sort_into_windows(px: &Px<'_, '_>, reader: usize) -> bool {
     let gx = px.gx;
-    let Some(run) = crate::frame::iface::end_breaker_of(gx, reader) else { return false };
+    let Some(run) = crate::frame::iface::end_breaker_of(gx, reader) else {
+        return false;
+    };
     if run.kind != gravity_abi::breaker::BreakerKind::Sort {
         return false;
     }
     let ps = gx.pipelines();
     // the run's readers: those whose producer (`life_of`: its last) fills the run `reader` fills (`same_run`)
-    let mut readers = (reader + 1..ps.len()).filter(|&q| reads(gx, q, run.slot) && gx.life_of(q, run.slot).is_some_and(|l| same_run(gx, reader, l.0 as usize))).peekable();
+    let mut readers = (reader + 1..ps.len())
+        .filter(|&q| {
+            reads(gx, q, run.slot)
+                && gx
+                    .life_of(q, run.slot)
+                    .is_some_and(|l| same_run(gx, reader, l.0 as usize))
+        })
+        .peekable();
     if readers.peek().is_none() {
         return false;
     }
     // bounded("other: one step per pipeline past the reader, at most the program's pipelines")
-    readers.all(|q| crate::ops::window::rows::reader_opt(px, q).is_some() && !ps[q].ops.iter().any(|op| matches!(op, gravity_decompose::Op::GroupRun(_))))
+    readers.all(|q| {
+        crate::ops::window::rows::reader_opt(px, q).is_some()
+            && !ps[q]
+                .ops
+                .iter()
+                .any(|op| matches!(op, gravity_decompose::Op::GroupRun(_)))
+    })
 }
 
 /// The window's proto (`handle` calls this for a window `decide` admits): the Window proto over its objects' table (`arg`
 /// with `WINDOW_PARTED`, its pipeline the fill, its peer the reader, whose claims its execution answers). The form's facts.
 /// D3336 (A1a): `cut`, the fill's sorted wide emit's run table word when its fill runs as claims (`WINDOW_CUT`).
-pub(crate) fn declare(px: &mut Px<'_, '_>, arg: u64, fill: usize, reader: usize, site: usize, cut: Option<u16>) -> Parted {
+pub(crate) fn declare(
+    px: &mut Px<'_, '_>,
+    arg: u64,
+    fill: usize,
+    reader: usize,
+    site: usize,
+    cut: Option<u16>,
+) -> Parted {
     let table = px.proto_words(1);
-    let arg = arg | WINDOW_PARTED | if cut.is_some() { gravity_program::protos::WINDOW_CUT } else { 0 };
-    px.declare_proto(Proto::new(ProtoKind::Window, fill as u16).peer(reader as u16).words(table, 1).arg(arg));
+    let arg = arg
+        | WINDOW_PARTED
+        | if cut.is_some() {
+            gravity_program::protos::WINDOW_CUT
+        } else {
+            0
+        };
+    px.declare_proto(
+        Proto::new(ProtoKind::Window, fill as u16)
+            .peer(reader as u16)
+            .words(table, 1)
+            .arg(arg),
+    );
     fires::fire("lower.win.partruns"); // shapecheck fire signal (D3336): a window lowered to be read by claims
     if cut.is_some() {
         fires::fire("lower.win.partfill"); // shapecheck fire signal (D3336 A1a): a parted window's fill lowered to run as claims
     }
-    Parted { fill, reader, table, site, cut }
+    Parted {
+        fill,
+        reader,
+        table,
+        site,
+        cut,
+    }
 }
 
 /// The table's address (exec's lay, alive for the execution).
@@ -187,8 +278,17 @@ fn table(b: &mut FunctionBuilder<'_>, env: &Env, p: &Parted) -> Value {
 /// raises by name.
 pub(crate) fn object(b: &mut FunctionBuilder<'_>, env: &Env, p: &Parted) -> Value {
     let tbl = table(b, env, p);
-    let f = crate::ops::window::lower::host(b, "m10_win_part", &[Type::Ptr, Type::Ptr], gravity_abi::host_words!(gravity_kernels::ops::window::entries::m10_win_part(ctx, tbl)));
-    let h = b.call_host(f, &[env.ctx, tbl], Some(Type::I64)).expect("m10_win_part returns the object");
+    let f = crate::ops::window::lower::host(
+        b,
+        "m10_win_part",
+        &[Type::Ptr, Type::Ptr],
+        gravity_abi::host_words!(gravity_kernels::ops::window::entries::m10_win_part(
+            ctx, tbl
+        )),
+    );
+    let h = b
+        .call_host(f, &[env.ctx, tbl], Some(Type::I64))
+        .expect("m10_win_part returns the object");
     crate::ops::window::lower::raise_below_zero(b, env, None, h);
     h
 }
@@ -207,6 +307,14 @@ pub(crate) fn current(b: &mut FunctionBuilder<'_>, env: &Env, p: &Parted) -> Val
 /// partition; its status.
 pub(crate) fn put(b: &mut FunctionBuilder<'_>, env: &Env, p: &Parted, rec: Value) -> Value {
     let tbl = table(b, env, p);
-    let f = crate::ops::window::lower::host(b, "m10_win_put_part", &[Type::Ptr, Type::Ptr, Type::Ptr], gravity_abi::host_words!(gravity_kernels::ops::window::entries::m10_win_put_part(ctx, tbl, rec)));
-    b.call_host(f, &[env.ctx, tbl, rec], Some(Type::I64)).expect("m10_win_put_part returns its status")
+    let f = crate::ops::window::lower::host(
+        b,
+        "m10_win_put_part",
+        &[Type::Ptr, Type::Ptr, Type::Ptr],
+        gravity_abi::host_words!(gravity_kernels::ops::window::entries::m10_win_put_part(
+            ctx, tbl, rec
+        )),
+    );
+    b.call_host(f, &[env.ctx, tbl, rec], Some(Type::I64))
+        .expect("m10_win_put_part returns its status")
 }

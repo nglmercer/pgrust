@@ -75,10 +75,13 @@ fn gensalt_traditional(count: u64, input: &[u8]) -> Option<String> {
         return None;
     }
     Some(
-        [ITOA64[(input[0] & 0x3f) as usize], ITOA64[(input[1] & 0x3f) as usize]]
-            .iter()
-            .map(|&b| b as char)
-            .collect(),
+        [
+            ITOA64[(input[0] & 0x3f) as usize],
+            ITOA64[(input[1] & 0x3f) as usize],
+        ]
+        .iter()
+        .map(|&b| b as char)
+        .collect(),
     )
 }
 
@@ -166,10 +169,38 @@ struct Generator {
 /// NOT range-check at all for that row — the generator's own `count` guard is
 /// the only check (des accepts 0 or 25, md5 accepts 0 or 1000).
 static GEN_LIST: &[Generator] = &[
-    Generator { name: "des", gen: gensalt_traditional, input_len: 2, def_rounds: 0, min_rounds: 0, max_rounds: 0 },
-    Generator { name: "md5", gen: gensalt_md5, input_len: 6, def_rounds: 0, min_rounds: 0, max_rounds: 0 },
-    Generator { name: "xdes", gen: gensalt_extended, input_len: 3, def_rounds: PX_XDES_ROUNDS, min_rounds: 1, max_rounds: 0xFFFFFF },
-    Generator { name: "bf", gen: gensalt_blowfish, input_len: 16, def_rounds: PX_BF_ROUNDS, min_rounds: 4, max_rounds: 31 },
+    Generator {
+        name: "des",
+        gen: gensalt_traditional,
+        input_len: 2,
+        def_rounds: 0,
+        min_rounds: 0,
+        max_rounds: 0,
+    },
+    Generator {
+        name: "md5",
+        gen: gensalt_md5,
+        input_len: 6,
+        def_rounds: 0,
+        min_rounds: 0,
+        max_rounds: 0,
+    },
+    Generator {
+        name: "xdes",
+        gen: gensalt_extended,
+        input_len: 3,
+        def_rounds: PX_XDES_ROUNDS,
+        min_rounds: 1,
+        max_rounds: 0xFFFFFF,
+    },
+    Generator {
+        name: "bf",
+        gen: gensalt_blowfish,
+        input_len: 16,
+        def_rounds: PX_BF_ROUNDS,
+        min_rounds: 4,
+        max_rounds: 31,
+    },
     Generator {
         name: "sha256crypt",
         gen: gensalt_sha256,
@@ -191,7 +222,10 @@ static GEN_LIST: &[Generator] = &[
 /// `px_gen_salt` (px-crypt.c:155).
 pub fn gen_salt(salt_type: &str, mut rounds: i32) -> Result<String, CryptError> {
     // C matches with pg_strcasecmp.
-    let Some(g) = GEN_LIST.iter().find(|g| g.name.eq_ignore_ascii_case(salt_type)) else {
+    let Some(g) = GEN_LIST
+        .iter()
+        .find(|g| g.name.eq_ignore_ascii_case(salt_type))
+    else {
         return Err(PXE_UNKNOWN_SALT_ALGO.to_string().into());
     };
 
@@ -344,11 +378,31 @@ fn crypt_md5(pw: &[u8], salt: &[u8]) -> Result<Vec<u8>, String> {
 
     let d = &digest;
     let mut enc = Vec::with_capacity(22);
-    to64(&mut enc, ((d[0] as u32) << 16) | ((d[6] as u32) << 8) | (d[12] as u32), 4);
-    to64(&mut enc, ((d[1] as u32) << 16) | ((d[7] as u32) << 8) | (d[13] as u32), 4);
-    to64(&mut enc, ((d[2] as u32) << 16) | ((d[8] as u32) << 8) | (d[14] as u32), 4);
-    to64(&mut enc, ((d[3] as u32) << 16) | ((d[9] as u32) << 8) | (d[15] as u32), 4);
-    to64(&mut enc, ((d[4] as u32) << 16) | ((d[10] as u32) << 8) | (d[5] as u32), 4);
+    to64(
+        &mut enc,
+        ((d[0] as u32) << 16) | ((d[6] as u32) << 8) | (d[12] as u32),
+        4,
+    );
+    to64(
+        &mut enc,
+        ((d[1] as u32) << 16) | ((d[7] as u32) << 8) | (d[13] as u32),
+        4,
+    );
+    to64(
+        &mut enc,
+        ((d[2] as u32) << 16) | ((d[8] as u32) << 8) | (d[14] as u32),
+        4,
+    );
+    to64(
+        &mut enc,
+        ((d[3] as u32) << 16) | ((d[9] as u32) << 8) | (d[15] as u32),
+        4,
+    );
+    to64(
+        &mut enc,
+        ((d[4] as u32) << 16) | ((d[10] as u32) << 8) | (d[5] as u32),
+        4,
+    );
     to64(&mut enc, d[11] as u32, 2);
 
     // C emits MAGIC + the RAW salt bytes + '$' + itoa64 hash; the salt run is
@@ -384,9 +438,11 @@ pub(crate) mod cfi_test_support {
         CFI_BUDGET.with(|b| {
             let v = b.get();
             if v == 0 {
-                Err(types_error::PgError::error("canceling statement due to user request")
-                    .with_sqlstate(types_error::ERRCODE_QUERY_CANCELED)
-                    .into())
+                Err(
+                    types_error::PgError::error("canceling statement due to user request")
+                        .with_sqlstate(types_error::ERRCODE_QUERY_CANCELED)
+                        .into(),
+                )
             } else {
                 b.set(v - 1);
                 Ok(())
@@ -438,7 +494,7 @@ mod tests {
             "4294967296",           // wraps to 0
             "99999999999999999999", // strtol saturates LONG_MAX, truncates to -1
             "-5",
-            "",  // strtol converts nothing, endp at '$': srounds = 0
+            "", // strtol converts nothing, endp at '$': srounds = 0
             "0",
             "999",
         ] {

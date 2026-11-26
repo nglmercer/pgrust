@@ -103,7 +103,7 @@ fn wcsformat(s: &str) -> String {
                 loop {
                     out.push(' ');
                     linewidth += 1;
-                    if linewidth.is_multiple_of( 8) {
+                    if linewidth.is_multiple_of(8) {
                         break;
                     }
                 }
@@ -197,7 +197,11 @@ fn print_aligned_text(t: &Table, opt: &PrintOptions, out: &mut dyn Write) -> std
     if let Some(title) = &t.title {
         // Centered over the total table width.
         let tw = dsplen(title);
-        let lpad = if total_width > tw { (total_width - tw) / 2 } else { 0 };
+        let lpad = if total_width > tw {
+            (total_width - tw) / 2
+        } else {
+            0
+        };
         writeln!(out, "{}{}", " ".repeat(lpad), title)?;
     }
     if !opt.tuples_only {
@@ -337,7 +341,11 @@ fn print_aligned_vertical(
     // (widen the data column to the "-[ RECORD n ]" line).
     let dmultiline = resolved.iter().flatten().any(|c| c.contains('\n'));
     let swidth = 3 + usize::from(dmultiline);
-    let rwidth = if opt.tuples_only { 0 } else { 12 + resolved.len().to_string().len() };
+    let rwidth = if opt.tuples_only {
+        0
+    } else {
+        12 + resolved.len().to_string().len()
+    };
     dwidth = (hwidth + swidth + dwidth).max(rwidth) - hwidth - swidth;
 
     for (i, row) in resolved.iter().enumerate() {
@@ -429,7 +437,11 @@ fn print_unaligned_vertical(
         }
         for (j, c) in row.iter().enumerate() {
             let v = c.clone().unwrap_or_else(|| opt.null_string.clone());
-            write!(out, "{}{}{}{}", t.headers[j], opt.fieldsep, v, opt.recordsep)?;
+            write!(
+                out,
+                "{}{}{}{}",
+                t.headers[j], opt.fieldsep, v, opt.recordsep
+            )?;
         }
     }
     if let Some(fs) = &t.footers {
@@ -463,26 +475,47 @@ mod tests {
     // upstream 07a6c262beee (18.6): psql: Fix expanded aligned output
     #[test]
     fn expanded_narrow_multiline_cell_pads_to_record_header() {
-        let opt = PrintOptions { expanded: true, ..PrintOptions::default() };
-        assert_eq!(render(&one_cell("x\ny"), &opt), "-[ RECORD 1 ]\na | x       +\n  | y\n\n");
+        let opt = PrintOptions {
+            expanded: true,
+            ..PrintOptions::default()
+        };
+        assert_eq!(
+            render(&one_cell("x\ny"), &opt),
+            "-[ RECORD 1 ]\na | x       +\n  | y\n\n"
+        );
         assert_eq!(render(&one_cell("1"), &opt), "-[ RECORD 1 ]\na | 1\n\n");
-        let topt = PrintOptions { expanded: true, tuples_only: true, ..PrintOptions::default() };
+        let topt = PrintOptions {
+            expanded: true,
+            tuples_only: true,
+            ..PrintOptions::default()
+        };
         assert_eq!(render(&one_cell("x\ny"), &topt), "a | x+\n  | y\n\n");
     }
 
     #[test]
     fn expanded_record_header_digits_widen_data_column() {
-        let opt = PrintOptions { expanded: true, ..PrintOptions::default() };
+        let opt = PrintOptions {
+            expanded: true,
+            ..PrintOptions::default()
+        };
         // 12 records: "-[ RECORD 10 ]" is 14 wide, so dwidth = 14 - 1 - 4 = 9.
         let t = Table {
             title: None,
             headers: vec!["n".into(), "m".into()],
             aligns: vec!['r', 'l'],
-            cells: (1..=12).map(|i| vec![Some(i.to_string()), Some("l1\nl2".into())]).collect(),
+            cells: (1..=12)
+                .map(|i| vec![Some(i.to_string()), Some("l1\nl2".into())])
+                .collect(),
             footers: None,
         };
         let s = render(&t, &opt);
-        assert!(s.starts_with("-[ RECORD 1 ]\nn | 1\nm | l1       +\n  | l2\n-[ RECORD 2 ]\n"), "{s}");
-        assert!(s.contains("-[ RECORD 10 ]\nn | 10\nm | l1       +\n  | l2\n"), "{s}");
+        assert!(
+            s.starts_with("-[ RECORD 1 ]\nn | 1\nm | l1       +\n  | l2\n-[ RECORD 2 ]\n"),
+            "{s}"
+        );
+        assert!(
+            s.contains("-[ RECORD 10 ]\nn | 10\nm | l1       +\n  | l2\n"),
+            "{s}"
+        );
     }
 }

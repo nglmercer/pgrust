@@ -24,7 +24,8 @@ unsafe extern "C-unwind" fn k_chunk(ctx: *mut gravity_abi::Ctx) -> i64 {
     let (parent, _) = memledger::charge::context();
     let o = op_begin(parent, memledger::Kind::Sort as u32, 0);
     // SAFETY: the driver binds `ctx` for the call
-    let p = unsafe { gravity_abi::program::arena_chunk(ctx, MIB, o.words()) }.unwrap_or(core::ptr::null_mut());
+    let p = unsafe { gravity_abi::program::arena_chunk(ctx, MIB, o.words()) }
+        .unwrap_or(core::ptr::null_mut());
     let drawn = usage(o).held;
     if !p.is_null() {
         // SAFETY: the chunk just drawn, read by nothing after
@@ -49,8 +50,13 @@ fn ledger2_an_arena_chunk_is_its_owners_once_and_leaves_with_its_give() {
     let mut derive = FakeDerive::new([no_rows; 4]);
     let mut entry = Entry::new(2);
     let program = Arc::new(p_code(Code::hand(k_chunk), 1, 0));
-    let a = std::rc::Rc::new(POOL.admit(Grant::of(8 * MIB), 1, 1, Duration::from_millis(10)).unwrap());
-    let mut exec = entry.start(None, &program, &mut derive, &mut b, a.clone()).unwrap();
+    let a = std::rc::Rc::new(
+        POOL.admit(Grant::of(8 * MIB), 1, 1, Duration::from_millis(10))
+            .unwrap(),
+    );
+    let mut exec = entry
+        .start(None, &program, &mut derive, &mut b, a.clone())
+        .unwrap();
     let _ = entry.run(&mut exec, &mut b, gravity_driver::Call::batch(1));
     entry.end(exec, false);
     drop(a);
@@ -59,7 +65,10 @@ fn ledger2_an_arena_chunk_is_its_owners_once_and_leaves_with_its_give() {
     assert_eq!(seen.len(), 1, "the kernel ran once: {seen:?}");
     let (p, drawn, given) = seen[0];
     assert!(p != 0, "the chunk was served");
-    assert!(drawn >= MIB as i64 && drawn < (MIB + MIB / 8) as i64, "the chunk's bytes on the arena's owner, once: {drawn}");
+    assert!(
+        drawn >= MIB as i64 && drawn < (MIB + MIB / 8) as i64,
+        "the chunk's bytes on the arena's owner, once: {drawn}"
+    );
     assert_eq!(given, 0, "and off it with the give");
     REGIONS.trim();
     gravity_driver::DEPOT.trim();

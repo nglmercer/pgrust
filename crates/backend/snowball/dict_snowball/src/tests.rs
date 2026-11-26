@@ -98,7 +98,11 @@ fn english_stem_oracle() {
             failures.push(format!("{input}: got {got:?}, want {want}"));
         }
     }
-    assert!(failures.is_empty(), "stem mismatches:\n{}", failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "stem mismatches:\n{}",
+        failures.join("\n")
+    );
 
     // Every stop word lexizes to a present-but-empty result.
     let stop = std::fs::read_to_string(format!(
@@ -234,10 +238,16 @@ fn check_oracle(enc: pg_enc, table: &[(&str, &[(&[u8], &[u8])])]) {
             }
         }
     }
-    assert!(failures.is_empty(), "stem mismatches:\n{}", failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "stem mismatches:\n{}",
+        failures.join("\n")
+    );
 }
 
-fn by_lang<'a>(table: &'a [(&'a str, &'a [u8], &'a [u8])]) -> Vec<(&'a str, Vec<(&'a [u8], &'a [u8])>)> {
+fn by_lang<'a>(
+    table: &'a [(&'a str, &'a [u8], &'a [u8])],
+) -> Vec<(&'a str, Vec<(&'a [u8], &'a [u8])>)> {
     let mut out: Vec<(&str, Vec<(&[u8], &[u8])>)> = Vec::new();
     for (lang, w, s) in table {
         match out.last_mut() {
@@ -266,7 +276,11 @@ fn all_languages_stem_utf8_oracle() {
             }
         }
     }
-    assert!(failures.is_empty(), "stem mismatches:\n{}", failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "stem mismatches:\n{}",
+        failures.join("\n")
+    );
 }
 
 #[test]
@@ -303,7 +317,10 @@ fn all_languages_initialize_utf8() {
     }
     // english is in the modules table too (not in UTF8_ORACLE).
     let d = init_lang(mcx, "english");
-    assert_eq!(lexize_bytes(mcx, &d, b"books").as_deref(), Some(b"book".as_slice()));
+    assert_eq!(
+        lexize_bytes(mcx, &d, b"books").as_deref(),
+        Some(b"book".as_slice())
+    );
 }
 
 // dict_snowball.c:253-260: an error after the Language option reclaims the
@@ -324,7 +341,9 @@ fn failed_init_closes_located_stemmer() {
             v
         },
     };
-    let Err(err) = dsnowball_init(&init) else { panic!("init with a bogus option succeeded") };
+    let Err(err) = dsnowball_init(&init) else {
+        panic!("init with a bogus option succeeded")
+    };
     assert_eq!(err.message(), "unrecognized Snowball parameter: \"bogus\"");
     assert!(crate::dict::STEMMERS_CLOSED.load(SeqCst) > before);
 }
@@ -337,7 +356,10 @@ fn unknown_language_error_carries_the_raw_language_bytes() {
     let err = locate_stem_module(b"x\xff").err().unwrap();
     assert_eq!(
         err.message_raw.as_deref(),
-        Some(b"no Snowball stemmer available for language \"x\xff\" and encoding \"SQL_ASCII\"".as_slice())
+        Some(
+            b"no Snowball stemmer available for language \"x\xff\" and encoding \"SQL_ASCII\""
+                .as_slice()
+        )
     );
     assert_eq!(err.sqlstate(), ::types_error::ERRCODE_UNDEFINED_OBJECT);
 }

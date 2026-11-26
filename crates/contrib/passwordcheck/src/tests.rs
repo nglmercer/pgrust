@@ -21,7 +21,10 @@ fn plaintext_too_short_quotes_the_parameter() {
     );
     // An empty password reaches the hook and is too short (user.c:398 runs
     // before the empty-password clearing at user.c:419).
-    assert_eq!(check_plaintext("u", "", 8).expect_err("empty").message(), "password is too short");
+    assert_eq!(
+        check_plaintext("u", "", 8).expect_err("empty").message(),
+        "password is too short"
+    );
 }
 
 #[test]
@@ -30,9 +33,18 @@ fn plaintext_user_name_and_letter_mix_arms_in_c_order() {
     let e = check_plaintext("regress_pwc_name", "xregress_pwc_name1", 8).expect_err("contains");
     assert_eq!(e.message(), "password must not contain user name");
     assert_eq!(e.sqlstate(), ERRCODE_INVALID_PARAMETER_VALUE);
-    for pw in ["abcdefgh", "12345678", "!@#$%^&*", "\u{e9}\u{e9}\u{e9}\u{e9}\u{e9}"] {
+    for pw in [
+        "abcdefgh",
+        "12345678",
+        "!@#$%^&*",
+        "\u{e9}\u{e9}\u{e9}\u{e9}\u{e9}",
+    ] {
         let e = check_plaintext("u", pw, 8).expect_err(pw);
-        assert_eq!(e.message(), "password must contain both letters and nonletters", "{pw}");
+        assert_eq!(
+            e.message(),
+            "password must contain both letters and nonletters",
+            "{pw}"
+        );
     }
     // Non-ASCII bytes are non-letters (isalpha on the unsigned byte), so a
     // letter plus accented characters passes.

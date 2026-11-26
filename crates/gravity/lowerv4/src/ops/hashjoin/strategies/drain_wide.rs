@@ -29,7 +29,10 @@ crate::strategies! {
     DRAIN_SPOOL_WIDE = 146, "drain.spool.wide", Drain;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(DRAIN_SPOOL_WIDE, &())], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(DRAIN_SPOOL_WIDE, &())],
+    ..crate::ops::NONE
+};
 
 /// Probe `k`'s spooled drain `d` (its Drain op `jd`) takes this road (the file's head).
 pub(crate) fn takes(gx: &Gx<'_, '_>, k: usize, d: usize, jd: usize) -> bool {
@@ -38,14 +41,24 @@ pub(crate) fn takes(gx: &Gx<'_, '_>, k: usize, d: usize, jd: usize) -> bool {
         return false;
     }
     let g = gx.graph;
-    let acts = ps.iter().any(|p| p.ops.iter().any(|op| matches!(op, Op::Write(_) | Op::Lock(_))));
+    let acts = ps.iter().any(|p| {
+        p.ops
+            .iter()
+            .any(|op| matches!(op, Op::Write(_) | Op::Lock(_)))
+    });
     let rerun = |q: usize| g.reruns.iter().any(|r| r.pipelines.contains(&(q as u16)));
     if acts || g.recheck || g.partial || rerun(k) || rerun(d) || !g.record_rows.is_empty() {
         return false;
     }
     // a RIGHT or FULL drain: a RIGHT SEMI one's probe may hand a build record's first match into the spool (spool.rs
     // `semi_hands`), which two workers could both hand; a RIGHT ANTI one hands nothing
-    let jt = matches!(ps[d].ops.get(jd), Some(Op::Join(JoinDesc::Drain { jointype: JoinType::JOIN_RIGHT | JoinType::JOIN_FULL, .. })));
+    let jt = matches!(
+        ps[d].ops.get(jd),
+        Some(Op::Join(JoinDesc::Drain {
+            jointype: JoinType::JOIN_RIGHT | JoinType::JOIN_FULL,
+            ..
+        }))
+    );
     jt && matches!(ps[k].desc.parallel, gravity_program::Parallel::Eligible)
         && gx.drained_arms(k).is_none()
         && !gx.drain_streams(k, d, jd)

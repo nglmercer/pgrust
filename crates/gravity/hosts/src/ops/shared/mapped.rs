@@ -24,11 +24,20 @@ impl Road {
     pub(crate) fn carve(&mut self, bytes: usize) -> PgResult<Option<*mut u8>> {
         let bytes = bytes.next_multiple_of(8);
         if self.end - self.at < bytes {
-            let want = self.mapped.clamp(MAPPED_ROAD_MIN_BYTES, MAPPED_ROAD_MAX_BYTES).max(bytes);
+            let want = self
+                .mapped
+                .clamp(MAPPED_ROAD_MIN_BYTES, MAPPED_ROAD_MAX_BYTES)
+                .max(bytes);
             let m = match gravity_driver::map_temp(want) {
                 Ok(Some(m)) => m,
                 Ok(None) => return Ok(None),
-                Err(_) => return Err(crate::take_error().unwrap_or_else(|| Box::new(PgError::error(String::from("gravity: a temp file map for the mapped road failed"))))), // alloc: Cold
+                Err(_) => {
+                    return Err(crate::take_error().unwrap_or_else(|| {
+                        Box::new(PgError::error(String::from(
+                            "gravity: a temp file map for the mapped road failed",
+                        )))
+                    }))
+                } // alloc: Cold
             };
             self.mapped += m.len();
             (self.at, self.end) = (m.as_mut_ptr() as usize, m.as_mut_ptr() as usize + m.len());

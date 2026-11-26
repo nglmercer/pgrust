@@ -32,7 +32,10 @@ pub const fn setfn_arg(nslots: u16, cell_bytes: u32, node: Option<u32>) -> u64 {
     let node = match node {
         // never truncated: a plan node id past the field is a bug, raised here (the test `a_node_past_23_bits_panics`)
         Some(id) => {
-            assert!(id <= SETFN_NODE_MAX, "setfn_arg: a plan node id past setfn_arg's 23-bit node field");
+            assert!(
+                id <= SETFN_NODE_MAX,
+                "setfn_arg: a plan node id past setfn_arg's 23-bit node field"
+            );
             id as u64 + 1
         }
         None => 0,
@@ -43,7 +46,11 @@ pub const fn setfn_arg(nslots: u16, cell_bytes: u32, node: Option<u32>) -> u64 {
 /// `setfn_arg`'s parts: (nslots, cell bytes, plan node id).
 pub const fn setfn_parts(arg: u64) -> (usize, usize, Option<u32>) {
     let node = (arg >> 40) as u32 & 0x7f_ffff;
-    (arg as u16 as usize, (arg >> 16) as usize & 0xff_ffff, if node == 0 { None } else { Some(node - 1) })
+    (
+        arg as u16 as usize,
+        (arg >> 16) as usize & 0xff_ffff,
+        if node == 0 { None } else { Some(node - 1) },
+    )
 }
 
 /// The largest plan node id `setfn_arg` holds (its node field is 23 bits, id + 1).
@@ -68,7 +75,10 @@ pub const fn cell_bytes(nargs: usize) -> usize {
 
 /// The entries themselves and the store head (their `unsafe`, rule R6) are srf/raw.rs's, re-exported here under
 /// their paths.
-pub use super::raw::{fmgr_open, fmgr_step, srf_array_open, srf_open, srf_step, srf_unnest_step, store_batch, store_param, store_rewind, StoreHead};
+pub use super::raw::{
+    fmgr_open, fmgr_step, srf_array_open, srf_open, srf_step, srf_unnest_step, store_batch,
+    store_param, store_rewind, StoreHead,
+};
 
 pub const STORE_MAGIC: u64 = 0x5e7f_5707_e0a1_ab1e;
 /// `store_batch`: the store is read to its end (no window).
@@ -107,7 +117,11 @@ pub(super) fn entry_at(entry: u64) -> Option<&'static Entry> {
 
 /// The library's error from the slot, stashed for the entry's raise (a status with an empty slot is a bug's error).
 pub(super) fn settle(e: &mut ErrSlot) -> u64 {
-    let err = e.take().unwrap_or_else(|| Box::new(PgError::error("gravity: a library SRF failed with no error"))); // alloc: Cold
+    let err = e.take().unwrap_or_else(|| {
+        Box::new(PgError::error(
+            "gravity: a library SRF failed with no error",
+        ))
+    }); // alloc: Cold
     gravity_fn::stash_error(err);
     SRF_FAILED
 }
@@ -143,7 +157,10 @@ mod tests {
     const DAY: i64 = 86_400_000_000;
 
     fn index(oid: u32) -> u64 {
-        ENTRIES.iter().position(|e| e.oid == oid).expect("a library entry") as u64
+        ENTRIES
+            .iter()
+            .position(|e| e.oid == oid)
+            .expect("a library entry") as u64
     }
 
     /// A bound ctx over a 1 MB arena, and a cell of `nargs` arguments in slot `slot`.
@@ -170,7 +187,11 @@ mod tests {
                     c.add(cell_nulls(args.len()) + i).write(a.is_none() as u8);
                 }
             }
-            Call { ctx, cell, _arena: arena }
+            Call {
+                ctx,
+                cell,
+                _arena: arena,
+            }
         }
 
         fn ctx(&mut self) -> u64 {
@@ -187,7 +208,11 @@ mod tests {
         }
 
         /// Every row of the opened entry's column 0 (`None` = NULL), or the stashed error's message.
-        fn drain(&mut self, entry: u64, mut value: impl FnMut(i64) -> String) -> Result<Vec<Option<String>>, String> {
+        fn drain(
+            &mut self,
+            entry: u64,
+            mut value: impl FnMut(i64) -> String,
+        ) -> Result<Vec<Option<String>>, String> {
             let mut rows = Vec::new(); // alloc: Cold
             loop {
                 match unsafe { srf_step(self.ctx(), self.cell(), entry) } {
@@ -204,7 +229,9 @@ mod tests {
     }
 
     fn failed() -> String {
-        gravity_fn::take_error().map(|e| e.message().to_owned()).unwrap_or_default()
+        gravity_fn::take_error()
+            .map(|e| e.message().to_owned())
+            .unwrap_or_default()
     }
 
     /// A 4-byte-header varlena image of `bytes`, 8-aligned, and its datum.
@@ -235,7 +262,11 @@ mod tests {
     /// laid at 4-byte alignment (typalign 'i').
     fn array(keep: &mut Vec<Vec<u64>>, elemtype: u32, elems: &[Option<Vec<u8>>]) -> i64 {
         let has_nulls = elems.iter().any(Option::is_none);
-        let bitmap = if has_nulls { elems.len().div_ceil(8) } else { 0 };
+        let bitmap = if has_nulls {
+            elems.len().div_ceil(8)
+        } else {
+            0
+        };
         let data_off = (24 + bitmap).next_multiple_of(8);
         let mut img = vec![0u8; data_off]; // alloc: Cold
         img[4..8].copy_from_slice(&1i32.to_ne_bytes());
@@ -255,29 +286,50 @@ mod tests {
         let n = img.len();
         img[0..4].copy_from_slice(&((n as u32) << 2).to_ne_bytes());
         let mut w = vec![0u64; n.div_ceil(8)]; // alloc: Cold
-        // SAFETY: `w` holds `n` bytes.
+                                               // SAFETY: `w` holds `n` bytes.
         unsafe { core::ptr::copy_nonoverlapping(img.as_ptr(), w.as_mut_ptr() as *mut u8, n) };
         keep.push(w);
         keep.last().unwrap().as_ptr() as i64
     }
 
     fn interval(keep: &mut Vec<Vec<u64>>, time: i64, day: i32, month: i32) -> i64 {
-        keep.push(vec![time as u64, (day as u32 as u64) | (month as u32 as u64) << 32]); // alloc: Cold
+        keep.push(vec![
+            time as u64,
+            (day as u32 as u64) | (month as u32 as u64) << 32,
+        ]); // alloc: Cold
         keep.last().unwrap().as_ptr() as i64
     }
 
     #[test]
     fn the_cell_lays_state_out_args_then_nulls() {
         assert_eq!((CELL_STATE, CELL_OUT, CELL_ARGS), (0, 512, 544));
-        assert_eq!((cell_nulls(3), cell_bytes(0), cell_bytes(3)), (568, 544, 576));
+        assert_eq!(
+            (cell_nulls(3), cell_bytes(0), cell_bytes(3)),
+            (568, 544, 576)
+        );
         assert_eq!(SRF_FAILED, 128);
         assert_eq!(setfn_parts(setfn_arg(3, 1728, Some(7))), (3, 1728, Some(7)));
         assert_eq!(setfn_parts(setfn_arg(0, 0, None)), (0, 0, None));
-        assert_eq!(setfn_parts(setfn_arg(u16::MAX, 0xff_ffff, Some(0))), (u16::MAX as usize, 0xff_ffff, Some(0)));
-        assert_eq!(setfn_parts(setfn_arg(2, 64, None) | SETFN_PRIVATE), (2, 64, None));
-        assert_eq!(setfn_parts(setfn_arg(0, 0, Some(SETFN_NODE_MAX))), (0, 0, Some(SETFN_NODE_MAX)));
-        assert_eq!(setfn_parts(setfn_arg(0, 0, Some(SETFN_NODE_MAX)) | SETFN_PRIVATE), (0, 0, Some(SETFN_NODE_MAX)));
-        assert!(setfn_private(setfn_arg(0, 0, Some(0))) && setfn_private(setfn_arg(1, 576, None) | SETFN_PRIVATE));
+        assert_eq!(
+            setfn_parts(setfn_arg(u16::MAX, 0xff_ffff, Some(0))),
+            (u16::MAX as usize, 0xff_ffff, Some(0))
+        );
+        assert_eq!(
+            setfn_parts(setfn_arg(2, 64, None) | SETFN_PRIVATE),
+            (2, 64, None)
+        );
+        assert_eq!(
+            setfn_parts(setfn_arg(0, 0, Some(SETFN_NODE_MAX))),
+            (0, 0, Some(SETFN_NODE_MAX))
+        );
+        assert_eq!(
+            setfn_parts(setfn_arg(0, 0, Some(SETFN_NODE_MAX)) | SETFN_PRIVATE),
+            (0, 0, Some(SETFN_NODE_MAX))
+        );
+        assert!(
+            setfn_private(setfn_arg(0, 0, Some(0)))
+                && setfn_private(setfn_arg(1, 576, None) | SETFN_PRIVATE)
+        );
         assert!(!setfn_private(setfn_arg(1, 576, None)) && !setfn_private(setfn_arg(0, 0, None)));
     }
 
@@ -294,8 +346,15 @@ mod tests {
         let mut c = Call::new(0, &[Some(0), Some(2 * DAY), Some(day)]);
         assert_eq!(unsafe { srf_open(c.ctx(), c.cell(), e, 3, 0) }, 1);
         let rows = c.drain(e, |d| d.to_string()).unwrap(); // alloc: Cold
-        assert_eq!(rows, ["0", "86400000000", "172800000000"].map(|s| Some(s.to_owned())));
-        assert_eq!(unsafe { srf_step(c.ctx(), c.cell(), e) }, 0, "an ended set stays ended");
+        assert_eq!(
+            rows,
+            ["0", "86400000000", "172800000000"].map(|s| Some(s.to_owned()))
+        );
+        assert_eq!(
+            unsafe { srf_step(c.ctx(), c.cell(), e) },
+            0,
+            "an ended set stays ended"
+        );
     }
 
     #[test]
@@ -313,8 +372,14 @@ mod tests {
         let mut c = Call::new(0, &[Some(0), Some(DAY), Some(zero)]);
         assert_eq!(unsafe { srf_open(c.ctx(), c.cell(), e, 3, 0) }, SRF_FAILED);
         assert_eq!(failed(), "step size cannot equal zero");
-        assert_eq!(unsafe { srf_open(c.ctx(), c.cell(), ENTRIES.len() as u64, 3, 0) }, SRF_FAILED);
-        assert_eq!(failed(), format!("gravity: no library SRF entry {}", ENTRIES.len())); // alloc: Cold
+        assert_eq!(
+            unsafe { srf_open(c.ctx(), c.cell(), ENTRIES.len() as u64, 3, 0) },
+            SRF_FAILED
+        );
+        assert_eq!(
+            failed(),
+            format!("gravity: no library SRF entry {}", ENTRIES.len())
+        ); // alloc: Cold
     }
 
     #[test]
@@ -329,14 +394,32 @@ mod tests {
             seen.push(d);
             payload(d)
         });
-        assert_eq!(rows.unwrap(), vec![Some("1".to_owned()), Some("ab".to_owned()), None, Some(r#"{"k": 2}"#.to_owned())]); // alloc: Cold
-        // every row's value read again after the later steps and the set's end (a suspend's resume re-reads them)
-        assert_eq!(seen.iter().map(|&d| payload(d)).collect::<Vec<_>>(), ["1", "ab", r#"{"k": 2}"#]);
-        assert_eq!(c._arena.iter().filter(|&&b| b != 0).count(), 0, "no row is copied into the ctx arena");
+        assert_eq!(
+            rows.unwrap(),
+            vec![
+                Some("1".to_owned()),
+                Some("ab".to_owned()),
+                None,
+                Some(r#"{"k": 2}"#.to_owned())
+            ]
+        ); // alloc: Cold
+           // every row's value read again after the later steps and the set's end (a suspend's resume re-reads them)
+        assert_eq!(
+            seen.iter().map(|&d| payload(d)).collect::<Vec<_>>(),
+            ["1", "ab", r#"{"k": 2}"#]
+        );
+        assert_eq!(
+            c._arena.iter().filter(|&&b| b != 0).count(),
+            0,
+            "no row is copied into the ctx arena"
+        );
         let obj = text(&mut keep, br#"{"a": 1}"#);
         let mut c = Call::new(1, &[Some(obj)]);
         assert_eq!(unsafe { srf_open(c.ctx(), c.cell(), e, 1, 0) }, SRF_FAILED);
-        assert_eq!(failed(), "cannot call json_array_elements_text on a non-array");
+        assert_eq!(
+            failed(),
+            "cannot call json_array_elements_text on a non-array"
+        );
     }
 
     #[test]
@@ -348,10 +431,23 @@ mod tests {
         assert_eq!(unsafe { srf_open(c.ctx(), c.cell(), e, 1, 0) }, 1);
         // the caller's row memory is gone before the set is read (a stop, then a resume on a later row)
         keep.last_mut().unwrap().fill(0);
-        assert_eq!(c.drain(e, payload).unwrap(), vec![Some("x".to_owned()), Some("y".to_owned())]); // alloc: Cold
+        assert_eq!(
+            c.drain(e, payload).unwrap(),
+            vec![Some("x".to_owned()), Some("y".to_owned())]
+        ); // alloc: Cold
         let ints = array(&mut keep, 23, &[Some(5i32.to_ne_bytes().to_vec())]);
         let mut a = Call::new(5, &[]);
-        assert_eq!(unsafe { srf_array_open(a.ctx(), a.cell(), ints as u64, 4 | 1 << FACT_BYVAL | (b'i' as u64) << FACT_ALIGN) }, 1);
+        assert_eq!(
+            unsafe {
+                srf_array_open(
+                    a.ctx(),
+                    a.cell(),
+                    ints as u64,
+                    4 | 1 << FACT_BYVAL | (b'i' as u64) << FACT_ALIGN,
+                )
+            },
+            1
+        );
         keep.last_mut().unwrap().fill(0);
         assert_eq!(unsafe { srf_unnest_step(a.ctx(), a.cell()) }, 1);
         assert_eq!(a.out(0), (5, false), "the array's image is the slot's copy");
@@ -360,10 +456,21 @@ mod tests {
     #[test]
     fn the_array_face_walks_by_value_and_by_reference_elements() {
         let mut keep = Vec::new(); // alloc: Cold
-        let ints = array(&mut keep, 23, &[Some(10i32.to_ne_bytes().to_vec()), None, Some(30i32.to_ne_bytes().to_vec())]);
+        let ints = array(
+            &mut keep,
+            23,
+            &[
+                Some(10i32.to_ne_bytes().to_vec()),
+                None,
+                Some(30i32.to_ne_bytes().to_vec()),
+            ],
+        );
         let mut c = Call::new(2, &[]);
         let facts = 4 | 1 << FACT_BYVAL | (b'i' as u64) << FACT_ALIGN;
-        assert_eq!(unsafe { srf_array_open(c.ctx(), c.cell(), ints as u64, facts) }, 1);
+        assert_eq!(
+            unsafe { srf_array_open(c.ctx(), c.cell(), ints as u64, facts) },
+            1
+        );
         let mut got = Vec::new(); // alloc: Cold
         while unsafe { srf_unnest_step(c.ctx(), c.cell()) } == 1 {
             got.push(match c.out(0) {
@@ -379,7 +486,10 @@ mod tests {
         };
         let texts = array(&mut keep, 25, &[words("ab"), words("cde")]);
         let facts = (-1i16 as u16 as u64) | (b'i' as u64) << FACT_ALIGN;
-        assert_eq!(unsafe { srf_array_open(c.ctx(), c.cell(), texts as u64, facts) }, 1);
+        assert_eq!(
+            unsafe { srf_array_open(c.ctx(), c.cell(), texts as u64, facts) },
+            1
+        );
         let mut got = Vec::new(); // alloc: Cold
         while unsafe { srf_unnest_step(c.ctx(), c.cell()) } == 1 {
             got.push(payload(c.out(0).0));
@@ -393,7 +503,10 @@ mod tests {
         let ints = array(&mut keep, 23, &[Some(7i32.to_ne_bytes().to_vec())]);
         let mut c = Call::new(3, &[]);
         // typalign 0 is no alignment the walk knows: `att_align_nominal` panics inside the step
-        assert_eq!(unsafe { srf_array_open(c.ctx(), c.cell(), ints as u64, 4 | 1 << FACT_BYVAL) }, 1);
+        assert_eq!(
+            unsafe { srf_array_open(c.ctx(), c.cell(), ints as u64, 4 | 1 << FACT_BYVAL) },
+            1
+        );
         assert_eq!(unsafe { srf_unnest_step(c.ctx(), c.cell()) }, SRF_FAILED);
         let resumed = std::panic::catch_unwind(gravity_abi::status::unwind::resume);
         assert!(resumed.is_err(), "the parked panic resumes at the caller");

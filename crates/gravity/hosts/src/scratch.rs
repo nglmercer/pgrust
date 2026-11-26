@@ -43,12 +43,21 @@ pub(crate) fn small() -> bool {
 }
 
 fn root(name: &'static str) -> Root {
-    if small() { Root::small_wholesale(name) } else { Root::bump(name) }
+    if small() {
+        Root::small_wholesale(name)
+    } else {
+        Root::bump(name)
+    }
 }
 
 impl NodeScratch {
     pub fn new(name: &'static str) -> NodeScratch {
-        NodeScratch { node: root(name), exec: root("GravityExecRegion"), bind: None, at: None }
+        NodeScratch {
+            node: root(name),
+            exec: root("GravityExecRegion"),
+            bind: None,
+            at: None,
+        }
     }
 
     /// D3195: a per-bind context, reset at unbind (`reset_bind`). A bitmap source resets `exec` at every seek (D2970), so its
@@ -77,7 +86,11 @@ impl NodeScratch {
 
     /// The roots' footprints (`Root::footprint`: their blocks' bytes), node, exec, bind (0 without one).
     pub fn used_parts(&self) -> [usize; 3] {
-        [self.node.footprint(), self.exec.footprint(), self.bind.as_ref().map_or(0, Root::footprint)]
+        [
+            self.node.footprint(),
+            self.exec.footprint(),
+            self.bind.as_ref().map_or(0, Root::footprint),
+        ]
     }
 
     /// D4464: the roots and every context under them on `to` from now, their bytes moving with them in one step. A host
@@ -124,6 +137,10 @@ mod tests {
         bump.mcx().alloc_bytes(64).unwrap();
         let [sn, se, _] = small.used_parts();
         assert!(sn <= 2048 && se <= 2048, "small roots: node {sn} exec {se}");
-        assert!(bump.used_parts()[0] >= 8192, "a bump root's keeper: {:?}", bump.used_parts());
+        assert!(
+            bump.used_parts()[0] >= 8192,
+            "a bump root's keeper: {:?}",
+            bump.used_parts()
+        );
     }
 }

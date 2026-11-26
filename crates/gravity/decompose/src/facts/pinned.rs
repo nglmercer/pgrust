@@ -24,10 +24,25 @@ pub fn relabels<'p>(mut e: Node<'p>) -> Node<'p> {
 
 /// The scan column an expression is, when it is one: a `Var` of the pipeline's source (an index-only scan's through the index's columns).
 pub fn scan_attno<'p>(b: &Builder<'p, '_>, child: &Open<'p>, e: Node<'p>) -> Option<i16> {
-    let v = e.as_var().filter(|v| v.varlevelsup == 0 && v.varattno > 0)?;
+    let v = e
+        .as_var()
+        .filter(|v| v.varlevelsup == 0 && v.varattno > 0)?;
     match child.source {
-        Source::Index { indexid, only: true, .. } if v.varno == INDEX_VAR => b.facts.index(indexid)?.keys().get(v.varattno as usize - 1).copied(),
-        _ => child.source.relation().filter(|(rti, _, _)| v.varno == *rti as i32).map(|_| v.varattno),
+        Source::Index {
+            indexid,
+            only: true,
+            ..
+        } if v.varno == INDEX_VAR => b
+            .facts
+            .index(indexid)?
+            .keys()
+            .get(v.varattno as usize - 1)
+            .copied(),
+        _ => child
+            .source
+            .relation()
+            .filter(|(rti, _, _)| v.varno == *rti as i32)
+            .map(|_| v.varattno),
     }
 }
 
@@ -37,7 +52,9 @@ pub fn scan_column<'p>(b: &Builder<'p, '_>, child: &Open<'p>, e: Node<'p>) -> Op
     if let Some(a) = scan_attno(b, child, e) {
         return child.source.relation().map(|(_, relid, _)| (relid, a));
     }
-    let v = e.as_var().filter(|v| v.varno == OUTER_VAR && v.varlevelsup == 0)?;
+    let v = e
+        .as_var()
+        .filter(|v| v.varno == OUTER_VAR && v.varlevelsup == 0)?;
     let (p, _, c) = sorted_from(b, child, b.graph.pipelines.len(), v.varattno, false, false)?;
     let (n, _) = scan_entry_at(p, c)?;
     Some((p.source.relation()?.1, scan_attno(b, p, n)?))
@@ -68,8 +85,19 @@ pub fn no_row(child: &Open<'_>) -> bool {
     if child.union.is_some() || child.ops.iter().any(|op| matches!(op, Op::Append(_))) {
         return false;
     }
-    let Some(i) = child.ops.iter().position(|op| matches!(op, Op::Gate(g) if crate::ops::shared::gate::never(*g))) else { return false };
-    child.ops[i..].iter().all(|op| matches!(op, Op::Filter(_) | Op::Gate(_) | Op::Project(_) | Op::Sort(_) | Op::SubPlan(_)) || keeps_outer(op))
+    let Some(i) = child
+        .ops
+        .iter()
+        .position(|op| matches!(op, Op::Gate(g) if crate::ops::shared::gate::never(*g)))
+    else {
+        return false;
+    };
+    child.ops[i..].iter().all(|op| {
+        matches!(
+            op,
+            Op::Filter(_) | Op::Gate(_) | Op::Project(_) | Op::Sort(_) | Op::SubPlan(_)
+        ) || keeps_outer(op)
+    })
 }
 
 /// `pinned_word` over pipeline `child` of index `at` in `graph.pipelines` (`read_decl`): a pushed one (the window
@@ -84,7 +112,13 @@ pub fn pinned_word_at<'p>(b: &Builder<'p, '_>, child: &Open<'p>, at: usize, c: i
 /// peer on the column whatever its images (a text under a collation, a numeric's scales): the planner dropped the key's
 /// pathkey (an equivalence class with a constant), so the input comes sorted without it (window_core-0281's
 /// `symbol = 'NVDA'` under `ORDER BY symbol, trade_date`). A plain `=` is strict, so no NULL row passes it.
-pub fn pinned_peer_at<'p>(b: &Builder<'p, '_>, child: &Open<'p>, at: usize, c: i16, eq: (u32, u32)) -> bool {
+pub fn pinned_peer_at<'p>(
+    b: &Builder<'p, '_>,
+    child: &Open<'p>,
+    at: usize,
+    c: i16,
+    eq: (u32, u32),
+) -> bool {
     pinned_in(b, child, at, c, true, Some(eq))
 }
 
@@ -102,9 +136,14 @@ fn one_value_at<'p>(b: &Builder<'p, '_>, child: &Open<'p>, at: usize, c: i16) ->
     if let Some((p, at, c)) = sorted_from(b, child, at, c, false, false) {
         return one_value_at(b, p, at, c);
     }
-    let Some((e, _)) = scan_entry_at(child, c) else { return false };
+    let Some((e, _)) = scan_entry_at(child, c) else {
+        return false;
+    };
     let known = crate::expr::walk(e, &mut |x| match x.node_tag() {
-        types_nodes::NodeTag::T_Const | types_nodes::NodeTag::T_OpExpr | types_nodes::NodeTag::T_RelabelType | types_nodes::NodeTag::T_CoerceViaIO => true,
+        types_nodes::NodeTag::T_Const
+        | types_nodes::NodeTag::T_OpExpr
+        | types_nodes::NodeTag::T_RelabelType
+        | types_nodes::NodeTag::T_CoerceViaIO => true,
         types_nodes::NodeTag::T_FuncExpr => !x.as_func_expr().unwrap().funcretset,
         _ => false,
     });
@@ -122,7 +161,16 @@ const OWN_BYTES_EQ: u32 = 0;
 /// equivalence class holds the constant: `GROUP BY n.nspname .. WHERE nspname = 'public'`, pg_stat_xact_user_tables),
 /// and a removed SubqueryScan leaves the node no ressortgroupref to key it by (agg `duplicate_keys`).
 pub fn pinned_bytes<'p>(b: &Builder<'p, '_>, child: &Open<'p>, c: i16, coll: u32) -> bool {
-    coll != 0 && b.facts.coll(coll).bytes_eq && pinned_in(b, child, b.graph.pipelines.len(), c, true, Some((OWN_BYTES_EQ, coll)))
+    coll != 0
+        && b.facts.coll(coll).bytes_eq
+        && pinned_in(
+            b,
+            child,
+            b.graph.pipelines.len(),
+            c,
+            true,
+            Some((OWN_BYTES_EQ, coll)),
+        )
 }
 
 /// The declaration of breaker `slot` that pipeline `at` reads (`at`: its index in `graph.pipelines`; an open pipeline's
@@ -130,10 +178,20 @@ pub fn pinned_bytes<'p>(b: &Builder<'p, '_>, child: &Open<'p>, c: i16, coll: u32
 /// later pipeline may declare it anew (breakers.rs `free_slot`), so the latest declaration overall is not always the one
 /// read. None for a union's arms (they declare the slot once each, in a row, as one breaker); a slot freed and declared
 /// again by another kind of breaker (an InitPlan's aggregate before a window's buffer) is no arm.
-pub fn read_decl<'a, 'p>(b: &'a Builder<'p, '_>, slot: u8, at: usize) -> Option<&'a BreakerDecl<'p>> {
+pub fn read_decl<'a, 'p>(
+    b: &'a Builder<'p, '_>,
+    slot: u8,
+    at: usize,
+) -> Option<&'a BreakerDecl<'p>> {
     let br = &b.graph.breakers;
-    let i = br.iter().rposition(|d| d.breaker.slot == slot && (d.producer as usize) < at)?;
-    let arm = |j: usize| br[j].breaker.slot == slot && br[j].breaker.kind == br[i].breaker.kind && (br[j].producer as usize) < at;
+    let i = br
+        .iter()
+        .rposition(|d| d.breaker.slot == slot && (d.producer as usize) < at)?;
+    let arm = |j: usize| {
+        br[j].breaker.slot == slot
+            && br[j].breaker.kind == br[i].breaker.kind
+            && (br[j].producer as usize) < at
+    };
     (!i.checked_sub(1).is_some_and(arm)).then(|| &br[i])
 }
 
@@ -141,13 +199,27 @@ pub fn read_decl<'a, 'p>(b: &'a Builder<'p, '_>, slot: u8, at: usize) -> Option<
 /// pipeline runs (false in a nested loop's inner, rescanned per outer row with its NestLoopParams; a PARAM_EXTERN pins
 /// either way); `peer`: the consumer's
 /// own equality (operator, input collation) that pins too (`pinned_peer_at`).
-fn pinned_in<'p>(b: &Builder<'p, '_>, child: &Open<'p>, at: usize, c: i16, fixed: bool, peer: Option<(u32, u32)>) -> bool {
+fn pinned_in<'p>(
+    b: &Builder<'p, '_>,
+    child: &Open<'p>,
+    at: usize,
+    c: i16,
+    fixed: bool,
+    peer: Option<(u32, u32)>,
+) -> bool {
     pin_in(b, child, at, c, fixed, peer).is_some()
 }
 
 /// `pinned_in`'s walk, answering with the value that pins (the `Const` / `Param` side of the equality): the union walk
 /// (`union_pin`) asks each arm's.
-fn pin_in<'p>(b: &Builder<'p, '_>, child: &Open<'p>, at: usize, c: i16, fixed: bool, peer: Option<(u32, u32)>) -> Option<Node<'p>> {
+fn pin_in<'p>(
+    b: &Builder<'p, '_>,
+    child: &Open<'p>,
+    at: usize,
+    c: i16,
+    fixed: bool,
+    peer: Option<(u32, u32)>,
+) -> Option<Node<'p>> {
     crate::walk::stack_check(); // D3748
     if let Some((p, at, c)) = sorted_from(b, child, at, c, peer.is_some(), false) {
         return pin_in(b, p, at, c, fixed, peer);
@@ -163,12 +235,27 @@ fn pin_in<'p>(b: &Builder<'p, '_>, child: &Open<'p>, at: usize, c: i16, fixed: b
     }
     let build = |op: &Op<'_>| matches!(op, Op::Join(crate::join::JoinDesc::Build { .. }));
     // a union's arm (`union_pin`): its marker or its feed hands the arm's rows on unchanged
-    let arm = |op: &Op<'_>| matches!(op, Op::Append(AppendDesc::Arm { .. } | AppendDesc::Feed { .. }));
+    let arm = |op: &Op<'_>| {
+        matches!(
+            op,
+            Op::Append(AppendDesc::Arm { .. } | AppendDesc::Feed { .. })
+        )
+    };
     // a spool's fill (`sorted_from`) stores its rows unchanged
     let spool = |op: &Op<'_>| matches!(op, Op::Join(crate::join::JoinDesc::Spool));
     // D4074: a SubPlan step sets its parameters or its value for the row and hands the row on unchanged
     let sub = |op: &Op<'_>| matches!(op, Op::SubPlan(_));
-    if !child.ops.iter().all(|op| matches!(op, Op::Filter(_) | Op::Gate(_) | Op::Project(_) | Op::Sort(_)) || keeps_outer(op) || build(op) || drains_inner(op) || arm(op) || spool(op) || sub(op)) {
+    if !child.ops.iter().all(|op| {
+        matches!(
+            op,
+            Op::Filter(_) | Op::Gate(_) | Op::Project(_) | Op::Sort(_)
+        ) || keeps_outer(op)
+            || build(op)
+            || drains_inner(op)
+            || arm(op)
+            || spool(op)
+            || sub(op)
+    }) {
         return None;
     }
     // D4074: the rows of a full Sort or a spool that `child` joins as their outer side (a Merge Join over its outer Sort)
@@ -176,29 +263,49 @@ fn pin_in<'p>(b: &Builder<'p, '_>, child: &Open<'p>, at: usize, c: i16, fixed: b
         return pin_in(b, p, at, c, fixed, peer);
     }
     let (e, pos) = scan_entry_at(child, c)?;
-    if let Some(v) = e.as_var().filter(|v| v.varno == INNER_VAR && v.varlevelsup == 0) {
+    if let Some(v) = e
+        .as_var()
+        .filter(|v| v.varno == INNER_VAR && v.varlevelsup == 0)
+    {
         // the join's projection reads its inner row: the join op before it (past the join's own quals, Filter ops);
         // `pos` is that projection's place in `child.ops`, `at` stays the pipeline's index (`read_decl`)
-        let join = child.ops[..pos].iter().rev().find(|op| !matches!(op, Op::Filter(_)));
-        return join.and_then(|op| inner_rows(b, op, at)).and_then(|(p, at, fixed_p)| pin_in(b, p, at, v.varattno, fixed && fixed_p, peer));
+        let join = child.ops[..pos]
+            .iter()
+            .rev()
+            .find(|op| !matches!(op, Op::Filter(_)));
+        return join
+            .and_then(|op| inner_rows(b, op, at))
+            .and_then(|(p, at, fixed_p)| pin_in(b, p, at, v.varattno, fixed && fixed_p, peer));
     }
     let e = relabels(e);
-    let (Some(attno), Some(v)) = (scan_attno(b, child, e), e.as_var()) else { return None };
+    let (Some(attno), Some(v)) = (scan_attno(b, child, e), e.as_var()) else {
+        return None;
+    };
     let ty = v.vartype;
     let value = |n: Node<'p>| {
         let n = relabels(n);
         // D3482: a statement's own parameter (PARAM_EXTERN: a prepared statement's generic plan, a SQL function's
         // argument) holds one value over the whole execution, a nested loop's inner rescans too; only an executor
         // Param (a NestLoopParam) changes per outer row
-        n.as_const().is_some() || n.as_param().is_some_and(|p| fixed || p.paramkind == ParamKind::PARAM_EXTERN)
+        n.as_const().is_some()
+            || n.as_param()
+                .is_some_and(|p| fixed || p.paramkind == ParamKind::PARAM_EXTERN)
     };
-    let col = |n: Node<'p>| relabels(n).as_var().is_some_and(|x| x.vartype == ty) && scan_attno(b, child, relabels(n)) == Some(attno);
+    let col = |n: Node<'p>| {
+        relabels(n).as_var().is_some_and(|x| x.vartype == ty)
+            && scan_attno(b, child, relabels(n)) == Some(attno)
+    };
     // the qual's value side when it pins: an image equality of the column's type, or the consumer's own (`peer`)
     let pins = |q: Node<'p>| -> Option<Node<'p>> {
         let o = q.as_op_expr().filter(|o| o.args.len() == 2)?;
         let (l, r) = (o.args.nth(0), o.args.nth(1));
         let image = image_eq(b.facts, o.opno);
-        let own = peer.is_some_and(|(op, coll)| o.inputcollid == coll && (o.opno == op || (op == OWN_BYTES_EQ && crate::catalog::keysem::own_bytes_eq(b.facts, o.opno, ty))));
+        let own = peer.is_some_and(|(op, coll)| {
+            o.inputcollid == coll
+                && (o.opno == op
+                    || (op == OWN_BYTES_EQ
+                        && crate::catalog::keysem::own_bytes_eq(b.facts, o.opno, ty)))
+        });
         if (own || image.is_some_and(|(lt, _)| lt == ty)) && col(l) && value(r) {
             Some(r)
         } else if (own || image.is_some_and(|(_, rt)| rt == ty)) && col(r) && value(l) {
@@ -216,7 +323,16 @@ fn pin_in<'p>(b: &Builder<'p, '_>, child: &Open<'p>, at: usize, c: i16, fixed: b
     let index = match &child.source {
         // the consumer's own equality reads the index clauses in their original form (`peer`: their collation; an index
         // scan's indexqualorig, an index-only scan's recheckqual over the index's columns, `scan_attno`)
-        Source::Index { keys, recheck, .. } => keys.iter().find(|key| key.attno == attno && key.form == KeyForm::Op && image_eq(b.facts, key.opno).is_some_and(|(lt, _)| lt == ty) && value(key.value)).map(|key| key.value).or_else(|| peer.and_then(|_| recheck.iter().find_map(pins))),
+        Source::Index { keys, recheck, .. } => keys
+            .iter()
+            .find(|key| {
+                key.attno == attno
+                    && key.form == KeyForm::Op
+                    && image_eq(b.facts, key.opno).is_some_and(|(lt, _)| lt == ty)
+                    && value(key.value)
+            })
+            .map(|key| key.value)
+            .or_else(|| peer.and_then(|_| recheck.iter().find_map(pins))),
         Source::Bitmap { recheck, .. } => recheck.iter().find_map(pins),
         _ => None,
     };
@@ -232,17 +348,33 @@ fn pin_in<'p>(b: &Builder<'p, '_>, child: &Open<'p>, at: usize, c: i16, fixed: b
 /// equivalence class holds a constant, and each arm's quals then carry that one literal (adjust_appendrel_attrs copies
 /// it, its location too); a pin from two tokens is no proof, whatever their values (no image is read: the front key
 /// binds a literal per execution).
-fn union_pin<'p>(b: &Builder<'p, '_>, child: &Open<'p>, at: usize, c: i16, fixed: bool, peer: Option<(u32, u32)>) -> Option<Node<'p>> {
+fn union_pin<'p>(
+    b: &Builder<'p, '_>,
+    child: &Open<'p>,
+    at: usize,
+    c: i16,
+    fixed: bool,
+    peer: Option<(u32, u32)>,
+) -> Option<Node<'p>> {
     if let Some(u) = child.union {
         let arms = &b.graph.unions.get(u as usize)?.arms;
         let resno = row_before(&child.ops, c)?;
         let at = b.graph.pipelines.len();
         return one_pin(arms.iter().map(|a| pin_in(b, a, at, resno, fixed, peer)));
     }
-    let pipe = |d: &BreakerDecl<'p>| b.graph.pipelines.get(d.producer as usize).map(|p| (p, d.producer as usize));
+    let pipe = |d: &BreakerDecl<'p>| {
+        b.graph
+            .pipelines
+            .get(d.producer as usize)
+            .map(|p| (p, d.producer as usize))
+    };
     if let Some((run, resno)) = sorted_arms(b, child, at, c) {
         let sorts = |(p, _): &(&Open<'p>, usize)| matches!(p.ops.last(), Some(Op::Sort(_)));
-        return one_pin(run.iter().map(|d| pipe(d).filter(sorts).and_then(|(p, at)| pin_in(b, p, at, resno, fixed, peer))));
+        return one_pin(run.iter().map(|d| {
+            pipe(d)
+                .filter(sorts)
+                .and_then(|(p, at)| pin_in(b, p, at, resno, fixed, peer))
+        }));
     }
     let arms = settled_arms(b, child, at)?;
     let resno = row_before(&child.ops[1..], c)?;
@@ -253,7 +385,8 @@ fn union_pin<'p>(b: &Builder<'p, '_>, child: &Open<'p>, at: usize, c: i16, fixed
 /// (`same_pin`); none for no arm.
 fn one_pin<'p>(mut pins: impl Iterator<Item = Option<Node<'p>>>) -> Option<Node<'p>> {
     let first = pins.next()??;
-    pins.all(|v| v.is_some_and(|v| same_pin(first, v))).then_some(first)
+    pins.all(|v| v.is_some_and(|v| same_pin(first, v)))
+        .then_some(first)
 }
 
 /// Two pins of one value (`union_pin`): two copies of one literal (a non-null Const of one type, typmod and collation
@@ -261,9 +394,16 @@ fn one_pin<'p>(mut pins: impl Iterator<Item = Option<Node<'p>>>) -> Option<Node<
 fn same_pin(a: Node<'_>, b: Node<'_>) -> bool {
     let (a, b) = (relabels(a), relabels(b));
     if let (Some(x), Some(y)) = (a.as_const(), b.as_const()) {
-        return x.location >= 0 && x.location == y.location && (x.consttype, x.consttypmod, x.constcollid) == (y.consttype, y.consttypmod, y.constcollid) && !x.constisnull && !y.constisnull;
+        return x.location >= 0
+            && x.location == y.location
+            && (x.consttype, x.consttypmod, x.constcollid)
+                == (y.consttype, y.consttypmod, y.constcollid)
+            && !x.constisnull
+            && !y.constisnull;
     }
-    a.as_param().zip(b.as_param()).is_some_and(|(x, y)| x.paramkind == y.paramkind && x.paramid == y.paramid && x.paramtype == y.paramtype)
+    a.as_param().zip(b.as_param()).is_some_and(|(x, y)| {
+        x.paramkind == y.paramkind && x.paramid == y.paramid && x.paramtype == y.paramtype
+    })
 }
 
 /// Column `c` of the row after `ops` as a column of the row before them: through each projection's or Sort's target list
@@ -277,8 +417,15 @@ fn row_before(ops: &[Op<'_>], c: i16) -> Option<i16> {
             Op::Filter(_) | Op::Gate(_) => continue,
             _ => return None,
         };
-        let t = l.nth((resno as usize).checked_sub(1).filter(|&n| n < l.len())?).as_target_entry().filter(|t| t.resno == resno)?;
-        resno = t.expr.as_var().filter(|v| v.varno == OUTER_VAR && v.varlevelsup == 0)?.varattno;
+        let t = l
+            .nth((resno as usize).checked_sub(1).filter(|&n| n < l.len())?)
+            .as_target_entry()
+            .filter(|t| t.resno == resno)?;
+        resno = t
+            .expr
+            .as_var()
+            .filter(|v| v.varno == OUTER_VAR && v.varlevelsup == 0)?
+            .varattno;
     }
     Some(resno)
 }
@@ -287,10 +434,19 @@ fn row_before(ops: &[Op<'_>], c: i16) -> Option<i16> {
 /// declarations of one kind, more than one, ending at the one `child` reads (a union's arms declare the slot once each,
 /// in a row; an earlier fill of the slot by the same kind joins the run too, which only asks one more pipeline to pin),
 /// and the Sort's column for `child`'s column `c`. A single declaration is `sorted_from`'s.
-fn sorted_arms<'a, 'p>(b: &'a Builder<'p, '_>, child: &Open<'p>, at: usize, c: i16) -> Option<(&'a [BreakerDecl<'p>], i16)> {
-    let Source::Breaker { slot } = child.source else { return None };
+fn sorted_arms<'a, 'p>(
+    b: &'a Builder<'p, '_>,
+    child: &Open<'p>,
+    at: usize,
+    c: i16,
+) -> Option<(&'a [BreakerDecl<'p>], i16)> {
+    let Source::Breaker { slot } = child.source else {
+        return None;
+    };
     let br = &b.graph.breakers;
-    let i = br.iter().rposition(|d| d.breaker.slot == slot && (d.producer as usize) < at)?;
+    let i = br
+        .iter()
+        .rposition(|d| d.breaker.slot == slot && (d.producer as usize) < at)?;
     let kind = br[i].breaker.kind;
     if !matches!(kind, BreakerKind::Sort | BreakerKind::TopK) {
         return None;
@@ -306,12 +462,31 @@ fn sorted_arms<'a, 'p>(b: &'a Builder<'p, '_>, child: &Open<'p>, at: usize, c: i
 /// A settled union's arms (append.rs `settle_arms`; breakers.rs `union_arms` over the declarations before pipeline `at`):
 /// `emit` reads the slot and opens with `Union { slot, children }`, and the slot's last `children` declarations before
 /// `at` are Materialize fills whose pipelines each end in the slot's `Feed`.
-fn settled_arms<'a, 'p>(b: &'a Builder<'p, '_>, emit: &Open<'p>, at: usize) -> Option<impl Iterator<Item = &'a BreakerDecl<'p>> + 'a> {
-    let Source::Breaker { slot } = emit.source else { return None };
-    let Some(Op::Append(AppendDesc::Union { slot: s, children, .. })) = emit.ops.first() else { return None };
+fn settled_arms<'a, 'p>(
+    b: &'a Builder<'p, '_>,
+    emit: &Open<'p>,
+    at: usize,
+) -> Option<impl Iterator<Item = &'a BreakerDecl<'p>> + 'a> {
+    let Source::Breaker { slot } = emit.source else {
+        return None;
+    };
+    let Some(Op::Append(AppendDesc::Union {
+        slot: s, children, ..
+    })) = emit.ops.first()
+    else {
+        return None;
+    };
     let n = *children as usize;
-    let decls = b.graph.breakers.iter().rev().filter(move |d| d.breaker.slot == slot && (d.producer as usize) < at).take(n);
-    let feeds = |d: &BreakerDecl<'p>| d.breaker.kind == BreakerKind::Materialize && b.graph.pipelines.get(d.producer as usize).is_some_and(|p| matches!(p.ops.last(), Some(Op::Append(AppendDesc::Feed { slot: f, .. })) if *f == slot));
+    let decls = b
+        .graph
+        .breakers
+        .iter()
+        .rev()
+        .filter(move |d| d.breaker.slot == slot && (d.producer as usize) < at)
+        .take(n);
+    let feeds = |d: &BreakerDecl<'p>| {
+        d.breaker.kind == BreakerKind::Materialize && b.graph.pipelines.get(d.producer as usize).is_some_and(|p| matches!(p.ops.last(), Some(Op::Append(AppendDesc::Feed { slot: f, .. })) if *f == slot))
+    };
     (*s == slot && n > 0 && decls.clone().count() == n && decls.clone().all(feeds)).then_some(decls)
 }
 
@@ -323,10 +498,17 @@ fn keeps_outer(op: &Op<'_>) -> bool {
     use crate::join::JoinDesc;
     use types_nodes::jointype::JoinType;
     let jt = match op {
-        Op::Join(JoinDesc::Probe { jointype, .. } | JoinDesc::Merge { jointype, .. } | JoinDesc::Nest { jointype, .. }) => *jointype,
+        Op::Join(
+            JoinDesc::Probe { jointype, .. }
+            | JoinDesc::Merge { jointype, .. }
+            | JoinDesc::Nest { jointype, .. },
+        ) => *jointype,
         _ => return false,
     };
-    matches!(jt, JoinType::JOIN_INNER | JoinType::JOIN_LEFT | JoinType::JOIN_SEMI | JoinType::JOIN_ANTI)
+    matches!(
+        jt,
+        JoinType::JOIN_INNER | JoinType::JOIN_LEFT | JoinType::JOIN_SEMI | JoinType::JOIN_ANTI
+    )
 }
 
 /// G11 (D345): the pipeline whose rows an inner join hands on as its inner side, every output row one of them (JOIN_INNER):
@@ -338,13 +520,29 @@ fn keeps_outer(op: &Op<'_>) -> bool {
 /// right semi / anti join's rows are build rows. D4074: an inner merge join's inner rows are its slot's producer's (the
 /// inner Sort's or spool's pipeline, run once as a build is). With each pipeline its index (`read_decl`): a nested
 /// loop's inner is part of the pipeline `at` that runs the join.
-fn inner_rows<'a, 'p>(b: &'a Builder<'p, '_>, op: &'a Op<'p>, at: usize) -> Option<(&'a Open<'p>, usize, bool)> {
+fn inner_rows<'a, 'p>(
+    b: &'a Builder<'p, '_>,
+    op: &'a Op<'p>,
+    at: usize,
+) -> Option<(&'a Open<'p>, usize, bool)> {
     use crate::join::JoinDesc;
     use types_nodes::jointype::JoinType;
     match op {
-        Op::Join(JoinDesc::Nest { jointype: JoinType::JOIN_INNER, inner, .. }) => Some((&**inner, at, false)),
-        Op::Join(JoinDesc::Probe { jointype: JoinType::JOIN_INNER, slot, .. }) => build_rows(b, *slot, at),
-        Op::Join(JoinDesc::Merge { jointype: JoinType::JOIN_INNER, slot, .. }) => {
+        Op::Join(JoinDesc::Nest {
+            jointype: JoinType::JOIN_INNER,
+            inner,
+            ..
+        }) => Some((&**inner, at, false)),
+        Op::Join(JoinDesc::Probe {
+            jointype: JoinType::JOIN_INNER,
+            slot,
+            ..
+        }) => build_rows(b, *slot, at),
+        Op::Join(JoinDesc::Merge {
+            jointype: JoinType::JOIN_INNER,
+            slot,
+            ..
+        }) => {
             let at = producer(b, *slot, at)?;
             b.graph.pipelines.get(at).map(|p| (p, at, true))
         }
@@ -353,7 +551,11 @@ fn inner_rows<'a, 'p>(b: &'a Builder<'p, '_>, op: &'a Op<'p>, at: usize) -> Opti
             let probe = producer(b, *matches, at)?;
             let p = b.graph.pipelines.get(probe)?;
             let slot = p.ops.iter().rev().find_map(|op| match op {
-                Op::Join(JoinDesc::Probe { slot, catalog: false, .. }) => Some(*slot),
+                Op::Join(JoinDesc::Probe {
+                    slot,
+                    catalog: false,
+                    ..
+                }) => Some(*slot),
                 _ => None,
             })?;
             build_rows(b, slot, probe)
@@ -366,7 +568,13 @@ fn inner_rows<'a, 'p>(b: &'a Builder<'p, '_>, op: &'a Op<'p>, at: usize) -> Opti
 /// (a full join's unmatched probe rows NULL-extend the inner side).
 fn drains_inner(op: &Op<'_>) -> bool {
     use types_nodes::jointype::JoinType;
-    matches!(op, Op::Join(crate::join::JoinDesc::Drain { jointype: JoinType::JOIN_RIGHT | JoinType::JOIN_RIGHT_SEMI | JoinType::JOIN_RIGHT_ANTI, .. }))
+    matches!(
+        op,
+        Op::Join(crate::join::JoinDesc::Drain {
+            jointype: JoinType::JOIN_RIGHT | JoinType::JOIN_RIGHT_SEMI | JoinType::JOIN_RIGHT_ANTI,
+            ..
+        })
+    )
 }
 
 /// The pipeline whose fill of breaker `slot` pipeline `at` reads (`read_decl`: a slot freed by a pushed reader is
@@ -378,10 +586,18 @@ fn producer(b: &Builder<'_, '_>, slot: u8, at: usize) -> Option<usize> {
 
 /// A hash build's pipeline (the producer of `slot` that pipeline `at` reads, ending in the Build): run once, so its
 /// Params hold one value.
-fn build_rows<'a, 'p>(b: &'a Builder<'p, '_>, slot: u8, at: usize) -> Option<(&'a Open<'p>, usize, bool)> {
+fn build_rows<'a, 'p>(
+    b: &'a Builder<'p, '_>,
+    slot: u8,
+    at: usize,
+) -> Option<(&'a Open<'p>, usize, bool)> {
     let at = producer(b, slot, at)?;
     let p = b.graph.pipelines.get(at)?;
-    matches!(p.ops.last(), Some(Op::Join(crate::join::JoinDesc::Build { .. }))).then_some((p, at, true))
+    matches!(
+        p.ops.last(),
+        Some(Op::Join(crate::join::JoinDesc::Build { .. }))
+    )
+    .then_some((p, at, true))
 }
 
 /// G11 (D345): the Sort's own pipeline and its output column for column `c` of breaker-fed `child`, when `child` only
@@ -395,13 +611,31 @@ fn build_rows<'a, 'p>(b: &'a Builder<'p, '_>, slot: u8, at: usize) -> Option<(&'
 /// them, and `fixed` stays the caller's). `past` (D4074): `child` may also filter those rows, set a SubPlan's value
 /// beside them, sort them on, or join them as the outer side of joins that hand each outer row on unchanged
 /// (`keeps_outer`: a Merge Join over the Sort's rows), the column read from the outer row at every step.
-fn sorted_from<'a, 'p>(b: &'a Builder<'p, '_>, child: &Open<'p>, at: usize, c: i16, top: bool, past: bool) -> Option<(&'a Open<'p>, usize, i16)> {
-    let Source::Breaker { slot } = child.source else { return None };
+fn sorted_from<'a, 'p>(
+    b: &'a Builder<'p, '_>,
+    child: &Open<'p>,
+    at: usize,
+    c: i16,
+    top: bool,
+    past: bool,
+) -> Option<(&'a Open<'p>, usize, i16)> {
+    let Source::Breaker { slot } = child.source else {
+        return None;
+    };
     // the declaration `child` reads: the latest a pipeline before it produced (`read_decl`'s rule; the arm test as before)
-    let i = b.graph.breakers.iter().rposition(|d| d.breaker.slot == slot && (d.producer as usize) < at)?;
+    let i = b
+        .graph
+        .breakers
+        .iter()
+        .rposition(|d| d.breaker.slot == slot && (d.producer as usize) < at)?;
     let d = &b.graph.breakers[i];
     let kind = d.breaker.kind;
-    if !(kind == BreakerKind::Sort || (top && kind == BreakerKind::TopK) || kind == BreakerKind::Materialize) || i.checked_sub(1).is_some_and(|j| b.graph.breakers[j].breaker.slot == slot) {
+    if !(kind == BreakerKind::Sort
+        || (top && kind == BreakerKind::TopK)
+        || kind == BreakerKind::Materialize)
+        || i.checked_sub(1)
+            .is_some_and(|j| b.graph.breakers[j].breaker.slot == slot)
+    {
         return None;
     }
     // BreakerKind::Sort: a full sort (a top is TopK); a Materialize: the spool's fill only (a settled union's arms end in
@@ -421,8 +655,15 @@ fn sorted_from<'a, 'p>(b: &'a Builder<'p, '_>, child: &Open<'p>, at: usize, c: i
             op if past && keeps_outer(op) => continue,
             _ => return None,
         };
-        let t = l.nth((resno as usize).checked_sub(1).filter(|&n| n < l.len())?).as_target_entry().filter(|t| t.resno == resno)?;
-        resno = t.expr.as_var().filter(|v| v.varno == OUTER_VAR && v.varlevelsup == 0)?.varattno;
+        let t = l
+            .nth((resno as usize).checked_sub(1).filter(|&n| n < l.len())?)
+            .as_target_entry()
+            .filter(|t| t.resno == resno)?;
+        resno = t
+            .expr
+            .as_var()
+            .filter(|v| v.varno == OUTER_VAR && v.varlevelsup == 0)?
+            .varattno;
     }
     Some((p, d.producer as usize, resno))
 }
@@ -431,16 +672,32 @@ fn sorted_from<'a, 'p>(b: &'a Builder<'p, '_>, child: &Open<'p>, at: usize, c: i
 /// `child.ops` of the op whose target list holds it (G11: a join's projection's
 /// `INNER_VAR` names the join op before it).
 pub fn scan_entry_at<'p>(child: &Open<'p>, c: i16) -> Option<(Node<'p>, usize)> {
-    let mut tlists = child.ops.iter().enumerate().rev().filter_map(|(i, op)| match op {
-        Op::Project(l) => Some((*l, i)),
-        Op::Sort(s) => Some((s.tlist, i)),
-        _ => None,
-    });
+    let mut tlists = child
+        .ops
+        .iter()
+        .enumerate()
+        .rev()
+        .filter_map(|(i, op)| match op {
+            Op::Project(l) => Some((*l, i)),
+            Op::Sort(s) => Some((s.tlist, i)),
+            _ => None,
+        });
     let mut resno = c;
     loop {
         let (tlist, i) = tlists.next()?;
-        let t = tlist.nth((resno as usize).checked_sub(1).filter(|&n| n < tlist.len())?).as_target_entry().filter(|t| t.resno == resno)?;
-        match t.expr.as_var().filter(|v| v.varno == OUTER_VAR && v.varlevelsup == 0) {
+        let t = tlist
+            .nth(
+                (resno as usize)
+                    .checked_sub(1)
+                    .filter(|&n| n < tlist.len())?,
+            )
+            .as_target_entry()
+            .filter(|t| t.resno == resno)?;
+        match t
+            .expr
+            .as_var()
+            .filter(|v| v.varno == OUTER_VAR && v.varlevelsup == 0)
+        {
             Some(v) => resno = v.varattno,
             None => return Some((t.expr, i)),
         }

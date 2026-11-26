@@ -21,8 +21,8 @@ use types_error::PgResult;
 use types_nodes::{Node, NodeList};
 
 use crate::admit::{refuse, Refused};
-use crate::ops::{Live, Prepare, Protocol};
 use crate::glue;
+use crate::ops::{Live, Prepare, Protocol};
 
 /// `write.literals`' words: the cells (row-major `u64`), the null bytes (one per cell), the row count.
 pub const LIT_CELLS: usize = 0;
@@ -40,16 +40,24 @@ pub struct Transition;
 /// A declaration against the program's write plan: `Err` names what does not hold.
 pub fn check(p: &Proto, w: &WritePlan, nwords: usize) -> Result<(), &'static str> {
     match p.kind {
-        ProtoKind::Literals if !matches!(p.words.n as usize, LIT_WORDS | LIT_STREAM_WORDS) || p.words.base as usize + p.words.n as usize > nwords => Err("write.literals' words are not its table's"),
+        ProtoKind::Literals
+            if !matches!(p.words.n as usize, LIT_WORDS | LIT_STREAM_WORDS)
+                || p.words.base as usize + p.words.n as usize > nwords =>
+        {
+            Err("write.literals' words are not its table's")
+        }
         ProtoKind::Literals if lit_cols(p) == 0 => Err("write.literals declares no column"),
         ProtoKind::Route if w.route.is_none() => Err("write.route on a write plan without a route"),
-        ProtoKind::Transition if w.cmd == Cmd::Select => Err("write.transition on a program that does not write"),
+        ProtoKind::Transition if w.cmd == Cmd::Select => {
+            Err("write.transition on a program that does not write")
+        }
         _ => Ok(()),
     }
 }
 
 fn checked(p: &Proto, cx: &Prepare<'_>) -> PgResult<()> {
-    check(p, &cx.program.write, cx.words.len()).map_err(|why| glue::internal(&format!("gravity: {why}"))) // alloc: Cold
+    check(p, &cx.program.write, cx.words.len())
+        .map_err(|why| glue::internal(&format!("gravity: {why}"))) // alloc: Cold
 }
 
 /// write.literals' width and coded-cell mark (`Proto::arg`).
@@ -83,9 +91,17 @@ impl Protocol for Literals {
     fn prepare(&self, p: &Proto, cx: &mut Prepare<'_>) -> PgResult<Option<Box<dyn Live>>> {
         checked(p, cx)?;
         let (id, cols) = (p.arg as u32 as i32, lit_cols(p));
-        let pstmt = cx.admitted.pstmt.ok_or_else(|| glue::internal("gravity: write.literals without its plan"))?;
-        let Some(vs) = roots(pstmt).find_map(|r| plan_node(r, id)).and_then(|n| n.as_values_scan()) else {
-            return Err(glue::internal("gravity: write.literals' node is not a ValuesScan"));
+        let pstmt = cx
+            .admitted
+            .pstmt
+            .ok_or_else(|| glue::internal("gravity: write.literals without its plan"))?;
+        let Some(vs) = roots(pstmt)
+            .find_map(|r| plan_node(r, id))
+            .and_then(|n| n.as_values_scan())
+        else {
+            return Err(glue::internal(
+                "gravity: write.literals' node is not a ValuesScan",
+            ));
         };
         let lists: &NodeList<'static> = &vs.values_lists;
         let rows = lists.len();
@@ -96,7 +112,9 @@ impl Protocol for Literals {
         cells.with_vec(|v| *v = vec![0u64; rows * cols]); // alloc: Exec charged cx.owner
         nulls.with_vec(|v| *v = vec![1u8; rows * cols]); // alloc: Exec charged cx.owner
         if fill(lists, cols, &mut cells, &mut nulls)? != lit_mark(p) {
-            return Err(glue::internal("gravity: write.literals' list codes other cells than its program"));
+            return Err(glue::internal(
+                "gravity: write.literals' list codes other cells than its program",
+            ));
         }
         let (base, n) = (p.words.base as usize, p.words.n as usize);
         // CAP-29: the stream form evaluates its coded rows at their turn, `$n` from this execution's list
@@ -105,9 +123,20 @@ impl Protocol for Literals {
                 let h = cx.admitted.params;
                 let mut params = cx.charged_vec::<types_portal::params::ParamExternData>();
                 if !h.is_null() {
-                    params.with_vec(|v| types_portal::params::with(h, |ps| v.extend_from_slice(ps))); // alloc: Exec charged cx.owner
+                    params
+                        .with_vec(|v| types_portal::params::with(h, |ps| v.extend_from_slice(ps)));
+                    // alloc: Exec charged cx.owner
                 }
-                let s = super::raw::Stream::new(lists, cols, &mut cells, &mut nulls, params, types_portal::params::fetch_hook(h), cx.mcx, cx.owner)?;
+                let s = super::raw::Stream::new(
+                    lists,
+                    cols,
+                    &mut cells,
+                    &mut nulls,
+                    params,
+                    types_portal::params::fetch_hook(h),
+                    cx.mcx,
+                    cx.owner,
+                )?;
                 cx.words[base + LIT_STREAM] = s.hook();
                 Some(s)
             }
@@ -118,13 +147,19 @@ impl Protocol for Literals {
         cx.words[base + LIT_ROWS] = rows as u64;
         cx.nulls[base..base + n].fill(0);
         *cx.nparams = (*cx.nparams).max(base + n);
-        Ok(Some(Box::new(Table { _stream: stream, _cells: cells, _nulls: nulls }))) // alloc: Exec
+        Ok(Some(Box::new(Table {
+            _stream: stream,
+            _cells: cells,
+            _nulls: nulls,
+        }))) // alloc: Exec
     }
 }
 
 /// The statement's plan trees: the main tree, then each subplan's (a data-modifying CTE's VALUES sits under its InitPlan's
 /// ModifyTable: D1669).
-pub fn roots<'p>(pstmt: &'p types_nodes::plannodes::PlannedStmt<'p>) -> impl Iterator<Item = Option<Node<'p>>> + 'p {
+pub fn roots<'p>(
+    pstmt: &'p types_nodes::plannodes::PlannedStmt<'p>,
+) -> impl Iterator<Item = Option<Node<'p>>> + 'p {
     core::iter::once(pstmt.planTree).chain(pstmt.subplans.iter())
 }
 
@@ -133,56 +168,95 @@ pub fn roots<'p>(pstmt: &'p types_nodes::plannodes::PlannedStmt<'p>) -> impl Ite
 /// width and its cells that are not a Const the program's own (`literals_mark`), else a named refusal: a program keyed on a
 /// Const cell that meets a plan holding a `$1` there is refused here, before any execution, and the statement takes the
 /// row executor.
-pub fn admit_literals<'p>(p: &Proto, trees: impl IntoIterator<Item = Option<Node<'p>>>) -> Result<(), Refused> {
+pub fn admit_literals<'p>(
+    p: &Proto,
+    trees: impl IntoIterator<Item = Option<Node<'p>>>,
+) -> Result<(), Refused> {
     let (id, cols) = (p.arg as u32 as i32, lit_cols(p));
-    let Some(vs) = trees.into_iter().find_map(|r| plan_node(r, id)).and_then(|n| n.as_values_scan()) else {
+    let Some(vs) = trees
+        .into_iter()
+        .find_map(|r| plan_node(r, id))
+        .and_then(|n| n.as_values_scan())
+    else {
         return refuse("v4", "write.literals' node is not a ValuesScan");
     };
     match coded_mark(&vs.values_lists, cols) {
         Some(m) if m == lit_mark(p) => Ok(()),
-        Some(_) => refuse("v4", "write.literals over a list whose cells that are not a constant are not the program's"),
+        Some(_) => refuse(
+            "v4",
+            "write.literals over a list whose cells that are not a constant are not the program's",
+        ),
         None => refuse("v4", "write.literals over a row of another width"),
     }
 }
 
 /// The `literals_mark` of the list's cells that are not a Const; `None` when a row is not `cols` wide.
 fn coded_mark(lists: &NodeList<'_>, cols: usize) -> Option<u16> {
-    if !lists.iter().all(|row| row.as_list().is_some_and(|l| l.len() == cols)) {
+    if !lists
+        .iter()
+        .all(|row| row.as_list().is_some_and(|l| l.len() == cols))
+    {
         return None;
     }
     let coded = lists.iter().enumerate().flat_map(|(r, row)| {
-        row.as_list().into_iter().flat_map(|l| l.iter().enumerate()).filter(|(_, e)| e.as_const().is_none()).map(move |(c, _)| (r, c))
+        row.as_list()
+            .into_iter()
+            .flat_map(|l| l.iter().enumerate())
+            .filter(|(_, e)| e.as_const().is_none())
+            .map(move |(c, _)| (r, c))
     });
     Some(literals_mark(coded))
 }
 
 /// write.literals as the crate rig lays it (lowerv4 tests common/on_demand.rs, beside Init's `prepare_bare`): each declared
 /// table filled from its pipeline's VALUES lists (`lists`, the decomposed graph's), the words set as `prepare` sets them.
-pub fn prepare_bare<'p>(program: &gravity_program::Program, lists: impl Fn(usize) -> Option<&'p NodeList<'p>>, words: &mut [u64], nulls: &mut [u8], nparams: &mut usize, out: &mut crate::ops::LiveList) -> PgResult<()> {
+pub fn prepare_bare<'p>(
+    program: &gravity_program::Program,
+    lists: impl Fn(usize) -> Option<&'p NodeList<'p>>,
+    words: &mut [u64],
+    nulls: &mut [u8],
+    nparams: &mut usize,
+    out: &mut crate::ops::LiveList,
+) -> PgResult<()> {
     let protos = program.v4.as_ref().map_or(&[][..], |d| &d.protos[..]);
     for p in protos.iter().filter(|p| p.kind == ProtoKind::Literals) {
-        let l = lists(p.pipeline as usize).ok_or_else(|| glue::internal("gravity: write.literals over a pipeline that is not a VALUES"))?;
+        let l = lists(p.pipeline as usize).ok_or_else(|| {
+            glue::internal("gravity: write.literals over a pipeline that is not a VALUES")
+        })?;
         let (cols, base) = (lit_cols(p), p.words.base as usize);
         if base + LIT_WORDS > words.len() {
-            return Err(glue::internal("gravity: write.literals' words are not its table's"));
+            return Err(glue::internal(
+                "gravity: write.literals' words are not its table's",
+            ));
         }
         if p.words.n as usize == LIT_STREAM_WORDS {
             // CAP-29: the stream form evaluates rows with PostgreSQL's executor, which the crate rig does not run
-            return Err(glue::internal("gravity: write.literals' stream form outside an execution"));
+            return Err(glue::internal(
+                "gravity: write.literals' stream form outside an execution",
+            ));
         }
         // no execution here (the crate rig): uncharged
-        let (mut cells, mut nb) = (memledger::ChargedVec::<u64>::none(), memledger::ChargedVec::<u8>::none());
+        let (mut cells, mut nb) = (
+            memledger::ChargedVec::<u64>::none(),
+            memledger::ChargedVec::<u8>::none(),
+        );
         cells.with_vec(|v| *v = vec![0u64; l.len() * cols]); // alloc: Exec
         nb.with_vec(|v| *v = vec![1u8; l.len() * cols]); // alloc: Exec
         if fill(l, cols, &mut cells, &mut nb)? != lit_mark(p) {
-            return Err(glue::internal("gravity: write.literals' list codes other cells than its program"));
+            return Err(glue::internal(
+                "gravity: write.literals' list codes other cells than its program",
+            ));
         }
         words[base + LIT_CELLS] = cells.as_ptr() as u64;
         words[base + LIT_NULLS] = nb.as_ptr() as u64;
         words[base + LIT_ROWS] = l.len() as u64;
         nulls[base..base + LIT_WORDS].fill(0);
         *nparams = (*nparams).max(base + LIT_WORDS);
-        let l = Box::new(Table { _stream: None, _cells: cells, _nulls: nb }); // alloc: Exec
+        let l = Box::new(Table {
+            _stream: None,
+            _cells: cells,
+            _nulls: nb,
+        }); // alloc: Exec
         out.with_vec(|v| v.push(l)); // alloc: Exec charged out
     }
     Ok(())
@@ -194,7 +268,9 @@ pub fn prepare_bare<'p>(program: &gravity_program::Program, lists: impl Fn(usize
 fn fill(lists: &NodeList<'_>, cols: usize, cells: &mut [u64], nulls: &mut [u8]) -> PgResult<u16> {
     for (r, row) in lists.iter().enumerate() {
         let Some(row) = row.as_list().filter(|l| l.len() == cols) else {
-            return Err(glue::internal("gravity: a write.literals row is not the table's width"));
+            return Err(glue::internal(
+                "gravity: a write.literals row is not the table's width",
+            ));
         };
         for (c, e) in row.iter().enumerate() {
             match e.as_const() {
@@ -232,7 +308,9 @@ impl Protocol for Transition {
 
     /// Host-owned as Route; D2605 EARLY: the EARLY_AS bit names the CTE writers' relations (early_as.rs).
     fn prepare(&self, p: &Proto, cx: &mut Prepare<'_>) -> PgResult<Option<Box<dyn Live>>> {
-        checked(p, cx).map(|()| super::early_as::prepare(p, cx)).map(|()| None)
+        checked(p, cx)
+            .map(|()| super::early_as::prepare(p, cx))
+            .map(|()| None)
     }
 }
 
@@ -245,10 +323,17 @@ fn plan_node<'p>(root: Option<Node<'p>>, id: i32) -> Option<Node<'p>> {
     if p.plan_node_id == id {
         return Some(n);
     }
-    let kids = [n.as_append().map(|a| &a.appendplans), n.as_merge_append().map(|m| &m.mergeplans)];
+    let kids = [
+        n.as_append().map(|a| &a.appendplans),
+        n.as_merge_append().map(|m| &m.mergeplans),
+    ];
     plan_node(p.lefttree, id)
         .or_else(|| plan_node(p.righttree, id))
-        .or_else(|| kids.into_iter().flatten().find_map(|l| l.iter().find_map(|c| plan_node(Some(c), id))))
+        .or_else(|| {
+            kids.into_iter()
+                .flatten()
+                .find_map(|l| l.iter().find_map(|c| plan_node(Some(c), id)))
+        })
         .or_else(|| n.as_subquery_scan().and_then(|s| plan_node(s.subplan, id)))
 }
 
@@ -267,7 +352,9 @@ mod tests {
         use types_nodes::primnodes::{Param, ParamKind};
         let ctx: &'static mcx::MemoryContext = Box::leak(Box::new(mcx::MemoryContext::new("t"))); // alloc: Cold
         let m = ctx.mcx();
-        let k = |v: i32| Node::mk_const(m, 23, -1, 0, 4, datum::Datum::from_i32(v), false, true).unwrap();
+        let k = |v: i32| {
+            Node::mk_const(m, 23, -1, 0, 4, datum::Datum::from_i32(v), false, true).unwrap()
+        };
         let list = |cells: &[Node<'static>]| {
             let mut l = NodeList::nil();
             for c in cells {
@@ -276,29 +363,96 @@ mod tests {
             l
         };
         let values = |rows: &[&[Node<'static>]]| {
-            let lists = list(&rows.iter().map(|r| Node::mk_list(m, list(r)).unwrap()).collect::<Vec<_>>());
-            Node::mk(m, ValuesScan { scan: Scan { plan: Plan { plan_node_id: 7, ..Default::default() }, ..Default::default() }, values_lists: lists }).unwrap()
+            let lists = list(
+                &rows
+                    .iter()
+                    .map(|r| Node::mk_list(m, list(r)).unwrap())
+                    .collect::<Vec<_>>(),
+            );
+            Node::mk(
+                m,
+                ValuesScan {
+                    scan: Scan {
+                        plan: Plan {
+                            plan_node_id: 7,
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    },
+                    values_lists: lists,
+                },
+            )
+            .unwrap()
         };
-        let param = Node::mk(m, Param { paramkind: ParamKind::PARAM_EXTERN, paramid: 1, paramtype: 23, ..Default::default() }).unwrap();
+        let param = Node::mk(
+            m,
+            Param {
+                paramkind: ParamKind::PARAM_EXTERN,
+                paramid: 1,
+                paramtype: 23,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let p = proto(ProtoKind::Literals, 0, LIT_WORDS as u16, 7 | 2 << 32);
-        assert!(admit_literals(&p, [Some(values(&[&[k(10), k(1)], &[k(11), k(2)]]))]).is_ok(), "a Const-only VALUES");
+        assert!(
+            admit_literals(&p, [Some(values(&[&[k(10), k(1)], &[k(11), k(2)]]))]).is_ok(),
+            "a Const-only VALUES"
+        );
         let r = admit_literals(&p, [Some(values(&[&[k(10), k(1)], &[param, k(2)]]))]);
-        assert!(r.as_ref().is_err_and(|r| r.what.contains("not a constant")), "the same shape with $1 in a cell: {r:?}");
-        assert!(admit_literals(&p, [Some(values(&[&[k(10)]]))]).is_err(), "a row of another width");
-        assert!(admit_literals(&p, [Some(k(1))]).is_err(), "the declared node is not a ValuesScan");
+        assert!(
+            r.as_ref().is_err_and(|r| r.what.contains("not a constant")),
+            "the same shape with $1 in a cell: {r:?}"
+        );
+        assert!(
+            admit_literals(&p, [Some(values(&[&[k(10)]]))]).is_err(),
+            "a row of another width"
+        );
+        assert!(
+            admit_literals(&p, [Some(k(1))]).is_err(),
+            "the declared node is not a ValuesScan"
+        );
         // D1669: a data-modifying CTE's VALUES sits in a subplan, after the main tree
-        assert!(admit_literals(&p, [Some(k(1)), None, Some(values(&[&[k(10), k(1)]]))]).is_ok(), "a ValuesScan in a later tree");
-        let coded = proto(ProtoKind::Literals, 0, LIT_WORDS as u16, 7 | 2 << 32 | (literals_mark([(1, 0)]) as u64) << 48);
-        assert!(admit_literals(&coded, [Some(values(&[&[k(10), k(1)], &[param, k(2)]]))]).is_ok(), "the program codes row 1's $1");
-        assert!(admit_literals(&coded, [Some(values(&[&[k(10), k(1)], &[k(11), k(2)]]))]).is_err(), "a Const where the program codes");
-        assert!(admit_literals(&coded, [Some(values(&[&[param, k(1)], &[k(11), k(2)]]))]).is_err(), "a $1 in another cell");
+        assert!(
+            admit_literals(&p, [Some(k(1)), None, Some(values(&[&[k(10), k(1)]]))]).is_ok(),
+            "a ValuesScan in a later tree"
+        );
+        let coded = proto(
+            ProtoKind::Literals,
+            0,
+            LIT_WORDS as u16,
+            7 | 2 << 32 | (literals_mark([(1, 0)]) as u64) << 48,
+        );
+        assert!(
+            admit_literals(&coded, [Some(values(&[&[k(10), k(1)], &[param, k(2)]]))]).is_ok(),
+            "the program codes row 1's $1"
+        );
+        assert!(
+            admit_literals(&coded, [Some(values(&[&[k(10), k(1)], &[k(11), k(2)]]))]).is_err(),
+            "a Const where the program codes"
+        );
+        assert!(
+            admit_literals(&coded, [Some(values(&[&[param, k(1)], &[k(11), k(2)]]))]).is_err(),
+            "a $1 in another cell"
+        );
         let mut cells = [0u64; 4];
         let mut nulls = [1u8; 4];
         let vn = values(&[&[k(10), k(1)], &[param, k(2)]]);
         let vs = vn.as_values_scan().unwrap();
-        assert_eq!(fill(&vs.values_lists, 2, &mut cells, &mut nulls).unwrap(), literals_mark([(1, 0)]));
-        assert_eq!((cells[0], cells[1], cells[3]), (10, 1, 2), "the Const cells, row-major");
-        assert_eq!(nulls, [0, 0, 1 | LITERALS_CODED, 0], "row 1 coded: its $1 is never read from the table");
+        assert_eq!(
+            fill(&vs.values_lists, 2, &mut cells, &mut nulls).unwrap(),
+            literals_mark([(1, 0)])
+        );
+        assert_eq!(
+            (cells[0], cells[1], cells[3]),
+            (10, 1, 2),
+            "the Const cells, row-major"
+        );
+        assert_eq!(
+            nulls,
+            [0, 0, 1 | LITERALS_CODED, 0],
+            "row 1 coded: its $1 is never read from the table"
+        );
     }
 
     fn plan(cmd: Cmd) -> WritePlan {
@@ -317,34 +471,91 @@ mod tests {
     fn literals_take_any_statement_and_their_three_words() {
         let ins = plan(Cmd::Insert);
         // NEW-29: every statement's VALUES lists read the table (an INSERT's own, a SELECT's, an UPDATE's or DELETE's)
-        for w in [&ins, &plan(Cmd::Update), &WritePlan::SELECT, &plan(Cmd::Delete)] {
-            assert_eq!(check(&proto(ProtoKind::Literals, 4, 3, 7 | 2 << 32), w, 8), Ok(()));
+        for w in [
+            &ins,
+            &plan(Cmd::Update),
+            &WritePlan::SELECT,
+            &plan(Cmd::Delete),
+        ] {
+            assert_eq!(
+                check(&proto(ProtoKind::Literals, 4, 3, 7 | 2 << 32), w, 8),
+                Ok(())
+            );
         }
-        assert_eq!(check(&proto(ProtoKind::Literals, 4, 3, 7 | 2 << 32 | 9 << 48), &ins, 8), Ok(()), "a coded-cell mark");
-        assert!(check(&proto(ProtoKind::Literals, 4, 3, 7 | 9 << 48), &ins, 8).is_err(), "a mark, no column");
-        assert!(check(&proto(ProtoKind::Literals, 6, 3, 7 | 2 << 32), &ins, 8).is_err(), "words past the program's");
-        assert!(check(&proto(ProtoKind::Literals, 4, 2, 7 | 2 << 32), &ins, 8).is_err(), "not the table's three words");
+        assert_eq!(
+            check(
+                &proto(ProtoKind::Literals, 4, 3, 7 | 2 << 32 | 9 << 48),
+                &ins,
+                8
+            ),
+            Ok(()),
+            "a coded-cell mark"
+        );
+        assert!(
+            check(&proto(ProtoKind::Literals, 4, 3, 7 | 9 << 48), &ins, 8).is_err(),
+            "a mark, no column"
+        );
+        assert!(
+            check(&proto(ProtoKind::Literals, 6, 3, 7 | 2 << 32), &ins, 8).is_err(),
+            "words past the program's"
+        );
+        assert!(
+            check(&proto(ProtoKind::Literals, 4, 2, 7 | 2 << 32), &ins, 8).is_err(),
+            "not the table's three words"
+        );
         // CAP-29: the stream form's fourth word, the hook
-        assert_eq!(check(&proto(ProtoKind::Literals, 4, 4, 7 | 2 << 32 | 9 << 48), &ins, 8), Ok(()), "the stream form's four words");
-        assert!(check(&proto(ProtoKind::Literals, 5, 4, 7 | 2 << 32), &ins, 8).is_err(), "the stream form's words past the program's");
-        assert!(check(&proto(ProtoKind::Literals, 2, 5, 7 | 2 << 32), &ins, 8).is_err(), "five words");
-        assert!(check(&proto(ProtoKind::Literals, 4, 3, 7), &ins, 8).is_err(), "no column");
+        assert_eq!(
+            check(
+                &proto(ProtoKind::Literals, 4, 4, 7 | 2 << 32 | 9 << 48),
+                &ins,
+                8
+            ),
+            Ok(()),
+            "the stream form's four words"
+        );
+        assert!(
+            check(&proto(ProtoKind::Literals, 5, 4, 7 | 2 << 32), &ins, 8).is_err(),
+            "the stream form's words past the program's"
+        );
+        assert!(
+            check(&proto(ProtoKind::Literals, 2, 5, 7 | 2 << 32), &ins, 8).is_err(),
+            "five words"
+        );
+        assert!(
+            check(&proto(ProtoKind::Literals, 4, 3, 7), &ins, 8).is_err(),
+            "no column"
+        );
     }
 
     #[test]
     fn route_takes_only_a_write_plan_with_a_route() {
         let ins = plan(Cmd::Insert);
         let mut routed = plan(Cmd::Insert);
-        routed.route = Some(RoutePlan { root: 9, leaves: gravity_program::ArenaVec::new_in(gravity_program::ArenaRef::EMPTY), moves: gravity_program::ArenaVec::new_in(gravity_program::ArenaRef::EMPTY) });
+        routed.route = Some(RoutePlan {
+            root: 9,
+            leaves: gravity_program::ArenaVec::new_in(gravity_program::ArenaRef::EMPTY),
+            moves: gravity_program::ArenaVec::new_in(gravity_program::ArenaRef::EMPTY),
+        });
         assert!(check(&proto(ProtoKind::Route, 0, 0, 0), &routed, 0).is_ok());
-        assert!(check(&proto(ProtoKind::Route, 0, 0, 0), &ins, 0).is_err(), "G4: a plain INSERT takes no route");
+        assert!(
+            check(&proto(ProtoKind::Route, 0, 0, 0), &ins, 0).is_err(),
+            "G4: a plain INSERT takes no route"
+        );
     }
 
     #[test]
     fn transition_takes_any_write_but_not_a_read() {
         for cmd in [Cmd::Insert, Cmd::Update, Cmd::Delete] {
-            assert_eq!(check(&proto(ProtoKind::Transition, 0, 0, 0), &plan(cmd), 0), Ok(()));
+            assert_eq!(
+                check(&proto(ProtoKind::Transition, 0, 0, 0), &plan(cmd), 0),
+                Ok(())
+            );
         }
-        assert!(check(&proto(ProtoKind::Transition, 0, 0, 0), &WritePlan::SELECT, 0).is_err());
+        assert!(check(
+            &proto(ProtoKind::Transition, 0, 0, 0),
+            &WritePlan::SELECT,
+            0
+        )
+        .is_err());
     }
 }

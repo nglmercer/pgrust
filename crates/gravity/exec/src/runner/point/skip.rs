@@ -48,10 +48,14 @@ use types_rel::{NoLock, Relation, LOCKMODE, RELKIND_MATVIEW, RELKIND_RELATION};
 
 use super::keep::{self, KeptBox};
 use super::{env_once, probe, rel, report, reporting, PLANCHECK};
-use crate::inputs::knobs::seam::{noplan_setting, planning_observed, point_noplan, settings_at, POINT_NOPLAN_OFF, POINT_NOPLAN_STRICT};
+use crate::inputs::knobs::seam::{
+    noplan_setting, planning_observed, point_noplan, settings_at, POINT_NOPLAN_OFF,
+    POINT_NOPLAN_STRICT,
+};
 
 /// The memo's holder: a per-backend cache, charged whole to it by construction (its root context and every entry's child).
-pub(super) const MEMO_OWNER: memledger::Owner = memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PerBackend));
+pub(super) const MEMO_OWNER: memledger::Owner =
+    memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PerBackend));
 
 leader_tls::leader_tls! {
     thread_local! {
@@ -168,7 +172,10 @@ struct Key {
 
 /// Hook A after S0's: `Err` hands the queries back to the planner untouched; once a statement is folded here it is planned
 /// here too (the planner's own call, as pg_plan_query makes it; its log and debug taps decline S5 first).
-pub(super) fn plan_skip<'mcx>(mcx: Mcx<'mcx>, querytrees: PgVec<'mcx, Query<'mcx>>) -> PgResult<Result<PgVec<'mcx, PlannedStmt<'mcx>>, PgVec<'mcx, Query<'mcx>>>> {
+pub(super) fn plan_skip<'mcx>(
+    mcx: Mcx<'mcx>,
+    querytrees: PgVec<'mcx, Query<'mcx>>,
+) -> PgResult<Result<PgVec<'mcx, PlannedStmt<'mcx>>, PgVec<'mcx, Query<'mcx>>>> {
     let mode = point_noplan();
     if mode == POINT_NOPLAN_OFF || querytrees.len() != 1 {
         return Ok(Err(querytrees));
@@ -183,7 +190,11 @@ pub(super) fn plan_skip<'mcx>(mcx: Mcx<'mcx>, querytrees: PgVec<'mcx, Query<'mcx
         }
         return Ok(Err(querytrees));
     }
-    let key = Key { k1, user: miscinit_seams::get_user_id::call(), guc_at: settings_at() };
+    let key = Key {
+        k1,
+        user: miscinit_seams::get_user_id::call(),
+        guc_at: settings_at(),
+    };
     if negative_stands(&key) {
         if reporting() {
             report("noplan declined (no point plan)");
@@ -193,7 +204,12 @@ pub(super) fn plan_skip<'mcx>(mcx: Mcx<'mcx>, querytrees: PgVec<'mcx, Query<'mcx
     // the table's own tests come before anything is evaluated: past the fold the statement is planned here, and the
     // planner expands a virtual generated column before it folds (expand_virtual_generated_columns), so the order of the
     // fold's evaluations would differ from its
-    let relid = querytrees[0].rtable.nth(0).as_range_tbl_entry().expect("checked by candidate").relid;
+    let relid = querytrees[0]
+        .rtable
+        .nth(0)
+        .as_range_tbl_entry()
+        .expect("checked by candidate")
+        .relid;
     if let Some(why) = table_check(mcx, relid)? {
         if reporting() {
             report(&format!("noplan declined ({why})")); // alloc: Cold
@@ -214,7 +230,8 @@ pub(super) fn plan_skip<'mcx>(mcx: Mcx<'mcx>, querytrees: PgVec<'mcx, Query<'mcx
     fold(mcx, q)?;
     let stmt = point_road(mcx, q, &key, mode)?;
     let mut out: PgVec<'mcx, PlannedStmt<'mcx>> = PgVec::new_in(mcx);
-    out.try_reserve_exact(1).map_err(|_| mcx.oom(core::mem::size_of::<PlannedStmt<'_>>()))?;
+    out.try_reserve_exact(1)
+        .map_err(|_| mcx.oom(core::mem::size_of::<PlannedStmt<'_>>()))?;
     out.push(stmt);
     Ok(Ok(out))
 }
@@ -245,10 +262,23 @@ fn tap_refusal() -> Option<&'static str> {
 fn candidate(q: &Query<'_>) -> Option<u64> {
     let cmd = q.commandType;
     let write = matches!(cmd, CmdType::CMD_UPDATE | CmdType::CMD_DELETE);
-    if !(write || cmd == CmdType::CMD_SELECT) || q.querySource != QuerySource::QSRC_ORIGINAL || !q.canSetTag || q.utilityStmt.is_some() {
+    if !(write || cmd == CmdType::CMD_SELECT)
+        || q.querySource != QuerySource::QSRC_ORIGINAL
+        || !q.canSetTag
+        || q.utilityStmt.is_some()
+    {
         return None;
     }
-    let flags = q.hasAggs || q.hasWindowFuncs || q.hasTargetSRFs || q.hasSubLinks || q.hasDistinctOn || q.hasRecursive || q.hasModifyingCTE || q.hasRowSecurity || q.hasGroupRTE || q.isReturn;
+    let flags = q.hasAggs
+        || q.hasWindowFuncs
+        || q.hasTargetSRFs
+        || q.hasSubLinks
+        || q.hasDistinctOn
+        || q.hasRecursive
+        || q.hasModifyingCTE
+        || q.hasRowSecurity
+        || q.hasGroupRTE
+        || q.isReturn;
     let clauses = !q.cteList.is_nil()
         || !q.mergeActionList.is_nil()
         || q.mergeJoinCondition.is_some()
@@ -270,7 +300,11 @@ fn candidate(q: &Query<'_>) -> Option<u64> {
     }
     let rte = q.rtable.nth(0).as_range_tbl_entry()?;
     let kind = rte.relkind == RELKIND_RELATION || (rte.relkind == RELKIND_MATVIEW && !write);
-    if rte.rtekind != RTEKind::RTE_RELATION || !kind || rte.tablesample.is_some() || !rte.securityQuals.is_nil() {
+    if rte.rtekind != RTEKind::RTE_RELATION
+        || !kind
+        || rte.tablesample.is_some()
+        || !rte.securityQuals.is_nil()
+    {
         return None;
     }
     if q.resultRelation != i32::from(write) {
@@ -281,11 +315,19 @@ fn candidate(q: &Query<'_>) -> Option<u64> {
         return None;
     }
     let mark = match q.rowMarks.first() {
-        Some(m) => Some(m.as_row_mark_clause().filter(|m| m.rti == 1 && !m.pushedDown)?),
+        Some(m) => Some(
+            m.as_row_mark_clause()
+                .filter(|m| m.rti == 1 && !m.pushedDown)?,
+        ),
         None => None,
     };
     let f = q.jointree?;
-    if f.fromlist.len() != 1 || f.fromlist.nth(0).as_range_tbl_ref().is_none_or(|r| r.rtindex != 1) {
+    if f.fromlist.len() != 1
+        || f.fromlist
+            .nth(0)
+            .as_range_tbl_ref()
+            .is_none_or(|r| r.rtindex != 1)
+    {
         return None;
     }
     let mut h = std::hash::DefaultHasher::new();
@@ -333,7 +375,8 @@ fn candidate(q: &Query<'_>) -> Option<u64> {
 /// The table's column a WHERE clause tests (a binary-compatible relabeling over it allowed).
 fn column<'p>(n: Node<'p>) -> Option<&'p types_nodes::primnodes::Var<'p>> {
     let n = n.as_relabel_type().map_or(n, |r| r.arg);
-    n.as_var().filter(|v| v.varno == 1 && v.varlevelsup == 0 && v.varattno > 0)
+    n.as_var()
+        .filter(|v| v.varno == 1 && v.varlevelsup == 0 && v.varattno > 0)
 }
 
 /// K1's walk: every node's tag, a constant's type (never its value), a column, an operator, a function; `ok` false (and the
@@ -405,12 +448,21 @@ fn fold<'mcx>(mcx: Mcx<'mcx>, q: &mut Query<'mcx>) -> PgResult<()> {
     if !q.targetList.is_nil() {
         let tl = core::mem::replace(&mut q.targetList, NodeList::nil());
         let folded = clauses::fold::eval_const_expressions(mcx, Node::mk_list(mcx, tl)?)?;
-        q.targetList = folded.as_list().expect("a list folds to a list").clone_in(mcx)?;
+        q.targetList = folded
+            .as_list()
+            .expect("a list folds to a list")
+            .clone_in(mcx)?;
     }
     let f = q.jointree.expect("checked by candidate");
     if let Some(w) = f.quals {
         let quals = Some(clauses::fold::eval_const_expressions(mcx, w)?);
-        q.jointree = Some(mcx::alloc_leak_in(mcx, types_nodes::primnodes::FromExpr { fromlist: f.fromlist.clone_in(mcx)?, quals })?);
+        q.jointree = Some(mcx::alloc_leak_in(
+            mcx,
+            types_nodes::primnodes::FromExpr {
+                fromlist: f.fromlist.clone_in(mcx)?,
+                quals,
+            },
+        )?);
     }
     Ok(())
 }
@@ -428,13 +480,27 @@ fn point_quals<'m>(mcx: Mcx<'m>, q: &Query<'m>) -> PgResult<Option<NodeList<'m>>
         None => NodeList::make1(mcx, w)?,
     };
     let point = list.iter().all(|c| {
-        c.as_op_expr().is_some_and(|op| op.args.len() == 2 && column(op.args.nth(0)).is_some() && op.args.nth(1).as_const().is_some() && gravity_expr::catalog::FuncFacts::builtin(op.opno))
+        c.as_op_expr().is_some_and(|op| {
+            op.args.len() == 2
+                && column(op.args.nth(0)).is_some()
+                && op.args.nth(1).as_const().is_some()
+                && gravity_expr::catalog::FuncFacts::builtin(op.opno)
+        })
     });
     Ok(point.then_some(list))
 }
 
-fn point_road<'mcx>(mcx: Mcx<'mcx>, q: &'mcx mut Query<'mcx>, key: &Key, mode: i32) -> PgResult<PlannedStmt<'mcx>> {
-    let rte = q.rtable.nth(0).as_range_tbl_entry().expect("checked by candidate");
+fn point_road<'mcx>(
+    mcx: Mcx<'mcx>,
+    q: &'mcx mut Query<'mcx>,
+    key: &Key,
+    mode: i32,
+) -> PgResult<PlannedStmt<'mcx>> {
+    let rte = q
+        .rtable
+        .nth(0)
+        .as_range_tbl_entry()
+        .expect("checked by candidate");
     let (relid, lockmode) = (rte.relid, rte.rellockmode);
     let quals = point_quals(mcx, q)?;
     let why = match quals {
@@ -455,7 +521,14 @@ fn point_road<'mcx>(mcx: Mcx<'mcx>, q: &'mcx mut Query<'mcx>, key: &Key, mode: i
                 report("noplan hit");
             }
             let plan = stmt.planTree.map_or(0, |n| n.as_raw().as_ptr() as usize);
-            HIT.with(|h| h.set(Some(Hit { k1: key.k1, user: key.user, tick, plan })));
+            HIT.with(|h| {
+                h.set(Some(Hit {
+                    k1: key.k1,
+                    user: key.user,
+                    tick,
+                    plan,
+                }))
+            });
             Ok(stmt)
         }
         Look::Miss(why) => miss(mcx, q, relid, key, why, None),
@@ -484,7 +557,12 @@ fn table_facts(heap: &Relation<'_>) -> Option<&'static str> {
     if heap.rd_rel.relhassubclass || heap.rd_rel.relispartition {
         return Some("inheritance or partition");
     }
-    if heap.rd_att.constr.as_ref().is_some_and(|c| c.has_generated_virtual) {
+    if heap
+        .rd_att
+        .constr
+        .as_ref()
+        .is_some_and(|c| c.has_generated_virtual)
+    {
         return Some("virtual generated column");
     }
     if !heap.rd_rel.relhasindex {
@@ -545,7 +623,9 @@ fn negative_stands(key: &Key) -> bool {
 }
 
 fn find(m: &Memo<'_>, key: &Key) -> Option<usize> {
-    m.slots.iter().position(|s| s.k1 == key.k1 && s.user == key.user)
+    m.slots
+        .iter()
+        .position(|s| s.k1 == key.k1 && s.user == key.user)
 }
 
 /// The memo's plan for the folded statement `q` (its WHERE as `quals`), after the locks: the slot's settings and reads
@@ -608,14 +688,23 @@ fn hit<'m>(mcx: Mcx<'m>, q: &Query<'m>, quals: &NodeList<'m>, key: &Key) -> PgRe
 /// `stmt` is `filed` but for its constants (each of the same type, typmod, collation and nullness): the same command,
 /// range table, permissions, row marks, join tree, target entries' labels, and target and WHERE expressions once
 /// `filed`'s constants (`holes`, in `holes_of_query` order) stand in for `stmt`'s.
-fn same_shape<'m>(mcx: Mcx<'m>, stmt: &Query<'m>, filed: &Query<'_>, holes: &PgVec<'_, Node<'_>>) -> PgResult<bool> {
+fn same_shape<'m>(
+    mcx: Mcx<'m>,
+    stmt: &Query<'m>,
+    filed: &Query<'_>,
+    holes: &PgVec<'_, Node<'_>>,
+) -> PgResult<bool> {
     let scalars = stmt.commandType == filed.commandType
         && stmt.querySource == filed.querySource
         && stmt.canSetTag == filed.canSetTag
         && stmt.resultRelation == filed.resultRelation
         && stmt.hasForUpdate == filed.hasForUpdate
         && stmt.r#override == filed.r#override;
-    if !scalars || !lists_equal(&stmt.rtable, &filed.rtable) || !lists_equal(&stmt.rteperminfos, &filed.rteperminfos) || !lists_equal(&stmt.rowMarks, &filed.rowMarks) {
+    if !scalars
+        || !lists_equal(&stmt.rtable, &filed.rtable)
+        || !lists_equal(&stmt.rteperminfos, &filed.rteperminfos)
+        || !lists_equal(&stmt.rowMarks, &filed.rowMarks)
+    {
         return Ok(false);
     }
     let (Some(f1), Some(f0)) = (stmt.jointree, filed.jointree) else {
@@ -629,7 +718,12 @@ fn same_shape<'m>(mcx: Mcx<'m>, stmt: &Query<'m>, filed: &Query<'_>, holes: &PgV
         let (Some(a), Some(b)) = (a.as_target_entry(), b.as_target_entry()) else {
             return Ok(false);
         };
-        let labels = a.resno == b.resno && a.resname == b.resname && a.ressortgroupref == b.ressortgroupref && a.resorigtbl == b.resorigtbl && a.resorigcol == b.resorigcol && a.resjunk == b.resjunk;
+        let labels = a.resno == b.resno
+            && a.resname == b.resname
+            && a.ressortgroupref == b.ressortgroupref
+            && a.resorigtbl == b.resorigtbl
+            && a.resorigcol == b.resorigcol
+            && a.resjunk == b.resjunk;
         if !labels || !expr_same(mcx, a.expr, b.expr, holes, &mut k)? {
             return Ok(false);
         }
@@ -642,7 +736,13 @@ fn same_shape<'m>(mcx: Mcx<'m>, stmt: &Query<'m>, filed: &Query<'_>, holes: &PgV
     Ok(wheres && k == holes.len())
 }
 
-fn expr_same<'m>(mcx: Mcx<'m>, a: Node<'m>, b: Node<'_>, holes: &PgVec<'_, Node<'_>>, k: &mut usize) -> PgResult<bool> {
+fn expr_same<'m>(
+    mcx: Mcx<'m>,
+    a: Node<'m>,
+    b: Node<'_>,
+    holes: &PgVec<'_, Node<'_>>,
+    k: &mut usize,
+) -> PgResult<bool> {
     let mut same = true;
     let swapped = swap(mcx, a, holes, k, &mut same)?.unwrap_or(a);
     Ok(same && equal(swapped, b))
@@ -650,7 +750,13 @@ fn expr_same<'m>(mcx: Mcx<'m>, a: Node<'m>, b: Node<'_>, holes: &PgVec<'_, Node<
 
 /// `n` with its constants replaced, in expression_tree_mutator's order, by `holes[k..]` (only for the comparison: a
 /// stand-in's value may point into the memo's context); `same` false at a constant of another kind or past the holes.
-fn swap<'m>(mcx: Mcx<'m>, n: Node<'m>, holes: &PgVec<'_, Node<'_>>, k: &mut usize, same: &mut bool) -> PgResult<Option<Node<'m>>> {
+fn swap<'m>(
+    mcx: Mcx<'m>,
+    n: Node<'m>,
+    holes: &PgVec<'_, Node<'_>>,
+    k: &mut usize,
+    same: &mut bool,
+) -> PgResult<Option<Node<'m>>> {
     stack_depth_core::check_stack_depth()?;
     if let Some(c) = n.as_const() {
         let h = holes.get(*k).and_then(|h| h.as_const());
@@ -667,7 +773,12 @@ fn swap<'m>(mcx: Mcx<'m>, n: Node<'m>, holes: &PgVec<'_, Node<'_>>, k: &mut usiz
 }
 
 fn const_kind_eq(a: &Const, b: &Const) -> bool {
-    a.consttype == b.consttype && a.consttypmod == b.consttypmod && a.constcollid == b.constcollid && a.constlen == b.constlen && a.constbyval == b.constbyval && a.constisnull == b.constisnull
+    a.consttype == b.consttype
+        && a.consttypmod == b.consttypmod
+        && a.constcollid == b.constcollid
+        && a.constlen == b.constlen
+        && a.constbyval == b.constbyval
+        && a.constisnull == b.constisnull
 }
 
 /// The constants of `q`'s target entries' expressions, then of its WHERE, in expression_tree_mutator's order.
@@ -687,7 +798,8 @@ fn holes_of_query<'e>(m: Mcx<'e>, q: &Query<'e>) -> PgResult<PgVec<'e, Node<'e>>
 fn holes_of<'e>(m: Mcx<'e>, n: Node<'e>, out: &mut PgVec<'e, Node<'e>>) -> PgResult<()> {
     stack_depth_core::check_stack_depth()?;
     if n.as_const().is_some() {
-        out.try_reserve(1).map_err(|_| m.oom(core::mem::size_of::<Node<'_>>()))?;
+        out.try_reserve(1)
+            .map_err(|_| m.oom(core::mem::size_of::<Node<'_>>()))?;
         out.push(n);
         return Ok(());
     }
@@ -699,17 +811,43 @@ fn holes_of<'e>(m: Mcx<'e>, n: Node<'e>, out: &mut PgVec<'e, Node<'e>>) -> PgRes
 /// labels; a junk entry, a row identity column, the filed one), its indexqualorig `q`'s WHERE clauses in the filed order,
 /// its indexqual the filed clauses over the index's columns with `q`'s constants; LockRows' list is the scan's entries by
 /// position (set_dummy_tlist_references); the statement's identity is `q`'s.
-fn build<'m>(mcx: Mcx<'m>, q: &Query<'m>, quals: &NodeList<'m>, f: &Filed<'_>) -> PgResult<PlannedStmt<'m>> {
+fn build<'m>(
+    mcx: Mcx<'m>,
+    q: &Query<'m>,
+    quals: &NodeList<'m>,
+    f: &Filed<'_>,
+) -> PgResult<PlannedStmt<'m>> {
     let s0 = scan_of(f.root).expect("checked at filing");
     let scan = Node::mk(mcx, build_scan(mcx, q, quals, s0, &f.orig_of)?)?;
     let root = if let Some(lr0) = f.root.as_lock_rows() {
-        let stl = &scan.as_index_scan().expect("built above").scan.plan.targetlist;
+        let stl = &scan
+            .as_index_scan()
+            .expect("built above")
+            .scan
+            .plan
+            .targetlist;
         let mut tl = NodeList::with_capacity(mcx, lr0.plan.targetlist.len())?;
         for (i, t) in lr0.plan.targetlist.iter().enumerate() {
-            let constant = t.as_target_entry().is_some_and(|te| te.expr.as_const().is_some());
-            tl.lappend(mcx, if constant { stl.nth(i) } else { copyfuncs::copy_object(mcx, t)? })?;
+            let constant = t
+                .as_target_entry()
+                .is_some_and(|te| te.expr.as_const().is_some());
+            tl.lappend(
+                mcx,
+                if constant {
+                    stl.nth(i)
+                } else {
+                    copyfuncs::copy_object(mcx, t)?
+                },
+            )?;
         }
-        Node::mk(mcx, LockRows { plan: plan_like(mcx, &lr0.plan, tl, Some(scan))?, rowMarks: nodes_in(mcx, &lr0.rowMarks)?, epqParam: lr0.epqParam })?
+        Node::mk(
+            mcx,
+            LockRows {
+                plan: plan_like(mcx, &lr0.plan, tl, Some(scan))?,
+                rowMarks: nodes_in(mcx, &lr0.rowMarks)?,
+                epqParam: lr0.epqParam,
+            },
+        )?
     } else if let Some(mt0) = f.root.as_modify_table() {
         Node::mk(mcx, modify_like(mcx, mt0, scan)?)?
     } else {
@@ -726,7 +864,13 @@ fn build<'m>(mcx: Mcx<'m>, q: &Query<'m>, quals: &NodeList<'m>, f: &Filed<'_>) -
     })
 }
 
-fn build_scan<'m>(mcx: Mcx<'m>, q: &Query<'m>, quals: &NodeList<'m>, s0: &IndexScan<'_>, orig_of: &[u16]) -> PgResult<IndexScan<'m>> {
+fn build_scan<'m>(
+    mcx: Mcx<'m>,
+    q: &Query<'m>,
+    quals: &NodeList<'m>,
+    s0: &IndexScan<'_>,
+    orig_of: &[u16],
+) -> PgResult<IndexScan<'m>> {
     let mut tl = NodeList::with_capacity(mcx, s0.scan.plan.targetlist.len())?;
     let mut entries = q.targetList.iter();
     for t in s0.scan.plan.targetlist.iter() {
@@ -735,7 +879,10 @@ fn build_scan<'m>(mcx: Mcx<'m>, q: &Query<'m>, quals: &NodeList<'m>, s0: &IndexS
             tl.lappend(mcx, copyfuncs::copy_object(mcx, t)?)?;
             continue;
         }
-        let te1 = entries.next().and_then(|n| n.as_target_entry()).expect("checked by same_shape");
+        let te1 = entries
+            .next()
+            .and_then(|n| n.as_target_entry())
+            .expect("checked by same_shape");
         nodes_core::fix_opfuncids(te1.expr)?;
         let te = TargetEntry {
             expr: te1.expr,
@@ -757,7 +904,11 @@ fn build_scan<'m>(mcx: Mcx<'m>, q: &Query<'m>, quals: &NodeList<'m>, s0: &IndexS
         indexqualorig.lappend(mcx, clause)?;
         let op0 = c0.as_op_expr().expect("checked at filing");
         let op1 = clause.as_op_expr().expect("checked by point_quals");
-        let args = NodeList::make2(mcx, copyfuncs::copy_object(mcx, op0.args.nth(0))?, op1.args.nth(1))?;
+        let args = NodeList::make2(
+            mcx,
+            copyfuncs::copy_object(mcx, op0.args.nth(0))?,
+            op1.args.nth(1),
+        )?;
         let op = OpExpr {
             opno: op0.opno,
             opfuncid: op0.opfuncid,
@@ -771,7 +922,10 @@ fn build_scan<'m>(mcx: Mcx<'m>, q: &Query<'m>, quals: &NodeList<'m>, s0: &IndexS
         indexqual.lappend(mcx, Node::mk(mcx, op)?)?;
     }
     Ok(IndexScan {
-        scan: Scan { plan: plan_like(mcx, &s0.scan.plan, tl, None)?, scanrelid: s0.scan.scanrelid },
+        scan: Scan {
+            plan: plan_like(mcx, &s0.scan.plan, tl, None)?,
+            scanrelid: s0.scan.scanrelid,
+        },
         indexid: s0.indexid,
         indexqual,
         indexqualorig,
@@ -783,7 +937,12 @@ fn build_scan<'m>(mcx: Mcx<'m>, q: &Query<'m>, quals: &NodeList<'m>, s0: &IndexS
 }
 
 /// A filed node's Plan fields over a new target list and child (no qual, no initplan, no right child: `plan_gate`).
-fn plan_like<'m>(mcx: Mcx<'m>, p: &Plan<'_>, targetlist: NodeList<'m>, lefttree: Option<Node<'m>>) -> PgResult<Plan<'m>> {
+fn plan_like<'m>(
+    mcx: Mcx<'m>,
+    p: &Plan<'_>,
+    targetlist: NodeList<'m>,
+    lefttree: Option<Node<'m>>,
+) -> PgResult<Plan<'m>> {
     Ok(Plan {
         disabled_nodes: p.disabled_nodes,
         startup_cost: p.startup_cost,
@@ -805,7 +964,11 @@ fn plan_like<'m>(mcx: Mcx<'m>, p: &Plan<'_>, targetlist: NodeList<'m>, lefttree:
 }
 
 /// The filed ModifyTable over a new scan (no RETURNING, WITH CHECK, ON CONFLICT or MERGE part: `plan_gate`).
-fn modify_like<'m>(mcx: Mcx<'m>, mt0: &ModifyTable<'_>, scan: Node<'m>) -> PgResult<ModifyTable<'m>> {
+fn modify_like<'m>(
+    mcx: Mcx<'m>,
+    mt0: &ModifyTable<'_>,
+    scan: Node<'m>,
+) -> PgResult<ModifyTable<'m>> {
     Ok(ModifyTable {
         plan: plan_like(mcx, &mt0.plan, NodeList::nil(), Some(scan))?,
         operation: mt0.operation,
@@ -855,7 +1018,10 @@ fn bms_in<'m>(mcx: Mcx<'m>, b: &Bitmapset<'_>) -> PgResult<Bitmapset<'m>> {
 
 /// The IndexScan of a point plan: the root, or LockRows' or ModifyTable's child.
 fn scan_of<'p>(root: Node<'p>) -> Option<&'p IndexScan<'p>> {
-    let child = root.as_lock_rows().map(|l| l.plan.lefttree).or_else(|| root.as_modify_table().map(|m| m.plan.lefttree));
+    let child = root
+        .as_lock_rows()
+        .map(|l| l.plan.lefttree)
+        .or_else(|| root.as_modify_table().map(|m| m.plan.lefttree));
     match child {
         Some(c) => c?.as_index_scan(),
         None => root.as_index_scan(),
@@ -866,7 +1032,14 @@ fn scan_of<'p>(root: Node<'p>) -> Option<&'p IndexScan<'p>> {
 /// storage statistics, which estimate_rel_size reads past the relcache's own invalidation: a TRUNCATE, a REINDEX), and
 /// the plan is filed, counted toward its filing (`seen`: the slot's count so far), or the shape marked as planning to no
 /// point plan.
-fn miss<'mcx>(mcx: Mcx<'mcx>, q: &'mcx mut Query<'mcx>, relid: Oid, key: &Key, why: &'static str, seen: Option<(Choice, u8)>) -> PgResult<PlannedStmt<'mcx>> {
+fn miss<'mcx>(
+    mcx: Mcx<'mcx>,
+    q: &'mcx mut Query<'mcx>,
+    relid: Oid,
+    key: &Key,
+    why: &'static str,
+    seen: Option<(Choice, u8)>,
+) -> PgResult<PlannedStmt<'mcx>> {
     let cmd = q.commandType;
     let marks = !q.rowMarks.is_nil();
     let entry = new_entry(q)?;
@@ -884,15 +1057,24 @@ fn miss<'mcx>(mcx: Mcx<'mcx>, q: &'mcx mut Query<'mcx>, relid: Oid, key: &Key, w
     };
     if reporting() {
         report(&match filed {
-            Ok(Filing::Slot(_)) => format!("noplan miss ({why}) filed"),                            // alloc: Cold
-            Ok(Filing::Confirming(n)) => format!("noplan miss ({why}) confirming {n}/{CONFIRM_MISSES}"), // alloc: Cold
-            Err(no) => format!("noplan miss ({why}) not filed ({no})"),                              // alloc: Cold
+            Ok(Filing::Slot(_)) => format!("noplan miss ({why}) filed"), // alloc: Cold
+            Ok(Filing::Confirming(n)) => {
+                format!("noplan miss ({why}) confirming {n}/{CONFIRM_MISSES}")
+            } // alloc: Cold
+            Err(no) => format!("noplan miss ({why}) not filed ({no})"),  // alloc: Cold
         });
     }
     // the plan just filed is the slot's: hook B makes the slot's pieces at this statement (keep.rs)
     if let Ok(Filing::Slot(Some(tick))) = filed {
         let plan = p.planTree.map_or(0, |n| n.as_raw().as_ptr() as usize);
-        HIT.with(|h| h.set(Some(Hit { k1: key.k1, user: key.user, tick, plan })));
+        HIT.with(|h| {
+            h.set(Some(Hit {
+                k1: key.k1,
+                user: key.user,
+                tick,
+                plan,
+            }))
+        });
     }
     Ok(p)
 }
@@ -907,7 +1089,8 @@ fn new_entry(q: &Query<'_>) -> PgResult<Option<McxOwned<EntryTy>>> {
         if g.is_none() {
             *g = Some(memo_new()?);
         }
-        Ok(g.as_ref().map(|memo| memo.context().new_child_small("GravityPointPlan")))
+        Ok(g.as_ref()
+            .map(|memo| memo.context().new_child_small("GravityPointPlan")))
     })?;
     let Some(ctx) = ctx else {
         return Ok(None);
@@ -915,14 +1098,31 @@ fn new_entry(q: &Query<'_>) -> PgResult<Option<McxOwned<EntryTy>>> {
     McxOwned::<EntryTy>::try_new(ctx, |m| {
         let qf = copyfuncs::copy_query(m, q)?;
         let holes = holes_of_query(m, &qf)?;
-        Ok(Entry { qf, holes, filed: None })
+        Ok(Entry {
+            qf,
+            holes,
+            filed: None,
+        })
     })
     .map(Some)
 }
 
 /// The memo's root, charged to MEMO_OWNER, its drop armed at the session's teardown.
 fn memo_new() -> PgResult<McxOwned<MemoTy>> {
-    let memo = McxOwned::<MemoTy>::try_new(gravity_driver::mem::root::context("GravityPointPlanMemo", true), |m| Ok(Memo { slots: PgVec::new_in(m), tick: 0, swept: l2cache::committed_moves(), sweep_at: 0, short: mcx::memory_short_epoch(), bytes: 0, freed: 0 }))?;
+    let memo = McxOwned::<MemoTy>::try_new(
+        gravity_driver::mem::root::context("GravityPointPlanMemo", true),
+        |m| {
+            Ok(Memo {
+                slots: PgVec::new_in(m),
+                tick: 0,
+                swept: l2cache::committed_moves(),
+                sweep_at: 0,
+                short: mcx::memory_short_epoch(),
+                bytes: 0,
+                freed: 0,
+            })
+        },
+    )?;
     memo.context().set_owner(MEMO_OWNER);
     super::super::execute::arm_teardown();
     Ok(memo)
@@ -941,7 +1141,17 @@ enum Filing {
 /// same choice (`seen`: the slot's choice and count). A transient plan (an index this transaction cannot use yet) files
 /// nothing and drops the key's slot.
 #[allow(clippy::too_many_arguments)]
-fn file(mcx: Mcx<'_>, p: &PlannedStmt<'_>, cmd: CmdType, marks: bool, relid: Oid, mut e: McxOwned<EntryTy>, held: gravity_deps::Held, key: &Key, seen: Option<(Choice, u8)>) -> PgResult<Result<Filing, &'static str>> {
+fn file(
+    mcx: Mcx<'_>,
+    p: &PlannedStmt<'_>,
+    cmd: CmdType,
+    marks: bool,
+    relid: Oid,
+    mut e: McxOwned<EntryTy>,
+    held: gravity_deps::Held,
+    key: &Key,
+    seen: Option<(Choice, u8)>,
+) -> PgResult<Result<Filing, &'static str>> {
     if p.transientPlan {
         remove(key);
         return Ok(Err("transient plan"));
@@ -957,7 +1167,10 @@ fn file(mcx: Mcx<'_>, p: &PlannedStmt<'_>, cmd: CmdType, marks: bool, relid: Oid
     }
     let root = p.planTree.expect("checked by plan_gate");
     let scan = scan_of(root).expect("checked by plan_gate");
-    let choice = Choice { index: scan.indexid, top: root.node_tag() };
+    let choice = Choice {
+        index: scan.indexid,
+        top: root.node_tag(),
+    };
     let n = match seen {
         Some((c, n)) if c == choice => n.saturating_add(1),
         _ => 1,
@@ -992,7 +1205,12 @@ fn alone(mcx: Mcx<'_>, relid: Oid, scan: &IndexScan<'_>) -> PgResult<bool> {
             continue;
         }
         let r = indexam::index_open(mcx, index, NoLock)?;
-        let other = r.rd_index.as_ref().is_none_or(|f| f.indkey.iter().take(f.indnkeyatts as usize).any(|&a| a <= 0 || has(tested, a)));
+        let other = r.rd_index.as_ref().is_none_or(|f| {
+            f.indkey
+                .iter()
+                .take(f.indnkeyatts as usize)
+                .any(|&a| a <= 0 || has(tested, a))
+        });
         indexam::index_close(r, NoLock)?;
         if other {
             return Ok(false);
@@ -1018,7 +1236,13 @@ fn has(tested: &[i16], a: i16) -> bool {
 /// The plan-level test of a point plan (S1's shape over every command): the statement's flags, one relation, an
 /// IndexScan of the table's unique btree with equality on every key column against a constant (`probe::index_refusal`)
 /// and nothing else, under LockRows (one row mark) or a bare ModifyTable at most.
-fn plan_gate(mcx: Mcx<'_>, p: &PlannedStmt<'_>, cmd: CmdType, marks: bool, relid: Oid) -> PgResult<Result<(), &'static str>> {
+fn plan_gate(
+    mcx: Mcx<'_>,
+    p: &PlannedStmt<'_>,
+    cmd: CmdType,
+    marks: bool,
+    relid: Oid,
+) -> PgResult<Result<(), &'static str>> {
     let stmt = p.commandType == cmd
         && p.utilityStmt.is_none()
         && !p.hasReturning
@@ -1041,7 +1265,12 @@ fn plan_gate(mcx: Mcx<'_>, p: &PlannedStmt<'_>, cmd: CmdType, marks: bool, relid
     };
     let wrapper = match (cmd, marks) {
         (CmdType::CMD_SELECT, false) => root.as_index_scan().map(|_| true),
-        (CmdType::CMD_SELECT, true) => root.as_lock_rows().map(|l| l.plan.righttree.is_none() && l.plan.qual.is_nil() && l.plan.initPlan.is_nil() && l.rowMarks.len() == 1),
+        (CmdType::CMD_SELECT, true) => root.as_lock_rows().map(|l| {
+            l.plan.righttree.is_none()
+                && l.plan.qual.is_nil()
+                && l.plan.initPlan.is_nil()
+                && l.rowMarks.len() == 1
+        }),
         _ => root.as_modify_table().map(|m| bare_modify(m, cmd)),
     };
     if wrapper != Some(true) {
@@ -1068,7 +1297,11 @@ fn plan_gate(mcx: Mcx<'_>, p: &PlannedStmt<'_>, cmd: CmdType, marks: bool, relid
     }
     let index = indexam::index_open(mcx, scan.indexid, NoLock)?;
     let mut ops: probe::KeyOps = [(0, 0); types_core::fmgr::INDEX_MAX_KEYS as usize];
-    let why = if index.rd_index.as_ref().is_some_and(|f| f.indrelid == relid) { probe::index_refusal(&index, &scan.indexqual, &[], &mut ops) } else { Ok(Some("index of another table")) };
+    let why = if index.rd_index.as_ref().is_some_and(|f| f.indrelid == relid) {
+        probe::index_refusal(&index, &scan.indexqual, &[], &mut ops)
+    } else {
+        Ok(Some("index of another table"))
+    };
     let closed = indexam::index_close(index, NoLock);
     let why = why?;
     closed?;
@@ -1103,7 +1336,11 @@ fn bare_modify(m: &ModifyTable<'_>, cmd: CmdType) -> bool {
 /// WHERE clauses (each once, all of them) and its indexqual clause carries that clause's constant; the scan's non-junk
 /// entries are its target entries in order (expression and name), its junk entries hold no constant; LockRows' entries
 /// are the scan's by position. Then the plan is copied in.
-fn fill_entry<'e>(m: Mcx<'e>, e: &mut Entry<'e>, p: &PlannedStmt<'_>) -> PgResult<Result<(), &'static str>> {
+fn fill_entry<'e>(
+    m: Mcx<'e>,
+    e: &mut Entry<'e>,
+    p: &PlannedStmt<'_>,
+) -> PgResult<Result<(), &'static str>> {
     let Some(quals) = point_quals(m, &e.qf)? else {
         return Ok(Err("folded where"));
     };
@@ -1121,7 +1358,8 @@ fn fill_entry<'e>(m: Mcx<'e>, e: &mut Entry<'e>, p: &PlannedStmt<'_>) -> PgResul
             return Ok(Err("index clause"));
         };
         used[j] = true;
-        if !matches!((const_arg(scan.indexqual.nth(i)), const_arg(c)), (Some(a), Some(b)) if equal(a, b)) {
+        if !matches!((const_arg(scan.indexqual.nth(i)), const_arg(c)), (Some(a), Some(b)) if equal(a, b))
+        {
             return Ok(Err("index clause value"));
         }
         orig_of.push(j as u16);
@@ -1150,10 +1388,18 @@ fn fill_entry<'e>(m: Mcx<'e>, e: &mut Entry<'e>, p: &PlannedStmt<'_>) -> PgResul
     }
     if let Some(lr) = root.as_lock_rows() {
         for (i, t) in lr.plan.targetlist.iter().enumerate() {
-            let ok = t.as_target_entry().is_some_and(|te| match (te.expr.as_var(), te.expr.as_const()) {
-                (Some(v), _) => v.varno == OUTER_VAR,
-                (None, Some(_)) => i < stl.len() && stl.nth(i).as_target_entry().is_some_and(|s| equal(te.expr, s.expr)),
-                _ => false,
+            let ok = t.as_target_entry().is_some_and(|te| {
+                match (te.expr.as_var(), te.expr.as_const()) {
+                    (Some(v), _) => v.varno == OUTER_VAR,
+                    (None, Some(_)) => {
+                        i < stl.len()
+                            && stl
+                                .nth(i)
+                                .as_target_entry()
+                                .is_some_and(|s| equal(te.expr, s.expr))
+                    }
+                    _ => false,
+                }
             });
             if !ok {
                 return Ok(Err("lock rows target list"));
@@ -1162,13 +1408,23 @@ fn fill_entry<'e>(m: Mcx<'e>, e: &mut Entry<'e>, p: &PlannedStmt<'_>) -> PgResul
     }
     let c = copyfuncs::copy_planned_stmt(m, p)?;
     let root = c.planTree.expect("checked by plan_gate");
-    e.filed = Some(Filed { shell: PlannedStmt { planTree: None, ..c }, root, orig_of });
+    e.filed = Some(Filed {
+        shell: PlannedStmt {
+            planTree: None,
+            ..c
+        },
+        root,
+        orig_of,
+    });
     Ok(Ok(()))
 }
 
 /// A binary clause's constant right-hand side.
 fn const_arg(x: Node<'_>) -> Option<Node<'_>> {
-    x.as_op_expr().filter(|o| o.args.len() == 2).map(|o| o.args.nth(1)).filter(|a| a.as_const().is_some())
+    x.as_op_expr()
+        .filter(|o| o.args.len() == 2)
+        .map(|o| o.args.nth(1))
+        .filter(|a| a.as_const().is_some())
 }
 
 /// A constant anywhere under a node.
@@ -1186,8 +1442,14 @@ impl<'mcx> NodeWalker<'mcx> for HasConst {
 /// The key's slot replaced by (or a new slot of) `entry` (None: no point plan, or with `seen` one being confirmed) with
 /// `held`, then the least recently used slots out while the memo is past mempolicy's caps. The slot's tick (`Hit::tick`),
 /// `None` when it was not placed.
-fn put(key: &Key, held: gravity_deps::Held, entry: Option<McxOwned<EntryTy>>, seen: Option<(Choice, u8)>) -> Option<u64> {
-    let bytes = entry.as_ref().map_or(0, |e| e.context().used()) + held.deps().len() * core::mem::size_of::<(gravity_deps::Dep, u64)>();
+fn put(
+    key: &Key,
+    held: gravity_deps::Held,
+    entry: Option<McxOwned<EntryTy>>,
+    seen: Option<(Choice, u8)>,
+) -> Option<u64> {
+    let bytes = entry.as_ref().map_or(0, |e| e.context().used())
+        + held.deps().len() * core::mem::size_of::<(gravity_deps::Dep, u64)>();
     MEMO.with(|cell| {
         let Ok(mut g) = cell.try_borrow_mut() else {
             return None;
@@ -1196,7 +1458,20 @@ fn put(key: &Key, held: gravity_deps::Held, entry: Option<McxOwned<EntryTy>>, se
         memo.with_mut(move |m| {
             m.tick += 1;
             let tick = m.tick;
-            let slot = Slot { k1: key.k1, user: key.user, guc_at: key.guc_at, tick, bytes, held, entry, seen, kept: None, kept_bytes: 0, refused: 0, refused_at: 0 };
+            let slot = Slot {
+                k1: key.k1,
+                user: key.user,
+                guc_at: key.guc_at,
+                tick,
+                bytes,
+                held,
+                entry,
+                seen,
+                kept: None,
+                kept_bytes: 0,
+                refused: 0,
+                refused_at: 0,
+            };
             match find(m, key) {
                 Some(i) => {
                     let old = core::mem::replace(&mut m.slots[i], slot);
@@ -1244,7 +1519,9 @@ pub(super) fn take_hit(pstmt: &PlannedStmt<'_>) -> Option<Hit> {
 }
 
 fn find_hit(m: &Memo<'_>, hit: &Hit) -> Option<usize> {
-    m.slots.iter().position(|s| s.k1 == hit.k1 && s.user == hit.user && s.tick == hit.tick)
+    m.slots
+        .iter()
+        .position(|s| s.k1 == hit.k1 && s.user == hit.user && s.tick == hit.tick)
 }
 
 /// What hook B runs a hit's statement over (`take_kept`).
@@ -1297,7 +1574,12 @@ pub(super) fn take_kept(hit: &Hit) -> Taken {
 /// D4572: whether `want` more bytes fit under the memo's byte cap as it is.
 fn room(m: &Memo<'_>, want: usize) -> bool {
     // pgrust.point_portal_keep's kept probes count in the same byte cap
-    !mempolicy::cache::point_memo_over(0, m.bytes.saturating_add(super::pkeep::bytes()).saturating_add(want))
+    !mempolicy::cache::point_memo_over(
+        0,
+        m.bytes
+            .saturating_add(super::pkeep::bytes())
+            .saturating_add(want),
+    )
 }
 
 /// Slot `i` out of the memo, its bytes with it.
@@ -1360,12 +1642,17 @@ pub(super) fn put_kept(hit: &Hit, mut kept: KeptBox, deps: Option<&gravity_deps:
     });
     drop(left);
     if let Some((memo, n)) = refused.filter(|_| super::reporting()) {
-        super::report(&format!("keep refused {bytes} bytes (memo {memo} bytes, {n} slots)")); // alloc: Cold
+        super::report(&format!(
+            "keep refused {bytes} bytes (memo {memo} bytes, {n} slots)"
+        )); // alloc: Cold
     }
     if let Some((before, after)) = entry.filter(|_| super::reporting()) {
         // The entry's bytes without the pieces, then with them (the reads their making added, and the pieces).
         let parts = parts.unwrap_or_default();
-        super::report(&format!("keep bytes {before} -> {} (reads {after}, pieces {bytes} = {parts})", after + bytes)); // alloc: Cold
+        super::report(&format!(
+            "keep bytes {before} -> {} (reads {after}, pieces {bytes} = {parts})",
+            after + bytes
+        )); // alloc: Cold
     }
 }
 
@@ -1373,7 +1660,11 @@ pub(super) fn put_kept(hit: &Hit, mut kept: KeptBox, deps: Option<&gravity_deps:
 /// pieces go first (the slot keeps its plan; its next statement builds them again), and a whole slot, plan included, goes
 /// only when no slot keeps pieces any more; past the entry count, the least recently used slot goes.
 fn evict(m: &mut Memo<'_>) {
-    debug_assert_eq!(m.bytes, m.slots.iter().map(Slot::all_bytes).sum::<usize>(), "the memo's byte count");
+    debug_assert_eq!(
+        m.bytes,
+        m.slots.iter().map(Slot::all_bytes).sum::<usize>(),
+        "the memo's byte count"
+    );
     loop {
         // pgrust.point_portal_keep's kept probes count in the same byte cap (pkeep.rs: at most `pkeep::ENTRIES` of them)
         let bytes = m.bytes + super::pkeep::bytes();
@@ -1381,7 +1672,9 @@ fn evict(m: &mut Memo<'_>) {
             return;
         }
         let count_over = mempolicy::cache::point_memo_over(m.slots.len(), 0);
-        match out_of(count_over, || m.slots.iter().map(|s| (s.tick, s.kept.is_some()))) {
+        match out_of(count_over, || {
+            m.slots.iter().map(|s| (s.tick, s.kept.is_some()))
+        }) {
             Some(Out::Pieces(i)) => {
                 let s = &mut m.slots[i];
                 let b = core::mem::take(&mut s.kept_bytes);
@@ -1389,13 +1682,19 @@ fn evict(m: &mut Memo<'_>) {
                 m.bytes = m.bytes.saturating_sub(b);
                 m.freed += 1;
                 if reporting() {
-                    report(&format!("keep evicted {b} bytes (memo {bytes} bytes, {} slots)", m.slots.len())); // alloc: Cold
+                    report(&format!(
+                        "keep evicted {b} bytes (memo {bytes} bytes, {} slots)",
+                        m.slots.len()
+                    )); // alloc: Cold
                 }
             }
             Some(Out::Slot(i)) => {
                 out(m, i);
                 if reporting() {
-                    report(&format!("noplan evicted a slot (memo {bytes} bytes, {} slots left)", m.slots.len())); // alloc: Cold
+                    report(&format!(
+                        "noplan evicted a slot (memo {bytes} bytes, {} slots left)",
+                        m.slots.len()
+                    )); // alloc: Cold
                 }
             }
             None => return,
@@ -1408,7 +1707,7 @@ pub(super) fn trim() {
     let _ = MEMO.try_with(|cell| {
         if let Ok(mut g) = cell.try_borrow_mut() {
             if let Some(memo) = g.as_mut() {
-                memo.with_mut( evict);
+                memo.with_mut(evict);
             }
         }
     });
@@ -1428,7 +1727,11 @@ enum Out {
 /// `slots` walks the slots afresh at each call.
 fn out_of<I: Iterator<Item = (u64, bool)>>(count_over: bool, slots: impl Fn() -> I) -> Option<Out> {
     if !count_over {
-        let lru = slots().enumerate().filter(|&(_, (_, kept))| kept).min_by_key(|&(_, (t, _))| t).map(|(i, _)| i);
+        let lru = slots()
+            .enumerate()
+            .filter(|&(_, (_, kept))| kept)
+            .min_by_key(|&(_, (t, _))| t)
+            .map(|(i, _)| i);
         if let Some(i) = lru {
             return Some(Out::Pieces(i));
         }
@@ -1470,7 +1773,10 @@ fn sweep() {
             let db = init_small::globals::MyDatabaseId();
             let (n0, b0) = (m.slots.len(), m.bytes);
             m.slots.retain(|s| !s.held.deps().superseded_in(db));
-            let (n1, b1) = (m.slots.len(), m.slots.iter().map(Slot::all_bytes).sum::<usize>());
+            let (n1, b1) = (
+                m.slots.len(),
+                m.slots.iter().map(Slot::all_bytes).sum::<usize>(),
+            );
             m.bytes = b1;
             if n1 != n0 {
                 m.freed += 1;
@@ -1480,14 +1786,21 @@ fn sweep() {
         (out, None)
     });
     if let Some(memo) = shed {
-        let (n, b) = memo.with(|m| (m.slots.len(), m.slots.iter().map(Slot::all_bytes).sum::<usize>()));
+        let (n, b) = memo.with(|m| {
+            (
+                m.slots.len(),
+                m.slots.iter().map(Slot::all_bytes).sum::<usize>(),
+            )
+        });
         drop(memo);
         if reporting() {
             report(&format!("noplan short shed {n} slots ({b} bytes)")); // alloc: Cold
         }
     }
     if let Some((n, b, left, lb)) = out.filter(|&(n, ..)| n > 0 && reporting()) {
-        report(&format!("noplan sweep {n} slots ({b} bytes) out, {left} slots ({lb} bytes) left")); // alloc: Cold
+        report(&format!(
+            "noplan sweep {n} slots ({b} bytes) out, {left} slots ({lb} bytes) left"
+        )); // alloc: Cold
     }
 }
 
@@ -1505,8 +1818,16 @@ pub(super) fn drop_at_teardown() {
 /// The memo's drop at the idle release (`super::idle_release`), as at the teardown: its slots and bytes when there was one
 /// (`None`: no memo, or a borrowed one, never the case at the idle release).
 pub(super) fn drop_at_idle() -> Option<(usize, usize)> {
-    let memo = MEMO.try_with(|m| m.try_borrow_mut().ok().and_then(|mut g| g.take())).ok().flatten()?;
-    Some(memo.with(|m| (m.slots.len(), m.slots.iter().map(Slot::all_bytes).sum::<usize>())))
+    let memo = MEMO
+        .try_with(|m| m.try_borrow_mut().ok().and_then(|mut g| g.take()))
+        .ok()
+        .flatten()?;
+    Some(memo.with(|m| {
+        (
+            m.slots.len(),
+            m.slots.iter().map(Slot::all_bytes).sum::<usize>(),
+        )
+    }))
 }
 
 /// How a reused plan differs from the planner's for the same statement.
@@ -1523,10 +1844,18 @@ enum Class {
 /// `strict`, PGRUST_GRAVITY_POINT_PLANCHECK (proof runs) or C3's check mode (`checked`, from `hit`): the planner plans a
 /// copy of the folded statement too (its folding evaluates nothing again) and the plans are compared. Other is an error
 /// under `strict` and a LOG line otherwise; Estimates and Choice are LOG lines (their count is the reuse's effect).
-fn check<'mcx>(mcx: Mcx<'mcx>, q: &Query<'mcx>, ours: &PlannedStmt<'mcx>, checked: Option<Class>, mode: i32) -> PgResult<()> {
+fn check<'mcx>(
+    mcx: Mcx<'mcx>,
+    q: &Query<'mcx>,
+    ours: &PlannedStmt<'mcx>,
+    checked: Option<Class>,
+    mode: i32,
+) -> PgResult<()> {
     let class = if checked.is_some() {
         checked
-    } else if mode == POINT_NOPLAN_STRICT || PLANCHECK.with(|c| env_once(c, "PGRUST_GRAVITY_POINT_PLANCHECK")) {
+    } else if mode == POINT_NOPLAN_STRICT
+        || PLANCHECK.with(|c| env_once(c, "PGRUST_GRAVITY_POINT_PLANCHECK"))
+    {
         Some(plancheck(mcx, q, ours)?)
     } else {
         None
@@ -1559,7 +1888,8 @@ fn check<'mcx>(mcx: Mcx<'mcx>, q: &Query<'mcx>, ours: &PlannedStmt<'mcx>, checke
 fn plancheck<'mcx>(mcx: Mcx<'mcx>, q: &Query<'mcx>, ours: &PlannedStmt<'mcx>) -> PgResult<Class> {
     let copy = copyfuncs::copy_query(mcx, q)?;
     let mut v: PgVec<'mcx, Query<'mcx>> = PgVec::new_in(mcx);
-    v.try_reserve_exact(1).map_err(|_| mcx.oom(core::mem::size_of::<Query<'_>>()))?;
+    v.try_reserve_exact(1)
+        .map_err(|_| mcx.oom(core::mem::size_of::<Query<'_>>()))?;
     v.push(copy);
     let qs: &'mcx mut [Query<'mcx>] = v.leak();
     let copy: &'mcx mut Query<'mcx> = &mut qs[0];
@@ -1614,8 +1944,17 @@ fn compare(ours: &PlannedStmt<'_>, theirs: &PlannedStmt<'_>) -> Class {
     if !scan {
         return Class::Other("index scan");
     }
-    let wrapper = match (a.as_lock_rows(), b.as_lock_rows(), a.as_modify_table(), b.as_modify_table()) {
-        (Some(x), Some(y), _, _) => lists_equal(&x.plan.targetlist, &y.plan.targetlist) && marks_equal(&x.rowMarks, &y.rowMarks) && x.epqParam == y.epqParam,
+    let wrapper = match (
+        a.as_lock_rows(),
+        b.as_lock_rows(),
+        a.as_modify_table(),
+        b.as_modify_table(),
+    ) {
+        (Some(x), Some(y), _, _) => {
+            lists_equal(&x.plan.targetlist, &y.plan.targetlist)
+                && marks_equal(&x.rowMarks, &y.rowMarks)
+                && x.epqParam == y.epqParam
+        }
         (_, _, Some(x), Some(y)) => {
             x.operation == y.operation
                 && x.canSetTag == y.canSetTag
@@ -1634,8 +1973,33 @@ fn compare(ours: &PlannedStmt<'_>, theirs: &PlannedStmt<'_>) -> Class {
     if !wrapper {
         return Class::Other("lock or modify node");
     }
-    let est = |x: &Plan<'_>, y: &Plan<'_>| x.startup_cost == y.startup_cost && x.total_cost == y.total_cost && x.plan_rows == y.plan_rows && x.plan_width == y.plan_width;
-    let top = |n: Node<'_>| n.as_lock_rows().map(|l| (l.plan.startup_cost, l.plan.total_cost, l.plan.plan_rows, l.plan.plan_width)).or_else(|| n.as_modify_table().map(|m| (m.plan.startup_cost, m.plan.total_cost, m.plan.plan_rows, m.plan.plan_width)));
+    let est = |x: &Plan<'_>, y: &Plan<'_>| {
+        x.startup_cost == y.startup_cost
+            && x.total_cost == y.total_cost
+            && x.plan_rows == y.plan_rows
+            && x.plan_width == y.plan_width
+    };
+    let top = |n: Node<'_>| {
+        n.as_lock_rows()
+            .map(|l| {
+                (
+                    l.plan.startup_cost,
+                    l.plan.total_cost,
+                    l.plan.plan_rows,
+                    l.plan.plan_width,
+                )
+            })
+            .or_else(|| {
+                n.as_modify_table().map(|m| {
+                    (
+                        m.plan.startup_cost,
+                        m.plan.total_cost,
+                        m.plan.plan_rows,
+                        m.plan.plan_width,
+                    )
+                })
+            })
+    };
     if est(&sa.scan.plan, &sb.scan.plan) && top(a) == top(b) && ours.jitFlags == theirs.jitFlags {
         Class::Same
     } else {
@@ -1649,24 +2013,31 @@ fn lists_equal(a: &NodeList<'_>, b: &NodeList<'_>) -> bool {
 
 fn marks_equal(a: &NodeList<'_>, b: &NodeList<'_>) -> bool {
     a.len() == b.len()
-        && a.iter().zip(b.iter()).all(|(x, y)| match (x.as_plan_row_mark(), y.as_plan_row_mark()) {
-            (Some(x), Some(y)) => {
-                x.rti == y.rti
-                    && x.prti == y.prti
-                    && x.rowmarkId == y.rowmarkId
-                    && x.markType == y.markType
-                    && x.allMarkTypes == y.allMarkTypes
-                    && x.strength == y.strength
-                    && x.waitPolicy == y.waitPolicy
-                    && x.isParent == y.isParent
-            }
-            _ => false,
-        })
+        && a.iter().zip(b.iter()).all(
+            |(x, y)| match (x.as_plan_row_mark(), y.as_plan_row_mark()) {
+                (Some(x), Some(y)) => {
+                    x.rti == y.rti
+                        && x.prti == y.prti
+                        && x.rowmarkId == y.rowmarkId
+                        && x.markType == y.markType
+                        && x.allMarkTypes == y.allMarkTypes
+                        && x.strength == y.strength
+                        && x.waitPolicy == y.waitPolicy
+                        && x.isParent == y.isParent
+                }
+                _ => false,
+            },
+        )
 }
 
 #[cold]
 fn mismatch_error(why: &str) -> Box<PgError> {
-    Box::new(PgError::error(format!("point path: a reused plan differs from the planner's ({why})")).with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR)) // alloc: Cold
+    Box::new(
+        PgError::error(format!(
+            "point path: a reused plan differs from the planner's ({why})"
+        ))
+        .with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR),
+    ) // alloc: Cold
 }
 
 #[cfg(test)]
@@ -1682,20 +2053,56 @@ mod tests {
 
     fn konst(mcx: Mcx<'_>, typ: Oid, v: i32) -> Node<'_> {
         let len = if typ == INT8 { 8 } else { 4 };
-        Node::mk(mcx, Const { consttype: typ, consttypmod: -1, constcollid: 0, constlen: len, constvalue: datum::Datum::from_i32(v), constisnull: false, constbyval: true, location: -1 }).unwrap()
+        Node::mk(
+            mcx,
+            Const {
+                consttype: typ,
+                consttypmod: -1,
+                constcollid: 0,
+                constlen: len,
+                constvalue: datum::Datum::from_i32(v),
+                constisnull: false,
+                constbyval: true,
+                location: -1,
+            },
+        )
+        .unwrap()
     }
 
     fn col(mcx: Mcx<'_>, attno: i16) -> Node<'_> {
-        Node::mk(mcx, Var { varno: 1, varattno: attno, vartype: INT4, vartypmod: -1, ..Var::default() }).unwrap()
+        Node::mk(
+            mcx,
+            Var {
+                varno: 1,
+                varattno: attno,
+                vartype: INT4,
+                vartypmod: -1,
+                ..Var::default()
+            },
+        )
+        .unwrap()
     }
 
     fn eq<'m>(mcx: Mcx<'m>, l: Node<'m>, r: Node<'m>) -> Node<'m> {
-        let op = OpExpr { opno: INT4EQ, opfuncid: 65, opresulttype: 16, opretset: false, opcollid: 0, inputcollid: 0, args: NodeList::make2(mcx, l, r).unwrap(), location: -1 };
+        let op = OpExpr {
+            opno: INT4EQ,
+            opfuncid: 65,
+            opresulttype: 16,
+            opretset: false,
+            opcollid: 0,
+            inputcollid: 0,
+            args: NodeList::make2(mcx, l, r).unwrap(),
+            location: -1,
+        };
         Node::mk(mcx, op).unwrap()
     }
 
     fn and<'m>(mcx: Mcx<'m>, a: Node<'m>, b: Node<'m>) -> Node<'m> {
-        let b = types_nodes::primnodes::BoolExpr { boolop: BoolExprType::AND_EXPR, args: NodeList::make2(mcx, a, b).unwrap(), location: -1 };
+        let b = types_nodes::primnodes::BoolExpr {
+            boolop: BoolExprType::AND_EXPR,
+            args: NodeList::make2(mcx, a, b).unwrap(),
+            location: -1,
+        };
         Node::mk(mcx, b).unwrap()
     }
 
@@ -1707,9 +2114,28 @@ mod tests {
         rte.relkind = RELKIND_RELATION;
         rte.rellockmode = 1;
         rte.perminfoindex = 1;
-        let perm = Node::mk(mcx, RTEPermissionInfo { relid: T, ..RTEPermissionInfo::default() }).unwrap();
-        let te = TargetEntry { expr: col(mcx, 1), resno: 1, resname: Some("c1"), ressortgroupref: 0, resorigtbl: T, resorigcol: 1, resjunk: false };
-        let from = FromExpr { fromlist: NodeList::make1(mcx, Node::mk(mcx, RangeTblRef { rtindex: 1 }).unwrap()).unwrap(), quals: Some(quals) };
+        let perm = Node::mk(
+            mcx,
+            RTEPermissionInfo {
+                relid: T,
+                ..RTEPermissionInfo::default()
+            },
+        )
+        .unwrap();
+        let te = TargetEntry {
+            expr: col(mcx, 1),
+            resno: 1,
+            resname: Some("c1"),
+            ressortgroupref: 0,
+            resorigtbl: T,
+            resorigcol: 1,
+            resjunk: false,
+        };
+        let from = FromExpr {
+            fromlist: NodeList::make1(mcx, Node::mk(mcx, RangeTblRef { rtindex: 1 }).unwrap())
+                .unwrap(),
+            quals: Some(quals),
+        };
         Query {
             commandType: CmdType::CMD_SELECT,
             canSetTag: true,
@@ -1725,12 +2151,29 @@ mod tests {
     fn candidate_takes_point_shapes_only() {
         let ctx = gravity_driver::mem::root::context("PointNoplanTest", true);
         let mcx = ctx.mcx();
-        assert!(candidate(&select(mcx, eq(mcx, col(mcx, 1), konst(mcx, INT4, 7)))).is_some(), "column = constant");
-        let two = and(mcx, eq(mcx, col(mcx, 1), konst(mcx, INT4, 7)), eq(mcx, col(mcx, 2), konst(mcx, INT4, 8)));
+        assert!(
+            candidate(&select(mcx, eq(mcx, col(mcx, 1), konst(mcx, INT4, 7)))).is_some(),
+            "column = constant"
+        );
+        let two = and(
+            mcx,
+            eq(mcx, col(mcx, 1), konst(mcx, INT4, 7)),
+            eq(mcx, col(mcx, 2), konst(mcx, INT4, 8)),
+        );
         assert!(candidate(&select(mcx, two)).is_some(), "two key columns");
-        assert!(candidate(&select(mcx, eq(mcx, konst(mcx, INT4, 7), col(mcx, 1)))).is_none(), "the constant first");
-        let twice = and(mcx, eq(mcx, col(mcx, 1), konst(mcx, INT4, 7)), eq(mcx, col(mcx, 1), konst(mcx, INT4, 8)));
-        assert!(candidate(&select(mcx, twice)).is_none(), "one column twice: the equivalence classes judge by value");
+        assert!(
+            candidate(&select(mcx, eq(mcx, konst(mcx, INT4, 7), col(mcx, 1)))).is_none(),
+            "the constant first"
+        );
+        let twice = and(
+            mcx,
+            eq(mcx, col(mcx, 1), konst(mcx, INT4, 7)),
+            eq(mcx, col(mcx, 1), konst(mcx, INT4, 8)),
+        );
+        assert!(
+            candidate(&select(mcx, twice)).is_none(),
+            "one column twice: the equivalence classes judge by value"
+        );
         let mut sorted = select(mcx, eq(mcx, col(mcx, 1), konst(mcx, INT4, 7)));
         sorted.sortClause = NodeList::make1(mcx, konst(mcx, INT4, 1)).unwrap();
         assert!(candidate(&sorted).is_none(), "ORDER BY");
@@ -1744,26 +2187,78 @@ mod tests {
         let ctx = gravity_driver::mem::root::context("PointNoplanTest", true);
         let mcx = ctx.mcx();
         let k = |c, attno: i16| candidate(&select(mcx, eq(mcx, col(mcx, attno), c))).unwrap();
-        assert_eq!(k(konst(mcx, INT4, 7), 1), k(konst(mcx, INT4, 9000), 1), "another value, the same shape");
-        assert_ne!(k(konst(mcx, INT4, 7), 1), k(konst(mcx, INT8, 7), 1), "another type");
-        assert_ne!(k(konst(mcx, INT4, 7), 1), k(konst(mcx, INT4, 7), 2), "another column");
+        assert_eq!(
+            k(konst(mcx, INT4, 7), 1),
+            k(konst(mcx, INT4, 9000), 1),
+            "another value, the same shape"
+        );
+        assert_ne!(
+            k(konst(mcx, INT4, 7), 1),
+            k(konst(mcx, INT8, 7), 1),
+            "another type"
+        );
+        assert_ne!(
+            k(konst(mcx, INT4, 7), 1),
+            k(konst(mcx, INT4, 7), 2),
+            "another column"
+        );
     }
 
     #[test]
     fn the_shape_compare_swaps_constants_by_position() {
         let ctx = gravity_driver::mem::root::context("PointNoplanTest", true);
         let mcx = ctx.mcx();
-        let filed = select(mcx, and(mcx, eq(mcx, col(mcx, 1), konst(mcx, INT4, 5)), eq(mcx, col(mcx, 2), konst(mcx, INT4, 7))));
+        let filed = select(
+            mcx,
+            and(
+                mcx,
+                eq(mcx, col(mcx, 1), konst(mcx, INT4, 5)),
+                eq(mcx, col(mcx, 2), konst(mcx, INT4, 7)),
+            ),
+        );
         let holes = holes_of_query(mcx, &filed).unwrap();
         assert_eq!(holes.len(), 2);
-        let same = select(mcx, and(mcx, eq(mcx, col(mcx, 1), konst(mcx, INT4, 1)), eq(mcx, col(mcx, 2), konst(mcx, INT4, 1))));
-        assert!(same_shape(mcx, &same, &filed, &holes).unwrap(), "other values, equal ones too");
-        let typed = select(mcx, and(mcx, eq(mcx, col(mcx, 1), konst(mcx, INT8, 5)), eq(mcx, col(mcx, 2), konst(mcx, INT4, 7))));
-        assert!(!same_shape(mcx, &typed, &filed, &holes).unwrap(), "another constant type");
-        let swapped = select(mcx, and(mcx, eq(mcx, col(mcx, 2), konst(mcx, INT4, 5)), eq(mcx, col(mcx, 1), konst(mcx, INT4, 7))));
-        assert!(!same_shape(mcx, &swapped, &filed, &holes).unwrap(), "the columns in another order");
+        let same = select(
+            mcx,
+            and(
+                mcx,
+                eq(mcx, col(mcx, 1), konst(mcx, INT4, 1)),
+                eq(mcx, col(mcx, 2), konst(mcx, INT4, 1)),
+            ),
+        );
+        assert!(
+            same_shape(mcx, &same, &filed, &holes).unwrap(),
+            "other values, equal ones too"
+        );
+        let typed = select(
+            mcx,
+            and(
+                mcx,
+                eq(mcx, col(mcx, 1), konst(mcx, INT8, 5)),
+                eq(mcx, col(mcx, 2), konst(mcx, INT4, 7)),
+            ),
+        );
+        assert!(
+            !same_shape(mcx, &typed, &filed, &holes).unwrap(),
+            "another constant type"
+        );
+        let swapped = select(
+            mcx,
+            and(
+                mcx,
+                eq(mcx, col(mcx, 2), konst(mcx, INT4, 5)),
+                eq(mcx, col(mcx, 1), konst(mcx, INT4, 7)),
+            ),
+        );
+        assert!(
+            !same_shape(mcx, &swapped, &filed, &holes).unwrap(),
+            "the columns in another order"
+        );
         let one = select(mcx, eq(mcx, col(mcx, 1), konst(mcx, INT4, 5)));
-        assert!(!same_shape(mcx, &one, &filed, &holes).unwrap(), "fewer clauses");
+        assert!(
+            !same_shape(mcx, &one, &filed, &holes).unwrap(),
+            "fewer clauses"
+        );
     }
 
     #[test]
@@ -1775,10 +2270,22 @@ mod tests {
     #[test]
     fn past_the_bytes_cap_the_least_recently_used_pieces_go_before_any_slot() {
         let slots = [(5u64, true), (2, false), (9, true), (7, true)];
-        assert_eq!(out_of(false, || slots.into_iter()), Some(Out::Pieces(0)), "the oldest slot that keeps pieces, not the oldest slot");
+        assert_eq!(
+            out_of(false, || slots.into_iter()),
+            Some(Out::Pieces(0)),
+            "the oldest slot that keeps pieces, not the oldest slot"
+        );
         let bare = [(5u64, false), (2, false), (9, false)];
-        assert_eq!(out_of(false, || bare.into_iter()), Some(Out::Slot(1)), "no pieces left: the least recently used slot");
-        assert_eq!(out_of(true, || slots.into_iter()), Some(Out::Slot(1)), "past the entry count: a whole slot");
+        assert_eq!(
+            out_of(false, || bare.into_iter()),
+            Some(Out::Slot(1)),
+            "no pieces left: the least recently used slot"
+        );
+        assert_eq!(
+            out_of(true, || slots.into_iter()),
+            Some(Out::Slot(1)),
+            "past the entry count: a whole slot"
+        );
         assert_eq!(out_of(false, core::iter::empty::<(u64, bool)>), None);
     }
 }

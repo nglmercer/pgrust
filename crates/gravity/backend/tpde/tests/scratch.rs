@@ -49,21 +49,31 @@ fn scratch_reused_across_programs_matches_fresh_compiles() {
     );
     let mut scratch = gravity_tpde::Scratch::new();
     for round in 0..3 {
-        for (p, args, want) in [(&gcd, [48u64, 18, 0], 6u64), (&sum, [1, 2, 3], 6), (&gcd, [1071, 462, 0], 21)] {
+        for (p, args, want) in [
+            (&gcd, [48u64, 18, 0], 6u64),
+            (&sum, [1, 2, 3], 6),
+            (&gcd, [1071, 462, 0], 21),
+        ] {
             let ctx = MemoryContext::new("scratch-test");
             let with = gravity_tpde::compile_with(ctx.mcx(), p, &mut scratch).unwrap();
             let fresh_ctx = MemoryContext::new("scratch-test-fresh");
             let fresh = gravity_tpde::compile(fresh_ctx.mcx(), p).unwrap();
-            assert_eq!(image(&with), image(&fresh), "round {round}: the scratch changes the code");
+            assert_eq!(
+                image(&with),
+                image(&fresh),
+                "round {round}: the scratch changes the code"
+            );
             assert_eq!(with.code_bytes(), fresh.code_bytes());
             let nargs = p.func(Func(0)).params.len();
             // SAFETY: the entry is `extern "C"` over 64-bit integer args.
             let got = unsafe {
                 if nargs == 2 {
-                    let f: unsafe extern "C" fn(u64, u64) -> u64 = core::mem::transmute(with.entry(Func(0)));
+                    let f: unsafe extern "C" fn(u64, u64) -> u64 =
+                        core::mem::transmute(with.entry(Func(0)));
                     f(args[0], args[1])
                 } else {
-                    let f: unsafe extern "C" fn(u64, u64, u64) -> u64 = core::mem::transmute(with.entry(Func(0)));
+                    let f: unsafe extern "C" fn(u64, u64, u64) -> u64 =
+                        core::mem::transmute(with.entry(Func(0)));
                     f(args[0], args[1], args[2])
                 }
             };

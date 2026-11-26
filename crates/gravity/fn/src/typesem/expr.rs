@@ -40,8 +40,17 @@ pub fn list_order(op: Oid) -> PgResult<Option<ListOrder>> {
             lsyscache::COMPARE_GE | lsyscache::COMPARE_GT => false,
             _ => continue,
         };
-        let lt = lsyscache::get_opfamily_member(i.opfamily_id, i.oprighttype, i.oprighttype, lsyscache::BTLessStrategyNumber)?;
-        let less = if lt == 0 { 0 } else { lsyscache::get_opcode(lt)? };
+        let lt = lsyscache::get_opfamily_member(
+            i.opfamily_id,
+            i.oprighttype,
+            i.oprighttype,
+            lsyscache::BTLessStrategyNumber,
+        )?;
+        let less = if lt == 0 {
+            0
+        } else {
+            lsyscache::get_opcode(lt)?
+        };
         if less != 0 {
             return Ok(Some(ListOrder { greatest, less }));
         }
@@ -54,7 +63,9 @@ pub fn list_order(op: Oid) -> PgResult<Option<ListOrder>> {
 /// `_bt_preprocess_array_keys`).
 pub fn index_equality(op: Oid) -> PgResult<bool> {
     let cx = mcx::MemoryContext::new_bump("typesem index equality"); // alloc: Exec
-    let equal = lsyscache::get_op_index_interpretation(cx.mcx(), op)?.iter().any(|i| i.cmptype == lsyscache::COMPARE_EQ);
+    let equal = lsyscache::get_op_index_interpretation(cx.mcx(), op)?
+        .iter()
+        .any(|i| i.cmptype == lsyscache::COMPARE_EQ);
     Ok(equal)
 }
 
@@ -64,7 +75,9 @@ pub fn index_equality(op: Oid) -> PgResult<bool> {
 pub fn init_merge_clause(op: Oid, family: Oid) -> PgResult<()> {
     let (strategy, l, r) = lsyscache::get_op_opfamily_properties(op, family, false)?;
     if strategy != i32::from(lsyscache::BTEqualStrategyNumber) {
-        return Err(init_error(format!("cannot merge using non-equality operator {op}"))); // alloc: Cold
+        return Err(init_error(format!(
+            "cannot merge using non-equality operator {op}"
+        ))); // alloc: Cold
     }
     init_support_or_order(family, l, r)
 }
@@ -74,7 +87,9 @@ pub fn init_merge_clause(op: Oid, family: Oid) -> PgResult<()> {
 pub fn init_ordering_op(op: Oid) -> PgResult<()> {
     match lsyscache::get_ordering_op_properties(op)? {
         Some((family, t, _)) => init_support_or_order(family, t, t),
-        None => Err(init_error(format!("operator {op} is not a valid ordering operator"))), // alloc: Cold
+        None => Err(init_error(format!(
+            "operator {op} is not a valid ordering operator"
+        ))), // alloc: Cold
     }
 }
 
@@ -92,7 +107,9 @@ pub fn init_row_compare(op: Oid, family: Oid) -> PgResult<()> {
 pub fn init_hash_op(op: Oid) -> PgResult<()> {
     match lsyscache::get_op_hash_functions(op)? {
         Some(_) => Ok(()),
-        None => Err(init_error(format!("could not find hash function for hash operator {op}"))), // alloc: Cold
+        None => Err(init_error(format!(
+            "could not find hash function for hash operator {op}"
+        ))), // alloc: Cold
     }
 }
 
@@ -102,7 +119,12 @@ pub fn init_min_max(t: Oid) -> PgResult<()> {
         return Ok(());
     }
     let name = format_type::format_type_be(t)?;
-    Err(Box::new(types_error::PgError::error(format!("could not identify a comparison function for type {name}")).with_sqlstate(types_error::ERRCODE_UNDEFINED_FUNCTION))) // alloc: Cold
+    Err(Box::new(
+        types_error::PgError::error(format!(
+            "could not identify a comparison function for type {name}"
+        ))
+        .with_sqlstate(types_error::ERRCODE_UNDEFINED_FUNCTION),
+    )) // alloc: Cold
 }
 
 /// A sort support (btree support function 2) or else a comparator (1) of `family` at `l` / `r`
@@ -116,12 +138,15 @@ fn init_support_or_order(family: Oid, l: Oid, r: Oid) -> PgResult<()> {
 
 #[cold]
 fn init_missing(family: Oid, l: Oid, r: Oid) -> Box<types_error::PgError> {
-    init_error(format!("missing support function 1({l},{r}) in opfamily {family}")) // alloc: Cold
+    init_error(format!(
+        "missing support function 1({l},{r}) in opfamily {family}"
+    )) // alloc: Cold
 }
 
 #[cold]
 fn init_error(msg: String) -> Box<types_error::PgError> {
-    Box::new(types_error::PgError::error(msg).with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR)) // alloc: Cold
+    Box::new(types_error::PgError::error(msg).with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR))
+    // alloc: Cold
 }
 
 /// Btree support function `num` of merge family `family` at `op`'s member types.
@@ -163,7 +188,22 @@ pub fn collation(typid: Oid) -> PgResult<Oid> {
 /// A pseudo-type argument (record, internal, any and the polymorphic families): a function taking one resolves its actual
 /// argument types from the call's expression node (fmgr.c `get_fn_expr_argtype`), so it is never called without its node.
 pub fn node_arg_type(t: Oid) -> bool {
-    matches!(t, 2249 | 2276 | 2277 | 2281 | 2283 | 2776 | 3500 | 3831 | 4537 | 4538 | 5077 | 5078 | 5079 | 5080)
+    matches!(
+        t,
+        2249 | 2276
+            | 2277
+            | 2281
+            | 2283
+            | 2776
+            | 3500
+            | 3831
+            | 4537
+            | 4538
+            | 5077
+            | 5078
+            | 5079
+            | 5080
+    )
 }
 
 /// Type `cstring` (2275), a C string pseudo-type of fixed length -2 (a type input function's argument): its length is known
@@ -180,7 +220,10 @@ pub fn unknown_type(t: Oid) -> bool {
 
 /// The 4-byte by-value types whose Datum is zero-extended (`UInt32GetDatum` underneath): oid, xid, cid and the reg* types.
 pub fn zext4(t: Oid) -> bool {
-    matches!(t, 26 | 28 | 29 | 24 | 2202 | 2203 | 2204 | 2205 | 2206 | 3734 | 3769 | 4089 | 4096 | 4191)
+    matches!(
+        t,
+        26 | 28 | 29 | 24 | 2202 | 2203 | 2204 | 2205 | 2206 | 3734 | 3769 | 4089 | 4096 | 4191
+    )
 }
 
 /// The stored-image length a linear `= ANY` / `ALL` walk may compare in place of calling `funcid` (0: call it): the
@@ -204,7 +247,11 @@ pub fn image_eq_len(typid: Oid, funcid: Oid) -> PgResult<i16> {
         return Ok(len);
     }
     let ne = lsyscache::get_negator(eq)?;
-    Ok(if ne != 0 && lsyscache::get_opcode(ne)? == funcid { -len } else { 0 })
+    Ok(if ne != 0 && lsyscache::get_opcode(ne)? == funcid {
+        -len
+    } else {
+        0
+    })
 }
 
 /// The built-in aggregates gravity_expr's kernels write inline, by aggregate function (pg_aggregate.dat; gravity_expr
@@ -267,7 +314,25 @@ pub fn native_agg(aggfnoid: Oid) -> Option<NativeAgg> {
         3538 => StringAggText,
         3545 => StringAggBytea,
         2335 => ArrayAgg,
-        2115..=2146 | 2050 | 2051 | 6373 | 6374 | 2244 | 2245 | 2797 | 2798 | 3564 | 3565 | 4189 | 4190 | 5099 | 5100 | 6395 | 6396 | 3526 | 3527 => MinMax,
+        2115..=2146
+        | 2050
+        | 2051
+        | 6373
+        | 6374
+        | 2244
+        | 2245
+        | 2797
+        | 2798
+        | 3564
+        | 3565
+        | 4189
+        | 4190
+        | 5099
+        | 5100
+        | 6395
+        | 6396
+        | 3526
+        | 3527 => MinMax,
         _ => return None,
     })
 }
@@ -312,8 +377,13 @@ pub fn starts_with(funcid: Oid) -> bool {
 /// that builds it (texteq's pg_newlocale_from_collation) raises PostgreSQL's error. `claims_coll_bytes` reads only the
 /// catalog's flag.
 pub fn built_coll_bytes(coll: Oid) -> bool {
-    use crate::typesem::collation::{Facts, C_COLLATION_OID, DEFAULT_COLLATION_OID, POSIX_COLLATION_OID};
-    matches!(coll, DEFAULT_COLLATION_OID | C_COLLATION_OID | POSIX_COLLATION_OID) || (coll != 0 && Facts::of(coll).is_ok_and(|f| f.deterministic))
+    use crate::typesem::collation::{
+        Facts, C_COLLATION_OID, DEFAULT_COLLATION_OID, POSIX_COLLATION_OID,
+    };
+    matches!(
+        coll,
+        DEFAULT_COLLATION_OID | C_COLLATION_OID | POSIX_COLLATION_OID
+    ) || (coll != 0 && Facts::of(coll).is_ok_and(|f| f.deterministic))
 }
 
 /// Whether `funcid` is extract(text, timestamp) 6202 (pg_proc.dat `extract_timestamp`).
@@ -327,7 +397,9 @@ pub fn extract_timestamp(funcid: Oid) -> bool {
 /// for any other operator.
 pub fn date_cross_cmp(opno: Oid) -> Option<(u8, u8)> {
     const RUNS: [Oid; 4] = [2345, 2358, 2371, 2384];
-    RUNS.iter().position(|&b| (b..b + 6).contains(&opno)).map(|i| (i as u8, (opno - RUNS[i]) as u8))
+    RUNS.iter()
+        .position(|&b| (b..b + 6).contains(&opno))
+        .map(|i| (i as u8, (opno - RUNS[i]) as u8))
 }
 
 /// Whether `funcid` is a timestamp difference: timestamptz_mi 1188 or timestamp_mi 2031 (pg_proc.dat), each an interval
@@ -339,7 +411,24 @@ pub fn timestamp_minus(funcid: Oid) -> bool {
 /// The integer-valued equalities (int2 / int4 / int8 and their cross-type forms, oid, "char", bool, date, time,
 /// timestamp[tz]; pg_proc.dat): over by-value operands they answer as the two sign-extended values compare.
 pub fn native_eq(funcid: Oid) -> bool {
-    matches!(funcid, 63 | 65 | 467 | 158 | 159 | 1850 | 1856 | 852 | 474 | 184 | 61 | 60 | 1086 | 1152 | 2052 | 1145)
+    matches!(
+        funcid,
+        63 | 65
+            | 467
+            | 158
+            | 159
+            | 1850
+            | 1856
+            | 852
+            | 474
+            | 184
+            | 61
+            | 60
+            | 1086
+            | 1152
+            | 2052
+            | 1145
+    )
 }
 
 /// Whether `t` is the pseudo-type `record` 2249 (an anonymous row: a whole-row Var of a subquery scan carries it).

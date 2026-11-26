@@ -64,14 +64,29 @@ fn ledger2_a_breakers_region_is_held_by_its_slot_owner_under_the_statement_and_l
         memledger::statement_begin();
         let a = Acct::backend(PROCNO);
         let stmt = memledger::charge::context().0;
-        let res = std::rc::Rc::new(POOL.admit_need(grant, &|g| footprint(g, &program, 1), Duration::from_millis(100)).expect("admitted"));
+        let res = std::rc::Rc::new(
+            POOL.admit_need(
+                grant,
+                &|g| footprint(g, &program, 1),
+                Duration::from_millis(100),
+            )
+            .expect("admitted"),
+        );
         let table = RangeTable::new(24, 10);
         let mut derive = FakeDerive::ranges(table);
         let mut entry = Entry::new(2);
         let flag = AtomicU8::new(0);
-        let mut sink = Watch { acct: a, stmt, rows: Vec::new(), ops: Vec::new(), usage: None };
+        let mut sink = Watch {
+            acct: a,
+            stmt,
+            rows: Vec::new(),
+            ops: Vec::new(),
+            usage: None,
+        };
         let mut b = binding(&[100], &NULLS, &mut sink, &flag);
-        let mut exec = entry.start(None, &program, &mut derive, &mut b, res.clone()).expect("started");
+        let mut exec = entry
+            .start(None, &program, &mut derive, &mut b, res.clone())
+            .expect("started");
         let r = entry.run_to_end(&mut exec, &mut b);
         entry.end(exec, r.is_ok());
         r.expect("the count runs");
@@ -90,13 +105,29 @@ fn ledger2_a_breakers_region_is_held_by_its_slot_owner_under_the_statement_and_l
     REGIONS.trim();
     gravity_driver::DEPOT.trim();
     POOL.arm(0);
-    assert_eq!(rows, vec![vec![100, (0..100).sum::<u64>()]], "the count, as PG's");
-    let agg: Vec<_> = ops.iter().filter(|o| o.2 & 0xff == memledger::Kind::PlainAgg as u32).collect();
-    assert!(!agg.is_empty(), "the count's breaker has an operator owner while its emit reads it: {ops:?}");
+    assert_eq!(
+        rows,
+        vec![vec![100, (0..100).sum::<u64>()]],
+        "the count, as PG's"
+    );
+    let agg: Vec<_> = ops
+        .iter()
+        .filter(|o| o.2 & 0xff == memledger::Kind::PlainAgg as u32)
+        .collect();
+    assert!(
+        !agg.is_empty(),
+        "the count's breaker has an operator owner while its emit reads it: {ops:?}"
+    );
     assert!(agg.iter().all(|o| o.3 > 0), "holding its region: {agg:?}");
     let u = seen.expect("the statement read as the rows arrived");
     let held: i64 = ops.iter().map(|o| o.3).sum();
-    assert!(u.subtree - u.held >= held, "under the statement: its subtree counts them ({u:?}, operators {held})");
-    assert!(after.is_empty(), "the slot owners ended with the statement's regions settled: {after:?}");
+    assert!(
+        u.subtree - u.held >= held,
+        "under the statement: its subtree counts them ({u:?}, operators {held})"
+    );
+    assert!(
+        after.is_empty(),
+        "the slot owners ended with the statement's regions settled: {after:?}"
+    );
     assert_eq!(residues, 0, "no operator residue at the statement's end");
 }

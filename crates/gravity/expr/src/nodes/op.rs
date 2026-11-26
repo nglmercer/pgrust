@@ -19,8 +19,16 @@ pub struct ScalarArrayOp {
     pub elem: array::ElemFacts,
 }
 
-pub fn compile_distinct<'mcx>(b: &mut Builder<'_, 'mcx>, d: &DistinctExpr<'mcx>, node: Node<'mcx>) -> CompileResult<NodeId> {
-    let funcid = if d.opfuncid != 0 { d.opfuncid } else { b.catalog.opcode(d.opno)? };
+pub fn compile_distinct<'mcx>(
+    b: &mut Builder<'_, 'mcx>,
+    d: &DistinctExpr<'mcx>,
+    node: Node<'mcx>,
+) -> CompileResult<NodeId> {
+    let funcid = if d.opfuncid != 0 {
+        d.opfuncid
+    } else {
+        b.catalog.opcode(d.opno)?
+    };
     let args = b.kids(&d.args)?;
     let call = bind(b, funcid, args, &d.args, d.inputcollid)?;
     set_fn_expr(b, &call, node);
@@ -28,8 +36,16 @@ pub fn compile_distinct<'mcx>(b: &mut Builder<'_, 'mcx>, d: &DistinctExpr<'mcx>,
     Ok(b.push(ExprNode::Distinct(crate::nodes::func::FuncNode { site })))
 }
 
-pub fn compile_nullif<'mcx>(b: &mut Builder<'_, 'mcx>, d: &NullIfExpr<'mcx>, node: Node<'mcx>) -> CompileResult<NodeId> {
-    let funcid = if d.opfuncid != 0 { d.opfuncid } else { b.catalog.opcode(d.opno)? };
+pub fn compile_nullif<'mcx>(
+    b: &mut Builder<'_, 'mcx>,
+    d: &NullIfExpr<'mcx>,
+    node: Node<'mcx>,
+) -> CompileResult<NodeId> {
+    let funcid = if d.opfuncid != 0 {
+        d.opfuncid
+    } else {
+        b.catalog.opcode(d.opno)?
+    };
     let args = b.kids(&d.args)?;
     let call = bind(b, funcid, args, &d.args, d.inputcollid)?;
     set_fn_expr(b, &call, node);
@@ -37,18 +53,29 @@ pub fn compile_nullif<'mcx>(b: &mut Builder<'_, 'mcx>, d: &NullIfExpr<'mcx>, nod
     Ok(b.push(ExprNode::NullIf(crate::nodes::func::FuncNode { site })))
 }
 
-pub fn compile_scalar_array_op<'mcx>(b: &mut Builder<'_, 'mcx>, s: &ScalarArrayOpExpr<'mcx>, node: Node<'mcx>) -> CompileResult<NodeId> {
+pub fn compile_scalar_array_op<'mcx>(
+    b: &mut Builder<'_, 'mcx>,
+    s: &ScalarArrayOpExpr<'mcx>,
+    node: Node<'mcx>,
+) -> CompileResult<NodeId> {
     if s.args.len() != 2 {
         return unsupported(Kind::ScalarArrayOpExpr);
     }
-    let funcid = if s.opfuncid != 0 { s.opfuncid } else { b.catalog.opcode(s.opno)? };
+    let funcid = if s.opfuncid != 0 {
+        s.opfuncid
+    } else {
+        b.catalog.opcode(s.opno)?
+    };
     if s.hashfuncid != 0 {
         crate::nodes::func::execute_gate(s.hashfuncid)?;
     }
     // D2642: PostgreSQL hashed it (ExecEvalHashedScalarArrayOp): its table finds what the operator finds element by
     // element only when the hash procs agree with the operator (typesem's `linear`). =! over int4ne / hashint4 finds
     // nothing in the table where the walk finds every other element: such a node is not served
-    if s.hashfuncid != 0 && s.useOr && matches!(b.catalog.hash_key(s.opno, s.inputcollid), Ok(Ok(k)) if !k.linear) {
+    if s.hashfuncid != 0
+        && s.useOr
+        && matches!(b.catalog.hash_key(s.opno, s.inputcollid), Ok(Ok(k)) if !k.linear)
+    {
         return unsupported(Kind::ScalarArrayOpExpr);
     }
     let array_type: Oid = nodes_core::expr_type(s.args.nth(1));
@@ -60,11 +87,20 @@ pub fn compile_scalar_array_op<'mcx>(b: &mut Builder<'_, 'mcx>, s: &ScalarArrayO
     let call = crate::nodes::func::bind_typed(b, funcid, args, &types, s.inputcollid)?;
     set_fn_expr(b, &call, node);
     let site = b.site(call);
-    Ok(b.push(ExprNode::ScalarArrayOp(ScalarArrayOp { site, use_or: s.useOr, elem })))
+    Ok(b.push(ExprNode::ScalarArrayOp(ScalarArrayOp {
+        site,
+        use_or: s.useOr,
+        elem,
+    })))
 }
 
 /// `a IS DISTINCT FROM b`: both null → false, one null → true, else `NOT (a = b)`.
-pub fn eval_distinct(p: &Prog<'_, '_>, st: &mut St<'_>, call: &Call, cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
+pub fn eval_distinct(
+    p: &Prog<'_, '_>,
+    st: &mut St<'_>,
+    call: &Call,
+    cx: &mut Cx<'_, '_>,
+) -> PgResult<NullableDatum> {
     let mut args = [Datum::null(); MAX_ARGS];
     let mut nulls = [false; MAX_ARGS];
     eval_args(p, st, call, cx, &mut args, &mut nulls)?;
@@ -80,11 +116,19 @@ pub fn eval_distinct(p: &Prog<'_, '_>, st: &mut St<'_>, call: &Call, cx: &mut Cx
 
 /// `NULLIF(a, b)`: null when `a = b` is true; `a` otherwise (a strict operator over a null
 /// argument is not called).
-pub fn eval_nullif(p: &Prog<'_, '_>, st: &mut St<'_>, call: &Call, cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
+pub fn eval_nullif(
+    p: &Prog<'_, '_>,
+    st: &mut St<'_>,
+    call: &Call,
+    cx: &mut Cx<'_, '_>,
+) -> PgResult<NullableDatum> {
     let mut args = [Datum::null(); MAX_ARGS];
     let mut nulls = [false; MAX_ARGS];
     let any_null = eval_args(p, st, call, cx, &mut args, &mut nulls)?;
-    let first = NullableDatum { value: args[0], isnull: nulls[0] };
+    let first = NullableDatum {
+        value: args[0],
+        isnull: nulls[0],
+    };
     if any_null && call.strict {
         return Ok(first);
     }
@@ -96,7 +140,12 @@ pub fn eval_nullif(p: &Prog<'_, '_>, st: &mut St<'_>, call: &Call, cx: &mut Cx<'
 }
 
 /// `scalar op ANY/ALL (array)` (C `ExecEvalScalarArrayOp`).
-pub fn eval_scalar_array_op(p: &Prog<'_, '_>, st: &mut St<'_>, n: &ScalarArrayOp, cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
+pub fn eval_scalar_array_op(
+    p: &Prog<'_, '_>,
+    st: &mut St<'_>,
+    n: &ScalarArrayOp,
+    cx: &mut Cx<'_, '_>,
+) -> PgResult<NullableDatum> {
     let call = &p.sites[n.site.0 as usize];
     let scalar = eval(p, st, p.kids[call.args.start as usize], cx)?;
     let arr = eval(p, st, p.kids[call.args.start as usize + 1], cx)?;

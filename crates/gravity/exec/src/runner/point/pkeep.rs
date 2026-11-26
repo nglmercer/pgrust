@@ -69,7 +69,13 @@ struct Keep {
 const SWEEP_EVERY_NS: u64 = 1_000_000_000;
 
 impl Keep {
-    const EMPTY: Keep = Keep { slots: [const { None }; ENTRIES], tick: 0, short: 0, swept: 0, sweep_at: 0 };
+    const EMPTY: Keep = Keep {
+        slots: [const { None }; ENTRIES],
+        tick: 0,
+        short: 0,
+        swept: 0,
+        sweep_at: 0,
+    };
 
     /// skip.rs `sweep`'s for the kept probes (Memory Accounting's DDL check, D4550): when a committed catalog generation moved
     /// since the last sweep and at most once a second, the slots whose reads can never stand again in this database go (a
@@ -89,7 +95,9 @@ impl Keep {
         let db = init_small::globals::MyDatabaseId();
         let (mut n, mut b) = (0, 0);
         for s in self.slots.iter_mut() {
-            if s.as_ref().is_some_and(|slot| slot.held.deps().superseded_in(db)) {
+            if s.as_ref()
+                .is_some_and(|slot| slot.held.deps().superseded_in(db))
+            {
                 let slot = s.take().expect("checked above");
                 BYTES.with(|x| x.set(x.get().saturating_sub(slot.bytes)));
                 n += 1;
@@ -134,7 +142,8 @@ fn boxed(p: Probe) -> PgResult<KeptBox> {
     let ctx = mcx::MemoryContext::new_start_small("GravityPointPortalKept");
     ctx.set_owner(skip::MEMO_OWNER);
     McxOwned::<KeptTy>::try_new(ctx, move |m| {
-        let probe = PgBox::try_new_in(p, m).map_err(|_| m.oom_boxed(core::mem::size_of::<Probe>()))?;
+        let probe =
+            PgBox::try_new_in(p, m).map_err(|_| m.oom_boxed(core::mem::size_of::<Probe>()))?;
         Ok(KeptIn { probe })
     })
 }
@@ -189,7 +198,14 @@ pub(super) fn root_of(pstmt: &PlannedStmt<'_>) -> usize {
 /// on the portal's owner): ExecutorStart's checks, then the plan's kept probe re-armed (`Probe::arm`), else one made
 /// (`Probe::make`, what it read held). `Ok(Err(why))`: S1's tests or the parameters decline the portal; nothing is served
 /// (a kept probe goes back to its slot). An error drops a taken probe (it may be half re-armed).
-pub(super) fn bind(pstmt: &'static PlannedStmt<'static>, s: &Shape<'static>, key: PlanKey, root: usize, params: &[ParamExternData], mcx: mcx::Mcx<'_>) -> PgResult<Result<Lent, &'static str>> {
+pub(super) fn bind(
+    pstmt: &'static PlannedStmt<'static>,
+    s: &Shape<'static>,
+    key: PlanKey,
+    root: usize,
+    params: &[ParamExternData],
+    mcx: mcx::Mcx<'_>,
+) -> PgResult<Result<Lent, &'static str>> {
     super::super::start_checks(pstmt, Cmd::Select, mcx)?;
     let snap = snapmgr::GetActiveSnapshot();
     if let Some((held, mut kept, tick)) = take(key, root) {
@@ -209,7 +225,15 @@ pub(super) fn bind(pstmt: &'static PlannedStmt<'static>, s: &Shape<'static>, key
         if reporting() {
             report("portal keep used");
         }
-        return Ok(Ok(Lent { key, root, held, kept, heap: Some(heap), index: Some(index), failed: false }));
+        return Ok(Ok(Lent {
+            key,
+            root,
+            held,
+            kept,
+            heap: Some(heap),
+            index: Some(index),
+            failed: false,
+        }));
     }
     let (made, held) = gravity_deps::Held::fill(|| Probe::make(pstmt, s, params, snap));
     let (probe, heap, index) = match made? {
@@ -220,7 +244,15 @@ pub(super) fn bind(pstmt: &'static PlannedStmt<'static>, s: &Shape<'static>, key
         report("portal keep made");
     }
     let kept = boxed(probe)?;
-    Ok(Ok(Lent { key, root, held, kept, heap: Some(heap), index: Some(index), failed: false }))
+    Ok(Ok(Lent {
+        key,
+        root,
+        held,
+        kept,
+        heap: Some(heap),
+        index: Some(index),
+        failed: false,
+    }))
 }
 
 impl Probe {
@@ -230,7 +262,12 @@ impl Probe {
     /// the scan begun under the portal's snapshot with its keys given to the AM. The pieces live in their own contexts,
     /// charged to the point cache holder; the relations stay open for the portal (`Lent`).
     #[allow(clippy::type_complexity)]
-    fn make(pstmt: &'static PlannedStmt<'static>, s: &Shape<'static>, params: &[ParamExternData], snap: Rc<SnapshotData<'static>>) -> PgResult<Result<(Probe, Relation<'static>, Relation<'static>), &'static str>> {
+    fn make(
+        pstmt: &'static PlannedStmt<'static>,
+        s: &Shape<'static>,
+        params: &[ParamExternData],
+        snap: Rc<SnapshotData<'static>>,
+    ) -> PgResult<Result<(Probe, Relation<'static>, Relation<'static>), &'static str>> {
         let mut scratch = {
             let _small = gravity_hosts::scratch::small_roots();
             NodeScratch::new("GravityPointPortalProbe")
@@ -269,22 +306,39 @@ impl Probe {
         let (cols, desc, scan) = match built {
             Ok(Ok(b)) => b,
             other => {
-                let closed = indexam::index_close(index, NoLock).and_then(|()| table::table_close(heap, NoLock));
+                let closed = indexam::index_close(index, NoLock)
+                    .and_then(|()| table::table_close(heap, NoLock));
                 let r = other?;
                 closed?;
                 return Ok(Err(r.err().expect("the Ok arm returned above")));
             }
         };
-        let probe = Probe { relid: s.relid, indexid: s.scan.indexid, ops, heap: None, index: None, cols, desc, scan: Some(scan), scratch };
+        let probe = Probe {
+            relid: s.relid,
+            indexid: s.scan.indexid,
+            ops,
+            heap: None,
+            index: None,
+            cols,
+            desc,
+            scan: Some(scan),
+            scratch,
+        };
         Ok(Ok((probe, heap, index)))
     }
 
     /// A taken probe's per-portal checks, its build's order (nothing of the probe touched): the index lock where the
     /// transaction holds none (`select::index_lockmode`, as `build_probe`'s index_open takes it), the portal's parameters
     /// against the plan's types (`Some("parameter")`: `index_refusal`'s), the keys' EXECUTE gates.
-    fn check(&self, s: &Shape<'static>, params: &[ParamExternData]) -> PgResult<Option<&'static str>> {
+    fn check(
+        &self,
+        s: &Shape<'static>,
+        params: &[ParamExternData],
+    ) -> PgResult<Option<&'static str>> {
         if self.relid != s.relid || self.indexid != s.scan.indexid {
-            return Err(super::keep::internal("a kept portal probe of another table or index"));
+            return Err(super::keep::internal(
+                "a kept portal probe of another table or index",
+            ));
         }
         let mode = select::index_lockmode(s);
         if mode != NoLock {
@@ -301,7 +355,12 @@ impl Probe {
     /// then the scan re-armed with the portal's relations, snapshot and keys (made again when the table's row type is
     /// another descriptor) and the AM's rescan. Returns the relations, open for the portal. On an error the scan is ended
     /// and the relations closed; the caller drops the probe.
-    fn rearm(&mut self, s: &Shape<'static>, params: &[ParamExternData], snap: Rc<SnapshotData<'static>>) -> PgResult<(Relation<'static>, Relation<'static>)> {
+    fn rearm(
+        &mut self,
+        s: &Shape<'static>,
+        params: &[ParamExternData],
+        snap: Rc<SnapshotData<'static>>,
+    ) -> PgResult<(Relation<'static>, Relation<'static>)> {
         let (m, em) = (self.scratch.mcx(), self.scratch.exec_mcx());
         let heap = match repin(&self.heap) {
             Some(h) => h,
@@ -326,7 +385,15 @@ impl Probe {
                     if let Some(old) = self.scan.take() {
                         old.end(em)?;
                     }
-                    self.scan = Some(probe::Scan::begin(m, &heap, &index, &s.scan.indexqual, params, &self.ops, snap)?);
+                    self.scan = Some(probe::Scan::begin(
+                        m,
+                        &heap,
+                        &index,
+                        &s.scan.indexqual,
+                        params,
+                        &self.ops,
+                        snap,
+                    )?);
                 }
             }
             self.scan.as_mut().expect("set above").rescan()
@@ -338,7 +405,8 @@ impl Probe {
                 if let Some(scan) = self.scan.take() {
                     let _ = scan.end(em);
                 }
-                let _ = indexam::index_close(index, NoLock).and_then(|()| table::table_close(heap, NoLock));
+                let _ = indexam::index_close(index, NoLock)
+                    .and_then(|()| table::table_close(heap, NoLock));
                 Err(e)
             }
         }
@@ -361,7 +429,15 @@ impl Lent {
 /// ends, the relations close and nothing is kept. ExecEndIndexScan's errors have no caller to reach (C4 runs from
 /// PortalDrop's cleanup): they drop the probe.
 pub(super) fn put(lent: Lent) {
-    let Lent { key, root, held, mut kept, heap, index, failed } = lent;
+    let Lent {
+        key,
+        root,
+        held,
+        mut kept,
+        heap,
+        index,
+        failed,
+    } = lent;
     let keep = !failed && xact::IsTransactionState() && on();
     let parked = kept.with_mut(|k| -> PgResult<()> {
         let p = &mut *k.probe;
@@ -379,7 +455,11 @@ pub(super) fn put(lent: Lent) {
     });
     if !keep || parked.is_err() {
         if reporting() {
-            report(if failed { "portal keep dropped (failed execute)" } else { "portal keep dropped (drop)" });
+            report(if failed {
+                "portal keep dropped (failed execute)"
+            } else {
+                "portal keep dropped (drop)"
+            });
         }
         return;
     }
@@ -409,7 +489,14 @@ fn put_slot(key: PlanKey, root: usize, held: gravity_deps::Held, kept: KeptBox, 
                 i
             }
         };
-        g.slots[at] = Some(Slot { key, root, tick, held, kept, bytes });
+        g.slots[at] = Some(Slot {
+            key,
+            root,
+            tick,
+            held,
+            kept,
+            bytes,
+        });
         BYTES.with(|b| b.set(b.get() + bytes));
     });
     skip::trim();
@@ -417,7 +504,10 @@ fn put_slot(key: PlanKey, root: usize, held: gravity_deps::Held, kept: KeptBox, 
 
 /// The least recently used of `ticks` (a full keep's slots).
 fn victim(ticks: impl Iterator<Item = u64>) -> usize {
-    ticks.enumerate().min_by_key(|&(_, t)| t).map_or(0, |(i, _)| i)
+    ticks
+        .enumerate()
+        .min_by_key(|&(_, t)| t)
+        .map_or(0, |(i, _)| i)
 }
 
 fn drop_slot(s: &mut Option<Slot>) {
@@ -429,33 +519,41 @@ fn drop_slot(s: &mut Option<Slot>) {
 /// Plan `key` / `root`'s kept probe, out of its slot for a portal: with its reads, and the slot's tick. `None`: none kept,
 /// or its reads moved (the slot goes), or the memory-short epoch moved since the first slot was filled (every slot goes).
 fn take(key: PlanKey, root: usize) -> Option<(gravity_deps::Held, KeptBox, u64)> {
-    let (got, stale) = KEEP.try_with(|k| {
-        let Ok(mut g) = k.try_borrow_mut() else {
-            return (None, None);
-        };
-        if g.slots.iter().all(Option::is_none) {
-            return (None, None);
-        }
-        if g.short != mcx::memory_short_epoch() {
-            return (None, Some(g.clear()));
-        }
-        let swept = g.sweep();
-        if swept.0 > 0 && reporting() {
-            report(&format!("portal keep sweep {} slots ({} bytes)", swept.0, swept.1)); // alloc: Cold
-        }
-        let Some(i) = g.slots.iter().position(|s| s.as_ref().is_some_and(|s| s.key == key && s.root == root)) else {
-            return (None, None);
-        };
-        let slot = g.slots[i].take().expect("found above");
-        BYTES.with(|b| b.set(b.get().saturating_sub(slot.bytes)));
-        if !slot.held.stands() {
-            return (None, Some((1, slot.bytes)));
-        }
-        g.tick += 1;
-        let tick = g.tick;
-        (Some((slot.held, slot.kept, tick)), None)
-    })
-    .unwrap_or((None, None));
+    let (got, stale) = KEEP
+        .try_with(|k| {
+            let Ok(mut g) = k.try_borrow_mut() else {
+                return (None, None);
+            };
+            if g.slots.iter().all(Option::is_none) {
+                return (None, None);
+            }
+            if g.short != mcx::memory_short_epoch() {
+                return (None, Some(g.clear()));
+            }
+            let swept = g.sweep();
+            if swept.0 > 0 && reporting() {
+                report(&format!(
+                    "portal keep sweep {} slots ({} bytes)",
+                    swept.0, swept.1
+                )); // alloc: Cold
+            }
+            let Some(i) = g
+                .slots
+                .iter()
+                .position(|s| s.as_ref().is_some_and(|s| s.key == key && s.root == root))
+            else {
+                return (None, None);
+            };
+            let slot = g.slots[i].take().expect("found above");
+            BYTES.with(|b| b.set(b.get().saturating_sub(slot.bytes)));
+            if !slot.held.stands() {
+                return (None, Some((1, slot.bytes)));
+            }
+            g.tick += 1;
+            let tick = g.tick;
+            (Some((slot.held, slot.kept, tick)), None)
+        })
+        .unwrap_or((None, None));
     if let Some((n, b)) = stale.filter(|_| reporting()) {
         report(&format!("portal keep stale {n} slots ({b} bytes)")); // alloc: Cold
     }
@@ -469,7 +567,10 @@ pub(super) fn bytes() -> usize {
 
 /// Every kept probe out (`None`: none kept): the idle release and a memory-short sweep (skip.rs); their count and bytes.
 pub(super) fn drop_all() -> Option<(usize, usize)> {
-    KEEP.try_with(|k| k.try_borrow_mut().ok().map(|mut g| g.clear())).ok().flatten().filter(|&(n, _)| n > 0)
+    KEEP.try_with(|k| k.try_borrow_mut().ok().map(|mut g| g.clear()))
+        .ok()
+        .flatten()
+        .filter(|&(n, _)| n > 0)
 }
 
 /// The session's teardown (`point::drop_state_at_teardown`): every kept probe goes with the session (a reused thread starts

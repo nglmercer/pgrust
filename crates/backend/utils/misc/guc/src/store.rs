@@ -204,8 +204,10 @@ pub fn initialize_guc_options_for_child_base(
 // D4682 step 2 (a), the GUC registry template: while on (launch_backend sets it when backend_thread_reuse_keep is on), a
 // registry shares the process's index of the built-in variables' names, published by the first registry built while on,
 // and builds only the values (every variable, its hooks, the boot and base values: nothing of a previous session).
-static SHARE_BUILTIN_INDEX: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-static BUILTIN_INDEX: pgsync::OnceLock<std::sync::Arc<crate::registry::BuiltinIndex>> = pgsync::OnceLock::new();
+static SHARE_BUILTIN_INDEX: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+static BUILTIN_INDEX: pgsync::OnceLock<std::sync::Arc<crate::registry::BuiltinIndex>> =
+    pgsync::OnceLock::new();
 // The one publish: a registry that finds the index unpublished takes this and looks again, so two first sessions racing
 // build it once (a lock and a second look rather than get_or_init: the determinism lint ratchets raw once sites).
 static PUBLISH_BUILTIN_INDEX: pgsync::Mutex<()> = pgsync::Mutex::new(());
@@ -248,7 +250,9 @@ fn initialize_guc_options_impl(publish: impl Fn(&str) -> bool) -> PgResult<()> {
     if share && BUILTIN_INDEX.get().is_none() {
         // Process lifetime, on UNBOUND by construction (9d, 10-16): built once, under the publish lock, never freed,
         // never shed, so none of it is the first session's (its account would end with it as residue).
-        let _publish = PUBLISH_BUILTIN_INDEX.lock().unwrap_or_else(|e| e.into_inner());
+        let _publish = PUBLISH_BUILTIN_INDEX
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         if BUILTIN_INDEX.get().is_none() {
             let _home = memledger::Home::of(memledger::Acct::UNBOUND).enter();
             let _ = BUILTIN_INDEX.set(std::sync::Arc::new(reg.own_index()));
@@ -318,7 +322,12 @@ pub fn initialize_guc_options_from_environment() -> PgResult<()> {
             "granule" | "rows" | "full" => env.as_str(),
             _ => "full",
         };
-        crate::SetConfigOption("pgrust.condition_cache", Some(v), PGC_POSTMASTER, PGC_S_ENV_VAR)?;
+        crate::SetConfigOption(
+            "pgrust.condition_cache",
+            Some(v),
+            PGC_POSTMASTER,
+            PGC_S_ENV_VAR,
+        )?;
     }
     // pgrust-only (env-to-guc train): pgrust.runtime's startup default (the M0
     // runtime-pool master switch). Only the exact value "0" kills, matching the
@@ -335,8 +344,17 @@ pub fn initialize_guc_options_from_environment() -> PgResult<()> {
     // spelling per t35 convention: "0" or "off" disables; any other value /
     // unset = on (the flipped default).
     if let Ok(env) = std::env::var("PGRUST_RUNTIME_VACUUM_POOL") {
-        let v = if matches!(env.trim(), "0" | "off") { "off" } else { "on" };
-        crate::SetConfigOption("pgrust.runtime_vacuum_pool", Some(v), PGC_POSTMASTER, PGC_S_ENV_VAR)?;
+        let v = if matches!(env.trim(), "0" | "off") {
+            "off"
+        } else {
+            "on"
+        };
+        crate::SetConfigOption(
+            "pgrust.runtime_vacuum_pool",
+            Some(v),
+            PGC_POSTMASTER,
+            PGC_S_ENV_VAR,
+        )?;
     }
     // pgrust-only (env-to-guc train): pgrust.mem_autotune's startup default
     // (the boot-time machine-scaled memory/parallel auto-tune gate). Accepts
@@ -344,7 +362,12 @@ pub fn initialize_guc_options_from_environment() -> PgResult<()> {
     // default stays OFF without the env var.
     // pgrust-only: pgrust.gravity_dump_dir's startup default (the Gravity IR / machine-code dump directory).
     if let Ok(env) = std::env::var("PGRUST_GRAVITY_DUMP_IR") {
-        crate::SetConfigOption("pgrust.gravity_dump_dir", Some(env.as_str()), PGC_POSTMASTER, PGC_S_ENV_VAR)?;
+        crate::SetConfigOption(
+            "pgrust.gravity_dump_dir",
+            Some(env.as_str()),
+            PGC_POSTMASTER,
+            PGC_S_ENV_VAR,
+        )?;
     }
     // pgrust-only: pgrust.gravity_jit_perfmap's startup default (off | func | tags: the JIT perf map, gravity_backend perfmap).
     if let Ok(env) = std::env::var("PGRUST_GRAVITY_JIT_PERFMAP") {
@@ -353,11 +376,25 @@ pub fn initialize_guc_options_from_environment() -> PgResult<()> {
             "" | "0" => "off",
             v => v,
         };
-        crate::SetConfigOption("pgrust.gravity_jit_perfmap", Some(v), PGC_POSTMASTER, PGC_S_ENV_VAR)?;
+        crate::SetConfigOption(
+            "pgrust.gravity_jit_perfmap",
+            Some(v),
+            PGC_POSTMASTER,
+            PGC_S_ENV_VAR,
+        )?;
     }
     if let Ok(env) = std::env::var("PGRUST_MEM_AUTOTUNE") {
-        let v = if matches!(env.as_str(), "1" | "on" | "true" | "yes") { "on" } else { "off" };
-        crate::SetConfigOption("pgrust.mem_autotune", Some(v), PGC_POSTMASTER, PGC_S_ENV_VAR)?;
+        let v = if matches!(env.as_str(), "1" | "on" | "true" | "yes") {
+            "on"
+        } else {
+            "off"
+        };
+        crate::SetConfigOption(
+            "pgrust.mem_autotune",
+            Some(v),
+            PGC_POSTMASTER,
+            PGC_S_ENV_VAR,
+        )?;
     }
     adjust_max_stack_depth_from_rlimit()
 }
@@ -449,7 +486,11 @@ pub fn restore_nondefault_variables(vars: &[NondefaultGuc]) -> PgResult<()> {
         }
     }
     if let Some(t0) = t0 {
-        eprintln!("GTRACE guc.restore n={} total_us={}", vars.len(), t0.elapsed().as_micros());
+        eprintln!(
+            "GTRACE guc.restore n={} total_us={}",
+            vars.len(),
+            t0.elapsed().as_micros()
+        );
     }
     Ok(())
 }
@@ -475,7 +516,12 @@ pub fn write_postmaster_gucs(out: &mut Vec<u8>) {
             out.push(0);
             out.extend_from_slice(g.sourcefile.as_deref().unwrap_or("").as_bytes());
             out.push(0);
-            for n in [g.sourceline, g.source as i32, g.scontext as i32, g.srole as i32] {
+            for n in [
+                g.sourceline,
+                g.source as i32,
+                g.scontext as i32,
+                g.srole as i32,
+            ] {
                 out.extend_from_slice(&n.to_le_bytes());
             }
             out.push(pending as u8);
@@ -485,7 +531,9 @@ pub fn write_postmaster_gucs(out: &mut Vec<u8>) {
 
 /// Ok(false) when `image` is malformed (nothing applied past the bad entry).
 pub fn read_postmaster_gucs(image: &[u8]) -> PgResult<bool> {
-    let Some((reload, mut rest)) = image.split_first_chunk::<8>() else { return Ok(false) };
+    let Some((reload, mut rest)) = image.split_first_chunk::<8>() else {
+        return Ok(false);
+    };
     let cstr = |b: &mut &[u8]| -> Option<String> {
         let at = b.iter().position(|&c| c == 0)?;
         let s = std::str::from_utf8(&b[..at]).ok()?.to_owned();
@@ -508,7 +556,16 @@ pub fn read_postmaster_gucs(image: &[u8]) -> PgResult<bool> {
             let srole = int(&mut rest)? as Oid;
             let (&pending, tail) = rest.split_first()?;
             rest = tail;
-            Some((name, value, file, line, source, scontext, srole, pending != 0))
+            Some((
+                name,
+                value,
+                file,
+                line,
+                source,
+                scontext,
+                srole,
+                pending != 0,
+            ))
         })();
         let Some((name, value, file, line, source, scontext, srole, pending)) = parsed else {
             return Ok(false);
@@ -544,9 +601,20 @@ pub fn read_postmaster_gucs(image: &[u8]) -> PgResult<bool> {
 fn guc_source_from(n: i32) -> Option<GucSource> {
     use types_guc::GucSource::*;
     [
-        PGC_S_DEFAULT, PGC_S_DYNAMIC_DEFAULT, PGC_S_ENV_VAR, PGC_S_FILE, PGC_S_ARGV,
-        PGC_S_GLOBAL, PGC_S_DATABASE, PGC_S_USER, PGC_S_DATABASE_USER, PGC_S_CLIENT,
-        PGC_S_OVERRIDE, PGC_S_INTERACTIVE, PGC_S_TEST, PGC_S_SESSION,
+        PGC_S_DEFAULT,
+        PGC_S_DYNAMIC_DEFAULT,
+        PGC_S_ENV_VAR,
+        PGC_S_FILE,
+        PGC_S_ARGV,
+        PGC_S_GLOBAL,
+        PGC_S_DATABASE,
+        PGC_S_USER,
+        PGC_S_DATABASE_USER,
+        PGC_S_CLIENT,
+        PGC_S_OVERRIDE,
+        PGC_S_INTERACTIVE,
+        PGC_S_TEST,
+        PGC_S_SESSION,
     ]
     .into_iter()
     .find(|s| *s as i32 == n)
@@ -554,9 +622,17 @@ fn guc_source_from(n: i32) -> Option<GucSource> {
 
 fn guc_context_from(n: i32) -> Option<GucContext> {
     use types_guc::GucContext::*;
-    [PGC_INTERNAL, PGC_POSTMASTER, PGC_SIGHUP, PGC_SU_BACKEND, PGC_BACKEND, PGC_SUSET, PGC_USERSET]
-        .into_iter()
-        .find(|c| *c as i32 == n)
+    [
+        PGC_INTERNAL,
+        PGC_POSTMASTER,
+        PGC_SIGHUP,
+        PGC_SU_BACKEND,
+        PGC_BACKEND,
+        PGC_SUSET,
+        PGC_USERSET,
+    ]
+    .into_iter()
+    .find(|c| *c as i32 == n)
 }
 
 pub use crate::registry::CapturedGuc;
@@ -687,7 +763,9 @@ pub fn bind_session_gucs(caps: &[CapturedGuc]) -> PgResult<SessionGucBinding> {
         "bind_session_gucs: thread already carries a session bind"
     );
     SESSION_BOUND.set(true);
-    let binding = SessionGucBinding { _not_send: std::marker::PhantomData };
+    let binding = SessionGucBinding {
+        _not_send: std::marker::PhantomData,
+    };
     reset_then_apply(
         |name| crate::registry::recaptured(caps, name),
         || apply_captured_session_gucs_impl(caps, false),
@@ -711,14 +789,20 @@ fn apply_captured_session_gucs_impl(caps: &[CapturedGuc], exact: bool) -> PgResu
     let t0 = trace.then(std::time::Instant::now);
     for cap in caps {
         let mut deferred_hooks: Vec<DeferredAssignHook> = Vec::new();
-        with_store_mut(|reg| crate::registry::bind_captured_guc(reg, cap, &mut deferred_hooks, exact))
-            .unwrap_or_else(|| store_uninitialized("apply_captured_session_gucs"))?;
+        with_store_mut(|reg| {
+            crate::registry::bind_captured_guc(reg, cap, &mut deferred_hooks, exact)
+        })
+        .unwrap_or_else(|| store_uninitialized("apply_captured_session_gucs"))?;
         for hook in deferred_hooks {
             hook();
         }
     }
     if let Some(t0) = t0 {
-        eprintln!("GTRACE guc.bind n={} total_us={}", caps.len(), t0.elapsed().as_micros());
+        eprintln!(
+            "GTRACE guc.bind n={} total_us={}",
+            caps.len(),
+            t0.elapsed().as_micros()
+        );
     }
     Ok(())
 }
@@ -814,13 +898,14 @@ pub fn set_config_option_global(
     };
 
     crate::reset_guc_check_error();
-    let (newval, newextra) = match with_store(|reg| set_config_option_value(reg, &prep, value, source))
-        .unwrap_or_else(|| store_uninitialized(name))
-    {
-        Ok(parsed) => parsed,
-        Err(e) if crate::take_guc_check_thrown() => return Err(e),
-        Err(e) => return crate::registry::reject(prep.elevel, *e),
-    };
+    let (newval, newextra) =
+        match with_store(|reg| set_config_option_value(reg, &prep, value, source))
+            .unwrap_or_else(|| store_uninitialized(name))
+        {
+            Ok(parsed) => parsed,
+            Err(e) if crate::take_guc_check_thrown() => return Err(e),
+            Err(e) => return crate::registry::reject(prep.elevel, *e),
+        };
 
     let mut deferred_hooks: Vec<DeferredAssignHook> = Vec::new();
     let result = with_store_mut(|reg| {

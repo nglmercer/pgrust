@@ -12,7 +12,10 @@ crate::strategies! {
     WIDTH_WALK = 68, "width.walk", Walkable;
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(WIDTH_WALK, &WALK_WIDTH)], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(WIDTH_WALK, &WALK_WIDTH)],
+    ..crate::ops::NONE
+};
 
 /// `width.walk`'s row: its reader is runs/walk.rs's declaration.
 pub(crate) struct WalkWidth;

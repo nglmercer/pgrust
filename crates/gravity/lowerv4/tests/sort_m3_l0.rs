@@ -8,9 +8,9 @@ use std::cell::RefCell;
 
 use gravity_abi::breaker::SlotKind;
 use gravity_decompose::ops::shared::agg::GroupDecl;
-use gravity_lowerv4::table::face::{stub_owner_top, OwnerTopMech, TableDecl};
-use gravity_lowerv4::face::strategy::{StrategySet, CODE_FRONT_LIGHT, OWNER_COUNT, set_off};
+use gravity_lowerv4::face::strategy::{set_off, StrategySet, CODE_FRONT_LIGHT, OWNER_COUNT};
 use gravity_lowerv4::frame::px::Px;
+use gravity_lowerv4::table::face::{stub_owner_top, OwnerTopMech, TableDecl};
 use gravity_program::OwnerDesc;
 
 fn text(rel: &str) -> String {
@@ -19,7 +19,9 @@ fn text(rel: &str) -> String {
 }
 
 fn verdict(t: &str) -> Result<common::LoweredIn, String> {
-    common::lower_fixture(t).expect("decompose takes the fixture").map_err(|e| e.to_string())
+    common::lower_fixture(t)
+        .expect("decompose takes the fixture")
+        .map_err(|e| e.to_string())
 }
 
 thread_local! {
@@ -35,9 +37,18 @@ fn seen() -> Vec<(usize, u32)> {
 struct Stub;
 
 impl OwnerTopMech for Stub {
-    fn owner<'p>(&self, _px: &mut Px<'_, 'p>, k: usize, _g: &GroupDecl<'p>, t: &TableDecl, n: u32) -> OwnerDesc {
+    fn owner<'p>(
+        &self,
+        _px: &mut Px<'_, 'p>,
+        k: usize,
+        _g: &GroupDecl<'p>,
+        t: &TableDecl,
+        n: u32,
+    ) -> OwnerDesc {
         SEEN.with(|s| s.borrow_mut().push((k, n)));
-        let count = (0..t.layout.slot_kinds().len()).find(|&j| t.layout.slot_kinds()[j] == SlotKind::Count).unwrap_or(0);
+        let count = (0..t.layout.slot_kinds().len())
+            .find(|&j| t.layout.slot_kinds()[j] == SlotKind::Count)
+            .unwrap_or(0);
         OwnerDesc::count_topk(t.layout, count as u8, n)
     }
 }
@@ -65,10 +76,19 @@ fn with_stub<T>(f: impl FnOnce() -> T) -> T {
 fn a_count_ordered_top_reaches_the_owner_top_mechanism() {
     let l = with_stub(|| verdict(&text("fieldobs-033.plan")));
     let seen = seen();
-    assert!(!seen.is_empty() && seen.iter().all(|&s| s == (seen[0].0, 10)), "the group pipeline's owner, bound LIMIT 10: {seen:?}");
+    assert!(
+        !seen.is_empty() && seen.iter().all(|&s| s == (seen[0].0, 10)),
+        "the group pipeline's owner, bound LIMIT 10: {seen:?}"
+    );
     let l = l.unwrap_or_else(|e| panic!("fieldobs-033 under the stub: {e}"));
-    let owner = l.descs.pipelines[seen[0].0].owner.expect("the group pipeline's owner phase");
-    assert_eq!((owner.topk, owner.order_slot), (10, 0), "the stub's count-ordered descriptor: {owner:?}");
+    let owner = l.descs.pipelines[seen[0].0]
+        .owner
+        .expect("the group pipeline's owner phase");
+    assert_eq!(
+        (owner.topk, owner.order_slot),
+        (10, 0),
+        "the stub's count-ordered descriptor: {owner:?}"
+    );
 }
 
 /// G4: a top ordered by a group key (`ORDER BY k`) or by an expression over finals (bench SVlen) is not count-ordered: the seam
@@ -103,16 +123,26 @@ fn an_ordered_aggregate_folds_host_sorted() {
 /// answers false (e2e v4/m8_dc14_catalog_lookup and regress keep the live form).
 #[test]
 fn psql_lookup_nest_takes_catalog_nest() {
-    let props = |fx: &str| common::props_fixture(&text(fx)).unwrap_or_else(|| panic!("{fx}: decompose declined")).1;
-    for fx in ["regress-full/inherit-001.plan", "regress-full/create_aggregate-001.plan"] {
+    let props = |fx: &str| {
+        common::props_fixture(&text(fx))
+            .unwrap_or_else(|| panic!("{fx}: decompose declined"))
+            .1
+    };
+    for fx in [
+        "regress-full/inherit-001.plan",
+        "regress-full/create_aggregate-001.plan",
+    ] {
         assert!(props(fx).contains("catalog_nest"), "{fx}: {:?}", props(fx));
         // V4R-142: the lookup is a catalog probe (nest.catalog, M3): it lowers, or refuses on a later need, never nest.loop
         if let Err(v) = verdict(&text(fx)) {
-            assert!(v.contains("NotBuilt") && !v.contains("nest.loop"), "{fx}: {v}");
+            assert!(
+                v.contains("NotBuilt") && !v.contains("nest.loop"),
+                "{fx}: {v}"
+            );
         }
     }
     {
-        let fx ="regress-full/aggregates-037.plan";
+        let fx = "regress-full/aggregates-037.plan";
         assert!(!props(fx).contains("catalog_nest"), "{fx}: {:?}", props(fx));
     }
 }

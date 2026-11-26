@@ -18,7 +18,10 @@ fn program(rows: u64, groups: u64) -> Program {
     let mut p = common::p_group_spill(16);
     let b = p.pipelines[0].breaker().expect("the fixture's breaker");
     let bits = spill_bits(groups, layout.size());
-    p.pipelines[0].ends_in = End::Breaker(Breaker { spill: Spill::Partitioned { bits }, ..b });
+    p.pipelines[0].ends_in = End::Breaker(Breaker {
+        spill: Spill::Partitioned { bits },
+        ..b
+    });
     p.pipelines[0].predicted_rows = rows;
     p.pipelines[0].owner = Some(OwnerDesc::generic(layout, 0, 0));
     p
@@ -36,9 +39,20 @@ fn a_partitioned_record_tables_workers_share_its_nodes_floor() {
     // work_mem 256MB: hash_mem 512 MiB
     let g = Grant::of(ask).with_floors(256 * MIB, 512 * MIB);
     let (w8, w15) = (workers(&p, g, 8), workers(&p, g, 15));
-    eprintln!("ask {} MiB, workers W8 {} MiB, W15 {} MiB", ask >> 20, w8 >> 20, w15 >> 20);
-    assert!(share(&p, 0, g, 15).worker.bytes as u64 * 2 <= 512 * MIB, "a W15 worker's share is not the node's whole hash_mem");
-    assert!(2 * w15 <= 3 * w8, "the workers' shares at W15 ({w15} B) within 1.5x of W8's ({w8} B)");
+    eprintln!(
+        "ask {} MiB, workers W8 {} MiB, W15 {} MiB",
+        ask >> 20,
+        w8 >> 20,
+        w15 >> 20
+    );
+    assert!(
+        share(&p, 0, g, 15).worker.bytes as u64 * 2 <= 512 * MIB,
+        "a W15 worker's share is not the node's whole hash_mem"
+    );
+    assert!(
+        2 * w15 <= 3 * w8,
+        "the workers' shares at W15 ({w15} B) within 1.5x of W8's ({w8} B)"
+    );
     // the serial open keeps its node's floor
     assert!(share(&p, 0, g, 1).breaker.bytes as u64 >= 512 * MIB);
 }
@@ -50,7 +64,10 @@ fn at_the_default_work_mem_a_worker_keeps_its_floor() {
     for w in [2u16, 8, 15, 16] {
         let ask = grant_need(&p, w).expect("a share breaker");
         let g = Grant::of(ask).with_floors(4 * MIB, 8 * MIB);
-        assert!(share(&p, 0, g, w).worker.bytes as u64 >= 8 * MIB, "W{w}: a worker keeps hash_mem");
+        assert!(
+            share(&p, 0, g, w).worker.bytes as u64 >= 8 * MIB,
+            "W{w}: a worker keeps hash_mem"
+        );
     }
 }
 
@@ -59,5 +76,8 @@ fn a_few_group_table_keeps_its_floor_at_every_width() {
     // few groups: the records the workers hold are small, so each worker's least share is `FLOOR_CHARGED_MIN`
     let p = program(9_100_000, 4);
     let g = Grant::of(grant_need(&p, 8).unwrap()).with_floors(256 * MIB, 512 * MIB);
-    assert!(share(&p, 0, g, 8).worker.bytes as u64 >= gravity_driver::FLOOR_CHARGED_MIN.min(share(&p, 0, g, 1).breaker.bytes as u64));
+    assert!(
+        share(&p, 0, g, 8).worker.bytes as u64
+            >= gravity_driver::FLOOR_CHARGED_MIN.min(share(&p, 0, g, 1).breaker.bytes as u64)
+    );
 }

@@ -5,10 +5,13 @@ use std::cell::{Cell, RefCell};
 use elog::ereport;
 use logicalproto::LogicalRepRelation;
 use mcx::{Mcx, MemoryContext};
-use types_core::{InvalidTransactionId, InvalidXLogRecPtr, Oid, TimestampTz, TransactionId, XLogRecPtr};
+use types_core::{
+    InvalidTransactionId, InvalidXLogRecPtr, Oid, TimestampTz, TransactionId, XLogRecPtr,
+};
 use types_error::{
-    ErrorLocation, PgError, PgResult, DEBUG1, DEBUG2, ERRCODE_ADMIN_SHUTDOWN, ERRCODE_CONNECTION_FAILURE,
-    ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE, ERRCODE_PROTOCOL_VIOLATION, ERROR, FATAL, LOG, WARNING,
+    ErrorLocation, PgError, PgResult, DEBUG1, DEBUG2, ERRCODE_ADMIN_SHUTDOWN,
+    ERRCODE_CONNECTION_FAILURE, ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE,
+    ERRCODE_PROTOCOL_VIOLATION, ERROR, FATAL, LOG, WARNING,
 };
 
 use types_storage::waiteventset::{
@@ -113,7 +116,11 @@ pub(crate) fn apply_error_context_line(errarg: &ApplyErrorCallbackArg) -> Option
     let origin = errarg.origin_name.as_deref().unwrap_or("(null)");
     let msgtype = logicalproto::logicalrep_message_type(errarg.command);
     let xid = errarg.remote_xid;
-    let lsn = format!("{:X}/{:X}", (errarg.finish_lsn >> 32) as u32, errarg.finish_lsn as u32);
+    let lsn = format!(
+        "{:X}/{:X}",
+        (errarg.finish_lsn >> 32) as u32,
+        errarg.finish_lsn as u32
+    );
     let lsn_valid = errarg.finish_lsn != InvalidXLogRecPtr;
     Some(match &errarg.rel {
         None => {
@@ -611,7 +618,11 @@ pub(crate) fn send_feedback(
     if !force
         && writepos == LAST_WRITEPOS.get()
         && flushpos == LAST_FLUSHPOS.get()
-        && !adt_timestamp::TimestampDifferenceExceeds(FEEDBACK_SEND_TIME.get(), now, interval * 1000)
+        && !adt_timestamp::TimestampDifferenceExceeds(
+            FEEDBACK_SEND_TIME.get(),
+            now,
+            interval * 1000,
+        )
     {
         return Ok(());
     }
@@ -625,7 +636,10 @@ pub(crate) fn send_feedback(
     msg.extend_from_slice(&(now as i64).to_be_bytes());
     msg.push(request_reply as u8);
 
-    let _ = elog::elog(DEBUG2, feedback_debug_line(force, recvpos, writepos, flushpos));
+    let _ = elog::elog(
+        DEBUG2,
+        feedback_debug_line(force, recvpos, writepos, flushpos),
+    );
 
     if let Err(e) = conn.put_copy_data(&msg) {
         return Err(wal_stream_send_error(&e));
@@ -677,15 +691,21 @@ pub(crate) fn apply_loop(conn: &mut PgConn, last_received: XLogRecPtr) -> PgResu
 
 pub(crate) fn wal_stream_receive_error(err: &str, sqlstate: types_error::SqlState) -> Box<PgError> {
     Box::new(
-        PgError::error(format!("could not receive data from WAL stream: {}", pchomp(err)))
-            .with_sqlstate(sqlstate),
+        PgError::error(format!(
+            "could not receive data from WAL stream: {}",
+            pchomp(err)
+        ))
+        .with_sqlstate(sqlstate),
     )
 }
 
 pub(crate) fn wal_stream_send_error(err: &str) -> Box<PgError> {
     Box::new(
-        PgError::error(format!("could not send data to WAL stream: {}", pchomp(err)))
-            .with_sqlstate(ERRCODE_CONNECTION_FAILURE),
+        PgError::error(format!(
+            "could not send data to WAL stream: {}",
+            pchomp(err)
+        ))
+        .with_sqlstate(ERRCODE_CONNECTION_FAILURE),
     )
 }
 
@@ -910,7 +930,10 @@ fn start_replication_command(
     if server_version >= 160000 {
         cmd.push_str(&format!(", origin '{}'", origin_opt.replace('\'', "''")));
     }
-    cmd.push_str(&format!(", publication_names '{}'", pubnames.replace('\'', "''")));
+    cmd.push_str(&format!(
+        ", publication_names '{}'",
+        pubnames.replace('\'', "''")
+    ));
     if binary && server_version >= 140000 {
         cmd.push_str(", binary 'true'");
     }
@@ -925,14 +948,8 @@ fn start_logical_streaming_opts(
     two_phase: bool,
 ) -> PgResult<()> {
     let slot = slotname.to_string();
-    let (publications, binary, origin_opt, stream_mode) = my_sub(|s| {
-        (
-            s.publications.clone(),
-            s.binary,
-            s.origin.clone(),
-            s.stream,
-        )
-    });
+    let (publications, binary, origin_opt, stream_mode) =
+        my_sub(|s| (s.publications.clone(), s.binary, s.origin.clone(), s.stream));
 
     // Against an older publisher proto_version and streaming mode must
     // fall back, or the publisher rejects START_REPLICATION.
@@ -985,7 +1002,10 @@ pub fn ApplyWorkerMain(main_arg: u64) -> PgResult<()> {
     if launcher::worker_snapshot(slot).is_some_and(|w| !w.is_tablesync()) {
         launcher::set_initializing_apply_worker(true);
     }
-    ipc::before_shmem_exit(stream_apply::stream_fileset_delete_on_exit, datum::Datum::null())?;
+    ipc::before_shmem_exit(
+        stream_apply::stream_fileset_delete_on_exit,
+        datum::Datum::null(),
+    )?;
     launcher::logicalrep_worker_attach(slot)?;
     launcher::my_worker_init_stats_times();
 
@@ -1237,7 +1257,9 @@ fn apply_worker_body(slot: usize) -> PgResult<()> {
     };
     let _ = elog::elog(
         DEBUG1,
-        format!("logical replication apply worker for subscription \"{name}\" two_phase is {state}"),
+        format!(
+            "logical replication apply worker for subscription \"{name}\" two_phase is {state}"
+        ),
     );
 
     let r = apply_loop(&mut conn, origin_startpos);

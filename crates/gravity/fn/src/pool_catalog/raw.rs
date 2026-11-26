@@ -12,6 +12,8 @@ pub(super) fn claim_slice<T: 'static>(s: &[T]) -> &'static [T] {
 /// `name_encoding` over a lowered program's non-null by-reference `name` Const, whose image the program holds.
 pub(super) fn name_bytes<'a>(addr: usize) -> &'a [u8] {
     // SAFETY: the caller's contract above: `addr` is a live NAMEDATALEN-byte image.
-    let all = unsafe { core::slice::from_raw_parts(addr as *const u8, types_core::fmgr::NAMEDATALEN as usize) };
+    let all = unsafe {
+        core::slice::from_raw_parts(addr as *const u8, types_core::fmgr::NAMEDATALEN as usize)
+    };
     &all[..all.iter().position(|&b| b == 0).unwrap_or(all.len())]
 }

@@ -18,7 +18,11 @@ use types_storage::{RelFileLocator, RelFileLocatorBackend};
 fn startreadv_error_inside_hold_bracket_leaves_interrupts_resumed() {
     let dir = common::setup("holdoff");
     let key = RelFileLocatorBackend {
-        locator: RelFileLocator { spcOid: 1663, dbOid: 5, relNumber: 16384 },
+        locator: RelFileLocator {
+            spcOid: 1663,
+            dbOid: 5,
+            relNumber: 16384,
+        },
         backend: INVALID_PROC_NUMBER,
     };
     let fork = ForkNumber::MAIN_FORKNUM;
@@ -42,7 +46,11 @@ fn startreadv_error_inside_hold_bracket_leaves_interrupts_resumed() {
         "unexpected error: {}",
         err.message
     );
-    assert_eq!(err.sqlstate(), types_error::ERRCODE_UNDEFINED_FILE, "md.c errcode_for_file_access on ENOENT");
+    assert_eq!(
+        err.sqlstate(),
+        types_error::ERRCODE_UNDEFINED_FILE,
+        "md.c errcode_for_file_access on ENOENT"
+    );
 
     // C: errfinish zeroed the count before the longjmp; the catcher sees 0.
     assert_eq!(

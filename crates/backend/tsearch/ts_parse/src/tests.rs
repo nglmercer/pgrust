@@ -1,4 +1,4 @@
-use ::mcx::{MemoryContext, Mcx, PgVec};
+use ::mcx::{Mcx, MemoryContext, PgVec};
 use ::ts_locale::{DictSubState, TsLexeme, TSL_FILTER};
 use ::types_core::Oid;
 use ::types_error::PgResult;
@@ -22,7 +22,14 @@ struct MockEnv<'mcx> {
 
 impl<'mcx> MockEnv<'mcx> {
     fn new(mcx: Mcx<'mcx>, tokens: Vec<(i32, &'static str)>, dicts: Vec<Oid>) -> Self {
-        MockEnv { mcx, tokens, next: 0, buf: Vec::new(), dicts, thes_seen: Vec::new() }
+        MockEnv {
+            mcx,
+            tokens,
+            next: 0,
+            buf: Vec::new(),
+            dicts,
+            thes_seen: Vec::new(),
+        }
     }
 
     #[allow(clippy::extra_unused_lifetimes)]
@@ -30,7 +37,11 @@ impl<'mcx> MockEnv<'mcx> {
         let mut v = PgVec::new_in(self.mcx);
         let mut w = PgVec::new_in(self.mcx);
         w.extend_from_slice(s.as_bytes());
-        v.push(TsLexeme { nvariant: 0, flags: 0, lexeme: w });
+        v.push(TsLexeme {
+            nvariant: 0,
+            flags: 0,
+            lexeme: w,
+        });
         v
     }
 }
@@ -277,7 +288,12 @@ fn overlong_dictionary_output_is_skipped_with_notice() {
         vec![D_LONG, D_STEM],
     );
     let got = words(&prs);
-    assert_eq!(got.len(), 2, "{:?}", got.iter().map(|(w, p)| (w.len(), *p)).collect::<Vec<_>>());
+    assert_eq!(
+        got.len(),
+        2,
+        "{:?}",
+        got.iter().map(|(w, p)| (w.len(), *p)).collect::<Vec<_>>()
+    );
     assert_eq!(got[0], ("cat".to_string(), 2));
     assert_eq!((got[1].0.len(), got[1].1), (2047, 3));
     let notices = LONG_NOTICES.lock().unwrap();
@@ -297,14 +313,19 @@ fn lexize_queue_drains_consumed_tokens() {
     let mut max_len = 0;
     for _ in 0..20_000 {
         ld.add_lemm_pub(1, 0, 3);
-        while crate::parse::lexize_exec(&mut ld, &mut env, buf).unwrap().is_some() {}
+        while crate::parse::lexize_exec(&mut ld, &mut env, buf)
+            .unwrap()
+            .is_some()
+        {}
         max_len = max_len.max(ld.queue_len());
     }
     assert!(max_len <= 2048, "queue retained {max_len} consumed tokens");
     // A stop-word token still lexizes to an empty (stopword) result once.
     ld.add_lemm_pub(1, 0, 3);
     assert_eq!(
-        crate::parse::lexize_exec(&mut ld, &mut env, buf).unwrap().map(|v| v.len()),
+        crate::parse::lexize_exec(&mut ld, &mut env, buf)
+            .unwrap()
+            .map(|v| v.len()),
         Some(0)
     );
 }
@@ -343,7 +364,10 @@ fn stale_thesaurus_result_survives_queue_compaction() {
     tokens.push((1, "cats"));
     let prs = run(ctx.mcx(), &text, tokens, vec![D_THES, D_STEM]);
     let w = words(&prs);
-    assert_eq!(&w[..3], &[("new".into(), 1), ("york".into(), 2), ("123".into(), 3)]);
+    assert_eq!(
+        &w[..3],
+        &[("new".into(), 1), ("york".into(), 2), ("123".into(), 3)]
+    );
     assert_eq!(w.len(), 1104);
     assert_eq!(w[1103], ("nyc".into(), 1104));
 }
@@ -354,15 +378,28 @@ fn words_array_ceiling_is_counted_in_c_parsedword_units() {
     assert_eq!(MAX_LENWORDS, 44_739_242);
     assert_eq!(grow_lenwords(22_369_621).unwrap(), 44_739_242);
     let err = grow_lenwords(44_739_242).unwrap_err();
-    assert_eq!(err.message(), "invalid memory alloc request size 2147483616");
+    assert_eq!(
+        err.message(),
+        "invalid memory alloc request size 2147483616"
+    );
     assert_eq!(err.sqlstate(), ::types_error::ERRCODE_INTERNAL_ERROR);
 
     let ctx = MemoryContext::new("ts-parse-test");
     let mcx = ctx.mcx();
     let mut prs = ParsedText::with_capacity(mcx, 2).unwrap();
     for i in 0..5u16 {
-        prs.push(ParsedWord { word: b"w", nvariant: 0, flags: 0, pos: i, apos: &[] }).unwrap();
+        prs.push(ParsedWord {
+            word: b"w",
+            nvariant: 0,
+            flags: 0,
+            pos: i,
+            apos: &[],
+        })
+        .unwrap();
     }
-    assert_eq!(prs.words.iter().map(|w| w.pos).collect::<Vec<_>>(), [0, 1, 2, 3, 4]);
+    assert_eq!(
+        prs.words.iter().map(|w| w.pos).collect::<Vec<_>>(),
+        [0, 1, 2, 3, 4]
+    );
     assert!(ParsedText::with_capacity(mcx, MAX_LENWORDS + 1).is_err());
 }

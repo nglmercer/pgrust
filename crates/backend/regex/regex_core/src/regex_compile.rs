@@ -1,4 +1,3 @@
-
 extern crate alloc;
 
 use alloc::boxed::Box;
@@ -20,12 +19,11 @@ use crate::regex_nfa::{
     optimize, rainbow, removeconstraints, single_color_transition, specialcolors,
 };
 use crate::regguts::{
-    char_classes, chr, color, ColorMap, Cnfa, Cvec, Fns, Guts, Nfa, NodeId, RegexT, StateId, Subre,
-    AHEAD, BACKR, BACKREF, BEHIND, BRUSE, CAP, CCLASS, CCLASSC, CCLASSS, COLLEL, COLMARK, COLORLESS,
-    DIGIT, ECLASS, EMPTY, END, EOS, FREECOL, INUSE, LACON, LONGER, MATCHALL, MIXED, NWBDRY, PLAIN,
-    PSEUDO, RAINBOW, RANGE, SBEGIN, SEND, SHORTER, WBDRY,
+    char_classes, chr, color, Cnfa, ColorMap, Cvec, Fns, Guts, Nfa, NodeId, RegexT, StateId, Subre,
+    AHEAD, BACKR, BACKREF, BEHIND, BRUSE, CAP, CCLASS, CCLASSC, CCLASSS, COLLEL, COLMARK,
+    COLORLESS, DIGIT, ECLASS, EMPTY, END, EOS, FREECOL, INUSE, LACON, LONGER, MATCHALL, MIXED,
+    NWBDRY, PLAIN, PSEUDO, RAINBOW, RANGE, SBEGIN, SEND, SHORTER, WBDRY,
 };
-
 
 pub const L_ERE: i32 = 1;
 pub const L_BRE: i32 = 2;
@@ -36,7 +34,6 @@ pub const L_BRACK: i32 = 6;
 pub const L_CEL: i32 = 7;
 pub const L_ECL: i32 = 8;
 pub const L_CCL: i32 = 9;
-
 
 #[inline]
 const fn CHR(c: u8) -> chr {
@@ -68,8 +65,6 @@ fn iscspace(x: chr) -> bool {
     pg_wc_isspace(x)
 }
 
-
-
 pub struct Vars<'mcx> {
     pub mcx: Mcx<'mcx>,
     pub pattern: Vec<chr>,
@@ -97,7 +92,6 @@ pub struct Vars<'mcx> {
     pub parse_depth: u32,
 }
 
-
 impl<'mcx> Vars<'mcx> {
     #[inline]
     pub fn ATEOS(&self) -> bool {
@@ -116,7 +110,9 @@ impl<'mcx> Vars<'mcx> {
 
     #[inline]
     pub fn NEXT2(&self, a: u8, b: u8) -> bool {
-        self.HAVE(2) && self.pattern[self.cursor] == CHR(a) && self.pattern[self.cursor + 1] == CHR(b)
+        self.HAVE(2)
+            && self.pattern[self.cursor] == CHR(a)
+            && self.pattern[self.cursor + 1] == CHR(b)
     }
 
     #[inline]
@@ -220,7 +216,6 @@ impl<'mcx> Vars<'mcx> {
         &mut self.tree_nodes[id.0 as usize]
     }
 }
-
 
 impl<'mcx> Vars<'mcx> {
     pub fn lexstart(&mut self) {
@@ -326,7 +321,6 @@ impl<'mcx> Vars<'mcx> {
         }
     }
 }
-
 
 impl<'mcx> Vars<'mcx> {
     #[allow(clippy::should_implement_trait)]
@@ -697,7 +691,6 @@ impl<'mcx> Vars<'mcx> {
         }
     }
 }
-
 
 impl<'mcx> Vars<'mcx> {
     pub fn lexescape(&mut self) -> i32 {
@@ -1073,7 +1066,6 @@ impl<'mcx> Vars<'mcx> {
     }
 }
 
-
 pub fn newline() -> chr {
     CHR(b'\n')
 }
@@ -1091,7 +1083,6 @@ pub fn scannum(v: &mut Vars) -> i32 {
     }
     n
 }
-
 
 /// C-parity companion to `NOERRN()` for `RegResult`-valued subroutine calls
 /// inside the `Option`-returning parse family (parse / parsebranch /
@@ -1154,7 +1145,6 @@ impl<'g, 'mcx> Drop for DepthGuard<'g, 'mcx> {
     }
 }
 
-
 const UPPROP: u8 = MIXED | CAP | BACKR;
 
 #[inline]
@@ -1195,7 +1185,6 @@ const fn PREF2(f1: u8, f2: u8) -> u8 {
 const fn COMBINE(f1: u8, f2: u8) -> u8 {
     UP(f1 | f2) | PREF2(f1, f2)
 }
-
 
 fn blank_subre() -> Subre {
     Subre {
@@ -1309,7 +1298,6 @@ pub fn moresubs(v: &mut Vars, wanted: i32) {
     debug_assert!((wanted as usize) < v.subs.len());
 }
 
-
 pub fn onechr(v: &mut Vars, c: chr, lp: StateId, rp: StateId) -> RegResult<()> {
     if (v.cflags & REG_ICASE) == 0 {
         let mut lastsubcolor: color = COLORLESS;
@@ -1321,7 +1309,6 @@ pub fn onechr(v: &mut Vars, c: chr, lp: StateId, rp: StateId) -> RegResult<()> {
     v.cv = Some(cv);
     r
 }
-
 
 pub fn charclass(v: &mut Vars, cls: char_classes, lp: StateId, rp: StateId) -> RegResult<()> {
     v.NOTE(REG_ULOCALE);
@@ -1352,7 +1339,6 @@ pub fn charclasscomplement(
     dropstate(&mut v.nfa, &mut v.cm, false, cstate)?;
     Ok(())
 }
-
 
 pub fn nonword(v: &mut Vars, dir: i32, lp: StateId, rp: StateId) -> RegResult<()> {
     let anchor = if dir == AHEAD {
@@ -1394,7 +1380,6 @@ pub fn wordchrs(v: &mut Vars) -> RegResult<()> {
     Ok(())
 }
 
-
 pub fn scanplain(v: &mut Vars) -> usize {
     debug_assert!(v.SEE(COLLEL) || v.SEE(ECLASS) || v.SEE(CCLASS));
     v.next();
@@ -1410,7 +1395,6 @@ pub fn scanplain(v: &mut Vars) -> usize {
 
     endp
 }
-
 
 fn char_class_from_chr(n: chr) -> char_classes {
     use char_classes::*;
@@ -1605,7 +1589,9 @@ pub fn cbracket(v: &mut Vars, lp: StateId, rp: StateId) -> RegResult<()> {
 
     if (v.cflags & REG_NLSTOP) != 0 {
         let nlcolor = v.nlcolor;
-        newarc(v.mcx, &mut v.nfa, &mut v.cm, false, PLAIN, nlcolor, left, right)?;
+        newarc(
+            v.mcx, &mut v.nfa, &mut v.cm, false, PLAIN, nlcolor, left, right,
+        )?;
     }
     if v.ISERR() {
         return Ok(()); // NOERR()
@@ -1653,7 +1639,6 @@ pub fn optimizebracket(v: &mut Vars, lp: StateId, rp: StateId) -> RegResult<()> 
     newarc(v.mcx, &mut v.nfa, &mut v.cm, false, PLAIN, RAINBOW, lp, rp)
 }
 
-
 pub fn processlacon(
     v: &mut Vars,
     begin: StateId,
@@ -1697,7 +1682,9 @@ pub fn processlacon(
     }
 
     let n = newlacon(v, begin, end, latype as u8)?;
-    newarc(v.mcx, &mut v.nfa, &mut v.cm, false, LACON, n as color, lp, rp)
+    newarc(
+        v.mcx, &mut v.nfa, &mut v.cm, false, LACON, n as color, lp, rp,
+    )
 }
 
 pub fn newlacon(v: &mut Vars, begin: StateId, end: StateId, latype: u8) -> RegResult<i32> {
@@ -1719,7 +1706,6 @@ pub fn newlacon(v: &mut Vars, begin: StateId, end: StateId, latype: u8) -> RegRe
     sub.cnfa = None; // ZAPCNFA(sub->cnfa)
     Ok(n)
 }
-
 
 const REPEAT_SOME: i32 = 2;
 const REPEAT_INF: i32 = 3;
@@ -1799,7 +1785,6 @@ pub fn repeat(v: &mut Vars, lp: StateId, rp: StateId, m: i32, n: i32) -> RegResu
     Ok(())
 }
 
-
 pub fn parse(
     v: &mut Vars,
     stopper: i32,
@@ -1823,8 +1808,14 @@ pub fn parse(
         if v.NISERR() {
             return None; // NOERRN
         }
-        noerrn!(v, newarc(v.mcx, &mut v.nfa, &mut v.cm, false, EMPTY, 0, init, left));
-        noerrn!(v, newarc(v.mcx, &mut v.nfa, &mut v.cm, false, EMPTY, 0, right, final_));
+        noerrn!(
+            v,
+            newarc(v.mcx, &mut v.nfa, &mut v.cm, false, EMPTY, 0, init, left)
+        );
+        noerrn!(
+            v,
+            newarc(v.mcx, &mut v.nfa, &mut v.cm, false, EMPTY, 0, right, final_)
+        );
         if v.NISERR() {
             return None; // NOERRN
         }
@@ -1898,7 +1889,10 @@ pub fn parsebranch(
             v.NOTE(REG_UUNSPEC);
         }
         debug_assert_eq!(lp, left);
-        noerrn!(v, newarc(v.mcx, &mut v.nfa, &mut v.cm, false, EMPTY, 0, left, right));
+        noerrn!(
+            v,
+            newarc(v.mcx, &mut v.nfa, &mut v.cm, false, EMPTY, 0, left, right)
+        );
     }
 
     Some(t)
@@ -1930,7 +1924,10 @@ pub fn parseqatom(
 
     macro_rules! arcv {
         ($t:expr, $val:expr) => {
-            noerrn!(v, newarc(v.mcx, &mut v.nfa, &mut v.cm, false, $t, $val, lp, rp));
+            noerrn!(
+                v,
+                newarc(v.mcx, &mut v.nfa, &mut v.cm, false, $t, $val, lp, rp)
+            );
         };
     }
 
@@ -2068,7 +2065,10 @@ pub fn parseqatom(
             } else {
                 COLORLESS
             };
-            noerrn!(v, rainbow(v.mcx, &mut v.nfa, &mut v.cm, false, PLAIN, but, lp, rp));
+            noerrn!(
+                v,
+                rainbow(v.mcx, &mut v.nfa, &mut v.cm, false, PLAIN, but, lp, rp)
+            );
             v.next();
             break 'atomdone;
         } else if atomtype == b'(' as i32 {
@@ -2090,8 +2090,14 @@ pub fn parseqatom(
 
             let s = noerrn!(v, newstate(v.mcx, &mut v.nfa));
             let s2 = noerrn!(v, newstate(v.mcx, &mut v.nfa));
-            noerrn!(v, newarc(v.mcx, &mut v.nfa, &mut v.cm, false, EMPTY, 0, lp, s));
-            noerrn!(v, newarc(v.mcx, &mut v.nfa, &mut v.cm, false, EMPTY, 0, s2, rp));
+            noerrn!(
+                v,
+                newarc(v.mcx, &mut v.nfa, &mut v.cm, false, EMPTY, 0, lp, s)
+            );
+            noerrn!(
+                v,
+                newarc(v.mcx, &mut v.nfa, &mut v.cm, false, EMPTY, 0, s2, rp)
+            );
             if v.NISERR() {
                 return None; // NOERRN
             }
@@ -2134,7 +2140,10 @@ pub fn parseqatom(
             let target = v.subs[subno as usize].unwrap();
             v.tm(target).flags |= BRUSE;
             atom = Some(a);
-            noerrn!(v, newarc(v.mcx, &mut v.nfa, &mut v.cm, false, EMPTY, 0, lp, rp));
+            noerrn!(
+                v,
+                newarc(v.mcx, &mut v.nfa, &mut v.cm, false, EMPTY, 0, lp, rp)
+            );
             v.next();
         } else {
             v.seterr(REG_ASSERT);
@@ -2200,7 +2209,10 @@ pub fn parseqatom(
         } else {
             noerrn!(v, delsub(&mut v.nfa, &mut v.cm, false, lp, rp));
         }
-        noerrn!(v, newarc(v.mcx, &mut v.nfa, &mut v.cm, false, EMPTY, 0, lp, rp));
+        noerrn!(
+            v,
+            newarc(v.mcx, &mut v.nfa, &mut v.cm, false, EMPTY, 0, lp, rp)
+        );
         return Some(top);
     }
 
@@ -2216,7 +2228,6 @@ pub fn parseqatom(
         v.tm(top).flags = f;
         return Some(top);
     }
-
 
     if atom.is_none() {
         atom = Some(subre(v, b'=', 0, Some(lp), Some(rp))?); // NOERRN
@@ -2240,7 +2251,10 @@ pub fn parseqatom(
     }
 
     s = noerrn!(v, newstate(v.mcx, &mut v.nfa));
-    noerrn!(v, newarc(v.mcx, &mut v.nfa, &mut v.cm, false, EMPTY, 0, lp, s));
+    noerrn!(
+        v,
+        newarc(v.mcx, &mut v.nfa, &mut v.cm, false, EMPTY, 0, lp, s)
+    );
 
     let aflags = v.t(atom_id).flags;
     let t_node = subre(v, b'.', COMBINE(qprefer, aflags), Some(lp), Some(rp))?; // NOERRN
@@ -2267,12 +2281,18 @@ pub fn parseqatom(
         let sub = v.subs[subno as usize].unwrap();
         let sub_begin = v.t(sub).begin.unwrap();
         let sub_end = v.t(sub).end.unwrap();
-        noerrn!(v, dupnfa(v.mcx, &mut v.nfa, &mut v.cm, false, sub_begin, sub_end, abegin, aend));
+        noerrn!(
+            v,
+            dupnfa(v.mcx, &mut v.nfa, &mut v.cm, false, sub_begin, sub_end, abegin, aend)
+        );
         if v.NISERR() {
             return None; // NOERRN
         }
 
-        noerrn!(v, removeconstraints(v.mcx, &mut v.nfa, &mut v.cm, false, abegin, aend));
+        noerrn!(
+            v,
+            removeconstraints(v.mcx, &mut v.nfa, &mut v.cm, false, abegin, aend)
+        );
         if v.NISERR() {
             return None; // NOERRN
         }
@@ -2280,7 +2300,10 @@ pub fn parseqatom(
 
     if atomtype == BACKREF {
         let abegin = v.t(atom_id).begin.unwrap();
-        noerrn!(v, newarc(v.mcx, &mut v.nfa, &mut v.cm, false, EMPTY, 0, s, abegin));
+        noerrn!(
+            v,
+            newarc(v.mcx, &mut v.nfa, &mut v.cm, false, EMPTY, 0, s, abegin)
+        );
         let aend = v.t(atom_id).end.unwrap();
         noerrn!(v, repeat(v, abegin, aend, m, n));
         v.tm(atom_id).min = m as i16;
@@ -2295,12 +2318,18 @@ pub fn parseqatom(
             || qprefer == (v.t(atom_id).flags & (LONGER | SHORTER | MIXED)))
     {
         let abegin = v.t(atom_id).begin.unwrap();
-        noerrn!(v, newarc(v.mcx, &mut v.nfa, &mut v.cm, false, EMPTY, 0, s, abegin));
+        noerrn!(
+            v,
+            newarc(v.mcx, &mut v.nfa, &mut v.cm, false, EMPTY, 0, s, abegin)
+        );
         s2 = v.t(atom_id).end.unwrap();
     } else if (v.t(atom_id).flags & (CAP | BACKR)) == 0 {
         let abegin = v.t(atom_id).begin.unwrap();
         let aend = v.t(atom_id).end.unwrap();
-        noerrn!(v, newarc(v.mcx, &mut v.nfa, &mut v.cm, false, EMPTY, 0, s, abegin));
+        noerrn!(
+            v,
+            newarc(v.mcx, &mut v.nfa, &mut v.cm, false, EMPTY, 0, s, abegin)
+        );
         noerrn!(v, repeat(v, abegin, aend, m, n));
         let aflags = v.t(atom_id).flags;
         f = COMBINE(qprefer, aflags);
@@ -2313,9 +2342,15 @@ pub fn parseqatom(
     } else if m > 0 && (v.t(atom_id).flags & BACKR) == 0 {
         let abegin = v.t(atom_id).begin.unwrap();
         let aend = v.t(atom_id).end.unwrap();
-        noerrn!(v, dupnfa(v.mcx, &mut v.nfa, &mut v.cm, false, abegin, aend, s, abegin));
+        noerrn!(
+            v,
+            dupnfa(v.mcx, &mut v.nfa, &mut v.cm, false, abegin, aend, s, abegin)
+        );
         debug_assert!(m >= 1 && m != DUPINF && n >= 1);
-        noerrn!(v, repeat(v, s, abegin, m - 1, if n == DUPINF { n } else { n - 1 }));
+        noerrn!(
+            v,
+            repeat(v, s, abegin, m - 1, if n == DUPINF { n } else { n - 1 })
+        );
         let aflags = v.t(atom_id).flags;
         f = COMBINE(qprefer, aflags);
         let aend = v.t(atom_id).end.unwrap();
@@ -2335,7 +2370,10 @@ pub fn parseqatom(
         }
         let abegin = v.t(atom_id).begin.unwrap();
         let aend = v.t(atom_id).end.unwrap();
-        noerrn!(v, dupnfa(v.mcx, &mut v.nfa, &mut v.cm, false, abegin, aend, s, s2));
+        noerrn!(
+            v,
+            dupnfa(v.mcx, &mut v.nfa, &mut v.cm, false, abegin, aend, s, s2)
+        );
         noerrn!(v, repeat(v, s, s2, m, n));
         let aflags = v.t(atom_id).flags;
         f = COMBINE(qprefer, aflags);
@@ -2387,7 +2425,10 @@ pub fn parseqatom(
             }
         }
     } else {
-        noerrn!(v, newarc(v.mcx, &mut v.nfa, &mut v.cm, false, EMPTY, 0, s2, rp));
+        noerrn!(
+            v,
+            newarc(v.mcx, &mut v.nfa, &mut v.cm, false, EMPTY, 0, s2, rp)
+        );
         let tchild = v.t(t_node).child;
         let topchild = v.t(top).child.unwrap();
         v.tm(topchild).sibling = tchild;
@@ -2410,7 +2451,6 @@ pub fn parseqatom(
 
     Some(top)
 }
-
 
 pub fn removecaptures(v: &mut Vars, t: NodeId) {
     if (v.t(t).flags & BRUSE) == 0 {
@@ -2460,7 +2500,6 @@ pub fn markst(v: &mut Vars, t: NodeId) {
 }
 
 pub fn cleanst(_v: &mut Vars) {}
-
 
 pub fn makesearch<'mcx>(
     mcx: Mcx<'mcx>,
@@ -2557,7 +2596,9 @@ pub fn nfanode(
     let mut nfa = newnfa(v.mcx, &mut v.cm, Some(&v.nfa))?; // NOERRZ
     let init = nfa.init;
     let final_ = nfa.final_;
-    dupnfa_cross(v.mcx, &mut nfa, &mut v.nfa, &mut v.cm, begin, end, init, final_)?;
+    dupnfa_cross(
+        v.mcx, &mut nfa, &mut v.nfa, &mut v.cm, begin, end, init, final_,
+    )?;
     nfa.flags = v.nfa.flags;
 
     let mut cnfa = Cnfa::new_empty();
@@ -2593,7 +2634,6 @@ pub fn nfatree(v: &mut Vars, t: NodeId) -> RegResult<i64> {
     v.tm(t).cnfa = if cnfa.is_null() { None } else { Some(cnfa) };
     Ok(ret)
 }
-
 
 pub fn rstacktoodeep() -> i32 {
     ::stack_depth::stack_is_too_deep() as i32

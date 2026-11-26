@@ -32,7 +32,10 @@ fn group_keys(dump: &str) -> Vec<Vec<u32>> {
             out.push(Vec::new());
             open = true;
         } else if open && line.starts_with("  key ") {
-            let resno = line.split_whitespace().find_map(|w| w.strip_prefix("resno=")).unwrap();
+            let resno = line
+                .split_whitespace()
+                .find_map(|w| w.strip_prefix("resno="))
+                .unwrap();
             out.last_mut().unwrap().push(resno.parse().unwrap());
         } else {
             open = false;
@@ -50,5 +53,9 @@ fn a_group_nodes_junk_column_equal_to_a_key_is_a_key() {
 
 fn manifest_dir() -> &'static std::path::Path {
     static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| std::env::var_os("CARGO_MANIFEST_DIR").map(Into::into).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)"))
+    DIR.get_or_init(|| {
+        std::env::var_os("CARGO_MANIFEST_DIR")
+            .map(Into::into)
+            .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+    })
 }

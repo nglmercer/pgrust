@@ -75,7 +75,10 @@ impl RarePair {
     /// The pair by the bytes' counts in data like the haystack it will scan (`count_bytes`): the needle's two least
     /// frequent bytes there, the static `RANK` breaking a tie (a byte the counts never saw is rarest).
     pub fn sampled(needle: &[u8], counts: &[u64; 256]) -> Option<RarePair> {
-        Self::by(needle, |b| (u64::from(u32::MAX) - counts[b as usize].min(u64::from(u32::MAX))) << 8 | RANK[b as usize] as u64)
+        Self::by(needle, |b| {
+            (u64::from(u32::MAX) - counts[b as usize].min(u64::from(u32::MAX))) << 8
+                | RANK[b as usize] as u64
+        })
     }
 
     /// The needle's two rarest offsets by `rarity` (greater is rarer), the first of equals kept.
@@ -95,12 +98,24 @@ impl RarePair {
                 o2 = i;
             }
         }
-        Some(RarePair { o1, o2, b1: needle[o1], b2: needle[o2] })
+        Some(RarePair {
+            o1,
+            o2,
+            b1: needle[o1],
+            b2: needle[o2],
+        })
     }
 
     /// `find`, counting the candidates the needle compare rejects into `rejected` and asking `pays(position, rejected)`
     /// after each: `Recheck` at the first block where it answers true (the caller may re-rank the pair and resume there).
-    pub fn find_rechecking(&self, needle: &[u8], hay: &[u8], from: usize, rejected: &mut u64, pays: impl Fn(usize, u64) -> bool) -> Step {
+    pub fn find_rechecking(
+        &self,
+        needle: &[u8],
+        hay: &[u8],
+        from: usize,
+        rejected: &mut u64,
+        pays: impl Fn(usize, u64) -> bool,
+    ) -> Step {
         if hay.len() < needle.len() || from + needle.len() > hay.len() {
             return Step::End;
         }
@@ -110,7 +125,14 @@ impl RarePair {
         #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
         while i + omax + 16 <= hay.len() {
             // SAFETY: `i + o + 16 <= hay.len()` for both offsets: the two loads stay inside `hay`.
-            let mut m = unsafe { block_mask(hay.as_ptr().add(i + self.o1), hay.as_ptr().add(i + self.o2), self.b1, self.b2) };
+            let mut m = unsafe {
+                block_mask(
+                    hay.as_ptr().add(i + self.o1),
+                    hay.as_ptr().add(i + self.o2),
+                    self.b1,
+                    self.b2,
+                )
+            };
             let mut miss = false;
             while m != 0 {
                 let j = i + lane(m);
@@ -148,7 +170,14 @@ impl RarePair {
         #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
         while i + omax + 16 <= hay.len() {
             // SAFETY: `i + o + 16 <= hay.len()` for both offsets: the two loads stay inside `hay`.
-            let mut m = unsafe { block_mask(hay.as_ptr().add(i + self.o1), hay.as_ptr().add(i + self.o2), self.b1, self.b2) };
+            let mut m = unsafe {
+                block_mask(
+                    hay.as_ptr().add(i + self.o1),
+                    hay.as_ptr().add(i + self.o2),
+                    self.b1,
+                    self.b2,
+                )
+            };
             while m != 0 {
                 let j = i + lane(m);
                 if j <= last && hay[j..j + needle.len()] == *needle {
@@ -159,7 +188,10 @@ impl RarePair {
             i += 16;
         }
         while i <= last {
-            if hay[i + self.o1] == self.b1 && hay[i + self.o2] == self.b2 && hay[i..i + needle.len()] == *needle {
+            if hay[i + self.o1] == self.b1
+                && hay[i + self.o2] == self.b2
+                && hay[i..i + needle.len()] == *needle
+            {
                 return Some(i);
             }
             i += 1;
@@ -181,7 +213,14 @@ impl RarePair {
         #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
         while i + omax + 16 <= hay.len() {
             // SAFETY: `i + o + 16 <= hay.len()` for both offsets: the two loads stay inside `hay`.
-            let mut m = unsafe { block_mask(hay.as_ptr().add(i + self.o1), hay.as_ptr().add(i + self.o2), self.b1, self.b2) };
+            let mut m = unsafe {
+                block_mask(
+                    hay.as_ptr().add(i + self.o1),
+                    hay.as_ptr().add(i + self.o2),
+                    self.b1,
+                    self.b2,
+                )
+            };
             while m != 0 {
                 let j = i + lane(m);
                 if j <= last && hay[j..j + needle.len()] == *needle {
@@ -228,7 +267,10 @@ fn lane(m: u64) -> usize {
 #[inline(always)]
 unsafe fn block_mask(p1: *const u8, p2: *const u8, b1: u8, b2: u8) -> u64 {
     use core::arch::aarch64::*;
-    let m = vandq_u8(vceqq_u8(vld1q_u8(p1), vdupq_n_u8(b1)), vceqq_u8(vld1q_u8(p2), vdupq_n_u8(b2)));
+    let m = vandq_u8(
+        vceqq_u8(vld1q_u8(p1), vdupq_n_u8(b1)),
+        vceqq_u8(vld1q_u8(p2), vdupq_n_u8(b2)),
+    );
     let nib = vshrn_n_u16(vreinterpretq_u16_u8(m), 4);
     vget_lane_u64(vreinterpret_u64_u8(nib), 0) & 0x1111_1111_1111_1111
 }
@@ -238,6 +280,15 @@ unsafe fn block_mask(p1: *const u8, p2: *const u8, b1: u8, b2: u8) -> u64 {
 #[inline(always)]
 unsafe fn block_mask(p1: *const u8, p2: *const u8, b1: u8, b2: u8) -> u64 {
     use core::arch::x86_64::*;
-    let m = _mm_and_si128(_mm_cmpeq_epi8(_mm_loadu_si128(p1 as *const __m128i), _mm_set1_epi8(b1 as i8)), _mm_cmpeq_epi8(_mm_loadu_si128(p2 as *const __m128i), _mm_set1_epi8(b2 as i8)));
+    let m = _mm_and_si128(
+        _mm_cmpeq_epi8(
+            _mm_loadu_si128(p1 as *const __m128i),
+            _mm_set1_epi8(b1 as i8),
+        ),
+        _mm_cmpeq_epi8(
+            _mm_loadu_si128(p2 as *const __m128i),
+            _mm_set1_epi8(b2 as i8),
+        ),
+    );
     _mm_movemask_epi8(m) as u32 as u64
 }

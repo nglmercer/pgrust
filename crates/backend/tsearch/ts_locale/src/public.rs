@@ -154,16 +154,14 @@ pub fn get_tsearch_config_filename<'mcx>(
     }
     let mut dir = tsearch_data_dir();
     if let Some(staged) = staged_tsearch_data_dir() {
-        let candidate = format!(
-            "{staged}/{}.{extension}",
-            String::from_utf8_lossy(basename)
-        );
+        let candidate = format!("{staged}/{}.{extension}", String::from_utf8_lossy(basename));
         if std::path::Path::new(&candidate).is_file() {
             dir = staged;
         }
     }
     // snprintf(result, MAXPGPATH, ...): the pathname is cut at MAXPGPATH-1 bytes.
-    let mut full = ::mcx::std_vec_with_capacity("tsearch", dir.len() + basename.len() + extension.len() + 2)?;
+    let mut full =
+        ::mcx::std_vec_with_capacity("tsearch", dir.len() + basename.len() + extension.len() + 2)?;
     full.extend_from_slice(dir.as_bytes());
     full.push(b'/');
     full.extend_from_slice(basename);
@@ -403,9 +401,7 @@ pub fn byte_isspace(b: u8) -> bool {
 }
 
 pub fn searchstoplist(s: &StopList<'_>, key: &[u8]) -> bool {
-    s.stop
-        .binary_search_by(|w| (**w).cmp(key))
-        .is_ok()
+    s.stop.binary_search_by(|w| (**w).cmp(key)).is_ok()
 }
 
 #[cfg(test)]
@@ -437,8 +433,14 @@ mod classify_tests {
         assert!(super::t_isalnum("é".as_bytes()).unwrap());
         assert!(!super::t_isalpha("1".as_bytes()).unwrap());
         let err = super::t_isalnum(b"\xc3(").unwrap_err();
-        assert_eq!(err.sqlstate(), ::types_error::ERRCODE_CHARACTER_NOT_IN_REPERTOIRE);
-        assert_eq!(err.message(), "invalid byte sequence for encoding \"UTF8\": 0xc3 0x28");
+        assert_eq!(
+            err.sqlstate(),
+            ::types_error::ERRCODE_CHARACTER_NOT_IN_REPERTOIRE
+        );
+        assert_eq!(
+            err.message(),
+            "invalid byte sequence for encoding \"UTF8\": 0xc3 0x28"
+        );
     }
 }
 
@@ -475,11 +477,19 @@ mod byte_ctype_tests {
         if !set {
             return;
         }
-        let range = if cfg!(target_os = "linux") { 0u32..256 } else { 0u32..128 };
+        let range = if cfg!(target_os = "linux") {
+            0u32..256
+        } else {
+            0u32..128
+        };
         for b in range {
             // SAFETY: pure ctype calls on unsigned-char-range values.
             let (sp, pr, dg) = unsafe {
-                (isspace(b as c_int) != 0, isprint(b as c_int) != 0, isdigit(b as c_int) != 0)
+                (
+                    isspace(b as c_int) != 0,
+                    isprint(b as c_int) != 0,
+                    isdigit(b as c_int) != 0,
+                )
             };
             assert_eq!(sp, super::byte_isspace(b as u8), "isspace({b:#04x})");
             assert_eq!(pr, (0x20..=0x7e).contains(&b), "isprint({b:#04x})");
@@ -514,7 +524,9 @@ mod stoplist_tests {
     #[test]
     fn stoplist_index_grows_with_pointer_sized_entries() {
         let ctx = ::mcx::MemoryContext::new("stoplist-index").with_limit(1024);
-        let mut list = StopList { stop: PgVec::new_in(ctx.mcx()) };
+        let mut list = StopList {
+            stop: PgVec::new_in(ctx.mcx()),
+        };
         list.stop.try_reserve_exact(64).unwrap();
         list.stop.try_reserve_exact(128).unwrap();
         assert_eq!(ctx.used(), 128 * core::mem::size_of::<*const u8>());

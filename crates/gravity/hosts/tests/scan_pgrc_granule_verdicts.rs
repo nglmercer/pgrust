@@ -6,9 +6,14 @@ use std::sync::Arc;
 use gravity_abi::ctx::lane;
 use gravity_abi::Lane;
 use gravity_driver::{blank_site, Source, Window};
-use gravity_hosts::ops::scan::pgrc::granule_source::{contested_census, verdict_census, GranuleRangeSource, GranuleRecipe, Resolved, RtFilter, VerdictCell};
+use gravity_hosts::ops::scan::pgrc::granule_source::{
+    contested_census, verdict_census, GranuleRangeSource, GranuleRecipe, Resolved, RtFilter,
+    VerdictCell,
+};
 use gravity_program::protos::{word_zone_arg, word_zone_key_arg};
-use gravity_program::protos::{VERDICT_BLOOM, VERDICT_CLAIM, VERDICT_COND, VERDICT_COUNT_SELECT, VERDICT_PSMA, VERDICT_ZONE};
+use gravity_program::protos::{
+    VERDICT_BLOOM, VERDICT_CLAIM, VERDICT_COND, VERDICT_COUNT_SELECT, VERDICT_PSMA, VERDICT_ZONE,
+};
 use gravity_program::{ZoneOp, ZonePred};
 use pgrc_meta::profile::MetaProfile;
 use pgrc_qa::corpus::{build_fixture, int8_fixture, BuiltFixture};
@@ -42,7 +47,13 @@ fn rows_of(w: &Window<'_>, n: u32) -> Vec<u32> {
 
 /// Every window of `src` over granules `[lo, hi)`: the rows passing `pred` counted. A window whose verdict lane says
 /// covered (a hit) must select exactly passing rows; a miss gets the passing rows' bits (the IR's `passed()`).
-fn scan_range(src: &mut GranuleRangeSource, lo: u64, hi: u64, pred: &dyn Fn(i64) -> bool, consume: bool) -> Scan {
+fn scan_range(
+    src: &mut GranuleRangeSource,
+    lo: u64,
+    hi: u64,
+    pred: &dyn Fn(i64) -> bool,
+    consume: bool,
+) -> Scan {
     src.seek(&[lo, hi], &[0, 0]).unwrap();
     windows(src, pred, consume)
 }
@@ -66,13 +77,20 @@ fn windows(src: &mut GranuleRangeSource, pred: &dyn Fn(i64) -> bool, consume: bo
         s.decoded += 1;
         let l = w.lanes()[0];
         let rows = rows_of(&w, n);
-        let v = w.lanes().get(VK).copied().filter(|v| lane::id_kind(v.id) == lane::ID_VERDICT);
+        let v = w
+            .lanes()
+            .get(VK)
+            .copied()
+            .filter(|v| lane::id_kind(v.id) == lane::ID_VERDICT);
         let value = |i: u32| unsafe { l.is_valid(i as usize).then(|| l.datum(i as usize) as i64) };
         match v {
             Some(v) if v.flags & lane::VERDICT_MASK == lane::VERDICT_ALL_MATCH => {
                 s.hits += 1;
                 for &i in &rows {
-                    assert!(value(i).is_some_and(pred), "a covered window selects only passing rows (row {i})");
+                    assert!(
+                        value(i).is_some_and(pred),
+                        "a covered window selects only passing rows (row {i})"
+                    );
                     s.count += 1;
                 }
             }
@@ -121,12 +139,25 @@ const BLOOM_VALUES: u64 = 600;
 /// (D3070: `pgrc_meta::bloom::bloom_part_choice`), so each full granule of the 600 values keeps a small block; a granule
 /// of thousands of distinct 8-byte values would keep none.
 fn sparse_fixture() -> BuiltFixture {
-    build_fixture(int8_fixture("gravity_verdicts_sparse", 7311, ROWS, vec![], PartCutPolicy { max_rows: 20_000, ..PartCutPolicy::default() }, |i| Some((i * 7_919 % ROWS % BLOOM_VALUES) as i64 * 4)))
+    build_fixture(int8_fixture(
+        "gravity_verdicts_sparse",
+        7311,
+        ROWS,
+        vec![],
+        PartCutPolicy {
+            max_rows: 20_000,
+            ..PartCutPolicy::default()
+        },
+        |i| Some((i * 7_919 % ROWS % BLOOM_VALUES) as i64 * 4),
+    ))
 }
 
 fn verdict_recipe(rel: u32, registry: Arc<PartRegistry>) -> GranuleRecipe {
     guc_tables::backing::set_pgrust_condition_cache(guc_tables::ConditionCacheMode::Full as i32);
-    GranuleRecipe::for_test(rel, &[1], registry).with_profile(0, int8_profile()).with_verdict_cell().with_verdict_lane(VK)
+    GranuleRecipe::for_test(rel, &[1], registry)
+        .with_profile(0, int8_profile())
+        .with_verdict_cell()
+        .with_verdict_lane(VK)
 }
 
 #[test]
@@ -147,13 +178,26 @@ fn a_bloom_skips_a_zone_mixed_granule_that_lacks_the_value_and_keeps_one_that_ha
             let mut zoned = source(&recipe, &zone, &resolved);
             let z = scan(&mut zoned, total, &pred);
             assert_eq!(z.count, want, "zone alone: {value}");
-            assert!(z.decoded >= total - 1, "zone alone: {value} is Mixed in (nearly) every granule ({} of {total})", z.decoded);
-            recipe.verdicts.set(0, VERDICT_ZONE | VERDICT_BLOOM | VERDICT_CLAIM);
+            assert!(
+                z.decoded >= total - 1,
+                "zone alone: {value} is Mixed in (nearly) every granule ({} of {total})",
+                z.decoded
+            );
+            recipe
+                .verdicts
+                .set(0, VERDICT_ZONE | VERDICT_BLOOM | VERDICT_CLAIM);
             let mut bloomed = source(&recipe, &zone, &resolved);
             let b = scan(&mut bloomed, total, &pred);
             assert_eq!(b.count, want, "bloom: {value}");
-            assert_eq!(bloomed.granules_skipped() + b.decoded, total, "{value}: every granule is skipped or decoded");
-            assert!(b.decoded <= z.decoded, "{value}: the bloom skips only zone-Mixed granules");
+            assert_eq!(
+                bloomed.granules_skipped() + b.decoded,
+                total,
+                "{value}: every granule is skipped or decoded"
+            );
+            assert!(
+                b.decoded <= z.decoded,
+                "{value}: the bloom skips only zone-Mixed granules"
+            );
             if want == 0 {
                 skipped_by_bloom += z.decoded - b.decoded;
                 mixed_absent += z.decoded;
@@ -162,7 +206,10 @@ fn a_bloom_skips_a_zone_mixed_granule_that_lacks_the_value_and_keeps_one_that_ha
             bloomed.unbind();
         }
     }
-    assert!(skipped_by_bloom * 2 >= mixed_absent, "the bloom skips the absent values' Mixed granules ({skipped_by_bloom} of {mixed_absent})");
+    assert!(
+        skipped_by_bloom * 2 >= mixed_absent,
+        "the bloom skips the absent values' Mixed granules ({skipped_by_bloom} of {mixed_absent})"
+    );
     assert!(verdict_census()[0] - before >= skipped_by_bloom);
 }
 
@@ -174,7 +221,15 @@ fn psma_narrows_a_zone_mixed_granule_and_every_operator_keeps_the_plain_count() 
     let recipe = verdict_recipe(REL_SORTED, Arc::new(PartRegistry::new(64 << 20)));
     let resolved = Resolved::for_recipe(&recipe, list.clone());
     let before = verdict_census()[2];
-    for (op, value) in [(ZoneOp::Eq, 12_345i64), (ZoneOp::Lt, 20_000), (ZoneOp::Le, 20_000), (ZoneOp::Gt, 40_000), (ZoneOp::Ge, 40_000), (ZoneOp::Ne, 7), (ZoneOp::Eq, 60_000)] {
+    for (op, value) in [
+        (ZoneOp::Eq, 12_345i64),
+        (ZoneOp::Lt, 20_000),
+        (ZoneOp::Le, 20_000),
+        (ZoneOp::Gt, 40_000),
+        (ZoneOp::Ge, 40_000),
+        (ZoneOp::Ne, 7),
+        (ZoneOp::Eq, 60_000),
+    ] {
         let zone = [ZonePred::word(0, op, value)];
         let pred = move |x: i64| match op {
             ZoneOp::Eq => x == value,
@@ -185,14 +240,26 @@ fn psma_narrows_a_zone_mixed_granule_and_every_operator_keeps_the_plain_count() 
             _ => x != value,
         };
         let want = (0..ROWS as i64).filter(|&x| pred(x)).count() as u64;
-        for enables in [VERDICT_ZONE, VERDICT_ZONE | VERDICT_PSMA, VERDICT_ZONE | VERDICT_PSMA | VERDICT_BLOOM | VERDICT_CLAIM, VERDICT_PSMA] {
+        for enables in [
+            VERDICT_ZONE,
+            VERDICT_ZONE | VERDICT_PSMA,
+            VERDICT_ZONE | VERDICT_PSMA | VERDICT_BLOOM | VERDICT_CLAIM,
+            VERDICT_PSMA,
+        ] {
             recipe.verdicts.set(0, enables);
             let mut s = source(&recipe, &zone, &resolved);
-            assert_eq!(scan(&mut s, total, &pred).count, want, "{op:?} {value} under enables {enables:#x}");
+            assert_eq!(
+                scan(&mut s, total, &pred).count,
+                want,
+                "{op:?} {value} under enables {enables:#x}"
+            );
             s.unbind();
         }
     }
-    assert!(verdict_census()[2] > before, "PSMA narrowed at least one Mixed granule");
+    assert!(
+        verdict_census()[2] > before,
+        "PSMA narrowed at least one Mixed granule"
+    );
 }
 
 #[test]
@@ -205,22 +272,48 @@ fn a_miss_publishes_on_the_next_advance_and_the_next_execution_hits_or_skips() {
     let zone = [ZonePred::word(0, ZoneOp::Lt, 20_000)];
     // granules 0-1 zone AllMatch, 2 zone Mixed, 3-7 NoneMatch; the zone does not cover the cached qual (no
     // VERDICT_ZONE_COVERS), so the frame tests it in the AllMatch windows too and their words publish as granule 2's (sortpath)
-    for (fp, pred, survivors) in [([0x5eed_0001u64, 1u64], (|x: i64| x < 20_000 && x % 3 == 0) as fn(i64) -> bool, true), ([0x5eed_0002, 2], |x: i64| x < 16_000, false)] {
+    for (fp, pred, survivors) in [
+        (
+            [0x5eed_0001u64, 1u64],
+            (|x: i64| x < 20_000 && x % 3 == 0) as fn(i64) -> bool,
+            true,
+        ),
+        ([0x5eed_0002, 2], |x: i64| x < 16_000, false),
+    ] {
         let want = (0..ROWS as i64).filter(|&x| pred(x)).count() as u64;
         recipe.verdicts.set(1, fp[0]);
         recipe.verdicts.set(2, fp[1]);
-        recipe.verdicts.set(0, VERDICT_ZONE | VERDICT_COND | VERDICT_CLAIM);
+        recipe
+            .verdicts
+            .set(0, VERDICT_ZONE | VERDICT_COND | VERDICT_CLAIM);
         let mut first = source(&recipe, &zone, &resolved);
-        assert_eq!(scan(&mut first, total, &pred), Scan { count: want, decoded: 3, answered: 0, hits: 0, misses: 3 });
+        assert_eq!(
+            scan(&mut first, total, &pred),
+            Scan {
+                count: want,
+                decoded: 3,
+                answered: 0,
+                hits: 0,
+                misses: 3
+            }
+        );
         let skipped = first.granules_skipped();
         first.unbind();
         let mut second = source(&recipe, &zone, &resolved);
         let s = scan(&mut second, total, &pred);
         assert_eq!(s.count, want);
         if survivors {
-            assert_eq!((s.hits, s.misses, second.granules_skipped()), (3, 0, skipped), "granules 0-2 served from their words");
+            assert_eq!(
+                (s.hits, s.misses, second.granules_skipped()),
+                (3, 0, skipped),
+                "granules 0-2 served from their words"
+            );
         } else {
-            assert_eq!((s.hits, s.misses, second.granules_skipped()), (2, 0, skipped + 1), "granules 0-1 served, granule 2 known empty: skipped unread");
+            assert_eq!(
+                (s.hits, s.misses, second.granules_skipped()),
+                (2, 0, skipped + 1),
+                "granules 0-1 served, granule 2 known empty: skipped unread"
+            );
         }
         second.unbind();
     }
@@ -240,14 +333,21 @@ fn a_zone_allmatch_window_the_zone_covers_publishes_allmatch() {
     let want = (0..ROWS as i64).filter(|&x| pred(x)).count() as u64;
     recipe.verdicts.set(1, 0x5eed_0301);
     recipe.verdicts.set(2, 1);
-    recipe.verdicts.set(0, VERDICT_ZONE | VERDICT_COND | VERDICT_CLAIM | gravity_program::protos::VERDICT_ZONE_COVERS);
+    recipe.verdicts.set(
+        0,
+        VERDICT_ZONE | VERDICT_COND | VERDICT_CLAIM | gravity_program::protos::VERDICT_ZONE_COVERS,
+    );
     let mut first = source(&recipe, &zone, &resolved);
     assert_eq!(scan(&mut first, total, &pred).misses, 3);
     let skipped = first.granules_skipped();
     first.unbind();
     let mut second = source(&recipe, &zone, &resolved);
     let s = scan(&mut second, total, &pred);
-    assert_eq!((s.count, s.hits, s.misses, second.granules_skipped()), (want, 3, 0, skipped), "granules 0-1 AllMatch, 2 from its words");
+    assert_eq!(
+        (s.count, s.hits, s.misses, second.granules_skipped()),
+        (want, 3, 0, skipped),
+        "granules 0-1 AllMatch, 2 from its words"
+    );
     second.unbind();
 }
 
@@ -265,14 +365,25 @@ fn a_miss_never_publishes_across_a_seek_and_another_literal_never_hits() {
     let mut s = source(&recipe, &zone, &resolved);
     // granule 2 alone, its window taken but the program never asked for the next: a re-seek drops the due words
     assert_eq!(scan_range(&mut s, 2, 3, &pred, false).misses, 1);
-    assert_eq!(scan_range(&mut s, 2, 3, &pred, false).misses, 1, "a seek never publishes the previous window's words");
+    assert_eq!(
+        scan_range(&mut s, 2, 3, &pred, false).misses,
+        1,
+        "a seek never publishes the previous window's words"
+    );
     assert_eq!(scan_range(&mut s, 2, 3, &pred, true).misses, 1);
-    assert_eq!(scan_range(&mut s, 2, 3, &pred, true).hits, 1, "consumed whole: published at the next advance");
+    assert_eq!(
+        scan_range(&mut s, 2, 3, &pred, true).hits,
+        1,
+        "consumed whole: published at the next advance"
+    );
     s.unbind();
     // another execution's literal is another fingerprint (exec finishes it over the bound words): no hit
     recipe.verdicts.set(1, 0x5eed_0004);
     let mut t = source(&recipe, &zone, &resolved);
-    assert_eq!(scan_range(&mut t, 2, 3, &|x| x < 20_000 && x % 7 == 0, true).hits, 0);
+    assert_eq!(
+        scan_range(&mut t, 2, 3, &|x| x < 20_000 && x % 7 == 0, true).hits,
+        0
+    );
     t.unbind();
 }
 
@@ -300,7 +411,11 @@ fn a_reopened_part_never_reads_the_old_generation_s_words_and_a_temp_relation_ne
     let fill = |registry: Arc<PartRegistry>, cond_ok: bool| fill_as(registry, cond_ok, false);
     let old = Arc::new(PartRegistry::new(64 << 20));
     assert_eq!(fill(old.clone(), true).misses, 3);
-    assert_eq!(fill(old.clone(), true).hits, 3, "same parts, same generation: a hit (granules 0-1 AllMatch on the zone, 2 Mixed)");
+    assert_eq!(
+        fill(old.clone(), true).hits,
+        3,
+        "same parts, same generation: a hit (granules 0-1 AllMatch on the zone, 2 Mixed)"
+    );
     // the same part files under a new registry are new open parts (another generation): the words are not theirs
     let new = Arc::new(PartRegistry::new(64 << 20));
     let r = fill(new.clone(), true);
@@ -318,7 +433,11 @@ fn a_reopened_part_never_reads_the_old_generation_s_words_and_a_temp_relation_ne
     let r = fill_as(unlogged.clone(), false, true);
     assert_eq!((r.count, r.hits, r.misses), (want, 0, 3));
     let r = fill_as(unlogged, false, true);
-    assert_eq!((r.count, r.hits), (want, 3), "an unlogged relation's repeat hits");
+    assert_eq!(
+        (r.count, r.hits),
+        (want, 3),
+        "an unlogged relation's repeat hits"
+    );
     // a new generation of the same files (the parts reopened): not the old words
     let reopened = Arc::new(PartRegistry::new(64 << 20));
     assert_eq!(fill_as(reopened, false, true).hits, 0);
@@ -343,25 +462,49 @@ fn a_join_s_runtime_filter_skips_the_granules_no_build_key_reaches_and_never_fil
     ];
     for (lo, hi, keys, live) in cases {
         let recipe = base.clone().with_verdict_cell();
-        recipe.verdicts.arm_rt(RtFilter::charged(1, lo, hi, &RtFilter::runs_of(&mut cancelpoll::step("test"), keys).unwrap(), &[], None).unwrap());
+        recipe.verdicts.arm_rt(
+            RtFilter::charged(
+                1,
+                lo,
+                hi,
+                &RtFilter::runs_of(&mut cancelpoll::step("test"), keys).unwrap(),
+                &[],
+                None,
+            )
+            .unwrap(),
+        );
         let mut s = source(&recipe, &[], &resolved);
         let r = scan(&mut s, total, &every);
-        let want: u64 = live.iter().map(|&g| (ROWS - g * GRANULE).min(GRANULE)).sum();
-        assert_eq!(r.count, want, "[{lo}, {hi}] {keys:?}: every row of a kept granule reaches the probe");
-        assert_eq!(r.decoded, live.len() as u64, "[{lo}, {hi}] {keys:?}: only the granules a build key reaches decode");
+        let want: u64 = live
+            .iter()
+            .map(|&g| (ROWS - g * GRANULE).min(GRANULE))
+            .sum();
+        assert_eq!(
+            r.count, want,
+            "[{lo}, {hi}] {keys:?}: every row of a kept granule reaches the probe"
+        );
+        assert_eq!(
+            r.decoded,
+            live.len() as u64,
+            "[{lo}, {hi}] {keys:?}: only the granules a build key reaches decode"
+        );
         assert_eq!(s.granules_skipped() + r.decoded, total);
         s.unbind();
     }
     assert!(verdict_census()[4] - before >= 3 * total);
     // a filter whose column is not a lane of the site, or whose key is not the lane's datum word, arms nothing
     let recipe = base.clone().with_verdict_cell();
-    recipe.verdicts.arm_rt(RtFilter::charged(2, 0, 1, &[], &[], None).unwrap());
+    recipe
+        .verdicts
+        .arm_rt(RtFilter::charged(2, 0, 1, &[], &[], None).unwrap());
     let mut s = source(&recipe, &[], &resolved);
     assert_eq!(scan(&mut s, total, &every).count, ROWS);
     s.unbind();
     // PS1-22: a text key's fingerprints over an integer lane (not a code lane) arm nothing: every row reaches the probe
     let recipe = base.clone().with_verdict_cell();
-    recipe.verdicts.arm_rt(RtFilter::charged(1, i64::MIN, i64::MAX, &[], &[7u128], None).unwrap());
+    recipe
+        .verdicts
+        .arm_rt(RtFilter::charged(1, i64::MIN, i64::MAX, &[], &[7u128], None).unwrap());
     let mut s = source(&recipe, &[], &resolved);
     assert_eq!(scan(&mut s, total, &every).count, ROWS);
     s.unbind();
@@ -378,15 +521,30 @@ fn a_source_lets_go_of_the_runtime_filters_it_took_at_its_unbind() {
     let base = verdict_recipe(REL_SORTED, Arc::new(PartRegistry::new(64 << 20)));
     let resolved = Resolved::for_recipe(&base, list.clone());
     let recipe = base.clone().with_verdict_cell();
-    recipe.verdicts.arm_rt(RtFilter::charged(1, 20_000, 25_000, &[], &[], None).unwrap());
+    recipe
+        .verdicts
+        .arm_rt(RtFilter::charged(1, 20_000, 25_000, &[], &[], None).unwrap());
     // the references to the armed filter besides this probe's own clone
-    let refs = || recipe.verdicts.rt().map_or(0, |f| Arc::strong_count(&f) - 1);
+    let refs = || {
+        recipe
+            .verdicts
+            .rt()
+            .map_or(0, |f| Arc::strong_count(&f) - 1)
+    };
     assert_eq!(refs(), 1, "armed: the cell's reference alone");
     let mut s = source(&recipe, &[], &resolved);
-    assert_eq!(scan(&mut s, total, &|_| true).decoded, 2, "the source took the filter: granules 2 and 3 alone decode");
+    assert_eq!(
+        scan(&mut s, total, &|_| true).decoded,
+        2,
+        "the source took the filter: granules 2 and 3 alone decode"
+    );
     assert_eq!(refs(), 2, "the cell's reference and the source's");
     s.unbind();
-    assert_eq!(refs(), 1, "unbound: the source holds none, the cell's alone");
+    assert_eq!(
+        refs(),
+        1,
+        "unbound: the source holds none, the cell's alone"
+    );
     s.park();
     assert_eq!(refs(), 1, "parked: still none");
 }
@@ -404,15 +562,41 @@ fn a_site_s_runtime_filters_skip_a_granule_when_any_one_rules_it_out() {
     let every = |_: i64| true;
     // granule g holds [8192 g, 8192 (g + 1)); the tail granule 7 holds 57 344 .. 59 999
     fn a() -> RtFilter {
-        RtFilter::charged(1, 3, 50_000, &RtFilter::runs_of(&mut cancelpoll::step("test"), &[3, 9_000, 50_000]).unwrap(), &[], None).unwrap()
+        RtFilter::charged(
+            1,
+            3,
+            50_000,
+            &RtFilter::runs_of(&mut cancelpoll::step("test"), &[3, 9_000, 50_000]).unwrap(),
+            &[],
+            None,
+        )
+        .unwrap()
     }
     fn b() -> RtFilter {
         RtFilter::charged(1, 9_000, 20_000, &[], &[], None).unwrap()
     }
     fn c() -> RtFilter {
-        RtFilter::charged(1, 0, 59_999, &RtFilter::runs_of(&mut cancelpoll::step("test"), &(0..100).chain(24_576..24_600).collect::<Vec<i64>>()).unwrap(), &[], None).unwrap()
+        RtFilter::charged(
+            1,
+            0,
+            59_999,
+            &RtFilter::runs_of(
+                &mut cancelpoll::step("test"),
+                &(0..100).chain(24_576..24_600).collect::<Vec<i64>>(),
+            )
+            .unwrap(),
+            &[],
+            None,
+        )
+        .unwrap()
     }
-    let cases: [(&[(usize, fn() -> RtFilter)], &[u64]); 5] = [(&[(0, a)], &[0, 1, 6]), (&[(1, b)], &[1, 2]), (&[(0, a), (1, b)], &[1]), (&[(3, b), (2, a)], &[1]), (&[(2, c)], &[0, 3])];
+    let cases: [(&[(usize, fn() -> RtFilter)], &[u64]); 5] = [
+        (&[(0, a)], &[0, 1, 6]),
+        (&[(1, b)], &[1, 2]),
+        (&[(0, a), (1, b)], &[1]),
+        (&[(3, b), (2, a)], &[1]),
+        (&[(2, c)], &[0, 3]),
+    ];
     for (armed, live) in cases {
         let recipe = base.clone().with_verdict_cell();
         for &(k, f) in armed {
@@ -420,10 +604,20 @@ fn a_site_s_runtime_filters_skip_a_granule_when_any_one_rules_it_out() {
         }
         let mut s = source(&recipe, &[], &resolved);
         let r = scan(&mut s, total, &every);
-        let want: u64 = live.iter().map(|&g| (ROWS - g * GRANULE).min(GRANULE)).sum();
+        let want: u64 = live
+            .iter()
+            .map(|&g| (ROWS - g * GRANULE).min(GRANULE))
+            .sum();
         let slots: Vec<usize> = armed.iter().map(|&(k, _)| k).collect();
-        assert_eq!(r.count, want, "slots {slots:?}: every row of a kept granule reaches the probe");
-        assert_eq!(r.decoded, live.len() as u64, "slots {slots:?}: only the granules every filter keeps decode");
+        assert_eq!(
+            r.count, want,
+            "slots {slots:?}: every row of a kept granule reaches the probe"
+        );
+        assert_eq!(
+            r.decoded,
+            live.len() as u64,
+            "slots {slots:?}: only the granules every filter keeps decode"
+        );
         s.unbind();
     }
 }
@@ -443,10 +637,18 @@ fn a_rerun_source_skips_by_each_run_s_filter_and_never_an_earlier_one() {
     let recipe = base.clone().with_verdict_cell();
     let mut s = source(&recipe, &[], &resolved);
     // granule g holds [8192 g, 8192 (g + 1)); the tail granule 7 holds 57 344 .. 59 999
-    let runs: [(Option<(i64, i64)>, &[u64]); 5] = [(Some((20_000, 25_000)), &[2, 3]), (Some((50_000, 50_000)), &[6]), (None, &[]), (Some((3, 4)), &[0]), (Some((70_000, 90_000)), &[])];
+    let runs: [(Option<(i64, i64)>, &[u64]); 5] = [
+        (Some((20_000, 25_000)), &[2, 3]),
+        (Some((50_000, 50_000)), &[6]),
+        (None, &[]),
+        (Some((3, 4)), &[0]),
+        (Some((70_000, 90_000)), &[]),
+    ];
     for (f, live) in runs {
         match f {
-            Some((lo, hi)) => recipe.verdicts.arm_rt(RtFilter::charged(1, lo, hi, &[], &[], None).unwrap()),
+            Some((lo, hi)) => recipe
+                .verdicts
+                .arm_rt(RtFilter::charged(1, lo, hi, &[], &[], None).unwrap()),
             None => recipe.verdicts.clear_rt(),
         }
         let r = scan(&mut s, total, &every);
@@ -454,9 +656,19 @@ fn a_rerun_source_skips_by_each_run_s_filter_and_never_an_earlier_one() {
             assert_eq!(r.count, ROWS, "a cleared filter skips nothing");
             continue;
         }
-        let want: u64 = live.iter().map(|&g| (ROWS - g * GRANULE).min(GRANULE)).sum();
-        assert_eq!(r.count, want, "{f:?}: every row of this run's kept granules reaches the probe");
-        assert_eq!(r.decoded, live.len() as u64, "{f:?}: only the granules this run's keys reach decode");
+        let want: u64 = live
+            .iter()
+            .map(|&g| (ROWS - g * GRANULE).min(GRANULE))
+            .sum();
+        assert_eq!(
+            r.count, want,
+            "{f:?}: every row of this run's kept granules reaches the probe"
+        );
+        assert_eq!(
+            r.decoded,
+            live.len() as u64,
+            "{f:?}: only the granules this run's keys reach decode"
+        );
     }
     s.unbind();
 }
@@ -475,8 +687,17 @@ fn a_word_zone_prunes_for_its_claimant_and_a_second_live_claim_contests_the_cell
     let below = |x: i64| x < 16_384;
     let words = [16_384u64];
     let lt = || [(word_zone_arg(0, ZoneOp::Lt as u8, 8), 0usize)].into_iter();
-    let full = { let mut s = source(&recipe, &[], &resolved); let r = scan(&mut s, total, &below); s.unbind(); r };
-    assert_eq!((full.count, full.decoded), (16_384, total), "LEGACY (no claim yet): the zone has no predicate, every granule decodes");
+    let full = {
+        let mut s = source(&recipe, &[], &resolved);
+        let r = scan(&mut s, total, &below);
+        s.unbind();
+        r
+    };
+    assert_eq!(
+        (full.count, full.decoded),
+        (16_384, total),
+        "LEGACY (no claim yet): the zone has no predicate, every granule decodes"
+    );
     // the one live claimant writes the word-valued predicate: granules 0 and 1 alone decode
     let first = cell.claim();
     assert!(first.owner());
@@ -484,34 +705,59 @@ fn a_word_zone_prunes_for_its_claimant_and_a_second_live_claim_contests_the_cell
     cell.set_word_zone(lt(), &words, &[0]);
     let mut s = source(&recipe, &[], &resolved);
     let r = scan(&mut s, total, &below);
-    assert_eq!((r.count, r.decoded), (16_384, 2), "the claimant's `a < $1` prunes as the literal's would");
+    assert_eq!(
+        (r.count, r.decoded),
+        (16_384, 2),
+        "the claimant's `a < $1` prunes as the literal's would"
+    );
     s.unbind();
     // a NULL word is no predicate
     cell.set_word_zone(lt(), &words, &[1]);
     let mut s = source(&recipe, &[], &resolved);
-    assert_eq!(scan(&mut s, total, &below).decoded, total, "a NULL word prunes nothing");
+    assert_eq!(
+        scan(&mut s, total, &below).decoded,
+        total,
+        "a NULL word prunes nothing"
+    );
     s.unbind();
     cell.set_word_zone(lt(), &words, &[0]);
     // a second live claim contests the cell: cleared, neither owns it, the sources read LEGACY
     let before = contested_census();
     let second = cell.claim();
-    assert!(!first.owner() && !second.owner(), "a contested cell has no writer");
+    assert!(
+        !first.owner() && !second.owner(),
+        "a contested cell has no writer"
+    );
     assert_eq!(contested_census() - before, 1);
     assert_eq!(cell.get().0, VerdictCell::LEGACY);
     let mut s = source(&recipe, &[], &resolved);
     let r = scan(&mut s, total, &below);
-    assert_eq!((r.count, r.decoded), (16_384, total), "contested: no word-valued predicate of either execution");
+    assert_eq!(
+        (r.count, r.decoded),
+        (16_384, total),
+        "contested: no word-valued predicate of either execution"
+    );
     s.unbind();
     // a third claim while one is live stays unowned; only after every claim ends is the cell owned again
     drop(second);
     let third = cell.claim();
-    assert!(!third.owner(), "the cell stays contested while a claim of the contest lives");
+    assert!(
+        !third.owner(),
+        "the cell stays contested while a claim of the contest lives"
+    );
     drop(first);
     drop(third);
     let fourth = cell.claim();
-    assert!(fourth.owner(), "every claim ended: the next claimant owns the cell");
+    assert!(
+        fourth.owner(),
+        "every claim ended: the next claimant owns the cell"
+    );
     drop(fourth);
-    assert_eq!(cell.get().0, VerdictCell::LEGACY, "the last claim's end clears the cell");
+    assert_eq!(
+        cell.get().0,
+        VerdictCell::LEGACY,
+        "the last claim's end clears the cell"
+    );
 }
 
 /// PS1-05 (road nest.eagersafe): open-time zone predicates (`lane op <key cell>`: an eager-safe InitPlan's value the
@@ -523,34 +769,56 @@ fn open_time_zone_keys_prune_from_each_seeks_values_and_are_never_the_tid_range(
     let bf = sorted_fixture();
     let list = part_list(&bf);
     let total = list.granules();
-    let recipe = verdict_recipe(REL_SORTED, Arc::new(PartRegistry::new(64 << 20))).with_zone_keys(2);
+    let recipe =
+        verdict_recipe(REL_SORTED, Arc::new(PartRegistry::new(64 << 20))).with_zone_keys(2);
     let resolved = Resolved::for_recipe(&recipe, list.clone());
     let cell = &recipe.verdicts;
     let claim = cell.claim();
     assert!(claim.owner());
     cell.set(0, VERDICT_ZONE);
     // `a >= <cell 2> AND a < <cell 3>`
-    let preds = [(word_zone_key_arg(0, ZoneOp::Ge as u8, 8, 2), 0usize), (word_zone_key_arg(0, ZoneOp::Lt as u8, 8, 3), 0)];
+    let preds = [
+        (word_zone_key_arg(0, ZoneOp::Ge as u8, 8, 2), 0usize),
+        (word_zone_key_arg(0, ZoneOp::Lt as u8, 8, 3), 0),
+    ];
     cell.set_word_zone(preds.into_iter(), &[], &[]);
     let mut s = source(&recipe, &[], &resolved);
     let granules = |lo: i64, hi: i64| (hi as u64 - 1) / GRANULE - lo as u64 / GRANULE + 1;
     // each seek's values (a re-open after the InitPlan ran again), one seek repeated
-    for (lo, hi) in [(0i64, 16_384i64), (40_000, 50_000), (16_384, 16_385), (16_384, 16_385), (0, 60_000)] {
+    for (lo, hi) in [
+        (0i64, 16_384i64),
+        (40_000, 50_000),
+        (16_384, 16_385),
+        (16_384, 16_385),
+        (0, 60_000),
+    ] {
         s.seek(&[0, total, lo as u64, hi as u64], &[0; 4]).unwrap();
         let r = windows(&mut s, &|x| x >= lo && x < hi, true);
-        assert_eq!((r.count, r.decoded), ((hi - lo) as u64, granules(lo, hi)), "[{lo}, {hi}): only the granules the values reach decode");
+        assert_eq!(
+            (r.count, r.decoded),
+            ((hi - lo) as u64, granules(lo, hi)),
+            "[{lo}, {hi}): only the granules the values reach decode"
+        );
     }
     // a NULL value is no predicate: `a < 16 384` alone
     s.seek(&[0, total, 40_000, 16_384], &[0, 0, 1, 0]).unwrap();
     let r = windows(&mut s, &|x| x < 16_384, true);
-    assert_eq!((r.count, r.decoded), (16_384, 2), "a NULL cell prunes nothing; the other cell's predicate stands");
+    assert_eq!(
+        (r.count, r.decoded),
+        (16_384, 2),
+        "a NULL cell prunes nothing; the other cell's predicate stands"
+    );
     s.unbind();
     // LEGACY (the claim ended): no open-time predicate, and the four cells are not a TID range
     drop(claim);
     let mut s = source(&recipe, &[], &resolved);
     s.seek(&[0, total, 40_000, 50_000], &[0; 4]).unwrap();
     let r = windows(&mut s, &|x| (40_000..50_000).contains(&x), true);
-    assert_eq!((r.count, r.decoded), (10_000, total), "LEGACY: every granule decodes, none is cut as a TID range");
+    assert_eq!(
+        (r.count, r.decoded),
+        (10_000, total),
+        "LEGACY: every granule decodes, none is cut as a TID range"
+    );
     s.unbind();
 }
 
@@ -560,7 +828,8 @@ fn open_time_zone_keys_prune_from_each_seeks_values_and_are_never_the_tid_range(
 /// selected ones (the first selected row is not row 0), and a sparse hit's lane stays gathered (an unselected row is
 /// never decoded).
 #[test]
-fn a_dense_condition_cache_hit_decodes_its_lane_whole_at_the_rows_positions_and_a_sparse_one_gathers() {
+fn a_dense_condition_cache_hit_decodes_its_lane_whole_at_the_rows_positions_and_a_sparse_one_gathers(
+) {
     let bf = sorted_fixture();
     let list = part_list(&bf);
     let total = list.granules();
@@ -568,10 +837,19 @@ fn a_dense_condition_cache_hit_decodes_its_lane_whole_at_the_rows_positions_and_
     let resolved = Resolved::for_recipe(&recipe, list.clone());
     let zone = [ZonePred::word(0, ZoneOp::Lt, 20_000)];
     // granule 2 holds [16 384, 24 576): 1 205 of its rows pass the first (> 8192 / 8), 205 the second
-    for (fp, pred, dense) in [([0x5eed_0201u64, 1u64], (|x: i64| x < 20_000 && x % 3 == 0) as fn(i64) -> bool, true), ([0x5eed_0202, 2], |x: i64| x < 17_000 && x % 3 == 0, false)] {
+    for (fp, pred, dense) in [
+        (
+            [0x5eed_0201u64, 1u64],
+            (|x: i64| x < 20_000 && x % 3 == 0) as fn(i64) -> bool,
+            true,
+        ),
+        ([0x5eed_0202, 2], |x: i64| x < 17_000 && x % 3 == 0, false),
+    ] {
         recipe.verdicts.set(1, fp[0]);
         recipe.verdicts.set(2, fp[1]);
-        recipe.verdicts.set(0, VERDICT_ZONE | VERDICT_COND | VERDICT_CLAIM);
+        recipe
+            .verdicts
+            .set(0, VERDICT_ZONE | VERDICT_COND | VERDICT_CLAIM);
         let mut first = source(&recipe, &zone, &resolved);
         scan(&mut first, total, &pred);
         first.unbind();
@@ -586,24 +864,41 @@ fn a_dense_condition_cache_hit_decodes_its_lane_whole_at_the_rows_positions_and_
             if n == 0 {
                 break;
             }
-            let covered = w.lanes().get(VK).is_some_and(|v| lane::id_kind(v.id) == lane::ID_VERDICT && v.flags & lane::VERDICT_MASK == lane::VERDICT_ALL_MATCH);
+            let covered = w.lanes().get(VK).is_some_and(|v| {
+                lane::id_kind(v.id) == lane::ID_VERDICT
+                    && v.flags & lane::VERDICT_MASK == lane::VERDICT_ALL_MATCH
+            });
             // sortpath: granules 0-1 (zone AllMatch, the cached qual tested there too) are hits of their own
             if !covered || w.sel.is_null() || w.base().granule != 2 {
                 continue;
             }
             hits += 1;
             let l = w.lanes()[0];
-            assert_eq!((w.base().part_id, w.base().granule), (0, 2), "the hit is part 0's granule 2");
+            assert_eq!(
+                (w.base().part_id, w.base().granule),
+                (0, 2),
+                "the hit is part 0's granule 2"
+            );
             let base = 2 * 8192i64;
             let sel = rows_of(&w, n);
             assert_ne!(sel[0], 0, "the first selected row is not row 0");
             let value = |i: usize| unsafe { l.datum(i) as i64 };
-            assert!(sel.iter().all(|&i| value(i as usize) == base + i as i64 && pred(base + i as i64)), "a selected row holds its own value");
+            assert!(
+                sel.iter()
+                    .all(|&i| value(i as usize) == base + i as i64 && pred(base + i as i64)),
+                "a selected row holds its own value"
+            );
             let mut unselected = (0..n as usize).filter(|i| !sel.contains(&(*i as u32)));
             if dense {
-                assert!(unselected.all(|i| value(i) == base + i as i64), "a dense hit's lane is whole: every row at its position");
+                assert!(
+                    unselected.all(|i| value(i) == base + i as i64),
+                    "a dense hit's lane is whole: every row at its position"
+                );
             } else {
-                assert!(unselected.any(|i| value(i) != base + i as i64), "a sparse hit's lane is gathered: an unselected row is not decoded");
+                assert!(
+                    unselected.any(|i| value(i) != base + i as i64),
+                    "a sparse hit's lane is gathered: an unselected row is not decoded"
+                );
             }
         }
         assert_eq!(hits, 1, "granule 2 served from its words");
@@ -622,28 +917,54 @@ fn a_serial_seek_jumps_the_parts_its_zone_census_proves_dead_without_opening_the
     let bf = sorted_fixture();
     // parts of granules [0, 3), [3, 6), [6, 8); granule g holds a = [8192 g, 8192 (g + 1))
     for (zone, pred, opened) in [
-        (ZonePred::word(0, ZoneOp::Lt, 20_000), (|x: i64| x < 20_000) as fn(i64) -> bool, 1u32),
-        (ZonePred::word(0, ZoneOp::Ge, 30_000), |x: i64| x >= 30_000, 2),
-        (ZonePred::word(0, ZoneOp::Eq, 45_000), |x: i64| x == 45_000, 1),
+        (
+            ZonePred::word(0, ZoneOp::Lt, 20_000),
+            (|x: i64| x < 20_000) as fn(i64) -> bool,
+            1u32,
+        ),
+        (
+            ZonePred::word(0, ZoneOp::Ge, 30_000),
+            |x: i64| x >= 30_000,
+            2,
+        ),
+        (
+            ZonePred::word(0, ZoneOp::Eq, 45_000),
+            |x: i64| x == 45_000,
+            1,
+        ),
     ] {
         let want = (0..ROWS as i64).filter(|&x| pred(x)).count() as u64;
         for zoned in [true, false] {
             let list = part_list(&bf);
             let total = list.granules();
             if zoned {
-                let ranges: Vec<(i64, i64)> = (0..total).map(|g| ((g * 8192) as i64, (((g + 1) * 8192).min(ROWS) - 1) as i64)).collect();
-                list.set_zone_columns(vec![ZoneFacts::new(1, ZoneMap::encode(&ranges).unwrap()).unwrap()]);
+                let ranges: Vec<(i64, i64)> = (0..total)
+                    .map(|g| ((g * 8192) as i64, (((g + 1) * 8192).min(ROWS) - 1) as i64))
+                    .collect();
+                list.set_zone_columns(vec![
+                    ZoneFacts::new(1, ZoneMap::encode(&ranges).unwrap()).unwrap()
+                ]);
             }
             let recipe = verdict_recipe(REL_SORTED, Arc::new(PartRegistry::new(64 << 20)));
             recipe.verdicts.set(0, VERDICT_ZONE);
             let resolved = Resolved::for_recipe(&recipe, list.clone());
             let mut s = source(&recipe, &[zone], &resolved);
-            assert_eq!(scan(&mut s, total, &pred).count, want, "{zone:?} zoned {zoned}");
+            assert_eq!(
+                scan(&mut s, total, &pred).count,
+                want,
+                "{zone:?} zoned {zoned}"
+            );
             let held = resolved.rel(REL_SORTED).unwrap().residency().parts;
             if zoned {
-                assert_eq!(held, opened, "{zone:?}: only the parts with a live granule are opened");
+                assert_eq!(
+                    held, opened,
+                    "{zone:?}: only the parts with a live granule are opened"
+                );
             } else {
-                assert_eq!(held, 3, "{zone:?}: without zone columns every part is opened");
+                assert_eq!(
+                    held, 3,
+                    "{zone:?}: without zone columns every part is opened"
+                );
             }
             s.unbind();
         }
@@ -661,21 +982,48 @@ fn a_counting_recipe_skips_parts_and_granules_counts_their_rows_and_selects_no_r
     let bf = sorted_fixture();
     // parts of granules [0, 3), [3, 6), [6, 8); granule g holds a = [8192 g, 8192 (g + 1))
     for (zone, pred, skips) in [
-        (ZonePred::word(0, ZoneOp::Lt, 20_000), (|x: i64| x < 20_000) as fn(i64) -> bool, true),
-        (ZonePred::word(0, ZoneOp::Ge, 30_000), |x: i64| x >= 30_000, true),
-        (ZonePred::word(0, ZoneOp::Eq, 45_000), |x: i64| x == 45_000, true),
-        (ZonePred::word(0, ZoneOp::Gt, 12_345), |x: i64| x > 12_345, true),
+        (
+            ZonePred::word(0, ZoneOp::Lt, 20_000),
+            (|x: i64| x < 20_000) as fn(i64) -> bool,
+            true,
+        ),
+        (
+            ZonePred::word(0, ZoneOp::Ge, 30_000),
+            |x: i64| x >= 30_000,
+            true,
+        ),
+        (
+            ZonePred::word(0, ZoneOp::Eq, 45_000),
+            |x: i64| x == 45_000,
+            true,
+        ),
+        (
+            ZonePred::word(0, ZoneOp::Gt, 12_345),
+            |x: i64| x > 12_345,
+            true,
+        ),
         (ZonePred::word(0, ZoneOp::Ne, 7), |x: i64| x != 7, false),
     ] {
         let want = (0..ROWS as i64).filter(|&x| pred(x)).count() as u64;
-        for (zoned, enables) in [(true, VERDICT_ZONE), (false, VERDICT_ZONE | VERDICT_PSMA | VERDICT_BLOOM | VERDICT_CLAIM)] {
+        for (zoned, enables) in [
+            (true, VERDICT_ZONE),
+            (
+                false,
+                VERDICT_ZONE | VERDICT_PSMA | VERDICT_BLOOM | VERDICT_CLAIM,
+            ),
+        ] {
             let list = part_list(&bf);
             let total = list.granules();
             if zoned {
-                let ranges: Vec<(i64, i64)> = (0..total).map(|g| ((g * 8192) as i64, (((g + 1) * 8192).min(ROWS) - 1) as i64)).collect();
-                list.set_zone_columns(vec![ZoneFacts::new(1, ZoneMap::encode(&ranges).unwrap()).unwrap()]);
+                let ranges: Vec<(i64, i64)> = (0..total)
+                    .map(|g| ((g * 8192) as i64, (((g + 1) * 8192).min(ROWS) - 1) as i64))
+                    .collect();
+                list.set_zone_columns(vec![
+                    ZoneFacts::new(1, ZoneMap::encode(&ranges).unwrap()).unwrap()
+                ]);
             }
-            let recipe = verdict_recipe(REL_SORTED, Arc::new(PartRegistry::new(64 << 20))).with_skipped_rows(true);
+            let recipe = verdict_recipe(REL_SORTED, Arc::new(PartRegistry::new(64 << 20)))
+                .with_skipped_rows(true);
             recipe.verdicts.set(0, enables);
             let resolved = Resolved::for_recipe(&recipe, list.clone());
             let mut s = source(&recipe, &[zone], &resolved);
@@ -689,21 +1037,44 @@ fn a_counting_recipe_skips_parts_and_granules_counts_their_rows_and_selects_no_r
                 if n == 0 {
                     break;
                 }
-                assert!(!w.is_answered(), "{zone:?}: a counting recipe answers no window");
-                assert!(w.sel.is_null(), "{zone:?} zoned {zoned}: a counting recipe selects no row (no deletes here)");
+                assert!(
+                    !w.is_answered(),
+                    "{zone:?}: a counting recipe answers no window"
+                );
+                assert!(
+                    w.sel.is_null(),
+                    "{zone:?} zoned {zoned}: a counting recipe selects no row (no deletes here)"
+                );
                 let l = w.lanes()[0];
                 seen += n as u64;
-                passing += (0..n).filter(|&i| unsafe { l.is_valid(i as usize) && pred(l.datum(i as usize) as i64) }).count() as u64;
+                passing += (0..n)
+                    .filter(|&i| unsafe {
+                        l.is_valid(i as usize) && pred(l.datum(i as usize) as i64)
+                    })
+                    .count() as u64;
             }
             let skipped = recipe.skipped_rows().expect("a counting recipe");
             assert_eq!(passing, want, "{zone:?} zoned {zoned}");
-            assert_eq!(seen + skipped, ROWS, "{zone:?} zoned {zoned}: every row is in a window or counted skipped");
-            assert_eq!(skipped > 0, skips, "{zone:?} zoned {zoned}: skipped {skipped}");
+            assert_eq!(
+                seen + skipped,
+                ROWS,
+                "{zone:?} zoned {zoned}: every row is in a window or counted skipped"
+            );
+            assert_eq!(
+                skipped > 0,
+                skips,
+                "{zone:?} zoned {zoned}: skipped {skipped}"
+            );
             s.unbind();
         }
     }
     // an execution that is not instrumented counts nothing
-    assert_eq!(verdict_recipe(REL_SORTED, Arc::new(PartRegistry::new(64 << 20))).with_skipped_rows(false).skipped_rows(), None);
+    assert_eq!(
+        verdict_recipe(REL_SORTED, Arc::new(PartRegistry::new(64 << 20)))
+            .with_skipped_rows(false)
+            .skipped_rows(),
+        None
+    );
 }
 
 /// D1536 (VERDICT_COUNT_SELECT, a scan that runs to its end): a counting recipe keeps its selection (a PSMA window,
@@ -715,7 +1086,10 @@ fn a_counting_recipe_whose_scan_runs_whole_counts_the_rows_its_selection_drops()
     use pgrc_format::zonemap::ZoneMap;
     let bf = sorted_fixture();
     for (zone, pred) in [
-        (zone_word(0, ZoneOp::Lt, 20_000), (|x: i64| x < 20_000) as fn(i64) -> bool),
+        (
+            zone_word(0, ZoneOp::Lt, 20_000),
+            (|x: i64| x < 20_000) as fn(i64) -> bool,
+        ),
         (zone_word(0, ZoneOp::Eq, 45_000), |x: i64| x == 45_000),
         (zone_word(0, ZoneOp::Gt, 12_345), |x: i64| x > 12_345),
         (zone_word(0, ZoneOp::Ne, 7), |x: i64| x != 7),
@@ -725,11 +1099,18 @@ fn a_counting_recipe_whose_scan_runs_whole_counts_the_rows_its_selection_drops()
             let list = part_list(&bf);
             let total = list.granules();
             if zoned {
-                let ranges: Vec<(i64, i64)> = (0..total).map(|g| ((g * 8192) as i64, (((g + 1) * 8192).min(ROWS) - 1) as i64)).collect();
-                list.set_zone_columns(vec![ZoneFacts::new(1, ZoneMap::encode(&ranges).unwrap()).unwrap()]);
+                let ranges: Vec<(i64, i64)> = (0..total)
+                    .map(|g| ((g * 8192) as i64, (((g + 1) * 8192).min(ROWS) - 1) as i64))
+                    .collect();
+                list.set_zone_columns(vec![
+                    ZoneFacts::new(1, ZoneMap::encode(&ranges).unwrap()).unwrap()
+                ]);
             }
-            let recipe = verdict_recipe(REL_SORTED, Arc::new(PartRegistry::new(64 << 20))).with_skipped_rows(true);
-            recipe.verdicts.set(0, VERDICT_ZONE | VERDICT_PSMA | VERDICT_COUNT_SELECT);
+            let recipe = verdict_recipe(REL_SORTED, Arc::new(PartRegistry::new(64 << 20)))
+                .with_skipped_rows(true);
+            recipe
+                .verdicts
+                .set(0, VERDICT_ZONE | VERDICT_PSMA | VERDICT_COUNT_SELECT);
             let resolved = Resolved::for_recipe(&recipe, list.clone());
             let mut s = source(&recipe, &[zone], &resolved);
             s.seek(&[0, total], &[0, 0]).unwrap();
@@ -742,15 +1123,27 @@ fn a_counting_recipe_whose_scan_runs_whole_counts_the_rows_its_selection_drops()
                 if n == 0 {
                     break;
                 }
-                assert!(!w.is_answered(), "{zone:?}: a counting recipe answers no window");
+                assert!(
+                    !w.is_answered(),
+                    "{zone:?}: a counting recipe answers no window"
+                );
                 let l = w.lanes()[0];
                 let rows = rows_of(&w, n);
                 seen += rows.len() as u64;
-                passing += rows.iter().filter(|&&i| unsafe { l.is_valid(i as usize) && pred(l.datum(i as usize) as i64) }).count() as u64;
+                passing += rows
+                    .iter()
+                    .filter(|&&i| unsafe {
+                        l.is_valid(i as usize) && pred(l.datum(i as usize) as i64)
+                    })
+                    .count() as u64;
             }
             let skipped = recipe.skipped_rows().expect("a counting recipe");
             assert_eq!(passing, want, "{zone:?} zoned {zoned}");
-            assert_eq!(seen + skipped, ROWS, "{zone:?} zoned {zoned}: every row is handed on or counted, once");
+            assert_eq!(
+                seen + skipped,
+                ROWS,
+                "{zone:?} zoned {zoned}: every row is handed on or counted, once"
+            );
             s.unbind();
         }
     }

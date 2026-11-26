@@ -14,7 +14,10 @@ use std::time::{Duration, Instant};
 
 use common::*;
 use gravity_driver::mem::spill_host::v4;
-use gravity_driver::{footprint, install_spill_factory, Entry, Grant, SpillFactory, SpillSet, TempMap, POOL, POOL_FRACTION_WHOLE, REGIONS};
+use gravity_driver::{
+    footprint, install_spill_factory, Entry, Grant, SpillFactory, SpillSet, TempMap, POOL,
+    POOL_FRACTION_WHOLE, REGIONS,
+};
 
 const MIB: u64 = 1 << 20;
 const NULLS: [u8; 1] = [0];
@@ -31,8 +34,17 @@ impl SpillFactory for FileRoad {
     fn map_temp(&self, bytes: usize) -> gravity_driver::Result<Option<TempMap>> {
         use std::os::fd::AsRawFd;
         static N: AtomicU64 = AtomicU64::new(0);
-        let path = std::env::temp_dir().join(format!("d4425-{}-{}", std::process::id(), N.fetch_add(1, Relaxed)));
-        let f = std::fs::OpenOptions::new().read(true).write(true).create_new(true).open(&path).expect("a temp file");
+        let path = std::env::temp_dir().join(format!(
+            "d4425-{}-{}",
+            std::process::id(),
+            N.fetch_add(1, Relaxed)
+        ));
+        let f = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .expect("a temp file");
         f.set_len(bytes as u64).expect("its length");
         let m = TempMap::shared(f.as_raw_fd(), bytes);
         std::fs::remove_file(&path).expect("unlinked once mapped");
@@ -58,8 +70,14 @@ fn resumed() {}
 
 #[test]
 fn a_reload_region_past_the_pool_maps_its_temp_file_with_no_wait() {
-    assert!(install_spill_factory(&FILE_ROAD), "this binary owns the process's spill factory");
-    assert!(gravity_driver::mem::spill::file_road(), "the factory maps temp files");
+    assert!(
+        install_spill_factory(&FILE_ROAD),
+        "this binary owns the process's spill factory"
+    );
+    assert!(
+        gravity_driver::mem::spill::file_road(),
+        "the factory maps temp files"
+    );
     gravity_driver::mem::grant::set_mem_wait(paused, resumed);
     let program = Arc::new(p_group_share(4));
     let want = Grant::of(64 * MIB);
@@ -69,14 +87,23 @@ fn a_reload_region_past_the_pool_maps_its_temp_file_with_no_wait() {
     REGIONS.trim();
     gravity_driver::DEPOT.trim();
     POOL.arm(2 * need + spare);
-    let res = Rc::new(POOL.admit_need(want, &|g| footprint(g, &program, 1), Duration::from_millis(10)).expect("admitted"));
+    let res = Rc::new(
+        POOL.admit_need(
+            want,
+            &|g| footprint(g, &program, 1),
+            Duration::from_millis(10),
+        )
+        .expect("admitted"),
+    );
     res.set_pool_fraction(POOL_FRACTION_WHOLE);
     let mut derive = FakeDerive::ranges(RangeTable::new(24, 10));
     let mut entry = Entry::new(2);
     let flag = AtomicU8::new(0);
     let mut sink = LegSink::new();
     let mut b = binding(&[8], &NULLS, &mut sink, &flag);
-    let exec = entry.start(None, &program, &mut derive, &mut b, res.clone()).expect("started");
+    let exec = entry
+        .start(None, &program, &mut derive, &mut b, res.clone())
+        .expect("started");
     let ctx = exec.node().ctx();
 
     // G held whole: the reload below is past W and G
@@ -84,10 +111,15 @@ fn a_reload_region_past_the_pool_maps_its_temp_file_with_no_wait() {
     assert_eq!(res.left(), 0);
     // another session's statement holds the pool but `spare` until the reload below has its region: a holder whose end
     // could give room back, so `take`'s road waits its budget for it
-    let (admitted, done) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
+    let (admitted, done) = (
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(AtomicBool::new(false)),
+    );
     let (a, d) = (admitted.clone(), done.clone());
     let other = std::thread::spawn(move || {
-        let r = POOL.admit_need(Grant::of(need), &|g| g.bytes, Duration::from_millis(10)).expect("the other statement");
+        let r = POOL
+            .admit_need(Grant::of(need), &|g| g.bytes, Duration::from_millis(10))
+            .expect("the other statement");
         a.store(true, Relaxed);
         let t0 = Instant::now();
         while !d.load(Relaxed) && t0.elapsed() < Duration::from_secs(30) {
@@ -97,12 +129,23 @@ fn a_reload_region_past_the_pool_maps_its_temp_file_with_no_wait() {
     });
     let t0 = Instant::now();
     while !admitted.load(Relaxed) {
-        assert!(t0.elapsed() < Duration::from_secs(5), "the other statement was not admitted");
+        assert!(
+            t0.elapsed() < Duration::from_secs(5),
+            "the other statement was not admitted"
+        );
         std::thread::sleep(Duration::from_millis(1));
     }
     let ask = spare + MIB;
-    assert!(POOL.capacity() - POOL.held() < ask, "past the pool's room: {} B free", POOL.capacity() - POOL.held());
-    let (held, pauses, mapped) = (POOL.held(), PAUSED.load(Relaxed), v4::SPILL_MAPPED.load(Relaxed));
+    assert!(
+        POOL.capacity() - POOL.held() < ask,
+        "past the pool's room: {} B free",
+        POOL.capacity() - POOL.held()
+    );
+    let (held, pauses, mapped) = (
+        POOL.held(),
+        PAUSED.load(Relaxed),
+        v4::SPILL_MAPPED.load(Relaxed),
+    );
     let t0 = Instant::now();
     // SAFETY: the leader's context, bound for the statement, on this thread
     let p = unsafe { v4::take_reload(ctx, ask as usize) };
@@ -112,9 +155,17 @@ fn a_reload_region_past_the_pool_maps_its_temp_file_with_no_wait() {
     other.join().expect("the other statement");
 
     assert!(!p.is_null(), "the reload region is served ({took:?})");
-    assert_eq!(v4::SPILL_MAPPED.load(Relaxed), mapped + 1, "by the statement's mapped temp file ({took:?})");
+    assert_eq!(
+        v4::SPILL_MAPPED.load(Relaxed),
+        mapped + 1,
+        "by the statement's mapped temp file ({took:?})"
+    );
     assert_eq!(held_after, held, "nothing drawn from the pool");
-    assert_eq!(PAUSED.load(Relaxed), pauses, "no memory wait for the room another statement holds: the file at once ({took:?})");
+    assert_eq!(
+        PAUSED.load(Relaxed),
+        pauses,
+        "no memory wait for the room another statement holds: the file at once ({took:?})"
+    );
     // the region is zeroed memory the reload writes and reads
     // SAFETY: `p` is `ask` bytes this owner holds until its `give`
     unsafe {

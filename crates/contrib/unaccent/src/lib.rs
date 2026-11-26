@@ -33,7 +33,13 @@ pub struct UnaccentTrie {
 impl UnaccentTrie {
     fn new_node(&mut self, mcx: Mcx<'static>) -> PgResult<usize> {
         let mut node = vec_with_capacity_in(mcx, 256)?;
-        node.resize(256, TrieCell { next: 0, replace: 0 });
+        node.resize(
+            256,
+            TrieCell {
+                next: 0,
+                replace: 0,
+            },
+        );
         self.nodes.push(node);
         Ok(self.nodes.len() - 1)
     }
@@ -183,8 +189,8 @@ pub fn parse_rule_line(line: &[u8]) -> Result<Option<(&[u8], Vec<u8>)>, ParseRul
     let trg_bytes = &line[trg.0..trg.1];
     let trgstore = if trgquoted {
         let inner = &trg_bytes[1..trg_bytes.len() - 1];
-        let mut out = ::mcx::std_vec_with_capacity("unaccent", inner.len())
-            .map_err(ParseRuleError::Oom)?;
+        let mut out =
+            ::mcx::std_vec_with_capacity("unaccent", inner.len()).map_err(ParseRuleError::Oom)?;
         let mut j = 0usize;
         while j < inner.len() {
             out.push(inner[j]);
@@ -195,8 +201,7 @@ pub fn parse_rule_line(line: &[u8]) -> Result<Option<(&[u8], Vec<u8>)>, ParseRul
         }
         out
     } else {
-        ::mcx::std_vec_from_slice("unaccent", trg_bytes)
-            .map_err(ParseRuleError::Oom)?
+        ::mcx::std_vec_from_slice("unaccent", trg_bytes).map_err(ParseRuleError::Oom)?
     };
 
     Ok(Some((&line[src.0..src.1], trgstore)))
@@ -285,7 +290,10 @@ pub fn unaccent_lexize<'mcx>(
                 ::mcx::vec_append_bytes(&mut b, &token[..i])?;
                 buf = Some(b);
             }
-            ::mcx::vec_append_bytes(buf.as_mut().expect("just initialized"), &trie.replacements[ridx])?;
+            ::mcx::vec_append_bytes(
+                buf.as_mut().expect("just initialized"),
+                &trie.replacements[ridx],
+            )?;
             i += matchlen;
         } else {
             let matchlen = ::mbutils::pg_mblen_range(&token[i..])?.max(1) as usize;
@@ -299,19 +307,22 @@ pub fn unaccent_lexize<'mcx>(
     match buf {
         Some(lexeme) => {
             let mut out = PgVec::new_in(mcx);
-            out.push(TsLexeme { nvariant: 0, flags: TSL_FILTER, lexeme });
+            out.push(TsLexeme {
+                nvariant: 0,
+                flags: TSL_FILTER,
+                lexeme,
+            });
             Ok(Some(LexizeResult(out)))
         }
         None => Ok(None),
     }
 }
 
-
 fn arg_dict_ptr(fcinfo: &Fcinfo) -> usize {
     fcinfo.arg(0).as_usize()
 }
 
-fn arg_token(fcinfo: & Fcinfo) -> & [u8] {
+fn arg_token(fcinfo: &Fcinfo) -> &[u8] {
     let len = fcinfo.arg(2).as_i32().max(0) as usize;
     // SAFETY: dict_api lexize convention — arg1 points at `len` live bytes.
     unsafe { core::slice::from_raw_parts(fcinfo.arg(1).as_usize() as *const u8, len) }
@@ -341,7 +352,9 @@ fn fc_unaccent_lexize(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> Pg
 
 fn fc_unaccent_dict(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let (dict_oid, str_arg) = if fcinfo.nargs == 1 {
-        let flinfo = flinfo.as_ref().expect("unaccent(text): resolved FmgrInfo required");
+        let flinfo = flinfo
+            .as_ref()
+            .expect("unaccent(text): resolved FmgrInfo required");
         let procnspid = lsyscache::get_func_namespace(flinfo.fn_oid)?;
         let dict_oid =
             syscache_seams::lookup_pg_ts_dict_oid_by_name_nsp::call("unaccent", procnspid)?;
@@ -362,7 +375,10 @@ fn fc_unaccent_dict(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRes
     };
 
     // SAFETY: both SQL signatures are strict; the text arg is non-null.
-    let token = ::mcx::std_vec_from_slice("unaccent",unsafe { fcinfo.arg_varlena_packed(str_arg)? }.data())?;
+    let token = ::mcx::std_vec_from_slice(
+        "unaccent",
+        unsafe { fcinfo.arg_varlena_packed(str_arg)? }.data(),
+    )?;
     // SAFETY: the arming context outlives this call.
     let mcx = unsafe { fcinfo.result_mcx_detached() };
 

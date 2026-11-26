@@ -41,18 +41,18 @@ use gravity_ir::{Block, ConvOp, IntBinOp, IntCond, IntOvfOp, IntUnOp, Type, Valu
 use gravity_program::cost::{num_front, num_pair};
 use mcx::{CollectIn, GrowIn, Mcx, PgVec};
 
-use crate::table::face::{RunFold, TableDecl, TableMech};
-use crate::table::keyimg::ImageWords;
+use crate::admit::refusal::{Reason, Variant};
 use crate::face::kinds::KindId;
 use crate::face::strategy::{Strategy, NUM_NARROW, NUM_SHARE};
 use crate::frame::env::Env;
 use crate::frame::px::Px;
 use crate::frame::row::RowVals;
-use crate::admit::refusal::{Reason, Variant};
+use crate::table::face::{RunFold, TableDecl, TableMech};
+use crate::table::keyimg::ImageWords;
 
+use crate::ops::agg::hashagg::{Arg, GroupRec};
 use crate::ops::agg::numeric::strategies::num_share::Of;
 use crate::ops::agg::numeric::strategies::num_tree::Tree;
-use crate::ops::agg::hashagg::{Arg, GroupRec};
 
 crate::strategies! {
     /// A hashed group's per-claim i64 partials in a front of image-keyed blocks, closed into the table once a claim.
@@ -61,7 +61,10 @@ crate::strategies! {
     NUM_PAIR = 123, "num.pair", NumHeap;
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(NUM_PARTIAL, &Road), (NUM_PAIR, &Road)], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(NUM_PARTIAL, &Road), (NUM_PAIR, &Road)],
+    ..crate::ops::NONE
+};
 
 /// Road num.partial's registration value (the front is `plan`'s).
 struct Road;
@@ -73,7 +76,10 @@ const HEAD: i32 = 8;
 /// The front's blocks: as many blocks of `WORDS` words as fill an eighth of one thread's L1d (the cost home's
 /// `l1_span`: 64 on the reference machine, 8 KiB), a power of two within 2 and the mask word's 64 bits.
 fn blocks() -> u32 {
-    let n = gravity_driver::machine::profile().cost().l1_span(8 * WORDS as u64, 1, 8).clamp(2, 64);
+    let n = gravity_driver::machine::profile()
+        .cost()
+        .l1_span(8 * WORDS as u64, 1, 8)
+        .clamp(2, 64);
     1 << (63 - n.leading_zeros())
 }
 
@@ -106,7 +112,8 @@ const fn share(odd: u32) -> i64 {
 }
 
 /// The run close a block's registers go through (keyed/hashagg.rs `close_in`): the image, its hash, the registers.
-pub(crate) type Close<'c> = dyn FnMut(&mut FunctionBuilder<'_>, &mut Env, &ImageWords, Value, &[Value]) + 'c;
+pub(crate) type Close<'c> =
+    dyn FnMut(&mut FunctionBuilder<'_>, &mut Env, &ImageWords, Value, &[Value]) + 'c;
 
 /// A partial's term: a bare column at its aggregate's scale, aggregate `aggno`'s num.window tree, or whether a column is
 /// not NULL (count(x)).
@@ -216,42 +223,83 @@ pub(crate) struct Front {
 /// - a class.num_packed min / max of a bare column (A-24c (b): the least / greatest word);
 /// - a class.num_wide product, and a sum / avg of a column past one word (A-24c (d): D830's spilled datum, the column's
 ///   value while it fits a word; a row past it takes the row fold).
-pub(crate) fn plan<'g>(px: &Px<'g, '_>, rec: &GroupRec<'_, '_>, bare: bool, count: bool, off: u32) -> Option<Partial<'g>> {
+pub(crate) fn plan<'g>(
+    px: &Px<'g, '_>,
+    rec: &GroupRec<'_, '_>,
+    bare: bool,
+    count: bool,
+    off: u32,
+) -> Option<Partial<'g>> {
     let g = rec.g;
     let blocks = blocks();
-    if !bare || !px.strategies.has(NUM_PARTIAL) || !crate::face::source::on(Variant::Strategy(NUM_PARTIAL)) {
+    if !bare
+        || !px.strategies.has(NUM_PARTIAL)
+        || !crate::face::source::on(Variant::Strategy(NUM_PARTIAL))
+    {
         return None;
     }
-    if g.form != GroupForm::Hashed || g.set.is_some() || g.two_pass.is_some() || rec.handle.is_some() || rec.pair_filter.is_some() || rec.aggs.is_empty() || g.aggs.len() != rec.aggs.len() {
+    if g.form != GroupForm::Hashed
+        || g.set.is_some()
+        || g.two_pass.is_some()
+        || rec.handle.is_some()
+        || rec.pair_filter.is_some()
+        || rec.aggs.is_empty()
+        || g.aggs.len() != rec.aggs.len()
+    {
         return None;
     }
     let mcx = px.mcx();
-    let (mut terms, mut parts, mut aggs) = (PgVec::new_in(mcx), PgVec::new_in(mcx), PgVec::new_in(mcx));
+    let (mut terms, mut parts, mut aggs) =
+        (PgVec::new_in(mcx), PgVec::new_in(mcx), PgVec::new_in(mcx));
     let mut kinds = [0u32; num_front::KINDS];
     for a in &rec.aggs {
         let (d, carry) = (&a.d, crate::ops::agg::numeric::num_carry::spilled(&a.d));
-        if a.filter.is_some() || d.filter.is_some() || d.mods.distinct != 0 || d.mods.order != 0 || d.dscale_slot != NONE {
+        if a.filter.is_some()
+            || d.filter.is_some()
+            || d.mods.distinct != 0
+            || d.mods.order != 0
+            || d.dscale_slot != NONE
+        {
             return None;
         }
-        let col = |c: &i16| Term::Bare { c: *c, scale: d.scale };
-        let (form, term, op) = match (crate::props::class_kind(d), d.reg, rec.nums.iter().flatten().find(|n| n.0 == d.aggno)) {
+        let col = |c: &i16| Term::Bare {
+            c: *c,
+            scale: d.scale,
+        };
+        let (form, term, op) = match (
+            crate::props::class_kind(d),
+            d.reg,
+            rec.nums.iter().flatten().find(|n| n.0 == d.aggno),
+        ) {
             (KindId::ClassWord, R::CountStar, None) => (Form::Count, None, Op::Sum),
             (KindId::ClassWord, R::CountAny, None) => match a.args.as_slice() {
                 [Arg::Col(c)] => (Form::Present, Some(Term::Present(*c)), Op::Sum),
                 _ => return None,
             },
-            (KindId::ClassNumPacked, R::SumNum | R::AvgNum, Some((_, t, false))) if plain(t) => (Form::Num { carry }, Some(Term::Tree(d.aggno)), Op::Sum),
+            (KindId::ClassNumPacked, R::SumNum | R::AvgNum, Some((_, t, false))) if plain(t) => {
+                (Form::Num { carry }, Some(Term::Tree(d.aggno)), Op::Sum)
+            }
             (KindId::ClassNumPacked, R::SumNum | R::AvgNum, None) => match a.args.as_slice() {
                 // a column past one word (D830: its datum folds in class.num_wide's registers), its value while it fits a word
-                [Arg::Col(c)] if carry && a.class.class_kind() == Some(KindId::ClassNumWide) => (Form::Wide, Some(col(c)), Op::Sum),
+                [Arg::Col(c)] if carry && a.class.class_kind() == Some(KindId::ClassNumWide) => {
+                    (Form::Wide, Some(col(c)), Op::Sum)
+                }
                 [Arg::Col(c)] => (Form::Num { carry }, Some(col(c)), Op::Sum),
                 _ => return None,
             },
             (KindId::ClassNumPacked, R::MinNum | R::MaxNum, None) => match a.args.as_slice() {
-                [Arg::Col(c)] => (Form::Ext, Some(col(c)), if d.reg == R::MinNum { Op::Min } else { Op::Max }),
+                [Arg::Col(c)] => (
+                    Form::Ext,
+                    Some(col(c)),
+                    if d.reg == R::MinNum { Op::Min } else { Op::Max },
+                ),
                 _ => return None,
             },
-            (KindId::ClassNumWide, R::SumNumWide | R::AvgNumWide, Some((_, t, true))) if plain(t) => (Form::Wide, Some(Term::Tree(d.aggno)), Op::Sum),
+            (KindId::ClassNumWide, R::SumNumWide | R::AvgNumWide, Some((_, t, true)))
+                if plain(t) =>
+            {
+                (Form::Wide, Some(Term::Tree(d.aggno)), Op::Sum)
+            }
             _ => return None,
         };
         // the class whose registers the form builds (not a D297 wide argument's class.num_varlena), its register count;
@@ -264,9 +312,17 @@ pub(crate) fn plan<'g>(px: &Px<'g, '_>, rec: &GroupRec<'_, '_>, bare: bool, coun
         let k = match form {
             Form::Count => None,
             Form::Present => Some(num_front::Kind::Present),
-            Form::Num { .. } => Some(if tree { num_front::Kind::Tree } else { num_front::Kind::Sum }),
+            Form::Num { .. } => Some(if tree {
+                num_front::Kind::Tree
+            } else {
+                num_front::Kind::Sum
+            }),
             Form::Ext => Some(num_front::Kind::Ext),
-            Form::Wide => Some(if tree { num_front::Kind::WideTree } else { num_front::Kind::WideSum }),
+            Form::Wide => Some(if tree {
+                num_front::Kind::WideTree
+            } else {
+                num_front::Kind::WideSum
+            }),
         };
         if let Some(k) = k {
             kinds[k as usize] += 1;
@@ -274,10 +330,13 @@ pub(crate) fn plan<'g>(px: &Px<'g, '_>, rec: &GroupRec<'_, '_>, bare: bool, coun
         let at = match term {
             None => 0,
             Some(t) => {
-                let k = terms.iter().position(|x| same(rec, x, &t)).unwrap_or_else(|| {
-                    terms.push_in(t);
-                    terms.len() - 1
-                });
+                let k = terms
+                    .iter()
+                    .position(|x| same(rec, x, &t))
+                    .unwrap_or_else(|| {
+                        terms.push_in(t);
+                        terms.len() - 1
+                    });
                 parts.iter().position(|&p| p == (k, op)).unwrap_or_else(|| {
                     parts.push_in((k, op));
                     parts.len() - 1
@@ -291,28 +350,62 @@ pub(crate) fn plan<'g>(px: &Px<'g, '_>, rec: &GroupRec<'_, '_>, bare: bool, coun
         fires::fire("num_front.declined"); // shapecheck fire signal (A-24c): the cost home kept the record fold
         return None;
     }
-    let reps: PgVec<'_, i32> = g.keys.iter().zip(&rec.reps).filter(|(_, s)| s.is_some()).map(|(k, _)| rec.layout.slot_off(k.rep as usize) as i32).collect_in(mcx);
+    let reps: PgVec<'_, i32> = g
+        .keys
+        .iter()
+        .zip(&rec.reps)
+        .filter(|(_, s)| s.is_some())
+        .map(|(k, _)| rec.layout.slot_off(k.rep as usize) as i32)
+        .collect_in(mcx);
     let nimg = rec.layout.nkeys();
     let on = |r: Strategy| px.strategies.has(r) && crate::face::source::on(Variant::Strategy(r));
     // one-byte keys: the pair within the blocks only (P2: their bytes place them as a bijection; past the blocks images
     // outnumber the pair blocks and the rows of those that hold none pay the pair test for nothing, two keys of 100 groups
     // 1.08x, three keys of 256 1.24x the pair-off program); a key past one byte: the cost home's rule on the displaced
     // images of a random placement (F4)
-    let wide = g.keys.iter().enumerate().filter(|(_, k)| !one_char(k)).fold(0u16, |m, (i, _)| m | 1 << i.min(15));
-    let fits_pair = if wide == 0 { g.groups <= blocks as u64 } else { num_pair::pair_pays(g.groups, blocks) };
+    let wide = g
+        .keys
+        .iter()
+        .enumerate()
+        .filter(|(_, k)| !one_char(k))
+        .fold(0u16, |m, (i, _)| m | 1 << i.min(15));
+    let fits_pair = if wide == 0 {
+        g.groups <= blocks as u64
+    } else {
+        num_pair::pair_pays(g.groups, blocks)
+    };
     let pair = !g.keys.is_empty() && fits_pair && g.keys.iter().all(pair_key) && on(NUM_PAIR);
     let (share, narrow) = (on(NUM_SHARE), on(NUM_NARROW));
     let fits = nimg + reps.len() + 2 + parts.len() <= WORDS;
     if fits {
         // shapecheck fire signal (REGISTRY TH-1, TH-2, BN-129/130, RD-answer.*)
         fires::fire("num.partial");
-        for (on, name) in [(pair, "num.pair"), (share, "num.share"), (narrow, "num.narrow")] {
+        for (on, name) in [
+            (pair, "num.pair"),
+            (share, "num.share"),
+            (narrow, "num.narrow"),
+        ] {
             if on {
                 fires::fire(name);
             }
         }
     }
-    fits.then_some(Partial { terms, parts, aggs, nimg, reps, count, off, blocks, pair, wide, share, narrow, pre: Default::default(), mcx })
+    fits.then_some(Partial {
+        terms,
+        parts,
+        aggs,
+        nimg,
+        reps,
+        count,
+        off,
+        blocks,
+        pair,
+        wide,
+        share,
+        narrow,
+        pre: Default::default(),
+        mcx,
+    })
 }
 
 /// D1896: whether num.pair may place key `k`: a text column of at most a word of bytes, by its declared type or its
@@ -320,12 +413,17 @@ pub(crate) fn plan<'g>(px: &Px<'g, '_>, rec: &GroupRec<'_, '_>, bare: bool, coun
 /// D-101's rule: a nondeterministic collation's image is its sort key's, never a pair), so a row's image can be a pair;
 /// any other key would test every row for a pair it never makes.
 fn pair_key(k: &gravity_decompose::ops::shared::agg::KeyDecl<'_>) -> bool {
-    k.expr.node().as_var().is_some_and(|v| gravity_fn::typesem::numeric::pair_text_key(v.vartype, v.vartypmod, k.bytes)) && gravity_fn::typesem::claims_coll_bytes(k.coll)
+    k.expr.node().as_var().is_some_and(|v| {
+        gravity_fn::typesem::numeric::pair_text_key(v.vartype, v.vartypmod, k.bytes)
+    }) && gravity_fn::typesem::claims_coll_bytes(k.coll)
 }
 
 /// P2: key `k` is declared one character (typesem `one_char_key`), so its share of the pair index is its first word.
 fn one_char(k: &gravity_decompose::ops::shared::agg::KeyDecl<'_>) -> bool {
-    k.expr.node().as_var().is_some_and(|v| gravity_fn::typesem::numeric::one_char_key(v.vartype, v.vartypmod))
+    k.expr
+        .node()
+        .as_var()
+        .is_some_and(|v| gravity_fn::typesem::numeric::one_char_key(v.vartype, v.vartypmod))
 }
 
 /// Whether the partial evaluates tree `t`: columns, constants, +, - and * (no int cast, no CASE).
@@ -334,7 +432,11 @@ fn plain(t: &Tree) -> bool {
     match t {
         Tree::Col { .. } | Tree::Const { .. } => true,
         Tree::Mul(x, y) | Tree::Add(x, y) | Tree::Sub(x, y) => plain(x) && plain(y),
-        Tree::Int { .. } | Tree::Case(_) | Tree::PastWord { .. } | Tree::Cast { .. } | Tree::Div { .. } => false,
+        Tree::Int { .. }
+        | Tree::Case(_)
+        | Tree::PastWord { .. }
+        | Tree::Cast { .. }
+        | Tree::Div { .. } => false,
     }
 }
 
@@ -343,7 +445,12 @@ fn tree<'r, 'g>(rec: &'r GroupRec<'g, '_>, t: &'r Term) -> Option<&'r Tree<'g>> 
     match t {
         Term::Tree(aggno) => match rec.nums.iter().flatten().find(|n| n.0 == *aggno) {
             Some(n) => Some(&n.1),
-            None => crate::refuse!(rec.node, Reason::Bug { payload: "a partial's tree its record does not hold" }),
+            None => crate::refuse!(
+                rec.node,
+                Reason::Bug {
+                    payload: "a partial's tree its record does not hold"
+                }
+            ),
         },
         Term::Bare { .. } | Term::Present(_) => None,
     }
@@ -360,10 +467,20 @@ fn same(rec: &GroupRec<'_, '_>, x: &Term, y: &Term) -> bool {
 }
 
 /// `x op y` as an i64, its signed overflow ORed into `bad`.
-pub(crate) fn checked(b: &mut FunctionBuilder<'_>, op: IntOvfOp, x: Value, y: Value, bad: &mut Value) -> Value {
+pub(crate) fn checked(
+    b: &mut FunctionBuilder<'_>,
+    op: IntOvfOp,
+    x: Value,
+    y: Value,
+    bad: &mut Value,
+) -> Value {
     let o = b.int_ovf(op, x, y);
     *bad = b.int_bin(IntBinOp::Or, *bad, o);
-    let bin = match op { IntOvfOp::SaddOvf => IntBinOp::Add, IntOvfOp::SsubOvf => IntBinOp::Sub, IntOvfOp::SmulOvf => IntBinOp::Mul };
+    let bin = match op {
+        IntOvfOp::SaddOvf => IntBinOp::Add,
+        IntOvfOp::SsubOvf => IntBinOp::Sub,
+        IntOvfOp::SmulOvf => IntBinOp::Mul,
+    };
     b.int_bin(bin, x, y)
 }
 
@@ -382,7 +499,9 @@ impl<'g> Partial<'g> {
     }
 
     fn front(&self, b: &mut FunctionBuilder<'_>, env: &Env) -> Value {
-        let st = env.state.expect("the end's state slot is laid before its open");
+        let st = env
+            .state
+            .expect("the end's state slot is laid before its open");
         b.ptr_add(st, env.zero, 1, self.off as i32)
     }
 
@@ -394,23 +513,38 @@ impl<'g> Partial<'g> {
 
     /// Block `p`'s partials with a row's term values `vals` taken in: added (the signed overflow ORed into `ovf`), or the
     /// least / greatest kept.
-    fn take<'e>(&self, b: &mut FunctionBuilder<'_>, env: &Env<'e, '_>, p: Value, vals: &[Value], ovf: &mut Value) -> PgVec<'e, Value> {
+    fn take<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &Env<'e, '_>,
+        p: Value,
+        vals: &[Value],
+        ovf: &mut Value,
+    ) -> PgVec<'e, Value> {
         let n_at = self.n_at();
-        self.parts.iter().enumerate().map(|(k, &(t, op))| {
-            let s = b.load(Type::I64, p, n_at + 8 * (k as i32 + 1));
-            match op {
-                Op::Sum => checked(b, IntOvfOp::SaddOvf, s, vals[t], ovf),
-                Op::Min => b.int_bin(IntBinOp::Smin, s, vals[t]),
-                Op::Max => b.int_bin(IntBinOp::Smax, s, vals[t]),
-            }
-        }).collect_in(env.mcx)
+        self.parts
+            .iter()
+            .enumerate()
+            .map(|(k, &(t, op))| {
+                let s = b.load(Type::I64, p, n_at + 8 * (k as i32 + 1));
+                match op {
+                    Op::Sum => checked(b, IntOvfOp::SaddOvf, s, vals[t], ovf),
+                    Op::Min => b.int_bin(IntBinOp::Smin, s, vals[t]),
+                    Op::Max => b.int_bin(IntBinOp::Smax, s, vals[t]),
+                }
+            })
+            .collect_in(env.mcx)
     }
 
     /// Block `p` holding no row: its count zero, each partial its identity (its claim kept).
     fn empty(&self, b: &mut FunctionBuilder<'_>, env: &Env, p: Value) {
         b.store(p, self.n_at(), env.zero);
         for (k, &(_, op)) in self.parts.iter().enumerate() {
-            let v = if op == Op::Sum { env.zero } else { b.iconst(Type::I64, op.ident()) };
+            let v = if op == Op::Sum {
+                env.zero
+            } else {
+                b.iconst(Type::I64, op.ident())
+            };
             b.store(p, self.n_at() + 8 * (k as i32 + 1), v);
         }
     }
@@ -424,7 +558,17 @@ impl<'g> Partial<'g> {
     /// The row's terms into its image's block (`probe`), the other rows' path opened (`settle`, over `table`'s record of
     /// the image and `fold`'s run close); `None` (nothing emitted): an inexact image, join.mult.
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn row(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, rec: &GroupRec<'_, '_>, row: &RowVals, img: &ImageWords, h: Value, (table, t): (&dyn TableMech, &TableDecl), fold: &dyn RunFold) -> Option<Front> {
+    pub(crate) fn row(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        rec: &GroupRec<'_, '_>,
+        row: &RowVals,
+        img: &ImageWords,
+        h: Value,
+        (table, t): (&dyn TableMech, &TableDecl),
+        fold: &dyn RunFold,
+    ) -> Option<Front> {
         if !img.exact || env.mult.is_some() || img.words.words.len() != self.nimg {
             return None;
         }
@@ -438,32 +582,69 @@ impl<'g> Partial<'g> {
         };
         let f = self.probe(b, env, &vals, bad, img, h, at);
         let found = table.find(b, env, t, img, h);
-        self.settle(b, env, &f, found, &mut |b, env, img, h, accs| fold.close(b, env, img, h, accs));
+        self.settle(b, env, &f, found, &mut |b, env, img, h, accs| {
+            fold.close(b, env, img, h, accs)
+        });
         Some(f)
     }
 
     /// The row's terms and their bad bit (a leaf NULL, special or past a word; a product, rescale or sum past i64).
-    fn terms(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, rec: &GroupRec<'_, '_>, row: &RowVals) -> (PgVec<'g, Value>, Value) {
-        let ts: PgVec<'_, Of<'_>> = self.terms.iter().map(|t| match (t, tree(rec, t)) {
-            (Term::Bare { c, scale }, _) => Of::Col(*c, *scale),
-            (Term::Present(c), _) => Of::Present(*c),
-            (_, Some(t)) => Of::Tree(t),
-            (_, None) => unreachable!("a tree's term"),
-        }).collect_in(env.mcx);
-        crate::ops::agg::numeric::strategies::num_share::terms(b, env, rec, row, &ts[..], self.share, self.narrow, self.mcx)
+    fn terms(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        rec: &GroupRec<'_, '_>,
+        row: &RowVals,
+    ) -> (PgVec<'g, Value>, Value) {
+        let ts: PgVec<'_, Of<'_>> = self
+            .terms
+            .iter()
+            .map(|t| match (t, tree(rec, t)) {
+                (Term::Bare { c, scale }, _) => Of::Col(*c, *scale),
+                (Term::Present(c), _) => Of::Present(*c),
+                (_, Some(t)) => Of::Tree(t),
+                (_, None) => unreachable!("a tree's term"),
+            })
+            .collect_in(env.mcx);
+        crate::ops::agg::numeric::strategies::num_share::terms(
+            b,
+            env,
+            rec,
+            row,
+            &ts[..],
+            self.share,
+            self.narrow,
+            self.mcx,
+        )
     }
 
     /// P2: the row of a short-text-key image tries its pair block before the image's hash; a hit adds there and
     /// branches to the returned join, the builder is left on the other rows' path (the hash, then `row` with the terms
     /// read here). `None` (nothing emitted) where `row` would decline, or a key of the image is not two words.
-    pub(crate) fn pair(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, rec: &GroupRec<'_, '_>, row: &RowVals, img: &ImageWords) -> Option<Block> {
-        if !self.pair || !img.exact || env.mult.is_some() || img.words.words.len() != self.nimg || img.widths.is_empty() || img.widths.iter().any(|&w| w != 2) {
+    pub(crate) fn pair(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        rec: &GroupRec<'_, '_>,
+        row: &RowVals,
+        img: &ImageWords,
+    ) -> Option<Block> {
+        if !self.pair
+            || !img.exact
+            || env.mult.is_some()
+            || img.words.words.len() != self.nimg
+            || img.widths.is_empty()
+            || img.widths.iter().any(|&w| w != 2)
+        {
             return None;
         }
         let (vals, bad) = self.terms(b, env, rec, row);
         let (l_join, at) = self.pair_at(b, env, &vals, bad, img, img.widths.len());
         let old = self.pre.borrow_mut().replace(Pre { vals, bad, at });
-        debug_assert!(old.is_none(), "a pair row's reads its hashed path never took");
+        debug_assert!(
+            old.is_none(),
+            "a pair row's reads its hashed path never took"
+        );
         Some(l_join)
     }
 
@@ -473,33 +654,64 @@ impl<'g> Partial<'g> {
     /// `(c0 + MIX c1 + MIX^2 c2 ..)` modulo the blocks, `c` a key's `SHARE`; a row whose block holds its image adds
     /// `vals` there (checked) and branches to the join; every other row, and an add that overflows, stays on the builder's
     /// path.
-    fn pair_at(&self, b: &mut FunctionBuilder<'_>, env: &Env, vals: &[Value], bad: Value, img: &ImageWords, keys: usize) -> (Block, (Value, Value)) {
+    fn pair_at(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &Env,
+        vals: &[Value],
+        bad: Value,
+        img: &ImageWords,
+        keys: usize,
+    ) -> (Block, (Value, Value)) {
         let w = &img.words.words[..2 * keys];
-        let (low, s56, one, word) = (b.iconst(Type::I64, (1 << 56) - 1), b.iconst(Type::I64, 56), b.iconst(Type::I64, 1), b.iconst(Type::I64, gravity_fn::typesem::numeric::PAIR_BYTES as i64));
-        let (lanes, even, odd, s8, s48) = (b.iconst(Type::I64, LANES), b.iconst(Type::I64, SHARE[0]), b.iconst(Type::I64, SHARE[1]), b.iconst(Type::I64, 8), b.iconst(Type::I64, 48));
-        let (mix, top) = (b.iconst(Type::I64, MIX), b.iconst(Type::I64, self.blocks as i64 - 1));
-        let elig: PgVec<'_, Value> = w.chunks(2).map(|k| {
-            let rest = b.int_bin(IntBinOp::And, k[1], low);
-            let bare = b.icmp(IntCond::Eq, rest, env.zero);
-            let len = b.int_bin(IntBinOp::Ushr, k[1], s56);
-            let len = b.int_bin(IntBinOp::Sub, len, one);
-            let short = b.icmp(IntCond::Ult, len, word);
-            b.int_bin(IntBinOp::And, bare, short)
-        }).collect_in(env.mcx);
-        let elig = elig[1..].iter().fold(elig[0], |x, &y| b.int_bin(IntBinOp::And, x, y));
-        let c: PgVec<'_, Value> = w.chunks(2).enumerate().map(|(j, k)| {
-            if self.wide & 1 << j.min(15) == 0 {
-                return k[0];
-            }
-            let e = b.int_bin(IntBinOp::And, k[0], lanes);
-            let o = b.int_bin(IntBinOp::Ushr, k[0], s8);
-            let o = b.int_bin(IntBinOp::And, o, lanes);
-            let e = b.int_bin(IntBinOp::Mul, e, even);
-            let o = b.int_bin(IntBinOp::Mul, o, odd);
-            let e = b.int_bin(IntBinOp::Ushr, e, s48);
-            let o = b.int_bin(IntBinOp::Ushr, o, s48);
-            b.int_bin(IntBinOp::Add, e, o)
-        }).collect_in(env.mcx);
+        let (low, s56, one, word) = (
+            b.iconst(Type::I64, (1 << 56) - 1),
+            b.iconst(Type::I64, 56),
+            b.iconst(Type::I64, 1),
+            b.iconst(Type::I64, gravity_fn::typesem::numeric::PAIR_BYTES as i64),
+        );
+        let (lanes, even, odd, s8, s48) = (
+            b.iconst(Type::I64, LANES),
+            b.iconst(Type::I64, SHARE[0]),
+            b.iconst(Type::I64, SHARE[1]),
+            b.iconst(Type::I64, 8),
+            b.iconst(Type::I64, 48),
+        );
+        let (mix, top) = (
+            b.iconst(Type::I64, MIX),
+            b.iconst(Type::I64, self.blocks as i64 - 1),
+        );
+        let elig: PgVec<'_, Value> = w
+            .chunks(2)
+            .map(|k| {
+                let rest = b.int_bin(IntBinOp::And, k[1], low);
+                let bare = b.icmp(IntCond::Eq, rest, env.zero);
+                let len = b.int_bin(IntBinOp::Ushr, k[1], s56);
+                let len = b.int_bin(IntBinOp::Sub, len, one);
+                let short = b.icmp(IntCond::Ult, len, word);
+                b.int_bin(IntBinOp::And, bare, short)
+            })
+            .collect_in(env.mcx);
+        let elig = elig[1..]
+            .iter()
+            .fold(elig[0], |x, &y| b.int_bin(IntBinOp::And, x, y));
+        let c: PgVec<'_, Value> = w
+            .chunks(2)
+            .enumerate()
+            .map(|(j, k)| {
+                if self.wide & 1 << j.min(15) == 0 {
+                    return k[0];
+                }
+                let e = b.int_bin(IntBinOp::And, k[0], lanes);
+                let o = b.int_bin(IntBinOp::Ushr, k[0], s8);
+                let o = b.int_bin(IntBinOp::And, o, lanes);
+                let e = b.int_bin(IntBinOp::Mul, e, even);
+                let o = b.int_bin(IntBinOp::Mul, o, odd);
+                let e = b.int_bin(IntBinOp::Ushr, e, s48);
+                let o = b.int_bin(IntBinOp::Ushr, o, s48);
+                b.int_bin(IntBinOp::Add, e, o)
+            })
+            .collect_in(env.mcx);
         // Horner from the last key: c_{k-1} MIX + c_{k-2}, .. (two keys: c0 + MIX c1)
         let i = c.iter().rev().skip(1).fold(c[c.len() - 1], |acc, &ck| {
             let m = b.int_bin(IntBinOp::Mul, acc, mix);
@@ -515,8 +727,15 @@ impl<'g> Partial<'g> {
         let eq = emit_image_eq_at(b, &img.words, p, 0);
         let yes = b.bconst(true);
         let ok = b.int_bin(IntBinOp::Xor, bad, yes);
-        let go = [used, eq, ok].into_iter().fold(elig, |x, y| b.int_bin(IntBinOp::And, x, y));
-        let (l_add, l_put, l_join, l_miss) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));
+        let go = [used, eq, ok]
+            .into_iter()
+            .fold(elig, |x, y| b.int_bin(IntBinOp::And, x, y));
+        let (l_add, l_put, l_join, l_miss) = (
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         b.cond_br(go, (l_add, &[]), (l_miss, &[]));
         b.switch_to(l_add);
         let (n_at, mut ovf) = (self.n_at(), b.bconst(false));
@@ -538,11 +757,27 @@ impl<'g> Partial<'g> {
     /// path (the end's row fold), which `settle` opens and `claim` closes.
     /// A pair row (`pair`: whether its image is a word-of-bytes pair, the pair's block) has that block as its first candidate and
     /// its hash's second as the other: a pair block another image holds leaves it a block to claim.
-    fn probe(&self, b: &mut FunctionBuilder<'_>, env: &Env, vals: &[Value], bad: Value, img: &ImageWords, h: Value, pair: Option<(Value, Value)>) -> Front {
+    fn probe(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &Env,
+        vals: &[Value],
+        bad: Value,
+        img: &ImageWords,
+        h: Value,
+        pair: Option<(Value, Value)>,
+    ) -> Front {
         let front = self.front(b, env);
-        let (mask, one, s) = (b.load(Type::I64, front, 0), b.iconst(Type::I64, 1), b.iconst(Type::I64, 64 - self.blocks.trailing_zeros() as i64));
+        let (mask, one, s) = (
+            b.load(Type::I64, front, 0),
+            b.iconst(Type::I64, 1),
+            b.iconst(Type::I64, 64 - self.blocks.trailing_zeros() as i64),
+        );
         let i = b.int_bin(IntBinOp::Ushr, h, s);
-        let (j, top) = (b.int_bin(IntBinOp::Add, i, one), b.iconst(Type::I64, self.blocks as i64 - 1));
+        let (j, top) = (
+            b.int_bin(IntBinOp::Add, i, one),
+            b.iconst(Type::I64, self.blocks as i64 - 1),
+        );
         let j = b.int_bin(IntBinOp::And, j, top);
         let (i, j) = match pair {
             Some((elig, d)) => (b.select(elig, d, i), j),
@@ -563,7 +798,13 @@ impl<'g> Partial<'g> {
         let yes = b.bconst(true);
         let ok = b.int_bin(IntBinOp::Xor, bad, yes);
         let go = b.int_bin(IntBinOp::And, hit, ok);
-        let (l_add, l_put, l_ovf, l_row, l_done) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]), b.create_block(&[Type::I64]), b.create_block(&[]));
+        let (l_add, l_put, l_ovf, l_row, l_done) = (
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[Type::I64]),
+            b.create_block(&[]),
+        );
         b.cond_br(go, (l_add, &[]), (l_row, &[env.zero]));
         b.switch_to(l_add);
         let (n_at, mut ovf) = (self.n_at(), b.bconst(false));
@@ -583,14 +824,29 @@ impl<'g> Partial<'g> {
         let bit = b.int_bin(IntBinOp::Shl, one, k);
         b.br(l_row, &[bit]);
         b.switch_to(l_row);
-        Front { l_done, hit, at, ovf: b.block_params(l_row)[0] }
+        Front {
+            l_done,
+            hit,
+            at,
+            ovf: b.block_params(l_row)[0],
+        }
     }
 
     /// The other rows' path opened, before the row fold's upsert: the overflowed add's block closes, and every block when
     /// `found` (the table's record of the image, `TableMech::find`) is null, so the locate that follows finds none open.
-    fn settle(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, f: &Front, found: Value, close: &mut Close<'_>) {
+    fn settle(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        f: &Front,
+        found: Value,
+        close: &mut Close<'_>,
+    ) {
         let front = self.front(b, env);
-        let (mask, null) = (b.load(Type::I64, front, 0), b.conv(ConvOp::PtrToInt, Type::I64, found));
+        let (mask, null) = (
+            b.load(Type::I64, front, 0),
+            b.conv(ConvOp::PtrToInt, Type::I64, found),
+        );
         let miss = b.icmp(IntCond::Eq, null, env.zero);
         let bits = b.select(miss, mask, f.ovf);
         self.close_bits(b, env, bits, close);
@@ -598,10 +854,21 @@ impl<'g> Partial<'g> {
 
     /// The other rows' path joined: a row whose image holds no block claims the free one of its two, its representatives
     /// read from record `r` (the row fold's: opened or found, their kept copies written), its count and partials zero.
-    pub(crate) fn claim(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, r: Value, img: &ImageWords, h: Value, f: &Front) {
+    pub(crate) fn claim(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        r: Value,
+        img: &ImageWords,
+        h: Value,
+        f: &Front,
+    ) {
         let [(i, p0, u0), (j, p1, u1)] = f.at;
         let yes = b.bconst(true);
-        let (none, both) = (b.int_bin(IntBinOp::Xor, f.hit, yes), b.int_bin(IntBinOp::And, u0, u1));
+        let (none, both) = (
+            b.int_bin(IntBinOp::Xor, f.hit, yes),
+            b.int_bin(IntBinOp::And, u0, u1),
+        );
         let free = b.int_bin(IntBinOp::Xor, both, yes);
         let can = b.int_bin(IntBinOp::And, none, free);
         let l_claim = b.create_block(&[]);
@@ -629,7 +896,9 @@ impl<'g> Partial<'g> {
 
     /// The claim's finish: every block holding rows closes through `fold`'s run close (`flush_with`).
     pub(crate) fn flush(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, fold: &dyn RunFold) {
-        self.flush_with(b, env, &mut |b, env, img, h, accs| fold.close(b, env, img, h, accs));
+        self.flush_with(b, env, &mut |b, env, img, h, accs| {
+            fold.close(b, env, img, h, accs)
+        });
     }
 
     fn flush_with(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, close: &mut Close<'_>) {
@@ -640,9 +909,21 @@ impl<'g> Partial<'g> {
 
     /// The blocks of `bits` holding rows closed into the table through `close`, their count and partials zeroed, their
     /// claims kept. A loop over the set bits, which 64 bound.
-    fn close_bits(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, bits: Value, close: &mut Close<'_>) {
+    fn close_bits(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        bits: Value,
+        close: &mut Close<'_>,
+    ) {
         let front = self.front(b, env);
-        let (l_head, l_blk, l_close, l_next, l_out) = (b.create_block(&[Type::I64]), b.create_block(&[]), b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));
+        let (l_head, l_blk, l_close, l_next, l_out) = (
+            b.create_block(&[Type::I64]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         b.br(l_head, &[bits]);
         b.switch_to(l_head);
         b.mark_loop_header(l_head);
@@ -657,24 +938,42 @@ impl<'g> Partial<'g> {
         let any = b.icmp(IntCond::Ne, n, env.zero);
         b.cond_br(any, (l_close, &[]), (l_next, &[]));
         b.switch_to(l_close);
-        let words = (0..self.nimg).map(|w| b.load(Type::I64, p, 8 * w as i32)).collect(); // alloc: Program
+        let words = (0..self.nimg)
+            .map(|w| b.load(Type::I64, p, 8 * w as i32))
+            .collect(); // alloc: Program
         let h = b.load(Type::I64, p, 8 * self.nimg as i32);
-        let parts: PgVec<'_, Value> = (0..self.parts.len()).map(|k| b.load(Type::I64, p, n_at + 8 * (k as i32 + 1))).collect_in(env.mcx);
+        let parts: PgVec<'_, Value> = (0..self.parts.len())
+            .map(|k| b.load(Type::I64, p, n_at + 8 * (k as i32 + 1)))
+            .collect_in(env.mcx);
         let s63 = b.iconst(Type::I64, 63);
         let mut accs: PgVec<'_, Value> = PgVec::new_in(env.mcx);
         for &(form, k) in &self.aggs {
-            let s = matches!(form, Form::Num { .. } | Form::Wide).then(|| b.int_bin(IntBinOp::Sshr, parts[k], s63));
+            let s = matches!(form, Form::Num { .. } | Form::Wide)
+                .then(|| b.int_bin(IntBinOp::Sshr, parts[k], s63));
             match (form, s) {
-                (Form::Num { carry }, Some(s)) => accs.extend_in([parts[k], s].into_iter().chain(carry.then_some(env.zero)).chain([n])),
+                (Form::Num { carry }, Some(s)) => accs.extend_in(
+                    [parts[k], s]
+                        .into_iter()
+                        .chain(carry.then_some(env.zero))
+                        .chain([n]),
+                ),
                 (Form::Wide, Some(s)) => accs.extend_in([parts[k], s, s, s, n]),
                 (Form::Ext, _) => accs.extend_in([parts[k], n]),
                 (Form::Present, _) => accs.push_in(parts[k]),
                 _ => accs.push_in(n),
             }
         }
-        accs.extend_in((0..self.reps.len()).map(|w| b.load(Type::I64, p, 8 * (self.nimg + 1 + w) as i32)));
+        accs.extend_in(
+            (0..self.reps.len()).map(|w| b.load(Type::I64, p, 8 * (self.nimg + 1 + w) as i32)),
+        );
         accs.extend_in(self.count.then_some(n));
-        close(b, env, &ImageWords::plain(ImageValues { words }, true), h, &accs[..]);
+        close(
+            b,
+            env,
+            &ImageWords::plain(ImageValues { words }, true),
+            h,
+            &accs[..],
+        );
         self.empty(b, env, p);
         b.br(l_next, &[]);
         b.switch_to(l_next);
@@ -738,8 +1037,27 @@ mod tests {
             let core = crate::frame::env::declare(&mut pb);
             let f = [
                 pb.declare_func("open", &[Type::Ptr, Type::Ptr], &[Type::I64]),
-                pb.declare_func("flush", &[Type::Ptr, Type::Ptr, Type::Ptr, Type::I64], &[Type::I64]),
-                pb.declare_func("row", &[Type::Ptr, Type::Ptr, Type::Ptr, Type::Ptr, Type::I64, Type::I64, Type::I64, Type::I64, Type::I64, Type::Ptr], &[Type::I64]),
+                pb.declare_func(
+                    "flush",
+                    &[Type::Ptr, Type::Ptr, Type::Ptr, Type::I64],
+                    &[Type::I64],
+                ),
+                pb.declare_func(
+                    "row",
+                    &[
+                        Type::Ptr,
+                        Type::Ptr,
+                        Type::Ptr,
+                        Type::Ptr,
+                        Type::I64,
+                        Type::I64,
+                        Type::I64,
+                        Type::I64,
+                        Type::I64,
+                        Type::Ptr,
+                    ],
+                    &[Type::I64],
+                ),
                 pb.declare_func("finish", &[Type::Ptr, Type::Ptr, Type::Ptr], &[Type::I64]),
             ];
             for (k, &func) in f.iter().enumerate() {
@@ -749,7 +1067,11 @@ mod tests {
                 let mut env = Env::new(&mut b, core, crate::hir::Ir::none(), &[], x, rig.mcx());
                 env.state = Some(p[1]);
                 let log = p.get(2).copied().unwrap_or(p[1]);
-                let mut close = |b: &mut FunctionBuilder<'_>, _: &mut Env, img: &ImageWords, h: Value, accs: &[Value]| {
+                let mut close = |b: &mut FunctionBuilder<'_>,
+                                 _: &mut Env,
+                                 img: &ImageWords,
+                                 h: Value,
+                                 accs: &[Value]| {
                     let (k, w) = (b.load(Type::I64, log, 0), b.iconst(Type::I64, 256));
                     let o = b.int_bin(IntBinOp::Mul, k, w);
                     let at = b.ptr_add(log, o, 1, 64);
@@ -783,7 +1105,16 @@ mod tests {
                 }
                 let z = b.iconst(Type::I64, 0);
                 b.ret(&[z]);
-                for blk in [x.l_finish, x.l_stop_in, x.l_full, x.l_status, x.l_done, x.l_raise, x.l_cancel, x.l_exit] {
+                for blk in [
+                    x.l_finish,
+                    x.l_stop_in,
+                    x.l_full,
+                    x.l_status,
+                    x.l_done,
+                    x.l_raise,
+                    x.l_cancel,
+                    x.l_exit,
+                ] {
                     b.switch_to(blk);
                     let z = b.iconst(Type::I64, 0);
                     b.ret(&[z]);
@@ -791,8 +1122,19 @@ mod tests {
             }
             let prog = pb.finish();
             let ctx = vec![0u64; gravity_abi::ctx::ctx_size(1) / 8]; // alloc: Program
-            let (st, log, rec) = (vec![0xdead_beef; 3 + 64 * words], vec![0u64; 8 + 32 * 16], vec![0u64, 0xabc]); // alloc: Program
-            let mut r = Rig { prog, f, st, log, rec, ctx };
+            let (st, log, rec) = (
+                vec![0xdead_beef; 3 + 64 * words],
+                vec![0u64; 8 + 32 * 16],
+                vec![0u64, 0xabc],
+            ); // alloc: Program
+            let mut r = Rig {
+                prog,
+                f,
+                st,
+                log,
+                rec,
+                ctx,
+            };
             r.call(0, &[]);
             r
         }
@@ -809,18 +1151,35 @@ mod tests {
                 args.push(self.rec.as_mut_ptr() as u64);
                 args.extend_from_slice(more);
             }
-            gravity_interp::Interp::new(&self.prog).run(self.f[k], &args).expect("runs");
+            gravity_interp::Interp::new(&self.prog)
+                .run(self.f[k], &args)
+                .expect("runs");
         }
 
         /// A row of image `img`, hash block `i`, terms `t`; `found`: the table holds its record.
         fn row(&mut self, img: u64, i: u64, t: (i64, i64), bad: bool, found: bool) {
             let h = i << 58 | img;
-            self.call(2, &[img, h, t.0 as u64, t.1 as u64, bad as u64, if found { self.rec.as_ptr() as u64 } else { 0 }]);
+            self.call(
+                2,
+                &[
+                    img,
+                    h,
+                    t.0 as u64,
+                    t.1 as u64,
+                    bad as u64,
+                    if found { self.rec.as_ptr() as u64 } else { 0 },
+                ],
+            );
         }
 
         /// The closes so far: each block's image and its term partials and count as the registers carry them.
         fn closes(&self) -> Vec<(u64, i64, i64, u64)> {
-            (0..self.log[0] as usize).map(|k| { let r = &self.log[8 + 32 * k..]; (r[0], r[2] as i64, r[5] as i64, r[4]) }).collect() // alloc: Program
+            (0..self.log[0] as usize)
+                .map(|k| {
+                    let r = &self.log[8 + 32 * k..];
+                    (r[0], r[2] as i64, r[5] as i64, r[4])
+                })
+                .collect() // alloc: Program
         }
     }
 
@@ -837,7 +1196,11 @@ mod tests {
         r.row(5, 3, (3, 4), false, true); // block 3: (4, 6) n 2
         r.row(7, 3, (100, 1), false, true); // block 4 claimed for image 7 (3 is 5's)
         r.row(9, 3, (50, 5), false, true); // blocks 3 and 4 claimed: the row fold, no claim, no close
-        assert_eq!((r.log[1], r.closes()), (3, vec![]), "a collision evicts nothing");
+        assert_eq!(
+            (r.log[1], r.closes()),
+            (3, vec![]),
+            "a collision evicts nothing"
+        );
         r.row(7, 3, (6, 6), false, true); // block 4: (6, 6) n 1
         r.row(5, 3, (i64::MAX, 0), false, true); // (a): 4 + MAX overflows: block 3 closes, the row takes the row fold
         assert_eq!(r.closes(), vec![(5, 4, 6, 2)]);
@@ -854,15 +1217,29 @@ mod tests {
         r.row(7, 3, (9, 9), false, true);
         r.call(3, &[]); // the finish
         r.call(3, &[]); // a second close with no row between closes nothing
-        assert_eq!(&r.closes()[3..], &[(5, -1, -1, 1), (7, 9, 9, 1), (11, 5, 5, 2)]);
+        assert_eq!(
+            &r.closes()[3..],
+            &[(5, -1, -1, 1), (7, 9, 9, 1), (11, 5, 5, 2)]
+        );
         let rows = [10, 1, 3, 100, 50, 6, i64::MAX, 8, 2, 40, 2, 3, -1, 9];
         let folded = r.log[2] as i64;
         let closed: i64 = r.closes().iter().map(|c| c.1).sum();
-        assert_eq!((r.log[1], folded.wrapping_add(closed)), (6, rows.iter().fold(0i64, |a, &x| a.wrapping_add(x))), "every row once");
+        assert_eq!(
+            (r.log[1], folded.wrapping_add(closed)),
+            (6, rows.iter().fold(0i64, |a, &x| a.wrapping_add(x))),
+            "every row once"
+        );
         assert_eq!(r.st[2], 1 << 3 | 1 << 4 | 1 << 10, "the claims stay");
         let blk = |i: usize| &r.st[3 + 6 * i..3 + 6 * i + 6];
-        assert_eq!((blk(3)[2], blk(4)[2], blk(10)[2]), (0xabc, 0xabc, 0xabc), "each claim's representative, read from the record");
-        assert!([3, 4, 10].iter().all(|&i| blk(i)[3..] == [0, 0, 0]), "every block zeroed");
+        assert_eq!(
+            (blk(3)[2], blk(4)[2], blk(10)[2]),
+            (0xabc, 0xabc, 0xabc),
+            "each claim's representative, read from the record"
+        );
+        assert!(
+            [3, 4, 10].iter().all(|&i| blk(i)[3..] == [0, 0, 0]),
+            "every block zeroed"
+        );
     }
 
     /// P2: the pair rig, `prow(ctx, st, log, rec, w0, w1, w2, w3, h, t0, t1, found)` over a four-word image: the pair
@@ -870,17 +1247,44 @@ mod tests {
     fn pair_rig() -> (gravity_ir::Program, gravity_ir::Func) {
         let rig = mcx::MemoryContext::new("GravityPlanRig");
         let m = rig.mcx();
-        let part = Partial { pair: true, nimg: 4, reps: PgVec::new_in(m), aggs: mcx::pg_vec![in m; (Form::Num { carry: false }, 0), (Form::Num { carry: false }, 1)], ..part(m) };
+        let part = Partial {
+            pair: true,
+            nimg: 4,
+            reps: PgVec::new_in(m),
+            aggs: mcx::pg_vec![in m; (Form::Num { carry: false }, 0), (Form::Num { carry: false }, 1)],
+            ..part(m)
+        };
         let mut pb = ProgramBuilder::new();
         let core = crate::frame::env::declare(&mut pb);
-        let f = pb.declare_func("prow", &[Type::Ptr, Type::Ptr, Type::Ptr, Type::Ptr, Type::I64, Type::I64, Type::I64, Type::I64, Type::I64, Type::I64, Type::I64, Type::Ptr], &[Type::I64]);
+        let f = pb.declare_func(
+            "prow",
+            &[
+                Type::Ptr,
+                Type::Ptr,
+                Type::Ptr,
+                Type::Ptr,
+                Type::I64,
+                Type::I64,
+                Type::I64,
+                Type::I64,
+                Type::I64,
+                Type::I64,
+                Type::I64,
+                Type::Ptr,
+            ],
+            &[Type::I64],
+        );
         let mut b = pb.define(f);
         let p = b.params().to_vec();
         let x = crate::frame::stop::exits(&mut b);
         let mut env = Env::new(&mut b, core, crate::hir::Ir::none(), &[], x, rig.mcx());
         env.state = Some(p[1]);
         let log = p[2];
-        let mut close = |b: &mut FunctionBuilder<'_>, _: &mut Env, img: &ImageWords, h: Value, accs: &[Value]| {
+        let mut close = |b: &mut FunctionBuilder<'_>,
+                         _: &mut Env,
+                         img: &ImageWords,
+                         h: Value,
+                         accs: &[Value]| {
             let (k, w) = (b.load(Type::I64, log, 0), b.iconst(Type::I64, 256));
             let o = b.int_bin(IntBinOp::Mul, k, w);
             let at = b.ptr_add(log, o, 1, 64);
@@ -891,7 +1295,12 @@ mod tests {
             let k = b.int_bin(IntBinOp::Add, k, one);
             b.store(log, 0, k);
         };
-        let img = ImageWords::plain(ImageValues { words: p[4..8].to_vec() }, true); // alloc: Program
+        let img = ImageWords::plain(
+            ImageValues {
+                words: p[4..8].to_vec(),
+            },
+            true,
+        ); // alloc: Program
         let bad = b.bconst(false);
         let (l_join, at) = part.pair_at(&mut b, &env, &[p[9], p[10]], bad, &img, 2);
         let one = b.iconst(Type::I64, 1);
@@ -910,7 +1319,16 @@ mod tests {
         b.switch_to(l_join);
         let z = b.iconst(Type::I64, 0);
         b.ret(&[z]);
-        for blk in [x.l_finish, x.l_stop_in, x.l_full, x.l_status, x.l_done, x.l_raise, x.l_cancel, x.l_exit] {
+        for blk in [
+            x.l_finish,
+            x.l_stop_in,
+            x.l_full,
+            x.l_status,
+            x.l_done,
+            x.l_raise,
+            x.l_cancel,
+            x.l_exit,
+        ] {
             b.switch_to(blk);
             let z = b.iconst(Type::I64, 0);
             b.ret(&[z]);
@@ -924,11 +1342,31 @@ mod tests {
     #[test]
     fn a_pair_adds_in_its_pair_block_with_no_hash() {
         let (prog, f) = pair_rig();
-        let (mut st, mut log, mut rec, mut ctx) = (vec![0u64; 2 + 1 + 64 * 8], vec![0u64; 8 + 32 * 16], vec![0u64, 0xabc], vec![0u64; gravity_abi::ctx::ctx_size(1) / 8]); // alloc: Program
+        let (mut st, mut log, mut rec, mut ctx) = (
+            vec![0u64; 2 + 1 + 64 * 8],
+            vec![0u64; 8 + 32 * 16],
+            vec![0u64, 0xabc],
+            vec![0u64; gravity_abi::ctx::ctx_size(1) / 8],
+        ); // alloc: Program
         let tag = 1u64 << 56;
         let mut row = |w: [u64; 4], h: u64, t: (i64, i64)| {
-            let args = [ctx.as_mut_ptr() as u64, st.as_mut_ptr() as u64, log.as_mut_ptr() as u64, rec.as_mut_ptr() as u64, w[0], w[1], w[2], w[3], h, t.0 as u64, t.1 as u64, rec.as_ptr() as u64];
-            gravity_interp::Interp::new(&prog).run(f, &args).expect("runs");
+            let args = [
+                ctx.as_mut_ptr() as u64,
+                st.as_mut_ptr() as u64,
+                log.as_mut_ptr() as u64,
+                rec.as_mut_ptr() as u64,
+                w[0],
+                w[1],
+                w[2],
+                w[3],
+                h,
+                t.0 as u64,
+                t.1 as u64,
+                rec.as_ptr() as u64,
+            ];
+            gravity_interp::Interp::new(&prog)
+                .run(f, &args)
+                .expect("runs");
         };
         let af = [65, tag, 70, tag]; // block (65 + 7 * 70) mod 64 = 43 (a one-byte key's share is its byte)
         row(af, 5 << 58, (1, 10)); // hashed path: the row fold, then the pair block 43 claimed
@@ -944,47 +1382,100 @@ mod tests {
         #[allow(clippy::drop_non_drop)]
         drop(row);
         assert_eq!((log[1], log[3]), (4, 6), "the row fold: af's first, the first long, the first other, the overflow; the hashed path: those, the second long (a hit in 44) and the second other (a hit in 2)");
-        let closes: Vec<(u64, i64, i64, u64)> = (0..log[0] as usize).map(|k| { let r = &log[8 + 32 * k..]; (r[0], r[5] as i64, r[8] as i64, r[7]) }).collect(); // alloc: Program
+        let closes: Vec<(u64, i64, i64, u64)> = (0..log[0] as usize)
+            .map(|k| {
+                let r = &log[8 + 32 * k..];
+                (r[0], r[5] as i64, r[8] as i64, r[7])
+            })
+            .collect(); // alloc: Program
         assert_eq!(closes, vec![(65, 5, 50, 2)], "af's block: rows 2 and 3");
         assert_eq!(st[2], 1 << 2 | 1 << 43 | 1 << 44, "the pair block, the long image's second block and the colliding pair image's hash block claimed");
         let blk = |i: usize| &st[3 + 8 * i..3 + 8 * i + 8];
-        assert_eq!((&blk(43)[..4], &blk(44)[..4], blk(44)[5..8].to_vec()), (&af[..], &long[..], vec![1, 200, 0]), "each block's image; 44 holds row 5");
-        assert_eq!((&blk(2)[..4], blk(2)[5..8].to_vec()), (&other[..], vec![1, 8, 0]), "the colliding pair image's block holds row 7");
+        assert_eq!(
+            (&blk(43)[..4], &blk(44)[..4], blk(44)[5..8].to_vec()),
+            (&af[..], &long[..], vec![1, 200, 0]),
+            "each block's image; 44 holds row 5"
+        );
+        assert_eq!(
+            (&blk(2)[..4], blk(2)[5..8].to_vec()),
+            (&other[..], vec![1, 8, 0]),
+            "the colliding pair image's block holds row 7"
+        );
         let folded = log[2] as i64;
-        assert_eq!(folded.wrapping_add(5).wrapping_add(200).wrapping_add(8), [1i64, 2, 3, 100, 200, 7, 8, i64::MAX].iter().fold(0i64, |a, &x| a.wrapping_add(x)), "every row once");
+        assert_eq!(
+            folded.wrapping_add(5).wrapping_add(200).wrapping_add(8),
+            [1i64, 2, 3, 100, 200, 7, 8, i64::MAX]
+                .iter()
+                .fold(0i64, |a, &x| a.wrapping_add(x)),
+            "every row once"
+        );
     }
 
     /// The pair index over an image of `keys` keys (its words past `2 keys` a nullable key's flags), under the interpreter
     /// on an empty front (every row misses): `(eligible, block)` for each image of `ws`.
     fn pair_index(keys: usize, ws: &[Vec<u64>]) -> Vec<(bool, u64)> {
         let rig = mcx::MemoryContext::new("GravityPlanRig");
-        let part = Partial { pair: true, wide: u16::MAX, nimg: ws[0].len(), reps: PgVec::new_in(rig.mcx()), ..part(rig.mcx()) };
+        let part = Partial {
+            pair: true,
+            wide: u16::MAX,
+            nimg: ws[0].len(),
+            reps: PgVec::new_in(rig.mcx()),
+            ..part(rig.mcx())
+        };
         let mut pb = ProgramBuilder::new();
         let core = crate::frame::env::declare(&mut pb);
-        let ps: Vec<Type> = [Type::Ptr, Type::Ptr].into_iter().chain(ws[0].iter().map(|_| Type::I64)).collect(); // alloc: Program
+        let ps: Vec<Type> = [Type::Ptr, Type::Ptr]
+            .into_iter()
+            .chain(ws[0].iter().map(|_| Type::I64))
+            .collect(); // alloc: Program
         let f = pb.declare_func("pidx", &ps, &[Type::I64, Type::I64]);
         let mut b = pb.define(f);
         let p = b.params().to_vec();
         let x = crate::frame::stop::exits(&mut b);
         let mut env = Env::new(&mut b, core, crate::hir::Ir::none(), &[], x, rig.mcx());
         env.state = Some(p[1]);
-        let img = ImageWords::plain(ImageValues { words: p[2..].to_vec() }, true); // alloc: Program
+        let img = ImageWords::plain(
+            ImageValues {
+                words: p[2..].to_vec(),
+            },
+            true,
+        ); // alloc: Program
         let (bad, v) = (b.bconst(false), b.iconst(Type::I64, 1));
         let (l_join, (elig, i)) = part.pair_at(&mut b, &env, &[v, v], bad, &img, keys);
         let e = b.conv(ConvOp::Zext, Type::I64, elig);
         b.ret(&[e, i]);
-        for blk in [l_join, x.l_finish, x.l_stop_in, x.l_full, x.l_status, x.l_done, x.l_raise, x.l_cancel, x.l_exit] {
+        for blk in [
+            l_join,
+            x.l_finish,
+            x.l_stop_in,
+            x.l_full,
+            x.l_status,
+            x.l_done,
+            x.l_raise,
+            x.l_cancel,
+            x.l_exit,
+        ] {
             b.switch_to(blk);
             let z = b.iconst(Type::I64, 0);
             b.ret(&[z, z]);
         }
         let prog = pb.finish();
-        let (mut st, mut ctx) = (vec![0u64; 3 + 64 * 16], vec![0u64; gravity_abi::ctx::ctx_size(1) / 8]); // alloc: Program
-        ws.iter().map(|w| {
-            let args: Vec<u64> = [ctx.as_mut_ptr() as u64, st.as_mut_ptr() as u64].into_iter().chain(w.iter().copied()).collect(); // alloc: Program
-            let got = gravity_interp::Interp::new(&prog).run(f, &args).expect("runs");
-            (got[0] == 1, got[1])
-        }).collect() // alloc: Program
+        let (mut st, mut ctx) = (
+            vec![0u64; 3 + 64 * 16],
+            vec![0u64; gravity_abi::ctx::ctx_size(1) / 8],
+        ); // alloc: Program
+        ws.iter()
+            .map(|w| {
+                let args: Vec<u64> = [ctx.as_mut_ptr() as u64, st.as_mut_ptr() as u64]
+                    .into_iter()
+                    .chain(w.iter().copied())
+                    .collect(); // alloc: Program
+                let got = gravity_interp::Interp::new(&prog)
+                    .run(f, &args)
+                    .expect("runs");
+                (got[0] == 1, got[1])
+            })
+            .collect() // alloc: Program
     }
 
     /// TH-2: any count of keys of 1 .. 8 bytes places its block at `(c0 + 7 c1 + 7^2 c2 ..) mod 64`, a key's share `c` its
@@ -994,25 +1485,107 @@ mod tests {
     #[test]
     fn any_count_of_short_keys_places_its_block_by_their_bytes() {
         let tag = 1u64 << 56;
-        let one = pair_index(1, &[vec![65, tag], vec![65, 2 * tag], vec![65, 8 * tag], vec![65, 9 * tag], vec![65, tag | 66], vec![0, 0]]);
-        assert_eq!(one, vec![(true, 1), (true, 1), (true, 1), (false, 1), (false, 1), (false, 0)], "one key: b0 mod 64, eligible at 1 .. 8 bytes");
-        assert_eq!(pair_index(2, &[vec![65, tag, 70, tag]]), vec![(true, 43)], "two keys: (65 + 7 * 70) mod 64, P2's");
-        let nullable = pair_index(3, &[vec![65, tag, 70, tag, 2, tag, 0], vec![0, 0, 70, tag, 2, tag, 1]]);
-        assert_eq!(nullable, vec![(true, (65 + 7 * 70 + 49 * 2) % 64), (false, (7 * 70 + 49 * 2) % 64)], "a flags word after three keys; a NULL first key");
-        let three = pair_index(3, &[vec![65, tag, 70, tag, 2, tag], vec![65, tag, 70, 2 * tag, 2, tag], vec![65, tag, 70, tag, 2, 9 * tag]]);
+        let one = pair_index(
+            1,
+            &[
+                vec![65, tag],
+                vec![65, 2 * tag],
+                vec![65, 8 * tag],
+                vec![65, 9 * tag],
+                vec![65, tag | 66],
+                vec![0, 0],
+            ],
+        );
+        assert_eq!(
+            one,
+            vec![
+                (true, 1),
+                (true, 1),
+                (true, 1),
+                (false, 1),
+                (false, 1),
+                (false, 0)
+            ],
+            "one key: b0 mod 64, eligible at 1 .. 8 bytes"
+        );
+        assert_eq!(
+            pair_index(2, &[vec![65, tag, 70, tag]]),
+            vec![(true, 43)],
+            "two keys: (65 + 7 * 70) mod 64, P2's"
+        );
+        let nullable = pair_index(
+            3,
+            &[
+                vec![65, tag, 70, tag, 2, tag, 0],
+                vec![0, 0, 70, tag, 2, tag, 1],
+            ],
+        );
+        assert_eq!(
+            nullable,
+            vec![
+                (true, (65 + 7 * 70 + 49 * 2) % 64),
+                (false, (7 * 70 + 49 * 2) % 64)
+            ],
+            "a flags word after three keys; a NULL first key"
+        );
+        let three = pair_index(
+            3,
+            &[
+                vec![65, tag, 70, tag, 2, tag],
+                vec![65, tag, 70, 2 * tag, 2, tag],
+                vec![65, tag, 70, tag, 2, 9 * tag],
+            ],
+        );
         assert_eq!(three, vec![(true, 13), (true, 13), (false, 13)]);
         for k in 0..3 {
-            let ws: Vec<Vec<u64>> = (0..64u64).map(|v| { let mut w = vec![65, tag, 70, tag, 2, tag]; w[2 * k] = 100 + v; w }).collect(); // alloc: Program
-            let blocks: std::collections::BTreeSet<u64> = pair_index(3, &ws).into_iter().map(|(e, i)| { assert!(e); i }).collect(); // alloc: Program
+            let ws: Vec<Vec<u64>> = (0..64u64)
+                .map(|v| {
+                    let mut w = vec![65, tag, 70, tag, 2, tag];
+                    w[2 * k] = 100 + v;
+                    w
+                })
+                .collect(); // alloc: Program
+            let blocks: std::collections::BTreeSet<u64> = pair_index(3, &ws)
+                .into_iter()
+                .map(|(e, i)| {
+                    assert!(e);
+                    i
+                })
+                .collect(); // alloc: Program
             assert_eq!(blocks.len(), 64, "key {k}'s byte alone reaches every block");
         }
         for j in 0..8 {
-            let ws: Vec<Vec<u64>> = (0..64u64).map(|v| vec![0x4141_4141_4141_4141 & !(0xff << (8 * j)) | (100 + v) << (8 * j), 8 * tag]).collect(); // alloc: Program
-            let blocks: std::collections::BTreeSet<u64> = pair_index(1, &ws).into_iter().map(|(e, i)| { assert!(e); i }).collect(); // alloc: Program
-            assert_eq!(blocks.len(), 64, "an 8-byte key's byte {j} alone reaches every block");
+            let ws: Vec<Vec<u64>> = (0..64u64)
+                .map(|v| {
+                    vec![
+                        0x4141_4141_4141_4141 & !(0xff << (8 * j)) | (100 + v) << (8 * j),
+                        8 * tag,
+                    ]
+                })
+                .collect(); // alloc: Program
+            let blocks: std::collections::BTreeSet<u64> = pair_index(1, &ws)
+                .into_iter()
+                .map(|(e, i)| {
+                    assert!(e);
+                    i
+                })
+                .collect(); // alloc: Program
+            assert_eq!(
+                blocks.len(),
+                64,
+                "an 8-byte key's byte {j} alone reaches every block"
+            );
         }
-        let g = |s: &[u8]| { let mut w = [0u8; 8]; w[..s.len()].copy_from_slice(s); vec![u64::from_le_bytes(w), (s.len() as u64) << 56] }; // alloc: Program
-        assert_eq!(pair_index(1, &[g(b"g-001"), g(b"g-010"), g(b"g-100"), g(b"g-0001")]), vec![(true, 51), (true, 41), (true, 3), (true, 9)], "a byte's position counts");
+        let g = |s: &[u8]| {
+            let mut w = [0u8; 8];
+            w[..s.len()].copy_from_slice(s);
+            vec![u64::from_le_bytes(w), (s.len() as u64) << 56]
+        }; // alloc: Program
+        assert_eq!(
+            pair_index(1, &[g(b"g-001"), g(b"g-010"), g(b"g-100"), g(b"g-0001")]),
+            vec![(true, 51), (true, 41), (true, 3), (true, 9)],
+            "a byte's position counts"
+        );
     }
 
     #[test]
@@ -1020,7 +1593,10 @@ mod tests {
         let b = blocks();
         assert!(b.is_power_of_two() && (2..=64).contains(&b), "{b}");
         if gravity_driver::machine::profile().l1d_bytes == 64 << 10 {
-            assert_eq!(b, 64, "Graviton 4's 64 KiB L1d: an eighth in blocks of 16 words");
+            assert_eq!(
+                b, 64,
+                "Graviton 4's 64 KiB L1d: an eighth in blocks of 16 words"
+            );
         }
     }
 
@@ -1040,10 +1616,28 @@ mod tests {
         r.row(9, 63, (-3, 0), false, true);
         r.row(9, 63, (7, 1), false, true);
         r.call(3, &[]); // the finish
-        let want = [9, 63 << 58 | 9, 4, 0, 2, -3i64 as u64, 2, 7, 2, 1, 2, 0xabc, 2];
+        let want = [
+            9,
+            63 << 58 | 9,
+            4,
+            0,
+            2,
+            -3i64 as u64,
+            2,
+            7,
+            2,
+            1,
+            2,
+            0xabc,
+            2,
+        ];
         assert_eq!(&r.log[8..8 + 13], &want[..]);
         let blk = &r.st[3 + 8 * 63..3 + 8 * 64];
-        assert_eq!(&blk[3..], &[0, 0, i64::MAX as u64, i64::MIN as u64, 0], "every partial its identity");
+        assert_eq!(
+            &blk[3..],
+            &[0, 0, i64::MAX as u64, i64::MIN as u64, 0],
+            "every partial its identity"
+        );
     }
 
     /// A close builds each aggregate's registers: `[P, P >> 63, n]`, `[P, s, s, s, n]`, `[n]`, `[P, P >> 63, 0, n]`, then the
@@ -1055,7 +1649,25 @@ mod tests {
         r.row(9, 63, (i64::MAX, i64::MIN), false, true);
         r.call(3, &[]);
         let m = u64::MAX;
-        let want = [9, 63 << 58 | 9, i64::MAX as u64, 0, 1, i64::MIN as u64, m, m, m, 1, 1, i64::MIN as u64, m, 0, 1, 0xabc, 1];
+        let want = [
+            9,
+            63 << 58 | 9,
+            i64::MAX as u64,
+            0,
+            1,
+            i64::MIN as u64,
+            m,
+            m,
+            m,
+            1,
+            1,
+            i64::MIN as u64,
+            m,
+            0,
+            1,
+            0xabc,
+            1,
+        ];
         assert_eq!(&r.log[8..8 + 17], &want[..]);
     }
 }

@@ -20,16 +20,31 @@ use crate::graph::Gx;
 
 /// Whether op `i` of embedded inner `ik` is a merge join the inner serves (the module's rule).
 pub(crate) fn ok(gx: &Gx<'_, '_>, ik: usize, i: usize) -> bool {
-    let Some(Op::Join(JoinDesc::Merge { slot, .. })) = gx.pipelines()[ik].ops.get(i) else { return false };
+    let Some(Op::Join(JoinDesc::Merge { slot, .. })) = gx.pipelines()[ik].ops.get(i) else {
+        return false;
+    };
     let fillers = crate::ops::mergejoin::lazy_outer::fillers(gx, ik, *slot);
-    let held = |x: usize| gx.graph.reruns.iter().any(|r| gravity_decompose::graph::slot_has(&r.slots, *slot) || r.pipelines.iter().any(|&p| p as usize == x));
-    !fillers.is_empty() && fillers.iter().all(|&x| !held(x) && (!crate::effects::visible::merge::inner_may_act(gx, x, usize::MAX, None) || crate::effects::visible::merge::raise_only(gx, x)))
+    let held = |x: usize| {
+        gx.graph.reruns.iter().any(|r| {
+            gravity_decompose::graph::slot_has(&r.slots, *slot)
+                || r.pipelines.iter().any(|&p| p as usize == x)
+        })
+    };
+    !fillers.is_empty()
+        && fillers.iter().all(|&x| {
+            !held(x)
+                && (!crate::effects::visible::merge::inner_may_act(gx, x, usize::MAX, None)
+                    || crate::effects::visible::merge::raise_only(gx, x))
+        })
 }
 
 /// Whether op `j` of pipeline `k` is a merge join this module serves: `k` a nest loop's embedded inner, the merge `ok`.
 pub(crate) fn serves(gx: &Gx<'_, '_>, k: usize, j: usize) -> bool {
     let ps = gx.pipelines();
-    let nest = k.checked_sub(ps.len()).and_then(|i| ps.inners().get(i).map(|x| x.0)).is_some_and(|(o, oj)| matches!(ps[o].ops.get(oj), Some(Op::Join(JoinDesc::Nest { .. }))));
+    let nest = k
+        .checked_sub(ps.len())
+        .and_then(|i| ps.inners().get(i).map(|x| x.0))
+        .is_some_and(|(o, oj)| matches!(ps[o].ops.get(oj), Some(Op::Join(JoinDesc::Nest { .. }))));
     nest && ok(gx, k, j)
 }
 
@@ -40,7 +55,10 @@ pub(crate) fn serves(gx: &Gx<'_, '_>, k: usize, j: usize) -> bool {
 /// `make`). Construct C2: every path that runs the fill ahead holds a `Licence`.
 pub(crate) fn ahead(px: &mut Px<'_, '_>, fillers: &[usize]) -> Option<Licence> {
     let gx = px.gx;
-    if fillers.iter().all(|&x| !crate::effects::visible::merge::inner_may_act(gx, x, usize::MAX, None)) {
+    if fillers
+        .iter()
+        .all(|&x| !crate::effects::visible::merge::inner_may_act(gx, x, usize::MAX, None))
+    {
         return unobservable(Effects::NONE);
     }
     let mut last = None;

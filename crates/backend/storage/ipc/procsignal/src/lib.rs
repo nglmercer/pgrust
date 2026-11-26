@@ -13,8 +13,7 @@ use init_small::globals as g;
 use types_core::{ProcNumber, INVALID_PROC_NUMBER, MAX_CANCEL_KEY_LENGTH};
 use types_error::{ErrorLocation, PgResult, DEBUG1, DEBUG2, ERROR, LOG};
 use types_storage::storage::{
-    ProcSignalBarrierType, ProcSignalReason, Spinlock, SyncCell,
-    NUM_PROCSIGNALS,
+    ProcSignalBarrierType, ProcSignalReason, Spinlock, SyncCell, NUM_PROCSIGNALS,
 };
 
 // PG_WAIT_IPC | PROC_SIGNAL_BARRIER's index in wait_event_names.txt's IPC section.
@@ -179,7 +178,7 @@ struct PreIdentityTarget {
 // pgsync by crate law: locked by the postmaster (launch/deliver) and by child
 // threads (adopt/consume) — the CHILD_THREADS precedent. process_global! is pgsync's sanctioned static shim (#71): this exact plain static on native/sim, per-iteration lazy state under loom (whose Mutex::new is non-const — a bare static broke the whole cfg-loom build cone).
 pgsync::process_global! { static PRE_IDENTITY_TARGETS: pgsync::Mutex<Vec<std::sync::Arc<PreIdentityTarget>>> =
-    pgsync::Mutex::new(Vec::new()); }
+pgsync::Mutex::new(Vec::new()); }
 
 thread_local! {
     // The calling thread's adopted entry (pid + shared pending word).
@@ -187,9 +186,10 @@ thread_local! {
         const { std::cell::RefCell::new(None) };
 }
 
-fn pre_identity_targets()
--> pgsync::MutexGuard<'static, Vec<std::sync::Arc<PreIdentityTarget>>> {
-    PRE_IDENTITY_TARGETS.lock().unwrap_or_else(|e| e.into_inner())
+fn pre_identity_targets() -> pgsync::MutexGuard<'static, Vec<std::sync::Arc<PreIdentityTarget>>> {
+    PRE_IDENTITY_TARGETS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
 }
 
 /// Launcher side: make `pid` deliverable before the child thread runs (or,
@@ -489,7 +489,8 @@ fn proc_signal_init_internal(cancel_key: &[u8], register_cleanup: bool) -> PgRes
     fence(SeqCst);
     slot.pss_barrierCheckMask.store(0, Relaxed);
     let barrier_generation = header.psh_barrierGeneration.load(Relaxed);
-    slot.pss_barrierGeneration.store(barrier_generation, Relaxed);
+    slot.pss_barrierGeneration
+        .store(barrier_generation, Relaxed);
     if !cancel_key.is_empty() {
         // SAFETY: serialized by the ProcSignalSlot pss_mutex spinlock
         let mut key = unsafe { slot.pss_cancel_key.get() };
@@ -508,7 +509,8 @@ fn proc_signal_init_internal(cancel_key: &[u8], register_cleanup: bool) -> PgRes
     // by OR; a lost signal cannot happen).
     let pre_identity_pending = take_pre_identity_registration();
     if pre_identity_pending != 0 {
-        slot.pss_pendingThreadSignals.fetch_or(pre_identity_pending, SeqCst);
+        slot.pss_pendingThreadSignals
+            .fetch_or(pre_identity_pending, SeqCst);
     }
 
     if old_pss_pid != 0 {
@@ -528,8 +530,7 @@ fn proc_signal_init_internal(cancel_key: &[u8], register_cleanup: bool) -> PgRes
     THREAD_SIGNAL_HANDLERS.with(|t| {
         let mut handlers = t.get();
         if matches!(handlers[SIGUSR1 as usize], ThreadSignalHandler::Unset) {
-            handlers[SIGUSR1 as usize] =
-                ThreadSignalHandler::Simple(procsignal_sigusr1_handler);
+            handlers[SIGUSR1 as usize] = ThreadSignalHandler::Simple(procsignal_sigusr1_handler);
             t.set(handlers);
         }
     });
@@ -630,8 +631,7 @@ pub fn pqsignal_thread(signo: i32, handler: ThreadSignalHandler) {
 }
 
 pub fn thread_signal_disposition_installed(signo: i32) -> bool {
-    THREAD_SIGNAL_HANDLERS
-        .with(|t| !matches!(t.get()[signo as usize], ThreadSignalHandler::Unset))
+    THREAD_SIGNAL_HANDLERS.with(|t| !matches!(t.get()[signo as usize], ThreadSignalHandler::Unset))
 }
 
 // kill(pid, signo)'s thread rendering: pend signo on the target's slot and
@@ -702,7 +702,11 @@ fn deliver_thread_signal_to_slot(i: usize, pid: i32, bit: u32) -> bool {
     const ABORT_CLASS: [i32; 4] = [SIGINT, signums::SIGTERM, SIGQUIT, SIGKILL];
     let abort = slot.pss_abortFlag.load(Relaxed);
     if !abort.is_null() {
-        let class = if ABORT_CLASS.iter().any(|&s| bit & thread_signal_bit(s) != 0) { g::ABORT_BIT } else { g::SERVICE_BIT };
+        let class = if ABORT_CLASS.iter().any(|&s| bit & thread_signal_bit(s) != 0) {
+            g::ABORT_BIT
+        } else {
+            g::SERVICE_BIT
+        };
         // SAFETY: as above.
         unsafe { &*abort }.fetch_or(class, SeqCst);
     }
@@ -757,7 +761,12 @@ fn signal_backend_children(_pid: i32, _bit: u32) {}
 /// `take_watchdog_cancel`), and drops it when the statement it named has ended. False: no such slot, or its pid changed.
 pub fn RaiseAbortByProcNumber(procNumber: ProcNumber, pid: i32) -> bool {
     let header = proc_signal();
-    let Some(slot) = usize::try_from(procNumber).ok().and_then(|i| header.psh_slot.get(i)) else { return false };
+    let Some(slot) = usize::try_from(procNumber)
+        .ok()
+        .and_then(|i| header.psh_slot.get(i))
+    else {
+        return false;
+    };
     if pid <= 0 {
         return false;
     }
@@ -941,13 +950,15 @@ pub fn DrainThreadSignals() -> PgResult<()> {
         if let Err(e) = result {
             // Undelivered signos stay pending, as blocked signals do in C.
             if bits | still_blocked != 0 {
-                slot.pss_pendingThreadSignals.fetch_or(bits | still_blocked, SeqCst);
+                slot.pss_pendingThreadSignals
+                    .fetch_or(bits | still_blocked, SeqCst);
             }
             return Err(e);
         }
     }
     if still_blocked != 0 {
-        slot.pss_pendingThreadSignals.fetch_or(still_blocked, SeqCst);
+        slot.pss_pendingThreadSignals
+            .fetch_or(still_blocked, SeqCst);
     }
     Ok(())
 }
@@ -1419,7 +1430,9 @@ pub fn SendCancelRequest(backend_pid: i32, cancel_key: &[u8]) {
         } else {
             log_never_raises(
                 ereport(LOG)
-                    .errmsg(format!("wrong key in cancel request for process {backend_pid}"))
+                    .errmsg(format!(
+                        "wrong key in cancel request for process {backend_pid}"
+                    ))
                     .finish(loc("SendCancelRequest")),
             );
         }

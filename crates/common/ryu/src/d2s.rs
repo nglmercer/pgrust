@@ -1,4 +1,6 @@
-use crate::common::{copy_special_str, log10_pow2, log10_pow5, pow5bits, DIGIT_TABLE, STRICTLY_SHORTEST};
+use crate::common::{
+    copy_special_str, log10_pow2, log10_pow5, pow5bits, DIGIT_TABLE, STRICTLY_SHORTEST,
+};
 use crate::d2s_table::{
     DOUBLE_POW5_BITCOUNT, DOUBLE_POW5_INV_BITCOUNT, DOUBLE_POW5_INV_SPLIT, DOUBLE_POW5_SPLIT,
 };
@@ -141,7 +143,11 @@ fn d2d(ieee_mantissa: u64, ieee_exponent: u32) -> FloatingDecimal64 {
         m2 = (1u64 << DOUBLE_MANTISSA_BITS) | ieee_mantissa;
     }
 
-    let accept_bounds = if STRICTLY_SHORTEST { (m2 & 1) == 0 } else { false };
+    let accept_bounds = if STRICTLY_SHORTEST {
+        (m2 & 1) == 0
+    } else {
+        false
+    };
 
     let mv = 4 * m2;
     let mm_shift: u32 = (ieee_mantissa != 0 || ieee_exponent <= 1) as u32;
@@ -249,7 +255,7 @@ fn d2d(ieee_mantissa: u64, ieee_exponent: u32) -> FloatingDecimal64 {
             }
         }
 
-        if vr_is_trailing_zeros && last_removed_digit == 5 && vr.is_multiple_of( 2) {
+        if vr_is_trailing_zeros && last_removed_digit == 5 && vr.is_multiple_of(2) {
             // Round even if the exact number is .....50..0.
             last_removed_digit = 4;
         }
@@ -403,7 +409,7 @@ fn to_chars(v: FloatingDecimal64, sign: bool, result: &mut [u8]) -> i32 {
     }
 
     // Fixed-point thresholds chosen to match printf defaults (%.17g shape).
-    if ( -4.. 15).contains(&exp) {
+    if (-4..15).contains(&exp) {
         return to_chars_df(v, olength, &mut result[index as usize..]) + sign as i32;
     }
 

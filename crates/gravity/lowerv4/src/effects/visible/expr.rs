@@ -22,17 +22,34 @@ use crate::graph::Gx;
 /// VOLATILE, or a function the catalog cannot answer); a site with no function (an island, a store shim) is its own call
 /// bit, its inner calls'. A primitive the emit inlines is no hosted call.
 pub(crate) fn acts(facts: &dyn gravity_decompose::catalog::Facts, c: &Compiled<'_>) -> bool {
-    let call = |s: &gravity_expr::nodes::func::Call| if s.funcid == 0 { s.volatile } else { gravity_decompose::effects::of_call(facts, s.funcid).acts };
-    c.prog.sites.iter().any(|s| !gravity_expr::emit::prim::is_prim(&c.prog, s, false) && call(s))
+    let call = |s: &gravity_expr::nodes::func::Call| {
+        if s.funcid == 0 {
+            s.volatile
+        } else {
+            gravity_decompose::effects::of_call(facts, s.funcid).acts
+        }
+    };
+    c.prog
+        .sites
+        .iter()
+        .any(|s| !gravity_expr::emit::prim::is_prim(&c.prog, s, false) && call(s))
 }
 
 /// Whether compiled `c` holds a hosted call read as VOLATILE, fail closed: its call bit (gravity_expr `FuncFacts::call_acts`:
 /// VOLATILE, or an fmgr call the catalog cannot answer) or, for a site with a function, effects' per-call answer
 /// (`effects::of_call`: VOLATILE, or a function the catalog cannot answer, a direct shim's too). A primitive the emit
 /// inlines is no hosted call.
-pub(crate) fn volatile_site(facts: &dyn gravity_decompose::catalog::Facts, c: &Compiled<'_>) -> bool {
-    let call = |s: &gravity_expr::nodes::func::Call| s.volatile || s.funcid != 0 && gravity_decompose::effects::of_call(facts, s.funcid).acts;
-    c.prog.sites.iter().any(|s| !gravity_expr::emit::prim::is_prim(&c.prog, s, false) && call(s))
+pub(crate) fn volatile_site(
+    facts: &dyn gravity_decompose::catalog::Facts,
+    c: &Compiled<'_>,
+) -> bool {
+    let call = |s: &gravity_expr::nodes::func::Call| {
+        s.volatile || s.funcid != 0 && gravity_decompose::effects::of_call(facts, s.funcid).acts
+    };
+    c.prog
+        .sites
+        .iter()
+        .any(|s| !gravity_expr::emit::prim::is_prim(&c.prog, s, false) && call(s))
 }
 
 /// Whether claim operand `node` makes a VOLATILE call by the shared fail-closed union (effects.rs `volatile`: a call
@@ -55,7 +72,9 @@ pub(crate) fn volatile_sub(env: &Env, ex: ExId, i: u32) -> bool {
         let e = env.placed(id);
         e.volatile || ExtPlan::of(e).is_some_and(|x| x.subs.borrow().iter().any(|&s| vol(env, s)))
     }
-    ExtPlan::of(env.placed(ex)).and_then(|x| x.subs.borrow().get(i as usize).copied()).is_some_and(|s| vol(env, s))
+    ExtPlan::of(env.placed(ex))
+        .and_then(|x| x.subs.borrow().get(i as usize).copied())
+        .is_some_and(|s| vol(env, s))
 }
 
 /// Whether expression `id` holds a VOLATILE call or reads an InitPlan parameter (M8 B1: PG runs the InitPlan where the
@@ -65,7 +84,9 @@ pub(crate) fn volatile(env: &Env, id: ExId) -> bool {
     fn held(env: &Env, id: ExId) -> bool {
         crate::stack_check();
         let e = env.placed(id);
-        e.volatile || !crate::step::expr_ext_lazy::inits(env, id).is_empty() || ExtPlan::of(e).is_some_and(|x| x.subs.borrow().iter().any(|&s| held(env, s)))
+        e.volatile
+            || !crate::step::expr_ext_lazy::inits(env, id).is_empty()
+            || ExtPlan::of(e).is_some_and(|x| x.subs.borrow().iter().any(|&s| held(env, s)))
     }
     held(env, id)
 }
@@ -73,5 +94,8 @@ pub(crate) fn volatile(env: &Env, id: ExId) -> bool {
 /// D2044: whether compiled `c` holds a hosted call to user code (the effects home's `user_code`: its raise can leave SPI,
 /// GUC or snapshot state behind).
 pub(crate) fn user_code(c: &Compiled<'_>) -> bool {
-    c.prog.sites.iter().any(|s| gravity_decompose::effects::user_code(s.funcid))
+    c.prog
+        .sites
+        .iter()
+        .any(|s| gravity_decompose::effects::user_code(s.funcid))
 }

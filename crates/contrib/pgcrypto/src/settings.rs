@@ -1,5 +1,5 @@
-use guc_tables::*;
 use guc_tables::consts::*;
+use guc_tables::*;
 use types_guc::*;
 
 pub(super) static SETTINGS: &[GucSetting] = &[

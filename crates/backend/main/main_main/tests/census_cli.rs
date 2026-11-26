@@ -16,7 +16,11 @@ fn census_does_not_change_help_or_version_output() {
         assert!(baseline.status.success(), "{option}");
         assert_eq!(census.status.code(), baseline.status.code(), "{option}");
         assert_eq!(census.stdout, baseline.stdout, "{option}");
-        assert!(baseline.stderr.is_empty(), "{option}: {:?}", baseline.stderr);
+        assert!(
+            baseline.stderr.is_empty(),
+            "{option}: {:?}",
+            baseline.stderr
+        );
         assert_eq!(census.stderr, baseline.stderr, "{option}");
     }
 }

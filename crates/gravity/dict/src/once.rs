@@ -6,8 +6,8 @@
 //! interrupt check, `claim_while`): this crate never sleeps or parks a thread itself.
 extern crate std;
 
-use gravity_abi::{word, PtrWord, Word};
 use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use gravity_abi::{word, PtrWord, Word};
 
 use crate::table::Header;
 use crate::{BuildError, Region};
@@ -118,7 +118,12 @@ impl OnceTable {
 
     fn cells(&self) -> (*mut Cell, usize) {
         // SAFETY: `head` is followed by `slots` cells.
-        unsafe { ((self.head as *mut u8).add(core::mem::size_of::<Head>()) as *mut Cell, (*self.head).slots as usize) }
+        unsafe {
+            (
+                (self.head as *mut u8).add(core::mem::size_of::<Head>()) as *mut Cell,
+                (*self.head).slots as usize,
+            )
+        }
     }
 
     pub fn slots(&self) -> u32 {
@@ -206,17 +211,25 @@ impl OnceTable {
                         continue 'scan;
                     }
                     _ => {
-                        if c.state.compare_exchange(FAILED, CLAIMING, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+                        if c.state
+                            .compare_exchange(FAILED, CLAIMING, Ordering::AcqRel, Ordering::Acquire)
+                            .is_ok()
+                        {
                             return self.own(cells, i, key, gen);
                         }
                         continue 'scan;
                     }
                 }
             }
-            let Some((i, st)) = free else { return Claim::Full };
+            let Some((i, st)) = free else {
+                return Claim::Full;
+            };
             // SAFETY: `i < slots`.
             let c = unsafe { &*cells.add(i) };
-            if c.state.compare_exchange(st, CLAIMING, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+            if c.state
+                .compare_exchange(st, CLAIMING, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
                 return self.own(cells, i, key, gen);
             }
         }
@@ -233,7 +246,10 @@ impl OnceTable {
             (*c).table = word(core::ptr::null());
             (*c).owner = token();
             (*c).state.store(BUILDING, Ordering::Release);
-            Claim::Build(Builder { cell: c, published: false })
+            Claim::Build(Builder {
+                cell: c,
+                published: false,
+            })
         }
     }
 }
@@ -241,7 +257,13 @@ impl OnceTable {
 impl Builder {
     pub fn key(&self) -> Key {
         // SAFETY: the builder owns the cell.
-        unsafe { Key { part: (*self.cell).part, epoch: (*self.cell).epoch, fingerprint: (*self.cell).fingerprint } }
+        unsafe {
+            Key {
+                part: (*self.cell).part,
+                epoch: (*self.cell).epoch,
+                fingerprint: (*self.cell).fingerprint,
+            }
+        }
     }
 
     pub fn publish(mut self, table: *const Header) {

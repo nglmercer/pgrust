@@ -7,8 +7,18 @@ use gravity_ir::{HostFlags, Type, Value};
 
 /// The bytes a cstring's copy takes: its length and the terminating NUL. Entered only for a non-NULL pointer.
 pub(crate) fn size(b: &mut FunctionBuilder<'_>, p: Value) -> Value {
-    let h = b.declare_host_once("rep_cstr_size", &[Type::I64], Some(Type::I64), cstr_size as *const () as usize, HostFlags { touches_memory: true, ..HostFlags::default() });
-    b.call_host(h, &[p], Some(Type::I64)).expect("returns the size")
+    let h = b.declare_host_once(
+        "rep_cstr_size",
+        &[Type::I64],
+        Some(Type::I64),
+        cstr_size as *const () as usize,
+        HostFlags {
+            touches_memory: true,
+            ..HostFlags::default()
+        },
+    );
+    b.call_host(h, &[p], Some(Type::I64))
+        .expect("returns the size")
 }
 
 use super::raw::datum::cstr_size;

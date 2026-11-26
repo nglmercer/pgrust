@@ -341,7 +341,10 @@ pub(crate) fn execute_extension_script(
         } else if from_version.is_none() {
             return Err(ereport(ERROR)
                 .errcode(ERRCODE_INSUFFICIENT_PRIVILEGE)
-                .errmsg(format!("permission denied to create extension \"{}\"", control.name))
+                .errmsg(format!(
+                    "permission denied to create extension \"{}\"",
+                    control.name
+                ))
                 .errhint(if control.trusted {
                     "Must have CREATE privilege on current database to create this extension."
                 } else {
@@ -352,7 +355,10 @@ pub(crate) fn execute_extension_script(
         } else {
             return Err(ereport(ERROR)
                 .errcode(ERRCODE_INSUFFICIENT_PRIVILEGE)
-                .errmsg(format!("permission denied to update extension \"{}\"", control.name))
+                .errmsg(format!(
+                    "permission denied to update extension \"{}\"",
+                    control.name
+                ))
                 .errhint(if control.trusted {
                     "Must have CREATE privilege on current database to update this extension."
                 } else {
@@ -525,7 +531,11 @@ fn run_script_body(
     let mut t_sql = strip_echo_lines(&c_sql);
 
     if c_sql.contains("@extowner@") {
-        let uid = if switch_to_superuser { save_userid } else { miscinit::GetUserId() };
+        let uid = if switch_to_superuser {
+            save_userid
+        } else {
+            miscinit::GetUserId()
+        };
         let user_name = miscinit::GetUserNameFromId(mcx, uid, false)?
             .expect("noerr=false returns a name")
             .as_str()
@@ -628,7 +638,10 @@ mod tests {
         let sql = "CREATE TABLE t (a int);\nCREATE FUNCTIN f() RETURNS int LANGUAGE SQL\nAS $$ SELECT 1 $$;\n";
         let (mut location, mut len) = (24, (sql.len() - 24) as i32);
         let (b, e) = clean_querytext(sql, &mut location, &mut len);
-        assert_eq!(&sql[b..e], "CREATE FUNCTIN f() RETURNS int LANGUAGE SQL\nAS $$ SELECT 1 $$;");
+        assert_eq!(
+            &sql[b..e],
+            "CREATE FUNCTIN f() RETURNS int LANGUAGE SQL\nAS $$ SELECT 1 $$;"
+        );
         assert_eq!((location, len), (24, (e - b) as i32));
 
         // Whitespace on both ends still goes; len <= 0 means rest-of-string.
@@ -637,7 +650,6 @@ mod tests {
         assert_eq!(&"  select 1 \n"[b..e], "select 1");
         assert_eq!((location, len), (2, 8));
     }
-
 
     fn script_file(name: &str, bytes: &[u8]) -> String {
         let path = std::env::temp_dir().join(format!("pgrust-ext-{}-{name}", std::process::id()));

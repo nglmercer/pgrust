@@ -51,7 +51,11 @@ fn seed(entries: &[RiConstraintInfo]) {
 
 fn cached() -> Vec<Oid> {
     let mut v = RI_CONSTRAINT_CACHE
-        .with(|c| c.borrow().as_ref().map(|m| m.keys().copied().collect::<Vec<_>>()))
+        .with(|c| {
+            c.borrow()
+                .as_ref()
+                .map(|m| m.keys().copied().collect::<Vec<_>>())
+        })
         .unwrap_or_default();
     v.sort_unstable();
     v
@@ -73,7 +77,10 @@ fn inval_drops_only_the_matching_entry() {
 // traffic must not behave like a blanket flush.
 #[test]
 fn inval_of_unrelated_constraint_keeps_entries() {
-    seed(&[stub_info(100, 100, 0xAAAA, 0xAAAA), stub_info(200, 200, 0xBBBB, 0xBBBB)]);
+    seed(&[
+        stub_info(100, 100, 0xAAAA, 0xAAAA),
+        stub_info(200, 200, 0xBBBB, 0xBBBB),
+    ]);
     InvalidateConstraintCacheCallBack(Datum::null(), cache_syscache::CONSTROID, 0xDEAD);
     assert_eq!(cached(), vec![100, 200]);
 }
@@ -83,10 +90,10 @@ fn inval_of_unrelated_constraint_keeps_entries() {
 #[test]
 fn inval_of_root_drops_inherited_children() {
     seed(&[
-        stub_info(10, 10, 0x1111, 0x1111),      // the root itself
-        stub_info(11, 10, 0x2222, 0x1111),      // child of the root
-        stub_info(12, 10, 0x3333, 0x1111),      // child of the root
-        stub_info(20, 20, 0x4444, 0x4444),      // unrelated
+        stub_info(10, 10, 0x1111, 0x1111), // the root itself
+        stub_info(11, 10, 0x2222, 0x1111), // child of the root
+        stub_info(12, 10, 0x3333, 0x1111), // child of the root
+        stub_info(20, 20, 0x4444, 0x4444), // unrelated
     ]);
     InvalidateConstraintCacheCallBack(Datum::null(), cache_syscache::CONSTROID, 0x1111);
     assert_eq!(cached(), vec![20]);
@@ -107,7 +114,10 @@ fn inval_of_child_leaves_root_and_siblings() {
 // hashvalue == 0 is a reset message: everything goes.
 #[test]
 fn reset_message_flushes_everything() {
-    seed(&[stub_info(100, 100, 0xAAAA, 0xAAAA), stub_info(200, 200, 0xBBBB, 0xBBBB)]);
+    seed(&[
+        stub_info(100, 100, 0xAAAA, 0xAAAA),
+        stub_info(200, 200, 0xBBBB, 0xBBBB),
+    ]);
     InvalidateConstraintCacheCallBack(Datum::null(), cache_syscache::CONSTROID, 0);
     assert!(cached().is_empty());
 }
@@ -117,8 +127,9 @@ fn reset_message_flushes_everything() {
 // empties the cache. At exactly 1000 the selective path still applies.
 #[test]
 fn over_a_thousand_entries_degrades_to_a_reset() {
-    let many: Vec<_> =
-        (1..=1000u32).map(|i| stub_info(i, i, 0x10000 + i, 0x10000 + i)).collect();
+    let many: Vec<_> = (1..=1000u32)
+        .map(|i| stub_info(i, i, 0x10000 + i, 0x10000 + i))
+        .collect();
     seed(&many);
     InvalidateConstraintCacheCallBack(Datum::null(), cache_syscache::CONSTROID, 0xDEAD);
     assert_eq!(cached().len(), 1000, "1000 entries: still selective");
@@ -156,8 +167,13 @@ fn no_pg_constraint_entry_is_ereport_42p17() {
 
 #[test]
 fn ri_check_trigger_wrong_timing_is_ereport_39p01() {
-    let e = ri_CheckTrigger("RI_FKey_check_ins", RI_TRIGTYPE_INSERT, 0).err().unwrap();
-    assert_eq!(e.sqlstate(), types_error::ERRCODE_E_R_I_E_TRIGGER_PROTOCOL_VIOLATED);
+    let e = ri_CheckTrigger("RI_FKey_check_ins", RI_TRIGTYPE_INSERT, 0)
+        .err()
+        .unwrap();
+    assert_eq!(
+        e.sqlstate(),
+        types_error::ERRCODE_E_R_I_E_TRIGGER_PROTOCOL_VIOLATED
+    );
     assert_eq!(
         e.message(),
         "function \"RI_FKey_check_ins\" must be fired AFTER ROW"
@@ -166,8 +182,13 @@ fn ri_check_trigger_wrong_timing_is_ereport_39p01() {
 
 #[test]
 fn ri_check_trigger_wrong_event_is_ereport_39p01() {
-    let e = ri_CheckTrigger("RI_FKey_check_ins", RI_TRIGTYPE_INSERT, 0x5).err().unwrap();
-    assert_eq!(e.sqlstate(), types_error::ERRCODE_E_R_I_E_TRIGGER_PROTOCOL_VIOLATED);
+    let e = ri_CheckTrigger("RI_FKey_check_ins", RI_TRIGTYPE_INSERT, 0x5)
+        .err()
+        .unwrap();
+    assert_eq!(
+        e.sqlstate(),
+        types_error::ERRCODE_E_R_I_E_TRIGGER_PROTOCOL_VIOLATED
+    );
     assert_eq!(
         e.message(),
         "function \"RI_FKey_check_ins\" must be fired for INSERT"
@@ -266,7 +287,7 @@ fn datum_image_eq_forged_varlena_length_is_rejected() {
     // real image (and the `avail` bound) is tiny. Without the bound this drove
     // slice::from_raw_parts past the tuple/page; now it is a clean corruption
     // error before any byte is compared.
-    let mut buf =[0u8; 8];
+    let mut buf = [0u8; 8];
     let forged = types_tuple::varatt::set_varsize_4b_word(4096);
     buf[..4].copy_from_slice(&forged.to_ne_bytes());
     let good = mk_varlena(&[0u8; 4]); // total 8, honest header
@@ -283,7 +304,11 @@ fn datum_image_eq_forged_varlena_length_is_rejected() {
 #[test]
 fn ri_cache_lookup_failures_are_catchable_xx000() {
     for (what, oid, expected) in [
-        ("constraint", 16384u32, "cache lookup failed for constraint 16384"),
+        (
+            "constraint",
+            16384u32,
+            "cache lookup failed for constraint 16384",
+        ),
         ("type", 23, "cache lookup failed for type 23"),
         ("namespace", 2200, "cache lookup failed for namespace 2200"),
         ("operator", 96, "cache lookup failed for operator 96"),
@@ -311,7 +336,10 @@ fn fmgr_row_without_trigger_context_is_39p01() {
         assert_eq!(err.sqlstate(), ERRCODE_E_R_I_E_TRIGGER_PROTOCOL_VIOLATED);
         assert_eq!(
             err.message(),
-            format!("function \"{}\" was not called by trigger manager", row.name)
+            format!(
+                "function \"{}\" was not called by trigger manager",
+                row.name
+            )
         );
     }
 }
@@ -330,17 +358,25 @@ fn fmgr_rows_name_their_own_builtin() {
 // event kind (the AFTER STATEMENT / BEFORE ROW firings of finding 1).
 #[test]
 fn check_trigger_reports_timing_before_event_kind() {
-    use types_trigger::{TRIGGER_EVENT_AFTER, TRIGGER_EVENT_BEFORE, TRIGGER_EVENT_INSERT, TRIGGER_EVENT_ROW};
+    use types_trigger::{
+        TRIGGER_EVENT_AFTER, TRIGGER_EVENT_BEFORE, TRIGGER_EVENT_INSERT, TRIGGER_EVENT_ROW,
+    };
     let stmt = TRIGGER_EVENT_INSERT | TRIGGER_EVENT_AFTER;
     let before_row = TRIGGER_EVENT_INSERT | TRIGGER_EVENT_ROW | TRIGGER_EVENT_BEFORE;
     let after_row = TRIGGER_EVENT_INSERT | TRIGGER_EVENT_ROW | TRIGGER_EVENT_AFTER;
     for ev in [stmt, before_row] {
         let err = ri_CheckTrigger("RI_FKey_noaction_del", RI_TRIGTYPE_DELETE, ev).unwrap_err();
         assert_eq!(err.sqlstate(), ERRCODE_E_R_I_E_TRIGGER_PROTOCOL_VIOLATED);
-        assert_eq!(err.message(), "function \"RI_FKey_noaction_del\" must be fired AFTER ROW");
+        assert_eq!(
+            err.message(),
+            "function \"RI_FKey_noaction_del\" must be fired AFTER ROW"
+        );
     }
     let err = ri_CheckTrigger("RI_FKey_noaction_del", RI_TRIGTYPE_DELETE, after_row).unwrap_err();
-    assert_eq!(err.message(), "function \"RI_FKey_noaction_del\" must be fired for DELETE");
+    assert_eq!(
+        err.message(),
+        "function \"RI_FKey_noaction_del\" must be fired for DELETE"
+    );
     assert!(ri_CheckTrigger("RI_FKey_check_ins", RI_TRIGTYPE_INSERT, after_row).is_ok());
 }
 
@@ -352,10 +388,16 @@ fn check_trigger_reports_timing_before_event_kind() {
 fn constraint_cross_checks_are_xx000_errors() {
     let e = not_a_foreign_key(16397);
     assert_eq!(e.sqlstate(), ERRCODE_INTERNAL_ERROR);
-    assert_eq!(e.message(), "constraint 16397 is not a foreign key constraint");
+    assert_eq!(
+        e.message(),
+        "constraint 16397 is not a foreign key constraint"
+    );
     let e = wrong_pg_constraint_entry("rt_t", "rt");
     assert_eq!(e.sqlstate(), ERRCODE_INTERNAL_ERROR);
-    assert_eq!(e.message(), "wrong pg_constraint entry for trigger \"rt_t\" on table \"rt\"");
+    assert_eq!(
+        e.message(),
+        "wrong pg_constraint entry for trigger \"rt_t\" on table \"rt\""
+    );
     let e = unrecognized_confmatchtype(b'x' as i8);
     assert_eq!(e.sqlstate(), ERRCODE_INTERNAL_ERROR);
     assert_eq!(e.message(), format!("unrecognized confmatchtype: {}", b'x'));

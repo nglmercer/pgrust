@@ -10,8 +10,12 @@ use std::sync::atomic::AtomicU8;
 use std::sync::Arc;
 
 use gravity_abi::Lane;
-use gravity_driver::{blank_site, BindingRef, CommandId, Identity, PerTuple, Pins, Snapshot, Source, Window};
-use gravity_hosts::ops::scan::pgrc::granule_source::{GranuleRangeSource, GranuleRecipe, PartIoSpec, PartList, PartSpec, Resolved};
+use gravity_driver::{
+    blank_site, BindingRef, CommandId, Identity, PerTuple, Pins, Snapshot, Source, Window,
+};
+use gravity_hosts::ops::scan::pgrc::granule_source::{
+    GranuleRangeSource, GranuleRecipe, PartIoSpec, PartList, PartSpec, Resolved,
+};
 use gravity_parallel::{ClaimSize, GranuleRange, MorselSource};
 use pgrc_format::dirlayout::part_file_name;
 use pgrc_qa::corpus::{build_fixture, int8_fixture};
@@ -24,7 +28,17 @@ const ROWS: u64 = 60_000;
 static FLAG: AtomicU8 = AtomicU8::new(0);
 
 fn binding_ref(resolved: &Resolved) -> BindingRef<'_> {
-    BindingRef { snapshot: Snapshot(0), command_id: CommandId(0), params: &[], abort_flag: &FLAG, pins: Pins(0), per_tuple: PerTuple(0), identity: Identity::default(), resolved: Some(resolved), ordinal: None }
+    BindingRef {
+        snapshot: Snapshot(0),
+        command_id: CommandId(0),
+        params: &[],
+        abort_flag: &FLAG,
+        pins: Pins(0),
+        per_tuple: PerTuple(0),
+        identity: Identity::default(),
+        resolved: Some(resolved),
+        ordinal: None,
+    }
 }
 
 fn pass(src: &mut GranuleRangeSource, claims: &GranuleRange) -> u64 {
@@ -47,24 +61,74 @@ fn pass(src: &mut GranuleRangeSource, claims: &GranuleRange) -> u64 {
 }
 
 /// Three parts of a 60,000-row int8 fixture opened through `reg` (so its content trim walks them), their list and recipe.
-fn fixture(reg: &Arc<PartRegistry>, rel: u32, name: &'static str, ino0: u64) -> (Vec<Arc<OpenPart>>, Vec<pgrc_read::registry::PartPin>, Arc<PartList>, GranuleRecipe) {
-    let bf = build_fixture(int8_fixture(name, rel as u64, ROWS, vec![], PartCutPolicy { max_rows: 20_000, ..PartCutPolicy::default() }, |i| Some((i as i64 * 31) % 1000)));
+fn fixture(
+    reg: &Arc<PartRegistry>,
+    rel: u32,
+    name: &'static str,
+    ino0: u64,
+) -> (
+    Vec<Arc<OpenPart>>,
+    Vec<pgrc_read::registry::PartPin>,
+    Arc<PartList>,
+    GranuleRecipe,
+) {
+    let bf = build_fixture(int8_fixture(
+        name,
+        rel as u64,
+        ROWS,
+        vec![],
+        PartCutPolicy {
+            max_rows: 20_000,
+            ..PartCutPolicy::default()
+        },
+        |i| Some((i as i64 * 31) % 1000),
+    ));
     let (mut parts, mut pins, mut specs) = (Vec::new(), Vec::new(), Vec::new());
     for (i, rec) in bf.manifest.parts.iter().enumerate() {
-        let bytes = bf.files.get(&part_file_name(rec.part_no)).expect("part file").clone();
+        let bytes = bf
+            .files
+            .get(&part_file_name(rec.part_no))
+            .expect("part file")
+            .clone();
         let ino = ino0 + i as u64;
-        let pin = reg.open_pinned(&PartExpect::none(), || Ok(Box::new(MemPartIo::new(bytes.clone(), 7, ino)) as Box<dyn pgrc_read::io::PartIo>)).expect("open part");
+        let pin = reg
+            .open_pinned(&PartExpect::none(), || {
+                Ok(Box::new(MemPartIo::new(bytes.clone(), 7, ino))
+                    as Box<dyn pgrc_read::io::PartIo>)
+            })
+            .expect("open part");
         let part = Arc::clone(pin.part());
-        specs.push(PartSpec { io: PartIoSpec::Mem { bytes: Arc::from(bytes.as_slice()), dev: 7, ino }, expect: PartExpect::none(), rows: rec.rows, granules: rec.granule_count, deletes: None, part: Some(part.clone()) });
+        specs.push(PartSpec {
+            io: PartIoSpec::Mem {
+                bytes: Arc::from(bytes.as_slice()),
+                dev: 7,
+                ino,
+            },
+            expect: PartExpect::none(),
+            rows: rec.rows,
+            granules: rec.granule_count,
+            deletes: None,
+            part: Some(part.clone()),
+        });
         parts.push(part);
         pins.push(pin);
     }
     assert_eq!(parts.len(), 3, "the fixture cut into three parts");
-    (parts, pins, Arc::new(PartList::new(specs)), GranuleRecipe::for_test(rel, &[1], Arc::clone(reg)))
+    (
+        parts,
+        pins,
+        Arc::new(PartList::new(specs)),
+        GranuleRecipe::for_test(rel, &[1], Arc::clone(reg)),
+    )
 }
 
 /// One statement over the source: bound, read whole, unbound (parked).
-fn statement(src: &mut GranuleRangeSource, recipe: &GranuleRecipe, list: &Arc<PartList>, claims: &GranuleRange) -> u64 {
+fn statement(
+    src: &mut GranuleRangeSource,
+    recipe: &GranuleRecipe,
+    list: &Arc<PartList>,
+    claims: &GranuleRange,
+) -> u64 {
     memledger::statement_begin();
     let resolved = Resolved::for_recipe(recipe, list.clone());
     src.bind(&binding_ref(&resolved)).unwrap();
@@ -97,38 +161,71 @@ fn a_trim_evicts_a_parked_sources_parts_only_through_the_gate_and_a_rebind_reads
 
     assert_eq!(statement(&mut src, &recipe, &list, &claims), ROWS);
     let warm = cached(&parts);
-    assert!(warm > 0 && parts.iter().all(|p| p.users() >= 1 && p.live_users() == 0), "parked: every part used, none live");
+    assert!(
+        warm > 0 && parts.iter().all(|p| p.users() >= 1 && p.live_users() == 0),
+        "parked: every part used, none live"
+    );
 
     // the gate closed: a trim to nothing keeps the parked source's parts (trunk's pin, now the policy's choice)
     pgrc_read::partcache::set_parked_hook(closed);
     reg.trim_contents(0);
     assert_eq!(cached(&parts), warm, "gate closed: the parked parts stay");
-    assert_eq!(statement(&mut src, &recipe, &list, &claims), ROWS, "a hot repeat reads the parked images back");
+    assert_eq!(
+        statement(&mut src, &recipe, &list, &claims),
+        ROWS,
+        "a hot repeat reads the parked images back"
+    );
     assert_eq!(cached(&parts), warm, "and faulted nothing new");
     // D4910 / D4908: what the closed gate keeps reads as the parked holder's bytes
     let u = reg.untrimmable_by_holder();
-    assert!(!u.parked_gate && u.live == 0 && u.deferred == 0, "gate closed, nothing live: {u:?}");
-    assert!(u.parked > 0 && u.parked <= warm, "the parked parts' bytes the trim cannot drop: {u:?} of {warm}");
+    assert!(
+        !u.parked_gate && u.live == 0 && u.deferred == 0,
+        "gate closed, nothing live: {u:?}"
+    );
+    assert!(
+        u.parked > 0 && u.parked <= warm,
+        "the parked parts' bytes the trim cannot drop: {u:?} of {warm}"
+    );
 
     // the gate open: the trim evicts them, and the memory goes: the parked cursors hold no clone of an image (a shared
     // one would stay cached and counted, D3113), and D3823's poison (which fills only an image nothing else references)
     // fills what the trim frees
     pgrc_read::partcache::set_parked_hook(open);
     let u = reg.untrimmable_by_holder();
-    assert!(u.parked_gate && u.parked * 10 <= warm, "gate open: a trim may drop the parked bytes no clone shares: {u:?} of {warm}");
+    assert!(
+        u.parked_gate && u.parked * 10 <= warm,
+        "gate open: a trim may drop the parked bytes no clone shares: {u:?} of {warm}"
+    );
     pgrc_read::partcache::set_park_poison(true);
     let poisoned0 = pgrc_read::partcache::park_poisoned_bytes();
     reg.trim_contents(0);
     let left = cached(&parts);
     let poisoned = pgrc_read::partcache::park_poisoned_bytes() - poisoned0;
-    assert!(left * 10 <= warm, "gate open: the parked parts' images are evicted ({left} of {warm} bytes left)");
-    assert!(poisoned * 2 >= warm - left, "the images freed were the cache's alone: {poisoned} of {} bytes poisoned", warm - left);
-    assert!(parts.iter().all(|p| p.users() >= 1), "the cursors (and their part files) stay kept");
+    assert!(
+        left * 10 <= warm,
+        "gate open: the parked parts' images are evicted ({left} of {warm} bytes left)"
+    );
+    assert!(
+        poisoned * 2 >= warm - left,
+        "the images freed were the cache's alone: {poisoned} of {} bytes poisoned",
+        warm - left
+    );
+    assert!(
+        parts.iter().all(|p| p.users() >= 1),
+        "the cursors (and their part files) stay kept"
+    );
 
     // the next statement faults them again and reads the same rows
     pgrc_read::partcache::set_parked_hook(closed);
-    assert_eq!(statement(&mut src, &recipe, &list, &claims), ROWS, "a rebind after the eviction reads the same rows");
+    assert_eq!(
+        statement(&mut src, &recipe, &list, &claims),
+        ROWS,
+        "a rebind after the eviction reads the same rows"
+    );
     assert!(cached(&parts) > left, "the rebind faulted the images again");
     drop(src.release_rel(0).expect("every relation's kept cursors"));
-    assert!(parts.iter().all(|p| p.users() == 0), "released: no use left");
+    assert!(
+        parts.iter().all(|p| p.users() == 0),
+        "released: no use left"
+    );
 }

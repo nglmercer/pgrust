@@ -39,7 +39,9 @@ fn ledger(p: &Program) -> (Vec<gravity_tpde::RegEvent>, String) {
             let w = u32::from_le_bytes(bytes[i..i + 4].try_into().unwrap());
             let mut s = [0u8; 128];
             let d = tpde_disarm::decode(w);
-            let line = tpde_disarm::da64_format(&d, &mut s).map(|n| String::from_utf8_lossy(&s[..n]).into_owned()).unwrap_or_else(|_| "??".into());
+            let line = tpde_disarm::da64_format(&d, &mut s)
+                .map(|n| String::from_utf8_lossy(&s[..n]).into_owned())
+                .unwrap_or_else(|_| "??".into());
             text.push_str(&format!("{:#06x}: {line}\n", i - off));
             if w == 0xd65f03c0 {
                 break;
@@ -52,7 +54,10 @@ fn ledger(p: &Program) -> (Vec<gravity_tpde::RegEvent>, String) {
 
 #[allow(dead_code)]
 fn count(events: &[gravity_tpde::RegEvent], kind: RegallocEvent, blocks: &[u32]) -> usize {
-    events.iter().filter(|e| e.event == kind && e.block.is_some_and(|b| blocks.contains(&b))).count()
+    events
+        .iter()
+        .filter(|e| e.event == kind && e.block.is_some_and(|b| blocks.contains(&b)))
+        .count()
 }
 
 /// A loop whose body is a diamond; each arm defines the value it passes
@@ -121,12 +126,31 @@ fn feed_phi_anchor_emits_no_move() {
     let (events, text) = ledger(&p);
     eprintln!("{text}");
     let loop_blocks = [1u32, 2, 3, 4, 5];
-    assert_eq!(count(&events, RegallocEvent::Spill, &loop_blocks), 0, "spill in the loop:\n{text}");
-    assert_eq!(count(&events, RegallocEvent::Reload, &loop_blocks), 0, "reload in the loop:\n{text}");
-    assert_eq!(count(&events, RegallocEvent::PhiStore, &loop_blocks), 0, "stack phi in the loop:\n{text}");
+    assert_eq!(
+        count(&events, RegallocEvent::Spill, &loop_blocks),
+        0,
+        "spill in the loop:\n{text}"
+    );
+    assert_eq!(
+        count(&events, RegallocEvent::Reload, &loop_blocks),
+        0,
+        "reload in the loop:\n{text}"
+    );
+    assert_eq!(
+        count(&events, RegallocEvent::PhiStore, &loop_blocks),
+        0,
+        "stack phi in the loop:\n{text}"
+    );
     // Arm 3 (`arm_odd`) is the anchor: no move. Arm 4 moves `y` into `p`.
-    assert_eq!(count(&events, RegallocEvent::PhiMove, &[3]), 0, "the anchor arm moves:\n{text}");
-    assert!(count(&events, RegallocEvent::PhiMove, &[4]) <= 1, "the second arm moves more than `p`:\n{text}");
+    assert_eq!(
+        count(&events, RegallocEvent::PhiMove, &[3]),
+        0,
+        "the anchor arm moves:\n{text}"
+    );
+    assert!(
+        count(&events, RegallocEvent::PhiMove, &[4]) <= 1,
+        "the second arm moves more than `p`:\n{text}"
+    );
 }
 
 /// Values computed before a diamond and read after its join, without
@@ -170,8 +194,16 @@ fn values_live_across_join() {
     {
         let (events, text) = ledger(&p);
         eprintln!("{text}");
-        assert_eq!(count(&events, RegallocEvent::Spill, &[0, 1, 2, 3]), 0, "a value live across the join spilled:\n{text}");
-        assert_eq!(count(&events, RegallocEvent::Reload, &[0, 1, 2, 3]), 0, "a value live across the join reloaded:\n{text}");
+        assert_eq!(
+            count(&events, RegallocEvent::Spill, &[0, 1, 2, 3]),
+            0,
+            "a value live across the join spilled:\n{text}"
+        );
+        assert_eq!(
+            count(&events, RegallocEvent::Reload, &[0, 1, 2, 3]),
+            0,
+            "a value live across the join reloaded:\n{text}"
+        );
     }
 }
 
@@ -218,9 +250,18 @@ fn immediate_folds() {
         eprintln!("{text}");
         // No constant is materialized: no `movz`; the load has the
         // folded offset; the identity ops are gone.
-        assert!(!text.contains("movz"), "a folded constant was materialized:\n{text}");
-        assert!(text.contains("[x1, #0x10]") || text.contains("[x1, #16]"), "the load did not take the folded offset:\n{text}");
+        assert!(
+            !text.contains("movz"),
+            "a folded constant was materialized:\n{text}"
+        );
+        assert!(
+            text.contains("[x1, #0x10]") || text.contains("[x1, #16]"),
+            "the load did not take the folded offset:\n{text}"
+        );
         let body = text.lines().filter(|l| l.starts_with("0x")).count();
-        assert!(body <= 9, "more instructions than the folds allow ({body}):\n{text}");
+        assert!(
+            body <= 9,
+            "more instructions than the folds allow ({body}):\n{text}"
+        );
     }
 }

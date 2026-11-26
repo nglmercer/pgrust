@@ -38,7 +38,10 @@ crate::strategies! {
     EXPR_MONOTONE = 74, "expr.monotone", ExprOrder;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(EXPR_MONOTONE, &())], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(EXPR_MONOTONE, &())],
+    ..crate::ops::NONE
+};
 
 /// The longest chain `f1(f2(..fn(x)..))` PL-20 reads (a composition of monotone steps is monotone: its direction the
 /// product of theirs, and each raising step raises on a tail of its input, which a monotone inner maps from a tail of x,
@@ -106,7 +109,9 @@ fn step<'p>(e: Node<'p>) -> Option<(Step<'p>, Node<'p>)> {
     }
     for (i, v) in fargs.iter().enumerate() {
         match v.as_const() {
-            Some(c) if !c.constisnull && c.constbyval && matches!(c.constlen, 2 | 4 | 8) => consts[i] = Some(v),
+            Some(c) if !c.constisnull && c.constbyval && matches!(c.constlen, 2 | 4 | 8) => {
+                consts[i] = Some(v)
+            }
             Some(_) => return None,
             None if x.is_none() => x = Some((i, v)),
             None => return None,
@@ -115,7 +120,17 @@ fn step<'p>(e: Node<'p>) -> Option<(Step<'p>, Node<'p>)> {
     let (pos, inner) = x?;
     let fact = monotone(fnoid, pos)?;
     let tier_a = gravity_fn::row_of(fnoid).is_some_and(|row| row.tier == gravity_fn::Tier::A);
-    tier_a.then_some((Step { fnoid, pos, consts, nargs: fargs.len(), fact, ty }, inner))
+    tier_a.then_some((
+        Step {
+            fnoid,
+            pos,
+            consts,
+            nargs: fargs.len(),
+            fact,
+            ty,
+        },
+        inner,
+    ))
 }
 
 /// `a` is an integer MIN / MAX whose one argument is a chain of up to `DEPTH` monotone steps (`step`) over a bare
@@ -130,7 +145,10 @@ pub(crate) fn arg<'p>(a: &AggDecl<'p>, mcx: Mcx<'_>) -> Option<Mono<'p>> {
     let mut outer: PgVec<'_, Step<'p>> = mcx::reserved_in(DEPTH, mcx);
     let mut cur = e;
     let col = loop {
-        if let Some(c) = (!outer.is_empty()).then(|| crate::step::project::bare_var(cur)).flatten() {
+        if let Some(c) = (!outer.is_empty())
+            .then(|| crate::step::project::bare_var(cur))
+            .flatten()
+        {
             break c;
         }
         let (s, inner) = step(cur).filter(|_| outer.len() < DEPTH)?;
@@ -142,13 +160,24 @@ pub(crate) fn arg<'p>(a: &AggDecl<'p>, mcx: Mcx<'_>) -> Option<Mono<'p>> {
         *slot = Some(*s);
     }
     let increasing = outer.iter().filter(|s| !s.fact.increasing).count() % 2 == 0;
-    let fact = Monotone { increasing, affine: outer.iter().all(|s| s.fact.affine), raises: outer.iter().any(|s| s.fact.raises) };
+    let fact = Monotone {
+        increasing,
+        affine: outer.iter().all(|s| s.fact.affine),
+        raises: outer.iter().any(|s| s.fact.raises),
+    };
     let mut raising = outer.iter().filter(|s| s.fact.raises).map(|s| s.ty);
     let raise_ty = raising.next();
     if raising.any(|t| Some(t) != raise_ty) {
         return None;
     }
-    Some(Mono { expr: e, steps, fact, col, ty: r.aggtype, raise_ty })
+    Some(Mono {
+        expr: e,
+        steps,
+        fact,
+        col,
+        ty: r.aggtype,
+        raise_ty,
+    })
 }
 
 /// `a`'s `Mono` with each constant's word placed ahead of the argument's per-row compile (plain.rs, before `args_of`),
@@ -163,14 +192,26 @@ pub(crate) fn bind<'p>(px: &mut Px<'_, 'p>, a: &AggDecl<'p>) -> Option<Bound> {
         let mut words = [(0u16, 0i32); 2];
         for (w, c) in words.iter_mut().zip(s.consts.iter()) {
             if let Some(c) = *c {
-                let Place::Word(k) = px.root_const(m.expr, c)? else { return None };
+                let Place::Word(k) = px.root_const(m.expr, c)? else {
+                    return None;
+                };
                 *w = (k, c.as_const()?.constlen);
             }
         }
         // the bound form keeps no plan node: the constants are its words
-        *slot = Some(Link { fnoid: s.fnoid, pos: s.pos, nargs: s.nargs, fact: s.fact, ty: s.ty, words });
+        *slot = Some(Link {
+            fnoid: s.fnoid,
+            pos: s.pos,
+            nargs: s.nargs,
+            fact: s.fact,
+            ty: s.ty,
+            words,
+        });
     }
-    Some(Bound { steps, fact: m.fact })
+    Some(Bound {
+        steps,
+        fact: m.fact,
+    })
 }
 
 /// Constant word `k` of length `len` this execution, sign-extended.
@@ -178,7 +219,11 @@ fn word(b: &mut FunctionBuilder<'_>, env: &Env, (k, len): (u16, i32)) -> Value {
     let off = 8 * k as i32;
     match len {
         2 | 4 => {
-            let v = b.load(if len == 2 { Type::I16 } else { Type::I32 }, env.params, off);
+            let v = b.load(
+                if len == 2 { Type::I16 } else { Type::I32 },
+                env.params,
+                off,
+            );
             b.conv(ConvOp::Sext, Type::I64, v)
         }
         _ => b.load(Type::I64, env.params, off),
@@ -187,11 +232,21 @@ fn word(b: &mut FunctionBuilder<'_>, env: &Env, (k, len): (u16, i32)) -> Value {
 
 /// An answered window's carry words `w` of `MIN` (`min`) or `MAX(f(x, c))` from x's answer record `rec`: the folded word
 /// (the identity when no row qualifies) and `nonnull`.
-pub(crate) fn answer(b: &mut FunctionBuilder<'_>, env: &mut Env, m: &Bound, min: bool, rec: Value, w: &mut [Value]) {
+pub(crate) fn answer(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    m: &Bound,
+    min: bool,
+    rec: Value,
+    w: &mut [Value],
+) {
     fires::fire("answer.mono"); // shapecheck fire signal (REGISTRY PL-20)
     let nonnull = b.load(Type::I64, rec, answer::NONNULL as i32);
     let any = b.icmp(IntCond::Ne, nonnull, env.zero);
-    let (lo, hi) = (b.load(Type::I64, rec, answer::MIN as i32), b.load(Type::I64, rec, answer::MAX as i32));
+    let (lo, hi) = (
+        b.load(Type::I64, rec, answer::MIN as i32),
+        b.load(Type::I64, rec, answer::MAX as i32),
+    );
     let v = fold(b, env, m, min, lo, hi, any);
     let id = b.iconst(Type::I64, if min { i64::MAX } else { i64::MIN });
     w[0] = b.select(any, v, id);
@@ -202,17 +257,37 @@ pub(crate) fn answer(b: &mut FunctionBuilder<'_>, env: &mut Env, m: &Bound, min:
 /// The window's `MIN` (`min`) or `MAX` word of the chain from x's record extremes `lo` / `hi` when `any` row qualifies:
 /// the chain at both, raising (the function's raise block) iff any step raises at either; its value at lo or hi by the
 /// chain's direction.
-fn fold(b: &mut FunctionBuilder<'_>, env: &mut Env, m: &Bound, min: bool, lo: Value, hi: Value, any: Value) -> Value {
+fn fold(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    m: &Bound,
+    min: bool,
+    lo: Value,
+    hi: Value,
+    any: Value,
+) -> Value {
     let mut err = env.zero;
     let mut at = |b: &mut FunctionBuilder<'_>, env: &mut Env, mut x: Value| {
         for s in m.steps.iter().flatten() {
             let mut v = [env.zero; 2];
-            for (i, c) in v.iter_mut().enumerate().take(s.nargs).filter(|(i, _)| *i != s.pos) {
+            for (i, c) in v
+                .iter_mut()
+                .enumerate()
+                .take(s.nargs)
+                .filter(|(i, _)| *i != s.pos)
+            {
                 *c = word(b, env, s.words[i]);
             }
             v[s.pos] = x;
-            let Some(o) = gravity_expr::emit::prim::emit(b, s.fnoid, &v[..s.nargs]).or_else(|| cast(b, s, x)) else {
-                crate::refuse!(env.node, crate::admit::refusal::Reason::Bug { payload: "a monotone f without its tier-A form" })
+            let Some(o) =
+                gravity_expr::emit::prim::emit(b, s.fnoid, &v[..s.nargs]).or_else(|| cast(b, s, x))
+            else {
+                crate::refuse!(
+                    env.node,
+                    crate::admit::refusal::Reason::Bug {
+                        payload: "a monotone f without its tier-A form"
+                    }
+                )
             };
             err = b.int_bin(IntBinOp::Or, err, o.err);
             x = o.value;
@@ -226,7 +301,11 @@ fn fold(b: &mut FunctionBuilder<'_>, env: &mut Env, m: &Bound, min: bool, lo: Va
     let l_ok = b.create_block(&[]);
     b.cond_br(raised, (env.l_raise, &[err]), (l_ok, &[]));
     b.switch_to(l_ok);
-    if min == m.fact.increasing { flo } else { fhi }
+    if min == m.fact.increasing {
+        flo
+    } else {
+        fhi
+    }
 }
 
 /// A one-argument increasing row the tier-A forms do not name is an integer cast (int48, int84): one that never raises
@@ -237,7 +316,10 @@ fn cast(b: &mut FunctionBuilder<'_>, m: &Link, x: Value) -> Option<Out> {
     }
     let zero = b.iconst(Type::I64, 0);
     if !m.fact.raises {
-        return Some(Out { value: x, err: zero });
+        return Some(Out {
+            value: x,
+            err: zero,
+        });
     }
     let (ty, code) = match int_width(m.ty)? {
         2 => (Type::I16, raise::INT2_RANGE),
@@ -248,7 +330,10 @@ fn cast(b: &mut FunctionBuilder<'_>, m: &Link, x: Value) -> Option<Out> {
     let back = b.conv(ConvOp::Sext, Type::I64, t);
     let bad = b.icmp(IntCond::Ne, back, x);
     let code = b.iconst(Type::I64, raise::bit(code) as i64);
-    Some(Out { value: x, err: b.select(bad, code, zero) })
+    Some(Out {
+        value: x,
+        err: b.select(bad, code, zero),
+    })
 }
 
 #[cfg(test)]
@@ -274,23 +359,49 @@ mod tests {
         let arena = Arena::new(1 << 16);
         let a = arena.handle();
         let mut g = PipelineGraph::new(a);
-        g.pipelines.push(PipelineNode::new(a, 7, Source::Const, Pipeline::serial(-1, End::Sink, gravity_program::Reason::NoDrivingSite)));
-        let gx = Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
+        g.pipelines.push(PipelineNode::new(
+            a,
+            7,
+            Source::Const,
+            Pipeline::serial(-1, End::Sink, gravity_program::Reason::NoDrivingSite),
+        ));
+        let gx = Gx {
+            graph: &g,
+            facts: &NoFacts,
+            catalog: &gravity_expr::PgCatalog,
+            over: None,
+            mcx: rig.mcx(),
+        };
         let mut plan = Sequential::new(a);
         let mut px = Px::new(a, &gx, &mut plan);
-        let root: Node<'_> = Node::mk_const(cx.mcx(), 23, -1, 0, 4, Datum::from_i64(7), false, true).expect("a root node");
-        let one: Node<'_> = Node::mk_const(cx.mcx(), 23, -1, 0, 4, Datum::from_i64(1), false, true).expect("a const node");
-        let compiled = |_px: &mut Px<'_, '_>| -> Place { panic!("the compile placed a second word") };
+        let root: Node<'_> =
+            Node::mk_const(cx.mcx(), 23, -1, 0, 4, Datum::from_i64(7), false, true)
+                .expect("a root node");
+        let one: Node<'_> = Node::mk_const(cx.mcx(), 23, -1, 0, 4, Datum::from_i64(1), false, true)
+            .expect("a const node");
+        let compiled =
+            |_px: &mut Px<'_, '_>| -> Place { panic!("the compile placed a second word") };
         let w = px.root_const(root, one);
         assert!(matches!(w, Some(Place::Word(_))), "{w:?}");
         let n = px.plan.nwords();
         for arm in 0..3 {
             if arm > 0 {
-                assert_eq!(px.root_const(root, one), w, "arm {arm}'s bind reads the occurrence's word");
+                assert_eq!(
+                    px.root_const(root, one),
+                    w,
+                    "arm {arm}'s bind reads the occurrence's word"
+                );
             }
-            assert_eq!(Some(px.lit_word(root, one, u32::MAX, compiled)), w, "arm {arm}'s compile reads the same word");
+            assert_eq!(
+                Some(px.lit_word(root, one, u32::MAX, compiled)),
+                w,
+                "arm {arm}'s compile reads the same word"
+            );
         }
         assert_eq!(px.plan.nwords(), n, "one word for the occurrence");
-        assert!(crate::catch(0, || drop(px.take_exs())).is_ok(), "no claim left behind");
+        assert!(
+            crate::catch(0, || drop(px.take_exs())).is_ok(),
+            "no claim left behind"
+        );
     }
 }

@@ -57,14 +57,21 @@ pub fn sub_f64(a: f64, b: f64) -> (f64, bool) {
 #[inline(always)]
 pub fn mul_f64(a: f64, b: f64) -> (f64, bool) {
     let r = a * b;
-    (r, (r.is_infinite() & !a.is_infinite() & !b.is_infinite()) | (r == 0.0 && a != 0.0 && b != 0.0))
+    (
+        r,
+        (r.is_infinite() & !a.is_infinite() & !b.is_infinite())
+            | (r == 0.0 && a != 0.0 && b != 0.0),
+    )
 }
 
 #[inline(always)]
 pub fn div_f64(a: f64, b: f64) -> (f64, bool) {
     let zero = b == 0.0 && !a.is_nan();
     let r = a / if zero { 1.0 } else { b };
-    (r, zero | (r.is_infinite() & !a.is_infinite()) | (r == 0.0 && a != 0.0 && !b.is_infinite()))
+    (
+        r,
+        zero | (r.is_infinite() & !a.is_infinite()) | (r == 0.0 && a != 0.0 && !b.is_infinite()),
+    )
 }
 
 #[inline(always)]
@@ -76,14 +83,21 @@ pub fn add_f32(a: f32, b: f32) -> (f32, bool) {
 #[inline(always)]
 pub fn mul_f32(a: f32, b: f32) -> (f32, bool) {
     let r = a * b;
-    (r, (r.is_infinite() & !a.is_infinite() & !b.is_infinite()) | (r == 0.0 && a != 0.0 && b != 0.0))
+    (
+        r,
+        (r.is_infinite() & !a.is_infinite() & !b.is_infinite())
+            | (r == 0.0 && a != 0.0 && b != 0.0),
+    )
 }
 
 #[inline(always)]
 pub fn div_f32(a: f32, b: f32) -> (f32, bool) {
     let zero = b == 0.0 && !a.is_nan();
     let r = a / if zero { 1.0 } else { b };
-    (r, zero | (r.is_infinite() & !a.is_infinite()) | (r == 0.0 && a != 0.0 && !b.is_infinite()))
+    (
+        r,
+        zero | (r.is_infinite() & !a.is_infinite()) | (r == 0.0 && a != 0.0 && !b.is_infinite()),
+    )
 }
 
 #[inline(always)]

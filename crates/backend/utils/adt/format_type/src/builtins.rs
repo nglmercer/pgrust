@@ -2,9 +2,7 @@ use datum::Datum;
 use types_core::Oid;
 use types_error::PgResult;
 use types_fmgr::builtin;
-use types_fmgr::{
-    varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
-};
+use types_fmgr::{varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 
 // C format_type (not strict): NULL type_oid => NULL; NULL typemod => the
 // format_type_be path; always FORMAT_TYPE_ALLOW_INVALID.
@@ -41,9 +39,8 @@ pub fn fc_oidvectortypes(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) ->
     let p = fcinfo.arg(0).as_usize() as *const ::array::oidvector;
     let v = unsafe { &*p };
     ::nbt_compare::check_valid_oidvector(v)?;
-    let values = unsafe {
-        core::slice::from_raw_parts(p.add(1) as *const Oid, v.dim1.max(0) as usize)
-    };
+    let values =
+        unsafe { core::slice::from_raw_parts(p.add(1) as *const Oid, v.dim1.max(0) as usize) };
 
     let mut s = String::new();
     for (num, &typid) in values.iter().enumerate() {

@@ -28,13 +28,24 @@ fn a_filed_front_variant_is_on_the_session_and_leaves_with_it() {
         front::fill(&f, key, &nodes, needs);
         assert_eq!(front::memo_len(), 1, "filed");
         let filed = memledger::charge::owner_row(session).committed;
-        assert!(filed > before, "the session's committed bytes grow by the entry's heap ({before} -> {filed})");
+        assert!(
+            filed > before,
+            "the session's committed bytes grow by the entry's heap ({before} -> {filed})"
+        );
         front::forget(key);
         assert_eq!(front::memo_len(), 0, "forgotten");
-        assert_eq!(memledger::charge::owner_row(session).committed, before, "and the bytes return with the entry");
+        assert_eq!(
+            memledger::charge::owner_row(session).committed,
+            before,
+            "and the bytes return with the entry"
+        );
         front::fill(&f, key, &nodes, needs);
         front::clear();
-        assert_eq!(memledger::charge::owner_row(session).committed, before, "clear returns them too");
+        assert_eq!(
+            memledger::charge::owner_row(session).committed,
+            before,
+            "clear returns them too"
+        );
         memledger::unbind_backend();
     })
     .join()
@@ -43,5 +54,9 @@ fn a_filed_front_variant_is_on_the_session_and_leaves_with_it() {
 
 fn manifest_dir() -> &'static std::path::Path {
     static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| std::env::var_os("CARGO_MANIFEST_DIR").map(Into::into).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)"))
+    DIR.get_or_init(|| {
+        std::env::var_os("CARGO_MANIFEST_DIR")
+            .map(Into::into)
+            .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+    })
 }

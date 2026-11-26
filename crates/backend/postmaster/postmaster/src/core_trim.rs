@@ -104,7 +104,12 @@ pub(crate) fn at_crash(addrs: &[usize]) -> Trimmed {
 fn trim(b: &mut Bufs, page: usize, t: &mut Trimmed) {
     let n = collect_vmas(b);
     // SAFETY: open(2) of a NUL-terminated literal path.
-    let fd = unsafe { libc::open(c"/proc/self/pagemap".as_ptr(), libc::O_RDONLY | libc::O_CLOEXEC) };
+    let fd = unsafe {
+        libc::open(
+            c"/proc/self/pagemap".as_ptr(),
+            libc::O_RDONLY | libc::O_CLOEXEC,
+        )
+    };
     if fd < 0 {
         return;
     }
@@ -123,7 +128,12 @@ fn trim(b: &mut Bufs, page: usize, t: &mut Trimmed) {
 /// before any is trimmed (a trim splits VMAs); returns how many.
 fn collect_vmas(b: &mut Bufs) -> usize {
     // SAFETY: open(2) of a NUL-terminated literal path.
-    let fd = unsafe { libc::open(c"/proc/self/maps".as_ptr(), libc::O_RDONLY | libc::O_CLOEXEC) };
+    let fd = unsafe {
+        libc::open(
+            c"/proc/self/maps".as_ptr(),
+            libc::O_RDONLY | libc::O_CLOEXEC,
+        )
+    };
     if fd < 0 {
         return 0;
     }
@@ -169,7 +179,12 @@ fn candidate(line: &[u8]) -> Option<(usize, usize)> {
     let _dev = f.next()?;
     let inode = f.next()?;
     let name = f.next();
-    if perms.len() != 4 || perms[0] != b'r' || perms[1] != b'w' || perms[2] != b'-' || perms[3] != b'p' {
+    if perms.len() != 4
+        || perms[0] != b'r'
+        || perms[1] != b'w'
+        || perms[2] != b'-'
+        || perms[3] != b'p'
+    {
         return None;
     }
     if inode != b"0" || name.is_some_and(|s| s[0] != b'[') {
@@ -211,7 +226,13 @@ impl RunScan {
 
     /// The entries of the pages from `addr`; `cut(lo, hi)` for each dead run
     /// a live page ends.
-    fn feed(&mut self, entries: &[u64], addr: usize, page: usize, cut: &mut impl FnMut(usize, usize)) {
+    fn feed(
+        &mut self,
+        entries: &[u64],
+        addr: usize,
+        page: usize,
+        cut: &mut impl FnMut(usize, usize),
+    ) {
         for (i, &e) in entries.iter().enumerate() {
             let a = addr + i * page;
             if e & PM_LIVE != 0 {
@@ -245,7 +266,14 @@ fn cut_range(lo: usize, hi: usize, page: usize) -> Option<(usize, usize)> {
 
 /// One VMA's dead runs left out of the core; false on a pagemap read error
 /// (the trim stops).
-fn trim_vma(fd: i32, lo: usize, hi: usize, page: usize, pm: &mut [u64; PM_ENTRIES], t: &mut Trimmed) -> bool {
+fn trim_vma(
+    fd: i32,
+    lo: usize,
+    hi: usize,
+    page: usize,
+    pm: &mut [u64; PM_ENTRIES],
+    t: &mut Trimmed,
+) -> bool {
     let mut scan = RunScan::new();
     let mut cut = |a: usize, b: usize| {
         if let Some((x, y)) = cut_range(a, b, page) {
@@ -265,7 +293,14 @@ fn trim_vma(fd: i32, lo: usize, hi: usize, page: usize, pm: &mut [u64; PM_ENTRIE
         }
         let want = pages * 8;
         // SAFETY: pread(2) of `want` bytes into the static entry buffer.
-        let r = unsafe { libc::pread(fd, pm.as_mut_ptr().cast(), want, ((addr / page) * 8) as libc::off_t) };
+        let r = unsafe {
+            libc::pread(
+                fd,
+                pm.as_mut_ptr().cast(),
+                want,
+                ((addr / page) * 8) as libc::off_t,
+            )
+        };
         if r != want as isize {
             return false;
         }
@@ -330,36 +365,82 @@ mod tests {
         e[611] = present;
         let base = 0x7000_0000;
         let runs = runs_of(&e, base);
-        assert_eq!(runs, vec![(base + P, base + 600 * P), (base + 601 * P, base + 611 * P), (base + 612 * P, base + 1200 * P)]);
+        assert_eq!(
+            runs,
+            vec![
+                (base + P, base + 600 * P),
+                (base + 601 * P, base + 611 * P),
+                (base + 612 * P, base + 1200 * P)
+            ]
+        );
         for &(a, b) in &runs {
             for (i, &x) in e.iter().enumerate() {
                 let p = base + i * P;
                 if x != 0 {
-                    assert!(p < a || p >= b, "a live page at {p:#x} inside the run {a:#x}..{b:#x}");
+                    assert!(
+                        p < a || p >= b,
+                        "a live page at {p:#x} inside the run {a:#x}..{b:#x}"
+                    );
                 }
             }
         }
         // The cut leaves the margins and drops a run under TRIM_MIN_BYTES.
-        assert_eq!(cut_range(runs[0].0, runs[0].1, P), Some((base + P + MARGIN_BYTES, base + 600 * P - MARGIN_BYTES)));
+        assert_eq!(
+            cut_range(runs[0].0, runs[0].1, P),
+            Some((base + P + MARGIN_BYTES, base + 600 * P - MARGIN_BYTES))
+        );
         assert_eq!(cut_range(runs[1].0, runs[1].1, P), None);
-        assert_eq!(cut_range(base, base + TRIM_MIN_BYTES + 2 * MARGIN_BYTES - P, P), None);
-        assert_eq!(cut_range(base, base + TRIM_MIN_BYTES + 2 * MARGIN_BYTES, P), Some((base + MARGIN_BYTES, base + MARGIN_BYTES + TRIM_MIN_BYTES)));
+        assert_eq!(
+            cut_range(base, base + TRIM_MIN_BYTES + 2 * MARGIN_BYTES - P, P),
+            None
+        );
+        assert_eq!(
+            cut_range(base, base + TRIM_MIN_BYTES + 2 * MARGIN_BYTES, P),
+            Some((base + MARGIN_BYTES, base + MARGIN_BYTES + TRIM_MIN_BYTES))
+        );
     }
 
     #[test]
     fn maps_lines_pick_private_writable_anonymous_vmas() {
         let big = |s: &str| candidate(s.as_bytes());
-        assert_eq!(big("7f0000000000-7f0001000000 rw-p 00000000 00:00 0 "), Some((0x7f00_0000_0000, 0x7f00_0100_0000)));
+        assert_eq!(
+            big("7f0000000000-7f0001000000 rw-p 00000000 00:00 0 "),
+            Some((0x7f00_0000_0000, 0x7f00_0100_0000))
+        );
         assert_eq!(big("7f0000000000-7f0001000000 rw-p 00000000 00:00 0                          [anon:mimalloc]"), Some((0x7f00_0000_0000, 0x7f00_0100_0000)));
-        assert_eq!(big("7f0000000000-7f0001000000 rw-p 00000000 00:00 0                          [stack]"), Some((0x7f00_0000_0000, 0x7f00_0100_0000)));
+        assert_eq!(
+            big("7f0000000000-7f0001000000 rw-p 00000000 00:00 0                          [stack]"),
+            Some((0x7f00_0000_0000, 0x7f00_0100_0000))
+        );
         // Too small, executable, shared, read-only, or file-backed: left alone.
-        assert_eq!(big("7f0000000000-7f0000100000 rw-p 00000000 00:00 0 "), None);
-        assert_eq!(big("7f0000000000-7f0001000000 rwxp 00000000 00:00 0 "), None);
-        assert_eq!(big("7f0000000000-7f0001000000 r-xp 00000000 00:00 0 "), None);
-        assert_eq!(big("7f0000000000-7f0001000000 rw-s 00000000 00:01 1234 /dev/zero (deleted)"), None);
-        assert_eq!(big("7f0000000000-7f0001000000 r--p 00000000 00:00 0 "), None);
-        assert_eq!(big("7f0000000000-7f0001000000 rw-p 00001000 103:01 5678 /usr/lib/libc.so.6"), None);
-        assert_eq!(big("7f0000000000-7f0001000000 rw-p 00000000 00:00 0 /memfd:x (deleted)"), None);
+        assert_eq!(
+            big("7f0000000000-7f0000100000 rw-p 00000000 00:00 0 "),
+            None
+        );
+        assert_eq!(
+            big("7f0000000000-7f0001000000 rwxp 00000000 00:00 0 "),
+            None
+        );
+        assert_eq!(
+            big("7f0000000000-7f0001000000 r-xp 00000000 00:00 0 "),
+            None
+        );
+        assert_eq!(
+            big("7f0000000000-7f0001000000 rw-s 00000000 00:01 1234 /dev/zero (deleted)"),
+            None
+        );
+        assert_eq!(
+            big("7f0000000000-7f0001000000 r--p 00000000 00:00 0 "),
+            None
+        );
+        assert_eq!(
+            big("7f0000000000-7f0001000000 rw-p 00001000 103:01 5678 /usr/lib/libc.so.6"),
+            None
+        );
+        assert_eq!(
+            big("7f0000000000-7f0001000000 rw-p 00000000 00:00 0 /memfd:x (deleted)"),
+            None
+        );
         assert_eq!(big("garbage"), None);
     }
 
@@ -374,13 +455,32 @@ mod tests {
         assert_eq!(keep_blocks(base, 0, b, &[base]), 0);
         // SAFETY: a fresh private anonymous mapping, unmapped at the end.
         let m = unsafe {
-            libc::mmap(core::ptr::null_mut(), len, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_PRIVATE | libc::MAP_ANONYMOUS, -1, 0)
+            libc::mmap(
+                core::ptr::null_mut(),
+                len,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
+                -1,
+                0,
+            )
         };
         assert_ne!(m, libc::MAP_FAILED);
         let mb = m as usize;
-        assert_eq!(keep_blocks(mb, len, b, &[mb + len]), 2 * b, "a read just past the end keeps the last two blocks");
-        assert_eq!(keep_blocks(mb, len, b, &[mb + 5 * b + 17]), 3 * b, "a block in the middle keeps itself and both neighbours");
-        assert_eq!(keep_blocks(mb, len, b, &[mb]), 2 * b, "the first block has no lower neighbour");
+        assert_eq!(
+            keep_blocks(mb, len, b, &[mb + len]),
+            2 * b,
+            "a read just past the end keeps the last two blocks"
+        );
+        assert_eq!(
+            keep_blocks(mb, len, b, &[mb + 5 * b + 17]),
+            3 * b,
+            "a block in the middle keeps itself and both neighbours"
+        );
+        assert_eq!(
+            keep_blocks(mb, len, b, &[mb]),
+            2 * b,
+            "the first block has no lower neighbour"
+        );
         // SAFETY: unmapping the mapping made above.
         unsafe { libc::munmap(m, len) };
     }
@@ -395,7 +495,14 @@ mod tests {
         let len = 32 << 20;
         // SAFETY: a fresh private anonymous mapping, unmapped at the end.
         let m = unsafe {
-            libc::mmap(core::ptr::null_mut(), len, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_PRIVATE | libc::MAP_ANONYMOUS, -1, 0)
+            libc::mmap(
+                core::ptr::null_mut(),
+                len,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
+                -1,
+                0,
+            )
         };
         assert_ne!(m, libc::MAP_FAILED);
         // Small pages only, so a touch makes one page live, not a 2 MiB one.
@@ -412,16 +519,32 @@ mod tests {
         // SAFETY: one page of the mapping above.
         unsafe { libc::madvise(paged as *mut libc::c_void, page, 21) };
         // SAFETY: open(2) of a NUL-terminated literal path.
-        let fd = unsafe { libc::open(c"/proc/self/pagemap".as_ptr(), libc::O_RDONLY | libc::O_CLOEXEC) };
+        let fd = unsafe {
+            libc::open(
+                c"/proc/self/pagemap".as_ptr(),
+                libc::O_RDONLY | libc::O_CLOEXEC,
+            )
+        };
         assert!(fd >= 0);
         let mut e = 0u64;
         // SAFETY: an 8-byte pread into a local.
-        let r = unsafe { libc::pread(fd, (&raw mut e).cast(), 8, ((paged / page) * 8) as libc::off_t) };
+        let r = unsafe {
+            libc::pread(
+                fd,
+                (&raw mut e).cast(),
+                8,
+                ((paged / page) * 8) as libc::off_t,
+            )
+        };
         assert_eq!(r, 8);
         // MADV_PAGEOUT is a hint: the page may stay present, go to swap, or
         // (no swap) stay present too. Present or swapped, it is live.
         let live = e & PM_LIVE != 0;
-        eprintln!("paged-out page: present {} swapped {}", e >> 63, (e >> 62) & 1);
+        eprintln!(
+            "paged-out page: present {} swapped {}",
+            e >> 63,
+            (e >> 62) & 1
+        );
         let mut pm = Box::new([0u64; PM_ENTRIES]);
         let mut t = Trimmed::default();
         assert!(trim_vma(fd, lo, lo + len, page, &mut pm, &mut t));
@@ -433,7 +556,8 @@ mod tests {
         for l in smaps.lines() {
             let head = l.split(' ').next().unwrap_or("");
             if let Some((a, b)) = head.split_once('-') {
-                if let (Ok(a), Ok(b)) = (usize::from_str_radix(a, 16), usize::from_str_radix(b, 16)) {
+                if let (Ok(a), Ok(b)) = (usize::from_str_radix(a, 16), usize::from_str_radix(b, 16))
+                {
                     cur = Some((a, b));
                     continue;
                 }
@@ -450,7 +574,10 @@ mod tests {
                 if p == paged && !live {
                     continue; // neither present nor swapped: it reads as zero again
                 }
-                assert!(p + page <= a || p >= b, "kept page {p:#x} inside the left-out range {a:#x}..{b:#x}");
+                assert!(
+                    p + page <= a || p >= b,
+                    "kept page {p:#x} inside the left-out range {a:#x}..{b:#x}"
+                );
             }
         }
         let out: usize = dd.iter().map(|(a, b)| b - a).sum();

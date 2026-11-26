@@ -91,7 +91,8 @@ pub fn native(p: &Program, f: Func, args: &[u64]) -> Vec<u64> {
     // Two float returns: the memory test's `(ptr, f) -> (f, f)` shape.
     if nret == 2 && sig.1[0].is_float() {
         let ctx = MemoryContext::new("gravity-tpde-test");
-        let compiled = gravity_tpde::compile(ctx.mcx(), p).unwrap_or_else(|e| panic!("compile: {e:?}"));
+        let compiled =
+            gravity_tpde::compile(ctx.mcx(), p).unwrap_or_else(|e| panic!("compile: {e:?}"));
         let addr = compiled.entry(f);
         assert_eq!(sig.0.len(), 2);
         return unsafe {
@@ -128,13 +129,17 @@ pub fn native(p: &Program, f: Func, args: &[u64]) -> Vec<u64> {
         };
     }
     let (prog, entry) = if nret >= 2 {
-        assert!(sig.0.iter().all(|t| !t.is_float()), "multi-return functions must take integer-class args");
+        assert!(
+            sig.0.iter().all(|t| !t.is_float()),
+            "multi-return functions must take integer-class args"
+        );
         (p.clone(), f)
     } else {
         with_wrapper(p, f)
     };
     let ctx = MemoryContext::new("gravity-tpde-test");
-    let compiled = gravity_tpde::compile(ctx.mcx(), &prog).unwrap_or_else(|e| panic!("compile: {e:?}"));
+    let compiled =
+        gravity_tpde::compile(ctx.mcx(), &prog).unwrap_or_else(|e| panic!("compile: {e:?}"));
     let addr = compiled.entry(entry);
     assert!(args.len() <= 8, "unsupported arity {}", args.len());
     let mut a = [0u64; 8];
@@ -185,7 +190,12 @@ pub fn both(p: &Program, f: Func, args: &[u64]) -> Result<Vec<u64>, Trap> {
     let interp = Interp::new(p).run(f, args);
     if let Ok(want) = &interp {
         let got = native(p, f, args);
-        assert_eq!(&got, want, "native vs interpreter mismatch for {} args={args:?}", p.func(f).name);
+        assert_eq!(
+            &got,
+            want,
+            "native vs interpreter mismatch for {} args={args:?}",
+            p.func(f).name
+        );
     }
     interp
 }

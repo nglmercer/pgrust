@@ -33,23 +33,56 @@ fn a_draw_inside_the_grant_counts_once_on_the_statements_account() {
     let acct = memledger::current();
     let unbacked = || memledger::account_row(acct).pool_reserved_bytes;
     let drawn = || memledger::kind_bytes(acct, memledger::Kind::Region);
-    let a = POOL.admit(Grant::of(64 * MIB), 1, 1, Duration::from_millis(100)).expect("admitted");
+    let a = POOL
+        .admit(Grant::of(64 * MIB), 1, 1, Duration::from_millis(100))
+        .expect("admitted");
     let claim = a.reserved as i64;
-    assert!(claim >= 32 * M, "a reservation with room for the draws below ({claim} B)");
-    assert_eq!((unbacked(), memledger::pool_reserved(acct)), (claim, claim), "admission: the whole claim is promise");
+    assert!(
+        claim >= 32 * M,
+        "a reservation with room for the draws below ({claim} B)"
+    );
+    assert_eq!(
+        (unbacked(), memledger::pool_reserved(acct)),
+        (claim, claim),
+        "admission: the whole claim is promise"
+    );
     let base = drawn();
     let r = try_region_in(&a, 16 * MIB as usize).expect("a region inside G");
-    assert_eq!(drawn() - base, 16 * M, "the region's pages are on the account");
-    assert_eq!(unbacked() + (drawn() - base), claim, "the room it drew counts once: promise + pages = the claim, no more");
-    assert_eq!(memledger::pool_reserved(acct), claim, "the claim is unchanged");
+    assert_eq!(
+        drawn() - base,
+        16 * M,
+        "the region's pages are on the account"
+    );
+    assert_eq!(
+        unbacked() + (drawn() - base),
+        claim,
+        "the room it drew counts once: promise + pages = the claim, no more"
+    );
+    assert_eq!(
+        memledger::pool_reserved(acct),
+        claim,
+        "the claim is unchanged"
+    );
     let s = try_region_in(&a, 8 * MIB as usize).expect("a second region inside G");
-    assert_eq!(unbacked() + (drawn() - base), claim, "two draws: still the claim");
+    assert_eq!(
+        unbacked() + (drawn() - base),
+        claim,
+        "two draws: still the claim"
+    );
     drop(r);
-    assert_eq!((drawn() - base, unbacked()), (8 * M, claim - 8 * M), "a region given back: its room is promise again");
+    assert_eq!(
+        (drawn() - base, unbacked()),
+        (8 * M, claim - 8 * M),
+        "a region given back: its room is promise again"
+    );
     drop(s);
     assert_eq!(unbacked(), claim);
     drop(a);
-    assert_eq!((unbacked(), memledger::pool_reserved(acct)), (0, 0), "the reservation's drop takes the whole claim off");
+    assert_eq!(
+        (unbacked(), memledger::pool_reserved(acct)),
+        (0, 0),
+        "the reservation's drop takes the whole claim off"
+    );
     memledger::unbind_backend();
     done();
 }

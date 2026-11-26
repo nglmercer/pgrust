@@ -17,13 +17,19 @@ crate::strategies! {
 
 /// The runner's `OrderedSink` protocol (exec/src/v4/m1.rs) is a no-op prepare; the driver's claim-order drain streams the
 /// rows (H05a, R1D b/c).
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(crate::face::strategy::SINK_ORDERED, &())], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(crate::face::strategy::SINK_ORDERED, &())],
+    ..crate::ops::NONE
+};
 
 /// The form pipeline `k`'s sink takes: `Ordered` (declaring the pipeline's `OrderedSink` protocol) when the pipeline ends
 /// in the sink and may run parallel, else `Serial`. A serial pipeline's order is already the claim order.
 pub(crate) fn form(px: &mut Px<'_, '_>, k: usize) -> SinkKind {
     let d = px.gx.pipelines()[k].desc;
-    if !crate::frame::iface::ends_in_sink(px.gx, k) || !matches!(d.parallel, Parallel::Eligible) || !SinkKind::Ordered.on() {
+    if !crate::frame::iface::ends_in_sink(px.gx, k)
+        || !matches!(d.parallel, Parallel::Eligible)
+        || !SinkKind::Ordered.on()
+    {
         return SinkKind::Serial;
     }
     px.declare_proto(Proto::new(ProtoKind::OrderedSink, k as u16));

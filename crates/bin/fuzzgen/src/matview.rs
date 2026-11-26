@@ -159,7 +159,11 @@ fn gen_content(g: &mut Gen) -> Vec<StmtKind> {
     let n = g.matview.fresh();
     let shape = g.weights.pick(
         g.rng,
-        &["matview:content:join", "matview:content:agg", "matview:content:distinct"],
+        &[
+            "matview:content:join",
+            "matview:content:agg",
+            "matview:content:distinct",
+        ],
     );
     g.fire(shape);
     let mv = format!("fz_mvx_{}", n);
@@ -286,7 +290,9 @@ fn gen_scan(g: &mut Gen) -> Vec<StmtKind> {
     )));
     // Unpopulated read → 55000 (scannability gate).
     stmts.push(StmtKind::Raw(format!("SELECT * FROM {} ORDER BY pk;", mv)));
-    let variant = g.weights.pick(g.rng, &["matview:scan:plain", "matview:scan:concurrent"]);
+    let variant = g
+        .weights
+        .pick(g.rng, &["matview:scan:plain", "matview:scan:concurrent"]);
     g.fire(variant);
     if variant == "matview:scan:concurrent" {
         // CONCURRENTLY on a not-yet-populated matview → FEATURE_NOT_SUPPORTED
@@ -352,7 +358,10 @@ fn gen_merge(g: &mut Gen) -> Vec<StmtKind> {
             upd
         )));
         let del = 1 + g.rng.range_i64(0, c - 1);
-        stmts.push(StmtKind::Raw(format!("DELETE FROM {} WHERE pk = {};", b, del)));
+        stmts.push(StmtKind::Raw(format!(
+            "DELETE FROM {} WHERE pk = {};",
+            b, del
+        )));
         stmts.push(StmtKind::Raw(format!(
             "REFRESH MATERIALIZED VIEW CONCURRENTLY {};",
             mv
@@ -467,7 +476,11 @@ fn gen_secview(g: &mut Gen) -> Vec<StmtKind> {
     let (mut stmts, _) = seed_base(g, &b, rows);
     let shape = g.weights.pick(
         g.rng,
-        &["matview:sec:barrier", "matview:sec:invoker", "matview:sec:both"],
+        &[
+            "matview:sec:barrier",
+            "matview:sec:invoker",
+            "matview:sec:both",
+        ],
     );
     g.fire(shape);
     let opts = match shape {
@@ -486,7 +499,10 @@ fn gen_secview(g: &mut Gen) -> Vec<StmtKind> {
     )));
     // The view is a single-relation plain projection (auto-updatable even with
     // security_barrier); a write through it, then the base is compared.
-    if g.weights.pick(g.rng, &["matview:sec:write", "matview:sec:read"]) == "matview:sec:write" {
+    if g.weights
+        .pick(g.rng, &["matview:sec:write", "matview:sec:read"])
+        == "matview:sec:write"
+    {
         g.fire("matview:sec:write");
         stmts.push(StmtKind::Raw(format!(
             "UPDATE {} SET val = {} WHERE pk = 1;",
@@ -549,7 +565,9 @@ fn gen_recursive(g: &mut Gen) -> Vec<StmtKind> {
     let n = g.matview.fresh();
     let v = format!("fz_mvxv_{}", n);
     let bound = 4 + g.rng.range_i64(0, 8);
-    let shape = g.weights.pick(g.rng, &["matview:rec:count", "matview:rec:pair"]);
+    let shape = g
+        .weights
+        .pick(g.rng, &["matview:rec:count", "matview:rec:pair"]);
     g.fire(shape);
     let (create, read) = if shape == "matview:rec:pair" {
         (
@@ -619,7 +637,8 @@ mod tests {
                     sql.matches(')').count(),
                     "unbalanced parens: {sql}"
                 );
-                if sql.starts_with("CREATE ") || sql.starts_with("SELECT ") && sql.contains(" INTO ")
+                if sql.starts_with("CREATE ")
+                    || sql.starts_with("SELECT ") && sql.contains(" INTO ")
                 {
                     created = true;
                 }

@@ -24,10 +24,7 @@ pub fn fc_md5_bytea(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRe
 }
 
 // bytea shares text's varlena image; only the type OID differs.
-fn sha_common(
-    fcinfo: &mut Fcinfo,
-    d: &[u8],
-) -> PgResult<Datum> {
+fn sha_common(fcinfo: &mut Fcinfo, d: &[u8]) -> PgResult<Datum> {
     let mcx = fcinfo.result_mcx();
     Ok(varlena_result(varlena::cstring_to_text(mcx, d)?))
 }
@@ -64,7 +61,9 @@ pub fn fc_sha512_bytea(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> P
 pub fn fc_crc32_bytea(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     // SAFETY: catalog arg 0 is a non-null bytea varlena; strict fn.
     let input = unsafe { fcinfo.arg_varlena_packed(0)? };
-    Ok(Datum::from_i64(crc32c::traditional_crc32(input.data()) as i64))
+    Ok(Datum::from_i64(
+        crc32c::traditional_crc32(input.data()) as i64
+    ))
 }
 
 pub fn fc_crc32c_bytea(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -75,7 +74,14 @@ pub fn fc_crc32c_bytea(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> P
 }
 
 const fn b(foid: Oid, name: &'static str, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs: 1, strict: true, retset: false, func }
+    FmgrBuiltin {
+        foid,
+        name,
+        nargs: 1,
+        strict: true,
+        retset: false,
+        func,
+    }
 }
 
 pub const CRYPTOHASH_BUILTINS: &[FmgrBuiltin] = &[

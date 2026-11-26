@@ -155,7 +155,9 @@ pub fn pgaio_io_release_resowner(index: u32, on_error: bool) -> PgResult<()> {
         PGAIO_HS_IDLE => {
             // aio.c:296 elog(ERROR, "unexpected"): catchable XX000, not a
             // thread panic.
-            ereport(ERROR).errmsg_internal("unexpected").finish(loc("pgaio_io_release_resowner"))?;
+            ereport(ERROR)
+                .errmsg_internal("unexpected")
+                .finish(loc("pgaio_io_release_resowner"))?;
         }
         PGAIO_HS_HANDED_OUT => {
             // SAFETY: owner-thread slot access.
@@ -175,8 +177,7 @@ pub fn pgaio_io_release_resowner(index: u32, on_error: bool) -> PgResult<()> {
             }
             pgaio_submit_staged()?;
         }
-        _ => {
-        }
+        _ => {}
     }
 
     // SAFETY: owner thread; reclaim above may have re-entered d, re-borrow.
@@ -313,7 +314,9 @@ pub(crate) fn pgaio_io_needs_synchronous_execution(index: u32) -> bool {
     }
     match crate::pgaio_method_kind() {
         IoMethodKind::Sync => true,
-        IoMethodKind::Worker => crate::method_worker::pgaio_worker_needs_synchronous_execution(index),
+        IoMethodKind::Worker => {
+            crate::method_worker::pgaio_worker_needs_synchronous_execution(index)
+        }
     }
 }
 
@@ -378,7 +381,11 @@ fn pgaio_io_wait(index: u32, ref_generation: u64) -> PgResult<()> {
         )
     {
         // C: elog(PANIC, ...).
-        panic!("waiting for own IO {} in wrong state: {}", index, state_name(state));
+        panic!(
+            "waiting for own IO {} in wrong state: {}",
+            index,
+            state_name(state)
+        );
     }
 
     loop {
@@ -487,7 +494,10 @@ fn pgaio_io_reclaim(index: u32) {
     d.num_callbacks = 0;
     d.handle_data_len = 0;
     d.report_return = std::ptr::null_mut();
-    d.distilled_result = PgAioResult { status: PgAioResultStatus::Unknown, ..Default::default() };
+    d.distilled_result = PgAioResult {
+        status: PgAioResultStatus::Unknown,
+        ..Default::default()
+    };
     h.flags.store(0, Ordering::Relaxed);
     h.result.store(0, Ordering::Relaxed);
 
@@ -513,9 +523,7 @@ fn pgaio_io_wait_for_free() -> PgResult<()> {
     });
 
     // SAFETY: owner-thread slot access (copied out, no reference held).
-    let io_handle_off = {
-        crate::backend_slot(my_backend_procno()).io_handle_off
-    };
+    let io_handle_off = { crate::backend_slot(my_backend_procno()).io_handle_off };
     // The scan bound must come from the immutable boot-time table geometry, NOT
     // the live io_max_concurrency GUC: in this thread-per-backend server the GUC
     // backing is a process-global that child-launch republication can restamp to
@@ -550,7 +558,12 @@ fn pgaio_io_wait_for_free() -> PgResult<()> {
     // SAFETY: as above.
     let (in_flight_head, in_flight_count, num_staged, idle_count) = unsafe {
         let mb = my_backend();
-        (mb.in_flight_ios.head, mb.in_flight_ios.count, mb.num_staged_ios, mb.idle_ios.count)
+        (
+            mb.in_flight_ios.head,
+            mb.in_flight_ios.count,
+            mb.num_staged_ios,
+            mb.idle_ios.count,
+        )
     };
 
     if in_flight_count == 0 {
@@ -569,7 +582,10 @@ fn pgaio_io_wait_for_free() -> PgResult<()> {
         let generation = h.generation.load(Ordering::Relaxed);
 
         match h.state() {
-            PGAIO_HS_IDLE | PGAIO_HS_DEFINED | PGAIO_HS_HANDED_OUT | PGAIO_HS_STAGED
+            PGAIO_HS_IDLE
+            | PGAIO_HS_DEFINED
+            | PGAIO_HS_HANDED_OUT
+            | PGAIO_HS_STAGED
             | PGAIO_HS_COMPLETED_LOCAL => {
                 ereport(ERROR)
                     .errmsg_internal(format!(
@@ -580,9 +596,13 @@ fn pgaio_io_wait_for_free() -> PgResult<()> {
                     .finish(loc("pgaio_io_wait_for_free"))?;
             }
             PGAIO_HS_COMPLETED_IO | PGAIO_HS_SUBMITTED => {
-                aio_debug_io(types_error::DEBUG2, index, 845, "pgaio_io_wait_for_free", || {
-                    format!("waiting for free io with {in_flight_count} in flight")
-                });
+                aio_debug_io(
+                    types_error::DEBUG2,
+                    index,
+                    845,
+                    "pgaio_io_wait_for_free",
+                    || format!("waiting for free io with {in_flight_count} in flight"),
+                );
                 // Racy in general, but we only look at our own backend's IOs
                 pgaio_io_wait(index, generation)?;
             }
@@ -642,9 +662,13 @@ pub(crate) fn aio_debug_io(
 
 // aio.c pgaio_io_update_state.
 pub(crate) fn update_state(index: u32, new_state: u8) {
-    aio_debug_io(types_error::DEBUG5, index, 395, "pgaio_io_update_state", || {
-        format!("updating state to {}", state_name(new_state))
-    });
+    aio_debug_io(
+        types_error::DEBUG5,
+        index,
+        395,
+        "pgaio_io_update_state",
+        || format!("updating state to {}", state_name(new_state)),
+    );
     ioh(index).set_state(new_state);
 }
 
@@ -661,7 +685,6 @@ pub(crate) fn state_name(s: u8) -> &'static str {
         _ => "?",
     }
 }
-
 
 fn pgaio_io_from_wref(iow: &PgAioWaitRef) -> (u32, u64) {
     debug_assert!((iow.aio_index as usize) < handle_count());
@@ -702,7 +725,6 @@ pub fn pgaio_wref_check_done(iow: &PgAioWaitRef) -> bool {
 
     false
 }
-
 
 pub fn pgaio_enter_batchmode() -> PgResult<()> {
     // SAFETY: owner-thread slot access.
@@ -755,9 +777,7 @@ pub fn pgaio_submit_staged() -> PgResult<()> {
         IoMethodKind::Sync => ereport(ERROR)
             .errmsg_internal("IO should have been executed synchronously")
             .finish(loc("pgaio_submit_staged")),
-        IoMethodKind::Worker => {
-            crate::method_worker::pgaio_worker_submit(&staged.0[..staged.1])
-        }
+        IoMethodKind::Worker => crate::method_worker::pgaio_worker_submit(&staged.0[..staged.1]),
     };
     if let Err(e) = submit_result {
         // Hand-built PgErrors (e.g. lwlock's "too many LWLocks taken") never
@@ -774,7 +794,6 @@ pub fn pgaio_submit_staged() -> PgResult<()> {
     });
     Ok(())
 }
-
 
 pub fn pgaio_error_cleanup() {
     if MY_BACKEND.get().is_none() {
@@ -801,7 +820,10 @@ pub fn AtEOXact_Aio(_is_commit: bool) {
     // SAFETY: owner-thread slot access.
     if unsafe { my_backend() }.in_batchmode {
         pgaio_error_cleanup();
-        let _ = elog::elog(WARNING, "open AIO batch at end of (sub-)transaction".to_string());
+        let _ = elog::elog(
+            WARNING,
+            "open AIO batch at end of (sub-)transaction".to_string(),
+        );
     }
     // SAFETY: as above.
     debug_assert!(unsafe { my_backend() }.num_staged_ios == 0);

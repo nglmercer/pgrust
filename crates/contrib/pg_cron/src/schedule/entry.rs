@@ -9,8 +9,9 @@ const MAX_TEMPSTR: usize = 1000;
 /// MAX_COMMAND: get_string's cap for the @word.
 const MAX_COMMAND: usize = 1000;
 
-const MONTH_NAMES: [&str; 12] =
-    ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTH_NAMES: [&str; 12] = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
 const DOW_NAMES: [&str; 8] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 /// misc.c get_char's return alphabet: a byte, the one-shot '\0' at end of
@@ -153,7 +154,14 @@ fn get_number(buf: &mut Buf, low: i32, names: &[&str], mut ch: Ch) -> Option<(i3
 }
 
 /// get_range: number | number "-" number [ "/" number ] | "*" [ "/" number ].
-fn get_range(buf: &mut Buf, bits: &mut u64, low: i32, high: i32, names: &[&str], mut ch: Ch) -> Option<Ch> {
+fn get_range(
+    buf: &mut Buf,
+    bits: &mut u64,
+    low: i32,
+    high: i32,
+    names: &[&str],
+    mut ch: Ch,
+) -> Option<Ch> {
     let (num1, num2);
     if ch == C(b'*') {
         num1 = low;
@@ -209,7 +217,14 @@ fn get_range(buf: &mut Buf, bits: &mut u64, low: i32, high: i32, names: &[&str],
 }
 
 /// get_list: range {"," range}, then skip to and over blanks.
-fn get_list(buf: &mut Buf, bits: &mut u64, low: i32, high: i32, names: &[&str], mut ch: Ch) -> Option<Ch> {
+fn get_list(
+    buf: &mut Buf,
+    bits: &mut u64,
+    low: i32,
+    high: i32,
+    names: &[&str],
+    mut ch: Ch,
+) -> Option<Ch> {
     *bits = 0;
     loop {
         ch = get_range(buf, bits, low, high, names, ch)?;
@@ -233,7 +248,11 @@ pub fn parse_cron_entry(schedule: &str) -> Option<Entry> {
     if schedule.len() >= MAX_FILE_BUFFER_LENGTH {
         return None;
     }
-    let mut buf = Buf { data: schedule.as_bytes(), pointer: 0, unget: Vec::new() };
+    let mut buf = Buf {
+        data: schedule.as_bytes(),
+        pointer: 0,
+        unget: Vec::new(),
+    };
     let mut e = Entry::default();
 
     buf.skip_comments();
@@ -258,7 +277,14 @@ pub fn parse_cron_entry(schedule: &str) -> Option<Entry> {
                 set_element(&mut e.minute, FIRST_MINUTE, LAST_MINUTE, FIRST_MINUTE);
                 set_element(&mut e.hour, FIRST_HOUR, LAST_HOUR, FIRST_HOUR);
                 set_element(&mut e.dom, FIRST_DOM, LAST_DOM, FIRST_DOM);
-                set_range(&mut e.month, FIRST_MONTH, LAST_MONTH, FIRST_MONTH, LAST_MONTH, 1);
+                set_range(
+                    &mut e.month,
+                    FIRST_MONTH,
+                    LAST_MONTH,
+                    FIRST_MONTH,
+                    LAST_MONTH,
+                    1,
+                );
                 set_range(&mut e.dow, FIRST_DOW, LAST_DOW, FIRST_DOW, LAST_DOW, 1);
                 e.flags |= DOW_STAR;
             }
@@ -266,7 +292,14 @@ pub fn parse_cron_entry(schedule: &str) -> Option<Entry> {
                 set_element(&mut e.minute, FIRST_MINUTE, LAST_MINUTE, FIRST_MINUTE);
                 set_element(&mut e.hour, FIRST_HOUR, LAST_HOUR, FIRST_HOUR);
                 set_range(&mut e.dom, FIRST_DOM, LAST_DOM, FIRST_DOM, LAST_DOM, 1);
-                set_range(&mut e.month, FIRST_MONTH, LAST_MONTH, FIRST_MONTH, LAST_MONTH, 1);
+                set_range(
+                    &mut e.month,
+                    FIRST_MONTH,
+                    LAST_MONTH,
+                    FIRST_MONTH,
+                    LAST_MONTH,
+                    1,
+                );
                 set_element(&mut e.dow, FIRST_DOW, LAST_DOW, FIRST_DOW);
                 e.flags |= DOW_STAR;
             }
@@ -274,14 +307,28 @@ pub fn parse_cron_entry(schedule: &str) -> Option<Entry> {
                 set_element(&mut e.minute, FIRST_MINUTE, LAST_MINUTE, FIRST_MINUTE);
                 set_element(&mut e.hour, FIRST_HOUR, LAST_HOUR, FIRST_HOUR);
                 set_range(&mut e.dom, FIRST_DOM, LAST_DOM, FIRST_DOM, LAST_DOM, 1);
-                set_range(&mut e.month, FIRST_MONTH, LAST_MONTH, FIRST_MONTH, LAST_MONTH, 1);
+                set_range(
+                    &mut e.month,
+                    FIRST_MONTH,
+                    LAST_MONTH,
+                    FIRST_MONTH,
+                    LAST_MONTH,
+                    1,
+                );
                 set_range(&mut e.dow, FIRST_DOW, LAST_DOW, FIRST_DOW, LAST_DOW, 1);
             }
             b"hourly" => {
                 set_element(&mut e.minute, FIRST_MINUTE, LAST_MINUTE, FIRST_MINUTE);
                 set_range(&mut e.hour, FIRST_HOUR, LAST_HOUR, FIRST_HOUR, LAST_HOUR, 1);
                 set_range(&mut e.dom, FIRST_DOM, LAST_DOM, FIRST_DOM, LAST_DOM, 1);
-                set_range(&mut e.month, FIRST_MONTH, LAST_MONTH, FIRST_MONTH, LAST_MONTH, 1);
+                set_range(
+                    &mut e.month,
+                    FIRST_MONTH,
+                    LAST_MONTH,
+                    FIRST_MONTH,
+                    LAST_MONTH,
+                    1,
+                );
                 set_range(&mut e.dow, FIRST_DOW, LAST_DOW, FIRST_DOW, LAST_DOW, 1);
                 e.flags |= HR_STAR;
             }
@@ -320,7 +367,14 @@ pub fn parse_cron_entry(schedule: &str) -> Option<Entry> {
         if ch == Eof {
             return None;
         }
-        ch = get_list(&mut buf, &mut e.month, FIRST_MONTH, LAST_MONTH, &MONTH_NAMES, ch)?;
+        ch = get_list(
+            &mut buf,
+            &mut e.month,
+            FIRST_MONTH,
+            LAST_MONTH,
+            &MONTH_NAMES,
+            ch,
+        )?;
         if ch == Eof {
             return None;
         }

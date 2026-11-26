@@ -205,7 +205,10 @@ pub fn sent() {
 
 /// R3: whether a run of pipeline `x` rests on the plan-order re-run (module doc): its stamp is a recheck licence's.
 pub fn rests_on_rerun(x: &Pipeline) -> bool {
-    matches!(x.licence, gravity_program::LicenceStamp::Recheck | gravity_program::LicenceStamp::Rests)
+    matches!(
+        x.licence,
+        gravity_program::LicenceStamp::Recheck | gravity_program::LicenceStamp::Rests
+    )
 }
 
 /// R3: whether a first run of pipeline `x` after its statement sent a row (`sent`) rests on a re-run that can no longer
@@ -221,10 +224,15 @@ pub fn verdict(x: &Pipeline, origin: Origin, opened: &[i32; 4]) -> Verdict {
     } else if x.recheck || x.ahead.is_some() {
         Verdict::Licensed
     } else if let gravity_program::LicenceStamp::Exact { check, .. } = x.licence {
-        Verdict::Exact { failed: check == gravity_program::ProofCheck::Failed }
+        Verdict::Exact {
+            failed: check == gravity_program::ProofCheck::Failed,
+        }
     } else if x.licence == gravity_program::LicenceStamp::Accepted {
         Verdict::Accepted
-    } else if !matches!(x.licence, gravity_program::LicenceStamp::None | gravity_program::LicenceStamp::Rests) {
+    } else if !matches!(
+        x.licence,
+        gravity_program::LicenceStamp::None | gravity_program::LicenceStamp::Rests
+    ) {
         Verdict::Licensed
     } else if x.quiet {
         Verdict::Quiet
@@ -239,7 +247,9 @@ pub fn verdict(x: &Pipeline, origin: Origin, opened: &[i32; 4]) -> Verdict {
 fn judged(x: &Pipeline, origin: Origin, opened: &[i32; 4]) -> bool {
     match origin {
         Origin::Order | Origin::Ahead => true,
-        Origin::BuildWait | Origin::Nested | Origin::Rerun | Origin::Pull => x.pg_regions[0] >= 0 && !opened.contains(&x.pg_regions[0]),
+        Origin::BuildWait | Origin::Nested | Origin::Rerun | Origin::Pull => {
+            x.pg_regions[0] >= 0 && !opened.contains(&x.pg_regions[0])
+        }
         Origin::Recheck => false,
     }
 }
@@ -250,10 +260,17 @@ pub fn first_run(program: &gravity_program::Program, p: usize) {
     if mode() == Mode::Off {
         return;
     }
-    let Some(x) = program.pipelines.get(p) else { return };
+    let Some(x) = program.pipelines.get(p) else {
+        return;
+    };
     let (origin, opened) = ORIGIN.with(Cell::get);
     match verdict(x, origin, &opened) {
-        Verdict::Unlicensed => hit(p, x, (origin, opened), x.held_sort || x.held_at || x.recheck_hold),
+        Verdict::Unlicensed => hit(
+            p,
+            x,
+            (origin, opened),
+            x.held_sort || x.held_at || x.recheck_hold,
+        ),
         Verdict::Exact { failed } => exact(p, x, origin, failed),
         Verdict::Accepted => accepted(p, x, origin),
         _ => {}
@@ -274,7 +291,8 @@ fn late(p: usize, x: &Pipeline, origin: Origin) {
 /// `late`'s report line: an accepted run's words first (the harness counts it apart, as `accepted`'s), then why.
 fn late_line(p: usize, x: &Pipeline, origin: Origin) -> String {
     let node = x.pg_gate;
-    format!("gravity: ahead-trace: accepted: pipeline {p} (plan node id {node}) ran first in {origin:?} after the statement sent a row (Recheck-after-send: an error past the plan-order re-run, {:?}){}", x.licence, Kinds(x)) // alloc: Cold
+    format!("gravity: ahead-trace: accepted: pipeline {p} (plan node id {node}) ran first in {origin:?} after the statement sent a row (Recheck-after-send: an error past the plan-order re-run, {:?}){}", x.licence, Kinds(x))
+    // alloc: Cold
 }
 
 /// D1: an exact run (AHEAD-EXACT): its report line names the proof, the node it cites and whether it was checked at run
@@ -282,7 +300,9 @@ fn late_line(p: usize, x: &Pipeline, origin: Origin) -> String {
 /// (`exact proof failed`).
 #[cold]
 fn exact(p: usize, x: &Pipeline, origin: Origin, failed: bool) {
-    let gravity_program::LicenceStamp::Exact { proof, node, check } = x.licence else { return };
+    let gravity_program::LicenceStamp::Exact { proof, node, check } = x.licence else {
+        return;
+    };
     HITS[if failed { 4 } else { 3 }].fetch_add(1, Ordering::Relaxed);
     let at = x.pg_gate;
     if failed {
@@ -293,7 +313,11 @@ fn exact(p: usize, x: &Pipeline, origin: Origin, failed: bool) {
     } else {
         // a proof nothing checks at run time (FirstFetch's timing: the runner cannot tell a node's first fetch from the
         // run's start) is reported static-only, so no reader takes it as run-time proven
-        let how = if check == gravity_program::ProofCheck::Checked { "checked" } else { "static-only" };
+        let how = if check == gravity_program::ProofCheck::Checked {
+            "checked"
+        } else {
+            "static-only"
+        };
         eprintln!("gravity: ahead-trace: exact {proof:?} (cites node {node}, {how}): pipeline {p} (plan node id {at}) ran first in {origin:?}{}", Kinds(x));
     }
 }
@@ -303,15 +327,31 @@ fn exact(p: usize, x: &Pipeline, origin: Origin, failed: bool) {
 #[cold]
 fn accepted(p: usize, x: &Pipeline, origin: Origin) {
     HITS[6].fetch_add(1, Ordering::Relaxed);
-    eprintln!("gravity: ahead-trace: accepted: pipeline {p} (plan node id {}) ran first in {origin:?}{}", x.pg_gate, Kinds(x));
+    eprintln!(
+        "gravity: ahead-trace: accepted: pipeline {p} (plan node id {}) ran first in {origin:?}{}",
+        x.pg_gate,
+        Kinds(x)
+    );
 }
 
 #[cold]
 fn hit(p: usize, x: &Pipeline, (origin, opened): (Origin, [i32; 4]), held: bool) {
     HITS[usize::from(!held)].fetch_add(1, Ordering::Relaxed);
-    let (how, node, tags) = (if held { " (held error, no HeldError licence)" } else { "" }, x.pg_gate, Kinds(x));
+    let (how, node, tags) = (
+        if held {
+            " (held error, no HeldError licence)"
+        } else {
+            ""
+        },
+        x.pg_gate,
+        Kinds(x),
+    );
     // D4191: a run a demand made names its region and the demand's (the words the harness keys on come first)
-    let at = if matches!(origin, Origin::Order | Origin::Ahead) { String::new() } else { format!(" (region {}, the demand's {})", x.pg_regions[0], opened[0]) }; // alloc: Cold
+    let at = if matches!(origin, Origin::Order | Origin::Ahead) {
+        String::new()
+    } else {
+        format!(" (region {}, the demand's {})", x.pg_regions[0], opened[0])
+    }; // alloc: Cold
     eprintln!("gravity: ahead-trace: Unlicensed{how}: pipeline {p} (plan node id {node}) ran first in {origin:?}{at}, before PostgreSQL 18.6 asks for that node{tags}");
     if mode() == Mode::Abort {
         panic!("gravity: ahead-trace: Unlicensed{how}: pipeline {p} (plan node id {node}) ran first in {origin:?}");
@@ -357,7 +397,11 @@ mod tests {
 
     /// A pipeline whose source (node 3) sits in gate region 5, itself inside region 2.
     fn gated(f: impl FnOnce(&mut Pipeline)) -> Pipeline {
-        let mut x = Pipeline::serial(-1, gravity_program::End::Sink, gravity_program::Reason::NoDrivingSite);
+        let mut x = Pipeline::serial(
+            -1,
+            gravity_program::End::Sink,
+            gravity_program::Reason::NoDrivingSite,
+        );
         x.pg_gate = 3;
         x.pg_regions = [5, 2, -1, -1];
         f(&mut x);
@@ -373,33 +417,87 @@ mod tests {
     fn a_gated_run_in_order_needs_a_licence() {
         assert_eq!(ordered(&gated(|_| ()), Origin::Order), Verdict::Unlicensed);
         assert_eq!(ordered(&gated(|_| ()), Origin::Ahead), Verdict::Unlicensed);
-        assert_eq!(ordered(&gated(|x| x.recheck = true), Origin::Order), Verdict::Licensed);
-        let tag = gravity_program::AheadTag { node: 2, node_type: "Hash" };
-        assert_eq!(ordered(&gated(|x| x.ahead = Some(tag)), Origin::Ahead), Verdict::Licensed);
-        assert_eq!(ordered(&gated(|x| x.quiet = true), Origin::Order), Verdict::Quiet);
-        assert_eq!(ordered(&gated(|x| x.held_sort = true), Origin::Order), Verdict::Unlicensed, "a held error is no licence by itself");
+        assert_eq!(
+            ordered(&gated(|x| x.recheck = true), Origin::Order),
+            Verdict::Licensed
+        );
+        let tag = gravity_program::AheadTag {
+            node: 2,
+            node_type: "Hash",
+        };
+        assert_eq!(
+            ordered(&gated(|x| x.ahead = Some(tag)), Origin::Ahead),
+            Verdict::Licensed
+        );
+        assert_eq!(
+            ordered(&gated(|x| x.quiet = true), Origin::Order),
+            Verdict::Quiet
+        );
+        assert_eq!(
+            ordered(&gated(|x| x.held_sort = true), Origin::Order),
+            Verdict::Unlicensed,
+            "a held error is no licence by itself"
+        );
         let held = |x: &mut Pipeline| {
             x.held_sort = true;
             x.licence = gravity_program::LicenceStamp::Held;
         };
-        assert_eq!(ordered(&gated(held), Origin::Order), Verdict::Licensed, "the held-error licence the lowering held");
-        assert_eq!(ordered(&gated(|x| x.licence = gravity_program::LicenceStamp::Plain), Origin::Ahead), Verdict::Licensed);
+        assert_eq!(
+            ordered(&gated(held), Origin::Order),
+            Verdict::Licensed,
+            "the held-error licence the lowering held"
+        );
+        assert_eq!(
+            ordered(
+                &gated(|x| x.licence = gravity_program::LicenceStamp::Plain),
+                Origin::Ahead
+            ),
+            Verdict::Licensed
+        );
     }
 
     /// D1: an exact licence is its own bucket, never licensed; its failed check is a hit; another licence wins.
     #[test]
     fn an_exact_run_is_counted_apart() {
         use gravity_program::{LicenceStamp, ProofCheck, ProofStamp};
-        let ex = |check: ProofCheck| move |x: &mut Pipeline| x.licence = LicenceStamp::Exact { proof: ProofStamp::FirstFetch, node: 4, check };
-        assert_eq!(ordered(&gated(ex(ProofCheck::Unchecked)), Origin::Order), Verdict::Exact { failed: false });
-        assert_eq!(ordered(&gated(ex(ProofCheck::Checked)), Origin::Ahead), Verdict::Exact { failed: false });
-        assert_eq!(ordered(&gated(ex(ProofCheck::Failed)), Origin::Order), Verdict::Exact { failed: true });
+        let ex = |check: ProofCheck| {
+            move |x: &mut Pipeline| {
+                x.licence = LicenceStamp::Exact {
+                    proof: ProofStamp::FirstFetch,
+                    node: 4,
+                    check,
+                }
+            }
+        };
+        assert_eq!(
+            ordered(&gated(ex(ProofCheck::Unchecked)), Origin::Order),
+            Verdict::Exact { failed: false }
+        );
+        assert_eq!(
+            ordered(&gated(ex(ProofCheck::Checked)), Origin::Ahead),
+            Verdict::Exact { failed: false }
+        );
+        assert_eq!(
+            ordered(&gated(ex(ProofCheck::Failed)), Origin::Order),
+            Verdict::Exact { failed: true }
+        );
         let both = |x: &mut Pipeline| {
             ex(ProofCheck::Failed)(x);
             x.recheck = true;
         };
-        assert_eq!(ordered(&gated(both), Origin::Order), Verdict::Licensed, "a recheck licence covers the run whatever the proof");
-        assert_eq!(verdict(&gated(ex(ProofCheck::Failed)), Origin::Pull, &[5, 2, -1, -1]), Verdict::Demanded);
+        assert_eq!(
+            ordered(&gated(both), Origin::Order),
+            Verdict::Licensed,
+            "a recheck licence covers the run whatever the proof"
+        );
+        assert_eq!(
+            verdict(
+                &gated(ex(ProofCheck::Failed)),
+                Origin::Pull,
+                &[5, 2, -1, -1]
+            ),
+            Verdict::Demanded
+        );
     }
 
     /// The accepted class is its own bucket, never licensed nor a key; a recheck or tag on the pipeline wins, and a
@@ -410,8 +508,15 @@ mod tests {
         let acc = |x: &mut Pipeline| x.licence = LicenceStamp::Accepted;
         assert_eq!(ordered(&gated(acc), Origin::Order), Verdict::Accepted);
         assert_eq!(ordered(&gated(acc), Origin::Ahead), Verdict::Accepted);
-        assert_eq!(verdict(&gated(acc), Origin::Pull, &[2, -1, -1, -1]), Verdict::Accepted, "a demand's run beyond its region");
-        assert_eq!(verdict(&gated(acc), Origin::Pull, &[5, 2, -1, -1]), Verdict::Demanded);
+        assert_eq!(
+            verdict(&gated(acc), Origin::Pull, &[2, -1, -1, -1]),
+            Verdict::Accepted,
+            "a demand's run beyond its region"
+        );
+        assert_eq!(
+            verdict(&gated(acc), Origin::Pull, &[5, 2, -1, -1]),
+            Verdict::Demanded
+        );
         let both = |x: &mut Pipeline| {
             acc(x);
             x.recheck = true;
@@ -421,39 +526,105 @@ mod tests {
             acc(x);
             x.quiet = true;
         };
-        assert_eq!(ordered(&gated(quiet), Origin::Order), Verdict::Accepted, "the licence held is read before quiet");
+        assert_eq!(
+            ordered(&gated(quiet), Origin::Order),
+            Verdict::Accepted,
+            "the licence held is read before quiet"
+        );
         assert!(!rests_on_rerun(&gated(acc)), "it rests on no re-run");
     }
 
     /// The hit line's diagnosis words come last, after the words the harness keys on.
     #[test]
     fn the_gated_kinds_close_the_line() {
-        assert_eq!(Kinds(&gated(|x| x.gate_tags = Some(("Hash", "HashJoin")))).to_string(), " [Hash under HashJoin]"); // alloc: Cold
+        assert_eq!(
+            Kinds(&gated(|x| x.gate_tags = Some(("Hash", "HashJoin")))).to_string(),
+            " [Hash under HashJoin]"
+        ); // alloc: Cold
         assert_eq!(Kinds(&gated(|_| ())).to_string(), ""); // alloc: Cold
     }
 
     /// A demand runs its own gate region and the regions around it (D4191).
     #[test]
     fn a_demanded_or_ungated_run_passes() {
-        for o in [Origin::BuildWait, Origin::Nested, Origin::Rerun, Origin::Pull] {
-            assert_eq!(verdict(&gated(|_| ()), o, &[5, 2, -1, -1]), Verdict::Demanded, "{o:?}: the demand's own region");
-            assert_eq!(verdict(&gated(|_| ()), o, &[9, 5, 2, -1]), Verdict::Demanded, "{o:?}: a region around the demand's");
+        for o in [
+            Origin::BuildWait,
+            Origin::Nested,
+            Origin::Rerun,
+            Origin::Pull,
+        ] {
+            assert_eq!(
+                verdict(&gated(|_| ()), o, &[5, 2, -1, -1]),
+                Verdict::Demanded,
+                "{o:?}: the demand's own region"
+            );
+            assert_eq!(
+                verdict(&gated(|_| ()), o, &[9, 5, 2, -1]),
+                Verdict::Demanded,
+                "{o:?}: a region around the demand's"
+            );
         }
-        assert_eq!(ordered(&gated(|_| ()), Origin::Recheck), Verdict::Demanded, "EvalPlanQual's rerun is PostgreSQL's");
-        assert_eq!(ordered(&Pipeline::serial(-1, gravity_program::End::Sink, gravity_program::Reason::NoDrivingSite), Origin::Order), Verdict::Demanded);
-        assert_eq!(ordered(&gated(|x| x.post = true), Origin::Order), Verdict::Demanded);
+        assert_eq!(
+            ordered(&gated(|_| ()), Origin::Recheck),
+            Verdict::Demanded,
+            "EvalPlanQual's rerun is PostgreSQL's"
+        );
+        assert_eq!(
+            ordered(
+                &Pipeline::serial(
+                    -1,
+                    gravity_program::End::Sink,
+                    gravity_program::Reason::NoDrivingSite
+                ),
+                Origin::Order
+            ),
+            Verdict::Demanded
+        );
+        assert_eq!(
+            ordered(&gated(|x| x.post = true), Origin::Order),
+            Verdict::Demanded
+        );
     }
 
     /// D4191 (D4189: a hashed aggregate under an outer-first Hash inside a pulled CTE's plan, run at the CTE's first
     /// pull): a demand's run of a pipeline in a region nested in the demand's, or outside it, is judged as an Order run.
     #[test]
     fn a_demand_run_beyond_its_region_is_judged() {
-        for o in [Origin::BuildWait, Origin::Nested, Origin::Rerun, Origin::Pull] {
-            assert_eq!(verdict(&gated(|_| ()), o, &[2, -1, -1, -1]), Verdict::Unlicensed, "{o:?}: region 5 inside the demand's 2");
-            assert_eq!(verdict(&gated(|_| ()), o, &NONE), Verdict::Unlicensed, "{o:?}: a demand that opened no region");
-            assert_eq!(verdict(&gated(|_| ()), o, &[8, -1, -1, -1]), Verdict::Unlicensed, "{o:?}: another subplan's region");
-            assert_eq!(verdict(&gated(|x| x.quiet = true), o, &[2, -1, -1, -1]), Verdict::Quiet, "{o:?}");
-            assert_eq!(verdict(&gated(|x| x.licence = gravity_program::LicenceStamp::Plain), o, &[2, -1, -1, -1]), Verdict::Licensed, "{o:?}");
+        for o in [
+            Origin::BuildWait,
+            Origin::Nested,
+            Origin::Rerun,
+            Origin::Pull,
+        ] {
+            assert_eq!(
+                verdict(&gated(|_| ()), o, &[2, -1, -1, -1]),
+                Verdict::Unlicensed,
+                "{o:?}: region 5 inside the demand's 2"
+            );
+            assert_eq!(
+                verdict(&gated(|_| ()), o, &NONE),
+                Verdict::Unlicensed,
+                "{o:?}: a demand that opened no region"
+            );
+            assert_eq!(
+                verdict(&gated(|_| ()), o, &[8, -1, -1, -1]),
+                Verdict::Unlicensed,
+                "{o:?}: another subplan's region"
+            );
+            assert_eq!(
+                verdict(&gated(|x| x.quiet = true), o, &[2, -1, -1, -1]),
+                Verdict::Quiet,
+                "{o:?}"
+            );
+            assert_eq!(
+                verdict(
+                    &gated(|x| x.licence = gravity_program::LicenceStamp::Plain),
+                    o,
+                    &[2, -1, -1, -1]
+                ),
+                Verdict::Licensed,
+                "{o:?}"
+            );
         }
     }
 
@@ -462,20 +633,53 @@ mod tests {
     #[test]
     fn a_recheck_licence_rests_on_the_rerun() {
         use gravity_program::{LicenceStamp, ProofCheck, ProofStamp};
-        assert!(rests_on_rerun(&gated(|x| x.licence = LicenceStamp::Recheck)), "a feeder held under the recheck licence");
-        let mut ungated = Pipeline::serial(-1, gravity_program::End::Sink, gravity_program::Reason::NoDrivingSite);
+        assert!(
+            rests_on_rerun(&gated(|x| x.licence = LicenceStamp::Recheck)),
+            "a feeder held under the recheck licence"
+        );
+        let mut ungated = Pipeline::serial(
+            -1,
+            gravity_program::End::Sink,
+            gravity_program::Reason::NoDrivingSite,
+        );
         ungated.licence = LicenceStamp::Rests;
-        assert!(late_run(&ungated, true), "ungated too: the re-run repairs any departure only before a row left");
-        assert!(!late_run(&ungated, false), "before the first row the re-run repairs it");
-        assert_eq!(ordered(&gated(|x| x.licence = LicenceStamp::Rests), Origin::Order), Verdict::Unlicensed, "no licence held for this run");
-        assert!(!rests_on_rerun(&gated(|x| x.recheck = true)), "the root pipeline's mark for the statement");
+        assert!(
+            late_run(&ungated, true),
+            "ungated too: the re-run repairs any departure only before a row left"
+        );
+        assert!(
+            !late_run(&ungated, false),
+            "before the first row the re-run repairs it"
+        );
+        assert_eq!(
+            ordered(&gated(|x| x.licence = LicenceStamp::Rests), Origin::Order),
+            Verdict::Unlicensed,
+            "no licence held for this run"
+        );
+        assert!(
+            !rests_on_rerun(&gated(|x| x.recheck = true)),
+            "the root pipeline's mark for the statement"
+        );
         assert!(!rests_on_rerun(&gated(|_| ())));
         assert!(!rests_on_rerun(&gated(|x| x.licence = LicenceStamp::Plain)));
-        for l in [LicenceStamp::Held, LicenceStamp::Whole, LicenceStamp::Tagged, LicenceStamp::Accepted, LicenceStamp::Exact { proof: ProofStamp::PgFailsToo, node: 4, check: ProofCheck::Unchecked }] {
-            assert!(!rests_on_rerun(&gated(|x| {
-                x.recheck = true;
-                x.licence = l;
-            })), "{l:?}");
+        for l in [
+            LicenceStamp::Held,
+            LicenceStamp::Whole,
+            LicenceStamp::Tagged,
+            LicenceStamp::Accepted,
+            LicenceStamp::Exact {
+                proof: ProofStamp::PgFailsToo,
+                node: 4,
+                check: ProofCheck::Unchecked,
+            },
+        ] {
+            assert!(
+                !rests_on_rerun(&gated(|x| {
+                    x.recheck = true;
+                    x.licence = l;
+                })),
+                "{l:?}"
+            );
         }
     }
 
@@ -488,7 +692,10 @@ mod tests {
         let l = late_line(5, &x, Origin::Pull);
         assert!(l.starts_with("gravity: ahead-trace: accepted: pipeline 5 (plan node id 3) ran first in Pull after the statement sent a row"), "{l}");
         assert!(l.ends_with(" [Agg under CteScan]"), "{l}");
-        assert!(!l.contains("Unlicensed") && !l.starts_with("gravity: ahead-trace: Recheck-after-send"), "{l}");
+        assert!(
+            !l.contains("Unlicensed") && !l.starts_with("gravity: ahead-trace: Recheck-after-send"),
+            "{l}"
+        );
     }
 
     /// R3: `sent` marks the running statement only; a nested statement keeps its own flag and puts the caller's back.
@@ -516,9 +723,21 @@ mod tests {
 
     #[test]
     fn a_whole_read_run_ended_early_breaks_the_guard() {
-        assert!(cut_short(true, true, false), "opened, not completed: the reader stopped early");
-        assert!(!cut_short(true, true, true), "a soft run stays open after it completed");
-        assert!(!cut_short(true, false, false), "never run: nothing ran ahead");
-        assert!(!cut_short(false, true, false), "a program any reader may stop");
+        assert!(
+            cut_short(true, true, false),
+            "opened, not completed: the reader stopped early"
+        );
+        assert!(
+            !cut_short(true, true, true),
+            "a soft run stays open after it completed"
+        );
+        assert!(
+            !cut_short(true, false, false),
+            "never run: nothing ran ahead"
+        );
+        assert!(
+            !cut_short(false, true, false),
+            "a program any reader may stop"
+        );
     }
 }

@@ -15,9 +15,9 @@ use types_nodes::Node;
 
 use crate::face::end::EndMech;
 use crate::face::kinds::Face;
-use crate::face::strategy::StrategySet;
 use crate::face::source::SourceMech;
 use crate::face::step::StepMech;
+use crate::face::strategy::StrategySet;
 use crate::frame::stop::ResumeWord;
 use crate::graph::Gx;
 use crate::hir::Ex;
@@ -28,8 +28,8 @@ pub struct ExId(pub u32);
 /// One extension slot per face.
 const FACES: usize = Face::RowOp as usize + 1;
 
-pub use crate::frame::raw::ExtG;
 pub(crate) use crate::frame::raw::ext_g;
+pub use crate::frame::raw::ExtG;
 
 /// Any value: the slot's box is one so dropping it drops the state.
 pub(crate) trait Held {}
@@ -49,7 +49,10 @@ impl<'g> Exts<'g> {
     pub(crate) fn get_or_make<T: ExtG<'g>>(&mut self, f: Face, m: mcx::Mcx<'g>) -> Option<&mut T> {
         let slot = &mut self.slots[f as usize];
         if slot.is_none() {
-            *slot = Some((TypeId::of::<T::Id>(), mcx::pg_box_dyn!(m, T::make(m) => dyn Held + 'g)));
+            *slot = Some((
+                TypeId::of::<T::Id>(),
+                mcx::pg_box_dyn!(m, T::make(m) => dyn Held + 'g),
+            ));
         }
         self.get_mut(f)
     }
@@ -357,7 +360,16 @@ impl<'g, 'p> Px<'g, 'p> {
             pass_after: Vec::new(),
             new_slots: 0,
             unions: Vec::new(),
-            lazy: Vec::new(), seek_keyed: Vec::new(), locks: Vec::new(), lock_plan: Default::default(), recheck_hold: Vec::new(), recheck_hold_epq: Vec::new(), held_sort: Vec::new(), serial: Vec::new(), wide: PgVec::new_in(gx.mcx), runs: PgVec::new_in(gx.mcx),
+            lazy: Vec::new(),
+            seek_keyed: Vec::new(),
+            locks: Vec::new(),
+            lock_plan: Default::default(),
+            recheck_hold: Vec::new(),
+            recheck_hold_epq: Vec::new(),
+            held_sort: Vec::new(),
+            serial: Vec::new(),
+            wide: PgVec::new_in(gx.mcx),
+            runs: PgVec::new_in(gx.mcx),
             recheck: Vec::new(),
             held_at: Vec::new(),
             site_pins: Vec::new(),
@@ -393,7 +405,10 @@ impl<'g, 'p> Px<'g, 'p> {
     /// NotBuilt nest.cte at its node.
     pub(crate) fn second_write(&self, node: i32) {
         if self.write.is_some() {
-            crate::not_built!(node, crate::admit::refusal::Variant::Kind(crate::face::kinds::KindId::NestCte));
+            crate::not_built!(
+                node,
+                crate::admit::refusal::Variant::Kind(crate::face::kinds::KindId::NestCte)
+            );
         }
     }
 
@@ -435,7 +450,11 @@ impl<'g, 'p> Px<'g, 'p> {
             return;
         }
         let kind = if let Some(p) = l.exact() {
-            S::Exact { proof: proof_stamp(p.kind()), node: p.node(), check: self.proof_check(k, &p) }
+            S::Exact {
+                proof: proof_stamp(p.kind()),
+                node: p.node(),
+                check: self.proof_check(k, &p),
+            }
         } else if l.accepted() {
             S::Accepted
         } else if l.held_error() {
@@ -458,13 +477,19 @@ impl<'g, 'p> Px<'g, 'p> {
     /// D1: what the lowering checks of exact proof `p` held for graph pipeline `k`: a PgReadsWhole proof cites a node
     /// whose input `k` runs (one of `k`'s plan nodes, its end's among them); the others' evidence was checked where the
     /// proof was built, and their timing nothing here can tell (`Unchecked`).
-    fn proof_check(&self, k: usize, p: &gravity_decompose::effects::Proof) -> gravity_program::ProofCheck {
+    fn proof_check(
+        &self,
+        k: usize,
+        p: &gravity_decompose::effects::Proof,
+    ) -> gravity_program::ProofCheck {
         use gravity_program::ProofCheck as C;
         if p.kind() != gravity_decompose::effects::ProofKind::PgReadsWhole {
             return C::Unchecked;
         }
         let x = self.gx.pipelines().get(k);
-        match x.is_some_and(|x| x.node_id == p.node() || x.node_ops.iter().any(|n| n.node_id == p.node())) {
+        match x.is_some_and(|x| {
+            x.node_id == p.node() || x.node_ops.iter().any(|n| n.node_id == p.node())
+        }) {
             true => C::Checked,
             false => C::Failed,
         }
@@ -472,7 +497,10 @@ impl<'g, 'p> Px<'g, 'p> {
 
     /// The licence kind held for graph pipeline `k` (`hold`); `None`: none, or the tracer is off.
     pub(crate) fn held_kind(&self, k: usize) -> gravity_program::LicenceStamp {
-        self.licences.iter().find(|&&(q, _)| q == k).map_or(gravity_program::LicenceStamp::None, |&(_, s)| s)
+        self.licences
+            .iter()
+            .find(|&&(q, _)| q == k)
+            .map_or(gravity_program::LicenceStamp::None, |&(_, s)| s)
     }
 
     /// D1922 (the portal-kind fact, shared with D2316 / D2647): graph pipeline `k` departs from PostgreSQL's order only in
@@ -491,7 +519,11 @@ impl<'g, 'p> Px<'g, 'p> {
     /// ahead of PostgreSQL's demand only for a reader that takes every row. Granted when `own` does not act: the program
     /// is marked as `whole_read` marks it (the guard the run-ahead tracer checks at run time) and the licence handed
     /// back. Denied (acting code), `k` is marked with no licence (`whole_read`'s form) and `None` comes back.
-    pub fn read_whole(&mut self, k: usize, own: gravity_decompose::effects::Effects) -> Option<gravity_decompose::effects::Licence> {
+    pub fn read_whole(
+        &mut self,
+        k: usize,
+        own: gravity_decompose::effects::Effects,
+    ) -> Option<gravity_decompose::effects::Licence> {
         let l = gravity_decompose::effects::whole_read(own).ok();
         debug_assert!(l.is_none_or(|l| l.whole_read()));
         self.whole_read(k);
@@ -512,7 +544,11 @@ impl<'g, 'p> Px<'g, 'p> {
     /// runs as EXPLAIN names it (`PipelineGraph::explain_of`; denied when EXPLAIN has no name for one), so an error a run
     /// of the part ends in names the subtree it came from for the harness. Denied, the family emits its PostgreSQL form or
     /// refuses by its own name.
-    pub fn ahead_unchecked(&mut self, k: usize, own: gravity_decompose::effects::Effects) -> Option<gravity_decompose::effects::Licence> {
+    pub fn ahead_unchecked(
+        &mut self,
+        k: usize,
+        own: gravity_decompose::effects::Effects,
+    ) -> Option<gravity_decompose::effects::Licence> {
         use crate::ops::hashjoin::build_class::{feed, side, Side};
         use gravity_decompose::effects::{licence_unchecked, unobservable, Effects};
         if own == Effects::NONE {
@@ -526,13 +562,22 @@ impl<'g, 'p> Px<'g, 'p> {
             return Some(l);
         }
         let ps = gx.pipelines();
-        let src = if let gravity_decompose::Source::Breaker { slot } = ps[k].source { Some(slot) } else { None };
+        let src = if let gravity_decompose::Source::Breaker { slot } = ps[k].source {
+            Some(slot)
+        } else {
+            None
+        };
         // D2849: a hash of a key under no collation raises 42P22, which no unchecked licence covers
-        if std::iter::once(k).chain(feed(gx, k, ps[k].desc.consumes.iter().copied().chain(src))).any(|q| crate::effects::hashes_raising_key(gx, q)) {
+        if std::iter::once(k)
+            .chain(feed(gx, k, ps[k].desc.consumes.iter().copied().chain(src)))
+            .any(|q| crate::effects::hashes_raising_key(gx, q))
+        {
             return None;
         }
         let mut tags = PgVec::new_in(self.mcx());
-        for q in std::iter::once(k).chain(feed(gx, k, ps[k].desc.consumes.iter().copied().chain(src))) {
+        for q in
+            std::iter::once(k).chain(feed(gx, k, ps[k].desc.consumes.iter().copied().chain(src)))
+        {
             let t = ahead_tag(gx, q)?;
             tags.push_in((q, t));
         }
@@ -548,9 +593,19 @@ impl<'g, 'p> Px<'g, 'p> {
     /// v5 errorhold: the effects a departure asks its licence with: its own, and when it may raise (its licence then
     /// carries a recheck) the statement's acting set too (`PipelineGraph::acts`): the plan-order run repeats the whole
     /// statement, so an acting call anywhere in it denies the licence.
-    pub fn batch_effects(&self, own: gravity_decompose::effects::Effects) -> gravity_decompose::effects::Effects {
+    pub fn batch_effects(
+        &self,
+        own: gravity_decompose::effects::Effects,
+    ) -> gravity_decompose::effects::Effects {
         use gravity_decompose::effects::Effects;
-        if own.may_raise { own.and(Effects { acts: self.gx.graph.acts, ..Effects::NONE }) } else { own }
+        if own.may_raise {
+            own.and(Effects {
+                acts: self.gx.graph.acts,
+                ..Effects::NONE
+            })
+        } else {
+            own
+        }
     }
 
     /// v5 errorhold: graph pipeline `k` runs code with effects `own` ahead of PostgreSQL's order (an eager build or inner
@@ -559,7 +614,11 @@ impl<'g, 'p> Px<'g, 'p> {
     /// raise, `k` runs whole before any row can leave the statement (`ahead_of_rows`: the plan-order run answers only an
     /// error raised before then) and neither it nor what feeds it calls a user or VOLATILE function; the pipeline is then
     /// marked for that run. Denied, the family emits its PostgreSQL form or refuses by its own name.
-    pub fn run_ahead(&mut self, k: usize, own: gravity_decompose::effects::Effects) -> Option<gravity_decompose::effects::Licence> {
+    pub fn run_ahead(
+        &mut self,
+        k: usize,
+        own: gravity_decompose::effects::Effects,
+    ) -> Option<gravity_decompose::effects::Licence> {
         use gravity_decompose::effects::{licence, unobservable, Departure, Effects};
         if own == Effects::NONE {
             return unobservable(own).inspect(|l| self.hold(k, l));
@@ -569,10 +628,18 @@ impl<'g, 'p> Px<'g, 'p> {
         // D3587: nor where something in it hides a call from that class (`effects::hides_user_code`, as `ahead_unchecked`
         // asks) in a statement that calls user code (`effects::statement_user_code`): a user function there may RAISE
         // NOTICE before the plan-order run takes the statement; a statement of PostgreSQL's own code runs none
-        let hides = || crate::effects::hides_user_code(self.gx, k) && crate::effects::statement_user_code(self.gx, self.arena);
+        let hides = || {
+            crate::effects::hides_user_code(self.gx, k)
+                && crate::effects::statement_user_code(self.gx, self.arena)
+        };
         // D3816: a pinned non-acting builtin (a disk size, the lock status) is read as builtin code there (effects
         // visible/hashjoin.rs `acting_side`)
-        if own.may_raise && (!self.ahead_of_rows(k) || crate::effects::visible::hashjoin::acting_side(self.gx, k) == crate::ops::hashjoin::build_class::Side::UserFn || hides()) {
+        if own.may_raise
+            && (!self.ahead_of_rows(k)
+                || crate::effects::visible::hashjoin::acting_side(self.gx, k)
+                    == crate::ops::hashjoin::build_class::Side::UserFn
+                || hides())
+        {
             return None;
         }
         let l = licence(self.batch_effects(own), Departure::Ahead).ok()?;
@@ -583,8 +650,16 @@ impl<'g, 'p> Px<'g, 'p> {
         // statement raises before a row left it, theirs too (exec `runner::rechecks`: one recheck pipeline in the program)
         if crate::frame::program::stamps_on() {
             let ps = self.gx.pipelines();
-            let src = if let gravity_decompose::Source::Breaker { slot } = ps[k].source { Some(slot) } else { None };
-            for q in crate::ops::hashjoin::build_class::feed(self.gx, k, ps[k].desc.consumes.iter().copied().chain(src)) {
+            let src = if let gravity_decompose::Source::Breaker { slot } = ps[k].source {
+                Some(slot)
+            } else {
+                None
+            };
+            for q in crate::ops::hashjoin::build_class::feed(
+                self.gx,
+                k,
+                ps[k].desc.consumes.iter().copied().chain(src),
+            ) {
                 self.hold(q, &l);
             }
         }
@@ -598,7 +673,11 @@ impl<'g, 'p> Px<'g, 'p> {
     /// `effects::volatile_free` over the whole statement (every act a call-local builtin's, nothing in the statement that
     /// could read one, no write, no row lock). The licence is held on `k` and on what feeds it (build_class `feed`) for
     /// the run-ahead tracer; codegen reads nothing of it. `None`: neither grants, and the run stays the tracer's key.
-    pub fn accept(&mut self, k: usize, own: gravity_decompose::effects::Effects) -> Option<gravity_decompose::effects::Licence> {
+    pub fn accept(
+        &mut self,
+        k: usize,
+        own: gravity_decompose::effects::Effects,
+    ) -> Option<gravity_decompose::effects::Licence> {
         use gravity_decompose::effects::{accepted, unobservable, volatile_free, Cx, Effects};
         if own == Effects::NONE {
             return unobservable(own).inspect(|l| self.hold(k, l));
@@ -606,15 +685,27 @@ impl<'g, 'p> Px<'g, 'p> {
         let gx = self.gx;
         let l = if own.acts {
             let s = gx.graph.stmt?;
-            volatile_free(&Cx::new(s, gx.facts, self.arena), s.planTree.into_iter().chain(s.subplans.iter().flatten())).ok()?
+            volatile_free(
+                &Cx::new(s, gx.facts, self.arena),
+                s.planTree.into_iter().chain(s.subplans.iter().flatten()),
+            )
+            .ok()?
         } else {
             accepted(own, crate::effects::fed_user_code(gx, k)).ok()?
         };
         self.hold(k, &l);
         if crate::frame::program::stamps_on() {
             let ps = gx.pipelines();
-            let src = if let gravity_decompose::Source::Breaker { slot } = ps[k].source { Some(slot) } else { None };
-            for q in crate::ops::hashjoin::build_class::feed(gx, k, ps[k].desc.consumes.iter().copied().chain(src)) {
+            let src = if let gravity_decompose::Source::Breaker { slot } = ps[k].source {
+                Some(slot)
+            } else {
+                None
+            };
+            for q in crate::ops::hashjoin::build_class::feed(
+                gx,
+                k,
+                ps[k].desc.consumes.iter().copied().chain(src),
+            ) {
                 self.hold(q, &l);
             }
         }
@@ -633,14 +724,17 @@ impl<'g, 'p> Px<'g, 'p> {
         use gravity_decompose::ops::shared::subplan::SubForm;
         let (gx, ps) = (self.gx, self.gx.pipelines());
         let init = |q: usize| gx.graph.init_plans.iter().any(|i| i.pipeline as usize == q);
-        let emits = |q: usize| !matches!(gx.end_kind(q), crate::graph::EndKind::Breaker(_)) && !init(q);
-        let hashed = (0..ps.len()).flat_map(move |q| ps[q].ops.iter().filter_map(move |op| match op {
-            gravity_decompose::Op::SubPlan(d) => match d.form {
-                SubForm::Hashed { slot } => gx.life_of(q, slot).map(|l| l.0 as usize),
+        let emits =
+            |q: usize| !matches!(gx.end_kind(q), crate::graph::EndKind::Breaker(_)) && !init(q);
+        let hashed = (0..ps.len()).flat_map(move |q| {
+            ps[q].ops.iter().filter_map(move |op| match op {
+                gravity_decompose::Op::SubPlan(d) => match d.form {
+                    SubForm::Hashed { slot } => gx.life_of(q, slot).map(|l| l.0 as usize),
+                    _ => None,
+                },
                 _ => None,
-            },
-            _ => None,
-        }));
+            })
+        });
         // D3585: in the graph's lowering, the first emitting pipeline and the sets are found once (memo.rs), not by a walk
         // of every pipeline for each `k` (quadratic in an Append's arms)
         let key = crate::memo::key_of(&gx.graph.pipelines);
@@ -658,7 +752,13 @@ impl<'g, 'p> Px<'g, 'p> {
         let sets: PgVec<'_, usize> = match crate::memo::read(key, |m| m.ahead_sets.clone()) {
             Some(Some(s)) => s.iter().map(|&q| q as usize).collect_in(self.mcx()),
             kept => {
-                let s: PgVec<'_, usize> = gx.graph.init_plans.iter().map(|i| i.pipeline as usize).chain(hashed).collect_in(self.mcx());
+                let s: PgVec<'_, usize> = gx
+                    .graph
+                    .init_plans
+                    .iter()
+                    .map(|i| i.pipeline as usize)
+                    .chain(hashed)
+                    .collect_in(self.mcx());
                 if kept.is_some() {
                     let s: std::rc::Rc<[u32]> = s.iter().map(|&q| q as u32).collect(); // alloc: Program
                     crate::memo::write(key, |m| m.ahead_sets = Some(s));
@@ -667,13 +767,37 @@ impl<'g, 'p> Px<'g, 'p> {
             }
         };
         let ahead = |r: usize| {
-            r + 1 < ps.len() && !emits_by(r) && !gx.graph.reruns.iter().any(|x| x.pipelines.iter().any(|&p| p as usize == r)) && !sets.iter().any(|&q| feeds(gx, q, r))
+            r + 1 < ps.len()
+                && !emits_by(r)
+                && !gx
+                    .graph
+                    .reruns
+                    .iter()
+                    .any(|x| x.pipelines.iter().any(|&p| p as usize == r))
+                && !sets.iter().any(|&q| feeds(gx, q, r))
         };
-        let inner = |q: usize| ps.inners().iter().any(|(_, p)| p.desc.consumes_from.contains(&gravity_program::LifeId(q as u16)));
-        let pulled = |q: usize| gx.cte_write(q) && !inner(q) && (0..ps.len()).filter(|&r| r != q && crate::ops::shared::cte_reads::reads(gx, r).contains(&q)).all(ahead);
+        let inner = |q: usize| {
+            ps.inners().iter().any(|(_, p)| {
+                p.desc
+                    .consumes_from
+                    .contains(&gravity_program::LifeId(q as u16))
+            })
+        };
+        let pulled = |q: usize| {
+            gx.cte_write(q)
+                && !inner(q)
+                && (0..ps.len())
+                    .filter(|&r| r != q && crate::ops::shared::cte_reads::reads(gx, r).contains(&q))
+                    .all(ahead)
+        };
         k + 1 < ps.len()
             && !emits_by(k)
-            && (!gx.graph.reruns.iter().any(|r| r.pipelines.iter().any(|&p| p as usize == k)) || self.kept_ahead(k))
+            && (!gx
+                .graph
+                .reruns
+                .iter()
+                .any(|r| r.pipelines.iter().any(|&p| p as usize == k))
+                || self.kept_ahead(k))
             && !sets.iter().any(|&q| feeds(gx, q, k) && !pulled(q))
     }
 
@@ -682,9 +806,16 @@ impl<'g, 'p> Px<'g, 'p> {
     /// after `k` and runs ahead of rows itself: the set's one run then comes before any row leaves.
     fn kept_ahead(&self, k: usize) -> bool {
         let gx = self.gx;
-        gx.graph.reruns.iter().enumerate().filter(|(_, r)| r.pipelines.contains(&(k as u16))).all(|(i, r)| {
-            crate::rerun::sets::kept_whole(gx, r) && crate::rerun::sets::set_owner(gx, i).is_some_and(|o| o > k && self.ahead_of_rows(o))
-        })
+        gx.graph
+            .reruns
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| r.pipelines.contains(&(k as u16)))
+            .all(|(i, r)| {
+                crate::rerun::sets::kept_whole(gx, r)
+                    && crate::rerun::sets::set_owner(gx, i)
+                        .is_some_and(|o| o > k && self.ahead_of_rows(o))
+            })
     }
 
     /// D4203 (C2 (b)'s "before any row can leave" half for mapping's own departures): graph pipeline `q` runs a node
@@ -705,13 +836,23 @@ impl<'g, 'p> Px<'g, 'p> {
         crate::stack_check();
         use gravity_decompose::ops::shared::subplan::{SubForm, SubLink};
         let (gx, ps) = (self.gx, self.gx.pipelines());
-        let licensed = q < ps.len() && gx.graph.licensed_nodes.iter().any(|&id| ps[q].node_id == id || ps[q].node_ops.iter().any(|o| o.node_id == id));
+        let licensed =
+            q < ps.len()
+                && gx.graph.licensed_nodes.iter().any(|&id| {
+                    ps[q].node_id == id || ps[q].node_ops.iter().any(|o| o.node_id == id)
+                });
         if !licensed {
             return Late::No;
         }
         let init = |x: usize| gx.graph.init_plans.iter().any(|i| i.pipeline as usize == x);
-        let first = (0..ps.len()).find(|&x| !matches!(gx.end_kind(x), crate::graph::EndKind::Breaker(_)) && !init(x));
-        let rerun = |x: usize| gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(x as u16)));
+        let first = (0..ps.len())
+            .find(|&x| !matches!(gx.end_kind(x), crate::graph::EndKind::Breaker(_)) && !init(x));
+        let rerun = |x: usize| {
+            gx.graph
+                .reruns
+                .iter()
+                .any(|r| r.pipelines.contains(&(x as u16)))
+        };
         let hashed = (0..ps.len()).flat_map(|x| {
             ps[x].ops.iter().filter_map(move |op| match op {
                 gravity_decompose::Op::SubPlan(d) => match d.form {
@@ -722,15 +863,37 @@ impl<'g, 'p> Px<'g, 'p> {
             })
         });
         let cte = |i: &&gravity_decompose::graph::InitPlan<'_>| matches!(i.link, SubLink::Cte);
-        let demand: PgVec<'_, usize> = gx.graph.init_plans.iter().filter(|i| !cte(i)).map(|i| i.pipeline as usize).chain(hashed).collect_in(self.mcx());
-        let on = |x: usize| x >= ps.len() || rerun(x) || ps[x].desc.lazy_for >= 0 || demand.iter().any(|&d| feeds(gx, d, x));
+        let demand: PgVec<'_, usize> = gx
+            .graph
+            .init_plans
+            .iter()
+            .filter(|i| !cte(i))
+            .map(|i| i.pipeline as usize)
+            .chain(hashed)
+            .collect_in(self.mcx());
+        let on = |x: usize| {
+            x >= ps.len()
+                || rerun(x)
+                || ps[x].desc.lazy_for >= 0
+                || demand.iter().any(|&d| feeds(gx, d, x))
+        };
         let after = |x: usize| first.is_some_and(|f| f < x);
-        let road = |again: bool, x: usize| match (again || on(x) || crate::ops::ctescan::lower::is_cte(gx, x), after(x)) {
+        let road = |again: bool, x: usize| match (
+            again || on(x) || crate::ops::ctescan::lower::is_cte(gx, x),
+            after(x),
+        ) {
             (false, true) => Late::Ordered,
             (true, _) => Late::Unanswered,
             (false, false) => Late::No,
         };
-        let ctes: PgVec<'_, usize> = gx.graph.init_plans.iter().filter(cte).map(|i| i.pipeline as usize).filter(|&k| feeds(gx, k, q)).collect_in(self.mcx());
+        let ctes: PgVec<'_, usize> = gx
+            .graph
+            .init_plans
+            .iter()
+            .filter(cte)
+            .map(|i| i.pipeline as usize)
+            .filter(|&k| feeds(gx, k, q))
+            .collect_in(self.mcx());
         if ctes.is_empty() {
             return road(false, q);
         }
@@ -743,12 +906,28 @@ impl<'g, 'p> Px<'g, 'p> {
             }
             road(again, r)
         };
-        let readers = |k: usize| (0..ps.end()).filter(move |&p| p != k && crate::ops::shared::cte_reads::reads(gx, p).contains(&k));
-        ctes.into_iter().flat_map(readers).map(pulls).max().unwrap_or(Late::No)
+        let readers = |k: usize| {
+            (0..ps.end()).filter(move |&p| {
+                p != k && crate::ops::shared::cte_reads::reads(gx, p).contains(&k)
+            })
+        };
+        ctes.into_iter()
+            .flat_map(readers)
+            .map(pulls)
+            .max()
+            .unwrap_or(Late::No)
     }
 
     pub fn add_ex(&mut self, c: Compiled<'p>) -> ExId {
-        self.add_placed(Ex { c, places: Vec::new(), needs: Vec::new(), ext: None, held: Vec::new(), volatile: false, late: None }) // alloc: Program
+        self.add_placed(Ex {
+            c,
+            places: Vec::new(),
+            needs: Vec::new(),
+            ext: None,
+            held: Vec::new(),
+            volatile: false,
+            late: None,
+        }) // alloc: Program
     }
 
     /// Places `e`, its `volatile` read here, where the catalog is (effects/visible/expr.rs `volatile_site`), joined to
@@ -774,7 +953,11 @@ impl<'g, 'p> Px<'g, 'p> {
     /// already read (they are only added until `take_exs`), so a program of N arms reads each once, not N times.
     pub fn hosted_unsafe(&self, unsafe_ex: &dyn Fn(&Compiled<'p>) -> bool) -> bool {
         let (seen, any) = self.hosted_seen.get();
-        let (mut n, mut any) = if seen <= self.exs.len() { (seen, any) } else { (0, false) };
+        let (mut n, mut any) = if seen <= self.exs.len() {
+            (seen, any)
+        } else {
+            (0, false)
+        };
         while !any && n < self.exs.len() {
             any = unsafe_ex(&self.exs[n].c);
             n += 1;
@@ -831,7 +1014,13 @@ impl<'g, 'p> Px<'g, 'p> {
     /// source named (`SourceMech::nominal_site`: a wide group emit's, a co-split merge's, a spool reader's), which the
     /// runner reads no row through. `None` before its `Mechs::new` or for a pipeline with neither (it runs on the leader).
     pub fn claims_site(&self, k: usize) -> Option<usize> {
-        self.pipeline_site(k).or_else(|| self.nominal_sites.get(k).copied().flatten().map(usize::from))
+        self.pipeline_site(k).or_else(|| {
+            self.nominal_sites
+                .get(k)
+                .copied()
+                .flatten()
+                .map(usize::from)
+        })
     }
 
     /// Pipeline `k`'s nominal driving site (`claims_site`), recorded where it has no drafted one.
@@ -852,7 +1041,13 @@ impl<'g, 'p> Px<'g, 'p> {
     pub fn frame_word(&mut self, key: WordKey) -> u16 {
         // a step made for another program pipeline (a pass, a swap) keys by that pipeline and its own graph position, so it
         // never shares a word with that pipeline's own op j
-        let moved = |px: &Self, k: usize, j: u64| if px.making.0 == k && px.making.0 != px.making.1 { (px.making.1, j ^ (k as u64 + 1) << 32) } else { (k, j) };
+        let moved = |px: &Self, k: usize, j: u64| {
+            if px.making.0 == k && px.making.0 != px.making.1 {
+                (px.making.1, j ^ (k as u64 + 1) << 32)
+            } else {
+                (k, j)
+            }
+        };
         let key = match key {
             WordKey::Open { face, k, j, i } => {
                 let (k, j) = moved(self, k, j);
@@ -862,8 +1057,14 @@ impl<'g, 'p> Px<'g, 'p> {
                 let (k, j) = moved(self, k, j);
                 WordKey::Resume(ResumeWord::StepOffset { k, j })
             }
-            WordKey::Resume(ResumeWord::EpqRecheck { k }) => WordKey::Resume(ResumeWord::EpqRecheck { k: self.ident(k) }),
-            WordKey::Union { .. } | WordKey::UnionFlag { .. } if self.making.0 != self.making.1 && !self.tailing() => self.bug("a union word declared by a remade pipeline"),
+            WordKey::Resume(ResumeWord::EpqRecheck { k }) => {
+                WordKey::Resume(ResumeWord::EpqRecheck { k: self.ident(k) })
+            }
+            WordKey::Union { .. } | WordKey::UnionFlag { .. }
+                if self.making.0 != self.making.1 && !self.tailing() =>
+            {
+                self.bug("a union word declared by a remade pipeline")
+            }
             key => key,
         };
         match self.word_keys.iter().position(|&w| w == key) {
@@ -905,7 +1106,11 @@ impl<'g, 'p> Px<'g, 'p> {
     /// The union pipeline `k` op `j` is under: the nearest arm marker before it (an inner union's marker comes first).
     pub fn union_of(&self, k: usize, j: usize) -> Option<(u32, usize)> {
         let k = self.ident(k);
-        self.unions.iter().filter(|u| u.0 == k && u.2 < j).max_by_key(|u| u.2).map(|u| (u.1, u.2))
+        self.unions
+            .iter()
+            .filter(|u| u.0 == k && u.2 < j)
+            .max_by_key(|u| u.2)
+            .map(|u| (u.1, u.2))
     }
 
     pub fn scratch_at_least(&mut self, bytes: u32) {
@@ -926,7 +1131,12 @@ impl<'g, 'p> Px<'g, 'p> {
         let node = self.gx.root_node();
         match self.ext.get_or_make::<T>(f, self.gx.mcx) {
             Some(t) => t,
-            None => crate::refuse!(node, crate::admit::refusal::Reason::Bug { payload: "a face's extension slot holds another type" }),
+            None => crate::refuse!(
+                node,
+                crate::admit::refusal::Reason::Bug {
+                    payload: "a face's extension slot holds another type"
+                }
+            ),
         }
     }
 
@@ -937,11 +1147,20 @@ impl<'g, 'p> Px<'g, 'p> {
     /// The identity pipeline `k`'s makers declare sites, words and protocols under: `k` itself, or the program pipeline
     /// `remake` (or a swap) makes `k`'s shape for. `set_site` / `site_mut` / `frame_word` / `declare_proto` apply it.
     pub fn ident(&self, k: usize) -> usize {
-        if self.making.0 == k { self.making.1 } else { k }
+        if self.making.0 == k {
+            self.making.1
+        } else {
+            k
+        }
     }
 
     /// Runs `f` with graph pipeline `shape`'s makers declaring under `ident` (resolve, `remake`, `Mechs::new`).
-    pub(crate) fn making<R>(&mut self, shape: usize, ident: usize, f: impl FnOnce(&mut Self) -> R) -> R {
+    pub(crate) fn making<R>(
+        &mut self,
+        shape: usize,
+        ident: usize,
+        f: impl FnOnce(&mut Self) -> R,
+    ) -> R {
         let saved = core::mem::replace(&mut self.making, (shape, ident));
         let r = f(self);
         self.making = saved;
@@ -965,7 +1184,10 @@ impl<'g, 'p> Px<'g, 'p> {
     }
 
     pub(crate) fn bug(&self, payload: &'static str) -> ! {
-        crate::refuse!(self.gx.root_node(), crate::admit::refusal::Reason::Bug { payload })
+        crate::refuse!(
+            self.gx.root_node(),
+            crate::admit::refusal::Reason::Bug { payload }
+        )
     }
 
     /// By-value literal `node`'s word for a reader ahead of its compile (the HAVING K's floor), taken once by that compile
@@ -986,18 +1208,27 @@ impl<'g, 'p> Px<'g, 'p> {
     /// (the end each arm of a union makes over one aggregate, D2958) reads its one word every time.
     pub fn root_const(&mut self, root: Node<'p>, node: Node<'p>) -> Option<Place> {
         let (nd, typ) = by_value_need(node)?;
-        Some(self.lit_word(root, node, u32::MAX, |px| px.plan.need_at(&ParamNeed::Const(nd), typ, true, node)))
+        Some(self.lit_word(root, node, u32::MAX, |px| {
+            px.plan.need_at(&ParamNeed::Const(nd), typ, true, node)
+        }))
     }
 
     /// `claim_const` for a by-reference literal (its word is its pointer, bound per execution): a reader ahead of its
     /// compile (lowerv4 ops/scan/pgrc/lower.rs `tid_bounds`, a ctid clause's tid), the word taken once by that compile.
     /// `None` for a NULL or by-value literal.
     pub fn claim_ref_const(&mut self, node: Node<'p>) -> Option<Place> {
-        let c = node.as_const().filter(|c| !c.constbyval && !c.constisnull)?;
+        let c = node
+            .as_const()
+            .filter(|c| !c.constbyval && !c.constisnull)?;
         if let Some(&(_, p)) = self.claims.iter().find(|x| x.0.ptr_eq(node)) {
             return Some(p);
         }
-        let p = self.plan.need_at(&ParamNeed::Const(NullableDatum::value(c.constvalue)), c.consttype, false, node);
+        let p = self.plan.need_at(
+            &ParamNeed::Const(NullableDatum::value(c.constvalue)),
+            c.consttype,
+            false,
+            node,
+        );
         self.claims.push((node, p));
         Some(p)
     }
@@ -1008,11 +1239,23 @@ impl<'g, 'p> Px<'g, 'p> {
     /// stays one word (exec admit `template`); a compile that places only its elements' words or its set leaves it, and
     /// that is no bug. `None` for a NULL or by-value literal.
     pub fn offer_ref_const(&mut self, node: Node<'p>) -> Option<Place> {
-        let c = node.as_const().filter(|c| !c.constbyval && !c.constisnull)?;
-        if let Some(&(_, p)) = self.claims.iter().chain(self.offered.iter()).find(|x| x.0.ptr_eq(node)) {
+        let c = node
+            .as_const()
+            .filter(|c| !c.constbyval && !c.constisnull)?;
+        if let Some(&(_, p)) = self
+            .claims
+            .iter()
+            .chain(self.offered.iter())
+            .find(|x| x.0.ptr_eq(node))
+        {
             return Some(p);
         }
-        let p = self.plan.need_at(&ParamNeed::Const(NullableDatum::value(c.constvalue)), c.consttype, false, node);
+        let p = self.plan.need_at(
+            &ParamNeed::Const(NullableDatum::value(c.constvalue)),
+            c.consttype,
+            false,
+            node,
+        );
         self.offered.push((node, p));
         Some(p)
     }
@@ -1020,7 +1263,9 @@ impl<'g, 'p> Px<'g, 'p> {
     /// NEW-72: the place a compile already gave literal `at` as a whole (`lit_word`, never an IN list element's), the
     /// first such occurrence: a reader after the compile shares its word.
     pub fn lit_place(&self, at: Node<'p>) -> Option<Place> {
-        self.lit_first.get(&(at.as_raw().as_ptr() as usize)).copied()
+        self.lit_first
+            .get(&(at.as_raw().as_ptr() as usize))
+            .copied()
     }
 
     /// NEW-72: the word `offer_ref_const` offered literal `node`, while no compile took it (`take_claim`; one that did
@@ -1043,13 +1288,33 @@ impl<'g, 'p> Px<'g, 'p> {
     /// identity (gravity_lower key.rs `lit_share`: the copies of one literal in a set's arms, one EC's Const under its
     /// clauses) reads its identity's word under every root, the keys holding its copies as one node (key.rs `alias`), so
     /// the program's words follow the statement, not its arm count; a literal a reader claimed ahead keeps that word.
-    pub fn lit_word(&mut self, root: Node<'p>, at: Node<'p>, k: u32, place: impl FnOnce(&mut Self) -> Place) -> Place {
-        let key = (root.as_raw().as_ptr() as usize, at.as_raw().as_ptr() as usize, k);
+    pub fn lit_word(
+        &mut self,
+        root: Node<'p>,
+        at: Node<'p>,
+        k: u32,
+        place: impl FnOnce(&mut Self) -> Place,
+    ) -> Place {
+        let key = (
+            root.as_raw().as_ptr() as usize,
+            at.as_raw().as_ptr() as usize,
+            k,
+        );
         if let Some(&p) = self.lit_at.get(&key) {
             return p;
         }
-        let share = if k == u32::MAX { gravity_lower::inputs::key::lit_share(at) } else { None };
-        let share = share.filter(|_| !self.claims.iter().chain(self.offered.iter()).any(|x| x.0.ptr_eq(at)));
+        let share = if k == u32::MAX {
+            gravity_lower::inputs::key::lit_share(at)
+        } else {
+            None
+        };
+        let share = share.filter(|_| {
+            !self
+                .claims
+                .iter()
+                .chain(self.offered.iter())
+                .any(|x| x.0.ptr_eq(at))
+        });
         let p = match share.and_then(|s| self.shared.get(&s).copied()) {
             Some(p) => {
                 self.plan.follow(p, at);
@@ -1088,7 +1353,14 @@ impl<'g, 'p> Px<'g, 'p> {
 /// `Px::claim_const` / `Px::root_const`; `None` for a by-reference literal or another node.
 fn by_value_need(node: Node<'_>) -> Option<(NullableDatum, u32)> {
     let c = node.as_const().filter(|c| c.constbyval || c.constisnull)?;
-    let nd = if c.constisnull { NullableDatum::null() } else { NullableDatum::value(gravity_expr::nodes::konst::word_canon(c.consttype, c.constvalue)) };
+    let nd = if c.constisnull {
+        NullableDatum::null()
+    } else {
+        NullableDatum::value(gravity_expr::nodes::konst::word_canon(
+            c.consttype,
+            c.constvalue,
+        ))
+    };
     Some((nd, c.consttype))
 }
 
@@ -1096,7 +1368,13 @@ fn by_value_need(node: Node<'_>) -> Option<(NullableDatum, u32)> {
 /// top plan node it runs as EXPLAIN names it (`PipelineGraph::explain_of`); `None` when EXPLAIN has no name for it.
 pub(crate) fn ahead_tag(gx: &Gx<'_, '_>, q: usize) -> Option<gravity_program::AheadTag> {
     let p = &gx.pipelines()[q];
-    let top = p.node_ops.iter().rev().find(|n| !n.producer_top).or(p.node_ops.last()).map_or(p.node_id, |n| n.node_id);
+    let top = p
+        .node_ops
+        .iter()
+        .rev()
+        .find(|n| !n.producer_top)
+        .or(p.node_ops.last())
+        .map_or(p.node_id, |n| n.node_id);
     gx.graph.explain_of(top)
 }
 
@@ -1107,7 +1385,6 @@ pub struct ExtraPass<'g> {
     pub end: PgBox<'g, dyn EndMech + 'g>,
 }
 
-
 /// The statement census facts several families read (C11: the lock plan's, ops/lockrows/plan.rs `Census`, and the
 /// hash drain's and row op's admissions), on the graph context so no family names another's module.
 impl Gx<'_, '_> {
@@ -1115,7 +1392,11 @@ impl Gx<'_, '_> {
     /// pipelines of an unread data-modifying CTE without RETURNING (ops/modifytable/post.rs `set`).
     pub(crate) fn after_emit(&self) -> Vec<usize> {
         let mut v = crate::rerun::epq::marks::drained(self);
-        let post: PgVec<'_, usize> = crate::ops::modifytable::post::set(self).into_iter().flatten().filter(|q| !v.contains(q)).collect_in(self.mcx);
+        let post: PgVec<'_, usize> = crate::ops::modifytable::post::set(self)
+            .into_iter()
+            .flatten()
+            .filter(|q| !v.contains(q))
+            .collect_in(self.mcx);
         v.extend(post); // alloc: Program
         v
     }
@@ -1124,7 +1405,10 @@ impl Gx<'_, '_> {
     /// one, each rechecking in its own IR (modifytable rowop_epq.rs `cte_in_ir`): no writer but the statement's stops for
     /// the runner's EvalPlanQual, and none reruns the claim (each reads its row from its COPY mark).
     pub(crate) fn ctes_beside(&self, qs: &[usize]) -> bool {
-        !qs.is_empty() && qs.iter().all(|&q| crate::ops::modifytable::rowop_epq::cte_in_ir(self, q))
+        !qs.is_empty()
+            && qs
+                .iter()
+                .all(|&q| crate::ops::modifytable::rowop_epq::cte_in_ir(self, q))
     }
 
     /// D3276 (DRAINED LOCK): the statement's row locks (outside every CTE, no write of its own) beside writing CTEs that are
@@ -1137,8 +1421,16 @@ impl Gx<'_, '_> {
     pub(crate) fn lock_beside_drained(&self) -> bool {
         let gx = self;
         let ps = gx.pipelines();
-        let lock = |k: usize| ps[k].ops.iter().any(|o| matches!(o, gravity_decompose::Op::Lock(_)));
-        if crate::ops::modifytable::rowop::main_writes(gx) || !(0..ps.len()).any(|k| !gx.cte_write(k) && lock(k)) || (0..ps.len()).any(|k| gx.cte_write(k) && lock(k)) {
+        let lock = |k: usize| {
+            ps[k]
+                .ops
+                .iter()
+                .any(|o| matches!(o, gravity_decompose::Op::Lock(_)))
+        };
+        if crate::ops::modifytable::rowop::main_writes(gx)
+            || !(0..ps.len()).any(|k| !gx.cte_write(k) && lock(k))
+            || (0..ps.len()).any(|k| gx.cte_write(k) && lock(k))
+        {
             return false;
         }
         // D3379 LOCKPOST: or the post CTE's (post.rs: one without RETURNING, run after the emit, bound at the turn)
@@ -1164,8 +1456,21 @@ pub(crate) fn feeds(gx: &Gx<'_, '_>, q: usize, k: usize) -> bool {
             continue;
         }
         seen.push_in(p);
-        let src = if let gravity_decompose::Source::Breaker { slot } = ps[p].source { Some(slot) } else { None };
-        todo.extend_in(ps[p].desc.consumes.iter().copied().chain(src).filter_map(|s| gx.life_of(p, s)).map(|l| l.0 as usize));
+        let src = if let gravity_decompose::Source::Breaker { slot } = ps[p].source {
+            Some(slot)
+        } else {
+            None
+        };
+        todo.extend_in(
+            ps[p]
+                .desc
+                .consumes
+                .iter()
+                .copied()
+                .chain(src)
+                .filter_map(|s| gx.life_of(p, s))
+                .map(|l| l.0 as usize),
+        );
         todo.extend_in(gx.union_feeds(p).into_iter().chain(gx.run_arms(p)));
     }
     false

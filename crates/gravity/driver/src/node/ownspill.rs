@@ -42,13 +42,27 @@ impl Node {
     fn own_spillable(&self, s: usize, p: usize) -> bool {
         let slot = s as u8;
         let r = &self.slots[s];
-        if !r.shared || !self.slot_life.is_live(slot) || self.slot_life.is_kept(slot) || self.slot_life.is_pending(slot) || self.slot_life.is_held_as_laid(slot) || r.ptr.is_null() || !std::ptr::eq( r.ptr, r.buf.as_ptr()) {
+        if !r.shared
+            || !self.slot_life.is_live(slot)
+            || self.slot_life.is_kept(slot)
+            || self.slot_life.is_pending(slot)
+            || self.slot_life.is_held_as_laid(slot)
+            || r.ptr.is_null()
+            || !std::ptr::eq(r.ptr, r.buf.as_ptr())
+        {
             return false;
         }
-        if !r.buf.is_reserved() || r.buf.past_bytes(own_keep(r)) == 0 || !super::raw::sealed_fixed_run(r.ptr, r.buf.len() + r.buf.committed()) {
+        if !r.buf.is_reserved()
+            || r.buf.past_bytes(own_keep(r)) == 0
+            || !super::raw::sealed_fixed_run(r.ptr, r.buf.len() + r.buf.committed())
+        {
             return false;
         }
-        self.program.pipelines.iter().enumerate().all(|(q, pipe)| q == p || !pipe.consumes.contains(&slot) || !self.is_opened(q))
+        self.program
+            .pipelines
+            .iter()
+            .enumerate()
+            .all(|(q, pipe)| q == p || !pipe.consumes.contains(&slot) || !self.is_opened(q))
     }
 
     /// D4291: pipeline `p`'s open, on the own-spill road when the statement holds a run `own_spillable` names: a refusal
@@ -60,7 +74,10 @@ impl Node {
         }
         self.set_own_try(true);
         let first = self.open_pipeline_once(p, share, images);
-        let own = self.inner.stmt().is_some_and(crate::mem::grant::Reservation::own_refused);
+        let own = self
+            .inner
+            .stmt()
+            .is_some_and(crate::mem::grant::Reservation::own_refused);
         self.set_own_try(false);
         match first {
             Err(Error::OutOfMemory { .. }) if own => {}
@@ -140,5 +157,8 @@ impl Node {
 /// least a run header (the reader lays its merge's header there), at most the region's own length (its growth in place is
 /// `committed` past it).
 fn own_keep(r: &super::SlotRegion) -> usize {
-    (r.opened as usize).max(gravity_abi::breaker::SORTRUN_HDR).min(r.buf.len()) & !7
+    (r.opened as usize)
+        .max(gravity_abi::breaker::SORTRUN_HDR)
+        .min(r.buf.len())
+        & !7
 }

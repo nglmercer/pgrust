@@ -15,9 +15,15 @@ use gravity_abi::site::{next_row, seek, site};
 use gravity_abi::status::{suspend, DONE, ERROR};
 use gravity_abi::Ctx;
 use gravity_driver::{Call, Entry, Exec, Grant, Pulled, Step};
-use gravity_program::{Arena, Code, End, Generation, Handle, Layout, OutCol, Pipeline, PlanKey, Program, Reason, SiteDesc, WritePlan};
+use gravity_program::{
+    Arena, Code, End, Generation, Handle, Layout, OutCol, Pipeline, PlanKey, Program, Reason,
+    SiteDesc, WritePlan,
+};
 
-const KEY: PlanKey = PlanKey { handle: Handle(32), generation: Generation(44) };
+const KEY: PlanKey = PlanKey {
+    handle: Handle(32),
+    generation: Generation(44),
+};
 const BLOCKS: u64 = 40;
 const PER_BLOCK: u64 = 50;
 const ROWS: u64 = BLOCKS * PER_BLOCK;
@@ -34,7 +40,11 @@ static READ: AtomicI64 = AtomicI64::new(-1);
 static IMAGES: Mutex<Vec<(usize, u64)>> = Mutex::new(Vec::new());
 
 fn intact() -> bool {
-    IMAGES.lock().unwrap().iter().all(|&(p, v)| unsafe { core::slice::from_raw_parts(p as *const u8, IMAGE) }.iter().all(|&b| b == v as u8))
+    IMAGES.lock().unwrap().iter().all(|&(p, v)| {
+        unsafe { core::slice::from_raw_parts(p as *const u8, IMAGE) }
+            .iter()
+            .all(|&b| b == v as u8)
+    })
 }
 
 /// The set's producer (pipeline 0).
@@ -46,7 +56,8 @@ unsafe extern "C-unwind" fn k_prod(ctx: *mut Ctx) -> i64 {
 unsafe extern "C-unwind" fn k_pull(ctx: *mut Ctx) -> i64 {
     let s = &mut *site_ptr(ctx, 1);
     if resume::phase((*ctx).resume) != resume::EMIT {
-        (*s.keys, *s.keys.add(1), *s.keys_null, *s.keys_null.add(1)) = ((*ctx).claim.lo, (*ctx).claim.hi, 0, 0);
+        (*s.keys, *s.keys.add(1), *s.keys_null, *s.keys_null.add(1)) =
+            ((*ctx).claim.lo, (*ctx).claim.hi, 0, 0);
         seek(s);
     }
     if !intact() {
@@ -92,18 +103,48 @@ unsafe extern "C-unwind" fn k_read(ctx: *mut Ctx) -> i64 {
 
 fn program() -> Program {
     let st = Arena::new(1 << 14);
-    let sites = [SiteDesc::range_source(st.handle(), 2001, &[1, 2]), SiteDesc::range_source(st.handle(), 2002, &[1, 2])];
-    let agg = |slot| End::Breaker(Breaker::sized(BreakerKind::PlainAgg, COUNT_SUM_BYTES).in_slot(slot));
+    let sites = [
+        SiteDesc::range_source(st.handle(), 2001, &[1, 2]),
+        SiteDesc::range_source(st.handle(), 2002, &[1, 2]),
+    ];
+    let agg =
+        |slot| End::Breaker(Breaker::sized(BreakerKind::PlainAgg, COUNT_SUM_BYTES).in_slot(slot));
     let pipes = [
-        (Pipeline::serial(0, agg(1), Reason::Host), Code::hand(k_prod)),
-        (Pipeline::serial(1, agg(0), Reason::Host).consuming(&[1]), Code::hand(k_pull)),
-        (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming(&[0]), Code::hand(k_read)),
+        (
+            Pipeline::serial(0, agg(1), Reason::Host),
+            Code::hand(k_prod),
+        ),
+        (
+            Pipeline::serial(1, agg(0), Reason::Host).consuming(&[1]),
+            Code::hand(k_pull),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming(&[0]),
+            Code::hand(k_read),
+        ),
     ];
     let cols: [OutCol; 1] = [OutCol::new("c0", 20, -1, 8, true)];
-    Program::with_pipelines(Layout { nsites: 2, out_natts: 1, out_rows: 4, scratch_bytes: 0, exec_bytes: 0 }, &sites, &cols, WritePlan::SELECT, pipes)
+    Program::with_pipelines(
+        Layout {
+            nsites: 2,
+            out_natts: 1,
+            out_rows: 4,
+            scratch_bytes: 0,
+            exec_bytes: 0,
+        },
+        &sites,
+        &cols,
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
-fn run_whole(e: &mut Entry, x: &mut Exec, b: &mut gravity_driver::Binding<'_>, p: usize) -> gravity_driver::Result<()> {
+fn run_whole(
+    e: &mut Entry,
+    x: &mut Exec,
+    b: &mut gravity_driver::Binding<'_>,
+    p: usize,
+) -> gravity_driver::Result<()> {
     match e.run_pipeline(x, b, Call::batch(4))? {
         Step::Done => Ok(()),
         s => panic!("producer {p} stopped with {s:?}"),
@@ -118,22 +159,67 @@ fn a_once_read_cte_pulled_a_row_per_resume_packs_its_scratch_into_a_few_kept_chu
     let flag = AtomicU8::new(0);
     let mut sink = LegSink::new();
     let mut b = binding(&THR, &NULLS, &mut sink, &flag);
-    let mut exec = entry.start(Some(KEY), &program, &mut derive, &mut b, lease(Grant::of(256 << 20))).unwrap();
+    let mut exec = entry
+        .start(
+            Some(KEY),
+            &program,
+            &mut derive,
+            &mut b,
+            lease(Grant::of(256 << 20)),
+        )
+        .unwrap();
     entry.skip_deferred(&mut exec);
     entry.skip_pulled(&mut exec, &[2]).unwrap();
-    assert!(matches!(entry.run_pipeline(&mut exec, &mut b, Call::batch(4)).unwrap(), Step::Suspended { .. }), "the reader opens and stops");
+    assert!(
+        matches!(
+            entry
+                .run_pipeline(&mut exec, &mut b, Call::batch(4))
+                .unwrap(),
+            Step::Suspended { .. }
+        ),
+        "the reader opens and stops"
+    );
     let mut pulls = 0u64;
-    while entry.pull_nested(&mut exec, &mut b, &[0, 1], &mut run_whole).unwrap() == Pulled::Stopped {
+    while entry
+        .pull_nested(&mut exec, &mut b, &[0, 1], &mut run_whole)
+        .unwrap()
+        == Pulled::Stopped
+    {
         pulls += 1;
-        assert_eq!(exec.next_pipeline(), 2, "the reader's place back after each pull");
+        assert_eq!(
+            exec.next_pipeline(),
+            2,
+            "the reader's place back after each pull"
+        );
     }
-    assert_eq!((pulls, LANDED.load(Relaxed)), (ROWS, ROWS), "one row per resume, each parked inside the reader's hold");
-    assert_eq!(BAD.load(Relaxed), 0, "a resume found an earlier resume's image overwritten");
+    assert_eq!(
+        (pulls, LANDED.load(Relaxed)),
+        (ROWS, ROWS),
+        "one row per resume, each parked inside the reader's hold"
+    );
+    assert_eq!(
+        BAD.load(Relaxed),
+        0,
+        "a resume found an earlier resume's image overwritten"
+    );
     assert!(intact(), "an image overwritten after the last resume");
     let bound = 2 + ROWS * IMAGE as u64 / (64 << 10);
-    assert!(GROWS.load(Relaxed) <= bound, "{} arena grows for {ROWS} resumes of {IMAGE} B (bound {bound}): a chunk per resume", GROWS.load(Relaxed));
+    assert!(
+        GROWS.load(Relaxed) <= bound,
+        "{} arena grows for {ROWS} resumes of {IMAGE} B (bound {bound}): a chunk per resume",
+        GROWS.load(Relaxed)
+    );
     READER_STOP.store(0, Relaxed);
-    assert_eq!(entry.run_pipeline(&mut exec, &mut b, Call::resume(4)).unwrap(), Step::Done);
-    assert_eq!(READ.load(Relaxed), ROWS as i64, "the reader reads the whole store");
+    assert_eq!(
+        entry
+            .run_pipeline(&mut exec, &mut b, Call::resume(4))
+            .unwrap(),
+        Step::Done
+    );
+    assert_eq!(
+        READ.load(Relaxed),
+        ROWS as i64,
+        "the reader reads the whole store"
+    );
     entry.end(exec, true);
 }

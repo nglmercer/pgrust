@@ -2,8 +2,8 @@ use core::cell::RefCell;
 use core::mem::ManuallyDrop;
 
 use cache_syscache::{
-    ReleaseSysCache, SearchSysCache1, SysCacheGetAttr, SysCacheGetAttrNotNull, SysCacheKey,
-    AMOID, INDEXRELID,
+    ReleaseSysCache, SearchSysCache1, SysCacheGetAttr, SysCacheGetAttrNotNull, SysCacheKey, AMOID,
+    INDEXRELID,
 };
 use datum::Datum;
 use mcx::{Mcx, MemoryContext, PgHashMap, PgVec};
@@ -14,8 +14,8 @@ use relcache::schemapg::{
 use relcache_build_seams::{IndexAccessInfo, PgIndexListShape};
 use types_core::{AttrNumber, InvalidOid, Oid, INDEX_RELATION_ID};
 use types_error::{PgError, PgResult, ERRCODE_DATA_CORRUPTED, ERRCODE_INTERNAL_ERROR};
-use types_tuple::HeapTupleData;
 use types_rel::{AccessShareLock, FormData_pg_class, FormData_pg_index};
+use types_tuple::HeapTupleData;
 
 use crate::{int2vector_values, oid_key, oidvector_values, req};
 
@@ -83,8 +83,7 @@ pub(crate) fn relation_init_index_access_info(
     form: &FormData_pg_class,
     relnatts: i16,
 ) -> PgResult<IndexAccessInfo> {
-    let Some(tup) = SearchSysCache1(INDEXRELID, SysCacheKey::Value(Datum::from_oid(relid)))?
-    else {
+    let Some(tup) = SearchSysCache1(INDEXRELID, SysCacheKey::Value(Datum::from_oid(relid)))? else {
         return Err(cache_lookup_failed(relid));
     };
     // relcache.c:1483-1487: the index's pg_am row must exist -- a relam
@@ -97,7 +96,9 @@ pub(crate) fn relation_init_index_access_info(
         Some(amtup) => {
             let amhandler = SysCacheGetAttrNotNull(AMOID, &amtup, Anum_pg_am_amhandler);
             ReleaseSysCache(amtup);
-            amhandler.map(|d| d.as_oid()).and_then(amapi::GetIndexAmRoutine)
+            amhandler
+                .map(|d| d.as_oid())
+                .and_then(amapi::GetIndexAmRoutine)
         }
         None => Err(access_method_lookup_failed(form.relam)),
     };
@@ -126,8 +127,7 @@ pub(crate) fn relation_init_index_access_info(
     let indnkeyatts = get(Anum_pg_index_indnkeyatts)?.as_i16();
     let nkey = indnkeyatts as usize;
 
-    let mut indkey: PgVec<'static, AttrNumber> =
-        mcx::vec_with_capacity_in(mcx, indnatts as usize)?;
+    let mut indkey: PgVec<'static, AttrNumber> = mcx::vec_with_capacity_in(mcx, indnatts as usize)?;
     // SAFETY: not-null plain-storage vector columns of the held syscache tuple.
     let (keyvals, collvals, classvals, optvals) = unsafe {
         (
@@ -163,7 +163,8 @@ pub(crate) fn relation_init_index_access_info(
     };
     let mut opfamily: PgVec<'static, Oid> = mcx::vec_with_capacity_in(mcx, nkey)?;
     let mut opcintype: PgVec<'static, Oid> = mcx::vec_with_capacity_in(mcx, nkey)?;
-    let mut supportinfo: Vec<Option<types_fmgr::FmgrInfo>> = ::mcx::std_vec_with_capacity("utils", nkey)?;
+    let mut supportinfo: Vec<Option<types_fmgr::FmgrInfo>> =
+        ::mcx::std_vec_with_capacity("utils", nkey)?;
     // C rd_support: nkey x amsupport proc OIDs, row-major.
     let mut support: PgVec<'static, Oid> = mcx::vec_with_capacity_in(mcx, nkey * amsupport)?;
     for &opc in &classvals[..nkey] {
@@ -240,7 +241,15 @@ pub(crate) fn relation_init_index_access_info(
     };
     ReleaseSysCache(tup);
 
-    Ok(IndexAccessInfo { index, opcintype, opfamily, indoption, indcollation, supportinfo, support })
+    Ok(IndexAccessInfo {
+        index,
+        opcintype,
+        opfamily,
+        indoption,
+        indcollation,
+        supportinfo,
+        support,
+    })
 }
 
 #[derive(Clone, Copy)]
@@ -288,7 +297,10 @@ const Anum_pg_partitioned_table_partclass: i32 = 6;
 /// `families`' support material: the indexes and partitioned indexes with an opclass of a family in `indclass`, the
 /// partitioned tables with one in their key's `partclass`. No catalog index covers those columns (nor in C): heap scans,
 /// run only at the commit of a transaction that changed a support catalog.
-pub(crate) fn support_family_relids<'mcx>(mcx: Mcx<'mcx>, families: &[Oid]) -> PgResult<PgVec<'mcx, Oid>> {
+pub(crate) fn support_family_relids<'mcx>(
+    mcx: Mcx<'mcx>,
+    families: &[Oid],
+) -> PgResult<PgVec<'mcx, Oid>> {
     let cx = MemoryContext::new("support_family_relids");
     let smcx = cx.mcx();
     let mut opcs: PgVec<'_, Oid> = PgVec::new_in(smcx);
@@ -307,8 +319,16 @@ pub(crate) fn support_family_relids<'mcx>(mcx: Mcx<'mcx>, families: &[Oid]) -> P
         return Ok(out);
     }
     for (catalog, own, classes) in [
-        (INDEX_RELATION_ID, Anum_pg_index_indexrelid, Anum_pg_index_indclass),
-        (PARTITIONED_RELATION_ID, Anum_pg_partitioned_table_partrelid, Anum_pg_partitioned_table_partclass),
+        (
+            INDEX_RELATION_ID,
+            Anum_pg_index_indexrelid,
+            Anum_pg_index_indclass,
+        ),
+        (
+            PARTITIONED_RELATION_ID,
+            Anum_pg_partitioned_table_partrelid,
+            Anum_pg_partitioned_table_partclass,
+        ),
     ] {
         let rel = table::table_open(smcx, catalog, AccessShareLock)?;
         let mut scan = genam::systable_beginscan(smcx, &rel, InvalidOid, false, None, &[])?;
@@ -469,8 +489,10 @@ fn unexpected_null_pg_index(relid: Oid, attno: i32) -> Box<PgError> {
 #[inline(never)]
 fn relnatts_disagrees(relid: Oid) -> Box<PgError> {
     Box::new(
-        PgError::error(format!("relnatts disagrees with indnatts for index {relid}"))
-            .with_sqlstate(ERRCODE_INTERNAL_ERROR),
+        PgError::error(format!(
+            "relnatts disagrees with indnatts for index {relid}"
+        ))
+        .with_sqlstate(ERRCODE_INTERNAL_ERROR),
     )
 }
 
@@ -479,10 +501,7 @@ fn relnatts_disagrees(relid: Oid) -> Box<PgError> {
 #[inline(never)]
 // relcache.c:1632 elog(ERROR, "bogus pg_index tuple") -- no OID in the text.
 fn bogus_pg_index() -> Box<PgError> {
-    Box::new(
-        PgError::error("bogus pg_index tuple")
-            .with_sqlstate(ERRCODE_INTERNAL_ERROR),
-    )
+    Box::new(PgError::error("bogus pg_index tuple").with_sqlstate(ERRCODE_INTERNAL_ERROR))
 }
 
 #[track_caller]
@@ -591,7 +610,9 @@ pub(crate) fn scan_exclusion_ops<'mcx>(
         }
         let (d, isnull) = crate::getattr(td, tup, Anum_pg_constraint_conexclop);
         if isnull {
-            return Err(exclusion_info_error(format!("null conexclop for rel {index_relname}")));
+            return Err(exclusion_info_error(format!(
+                "null conexclop for rel {index_relname}"
+            )));
         }
         // The oid[] varlena header comes off the (possibly crafted) catalog
         // tuple; bound its declared length against the tuple extent so a forged
@@ -610,10 +631,13 @@ pub(crate) fn scan_exclusion_ops<'mcx>(
         // relcache.c:5738-5744: ARR_NDIM == 1, dims[0] == indnkeyatts, no
         // nulls, OIDOID elements -- else "conexclop is not a 1-D Oid array".
         let rd = |off: usize| -> i32 {
-            full.get(off..off + 4).map_or(0, |b| i32::from_ne_bytes(b.try_into().unwrap()))
+            full.get(off..off + 4)
+                .map_or(0, |b| i32::from_ne_bytes(b.try_into().unwrap()))
         };
         if rd(4) != 1 || rd(16) != indnkeyatts as i32 || rd(8) != 0 || rd(12) as Oid != OIDOID {
-            return Err(exclusion_info_error("conexclop is not a 1-D Oid array".to_string()));
+            return Err(exclusion_info_error(
+                "conexclop is not a 1-D Oid array".to_string(),
+            ));
         }
         let elems = datum::array_build::deconstruct_array_image(smcx, &full, 4, true, b'i')?;
         let mut ops: PgVec<'mcx, Oid> = mcx::vec_with_capacity_in(mcx, elems.len())?;

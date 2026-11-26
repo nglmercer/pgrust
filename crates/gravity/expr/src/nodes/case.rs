@@ -37,8 +37,12 @@ pub fn compile_case<'mcx>(b: &mut Builder<'_, 'mcx>, c: &CaseExpr<'mcx>) -> Comp
     };
     let mut ids = Vec::with_capacity(c.args.len() * 2); // alloc: Program
     for w in c.args.iter() {
-        let w = w.as_case_when().ok_or(crate::CompileError::Unsupported(Kind::CaseExpr))?;
-        let (Some(e), Some(r)) = (w.expr, w.result) else { return unsupported(Kind::CaseExpr) };
+        let w = w
+            .as_case_when()
+            .ok_or(crate::CompileError::Unsupported(Kind::CaseExpr))?;
+        let (Some(e), Some(r)) = (w.expr, w.result) else {
+            return unsupported(Kind::CaseExpr);
+        };
         ids.push(b.compile(e)?);
         ids.push(b.compile(r)?);
     }
@@ -47,26 +51,51 @@ pub fn compile_case<'mcx>(b: &mut Builder<'_, 'mcx>, c: &CaseExpr<'mcx>) -> Comp
         Some(d) => Some(b.compile(d)?),
         None => None,
     };
-    Ok(b.push(ExprNode::Case(Case { arg, whens, default })))
+    Ok(b.push(ExprNode::Case(Case {
+        arg,
+        whens,
+        default,
+    })))
 }
 
-pub fn compile_coalesce<'mcx>(b: &mut Builder<'_, 'mcx>, c: &CoalesceExpr<'mcx>) -> CompileResult<NodeId> {
+pub fn compile_coalesce<'mcx>(
+    b: &mut Builder<'_, 'mcx>,
+    c: &CoalesceExpr<'mcx>,
+) -> CompileResult<NodeId> {
     let args = b.kids(&c.args)?;
     Ok(b.push(ExprNode::Coalesce(Coalesce { args })))
 }
 
-pub fn compile_minmax<'mcx>(b: &mut Builder<'_, 'mcx>, m: &MinMaxExpr<'mcx>) -> CompileResult<NodeId> {
+pub fn compile_minmax<'mcx>(
+    b: &mut Builder<'_, 'mcx>,
+    m: &MinMaxExpr<'mcx>,
+) -> CompileResult<NodeId> {
     let cmp_fn = b.catalog.type_cmp_proc(m.minmaxtype)?;
     if cmp_fn == 0 {
         return unsupported(Kind::MinMaxExpr);
     }
     let args = b.kids(&m.args)?;
-    let call = bind_typed(b, cmp_fn, Kids::NONE, &[m.minmaxtype, m.minmaxtype], m.inputcollid)?;
+    let call = bind_typed(
+        b,
+        cmp_fn,
+        Kids::NONE,
+        &[m.minmaxtype, m.minmaxtype],
+        m.inputcollid,
+    )?;
     let cmp = b.site(call);
-    Ok(b.push(ExprNode::MinMax(MinMax { args, least: m.op == MinMaxOp::IS_LEAST, cmp })))
+    Ok(b.push(ExprNode::MinMax(MinMax {
+        args,
+        least: m.op == MinMaxOp::IS_LEAST,
+        cmp,
+    })))
 }
 
-pub fn eval_case(p: &Prog<'_, '_>, st: &mut St<'_>, n: &Case, cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
+pub fn eval_case(
+    p: &Prog<'_, '_>,
+    st: &mut St<'_>,
+    n: &Case,
+    cx: &mut Cx<'_, '_>,
+) -> PgResult<NullableDatum> {
     let saved = cx.casetest;
     if let Some(a) = n.arg {
         cx.casetest = eval(p, st, a, cx)?;
@@ -76,7 +105,12 @@ pub fn eval_case(p: &Prog<'_, '_>, st: &mut St<'_>, n: &Case, cx: &mut Cx<'_, '_
     r
 }
 
-fn eval_whens(p: &Prog<'_, '_>, st: &mut St<'_>, n: &Case, cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
+fn eval_whens(
+    p: &Prog<'_, '_>,
+    st: &mut St<'_>,
+    n: &Case,
+    cx: &mut Cx<'_, '_>,
+) -> PgResult<NullableDatum> {
     let kids = &p.kids[n.whens.start as usize..n.whens.start as usize + n.whens.len as usize];
     for pair in kids.chunks_exact(2) {
         let c = eval(p, st, pair[0], cx)?;
@@ -90,7 +124,12 @@ fn eval_whens(p: &Prog<'_, '_>, st: &mut St<'_>, n: &Case, cx: &mut Cx<'_, '_>) 
     }
 }
 
-pub fn eval_coalesce(p: &Prog<'_, '_>, st: &mut St<'_>, n: &Coalesce, cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
+pub fn eval_coalesce(
+    p: &Prog<'_, '_>,
+    st: &mut St<'_>,
+    n: &Coalesce,
+    cx: &mut Cx<'_, '_>,
+) -> PgResult<NullableDatum> {
     let kids = &p.kids[n.args.start as usize..n.args.start as usize + n.args.len as usize];
     for &k in kids {
         let v = eval(p, st, k, cx)?;
@@ -101,7 +140,12 @@ pub fn eval_coalesce(p: &Prog<'_, '_>, st: &mut St<'_>, n: &Coalesce, cx: &mut C
     Ok(NullableDatum::null())
 }
 
-pub fn eval_minmax(p: &Prog<'_, '_>, st: &mut St<'_>, n: &MinMax, cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
+pub fn eval_minmax(
+    p: &Prog<'_, '_>,
+    st: &mut St<'_>,
+    n: &MinMax,
+    cx: &mut Cx<'_, '_>,
+) -> PgResult<NullableDatum> {
     let kids = &p.kids[n.args.start as usize..n.args.start as usize + n.args.len as usize];
     let call = &p.sites[n.cmp.0 as usize];
     let mut best = NullableDatum::null();
@@ -118,7 +162,9 @@ pub fn eval_minmax(p: &Prog<'_, '_>, st: &mut St<'_>, n: &MinMax, cx: &mut Cx<'_
         }
         args[0] = v.value;
         args[1] = best.value;
-        let c = invoke(p, st, call, cx, &args, &nulls, false)?.value.as_i32();
+        let c = invoke(p, st, call, cx, &args, &nulls, false)?
+            .value
+            .as_i32();
         if (n.least && c < 0) || (!n.least && c > 0) {
             best = v;
         }

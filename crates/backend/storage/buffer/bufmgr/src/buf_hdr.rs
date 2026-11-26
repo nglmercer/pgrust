@@ -287,7 +287,10 @@ pub fn BufferManagerShmemInit() -> PgResult<()> {
         mcx::mul_size(nu, C_SIZEOF_CONDITION_VARIABLE_MINIMALLY_PADDED)?,
         res.cvs,
     )?;
-    shmem::ShmemInitStruct("Checkpoint BufferIds", mcx::mul_size(nu, C_SIZEOF_CKPT_SORT_ITEM)?)?;
+    shmem::ShmemInitStruct(
+        "Checkpoint BufferIds",
+        mcx::mul_size(nu, C_SIZEOF_CKPT_SORT_ITEM)?,
+    )?;
     let descs = res.descs as *mut BufferDescPadded;
     let io_cvs = res.cvs as *mut ConditionVariable;
     let boot = geo.boot_buffers;

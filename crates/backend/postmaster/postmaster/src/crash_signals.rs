@@ -37,8 +37,7 @@ const CRASH_SIGS: [(i32, &str); 4] = [
     (libc::SIGABRT, "SIGABRT"),
 ];
 
-static mut PREV_ACTIONS: [MaybeUninit<libc::sigaction>; 4] =
-    [const { MaybeUninit::uninit() }; 4];
+static mut PREV_ACTIONS: [MaybeUninit<libc::sigaction>; 4] = [const { MaybeUninit::uninit() }; 4];
 static INSTALLED: AtomicBool = AtomicBool::new(false);
 
 #[allow(function_casts_as_integer)] // libc sa_sigaction is usize; handler-address cast is intentional
@@ -70,7 +69,11 @@ extern "C" fn crash_handler(sig: i32, info: *mut libc::siginfo_t, uctx: *mut lib
             name = n;
             // SAFETY: restoring the sigaction saved at install.
             unsafe {
-                libc::sigaction(sig, (&raw const PREV_ACTIONS[idx]).cast(), core::ptr::null_mut());
+                libc::sigaction(
+                    sig,
+                    (&raw const PREV_ACTIONS[idx]).cast(),
+                    core::ptr::null_mut(),
+                );
             }
         }
     }
@@ -85,7 +88,11 @@ extern "C" fn crash_handler(sig: i32, info: *mut libc::siginfo_t, uctx: *mut lib
     );
 
     let mut buf = [0u8; 256];
-    let mut w = Writer { buf: &mut buf, at: 0, fd: 2 };
+    let mut w = Writer {
+        buf: &mut buf,
+        at: 0,
+        fd: 2,
+    };
     w.put(b"\npgrust: FATAL: server process was terminated by signal ");
     w.dec(sig as u64);
     w.put(b" (");
@@ -93,9 +100,17 @@ extern "C" fn crash_handler(sig: i32, info: *mut libc::siginfo_t, uctx: *mut lib
     w.put(b"), fault address 0x");
     // SAFETY: siginfo pointer is kernel-provided and valid for SA_SIGINFO.
     #[cfg(target_os = "linux")]
-    let addr = if info.is_null() { 0 } else { (unsafe { (*info).si_addr() }) as usize };
+    let addr = if info.is_null() {
+        0
+    } else {
+        (unsafe { (*info).si_addr() }) as usize
+    };
     #[cfg(not(target_os = "linux"))]
-    let addr = if info.is_null() { 0 } else { (unsafe { (*info).si_addr }) as usize };
+    let addr = if info.is_null() {
+        0
+    } else {
+        (unsafe { (*info).si_addr }) as usize
+    };
     w.hex(addr as u64);
     w.put(b"\n");
     w.flush();
@@ -244,7 +259,7 @@ pub unsafe fn walk_frames(fp: usize, out: &mut [usize]) -> usize {
     let mut fp = fp;
     let mut n = 0usize;
     let mut prev = 0usize;
-    while n < cap && fp > prev && fp.is_multiple_of( 8) && (prev == 0 || fp - prev < (64 << 20)) {
+    while n < cap && fp > prev && fp.is_multiple_of(8) && (prev == 0 || fp - prev < (64 << 20)) {
         // SAFETY: guarded by the loop condition; see the doc comment.
         let ret = unsafe { core::ptr::read_volatile((fp + 8) as *const usize) };
         if ret < 0x1_0000 {
@@ -354,7 +369,11 @@ impl CrashRegs {
                     return None;
                 }
                 let ss = &*(mc.add(SS_OFF) as *const DarwinSs);
-                return Some(CrashRegs { pc: ss.pc as usize, lr: ss.lr as usize, fp: ss.fp as usize });
+                return Some(CrashRegs {
+                    pc: ss.pc as usize,
+                    lr: ss.lr as usize,
+                    fp: ss.fp as usize,
+                });
             }
         }
         #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
@@ -372,7 +391,11 @@ impl CrashRegs {
                 }
                 let rbp = *(mc.add(RBP_OFF) as *const u64);
                 let rip = *(mc.add(RIP_OFF) as *const u64);
-                return Some(CrashRegs { pc: rip as usize, lr: 0, fp: rbp as usize });
+                return Some(CrashRegs {
+                    pc: rip as usize,
+                    lr: 0,
+                    fp: rbp as usize,
+                });
             }
         }
         None
@@ -455,7 +478,13 @@ impl Writer<'_> {
         let mut off = 0usize;
         while off < self.at {
             // SAFETY: write(2) on an open fd from a fixed stack buffer.
-            let r = unsafe { libc::write(self.fd, self.buf[off..].as_ptr() as *const libc::c_void, self.at - off) };
+            let r = unsafe {
+                libc::write(
+                    self.fd,
+                    self.buf[off..].as_ptr() as *const libc::c_void,
+                    self.at - off,
+                )
+            };
             if r <= 0 {
                 break;
             }
@@ -600,7 +629,11 @@ mod tests {
             got
         });
         let mut buf = [0u8; 16];
-        let mut w = Writer { buf: &mut buf, at: 0, fd: fds[1] };
+        let mut w = Writer {
+            buf: &mut buf,
+            at: 0,
+            fd: fds[1],
+        };
         let big = [b'x'; 2048];
         w.put(&big);
         w.put(b"|");
@@ -617,7 +650,10 @@ mod tests {
         assert_eq!(w.at, 0);
         unsafe { libc::close(fds[1]) };
         let got = reader.join().unwrap();
-        let expect = format!("{}|ffffffffffffffff|18446744073709551615|0|0\n", "x".repeat(2048));
+        let expect = format!(
+            "{}|ffffffffffffffff|18446744073709551615|0|0\n",
+            "x".repeat(2048)
+        );
         assert_eq!(String::from_utf8(got).unwrap(), expect);
     }
 }

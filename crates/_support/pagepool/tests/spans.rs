@@ -12,11 +12,17 @@ fn h() -> Hint {
 #[test]
 fn base_pages_needs_pool_alloc() {
     setup();
-    assert!(base_pages(8 * MIB, || ()).is_none(), "PoolAlloc does not serve this binary: the caller's own road");
+    assert!(
+        base_pages(8 * MIB, || ()).is_none(),
+        "PoolAlloc does not serve this binary: the caller's own road"
+    );
 }
 
 #[test]
-#[cfg_attr(pagepool_tsan, ignore = "TSan: its SEGV handler exits 66, so guard_past_traps' child never dies by SIGSEGV")]
+#[cfg_attr(
+    pagepool_tsan,
+    ignore = "TSan: its SEGV handler exits 66, so guard_past_traps' child never dies by SIGSEGV"
+)]
 fn spans() {
     setup();
     pool_span_grows_in_place();
@@ -34,10 +40,16 @@ fn pool_span_grows_in_place() {
     let base = s.as_ptr();
     touch(base as usize, s.len());
     // SAFETY: ours.
-    assert!(unsafe { grow_span(&mut s, 7 * MIB) }, "the next superpages of a fresh chunk are free");
+    assert!(
+        unsafe { grow_span(&mut s, 7 * MIB) },
+        "the next superpages of a fresh chunk are free"
+    );
     assert_eq!((s.as_ptr(), s.len()), (base, 8 * MIB));
     let info = run_of((base as usize + 7 * MIB) as *const u8).unwrap();
-    assert_eq!((info.kind, info.base), (Kind::Span { superpages: 4 }, base as usize));
+    assert_eq!(
+        (info.kind, info.base),
+        (Kind::Span { superpages: 4 }, base as usize)
+    );
     // SAFETY: ours.
     unsafe { shrink_span(&mut s, 3 * MIB) };
     assert_eq!(s.len(), 4 * MIB);
@@ -63,14 +75,22 @@ fn lazy_span_grows_by_mremap() {
     if !grown {
         eprintln!("SKIP lazy grow by mremap: refused (kernel without MREMAP_DONTUNMAP?)");
     } else {
-        assert_ne!(a.as_ptr(), old, "moved: the next address space is the neighbour's");
+        assert_ne!(
+            a.as_ptr(),
+            old,
+            "moved: the next address space is the neighbour's"
+        );
         assert_eq!(a.len(), 128 * MIB);
         // SAFETY: ours, moved with its pages.
         for k in 0..32 {
             assert_eq!(unsafe { a.as_ptr().add(k * SUPER).read() }, k as u8 + 1);
         }
         assert_eq!(stats().claimed, c0, "a move claims nothing");
-        assert_eq!(resident(old as usize, 64 * MIB), 0, "the old range holds no pages");
+        assert_eq!(
+            resident(old as usize, 64 * MIB),
+            0,
+            "the old range holds no pages"
+        );
     }
     // SAFETY: ours, not used again.
     unsafe {
@@ -109,7 +129,10 @@ fn commit_to_is_exact() {
     let s1 = stats();
     assert_eq!(s1.claimed - s0.claimed, 10 * MIB);
     assert_eq!(s1.lazy_committed - s0.lazy_committed, 10 * MIB);
-    assert_eq!(s1.in_use[Tag::PROGRAM.0 as usize] - s0.in_use[Tag::PROGRAM.0 as usize], 10 * MIB);
+    assert_eq!(
+        s1.in_use[Tag::PROGRAM.0 as usize] - s0.in_use[Tag::PROGRAM.0 as usize],
+        10 * MIB
+    );
     // SAFETY: ours.
     unsafe { commit_to(&mut e, 5 * MIB) };
     assert_eq!(stats().claimed, s1.claimed, "commit_to never shrinks");

@@ -29,12 +29,7 @@
 use crate::mbconv_data::{BAD_SEQS, CONV_CELLS, ENCODINGS, ENC_TEXTS};
 use crate::stmt::{Gen, StmtKind};
 
-const SHAPES: &[&str] = &[
-    "mbconv:conv",
-    "mbconv:from",
-    "mbconv:to",
-    "mbconv:len",
-];
+const SHAPES: &[&str] = &["mbconv:conv", "mbconv:from", "mbconv:to", "mbconv:len"];
 
 /// Registry entry point (stmt::STMT_MODULES).
 pub fn gen_mbconv_module(g: &mut Gen) -> Vec<StmtKind> {
@@ -238,7 +233,11 @@ mod tests {
             assert!(ENCODINGS.contains(&b.src), "{}", b.src);
         }
         for t in ENC_TEXTS {
-            assert!(!t.text.contains('\'') && !t.text.contains('\\'), "{}", t.text);
+            assert!(
+                !t.text.contains('\'') && !t.text.contains('\\'),
+                "{}",
+                t.text
+            );
         }
     }
 }

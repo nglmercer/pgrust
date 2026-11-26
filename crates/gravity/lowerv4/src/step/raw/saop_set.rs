@@ -74,11 +74,23 @@ pub(crate) fn region_err(what: &str, e: gravity_driver::Error) -> Box<PgError> {
 /// The set of array `a` (a non-null datum of the node's array type) for the owned `Desc` `desc` of the program's host state
 /// `owner`, in a region charged to the grant pool (`gravity_driver::in_list_set_region`): its address is the site's word for this
 /// execution.
-pub(crate) fn bound(owner: Option<&dyn core::any::Any>, desc: u32, a: u64) -> types_error::PgResult<gravity_driver::RegionBuf> {
-    let owner = owner.map_or(core::ptr::null(), |o| o as *const dyn core::any::Any as *const u8);
+pub(crate) fn bound(
+    owner: Option<&dyn core::any::Any>,
+    desc: u32,
+    a: u64,
+) -> types_error::PgResult<gravity_driver::RegionBuf> {
+    let owner = owner.map_or(core::ptr::null(), |o| {
+        o as *const dyn core::any::Any as *const u8
+    });
     // SAFETY: `owner` is the program's host state (an `Owner`, `finish_keeping`'s or `rebuild`'s), borrowed for the call.
-    let d = (!owner.is_null()).then(|| unsafe { owned_desc(owner, desc as usize) }).flatten().ok_or_else(|| err("the program owns no such site"))?;
-    let h = d.hashed.as_ref().ok_or_else(|| err("a set word for a site PG did not hash"))?;
+    let d = (!owner.is_null())
+        .then(|| unsafe { owned_desc(owner, desc as usize) })
+        .flatten()
+        .ok_or_else(|| err("the program owns no such site"))?;
+    let h = d
+        .hashed
+        .as_ref()
+        .ok_or_else(|| err("a set word for a site PG did not hash"))?;
     if h.bytes {
         // LIST-FORM: a byte set (step/raw/saop_bytes.rs)
         // SAFETY: as `build`.
@@ -94,14 +106,25 @@ pub(crate) fn bound(owner: Option<&dyn core::any::Any>, desc: u32, a: u64) -> ty
 
 /// # Safety
 /// `a` is a non-null datum of `d`'s array type.
-unsafe fn build(d: &Desc, h: &Hashed, a: u64, region: &mut Region) -> types_error::PgResult<gravity_driver::RegionBuf> {
+unsafe fn build(
+    d: &Desc,
+    h: &Hashed,
+    a: u64,
+    region: &mut Region,
+) -> types_error::PgResult<gravity_driver::RegionBuf> {
     let img = image_view(Datum::from_u64(a), -1, region)?;
-    let n = Walk::over(Datum::from_usize(img.ptr as usize), d.elem, &mut Region::over(&mut []))?.len();
+    let n = Walk::over(
+        Datum::from_usize(img.ptr as usize),
+        d.elem,
+        &mut Region::over(&mut []),
+    )?
+    .len();
     let cap = (n * 2).next_power_of_two().max(8);
     let at = 16 + cap * 16;
-    let mut buf = gravity_driver::in_list_set_region(at + img.len as usize).map_err(|e| region_err("the IN list's set", e))?;
+    let mut buf = gravity_driver::in_list_set_region(at + img.len as usize)
+        .map_err(|e| region_err("the IN list's set", e))?;
     let base = buf.as_mut_ptr();
-    if !( base as usize).is_multiple_of( 8) {
+    if !(base as usize).is_multiple_of(8) {
         return Err(err("the IN list's set region is not 8-aligned"));
     }
     core::ptr::copy_nonoverlapping(img.ptr, base.add(at), img.len as usize);
@@ -110,7 +133,11 @@ unsafe fn build(d: &Desc, h: &Hashed, a: u64, region: &mut Region) -> types_erro
     slots.fill([0, 0]);
     (*head).mask = cap as u64 - 1;
     (*head).has_nulls = 0;
-    let mut w = Walk::over(Datum::from_usize(base.add(at) as usize), d.elem, &mut Region::over(&mut []))?;
+    let mut w = Walk::over(
+        Datum::from_usize(base.add(at) as usize),
+        d.elem,
+        &mut Region::over(&mut []),
+    )?;
     while let Some(e) = w.next() {
         if e.isnull {
             (*head).has_nulls |= 1;
@@ -124,13 +151,15 @@ unsafe fn build(d: &Desc, h: &Hashed, a: u64, region: &mut Region) -> types_erro
                 let k = native(e.value.as_u64(), d.lens[1]) as u64;
                 (mix(k) as u64 | OCC, k)
             }
-            Some((hf, conv)) => match with_region(0, |r| hash(hf, conv[1], d.coll, e.value.as_u64(), r)) {
-                Ok(t) => (t as u64 | OCC, e.value.as_u64()),
-                Err(_) => {
-                    (*head).has_nulls |= HELD;
-                    break;
+            Some((hf, conv)) => {
+                match with_region(0, |r| hash(hf, conv[1], d.coll, e.value.as_u64(), r)) {
+                    Ok(t) => (t as u64 | OCC, e.value.as_u64()),
+                    Err(_) => {
+                        (*head).has_nulls |= HELD;
+                        break;
+                    }
                 }
-            },
+            }
         };
         insert(slots, tag, value, h.hash.is_none());
     }
@@ -145,19 +174,32 @@ unsafe fn build(d: &Desc, h: &Hashed, a: u64, region: &mut Region) -> types_erro
 /// caller's bound ctx.
 // inlined into saop_host.rs `Desc::eval` whichever codegen unit fast-profile gives each file (outlined: a hashed int list 1.14x)
 #[inline]
-pub(crate) unsafe fn probe(ctx: u64, set: u64, d: &Desc, h: &Hashed, v: u64, keys: u64) -> Result<(bool, bool), Box<PgError>> {
+pub(crate) unsafe fn probe(
+    ctx: u64,
+    set: u64,
+    d: &Desc,
+    h: &Hashed,
+    v: u64,
+    keys: u64,
+) -> Result<(bool, bool), Box<PgError>> {
     let head = set as *mut Head;
     let mask = (*head).mask as usize;
     // D2614: the first element hash that raised at bind (`HELD`) raises again here, as PG raises it at its first
     // evaluation; the shims are pure, so the same element raises the same error
     if (*head).has_nulls & HELD != 0 {
-        let mut w = Walk::over(Datum::from_usize((head as *const u8).add(16 + (mask + 1) * 16) as usize), d.elem, &mut Region::over(&mut []))?;
+        let mut w = Walk::over(
+            Datum::from_usize((head as *const u8).add(16 + (mask + 1) * 16) as usize),
+            d.elem,
+            &mut Region::over(&mut []),
+        )?;
         while let Some(e) = w.next() {
             if let (false, Some((hf, conv))) = (e.isnull, h.hash) {
                 with_region(ctx, |r| hash(hf, conv[1], d.coll, e.value.as_u64(), r))?;
             }
         }
-        return Err(err("an element hash that raised at bind did not raise at the probe"));
+        return Err(err(
+            "an element hash that raised at bind did not raise at the probe",
+        ));
     }
     // D2125: a user key's elements classed at the run's first probe (`RUN_AT`), each by its class number in the run
     // (kernels userfp `class_number`: the type's hash proc, then its equality, through fmgr on the leader), the native
@@ -167,10 +209,18 @@ pub(crate) unsafe fn probe(ctx: u64, set: u64, d: &Desc, h: &Hashed, v: u64, key
         if (*head).has_nulls >> RUN_AT != run {
             let slots = core::slice::from_raw_parts_mut(head.add(1) as *mut [u64; 2], mask + 1);
             slots.fill([0, 0]);
-            let mut w = Walk::over(Datum::from_usize((head as *const u8).add(16 + (mask + 1) * 16) as usize), d.elem, &mut Region::over(&mut []))?;
+            let mut w = Walk::over(
+                Datum::from_usize((head as *const u8).add(16 + (mask + 1) * 16) as usize),
+                d.elem,
+                &mut Region::over(&mut []),
+            )?;
             while let Some(e) = w.next() {
                 if !e.isnull {
-                    let k = gravity_kernels::typesem::userfp::class_number(keys, e.value.as_usize(), d.user)? as u64;
+                    let k = gravity_kernels::typesem::userfp::class_number(
+                        keys,
+                        e.value.as_usize(),
+                        d.user,
+                    )? as u64;
                     insert(slots, mix(k) as u64 | OCC, k, true);
                 }
             }
@@ -180,10 +230,17 @@ pub(crate) unsafe fn probe(ctx: u64, set: u64, d: &Desc, h: &Hashed, v: u64, key
     let slots = core::slice::from_raw_parts(head.add(1) as *const [u64; 2], mask + 1);
     let (tag, key) = match h.hash {
         None => {
-            let k = if d.user != 0 { gravity_kernels::typesem::userfp::class_number(keys, v as usize, d.user)? as u64 } else { native(v, d.lens[0]) as u64 };
+            let k = if d.user != 0 {
+                gravity_kernels::typesem::userfp::class_number(keys, v as usize, d.user)? as u64
+            } else {
+                native(v, d.lens[0]) as u64
+            };
             (mix(k) as u64 | OCC, Some(k))
         }
-        Some((hf, conv)) => (with_region(ctx, |region| hash(hf, conv[0], d.coll, v, region))? as u64 | OCC, None),
+        Some((hf, conv)) => (
+            with_region(ctx, |region| hash(hf, conv[0], d.coll, v, region))? as u64 | OCC,
+            None,
+        ),
     };
     let mut i = tag as usize & mask;
     while slots[i][0] != 0 {
@@ -191,8 +248,15 @@ pub(crate) unsafe fn probe(ctx: u64, set: u64, d: &Desc, h: &Hashed, v: u64, key
             let hit = match key {
                 Some(k) => slots[i][1] == k,
                 None => match h.eq.as_ref() {
-                    Some(eq) => with_region(ctx, |region| call2(eq, d.coll, v, slots[i][1], region))? == Some(true),
-                    None => return Err(err("a hashed set with neither its equality nor a native key")),
+                    Some(eq) => {
+                        with_region(ctx, |region| call2(eq, d.coll, v, slots[i][1], region))?
+                            == Some(true)
+                    }
+                    None => {
+                        return Err(err(
+                            "a hashed set with neither its equality nor a native key",
+                        ))
+                    }
                 },
             };
             if hit {
@@ -217,6 +281,6 @@ mod tests {
     #[test]
     fn a_zero_hash_is_occupied() {
         assert_ne!(mix(0) as u64 | OCC, 0);
-        assert_ne!( OCC, 0);
+        assert_ne!(OCC, 0);
     }
 }

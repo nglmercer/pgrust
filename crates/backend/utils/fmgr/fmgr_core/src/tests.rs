@@ -1,5 +1,7 @@
 use ::datum::Datum;
-use ::fmgr::{FmgrBuiltin, FmgrInfo, FnKind, FunctionCallInfoBaseData, LocalFcinfo, TRACK_FUNC_ALL};
+use ::fmgr::{
+    FmgrBuiltin, FmgrInfo, FnKind, FunctionCallInfoBaseData, LocalFcinfo, TRACK_FUNC_ALL,
+};
 use ::types_core::{primitive::InvalidOid, Oid};
 use ::types_error::PgResult;
 
@@ -16,7 +18,10 @@ fn int4pl_body(
 fn table_matches_canonical_and_is_sorted() {
     assert_eq!(FMGR_BUILTINS.len(), CANONICAL.len());
     assert_eq!(FMGR_BUILTINS.len(), 3102);
-    assert_eq!(FMGR_BUILTINS[FMGR_BUILTINS.len() - 1].foid, FMGR_LAST_BUILTIN_OID);
+    assert_eq!(
+        FMGR_BUILTINS[FMGR_BUILTINS.len() - 1].foid,
+        FMGR_LAST_BUILTIN_OID
+    );
     for (i, (b, c)) in FMGR_BUILTINS.iter().zip(CANONICAL.iter()).enumerate() {
         assert_eq!((b.foid, b.name, b.nargs, b.strict, b.retset), *c);
         if i > 0 {
@@ -42,7 +47,10 @@ fn binary_wire_send_recv_holes_stay_ported() {
     ] {
         let b = fmgr_isbuiltin(oid).unwrap_or_else(|| panic!("{name} missing from canonical"));
         assert_eq!(b.name, name);
-        assert!(!row_is_stub(b), "{name} (OID {oid}) resolves to the not-ported stub");
+        assert!(
+            !row_is_stub(b),
+            "{name} (OID {oid}) resolves to the not-ported stub"
+        );
     }
 }
 
@@ -69,7 +77,10 @@ fn isbuiltin_misses_match_c() {
 #[test]
 fn known_builtin_metadata() {
     let b = fmgr_isbuiltin(177).unwrap();
-    assert_eq!((b.name, b.nargs, b.strict, b.retset), ("int4pl", 2, true, false));
+    assert_eq!(
+        (b.name, b.nargs, b.strict, b.retset),
+        ("int4pl", 2, true, false)
+    );
     let b = fmgr_isbuiltin(6430).unwrap();
     assert_eq!(b.name, "uuidv7_interval");
     let b = fmgr_isbuiltin(3).unwrap();
@@ -94,7 +105,10 @@ fn fmgr_info_builtin_fast_path() {
 fn fmgr_info_into_refills_carrier() {
     let mut f = FmgrInfo::unresolved();
     fmgr_info_into(177, &mut f).unwrap();
-    assert_eq!((f.fn_oid, f.fn_nargs, f.fn_strict, f.fn_retset), (177, 2, true, false));
+    assert_eq!(
+        (f.fn_oid, f.fn_nargs, f.fn_strict, f.fn_retset),
+        (177, 2, true, false)
+    );
     f.set_fn_extra(41i32);
     fmgr_info_into(65, &mut f).unwrap();
     assert_eq!((f.fn_oid, f.fn_nargs), (65, 2));
@@ -120,7 +134,9 @@ fn unported_builtin_invocation_is_clean_feature_error() {
     // some lane ports it (1294 did).
     let b = FMGR_BUILTINS
         .iter()
-        .find(|b| row_is_stub(b) && late_builtin(b.foid).is_none() && extra_builtin(b.foid).is_none())
+        .find(|b| {
+            row_is_stub(b) && late_builtin(b.foid).is_none() && extra_builtin(b.foid).is_none()
+        })
         .expect("no unported canonical builtin left");
     let (oid, name) = (b.foid, b.name);
     let mut f = fmgr_info(oid).unwrap();
@@ -128,7 +144,11 @@ fn unported_builtin_invocation_is_clean_feature_error() {
     let err = f.invoke(&mut fci).unwrap_err();
     assert_eq!(err.sqlstate(), ::types_error::ERRCODE_FEATURE_NOT_SUPPORTED);
     assert!(err.message().contains(name), "{}", err.message());
-    assert!(err.message().contains("not yet implemented"), "{}", err.message());
+    assert!(
+        err.message().contains("not yet implemented"),
+        "{}",
+        err.message()
+    );
 }
 
 #[test]
@@ -160,8 +180,22 @@ fn oid_function_call_non_builtin_reads_pg_proc() {
 }
 
 const TEST_ENTRIES: &[FmgrBuiltin] = &[
-    FmgrBuiltin { foid: 65, name: "int4eq", nargs: 2, strict: true, retset: false, func: int4pl_body },
-    FmgrBuiltin { foid: 177, name: "int4pl", nargs: 2, strict: true, retset: false, func: int4pl_body },
+    FmgrBuiltin {
+        foid: 65,
+        name: "int4eq",
+        nargs: 2,
+        strict: true,
+        retset: false,
+        func: int4pl_body,
+    },
+    FmgrBuiltin {
+        foid: 177,
+        name: "int4pl",
+        nargs: 2,
+        strict: true,
+        retset: false,
+        func: int4pl_body,
+    },
 ];
 const TEST_INDEX: BuiltinOidIndex<FMGR_OID_INDEX_SIZE> = BuiltinOidIndex::build(TEST_ENTRIES);
 
@@ -169,7 +203,12 @@ const TEST_INDEX: BuiltinOidIndex<FMGR_OID_INDEX_SIZE> = BuiltinOidIndex::build(
 fn generic_table_resolve_and_call() {
     let fbp = TEST_INDEX.lookup(TEST_ENTRIES, 177).unwrap();
     let mut flinfo = fmgr_info_from_builtin(fbp, 177);
-    let r = function_call2_coll(&mut flinfo, InvalidOid, Datum::from_i32(40), Datum::from_i32(2));
+    let r = function_call2_coll(
+        &mut flinfo,
+        InvalidOid,
+        Datum::from_i32(40),
+        Datum::from_i32(2),
+    );
     assert_eq!(r.unwrap().as_i32(), 42);
     assert!(TEST_INDEX.lookup(TEST_ENTRIES, 66).is_none());
     assert!(TEST_INDEX.lookup(TEST_ENTRIES, 0).is_none());
@@ -180,7 +219,12 @@ fn resolve_once_carrier_reuse() {
     let fbp = TEST_INDEX.lookup(TEST_ENTRIES, 65).unwrap();
     let mut flinfo = fmgr_info_from_builtin(fbp, 65);
     for i in 0..100i32 {
-        let r = function_call2_coll(&mut flinfo, InvalidOid, Datum::from_i32(i), Datum::from_i32(1));
+        let r = function_call2_coll(
+            &mut flinfo,
+            InvalidOid,
+            Datum::from_i32(i),
+            Datum::from_i32(1),
+        );
         assert_eq!(r.unwrap().as_i32(), i + 1);
     }
     assert_eq!(flinfo.fn_oid, 65);
@@ -210,7 +254,9 @@ fn merged_family_builtins_invoke() {
 
 #[test]
 fn merged_family_overlay_covers_all_tables() {
-    for name in ["booleq", "float8pl", "int4pl", "int8pl", "nameeq", "texteq", "textout"] {
+    for name in [
+        "booleq", "float8pl", "int4pl", "int8pl", "nameeq", "texteq", "textout",
+    ] {
         let oid = fmgr_internal_function(name);
         assert!(
             ported::PORTED.iter().any(|(o, _)| *o == oid),
@@ -391,7 +437,10 @@ fn agg_state_tag_matches_nodetags() {
 
 #[test]
 fn call_context_tag_matches_nodetags() {
-    assert_eq!(::fmgr::T_CALL_CONTEXT, ::nodes::NodeTag::T_CallContext as u32);
+    assert_eq!(
+        ::fmgr::T_CALL_CONTEXT,
+        ::nodes::NodeTag::T_CallContext as u32
+    );
 }
 
 #[test]
@@ -401,25 +450,49 @@ fn input_function_call_safe_over_resolved_int4in() {
     let mut result = Datum::null();
 
     assert!(input_function_call_safe(
-        &mut flinfo, Some(c"1234"), 0, -1, ctx.mcx(), None, &mut result
+        &mut flinfo,
+        Some(c"1234"),
+        0,
+        -1,
+        ctx.mcx(),
+        None,
+        &mut result
     )
     .unwrap());
     assert_eq!(result.as_i32(), 1234);
 
     let mut esc = ErrorSaveNode::new(true);
     assert!(!input_function_call_safe(
-        &mut flinfo, Some(c"not-an-int"), 0, -1, ctx.mcx(), Some(&mut esc), &mut result
+        &mut flinfo,
+        Some(c"not-an-int"),
+        0,
+        -1,
+        ctx.mcx(),
+        Some(&mut esc),
+        &mut result
     )
     .unwrap());
     assert!(esc.ctx.error_occurred());
     let saved = esc.ctx.error().unwrap();
-    assert_eq!(saved.sqlstate(), ::types_error::ERRCODE_INVALID_TEXT_REPRESENTATION);
+    assert_eq!(
+        saved.sqlstate(),
+        ::types_error::ERRCODE_INVALID_TEXT_REPRESENTATION
+    );
 
     let err = input_function_call_safe(
-        &mut flinfo, Some(c"not-an-int"), 0, -1, ctx.mcx(), None, &mut result
+        &mut flinfo,
+        Some(c"not-an-int"),
+        0,
+        -1,
+        ctx.mcx(),
+        None,
+        &mut result,
     )
     .unwrap_err();
-    assert_eq!(err.sqlstate(), ::types_error::ERRCODE_INVALID_TEXT_REPRESENTATION);
+    assert_eq!(
+        err.sqlstate(),
+        ::types_error::ERRCODE_INVALID_TEXT_REPRESENTATION
+    );
 }
 
 // Binary wire round-trip through the registered recv/send builtins:
@@ -470,21 +543,36 @@ mod wire_round_trip {
         assert!(!round_trip_byval(mcx, 2437, 2436, Datum::from_bool(false)).as_bool());
 
         for v in [0i16, -1, 12345, i16::MIN, i16::MAX] {
-            assert_eq!(round_trip_byval(mcx, 2405, 2404, Datum::from_i16(v)).as_i16(), v);
+            assert_eq!(
+                round_trip_byval(mcx, 2405, 2404, Datum::from_i16(v)).as_i16(),
+                v
+            );
         }
         for v in [0i32, -123456789, i32::MIN, i32::MAX] {
-            assert_eq!(round_trip_byval(mcx, 2407, 2406, Datum::from_i32(v)).as_i32(), v);
+            assert_eq!(
+                round_trip_byval(mcx, 2407, 2406, Datum::from_i32(v)).as_i32(),
+                v
+            );
         }
         for v in [0i64, -1234567890123, i64::MIN, i64::MAX] {
-            assert_eq!(round_trip_byval(mcx, 2409, 2408, Datum::from_i64(v)).as_i64(), v);
+            assert_eq!(
+                round_trip_byval(mcx, 2409, 2408, Datum::from_i64(v)).as_i64(),
+                v
+            );
         }
         for v in [0.0f32, -3.5, f32::MIN, f32::MAX] {
-            assert_eq!(round_trip_byval(mcx, 2425, 2424, Datum::from_f32(v)).as_f32(), v);
+            assert_eq!(
+                round_trip_byval(mcx, 2425, 2424, Datum::from_f32(v)).as_f32(),
+                v
+            );
         }
         let nan = round_trip_byval(mcx, 2425, 2424, Datum::from_f32(f32::NAN));
         assert!(nan.as_f32().is_nan());
         for v in [0.0f64, 2.718281828459045, f64::MIN, f64::MAX] {
-            assert_eq!(round_trip_byval(mcx, 2427, 2426, Datum::from_f64(v)).as_f64(), v);
+            assert_eq!(
+                round_trip_byval(mcx, 2427, 2426, Datum::from_f64(v)).as_f64(),
+                v
+            );
         }
     }
 
@@ -509,7 +597,11 @@ mod wire_round_trip {
 fn thin_tables_sorted_and_refereed() {
     for t in THIN_TABLES {
         for w in t.windows(2) {
-            assert!(w[0].foid < w[1].foid, "thin table not oid-ascending at {}", w[1].foid);
+            assert!(
+                w[0].foid < w[1].foid,
+                "thin table not oid-ascending at {}",
+                w[1].foid
+            );
         }
         for e in *t {
             let b = fmgr_isbuiltin(e.foid).expect("thin row without builtin row");
@@ -519,14 +611,23 @@ fn thin_tables_sorted_and_refereed() {
     }
     let f = fmgr_info(177).unwrap();
     assert!(fmgr_thin_builtin(&f, 2).is_some());
-    assert!(fmgr_thin_builtin(&f, 1).is_none(), "arity mismatch must not get a thin twin");
+    assert!(
+        fmgr_thin_builtin(&f, 1).is_none(),
+        "arity mismatch must not get a thin twin"
+    );
     // A hand-installed body (`FmgrInfo::new`: `Direct`) claims no table
     // identity — even under the table's own oid.
     let g = FmgrInfo::new(int4pl_body, 177, 2, true, false);
-    assert!(fmgr_thin_builtin(&g, 2).is_none(), "a hand-installed body must not get a thin twin");
+    assert!(
+        fmgr_thin_builtin(&g, 2).is_none(),
+        "a hand-installed body must not get a thin twin"
+    );
 
     assert!(fmgr_thin_builtin(&fmgr_info(65).unwrap(), 2).is_some());
-    assert!(fmgr_thin_builtin(&fmgr_info(1219).unwrap(), 1).is_some(), "int8inc thin row");
+    assert!(
+        fmgr_thin_builtin(&fmgr_info(1219).unwrap(), 1).is_some(),
+        "int8inc thin row"
+    );
 }
 
 #[test]
@@ -569,7 +670,12 @@ fn not_ported_name_predicate() {
             continue;
         }
         let mut f = fmgr_info(b.foid).unwrap();
-        assert_eq!(fmgr_info_not_ported_name(&f), Some(b.name), "oid {}", b.foid);
+        assert_eq!(
+            fmgr_info_not_ported_name(&f),
+            Some(b.name),
+            "oid {}",
+            b.foid
+        );
         // The predicate matches call-time behavior: invoking the carrier
         // raises the clean feature-not-supported error.
         let mut fci = LocalFcinfo::<0>::new(InvalidOid);
@@ -606,7 +712,9 @@ fn internal_prosrc_resolves_through_the_extra_tables() {
     // (fmgr_info's prosrc arm) finds it, as fmgr_isbuiltin already does.
     let b = FMGR_BUILTINS
         .iter()
-        .find(|b| row_is_stub(b) && late_builtin(b.foid).is_none() && extra_builtin(b.foid).is_none())
+        .find(|b| {
+            row_is_stub(b) && late_builtin(b.foid).is_none() && extra_builtin(b.foid).is_none()
+        })
         .expect("no unported canonical builtin left");
     let row: &'static [FmgrBuiltin] = Box::leak(Box::new([FmgrBuiltin {
         foid: b.foid,
@@ -619,11 +727,14 @@ fn internal_prosrc_resolves_through_the_extra_tables() {
     let tables: &'static [&'static [FmgrBuiltin]] = Box::leak(Box::new([row]));
     install_extra_builtins(tables);
     let (resolved, kind, body) = internal_fn_addr(b.name).expect("canonical name resolves");
-    assert_eq!((kind, body), (FnKind::Builtin, b.foid), "the extra port under the canonical row's oid");
+    assert_eq!(
+        (kind, body),
+        (FnKind::Builtin, b.foid),
+        "the extra port under the canonical row's oid"
+    );
     let mut fcinfo = LocalFcinfo::<0>::fresh(InvalidOid);
     assert_eq!(resolved(None, &mut fcinfo).unwrap().as_i32(), 1);
 }
-
 
 /// The generated stub bit is `PORTED` membership for every canonical row (the
 /// id fact, every arm); a foreign row carries no bit.
@@ -631,12 +742,21 @@ fn internal_prosrc_resolves_through_the_extra_tables() {
 fn stub_bit_is_ported_membership() {
     let mut stubs = 0;
     for b in FMGR_BUILTINS.iter() {
-        let ported = ported::PORTED.binary_search_by_key(&b.foid, |p| p.0).is_ok();
+        let ported = ported::PORTED
+            .binary_search_by_key(&b.foid, |p| p.0)
+            .is_ok();
         assert_eq!(row_is_stub(b), !ported, "oid {} bit vs PORTED", b.foid);
         stubs += row_is_stub(b) as usize;
     }
     assert_eq!(stubs + ported::PORTED.len(), FMGR_BUILTINS.len());
-    let foreign = FmgrBuiltin { foid: 1, name: "x", nargs: 0, strict: true, retset: false, func: builtin_not_ported };
+    let foreign = FmgrBuiltin {
+        foid: 1,
+        name: "x",
+        nargs: 0,
+        strict: true,
+        retset: false,
+        func: builtin_not_ported,
+    };
     assert!(!row_is_stub(&foreign), "a foreign row carries no bit");
 }
 
@@ -651,32 +771,57 @@ fn identity_is_the_resolution_record_not_the_address() {
     assert!(f.is_builtin_body(177) && !f.is_builtin_body(178));
     let mut via_other_address = fmgr_info(177).unwrap();
     via_other_address.set_fn_addr(trampoline);
-    assert!(fmgr_thin_builtin(&via_other_address, 2).is_none(), "replacing the body invalidates identity");
+    assert!(
+        fmgr_thin_builtin(&via_other_address, 2).is_none(),
+        "replacing the body invalidates identity"
+    );
     let exact_no_record = FmgrInfo::new(::adt_int::builtins::fc_int4pl, 177, 2, true, false);
-    assert_eq!((exact_no_record.fn_kind, exact_no_record.fn_body), (FnKind::Direct, InvalidOid));
+    assert_eq!(
+        (exact_no_record.fn_kind, exact_no_record.fn_body),
+        (FnKind::Direct, InvalidOid)
+    );
     assert!(fmgr_thin_builtin(&exact_no_record, 2).is_none());
     assert_eq!(FmgrInfo::unresolved().fn_kind, FnKind::Unresolved);
     let copy = f.clone();
-    assert_eq!((copy.fn_kind, copy.fn_body), (FnKind::Builtin, 177), "fmgr_info_copy keeps the record");
+    assert_eq!(
+        (copy.fn_kind, copy.fn_body),
+        (FnKind::Builtin, 177),
+        "fmgr_info_copy keeps the record"
+    );
     let stub_oid = FMGR_BUILTINS
         .iter()
-        .find(|b| row_is_stub(b) && late_builtin(b.foid).is_none() && extra_builtin(b.foid).is_none())
+        .find(|b| {
+            row_is_stub(b) && late_builtin(b.foid).is_none() && extra_builtin(b.foid).is_none()
+        })
         .map(|b| b.foid);
     if let Some(oid) = stub_oid {
         let mut s = fmgr_info(oid).unwrap();
         assert_eq!((s.fn_kind, s.fn_body), (FnKind::NotPorted, oid));
         assert!(fmgr_info_not_ported_name(&s).is_some());
         s.set_fn_addr(trampoline);
-        assert!(fmgr_info_not_ported_name(&s).is_none(), "replacing the stub invalidates identity");
+        assert!(
+            fmgr_info_not_ported_name(&s).is_none(),
+            "replacing the stub invalidates identity"
+        );
         let hand = FmgrInfo::new(builtin_not_ported, oid, 0, false, false);
-        assert_eq!(fmgr_info_not_ported_name(&hand), None, "the stub's address without the record is not the stub");
+        assert_eq!(
+            fmgr_info_not_ported_name(&hand),
+            None,
+            "the stub's address without the record is not the stub"
+        );
     }
 }
 
 #[test]
 fn foreign_builtin_row_cannot_claim_thin_identity() {
-    let row = FmgrBuiltin { foid: 177, name: "foreign", nargs: 2, strict: true,
-        retset: false, func: int4pl_body };
+    let row = FmgrBuiltin {
+        foid: 177,
+        name: "foreign",
+        nargs: 2,
+        strict: true,
+        retset: false,
+        func: int4pl_body,
+    };
     let f = fmgr_info_from_builtin(&row, row.foid);
     assert_eq!(f.fn_kind, FnKind::Direct);
     assert!(fmgr_thin_builtin(&f, 2).is_none());
@@ -685,7 +830,11 @@ fn foreign_builtin_row_cannot_claim_thin_identity() {
 #[test]
 fn registered_pl_handlers_retain_callable_provenance() {
     register_plpgsql_handlers(int4pl_body, int4pl_body, int4pl_body);
-    for name in ["plpgsql_call_handler", "plpgsql_inline_handler", "plpgsql_validator"] {
+    for name in [
+        "plpgsql_call_handler",
+        "plpgsql_inline_handler",
+        "plpgsql_validator",
+    ] {
         let handler = registered_c_lang_fn(name).unwrap();
         let mut args = LocalFcinfo::<2>::new(0);
         args.set_arg(0, Datum::from_i32(40));
@@ -698,7 +847,8 @@ fn registered_pl_handlers_retain_callable_provenance() {
 fn send_into_renders_the_text_sends_payload() {
     for oid in [2415, 2431, 2433] {
         let f = fmgr_info(oid).unwrap();
-        let into = fmgr_send_into(&f).unwrap_or_else(|| panic!("send function {oid} has an into entry"));
+        let into =
+            fmgr_send_into(&f).unwrap_or_else(|| panic!("send function {oid} has an into entry"));
         assert_eq!(into.foid, oid);
         let mut img = ::datum::varlena::set_varsize_4b(4 + 6).to_vec();
         img.extend_from_slice(b"ab c  ");

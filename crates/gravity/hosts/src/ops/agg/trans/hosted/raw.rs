@@ -8,7 +8,14 @@ use gravity_abi::Ctx;
 impl AggArena {
     /// `advance_transition_function` (v1 `advance_at` / `advance_loaded`): the strict input check, the first input as
     /// the state (`ExecAggInitGroup`), a NULL state kept, else the call and the by-reference copy (`ExecAggCopyTransValue`).
-    unsafe fn trans(&mut self, ordinal: u16, aggno: u32, s: *mut u8, args: *const u64, nulls: *const u8) -> PgResult<()> {
+    unsafe fn trans(
+        &mut self,
+        ordinal: u16,
+        aggno: u32,
+        s: *mut u8,
+        args: *const u64,
+        nulls: *const u8,
+    ) -> PgResult<()> {
         if self.handed {
             let k = self.slot(ordinal)?;
             self.next_group(k);
@@ -19,7 +26,9 @@ impl AggArena {
         }
         let (i, k) = (self.agg(aggno)?, self.slot(ordinal)?);
         self.collations_armed(k)?;
-        if s.add(STATE_INIT).read() != 0 && (s.add(STATE_AGGNO) as *const u32).read_unaligned() != aggno {
+        if s.add(STATE_INIT).read() != 0
+            && (s.add(STATE_AGGNO) as *const u32).read_unaligned() != aggno
+        {
             return Ok(()); // V4R-424: PG's shared transition state (one aggtransno): the aggregate that opened it steps it
         }
         match self.specs[i].distinct {
@@ -29,9 +38,23 @@ impl AggArena {
     }
 
     /// The transition proper of aggregate `i` in slot `k` (a DISTINCT aggregate's per distinct value, m6_agg_distinct.rs).
-    pub(crate) unsafe fn advance(&mut self, k: usize, i: usize, aggno: u32, s: *mut u8, args: *const u64, nulls: *const u8) -> PgResult<()> {
+    pub(crate) unsafe fn advance(
+        &mut self,
+        k: usize,
+        i: usize,
+        aggno: u32,
+        s: *mut u8,
+        args: *const u64,
+        nulls: *const u8,
+    ) -> PgResult<()> {
         let spec = &self.specs[i];
-        let Slot { aggs, node, tmp, calls, .. } = &mut self.slots[k];
+        let Slot {
+            aggs,
+            node,
+            tmp,
+            calls,
+            ..
+        } = &mut self.slots[k];
         let h = &mut aggs[i];
         AggArena::init_parts(node, spec, s, aggno)?;
         let strict = h.transfn.fn_strict;
@@ -51,7 +74,11 @@ impl AggArena {
         }
         if strict && s.add(STATE_NOTRANS).read() != 0 {
             let first = h.trans.arg(1);
-            let v = if spec.transbyval { first } else { execexpr::agg_datum_copy(node.aggcontext(), first, spec.translen)? };
+            let v = if spec.transbyval {
+                first
+            } else {
+                execexpr::agg_datum_copy(node.aggcontext(), first, spec.translen)?
+            };
             value.write_unaligned(v.as_u64());
             s.add(STATE_NULL).write(0);
             s.add(STATE_NOTRANS).write(0);
@@ -62,7 +89,11 @@ impl AggArena {
             return Ok(());
         }
         let old = Datum::from_u64(value.read_unaligned());
-        if old_null { h.trans.set_arg_null(0) } else { h.trans.set_arg(0, old) }
+        if old_null {
+            h.trans.set_arg_null(0)
+        } else {
+            h.trans.set_arg(0, old)
+        }
         h.trans.nargs = (spec.ninputs + 1) as i16;
         h.trans.isnull = false;
         h.trans.context = node.fm_node_ptr();
@@ -72,7 +103,11 @@ impl AggArena {
         node.clear_current_agg();
         let (r, rnull) = (r?, h.trans.isnull);
         let new = if !spec.transbyval && r.as_u64() != old.as_u64() {
-            let copied = if rnull { Datum::null() } else { execexpr::agg_trans_value_copy(node, r, spec.translen)? };
+            let copied = if rnull {
+                Datum::null()
+            } else {
+                execexpr::agg_trans_value_copy(node, r, spec.translen)?
+            };
             if !old_null {
                 execexpr::agg_datum_free(node.aggcontext(), old, spec.translen);
             }
@@ -94,7 +129,11 @@ impl AggArena {
     /// the aggregate's number for the merge (`STATE_AGGNO`).
     unsafe fn init_parts(node: &AggStateNode, spec: &Spec, s: *mut u8, aggno: u32) -> PgResult<()> {
         if s.add(STATE_INIT).read() == 0 {
-            let v = if spec.initval.isnull || spec.transbyval { spec.initval.value } else { execexpr::agg_datum_copy(node.aggcontext(), spec.initval.value, spec.translen)? };
+            let v = if spec.initval.isnull || spec.transbyval {
+                spec.initval.value
+            } else {
+                execexpr::agg_datum_copy(node.aggcontext(), spec.initval.value, spec.translen)?
+            };
             (s.add(STATE_VALUE) as *mut u64).write_unaligned(v.as_u64());
             s.add(STATE_NULL).write(spec.initval.isnull as u8);
             s.add(STATE_NOTRANS).write(spec.initval.isnull as u8);
@@ -116,9 +155,16 @@ impl AggArena {
     }
 
     /// `combine` in slot `k` (D798: two partials of one group in a keyed record fold, in the folding worker's slot).
-    unsafe fn combine_in(&mut self, k: usize, aggno: u32, into: *mut u8, from: *const u8) -> PgResult<()> {
+    unsafe fn combine_in(
+        &mut self,
+        k: usize,
+        aggno: u32,
+        into: *mut u8,
+        from: *const u8,
+    ) -> PgResult<()> {
         if self.kept_of(aggno).is_some() {
-            return {crate::ops::agg::trans::hosted_kept::combine(into, from);
+            return {
+                crate::ops::agg::trans::hosted_kept::combine(into, from);
                 Ok(())
             };
         }
@@ -128,19 +174,30 @@ impl AggArena {
             return self.combine_sorted(k, aggno, into, from);
         }
         let spec = &self.specs[i];
-        let Slot { aggs, node, tmp, .. } = &mut self.slots[k];
+        let Slot {
+            aggs, node, tmp, ..
+        } = &mut self.slots[k];
         let Some((f, fc)) = aggs[i].combine.as_mut() else {
-            return Err(Box::new(PgError::error(format!("gravity: two partial states of hosted aggregate {aggno} without its combinefn")))); // alloc: Cold
+            return Err(Box::new(PgError::error(format!(
+                "gravity: two partial states of hosted aggregate {aggno} without its combinefn"
+            )))); // alloc: Cold
         };
         AggArena::init_parts(node, spec, into, aggno)?;
         let value = into.add(STATE_VALUE) as *mut u64;
-        let (nv, nnull) = (Datum::from_u64((from.add(STATE_VALUE) as *const u64).read_unaligned()), from.add(STATE_NULL).read() != 0);
+        let (nv, nnull) = (
+            Datum::from_u64((from.add(STATE_VALUE) as *const u64).read_unaligned()),
+            from.add(STATE_NULL).read() != 0,
+        );
         if f.fn_strict {
             if nnull {
                 return Ok(());
             }
             if into.add(STATE_NOTRANS).read() != 0 {
-                let v = if spec.transbyval { nv } else { execexpr::agg_datum_copy(node.aggcontext(), nv, spec.translen)? };
+                let v = if spec.transbyval {
+                    nv
+                } else {
+                    execexpr::agg_datum_copy(node.aggcontext(), nv, spec.translen)?
+                };
                 value.write_unaligned(v.as_u64());
                 into.add(STATE_NULL).write(0);
                 into.add(STATE_NOTRANS).write(0);
@@ -150,9 +207,20 @@ impl AggArena {
                 return Ok(());
             }
         }
-        let (old, old_null) = (Datum::from_u64(value.read_unaligned()), into.add(STATE_NULL).read() != 0);
-        if old_null { fc.set_arg_null(0) } else { fc.set_arg(0, old) }
-        if nnull { fc.set_arg_null(1) } else { fc.set_arg(1, read_only(nv, spec.translen)) }
+        let (old, old_null) = (
+            Datum::from_u64(value.read_unaligned()),
+            into.add(STATE_NULL).read() != 0,
+        );
+        if old_null {
+            fc.set_arg_null(0)
+        } else {
+            fc.set_arg(0, old)
+        }
+        if nnull {
+            fc.set_arg_null(1)
+        } else {
+            fc.set_arg(1, read_only(nv, spec.translen))
+        }
         fc.nargs = 2;
         fc.isnull = false;
         fc.context = node.fm_node_ptr();
@@ -161,7 +229,11 @@ impl AggArena {
         let r = f.invoke(&mut **fc);
         node.clear_current_agg();
         let (r, rnull) = (r?, fc.isnull);
-        let new = if !spec.transbyval && !rnull && r.as_u64() != old.as_u64() { execexpr::agg_datum_copy(node.aggcontext(), r, spec.translen)? } else { r };
+        let new = if !spec.transbyval && !rnull && r.as_u64() != old.as_u64() {
+            execexpr::agg_datum_copy(node.aggcontext(), r, spec.translen)?
+        } else {
+            r
+        };
         value.write_unaligned(new.as_u64());
         into.add(STATE_NULL).write(rnull as u8);
         into.add(STATE_NOTRANS).write(0);
@@ -174,7 +246,14 @@ impl AggArena {
     /// side effects, a plpgsql NOTICE or a write, once per kept row); an emit may finalize a group twice (a top over groups
     /// builds each group's row in its order pass, then again at the emit: keyed/order_slot.rs `run`).
     /// # Safety — as `fold_sorted`; `s` is writable.
-    pub(crate) unsafe fn fold_once(&mut self, k: usize, i: usize, aggno: u32, s: *mut u8, out: *mut u8) -> PgResult<()> {
+    pub(crate) unsafe fn fold_once(
+        &mut self,
+        k: usize,
+        i: usize,
+        aggno: u32,
+        s: *mut u8,
+        out: *mut u8,
+    ) -> PgResult<()> {
         if s.add(STATE_INIT).read() == FOLDED {
             // the folded state as `fold_sorted` left it: opened (STATE_INIT 1), so the final's init_parts keeps its value
             core::ptr::copy_nonoverlapping(s, out, AGG_STATE_BYTES as usize);
@@ -212,9 +291,16 @@ impl AggArena {
     /// `finalize_aggregate`: the finalfn over the state (an ordered-set aggregate's direct arguments, V4R-425, then the extra
     /// arguments NULL; a strict one with a NULL argument is
     /// NULL), or the state itself; `out` = (datum, null, by-reference bytes), the image live until the slot's next final.
-    unsafe fn finalize(&mut self, ordinal: u16, aggno: u32, s: *mut u8, out: *mut u64) -> PgResult<()> {
+    unsafe fn finalize(
+        &mut self,
+        ordinal: u16,
+        aggno: u32,
+        s: *mut u8,
+        out: *mut u64,
+    ) -> PgResult<()> {
         if let Some(j) = self.kept_of(aggno) {
-            return {self.kept_final(j, s, out);
+            return {
+                self.kept_final(j, s, out);
                 Ok(())
             };
         }
@@ -224,10 +310,19 @@ impl AggArena {
         self.slots[k].tmp.reset();
         self.slots.iter().for_each(Slot::charge);
         let spec = &self.specs[i];
-        let memo = spec.distinct.is_none() && (spec.shape.aggfinalmodify == AGGMODIFY_READ_WRITE || (spec.shape.aggfinalmodify == AGGMODIFY_SHAREABLE && !spec.shared));
+        let memo = spec.distinct.is_none()
+            && (spec.shape.aggfinalmodify == AGGMODIFY_READ_WRITE
+                || (spec.shape.aggfinalmodify == AGGMODIFY_SHAREABLE && !spec.shared));
         if memo && s.add(STATE_INIT).read() == MEMO {
-            let (v, n) = ((s.add(STATE_VALUE) as *const u64).read_unaligned(), s.add(STATE_NULL).read() != 0);
-            let len = if n || self.specs[i].reslen == 0 { 0 } else { image_len(v as *const u8, self.specs[i].reslen) };
+            let (v, n) = (
+                (s.add(STATE_VALUE) as *const u64).read_unaligned(),
+                s.add(STATE_NULL).read() != 0,
+            );
+            let len = if n || self.specs[i].reslen == 0 {
+                0
+            } else {
+                image_len(v as *const u8, self.specs[i].reslen)
+            };
             out.write(result_word(self.specs[i].resword, v));
             out.add(1).write(n as u64);
             out.add(2).write(len as u64);
@@ -245,12 +340,21 @@ impl AggArena {
             None => s,
         };
         let spec = &self.specs[i];
-        let Slot { aggs, node, tmp, .. } = &mut self.slots[k];
+        let Slot {
+            aggs, node, tmp, ..
+        } = &mut self.slots[k];
         let h = &mut aggs[i];
         AggArena::init_parts(node, spec, s, aggno)?;
-        let (mut v, mut n) = (Datum::from_u64((s.add(STATE_VALUE) as *const u64).read_unaligned()), s.add(STATE_NULL).read() != 0);
+        let (mut v, mut n) = (
+            Datum::from_u64((s.add(STATE_VALUE) as *const u64).read_unaligned()),
+            s.add(STATE_NULL).read() != 0,
+        );
         if let Some((f, fc, nargs)) = h.finalfn.as_mut() {
-            if n { fc.set_arg_null(0) } else { fc.set_arg(0, read_only(v, spec.translen)) }
+            if n {
+                fc.set_arg_null(0)
+            } else {
+                fc.set_arg(0, read_only(v, spec.translen))
+            }
             (1..*nargs).for_each(|k| fc.set_arg_null(k));
             // V4R-425: an ordered-set aggregate's direct arguments after the state (finalize_aggregate's aggdirectargs; D1520:
             // one that is no constant as this final was given it, the group's)
@@ -258,7 +362,11 @@ impl AggArena {
             // bounded("small-fixed: one direct argument of the final call, at most FUNC_MAX_ARGS (100)")
             for k in 0..spec.direct.len().min(*nargs - 1) {
                 let d = direct_arg(spec, k, given)?;
-                if d.isnull { anynull = true } else { fc.set_arg(k + 1, d.value) }
+                if d.isnull {
+                    anynull = true
+                } else {
+                    fc.set_arg(k + 1, d.value)
+                }
             }
             if f.fn_strict && anynull {
                 (v, n) = (Datum::null(), true);
@@ -275,18 +383,28 @@ impl AggArena {
         }
         let mut len = 0usize;
         if !n && spec.reslen != 0 {
-            if spec.reslen == -1 && types_tuple::varatt::varatt_is_external_expanded(v.as_u64() as *const u8) {
+            if spec.reslen == -1
+                && types_tuple::varatt::varatt_is_external_expanded(v.as_u64() as *const u8)
+            {
                 v = execexpr::agg_datum_copy(tmp.mcx(), v, -1)?;
             }
             len = image_len(v.as_u64() as *const u8, spec.reslen);
         }
         if memo {
-            let kept = if n || spec.reslen == 0 { v } else { execexpr::agg_datum_copy(node.aggcontext(), v, spec.reslen)? };
+            let kept = if n || spec.reslen == 0 {
+                v
+            } else {
+                execexpr::agg_datum_copy(node.aggcontext(), v, spec.reslen)?
+            };
             (s.add(STATE_VALUE) as *mut u64).write_unaligned(kept.as_u64());
             s.add(STATE_NULL).write(n as u8);
             s.add(STATE_INIT).write(MEMO);
         }
-        out.write(if n { v.as_u64() } else { result_word(spec.resword, v.as_u64()) });
+        out.write(if n {
+            v.as_u64()
+        } else {
+            result_word(spec.resword, v.as_u64())
+        });
         out.add(1).write(n as u64);
         out.add(2).write(len as u64);
         Ok(())
@@ -297,30 +415,64 @@ impl AggArena {
 /// `m6_agg_final_direct`) gives it, else the constant bound at EXECUTE. One that is no constant is always given (lowerv4
 /// face/aggcall.rs `finish`'s callers); a final without it is a named ERROR, never a stale value.
 unsafe fn direct_arg(spec: &Spec, k: usize, (dv, dg): (u64, u64)) -> PgResult<NullableDatum> {
-    let g = if dg == 0 { DIRECT_BOUND } else { (dg as *const u8).add(k).read() };
+    let g = if dg == 0 {
+        DIRECT_BOUND
+    } else {
+        (dg as *const u8).add(k).read()
+    };
     match (g, spec.direct[k]) {
-        (DIRECT_VALUE, _) => Ok(NullableDatum::value(Datum::from_u64((dv as *const u64).add(k).read()))),
+        (DIRECT_VALUE, _) => Ok(NullableDatum::value(Datum::from_u64(
+            (dv as *const u64).add(k).read(),
+        ))),
         (DIRECT_NULL, _) => Ok(NullableDatum::null()),
         (_, Some(d)) => Ok(d),
-        (_, None) => Err(Box::new(PgError::error(format!("gravity: hosted aggregate {} finalized without its direct argument {k}", spec.a.aggno)))), // alloc: Cold
+        (_, None) => Err(Box::new(PgError::error(format!(
+            "gravity: hosted aggregate {} finalized without its direct argument {k}",
+            spec.a.aggno
+        )))), // alloc: Cold
     }
 }
 
-pub(super) unsafe fn trans_of(h: *mut AggHead, ordinal: u16, aggno: u32, state: *mut u8, args: *const u64, nulls: *const u8) -> Result<(), ()> {
-    (*(h as *mut AggArena)).trans(ordinal, aggno, state, args, nulls).map_err(gravity_fn::stash_error)
+pub(super) unsafe fn trans_of(
+    h: *mut AggHead,
+    ordinal: u16,
+    aggno: u32,
+    state: *mut u8,
+    args: *const u64,
+    nulls: *const u8,
+) -> Result<(), ()> {
+    (*(h as *mut AggArena))
+        .trans(ordinal, aggno, state, args, nulls)
+        .map_err(gravity_fn::stash_error)
 }
 
-pub(super) unsafe fn combine_of(h: *mut AggHead, ordinal: u16, aggno: u32, into: *mut u8, from: *mut u8) -> Result<(), ()> {
+pub(super) unsafe fn combine_of(
+    h: *mut AggHead,
+    ordinal: u16,
+    aggno: u32,
+    into: *mut u8,
+    from: *mut u8,
+) -> Result<(), ()> {
     let a = &mut *(h as *mut AggArena);
-    let r = a.slot(ordinal).and_then(|k| a.combine_in(k, aggno, into, from));
+    let r = a
+        .slot(ordinal)
+        .and_then(|k| a.combine_in(k, aggno, into, from));
     core::ptr::write_bytes(from, 0, AGG_STATE_BYTES as usize);
     r.map_err(gravity_fn::stash_error)
 }
 
 /// V4R-375: `combine_of` leaving `from` as it was (a keyed owner fold's read-only source partial).
-pub(super) unsafe fn combine_keep_of(h: *mut AggHead, ordinal: u16, aggno: u32, into: *mut u8, from: *const u8) -> Result<(), ()> {
+pub(super) unsafe fn combine_keep_of(
+    h: *mut AggHead,
+    ordinal: u16,
+    aggno: u32,
+    into: *mut u8,
+    from: *const u8,
+) -> Result<(), ()> {
     let a = &mut *(h as *mut AggArena);
-    a.slot(ordinal).and_then(|k| a.combine_in(k, aggno, into, from)).map_err(gravity_fn::stash_error)
+    a.slot(ordinal)
+        .and_then(|k| a.combine_in(k, aggno, into, from))
+        .map_err(gravity_fn::stash_error)
 }
 
 /// V4R-375: keyed group `keys`'s home, `n` zeroed state slots at its first record (kernels `AggHead.home`); a wide
@@ -328,15 +480,27 @@ pub(super) unsafe fn combine_keep_of(h: *mut AggHead, ordinal: u16, aggno: u32, 
 /// CONVERT (wave 2, H1): the state and key boxes and the map's growth are noted on the shard's charge (`Homes::note`),
 /// whose owner and kind are the keyed HashAgg slot's (`OpArena::own_owner_kind`: the slot `ctx`'s pipeline folds into, or
 /// the one an emit's owner fold reads), read at the arena's first home.
-pub(super) unsafe fn home_of(h: *mut AggHead, ctx: *mut Ctx, keys: *const u64, nkeys: usize, n: usize) -> *mut u8 {
+pub(super) unsafe fn home_of(
+    h: *mut AggHead,
+    ctx: *mut Ctx,
+    keys: *const u64,
+    nkeys: usize,
+    n: usize,
+) -> *mut u8 {
     let a = &*(h as *const AggArena);
     let keys = core::slice::from_raw_parts(keys, nkeys);
-    let mut hm = a.shard(home_shard(keys)).lock().unwrap_or_else(|e| e.into_inner());
+    let mut hm = a
+        .shard(home_shard(keys))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     if let Some(s) = hm.map.get_mut(keys) {
         return s.as_mut_ptr() as *mut u8;
     }
-    let owner = *a.owner.get_or_init(|| gravity_fn::arena::OpArena::own_owner_kind(ctx));
-    let mut s = vec![0u64; n * a.head.wide.max(1) as usize * AGG_STATE_BYTES as usize / 8].into_boxed_slice(); // alloc: Exec charged AggArena::owner (Homes::note)
+    let owner = *a
+        .owner
+        .get_or_init(|| gravity_fn::arena::OpArena::own_owner_kind(ctx));
+    let mut s = vec![0u64; n * a.head.wide.max(1) as usize * AGG_STATE_BYTES as usize / 8]
+        .into_boxed_slice(); // alloc: Exec charged AggArena::owner (Homes::note)
     let p = s.as_mut_ptr() as *mut u8;
     let heap = 8 * (s.len() + nkeys) as u64;
     hm.bytes += heap + 32;
@@ -393,13 +557,27 @@ pub(super) unsafe fn gather_of(h: *mut AggHead, subs: *mut u8) -> *mut u8 {
     last
 }
 
-pub(super) unsafe fn fold_of(h: *mut AggHead, ordinal: u16, aggno: u32, state: *mut u8) -> Result<(), ()> {
-    (*(h as *mut AggArena)).fold_ahead(ordinal, aggno, state).map_err(gravity_fn::stash_error)
+pub(super) unsafe fn fold_of(
+    h: *mut AggHead,
+    ordinal: u16,
+    aggno: u32,
+    state: *mut u8,
+) -> Result<(), ()> {
+    (*(h as *mut AggArena))
+        .fold_ahead(ordinal, aggno, state)
+        .map_err(gravity_fn::stash_error)
 }
 
-pub(super) unsafe fn final_of(h: *mut AggHead, ordinal: u16, aggno: u32, state: *mut u8, out: *mut u64) -> Result<(), ()> {
+pub(super) unsafe fn final_of(
+    h: *mut AggHead,
+    ordinal: u16,
+    aggno: u32,
+    state: *mut u8,
+    out: *mut u64,
+) -> Result<(), ()> {
     let a = &mut *(h as *mut AggArena);
-    a.finalize(ordinal, aggno, state, out).map_err(gravity_fn::stash_error)?;
+    a.finalize(ordinal, aggno, state, out)
+        .map_err(gravity_fn::stash_error)?;
     let len = out.add(2).read() as usize;
     if a.head.stable != 0 && out.add(1).read() == 0 && len != 0 {
         // D2332: the image into the aggregate's own buffer (grown, reused), live until its next final

@@ -5,8 +5,10 @@ use types_core::{Oid, TEXTOID};
 use types_error::PgResult;
 use types_fmgr::{byref_result, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 
-use crate::{check_for_interrupts, text_position_get_match_len, text_position_get_match_off,
-    text_position_next, text_position_setup, texteq};
+use crate::{
+    check_for_interrupts, text_position_get_match_len, text_position_get_match_off,
+    text_position_next, text_position_setup, texteq,
+};
 
 fn accum_field<'m>(
     mcx: Mcx<'m>,
@@ -56,26 +58,39 @@ impl TableFields {
 
     pub(crate) fn get(&self, idx: usize) -> Option<(&[u8], bool)> {
         let f = self.fields.get(idx)?;
-        Some((&self.input[f.start as usize..(f.start + f.len) as usize], f.is_null))
+        Some((
+            &self.input[f.start as usize..(f.start + f.len) as usize],
+            f.is_null,
+        ))
     }
 }
 
 pub(crate) fn split_fields(fcinfo: &Fcinfo) -> PgResult<TableFields> {
     let mut out = Vec::new();
     if fcinfo.argisnull(0) {
-        return Ok(TableFields { input: Vec::new(), fields: out });
+        return Ok(TableFields {
+            input: Vec::new(),
+            fields: out,
+        });
     }
     // SAFETY: arg 0 checked non-null; a live text varlena.
-    let inputstring: Vec<u8> = ::mcx::std_vec_from_slice("adt",unsafe { fcinfo.arg_varlena_packed(0) }?.data())?;
+    let inputstring: Vec<u8> =
+        ::mcx::std_vec_from_slice("adt", unsafe { fcinfo.arg_varlena_packed(0) }?.data())?;
     let fldsep: Option<Vec<u8>> = if !fcinfo.argisnull(1) {
         // SAFETY: arg 1 checked non-null; a live text varlena.
-        Some(::mcx::std_vec_from_slice("adt",unsafe { fcinfo.arg_varlena_packed(1) }?.data())?)
+        Some(::mcx::std_vec_from_slice(
+            "adt",
+            unsafe { fcinfo.arg_varlena_packed(1) }?.data(),
+        )?)
     } else {
         None
     };
     let null_string: Option<Vec<u8>> = if fcinfo.nargs() > 2 && !fcinfo.argisnull(2) {
         // SAFETY: arg 2 checked non-null; a live text varlena.
-        Some(::mcx::std_vec_from_slice("adt",unsafe { fcinfo.arg_varlena_packed(2) }?.data())?)
+        Some(::mcx::std_vec_from_slice(
+            "adt",
+            unsafe { fcinfo.arg_varlena_packed(2) }?.data(),
+        )?)
     } else {
         None
     };
@@ -122,7 +137,8 @@ pub(crate) fn split_fields(fcinfo: &Fcinfo) -> PgResult<TableFields> {
                     if !found {
                         break;
                     }
-                    start = text_position_get_match_off(&state) + text_position_get_match_len(&state);
+                    start =
+                        text_position_get_match_off(&state) + text_position_get_match_len(&state);
                 }
             }
         }
@@ -137,7 +153,10 @@ pub(crate) fn split_fields(fcinfo: &Fcinfo) -> PgResult<TableFields> {
             }
         }
     }
-    Ok(TableFields { input: inputstring, fields: out })
+    Ok(TableFields {
+        input: inputstring,
+        fields: out,
+    })
 }
 
 // C: text_to_table/text_to_table_null — same field split as text_to_array,
@@ -179,16 +198,23 @@ pub fn fc_text_to_array(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> P
     }
     let mcx = fcinfo.result_mcx();
     // SAFETY: arg 0 checked non-null; a live text varlena.
-    let inputstring: Vec<u8> = ::mcx::std_vec_from_slice("adt",unsafe { fcinfo.arg_varlena_packed(0) }?.data())?;
+    let inputstring: Vec<u8> =
+        ::mcx::std_vec_from_slice("adt", unsafe { fcinfo.arg_varlena_packed(0) }?.data())?;
     let fldsep: Option<Vec<u8>> = if !fcinfo.argisnull(1) {
         // SAFETY: arg 1 checked non-null; a live text varlena.
-        Some(::mcx::std_vec_from_slice("adt",unsafe { fcinfo.arg_varlena_packed(1) }?.data())?)
+        Some(::mcx::std_vec_from_slice(
+            "adt",
+            unsafe { fcinfo.arg_varlena_packed(1) }?.data(),
+        )?)
     } else {
         None
     };
     let null_string: Option<Vec<u8>> = if fcinfo.nargs() > 2 && !fcinfo.argisnull(2) {
         // SAFETY: arg 2 checked non-null; a live text varlena.
-        Some(::mcx::std_vec_from_slice("adt",unsafe { fcinfo.arg_varlena_packed(2) }?.data())?)
+        Some(::mcx::std_vec_from_slice(
+            "adt",
+            unsafe { fcinfo.arg_varlena_packed(2) }?.data(),
+        )?)
     } else {
         None
     };
@@ -203,8 +229,14 @@ pub fn fc_text_to_array(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> P
             if inputstring.is_empty() {
                 // empty input: valid, zero elements
             } else if sep.is_empty() {
-                astate =
-                    Some(accum_field(mcx, astate.take(), &mut scratch, &inputstring, ns, collation)?);
+                astate = Some(accum_field(
+                    mcx,
+                    astate.take(),
+                    &mut scratch,
+                    &inputstring,
+                    ns,
+                    collation,
+                )?);
             } else {
                 let mut state = text_position_setup(&inputstring, sep, collation)?;
                 let mut start = 0usize;
@@ -217,13 +249,19 @@ pub fn fc_text_to_array(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> P
                     } else {
                         &inputstring[start..]
                     };
-                    astate =
-                        Some(accum_field(mcx, astate.take(), &mut scratch, chunk, ns, collation)?);
+                    astate = Some(accum_field(
+                        mcx,
+                        astate.take(),
+                        &mut scratch,
+                        chunk,
+                        ns,
+                        collation,
+                    )?);
                     if !found {
                         break;
                     }
-                    start = text_position_get_match_off(&state)
-                        + text_position_get_match_len(&state);
+                    start =
+                        text_position_get_match_off(&state) + text_position_get_match_len(&state);
                 }
             }
         }

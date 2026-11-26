@@ -23,14 +23,34 @@ const CORPUS: &str = "F1 plain payload sweep (4 M fact rows, merged 20 k / 200 k
 
 /// A build row's store of a plain value's words (its bytes' SipHash, two stores, a wider record), divided among the
 /// participants (W0 82.5, W8 41.4 ns a build row).
-pub const STORE_SPLIT: Fitted = Fitted { ns: 47.0, machine: MACHINE, corpus: CORPUS, anchor: Anchor::Update };
+pub const STORE_SPLIT: Fitted = Fitted {
+    ns: 47.0,
+    machine: MACHINE,
+    corpus: CORPUS,
+    anchor: Anchor::Update,
+};
 /// A build row's store that the participants do not divide (a merged dimension's build runs serially).
-pub const STORE_FLAT: Fitted = Fitted { ns: 35.5, machine: MACHINE, corpus: CORPUS, anchor: Anchor::Update };
+pub const STORE_FLAT: Fitted = Fitted {
+    ns: 35.5,
+    machine: MACHINE,
+    corpus: CORPUS,
+    anchor: Anchor::Update,
+};
 /// What a row reaching the group saves (its bytes' SipHash against two loads), divided among the participants (W0 38.3,
 /// W8 4.2 ns measured).
-pub const SAVED_SPLIT: Fitted = Fitted { ns: 38.3, machine: MACHINE, corpus: CORPUS, anchor: Anchor::Update };
+pub const SAVED_SPLIT: Fitted = Fitted {
+    ns: 38.3,
+    machine: MACHINE,
+    corpus: CORPUS,
+    anchor: Anchor::Update,
+};
 /// What a row reaching the group saves that the participants do not divide.
-pub const SAVED_FLAT: Fitted = Fitted { ns: 0.0, machine: MACHINE, corpus: CORPUS, anchor: Anchor::Update };
+pub const SAVED_FLAT: Fitted = Fitted {
+    ns: 0.0,
+    machine: MACHINE,
+    corpus: CORPUS,
+    anchor: Anchor::Update,
+};
 
 fn at(split: Fitted, flat: Fitted, width: u16) -> f64 {
     split.ns / width.max(1) as f64 + flat.ns
@@ -39,7 +59,10 @@ fn at(split: Fitted, flat: Fitted, width: u16) -> f64 {
 /// The store's permille of the saving at the dearer of W0 and `widest` (`Facts::width`), rounded up: the words pay where
 /// the rows at the group times 1000 reach the build's rows times it (payload_fp.rs `pays`).
 pub fn permille(widest: u16) -> u64 {
-    let r = [0, widest].iter().map(|&w| at(STORE_SPLIT, STORE_FLAT, w).max(0.0) / at(SAVED_SPLIT, SAVED_FLAT, w)).fold(0.0f64, f64::max);
+    let r = [0, widest]
+        .iter()
+        .map(|&w| at(STORE_SPLIT, STORE_FLAT, w).max(0.0) / at(SAVED_SPLIT, SAVED_FLAT, w))
+        .fold(0.0f64, f64::max);
     (r * 1000.0).ceil() as u64
 }
 
@@ -57,7 +80,11 @@ mod tests {
     #[test]
     fn the_sweeps_cells_fall_on_their_measured_side() {
         assert!(pays(400_000, 20_000, 8) && pays(4_000_000, 20_000, 8));
-        assert!(!pays(400_000, 200_000, 8) && !pays(2_000_000, 1_000_000, 8) && !pays(4_000_000, 1_000_000, 8));
+        assert!(
+            !pays(400_000, 200_000, 8)
+                && !pays(2_000_000, 1_000_000, 8)
+                && !pays(4_000_000, 1_000_000, 8)
+        );
         assert!(permille(8) >= permille(0));
     }
 }

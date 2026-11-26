@@ -40,29 +40,65 @@ pub(super) fn shape<'p>(p: &PlannedStmt<'p>, kept: Option<(Oid, Oid)>) -> Verdic
     if p.commandType != CmdType::CMD_UPDATE || mt.operation != CmdType::CMD_UPDATE {
         return Verdict::Not;
     }
-    let plain = p.utilityStmt.is_none() && p.canSetTag && mt.canSetTag && !p.hasReturning && !p.hasModifyingCTE;
+    let plain = p.utilityStmt.is_none()
+        && p.canSetTag
+        && mt.canSetTag
+        && !p.hasReturning
+        && !p.hasModifyingCTE;
     // the one PARAM_EXEC a plain UPDATE has is its ModifyTable's epqParam (make_modifytable's SS_assign_special_param)
-    let empty = p.rowMarks.is_nil() && p.subplans.is_nil() && p.paramExecTypes.len() <= 1 && p.resultRelations.len() == 1 && !p.parallelModeNeeded;
+    let empty = p.rowMarks.is_nil()
+        && p.subplans.is_nil()
+        && p.paramExecTypes.len() <= 1
+        && p.resultRelations.len() == 1
+        && !p.parallelModeNeeded;
     if !(plain && empty) {
         return Verdict::Declined("statement");
     }
     // one result relation, the scan's (rti 1), with no RETURNING, check option, row mark, ON CONFLICT (0: ONCONFLICT_NONE),
     // MERGE action or direct foreign modify, one list of SET columns, and nothing above the scan but the ModifyTable
-    let one = mt.resultRelations.len() == 1 && mt.resultRelations.nth(0) == 1 && mt.nominalRelation == 1 && mt.rootRelation == 0 && !mt.partColsUpdated;
-    let bare = mt.withCheckOptionLists.is_nil() && mt.returningLists.is_nil() && mt.rowMarks.is_nil() && mt.onConflictAction == 0 && mt.mergeActionLists.is_nil() && mt.fdwDirectModifyPlans.is_empty() && mt.updateColnosLists.len() == 1;
+    let one = mt.resultRelations.len() == 1
+        && mt.resultRelations.nth(0) == 1
+        && mt.nominalRelation == 1
+        && mt.rootRelation == 0
+        && !mt.partColsUpdated;
+    let bare = mt.withCheckOptionLists.is_nil()
+        && mt.returningLists.is_nil()
+        && mt.rowMarks.is_nil()
+        && mt.onConflictAction == 0
+        && mt.mergeActionLists.is_nil()
+        && mt.fdwDirectModifyPlans.is_empty()
+        && mt.updateColnosLists.len() == 1;
     let top = &mt.plan;
-    let alone = top.righttree.is_none() && top.initPlan.is_nil() && top.qual.is_nil() && top.targetlist.is_nil();
-    let Some(scan) = top.lefttree.and_then(|n| n.as_index_scan()).filter(|_| one && bare && alone) else {
+    let alone = top.righttree.is_none()
+        && top.initPlan.is_nil()
+        && top.qual.is_nil()
+        && top.targetlist.is_nil();
+    let Some(scan) = top
+        .lefttree
+        .and_then(|n| n.as_index_scan())
+        .filter(|_| one && bare && alone)
+    else {
         return Verdict::Declined("plan");
     };
-    let Some(rte) = (p.rtable.len() == 1).then(|| p.rtable.nth(0).as_range_tbl_entry()).flatten() else {
+    let Some(rte) = (p.rtable.len() == 1)
+        .then(|| p.rtable.nth(0).as_range_tbl_entry())
+        .flatten()
+    else {
         return Verdict::Declined("range table");
     };
-    if rte.rtekind != RTEKind::RTE_RELATION || rte.inh || !rte.securityQuals.is_nil() || scan.scan.scanrelid != 1 {
+    if rte.rtekind != RTEKind::RTE_RELATION
+        || rte.inh
+        || !rte.securityQuals.is_nil()
+        || scan.scan.scanrelid != 1
+    {
         return Verdict::Declined("range table");
     }
     let plan = &scan.scan.plan;
-    let bare = plan.lefttree.is_none() && plan.righttree.is_none() && plan.initPlan.is_nil() && plan.qual.is_nil() && scan.indexorderby.is_nil();
+    let bare = plan.lefttree.is_none()
+        && plan.righttree.is_none()
+        && plan.initPlan.is_nil()
+        && plan.qual.is_nil()
+        && scan.indexorderby.is_nil();
     if !bare || scan.indexqual.is_nil() {
         return Verdict::Declined("plan");
     }
@@ -78,12 +114,19 @@ pub(super) fn shape<'p>(p: &PlannedStmt<'p>, kept: Option<(Oid, Oid)>) -> Verdic
     if !walked && nofrom::runs_sql(&plan.targetlist) {
         return Verdict::Declined(nofrom::RUNS_SQL);
     }
-    Verdict::Take(select::Shape { scan, relid: rte.relid, lockmode: rte.rellockmode })
+    Verdict::Take(select::Shape {
+        scan,
+        relid: rte.relid,
+        lockmode: rte.rellockmode,
+    })
 }
 
 /// The ModifyTable's one list of SET columns (updateColnosLists' first), attnos in the target list's order.
 fn set_cols<'p>(mt: &'p types_nodes::plannodes::ModifyTable<'p>) -> Option<&'p IntList<'p>> {
-    mt.updateColnosLists.nth(0).as_int_list().filter(|l| !l.is_nil())
+    mt.updateColnosLists
+        .nth(0)
+        .as_int_list()
+        .filter(|l| !l.is_nil())
 }
 
 /// The scan's target list as preprocess_targetlist makes an UPDATE's: one entry per SET column first, in `cols`' order
@@ -94,7 +137,10 @@ fn set_list(tl: &NodeList<'_>, cols: &IntList<'_>, exprs: bool) -> bool {
         && tl.iter().enumerate().all(|(i, t)| {
             t.as_target_entry().is_some_and(|te| {
                 if i < n {
-                    !te.resjunk && te.resno as usize == i + 1 && cols.nth(i) > 0 && (!exprs || set_expr(te.expr))
+                    !te.resjunk
+                        && te.resno as usize == i + 1
+                        && cols.nth(i) > 0
+                        && (!exprs || set_expr(te.expr))
                 } else {
                     te.resjunk
                 }
@@ -108,7 +154,9 @@ fn set_list(tl: &NodeList<'_>, cols: &IntList<'_>, exprs: bool) -> bool {
 fn set_expr(n: Node<'_>) -> bool {
     stack_depth_core::check_stack_depth_or_panic();
     let mut ok = match n.node_tag() {
-        NodeTag::T_Var => n.as_var().is_some_and(|v| v.varno == 1 && v.varattno > 0 && v.varlevelsup == 0),
+        NodeTag::T_Var => n
+            .as_var()
+            .is_some_and(|v| v.varno == 1 && v.varattno > 0 && v.varlevelsup == 0),
         NodeTag::T_Param
         | NodeTag::T_SubLink
         | NodeTag::T_SubPlan
@@ -137,13 +185,19 @@ const NO_ROOM: &str = "keep: no room";
 
 /// Hook B for an UPDATE: `None` leaves it to Gravity, unchanged. `hit`: S5 served the plan from its memo slot, or filed it
 /// there, and the slot keeps the run's pieces (keep.rs); without one the UPDATE is Gravity's (`NO_ENTRY`).
-pub(super) fn serve(pstmt: &PlannedStmt<'_>, dest: &mut DestReceiver<'_>, hit: Option<skip::Hit>) -> Option<PgResult<Option<QueryCompletion>>> {
+pub(super) fn serve(
+    pstmt: &PlannedStmt<'_>,
+    dest: &mut DestReceiver<'_>,
+    hit: Option<skip::Hit>,
+) -> Option<PgResult<Option<QueryCompletion>>> {
     let kept = match hit.map(|h| (h, skip::take_kept(&h))) {
         Some((h, skip::Taken::Kept(kb))) => Some((h, kb)),
         Some((_, skip::Taken::NoRoom)) => return declined(NO_ROOM),
         Some((_, skip::Taken::Make)) | None => None,
     };
-    let ids = kept.as_ref().and_then(|(_, kb)| keep::write_ids(kb, Cmd::Update));
+    let ids = kept
+        .as_ref()
+        .and_then(|(_, kb)| keep::write_ids(kb, Cmd::Update));
     let s = match shape(pstmt, ids) {
         Verdict::Take(s) => s,
         v => {
@@ -166,7 +220,9 @@ pub(super) fn serve(pstmt: &PlannedStmt<'_>, dest: &mut DestReceiver<'_>, hit: O
         return declined(NO_ENTRY);
     };
     let r = match with_run(|mcx, _| match kept {
-        Some((h, kb)) if ids == Some((s.relid, s.scan.indexid)) => run_kept(pstmt, &s, mcx, h, kb, None),
+        Some((h, kb)) if ids == Some((s.relid, s.scan.indexid)) => {
+            run_kept(pstmt, &s, mcx, h, kb, None)
+        }
         _ => run_in(pstmt, &s, mcx, h),
     }) {
         Ok(Err(why)) => return declined(why),
@@ -176,7 +232,7 @@ pub(super) fn serve(pstmt: &PlannedStmt<'_>, dest: &mut DestReceiver<'_>, hit: O
     if super::reporting() {
         super::report(&match &r {
             Ok(qc) => format!("served update rows={}", qc.nprocessed), // alloc: Cold
-            Err(_) => "served update error".to_string(),                // alloc: Cold
+            Err(_) => "served update error".to_string(),               // alloc: Cold
         });
     }
     Some(r.map(Some))
@@ -200,26 +256,50 @@ fn declined(why: &str) -> Option<PgResult<Option<QueryCompletion>>> {
 /// The memo slot's pieces made (`make`: the relations' tests, `Err` with the reason: nothing ran, Gravity serves it) when
 /// the kept compile takes every SET value (`keep::keeps`), then the run over them (`run_kept`), what their making read
 /// recorded into the slot's reads.
-fn run_in(pstmt: &PlannedStmt<'_>, s: &select::Shape<'_>, mcx: Mcx<'_>, h: skip::Hit) -> PgResult<Result<QueryCompletion, &'static str>> {
-    let mt = pstmt.planTree.and_then(|n| n.as_modify_table()).expect("checked by shape");
+fn run_in(
+    pstmt: &PlannedStmt<'_>,
+    s: &select::Shape<'_>,
+    mcx: Mcx<'_>,
+    h: skip::Hit,
+) -> PgResult<Result<QueryCompletion, &'static str>> {
+    let mt = pstmt
+        .planTree
+        .and_then(|n| n.as_modify_table())
+        .expect("checked by shape");
     let n = set_cols(mt).expect("checked by shape").len();
     let tl = &s.scan.scan.plan.targetlist;
-    if !tl.iter().take(n).all(|t| t.as_target_entry().is_some_and(|te| keep::keeps(te.expr))) {
+    if !tl
+        .iter()
+        .take(n)
+        .all(|t| t.as_target_entry().is_some_and(|te| keep::keeps(te.expr)))
+    {
         return Ok(Err(UNKEPT));
     }
     let (made, deps) = gravity_deps::recording(|| make(pstmt, s, mcx));
     match made? {
         Err(why) => Ok(Err(why)),
-        Ok(k) => run_kept(pstmt, s, mcx, h, keep::boxed(Made::Write(k), skip::MEMO_OWNER)?, Some(&deps)),
+        Ok(k) => run_kept(
+            pstmt,
+            s,
+            mcx,
+            h,
+            keep::boxed(Made::Write(k), skip::MEMO_OWNER)?,
+            Some(&deps),
+        ),
     }
 }
 
 /// The SET columns' attnos, in the target list's order.
 fn targets_of<'m>(mcx: Mcx<'m>, pstmt: &PlannedStmt<'_>) -> PgResult<PgVec<'m, i16>> {
-    let mt = pstmt.planTree.and_then(|n| n.as_modify_table()).expect("checked by shape");
+    let mt = pstmt
+        .planTree
+        .and_then(|n| n.as_modify_table())
+        .expect("checked by shape");
     let cols = set_cols(mt).expect("checked by shape");
     let mut targets: PgVec<'m, i16> = PgVec::new_in(mcx);
-    targets.try_reserve_exact(cols.len()).map_err(|_| mcx.oom(cols.len() * 2))?;
+    targets
+        .try_reserve_exact(cols.len())
+        .map_err(|_| mcx.oom(cols.len() * 2))?;
     for c in cols.iter() {
         targets.push(c as i16);
     }
@@ -228,7 +308,13 @@ fn targets_of<'m>(mcx: Mcx<'m>, pstmt: &PlannedStmt<'_>) -> PgResult<PgVec<'m, i
 
 /// The relation tests of a point UPDATE, in order: a write's (`rel::write_refusal`), an UPDATE's over its SET columns
 /// (`rel::update_refusal`), the index's as S1's.
-fn refusal(mcx: Mcx<'_>, s: &select::Shape<'_>, heap: &Relation<'_>, index: &Relation<'_>, targets: &[i16]) -> PgResult<Option<&'static str>> {
+fn refusal(
+    mcx: Mcx<'_>,
+    s: &select::Shape<'_>,
+    heap: &Relation<'_>,
+    index: &Relation<'_>,
+    targets: &[i16],
+) -> PgResult<Option<&'static str>> {
     if let Some(why) = rel::write_refusal(heap) {
         return Ok(Some(why));
     }
@@ -244,7 +330,11 @@ fn refusal(mcx: Mcx<'_>, s: &select::Shape<'_>, heap: &Relation<'_>, index: &Rel
 /// (the statement's insertedCols / updatedCols to the write host: `admit::modified_cols`, over the current statement's
 /// plan) and the kept compile of the SET values (`keep::SetKept`); the relations closed again (the hosts re-open them at
 /// each bind).
-fn make(pstmt: &PlannedStmt<'_>, s: &select::Shape<'_>, mcx: Mcx<'_>) -> PgResult<Result<WriteKept, &'static str>> {
+fn make(
+    pstmt: &PlannedStmt<'_>,
+    s: &select::Shape<'_>,
+    mcx: Mcx<'_>,
+) -> PgResult<Result<WriteKept, &'static str>> {
     let heap = table::table_open(mcx, s.relid, NoLock)?;
     let index = indexam::index_open(mcx, s.scan.indexid, select::index_lockmode(s))?;
     let made = (|| -> PgResult<Result<WriteKept, &'static str>> {
@@ -253,14 +343,39 @@ fn make(pstmt: &PlannedStmt<'_>, s: &select::Shape<'_>, mcx: Mcx<'_>) -> PgResul
             return Ok(Err(why));
         }
         let live = live_cols(mcx, &heap)?;
-        let p = hosts::Probe { heap: &heap, index: &index, indexqual: &s.scan.indexqual, cols: &live };
+        let p = hosts::Probe {
+            heap: &heap,
+            index: &index,
+            indexqual: &s.scan.indexqual,
+            cols: &live,
+        };
         let recipe = p.recipe()?;
         let modified = crate::admit::modified_cols(super::super::raw::current_stmt(pstmt));
-        let hosts = hosts::Hosts::new_held(heap.rd_id, Cmd::Update, modified, p.recipe()?, skip::MEMO_OWNER);
-        let set = keep::SetKept::build(s.relid, &live, &targets, &s.scan.scan.plan.targetlist, skip::MEMO_OWNER)?;
-        Ok(Ok(WriteKept { cmd: Cmd::Update, relid: s.relid, indexid: s.scan.indexid, recipe: core::cell::Cell::new(Some(recipe)), hosts, set: Some(set) }))
+        let hosts = hosts::Hosts::new_held(
+            heap.rd_id,
+            Cmd::Update,
+            modified,
+            p.recipe()?,
+            skip::MEMO_OWNER,
+        );
+        let set = keep::SetKept::build(
+            s.relid,
+            &live,
+            &targets,
+            &s.scan.scan.plan.targetlist,
+            skip::MEMO_OWNER,
+        )?;
+        Ok(Ok(WriteKept {
+            cmd: Cmd::Update,
+            relid: s.relid,
+            indexid: s.scan.indexid,
+            recipe: core::cell::Cell::new(Some(recipe)),
+            hosts,
+            set: Some(set),
+        }))
     })();
-    let closed = indexam::index_close(index, NoLock).and_then(|()| table::table_close(heap, NoLock));
+    let closed =
+        indexam::index_close(index, NoLock).and_then(|()| table::table_close(heap, NoLock));
     let made = made?;
     closed?;
     Ok(made)
@@ -270,9 +385,20 @@ fn make(pstmt: &PlannedStmt<'_>, s: &select::Shape<'_>, mcx: Mcx<'_>) -> PgResul
 /// SET constants into the kept compile's parameters, then ExecutorStart's checks and the snapshot around the hosts' run,
 /// UPDATE n; the pieces back into the slot when it returns, dropped when it raises. Constants that do not line up with
 /// the kept compile's (never seen: S5 serves the slot's plan but for its constants) drop the pieces, and Gravity serves.
-fn run_kept(pstmt: &PlannedStmt<'_>, s: &select::Shape<'_>, mcx: Mcx<'_>, hit: skip::Hit, mut kb: KeptBox, deps: Option<&gravity_deps::Deps>) -> PgResult<Result<QueryCompletion, &'static str>> {
+fn run_kept(
+    pstmt: &PlannedStmt<'_>,
+    s: &select::Shape<'_>,
+    mcx: Mcx<'_>,
+    hit: skip::Hit,
+    mut kb: KeptBox,
+    deps: Option<&gravity_deps::Deps>,
+) -> PgResult<Result<QueryCompletion, &'static str>> {
     if super::reporting() {
-        super::report(if deps.is_some() { "keep made" } else { "keep used" });
+        super::report(if deps.is_some() {
+            "keep made"
+        } else {
+            "keep used"
+        });
     }
     let mode = select::index_lockmode(s);
     if mode != NoLock {
@@ -280,7 +406,9 @@ fn run_kept(pstmt: &PlannedStmt<'_>, s: &select::Shape<'_>, mcx: Mcx<'_>, hit: s
     }
     let n = kb.with_mut(|kin| -> PgResult<Option<u64>> {
         let Kept::Write(k) = &mut kin.kept else {
-            return Err(keep::internal("a point UPDATE's memo entry keeps another statement's pieces"));
+            return Err(keep::internal(
+                "a point UPDATE's memo entry keeps another statement's pieces",
+            ));
         };
         let k: &mut WriteKept = k; // the pieces' fields borrowed apart, not through the box each time
         let Some(set) = k.set.as_mut() else {
@@ -289,7 +417,16 @@ fn run_kept(pstmt: &PlannedStmt<'_>, s: &select::Shape<'_>, mcx: Mcx<'_>, hit: s
         if !set.bind(&s.scan.scan.plan.targetlist) {
             return Ok(None);
         }
-        exec_cmd_in(pstmt, Cmd::Update, mcx, |snap| hosts::update(&mut k.hosts, &hosts::EpqRecipe::Kept(&k.recipe), &s.scan.indexqual, set, snap)).map(Some)
+        exec_cmd_in(pstmt, Cmd::Update, mcx, |snap| {
+            hosts::update(
+                &mut k.hosts,
+                &hosts::EpqRecipe::Kept(&k.recipe),
+                &s.scan.indexqual,
+                set,
+                snap,
+            )
+        })
+        .map(Some)
     })?;
     let Some(n) = n else {
         return Ok(Err("SET constants"));

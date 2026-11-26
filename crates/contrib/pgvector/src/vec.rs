@@ -127,11 +127,11 @@ pub fn check_dim(dim: usize) -> PgResult<()> {
 
 pub fn check_expected_dim(typmod: i32, dim: usize) -> PgResult<()> {
     if typmod != -1 && typmod as usize != dim {
-        return Err(PgError::error(format!(
-            "expected {typmod} dimensions, not {dim}"
-        ))
-        .with_sqlstate(ERRCODE_DATA_EXCEPTION)
-        .into());
+        return Err(
+            PgError::error(format!("expected {typmod} dimensions, not {dim}"))
+                .with_sqlstate(ERRCODE_DATA_EXCEPTION)
+                .into(),
+        );
     }
     Ok(())
 }
@@ -192,7 +192,10 @@ pub fn parse_vector(lit: &[u8], typmod: i32, x: &mut [f32; VECTOR_MAX_DIM]) -> P
         pt += 1;
     }
     if pt >= n || lit[pt] != b'[' {
-        return Err(invalid_text(lit, Some("Vector contents must start with \"[\".")));
+        return Err(invalid_text(
+            lit,
+            Some("Vector contents must start with \"[\"."),
+        ));
     }
     pt += 1;
     while pt < n && vector_isspace(lit[pt]) {
@@ -224,7 +227,9 @@ pub fn parse_vector(lit: &[u8], typmod: i32, x: &mut [f32; VECTOR_MAX_DIM]) -> P
             .with_sqlstate(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE)
             .into());
         }
-        let StrtofVal::Ok(val) = val else { unreachable!() };
+        let StrtofVal::Ok(val) = val else {
+            unreachable!()
+        };
         check_element(val)?;
         x[dim] = val;
         dim += 1;
@@ -288,7 +293,11 @@ fn parse_float_token(tok: &str) -> f32 {
     let neg = tok.starts_with('-');
     let t = tok.trim_start_matches(['+', '-']);
     if t.len() >= 3 && t[..3].eq_ignore_ascii_case("inf") {
-        return if neg { f32::NEG_INFINITY } else { f32::INFINITY };
+        return if neg {
+            f32::NEG_INFINITY
+        } else {
+            f32::INFINITY
+        };
     }
     if t.len() >= 3 && t[..3].eq_ignore_ascii_case("nan") {
         return f32::NAN;
@@ -338,7 +347,9 @@ fn parse_hex_f32(tok: &[u8]) -> f32 {
             i += 1;
         }
         while i < tok.len() && tok[i].is_ascii_digit() {
-            exp = exp.saturating_mul(10).saturating_add((tok[i] - b'0') as i32);
+            exp = exp
+                .saturating_mul(10)
+                .saturating_add((tok[i] - b'0') as i32);
             i += 1;
         }
         if eneg {
@@ -553,14 +564,32 @@ mod tests {
 
     #[test]
     fn parse_errors() {
-        assert!(parse("[hello,1]").err().unwrap().contains("invalid input syntax"));
+        assert!(parse("[hello,1]")
+            .err()
+            .unwrap()
+            .contains("invalid input syntax"));
         assert!(parse("[NaN,1]").err().unwrap().contains("NaN not allowed"));
-        assert!(parse("[Infinity,1]").err().unwrap().contains("infinite value not allowed"));
-        assert!(parse("[4e38,1]").err().unwrap().contains("\"4e38\" is out of range"));
+        assert!(parse("[Infinity,1]")
+            .err()
+            .unwrap()
+            .contains("infinite value not allowed"));
+        assert!(parse("[4e38,1]")
+            .err()
+            .unwrap()
+            .contains("\"4e38\" is out of range"));
         assert!(parse("[]").err().unwrap().contains("at least 1 dimension"));
-        assert!(parse("[1,2,3").err().unwrap().contains("invalid input syntax"));
-        assert!(parse("[1,2,3]x").err().unwrap().contains("invalid input syntax"));
-        assert!(parse("1,2,3").err().unwrap().contains("invalid input syntax"));
+        assert!(parse("[1,2,3")
+            .err()
+            .unwrap()
+            .contains("invalid input syntax"));
+        assert!(parse("[1,2,3]x")
+            .err()
+            .unwrap()
+            .contains("invalid input syntax"));
+        assert!(parse("1,2,3")
+            .err()
+            .unwrap()
+            .contains("invalid input syntax"));
     }
 
     #[test]

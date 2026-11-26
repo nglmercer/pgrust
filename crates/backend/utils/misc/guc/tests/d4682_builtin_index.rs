@@ -24,23 +24,44 @@ fn a_registry_on_the_shared_builtin_index_finds_every_name_where_its_own_would()
     // the reference: sharing off, the registry indexes every name itself
     guc::store::initialize_guc_options().unwrap();
     let reference: Vec<(String, usize)> =
-        guc::store::with_store(|r| (0..r.len()).map(|i| (r[i].name().to_string(), i)).collect()).unwrap();
+        guc::store::with_store(|r| (0..r.len()).map(|i| (r[i].name().to_string(), i)).collect())
+            .unwrap();
     assert!(reference.len() > 300, "the built-ins: {}", reference.len());
-    let work_mem = reference.iter().find(|(n, _)| n == "work_mem").map(|(_, i)| *i).expect("work_mem is built in");
+    let work_mem = reference
+        .iter()
+        .find(|(n, _)| n == "work_mem")
+        .map(|(_, i)| *i)
+        .expect("work_mem is built in");
 
     guc::store::set_share_builtin_index(true);
     for round in 0..3 {
         guc::store::initialize_guc_options().unwrap();
         guc::store::with_store_mut(|r| {
             // round 0 publishes the index (its own holds every built-in), later rounds adopt it (their own is empty)
-            assert_eq!(r.own_index().len(), if round == 0 { reference.len() } else { 0 }, "round {round}");
+            assert_eq!(
+                r.own_index().len(),
+                if round == 0 { reference.len() } else { 0 },
+                "round {round}"
+            );
             assert_eq!(r.len(), reference.len(), "round {round}");
             for (name, i) in &reference {
                 assert_eq!(r.find_index(name), Some(*i), "round {round}: {name}");
-                assert_eq!(r.find_index(&name.to_ascii_uppercase()), Some(*i), "round {round}: {name} upper-cased");
+                assert_eq!(
+                    r.find_index(&name.to_ascii_uppercase()),
+                    Some(*i),
+                    "round {round}: {name} upper-cased"
+                );
             }
-            assert_eq!(r.find_index("sort_mem"), Some(work_mem), "an old name maps through the shared index");
-            assert_eq!(r.find_index("d4682.probe"), None, "round {round}: the previous session's placeholder is gone");
+            assert_eq!(
+                r.find_index("sort_mem"),
+                Some(work_mem),
+                "an old name maps through the shared index"
+            );
+            assert_eq!(
+                r.find_index("d4682.probe"),
+                None,
+                "round {round}: the previous session's placeholder is gone"
+            );
             // the session defines a placeholder past the built-ins: its own index holds it, the shared one never does
             let idx = r.add_placeholder_variable("d4682.probe").unwrap();
             assert_eq!(idx, reference.len());
@@ -54,5 +75,12 @@ fn a_registry_on_the_shared_builtin_index_finds_every_name_where_its_own_would()
     }
     guc::store::set_share_builtin_index(false);
     guc::store::initialize_guc_options().unwrap();
-    guc::store::with_store(|r| assert_eq!(r.own_index().len(), reference.len(), "sharing off: its own index again")).unwrap();
+    guc::store::with_store(|r| {
+        assert_eq!(
+            r.own_index().len(),
+            reference.len(),
+            "sharing off: its own index again"
+        )
+    })
+    .unwrap();
 }

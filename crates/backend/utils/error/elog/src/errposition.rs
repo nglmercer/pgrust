@@ -60,7 +60,10 @@ pub fn arm_parser_errposition<'a>(
             resolve,
         }))
     });
-    ParserErrpositionScope { prev, _source: core::marker::PhantomData }
+    ParserErrpositionScope {
+        prev,
+        _source: core::marker::PhantomData,
+    }
 }
 
 impl Drop for ParserErrpositionScope<'_> {

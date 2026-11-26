@@ -86,7 +86,11 @@ pub fn msg(t: u8, body: &[u8]) -> Vec<u8> {
 /// the NUL). An unterminated tail yields the tail and `len + 1`.
 fn cstr_bytes(b: &[u8], pos: usize) -> (&[u8], usize) {
     let pos = pos.min(b.len());
-    let end = b[pos..].iter().position(|&c| c == 0).map(|e| pos + e).unwrap_or(b.len());
+    let end = b[pos..]
+        .iter()
+        .position(|&c| c == 0)
+        .map(|e| pos + e)
+        .unwrap_or(b.len());
     (&b[pos..end], end + 1)
 }
 
@@ -115,7 +119,10 @@ pub struct WireParam {
 impl WireParam {
     /// Text-format parameter from a string (None = NULL).
     pub fn text(v: Option<&str>) -> WireParam {
-        WireParam { bytes: v.map(|s| s.as_bytes().to_vec()), binary: false }
+        WireParam {
+            bytes: v.map(|s| s.as_bytes().to_vec()),
+            binary: false,
+        }
     }
 }
 
@@ -215,7 +222,10 @@ impl Exchange {
 
     /// The first ErrorResponse's SQLSTATE (field C) as text, if any.
     pub fn first_sqlstate(&self) -> Option<String> {
-        self.errors().first().and_then(|f| f.get(&'C')).map(|b| lossy(&b.0))
+        self.errors()
+            .first()
+            .and_then(|f| f.get(&'C'))
+            .map(|b| lossy(&b.0))
     }
 
     /// True when the exchange reached ReadyForQuery with no fault.
@@ -298,7 +308,12 @@ impl ConnectOpts {
         self
     }
 
-    pub fn timeouts(mut self, connect: Option<Duration>, read: Option<Duration>, write: Option<Duration>) -> ConnectOpts {
+    pub fn timeouts(
+        mut self,
+        connect: Option<Duration>,
+        read: Option<Duration>,
+        write: Option<Duration>,
+    ) -> ConnectOpts {
         self.connect_timeout = connect;
         self.read_timeout = read;
         self.write_timeout = write;
@@ -318,7 +333,11 @@ pub struct ConnectError {
 
 impl ConnectError {
     fn from_fault(f: Fault, wire: Vec<WireMsg>) -> ConnectError {
-        ConnectError { detail: f.detail(), hang: matches!(f, Fault::Hang { .. }), wire }
+        ConnectError {
+            detail: f.detail(),
+            hang: matches!(f, Fault::Hang { .. }),
+            wire,
+        }
     }
 }
 
@@ -345,10 +364,19 @@ pub enum Frame {
     Query(String),
     /// 'P' — statement name ("" = unnamed), SQL, pre-declared parameter
     /// type oids (0 = let the server infer).
-    Parse { stmt: String, sql: String, param_oids: Vec<u32> },
+    Parse {
+        stmt: String,
+        sql: String,
+        param_oids: Vec<u32>,
+    },
     /// 'B' — portal, statement, parameters (per-parameter formats), result
     /// format codes (`[]` = all text, `[1]` = all binary, else per column).
-    Bind { portal: String, stmt: String, params: Vec<WireParam>, result_fmts: Vec<i16> },
+    Bind {
+        portal: String,
+        stmt: String,
+        params: Vec<WireParam>,
+        result_fmts: Vec<i16>,
+    },
     /// 'D'
     Describe { kind: Describe, name: String },
     /// 'E' — `limit` 0 = run to completion.
@@ -379,8 +407,13 @@ impl Frame {
                 push_cstr(&mut body, sql.as_bytes());
                 msg(b'Q', &body)
             }
-            Frame::Parse { stmt, sql, param_oids } => {
-                let mut body = Vec::with_capacity(stmt.len() + sql.len() + 4 + 4 * param_oids.len());
+            Frame::Parse {
+                stmt,
+                sql,
+                param_oids,
+            } => {
+                let mut body =
+                    Vec::with_capacity(stmt.len() + sql.len() + 4 + 4 * param_oids.len());
                 push_cstr(&mut body, stmt.as_bytes());
                 push_cstr(&mut body, sql.as_bytes());
                 body.extend_from_slice(&(param_oids.len() as i16).to_be_bytes());
@@ -389,7 +422,12 @@ impl Frame {
                 }
                 msg(b'P', &body)
             }
-            Frame::Bind { portal, stmt, params, result_fmts } => {
+            Frame::Bind {
+                portal,
+                stmt,
+                params,
+                result_fmts,
+            } => {
                 let mut body = Vec::new();
                 push_cstr(&mut body, portal.as_bytes());
                 push_cstr(&mut body, stmt.as_bytes());
@@ -515,7 +553,10 @@ impl ExtendedStep {
             });
         }
         if self.describe == Some(Describe::Statement) {
-            out.push(Frame::Describe { kind: Describe::Statement, name: self.stmt.clone() });
+            out.push(Frame::Describe {
+                kind: Describe::Statement,
+                name: self.stmt.clone(),
+            });
         }
         out.push(Frame::Bind {
             portal: self.portal.clone(),
@@ -524,9 +565,15 @@ impl ExtendedStep {
             result_fmts: self.result_fmts.clone(),
         });
         if self.describe == Some(Describe::Portal) {
-            out.push(Frame::Describe { kind: Describe::Portal, name: self.portal.clone() });
+            out.push(Frame::Describe {
+                kind: Describe::Portal,
+                name: self.portal.clone(),
+            });
         }
-        out.push(Frame::Execute { portal: self.portal.clone(), limit: self.limit });
+        out.push(Frame::Execute {
+            portal: self.portal.clone(),
+            limit: self.limit,
+        });
         out.push(Frame::Flush);
         out
     }
@@ -538,7 +585,12 @@ impl ExtendedStep {
 
 /// StartupMessage: i32 length, i32 protocol code, then `user`, `database`
 /// and every extra key as NUL-terminated key/value pairs, then a NUL.
-pub fn encode_startup(protocol: Protocol, user: &str, database: &str, extra: &[(String, String)]) -> Vec<u8> {
+pub fn encode_startup(
+    protocol: Protocol,
+    user: &str,
+    database: &str,
+    extra: &[(String, String)],
+) -> Vec<u8> {
     let mut body = Vec::new();
     body.extend_from_slice(&protocol.code().to_be_bytes());
     push_cstr(&mut body, b"user");
@@ -569,12 +621,19 @@ pub fn encode_cancel_request(pid: u32, key: &[u8]) -> Vec<u8> {
 
 /// Open a second socket to `host:port`, send a CancelRequest for
 /// (`pid`, `key`), and close it. `timeout` bounds the dial and the write.
-pub fn send_cancel(host: &str, port: u16, pid: u32, key: &[u8], timeout: Option<Duration>) -> Result<(), String> {
+pub fn send_cancel(
+    host: &str,
+    port: u16,
+    pid: u32,
+    key: &[u8],
+    timeout: Option<Duration>,
+) -> Result<(), String> {
     let mut s = dial(host, port, timeout).map_err(|e| e.detail)?;
     if let Some(t) = timeout {
         let _ = s.set_write_timeout(Some(t));
     }
-    s.write_all(&encode_cancel_request(pid, key)).map_err(|e| format!("could not send CancelRequest: {e}"))?;
+    s.write_all(&encode_cancel_request(pid, key))
+        .map_err(|e| format!("could not send CancelRequest: {e}"))?;
     let _ = s.shutdown(std::net::Shutdown::Both);
     Ok(())
 }
@@ -583,7 +642,10 @@ fn dial(host: &str, port: u16, timeout: Option<Duration>) -> Result<TcpStream, C
     let fail = |e: std::io::Error| ConnectError {
         detail: format!("connect {host}:{port}: {e}"),
         wire: Vec::new(),
-        hang: matches!(e.kind(), std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock),
+        hang: matches!(
+            e.kind(),
+            std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+        ),
     };
     let stream = match timeout {
         None => TcpStream::connect((host, port)).map_err(fail)?,
@@ -611,7 +673,10 @@ fn dial(host: &str, port: u16, timeout: Option<Duration>) -> Result<TcpStream, C
 pub fn decode_frame(t: u8, body: &[u8]) -> WireMsg {
     match decode_structured(t, body) {
         Some(m) => m,
-        None => WireMsg::Raw { code: t as char, data: Bytes(body.to_vec()) },
+        None => WireMsg::Raw {
+            code: t as char,
+            data: Bytes(body.to_vec()),
+        },
     }
 }
 
@@ -625,7 +690,10 @@ fn decode_structured(t: u8, body: &[u8]) -> Option<WireMsg> {
         b'S' => {
             let (name, next) = cstr_bytes(body, 0);
             let (value, _) = cstr_bytes(body, next);
-            WireMsg::ParameterStatus { name: Bytes(name.to_vec()), value: Bytes(value.to_vec()) }
+            WireMsg::ParameterStatus {
+                name: Bytes(name.to_vec()),
+                value: Bytes(value.to_vec()),
+            }
         }
         b'A' => {
             if body.len() < 4 {
@@ -644,13 +712,18 @@ fn decode_structured(t: u8, body: &[u8]) -> Option<WireMsg> {
             if body.len() < 4 {
                 return None;
             }
-            WireMsg::BackendKeyData { pid: be_u32(&body[0..4]), key: Bytes(body[4..].to_vec()) }
+            WireMsg::BackendKeyData {
+                pid: be_u32(&body[0..4]),
+                key: Bytes(body[4..].to_vec()),
+            }
         }
         b'Z' => {
             if body.len() != 1 {
                 return None;
             }
-            WireMsg::ReadyForQuery { status: body[0] as char }
+            WireMsg::ReadyForQuery {
+                status: body[0] as char,
+            }
         }
         b'I' => WireMsg::EmptyQueryResponse,
         b'1' => WireMsg::ParseComplete,
@@ -667,7 +740,11 @@ fn decode_structured(t: u8, body: &[u8]) -> Option<WireMsg> {
             if n < 0 || body.len() != 2 + 4 * n as usize {
                 return None;
             }
-            WireMsg::ParameterDescription((0..n as usize).map(|i| be_u32(&body[2 + 4 * i..6 + 4 * i])).collect())
+            WireMsg::ParameterDescription(
+                (0..n as usize)
+                    .map(|i| be_u32(&body[2 + 4 * i..6 + 4 * i]))
+                    .collect(),
+            )
         }
         b'G' | b'H' => {
             if body.len() < 3 {
@@ -678,7 +755,9 @@ fn decode_structured(t: u8, body: &[u8]) -> Option<WireMsg> {
             if n < 0 || body.len() != 3 + 2 * n as usize {
                 return None;
             }
-            let col_fmts = (0..n as usize).map(|i| be_i16(&body[3 + 2 * i..5 + 2 * i])).collect();
+            let col_fmts = (0..n as usize)
+                .map(|i| be_i16(&body[3 + 2 * i..5 + 2 * i]))
+                .collect();
             if t == b'G' {
                 WireMsg::CopyInResponse { fmt, col_fmts }
             } else {
@@ -690,7 +769,10 @@ fn decode_structured(t: u8, body: &[u8]) -> Option<WireMsg> {
             if body.len() < 4 {
                 return None;
             }
-            WireMsg::Authentication { kind: be_i32(&body[0..4]), data: Bytes(body[4..].to_vec()) }
+            WireMsg::Authentication {
+                kind: be_i32(&body[0..4]),
+                data: Bytes(body[4..].to_vec()),
+            }
         }
         b'v' => {
             if body.len() < 8 {
@@ -711,7 +793,10 @@ fn decode_structured(t: u8, body: &[u8]) -> Option<WireMsg> {
                 opts.push(Bytes(o.to_vec()));
                 i = next;
             }
-            WireMsg::NegotiateProtocolVersion { minor, unknown_options: opts }
+            WireMsg::NegotiateProtocolVersion {
+                minor,
+                unknown_options: opts,
+            }
         }
         _ => return None,
     })
@@ -808,14 +893,26 @@ pub fn parse_data_row(body: &[u8]) -> Result<Vec<Option<Bytes>>, String> {
 const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 pub fn b64_encode(data: &[u8]) -> String {
-    let mut out = String::with_capacity(data.len().div_ceil( 3) * 4);
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
     for chunk in data.chunks(3) {
-        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
         let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
         out.push(B64[(n >> 18) as usize & 63] as char);
         out.push(B64[(n >> 12) as usize & 63] as char);
-        out.push(if chunk.len() > 1 { B64[(n >> 6) as usize & 63] as char } else { '=' });
-        out.push(if chunk.len() > 2 { B64[n as usize & 63] as char } else { '=' });
+        out.push(if chunk.len() > 1 {
+            B64[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            B64[n as usize & 63] as char
+        } else {
+            '='
+        });
     }
     out
 }
@@ -849,7 +946,7 @@ pub fn b64_decode(s: &str) -> Result<Vec<u8>, String> {
             acc &= (1 << bits) - 1;
         }
     }
-    if pad > 2 || !s.len().is_multiple_of( 4) {
+    if pad > 2 || !s.len().is_multiple_of(4) {
         return Err("malformed base64 in SCRAM message".to_string());
     }
     Ok(out)
@@ -922,8 +1019,10 @@ impl ScramClient {
     /// Fresh 18-byte random nonce, base64.
     pub fn random_nonce() -> Result<String, String> {
         let mut raw = [0u8; 18];
-        let mut f = std::fs::File::open("/dev/urandom").map_err(|e| format!("could not open /dev/urandom: {e}"))?;
-        f.read_exact(&mut raw).map_err(|_| "could not generate nonce".to_string())?;
+        let mut f = std::fs::File::open("/dev/urandom")
+            .map_err(|e| format!("could not open /dev/urandom: {e}"))?;
+        f.read_exact(&mut raw)
+            .map_err(|_| "could not generate nonce".to_string())?;
         Ok(b64_encode(&raw))
     }
 
@@ -947,7 +1046,9 @@ impl ScramClient {
     pub fn client_final(&mut self, password: &[u8], server_first: &str) -> Result<String, String> {
         let fields: Vec<&str> = server_first.split(',').collect();
         let server_nonce = scram_attr(&fields, 'r')?.to_string();
-        if !server_nonce.starts_with(&self.client_nonce) || server_nonce.len() == self.client_nonce.len() {
+        if !server_nonce.starts_with(&self.client_nonce)
+            || server_nonce.len() == self.client_nonce.len()
+        {
             return Err("invalid SCRAM response (nonce mismatch)".to_string());
         }
         let salt = scram_attr(&fields, 's').and_then(b64_decode)?;
@@ -959,14 +1060,20 @@ impl ScramClient {
         let client_key = hmac_sha256(&salted, b"Client Key");
         let stored_key = pg_sha2::sha256(&client_key);
         let client_final_wo_proof = format!("c=biws,r={server_nonce}");
-        let auth_message = format!("{},{},{}", self.client_first_bare, server_first, client_final_wo_proof);
+        let auth_message = format!(
+            "{},{},{}",
+            self.client_first_bare, server_first, client_final_wo_proof
+        );
         let client_sig = hmac_sha256(&stored_key, auth_message.as_bytes());
         let mut proof = client_key;
         for (p, s) in proof.iter_mut().zip(client_sig.iter()) {
             *p ^= s;
         }
         let server_key = hmac_sha256(&salted, b"Server Key");
-        self.expected_server_sig = Some(b64_encode(&hmac_sha256(&server_key, auth_message.as_bytes())));
+        self.expected_server_sig = Some(b64_encode(&hmac_sha256(
+            &server_key,
+            auth_message.as_bytes(),
+        )));
         Ok(format!("{client_final_wo_proof},p={}", b64_encode(&proof)))
     }
 
@@ -1050,10 +1157,18 @@ impl Client<TcpStream> {
         let mut c = Client::over(stream);
         c.peer = Some((opts.host.clone(), opts.port));
         if let Err(e) = c.set_read_timeout(opts.read_timeout) {
-            return Err(ConnectError { detail: format!("set_read_timeout: {e}"), wire: Vec::new(), hang: false });
+            return Err(ConnectError {
+                detail: format!("set_read_timeout: {e}"),
+                wire: Vec::new(),
+                hang: false,
+            });
         }
         if let Err(e) = c.set_write_timeout(opts.write_timeout) {
-            return Err(ConnectError { detail: format!("set_write_timeout: {e}"), wire: Vec::new(), hang: false });
+            return Err(ConnectError {
+                detail: format!("set_write_timeout: {e}"),
+                wire: Vec::new(),
+                hang: false,
+            });
         }
         c.handshake(opts)?;
         Ok(c)
@@ -1062,7 +1177,8 @@ impl Client<TcpStream> {
     /// Dial + startup + trust auth, protocol 3.0, no timeouts (the
     /// pre-L0.1 adapter; every message is still retained).
     pub fn connect(host: &str, port: u16, db: &str, user: &str) -> Result<Client, ConnLost> {
-        Client::connect_with(&ConnectOpts::new(host, port, db, user)).map_err(|e| ConnLost(e.detail))
+        Client::connect_with(&ConnectOpts::new(host, port, db, user))
+            .map_err(|e| ConnLost(e.detail))
     }
 
     /// Read deadline; a hit surfaces as `Fault::Hang` instead of blocking.
@@ -1087,7 +1203,10 @@ impl Client<TcpStream> {
         if self.cancel_key.is_empty() {
             return Err("cancel: no BackendKeyData received".to_string());
         }
-        let t = self.write_timeout_ms.or(self.read_timeout_ms).map(Duration::from_millis);
+        let t = self
+            .write_timeout_ms
+            .or(self.read_timeout_ms)
+            .map(Duration::from_millis);
         send_cancel(host, *port, self.backend_pid, &self.cancel_key, t)
     }
 }
@@ -1142,7 +1261,13 @@ impl<S: Read + Write> Client<S> {
         if let Err(f) = self.send(&pkt) {
             return Err(ConnectError::from_fault(f, wire));
         }
-        let fail = |detail: String, wire: Vec<WireMsg>| Err(ConnectError { detail, wire, hang: false });
+        let fail = |detail: String, wire: Vec<WireMsg>| {
+            Err(ConnectError {
+                detail,
+                wire,
+                hang: false,
+            })
+        };
         let mut scram: Option<ScramClient> = None;
         loop {
             let (t, body) = match self.read_message() {
@@ -1154,10 +1279,9 @@ impl<S: Read + Write> Client<S> {
             match m {
                 WireMsg::Authentication { kind, data } => {
                     let password = || -> Result<&[u8], String> {
-                        opts.password
-                            .as_deref()
-                            .map(str::as_bytes)
-                            .ok_or_else(|| format!("no password supplied for authentication method {kind}"))
+                        opts.password.as_deref().map(str::as_bytes).ok_or_else(|| {
+                            format!("no password supplied for authentication method {kind}")
+                        })
                     };
                     let reply: Option<Vec<u8>> = match kind {
                         0 => None,
@@ -1172,7 +1296,10 @@ impl<S: Read + Write> Client<S> {
                         5 => match password() {
                             Ok(pw) => {
                                 if data.0.len() < 4 {
-                                    return fail("received malformed MD5 authentication request".to_string(), wire);
+                                    return fail(
+                                        "received malformed MD5 authentication request".to_string(),
+                                        wire,
+                                    );
                                 }
                                 let r = md5_password_response(&opts.user, &lossy(pw), &data.0[..4]);
                                 let mut b = r.into_bytes();
@@ -1215,7 +1342,10 @@ impl<S: Read + Write> Client<S> {
                         }
                         11 => {
                             let Some(sc) = scram.as_mut() else {
-                                return fail("SASL continue without an initial response".to_string(), wire);
+                                return fail(
+                                    "SASL continue without an initial response".to_string(),
+                                    wire,
+                                );
                             };
                             let pw = match password() {
                                 Ok(pw) => pw,
@@ -1235,7 +1365,12 @@ impl<S: Read + Write> Client<S> {
                             }
                             None
                         }
-                        other => return fail(format!("authentication method {other} not supported"), wire),
+                        other => {
+                            return fail(
+                                format!("authentication method {other} not supported"),
+                                wire,
+                            )
+                        }
                     };
                     if let Some(r) = reply {
                         if let Err(f) = self.send(&r) {
@@ -1261,7 +1396,11 @@ impl<S: Read + Write> Client<S> {
                 WireMsg::NoticeResponse(_) => {}
                 WireMsg::ReadyForQuery { status } => {
                     self.txn_status = status;
-                    self.negotiated_minor = if self.negotiated_minor == 0 && wire.iter().all(|m| !matches!(m, WireMsg::NegotiateProtocolVersion { .. })) {
+                    self.negotiated_minor = if self.negotiated_minor == 0
+                        && wire
+                            .iter()
+                            .all(|m| !matches!(m, WireMsg::NegotiateProtocolVersion { .. }))
+                    {
                         opts.protocol.minor()
                     } else {
                         self.negotiated_minor
@@ -1270,7 +1409,13 @@ impl<S: Read + Write> Client<S> {
                     return Ok(());
                 }
                 other => {
-                    return fail(format!("unexpected message type \"{}\" during startup", other.code()), wire);
+                    return fail(
+                        format!(
+                            "unexpected message type \"{}\" during startup",
+                            other.code()
+                        ),
+                        wire,
+                    );
                 }
             }
         }
@@ -1330,7 +1475,15 @@ impl<S: Read + Write> Client<S> {
     /// CopyData messages.
     pub fn simple_with_copy(&mut self, sql: &str, copy_in: Option<&[u8]>) -> Exchange {
         let frames = [Frame::Query(sql.to_string())];
-        self.drive(&frames, Drive { copy_in, resume_portal: None, sync_on_end: false, ready_needed: 1 })
+        self.drive(
+            &frames,
+            Drive {
+                copy_in,
+                resume_portal: None,
+                sync_on_end: false,
+                ready_needed: 1,
+            },
+        )
     }
 
     /// Extended-protocol step: Parse / [Describe S] / Bind / [Describe P] /
@@ -1342,7 +1495,11 @@ impl<S: Read + Write> Client<S> {
             &frames,
             Drive {
                 copy_in: step.copy_in.as_deref(),
-                resume_portal: if step.resume { Some(step.portal.as_str()) } else { None },
+                resume_portal: if step.resume {
+                    Some(step.portal.as_str())
+                } else {
+                    None
+                },
                 sync_on_end: true,
                 ready_needed: 1,
             },
@@ -1357,9 +1514,25 @@ impl<S: Read + Write> Client<S> {
         if ready == 0 {
             let mut with_sync = frames.to_vec();
             with_sync.push(Frame::Sync);
-            return self.drive(&with_sync, Drive { copy_in, resume_portal: None, sync_on_end: false, ready_needed: 1 });
+            return self.drive(
+                &with_sync,
+                Drive {
+                    copy_in,
+                    resume_portal: None,
+                    sync_on_end: false,
+                    ready_needed: 1,
+                },
+            );
         }
-        self.drive(frames, Drive { copy_in, resume_portal: None, sync_on_end: false, ready_needed: ready })
+        self.drive(
+            frames,
+            Drive {
+                copy_in,
+                resume_portal: None,
+                sync_on_end: false,
+                ready_needed: ready,
+            },
+        )
     }
 
     /// Raw bytes on the wire (the protocol mutator), then read until
@@ -1367,14 +1540,30 @@ impl<S: Read + Write> Client<S> {
     /// or the read deadline) that a malformed frame provokes.
     pub fn raw(&mut self, bytes: &[u8], ready_needed: usize) -> Exchange {
         let frames = [Frame::Raw(bytes.to_vec())];
-        self.drive(&frames, Drive { copy_in: None, resume_portal: None, sync_on_end: false, ready_needed })
+        self.drive(
+            &frames,
+            Drive {
+                copy_in: None,
+                resume_portal: None,
+                sync_on_end: false,
+                ready_needed,
+            },
+        )
     }
 
     /// Read (sending nothing) until one ReadyForQuery: after a `Hang` +
     /// `cancel()`, or to collect asynchronous NotificationResponse traffic
     /// behind a Sync sent separately.
     pub fn drain(&mut self) -> Exchange {
-        self.drive(&[], Drive { copy_in: None, resume_portal: None, sync_on_end: false, ready_needed: 1 })
+        self.drive(
+            &[],
+            Drive {
+                copy_in: None,
+                resume_portal: None,
+                sync_on_end: false,
+                ready_needed: 1,
+            },
+        )
     }
 
     /// Send Terminate and mark the connection closed.
@@ -1433,7 +1622,13 @@ impl<S: Read + Write> Client<S> {
                 }
                 WireMsg::PortalSuspended => match d.resume_portal {
                     Some(portal) => {
-                        reply.extend_from_slice(&Frame::Execute { portal: portal.to_string(), limit: 0 }.encode());
+                        reply.extend_from_slice(
+                            &Frame::Execute {
+                                portal: portal.to_string(),
+                                limit: 0,
+                            }
+                            .encode(),
+                        );
                         reply.extend_from_slice(&Frame::Flush.encode());
                     }
                     None => {
@@ -1449,7 +1644,9 @@ impl<S: Read + Write> Client<S> {
                         reply.extend_from_slice(&Frame::CopyDone.encode());
                     }
                     None => {
-                        reply.extend_from_slice(&Frame::CopyFail("client has no COPY payload".to_string()).encode());
+                        reply.extend_from_slice(
+                            &Frame::CopyFail("client has no COPY payload".to_string()).encode(),
+                        );
                     }
                 },
                 WireMsg::ParameterStatus { name, value } => {
@@ -1514,7 +1711,11 @@ impl<S: Read + Write> Client<S> {
         self.adapt(x, |wire| vec![fold_extended(wire)])
     }
 
-    fn adapt(&mut self, x: Exchange, fold: impl Fn(&[WireMsg]) -> Vec<RawResult>) -> Result<Vec<RawResult>, ConnLost> {
+    fn adapt(
+        &mut self,
+        x: Exchange,
+        fold: impl Fn(&[WireMsg]) -> Vec<RawResult>,
+    ) -> Result<Vec<RawResult>, ConnLost> {
         match x.fault {
             None => Ok(fold(&x.wire)),
             Some(f) => Err(ConnLost(f.detail())),
@@ -1529,7 +1730,9 @@ impl<S: Read + Write> Client<S> {
         // server error onto the detail so classification and triage see
         // WHY the session died.
         let e = match &self.last_error {
-            Some((state, message)) if e.starts_with("server closed") || e.starts_with("could not read") => {
+            Some((state, message))
+                if e.starts_with("server closed") || e.starts_with("could not read") =>
+            {
                 format!("{e} after server error {state}: {message}")
             }
             _ => e,
@@ -1539,13 +1742,18 @@ impl<S: Read + Write> Client<S> {
     }
 
     fn is_timeout(e: &std::io::Error) -> bool {
-        matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut)
+        matches!(
+            e.kind(),
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+        )
     }
 
     fn send(&mut self, buf: &[u8]) -> Result<(), Fault> {
         match self.stream.write_all(buf) {
             Ok(()) => Ok(()),
-            Err(e) if Self::is_timeout(&e) => Err(Fault::Hang { timeout_ms: self.write_timeout_ms.unwrap_or(0) }),
+            Err(e) if Self::is_timeout(&e) => Err(Fault::Hang {
+                timeout_ms: self.write_timeout_ms.unwrap_or(0),
+            }),
             Err(e) => Err(self.poison(format!("could not send to server: {e}"))),
         }
     }
@@ -1582,7 +1790,9 @@ impl<S: Read + Write> Client<S> {
                 Ok(n) => n,
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(e) if Self::is_timeout(&e) => {
-                    return Err(Fault::Hang { timeout_ms: self.read_timeout_ms.unwrap_or(0) });
+                    return Err(Fault::Hang {
+                        timeout_ms: self.read_timeout_ms.unwrap_or(0),
+                    });
                 }
                 Err(e) => return Err(self.poison(format!("could not read from server: {e}"))),
             };
@@ -1632,11 +1842,21 @@ pub fn decode_binary_cell(oid: u32, b: &[u8]) -> String {
     match oid {
         700 if b.len() == 4 => {
             let f = f32::from_be_bytes([b[0], b[1], b[2], b[3]]);
-            pg_float_text(f == f32::NEG_INFINITY, f == f32::INFINITY, f.is_nan(), format!("{f}"))
+            pg_float_text(
+                f == f32::NEG_INFINITY,
+                f == f32::INFINITY,
+                f.is_nan(),
+                format!("{f}"),
+            )
         }
         701 if b.len() == 8 => {
             let f = f64::from_be_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]);
-            pg_float_text(f == f64::NEG_INFINITY, f == f64::INFINITY, f.is_nan(), format!("{f}"))
+            pg_float_text(
+                f == f64::NEG_INFINITY,
+                f == f64::INFINITY,
+                f.is_nan(),
+                format!("{f}"),
+            )
         }
         // 25 text, 1043 varchar, 1042 bpchar, 19 name, 2275 cstring, 114
         // json, 142 xml.
@@ -1648,7 +1868,11 @@ pub fn decode_binary_cell(oid: u32, b: &[u8]) -> String {
 fn cell_text(desc: &[ColDesc], col: usize, cell: &Option<Bytes>) -> Option<String> {
     let b = cell.as_ref()?;
     let (oid, fmt) = desc.get(col).map(|c| (c.typoid, c.fmt)).unwrap_or((0, 0));
-    Some(if fmt == 1 { decode_binary_cell(oid, &b.0) } else { lossy(&b.0) })
+    Some(if fmt == 1 {
+        decode_binary_cell(oid, &b.0)
+    } else {
+        lossy(&b.0)
+    })
 }
 
 fn error_pair(f: &ErrFields) -> (String, String) {
@@ -1672,7 +1896,13 @@ pub fn fold_simple(wire: &[WireMsg]) -> Vec<RawResult> {
                 desc = cols.clone();
             }
             WireMsg::DataRow(cells) => {
-                cur.rows.push(cells.iter().enumerate().map(|(i, c)| cell_text(&desc, i, c)).collect());
+                cur.rows.push(
+                    cells
+                        .iter()
+                        .enumerate()
+                        .map(|(i, c)| cell_text(&desc, i, c))
+                        .collect(),
+                );
             }
             WireMsg::CommandComplete(tag) => {
                 cur.cmd_tag = lossy(&tag.0);
@@ -1713,7 +1943,13 @@ pub fn fold_extended(wire: &[WireMsg]) -> RawResult {
                 desc = cols.clone();
             }
             WireMsg::DataRow(cells) => {
-                cur.rows.push(cells.iter().enumerate().map(|(i, c)| cell_text(&desc, i, c)).collect());
+                cur.rows.push(
+                    cells
+                        .iter()
+                        .enumerate()
+                        .map(|(i, c)| cell_text(&desc, i, c))
+                        .collect(),
+                );
             }
             WireMsg::CommandComplete(tag) => cur.cmd_tag = lossy(&tag.0),
             WireMsg::ErrorResponse(f) => {
@@ -1743,7 +1979,9 @@ mod tests {
     // ------------------------------------------------------------------
 
     fn fixture(name: &str) -> String {
-        let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures/contracts").join(name);
+        let p = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("fixtures/contracts")
+            .join(name);
         std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display()))
     }
 
@@ -1808,7 +2046,10 @@ mod tests {
             WireMsg::ErrorResponse(f) | WireMsg::NoticeResponse(f) => err_body(f),
             WireMsg::RowDescription(cols) => row_desc_body(cols),
             WireMsg::DataRow(cells) => {
-                let refs: Vec<Option<&[u8]>> = cells.iter().map(|c| c.as_ref().map(|b| b.0.as_slice())).collect();
+                let refs: Vec<Option<&[u8]>> = cells
+                    .iter()
+                    .map(|c| c.as_ref().map(|b| b.0.as_slice()))
+                    .collect();
                 data_row_body(&refs)
             }
             WireMsg::CommandComplete(tag) => {
@@ -1822,7 +2063,11 @@ mod tests {
                 push_cstr(&mut b, &value.0);
                 b
             }
-            WireMsg::NotificationResponse { pid, channel, payload } => {
+            WireMsg::NotificationResponse {
+                pid,
+                channel,
+                payload,
+            } => {
                 let mut b = pid.to_be_bytes().to_vec();
                 push_cstr(&mut b, &channel.0);
                 push_cstr(&mut b, &payload.0);
@@ -1848,7 +2093,8 @@ mod tests {
                 }
                 b
             }
-            WireMsg::CopyInResponse { fmt, col_fmts } | WireMsg::CopyOutResponse { fmt, col_fmts } => {
+            WireMsg::CopyInResponse { fmt, col_fmts }
+            | WireMsg::CopyOutResponse { fmt, col_fmts } => {
                 let mut b = vec![*fmt as u8];
                 b.extend_from_slice(&(col_fmts.len() as i16).to_be_bytes());
                 for f in col_fmts {
@@ -1862,7 +2108,10 @@ mod tests {
                 b.extend_from_slice(&data.0);
                 b
             }
-            WireMsg::NegotiateProtocolVersion { minor, unknown_options } => {
+            WireMsg::NegotiateProtocolVersion {
+                minor,
+                unknown_options,
+            } => {
                 let mut b = minor.to_be_bytes().to_vec();
                 b.extend_from_slice(&(unknown_options.len() as i32).to_be_bytes());
                 for o in unknown_options {
@@ -1915,18 +2164,57 @@ mod tests {
                 ('L', "1975"),
                 ('R', "ExecConstraints"),
             ])),
-            WireMsg::NoticeResponse(fields(&[('S', "INFO"), ('V', "INFO"), ('C', "00000"), ('M', "analyzing \"public.t\"")])),
+            WireMsg::NoticeResponse(fields(&[
+                ('S', "INFO"),
+                ('V', "INFO"),
+                ('C', "00000"),
+                ('M', "analyzing \"public.t\""),
+            ])),
             WireMsg::RowDescription(vec![
-                ColDesc { name: Bytes::text("a"), tableoid: 16401, attnum: 1, typoid: 23, typlen: 4, typmod: -1, fmt: 0 },
-                ColDesc { name: Bytes::text("?column?"), tableoid: 0, attnum: 0, typoid: 1043, typlen: -1, typmod: 36, fmt: 1 },
+                ColDesc {
+                    name: Bytes::text("a"),
+                    tableoid: 16401,
+                    attnum: 1,
+                    typoid: 23,
+                    typlen: 4,
+                    typmod: -1,
+                    fmt: 0,
+                },
+                ColDesc {
+                    name: Bytes::text("?column?"),
+                    tableoid: 0,
+                    attnum: 0,
+                    typoid: 1043,
+                    typlen: -1,
+                    typmod: 36,
+                    fmt: 1,
+                },
             ]),
-            WireMsg::DataRow(vec![Some(Bytes::text("1")), None, Some(Bytes(vec![0xff, 0x00, 0x41])), Some(Bytes(vec![]))]),
+            WireMsg::DataRow(vec![
+                Some(Bytes::text("1")),
+                None,
+                Some(Bytes(vec![0xff, 0x00, 0x41])),
+                Some(Bytes(vec![])),
+            ]),
             WireMsg::CommandComplete(Bytes::text("INSERT 0 3")),
-            WireMsg::ParameterStatus { name: Bytes::text("client_encoding"), value: Bytes::text("UTF8") },
-            WireMsg::NotificationResponse { pid: 41233, channel: Bytes::text("fz_chan"), payload: Bytes::text("hello") },
-            WireMsg::BackendKeyData { pid: 41233, key: Bytes(vec![0x1f, 0x9a, 0x00, 0x7c]) },
+            WireMsg::ParameterStatus {
+                name: Bytes::text("client_encoding"),
+                value: Bytes::text("UTF8"),
+            },
+            WireMsg::NotificationResponse {
+                pid: 41233,
+                channel: Bytes::text("fz_chan"),
+                payload: Bytes::text("hello"),
+            },
+            WireMsg::BackendKeyData {
+                pid: 41233,
+                key: Bytes(vec![0x1f, 0x9a, 0x00, 0x7c]),
+            },
             // Protocol 3.2: variable-length key.
-            WireMsg::BackendKeyData { pid: 7, key: Bytes((0..32).collect()) },
+            WireMsg::BackendKeyData {
+                pid: 7,
+                key: Bytes((0..32).collect()),
+            },
             WireMsg::ReadyForQuery { status: 'T' },
             WireMsg::EmptyQueryResponse,
             WireMsg::ParseComplete,
@@ -1937,14 +2225,35 @@ mod tests {
             WireMsg::CopyDone,
             WireMsg::ParameterDescription(vec![23, 25, 1700]),
             WireMsg::ParameterDescription(vec![]),
-            WireMsg::CopyInResponse { fmt: 1, col_fmts: vec![1, 1] },
-            WireMsg::CopyOutResponse { fmt: 0, col_fmts: vec![0, 0, 0] },
+            WireMsg::CopyInResponse {
+                fmt: 1,
+                col_fmts: vec![1, 1],
+            },
+            WireMsg::CopyOutResponse {
+                fmt: 0,
+                col_fmts: vec![0, 0, 0],
+            },
             WireMsg::CopyData(Bytes(b"PGCOPY\n\xff\r\n\0".to_vec())),
-            WireMsg::Authentication { kind: 10, data: Bytes(b"SCRAM-SHA-256\0\0".to_vec()) },
-            WireMsg::Authentication { kind: 5, data: Bytes(vec![1, 2, 3, 4]) },
-            WireMsg::Authentication { kind: 0, data: Bytes(vec![]) },
-            WireMsg::NegotiateProtocolVersion { minor: 0, unknown_options: vec![Bytes::text("_pq_.foo"), Bytes::text("_pq_.bar")] },
-            WireMsg::Raw { code: 'V', data: Bytes(vec![0, 0, 0, 1]) },
+            WireMsg::Authentication {
+                kind: 10,
+                data: Bytes(b"SCRAM-SHA-256\0\0".to_vec()),
+            },
+            WireMsg::Authentication {
+                kind: 5,
+                data: Bytes(vec![1, 2, 3, 4]),
+            },
+            WireMsg::Authentication {
+                kind: 0,
+                data: Bytes(vec![]),
+            },
+            WireMsg::NegotiateProtocolVersion {
+                minor: 0,
+                unknown_options: vec![Bytes::text("_pq_.foo"), Bytes::text("_pq_.bar")],
+            },
+            WireMsg::Raw {
+                code: 'V',
+                data: Bytes(vec![0, 0, 0, 1]),
+            },
         ];
         for m in &msgs {
             let frame = encode_wire(m);
@@ -1956,7 +2265,11 @@ mod tests {
     #[test]
     fn contracts_fixture_error_and_notice_bytes_decode_to_the_fixture() {
         // observation-error.json: an ErrorResponse with every field code.
-        for name in ["observation-error.json", "observation-notice.json", "observation-crash.json"] {
+        for name in [
+            "observation-error.json",
+            "observation-notice.json",
+            "observation-crash.json",
+        ] {
             let rec = ObservationRecord::from_json(&json::parse(&fixture(name)).unwrap()).unwrap();
             assert!(!rec.wire.is_empty());
             for m in &rec.wire {
@@ -1965,15 +2278,22 @@ mod tests {
                 assert_eq!(&decode_frame(*t, body), m, "{name}: {:?}", m.code());
             }
         }
-        let rec = ObservationRecord::from_json(&json::parse(&fixture("observation-error.json")).unwrap()).unwrap();
-        let WireMsg::ErrorResponse(f) = &rec.wire[0] else { panic!("fixture wire[0] is not E") };
+        let rec =
+            ObservationRecord::from_json(&json::parse(&fixture("observation-error.json")).unwrap())
+                .unwrap();
+        let WireMsg::ErrorResponse(f) = &rec.wire[0] else {
+            panic!("fixture wire[0] is not E")
+        };
         let codes: String = f.keys().collect();
         assert_eq!(codes, "CDFHLMPRSVWcdnpqst");
         assert_eq!(f.len(), 18, "all 18 field codes present");
         let decoded = parse_err_fields(&err_body(f));
         assert_eq!(&decoded, f);
         assert_eq!(decoded[&'q'], Bytes::text("INSERT INTO t VALUES (NULL, 1)"));
-        assert_eq!(decoded[&'W'], Bytes::text("PL/pgSQL function f() line 3 at EXECUTE"));
+        assert_eq!(
+            decoded[&'W'],
+            Bytes::text("PL/pgSQL function f() line 3 at EXECUTE")
+        );
     }
 
     #[test]
@@ -1982,8 +2302,13 @@ mod tests {
         let f = parse_err_fields(body);
         assert_eq!(f[&'M'].0, b"invalid byte \xff\xfe here".to_vec());
         let row = parse_data_row(&data_row_body(&[Some(b"\xc3\x28"), Some(b"")])).unwrap();
-        assert_eq!(row, vec![Some(Bytes(vec![0xc3, 0x28])), Some(Bytes(vec![]))]);
-        let WireMsg::CommandComplete(tag) = decode_frame(b'C', b"COPY \xff 3\0") else { panic!() };
+        assert_eq!(
+            row,
+            vec![Some(Bytes(vec![0xc3, 0x28])), Some(Bytes(vec![]))]
+        );
+        let WireMsg::CommandComplete(tag) = decode_frame(b'C', b"COPY \xff 3\0") else {
+            panic!()
+        };
         assert_eq!(tag.0, b"COPY \xff 3".to_vec());
     }
 
@@ -1991,15 +2316,45 @@ mod tests {
     fn malformed_frames_become_raw_not_dropped() {
         assert!(parse_data_row(&[0, 1, 0, 0]).is_err());
         assert!(parse_row_description(&[0]).is_err());
-        assert!(matches!(decode_frame(b'D', &[0, 1, 0, 0]), WireMsg::Raw { code: 'D', .. }));
-        assert!(matches!(decode_frame(b'T', &[0]), WireMsg::Raw { code: 'T', .. }));
-        assert!(matches!(decode_frame(b'Z', b"II"), WireMsg::Raw { code: 'Z', .. }));
-        assert!(matches!(decode_frame(b't', &[0, 2, 0]), WireMsg::Raw { code: 't', .. }));
-        assert!(matches!(decode_frame(b'G', &[0, 0, 1]), WireMsg::Raw { code: 'G', .. }));
-        assert!(matches!(decode_frame(b'v', &[0, 0, 0, 0]), WireMsg::Raw { code: 'v', .. }));
-        assert!(matches!(decode_frame(b'K', &[1, 2]), WireMsg::Raw { code: 'K', .. }));
-        assert!(matches!(decode_frame(b'R', &[0, 0]), WireMsg::Raw { code: 'R', .. }));
-        assert_eq!(decode_frame(b'W', b"xyz"), WireMsg::Raw { code: 'W', data: Bytes(b"xyz".to_vec()) });
+        assert!(matches!(
+            decode_frame(b'D', &[0, 1, 0, 0]),
+            WireMsg::Raw { code: 'D', .. }
+        ));
+        assert!(matches!(
+            decode_frame(b'T', &[0]),
+            WireMsg::Raw { code: 'T', .. }
+        ));
+        assert!(matches!(
+            decode_frame(b'Z', b"II"),
+            WireMsg::Raw { code: 'Z', .. }
+        ));
+        assert!(matches!(
+            decode_frame(b't', &[0, 2, 0]),
+            WireMsg::Raw { code: 't', .. }
+        ));
+        assert!(matches!(
+            decode_frame(b'G', &[0, 0, 1]),
+            WireMsg::Raw { code: 'G', .. }
+        ));
+        assert!(matches!(
+            decode_frame(b'v', &[0, 0, 0, 0]),
+            WireMsg::Raw { code: 'v', .. }
+        ));
+        assert!(matches!(
+            decode_frame(b'K', &[1, 2]),
+            WireMsg::Raw { code: 'K', .. }
+        ));
+        assert!(matches!(
+            decode_frame(b'R', &[0, 0]),
+            WireMsg::Raw { code: 'R', .. }
+        ));
+        assert_eq!(
+            decode_frame(b'W', b"xyz"),
+            WireMsg::Raw {
+                code: 'W',
+                data: Bytes(b"xyz".to_vec())
+            }
+        );
         // Unterminated fields still decode (tail taken as the value).
         let f = parse_err_fields(b"SERROR\0C22012");
         assert_eq!(f[&'C'], Bytes::text("22012"));
@@ -2008,7 +2363,10 @@ mod tests {
     #[test]
     fn startup_packet_encodes_both_versions_with_extra_keys() {
         let extra = vec![
-            ("options".to_string(), "-c work_mem=8MB --foo=bar".to_string()),
+            (
+                "options".to_string(),
+                "-c work_mem=8MB --foo=bar".to_string(),
+            ),
             ("application_name".to_string(), "fuzz".to_string()),
             ("client_encoding".to_string(), "LATIN1".to_string()),
             ("replication".to_string(), "database".to_string()),
@@ -2046,7 +2404,12 @@ mod tests {
 
     #[test]
     fn frame_encoders_frame_correctly() {
-        let p = Frame::Parse { stmt: "ps1".into(), sql: "SELECT $1;".into(), param_oids: vec![23, 0] }.encode();
+        let p = Frame::Parse {
+            stmt: "ps1".into(),
+            sql: "SELECT $1;".into(),
+            param_oids: vec![23, 0],
+        }
+        .encode();
         assert_eq!(p[0], b'P');
         assert_eq!(be_i32(&p[1..5]) as usize, p.len() - 1);
         assert_eq!(&p[5..], b"ps1\0SELECT $1;\0\0\x02\0\0\0\x17\0\0\0\0");
@@ -2075,7 +2438,13 @@ mod tests {
         let b = Frame::Bind {
             portal: "p1".into(),
             stmt: "ps1".into(),
-            params: vec![WireParam { bytes: Some(7i32.to_be_bytes().to_vec()), binary: true }, WireParam::text(Some("x"))],
+            params: vec![
+                WireParam {
+                    bytes: Some(7i32.to_be_bytes().to_vec()),
+                    binary: true,
+                },
+                WireParam::text(Some("x")),
+            ],
             result_fmts: vec![1, 0],
         }
         .encode();
@@ -2094,17 +2463,48 @@ mod tests {
         assert_eq!(be_i16(&body[23..25]), 1);
         assert_eq!(be_i16(&body[25..27]), 0);
 
-        assert_eq!(&Frame::Execute { portal: "p1".into(), limit: 5 }.encode()[5..], b"p1\0\0\0\0\x05");
-        assert_eq!(&Frame::Describe { kind: Describe::Portal, name: String::new() }.encode()[5..], b"P\0");
-        assert_eq!(&Frame::Describe { kind: Describe::Statement, name: "ps1".into() }.encode()[5..], b"Sps1\0");
-        assert_eq!(&Frame::Close { kind: Describe::Statement, name: "ps1".into() }.encode()[5..], b"Sps1\0");
+        assert_eq!(
+            &Frame::Execute {
+                portal: "p1".into(),
+                limit: 5
+            }
+            .encode()[5..],
+            b"p1\0\0\0\0\x05"
+        );
+        assert_eq!(
+            &Frame::Describe {
+                kind: Describe::Portal,
+                name: String::new()
+            }
+            .encode()[5..],
+            b"P\0"
+        );
+        assert_eq!(
+            &Frame::Describe {
+                kind: Describe::Statement,
+                name: "ps1".into()
+            }
+            .encode()[5..],
+            b"Sps1\0"
+        );
+        assert_eq!(
+            &Frame::Close {
+                kind: Describe::Statement,
+                name: "ps1".into()
+            }
+            .encode()[5..],
+            b"Sps1\0"
+        );
         assert_eq!(Frame::Flush.encode(), vec![b'H', 0, 0, 0, 4]);
         assert_eq!(Frame::Sync.encode(), vec![b'S', 0, 0, 0, 4]);
         assert_eq!(Frame::Terminate.encode(), vec![b'X', 0, 0, 0, 4]);
         assert_eq!(Frame::CopyDone.encode(), vec![b'c', 0, 0, 0, 4]);
         assert_eq!(&Frame::CopyData(vec![1, 2]).encode()[5..], &[1, 2]);
         assert_eq!(&Frame::CopyFail("no".into()).encode()[5..], b"no\0");
-        assert_eq!(&Frame::Query("SELECT 1".into()).encode()[5..], b"SELECT 1\0");
+        assert_eq!(
+            &Frame::Query("SELECT 1".into()).encode()[5..],
+            b"SELECT 1\0"
+        );
         assert_eq!(Frame::Raw(vec![9, 9]).encode(), vec![9, 9]);
     }
 
@@ -2114,7 +2514,14 @@ mod tests {
 
     #[test]
     fn base64_round_trips() {
-        for (raw, enc) in [(&b""[..], ""), (b"f", "Zg=="), (b"fo", "Zm8="), (b"foo", "Zm9v"), (b"foob", "Zm9vYg=="), (b"foobar", "Zm9vYmFy")] {
+        for (raw, enc) in [
+            (&b""[..], ""),
+            (b"f", "Zg=="),
+            (b"fo", "Zm8="),
+            (b"foo", "Zm9v"),
+            (b"foob", "Zm9vYg=="),
+            (b"foobar", "Zm9vYmFy"),
+        ] {
             assert_eq!(b64_encode(raw), enc);
             assert_eq!(b64_decode(enc).unwrap(), raw);
         }
@@ -2127,10 +2534,16 @@ mod tests {
     fn hmac_sha256_rfc4231_vector() {
         // RFC 4231 test case 1.
         let mac = hmac_sha256(&[0x0b; 20], b"Hi There");
-        assert_eq!(crate::contracts::hex(&mac), "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7");
+        assert_eq!(
+            crate::contracts::hex(&mac),
+            "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"
+        );
         // Test case 2: key "Jefe".
         let mac = hmac_sha256(b"Jefe", b"what do ya want for nothing?");
-        assert_eq!(crate::contracts::hex(&mac), "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843");
+        assert_eq!(
+            crate::contracts::hex(&mac),
+            "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"
+        );
     }
 
     #[test]
@@ -2144,17 +2557,34 @@ mod tests {
             client_final,
             "c=biws,r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,p=dHzbZapWIk4jUhN+Ute9ytag9zjfMHgsqmmiz7AndVQ="
         );
-        assert!(sc.verify_server_final("v=6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4=").is_ok());
-        assert!(sc.verify_server_final("v=6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G5=").is_err());
+        assert!(sc
+            .verify_server_final("v=6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4=")
+            .is_ok());
+        assert!(sc
+            .verify_server_final("v=6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G5=")
+            .is_err());
         assert!(sc.verify_server_final("e=invalid-proof").is_err());
         // Nonce tampering is refused.
         let mut sc2 = ScramClient::new("user", "rOprNGfwEbeRWgbNEkqO");
-        assert!(sc2.client_final(b"pencil", "r=XXprNGfwEbeRWgbNEkqO%hv,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096").is_err());
-        assert!(sc2.client_final(b"pencil", "r=rOprNGfwEbeRWgbNEkqO%hv,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=0").is_err());
+        assert!(sc2
+            .client_final(
+                b"pencil",
+                "r=XXprNGfwEbeRWgbNEkqO%hv,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096"
+            )
+            .is_err());
+        assert!(sc2
+            .client_final(
+                b"pencil",
+                "r=rOprNGfwEbeRWgbNEkqO%hv,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=0"
+            )
+            .is_err());
         // The SASLInitialResponse body frames mechanism + length + data.
         let body = sc.sasl_initial_response();
         assert_eq!(&body[..14], b"SCRAM-SHA-256\0");
-        assert_eq!(be_u32(&body[14..18]) as usize, "n,,n=user,r=rOprNGfwEbeRWgbNEkqO".len());
+        assert_eq!(
+            be_u32(&body[14..18]) as usize,
+            "n,,n=user,r=rOprNGfwEbeRWgbNEkqO".len()
+        );
         assert_eq!(&body[18..], b"n,,n=user,r=rOprNGfwEbeRWgbNEkqO");
     }
 
@@ -2174,8 +2604,14 @@ mod tests {
     #[test]
     fn md5_password_response_vector() {
         // md5(md5("secret" + "fuzz") + salt 01020304), python hashlib.
-        assert_eq!(md5_password_response("fuzz", "secret", &[1, 2, 3, 4]), "md5ce113c52f282067a4b65b4fbb18c534e");
-        assert_eq!(md5_password_response("fuzz", "secret", &[1, 2, 3, 4]).len(), 35);
+        assert_eq!(
+            md5_password_response("fuzz", "secret", &[1, 2, 3, 4]),
+            "md5ce113c52f282067a4b65b4fbb18c534e"
+        );
+        assert_eq!(
+            md5_password_response("fuzz", "secret", &[1, 2, 3, 4]).len(),
+            35
+        );
     }
 
     // ------------------------------------------------------------------
@@ -2191,7 +2627,10 @@ mod tests {
 
     impl FakeStream {
         fn new(input: Vec<u8>) -> FakeStream {
-            FakeStream { input: std::io::Cursor::new(input), written: Vec::new() }
+            FakeStream {
+                input: std::io::Cursor::new(input),
+                written: Vec::new(),
+            }
         }
     }
 
@@ -2224,11 +2663,17 @@ mod tests {
     }
 
     fn count_sent(written: &[u8], ty: u8) -> usize {
-        split_frames(written).iter().filter(|(t, _)| *t == ty).count()
+        split_frames(written)
+            .iter()
+            .filter(|(t, _)| *t == ty)
+            .count()
     }
 
     fn sent_types(written: &[u8]) -> String {
-        split_frames(written).iter().map(|(t, _)| *t as char).collect()
+        split_frames(written)
+            .iter()
+            .map(|(t, _)| *t as char)
+            .collect()
     }
 
     // ------------------------------------------------------------------
@@ -2237,10 +2682,22 @@ mod tests {
 
     fn startup_tail() -> Vec<WireMsg> {
         vec![
-            WireMsg::Authentication { kind: 0, data: Bytes(vec![]) },
-            WireMsg::ParameterStatus { name: Bytes::text("server_version"), value: Bytes::text("18.6") },
-            WireMsg::ParameterStatus { name: Bytes::text("client_encoding"), value: Bytes::text("UTF8") },
-            WireMsg::BackendKeyData { pid: 4242, key: Bytes(vec![9, 8, 7, 6]) },
+            WireMsg::Authentication {
+                kind: 0,
+                data: Bytes(vec![]),
+            },
+            WireMsg::ParameterStatus {
+                name: Bytes::text("server_version"),
+                value: Bytes::text("18.6"),
+            },
+            WireMsg::ParameterStatus {
+                name: Bytes::text("client_encoding"),
+                value: Bytes::text("UTF8"),
+            },
+            WireMsg::BackendKeyData {
+                pid: 4242,
+                key: Bytes(vec![9, 8, 7, 6]),
+            },
             WireMsg::NoticeResponse(fields(&[('S', "WARNING"), ('M', "hello")])),
             ready('I'),
         ]
@@ -2259,28 +2716,51 @@ mod tests {
         assert_eq!(c.txn_status(), 'I');
         // Exactly one packet written: the startup message with the extra key.
         let w = &c.stream.written;
-        assert_eq!(w, &encode_startup(Protocol::V3_0, "fuzz", "db", &[("application_name".into(), "sitediff".into())]));
+        assert_eq!(
+            w,
+            &encode_startup(
+                Protocol::V3_0,
+                "fuzz",
+                "db",
+                &[("application_name".into(), "sitediff".into())]
+            )
+        );
     }
 
     #[test]
     fn handshake_cleartext_password() {
-        let mut script = vec![WireMsg::Authentication { kind: 3, data: Bytes(vec![]) }];
+        let mut script = vec![WireMsg::Authentication {
+            kind: 3,
+            data: Bytes(vec![]),
+        }];
         script.extend(startup_tail());
         let mut c = Client::over(FakeStream::new(server(&script)));
-        c.handshake(&ConnectOpts::new("h", 1, "db", "fuzz").password("s3cret")).unwrap();
-        let frames = split_frames(&c.stream.written[encode_startup(Protocol::V3_0, "fuzz", "db", &[]).len()..]);
+        c.handshake(&ConnectOpts::new("h", 1, "db", "fuzz").password("s3cret"))
+            .unwrap();
+        let frames = split_frames(
+            &c.stream.written[encode_startup(Protocol::V3_0, "fuzz", "db", &[]).len()..],
+        );
         assert_eq!(frames, vec![(b'p', b"s3cret\0".to_vec())]);
         assert_eq!(c.connect_wire().len(), 7);
     }
 
     #[test]
     fn handshake_md5_password() {
-        let mut script = vec![WireMsg::Authentication { kind: 5, data: Bytes(vec![1, 2, 3, 4]) }];
+        let mut script = vec![WireMsg::Authentication {
+            kind: 5,
+            data: Bytes(vec![1, 2, 3, 4]),
+        }];
         script.extend(startup_tail());
         let mut c = Client::over(FakeStream::new(server(&script)));
-        c.handshake(&ConnectOpts::new("h", 1, "db", "fuzz").password("secret")).unwrap();
-        let frames = split_frames(&c.stream.written[encode_startup(Protocol::V3_0, "fuzz", "db", &[]).len()..]);
-        assert_eq!(frames, vec![(b'p', b"md5ce113c52f282067a4b65b4fbb18c534e\0".to_vec())]);
+        c.handshake(&ConnectOpts::new("h", 1, "db", "fuzz").password("secret"))
+            .unwrap();
+        let frames = split_frames(
+            &c.stream.written[encode_startup(Protocol::V3_0, "fuzz", "db", &[]).len()..],
+        );
+        assert_eq!(
+            frames,
+            vec![(b'p', b"md5ce113c52f282067a4b65b4fbb18c534e\0".to_vec())]
+        );
     }
 
     #[test]
@@ -2299,19 +2779,34 @@ mod tests {
         let server_sig = b64_encode(&hmac_sha256(&server_key, auth_message.as_bytes()));
         let client_key = hmac_sha256(&salted, b"Client Key");
         let client_sig = hmac_sha256(&pg_sha2::sha256(&client_key), auth_message.as_bytes());
-        let proof: Vec<u8> = client_key.iter().zip(client_sig.iter()).map(|(a, b)| a ^ b).collect();
+        let proof: Vec<u8> = client_key
+            .iter()
+            .zip(client_sig.iter())
+            .map(|(a, b)| a ^ b)
+            .collect();
 
         let mut script = vec![
-            WireMsg::Authentication { kind: 10, data: Bytes(b"SCRAM-SHA-256-PLUS\0SCRAM-SHA-256\0\0".to_vec()) },
-            WireMsg::Authentication { kind: 11, data: Bytes::text(&server_first) },
-            WireMsg::Authentication { kind: 12, data: Bytes::text(&format!("v={server_sig}")) },
+            WireMsg::Authentication {
+                kind: 10,
+                data: Bytes(b"SCRAM-SHA-256-PLUS\0SCRAM-SHA-256\0\0".to_vec()),
+            },
+            WireMsg::Authentication {
+                kind: 11,
+                data: Bytes::text(&server_first),
+            },
+            WireMsg::Authentication {
+                kind: 12,
+                data: Bytes::text(&format!("v={server_sig}")),
+            },
         ];
         script.extend(startup_tail());
         let mut c = Client::over(FakeStream::new(server(&script)));
         let mut opts = ConnectOpts::new("h", 1, "db", "fuzz").password("pencil");
         opts.scram_nonce = Some(nonce.to_string());
         c.handshake(&opts).unwrap();
-        let frames = split_frames(&c.stream.written[encode_startup(Protocol::V3_0, "fuzz", "db", &[]).len()..]);
+        let frames = split_frames(
+            &c.stream.written[encode_startup(Protocol::V3_0, "fuzz", "db", &[]).len()..],
+        );
         assert_eq!(frames.len(), 2);
         assert_eq!(frames[0].0, b'p');
         let mut init = b"SCRAM-SHA-256\0".to_vec();
@@ -2320,7 +2815,10 @@ mod tests {
         init.extend_from_slice(first.as_bytes());
         assert_eq!(frames[0].1, init);
         assert_eq!(frames[1].0, b'p');
-        assert_eq!(frames[1].1, format!("c=biws,r={server_nonce},p={}", b64_encode(&proof)).into_bytes());
+        assert_eq!(
+            frames[1].1,
+            format!("c=biws,r={server_nonce},p={}", b64_encode(&proof)).into_bytes()
+        );
         // All three R messages retained in order.
         let kinds: Vec<i32> = c
             .connect_wire()
@@ -2334,31 +2832,66 @@ mod tests {
 
         // A bad server signature is refused, wire retained through the R 12.
         let mut bad = script.clone();
-        bad[2] = WireMsg::Authentication { kind: 12, data: Bytes::text("v=AAAA") };
+        bad[2] = WireMsg::Authentication {
+            kind: 12,
+            data: Bytes::text("v=AAAA"),
+        };
         let mut c = Client::over(FakeStream::new(server(&bad)));
         let e = c.handshake(&opts).unwrap_err();
-        assert!(e.detail.contains("incorrect server signature"), "{}", e.detail);
+        assert!(
+            e.detail.contains("incorrect server signature"),
+            "{}",
+            e.detail
+        );
         assert_eq!(e.wire.len(), 3);
         assert!(!e.hang);
     }
 
     #[test]
     fn handshake_refuses_unknown_mechanisms_and_missing_password() {
-        let script = vec![WireMsg::Authentication { kind: 10, data: Bytes(b"GSSAPI\0\0".to_vec()) }];
+        let script = vec![WireMsg::Authentication {
+            kind: 10,
+            data: Bytes(b"GSSAPI\0\0".to_vec()),
+        }];
         let mut c = Client::over(FakeStream::new(server(&script)));
-        let e = c.handshake(&ConnectOpts::new("h", 1, "db", "fuzz").password("x")).unwrap_err();
-        assert!(e.detail.contains("none of the server's SASL"), "{}", e.detail);
+        let e = c
+            .handshake(&ConnectOpts::new("h", 1, "db", "fuzz").password("x"))
+            .unwrap_err();
+        assert!(
+            e.detail.contains("none of the server's SASL"),
+            "{}",
+            e.detail
+        );
         assert_eq!(e.wire.len(), 1);
 
-        let script = vec![WireMsg::Authentication { kind: 5, data: Bytes(vec![1, 2, 3, 4]) }];
+        let script = vec![WireMsg::Authentication {
+            kind: 5,
+            data: Bytes(vec![1, 2, 3, 4]),
+        }];
         let mut c = Client::over(FakeStream::new(server(&script)));
-        let e = c.handshake(&ConnectOpts::new("h", 1, "db", "fuzz")).unwrap_err();
-        assert!(e.detail.contains("no password supplied for authentication method 5"), "{}", e.detail);
+        let e = c
+            .handshake(&ConnectOpts::new("h", 1, "db", "fuzz"))
+            .unwrap_err();
+        assert!(
+            e.detail
+                .contains("no password supplied for authentication method 5"),
+            "{}",
+            e.detail
+        );
 
-        let script = vec![WireMsg::Authentication { kind: 7, data: Bytes(vec![]) }];
+        let script = vec![WireMsg::Authentication {
+            kind: 7,
+            data: Bytes(vec![]),
+        }];
         let mut c = Client::over(FakeStream::new(server(&script)));
-        let e = c.handshake(&ConnectOpts::new("h", 1, "db", "fuzz")).unwrap_err();
-        assert!(e.detail.contains("authentication method 7 not supported"), "{}", e.detail);
+        let e = c
+            .handshake(&ConnectOpts::new("h", 1, "db", "fuzz"))
+            .unwrap_err();
+        assert!(
+            e.detail.contains("authentication method 7 not supported"),
+            "{}",
+            e.detail
+        );
     }
 
     #[test]
@@ -2372,12 +2905,19 @@ mod tests {
             ('M', "database \"nope\" does not exist"),
         ]))];
         let mut c = Client::over(FakeStream::new(server(&script)));
-        let e = c.handshake(&ConnectOpts::new("h", 1, "nope", "fuzz")).unwrap_err();
-        assert_eq!(e.detail, "startup failed: 3D000 database \"nope\" does not exist");
+        let e = c
+            .handshake(&ConnectOpts::new("h", 1, "nope", "fuzz"))
+            .unwrap_err();
+        assert_eq!(
+            e.detail,
+            "startup failed: 3D000 database \"nope\" does not exist"
+        );
         assert_eq!(e.wire, script);
         // Server closing without a word: Lost, empty wire.
         let mut c = Client::over(FakeStream::new(Vec::new()));
-        let e = c.handshake(&ConnectOpts::new("h", 1, "db", "fuzz")).unwrap_err();
+        let e = c
+            .handshake(&ConnectOpts::new("h", 1, "db", "fuzz"))
+            .unwrap_err();
         assert!(e.detail.starts_with("server closed"), "{}", e.detail);
         assert!(e.wire.is_empty());
     }
@@ -2388,21 +2928,36 @@ mod tests {
             minor: 0,
             unknown_options: vec![Bytes::text("_pq_.nope")],
         }];
-        script.push(WireMsg::Authentication { kind: 0, data: Bytes(vec![]) });
-        script.push(WireMsg::BackendKeyData { pid: 1, key: Bytes((0..32).collect()) });
+        script.push(WireMsg::Authentication {
+            kind: 0,
+            data: Bytes(vec![]),
+        });
+        script.push(WireMsg::BackendKeyData {
+            pid: 1,
+            key: Bytes((0..32).collect()),
+        });
         script.push(ready('I'));
         let mut c = Client::over(FakeStream::new(server(&script)));
-        let opts = ConnectOpts::new("h", 1, "db", "fuzz").protocol(Protocol::V3_2).param("_pq_.nope", "1");
+        let opts = ConnectOpts::new("h", 1, "db", "fuzz")
+            .protocol(Protocol::V3_2)
+            .param("_pq_.nope", "1");
         c.handshake(&opts).unwrap();
         assert_eq!(&c.stream.written[4..8], &[0, 3, 0, 2]);
         assert_eq!(c.negotiated_minor(), 0, "server negotiated down to 3.0");
         assert_eq!(c.cancel_key().len(), 32);
-        assert!(matches!(c.connect_wire()[0], WireMsg::NegotiateProtocolVersion { .. }));
-        assert_eq!(encode_cancel_request(c.backend_pid(), c.cancel_key()).len(), 44);
+        assert!(matches!(
+            c.connect_wire()[0],
+            WireMsg::NegotiateProtocolVersion { .. }
+        ));
+        assert_eq!(
+            encode_cancel_request(c.backend_pid(), c.cancel_key()).len(),
+            44
+        );
 
         // No negotiation under 3.2: the requested minor stands.
         let mut c = Client::over(FakeStream::new(server(&startup_tail())));
-        c.handshake(&ConnectOpts::new("h", 1, "db", "fuzz").protocol(Protocol::V3_2)).unwrap();
+        c.handshake(&ConnectOpts::new("h", 1, "db", "fuzz").protocol(Protocol::V3_2))
+            .unwrap();
         assert_eq!(c.negotiated_minor(), 2);
     }
 
@@ -2413,18 +2968,49 @@ mod tests {
     #[test]
     fn simple_exchange_retains_everything_in_order() {
         let desc = vec![
-            ColDesc { name: Bytes::text("a"), tableoid: 16401, attnum: 1, typoid: 23, typlen: 4, typmod: -1, fmt: 0 },
-            ColDesc { name: Bytes::text("?column?"), tableoid: 0, attnum: 0, typoid: 25, typlen: -1, typmod: -1, fmt: 0 },
+            ColDesc {
+                name: Bytes::text("a"),
+                tableoid: 16401,
+                attnum: 1,
+                typoid: 23,
+                typlen: 4,
+                typmod: -1,
+                fmt: 0,
+            },
+            ColDesc {
+                name: Bytes::text("?column?"),
+                tableoid: 0,
+                attnum: 0,
+                typoid: 25,
+                typlen: -1,
+                typmod: -1,
+                fmt: 0,
+            },
         ];
         let script = vec![
-            WireMsg::ParameterStatus { name: Bytes::text("client_encoding"), value: Bytes::text("UTF8") },
-            WireMsg::NoticeResponse(fields(&[('S', "INFO"), ('V', "INFO"), ('C', "00000"), ('M', "analyzing \"public.t\"")])),
+            WireMsg::ParameterStatus {
+                name: Bytes::text("client_encoding"),
+                value: Bytes::text("UTF8"),
+            },
+            WireMsg::NoticeResponse(fields(&[
+                ('S', "INFO"),
+                ('V', "INFO"),
+                ('C', "00000"),
+                ('M', "analyzing \"public.t\""),
+            ])),
             complete("ANALYZE"),
             WireMsg::RowDescription(desc),
             WireMsg::DataRow(vec![Some(Bytes::text("1")), None]),
-            WireMsg::DataRow(vec![Some(Bytes::text("2")), Some(Bytes(vec![0xff, 0x00, 0x41]))]),
+            WireMsg::DataRow(vec![
+                Some(Bytes::text("2")),
+                Some(Bytes(vec![0xff, 0x00, 0x41])),
+            ]),
             complete("SELECT 2"),
-            WireMsg::NotificationResponse { pid: 41233, channel: Bytes::text("fz_chan"), payload: Bytes::text("hello") },
+            WireMsg::NotificationResponse {
+                pid: 41233,
+                channel: Bytes::text("fz_chan"),
+                payload: Bytes::text("hello"),
+            },
             WireMsg::EmptyQueryResponse,
             ready('T'),
         ];
@@ -2443,14 +3029,22 @@ mod tests {
         assert_eq!(rs.len(), 3);
         assert_eq!(rs[0].cmd_tag, "ANALYZE");
         assert_eq!(rs[1].col_oids, vec![23, 25]);
-        assert_eq!(rs[1].rows, vec![vec![Some("1".into()), None], vec![Some("2".into()), Some("\u{fffd}\0A".into())]]);
+        assert_eq!(
+            rs[1].rows,
+            vec![
+                vec![Some("1".into()), None],
+                vec![Some("2".into()), Some("\u{fffd}\0A".into())]
+            ]
+        );
         assert_eq!(rs[1].cmd_tag, "SELECT 2");
         assert_eq!(rs[2].cmd_tag, "");
     }
 
     #[test]
     fn simple_error_exchange_keeps_all_fields_and_ready_status() {
-        let rec = ObservationRecord::from_json(&json::parse(&fixture("observation-error.json")).unwrap()).unwrap();
+        let rec =
+            ObservationRecord::from_json(&json::parse(&fixture("observation-error.json")).unwrap())
+                .unwrap();
         let mut c = Client::over(FakeStream::new(server(&rec.wire)));
         let x = c.simple("INSERT INTO t VALUES (NULL, 1)");
         assert_eq!(x.wire, rec.wire);
@@ -2463,17 +3057,26 @@ mod tests {
         assert_eq!(rs.len(), 1);
         assert_eq!(
             rs[0].error,
-            Some(("23502".into(), "null value in column \"a\" of relation \"t\" violates not-null constraint".into()))
+            Some((
+                "23502".into(),
+                "null value in column \"a\" of relation \"t\" violates not-null constraint".into()
+            ))
         );
     }
 
     #[test]
     fn fatal_then_close_annotates_the_loss_with_the_error() {
-        let script = vec![WireMsg::ErrorResponse(fields(&[('S', "FATAL"), ('C', "57P01"), ('M', "terminating connection")]))];
+        let script = vec![WireMsg::ErrorResponse(fields(&[
+            ('S', "FATAL"),
+            ('C', "57P01"),
+            ('M', "terminating connection"),
+        ]))];
         let mut c = Client::over(FakeStream::new(server(&script)));
         let x = c.simple("SELECT pg_sleep(1)");
         assert_eq!(x.wire, script);
-        let Some(Fault::Lost(d)) = &x.fault else { panic!("{:?}", x.fault) };
+        let Some(Fault::Lost(d)) = &x.fault else {
+            panic!("{:?}", x.fault)
+        };
         assert_eq!(d, "server closed the connection unexpectedly after server error 57P01: terminating connection");
         assert_eq!(c.dead(), Some(d.as_str()));
         // Sticky: the next exchange fails immediately with the same detail.
@@ -2489,7 +3092,9 @@ mod tests {
         input.extend_from_slice(&(-5i32).to_be_bytes());
         let mut c = Client::over(FakeStream::new(input));
         let x = c.simple("SELECT 1");
-        let Some(Fault::Lost(d)) = x.fault else { panic!() };
+        let Some(Fault::Lost(d)) = x.fault else {
+            panic!()
+        };
         assert!(d.starts_with("lost synchronization"), "{d}");
     }
 
@@ -2522,7 +3127,10 @@ mod tests {
         let frames = split_frames(&c.stream.written);
         assert_eq!(frames[1].1, b"Sps1\0");
         assert_eq!(&frames[3].1, b"p1\0\0\0\0\x01");
-        assert_eq!(&frames[5].1, b"p1\0\0\0\0\0", "resume names the same portal, limit 0");
+        assert_eq!(
+            &frames[5].1, b"p1\0\0\0\0\0",
+            "resume names the same portal, limit 0"
+        );
         let r = fold_extended(&x.wire);
         assert_eq!(r.rows, vec![vec![Some("1".into())], vec![Some("2".into())]]);
         assert_eq!(r.cmd_tag, "SELECT 1");
@@ -2541,12 +3149,17 @@ mod tests {
             ready('I'),
         ];
         let mut c = Client::over(FakeStream::new(server(&script)));
-        let results = c.extended_query("SELECT k FROM t;", &[WireParam::text(Some("7"))], 1, false).unwrap();
+        let results = c
+            .extended_query("SELECT k FROM t;", &[WireParam::text(Some("7"))], 1, false)
+            .unwrap();
         assert_eq!(results.len(), 1);
         let r = &results[0];
         assert!(r.error.is_none());
         assert_eq!(r.col_oids, vec![23]);
-        assert_eq!(r.rows, vec![vec![Some("1".to_string())], vec![Some("2".to_string())]]);
+        assert_eq!(
+            r.rows,
+            vec![vec![Some("1".to_string())], vec![Some("2".to_string())]]
+        );
         assert_eq!(r.cmd_tag, "SELECT 1");
         let w = &c.stream.written;
         assert_eq!(count_sent(w, b'P'), 1, "one Parse");
@@ -2594,26 +3207,51 @@ mod tests {
         let results = c.extended_query("SELECT ...", &[], 0, true).unwrap();
         assert_eq!(
             results[0].rows,
-            vec![vec![Some("\\x00000007".to_string()), Some("2.25".to_string()), Some("hi".to_string())]]
+            vec![vec![
+                Some("\\x00000007".to_string()),
+                Some("2.25".to_string()),
+                Some("hi".to_string())
+            ]]
         );
-        let bind = Frame::Bind { portal: String::new(), stmt: String::new(), params: vec![], result_fmts: vec![1] }.encode();
+        let bind = Frame::Bind {
+            portal: String::new(),
+            stmt: String::new(),
+            params: vec![],
+            result_fmts: vec![1],
+        }
+        .encode();
         let w = &c.stream.written;
-        assert!(w.windows(bind.len()).any(|win| win == &bind[..]), "all-binary Bind not on the wire");
+        assert!(
+            w.windows(bind.len()).any(|win| win == &bind[..]),
+            "all-binary Bind not on the wire"
+        );
     }
 
     #[test]
     fn binary_cells_decode_per_policy() {
         assert_eq!(decode_binary_cell(23, &42i32.to_be_bytes()), "\\x0000002a");
         assert_eq!(decode_binary_cell(701, &1.5f64.to_be_bytes()), "1.5");
-        assert_eq!(decode_binary_cell(701, &(0.1f64 + 0.2f64).to_be_bytes()), "0.30000000000000004");
-        assert_eq!(decode_binary_cell(701, &f64::INFINITY.to_be_bytes()), "Infinity");
-        assert_eq!(decode_binary_cell(701, &f64::NEG_INFINITY.to_be_bytes()), "-Infinity");
+        assert_eq!(
+            decode_binary_cell(701, &(0.1f64 + 0.2f64).to_be_bytes()),
+            "0.30000000000000004"
+        );
+        assert_eq!(
+            decode_binary_cell(701, &f64::INFINITY.to_be_bytes()),
+            "Infinity"
+        );
+        assert_eq!(
+            decode_binary_cell(701, &f64::NEG_INFINITY.to_be_bytes()),
+            "-Infinity"
+        );
         assert_eq!(decode_binary_cell(701, &f64::NAN.to_be_bytes()), "NaN");
         assert_eq!(decode_binary_cell(700, &1.25f32.to_be_bytes()), "1.25");
         assert_eq!(decode_binary_cell(700, &f32::NAN.to_be_bytes()), "NaN");
         assert_eq!(decode_binary_cell(25, b"alpha"), "alpha");
         assert_eq!(decode_binary_cell(1043, b""), "");
-        assert_eq!(decode_binary_cell(1700, &[0, 1, 0, 0, 0, 0, 0, 1, 0, 5]), "\\x00010000000000010005");
+        assert_eq!(
+            decode_binary_cell(1700, &[0, 1, 0, 0, 0, 0, 0, 1, 0, 5]),
+            "\\x00010000000000010005"
+        );
         assert_eq!(decode_binary_cell(701, &[1, 2]), "\\x0102");
     }
 
@@ -2621,15 +3259,26 @@ mod tests {
     fn extended_query_error_is_captured_and_synced() {
         let script = vec![
             WireMsg::ParseComplete,
-            WireMsg::ErrorResponse(fields(&[('S', "ERROR"), ('C', "22012"), ('M', "division by zero")])),
+            WireMsg::ErrorResponse(fields(&[
+                ('S', "ERROR"),
+                ('C', "22012"),
+                ('M', "division by zero"),
+            ])),
             ready('I'),
         ];
         let mut c = Client::over(FakeStream::new(server(&script)));
         let results = c.extended_query("SELECT 1/0;", &[], 0, false).unwrap();
         assert_eq!(results.len(), 1);
-        assert_eq!(results[0].error, Some(("22012".to_string(), "division by zero".to_string())));
+        assert_eq!(
+            results[0].error,
+            Some(("22012".to_string(), "division by zero".to_string()))
+        );
         assert_eq!(count_sent(&c.stream.written, b'S'), 1);
-        assert_eq!(count_sent(&c.stream.written, b'E'), 1, "no resume after an error");
+        assert_eq!(
+            count_sent(&c.stream.written, b'E'),
+            1,
+            "no resume after an error"
+        );
     }
 
     #[test]
@@ -2649,13 +3298,40 @@ mod tests {
         ];
         let mut c = Client::over(FakeStream::new(server(&script)));
         let frames = vec![
-            Frame::Parse { stmt: "ps1".into(), sql: "INSERT INTO t VALUES ($1)".into(), param_oids: vec![] },
-            Frame::Bind { portal: "".into(), stmt: "ps1".into(), params: vec![WireParam::text(Some("1"))], result_fmts: vec![] },
-            Frame::Execute { portal: "".into(), limit: 0 },
-            Frame::Parse { stmt: "ps2".into(), sql: "SELECT 1".into(), param_oids: vec![] },
-            Frame::Bind { portal: "".into(), stmt: "ps2".into(), params: vec![], result_fmts: vec![] },
-            Frame::Execute { portal: "".into(), limit: 0 },
-            Frame::Close { kind: Describe::Statement, name: "ps1".into() },
+            Frame::Parse {
+                stmt: "ps1".into(),
+                sql: "INSERT INTO t VALUES ($1)".into(),
+                param_oids: vec![],
+            },
+            Frame::Bind {
+                portal: "".into(),
+                stmt: "ps1".into(),
+                params: vec![WireParam::text(Some("1"))],
+                result_fmts: vec![],
+            },
+            Frame::Execute {
+                portal: "".into(),
+                limit: 0,
+            },
+            Frame::Parse {
+                stmt: "ps2".into(),
+                sql: "SELECT 1".into(),
+                param_oids: vec![],
+            },
+            Frame::Bind {
+                portal: "".into(),
+                stmt: "ps2".into(),
+                params: vec![],
+                result_fmts: vec![],
+            },
+            Frame::Execute {
+                portal: "".into(),
+                limit: 0,
+            },
+            Frame::Close {
+                kind: Describe::Statement,
+                name: "ps1".into(),
+            },
         ];
         let x = c.pipeline(&frames, None);
         assert_eq!(x.fault, None);
@@ -2663,12 +3339,25 @@ mod tests {
         assert_eq!(sent_types(&c.stream.written), "PBEPBECS");
 
         // Explicit Syncs: two of them, two ReadyForQuery, no extra Sync.
-        let script = vec![WireMsg::ParseComplete, ready('I'), WireMsg::ErrorResponse(fields(&[('C', "42601"), ('M', "syntax error")])), ready('I')];
+        let script = vec![
+            WireMsg::ParseComplete,
+            ready('I'),
+            WireMsg::ErrorResponse(fields(&[('C', "42601"), ('M', "syntax error")])),
+            ready('I'),
+        ];
         let mut c = Client::over(FakeStream::new(server(&script)));
         let frames = vec![
-            Frame::Parse { stmt: "".into(), sql: "SELECT 1".into(), param_oids: vec![] },
+            Frame::Parse {
+                stmt: "".into(),
+                sql: "SELECT 1".into(),
+                param_oids: vec![],
+            },
             Frame::Sync,
-            Frame::Parse { stmt: "".into(), sql: "SELEC".into(), param_oids: vec![] },
+            Frame::Parse {
+                stmt: "".into(),
+                sql: "SELEC".into(),
+                param_oids: vec![],
+            },
             Frame::Sync,
         ];
         let x = c.pipeline(&frames, None);
@@ -2681,7 +3370,10 @@ mod tests {
     #[test]
     fn copy_out_payload_is_retained_and_folded() {
         let script = vec![
-            WireMsg::CopyOutResponse { fmt: 1, col_fmts: vec![1, 1] },
+            WireMsg::CopyOutResponse {
+                fmt: 1,
+                col_fmts: vec![1, 1],
+            },
             WireMsg::CopyData(Bytes(b"PGCOPY\n".to_vec())),
             WireMsg::CopyData(Bytes(b"\xff\x0d\x0a\x00".to_vec())),
             WireMsg::CopyDone,
@@ -2700,23 +3392,39 @@ mod tests {
 
     #[test]
     fn copy_in_feeds_payload_and_completes() {
-        let script = vec![WireMsg::CopyInResponse { fmt: 1, col_fmts: vec![1] }, complete("COPY 3"), ready('I')];
+        let script = vec![
+            WireMsg::CopyInResponse {
+                fmt: 1,
+                col_fmts: vec![1],
+            },
+            complete("COPY 3"),
+            ready('I'),
+        ];
         let mut c = Client::over(FakeStream::new(server(&script)));
         let payload = b"PGCOPY\n\xff\x0d\x0a\x00binarybytes";
-        let results = c.copy_in("COPY t FROM STDIN (FORMAT binary);", payload).unwrap();
+        let results = c
+            .copy_in("COPY t FROM STDIN (FORMAT binary);", payload)
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert!(results[0].was_copy);
         assert_eq!(results[0].cmd_tag, "COPY 3");
         assert_eq!(sent_types(&c.stream.written), "Qdc");
         let want = Frame::CopyData(payload.to_vec()).encode();
-        assert!(c.stream.written.windows(want.len()).any(|win| win == &want[..]));
+        assert!(c
+            .stream
+            .written
+            .windows(want.len())
+            .any(|win| win == &want[..]));
 
         // Extended path: CopyIn fed from the step, Sync after CommandComplete.
         let mut c = Client::over(FakeStream::new(server(&[
             WireMsg::ParseComplete,
             WireMsg::BindComplete,
             WireMsg::NoData,
-            WireMsg::CopyInResponse { fmt: 0, col_fmts: vec![0] },
+            WireMsg::CopyInResponse {
+                fmt: 0,
+                col_fmts: vec![0],
+            },
             complete("COPY 1"),
             ready('I'),
         ])));
@@ -2730,8 +3438,15 @@ mod tests {
     #[test]
     fn copy_in_without_payload_is_failed() {
         let script = vec![
-            WireMsg::CopyInResponse { fmt: 0, col_fmts: vec![0] },
-            WireMsg::ErrorResponse(fields(&[('S', "ERROR"), ('C', "57014"), ('M', "COPY failed")])),
+            WireMsg::CopyInResponse {
+                fmt: 0,
+                col_fmts: vec![0],
+            },
+            WireMsg::ErrorResponse(fields(&[
+                ('S', "ERROR"),
+                ('C', "57014"),
+                ('M', "COPY failed"),
+            ])),
             ready('I'),
         ];
         let mut c = Client::over(FakeStream::new(server(&script)));
@@ -2742,13 +3457,19 @@ mod tests {
 
     #[test]
     fn raw_frames_go_out_verbatim_and_read_to_ready() {
-        let script = vec![WireMsg::ErrorResponse(fields(&[('S', "FATAL"), ('C', "08P01"), ('M', "invalid frontend message type 7")]))];
+        let script = vec![WireMsg::ErrorResponse(fields(&[
+            ('S', "FATAL"),
+            ('C', "08P01"),
+            ('M', "invalid frontend message type 7"),
+        ]))];
         let mut c = Client::over(FakeStream::new(server(&script)));
         let junk = [7u8, 0, 0, 0, 9, 1, 2, 3, 4, 5];
         let x = c.raw(&junk, 1);
         assert_eq!(c.stream.written, junk.to_vec());
         assert_eq!(x.wire, script);
-        let Some(Fault::Lost(d)) = x.fault else { panic!() };
+        let Some(Fault::Lost(d)) = x.fault else {
+            panic!()
+        };
         assert!(d.contains("after server error 08P01"), "{d}");
 
         // Terminate sends 'X' and closes the client side.
@@ -2761,8 +3482,15 @@ mod tests {
     #[test]
     fn drain_collects_async_traffic_to_ready() {
         let script = vec![
-            WireMsg::NotificationResponse { pid: 1, channel: Bytes::text("c"), payload: Bytes(vec![]) },
-            WireMsg::ParameterStatus { name: Bytes::text("TimeZone"), value: Bytes::text("UTC") },
+            WireMsg::NotificationResponse {
+                pid: 1,
+                channel: Bytes::text("c"),
+                payload: Bytes(vec![]),
+            },
+            WireMsg::ParameterStatus {
+                name: Bytes::text("TimeZone"),
+                value: Bytes::text("UTC"),
+            },
             ready('I'),
         ];
         let mut c = Client::over(FakeStream::new(server(&script)));
@@ -2792,24 +3520,41 @@ mod tests {
         assert!(e.hang, "{}", e.detail);
         assert!(e.wire.is_empty());
         assert!(e.detail.contains("150 ms"), "{}", e.detail);
-        assert!(started.elapsed() < Duration::from_secs(4), "did not honor the deadline");
+        assert!(
+            started.elapsed() < Duration::from_secs(4),
+            "did not honor the deadline"
+        );
 
         // An established client (as if authenticated) hangs on an exchange
         // the same way, keeps what it received, and is not poisoned.
         let stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
         let mut c = Client::over(stream);
-        c.set_read_timeout(Some(Duration::from_millis(120))).unwrap();
+        c.set_read_timeout(Some(Duration::from_millis(120)))
+            .unwrap();
         c.set_write_timeout(Some(Duration::from_secs(5))).unwrap();
         let x = c.simple("SELECT pg_sleep(1000)");
         assert_eq!(x.fault, Some(Fault::Hang { timeout_ms: 120 }));
         assert!(x.wire.is_empty());
-        assert!(c.dead().is_none(), "a hang must leave the connection usable for cancel/drain");
-        assert_eq!(c.simple_query("SELECT 1").unwrap_err().0, "read timed out after 120 ms (hang)");
+        assert!(
+            c.dead().is_none(),
+            "a hang must leave the connection usable for cancel/drain"
+        );
+        assert_eq!(
+            c.simple_query("SELECT 1").unwrap_err().0,
+            "read timed out after 120 ms (hang)"
+        );
         assert!(c.cancel().is_err(), "no BackendKeyData yet");
         // A CancelRequest to the silent listener still goes out (the
         // kernel accepts; the packet is written), proving the second
         // socket path.
-        send_cancel("127.0.0.1", port, 1, &[1, 2, 3, 4], Some(Duration::from_secs(5))).unwrap();
+        send_cancel(
+            "127.0.0.1",
+            port,
+            1,
+            &[1, 2, 3, 4],
+            Some(Duration::from_secs(5)),
+        )
+        .unwrap();
         drop(listener);
     }
 }

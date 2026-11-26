@@ -9,7 +9,7 @@ use gravity_lowerv4_it as common;
 use gravity_decompose::ops::shared::srf::SrfKind;
 use gravity_decompose::Op;
 use gravity_lowerv4::face::kinds::KindId;
-use gravity_lowerv4::face::strategy::{StrategySet, SRF_PARALLEL, set_off};
+use gravity_lowerv4::face::strategy::{set_off, StrategySet, SRF_PARALLEL};
 use gravity_lowerv4::frame::frame::SourceMaker;
 use gravity_lowerv4::frame::px::Px;
 use gravity_lowerv4::graph::Gx;
@@ -23,21 +23,38 @@ fn descs(rel: &str, set: Option<(u32, SrfKind)>) -> (Parallel, Parallel) {
     common::RigCatalog::install_seams();
     let text = std::fs::read_to_string(common::plans_dir().join(rel)).expect("plan fixture");
     let ctx = mcx::MemoryContext::new("m5 l0 parallel");
-    let fx = gravity_decompose::corpus::load(ctx.mcx(), &text).unwrap_or_else(|e| panic!("fixture: {e}"));
+    let fx = gravity_decompose::corpus::load(ctx.mcx(), &text)
+        .unwrap_or_else(|e| panic!("fixture: {e}"));
     let arena = Arena::new(1 << 20);
     let a = arena.handle();
     let mut g = gravity_decompose::decompose_in(a, fx.stmt, &fx.facts, fx.mcx).expect("decomposes");
-    for d in g.pipelines.iter_mut().flat_map(|p| p.ops.iter_mut()).filter_map(|op| if let Op::Srf(d) = op { Some(d) } else { None }) {
+    for d in g
+        .pipelines
+        .iter_mut()
+        .flat_map(|p| p.ops.iter_mut())
+        .filter_map(|op| if let Op::Srf(d) = op { Some(d) } else { None })
+    {
         if let Some((funcid, kind)) = set {
             (d.functions[0].funcid, d.functions[0].kind) = (funcid, kind);
         }
     }
-    let k = g.pipelines.iter().position(|p| matches!(p.source, gravity_decompose::Source::Range { .. })).expect("a heap scan pipeline");
-    let gx = Gx { graph: &g, facts: &fx.facts, catalog: common::RigCatalog::get(), over: None, mcx: rig.mcx() };
+    let k = g
+        .pipelines
+        .iter()
+        .position(|p| matches!(p.source, gravity_decompose::Source::Range { .. }))
+        .expect("a heap scan pipeline");
+    let gx = Gx {
+        graph: &g,
+        facts: &fx.facts,
+        catalog: common::RigCatalog::get(),
+        over: None,
+        mcx: rig.mcx(),
+    };
     let mut words = gravity_lower::Sequential::new(a);
     let mut px = Px::new(a, &gx, &mut words);
     px.strategies.add(SRF_PARALLEL);
-    let maker = gravity_lowerv4::ops::kind_as::<SourceMaker>(KindId::SrcHeap).expect("src.heap registers its maker");
+    let maker = gravity_lowerv4::ops::kind_as::<SourceMaker>(KindId::SrcHeap)
+        .expect("src.heap registers its maker");
     gravity_expr::nodes::func::acl_defer_begin();
     let d = gravity_lowerv4::catch(0, || {
         let src = (maker.0)(&mut px, k);
@@ -50,8 +67,21 @@ fn descs(rel: &str, set: Option<(u32, SrfKind)>) -> (Parallel, Parallel) {
 
 fn serial_by_the_veto(rel: &str, set: Option<(u32, SrfKind)>) {
     let (planned, got) = descs(rel, set);
-    assert_eq!(planned, Parallel::Eligible, "{rel}: decompose plans the ProjectSet's heap pipeline eligible");
-    assert!(matches!(got, Parallel::Ineligible { reason: Why::Host, .. }), "{rel} {set:?}: the SRF step keeps it on the leader: {got:?}");
+    assert_eq!(
+        planned,
+        Parallel::Eligible,
+        "{rel}: decompose plans the ProjectSet's heap pipeline eligible"
+    );
+    assert!(
+        matches!(
+            got,
+            Parallel::Ineligible {
+                reason: Why::Host,
+                ..
+            }
+        ),
+        "{rel} {set:?}: the SRF step keeps it on the leader: {got:?}"
+    );
 }
 
 /// P1 (bench-089, `SELECT count(*) FROM (SELECT generate_series(1, a % 3) FROM g) s`): decompose plans its heap scan
@@ -79,7 +109,12 @@ fn the_road_off_twin_is_serial() {
 /// H-f). Before this rule any set the library serves (`gravity_fn::srf::serves`) ran on the pool.
 #[test]
 fn a_library_or_array_set_over_a_heap_scan_stays_on_the_leader() {
-    for set in [(2331, SrfKind::Unnest), (1191, SrfKind::Subscripts), (3219, SrfKind::JsonbArrayElements { text: false }), (3260, SrfKind::SeriesNumeric { step: false })] {
+    for set in [
+        (2331, SrfKind::Unnest),
+        (1191, SrfKind::Subscripts),
+        (3219, SrfKind::JsonbArrayElements { text: false }),
+        (3260, SrfKind::SeriesNumeric { step: false }),
+    ] {
         serial_by_the_veto("bench-089.plan", Some(set));
     }
 }
@@ -90,5 +125,8 @@ fn a_library_or_array_set_over_a_heap_scan_stays_on_the_leader() {
 fn a_heap_pipeline_without_a_set_function_is_left_alone() {
     let (planned, got) = descs("bench-001.plan", None);
     assert_eq!(planned, Parallel::Eligible);
-    assert_eq!(got, planned, "no SRF step: the heap rule's descriptor is decompose's");
+    assert_eq!(
+        got, planned,
+        "no SRF step: the heap rule's descriptor is decompose's"
+    );
 }

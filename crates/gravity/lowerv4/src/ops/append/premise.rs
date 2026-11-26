@@ -11,11 +11,18 @@ impl<'p> Walk<'_, '_, 'p> {
     /// One Op::Append.
     pub(crate) fn append(&mut self, a: &AppendDesc<'p>) {
         let packed = self.p.has(Prop::Packed);
-        if matches!(a, AppendDesc::Arm { prune: Some(_), .. } | AppendDesc::Union { prune: Some(_), .. } | AppendDesc::Merge { prune: Some(_), .. }) {
+        if matches!(
+            a,
+            AppendDesc::Arm { prune: Some(_), .. }
+                | AppendDesc::Union { prune: Some(_), .. }
+                | AppendDesc::Merge { prune: Some(_), .. }
+        ) {
             self.add(KindId::SrcPrune);
         }
         if let AppendDesc::Merge { keys, .. } = a {
-            keys.iter().for_each(|key| self.add(key_kind(key.kind, Some(key.image), packed, Accessor::Order)));
+            keys.iter().for_each(|key| {
+                self.add(key_kind(key.kind, Some(key.image), packed, Accessor::Order))
+            });
         }
     }
 }

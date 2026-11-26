@@ -43,7 +43,11 @@ fn regress_ok_vectors_round_trip() {
         let image2 = jsonpath_in(cx2.mcx(), out.as_bytes(), None)
             .unwrap_or_else(|e| panic!("re-parse {out:?}: {}", e.message()))
             .expect("hard path returns Some");
-        assert_eq!(out_text(&image2), out, "idempotent canonical form of {input:?}");
+        assert_eq!(
+            out_text(&image2),
+            out,
+            "idempotent canonical form of {input:?}"
+        );
     }
 }
 
@@ -76,7 +80,11 @@ fn soft_errors_are_recorded_not_raised() {
             .unwrap_or_else(|e| panic!("soft parse of {input:?} raised: {}", e.message()));
         assert!(res.is_none(), "soft error for {input:?}");
         assert!(esc.error_occurred(), "escontext set for {input:?}");
-        assert_eq!(esc.error().expect("saved error").message(), *msg, "{input:?}");
+        assert_eq!(
+            esc.error().expect("saved error").message(),
+            *msg,
+            "{input:?}"
+        );
     }
 }
 
@@ -96,31 +104,82 @@ static EXTRA_ERR: &[(&str, &str)] = &[
     ("1 && 2", "syntax error at or near \"&&\" of jsonpath input"),
     ("$ ? (@)", "syntax error at or near \")\" of jsonpath input"),
     ("$?(1)", "syntax error at or near \")\" of jsonpath input"),
-    ("exists(1 == 2)", "syntax error at or near \"==\" of jsonpath input"),
+    (
+        "exists(1 == 2)",
+        "syntax error at or near \"==\" of jsonpath input",
+    ),
     ("!(1)", "syntax error at or near \")\" of jsonpath input"),
     // yytext for a keyword token emitted by the xnq {blank}+ rule is the
     // blank run (flex), hence " " not "is".
-    ("(1) is unknown", "syntax error at or near \" \" of jsonpath input"),
-    ("$[1 == 1]", "syntax error at or near \"==\" of jsonpath input"),
-    ("(1 == 1) + 2", "syntax error at or near \"+\" of jsonpath input"),
-    ("exists($.a) + 1", "syntax error at or near \"+\" of jsonpath input"),
+    (
+        "(1) is unknown",
+        "syntax error at or near \" \" of jsonpath input",
+    ),
+    (
+        "$[1 == 1]",
+        "syntax error at or near \"==\" of jsonpath input",
+    ),
+    (
+        "(1 == 1) + 2",
+        "syntax error at or near \"+\" of jsonpath input",
+    ),
+    (
+        "exists($.a) + 1",
+        "syntax error at or near \"+\" of jsonpath input",
+    ),
     ("-(1 == 1)", "syntax error at end of jsonpath input"),
-    ("1 == !(true)", "syntax error at or near \"!\" of jsonpath input"),
-    ("\"abc\\", "unexpected end after backslash at or near \"\\\" of jsonpath input"),
-    ("\"a\\\nb\"", "unexpected end after backslash at or near \"\\\" of jsonpath input"),
+    (
+        "1 == !(true)",
+        "syntax error at or near \"!\" of jsonpath input",
+    ),
+    (
+        "\"abc\\",
+        "unexpected end after backslash at or near \"\\\" of jsonpath input",
+    ),
+    (
+        "\"a\\\nb\"",
+        "unexpected end after backslash at or near \"\\\" of jsonpath input",
+    ),
     ("1 2 \"x", "syntax error at or near \"2\" of jsonpath input"),
     // expr never starts with EXISTS_P: bison rejects the keyword lookahead
     // before the operand is parsed (its numeric never reaches numeric_in).
     ("$[exists(1)]", "syntax error at end of jsonpath input"),
-    ("$[exists (1)]", "syntax error at or near \" \" of jsonpath input"),
-    ("$[exists(1e1000000)]", "syntax error at end of jsonpath input"),
-    ("$[1 to exists(1e1000000)]", "syntax error at end of jsonpath input"),
-    ("$ + exists(1e1000000)", "syntax error at end of jsonpath input"),
-    ("$ ? (1 * exists(1e1000000))", "syntax error at end of jsonpath input"),
-    ("$ == exists(1e1000000)", "syntax error at end of jsonpath input"),
-    ("$ ? (@ == exists (1))", "syntax error at or near \" \" of jsonpath input"),
-    ("-exists(1e1000000)", "syntax error at end of jsonpath input"),
-    ("exists(exists(1e1000000))", "syntax error at end of jsonpath input"),
+    (
+        "$[exists (1)]",
+        "syntax error at or near \" \" of jsonpath input",
+    ),
+    (
+        "$[exists(1e1000000)]",
+        "syntax error at end of jsonpath input",
+    ),
+    (
+        "$[1 to exists(1e1000000)]",
+        "syntax error at end of jsonpath input",
+    ),
+    (
+        "$ + exists(1e1000000)",
+        "syntax error at end of jsonpath input",
+    ),
+    (
+        "$ ? (1 * exists(1e1000000))",
+        "syntax error at end of jsonpath input",
+    ),
+    (
+        "$ == exists(1e1000000)",
+        "syntax error at end of jsonpath input",
+    ),
+    (
+        "$ ? (@ == exists (1))",
+        "syntax error at or near \" \" of jsonpath input",
+    ),
+    (
+        "-exists(1e1000000)",
+        "syntax error at end of jsonpath input",
+    ),
+    (
+        "exists(exists(1e1000000))",
+        "syntax error at end of jsonpath input",
+    ),
 ];
 
 #[test]
@@ -262,7 +321,10 @@ fn parser_stack_overflow_is_soft_errorable() {
         let mut esc = SoftErrorContext::new(true);
         let res = jsonpath_in(cx.mcx(), &input, Some(&mut esc))
             .unwrap_or_else(|e| panic!("soft overflow raised hard: {}", e.message()));
-        (res.is_none(), esc.error().map(|e| (e.sqlstate(), e.message().to_string())))
+        (
+            res.is_none(),
+            esc.error().map(|e| (e.sqlstate(), e.message().to_string())),
+        )
     });
     assert!(none);
     assert_eq!(
@@ -279,9 +341,11 @@ fn deep_unary_chain_round_trips() {
     let cx = MemoryContext::new("jsonpath deep");
     let input = nested("", "-(", "$", ")", "", 50);
     let image = jsonpath_in(cx.mcx(), &input, None).unwrap().unwrap();
-    assert_eq!(out_text(&image), format!("({}-${}", "-(".repeat(49), ")".repeat(50)));
+    assert_eq!(
+        out_text(&image),
+        format!("({}-${}", "-(".repeat(49), ")".repeat(50))
+    );
 }
-
 
 // jsonpath.c checks for interrupts per parsed item (makeItemType), per
 // flattened item and per printed item; a pending cancel surfaces as 57014
@@ -339,8 +403,14 @@ fn parse_flatten_and_print_poll_for_interrupts() {
 fn flatten_reserve_bounds_match_enlarge_string_info() {
     assert_eq!(crate::path::flatten_reserve(10).unwrap(), 1024);
     assert_eq!(crate::path::flatten_reserve(1000).unwrap(), 4096);
-    assert_eq!(crate::path::flatten_reserve(268_435_454).unwrap(), 1_073_741_823);
-    assert_eq!(crate::path::flatten_reserve(268_435_455).unwrap(), 1_073_741_823);
+    assert_eq!(
+        crate::path::flatten_reserve(268_435_454).unwrap(),
+        1_073_741_823
+    );
+    assert_eq!(
+        crate::path::flatten_reserve(268_435_455).unwrap(),
+        1_073_741_823
+    );
     let err = crate::path::flatten_reserve(268_435_456).unwrap_err();
     assert_eq!(
         err.message(),
@@ -352,5 +422,8 @@ fn flatten_reserve_bounds_match_enlarge_string_info() {
         Some("Cannot enlarge string buffer containing 0 bytes by 1073741824 more bytes.")
     );
     let err = crate::path::flatten_reserve(536_870_912).unwrap_err();
-    assert_eq!(err.message(), "invalid string enlargement request size: -2147483648");
+    assert_eq!(
+        err.message(),
+        "invalid string enlargement request size: -2147483648"
+    );
 }

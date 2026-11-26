@@ -8,7 +8,9 @@
 //! into the same region in place of the last. Every other form keeps the owner phase over every partition at once.
 #![allow(unsafe_code)]
 
-use gravity_abi::breaker::{Owned, OwnerTop, OWNED_BATCHED, OWNED_EMIT_BYTES, OWNED_HDR, OWNERTOP_HDR, TABLE_OWNED};
+use gravity_abi::breaker::{
+    Owned, OwnerTop, OWNED_BATCHED, OWNED_EMIT_BYTES, OWNED_HDR, OWNERTOP_HDR, TABLE_OWNED,
+};
 use gravity_abi::status::{UNSUPPORTED_DOMAIN, UNSUPPORTED_SCRATCH};
 use gravity_abi::{Ctx, PtrWord};
 use gravity_program::{LifeId, Program};
@@ -48,7 +50,9 @@ unsafe impl Sync for Batched {}
 pub(crate) fn read_by_refill(program: &Program, p: usize, slot: u8) -> bool {
     let mut readers = program.consumers_of(LifeId(p as u16));
     match (readers.next(), readers.next()) {
-        (Some(k), None) => program.pipelines[k].refills && program.pipelines[k].consumes.first() == Some(&slot),
+        (Some(k), None) => {
+            program.pipelines[k].refills && program.pipelines[k].consumes.first() == Some(&slot)
+        }
         _ => false,
     }
 }
@@ -59,7 +63,19 @@ pub(crate) fn read_by_refill(program: &Program, p: usize, slot: u8) -> bool {
 /// (`section.rs own_all`: `one_owner_bytes`, at most the wall) passes both the producer's `spare` region (cut from it,
 /// no pin) and `room`, what W and G hold now: the old road's pin past W and G (`AggOwnerAll`).
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn fold_for(program: &Program, p: usize, slot: u8, stream: &Stream, merge: &dyn Merge, partials: &[Partial<'_>], held: usize, rec: usize, room: u64, spare: usize, kept: &mut dyn FnMut() -> Option<u64>) -> Option<Box<dyn BatchFold>> {
+pub(crate) fn fold_for(
+    program: &Program,
+    p: usize,
+    slot: u8,
+    stream: &Stream,
+    merge: &dyn Merge,
+    partials: &[Partial<'_>],
+    held: usize,
+    rec: usize,
+    room: u64,
+    spare: usize,
+    kept: &mut dyn FnMut() -> Option<u64>,
+) -> Option<Box<dyn BatchFold>> {
     if !stream.spilled() || stream.handed() || !read_by_refill(program, p, slot) {
         return None;
     }
@@ -100,7 +116,11 @@ fn batch_region(held: u64, rec: usize, floor: u64) -> usize {
     let gather = OWNED_EMIT_BYTES + 8 * held.div_ceil(rec.max(1));
     let whole = crate::section::one_owner_whole_bytes(held, rec) + gather;
     let front = held + gather;
-    let region = if front >= crate::section::SPLIT_TABLE { whole.min(OWNER_RUN_OFF + front + crate::section::SPLIT_TABLE) } else { whole };
+    let region = if front >= crate::section::SPLIT_TABLE {
+        whole.min(OWNER_RUN_OFF + front + crate::section::SPLIT_TABLE)
+    } else {
+        whole
+    };
     region.max(floor as usize).next_multiple_of(8)
 }
 
@@ -135,7 +155,12 @@ pub(crate) fn held_of(partials: &[Partial<'_>], stream: &Stream) -> (usize, usiz
             rec = rec.max(t.layout.size() as usize);
         }
     }
-    held += stream.files.iter().flatten().map(|f| f.spilled_bytes() as usize).sum::<usize>();
+    held += stream
+        .files
+        .iter()
+        .flatten()
+        .map(|f| f.spilled_bytes() as usize)
+        .sum::<usize>();
     (held, rec)
 }
 
@@ -144,7 +169,9 @@ pub(crate) fn held_of(partials: &[Partial<'_>], stream: &Stream) -> (usize, usiz
 pub(crate) fn budget(ctx: *mut Ctx, program: &Program, p: usize) -> u64 {
     // SAFETY: the callers pass the node's ctx, bound for the statement, on the leader thread.
     let n = unsafe { crate::hostimpl::inner_of(ctx) };
-    match n.stmt().map_or(0, |s| crate::mem::grant::ceiling_of(s.grant, &program.pipelines[p])) {
+    match n.stmt().map_or(0, |s| {
+        crate::mem::grant::ceiling_of(s.grant, &program.pipelines[p])
+    }) {
         0 => n.w,
         c => c,
     }
@@ -167,14 +194,32 @@ pub(crate) fn room(ctx: *mut Ctx) -> u64 {
 /// (`pin_region`), the first batch folded into it, and `leader` (the slot's region) laid as its one-owner header, marked
 /// batched; the state filed on the slot's stream. Fires `owner.batched`.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn lay(ctx: *mut Ctx, spill: *mut SpillTable, slot: u8, fold: Box<dyn BatchFold>, pbits: u8, budget: u64, leader: &mut [u8], site: Option<usize>) -> Result<()> {
+pub(crate) fn lay(
+    ctx: *mut Ctx,
+    spill: *mut SpillTable,
+    slot: u8,
+    fold: Box<dyn BatchFold>,
+    pbits: u8,
+    budget: u64,
+    leader: &mut [u8],
+    site: Option<usize>,
+) -> Result<()> {
     // SAFETY: the callers (`Entry::own_single_of`, `Open::own_batched`) pass the node's ctx, bound for the statement, its
     // spill table and the produced slot's region, idle past its producer: no claim runs, and the leader alone reads them.
     unsafe { lay_raw(ctx, spill, slot, fold, pbits, budget, leader, site) }
 }
 
 #[allow(clippy::too_many_arguments)]
-unsafe fn lay_raw(ctx: *mut Ctx, spill: *mut SpillTable, slot: u8, fold: Box<dyn BatchFold>, pbits: u8, budget: u64, leader: &mut [u8], site: Option<usize>) -> Result<()> {
+unsafe fn lay_raw(
+    ctx: *mut Ctx,
+    spill: *mut SpillTable,
+    slot: u8,
+    fold: Box<dyn BatchFold>,
+    pbits: u8,
+    budget: u64,
+    leader: &mut [u8],
+    site: Option<usize>,
+) -> Result<()> {
     if leader.len() < OWNED_HDR {
         return Err(Error::Unsupported(UNSUPPORTED_SCRATCH));
     }
@@ -189,9 +234,28 @@ unsafe fn lay_raw(ctx: *mut Ctx, spill: *mut SpillTable, slot: u8, fold: Box<dyn
     let floor = fold.floor();
     let mut batches = Vec::new(); // alloc: Exec
     plan(&parts, rec, floor, budget, &mut batches);
-    let most = batches.iter().map(|&(lo, hi)| parts[lo as usize..hi as usize].iter().sum::<u64>()).max().unwrap_or(0);
-    let region = pin_region(ctx, slot, batch_region(most, rec, floor).min(crate::section::owner_wall_at()))?;
-    let mut b = Batched { fold, batches, next: 0, unread: false, pbits, region, leader: leader.as_mut_ptr(), leader_len: leader.len().min(u32::MAX as usize) as u32, site, slot };
+    let most = batches
+        .iter()
+        .map(|&(lo, hi)| parts[lo as usize..hi as usize].iter().sum::<u64>())
+        .max()
+        .unwrap_or(0);
+    let region = pin_region(
+        ctx,
+        slot,
+        batch_region(most, rec, floor).min(crate::section::owner_wall_at()),
+    )?;
+    let mut b = Batched {
+        fold,
+        batches,
+        next: 0,
+        unread: false,
+        pbits,
+        region,
+        leader: leader.as_mut_ptr(),
+        leader_len: leader.len().min(u32::MAX as usize) as u32,
+        site,
+        slot,
+    };
     lend(ctx, || -> Result<()> {
         b.fold.open(b.region)?;
         if !b.batches.is_empty() {
@@ -210,20 +274,36 @@ unsafe fn lay_raw(ctx: *mut Ctx, spill: *mut SpillTable, slot: u8, fold: Box<dyn
 /// of the first batch that gathers a record (a fresh gather's even when none does), or 0 past the last batch, or when the
 /// slot is not batched. Runs inside the emit's kernel call, whose abort byte it polls.
 /// # Safety — `ctx` is the emit's, bound on the leader; `spill` its node's spill table.
-pub(crate) unsafe fn refill(ctx: *mut Ctx, spill: *mut SpillTable, slot: u8, arg: u64) -> Result<i64> {
+pub(crate) unsafe fn refill(
+    ctx: *mut Ctx,
+    spill: *mut SpillTable,
+    slot: u8,
+    arg: u64,
+) -> Result<i64> {
     let table = &mut *spill;
     let stream = &mut table.streams[slot as usize];
-    let Some(mut b) = stream.batched.take() else { return Ok(0) };
+    let Some(mut b) = stream.batched.take() else {
+        return Ok(0);
+    };
     let mut files: [&dyn SpillFile; FILES] = [&crate::section::NO_FILE; FILES];
     let nf = files_of(stream, &mut files);
-    let (rec, rewind) = ((arg & 0xffff_ffff) as usize, arg & gravity_abi::program::OWNED_REWIND != 0);
+    let (rec, rewind) = (
+        (arg & 0xffff_ffff) as usize,
+        arg & gravity_abi::program::OWNED_REWIND != 0,
+    );
     let r = next_state(ctx, &mut b, &files[..nf], rec, rewind);
     header(&b);
     stream.batched = Some(b);
     r
 }
 
-unsafe fn next_state(ctx: *mut Ctx, b: &mut Batched, files: &[&dyn SpillFile], rec: usize, rewind: bool) -> Result<i64> {
+unsafe fn next_state(
+    ctx: *mut Ctx,
+    b: &mut Batched,
+    files: &[&dyn SpillFile],
+    rec: usize,
+    rewind: bool,
+) -> Result<i64> {
     if core::mem::take(&mut b.unread) && rewind {
         return gather(ctx, b, files, rec).map(|st| st as i64);
     }
@@ -250,9 +330,16 @@ unsafe fn next_state(ctx: *mut Ctx, b: &mut Batched, files: &[&dyn SpillFile], r
 /// overflows (`UNSUPPORTED_SCRATCH`: a one-round form laid otherwise than the runs layout) is pinned twice the size, up
 /// to the wall, and the batch folded again (its files are only read); a dense form that met a key outside its domain
 /// (`UNSUPPORTED_DOMAIN`, D597) folds it again through its plain form.
-unsafe fn fold_next(ctx: *mut Ctx, b: &mut Batched, files: &[&dyn SpillFile], rec: usize) -> Result<()> {
+unsafe fn fold_next(
+    ctx: *mut Ctx,
+    b: &mut Batched,
+    files: &[&dyn SpillFile],
+    rec: usize,
+) -> Result<()> {
     let (lo, hi) = b.batches[b.next];
-    let site = b.site.map_or(core::ptr::null_mut(), |s| gravity_abi::ctx::site_ptr(ctx, s));
+    let site = b.site.map_or(core::ptr::null_mut(), |s| {
+        gravity_abi::ctx::site_ptr(ctx, s)
+    });
     let cancel = (*ctx).cancel.ptr();
     let wall = crate::section::owner_wall_at();
     let mut step = cancelpoll::step("batch fold: a batch's partitions");
@@ -270,12 +357,18 @@ unsafe fn fold_next(ctx: *mut Ctx, b: &mut Batched, files: &[&dyn SpillFile], re
         match r {
             Ok(()) => break,
             // the fold answers a domain miss once, its plain form taking over
-            Err(Error::Unsupported(UNSUPPORTED_DOMAIN)) if !core::mem::replace(&mut missed, true) => continue,
+            Err(Error::Unsupported(UNSUPPORTED_DOMAIN))
+                if !core::mem::replace(&mut missed, true) =>
+            {
+                continue
+            }
             Err(Error::Unsupported(UNSUPPORTED_SCRATCH)) if b.region.len < wall => {
                 b.region = pin_region(ctx, b.slot, (2 * b.region.len).min(wall) & !7)?;
                 header(b);
             }
-            Err(Error::Unsupported(UNSUPPORTED_SCRATCH)) => return Err(crate::section::owner_wall(b.region.len, rec)),
+            Err(Error::Unsupported(UNSUPPORTED_SCRATCH)) => {
+                return Err(crate::section::owner_wall(b.region.len, rec))
+            }
             Err(e) => return Err(e),
         }
     }
@@ -289,7 +382,12 @@ unsafe fn fold_next(ctx: *mut Ctx, b: &mut Batched, files: &[&dyn SpillFile], re
 /// and the table (the runs form lays its table at the region's end, at most `OWNER_TABLE_CAP`). A region with room for
 /// neither is pinned at twice the runs and the array (its table at most half of it) and the batch folded again there
 /// (never past the wall).
-unsafe fn gather(ctx: *mut Ctx, b: &mut Batched, files: &[&dyn SpillFile], rec: usize) -> Result<*mut u8> {
+unsafe fn gather(
+    ctx: *mut Ctx,
+    b: &mut Batched,
+    files: &[&dyn SpillFile],
+    rec: usize,
+) -> Result<*mut u8> {
     let mut step = cancelpoll::step("batch gather: a batch's records");
     loop {
         let (base, top) = (b.region.ptr, &*(b.region.ptr as *const OwnerTop));
@@ -340,7 +438,16 @@ unsafe fn gather(ctx: *mut Ctx, b: &mut Batched, files: &[&dyn SpillFile], rec: 
 
 /// The slot's region laid as the one owner's header over `b.region`, marked batched.
 unsafe fn header(b: &Batched) {
-    *(b.leader as *mut Owned) = Owned { nowners: 1, owner_bytes: b.region.len as u32, limit: b.leader_len, pad0: [0; 3], kind: TABLE_OWNED, base: b.region.ptr as u64, pad1: [OWNED_BATCHED, 0, 0, 0, 0], cell: core::cell::UnsafeCell::new([]) };
+    *(b.leader as *mut Owned) = Owned {
+        nowners: 1,
+        owner_bytes: b.region.len as u32,
+        limit: b.leader_len,
+        pad0: [0; 3],
+        kind: TABLE_OWNED,
+        base: b.region.ptr as u64,
+        pad1: [OWNED_BATCHED, 0, 0, 0, 0],
+        cell: core::cell::UnsafeCell::new([]),
+    };
 }
 
 /// A region of `bytes` for a batched slot's one owner: a pinned pool chunk filed as `slot`'s (given back when the slot
@@ -361,7 +468,12 @@ unsafe fn pin_region(ctx: *mut Ctx, slot: u8, bytes: usize) -> Result<Region> {
     if m.is_null() {
         // NR-3: refused by the pool and by the temp-file road: `pin_batch`'s road, named
         let pool = &crate::mem::grant::POOL;
-        return Err(Error::OutOfMemory { bytes: bytes as u64, held: pool.held(), capacity: pool.capacity(), why: Some(gravity_program::spill::NoSpill::AggPartitionPastGrant) });
+        return Err(Error::OutOfMemory {
+            bytes: bytes as u64,
+            held: pool.held(),
+            capacity: pool.capacity(),
+            why: Some(gravity_program::spill::NoSpill::AggPartitionPastGrant),
+        });
     }
     Ok(Region { ptr: m, len: bytes })
 }
@@ -388,7 +500,13 @@ const FILES: usize = 2 * crate::section::SLOTS + 1;
 /// `stream`'s files in owner order into `out`; their count.
 fn files_of<'a>(stream: &'a Stream, out: &mut [&'a dyn SpillFile; FILES]) -> usize {
     let mut n = 0;
-    for f in stream.files.iter().flatten().map(|f| f.as_ref()).take(FILES) {
+    for f in stream
+        .files
+        .iter()
+        .flatten()
+        .map(|f| f.as_ref())
+        .take(FILES)
+    {
         out[n] = f;
         n += 1;
     }
@@ -404,8 +522,14 @@ mod tests {
         let rec = 16;
         let one = batch_region(1600, rec, 0) as u64;
         let mut out = Vec::new(); // alloc: Cold
-        // four partitions of 1600 bytes, a budget for two of them: two batches
-        plan(&[1600, 1600, 1600, 1600], rec, 0, batch_region(3200, rec, 0) as u64, &mut out);
+                                  // four partitions of 1600 bytes, a budget for two of them: two batches
+        plan(
+            &[1600, 1600, 1600, 1600],
+            rec,
+            0,
+            batch_region(3200, rec, 0) as u64,
+            &mut out,
+        );
         assert_eq!(out, [(0, 2), (2, 4)]);
         // a budget under one partition: one batch each (the partition past the grant, one level)
         plan(&[1600, 1600, 1600], rec, 0, one / 2, &mut out);
@@ -421,13 +545,18 @@ mod tests {
     fn a_batch_region_holds_its_runs_table_and_pointer_array() {
         let rec = 24;
         let r = batch_region(24_000, rec, 0);
-        assert!(r >= crate::section::one_owner_whole_bytes(24_000, rec) + OWNED_EMIT_BYTES + 8 * 1000);
+        assert!(
+            r >= crate::section::one_owner_whole_bytes(24_000, rec) + OWNED_EMIT_BYTES + 8 * 1000
+        );
         assert_eq!(r % 8, 0);
         assert_eq!(batch_region(0, rec, 1 << 20), 1 << 20, "the form's floor");
         // a batch past the table cap: its runs, its array and the capped table
         let big = 240 << 20;
         let r = batch_region(big, rec, 0);
-        assert!(r < crate::section::one_owner_whole_bytes(big as usize, rec), "the capped table, not twice the records");
+        assert!(
+            r < crate::section::one_owner_whole_bytes(big as usize, rec),
+            "the capped table, not twice the records"
+        );
         assert!(r >= big as usize + 8 * (big as usize / rec) + crate::section::SPLIT_TABLE);
     }
 }

@@ -11,11 +11,18 @@ mod write_rig;
 
 /// Census plan fixtures whose crate lowering stopped at `Bug: seam not installed` (lookup_pg_type_shape) and lower under
 /// the rig catalog now, lowered as the census tests lower them (the server's decompose member set).
-const SERVED: &[&str] = &["regress-full/aggregates-008.plan", "regress-full/join-014.plan", "regress-full/updatable_views-018.plan"];
+const SERVED: &[&str] = &[
+    "regress-full/aggregates-008.plan",
+    "regress-full/join-014.plan",
+    "regress-full/updatable_views-018.plan",
+];
 
 /// Fixtures that asked lookup_pg_type_typcache_shape: they reach a type the test creates (no pg_type.dat row), so they
 /// refuse by the catalog's name, never by a Bug.
-const NAMED: &[&str] = &["regress-full/indirect_toast-002.plan", "regress-full/domain-014.plan"];
+const NAMED: &[&str] = &[
+    "regress-full/indirect_toast-002.plan",
+    "regress-full/domain-014.plan",
+];
 
 #[test]
 fn d1191_the_rig_answers_the_type_shape_and_typcache_seams() {
@@ -31,7 +38,9 @@ fn d1191_the_rig_answers_the_type_shape_and_typcache_seams() {
     }
     for rel in NAMED {
         match lower(rel) {
-            Err(e) if e.what.starts_with("Bug: ") => panic!("{rel}: a Bug under the rig catalog: {e}"),
+            Err(e) if e.what.starts_with("Bug: ") => {
+                panic!("{rel}: a Bug under the rig catalog: {e}")
+            }
             _ => {}
         }
     }

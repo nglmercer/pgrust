@@ -36,7 +36,12 @@ use crate::frame::stop::Exits;
 
 /// Merge `(k, j)`'s inner `inner` (its one filler, `fillers`) takes the held form (`fill_holds`): its licence. The caller
 /// has no recheck licence for the inner (`Px::run_ahead`) and no lazy group.
-pub(crate) fn holds(px: &Px<'_, '_>, (k, _j): (usize, usize), inner: usize, fillers: &[usize]) -> Option<gravity_decompose::effects::Licence> {
+pub(crate) fn holds(
+    px: &Px<'_, '_>,
+    (k, _j): (usize, usize),
+    inner: usize,
+    fillers: &[usize],
+) -> Option<gravity_decompose::effects::Licence> {
     let held = fill_holds(px, k, inner, fillers);
     if held.is_some() {
         fires::fire("merge.inner.held"); // shapecheck fire signal (D1236's held inner, op 14 for runs.sort)
@@ -47,40 +52,79 @@ pub(crate) fn holds(px: &Px<'_, '_>, (k, _j): (usize, usize), inner: usize, fill
 /// Full Sort `inner` (its one filler, `fillers`) holds its fill's error for its one reader `k` (`fill_shape`), under the
 /// held error's licence: its fill's code acts nowhere, or only through call-local builtins in a statement that lets them
 /// run ahead (`effects::call_local`). None otherwise.
-pub(crate) fn fill_holds(px: &Px<'_, '_>, k: usize, inner: usize, fillers: &[usize]) -> Option<gravity_decompose::effects::Licence> {
+pub(crate) fn fill_holds(
+    px: &Px<'_, '_>,
+    k: usize,
+    inner: usize,
+    fillers: &[usize],
+) -> Option<gravity_decompose::effects::Licence> {
     use gravity_decompose::effects::{call_local, expr_acts, held_error, Cx, Effects};
     let units = fill_shape(px.gx, k, inner, fillers)?;
     let gx = px.gx;
-    let cx = gx.graph.stmt.map_or_else(|| Cx::without_stmt(gx.facts, px.arena), |s| Cx::new(s, gx.facts, px.arena));
+    let cx = gx.graph.stmt.map_or_else(
+        || Cx::without_stmt(gx.facts, px.arena),
+        |s| Cx::new(s, gx.facts, px.arena),
+    );
     let acts = units.iter().any(|&n| expr_acts(&cx, n));
-    held_error(Effects { acts, may_raise: true, same_rows: !acts }, false, call_local(&cx, units.iter().copied())).ok()
+    held_error(
+        Effects {
+            acts,
+            may_raise: true,
+            same_rows: !acts,
+        },
+        false,
+        call_local(&cx, units.iter().copied()),
+    )
+    .ok()
 }
 
 /// Whether full Sort `inner` (its one filler, `fillers`) may hold its fill's error for its one reader `k` (op 14 for
 /// runs.sort): its fill builtin code over a scan, a quiet breaker or a constant, its feeders quiet, the run read by `k`
 /// alone, neither in a rerun set; the fill's expressions (source keys and recheck, filters, projections, bounds) when it
 /// may. Also a pull-form MergeAppend's Sort arm (frame/iface/sort.rs `held_fill`, D449).
-pub(crate) fn fill_shape<'g, 'p>(gx: &crate::graph::Gx<'g, 'p>, k: usize, inner: usize, fillers: &[usize]) -> Option<PgVec<'g, types_nodes::Node<'p>>> {
+pub(crate) fn fill_shape<'g, 'p>(
+    gx: &crate::graph::Gx<'g, 'p>,
+    k: usize,
+    inner: usize,
+    fillers: &[usize],
+) -> Option<PgVec<'g, types_nodes::Node<'p>>> {
     let ps = gx.pipelines();
     if k >= ps.len() || inner >= ps.len() || fillers != [inner] {
         return None;
     }
-    let rerun = |x: usize| gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(x as u16)));
+    let rerun = |x: usize| {
+        gx.graph
+            .reruns
+            .iter()
+            .any(|r| r.pipelines.contains(&(x as u16)))
+    };
     let p = &ps[inner];
-    if rerun(k) || rerun(inner) || !crate::ops::mergejoin::lazy_outer::full(p) || crate::effects::visible::merge::user_sort(gx, p) {
+    if rerun(k)
+        || rerun(inner)
+        || !crate::ops::mergejoin::lazy_outer::full(p)
+        || crate::effects::visible::merge::user_sort(gx, p)
+    {
         return None;
     }
     // the run's one reader: the merge's pipeline (no other graph pipeline, no embedded inner reads it)
     let slot = p.desc.produces()?;
     let life = LifeId(inner as u16);
     let reads = |c: usize| ps[c].desc.consumes.contains(&slot) && gx.life_of(c, slot) == Some(life);
-    if (0..ps.len()).any(|c| c != k && c != inner && reads(c)) || !reads(k) || ps.inners().iter().any(|(_, q)| q.desc.consumes_from.contains(&life)) {
+    if (0..ps.len()).any(|c| c != k && c != inner && reads(c))
+        || !reads(k)
+        || ps
+            .inners()
+            .iter()
+            .any(|(_, q)| q.desc.consumes_from.contains(&life))
+    {
         return None;
     }
     let node = |n: types_nodes::Node<'_>| crate::effects::user_fn::held_node(gx, n);
     let source = match &p.source {
         Source::Range { .. } | Source::Breaker { .. } | Source::Const => true,
-        Source::Index { keys, recheck, .. } => keys.iter().all(|x| crate::effects::expr_quiet(gx, x.value)) && recheck.iter().all(node),
+        Source::Index { keys, recheck, .. } => {
+            keys.iter().all(|x| crate::effects::expr_quiet(gx, x.value)) && recheck.iter().all(node)
+        }
         _ => false,
     };
     let bound = |b: &Bound<'_>| match b {
@@ -92,12 +136,23 @@ pub(crate) fn fill_shape<'g, 'p>(gx: &crate::graph::Gx<'g, 'p>, k: usize, inner:
         && body.iter().all(|op| match op {
             Op::Filter(n) | Op::Gate(n) => node(*n),
             Op::Project(l) => l.iter().all(node),
-            op => crate::frame::iface::limit_bounds(op).is_some_and(|(count, offset)| bound(count) && bound(offset)),
+            op => crate::frame::iface::limit_bounds(op)
+                .is_some_and(|(count, offset)| bound(count) && bound(offset)),
         });
     // the fill's feeders (what its source and consumes read) run before it and are not held: quiet only
-    let src = if let Source::Breaker { slot } = p.source { Some(slot) } else { None };
-    let feeders = crate::ops::mergejoin::lazy_outer::lives(gx, inner, p.desc.consumes.iter().copied().chain(src));
-    let quiet = feeders.iter().all(|&x| crate::effects::visible::merge::quiet(gx, x, usize::MAX));
+    let src = if let Source::Breaker { slot } = p.source {
+        Some(slot)
+    } else {
+        None
+    };
+    let feeders = crate::ops::mergejoin::lazy_outer::lives(
+        gx,
+        inner,
+        p.desc.consumes.iter().copied().chain(src),
+    );
+    let quiet = feeders
+        .iter()
+        .all(|&x| crate::effects::visible::merge::quiet(gx, x, usize::MAX));
     if !(source && ops && quiet) {
         return None;
     }
@@ -110,8 +165,15 @@ pub(crate) fn fill_shape<'g, 'p>(gx: &crate::graph::Gx<'g, 'p>, k: usize, inner:
             Op::Filter(n) | Op::Gate(n) => units.push_in(*n),
             Op::Project(l) => units.extend_in(l.iter()),
             op => {
-                let expr = |b: &Bound<'p>| if let Bound::Expr(n) = b { Some(*n) } else { None };
-                let bounds = crate::frame::iface::limit_bounds(op).map_or([None, None], |(count, offset)| [expr(count), expr(offset)]);
+                let expr = |b: &Bound<'p>| {
+                    if let Bound::Expr(n) = b {
+                        Some(*n)
+                    } else {
+                        None
+                    }
+                };
+                let bounds = crate::frame::iface::limit_bounds(op)
+                    .map_or([None, None], |(count, offset)| [expr(count), expr(offset)]);
                 units.extend_in(bounds.into_iter().flatten());
             }
         }
@@ -129,7 +191,9 @@ pub(crate) fn outer_exact(gx: &crate::graph::Gx<'_, '_>, k: usize, j: usize) -> 
     let ps = gx.pipelines();
     let read = match ps[k].source {
         Source::Range { .. } | Source::Index { .. } | Source::Const => true,
-        Source::Breaker { slot } => gx.life_of(k, slot).is_some_and(|o| crate::ops::mergejoin::lazy_outer::full(&ps[o.0 as usize])),
+        Source::Breaker { slot } => gx
+            .life_of(k, slot)
+            .is_some_and(|o| crate::ops::mergejoin::lazy_outer::full(&ps[o.0 as usize])),
         _ => false,
     };
     read && crate::ops::mergejoin::lazy_outer::reached(gx, k, j + 1)
@@ -147,8 +211,21 @@ struct Held<'g> {
 }
 
 /// `run`, merge `k`'s reader of slot `slot`, as the held inner's, under `held` (`holds`).
-pub(crate) fn wrap<'g>(px: &Px<'g, '_>, k: usize, slot: u8, run: PgBox<'g, dyn SlotRun + 'g>, held: gravity_decompose::effects::Licence) -> PgBox<'g, dyn SlotRun + 'g> {
-    let Some(i) = px.consumed(k, slot) else { crate::refuse!(px.gx.pipelines()[k].node_id, crate::admit::refusal::Reason::Bug { payload: "a held merge inner its pipeline does not consume" }) };
+pub(crate) fn wrap<'g>(
+    px: &Px<'g, '_>,
+    k: usize,
+    slot: u8,
+    run: PgBox<'g, dyn SlotRun + 'g>,
+    held: gravity_decompose::effects::Licence,
+) -> PgBox<'g, dyn SlotRun + 'g> {
+    let Some(i) = px.consumed(k, slot) else {
+        crate::refuse!(
+            px.gx.pipelines()[k].node_id,
+            crate::admit::refusal::Reason::Bug {
+                payload: "a held merge inner its pipeline does not consume"
+            }
+        )
+    };
     mcx::pg_box_dyn!(px.mcx(), Held { run, i: i as u64, held } => dyn SlotRun + 'g)
 }
 
@@ -159,7 +236,15 @@ impl SlotRun for Held<'_> {
     fn fetch(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, j: Value) -> Value {
         self.run.fetch(b, env, j)
     }
-    fn vals<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, p: Value, carry: Carry<'e>, next: Value, at: Value) -> RowVals<'e> {
+    fn vals<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        p: Value,
+        carry: Carry<'e>,
+        next: Value,
+        at: Value,
+    ) -> RowVals<'e> {
         self.run.vals(b, env, p, carry, next, at)
     }
     fn mark(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, j: Value) {
@@ -169,11 +254,26 @@ impl SlotRun for Held<'_> {
     /// by the raise exit, as the hash join's probe raises a held build's (probe_wait.rs `raise_failed`).
     fn first_fetch(&self, b: &mut FunctionBuilder<'_>, env: &mut Env) {
         self.run.first_fetch(b, env);
-        let flags = HostFlags { may_error: true, ..HostFlags::default() };
-        let h = b.declare_host_once("m11_run_held", &[Type::Ptr, Type::I64], Some(Type::I64), gravity_abi::host_words!(m11_run_held(ctx, k)), flags);
+        let flags = HostFlags {
+            may_error: true,
+            ..HostFlags::default()
+        };
+        let h = b.declare_host_once(
+            "m11_run_held",
+            &[Type::Ptr, Type::I64],
+            Some(Type::I64),
+            gravity_abi::host_words!(m11_run_held(ctx, k)),
+            flags,
+        );
         let i = b.iconst(Type::I64, self.i as i64);
-        let st = b.call_host(h, &[env.ctx, i], Some(Type::I64)).expect("m11_run_held returns its answer");
-        let (held, l_raise, l_on) = (b.icmp(IntCond::Ne, st, env.zero), b.create_block(&[]), b.create_block(&[]));
+        let st = b
+            .call_host(h, &[env.ctx, i], Some(Type::I64))
+            .expect("m11_run_held returns its answer");
+        let (held, l_raise, l_on) = (
+            b.icmp(IntCond::Ne, st, env.zero),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         b.cond_br(held, (l_raise, &[]), (l_on, &[]));
         b.switch_to(l_raise);
         b.mark_cold(l_raise);

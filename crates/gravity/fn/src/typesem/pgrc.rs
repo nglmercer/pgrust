@@ -51,10 +51,26 @@ pub fn jsonb_contains(funcid: Oid) -> bool {
 /// equal to the leaf's: an object pair matches by key and its values must be the same jsonb type, a scalar compared by
 /// value, a nested object recursively. `None` for anything else (an array or scalar template, an empty object, a number,
 /// boolean, null or array value anywhere): those keep PostgreSQL's call whole.
-pub fn contains_string_leaves(payload: &[u8], max_depth: usize) -> Option<Vec<(Vec<&[u8]>, &[u8])>> {
-    use adt_jsonb::container::{container_is_object, container_is_scalar, container_size, fill_item, get_jsonb_length, get_jsonb_offset, JsonbItem};
-    fn walk<'a>(c: &'a [u8], max_depth: usize, prefix: &mut Vec<&'a [u8]>, out: &mut Vec<(Vec<&'a [u8]>, &'a [u8])>) -> Option<()> {
-        if c.len() < 4 || !container_is_object(c) || container_is_scalar(c) || container_size(c) == 0 || prefix.len() >= max_depth {
+pub fn contains_string_leaves(
+    payload: &[u8],
+    max_depth: usize,
+) -> Option<Vec<(Vec<&[u8]>, &[u8])>> {
+    use adt_jsonb::container::{
+        container_is_object, container_is_scalar, container_size, fill_item, get_jsonb_length,
+        get_jsonb_offset, JsonbItem,
+    };
+    fn walk<'a>(
+        c: &'a [u8],
+        max_depth: usize,
+        prefix: &mut Vec<&'a [u8]>,
+        out: &mut Vec<(Vec<&'a [u8]>, &'a [u8])>,
+    ) -> Option<()> {
+        if c.len() < 4
+            || !container_is_object(c)
+            || container_is_scalar(c)
+            || container_size(c) == 0
+            || prefix.len() >= max_depth
+        {
             return None;
         }
         let n = container_size(c);
@@ -63,7 +79,10 @@ pub fn contains_string_leaves(payload: &[u8], max_depth: usize) -> Option<Vec<(V
             return None;
         }
         for i in 0..n {
-            let (start, len) = ((base + get_jsonb_offset(c, i)) as usize, get_jsonb_length(c, i) as usize);
+            let (start, len) = (
+                (base + get_jsonb_offset(c, i)) as usize,
+                get_jsonb_length(c, i) as usize,
+            );
             prefix.push(c.get(start..start + len)?); // alloc: Cold
             match fill_item(c, i + n, base, get_jsonb_offset(c, i + n)) {
                 JsonbItem::String(v) => out.push((prefix.clone(), v)), // alloc: Cold
@@ -130,7 +149,10 @@ pub fn numeric(typid: Oid) -> bool {
 /// (utils/date.h), `Timestamp` / `TimestampTz` (datatype/timestamp.h)).
 pub fn signed_word(typid: Oid) -> bool {
     use types_core::catalog::{DATEOID, INT2OID, INT4OID, INT8OID, TIMESTAMPOID, TIMESTAMPTZOID};
-    matches!(typid, INT8OID | INT2OID | INT4OID | DATEOID | TIMESTAMPOID | TIMESTAMPTZOID)
+    matches!(
+        typid,
+        INT8OID | INT2OID | INT4OID | DATEOID | TIMESTAMPOID | TIMESTAMPTZOID
+    )
 }
 
 /// How a by-value lane of type `typid` compares on its packed image (lowerv4 frame/mask_vec.rs `packed_cond`: a pgrc
@@ -175,35 +197,78 @@ mod tests {
 
     #[test]
     fn the_text_compares_and_the_text_field_read_are_named_by_identity() {
-        assert_eq!((text_eq_ne(67), text_eq_ne(157), text_eq_ne(3214)), (Some(false), Some(true), None));
+        assert_eq!(
+            (text_eq_ne(67), text_eq_ne(157), text_eq_ne(3214)),
+            (Some(false), Some(true), None)
+        );
         assert!(jsonb_field_text(3214) && !jsonb_field_text(3478) && !jsonb_field_text(67));
-        assert!(jsonb_field(3478) && !jsonb_field(3214) && !jsonb_field(3215), "->, not ->> nor jsonb_array_element (3215)");
-        assert!(jsonb_path_text(3940) && !jsonb_path_text(3217) && !jsonb_path_text(3214), "#>>, not #> (jsonb_extract_path 3217)");
+        assert!(
+            jsonb_field(3478) && !jsonb_field(3214) && !jsonb_field(3215),
+            "->, not ->> nor jsonb_array_element (3215)"
+        );
+        assert!(
+            jsonb_path_text(3940) && !jsonb_path_text(3217) && !jsonb_path_text(3214),
+            "#>>, not #> (jsonb_extract_path 3217)"
+        );
     }
 
     #[test]
     fn the_zone_types_are_named_by_identity() {
         assert!(numeric(1700) && !numeric(701) && !numeric(20));
-        assert!([20, 21, 23, 1082, 1114, 1184].iter().all(|&t| signed_word(t)));
-        assert!(![16, 26, 700, 701, 1083, 1700, 25].iter().any(|&t| signed_word(t)), "bool, oid, floats, time, numeric, text");
+        assert!([20, 21, 23, 1082, 1114, 1184]
+            .iter()
+            .all(|&t| signed_word(t)));
+        assert!(
+            ![16, 26, 700, 701, 1083, 1700, 25]
+                .iter()
+                .any(|&t| signed_word(t)),
+            "bool, oid, floats, time, numeric, text"
+        );
     }
 
     #[test]
     fn the_packed_orders_follow_the_word_order_of_the_type() {
-        assert!([21, 23, 20, 1082, 1083, 1114, 1184, 790].iter().all(|&t| packed_order(t) == Some(true)), "ints, date, time, timestamps, money");
+        assert!(
+            [21, 23, 20, 1082, 1083, 1114, 1184, 790]
+                .iter()
+                .all(|&t| packed_order(t) == Some(true)),
+            "ints, date, time, timestamps, money"
+        );
         assert_eq!(packed_order(26), Some(false), "oid");
-        assert!([16, 18, 5069, 3220, 700, 701, 1700, 25, 0].iter().all(|&t| packed_order(t).is_none()), "bool, char, xid8, pg_lsn, floats, numeric, text");
+        assert!(
+            [16, 18, 5069, 3220, 700, 701, 1700, 25, 0]
+                .iter()
+                .all(|&t| packed_order(t).is_none()),
+            "bool, char, xid8, pg_lsn, floats, numeric, text"
+        );
     }
 
     #[test]
     fn the_code_lane_text_types_are_named_by_identity() {
-        assert!([25, 1043, 1042].iter().all(|&t| code_text(t)), "text, varchar, bpchar");
-        assert!(![18, 19, 17, 114, 3802, 1700, 0].iter().any(|&t| code_text(t)), "char, name, bytea, json, jsonb, numeric, none");
+        assert!(
+            [25, 1043, 1042].iter().all(|&t| code_text(t)),
+            "text, varchar, bpchar"
+        );
+        assert!(
+            ![18, 19, 17, 114, 3802, 1700, 0]
+                .iter()
+                .any(|&t| code_text(t)),
+            "char, name, bytea, json, jsonb, numeric, none"
+        );
     }
 
     #[test]
     fn the_memcmp_fixed_types_are_named_by_identity() {
-        assert_eq!((memcmp_fixed(2950), memcmp_fixed(829), memcmp_fixed(774)), (Some(16), Some(6), Some(8)), "uuid, macaddr, macaddr8");
-        assert!([1186, 1266, 19, 27, 17, 25, 0].iter().all(|&t| memcmp_fixed(t).is_none()), "interval, timetz, name, tid, bytea, text, none");
+        assert_eq!(
+            (memcmp_fixed(2950), memcmp_fixed(829), memcmp_fixed(774)),
+            (Some(16), Some(6), Some(8)),
+            "uuid, macaddr, macaddr8"
+        );
+        assert!(
+            [1186, 1266, 19, 27, 17, 25, 0]
+                .iter()
+                .all(|&t| memcmp_fixed(t).is_none()),
+            "interval, timetz, name, tid, bytea, text, none"
+        );
     }
 }

@@ -32,7 +32,10 @@ fn arg_cstring(fcinfo: &Fcinfo, i: usize) -> PgResult<Vec<u8>> {
 
 fn text_result(fcinfo: &mut Fcinfo, s: &[u8]) -> PgResult<Datum> {
     let s = &s[..s.iter().position(|&b| b == 0).unwrap_or(s.len())];
-    Ok(varlena_result(varlena::cstring_to_text(fcinfo.result_mcx(), s)?))
+    Ok(varlena_result(varlena::cstring_to_text(
+        fcinfo.result_mcx(),
+        s,
+    )?))
 }
 
 fn null_result(fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -99,7 +102,9 @@ unsafe fn eval_xpath(
             (x.xmlXPathCtxtCompile)(ctxt, xpath.as_ptr() as *const c_uchar);
         if comppath.is_null() {
             (x.xmlXPathFreeContext)(ctxt);
-            return Err(xml_ereport("XPath Syntax Error", ERRCODE_INVALID_ARGUMENT_FOR_XQUERY).into());
+            return Err(
+                xml_ereport("XPath Syntax Error", ERRCODE_INVALID_ARGUMENT_FOR_XQUERY).into(),
+            );
         }
         let res = (x.xmlXPathCompiledEval)(comppath, ctxt);
         (x.xmlXPathFreeCompExpr)(comppath);
@@ -139,7 +144,10 @@ fn obj_type(res: *mut xmlXPathObject) -> i32 {
 }
 
 fn unsupported_result(res: *mut xmlXPathObject) -> PgResult<Vec<u8>> {
-    elog::elog(NOTICE, format!("unsupported XQuery result: {}", obj_type(res)))?;
+    elog::elog(
+        NOTICE,
+        format!("unsupported XQuery result: {}", obj_type(res)),
+    )?;
     mcx::std_vec_from_slice("xml2", b"<unsupported/>")
 }
 
@@ -208,7 +216,12 @@ fn result_to_text(
     Ok(Some(match hdr.type_ {
         // SAFETY: a node-set result's nodesetval is null or live.
         XPATH_NODESET => unsafe {
-            nodeset_to_text(hdr.nodesetval as *mut xmlNodeSetHdr, toptag, septag, plainsep)
+            nodeset_to_text(
+                hdr.nodesetval as *mut xmlNodeSetHdr,
+                toptag,
+                septag,
+                plainsep,
+            )
         },
         // SAFETY: a string result's stringval is a libxml string.
         XPATH_STRING => unsafe { libxml::xmlchar_to_vec(hdr.stringval) },
@@ -423,7 +436,9 @@ fn fc_xpath_table(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResul
     let x = xml2();
     for (pkey, xmldoc) in rows {
         let mut values: Vec<Option<Vec<u8>>> = mcx::std_vec_from_elem("xml2", None, natts)?;
-        values[0] = pkey.map(|p| mcx::std_vec_from_slice("xml2", p)).transpose()?;
+        values[0] = pkey
+            .map(|p| mcx::std_vec_from_slice("xml2", p))
+            .transpose()?;
         let doctree = DocGuard(match &xmldoc {
             // SAFETY: parses the row's document bytes.
             Some(doc) => unsafe {
@@ -519,14 +534,20 @@ mod tests {
             split_xpaths(b"/a/b|/a/c|/a/d", 3),
             vec![&b"/a/b"[..], b"/a/c", b"/a/d"]
         );
-        assert_eq!(split_xpaths(b"/a/b|/a/c|/a/d", 2), vec![&b"/a/b"[..], b"/a/c"]);
+        assert_eq!(
+            split_xpaths(b"/a/b|/a/c|/a/d", 2),
+            vec![&b"/a/b"[..], b"/a/c"]
+        );
         assert_eq!(split_xpaths(b"/a/b", 3), vec![&b"/a/b"[..]]);
         assert!(split_xpaths(b"/a/b", 0).is_empty());
     }
 
     #[test]
     fn string_xpath_wraps_path() {
-        assert_eq!(string_xpath(b"/a/text()").unwrap(), b"string(/a/text())\0".to_vec());
+        assert_eq!(
+            string_xpath(b"/a/text()").unwrap(),
+            b"string(/a/text())\0".to_vec()
+        );
     }
 
     #[test]

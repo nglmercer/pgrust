@@ -1106,9 +1106,7 @@ fn a64_got_page_load_and_call_reuse_one_slot_and_ignore_got_addends() {
     assert_eq!(wide(&f.bytes, 8), address as u64);
     assert_eq!(&f.bytes[16..32], &[0; 16]);
     assert_eq!(word(&f.bytes, f.offset), 0xffff_ffff);
-    assert_eq!(
-        word(&f.bytes, f.offset + 4), !(0xfff << 10) | (1 << 10)
-    );
+    assert_eq!(word(&f.bytes, f.offset + 4), !(0xfff << 10) | (1 << 10));
     assert_eq!(
         word(&f.bytes, f.offset + 8),
         0xfc00_0000 | (((-(f.offset as i64) - 8) / 4) as u32 & 0x03ff_ffff)
@@ -1458,7 +1456,11 @@ fn permission_storage_has_no_drop_glue_and_a_dropped_image_frees_its_tables() {
     mapper.layout(&mut a, PAGE).unwrap();
     assert!(context.stats().used > initial, "the tables spilled");
     drop(mapper);
-    assert_eq!(context.stats().used, 0, "the image's tables went back with it");
+    assert_eq!(
+        context.stats().used,
+        0,
+        "the image's tables went back with it"
+    );
 }
 
 /// The mapping arena (docs/design/gravity-simple/compile-latency.md §2,
@@ -1507,5 +1509,8 @@ fn arena_reuses_a_released_range_zeroed_and_keeps_live_images_apart() {
     let bytes3 = unsafe { r3.bytes() }.to_vec();
     let text3 = at(&a3, text3);
     assert_eq!(bytes3[text3], 0x70);
-    assert!(bytes3[text3 + 1..text3 + 4].iter().all(|&b| b == 0), "the previous image's bytes survived the reuse");
+    assert!(
+        bytes3[text3 + 1..text3 + 4].iter().all(|&b| b == 0),
+        "the previous image's bytes survived the reuse"
+    );
 }

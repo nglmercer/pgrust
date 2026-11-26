@@ -5,13 +5,13 @@
 
 pub mod ast;
 pub mod comp;
-mod errcodes;
 mod dump;
-mod settings;
+mod errcodes;
 pub mod exec;
 pub mod gram;
 pub mod handler;
 pub mod scanner;
+mod settings;
 
 pub fn init_seams() {
     handler::init_seams();

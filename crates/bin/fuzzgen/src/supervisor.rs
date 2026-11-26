@@ -72,7 +72,10 @@ pub enum Event {
     /// texts are searched).
     Log(String),
     /// The server process reaped (`waitpid`): exit code or signal.
-    ProcessExited { code: Option<i32>, signal: Option<i32> },
+    ProcessExited {
+        code: Option<i32>,
+        signal: Option<i32>,
+    },
     /// A pool connection died mid-step (I/O error / EOF).
     ConnLost { session: String, detail: String },
     /// The runner issued the restart command for a dead server.
@@ -101,7 +104,9 @@ pub enum State {
     Healthy,
     /// Death witnessed; `process_gone` = a restart command is required
     /// (B, or A's postmaster itself); otherwise A recovers in place.
-    Dead { process_gone: bool },
+    Dead {
+        process_gone: bool,
+    },
     /// Restart issued (or in-place reinitialization observed); waiting for
     /// the `redo starts at` witness.
     Restarting,
@@ -193,7 +198,9 @@ impl Supervisor {
     pub fn note_statement(&mut self, session: &str, sql: &str) {
         match self.last_statements.iter_mut().find(|(s, _)| s == session) {
             Some(slot) => slot.1 = sql.to_string(),
-            None => self.last_statements.push((session.to_string(), sql.to_string())),
+            None => self
+                .last_statements
+                .push((session.to_string(), sql.to_string())),
         }
     }
 
@@ -243,7 +250,9 @@ impl Supervisor {
                         }
                     }
                 }
-                let Some(w) = witness_of(&line) else { return actions };
+                let Some(w) = witness_of(&line) else {
+                    return actions;
+                };
                 match (&self.state, w) {
                     (State::Healthy, Witness::TerminatedBySignal { pid, signal }) => {
                         self.pending_signal = Some(signal_name(&signal));
@@ -251,7 +260,9 @@ impl Supervisor {
                         // A backend died. B: the process is going away (the
                         // waitpid event confirms); A: the postmaster will
                         // reinitialize in place.
-                        self.state = State::Dead { process_gone: self.side == Side::B };
+                        self.state = State::Dead {
+                            process_gone: self.side == Side::B,
+                        };
                         actions.push(self.bank_crash());
                         if self.side == Side::B {
                             actions.push(Action::Restart);
@@ -267,12 +278,19 @@ impl Supervisor {
                         // Reinitializing without a preceding signal line
                         // (the line was lost or the death was an exit
                         // code): still a crash.
-                        self.state = State::Dead { process_gone: false };
+                        self.state = State::Dead {
+                            process_gone: false,
+                        };
                         actions.push(self.bank_crash());
                         self.state = State::Restarting;
                         self.in_place = true;
                     }
-                    (State::Dead { process_gone: false }, Witness::Reinitializing) => {
+                    (
+                        State::Dead {
+                            process_gone: false,
+                        },
+                        Witness::Reinitializing,
+                    ) => {
                         self.state = State::Restarting;
                         self.in_place = true;
                     }
@@ -286,7 +304,10 @@ impl Supervisor {
                         }
                         self.state = State::Recovering;
                     }
-                    (State::Recovering | State::Restarting | State::Dead { .. }, Witness::ReadyToAccept) => {
+                    (
+                        State::Recovering | State::Restarting | State::Dead { .. },
+                        Witness::ReadyToAccept,
+                    ) => {
                         self.state = State::Ready;
                         actions.push(Action::ReconnectPools);
                     }
@@ -304,14 +325,16 @@ impl Supervisor {
             Event::ProcessExited { code, signal } => {
                 match self.state {
                     State::Healthy => {
-                        self.pending_signal = signal.map(|s| signal_name(&s.to_string())).or_else(|| {
-                            code.map(|c| format!("exit {c}"))
-                        });
+                        self.pending_signal = signal
+                            .map(|s| signal_name(&s.to_string()))
+                            .or_else(|| code.map(|c| format!("exit {c}")));
                         self.state = State::Dead { process_gone: true };
                         actions.push(self.bank_crash());
                         actions.push(Action::Restart);
                     }
-                    State::Dead { process_gone: false } => {
+                    State::Dead {
+                        process_gone: false,
+                    } => {
                         // A's postmaster itself is gone after all.
                         self.state = State::Dead { process_gone: true };
                         actions.push(Action::Restart);
@@ -410,7 +433,11 @@ pub struct HangLadder {
 
 impl HangLadder {
     pub fn new(deadline_ms: u64, grace_ms: u64) -> HangLadder {
-        HangLadder { deadline_ms, grace_ms, reached: None }
+        HangLadder {
+            deadline_ms,
+            grace_ms,
+            reached: None,
+        }
     }
 
     pub fn deadline_ms(&self) -> u64 {
@@ -441,7 +468,10 @@ impl HangLadder {
 
     /// The `contracts::Hang` for a step that hit the deadline.
     pub fn hang_record(&self) -> Option<Hang> {
-        self.reached.map(|r| Hang { ms: self.deadline_ms, ladder: Some(r.as_str().to_string()) })
+        self.reached.map(|r| Hang {
+            ms: self.deadline_ms,
+            ladder: Some(r.as_str().to_string()),
+        })
     }
 
     /// Fresh ladder for the next step.
@@ -479,7 +509,12 @@ impl ServerSpec {
     /// The restart command line (what `sitediff-cell.sh up` ran, again).
     pub fn command(&self) -> std::process::Command {
         let mut c = std::process::Command::new(&self.binary);
-        c.arg("-D").arg(&self.datadir).arg("-k").arg(&self.socket_dir).arg("-p").arg(self.port.to_string());
+        c.arg("-D")
+            .arg(&self.datadir)
+            .arg("-k")
+            .arg(&self.socket_dir)
+            .arg("-p")
+            .arg(self.port.to_string());
         for f in &self.flags {
             c.arg(f);
         }
@@ -491,7 +526,15 @@ impl ServerSpec {
 
     /// Render the command for logs/dry runs.
     pub fn command_line(&self) -> String {
-        let mut parts = vec![self.binary.clone(), "-D".into(), self.datadir.clone(), "-k".into(), self.socket_dir.clone(), "-p".into(), self.port.to_string()];
+        let mut parts = vec![
+            self.binary.clone(),
+            "-D".into(),
+            self.datadir.clone(),
+            "-k".into(),
+            self.socket_dir.clone(),
+            "-p".into(),
+            self.port.to_string(),
+        ];
         parts.extend(self.flags.iter().cloned());
         parts.join(" ")
     }
@@ -515,11 +558,18 @@ pub struct OsDriver {
 
 impl OsDriver {
     pub fn attached(spec: ServerSpec, external_pid: Option<i32>) -> OsDriver {
-        OsDriver { spec, child: None, external_pid }
+        OsDriver {
+            spec,
+            child: None,
+            external_pid,
+        }
     }
 
     pub fn pid(&self) -> Option<i32> {
-        self.child.as_ref().map(|c| c.id() as i32).or(self.external_pid)
+        self.child
+            .as_ref()
+            .map(|c| c.id() as i32)
+            .or(self.external_pid)
     }
 
     /// Non-blocking reap of the server process. `Some(event)` when it
@@ -531,7 +581,10 @@ impl OsDriver {
                 Ok(Some(status)) => {
                     use std::os::unix::process::ExitStatusExt;
                     self.child = None;
-                    Some(Event::ProcessExited { code: status.code(), signal: status.signal() })
+                    Some(Event::ProcessExited {
+                        code: status.code(),
+                        signal: status.signal(),
+                    })
                 }
                 _ => None,
             };
@@ -545,7 +598,11 @@ impl OsDriver {
             self.external_pid = None;
             let sig = status & 0x7f;
             return Some(Event::ProcessExited {
-                code: if sig == 0 { Some((status >> 8) & 0xff) } else { None },
+                code: if sig == 0 {
+                    Some((status >> 8) & 0xff)
+                } else {
+                    None
+                },
                 signal: if sig != 0 { Some(sig) } else { None },
             });
         }
@@ -554,7 +611,10 @@ impl OsDriver {
             None
         } else {
             self.external_pid = None;
-            Some(Event::ProcessExited { code: None, signal: None })
+            Some(Event::ProcessExited {
+                code: None,
+                signal: None,
+            })
         }
     }
 
@@ -573,8 +633,12 @@ impl OsDriver {
             .map_err(|e| format!("open {}: {e}", self.spec.log_path))?;
         let log2 = log.try_clone().map_err(|e| e.to_string())?;
         let mut cmd = self.spec.command();
-        cmd.stdout(log).stderr(log2).stdin(std::process::Stdio::null());
-        let child = cmd.spawn().map_err(|e| format!("spawn {}: {e}", self.spec.command_line()))?;
+        cmd.stdout(log)
+            .stderr(log2)
+            .stdin(std::process::Stdio::null());
+        let child = cmd
+            .spawn()
+            .map_err(|e| format!("spawn {}: {e}", self.spec.command_line()))?;
         self.child = Some(child);
         self.external_pid = None;
         Ok(())
@@ -610,17 +674,34 @@ mod tests {
         assert_eq!(a, vec![Action::BankLogTail, Action::Restart]);
         assert_eq!(*s.state(), State::Dead { process_gone: true });
         // waitpid confirms; no second restart.
-        assert_eq!(s.observe(Event::ProcessExited { code: None, signal: Some(6) }), vec![]);
+        assert_eq!(
+            s.observe(Event::ProcessExited {
+                code: None,
+                signal: Some(6)
+            }),
+            vec![]
+        );
         assert_eq!(s.observe(log("2026-09-02 10:20:41.903 PDT postmaster[41200] LOG:  all server processes terminated; reinitializing")), vec![]);
         assert_eq!(s.observe(Event::RestartIssued), vec![]);
         assert_eq!(*s.state(), State::Restarting);
-        assert_eq!(s.observe(log("LOG:  database system was not properly shut down; automatic recovery in progress")), vec![]);
+        assert_eq!(
+            s.observe(log(
+                "LOG:  database system was not properly shut down; automatic recovery in progress"
+            )),
+            vec![]
+        );
         assert_eq!(s.observe(log("LOG:  redo starts at 0/1A2B3C4")), vec![]);
         assert_eq!(*s.state(), State::Recovering);
-        assert_eq!(s.observe(log("LOG:  database system is ready to accept connections")), vec![Action::ReconnectPools]);
+        assert_eq!(
+            s.observe(log("LOG:  database system is ready to accept connections")),
+            vec![Action::ReconnectPools]
+        );
         assert_eq!(*s.state(), State::Ready);
         assert!(!s.is_serving());
-        assert_eq!(s.observe(Event::PoolsReconnected), vec![Action::Generation(2)]);
+        assert_eq!(
+            s.observe(Event::PoolsReconnected),
+            vec![Action::Generation(2)]
+        );
         assert!(s.is_serving() && s.post_crash());
         assert_eq!(s.generation(), 2);
         assert_eq!(s.redo_witness(), Some("0/1A2B3C4"));
@@ -628,9 +709,16 @@ mod tests {
         assert_eq!(c.side, Side::B);
         assert_eq!(c.generation, 2);
         assert_eq!(c.signal.as_deref(), Some("SIGABRT"));
-        assert_eq!(c.log_tail.len(), 6, "tail banked at death time + the recovery witness lines");
+        assert_eq!(
+            c.log_tail.len(),
+            6,
+            "tail banked at death time + the recovery witness lines"
+        );
         assert!(String::from_utf8_lossy(&c.log_tail[5].0).contains("ready to accept"));
-        assert_eq!(s.crashes()[0].last_statements, vec![("s2".to_string(), "ANALYZE t".to_string())]);
+        assert_eq!(
+            s.crashes()[0].last_statements,
+            vec![("s2".to_string(), "ANALYZE t".to_string())]
+        );
         assert_eq!(s.crashes()[0].backend_pid, Some(41233));
         s.clear_post_crash();
         assert!(!s.post_crash());
@@ -642,12 +730,25 @@ mod tests {
         let mut s = Supervisor::new(Side::A);
         let a = s.observe(log("2026-09-02 10:20:41.902 PDT postmaster[100] LOG:  server process (PID 120) was terminated by signal 9: Killed"));
         assert_eq!(a, vec![Action::BankLogTail]);
-        assert_eq!(*s.state(), State::Dead { process_gone: false });
+        assert_eq!(
+            *s.state(),
+            State::Dead {
+                process_gone: false
+            }
+        );
         assert_eq!(s.observe(log("2026-09-02 10:20:41.903 PDT postmaster[100] LOG:  all server processes terminated; reinitializing")), vec![]);
         assert_eq!(*s.state(), State::Restarting);
-        assert_eq!(s.observe(log("2026-09-02 10:20:42.000 PDT startup[130] LOG:  redo starts at 0/2000028")), vec![]);
+        assert_eq!(
+            s.observe(log(
+                "2026-09-02 10:20:42.000 PDT startup[130] LOG:  redo starts at 0/2000028"
+            )),
+            vec![]
+        );
         assert_eq!(s.observe(log("2026-09-02 10:20:42.100 PDT postmaster[100] LOG:  database system is ready to accept connections")), vec![Action::ReconnectPools]);
-        assert_eq!(s.observe(Event::PoolsReconnected), vec![Action::Generation(2)]);
+        assert_eq!(
+            s.observe(Event::PoolsReconnected),
+            vec![Action::Generation(2)]
+        );
         assert_eq!(s.crash_record().unwrap().signal.as_deref(), Some("SIGKILL"));
         assert!(s.post_crash());
     }
@@ -656,20 +757,31 @@ mod tests {
     fn a_postmaster_death_needs_restart() {
         let mut s = Supervisor::new(Side::A);
         assert_eq!(
-            s.observe(Event::ProcessExited { code: None, signal: Some(11) }),
+            s.observe(Event::ProcessExited {
+                code: None,
+                signal: Some(11)
+            }),
             vec![Action::BankLogTail, Action::Restart]
         );
         assert_eq!(s.crash_record().unwrap().signal.as_deref(), Some("SIGSEGV"));
         assert_eq!(s.observe(Event::RestartIssued), vec![]);
         assert_eq!(s.observe(log("LOG:  redo starts at 0/3")), vec![]);
-        assert_eq!(s.observe(log("LOG:  database system is ready to accept connections")), vec![Action::ReconnectPools]);
-        assert_eq!(s.observe(Event::PoolsReconnected), vec![Action::Generation(2)]);
+        assert_eq!(
+            s.observe(log("LOG:  database system is ready to accept connections")),
+            vec![Action::ReconnectPools]
+        );
+        assert_eq!(
+            s.observe(Event::PoolsReconnected),
+            vec![Action::Generation(2)]
+        );
     }
 
     #[test]
     fn pgrust_crash_handler_line_is_a_death() {
         let mut s = Supervisor::new(Side::B);
-        let a = s.observe(log("pgrust: FATAL: server process was terminated by signal 11"));
+        let a = s.observe(log(
+            "pgrust: FATAL: server process was terminated by signal 11",
+        ));
         assert_eq!(a, vec![Action::BankLogTail, Action::Restart]);
         assert_eq!(s.crash_record().unwrap().signal.as_deref(), Some("SIGSEGV"));
     }
@@ -677,10 +789,16 @@ mod tests {
     #[test]
     fn death_during_recovery_banks_again_and_generation_counts_recoveries() {
         let mut s = Supervisor::new(Side::B);
-        s.observe(Event::ProcessExited { code: Some(1), signal: None });
+        s.observe(Event::ProcessExited {
+            code: Some(1),
+            signal: None,
+        });
         assert_eq!(s.crashes()[0].signal.as_deref(), Some("exit 1"));
         s.observe(Event::RestartIssued);
-        let a = s.observe(Event::ProcessExited { code: None, signal: Some(6) });
+        let a = s.observe(Event::ProcessExited {
+            code: None,
+            signal: Some(6),
+        });
         assert_eq!(a, vec![Action::BankLogTail, Action::Restart]);
         assert_eq!(s.crashes().len(), 2);
         s.observe(Event::RestartIssued);
@@ -692,10 +810,20 @@ mod tests {
     #[test]
     fn conn_lost_alone_is_not_a_crash() {
         let mut s = Supervisor::new(Side::A);
-        assert_eq!(s.observe(Event::ConnLost { session: "s1".into(), detail: "EOF".into() }), vec![]);
+        assert_eq!(
+            s.observe(Event::ConnLost {
+                session: "s1".into(),
+                detail: "EOF".into()
+            }),
+            vec![]
+        );
         assert!(s.is_serving());
         assert!(s.crash_record().is_none());
-        assert_eq!(s.observe(Event::PoolsReconnected), vec![], "no-op while healthy");
+        assert_eq!(
+            s.observe(Event::PoolsReconnected),
+            vec![],
+            "no-op while healthy"
+        );
     }
 
     #[test]
@@ -704,7 +832,10 @@ mod tests {
         for i in 0..100 {
             s.observe(log(&format!("LOG:  line {i}")));
         }
-        s.observe(Event::ProcessExited { code: None, signal: Some(9) });
+        s.observe(Event::ProcessExited {
+            code: None,
+            signal: Some(9),
+        });
         let tail = &s.crashes()[0].log_tail;
         assert_eq!(tail.len(), LOG_TAIL_LINES);
         assert_eq!(tail[0], Bytes::text("LOG:  line 60"));
@@ -713,14 +844,24 @@ mod tests {
     #[test]
     fn hang_ladder_escalates_in_order_once_each() {
         assert_eq!(
-            ladder_trace(20_000, 5_000, &[1_000, 19_999, 20_000, 21_000, 24_999, 25_000, 26_000, 30_000, 40_000]),
+            ladder_trace(
+                20_000,
+                5_000,
+                &[1_000, 19_999, 20_000, 21_000, 24_999, 25_000, 26_000, 30_000, 40_000]
+            ),
             vec![Rung::Cancel, Rung::Terminate, Rung::SigKill]
         );
         let mut l = HangLadder::new(20_000, 5_000);
         assert_eq!(l.elapsed(5), None);
         assert!(l.hang_record().is_none());
         assert_eq!(l.elapsed(20_000), Some(Rung::Cancel));
-        assert_eq!(l.hang_record(), Some(Hang { ms: 20_000, ladder: Some("cancel".into()) }));
+        assert_eq!(
+            l.hang_record(),
+            Some(Hang {
+                ms: 20_000,
+                ladder: Some("cancel".into())
+            })
+        );
         // A huge jump still fires rungs one at a time per call.
         assert_eq!(l.elapsed(1_000_000), Some(Rung::Terminate));
         assert_eq!(l.elapsed(1_000_000), Some(Rung::SigKill));
@@ -728,8 +869,14 @@ mod tests {
         assert_eq!(l.hang_record().unwrap().ladder.as_deref(), Some("sigkill"));
         l.reset();
         assert_eq!(l.reached(), None);
-        assert_eq!(Rung::Cancel.sql(77).as_deref(), Some("SELECT pg_cancel_backend(77);"));
-        assert_eq!(Rung::Terminate.sql(77).as_deref(), Some("SELECT pg_terminate_backend(77);"));
+        assert_eq!(
+            Rung::Cancel.sql(77).as_deref(),
+            Some("SELECT pg_cancel_backend(77);")
+        );
+        assert_eq!(
+            Rung::Terminate.sql(77).as_deref(),
+            Some("SELECT pg_terminate_backend(77);")
+        );
         assert_eq!(Rung::SigKill.sql(77), None);
     }
 

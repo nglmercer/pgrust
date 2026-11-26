@@ -57,7 +57,11 @@ const PERFORM_DELETION_CONCURRENT_LOCK: i32 = 0x0020;
 /// The GUCs of `_PG_init` (test_oat_hooks.c:75-205): name, description,
 /// context. All boot to false.
 const GUCS: &[(&str, &str, types_guc::GucContext)] = &[
-    ("test_oat_hooks.deny_set_variable", "Deny non-superuser set permissions", types_guc::PGC_SUSET),
+    (
+        "test_oat_hooks.deny_set_variable",
+        "Deny non-superuser set permissions",
+        types_guc::PGC_SUSET,
+    ),
     (
         "test_oat_hooks.deny_alter_system",
         "Deny non-superuser alter system set permissions",
@@ -68,17 +72,41 @@ const GUCS: &[(&str, &str, types_guc::GucContext)] = &[
         "Deny non-superuser object access permissions",
         types_guc::PGC_SUSET,
     ),
-    ("test_oat_hooks.deny_exec_perms", "Deny non-superuser exec permissions", types_guc::PGC_SUSET),
+    (
+        "test_oat_hooks.deny_exec_perms",
+        "Deny non-superuser exec permissions",
+        types_guc::PGC_SUSET,
+    ),
     (
         "test_oat_hooks.deny_utility_commands",
         "Deny non-superuser utility commands",
         types_guc::PGC_SUSET,
     ),
-    ("test_oat_hooks.audit", "Turn on/off debug audit messages", types_guc::PGC_SUSET),
-    ("test_oat_hooks.user_var1", "Dummy parameter settable by public", types_guc::PGC_USERSET),
-    ("test_oat_hooks.user_var2", "Dummy parameter settable by public", types_guc::PGC_USERSET),
-    ("test_oat_hooks.super_var1", "Dummy parameter settable by superuser", types_guc::PGC_SUSET),
-    ("test_oat_hooks.super_var2", "Dummy parameter settable by superuser", types_guc::PGC_SUSET),
+    (
+        "test_oat_hooks.audit",
+        "Turn on/off debug audit messages",
+        types_guc::PGC_SUSET,
+    ),
+    (
+        "test_oat_hooks.user_var1",
+        "Dummy parameter settable by public",
+        types_guc::PGC_USERSET,
+    ),
+    (
+        "test_oat_hooks.user_var2",
+        "Dummy parameter settable by public",
+        types_guc::PGC_USERSET,
+    ),
+    (
+        "test_oat_hooks.super_var1",
+        "Dummy parameter settable by superuser",
+        types_guc::PGC_SUSET,
+    ),
+    (
+        "test_oat_hooks.super_var2",
+        "Dummy parameter settable by superuser",
+        types_guc::PGC_SUSET,
+    ),
 ];
 
 // Saved hook values (`next_object_access_hook` / `next_object_access_hook_str`):
@@ -123,14 +151,13 @@ fn current_user_is_superuser() -> PgResult<bool> {
 
 /// `emit_audit_message` (test_oat_hooks.c:230-256): NOTICE with
 /// ERRCODE_INTERNAL_ERROR, from a leader process only.
-fn emit_audit_message(
-    ty: &str,
-    hook: &str,
-    action: &str,
-    obj_name: Option<&str>,
-) -> PgResult<()> {
+fn emit_audit_message(ty: &str, hook: &str, action: &str, obj_name: Option<&str>) -> PgResult<()> {
     if REGRESS_audit() && !parallel_seams::is_parallel_worker::call() {
-        let who = if current_user_is_superuser()? { "superuser" } else { "non-superuser" };
+        let who = if current_user_is_superuser()? {
+            "superuser"
+        } else {
+            "non-superuser"
+        };
         let msg = match obj_name {
             Some(obj_name) => format!("in {hook}: {who} {ty} {action} [{obj_name}]"),
             None => format!("in {hook}: {who} {ty} {action}"),
@@ -167,7 +194,11 @@ fn REGRESS_object_access_hook_str(
     sub_id: i32,
     arg: &mut ObjectAccessArg<'_>,
 ) -> PgResult<()> {
-    audit_attempt("object_access_hook_str", &accesstype_to_string(access, sub_id), Some(obj_name))?;
+    audit_attempt(
+        "object_access_hook_str",
+        &accesstype_to_string(access, sub_id),
+        Some(obj_name),
+    )?;
 
     let next = *NEXT_OBJECT_ACCESS_HOOK_STR.lock().unwrap();
     if let Some(next) = next {
@@ -210,7 +241,11 @@ fn REGRESS_object_access_hook_str(
         }
     }
 
-    audit_success("object_access_hook_str", &accesstype_to_string(access, sub_id), Some(obj_name))
+    audit_success(
+        "object_access_hook_str",
+        &accesstype_to_string(access, sub_id),
+        Some(obj_name),
+    )
 }
 
 /// `REGRESS_object_access_hook` (test_oat_hooks.c:331-356).
@@ -283,28 +318,69 @@ fn accesstype_arg_to_string(access: ObjectAccessType, arg: &ObjectAccessArg<'_>)
     match arg {
         ObjectAccessArg::None => "extra info null".to_string(),
         ObjectAccessArg::PostCreate(pc_arg) if access == OAT_POST_CREATE => {
-            (if pc_arg.is_internal { "internal" } else { "explicit" }).to_string()
+            (if pc_arg.is_internal {
+                "internal"
+            } else {
+                "explicit"
+            })
+            .to_string()
         }
         ObjectAccessArg::Drop(drop_arg) if access == OAT_DROP => {
             let f = drop_arg.dropflags;
             format!(
                 "{}{}{}{}{}{}",
-                if f & PERFORM_DELETION_INTERNAL != 0 { "internal action," } else { "" },
-                if f & PERFORM_DELETION_CONCURRENTLY != 0 { "concurrent drop," } else { "" },
-                if f & PERFORM_DELETION_QUIETLY != 0 { "suppress notices," } else { "" },
-                if f & PERFORM_DELETION_SKIP_ORIGINAL != 0 { "keep original object," } else { "" },
-                if f & PERFORM_DELETION_SKIP_EXTENSIONS != 0 { "keep extensions," } else { "" },
-                if f & PERFORM_DELETION_CONCURRENT_LOCK != 0 { "normal concurrent drop," } else { "" },
+                if f & PERFORM_DELETION_INTERNAL != 0 {
+                    "internal action,"
+                } else {
+                    ""
+                },
+                if f & PERFORM_DELETION_CONCURRENTLY != 0 {
+                    "concurrent drop,"
+                } else {
+                    ""
+                },
+                if f & PERFORM_DELETION_QUIETLY != 0 {
+                    "suppress notices,"
+                } else {
+                    ""
+                },
+                if f & PERFORM_DELETION_SKIP_ORIGINAL != 0 {
+                    "keep original object,"
+                } else {
+                    ""
+                },
+                if f & PERFORM_DELETION_SKIP_EXTENSIONS != 0 {
+                    "keep extensions,"
+                } else {
+                    ""
+                },
+                if f & PERFORM_DELETION_CONCURRENT_LOCK != 0 {
+                    "normal concurrent drop,"
+                } else {
+                    ""
+                },
             )
         }
         ObjectAccessArg::PostAlter(pa_arg) if access == OAT_POST_ALTER => format!(
             "{} {} auxiliary object",
-            if pa_arg.is_internal { "internal" } else { "explicit" },
-            if pa_arg.auxiliary_id != InvalidOid { "with" } else { "without" }
+            if pa_arg.is_internal {
+                "internal"
+            } else {
+                "explicit"
+            },
+            if pa_arg.auxiliary_id != InvalidOid {
+                "with"
+            } else {
+                "without"
+            }
         ),
         ObjectAccessArg::NamespaceSearch(ns_arg) if access == OAT_NAMESPACE_SEARCH => format!(
             "{}, {}",
-            if ns_arg.ereport_on_violation { "report on violation" } else { "no report on violation" },
+            if ns_arg.ereport_on_violation {
+                "report on violation"
+            } else {
+                "no report on violation"
+            },
             if ns_arg.result { "allowed" } else { "denied" }
         ),
         // A non-NULL arg for OAT_TRUNCATE / OAT_FUNCTION_EXECUTE, or an arg

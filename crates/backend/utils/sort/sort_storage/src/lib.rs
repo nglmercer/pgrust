@@ -33,7 +33,9 @@ pub struct TapeIdx(u32);
 #[inline]
 fn trailer_prev(buf: &[u8]) -> i64 {
     i64::from_ne_bytes(
-        buf[TAPE_BLOCK_PAYLOAD_SIZE..TAPE_BLOCK_PAYLOAD_SIZE + 8].try_into().unwrap(),
+        buf[TAPE_BLOCK_PAYLOAD_SIZE..TAPE_BLOCK_PAYLOAD_SIZE + 8]
+            .try_into()
+            .unwrap(),
     )
 }
 
@@ -241,10 +243,14 @@ impl<'m> LogicalTapeSet<'m> {
                 }
                 Some(lts) => lts.core.pfile.append(file)?,
             };
-            let lts = set.as_mut().expect("leader tapeset created by the first import");
+            let lts = set
+                .as_mut()
+                .expect("leader tapeset created by the first import");
             let tape = lts.create_tape();
             imported.push(tape);
-            let lt = lts.tapes[tape.0 as usize].as_mut().expect("tape just created");
+            let lt = lts.tapes[tape.0 as usize]
+                .as_mut()
+                .expect("tape just created");
             lt.first_block_number = share.firstblocknumber;
             lt.offset_block_number = offset;
             lt.max_size = MAX_ALLOC_SIZE.min(filesize as usize);
@@ -416,9 +422,8 @@ impl<'m> LogicalTapeSet<'m> {
 
         let mut nread = 0usize;
         while nread < dst.len() {
-            if lt.pos >= lt.nbytes
-                && !read_fill_buffer(core, lt)? {
-                    break;
+            if lt.pos >= lt.nbytes && !read_fill_buffer(core, lt)? {
+                break;
             }
             let nthistime = (lt.nbytes - lt.pos).min(dst.len() - nread);
             debug_assert!(nthistime > 0);
@@ -435,7 +440,9 @@ impl<'m> LogicalTapeSet<'m> {
         self.freeze(tape)?;
         self.core.pfile.export_fileset()?;
         let (_, lt) = self.parts(tape);
-        Ok(TapeShare { firstblocknumber: lt.first_block_number })
+        Ok(TapeShare {
+            firstblocknumber: lt.first_block_number,
+        })
     }
 
     pub fn freeze(&mut self, tape: TapeIdx) -> PgResult<()> {
@@ -629,7 +636,9 @@ fn seek_failed(blocknum: i64) -> Box<PgError> {
     Box::new(
         ::elog::ereport(::types_error::ERROR)
             .errcode_for_file_access()
-            .errmsg(format!("could not seek to block {blocknum} of temporary file"))
+            .errmsg(format!(
+                "could not seek to block {blocknum} of temporary file"
+            ))
             .into_error(),
     )
 }

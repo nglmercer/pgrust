@@ -111,25 +111,37 @@ impl<'s, 'e, 'mcx> TsvParser<'s, 'e, 'mcx> {
         let rest = &self.input[self.off..];
         let cl = ::mbutils::pg_mblen(rest) as usize;
         if cl > rest.len() {
-            return Err(::mbutils::report_invalid_encoding(::mbutils::GetDatabaseEncoding(), rest));
+            return Err(::mbutils::report_invalid_encoding(
+                ::mbutils::GetDatabaseEncoding(),
+                rest,
+            ));
         }
         Ok(cl)
     }
 
     fn copy_char(&mut self) -> PgResult<()> {
         let cl = self.mblen()?;
-        self.word.extend_from_slice(&self.input[self.off..self.off + cl]);
+        self.word
+            .extend_from_slice(&self.input[self.off..self.off + cl]);
         Ok(())
     }
 
     #[cold]
     fn syntax_error(&mut self) -> PgResult<Next> {
-        let kind = if self.is_tsquery { "tsquery" } else { "tsvector" };
+        let kind = if self.is_tsquery {
+            "tsquery"
+        } else {
+            "tsvector"
+        };
         ereturn(
             self.esc.as_deref_mut(),
             Next::Err,
-            input_message(::types_error::ERROR, &format!("syntax error in {kind}: "), self.input)
-                .with_sqlstate(ERRCODE_SYNTAX_ERROR),
+            input_message(
+                ::types_error::ERROR,
+                &format!("syntax error in {kind}: "),
+                self.input,
+            )
+            .with_sqlstate(ERRCODE_SYNTAX_ERROR),
         )
     }
 
@@ -149,9 +161,7 @@ impl<'s, 'e, 'mcx> TsvParser<'s, 'e, 'mcx> {
                         state = St::WaitEndCmplx;
                     } else if !self.is_web && c == b'\\' {
                         state = St::WaitNextChar(0);
-                    } else if (self.oprisdelim && is_ts_operator(c))
-                        || (self.is_web && c == b'"')
-                    {
+                    } else if (self.oprisdelim && is_ts_operator(c)) || (self.is_web && c == b'"') {
                         return self.syntax_error();
                     } else if !ts_isspace(c) {
                         self.copy_char()?;
@@ -172,7 +182,11 @@ impl<'s, 'e, 'mcx> TsvParser<'s, 'e, 'mcx> {
                         );
                     }
                     self.copy_char()?;
-                    state = if oldstate == 1 { St::WaitEndCmplx } else { St::WaitEndWord };
+                    state = if oldstate == 1 {
+                        St::WaitEndCmplx
+                    } else {
+                        St::WaitEndWord
+                    };
                 }
                 St::WaitEndWord => {
                     if !self.is_web && c == b'\\' {

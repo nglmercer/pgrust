@@ -22,16 +22,27 @@ pub fn gen_join_stmt(g: &mut Gen) -> SelectStmt {
         let table = g.pick_table();
         let alias = g.next_alias();
         rels.push(ScopeRel::from_table(table, alias.clone()));
-        FromItem::Table { name: table.name.clone(), alias }
+        FromItem::Table {
+            name: table.name.clone(),
+            alias,
+        }
     };
     for step in 1..ntables {
         let table = g.pick_table();
         let alias = g.next_alias();
         let rel = ScopeRel::from_table(table, alias.clone());
-        let right = FromItem::Table { name: table.name.clone(), alias };
+        let right = FromItem::Table {
+            name: table.name.clone(),
+            alias,
+        };
         let (kind, cond) = gen_join_cond(g, &rels, &rel, step);
         rels.push(rel);
-        from = FromItem::Join { left: Box::new(from), right: Box::new(right), kind, cond };
+        from = FromItem::Join {
+            left: Box::new(from),
+            right: Box::new(right),
+            kind,
+            cond,
+        };
     }
     finish_select(g, &rels, from, Vec::new())
 }
@@ -44,10 +55,16 @@ fn gen_join_cond(
     right: &ScopeRel,
     step: usize,
 ) -> (JoinKind, JoinCond) {
-    let kind = match g
-        .weights
-        .pick(g.rng, &["join:inner", "join:left", "join:right", "join:full", "join:cross"])
-    {
+    let kind = match g.weights.pick(
+        g.rng,
+        &[
+            "join:inner",
+            "join:left",
+            "join:right",
+            "join:full",
+            "join:cross",
+        ],
+    ) {
         "join:cross" => {
             g.fire("join:cross");
             return (JoinKind::Inner, JoinCond::Cross);
@@ -84,7 +101,11 @@ fn gen_join_cond(
                 "join:using" => {
                     g.fire("join:using");
                     // One shared column, sometimes two.
-                    let ncols = if common.len() > 1 && g.rng.chance(1, 3) { 2 } else { 1 };
+                    let ncols = if common.len() > 1 && g.rng.chance(1, 3) {
+                        2
+                    } else {
+                        1
+                    };
                     let mut cols = Vec::with_capacity(ncols);
                     let start = g.rng.below_usize(common.len());
                     for k in 0..ncols {
@@ -107,9 +128,8 @@ fn gen_join_cond(
 /// Column names shared by both relations with mutually comparable types
 /// and no duplicates on either side (USING/NATURAL validity).
 fn common_columns(a: &ScopeRel, b: &ScopeRel) -> Vec<String> {
-    let unique = |rel: &ScopeRel, name: &str| {
-        rel.columns.iter().filter(|c| c.name == name).count() == 1
-    };
+    let unique =
+        |rel: &ScopeRel, name: &str| rel.columns.iter().filter(|c| c.name == name).count() == 1;
     a.columns
         .iter()
         .filter(|ca| {
@@ -138,17 +158,25 @@ fn gen_on_expr(g: &mut Gen, left: &[ScopeRel], right: &ScopeRel, kind: JoinKind)
             "join:on_rand"
         }
     } else if key.is_some() {
-        g.weights.pick(g.rng, &["join:on_key", "join:on_rand", "join:on_mixed"])
+        g.weights
+            .pick(g.rng, &["join:on_key", "join:on_rand", "join:on_mixed"])
     } else {
         "join:on_rand"
     };
     g.fire(picked);
-    let scope = Scope { rels: &all, outer: None };
+    let scope = Scope {
+        rels: &all,
+        outer: None,
+    };
     match picked {
         "join:on_key" => key.unwrap(),
         "join:on_mixed" => {
             let rand = g.gen_bool(&scope, 2);
-            Expr::Binary { op: "AND", lhs: Box::new(key.unwrap()), rhs: Box::new(rand) }
+            Expr::Binary {
+                op: "AND",
+                lhs: Box::new(key.unwrap()),
+                rhs: Box::new(rand),
+            }
         }
         _ => g.gen_bool(&scope, 2),
     }
@@ -179,15 +207,25 @@ fn key_equality(g: &mut Gen, left: &[ScopeRel], right: &ScopeRel) -> Option<Expr
             }
         }
     }
-    let pool = if key_pairs.is_empty() { &pairs } else { &key_pairs };
+    let pool = if key_pairs.is_empty() {
+        &pairs
+    } else {
+        &key_pairs
+    };
     if pool.is_empty() {
         return None;
     }
     let (la, ln, ra, rn) = pool[g.rng.below_usize(pool.len())].clone();
     Some(Expr::Binary {
         op: "=",
-        lhs: Box::new(Expr::ColRef { alias: la, name: ln }),
-        rhs: Box::new(Expr::ColRef { alias: ra, name: rn }),
+        lhs: Box::new(Expr::ColRef {
+            alias: la,
+            name: ln,
+        }),
+        rhs: Box::new(Expr::ColRef {
+            alias: ra,
+            name: rn,
+        }),
     })
 }
 
@@ -247,10 +285,9 @@ mod tests {
     fn using_and_natural_only_on_first_join() {
         let cat = FixtureCatalog.load_catalog().unwrap();
         // Force 4-table chains and USING/NATURAL-heavy conditions.
-        let w = WeightTable::parse(
-            "join:2=0,join:3=0,join:4=1,join:on=0,join:using=5,join:natural=5",
-        )
-        .unwrap();
+        let w =
+            WeightTable::parse("join:2=0,join:3=0,join:4=1,join:on=0,join:using=5,join:natural=5")
+                .unwrap();
         let mut rng = Rng::new(11);
         for _ in 0..100 {
             let mut prods = Vec::new();

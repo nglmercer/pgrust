@@ -45,7 +45,9 @@ fn emitter_scaffold(tag: &str) -> MutexGuard<'static, ()> {
         ipc_seams::on_shmem_exit::set(|_cb, _arg| {});
         resowner::init_seams();
     });
-    let guard = CWD.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let guard = CWD
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let dir = format!(
         "{}/pgrust-parse-manifest-{}-{tag}",
         std::env::temp_dir().display(),
@@ -121,7 +123,11 @@ fn parses_real_c_manifest() {
     assert_eq!(m.files.len(), C_FIXTURE_NFILES);
     assert_eq!(
         m.wal_ranges,
-        vec![ManifestWalRange { tli: 1, start_lsn: 0x2000028, end_lsn: 0x2000120 }]
+        vec![ManifestWalRange {
+            tli: 1,
+            start_lsn: 0x2000028,
+            end_lsn: 0x2000120
+        }]
     );
 
     // Every entry in a CRC32C-checksummed C manifest carries a 4-byte payload.
@@ -132,9 +138,16 @@ fn parses_real_c_manifest() {
 
     // Spot-check a known entry byte-for-byte:
     // { "Path": "PG_VERSION", "Size": 3, ..., "Checksum": "994e7be2" }
-    let pv = m.files.iter().find(|f| f.pathname == b"PG_VERSION").unwrap();
+    let pv = m
+        .files
+        .iter()
+        .find(|f| f.pathname == b"PG_VERSION")
+        .unwrap();
     assert_eq!(pv.size, 3);
-    assert_eq!(pv.checksum_payload.as_deref(), Some(&[0x99, 0x4e, 0x7b, 0xe2][..]));
+    assert_eq!(
+        pv.checksum_payload.as_deref(),
+        Some(&[0x99, 0x4e, 0x7b, 0xe2][..])
+    );
 }
 
 #[test]
@@ -168,7 +181,11 @@ fn roundtrips_emitter_manifest() {
     InitializeBackupManifest(mcx, &mut m, MANIFEST_OPTION_YES, PgChecksumType::Sha256).unwrap();
 
     let cases: &[(&[u8], &[u8], PgChecksumType)] = &[
-        (b"backup_label", b"START WAL LOCATION\n", PgChecksumType::Crc32c),
+        (
+            b"backup_label",
+            b"START WAL LOCATION\n",
+            PgChecksumType::Crc32c,
+        ),
         (b"base/1/1259", &[0u8; 128], PgChecksumType::Sha256),
         (b"PG_VERSION", b"18\n", PgChecksumType::None),
         (b"base/1/2619", b"abc", PgChecksumType::Sha224),
@@ -197,12 +214,19 @@ fn roundtrips_emitter_manifest() {
             assert_eq!(f.checksum_payload, None);
         } else {
             assert_eq!(f.checksum_type, *ty);
-            assert_eq!(f.checksum_payload.as_deref(), Some(&checksum_of(*ty, data)[..]));
+            assert_eq!(
+                f.checksum_payload.as_deref(),
+                Some(&checksum_of(*ty, data)[..])
+            );
         }
     }
     assert_eq!(
         parsed.wal_ranges,
-        vec![ManifestWalRange { tli: 1, start_lsn: 0x016B3D50, end_lsn: 0x016C0000 }]
+        vec![ManifestWalRange {
+            tli: 1,
+            start_lsn: 0x016B3D50,
+            end_lsn: 0x016C0000
+        }]
     );
 }
 
@@ -213,8 +237,13 @@ fn roundtrips_encoded_path() {
     let mcx = ctx.mcx();
 
     let mut m = BackupManifestInfo::zeroed();
-    InitializeBackupManifest(mcx, &mut m, MANIFEST_OPTION_FORCE_ENCODE, PgChecksumType::None)
-        .unwrap();
+    InitializeBackupManifest(
+        mcx,
+        &mut m,
+        MANIFEST_OPTION_FORCE_ENCODE,
+        PgChecksumType::None,
+    )
+    .unwrap();
     // Non-UTF8 path: always hex-encoded, and FORCE_ENCODE hex-encodes even
     // clean paths. (No NUL: C pathnames are C strings on both sides.)
     let raw: &[u8] = b"base/1/bad\xffname";
@@ -224,7 +253,10 @@ fn roundtrips_encoded_path() {
     AddFileToBackupManifest(&mut m, 0, b"PG_VERSION", 3, 1_700_000_000, &mut cc).unwrap();
     AddWALInfoToBackupManifest(mcx, &mut m, 0x0, 1, 0x100, 1).unwrap();
     let bytes = send_all(&mut m);
-    assert!(!bytes.windows(7).any(|w| w == b"\"Path\":"), "FORCE_ENCODE emits Encoded-Path only");
+    assert!(
+        !bytes.windows(7).any(|w| w == b"\"Path\":"),
+        "FORCE_ENCODE emits Encoded-Path only"
+    );
 
     let parsed = parse(&bytes).unwrap();
     assert_eq!(parsed.files[0].pathname, raw);
@@ -309,7 +341,10 @@ fn version_errors() {
 
 #[test]
 fn toplevel_errors() {
-    expect_error(b"[]", "could not parse backup manifest: unexpected array start");
+    expect_error(
+        b"[]",
+        "could not parse backup manifest: unexpected array start",
+    );
     expect_error(
         b"not json",
         "could not parse backup manifest: Token \"not\" is invalid.",
@@ -353,10 +388,7 @@ fn toplevel_errors() {
 // ---------------------------------------------------------------------------
 
 fn files_manifest(file_obj: &str) -> Vec<u8> {
-    format!(
-        "{{\"PostgreSQL-Backup-Manifest-Version\": 2, \"Files\": [{file_obj}]}}"
-    )
-    .into_bytes()
+    format!("{{\"PostgreSQL-Backup-Manifest-Version\": 2, \"Files\": [{file_obj}]}}").into_bytes()
 }
 
 #[test]
@@ -414,11 +446,15 @@ fn file_errors() {
         "could not parse backup manifest: file size is not an integer",
     );
     expect_error(
-        &files_manifest(r#"{"Path": "x", "Size": 2, "Checksum-Algorithm": "MD5", "Checksum": "00"}"#),
+        &files_manifest(
+            r#"{"Path": "x", "Size": 2, "Checksum-Algorithm": "MD5", "Checksum": "00"}"#,
+        ),
         "unrecognized checksum algorithm: \"MD5\"",
     );
     expect_error(
-        &files_manifest(r#"{"Path": "x", "Size": 2, "Checksum-Algorithm": "CRC32C", "Checksum": "0g"}"#),
+        &files_manifest(
+            r#"{"Path": "x", "Size": 2, "Checksum-Algorithm": "CRC32C", "Checksum": "0g"}"#,
+        ),
         "invalid checksum for file \"x\": \"0g\"",
     );
 }
@@ -437,7 +473,10 @@ fn checksum_algorithms_parse_case_insensitively() {
     assert_eq!(m.files[0].checksum_type, PgChecksumType::Sha256);
     // The parser does not length-check payload vs algorithm (C defers that
     // to consumers such as pg_verifybackup).
-    assert_eq!(m.files[0].checksum_payload.as_deref(), Some(&[0x00, 0xff][..]));
+    assert_eq!(
+        m.files[0].checksum_payload.as_deref(),
+        Some(&[0x00, 0xff][..])
+    );
     assert_eq!(m.files[1].checksum_type, PgChecksumType::None);
     assert_eq!(m.files[1].checksum_payload, None);
     // Empty Checksum string == no payload, like C's zero-length case.
@@ -467,10 +506,8 @@ fn file_size_strtou64_quirks_match_c() {
 // ---------------------------------------------------------------------------
 
 fn wal_manifest(range_obj: &str) -> Vec<u8> {
-    format!(
-        "{{\"PostgreSQL-Backup-Manifest-Version\": 2, \"WAL-Ranges\": [{range_obj}]}}"
-    )
-    .into_bytes()
+    format!("{{\"PostgreSQL-Backup-Manifest-Version\": 2, \"WAL-Ranges\": [{range_obj}]}}")
+        .into_bytes()
 }
 
 #[test]
@@ -664,7 +701,11 @@ impl JsonManifestParseContext for Acc {
         start_lsn: types_core::XLogRecPtr,
         end_lsn: types_core::XLogRecPtr,
     ) -> types_error::PgResult<()> {
-        self.0.wal_ranges.push(ManifestWalRange { tli, start_lsn, end_lsn });
+        self.0.wal_ranges.push(ManifestWalRange {
+            tli,
+            start_lsn,
+            end_lsn,
+        });
         Ok(())
     }
 }
@@ -682,7 +723,8 @@ fn parse_in_pieces_tail(
     tail: usize,
 ) -> (Result<ParsedManifest, String>, usize) {
     install_seams();
-    let mut st = JsonManifestParseIncrementalState::json_parse_manifest_incremental_init(Acc::default());
+    let mut st =
+        JsonManifestParseIncrementalState::json_parse_manifest_incremental_init(Acc::default());
     let mut files_before_last = 0;
     let mut off = 0;
     let last_start = buffer.len().saturating_sub(tail);
@@ -697,7 +739,9 @@ fn parse_in_pieces_tail(
         if !is_last {
             files_before_last = st.context().0.files.len();
         }
-        if let Err(e) = st.json_parse_manifest_incremental_chunk(cx.mcx(), &buffer[off..end], is_last) {
+        if let Err(e) =
+            st.json_parse_manifest_incremental_chunk(cx.mcx(), &buffer[off..end], is_last)
+        {
             return (Err(e.message().to_string()), files_before_last);
         }
         if is_last {
@@ -705,7 +749,10 @@ fn parse_in_pieces_tail(
         }
         off = end;
     }
-    (Ok(st.json_parse_manifest_incremental_shutdown().0), files_before_last)
+    (
+        Ok(st.json_parse_manifest_incremental_shutdown().0),
+        files_before_last,
+    )
 }
 
 /// C's caller shape: MIN_CHUNK (1024) bytes always held back for the last call.
@@ -716,13 +763,29 @@ fn parse_in_pieces(buffer: &[u8], piece: usize) -> (Result<ParsedManifest, Strin
 #[test]
 fn incremental_parse_matches_whole_buffer_at_every_piece_size() {
     let whole = parse(C_FIXTURE).unwrap();
-    for piece in [1usize, 7, 100, 1024, 4096, 65536, C_FIXTURE.len() - 1, C_FIXTURE.len()] {
+    for piece in [
+        1usize,
+        7,
+        100,
+        1024,
+        4096,
+        65536,
+        C_FIXTURE.len() - 1,
+        C_FIXTURE.len(),
+    ] {
         let (got, files_before_last) = parse_in_pieces(C_FIXTURE, piece);
-        assert_eq!(got.as_ref().map(|m| m.files.len()), Ok(whole.files.len()), "piece {piece}");
+        assert_eq!(
+            got.as_ref().map(|m| m.files.len()),
+            Ok(whole.files.len()),
+            "piece {piece}"
+        );
         assert_eq!(got, Ok(whole.clone()), "piece {piece}");
         if piece < C_FIXTURE.len() / 2 {
             // Files are delivered as they are parsed, not at the end.
-            assert!(files_before_last > 0, "piece {piece}: no files before the last chunk");
+            assert!(
+                files_before_last > 0,
+                "piece {piece}: no files before the last chunk"
+            );
         }
     }
 }
@@ -735,7 +798,8 @@ fn incremental_parse_trailer_checks_look_at_the_last_chunk_only() {
     // at or before the newline preceding the checksum line is fine.
     let feed = |split: usize| -> Result<ParsedManifest, String> {
         install_seams();
-        let mut st = JsonManifestParseIncrementalState::json_parse_manifest_incremental_init(Acc::default());
+        let mut st =
+            JsonManifestParseIncrementalState::json_parse_manifest_incremental_init(Acc::default());
         let cx = MemoryContext::new("parse-manifest-chunk");
         st.json_parse_manifest_incremental_chunk(cx.mcx(), &C_FIXTURE[..split], false)
             .map_err(|e| e.message().to_string())?;
@@ -747,11 +811,19 @@ fn incremental_parse_trailer_checks_look_at_the_last_chunk_only() {
         feed(C_FIXTURE.len() - 10).unwrap_err(),
         "could not parse backup manifest: expected at least 2 lines"
     );
-    let nl_before_checksum_line =
-        C_FIXTURE[..C_FIXTURE.len() - 1].iter().rposition(|&b| b == b'\n').unwrap();
-    assert_eq!(feed(nl_before_checksum_line + 1).unwrap_err(), "could not parse backup manifest: expected at least 2 lines");
+    let nl_before_checksum_line = C_FIXTURE[..C_FIXTURE.len() - 1]
+        .iter()
+        .rposition(|&b| b == b'\n')
+        .unwrap();
+    assert_eq!(
+        feed(nl_before_checksum_line + 1).unwrap_err(),
+        "could not parse backup manifest: expected at least 2 lines"
+    );
     assert_eq!(feed(nl_before_checksum_line), Ok(parse(C_FIXTURE).unwrap()));
-    assert_eq!(feed(nl_before_checksum_line - 100), Ok(parse(C_FIXTURE).unwrap()));
+    assert_eq!(
+        feed(nl_before_checksum_line - 100),
+        Ok(parse(C_FIXTURE).unwrap())
+    );
 }
 
 #[test]
@@ -763,7 +835,12 @@ fn incremental_parse_checksum_spans_all_chunks() {
     // Flip a byte inside a per-file checksum hex string past `pos` (keeps
     // the JSON valid and the file entry well-formed).
     let needle = b"\"Checksum\": \"";
-    let cpos = pos + corrupt[pos..].windows(needle.len()).position(|w| w == needle).unwrap() + needle.len();
+    let cpos = pos
+        + corrupt[pos..]
+            .windows(needle.len())
+            .position(|w| w == needle)
+            .unwrap()
+        + needle.len();
     corrupt[cpos] = if corrupt[cpos] == b'0' { b'1' } else { b'0' };
     assert!(parse(&corrupt).is_err());
     let (got, _) = parse_in_pieces(&corrupt, 4096);
@@ -798,11 +875,18 @@ fn incremental_parse_error_identity_matches_whole_buffer() {
     let body = with_checksum("{ \"PostgreSQL-Backup-Manifest-Version\": 2,\n\"Files\": [],\n");
     let split = body.len() - 10; // inside the checksum line, no newline before the end
     install_seams();
-    let mut st = JsonManifestParseIncrementalState::json_parse_manifest_incremental_init(Acc::default());
+    let mut st =
+        JsonManifestParseIncrementalState::json_parse_manifest_incremental_init(Acc::default());
     let cx = MemoryContext::new("parse-manifest-chunk");
-    st.json_parse_manifest_incremental_chunk(cx.mcx(), &body[..split], false).unwrap();
-    let e = st.json_parse_manifest_incremental_chunk(cx.mcx(), &body[split..], true).unwrap_err();
-    assert_eq!(e.message(), "could not parse backup manifest: expected at least 2 lines");
+    st.json_parse_manifest_incremental_chunk(cx.mcx(), &body[..split], false)
+        .unwrap();
+    let e = st
+        .json_parse_manifest_incremental_chunk(cx.mcx(), &body[split..], true)
+        .unwrap_err();
+    assert_eq!(
+        e.message(),
+        "could not parse backup manifest: expected at least 2 lines"
+    );
 }
 
 #[test]
@@ -837,6 +921,8 @@ fn incremental_parse_callback_errors_propagate() {
     let mut st = JsonManifestParseIncrementalState::json_parse_manifest_incremental_init(Failing);
     let cx = MemoryContext::new("parse-manifest-chunk");
     // The version value is the first scalar; it arrives in the first chunk.
-    let e = st.json_parse_manifest_incremental_chunk(cx.mcx(), &C_FIXTURE[..100], false).unwrap_err();
+    let e = st
+        .json_parse_manifest_incremental_chunk(cx.mcx(), &C_FIXTURE[..100], false)
+        .unwrap_err();
     assert_eq!(e.message(), "consumer rejected version");
 }

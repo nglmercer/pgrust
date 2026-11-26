@@ -3,16 +3,14 @@
 #[cfg(test)]
 mod tests;
 
-
 pub mod builtins;
 use datum::Datum;
 use keywords::{KeywordCategory, ScanKeywordCategories, ScanKeywordLookup, ScanKeywords};
-use types_core::primitive::InvalidOid;
 use types_core::catalog::{
-    BITOID, BOOLOID, BPCHAROID, FLOAT4OID, FLOAT8OID, INT2OID, INT4OID,
-    INT8OID, INTERVALOID, JSONOID, NUMERICOID, TIMEOID, TIMESTAMPOID, TIMESTAMPTZOID, TIMETZOID,
-    VARBITOID, VARCHAROID,
+    BITOID, BOOLOID, BPCHAROID, FLOAT4OID, FLOAT8OID, INT2OID, INT4OID, INT8OID, INTERVALOID,
+    JSONOID, NUMERICOID, TIMEOID, TIMESTAMPOID, TIMESTAMPTZOID, TIMETZOID, VARBITOID, VARCHAROID,
 };
+use types_core::primitive::InvalidOid;
 use types_core::Oid;
 use types_error::{PgError, PgResult};
 
@@ -29,7 +27,9 @@ fn is_true_array_type(typelem: Oid, typsubscript: Oid) -> bool {
 #[cold]
 #[inline(never)]
 fn type_lookup_failed(typid: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!("cache lookup failed for type {typid}")))
+    Box::new(PgError::error(format!(
+        "cache lookup failed for type {typid}"
+    )))
 }
 
 // C format_type_extended (format_type.c:300-320) hands NameStr(typname) /
@@ -62,20 +62,20 @@ pub fn format_type_be(type_oid: Oid) -> PgResult<String> {
 }
 
 pub fn format_type_be_qualified(type_oid: Oid) -> PgResult<String> {
-    Ok(format_type_extended(type_oid, -1, FORMAT_TYPE_FORCE_QUALIFY)?
-        .expect("no FORMAT_TYPE_INVALID_AS_NULL"))
+    Ok(
+        format_type_extended(type_oid, -1, FORMAT_TYPE_FORCE_QUALIFY)?
+            .expect("no FORMAT_TYPE_INVALID_AS_NULL"),
+    )
 }
 
 pub fn format_type_with_typemod(type_oid: Oid, typemod: i32) -> PgResult<String> {
-    Ok(format_type_extended(type_oid, typemod, FORMAT_TYPE_TYPEMOD_GIVEN)?
-        .expect("no FORMAT_TYPE_INVALID_AS_NULL"))
+    Ok(
+        format_type_extended(type_oid, typemod, FORMAT_TYPE_TYPEMOD_GIVEN)?
+            .expect("no FORMAT_TYPE_INVALID_AS_NULL"),
+    )
 }
 
-pub fn format_type_extended(
-    type_oid: Oid,
-    typemod: i32,
-    flags: u16,
-) -> PgResult<Option<String>> {
+pub fn format_type_extended(type_oid: Oid, typemod: i32, flags: u16) -> PgResult<Option<String>> {
     let typemod_given = flags & FORMAT_TYPE_TYPEMOD_GIVEN != 0;
     if type_oid == InvalidOid {
         if flags & FORMAT_TYPE_INVALID_AS_NULL != 0 {
@@ -96,16 +96,13 @@ pub fn format_type_extended(
     };
     let mut named_oid = type_oid;
     let mut is_array = false;
-    if is_true_array_type(shape.typelem, shape.typsubscript)
-        && shape.typstorage != TYPSTORAGE_PLAIN
+    if is_true_array_type(shape.typelem, shape.typsubscript) && shape.typstorage != TYPSTORAGE_PLAIN
     {
         named_oid = shape.typelem;
         shape = match syscache_seams::lookup_pg_type_typcache_shape::call(named_oid)? {
             Some(s) => s,
             None if flags & FORMAT_TYPE_INVALID_AS_NULL != 0 => return Ok(None),
-            None if flags & FORMAT_TYPE_ALLOW_INVALID != 0 => {
-                return Ok(Some("???[]".to_string()))
-            }
+            None if flags & FORMAT_TYPE_ALLOW_INVALID != 0 => return Ok(Some("???[]".to_string())),
             None => return Err(type_lookup_failed(type_oid)),
         };
         is_array = true;
@@ -210,7 +207,10 @@ fn print_typmod(typname: &str, typmod: i32, type_oid: Oid) -> PgResult<String> {
     )?;
     // SAFETY: typmodout fns return a NUL-terminated cstring datum.
     let s = unsafe { core::ffi::CStr::from_ptr(out.as_usize() as *const core::ffi::c_char) };
-    Ok(format!("{typname}{}", s.to_str().expect("typmodout output is ASCII")))
+    Ok(format!(
+        "{typname}{}",
+        s.to_str().expect("typmodout output is ASCII")
+    ))
 }
 
 pub fn type_maximum_size(type_oid: Oid, typemod: i32) -> i32 {
@@ -244,9 +244,9 @@ pub fn quote_identifier(ident: &str) -> std::borrow::Cow<'_, str> {
     match quote_identifier_bytes(ident.as_bytes()) {
         std::borrow::Cow::Borrowed(_) => std::borrow::Cow::Borrowed(ident),
         // Quoting inserts only ASCII '"' bytes, so the output stays UTF-8.
-        std::borrow::Cow::Owned(v) => std::borrow::Cow::Owned(
-            String::from_utf8(v).expect("quoting preserves UTF-8"),
-        ),
+        std::borrow::Cow::Owned(v) => {
+            std::borrow::Cow::Owned(String::from_utf8(v).expect("quoting preserves UTF-8"))
+        }
     }
 }
 

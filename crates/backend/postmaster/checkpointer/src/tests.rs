@@ -69,7 +69,11 @@ fn test_request(rel: u32) -> CheckpointerRequest {
         ftag: FileTag::new(
             types_storage::sync::SyncRequestHandler::SYNC_HANDLER_MD,
             types_core::ForkNumber::MAIN_FORKNUM,
-            types_storage::RelFileLocator { spcOid: 1663, dbOid: 5, relNumber: rel },
+            types_storage::RelFileLocator {
+                spcOid: 1663,
+                dbOid: 5,
+                relNumber: rel,
+            },
             0,
         ),
     }
@@ -100,7 +104,10 @@ fn remember_absorbed_requests_escalates_failure_to_panic() {
     let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         remember_absorbed_requests(&buf, |ftag, _| {
             if ftag.rlocator.relNumber == 2 {
-                return Err(Box::new(PgError::new(ERROR, "out of memory allocating pendingOps")));
+                return Err(Box::new(PgError::new(
+                    ERROR,
+                    "out of memory allocating pendingOps",
+                )));
             }
             seen.borrow_mut().push(ftag.rlocator.relNumber);
             Ok(())
@@ -211,7 +218,10 @@ fn shmem_init_registers_checkpointer_data() {
     let cp = shmem_for_tests();
     let (raw, found) =
         shmem::ShmemInitStruct("Checkpointer Data", CheckpointerShmemSize(64)).unwrap();
-    assert!(found, "Checkpointer Data is not registered in the ShmemIndex");
+    assert!(
+        found,
+        "Checkpointer Data is not registered in the ShmemIndex"
+    );
     assert!(
         std::ptr::eq(raw.cast::<CheckpointerShmemStruct>(), cp),
         "CheckpointerShmem does not live in the ShmemIndex block"
@@ -243,7 +253,10 @@ fn signal_pended_before_reset_latch_is_handled_by_process_interrupts() {
         );
         assert!(!interrupt::ShutdownRequestPending());
 
-        assert_eq!(procsignal::SendThreadSignal(CKPT_PID, procsignal::signums::SIGUSR2), 0);
+        assert_eq!(
+            procsignal::SendThreadSignal(CKPT_PID, procsignal::signums::SIGUSR2),
+            0
+        );
         latch::ResetLatch(g::MyLatch().expect("MyLatch"));
         ProcessCheckpointerInterrupts().expect("interrupts");
 
@@ -287,7 +300,10 @@ fn checkpoint_write_delay_drains_pended_thread_signals() {
     let prev_type = miscinit::GetMyBackendType();
     miscinit::SetMyBackendType(types_core::BackendType::Checkpointer);
     HUP_OBSERVED.store(false, Relaxed);
-    assert_eq!(procsignal::SendThreadSignal(PID, procsignal::signums::SIGHUP), 0);
+    assert_eq!(
+        procsignal::SendThreadSignal(PID, procsignal::signums::SIGHUP),
+        0
+    );
     assert!(!HUP_OBSERVED.load(Relaxed));
     CheckpointWriteDelay(CHECKPOINT_IMMEDIATE, 0.0).unwrap();
     assert!(HUP_OBSERVED.load(Relaxed));

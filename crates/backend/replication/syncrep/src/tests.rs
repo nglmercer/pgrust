@@ -55,7 +55,16 @@ fn parse_numeric_standby_name() {
 
 #[test]
 fn parse_errors() {
-    for bad in ["", "2 (", "()", "any (s1)", "first s1", "s1,", "\"unterminated", "2 (s1) x"] {
+    for bad in [
+        "",
+        "2 (",
+        "()",
+        "any (s1)",
+        "first s1",
+        "s1,",
+        "\"unterminated",
+        "2 (s1) x",
+    ] {
         assert!(
             parse_synchronous_standby_names(bad).is_err(),
             "expected parse failure for {bad:?}"
@@ -73,11 +82,18 @@ fn unterminated_quote_after_a_syntax_error_reports_the_syntax_error() {
     for (input, expected) in [
         ("a b \"c", "syntax error at or near \"b\""),
         ("FIRST 2 (a b) \"c", "syntax error at or near \"b\""),
-        ("a, b, \"c", "unterminated quoted identifier at end of input"),
+        (
+            "a, b, \"c",
+            "unterminated quoted identifier at end of input",
+        ),
         ("\"c", "unterminated quoted identifier at end of input"),
         ("2 (a \"c", "unterminated quoted identifier at end of input"),
     ] {
-        assert_eq!(parse_synchronous_standby_names(input).unwrap_err(), expected, "{input:?}");
+        assert_eq!(
+            parse_synchronous_standby_names(input).unwrap_err(),
+            expected,
+            "{input:?}"
+        );
     }
 }
 
@@ -113,10 +129,17 @@ fn syntax_error_reports_yytext() {
         ("s1 ; s2", "syntax error at or near \";\""),
         ("2 (s1) x", "syntax error at or near \"x\""),
         ("2 (s1) 33", "syntax error at or near \"33\""),
-        ("\"unterminated", "unterminated quoted identifier at end of input"),
+        (
+            "\"unterminated",
+            "unterminated quoted identifier at end of input",
+        ),
         ("any 2", "syntax error at end of input"),
         ("any", "syntax error at end of input"),
     ] {
-        assert_eq!(parse_synchronous_standby_names(input).unwrap_err(), detail, "input {input:?}");
+        assert_eq!(
+            parse_synchronous_standby_names(input).unwrap_err(),
+            detail,
+            "input {input:?}"
+        );
     }
 }

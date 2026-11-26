@@ -1,7 +1,11 @@
 //! Gravity's expression compiler (docs/gravity/expr-compiler.md): a planner expression tree
 //! becomes a `Compiled` program with two faces, `eval` (tier 0, one row at a time) and `emit`
 //! (the IR form a pipeline lowerer inlines); functions reach `gravity_fn`'s tiers.
-#![allow(clippy::too_many_arguments, clippy::missing_safety_doc, clippy::not_unsafe_ptr_arg_deref)]
+#![allow(
+    clippy::too_many_arguments,
+    clippy::missing_safety_doc,
+    clippy::not_unsafe_ptr_arg_deref
+)]
 
 pub mod agg;
 pub mod bake;
@@ -45,7 +49,9 @@ pub enum CompileError {
 impl fmt::Display for CompileError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            CompileError::Unsupported(k) => write!(f, "gravity_expr: unsupported expression node {k:?}"),
+            CompileError::Unsupported(k) => {
+                write!(f, "gravity_expr: unsupported expression node {k:?}")
+            }
             CompileError::Pg(e) => write!(f, "{}", e.message()),
         }
     }
@@ -61,7 +67,8 @@ impl From<CompileError> for Box<PgError> {
     fn from(e: CompileError) -> Self {
         match e {
             CompileError::Pg(e) => e,
-            CompileError::Unsupported(k) => Box::new( // alloc: Cold
+            CompileError::Unsupported(k) => Box::new(
+                // alloc: Cold
                 PgError::error(format!("gravity_expr: unsupported expression node {k:?}")) // alloc: Cold
                     .with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED),
             ),
@@ -94,7 +101,14 @@ impl Expr {
         params: ParamBind<'mcx>,
         outer: &types_nodes::list::NodeList<'mcx>,
     ) -> CompileResult<Compiled<'mcx>> {
-        Self::compile_in(m, tree, catalog, params, Some((types_nodes::primnodes::OUTER_VAR, outer)), None)
+        Self::compile_in(
+            m,
+            tree,
+            catalog,
+            params,
+            Some((types_nodes::primnodes::OUTER_VAR, outer)),
+            None,
+        )
     }
 
     /// `compile_outer` for a scan's own varno: every `Var` of `varno` is entry `N` of `rows` (a VALUES row's cells,
@@ -124,12 +138,35 @@ impl Expr {
         Self::compile_in(m, tree, catalog, params, outer, tableoid)
     }
 
-    fn compile_in<'mcx>(m: mcx::Mcx<'mcx>, tree: Node<'mcx>, catalog: &dyn Catalog<'mcx>, params: ParamBind<'mcx>, outer: Option<(i32, &types_nodes::list::NodeList<'mcx>)>, tableoid: Option<(i32, nodes::TableOid)>) -> CompileResult<Compiled<'mcx>> {
+    fn compile_in<'mcx>(
+        m: mcx::Mcx<'mcx>,
+        tree: Node<'mcx>,
+        catalog: &dyn Catalog<'mcx>,
+        params: ParamBind<'mcx>,
+        outer: Option<(i32, &types_nodes::list::NodeList<'mcx>)>,
+        tableoid: Option<(i32, nodes::TableOid)>,
+    ) -> CompileResult<Compiled<'mcx>> {
         let mut prog = Program::empty_in(m);
         let mut state = State::empty();
-        let mut b = nodes::Builder { prog: &mut prog, state: &mut state, catalog, outer, tableoid, aggorder: false, returning: None, folded: false };
+        let mut b = nodes::Builder {
+            prog: &mut prog,
+            state: &mut state,
+            catalog,
+            outer,
+            tableoid,
+            aggorder: false,
+            returning: None,
+            folded: false,
+        };
         let root = b.compile(tree)?;
-        Ok(Compiled { prog, state, root, params, callback_arg: core::ptr::null_mut(), result_type: nodes_core::expr_type(tree) })
+        Ok(Compiled {
+            prog,
+            state,
+            root,
+            params,
+            callback_arg: core::ptr::null_mut(),
+            result_type: nodes_core::expr_type(tree),
+        })
     }
 }
 
@@ -169,13 +206,40 @@ impl<'mcx> Compiled<'mcx> {
     /// checked: an island binds its parameters per call) and the callback argument null.
     pub unsafe fn into_in(self, m: mcx::Mcx<'static>) -> HostedCompiled {
         let p = &self.params;
-        let unbound = p.extern_params.is_none() && p.exec_vals.is_none() && p.n_exec == 0 && p.param_callback.is_none() && p.param_expanded.is_none() && p.param_rw.is_none() && p.param_ro_expanded.is_none() && p.extern_fetch.is_none();
-        debug_assert!(unbound && self.callback_arg.is_null(), "gravity_expr: a hosted program is compiled unbound");
-        let Compiled { prog, state, root, result_type, .. } = self;
+        let unbound = p.extern_params.is_none()
+            && p.exec_vals.is_none()
+            && p.n_exec == 0
+            && p.param_callback.is_none()
+            && p.param_expanded.is_none()
+            && p.param_rw.is_none()
+            && p.param_ro_expanded.is_none()
+            && p.extern_fetch.is_none();
+        debug_assert!(
+            unbound && self.callback_arg.is_null(),
+            "gravity_expr: a hosted program is compiled unbound"
+        );
+        let Compiled {
+            prog,
+            state,
+            root,
+            result_type,
+            ..
+        } = self;
         // SAFETY: the caller's contract above (memsig E-prog: the program's lists are copied into `m` at their lengths)
         let prog = unsafe { prog.into_hosted(m) };
-        let state = nodes::HostedState { calls: moved(state.calls, m), call_facts: moved(state.call_facts, m), json: moved(state.json, m), descs: moved(state.descs, m) };
-        HostedCompiled { prog, state, root, params: ParamBind::NONE, result_type }
+        let state = nodes::HostedState {
+            calls: moved(state.calls, m),
+            call_facts: moved(state.call_facts, m),
+            json: moved(state.json, m),
+            descs: moved(state.descs, m),
+        };
+        HostedCompiled {
+            prog,
+            state,
+            root,
+            params: ParamBind::NONE,
+            result_type,
+        }
     }
 }
 
@@ -216,8 +280,12 @@ fn compacted<T>(mut v: mcx::PgVec<'static, T>, m: mcx::Mcx<'static>) -> mcx::PgV
     if n == 0 {
         return mcx::PgVec::new_in(m);
     }
-    let layout = core::alloc::Layout::array::<T>(n).unwrap_or_else(|_| mcx::raise(m.oom_boxed(usize::MAX)));
-    let p = m.alloc_uninit_bytes(layout).unwrap_or_else(|_| mcx::raise(m.oom_boxed(layout.size()))).cast::<T>();
+    let layout =
+        core::alloc::Layout::array::<T>(n).unwrap_or_else(|_| mcx::raise(m.oom_boxed(usize::MAX)));
+    let p = m
+        .alloc_uninit_bytes(layout)
+        .unwrap_or_else(|_| mcx::raise(m.oom_boxed(layout.size())))
+        .cast::<T>();
     // SAFETY: as `moved`: `p` has room for `n` elements; they move bitwise and `v` forgets them first (length 0, so its
     // drop frees only its buffer), so each element drops once, by the result, which owns `p` with `m` as its allocator.
     unsafe {
@@ -235,8 +303,12 @@ fn moved<T>(mut v: Vec<T>, m: mcx::Mcx<'static>) -> mcx::PgVec<'static, T> {
     if n == 0 {
         return mcx::PgVec::new_in(m);
     }
-    let layout = core::alloc::Layout::array::<T>(n).unwrap_or_else(|_| mcx::raise(m.oom_boxed(usize::MAX)));
-    let p = m.alloc_uninit_bytes(layout).unwrap_or_else(|_| mcx::raise(m.oom_boxed(layout.size()))).cast::<T>();
+    let layout =
+        core::alloc::Layout::array::<T>(n).unwrap_or_else(|_| mcx::raise(m.oom_boxed(usize::MAX)));
+    let p = m
+        .alloc_uninit_bytes(layout)
+        .unwrap_or_else(|_| mcx::raise(m.oom_boxed(layout.size())))
+        .cast::<T>();
     // SAFETY: `p` has room for `n` elements of `T` (`layout`, from `m`); the elements move bitwise and `v` forgets
     // them first (length 0, so its drop frees only its buffer), so each element drops once, by the result, which
     // owns `p` with `m` as its allocator and `T`'s array layout for its capacity.
@@ -251,7 +323,12 @@ impl<'mcx> Compiled<'mcx> {
     /// Tier 0 over one row; a by-reference result is an image in `region` until the caller resets it.
     pub fn eval(&mut self, row: &Row<'_>, region: &mut Region) -> PgResult<NullableDatum> {
         let mut cx = eval::Cx::new(row, region, &self.params, self.callback_arg);
-        eval::eval(&self.prog.view(), &mut self.state.view(), self.root, &mut cx)
+        eval::eval(
+            &self.prog.view(),
+            &mut self.state.view(),
+            self.root,
+            &mut cx,
+        )
     }
 
     pub fn arm_param_callback_arg(&mut self, arg: *mut ()) {

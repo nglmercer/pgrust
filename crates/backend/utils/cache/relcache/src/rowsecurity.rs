@@ -32,7 +32,8 @@ pub fn RelationGetRowSecurityDesc<'mcx>(mcx: Mcx<'mcx>, relid: Oid) -> PgResult<
     }
     let rows = gravity_deps::suppressed(|| relcache_build_seams::scan_pg_policy::call(mcx, relid))?;
     let cmcx = cache_mcx();
-    let mut policies: Vec<RowSecurityPolicyMeta> = ::mcx::std_vec_with_capacity("CacheMemoryContext", rows.len())?;
+    let mut policies: Vec<RowSecurityPolicyMeta> =
+        ::mcx::std_vec_with_capacity("CacheMemoryContext", rows.len())?;
     for row in rows.iter().rev() {
         policies.push(RowSecurityPolicyMeta {
             policy_name: PgString::from_str_in(row.polname, cmcx)?,

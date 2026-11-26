@@ -23,7 +23,9 @@ fn takes_puts_and_trims_never_wrap_the_depot_count() {
         threads.push(std::thread::spawn(move || {
             let mut i = 0usize;
             while !stop.load(Ordering::Relaxed) {
-                let buf = REGIONS.take(REGION_MIN * (1 + (i + t) % 4), None).expect("a region");
+                let buf = REGIONS
+                    .take(REGION_MIN * (1 + (i + t) % 4), None)
+                    .expect("a region");
                 REGIONS.put(buf);
                 i += 1;
             }
@@ -35,7 +37,11 @@ fn takes_puts_and_trims_never_wrap_the_depot_count() {
         std::thread::spawn(move || {
             let mut n = 0u64;
             while !stop.load(Ordering::Relaxed) {
-                if n.is_multiple_of( 2) { REGIONS.trim_to(REGION_MIN * 4) } else { REGIONS.trim() };
+                if n.is_multiple_of(2) {
+                    REGIONS.trim_to(REGION_MIN * 4)
+                } else {
+                    REGIONS.trim()
+                };
                 n += 1;
                 std::thread::yield_now();
             }
@@ -50,11 +56,23 @@ fn takes_puts_and_trims_never_wrap_the_depot_count() {
         reads += 1;
     }
     stop.store(true, Ordering::Relaxed);
-    let panicked = threads.into_iter().map(|h| h.join().is_err()).filter(|&p| p).count();
+    let panicked = threads
+        .into_iter()
+        .map(|h| h.join().is_err())
+        .filter(|&p| p)
+        .count();
     let trimmed = trims.join().expect("the trimming thread");
     let s = REGIONS.stats();
     eprintln!("d4587 production ops: {} takes + puts, {trimmed} trims, {reads} reads: {wrapped} wrapped, {panicked} thread(s) panicked; at the end {} entries, {} B", ops.load(Ordering::Relaxed), s.entries, s.bytes);
-    assert_eq!((wrapped, panicked), (0, 0), "the depot's count went below zero without a clear");
+    assert_eq!(
+        (wrapped, panicked),
+        (0, 0),
+        "the depot's count went below zero without a clear"
+    );
     REGIONS.trim();
-    assert_eq!((REGIONS.stats().entries, REGIONS.stats().bytes), (0, 0), "trimmed: nothing parked, nothing counted");
+    assert_eq!(
+        (REGIONS.stats().entries, REGIONS.stats().bytes),
+        (0, 0),
+        "trimmed: nothing parked, nothing counted"
+    );
 }

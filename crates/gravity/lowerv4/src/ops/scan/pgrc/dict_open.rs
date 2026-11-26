@@ -25,19 +25,30 @@ crate::strategies! {
     DICT_OPEN = 24, "dict.open", Code;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(DICT_OPEN, &())], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(DICT_OPEN, &())],
+    ..crate::ops::NONE
+};
 
 /// Pipeline `k`'s site opened by the renders it can expect: `sparse_dicts` with their bound, unless every row renders.
 pub(crate) fn open(px: &Px<'_, '_>, k: usize, site: &mut SiteDesc) {
     let (f, renders) = form(px, k, site);
     site.sparse_dicts = f == DictOpenForm::Sparse;
     site.dict_renders = if site.sparse_dicts { renders.max(1) } else { 0 };
-    fires::fire(if site.sparse_dicts { "dict.open.sparse" } else { "dict.open.dense" }); // shapecheck fire signal (REGISTRY SRC-23)
+    fires::fire(if site.sparse_dicts {
+        "dict.open.sparse"
+    } else {
+        "dict.open.dense"
+    }); // shapecheck fire signal (REGISTRY SRC-23)
 }
 
 /// The form and, when sparse, the renders a code lane of the site can get at most (`u64::MAX`: no bound).
 pub(crate) fn form(px: &Px<'_, '_>, k: usize, site: &SiteDesc) -> (DictOpenForm, u64) {
-    let codes = site.lanes().iter().filter(|l| l.kind == lane::KIND_CODES).count() as u64;
+    let codes = site
+        .lanes()
+        .iter()
+        .filter(|l| l.kind == lane::KIND_CODES)
+        .count() as u64;
     if codes == 0 {
         return (DictOpenForm::Dense, 0);
     }
@@ -46,8 +57,12 @@ pub(crate) fn form(px: &Px<'_, '_>, k: usize, site: &SiteDesc) -> (DictOpenForm,
         return (DictOpenForm::Dense, 0);
     }
     // a top-k over the scan's own rows keyed first by a text renders every row's key (v2 topk.rs `dense_dicts`)
-    let text_first = |s: &gravity_decompose::ops::shared::sort::SortDesc<'_>| s.keys.first().is_some_and(|key| key.image.is_string());
-    if pipes[k].ops.iter().any(|op| matches!(op, Op::Sort(s) if matches!(s.form, SortForm::TopK { .. }) && text_first(s))) {
+    let text_first = |s: &gravity_decompose::ops::shared::sort::SortDesc<'_>| {
+        s.keys.first().is_some_and(|key| key.image.is_string())
+    };
+    if pipes[k].ops.iter().any(
+        |op| matches!(op, Op::Sort(s) if matches!(s.form, SortForm::TopK { .. }) && text_first(s)),
+    ) {
         return (DictOpenForm::Dense, 0);
     }
     let mut at = k;
@@ -55,7 +70,9 @@ pub(crate) fn form(px: &Px<'_, '_>, k: usize, site: &SiteDesc) -> (DictOpenForm,
         if let Some(n) = pipes[at].ops.iter().find_map(bound) {
             return (DictOpenForm::Sparse, n.min(u64::MAX - 1));
         }
-        let next = crate::frame::iface::breaker_of(&pipes[at].desc).and_then(|br| (at + 1..pipes.len()).find(|&j| pipes[j].desc.consumes.contains(&br.slot)));
+        let next = crate::frame::iface::breaker_of(&pipes[at].desc).and_then(|br| {
+            (at + 1..pipes.len()).find(|&j| pipes[j].desc.consumes.contains(&br.slot))
+        });
         match next {
             Some(j) => at = j,
             None => return (DictOpenForm::Sparse, u64::MAX),

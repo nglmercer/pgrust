@@ -15,7 +15,10 @@ crate::strategies! {
     TEXT_SUBSTR_ASCII = 80, "text.substr.ascii", All;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(TEXT_SUBSTR_ASCII, &())], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(TEXT_SUBSTR_ASCII, &())],
+    ..crate::ops::NONE
+};
 
 /// The road for this lowering: on only under its `+<id>` (road_off.rs).
 pub(crate) fn on() -> bool {

@@ -5,8 +5,10 @@
 //! nested assignment through `CaseTest`) and the jsonb handler. Results are complete images in
 //! the region; the arrayfuncs routines that build in an `Mcx` run on a retained scratch context.
 
+use gravity_fn::{
+    Addr, Arg, ArgKind, Datum, ErrSlot, Family, NullableDatum, Region, Ret, Shim, ERROR, OK,
+};
 use mcx::GrowIn;
-use gravity_fn::{Addr, Arg, ArgKind, Datum, ErrSlot, Family, NullableDatum, Region, Ret, Shim, ERROR, OK};
 
 use crate::nodes::func::{ArgConv, Call, How};
 use mcx::Mcx;
@@ -35,7 +37,11 @@ pub fn elem_facts<'mcx>(cat: &dyn Catalog<'mcx>, array_type: Oid) -> CompileResu
 }
 
 /// The element facts of `array_type`, refused as `kind` when the type has no element.
-pub fn elem_facts_of<'mcx>(cat: &dyn Catalog<'mcx>, array_type: Oid, kind: Kind) -> CompileResult<ElemFacts> {
+pub fn elem_facts_of<'mcx>(
+    cat: &dyn Catalog<'mcx>,
+    array_type: Oid,
+    kind: Kind,
+) -> CompileResult<ElemFacts> {
     let af = cat.type_facts(array_type)?;
     if af.elem == 0 {
         return unsupported(kind);
@@ -45,7 +51,12 @@ pub fn elem_facts_of<'mcx>(cat: &dyn Catalog<'mcx>, array_type: Oid, kind: Kind)
 
 pub fn facts_of_elem<'mcx>(cat: &dyn Catalog<'mcx>, elem: Oid) -> PgResult<ElemFacts> {
     let ef = cat.type_facts(elem)?;
-    Ok(ElemFacts { typ: elem, len: ef.len, byval: ef.byval, align: ef.align })
+    Ok(ElemFacts {
+        typ: elem,
+        len: ef.len,
+        byval: ef.byval,
+        align: ef.align,
+    })
 }
 
 impl ElemFacts {
@@ -72,10 +83,18 @@ pub struct ArrayExpr {
 impl ElemFacts {
     /// The facts as one site word: the type, the length above it, byval at bit 48, the alignment above.
     pub fn word(&self) -> i64 {
-        self.typ as i64 | (self.len as u16 as i64) << 32 | (self.byval as i64) << 48 | (self.align as u8 as i64) << 49
+        self.typ as i64
+            | (self.len as u16 as i64) << 32
+            | (self.byval as i64) << 48
+            | (self.align as u8 as i64) << 49
     }
     pub fn from_word(w: i64) -> ElemFacts {
-        ElemFacts { typ: w as u32, len: (w >> 32) as u16 as i16, byval: w >> 48 & 1 != 0, align: (w >> 49) as u8 as i8 }
+        ElemFacts {
+            typ: w as u32,
+            len: (w >> 32) as u16 as i16,
+            byval: w >> 48 & 1 != 0,
+            align: (w >> 49) as u8 as i8,
+        }
     }
 }
 
@@ -95,10 +114,26 @@ fn site_of(b: &mut Builder<'_, '_>, nelems: usize, multidims: bool) -> SiteId {
     if crate::nodes::row::wide(nelems) {
         let convs = b.prog.convs.len() as u32;
         for _ in 0..WIDE_HEAD {
-            b.prog.convs.push_in(ArgConv { kind: ArgKind::V, typlen: 0 });
+            b.prog.convs.push_in(ArgConv {
+                kind: ArgKind::V,
+                typlen: 0,
+            });
         }
         let shim = if multidims { &MD_WIDE } else { &ARRAY_WIDE };
-        let site = b.site(Call { funcid: 0, args: Kids::NONE, nargs: WIDE_HEAD as u8, strict: false, collation: 0, how: How::Shim { shim, convs, byref: true }, rettype: 0, volatile: false });
+        let site = b.site(Call {
+            funcid: 0,
+            args: Kids::NONE,
+            nargs: WIDE_HEAD as u8,
+            strict: false,
+            collation: 0,
+            how: How::Shim {
+                shim,
+                convs,
+                byref: true,
+            },
+            rettype: 0,
+            volatile: false,
+        });
         crate::nodes::row::continuation_sites(b, site, nelems);
         return site;
     }
@@ -106,9 +141,25 @@ fn site_of(b: &mut Builder<'_, '_>, nelems: usize, multidims: bool) -> SiteId {
     let n = 1 + crate::nodes::func::mask_words(nelems) + nelems;
     let convs = b.prog.convs.len() as u32;
     for _ in 0..n {
-        b.prog.convs.push_in(ArgConv { kind: ArgKind::V, typlen: 0 });
+        b.prog.convs.push_in(ArgConv {
+            kind: ArgKind::V,
+            typlen: 0,
+        });
     }
-    b.site(Call { funcid: 0, args: Kids::NONE, nargs: n as u8, strict: false, collation: 0, how: How::Shim { shim, convs, byref: true }, rettype: 0, volatile: false })
+    b.site(Call {
+        funcid: 0,
+        args: Kids::NONE,
+        nargs: n as u8,
+        strict: false,
+        collation: 0,
+        how: How::Shim {
+            shim,
+            convs,
+            byref: true,
+        },
+        rettype: 0,
+        volatile: false,
+    })
 }
 
 gravity_abi::host! {
@@ -116,11 +167,33 @@ gravity_abi::host! {
     unsafe fn no_addr() {}
 }
 
-pub static ARRAY_SITE: Shim = Shim { oid: 0, name: "array constructor", family: Family::None, nargs: ARRAY_HEAD as u8, coll: false, region: true, args: &[ArgKind::V, ArgKind::V], tyargs: &[], addr: Addr(no_addr), call: array_shim };
+pub static ARRAY_SITE: Shim = Shim {
+    oid: 0,
+    name: "array constructor",
+    family: Family::None,
+    nargs: ARRAY_HEAD as u8,
+    coll: false,
+    region: true,
+    args: &[ArgKind::V, ArgKind::V],
+    tyargs: &[],
+    addr: Addr(no_addr),
+    call: array_shim,
+};
 
 /// The emitted multidims constructor's site (C `ExecEvalArrayExpr`'s multidims arm): `ARRAY_SITE`'s arguments, each
 /// element an array (its pointer word; a null element is a mask bit, as C skips it), concatenated a dimension up (V4R-85).
-pub static MD_SITE: Shim = Shim { oid: 0, name: "array constructor (multidims)", family: Family::None, nargs: ARRAY_HEAD as u8, coll: false, region: true, args: &[ArgKind::V, ArgKind::V], tyargs: &[], addr: Addr(no_addr), call: md_shim };
+pub static MD_SITE: Shim = Shim {
+    oid: 0,
+    name: "array constructor (multidims)",
+    family: Family::None,
+    nargs: ARRAY_HEAD as u8,
+    coll: false,
+    region: true,
+    args: &[ArgKind::V, ArgKind::V],
+    tyargs: &[],
+    addr: Addr(no_addr),
+    call: md_shim,
+};
 
 fn md_shim(e: *mut ErrSlot, region: *mut Region, _coll: u32, _ty: &[u32], a: &[Arg]) -> Ret {
     let elem = ElemFacts::from_word(a[0].v());
@@ -129,7 +202,11 @@ fn md_shim(e: *mut ErrSlot, region: *mut Region, _coll: u32, _ty: &[u32], a: &[A
     let region = unsafe { &mut *region };
     let r = cells(region, vals.len()).and_then(|subs| {
         for (i, x) in vals.iter().enumerate() {
-            subs[i] = if crate::nodes::func::masked_null(masks, i) { NullableDatum::null() } else { NullableDatum::value(Datum::from_i64(x.v())) };
+            subs[i] = if crate::nodes::func::masked_null(masks, i) {
+                NullableDatum::null()
+            } else {
+                NullableDatum::value(Datum::from_i64(x.v()))
+            };
         }
         concat_arrays(&elem, subs, region)
     });
@@ -139,42 +216,92 @@ fn md_shim(e: *mut ErrSlot, region: *mut Region, _coll: u32, _ty: &[u32], a: &[A
 fn array_shim(e: *mut ErrSlot, region: *mut Region, _coll: u32, _ty: &[u32], a: &[Arg]) -> Ret {
     let elem = ElemFacts::from_word(a[0].v());
     let (masks, vals) = crate::nodes::func::masked(a);
-    let cells = vals.iter().enumerate().map(|(i, x)| (Datum::from_i64(x.v()), crate::nodes::func::masked_null(masks, i)));
+    let cells = vals.iter().enumerate().map(|(i, x)| {
+        (
+            Datum::from_i64(x.v()),
+            crate::nodes::func::masked_null(masks, i),
+        )
+    });
     // SAFETY: the host passes the cell's live region.
-    ret_of(e, form_1d(&elem, cells, vals.len(), unsafe { &mut *region }))
+    ret_of(
+        e,
+        form_1d(&elem, cells, vals.len(), unsafe { &mut *region }),
+    )
 }
 
-pub static ARRAY_WIDE: Shim = Shim { oid: 0, name: "array constructor wide", family: Family::None, nargs: WIDE_HEAD as u8, coll: false, region: true, args: &[ArgKind::V, ArgKind::V, ArgKind::V], tyargs: &[], addr: Addr(no_addr), call: wide_shim };
+pub static ARRAY_WIDE: Shim = Shim {
+    oid: 0,
+    name: "array constructor wide",
+    family: Family::None,
+    nargs: WIDE_HEAD as u8,
+    coll: false,
+    region: true,
+    args: &[ArgKind::V, ArgKind::V, ArgKind::V],
+    tyargs: &[],
+    addr: Addr(no_addr),
+    call: wide_shim,
+};
 
 /// `MD_SITE` past one masked site's sub-arrays.
-pub static MD_WIDE: Shim = Shim { oid: 0, name: "array constructor (multidims) wide", family: Family::None, nargs: WIDE_HEAD as u8, coll: false, region: true, args: &[ArgKind::V, ArgKind::V, ArgKind::V], tyargs: &[], addr: Addr(no_addr), call: md_wide_shim };
+pub static MD_WIDE: Shim = Shim {
+    oid: 0,
+    name: "array constructor (multidims) wide",
+    family: Family::None,
+    nargs: WIDE_HEAD as u8,
+    coll: false,
+    region: true,
+    args: &[ArgKind::V, ArgKind::V, ArgKind::V],
+    tyargs: &[],
+    addr: Addr(no_addr),
+    call: md_wide_shim,
+};
 
 /// A wide site's cells: element `i` with whether it is NULL (mask word `i / 64`, the element word `mask_words(n) + i`).
 ///
 /// # Safety
 /// `cell` is the wide site's own cell of the program's live `EmitState` with its `n` elements' continuation cells stored
 /// (`row::continued_word`).
-unsafe fn wide_cells(cell: *const crate::emit::host::Cell, n: usize) -> impl Iterator<Item = (Datum, bool)> + Clone {
+unsafe fn wide_cells(
+    cell: *const crate::emit::host::Cell,
+    n: usize,
+) -> impl Iterator<Item = (Datum, bool)> + Clone {
     let masks = crate::nodes::func::mask_words(n);
     // SAFETY: the caller's; every word read is below `wide_words(n)`.
-    (0..n).map(move |i| unsafe { (Datum::from_i64(crate::nodes::row::continued_word(cell, masks + i)), (crate::nodes::row::continued_word(cell, i / 64) as u64) >> (i % 64) & 1 != 0) })
+    (0..n).map(move |i| unsafe {
+        (
+            Datum::from_i64(crate::nodes::row::continued_word(cell, masks + i)),
+            (crate::nodes::row::continued_word(cell, i / 64) as u64) >> (i % 64) & 1 != 0,
+        )
+    })
 }
 
 fn wide_shim(e: *mut ErrSlot, region: *mut Region, _coll: u32, _ty: &[u32], a: &[Arg]) -> Ret {
-    let (cell, n, elem) = (a[0].v() as *const crate::emit::host::Cell, a[1].v() as usize, ElemFacts::from_word(a[2].v()));
+    let (cell, n, elem) = (
+        a[0].v() as *const crate::emit::host::Cell,
+        a[1].v() as usize,
+        ElemFacts::from_word(a[2].v()),
+    );
     // SAFETY: the emitted code passes its own cell with the `more_sites(n)` cells after it holding the mask words and the
     // elements, stored before this call (`Em::wide_array`); the host passes the cell's live region.
     unsafe { ret_of(e, form_1d(&elem, wide_cells(cell, n), n, &mut *region)) }
 }
 
 fn md_wide_shim(e: *mut ErrSlot, region: *mut Region, _coll: u32, _ty: &[u32], a: &[Arg]) -> Ret {
-    let (cell, n, elem) = (a[0].v() as *const crate::emit::host::Cell, a[1].v() as usize, ElemFacts::from_word(a[2].v()));
+    let (cell, n, elem) = (
+        a[0].v() as *const crate::emit::host::Cell,
+        a[1].v() as usize,
+        ElemFacts::from_word(a[2].v()),
+    );
     // SAFETY: as `wide_shim`'s.
     let region = unsafe { &mut *region };
     let r = cells(region, n).and_then(|subs| {
         // SAFETY: as `wide_shim`'s.
         for (sub, (v, null)) in subs.iter_mut().zip(unsafe { wide_cells(cell, n) }) {
-            *sub = if null { NullableDatum::null() } else { NullableDatum::value(v) };
+            *sub = if null {
+                NullableDatum::null()
+            } else {
+                NullableDatum::value(v)
+            };
         }
         concat_arrays(&elem, subs, region)
     });
@@ -184,21 +311,32 @@ fn md_wide_shim(e: *mut ErrSlot, region: *mut Region, _coll: u32, _ty: &[u32], a
 /// A constructor site's return: the image, or its error into the cell's slot.
 fn ret_of(e: *mut ErrSlot, r: PgResult<NullableDatum>) -> Ret {
     match r {
-        Ok(v) => Ret { val: v.value.as_i64(), status: OK },
+        Ok(v) => Ret {
+            val: v.value.as_i64(),
+            status: OK,
+        },
         Err(err) => {
             // SAFETY: the host passes the cell's live slot; a previous error in it is dropped through `take`.
             unsafe {
                 drop((*e).take());
                 (*e).err = gravity_abi::word(Box::into_raw(err));
             }
-            Ret { val: 0, status: ERROR }
+            Ret {
+                val: 0,
+                status: ERROR,
+            }
         }
     }
 }
 
 /// C `ExecEvalArrayExpr`'s 1-D arm: the array image built in a scratch context, copied into the region; an array of
 /// by-value elements is written in the region in place (`byval_1d`).
-fn form_1d(elem: &ElemFacts, cells: impl Iterator<Item = (Datum, bool)> + Clone, count: usize, region: &mut Region) -> PgResult<NullableDatum> {
+fn form_1d(
+    elem: &ElemFacts,
+    cells: impl Iterator<Item = (Datum, bool)> + Clone,
+    count: usize,
+    region: &mut Region,
+) -> PgResult<NullableDatum> {
     if elem.byval && matches!(elem.len, 1 | 2 | 4 | 8) && count > 0 {
         return byval_1d(elem, cells, count, region);
     }
@@ -209,7 +347,18 @@ fn form_1d(elem: &ElemFacts, cells: impl Iterator<Item = (Datum, bool)> + Clone,
             values.push(v);
             nulls.push(n);
         }
-        let img = arrayfuncs::construct_md_array(mcx, &values, Some(&nulls), 1, &[count as i32], &[1], elem.typ, elem.len_i32(), elem.byval, elem.align_u8())?;
+        let img = arrayfuncs::construct_md_array(
+            mcx,
+            &values,
+            Some(&nulls),
+            1,
+            &[count as i32],
+            &[1],
+            elem.typ,
+            elem.len_i32(),
+            elem.byval,
+            elem.align_u8(),
+        )?;
         copy_into(region, datum_of(img.as_ptr()), -1).map(NullableDatum::value)
     })
 }
@@ -219,12 +368,23 @@ fn form_1d(elem: &ElemFacts, cells: impl Iterator<Item = (Datum, bool)> + Clone,
 /// stored at its nominal alignment (ArrayCastAndSet's `store_att_byval`), every pad byte zero as palloc0 leaves it. The
 /// same bytes as the scratch build (unit test `a_byval_array_is_construct_md_arrays_image`), without its two vectors,
 /// its second pass over them and the copy.
-fn byval_1d(elem: &ElemFacts, cells: impl Iterator<Item = (Datum, bool)> + Clone, count: usize, region: &mut Region) -> PgResult<NullableDatum> {
-    use arrayfuncs::foundation::{arr_overhead_nonulls, arr_overhead_withnulls, att_align_nominal, ARRAYTYPE_HDRSZ};
+fn byval_1d(
+    elem: &ElemFacts,
+    cells: impl Iterator<Item = (Datum, bool)> + Clone,
+    count: usize,
+    region: &mut Region,
+) -> PgResult<NullableDatum> {
+    use arrayfuncs::foundation::{
+        arr_overhead_nonulls, arr_overhead_withnulls, att_align_nominal, ARRAYTYPE_HDRSZ,
+    };
     let (len, align) = (elem.len as usize, elem.align_u8());
     let step = att_align_nominal(len, align);
     let nulls = cells.clone().filter(|c| c.1).count();
-    let head = if nulls > 0 { arr_overhead_withnulls(1, count as i32) } else { arr_overhead_nonulls(1) };
+    let head = if nulls > 0 {
+        arr_overhead_withnulls(1, count as i32)
+    } else {
+        arr_overhead_nonulls(1)
+    };
     let total = head + (count - nulls) * step;
     let p = region.reserve(total).ok_or_else(no_space)?;
     // SAFETY: `p .. p + total` is the region's, reserved above and 8-byte aligned; every byte is zeroed before any is read.
@@ -232,7 +392,8 @@ fn byval_1d(elem: &ElemFacts, cells: impl Iterator<Item = (Datum, bool)> + Clone
         core::ptr::write_bytes(p, 0, total);
         let word = |at: usize, v: u32| core::ptr::write_unaligned(p.add(at) as *mut u32, v);
         // ArrayType: the 4-byte varlena header, ndim, dataoffset (0 without a bitmap), elemtype; then dims and lbounds
-        p.cast::<[u8; 4]>().write(datum::varlena::set_varsize_4b(total));
+        p.cast::<[u8; 4]>()
+            .write(datum::varlena::set_varsize_4b(total));
         word(4, 1);
         word(8, if nulls > 0 { head as u32 } else { 0 });
         word(12, elem.typ);
@@ -303,16 +464,32 @@ impl NodeId {
     pub const NONE: NodeId = NodeId(u32::MAX);
 }
 
-pub fn compile_array_expr<'mcx>(b: &mut Builder<'_, 'mcx>, a: &ArrayExprTree<'mcx>) -> CompileResult<NodeId> {
+pub fn compile_array_expr<'mcx>(
+    b: &mut Builder<'_, 'mcx>,
+    a: &ArrayExprTree<'mcx>,
+) -> CompileResult<NodeId> {
     let elem = facts_of_elem(b.catalog, a.element_typeid)?;
     let elements = b.kids(&a.elements)?;
     let site = site_of(b, elements.len as usize, a.multidims);
-    Ok(b.push(ExprNode::Array(ArrayExpr { elements, array_type: a.array_typeid, elem, multidims: a.multidims, site })))
+    Ok(b.push(ExprNode::Array(ArrayExpr {
+        elements,
+        array_type: a.array_typeid,
+        elem,
+        multidims: a.multidims,
+        site,
+    })))
 }
 
-pub fn compile_array_coerce<'mcx>(b: &mut Builder<'_, 'mcx>, a: &ArrayCoerceExpr<'mcx>) -> CompileResult<NodeId> {
+pub fn compile_array_coerce<'mcx>(
+    b: &mut Builder<'_, 'mcx>,
+    a: &ArrayCoerceExpr<'mcx>,
+) -> CompileResult<NodeId> {
     let arg = b.compile(a.arg)?;
-    let inp = elem_facts_of(b.catalog, nodes_core::expr_type(a.arg), Kind::ArrayCoerceExpr)?;
+    let inp = elem_facts_of(
+        b.catalog,
+        nodes_core::expr_type(a.arg),
+        Kind::ArrayCoerceExpr,
+    )?;
     let out = elem_facts_of(b.catalog, a.resulttype, Kind::ArrayCoerceExpr)?;
     let elemexpr = match a.elemexpr {
         Some(e) => Some(b.compile(e)?).filter(|&id| !trivial(b, id)),
@@ -334,7 +511,13 @@ pub fn compile_array_coerce<'mcx>(b: &mut Builder<'_, 'mcx>, a: &ArrayCoerceExpr
             }
         }
     }
-    Ok(b.push(ExprNode::ArrayCoerce(ArrayCoerce { arg, elemexpr, result_type: a.resulttype, out, inp })))
+    Ok(b.push(ExprNode::ArrayCoerce(ArrayCoerce {
+        arg,
+        elemexpr,
+        result_type: a.resulttype,
+        out,
+        inp,
+    })))
 }
 
 /// C ExecInitExprRec's `T_ArrayCoerceExpr` (execExpr.c): an element expression that compiles to its `CaseTestExpr` alone (a
@@ -350,7 +533,10 @@ fn trivial(b: &Builder<'_, '_>, mut id: NodeId) -> bool {
     }
 }
 
-pub fn compile_subscript<'mcx>(b: &mut Builder<'_, 'mcx>, s: &SubscriptingRef<'mcx>) -> CompileResult<NodeId> {
+pub fn compile_subscript<'mcx>(
+    b: &mut Builder<'_, 'mcx>,
+    s: &SubscriptingRef<'mcx>,
+) -> CompileResult<NodeId> {
     let (typsubscript, _) = lsyscache::get_typsubscript(s.refcontainertype)?;
     if typsubscript == 0 {
         return Err(no_subscripting(s.refcontainertype).into());
@@ -363,7 +549,10 @@ pub fn compile_subscript<'mcx>(b: &mut Builder<'_, 'mcx>, s: &SubscriptingRef<'m
     let handler = match typsubscript {
         F_ARRAY_SUBSCRIPT_HANDLER | F_RAW_ARRAY_SUBSCRIPT_HANDLER => {
             let attrlen = b.catalog.type_facts(s.refcontainertype)?.len as i32;
-            Handler::Array { attrlen, elem: facts_of_elem(b.catalog, s.refelemtype)? }
+            Handler::Array {
+                attrlen,
+                elem: facts_of_elem(b.catalog, s.refelemtype)?,
+            }
         }
         F_JSONB_SUBSCRIPT_HANDLER => {
             if nlower != 0 {
@@ -380,7 +569,9 @@ pub fn compile_subscript<'mcx>(b: &mut Builder<'_, 'mcx>, s: &SubscriptingRef<'m
         h if nupper == 1 && nlower == 0 && is_hstore_handler(h)? => Handler::Hstore,
         _ => return unsupported(Kind::SubscriptingRef),
     };
-    let Some(refexpr) = s.refexpr else { return unsupported(Kind::SubscriptingRef) };
+    let Some(refexpr) = s.refexpr else {
+        return unsupported(Kind::SubscriptingRef);
+    };
     let container = b.compile(refexpr)?;
     let mut ids = [NodeId::NONE; MAXDIM];
     for (i, e) in s.refupperindexpr.iter().enumerate() {
@@ -403,22 +594,50 @@ pub fn compile_subscript<'mcx>(b: &mut Builder<'_, 'mcx>, s: &SubscriptingRef<'m
     let container_is_param = assign.is_some() && refexpr.node_tag() == NodeTag::T_Param;
     let fetch_old = s.refassgnexpr.is_some_and(is_indirection);
     let byref = !matches!(handler, Handler::Array { elem, .. } if nlower == 0 && elem.byval);
-    let provided = s.refupperindexpr.iter().chain(s.reflowerindexpr.iter()).filter(|e| e.is_some()).count();
+    let provided = s
+        .refupperindexpr
+        .iter()
+        .chain(s.reflowerindexpr.iter())
+        .filter(|e| e.is_some())
+        .count();
     // an assignment's site is the store's (emit/store.rs: the old value and the assignment); a fetch's the fetch's
-    let site = if assign.is_some() { crate::emit::store::sbs_store_site(b, provided) } else { crate::nodes::subscript::fetch_site(b, provided, byref) };
-    Ok(b.push(ExprNode::Subscripting(Subscript { container, upper, lower, assign, handler, result_type: s.refrestype, container_is_param, fetch_old, site })))
+    let site = if assign.is_some() {
+        crate::emit::store::sbs_store_site(b, provided)
+    } else {
+        crate::nodes::subscript::fetch_site(b, provided, byref)
+    };
+    Ok(b.push(ExprNode::Subscripting(Subscript {
+        container,
+        upper,
+        lower,
+        assign,
+        handler,
+        result_type: s.refrestype,
+        container_is_param,
+        fetch_old,
+        site,
+    })))
 }
 
 fn is_hstore_handler(funcid: Oid) -> PgResult<bool> {
-    with_scratch(|mcx| Ok(lsyscache::get_func_prosrc(mcx, funcid)?.is_some_and(|n| n.as_str() == "hstore_subscript_handler")))
+    with_scratch(|mcx| {
+        Ok(lsyscache::get_func_prosrc(mcx, funcid)?
+            .is_some_and(|n| n.as_str() == "hstore_subscript_handler"))
+    })
 }
 
 /// C `isAssignmentIndirectionExpr`: through a domain coercion and a relabel (a domain-typed field or element's store).
 fn is_indirection(n: types_nodes::Node<'_>) -> bool {
     crate::stack_check();
     match n.node_tag() {
-        NodeTag::T_FieldStore => n.as_field_store().unwrap().arg.node_tag() == NodeTag::T_CaseTestExpr,
-        NodeTag::T_SubscriptingRef => n.as_subscripting_ref().unwrap().refexpr.is_some_and(|r| r.node_tag() == NodeTag::T_CaseTestExpr),
+        NodeTag::T_FieldStore => {
+            n.as_field_store().unwrap().arg.node_tag() == NodeTag::T_CaseTestExpr
+        }
+        NodeTag::T_SubscriptingRef => n
+            .as_subscripting_ref()
+            .unwrap()
+            .refexpr
+            .is_some_and(|r| r.node_tag() == NodeTag::T_CaseTestExpr),
         NodeTag::T_CoerceToDomain => is_indirection(n.as_coerce_to_domain().unwrap().arg),
         NodeTag::T_RelabelType => is_indirection(n.as_relabel_type().unwrap().arg),
         _ => false,
@@ -428,12 +647,19 @@ fn is_indirection(n: types_nodes::Node<'_>) -> bool {
 /// `n` `NullableDatum` cells in the region (a per-evaluation scratch the window reset reclaims).
 #[inline]
 fn cells<'a>(region: &mut Region, n: usize) -> PgResult<&'a mut [NullableDatum]> {
-    let p = region.reserve(n * core::mem::size_of::<NullableDatum>()).ok_or_else(no_space)?;
+    let p = region
+        .reserve(n * core::mem::size_of::<NullableDatum>())
+        .ok_or_else(no_space)?;
     // SAFETY: `reserve` returned `n` cells' worth of 8-aligned bytes inside the caller's region.
     Ok(unsafe { core::slice::from_raw_parts_mut(p.cast::<NullableDatum>(), n) })
 }
 
-pub fn eval_array_expr(p: &Prog<'_, '_>, st: &mut St<'_>, n: &ArrayExpr, cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
+pub fn eval_array_expr(
+    p: &Prog<'_, '_>,
+    st: &mut St<'_>,
+    n: &ArrayExpr,
+    cx: &mut Cx<'_, '_>,
+) -> PgResult<NullableDatum> {
     let count = n.elements.len as usize;
     let elems = cells(cx.region, count)?;
     for (i, cell) in elems.iter_mut().enumerate() {
@@ -442,12 +668,21 @@ pub fn eval_array_expr(p: &Prog<'_, '_>, st: &mut St<'_>, n: &ArrayExpr, cx: &mu
     if n.multidims {
         return concat_arrays(&n.elem, elems, cx.region);
     }
-    form_1d(&n.elem, elems.iter().map(|e| (e.value, e.isnull)), count, cx.region)
+    form_1d(
+        &n.elem,
+        elems.iter().map(|e| (e.value, e.isnull)),
+        count,
+        cx.region,
+    )
 }
 
 /// The multidims arm of C `ExecEvalArrayExpr`: the element arrays concatenated into one of a
 /// dimension more, straight into the region.
-fn concat_arrays(elem: &ElemFacts, elems: &[NullableDatum], region: &mut Region) -> PgResult<NullableDatum> {
+fn concat_arrays(
+    elem: &ElemFacts,
+    elems: &[NullableDatum],
+    region: &mut Region,
+) -> PgResult<NullableDatum> {
     let mut ndims = 0i32;
     let mut elem_ndims = 0i32;
     let mut elem_dims = [0i32; MAXDIM];
@@ -485,7 +720,11 @@ fn concat_arrays(elem: &ElemFacts, elems: &[NullableDatum], region: &mut Region)
             }
             first = false;
         } else {
-            let same = elem_ndims == this_ndims && (0..elem_ndims as usize).all(|i| elem_dims[i] == arrayfuncs::arr_dim(arr, i) && elem_lbs[i] == arrayfuncs::arr_lbound(arr, i));
+            let same = elem_ndims == this_ndims
+                && (0..elem_ndims as usize).all(|i| {
+                    elem_dims[i] == arrayfuncs::arr_dim(arr, i)
+                        && elem_lbs[i] == arrayfuncs::arr_lbound(arr, i)
+                });
             if !same {
                 return Err(dims_mismatch_error());
             }
@@ -515,8 +754,17 @@ fn concat_arrays(elem: &ElemFacts, elems: &[NullableDatum], region: &mut Region)
     }
     let nitems = arrayutils::array_get_n_items(ndims, &dims)?;
     arrayutils::array_check_bounds(ndims, &dims, &lbs)?;
-    let dataoffset = if havenulls { arrayfuncs::foundation::arr_overhead_withnulls(ndims, nitems) } else { 0 };
-    let total = nbytes + if havenulls { dataoffset } else { arrayfuncs::foundation::arr_overhead_nonulls(ndims) };
+    let dataoffset = if havenulls {
+        arrayfuncs::foundation::arr_overhead_withnulls(ndims, nitems)
+    } else {
+        0
+    };
+    let total = nbytes
+        + if havenulls {
+            dataoffset
+        } else {
+            arrayfuncs::foundation::arr_overhead_nonulls(ndims)
+        };
     let out = region.reserve(total).ok_or_else(no_space)?;
     // SAFETY: `total` bytes reserved; the header, dims and data are written in order below.
     let out = unsafe { core::slice::from_raw_parts_mut(out, total) };
@@ -539,7 +787,12 @@ fn concat_arrays(elem: &ElemFacts, elems: &[NullableDatum], region: &mut Region)
     let mut iitem = 0i32;
     for s in &subs[..outer] {
         // SAFETY: each entry is a plain image `image_view` sized above.
-        let sub = unsafe { core::slice::from_raw_parts(s.value.as_usize() as *const u8, varatt::varsize_4b(s.value.as_usize() as *const u8)) };
+        let sub = unsafe {
+            core::slice::from_raw_parts(
+                s.value.as_usize() as *const u8,
+                varatt::varsize_4b(s.value.as_usize() as *const u8),
+            )
+        };
         let data_off = arrayfuncs::arr_data_offset(sub);
         let bytes = arrayfuncs::arr_size(sub) - data_off;
         out[dat..dat + bytes].copy_from_slice(&sub[data_off..data_off + bytes]);
@@ -547,7 +800,14 @@ fn concat_arrays(elem: &ElemFacts, elems: &[NullableDatum], region: &mut Region)
         let (nd, sd, _) = arrayfuncs::read_dims_lbounds(sub);
         let nitems = arrayutils::array_get_n_items(nd, &sd)?;
         if let Some(dbo) = dest_bitmap {
-            arrayfuncs::element::array_bitmap_copy(out, dbo, iitem, arrayfuncs::foundation::arr_nullbitmap_off(sub).map(|bo| (sub, bo)), 0, nitems);
+            arrayfuncs::element::array_bitmap_copy(
+                out,
+                dbo,
+                iitem,
+                arrayfuncs::foundation::arr_nullbitmap_off(sub).map(|bo| (sub, bo)),
+                0,
+                nitems,
+            );
         }
         iitem += nitems;
     }
@@ -565,7 +825,12 @@ pub fn empty_array(region: &mut Region, elemtype: Oid) -> PgResult<NullableDatum
     Ok(NullableDatum::value(datum_of(out.as_ptr())))
 }
 
-pub fn eval_array_coerce(p: &Prog<'_, '_>, st: &mut St<'_>, n: &ArrayCoerce, cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
+pub fn eval_array_coerce(
+    p: &Prog<'_, '_>,
+    st: &mut St<'_>,
+    n: &ArrayCoerce,
+    cx: &mut Cx<'_, '_>,
+) -> PgResult<NullableDatum> {
     let v = eval(p, st, n.arg, cx)?;
     if v.isnull {
         return Ok(v);
@@ -574,12 +839,21 @@ pub fn eval_array_coerce(p: &Prog<'_, '_>, st: &mut St<'_>, n: &ArrayCoerce, cx:
     let Some(elemexpr) = n.elemexpr else {
         let d = copy_into(cx.region, datum_of(img.ptr), -1)?;
         // SAFETY: the copy is a plain image of at least 16 bytes; word 3 is the element type.
-        unsafe { (d.as_usize() as *mut u8).add(12).cast::<u32>().write_unaligned(n.out.typ) };
+        unsafe {
+            (d.as_usize() as *mut u8)
+                .add(12)
+                .cast::<u32>()
+                .write_unaligned(n.out.typ)
+        };
         return Ok(NullableDatum::value(d));
     };
     let arr = img.bytes();
     let elemtype = arrayfuncs::arr_elemtype(arr);
-    let inp = if elemtype == n.inp.typ { n.inp } else { runtime_elem_facts(elemtype)? };
+    let inp = if elemtype == n.inp.typ {
+        n.inp
+    } else {
+        runtime_elem_facts(elemtype)?
+    };
     let (ndim, dims, lbs) = arrayfuncs::read_dims_lbounds(arr);
     let mut walk = Walk::over(datum_of(img.ptr), inp, cx.region)?;
     let count = walk.len();
@@ -594,7 +868,13 @@ pub fn eval_array_coerce(p: &Prog<'_, '_>, st: &mut St<'_>, n: &ArrayCoerce, cx:
         cx.casetest = e;
         // a by-reference element lives in its site's result context only until the site's next call (the next element):
         // copied into the region first, as C's per-element results live in the per-tuple context
-        let r = eval(p, st, elemexpr, cx).and_then(|r| if r.isnull || n.out.byval { Ok(r) } else { copy_into(cx.region, r.value, n.out.len).map(NullableDatum::value) });
+        let r = eval(p, st, elemexpr, cx).and_then(|r| {
+            if r.isnull || n.out.byval {
+                Ok(r)
+            } else {
+                copy_into(cx.region, r.value, n.out.len).map(NullableDatum::value)
+            }
+        });
         match r {
             Ok(r) => outs[i] = r,
             Err(err) => break Err(err),
@@ -612,7 +892,18 @@ pub fn eval_array_coerce(p: &Prog<'_, '_>, st: &mut St<'_>, n: &ArrayCoerce, cx:
             nulls.push(o.isnull);
             hasnulls |= o.isnull;
         }
-        let img = arrayfuncs::construct_md_array(mcx, &values, hasnulls.then_some(&nulls[..]), ndim, &dims[..ndim as usize], &lbs[..ndim as usize], n.out.typ, n.out.len_i32(), n.out.byval, n.out.align_u8())?;
+        let img = arrayfuncs::construct_md_array(
+            mcx,
+            &values,
+            hasnulls.then_some(&nulls[..]),
+            ndim,
+            &dims[..ndim as usize],
+            &lbs[..ndim as usize],
+            n.out.typ,
+            n.out.len_i32(),
+            n.out.byval,
+            n.out.align_u8(),
+        )?;
         copy_into(cx.region, datum_of(img.as_ptr()), -1).map(NullableDatum::value)
     })
 }
@@ -621,7 +912,12 @@ pub fn eval_array_coerce(p: &Prog<'_, '_>, st: &mut St<'_>, n: &ArrayCoerce, cx:
 #[inline(never)]
 fn runtime_elem_facts(elemtype: Oid) -> PgResult<ElemFacts> {
     let (len, byval, align) = gravity_fn::typesem::expr::layout(elemtype)?;
-    Ok(ElemFacts { typ: elemtype, len, byval, align })
+    Ok(ElemFacts {
+        typ: elemtype,
+        len,
+        byval,
+        align,
+    })
 }
 
 /// The subscripts of one evaluation: C `array_subscript_check_subscripts`' output.
@@ -636,17 +932,32 @@ pub(crate) struct Subs {
 
 impl Subs {
     pub(crate) fn new() -> Subs {
-        Subs { upper: [0; MAXDIM], lower: [0; MAXDIM], upper_provided: [false; MAXDIM], lower_provided: [false; MAXDIM], index: [Datum::null(); MAXDIM] }
+        Subs {
+            upper: [0; MAXDIM],
+            lower: [0; MAXDIM],
+            upper_provided: [false; MAXDIM],
+            lower_provided: [false; MAXDIM],
+            index: [Datum::null(); MAXDIM],
+        }
     }
 }
 
 /// Evaluate the subscripts; `Ok(false)` when a fetch subscript was null (the result is null). Every subscript is
 /// evaluated before the nulls are looked at (C: the `SBSREF_SUBSCRIPTS` step follows all of the subscripts' steps),
 /// so a later subscript's raise is not lost to an earlier null.
-fn eval_subscripts(p: &Prog<'_, '_>, st: &mut St<'_>, n: &Subscript, cx: &mut Cx<'_, '_>, s: &mut Subs) -> PgResult<bool> {
+fn eval_subscripts(
+    p: &Prog<'_, '_>,
+    st: &mut St<'_>,
+    n: &Subscript,
+    cx: &mut Cx<'_, '_>,
+    s: &mut Subs,
+) -> PgResult<bool> {
     let assign = n.assign.is_some();
     let mut null_seen = false;
-    for (list, idx, provided) in [(n.upper, &mut s.upper, &mut s.upper_provided), (n.lower, &mut s.lower, &mut s.lower_provided)] {
+    for (list, idx, provided) in [
+        (n.upper, &mut s.upper, &mut s.upper_provided),
+        (n.lower, &mut s.lower, &mut s.lower_provided),
+    ] {
         for i in 0..list.len as usize {
             let id = p.kids[list.start as usize + i];
             if id == NodeId::NONE {
@@ -684,13 +995,19 @@ pub(crate) fn int4_as_text(v: i32, region: &mut Region) -> PgResult<Datum> {
     let out = region.reserve(len + 4).ok_or_else(no_space)?;
     // SAFETY: `len + 4` bytes reserved.
     unsafe {
-        out.cast::<[u8; 4]>().write_unaligned(datum::set_varsize_4b(len + 4));
+        out.cast::<[u8; 4]>()
+            .write_unaligned(datum::set_varsize_4b(len + 4));
         core::ptr::copy_nonoverlapping(buf.as_ptr(), out.add(4), len);
     }
     Ok(datum_of(out))
 }
 
-pub fn eval_subscript(p: &Prog<'_, '_>, st: &mut St<'_>, n: &Subscript, cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
+pub fn eval_subscript(
+    p: &Prog<'_, '_>,
+    st: &mut St<'_>,
+    n: &Subscript,
+    cx: &mut Cx<'_, '_>,
+) -> PgResult<NullableDatum> {
     let cur = eval(p, st, n.container, cx)?;
     if n.assign.is_none() && cur.isnull {
         return Ok(cur);
@@ -700,25 +1017,65 @@ pub fn eval_subscript(p: &Prog<'_, '_>, st: &mut St<'_>, n: &Subscript, cx: &mut
         return Ok(NullableDatum::null());
     }
     let Some(assign) = n.assign else {
-        return fetch(n.handler, n.upper.len as usize, n.lower.len != 0, cur, &mut s, cx.region);
+        return fetch(
+            n.handler,
+            n.upper.len as usize,
+            n.lower.len != 0,
+            cur,
+            &mut s,
+            cx.region,
+        );
     };
     // The old element reaches a nested indirection through `CaseTest` (C `EEOP_SBSREF_OLD`).
     let saved = cx.casetest;
     if n.fetch_old {
-        cx.casetest = if cur.isnull { NullableDatum::null() } else { fetch(n.handler, n.upper.len as usize, n.lower.len != 0, cur, &mut s, cx.region)? };
+        cx.casetest = if cur.isnull {
+            NullableDatum::null()
+        } else {
+            fetch(
+                n.handler,
+                n.upper.len as usize,
+                n.lower.len != 0,
+                cur,
+                &mut s,
+                cx.region,
+            )?
+        };
     }
     let replace = eval(p, st, assign, cx);
     cx.casetest = saved;
     let replace = replace?;
     match n.handler {
-        Handler::Array { attrlen, elem } => assign_array(n.upper.len as usize, n.lower.len != 0, n.container_is_param, attrlen, elem, cur, replace, &mut s, cx.region),
-        Handler::Jsonb { int4_index } => assign_jsonb(int4_index, n.upper.len as usize, cur, replace, &s, cx.region),
+        Handler::Array { attrlen, elem } => assign_array(
+            n.upper.len as usize,
+            n.lower.len != 0,
+            n.container_is_param,
+            attrlen,
+            elem,
+            cur,
+            replace,
+            &mut s,
+            cx.region,
+        ),
+        Handler::Jsonb { int4_index } => assign_jsonb(
+            int4_index,
+            n.upper.len as usize,
+            cur,
+            replace,
+            &s,
+            cx.region,
+        ),
         Handler::Hstore => assign_hstore(cur, replace, &s, cx.region),
     }
 }
 
 /// The hstore handler's assignment (C `hstore_subscript_assign`): one body for the interpreter and the emitted store.
-pub(crate) fn assign_hstore(cur: NullableDatum, replace: NullableDatum, s: &Subs, region: &mut Region) -> PgResult<NullableDatum> {
+pub(crate) fn assign_hstore(
+    cur: NullableDatum,
+    replace: NullableDatum,
+    s: &Subs,
+    region: &mut Region,
+) -> PgResult<NullableDatum> {
     with_scratch(|mcx| {
         let d = hstore_subs_seams::hstore_subs_assign::call(mcx, cur, s.index[0], replace)?;
         copy_into(region, d, -1).map(NullableDatum::value)
@@ -726,31 +1083,66 @@ pub(crate) fn assign_hstore(cur: NullableDatum, replace: NullableDatum, s: &Subs
 }
 
 /// The jsonb handler's assignment: one body for the interpreter and the emitted store (emit/store.rs).
-pub(crate) fn assign_jsonb(int4_index: [bool; MAXDIM], nupper: usize, cur: NullableDatum, replace: NullableDatum, s: &Subs, region: &mut Region) -> PgResult<NullableDatum> {
+pub(crate) fn assign_jsonb(
+    int4_index: [bool; MAXDIM],
+    nupper: usize,
+    cur: NullableDatum,
+    replace: NullableDatum,
+    s: &Subs,
+    region: &mut Region,
+) -> PgResult<NullableDatum> {
     let expect_array = nupper > 0 && int4_index[0];
     with_scratch(|mcx| {
-        let d = adt_jsonb::subs::subscript_assign(mcx, cur, expect_array, &s.index[..nupper], replace)?;
+        let d =
+            adt_jsonb::subs::subscript_assign(mcx, cur, expect_array, &s.index[..nupper], replace)?;
         copy_into(region, d, -1).map(NullableDatum::value)
     })
 }
 
 /// The fetch over checked subscripts: one body for the interpreter and for the emitted site (`subscript::SUBSCRIPT_SITE`).
-pub(crate) fn fetch(handler: Handler, nupper: usize, slice: bool, cur: NullableDatum, s: &mut Subs, region: &mut Region) -> PgResult<NullableDatum> {
+pub(crate) fn fetch(
+    handler: Handler,
+    nupper: usize,
+    slice: bool,
+    cur: NullableDatum,
+    s: &mut Subs,
+    region: &mut Region,
+) -> PgResult<NullableDatum> {
     match handler {
         Handler::Array { attrlen, elem } => {
             let arr = container_bytes(cur.value, attrlen, region)?;
             if !slice {
-                let (value, isnull) = arrayfuncs::array_get_element(arr, &s.upper[..nupper], attrlen, elem.len_i32(), elem.byval, elem.align_u8());
+                let (value, isnull) = arrayfuncs::array_get_element(
+                    arr,
+                    &s.upper[..nupper],
+                    attrlen,
+                    elem.len_i32(),
+                    elem.byval,
+                    elem.align_u8(),
+                );
                 return Ok(NullableDatum { value, isnull });
             }
             with_scratch(|mcx| {
-                let img = arrayfuncs::array_get_slice(mcx, arr, nupper as i32, &mut s.upper, &mut s.lower, &s.upper_provided, &s.lower_provided, attrlen, elem.len_i32(), elem.align_u8())?;
+                let img = arrayfuncs::array_get_slice(
+                    mcx,
+                    arr,
+                    nupper as i32,
+                    &mut s.upper,
+                    &mut s.lower,
+                    &s.upper_provided,
+                    &s.lower_provided,
+                    attrlen,
+                    elem.len_i32(),
+                    elem.align_u8(),
+                )?;
                 copy_into(region, datum_of(img.as_ptr()), -1).map(NullableDatum::value)
             })
         }
         Handler::Jsonb { .. } | Handler::Hstore => with_scratch(|mcx| {
             let r = match handler {
-                Handler::Hstore => hstore_subs_seams::hstore_subs_fetch::call(mcx, cur.value, s.index[0])?,
+                Handler::Hstore => {
+                    hstore_subs_seams::hstore_subs_fetch::call(mcx, cur.value, s.index[0])?
+                }
                 _ => adt_jsonb::subs::subscript_fetch(mcx, cur.value, &s.index[..nupper])?,
             };
             if r.isnull {
@@ -765,14 +1157,26 @@ pub(crate) fn fetch(handler: Handler, nupper: usize, slice: bool, cur: NullableD
 fn container_bytes<'a>(d: Datum, attrlen: i32, region: &mut Region) -> PgResult<&'a [u8]> {
     if attrlen > 0 {
         // SAFETY: a fixed-length by-reference datum addresses `attrlen` bytes.
-        return Ok(unsafe { core::slice::from_raw_parts(d.as_usize() as *const u8, attrlen as usize) });
+        return Ok(unsafe {
+            core::slice::from_raw_parts(d.as_usize() as *const u8, attrlen as usize)
+        });
     }
     Ok(image_view(d, -1, region)?.bytes())
 }
 
 /// The array handler's assignment (one body for the interpreter and the emitted store, emit/store.rs).
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn assign_array(nupper: usize, slice: bool, container_is_param: bool, attrlen: i32, elem: ElemFacts, cur: NullableDatum, replace: NullableDatum, s: &mut Subs, region: &mut Region) -> PgResult<NullableDatum> {
+pub(crate) fn assign_array(
+    nupper: usize,
+    slice: bool,
+    container_is_param: bool,
+    attrlen: i32,
+    elem: ElemFacts,
+    cur: NullableDatum,
+    replace: NullableDatum,
+    s: &mut Subs,
+    region: &mut Region,
+) -> PgResult<NullableDatum> {
     if attrlen > 0 && (cur.isnull || replace.isnull) {
         return Ok(cur);
     }
@@ -789,10 +1193,26 @@ pub(crate) fn assign_array(nupper: usize, slice: bool, container_is_param: bool,
             replace.value = datum_of(image_view(replace.value, -1, region)?.ptr);
         }
         return with_scratch(|mcx| {
-            let img = arrayfuncs::element::array_set_element_ext(mcx, arr, &s.upper[..nupper], replace.value, replace.isnull, attrlen, elem.len_i32(), elem.byval, elem.align_u8(), container_is_param && !cur.isnull)?;
+            let img = arrayfuncs::element::array_set_element_ext(
+                mcx,
+                arr,
+                &s.upper[..nupper],
+                replace.value,
+                replace.isnull,
+                attrlen,
+                elem.len_i32(),
+                elem.byval,
+                elem.align_u8(),
+                container_is_param && !cur.isnull,
+            )?;
             // D772: a fixed-length container's result is its `attrlen` bytes (array_set_element's copy of the whole
             // datum), not a varlena: copied as one, its first bytes read as a length header lost the value
-            copy_into(region, datum_of(img.as_ptr()), if attrlen > 0 { attrlen as i16 } else { -1 }).map(NullableDatum::value)
+            copy_into(
+                region,
+                datum_of(img.as_ptr()),
+                if attrlen > 0 { attrlen as i16 } else { -1 },
+            )
+            .map(NullableDatum::value)
         });
     }
     // C array_set_slice: a fixed-length array type's slice update raises before the replacement is read (it is not an
@@ -801,11 +1221,28 @@ pub(crate) fn assign_array(nupper: usize, slice: bool, container_is_param: bool,
         return Err(fixed_slice_update());
     }
     if replace.isnull {
-        return Ok(if cur.isnull { NullableDatum::value(datum_of(arr.as_ptr())) } else { cur });
+        return Ok(if cur.isnull {
+            NullableDatum::value(datum_of(arr.as_ptr()))
+        } else {
+            cur
+        });
     }
     let src = image_view(replace.value, -1, region)?.bytes();
     with_scratch(|mcx| {
-        let img = arrayfuncs::array_set_slice(mcx, arr, nupper as i32, &mut s.upper, &mut s.lower, &s.upper_provided, &s.lower_provided, src, attrlen, elem.len_i32(), elem.byval, elem.align_u8())?;
+        let img = arrayfuncs::array_set_slice(
+            mcx,
+            arr,
+            nupper as i32,
+            &mut s.upper,
+            &mut s.lower,
+            &s.upper_provided,
+            &s.lower_provided,
+            src,
+            attrlen,
+            elem.len_i32(),
+            elem.byval,
+            elem.align_u8(),
+        )?;
         copy_into(region, datum_of(img.as_ptr()), -1).map(NullableDatum::value)
     })
 }
@@ -825,13 +1262,21 @@ pub fn with_scratch<R>(f: impl FnOnce(Mcx<'_>) -> PgResult<R>) -> PgResult<R> {
 #[inline(never)]
 fn no_subscripting(typ: Oid) -> Box<PgError> {
     let name = format_type::format_type_be(typ).unwrap_or_else(|_| typ.to_string()); // alloc: Cold
-    Box::new(PgError::error(format!("cannot subscript type {name} because it does not support subscripting")).with_sqlstate(types_error::ERRCODE_DATATYPE_MISMATCH)) // alloc: Cold
+    Box::new(
+        PgError::error(format!(
+            "cannot subscript type {name} because it does not support subscripting"
+        ))
+        .with_sqlstate(types_error::ERRCODE_DATATYPE_MISMATCH),
+    ) // alloc: Cold
 }
 
 #[cold]
 #[inline(never)]
 fn fixed_slice_update() -> Box<PgError> {
-    Box::new(PgError::error("updates on slices of fixed-length arrays not implemented").with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED)) // alloc: Cold
+    Box::new(
+        PgError::error("updates on slices of fixed-length arrays not implemented")
+            .with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED),
+    ) // alloc: Cold
 }
 
 #[cold]
@@ -842,7 +1287,10 @@ pub(crate) fn null_subscript_error(h: Handler) -> Box<PgError> {
         Handler::Jsonb { .. } => "jsonb",
         Handler::Hstore => "hstore",
     };
-    Box::new(PgError::error(format!("{what} subscript in assignment must not be null")).with_sqlstate(types_error::ERRCODE_NULL_VALUE_NOT_ALLOWED)) // alloc: Cold
+    Box::new(
+        PgError::error(format!("{what} subscript in assignment must not be null"))
+            .with_sqlstate(types_error::ERRCODE_NULL_VALUE_NOT_ALLOWED),
+    ) // alloc: Cold
 }
 
 #[cold]
@@ -850,25 +1298,42 @@ pub(crate) fn null_subscript_error(h: Handler) -> Box<PgError> {
 fn array_merge_error(want: Oid, got: Oid) -> Box<PgError> {
     let w = format_type::format_type_be(want).unwrap_or_else(|_| want.to_string()); // alloc: Cold
     let g = format_type::format_type_be(got).unwrap_or_else(|_| got.to_string()); // alloc: Cold
-    Box::new(PgError::error("cannot merge incompatible arrays").with_sqlstate(types_error::ERRCODE_DATATYPE_MISMATCH).with_detail(format!("Array with element type {g} cannot be included in ARRAY construct with element type {w}."))) // alloc: Cold
+    Box::new(PgError::error("cannot merge incompatible arrays").with_sqlstate(types_error::ERRCODE_DATATYPE_MISMATCH).with_detail(format!("Array with element type {g} cannot be included in ARRAY construct with element type {w}.")))
+    // alloc: Cold
 }
 
 #[cold]
 #[inline(never)]
 fn dims_mismatch_error() -> Box<PgError> {
-    Box::new(PgError::error("multidimensional arrays must have array expressions with matching dimensions").with_sqlstate(types_error::ERRCODE_ARRAY_SUBSCRIPT_ERROR)) // alloc: Cold
+    Box::new(
+        PgError::error(
+            "multidimensional arrays must have array expressions with matching dimensions",
+        )
+        .with_sqlstate(types_error::ERRCODE_ARRAY_SUBSCRIPT_ERROR),
+    ) // alloc: Cold
 }
 
 #[cold]
 #[inline(never)]
 fn too_many_dims(ndims: i32) -> Box<PgError> {
-    Box::new(PgError::error(format!("number of array dimensions ({ndims}) exceeds the maximum allowed ({MAXDIM})")).with_sqlstate(types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED)) // alloc: Cold
+    Box::new(
+        PgError::error(format!(
+            "number of array dimensions ({ndims}) exceeds the maximum allowed ({MAXDIM})"
+        ))
+        .with_sqlstate(types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+    ) // alloc: Cold
 }
 
 #[cold]
 #[inline(never)]
 fn array_too_large() -> Box<PgError> {
-    Box::new(PgError::error(format!("array size exceeds the maximum allowed ({})", arrayfuncs::foundation::MAX_ALLOC_SIZE)).with_sqlstate(types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED)) // alloc: Cold
+    Box::new(
+        PgError::error(format!(
+            "array size exceeds the maximum allowed ({})",
+            arrayfuncs::foundation::MAX_ALLOC_SIZE
+        ))
+        .with_sqlstate(types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+    ) // alloc: Cold
 }
 
 #[inline(always)]
@@ -915,7 +1380,14 @@ impl Walk {
             } else {
                 (p.add(hdr), p.add(dataoffset))
             };
-            Ok(Walk { data, bitmap, n, i: 0, off: 0, elem })
+            Ok(Walk {
+                data,
+                bitmap,
+                n,
+                i: 0,
+                off: 0,
+                elem,
+            })
         }
     }
 
@@ -972,7 +1444,9 @@ impl Walk {
 #[cfg(test)]
 mod d571 {
     use types_nodes::node_tree::Node;
-    use types_nodes::primnodes::{CaseTestExpr, CoerceToDomain, CoercionForm, FieldStore, RelabelType};
+    use types_nodes::primnodes::{
+        CaseTestExpr, CoerceToDomain, CoercionForm, FieldStore, RelabelType,
+    };
 
     /// D571: C `isAssignmentIndirectionExpr` looks through a CoerceToDomain and a RelabelType, so the old element reaches a
     /// nested store under a domain-typed element (`f[1].x = ..` over an array of a domain over a composite); the
@@ -981,15 +1455,68 @@ mod d571 {
     fn d571_indirection_looks_through_a_domain_and_a_relabel() {
         let cx = mcx::MemoryContext::new("d571");
         let m = cx.mcx();
-        let ct = Node::mk(m, CaseTestExpr { typeId: 2249, typeMod: -1, collation: 0 }).unwrap();
-        let fs = Node::mk(m, FieldStore { arg: ct, newvals: types_nodes::list::NodeList::nil(), fieldnums: types_nodes::list::IntList::nil(), resulttype: 2249 }).unwrap();
-        let dom = Node::mk(m, CoerceToDomain { arg: fs, resulttype: 90001, resulttypmod: -1, resultcollid: 0, coercionformat: CoercionForm::COERCE_IMPLICIT_CAST, location: -1 }).unwrap();
-        let rel = Node::mk(m, RelabelType { arg: fs, resulttype: 2249, resulttypmod: -1, resultcollid: 0, relabelformat: CoercionForm::COERCE_IMPLICIT_CAST, location: -1 }).unwrap();
+        let ct = Node::mk(
+            m,
+            CaseTestExpr {
+                typeId: 2249,
+                typeMod: -1,
+                collation: 0,
+            },
+        )
+        .unwrap();
+        let fs = Node::mk(
+            m,
+            FieldStore {
+                arg: ct,
+                newvals: types_nodes::list::NodeList::nil(),
+                fieldnums: types_nodes::list::IntList::nil(),
+                resulttype: 2249,
+            },
+        )
+        .unwrap();
+        let dom = Node::mk(
+            m,
+            CoerceToDomain {
+                arg: fs,
+                resulttype: 90001,
+                resulttypmod: -1,
+                resultcollid: 0,
+                coercionformat: CoercionForm::COERCE_IMPLICIT_CAST,
+                location: -1,
+            },
+        )
+        .unwrap();
+        let rel = Node::mk(
+            m,
+            RelabelType {
+                arg: fs,
+                resulttype: 2249,
+                resulttypmod: -1,
+                resultcollid: 0,
+                relabelformat: CoercionForm::COERCE_IMPLICIT_CAST,
+                location: -1,
+            },
+        )
+        .unwrap();
         assert!(super::is_indirection(fs));
         assert!(super::is_indirection(dom), "through a CoerceToDomain");
         assert!(super::is_indirection(rel), "through a RelabelType");
-        let plain = Node::mk(m, RelabelType { arg: ct, resulttype: 2249, resulttypmod: -1, resultcollid: 0, relabelformat: CoercionForm::COERCE_IMPLICIT_CAST, location: -1 }).unwrap();
-        assert!(!super::is_indirection(plain), "a relabelled CaseTest is no store");
+        let plain = Node::mk(
+            m,
+            RelabelType {
+                arg: ct,
+                resulttype: 2249,
+                resulttypmod: -1,
+                resultcollid: 0,
+                relabelformat: CoercionForm::COERCE_IMPLICIT_CAST,
+                location: -1,
+            },
+        )
+        .unwrap();
+        assert!(
+            !super::is_indirection(plain),
+            "a relabelled CaseTest is no store"
+        );
     }
 }
 
@@ -1002,9 +1529,22 @@ mod ps418 {
     /// / int8 / float8 / bool / oid elements, 1 to 97 of them, no NULL, the first, the last, every other one, all NULL.
     #[test]
     fn a_byval_array_is_construct_md_arrays_image() {
-        let types = [(18u32, 1i16, b'c'), (21, 2, b's'), (23, 4, b'i'), (20, 8, b'd'), (701, 8, b'd'), (16, 1, b'c'), (26, 4, b'i')];
+        let types = [
+            (18u32, 1i16, b'c'),
+            (21, 2, b's'),
+            (23, 4, b'i'),
+            (20, 8, b'd'),
+            (701, 8, b'd'),
+            (16, 1, b'c'),
+            (26, 4, b'i'),
+        ];
         for (typ, len, align) in types {
-            let elem = ElemFacts { typ, len, byval: true, align: align as i8 };
+            let elem = ElemFacts {
+                typ,
+                len,
+                byval: true,
+                align: align as i8,
+            };
             for n in [1usize, 2, 7, 8, 9, 16, 62, 64, 97] {
                 for pattern in 0..5 {
                     let null = |i: usize| match pattern {
@@ -1014,20 +1554,52 @@ mod ps418 {
                         3 => i % 2 == 1,
                         _ => true,
                     };
-                    let cells: Vec<(Datum, bool)> = (0..n).map(|i| (Datum::from_i64((i as i64 * 0x0101_0101_0101_0101 - 3) >> (64 - 8 * len as i64).min(63)), null(i))).collect(); // alloc: Cold
+                    let cells: Vec<(Datum, bool)> = (0..n)
+                        .map(|i| {
+                            (
+                                Datum::from_i64(
+                                    (i as i64 * 0x0101_0101_0101_0101 - 3)
+                                        >> (64 - 8 * len as i64).min(63),
+                                ),
+                                null(i),
+                            )
+                        })
+                        .collect(); // alloc: Cold
                     let want: Vec<u8> = with_scratch(|mcx| {
                         let (v, k): (Vec<Datum>, Vec<bool>) = cells.iter().copied().unzip(); // alloc: Cold
-                        Ok(arrayfuncs::construct_md_array(mcx, &v, Some(&k), 1, &[n as i32], &[1], typ, len as i32, true, align)?.to_vec()) // alloc: Cold
+                        Ok(arrayfuncs::construct_md_array(
+                            mcx,
+                            &v,
+                            Some(&k),
+                            1,
+                            &[n as i32],
+                            &[1],
+                            typ,
+                            len as i32,
+                            true,
+                            align,
+                        )?
+                        .to_vec()) // alloc: Cold
                     })
                     .unwrap();
                     let mut buf = vec![0xa5u8; 4096]; // alloc: Cold
                     let mut region = Region::over(&mut buf);
                     let got = byval_1d(&elem, cells.iter().copied(), n, &mut region).unwrap();
                     // SAFETY: the image lies in `buf`, its length the `want` image's.
-                    let got = unsafe { core::slice::from_raw_parts(got.value.as_usize() as *const u8, want.len()) };
-                    assert_eq!(got, &want[..], "type {typ}, {n} elements, NULL pattern {pattern}");
+                    let got = unsafe {
+                        core::slice::from_raw_parts(got.value.as_usize() as *const u8, want.len())
+                    };
+                    assert_eq!(
+                        got,
+                        &want[..],
+                        "type {typ}, {n} elements, NULL pattern {pattern}"
+                    );
                     let pad = (8 - buf.as_ptr() as usize % 8) % 8;
-                    assert_eq!(region.used(buf.as_ptr()), pad + want.len(), "type {typ}, {n} elements: the region holds the image alone");
+                    assert_eq!(
+                        region.used(buf.as_ptr()),
+                        pad + want.len(),
+                        "type {typ}, {n} elements: the region holds the image alone"
+                    );
                 }
             }
         }

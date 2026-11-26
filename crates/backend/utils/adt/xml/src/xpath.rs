@@ -29,15 +29,14 @@ pub(crate) unsafe fn node_to_xmltype(cur: *mut xmlNode) -> PgResult<Vec<u8>> {
         if t != XML_ATTRIBUTE_NODE && t != XML_TEXT_NODE && t != XML_NAMESPACE_DECL {
             let buf = (x.xmlBufferCreate)();
             if buf.is_null() {
-                return Err(xml_ereport("could not allocate xmlBuffer", ERRCODE_OUT_OF_MEMORY)
-                    .into());
+                return Err(
+                    xml_ereport("could not allocate xmlBuffer", ERRCODE_OUT_OF_MEMORY).into(),
+                );
             }
             let cur_copy = (x.xmlCopyNode)(cur, 1);
             if cur_copy.is_null() {
                 (x.xmlBufferFree)(buf);
-                return Err(
-                    xml_ereport("could not copy node", ERRCODE_OUT_OF_MEMORY).into()
-                );
+                return Err(xml_ereport("could not copy node", ERRCODE_OUT_OF_MEMORY).into());
             }
             let is_doc = libxml::node_type(cur_copy) == XML_DOCUMENT_NODE;
             let bytes = (x.xmlNodeDump)(buf, core::ptr::null_mut(), cur_copy, 0, 0);
@@ -209,7 +208,7 @@ pub fn xpath_internal(
     // assertions); ignore decl-parse failure, letting xmlCtxtReadMemory report.
     let mut xmldecl_len: usize = 0;
     if ::mbutils::GetDatabaseEncoding() == PG_UTF8 {
-        let mut work = ::mcx::std_vec_from_slice("xml",data)?;
+        let mut work = ::mcx::std_vec_from_slice("xml", data)?;
         work.push(0);
         let _ = parse_xml_decl(&work, Some(&mut xmldecl_len), None, None, None);
     }
@@ -294,19 +293,21 @@ pub fn xpath_internal(
         let xpathcomp = (x.xmlXPathCtxtCompile)(xpathctx, expr.as_ptr());
         if xpathcomp.is_null() || xml_err_occurred() {
             cleanup(core::ptr::null_mut(), core::ptr::null_mut(), xpathctx);
-            return Err(
-                xml_ereport("invalid XPath expression", ERRCODE_INVALID_ARGUMENT_FOR_XQUERY)
-                    .into(),
-            );
+            return Err(xml_ereport(
+                "invalid XPath expression",
+                ERRCODE_INVALID_ARGUMENT_FOR_XQUERY,
+            )
+            .into());
         }
 
         let xpathobj = (x.xmlXPathCompiledEval)(xpathcomp, xpathctx);
         if xpathobj.is_null() || xml_err_occurred() {
             cleanup(core::ptr::null_mut(), xpathcomp, xpathctx);
-            return Err(
-                xml_ereport("could not create XPath object", ERRCODE_INVALID_ARGUMENT_FOR_XQUERY)
-                    .into(),
-            );
+            return Err(xml_ereport(
+                "could not create XPath object",
+                ERRCODE_INVALID_ARGUMENT_FOR_XQUERY,
+            )
+            .into());
         }
 
         let result = xpathobj_to_xmlarray(xpathobj, collect);

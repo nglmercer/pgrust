@@ -34,7 +34,10 @@ pub(crate) unsafe fn entry_arg<'a>(fcinfo: &Fcinfo, i: usize) -> &'a GISTENTRY {
 
 /// `DatumGetNDBOXP` payload: 4-byte-header images are borrowed, anything
 /// else (short, compressed, external) is detoasted.
-pub(crate) unsafe fn cube_payload<'a>(mcx: Mcx<'_>, d: Datum) -> PgResult<std::borrow::Cow<'a, [u8]>> {
+pub(crate) unsafe fn cube_payload<'a>(
+    mcx: Mcx<'_>,
+    d: Datum,
+) -> PgResult<std::borrow::Cow<'a, [u8]>> {
     let p = d.as_usize() as *const u8;
     // SAFETY: caller passes a live non-null cube datum.
     unsafe {
@@ -44,7 +47,10 @@ pub(crate) unsafe fn cube_payload<'a>(mcx: Mcx<'_>, d: Datum) -> PgResult<std::b
                 varatt::varsize_4b(p) - 4,
             )))
         } else {
-            Ok(std::borrow::Cow::Owned(::mcx::std_vec_from_slice("cube", types_fmgr::datum_varlena_packed(d, mcx)?.data())?))
+            Ok(std::borrow::Cow::Owned(::mcx::std_vec_from_slice(
+                "cube",
+                types_fmgr::datum_varlena_packed(d, mcx)?.data(),
+            )?))
         }
     }
 }
@@ -119,7 +125,9 @@ pub fn fc_g_cube_union(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResu
     // SAFETY: non-null cube key datum.
     let mut same_as_key0 = unsafe { varatt::varatt_is_4b_u(key0 as *const u8) };
     // SAFETY: non-null cube key datums.
-    let mut out: Vec<u8> = ::mcx::std_vec_from_slice("cube", &unsafe { cube_payload(fcinfo.result_mcx(), entryvec.vector[0].key)? })?;
+    let mut out: Vec<u8> = ::mcx::std_vec_from_slice("cube", &unsafe {
+        cube_payload(fcinfo.result_mcx(), entryvec.vector[0].key)?
+    })?;
     // Rebuild the full image (header + payload) for the union loop.
     let mut cur = {
         let mut img = ::mcx::std_vec_with_capacity("cube", 4 + out.len())?;

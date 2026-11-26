@@ -47,7 +47,9 @@ const N: i64 = 256;
 const PROCNO: u32 = 4079;
 
 fn konst(k: i64) -> (gravity_ir::Program, Func) {
-    let src = format!("(program (fn e ((c ptr)) (i64) (block entry ((c ptr)) (k (const i64 {k})) (return k))))");
+    let src = format!(
+        "(program (fn e ((c ptr)) (i64) (block entry ((c ptr)) (k (const i64 {k})) (return k))))"
+    );
     let p = parse_program(&src, &|_| None).unwrap_or_else(|e| panic!("{e}"));
     let f = Func(p.funcs.iter().position(|f| f.name == "e").unwrap() as u32);
     (p, f)
@@ -107,7 +109,11 @@ fn round(base: i64) -> [Snap; 3] {
         let (p, f) = konst(base + i);
         keys.push(cache::key_of(&p).0);
         let (codes, o) = mapped_cached_all(&p, &[f]).unwrap();
-        assert_eq!((codes[0].kind(), o.lookup), ("tier0", Lookup::Miss), "a forced miss goes to the pool");
+        assert_eq!(
+            (codes[0].kind(), o.lookup),
+            ("tier0", Lookup::Miss),
+            "a forced miss goes to the pool"
+        );
         held.push(codes);
         if i % 8 == 7 {
             promote::quiesce();
@@ -118,13 +124,20 @@ fn round(base: i64) -> [Snap; 3] {
         let (p, f) = konst(base + N + i);
         keys.push(cache::key_of(&p).0);
         let owner = memledger::charge::statement_owner();
-        let (codes, o) = cache::get_or_compile_all(&p, &[f], |ctx| gravity_tpde::compile_owned(ctx.mcx(), &p, |c| c.set_owner(owner))).unwrap();
+        let (codes, o) = cache::get_or_compile_all(&p, &[f], |ctx| {
+            gravity_tpde::compile_owned(ctx.mcx(), &p, |c| c.set_owner(owner))
+        })
+        .unwrap();
         assert_eq!(o.lookup, Lookup::Miss, "the backend compiles and files it");
         held.push(codes);
     }
     let filed = snap();
     drop(held);
-    assert_eq!(cache::doom_modules(keys.iter().copied()), 2 * N as usize, "every module filed, doomed by its key");
+    assert_eq!(
+        cache::doom_modules(keys.iter().copied()),
+        2 * N as usize,
+        "every module filed, doomed by its key"
+    );
     cache::evict_doomed();
     assert_eq!(cache::stats().entries, 0, "every module evicted");
     let evicted = snap();
@@ -157,11 +170,19 @@ fn the_program_caches_come_back_exactly_once_every_module_is_doomed_and_evicted(
         eprintln!("  filed:   {}", delta(s0, s1));
         eprintln!("  evicted: {}", delta(s0, s2));
         eprintln!("  trimmed: {}", delta(s0, s3));
-        assert_eq!(s3.pc - s0.pc, 0, "the program caches' account back to exactly its start");
+        assert_eq!(
+            s3.pc - s0.pc,
+            0,
+            "the program caches' account back to exactly its start"
+        );
         assert_eq!(s3.pc_owner - s0.pc_owner, 0, "and its owner bytes");
         assert_eq!(s3.pc_keepers - s0.pc_keepers, 0, "and its parked keepers");
         assert_eq!(s3.unbound - s0.unbound, 0, "UNBOUND unchanged");
-        assert_eq!(s3.heap_sum - s0.heap_sum, s3.live - s0.live, "the accounts' heap moved by what the allocator holds more");
+        assert_eq!(
+            s3.heap_sum - s0.heap_sum,
+            s3.live - s0.live,
+            "the accounts' heap moved by what the allocator holds more"
+        );
     })
     .join()
     .unwrap();

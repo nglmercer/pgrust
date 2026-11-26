@@ -8,8 +8,8 @@
 //! ([`take_oom_pending`]); the backend main loop re-arms the reserve when it goes idle ([`arm_reserve`]). A failure
 //! with the reserve already spent, or one larger than the reserve frees, still aborts.
 
-use std::alloc::{GlobalAlloc, Layout};
 use std::alloc::System;
+use std::alloc::{GlobalAlloc, Layout};
 use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicPtr, AtomicU64, AtomicUsize, Ordering};
 
@@ -57,7 +57,10 @@ pub fn arm_reserve() -> bool {
     }
     // SAFETY: p is a fresh RESERVE_BYTES block.
     unsafe { std::ptr::write_bytes(p, 0xA5, RESERVE_BYTES) };
-    if RESERVE.compare_exchange(std::ptr::null_mut(), p, Ordering::AcqRel, Ordering::Acquire).is_err() {
+    if RESERVE
+        .compare_exchange(std::ptr::null_mut(), p, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
         // SAFETY: allocated just above with the same layout; another thread armed first.
         unsafe { System.dealloc(p, layout()) };
     }
@@ -137,7 +140,11 @@ fn advise_huge_range(p: *mut u8, size: usize, on: bool) {
     #[cfg(target_os = "linux")]
     {
         extern "C" {
-            fn madvise(addr: *mut core::ffi::c_void, len: usize, advice: core::ffi::c_int) -> core::ffi::c_int;
+            fn madvise(
+                addr: *mut core::ffi::c_void,
+                len: usize,
+                advice: core::ffi::c_int,
+            ) -> core::ffi::c_int;
             fn __errno_location() -> *mut core::ffi::c_int;
         }
         const MADV_HUGEPAGE: core::ffi::c_int = 14;
@@ -153,7 +160,11 @@ fn advise_huge_range(p: *mut u8, size: usize, on: bool) {
             // the calling thread's own word, restored after.
             unsafe {
                 let e = *__errno_location();
-                madvise(lo as *mut core::ffi::c_void, hi - lo, if on { MADV_HUGEPAGE } else { MADV_NOHUGEPAGE });
+                madvise(
+                    lo as *mut core::ffi::c_void,
+                    hi - lo,
+                    if on { MADV_HUGEPAGE } else { MADV_NOHUGEPAGE },
+                );
                 *__errno_location() = e;
             }
         }
@@ -184,7 +195,10 @@ static NEXT_SHARD: AtomicUsize = AtomicUsize::new(0);
 /// a block allocated before and freed after counts negative. `usable` = the allocator's usable size of a live block
 /// (mimalloc's `mi_usable_size`), so the count matches what the allocator holds; `None` counts layout sizes.
 pub fn count_allocations(on: bool, usable: Option<fn(*mut u8) -> usize>) {
-    USABLE.store(usable.map_or(std::ptr::null_mut(), |f| f as *mut ()), Ordering::Relaxed);
+    USABLE.store(
+        usable.map_or(std::ptr::null_mut(), |f| f as *mut ()),
+        Ordering::Relaxed,
+    );
     COUNT_ON.store(on, Ordering::Relaxed);
 }
 
@@ -320,7 +334,10 @@ static CACHE_ALLOC: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
 static CACHE_REALLOC: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
 
 /// Install the cache arena's heap (once, before the cache scopes route: `memledger::arena::set_cache_heap_ready`).
-pub fn set_cache_alloc(alloc: fn(usize, usize, bool) -> *mut u8, realloc: fn(*mut u8, usize, usize) -> *mut u8) {
+pub fn set_cache_alloc(
+    alloc: fn(usize, usize, bool) -> *mut u8,
+    realloc: fn(*mut u8, usize, usize) -> *mut u8,
+) {
     CACHE_ALLOC.store(alloc as *mut (), Ordering::Release);
     CACHE_REALLOC.store(realloc as *mut (), Ordering::Release);
 }
@@ -334,7 +351,11 @@ static OWN_RESIZE: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
 
 /// Install the own range (with `set_cache_alloc`, before the cache scopes route): (base, bytes), the free of one of its
 /// blocks (block, layout size) and its in-place resize (block, old size, new size) -> kept in place.
-pub fn set_own_pages(range: (usize, usize), free: fn(*mut u8, usize), resize: fn(*mut u8, usize, usize) -> bool) {
+pub fn set_own_pages(
+    range: (usize, usize),
+    free: fn(*mut u8, usize),
+    resize: fn(*mut u8, usize, usize) -> bool,
+) {
     OWN_FREE.store(free as *mut (), Ordering::Release);
     OWN_RESIZE.store(resize as *mut (), Ordering::Release);
     OWN_LO.store(range.0, Ordering::Relaxed);
@@ -358,7 +379,9 @@ fn in_cache(p: *mut u8, size: usize, align: usize) -> bool {
     let f = CACHE_TEST.load(Ordering::Acquire);
     if !f.is_null() {
         // SAFETY: only set_cache_test stores here, always from this fn type.
-        return unsafe { std::mem::transmute::<*mut (), fn(*const u8, usize, usize) -> bool>(f) }(p, size, align);
+        return unsafe { std::mem::transmute::<*mut (), fn(*const u8, usize, usize) -> bool>(f) }(
+            p, size, align,
+        );
     }
     memledger::arena::in_cache_span(p)
 }
@@ -380,7 +403,8 @@ fn own_free(p: *mut u8, size: usize) {
 #[inline(never)]
 fn own_resize(p: *mut u8, old: usize, new: usize) -> bool {
     // SAFETY: as own_free.
-    let f: fn(*mut u8, usize, usize) -> bool = unsafe { std::mem::transmute(OWN_RESIZE.load(Ordering::Acquire)) };
+    let f: fn(*mut u8, usize, usize) -> bool =
+        unsafe { std::mem::transmute(OWN_RESIZE.load(Ordering::Acquire)) };
     f(p, old, new)
 }
 
@@ -434,7 +458,11 @@ unsafe impl<A: Inner> GlobalAlloc for Rescue<A> {
     #[inline]
     unsafe fn alloc(&self, l: Layout) -> *mut u8 {
         // D4321 step 1: inside a cache scope the block comes from the cache arena's heap (else, or when it cannot, as before)
-        let mut p = if memledger::arena::in_cache_scope() { cache_alloc(l, false) } else { std::ptr::null_mut() };
+        let mut p = if memledger::arena::in_cache_scope() {
+            cache_alloc(l, false)
+        } else {
+            std::ptr::null_mut()
+        };
         // CACHE-CHARGE: a block of the cache road, taken inside the scope (its holder's, when the scope names one)
         let cached = !p.is_null();
         if p.is_null() {
@@ -481,7 +509,11 @@ unsafe impl<A: Inner> GlobalAlloc for Rescue<A> {
     }
     #[inline]
     unsafe fn alloc_zeroed(&self, l: Layout) -> *mut u8 {
-        let mut p = if memledger::arena::in_cache_scope() { cache_alloc(l, true) } else { std::ptr::null_mut() };
+        let mut p = if memledger::arena::in_cache_scope() {
+            cache_alloc(l, true)
+        } else {
+            std::ptr::null_mut()
+        };
         // CACHE-CHARGE: a block of the cache road, taken inside the scope (its holder's, when the scope names one)
         let cached = !p.is_null();
         if p.is_null() {
@@ -601,7 +633,11 @@ unsafe impl<A: Inner> GlobalAlloc for Rescue<A> {
         // pphatch: the same test tells whether the page pool serves (`served`: the resize below need not ask again)
         #[cfg(feature = "pool-global")]
         let (was_cached, served) = in_cache_road(p, l.size(), l.align());
-        let mut np = if scoped { cache_realloc(p, l, new_size) } else { std::ptr::null_mut() };
+        let mut np = if scoped {
+            cache_realloc(p, l, new_size)
+        } else {
+            std::ptr::null_mut()
+        };
         // pphatch (pool-global): the page pool serving, its resize without the mode test; the rescue out of line
         // (`rescue_resize`: its hit's posts and the failed arm's re-advice there), so the hit's road holds none of its
         // values
@@ -609,10 +645,28 @@ unsafe impl<A: Inner> GlobalAlloc for Rescue<A> {
         if np.is_null() {
             // SAFETY: forwarded under the caller's contract (`realloc_served` only while the page pool serves: the
             // cache-class test is installed); a failed realloc leaves `p` valid for the retry.
-            np = unsafe { if served { realloc_served(&self.0, p, l, new_size) } else { self.0.realloc(p, l, new_size) } };
+            np = unsafe {
+                if served {
+                    realloc_served(&self.0, p, l, new_size)
+                } else {
+                    self.0.realloc(p, l, new_size)
+                }
+            };
             if np.is_null() {
                 // SAFETY: as above.
-                return unsafe { self.rescue_resize(p, l, new_size, Was { round: old_round, counted: old, scoped, cached: was_cached }) };
+                return unsafe {
+                    self.rescue_resize(
+                        p,
+                        l,
+                        new_size,
+                        Was {
+                            round: old_round,
+                            counted: old,
+                            scoped,
+                            cached: was_cached,
+                        },
+                    )
+                };
             }
         }
         #[cfg(not(feature = "pool-global"))]
@@ -634,7 +688,17 @@ unsafe impl<A: Inner> GlobalAlloc for Rescue<A> {
             }
         }
         #[cfg(feature = "pool-global")]
-        resized(np, l, new_size, Was { round: old_round, counted: old, scoped, cached: was_cached });
+        resized(
+            np,
+            l,
+            new_size,
+            Was {
+                round: old_round,
+                counted: old,
+                scoped,
+                cached: was_cached,
+            },
+        );
         #[cfg(not(feature = "pool-global"))]
         {
             let (new_round, new_counted) = sizes(np, new_size);
@@ -644,7 +708,11 @@ unsafe impl<A: Inner> GlobalAlloc for Rescue<A> {
             }
             if scoped || was_cached {
                 let now_own = own(np);
-                let now = if now_own || memledger::arena::in_cache_span(np) { new_size as isize } else { 0 };
+                let now = if now_own || memledger::arena::in_cache_span(np) {
+                    new_size as isize
+                } else {
+                    0
+                };
                 let was = if was_cached { l.size() as isize } else { 0 };
                 if scoped && now != was {
                     memledger::arena::cache_took(now - was);
@@ -743,7 +811,11 @@ fn resized(np: *mut u8, l: Layout, new_size: usize, was: Was) {
     }
     if was.scoped || was.cached {
         let now_own = own(np);
-        let now = if now_own || in_cache(np, new_size, l.align()) { new_size as isize } else { 0 };
+        let now = if now_own || in_cache(np, new_size, l.align()) {
+            new_size as isize
+        } else {
+            0
+        };
         let before = if was.cached { l.size() as isize } else { 0 };
         if was.scoped && now != before {
             memledger::arena::cache_took(now - before);
@@ -770,7 +842,16 @@ impl<A: GlobalAlloc> Rescue<A> {
     #[inline(never)]
     unsafe fn rescue_take(&self, l: Layout, zeroed: bool) -> *mut u8 {
         // SAFETY: the caller's layout; a failed take left nothing to undo.
-        let p = rescued(move || unsafe { if zeroed { self.0.alloc_zeroed(l) } else { self.0.alloc(l) } }, l.size());
+        let p = rescued(
+            move || unsafe {
+                if zeroed {
+                    self.0.alloc_zeroed(l)
+                } else {
+                    self.0.alloc(l)
+                }
+            },
+            l.size(),
+        );
         if !p.is_null() {
             took(p, l, false);
         }
@@ -860,7 +941,12 @@ fn in_cache_road(p: *mut u8, size: usize, align: usize) -> (bool, bool) {
     let f = CACHE_TEST.load(Ordering::Acquire);
     if !f.is_null() {
         // SAFETY: only set_cache_test stores here, always from this fn type.
-        return (unsafe { std::mem::transmute::<*mut (), fn(*const u8, usize, usize) -> bool>(f) }(p, size, align), true);
+        return (
+            unsafe { std::mem::transmute::<*mut (), fn(*const u8, usize, usize) -> bool>(f) }(
+                p, size, align,
+            ),
+            true,
+        );
     }
     (memledger::arena::in_cache_span(p), false)
 }
@@ -876,7 +962,12 @@ mod tests {
         let mut inside = false;
         for line in smaps.lines() {
             let range = line.split_whitespace().next().unwrap_or("");
-            if let Some((lo, hi)) = range.split_once('-').and_then(|(a, b)| Some((usize::from_str_radix(a, 16).ok()?, usize::from_str_radix(b, 16).ok()?))) {
+            if let Some((lo, hi)) = range.split_once('-').and_then(|(a, b)| {
+                Some((
+                    usize::from_str_radix(a, 16).ok()?,
+                    usize::from_str_radix(b, 16).ok()?,
+                ))
+            }) {
                 inside = lo <= addr && addr < hi;
             } else if inside && line.starts_with("VmFlags:") {
                 return line.to_string();
@@ -890,8 +981,12 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn large_blocks_take_huge_page_advice_and_small_ones_none() {
-        let pmd = std::fs::read_to_string("/sys/kernel/mm/transparent_hugepage/hpage_pmd_size").ok().and_then(|t| t.trim().parse::<usize>().ok());
-        let Some(pmd) = pmd.filter(|p| p.is_power_of_two() && *p > 4096) else { return };
+        let pmd = std::fs::read_to_string("/sys/kernel/mm/transparent_hugepage/hpage_pmd_size")
+            .ok()
+            .and_then(|t| t.trim().parse::<usize>().ok());
+        let Some(pmd) = pmd.filter(|p| p.is_power_of_two() && *p > 4096) else {
+            return;
+        };
         set_huge_advise(2 * pmd, pmd);
         assert_eq!(huge_advise_min(), 2 * pmd);
         let a = Rescue(System);
@@ -900,17 +995,28 @@ mod tests {
         let p = unsafe { a.alloc(big) };
         assert!(!p.is_null());
         let mid = (p as usize).next_multiple_of(pmd);
-        assert!(vm_flags(mid).split_whitespace().any(|f| f == "hg"), "advised huge: {}", vm_flags(mid));
+        assert!(
+            vm_flags(mid).split_whitespace().any(|f| f == "hg"),
+            "advised huge: {}",
+            vm_flags(mid)
+        );
         advise_huge_range(p, big.size(), false);
         let f = vm_flags(mid);
-        assert!(f.split_whitespace().any(|f| f == "nh") && !f.split_whitespace().any(|f| f == "hg"), "back to base pages: {f}");
+        assert!(
+            f.split_whitespace().any(|f| f == "nh") && !f.split_whitespace().any(|f| f == "hg"),
+            "back to base pages: {f}"
+        );
         // SAFETY: allocated above with `big`.
         unsafe { a.dealloc(p, big) };
         let small = Layout::from_size_align(64 << 10, 16).unwrap();
         // SAFETY: as above.
         let q = unsafe { a.alloc(small) };
         assert!(!q.is_null());
-        assert!(!vm_flags(q as usize).split_whitespace().any(|f| f == "hg"), "a small block takes no advice: {}", vm_flags(q as usize));
+        assert!(
+            !vm_flags(q as usize).split_whitespace().any(|f| f == "hg"),
+            "a small block takes no advice: {}",
+            vm_flags(q as usize)
+        );
         // SAFETY: allocated above with `small`.
         unsafe { a.dealloc(q, small) };
         set_huge_advise(0, pmd);
@@ -950,18 +1056,27 @@ mod tests {
         assert!(!release_reserve(), "a spent reserve releases nothing");
         assert!(arm_reserve());
         let _ = take_oom_pending();
-        let a = Rescue(Failing { fail: std::sync::atomic::AtomicU32::new(1) });
+        let a = Rescue(Failing {
+            fail: std::sync::atomic::AtomicU32::new(1),
+        });
         let l = Layout::from_size_align(512, 8).unwrap();
         let before = rescues();
         // SAFETY: a non-zero layout; freed below with it.
         let p = unsafe { a.alloc(l) };
         assert!(!p.is_null(), "the retry after the release succeeds");
-        assert_eq!((take_oom_pending(), rescues() - before), (512, 1), "53200 pending on this thread, the reserve spent");
+        assert_eq!(
+            (take_oom_pending(), rescues() - before),
+            (512, 1),
+            "53200 pending on this thread, the reserve spent"
+        );
         // SAFETY: allocated above with l.
         unsafe { a.dealloc(p, l) };
         a.0.fail.store(1, Ordering::Relaxed);
         // SAFETY: a non-zero layout.
-        assert!(unsafe { a.alloc(l) }.is_null(), "no reserve left: the failure stands");
+        assert!(
+            unsafe { a.alloc(l) }.is_null(),
+            "no reserve left: the failure stands"
+        );
         assert_eq!(take_oom_pending(), 0);
         assert!(arm_reserve(), "re-armed when the backend goes idle");
         assert!(release_reserve());
@@ -974,7 +1089,9 @@ mod tests {
         assert!(arm_reserve());
         assert!(!release_reserve(), "nothing to release");
         let _ = take_oom_pending();
-        let a = Rescue(Failing { fail: std::sync::atomic::AtomicU32::new(1) });
+        let a = Rescue(Failing {
+            fail: std::sync::atomic::AtomicU32::new(1),
+        });
         let l = Layout::from_size_align(512, 8).unwrap();
         // SAFETY: a non-zero layout.
         assert!(unsafe { a.alloc(l) }.is_null());
@@ -1009,14 +1126,20 @@ mod tests {
             let after_realloc = own() - base;
             // SAFETY: `q` is live with the new size.
             unsafe { a.dealloc(q, Layout::from_size_align(2 << 20, 16).unwrap()) };
-            ((after_alloc, after_realloc, own() - base), allocated_bytes())
+            (
+                (after_alloc, after_realloc, own() - base),
+                allocated_bytes(),
+            )
         })
         .join()
         .unwrap();
         count_allocations(false, None);
         assert_eq!(own, (3 << 20, 3 << 20, 0), "alloc, realloc, free");
         assert!(total.is_some(), "armed: the total reads");
-        assert!(USABLE_SEEN.load(Ordering::Relaxed) >= 4, "alloc + realloc (old, new) + free asked the probe");
+        assert!(
+            USABLE_SEEN.load(Ordering::Relaxed) >= 4,
+            "alloc + realloc (old, new) + free asked the probe"
+        );
         assert_eq!(allocated_bytes(), None, "disarmed: no figure");
     }
 
@@ -1068,24 +1191,47 @@ mod tests {
                 let after_free = net() - base;
                 charge_usable(false, usable);
                 memledger::unbind_backend();
-                ((after_alloc, after_realloc, after_free), (rounded_alloc, rounded_realloc, rounded_free), (u0 as i64, u1 as i64))
+                (
+                    (after_alloc, after_realloc, after_free),
+                    (rounded_alloc, rounded_realloc, rounded_free),
+                    (u0 as i64, u1 as i64),
+                )
             })
             .join()
             .unwrap()
         };
         let (acct, rounded, (u0, u1)) = run(true);
-        assert!(u0 >= 1000 && u1 >= 70_000, "glibc's usable sizes cover the layouts ({u0}, {u1})");
-        assert_eq!(acct, (1000, 70_000, 0), "armed: the owner's account at the layout's size");
-        assert_eq!(rounded, (u0 - 1000, (u1 - 70_000) - (u0 - 1000), -(u1 - 70_000)), "armed: the rounding apart");
+        assert!(
+            u0 >= 1000 && u1 >= 70_000,
+            "glibc's usable sizes cover the layouts ({u0}, {u1})"
+        );
+        assert_eq!(
+            acct,
+            (1000, 70_000, 0),
+            "armed: the owner's account at the layout's size"
+        );
+        assert_eq!(
+            rounded,
+            (u0 - 1000, (u1 - 70_000) - (u0 - 1000), -(u1 - 70_000)),
+            "armed: the rounding apart"
+        );
         let (plain, none, _) = run(false);
-        assert_eq!((plain, none), ((1000, 70_000, 0), (0, 0, 0)), "disarmed: no rounding");
+        assert_eq!(
+            (plain, none),
+            ((1000, 70_000, 0), (0, 0, 0)),
+            "disarmed: no rounding"
+        );
     }
 
     #[test]
     fn a_rescue_is_pending_on_its_thread_until_taken() {
         assert_eq!(take_oom_pending(), 0);
         note_rescued(512);
-        assert_eq!(std::thread::spawn(take_oom_pending).join().unwrap(), 0, "another thread has none");
+        assert_eq!(
+            std::thread::spawn(take_oom_pending).join().unwrap(),
+            0,
+            "another thread has none"
+        );
         assert_eq!(take_oom_pending(), 512);
         assert_eq!(take_oom_pending(), 0);
     }

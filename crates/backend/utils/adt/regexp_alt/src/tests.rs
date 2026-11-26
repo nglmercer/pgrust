@@ -19,8 +19,7 @@ fn auto(p: &str) -> Option<Re2Pattern> {
 fn replace(p: &str, s: &str, r: &str, start: i32, n: i32) -> String {
     let re = auto(p).expect("pattern should dispatch to re2");
     let cx = MemoryContext::new("test");
-    let out =
-        replace_text_regexp_re2(cx.mcx(), &re, s.as_bytes(), r.as_bytes(), start, n).unwrap();
+    let out = replace_text_regexp_re2(cx.mcx(), &re, s.as_bytes(), r.as_bytes(), start, n).unwrap();
     String::from_utf8(out.as_slice().to_vec()).unwrap()
 }
 
@@ -32,10 +31,19 @@ fn url_host_capture_replaces_with_the_host() {
     if !re2_available() {
         return;
     }
-    assert_eq!(replace(URL_HOST_PAT, "http://m.example.com/path/x?y=1", r"\1", 0, 1), "example.com");
-    assert_eq!(replace(URL_HOST_PAT, "https://sub.host.ru/", r"\1", 0, 1), "sub.host.ru");
+    assert_eq!(
+        replace(URL_HOST_PAT, "http://m.example.com/path/x?y=1", r"\1", 0, 1),
+        "example.com"
+    );
+    assert_eq!(
+        replace(URL_HOST_PAT, "https://sub.host.ru/", r"\1", 0, 1),
+        "sub.host.ru"
+    );
     assert_eq!(replace(URL_HOST_PAT, "not-a-url", r"\1", 0, 1), "not-a-url");
-    assert_eq!(replace(URL_HOST_PAT, "http://hostonly.com", r"\1", 0, 1), "http://hostonly.com");
+    assert_eq!(
+        replace(URL_HOST_PAT, "http://hostonly.com", r"\1", 0, 1),
+        "http://hostonly.com"
+    );
     assert_eq!(replace(URL_HOST_PAT, "", r"\1", 0, 1), "");
 }
 
@@ -45,7 +53,10 @@ fn replacement_escapes() {
     if !re2_available() {
         return;
     }
-    assert_eq!(replace(r"([a-z]+) ([a-z]+)", "abc def", r"\2 \1", 0, 1), "def abc");
+    assert_eq!(
+        replace(r"([a-z]+) ([a-z]+)", "abc def", r"\2 \1", 0, 1),
+        "def abc"
+    );
     assert_eq!(replace("a", "xay", r"[\&]", 0, 1), "x[a]y");
     assert_eq!(replace("a", "xay", r"\\", 0, 1), "x\\y");
     // Unknown escape keeps the backslash (PG behavior).
@@ -94,13 +105,20 @@ fn auto_fails_closed() {
     set_regex_engine(REGEX_ENGINE_AUTO);
     // Incompatible constructs classify to Spencer (None), never error.
     for p in [r"(a)\1", r"\w+", "a*?", "[[:alpha:]]"] {
-        assert!(dispatch(p.as_bytes(), REG_ADVANCED, b"x").unwrap().is_none(), "{p}");
+        assert!(
+            dispatch(p.as_bytes(), REG_ADVANCED, b"x")
+                .unwrap()
+                .is_none(),
+            "{p}"
+        );
     }
     // Classifier-admitted but RE2-rejected patterns also fail closed.
     // (POSIX leading-] brackets are rejected upstream by the classifier; use
     // forced mode to confirm compile errors surface only when forced.)
     set_regex_engine(REGEX_ENGINE_SPENCER);
-    assert!(dispatch(b"anything(?=x)", REG_ADVANCED, b"x").unwrap().is_none());
+    assert!(dispatch(b"anything(?=x)", REG_ADVANCED, b"x")
+        .unwrap()
+        .is_none());
 }
 
 #[test]
@@ -170,8 +188,9 @@ fn quoted_mode_is_literal() {
         return;
     }
     set_regex_engine(REGEX_ENGINE_AUTO);
-    let re =
-        dispatch(br"a.c", ::regex_spencer::REG_QUOTE, b"x").unwrap().expect("quoted dispatches");
+    let re = dispatch(br"a.c", ::regex_spencer::REG_QUOTE, b"x")
+        .unwrap()
+        .expect("quoted dispatches");
     assert!(re.is_match(b"xa.cy", 0));
     assert!(!re.is_match(b"xabcy", 0));
 }
@@ -183,8 +202,12 @@ fn dispatch_decision_is_cached() {
         return;
     }
     set_regex_engine(REGEX_ENGINE_AUTO);
-    let a = dispatch(URL_HOST_PAT.as_bytes(), REG_ADVANCED, b"x").unwrap().unwrap();
-    let b = dispatch(URL_HOST_PAT.as_bytes(), REG_ADVANCED, b"x").unwrap().unwrap();
+    let a = dispatch(URL_HOST_PAT.as_bytes(), REG_ADVANCED, b"x")
+        .unwrap()
+        .unwrap();
+    let b = dispatch(URL_HOST_PAT.as_bytes(), REG_ADVANCED, b"x")
+        .unwrap()
+        .unwrap();
     // Same Rc-backed compiled pattern comes back from the cache.
     assert!(Rc::ptr_eq(&a.inner, &b.inner));
     // Spencer verdicts are cached too.
@@ -273,7 +296,9 @@ fn pattern_program_vs_re2_differential() {
         "bbb",
     ];
     for p in patterns {
-        let re = dispatch(p.as_bytes(), REG_ADVANCED, b"clean").unwrap().unwrap_or_else(|| panic!("pattern {p:?} should dispatch to re2"));
+        let re = dispatch(p.as_bytes(), REG_ADVANCED, b"clean")
+            .unwrap()
+            .unwrap_or_else(|| panic!("pattern {p:?} should dispatch to re2"));
         if !re.has_program() {
             continue;
         }
@@ -284,9 +309,16 @@ fn pattern_program_vs_re2_differential() {
                     let mut re2_out = [(-7i64, -7i64); 10];
                     let prog_m = re.exec(s.as_bytes(), start, &mut prog_out[..nout]);
                     let re2_m = re.inner.match_at(s.as_bytes(), start, &mut re2_out[..nout]);
-                    assert_eq!(prog_m, re2_m, "match verdict diverges: {p:?} on {s:?} from {start}");
+                    assert_eq!(
+                        prog_m, re2_m,
+                        "match verdict diverges: {p:?} on {s:?} from {start}"
+                    );
                     if prog_m {
-                        assert_eq!(prog_out[..nout], re2_out[..nout], "group spans diverge: {p:?} on {s:?} from {start}");
+                        assert_eq!(
+                            prog_out[..nout],
+                            re2_out[..nout],
+                            "group spans diverge: {p:?} on {s:?} from {start}"
+                        );
                     }
                 }
             }
@@ -302,9 +334,16 @@ fn pattern_program_budget_fallback() {
     setup();
     set_regex_engine(REGEX_ENGINE_AUTO);
     let p = "^[ab]*[ab]*[ab]*[ab]*[ab]*[ab]*[ab]*[ab]*c$";
-    let re = dispatch(p.as_bytes(), REG_ADVANCED, b"clean").unwrap().unwrap();
+    let re = dispatch(p.as_bytes(), REG_ADVANCED, b"clean")
+        .unwrap()
+        .unwrap();
     let hay = "ab".repeat(64);
-    assert_eq!(program::Program::compile(p.as_bytes()).unwrap().exec(hay.as_bytes(), 0, &mut []), None);
+    assert_eq!(
+        program::Program::compile(p.as_bytes())
+            .unwrap()
+            .exec(hay.as_bytes(), 0, &mut []),
+        None
+    );
     assert!(!re.exec(hay.as_bytes(), 0, &mut []));
     assert!(!re.inner.match_at(hay.as_bytes(), 0, &mut []));
 }
@@ -320,8 +359,15 @@ fn pattern_program_attaches() {
         return;
     }
     set_regex_engine(REGEX_ENGINE_AUTO);
-    for p in [URL_HOST_PAT, "^([a-z]+)/([a-z]+)$", "^(.*)/(.*)$", "://(x)/(y)"] {
-        let re = dispatch(p.as_bytes(), REG_ADVANCED, b"clean").unwrap().unwrap();
+    for p in [
+        URL_HOST_PAT,
+        "^([a-z]+)/([a-z]+)$",
+        "^(.*)/(.*)$",
+        "://(x)/(y)",
+    ] {
+        let re = dispatch(p.as_bytes(), REG_ADVANCED, b"clean")
+            .unwrap()
+            .unwrap();
         assert!(re.has_program(), "{p:?} must compile to a pattern program");
     }
     for p in ["^(foo|bar)$", "(a)+", "a|ab", "://([^/]+)/"] {
@@ -334,7 +380,9 @@ fn pattern_program_attaches() {
 #[test]
 fn guc_backing_is_session_scoped() {
     set_regex_engine(REGEX_ENGINE_SPENCER);
-    std::thread::spawn(|| assert_eq!(regex_engine(), REGEX_ENGINE_AUTO)).join().unwrap();
+    std::thread::spawn(|| assert_eq!(regex_engine(), REGEX_ENGINE_AUTO))
+        .join()
+        .unwrap();
     assert_eq!(regex_engine(), REGEX_ENGINE_SPENCER);
     set_regex_engine(REGEX_ENGINE_AUTO);
 }

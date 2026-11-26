@@ -45,7 +45,10 @@ pub fn ResolveCminCmaxDuringDecoding(
         .downcast_ref::<RefCell<TupleCidHash>>()
         .expect("historic tuplecids carry the reorderbuffer hash");
 
-    let key = ReorderBufferTupleCidKey { rlocator, tid: htup.t_self };
+    let key = ReorderBufferTupleCidKey {
+        rlocator,
+        tid: htup.t_self,
+    };
 
     if let Some(ent) = hash.borrow().get(&key) {
         return Ok(Some((ent.cmin, ent.cmax)));
@@ -98,8 +101,7 @@ fn os_error() -> std::io::Error {
 // cmin/cmax lookups keep working against the rewritten catalog heap.
 pub(crate) fn ApplyLogicalMappingFile(
     hash: &RefCell<TupleCidHash>,
-    #[allow(clippy::ptr_arg)]
-    dir: &PathBuf,
+    #[allow(clippy::ptr_arg)] dir: &PathBuf,
     fname: &str,
 ) -> PgResult<()> {
     let path = dir.join(fname);
@@ -108,7 +110,10 @@ pub(crate) fn ApplyLogicalMappingFile(
     // reorderbuffer.c:5366: OpenTransientFile(path, O_RDONLY | PG_BINARY).
     let fd = fd::OpenTransientFile(&path.to_string_lossy(), libc::O_RDONLY)?;
     if fd < 0 {
-        return Err(rb_file_error(format!("could not open file \"{cpath}\": {PCT_M}"), &os_error()));
+        return Err(rb_file_error(
+            format!("could not open file \"{cpath}\": {PCT_M}"),
+            &os_error(),
+        ));
     }
 
     let result = apply_mapping_entries(hash, fd, &cpath);
@@ -124,7 +129,10 @@ pub(crate) fn ApplyLogicalMappingFile(
 // reorderbuffer.c:5437-5440.
 fn close_mapping_file(fd: i32, cpath: &str) -> PgResult<()> {
     if fd::CloseTransientFile(fd) != 0 {
-        return Err(rb_file_error(format!("could not close file \"{cpath}\": {PCT_M}"), &os_error()));
+        return Err(rb_file_error(
+            format!("could not close file \"{cpath}\": {PCT_M}"),
+            &os_error(),
+        ));
     }
     Ok(())
 }
@@ -143,7 +151,10 @@ fn apply_mapping_entries(hash: &RefCell<TupleCidHash>, fd: i32, cpath: &str) -> 
 
         if read_bytes < 0 {
             // reorderbuffer.c:5388.
-            return Err(rb_file_error(format!("could not read file \"{cpath}\": {PCT_M}"), &os_error()));
+            return Err(rb_file_error(
+                format!("could not read file \"{cpath}\": {PCT_M}"),
+                &os_error(),
+            ));
         } else if read_bytes == 0 {
             // EOF.
             break;
@@ -243,7 +254,13 @@ pub(crate) fn parse_mapping_filename(name: &str) -> Option<(u32, u32, u64, u32, 
     let f_mapped_xid = scan_hex(s, &mut pos)?;
     literal(&mut pos, b'-')?;
     let f_create_xid = scan_hex(s, &mut pos)?;
-    Some((f_dboid, f_relid, ((f_hi as u64) << 32) | f_lo as u64, f_mapped_xid, f_create_xid))
+    Some((
+        f_dboid,
+        f_relid,
+        ((f_hi as u64) << 32) | f_lo as u64,
+        f_mapped_xid,
+        f_create_xid,
+    ))
 }
 
 // UpdateLogicalMappings (reorderbuffer.c:5449): collect the rewrite-mapping
@@ -259,7 +276,10 @@ fn UpdateLogicalMappings(
     let dir = PathBuf::from(datadir).join("pg_logical/mappings");
     let entries = std::fs::read_dir(&dir).map_err(|e| {
         rb_file_error(
-            format!("could not open directory \"{}\": {PCT_M}", crate::startup::datadir_relative(&dir)),
+            format!(
+                "could not open directory \"{}\": {PCT_M}",
+                crate::startup::datadir_relative(&dir)
+            ),
             &e,
         )
     })?;
@@ -272,13 +292,15 @@ fn UpdateLogicalMappings(
 
     let mut files: Vec<(u64, String)> = Vec::new();
     for entry in entries {
-        let entry =
-            entry.map_err(|e| {
-                rb_file_error(
-                    format!("could not read directory \"{}\": {PCT_M}", crate::startup::datadir_relative(&dir)),
-                    &e,
-                )
-            })?;
+        let entry = entry.map_err(|e| {
+            rb_file_error(
+                format!(
+                    "could not read directory \"{}\": {PCT_M}",
+                    crate::startup::datadir_relative(&dir)
+                ),
+                &e,
+            )
+        })?;
         let name = entry.file_name();
         let name = name.to_string_lossy().into_owned();
         if !name.starts_with("map-") {
@@ -318,7 +340,11 @@ fn UpdateLogicalMappings(
             DEBUG1,
             format!(
                 "applying mapping: \"{fname}\" in {}",
-                snapshot.subxip.first().copied().unwrap_or(types_core::InvalidTransactionId)
+                snapshot
+                    .subxip
+                    .first()
+                    .copied()
+                    .unwrap_or(types_core::InvalidTransactionId)
             ),
         );
         ApplyLogicalMappingFile(hash, &dir, fname)?;
@@ -332,12 +358,21 @@ mod mapping_tests {
     use types_core::InvalidCommandId;
 
     fn locator(spc: u32, db: u32, rel: u32) -> RelFileLocator {
-        RelFileLocator { spcOid: spc, dbOid: db, relNumber: rel }
+        RelFileLocator {
+            spcOid: spc,
+            dbOid: db,
+            relNumber: rel,
+        }
     }
 
     // One LogicalRewriteMappingData entry in the C on-disk layout (the same
     // bytes rewriteheap's writer and heap_xlog_logical_rewrite produce).
-    fn entry(old_loc: RelFileLocator, old_tid: (u32, u16), new_loc: RelFileLocator, new_tid: (u32, u16)) -> [u8; 36] {
+    fn entry(
+        old_loc: RelFileLocator,
+        old_tid: (u32, u16),
+        new_loc: RelFileLocator,
+        new_tid: (u32, u16),
+    ) -> [u8; 36] {
         let mut b = [0u8; 36];
         for (off, l) in [(0usize, old_loc), (12, new_loc)] {
             b[off..off + 4].copy_from_slice(&l.spcOid.to_ne_bytes());
@@ -367,28 +402,40 @@ mod mapping_tests {
         let fname = "map-5-4eb-3_28-2f1-2f2";
         std::fs::write(dir.join(fname), &bytes).unwrap();
 
-        let hash: RefCell<TupleCidHash> =
-            RefCell::new(PgFxHashMap::with_hasher_in(Default::default(), crate::rb_mcx()));
+        let hash: RefCell<TupleCidHash> = RefCell::new(PgFxHashMap::with_hasher_in(
+            Default::default(),
+            crate::rb_mcx(),
+        ));
         let known = ReorderBufferTupleCidKey {
             rlocator: old,
             tid: ItemPointerData::new(0, 1),
         };
         hash.borrow_mut().insert(
             known,
-            ReorderBufferTupleCidEnt { cmin: 4, cmax: InvalidCommandId, combocid: InvalidCommandId },
+            ReorderBufferTupleCidEnt {
+                cmin: 4,
+                cmax: InvalidCommandId,
+                combocid: InvalidCommandId,
+            },
         );
 
         ApplyLogicalMappingFile(&hash, &dir, fname).unwrap();
 
         let h = hash.borrow();
         let remapped = h
-            .get(&ReorderBufferTupleCidKey { rlocator: new, tid: ItemPointerData::new(7, 3) })
+            .get(&ReorderBufferTupleCidKey {
+                rlocator: new,
+                tid: ItemPointerData::new(7, 3),
+            })
             .expect("known old tuple remapped to its new location");
         assert_eq!(remapped.cmin, 4);
         assert_eq!(remapped.cmax, InvalidCommandId);
         assert!(
-            h.get(&ReorderBufferTupleCidKey { rlocator: new, tid: ItemPointerData::new(7, 4) })
-                .is_none(),
+            h.get(&ReorderBufferTupleCidKey {
+                rlocator: new,
+                tid: ItemPointerData::new(7, 4)
+            })
+            .is_none(),
             "unknown old tuple must not create a mapping"
         );
         // The old key stays valid (C keeps both).
@@ -403,8 +450,10 @@ mod mapping_tests {
         std::fs::create_dir_all(&dir).unwrap();
         let fname = "map-5-4eb-3_28-2f1-2f3";
         std::fs::write(dir.join(fname), [0u8; 20]).unwrap(); // torn: 20 < 36
-        let hash: RefCell<TupleCidHash> =
-            RefCell::new(PgFxHashMap::with_hasher_in(Default::default(), crate::rb_mcx()));
+        let hash: RefCell<TupleCidHash> = RefCell::new(PgFxHashMap::with_hasher_in(
+            Default::default(),
+            crate::rb_mcx(),
+        ));
         assert!(ApplyLogicalMappingFile(&hash, &dir, fname).is_err());
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -414,8 +463,10 @@ mod mapping_tests {
         crate::tests::install_file_seams();
         let dir = std::env::temp_dir().join(format!("rb-maptest-miss-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let hash: RefCell<TupleCidHash> =
-            RefCell::new(PgFxHashMap::with_hasher_in(Default::default(), crate::rb_mcx()));
+        let hash: RefCell<TupleCidHash> = RefCell::new(PgFxHashMap::with_hasher_in(
+            Default::default(),
+            crate::rb_mcx(),
+        ));
         let err = ApplyLogicalMappingFile(&hash, &dir, "no-such-map")
             .expect_err("missing mapping file is C ereport");
         assert_eq!(err.sqlstate, types_error::ERRCODE_UNDEFINED_FILE);
@@ -439,8 +490,10 @@ mod mapping_tests {
         bytes.extend_from_slice(&entry(old, (0, 2), new, (7, 4)));
         let fname = "map-5-4eb-3_28-2f1-2f5";
         std::fs::write(dir.join(fname), &bytes).unwrap();
-        let hash: RefCell<TupleCidHash> =
-            RefCell::new(PgFxHashMap::with_hasher_in(Default::default(), crate::rb_mcx()));
+        let hash: RefCell<TupleCidHash> = RefCell::new(PgFxHashMap::with_hasher_in(
+            Default::default(),
+            crate::rb_mcx(),
+        ));
 
         let starts_before = crate::tests::my_wait_starts().len();
         let ends_before = crate::tests::my_wait_ends();
@@ -497,7 +550,10 @@ mod mapping_tests {
         // mapped xid 0x2f1 = 753, named out of LSN order.
         let old = locator(1664, 0, 1260);
         let new = locator(1664, 0, 77777);
-        for (fname, tid) in [("map-0-4ec-0_20-2f1-2f2", (2u32, 1u16)), ("map-0-4ec-0_10-2f1-2f3", (1, 1))] {
+        for (fname, tid) in [
+            ("map-0-4ec-0_20-2f1-2f2", (2u32, 1u16)),
+            ("map-0-4ec-0_10-2f1-2f3", (1, 1)),
+        ] {
             std::fs::write(dir.join(fname), entry(old, tid, new, tid)).unwrap();
         }
         init_small::globals::SetDataDir(base.to_str().unwrap());
@@ -513,11 +569,16 @@ mod mapping_tests {
         elog::config::set_log_min_messages(types_error::DEBUG1);
         let prev_hook = elog::set_emit_log_hook(Some(hook));
 
-        let mut snapshot = SnapshotData::sentinel(crate::rb_mcx(), types_snapshot::SnapshotType::SNAPSHOT_HISTORIC_MVCC);
+        let mut snapshot = SnapshotData::sentinel(
+            crate::rb_mcx(),
+            types_snapshot::SnapshotType::SNAPSHOT_HISTORIC_MVCC,
+        );
         snapshot.subxip.push(753);
         snapshot.subxcnt = 1;
-        let hash: RefCell<TupleCidHash> =
-            RefCell::new(PgFxHashMap::with_hasher_in(Default::default(), crate::rb_mcx()));
+        let hash: RefCell<TupleCidHash> = RefCell::new(PgFxHashMap::with_hasher_in(
+            Default::default(),
+            crate::rb_mcx(),
+        ));
         let result = UpdateLogicalMappings(&hash, 1260, &snapshot);
 
         elog::set_emit_log_hook(prev_hook);

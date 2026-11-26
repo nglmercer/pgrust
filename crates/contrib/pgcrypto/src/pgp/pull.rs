@@ -18,7 +18,12 @@ pub struct Dcx<'c> {
 
 impl<'c> Dcx<'c> {
     pub fn new(ctx: &'c mut PgpContext) -> Dcx<'c> {
-        Dcx { ctx, mdc: None, use_mdcbuf: false, in_mdc_pkt: false }
+        Dcx {
+            ctx,
+            mdc: None,
+            use_mdcbuf: false,
+            in_mdc_pkt: false,
+        }
     }
 
     pub fn dbg(&mut self, msg: &str) {
@@ -161,7 +166,11 @@ pub fn parse_pkt_hdr(src: &mut dyn Pull, cx: &mut Dcx, allow_ctx: bool) -> PRes<
     }
     if p & 0x40 != 0 {
         let (len, ty) = parse_new_len(src, cx)?;
-        return Ok(Some(PktHdr { tag: (p & 0x3f) as i32, len, ty }));
+        return Ok(Some(PktHdr {
+            tag: (p & 0x3f) as i32,
+            len,
+            ty,
+        }));
     }
     let lentype = p & 3;
     let tag = ((p >> 2) & 0x0f) as i32;
@@ -169,10 +178,18 @@ pub fn parse_pkt_hdr(src: &mut dyn Pull, cx: &mut Dcx, allow_ctx: bool) -> PRes<
         if !allow_ctx {
             return Err(CORRUPT_DATA.to_string());
         }
-        return Ok(Some(PktHdr { tag, len: 0, ty: PktType::Context }));
+        return Ok(Some(PktHdr {
+            tag,
+            len: 0,
+            ty: PktType::Context,
+        }));
     }
     let len = parse_old_len(src, cx, lentype)?;
-    Ok(Some(PktHdr { tag, len, ty: PktType::Normal }))
+    Ok(Some(PktHdr {
+        tag,
+        len,
+        ty: PktType::Normal,
+    }))
 }
 
 /// pgp-decrypt.c:177 pktreader_pull: a stream's next chunk header is read
@@ -185,7 +202,11 @@ pub struct PktPull<'a> {
 
 impl<'a> PktPull<'a> {
     pub fn new(src: &'a mut dyn Pull, hdr: &PktHdr) -> PktPull<'a> {
-        PktPull { src, ty: hdr.ty, len: hdr.len }
+        PktPull {
+            src,
+            ty: hdr.ty,
+            len: hdr.len,
+        }
     }
 }
 
@@ -239,7 +260,10 @@ mod tests {
         let mut pkt = PktPull::new(&mut src, &PktHdr { tag: 11, len, ty });
         assert_eq!(pkt.pull(&mut cx, 10).unwrap(), b"ab");
         assert_eq!(pkt.pull(&mut cx, 10).unwrap_err(), CORRUPT_DATA);
-        assert_eq!(cx.ctx.debug_notices, ["dbg: pullf_read_fixed: need=1 got=0"]);
+        assert_eq!(
+            cx.ctx.debug_notices,
+            ["dbg: pullf_read_fixed: need=1 got=0"]
+        );
     }
 
     #[test]
@@ -248,7 +272,11 @@ mod tests {
         let mut ctx = PgpContext::default();
         let mut cx = Dcx::new(&mut ctx);
         let mut src = SliceReader::new(&data[1..]);
-        let hdr = PktHdr { tag: 11, len: 1, ty: PktType::Stream };
+        let hdr = PktHdr {
+            tag: 11,
+            len: 1,
+            ty: PktType::Stream,
+        };
         let mut pkt = PktPull::new(&mut src, &hdr);
         assert_eq!(read_max(&mut pkt, &mut cx, 8).unwrap(), b"xyz");
         assert!(pkt.pull(&mut cx, 1).unwrap().is_empty());

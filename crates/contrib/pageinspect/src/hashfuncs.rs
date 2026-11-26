@@ -1,8 +1,8 @@
 //! hashfuncs.c — hash page inspection.
 
 use crate::*;
-use types_core::{BlockNumber, MaxBlockNumber, HASH_AM_OID};
 use nbtree::itup::{index_info_find_data_offset, INDEX_TUPLE_HEADER_SIZE};
+use types_core::{BlockNumber, MaxBlockNumber, HASH_AM_OID};
 use types_error::{ERRCODE_DATA_CORRUPTED, ERRCODE_INDEX_CORRUPTED, ERRCODE_WRONG_OBJECT_TYPE};
 use types_hash::hashpage::{
     HashMetaPageData, HashPageOpaqueData, HASH_MAGIC, HASH_MAX_BITMAPS, HASH_MAX_SPLITPOINTS,
@@ -301,12 +301,9 @@ fn checked_rel_hash_page(
         }
         if metap.hashm_version != HASH_VERSION {
             return Err(Box::new(
-                PgError::error(format!(
-                    "index \"{}\" has wrong hash version",
-                    rel.name()
-                ))
-                .with_sqlstate(ERRCODE_INDEX_CORRUPTED)
-                .with_hint("Please REINDEX it."),
+                PgError::error(format!("index \"{}\" has wrong hash version", rel.name()))
+                    .with_sqlstate(ERRCODE_INDEX_CORRUPTED)
+                    .with_hint("Please REINDEX it."),
             ));
         }
     }
@@ -355,11 +352,15 @@ pub(crate) fn fc_hash_bitmap_info(
 
     // The bit is only meaningful for overflow pages.
     if ovflblkno == 0 {
-        return Err(param_err(format!("invalid overflow block number {ovflblkno}")));
+        return Err(param_err(format!(
+            "invalid overflow block number {ovflblkno}"
+        )));
     }
     for i in 0..metap.hashm_nmaps as usize {
         if metap.hashm_mapp[i] as i64 == ovflblkno {
-            return Err(param_err(format!("invalid overflow block number {ovflblkno}")));
+            return Err(param_err(format!(
+                "invalid overflow block number {ovflblkno}"
+            )));
         }
     }
 
@@ -370,7 +371,9 @@ pub(crate) fn fc_hash_bitmap_info(
     let bitmapbit = ovflbitno & (bmpgsz_bit - 1);
 
     if bitmappage >= metap.hashm_nmaps {
-        return Err(param_err(format!("invalid overflow block number {ovflblkno}")));
+        return Err(param_err(format!(
+            "invalid overflow block number {ovflblkno}"
+        )));
     }
     let bitmapblkno = metap.hashm_mapp[bitmappage as usize];
 

@@ -24,7 +24,9 @@ pub(crate) fn quiet(gx: &Gx<'_, '_>, k: usize, i: &InitPlan<'_>) -> bool {
 /// plan's own pipeline runs ahead of its readers only under `fills_ahead_quietly`.
 pub(crate) fn first_fetch(gx: &Gx<'_, '_>, k: usize, i: &InitPlan<'_>) -> bool {
     let own = Effects::of_init_plan(i);
-    !own.acts && gx.graph.first_cte.is_some_and(|(id, _)| id == i.plan_id) && !feeds(gx, k, |op| matches!(op, Op::Lock(_)))
+    !own.acts
+        && gx.graph.first_cte.is_some_and(|(id, _)| id == i.plan_id)
+        && !feeds(gx, k, |op| matches!(op, Op::Lock(_)))
 }
 
 /// D3097: CTE `k`'s own pipeline may be filled whole ahead of its readers (D3040's fill): `Some` with the licence it
@@ -37,21 +39,39 @@ pub(crate) fn first_fetch(gx: &Gx<'_, '_>, k: usize, i: &InitPlan<'_>) -> bool {
 /// cursor's FETCH (`row_first`, D3450), which would return rows before PostgreSQL's error. A reader that may raise (an
 /// aggregate whose argument overflows at the first row while the plan divides by zero at the second) keeps the pulled
 /// form.
-pub(crate) fn fills_ahead_quietly(gx: &Gx<'_, '_>, k: usize, i: &InitPlan<'_>, readers: &[usize], whole: bool, row_first: bool) -> Option<Option<Licence>> {
+pub(crate) fn fills_ahead_quietly(
+    gx: &Gx<'_, '_>,
+    k: usize,
+    i: &InitPlan<'_>,
+    readers: &[usize],
+    whole: bool,
+    row_first: bool,
+) -> Option<Option<Licence>> {
     if quiet(gx, k, i) {
-        return Some(gravity_decompose::effects::quiet_ahead(Effects::of_init_plan(i)));
+        return Some(gravity_decompose::effects::quiet_ahead(
+            Effects::of_init_plan(i),
+        ));
     }
     let calm = readers.iter().all(|&p| reader_quiet(gx, p));
-    super::same_row::at_pg_point(&super::same_row::SameRow { whole, acts_before: !calm, raises_before: !calm, row_first }).then_some(None)
+    super::same_row::at_pg_point(&super::same_row::SameRow {
+        whole,
+        acts_before: !calm,
+        raises_before: !calm,
+        row_first,
+    })
+    .then_some(None)
 }
 
 /// Reader pipeline `p` raises on no row: its source (the CTE's store) and ops pass `span_quiet`, and it ends in the
 /// client's sink or a hash build (its keys are ops `span_quiet` reads), not a grouping or a sort whose per-row calls (an
 /// aggregate's arguments and transitions, a comparator) may raise between two of the plan's rows.
 fn reader_quiet(gx: &Gx<'_, '_>, p: usize) -> bool {
-    let Some(x) = gx.graph.pipelines.get(p) else { return false };
+    let Some(x) = gx.graph.pipelines.get(p) else {
+        return false;
+    };
     crate::effects::span_quiet(gx, x, 0, x.ops.len(), false)
-        && crate::frame::iface::breaker_of(&x.desc).is_none_or(|b| matches!(b.kind, gravity_abi::breaker::BreakerKind::HashBuild))
+        && crate::frame::iface::breaker_of(&x.desc)
+            .is_none_or(|b| matches!(b.kind, gravity_abi::breaker::BreakerKind::HashBuild))
 }
 
 /// D3336 (A2 (iii), ops/ctescan/wholefill.rs): whether reader pipeline `p` of a CTE's store reads it in no order of its

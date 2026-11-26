@@ -2,7 +2,9 @@
 //! partials' combine, and a by-reference image's length. Moved from hosted_kept.rs unchanged.
 #![allow(unsafe_code)]
 use datum::Datum;
-use gravity_kernels::ops::agg::trans::hosted::{AGG_STATE_BYTES, STATE_AGGNO, STATE_INIT, STATE_NOTRANS, STATE_NULL, STATE_VALUE};
+use gravity_kernels::ops::agg::trans::hosted::{
+    AGG_STATE_BYTES, STATE_AGGNO, STATE_INIT, STATE_NOTRANS, STATE_NULL, STATE_VALUE,
+};
 use types_error::PgResult;
 
 use crate::ops::agg::trans::hosted::AggArena;
@@ -10,7 +12,15 @@ use crate::ops::agg::trans::hosted::AggArena;
 impl AggArena {
     /// D345: the first call on a group's kept slot keeps its value (a NULL too) as PG's representative tuple holds it: a
     /// by-reference one copied into slot `k`'s aggcontext, an external varlena detoasted there; later calls keep it.
-    pub(crate) unsafe fn keep_first(&mut self, k: usize, j: usize, aggno: u32, s: *mut u8, v: u64, null: bool) -> PgResult<()> {
+    pub(crate) unsafe fn keep_first(
+        &mut self,
+        k: usize,
+        j: usize,
+        aggno: u32,
+        s: *mut u8,
+        v: u64,
+        null: bool,
+    ) -> PgResult<()> {
         if s.add(STATE_INIT).read() != 0 {
             return Ok(());
         }
@@ -38,10 +48,18 @@ impl AggArena {
     pub(crate) unsafe fn kept_final(&self, j: usize, s: *mut u8, out: *mut u64) {
         let (typlen, byval) = self.kept[j];
         let n = s.add(STATE_INIT).read() == 0 || s.add(STATE_NULL).read() != 0;
-        let v = if n { 0 } else { (s.add(STATE_VALUE) as *const u64).read_unaligned() };
+        let v = if n {
+            0
+        } else {
+            (s.add(STATE_VALUE) as *const u64).read_unaligned()
+        };
         out.write(v);
         out.add(1).write(n as u64);
-        out.add(2).write(if n || byval { 0 } else { image_len(v as *const u8, typlen) as u64 });
+        out.add(2).write(if n || byval {
+            0
+        } else {
+            image_len(v as *const u8, typlen) as u64
+        });
     }
 }
 

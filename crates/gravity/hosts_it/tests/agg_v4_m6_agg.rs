@@ -10,7 +10,9 @@ use std::sync::{Mutex, MutexGuard, Once};
 
 use gravity_abi::{Ctx, ProgramBlock, PtrWord};
 use gravity_hosts::v4::m6::AggArena;
-use gravity_kernels::ops::agg::trans::hosted::{m6_agg_combine, m6_agg_final, m6_agg_trans, AggHead, STATE_HOME, STATE_INIT};
+use gravity_kernels::ops::agg::trans::hosted::{
+    m6_agg_combine, m6_agg_final, m6_agg_trans, AggHead, STATE_HOME, STATE_INIT,
+};
 use mcx::{Mcx, MemoryContext, PgString};
 use types_nodes::list::OidList;
 use types_nodes::primnodes::Aggref;
@@ -41,10 +43,31 @@ fn install() -> MutexGuard<'static, ()> {
         miscinit_seams::get_user_id::set(|| 10);
         aclchk_seams::object_aclcheck::set(|_, f, _, _| Ok(if f == DENIED { 1 } else { 0 }));
         syscache_seams::pg_proc_proname::set(|_| Ok(None));
-        syscache_seams::lookup_pg_proc_secdef::set(|_| Ok(Some(syscache_seams::PgProcSecdefShape { proowner: 10, prosecdef: false, proconfig: None })));
+        syscache_seams::lookup_pg_proc_secdef::set(|_| {
+            Ok(Some(syscache_seams::PgProcSecdefShape {
+                proowner: 10,
+                prosecdef: false,
+                proconfig: None,
+            }))
+        });
         // every aggregate PARALLEL SAFE: array_agg's fake shape has no combinefn, max(text)'s is text_larger
         syscache_seams::lookup_pg_proc_shape::set(|_| {
-            Ok(Some(syscache_seams::PgProcShape { pronamespace: 11, prorettype: 0, provariadic: 0, prosupport: 0, prolang: 12, pronargs: 1, prokind: b'a' as i8, provolatile: b'i' as i8, proparallel: b's' as i8, proretset: false, proisstrict: false, proleakproof: false, prosecdef: false, proconfig_isnull: true }))
+            Ok(Some(syscache_seams::PgProcShape {
+                pronamespace: 11,
+                prorettype: 0,
+                provariadic: 0,
+                prosupport: 0,
+                prolang: 12,
+                pronargs: 1,
+                prokind: b'a' as i8,
+                provolatile: b'i' as i8,
+                proparallel: b's' as i8,
+                proretset: false,
+                proisstrict: false,
+                proleakproof: false,
+                prosecdef: false,
+                proconfig_isnull: true,
+            }))
         });
         // (typlen, byval, align, storage): int4, text, internal, _int4
         syscache_seams::lookup_pg_type_shape::set(|t| {
@@ -55,7 +78,13 @@ fn install() -> MutexGuard<'static, ()> {
                 1007 => (-1, false, b'i', b'x'),
                 _ => return Ok(None),
             };
-            Ok(Some(types_tuple::tupdesc::PgTypeShape { typlen, typbyval, typalign: typalign as i8, typstorage: typstorage as i8, typcollation: if t == 25 { 100 } else { 0 } }))
+            Ok(Some(types_tuple::tupdesc::PgTypeShape {
+                typlen,
+                typbyval,
+                typalign: typalign as i8,
+                typstorage: typstorage as i8,
+                typcollation: if t == 25 { 100 } else { 0 },
+            }))
         });
         // V4R-453: the rows a parallel arena arms (int4, text, internal, _int4): capture_type_row's two projections
         syscache_seams::lookup_pg_type_typcache_shape::set(|t| {
@@ -66,19 +95,68 @@ fn install() -> MutexGuard<'static, ()> {
                 1007 => (-1, false, b'i', b'b', 23),
                 _ => return Ok(None),
             };
-            Ok(Some(syscache_seams::PgTypeTypcacheShape { typname: Default::default(), typlen, typbyval, typalign: typalign as i8, typstorage: b'p' as i8, typtype: typtype as i8, typisdefined: true, typrelid: 0, typsubscript: 0, typelem: elem, typarray: 0, typcollation: if t == 25 { 100 } else { 0 } }))
+            Ok(Some(syscache_seams::PgTypeTypcacheShape {
+                typname: Default::default(),
+                typlen,
+                typbyval,
+                typalign: typalign as i8,
+                typstorage: b'p' as i8,
+                typtype: typtype as i8,
+                typisdefined: true,
+                typrelid: 0,
+                typsubscript: 0,
+                typelem: elem,
+                typarray: 0,
+                typcollation: if t == 25 { 100 } else { 0 },
+            }))
         });
         syscache_seams::pg_type_base_shape::set(|t| {
-            Ok(matches!(t, 23 | 25 | 2281 | 1007).then(|| syscache_seams::PgTypeBaseShape { typtype: if t == 2281 { b'p' as i8 } else { b'b' as i8 }, typbasetype: 0, typtypmod: -1, typelem: if t == 1007 { 23 } else { 0 }, typsubscript: 0 }))
+            Ok(
+                matches!(t, 23 | 25 | 2281 | 1007).then(|| syscache_seams::PgTypeBaseShape {
+                    typtype: if t == 2281 { b'p' as i8 } else { b'b' as i8 },
+                    typbasetype: 0,
+                    typtypmod: -1,
+                    typelem: if t == 1007 { 23 } else { 0 },
+                    typsubscript: 0,
+                }),
+            )
         });
         // the typcache entries a parallel arena images: no default opclass here (the tests' types compare in their own code)
-        syscache_seams::syscache_hash_value_typeoid::set( Ok);
+        syscache_seams::syscache_hash_value_typeoid::set(Ok);
         indexcmds_seams::get_default_opclass::set(|_, _| Ok(0));
         // int4in for the initcond
         syscache_seams::pg_type_io_shape::set(|t| {
             Ok(match t {
-                23 => Some(syscache_seams::PgTypeIoShape { oid: 23, typinput: 42, typoutput: 43, typreceive: 2406, typsend: 2407, typmodin: 0, typmodout: 0, typelem: 0, typlen: 4, typbyval: true, typalign: b'i' as i8, typdelim: b',' as i8, typisdefined: true }),
-                25 => Some(syscache_seams::PgTypeIoShape { oid: 25, typinput: 46, typoutput: 47, typreceive: 2414, typsend: 2415, typmodin: 0, typmodout: 0, typelem: 0, typlen: -1, typbyval: false, typalign: b'i' as i8, typdelim: b',' as i8, typisdefined: true }),
+                23 => Some(syscache_seams::PgTypeIoShape {
+                    oid: 23,
+                    typinput: 42,
+                    typoutput: 43,
+                    typreceive: 2406,
+                    typsend: 2407,
+                    typmodin: 0,
+                    typmodout: 0,
+                    typelem: 0,
+                    typlen: 4,
+                    typbyval: true,
+                    typalign: b'i' as i8,
+                    typdelim: b',' as i8,
+                    typisdefined: true,
+                }),
+                25 => Some(syscache_seams::PgTypeIoShape {
+                    oid: 25,
+                    typinput: 46,
+                    typoutput: 47,
+                    typreceive: 2414,
+                    typsend: 2415,
+                    typmodin: 0,
+                    typmodout: 0,
+                    typelem: 0,
+                    typlen: -1,
+                    typbyval: false,
+                    typalign: b'i' as i8,
+                    typdelim: b',' as i8,
+                    typisdefined: true,
+                }),
                 _ => None,
             })
         });
@@ -115,7 +193,10 @@ fn install() -> MutexGuard<'static, ()> {
         syscache_seams::pg_aggregate_agginitval::set(|mcx, f| {
             Ok(match f {
                 OVERFLOWS => Some(Some(PgString::from_str_in("2147483647", mcx).unwrap())),
-                TEXT_INIT => Some(Some(PgString::from_str_in("an initcond longer than any short-string form:", mcx).unwrap())),
+                TEXT_INIT => Some(Some(
+                    PgString::from_str_in("an initcond longer than any short-string form:", mcx)
+                        .unwrap(),
+                )),
                 ARRAY_AGG_INT4 | MAX_TEXT | DENIED => Some(None),
                 _ => None,
             })
@@ -129,38 +210,92 @@ fn leaked() -> Mcx<'static> {
     Box::leak(Box::new(MemoryContext::new("v4_m6_agg test"))).mcx() // alloc: Cold
 }
 
-fn aggref(aggno: i32, aggfnoid: u32, aggtype: u32, tt: u32, input: u32) -> &'static Aggref<'static> {
+fn aggref(
+    aggno: i32,
+    aggfnoid: u32,
+    aggtype: u32,
+    tt: u32,
+    input: u32,
+) -> &'static Aggref<'static> {
     let m = leaked();
-    Box::leak(Box::new(Aggref { aggfnoid, aggtype, aggtranstype: tt, aggargtypes: OidList::make1(m, input).unwrap(), inputcollid: if input == 25 { 100 } else { 0 }, aggkind: b'n' as i8, aggno, aggtransno: aggno, ..Aggref::default() })) // alloc: Cold
+    Box::leak(Box::new(Aggref {
+        aggfnoid,
+        aggtype,
+        aggtranstype: tt,
+        aggargtypes: OidList::make1(m, input).unwrap(),
+        inputcollid: if input == 25 { 100 } else { 0 },
+        aggkind: b'n' as i8,
+        aggno,
+        aggtransno: aggno,
+        ..Aggref::default()
+    })) // alloc: Cold
 }
 
 /// Live contexts of the arena's (the census counts by the name's literal).
 fn live_arenas() -> i64 {
-    mcx::debug_census::snapshot().iter().filter(|(n, _)| n.starts_with("gravity agg arena")).map(|(_, k)| k).sum()
+    mcx::debug_census::snapshot()
+        .iter()
+        .filter(|(n, _)| n.starts_with("gravity agg arena"))
+        .map(|(_, k)| k)
+        .sum()
 }
 
-fn trans(h: u64, aggno: u64, s: &mut [u64; 2], v: Option<u64>) -> Result<(), Box<types_error::PgError>> {
+fn trans(
+    h: u64,
+    aggno: u64,
+    s: &mut [u64; 2],
+    v: Option<u64>,
+) -> Result<(), Box<types_error::PgError>> {
     trans_as(0, h, aggno, s, v)
 }
 
 /// One transition as worker `ordinal`.
-fn trans_as(ordinal: u16, h: u64, aggno: u64, s: &mut [u64; 2], v: Option<u64>) -> Result<(), Box<types_error::PgError>> {
+fn trans_as(
+    ordinal: u16,
+    h: u64,
+    aggno: u64,
+    s: &mut [u64; 2],
+    v: Option<u64>,
+) -> Result<(), Box<types_error::PgError>> {
     let (arg, null) = (v.unwrap_or(0), v.is_none() as u8);
     let _ = gravity_fn::take_error();
     let mut ctx: Ctx = unsafe { core::mem::zeroed() };
     ctx.worker_ordinal = ordinal;
-    match unsafe { m6_agg_trans(&mut ctx as *mut Ctx as u64, h, aggno, s.as_mut_ptr() as u64, &arg as *const u64 as u64, &null as *const u8 as u64) } {
+    match unsafe {
+        m6_agg_trans(
+            &mut ctx as *mut Ctx as u64,
+            h,
+            aggno,
+            s.as_mut_ptr() as u64,
+            &arg as *const u64 as u64,
+            &null as *const u8 as u64,
+        )
+    } {
         0 => Ok(()),
         _ => Err(gravity_fn::take_error().expect("an error stashed")),
     }
 }
 
 /// `m6_agg_combine` as worker `ordinal`: `from` into `into`.
-fn combine_as(ordinal: u16, h: u64, aggno: u64, into: &mut [u64; 2], from: &mut [u64; 2]) -> Result<(), Box<types_error::PgError>> {
+fn combine_as(
+    ordinal: u16,
+    h: u64,
+    aggno: u64,
+    into: &mut [u64; 2],
+    from: &mut [u64; 2],
+) -> Result<(), Box<types_error::PgError>> {
     let _ = gravity_fn::take_error();
     let mut ctx: Ctx = unsafe { core::mem::zeroed() };
     ctx.worker_ordinal = ordinal;
-    match unsafe { m6_agg_combine(&mut ctx, h, aggno, into.as_mut_ptr().cast(), from.as_mut_ptr().cast()) } {
+    match unsafe {
+        m6_agg_combine(
+            &mut ctx,
+            h,
+            aggno,
+            into.as_mut_ptr().cast(),
+            from.as_mut_ptr().cast(),
+        )
+    } {
         0 => Ok(()),
         _ => Err(gravity_fn::take_error().expect("an error stashed")),
     }
@@ -180,10 +315,29 @@ fn fin_as(ordinal: u16, h: u64, aggno: u64, s: &mut [u64; 2], scratch: &mut [u64
     ctx.arena_cur = scratch.as_mut_ptr().cast();
     ctx.arena_end = unsafe { ctx.arena_cur.add(scratch.len() * 8) };
     let mut out = [0u64; 2];
-    let st = unsafe { m6_agg_final(&mut ctx as *mut Ctx as u64, h, aggno, s.as_mut_ptr() as u64, out.as_mut_ptr() as u64) };
-    assert_eq!(st, 0, "{:?}", gravity_fn::take_error().map(|e| e.message().to_string())); // alloc: Cold
-    let (lo, hi) = (scratch.as_ptr() as u64, scratch.as_ptr() as u64 + scratch.len() as u64 * 8);
-    assert!(out[1] != 0 || out[0] >= lo && out[0] < hi, "a by-reference final is copied into the scratch");
+    let st = unsafe {
+        m6_agg_final(
+            &mut ctx as *mut Ctx as u64,
+            h,
+            aggno,
+            s.as_mut_ptr() as u64,
+            out.as_mut_ptr() as u64,
+        )
+    };
+    assert_eq!(
+        st,
+        0,
+        "{:?}",
+        gravity_fn::take_error().map(|e| e.message().to_string())
+    ); // alloc: Cold
+    let (lo, hi) = (
+        scratch.as_ptr() as u64,
+        scratch.as_ptr() as u64 + scratch.len() as u64 * 8,
+    );
+    assert!(
+        out[1] != 0 || out[0] >= lo && out[0] < hi,
+        "a by-reference final is copied into the scratch"
+    );
     (out[1] == 0).then_some(out[0])
 }
 
@@ -198,11 +352,30 @@ fn fin_kept(h: u64, aggno: u64, s: &mut [u64; 2], scratch: &mut [u64]) -> Option
     ctx.arena_cur = gravity_abi::word(start);
     ctx.arena_end = gravity_abi::word(unsafe { start.add(scratch.len() * 8) });
     let mut out = [0u64; 2];
-    let st = unsafe { m6_agg_final(&mut ctx as *mut Ctx as u64, h, aggno, s.as_mut_ptr() as u64, out.as_mut_ptr() as u64) };
-    assert_eq!(st, 0, "{:?}", gravity_fn::take_error().map(|e| e.message().to_string())); // alloc: Cold
+    let st = unsafe {
+        m6_agg_final(
+            &mut ctx as *mut Ctx as u64,
+            h,
+            aggno,
+            s.as_mut_ptr() as u64,
+            out.as_mut_ptr() as u64,
+        )
+    };
+    assert_eq!(
+        st,
+        0,
+        "{:?}",
+        gravity_fn::take_error().map(|e| e.message().to_string())
+    ); // alloc: Cold
     assert_eq!(ctx.arena_cur.ptr(), start, "a kept final draws no scratch");
-    let (lo, hi) = (scratch.as_ptr() as u64, scratch.as_ptr() as u64 + scratch.len() as u64 * 8);
-    assert!(out[1] != 0 || !(out[0] >= lo && out[0] < hi), "a kept final is the aggregate's own buffer");
+    let (lo, hi) = (
+        scratch.as_ptr() as u64,
+        scratch.as_ptr() as u64 + scratch.len() as u64 * 8,
+    );
+    assert!(
+        out[1] != 0 || !(out[0] >= lo && out[0] < hi),
+        "a kept final is the aggregate's own buffer"
+    );
     (out[1] == 0).then_some(out[0])
 }
 
@@ -210,8 +383,21 @@ fn fin_kept(h: u64, aggno: u64, s: &mut [u64; 2], scratch: &mut [u64]) -> Option
 fn fin_val(h: u64, aggno: u64, s: &mut [u64; 2]) -> Option<u64> {
     let mut ctx: Ctx = unsafe { core::mem::zeroed() };
     let mut out = [0u64; 2];
-    let st = unsafe { m6_agg_final(&mut ctx as *mut Ctx as u64, h, aggno, s.as_mut_ptr() as u64, out.as_mut_ptr() as u64) };
-    assert_eq!(st, 0, "{:?}", gravity_fn::take_error().map(|e| e.message().to_string())); // alloc: Cold
+    let st = unsafe {
+        m6_agg_final(
+            &mut ctx as *mut Ctx as u64,
+            h,
+            aggno,
+            s.as_mut_ptr() as u64,
+            out.as_mut_ptr() as u64,
+        )
+    };
+    assert_eq!(
+        st,
+        0,
+        "{:?}",
+        gravity_fn::take_error().map(|e| e.message().to_string())
+    ); // alloc: Cold
     (out[1] == 0).then_some(out[0])
 }
 
@@ -232,7 +418,11 @@ fn array_agg_builds_in_the_aggregate_context_and_every_path_frees_the_arena() {
     let _g = install();
     let before = live_arenas();
     let mut arena = AggArena::new(&[aggref(0, ARRAY_AGG_INT4, 1007, 2281, 23)], &[], 1).unwrap();
-    assert_eq!(live_arenas(), before + 3, "the aggcontext, the init and the call contexts");
+    assert_eq!(
+        live_arenas(),
+        before + 3,
+        "the aggcontext, the init and the call contexts"
+    );
     let h = arena.handle();
     let (mut g1, mut g2, mut g3) = ([0u64; 2], [0u64; 2], [0u64; 2]);
     for v in [Some(1), None, Some(3)] {
@@ -245,8 +435,16 @@ fn array_agg_builds_in_the_aggregate_context_and_every_path_frees_the_arena() {
     let w = |i: usize| unsafe { ((a + 4 * i as u64) as *const i32).read_unaligned() };
     assert_eq!((w(1), w(2) != 0, w(3), w(4), w(5)), (1, true, 23, 3, 1));
     assert_eq!(unsafe { ((a + 24) as *const u8).read() } & 7, 0b101);
-    assert_eq!(fin(h, 0, &mut g2, &mut scratch), None, "no input: array_agg's NULL");
-    assert_eq!(unsafe { (g2.as_ptr() as *const u8).add(STATE_INIT).read() }, 1, "the final initialized the slot");
+    assert_eq!(
+        fin(h, 0, &mut g2, &mut scratch),
+        None,
+        "no input: array_agg's NULL"
+    );
+    assert_eq!(
+        unsafe { (g2.as_ptr() as *const u8).add(STATE_INIT).read() },
+        1,
+        "the final initialized the slot"
+    );
     drop(arena); // g3 left mid-fold: an error's or a cancel's end drops the arena the same way
     assert_eq!(live_arenas(), before, "every arena context freed");
 }
@@ -260,13 +458,33 @@ fn a_strict_by_reference_transfn_copies_its_first_input_and_each_new_state() {
     let mut scratch = vec![0u64; 64]; // alloc: Cold
     for s in ["b", "a", "", "c"] {
         let mut v = text(s);
-        trans(h, 3, &mut g, if s.is_empty() { None } else { Some(v.as_mut_ptr() as u64) }).unwrap();
+        trans(
+            h,
+            3,
+            &mut g,
+            if s.is_empty() {
+                None
+            } else {
+                Some(v.as_mut_ptr() as u64)
+            },
+        )
+        .unwrap();
         v.fill(0xee); // the input's memory is the caller's: the state holds its own copy
-        assert_eq!(text_of(fin(h, 3, &mut g, &mut scratch).unwrap()), if s == "c" { "c" } else { "b" });
+        assert_eq!(
+            text_of(fin(h, 3, &mut g, &mut scratch).unwrap()),
+            if s == "c" { "c" } else { "b" }
+        );
     }
     let mut none = [0u64; 2];
-    assert_eq!(fin(h, 3, &mut none, &mut scratch), None, "no input: NULL (no initcond)");
-    assert_eq!(trans(h, 4, &mut g, None).unwrap_err().message(), "gravity: no hosted aggregate 4");
+    assert_eq!(
+        fin(h, 3, &mut none, &mut scratch),
+        None,
+        "no input: NULL (no initcond)"
+    );
+    assert_eq!(
+        trans(h, 4, &mut g, None).unwrap_err().message(),
+        "gravity: no hosted aggregate 4"
+    );
 }
 
 /// V4R-424: two aggregates the planner gave one transition state (one aggtransno) fold one slot: the aggregate that
@@ -276,7 +494,16 @@ fn a_strict_by_reference_transfn_copies_its_first_input_and_each_new_state() {
 fn a_shared_transition_state_steps_once_per_row_and_each_aggregate_finalizes_it() {
     let _g = install();
     let a0 = aggref(0, ARRAY_AGG_INT4, 1007, 2281, 23);
-    let a1 = Box::leak(Box::new(Aggref { aggfnoid: ARRAY_AGG_INT4, aggtype: 1007, aggtranstype: 2281, aggargtypes: OidList::make1(leaked(), 23).unwrap(), aggkind: b'n' as i8, aggno: 1, aggtransno: 0, ..Aggref::default() })); // alloc: Cold
+    let a1 = Box::leak(Box::new(Aggref {
+        aggfnoid: ARRAY_AGG_INT4,
+        aggtype: 1007,
+        aggtranstype: 2281,
+        aggargtypes: OidList::make1(leaked(), 23).unwrap(),
+        aggkind: b'n' as i8,
+        aggno: 1,
+        aggtransno: 0,
+        ..Aggref::default()
+    })); // alloc: Cold
     let mut arena = AggArena::new(&[a0, a1], &[], 1).unwrap();
     let h = arena.handle();
     let mut g = [0u64; 2];
@@ -288,7 +515,11 @@ fn a_shared_transition_state_steps_once_per_row_and_each_aggregate_finalizes_it(
     for aggno in [0, 1] {
         let a = fin(h, aggno, &mut g, &mut scratch).expect("an array");
         let w = |i: usize| unsafe { ((a + 4 * i as u64) as *const i32).read_unaligned() };
-        assert_eq!((w(3), w(4)), (23, 2), "aggno {aggno}: two elements, one per row, not four");
+        assert_eq!(
+            (w(3), w(4)),
+            (23, 2),
+            "aggno {aggno}: two elements, one per row, not four"
+        );
     }
 }
 
@@ -306,10 +537,17 @@ fn a_by_reference_initcond_outlives_its_input_functions_fmgrinfo() {
     let mut scratch = vec![0u64; 64]; // alloc: Cold
     let mut v = text("x");
     trans(h, 0, &mut g1, Some(v.as_mut_ptr() as u64)).unwrap();
-    assert_eq!(text_of(fin(h, 0, &mut g1, &mut scratch).unwrap()), "an initcond longer than any short-string form:x");
+    assert_eq!(
+        text_of(fin(h, 0, &mut g1, &mut scratch).unwrap()),
+        "an initcond longer than any short-string form:x"
+    );
     let mut w = text("y");
     trans(h, 0, &mut g2, Some(w.as_mut_ptr() as u64)).unwrap();
-    assert_eq!(text_of(fin(h, 0, &mut g2, &mut scratch).unwrap()), "an initcond longer than any short-string form:y", "a second group's copy of the initcond");
+    assert_eq!(
+        text_of(fin(h, 0, &mut g2, &mut scratch).unwrap()),
+        "an initcond longer than any short-string form:y",
+        "a second group's copy of the initcond"
+    );
 }
 
 #[test]
@@ -320,11 +558,19 @@ fn a_raising_transfn_returns_pgs_error_and_the_arena_still_frees() {
     let h = arena.handle();
     let mut g = [0u64; 2];
     let e = trans(h, 0, &mut g, Some(1)).unwrap_err();
-    assert_eq!((e.message(), &types_error::unpack_sqlstate(e.sqlstate())), ("integer out of range", b"22003"));
+    assert_eq!(
+        (e.message(), &types_error::unpack_sqlstate(e.sqlstate())),
+        ("integer out of range", b"22003")
+    );
     drop(arena);
     assert_eq!(live_arenas(), before);
-    let e = AggArena::new(&[aggref(0, DENIED, 23, 23, 23)], &[], 1).err().expect("denied");
-    assert_eq!((e.message(), &types_error::unpack_sqlstate(e.sqlstate())), ("permission denied for aggregate 99002", b"42501"));
+    let e = AggArena::new(&[aggref(0, DENIED, 23, 23, 23)], &[], 1)
+        .err()
+        .expect("denied");
+    assert_eq!(
+        (e.message(), &types_error::unpack_sqlstate(e.sqlstate())),
+        ("permission denied for aggregate 99002", b"42501")
+    );
 }
 
 #[test]
@@ -334,14 +580,23 @@ fn a_call_past_the_arenas_slots_or_over_no_arena_is_an_error() {
     assert!(!arena.parallel(), "width 1: one slot");
     let h = arena.handle();
     let e = trans_as(1, h, 0, &mut [0u64; 2], None).unwrap_err();
-    assert_eq!(e.message(), "gravity: a hosted aggregate called by worker 1 of an arena of 1");
+    assert_eq!(
+        e.message(),
+        "gravity: a hosted aggregate called by worker 1 of an arena of 1"
+    );
     let mut serial = AggArena::new(&[aggref(0, ARRAY_AGG_INT4, 1007, 2281, 23)], &[], 8).unwrap();
     assert!(!serial.parallel(), "no combinefn: serial at any width");
     let e = trans_as(3, serial.handle(), 0, &mut [0u64; 2], Some(1)).unwrap_err();
-    assert_eq!(e.message(), "gravity: a hosted aggregate called by worker 3 of an arena of 1");
+    assert_eq!(
+        e.message(),
+        "gravity: a hosted aggregate called by worker 3 of an arena of 1"
+    );
     let fake = [0u64; 3];
     let e = trans(fake.as_ptr() as u64, 0, &mut [0u64; 2], None).unwrap_err();
-    assert_eq!(e.message(), "gravity: a hosted aggregate call over no live arena");
+    assert_eq!(
+        e.message(),
+        "gravity: a hosted aggregate call over no live arena"
+    );
 }
 
 #[test]
@@ -349,22 +604,42 @@ fn a_parallel_arena_folds_a_slot_per_worker_thread_and_combines_on_the_leader() 
     let _g = install();
     let before = live_arenas();
     let mut arena = AggArena::new(&[aggref(2, MAX_TEXT, 25, 25, 25)], &[], 4).unwrap();
-    assert!(arena.parallel(), "max(text): text_larger combines, PARALLEL SAFE");
-    assert_eq!(live_arenas(), before + 1 + 2 * 5, "the init context, and each of 4 worker slots and the merge slot's two");
+    assert!(
+        arena.parallel(),
+        "max(text): text_larger combines, PARALLEL SAFE"
+    );
+    assert_eq!(
+        live_arenas(),
+        before + 1 + 2 * 5,
+        "the init context, and each of 4 worker slots and the merge slot's two"
+    );
     let h = arena.handle();
     // worker w folds its own words on its own thread, into its own record's state slot
     let words = [["pear", "apple"], ["", "zebra"], ["", ""], ["kiwi", "fig"]];
     let states: Vec<[u64; 2]> = std::thread::scope(|sc| {
-        let js: Vec<_> = words.iter().enumerate().map(|(w, ws)| sc.spawn(move || {
-            pg_locale::set_default_locale_c_for_tests(); // a pool worker is armed with the leader's (StatementArm)
-            let mut g = [0u64; 2];
-            for s in ws {
-                let mut v = text(s);
-                trans_as(w as u16, h, 2, &mut g, (!s.is_empty()).then_some( v.as_mut_ptr() as u64)).unwrap();
-                v.fill(0xee);
-            }
-            g
-        })).collect(); // alloc: Cold
+        let js: Vec<_> = words
+            .iter()
+            .enumerate()
+            .map(|(w, ws)| {
+                sc.spawn(move || {
+                    pg_locale::set_default_locale_c_for_tests(); // a pool worker is armed with the leader's (StatementArm)
+                    let mut g = [0u64; 2];
+                    for s in ws {
+                        let mut v = text(s);
+                        trans_as(
+                            w as u16,
+                            h,
+                            2,
+                            &mut g,
+                            (!s.is_empty()).then_some(v.as_mut_ptr() as u64),
+                        )
+                        .unwrap();
+                        v.fill(0xee);
+                    }
+                    g
+                })
+            })
+            .collect(); // alloc: Cold
         js.into_iter().map(|j| j.join().unwrap()).collect() // alloc: Cold
     });
     // the runner's merge: the first held state moves, each next is combined into it; worker 2 saw only NULLs
@@ -373,11 +648,22 @@ fn a_parallel_arena_folds_a_slot_per_worker_thread_and_combines_on_the_leader() 
         unsafe { arena.combine(2, into.as_mut_ptr().cast(), s.as_ptr().cast()) }.unwrap();
     }
     let mut scratch = vec![0u64; 64]; // alloc: Cold
-    assert_eq!(text_of(fin(h, 2, &mut into, &mut scratch).unwrap()), "zebra");
+    assert_eq!(
+        text_of(fin(h, 2, &mut into, &mut scratch).unwrap()),
+        "zebra"
+    );
     let e = trans_as(4, h, 2, &mut [0u64; 2], None).unwrap_err();
-    assert_eq!(e.message(), "gravity: a hosted aggregate called by worker 4 of an arena of 4", "the merge slot is the leader's");
+    assert_eq!(
+        e.message(),
+        "gravity: a hosted aggregate called by worker 4 of an arena of 4",
+        "the merge slot is the leader's"
+    );
     drop(arena);
-    assert_eq!(live_arenas(), before, "every slot freed on the leader, whichever thread made or used it");
+    assert_eq!(
+        live_arenas(),
+        before,
+        "every slot freed on the leader, whichever thread made or used it"
+    );
 }
 
 /// D3062-b: a keyed arena wide at width 4 (max(text): text_larger combines, PARALLEL SAFE): a group's one home is shared by
@@ -394,7 +680,11 @@ fn a_wide_keyed_arena_keeps_a_state_per_worker_in_each_home_and_gathers_at_the_f
     let head = h as *mut AggHead;
     let key = [7u64];
     let home = unsafe { ((*head).home)(head, core::ptr::null_mut(), key.as_ptr(), 1, 1) } as u64;
-    assert_eq!(unsafe { ((*head).home)(head, core::ptr::null_mut(), key.as_ptr(), 1, 1) } as u64, home, "one home per group");
+    assert_eq!(
+        unsafe { ((*head).home)(head, core::ptr::null_mut(), key.as_ptr(), 1, 1) } as u64,
+        home,
+        "one home per group"
+    );
     let tagged = move || {
         let mut s = [home, 0u64];
         let b = s.as_mut_ptr() as *mut u8;
@@ -410,7 +700,14 @@ fn a_wide_keyed_arena_keeps_a_state_per_worker_in_each_home_and_gathers_at_the_f
                 let mut rec = tagged();
                 for s in ws {
                     let mut v = text(s);
-                    trans_as(w as u16, h, 2, &mut rec, (!s.is_empty()).then_some( v.as_mut_ptr() as u64)).unwrap();
+                    trans_as(
+                        w as u16,
+                        h,
+                        2,
+                        &mut rec,
+                        (!s.is_empty()).then_some(v.as_mut_ptr() as u64),
+                    )
+                    .unwrap();
                     v.fill(0xee);
                 }
                 assert_eq!(rec[0], home, "the record still names the home");
@@ -419,9 +716,16 @@ fn a_wide_keyed_arena_keeps_a_state_per_worker_in_each_home_and_gathers_at_the_f
     });
     let (mut rec, mut scratch) = (tagged(), vec![0u64; 64]); // alloc: Cold
     assert_eq!(text_of(fin(h, 2, &mut rec, &mut scratch).unwrap()), "zebra");
-    assert_eq!(text_of(fin(h, 2, &mut rec, &mut scratch).unwrap()), "zebra", "gathered once, read again");
+    assert_eq!(
+        text_of(fin(h, 2, &mut rec, &mut scratch).unwrap()),
+        "zebra",
+        "gathered once, read again"
+    );
     let serial = AggArena::new_keyed(&[aggref(0, ARRAY_AGG_INT4, 1007, 2281, 23)], &[], 4).unwrap();
-    assert!(!serial.parallel() && !serial.wide(), "no combinefn: the serial keyed arena");
+    assert!(
+        !serial.parallel() && !serial.wide(),
+        "no combinefn: the serial keyed arena"
+    );
     drop((arena, serial));
     assert_eq!(live_arenas(), before, "every slot freed on the leader");
 }
@@ -440,29 +744,56 @@ fn a_keyed_fold_combines_two_partials_of_one_group_through_m6_agg_combine() {
         let mut g = [0u64; 2];
         for s in ws {
             let mut v = text(s);
-            trans(h, 2, &mut g, (!s.is_empty()).then_some( v.as_mut_ptr() as u64)).unwrap();
+            trans(
+                h,
+                2,
+                &mut g,
+                (!s.is_empty()).then_some(v.as_mut_ptr() as u64),
+            )
+            .unwrap();
             v.fill(0xee);
         }
         g
     };
-    let (mut first, mut second, mut nulls) = (fold(&["pear", "apple"]), fold(&["zebra", "kiwi"]), fold(&[""]));
+    let (mut first, mut second, mut nulls) = (
+        fold(&["pear", "apple"]),
+        fold(&["zebra", "kiwi"]),
+        fold(&[""]),
+    );
     combine_as(0, h, 2, &mut first, &mut second).unwrap();
-    assert_eq!(second, [0, 0], "the partial holds no state after the combine");
+    assert_eq!(
+        second,
+        [0, 0],
+        "the partial holds no state after the combine"
+    );
     combine_as(0, h, 2, &mut first, &mut nulls).unwrap();
     let mut scratch = vec![0u64; 64]; // alloc: Cold
-    assert_eq!(text_of(fin(h, 2, &mut first, &mut scratch).unwrap()), "zebra");
+    assert_eq!(
+        text_of(fin(h, 2, &mut first, &mut scratch).unwrap()),
+        "zebra"
+    );
     let mut empty = [0u64; 2];
     let mut late = fold(&["fig"]);
     combine_as(0, h, 2, &mut empty, &mut late).unwrap();
-    assert_eq!(text_of(fin(h, 2, &mut empty, &mut scratch).unwrap()), "fig", "an uninitialized state takes the partial's");
+    assert_eq!(
+        text_of(fin(h, 2, &mut empty, &mut scratch).unwrap()),
+        "fig",
+        "an uninitialized state takes the partial's"
+    );
     let e = combine_as(1, h, 2, &mut first, &mut [0u64; 2]).unwrap_err();
-    assert_eq!(e.message(), "gravity: a hosted aggregate called by worker 1 of an arena of 1");
+    assert_eq!(
+        e.message(),
+        "gravity: a hosted aggregate called by worker 1 of an arena of 1"
+    );
     let mut arr = AggArena::new(&[aggref(0, ARRAY_AGG_INT4, 1007, 2281, 23)], &[], 1).unwrap();
     let (mut a, mut b) = ([0u64; 2], [0u64; 2]);
     trans(arr.handle(), 0, &mut a, Some(1)).unwrap();
     trans(arr.handle(), 0, &mut b, Some(2)).unwrap();
     let e = combine_as(0, arr.handle(), 0, &mut a, &mut b).unwrap_err();
-    assert_eq!(e.message(), "gravity: two partial states of hosted aggregate 0 without its combinefn");
+    assert_eq!(
+        e.message(),
+        "gravity: two partial states of hosted aggregate 0 without its combinefn"
+    );
     drop((arena, arr));
     assert_eq!(live_arenas(), before);
 }
@@ -475,7 +806,9 @@ fn a_kept_column_is_the_groups_first_row_value() {
     let _g = install();
     let before = live_arenas();
     let mut arena = AggArena::new(&[aggref(0, MAX_TEXT, 25, 25, 25)], &[25, 23], 4).unwrap();
-    let plain = AggArena::new(&[aggref(0, MAX_TEXT, 25, 25, 25)], &[], 4).unwrap().parallel();
+    let plain = AggArena::new(&[aggref(0, MAX_TEXT, 25, 25, 25)], &[], 4)
+        .unwrap()
+        .parallel();
     assert_eq!(arena.parallel(), plain, "a kept column leaves the arena's width as its aggregates make it (the combine keeps the earlier partial's row)");
     let h = arena.handle();
     let mut scratch = vec![0u64; 64]; // alloc: Cold
@@ -501,7 +834,10 @@ fn a_kept_column_is_the_groups_first_row_value() {
     trans(h, 2, &mut other, Some(3)).unwrap();
     combine_as(0, h, 2, &mut empty, &mut other).unwrap();
     assert_eq!(fin_val(h, 2, &mut empty), Some(3));
-    assert_eq!(trans(h, 3, &mut [0u64; 2], None).unwrap_err().message(), "gravity: no hosted aggregate 3");
+    assert_eq!(
+        trans(h, 3, &mut [0u64; 2], None).unwrap_err().message(),
+        "gravity: no hosted aggregate 3"
+    );
     drop(arena);
     assert_eq!(live_arenas(), before);
 }
@@ -515,13 +851,23 @@ fn a_kept_column_is_the_groups_first_row_value() {
 fn a_nested_lanes_ordinal_folds_in_the_leaders_slot() {
     let _g = install();
     let before = live_arenas();
-    let (first, top) = (gravity_driver::NESTED_LANE_FIRST, gravity_driver::NESTED_LANE_TOP);
+    let (first, top) = (
+        gravity_driver::NESTED_LANE_FIRST,
+        gravity_driver::NESTED_LANE_TOP,
+    );
     let mut scratch = vec![0u64; 64]; // alloc: Cold
     let fold = |ordinal: u16, h: u64, ws: &[&str]| {
         let mut g = [0u64; 2];
         for s in ws {
             let mut v = text(s);
-            trans_as(ordinal, h, 2, &mut g, (!s.is_empty()).then_some( v.as_mut_ptr() as u64)).unwrap();
+            trans_as(
+                ordinal,
+                h,
+                2,
+                &mut g,
+                (!s.is_empty()).then_some(v.as_mut_ptr() as u64),
+            )
+            .unwrap();
             v.fill(0xee);
         }
         g
@@ -530,15 +876,37 @@ fn a_nested_lanes_ordinal_folds_in_the_leaders_slot() {
     let mut serial = AggArena::new(&[aggref(2, MAX_TEXT, 25, 25, 25)], &[], 1).unwrap();
     assert!(!serial.parallel());
     let h = serial.handle();
-    let (mut lead, mut nested, mut deeper) = (fold(0, h, &["pear", "apple"]), fold(top, h, &["pear", "", "apple"]), fold(first, h, &["fig"]));
-    assert_eq!(text_of(fin_as(top, h, 2, &mut nested, &mut scratch).unwrap()), "pear");
-    assert_eq!(text_of(fin_as(0, h, 2, &mut lead, &mut scratch).unwrap()), "pear");
-    assert_eq!(text_of(fin_as(first, h, 2, &mut deeper, &mut scratch).unwrap()), "fig");
+    let (mut lead, mut nested, mut deeper) = (
+        fold(0, h, &["pear", "apple"]),
+        fold(top, h, &["pear", "", "apple"]),
+        fold(first, h, &["fig"]),
+    );
+    assert_eq!(
+        text_of(fin_as(top, h, 2, &mut nested, &mut scratch).unwrap()),
+        "pear"
+    );
+    assert_eq!(
+        text_of(fin_as(0, h, 2, &mut lead, &mut scratch).unwrap()),
+        "pear"
+    );
+    assert_eq!(
+        text_of(fin_as(first, h, 2, &mut deeper, &mut scratch).unwrap()),
+        "fig"
+    );
     let mut partial = fold(top, h, &["zebra"]);
     combine_as(top, h, 2, &mut lead, &mut partial).unwrap();
-    assert_eq!(text_of(fin_as(top, h, 2, &mut lead, &mut scratch).unwrap()), "zebra");
+    assert_eq!(
+        text_of(fin_as(top, h, 2, &mut lead, &mut scratch).unwrap()),
+        "zebra"
+    );
     let e = trans_as(first - 1, h, 2, &mut [0u64; 2], None).unwrap_err();
-    assert_eq!(e.message(), format!("gravity: a hosted aggregate called by worker {} of an arena of 1", first - 1));
+    assert_eq!(
+        e.message(),
+        format!(
+            "gravity: a hosted aggregate called by worker {} of an arena of 1",
+            first - 1
+        )
+    );
     // parallel (width 4): the workers' section folds slots 0..3 on their threads and ends; then the nested run folds
     // and finalizes its own state in slot 0 on the leader; the merge of the workers' partials is unchanged
     let mut par = AggArena::new(&[aggref(2, MAX_TEXT, 25, 25, 25)], &[], 4).unwrap();
@@ -546,21 +914,39 @@ fn a_nested_lanes_ordinal_folds_in_the_leaders_slot() {
     let h = par.handle();
     let words = [["pear", "apple"], ["", "zebra"], ["", ""], ["kiwi", "fig"]];
     let states: Vec<[u64; 2]> = std::thread::scope(|sc| {
-        let js: Vec<_> = words.iter().enumerate().map(|(w, ws)| sc.spawn(move || {
-            pg_locale::set_default_locale_c_for_tests();
-            fold(w as u16, h, ws)
-        })).collect(); // alloc: Cold
+        let js: Vec<_> = words
+            .iter()
+            .enumerate()
+            .map(|(w, ws)| {
+                sc.spawn(move || {
+                    pg_locale::set_default_locale_c_for_tests();
+                    fold(w as u16, h, ws)
+                })
+            })
+            .collect(); // alloc: Cold
         js.into_iter().map(|j| j.join().unwrap()).collect() // alloc: Cold
     });
     let mut nested = fold(top, h, &["kiwi", "", "banana"]);
-    assert_eq!(text_of(fin_as(top, h, 2, &mut nested, &mut scratch).unwrap()), "kiwi");
+    assert_eq!(
+        text_of(fin_as(top, h, 2, &mut nested, &mut scratch).unwrap()),
+        "kiwi"
+    );
     let mut into = states[0];
     for s in &states[1..] {
         unsafe { par.combine(2, into.as_mut_ptr().cast(), s.as_ptr().cast()) }.unwrap();
     }
-    assert_eq!(text_of(fin_as(top, h, 2, &mut into, &mut scratch).unwrap()), "zebra");
+    assert_eq!(
+        text_of(fin_as(top, h, 2, &mut into, &mut scratch).unwrap()),
+        "zebra"
+    );
     let e = trans_as(first - 1, h, 2, &mut [0u64; 2], None).unwrap_err();
-    assert_eq!(e.message(), format!("gravity: a hosted aggregate called by worker {} of an arena of 4", first - 1));
+    assert_eq!(
+        e.message(),
+        format!(
+            "gravity: a hosted aggregate called by worker {} of an arena of 4",
+            first - 1
+        )
+    );
     drop((serial, par));
     assert_eq!(live_arenas(), before);
 }
@@ -586,6 +972,10 @@ fn d2942_a_streamed_groups_next_group_resets_the_aggregate_context_wholesale() {
         }
         let f = fin_kept(h, 3, &mut g, &mut scratch).unwrap();
         assert_eq!(text_of(f), group[0], "max(text) of the group");
-        assert_eq!(*at.get_or_insert(f), f, "each group's final in the one buffer of its aggregate");
+        assert_eq!(
+            *at.get_or_insert(f),
+            f,
+            "each group's final in the one buffer of its aggregate"
+        );
     }
 }

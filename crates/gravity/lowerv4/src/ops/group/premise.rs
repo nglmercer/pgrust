@@ -12,7 +12,12 @@ impl<'p> Walk<'_, '_, 'p> {
     pub(crate) fn first_of_run(&mut self, t: &TieDesc) {
         self.p.add(Prop::DistinctOn);
         for key in t.keys.iter() {
-            self.add(key_kind(key.kind, self.image_of(key.typid), false, Accessor::Hash));
+            self.add(key_kind(
+                key.kind,
+                self.image_of(key.typid),
+                false,
+                Accessor::Hash,
+            ));
         }
     }
 }

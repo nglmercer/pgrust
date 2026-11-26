@@ -33,7 +33,11 @@ fn the_probe_finds_a_long_host_step_between_polls_and_nothing_when_off() {
             cancelpoll::polled();
         }
     });
-    assert_eq!(cancelpoll::probe_max().1, 0, "polls every ms under the threshold");
+    assert_eq!(
+        cancelpoll::probe_max().1,
+        0,
+        "polls every ms under the threshold"
+    );
     cancelpoll::scoped(&byte, || {
         let _host = cancelpoll::phase("a host call");
         let step = cancelpoll::phase("a long step");
@@ -45,7 +49,11 @@ fn the_probe_finds_a_long_host_step_between_polls_and_nothing_when_off() {
     assert_eq!(n, 1, "one gap: the long step's");
     assert!((LONG..1000).contains(&max), "{max} ms");
     cancelpoll::scoped(&byte, || busy(LONG));
-    assert_eq!(cancelpoll::probe_max().1, 2, "a call that never polls ends its gap at its end");
+    assert_eq!(
+        cancelpoll::probe_max().1,
+        2,
+        "a call that never polls ends its gap at its end"
+    );
 
     cancelpoll::set_probe_ms(0);
     cancelpoll::scoped(&byte, || busy(LONG));

@@ -14,7 +14,10 @@ const SPGIST: &str = "regress-full/spgist-002.plan";
 /// pg_lsn#30: SELECT DISTINCT over three series, two Materials deep.
 const PG_LSN: &str = "regress-full/pg_lsn-001.plan";
 /// spgist-002's two step constants (5), by location.
-const STEPS: [&str; 2] = [":location 97 :constvalue 4 [ 5 0 0 0 0 0 0 0 ]", ":location 132 :constvalue 4 [ 5 0 0 0 0 0 0 0 ]"];
+const STEPS: [&str; 2] = [
+    ":location 97 :constvalue 4 [ 5 0 0 0 0 0 0 0 ]",
+    ":location 132 :constvalue 4 [ 5 0 0 0 0 0 0 0 ]",
+];
 
 fn text(rel: &str) -> String {
     let p = common::plans_dir().join(rel);
@@ -30,9 +33,13 @@ fn spgist(step: u8) -> String {
 }
 
 fn key(text: &str) -> gravity_program::ContentKey {
-    let (ctx, arena) = (mcx::MemoryContext::new("d1108 key"), gravity_program::Arena::new(1 << 20));
+    let (ctx, arena) = (
+        mcx::MemoryContext::new("d1108 key"),
+        gravity_program::Arena::new(1 << 20),
+    );
     let fx = corpus::load(ctx.mcx(), text).unwrap_or_else(|e| panic!("fixture: {e}"));
-    let g = gravity_decompose::decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx).expect("decomposes");
+    let g = gravity_decompose::decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx)
+        .expect("decomposes");
     gravity_lower::inputs::key::key(&g)
 }
 
@@ -50,7 +57,12 @@ fn a_zero_step_lowers_and_keys_apart() {
     if let Err(r) = common::lower_fixture(&spgist(0)).expect("decomposes") {
         panic!("a zero step refused: {r:?}");
     }
-    assert!(common::lower_fixture(&spgist(3)).expect("decomposes").is_ok(), "a step of 3 serves");
+    assert!(
+        common::lower_fixture(&spgist(3))
+            .expect("decomposes")
+            .is_ok(),
+        "a step of 3 serves"
+    );
     let (k5, k3, k0) = (key(&text(SPGIST)), key(&spgist(3)), key(&spgist(0)));
     assert_eq!(k5, k3, "a nonzero step is a word: one content key");
     assert_ne!(k5, k0, "the content key holds the step's class");

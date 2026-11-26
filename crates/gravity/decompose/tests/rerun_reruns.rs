@@ -35,14 +35,26 @@ mod harness;
 /// a SubqueryScan's subplan, and the tree of every InitPlan attached at `n` (ExecReScan marks an InitPlan whose extParam
 /// meets chgParam for recomputation; a CTE's rows are recomputed with it).
 fn children<'p>(n: Node<'p>, stmt: &PlannedStmt<'p>) -> Vec<Node<'p>> {
-    let Some(p) = n.as_plan() else { return Vec::new() };
+    let Some(p) = n.as_plan() else {
+        return Vec::new();
+    };
     let mut out: Vec<Node<'p>> = [p.lefttree, p.righttree].into_iter().flatten().collect();
-    let lists = [n.as_append().map(|a| &a.appendplans), n.as_merge_append().map(|m| &m.mergeplans), n.as_bitmap_and().map(|b| &b.bitmapplans), n.as_bitmap_or().map(|b| &b.bitmapplans)];
+    let lists = [
+        n.as_append().map(|a| &a.appendplans),
+        n.as_merge_append().map(|m| &m.mergeplans),
+        n.as_bitmap_and().map(|b| &b.bitmapplans),
+        n.as_bitmap_or().map(|b| &b.bitmapplans),
+    ];
     for l in lists.into_iter().flatten() {
         out.extend(l.iter());
     }
     out.extend(n.as_subquery_scan().and_then(|s| s.subplan));
-    out.extend(p.initPlan.iter().filter_map(|i| i.as_sub_plan()).filter_map(|s| subplan_tree(stmt, s.plan_id)));
+    out.extend(
+        p.initPlan
+            .iter()
+            .filter_map(|i| i.as_sub_plan())
+            .filter_map(|s| subplan_tree(stmt, s.plan_id)),
+    );
     out
 }
 
@@ -69,11 +81,20 @@ struct Owner {
 fn nests<'p>(n: Node<'p>, stmt: &PlannedStmt<'p>, out: &mut Vec<Owner>) {
     let Some(p) = n.as_plan() else { return };
     if let Some(nl) = n.as_nest_loop() {
-        let params: Vec<i32> = nl.nestParams.iter().filter_map(|x| x.as_nest_loop_param()).map(|x| x.paramno).collect();
+        let params: Vec<i32> = nl
+            .nestParams
+            .iter()
+            .filter_map(|x| x.as_nest_loop_param())
+            .map(|x| x.paramno)
+            .collect();
         if let Some(inner) = nl.join.plan.righttree.filter(|_| !params.is_empty()) {
             let mut r = BTreeSet::new();
             readers(inner, stmt, &params, &mut r);
-            out.push(Owner { node_id: p.plan_node_id, plan_id: 0, readers: r });
+            out.push(Owner {
+                node_id: p.plan_node_id,
+                plan_id: 0,
+                readers: r,
+            });
         }
     }
     for c in children(n, stmt) {
@@ -98,7 +119,10 @@ fn nested(p: &PipelineNode<'_>, out: &mut Vec<(i32, Vec<i32>)>) {
 }
 
 fn subplan_tree<'p>(stmt: &PlannedStmt<'p>, plan_id: i32) -> Option<Node<'p>> {
-    (plan_id as usize).checked_sub(1).filter(|&i| i < stmt.subplans.len()).and_then(|i| stmt.subplans.nth(i))
+    (plan_id as usize)
+        .checked_sub(1)
+        .filter(|&i| i < stmt.subplans.len())
+        .and_then(|i| stmt.subplans.nth(i))
 }
 
 /// A recursive union: its `wtParam`, the nodes of its recursive term, and those whose `allParam` holds `wtParam`.
@@ -120,11 +144,19 @@ fn subtree<'p>(n: Node<'p>, stmt: &PlannedStmt<'p>, out: &mut BTreeSet<i32>) {
 /// Every recursive union of the executed tree under `n`.
 fn recursions<'p>(n: Node<'p>, stmt: &PlannedStmt<'p>, out: &mut Vec<Recursion>) {
     let Some(p) = n.as_plan() else { return };
-    if let Some(term) = n.as_recursive_union().and_then(|ru| ru.plan.righttree.map(|t| (ru.wtParam, t))) {
+    if let Some(term) = n
+        .as_recursive_union()
+        .and_then(|ru| ru.plan.righttree.map(|t| (ru.wtParam, t)))
+    {
         let (mut t, mut r) = (BTreeSet::new(), BTreeSet::new());
         subtree(term.1, stmt, &mut t);
         readers(term.1, stmt, &[term.0], &mut r);
-        out.push(Recursion { node_id: p.plan_node_id, wt_param: term.0, term: t, readers: r });
+        out.push(Recursion {
+            node_id: p.plan_node_id,
+            wt_param: term.0,
+            term: t,
+            readers: r,
+        });
     }
     for c in children(n, stmt) {
         recursions(c, stmt, out);
@@ -158,7 +190,10 @@ fn reran(it: &IterDesc) -> Vec<u16> {
 /// slot: its WorkTableScan is listed by the slot's first producer, which runs once.)
 fn generation_set(g: &PipelineGraph<'_>, r: &Recursion, it: &IterDesc) -> BTreeSet<usize> {
     let body = it.body as usize;
-    let first = (0..body).rev().find(|&j| g.pipelines[j].desc.produces() == Some(it.work)).map_or(0, |j| j + 1);
+    let first = (0..body)
+        .rev()
+        .find(|&j| g.pipelines[j].desc.produces() == Some(it.work))
+        .map_or(0, |j| j + 1);
     let mut set = BTreeSet::new();
     let mut slots = BTreeSet::new();
     for (i, p) in g.pipelines.iter().enumerate().take(body + 1).skip(first) {
@@ -166,7 +201,12 @@ fn generation_set(g: &PipelineGraph<'_>, r: &Recursion, it: &IterDesc) -> BTreeS
             continue;
         }
         let reads = p.node_ops.iter().any(|n| r.readers.contains(&n.node_id));
-        let fed = p.desc.consumes.iter().any(|s| (0..i).rev().find(|&j| g.pipelines[j].desc.produces() == Some(*s)).is_some_and(|j| set.contains(&j)));
+        let fed = p.desc.consumes.iter().any(|s| {
+            (0..i)
+                .rev()
+                .find(|&j| g.pipelines[j].desc.produces() == Some(*s))
+                .is_some_and(|j| set.contains(&j))
+        });
         let refills = p.desc.produces().is_some_and(|s| slots.contains(&s));
         if reads || fed || refills {
             set.insert(i);
@@ -202,7 +242,10 @@ fn iteration_faults(g: &PipelineGraph<'_>, stmt: &PlannedStmt<'_>) -> (usize, Ve
     let mut bad = Vec::new();
     for r in rs.iter() {
         let Some(it) = its.iter().find(|it| it.wt_param == r.wt_param) else {
-            bad.push(format!("recursive union n{} (wtParam {}) has no iteration", r.node_id, r.wt_param));
+            bad.push(format!(
+                "recursive union n{} (wtParam {}) has no iteration",
+                r.node_id, r.wt_param
+            ));
             continue;
         };
         let want = generation_set(g, r, it);
@@ -242,17 +285,41 @@ fn missing(g: &PipelineGraph<'_>, stmt: &PlannedStmt<'_>) -> (usize, Vec<String>
         if let Some(t) = subplan_tree(stmt, *plan_id) {
             let mut r = BTreeSet::new();
             readers(t, stmt, params, &mut r);
-            owners.push(Owner { node_id: -1, plan_id: *plan_id, readers: r });
+            owners.push(Owner {
+                node_id: -1,
+                plan_id: *plan_id,
+                readers: r,
+            });
         }
     }
     let mut bad = Vec::new();
     for o in owners.iter() {
-        let owns = |r: &&gravity_decompose::graph::Rerun| if o.plan_id == 0 { r.plan_id == 0 && r.node_id == o.node_id } else { r.plan_id == o.plan_id };
+        let owns = |r: &&gravity_decompose::graph::Rerun| {
+            if o.plan_id == 0 {
+                r.plan_id == 0 && r.node_id == o.node_id
+            } else {
+                r.plan_id == o.plan_id
+            }
+        };
         for (i, p) in g.pipelines.iter().enumerate() {
-            let Some(n) = p.node_ops.iter().find(|n| o.readers.contains(&n.node_id)) else { continue };
-            if !g.reruns.iter().filter(owns).any(|r| r.pipelines.contains(&(i as u16))) {
-                let who = if o.plan_id == 0 { format!("nest n{}", o.node_id) } else { format!("subplan {}", o.plan_id) };
-                bad.push(format!("p{i} runs n{} (reads the parameters of {who}) but is in no rerun set of it", n.node_id));
+            let Some(n) = p.node_ops.iter().find(|n| o.readers.contains(&n.node_id)) else {
+                continue;
+            };
+            if !g
+                .reruns
+                .iter()
+                .filter(owns)
+                .any(|r| r.pipelines.contains(&(i as u16)))
+            {
+                let who = if o.plan_id == 0 {
+                    format!("nest n{}", o.node_id)
+                } else {
+                    format!("subplan {}", o.plan_id)
+                };
+                bad.push(format!(
+                    "p{i} runs n{} (reads the parameters of {who}) but is in no rerun set of it",
+                    n.node_id
+                ));
             }
         }
     }
@@ -262,13 +329,19 @@ fn missing(g: &PipelineGraph<'_>, stmt: &PlannedStmt<'_>) -> (usize, Vec<String>
 #[test]
 fn every_pipeline_reading_an_outer_rows_parameter_reruns_per_outer_row() {
     let mut files = harness::fixtures_in(&harness::plans_root());
-    files.extend(harness::fixtures_in(&harness::plans_root().join("regress-full")));
+    files.extend(harness::fixtures_in(
+        &harness::plans_root().join("regress-full"),
+    ));
     let res = harness::par_map(&files, |f| {
         let text = fs::read_to_string(f).unwrap();
         let ctx = MemoryContext::new("fixture");
-        let Ok(fx) = corpus::load(ctx.mcx(), &text) else { return None };
+        let Ok(fx) = corpus::load(ctx.mcx(), &text) else {
+            return None;
+        };
         let arena = Arena::new(1 << 20);
-        let Ok(g) = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx) else { return None };
+        let Ok(g) = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx) else {
+            return None;
+        };
         let (owners, bad) = missing(&g, fx.stmt);
         Some((harness::fixture_name(f), owners, bad))
     });
@@ -283,18 +356,29 @@ fn every_pipeline_reading_an_outer_rows_parameter_reruns_per_outer_row() {
     for x in bad.iter() {
         println!("missing: {x}");
     }
-    assert!(bad.is_empty(), "{} pipelines read an outer row's parameter but run once per statement", bad.len());
-    assert!(graphs > 5000 || harness::filter().is_some(), "only {graphs} graphs");
+    assert!(
+        bad.is_empty(),
+        "{} pipelines read an outer row's parameter but run once per statement",
+        bad.len()
+    );
+    assert!(
+        graphs > 5000 || harness::filter().is_some(),
+        "only {graphs} graphs"
+    );
 }
 
 #[test]
 fn every_recursive_term_reruns_what_pg_reruns_per_generation() {
     let mut files = harness::fixtures_in(&harness::plans_root());
-    files.extend(harness::fixtures_in(&harness::plans_root().join("regress-full")));
+    files.extend(harness::fixtures_in(
+        &harness::plans_root().join("regress-full"),
+    ));
     let res = harness::par_map(&files, |f| {
         let text = fs::read_to_string(f).unwrap();
         let ctx = MemoryContext::new("fixture");
-        let Ok(fx) = corpus::load(ctx.mcx(), &text) else { return None };
+        let Ok(fx) = corpus::load(ctx.mcx(), &text) else {
+            return None;
+        };
         let arena = Arena::new(1 << 20);
         let name = harness::fixture_name(f);
         let g = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx);
@@ -304,7 +388,9 @@ fn every_recursive_term_reruns_what_pg_reruns_per_generation() {
                 Some((name, n, bad))
             }
             // a recursive term the graph cannot re-run is the same fault, refused
-            Err(r) if r.kind == Kind::RecursiveUnion => Some((name, 1, vec![format!("refused: {r}")])),
+            Err(r) if r.kind == Kind::RecursiveUnion => {
+                Some((name, 1, vec![format!("refused: {r}")]))
+            }
             Err(_) => None,
         };
         out
@@ -316,10 +402,16 @@ fn every_recursive_term_reruns_what_pg_reruns_per_generation() {
         hit += usize::from(!b.is_empty());
         bad.extend(b.into_iter().map(|x| format!("{f}: {x}")));
     }
-    println!("generations: {graphs} graphs, {recursions} recursive unions, {hit} graphs with {} faults", bad.len());
+    println!(
+        "generations: {graphs} graphs, {recursions} recursive unions, {hit} graphs with {} faults",
+        bad.len()
+    );
     for x in bad.iter() {
         println!("fault: {x}");
     }
     assert!(bad.is_empty(), "{} recursive-term faults", bad.len());
-    assert!(graphs > 5000 || harness::filter().is_some(), "only {graphs} graphs");
+    assert!(
+        graphs > 5000 || harness::filter().is_some(),
+        "only {graphs} graphs"
+    );
 }

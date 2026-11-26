@@ -100,7 +100,9 @@ fn full_ipci_bringup() -> &'static str {
     mbutils_seams::get_database_encoding::set(|| 6);
     file_seams::with_allocated_dir::set(|dirname, cb| {
         let mut ret = false;
-        let Ok(entries) = std::fs::read_dir(dirname) else { return Ok(false) };
+        let Ok(entries) = std::fs::read_dir(dirname) else {
+            return Ok(false);
+        };
         for entry in entries {
             ret = cb(entry.unwrap().file_name().to_str().unwrap())?;
             if ret {
@@ -197,7 +199,11 @@ fn remove_data_dir_at_exit() {
 #[test]
 fn a_run_leaves_nothing_behind() {
     let child = std::process::Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "firewall_crash_terminates_all_and_recovers_but_fatal_spares_siblings", "--nocapture"])
+        .args([
+            "--exact",
+            "firewall_crash_terminates_all_and_recovers_but_fatal_spares_siblings",
+            "--nocapture",
+        ])
         .stdout(std::process::Stdio::piped())
         .spawn()
         .unwrap();
@@ -258,7 +264,11 @@ fn firewall_crash_terminates_all_and_recovers_but_fatal_spares_siblings() {
     let postmaster_pid_before = init_small::globals::PostmasterPid();
 
     // ---- D-5: FATAL exit (status 1) must NOT trigger a crash cycle ---------
-    assert_eq!(fatal_status_from_seam(), 1 << 8, "FATAL seam status must be WIFEXITED(1)");
+    assert_eq!(
+        fatal_status_from_seam(),
+        1 << 8,
+        "FATAL seam status must be WIFEXITED(1)"
+    );
     postmaster_seams::announce_child_exit::call(FATAL_PID, fatal_status_from_seam());
     postmaster::process_pm_child_exit().unwrap();
 
@@ -284,10 +294,19 @@ fn firewall_crash_terminates_all_and_recovers_but_fatal_spares_siblings() {
     // Seam sanity: the two crash classes both map to non-clean statuses the
     // reaper treats as crashes (neither 0 nor 1).
     let crash_status = crash_status_from_seam();
-    assert_eq!(crash_status, libc::SIGABRT, "raw backend panic -> SIGABRT crash class");
-    let segv_status =
-        launch_backend::panic_payload_to_exit_status(&ipc::KilledBySignal { signo: libc::SIGSEGV });
-    assert_eq!(segv_status, libc::SIGSEGV, "SIGSEGV crash primitive -> WTERMSIG(SIGSEGV)");
+    assert_eq!(
+        crash_status,
+        libc::SIGABRT,
+        "raw backend panic -> SIGABRT crash class"
+    );
+    let segv_status = launch_backend::panic_payload_to_exit_status(&ipc::KilledBySignal {
+        signo: libc::SIGSEGV,
+    });
+    assert_eq!(
+        segv_status,
+        libc::SIGSEGV,
+        "SIGSEGV crash primitive -> WTERMSIG(SIGSEGV)"
+    );
     for (name, st) in [("SIGABRT", crash_status), ("SIGSEGV", segv_status)] {
         assert!(
             (st & 0x7f) != 0,
@@ -298,7 +317,10 @@ fn firewall_crash_terminates_all_and_recovers_but_fatal_spares_siblings() {
     postmaster_seams::announce_child_exit::call(VICTIM_PID, crash_status);
     postmaster::process_pm_child_exit().unwrap();
 
-    assert!(with_pm(|pm| pm.fatal_error), "D-1: a crash must set fatal_error (HandleFatalError)");
+    assert!(
+        with_pm(|pm| pm.fatal_error),
+        "D-1: a crash must set fatal_error (HandleFatalError)"
+    );
     assert_eq!(
         with_pm(|pm| pm.pm_state),
         PMState::PM_WAIT_BACKENDS,
@@ -319,9 +341,13 @@ fn firewall_crash_terminates_all_and_recovers_but_fatal_spares_siblings() {
     );
 
     // Dirty two shared structures, then let the reinit arm run.
-    varsup::TransamVariables().nextOid.store(777, Ordering::Relaxed);
+    varsup::TransamVariables()
+        .nextOid
+        .store(777, Ordering::Relaxed);
     let lock0 = lwlock::main_lock(0);
-    lock0.state.store(lwlock::LW_FLAG_RELEASE_OK | 5, Ordering::Relaxed);
+    lock0
+        .state
+        .store(lwlock::LW_FLAG_RELEASE_OK | 5, Ordering::Relaxed);
 
     postmaster::process_pm_child_exit().unwrap();
 
@@ -340,7 +366,10 @@ fn firewall_crash_terminates_all_and_recovers_but_fatal_spares_siblings() {
         PMState::PM_STARTUP,
         "D-1: recovery re-enters PM_STARTUP"
     );
-    assert!(with_pm(|pm| pm.startup.is_some()), "a fresh startup child must be launched");
+    assert!(
+        with_pm(|pm| pm.startup.is_some()),
+        "a fresh startup child must be launched"
+    );
     assert_eq!(with_pm(|pm| pm.startup_status), StartupStatusEnum::Running);
     assert_eq!(
         init_small::globals::PostmasterPid(),

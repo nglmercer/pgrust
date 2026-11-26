@@ -8,8 +8,8 @@ use types_core::BackendType;
 use types_error::{ErrorLevel, PgError};
 use types_storage::lock::{
     AccessExclusiveLock, AccessShareLock, DeadLockState, ExclusiveLock, RowExclusiveLock,
-    ShareLock, LOCALLOCKTAG, LOCKACQUIRE_ALREADY_CLEAR, LOCKACQUIRE_ALREADY_HELD, LOCKACQUIRE_NOT_AVAIL,
-    LOCKACQUIRE_OK, LOCKTAG,
+    ShareLock, LOCALLOCKTAG, LOCKACQUIRE_ALREADY_CLEAR, LOCKACQUIRE_ALREADY_HELD,
+    LOCKACQUIRE_NOT_AVAIL, LOCKACQUIRE_OK, LOCKTAG,
 };
 
 const TESTDB: u32 = 7777;
@@ -39,8 +39,7 @@ static SIGNAL_ERRNO: AtomicI32 = AtomicI32::new(0);
 const TEST_WAIT_START: i64 = 1_234_567;
 
 fn semas() -> &'static (Mutex<HashMap<types_core::ProcNumber, i32>>, Condvar) {
-    static SEMS: OnceLock<(Mutex<HashMap<types_core::ProcNumber, i32>>, Condvar)> =
-        OnceLock::new();
+    static SEMS: OnceLock<(Mutex<HashMap<types_core::ProcNumber, i32>>, Condvar)> = OnceLock::new();
     SEMS.get_or_init(|| (Mutex::new(HashMap::new()), Condvar::new()))
 }
 
@@ -108,7 +107,10 @@ fn setup() {
         });
         latch_seams::wait_latch_my_latch::set(|_, _, _| {
             let me = lmgr_proc::MyProc().unwrap_or(-1);
-            if me >= 0 && DEADLOCK_ALERT_PENDING.compare_exchange(me, -1, SeqCst, SeqCst).is_ok()
+            if me >= 0
+                && DEADLOCK_ALERT_PENDING
+                    .compare_exchange(me, -1, SeqCst, SeqCst)
+                    .is_ok()
             {
                 lmgr_proc::CheckDeadLockAlert();
                 return types_storage::waiteventset::WL_LATCH_SET;
@@ -167,14 +169,18 @@ fn setup() {
         ps_status_seams::set_ps_display_suffix::set(|_| {});
         ps_status_seams::set_ps_display_remove_suffix::set(|| {});
         elog_seams::ereport_msg::set(|level, msg, detail| {
-            logged().lock().unwrap_or_else(|e| e.into_inner()).push((level, msg, detail));
-            Ok(())
-        });
-        elog_seams::ereport_msg_detail_log::set(|level, msg, detail_log| {
             logged()
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
-                .push((level, msg, Some(format!("log-only: {detail_log}"))));
+                .push((level, msg, detail));
+            Ok(())
+        });
+        elog_seams::ereport_msg_detail_log::set(|level, msg, detail_log| {
+            logged().lock().unwrap_or_else(|e| e.into_inner()).push((
+                level,
+                msg,
+                Some(format!("log-only: {detail_log}")),
+            ));
             Ok(())
         });
         elog_seams::ereport::set(|err| {
@@ -284,31 +290,61 @@ fn reacquire_increments_local_count() {
 fn mark_lock_clear_through_the_grant_pointer_and_after_table_changes() {
     become_backend();
     let a = LOCKTAG::transaction(4301);
-    assert_eq!(LockAcquire(&a, ExclusiveLock, false, false).unwrap(), LOCKACQUIRE_OK);
+    assert_eq!(
+        LockAcquire(&a, ExclusiveLock, false, false).unwrap(),
+        LOCKACQUIRE_OK
+    );
     MarkLockClear(&a, ExclusiveLock);
-    assert_eq!(LockAcquire(&a, ExclusiveLock, false, false).unwrap(), LOCKACQUIRE_ALREADY_CLEAR);
+    assert_eq!(
+        LockAcquire(&a, ExclusiveLock, false, false).unwrap(),
+        LOCKACQUIRE_ALREADY_CLEAR
+    );
 
     let r = rel_tag(6101);
-    assert_eq!(LockAcquire(&r, AccessShareLock, false, false).unwrap(), LOCKACQUIRE_OK);
+    assert_eq!(
+        LockAcquire(&r, AccessShareLock, false, false).unwrap(),
+        LOCKACQUIRE_OK
+    );
     MarkLockClear(&r, AccessShareLock);
-    assert_eq!(LockAcquire(&r, AccessShareLock, false, false).unwrap(), LOCKACQUIRE_ALREADY_CLEAR);
+    assert_eq!(
+        LockAcquire(&r, AccessShareLock, false, false).unwrap(),
+        LOCKACQUIRE_ALREADY_CLEAR
+    );
 
     let b = LOCKTAG::transaction(4302);
-    assert_eq!(LockAcquire(&b, ExclusiveLock, false, false).unwrap(), LOCKACQUIRE_OK);
+    assert_eq!(
+        LockAcquire(&b, ExclusiveLock, false, false).unwrap(),
+        LOCKACQUIRE_OK
+    );
     let others: Vec<LOCKTAG> = (0..100).map(|i| LOCKTAG::transaction(5000 + i)).collect();
     for t in &others {
-        assert_eq!(LockAcquire(t, ExclusiveLock, false, false).unwrap(), LOCKACQUIRE_OK);
+        assert_eq!(
+            LockAcquire(t, ExclusiveLock, false, false).unwrap(),
+            LOCKACQUIRE_OK
+        );
     }
     MarkLockClear(&b, ExclusiveLock);
-    assert_eq!(LockAcquire(&b, ExclusiveLock, false, false).unwrap(), LOCKACQUIRE_ALREADY_CLEAR);
+    assert_eq!(
+        LockAcquire(&b, ExclusiveLock, false, false).unwrap(),
+        LOCKACQUIRE_ALREADY_CLEAR
+    );
 
     let c = LOCKTAG::transaction(4303);
-    assert_eq!(LockAcquire(&c, ExclusiveLock, false, false).unwrap(), LOCKACQUIRE_OK);
+    assert_eq!(
+        LockAcquire(&c, ExclusiveLock, false, false).unwrap(),
+        LOCKACQUIRE_OK
+    );
     assert!(LockRelease(&others[0], ExclusiveLock, false).unwrap());
     MarkLockClear(&c, ExclusiveLock);
-    assert_eq!(LockAcquire(&c, ExclusiveLock, false, false).unwrap(), LOCKACQUIRE_ALREADY_CLEAR);
+    assert_eq!(
+        LockAcquire(&c, ExclusiveLock, false, false).unwrap(),
+        LOCKACQUIRE_ALREADY_CLEAR
+    );
     for t in &others[1..] {
-        assert_eq!(LockAcquire(t, ExclusiveLock, false, false).unwrap(), LOCKACQUIRE_ALREADY_HELD);
+        assert_eq!(
+            LockAcquire(t, ExclusiveLock, false, false).unwrap(),
+            LOCKACQUIRE_ALREADY_HELD
+        );
     }
 
     for t in [a, b, c] {
@@ -441,8 +477,16 @@ fn wakeup_clears_the_woken_procs_wait_start() {
         std::thread::yield_now();
     }
     assert!(LockRelease(&tag, ExclusiveLock, false).unwrap());
-    assert_eq!(t.join().unwrap(), 0, "awakened proc keeps a stale waitStart");
-    assert_eq!(waker.waitStart.read(), WAKER_STAMP, "waker's waitStart was cleared");
+    assert_eq!(
+        t.join().unwrap(),
+        0,
+        "awakened proc keeps a stale waitStart"
+    );
+    assert_eq!(
+        waker.waitStart.read(),
+        WAKER_STAMP,
+        "waker's waitStart was cleared"
+    );
     waker.waitStart.write(0);
 }
 
@@ -749,7 +793,8 @@ fn autovacuum_cancel_failure_warning_carries_strerror_text() {
     let autovac = lmgr_proc::GetPGProcByNumber(autovac_procno);
     let off = (MAX_BACKENDS - 1) as usize;
     let saved_off = autovac.pgxactoff.swap(off as i32, SeqCst);
-    lmgr_proc::ProcGlobal().statusFlags[off].store(types_storage::storage::PROC_IS_AUTOVACUUM, SeqCst);
+    lmgr_proc::ProcGlobal().statusFlags[off]
+        .store(types_storage::storage::PROC_IS_AUTOVACUUM, SeqCst);
 
     let tag = LOCKTAG::transaction(4249);
     assert_eq!(
@@ -772,16 +817,18 @@ fn autovacuum_cancel_failure_warning_carries_strerror_text() {
         assert!(LockRelease(&tag, ShareLock, false).unwrap());
     });
     let waiter = rx.recv().unwrap();
-    let expected = format!(
-        "could not send signal to process {autovac_pid}: Operation not permitted"
-    );
+    let expected =
+        format!("could not send signal to process {autovac_pid}: Operation not permitted");
     let mut seen = false;
     for _ in 0..20_000 {
         if logged()
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .iter()
-            .any(|(level, msg, _)| *level == types_error::WARNING && msg.starts_with("could not send signal to process"))
+            .any(|(level, msg, _)| {
+                *level == types_error::WARNING
+                    && msg.starts_with("could not send signal to process")
+            })
         {
             seen = true;
             break;
@@ -798,8 +845,14 @@ fn autovacuum_cancel_failure_warning_carries_strerror_text() {
         .iter()
         .any(|(level, msg, detail)| *level == types_error::DEBUG1
             && msg.starts_with("sending cancel to blocking autovacuum PID")
-            && detail.as_deref().is_some_and(|d| d.starts_with("log-only: Process "))));
-    assert_ne!(DEADLOCK_ALERT_PENDING.load(SeqCst), waiter, "alert never consumed");
+            && detail
+                .as_deref()
+                .is_some_and(|d| d.starts_with("log-only: Process "))));
+    assert_ne!(
+        DEADLOCK_ALERT_PENDING.load(SeqCst),
+        waiter,
+        "alert never consumed"
+    );
     lmgr_proc::ProcGlobal().statusFlags[off].store(0, SeqCst);
     autovac.pgxactoff.store(saved_off, SeqCst);
     BLOCKED_BY_AUTOVAC.store(-1, SeqCst);
@@ -810,11 +863,13 @@ fn autovacuum_cancel_failure_warning_carries_strerror_text() {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .iter()
-        .filter(|(level, msg, _)| *level == types_error::WARNING && msg.starts_with("could not send signal to process"))
+        .filter(|(level, msg, _)| {
+            *level == types_error::WARNING && msg.starts_with("could not send signal to process")
+        })
         .map(|(_, msg, _)| msg.clone())
         .collect();
     assert!(
-        warnings.contains(& expected),
+        warnings.contains(&expected),
         "expected {expected:?}, got {warnings:?}"
     );
 }
@@ -835,7 +890,10 @@ fn shmem_init_registers_lock_hashes_with_c_shared_size() {
     assert!(found, "\"LOCK hash\" is not registered in the ShmemIndex");
     let (_, found) =
         shmem::ShmemInitStruct("PROCLOCK hash", shared_size(max_table_size * 2)).unwrap();
-    assert!(found, "\"PROCLOCK hash\" is not registered in the ShmemIndex");
+    assert!(
+        found,
+        "\"PROCLOCK hash\" is not registered in the ShmemIndex"
+    );
 }
 
 #[test]
@@ -876,7 +934,10 @@ fn lock_tables_are_growable_from_half_size() {
             let p = dynahash::hash_search(tables.lock_hash, key, HASH_ENTER_NULL, Some(&mut found))
                 .unwrap();
             assert!(!found);
-            assert!(!p.is_null(), "growth past init_table_size must not be refused");
+            assert!(
+                !p.is_null(),
+                "growth past init_table_size must not be refused"
+            );
         }
         assert!(dynahash::hash_get_num_entries(tables.lock_hash) > max_table_size / 2);
         for tag in &tags {

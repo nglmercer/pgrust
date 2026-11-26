@@ -29,7 +29,8 @@ pub(crate) fn condition_cache_bytes() -> u64 {
 /// use; the flat 100 MiB it replaces held about 70 literals' entries over a 12M-row table, and a workload cycling more
 /// missed on every one. SHOW prints the derived budget (`guc_tables::show_pgrust_condition_cache_size`).
 pub(crate) fn derived_condition_cache_bytes() -> u64 {
-    gravity_hosts::dict::text_hosts::reuse::store_bytes(gravity_program::cost::condition_cache_cap) as u64
+    gravity_hosts::dict::text_hosts::reuse::store_bytes(gravity_program::cost::condition_cache_cap)
+        as u64
 }
 
 /// Installs the derivation `guc_tables` reads at -1 (the pgrcolumnar condition cache's arm and SHOW).

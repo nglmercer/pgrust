@@ -1,9 +1,21 @@
 use guc_tables::*;
 use types_guc::*;
 
-pub(super) static SETTINGS: &[GucSetting] = &[
-    GucSetting::Int(GucIntSetting { name: "passwordcheck.min_password_length", context: PGC_SUSET, group: CUSTOM_OPTIONS, short_desc: Some("Minimum allowed password length."), long_desc: None, flags: GUC_UNIT_BYTE, variable: &vars::passwordcheck_min_password_length, boot_val: GucDefaultValue::Int(8), min: 0, max: i32::MAX, check_hook: None, assign_hook: None, show_hook: None }),
-];
+pub(super) static SETTINGS: &[GucSetting] = &[GucSetting::Int(GucIntSetting {
+    name: "passwordcheck.min_password_length",
+    context: PGC_SUSET,
+    group: CUSTOM_OPTIONS,
+    short_desc: Some("Minimum allowed password length."),
+    long_desc: None,
+    flags: GUC_UNIT_BYTE,
+    variable: &vars::passwordcheck_min_password_length,
+    boot_val: GucDefaultValue::Int(8),
+    min: 0,
+    max: i32::MAX,
+    check_hook: None,
+    assign_hook: None,
+    show_hook: None,
+})];
 
 #[cfg(test)]
 #[test]

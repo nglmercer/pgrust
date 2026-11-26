@@ -35,12 +35,12 @@ use types_nodes::plannodes::RowMarkType;
 use types_nodes::primnodes::OUTER_VAR;
 use types_nodes::NodeList;
 
-use crate::ops::lockrows::plan::Census;
 use crate::face::step::ExprFace;
 use crate::frame::env::Env;
 use crate::frame::px::{ExId, Px};
 use crate::frame::row::RowVals;
 use crate::graph::Gx;
+use crate::ops::lockrows::plan::Census;
 
 /// `form`'s answer: the lock's junk ctid column (its position) and epq_ir.rs `Fetch`'s input, (the pipeline scanning the
 /// REFERENCE relation: the nest's inner as its `Pipes` index, or a Materialize's producer; the REFERENCE mark's junk ctid
@@ -59,7 +59,14 @@ pub(crate) struct RefNest {
 /// row to the Limit); the form's own pipelines (the lock's, a Materialize's producer) read nothing else, and plan.rs
 /// `Plan::form` asks `write_pair` for the write (JOBQ's forms), whose recheck reads the subquery's row from its COPY mark or the
 /// InitPlan's value and never runs the lock again.
-pub(crate) fn form(gx: &Gx<'_, '_>, k: usize, j: usize, d: &LockDesc<'_>, limit: fn(&Op<'_>) -> bool, paired: bool) -> Option<RefNest> {
+pub(crate) fn form(
+    gx: &Gx<'_, '_>,
+    k: usize,
+    j: usize,
+    d: &LockDesc<'_>,
+    limit: fn(&Op<'_>) -> bool,
+    paired: bool,
+) -> Option<RefNest> {
     let ps = gx.pipelines();
     let p = &ps[k];
     // D3379 INITSINK: or beside the InitPlan whose own row lock is the M4 pair's A (plan.rs `Plan::pair_entry`)
@@ -78,32 +85,62 @@ pub(crate) fn form(gx: &Gx<'_, '_>, k: usize, j: usize, d: &LockDesc<'_>, limit:
         false if p.desc.produces().is_some() => Census(gx).above_only(k).filter(|&a| a > 0)?,
         false => 0,
     };
-    if !paired && !Census(gx).whole(k + 1 + feed) || d.family().is_some() || d.family_top().is_some() || d.marks.len() != 2 {
+    if !paired && !Census(gx).whole(k + 1 + feed)
+        || d.family().is_some()
+        || d.family_top().is_some()
+        || d.marks.len() != 2
+    {
         return None;
     }
     let above = match paired {
         true => p.ops[j + 1..].iter().any(limit),
         // the ops up to the product's sink: projections (the Subquery Scan's), filters, gates, a LIMIT / OFFSET
-        false if feed > 0 => j + 2 <= p.ops.len() && p.ops[j + 1..p.ops.len() - 1].iter().all(|o| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_)) || limit(o)) && !matches!(p.ops.last(), Some(Op::Write(_) | Op::Lock(_))),
-        false => p.ops[j + 1..].iter().all(|o| matches!(o, Op::Project(_)) || limit(o)),
+        false if feed > 0 => {
+            j + 2 <= p.ops.len()
+                && p.ops[j + 1..p.ops.len() - 1]
+                    .iter()
+                    .all(|o| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_)) || limit(o))
+                && !matches!(p.ops.last(), Some(Op::Write(_) | Op::Lock(_)))
+        }
+        false => p.ops[j + 1..]
+            .iter()
+            .all(|o| matches!(o, Op::Project(_)) || limit(o)),
     };
     if !above {
         return None;
     }
     let m = d.marks.iter().find(|m| m.lock != LockKind::None)?;
     let r = d.marks.iter().find(|m| m.lock == LockKind::None)?;
-    if m.parent || m.ctid_col <= 0 || m.relid != d.plan.target_rel || r.parent || r.ctid_col <= 0 || r.mark != RowMarkType::ROW_MARK_REFERENCE || r.rti == m.rti || heap(&p.source) != Some((m.rti, m.relid)) {
+    if m.parent
+        || m.ctid_col <= 0
+        || m.relid != d.plan.target_rel
+        || r.parent
+        || r.ctid_col <= 0
+        || r.mark != RowMarkType::ROW_MARK_REFERENCE
+        || r.rti == m.rti
+        || heap(&p.source) != Some((m.rti, m.relid))
+    {
         return None;
     }
     let plain = |o: &Op<'_>| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_));
     let jn = p.ops[..j].iter().position(|o| !plain(o))?;
     // D3560 REFNEST-LEFT: or a LEFT nest (Django's select_related over a nullable FK): epq_ir.rs's redo null-extends the row
     // when the refetch finds no row (a NULL junk ctid) or the inner's redo or the join qual fails, as the nest loop does
-    let Op::Join(JoinDesc::Nest { jointype: JoinType::JOIN_INNER | JoinType::JOIN_LEFT, inner, .. }) = &p.ops[jn] else { return None };
+    let Op::Join(JoinDesc::Nest {
+        jointype: JoinType::JOIN_INNER | JoinType::JOIN_LEFT,
+        inner,
+        ..
+    }) = &p.ops[jn]
+    else {
+        return None;
+    };
     // D3379 REFNEST-SUB (epq-subq-subplan joinv): or a per-row SubPlan step past the nest, evaluated again over the joined
     // row (epq_ir.rs `Redo::Sub`), as EvalPlanQual re-runs it with the newest version's arguments under the statement's
     // snapshot (D1478: its own scan never substituted)
-    if !p.ops[jn + 1..j].iter().all(|o| plain(o) || matches!(o, Op::SubPlan(_))) {
+    if !p.ops[jn + 1..j]
+        .iter()
+        .all(|o| plain(o) || matches!(o, Op::SubPlan(_)))
+    {
         return None;
     }
     let i = ps.inners().iter().position(|x| x.0 == (k, jn))?;
@@ -113,24 +150,46 @@ pub(crate) fn form(gx: &Gx<'_, '_>, k: usize, j: usize, d: &LockDesc<'_>, limit:
         Source::Breaker { slot } => {
             // D3460 REFNEST-LIFE (m8_d652_lock_initplan :383, its cursors): the spool's own producer, the life the lock's
             // pipeline reads (`life_of`): an InitPlan's Aggregate before it may have produced the same slot number first
-            let q = gx.life_of(k, slot).map(|l| l.0 as usize).filter(|&x| x < k)?;
-            let alone = n.is_none_or(|n| Census(gx).whole(2 + n + feed)) && p.desc.consumes.len() == 1 && p.desc.consumes[0] == slot && ps[q].desc.consumes.is_empty() && (!Census(gx).init_member(q) || paired && Census(gx).init_member(k));
-            if !alone || !inner.ops.iter().all(pass_through) || !matches!(ps[q].ops.last(), Some(Op::Join(JoinDesc::Spool))) {
+            let q = gx
+                .life_of(k, slot)
+                .map(|l| l.0 as usize)
+                .filter(|&x| x < k)?;
+            let alone = n.is_none_or(|n| Census(gx).whole(2 + n + feed))
+                && p.desc.consumes.len() == 1
+                && p.desc.consumes[0] == slot
+                && ps[q].desc.consumes.is_empty()
+                && (!Census(gx).init_member(q) || paired && Census(gx).init_member(k));
+            if !alone
+                || !inner.ops.iter().all(pass_through)
+                || !matches!(ps[q].ops.last(), Some(Op::Join(JoinDesc::Spool)))
+            {
                 return None;
             }
             (q, true)
         }
-        _ if n.is_none_or(|n| Census(gx).whole(1 + n + feed)) && p.desc.consumes.is_empty() => (ps.len() + i, false),
+        _ if n.is_none_or(|n| Census(gx).whole(1 + n + feed)) && p.desc.consumes.is_empty() => {
+            (ps.len() + i, false)
+        }
         _ => return None,
     };
     let s = &ps[q];
     let end = inner_end(s);
     let memo = matches!(s.ops.get(end), Some(Op::Join(JoinDesc::Memo { .. })));
-    let below = s.ops[..end].iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_))) && matches!(s.ops[..end].last(), Some(Op::Project(_)));
-    if heap(&s.source) != Some((r.rti, r.relid)) || !below || !s.ops[end..].iter().skip(1).all(pass_through) || !(memo || kept || feed > 0 || p.ops[j + 1..].iter().any(limit)) {
+    let below = s.ops[..end]
+        .iter()
+        .all(|o| matches!(o, Op::Filter(_) | Op::Project(_)))
+        && matches!(s.ops[..end].last(), Some(Op::Project(_)));
+    if heap(&s.source) != Some((r.rti, r.relid))
+        || !below
+        || !s.ops[end..].iter().skip(1).all(pass_through)
+        || !(memo || kept || feed > 0 || p.ops[j + 1..].iter().any(limit))
+    {
         return None;
     }
-    Some(RefNest { ctid: m.ctid_col, fetch: (q, r.ctid_col, r.relid) })
+    Some(RefNest {
+        ctid: m.ctid_col,
+        fetch: (q, r.ctid_col, r.relid),
+    })
 }
 
 /// D3564 REFNEST-CHAIN (an ORM's claim selecting rows of two related relations: `SELECT t.id, q.name, l.owner FROM
@@ -143,23 +202,46 @@ pub(crate) fn form(gx: &Gx<'_, '_>, k: usize, j: usize, d: &LockDesc<'_>, limit:
 /// each REFERENCE row refetched at its junk ctid (none for a NULL one: a LEFT nest null-extends the row again); here
 /// REFNEST's redo, each nest's fetch in op order (epq_ir.rs `redo_of`). Some((the lock's junk ctid column, the
 /// fetches)).
-pub(crate) fn chain_form<'g>(gx: &Gx<'g, '_>, k: usize, j: usize, d: &LockDesc<'_>, limit: fn(&Op<'_>) -> bool) -> Option<(i16, PgVec<'g, (usize, i16, u32)>)> {
+pub(crate) fn chain_form<'g>(
+    gx: &Gx<'g, '_>,
+    k: usize,
+    j: usize,
+    d: &LockDesc<'_>,
+    limit: fn(&Op<'_>) -> bool,
+) -> Option<(i16, PgVec<'g, (usize, i16, u32)>)> {
     let ps = gx.pipelines();
     let p = &ps[k];
     let n = Census(gx).inits(k, k)?;
-    if !Census(gx).whole(k + 1) || p.desc.produces().is_some() || d.family().is_some() || d.family_top().is_some() || d.marks.len() < 3 {
+    if !Census(gx).whole(k + 1)
+        || p.desc.produces().is_some()
+        || d.family().is_some()
+        || d.family_top().is_some()
+        || d.marks.len() < 3
+    {
         return None;
     }
-    if !p.ops[j + 1..].iter().all(|o| matches!(o, Op::Project(_)) || limit(o)) || !p.ops[j + 1..].iter().any(limit) {
+    if !p.ops[j + 1..]
+        .iter()
+        .all(|o| matches!(o, Op::Project(_)) || limit(o))
+        || !p.ops[j + 1..].iter().any(limit)
+    {
         return None;
     }
     let mut locking = d.marks.iter().filter(|m| m.lock != LockKind::None);
     let m = locking.next()?;
-    if locking.next().is_some() || m.parent || m.ctid_col <= 0 || m.relid != d.plan.target_rel || heap(&p.source) != Some((m.rti, m.relid)) {
+    if locking.next().is_some()
+        || m.parent
+        || m.ctid_col <= 0
+        || m.relid != d.plan.target_rel
+        || heap(&p.source) != Some((m.rti, m.relid))
+    {
         return None;
     }
     let refs: PgVec<'_, _> = d.marks.iter().filter(|r| r.rti != m.rti).collect_in(gx.mcx);
-    if refs.iter().any(|r| r.parent || r.ctid_col <= 0 || r.mark != RowMarkType::ROW_MARK_REFERENCE) {
+    if refs
+        .iter()
+        .any(|r| r.parent || r.ctid_col <= 0 || r.mark != RowMarkType::ROW_MARK_REFERENCE)
+    {
         return None;
     }
     let plain = |o: &Op<'_>| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_));
@@ -171,14 +253,21 @@ pub(crate) fn chain_form<'g>(gx: &Gx<'g, '_>, k: usize, j: usize, d: &LockDesc<'
             // D3379 REFNEST-SUB: a per-row SubPlan step past a nest (epq_ir.rs `Redo::Sub`)
             Op::SubPlan(_) if !fetches.is_empty() => {}
             Op::Join(JoinDesc::Nest { .. }) => {
-                let (x, r) = match refs.iter().find_map(|r| ref_side(gx, k, i, r).map(|x| (x, r))) {
+                let (x, r) = match refs
+                    .iter()
+                    .find_map(|r| ref_side(gx, k, i, r).map(|x| (x, r)))
+                {
                     Some(f) => f,
                     // or a Materialize over its unparameterized scan (`form`'s `kept`: Django's claim filtered on the
                     // joined relation's column), the redo that producer's ops up to its spool
                     None => {
                         let (f, slot) = ref_spool(gx, k, i)?;
                         spools.push_in(slot);
-                        (f, refs.iter().find(|r| heap(&ps[f].source) == Some((r.rti, r.relid)))?)
+                        (
+                            f,
+                            refs.iter()
+                                .find(|r| heap(&ps[f].source) == Some((r.rti, r.relid)))?,
+                        )
                     }
                 };
                 if fetches.iter().any(|f| f.1 == r.ctid_col) {
@@ -190,7 +279,9 @@ pub(crate) fn chain_form<'g>(gx: &Gx<'g, '_>, k: usize, j: usize, d: &LockDesc<'
         }
     }
     // the statement's pipelines: the lock's, the spools' producers, the InitPlans'
-    let own = Census(gx).whole(1 + n + spools.len()) && p.desc.consumes.len() == spools.len() && p.desc.consumes.iter().all(|s| spools.contains(s));
+    let own = Census(gx).whole(1 + n + spools.len())
+        && p.desc.consumes.len() == spools.len()
+        && p.desc.consumes.iter().all(|s| spools.contains(s));
     (own && fetches.len() >= 2 && fetches.len() == refs.len()).then_some((m.ctid_col, fetches))
 }
 
@@ -199,14 +290,32 @@ pub(crate) fn chain_form<'g>(gx: &Gx<'g, '_>, k: usize, j: usize, d: &LockDesc<'
 /// the spool: Some((that producer, the spool's slot)).
 pub(crate) fn ref_spool(gx: &Gx<'_, '_>, k: usize, i: usize) -> Option<(usize, u8)> {
     let ps = gx.pipelines();
-    let Op::Join(JoinDesc::Nest { jointype: JoinType::JOIN_INNER | JoinType::JOIN_LEFT, inner, .. }) = ps[k].ops.get(i)? else { return None };
-    let Source::Breaker { slot } = inner.source else { return None };
-    let f = gx.life_of(k, slot).map(|l| l.0 as usize).filter(|&x| x < k)?;
+    let Op::Join(JoinDesc::Nest {
+        jointype: JoinType::JOIN_INNER | JoinType::JOIN_LEFT,
+        inner,
+        ..
+    }) = ps[k].ops.get(i)?
+    else {
+        return None;
+    };
+    let Source::Breaker { slot } = inner.source else {
+        return None;
+    };
+    let f = gx
+        .life_of(k, slot)
+        .map(|l| l.0 as usize)
+        .filter(|&x| x < k)?;
     let pf = &ps[f];
     let end = inner_end(pf);
-    let below = pf.ops[..end].iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_))) && matches!(pf.ops[..end].last(), Some(Op::Project(_)));
-    let fill = matches!(pf.ops.last(), Some(Op::Join(JoinDesc::Spool))) && pf.desc.consumes.is_empty() && !Census(gx).init_member(f);
-    (below && fill && inner.ops.iter().all(pass_through) && heap(&pf.source).is_some()).then_some((f, slot))
+    let below = pf.ops[..end]
+        .iter()
+        .all(|o| matches!(o, Op::Filter(_) | Op::Project(_)))
+        && matches!(pf.ops[..end].last(), Some(Op::Project(_)));
+    let fill = matches!(pf.ops.last(), Some(Op::Join(JoinDesc::Spool)))
+        && pf.desc.consumes.is_empty()
+        && !Census(gx).init_member(f);
+    (below && fill && inner.ops.iter().all(pass_through) && heap(&pf.source).is_some())
+        .then_some((f, slot))
 }
 
 /// D3554 SORTNEST (Django's claim over a join sorted past its index: `SELECT t.id, q.name .. FROM app_task t JOIN app_queue
@@ -223,17 +332,38 @@ pub(crate) fn ref_spool(gx: &Gx<'_, '_>, k: usize, i: usize) -> Option<(usize, u
 /// UPDATE t .. FROM c ..`), every InitPlan a CTE, the other pipelines the statement's; ops/lockrows/plan.rs `Plan::form` then asks
 /// `write_pair` for the write reading the store (CTESORT's form). Some((q, its ops before the sort build, the lock's
 /// position and fetch)).
-pub(crate) fn sort_form(gx: &Gx<'_, '_>, k: usize, j: usize, d: &LockDesc<'_>, (limit, emit): (fn(&Op<'_>) -> bool, fn(&Op<'_>) -> bool), cte: bool) -> Option<(usize, usize, RefNest)> {
+pub(crate) fn sort_form(
+    gx: &Gx<'_, '_>,
+    k: usize,
+    j: usize,
+    d: &LockDesc<'_>,
+    (limit, emit): (fn(&Op<'_>) -> bool, fn(&Op<'_>) -> bool),
+    cte: bool,
+) -> Option<(usize, usize, RefNest)> {
     let ps = gx.pipelines();
     let p = &ps[k];
-    let Source::Breaker { slot } = p.source else { return None };
-    if !p.ops[..j].iter().all(emit) || !p.ops[j + 1..].iter().all(|o| matches!(o, Op::Project(_)) || limit(o)) || !p.ops[j + 1..].iter().any(limit) {
+    let Source::Breaker { slot } = p.source else {
+        return None;
+    };
+    if !p.ops[..j].iter().all(emit)
+        || !p.ops[j + 1..]
+            .iter()
+            .all(|o| matches!(o, Op::Project(_)) || limit(o))
+        || !p.ops[j + 1..].iter().any(limit)
+    {
         return None;
     }
-    if d.family().is_some() || d.family_top().is_some() || d.marks.len() != 2 || p.desc.produces().is_some() != cte || p.desc.consumes.len() != 1 {
+    if d.family().is_some()
+        || d.family_top().is_some()
+        || d.marks.len() != 2
+        || p.desc.produces().is_some() != cte
+        || p.desc.consumes.len() != 1
+    {
         return None;
     }
-    let q = (0..k).rev().find(|&x| ps[x].desc.produces() == Some(slot))?;
+    let q = (0..k)
+        .rev()
+        .find(|&x| ps[x].desc.produces() == Some(slot))?;
     // D3555 (`cte`): the CTE's store beside the statement's pipelines, every InitPlan a CTE (ops/lockrows/plan.rs `Plan::form` then asks
     // `write_pair` for the one write reading the store whole); else the statement's pipelines are the form's and those of
     // InitPlans that lock and write nothing
@@ -244,16 +374,34 @@ pub(crate) fn sort_form(gx: &Gx<'_, '_>, k: usize, j: usize, d: &LockDesc<'_>, (
     let pq = &ps[q];
     let m = d.marks.iter().find(|m| m.lock != LockKind::None)?;
     let r = d.marks.iter().find(|m| m.lock == LockKind::None)?;
-    if Census(gx).init_member(q) || m.parent || m.ctid_col <= 0 || m.relid != d.plan.target_rel || r.parent || r.ctid_col <= 0 || r.mark != RowMarkType::ROW_MARK_REFERENCE || r.rti == m.rti || heap(&pq.source) != Some((m.rti, m.relid)) {
+    if Census(gx).init_member(q)
+        || m.parent
+        || m.ctid_col <= 0
+        || m.relid != d.plan.target_rel
+        || r.parent
+        || r.ctid_col <= 0
+        || r.mark != RowMarkType::ROW_MARK_REFERENCE
+        || r.rti == m.rti
+        || heap(&pq.source) != Some((m.rti, m.relid))
+    {
         return None;
     }
     let jq = pq.ops.iter().position(|o| matches!(o, Op::Sort(_)))?;
-    if !pq.ops[jq..].iter().all(|o| matches!(o, Op::Sort(_))) || !matches!(pq.ops[..jq].last(), Some(Op::Project(_))) {
+    if !pq.ops[jq..].iter().all(|o| matches!(o, Op::Sort(_)))
+        || !matches!(pq.ops[..jq].last(), Some(Op::Project(_)))
+    {
         return None;
     }
     let plain = |o: &Op<'_>| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_));
     let jn = pq.ops[..jq].iter().position(|o| !plain(o))?;
-    let Op::Join(JoinDesc::Nest { jointype: JoinType::JOIN_INNER, inner, .. }) = &pq.ops[jn] else { return None };
+    let Op::Join(JoinDesc::Nest {
+        jointype: JoinType::JOIN_INNER,
+        inner,
+        ..
+    }) = &pq.ops[jn]
+    else {
+        return None;
+    };
     if !pq.ops[jn + 1..jq].iter().all(plain) {
         return None;
     }
@@ -261,22 +409,44 @@ pub(crate) fn sort_form(gx: &Gx<'_, '_>, k: usize, j: usize, d: &LockDesc<'_>, (
     let f = match inner.source {
         Source::Breaker { slot: s } => {
             let f = gx.life_of(q, s).map(|l| l.0 as usize).filter(|&x| x < q)?;
-            let alone = n.is_none_or(|n| Census(gx).whole(3 + n)) && pq.desc.consumes.len() == 1 && pq.desc.consumes[0] == s && ps[f].desc.consumes.is_empty() && !Census(gx).init_member(f);
-            if !alone || !inner.ops.iter().all(pass_through) || !matches!(ps[f].ops.last(), Some(Op::Join(JoinDesc::Spool))) {
+            let alone = n.is_none_or(|n| Census(gx).whole(3 + n))
+                && pq.desc.consumes.len() == 1
+                && pq.desc.consumes[0] == s
+                && ps[f].desc.consumes.is_empty()
+                && !Census(gx).init_member(f);
+            if !alone
+                || !inner.ops.iter().all(pass_through)
+                || !matches!(ps[f].ops.last(), Some(Op::Join(JoinDesc::Spool)))
+            {
                 return None;
             }
             f
         }
-        _ if n.is_none_or(|n| Census(gx).whole(2 + n)) && pq.desc.consumes.is_empty() => ps.len() + i,
+        _ if n.is_none_or(|n| Census(gx).whole(2 + n)) && pq.desc.consumes.is_empty() => {
+            ps.len() + i
+        }
         _ => return None,
     };
     let s = &ps[f];
     let end = inner_end(s);
-    let below = s.ops[..end].iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_))) && matches!(s.ops[..end].last(), Some(Op::Project(_)));
-    if heap(&s.source) != Some((r.rti, r.relid)) || !below || !s.ops[end..].iter().skip(1).all(pass_through) {
+    let below = s.ops[..end]
+        .iter()
+        .all(|o| matches!(o, Op::Filter(_) | Op::Project(_)))
+        && matches!(s.ops[..end].last(), Some(Op::Project(_)));
+    if heap(&s.source) != Some((r.rti, r.relid))
+        || !below
+        || !s.ops[end..].iter().skip(1).all(pass_through)
+    {
         return None;
     }
-    Some((q, jq, RefNest { ctid: m.ctid_col, fetch: (f, r.ctid_col, r.relid) }))
+    Some((
+        q,
+        jq,
+        RefNest {
+            ctid: m.ctid_col,
+            fetch: (f, r.ctid_col, r.relid),
+        },
+    ))
 }
 
 /// D3379 LOCKNEST (REFNEST's mirror: `SELECT .. FROM a JOIN b ON b.id = a.bid .. LIMIT 3 FOR UPDATE OF b`):
@@ -294,17 +464,36 @@ pub(crate) fn sort_form(gx: &Gx<'_, '_>, k: usize, j: usize, d: &LockDesc<'_>, (
 /// own heap scan under filters and projections (then, optionally, a Memoize and its pass-through projection), filters,
 /// gates and projections up to the lock, projections and at least one LIMIT / OFFSET above it, two marks, and no SubPlan
 /// in what the recheck evaluates. Some((the locked mark's junk ctid column, the nest op, its inner's `Pipes` index)).
-pub(crate) fn lock_form<'p>(gx: &Gx<'_, 'p>, k: usize, j: usize, d: &LockDesc<'_>, limit: fn(&Op<'_>) -> bool) -> Option<(i16, usize, usize)> {
+pub(crate) fn lock_form<'p>(
+    gx: &Gx<'_, 'p>,
+    k: usize,
+    j: usize,
+    d: &LockDesc<'_>,
+    limit: fn(&Op<'_>) -> bool,
+) -> Option<(i16, usize, usize)> {
     let p = &gx.pipelines()[k];
     let m = d.marks.iter().find(|m| m.lock != LockKind::None)?;
     let r = d.marks.iter().find(|m| m.lock == LockKind::None)?;
-    if d.marks.len() != 2 || m.parent || m.ctid_col <= 0 || m.relid != d.plan.target_rel || r.parent || r.ctid_col <= 0 || r.mark != RowMarkType::ROW_MARK_REFERENCE || r.rti == m.rti || heap(&p.source) != Some((r.rti, r.relid)) {
+    if d.marks.len() != 2
+        || m.parent
+        || m.ctid_col <= 0
+        || m.relid != d.plan.target_rel
+        || r.parent
+        || r.ctid_col <= 0
+        || r.mark != RowMarkType::ROW_MARK_REFERENCE
+        || r.rti == m.rti
+        || heap(&p.source) != Some((r.rti, r.relid))
+    {
         return None;
     }
     let (jn, ik) = limited_nest(gx, k, j, d, limit, m, false)?;
     // the outer part is not redone: PostgreSQL's rerun over the version the join read passes it again, as it did, unless it
     // calls what may answer otherwise
-    if p.ops[..jn].iter().flat_map(exprs).any(|x| crate::effects::volatile(gx, x)) {
+    if p.ops[..jn]
+        .iter()
+        .flat_map(exprs)
+        .any(|x| crate::effects::volatile(gx, x))
+    {
         return None;
     }
     Some((m.ctid_col, jn, ik))
@@ -330,7 +519,13 @@ pub(crate) fn lock_form<'p>(gx: &Gx<'_, 'p>, k: usize, j: usize, d: &LockDesc<'_
 /// nor writes. With no LIMIT / OFFSET above and no product, only an outer the runner's recheck does not take (a nest
 /// whose inner is more than a scan: the Hash Join above; lockrows/marks.rs NOT_OWN); a two-mark outer is `lock_form`'s.
 /// Some((the locked mark's junk ctid column, the nest op, its inner's `Pipes` index)).
-pub(crate) fn chain_lock_form(gx: &Gx<'_, '_>, k: usize, j: usize, d: &LockDesc<'_>, limit: fn(&Op<'_>) -> bool) -> Option<(i16, usize, usize)> {
+pub(crate) fn chain_lock_form(
+    gx: &Gx<'_, '_>,
+    k: usize,
+    j: usize,
+    d: &LockDesc<'_>,
+    limit: fn(&Op<'_>) -> bool,
+) -> Option<(i16, usize, usize)> {
     use gravity_decompose::expr::has_subplan;
     let ps = gx.pipelines();
     let p = &ps[k];
@@ -339,29 +534,63 @@ pub(crate) fn chain_lock_form(gx: &Gx<'_, '_>, k: usize, j: usize, d: &LockDesc<
         Some(_) => Census(gx).above_only(k).filter(|&a| a > 0)?,
         None => 0,
     };
-    if !gx.graph.init_plans.is_empty() || d.family().is_some() || d.family_top().is_some() || !Census(gx).whole(k + 1 + feed) || d.marks.len() < 3 {
+    if !gx.graph.init_plans.is_empty()
+        || d.family().is_some()
+        || d.family_top().is_some()
+        || !Census(gx).whole(k + 1 + feed)
+        || d.marks.len() < 3
+    {
         return None;
     }
     let mut locking = d.marks.iter().filter(|m| m.lock != LockKind::None);
-    let (Some(m), None) = (locking.next(), locking.next()) else { return None };
-    if m.parent || m.ctid_col <= 0 || m.relid != d.plan.target_rel || d.marks.iter().any(|r| r.rti != m.rti && (r.parent || r.mark != RowMarkType::ROW_MARK_REFERENCE)) {
+    let (Some(m), None) = (locking.next(), locking.next()) else {
+        return None;
+    };
+    if m.parent
+        || m.ctid_col <= 0
+        || m.relid != d.plan.target_rel
+        || d.marks
+            .iter()
+            .any(|r| r.rti != m.rti && (r.parent || r.mark != RowMarkType::ROW_MARK_REFERENCE))
+    {
         return None;
     }
     let limited = p.ops[j + 1..].iter().any(limit);
     let plain = |o: &Op<'_>| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_));
     let above = match feed {
-        0 => p.ops[j + 1..].iter().all(|o| matches!(o, Op::Project(_)) || limit(o)),
-        _ => j + 2 <= p.ops.len() && p.ops[j + 1..p.ops.len() - 1].iter().all(|o| plain(o) || limit(o)) && !matches!(p.ops.last(), Some(Op::Write(_) | Op::Lock(_))),
+        0 => p.ops[j + 1..]
+            .iter()
+            .all(|o| matches!(o, Op::Project(_)) || limit(o)),
+        _ => {
+            j + 2 <= p.ops.len()
+                && p.ops[j + 1..p.ops.len() - 1]
+                    .iter()
+                    .all(|o| plain(o) || limit(o))
+                && !matches!(p.ops.last(), Some(Op::Write(_) | Op::Lock(_)))
+        }
     };
     if !above {
         return None;
     }
     let jn = p.ops[..j].iter().rposition(|o| !plain(o))?;
-    let Op::Join(JoinDesc::Nest { jointype: JoinType::JOIN_INNER, qual, .. }) = &p.ops[jn] else { return None };
+    let Op::Join(JoinDesc::Nest {
+        jointype: JoinType::JOIN_INNER,
+        qual,
+        ..
+    }) = &p.ops[jn]
+    else {
+        return None;
+    };
     let ik = ps.inner_of(k, jn)?;
     let s = &ps[ik];
     let end = inner_end(s);
-    if heap(&s.source) != Some((m.rti, m.relid)) || !s.desc.consumes.is_empty() || !s.ops[..end].iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_))) || !memo_tail(s) {
+    if heap(&s.source) != Some((m.rti, m.relid))
+        || !s.desc.consumes.is_empty()
+        || !s.ops[..end]
+            .iter()
+            .all(|o| matches!(o, Op::Filter(_) | Op::Project(_)))
+        || !memo_tail(s)
+    {
         return None;
     }
     // the outer: every other pipeline and inner, and the lock pipeline's ops before the nest; none scans the locked
@@ -374,14 +603,37 @@ pub(crate) fn chain_lock_form(gx: &Gx<'_, '_>, k: usize, j: usize, d: &LockDesc<
         }
         x
     };
-    let outer: PgVec<'_, &PipelineNode<'_>> = (0..k).map(|x| &ps[x]).chain(inners.iter().enumerate().filter(|&(i, x)| ps.len() + i != ik && root(x.0 .0) <= k).map(|(_, x)| x.1)).collect_in(gx.mcx);
+    let outer: PgVec<'_, &PipelineNode<'_>> = (0..k)
+        .map(|x| &ps[x])
+        .chain(
+            inners
+                .iter()
+                .enumerate()
+                .filter(|&(i, x)| ps.len() + i != ik && root(x.0 .0) <= k)
+                .map(|(_, x)| x.1),
+        )
+        .collect_in(gx.mcx);
     let nest = |o: &Op<'_>| matches!(o, Op::Join(JoinDesc::Nest { .. }));
     let mut read: PgVec<'_, types_nodes::Node<'_>> = PgVec::new_in(gx.mcx);
-    for o in p.ops[..jn].iter().chain(outer.iter().flat_map(|x| x.ops.iter())) {
+    for o in p.ops[..jn]
+        .iter()
+        .chain(outer.iter().flat_map(|x| x.ops.iter()))
+    {
         match o {
             Op::Filter(_) | Op::Gate(_) | Op::Project(_) => read.extend_in(exprs(o)),
-            Op::Join(JoinDesc::Nest { jointype: JoinType::JOIN_INNER | JoinType::JOIN_LEFT, params, qual, .. }) => read.extend_in(param_values(params).chain(qual.iter())),
-            Op::Join(JoinDesc::Probe { jointype: JoinType::JOIN_INNER | JoinType::JOIN_LEFT, clauses, keys, qual, .. }) => read.extend_in(clauses.iter().chain(keys.iter()).chain(qual.iter())),
+            Op::Join(JoinDesc::Nest {
+                jointype: JoinType::JOIN_INNER | JoinType::JOIN_LEFT,
+                params,
+                qual,
+                ..
+            }) => read.extend_in(param_values(params).chain(qual.iter())),
+            Op::Join(JoinDesc::Probe {
+                jointype: JoinType::JOIN_INNER | JoinType::JOIN_LEFT,
+                clauses,
+                keys,
+                qual,
+                ..
+            }) => read.extend_in(clauses.iter().chain(keys.iter()).chain(qual.iter())),
             // a hash build, a Memoize, a Materialize's spool (EvalPlanQual's fresh one holds the refetched row alone)
             Op::Join(JoinDesc::Build { .. } | JoinDesc::Memo { .. } | JoinDesc::Spool) => {}
             _ => return None,
@@ -396,16 +648,30 @@ pub(crate) fn chain_lock_form(gx: &Gx<'_, '_>, k: usize, j: usize, d: &LockDesc<
             _ => return None,
         }
     }
-    if read.iter().any(|&x| has_subplan(x) || crate::effects::volatile(gx, x)) {
+    if read
+        .iter()
+        .any(|&x| has_subplan(x) || crate::effects::volatile(gx, x))
+    {
         return None;
     }
     // with no LIMIT / OFFSET above, the runner's recheck keeps every outer it takes (a nest over one scan, a hash probe)
-    let runner = p.ops[..jn].iter().all(|o| plain(o) || !nest(o) || crate::rerun::epq::marks::nest_joins(o) || crate::rerun::epq::marks::nest_memo_joins(o));
+    let runner = p.ops[..jn].iter().all(|o| {
+        plain(o)
+            || !nest(o)
+            || crate::rerun::epq::marks::nest_joins(o)
+            || crate::rerun::epq::marks::nest_memo_joins(o)
+    });
     if !limited && feed == 0 && runner {
         return None;
     }
-    let recheck = recheck_quals(&s.source).chain(s.ops[..end].iter().flat_map(exprs)).chain(qual.iter()).chain(p.ops[jn + 1..j].iter().flat_map(exprs));
-    recheck.into_iter().all(|x| !has_subplan(x)).then_some((m.ctid_col, jn, ik))
+    let recheck = recheck_quals(&s.source)
+        .chain(s.ops[..end].iter().flat_map(exprs))
+        .chain(qual.iter())
+        .chain(p.ops[jn + 1..j].iter().flat_map(exprs));
+    recheck
+        .into_iter()
+        .all(|x| !has_subplan(x))
+        .then_some((m.ctid_col, jn, ik))
 }
 
 /// D3601 (6) COPYNEST (River's completer claim under the plan a large job table and a small batch get: `job_to_update
@@ -422,43 +688,87 @@ pub(crate) fn chain_lock_form(gx: &Gx<'_, '_>, k: usize, j: usize, d: &LockDesc<
 /// fresh Memoize caches nothing), then the join qual. The stored row is the one the nest holds, so LOCKNEST's redo is
 /// that recheck (epq_ir.rs `epq_of_inner`). Some((the locked mark's junk ctid column, the nest op, its inner's `Pipes`
 /// index)).
-pub(crate) fn copy_nest_form(gx: &Gx<'_, '_>, k: usize, j: usize, d: &LockDesc<'_>) -> Option<(i16, usize, usize)> {
+pub(crate) fn copy_nest_form(
+    gx: &Gx<'_, '_>,
+    k: usize,
+    j: usize,
+    d: &LockDesc<'_>,
+) -> Option<(i16, usize, usize)> {
     use gravity_decompose::expr::has_subplan;
     if d.family().is_some() || d.family_top().is_some() || d.marks.len() != 2 {
         return None;
     }
     let m = d.marks.iter().find(|m| m.lock != LockKind::None)?;
     let c = d.marks.iter().find(|m| m.lock == LockKind::None)?;
-    if m.parent || m.ctid_col <= 0 || m.relid != d.plan.target_rel || c.parent || c.mark != RowMarkType::ROW_MARK_COPY || c.rti == m.rti {
+    if m.parent
+        || m.ctid_col <= 0
+        || m.relid != d.plan.target_rel
+        || c.parent
+        || c.mark != RowMarkType::ROW_MARK_COPY
+        || c.rti == m.rti
+    {
         return None;
     }
     let ps = gx.pipelines();
     let p = &ps[k];
-    let rerun = |x: usize| gx.graph.reruns.iter().any(|r| r.pipelines.iter().any(|&y| usize::from(y) == x));
+    let rerun = |x: usize| {
+        gx.graph
+            .reruns
+            .iter()
+            .any(|r| r.pipelines.iter().any(|&y| usize::from(y) == x))
+    };
     let cte = gx.cte_write(k) && p.desc.produces().is_some() && Census(gx).ctes_only();
     if !cte || rerun(k) || !p.ops[j + 1..].iter().all(|o| matches!(o, Op::Project(_))) {
         return None;
     }
     let plain = |o: &Op<'_>| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_));
     let jn = p.ops[..j].iter().position(|o| !plain(o))?;
-    let Op::Join(JoinDesc::Nest { jointype: JoinType::JOIN_INNER, qual, .. }) = &p.ops[jn] else { return None };
+    let Op::Join(JoinDesc::Nest {
+        jointype: JoinType::JOIN_INNER,
+        qual,
+        ..
+    }) = &p.ops[jn]
+    else {
+        return None;
+    };
     if !p.ops[jn + 1..j].iter().all(plain) {
         return None;
     }
     // the outer: the COPY mark's stored row entering this pipeline at or before the nest; its part is not redone (the
     // stored row passes it again, as it did), unless it calls what may answer otherwise
-    let entry = gx.graph.record_rows.iter().find(|r| r.scanrelid == c.rti).and_then(|r| crate::rerun::epq::copy_row::boundary(gx, k, r));
-    if entry.is_none_or(|at| at > jn) || p.ops[..jn].iter().flat_map(exprs).any(|x| crate::effects::volatile(gx, x)) {
+    let entry = gx
+        .graph
+        .record_rows
+        .iter()
+        .find(|r| r.scanrelid == c.rti)
+        .and_then(|r| crate::rerun::epq::copy_row::boundary(gx, k, r));
+    if entry.is_none_or(|at| at > jn)
+        || p.ops[..jn]
+            .iter()
+            .flat_map(exprs)
+            .any(|x| crate::effects::volatile(gx, x))
+    {
         return None;
     }
     let ik = ps.inner_of(k, jn)?;
     let s = &ps[ik];
     let end = inner_end(s);
-    if rerun(ik) || heap(&s.source) != Some((m.rti, m.relid)) || !s.ops[..end].iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_))) || !memo_tail(s) {
+    if rerun(ik)
+        || heap(&s.source) != Some((m.rti, m.relid))
+        || !s.ops[..end]
+            .iter()
+            .all(|o| matches!(o, Op::Filter(_) | Op::Project(_)))
+        || !memo_tail(s)
+    {
         return None;
     }
-    let read = recheck_quals(&s.source).chain(s.ops[..end].iter().flat_map(exprs)).chain(qual.iter()).chain(p.ops[jn + 1..j].iter().flat_map(exprs));
-    read.into_iter().all(|x| !has_subplan(x)).then_some((m.ctid_col, jn, ik))
+    let read = recheck_quals(&s.source)
+        .chain(s.ops[..end].iter().flat_map(exprs))
+        .chain(qual.iter())
+        .chain(p.ops[jn + 1..j].iter().flat_map(exprs));
+    read.into_iter()
+        .all(|x| !has_subplan(x))
+        .then_some((m.ctid_col, jn, ik))
 }
 
 /// D3379 LOCKPAIR (LOCKNEST with the outer locked too: `SELECT .. FROM a JOIN b ON b.id = a.bid .. LIMIT 3 FOR UPDATE`):
@@ -477,16 +787,31 @@ pub(crate) fn copy_nest_form(gx: &Gx<'_, '_>, k: usize, j: usize, d: &LockDesc<'
 /// `Pipes` index, or the build's pipeline, or the merge inner's; the merge outer's Sort producer and its sort build op
 /// when that side is sorted)).
 #[allow(clippy::type_complexity)]
-pub(crate) fn pair_form<'p>(gx: &Gx<'_, 'p>, k: usize, j: usize, d: &LockDesc<'_>, limit: fn(&Op<'_>) -> bool) -> Option<(usize, usize, usize, usize, Option<(usize, usize)>)> {
+pub(crate) fn pair_form<'p>(
+    gx: &Gx<'_, 'p>,
+    k: usize,
+    j: usize,
+    d: &LockDesc<'_>,
+    limit: fn(&Op<'_>) -> bool,
+) -> Option<(usize, usize, usize, usize, Option<(usize, usize)>)> {
     let p = &gx.pipelines()[k];
-    if d.marks.len() != 2 || d.marks.iter().any(|m| m.parent || m.ctid_col <= 0 || m.lock == LockKind::None) || d.marks[0].rti == d.marks[1].rti {
+    if d.marks.len() != 2
+        || d.marks
+            .iter()
+            .any(|m| m.parent || m.ctid_col <= 0 || m.lock == LockKind::None)
+        || d.marks[0].rti == d.marks[1].rti
+    {
         return None;
     }
     if let Some((io, jn, ik, so)) = limited_merge(gx, k, j, d, limit) {
         return Some((io, 1 - io, jn, ik, so));
     }
-    let io = d.marks.iter().position(|m| heap(&p.source) == Some((m.rti, m.relid)))?;
-    let (jn, ik) = limited_nest(gx, k, j, d, limit, &d.marks[1 - io], true).or_else(|| limited_probe(gx, k, j, d, limit, &d.marks[1 - io]))?;
+    let io = d
+        .marks
+        .iter()
+        .position(|m| heap(&p.source) == Some((m.rti, m.relid)))?;
+    let (jn, ik) = limited_nest(gx, k, j, d, limit, &d.marks[1 - io], true)
+        .or_else(|| limited_probe(gx, k, j, d, limit, &d.marks[1 - io]))?;
     Some((io, 1 - io, jn, ik, None))
 }
 
@@ -506,63 +831,119 @@ pub(crate) fn pair_form<'p>(gx: &Gx<'_, 'p>, k: usize, j: usize, d: &LockDesc<'_
 /// recheck evaluates. Some((the outer's mark in `d.marks`, the merge op, the inner's pipeline, the outer's Sort
 /// producer and its sort build op when that side is sorted)).
 #[allow(clippy::type_complexity)]
-fn limited_merge<'p>(gx: &Gx<'_, 'p>, k: usize, j: usize, d: &LockDesc<'_>, limit: fn(&Op<'_>) -> bool) -> Option<(usize, usize, usize, Option<(usize, usize)>)> {
+fn limited_merge<'p>(
+    gx: &Gx<'_, 'p>,
+    k: usize,
+    j: usize,
+    d: &LockDesc<'_>,
+    limit: fn(&Op<'_>) -> bool,
+) -> Option<(usize, usize, usize, Option<(usize, usize)>)> {
     use gravity_decompose::expr::has_subplan;
     let ps = gx.pipelines();
     let p = &ps[k];
-    if !gx.graph.init_plans.is_empty() || d.family().is_some() || d.family_top().is_some() || p.desc.produces().is_some() {
+    if !gx.graph.init_plans.is_empty()
+        || d.family().is_some()
+        || d.family_top().is_some()
+        || p.desc.produces().is_some()
+    {
         return None;
     }
-    if !p.ops[j + 1..].iter().all(|o| matches!(o, Op::Project(_)) || limit(o)) || !p.ops[j + 1..].iter().any(limit) {
+    if !p.ops[j + 1..]
+        .iter()
+        .all(|o| matches!(o, Op::Project(_)) || limit(o))
+        || !p.ops[j + 1..].iter().any(limit)
+    {
         return None;
     }
     let plain = |o: &Op<'_>| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_));
     let jn = p.ops[..j].iter().position(|o| !plain(o))?;
-    let Op::Join(JoinDesc::Merge { slot, jointype: JoinType::JOIN_INNER, clauses, qual, .. }) = &p.ops[jn] else { return None };
+    let Op::Join(JoinDesc::Merge {
+        slot,
+        jointype: JoinType::JOIN_INNER,
+        clauses,
+        qual,
+        ..
+    }) = &p.ops[jn]
+    else {
+        return None;
+    };
     if !p.ops[jn + 1..j].iter().all(plain) {
         return None;
     }
-    let ik = gx.life_of(k, *slot).map(|l| l.0 as usize).filter(|&x| x < k)?;
+    let ik = gx
+        .life_of(k, *slot)
+        .map(|l| l.0 as usize)
+        .filter(|&x| x < k)?;
     let ie = merge_side(&ps[ik])?;
     let so = match p.source {
         Source::Breaker { slot: os } => {
-            let q = gx.life_of(k, os).map(|l| l.0 as usize).filter(|&q| q < k && q != ik)?;
+            let q = gx
+                .life_of(k, os)
+                .map(|l| l.0 as usize)
+                .filter(|&q| q < k && q != ik)?;
             let qe = merge_side(&ps[q]).filter(|&e| e < ps[q].ops.len())?;
             Some((q, qe))
         }
         _ => None,
     };
     let sorted = usize::from(so.is_some());
-    if p.desc.consumes.len() != 1 + sorted || !p.desc.consumes.contains(slot) || !Census(gx).whole(2 + sorted) {
+    if p.desc.consumes.len() != 1 + sorted
+        || !p.desc.consumes.contains(slot)
+        || !Census(gx).whole(2 + sorted)
+    {
         return None;
     }
     let (oq, oe) = so.unwrap_or((k, 0));
-    let io = d.marks.iter().position(|m| heap(&ps[oq].source) == Some((m.rti, m.relid)))?;
+    let io = d
+        .marks
+        .iter()
+        .position(|m| heap(&ps[oq].source) == Some((m.rti, m.relid)))?;
     let m = &d.marks[1 - io];
     if heap(&ps[ik].source) != Some((m.rti, m.relid)) {
         return None;
     }
-    let part = |x: usize, e: usize| recheck_quals(&ps[x].source).chain(ps[x].ops[..e].iter().flat_map(exprs));
-    let mut read = part(oq, oe).chain(p.ops[..j].iter().flat_map(exprs)).chain(part(ik, ie)).chain(clauses.iter()).chain(qual.iter());
+    let part = |x: usize, e: usize| {
+        recheck_quals(&ps[x].source).chain(ps[x].ops[..e].iter().flat_map(exprs))
+    };
+    let mut read = part(oq, oe)
+        .chain(p.ops[..j].iter().flat_map(exprs))
+        .chain(part(ik, ie))
+        .chain(clauses.iter())
+        .chain(qual.iter());
     if read.any(has_subplan) {
         return None;
     }
-    part(ik, ie).all(|x| crate::effects::raise_free(gx, x)).then_some((io, jn, ik, so))
+    part(ik, ie)
+        .all(|x| crate::effects::raise_free(gx, x))
+        .then_some((io, jn, ik, so))
 }
 
 /// D3777 (lockrows lower.rs `ref_merge` / `merge_tail`): whether pipeline `s`'s recheck quals or ops before op `end` (its
 /// filters' quals, its projections' entries) hold a SubPlan.
 pub(crate) fn part_reads_subplan(s: &PipelineNode<'_>, end: usize) -> bool {
-    recheck_quals(&s.source).chain(s.ops[..end].iter().flat_map(exprs)).any(gravity_decompose::expr::has_subplan)
+    recheck_quals(&s.source)
+        .chain(s.ops[..end].iter().flat_map(exprs))
+        .any(gravity_decompose::expr::has_subplan)
 }
 
 /// D3777 (`limited_merge`, lockrows lower.rs `ref_merge` / `merge_tail`): a merge join side's pipeline `s`, its relation's
 /// own heap scan under filters and projections, then its Sort or nothing (the spool of a side read in the clauses'
 /// order), reading no slot: Some(its ops' end before the Sort).
 pub(crate) fn merge_side(s: &PipelineNode<'_>) -> Option<usize> {
-    let end = s.ops.iter().position(|o| matches!(o, Op::Sort(_))).unwrap_or(s.ops.len());
-    let below = s.ops[..end].iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_))) && matches!(s.ops[..end].last(), Some(Op::Project(_)));
-    (below && s.ops[end..].iter().all(|o| matches!(o, Op::Sort(_))) && s.desc.consumes.is_empty() && heap(&s.source).is_some()).then_some(end)
+    let end = s
+        .ops
+        .iter()
+        .position(|o| matches!(o, Op::Sort(_)))
+        .unwrap_or(s.ops.len());
+    let below = s.ops[..end]
+        .iter()
+        .all(|o| matches!(o, Op::Filter(_) | Op::Project(_)))
+        && matches!(s.ops[..end].last(), Some(Op::Project(_)));
+    (below
+        && s.ops[end..].iter().all(|o| matches!(o, Op::Sort(_)))
+        && s.desc.consumes.is_empty()
+        && heap(&s.source).is_some())
+    .then_some(end)
 }
 
 /// D3379 PAIRPROBE (`pair_form`; lockrows_d3379_lock_pair's `.. JOIN d80pb b ON b.id = a.bid WHERE b.w = 1 .. LIMIT 6 FOR
@@ -582,34 +963,80 @@ pub(crate) fn merge_side(s: &PipelineNode<'_>) -> Option<usize> {
 /// is PostgreSQL's in every way only when nothing either side's part evaluates can raise: both scans' recheck quals and the
 /// ops before the probe and before the build raise-free (the hash clauses and join qual run over the two rows either way).
 /// Some((the probe op, the build's pipeline)).
-fn limited_probe<'p>(gx: &Gx<'_, 'p>, k: usize, j: usize, d: &LockDesc<'_>, limit: fn(&Op<'_>) -> bool, m: &gravity_decompose::ops::shared::modifytable::RowMark) -> Option<(usize, usize)> {
+fn limited_probe<'p>(
+    gx: &Gx<'_, 'p>,
+    k: usize,
+    j: usize,
+    d: &LockDesc<'_>,
+    limit: fn(&Op<'_>) -> bool,
+    m: &gravity_decompose::ops::shared::modifytable::RowMark,
+) -> Option<(usize, usize)> {
     use gravity_decompose::expr::has_subplan;
     let ps = gx.pipelines();
     let p = &ps[k];
-    if !gx.graph.init_plans.is_empty() || !Census(gx).whole(2) || d.family().is_some() || d.family_top().is_some() || p.desc.produces().is_some() {
+    if !gx.graph.init_plans.is_empty()
+        || !Census(gx).whole(2)
+        || d.family().is_some()
+        || d.family_top().is_some()
+        || p.desc.produces().is_some()
+    {
         return None;
     }
-    if !p.ops[j + 1..].iter().all(|o| matches!(o, Op::Project(_)) || limit(o)) || !p.ops[j + 1..].iter().any(limit) {
+    if !p.ops[j + 1..]
+        .iter()
+        .all(|o| matches!(o, Op::Project(_)) || limit(o))
+        || !p.ops[j + 1..].iter().any(limit)
+    {
         return None;
     }
     let plain = |o: &Op<'_>| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_));
     let jn = p.ops[..j].iter().position(|o| !plain(o))?;
-    let Op::Join(JoinDesc::Probe { slot, jointype: JoinType::JOIN_INNER, clauses, qual, catalog, .. }) = &p.ops[jn] else { return None };
-    if !p.ops[jn + 1..j].iter().all(plain) || p.desc.consumes.len() != 1 || p.desc.consumes[0] != *slot {
+    let Op::Join(JoinDesc::Probe {
+        slot,
+        jointype: JoinType::JOIN_INNER,
+        clauses,
+        qual,
+        catalog,
+        ..
+    }) = &p.ops[jn]
+    else {
+        return None;
+    };
+    if !p.ops[jn + 1..j].iter().all(plain)
+        || p.desc.consumes.len() != 1
+        || p.desc.consumes[0] != *slot
+    {
         return None;
     }
     let q = (0..ps.len()).find(|&x| x != k && ps[x].desc.produces() == Some(*slot))?;
     let s = &ps[q];
-    let jb = s.ops.iter().position(|o| matches!(o, Op::Join(JoinDesc::Build { .. })))?;
-    if jb + 1 != s.ops.len() || !s.desc.consumes.is_empty() || heap(&s.source) != Some((m.rti, m.relid)) || !s.ops[..jb].iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_))) {
+    let jb = s
+        .ops
+        .iter()
+        .position(|o| matches!(o, Op::Join(JoinDesc::Build { .. })))?;
+    if jb + 1 != s.ops.len()
+        || !s.desc.consumes.is_empty()
+        || heap(&s.source) != Some((m.rti, m.relid))
+        || !s.ops[..jb]
+            .iter()
+            .all(|o| matches!(o, Op::Filter(_) | Op::Project(_)))
+    {
         return None;
     }
-    let read = recheck_quals(&p.source).chain(p.ops[..j].iter().flat_map(exprs)).chain(recheck_quals(&s.source)).chain(s.ops[..jb].iter().flat_map(exprs)).chain(clauses.iter()).chain(qual.iter());
+    let read = recheck_quals(&p.source)
+        .chain(p.ops[..j].iter().flat_map(exprs))
+        .chain(recheck_quals(&s.source))
+        .chain(s.ops[..jb].iter().flat_map(exprs))
+        .chain(clauses.iter())
+        .chain(qual.iter());
     if !read.into_iter().all(|x| !has_subplan(x)) {
         return None;
     }
     // D3727 PAIRHASH: PostgreSQL's Hash Join reruns its two sides in an order of its costs; both parts raise-free
-    let sides = recheck_quals(&p.source).chain(p.ops[..jn].iter().flat_map(exprs)).chain(recheck_quals(&s.source)).chain(s.ops[..jb].iter().flat_map(exprs));
+    let sides = recheck_quals(&p.source)
+        .chain(p.ops[..jn].iter().flat_map(exprs))
+        .chain(recheck_quals(&s.source))
+        .chain(s.ops[..jb].iter().flat_map(exprs));
     (*catalog || sides.into_iter().all(|x| crate::effects::raise_free(gx, x))).then_some((jn, q))
 }
 
@@ -623,28 +1050,58 @@ fn limited_probe<'p>(gx: &Gx<'_, 'p>, k: usize, j: usize, d: &LockDesc<'_>, limi
 /// tuple (a fresh one in the EPQ tree, no parameters), so the redo is that pipeline's ops up to its spool. Some((the nest
 /// op, its inner's `Pipes` index, or the spool's producer)).
 #[allow(clippy::too_many_arguments)]
-fn limited_nest<'p>(gx: &Gx<'_, 'p>, k: usize, j: usize, d: &LockDesc<'_>, limit: fn(&Op<'_>) -> bool, m: &gravity_decompose::ops::shared::modifytable::RowMark, spool: bool) -> Option<(usize, usize)> {
+fn limited_nest<'p>(
+    gx: &Gx<'_, 'p>,
+    k: usize,
+    j: usize,
+    d: &LockDesc<'_>,
+    limit: fn(&Op<'_>) -> bool,
+    m: &gravity_decompose::ops::shared::modifytable::RowMark,
+    spool: bool,
+) -> Option<(usize, usize)> {
     use gravity_decompose::expr::has_subplan;
     let ps = gx.pipelines();
     let p = &ps[k];
-    if !gx.graph.init_plans.is_empty() || d.family().is_some() || d.family_top().is_some() || p.desc.produces().is_some() {
+    if !gx.graph.init_plans.is_empty()
+        || d.family().is_some()
+        || d.family_top().is_some()
+        || p.desc.produces().is_some()
+    {
         return None;
     }
-    if !p.ops[j + 1..].iter().all(|o| matches!(o, Op::Project(_)) || limit(o)) || !p.ops[j + 1..].iter().any(limit) {
+    if !p.ops[j + 1..]
+        .iter()
+        .all(|o| matches!(o, Op::Project(_)) || limit(o))
+        || !p.ops[j + 1..].iter().any(limit)
+    {
         return None;
     }
     let plain = |o: &Op<'_>| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_));
     let jn = p.ops[..j].iter().position(|o| !plain(o))?;
-    let Op::Join(JoinDesc::Nest { jointype: JoinType::JOIN_INNER, qual, .. }) = &p.ops[jn] else { return None };
+    let Op::Join(JoinDesc::Nest {
+        jointype: JoinType::JOIN_INNER,
+        qual,
+        ..
+    }) = &p.ops[jn]
+    else {
+        return None;
+    };
     if !p.ops[jn + 1..j].iter().all(plain) {
         return None;
     }
     let ik = ps.inner_of(k, jn)?;
     let (ik, kept) = match ps[ik].source {
         Source::Breaker { slot } if spool => {
-            let f = gx.life_of(k, slot).map(|l| l.0 as usize).filter(|&x| x < k)?;
-            let alone = p.desc.consumes.len() == 1 && p.desc.consumes[0] == slot && ps[f].desc.consumes.is_empty() && ps[ik].ops.iter().all(pass_through);
-            (alone && matches!(ps[f].ops.last(), Some(Op::Join(JoinDesc::Spool)))).then_some((f, true))?
+            let f = gx
+                .life_of(k, slot)
+                .map(|l| l.0 as usize)
+                .filter(|&x| x < k)?;
+            let alone = p.desc.consumes.len() == 1
+                && p.desc.consumes[0] == slot
+                && ps[f].desc.consumes.is_empty()
+                && ps[ik].ops.iter().all(pass_through);
+            (alone && matches!(ps[f].ops.last(), Some(Op::Join(JoinDesc::Spool))))
+                .then_some((f, true))?
         }
         _ => (ik, false),
     };
@@ -658,26 +1115,56 @@ fn limited_nest<'p>(gx: &Gx<'_, 'p>, k: usize, j: usize, d: &LockDesc<'_>, limit
         true => end + 1 == s.ops.len() && matches!(s.ops[end], Op::Join(JoinDesc::Spool)),
         false => end == s.ops.len() || memo && s.ops[end + 1..].iter().all(pass_through),
     };
-    if heap(&s.source) != Some((m.rti, m.relid)) || !s.ops[..end].iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_))) || !tail {
+    if heap(&s.source) != Some((m.rti, m.relid))
+        || !s.ops[..end]
+            .iter()
+            .all(|o| matches!(o, Op::Filter(_) | Op::Project(_)))
+        || !tail
+    {
         return None;
     }
-    let read = recheck_quals(&p.source).chain(p.ops[..j].iter().flat_map(exprs)).chain(recheck_quals(&s.source)).chain(s.ops[..end].iter().flat_map(exprs)).chain(qual.iter());
-    read.into_iter().all(|x| !has_subplan(x)).then_some((jn, ik))
+    let read = recheck_quals(&p.source)
+        .chain(p.ops[..j].iter().flat_map(exprs))
+        .chain(recheck_quals(&s.source))
+        .chain(s.ops[..end].iter().flat_map(exprs))
+        .chain(qual.iter());
+    read.into_iter()
+        .all(|x| !has_subplan(x))
+        .then_some((jn, ik))
 }
 
 /// D3567 REFCHAIN (lower.rs `ref_chain`; D3596: LEFT too), D3564 (`chain_form`): the INNER or LEFT nest at op `i` of
 /// pipeline `q` whose inner is REFERENCE mark `r`'s own heap scan under filters and a projection (then, optionally, a
 /// Memoize and its pass-through projection), embedded in the nest (no Materialize's spool): Some(the inner's `Pipes`
 /// index), else none.
-pub(crate) fn ref_side(gx: &Gx<'_, '_>, q: usize, i: usize, r: &gravity_decompose::ops::shared::modifytable::RowMark) -> Option<usize> {
+pub(crate) fn ref_side(
+    gx: &Gx<'_, '_>,
+    q: usize,
+    i: usize,
+    r: &gravity_decompose::ops::shared::modifytable::RowMark,
+) -> Option<usize> {
     let ps = gx.pipelines();
-    let Op::Join(JoinDesc::Nest { jointype: JoinType::JOIN_INNER | JoinType::JOIN_LEFT, inner, .. }) = ps[q].ops.get(i)? else { return None };
-    if matches!(inner.source, Source::Breaker { .. }) || heap(&inner.source) != Some((r.rti, r.relid)) {
+    let Op::Join(JoinDesc::Nest {
+        jointype: JoinType::JOIN_INNER | JoinType::JOIN_LEFT,
+        inner,
+        ..
+    }) = ps[q].ops.get(i)?
+    else {
+        return None;
+    };
+    if matches!(inner.source, Source::Breaker { .. })
+        || heap(&inner.source) != Some((r.rti, r.relid))
+    {
         return None;
     }
     let end = inner_end(inner);
-    let below = inner.ops[..end].iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_))) && matches!(inner.ops[..end].last(), Some(Op::Project(_)));
-    (below && inner.ops[end..].iter().skip(1).all(pass_through)).then(|| ps.inner_of(q, i)).flatten()
+    let below = inner.ops[..end]
+        .iter()
+        .all(|o| matches!(o, Op::Filter(_) | Op::Project(_)))
+        && matches!(inner.ops[..end].last(), Some(Op::Project(_)));
+    (below && inner.ops[end..].iter().skip(1).all(pass_through))
+        .then(|| ps.inner_of(q, i))
+        .flatten()
 }
 
 /// A source's recheck quals (an index or bitmap heap scan's indexqualorig / bitmapqualorig), else none.
@@ -705,26 +1192,46 @@ pub(crate) fn exprs<'p>(o: &Op<'p>) -> impl Iterator<Item = types_nodes::Node<'p
 /// The ops of the REFERENCE relation's pipeline the recheck redoes: those before its Memoize (a cache of the rows below it;
 /// its projection passes them through, `form`) or its Materialize's spool, else all.
 pub(crate) fn inner_end(inner: &PipelineNode<'_>) -> usize {
-    inner.ops.iter().position(|o| matches!(o, Op::Join(JoinDesc::Memo { .. } | JoinDesc::Spool))).unwrap_or(inner.ops.len())
+    inner
+        .ops
+        .iter()
+        .position(|o| matches!(o, Op::Join(JoinDesc::Memo { .. } | JoinDesc::Spool)))
+        .unwrap_or(inner.ops.len())
 }
 
 /// D3686: the inner's ops from `inner_end` on are none, or its Memoize and the Memoize's pass-through projection: the
 /// recheck redoes the ops before it and reads the same row.
 pub(crate) fn memo_tail(inner: &PipelineNode<'_>) -> bool {
     let end = inner_end(inner);
-    end == inner.ops.len() || matches!(inner.ops[end], Op::Join(JoinDesc::Memo { .. })) && inner.ops[end + 1..].iter().all(pass_through)
+    end == inner.ops.len()
+        || matches!(inner.ops[end], Op::Join(JoinDesc::Memo { .. }))
+            && inner.ops[end + 1..].iter().all(pass_through)
 }
 
 /// The nest's parameters (its NestLoopParams), each compiled at the nest's node `n` over the row so far, as nest.loop
 /// computes them from its outer row (ops/nestloop/lower.rs), for any row (no per-code form).
-pub(crate) fn params<'g, 'p>(px: &mut Px<'g, 'p>, params: &'p NodeList<'p>, n: i32, ex: &'static ExprFace) -> PgVec<'g, (i32, ExId)> {
+pub(crate) fn params<'g, 'p>(
+    px: &mut Px<'g, 'p>,
+    params: &'p NodeList<'p>,
+    n: i32,
+    ex: &'static ExprFace,
+) -> PgVec<'g, (i32, ExId)> {
     let mcx = px.mcx();
-    params.iter().filter_map(|x| x.as_nest_loop_param()).map(|x| (x.paramno, ex.0.compile(px, x.paramval, None, n))).collect_in(mcx)
+    params
+        .iter()
+        .filter_map(|x| x.as_nest_loop_param())
+        .map(|x| (x.paramno, ex.0.compile(px, x.paramval, None, n)))
+        .collect_in(mcx)
 }
 
 /// The nest's parameters' values (its NestLoopParams' expressions over the outer row), for lock_init.rs `Part::Nest`.
-pub(crate) fn param_values<'p>(params: &'p NodeList<'p>) -> impl Iterator<Item = types_nodes::Node<'p>> + 'p {
-    params.iter().filter_map(|x| x.as_nest_loop_param()).map(|x| x.paramval)
+pub(crate) fn param_values<'p>(
+    params: &'p NodeList<'p>,
+) -> impl Iterator<Item = types_nodes::Node<'p>> + 'p {
+    params
+        .iter()
+        .filter_map(|x| x.as_nest_loop_param())
+        .map(|x| x.paramval)
 }
 
 /// The parameters' words as they stand, each parameter: (id, value word, flags word).
@@ -732,8 +1239,17 @@ pub(crate) type Saved<'e> = PgVec<'e, (i32, Value, Value)>;
 
 /// The parameters (`params`) over row `r` at the nest's node `n` stored into their words (params.rs `store`), the words
 /// they held returned for `restore`.
-pub(crate) fn set<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, n: i32, params: &[(i32, ExId)], r: &RowVals, ex: &'static ExprFace) -> Saved<'e> {
-    let Some(w) = env.words.filter(|_| !params.is_empty()) else { return PgVec::new_in(env.mcx) };
+pub(crate) fn set<'e>(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env<'e, '_>,
+    n: i32,
+    params: &[(i32, ExId)],
+    r: &RowVals,
+    ex: &'static ExprFace,
+) -> Saved<'e> {
+    let Some(w) = env.words.filter(|_| !params.is_empty()) else {
+        return PgVec::new_in(env.mcx);
+    };
     let mut saved = mcx::reserved_in(params.len(), env.mcx);
     let mut vals = mcx::reserved_in(params.len(), env.mcx);
     let t = b.bconst(true);
@@ -742,7 +1258,10 @@ pub(crate) fn set<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, n: i32
         vals.push_in((id, v, b.int_bin(gravity_ir::IntBinOp::Xor, valid, t)));
     }
     for &(id, v, null) in vals.iter() {
-        let (v0, f0) = (b.load(Type::I64, w, crate::rerun::params::word(id, 0)), b.load(Type::I64, w, crate::rerun::params::word(id, 1)));
+        let (v0, f0) = (
+            b.load(Type::I64, w, crate::rerun::params::word(id, 0)),
+            b.load(Type::I64, w, crate::rerun::params::word(id, 1)),
+        );
         saved.push_in((id, v0, f0));
         crate::rerun::params::store(b, env, n, id, v, null);
     }
@@ -752,7 +1271,9 @@ pub(crate) fn set<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, n: i32
 
 /// The words `set` replaced, back as they were (value and flags, the seen bits too).
 pub(crate) fn restore(b: &mut FunctionBuilder<'_>, env: &mut Env, saved: &[(i32, Value, Value)]) {
-    let Some(w) = env.words.filter(|_| !saved.is_empty()) else { return };
+    let Some(w) = env.words.filter(|_| !saved.is_empty()) else {
+        return;
+    };
     for &(id, v0, f0) in saved.iter() {
         b.store(w, crate::rerun::params::word(id, 0), v0);
         b.store(w, crate::rerun::params::word(id, 1), f0);
@@ -762,7 +1283,13 @@ pub(crate) fn restore(b: &mut FunctionBuilder<'_>, env: &mut Env, saved: &[(i32,
 
 /// The block a failing qual of the inner's redo leaves to (its parameters the step's carry, `types`): the words restored,
 /// then `l_out`; `l_out` itself when nothing was set.
-pub(crate) fn fail_to(b: &mut FunctionBuilder<'_>, env: &mut Env, saved: &[(i32, Value, Value)], l_out: Block, types: &[Type]) -> Block {
+pub(crate) fn fail_to(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    saved: &[(i32, Value, Value)],
+    l_out: Block,
+    types: &[Type],
+) -> Block {
     if saved.is_empty() {
         return l_out;
     }
@@ -778,7 +1305,25 @@ pub(crate) fn fail_to(b: &mut FunctionBuilder<'_>, env: &mut Env, saved: &[(i32,
 /// A heap scan's (range, bitmap, index) (scanrelid, relid).
 pub(crate) fn heap(s: &Source<'_>) -> Option<(u32, u32)> {
     match s {
-        Source::Range { am: Am::Heap, scanrelid, relid, .. } | Source::Bitmap { am: Am::Heap, scanrelid, relid, .. } | Source::Index { am: Am::Heap, scanrelid, relid, only: false, .. } => Some((u32::from(*scanrelid), *relid)),
+        Source::Range {
+            am: Am::Heap,
+            scanrelid,
+            relid,
+            ..
+        }
+        | Source::Bitmap {
+            am: Am::Heap,
+            scanrelid,
+            relid,
+            ..
+        }
+        | Source::Index {
+            am: Am::Heap,
+            scanrelid,
+            relid,
+            only: false,
+            ..
+        } => Some((u32::from(*scanrelid), *relid)),
         _ => None,
     }
 }
@@ -787,7 +1332,15 @@ pub(crate) fn heap(s: &Source<'_>) -> Option<(u32, u32)> {
 /// resno), as a Memoize's.
 fn pass_through(o: &Op<'_>) -> bool {
     match o {
-        Op::Project(l) => l.iter().all(|n| n.as_target_entry().is_some_and(|te| te.expr.as_var().is_some_and(|v| v.varno == OUTER_VAR && v.varlevelsup == 0 && i32::from(v.varattno) == i32::from(te.resno)))),
+        Op::Project(l) => l.iter().all(|n| {
+            n.as_target_entry().is_some_and(|te| {
+                te.expr.as_var().is_some_and(|v| {
+                    v.varno == OUTER_VAR
+                        && v.varlevelsup == 0
+                        && i32::from(v.varattno) == i32::from(te.resno)
+                })
+            })
+        }),
         _ => false,
     }
 }

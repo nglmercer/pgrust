@@ -33,7 +33,9 @@ thread_local! {
 fn violation(what: String) -> PgResult<()> {
     ereport(ERROR)
         .errcode(ERRCODE_PROTOCOL_VIOLATION)
-        .errmsg_internal(format!("invalid pgrc file message received from primary: {what}"))
+        .errmsg_internal(format!(
+            "invalid pgrc file message received from primary: {what}"
+        ))
         .finish(loc("pgrc_on_file_chunk"))
 }
 
@@ -41,7 +43,10 @@ fn io_error(e: std::io::Error, lsn: u64) -> PgResult<()> {
     ereport(ERROR)
         .with_saved_errno(e.raw_os_error().unwrap_or(0))
         .errcode_for_file_access()
-        .errmsg(format!("could not receive pgrc file {}: %m", pgrc_format_name(lsn)))
+        .errmsg(format!(
+            "could not receive pgrc file {}: %m",
+            pgrc_format_name(lsn)
+        ))
         .finish(loc("pgrc_on_file_chunk"))
 }
 
@@ -67,14 +72,24 @@ pub(crate) fn on_file_chunk(buf: &[u8]) -> PgResult<()> {
     if off == 0 {
         // A new file (a resend after a reconnect starts over: the stale .recv is truncated).
         match Spool::data().land_begin(lsn) {
-            Ok(landing) => cur = Some(Receiving { landing, len, next: 0 }),
+            Ok(landing) => {
+                cur = Some(Receiving {
+                    landing,
+                    len,
+                    next: 0,
+                })
+            }
             Err(e) => return io_error(e, lsn),
         }
     }
     let Some(mut rc) = cur else {
-        return violation(format!("file {} chunk at offset {off} before its start", pgrc_format_name(lsn)));
+        return violation(format!(
+            "file {} chunk at offset {off} before its start",
+            pgrc_format_name(lsn)
+        ));
     };
-    if rc.landing.lsn() != lsn || rc.len != len || rc.next != off || off + bytes.len() as u64 > len {
+    if rc.landing.lsn() != lsn || rc.len != len || rc.next != off || off + bytes.len() as u64 > len
+    {
         return violation(format!(
             "file {} chunk at offset {off} ({} bytes of {len}); expected file {} at offset {} of {}",
             pgrc_format_name(lsn),
@@ -97,7 +112,10 @@ pub(crate) fn on_file_chunk(buf: &[u8]) -> PgResult<()> {
     }
     transam_xlog::spool_grew(lsn)?; // WR L4b: landed bytes count toward the restartpoint distance
     let _ = ereport(DEBUG1)
-        .errmsg_internal(format!("pgrc walreceiver: landed file {} ({len} bytes)", pgrc_format_name(lsn)))
+        .errmsg_internal(format!(
+            "pgrc walreceiver: landed file {} ({len} bytes)",
+            pgrc_format_name(lsn)
+        ))
         .finish(loc("pgrc_on_file_chunk"));
     Ok(())
 }

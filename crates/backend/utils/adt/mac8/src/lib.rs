@@ -7,7 +7,6 @@ mod tests;
 
 extern crate alloc;
 
-
 use ::adt_mac::{is_c_space, MacAddr};
 use ::datum::Bytea;
 use ::mcx::Mcx;

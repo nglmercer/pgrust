@@ -17,7 +17,10 @@ fn key_of(text: &str) -> (u128, usize) {
     let arena = Arena::new(1 << 20);
     let g = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx).unwrap();
     let mut stores = 0;
-    let k = key_and_nodes(&g, &mut |n| stores += (n.node_tag() == NodeTag::T_FieldStore) as usize).0;
+    let k = key_and_nodes(&g, &mut |n| {
+        stores += (n.node_tag() == NodeTag::T_FieldStore) as usize
+    })
+    .0;
     (k, stores)
 }
 
@@ -32,7 +35,11 @@ fn a_field_store_keys_its_fields_and_its_new_values() {
     assert_eq!(key_of(&text).0, base, "the key is stable");
     // the same statement assigning the fields the other way round: another program
     let swapped = text.replace(":fieldnums (i 1 2)", ":fieldnums (i 2 1)");
-    assert_ne!(key_of(&swapped).0, base, "fields assigned in another order share a key");
+    assert_ne!(
+        key_of(&swapped).0,
+        base,
+        "fields assigned in another order share a key"
+    );
     // one field fewer is also another shape
     let one = text.replace(":fieldnums (i 1 2)", ":fieldnums (i 1 1)");
     assert_ne!(key_of(&one).0, base, "other fields share a key");
@@ -42,5 +49,9 @@ fn a_field_store_keys_its_fields_and_its_new_values() {
 /// env!()'s path baked in at compile time: a test binary reused from another checkout would read that checkout's files.
 fn manifest_dir() -> &'static std::path::Path {
     static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| std::env::var_os("CARGO_MANIFEST_DIR").map(Into::into).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)"))
+    DIR.get_or_init(|| {
+        std::env::var_os("CARGO_MANIFEST_DIR")
+            .map(Into::into)
+            .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+    })
 }

@@ -162,7 +162,11 @@ mod tests {
     fn bundle_ending_in_an_argument_option_takes_the_next_word() {
         assert_eq!(
             run(&["-Atc", "select 1"]),
-            Ok(vec![o("-A", None), o("-t", None), o("-c", Some("select 1"))])
+            Ok(vec![
+                o("-A", None),
+                o("-t", None),
+                o("-c", Some("select 1"))
+            ])
         );
     }
 
@@ -170,7 +174,12 @@ mod tests {
     fn bundle_ending_in_an_argument_option_takes_the_rest_of_the_word() {
         assert_eq!(
             run(&["-Atcselect 1", "db"]),
-            Ok(vec![o("-A", None), o("-t", None), o("-c", Some("select 1")), p("db")])
+            Ok(vec![
+                o("-A", None),
+                o("-t", None),
+                o("-c", Some("select 1")),
+                p("db")
+            ])
         );
         // the rest of the word is the argument even when it reads like options
         assert_eq!(run(&["-cAt"]), Ok(vec![o("-c", Some("At"))]));
@@ -180,18 +189,28 @@ mod tests {
     #[test]
     fn the_next_word_is_taken_even_when_it_starts_with_a_dash() {
         assert_eq!(run(&["-c", "-t"]), Ok(vec![o("-c", Some("-t"))]));
-        assert_eq!(run(&["--command", "--"]), Ok(vec![o("--command", Some("--"))]));
+        assert_eq!(
+            run(&["--command", "--"]),
+            Ok(vec![o("--command", Some("--"))])
+        );
     }
 
     #[test]
     fn long_options_with_and_without_equals() {
         assert_eq!(
             run(&["--command", "select 1", "--tuples-only", "--port=5433"]),
-            Ok(vec![o("--command", Some("select 1")), o("--tuples-only", None), o("--port", Some("5433"))])
+            Ok(vec![
+                o("--command", Some("select 1")),
+                o("--tuples-only", None),
+                o("--port", Some("5433"))
+            ])
         );
         assert_eq!(run(&["--set=a=b"]), Ok(vec![o("--set", Some("a=b"))]));
         assert_eq!(run(&["--help"]), Ok(vec![o("--help", None)]));
-        assert_eq!(run(&["--help=commands"]), Ok(vec![o("--help", Some("commands"))]));
+        assert_eq!(
+            run(&["--help=commands"]),
+            Ok(vec![o("--help", Some("commands"))])
+        );
     }
 
     #[test]
@@ -206,10 +225,22 @@ mod tests {
     #[test]
     fn errors_name_the_option_as_glibc_does() {
         assert_eq!(run(&["-AZ"]), Err("invalid option -- 'Z'".to_string()));
-        assert_eq!(run(&["-At", "--bogus"]), Err("unrecognized option '--bogus'".to_string()));
-        assert_eq!(run(&["-Atc"]), Err("option requires an argument -- 'c'".to_string()));
-        assert_eq!(run(&["--command"]), Err("option '--command' requires an argument".to_string()));
-        assert_eq!(run(&["--quiet=1"]), Err("option '--quiet' doesn't allow an argument".to_string()));
+        assert_eq!(
+            run(&["-At", "--bogus"]),
+            Err("unrecognized option '--bogus'".to_string())
+        );
+        assert_eq!(
+            run(&["-Atc"]),
+            Err("option requires an argument -- 'c'".to_string())
+        );
+        assert_eq!(
+            run(&["--command"]),
+            Err("option '--command' requires an argument".to_string())
+        );
+        assert_eq!(
+            run(&["--quiet=1"]),
+            Err("option '--quiet' doesn't allow an argument".to_string())
+        );
         assert_eq!(run(&["-:"]), Err("invalid option -- ':'".to_string()));
     }
 

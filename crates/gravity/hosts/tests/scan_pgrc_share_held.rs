@@ -26,18 +26,30 @@ static SERIAL: Mutex<()> = Mutex::new(());
 /// memory governor, whose part-cache account `StmtDicts::shares` reads beside the census.
 fn account(n: u64, charged: bool, rec: &mut pgrc_read::partcache::Charged) {
     let n = usize::try_from(n).unwrap_or(usize::MAX);
-    let mut c = mcx::governor::CacheCharge { slot: rec.slot, epoch: rec.epoch, bytes: rec.bytes };
+    let mut c = mcx::governor::CacheCharge {
+        slot: rec.slot,
+        epoch: rec.epoch,
+        bytes: rec.bytes,
+    };
     if charged {
         mcx::governor::charge_cache(n, "pgrc part cache", &mut c);
     } else {
         mcx::governor::release_cache(n, &mut c);
     }
-    *rec = pgrc_read::partcache::Charged { slot: c.slot, epoch: c.epoch, bytes: c.bytes };
+    *rec = pgrc_read::partcache::Charged {
+        slot: c.slot,
+        epoch: c.epoch,
+        bytes: c.bytes,
+    };
 }
 
 fn census() -> u64 {
     let b = pgrc_read::partcache::bytes();
-    assert_eq!(mcx::governor::cache_bytes() as u64, b, "the governor's part-cache account follows the census");
+    assert_eq!(
+        mcx::governor::cache_bytes() as u64,
+        b,
+        "the governor's part-cache account follows the census"
+    );
     b
 }
 
@@ -77,8 +89,13 @@ fn streaming(bf: &BuiltFixture, recipe: &GranuleRecipe, level: u64) -> (usize, u
 fn setup() -> (BuiltFixture, GranuleRecipe, u64) {
     pgrc_read::partcache::set_account_hook(account);
     let bf = text_fixture();
-    let recipe = GranuleRecipe::for_test_codes(REL_TEXT, &[1], &[1], Arc::new(PartRegistry::new(64 << 20)));
-    assert_eq!(streaming(&bf, &recipe, u64::MAX).0, 2, "under the level: the list's cells");
+    let recipe =
+        GranuleRecipe::for_test_codes(REL_TEXT, &[1], &[1], Arc::new(PartRegistry::new(64 << 20)));
+    assert_eq!(
+        streaming(&bf, &recipe, u64::MAX).0,
+        2,
+        "under the level: the list's cells"
+    );
     let before = census();
     let (shared, end) = streaming(&bf, &recipe, u64::MAX);
     assert_eq!(shared, 2);
@@ -88,9 +105,14 @@ fn setup() -> (BuiltFixture, GranuleRecipe, u64) {
 /// Another open of the fixture's first part (its own identity: its images are not the scanned parts'), and the index of its
 /// largest section.
 fn other_part(bf: &BuiltFixture, ino: u64) -> (Arc<pgrc_read::OpenPart>, usize) {
-    let bytes = bf.files.get(&part_file_name(bf.manifest.parts[0].part_no)).expect("part file");
+    let bytes = bf
+        .files
+        .get(&part_file_name(bf.manifest.parts[0].part_no))
+        .expect("part file");
     let part = open_part_bytes(bytes, ino).expect("open");
-    let idx = (0..part.sections().len()).max_by_key(|&i| part.sections()[i].len).expect("a section");
+    let idx = (0..part.sections().len())
+        .max_by_key(|&i| part.sections()[i].len)
+        .expect("a section");
     (part, idx)
 }
 
@@ -102,17 +124,32 @@ fn a_clone_held_across_its_parts_key_eviction_counts_against_the_share_level() {
     let (part, idx) = other_part(&bf, 9_100);
     let held = part.section_bytes(idx).expect("section");
     let len = held.len() as u64;
-    assert!(len >= 2 * grow + 2, "the held image ({len} bytes) is past twice what a statement adds ({grow})");
+    assert!(
+        len >= 2 * grow + 2,
+        "the held image ({len} bytes) is past twice what a statement adds ({grow})"
+    );
     let rest = part.resident() - len;
     let key = (part.sections()[idx].off, part.sections()[idx].len);
     let evicted = part.evict_extent_images(&[key]);
     // the bytes alive without the held image, and a level half the image above them and what a statement adds
     let level = base + rest + grow + len / 2;
-    assert_eq!(streaming(&bf, &recipe, level).0, 0, "the image a clone holds past its eviction {evicted:?} counts: its own cells");
+    assert_eq!(
+        streaming(&bf, &recipe, level).0,
+        0,
+        "the image a clone holds past its eviction {evicted:?} counts: its own cells"
+    );
     drop(held);
     part.evict_extent_images(&[key]);
-    assert_eq!(census(), base + rest, "the image's bytes leave the census once, at its last drop");
-    assert_eq!(streaming(&bf, &recipe, level).0, 2, "with the image gone, under the level: the list's cells");
+    assert_eq!(
+        census(),
+        base + rest,
+        "the image's bytes leave the census once, at its last drop"
+    );
+    assert_eq!(
+        streaming(&bf, &recipe, level).0,
+        2,
+        "with the image gone, under the level: the list's cells"
+    );
     drop(part);
     assert_eq!(census(), base);
 }
@@ -125,11 +162,26 @@ fn a_clone_held_past_its_parts_drop_counts_against_the_share_level() {
     let (part, idx) = other_part(&bf, 9_200);
     let held = part.section_bytes(idx).expect("section");
     let len = held.len() as u64;
-    assert!(len >= 2 * grow + 2, "the held image ({len} bytes) is past twice what a statement adds ({grow})");
+    assert!(
+        len >= 2 * grow + 2,
+        "the held image ({len} bytes) is past twice what a statement adds ({grow})"
+    );
     drop(part);
     let level = base + grow + len / 2;
-    assert_eq!(streaming(&bf, &recipe, level).0, 0, "the image a clone holds past its part's drop counts: its own cells");
+    assert_eq!(
+        streaming(&bf, &recipe, level).0,
+        0,
+        "the image a clone holds past its part's drop counts: its own cells"
+    );
     drop(held);
-    assert_eq!(census(), base, "the image's bytes leave the census once, at its last drop");
-    assert_eq!(streaming(&bf, &recipe, level).0, 2, "with the image gone, under the level: the list's cells");
+    assert_eq!(
+        census(),
+        base,
+        "the image's bytes leave the census once, at its last drop"
+    );
+    assert_eq!(
+        streaming(&bf, &recipe, level).0,
+        2,
+        "with the image gone, under the level: the list's cells"
+    );
 }

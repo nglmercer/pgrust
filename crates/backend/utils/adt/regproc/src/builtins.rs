@@ -6,9 +6,7 @@ use std::borrow::Cow;
 
 use ::datum::Datum;
 use ::types_error::{PgResult, SoftErrorContext};
-use ::types_fmgr::{
-    varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
-};
+use ::types_fmgr::{varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 
 fn in_arg<'a>(fcinfo: &'a Fcinfo) -> Cow<'a, str> {
     // SAFETY: catalog arg 0 of every reg*in is cstring (typlen -2).
@@ -131,7 +129,11 @@ pub fn fc_to_regtypemod(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> 
         let s = String::from_utf8_lossy(payload);
         let mut soft = SoftErrorContext::new(false);
         let r = crate::to_regtypemod(fcinfo.result_mcx(), &s, Some(&mut soft))?;
-        if soft.error_occurred() { None } else { r }
+        if soft.error_occurred() {
+            None
+        } else {
+            r
+        }
     };
     Ok(match result {
         Some(typmod) => Datum::from_i32(typmod),

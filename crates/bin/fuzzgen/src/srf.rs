@@ -97,15 +97,15 @@ fn gen_gs_int(g: &mut Gen) -> Vec<StmtKind> {
     // positive step and vice versa), and the int8 arm.
     let cast = pick_str(g, &["int", "bigint"]);
     let (a, b, step): (&str, &str, Option<&str>) = match g.rng.below(9) {
-        0 => ("1", "5", None),          // default step 1
-        1 => ("0", "10", Some("2")),    // positive step
-        2 => ("10", "1", Some("-3")),   // negative step, descending
-        3 => ("5", "5", None),          // single row
-        4 => ("5", "1", Some("1")),     // empty (asc step, start>stop)
-        5 => ("1", "5", Some("-1")),    // empty (desc step, start<stop)
-        6 => ("-4", "4", Some("1")),    // spans zero
+        0 => ("1", "5", None),        // default step 1
+        1 => ("0", "10", Some("2")),  // positive step
+        2 => ("10", "1", Some("-3")), // negative step, descending
+        3 => ("5", "5", None),        // single row
+        4 => ("5", "1", Some("1")),   // empty (asc step, start>stop)
+        5 => ("1", "5", Some("-1")),  // empty (desc step, start<stop)
+        6 => ("-4", "4", Some("1")),  // spans zero
         7 => ("-9223372036854775808", "-9223372036854775800", Some("2")), // int8 boundary
-        _ => ("1", "7", Some("3")),     // ragged last step
+        _ => ("1", "7", Some("3")),   // ragged last step
     };
     let step_arg = step.map(|s| format!(", {s}::{cast}")).unwrap_or_default();
     // generate_series in FROM is ascending/descending by construction;
@@ -129,7 +129,7 @@ fn gen_gs_ts(g: &mut Gen) -> Vec<StmtKind> {
         2 => ("2020-01-01 06:00:00", "2020-01-01 00:00:00", "-2 hours"), // descending
         3 => ("2000-01-31", "2000-04-30", "1 month"),                    // month arithmetic
         4 => ("2019-12-31 23:00:00", "2020-01-01 02:00:00", "30 minutes"),
-        _ => ("2020-02-28", "2020-03-02", "1 day"),                      // leap-year edge
+        _ => ("2020-02-28", "2020-03-02", "1 day"), // leap-year edge
     };
     vec![raw(format!(
         "SELECT g::text FROM generate_series('{a}'::{cast}, '{b}'::{cast}, interval '{step}') g;"
@@ -165,8 +165,8 @@ fn gen_subscripts(g: &mut Gen) -> Vec<StmtKind> {
         &[
             "ARRAY[10,20,30]",
             "ARRAY[[1,2,3],[4,5,6]]",
-            "'[3:5]={7,8,9}'::int[]",   // custom lower bound
-            "'{}'::int[]",              // empty -> zero rows
+            "'[3:5]={7,8,9}'::int[]", // custom lower bound
+            "'{}'::int[]",            // empty -> zero rows
             "ARRAY['a','b','c','d']",
         ],
     );
@@ -187,7 +187,7 @@ fn gen_unnest1(g: &mut Gen) -> Vec<StmtKind> {
         &[
             "ARRAY[3,1,2]",
             "ARRAY['x','y',NULL,'z']",
-            "'{}'::int[]",                 // empty
+            "'{}'::int[]", // empty
             "ARRAY[10.5, -2.25, 0]::numeric[]",
             "ARRAY[true, false, NULL]",
         ],
@@ -199,9 +199,7 @@ fn gen_unnest1(g: &mut Gen) -> Vec<StmtKind> {
         ))]
     } else {
         // Plain unnest: value order == array order, byte-identical.
-        vec![raw(format!(
-            "SELECT v::text FROM unnest({arr}) v;"
-        ))]
+        vec![raw(format!("SELECT v::text FROM unnest({arr}) v;"))]
     }
 }
 
@@ -224,21 +222,17 @@ fn gen_unnest_multi(g: &mut Gen) -> Vec<StmtKind> {
         1 => {
             // Parallel unnest of unequal-length arrays: the shorter is
             // NULL-padded to the longest (ROWS FROM semantics).
-            vec![raw(
-                "SELECT u.a::text, u.b::text, u.ord::text \
+            vec![raw("SELECT u.a::text, u.b::text, u.ord::text \
                  FROM unnest(ARRAY[1,2,3,4], ARRAY['x','y']) WITH ORDINALITY AS u(a, b, ord) \
                  ORDER BY u.ord;"
-                    .to_string(),
-            )]
+                .to_string())]
         }
         _ => {
             // Three parallel arrays, mixed lengths incl. an empty one.
-            vec![raw(
-                "SELECT u.a::text, u.b::text, u.c::text, u.ord::text \
+            vec![raw("SELECT u.a::text, u.b::text, u.c::text, u.ord::text \
                  FROM unnest(ARRAY[10,20], ARRAY[1.5,2.5,3.5]::numeric[], '{}'::text[]) \
                  WITH ORDINALITY AS u(a, b, c, ord) ORDER BY u.ord;"
-                    .to_string(),
-            )]
+                .to_string())]
         }
     }
 }
@@ -249,24 +243,18 @@ fn gen_unnest_multi(g: &mut Gen) -> Vec<StmtKind> {
 
 fn gen_rowsfrom(g: &mut Gen) -> Vec<StmtKind> {
     match g.rng.below(3) {
-        0 => vec![raw(
-            "SELECT r.g::text, r.u::text, r.ord::text \
+        0 => vec![raw("SELECT r.g::text, r.u::text, r.ord::text \
              FROM ROWS FROM (generate_series(1, 4), unnest(ARRAY['a','b'])) \
              WITH ORDINALITY AS r(g, u, ord) ORDER BY r.ord;"
-                .to_string(),
-        )],
-        1 => vec![raw(
-            "SELECT r.g::text, r.s::text, r.ord::text \
+            .to_string())],
+        1 => vec![raw("SELECT r.g::text, r.s::text, r.ord::text \
              FROM ROWS FROM (generate_series(10, 12), generate_subscripts(ARRAY[[1,2],[3,4]], 1)) \
              WITH ORDINALITY AS r(g, s, ord) ORDER BY r.ord;"
-                .to_string(),
-        )],
-        _ => vec![raw(
-            "SELECT r.a::text, r.b::text, r.ord::text \
+            .to_string())],
+        _ => vec![raw("SELECT r.a::text, r.b::text, r.ord::text \
              FROM ROWS FROM (unnest(ARRAY[1,2,3]), string_to_table('p,q', ',')) \
              WITH ORDINALITY AS r(a, b, ord) ORDER BY r.ord;"
-                .to_string(),
-        )],
+            .to_string())],
     }
 }
 
@@ -283,7 +271,8 @@ fn gen_tlist(g: &mut Gen) -> Vec<StmtKind> {
         1 => vec![raw(
             // Two SRFs of unequal cardinality run in lockstep to the
             // longest, the shorter emitting NULL past its end (PG10+).
-            "SELECT generate_series(1, 4)::text AS a, generate_series(1, 2)::text AS b;".to_string(),
+            "SELECT generate_series(1, 4)::text AS a, generate_series(1, 2)::text AS b;"
+                .to_string(),
         )],
         2 => vec![raw(
             // SRF over a per-row driver (outer generate_series): the SRF is
@@ -305,12 +294,10 @@ fn gen_tlist(g: &mut Gen) -> Vec<StmtKind> {
 
 fn gen_lateral(g: &mut Gen) -> Vec<StmtKind> {
     match g.rng.below(3) {
-        0 => vec![raw(
-            "SELECT v.x::text AS x, g::text AS g \
+        0 => vec![raw("SELECT v.x::text AS x, g::text AS g \
              FROM (VALUES (1), (3), (0)) AS v(x), LATERAL generate_series(1, v.x) g \
              ORDER BY v.x, g;"
-                .to_string(),
-        )],
+            .to_string())],
         1 => vec![raw(
             "SELECT v.a::text AS a, u.v::text AS v, u.ord::text AS ord \
              FROM (VALUES (ARRAY[1,2]), (ARRAY[9])) AS v(a), \
@@ -335,11 +322,11 @@ fn gen_lateral(g: &mut Gen) -> Vec<StmtKind> {
 fn gen_s2t(g: &mut Gen) -> Vec<StmtKind> {
     let (s, d, n): (&str, &str, Option<&str>) = match g.rng.below(6) {
         0 => ("'a,b,c'", "','", None),
-        1 => ("'a,b,,d'", "','", Some("'b'")),     // null_string maps to NULL
+        1 => ("'a,b,,d'", "','", Some("'b'")), // null_string maps to NULL
         2 => ("'xxTyyTzz'", "'T'", None),
-        3 => ("'abc'", "NULL", None),               // NULL delim -> per-char
-        4 => ("''", "','", None),                   // empty input -> one empty row
-        _ => ("'a,,c'", "','", Some("''")),         // empty null_string
+        3 => ("'abc'", "NULL", None),       // NULL delim -> per-char
+        4 => ("''", "','", None),           // empty input -> one empty row
+        _ => ("'a,,c'", "','", Some("''")), // empty null_string
     };
     let null_arg = n.map(|x| format!(", {x}")).unwrap_or_default();
     vec![raw(format!(
@@ -357,10 +344,10 @@ fn gen_case_err(g: &mut Gen) -> Vec<StmtKind> {
         g,
         &[
             "SELECT CASE WHEN true THEN generate_series(1, 3) ELSE 0 END;", // 0A000 in CASE
-            "SELECT COALESCE(generate_series(1, 3), 0);",                    // 0A000 in COALESCE
-            "SELECT GREATEST(generate_series(1, 3), 5);",                    // 0A000 in GREATEST
-            "SELECT 1 WHERE generate_series(1, 3) > 1;",                     // 0A000 in WHERE
-            "SELECT nullif(generate_series(1, 3), 2);",                      // 0A000 in NULLIF
+            "SELECT COALESCE(generate_series(1, 3), 0);",                   // 0A000 in COALESCE
+            "SELECT GREATEST(generate_series(1, 3), 5);",                   // 0A000 in GREATEST
+            "SELECT 1 WHERE generate_series(1, 3) > 1;",                    // 0A000 in WHERE
+            "SELECT nullif(generate_series(1, 3), 2);",                     // 0A000 in NULLIF
         ],
     );
     vec![raw(e.to_string())]

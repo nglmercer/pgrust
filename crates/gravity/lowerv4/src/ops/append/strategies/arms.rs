@@ -14,7 +14,10 @@ crate::strategies! {
     APPEND_ARMS = 63, "append.arms", Append;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(APPEND_ARMS, &())], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(APPEND_ARMS, &())],
+    ..crate::ops::NONE
+};
 
 /// The union of `n` arms whose arm 0 is pipeline `k`; `slot` the breaker the arms fold into as one production (D393: the
 /// driver opens it at the first arm and folds the rest on into it), `NO_SLOT` when the arms end in the sink.

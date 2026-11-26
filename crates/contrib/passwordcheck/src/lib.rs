@@ -46,8 +46,13 @@ pub fn check_password(
     if password_type != crypt::PasswordType::Plaintext {
         // Encrypted: only username = password can be caught (guessing).
         let mut logdetail = None;
-        if crypt::plain_crypt_verify(mcx, username, shadow_pass, username.as_bytes(), &mut logdetail)?
-            == crypt::STATUS_OK
+        if crypt::plain_crypt_verify(
+            mcx,
+            username,
+            shadow_pass,
+            username.as_bytes(),
+            &mut logdetail,
+        )? == crypt::STATUS_OK
         {
             return Err(invalid("password must not equal user name"));
         }

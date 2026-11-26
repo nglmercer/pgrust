@@ -81,7 +81,10 @@ struct Prof {
     gucs: &'static [(&'static str, &'static str)],
 }
 
-const DEFAULTP: Prof = Prof { name: "default", gucs: &[] };
+const DEFAULTP: Prof = Prof {
+    name: "default",
+    gucs: &[],
+};
 const SEQ: Prof = Prof {
     name: "seq",
     gucs: &[
@@ -332,8 +335,7 @@ fn gen_fkjoin(g: &mut Gen) -> Vec<StmtKind> {
         "SELECT count(*)::int8 FROM fz_o3_es WHERE a = 4 AND b = 2 AND c < 50;".into(),
         "SELECT a, b, count(*)::int8 FROM fz_o3_es GROUP BY a, b ORDER BY a, b;".into(),
         "SELECT count(*)::int8 FROM fz_o3_es WHERE (a % 5) = 2 AND c = 21;".into(),
-        "SELECT (a % 5) AS g, count(*)::int8 FROM fz_o3_es GROUP BY (a % 5) ORDER BY g;"
-            .into(),
+        "SELECT (a % 5) AS g, count(*)::int8 FROM fz_o3_es GROUP BY (a % 5) ORDER BY g;".into(),
         "SELECT count(*)::int8 FROM fz_o3_es e1 JOIN fz_o3_es e2 \
          ON e1.a = e2.a AND e1.b = e2.b WHERE e1.pk < 40;"
             .into(),
@@ -464,24 +466,19 @@ fn gen_constdeep(g: &mut Gen) -> Vec<StmtKind> {
          NULL IS DISTINCT FROM 2, 3 IS DISTINCT FROM 3, 3 IS DISTINCT FROM 4;"
             .into(),
         "SELECT pk FROM fz_o3_cd WHERE x IS DISTINCT FROM 4 AND pk < 12 ORDER BY pk;".into(),
-        "SELECT pk FROM fz_o3_cd WHERE y IS NOT DISTINCT FROM NULL ORDER BY pk LIMIT 8;"
-            .into(),
-        "SELECT pk FROM fz_o3_cd WHERE x IS DISTINCT FROM NULL AND pk < 10 ORDER BY pk;"
-            .into(),
+        "SELECT pk FROM fz_o3_cd WHERE y IS NOT DISTINCT FROM NULL ORDER BY pk LIMIT 8;".into(),
+        "SELECT pk FROM fz_o3_cd WHERE x IS DISTINCT FROM NULL AND pk < 10 ORDER BY pk;".into(),
         // NullIfExpr const evaluation + mixed.
         "SELECT NULLIF(5, 5), NULLIF(5, 6), NULLIF(NULL::int4, 1), NULLIF(1, NULL);".into(),
-        "SELECT pk, NULLIF(x, 4), NULLIF(3, x) FROM fz_o3_cd WHERE pk < 8 ORDER BY pk;"
-            .into(),
+        "SELECT pk, NULLIF(x, 4), NULLIF(3, x) FROM fz_o3_cd WHERE pk < 8 ORDER BY pk;".into(),
         // Row-form NullTest: all-const rows (true/false/refuted) and
         // mixed const/var fields (per-field scalar NullTest expansion).
         "SELECT ROW(1, 2) IS NULL, ROW(NULL, NULL) IS NULL, ROW(1, NULL) IS NULL, \
          ROW(NULL, NULL) IS NOT NULL, ROW(1, 2) IS NOT NULL;"
             .into(),
         "SELECT pk FROM fz_o3_cd WHERE ROW(x, 1) IS NOT NULL AND pk < 10 ORDER BY pk;".into(),
-        "SELECT pk FROM fz_o3_cd WHERE ROW(y, NULL::int4) IS NULL ORDER BY pk LIMIT 6;"
-            .into(),
-        "SELECT pk FROM fz_o3_cd WHERE ROW(x, y, 3) IS NOT NULL AND pk < 14 ORDER BY pk;"
-            .into(),
+        "SELECT pk FROM fz_o3_cd WHERE ROW(y, NULL::int4) IS NULL ORDER BY pk LIMIT 6;".into(),
+        "SELECT pk FROM fz_o3_cd WHERE ROW(x, y, 3) IS NOT NULL AND pk < 14 ORDER BY pk;".into(),
         // BooleanTest over const NULL / const bools (all six testtypes).
         "SELECT NULL::bool IS TRUE, NULL::bool IS NOT TRUE, NULL::bool IS FALSE, \
          NULL::bool IS NOT FALSE, NULL::bool IS UNKNOWN, NULL::bool IS NOT UNKNOWN;"
@@ -664,7 +661,11 @@ fn gen_reparam(g: &mut Gen) -> Vec<StmtKind> {
             ("enable_material", "off"),
         ],
     };
-    v.extend(sweep(g, &[NESTL, NESTL_BARE, nestl_seq, nestl_bmp], &app_queries));
+    v.extend(sweep(
+        g,
+        &[NESTL, NESTL_BARE, nestl_seq, nestl_bmp],
+        &app_queries,
+    ));
     v.push(raw("DROP TABLE fz_o3_u1, fz_o3_u2, fz_o3_ud;"));
     v
 }
@@ -688,8 +689,7 @@ fn gen_initplan(g: &mut Gen) -> Vec<StmtKind> {
     let queries: Vec<String> = vec![
         // Initplan under a parallelizable scan (finalize_plan gather_param
         // arms fire under the parallel profile).
-        "SELECT count(*)::int8 FROM fz_o3_ip WHERE a > (SELECT avg(m)::int4 FROM fz_o3_iq);"
-            .into(),
+        "SELECT count(*)::int8 FROM fz_o3_ip WHERE a > (SELECT avg(m)::int4 FROM fz_o3_iq);".into(),
         // Two stacked initplans + one correlated subplan.
         "SELECT count(*)::int8 FROM fz_o3_ip t WHERE a > (SELECT min(m) FROM fz_o3_iq) \
          AND b < (SELECT max(n) * 5 FROM fz_o3_iq) \
@@ -793,10 +793,16 @@ fn gen_winframe(g: &mut Gen) -> Vec<StmtKind> {
     for _ in 0..12 {
         let f = frames[g.rng.below_usize(frames.len())];
         let e = excludes[g.rng.below_usize(excludes.len())];
-        let ord = ["k ASC", "k DESC", "k ASC NULLS FIRST", "k DESC NULLS LAST"]
-            [g.rng.below_usize(4)];
-        let agg = ["sum(v)", "count(*)", "max(v)", "min(v)", "sum(kn)", "avg(v * 1000)"]
-            [g.rng.below_usize(6)];
+        let ord =
+            ["k ASC", "k DESC", "k ASC NULLS FIRST", "k DESC NULLS LAST"][g.rng.below_usize(4)];
+        let agg = [
+            "sum(v)",
+            "count(*)",
+            "max(v)",
+            "min(v)",
+            "sum(kn)",
+            "avg(v * 1000)",
+        ][g.rng.below_usize(6)];
         queries.push(format!(
             "SELECT sum(fv)::numeric, count(fv)::int8 FROM (SELECT ({agg} OVER \
              (PARTITION BY g ORDER BY {ord} {f}{e}))::numeric AS fv FROM fz_o3_w) z;"
@@ -909,89 +915,84 @@ fn gen_routing(g: &mut Gen) -> Vec<StmtKind> {
         "INSERT INTO fz_o3_ref SELECT i, i * 2 - 1 FROM generate_series(1, 25) i;",
         "ANALYZE fz_o3_ref;",
     ]);
-    let bodies: Vec<Vec<StmtKind>> = vec![
-        // Routed inserts incl. the attach-mapped partition, RETURNING
-        // old/new through the ordered CTE.
-        vec![raw(
-            "WITH w AS (INSERT INTO fz_o3_r VALUES (595, 1, 'nx'), (150, 2, 'nb'), \
+    let bodies: Vec<Vec<StmtKind>> =
+        vec![
+            // Routed inserts incl. the attach-mapped partition, RETURNING
+            // old/new through the ordered CTE.
+            vec![raw(
+                "WITH w AS (INSERT INTO fz_o3_r VALUES (595, 1, 'nx'), (150, 2, 'nb'), \
              (398, 3, 'nc') RETURNING pk, a, t) \
              SELECT count(*)::int8, sum(pk)::int8 FROM w;",
-        )],
-        vec![raw(
-            "WITH w AS (INSERT INTO fz_o3_r SELECT i + 500, i, 'bulk' \
+            )],
+            vec![raw(
+                "WITH w AS (INSERT INTO fz_o3_r SELECT i + 500, i, 'bulk' \
              FROM generate_series(1, 40) i RETURNING pk) \
              SELECT count(*)::int8, min(pk), max(pk) FROM w;",
-        )],
-        // Routed ON CONFLICT DO UPDATE (arbiter mapped into the
-        // attach-mapped partition; 450 inserts fresh, 451 collides) +
-        // DO NOTHING.
-        vec![raw(
-            "WITH w AS (INSERT INTO fz_o3_r VALUES (450, 9, 'cf'), (451, 8, 'cg') \
+            )],
+            // Routed ON CONFLICT DO UPDATE (arbiter mapped into the
+            // attach-mapped partition; 450 inserts fresh, 451 collides) +
+            // DO NOTHING.
+            vec![raw(
+                "WITH w AS (INSERT INTO fz_o3_r VALUES (450, 9, 'cf'), (451, 8, 'cg') \
              ON CONFLICT (pk) DO UPDATE SET a = fz_o3_r.a + 100, t = excluded.t \
              RETURNING pk, a, t) SELECT count(*)::int8, sum(a)::int8 FROM w;",
-        )],
-        vec![raw(
+            )],
+            vec![raw(
             "WITH w AS (INSERT INTO fz_o3_r SELECT i, 0, 'dn' FROM generate_series(440, 470) i \
              ON CONFLICT (pk) DO NOTHING RETURNING pk) \
              SELECT count(*)::int8, min(pk) FROM w;",
         )],
-        // PG18 RETURNING old/new over routed DML.
-        vec![raw(
-            "WITH w AS (INSERT INTO fz_o3_r VALUES (455, 5, 'on') \
+            // PG18 RETURNING old/new over routed DML.
+            vec![raw("WITH w AS (INSERT INTO fz_o3_r VALUES (455, 5, 'on') \
              ON CONFLICT (pk) DO UPDATE SET a = excluded.a + 1 \
              RETURNING old.a AS oa, new.a AS na, pk) \
-             SELECT count(*)::int8, sum(na - COALESCE(oa, 0))::int8 FROM w;",
-        )],
-        // WCO view: passing and failing routed inserts (44000 at tail).
-        vec![
-            raw(
-                "WITH w AS (INSERT INTO fz_o3_rv VALUES (596, 7, 'wv') RETURNING pk) \
+             SELECT count(*)::int8, sum(na - COALESCE(oa, 0))::int8 FROM w;")],
+            // WCO view: passing and failing routed inserts (44000 at tail).
+            vec![
+                raw(
+                    "WITH w AS (INSERT INTO fz_o3_rv VALUES (596, 7, 'wv') RETURNING pk) \
                  SELECT count(*)::int8 FROM w;",
-            ),
-            raw("INSERT INTO fz_o3_rv VALUES (597, -1, 'bad');"),
-        ],
-        // Cross-partition moves: unreferenced row succeeds (incl. into
-        // the attach-mapped partition), referenced row errors 23503 at
-        // the bracket tail.
-        vec![
-            raw(
-                "WITH w AS (UPDATE fz_o3_r SET pk = pk + 441 WHERE pk BETWEEN 60 AND 70 \
+                ),
+                raw("INSERT INTO fz_o3_rv VALUES (597, -1, 'bad');"),
+            ],
+            // Cross-partition moves: unreferenced row succeeds (incl. into
+            // the attach-mapped partition), referenced row errors 23503 at
+            // the bracket tail.
+            vec![
+                raw(
+                    "WITH w AS (UPDATE fz_o3_r SET pk = pk + 441 WHERE pk BETWEEN 60 AND 70 \
                  RETURNING pk) SELECT count(*)::int8, min(pk), max(pk) FROM w;",
-            ),
-            raw(
-                "WITH w AS (UPDATE fz_o3_r SET pk = pk + 201 WHERE pk BETWEEN 210 AND 214 \
+                ),
+                raw(
+                    "WITH w AS (UPDATE fz_o3_r SET pk = pk + 201 WHERE pk BETWEEN 210 AND 214 \
                  RETURNING pk) SELECT count(*)::int8 FROM w;",
-            ),
-            // Referenced row, collision-free target -> the FK arm (23503)
-            // fires, not the pkey.
-            raw("UPDATE fz_o3_r SET pk = pk + 301 WHERE pk = 21;"),
-        ],
-        // MERGE into the partitioned tree: matched update, matched
-        // delete, not-matched insert (routed incl. attach-mapped), NOT
-        // MATCHED BY SOURCE, merge_action() RETURNING.
-        vec![raw(
-            "WITH w AS (MERGE INTO fz_o3_r t USING \
+                ),
+                // Referenced row, collision-free target -> the FK arm (23503)
+                // fires, not the pkey.
+                raw("UPDATE fz_o3_r SET pk = pk + 301 WHERE pk = 21;"),
+            ],
+            // MERGE into the partitioned tree: matched update, matched
+            // delete, not-matched insert (routed incl. attach-mapped), NOT
+            // MATCHED BY SOURCE, merge_action() RETURNING.
+            vec![raw("WITH w AS (MERGE INTO fz_o3_r t USING \
              (SELECT i * 7 AS k, i FROM generate_series(1, 90) i) v ON t.pk = v.k \
              WHEN MATCHED AND v.i % 10 = 0 THEN DELETE \
              WHEN MATCHED THEN UPDATE SET a = t.a + v.i \
              WHEN NOT MATCHED AND v.k < 600 THEN INSERT VALUES (v.k, v.i, 'mg') \
              RETURNING merge_action() AS act, t.pk) \
-             SELECT act, count(*)::int8 FROM w GROUP BY act ORDER BY act;",
-        )],
-        vec![raw(
-            "WITH w AS (MERGE INTO fz_o3_r t USING \
+             SELECT act, count(*)::int8 FROM w GROUP BY act ORDER BY act;")],
+            vec![raw("WITH w AS (MERGE INTO fz_o3_r t USING \
              (SELECT i * 11 AS k FROM generate_series(1, 30) i) v ON t.pk = v.k \
              WHEN MATCHED THEN UPDATE SET t = t.t || '+' \
              WHEN NOT MATCHED BY SOURCE AND t.pk < 25 THEN UPDATE SET a = t.a - 1 \
-             RETURNING t.pk) SELECT count(*)::int8, min(pk) FROM w;",
-        )],
-        // Multi-partition UPDATE with per-partition RETURNING old/new.
-        vec![raw(
-            "WITH w AS (UPDATE fz_o3_r SET a = a + 1 WHERE pk % 97 = 0 \
+             RETURNING t.pk) SELECT count(*)::int8, min(pk) FROM w;")],
+            // Multi-partition UPDATE with per-partition RETURNING old/new.
+            vec![raw(
+                "WITH w AS (UPDATE fz_o3_r SET a = a + 1 WHERE pk % 97 = 0 \
              RETURNING old.a AS oa, new.a AS na) \
              SELECT count(*)::int8, sum(na - oa)::int8 FROM w;",
-        )],
-    ];
+            )],
+        ];
     for body in bodies {
         let p = [DEFAULTP, SEQ, IDX][g.rng.below_usize(3)];
         g.fire2("opt3:prof:", p.name);
@@ -1025,8 +1026,7 @@ fn gen_idxkeys(g: &mut Gen) -> Vec<StmtKind> {
     ]);
     let queries: Vec<String> = vec![
         // RowCompare against the ASC composite (> and <, tight and open).
-        "SELECT count(*)::int8 FROM fz_o3_k WHERE (a, b) > (30, 10) AND (a, b) < (45, 20);"
-            .into(),
+        "SELECT count(*)::int8 FROM fz_o3_k WHERE (a, b) > (30, 10) AND (a, b) < (45, 20);".into(),
         "SELECT pk FROM fz_o3_k WHERE (a, b) >= (55, 0) ORDER BY pk;".into(),
         // RowCompare against the DESC composite index.
         "SELECT count(*)::int8 FROM fz_o3_k WHERE (a, b) < (10, 5);".into(),
@@ -1038,16 +1038,14 @@ fn gen_idxkeys(g: &mut Gen) -> Vec<StmtKind> {
           AS int4[]));"
             .into(),
         // NULL elements and empty arrays in SAOP keys.
-        "SELECT count(*)::int8 FROM fz_o3_k WHERE a = ANY (ARRAY[3, NULL, 17, NULL, 55]);"
-            .into(),
+        "SELECT count(*)::int8 FROM fz_o3_k WHERE a = ANY (ARRAY[3, NULL, 17, NULL, 55]);".into(),
         "SELECT count(*)::int8 FROM fz_o3_k WHERE a = ANY (ARRAY[NULL::int4, NULL]);".into(),
         "SELECT count(*)::int8 FROM fz_o3_k WHERE a = ANY ('{}'::int4[]);".into(),
         // Multi-SAOP (advance-array-keys interplay) + saop on second col.
         "SELECT count(*)::int8 FROM fz_o3_k WHERE a = ANY ('{5,18,31,44}'::int4[]) \
          AND b = ANY ('{1,7,13,19}'::int4[]);"
             .into(),
-        "SELECT count(*)::int8 FROM fz_o3_k WHERE a = 5 AND b = ANY ('{2,4,6,8}'::int4[]);"
-            .into(),
+        "SELECT count(*)::int8 FROM fz_o3_k WHERE a = 5 AND b = ANY ('{2,4,6,8}'::int4[]);".into(),
         // Backward/ordered scans over array keys.
         "SELECT a, b FROM fz_o3_k WHERE a = ANY ('{9,22,35}'::int4[]) \
          ORDER BY a DESC, b DESC, pk DESC LIMIT 12;"
@@ -1058,8 +1056,7 @@ fn gen_idxkeys(g: &mut Gen) -> Vec<StmtKind> {
         // IS NULL / IS NOT NULL scan keys.
         "SELECT count(*)::int8 FROM fz_o3_k WHERE n IS NULL;".into(),
         "SELECT count(*)::int8 FROM fz_o3_k WHERE n IS NOT NULL AND n < 4;".into(),
-        "SELECT n FROM fz_o3_k WHERE n IS NULL OR n = 7 ORDER BY n NULLS FIRST, pk LIMIT 9;"
-            .into(),
+        "SELECT n FROM fz_o3_k WHERE n IS NULL OR n = 7 ORDER BY n NULLS FIRST, pk LIMIT 9;".into(),
         // Cross-type comparisons (int8/int2 consts against int4 cols).
         "SELECT count(*)::int8 FROM fz_o3_k WHERE a = 33::int8 AND b >= 4::int2;".into(),
         "SELECT count(*)::int8 FROM fz_o3_k WHERE (a, b) > (20::int8, 5::int8);".into(),
@@ -1134,8 +1131,7 @@ fn gen_sqlfn(g: &mut Gen) -> Vec<StmtKind> {
         "SELECT fz_o3_f5(41), fz_o3_f5('tx'::text), fz_o3_f5(ARRAY[1, 2])::text;".into(),
         "SELECT fz_o3_f9() IS NULL;".into(),
         "SELECT fz_o3_fa(14);".into(),
-        "SELECT count(*)::int8 FROM fz_o3_sf s WHERE s.b > (fz_o3_f1(s.pk % 20 + 1)).x;"
-            .into(),
+        "SELECT count(*)::int8 FROM fz_o3_sf s WHERE s.b > (fz_o3_f1(s.pk % 20 + 1)).x;".into(),
     ];
     v.extend(sweep(g, &[DEFAULTP, PARALLEL], &queries));
     v.extend(rollback_bracket(

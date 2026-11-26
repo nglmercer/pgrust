@@ -11,8 +11,13 @@ use super::strategies::jsonb_inplace::TEXT_OID;
 /// # Safety — `p` points at a varlena datum that outlives `'a`.
 unsafe fn varlena_inline<'a>(p: *const u8) -> Option<&'a [u8]> {
     match *p {
-        h if h & 1 == 1 && h != 1 => Some(core::slice::from_raw_parts(p.add(1), (h >> 1) as usize - 1)),
-        h if h & 3 == 0 => Some(core::slice::from_raw_parts(p.add(4), (u32::from_le_bytes(*(p as *const [u8; 4])) >> 2) as usize - 4)),
+        h if h & 1 == 1 && h != 1 => {
+            Some(core::slice::from_raw_parts(p.add(1), (h >> 1) as usize - 1))
+        }
+        h if h & 3 == 0 => Some(core::slice::from_raw_parts(
+            p.add(4),
+            (u32::from_le_bytes(*(p as *const [u8; 4])) >> 2) as usize - 4,
+        )),
         _ => None,
     }
 }
@@ -39,7 +44,12 @@ pub(crate) fn const_text_elems<'a>(k: &'a ConstNode<'_>) -> Option<Vec<&'a [u8]>
     if unsafe { *(img.as_usize() as *const u8) } & 3 != 0 {
         return None;
     }
-    let elem = ElemFacts { typ: TEXT_OID, len: -1, byval: false, align: b'i' as i8 };
+    let elem = ElemFacts {
+        typ: TEXT_OID,
+        len: -1,
+        byval: false,
+        align: b'i' as i8,
+    };
     let mut w = Walk::over(img, elem, &mut gravity_fn::Region::over(&mut [])).ok()?;
     let mut out = Vec::with_capacity(w.len()); // alloc: Program
     while let Some(e) = w.next() {

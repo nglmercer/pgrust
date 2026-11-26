@@ -4,8 +4,7 @@ use ::datum::Datum;
 use ::types_core::geo::{Point, BOX, CIRCLE, LINE, LSEG};
 use ::types_error::{PgResult, SoftErrorContext};
 use ::types_fmgr::{
-    byref_result, varlena_result, FmgrBuiltin, FmgrInfo,
-    FunctionCallInfoBaseData as Fcinfo,
+    byref_result, varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
 };
 
 use crate::{io, PathRef, PolyRef, Pts};
@@ -37,21 +36,25 @@ unsafe fn arg_circle(fcinfo: &Fcinfo, i: usize) -> CIRCLE {
 // PathRef/PolyRef readers are unaligned-safe, so short-header payloads are
 // read in place (no C-style un-packing copy); external/compressed images
 // detoast inside arg_varlena_packed.
-unsafe fn varlena_payload(fcinfo: & Fcinfo, i: usize) -> PgResult<& [u8]> {
+unsafe fn varlena_payload(fcinfo: &Fcinfo, i: usize) -> PgResult<&[u8]> {
     Ok(unsafe { fcinfo.arg_varlena_packed(i) }?.data())
 }
 
 unsafe fn arg_path<'a>(fcinfo: &'a Fcinfo, i: usize) -> PgResult<PathRef<'a>> {
-    Ok(PathRef::from_payload(unsafe { varlena_payload(fcinfo, i) }?))
+    Ok(PathRef::from_payload(unsafe {
+        varlena_payload(fcinfo, i)
+    }?))
 }
 
 unsafe fn arg_poly<'a>(fcinfo: &'a Fcinfo, i: usize) -> PgResult<PolyRef<'a>> {
-    Ok(PolyRef::from_payload(unsafe { varlena_payload(fcinfo, i) }?))
+    Ok(PolyRef::from_payload(unsafe {
+        varlena_payload(fcinfo, i)
+    }?))
 }
 
 // Raw server-encoding bytes: C's parsers take the cstring as-is and echo it
 // in the 22P02 message (SQL_ASCII / non-UTF-8 input).
-unsafe fn arg_cstr(fcinfo: & Fcinfo, i: usize) -> PgResult<& [u8]> {
+unsafe fn arg_cstr(fcinfo: &Fcinfo, i: usize) -> PgResult<&[u8]> {
     Ok(fcinfo.arg_cstring(i).to_bytes())
 }
 
@@ -367,10 +370,12 @@ pub fn fc_construct_point(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgR
     ret_point(fcinfo, crate::point::construct_point(x, y))
 }
 
-fc1!(fc_point_box, arg_point, p, |fcinfo: &mut Fcinfo, p: Point| ret_box(
-    fcinfo,
-    crate::boxes::point_box(&p)
-));
+fc1!(
+    fc_point_box,
+    arg_point,
+    p,
+    |fcinfo: &mut Fcinfo, p: Point| ret_box(fcinfo, crate::boxes::point_box(&p))
+);
 
 // box predicates
 bool2! {
@@ -413,28 +418,43 @@ f64_1r! {
     fc_lseg_length: arg_lseg => crate::lseg::lseg_length;
 }
 
-fc1!(fc_circle_radius, arg_circle, c, |_fcinfo: &mut Fcinfo, c: CIRCLE| Ok(
-    Datum::from_f64(crate::circle::circle_radius(&c))
-));
+fc1!(
+    fc_circle_radius,
+    arg_circle,
+    c,
+    |_fcinfo: &mut Fcinfo, c: CIRCLE| Ok(Datum::from_f64(crate::circle::circle_radius(&c)))
+);
 
 fc1!(fc_box_center, arg_box, b, |fcinfo: &mut Fcinfo, b: BOX| {
     ret_point(fcinfo, crate::boxes::box_cn(&b)?)
 });
-fc1!(fc_circle_center, arg_circle, c, |fcinfo: &mut Fcinfo, c: CIRCLE| {
-    ret_point(fcinfo, crate::circle::circle_center(&c))
-});
-fc1!(fc_lseg_center, arg_lseg, ls, |fcinfo: &mut Fcinfo, ls: LSEG| {
-    ret_point(fcinfo, crate::lseg::lseg_center(&ls)?)
-});
-fc1!(fc_box_diagonal, arg_box, b, |fcinfo: &mut Fcinfo, b: BOX| {
-    ret_lseg(fcinfo, crate::boxes::box_diagonal(&b))
-});
+fc1!(
+    fc_circle_center,
+    arg_circle,
+    c,
+    |fcinfo: &mut Fcinfo, c: CIRCLE| { ret_point(fcinfo, crate::circle::circle_center(&c)) }
+);
+fc1!(
+    fc_lseg_center,
+    arg_lseg,
+    ls,
+    |fcinfo: &mut Fcinfo, ls: LSEG| { ret_point(fcinfo, crate::lseg::lseg_center(&ls)?) }
+);
+fc1!(
+    fc_box_diagonal,
+    arg_box,
+    b,
+    |fcinfo: &mut Fcinfo, b: BOX| { ret_lseg(fcinfo, crate::boxes::box_diagonal(&b)) }
+);
 fc1!(fc_box_circle, arg_box, b, |fcinfo: &mut Fcinfo, b: BOX| {
     ret_circle(fcinfo, crate::boxes::box_circle(&b)?)
 });
-fc1!(fc_circle_box, arg_circle, c, |fcinfo: &mut Fcinfo, c: CIRCLE| {
-    ret_box(fcinfo, crate::boxes::circle_box(&c)?)
-});
+fc1!(
+    fc_circle_box,
+    arg_circle,
+    c,
+    |fcinfo: &mut Fcinfo, c: CIRCLE| { ret_box(fcinfo, crate::boxes::circle_box(&c)?) }
+);
 
 macro_rules! box_pt {
     ($($fc:ident => $core:path;)*) => {$(
@@ -448,12 +468,22 @@ box_pt! {
     fc_box_div => crate::boxes::box_div;
 }
 
-fc2!(fc_points_box, arg_point, arg_point, a, b, |fcinfo: &mut Fcinfo, a, b| {
-    ret_box(fcinfo, crate::boxes::points_box(&a, &b))
-});
-fc2!(fc_boxes_bound_box, arg_box, arg_box, a, b, |fcinfo: &mut Fcinfo, a, b| {
-    ret_box(fcinfo, crate::boxes::boxes_bound_box(&a, &b))
-});
+fc2!(
+    fc_points_box,
+    arg_point,
+    arg_point,
+    a,
+    b,
+    |fcinfo: &mut Fcinfo, a, b| { ret_box(fcinfo, crate::boxes::points_box(&a, &b)) }
+);
+fc2!(
+    fc_boxes_bound_box,
+    arg_box,
+    arg_box,
+    a,
+    b,
+    |fcinfo: &mut Fcinfo, a, b| { ret_box(fcinfo, crate::boxes::boxes_bound_box(&a, &b)) }
+);
 
 // pub for proofs/geo-cmp (visibility-only; prove-target ruling 2026-07-28)
 pub fn fc_box_intersect(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -482,16 +512,27 @@ bool2r! {
     fc_lseg_intersect: arg_lseg, arg_lseg => crate::lseg::lseg_intersect;
 }
 
-fc1!(fc_lseg_vertical, arg_lseg, ls, |_fcinfo: &mut Fcinfo, ls: LSEG| Ok(
-    Datum::from_bool(crate::lseg::lseg_vertical(&ls))
-));
-fc1!(fc_lseg_horizontal, arg_lseg, ls, |_fcinfo: &mut Fcinfo, ls: LSEG| Ok(
-    Datum::from_bool(crate::lseg::lseg_horizontal(&ls))
-));
+fc1!(
+    fc_lseg_vertical,
+    arg_lseg,
+    ls,
+    |_fcinfo: &mut Fcinfo, ls: LSEG| Ok(Datum::from_bool(crate::lseg::lseg_vertical(&ls)))
+);
+fc1!(
+    fc_lseg_horizontal,
+    arg_lseg,
+    ls,
+    |_fcinfo: &mut Fcinfo, ls: LSEG| Ok(Datum::from_bool(crate::lseg::lseg_horizontal(&ls)))
+);
 
-fc2!(fc_lseg_construct, arg_point, arg_point, a, b, |fcinfo: &mut Fcinfo, a, b| {
-    ret_lseg(fcinfo, crate::lseg::lseg_construct(&a, &b))
-});
+fc2!(
+    fc_lseg_construct,
+    arg_point,
+    arg_point,
+    a,
+    b,
+    |fcinfo: &mut Fcinfo, a, b| { ret_lseg(fcinfo, crate::lseg::lseg_construct(&a, &b)) }
+);
 
 fn fc_lseg_interpt(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     // SAFETY: module contract.
@@ -510,16 +551,27 @@ bool2r! {
     fc_line_perp: arg_line, arg_line => crate::line::line_perp;
 }
 
-fc1!(fc_line_vertical, arg_line, l, |_fcinfo: &mut Fcinfo, l: LINE| Ok(
-    Datum::from_bool(crate::line::line_vertical(&l))
-));
-fc1!(fc_line_horizontal, arg_line, l, |_fcinfo: &mut Fcinfo, l: LINE| Ok(
-    Datum::from_bool(crate::line::line_horizontal(&l))
-));
+fc1!(
+    fc_line_vertical,
+    arg_line,
+    l,
+    |_fcinfo: &mut Fcinfo, l: LINE| Ok(Datum::from_bool(crate::line::line_vertical(&l)))
+);
+fc1!(
+    fc_line_horizontal,
+    arg_line,
+    l,
+    |_fcinfo: &mut Fcinfo, l: LINE| Ok(Datum::from_bool(crate::line::line_horizontal(&l)))
+);
 
-fc2!(fc_line_construct_pp, arg_point, arg_point, a, b, |fcinfo: &mut Fcinfo, a, b| {
-    ret_line(fcinfo, crate::line::line_construct_pp(&a, &b)?)
-});
+fc2!(
+    fc_line_construct_pp,
+    arg_point,
+    arg_point,
+    a,
+    b,
+    |fcinfo: &mut Fcinfo, a, b| { ret_line(fcinfo, crate::line::line_construct_pp(&a, &b)?) }
+);
 
 fn fc_line_interpt(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     // SAFETY: module contract.
@@ -867,10 +919,22 @@ pub fn fc_box_poly(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<D
     // SAFETY: module contract.
     let b = unsafe { arg_box(fcinfo, 0) };
     let pts = [
-        Point { x: b.low.x, y: b.low.y },
-        Point { x: b.low.x, y: b.high.y },
-        Point { x: b.high.x, y: b.high.y },
-        Point { x: b.high.x, y: b.low.y },
+        Point {
+            x: b.low.x,
+            y: b.low.y,
+        },
+        Point {
+            x: b.low.x,
+            y: b.high.y,
+        },
+        Point {
+            x: b.high.x,
+            y: b.high.y,
+        },
+        Point {
+            x: b.high.x,
+            y: b.low.y,
+        },
     ];
     // C box_poly (geo_ops.c:4557) sets the cached boundbox by
     // box_construct(&box->high, &box->low) — a copy-with-ordering of the

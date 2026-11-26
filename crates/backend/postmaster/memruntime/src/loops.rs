@@ -39,11 +39,18 @@ pub fn idle_loop(h: &IdleHooks) -> ! {
     let mut done = 0u64;
     loop {
         let reclaiming = (h.reclaim_applies)();
-        pgsync::thread::sleep(Duration::from_millis(mempolicy::keep::idle_period_ms(reclaiming, h.reclaim_tick_ms, (h.idle_ms)())));
+        pgsync::thread::sleep(Duration::from_millis(mempolicy::keep::idle_period_ms(
+            reclaiming,
+            h.reclaim_tick_ms,
+            (h.idle_ms)(),
+        )));
         if reclaiming {
             (h.reclaim_tick)();
         }
-        if mempolicy::keep::past_bar(mcx::governor::projected() as u64, mcx::governor::bar() as u64) {
+        if mempolicy::keep::past_bar(
+            mcx::governor::projected() as u64,
+            mcx::governor::bar() as u64,
+        ) {
             (h.release_caches)();
             (h.pressure_released)();
         }
@@ -68,7 +75,10 @@ mod tests {
     static IDLE: AtomicU8 = AtomicU8::new(0);
 
     fn read(at: &AtomicU8) {
-        at.store(1 | (memledger::ladder_pass::on_ladder_thread() as u8) << 1, Relaxed);
+        at.store(
+            1 | (memledger::ladder_pass::on_ladder_thread() as u8) << 1,
+            Relaxed,
+        );
     }
     fn yes() -> bool {
         true
@@ -106,10 +116,19 @@ mod tests {
     fn the_loops_tick_and_idle_release_run_on_the_ladder_thread() {
         std::thread::spawn(|| idle_loop(&HOOKS));
         let t0 = std::time::Instant::now();
-        while (TICK.load(Relaxed) == 0 || IDLE.load(Relaxed) == 0) && t0.elapsed() < Duration::from_secs(10) {
+        while (TICK.load(Relaxed) == 0 || IDLE.load(Relaxed) == 0)
+            && t0.elapsed() < Duration::from_secs(10)
+        {
             std::thread::sleep(Duration::from_millis(1));
         }
-        assert_eq!((TICK.load(Relaxed), IDLE.load(Relaxed)), (3, 3), "both read true on the marked loop thread");
-        assert!(!memledger::ladder_pass::on_ladder_thread(), "the starting thread is no ladder thread");
+        assert_eq!(
+            (TICK.load(Relaxed), IDLE.load(Relaxed)),
+            (3, 3),
+            "both read true on the marked loop thread"
+        );
+        assert!(
+            !memledger::ladder_pass::on_ladder_thread(),
+            "the starting thread is no ladder thread"
+        );
     }
 }

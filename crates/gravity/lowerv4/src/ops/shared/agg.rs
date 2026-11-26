@@ -12,9 +12,16 @@ use types_nodes::Node;
 /// keeps its arguments and the ORDER BY's resjunk columns (`sort_cols`), its final sorts them by the ORDER BY (PG 18.6's
 /// process_ordered_aggregate_single / _multi) and folds every row in that order (a user-defined one: D1371).
 pub fn sorted(d: &AggDecl<'_>) -> bool {
-    let all = d.node.as_aggref().is_some_and(|r| r.args.iter().count() >= 1 && r.aggdistinct.iter().count() == r.args.iter().count());
+    let all = d.node.as_aggref().is_some_and(|r| {
+        r.args.iter().count() >= 1 && r.aggdistinct.iter().count() == r.args.iter().count()
+    });
     let set = matches!(d.class, Class::OrderedSet(_) | Class::Hypothetical(_));
-    let ordered = d.final_ == FinalForm::OrderedFold && d.mods.distinct == 0 && d.mods.order > 0 && d.node.as_aggref().is_some_and(|r| r.args.iter().count() >= 1);
+    let ordered = d.final_ == FinalForm::OrderedFold
+        && d.mods.distinct == 0
+        && d.mods.order > 0
+        && d.node
+            .as_aggref()
+            .is_some_and(|r| r.args.iter().count() >= 1);
     (d.final_ == FinalForm::Distinct && all || ordered) && !set
 }
 
@@ -51,30 +58,52 @@ fn at_least(v: u64, a: &[u64; 4]) -> u64 {
 /// guard of the program (lower inputs/key.rs `decide_end_rate`). A pipeline with no loop past its source's
 /// (`END_RATE_NONE`) carries, and files no guard.
 pub(crate) fn carry_rides(px: &crate::frame::px::Px<'_, '_>, k: usize, least: u64) -> bool {
-    let rate = px.gx.pipelines().get(k).map_or(gravity_program::END_RATE_NONE, |p| p.desc.end_rate);
-    rate == gravity_program::END_RATE_NONE || gravity_lower::inputs::key::decide_end_rate(k, rate, at_least, [least, 0, 0, 0]) == 1
+    let rate = px
+        .gx
+        .pipelines()
+        .get(k)
+        .map_or(gravity_program::END_RATE_NONE, |p| p.desc.end_rate);
+    rate == gravity_program::END_RATE_NONE
+        || gravity_lower::inputs::key::decide_end_rate(k, rate, at_least, [least, 0, 0, 0]) == 1
 }
 
 /// GP-1b: group `g`'s ZoneTopK hint walks down (a DESC first sort key over a NOT NULL key); the sort walk and the agg
 /// row skip read it here.
 pub(crate) fn group_desc(g: &gravity_decompose::ops::shared::agg::GroupDecl<'_>) -> bool {
-    g.hints.iter().any(|h| matches!(h, Some(gravity_decompose::Hint::ZoneTopK { desc: true, .. })))
+    g.hints.iter().any(|h| {
+        matches!(
+            h,
+            Some(gravity_decompose::Hint::ZoneTopK { desc: true, .. })
+        )
+    })
 }
 
 /// Whether group `g` is decompose's tagged multi-argument count(DISTINCT) form (decompose ops/agg/mod.rs `multi_grouped`;
 /// ops/group/pairs_multi.rs serves it): a grouped DISTINCT whose two or more trailing resno-0 keys are the arguments, every
 /// DISTINCT call a `PairCount` naming one of them.
 pub(crate) fn tagged_multi(g: &GroupDecl<'_>) -> bool {
-    let Some(gk) = g.keys.iter().position(|k| k.resno == 0) else { return false };
+    let Some(gk) = g.keys.iter().position(|k| k.resno == 0) else {
+        return false;
+    };
     let args = gk..g.keys.len();
-    g.form == GroupForm::Distinct && gk > 0 && args.len() > 1 && g.keys[gk..].iter().all(|k| k.resno == 0) && g.aggs.iter().filter(|d| d.mods.distinct > 0).all(|d| d.final_ == FinalForm::PairCount && args.contains(&(d.count_slot as usize)))
+    g.form == GroupForm::Distinct
+        && gk > 0
+        && args.len() > 1
+        && g.keys[gk..].iter().all(|k| k.resno == 0)
+        && g.aggs
+            .iter()
+            .filter(|d| d.mods.distinct > 0)
+            .all(|d| d.final_ == FinalForm::PairCount && args.contains(&(d.count_slot as usize)))
 }
 
 /// Tagged group `g`'s FILTER on resno-0 key `key`: its calls' (decompose `multi_grouped` keys a filtered call apart, so
 /// the calls on one key share its FILTER). A row the FILTER does not pass reads the key as NULL (table/rec.rs
 /// `key_vals`): tag 0's record flags it, another tag's is not upserted.
 pub(crate) fn tag_filter<'p>(g: &GroupDecl<'p>, key: usize) -> Option<Node<'p>> {
-    g.aggs.iter().find(|d| d.final_ == FinalForm::PairCount && d.count_slot as usize == key).and_then(|d| d.filter)
+    g.aggs
+        .iter()
+        .find(|d| d.final_ == FinalForm::PairCount && d.count_slot as usize == key)
+        .and_then(|d| d.filter)
 }
 
 /// The count slots tagged group `g`'s accumulator appends past its riders (and a top's order slots): one per argument past

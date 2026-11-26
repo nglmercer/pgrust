@@ -1,6 +1,3 @@
-
-
-
 use ::datum::Datum;
 use ::ts_locale::LexDescr;
 use ::types_core::catalog::RECORDOID;
@@ -8,9 +5,7 @@ use ::types_error::{
     PgError, PgResult, SqlState, ERRCODE_FEATURE_NOT_SUPPORTED, ERRCODE_SYNTAX_ERROR,
     ERRCODE_UNDEFINED_OBJECT, ERRCODE_UNDEFINED_SCHEMA,
 };
-use ::types_fmgr::{
-    byref_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
-};
+use ::types_fmgr::{byref_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 
 use ::std::ffi::CString;
 
@@ -114,7 +109,9 @@ pub fn lextype() -> Vec<LexDescr> {
 }
 
 pub fn fc_prsd_lextype(_flinfo: Option<&mut FmgrInfo>, _fcinfo: &mut Fcinfo) -> PgResult<Datum> {
-    Ok(Datum::from_usize(Box::into_raw(Box::new(lextype())) as usize))
+    Ok(Datum::from_usize(
+        Box::into_raw(Box::new(lextype())) as usize
+    ))
 }
 
 // Internal-arg contract (ts_headline entry in to_tsany):
@@ -124,23 +121,20 @@ pub fn fc_prsd_headline(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> 
     // SAFETY: the armed result mcx outlives this call.
     let mcx = unsafe { fcinfo.result_mcx_detached() };
     let prs_ptr = fcinfo.arg(0).as_usize() as *mut ::ts_parse::headline::HeadlineParsedText;
-    let opts_ptr = fcinfo.arg(1).as_usize()
-        as *const ::mcx::PgVec<'_, ::ts_cache::DefListItem<'_>>;
+    let opts_ptr = fcinfo.arg(1).as_usize() as *const ::mcx::PgVec<'_, ::ts_cache::DefListItem<'_>>;
     let q_ptr = fcinfo.arg(2).as_usize() as *const u8;
     // SAFETY (all): internal-arg contract — live pointers from the
     // ts_headline frame; the tsquery image spans varsize_any bytes.
     let prs = unsafe { &mut *prs_ptr };
-    let options: &[::ts_cache::DefListItem<'_>] =
-        if opts_ptr.is_null() {
-            &[]
-        } else {
-            // SAFETY: internal-arg contract — a live PgVec reference.
-            let v = unsafe { &*opts_ptr };
-            v.as_slice()
-        };
+    let options: &[::ts_cache::DefListItem<'_>] = if opts_ptr.is_null() {
+        &[]
+    } else {
+        // SAFETY: internal-arg contract — a live PgVec reference.
+        let v = unsafe { &*opts_ptr };
+        v.as_slice()
+    };
     let payload = unsafe {
-        let image =
-            core::slice::from_raw_parts(q_ptr, ::types_tuple::varatt::varsize_any(q_ptr));
+        let image = core::slice::from_raw_parts(q_ptr, ::types_tuple::varatt::varsize_any(q_ptr));
         &image[::types_tuple::varatt::VARHDRSZ..]
     };
     crate::headline::prsd_headline_impl(
@@ -169,7 +163,9 @@ fn cstring_rows_to_tuples(
     let (::funcapi::TypeFuncClass::Composite, Some(mut desc)) =
         (resolved.class, resolved.result_tuple_desc)
     else {
-        return Err(Box::new(PgError::error("return type must be a row type".to_string())));
+        return Err(Box::new(PgError::error(
+            "return type must be a row type".to_string(),
+        )));
     };
     // BlessTupleDesc (via TupleDescGetAttInMetadata).
     if desc.tdtypeid == RECORDOID && desc.tdtypmod < 0 {
@@ -183,7 +179,11 @@ fn cstring_rows_to_tuples(
             None
         } else {
             let (infunc, typioparam) = ::lsyscache::getTypeInputInfo(att.atttypid)?;
-            Some((::fmgr_seams::fmgr_info::call(infunc)?, typioparam, att.atttypmod))
+            Some((
+                ::fmgr_seams::fmgr_info::call(infunc)?,
+                typioparam,
+                att.atttypmod,
+            ))
         });
     }
     let mut images = ::mcx::std_vec_with_capacity("tsearch", rows.len())?;
@@ -227,7 +227,11 @@ fn admit_row(cur: usize) -> PgResult<()> {
     ::mcx::check_alloc_size(next_len.saturating_mul(16))
 }
 
-fn push_cstrings(rows: &mut Vec<Vec<Vec<u8>>>, row: Vec<Vec<u8>>, mcx: ::mcx::Mcx<'_>) -> PgResult<()> {
+fn push_cstrings(
+    rows: &mut Vec<Vec<Vec<u8>>>,
+    row: Vec<Vec<u8>>,
+    mcx: ::mcx::Mcx<'_>,
+) -> PgResult<()> {
     admit_row(rows.len())?;
     rows.try_reserve(1).map_err(|_| mcx.oom(16))?;
     rows.push(row);
@@ -327,8 +331,8 @@ pub(crate) fn token_type_rows(fcinfo: &Fcinfo, prsid: ::types_core::Oid) -> PgRe
             &mut rows,
             vec![
                 format!("{}", d.lexid).into_bytes(),
-                ::mcx::std_vec_from_slice("tsearch",d.alias.as_bytes())?,
-                ::mcx::std_vec_from_slice("tsearch",d.descr.as_bytes())?,
+                ::mcx::std_vec_from_slice("tsearch", d.alias.as_bytes())?,
+                ::mcx::std_vec_from_slice("tsearch", d.descr.as_bytes())?,
             ],
             mcx,
         )?;
@@ -353,8 +357,7 @@ fn parser_oid_from_text_arg(fcinfo: &Fcinfo, i: usize) -> PgResult<::types_core:
     // text_to_cstring (varlena.c) copies the bytes without validating the
     // encoding: in a SQL_ASCII database the name may not be UTF-8.
     let names = ::varlena::text_to_qualified_name_list_bytes(fcinfo.result_mcx(), v.data())?;
-    let name_refs: Result<Vec<&str>, _> =
-        names.iter().map(|n| core::str::from_utf8(n)).collect();
+    let name_refs: Result<Vec<&str>, _> = names.iter().map(|n| core::str::from_utf8(n)).collect();
     match name_refs {
         Ok(name_refs) => namespace_seams::get_ts_parser_oid::call(&name_refs, false),
         Err(_) => Err(parser_lookup_miss_raw(&names)?),
@@ -449,7 +452,10 @@ pub(crate) fn parse_rows(fcinfo: &Fcinfo, prsid: ::types_core::Oid) -> PgResult<
     let mut push_row = |type_: i32, token_bytes: &[u8]| -> PgResult<()> {
         push_cstrings(
             &mut rows,
-            vec![format!("{type_}").into_bytes(), ::mcx::std_vec_from_slice("wparser_def",token_bytes)?],
+            vec![
+                format!("{type_}").into_bytes(),
+                ::mcx::std_vec_from_slice("wparser_def", token_bytes)?,
+            ],
             mcx,
         )
     };
@@ -488,8 +494,7 @@ pub(crate) fn parse_rows(fcinfo: &Fcinfo, prsid: ::types_core::Oid) -> PgResult<
             }
             // SAFETY: internal-arg contract (fc_prsd_nexttoken above): *lex
             // spans llen bytes of the input buffer.
-            let token_bytes =
-                unsafe { core::slice::from_raw_parts(lex, llen.max(0) as usize) };
+            let token_bytes = unsafe { core::slice::from_raw_parts(lex, llen.max(0) as usize) };
             push_row(t, token_bytes)?;
         }
         ::types_fmgr::function_call1_coll_in(
@@ -502,10 +507,7 @@ pub(crate) fn parse_rows(fcinfo: &Fcinfo, prsid: ::types_core::Oid) -> PgResult<
     Ok(SrfRows::CStrings(rows))
 }
 
-pub fn fc_ts_parse_byname(
-    flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut Fcinfo,
-) -> PgResult<Datum> {
+pub fn fc_ts_parse_byname(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     srf_drive(flinfo, fcinfo, "ts_parse_byname", |fcinfo| {
         let prsid = parser_oid_from_text_arg(fcinfo, 0)?;
         parse_rows(fcinfo, prsid)
@@ -538,7 +540,10 @@ mod admit_tests {
         assert!(super::admit_row(0).is_ok());
         assert!(super::admit_row((1 << 25) - 1).is_ok());
         let err = super::admit_row(1 << 25).unwrap_err();
-        assert_eq!(err.message(), "invalid memory alloc request size 1073741824");
+        assert_eq!(
+            err.message(),
+            "invalid memory alloc request size 1073741824"
+        );
         assert!(super::admit_row((1 << 26) - 1).is_err());
     }
 }

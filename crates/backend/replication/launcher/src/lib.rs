@@ -10,10 +10,10 @@
 // registered with C's size so pg_shmem_allocations lists it.
 #![allow(non_snake_case)]
 
+use pgsync::Mutex;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicI32, Ordering};
-use pgsync::Mutex;
 
 use datum::Datum;
 use elog::{elog as log_report, ereport};
@@ -177,7 +177,11 @@ impl LogicalRepWorker {
         self.relid = relid;
         self.relstate = 0;
         self.relstate_lsn = InvalidXLogRecPtr;
-        self.leader_pid = if is_parallel_apply { g::MyProcPid() } else { InvalidPid };
+        self.leader_pid = if is_parallel_apply {
+            g::MyProcPid()
+        } else {
+            InvalidPid
+        };
         self.parallel_apply = is_parallel_apply;
         self.last_lsn = InvalidXLogRecPtr;
         self.last_send_time = TIMESTAMP_NOBEGIN;
@@ -291,7 +295,10 @@ fn logicalrep_worker_bgw_main(main_arg: u64) -> PgResult<()> {
     if logical_worker_seams::apply_worker_main::is_installed() {
         logical_worker_seams::apply_worker_main::call(main_arg)
     } else {
-        let _ = log_report(LOG, "logical replication apply worker unported; exiting".to_string());
+        let _ = log_report(
+            LOG,
+            "logical replication apply worker unported; exiting".to_string(),
+        );
         Ok(())
     }
 }
@@ -405,8 +412,11 @@ pub fn logicalrep_worker_launch(
     let picked = with_ctx(|ctx| {
         loop {
             let free = ctx.workers.iter().position(|w| !w.in_use);
-            let nsyncworkers =
-                ctx.workers.iter().filter(|w| w.is_tablesync() && w.subid == subid).count() as i32;
+            let nsyncworkers = ctx
+                .workers
+                .iter()
+                .filter(|w| w.is_tablesync() && w.subid == subid)
+                .count() as i32;
 
             // Garbage-collect workers that never managed to attach.
             if free.is_none() || nsyncworkers >= max_sync_workers_per_subscription() {
@@ -443,8 +453,7 @@ pub fn logicalrep_worker_launch(
                 .filter(|w| w.in_use && w.subid == subid && w.is_parallel_apply())
                 .count() as i32;
             if is_parallel_apply
-                && npaworkers
-                    >= MAX_PARALLEL_APPLY_WORKERS_PER_SUBSCRIPTION.load(Ordering::Relaxed)
+                && npaworkers >= MAX_PARALLEL_APPLY_WORKERS_PER_SUBSCRIPTION.load(Ordering::Relaxed)
             {
                 return Pick::SyncLimit;
             }
@@ -544,8 +553,7 @@ fn worker_bgw_identity(
         TableSync => (
             format!(
                 "logical replication tablesync worker for subscription {} sync {}",
-                subid,
-                relid
+                subid, relid
             ),
             "logical replication tablesync worker",
             logicalrep_worker_bgw_main,
@@ -774,7 +782,8 @@ pub fn tablesync_start_time_check_and_set(
 // an empty table); also the process-death release of a leaving apply worker.
 pub fn tablesync_start_times_destroy(subid: Oid) {
     with_ctx_opt((), |ctx| {
-        ctx.tablesync_last_start_times.retain(|&(s, _), _| s != subid);
+        ctx.tablesync_last_start_times
+            .retain(|&(s, _), _| s != subid);
     });
 }
 
@@ -886,7 +895,8 @@ fn logicalrep_worker_detach_slot() {
             // dies with it (tablesync.c:425 is a process static).
             if ctx.workers[slot].wtype == LogicalRepWorkerType::Apply {
                 let subid = ctx.workers[slot].subid;
-                ctx.tablesync_last_start_times.retain(|&(s, _), _| s != subid);
+                ctx.tablesync_last_start_times
+                    .retain(|&(s, _), _| s != subid);
             }
             logicalrep_worker_cleanup_locked(&mut ctx.workers[slot]);
         });
@@ -1018,7 +1028,13 @@ fn ApplyLauncherWakeup() {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .as_ref()
-        .and_then(|ctx| if ctx.launcher_pid != 0 { ctx.launcher_proc } else { None });
+        .and_then(|ctx| {
+            if ctx.launcher_pid != 0 {
+                ctx.launcher_proc
+            } else {
+                None
+            }
+        });
     if let Some(p) = proc_no {
         latch::SetLatch(LatchHandle::proc(p));
     }
@@ -1068,7 +1084,10 @@ pub fn GetLeaderApplyWorkerPid(pid: i32) -> i32 {
 // DEBUG1 and exit status 1 so the postmaster restarts the worker; no FATAL
 // (bgworker_die precedent for the disposition shape).
 fn launcher_die() -> PgResult<()> {
-    let _ = log_report(DEBUG1, "logical replication launcher shutting down".to_string());
+    let _ = log_report(
+        DEBUG1,
+        "logical replication launcher shutting down".to_string(),
+    );
     ipc::proc_exit(1, g::MyProcPid())
 }
 

@@ -89,7 +89,11 @@ impl JsonManifestParseContext for LoadContext {
         start_lsn: XLogRecPtr,
         end_lsn: XLogRecPtr,
     ) -> PgResult<()> {
-        self.data.wal_ranges.push(ManifestWalRange { tli, start_lsn, end_lsn });
+        self.data.wal_ranges.push(ManifestWalRange {
+            tli,
+            start_lsn,
+            end_lsn,
+        });
         Ok(())
     }
 }

@@ -109,14 +109,20 @@ mod tests {
     #[test]
     fn non_template_forms_are_malformed() {
         // No `__` separator: the old bare form is gone (ruling 2026-08-05).
-        assert_eq!(parse_mint_name("tdb_", "tdb_w1"), Some(MintShape::Malformed));
+        assert_eq!(
+            parse_mint_name("tdb_", "tdb_w1"),
+            Some(MintShape::Malformed)
+        );
         assert_eq!(
             parse_mint_name("tdb_", "tdb_a_b_c"),
             Some(MintShape::Malformed)
         );
         // Empty template side (`tdb___x`) and empty token side (`tdb_tpl__`):
         // refused as template form, malformed — never a silent bare mint.
-        assert_eq!(parse_mint_name("tdb_", "tdb___x"), Some(MintShape::Malformed));
+        assert_eq!(
+            parse_mint_name("tdb_", "tdb___x"),
+            Some(MintShape::Malformed)
+        );
         assert_eq!(
             parse_mint_name("tdb_", "tdb_tpl__"),
             Some(MintShape::Malformed)

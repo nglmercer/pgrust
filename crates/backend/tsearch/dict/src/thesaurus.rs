@@ -50,7 +50,9 @@ pub struct DictThesaurus {
 #[track_caller]
 #[cold]
 fn config_file_error(msg: String) -> Box<PgError> {
-    PgError::error(msg).with_sqlstate(ERRCODE_CONFIG_FILE_ERROR).into()
+    PgError::error(msg)
+        .with_sqlstate(ERRCODE_CONFIG_FILE_ERROR)
+        .into()
 }
 
 fn copy_bytes(mcx: Mcx<'static>, b: &[u8]) -> PgResult<PgVec<'static, u8>> {
@@ -85,17 +87,29 @@ impl ThesaurusBuild {
 
     #[cfg(test)]
     pub(crate) fn lexemes(&self) -> Vec<Vec<u8>> {
-        self.wrds.iter().filter_map(|w| w.lexeme.as_ref().map(|l| l.to_vec())).collect()
+        self.wrds
+            .iter()
+            .filter_map(|w| w.lexeme.as_ref().map(|l| l.to_vec()))
+            .collect()
     }
 }
 
 fn new_lexeme(d: &mut ThesaurusBuild, word: &[u8], idsubst: u32, posinsubst: u16) -> PgResult<()> {
     let entries = arena_alloc(
         &mut d.arena,
-        LexemeInfo { idsubst, posinsubst, tnvariant: 0, nextentry: None, nextvariant: None },
+        LexemeInfo {
+            idsubst,
+            posinsubst,
+            tnvariant: 0,
+            nextentry: None,
+            nextvariant: None,
+        },
     );
     let lexeme = copy_bytes(d.mcx, word)?;
-    d.wrds.push(TheLexeme { lexeme: Some(lexeme), entries: Some(entries) });
+    d.wrds.push(TheLexeme {
+        lexeme: Some(lexeme),
+        entries: Some(entries),
+    });
     Ok(())
 }
 
@@ -108,7 +122,11 @@ fn add_wrd(
     useasis: bool,
 ) -> PgResult<()> {
     while d.subst.len() <= idsubst as usize {
-        d.subst.push(TheSubstitute { lastlexeme: 0, reslen: 0, res: PgVec::new_in(d.mcx) });
+        d.subst.push(TheSubstitute {
+            lastlexeme: 0,
+            reslen: 0,
+            res: PgVec::new_in(d.mcx),
+        });
     }
     let lexeme = copy_bytes(d.mcx, word)?;
     let ptr = &mut d.subst[idsubst as usize];
@@ -220,7 +238,14 @@ fn thesaurus_line(d: &mut ThesaurusBuild, line: &[u8], idsubst: &mut u32) -> PgR
             if i == beginwrd {
                 return Err(config_file_error("unexpected end of line or lexeme".into()));
             }
-            add_wrd(d, &line[beginwrd..i], *idsubst, nwrd as u16, posinsubst as u16, useasis)?;
+            add_wrd(
+                d,
+                &line[beginwrd..i],
+                *idsubst,
+                nwrd as u16,
+                posinsubst as u16,
+                useasis,
+            )?;
             nwrd += 1;
             state = TR_WAITSUBS;
         }
@@ -231,7 +256,14 @@ fn thesaurus_line(d: &mut ThesaurusBuild, line: &[u8], idsubst: &mut u32) -> PgR
         if i == beginwrd {
             return Err(config_file_error("unexpected end of line or lexeme".into()));
         }
-        add_wrd(d, &line[beginwrd..i], *idsubst, nwrd as u16, posinsubst as u16, useasis)?;
+        add_wrd(
+            d,
+            &line[beginwrd..i],
+            *idsubst,
+            nwrd as u16,
+            posinsubst as u16,
+            useasis,
+        )?;
         nwrd += 1;
     }
 
@@ -241,7 +273,9 @@ fn thesaurus_line(d: &mut ThesaurusBuild, line: &[u8], idsubst: &mut u32) -> PgR
         return Err(config_file_error("unexpected end of line".into()));
     }
     if nwrd > u16::MAX as u32 || posinsubst > u16::MAX as u32 {
-        return Err(config_file_error("too many lexemes in thesaurus entry".into()));
+        return Err(config_file_error(
+            "too many lexemes in thesaurus entry".into(),
+        ));
     }
     Ok(())
 }
@@ -279,7 +313,10 @@ fn add_compiled_lexeme(
             nextvariant: None,
         },
     );
-    newwrds.push(TheLexeme { lexeme: lex, entries: Some(entries) });
+    newwrds.push(TheLexeme {
+        lexeme: lex,
+        entries: Some(entries),
+    });
     Ok(())
 }
 
@@ -422,7 +459,11 @@ fn compile_the_substitute(d: &mut DictThesaurus) -> PgResult<()> {
 
         for inlex in rem.iter() {
             if inlex.flags & DT_USEASIS != 0 {
-                let toset: isize = if out.is_empty() { -1 } else { out.len() as isize };
+                let toset: isize = if out.is_empty() {
+                    -1
+                } else {
+                    out.len() as isize
+                };
                 out.push(TsLexeme {
                     nvariant: inlex.nvariant,
                     flags: 0,
@@ -438,7 +479,11 @@ fn compile_the_substitute(d: &mut DictThesaurus) -> PgResult<()> {
 
             match lexized {
                 Some(lx) if !lx.is_empty() => {
-                    let toset: isize = if out.is_empty() { -1 } else { out.len() as isize };
+                    let toset: isize = if out.is_empty() {
+                        -1
+                    } else {
+                        out.len() as isize
+                    };
                     for lex in lx {
                         out.push(TsLexeme {
                             nvariant: lex.nvariant,
@@ -654,17 +699,18 @@ fn find_variant(
     }
 }
 
-fn copy_ts_lexeme<'m>(
-    mcx: Mcx<'m>,
-    ts: &TheSubstitute,
-) -> PgResult<PgVec<'m, TsLexeme<'m>>> {
+fn copy_ts_lexeme<'m>(mcx: Mcx<'m>, ts: &TheSubstitute) -> PgResult<PgVec<'m, TsLexeme<'m>>> {
     let mut res = PgVec::new_in(mcx);
     res.try_reserve_exact(ts.reslen as usize)
         .map_err(|_| mcx.oom(ts.reslen as usize))?;
     for lex in ts.res[..ts.reslen as usize].iter() {
         let mut lexeme = vec_with_capacity_in(mcx, lex.lexeme.len())?;
         lexeme.extend_from_slice(&lex.lexeme);
-        res.push(TsLexeme { nvariant: lex.nvariant, flags: lex.flags, lexeme });
+        res.push(TsLexeme {
+            nvariant: lex.nvariant,
+            flags: lex.flags,
+            lexeme,
+        });
     }
     Ok(res)
 }
@@ -735,7 +781,8 @@ pub fn thesaurus_lexize<'m>(
                     nlex += 1;
                     p += 1;
                 }
-                let mut infos: Vec<Option<usize>> = ::mcx::std_vec_from_elem("tsearch", None, nlex)?;
+                let mut infos: Vec<Option<usize>> =
+                    ::mcx::std_vec_from_elem("tsearch", None, nlex)?;
                 let mut i = 0usize;
                 while i < nlex {
                     infos[i] = find_the_lexeme(d, Some(&arr[basevar + i].lexeme));

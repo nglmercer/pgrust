@@ -33,11 +33,8 @@ impl StringAggState {
     }
 
     pub fn append(&mut self, mcx: Mcx<'_>, bytes: &[u8]) -> PgResult<()> {
-        let newlen = ::stringinfo::enlarge_target(
-            self.len as usize,
-            self.maxlen as usize,
-            bytes.len(),
-        )?;
+        let newlen =
+            ::stringinfo::enlarge_target(self.len as usize, self.maxlen as usize, bytes.len())?;
         if newlen > self.maxlen as usize {
             // enlargeStringInfo's repalloc: grow in place where the arena can
             // (tail chunk, or a dedicated chunk via realloc) so the old buffer
@@ -47,7 +44,12 @@ impl StringAggState {
             // SAFETY: data is the live buffer this state allocated/grew from
             // `mcx` with exactly old_layout; newlen > maxlen.
             let new = unsafe {
-                Allocator::grow(&mcx, NonNull::new_unchecked(self.data), old_layout, new_layout)
+                Allocator::grow(
+                    &mcx,
+                    NonNull::new_unchecked(self.data),
+                    old_layout,
+                    new_layout,
+                )
             }
             .map_err(|_| mcx.oom(newlen))?
             .cast::<u8>()
@@ -72,14 +74,18 @@ impl StringAggState {
 #[cold]
 #[inline(never)]
 fn non_aggregate_context() -> Box<PgError> {
-    Box::new(PgError::error("string_agg_transfn called in non-aggregate context"))
+    Box::new(PgError::error(
+        "string_agg_transfn called in non-aggregate context",
+    ))
 }
 
 #[track_caller]
 #[cold]
 #[inline(never)]
 fn non_aggregate_call_context() -> Box<PgError> {
-    Box::new(PgError::error("aggregate function called in non-aggregate context"))
+    Box::new(PgError::error(
+        "aggregate function called in non-aggregate context",
+    ))
 }
 
 fn make_string_agg_state(agg_mcx: Mcx<'_>) -> PgResult<*mut StringAggState> {
@@ -92,14 +98,24 @@ fn make_string_agg_state(agg_mcx: Mcx<'_>) -> PgResult<*mut StringAggState> {
     let raw = Allocator::allocate(&agg_mcx, layout).map_err(|_| agg_mcx.oom(layout.size()))?;
     let p = raw.cast::<StringAggState>().as_ptr();
     // SAFETY: fresh allocation of the exact layout.
-    unsafe { p.write(StringAggState { data, len: 0, maxlen: INITIAL_SIZE as u32, cursor: 0 }) };
+    unsafe {
+        p.write(StringAggState {
+            data,
+            len: 0,
+            maxlen: INITIAL_SIZE as u32,
+            cursor: 0,
+        })
+    };
     Ok(p)
 }
 
 pub fn string_agg_transfn(fcinfo: &mut Fcinfo) -> PgResult<*mut StringAggState> {
     let [a, b, c] = *fcinfo.args_n::<3>();
-    let mut state: *mut StringAggState =
-        if a.isnull { core::ptr::null_mut() } else { a.value.as_usize() as *mut StringAggState };
+    let mut state: *mut StringAggState = if a.isnull {
+        core::ptr::null_mut()
+    } else {
+        a.value.as_usize() as *mut StringAggState
+    };
 
     if !b.isnull {
         // SAFETY: context, if set, is the evaltrans build's AggStateNode,
@@ -138,10 +154,16 @@ pub fn string_agg_combine(fcinfo: &mut Fcinfo) -> PgResult<*mut StringAggState> 
     let Some(agg_mcx) = (unsafe { fcinfo.agg_context() }) else {
         return Err(non_aggregate_call_context());
     };
-    let state1: *mut StringAggState =
-        if a.isnull { core::ptr::null_mut() } else { a.value.as_usize() as *mut StringAggState };
-    let state2: *const StringAggState =
-        if b.isnull { core::ptr::null() } else { b.value.as_usize() as *const StringAggState };
+    let state1: *mut StringAggState = if a.isnull {
+        core::ptr::null_mut()
+    } else {
+        a.value.as_usize() as *mut StringAggState
+    };
+    let state2: *const StringAggState = if b.isnull {
+        core::ptr::null()
+    } else {
+        b.value.as_usize() as *const StringAggState
+    };
 
     if state2.is_null() {
         return Ok(state1);
@@ -254,8 +276,14 @@ mod tests {
             }
             assert_eq!(st.maxlen as usize, maxlen);
         }
-        assert!(expected.len() > 2 * 1024 * 1024, "crossed the 8MiB-policy chunk limit");
+        assert!(
+            expected.len() > 2 * 1024 * 1024,
+            "crossed the 8MiB-policy chunk limit"
+        );
         assert_eq!(st.accumulated(), &expected[..]);
-        assert!(ctx.used() < 2 * maxlen + 64 * 1024, "old buffers are released, not retained");
+        assert!(
+            ctx.used() < 2 * maxlen + 64 * 1024,
+            "old buffers are released, not retained"
+        );
     }
 }

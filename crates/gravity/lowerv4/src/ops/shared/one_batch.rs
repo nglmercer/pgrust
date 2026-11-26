@@ -26,7 +26,9 @@ use std::borrow::Cow;
 use gravity_decompose::join::JoinDesc;
 use gravity_decompose::Op;
 use gravity_driver::Error;
-use gravity_program::cost::{PG_HASH_MIN_BUCKETS as MIN_BUCKETS, PG_HASH_ONE_BATCH_BYTES as BUDGET};
+use gravity_program::cost::{
+    PG_HASH_MIN_BUCKETS as MIN_BUCKETS, PG_HASH_ONE_BATCH_BYTES as BUDGET,
+};
 use gravity_program::LifeId;
 use mcx::{CollectIn, GrowIn, Mcx, PgVec};
 use types_nodes::jointype::JoinType;
@@ -47,7 +49,8 @@ pub(crate) const PAST: &str = "a sort keyed by another family's comparator in SQ
 /// buckets: the tuples plus a pointer per bucket, the count doubling while the tuples outnumber it (NTUP_PER_BUCKET 1).
 fn bytes(n: u64, tup: u64, first: u64) -> Option<u64> {
     let buckets = first.max(n.checked_next_power_of_two()?);
-    n.checked_mul(tup)?.checked_add(BUCKET.checked_mul(buckets)?)
+    n.checked_mul(tup)?
+        .checked_add(BUCKET.checked_mul(buckets)?)
 }
 
 /// `guard_of`'s estimate decision over the build's `rows` (1000 when unset, as ExecChooseHashTableSize reads it) and the
@@ -55,7 +58,9 @@ fn bytes(n: u64, tup: u64, first: u64) -> Option<u64> {
 /// them (D3701); `u64::MAX` when no table holds it.
 fn planned(rows: u64, a: &[u64; 4]) -> u64 {
     let est = if rows == 0 { 1000 } else { rows };
-    let Some(first) = est.max(MIN_BUCKETS).checked_next_power_of_two() else { return u64::MAX };
+    let Some(first) = est.max(MIN_BUCKETS).checked_next_power_of_two() else {
+        return u64::MAX;
+    };
     match bytes(est, a[0], first) {
         Some(b) if b <= BUDGET => first.trailing_zeros() as u64,
         Some(_) => first.trailing_zeros() as u64 | DEFER as u64,
@@ -69,13 +74,25 @@ fn planned(rows: u64, a: &[u64; 4]) -> u64 {
 pub(crate) fn guard_of(gx: &Gx<'_, '_>, b: usize) -> Option<(u16, u8)> {
     let ps = gx.pipelines();
     let p = &ps[b];
-    let Some(Op::Join(JoinDesc::Build { pg_tuple, .. })) = p.ops.last() else { return None };
-    let ours = |q: usize| ps[q].ops.iter().any(|o| matches!(o, Op::Join(JoinDesc::Probe { slot, catalog: false, .. }) if gx.life_of(q, *slot) == Some(LifeId(b as u16))));
-    if !(0..ps.len()).any(|q| q != b && ours(q) && crate::effects::visible::rep::user_batches(gx, q)) {
+    let Some(Op::Join(JoinDesc::Build { pg_tuple, .. })) = p.ops.last() else {
+        return None;
+    };
+    let ours = |q: usize| {
+        ps[q].ops.iter().any(|o| matches!(o, Op::Join(JoinDesc::Probe { slot, catalog: false, .. }) if gx.life_of(q, *slot) == Some(LifeId(b as u16))))
+    };
+    if !(0..ps.len())
+        .any(|q| q != b && ours(q) && crate::effects::visible::rep::user_batches(gx, q))
+    {
         return None;
     }
     let tup = u16::try_from(*pg_tuple).ok()?;
-    let first = gravity_lower::inputs::key::decide(b, true, p.desc.build_rows, planned, [tup as u64, 0, 0, 0]);
+    let first = gravity_lower::inputs::key::decide(
+        b,
+        true,
+        p.desc.build_rows,
+        planned,
+        [tup as u64, 0, 0, 0],
+    );
     (first != u64::MAX).then_some((tup, first as u8))
 }
 
@@ -90,13 +107,24 @@ pub(crate) fn served(px: &Px<'_, '_>, k: usize) -> bool {
     let ops = &gx.pipelines()[k].ops[..];
     ops.iter().enumerate().all(|(j, o)| match o {
         Op::Join(JoinDesc::Drain { .. }) => false,
-        Op::Join(JoinDesc::Probe { slot, jointype, unique, catalog: false, .. }) => {
+        Op::Join(JoinDesc::Probe {
+            slot,
+            jointype,
+            unique,
+            catalog: false,
+            ..
+        }) => {
             let one = match jointype {
                 JoinType::JOIN_SEMI | JoinType::JOIN_ANTI => true,
-                JoinType::JOIN_INNER | JoinType::JOIN_LEFT => *unique || alike_past(ops, j, px.mcx()),
+                JoinType::JOIN_INNER | JoinType::JOIN_LEFT => {
+                    *unique || alike_past(ops, j, px.mcx())
+                }
                 _ => false,
             };
-            one && gx.life_of(k, *slot).map(|l| l.0 as usize).is_some_and(|b| px.ahead_of_rows(b) && guard_of(gx, b).is_some())
+            one && gx
+                .life_of(k, *slot)
+                .map(|l| l.0 as usize)
+                .is_some_and(|b| px.ahead_of_rows(b) && guard_of(gx, b).is_some())
         }
         _ => true,
     })
@@ -109,9 +137,19 @@ pub(crate) fn served(px: &Px<'_, '_>, k: usize) -> bool {
 /// by ExecHashIncreaseNumBuckets) moves only ORDER BY peers. A key that reads a column a join at or past `j` adds is not.
 fn alike_past(ops: &[Op<'_>], j: usize, mcx: Mcx<'_>) -> bool {
     use types_nodes::primnodes::OUTER_VAR;
-    let Some(s) = ops.iter().rposition(|o| matches!(o, Op::Sort(_))) else { return false };
+    let Some(s) = ops.iter().rposition(|o| matches!(o, Op::Sort(_))) else {
+        return false;
+    };
     let Op::Sort(sd) = &ops[s] else { return false };
-    let passes = |o: &Op<'_>| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_) | Op::Join(JoinDesc::Probe { .. } | JoinDesc::Nest { .. }));
+    let passes = |o: &Op<'_>| {
+        matches!(
+            o,
+            Op::Filter(_)
+                | Op::Gate(_)
+                | Op::Project(_)
+                | Op::Join(JoinDesc::Probe { .. } | JoinDesc::Nest { .. })
+        )
+    };
     if s <= j || !ops[j + 1..s].iter().all(passes) {
         return false;
     }
@@ -120,7 +158,14 @@ fn alike_past(ops: &[Op<'_>], j: usize, mcx: Mcx<'_>) -> bool {
     loop {
         let mut next: PgVec<'_, i16> = PgVec::new_in(mcx);
         for &c in &cols {
-            let Some(t) = (c as usize).checked_sub(1).filter(|&i| i < tlist.len()).and_then(|i| tlist.nth(i).as_target_entry()).filter(|t| t.resno == c) else { return false };
+            let Some(t) = (c as usize)
+                .checked_sub(1)
+                .filter(|&i| i < tlist.len())
+                .and_then(|i| tlist.nth(i).as_target_entry())
+                .filter(|t| t.resno == c)
+            else {
+                return false;
+            };
             let outer = gravity_decompose::expr::walk(t.expr, &mut |x| match x.as_var() {
                 Some(v) if v.varlevelsup == 0 => {
                     let ok = v.varno == OUTER_VAR && v.varattno > 0;
@@ -137,7 +182,9 @@ fn alike_past(ops: &[Op<'_>], j: usize, mcx: Mcx<'_>) -> bool {
         }
         match ops[..at].iter().rposition(|o| matches!(o, Op::Project(_))) {
             Some(p) if p > j => {
-                let Op::Project(l) = &ops[p] else { return false };
+                let Op::Project(l) = &ops[p] else {
+                    return false;
+                };
                 (tlist, at, cols) = (*l, p, next);
             }
             _ => return at != s,
@@ -150,7 +197,11 @@ fn alike_past(ops: &[Op<'_>], j: usize, mcx: Mcx<'_>) -> bool {
 /// ExecHashBuildSkewHash charges to spaceUsed (at most as much), as `BUDGET` is of the least hash_mem, 64 kB; never
 /// below `BUDGET`, and `BUDGET` when the grant carries no ceiling (0).
 fn allowed(limit: u64) -> u64 {
-    if limit == 0 { BUDGET } else { BUDGET.max(limit - limit / 16) }
+    if limit == 0 {
+        BUDGET
+    } else {
+        BUDGET.max(limit - limit / 16)
+    }
 }
 
 /// The build's end over its `n` records (hashjoin raw.rs `one_batch`, from `finish` and `prepare_parts`) at the
@@ -158,7 +209,9 @@ fn allowed(limit: u64) -> u64 {
 /// whose records may pass `allowed(limit)` by PostgreSQL's accounting leaves by `PAST`; D3701: so does one whose guard
 /// defers the estimate (`DEFER`) when as many tuples as its first bucket count may pass it.
 pub(crate) fn check((tup, first): (u16, u8), n: u64, limit: u64) -> gravity_driver::Result<()> {
-    let buckets = 1u64.checked_shl((first & !DEFER) as u32).unwrap_or(u64::MAX);
+    let buckets = 1u64
+        .checked_shl((first & !DEFER) as u32)
+        .unwrap_or(u64::MAX);
     let fits = |n: u64| bytes(n, tup as u64, buckets).is_some_and(|b| b <= allowed(limit));
     if tup == 0 || fits(n) && (first & DEFER == 0 || fits(buckets)) {
         return Ok(());
@@ -174,8 +227,16 @@ mod tests {
     #[test]
     fn the_estimate_fits_the_least_one_batch_table() {
         assert_eq!(planned(100, &[43, 0, 0, 0]), 10);
-        assert_eq!(planned(0, &[43, 0, 0, 0]), 10, "an unset estimate reads 1000 rows");
-        assert_eq!(planned(1100, &[43, 0, 0, 0]), 11 | DEFER as u64, "2048 buckets (16 KiB) and 47 KiB of tuples pass 60 KiB");
+        assert_eq!(
+            planned(0, &[43, 0, 0, 0]),
+            10,
+            "an unset estimate reads 1000 rows"
+        );
+        assert_eq!(
+            planned(1100, &[43, 0, 0, 0]),
+            11 | DEFER as u64,
+            "2048 buckets (16 KiB) and 47 KiB of tuples pass 60 KiB"
+        );
         assert_eq!(planned(10, &[u16::MAX as u64, 0, 0, 0]), 10 | DEFER as u64);
         assert_eq!(planned(u64::MAX, &[43, 0, 0, 0]), u64::MAX);
     }
@@ -198,7 +259,10 @@ mod tests {
         assert!(check((0, 0), u64::MAX, 0).is_ok());
         assert!(check((43, 10), 1024, 0).is_ok());
         assert!(matches!(check((43, 10), 1100, 0), Err(Error::Refused(_))));
-        assert!(matches!(check((43, 63), 1, 0), Err(Error::Refused(_))), "a first count past the budget");
+        assert!(
+            matches!(check((43, 63), 1, 0), Err(Error::Refused(_))),
+            "a first count past the budget"
+        );
     }
 
     /// D3625: the rows built are judged at the statement's own hash_mem: PostgreSQL's defaults (4 MB x 2) hold 3,000
@@ -209,10 +273,16 @@ mod tests {
         assert_eq!(allowed(0), BUDGET);
         assert_eq!(allowed(1 << 10), BUDGET, "never below the least table");
         assert!(matches!(check((48, 10), 3000, 0), Err(Error::Refused(_))));
-        assert!(matches!(check((48, 10), 3000, 64 << 10), Err(Error::Refused(_))));
+        assert!(matches!(
+            check((48, 10), 3000, 64 << 10),
+            Err(Error::Refused(_))
+        ));
         assert!(check((48, 10), 3000, 8 << 20).is_ok());
         // 8 MiB less a 16th: 7.5 MiB. 160,000 rows of 48 bytes and 262,144 buckets (2 MiB) pass it
-        assert!(matches!(check((48, 10), 160_000, 8 << 20), Err(Error::Refused(_))));
+        assert!(matches!(
+            check((48, 10), 160_000, 8 << 20),
+            Err(Error::Refused(_))
+        ));
     }
 
     /// D3701: an estimate past the least table (sort_aga29_one_batch :101: 5000 int4 key + int4 rows, 8192 first buckets)
@@ -223,11 +293,20 @@ mod tests {
         assert_eq!(g, 13 | DEFER as u64);
         let g = (48, g as u8);
         assert!(check(g, 5000, 8 << 20).is_ok());
-        assert!(check(g, 10, 8 << 20).is_ok(), "few rows built over an estimate the table holds");
-        assert!(matches!(check(g, 10, 64 << 10), Err(Error::Refused(_))), "the least table holds no such estimate");
+        assert!(
+            check(g, 10, 8 << 20).is_ok(),
+            "few rows built over an estimate the table holds"
+        );
+        assert!(
+            matches!(check(g, 10, 64 << 10), Err(Error::Refused(_))),
+            "the least table holds no such estimate"
+        );
         assert!(matches!(check(g, 10, 0), Err(Error::Refused(_))));
         // 400 KiB less a 16th: 375 KiB. 8192 x 48 + 64 KiB = 448 KiB passes it, though 10 rows built would not
         assert!(matches!(check(g, 10, 400 << 10), Err(Error::Refused(_))));
-        assert!(check((48, 13), 10, 400 << 10).is_ok(), "the same first count from an estimate the least table holds");
+        assert!(
+            check((48, 13), 10, 400 << 10).is_ok(),
+            "the same first count from an estimate the least table holds"
+        );
     }
 }

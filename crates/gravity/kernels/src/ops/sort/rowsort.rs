@@ -1,10 +1,20 @@
-use crate::host_abi::*;
 use super::polled::{sort_by, Poll, Stopped, SORT_RUN};
+use crate::host_abi::*;
 
-pub use super::raw::rowsort::{cmp_rows, sort_adopt, sort_begin, sort_begin_at, sort_held_end, sort_full, sort_full_var, sort_image, sort_image_raw, sort_last, sort_last_var, sort_next, sort_next_at, sort_open, sort_open_put, sort_open_var, sort_open_var_put, sort_stop, sort_stop_at, sort_total, sort_total_at, spool_begin, spool_full, spool_last, spool_open, spool_view, spool_view_slice, var_shape, RowCmp};
 pub use super::raw::rowsort::{begin_slices, next_slices, slices_area_bytes};
 #[allow(unused_imports)]
-pub(crate) use super::raw::rowsort::{big_put, full_var_by, hosted_procs, last, last_big, next_in, open_big, permute_rows, permute_small, point_images, put, reader_of, relaid, sort_rows_by, spool_pointed, stash_of, stash_row, tbl_shape, VarPrep, VarPut, Head};
+pub(crate) use super::raw::rowsort::{
+    big_put, full_var_by, hosted_procs, last, last_big, next_in, open_big, permute_rows,
+    permute_small, point_images, put, reader_of, relaid, sort_rows_by, spool_pointed, stash_of,
+    stash_row, tbl_shape, Head, VarPrep, VarPut,
+};
+pub use super::raw::rowsort::{
+    cmp_rows, sort_adopt, sort_begin, sort_begin_at, sort_full, sort_full_var, sort_held_end,
+    sort_image, sort_image_raw, sort_last, sort_last_var, sort_next, sort_next_at, sort_open,
+    sort_open_put, sort_open_var, sort_open_var_put, sort_stop, sort_stop_at, sort_total,
+    sort_total_at, spool_begin, spool_full, spool_last, spool_open, spool_view, spool_view_slice,
+    var_shape, RowCmp,
+};
 
 // ---- the full sort's entries (rowsort.rs h_rowsort_open / full / last, begin / next / stop) ----
 
@@ -33,7 +43,11 @@ impl SortSpec {
             return (0, 0, false); // V4R-132: a fifth key on compares by its [flags, word] pair alone
         }
         let f = (self.0 >> (16 * k)) & 0xffff;
-        ((f & 0xff) as usize * 8, ((f >> 8) & 0x7f) as usize, f >> 15 != 0)
+        (
+            (f & 0xff) as usize * 8,
+            ((f >> 8) & 0x7f) as usize,
+            f >> 15 != 0,
+        )
     }
 }
 
@@ -68,7 +82,13 @@ pub(crate) fn sort_by_order<T: Copy>(idx: &mut [T], order: Order, cmp: &dyn Fn(T
 /// `Exact` are PostgreSQL's qsort with its interrupt check (the same compares in the same order as `sort_by_order`'s, the
 /// check where sort_template.h's CHECK_FOR_INTERRUPTS sits), a tick per `BATCH` checks. `scratch` holds `idx.len()`
 /// elements for an `Images` sort past `SORT_RUN` (`polled_scratch`), else none. `Err`: `idx` holds its elements in no order.
-pub(crate) fn sort_by_order_polled<T: Copy>(poll: &mut Poll<'_>, idx: &mut [T], scratch: &mut [T], order: Order, cmp: &dyn Fn(T, T) -> Ordering) -> Result<(), Stopped> {
+pub(crate) fn sort_by_order_polled<T: Copy>(
+    poll: &mut Poll<'_>,
+    idx: &mut [T],
+    scratch: &mut [T],
+    order: Order,
+    cmp: &dyn Fn(T, T) -> Ordering,
+) -> Result<(), Stopped> {
     let mut k = 0usize;
     match order {
         Order::Exact => {
@@ -76,7 +96,11 @@ pub(crate) fn sort_by_order_polled<T: Copy>(poll: &mut Poll<'_>, idx: &mut [T], 
                 idx,
                 |&a, &b| {
                     let o = cmp(a, b);
-                    if CMP_ERR.with(|c| c.get()) { Err(None) } else { Ok(o as i32) }
+                    if CMP_ERR.with(|c| c.get()) {
+                        Err(None)
+                    } else {
+                        Ok(o as i32)
+                    }
                 },
                 || {
                     k += 1;
@@ -89,17 +113,25 @@ pub(crate) fn sort_by_order_polled<T: Copy>(poll: &mut Poll<'_>, idx: &mut [T], 
                 _ => Ok(()),
             }
         }
-        Order::Lenient => gravity_fn::pg_qsort::pg_qsort_interruptible(idx, |&a, &b| cmp(a, b) as i32, || {
-            k += 1;
-            poll.batch(k)
-        }),
+        Order::Lenient => gravity_fn::pg_qsort::pg_qsort_interruptible(
+            idx,
+            |&a, &b| cmp(a, b) as i32,
+            || {
+                k += 1;
+                poll.batch(k)
+            },
+        ),
         Order::Images => sort_by(poll, idx, scratch, |&a, &b| cmp(a, b)),
     }
 }
 
 /// D4411: the elements `sort_by_order_polled`'s `scratch` holds for `n` elements under `order`.
 pub(crate) fn polled_scratch(n: usize, order: Order) -> usize {
-    if order == Order::Images && n > SORT_RUN { n } else { 0 }
+    if order == Order::Images && n > SORT_RUN {
+        n
+    } else {
+        0
+    }
 }
 
 /// The small road's bounds (`small_on`): a run's order and its permutation on the stack (raw/runs.rs `small_index`), a
@@ -224,7 +256,13 @@ gravity_fn::leader_tls::leader_tls! {
 /// `RowCmp::var_cmp` of a key under collation `coll` (0: bytes), `bpchar` trimming trailing blanks.
 #[inline(always)]
 pub(crate) fn var_cmp_as(coll: u32, bpchar: bool, x: &[u8], y: &[u8]) -> Ordering {
-    let trim = |s: &[u8]| if bpchar { s.iter().rposition(|&c| c != b' ').map_or(0, |i| i + 1) } else { s.len() };
+    let trim = |s: &[u8]| {
+        if bpchar {
+            s.iter().rposition(|&c| c != b' ').map_or(0, |i| i + 1)
+        } else {
+            s.len()
+        }
+    };
     let (x, y) = (&x[..trim(x)], &y[..trim(y)]);
     // the equal-short-key shortcut reads the prefix word: only a bytes-ordered key has one
     if coll == 0 && x.len() <= 8 && y.len() <= 8 {
@@ -249,7 +287,11 @@ pub(crate) fn var_cmp_as(coll: u32, bpchar: bool, x: &[u8], y: &[u8]) -> Orderin
 pub(crate) fn sort_exact<T: Copy>(idx: &mut [T], cmp: &dyn Fn(T, T) -> Ordering) {
     let _ = gravity_fn::pg_qsort::pg_qsort_arg(idx, |&a, &b| {
         let o = cmp(a, b);
-        if CMP_ERR.with(|c| c.get()) { Err(()) } else { Ok(o as i32) }
+        if CMP_ERR.with(|c| c.get()) {
+            Err(())
+        } else {
+            Ok(o as i32)
+        }
     });
 }
 
@@ -339,7 +381,11 @@ pub fn trim_levels(levels: usize) {
 
 /// D3620: the state `save_at(level)` kept, put back.
 pub fn restore_at(level: usize) {
-    if let Some(s) = SAVED.with(|v| v.borrow_mut().get_mut(level).map(|s| core::mem::replace(s, SortThreadState::idle()))) {
+    if let Some(s) = SAVED.with(|v| {
+        v.borrow_mut()
+            .get_mut(level)
+            .map(|s| core::mem::replace(s, SortThreadState::idle()))
+    }) {
         restore_thread_state(s);
     }
 }
@@ -347,15 +393,28 @@ pub fn restore_at(level: usize) {
 impl SortThreadState {
     /// A slot no save has filled (`save_at`'s growth).
     fn idle() -> SortThreadState {
-        SortThreadState { cmp_err: false, stash: (core::ptr::null_mut(), 0, 0, 0), big: (0, core::ptr::null_mut(), 0, false, 0), want: (0, 0, 0), want_gen: 0 }
+        SortThreadState {
+            cmp_err: false,
+            stash: (core::ptr::null_mut(), 0, 0, 0),
+            big: (0, core::ptr::null_mut(), 0, false, 0),
+            want: (0, 0, 0),
+            want_gen: 0,
+        }
     }
 }
 
 // D1061: a region a reader's merge overwrote is told from a run by the kind bytes: a run's byte 15 is TABLE_SORT, a
 // merge's is its heap_len's top byte (0); the slot's open zeroes the first 64 bytes (driver ZERO_PREFIX), so no life
 // reads another's merge.
-const _: () = assert!(TABLE_SORT != 0 && gravity_abi::breaker::TABLE_KIND_OFF == 15 && core::mem::offset_of!(SortRun, kind) == 15);
-const _: () = assert!(core::mem::offset_of!(runmerge::RunMerge, kind) == 31 && core::mem::offset_of!(runmerge::RunMerge, heap_len) == 12);
+const _: () = assert!(
+    TABLE_SORT != 0
+        && gravity_abi::breaker::TABLE_KIND_OFF == 15
+        && core::mem::offset_of!(SortRun, kind) == 15
+);
+const _: () = assert!(
+    core::mem::offset_of!(runmerge::RunMerge, kind) == 31
+        && core::mem::offset_of!(runmerge::RunMerge, heap_len) == 12
+);
 const _: () = assert!(size_of::<runmerge::RunMerge>() <= 64);
 
 /// A spool past its region (M8 L1: the run is never put; D114 serves it).
@@ -377,12 +436,20 @@ mod d1328_stash_bound_tests {
         STASH.with(|c| c.set((dst, 0, 0, 32)));
         let r = unsafe { stash_row(core::ptr::null_mut(), row.as_ptr()) };
         assert_eq!(r, ERROR);
-        let e = gravity_fn::take_error().map(|e| e.message().to_owned()).unwrap_or_default();
-        assert!(e.contains("Bug: a sort merge's emit stash of 32 bytes under a record of 33"), "{e}");
+        let e = gravity_fn::take_error()
+            .map(|e| e.message().to_owned())
+            .unwrap_or_default();
+        assert!(
+            e.contains("Bug: a sort merge's emit stash of 32 bytes under a record of 33"),
+            "{e}"
+        );
         assert!(region.iter().all(|&b| b == 0xa5));
         // at the room: copied whole
         row[..4].copy_from_slice(&32u32.to_le_bytes());
-        assert_eq!(unsafe { stash_row(core::ptr::null_mut(), row.as_ptr()) }, HOST_STOP);
+        assert_eq!(
+            unsafe { stash_row(core::ptr::null_mut(), row.as_ptr()) },
+            HOST_STOP
+        );
         assert_eq!(&region[..32], &row[..32]);
         assert!(region[32..].iter().all(|&b| b == 0xa5));
     }
@@ -404,18 +471,41 @@ mod d1301_reread_tests {
         big[2] = 77;
         unsafe {
             let m = &mut *(own as *mut runmerge::RunMerge);
-            (m.nruns, m.buf, m.emitted, m.kind, m.region, m.heap_len) = (2, 64, 5, runmerge::RUNMERGE_KIND, 8192, 0);
+            (m.nruns, m.buf, m.emitted, m.kind, m.region, m.heap_len) =
+                (2, 64, 5, runmerge::RUNMERGE_KIND, 8192, 0);
             let stash = stash_of(own).add(8);
             *(stash as *mut u64).add(2) = 42;
-            let row = next_in(core::ptr::null_mut(), own, TBL.as_ptr(), SORT_MODE_MERGE as u64, 4, 0);
+            let row = next_in(
+                core::ptr::null_mut(),
+                own,
+                TBL.as_ptr(),
+                SORT_MODE_MERGE as u64,
+                4,
+                0,
+            );
             assert_eq!(row, stash as *const u8, "row 4 again: the stash");
             assert_eq!(*(row as *const u64).add(2), 42);
             let m = &mut *(own as *mut runmerge::RunMerge);
             (m.big_last, m.big_stash) = (1, big.as_mut_ptr() as u64);
-            let row = next_in(core::ptr::null_mut(), own, TBL.as_ptr(), SORT_MODE_MERGE as u64, 4, 0);
-            assert_eq!(row, big.as_ptr() as *const u8, "a big last row again: the big stash");
+            let row = next_in(
+                core::ptr::null_mut(),
+                own,
+                TBL.as_ptr(),
+                SORT_MODE_MERGE as u64,
+                4,
+                0,
+            );
+            assert_eq!(
+                row,
+                big.as_ptr() as *const u8,
+                "a big last row again: the big stash"
+            );
             assert_eq!(*(row as *const u64).add(2), 77);
-            assert_eq!((*(own as *const runmerge::RunMerge)).emitted, 5, "no drain ran");
+            assert_eq!(
+                (*(own as *const runmerge::RunMerge)).emitted,
+                5,
+                "no drain ran"
+            );
         }
     }
 }
@@ -436,12 +526,24 @@ mod d1330_want_tests {
             assert_eq!(r.len, 0);
             let big = vec![7u8; 4096]; // alloc: Cold
             want_begin();
-            assert_eq!(sort_image(run, big.as_ptr(), big.len() as u64, 16, 32), 1, "armed: the put grows a big run");
-            assert_eq!(sort_image(run, big.as_ptr(), big.len() as u64, 16, 32), unsupported(UNSUPPORTED_SCRATCH), "armed twice: kind 2");
+            assert_eq!(
+                sort_image(run, big.as_ptr(), big.len() as u64, 16, 32),
+                1,
+                "armed: the put grows a big run"
+            );
+            assert_eq!(
+                sort_image(run, big.as_ptr(), big.len() as u64, 16, 32),
+                unsupported(UNSUPPORTED_SCRATCH),
+                "armed twice: kind 2"
+            );
             // an arm left behind (an ERROR before the put) never outlives the next open
             assert_eq!(sort_image(run, big.as_ptr(), big.len() as u64, 16, 32), 1);
             want_begin();
-            assert_eq!(sort_image(run, big.as_ptr(), big.len() as u64, 16, 32), 1, "a new open: armed afresh, not kind 2");
+            assert_eq!(
+                sort_image(run, big.as_ptr(), big.len() as u64, 16, 32),
+                1,
+                "a new open: armed afresh, not kind 2"
+            );
             let (w, _, want) = WANT.with(|c| c.get());
             assert_eq!((w, want), (run as usize, var_alloc(4 + 4096) as usize));
             // a copy that fits is stored, no arm
@@ -467,16 +569,28 @@ mod d2339_spool_pointed_tests {
         let mut buf = vec![0u64; (SORTRUN_HDR + 2 * 48) / 8]; // alloc: Cold
         let p = buf.as_mut_ptr() as *mut u8;
         unsafe {
-            *(p as *mut SortRun) = SortRun { cap: 2, len: 2, row_bytes: 48, pad: [SEALED, 0, 0], kind: TABLE_SORT };
+            *(p as *mut SortRun) = SortRun {
+                cap: 2,
+                len: 2,
+                row_bytes: 48,
+                pad: [SEALED, 0, 0],
+                kind: TABLE_SORT,
+            };
             let r = &*(p as *const SortRun);
             let (r0, r1) = (r.row(0) as *mut u8, r.row(1) as *mut u8);
             *r0.add(16) = 1;
-            assert!(!spool_pointed(r, TBL.as_ptr()), "row 1's datum 0: not pointed");
+            assert!(
+                !spool_pointed(r, TBL.as_ptr()),
+                "row 1's datum 0: not pointed"
+            );
             point_images(r1, TBL.as_ptr());
             assert_eq!(*(r1.add(8) as *const u64), r1.add(24) as u64);
             assert!(spool_pointed(r, TBL.as_ptr()));
             *r1.add(16) = 1;
-            assert!(spool_pointed(r, TBL.as_ptr()), "every cell NULL: nothing to point");
+            assert!(
+                spool_pointed(r, TBL.as_ptr()),
+                "every cell NULL: nothing to point"
+            );
         }
     }
 
@@ -491,21 +605,33 @@ mod d2339_spool_pointed_tests {
         let mut buf = vec![0u64; (SORTRUN_HDR + cap * rb) / 8 + 2]; // alloc: Cold
         let p = buf.as_mut_ptr() as *mut u8;
         unsafe {
-            *(p as *mut SortRun) = SortRun { cap: cap as u32, len: 0, row_bytes: rb as u32, pad: [0; 3], kind: TABLE_SORT };
+            *(p as *mut SortRun) = SortRun {
+                cap: cap as u32,
+                len: 0,
+                row_bytes: rb as u32,
+                pad: [0; 3],
+                kind: TABLE_SORT,
+            };
             let r = &mut *(p as *mut SortRun);
             r.clear();
             (r.len, r.pad[0]) = (len as u32, SEALED);
             for j in 0..len {
                 *(r.row(j) as *mut u8).add(8) = 1;
             }
-            assert!(spool_pointed(r, TBL.as_ptr()), "no copy reserved: nothing to point");
+            assert!(
+                spool_pointed(r, TBL.as_ptr()),
+                "no copy reserved: nothing to point"
+            );
             let top = r.reserve_var(8).expect("room") as usize;
             let row3 = r.row(3) as *mut u8;
             *row3.add(8) = 0;
             let slot = row3.add(24);
             (slot as *mut u32).write_unaligned(5);
             (slot.add(4) as *mut u32).write_unaligned((top - (SORTRUN_HDR + 3 * rb + 24)) as u32);
-            assert!(!spool_pointed(r, TBL.as_ptr()), "row 3's copy, its datum stale: not pointed");
+            assert!(
+                !spool_pointed(r, TBL.as_ptr()),
+                "row 3's copy, its datum stale: not pointed"
+            );
             point_images(row3, TBL.as_ptr());
             assert_eq!(*(row3 as *const u64), p.add(top) as u64);
             assert!(spool_pointed(r, TBL.as_ptr()));
@@ -533,7 +659,11 @@ mod exact_tests {
         assert_eq!(seen.borrow().as_slice(), &[(0, 1)]);
         let mut sorted = idx.clone();
         sorted.sort_unstable();
-        assert_eq!(sorted, (0..12).collect::<Vec<u32>>(), "a raise leaves a permutation");
+        assert_eq!(
+            sorted,
+            (0..12).collect::<Vec<u32>>(),
+            "a raise leaves a permutation"
+        );
         CMP_ERR.with(|c| c.set(false));
         let v = [1, 9, 1, 9, 1, 9, 5, 9, 1, 9, 1, 9];
         let mut idx: Vec<usize> = (0..12).collect();
@@ -544,8 +674,8 @@ mod exact_tests {
 
 #[cfg(test)]
 mod d4411_polled_order {
-    use super::*;
     use super::super::polled::BATCH;
+    use super::*;
 
     /// `0..n` shuffled (Fisher-Yates over a fixed xorshift).
     fn shuffled(n: usize) -> Vec<u32> {
@@ -580,20 +710,40 @@ mod d4411_polled_order {
                 let mut want = input.clone(); // alloc: Cold
                 sort_by_order(&mut want, order, &bad);
                 let mut got = input.clone(); // alloc: Cold
-                assert_eq!(sort_by_order_polled(&mut Poll::new(&never), &mut got, &mut [], order, &bad), Ok(()));
+                assert_eq!(
+                    sort_by_order_polled(&mut Poll::new(&never), &mut got, &mut [], order, &bad),
+                    Ok(())
+                );
                 assert_eq!(got, want, "{order:?} over {n}: sort_by_order's permutation");
             }
             let mut want = input.clone(); // alloc: Cold
             sort_by_order(&mut want, Order::Images, &tied);
-            let (mut got, mut scratch) = (input.clone(), vec![0u32; polled_scratch(n, Order::Images)]); // alloc: Cold
-            assert_eq!(sort_by_order_polled(&mut Poll::new(&never), &mut got, &mut scratch, Order::Images, &tied), Ok(()));
+            let (mut got, mut scratch) =
+                (input.clone(), vec![0u32; polled_scratch(n, Order::Images)]); // alloc: Cold
+            assert_eq!(
+                sort_by_order_polled(
+                    &mut Poll::new(&never),
+                    &mut got,
+                    &mut scratch,
+                    Order::Images,
+                    &tied
+                ),
+                Ok(())
+            );
             if n <= SORT_RUN {
                 assert_eq!(got, want, "Images over {n}: std's order");
             } else {
-                assert!(got.windows(2).all(|w| tied(w[0], w[1]).is_le()), "Images over {n}: in key order");
+                assert!(
+                    got.windows(2).all(|w| tied(w[0], w[1]).is_le()),
+                    "Images over {n}: in key order"
+                );
                 let mut all = got.clone(); // alloc: Cold
                 all.sort_unstable();
-                assert_eq!(all, (0..n as u32).collect::<Vec<u32>>(), "Images over {n}: a permutation");
+                assert_eq!(
+                    all,
+                    (0..n as u32).collect::<Vec<u32>>(),
+                    "Images over {n}: a permutation"
+                );
             }
         }
         let yes = || true;
@@ -601,10 +751,19 @@ mod d4411_polled_order {
         for order in [Order::Images, Order::Lenient, Order::Exact] {
             CMP_ERR.with(|c| c.set(false));
             let (mut v, mut scratch) = (input.clone(), vec![0u32; polled_scratch(big, order)]); // alloc: Cold
-            let cmp: &dyn Fn(u32, u32) -> Ordering = if order == Order::Images { &tied } else { &bad };
-            assert_eq!(sort_by_order_polled(&mut Poll::new(&yes), &mut v, &mut scratch, order, cmp), Err(Stopped), "{order:?}: stopped");
+            let cmp: &dyn Fn(u32, u32) -> Ordering =
+                if order == Order::Images { &tied } else { &bad };
+            assert_eq!(
+                sort_by_order_polled(&mut Poll::new(&yes), &mut v, &mut scratch, order, cmp),
+                Err(Stopped),
+                "{order:?}: stopped"
+            );
             v.sort_unstable();
-            assert_eq!(v, (0..big as u32).collect::<Vec<u32>>(), "{order:?}: a stopped sort keeps every element");
+            assert_eq!(
+                v,
+                (0..big as u32).collect::<Vec<u32>>(),
+                "{order:?}: a stopped sort keeps every element"
+            );
         }
         assert!(big > BATCH, "the qsort's checks tick past one batch");
     }
@@ -630,7 +789,11 @@ mod total_order {
                 let mut idx: Vec<u32> = (0..n as u32).rev().collect(); // alloc: Exec
                 sort_by_order(&mut idx, order, &bad);
                 idx.sort_unstable();
-                assert_eq!(idx, (0..n as u32).collect::<Vec<u32>>(), "{order:?} over {n}: a permutation");
+                assert_eq!(
+                    idx,
+                    (0..n as u32).collect::<Vec<u32>>(),
+                    "{order:?} over {n}: a permutation"
+                );
             }
         }
         let mut idx: Vec<u32> = (0..300).rev().collect(); // alloc: Exec
@@ -648,17 +811,45 @@ mod total_order {
             let mut t: Vec<u32> = vec![32, 2 * n, 1 | VAR_TBL, 0, 0, 0, 0, 24]; // alloc: Exec
             flags.iter().for_each(|&f| t.extend([0, f]));
             if flags.iter().any(|&f| f & KFLAG_HOSTED != 0) {
-                t.extend(flags.iter().map(|&f| if f & KFLAG_HOSTED != 0 { 7 } else { 0 }));
+                t.extend(
+                    flags
+                        .iter()
+                        .map(|&f| if f & KFLAG_HOSTED != 0 { 7 } else { 0 }),
+                );
             }
             unsafe { RowCmp::of(t.as_ptr()).order() }
         };
-        let (h, tot, u) = (KFLAG_HOSTED, KFLAG_HOSTED | KFLAG_TOTAL, KFLAG_HOSTED | KFLAG_USER);
+        let (h, tot, u) = (
+            KFLAG_HOSTED,
+            KFLAG_HOSTED | KFLAG_TOTAL,
+            KFLAG_HOSTED | KFLAG_USER,
+        );
         assert_eq!(order(&[0, 0]), Order::Images, "image keys");
-        assert_eq!(order(&[tot, 0]), Order::Images, "a builtin total comparator keeps std's sort");
-        assert_eq!(order(&[tot, h]), Order::Lenient, "a comparator that may reach user code");
+        assert_eq!(
+            order(&[tot, 0]),
+            Order::Images,
+            "a builtin total comparator keeps std's sort"
+        );
+        assert_eq!(
+            order(&[tot, h]),
+            Order::Lenient,
+            "a comparator that may reach user code"
+        );
         assert_eq!(order(&[h, u]), Order::Exact, "a user comparator");
-        let far = |f: u32| -> Vec<u32> { (0..ROWCMP_KEYS + 2).map(|k| if k == ROWCMP_KEYS + 1 { f } else { 0 }).collect() }; // alloc: Exec
-        assert_eq!(order(&far(tot)), Order::Images, "past ROWCMP_KEYS, a builtin total comparator");
-        assert_eq!(order(&far(h)), Order::Lenient, "past ROWCMP_KEYS, one that may reach user code");
+        let far = |f: u32| -> Vec<u32> {
+            (0..ROWCMP_KEYS + 2)
+                .map(|k| if k == ROWCMP_KEYS + 1 { f } else { 0 })
+                .collect()
+        }; // alloc: Exec
+        assert_eq!(
+            order(&far(tot)),
+            Order::Images,
+            "past ROWCMP_KEYS, a builtin total comparator"
+        );
+        assert_eq!(
+            order(&far(h)),
+            Order::Lenient,
+            "past ROWCMP_KEYS, one that may reach user code"
+        );
     }
 }

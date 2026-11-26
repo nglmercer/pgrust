@@ -1,4 +1,4 @@
-#![allow(non_snake_case,non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 use datum::Datum;
 use elog::{elog, ereport};
@@ -10,15 +10,16 @@ use logical::{
 use logical_decode::LogicalDecodingProcessRecord;
 use mcx::Mcx;
 use slot::{
-    CheckSlotPermissions, ReplicationSlotAcquire, ReplicationSlotMarkDirty,
-    ReplicationSlotRelease, WaitForStandbyConfirmation,
+    CheckSlotPermissions, ReplicationSlotAcquire, ReplicationSlotMarkDirty, ReplicationSlotRelease,
+    WaitForStandbyConfirmation,
 };
 use types_core::{Oid, TransactionId, XLogRecPtr, TEXTOID};
 use types_error::{
     ErrorLocation, PgResult, ERRCODE_FEATURE_NOT_SUPPORTED, ERRCODE_NULL_VALUE_NOT_ALLOWED, ERROR,
 };
-use types_fmgr::{varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
-    PGFunction};
+use types_fmgr::{
+    varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction,
+};
 use xlogreader::LocalPageRead;
 
 const InvalidXLogRecPtr: XLogRecPtr = 0;
@@ -201,7 +202,7 @@ fn pg_logical_slot_get_changes_guts(
                 .errcode(ERRCODE_FEATURE_NOT_SUPPORTED)
                 .errmsg("array must have even number of elements")
                 .finish(loc("pg_logical_slot_get_changes_guts"))?;
-        unreachable!();
+            unreachable!();
         }
         let mut i = 0;
         while i < elems.len() {
@@ -282,7 +283,8 @@ fn decode_loop(
     )?;
 
     if !binary && ctx.opc().options.output_type != OutputPluginOutputType::Textual {
-        let plugin = String::from_utf8_lossy(unsafe { ctx.slot.data.get() }.plugin.name_str()).into_owned();
+        let plugin =
+            String::from_utf8_lossy(unsafe { ctx.slot.data.get() }.plugin.name_str()).into_owned();
         let procname = adt_regproc::format_procedure(p.mcx, flinfo.fn_oid)?;
         ereport(ERROR)
             .errcode(ERRCODE_FEATURE_NOT_SUPPORTED)
@@ -444,15 +446,31 @@ const fn be(foid: Oid, name: &'static str, func: PGFunction) -> FmgrBuiltin {
 }
 
 pub const LOGICALFUNCS_BUILTINS: &[FmgrBuiltin] = &[
-    be(3577, "pg_logical_emit_message_text", fc_pg_logical_emit_message_text),
-    be(3578, "pg_logical_emit_message_bytea", fc_pg_logical_emit_message_bytea),
-    b(3782, "pg_logical_slot_get_changes", fc_pg_logical_slot_get_changes),
+    be(
+        3577,
+        "pg_logical_emit_message_text",
+        fc_pg_logical_emit_message_text,
+    ),
+    be(
+        3578,
+        "pg_logical_emit_message_bytea",
+        fc_pg_logical_emit_message_bytea,
+    ),
+    b(
+        3782,
+        "pg_logical_slot_get_changes",
+        fc_pg_logical_slot_get_changes,
+    ),
     b(
         3783,
         "pg_logical_slot_get_binary_changes",
         fc_pg_logical_slot_get_binary_changes,
     ),
-    b(3784, "pg_logical_slot_peek_changes", fc_pg_logical_slot_peek_changes),
+    b(
+        3784,
+        "pg_logical_slot_peek_changes",
+        fc_pg_logical_slot_peek_changes,
+    ),
     b(
         3785,
         "pg_logical_slot_peek_binary_changes",

@@ -12,8 +12,10 @@ use gravity_abi::hash::KeyHash;
 use gravity_abi::program::partial;
 use gravity_abi::site::Site;
 use gravity_abi::{Ctx, Partials, ProgramBlock};
-use gravity_kernels::ops::group::entries_distinct::{agg_distinct_block, agg_distinct_window, distinct_count_fns, runs_word, DW_DECLINED};
 use gravity_kernels::host_abi::{agg_finish, agg_open, AGG_BYPASS_WORD, AGG_STATE_BYTES};
+use gravity_kernels::ops::group::entries_distinct::{
+    agg_distinct_block, agg_distinct_window, distinct_count_fns, runs_word, DW_DECLINED,
+};
 
 const PAIR: RecordLayout = RecordLayout::with_sentinel(&[KeyKind::I64], &[], false, None);
 const SHARE: u32 = 4 << 20;
@@ -31,7 +33,10 @@ impl Bound {
     fn new() -> Bound {
         let mut own = vec![0u64; SHARE as usize / 8];
         unsafe { HashAgg::arm(own.as_mut_ptr() as *mut u8, SHARE) };
-        let mut partials = Box::new(Partials::two(own.as_mut_ptr() as *mut u8, [core::ptr::null_mut(); 2]));
+        let mut partials = Box::new(Partials::two(
+            own.as_mut_ptr() as *mut u8,
+            [core::ptr::null_mut(); 2],
+        ));
         let mut program = Box::new(ProgramBlock::NONE);
         program.partial = &mut *partials;
         // SAFETY: a site is plain words; zero is its closed state.
@@ -41,7 +46,13 @@ impl Bound {
             (*(ctx.as_mut_ptr() as *mut Ctx)).program = &mut *program;
             (*(ctx.as_mut_ptr() as *mut Ctx)).sites = &mut *site;
         }
-        Bound { ctx, site, _program: program, _partials: partials, _own: own }
+        Bound {
+            ctx,
+            site,
+            _program: program,
+            _partials: partials,
+            _own: own,
+        }
     }
 
     fn ctx(&mut self) -> *mut Ctx {
@@ -65,16 +76,37 @@ struct Window<'a> {
 /// The window taken over a fresh table: the host's status, the keys the finished table holds (every partition's records,
 /// with their partitions) and the records it holds.
 fn take(w: &Window<'_>) -> (i64, BTreeSet<i64>, usize) {
-    let bytes: Vec<u8> = w.vals.iter().flat_map(|v| v.to_le_bytes()[..w.width as usize].to_vec()).collect();
+    let bytes: Vec<u8> = w
+        .vals
+        .iter()
+        .flat_map(|v| v.to_le_bytes()[..w.width as usize].to_vec())
+        .collect();
     let valid: Vec<u64> = match w.valid {
         Some(v) => {
             let mut m = vec![0u64; v.len().div_ceil(64).max(1)];
-            v.iter().enumerate().for_each(|(i, &b)| m[i / 64] |= (b as u64) << (i % 64));
+            v.iter()
+                .enumerate()
+                .for_each(|(i, &b)| m[i / 64] |= (b as u64) << (i % 64));
             m
         }
         None => Vec::new(),
     };
-    let mut lanes = [Lane { ptr: bytes.as_ptr(), valid: if w.valid.is_some() { valid.as_ptr() } else { core::ptr::null() }, width: w.width, kind: w.kind, flags: if w.valid.is_some() { 0 } else { lane::FLAG_ALL_VALID }, ..Lane::NONE }];
+    let mut lanes = [Lane {
+        ptr: bytes.as_ptr(),
+        valid: if w.valid.is_some() {
+            valid.as_ptr()
+        } else {
+            core::ptr::null()
+        },
+        width: w.width,
+        kind: w.kind,
+        flags: if w.valid.is_some() {
+            0
+        } else {
+            lane::FLAG_ALL_VALID
+        },
+        ..Lane::NONE
+    }];
     let mut b = Bound::new();
     let rows = w.sel.map_or(w.vals.len(), |s| s.len());
     (b.site.rows, b.site.nlanes, b.site.lanes) = (w.vals.len() as u32, 1, lanes.as_mut_ptr());
@@ -83,7 +115,16 @@ fn take(w: &Window<'_>) -> (i64, BTreeSet<i64>, usize) {
     let mut st = [0u64; AGG_STATE_BYTES as usize / 8 + 2];
     unsafe {
         // an estimate of a few groups opens T1 in the table's form (no estimate at all bypasses at the open)
-        assert_eq!(agg_open(ctx, st.as_mut_ptr() as *mut u8, &PAIR, 0, if w.bypass { 0 } else { 200 }), 0);
+        assert_eq!(
+            agg_open(
+                ctx,
+                st.as_mut_ptr() as *mut u8,
+                &PAIR,
+                0,
+                if w.bypass { 0 } else { 200 }
+            ),
+            0
+        );
         let t = partial(ctx) as *mut T1;
         if w.bypass {
             (*t).flags |= T1_BYPASS;
@@ -91,10 +132,20 @@ fn take(w: &Window<'_>) -> (i64, BTreeSet<i64>, usize) {
         assert_eq!((*t).flags & T1_BYPASS != 0, w.bypass, "the table's form");
         let r = match w.blocks {
             [] => agg_distinct_window(ctx, st.as_mut_ptr() as *mut u8, 0, 0, rows as u64, w.typlen),
-            bs => bs.iter().map(|&(base, mask)| agg_distinct_block(ctx, st.as_mut_ptr() as *mut u8, 0, base, mask, w.typlen)).find(|&r| r != 0).unwrap_or(0),
+            bs => bs
+                .iter()
+                .map(|&(base, mask)| {
+                    agg_distinct_block(ctx, st.as_mut_ptr() as *mut u8, 0, base, mask, w.typlen)
+                })
+                .find(|&r| r != 0)
+                .unwrap_or(0),
         };
         if w.bypass && r == 0 {
-            assert_eq!(st[AGG_BYPASS_WORD / 8], T1_BYPASS as u64, "the state's bypass word follows T1");
+            assert_eq!(
+                st[AGG_BYPASS_WORD / 8],
+                T1_BYPASS as u64,
+                "the state's bypass word follows T1"
+            );
         }
         assert_eq!(agg_finish(ctx, st.as_mut_ptr() as *mut u8), 0);
         let (mut keys, mut recs) = (BTreeSet::new(), 0usize);
@@ -104,7 +155,12 @@ fn take(w: &Window<'_>) -> (i64, BTreeSet<i64>, usize) {
                 for i in 0..c.recs {
                     let q = (c.ptr as *const u64).add(2 * i);
                     assert_eq!(*q.add(1), 1, "a pair record's count");
-                    assert_eq!(KeyHash::word(*q).part(t.pbits as u32), p, "key {} in its KeyHash partition", *q as i64);
+                    assert_eq!(
+                        KeyHash::word(*q).part(t.pbits as u32),
+                        p,
+                        "key {} in its KeyHash partition",
+                        *q as i64
+                    );
                     keys.insert(*q as i64);
                     recs += 1;
                 }
@@ -115,17 +171,33 @@ fn take(w: &Window<'_>) -> (i64, BTreeSet<i64>, usize) {
 }
 
 fn distinct(vals: &[i64], valid: Option<&[bool]>, sel: Option<&[u32]>) -> BTreeSet<i64> {
-    let rows: Vec<usize> = sel.map_or((0..vals.len()).collect(), |s| s.iter().map(|&r| r as usize).collect());
-    rows.into_iter().filter(|&r| valid.is_none_or(|v| v[r])).map(|r| vals[r]).collect()
+    let rows: Vec<usize> = sel.map_or((0..vals.len()).collect(), |s| {
+        s.iter().map(|&r| r as usize).collect()
+    });
+    rows.into_iter()
+        .filter(|&r| valid.is_none_or(|v| v[r]))
+        .map(|r| vals[r])
+        .collect()
 }
 
 /// Runs of equal keys (lengths 1..9) over 3000 rows, key 0 and negative keys among them: under the bypass each run is one
 /// record (the adjacent duplicates dropped, across the host's 1 K chunks too), and every key lands.
 #[test]
 fn a_bypassed_window_appends_one_pair_record_per_run() {
-    let vals: Vec<i64> = (0..3000i64).map(|i| ((i / (1 + i % 9)) % 211) - 50).collect();
+    let vals: Vec<i64> = (0..3000i64)
+        .map(|i| ((i / (1 + i % 9)) % 211) - 50)
+        .collect();
     let runs = 1 + vals.windows(2).filter(|w| w[0] != w[1]).count();
-    let (r, keys, recs) = take(&Window { vals: &vals, width: 8, typlen: 8, valid: None, sel: None, bypass: true, kind: lane::KIND_BYVAL, blocks: &[] });
+    let (r, keys, recs) = take(&Window {
+        vals: &vals,
+        width: 8,
+        typlen: 8,
+        valid: None,
+        sel: None,
+        bypass: true,
+        kind: lane::KIND_BYVAL,
+        blocks: &[],
+    });
     assert_eq!(r, 0);
     assert_eq!(keys, distinct(&vals, None, None));
     assert!(keys.contains(&0), "the key 0 is a key");
@@ -136,7 +208,16 @@ fn a_bypassed_window_appends_one_pair_record_per_run() {
 #[test]
 fn an_all_equal_window_is_one_record() {
     let vals = vec![7i64; 5000];
-    let (r, keys, recs) = take(&Window { vals: &vals, width: 8, typlen: 8, valid: None, sel: None, bypass: true, kind: lane::KIND_BYVAL, blocks: &[] });
+    let (r, keys, recs) = take(&Window {
+        vals: &vals,
+        width: 8,
+        typlen: 8,
+        valid: None,
+        sel: None,
+        bypass: true,
+        kind: lane::KIND_BYVAL,
+        blocks: &[],
+    });
     assert_eq!((r, recs), (0, 1));
     assert_eq!(keys, BTreeSet::from([7]));
 }
@@ -145,7 +226,16 @@ fn an_all_equal_window_is_one_record() {
 #[test]
 fn a_window_before_the_bypass_locates_its_keys_in_t1() {
     let vals: Vec<i64> = (0..2000i64).map(|i| (i * 7919) % 173).collect();
-    let (r, keys, recs) = take(&Window { vals: &vals, width: 8, typlen: 8, valid: None, sel: None, bypass: false, kind: lane::KIND_BYVAL, blocks: &[] });
+    let (r, keys, recs) = take(&Window {
+        vals: &vals,
+        width: 8,
+        typlen: 8,
+        valid: None,
+        sel: None,
+        bypass: false,
+        kind: lane::KIND_BYVAL,
+        blocks: &[],
+    });
     assert_eq!(r, 0);
     assert_eq!(keys, distinct(&vals, None, None));
     assert_eq!(recs, keys.len(), "T1 held each key once");
@@ -159,10 +249,23 @@ fn nulls_the_selection_and_narrow_lanes_read_as_the_row_loop_reads_them() {
     let valid: Vec<bool> = (0..1500).map(|i| i % 5 != 2).collect();
     let sel: Vec<u32> = (0..1500u32).filter(|i| i % 3 != 1).collect();
     for (width, typlen) in [(8u8, 8u64), (4, 4), (2, 2), (8, 4)] {
-        let w = Window { vals: &vals, width, typlen, valid: Some(&valid), sel: Some(&sel), bypass: true, kind: lane::KIND_BYVAL, blocks: &[] };
+        let w = Window {
+            vals: &vals,
+            width,
+            typlen,
+            valid: Some(&valid),
+            sel: Some(&sel),
+            bypass: true,
+            kind: lane::KIND_BYVAL,
+            blocks: &[],
+        };
         let (r, keys, _) = take(&w);
         assert_eq!(r, 0, "width {width}");
-        assert_eq!(keys, distinct(&vals, Some(&valid), Some(&sel)), "width {width} typlen {typlen}");
+        assert_eq!(
+            keys,
+            distinct(&vals, Some(&valid), Some(&sel)),
+            "width {width} typlen {typlen}"
+        );
         assert!(keys.iter().any(|&k| k < 0), "negative keys kept their sign");
     }
 }
@@ -172,10 +275,27 @@ fn nulls_the_selection_and_narrow_lanes_read_as_the_row_loop_reads_them() {
 fn runs_after(vals: &[i64], valid: Option<&[bool]>, sel: Option<&[u32]>, pre: u64) -> (i64, u64) {
     let mut m = vec![0u64; vals.len().div_ceil(64).max(1)];
     if let Some(v) = valid {
-        v.iter().enumerate().for_each(|(i, &b)| m[i / 64] |= (b as u64) << (i % 64));
+        v.iter()
+            .enumerate()
+            .for_each(|(i, &b)| m[i / 64] |= (b as u64) << (i % 64));
     }
     let bytes: Vec<u8> = vals.iter().flat_map(|v| v.to_le_bytes()).collect();
-    let mut lanes = [Lane { ptr: bytes.as_ptr(), valid: if valid.is_some() { m.as_ptr() } else { core::ptr::null() }, width: 8, kind: lane::KIND_BYVAL, flags: if valid.is_some() { 0 } else { lane::FLAG_ALL_VALID }, ..Lane::NONE }];
+    let mut lanes = [Lane {
+        ptr: bytes.as_ptr(),
+        valid: if valid.is_some() {
+            m.as_ptr()
+        } else {
+            core::ptr::null()
+        },
+        width: 8,
+        kind: lane::KIND_BYVAL,
+        flags: if valid.is_some() {
+            0
+        } else {
+            lane::FLAG_ALL_VALID
+        },
+        ..Lane::NONE
+    }];
     let mut b = Bound::new();
     (b.site.rows, b.site.nlanes, b.site.lanes) = (vals.len() as u32, 1, lanes.as_mut_ptr());
     b.site.sel = sel.map_or(core::ptr::null(), |s| s.as_ptr());
@@ -198,25 +318,56 @@ fn runs_after(vals: &[i64], valid: Option<&[bool]>, sel: Option<&[u32]>, pre: u6
 /// window with no non-NULL row leaves it as it was.
 #[test]
 fn a_taken_window_writes_whether_its_keys_came_in_runs() {
-    assert_eq!((runs_word(1, 2), runs_word(2, 3)), (1, 0), "kept x 2 <= rows");
+    assert_eq!(
+        (runs_word(1, 2), runs_word(2, 3)),
+        (1, 0),
+        "kept x 2 <= rows"
+    );
     let runs_of = |n: i64| -> Vec<i64> { (0..3000i64).map(|i| (i / n * 7919) % 1009).collect() };
-    let one_two: Vec<i64> = (0..3000i64).map(|i| (i / 3 * 2 + (i % 3 != 0) as i64) * 7919 % 1009).collect();
-    assert_eq!(one_two.windows(2).filter(|w| w[0] != w[1]).count() + 1, 2000, "runs of 1 and 2 by turns: 2000 keys kept of 3000");
-    for (what, vals, want) in [("runs of 2", runs_of(2), 1), ("runs of 3", runs_of(3), 1), ("no runs", runs_of(1), 0), ("runs of 1.5", one_two, 0)] {
+    let one_two: Vec<i64> = (0..3000i64)
+        .map(|i| (i / 3 * 2 + (i % 3 != 0) as i64) * 7919 % 1009)
+        .collect();
+    assert_eq!(
+        one_two.windows(2).filter(|w| w[0] != w[1]).count() + 1,
+        2000,
+        "runs of 1 and 2 by turns: 2000 keys kept of 3000"
+    );
+    for (what, vals, want) in [
+        ("runs of 2", runs_of(2), 1),
+        ("runs of 3", runs_of(3), 1),
+        ("no runs", runs_of(1), 0),
+        ("runs of 1.5", one_two, 0),
+    ] {
         assert_eq!(runs_after(&vals, None, None, 7), (0, want), "{what}");
     }
     // through a selection that keeps whole runs of 4 (every other run): runs of 4 survive
     let sel: Vec<u32> = (0..3000u32).filter(|i| i / 4 % 2 == 0).collect();
-    assert_eq!(runs_after(&runs_of(4), None, Some(&sel), 7), (0, 1), "runs through the selection");
+    assert_eq!(
+        runs_after(&runs_of(4), None, Some(&sel), 7),
+        (0, 1),
+        "runs through the selection"
+    );
     // a selection that keeps one row of each run of 4: no runs survive
     let one: Vec<u32> = (0..3000u32).filter(|i| i % 4 == 0).collect();
-    assert_eq!(runs_after(&runs_of(4), None, Some(&one), 7), (0, 0), "one row a run through the selection");
+    assert_eq!(
+        runs_after(&runs_of(4), None, Some(&one), 7),
+        (0, 0),
+        "one row a run through the selection"
+    );
     // NULL rows between equal keys: x NULL x is one run
     let vals: Vec<i64> = (0..3000i64).map(|i| (i / 3 * 7919) % 1009).collect();
     let valid: Vec<bool> = (0..3000).map(|i| i % 3 != 1).collect();
-    assert_eq!(runs_after(&vals, Some(&valid), None, 7), (0, 1), "a NULL inside a run");
+    assert_eq!(
+        runs_after(&vals, Some(&valid), None, 7),
+        (0, 1),
+        "a NULL inside a run"
+    );
     let none = vec![false; 300];
-    assert_eq!(runs_after(&vals[..300], Some(&none), None, 7), (0, 7), "no non-NULL row: the word as it was");
+    assert_eq!(
+        runs_after(&vals[..300], Some(&none), None, 7),
+        (0, 7),
+        "no non-NULL row: the word as it was"
+    );
 }
 
 /// G4: what the host cannot read, it declines untouched (the rows walk): a code lane, an undecoded lane, a 1-byte lane, a
@@ -225,22 +376,58 @@ fn a_taken_window_writes_whether_its_keys_came_in_runs() {
 fn a_lane_the_host_cannot_read_declines() {
     let vals = vec![1i64, 2, 3];
     for (kind, width) in [(lane::KIND_CODES, 8u8), (lane::KIND_BYVAL, 1)] {
-        let (r, keys, _) = take(&Window { vals: &vals, width, typlen: 8, valid: None, sel: None, bypass: true, kind, blocks: &[] });
-        assert_eq!((r, keys.len()), (DW_DECLINED, 0), "kind {kind} width {width}");
+        let (r, keys, _) = take(&Window {
+            vals: &vals,
+            width,
+            typlen: 8,
+            valid: None,
+            sel: None,
+            bypass: true,
+            kind,
+            blocks: &[],
+        });
+        assert_eq!(
+            (r, keys.len()),
+            (DW_DECLINED, 0),
+            "kind {kind} width {width}"
+        );
     }
     let mut b = Bound::new();
-    let mut lanes = [Lane { kind: lane::KIND_BYVAL, width: 8, ..Lane::NONE }];
+    let mut lanes = [Lane {
+        kind: lane::KIND_BYVAL,
+        width: 8,
+        ..Lane::NONE
+    }];
     (b.site.rows, b.site.nlanes, b.site.lanes) = (3, 1, lanes.as_mut_ptr());
     let ctx = b.ctx();
     let mut st = [0u64; AGG_STATE_BYTES as usize / 8 + 4];
     unsafe {
         assert_eq!(agg_open(ctx, st.as_mut_ptr() as *mut u8, &PAIR, 0, 0), 0);
-        assert_eq!(agg_distinct_window(ctx, st.as_mut_ptr() as *mut u8, 0, 0, 3, 8), DW_DECLINED, "an undecoded lane");
+        assert_eq!(
+            agg_distinct_window(ctx, st.as_mut_ptr() as *mut u8, 0, 0, 3, 8),
+            DW_DECLINED,
+            "an undecoded lane"
+        );
         let dense = AGG_STATE_BYTES as u64 + 16;
         st[dense as usize / 8] = 1;
-        assert_eq!(agg_distinct_window(ctx, st.as_mut_ptr() as *mut u8, 0, 0, 3, 8 | dense << 16), DW_DECLINED, "a dense table.small");
+        assert_eq!(
+            agg_distinct_window(ctx, st.as_mut_ptr() as *mut u8, 0, 0, 3, 8 | dense << 16),
+            DW_DECLINED,
+            "a dense table.small"
+        );
         // KEYED-24: the block entry declines a dense table.small the same way (its rows walk)
-        assert_eq!(agg_distinct_block(ctx, st.as_mut_ptr() as *mut u8, 0, 0, 0b101, 8 | dense << 16), DW_DECLINED, "a dense table.small's block");
+        assert_eq!(
+            agg_distinct_block(
+                ctx,
+                st.as_mut_ptr() as *mut u8,
+                0,
+                0,
+                0b101,
+                8 | dense << 16
+            ),
+            DW_DECLINED,
+            "a dense table.small's block"
+        );
     }
 }
 
@@ -252,21 +439,53 @@ fn a_block_takes_the_rows_its_mask_passes() {
     let vals: Vec<i64> = (0..1500i64).map(|i| (i * 7919) % 389 - 190).collect();
     let valid: Vec<bool> = (0..1500).map(|i| i % 7 != 3).collect();
     let sel: Vec<u32> = (0..1500u32).filter(|i| i % 4 != 2).collect();
-    let blocks: Vec<(u64, u64)> = (0..sel.len() as u64).step_by(64).map(|b| {
-        let n = (sel.len() as u64 - b).min(64);
-        let mask = (b.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0x5555_5555_5555_5555) & if n == 64 { u64::MAX } else { (1 << n) - 1 };
-        (b, mask)
-    }).chain([(0, 0)]).collect();
+    let blocks: Vec<(u64, u64)> = (0..sel.len() as u64)
+        .step_by(64)
+        .map(|b| {
+            let n = (sel.len() as u64 - b).min(64);
+            let mask = (b.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0x5555_5555_5555_5555)
+                & if n == 64 { u64::MAX } else { (1 << n) - 1 };
+            (b, mask)
+        })
+        .chain([(0, 0)])
+        .collect();
     let at = |p: u64| sel[p as usize] as usize;
-    let want: BTreeSet<i64> = blocks.iter().flat_map(|&(b, m)| (0..64u64).filter(move |i| m >> i & 1 == 1).map(move |i| b + i)).map(at)
-        .filter(|&r| valid[r]).map(|r| vals[r]).collect();
+    let want: BTreeSet<i64> = blocks
+        .iter()
+        .flat_map(|&(b, m)| {
+            (0..64u64)
+                .filter(move |i| m >> i & 1 == 1)
+                .map(move |i| b + i)
+        })
+        .map(at)
+        .filter(|&r| valid[r])
+        .map(|r| vals[r])
+        .collect();
     for (width, typlen, bypass) in [(8u8, 8u64, true), (8, 8, false), (4, 4, true), (2, 2, true)] {
-        let w = Window { vals: &vals, width, typlen, valid: Some(&valid), sel: Some(&sel), bypass, kind: lane::KIND_BYVAL, blocks: &blocks };
+        let w = Window {
+            vals: &vals,
+            width,
+            typlen,
+            valid: Some(&valid),
+            sel: Some(&sel),
+            bypass,
+            kind: lane::KIND_BYVAL,
+            blocks: &blocks,
+        };
         let (r, keys, _) = take(&w);
         assert_eq!(r, 0, "width {width}");
         assert_eq!(keys, want, "width {width} bypass {bypass}");
     }
-    let (r, keys, _) = take(&Window { vals: &vals, width: 1, typlen: 8, valid: None, sel: None, bypass: true, kind: lane::KIND_BYVAL, blocks: &[(0, 7)] });
+    let (r, keys, _) = take(&Window {
+        vals: &vals,
+        width: 1,
+        typlen: 8,
+        valid: None,
+        sel: None,
+        bypass: true,
+        kind: lane::KIND_BYVAL,
+        blocks: &[(0, 7)],
+    });
     assert_eq!((r, keys.len()), (DW_DECLINED, 0));
 }
 
@@ -276,24 +495,68 @@ fn a_block_takes_the_rows_its_mask_passes() {
 fn the_insert_count_owner_counts_a_partitions_distinct_keys() {
     let fns = distinct_count_fns();
     let fold = fns.fold.expect("the owner's fold");
-    let keys: Vec<u64> = (0..3000u64).map(|i| (i * 2654435761) % 1100).chain([0, 0, 5, 5]).collect();
+    let keys: Vec<u64> = (0..3000u64)
+        .map(|i| (i * 2654435761) % 1100)
+        .chain([0, 0, 5, 5])
+        .collect();
     let recs: Vec<u64> = keys.iter().flat_map(|&k| [k, 1]).collect();
     let want = keys.iter().collect::<BTreeSet<_>>().len() as u32;
     let cap = 2048u32;
     let mut region = vec![0u64; (HASHAGG_HDR + cap as usize * 16) / 8 + 1];
     unsafe {
-        let t = HashAgg::at(region.as_mut_ptr() as *mut u8, &PAIR, cap, (region.len() * 8) as u32) as *mut HashAgg;
-        let n = fold(fns.params.as_ptr(), t, recs.as_ptr() as *const u8, keys.len(), SubSplit::NONE, core::ptr::null_mut());
+        let t = HashAgg::at(
+            region.as_mut_ptr() as *mut u8,
+            &PAIR,
+            cap,
+            (region.len() * 8) as u32,
+        ) as *mut HashAgg;
+        let n = fold(
+            fns.params.as_ptr(),
+            t,
+            recs.as_ptr() as *const u8,
+            keys.len(),
+            SubSplit::NONE,
+            core::ptr::null_mut(),
+        );
         assert_eq!(n, keys.len() as i64);
         assert_eq!((*t).len, want, "each key once, 0 among them");
         let mut owner = vec![0u64; 64];
         assert!((fns.open)(fns.params.as_ptr(), owner.as_mut_ptr() as *mut u8, 512) > 0);
-        assert_eq!((fns.reduce)(fns.params.as_ptr(), owner.as_mut_ptr() as *mut u8, t, core::ptr::null_mut(), core::ptr::null(), 0), 0);
-        assert_eq!(gravity_abi::breaker::OwnerTop::view(owner.as_ptr() as *const u8).total, want as u64);
+        assert_eq!(
+            (fns.reduce)(
+                fns.params.as_ptr(),
+                owner.as_mut_ptr() as *mut u8,
+                t,
+                core::ptr::null_mut(),
+                core::ptr::null(),
+                0
+            ),
+            0
+        );
+        assert_eq!(
+            gravity_abi::breaker::OwnerTop::view(owner.as_ptr() as *const u8).total,
+            want as u64
+        );
         let mut region = vec![0u64; (HASHAGG_HDR + 256 * 16) / 8 + 1];
-        let small = HashAgg::at(region.as_mut_ptr() as *mut u8, &PAIR, 256, (region.len() * 8) as u32) as *mut HashAgg;
-        let n = fold(fns.params.as_ptr(), small, recs.as_ptr() as *const u8, keys.len(), SubSplit::NONE, core::ptr::null_mut());
-        assert!(n < 0 && (*small).len as usize == 512 - 512 / 8, "a full table refuses ({n}, len {})", (*small).len);
+        let small = HashAgg::at(
+            region.as_mut_ptr() as *mut u8,
+            &PAIR,
+            256,
+            (region.len() * 8) as u32,
+        ) as *mut HashAgg;
+        let n = fold(
+            fns.params.as_ptr(),
+            small,
+            recs.as_ptr() as *const u8,
+            keys.len(),
+            SubSplit::NONE,
+            core::ptr::null_mut(),
+        );
+        assert!(
+            n < 0 && (*small).len as usize == 512 - 512 / 8,
+            "a full table refuses ({n}, len {})",
+            (*small).len
+        );
     }
 }
 
@@ -306,8 +569,24 @@ fn a_cap_2_table_refuses_before_its_last_word() {
     let recs: Vec<u64> = (1..=8u64).flat_map(|k| [k, 1]).collect();
     let mut region = vec![0u64; (HASHAGG_HDR + 2 * 16) / 8 + 1];
     unsafe {
-        let t = HashAgg::at(region.as_mut_ptr() as *mut u8, &PAIR, 2, (region.len() * 8) as u32) as *mut HashAgg;
-        let n = fold(fns.params.as_ptr(), t, recs.as_ptr() as *const u8, 8, SubSplit::NONE, core::ptr::null_mut());
-        assert!(n < 0 && (*t).len == 3, "a full cap-2 table refuses with a word empty ({n}, len {})", (*t).len);
+        let t = HashAgg::at(
+            region.as_mut_ptr() as *mut u8,
+            &PAIR,
+            2,
+            (region.len() * 8) as u32,
+        ) as *mut HashAgg;
+        let n = fold(
+            fns.params.as_ptr(),
+            t,
+            recs.as_ptr() as *const u8,
+            8,
+            SubSplit::NONE,
+            core::ptr::null_mut(),
+        );
+        assert!(
+            n < 0 && (*t).len == 3,
+            "a full cap-2 table refuses with a word empty ({n}, len {})",
+            (*t).len
+        );
     }
 }

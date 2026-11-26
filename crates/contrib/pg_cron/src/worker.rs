@@ -67,8 +67,13 @@ fn execute_sql_string(mcx: Mcx<'_>, sql: &str) -> PgResult<Option<String>> {
             &[],
             QueryEnvHandle::NULL,
         )?;
-        let plantree_list =
-            postgres::simple_query::pg_plan_queries(mcx, querytree_list, sql, 0, ParamListHandle::NULL)?;
+        let plantree_list = postgres::simple_query::pg_plan_queries(
+            mcx,
+            querytree_list,
+            sql,
+            0,
+            ParamListHandle::NULL,
+        )?;
         if snapshot_set {
             snapmgr::PopActiveSnapshot()?;
         }
@@ -78,13 +83,27 @@ fn execute_sql_string(mcx: Mcx<'_>, sql: &str) -> PgResult<Option<String>> {
         portal.borrow_mut().visible = false;
         // SAFETY: `plantree_list` is arena-backed by `mcx` and outlives the
         let stmts = unsafe { pquery::stmt_list::register(&plantree_list) };
-        portalmem::PortalDefineQuery(&portal, None, sql, command_tag, stmts, CachedPlanHandle::NULL)?;
+        portalmem::PortalDefineQuery(
+            &portal,
+            None,
+            sql,
+            command_tag,
+            stmts,
+            CachedPlanHandle::NULL,
+        )?;
         pquery::PortalStart(&portal, ParamListHandle::NULL, 0, None)?;
         pquery::PortalSetResultFormat(&portal, &[1])?;
 
         let mut receiver = tcop_dest::CreateDestReceiver(types_dest::CommandDest::None);
         let mut qc = QueryCompletion::default();
-        let run = pquery::PortalRun(&portal, FETCH_ALL, is_top_level, &mut receiver, None, Some(&mut qc));
+        let run = pquery::PortalRun(
+            &portal,
+            FETCH_ALL,
+            is_top_level,
+            &mut receiver,
+            None,
+            Some(&mut qc),
+        );
         receiver.destroy();
         run?;
         portalmem::PortalDrop(&portal, false)?;
@@ -111,7 +130,10 @@ fn run_job(spec: &JobSpec, result: &Arc<Mutex<JobResult>>) -> PgResult<()> {
     xact::StartTransactionCommand()?;
     let statement_timeout = lmgr_proc::globals::StatementTimeout();
     if statement_timeout > 0 {
-        timeout_seams::enable_timeout_after::call(timeout_seams::STATEMENT_TIMEOUT, statement_timeout)?;
+        timeout_seams::enable_timeout_after::call(
+            timeout_seams::STATEMENT_TIMEOUT,
+            statement_timeout,
+        )?;
     }
     let outcome = execute_sql_string(cx.mcx(), &spec.command);
     if timeout_seams::get_timeout_active::call(timeout_seams::STATEMENT_TIMEOUT) {
@@ -120,7 +142,10 @@ fn run_job(spec: &JobSpec, result: &Arc<Mutex<JobResult>>) -> PgResult<()> {
     let tag = outcome?;
     xact::CommitTransactionCommand()?;
 
-    backend_status_seams::pgstat_report_activity::call(backend_status_seams::BackendState::STATE_IDLE, None);
+    backend_status_seams::pgstat_report_activity::call(
+        backend_status_seams::BackendState::STATE_IDLE,
+        None,
+    );
     result.lock().unwrap_or_else(|e| e.into_inner()).command_tag = tag;
     Ok(())
 }
@@ -149,7 +174,10 @@ pub fn cron_background_worker_main(main_arg: u64) -> PgResult<()> {
         if xact::IsTransactionState() {
             let _ = xact::AbortCurrentTransaction();
         }
-        let _ = elog::elog(LOG, format!("cron job {} failed: {}", spec.job_id, e.message()));
+        let _ = elog::elog(
+            LOG,
+            format!("cron job {} failed: {}", spec.job_id, e.message()),
+        );
         result.lock().unwrap_or_else(|e| e.into_inner()).error = Some(returned_message(e));
     }
     result.lock().unwrap_or_else(|e| e.into_inner()).finished = true;

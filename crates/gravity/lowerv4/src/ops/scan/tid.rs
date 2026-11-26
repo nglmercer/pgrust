@@ -14,10 +14,13 @@ use gravity_decompose::{Am, Source};
 use gravity_ir::builder::{FunctionBuilder, ProgramBuilder};
 use gravity_ir::{Block, Value};
 use gravity_lower::Place;
-use gravity_program::{limits, ArenaVec, LaneId as SiteLane, Parallel, Pipeline, Reason as Why, SiteDesc};
+use gravity_program::{
+    limits, ArenaVec, LaneId as SiteLane, Parallel, Pipeline, Reason as Why, SiteDesc,
+};
 use mcx::{CollectIn, GrowIn, PgBox, PgVec};
 use types_nodes::Node;
 
+use crate::admit::refusal::{Reason, ShapeWhy, Variant};
 use crate::face::kinds::KindId;
 use crate::face::source::{Locator, SourceMech, WinConds};
 use crate::frame::env::Env;
@@ -25,11 +28,13 @@ use crate::frame::frame::{SourceMaker, Win};
 use crate::frame::px::Px;
 use crate::frame::row::{Carry, RowVals};
 use crate::frame::site::{Reader, CTID_AT, HOST_KEY};
-use crate::admit::refusal::{Reason, ShapeWhy, Variant};
 use crate::lifetime::bound::{self, BoundAt, Feed};
 use crate::ops::Table;
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::SrcTid, &SourceMaker(make))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::SrcTid, &SourceMaker(make))],
+    ..crate::ops::NONE
+};
 
 /// `ctid` (SelfItemPointerAttributeNumber): a TID key cell's attribute.
 const CTID: i16 = -1;
@@ -44,7 +49,10 @@ struct Tid<'g> {
 
 /// The value side of one TID clause (the decomposer admitted each: `ctid = v`, `ctid = ANY (a)`, `ctid op v`, `v op ctid`).
 fn value_of<'p>(q: Node<'p>, varno: i32, node: i32) -> Node<'p> {
-    let is_ctid = |n: Node<'_>| n.as_var().is_some_and(|v| v.varno == varno && v.varlevelsup == 0 && v.varattno == CTID);
+    let is_ctid = |n: Node<'_>| {
+        n.as_var()
+            .is_some_and(|v| v.varno == varno && v.varlevelsup == 0 && v.varattno == CTID)
+    };
     if let Some(op) = q.as_op_expr().filter(|o| o.args.len() == 2) {
         return match (is_ctid(op.args.nth(0)), is_ctid(op.args.nth(1))) {
             (true, _) => op.args.nth(1),
@@ -52,9 +60,15 @@ fn value_of<'p>(q: Node<'p>, varno: i32, node: i32) -> Node<'p> {
             _ => shape(node, "a tid clause without its ctid side"),
         };
     }
-    match q.as_scalar_array_op_expr().filter(|s| s.args.len() == 2 && s.useOr && is_ctid(s.args.nth(0))) {
+    match q
+        .as_scalar_array_op_expr()
+        .filter(|s| s.args.len() == 2 && s.useOr && is_ctid(s.args.nth(0)))
+    {
         Some(sa) => sa.args.nth(1),
-        None => shape(node, "a tid clause that is not a comparison or an array probe of ctid"),
+        None => shape(
+            node,
+            "a tid clause that is not a comparison or an array probe of ctid",
+        ),
     }
 }
 
@@ -62,7 +76,22 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
     let gx = px.gx;
     let p = &gx.pipelines()[k];
     let node = p.node_id;
-    let Source::Tid { site, am, scanrelid, relid, form, quals } = &p.source else { crate::refuse!(node, Reason::Bug { payload: "a tid entry over another source" }) };
+    let Source::Tid {
+        site,
+        am,
+        scanrelid,
+        relid,
+        form,
+        quals,
+    } = &p.source
+    else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a tid entry over another source"
+            }
+        )
+    };
     if *am != Am::Heap {
         shape(node, "a tid scan over a relation that is not a heap table");
     }
@@ -71,7 +100,10 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
     if *form == TidForm::Current {
         match px.plan.cursor(quals.nth(0)) {
             Place::Word(w) => slots.push_in(w),
-            Place::Fold => shape(node, "a CURRENT OF without its cursor word (the statement's words are full)"),
+            Place::Fold => shape(
+                node,
+                "a CURRENT OF without its cursor word (the statement's words are full)",
+            ),
             Place::Exec(_) => crate::not_built!(node, Variant::Kind(KindId::NestParam)),
         }
     } else {
@@ -97,8 +129,13 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
                     bound::declare(px, Feed::Tid, k, v, node, BoundAt::Rescan);
                     slots.push_in(crate::rerun::params_key::computed_key(node, v, &mut ids));
                 }
-                Place::Fold if gravity_lower::rerun::words::has_exec(v) => crate::rerun::params::key(px.gx, node, v),
-                Place::Fold => shape(node, "a tid key without a parameter word (the statement's words are full)"),
+                Place::Fold if gravity_lower::rerun::words::has_exec(v) => {
+                    crate::rerun::params::key(px.gx, node, v)
+                }
+                Place::Fold => shape(
+                    node,
+                    "a tid key without a parameter word (the statement's words are full)",
+                ),
                 Place::Exec(id) => {
                     let w = crate::rerun::params::exec_key(px, node, id);
                     slots.push_in(w);
@@ -107,9 +144,21 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
         }
         // the host's values' parameters as input cells after the clause cells, read at every (re-)open
         if slots.contains(&HOST_KEY) {
-            let vals: PgVec<'_, Node<'_>> = quals.iter().map(|q| value_of(q, *scanrelid as i32, node)).collect_in(px.mcx());
+            let vals: PgVec<'_, Node<'_>> = quals
+                .iter()
+                .map(|q| value_of(q, *scanrelid as i32, node))
+                .collect_in(px.mcx());
             let mut attnos = PgVec::new_in(px.mcx());
-            crate::rerun::params_key::input_cells_opening(px, node, &ids, &ids, vals.iter().copied(), &mut slots, &mut attnos, opens);
+            crate::rerun::params_key::input_cells_opening(
+                px,
+                node,
+                &ids,
+                &ids,
+                vals.iter().copied(),
+                &mut slots,
+                &mut attnos,
+                opens,
+            );
         }
     }
     if slots.len() > limits::KEYS {
@@ -128,7 +177,10 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
 /// executor-key flag (frame/site.rs `EXEC_KEY`: every reader takes a word without it as plain, whatever its `INIT_KEY` bit,
 /// and `HOST_KEY` sets it) and fits an `i16` param slot (V4R-522). An InitPlan's handle word past `params::init_place`'s
 /// 14-bit field refuses by name where it is placed (`params::place`).
-const _: () = assert!(limits::PARAM_WORDS <= crate::frame::site::EXEC_KEY as usize && limits::PARAM_WORDS - 1 <= i16::MAX as usize);
+const _: () = assert!(
+    limits::PARAM_WORDS <= crate::frame::site::EXEC_KEY as usize
+        && limits::PARAM_WORDS - 1 <= i16::MAX as usize
+);
 
 /// The TID site: the decomposer's attribute lanes over an index-shaped site (no index) with one `ctid` key cell per word;
 /// the rowid lane dropped (`ctid` is the window's position).
@@ -137,10 +189,19 @@ fn site_of(px: &Px<'_, '_>, d: &SiteDesc, slots: &[u16]) -> SiteDesc {
     let mut params: ArenaVec<i16> = ArenaVec::with_capacity_in(slots.len(), px.arena);
     for &w in slots {
         key_attnos.push(CTID);
-        params.push(if w & crate::frame::site::EXEC_KEY != 0 { -1 } else { w as i16 });
+        params.push(if w & crate::frame::site::EXEC_KEY != 0 {
+            -1
+        } else {
+            w as i16
+        });
     }
-    let mut s = SiteDesc::index_source(px.arena, d.relation, 0, &key_attnos, &params, &d.out_attnos);
-    for l in d.lanes().iter().filter(|l| matches!(l.id, SiteLane::Attr(_))) {
+    let mut s =
+        SiteDesc::index_source(px.arena, d.relation, 0, &key_attnos, &params, &d.out_attnos);
+    for l in d
+        .lanes()
+        .iter()
+        .filter(|l| matches!(l.id, SiteLane::Attr(_)))
+    {
         if let Some(i) = s.lane_index(l.id) {
             s.lanes[i] = *l;
         }
@@ -166,14 +227,31 @@ impl SourceMech for Tid<'_> {
     /// One heap row per window: no fact is published.
     fn next_window(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, l_eof: Block) -> Win {
         let (cursor, end) = self.rd.window(b, env, l_eof);
-        Win { cursor, end, facts: WinConds::default() }
+        Win {
+            cursor,
+            end,
+            facts: WinConds::default(),
+        }
     }
 
-    fn row<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e> {
+    fn row<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+        j: Value,
+        carry: Carry<'e>,
+        next: Value,
+    ) -> RowVals<'e> {
         self.rd.row(b, env, j, carry, next)
     }
 
-    fn locator(&self, b: &mut FunctionBuilder<'_>, _env: &mut Env, _row: &RowVals) -> Option<Locator> {
+    fn locator(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        _env: &mut Env,
+        _row: &RowVals,
+    ) -> Option<Locator> {
         self.rd.locator(b)
     }
 
@@ -185,8 +263,13 @@ impl SourceMech for Tid<'_> {
 /// `d` read on the leader alone: the host source has no claim (sample.rs too).
 pub(crate) fn serial(d: Pipeline) -> Pipeline {
     match d.parallel {
-        Parallel::Eligible => Pipeline { parallel: Parallel::Ineligible { site: d.driving_site, reason: Why::Host }, ..d },
+        Parallel::Eligible => Pipeline {
+            parallel: Parallel::Ineligible {
+                site: d.driving_site,
+                reason: Why::Host,
+            },
+            ..d
+        },
         _ => d,
     }
 }
-

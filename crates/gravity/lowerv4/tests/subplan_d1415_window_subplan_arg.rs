@@ -34,13 +34,24 @@ fn node_end(s: &str, at: usize) -> usize {
 /// window-026 with lead's two arguments swapped: `lead((SELECT two FROM tenk1 WHERE s.unique2 = unique2), ten)`, both
 /// int4, so the SubPlan is the VALUE argument (read at the offset row, PG WinGetFuncArgInPartition).
 fn value_arg_form(text: &str) -> String {
-    let wf = text.find("{WINDOWFUNC ").expect("window-026 holds a WindowFunc");
+    let wf = text
+        .find("{WINDOWFUNC ")
+        .expect("window-026 holds a WindowFunc");
     let a = wf + text[wf..].find(":args (").expect("the WindowFunc's args") + ":args (".len();
     let e1 = node_end(text, a);
     let b = e1 + 1;
     let e2 = node_end(text, b);
-    assert!(text[a..e1].starts_with("{VAR ") && text[b..e2].starts_with("{SUBPLAN "), "lead(ten, (SubPlan)) in window-026");
-    format!("{}{} {}{}", &text[..a], &text[b..e2], &text[a..e1], &text[e2..])
+    assert!(
+        text[a..e1].starts_with("{VAR ") && text[b..e2].starts_with("{SUBPLAN "),
+        "lead(ten, (SubPlan)) in window-026"
+    );
+    format!(
+        "{}{} {}{}",
+        &text[..a],
+        &text[b..e2],
+        &text[a..e1],
+        &text[e2..]
+    )
 }
 
 #[test]

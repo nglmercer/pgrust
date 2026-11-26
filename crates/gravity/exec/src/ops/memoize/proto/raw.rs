@@ -20,10 +20,14 @@ pub(super) unsafe fn op(h: *mut abi::Head, ctx: *mut Ctx, code: u64, a: u64, _b:
         true => &obj.rt,
         false => match obj.wide_rt((*ctx).worker_ordinal) {
             Some(c) => c,
-            None => return fail("nest.memo: a wide run's worker past the runtimes its prepare made"),
+            None => {
+                return fail("nest.memo: a wide run's worker past the runtimes its prepare made")
+            }
         },
     };
-    let Ok(mut rt) = cell.try_borrow_mut() else { return fail("nest.memo: a memo entered inside its own call") };
+    let Ok(mut rt) = cell.try_borrow_mut() else {
+        return fail("nest.memo: a memo entered inside its own call");
+    };
     let r = match code {
         abi::OP_MEMO_MISS => rt.lookup(a as *const u64, wide.then_some(&obj.key)),
         abi::OP_MEMO_STORE => rt.store(a as *const u64),
@@ -72,15 +76,30 @@ impl MemoRt {
                         fns.push(key_fns(opno, coll)?); // alloc: Exec
                     }
                 }
-                Some(w) => match w.filter(|w| n == 1 && (w.op, w.coll) == (key(0, 3) as u32, key(0, 4) as u32)) {
+                Some(w) => match w
+                    .filter(|w| n == 1 && (w.op, w.coll) == (key(0, 3) as u32, key(0, 4) as u32))
+                {
                     Some(w) => fns.push(w.bind()?), // alloc: Exec
-                    None => return Err(bad("nest.memo: a widened memo's key with no resolution on the leader")),
+                    None => {
+                        return Err(bad(
+                            "nest.memo: a widened memo's key with no resolution on the leader",
+                        ))
+                    }
                 },
             }
-            self.table = Some(MemoTable::new(binary, flags & abi::MEMO_SINGLEROW != 0, self.limit, fns));
+            self.table = Some(MemoTable::new(
+                binary,
+                flags & abi::MEMO_SINGLEROW != 0,
+                self.limit,
+                fns,
+            ));
         }
         self.probe.clear();
-        self.probe.extend((0..n).map(|i| Probe { word: key(i, 0), null: key(i, 1) != 0, len: key(i, 2) })); // alloc: Exec (grows at the first lookup only)
+        self.probe.extend((0..n).map(|i| Probe {
+            word: key(i, 0),
+            null: key(i, 1) != 0,
+            len: key(i, 2),
+        })); // alloc: Exec (grows at the first lookup only)
         let t = self.table.as_mut().expect("made above");
         Ok(match t.lookup(&self.probe)? {
             Lookup::Hit(at) => at as i64,
@@ -90,11 +109,17 @@ impl MemoRt {
 
     /// `cache_store_tuple` of the row block at `r`.
     unsafe fn store(&mut self, r: *const u64) -> PgResult<i64> {
-        let Some(t) = self.table.as_mut() else { return Err(bad("m8_memo_store: a store before any lookup")) };
+        let Some(t) = self.table.as_mut() else {
+            return Err(bad("m8_memo_store: a store before any lookup"));
+        };
         let n = *r as usize;
         let col = |i: usize, w: usize| *r.add(abi::MEMO_ROW_HEAD + i * abi::MEMO_ROW_WORDS + w);
         self.row.clear();
-        self.row.extend((0..n).map(|i| Col { word: col(i, 0), null: col(i, 1) != 0, len: col(i, 2) })); // alloc: Exec (grows at the first store only)
+        self.row.extend((0..n).map(|i| Col {
+            word: col(i, 0),
+            null: col(i, 1) != 0,
+            len: col(i, 2),
+        })); // alloc: Exec (grows at the first store only)
         Ok(t.store(&self.row)? as i64)
     }
 }

@@ -15,22 +15,47 @@ fn image(s: &str) -> Vec<u8> {
 
 /// `like_frame` over one window of `rows` (`None` = NULL) on lane 0 of site 0: the images laid out in row order in one
 /// arena (`tiled`) or in reverse order; the verdict per row, or `None` when the host declined.
-fn frame(rows: &[Option<&str>], tiled: bool, pattern: &str, negated: bool, kind: u8) -> Option<Vec<bool>> {
+fn frame(
+    rows: &[Option<&str>],
+    tiled: bool,
+    pattern: &str,
+    negated: bool,
+    kind: u8,
+) -> Option<Vec<bool>> {
     let mut arena = Vec::new();
     let mut at = vec![usize::MAX; rows.len()];
-    let order: Vec<usize> = if tiled { (0..rows.len()).collect() } else { (0..rows.len()).rev().collect() };
+    let order: Vec<usize> = if tiled {
+        (0..rows.len()).collect()
+    } else {
+        (0..rows.len()).rev().collect()
+    };
     for &i in order.iter() {
         if let Some(s) = rows[i] {
             at[i] = arena.len();
             arena.extend(image(s));
         }
     }
-    let ptrs: Vec<u64> = at.iter().map(|&o| if o == usize::MAX { 0 } else { arena.as_ptr() as u64 + o as u64 }).collect();
+    let ptrs: Vec<u64> = at
+        .iter()
+        .map(|&o| {
+            if o == usize::MAX {
+                0
+            } else {
+                arena.as_ptr() as u64 + o as u64
+            }
+        })
+        .collect();
     let mut valid = vec![0u64; rows.len().div_ceil(64).max(1)];
     for (i, r) in rows.iter().enumerate() {
         valid[i / 64] |= (r.is_some() as u64) << (i % 64);
     }
-    let mut lanes = [Lane { ptr: ptrs.as_ptr() as *const u8, valid: valid.as_ptr(), width: 8, kind, ..Lane::NONE }];
+    let mut lanes = [Lane {
+        ptr: ptrs.as_ptr() as *const u8,
+        valid: valid.as_ptr(),
+        width: 8,
+        kind,
+        ..Lane::NONE
+    }];
     // SAFETY: a site and a ctx are plain words; zero is their closed state.
     let mut site: Site = unsafe { core::mem::zeroed() };
     (site.rows, site.nlanes, site.lanes) = (rows.len() as u32, 1, lanes.as_mut_ptr());
@@ -39,12 +64,30 @@ fn frame(rows: &[Option<&str>], tiled: bool, pattern: &str, negated: bool, kind:
     let pat = image(pattern);
     let mut out = vec![u64::MAX; rows.len() / 64 + 1];
     // SAFETY: the site's lane and images outlive the call; `out` holds `rows / 64 + 1` words.
-    let st = unsafe { like_frame(&mut ctx, 0, 0, pat.as_ptr() as u64, negated as u64, out.as_mut_ptr(), out.len() as u64) };
+    let st = unsafe {
+        like_frame(
+            &mut ctx,
+            0,
+            0,
+            pat.as_ptr() as u64,
+            negated as u64,
+            out.as_mut_ptr(),
+            out.len() as u64,
+        )
+    };
     if st != 0 {
         return None;
     }
-    assert_eq!(out[rows.len() / 64] >> (rows.len() % 64), 0, "no bit past the rows");
-    Some((0..rows.len()).map(|i| out[i / 64] >> (i % 64) & 1 == 1).collect())
+    assert_eq!(
+        out[rows.len() / 64] >> (rows.len() % 64),
+        0,
+        "no bit past the rows"
+    );
+    Some(
+        (0..rows.len())
+            .map(|i| out[i / 64] >> (i % 64) & 1 == 1)
+            .collect(),
+    )
 }
 
 /// PG's LIKE for the escape-free patterns these tests use: `%` any run, `_` one character.
@@ -52,25 +95,54 @@ fn like(s: &[u8], p: &[u8]) -> bool {
     match p.split_first() {
         None => s.is_empty(),
         Some((b'%', rest)) => (0..=s.len()).any(|k| like(&s[k..], rest)),
-        Some((&c, rest)) => s.split_first().is_some_and(|(&h, t)| (c == b'_' || c == h) && like(t, rest)),
+        Some((&c, rest)) => s
+            .split_first()
+            .is_some_and(|(&h, t)| (c == b'_' || c == h) && like(t, rest)),
     }
 }
 
 fn rows() -> Vec<Option<&'static str>> {
-    let texts = ["special requests", "no", "", "requests special", "xspecialyrequestsz", "specia", "special", "furious"];
-    (0..150).map(|i| if i % 7 == 3 { None } else { Some(texts[i % texts.len()]) }).collect()
+    let texts = [
+        "special requests",
+        "no",
+        "",
+        "requests special",
+        "xspecialyrequestsz",
+        "specia",
+        "special",
+        "furious",
+    ];
+    (0..150)
+        .map(|i| {
+            if i % 7 == 3 {
+                None
+            } else {
+                Some(texts[i % texts.len()])
+            }
+        })
+        .collect()
 }
 
 #[test]
 fn like_frame_matches_pg_over_tiled_and_untiled_windows_both_forms_and_nulls() {
     let rows = rows();
-    for pattern in ["%special%requests%", "%special%", "special%", "%requests", "%s_ecial%", "no"] {
+    for pattern in [
+        "%special%requests%",
+        "%special%",
+        "special%",
+        "%requests",
+        "%s_ecial%",
+        "no",
+    ] {
         for tiled in [true, false] {
             for negated in [false, true] {
                 let got = frame(&rows, tiled, pattern, negated, KIND_BYREF).expect("decided");
                 for (i, r) in rows.iter().enumerate() {
                     let want = r.is_some_and(|s| like(s.as_bytes(), pattern.as_bytes()) != negated);
-                    assert_eq!(got[i], want, "{pattern:?} tiled {tiled} negated {negated} row {i} {r:?}");
+                    assert_eq!(
+                        got[i], want,
+                        "{pattern:?} tiled {tiled} negated {negated} row {i} {r:?}"
+                    );
                 }
             }
         }
@@ -108,7 +180,14 @@ fn raise_held_is_the_drivers_op_14_and_passes_its_status_through() {
     unsafe { (*c).program = &mut *program };
     for held in [0i64, -7] {
         HELD.with(|h| h.set((held, Vec::new())));
-        assert_eq!(unsafe { raise_held(c) }, held, "nothing held reads 0, a held error its status");
-        assert_eq!(HELD.with(|h| h.take().1), vec![(gravity_abi::program::SPILL_RAISE_HELD, 0)]);
+        assert_eq!(
+            unsafe { raise_held(c) },
+            held,
+            "nothing held reads 0, a held error its status"
+        );
+        assert_eq!(
+            HELD.with(|h| h.take().1),
+            vec![(gravity_abi::program::SPILL_RAISE_HELD, 0)]
+        );
     }
 }

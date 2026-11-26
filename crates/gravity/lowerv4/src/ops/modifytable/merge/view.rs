@@ -15,10 +15,10 @@ use gravity_ir::{IntBinOp, Value};
 use mcx::{CollectIn, PgVec};
 use types_nodes::parsenodes::WCOKind;
 
+use crate::admit::refusal::Reason;
 use crate::frame::env::Env;
 use crate::frame::row::RowVals;
 use crate::graph::Gx;
-use crate::admit::refusal::Reason;
 use crate::rep;
 
 use crate::ops::modifytable::merge::admit::shape;
@@ -37,30 +37,74 @@ pub(crate) struct ViewRow<'g> {
 pub(crate) fn admit(node: i32, w: &WriteDesc<'_>) {
     // V4R-330's rule: the host checks an outer view's WITH CHECK OPTION after the trigger; an RLS check stays refused
     if w.checks.iter().any(|c| c.kind != WCOKind::WCO_VIEW_CHECK) {
-        crate::refuse!(node, Reason::Bug { payload: "a view MERGE with an RLS check (a view carries none)" });
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a view MERGE with an RLS check (a view carries none)"
+            }
+        );
     }
-    if w.targets.len() != 1 || w.targets[0].kind != TargetKind::View || w.targets[0].wholerow_col <= 0 || w.route.is_some() {
-        crate::refuse!(node, Reason::Bug { payload: "a view MERGE without its one view target and wholerow column" });
+    if w.targets.len() != 1
+        || w.targets[0].kind != TargetKind::View
+        || w.targets[0].wholerow_col <= 0
+        || w.route.is_some()
+    {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a view MERGE without its one view target and wholerow column"
+            }
+        );
     }
 }
 
 /// Pipeline `k`'s view row (the write op at `j`), `None` for a table target.
-pub(crate) fn of<'g>(gx: &Gx<'g, '_>, k: usize, j: usize, w: &WriteDesc<'_>, node: i32) -> Option<ViewRow<'g>> {
+pub(crate) fn of<'g>(
+    gx: &Gx<'g, '_>,
+    k: usize,
+    j: usize,
+    w: &WriteDesc<'_>,
+    node: i32,
+) -> Option<ViewRow<'g>> {
     if !w.members.has(Member::TargetView) {
         return None;
     }
     let wholerow = w.targets[0].wholerow_col;
-    let Some(tf) = crate::ops::modifytable::triggers::projected_type(gx, k, j, wholerow).and_then(|t| typefacts::facts_of(gx.facts, t)) else {
-        shape(node, "MERGE into a view: the wholerow column's row type the catalog does not know")
+    let Some(tf) = crate::ops::modifytable::triggers::projected_type(gx, k, j, wholerow)
+        .and_then(|t| typefacts::facts_of(gx.facts, t))
+    else {
+        shape(
+            node,
+            "MERGE into a view: the wholerow column's row type the catalog does not know",
+        )
     };
-    let typids = (1..=w.site.natts() as i16).map(|a| gx.facts.att(w.plan.target_rel, a).map_or(0, |f| f.typid)).collect_in(gx.mcx);
-    Some(ViewRow { wholerow, tf, typids })
+    let typids = (1..=w.site.natts() as i16)
+        .map(|a| gx.facts.att(w.plan.target_rel, a).map_or(0, |f| f.typid))
+        .collect_in(gx.mcx);
+    Some(ViewRow {
+        wholerow,
+        tf,
+        typids,
+    })
 }
 
 impl ViewRow<'_> {
     /// The wholerow cell `(datum, valid)`: the old row (ExecMergeMatched's oldtuple); not valid = not matched.
-    pub(crate) fn whole(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, at: &RowVals, node: i32) -> (Value, Value) {
-        let Some(cr) = at.col(self.wholerow) else { crate::refuse!(node, Reason::Bug { payload: "a view MERGE's wholerow past the child's projection" }) };
+    pub(crate) fn whole(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        at: &RowVals,
+        node: i32,
+    ) -> (Value, Value) {
+        let Some(cr) = at.col(self.wholerow) else {
+            crate::refuse!(
+                node,
+                Reason::Bug {
+                    payload: "a view MERGE's wholerow past the child's projection"
+                }
+            )
+        };
         let mut cx = env.lx(b, node);
         let (d, null) = rep::datum(&mut cx, cr, &self.tf);
         env.memo = cx.memo;
@@ -69,8 +113,17 @@ impl ViewRow<'_> {
     }
 
     /// The old row's fields `attnos` (1-based) out of the wholerow datum `img`, `(datum, valid)` each.
-    pub(crate) fn fields(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, img: Value, attnos: &[i16]) -> Vec<(Value, Value)> {
-        let cols: PgVec<'_, (i16, u32)> = attnos.iter().map(|&a| (a, self.typids[a as usize - 1])).collect_in(env.mcx);
+    pub(crate) fn fields(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        img: Value,
+        attnos: &[i16],
+    ) -> Vec<(Value, Value)> {
+        let cols: PgVec<'_, (i16, u32)> = attnos
+            .iter()
+            .map(|&a| (a, self.typids[a as usize - 1]))
+            .collect_in(env.mcx);
         crate::rerun::epq::copy_row::fields_of(b, env, img, &cols[..])
     }
 

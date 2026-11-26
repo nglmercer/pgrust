@@ -5,22 +5,22 @@
 //! `RUN_KEYLANE` in its `pad[2]` (natural.rs `mark`) and the hosts order the run by key 0's pair with an LSD radix, ties by
 //! the full row compare (kernels host_abi/v4/m3_sort.rs). Forced off, the run is sorted by the compare alone. Budget 160
 //! lines. Owner M3-SORT.
-use gravity_decompose::ops::shared::sort::SortKey;
 use gravity_decompose::catalog::typefacts::{FixedNorm, KeyColl, TypeFacts};
+use gravity_decompose::ops::shared::sort::SortKey;
 use gravity_ir::{HostFlags, IntBinOp, IntUnOp, Type, Value};
 use gravity_program::Rep;
 use mcx::{CollectIn, GrowIn, Mcx, PgVec};
 use types_nodes::list::NodeList;
 use types_nodes::primnodes::OUTER_VAR;
 
+use crate::admit::refusal::{Reason, ShapeWhy, Variant};
 use crate::face::kinds::KindId;
 use crate::frame::row::RowVals;
-use crate::admit::refusal::{Reason, ShapeWhy, Variant};
 use crate::ops::Table;
 use crate::rep::{self, HashArm, Lx, Scope};
 
-use crate::rep::word::order::{fold, name_image, Folded, NAME_BYTES};
 use crate::face::runs::{Col, Form};
+use crate::rep::word::order::{fold, name_image, Folded, NAME_BYTES};
 use gravity_kernels::host_abi::{VAR_WIDTH, WORD_WIDTH};
 
 crate::strategies! {
@@ -28,7 +28,10 @@ crate::strategies! {
     SORT_KEYLANE = 71, "sort.keylane", SortKeylane;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(SORT_KEYLANE, &())], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(SORT_KEYLANE, &())],
+    ..crate::ops::NONE
+};
 
 pub(crate) use types_core::catalog::NAMEOID as NAME;
 
@@ -65,7 +68,9 @@ pub(crate) struct Key {
 /// its tail's `KFLAG_BPCHAR` trim as `bpcharcmp` does; else the column's own.
 pub(crate) fn key_tf(col: &TypeFacts, k: &Key) -> TypeFacts {
     match col.image.is_plain_text() {
-        true if k.bpchar && col.typlen == -1 => *gravity_decompose::catalog::typefacts::row_of(BPCHAR).unwrap_or(col),
+        true if k.bpchar && col.typlen == -1 => {
+            *gravity_decompose::catalog::typefacts::row_of(BPCHAR).unwrap_or(col)
+        }
         _ => *col,
     }
 }
@@ -83,27 +88,57 @@ use types_core::catalog::{CIDROID as CIDR, INETOID as INET};
 /// (`Key::total`). USEROP / D2041: a key past `ROWCMP_KEYS` whose
 /// comparator may reach user code serves like any other (`RowCmp::cmp_far` calls it by its table entry); its refusal
 /// guarded only how often the comparator is called, and the user's ruling (2026-10-04) makes call counts free.
-pub(crate) fn keys(node: i32, sk: &[SortKey], tlist: Option<&NodeList<'_>>, tails: &[Option<(u32, u16)>], proc: &dyn Fn(&SortKey, usize) -> (u32, bool, bool)) -> (Vec<Key>, u64) {
+pub(crate) fn keys(
+    node: i32,
+    sk: &[SortKey],
+    tlist: Option<&NodeList<'_>>,
+    tails: &[Option<(u32, u16)>],
+    proc: &dyn Fn(&SortKey, usize) -> (u32, bool, bool),
+) -> (Vec<Key>, u64) {
     let shape = |why| -> ! { crate::refuse!(node, Reason::Shape { why: ShapeWhy(why) }) };
     let mut keys = Vec::with_capacity(sk.len()); // alloc: Program
     let mut spec = 0u64;
     for (i, sk) in sk.iter().enumerate() {
-        let Some(col) = key_col(sk, tlist, tails.len()) else { shape("a sort key that is not a column of the sorted row") };
+        let Some(col) = key_col(sk, tlist, tails.len()) else {
+            shape("a sort key that is not a column of the sorted row")
+        };
         let mut tail = 0;
         if let Some((off, width)) = tails[col as usize] {
-            if off / 8 > 255 { shape(if width == VAR_WIDTH { "a text sort key past the run row's slot reach" } else { "a name sort key past the run row's image reach" }) }
+            if off / 8 > 255 {
+                shape(if width == VAR_WIDTH {
+                    "a text sort key past the run row's slot reach"
+                } else {
+                    "a name sort key past the run row's image reach"
+                })
+            }
             tail = (off / 8) as u16 | width << 8 | (sk.desc as u16) << 15;
             if i < 4 {
                 spec |= (tail as u64) << (16 * i);
             }
         }
-        let (proc, user, total) = if tail != 0 { proc(sk, col as usize) } else { (0, false, false) };
+        let (proc, user, total) = if tail != 0 {
+            proc(sk, col as usize)
+        } else {
+            (0, false, false)
+        };
         // D1346 / core-0241: text_pattern_ops' and bpchar_pattern_ops' keys come under "C", whose bytes order is theirs
         // (a bpchar's image trims its trailing blanks, as internal_bpchar_pattern_compare)
         if sk.compare_fn() && proc == 0 {
             shape("a sort key of a non-default btree family off its comparator (D1346)");
         }
-        keys.push(Key { col, desc: sk.desc, nulls_first: sk.nulls_first, coll: sk.coll, tail, bpchar: sk.is_bpchar(), proc, dflt: proc != 0 && !sk.own_family, eq_tie: proc != 0 && sk.eq_tie, user: proc != 0 && user, total: proc != 0 && !user && total }); // alloc: Program
+        keys.push(Key {
+            col,
+            desc: sk.desc,
+            nulls_first: sk.nulls_first,
+            coll: sk.coll,
+            tail,
+            bpchar: sk.is_bpchar(),
+            proc,
+            dflt: proc != 0 && !sk.own_family,
+            eq_tie: proc != 0 && sk.eq_tie,
+            user: proc != 0 && user,
+            total: proc != 0 && !user && total,
+        }); // alloc: Program
     }
     (keys, spec)
 }
@@ -112,36 +147,59 @@ pub(crate) fn keys(node: i32, sk: &[SortKey], tlist: Option<&NodeList<'_>>, tail
 /// the row's own when `None` (MergeAppend's keys); none for a key that is no column of the sorted row.
 pub(crate) fn key_col(sk: &SortKey, tlist: Option<&NodeList<'_>>, ncols: usize) -> Option<u16> {
     let attno = match tlist {
-        Some(l) => l.iter().filter_map(|n| n.as_target_entry()).find(|te| te.resno == sk.resno).and_then(|te| te.expr.as_var()).filter(|v| v.varno == OUTER_VAR).map(|v| v.varattno),
+        Some(l) => l
+            .iter()
+            .filter_map(|n| n.as_target_entry())
+            .find(|te| te.resno == sk.resno)
+            .and_then(|te| te.expr.as_var())
+            .filter(|v| v.varno == OUTER_VAR)
+            .map(|v| v.varattno),
         None => Some(sk.resno),
     };
-    attno.filter(|&a| a >= 1 && a as usize <= ncols).map(|a| a as u16 - 1)
+    attno
+        .filter(|&a| a >= 1 && a as usize <= ncols)
+        .map(|a| a as u16 - 1)
 }
 
 /// USEROP: each run column some key orders by its family's comparator alone (`SortKey::compare_fn`, the CompareFn key kind):
 /// `tails` gives such a column its comparator's argument as its tail whatever its type.
-pub(crate) fn cmp_cols<'m>(sk: &[SortKey], tlist: Option<&NodeList<'_>>, ncols: usize, mcx: Mcx<'m>) -> PgVec<'m, bool> {
+pub(crate) fn cmp_cols<'m>(
+    sk: &[SortKey],
+    tlist: Option<&NodeList<'_>>,
+    ncols: usize,
+    mcx: Mcx<'m>,
+) -> PgVec<'m, bool> {
     let mut out = mcx::pg_vec![in mcx; false; ncols];
-    sk.iter().filter(|k| k.compare_fn()).filter_map(|k| key_col(k, tlist, ncols)).for_each(|c| out[c as usize] = true);
+    sk.iter()
+        .filter(|k| k.compare_fn())
+        .filter_map(|k| key_col(k, tlist, ncols))
+        .for_each(|c| out[c as usize] = true);
     out
 }
 
 /// Whether key `i`'s tail makes a var run: an enum word (V4R-386), any tail from key 4 (V4R-548: a `SortSpec` holds four), or
 /// a hosted key's (`proc`: its comparator and collation ride the var section, a `name` under a non-C collation).
-pub(crate) fn var_key(i: usize, tail: u16, proc: u32) -> bool { tail >> 8 & 0x7f == WORD_WIDTH || i >= 4 && tail != 0 || proc != 0 }
+pub(crate) fn var_key(i: usize, tail: u16, proc: u32) -> bool {
+    tail >> 8 & 0x7f == WORD_WIDTH || i >= 4 && tail != 0 || proc != 0
+}
 
 /// Whether a varlena column orders by its type's comparator (rep.hosted.order: a numeric no packed lane holds, an inet / cidr,
 /// an array, a range, a record, a user type): its key's tail is its var copy, compared by `cmp_proc`'s function; or an
 /// enum word (rep.hosted.order.fixed, V4R-386), whose tail is its datum word (`WORD_WIDTH`).
 pub(crate) fn hosted(tf: &TypeFacts) -> bool {
-    tf.byval && tf.image.is_enum() || tf.typlen == -1 && rep::arm_kind(Rep::VarlenaPtr, rep::Accessor::Order, tf) == KindId::RepHostedOrder || no_image(tf)
+    tf.byval && tf.image.is_enum()
+        || tf.typlen == -1
+            && rep::arm_kind(Rep::VarlenaPtr, rep::Accessor::Order, tf) == KindId::RepHostedOrder
+        || no_image(tf)
 }
 
 /// USEROP: a fixed-width type with no order image (box, point, circle, lseg, a user fixed-width or by-value type: the
 /// type table's `Canonical`), which only a user opclass orders (a DEFAULT one too): its key orders by that family's
 /// comparator (`cmp_proc`) over its datum word or its image's address, its prefix word the constant 0 (`pairs`), never by
 /// rep.hosted.order.fixed's refusal.
-pub(crate) fn no_image(tf: &TypeFacts) -> bool { tf.typlen > 0 && tf.image.is_canonical() }
+pub(crate) fn no_image(tf: &TypeFacts) -> bool {
+    tf.typlen > 0 && tf.image.is_canonical()
+}
 
 const _: () = assert!(WORD_WIDTH < 128 && WORD_WIDTH != VAR_WIDTH); // a tail's width is its 7 bits (`off / 8 | width << 8 | desc << 15`)
 
@@ -153,21 +211,37 @@ const _: () = assert!(WORD_WIDTH < 128 && WORD_WIDTH != VAR_WIDTH); // a tail's 
 /// emit; a heap arm) or a lane at another scale keys the column by its var tail in every arm and in the reader, and
 /// `pairs` takes D2974's `num_order_word` from either cell: one image for the merge, never a packed key over a varlena
 /// cell ('a word order image that is not one exact word') or two scales' mantissa words compared as one.
-pub(crate) fn packed_words<'g>(gx: &crate::graph::Gx<'g, '_>, cols: &NodeList<'_>) -> PgVec<'g, bool> {
+pub(crate) fn packed_words<'g>(
+    gx: &crate::graph::Gx<'g, '_>,
+    cols: &NodeList<'_>,
+) -> PgVec<'g, bool> {
     let lane = |r: Option<Rep>| match r {
         Some(Rep::PackedNum { facts, .. }) if facts.narrow() => Some(facts.scale),
         _ => None,
     };
     let arms = crate::ops::append::merge::writer_arms(gx, cols);
-    (0..cols.len()).map(|i| {
-        let own = lane(cols.iter().nth(i).and_then(|n| n.as_target_entry()).and_then(|te| gx.out_of(te.expr)).map(|o| o.rep));
-        let col = i16::try_from(i + 1).unwrap_or(i16::MAX);
-        let mut scales = arms.iter().map(|&(a, at)| lane(crate::cell::row_col_rep(gx, a, at, col)));
-        match arms.is_empty() {
-            true => own.is_some(),
-            false => scales.next().flatten().is_some_and(|s| scales.all(|x| x == Some(s))),
-        }
-    }).collect_in(gx.mcx)
+    (0..cols.len())
+        .map(|i| {
+            let own = lane(
+                cols.iter()
+                    .nth(i)
+                    .and_then(|n| n.as_target_entry())
+                    .and_then(|te| gx.out_of(te.expr))
+                    .map(|o| o.rep),
+            );
+            let col = i16::try_from(i + 1).unwrap_or(i16::MAX);
+            let mut scales = arms
+                .iter()
+                .map(|&(a, at)| lane(crate::cell::row_col_rep(gx, a, at, col)));
+            match arms.is_empty() {
+                true => own.is_some(),
+                false => scales
+                    .next()
+                    .flatten()
+                    .is_some_and(|s| scales.all(|x| x == Some(s))),
+            }
+        })
+        .collect_in(gx.mcx)
 }
 
 /// Each run column's key tail `(offset, width)` (runs/sort.rs `Shape::plan_coded`): a name's image, a uuid's, an interval's
@@ -176,52 +250,121 @@ pub(crate) fn packed_words<'g>(gx: &crate::graph::Gx<'g, '_>, cols: &NodeList<'_
 /// takes its comparator's argument whatever its type (`keysem::call`'s datum): its datum word (`WORD_WIDTH`), its
 /// fixed image as it is stored (its width), or its varlena copy (`VAR_WIDTH`); a packed lane's numeric or a code column
 /// keeps none (keys refuses the key by D1346's name).
-pub(crate) fn tails<'m>(cols: &[Col], packed: &[bool], datums: u32, cmp: &[bool], mcx: Mcx<'m>) -> PgVec<'m, Option<(u32, u16)>> {
-    cols.iter().enumerate().map(|(i, c)| match (c.tf.base, c.form) {
-        _ if cmp.get(i).copied().unwrap_or(false) => match c.form {
-            Form::Word => Some((datums + 8 * i as u32, WORD_WIDTH)),
-            Form::Image { off } if (c.tf.typlen as u16) < WORD_WIDTH => Some((off, c.tf.typlen as u16)),
-            Form::Var { off } if !packed.get(i).copied().unwrap_or(false) => Some((off, VAR_WIDTH)),
+pub(crate) fn tails<'m>(
+    cols: &[Col],
+    packed: &[bool],
+    datums: u32,
+    cmp: &[bool],
+    mcx: Mcx<'m>,
+) -> PgVec<'m, Option<(u32, u16)>> {
+    cols.iter()
+        .enumerate()
+        .map(|(i, c)| match (c.tf.base, c.form) {
+            _ if cmp.get(i).copied().unwrap_or(false) => match c.form {
+                Form::Word => Some((datums + 8 * i as u32, WORD_WIDTH)),
+                Form::Image { off } if (c.tf.typlen as u16) < WORD_WIDTH => {
+                    Some((off, c.tf.typlen as u16))
+                }
+                Form::Var { off } if !packed.get(i).copied().unwrap_or(false) => {
+                    Some((off, VAR_WIDTH))
+                }
+                _ => None,
+            },
+            (NAME, Form::Image { off }) => Some((off, NAME_BYTES)),
+            (_, Form::Image { off }) if c.tf.image.fixed_norm() == Some(FixedNorm::Raw) => {
+                Some((off, c.tf.typlen as u16))
+            }
+            (_, Form::Image { off }) if ivl(&c.tf) => Some((off + 16, 16)),
+            (_, Form::Image { off }) if no_image(&c.tf) && (c.tf.typlen as u16) < WORD_WIDTH => {
+                Some((off, c.tf.typlen as u16))
+            }
+            (_, Form::Var { off })
+                if c.tf.image.is_bytes()
+                    || hosted(&c.tf) && !packed.get(i).copied().unwrap_or(false) =>
+            {
+                Some((off, VAR_WIDTH))
+            }
+            (_, Form::Word) if hosted(&c.tf) => Some((datums + 8 * i as u32, WORD_WIDTH)),
             _ => None,
-        },
-        (NAME, Form::Image { off }) => Some((off, NAME_BYTES)),
-        (_, Form::Image { off }) if c.tf.image.fixed_norm() == Some(FixedNorm::Raw) => Some((off, c.tf.typlen as u16)),
-        (_, Form::Image { off }) if ivl(&c.tf) => Some((off + 16, 16)),
-        (_, Form::Image { off }) if no_image(&c.tf) && (c.tf.typlen as u16) < WORD_WIDTH => Some((off, c.tf.typlen as u16)),
-        (_, Form::Var { off }) if c.tf.image.is_bytes() || hosted(&c.tf) && !packed.get(i).copied().unwrap_or(false) => Some((off, VAR_WIDTH)),
-        (_, Form::Word) if hosted(&c.tf) => Some((datums + 8 * i as u32, WORD_WIDTH)),
-        _ => None,
-    }).collect_in(mcx)
+        })
+        .collect_in(mcx)
 }
 
 /// A key's comparator: 0 unless its column is `hosted`; then the btree support function 1 of its sort operator's opfamily
 /// (the catalog's), else, for a built-in ordering operator (`catalog::opdir::builtin_dir`, the bootstrap catalog's) where the catalog has no answer, the type's own
 /// (`TypeFacts::cmp`, its default opclass's); none refuses by shape. And whether it may be the user's (the home's `user_cmp`), and
 /// whether it is a builtin's total order (`total_cmp`).
-pub(crate) fn cmp_proc<'m>(catalog: &dyn gravity_expr::Catalog<'m>, node: i32, sk: &SortKey, tf: &TypeFacts) -> (u32, bool, bool) {
+pub(crate) fn cmp_proc<'m>(
+    catalog: &dyn gravity_expr::Catalog<'m>,
+    node: i32,
+    sk: &SortKey,
+    tf: &TypeFacts,
+) -> (u32, bool, bool) {
     if !hosted(tf) && !coll_name(tf, sk.coll) && !sk.compare_fn() {
         return (0, false, false);
     }
-    (native_cmp(catalog, node, ordering_proc(catalog, node, sk, tf), tf.typid), crate::effects::visible::rep::user_cmp(catalog, sk, tf), total_cmp(catalog, sk, tf))
+    (
+        native_cmp(
+            catalog,
+            node,
+            ordering_proc(catalog, node, sk, tf),
+            tf.typid,
+        ),
+        crate::effects::visible::rep::user_cmp(catalog, sk, tf),
+        total_cmp(catalog, sk, tf),
+    )
 }
 
 /// A key of a run PostgreSQL's qsort orders in arrival order (ops/sort/exact_feed.rs): its comparator whatever its
 /// type, called on the pairs that qsort calls it on (`Key::user`, KFLAG_USER: kernels `sort_exact`), never std's sort.
-pub(crate) fn exact_proc<'m>(catalog: &dyn gravity_expr::Catalog<'m>, node: i32, sk: &SortKey, tf: &TypeFacts) -> (u32, bool, bool) {
-    (native_cmp(catalog, node, ordering_proc(catalog, node, sk, tf), tf.typid), true, false)
+pub(crate) fn exact_proc<'m>(
+    catalog: &dyn gravity_expr::Catalog<'m>,
+    node: i32,
+    sk: &SortKey,
+    tf: &TypeFacts,
+) -> (u32, bool, bool) {
+    (
+        native_cmp(
+            catalog,
+            node,
+            ordering_proc(catalog, node, sk, tf),
+            tf.typid,
+        ),
+        true,
+        false,
+    )
 }
 
 /// The btree support function 1 of `sk`'s sort operator's opfamily (the catalog's), else, for a built-in ordering operator
 /// where the catalog has no answer, the type's own; none refuses by shape.
-fn ordering_proc<'m>(catalog: &dyn gravity_expr::Catalog<'m>, node: i32, sk: &SortKey, tf: &TypeFacts) -> u32 {
-    let c_level = |p: u32| matches!(catalog.func(p).ok().and_then(|f| f.prolang), Some(LANG_INTERNAL | LANG_C));
+fn ordering_proc<'m>(
+    catalog: &dyn gravity_expr::Catalog<'m>,
+    node: i32,
+    sk: &SortKey,
+    tf: &TypeFacts,
+) -> u32 {
+    let c_level = |p: u32| {
+        matches!(
+            catalog.func(p).ok().and_then(|f| f.prolang),
+            Some(LANG_INTERNAL | LANG_C)
+        )
+    };
     match catalog.ordering_cmp_proc(sk.opno) {
         Ok(p) if p != 0 => p,
-        _ if tf.cmp != 0 && gravity_decompose::catalog::opdir::builtin_dir(sk.opno).is_some() => tf.cmp,
+        _ if tf.cmp != 0 && gravity_decompose::catalog::opdir::builtin_dir(sk.opno).is_some() => {
+            tf.cmp
+        }
         // W8-EQUIVCLASS-SORTOP (D2206): a key PG cannot begin is never compared where served (the Sort raises at its first
         // call, ops/sort/sort_noproc.rs); its type's C-level comparator stands in for a run nothing reads
         _ if tf.cmp != 0 && sk.no_proc.is_some() && c_level(tf.cmp) => tf.cmp,
-        _ => crate::refuse!(node, Reason::Shape { why: ShapeWhy("a comparator-ordered sort key whose operator names no btree support function") }),
+        _ => crate::refuse!(
+            node,
+            Reason::Shape {
+                why: ShapeWhy(
+                    "a comparator-ordered sort key whose operator names no btree support function"
+                )
+            }
+        ),
     }
 }
 
@@ -240,7 +383,9 @@ fn total_cmp<'m>(catalog: &dyn gravity_expr::Catalog<'m>, sk: &SortKey, tf: &Typ
 /// A `name` key (or a domain over one) under a collation that does not order by bytes: PostgreSQL's `btnamecmp` is then
 /// `varstr_cmp` of the strings under the collation, so its 64-byte image tail is compared by that support function
 /// (rep.hosted.order over the image's address, kernels `tail_pair`), its prefix word 0 (`pairs`).
-pub(crate) fn coll_name(tf: &TypeFacts, coll: KeyColl) -> bool { tf.base == NAME && !coll.bytes_order }
+pub(crate) fn coll_name(tf: &TypeFacts, coll: KeyColl) -> bool {
+    tf.base == NAME && !coll.bytes_order
+}
 
 /// A comparator that runs in pool workers, checked and resolved at lowering (`gravity_fn::resolved::native`): its
 /// `pg_proc.prolang` is internal or C (uc1, 09-28: a LANGUAGE sql opclass raised "cannot execute SQL without an outer
@@ -248,8 +393,17 @@ pub(crate) fn coll_name(tf: &TypeFacts, coll: KeyColl) -> bool { tf.base == NAME
 /// access (main 09-28). Any other comparator refuses by the Shape `native` names.
 /// A comparator a pool worker cannot call (`gravity_fn::resolved::pool_safe`: all but a scalar builtin's, over `typid`)
 /// sends the pipeline to the leader (frame/mechs.rs), served serial (main 09-28, wp1).
-pub(crate) fn native_cmp<'m>(catalog: &dyn gravity_expr::Catalog<'m>, node: i32, p: u32, typid: u32) -> u32 {
-    match gravity_fn::typesem::keysem::rep::sort_cmp_site(catalog.func(p).ok().and_then(|f| f.prolang), p, typid) {
+pub(crate) fn native_cmp<'m>(
+    catalog: &dyn gravity_expr::Catalog<'m>,
+    node: i32,
+    p: u32,
+    typid: u32,
+) -> u32 {
+    match gravity_fn::typesem::keysem::rep::sort_cmp_site(
+        catalog.func(p).ok().and_then(|f| f.prolang),
+        p,
+        typid,
+    ) {
         Ok(id) => id,
         Err(why) => crate::refuse!(node, Reason::Shape { why: ShapeWhy(why) }),
     }
@@ -270,9 +424,15 @@ const LANG_C: u32 = 13;
 /// SECURITY DEFINER or a SET clause that names no search_path (`effects::quiet_pairs`): the wrapper's own raise does
 /// not depend on the pair.
 pub(crate) fn c_level_cmp(gx: &crate::graph::Gx<'_, '_>, opno: u32) -> bool {
-    gx.facts.key(gravity_decompose::catalog::KeyReq::sort(opno)).is_some_and(|o| {
-        o.cmp != 0 && (matches!(gx.catalog.func(o.cmp).ok().and_then(|f| f.prolang), Some(LANG_INTERNAL | LANG_C)) || gravity_decompose::effects::quiet_pairs(gx.facts, o.cmp))
-    })
+    gx.facts
+        .key(gravity_decompose::catalog::KeyReq::sort(opno))
+        .is_some_and(|o| {
+            o.cmp != 0
+                && (matches!(
+                    gx.catalog.func(o.cmp).ok().and_then(|f| f.prolang),
+                    Some(LANG_INTERNAL | LANG_C)
+                ) || gravity_decompose::effects::quiet_pairs(gx.facts, o.cmp))
+        })
 }
 
 /// USEROP: the Shape of a sort keyed by another family's comparator in SQL or a procedural language whose rows do not
@@ -292,15 +452,37 @@ pub(crate) const USER_BATCHES: &str = "a sort keyed by another family's comparat
 
 /// M6-TYPES: an interval column; its run image is followed by a 16-byte key tail, rep.fixed.hash's `[days, usecs]` pair
 /// (`interval_cmp_value`'s span, signed word by word) stored big-endian with the sign bit flipped: memcmp is its order.
-pub(crate) fn ivl(tf: &TypeFacts) -> bool { tf.image.fixed_norm() == Some(FixedNorm::Interval) }
+pub(crate) fn ivl(tf: &TypeFacts) -> bool {
+    tf.image.fixed_norm() == Some(FixedNorm::Interval)
+}
 
 /// Column `c`'s interval tail words (0 for a NULL: its flags word orders it first).
-pub(crate) fn ivl_tail(cx: &mut Lx<'_, '_, '_>, node: i32, row: &RowVals, c: usize, tf: &TypeFacts) -> [Value; 2] {
-    let Some(cr) = row.col(c as i16 + 1) else { crate::refuse!(node, Reason::Bug { payload: "a sorted column past the row" }) };
+pub(crate) fn ivl_tail(
+    cx: &mut Lx<'_, '_, '_>,
+    node: i32,
+    row: &RowVals,
+    c: usize,
+    tf: &TypeFacts,
+) -> [Value; 2] {
+    let Some(cr) = row.col(c as i16 + 1) else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a sorted column past the row"
+            }
+        )
+    };
     let w = (rep::arm::<HashArm>(&*cx, KindId::RepFixedHash).image)(cx, cr, tf, Scope::Program).w;
     let top = cx.b.const_raw(Type::I64, 1 << 63);
     w.map(|x| {
-        let x = x.unwrap_or_else(|| crate::refuse!(node, Reason::Bug { payload: "an interval image of one word" }));
+        let x = x.unwrap_or_else(|| {
+            crate::refuse!(
+                node,
+                Reason::Bug {
+                    payload: "an interval image of one word"
+                }
+            )
+        });
         let x = cx.b.int_bin(IntBinOp::Xor, x, top);
         cx.b.int_un(IntUnOp::Bswap, x)
     })
@@ -312,7 +494,13 @@ pub(crate) fn ivl_tail(cx: &mut Lx<'_, '_, '_>, node: i32, row: &RowVals, c: usi
 /// (`NetOrderWord`, PostgreSQL's network abbreviation, `network_cmp`'s order; setop_core-0221); a bit / varbit's
 /// `typesem::prefix::bits_word` (`BitsOrderWord`, `bit_cmp`'s order; setop_core-0124); a dictionary-coded bpchar's
 /// `typesem::prefix::bytes_word` over its trimmed render (`BytesOrderWord`; sort_pgrc-0002, the dict bpchar tops).
-fn payload_word(cx: &mut Lx<'_, '_, '_>, c: rep::CellRef<'_>, tf: &TypeFacts, name: &'static str, host: usize) -> Value {
+fn payload_word(
+    cx: &mut Lx<'_, '_, '_>,
+    c: rep::CellRef<'_>,
+    tf: &TypeFacts,
+    name: &'static str,
+    host: usize,
+) -> Value {
     let (p, null) = rep::datum(cx, c, tf);
     let zero = cx.b.iconst(Type::I64, 0);
     let (l_val, l_out) = (cx.b.create_block(&[]), cx.b.create_block(&[Type::I64]));
@@ -321,9 +509,21 @@ fn payload_word(cx: &mut Lx<'_, '_, '_>, c: rep::CellRef<'_>, tf: &TypeFacts, na
     let p = crate::rep::varlena::hash::ptr(cx.b, p);
     let (bytes, len, mark) = crate::rep::varlena::hash::payload(cx, p, tf);
     let ctx = cx.frame().ctx;
-    let flags = HostFlags { touches_memory: true, pure: true, ..HostFlags::default() };
-    let h = cx.b.declare_host_once(name, &[Type::Ptr, Type::Ptr, Type::I64], Some(Type::I64), host, flags);
-    let w = cx.b.call_host(h, &[ctx, bytes, len], Some(Type::I64)).expect("an order word host returns its word");
+    let flags = HostFlags {
+        touches_memory: true,
+        pure: true,
+        ..HostFlags::default()
+    };
+    let h = cx.b.declare_host_once(
+        name,
+        &[Type::Ptr, Type::Ptr, Type::I64],
+        Some(Type::I64),
+        host,
+        flags,
+    );
+    let w =
+        cx.b.call_host(h, &[ctx, bytes, len], Some(Type::I64))
+            .expect("an order word host returns its word");
     // D2239: a detoasted copy goes back to the Call's scratch once the word is taken
     crate::rep::varlena::hash::release(cx, mark);
     cx.b.br(l_out, &[w]);
@@ -342,48 +542,122 @@ pub(crate) fn word_exact_marked(tf: &TypeFacts, key: &Key) -> bool {
 /// or a C-ordered name's refuses by its order kind's name (rep.varlena.order, rep.packed.order, rep.fixed.order, ...). A
 /// key with a tail (a var copy, M6 L0-a; a uuid's image or an interval's pair, M6-TYPES) takes its arm's prefix word,
 /// inexact: the tail decides its ties.
-pub(crate) fn pairs<'m>(cx: &mut Lx<'_, '_, '_>, node: i32, row: &RowVals, keys: &[Key], tfs: &[TypeFacts], mcx: Mcx<'m>) -> PgVec<'m, [Value; 2]> {
+pub(crate) fn pairs<'m>(
+    cx: &mut Lx<'_, '_, '_>,
+    node: i32,
+    row: &RowVals,
+    keys: &[Key],
+    tfs: &[TypeFacts],
+    mcx: Mcx<'m>,
+) -> PgVec<'m, [Value; 2]> {
     let mut out = mcx::reserved_in(keys.len(), mcx);
     for key in keys.iter() {
-        let Some(cr) = row.col(key.col as i16 + 1) else { crate::refuse!(node, Reason::Bug { payload: "a sort key past the row" }) };
+        let Some(cr) = row.col(key.col as i16 + 1) else {
+            crate::refuse!(
+                node,
+                Reason::Bug {
+                    payload: "a sort key past the row"
+                }
+            )
+        };
         let tf = &key_tf(&tfs[key.col as usize], key);
         let var = key.tail >> 8 & 0x7f == VAR_WIDTH;
         let img = match cr.cell.rep {
             // a full sort orders a code by its rendered text across parts (its var tail), never by an in-part rank (V4R-118)
-            Rep::Code { .. } if !var => crate::not_built!(node, Variant::Kind(KindId::RepVarlenaOrder)),
+            Rep::Code { .. } if !var => {
+                crate::not_built!(node, Variant::Kind(KindId::RepVarlenaOrder))
+            }
             // a bpchar code under a bytes-ordered collation: its trimmed render's first 8 bytes (rep.code.order's prefix keeps
             // the blanks, which bpchar does not compare), its tail trims (`KFLAG_BPCHAR`); under another collation it refuses
             // by rep.varlena.order's name below, as before
             // (not a comparator of a family of its own: a user opclass's order need not be the bytes')
-            Rep::Code { .. } if tf.image.is_bpchar() && key.coll.bytes_order && (key.proc == 0 || key.dflt) => {
-                crate::rep::code::datum::not_image_only(cx, cr.cell, "an image-only key cell read as an order image");
-                payload_word(cx, cr, tf, "bytes_order_word", gravity_kernels::contract::entry2::<gravity_kernels::ops::sort::entries::BytesOrderWord> as *const () as usize)
+            Rep::Code { .. }
+                if tf.image.is_bpchar() && key.coll.bytes_order && (key.proc == 0 || key.dflt) =>
+            {
+                crate::rep::code::datum::not_image_only(
+                    cx,
+                    cr.cell,
+                    "an image-only key cell read as an order image",
+                );
+                payload_word(
+                    cx,
+                    cr,
+                    tf,
+                    "bytes_order_word",
+                    gravity_kernels::contract::entry2::<
+                        gravity_kernels::ops::sort::entries::BytesOrderWord,
+                    > as *const () as usize,
+                )
             }
-            Rep::Code { .. } if tf.image.is_bpchar() => crate::not_built!(node, Variant::Kind(KindId::RepVarlenaOrder)),
+            Rep::Code { .. } if tf.image.is_bpchar() => {
+                crate::not_built!(node, Variant::Kind(KindId::RepVarlenaOrder))
+            }
             // USEROP: a CompareFn key (a non-default family's comparator, `Key::dflt` false), a key of a type with no order
             // image (`no_image`) or any key whose comparator may be the user's (`Key::user`) orders by its comparator alone:
             // the constant word, inexact, so its tail decides every pair (the pairs PostgreSQL calls it on); never its type's
             // image, whose order need not be the family's
-            _ if key.proc != 0 && (!key.dflt || no_image(tf) || key.user) => cx.b.iconst(Type::I64, 0),
-            Rep::FixedPtr { len: NAME_BYTES } if tf.base == NAME && key.proc != 0 && coll_name(tf, key.coll) => cx.b.iconst(Type::I64, 0), // its comparator decides (types-0015)
-            Rep::FixedPtr { len: NAME_BYTES } if tf.base == NAME => name_image(cx, cr, tf, key.coll)[0], // D513: a domain over name too
+            _ if key.proc != 0 && (!key.dflt || no_image(tf) || key.user) => {
+                cx.b.iconst(Type::I64, 0)
+            }
+            Rep::FixedPtr { len: NAME_BYTES }
+                if tf.base == NAME && key.proc != 0 && coll_name(tf, key.coll) =>
+            {
+                cx.b.iconst(Type::I64, 0)
+            } // its comparator decides (types-0015)
+            Rep::FixedPtr { len: NAME_BYTES } if tf.base == NAME => {
+                name_image(cx, cr, tf, key.coll)[0]
+            } // D513: a domain over name too
             // D2974: a packed lane's numeric (pgrc) takes the same prefix word as a varlena's, from its rendered datum: one
             // run is fed by every arm of an Append, and a heap arm's varlena and a pgrc arm's packed lane must give one
             // value one word (its mantissa word ordered the pgrc rows apart from the heap rows: 99.9 sorted above 100.9)
-            Rep::VarlenaPtr | Rep::PackedNum { .. } if key.dflt && var && tf.image.is_num_form() => {
-                payload_word(cx, cr, tf, "num_order_word", gravity_kernels::contract::entry2::<gravity_kernels::ops::sort::entries::NumOrderWord> as *const () as usize)
+            Rep::VarlenaPtr | Rep::PackedNum { .. }
+                if key.dflt && var && tf.image.is_num_form() =>
+            {
+                payload_word(
+                    cx,
+                    cr,
+                    tf,
+                    "num_order_word",
+                    gravity_kernels::contract::entry2::<
+                        gravity_kernels::ops::sort::entries::NumOrderWord,
+                    > as *const () as usize,
+                )
             }
-            Rep::VarlenaPtr if key.dflt && var && matches!(tf.base, INET | CIDR) => {
-                payload_word(cx, cr, tf, "net_order_word", gravity_kernels::contract::entry2::<gravity_kernels::ops::sort::entries::NetOrderWord> as *const () as usize)
-            }
-            Rep::VarlenaPtr if word_exact_marked(tf, key) => {
-                payload_word(cx, cr, tf, "bits_order_word", gravity_kernels::contract::entry2::<gravity_kernels::ops::sort::entries::BitsOrderWord> as *const () as usize)
-            }
+            Rep::VarlenaPtr if key.dflt && var && matches!(tf.base, INET | CIDR) => payload_word(
+                cx,
+                cr,
+                tf,
+                "net_order_word",
+                gravity_kernels::contract::entry2::<gravity_kernels::ops::sort::entries::NetOrderWord>
+                    as *const () as usize,
+            ),
+            Rep::VarlenaPtr if word_exact_marked(tf, key) => payload_word(
+                cx,
+                cr,
+                tf,
+                "bits_order_word",
+                gravity_kernels::contract::entry2::<
+                    gravity_kernels::ops::sort::entries::BitsOrderWord,
+                > as *const () as usize,
+            ),
             // the table marks this key's word whole by its low bit (face/runs.rs `KFLAG_WORDEXACT`): only bits_word's may be
-            _ if word_exact_marked(tf, key) => crate::refuse!(node, Reason::Bug { payload: "a bit string sort key off a varlena cell" }),
+            _ if word_exact_marked(tf, key) => crate::refuse!(
+                node,
+                Reason::Bug {
+                    payload: "a bit string sort key off a varlena cell"
+                }
+            ),
             _ => match rep::order_words(cx, cr, tf, key.coll) {
-                rep::Words { w: [Some(w), None], exact } if exact || key.tail != 0 => w, // an inexact prefix: its tail decides ties
-                _ => crate::refuse!(node, Reason::Bug { payload: "a word order image that is not one exact word" }),
+                rep::Words {
+                    w: [Some(w), None],
+                    exact,
+                } if exact || key.tail != 0 => w, // an inexact prefix: its tail decides ties
+                _ => crate::refuse!(
+                    node,
+                    Reason::Bug {
+                        payload: "a word order image that is not one exact word"
+                    }
+                ),
             },
         };
         // D443: a key is NULL exactly when its column is
@@ -391,7 +665,10 @@ pub(crate) fn pairs<'m>(cx: &mut Lx<'_, '_, '_>, node: i32, row: &RowVals, keys:
             Folded::Pair(p) => p,
             Folded::One(w) => {
                 let top = cx.b.const_raw(Type::I64, 1 << 63);
-                [cx.b.iconst(Type::I64, 1), cx.b.int_bin(IntBinOp::Xor, w, top)]
+                [
+                    cx.b.iconst(Type::I64, 1),
+                    cx.b.int_bin(IntBinOp::Xor, w, top),
+                ]
             }
         };
         out.push_in(pair);
@@ -410,7 +687,11 @@ mod tests {
     use gravity_ir::IntCond;
     use gravity_program::{NumTypmod, Until};
 
-    const C: KeyColl = KeyColl { oid: 950, bytes_eq: true, bytes_order: true };
+    const C: KeyColl = KeyColl {
+        oid: 950,
+        bytes_eq: true,
+        bytes_order: true,
+    };
 
     /// The run pair of a one-key sort over a word cell of `typid` holding datum `d` (`None`: NULL).
     fn pair(typid: u32, d: Option<u64>, desc: bool, nulls_first: bool) -> (u64, u64) {
@@ -423,15 +704,55 @@ mod tests {
             let (zero, one) = (b.iconst(Type::I64, 0), b.iconst(Type::I64, 1));
             let null = b.icmp(IntCond::Ne, nw, zero);
             let tf = *row_of(typid).expect("type facts");
-            let cell = Cell { rep: Rep::Word { bytes: 8 }, typid, num: NumTypmod::NONE, life: CellLife { until: Until::Row, home: CellHome::RowCx }, at: At::Value(0), null: Nullable::Maybe };
-            let row = RowVals { row: Row { cells: mcx::pg_vec![in rig.mcx(); cell] }, vals: mcx::pg_vec![in rig.mcx(); (v, Some(null))], cols: mcx::pg_vec![in rig.mcx(); Some(0)], carry: Carry::new(zero, rig.mcx()), next: one, at: zero };
+            let cell = Cell {
+                rep: Rep::Word { bytes: 8 },
+                typid,
+                num: NumTypmod::NONE,
+                life: CellLife {
+                    until: Until::Row,
+                    home: CellHome::RowCx,
+                },
+                at: At::Value(0),
+                null: Nullable::Maybe,
+            };
+            let row = RowVals {
+                row: Row {
+                    cells: mcx::pg_vec![in rig.mcx(); cell],
+                },
+                vals: mcx::pg_vec![in rig.mcx(); (v, Some(null))],
+                cols: mcx::pg_vec![in rig.mcx(); Some(0)],
+                carry: Carry::new(zero, rig.mcx()),
+                next: one,
+                at: zero,
+            };
             let out = {
                 let mut cx = Lx::new(&mut b, 9, rig.mcx());
-                pairs(&mut cx, 9, &row, &[Key { col: 0, desc, nulls_first, coll: C, tail: 0, bpchar: false, proc: 0, dflt: false, eq_tie: false, user: false, total: false }], &[tf], rig.mcx())
+                pairs(
+                    &mut cx,
+                    9,
+                    &row,
+                    &[Key {
+                        col: 0,
+                        desc,
+                        nulls_first,
+                        coll: C,
+                        tail: 0,
+                        bpchar: false,
+                        proc: 0,
+                        dflt: false,
+                        eq_tie: false,
+                        user: false,
+                        total: false,
+                    }],
+                    &[tf],
+                    rig.mcx(),
+                )
             };
             b.ret(&out[0]);
             let prog = pb.finish();
-            Interp::new(&prog).run(fid, &[d.unwrap_or(0), d.is_none() as u64]).expect("runs")
+            Interp::new(&prog)
+                .run(fid, &[d.unwrap_or(0), d.is_none() as u64])
+                .expect("runs")
         });
         let w = w.expect("a pair");
         (w[0], w[1])
@@ -452,13 +773,29 @@ mod tests {
         ];
         for (typid, bits, vals) in kinds {
             for &v in vals {
-                let low = if bits == 64 { v as u64 } else { v as u64 & ((1u64 << bits) - 1) };
+                let low = if bits == 64 {
+                    v as u64
+                } else {
+                    v as u64 & ((1u64 << bits) - 1)
+                };
                 for nf in [false, true] {
                     let (flags, w) = pair(typid, Some(v as u64), false, nf);
-                    assert_eq!((flags, (w ^ 1 << 63) as i64), (1, v), "type {typid} value {v} nulls_first {nf}");
-                    assert_eq!((pair(typid, Some(low), false, nf).1 ^ 1 << 63) as i64, v, "type {typid} value {v}: sign-extended at its width");
+                    assert_eq!(
+                        (flags, (w ^ 1 << 63) as i64),
+                        (1, v),
+                        "type {typid} value {v} nulls_first {nf}"
+                    );
+                    assert_eq!(
+                        (pair(typid, Some(low), false, nf).1 ^ 1 << 63) as i64,
+                        v,
+                        "type {typid} value {v}: sign-extended at its width"
+                    );
                 }
-                assert_ne!((pair(typid, Some(v as u64), true, false).1 ^ 1 << 63) as i64, v, "type {typid} value {v}: DESC does not round-trip");
+                assert_ne!(
+                    (pair(typid, Some(v as u64), true, false).1 ^ 1 << 63) as i64,
+                    v,
+                    "type {typid} value {v}: DESC does not round-trip"
+                );
             }
         }
     }
@@ -472,23 +809,43 @@ mod tests {
             (21, vec![-300i64 as u64, 0, 5]),
             (23, vec![i32::MIN as i64 as u64, -1i64 as u64, 0, 9]),
             (20, vec![i64::MIN as u64, -7i64 as u64, 0, i64::MAX as u64]),
-            (701, vec![f8(f64::NEG_INFINITY), f8(-2.5), f8(0.0), f8(1e300), f8(f64::NAN)]),
+            (
+                701,
+                vec![
+                    f8(f64::NEG_INFINITY),
+                    f8(-2.5),
+                    f8(0.0),
+                    f8(1e300),
+                    f8(f64::NAN),
+                ],
+            ),
             (1082, vec![-10i64 as u64, 0, 400]),
             (16, vec![0, 1]),
         ];
         for (typid, vals) in kinds.iter() {
             for desc in [false, true] {
                 for nf in [false, true] {
-                    let mut xs: Vec<Option<u64>> = core::iter::once(None).chain(vals.iter().copied().map(Some)).chain([None]).collect();
+                    let mut xs: Vec<Option<u64>> = core::iter::once(None)
+                        .chain(vals.iter().copied().map(Some))
+                        .chain([None])
+                        .collect();
                     xs.sort_by_key(|&d| pair(*typid, d, desc, nf));
                     let mut want: Vec<Option<u64>> = vals.iter().copied().map(Some).collect();
                     if desc {
                         want.reverse();
                     }
                     let nulls = [None, None];
-                    let want: Vec<Option<u64>> = if nf { nulls.iter().chain(want.iter()).copied().collect() } else { want.iter().chain(nulls.iter()).copied().collect() };
+                    let want: Vec<Option<u64>> = if nf {
+                        nulls.iter().chain(want.iter()).copied().collect()
+                    } else {
+                        want.iter().chain(nulls.iter()).copied().collect()
+                    };
                     assert_eq!(xs, want, "type {typid} desc {desc} nulls_first {nf}");
-                    assert_eq!(pair(*typid, None, desc, nf), pair(*typid, None, desc, nf), "NULLs tie");
+                    assert_eq!(
+                        pair(*typid, None, desc, nf),
+                        pair(*typid, None, desc, nf),
+                        "NULLs tie"
+                    );
                     assert_eq!(pair(*typid, None, desc, nf).1, 0, "a NULL's word is 0");
                 }
             }
@@ -504,10 +861,50 @@ mod tests {
             let mut b = pb.define(fid);
             let (v, zero) = (b.params()[0], b.iconst(Type::I64, 0));
             let tf = *row_of(25).expect("text facts");
-            let cell = Cell { rep: Rep::Code { dict: gravity_program::DictRef::lane(0) }, typid: 25, num: NumTypmod::NONE, life: CellLife { until: Until::Row, home: CellHome::RowCx }, at: At::Value(0), null: Nullable::Never };
-            let row = RowVals { row: Row { cells: mcx::pg_vec![in rig.mcx(); cell] }, vals: mcx::pg_vec![in rig.mcx(); (v, None)], cols: mcx::pg_vec![in rig.mcx(); Some(0)], carry: Carry::new(zero, rig.mcx()), next: zero, at: zero };
+            let cell = Cell {
+                rep: Rep::Code {
+                    dict: gravity_program::DictRef::lane(0),
+                },
+                typid: 25,
+                num: NumTypmod::NONE,
+                life: CellLife {
+                    until: Until::Row,
+                    home: CellHome::RowCx,
+                },
+                at: At::Value(0),
+                null: Nullable::Never,
+            };
+            let row = RowVals {
+                row: Row {
+                    cells: mcx::pg_vec![in rig.mcx(); cell],
+                },
+                vals: mcx::pg_vec![in rig.mcx(); (v, None)],
+                cols: mcx::pg_vec![in rig.mcx(); Some(0)],
+                carry: Carry::new(zero, rig.mcx()),
+                next: zero,
+                at: zero,
+            };
             let mut cx = Lx::new(&mut b, 9, rig.mcx());
-            pairs(&mut cx, 9, &row, &[Key { col: 0, desc: false, nulls_first: false, coll: C, tail: 0, bpchar: false, proc: 0, dflt: false, eq_tie: false, user: false, total: false }], &[tf], rig.mcx());
+            pairs(
+                &mut cx,
+                9,
+                &row,
+                &[Key {
+                    col: 0,
+                    desc: false,
+                    nulls_first: false,
+                    coll: C,
+                    tail: 0,
+                    bpchar: false,
+                    proc: 0,
+                    dflt: false,
+                    eq_tie: false,
+                    user: false,
+                    total: false,
+                }],
+                &[tf],
+                rig.mcx(),
+            );
         });
         let e = r.expect_err("a code key refuses");
         assert!(format!("{e:?}").contains("RepVarlenaOrder"), "{e:?}");
@@ -519,45 +916,146 @@ mod tests {
     /// past four rides its key the same way, and makes its run a var run (`var_key`); at keys 0-3, or with no tail, it does not.
     #[test]
     fn a_var_key_carries_its_tail_entry() {
-        use gravity_decompose::ops::shared::sort::KeyImage;
         use gravity_abi::breaker::KeyKind;
-        let sk = |resno: i16, desc: bool| SortKey { resno, opno: 0, desc, nulls_first: false, kind: KeyKind::I64, image: KeyImage::Raw, scale: 0, coll: C, own_family: false, no_proc: None, eq_tie: false, per_row: false };
+        use gravity_decompose::ops::shared::sort::KeyImage;
+        let sk = |resno: i16, desc: bool| SortKey {
+            resno,
+            opno: 0,
+            desc,
+            nulls_first: false,
+            kind: KeyKind::I64,
+            image: KeyImage::Raw,
+            scale: 0,
+            coll: C,
+            own_family: false,
+            no_proc: None,
+            eq_tie: false,
+            per_row: false,
+        };
         let tails = [None, Some((96, VAR_WIDTH))];
-        let (ks, spec) = keys(9, &[sk(1, false), sk(2, true)], None, &tails, &|_, _| (0, false, false));
+        let (ks, spec) = keys(9, &[sk(1, false), sk(2, true)], None, &tails, &|_, _| {
+            (0, false, false)
+        });
         let t = 12 | VAR_WIDTH << 8 | 1 << 15;
-        assert_eq!((ks[0].tail, ks[1].tail, spec), (0, t, (t as u64) << 16), "an int key has no tail (G4); the text key's entry");
+        assert_eq!(
+            (ks[0].tail, ks[1].tail, spec),
+            (0, t, (t as u64) << 16),
+            "an int key has no tail (G4); the text key's entry"
+        );
         let five: Vec<SortKey> = [1, 1, 1, 1, 2].iter().map(|&r| sk(r, false)).collect();
         let (ks, spec) = keys(9, &five, None, &tails, &|_, _| (0, false, false));
-        assert_eq!((ks[4].tail, spec), (12 | VAR_WIDTH << 8, 0), "a fifth key's entry rides the key, not the SortSpec");
+        assert_eq!(
+            (ks[4].tail, spec),
+            (12 | VAR_WIDTH << 8, 0),
+            "a fifth key's entry rides the key, not the SortSpec"
+        );
         for w in [NAME_BYTES, 16] {
             let (img, t) = ([None, Some((96, w))], 12 | w << 8);
-            let (ks, spec) = crate::catch(9, || keys(9, &five, None, &img, &|_, _| (0, false, false))).expect("a fifth image tail serves");
-            assert_eq!((ks[4].tail, spec), (t, 0), "a fifth key's image entry rides the key (width {w})");
-            let both: Vec<SortKey> = [2, 1, 1, 1, 2].iter().map(|&r| sk(r, r == 2 && w == 16)).collect();
+            let (ks, spec) =
+                crate::catch(9, || keys(9, &five, None, &img, &|_, _| (0, false, false)))
+                    .expect("a fifth image tail serves");
+            assert_eq!(
+                (ks[4].tail, spec),
+                (t, 0),
+                "a fifth key's image entry rides the key (width {w})"
+            );
+            let both: Vec<SortKey> = [2, 1, 1, 1, 2]
+                .iter()
+                .map(|&r| sk(r, r == 2 && w == 16))
+                .collect();
             let (ks, spec) = keys(9, &both, None, &img, &|_, _| (0, false, false));
             let d = if w == 16 { 1 << 15 } else { 0 };
-            assert_eq!((ks[0].tail, ks[4].tail, spec), (t | d, t | d, (t | d) as u64), "keys 0 and 4 over one image column");
-            assert!(var_key(4, t, 0) && var_key(4, t | 1 << 15, 0) && var_key(16, t, 0) && var_key(126, t, 0), "a tail from key 4: a var run");
-            assert!((0..4).all(|i| !var_key(i, t, 0) && !var_key(i, t | 1 << 15, 0)), "a tail at keys 0-3 rides the SortSpec (G4)");
+            assert_eq!(
+                (ks[0].tail, ks[4].tail, spec),
+                (t | d, t | d, (t | d) as u64),
+                "keys 0 and 4 over one image column"
+            );
+            assert!(
+                var_key(4, t, 0)
+                    && var_key(4, t | 1 << 15, 0)
+                    && var_key(16, t, 0)
+                    && var_key(126, t, 0),
+                "a tail from key 4: a var run"
+            );
+            assert!(
+                (0..4).all(|i| !var_key(i, t, 0) && !var_key(i, t | 1 << 15, 0)),
+                "a tail at keys 0-3 rides the SortSpec (G4)"
+            );
         }
-        assert!(!var_key(4, 0, 0) && !var_key(16, 0, 0) && !var_key(0, 0, 0) && var_key(0, 12 | NAME_BYTES << 8, 359), "a key with no tail is decided by its word (G4)");
-        assert!(var_key(0, 12 | WORD_WIDTH << 8, 0) && var_key(5, 12 | WORD_WIDTH << 8, 0), "an enum word at any key (V4R-386)");
-        let seventeen: Vec<SortKey> = (0..17).map(|i| sk(if i == 16 { 2 } else { 1 }, false)).collect();
-        let (ks, spec) = crate::catch(9, || keys(9, &seventeen, None, &tails, &|_, _| (0, false, false))).expect("a seventeenth tail serves");
-        assert_eq!((ks[16].tail, spec), (12 | VAR_WIDTH << 8, 0), "a seventeenth key's entry rides the key");
+        assert!(
+            !var_key(4, 0, 0)
+                && !var_key(16, 0, 0)
+                && !var_key(0, 0, 0)
+                && var_key(0, 12 | NAME_BYTES << 8, 359),
+            "a key with no tail is decided by its word (G4)"
+        );
+        assert!(
+            var_key(0, 12 | WORD_WIDTH << 8, 0) && var_key(5, 12 | WORD_WIDTH << 8, 0),
+            "an enum word at any key (V4R-386)"
+        );
+        let seventeen: Vec<SortKey> = (0..17)
+            .map(|i| sk(if i == 16 { 2 } else { 1 }, false))
+            .collect();
+        let (ks, spec) = crate::catch(9, || {
+            keys(9, &seventeen, None, &tails, &|_, _| (0, false, false))
+        })
+        .expect("a seventeenth tail serves");
+        assert_eq!(
+            (ks[16].tail, spec),
+            (12 | VAR_WIDTH << 8, 0),
+            "a seventeenth key's entry rides the key"
+        );
         // USEROP / D2041 lifted: past sixteen keys with a tail, a key whose comparator may reach user code (column 1's here)
         // serves at any position, its comparator riding its key; with none, or with no tail past sixteen, as before
-        let (tails3, user) = ([None, Some((96, VAR_WIDTH)), Some((104, VAR_WIDTH))], |c: usize| if c == 1 { (7, true, false) } else { (0, false, false) });
-        let run = |at: i32, last: i16| -> Vec<SortKey> { (0..18).map(|i| sk(if i == at { 2 } else if i == 17 { last } else { 1 }, false)).collect() };
+        let (tails3, user) = (
+            [None, Some((96, VAR_WIDTH)), Some((104, VAR_WIDTH))],
+            |c: usize| {
+                if c == 1 {
+                    (7, true, false)
+                } else {
+                    (0, false, false)
+                }
+            },
+        );
+        let run = |at: i32, last: i16| -> Vec<SortKey> {
+            (0..18)
+                .map(|i| {
+                    sk(
+                        if i == at {
+                            2
+                        } else if i == 17 {
+                            last
+                        } else {
+                            1
+                        },
+                        false,
+                    )
+                })
+                .collect()
+        };
         for at in [0, 16, 17] {
-            let (ks, _) = crate::catch(9, || keys(9, &run(at, 3), None, &tails3, &|_, c| user(c))).expect("a user-reach key past sixteen serves");
-            assert_eq!(ks[at as usize].proc, 7, "the user-reach key at {at} keeps its comparator");
+            let (ks, _) = crate::catch(9, || keys(9, &run(at, 3), None, &tails3, &|_, c| user(c)))
+                .expect("a user-reach key past sixteen serves");
+            assert_eq!(
+                ks[at as usize].proc, 7,
+                "the user-reach key at {at} keeps its comparator"
+            );
         }
-        let (ks, _) = crate::catch(9, || keys(9, &run(-1, 3), None, &tails3, &|_, c| user(c))).expect("no user-reach key serves");
-        assert_eq!((ks[17].tail, ks[17].proc), (13 | VAR_WIDTH << 8, 0), "an eighteenth tail of no user reach rides its key");
+        let (ks, _) = crate::catch(9, || keys(9, &run(-1, 3), None, &tails3, &|_, c| user(c)))
+            .expect("no user-reach key serves");
+        assert_eq!(
+            (ks[17].tail, ks[17].proc),
+            (13 | VAR_WIDTH << 8, 0),
+            "an eighteenth tail of no user reach rides its key"
+        );
         let near = &run(0, 1)[..17];
-        let (ks, _) = crate::catch(9, || keys(9, near, None, &tails3, &|_, c| user(c))).expect("no tail past sixteen: trunk's form");
-        assert_eq!((ks[0].proc, ks.len()), (7, 17), "the user-reach key keeps its comparator where trunk served it");
+        let (ks, _) = crate::catch(9, || keys(9, near, None, &tails3, &|_, c| user(c)))
+            .expect("no tail past sixteen: trunk's form");
+        assert_eq!(
+            (ks[0].proc, ks.len()),
+            (7, 17),
+            "the user-reach key keeps its comparator where trunk served it"
+        );
     }
 
     /// R2 13b: a key sorted by bpchar's operator over a text / varchar column takes bpchar's facts (its prefix and tail trim);
@@ -566,13 +1064,55 @@ mod tests {
     fn a_bpchar_key_over_text_trims() {
         use gravity_abi::breaker::KeyKind;
         use gravity_decompose::ops::shared::sort::KeyImage;
-        let key = |bpchar: bool| Key { col: 0, desc: false, nulls_first: false, coll: C, tail: 0, bpchar, proc: 0, dflt: false, eq_tie: false, user: false, total: false };
-        let trims = |t: u32, bpchar: bool| key_tf(row_of(t).unwrap(), &key(bpchar)).image.is_bpchar();
-        assert!(trims(25, true) && trims(1043, true) && trims(1042, true) && trims(1042, false), "bpchar's order trims");
-        assert!(!trims(25, false) && !trims(1043, false) && !trims(19, true) && !trims(17, true), "any other key compares every byte");
-        let sk = |opno: u32| SortKey { resno: 1, opno, desc: false, nulls_first: false, kind: KeyKind::Fp128, image: KeyImage::ByRef, scale: 0, coll: C, own_family: false, no_proc: None, eq_tie: false, per_row: false };
-        let (ks, _) = keys(9, &[sk(1058), sk(1060), sk(664)], None, &[Some((96, VAR_WIDTH))], &|_, _| (0, false, false));
-        assert_eq!(ks.iter().map(|k| k.bpchar).collect::<Vec<_>>(), [true, true, false], "bpcharlt / bpchargt, not textlt");
+        let key = |bpchar: bool| Key {
+            col: 0,
+            desc: false,
+            nulls_first: false,
+            coll: C,
+            tail: 0,
+            bpchar,
+            proc: 0,
+            dflt: false,
+            eq_tie: false,
+            user: false,
+            total: false,
+        };
+        let trims =
+            |t: u32, bpchar: bool| key_tf(row_of(t).unwrap(), &key(bpchar)).image.is_bpchar();
+        assert!(
+            trims(25, true) && trims(1043, true) && trims(1042, true) && trims(1042, false),
+            "bpchar's order trims"
+        );
+        assert!(
+            !trims(25, false) && !trims(1043, false) && !trims(19, true) && !trims(17, true),
+            "any other key compares every byte"
+        );
+        let sk = |opno: u32| SortKey {
+            resno: 1,
+            opno,
+            desc: false,
+            nulls_first: false,
+            kind: KeyKind::Fp128,
+            image: KeyImage::ByRef,
+            scale: 0,
+            coll: C,
+            own_family: false,
+            no_proc: None,
+            eq_tie: false,
+            per_row: false,
+        };
+        let (ks, _) = keys(
+            9,
+            &[sk(1058), sk(1060), sk(664)],
+            None,
+            &[Some((96, VAR_WIDTH))],
+            &|_, _| (0, false, false),
+        );
+        assert_eq!(
+            ks.iter().map(|k| k.bpchar).collect::<Vec<_>>(),
+            [true, true, false],
+            "bpcharlt / bpchargt, not textlt"
+        );
     }
 
     /// TOTAL-ORDER (b): a key is `total` (its table's `KFLAG_TOTAL`: std's sort) only with a comparator that `cmp_proc` calls
@@ -581,9 +1121,27 @@ mod tests {
     fn only_a_builtin_total_comparator_key_is_total() {
         use gravity_abi::breaker::KeyKind;
         use gravity_decompose::ops::shared::sort::KeyImage;
-        let sk = SortKey { resno: 1, opno: 0, desc: false, nulls_first: false, kind: KeyKind::Fp128, image: KeyImage::ByRef, scale: 0, coll: C, own_family: false, no_proc: None, eq_tie: false, per_row: false };
-        let total = |cmp: (u32, bool, bool)| keys(9, &[sk], None, &[Some((96, VAR_WIDTH))], &|_, _| cmp).0[0].total;
+        let sk = SortKey {
+            resno: 1,
+            opno: 0,
+            desc: false,
+            nulls_first: false,
+            kind: KeyKind::Fp128,
+            image: KeyImage::ByRef,
+            scale: 0,
+            coll: C,
+            own_family: false,
+            no_proc: None,
+            eq_tie: false,
+            per_row: false,
+        };
+        let total = |cmp: (u32, bool, bool)| {
+            keys(9, &[sk], None, &[Some((96, VAR_WIDTH))], &|_, _| cmp).0[0].total
+        };
         assert!(total((7, false, true)), "a builtin total comparator");
-        assert!(!total((7, true, true)) && !total((7, false, false)) && !total((0, false, true)), "a user's, one that may reach user code, none");
+        assert!(
+            !total((7, true, true)) && !total((7, false, false)) && !total((0, false, true)),
+            "a user's, one that may reach user code, none"
+        );
     }
 }

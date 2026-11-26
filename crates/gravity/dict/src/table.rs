@@ -32,7 +32,14 @@ pub const HDR_MODE: i32 = core::mem::offset_of!(Header, pad) as i32;
 pub const HDR_NCODES: i32 = core::mem::offset_of!(Header, ncodes) as i32;
 pub const HDR_FAULTS: i32 = core::mem::offset_of!(Header, faults) as i32;
 pub const HDR_DATA: i32 = core::mem::offset_of!(Header, data) as i32;
-const _: () = assert!(HDR_ELEM == 0 && HDR_FLAGS == 1 && HDR_MODE == 2 && HDR_NCODES == 4 && HDR_FAULTS == 8 && HDR_DATA == 16);
+const _: () = assert!(
+    HDR_ELEM == 0
+        && HDR_FLAGS == 1
+        && HDR_MODE == 2
+        && HDR_NCODES == 4
+        && HDR_FAULTS == 8
+        && HDR_DATA == 16
+);
 
 /// A code lane element: `u32` (pgrc code lanes), the datum word, or a narrow lane.
 pub trait CodeCell: Copy {
@@ -92,7 +99,11 @@ pub(crate) struct Build {
 }
 
 impl Build {
-    pub(crate) fn start(dict: &dyn Dict, region: &mut Region, elem: u8) -> Result<Build, BuildError> {
+    pub(crate) fn start(
+        dict: &dyn Dict,
+        region: &mut Region,
+        elem: u8,
+    ) -> Result<Build, BuildError> {
         let ncodes = dict.ncodes();
         if ncodes >= 1 << gravity_abi::status::FAULT_CODE_BITS {
             return Err(BuildError::TooManyCodes);
@@ -104,7 +115,11 @@ impl Build {
             (*hdr).ncodes = ncodes;
             (*hdr).base = word(region.base());
         }
-        Ok(Build { hdr, faults: core::ptr::null_mut(), nfaults: 0 })
+        Ok(Build {
+            hdr,
+            faults: core::ptr::null_mut(),
+            nfaults: 0,
+        })
     }
 
     pub(crate) fn ncodes(&self) -> u32 {
@@ -114,7 +129,8 @@ impl Build {
 
     pub(crate) fn fault(&mut self, region: &mut Region, code: u32) -> Result<(), BuildError> {
         if self.faults.is_null() {
-            self.faults = region.alloc_zeroed((self.ncodes() as usize).div_ceil(64) * 8, 8)? as *mut u64;
+            self.faults =
+                region.alloc_zeroed((self.ncodes() as usize).div_ceil(64) * 8, 8)? as *mut u64;
         }
         // SAFETY: `code < ncodes`, the bitmap has `ncodes` bits.
         unsafe { *self.faults.add(code as usize / 64) |= 1 << (code % 64) };
@@ -162,7 +178,12 @@ impl From<BuildError> for Halt {
 
 /// The build loop shared by every element type: entries in code order, the null code skipped,
 /// a fault recorded where `f` raises.
-pub(crate) fn sweep(dict: &dyn Dict, region: &mut Region, b: &mut Build, f: &mut dyn FnMut(u32, View, &mut Region) -> Result<(), Halt>) -> Result<(), BuildError> {
+pub(crate) fn sweep(
+    dict: &dyn Dict,
+    region: &mut Region,
+    b: &mut Build,
+    f: &mut dyn FnMut(u32, View, &mut Region) -> Result<(), Halt>,
+) -> Result<(), BuildError> {
     let null = dict.null_code();
     let mut err: Option<BuildError> = None;
     dict.entries(&mut |code, v| {
@@ -194,7 +215,13 @@ unsafe fn faulted(faults: *const u64, code: u32) -> bool {
 /// The word `w` of a row mask: the caller's mask (or all rows when `first`), the validity word,
 /// the tail cut at `rows`.
 #[inline(always)]
-pub(crate) unsafe fn keep_word(valid: *const u64, rows: usize, first: bool, out: &[u64], w: usize) -> u64 {
+pub(crate) unsafe fn keep_word(
+    valid: *const u64,
+    rows: usize,
+    first: bool,
+    out: &[u64],
+    w: usize,
+) -> u64 {
     let mut keep = if first { !0u64 } else { out[w] };
     if !valid.is_null() {
         keep &= *valid.add(w);
@@ -208,7 +235,12 @@ pub(crate) unsafe fn keep_word(valid: *const u64, rows: usize, first: bool, out:
 
 /// The first kept row of word `w` whose code faults, as a `Deferred`.
 #[inline(always)]
-unsafe fn first_fault<C: CodeCell>(faults: *const u64, codes: *const C, w: usize, keep: u64) -> Result<(), Deferred> {
+unsafe fn first_fault<C: CodeCell>(
+    faults: *const u64,
+    codes: *const C,
+    w: usize,
+    keep: u64,
+) -> Result<(), Deferred> {
     if faults.is_null() {
         return Ok(());
     }
@@ -218,7 +250,10 @@ unsafe fn first_fault<C: CodeCell>(faults: *const u64, codes: *const C, w: usize
         let i = m.trailing_zeros() as usize;
         let c = (*codes.add(base + i)).code();
         if bit(faults, c) {
-            return Err(Deferred { row: (base + i) as u32, code: c });
+            return Err(Deferred {
+                row: (base + i) as u32,
+                code: c,
+            });
         }
         m &= m - 1;
     }
@@ -240,7 +275,11 @@ pub struct Bits {
 }
 
 impl Bits {
-    pub fn build(dict: &dyn Dict, region: &mut Region, f: &mut dyn FnMut(View) -> Result<bool, Fault>) -> Result<Bits, BuildError> {
+    pub fn build(
+        dict: &dyn Dict,
+        region: &mut Region,
+        f: &mut dyn FnMut(View) -> Result<bool, Fault>,
+    ) -> Result<Bits, BuildError> {
         let mut b = Build::start(dict, region, crate::lane::ELEM_BITS)?;
         let words = region.alloc_zeroed((b.ncodes() as usize).div_ceil(64) * 8, 8)? as *mut u64;
         sweep(dict, region, &mut b, &mut |code, v, _| {
@@ -256,7 +295,12 @@ impl Bits {
 
     /// B2-20: the table of a code set, built from its codes (`lookup::code_of`), no entry read: exactly `codes`
     /// (`negated`: every code but those and the dictionary's NULL code). A code past `ncodes` is none of the dictionary's.
-    pub fn of_codes(dict: &dyn Dict, codes: &[u32], negated: bool, region: &mut Region) -> Result<Bits, BuildError> {
+    pub fn of_codes(
+        dict: &dyn Dict,
+        codes: &[u32],
+        negated: bool,
+        region: &mut Region,
+    ) -> Result<Bits, BuildError> {
         let b = Build::start(dict, region, crate::lane::ELEM_BITS)?;
         let n = b.ncodes() as usize;
         let words = region.alloc_zeroed(n.div_ceil(64) * 8, 8)? as *mut u64;
@@ -267,7 +311,11 @@ impl Bits {
             }
             if negated {
                 for w in 0..n.div_ceil(64) {
-                    let keep = if n - w * 64 < 64 { (1u64 << (n - w * 64)) - 1 } else { !0 };
+                    let keep = if n - w * 64 < 64 {
+                        (1u64 << (n - w * 64)) - 1
+                    } else {
+                        !0
+                    };
                     *words.add(w) = !*words.add(w) & keep;
                 }
                 if let Some(c) = dict.null_code().filter(|&c| (c as usize) < n) {
@@ -295,19 +343,37 @@ impl Bits {
     /// P5-06 / SRC-17: the table of the code run `[lo, hi)` (the entries of one byte interval of a byte-ordered
     /// dictionary, its ends `lookup::lower_bound`'s), no entry read: exactly those codes (`negated`: every other code),
     /// never the dictionary's NULL code. The run is cut at `ncodes`; an empty one (`hi <= lo`) holds no code.
-    pub fn of_run(dict: &dyn Dict, lo: u32, hi: u32, negated: bool, region: &mut Region) -> Result<Bits, BuildError> {
+    pub fn of_run(
+        dict: &dyn Dict,
+        lo: u32,
+        hi: u32,
+        negated: bool,
+        region: &mut Region,
+    ) -> Result<Bits, BuildError> {
         let b = Build::start(dict, region, crate::lane::ELEM_BITS)?;
         let n = b.ncodes() as usize;
         let (lo, hi) = ((lo as usize).min(n), (hi as usize).min(n));
         let words = region.alloc_zeroed(n.div_ceil(64) * 8, 8)? as *mut u64;
         // the bits of codes [a, z) in the word whose first code is `base`
-        let span = |a: usize, z: usize, base: usize| if a >= z { 0 } else if z - a == 64 { !0u64 } else { ((1u64 << (z - a)) - 1) << (a - base) };
+        let span = |a: usize, z: usize, base: usize| {
+            if a >= z {
+                0
+            } else if z - a == 64 {
+                !0u64
+            } else {
+                ((1u64 << (z - a)) - 1) << (a - base)
+            }
+        };
         // SAFETY: every word written is one of the `ncodes`-bit table's; the bits past `ncodes` stay clear.
         unsafe {
             for w in 0..n.div_ceil(64) {
                 let (w0, w1) = (w * 64, (w * 64 + 64).min(n));
                 let run = span(lo.max(w0), hi.min(w1), w0);
-                *words.add(w) = if negated { span(w0, w1, w0) & !run } else { run };
+                *words.add(w) = if negated {
+                    span(w0, w1, w0) & !run
+                } else {
+                    run
+                };
             }
             if let Some(c) = dict.null_code().filter(|&c| (c as usize) < n) {
                 *words.add(c as usize / 64) &= !(1 << (c % 64));
@@ -319,7 +385,12 @@ impl Bits {
 
     /// The table of the codes `fill` sets (through the setter it is handed; `negated`: every other code), never the
     /// dictionary's NULL code: a predicate decided by a scan rather than entry by entry (`Matcher::scan_entries`).
-    pub fn of_hits(dict: &dyn Dict, negated: bool, region: &mut Region, fill: &mut dyn FnMut(&mut dyn FnMut(u32))) -> Result<Bits, BuildError> {
+    pub fn of_hits(
+        dict: &dyn Dict,
+        negated: bool,
+        region: &mut Region,
+        fill: &mut dyn FnMut(&mut dyn FnMut(u32)),
+    ) -> Result<Bits, BuildError> {
         let b = Build::start(dict, region, crate::lane::ELEM_BITS)?;
         let n = b.ncodes() as usize;
         let words = region.alloc_zeroed(n.div_ceil(64) * 8, 8)? as *mut u64;
@@ -333,7 +404,11 @@ impl Bits {
         unsafe {
             if negated {
                 for w in 0..n.div_ceil(64) {
-                    let keep = if n - w * 64 < 64 { (1u64 << (n - w * 64)) - 1 } else { !0 };
+                    let keep = if n - w * 64 < 64 {
+                        (1u64 << (n - w * 64)) - 1
+                    } else {
+                        !0
+                    };
                     *words.add(w) = !*words.add(w) & keep;
                 }
             }
@@ -349,7 +424,12 @@ impl Bits {
     #[allow(clippy::missing_safety_doc)]
     pub unsafe fn at(hdr: *const Header) -> Bits {
         debug_assert_eq!((*hdr).elem, crate::lane::ELEM_BITS);
-        Bits { hdr, words: (*hdr).data.ptr() as *const u64, faults: (*hdr).faults.ptr(), ncodes: (*hdr).ncodes }
+        Bits {
+            hdr,
+            words: (*hdr).data.ptr() as *const u64,
+            faults: (*hdr).faults.ptr(),
+            ncodes: (*hdr).ncodes,
+        }
     }
 
     pub fn header(&self) -> *const Header {
@@ -388,7 +468,8 @@ impl Bits {
     /// P5-03: the table answers false for every code for certain (no bit set, no entry faulted).
     pub fn rejects_all(&self) -> bool {
         // SAFETY: the data words hold `ncodes` bits, the tail past `ncodes` clear; a table with a faulted entry has a bitmap.
-        self.faults.is_null() && (0..(self.ncodes as usize).div_ceil(64)).all(|w| unsafe { *self.words.add(w) == 0 })
+        self.faults.is_null()
+            && (0..(self.ncodes as usize).div_ceil(64)).all(|w| unsafe { *self.words.add(w) == 0 })
     }
 
     /// `out` ← (`first` ? all : `out`) ∧ `valid` ∧ table[code], `rows` rows of `codes`; the first
@@ -396,7 +477,14 @@ impl Bits {
     /// # Safety — `codes` holds `rows` codes below `ncodes()`, `valid` null or `rows` bits, `out` ≥ `rows` bits.
     #[inline(always)]
     #[allow(clippy::missing_safety_doc)]
-    pub unsafe fn gather_mask<C: CodeCell>(&self, codes: *const C, valid: *const u64, rows: usize, first: bool, out: &mut [u64]) -> Result<(), Deferred> {
+    pub unsafe fn gather_mask<C: CodeCell>(
+        &self,
+        codes: *const C,
+        valid: *const u64,
+        rows: usize,
+        first: bool,
+        out: &mut [u64],
+    ) -> Result<(), Deferred> {
         for w in 0..rows.div_ceil(64) {
             let keep = keep_word(valid, rows, first, out, w);
             if keep == 0 {
@@ -457,7 +545,11 @@ pub struct I64 {
 }
 
 impl I64 {
-    pub fn build(dict: &dyn Dict, region: &mut Region, f: &mut dyn FnMut(View) -> Result<i64, Fault>) -> Result<I64, BuildError> {
+    pub fn build(
+        dict: &dyn Dict,
+        region: &mut Region,
+        f: &mut dyn FnMut(View) -> Result<i64, Fault>,
+    ) -> Result<I64, BuildError> {
         let mut b = Build::start(dict, region, crate::lane::ELEM_I64)?;
         let vals = region.alloc_zeroed(b.ncodes() as usize * 8, 8)? as *mut i64;
         sweep(dict, region, &mut b, &mut |code, v, _| {
@@ -470,7 +562,11 @@ impl I64 {
     }
 
     /// One value per code from `f(code)` — the entry itself never read (lengths from a dictionary index).
-    pub fn build_by_code(codes: &Codes, region: &mut Region, f: &mut dyn FnMut(u32) -> Result<i64, Fault>) -> Result<I64, BuildError> {
+    pub fn build_by_code(
+        codes: &Codes,
+        region: &mut Region,
+        f: &mut dyn FnMut(u32) -> Result<i64, Fault>,
+    ) -> Result<I64, BuildError> {
         let mut b = Build::start(codes, region, crate::lane::ELEM_I64)?;
         let vals = region.alloc_zeroed(b.ncodes() as usize * 8, 8)? as *mut i64;
         for code in 0..b.ncodes() {
@@ -496,7 +592,17 @@ impl I64 {
             (_, LEN_MODE_CHARS_DELTA) => (INDEX_ENTRY_LEN as u32, u32::MAX as u64, 0, u64::MAX, 32),
             _ => (INDEX_ENTRY_LEN as u32, u32::MAX as u64, 0, 0, 0),
         };
-        I64 { hdr, vals: (*hdr).data.ptr(), faults: (*hdr).faults.ptr(), ncodes: (*hdr).ncodes, stride, m1, m2, s1, s2 }
+        I64 {
+            hdr,
+            vals: (*hdr).data.ptr(),
+            faults: (*hdr).faults.ptr(),
+            ncodes: (*hdr).ncodes,
+            stride,
+            m1,
+            m2,
+            s1,
+            s2,
+        }
     }
 
     pub fn header(&self) -> *const Header {
@@ -515,7 +621,9 @@ impl I64 {
     #[inline(always)]
     #[allow(clippy::missing_safety_doc)]
     pub unsafe fn get(&self, code: u32) -> i64 {
-        let v = core::ptr::read_unaligned(self.vals.add(code as usize * self.stride as usize) as *const u64);
+        let v = core::ptr::read_unaligned(
+            self.vals.add(code as usize * self.stride as usize) as *const u64
+        );
         ((v & self.m1) >> self.s1) as i64 - ((v & self.m2) >> self.s2) as i64
     }
 
@@ -531,8 +639,21 @@ impl I64 {
     /// # Safety — as `Bits::gather_mask`, `out` holds `rows` cells.
     #[inline(always)]
     #[allow(clippy::missing_safety_doc)]
-    pub unsafe fn gather<C: CodeCell>(&self, codes: *const C, valid: *const u64, rows: usize, out: *mut i64) -> Result<(), Deferred> {
-        gather_words(self.vals as *const u64, self.faults, codes, valid, rows, out as *mut u64)
+    pub unsafe fn gather<C: CodeCell>(
+        &self,
+        codes: *const C,
+        valid: *const u64,
+        rows: usize,
+        out: *mut i64,
+    ) -> Result<(), Deferred> {
+        gather_words(
+            self.vals as *const u64,
+            self.faults,
+            codes,
+            valid,
+            rows,
+            out as *mut u64,
+        )
     }
 }
 
@@ -547,7 +668,11 @@ pub struct Hash {
 }
 
 impl Hash {
-    pub fn build(dict: &dyn Dict, region: &mut Region, f: &mut dyn FnMut(View) -> Result<View, Fault>) -> Result<Hash, BuildError> {
+    pub fn build(
+        dict: &dyn Dict,
+        region: &mut Region,
+        f: &mut dyn FnMut(View) -> Result<View, Fault>,
+    ) -> Result<Hash, BuildError> {
         let mut b = Build::start(dict, region, crate::lane::ELEM_HASH)?;
         let vals = region.alloc_zeroed(b.ncodes() as usize * 8, 8)? as *mut u64;
         sweep(dict, region, &mut b, &mut |code, v, _| {
@@ -564,7 +689,12 @@ impl Hash {
     #[allow(clippy::missing_safety_doc)]
     pub unsafe fn at(hdr: *const Header) -> Hash {
         debug_assert_eq!((*hdr).elem, crate::lane::ELEM_HASH);
-        Hash { hdr, vals: (*hdr).data.ptr() as *const u64, faults: (*hdr).faults.ptr(), ncodes: (*hdr).ncodes }
+        Hash {
+            hdr,
+            vals: (*hdr).data.ptr() as *const u64,
+            faults: (*hdr).faults.ptr(),
+            ncodes: (*hdr).ncodes,
+        }
     }
 
     pub fn header(&self) -> *const Header {
@@ -596,7 +726,13 @@ impl Hash {
     /// # Safety — as `I64::gather`.
     #[inline(always)]
     #[allow(clippy::missing_safety_doc)]
-    pub unsafe fn gather<C: CodeCell>(&self, codes: *const C, valid: *const u64, rows: usize, out: *mut u64) -> Result<(), Deferred> {
+    pub unsafe fn gather<C: CodeCell>(
+        &self,
+        codes: *const C,
+        valid: *const u64,
+        rows: usize,
+        out: *mut u64,
+    ) -> Result<(), Deferred> {
         gather_words(self.vals, self.faults, codes, valid, rows, out)
     }
 }
@@ -613,7 +749,11 @@ pub struct Fp128 {
 
 impl Fp128 {
     /// `NoSeed` when the process seed is not installed (`fp::install`).
-    pub fn build(dict: &dyn Dict, region: &mut Region, f: &mut dyn FnMut(View) -> Result<View, Fault>) -> Result<Fp128, BuildError> {
+    pub fn build(
+        dict: &dyn Dict,
+        region: &mut Region,
+        f: &mut dyn FnMut(View) -> Result<View, Fault>,
+    ) -> Result<Fp128, BuildError> {
         let (k0, k1) = crate::fp::seed().ok_or(BuildError::NoSeed)?;
         let mut b = Build::start(dict, region, crate::lane::ELEM_FP128)?;
         let vals = region.alloc_zeroed(b.ncodes() as usize * 16, 8)? as *mut [u64; 2];
@@ -632,7 +772,12 @@ impl Fp128 {
     /// image, a longer one its fingerprint with `fp::HASHED` set, read from `raw` (the part's EXISTING `Fp128` table over
     /// the same values, when one is resident: no second hash) else hashed here, as that table's build would. The null code
     /// stays `[0, 0]`.
-    pub fn build_canon(dict: &dyn Dict, region: &mut Region, f: &mut dyn FnMut(View) -> Result<View, Fault>, raw: Option<&Fp128>) -> Result<Fp128, BuildError> {
+    pub fn build_canon(
+        dict: &dyn Dict,
+        region: &mut Region,
+        f: &mut dyn FnMut(View) -> Result<View, Fault>,
+        raw: Option<&Fp128>,
+    ) -> Result<Fp128, BuildError> {
         let keys = crate::fp::keys().ok_or(BuildError::NoSeed)?;
         let mut b = Build::start(dict, region, crate::lane::ELEM_FP128)?;
         let raw = raw.filter(|r| r.ncodes == b.ncodes() && !r.has_faults());
@@ -642,7 +787,9 @@ impl Fp128 {
             // SAFETY: `d` is the caller's live view.
             let bytes = unsafe { d.bytes() };
             // SAFETY: `code < ncodes` (`raw`'s too, checked above).
-            let img = crate::fp::canon_of(bytes, || raw.map_or_else(|| keys.fp_bytes(bytes), |r| unsafe { r.get(code) }));
+            let img = crate::fp::canon_of(bytes, || {
+                raw.map_or_else(|| keys.fp_bytes(bytes), |r| unsafe { r.get(code) })
+            });
             // SAFETY: `code < ncodes`.
             unsafe { *vals.add(code as usize) = img };
             Ok(())
@@ -653,7 +800,11 @@ impl Fp128 {
 
     /// The fingerprints of `f(code)`'s bytes over a code range (a derived value per code: the bytes
     /// need only live through the call); a faulting code is a fault bit.
-    pub fn build_by_code(codes: &Codes, region: &mut Region, f: &mut dyn FnMut(u32) -> Result<View, Fault>) -> Result<Fp128, BuildError> {
+    pub fn build_by_code(
+        codes: &Codes,
+        region: &mut Region,
+        f: &mut dyn FnMut(u32) -> Result<View, Fault>,
+    ) -> Result<Fp128, BuildError> {
         let (k0, k1) = crate::fp::seed().ok_or(BuildError::NoSeed)?;
         let mut b = Build::start(codes, region, crate::lane::ELEM_FP128)?;
         let vals = region.alloc_zeroed(b.ncodes() as usize * 16, 8)? as *mut [u64; 2];
@@ -663,7 +814,9 @@ impl Fp128 {
             }
             match f(code) {
                 // SAFETY: `code < ncodes`; `d` is live for the call.
-                Ok(d) => unsafe { *vals.add(code as usize) = crate::fp::siphash128(k0, k1, d.bytes()) },
+                Ok(d) => unsafe {
+                    *vals.add(code as usize) = crate::fp::siphash128(k0, k1, d.bytes())
+                },
                 Err(_) => b.fault(region, code)?,
             }
         }
@@ -674,7 +827,13 @@ impl Fp128 {
     /// `build_by_code` over values known equal by a canonical index (`Derived::canonical`): the
     /// SipHash runs once per distinct value (`ndistinct` of them), every other code copies its
     /// canonical's fingerprint. `canon(code)` is `u32::MAX` for a faulting code.
-    pub fn build_by_canon(codes: &Codes, region: &mut Region, ndistinct: u32, canon: &mut dyn FnMut(u32) -> u32, f: &mut dyn FnMut(u32) -> View) -> Result<Fp128, BuildError> {
+    pub fn build_by_canon(
+        codes: &Codes,
+        region: &mut Region,
+        ndistinct: u32,
+        canon: &mut dyn FnMut(u32) -> u32,
+        f: &mut dyn FnMut(u32) -> View,
+    ) -> Result<Fp128, BuildError> {
         let (k0, k1) = crate::fp::seed().ok_or(BuildError::NoSeed)?;
         let mut b = Build::start(codes, region, crate::lane::ELEM_FP128)?;
         let vals = region.alloc_zeroed(b.ncodes() as usize * 16, 8)? as *mut [u64; 2];
@@ -721,7 +880,12 @@ impl Fp128 {
     /// (`Derived::build_over` then `Fp128::build_by_canon` kept 20 bytes a code and walked the codes twice more), and the
     /// table is the statement's like any other (built per statement, dropped with it). A code `f` faults stays [0, 0] and
     /// is recorded as a fault; the null code stays [0, 0].
-    pub fn build_derived_over(dict: &dyn Dict, region: &mut Region, over: &[u8], f: &mut dyn FnMut(View, &mut Region) -> Result<View, Halt>) -> Result<Fp128, BuildError> {
+    pub fn build_derived_over(
+        dict: &dyn Dict,
+        region: &mut Region,
+        over: &[u8],
+        f: &mut dyn FnMut(View, &mut Region) -> Result<View, Halt>,
+    ) -> Result<Fp128, BuildError> {
         let (k0, k1) = crate::fp::seed().ok_or(BuildError::NoSeed)?;
         let mut b = Build::start(dict, region, crate::lane::ELEM_FP128)?;
         let vals = region.alloc_zeroed(b.ncodes() as usize * 16, 8)? as *mut [u64; 2];
@@ -754,7 +918,12 @@ impl Fp128 {
     /// Never inlined: the loop keeps its own frame (and registers) with `next` and its per-entry work inlined into it, not
     /// its caller's (D3424).
     #[inline(never)]
-    pub fn build_derived_seq<'o>(dict: &dyn Dict, region: &mut Region, over: &'o [u8], mut next: impl FnMut() -> Option<Result<(u32, &'o [u8], bool), BuildError>>) -> Result<Fp128, BuildError> {
+    pub fn build_derived_seq<'o>(
+        dict: &dyn Dict,
+        region: &mut Region,
+        over: &'o [u8],
+        mut next: impl FnMut() -> Option<Result<(u32, &'o [u8], bool), BuildError>>,
+    ) -> Result<Fp128, BuildError> {
         let (k0, k1) = crate::fp::seed().ok_or(BuildError::NoSeed)?;
         let null = dict.null_code();
         let b = Build::start(dict, region, crate::lane::ELEM_FP128)?;
@@ -769,7 +938,9 @@ impl Fp128 {
         let zero_to = |unset: &mut u32, to: u32| {
             if *unset < to {
                 // SAFETY: `unset < to <= n`; the table holds `n` cells.
-                unsafe { core::ptr::write_bytes(vals.add(*unset as usize), 0, (to - *unset) as usize) };
+                unsafe {
+                    core::ptr::write_bytes(vals.add(*unset as usize), 0, (to - *unset) as usize)
+                };
                 *unset = to;
             }
         };
@@ -782,7 +953,9 @@ impl Fp128 {
             }
             zero_to(&mut unset, code);
             #[allow(clippy::nonminimal_bool)]
-            if !bytes.is_empty() && !(lo <= bytes.as_ptr() as usize && bytes.as_ptr() as usize + bytes.len() <= hi) {
+            if !bytes.is_empty()
+                && !(lo <= bytes.as_ptr() as usize && bytes.as_ptr() as usize + bytes.len() <= hi)
+            {
                 return Err(BuildError::OutsideBase);
             }
             let fp = match prev {
@@ -804,7 +977,12 @@ impl Fp128 {
     #[allow(clippy::missing_safety_doc)]
     pub unsafe fn at(hdr: *const Header) -> Fp128 {
         debug_assert_eq!((*hdr).elem, crate::lane::ELEM_FP128);
-        Fp128 { hdr, vals: (*hdr).data.ptr() as *const [u64; 2], faults: (*hdr).faults.ptr(), ncodes: (*hdr).ncodes }
+        Fp128 {
+            hdr,
+            vals: (*hdr).data.ptr() as *const [u64; 2],
+            faults: (*hdr).faults.ptr(),
+            ncodes: (*hdr).ncodes,
+        }
     }
 
     pub fn header(&self) -> *const Header {
@@ -842,7 +1020,14 @@ impl Fp128 {
 }
 
 #[inline(always)]
-pub(crate) unsafe fn gather_words<C: CodeCell>(vals: *const u64, faults: *const u64, codes: *const C, valid: *const u64, rows: usize, out: *mut u64) -> Result<(), Deferred> {
+pub(crate) unsafe fn gather_words<C: CodeCell>(
+    vals: *const u64,
+    faults: *const u64,
+    codes: *const C,
+    valid: *const u64,
+    rows: usize,
+    out: *mut u64,
+) -> Result<(), Deferred> {
     if valid.is_null() {
         for i in 0..rows {
             *out.add(i) = *vals.add((*codes.add(i)).code() as usize);
@@ -879,7 +1064,10 @@ impl<const DELTA: bool> IdxLen<DELTA> {
     /// # Safety — `hdr` is an `ELEM_LEN_IDX` / `ELEM_LEN_IDX_DELTA` header (`index_len_header`).
     #[allow(clippy::missing_safety_doc)]
     pub unsafe fn at(hdr: *const Header) -> IdxLen<DELTA> {
-        IdxLen { data: (*hdr).data.ptr(), ncodes: (*hdr).ncodes }
+        IdxLen {
+            data: (*hdr).data.ptr(),
+            ncodes: (*hdr).ncodes,
+        }
     }
 
     pub fn ncodes(&self) -> u32 {
@@ -898,7 +1086,6 @@ impl<const DELTA: bool> IdxLen<DELTA> {
             bytes as i64
         }
     }
-
 }
 
 /// A per-code length: an `I64` table (a verbatim part's, built by a sweep) or the index view.
@@ -935,7 +1122,12 @@ pub enum LenField {
 /// entries of `INDEX_ENTRY_LEN` bytes, live for the part's open).
 /// # Safety — `index` holds `ncodes * INDEX_ENTRY_LEN` bytes and outlives every lane published from the header.
 #[allow(clippy::missing_safety_doc)]
-pub unsafe fn index_len_header(region: &mut Region, index: *const u8, ncodes: u32, field: LenField) -> Result<*const Header, BuildError> {
+pub unsafe fn index_len_header(
+    region: &mut Region,
+    index: *const u8,
+    ncodes: u32,
+    field: LenField,
+) -> Result<*const Header, BuildError> {
     let codes = Codes { ncodes, null: None };
     let (elem, mode) = match field {
         LenField::Bytes => (crate::lane::ELEM_LEN_IDX, LEN_MODE_BYTES),

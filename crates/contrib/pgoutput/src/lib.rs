@@ -38,13 +38,12 @@ use logicalproto::{
     logicalrep_write_insert, logicalrep_write_message, logicalrep_write_prepare,
     logicalrep_write_rel, logicalrep_write_rollback_prepared, logicalrep_write_stream_abort,
     logicalrep_write_stream_commit, logicalrep_write_stream_prepare, logicalrep_write_stream_start,
-    logicalrep_write_stream_stop, logicalrep_write_truncate,
-    logicalrep_write_typ, logicalrep_write_update, LOGICALREP_PROTO_MAX_VERSION_NUM,
-    LOGICALREP_PROTO_MIN_VERSION_NUM, LOGICALREP_PROTO_STREAM_PARALLEL_VERSION_NUM,
-    LOGICALREP_PROTO_STREAM_VERSION_NUM, LOGICALREP_PROTO_TWOPHASE_VERSION_NUM,
-    PUBLISH_GENCOLS_NONE, PUBLISH_GENCOLS_STORED,
+    logicalrep_write_stream_stop, logicalrep_write_truncate, logicalrep_write_typ,
+    logicalrep_write_update, LOGICALREP_PROTO_MAX_VERSION_NUM, LOGICALREP_PROTO_MIN_VERSION_NUM,
+    LOGICALREP_PROTO_STREAM_PARALLEL_VERSION_NUM, LOGICALREP_PROTO_STREAM_VERSION_NUM,
+    LOGICALREP_PROTO_TWOPHASE_VERSION_NUM, PUBLISH_GENCOLS_NONE, PUBLISH_GENCOLS_STORED,
 };
-use mcx::{MemoryContext, Mcx, PgBox};
+use mcx::{Mcx, MemoryContext, PgBox};
 use reorderbuffer::{
     ReorderBuffer, ReorderBufferChange, ReorderBufferChangeData, ReorderBufferChangeType, TxnId,
 };
@@ -310,7 +309,9 @@ fn def_get_streaming_mode(defname: &str, arg: Option<&str>) -> PgResult<u8> {
     }
     ereport(ERROR)
         .errcode(ERRCODE_SYNTAX_ERROR)
-        .errmsg(format!("{defname} requires a Boolean value or \"parallel\""))
+        .errmsg(format!(
+            "{defname} requires a Boolean value or \"parallel\""
+        ))
         .finish(loc("defGetStreamingMode"))?;
     unreachable!()
 }
@@ -345,7 +346,11 @@ fn strtoul_full(s: &str) -> Option<u64> {
     if i != b.len() || overflowed {
         return None;
     }
-    Some(if negative { value.wrapping_neg() } else { value })
+    Some(if negative {
+        value.wrapping_neg()
+    } else {
+        value
+    })
 }
 
 // parse_output_parameters (pgoutput.c:289).
@@ -810,8 +815,7 @@ fn pgoutput_stream_start(
     let data = data_from(opc);
     let t = rb.txn(txn);
     // Send the origin id only in the first stream for this xid.
-    let send_replication_origin =
-        t.origin_id != InvalidRepOriginId && !t.is_streamed();
+    let send_replication_origin = t.origin_id != InvalidRepOriginId && !t.is_streamed();
     let first_segment = !t.is_streamed();
     let (xid, origin_id) = (t.xid, t.origin_id);
 
@@ -865,7 +869,11 @@ fn pgoutput_stream_abort(
     let t = rb.txn(txn);
     let subxid = t.xid;
     let abort_time = t.xact_time;
-    let topxid = if t.is_known_subxact() { t.toplevel_xid } else { t.xid };
+    let topxid = if t.is_known_subxact() {
+        t.toplevel_xid
+    } else {
+        t.xid
+    };
 
     OutputPluginPrepareWrite(opc, true)?;
     logicalrep_write_stream_abort(
@@ -972,7 +980,11 @@ fn maybe_send_schema(
     let data = data_from(opc);
     let (xid, topxid) = if data.in_streaming {
         let ct = rb.txn(change_txn);
-        let topxid = if ct.is_known_subxact() { ct.toplevel_xid } else { ct.xid };
+        let topxid = if ct.is_known_subxact() {
+            ct.toplevel_xid
+        } else {
+            ct.xid
+        };
         (ct.xid, topxid)
     } else {
         (InvalidTransactionId, InvalidTransactionId)
@@ -1345,13 +1357,7 @@ fn pgoutput_truncate(
         };
 
         OutputPluginPrepareWrite(opc, true)?;
-        logicalrep_write_truncate(
-            opc.out.as_mut_vec(),
-            xid,
-            &relids,
-            cascade,
-            restart_seqs,
-        );
+        logicalrep_write_truncate(opc.out.as_mut_vec(), xid, &relids, cascade, restart_seqs);
         OutputPluginWrite(opc, true)?;
     }
     Ok(())
@@ -1536,11 +1542,7 @@ fn rel_sync_cache_publication_cb(_arg: Datum, _cacheid: i32, _hashvalue: u32) {
 
 // is_publishable_relation over the plugin-visible RelationData.
 fn is_publishable_relation_data(rel: &RelationData<'static>) -> bool {
-    pg_publication::is_publishable_class(
-        rel.rd_id,
-        rel.rd_rel.relkind,
-        rel.rd_rel.relpersistence,
-    )
+    pg_publication::is_publishable_class(rel.rd_id, rel.rd_rel.relkind, rel.rd_rel.relpersistence)
 }
 
 // init_tuple_slot's attrmap half (pgoutput.c:1209): cache the map converting
@@ -1556,8 +1558,12 @@ fn init_rel_attrmap(
     let ancestor = relcache::store::RelationIdGetRelation(entry.publish_as_relid)?
         .unwrap_or_else(|| panic!("could not open relation {}", entry.publish_as_relid));
     let ctx = MemoryContext::new("init_tuple_slot");
-    let map =
-        tupdesc::build_attrmap_by_name_if_req(ctx.mcx(), &relation.rd_att, &ancestor.rd_att, false)?;
+    let map = tupdesc::build_attrmap_by_name_if_req(
+        ctx.mcx(),
+        &relation.rd_att,
+        &ancestor.rd_att,
+        false,
+    )?;
     // Owned copy: the entry outlives this validation's context (C copies into
     // data->cachectx).
     entry.attrmap = match map {
@@ -1569,17 +1575,19 @@ fn init_rel_attrmap(
 
 // SearchSysCacheExists2(PUBLICATIONNAMESPACEMAP, ...) (pgoutput.c:955).
 fn schema_publication_exists(schemaid: Oid, puboid: Oid) -> PgResult<bool> {
-    Ok(match SearchSysCache2(
-        PUBLICATIONNAMESPACEMAP,
-        SysCacheKey::Value(Datum::from_oid(schemaid)),
-        SysCacheKey::Value(Datum::from_oid(puboid)),
-    )? {
-        Some(tup) => {
-            ReleaseSysCache(tup);
-            true
-        }
-        None => false,
-    })
+    Ok(
+        match SearchSysCache2(
+            PUBLICATIONNAMESPACEMAP,
+            SysCacheKey::Value(Datum::from_oid(schemaid)),
+            SysCacheKey::Value(Datum::from_oid(puboid)),
+        )? {
+            Some(tup) => {
+                ReleaseSysCache(tup);
+                true
+            }
+            None => false,
+        },
+    )
 }
 
 // TextDatumGetCString over a possibly short-headered/compressed pg_node_tree.
@@ -1688,8 +1696,7 @@ fn pgoutput_row_filter_init(
         if srcs.is_empty() {
             continue;
         }
-        let mut filters: Vec<Node<'static>> =
-            ::mcx::std_vec_with_capacity("pgoutput", srcs.len())?;
+        let mut filters: Vec<Node<'static>> = ::mcx::std_vec_with_capacity("pgoutput", srcs.len())?;
         for src in srcs {
             let node = readfuncs::stringToNode(emcx, src)?;
             filters.push(planner::prepjointree::expand_generated_columns_in_expr(
@@ -1717,7 +1724,11 @@ fn pgoutput_row_filter_exec_expr<'c>(
     state: &mut ExprState<'c>,
     slot: &mut SlotData<'c>,
 ) -> PgResult<bool> {
-    let mut slots = EvalSlots { scan: Some(slot), inner: None, outer: None };
+    let mut slots = EvalSlots {
+        scan: Some(slot),
+        inner: None,
+        outer: None,
+    };
     let nd = exec_eval_expr(state, &mut slots)?;
     Ok(!nd.isnull && nd.value.as_usize() != 0)
 }
@@ -1832,8 +1843,7 @@ fn pgoutput_row_filter_guts<'c>(
                 }
             }
             if !merge_cols.is_empty() {
-                let mut t =
-                    make_tuple_table_slot(mcx, TupleSlotKind::Virtual, Some(desc.clone()));
+                let mut t = make_tuple_table_slot(mcx, TupleSlotKind::Virtual, Some(desc.clone()));
                 exec_clear_tuple(&mut t, mcx);
                 {
                     let nb = new_slot.base();
@@ -2290,9 +2300,18 @@ mod tests {
 
     #[test]
     fn changetype_pubaction_map() {
-        assert_eq!(map_changetype_pubaction(reorderbuffer::Insert), PUBACTION_INSERT);
-        assert_eq!(map_changetype_pubaction(reorderbuffer::Update), PUBACTION_UPDATE);
-        assert_eq!(map_changetype_pubaction(reorderbuffer::Delete), PUBACTION_DELETE);
+        assert_eq!(
+            map_changetype_pubaction(reorderbuffer::Insert),
+            PUBACTION_INSERT
+        );
+        assert_eq!(
+            map_changetype_pubaction(reorderbuffer::Update),
+            PUBACTION_UPDATE
+        );
+        assert_eq!(
+            map_changetype_pubaction(reorderbuffer::Delete),
+            PUBACTION_DELETE
+        );
     }
 
     fn fresh_data() -> PGOutputData {
@@ -2334,11 +2353,20 @@ mod tests {
                     &mut data,
                 )
                 .unwrap_err();
-                assert_eq!(err.message(), format!("{name} requires a Boolean value"), "{name}={bad}");
+                assert_eq!(
+                    err.message(),
+                    format!("{name} requires a Boolean value"),
+                    "{name}={bad}"
+                );
                 assert_eq!(err.sqlstate(), ERRCODE_SYNTAX_ERROR, "{name}={bad}");
             }
         }
-        for (v, want) in [(Some("ON"), true), (Some("False"), false), (Some("tRuE"), true), (None, true)] {
+        for (v, want) in [
+            (Some("ON"), true),
+            (Some("False"), false),
+            (Some("tRuE"), true),
+            (None, true),
+        ] {
             let mut data = fresh_data();
             parse_output_parameters(
                 &opts(&[
@@ -2382,7 +2410,10 @@ mod tests {
         for (raw, want) in [(" 1", 1), ("\t+2", 2), ("", 0), ("-0", 0), ("0004", 4)] {
             let mut data = fresh_data();
             parse_output_parameters(
-                &opts(&[("proto_version", Some(raw)), ("publication_names", Some("pub"))]),
+                &opts(&[
+                    ("proto_version", Some(raw)),
+                    ("publication_names", Some("pub")),
+                ]),
                 &mut data,
             )
             .unwrap();
@@ -2398,12 +2429,19 @@ mod tests {
         ] {
             let mut data = fresh_data();
             let err = parse_output_parameters(
-                &opts(&[("proto_version", Some(raw)), ("publication_names", Some("pub"))]),
+                &opts(&[
+                    ("proto_version", Some(raw)),
+                    ("publication_names", Some("pub")),
+                ]),
                 &mut data,
             )
             .unwrap_err();
             assert_eq!(err.message(), msg, "proto_version={raw:?}");
-            assert_eq!(err.sqlstate(), ERRCODE_INVALID_PARAMETER_VALUE, "proto_version={raw:?}");
+            assert_eq!(
+                err.sqlstate(),
+                ERRCODE_INVALID_PARAMETER_VALUE,
+                "proto_version={raw:?}"
+            );
         }
     }
 

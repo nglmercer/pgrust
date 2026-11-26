@@ -23,12 +23,18 @@ use std::rc::Rc;
 use datum::Datum;
 use gravity_program::Cmd;
 use mcx::Mcx;
-use trigger::{ExecCallTriggerFunc, TriggerEnabled, TriggerFmgrCache, TriggerWhenCache, TriggerWhenEval};
+use trigger::{
+    ExecCallTriggerFunc, TriggerEnabled, TriggerFmgrCache, TriggerWhenCache, TriggerWhenEval,
+};
 use types_error::{PgError, PgResult, ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE};
 use types_nodes::Bitmapset;
 use types_rel::Relation;
 use types_slot::SlotData;
-use types_trigger::{TriggerDesc, TRIGGER_EVENT_DELETE, TRIGGER_EVENT_INSTEAD, TRIGGER_EVENT_ROW, TRIGGER_EVENT_UPDATE, TRIGGER_TYPE_DELETE, TRIGGER_TYPE_INSTEAD, TRIGGER_TYPE_LEVEL_MASK, TRIGGER_TYPE_ROW, TRIGGER_TYPE_TIMING_MASK, TRIGGER_TYPE_UPDATE};
+use types_trigger::{
+    TriggerDesc, TRIGGER_EVENT_DELETE, TRIGGER_EVENT_INSTEAD, TRIGGER_EVENT_ROW,
+    TRIGGER_EVENT_UPDATE, TRIGGER_TYPE_DELETE, TRIGGER_TYPE_INSTEAD, TRIGGER_TYPE_LEVEL_MASK,
+    TRIGGER_TYPE_ROW, TRIGGER_TYPE_TIMING_MASK, TRIGGER_TYPE_UPDATE,
+};
 use types_trigger_call::TriggerData;
 use types_tuple::itemptr::ItemPointerSetInvalid;
 use types_tuple::{HeapTupleData, ItemPointerData};
@@ -66,42 +72,89 @@ fn not_updatable(view: &Relation<'_>, cmd: Cmd, merge: bool) -> Box<PgError> {
         (_, false) => ("cannot delete from view", "To enable deleting from the view, provide an INSTEAD OF DELETE trigger or an unconditional ON DELETE DO INSTEAD rule."),
         (_, true) => ("cannot delete from view", "To enable deleting from the view using MERGE, provide an INSTEAD OF DELETE trigger."),
     };
-    Box::new(PgError::error(format!("{msg} \"{}\"", view.name())).with_sqlstate(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE).with_hint(hint)) // alloc: Cold
+    Box::new(
+        PgError::error(format!("{msg} \"{}\"", view.name()))
+            .with_sqlstate(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE)
+            .with_hint(hint),
+    ) // alloc: Cold
 }
 
 /// ExecGetUpdateNewTuple's column list: the `updatedCols` members as 0-based user attributes of `natts`.
 pub fn set_columns(updated: &Bitmapset<'_>, natts: usize) -> Vec<usize> {
-    (1..=natts as i32).filter(|a| updated.is_member(a + ATTNO_OFFSET)).map(|a| a as usize - 1).collect() // alloc: Node
+    (1..=natts as i32)
+        .filter(|a| updated.is_member(a + ATTNO_OFFSET))
+        .map(|a| a as usize - 1)
+        .collect() // alloc: Node
 }
 
 impl ViewRows {
     /// `cmd` is Update or Delete; `updated` the statement's `updatedCols` (UPDATE's SET columns; unused for DELETE and for
     /// MERGE, whose UPDATE cells are the whole new image).
-    pub fn bind(view: &Relation<'static>, cmd: Cmd, updated: Option<&Bitmapset<'_>>, merge: bool) -> PgResult<ViewRows> {
-        let desc = if view.rd_hastriggers { relcache_seams::relation_get_trigger_desc::call(view.rd_id)? } else { None };
-        let fires = |d: &TriggerDesc<'_>| if cmd == Cmd::Update { d.trig_update_instead_row } else { d.trig_delete_instead_row };
-        let Some(desc) = desc.filter(|d| fires(d)) else { return Err(not_updatable(view, cmd, merge)) };
+    pub fn bind(
+        view: &Relation<'static>,
+        cmd: Cmd,
+        updated: Option<&Bitmapset<'_>>,
+        merge: bool,
+    ) -> PgResult<ViewRows> {
+        let desc = if view.rd_hastriggers {
+            relcache_seams::relation_get_trigger_desc::call(view.rd_id)?
+        } else {
+            None
+        };
+        let fires = |d: &TriggerDesc<'_>| {
+            if cmd == Cmd::Update {
+                d.trig_update_instead_row
+            } else {
+                d.trig_delete_instead_row
+            }
+        };
+        let Some(desc) = desc.filter(|d| fires(d)) else {
+            return Err(not_updatable(view, cmd, merge));
+        };
         let natts = view.rd_att.natts as usize;
         let set = match (cmd, updated) {
             // H-f: a MERGE UPDATE's cells are the full new image (each action has its own SET list)
             (Cmd::Update, _) if merge => (0..natts).collect(), // alloc: Node
             (Cmd::Update, Some(u)) => set_columns(u, natts),
-            (Cmd::Update, None) => return Err(Box::new(PgError::error("gravity: a view UPDATE without its SET columns"))), // alloc: Cold
+            (Cmd::Update, None) => {
+                return Err(Box::new(PgError::error(
+                    "gravity: a view UPDATE without its SET columns",
+                )))
+            } // alloc: Cold
             _ => Vec::new(), // alloc: Node
         };
         let scratch = NodeScratch::new("GravityViewRows");
         let old = tableam::table_slot_create(scratch.mcx(), view)?;
         let new = tableam::table_slot_create(scratch.mcx(), view)?;
-        Ok(ViewRows { desc, cmd, fmgr: TriggerFmgrCache::default(), when: TriggerWhenCache::default(), old, new, set, words: Vec::new(), wnulls: Vec::new(), done: false, scratch }) // alloc: Node
+        Ok(ViewRows {
+            desc,
+            cmd,
+            fmgr: TriggerFmgrCache::default(),
+            when: TriggerWhenCache::default(),
+            old,
+            new,
+            set,
+            words: Vec::new(),
+            wnulls: Vec::new(),
+            done: false,
+            scratch,
+        }) // alloc: Node
     }
 
     /// One row: `values` / `nulls` are the view's cells (UPDATE: the SET columns read) and, last, the wholerow Datum.
     /// `Ok(false)` = a trigger returned NULL: the row is skipped (not counted, no RETURNING row).
-    pub fn write(&mut self, view: &Relation<'static>, values: &[Datum], nulls: &[bool]) -> PgResult<bool> {
+    pub fn write(
+        &mut self,
+        view: &Relation<'static>,
+        values: &[Datum],
+        nulls: &[bool],
+    ) -> PgResult<bool> {
         self.start_row();
         let natts = view.rd_att.natts as usize;
         if values.len() != natts + 1 || nulls.len() != natts + 1 {
-            return Err(Box::new(PgError::error("gravity: a view row op without its wholerow cell"))); // alloc: Cold
+            return Err(Box::new(PgError::error(
+                "gravity: a view row op without its wholerow cell",
+            ))); // alloc: Cold
         }
         if nulls[natts] {
             return Err(Box::new(PgError::error("wholerow is NULL"))); // alloc: Cold
@@ -121,7 +174,11 @@ impl ViewRows {
             self.delete(view, img, len, tid)?
         };
         if go {
-            let slot = if self.cmd == Cmd::Update { &mut self.new } else { &mut self.old };
+            let slot = if self.cmd == Cmd::Update {
+                &mut self.new
+            } else {
+                &mut self.old
+            };
             exectuples::slot_getallattrs(slot);
             let base = slot.base();
             self.words.clear();
@@ -137,7 +194,12 @@ impl ViewRows {
     }
 
     /// ExecGetUpdateNewTuple: OLD's columns, the SET columns replaced; materialized in the slot's retained buffer.
-    fn new_from_old(&mut self, view: &Relation<'static>, values: &[Datum], nulls: &[bool]) -> PgResult<()> {
+    fn new_from_old(
+        &mut self,
+        view: &Relation<'static>,
+        values: &[Datum],
+        nulls: &[bool],
+    ) -> PgResult<()> {
         exectuples::slot_getallattrs(&mut self.old);
         exectuples::exec_clear_tuple(&mut self.new, self.scratch.mcx());
         let n = values.len();
@@ -158,31 +220,63 @@ impl ViewRows {
     }
 
     /// trigger.c ExecIRUpdateTriggers: each matching trigger in order, NEW handed from one to the next; a NULL ends it.
-    fn update(&mut self, view: &Relation<'static>, img: *const u8, len: u32, tid: ItemPointerData) -> PgResult<bool> {
+    fn update(
+        &mut self,
+        view: &Relation<'static>,
+        img: *const u8,
+        len: u32,
+        tid: ItemPointerData,
+    ) -> PgResult<bool> {
         let rmcx = self.scratch.exec_mcx();
         let event = TRIGGER_EVENT_UPDATE | TRIGGER_EVENT_ROW | TRIGGER_EVENT_INSTEAD;
         let desc = Rc::clone(&self.desc);
         // bounded("catalog-sized: one per trigger of the view (its pg_trigger rows); a matching INSTEAD OF UPDATE trigger's function is called once for the row, as ExecIRUpdateTriggers loops them")
         for (i, trigger) in desc.triggers.iter().enumerate() {
-            if trigger.tgtype & (TRIGGER_TYPE_LEVEL_MASK | TRIGGER_TYPE_TIMING_MASK | TRIGGER_TYPE_UPDATE) != TRIGGER_TYPE_ROW | TRIGGER_TYPE_INSTEAD | TRIGGER_TYPE_UPDATE || !TriggerEnabled(trigger) {
+            if trigger.tgtype
+                & (TRIGGER_TYPE_LEVEL_MASK | TRIGGER_TYPE_TIMING_MASK | TRIGGER_TYPE_UPDATE)
+                != TRIGGER_TYPE_ROW | TRIGGER_TYPE_INSTEAD | TRIGGER_TYPE_UPDATE
+                || !TriggerEnabled(trigger)
+            {
                 continue;
             }
-            let ViewRows { when, old, new, scratch, fmgr, .. } = self;
-            let mut w = TriggerWhenEval { mcx: scratch.mcx(), cache: when, modified_cols: None };
+            let ViewRows {
+                when,
+                old,
+                new,
+                scratch,
+                fmgr,
+                ..
+            } = self;
+            let mut w = TriggerWhenEval {
+                mcx: scratch.mcx(),
+                cache: when,
+                modified_cols: None,
+            };
             if !w.check(i, trigger, view, event, Some(old), Some(new))? {
                 continue;
             }
             // trigger.c's should_free: a copied fetch owns its image and outlives the call
-            let (nimg, nlen, ntid, ntoid, _owned) = match exectuples::exec_fetch_slot_heap_tuple(new, true, scratch.mcx(), rmcx)? {
-                exectuples::FetchedHeapTuple::Slot(t) => (t.header_ptr(), t.t_len, t.t_self, t.t_tableOid, None),
-                exectuples::FetchedHeapTuple::Copied(t) => (t.header_ptr(), t.t_len, t.t_self, t.t_tableOid, Some(t)),
-            };
+            let (nimg, nlen, ntid, ntoid, _owned) =
+                match exectuples::exec_fetch_slot_heap_tuple(new, true, scratch.mcx(), rmcx)? {
+                    exectuples::FetchedHeapTuple::Slot(t) => {
+                        (t.header_ptr(), t.t_len, t.t_self, t.t_tableOid, None)
+                    }
+                    exectuples::FetchedHeapTuple::Copied(t) => {
+                        (t.header_ptr(), t.t_len, t.t_self, t.t_tableOid, Some(t))
+                    }
+                };
             // the OLD image is the wholerow cell's (live for the call); NEW is the slot's materialized image or a row-context
             // copy, neither written while the trigger runs
             let mut oldt = super::raw::tuple_at(img, len, tid, types_core::InvalidOid);
             let mut newt = super::raw::tuple_at(nimg, nlen, ntid, ntoid);
             let new_nn = NonNull::from(&mut newt);
-            let mut tdata = TriggerData::from_raw(event, view, Some(NonNull::from(&mut oldt)), Some(new_nn), trigger);
+            let mut tdata = TriggerData::from_raw(
+                event,
+                view,
+                Some(NonNull::from(&mut oldt)),
+                Some(new_nn),
+                trigger,
+            );
             let finfo = fmgr.get(i, trigger.tgfoid)?;
             match ExecCallTriggerFunc(rmcx, &mut tdata, finfo, None)? {
                 None => return Ok(false),
@@ -195,23 +289,44 @@ impl ViewRows {
     }
 
     /// trigger.c ExecIRDeleteTriggers: each matching trigger in order over OLD; a NULL return suppresses the delete.
-    fn delete(&mut self, view: &Relation<'static>, img: *const u8, len: u32, tid: ItemPointerData) -> PgResult<bool> {
+    fn delete(
+        &mut self,
+        view: &Relation<'static>,
+        img: *const u8,
+        len: u32,
+        tid: ItemPointerData,
+    ) -> PgResult<bool> {
         let rmcx = self.scratch.exec_mcx();
         let event = TRIGGER_EVENT_DELETE | TRIGGER_EVENT_ROW | TRIGGER_EVENT_INSTEAD;
         let desc = Rc::clone(&self.desc);
         // bounded("catalog-sized: one per trigger of the view (its pg_trigger rows); a matching INSTEAD OF DELETE trigger's function is called once for the row, as ExecIRDeleteTriggers loops them")
         for (i, trigger) in desc.triggers.iter().enumerate() {
-            if trigger.tgtype & (TRIGGER_TYPE_LEVEL_MASK | TRIGGER_TYPE_TIMING_MASK | TRIGGER_TYPE_DELETE) != TRIGGER_TYPE_ROW | TRIGGER_TYPE_INSTEAD | TRIGGER_TYPE_DELETE || !TriggerEnabled(trigger) {
+            if trigger.tgtype
+                & (TRIGGER_TYPE_LEVEL_MASK | TRIGGER_TYPE_TIMING_MASK | TRIGGER_TYPE_DELETE)
+                != TRIGGER_TYPE_ROW | TRIGGER_TYPE_INSTEAD | TRIGGER_TYPE_DELETE
+                || !TriggerEnabled(trigger)
+            {
                 continue;
             }
-            let ViewRows { when, old, scratch, fmgr, .. } = self;
-            let mut w = TriggerWhenEval { mcx: scratch.mcx(), cache: when, modified_cols: None };
+            let ViewRows {
+                when,
+                old,
+                scratch,
+                fmgr,
+                ..
+            } = self;
+            let mut w = TriggerWhenEval {
+                mcx: scratch.mcx(),
+                cache: when,
+                modified_cols: None,
+            };
             if !w.check(i, trigger, view, event, Some(old), None)? {
                 continue;
             }
             // as `update`'s OLD
             let mut oldt = super::raw::tuple_at(img, len, tid, types_core::InvalidOid);
-            let mut tdata = TriggerData::from_raw(event, view, Some(NonNull::from(&mut oldt)), None, trigger);
+            let mut tdata =
+                TriggerData::from_raw(event, view, Some(NonNull::from(&mut oldt)), None, trigger);
             let finfo = fmgr.get(i, trigger.tgfoid)?;
             if ExecCallTriggerFunc(rmcx, &mut tdata, finfo, None)?.is_none() {
                 return Ok(false);
@@ -257,7 +372,12 @@ impl ViewRows {
 }
 
 /// A trigger's returned tuple, copied into the row context and force-stored as NEW (ExecForceStoreHeapTuple).
-fn store_returned(returned: &HeapTupleData<'_>, new: &mut SlotData<'static>, rmcx: Mcx<'static>, slot_mcx: Mcx<'static>) -> PgResult<()> {
+fn store_returned(
+    returned: &HeapTupleData<'_>,
+    new: &mut SlotData<'static>,
+    rmcx: Mcx<'static>,
+    slot_mcx: Mcx<'static>,
+) -> PgResult<()> {
     // the trigger's returned tuple, live in the per-call (row) context for `t_len` bytes
     let img = super::raw::tuple_bytes(returned);
     let mut buf = mcx::vec_with_capacity_in(rmcx, img.len())?;
@@ -283,7 +403,11 @@ mod tests {
             u.add_member(m, a + ATTNO_OFFSET).unwrap();
         }
         assert_eq!(set_columns(&u, 4), vec![1, 3]); // alloc: Cold
-        assert_eq!(set_columns(&u, 3), vec![1], "a member past the view's columns is not a column"); // alloc: Cold
+        assert_eq!(
+            set_columns(&u, 3),
+            vec![1],
+            "a member past the view's columns is not a column"
+        ); // alloc: Cold
         assert_eq!(set_columns(&Bitmapset::empty(), 4), Vec::<usize>::new());
     }
 }

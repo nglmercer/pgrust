@@ -56,4 +56,3 @@ seam_core::seam!(
     // None = libicu not loadable, matching a C build without --with-icu.
     pub fn icu_unicode_version() -> Option<&'static str>
 );
-

@@ -26,8 +26,13 @@ pub(crate) fn const_inline_bytes<'a>(k: &ConstNode<'a>) -> Option<&'a [u8]> {
     // SAFETY: a non-NULL by-reference constant points at its image, which the program owns for its life
     (!v.isnull && !k.byval && k.typlen == -1).then(|| unsafe {
         match *p {
-            h if h & 1 == 1 && h != 1 => Some(core::slice::from_raw_parts(p.add(1), (h >> 1) as usize - 1)),
-            h if h & 3 == 0 => Some(core::slice::from_raw_parts(p.add(4), (u32::from_le_bytes(*(p as *const [u8; 4])) >> 2) as usize - 4)),
+            h if h & 1 == 1 && h != 1 => {
+                Some(core::slice::from_raw_parts(p.add(1), (h >> 1) as usize - 1))
+            }
+            h if h & 3 == 0 => Some(core::slice::from_raw_parts(
+                p.add(4),
+                (u32::from_le_bytes(*(p as *const [u8; 4])) >> 2) as usize - 4,
+            )),
             _ => None,
         }
     })?
@@ -49,17 +54,28 @@ fn keeps_ascii(coll: u32, lower: bool, mcx: Mcx<'_>) -> Option<bool> {
     let mut buf = [0u8; 512];
     let mut region = gravity_fn::Region::over(&mut buf);
     let mut err = gravity_fn::ErrSlot::NONE;
-    let view = gravity_fn::View { ptr: probe.as_ptr(), len: probe.len() as u64 };
+    let view = gravity_fn::View {
+        ptr: probe.as_ptr(),
+        len: probe.len() as u64,
+    };
     let r = if lower {
         gravity_fn::shims::byref_ref::lower(&mut err, &mut region, coll, view)
     } else {
         gravity_fn::shims::byref_ref::upper(&mut err, &mut region, coll, view)
     };
-    let want = if lower { probe.to_ascii_lowercase() } else { probe.to_ascii_uppercase() };
+    let want = if lower {
+        probe.to_ascii_lowercase()
+    } else {
+        probe.to_ascii_uppercase()
+    };
     // SAFETY: an OK result is a plain 4-byte-header image in `buf`
-    let got = (r.status == gravity_fn::OK && gravity_abi::unword(err.err).is_null()).then(|| unsafe {
-        let p = r.val as usize as *const u8;
-        core::slice::from_raw_parts(p.add(4), (u32::from_le_bytes(*(p as *const [u8; 4])) >> 2) as usize - 4)
-    })?;
+    let got =
+        (r.status == gravity_fn::OK && gravity_abi::unword(err.err).is_null()).then(|| unsafe {
+            let p = r.val as usize as *const u8;
+            core::slice::from_raw_parts(
+                p.add(4),
+                (u32::from_le_bytes(*(p as *const [u8; 4])) >> 2) as usize - 4,
+            )
+        })?;
     Some(got == want)
 }

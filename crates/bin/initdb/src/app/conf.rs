@@ -3,7 +3,8 @@
 //! rules (escape_quotes, escape_quotes_bki, guc_value_requires_quotes).
 
 pub fn readfile(path: &str) -> Result<Vec<String>, String> {
-    let bytes = std::fs::read(path).map_err(|e| format!("could not open file \"{path}\" for reading: {e}"))?;
+    let bytes = std::fs::read(path)
+        .map_err(|e| format!("could not open file \"{path}\" for reading: {e}"))?;
     let text = String::from_utf8_lossy(&bytes).into_owned();
     // Lines keep their trailing newline, as C's readfile does.
     let mut lines = Vec::new();
@@ -30,7 +31,10 @@ pub fn writefile(path: &str, lines: &[String]) -> Result<(), String> {
 
 /// `replace_token`: plain substring replacement on every line.
 pub fn replace_token(lines: Vec<String>, token: &str, replacement: &str) -> Vec<String> {
-    lines.into_iter().map(|l| l.replace(token, replacement)).collect()
+    lines
+        .into_iter()
+        .map(|l| l.replace(token, replacement))
+        .collect()
 }
 
 /// `escape_quotes` (escape_single_quotes_ascii): ' -> ''.
@@ -43,8 +47,14 @@ pub fn escape_quotes(s: &str) -> String {
 pub fn escape_quotes_bki(s: &str) -> String {
     let data = escape_quotes(s);
     let needs_quotes = data.is_empty()
-        || !data.bytes().all(|c| c == b'-' || c == b'_' || c.is_ascii_alphanumeric());
-    if needs_quotes { format!("'{data}'") } else { data }
+        || !data
+            .bytes()
+            .all(|c| c == b'-' || c == b'_' || c.is_ascii_alphanumeric());
+    if needs_quotes {
+        format!("'{data}'")
+    } else {
+        data
+    }
 }
 
 /// `guc_value_requires_quotes`.
@@ -66,7 +76,12 @@ pub fn guc_value_requires_quotes(v: &str) -> bool {
 /// `replace_guc_value`: rewrite the (first) line that sets `name` in the
 /// sample, keeping its trailing comment aligned; append a new line if the
 /// sample has none.
-pub fn replace_guc_value(mut lines: Vec<String>, name: &str, value: &str, mark_as_comment: bool) -> Vec<String> {
+pub fn replace_guc_value(
+    mut lines: Vec<String>,
+    name: &str,
+    value: &str,
+    mark_as_comment: bool,
+) -> Vec<String> {
     let mut newline = String::new();
     if mark_as_comment {
         newline.push('#');
@@ -88,7 +103,8 @@ pub fn replace_guc_value(mut lines: Vec<String>, name: &str, value: &str, mark_a
         while where_ < b.len() && (b[where_] == b'#' || b[where_].is_ascii_whitespace()) {
             where_ += 1;
         }
-        if where_ + namelen > b.len() || !line[where_..where_ + namelen].eq_ignore_ascii_case(name) {
+        if where_ + namelen > b.len() || !line[where_..where_ + namelen].eq_ignore_ascii_case(name)
+        {
             continue;
         }
         let namestart = where_;
@@ -105,7 +121,11 @@ pub fn replace_guc_value(mut lines: Vec<String>, name: &str, value: &str, mark_a
         if let Some(hash) = line[where_..].rfind('#').map(|p| p + where_) {
             let mut oldindent = 0usize;
             for &c in &b[..hash] {
-                if c == b'\t' { oldindent += 8 - (oldindent % 8); } else { oldindent += 1; }
+                if c == b'\t' {
+                    oldindent += 8 - (oldindent % 8);
+                } else {
+                    oldindent += 1;
+                }
             }
             let mut newindent = newline.len();
             let oldindent = oldindent.max(newindent + 1);
@@ -149,7 +169,10 @@ mod tests {
     fn replace_keeps_comment_alignment_and_casing() {
         let lines = vec!["#Max_Connections = 100\t\t\t# (change requires restart)\n".to_string()];
         let out = replace_guc_value(lines, "max_connections", "50", false);
-        assert_eq!(out[0], "Max_Connections = 50\t\t\t# (change requires restart)\n");
+        assert_eq!(
+            out[0],
+            "Max_Connections = 50\t\t\t# (change requires restart)\n"
+        );
         let out = replace_guc_value(vec!["#port = 5432\n".to_string()], "port", "5432", true);
         assert_eq!(out[0], "#port = 5432\n");
         // Identifier-shaped values stay bare, path-shaped ones get quotes (C).

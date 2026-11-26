@@ -13,8 +13,8 @@ use types_fmgr::LocalFcinfo;
 use types_slot::{SlotBase, TupleSlotKind};
 use types_tuple::TupleDescData;
 
-use crate::ops::group::hosted_distinct::shape;
 use crate::ops::agg::trans::hosted::AggArena;
+use crate::ops::group::hosted_distinct::shape;
 
 impl AggArena {
     /// D1283: process_ordered_aggregate_multi over the run at state slot `s` of DISTINCT aggregate `i`: the rows sorted as
@@ -22,7 +22,14 @@ impl AggArena {
     /// a row equal to the one before it in every DISTINCT column dropped (NULL equals NULL; each column's eqop under its
     /// collation, as execTuplesMatchPrepare), each other row's inputs advanced into the fresh state at `out` in sort order.
     /// # Safety — as `fold_sorted`.
-    pub(crate) unsafe fn fold_multi(&mut self, k: usize, i: usize, aggno: u32, s: *const u8, out: *mut u8) -> PgResult<()> {
+    pub(crate) unsafe fn fold_multi(
+        &mut self,
+        k: usize,
+        i: usize,
+        aggno: u32,
+        s: *const u8,
+        out: *mut u8,
+    ) -> PgResult<()> {
         let d = self.specs[i].distinct.as_ref().expect("a DISTINCT spec");
         let (n, keys, dedup) = (d.cols.len(), d.keys.clone(), d.dedup());
         let ctx = gravity_driver::mem::root::Root::new("gravity DISTINCT sort");
@@ -31,23 +38,39 @@ impl AggArena {
         // SAFETY: lifetime erasure for the tuplesort API only: the sort ends before `ctx` drops, as nodeagg's does.
         let sd: Rc<TupleDescData<'static>> = core::mem::transmute(desc.clone());
         let att: Vec<i16> = keys.iter().map(|x| x.0).collect(); // alloc: Exec
-        let (ops, colls, nf): (Vec<Oid>, Vec<Oid>, Vec<bool>) = (keys.iter().map(|x| x.1).collect(), keys.iter().map(|x| x.2).collect(), keys.iter().map(|x| x.3).collect()); // alloc: Exec
-        let mut sort = Tuplesort::begin_heap(sd, &att, &ops, &colls, &nf, crate::inputs::work_mem_kb(), TUPLESORT_NONE)?;
-        let mut put = exectuples::make_tuple_table_slot(m, TupleSlotKind::Virtual, Some(desc.clone()));
-        let mut step = cancelpoll::step("fold_multi: a DISTINCT aggregate's kept rows sorted and folded");
+        let (ops, colls, nf): (Vec<Oid>, Vec<Oid>, Vec<bool>) = (
+            keys.iter().map(|x| x.1).collect(),
+            keys.iter().map(|x| x.2).collect(),
+            keys.iter().map(|x| x.3).collect(),
+        ); // alloc: Exec
+        let mut sort = Tuplesort::begin_heap(
+            sd,
+            &att,
+            &ops,
+            &colls,
+            &nf,
+            crate::inputs::work_mem_kb(),
+            TUPLESORT_NONE,
+        )?;
+        let mut put =
+            exectuples::make_tuple_table_slot(m, TupleSlotKind::Virtual, Some(desc.clone()));
+        let mut step =
+            cancelpoll::step("fold_multi: a DISTINCT aggregate's kept rows sorted and folded");
         for row in super::distinct::chunks(s).flat_map(|c| c.chunks_exact(2 * n)) {
             step.tick().map_err(|_| super::distinct::stopped())?;
             exectuples::exec_clear_tuple(&mut put, m);
             let b = put.base_mut();
             // bounded("key-columns: one cell per sort column of a row; PG polls no deeper (a datum copy is one unit there too), at most MaxTupleAttributeNumber (1664) columns")
             for c in 0..n {
-                (b.tts_values[c], b.tts_isnull[c]) = (Datum::from_u64(row[2 * c]), row[2 * c + 1] != 0);
+                (b.tts_values[c], b.tts_isnull[c]) =
+                    (Datum::from_u64(row[2 * c]), row[2 * c + 1] != 0);
             }
             exectuples::exec_store_virtual_tuple(&mut put);
             sort.puttupleslot(&mut put, m)?;
         }
         sort.performsort()?;
-        let mut cur = exectuples::make_tuple_table_slot(m, TupleSlotKind::MinimalTuple, Some(desc.clone()));
+        let mut cur =
+            exectuples::make_tuple_table_slot(m, TupleSlotKind::MinimalTuple, Some(desc.clone()));
         let mut old = exectuples::make_tuple_table_slot(m, TupleSlotKind::MinimalTuple, Some(desc));
         let (mut have, mut vals, mut nulls) = (false, vec![0u64; n], vec![0u8; n]); // alloc: Exec
         while sort.gettupleslot(true, true, &mut cur, m)? {
@@ -71,7 +94,14 @@ impl AggArena {
 
     /// Whether rows `a` and `b` agree in every DISTINCT column `keys` (execTuplesMatch: both NULL, or neither and the
     /// column's equality function true under its collation).
-    fn same_row(&mut self, k: usize, i: usize, keys: &[(i16, Oid, Oid, bool)], a: &SlotBase<'_>, b: &SlotBase<'_>) -> PgResult<bool> {
+    fn same_row(
+        &mut self,
+        k: usize,
+        i: usize,
+        keys: &[(i16, Oid, Oid, bool)],
+        a: &SlotBase<'_>,
+        b: &SlotBase<'_>,
+    ) -> PgResult<bool> {
         let slot = &mut self.slots[k];
         // bounded("key-columns: one compare per DISTINCT key of a row; PG polls no deeper (a datum compare is one unit there too), at most MaxTupleAttributeNumber (1664) keys")
         for (c, &(att, _, coll, _)) in keys.iter().enumerate().rev() {
@@ -81,12 +111,20 @@ impl AggArena {
                 (false, false) => {}
                 _ => return Ok(false),
             }
-            let Some(eq) = slot.aggs[i].eq.get_mut(c) else { return Err(shape("a DISTINCT aggregate without its equality function")) };
+            let Some(eq) = slot.aggs[i].eq.get_mut(c) else {
+                return Err(shape("a DISTINCT aggregate without its equality function"));
+            };
             let mut fc = LocalFcinfo::<2>::fresh(coll);
             // SAFETY: the result context is the slot's scratch, reset only after the call's result is read.
             unsafe { fc.set_result_mcx(slot.tmp.mcx()) };
-            fc.args[0] = NullableDatum { value: a.tts_values[j], isnull: false };
-            fc.args[1] = NullableDatum { value: b.tts_values[j], isnull: false };
+            fc.args[0] = NullableDatum {
+                value: a.tts_values[j],
+                isnull: false,
+            };
+            fc.args[1] = NullableDatum {
+                value: b.tts_values[j],
+                isnull: false,
+            };
             let r = eq.invoke(&mut fc);
             slot.tmp.reset();
             if !r?.as_bool() {

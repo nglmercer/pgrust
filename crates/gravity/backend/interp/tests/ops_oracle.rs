@@ -18,7 +18,38 @@ fn max(ty: Type) -> i64 {
 }
 /// Interesting operands for a width, as canonical sign-extended i64.
 fn operands(ty: Type) -> Vec<i64> {
-    let mut v = vec![0, 1, -1, 2, -2, 3, 7, -7, 10, 100, -100, 127, -128, 255, 256, 1000, -1000, 0x1234, 65535, 65536, 0x7fff_ffff, -0x8000_0000, 1 << 40, -(1 << 40), min(ty), max(ty), min(ty) + 1, max(ty) - 1, min(ty) / 2, max(ty) / 2];
+    let mut v = vec![
+        0,
+        1,
+        -1,
+        2,
+        -2,
+        3,
+        7,
+        -7,
+        10,
+        100,
+        -100,
+        127,
+        -128,
+        255,
+        256,
+        1000,
+        -1000,
+        0x1234,
+        65535,
+        65536,
+        0x7fff_ffff,
+        -0x8000_0000,
+        1 << 40,
+        -(1 << 40),
+        min(ty),
+        max(ty),
+        min(ty) + 1,
+        max(ty) - 1,
+        min(ty) / 2,
+        max(ty) / 2,
+    ];
     for x in &mut v {
         *x = canon(ty, *x as u64) as i64;
     }
@@ -28,7 +59,11 @@ fn operands(ty: Type) -> Vec<i64> {
 }
 
 /// Build `fn(a: ty, b: ty) -> res` with one binary op.
-fn bin_fn(mk: impl Fn(&mut gravity_ir::builder::FunctionBuilder, Value, Value) -> Value, ty: Type, res: Type) -> Program {
+fn bin_fn(
+    mk: impl Fn(&mut gravity_ir::builder::FunctionBuilder, Value, Value) -> Value,
+    ty: Type,
+    res: Type,
+) -> Program {
     let mut pb = ProgramBuilder::new();
     let f = pb.declare_func("f", &[ty, ty], &[res]);
     let mut b = pb.define(f);
@@ -37,7 +72,11 @@ fn bin_fn(mk: impl Fn(&mut gravity_ir::builder::FunctionBuilder, Value, Value) -
     b.ret(&[r]);
     pb.finish()
 }
-fn un_fn(mk: impl Fn(&mut gravity_ir::builder::FunctionBuilder, Value) -> Value, ty: Type, res: Type) -> Program {
+fn un_fn(
+    mk: impl Fn(&mut gravity_ir::builder::FunctionBuilder, Value) -> Value,
+    ty: Type,
+    res: Type,
+) -> Program {
     let mut pb = ProgramBuilder::new();
     let f = pb.declare_func("f", &[ty], &[res]);
     let mut b = pb.define(f);
@@ -48,7 +87,9 @@ fn un_fn(mk: impl Fn(&mut gravity_ir::builder::FunctionBuilder, Value) -> Value,
 }
 
 fn run2(p: &Program, a: i64, b: i64) -> Result<u64, Trap> {
-    Interp::new(p).run(Func(0), &[a as u64, b as u64]).map(|v| v[0])
+    Interp::new(p)
+        .run(Func(0), &[a as u64, b as u64])
+        .map(|v| v[0])
 }
 fn run1(p: &Program, a: i64) -> Result<u64, Trap> {
     Interp::new(p).run(Func(0), &[a as u64]).map(|v| v[0])
@@ -70,9 +111,23 @@ fn int_binary_ops() {
     for ty in INT_TYPES {
         let ops = operands(ty);
         for op in [
-            IntBinOp::Add, IntBinOp::Sub, IntBinOp::Mul, IntBinOp::Sdiv, IntBinOp::Udiv, IntBinOp::Srem, IntBinOp::Urem,
-            IntBinOp::And, IntBinOp::Or, IntBinOp::Xor, IntBinOp::Shl, IntBinOp::Ushr, IntBinOp::Sshr,
-            IntBinOp::Smin, IntBinOp::Smax, IntBinOp::Umin, IntBinOp::Umax,
+            IntBinOp::Add,
+            IntBinOp::Sub,
+            IntBinOp::Mul,
+            IntBinOp::Sdiv,
+            IntBinOp::Udiv,
+            IntBinOp::Srem,
+            IntBinOp::Urem,
+            IntBinOp::And,
+            IntBinOp::Or,
+            IntBinOp::Xor,
+            IntBinOp::Shl,
+            IntBinOp::Ushr,
+            IntBinOp::Sshr,
+            IntBinOp::Smin,
+            IntBinOp::Smax,
+            IntBinOp::Umin,
+            IntBinOp::Umax,
         ] {
             let p = bin_fn(|b, x, y| b.int_bin(op, x, y), ty, ty);
             for &a in &ops {
@@ -84,8 +139,20 @@ fn int_binary_ops() {
                         IntBinOp::Add => Ok(wrap(ty, a as i128 + c as i128)),
                         IntBinOp::Sub => Ok(wrap(ty, a as i128 - c as i128)),
                         IntBinOp::Mul => Ok(wrap(ty, a as i128 * c as i128)),
-                        IntBinOp::Sdiv => if c == 0 || (a == min(ty) && c == -1) { Err(()) } else { Ok(wrap(ty, (a as i128) / (c as i128))) },
-                        IntBinOp::Srem => if c == 0 || (a == min(ty) && c == -1) { Err(()) } else { Ok(wrap(ty, (a as i128) % (c as i128))) },
+                        IntBinOp::Sdiv => {
+                            if c == 0 || (a == min(ty) && c == -1) {
+                                Err(())
+                            } else {
+                                Ok(wrap(ty, (a as i128) / (c as i128)))
+                            }
+                        }
+                        IntBinOp::Srem => {
+                            if c == 0 || (a == min(ty) && c == -1) {
+                                Err(())
+                            } else {
+                                Ok(wrap(ty, (a as i128) % (c as i128)))
+                            }
+                        }
                         IntBinOp::Udiv => ua.checked_div(uc).map(|q| wrap(ty, q as i128)).ok_or(()),
                         IntBinOp::Urem => ua.checked_rem(uc).map(|r| wrap(ty, r as i128)).ok_or(()),
                         IntBinOp::And => Ok(a & c),
@@ -125,7 +192,11 @@ fn int_overflow_predicates() {
                         IntOvfOp::SsubOvf => a as i128 - c as i128,
                         IntOvfOp::SmulOvf => a as i128 * c as i128,
                     };
-                    assert_eq!(run2(&p, a, c).unwrap(), (!fits(ty, exact)) as u64, "{ty:?} {op:?} {a} {c}");
+                    assert_eq!(
+                        run2(&p, a, c).unwrap(),
+                        (!fits(ty, exact)) as u64,
+                        "{ty:?} {op:?} {a} {c}"
+                    );
                 }
             }
         }
@@ -135,7 +206,15 @@ fn int_overflow_predicates() {
 #[test]
 fn int_unary_ops() {
     for ty in INT_TYPES {
-        for op in [IntUnOp::Neg, IntUnOp::Not, IntUnOp::Clz, IntUnOp::Ctz, IntUnOp::Popcnt, IntUnOp::Bswap, IntUnOp::Bitrev] {
+        for op in [
+            IntUnOp::Neg,
+            IntUnOp::Not,
+            IntUnOp::Clz,
+            IntUnOp::Ctz,
+            IntUnOp::Popcnt,
+            IntUnOp::Bswap,
+            IntUnOp::Bitrev,
+        ] {
             let p = un_fn(|b, x| b.int_un(op, x), ty, ty);
             for &a in &operands(ty) {
                 let ua = unsigned(ty, a);
@@ -158,8 +237,23 @@ fn int_unary_ops() {
 #[test]
 fn int_compares() {
     for ty in INT_TYPES.iter().copied().chain([Type::Ptr]) {
-        let ops = if ty == Type::Ptr { operands(Type::I64) } else { operands(ty) };
-        for cond in [IntCond::Eq, IntCond::Ne, IntCond::Slt, IntCond::Sle, IntCond::Sgt, IntCond::Sge, IntCond::Ult, IntCond::Ule, IntCond::Ugt, IntCond::Uge] {
+        let ops = if ty == Type::Ptr {
+            operands(Type::I64)
+        } else {
+            operands(ty)
+        };
+        for cond in [
+            IntCond::Eq,
+            IntCond::Ne,
+            IntCond::Slt,
+            IntCond::Sle,
+            IntCond::Sgt,
+            IntCond::Sge,
+            IntCond::Ult,
+            IntCond::Ule,
+            IntCond::Ugt,
+            IntCond::Uge,
+        ] {
             let p = bin_fn(|b, x, y| b.icmp(cond, x, y), ty, Type::Bool);
             for &a in &ops {
                 for &c in &ops {
@@ -176,7 +270,11 @@ fn int_compares() {
                         IntCond::Ugt => ua > uc,
                         IntCond::Uge => ua >= uc,
                     };
-                    assert_eq!(run2(&p, a, c).unwrap(), want as u64, "{ty:?} {cond:?} {a} {c}");
+                    assert_eq!(
+                        run2(&p, a, c).unwrap(),
+                        want as u64,
+                        "{ty:?} {cond:?} {a} {c}"
+                    );
                 }
             }
         }
@@ -193,13 +291,21 @@ fn int_conversions() {
                 let pz = un_fn(|b, x| b.conv(ConvOp::Zext, to, x), from, to);
                 for &a in &ops {
                     assert_eq!(run1(&ps, a).unwrap() as i64, a, "sext {from:?}->{to:?} {a}");
-                    assert_eq!(run1(&pz, a).unwrap() as i64, wrap(to, unsigned(from, a) as i128), "zext {from:?}->{to:?} {a}");
+                    assert_eq!(
+                        run1(&pz, a).unwrap() as i64,
+                        wrap(to, unsigned(from, a) as i128),
+                        "zext {from:?}->{to:?} {a}"
+                    );
                 }
             }
             if to.bytes() < from.bytes() {
                 let pt = un_fn(|b, x| b.conv(ConvOp::Trunc, to, x), from, to);
                 for &a in &ops {
-                    assert_eq!(run1(&pt, a).unwrap() as i64, wrap(to, a as i128), "trunc {from:?}->{to:?} {a}");
+                    assert_eq!(
+                        run1(&pt, a).unwrap() as i64,
+                        wrap(to, a as i128),
+                        "trunc {from:?}->{to:?} {a}"
+                    );
                 }
             }
         }
@@ -224,11 +330,19 @@ fn int_float_conversions() {
                 match to {
                     Type::F32 => {
                         assert_eq!(f32::from_bits(gs as u32), a as f32, "sitofp {from:?} {a}");
-                        assert_eq!(f32::from_bits(gu as u32), unsigned(from, a) as f32, "uitofp {from:?} {a}");
+                        assert_eq!(
+                            f32::from_bits(gu as u32),
+                            unsigned(from, a) as f32,
+                            "uitofp {from:?} {a}"
+                        );
                     }
                     _ => {
                         assert_eq!(f64::from_bits(gs), a as f64, "sitofp {from:?} {a}");
-                        assert_eq!(f64::from_bits(gu), unsigned(from, a) as f64, "uitofp {from:?} {a}");
+                        assert_eq!(
+                            f64::from_bits(gu),
+                            unsigned(from, a) as f64,
+                            "uitofp {from:?} {a}"
+                        );
                     }
                 }
             }
@@ -237,9 +351,15 @@ fn int_float_conversions() {
     // Float -> int on in-range values (out of range is undefined).
     for to in INT_TYPES {
         let p = un_fn(|b, x| b.conv(ConvOp::FloatToSint, to, x), Type::F64, to);
-        for v in [0.0f64, 1.0, -1.0, 1.5, -1.5, 2.999, -2.999, 100.25, 127.0, -128.0, 3.0e4, -3.0e4] {
+        for v in [
+            0.0f64, 1.0, -1.0, 1.5, -1.5, 2.999, -2.999, 100.25, 127.0, -128.0, 3.0e4, -3.0e4,
+        ] {
             if fits(to, v as i128) {
-                assert_eq!(run1(&p, v.to_bits() as i64).unwrap() as i64, v as i64, "fptosi {to:?} {v}");
+                assert_eq!(
+                    run1(&p, v.to_bits() as i64).unwrap() as i64,
+                    v as i64,
+                    "fptosi {to:?} {v}"
+                );
             }
         }
     }
@@ -249,27 +369,82 @@ fn int_float_conversions() {
 /// halfway between two f32s, so rounding through f64 first ties to the even one below.
 #[test]
 fn int_to_f32_rounds_once() {
-    let ps = un_fn(|b, x| b.conv(ConvOp::SintToFloat, Type::F32, x), Type::I64, Type::F32);
-    let pu = un_fn(|b, x| b.conv(ConvOp::UintToFloat, Type::F32, x), Type::I64, Type::F32);
+    let ps = un_fn(
+        |b, x| b.conv(ConvOp::SintToFloat, Type::F32, x),
+        Type::I64,
+        Type::F32,
+    );
+    let pu = un_fn(
+        |b, x| b.conv(ConvOp::UintToFloat, Type::F32, x),
+        Type::I64,
+        Type::F32,
+    );
     let f = |bits: u64| f32::from_bits(bits as u32);
-    let s: [i64; 4] = [(1 << 59) + (1 << 35) + 1, -((1 << 59) + (1 << 35) + 1), (1 << 62) + (1 << 38) + 1, i64::MAX];
+    let s: [i64; 4] = [
+        (1 << 59) + (1 << 35) + 1,
+        -((1 << 59) + (1 << 35) + 1),
+        (1 << 62) + (1 << 38) + 1,
+        i64::MAX,
+    ];
     for a in s {
         assert_eq!(f(run1(&ps, a).unwrap()), a as f32, "sitofp {a}");
     }
-    assert_eq!(f(run1(&ps, s[0]).unwrap()), 576460821022900224.0f32, "2^59 + 2^35 + 1 is 2^59 + 2^36");
-    assert_eq!(f(run1(&ps, s[2]).unwrap()), 4611686568183201792.0f32, "2^62 + 2^38 + 1 is 2^62 + 2^39");
-    let u: [u64; 3] = [(1 << 63) + (1 << 39) + 1, (1 << 59) + (1 << 35) + 1, u64::MAX];
+    assert_eq!(
+        f(run1(&ps, s[0]).unwrap()),
+        576460821022900224.0f32,
+        "2^59 + 2^35 + 1 is 2^59 + 2^36"
+    );
+    assert_eq!(
+        f(run1(&ps, s[2]).unwrap()),
+        4611686568183201792.0f32,
+        "2^62 + 2^38 + 1 is 2^62 + 2^39"
+    );
+    let u: [u64; 3] = [
+        (1 << 63) + (1 << 39) + 1,
+        (1 << 59) + (1 << 35) + 1,
+        u64::MAX,
+    ];
     for a in u {
         assert_eq!(f(run1(&pu, a as i64).unwrap()), a as f32, "uitofp {a}");
     }
-    assert_eq!(f(run1(&pu, u[0] as i64).unwrap()), 9223373136366403584.0f32, "2^63 + 2^39 + 1 is 2^63 + 2^40");
+    assert_eq!(
+        f(run1(&pu, u[0] as i64).unwrap()),
+        9223373136366403584.0f32,
+        "2^63 + 2^39 + 1 is 2^63 + 2^40"
+    );
 }
 
 #[test]
 fn float_ops() {
-    let vals64: Vec<f64> = vec![0.0, -0.0, 1.0, -1.0, 0.5, 2.5, -2.5, 3.5, 1e300, -1e300, 1e-300, f64::INFINITY, f64::NEG_INFINITY, f64::NAN, f64::MAX, f64::MIN_POSITIVE, 123456.789];
+    let vals64: Vec<f64> = vec![
+        0.0,
+        -0.0,
+        1.0,
+        -1.0,
+        0.5,
+        2.5,
+        -2.5,
+        3.5,
+        1e300,
+        -1e300,
+        1e-300,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::NAN,
+        f64::MAX,
+        f64::MIN_POSITIVE,
+        123456.789,
+    ];
     let vals32: Vec<f32> = vals64.iter().map(|&v| v as f32).collect();
-    for op in [FloatBinOp::Add, FloatBinOp::Sub, FloatBinOp::Mul, FloatBinOp::Div, FloatBinOp::Min, FloatBinOp::Max, FloatBinOp::Copysign] {
+    for op in [
+        FloatBinOp::Add,
+        FloatBinOp::Sub,
+        FloatBinOp::Mul,
+        FloatBinOp::Div,
+        FloatBinOp::Min,
+        FloatBinOp::Max,
+        FloatBinOp::Copysign,
+    ] {
         let p64 = bin_fn(|b, x, y| b.float_bin(op, x, y), Type::F64, Type::F64);
         let p32 = bin_fn(|b, x, y| b.float_bin(op, x, y), Type::F32, Type::F32);
         for &a in &vals64 {
@@ -283,8 +458,12 @@ fn float_ops() {
                     FloatBinOp::Max => a.max(c),
                     FloatBinOp::Copysign => a.copysign(c),
                 };
-                let got = f64::from_bits(run2(&p64, a.to_bits() as i64, c.to_bits() as i64).unwrap());
-                assert!(got.to_bits() == want.to_bits() || (got.is_nan() && want.is_nan()), "f64 {op:?} {a} {c}: {got} vs {want}");
+                let got =
+                    f64::from_bits(run2(&p64, a.to_bits() as i64, c.to_bits() as i64).unwrap());
+                assert!(
+                    got.to_bits() == want.to_bits() || (got.is_nan() && want.is_nan()),
+                    "f64 {op:?} {a} {c}: {got} vs {want}"
+                );
             }
         }
         for &a in &vals32 {
@@ -298,12 +477,25 @@ fn float_ops() {
                     FloatBinOp::Max => a.max(c),
                     FloatBinOp::Copysign => a.copysign(c),
                 };
-                let got = f32::from_bits(run2(&p32, a.to_bits() as i64, c.to_bits() as i64).unwrap() as u32);
-                assert!(got.to_bits() == want.to_bits() || (got.is_nan() && want.is_nan()), "f32 {op:?} {a} {c}: {got} vs {want}");
+                let got = f32::from_bits(
+                    run2(&p32, a.to_bits() as i64, c.to_bits() as i64).unwrap() as u32,
+                );
+                assert!(
+                    got.to_bits() == want.to_bits() || (got.is_nan() && want.is_nan()),
+                    "f32 {op:?} {a} {c}: {got} vs {want}"
+                );
             }
         }
     }
-    for op in [FloatUnOp::Neg, FloatUnOp::Abs, FloatUnOp::Sqrt, FloatUnOp::Ceil, FloatUnOp::Floor, FloatUnOp::Trunc, FloatUnOp::Nearest] {
+    for op in [
+        FloatUnOp::Neg,
+        FloatUnOp::Abs,
+        FloatUnOp::Sqrt,
+        FloatUnOp::Ceil,
+        FloatUnOp::Floor,
+        FloatUnOp::Trunc,
+        FloatUnOp::Nearest,
+    ] {
         let p64 = un_fn(|b, x| b.float_un(op, x), Type::F64, Type::F64);
         for &a in &vals64 {
             let want = match op {
@@ -316,10 +508,22 @@ fn float_ops() {
                 FloatUnOp::Nearest => a.round_ties_even(),
             };
             let got = f64::from_bits(run1(&p64, a.to_bits() as i64).unwrap());
-            assert!(got.to_bits() == want.to_bits() || (got.is_nan() && want.is_nan()), "f64 {op:?} {a}: {got} vs {want}");
+            assert!(
+                got.to_bits() == want.to_bits() || (got.is_nan() && want.is_nan()),
+                "f64 {op:?} {a}: {got} vs {want}"
+            );
         }
     }
-    for cond in [FloatCond::Eq, FloatCond::Ne, FloatCond::Lt, FloatCond::Le, FloatCond::Gt, FloatCond::Ge, FloatCond::Ordered, FloatCond::Unordered] {
+    for cond in [
+        FloatCond::Eq,
+        FloatCond::Ne,
+        FloatCond::Lt,
+        FloatCond::Le,
+        FloatCond::Gt,
+        FloatCond::Ge,
+        FloatCond::Ordered,
+        FloatCond::Unordered,
+    ] {
         let p = bin_fn(|b, x, y| b.fcmp(cond, x, y), Type::F64, Type::Bool);
         for &a in &vals64 {
             for &c in &vals64 {
@@ -333,23 +537,53 @@ fn float_ops() {
                     FloatCond::Ordered => !a.is_nan() && !c.is_nan(),
                     FloatCond::Unordered => a.is_nan() || c.is_nan(),
                 };
-                assert_eq!(run2(&p, a.to_bits() as i64, c.to_bits() as i64).unwrap(), want as u64, "fcmp {cond:?} {a} {c}");
+                assert_eq!(
+                    run2(&p, a.to_bits() as i64, c.to_bits() as i64).unwrap(),
+                    want as u64,
+                    "fcmp {cond:?} {a} {c}"
+                );
             }
         }
     }
     // Promote / demote / bitcast.
-    let pp = un_fn(|b, x| b.conv(ConvOp::Fpromote, Type::F64, x), Type::F32, Type::F64);
-    let pd = un_fn(|b, x| b.conv(ConvOp::Fdemote, Type::F32, x), Type::F64, Type::F32);
-    let pb64 = un_fn(|b, x| b.conv(ConvOp::Bitcast, Type::I64, x), Type::F64, Type::I64);
-    let pb32 = un_fn(|b, x| b.conv(ConvOp::Bitcast, Type::F32, x), Type::I32, Type::F32);
+    let pp = un_fn(
+        |b, x| b.conv(ConvOp::Fpromote, Type::F64, x),
+        Type::F32,
+        Type::F64,
+    );
+    let pd = un_fn(
+        |b, x| b.conv(ConvOp::Fdemote, Type::F32, x),
+        Type::F64,
+        Type::F32,
+    );
+    let pb64 = un_fn(
+        |b, x| b.conv(ConvOp::Bitcast, Type::I64, x),
+        Type::F64,
+        Type::I64,
+    );
+    let pb32 = un_fn(
+        |b, x| b.conv(ConvOp::Bitcast, Type::F32, x),
+        Type::I32,
+        Type::F32,
+    );
     for &a in &vals64 {
         let d = f32::from_bits(run1(&pd, a.to_bits() as i64).unwrap() as u32);
-        assert!(d.to_bits() == (a as f32).to_bits() || (d.is_nan() && a.is_nan()), "fdemote {a}");
-        assert_eq!(run1(&pb64, a.to_bits() as i64).unwrap(), a.to_bits(), "bitcast f64->i64 {a}");
+        assert!(
+            d.to_bits() == (a as f32).to_bits() || (d.is_nan() && a.is_nan()),
+            "fdemote {a}"
+        );
+        assert_eq!(
+            run1(&pb64, a.to_bits() as i64).unwrap(),
+            a.to_bits(),
+            "bitcast f64->i64 {a}"
+        );
     }
     for &a in &vals32 {
         let u = f64::from_bits(run1(&pp, a.to_bits() as i64).unwrap());
-        assert!(u.to_bits() == (a as f64).to_bits() || (u.is_nan() && a.is_nan()), "fpromote {a}");
+        assert!(
+            u.to_bits() == (a as f64).to_bits() || (u.is_nan() && a.is_nan()),
+            "fpromote {a}"
+        );
         let bc = f32::from_bits(run1(&pb32, a.to_bits() as i32 as i64).unwrap() as u32);
         assert!(bc.to_bits() == a.to_bits(), "bitcast i32->f32 {a}");
     }
@@ -375,7 +609,15 @@ fn select_and_bool_logic() {
 #[test]
 fn memory_widths_and_alignment() {
     // Store each width at an offset, load it back both aligned and unaligned.
-    for ty in [Type::I8, Type::I16, Type::I32, Type::I64, Type::F32, Type::F64, Type::Bool] {
+    for ty in [
+        Type::I8,
+        Type::I16,
+        Type::I32,
+        Type::I64,
+        Type::F32,
+        Type::F64,
+        Type::Bool,
+    ] {
         let mut pb = ProgramBuilder::new();
         let f = pb.declare_func("f", &[Type::Ptr, ty], &[ty, ty]);
         let mut b = pb.define(f);
@@ -396,7 +638,9 @@ fn memory_widths_and_alignment() {
             _ => operands(ty).iter().map(|&x| x as u64).collect(),
         };
         for v in vals {
-            let r = Interp::new(&prog).run(Func(0), &[buf.0.as_mut_ptr() as u64, v]).unwrap();
+            let r = Interp::new(&prog)
+                .run(Func(0), &[buf.0.as_mut_ptr() as u64, v])
+                .unwrap();
             assert_eq!(r, vec![v, v], "{ty:?} {v:#x}");
         }
         // Bytes outside the stored ranges are untouched.
@@ -414,7 +658,20 @@ fn addhi_fn() -> Program {
     b.ret(&[r]);
     pb.finish()
 }
-const ADDHI_WORDS: [i64; 12] = [0, 1, -1, 2, -2, i64::MIN, i64::MAX, i64::MIN + 1, i64::MAX - 1, 1 << 40, -(1 << 40), 0x5555_5555_5555_5555];
+const ADDHI_WORDS: [i64; 12] = [
+    0,
+    1,
+    -1,
+    2,
+    -2,
+    i64::MIN,
+    i64::MAX,
+    i64::MIN + 1,
+    i64::MAX - 1,
+    1 << 40,
+    -(1 << 40),
+    0x5555_5555_5555_5555,
+];
 fn addhi_want(a: [i64; 4]) -> u64 {
     let x = ((a[2] as i128) << 64) | (a[0] as u64 as i128);
     let y = ((a[3] as i128) << 64) | (a[1] as u64 as i128);
@@ -425,11 +682,19 @@ fn addhi_want(a: [i64; 4]) -> u64 {
 /// 0..64, the register form else) against `u64::rotate_left`.
 #[test]
 fn rotl_i64() {
-    let p = bin_fn(|b, x, y| b.int_bin(IntBinOp::Rotl, x, y), Type::I64, Type::I64);
+    let p = bin_fn(
+        |b, x, y| b.int_bin(IntBinOp::Rotl, x, y),
+        Type::I64,
+        Type::I64,
+    );
     let ops = operands(Type::I64);
     for &a in &ops {
         for &c in &ops {
-            assert_eq!(run2(&p, a, c).unwrap(), (a as u64).rotate_left((c as u64 % 64) as u32), "rotl {a} {c}");
+            assert_eq!(
+                run2(&p, a, c).unwrap(),
+                (a as u64).rotate_left((c as u64 % 64) as u32),
+                "rotl {a} {c}"
+            );
         }
     }
     for k in [0i64, 1, 13, 16, 17, 21, 32, 63, 64, 65, 127, -1, -13] {
@@ -442,7 +707,11 @@ fn rotl_i64() {
             Type::I64,
         );
         for &a in &ops {
-            assert_eq!(run1(&p, a).unwrap(), (a as u64).rotate_left((k as u64 % 64) as u32), "rotl {a} by {k}");
+            assert_eq!(
+                run1(&p, a).unwrap(),
+                (a as u64).rotate_left((k as u64 % 64) as u32),
+                "rotl {a} by {k}"
+            );
         }
     }
 }
@@ -450,22 +719,46 @@ fn rotl_i64() {
 /// `smulh` / `umulh` (the signed / unsigned high product word, I64 only) and `addhi` (the 128-bit sum's high word) against i128.
 #[test]
 fn smulh_and_addhi() {
-    let p = bin_fn(|b, x, y| b.int_bin(IntBinOp::Smulh, x, y), Type::I64, Type::I64);
+    let p = bin_fn(
+        |b, x, y| b.int_bin(IntBinOp::Smulh, x, y),
+        Type::I64,
+        Type::I64,
+    );
     let ops = operands(Type::I64);
     for &a in &ops {
         for &c in &ops {
-            assert_eq!(run2(&p, a, c).unwrap(), ((a as i128 * c as i128) >> 64) as u64, "smulh {a} {c}");
+            assert_eq!(
+                run2(&p, a, c).unwrap(),
+                ((a as i128 * c as i128) >> 64) as u64,
+                "smulh {a} {c}"
+            );
         }
     }
-    let p = bin_fn(|b, x, y| b.int_bin(IntBinOp::Umulh, x, y), Type::I64, Type::I64);
+    let p = bin_fn(
+        |b, x, y| b.int_bin(IntBinOp::Umulh, x, y),
+        Type::I64,
+        Type::I64,
+    );
     for &a in &ops {
         for &c in &ops {
-            assert_eq!(run2(&p, a, c).unwrap(), ((a as u64 as u128 * c as u64 as u128) >> 64) as u64, "umulh {a} {c}");
+            assert_eq!(
+                run2(&p, a, c).unwrap(),
+                ((a as u64 as u128 * c as u64 as u128) >> 64) as u64,
+                "umulh {a} {c}"
+            );
         }
     }
     let p = addhi_fn();
-    for &w in &ADDHI_WORDS { for &x in &ADDHI_WORDS { for &y in &ADDHI_WORDS { for &z in &ADDHI_WORDS {
-        let got = Interp::new(&p).run(Func(0), &[w as u64, x as u64, y as u64, z as u64]).unwrap()[0];
-        assert_eq!(got, addhi_want([w, x, y, z]), "addhi {w} {x} {y} {z}");
-    } } } }
+    for &w in &ADDHI_WORDS {
+        for &x in &ADDHI_WORDS {
+            for &y in &ADDHI_WORDS {
+                for &z in &ADDHI_WORDS {
+                    let got = Interp::new(&p)
+                        .run(Func(0), &[w as u64, x as u64, y as u64, z as u64])
+                        .unwrap()[0];
+                    assert_eq!(got, addhi_want([w, x, y, z]), "addhi {w} {x} {y} {z}");
+                }
+            }
+        }
+    }
 }

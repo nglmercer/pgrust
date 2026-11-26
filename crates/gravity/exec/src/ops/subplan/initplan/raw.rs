@@ -31,7 +31,12 @@ unsafe fn parts<'a>(c: *mut abi::InitCell) -> (&'a AtomicU32, *mut u64, usize, &
     let n = (*c).n as usize;
     let state = &*core::ptr::addr_of!((*c).state).cast::<AtomicU32>();
     let rt = &*(*c.cast::<u64>().add(abi::init_pair(n) / 8) as *const InitRt);
-    (state, c.cast::<u8>().add(abi::init_pair(0)).cast::<u64>(), 2 * n, rt)
+    (
+        state,
+        c.cast::<u8>().add(abi::init_pair(0)).cast::<u64>(),
+        2 * n,
+        rt,
+    )
 }
 
 /// D2647: the pairs and the by-reference copies of the done Init cell `w` names, the copies moved out whole (the pairs keep
@@ -105,7 +110,12 @@ fn arm_cell(c: *mut abi::InitCell) -> Option<Armed> {
         state.store(STALE, Ordering::Release);
     }
     let copies = rt.copies.borrow_mut().take();
-    Some(Armed { c, state: s, pairs, copies })
+    Some(Armed {
+        c,
+        state: s,
+        pairs,
+        copies,
+    })
 }
 
 /// D2673: after the recheck, the statement's run gets its cell back: its pairs and state as `epq_arm` found them, but a
@@ -133,7 +143,11 @@ fn put_back(a: Armed) -> bool {
     };
     // SAFETY: `n` words of the live cell's pairs, disjoint from `a.pairs` (a copy)
     unsafe { core::ptr::copy_nonoverlapping(a.pairs.as_ptr(), at, n.min(a.pairs.len())) };
-    let back = if ran && a.state != DONE { STALE } else { a.state };
+    let back = if ran && a.state != DONE {
+        STALE
+    } else {
+        a.state
+    };
     state.store(back, Ordering::Release);
     ran
 }
@@ -146,7 +160,14 @@ pub(super) fn lay_cell(cell: &mut [u64], n: usize, rt: &InitRt) {
     // SAFETY: `cell` holds `nwords` 8-aligned words: the InitCell header, `n` pairs, then the state's address.
     unsafe {
         let c = cell.as_mut_ptr();
-        c.cast::<abi::InitCell>().write(abi::InitCell { head: abi::Head { magic: abi::INIT_MAGIC, op }, state: NOT_RUN, n: n as u32 });
+        c.cast::<abi::InitCell>().write(abi::InitCell {
+            head: abi::Head {
+                magic: abi::INIT_MAGIC,
+                op,
+            },
+            state: NOT_RUN,
+            n: n as u32,
+        });
         c.add(nwords - 1).write(rt as *const InitRt as u64);
     }
 }
@@ -154,7 +175,9 @@ pub(super) fn lay_cell(cell: &mut [u64], n: usize, rt: &InitRt) {
 /// The state word of an Init's own cell (`lay_cell`'s), for the leader's late step (D1035 step 2, init.rs `late_words`).
 pub(super) fn own_state(cell: &[u64]) -> &AtomicU32 {
     // SAFETY: the cell's state word; nothing runs the members concurrently (the leader's late step, no call on the stack)
-    unsafe { &*core::ptr::addr_of!((*cell.as_ptr().cast::<abi::InitCell>()).state).cast::<AtomicU32>() }
+    unsafe {
+        &*core::ptr::addr_of!((*cell.as_ptr().cast::<abi::InitCell>()).state).cast::<AtomicU32>()
+    }
 }
 
 /// The runner's frame `f` an Init holds (published by the runner on this thread while it runs the program), for one call
@@ -200,7 +223,6 @@ unsafe fn epq(cell: *mut abi::InitCell, rt: &InitRt, arm: bool) -> i64 {
     0
 }
 
-
 /// D3274 `OP_INIT_EPQ` with a state key (`key`, nonzero): PostgreSQL keeps one recheck EState per EvalPlanQual state (a
 /// LockRows' or a ModifyTable's EPQState), from its EvalPlanQualStart to its EvalPlanQualEnd (a LockRows at its input's
 /// end), and each initializes every SubPlan afresh once: an InitPlan in one runs again at that state's first read, and a
@@ -234,7 +256,10 @@ unsafe fn keyed(cell: *mut abi::InitCell, rt: &InitRt, op: u64, key: u32) -> i64
                 }
             }
         }
-        _ => rt.ran.borrow_mut().with_vec(|v| v.retain(|&e| e != (key, nested))),
+        _ => rt
+            .ran
+            .borrow_mut()
+            .with_vec(|v| v.retain(|&e| e != (key, nested))),
     }
     0
 }
@@ -255,15 +280,27 @@ unsafe fn ensure(cell: *mut abi::InitCell, rt: &InitRt, paramid: i32) -> PgResul
     let n = (*cell).n as i64;
     let k = paramid as i64 - rt.first as i64;
     if !(0..n).contains(&k) {
-        return Err(bad(&format!("m8_init_run: exec param {paramid} is not this InitPlan's ({} to {})", rt.first, rt.first as i64 + n - 1))); // alloc: Cold
+        return Err(bad(&format!(
+            "m8_init_run: exec param {paramid} is not this InitPlan's ({} to {})",
+            rt.first,
+            rt.first as i64 + n - 1
+        ))); // alloc: Cold
     }
     // SAFETY: `state` is a u32 of the live cell, written only here (the leader, RT-1).
     let state = &*core::ptr::addr_of_mut!((*cell).state).cast::<AtomicU32>();
     let pair = cell as i64 + abi::init_pair(k as usize) as i64;
     match state.load(Ordering::Acquire) {
         DONE => return Ok(pair),
-        RUNNING => return Err(bad("m8_init_run: an InitPlan's param read inside its own run")),
-        FAILED => return Err(bad("m8_init_run: the InitPlan failed earlier in this execution")),
+        RUNNING => {
+            return Err(bad(
+                "m8_init_run: an InitPlan's param read inside its own run",
+            ))
+        }
+        FAILED => {
+            return Err(bad(
+                "m8_init_run: the InitPlan failed earlier in this execution",
+            ))
+        }
         _ => {}
     }
     let Some(mut f) = rt.frame.get() else {
@@ -285,7 +322,11 @@ unsafe fn ensure(cell: *mut abi::InitCell, rt: &InitRt, paramid: i32) -> PgResul
     // whose guard takes it back on every exit, an unwind included); this read is inside one of that runner's calls or
     // late steps, and nothing else uses the frame while the members run. D1262: a stale run's members ran before, each
     // kept slot reset in place first (`rerun_members`).
-    let ran = if again { f.as_mut().rerun_members(&rt.members) } else { f.as_mut().run_members(&rt.members) };
+    let ran = if again {
+        f.as_mut().rerun_members(&rt.members)
+    } else {
+        f.as_mut().run_members(&rt.members)
+    };
     match ran {
         Ok(()) => {
             state.store(DONE, Ordering::Release);
@@ -325,7 +366,9 @@ pub(crate) fn read_param(cell: u64, paramid: i32) -> PgResult<(u64, u8)> {
     // the cell and its state live until the execution's end.
     unsafe {
         if h.is_null() || (*h).magic != abi::INIT_MAGIC {
-            return Err(bad(&format!("src.prune: exec param {paramid}'s word is not an Init cell ({cell:#x})"))); // alloc: Cold
+            return Err(bad(&format!(
+                "src.prune: exec param {paramid}'s word is not an Init cell ({cell:#x})"
+            ))); // alloc: Cold
         }
         let c = h.cast::<abi::InitCell>();
         let rt = &*(*h.cast::<u64>().add(abi::init_pair((*c).n as usize) / 8) as *const InitRt);

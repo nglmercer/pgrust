@@ -265,7 +265,9 @@ enum SealState {
     Pending,
     /// The one-shot vacuum worker was launched; `deadline_ns` is the leak
     /// bound (a worker the postmaster never started never reports back).
-    Vacuuming { deadline_ns: u64 },
+    Vacuuming {
+        deadline_ns: u64,
+    },
     /// The worker reported: Ok = VACUUM (FREEZE, ANALYZE) committed, the
     /// janitor flips the flags next pass; Err = the janitor fails the
     /// entry next pass (report + completion stay janitor-side — the
@@ -316,7 +318,11 @@ pub(crate) enum SealWork {
     /// Worker reported success: flip IS_TEMPLATE/ALLOW_CONNECTIONS.
     Flip { gen: u64, name: String, oid: Oid },
     /// Worker reported failure: fail the entry with its saved error.
-    VacuumFailed { gen: u64, name: String, err: Box<PgError> },
+    VacuumFailed {
+        gen: u64,
+        name: String,
+        err: Box<PgError>,
+    },
     /// Vacuuming past its deadline with no report: fail the entry.
     TimedOut { gen: u64, name: String },
 }
@@ -1121,14 +1127,13 @@ pub(crate) fn spare_count(template_name: &str, template_oid: Oid) -> usize {
 /// drop path.
 pub(crate) fn drain_stale_spares(identities: &[(String, Oid, bool)]) -> Vec<SpareEntry> {
     with_registry(|r| {
-        let (keep, stale): (Vec<SpareEntry>, Vec<SpareEntry>) =
-            r.spares.drain(..).partition(|s| {
-                identities.iter().any(|(name, oid, allowconn)| {
-                    s.template_name == *name
-                        && s.template_oid == *oid
-                        && s.template_connectable == *allowconn
-                })
-            });
+        let (keep, stale): (Vec<SpareEntry>, Vec<SpareEntry>) = r.spares.drain(..).partition(|s| {
+            identities.iter().any(|(name, oid, allowconn)| {
+                s.template_name == *name
+                    && s.template_oid == *oid
+                    && s.template_connectable == *allowconn
+            })
+        });
         r.spares = keep;
         stale
     })
@@ -1284,7 +1289,11 @@ pub(crate) fn template_flushed_matches(oid: Oid, frozenxid: u32, minmxid: u32) -
 /// keeps checkpointing).
 pub(crate) fn mark_template_flushed(oid: Oid, frozenxid: u32, minmxid: u32) {
     with_registry(|r| {
-        if let Some(slot) = r.template_flush_marks.iter_mut().find(|(o, _, _)| *o == oid) {
+        if let Some(slot) = r
+            .template_flush_marks
+            .iter_mut()
+            .find(|(o, _, _)| *o == oid)
+        {
             slot.1 = frozenxid;
             slot.2 = minmxid;
             return;
@@ -1353,7 +1362,8 @@ pub(crate) fn retain_template_flush_marks(live_oids: &[Oid]) {
             .retain(|&(o, _, _)| live_oids.contains(&o));
         // The relcount cache leaks a slot per dropped template exactly the
         // same way; prune it on the same feed.
-        r.template_relcounts.retain(|&(o, _)| live_oids.contains(&o));
+        r.template_relcounts
+            .retain(|&(o, _)| live_oids.contains(&o));
     })
 }
 
@@ -1436,7 +1446,10 @@ mod tests {
 
         // Absent janitor: rejected before anything is queued.
         set_janitor_proc(None);
-        assert!(matches!(post("tv_e_a", 1, &[], 0), PostEnsure::JanitorAbsent));
+        assert!(matches!(
+            post("tv_e_a", 1, &[], 0),
+            PostEnsure::JanitorAbsent
+        ));
 
         set_janitor_proc(Some(7));
 
@@ -1607,8 +1620,14 @@ mod tests {
             [SealWork::Validate { gen, name, .. }] if *gen == gen_a && name == "tv_s_a"
         ));
         assert!(begin_seal_vacuum(gen_a, 90601, now + 1_000));
-        assert!(!begin_seal_vacuum(gen_a, 90601, now + 1_000), "not Pending anymore");
-        assert!(seal_work(now).is_empty(), "in-deadline Vacuuming is not work");
+        assert!(
+            !begin_seal_vacuum(gen_a, 90601, now + 1_000),
+            "not Pending anymore"
+        );
+        assert!(
+            seal_work(now).is_empty(),
+            "in-deadline Vacuuming is not work"
+        );
         assert_eq!(seal_vacuum_target(gen_a), Some(90601));
         assert_eq!(seal_vacuum_target(999_999), None);
 
@@ -1647,7 +1666,10 @@ mod tests {
             [SealWork::VacuumFailed { gen, err, .. }]
                 if *gen == gen_a2 && err.message() == "vacuum blew up"
         ));
-        let w = complete_seal(gen_a2, Err(Box::new(PgError::error("vacuum blew up".to_string()))));
+        let w = complete_seal(
+            gen_a2,
+            Err(Box::new(PgError::error("vacuum blew up".to_string()))),
+        );
         assert_eq!(w, vec![3]);
         match seal_status(gen_a2) {
             SealStatus::Failed(e) => assert_eq!(e.message(), "vacuum blew up"),
@@ -1666,7 +1688,10 @@ mod tests {
             work.as_slice(),
             [SealWork::TimedOut { gen, .. }] if *gen == gen_b
         ));
-        let w = complete_seal(gen_b, Err(Box::new(PgError::error("timed out".to_string()))));
+        let w = complete_seal(
+            gen_b,
+            Err(Box::new(PgError::error("timed out".to_string()))),
+        );
         assert_eq!(w, vec![4]);
         finish_seal_vacuum(gen_b, Ok(()));
         assert!(matches!(seal_status(gen_b), SealStatus::Failed(_)));
@@ -1674,7 +1699,10 @@ mod tests {
         // GC retires terminal entries once their waiters leave; live gens
         // report Gone afterwards (fail-closed for any stale waiter).
         gc_seals();
-        assert!(matches!(seal_status(gen_a), SealStatus::Done), "waiters still registered");
+        assert!(
+            matches!(seal_status(gen_a), SealStatus::Done),
+            "waiters still registered"
+        );
         remove_seal_waiter(gen_a, 1);
         remove_seal_waiter(gen_a, 2);
         remove_seal_waiter(gen_a2, 3);
@@ -1743,7 +1771,11 @@ mod tests {
         // Identity-filtered count: same name + same oid only.
         assert!(add_spare(sp("tv_spare_3", 90403, "tpl_a", 90400)));
         assert_eq!(spare_count("tpl_a", 90400), 2);
-        assert_eq!(spare_count("tpl_a", 90499), 0, "rebuilt-template oid mismatch");
+        assert_eq!(
+            spare_count("tpl_a", 90499),
+            0,
+            "rebuilt-template oid mismatch"
+        );
         assert_eq!(spare_count("tpl_b", 90410), 1);
 
         // Per-template stale drain: with only tpl_b's identity valid, the
@@ -1755,7 +1787,10 @@ mod tests {
         names.sort_unstable();
         assert_eq!(names, ["tv_spare_1", "tv_spare_3"]);
         assert!(spare_shields("tv_spare_2"));
-        assert!(!spare_shields("tv_spare_1"), "drained spares stop shielding");
+        assert!(
+            !spare_shields("tv_spare_1"),
+            "drained spares stop shielding"
+        );
         // Same name, NEW template oid (template rebuilt under its name):
         // stale too.
         let stale = drain_stale_spares(&[("tpl_b".to_string(), 90411, false)]);
@@ -1769,8 +1804,15 @@ mod tests {
             ("tpl_m1".to_string(), 90450, false),
             ("tpl_m2".to_string(), 90452, false),
         ]);
-        assert!(stale.is_empty(), "matching spares of BOTH templates survive");
-        assert_eq!(drain_stale_spares(&[]).len(), 2, "empty identity set drains all");
+        assert!(
+            stale.is_empty(),
+            "matching spares of BOTH templates survive"
+        );
+        assert_eq!(
+            drain_stale_spares(&[]).len(),
+            2,
+            "empty identity set drains all"
+        );
 
         // A datallowconn EDGE drains (either direction: a spare minted from
         // a sealed template with the template now observed connectable, and
@@ -1792,8 +1834,14 @@ mod tests {
         }));
         let stale = drain_stale_spares(&[("tpl_c".to_string(), 90440, true)]);
         assert_eq!(stale.len(), 1);
-        assert_eq!(stale[0].name, "tv_spare_c1", "sealed-minted spare drains on the edge");
-        assert!(spare_shields("tv_spare_c2"), "connectable-stable spare stays");
+        assert_eq!(
+            stale[0].name, "tv_spare_c1",
+            "sealed-minted spare drains on the edge"
+        );
+        assert!(
+            spare_shields("tv_spare_c2"),
+            "connectable-stable spare stays"
+        );
         assert_eq!(drain_stale_spares(&[]).len(), 1);
 
         // Empty identity set = no valid pool: drains everything.
@@ -1831,7 +1879,12 @@ mod tests {
         // without the env override, so the cap is MAX_SPARES.
         assert_eq!(max_spares_cap(), MAX_SPARES);
         for i in 0..MAX_SPARES {
-            assert!(add_spare(sp(&format!("tv_spare_f{i}"), 91000 + i as Oid, "tpl_f", 90900)));
+            assert!(add_spare(sp(
+                &format!("tv_spare_f{i}"),
+                91000 + i as Oid,
+                "tpl_f",
+                90900
+            )));
         }
         assert!(!add_spare(sp("tv_spare_overflow", 91999, "tpl_f", 90900)));
         assert_eq!(total_spares(), MAX_SPARES);
@@ -1892,7 +1945,10 @@ mod tests {
         // rebuild until marking silently stops at the table bound.
         retain_template_flush_marks(&[92000]);
         assert!(template_flushed_matches(92000, 1, 1));
-        assert!(!template_flushed_matches(92001, 1, 1), "dead-oid mark pruned");
+        assert!(
+            !template_flushed_matches(92001, 1, 1),
+            "dead-oid mark pruned"
+        );
         retain_template_flush_marks(&[]);
         assert!(!template_flushed_matches(92000, 1, 1));
 
@@ -1906,7 +1962,11 @@ mod tests {
         assert_eq!(template_relcount(90500), Some(260));
         mark_template_flushed(90500, 700, 1);
         clear_template_flushed(90500);
-        assert_eq!(template_relcount(90500), None, "unseal observation clears the count");
+        assert_eq!(
+            template_relcount(90500),
+            None,
+            "unseal observation clears the count"
+        );
         assert!(!template_flushed_matches(90500, 700, 1));
         set_template_relcount(90501, 5);
         set_template_relcount(90502, 6);

@@ -1,6 +1,7 @@
 use std::rc::Rc;
 
 use mcx::PgVec;
+use reorderbuffer_seams::CompanionKind;
 use snapmgr::Snapshot;
 use types_core::{
     CommandId, FirstCommandId, ForkNumber, InvalidCommandId, InvalidOid, InvalidTransactionId,
@@ -8,7 +9,6 @@ use types_core::{
     XLogRecPtr, RELPERSISTENCE_PERMANENT,
 };
 use types_error::{PgResult, DEBUG2};
-use reorderbuffer_seams::CompanionKind;
 use types_rel::{RelationData, RELKIND_SEQUENCE, RELKIND_TOASTVALUE};
 use types_snapshot::SnapshotData;
 use types_storage::SharedInvalidationMessage;
@@ -16,9 +16,9 @@ use types_storage::SharedInvalidationMessage;
 use crate::iter::IterState;
 use crate::visibility::{ReorderBufferTupleCidEnt, ReorderBufferTupleCidKey, TupleCidHash};
 use crate::{
-    dl_delete, dl_iter, rb_error, ChangeId, ListHead, ReorderBuffer,
-    ReorderBufferChangeData, ReorderBufferChangeType::*, TxnId, RBTXN_IS_SERIALIZED,
-    RBTXN_IS_SERIALIZED_CLEAR, RBTXN_IS_STREAMED, RBTXN_SENT_PREPARE,
+    dl_delete, dl_iter, rb_error, ChangeId, ListHead, ReorderBuffer, ReorderBufferChangeData,
+    ReorderBufferChangeType::*, TxnId, RBTXN_IS_SERIALIZED, RBTXN_IS_SERIALIZED_CLEAR,
+    RBTXN_IS_STREAMED, RBTXN_SENT_PREPARE,
 };
 // rd_rel->relrewrite (reorderbuffer.c:2359): the trimmed relcache form does
 // not carry pg_class.relrewrite, so it is read from the pg_class syscache.
@@ -33,7 +33,6 @@ fn is_rewrite_heap(relation: &RelationData<'static>) -> PgResult<bool> {
     let relrewrite = syscache_seams::pg_class_relrewrite::call(relation.rd_id)?;
     Ok(relrewrite.is_some_and(|r| r != InvalidOid))
 }
-
 
 pub(crate) fn relation_is_logically_logged(relation: &RelationData<'static>) -> bool {
     transam_xlog_seams::xlog_logical_info_active::call()
@@ -135,7 +134,9 @@ impl ReorderBuffer {
         match (&change.action, &change.data) {
             (
                 Insert | Update | Delete | InternalSpecInsert,
-                ReorderBufferChangeData::Tp { oldtuple, newtuple, .. },
+                ReorderBufferChangeData::Tp {
+                    oldtuple, newtuple, ..
+                },
             ) => {
                 if let Some(t) = oldtuple {
                     sz += C_SIZEOF_HEAP_TUPLE_DATA + t.t_len as usize;
@@ -253,33 +254,42 @@ impl ReorderBuffer {
         if !self.txn(txn).has_catalog_changes() || self.txn(txn).tuplecids.is_empty() {
             return;
         }
-        let mut hash: TupleCidHash =
-            mcx::PgFxHashMap::with_hasher_in(Default::default(), self.mcx);
+        let mut hash: TupleCidHash = mcx::PgFxHashMap::with_hasher_in(Default::default(), self.mcx);
         for cid in dl_iter(&self.changes, self.txn(txn).tuplecids, |c| c.node) {
             let change = self.change(cid);
             debug_assert_eq!(change.action, InternalTupleCid);
-            let ReorderBufferChangeData::TupleCid { locator, tid, cmin, cmax, combocid } =
-                &change.data
+            let ReorderBufferChangeData::TupleCid {
+                locator,
+                tid,
+                cmin,
+                cmax,
+                combocid,
+            } = &change.data
             else {
                 unreachable!("tuplecid change carries TupleCid data");
             };
-            let key = ReorderBufferTupleCidKey { rlocator: *locator, tid: *tid };
+            let key = ReorderBufferTupleCidKey {
+                rlocator: *locator,
+                tid: *tid,
+            };
             if let Some(ent) = hash.get_mut(&key) {
                 debug_assert_eq!(ent.cmin, *cmin);
                 debug_assert!(
-                    ent.cmax == InvalidCommandId
-                        || (*cmax != InvalidCommandId && *cmax > ent.cmax)
+                    ent.cmax == InvalidCommandId || (*cmax != InvalidCommandId && *cmax > ent.cmax)
                 );
                 ent.cmax = *cmax;
             } else {
                 hash.insert(
                     key,
-                    ReorderBufferTupleCidEnt { cmin: *cmin, cmax: *cmax, combocid: *combocid },
+                    ReorderBufferTupleCidEnt {
+                        cmin: *cmin,
+                        cmax: *cmax,
+                        combocid: *combocid,
+                    },
                 );
             }
         }
-        self.txn_mut(txn).tuplecid_hash =
-            Some(Rc::new(std::cell::RefCell::new(hash)));
+        self.txn_mut(txn).tuplecid_hash = Some(Rc::new(std::cell::RefCell::new(hash)));
     }
 
     pub(crate) fn cleanup_txn(&mut self, txn: TxnId) -> PgResult<()> {
@@ -316,7 +326,9 @@ impl ReorderBuffer {
         if self.txn(txn).base_snapshot.is_some() {
             self.txn_mut(txn).base_snapshot = None;
             let mut list = self.txns_by_base_snapshot_lsn;
-            dl_delete(&mut self.txns, &mut list, txn, |t| &mut t.base_snapshot_node);
+            dl_delete(&mut self.txns, &mut list, txn, |t| {
+                &mut t.base_snapshot_node
+            });
             self.txns_by_base_snapshot_lsn = list;
         }
 
@@ -605,9 +617,15 @@ impl ReorderBuffer {
         // Only send begin/begin-prepare for non-streamed transactions.
         if !streaming {
             if self.txn(txn).is_prepared() {
-                { let cb = self.callbacks.begin_prepare; cb(self, txn)?; }
+                {
+                    let cb = self.callbacks.begin_prepare;
+                    cb(self, txn)?;
+                }
             } else {
-                { let cb = self.callbacks.begin; cb(self, txn)?; }
+                {
+                    let cb = self.callbacks.begin;
+                    cb(self, txn)?;
+                }
             }
         }
 
@@ -682,7 +700,10 @@ impl ReorderBuffer {
                     if let Some(si) = specinsert.take() {
                         debug_assert!(matches!(
                             self.change(cur).data,
-                            ReorderBufferChangeData::Tp { clear_toast_afterwards: true, .. }
+                            ReorderBufferChangeData::Tp {
+                                clear_toast_afterwards: true,
+                                ..
+                            }
                         ));
                         self.toast_reset(txn);
                         self.free_change(si, true);
@@ -915,12 +936,13 @@ impl ReorderBuffer {
                     Some((_, CompanionKind::Tombstone)) => {}
                     // The change goes out on the parent: the segment has the parent's attributes, dropped columns included.
                     Some((parent, CompanionKind::Segment { .. })) => {
-                        let parent_rel = relcache::RelationIdGetRelation(parent)?.ok_or_else(|| {
-                            rb_error(format!(
-                                "could not open relation with OID {parent} (parent of \"{}\")",
-                                relation.name()
-                            ))
-                        })?;
+                        let parent_rel =
+                            relcache::RelationIdGetRelation(parent)?.ok_or_else(|| {
+                                rb_error(format!(
+                                    "could not open relation with OID {parent} (parent of \"{}\")",
+                                    relation.name()
+                                ))
+                            })?;
                         if relation_is_logically_logged(&parent_rel) {
                             self.toast_replace(txn, relation, work)?;
                             self.apply_change(txn, &parent_rel, work, streaming)?;
@@ -939,7 +961,10 @@ impl ReorderBuffer {
                     None => {
                         if self.change(work).action == Insert {
                             debug_assert!(has_new);
-                            debug_assert!(specinsert.is_none(), "spec-insert into a toast relation");
+                            debug_assert!(
+                                specinsert.is_none(),
+                                "spec-insert into a toast relation"
+                            );
                             let state = iterstate.as_mut().expect("iterator initialized");
                             self.iter_extract_change(state, work);
                             self.toast_append_chunk(txn, relation, work)?;

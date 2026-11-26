@@ -298,11 +298,19 @@ mod tests {
     fn d400_distance_fmadd() {
         let a = point(&[2.0, -1.4, -6.8]);
         let b = point(&[-3.9, 6.3, -9.1]);
-        let want = if cfg!(target_arch = "aarch64") { 9.969453345093703 } else { 9.9694533450937 };
+        let want = if cfg!(target_arch = "aarch64") {
+            9.969453345093703
+        } else {
+            9.9694533450937
+        };
         assert_eq!(cube_distance(&v(&a), &v(&b)), want);
         let a = point(&[-2.0, 2.8, -8.1]);
         let o = point(&[0.0]);
-        let want = if cfg!(target_arch = "aarch64") { 8.800568163476719 } else { 8.80056816347672 };
+        let want = if cfg!(target_arch = "aarch64") {
+            8.800568163476719
+        } else {
+            8.80056816347672
+        };
         assert_eq!(cube_distance(&v(&a), &v(&o)), want);
         assert_eq!(cube_distance(&v(&o), &v(&a)), want);
     }

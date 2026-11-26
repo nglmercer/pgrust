@@ -27,23 +27,23 @@
 //! end's state across the probe's resume (D2194 / D2147 / D2201, fixed; the guard stayed while D2325 was open).
 //! D3508: or an UPDATE / DELETE, or a MERGE of WHEN MATCHED actions only, whose nest's outer is a settled UNION ALL and
 //! whose inner is the target's index scan (`union_outer`): the recheck runs the union's members again.
-use gravity_decompose::expr::{through_relabel, walk};
 use gravity_decompose::catalog::expr_type::{collation_of, type_of};
 use gravity_decompose::effects::{licence, Departure, Effects};
+use gravity_decompose::expr::{through_relabel, walk};
 use gravity_decompose::join::JoinDesc;
+use gravity_decompose::ops::shared::modifytable::{Member, MergeDesc, RowMark, WriteDesc};
 use gravity_decompose::ops::shared::sort::indeterminate;
 use gravity_decompose::ops::shared::subplan::SubLink;
-use gravity_decompose::ops::shared::modifytable::{MergeDesc, Member, RowMark, WriteDesc};
 use gravity_decompose::{Am, Bound, Op, PipelineNode, Source};
 use gravity_program::Cmd;
 use types_nodes::jointype::JoinType;
-use types_nodes::plannodes::RowMarkType;
 use types_nodes::list::NodeList;
+use types_nodes::plannodes::RowMarkType;
 use types_nodes::primnodes::{BoolExprType, MergeMatchKind, ParamKind};
 use types_nodes::{Node, NodeTag};
 
-use crate::graph::Gx;
 use crate::admit::refusal::Reason;
+use crate::graph::Gx;
 
 use crate::ops::modifytable::merge::admit::shape;
 
@@ -51,13 +51,17 @@ use crate::ops::modifytable::merge::admit::shape;
 pub(crate) const BESIDE: &str = "a write over a nested loop beside another join, a set function, a SubPlan, a LIMIT or an Append arm (D1933)";
 pub(crate) const JOINTYPE: &str = "a MERGE over a nested loop of a join type other than INNER or a NOT MATCHED action's LEFT (D1933)";
 pub(crate) const BY_SOURCE: &str = "MERGE: NOT MATCHED BY SOURCE over a nested loop (D1933)";
-pub(crate) const MATERIAL: &str = "a write over a nested loop whose inner is a Material or another breaker (D1933 (b))";
-pub(crate) const NESTS: &str = "a write over nested loops (a nest in the inner, or two nests: D1933)";
+pub(crate) const MATERIAL: &str =
+    "a write over a nested loop whose inner is a Material or another breaker (D1933 (b))";
+pub(crate) const NESTS: &str =
+    "a write over nested loops (a nest in the inner, or two nests: D1933)";
 pub(crate) const INNER_OPS: &str = "a write over a nested loop whose inner runs a SubPlan, a set function, a LIMIT, a gate or a join (D1933)";
 pub(crate) const COPY: &str = "a write over a nested loop reading a VALUES, subquery or function row (its COPY row at a recheck without producers: D1933 F2 / F3)";
 pub(crate) const MARKED: &str = "a write over a nested loop joining the target to another marked relation (its REFERENCE row's position at the recheck: D1933 (a) / (d))";
-pub(crate) const OUTER: &str = "a write over a nested loop whose outer is not a one-row Result (D1933)";
-pub(crate) const INNER: &str = "a write over a nested loop whose inner is no heap range or index scan of the target (D1933)";
+pub(crate) const OUTER: &str =
+    "a write over a nested loop whose outer is not a one-row Result (D1933)";
+pub(crate) const INNER: &str =
+    "a write over a nested loop whose inner is no heap range or index scan of the target (D1933)";
 pub(crate) const BITMAP: &str = "a write over a nested loop whose inner is a bitmap scan of the target (its substituted row's recheck qual: D1933)";
 pub(crate) const RECHECK_INITPLAN: &str = "a write's recheck beside an InitPlan that is volatile, reads a product, or can raise and is read under the write (the recheck runs it again where PostgreSQL copies or forces its param: D2028)";
 pub(crate) const INDETERMINATE_COLLATION: &str = "a MERGE over a nested loop comparing under an indeterminate collation (PostgreSQL raises 42P22: D2046)";
@@ -65,20 +69,35 @@ pub(crate) const INDETERMINATE_COLLATION: &str = "a MERGE over a nested loop com
 /// Pipeline `k`'s MERGE `w` over a nested loop: `None` when its rows reach the write through no nest (merge_admit.rs's
 /// chain); else the target's "producer" for write/merge.rs, the inner's view index (its scan site the recheck names), or
 /// `None` for a view target; every other form refused by name.
-pub(crate) fn merge(gx: &Gx<'_, '_>, k: usize, w: &WriteDesc<'_>, m: &MergeDesc<'_>, node: i32) -> Option<Option<usize>> {
+pub(crate) fn merge(
+    gx: &Gx<'_, '_>,
+    k: usize,
+    w: &WriteDesc<'_>,
+    m: &MergeDesc<'_>,
+    node: i32,
+) -> Option<Option<usize>> {
     let p = &gx.pipelines()[k];
     let pre = || p.ops.iter().take_while(|o| !matches!(o, Op::Write(_)));
     let j = pre().position(|o| matches!(o, Op::Join(JoinDesc::Nest { .. })))?;
     // D2015 NEST-ARMS: or the result relations' arms of a union the nest's inner embeds (merge/nest_arms.rs)
     if let Some(feeds) = crate::ops::modifytable::merge::nest_arms::arms(gx, k, w) {
-        return Some(Some(crate::ops::modifytable::merge::nest_arms::admit(gx, (k, j), w, m, node, feeds[0])));
+        return Some(Some(crate::ops::modifytable::merge::nest_arms::admit(
+            gx,
+            (k, j),
+            w,
+            m,
+            node,
+            feeds[0],
+        )));
     }
     // G2(c) part 2 (mergecmd): the target rows out of a settled union of the targets' feeds (`union_nest`)
     if let Some(feeds) = crate::ops::modifytable::merge::route::union_targets(gx, k, w) {
         return Some(Some(union_nest(gx, (k, j), w, m, node, feeds[0])));
     }
     // the rows reach the write through filters, projections, gates and this one nest (then RETURNING's projection)
-    let nests = pre().filter(|o| matches!(o, Op::Join(JoinDesc::Nest { .. }))).count();
+    let nests = pre()
+        .filter(|o| matches!(o, Op::Join(JoinDesc::Nest { .. })))
+        .count();
     if nests > 1 {
         shape(node, NESTS);
     }
@@ -89,35 +108,83 @@ pub(crate) fn merge(gx: &Gx<'_, '_>, k: usize, w: &WriteDesc<'_>, m: &MergeDesc<
     let free = positionless(w, m) || dummy_side(gx, k);
     // mergecmd 13b: the ops before a stored COPY row's entry (`own_copy_at`: a subquery's own LIMIT over its Sort, under
     // the nest's outer) are the subquery's; the recheck enters at the entry with the stored row and never runs them
-    let copy = |mk: &RowMark| mk.mark == RowMarkType::ROW_MARK_COPY && !w.targets.iter().any(|t| t.rti == mk.rti);
-    let entry = w.mark_descs.iter().filter(|mk| copy(mk)).filter_map(|mk| crate::rerun::epq::marks::own_copy_at(gx, k, mk.rti)).filter(|&at| at <= j).min().unwrap_or(0);
+    let copy = |mk: &RowMark| {
+        mk.mark == RowMarkType::ROW_MARK_COPY && !w.targets.iter().any(|t| t.rti == mk.rti)
+    };
+    let entry = w
+        .mark_descs
+        .iter()
+        .filter(|mk| copy(mk))
+        .filter_map(|mk| crate::rerun::epq::marks::own_copy_at(gx, k, mk.rti))
+        .filter(|&at| at <= j)
+        .min()
+        .unwrap_or(0);
     // D1933 ACTION-SUB (regress with#239 / #241): or a SubPlan step only the actions read, lent lazily at the
     // action's read (merge/admit.rs `action_sub`, D1112): it carries nothing the nest's row needs, and the recheck steps
     // past its rerun set and re-lends it over the target's newest version (marks.rs `acts`), as EvalPlanQual re-executes it
     let act = |o: &Op<'_>| crate::ops::modifytable::merge::admit::action_sub(o, w);
     // D3508: or the Union op of a settled UNION ALL outer, first (`union_outer`)
-    let union = gx.pipelines().inner_of(k, j).is_some_and(|ik| union_outer(gx, k, w, ik));
-    if !free && pre().enumerate().any(|(i, o)| i != j && i >= entry && !matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_)) && !act(o) && !(union && i == 0)) {
+    let union = gx
+        .pipelines()
+        .inner_of(k, j)
+        .is_some_and(|ik| union_outer(gx, k, w, ik));
+    if !free
+        && pre().enumerate().any(|(i, o)| {
+            i != j
+                && i >= entry
+                && !matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_))
+                && !act(o)
+                && !(union && i == 0)
+        })
+    {
         shape(node, BESIDE);
     }
-    let Op::Join(JoinDesc::Nest { jointype, .. }) = &p.ops[j] else { crate::refuse!(node, Reason::Bug { payload: "a nest op that is not a nest" }) };
+    let Op::Join(JoinDesc::Nest { jointype, .. }) = &p.ops[j] else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a nest op that is not a nest"
+            }
+        )
+    };
     let kind = |x: MergeMatchKind| m.actions.iter().any(|a| a.kind == x);
     // D1933 (b): the target's own scan outer over a Material inner (`material` (a)) takes BY SOURCE's LEFT join
     let bs = kind(MergeMatchKind::MERGE_WHEN_NOT_MATCHED_BY_SOURCE);
     // V-COPY: or the COPY-marked VALUES scan's (`values_fill`)
     let fed = |ik: usize| matches!(gx.pipelines()[ik].source, Source::Breaker { slot } if material_fill(gx, k, slot).is_some_and(|(_, s)| !w.targets.iter().any(|t| t.rti == s.0)) || values_fill(gx, k, slot).is_some());
-    let outer_a = gx.pipelines().inner_of(k, j).is_some_and(fed) && own_scan(&p.source, w) && !w.members.has(Member::TargetView);
+    let outer_a = gx.pipelines().inner_of(k, j).is_some_and(fed)
+        && own_scan(&p.source, w)
+        && !w.members.has(Member::TargetView);
     // BY-SOURCE-NEST (gen mg-0144): or MOVE (c)'s chain (below) over a LEFT nest whose inner is one heap range scan
-    let left_chain = || *jointype == JoinType::JOIN_LEFT && own_scan(&p.source, w) && crate::ops::modifytable::nest_ref::left_range(&p.ops[j]) && crate::ops::modifytable::nest_ref::chain(gx, k, w);
+    let left_chain = || {
+        *jointype == JoinType::JOIN_LEFT
+            && own_scan(&p.source, w)
+            && crate::ops::modifytable::nest_ref::left_range(&p.ops[j])
+            && crate::ops::modifytable::nest_ref::chain(gx, k, w)
+    };
     if bs && !((outer_a || left_chain()) && *jointype == JoinType::JOIN_LEFT) {
         shape(node, BY_SOURCE);
     }
-    if !(*jointype == JoinType::JOIN_INNER || *jointype == JoinType::JOIN_LEFT && (kind(MergeMatchKind::MERGE_WHEN_NOT_MATCHED_BY_TARGET) || bs)) {
+    if !(*jointype == JoinType::JOIN_INNER
+        || *jointype == JoinType::JOIN_LEFT
+            && (kind(MergeMatchKind::MERGE_WHEN_NOT_MATCHED_BY_TARGET) || bs))
+    {
         shape(node, JOINTYPE);
     }
-    let Some(ik) = gx.pipelines().inner_of(k, j) else { crate::refuse!(node, Reason::Bug { payload: "a nest without its embedded inner" }) };
+    let Some(ik) = gx.pipelines().inner_of(k, j) else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a nest without its embedded inner"
+            }
+        )
+    };
     // D2046 (code review round 1, S1): the last refusal of each served form, so every shape above keeps its name
-    let d2046 = || if loose(gx, k, ik, w, Some(m)) { shape(node, INDETERMINATE_COLLATION) };
+    let d2046 = || {
+        if loose(gx, k, ik, w, Some(m)) {
+            shape(node, INDETERMINATE_COLLATION)
+        }
+    };
     if free {
         d2046();
         return Some(None);
@@ -146,7 +213,10 @@ pub(crate) fn merge(gx: &Gx<'_, '_>, k: usize, w: &WriteDesc<'_>, m: &MergeDesc<
     // stored empty (marks.rs `inner_pos`, null_empty), so the recheck null-extends it again over the target's newest
     // version; a MATCHED row whose refetched inner row no longer joins comes null-extended, and the host's MERGE takes the
     // NOT MATCHED BY SOURCE actions for it, as ExecMergeMatched does
-    if own_scan(&p.source, w) && (*jointype == JoinType::JOIN_INNER || bs && left_chain()) && crate::ops::modifytable::nest_ref::chain(gx, k, w) {
+    if own_scan(&p.source, w)
+        && (*jointype == JoinType::JOIN_INNER || bs && left_chain())
+        && crate::ops::modifytable::nest_ref::chain(gx, k, w)
+    {
         if rerun_init(gx, gx.cte_write(k), &p.ops[..pre().count()], ik) {
             shape(node, RECHECK_INITPLAN);
         }
@@ -172,10 +242,18 @@ pub(crate) fn merge(gx: &Gx<'_, '_>, k: usize, w: &WriteDesc<'_>, m: &MergeDesc<
     // junk ctid, the version the join read (EvalPlanQualFetchRowMark): marks.rs `nest_ref` stores it in the source's
     // marked-row site (D776's own form), so the recheck's outer yields that row alone, as the stored COPY row's does
     let target = |rti: u32| w.targets.iter().any(|t| t.rti == rti);
-    let copied = |mk: &RowMark| mk.mark == RowMarkType::ROW_MARK_COPY && crate::rerun::epq::marks::own_copy_at(gx, k, mk.rti).is_some_and(|at| at <= j);
+    let copied = |mk: &RowMark| {
+        mk.mark == RowMarkType::ROW_MARK_COPY
+            && crate::rerun::epq::marks::own_copy_at(gx, k, mk.rti).is_some_and(|at| at <= j)
+    };
     // D3508: or the settled union's own COPY mark, whose members the recheck runs again (`union_outer`)
-    let stored = |mk: &RowMark| copied(mk) || crate::rerun::epq::marks::nest_ref(gx, k, mk) || union && union_mark(gx, mk);
-    if w.mark_descs.iter().any(|mk| !target(mk.rti) && mk.mark == RowMarkType::ROW_MARK_COPY && !stored(mk)) {
+    let stored = |mk: &RowMark| {
+        copied(mk) || crate::rerun::epq::marks::nest_ref(gx, k, mk) || union && union_mark(gx, mk)
+    };
+    if w.mark_descs
+        .iter()
+        .any(|mk| !target(mk.rti) && mk.mark == RowMarkType::ROW_MARK_COPY && !stored(mk))
+    {
         shape(node, COPY);
     }
     if w.mark_descs.iter().any(|mk| !target(mk.rti) && !stored(mk)) {
@@ -184,12 +262,30 @@ pub(crate) fn merge(gx: &Gx<'_, '_>, k: usize, w: &WriteDesc<'_>, m: &MergeDesc<
     // the recheck's outer yields at most one row, so the inner opens once over its substituted source (HeapSource and
     // BitmapSource hand the substituted row at their first open only): a Result, or the stored COPY row; or the settled
     // union's rows over an index scan inner (`union_outer`: IndexSource hands it at each open while it passes the keys)
-    if !matches!(p.source, Source::Const) && !w.mark_descs.iter().any(|mk| !target(mk.rti) && stored(mk)) {
+    if !matches!(p.source, Source::Const)
+        && !w.mark_descs.iter().any(|mk| !target(mk.rti) && stored(mk))
+    {
         shape(node, OUTER);
     }
     match &ip.source {
-        Source::Range { am: Am::Heap, scanrelid, relid, .. } | Source::Index { am: Am::Heap, scanrelid, relid, only: false, .. } if u32::from(*scanrelid) == w.rti && *relid == w.plan.target_rel => {}
-        Source::Bitmap { am: Am::Heap, scanrelid, .. } if u32::from(*scanrelid) == w.rti => shape(node, BITMAP),
+        Source::Range {
+            am: Am::Heap,
+            scanrelid,
+            relid,
+            ..
+        }
+        | Source::Index {
+            am: Am::Heap,
+            scanrelid,
+            relid,
+            only: false,
+            ..
+        } if u32::from(*scanrelid) == w.rti && *relid == w.plan.target_rel => {}
+        Source::Bitmap {
+            am: Am::Heap,
+            scanrelid,
+            ..
+        } if u32::from(*scanrelid) == w.rti => shape(node, BITMAP),
         _ => shape(node, INNER),
     }
     // D2028 (`rerun_init`)
@@ -218,32 +314,72 @@ pub(crate) fn merge(gx: &Gx<'_, '_>, k: usize, w: &WriteDesc<'_>, m: &MergeDesc<
 /// 18.6's recheck hands that Values Scan the stored row alone (EvalPlanQualFetchRowMark's copy leg), so the fresh
 /// Materialize holds that one row; here the recheck reruns the fill over the row stored at its copy site (marks.rs
 /// `copy_pos`, D732's VALUES producer) into the recheck's own empty spool (exec epq.rs `fresh_spools`).
-fn material(gx: &Gx<'_, '_>, (k, j, ik): (usize, usize, usize), w: &WriteDesc<'_>, (m, jointype): (&MergeDesc<'_>, JoinType), node: i32, slot: u8) -> Option<usize> {
+fn material(
+    gx: &Gx<'_, '_>,
+    (k, j, ik): (usize, usize, usize),
+    w: &WriteDesc<'_>,
+    (m, jointype): (&MergeDesc<'_>, JoinType),
+    node: i32,
+    slot: u8,
+) -> Option<usize> {
     let ps = gx.pipelines();
     let p = &ps[k];
-    if !ps[ik].ops.iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_))) {
+    if !ps[ik]
+        .ops
+        .iter()
+        .all(|o| matches!(o, Op::Filter(_) | Op::Project(_)))
+    {
         shape(node, INNER_OPS);
     }
     // V-COPY: (a)'s fill the COPY-marked VALUES scan, its relation id none
-    let vfill = || values_fill(gx, k, slot).filter(|_| own_scan(&p.source, w)).map(|(q, rti)| (q, (rti, 0)));
-    let Some((q, scanned)) = material_fill(gx, k, slot).or_else(vfill) else { shape(node, MATERIAL) };
+    let vfill = || {
+        values_fill(gx, k, slot)
+            .filter(|_| own_scan(&p.source, w))
+            .map(|(q, rti)| (q, (rti, 0)))
+    };
+    let Some((q, scanned)) = material_fill(gx, k, slot).or_else(vfill) else {
+        shape(node, MATERIAL)
+    };
     let own = |(rti, relid): (u32, u32)| rti == w.rti && relid == w.plan.target_rel;
     let target = |rti: u32| w.targets.iter().any(|t| t.rti == rti);
-    let reference = |mk: &RowMark| mk.mark == RowMarkType::ROW_MARK_REFERENCE && !mk.parent && mk.ctid_col > 0 && mk.lock == gravity_program::LockKind::None;
+    let reference = |mk: &RowMark| {
+        mk.mark == RowMarkType::ROW_MARK_REFERENCE
+            && !mk.parent
+            && mk.ctid_col > 0
+            && mk.lock == gravity_program::LockKind::None
+    };
     let values = matches!(ps[q].source, Source::Values { .. });
-    let copied = |mk: &RowMark| values && mk.rti == scanned.0 && mk.mark == RowMarkType::ROW_MARK_COPY && !mk.parent && mk.ctid_col > 0;
+    let copied = |mk: &RowMark| {
+        values
+            && mk.rti == scanned.0
+            && mk.mark == RowMarkType::ROW_MARK_COPY
+            && !mk.parent
+            && mk.ctid_col > 0
+    };
     let built = if own_scan(&p.source, w) {
         // (a): the fill scans the one REFERENCE-marked source relation; every other relation's mark refused by name. BY
         // SOURCE's LEFT join: a null-extended row's source position is stored empty (marks.rs `null_empty`), so the
         // recheck's fill refills nothing and the row is null-extended again over the target's newest version
-        let bs = m.actions.iter().any(|a| a.kind == MergeMatchKind::MERGE_WHEN_NOT_MATCHED_BY_SOURCE);
+        let bs = m
+            .actions
+            .iter()
+            .any(|a| a.kind == MergeMatchKind::MERGE_WHEN_NOT_MATCHED_BY_SOURCE);
         if !(jointype == JoinType::JOIN_INNER || jointype == JoinType::JOIN_LEFT && bs) {
             shape(node, JOINTYPE);
         }
-        if target(scanned.0) || !w.mark_descs.iter().any(|mk| (mk.rti, mk.relid) == scanned && reference(mk) || copied(mk)) {
+        if target(scanned.0)
+            || !w
+                .mark_descs
+                .iter()
+                .any(|mk| (mk.rti, mk.relid) == scanned && reference(mk) || copied(mk))
+        {
             shape(node, MATERIAL);
         }
-        for mk in w.mark_descs.iter().filter(|mk| !target(mk.rti) && !copied(mk)) {
+        for mk in w
+            .mark_descs
+            .iter()
+            .filter(|mk| !target(mk.rti) && !copied(mk))
+        {
             if mk.mark == RowMarkType::ROW_MARK_COPY {
                 shape(node, COPY);
             }
@@ -257,20 +393,32 @@ fn material(gx: &Gx<'_, '_>, (k, j, ik): (usize, usize, usize), w: &WriteDesc<'_
         if !own(scanned) {
             shape(node, INNER);
         }
-        let copied = |mk: &RowMark| mk.mark == RowMarkType::ROW_MARK_COPY && crate::rerun::epq::marks::own_copy_at(gx, k, mk.rti).is_some_and(|at| at <= j);
+        let copied = |mk: &RowMark| {
+            mk.mark == RowMarkType::ROW_MARK_COPY
+                && crate::rerun::epq::marks::own_copy_at(gx, k, mk.rti).is_some_and(|at| at <= j)
+        };
         let stored = |mk: &RowMark| copied(mk) || crate::rerun::epq::marks::nest_ref(gx, k, mk);
-        if w.mark_descs.iter().any(|mk| !target(mk.rti) && mk.mark == RowMarkType::ROW_MARK_COPY && !stored(mk)) {
+        if w.mark_descs
+            .iter()
+            .any(|mk| !target(mk.rti) && mk.mark == RowMarkType::ROW_MARK_COPY && !stored(mk))
+        {
             shape(node, COPY);
         }
         if w.mark_descs.iter().any(|mk| !target(mk.rti) && !stored(mk)) {
             shape(node, MARKED);
         }
-        if !matches!(p.source, Source::Const) && !w.mark_descs.iter().any(|mk| !target(mk.rti) && stored(mk)) {
+        if !matches!(p.source, Source::Const)
+            && !w.mark_descs.iter().any(|mk| !target(mk.rti) && stored(mk))
+        {
             shape(node, OUTER);
         }
         Some(q)
     };
-    let pre = p.ops.iter().take_while(|o| !matches!(o, Op::Write(_))).count();
+    let pre = p
+        .ops
+        .iter()
+        .take_while(|o| !matches!(o, Op::Write(_)))
+        .count();
     if rerun_init(gx, gx.cte_write(k), &p.ops[..pre], ik) {
         shape(node, RECHECK_INITPLAN);
     }
@@ -287,11 +435,28 @@ fn material(gx: &Gx<'_, '_>, (k, j, ik): (usize, usize, usize), w: &WriteDesc<'_
 fn material_fill(gx: &Gx<'_, '_>, k: usize, slot: u8) -> Option<(usize, (u32, u32))> {
     let ps = gx.pipelines();
     let q = (0..ps.len()).find(|&q| q != k && ps[q].desc.produces() == Some(slot))?;
-    let spool = ps[q].desc.consumes.is_empty() && matches!(ps[q].ops.split_last(), Some((Op::Join(JoinDesc::Spool), body)) if body.iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_))));
+    let spool = ps[q].desc.consumes.is_empty()
+        && matches!(ps[q].ops.split_last(), Some((Op::Join(JoinDesc::Spool), body)) if body.iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_))));
     match &ps[q].source {
-        Source::Range { am: Am::Heap, scanrelid, relid, .. } | Source::Index { am: Am::Heap, scanrelid, relid, only: false, .. } | Source::Bitmap { am: Am::Heap, scanrelid, relid, .. } if spool => {
-            Some((q, (u32::from(*scanrelid), *relid)))
+        Source::Range {
+            am: Am::Heap,
+            scanrelid,
+            relid,
+            ..
         }
+        | Source::Index {
+            am: Am::Heap,
+            scanrelid,
+            relid,
+            only: false,
+            ..
+        }
+        | Source::Bitmap {
+            am: Am::Heap,
+            scanrelid,
+            relid,
+            ..
+        } if spool => Some((q, (u32::from(*scanrelid), *relid))),
         _ => None,
     }
 }
@@ -301,7 +466,8 @@ fn material_fill(gx: &Gx<'_, '_>, k: usize, slot: u8) -> Option<(usize, (u32, u3
 fn values_fill(gx: &Gx<'_, '_>, k: usize, slot: u8) -> Option<(usize, u32)> {
     let ps = gx.pipelines();
     let q = (0..ps.len()).find(|&q| q != k && ps[q].desc.produces() == Some(slot))?;
-    let spool = ps[q].desc.consumes.is_empty() && matches!(ps[q].ops.split_last(), Some((Op::Join(JoinDesc::Spool), body)) if body.iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_))));
+    let spool = ps[q].desc.consumes.is_empty()
+        && matches!(ps[q].ops.split_last(), Some((Op::Join(JoinDesc::Spool), body)) if body.iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_))));
     match &ps[q].source {
         Source::Values { scanrelid, .. } if spool => Some((q, u32::from(*scanrelid))),
         _ => None,
@@ -313,9 +479,22 @@ fn values_fill(gx: &Gx<'_, '_>, k: usize, slot: u8) -> Option<(usize, u32)> {
 /// fill is the target's one producer (merge/admit.rs `built_target`): the recheck reruns it at the target's newest version
 /// (marks.rs `sites_in`), so the nest reads that one row, as EvalPlanQual's Materialize over the target's test tuple does.
 pub(crate) fn target_spool(gx: &Gx<'_, '_>, k: usize, w: &WriteDesc<'_>, o: &Op<'_>) -> bool {
-    let Op::Join(JoinDesc::Nest { jointype: JoinType::JOIN_INNER, inner, .. }) = o else { return false };
-    let Source::Breaker { slot } = inner.source else { return false };
-    inner.ops.iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_))) && material_fill(gx, k, slot).is_some_and(|(_, s)| s == (w.rti, w.plan.target_rel))
+    let Op::Join(JoinDesc::Nest {
+        jointype: JoinType::JOIN_INNER,
+        inner,
+        ..
+    }) = o
+    else {
+        return false;
+    };
+    let Source::Breaker { slot } = inner.source else {
+        return false;
+    };
+    inner
+        .ops
+        .iter()
+        .all(|o| matches!(o, Op::Filter(_) | Op::Project(_)))
+        && material_fill(gx, k, slot).is_some_and(|(_, s)| s == (w.rti, w.plan.target_rel))
 }
 
 /// MOVE (b): whether pipeline `k`'s first nest reads a Material that one heap range or index scan of the write's
@@ -323,7 +502,14 @@ pub(crate) fn target_spool(gx: &Gx<'_, '_>, k: usize, w: &WriteDesc<'_>, o: &Op<
 /// target, `merge` then admitting the nest or refusing it by name.
 pub(crate) fn material_target(gx: &Gx<'_, '_>, k: usize, w: &WriteDesc<'_>) -> bool {
     let p = &gx.pipelines()[k];
-    let Some(j) = p.ops.iter().take_while(|o| !matches!(o, Op::Write(_))).position(|o| matches!(o, Op::Join(JoinDesc::Nest { .. }))) else { return false };
+    let Some(j) = p
+        .ops
+        .iter()
+        .take_while(|o| !matches!(o, Op::Write(_)))
+        .position(|o| matches!(o, Op::Join(JoinDesc::Nest { .. })))
+    else {
+        return false;
+    };
     let own = |s: (u32, u32)| s == (w.rti, w.plan.target_rel);
     gx.pipelines().inner_of(k, j).is_some_and(|ik| matches!(gx.pipelines()[ik].source, Source::Breaker { slot } if material_fill(gx, k, slot).is_some_and(|(_, s)| own(s))))
 }
@@ -345,37 +531,102 @@ fn own_scan(s: &Source<'_>, w: &WriteDesc<'_>) -> bool {
 /// nest (WHEN MATCHED actions only), its inner a breaker's rows under filters and projections whose producer is the one
 /// REFERENCE-marked source relation's heap range or index scan under filters and projections into a Material; any other
 /// mark refused by name; `RECHECK_INITPLAN`, `INDETERMINATE_COLLATION` and the no-widen list last. The target's "producer" returned: the first feed.
-fn union_nest(gx: &Gx<'_, '_>, (k, j): (usize, usize), w: &WriteDesc<'_>, m: &MergeDesc<'_>, node: i32, feed: usize) -> usize {
+fn union_nest(
+    gx: &Gx<'_, '_>,
+    (k, j): (usize, usize),
+    w: &WriteDesc<'_>,
+    m: &MergeDesc<'_>,
+    node: i32,
+    feed: usize,
+) -> usize {
     let ps = gx.pipelines();
     let p = &ps[k];
-    let wi = p.ops.iter().position(|o| matches!(o, Op::Write(_))).unwrap_or(p.ops.len());
-    if p.ops[..wi].iter().enumerate().any(|(i, o)| i != 0 && i != j && !matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_))) {
+    let wi = p
+        .ops
+        .iter()
+        .position(|o| matches!(o, Op::Write(_)))
+        .unwrap_or(p.ops.len());
+    if p.ops[..wi].iter().enumerate().any(|(i, o)| {
+        i != 0 && i != j && !matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_))
+    }) {
         shape(node, BESIDE);
     }
-    let Op::Join(JoinDesc::Nest { jointype, .. }) = &p.ops[j] else { crate::refuse!(node, Reason::Bug { payload: "a nest op that is not a nest" }) };
-    if m.actions.iter().any(|a| a.kind == MergeMatchKind::MERGE_WHEN_NOT_MATCHED_BY_SOURCE) {
+    let Op::Join(JoinDesc::Nest { jointype, .. }) = &p.ops[j] else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a nest op that is not a nest"
+            }
+        )
+    };
+    if m.actions
+        .iter()
+        .any(|a| a.kind == MergeMatchKind::MERGE_WHEN_NOT_MATCHED_BY_SOURCE)
+    {
         shape(node, BY_SOURCE);
     }
     if *jointype != JoinType::JOIN_INNER {
         shape(node, JOINTYPE);
     }
-    let Some(ik) = ps.inner_of(k, j) else { crate::refuse!(node, Reason::Bug { payload: "a nest without its embedded inner" }) };
+    let Some(ik) = ps.inner_of(k, j) else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a nest without its embedded inner"
+            }
+        )
+    };
     let ip = &ps[ik];
-    if !ip.ops.iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_))) {
+    if !ip
+        .ops
+        .iter()
+        .all(|o| matches!(o, Op::Filter(_) | Op::Project(_)))
+    {
         shape(node, INNER_OPS);
     }
     // the inner's producer: the source relation's scan into a Material, its row the stored REFERENCE one at the recheck
     let heap = |s: &Source<'_>| match s {
-        Source::Range { am: Am::Heap, scanrelid, relid, .. } | Source::Index { am: Am::Heap, scanrelid, relid, only: false, .. } => Some((u32::from(*scanrelid), *relid)),
+        Source::Range {
+            am: Am::Heap,
+            scanrelid,
+            relid,
+            ..
+        }
+        | Source::Index {
+            am: Am::Heap,
+            scanrelid,
+            relid,
+            only: false,
+            ..
+        } => Some((u32::from(*scanrelid), *relid)),
         _ => None,
     };
     let target = |rti: u32| w.targets.iter().any(|t| t.rti == rti);
-    let reference = |mk: &RowMark| mk.mark == RowMarkType::ROW_MARK_REFERENCE && !mk.parent && mk.ctid_col > 0 && mk.lock == gravity_program::LockKind::None;
-    let Source::Breaker { slot } = ip.source else { shape(node, MATERIAL) };
+    let reference = |mk: &RowMark| {
+        mk.mark == RowMarkType::ROW_MARK_REFERENCE
+            && !mk.parent
+            && mk.ctid_col > 0
+            && mk.lock == gravity_program::LockKind::None
+    };
+    let Source::Breaker { slot } = ip.source else {
+        shape(node, MATERIAL)
+    };
     let fill = (0..ps.len()).find(|&q| q != k && ps[q].desc.produces() == Some(slot));
-    let src = fill.and_then(|q| heap(&ps[q].source).filter(|_| ps[q].desc.consumes.is_empty()).map(|s| (q, s)));
+    let src = fill.and_then(|q| {
+        heap(&ps[q].source)
+            .filter(|_| ps[q].desc.consumes.is_empty())
+            .map(|s| (q, s))
+    });
     let spool = |q: usize| matches!(ps[q].ops.split_last(), Some((Op::Join(JoinDesc::Spool), body)) if body.iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_))));
-    let Some((_, (rti, relid))) = src.filter(|&(q, (rti, relid))| spool(q) && !target(rti) && w.mark_descs.iter().any(|mk| mk.rti == rti && mk.relid == relid && reference(mk))) else { shape(node, MATERIAL) };
+    let Some((_, (rti, relid))) = src.filter(|&(q, (rti, relid))| {
+        spool(q)
+            && !target(rti)
+            && w.mark_descs
+                .iter()
+                .any(|mk| mk.rti == rti && mk.relid == relid && reference(mk))
+    }) else {
+        shape(node, MATERIAL)
+    };
     for mk in w.mark_descs.iter().filter(|mk| !target(mk.rti)) {
         if mk.mark == RowMarkType::ROW_MARK_COPY {
             shape(node, COPY);
@@ -416,10 +667,20 @@ fn union_nest(gx: &Gx<'_, '_>, (k, j): (usize, usize), w: &WriteDesc<'_>, m: &Me
 pub(crate) fn dml(gx: &Gx<'_, '_>, k: usize, w: &WriteDesc<'_>, node: i32) -> Option<usize> {
     let ik = dml_form(gx, k, w)?;
     let p = &gx.pipelines()[k];
-    let pre = p.ops.iter().take_while(|o| !matches!(o, Op::Write(_))).count();
+    let pre = p
+        .ops
+        .iter()
+        .take_while(|o| !matches!(o, Op::Write(_)))
+        .count();
     // D3838 ROWC-INIT: a data-modifying CTE's write arms the InitPlans at its ModifyTable for its first recheck
     // (rerun/epq/inits.rs `cte_write_armed`), which runs them again as PostgreSQL's does: no departure
-    if rerun_init_armed(gx, gx.cte_write(k), &p.ops[..pre], ik, &crate::rerun::epq::inits::cte_write_armed(gx, k, pre)) {
+    if rerun_init_armed(
+        gx,
+        gx.cte_write(k),
+        &p.ops[..pre],
+        ik,
+        &crate::rerun::epq::inits::cte_write_armed(gx, k, pre),
+    ) {
         shape(node, RECHECK_INITPLAN);
     }
     if loose(gx, k, ik, w, None) {
@@ -435,15 +696,27 @@ pub(crate) fn dml_form(gx: &Gx<'_, '_>, k: usize, w: &WriteDesc<'_>) -> Option<u
     let pre = || p.ops.iter().take_while(|o| !matches!(o, Op::Write(_)));
     // G1: the nest whose inner scans the target, after INNER nests over other relations' own heap scans
     // (marks.rs `nest_joins`, each a REFERENCE row the recheck stores at its inner's RowOf site: nest_ref.rs's form)
-    let on_target = |i: usize| gx.pipelines().inner_of(k, i).is_some_and(|ik| target_scan(&gx.pipelines()[ik].source, w));
-    let nests = || pre().enumerate().filter(|(_, o)| matches!(o, Op::Join(JoinDesc::Nest { .. }))).map(|(i, _)| i);
+    let on_target = |i: usize| {
+        gx.pipelines()
+            .inner_of(k, i)
+            .is_some_and(|ik| target_scan(&gx.pipelines()[ik].source, w))
+    };
+    let nests = || {
+        pre()
+            .enumerate()
+            .filter(|(_, o)| matches!(o, Op::Join(JoinDesc::Nest { .. })))
+            .map(|(i, _)| i)
+    };
     let j = nests().find(|&i| on_target(i)).or_else(|| nests().next())?;
     // D3282 (`UPDATE pt t SET a = 3 FROM (VALUES (1), (2)) s(a) WHERE t.a = s.a AND s.a = 1`, pt list-partitioned: the
     // row moves; the plain-partition form of postgres_fdw's batch_cp_upd_test): a root pruned to its one leaf is that
     // leaf's write under the root (update.rs `row_op` / delete_built.rs: WritePlan::with_route, the moved row's
     // destinations `moving`'s), positioned at the leaf's junk ctid as any other target; the recheck substitutes the
     // leaf's scan as it does the unrouted target's
-    if !matches!(w.cmd, Cmd::Update | Cmd::Delete) || w.targets.len() != 1 || w.members.has(Member::TargetView) {
+    if !matches!(w.cmd, Cmd::Update | Cmd::Delete)
+        || w.targets.len() != 1
+        || w.members.has(Member::TargetView)
+    {
         return None;
     }
     // G2: or LEFT ones (marks.rs `nest_left_joins`: a NULL row stored when null-extended, none at the recheck)
@@ -453,7 +726,9 @@ pub(crate) fn dml_form(gx: &Gx<'_, '_>, k: usize, w: &WriteDesc<'_>) -> Option<u
     let probes = |o: &Op<'_>| crate::rerun::epq::marks::joins(o) || left_probe(o);
     // D3705: or INNER nests over a Function Scan or CTE Scan whose row is a COPY mark's (marks.rs `nest_copy_scan`): the
     // recheck re-opens the inner over that stored row (`copied` below)
-    let copy_scan = |o: &Op<'_>| matches!(w.cmd, Cmd::Update | Cmd::Delete) && crate::rerun::epq::marks::nest_copy_scan(o);
+    let copy_scan = |o: &Op<'_>| {
+        matches!(w.cmd, Cmd::Update | Cmd::Delete) && crate::rerun::epq::marks::nest_copy_scan(o)
+    };
     // D3795: or nests over a merge or hash join's Material when the write rechecks in the IR through the target's nest
     // (rowop_epq.rs `held_inner`: each mark the join's sides', the nest's row held)
     let held_in_ir = std::cell::Cell::new(None);
@@ -469,11 +744,23 @@ pub(crate) fn dml_form(gx: &Gx<'_, '_>, k: usize, w: &WriteDesc<'_>) -> Option<u
     // NULL, PostgreSQL 18.6's Nested Loop Anti Join before or after the target's nest): or ANTI ones (marks.rs
     // `nest_anti_joins`: the rows carry the inner's ctid NULL, so the recheck re-opens the inner over no row)
     let anti = |o: &Op<'_>| crate::rerun::epq::marks::nest_anti_joins(o);
-    let before = |i: usize, o: &Op<'_>| i < j && (crate::rerun::epq::marks::nest_joins(o) || crate::rerun::epq::marks::nest_left_joins(o) || anti(o) || probes(o) || copy_scan(o) || held(i)) && !on_target(i);
+    let before = |i: usize, o: &Op<'_>| {
+        i < j
+            && (crate::rerun::epq::marks::nest_joins(o)
+                || crate::rerun::epq::marks::nest_left_joins(o)
+                || anti(o)
+                || probes(o)
+                || copy_scan(o)
+                || held(i))
+            && !on_target(i)
+    };
     // G7: or, after the target's nest, INNER / LEFT nests whose inner reads a Material spool of another
     // relation's own heap scan (`spool_fill`): the recheck reruns the fill over that relation's refetched row, or none
     // when the row came null-extended (marks.rs `sites_in`'s producer null_empty, D2048)
-    let after = |i: usize, o: &Op<'_>| i > j && matches!(o, Op::Join(JoinDesc::Nest { jointype: JoinType::JOIN_INNER | JoinType::JOIN_LEFT, inner, .. }) if spool_fill(gx, k, inner).is_some());
+    let after = |i: usize, o: &Op<'_>| {
+        i > j
+            && matches!(o, Op::Join(JoinDesc::Nest { jointype: JoinType::JOIN_INNER | JoinType::JOIN_LEFT, inner, .. }) if spool_fill(gx, k, inner).is_some())
+    };
     // D3706: or, after it, INNER nests over a Function Scan or CTE Scan whose row is a COPY mark's (`copy_scan`, `copied`)
     let copy_after = |i: usize, o: &Op<'_>| i > j && copy_scan(o);
     // D3739 (Rails' update_all across an association: `UPDATE developers __active_record_update_alias .. FROM
@@ -491,28 +778,68 @@ pub(crate) fn dml_form(gx: &Gx<'_, '_>, k: usize, w: &WriteDesc<'_>) -> Option<u
     // when that row fails the inner's quals, as G2's before the target's nest; or an ANTI one (`anti`), whose rows carry
     // the inner's ctid NULL, so the recheck re-opens the inner over no row and the newest version passes again, as
     // EvalPlanQualFetchRowMark's no-row
-    let ref_after = |i: usize, o: &Op<'_>| i > j && (crate::rerun::epq::marks::nest_joins(o) || crate::rerun::epq::marks::nest_left_joins(o) || anti(o)) && !on_target(i);
+    let ref_after = |i: usize, o: &Op<'_>| {
+        i > j
+            && (crate::rerun::epq::marks::nest_joins(o)
+                || crate::rerun::epq::marks::nest_left_joins(o)
+                || anti(o))
+            && !on_target(i)
+    };
     // COPYNEST (tour-sortset core-0271: `UPDATE c .. WHERE id IN (SELECT .. GROUP BY .. ORDER BY .. LIMIT 10)`,
     // Nested Loop (Subquery Scan over Limit (Sort ..), the target's index scan)): or the ops below the outer's own COPY row
     // entry (merge/admit.rs `own_entry`) the copied form takes (`subquery_own`: a LIMIT among them): the recheck enters at
     // that entry with the stored row (`stored` below), never below it, as EvalPlanQual hands the Subquery Scan its row
     let entry = crate::ops::modifytable::merge::admit::own_entry(gx, k, w);
-    let below = |i: usize, o: &Op<'_>| i < entry && entry <= j && crate::ops::modifytable::merge::admit::subquery_own(o);
+    let below = |i: usize, o: &Op<'_>| {
+        i < entry && entry <= j && crate::ops::modifytable::merge::admit::subquery_own(o)
+    };
     // B3: or, before it, the first-of-run that de-duplicates the Sort the pipeline reads (nest_ref.rs
     // `deduped_run`: the semi join's inner unique-ified by Unique over Sort)
     // D3621: or the one de-duplicating the Sort a COPY row's subquery enters below (`dedup_copy`'s sorted form)
-    let copy_run = || w.mark_descs.iter().any(|mk| mk.mark == RowMarkType::ROW_MARK_COPY && dedup_copy(gx, k, mk.rti) == Some(true));
-    let run = |i: usize, o: &Op<'_>| i < j && (crate::ops::modifytable::nest_ref::deduped_run(gx, k, o) || matches!(o, Op::FirstOfRun(_)) && copy_run());
+    let copy_run = || {
+        w.mark_descs.iter().any(|mk| {
+            mk.mark == RowMarkType::ROW_MARK_COPY && dedup_copy(gx, k, mk.rti) == Some(true)
+        })
+    };
+    let run = |i: usize, o: &Op<'_>| {
+        i < j
+            && (crate::ops::modifytable::nest_ref::deduped_run(gx, k, o)
+                || matches!(o, Op::FirstOfRun(_)) && copy_run())
+    };
     // D3508: or the Union op of a settled UNION ALL outer, first, the target's nest the only join (`union_outer`)
-    let union = gx.pipelines().inner_of(k, j).is_some_and(|ik| union_outer(gx, k, w, ik)) && nests().count() == 1;
+    let union = gx
+        .pipelines()
+        .inner_of(k, j)
+        .is_some_and(|ik| union_outer(gx, k, w, ik))
+        && nests().count() == 1;
     // D3826 (Hibernate's BulkManipulationTest: `delete from MANY_TO_MANY where IN_ID in (select ID from SIMPLE_1 where
     // (select count(*) from SIMPLE_2 where SIMPLE_1.ID = SIMPLE_1_ID) = 0 ..)`, PostgreSQL 18.6's Nested Loop whose outer
     // scan filters by the correlated SubPlan, its inner the target's bitmap scan keyed by the outer row): or, before the
     // target's nest, a per-row SubPlan step at the row over its own inner: the recheck runs it again over the outer's
     // refetched row, its scans unsubstituted under the statement's snapshot (exec rerun/epq.rs `rescans`, D1478), as
     // EvalPlanQual runs the SubPlan again in its fresh state
-    let sub = |i: usize, o: &Op<'_>| i < j && matches!(o, Op::SubPlan(d) if d.site == gravity_decompose::ops::shared::subplan::SubSite::Row && matches!(d.form, gravity_decompose::ops::shared::subplan::SubForm::Nested { .. }));
-    if pre().enumerate().any(|(i, o)| i != j && !matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_)) && !before(i, o) && !after(i, o) && !copy_after(i, o) && !ref_after(i, o) && !below(i, o) && !run(i, o) && !sub(i, o) && !(union && i == 0)) || !matches!(&p.ops[j], Op::Join(JoinDesc::Nest { jointype: JoinType::JOIN_INNER, .. })) {
+    let sub = |i: usize, o: &Op<'_>| {
+        i < j
+            && matches!(o, Op::SubPlan(d) if d.site == gravity_decompose::ops::shared::subplan::SubSite::Row && matches!(d.form, gravity_decompose::ops::shared::subplan::SubForm::Nested { .. }))
+    };
+    if pre().enumerate().any(|(i, o)| {
+        i != j
+            && !matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_))
+            && !before(i, o)
+            && !after(i, o)
+            && !copy_after(i, o)
+            && !ref_after(i, o)
+            && !below(i, o)
+            && !run(i, o)
+            && !sub(i, o)
+            && !(union && i == 0)
+    }) || !matches!(
+        &p.ops[j],
+        Op::Join(JoinDesc::Nest {
+            jointype: JoinType::JOIN_INNER,
+            ..
+        })
+    ) {
         return None;
     }
     let ik = gx.pipelines().inner_of(k, j)?;
@@ -530,30 +857,67 @@ pub(crate) fn dml_form(gx: &Gx<'_, '_>, k: usize, w: &WriteDesc<'_>) -> Option<u
     // another relation's own heap scan makes (nest_ref.rs `built`, `built_ref` below): the recheck reruns that build over
     // the relation's refetched row (marks.rs `sites_in`) and opens the inner once over the target's newest version, as
     // EvalPlanQual runs the Hash Join over the two rows
-    let inner_probe = |o: &Op<'_>| crate::rerun::epq::marks::joins(o) && super::nest_ref::built(gx, ik, o).is_some();
+    let inner_probe = |o: &Op<'_>| {
+        crate::rerun::epq::marks::joins(o) && super::nest_ref::built(gx, ik, o).is_some()
+    };
     let probed_inner = ip.ops[..ji].iter().any(inner_probe);
-    let plain = ip.ops[..ji].iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_)) || inner_probe(o));
-    if !plain && crate::ops::modifytable::rowop_epq::inner_sets(gx, k, ik, w).is_none() || !crate::rerun::epq::ref_nest::memo_tail(ip) {
+    let plain = ip.ops[..ji]
+        .iter()
+        .all(|o| matches!(o, Op::Filter(_) | Op::Project(_)) || inner_probe(o));
+    if !plain && crate::ops::modifytable::rowop_epq::inner_sets(gx, k, ik, w).is_none()
+        || !crate::rerun::epq::ref_nest::memo_tail(ip)
+    {
         return None;
     }
     match &ip.source {
-        Source::Range { am: Am::Heap, scanrelid, relid, .. } | Source::Index { am: Am::Heap, scanrelid, relid, only: false, .. } if u32::from(*scanrelid) == w.rti && *relid == w.plan.target_rel => {}
+        Source::Range {
+            am: Am::Heap,
+            scanrelid,
+            relid,
+            ..
+        }
+        | Source::Index {
+            am: Am::Heap,
+            scanrelid,
+            relid,
+            only: false,
+            ..
+        } if u32::from(*scanrelid) == w.rti && *relid == w.plan.target_rel => {}
         // producerchain B: or a TID scan of the target keyed by the outer row (its recheck tests the newest version's
         // ctid against the list: TidRecheck)
-        Source::Tid { am: Am::Heap, scanrelid, relid, form, .. } if form.name() != "current" && u32::from(*scanrelid) == w.rti && *relid == w.plan.target_rel => {}
+        Source::Tid {
+            am: Am::Heap,
+            scanrelid,
+            relid,
+            form,
+            ..
+        } if form.name() != "current"
+            && u32::from(*scanrelid) == w.rti
+            && *relid == w.plan.target_rel => {}
         // G3: or a bitmap heap scan of the target keyed by the outer row (its recheck tests the newest
         // version against the recheck quals: BitmapHeapRecheck)
-        Source::Bitmap { am: Am::Heap, scanrelid, relid, .. } if u32::from(*scanrelid) == w.rti && *relid == w.plan.target_rel => {}
+        Source::Bitmap {
+            am: Am::Heap,
+            scanrelid,
+            relid,
+            ..
+        } if u32::from(*scanrelid) == w.rti && *relid == w.plan.target_rel => {}
         _ => return None,
     }
     let target = |rti: u32| w.targets.iter().any(|t| t.rti == rti);
-    let stored = |mk: &RowMark| mk.mark == RowMarkType::ROW_MARK_COPY && (crate::rerun::epq::marks::own_copy_at(gx, k, mk.rti).is_some_and(|at| at <= j) || deduped_copy(gx, k, mk.rti));
+    let stored = |mk: &RowMark| {
+        mk.mark == RowMarkType::ROW_MARK_COPY
+            && (crate::rerun::epq::marks::own_copy_at(gx, k, mk.rti).is_some_and(|at| at <= j)
+                || deduped_copy(gx, k, mk.rti))
+    };
     // D1933 (a): or the REFERENCE-marked relation pipeline `k` scans itself as the outer (a heap range or index scan): the
     // recheck refetches its row at the junk ctid (marks.rs `own_pos`: the scan site's marked-row position), the version
     // this statement joined, as EvalPlanQualFetchRowMark does
     // G5: or a bitmap heap scan (marks.rs `own_pos` takes any `scan_of` source)
     let own_ref = |mk: &RowMark| {
-        mk.mark == RowMarkType::ROW_MARK_REFERENCE && !mk.parent && matches!(&p.source, Source::Range { am: Am::Heap, scanrelid, relid, .. } | Source::Bitmap { am: Am::Heap, scanrelid, relid, .. } | Source::Index { am: Am::Heap, scanrelid, relid, only: false, .. } if u32::from(*scanrelid) == mk.rti && *relid == mk.relid)
+        mk.mark == RowMarkType::ROW_MARK_REFERENCE
+            && !mk.parent
+            && matches!(&p.source, Source::Range { am: Am::Heap, scanrelid, relid, .. } | Source::Bitmap { am: Am::Heap, scanrelid, relid, .. } | Source::Index { am: Am::Heap, scanrelid, relid, only: false, .. } if u32::from(*scanrelid) == mk.rti && *relid == mk.relid)
     };
     // G1: or one an earlier INNER nest's inner scans (`before`): its row is stored at that inner's RowOf site
     // D3739: or a later one's (`ref_after`)
@@ -563,20 +927,51 @@ pub(crate) fn dml_form(gx: &Gx<'_, '_>, k: usize, w: &WriteDesc<'_>) -> Option<u
     // G4: or one another pipeline's heap scan produces for such a probe's build (marks.rs `sites_in`: the
     // producer reruns over the row refetched at the junk ctid, D1249's rerun set)
     // D3826 (2): or such a probe in the target's inner (`probed_inner`)
-    let probe = probed_inner || pre().enumerate().any(|(i, o)| before(i, o) && probes(o) || after(i, o));
+    let probe = probed_inner
+        || pre()
+            .enumerate()
+            .any(|(i, o)| before(i, o) && probes(o) || after(i, o));
     let built_ref = |mk: &RowMark| {
-        probe && mk.mark == RowMarkType::ROW_MARK_REFERENCE && !mk.parent && mk.ctid_col > 0 && (0..gx.pipelines().len()).any(|q| q != k && heap_of(&gx.pipelines()[q].source) == Some((mk.rti, mk.relid)) && gx.pipelines()[q].desc.produces().is_some())
+        probe
+            && mk.mark == RowMarkType::ROW_MARK_REFERENCE
+            && !mk.parent
+            && mk.ctid_col > 0
+            && (0..gx.pipelines().len()).any(|q| {
+                q != k
+                    && heap_of(&gx.pipelines()[q].source) == Some((mk.rti, mk.relid))
+                    && gx.pipelines()[q].desc.produces().is_some()
+            })
     };
     // producerchain B: or one the keyed group that de-duplicates a semi join's inner scans itself (nest_ref.rs)
     // D3508: or the settled union's own COPY mark (`union_outer`)
-    let copied = |mk: &RowMark| mk.mark == RowMarkType::ROW_MARK_COPY && crate::rerun::epq::marks::nest_copy(gx, k, mk).is_some_and(|ik| pre().enumerate().any(|(i, o)| (before(i, o) && copy_scan(o) || copy_after(i, o)) && gx.pipelines().inner_of(k, i) == Some(ik)));
+    let copied = |mk: &RowMark| {
+        mk.mark == RowMarkType::ROW_MARK_COPY
+            && crate::rerun::epq::marks::nest_copy(gx, k, mk).is_some_and(|ik| {
+                pre().enumerate().any(|(i, o)| {
+                    (before(i, o) && copy_scan(o) || copy_after(i, o))
+                        && gx.pipelines().inner_of(k, i) == Some(ik)
+                })
+            })
+    };
     // D3795: or, under `held_inner`, a held nest's join side's (rowop_epq.rs `nest_inner` counts them)
-    let held_mark = || (0..j).any(& held);
-    let one = |mk: &RowMark| stored(mk) || own_ref(mk) || inner_ref(mk) || built_ref(mk) || copied(mk) || crate::ops::modifytable::nest_ref::deduped_ref(gx, k, mk) || crate::ops::modifytable::nest_ref::deduped_copy_build(gx, k, mk) || union && union_mark(gx, mk) || held_mark();
-    if !w.mark_descs.iter().filter(|mk| !target(mk.rti)).all(& one) {
+    let held_mark = || (0..j).any(&held);
+    let one = |mk: &RowMark| {
+        stored(mk)
+            || own_ref(mk)
+            || inner_ref(mk)
+            || built_ref(mk)
+            || copied(mk)
+            || crate::ops::modifytable::nest_ref::deduped_ref(gx, k, mk)
+            || crate::ops::modifytable::nest_ref::deduped_copy_build(gx, k, mk)
+            || union && union_mark(gx, mk)
+            || held_mark()
+    };
+    if !w.mark_descs.iter().filter(|mk| !target(mk.rti)).all(&one) {
         return None;
     }
-    if !matches!(p.source, Source::Const) && !w.mark_descs.iter().any(|mk| !target(mk.rti) && one(mk)) {
+    if !matches!(p.source, Source::Const)
+        && !w.mark_descs.iter().any(|mk| !target(mk.rti) && one(mk))
+    {
         return None;
     }
     Some(ik)
@@ -605,8 +1000,16 @@ fn union_mark(gx: &Gx<'_, '_>, mk: &RowMark) -> bool {
 /// G7: the pipeline filling the Material spool a nest's `inner` reads (a breaker source under filters and
 /// projections): `material_fill`'s one heap range or index scan into the Material.
 fn spool_fill(gx: &Gx<'_, '_>, k: usize, inner: &PipelineNode<'_>) -> Option<usize> {
-    let Source::Breaker { slot } = inner.source else { return None };
-    inner.ops.iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_))).then(|| material_fill(gx, k, slot)).flatten().map(|(q, _)| q)
+    let Source::Breaker { slot } = inner.source else {
+        return None;
+    };
+    inner
+        .ops
+        .iter()
+        .all(|o| matches!(o, Op::Filter(_) | Op::Project(_)))
+        .then(|| material_fill(gx, k, slot))
+        .flatten()
+        .map(|(q, _)| q)
 }
 
 /// G6: a LEFT or ANTI hash probe before the target's nest (`UPDATE t ... FROM a LEFT JOIN b ..`:
@@ -615,15 +1018,48 @@ fn spool_fill(gx: &Gx<'_, '_>, k: usize, inner: &PipelineNode<'_>) -> Option<usi
 /// anti-joined) and reruns the join over them: the build holds b's refetched row or none, so the probe hands on the one
 /// row it handed on before, as PostgreSQL's recheck plan does over EvalPlanQualFetchRowMark's rows.
 fn left_probe(o: &Op<'_>) -> bool {
-    matches!(o, Op::Join(JoinDesc::Probe { jointype: JoinType::JOIN_LEFT | JoinType::JOIN_ANTI, .. }))
+    matches!(
+        o,
+        Op::Join(JoinDesc::Probe {
+            jointype: JoinType::JOIN_LEFT | JoinType::JOIN_ANTI,
+            ..
+        })
+    )
 }
 
 /// G1: whether `s` is the write's target's own heap range / index / TID / bitmap scan (`dml_form`'s inner forms).
 fn target_scan(s: &Source<'_>, w: &WriteDesc<'_>) -> bool {
     match s {
-        Source::Range { am: Am::Heap, scanrelid, relid, .. } | Source::Index { am: Am::Heap, scanrelid, relid, only: false, .. } => u32::from(*scanrelid) == w.rti && *relid == w.plan.target_rel,
-        Source::Tid { am: Am::Heap, scanrelid, relid, form, .. } => form.name() != "current" && u32::from(*scanrelid) == w.rti && *relid == w.plan.target_rel,
-        Source::Bitmap { am: Am::Heap, scanrelid, relid, .. } => u32::from(*scanrelid) == w.rti && *relid == w.plan.target_rel,
+        Source::Range {
+            am: Am::Heap,
+            scanrelid,
+            relid,
+            ..
+        }
+        | Source::Index {
+            am: Am::Heap,
+            scanrelid,
+            relid,
+            only: false,
+            ..
+        } => u32::from(*scanrelid) == w.rti && *relid == w.plan.target_rel,
+        Source::Tid {
+            am: Am::Heap,
+            scanrelid,
+            relid,
+            form,
+            ..
+        } => {
+            form.name() != "current"
+                && u32::from(*scanrelid) == w.rti
+                && *relid == w.plan.target_rel
+        }
+        Source::Bitmap {
+            am: Am::Heap,
+            scanrelid,
+            relid,
+            ..
+        } => u32::from(*scanrelid) == w.rti && *relid == w.plan.target_rel,
         _ => false,
     }
 }
@@ -631,7 +1067,25 @@ fn target_scan(s: &Source<'_>, w: &WriteDesc<'_>) -> bool {
 /// G1: a heap range, index (not index-only) or bitmap scan source's (scanrelid, relid).
 fn heap_of(s: &Source<'_>) -> Option<(u32, u32)> {
     match s {
-        Source::Range { am: Am::Heap, scanrelid, relid, .. } | Source::Bitmap { am: Am::Heap, scanrelid, relid, .. } | Source::Index { am: Am::Heap, scanrelid, relid, only: false, .. } => Some((u32::from(*scanrelid), *relid)),
+        Source::Range {
+            am: Am::Heap,
+            scanrelid,
+            relid,
+            ..
+        }
+        | Source::Bitmap {
+            am: Am::Heap,
+            scanrelid,
+            relid,
+            ..
+        }
+        | Source::Index {
+            am: Am::Heap,
+            scanrelid,
+            relid,
+            only: false,
+            ..
+        } => Some((u32::from(*scanrelid), *relid)),
         _ => None,
     }
 }
@@ -640,7 +1094,13 @@ fn heap_of(s: &Source<'_>) -> Option<(u32, u32)> {
 /// rows positioned at their inners' RowOf sites: write/rowop.rs passes marks.rs `sites_in` its inners flag by it).
 pub(crate) fn dml_chain(gx: &Gx<'_, '_>, k: usize, w: &WriteDesc<'_>) -> bool {
     let p = &gx.pipelines()[k];
-    dml_form(gx, k, w).is_some() && p.ops.iter().take_while(|o| !matches!(o, Op::Write(_))).filter(|o| matches!(o, Op::Join(JoinDesc::Nest { .. }))).count() > 1
+    dml_form(gx, k, w).is_some()
+        && p.ops
+            .iter()
+            .take_while(|o| !matches!(o, Op::Write(_)))
+            .filter(|o| matches!(o, Op::Join(JoinDesc::Nest { .. })))
+            .count()
+            > 1
 }
 
 /// D3605 (Rails' delete_all / update_all over a two-level association: `DELETE FROM comments WHERE comments.id IN
@@ -653,10 +1113,22 @@ pub(crate) fn dml_chain(gx: &Gx<'_, '_>, k: usize, w: &WriteDesc<'_>) -> bool {
 pub(crate) fn producer_inners(gx: &Gx<'_, '_>, k: usize, w: &WriteDesc<'_>) -> bool {
     let ps = gx.pipelines();
     let p = &ps[k];
-    let own = p.ops.iter().take_while(|o| !matches!(o, Op::Write(_))).any(|o| matches!(o, Op::Join(JoinDesc::Nest { .. })));
+    let own = p
+        .ops
+        .iter()
+        .take_while(|o| !matches!(o, Op::Write(_)))
+        .any(|o| matches!(o, Op::Join(JoinDesc::Nest { .. })));
     let producer = |ik: usize| ik >= ps.len() && ps.inners()[ik - ps.len()].0 .0 != k;
-    let inner = |m: &RowMark| m.mark == RowMarkType::ROW_MARK_REFERENCE && !m.parent && m.rti != w.rti && crate::rerun::epq::marks::nest_scan(gx, k, m).is_some_and(producer);
-    matches!(w.cmd, Cmd::Update | Cmd::Delete) && w.targets.len() == 1 && !own && w.mark_descs.iter().any(inner)
+    let inner = |m: &RowMark| {
+        m.mark == RowMarkType::ROW_MARK_REFERENCE
+            && !m.parent
+            && m.rti != w.rti
+            && crate::rerun::epq::marks::nest_scan(gx, k, m).is_some_and(producer)
+    };
+    matches!(w.cmd, Cmd::Update | Cmd::Delete)
+        && w.targets.len() == 1
+        && !own
+        && w.mark_descs.iter().any(inner)
 }
 
 /// IN-LIMIT (`x IN (SELECT .. LIMIT n)`, PostgreSQL's semi join unique-ified as the nest's outer): pipeline `k` reads
@@ -676,14 +1148,38 @@ fn deduped_copy(gx: &Gx<'_, '_>, k: usize, rti: u32) -> bool {
 /// one first-of-run before `k`'s write de-duplicates: the recheck's rerun sorts the stored row alone, one run.
 fn dedup_copy(gx: &Gx<'_, '_>, k: usize, rti: u32) -> Option<bool> {
     let ps = gx.pipelines();
-    let Source::Breaker { slot } = ps[k].source else { return None };
-    let q = (0..k).rev().find(|&q| ps[q].desc.produces() == Some(slot))?;
+    let Source::Breaker { slot } = ps[k].source else {
+        return None;
+    };
+    let q = (0..k)
+        .rev()
+        .find(|&q| ps[q].desc.produces() == Some(slot))?;
     let at = crate::rerun::epq::marks::own_copy_at(gx, q, rti)?;
-    let keyed = gx.graph.groups.iter().any(|g| g.producer == gravity_program::LifeId(q as u16) && g.slot == slot && !g.keys.is_empty() && g.set.is_none() && g.two_pass.is_none());
-    let runs = ps[k].ops.iter().take_while(|o| !matches!(o, Op::Write(_))).filter(|o| matches!(o, Op::FirstOfRun(_))).count();
+    let keyed = gx.graph.groups.iter().any(|g| {
+        g.producer == gravity_program::LifeId(q as u16)
+            && g.slot == slot
+            && !g.keys.is_empty()
+            && g.set.is_none()
+            && g.two_pass.is_none()
+    });
+    let runs = ps[k]
+        .ops
+        .iter()
+        .take_while(|o| !matches!(o, Op::Write(_)))
+        .filter(|o| matches!(o, Op::FirstOfRun(_)))
+        .count();
     let sorted = !keyed && runs == 1 && matches!(ps[q].ops.last(), Some(Op::Sort(_)));
-    let body = if sorted { &ps[q].ops[..ps[q].ops.len() - 1] } else { &ps[q].ops[..] };
-    ((keyed || sorted) && body.iter().skip(at).all(|o| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_)))).then_some(sorted)
+    let body = if sorted {
+        &ps[q].ops[..ps[q].ops.len() - 1]
+    } else {
+        &ps[q].ops[..]
+    };
+    ((keyed || sorted)
+        && body
+            .iter()
+            .skip(at)
+            .all(|o| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_))))
+    .then_some(sorted)
 }
 
 /// D2028: the recheck node runs an InitPlan again (a producer rerun, or its on-demand cell) where PostgreSQL's
@@ -708,16 +1204,36 @@ pub(crate) fn rerun_init<'p>(gx: &Gx<'_, 'p>, ir: bool, pre: &[Op<'p>], ik: usiz
 
 /// `rerun_init`, but for the InitPlans `armed` (indexes in the graph's `init_plans`, D3838: a data-modifying CTE's
 /// write's, which its first recheck runs again as EvalPlanQualStart's fresh ModifyTable does) none departs.
-pub(crate) fn rerun_init_armed<'p>(gx: &Gx<'_, 'p>, ir: bool, pre: &[Op<'p>], ik: usize, armed: &[usize]) -> bool {
+pub(crate) fn rerun_init_armed<'p>(
+    gx: &Gx<'_, 'p>,
+    ir: bool,
+    pre: &[Op<'p>],
+    ik: usize,
+    armed: &[usize],
+) -> bool {
     let ip = &gx.pipelines()[ik];
     let path: [&[Op<'p>]; 2] = [pre, &ip.ops[..]];
-    let under = |i: &gravity_decompose::InitPlan<'_>| reads(&path, &ip.source, |x| x == i.param || i.params.iter().any(|y| y == x));
-    let made = |i: &gravity_decompose::InitPlan<'_>| forced(gx, &path, &ip.source, |x| x == i.param || i.params.iter().any(|y| y == x));
+    let under = |i: &gravity_decompose::InitPlan<'_>| {
+        reads(&path, &ip.source, |x| {
+            x == i.param || i.params.iter().any(|y| y == x)
+        })
+    };
+    let made = |i: &gravity_decompose::InitPlan<'_>| {
+        forced(gx, &path, &ip.source, |x| {
+            x == i.param || i.params.iter().any(|y| y == x)
+        })
+    };
     let rerun = |i: &gravity_decompose::InitPlan<'_>| {
         gx.pipelines().get(i.pipeline as usize).is_none()
-            || ir && licence(Effects::of_init_plan(i), Departure::More).map_or(true, |l| l.recheck() && under(i) && !made(i))
+            || ir
+                && licence(Effects::of_init_plan(i), Departure::More)
+                    .map_or(true, |l| l.recheck() && under(i) && !made(i))
     };
-    gx.graph.init_plans.iter().enumerate().any(|(x, i)| !matches!(i.link, SubLink::Cte) && !armed.contains(&x) && rerun(i))
+    gx.graph
+        .init_plans
+        .iter()
+        .enumerate()
+        .any(|(x, i)| !matches!(i.link, SubLink::Cte) && !armed.contains(&x) && rerun(i))
 }
 
 /// mergecmd insert-only nest: an insert-only MERGE (merge/nm.rs `insert_only`) that inserts, into one unrouted heap
@@ -726,9 +1242,16 @@ pub(crate) fn rerun_init_armed<'p>(gx: &Gx<'_, 'p>, ir: bool, pre: &[Op<'p>], ik
 /// any count of result relations the planner kept for the join: ExecMergeMatched returns before any lock when no
 /// MATCHED action exists, so no leaf's row is ever located or rechecked either.
 pub(crate) fn positionless(w: &WriteDesc<'_>, m: &MergeDesc<'_>) -> bool {
-    let inserts = m.actions.iter().any(|a| a.kind == MergeMatchKind::MERGE_WHEN_NOT_MATCHED_BY_TARGET && a.cmd.is_some());
+    let inserts = m
+        .actions
+        .iter()
+        .any(|a| a.kind == MergeMatchKind::MERGE_WHEN_NOT_MATCHED_BY_TARGET && a.cmd.is_some());
     let target = w.targets.len() == 1 && w.route.is_none() || routed_insert(w);
-    crate::ops::modifytable::merge::nm::insert_only(m) && inserts && target && !w.members.has(Member::TargetView) && w.targets[0].junk_col > 0
+    crate::ops::modifytable::merge::nm::insert_only(m)
+        && inserts
+        && target
+        && !w.members.has(Member::TargetView)
+        && w.targets[0].junk_col > 0
 }
 
 /// D3367: pipeline `k`'s rows come through a LEFT nest whose inner is the planner's dummy relation (a MERGE whose join
@@ -736,16 +1259,40 @@ pub(crate) fn positionless(w: &WriteDesc<'_>, m: &MergeDesc<'_>) -> bool {
 /// never comes, so every row is null-extended, NOT MATCHED: no MATCHED action runs, no row is located or rechecked, and
 /// the target's junk ctid (NULL in every row) tells the NOT MATCHED rows as an insert-only MERGE's does.
 pub(crate) fn dummy_side(gx: &Gx<'_, '_>, k: usize) -> bool {
-    let left = |o: &Op<'_>| matches!(o, Op::Join(JoinDesc::Nest { jointype: JoinType::JOIN_LEFT, .. }));
+    let left = |o: &Op<'_>| {
+        matches!(
+            o,
+            Op::Join(JoinDesc::Nest {
+                jointype: JoinType::JOIN_LEFT,
+                ..
+            })
+        )
+    };
     let ops = &gx.pipelines()[k].ops;
-    ops.iter().take_while(|o| !matches!(o, Op::Write(_))).enumerate().any(|(j, o)| left(o) && gx.pipelines().inner_of(k, j).is_some_and(|ik| crate::ops::shared::dummy::dummy(gx, ik, usize::MAX)))
+    ops.iter()
+        .take_while(|o| !matches!(o, Op::Write(_)))
+        .enumerate()
+        .any(|(j, o)| {
+            left(o)
+                && gx
+                    .pipelines()
+                    .inner_of(k, j)
+                    .is_some_and(|ik| crate::ops::shared::dummy::dummy(gx, ik, usize::MAX))
+        })
 }
 
 /// G2(c): V4R-498's form, an insert-only MERGE routed through a partitioned root (member Route alone: never an
 /// inheritance root's, merge/route.rs INHERIT-ROOT, nor a key-updating one), every result relation the root's leaf.
 fn routed_insert(w: &WriteDesc<'_>) -> bool {
-    let partitioned = w.members.has(Member::Route) && !w.members.has(Member::Targets) && !w.members.has(Member::CrossPartition);
-    partitioned && crate::ops::modifytable::merge::nm::routed(w).is_some() && w.targets.iter().all(|t| t.kind == gravity_decompose::ops::shared::modifytable::TargetKind::Heap && t.junk_col == w.targets[0].junk_col)
+    let partitioned = w.members.has(Member::Route)
+        && !w.members.has(Member::Targets)
+        && !w.members.has(Member::CrossPartition);
+    partitioned
+        && crate::ops::modifytable::merge::nm::routed(w).is_some()
+        && w.targets.iter().all(|t| {
+            t.kind == gravity_decompose::ops::shared::modifytable::TargetKind::Heap
+                && t.junk_col == w.targets[0].junk_col
+        })
 }
 
 /// D2046: a call under no collation (sort::indeterminate, D1292's test: its input collation InvalidOid over an argument
@@ -760,8 +1307,16 @@ fn routed_insert(w: &WriteDesc<'_>) -> bool {
 /// qual, and an Append feed, arm or union with no pruning evaluates nothing (its arms' rows are walked in their own
 /// pipelines; mergecmd insert-only nest: an ON false target's dummy Result, a UNION ALL source), nor does a DISTINCT ON
 /// first-of-run (its keys D1292's at the decode).
-pub(crate) fn loose(gx: &Gx<'_, '_>, k: usize, ik: usize, w: &WriteDesc<'_>, m: Option<&MergeDesc<'_>>) -> bool {
-    let bad = |c: u32, a: Node<'_>| c == 0 && type_of(a).map_or_else(|| collation_of(a) != 0, |t| indeterminate(gx.facts, t, 0));
+pub(crate) fn loose(
+    gx: &Gx<'_, '_>,
+    k: usize,
+    ik: usize,
+    w: &WriteDesc<'_>,
+    m: Option<&MergeDesc<'_>>,
+) -> bool {
+    let bad = |c: u32, a: Node<'_>| {
+        c == 0 && type_of(a).map_or_else(|| collation_of(a) != 0, |t| indeterminate(gx.facts, t, 0))
+    };
     let any = |c: u32, l: &NodeList<'_>| l.iter().any(|a| bad(c, a));
     let one = |n: Node<'_>| {
         let mut hit = false;
@@ -770,14 +1325,31 @@ pub(crate) fn loose(gx: &Gx<'_, '_>, k: usize, ik: usize, w: &WriteDesc<'_>, m: 
         let known = crate::ops::modifytable::ret_cols::walk(n, &mut |x| {
             hit |= match x.node_tag() {
                 NodeTag::T_OpExpr => x.as_op_expr().is_some_and(|o| any(o.inputcollid, &o.args)),
-                NodeTag::T_DistinctExpr => x.as_distinct_expr().is_some_and(|o| any(o.inputcollid, &o.args)),
-                NodeTag::T_NullIfExpr => x.as_null_if_expr().is_some_and(|o| any(o.inputcollid, &o.args)),
-                NodeTag::T_FuncExpr => x.as_func_expr().is_some_and(|f| any(f.inputcollid, &f.args)),
-                NodeTag::T_ScalarArrayOpExpr => x.as_scalar_array_op_expr().is_some_and(|s| any(s.inputcollid, &s.args)),
-                NodeTag::T_MinMaxExpr => x.as_min_max_expr().is_some_and(|s| any(s.inputcollid, &s.args)),
+                NodeTag::T_DistinctExpr => x
+                    .as_distinct_expr()
+                    .is_some_and(|o| any(o.inputcollid, &o.args)),
+                NodeTag::T_NullIfExpr => x
+                    .as_null_if_expr()
+                    .is_some_and(|o| any(o.inputcollid, &o.args)),
+                NodeTag::T_FuncExpr => x
+                    .as_func_expr()
+                    .is_some_and(|f| any(f.inputcollid, &f.args)),
+                NodeTag::T_ScalarArrayOpExpr => x
+                    .as_scalar_array_op_expr()
+                    .is_some_and(|s| any(s.inputcollid, &s.args)),
+                NodeTag::T_MinMaxExpr => x
+                    .as_min_max_expr()
+                    .is_some_and(|s| any(s.inputcollid, &s.args)),
                 NodeTag::T_Aggref => x.as_aggref().is_some_and(|a| any(a.inputcollid, &a.args)),
-                NodeTag::T_WindowFunc => x.as_window_func().is_some_and(|f| any(f.inputcollid, &f.args)),
-                NodeTag::T_RowCompareExpr => x.as_row_compare_expr().is_some_and(|r| r.inputcollids.iter().zip(r.largs.iter().zip(r.rargs.iter())).any(|(c, (a, b))| bad(c, a) || bad(c, b))),
+                NodeTag::T_WindowFunc => x
+                    .as_window_func()
+                    .is_some_and(|f| any(f.inputcollid, &f.args)),
+                NodeTag::T_RowCompareExpr => x.as_row_compare_expr().is_some_and(|r| {
+                    r.inputcollids
+                        .iter()
+                        .zip(r.largs.iter().zip(r.rargs.iter()))
+                        .any(|(c, (a, b))| bad(c, a) || bad(c, b))
+                }),
                 _ => false,
             };
             !hit
@@ -794,7 +1366,9 @@ pub(crate) fn loose(gx: &Gx<'_, '_>, k: usize, ik: usize, w: &WriteDesc<'_>, m: 
         // (exec ops/append/prune.rs over ExecDoInitialPruning / the exec steps), never a served kernel's comparison; a
         // MergeAppend's keys (RunsMergeappend) stay strict
         _ if crate::graph::step_kind(o) == crate::face::kinds::KindId::SrcAppend => false,
-        Op::Join(JoinDesc::Nest { qual, params, .. }) => list(qual) || crate::frame::iface::nest_param_vals(params, &one),
+        Op::Join(JoinDesc::Nest { qual, params, .. }) => {
+            list(qual) || crate::frame::iface::nest_param_vals(params, &one)
+        }
         Op::Join(JoinDesc::Probe { keys, qual, .. }) => list(keys) || list(qual),
         Op::Join(JoinDesc::Merge { clauses, qual, .. }) => list(clauses) || list(qual),
         Op::Join(JoinDesc::Build { keys, .. } | JoinDesc::Memo { keys, .. }) => list(keys),
@@ -814,35 +1388,83 @@ pub(crate) fn loose(gx: &Gx<'_, '_>, k: usize, ik: usize, w: &WriteDesc<'_>, m: 
         Op::Window(d) => d.functions.iter().any(|f| one(f.node)) || list(d.run_condition),
         // D1933 ACTION-SUB: a SubPlan step only a MERGE action reads (merge/admit.rs `action_sub`) evaluates its
         // test and arguments (its plan's pipelines and nested inner are walked as any other)
-        Op::SubPlan(d) if crate::ops::modifytable::merge::admit::action_sub(o, w) => d.test.is_some_and(one) || list(d.args),
+        Op::SubPlan(d) if crate::ops::modifytable::merge::admit::action_sub(o, w) => {
+            d.test.is_some_and(one) || list(d.args)
+        }
         // D3601 (7): a hashed SubPlan step (`inner_sets`) evaluates its arguments and compares through its test's
         // operators under the test's collations (ExecHashSubPlan's table: subplan tab_collations)
-        Op::SubPlan(d) if matches!(d.form, gravity_decompose::ops::shared::subplan::SubForm::Hashed { .. }) => d.test.is_some_and(one) || list(d.args),
+        Op::SubPlan(d)
+            if matches!(
+                d.form,
+                gravity_decompose::ops::shared::subplan::SubForm::Hashed { .. }
+            ) =>
+        {
+            d.test.is_some_and(one) || list(d.args)
+        }
         // D3826: a per-row SubPlan step at the row (`dml_form`'s, before the target's nest) evaluates its test and
         // arguments; its plan's pipelines and nested inner are walked as any other
-        Op::SubPlan(d) if d.site == gravity_decompose::ops::shared::subplan::SubSite::Row && matches!(d.form, gravity_decompose::ops::shared::subplan::SubForm::Nested { .. }) => d.test.is_some_and(one) || list(d.args),
+        Op::SubPlan(d)
+            if d.site == gravity_decompose::ops::shared::subplan::SubSite::Row
+                && matches!(
+                    d.form,
+                    gravity_decompose::ops::shared::subplan::SubForm::Nested { .. }
+                ) =>
+        {
+            d.test.is_some_and(one) || list(d.args)
+        }
         _ => strict,
     };
     // a LIMIT evaluates its count and offset expressions
     let op = |o: &Op<'_>, strict: bool| match crate::frame::iface::limit_bounds(o) {
-        Some((count, offset)) => [count, offset].into_iter().any(|b| matches!(b, Bound::Expr(n) if one(*n))),
+        Some((count, offset)) => [count, offset]
+            .into_iter()
+            .any(|b| matches!(b, Bound::Expr(n) if one(*n))),
         None => arm(o, strict),
     };
     let src = |s: &Source<'_>| match s {
         Source::Index { keys, recheck, .. } => keys.iter().any(|x| one(x.value)) || list(recheck),
         Source::Bitmap { recheck, .. } | Source::Tid { quals: recheck, .. } => list(recheck),
-        Source::Values { lists, .. } => lists.iter().filter_map(|l| l.as_list()).flat_map(|l| l.iter()).any(one),
+        Source::Values { lists, .. } => lists
+            .iter()
+            .filter_map(|l| l.as_list())
+            .flat_map(|l| l.iter())
+            .any(one),
         _ => false,
     };
     let pipes = gx.pipelines();
     let inners = pipes.inners();
-    let mut all = pipes.iter().enumerate().chain(inners.iter().enumerate().map(|(i, x)| (pipes.len() + i, x.1)));
-    let pre = pipes[k].ops.iter().take_while(|o| !matches!(o, Op::Write(_))).count();
-    all.any(|(q, p)| src(&p.source) || p.ops[..if q == k { pre } else { p.ops.len() }].iter().any(|o| op(o, q == k || q == ik)))
-        || gx.graph.groups.iter().chain(gx.graph.streams.iter()).flat_map(|g| g.aggs.iter()).any(|d| one(d.node))
-        || m.is_some_and(|m| m.actions.iter().any(|a| a.quals.is_some_and(list) || list(a.tlist)))
+    let mut all = pipes.iter().enumerate().chain(
+        inners
+            .iter()
+            .enumerate()
+            .map(|(i, x)| (pipes.len() + i, x.1)),
+    );
+    let pre = pipes[k]
+        .ops
+        .iter()
+        .take_while(|o| !matches!(o, Op::Write(_)))
+        .count();
+    all.any(|(q, p)| {
+        src(&p.source)
+            || p.ops[..if q == k { pre } else { p.ops.len() }]
+                .iter()
+                .any(|o| op(o, q == k || q == ik))
+    }) || gx
+        .graph
+        .groups
+        .iter()
+        .chain(gx.graph.streams.iter())
+        .flat_map(|g| g.aggs.iter())
+        .any(|d| one(d.node))
+        || m.is_some_and(|m| {
+            m.actions
+                .iter()
+                .any(|a| a.quals.is_some_and(list) || list(a.tlist))
+        })
         || w.returning.is_some_and(list)
-        || w.checks.iter().any(|c| c.qual.as_list().map_or_else(|| one(c.qual), list)) // a check's qual: an implicit-AND list
+        || w.checks
+            .iter()
+            .any(|c| c.qual.as_list().map_or_else(|| one(c.qual), list)) // a check's qual: an implicit-AND list
 }
 
 /// D2046-ID: whether every node of `n` the walk does not know is a NextValueExpr (an identity column's next value
@@ -851,7 +1473,10 @@ pub(crate) fn loose(gx: &Gx<'_, '_>, k: usize, ik: usize, w: &WriteDesc<'_>, m: 
 /// under the Aggref's own inputcollid, which `loose` reads at the Aggref; mergecmd landing 7's witness).
 pub(crate) fn seq_only(n: Node<'_>) -> bool {
     crate::stack_check();
-    if matches!(n.node_tag(), NodeTag::T_NextValueExpr | NodeTag::T_SortGroupClause) {
+    if matches!(
+        n.node_tag(),
+        NodeTag::T_NextValueExpr | NodeTag::T_SortGroupClause
+    ) {
         return true;
     }
     let mut ok = true;
@@ -865,7 +1490,9 @@ fn reads(ops: &[&[Op<'_>]], src: &Source<'_>, hit: impl Fn(i32) -> bool) -> bool
     let one = |n: Node<'_>| {
         let mut found = false;
         let known = walk(n, &mut |x| {
-            found |= x.as_param().is_some_and(|q| q.paramkind == ParamKind::PARAM_EXEC && hit(q.paramid));
+            found |= x
+                .as_param()
+                .is_some_and(|q| q.paramkind == ParamKind::PARAM_EXEC && hit(q.paramid));
             !found
         });
         found || !known
@@ -878,7 +1505,9 @@ fn reads(ops: &[&[Op<'_>]], src: &Source<'_>, hit: impl Fn(i32) -> bool) -> bool
     keys || ops.iter().flat_map(|o| o.iter()).any(|o| match o {
         Op::Filter(n) | Op::Gate(n) => one(*n),
         Op::Project(l) => list(l),
-        Op::Join(JoinDesc::Nest { qual, params, .. }) => list(qual) || crate::frame::iface::nest_param_vals(params, &one),
+        Op::Join(JoinDesc::Nest { qual, params, .. }) => {
+            list(qual) || crate::frame::iface::nest_param_vals(params, &one)
+        }
         _ => true,
     })
 }
@@ -887,21 +1516,33 @@ fn reads(ops: &[&[Op<'_>]], src: &Source<'_>, hit: impl Fn(i32) -> bool) -> bool
 /// index key of `src`, or a direct argument (through relabels) of a strict call that is a top-level conjunct of a filter
 /// or gate in `ops` or of the nest's qual (true only with every argument evaluated and not null). PostgreSQL's
 /// EvalPlanQualStart then finds the param set and copies it, and the recheck reads the same Init cell.
-fn forced<'p>(gx: &Gx<'_, '_>, ops: &[&[Op<'p>]], src: &Source<'p>, hit: impl Fn(i32) -> bool) -> bool {
+fn forced<'p>(
+    gx: &Gx<'_, '_>,
+    ops: &[&[Op<'p>]],
+    src: &Source<'p>,
+    hit: impl Fn(i32) -> bool,
+) -> bool {
     let param = |n: Node<'p>| {
         let mut n = n;
         while let Some(a) = through_relabel(n) {
             n = a;
         }
-        n.as_param().is_some_and(|q| q.paramkind == ParamKind::PARAM_EXEC && hit(q.paramid))
+        n.as_param()
+            .is_some_and(|q| q.paramkind == ParamKind::PARAM_EXEC && hit(q.paramid))
     };
     fn conjunct<'p>(gx: &Gx<'_, '_>, n: Node<'p>, param: &dyn Fn(Node<'p>) -> bool) -> bool {
         crate::stack_check();
         if let Some(b) = n.as_bool_expr() {
-            return b.boolop == BoolExprType::AND_EXPR && b.args.iter().any(|a| conjunct(gx, a, param));
+            return b.boolop == BoolExprType::AND_EXPR
+                && b.args.iter().any(|a| conjunct(gx, a, param));
         }
-        let call = n.as_op_expr().map(|o| (o.opfuncid, &o.args)).or_else(|| n.as_func_expr().map(|f| (f.funcid, &f.args)));
-        call.is_some_and(|(f, args)| gx.facts.func(f).is_some_and(|p| p.strict) && args.iter().any( param))
+        let call = n
+            .as_op_expr()
+            .map(|o| (o.opfuncid, &o.args))
+            .or_else(|| n.as_func_expr().map(|f| (f.funcid, &f.args)));
+        call.is_some_and(|(f, args)| {
+            gx.facts.func(f).is_some_and(|p| p.strict) && args.iter().any(param)
+        })
     }
     let keys = matches!(src, Source::Index { keys, .. } if keys.iter().any(|k| param(k.value)));
     keys || ops.iter().flat_map(|o| o.iter()).any(|o| match o {

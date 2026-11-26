@@ -38,7 +38,13 @@ unsafe extern "C" fn next(s: *mut Site) -> i64 {
     }
     src.left -= 1;
     src.served += 1;
-    let mut l = Lane::byval(src.codes.as_ptr() as *const u8, core::ptr::null(), 4, lane::REGION_ARENA, 0);
+    let mut l = Lane::byval(
+        src.codes.as_ptr() as *const u8,
+        core::ptr::null(),
+        4,
+        lane::REGION_ARENA,
+        0,
+    );
     l.ncodes_or_scale = src.ncodes;
     *st.lanes = l;
     (st.rows, st.nlanes, st.part_id) = (src.codes.len() as u32, 1, 3);
@@ -50,7 +56,9 @@ unsafe extern "C" fn next(s: *mut Site) -> i64 {
 
 /// The test's `Program.pin`: a zeroed region of its own (the statement bit dropped), leaked: kept to the process's end.
 unsafe extern "C" fn test_pin(_ctx: *mut Ctx, bytes: u64) -> *mut u8 {
-    vec![0u64; ((bytes & !PIN_STATEMENT) as usize).div_ceil(8)].leak().as_mut_ptr() as *mut u8
+    vec![0u64; ((bytes & !PIN_STATEMENT) as usize).div_ceil(8)]
+        .leak()
+        .as_mut_ptr() as *mut u8
 }
 
 /// Each `(first granule, code, rows)` counted in turn through one memo word; the windows served after each.
@@ -61,11 +69,23 @@ fn counts(codes: &'static [u32; 10], sel: bool, ncodes: u32, asks: &[(u64, u32, 
 /// `counts` behind D3027 (B)'s count pass: a non-empty `dir` (`[n, (first granule, slots, table) x n]`) first takes every
 /// window of the part (part 3 of the list) through `heads_tally`, and each entry's `heads_count` reads it; the windows
 /// served after each count, the pass's first.
-fn counts_after_pass(codes: &'static [u32; 10], sel: bool, ncodes: u32, dir: &mut [u64], asks: &[(u64, u32, i64)]) -> Vec<u32> {
+fn counts_after_pass(
+    codes: &'static [u32; 10],
+    sel: bool,
+    ncodes: u32,
+    dir: &mut [u64],
+    asks: &[(u64, u32, i64)],
+) -> Vec<u32> {
     let mut buf = vec![0u64; ctx_size(1) / 8];
     let mut program = Box::new(ProgramBlock::NONE);
     program.pin = Some(test_pin);
-    let mut src = Src { codes, sel, ncodes, left: 0, served: 0 };
+    let mut src = Src {
+        codes,
+        sel,
+        ncodes,
+        left: 0,
+        served: 0,
+    };
     let (mut lanes, mut keys, mut keys_null) = ([Lane::NONE; 1], [0u64; 2], [0u8; 2]);
     let mut memo = 0u64;
     let mut served = Vec::new();
@@ -83,7 +103,11 @@ fn counts_after_pass(codes: &'static [u32; 10], sel: bool, ncodes: u32, dir: &mu
         (*s).keys = keys.as_mut_ptr();
         (*s).keys_null = keys_null.as_mut_ptr();
         (*s).nkeys = 2;
-        let d = if dir.is_empty() { 0 } else { dir.as_mut_ptr() as u64 };
+        let d = if dir.is_empty() {
+            0
+        } else {
+            dir.as_mut_ptr() as u64
+        };
         if d != 0 {
             (*s).state = STATE_CLOSED;
             while next(s) > 0 {
@@ -93,8 +117,17 @@ fn counts_after_pass(codes: &'static [u32; 10], sel: bool, ncodes: u32, dir: &mu
             served.push((*(*s).src.cast::<Src>()).served);
         }
         for &(start, code, rows) in asks {
-            let c = heads_count(ctx as u64, 0, 1 << 63 | start << 32 | code as u64, &mut memo as *mut u64 as u64, d);
-            assert_eq!(c, rows, "part {start} code {code} (sel {sel}, ncodes {ncodes})");
+            let c = heads_count(
+                ctx as u64,
+                0,
+                1 << 63 | start << 32 | code as u64,
+                &mut memo as *mut u64 as u64,
+                d,
+            );
+            assert_eq!(
+                c, rows,
+                "part {start} code {code} (sel {sel}, ncodes {ncodes})"
+            );
             served.push((*(*s).src.cast::<Src>()).served);
         }
     }
@@ -104,14 +137,41 @@ fn counts_after_pass(codes: &'static [u32; 10], sel: bool, ncodes: u32, dir: &mu
 /// Two parts in turn (first granules 5 and 6, the same rows): the second reuses the first's side tables, zeroed again.
 #[test]
 fn a_skewed_part_counts_into_side_tables() {
-    let asks = [(5, 7, 16), (5, 9, 2), (5, 2, 2), (5, 7, 16), (5, 5, 0), (6, 9, 2), (6, 7, 16), (6, 2, 2), (5, 9, 2)];
-    assert_eq!(counts(&SKEWED, false, 10, &asks), [2, 4, 4, 4, 4, 6, 8, 8, 8]);
+    let asks = [
+        (5, 7, 16),
+        (5, 9, 2),
+        (5, 2, 2),
+        (5, 7, 16),
+        (5, 5, 0),
+        (6, 9, 2),
+        (6, 7, 16),
+        (6, 2, 2),
+        (5, 9, 2),
+    ];
+    assert_eq!(
+        counts(&SKEWED, false, 10, &asks),
+        [2, 4, 4, 4, 4, 6, 8, 8, 8]
+    );
 }
 
 #[test]
 fn a_spread_part_counts_into_its_table() {
-    let asks = [(5, 7, 6), (5, 9, 2), (5, 2, 2), (5, 0, 2), (5, 5, 2), (5, 3, 2), (5, 1, 2), (5, 4, 2), (5, 6, 0), (5, 8, 0)];
-    assert_eq!(counts(&SPREAD, false, 10, &asks), [2, 4, 4, 4, 4, 4, 4, 4, 4, 4]);
+    let asks = [
+        (5, 7, 6),
+        (5, 9, 2),
+        (5, 2, 2),
+        (5, 0, 2),
+        (5, 5, 2),
+        (5, 3, 2),
+        (5, 1, 2),
+        (5, 4, 2),
+        (5, 6, 0),
+        (5, 8, 0),
+    ];
+    assert_eq!(
+        counts(&SPREAD, false, 10, &asks),
+        [2, 4, 4, 4, 4, 4, 4, 4, 4, 4]
+    );
 }
 
 #[test]
@@ -133,10 +193,26 @@ fn a_code_past_the_lane_count_keeps_the_part_on_single_passes() {
 /// (`slots` 0, first granule 2) or gave no table (`usize::MAX`, first granule 4) counts by its own pass.
 #[test]
 fn a_part_the_count_pass_tallied_reads_its_directory() {
-    for (codes, sel, own) in [(&SKEWED, false, 16), (&SPREAD, false, 6), (&SKEWED, true, 4)] {
+    for (codes, sel, own) in [
+        (&SKEWED, false, 16),
+        (&SPREAD, false, 6),
+        (&SKEWED, true, 4),
+    ] {
         let mut dir = [4, 1, 0, 0, 2, 0, 0, 4, u64::MAX, 0, 5, 0, 0];
-        let asks = [(5, 7, own), (5, 9, 2), (5, 2, if sel { 0 } else { 2 }), (5, NULL_CODE, 0), (5, 8, 0), (2, 7, own), (4, 7, own)];
-        assert_eq!(counts_after_pass(codes, sel, 10, &mut dir, &asks), [2, 2, 2, 2, 2, 2, 4, 6], "sel {sel}");
+        let asks = [
+            (5, 7, own),
+            (5, 9, 2),
+            (5, 2, if sel { 0 } else { 2 }),
+            (5, NULL_CODE, 0),
+            (5, 8, 0),
+            (2, 7, own),
+            (4, 7, own),
+        ];
+        assert_eq!(
+            counts_after_pass(codes, sel, 10, &mut dir, &asks),
+            [2, 2, 2, 2, 2, 2, 4, 6],
+            "sel {sel}"
+        );
         assert_eq!(dir[11], 11, "part 3's table: ten codes and the NULL slot");
     }
 }
@@ -146,6 +222,9 @@ fn a_part_the_count_pass_tallied_reads_its_directory() {
 fn a_code_past_the_lane_count_leaves_the_pass_no_table() {
     let mut dir = [4, 1, 0, 0, 2, 0, 0, 4, 0, 0, 5, 0, 0];
     let asks = [(5, 7, 16), (5, 9, 2)];
-    assert_eq!(counts_after_pass(&SKEWED, false, 6, &mut dir, &asks), [2, 4, 7]);
+    assert_eq!(
+        counts_after_pass(&SKEWED, false, 6, &mut dir, &asks),
+        [2, 4, 7]
+    );
     assert_eq!(dir[11], u64::MAX, "NO_TABLE");
 }

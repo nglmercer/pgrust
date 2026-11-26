@@ -13,4 +13,7 @@ crate::strategies! {
     HEAP_STREAM = 57, "heap.stream", Heap;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(HEAP_STREAM, &())], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(HEAP_STREAM, &())],
+    ..crate::ops::NONE
+};

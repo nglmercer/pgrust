@@ -307,7 +307,10 @@ pub fn CheckpointerMain(startup_data: &StartupData) -> ! {
 
     {
         use procsignal::ThreadSignalHandler::{Ignore, Simple};
-        procsignal::pqsignal_thread(procsignal::signums::SIGHUP, Simple(interrupt::SignalHandlerForConfigReload));
+        procsignal::pqsignal_thread(
+            procsignal::signums::SIGHUP,
+            Simple(interrupt::SignalHandlerForConfigReload),
+        );
         procsignal::pqsignal_thread(procsignal::signums::SIGINT, Simple(ReqShutdownXLOG));
         procsignal::pqsignal_thread(procsignal::signums::SIGTERM, Ignore);
         procsignal::pqsignal_thread(procsignal::signums::SIGALRM, Ignore);
@@ -517,7 +520,11 @@ fn checkpointer_main_loop() -> PgResult<()> {
                 && flags & CHECKPOINT_CAUSE_XLOG != 0
                 && elapsed_secs < CHECK_POINT_WARNING.get() as i64
             {
-                let plural = if elapsed_secs == 1 { "second" } else { "seconds" };
+                let plural = if elapsed_secs == 1 {
+                    "second"
+                } else {
+                    "seconds"
+                };
                 ereport(LOG)
                     .errmsg(format!(
                         "checkpoints are occurring too frequently ({elapsed_secs} {plural} apart)"
@@ -729,9 +736,9 @@ fn IsCheckpointOnSchedule(progress: f64) -> bool {
         transam_xlog::GetInsertRecPtr()
     };
     // WR L4b: spool bytes referenced since the checkpoint began count as WAL written.
-    let written = recptr.wrapping_sub(CKPT_START_RECPTR.get()) + transam_xlog::spool_bytes_from(CKPT_START_RECPTR.get());
-    let elapsed_xlogs = (written as f64
-        / transam_xlog::wal_segment_size() as f64)
+    let written = recptr.wrapping_sub(CKPT_START_RECPTR.get())
+        + transam_xlog::spool_bytes_from(CKPT_START_RECPTR.get());
+    let elapsed_xlogs = (written as f64 / transam_xlog::wal_segment_size() as f64)
         / transam_xlog::CheckPointSegments() as f64;
 
     if progress < elapsed_xlogs {
@@ -764,7 +771,8 @@ pub fn RequestCheckpoint(flags: i32) -> PgResult<()> {
     let (old_failed, old_started) = with_ckpt_lck(|cp| {
         let old_failed = cp.ckpt_failed.load(Relaxed);
         let old_started = cp.ckpt_started.load(Relaxed);
-        cp.ckpt_flags.fetch_or(flags | CHECKPOINT_REQUESTED, Relaxed);
+        cp.ckpt_flags
+            .fetch_or(flags | CHECKPOINT_REQUESTED, Relaxed);
         (old_failed, old_started)
     });
 
@@ -773,8 +781,15 @@ pub fn RequestCheckpoint(flags: i32) -> PgResult<()> {
         let checkpointer_proc = lmgr_proc::ProcGlobal().checkpointerProc.load(Relaxed);
         if checkpointer_proc == INVALID_PROC_NUMBER {
             if ntries >= MAX_SIGNAL_TRIES || flags & CHECKPOINT_WAIT == 0 {
-                let level = if flags & CHECKPOINT_WAIT != 0 { ERROR } else { LOG };
-                elog(level, "could not notify checkpoint: checkpointer is not running")?;
+                let level = if flags & CHECKPOINT_WAIT != 0 {
+                    ERROR
+                } else {
+                    LOG
+                };
+                elog(
+                    level,
+                    "could not notify checkpoint: checkpointer is not running",
+                )?;
                 break;
             }
         } else {
@@ -831,8 +846,11 @@ pub fn ForwardSyncRequest(ftag: FileTag, req_type: SyncRequestType) -> PgResult<
     }
 
     if am_checkpointer() {
-        return elog(ERROR, "ForwardSyncRequest must not be called in checkpointer")
-            .map(|_| false);
+        return elog(
+            ERROR,
+            "ForwardSyncRequest must not be called in checkpointer",
+        )
+        .map(|_| false);
     }
 
     let cp = shmem();

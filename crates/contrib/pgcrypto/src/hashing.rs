@@ -14,8 +14,8 @@ pub enum DigestError {
 #[cfg(not(target_family = "wasm"))]
 mod ossl {
     use super::DigestError;
-    use std::ffi::CString;
     use openssl_sys as ssl;
+    use std::ffi::CString;
 
     // OpenSSL 3.4+ evp.h maps EVP_MD_CTX_get_size (what C digest_result_size
     // calls) onto this, which consults the context and reports -1 for an XOF
@@ -99,7 +99,6 @@ mod ossl {
             unsafe { ssl::EVP_MD_CTX_free(self.ctx) };
         }
     }
-
 }
 
 #[cfg(target_family = "wasm")]
@@ -169,7 +168,10 @@ pub fn hmac(name: &str, key: &[u8], data: &[u8]) -> Result<Vec<u8>, HashError> {
     let mut md = find_digest(&name)?;
     let b = md.block_size().map_err(HashError::Internal)?;
     if b < 2 {
-        return Err(cannot_use(&name, "This hash algorithm is unusable for HMAC"));
+        return Err(cannot_use(
+            &name,
+            "This hash algorithm is unusable for HMAC",
+        ));
     }
     md.result_size().map_err(HashError::Internal)?;
 

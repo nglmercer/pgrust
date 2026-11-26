@@ -64,7 +64,9 @@ pub(crate) fn install_timeout_drain_stub() {
 fn timeout_drain_stub() {
     use std::sync::atomic::Ordering::SeqCst;
     {
-        let mut late = LATE_FIRE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut late = LATE_FIRE
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if *late == Some(std::thread::current().id()) {
             *late = None;
             // the fire as the drain sees it: its handler's cancel, and the byte raised after the top clear
@@ -111,9 +113,7 @@ pub(crate) fn install_shared_stubs() {
         ipc_seams::on_shmem_exit::set(|_, _| {});
         // D2933: the stub exits as the real proc_exit does (an exit unwind);
         // a plain panic here would be C's abort() at the statement boundary
-        ipc_seams::proc_exit::set(|code, _pid| {
-            std::panic::panic_any(ipc::ProcExitThread { code })
-        });
+        ipc_seams::proc_exit::set(|code, _pid| std::panic::panic_any(ipc::ProcExitThread { code }));
         deadlock_seams::init_dead_lock_checking::set(|| Ok(()));
         pmsignal_seams::register_postmaster_child_active::set(|| {});
         syncrep_seams::sync_rep_cleanup_at_proc_exit::set(|| {});
@@ -253,8 +253,10 @@ fn install_xact_periphery_seams() {
     backend_status_seams::pgstat_report_plan_id::set(|_, _| {});
     backend_status_seams::pgstat_clear_backend_status_snapshot::set(|| {});
     if !guc_tables::vars::cpu_operator_cost.installed() {
-        guc_tables::vars::cpu_operator_cost
-            .install(guc_tables::GucVarAccessors { get: || 0.0025, set: |_| {} });
+        guc_tables::vars::cpu_operator_cost.install(guc_tables::GucVarAccessors {
+            get: || 0.0025,
+            set: |_| {},
+        });
     }
     backend_status_seams::pgstat_report_activity::set(|_, _| {});
     backend_progress_seams::pgstat_progress_end_command::set(|| {});
@@ -373,16 +375,44 @@ fn install_catalog_fixture() {
     // Pre-SRF stubs kept verbatim (the trace fixture pins their exact cost
     // accounting); everything else resolves off the real builtin table.
     fmgr_seams::fmgr_info::set(|oid| match oid {
-        INT4IN if PARAM_LOG_PROBE.get() => {
-            Ok(FmgrInfo::new(int4in_enabling_param_logging, INT4IN, 1, true, false))
-        }
+        INT4IN if PARAM_LOG_PROBE.get() => Ok(FmgrInfo::new(
+            int4in_enabling_param_logging,
+            INT4IN,
+            1,
+            true,
+            false,
+        )),
         INT4OUT if PARAM_LOG_PROBE.get() => {
             Ok(FmgrInfo::new(int4out_failing, INT4OUT, 1, true, false))
         }
-        INT4IN => Ok(FmgrInfo::new(adt_int::builtins::fc_int4in, INT4IN, 1, true, false)),
-        INT4OUT => Ok(FmgrInfo::new(adt_int::builtins::fc_int4out, INT4OUT, 1, true, false)),
-        2406 => Ok(FmgrInfo::new(adt_int::builtins::fc_int4recv, 2406, 1, true, false)),
-        2407 => Ok(FmgrInfo::new(adt_int::builtins::fc_int4send, 2407, 1, true, false)),
+        INT4IN => Ok(FmgrInfo::new(
+            adt_int::builtins::fc_int4in,
+            INT4IN,
+            1,
+            true,
+            false,
+        )),
+        INT4OUT => Ok(FmgrInfo::new(
+            adt_int::builtins::fc_int4out,
+            INT4OUT,
+            1,
+            true,
+            false,
+        )),
+        2406 => Ok(FmgrInfo::new(
+            adt_int::builtins::fc_int4recv,
+            2406,
+            1,
+            true,
+            false,
+        )),
+        2407 => Ok(FmgrInfo::new(
+            adt_int::builtins::fc_int4send,
+            2407,
+            1,
+            true,
+            false,
+        )),
         other => fmgr_core::fmgr_info(other),
     });
     syscache_seams::lookup_pg_proc_name_candidates::set(|mcx, proname| {
@@ -487,8 +517,16 @@ fn install_catalog_fixture() {
     syscache_seams::pg_proc_cost_shape::set(|funcid| {
         Ok(Some(syscache_seams::PgProcCostShape {
             procost: 1.0,
-            prorows: if funcid == 1066 || funcid == 1067 { 1000.0 } else { 0.0 },
-            prosupport: if funcid == 1066 || funcid == 1067 { 3994 } else { 0 },
+            prorows: if funcid == 1066 || funcid == 1067 {
+                1000.0
+            } else {
+                0.0
+            },
+            prosupport: if funcid == 1066 || funcid == 1067 {
+                3994
+            } else {
+                0
+            },
         }))
     });
     syscache_seams::pg_type_typtype::set(|_| Ok(Some(b'b' as i8)));
@@ -517,41 +555,45 @@ fn install_catalog_fixture() {
         }))
     });
     syscache_seams::lookup_pg_aggregate_shape::set(|aggfnoid| {
-        Ok(matches!(aggfnoid, 2803 | 2108).then_some(syscache_seams::PgAggregateShape {
-            aggkind: b'n' as i8,
-            aggnumdirectargs: 0,
-            aggtransfn: if aggfnoid == 2108 { 1841 } else { 1219 },
-            aggfinalfn: 0,
-            aggcombinefn: 463,
-            aggserialfn: 0,
-            aggdeserialfn: 0,
-            aggfinalextra: false,
-            aggfinalmodify: b'r' as i8,
-            aggsortop: 0,
-            aggtranstype: INT8OID,
-            aggmtransfn: 0,
-            aggminvtransfn: 0,
-            aggmfinalfn: 0,
-            aggmfinalextra: false,
-            aggmfinalmodify: b'r' as i8,
-            aggmtranstype: 0,
-            aggtransspace: 0,
-        }))
+        Ok(
+            matches!(aggfnoid, 2803 | 2108).then_some(syscache_seams::PgAggregateShape {
+                aggkind: b'n' as i8,
+                aggnumdirectargs: 0,
+                aggtransfn: if aggfnoid == 2108 { 1841 } else { 1219 },
+                aggfinalfn: 0,
+                aggcombinefn: 463,
+                aggserialfn: 0,
+                aggdeserialfn: 0,
+                aggfinalextra: false,
+                aggfinalmodify: b'r' as i8,
+                aggsortop: 0,
+                aggtranstype: INT8OID,
+                aggmtransfn: 0,
+                aggminvtransfn: 0,
+                aggmfinalfn: 0,
+                aggmfinalextra: false,
+                aggmfinalmodify: b'r' as i8,
+                aggmtranstype: 0,
+                aggtransspace: 0,
+            }),
+        )
     });
     // Gravity binds every call it lowers, aggregates included (fmgr_info on aggfnoid): the
     // pg_proc rows of count(*) / sum(int4), prosrc aggregate_dummy (pg_proc.dat 2803 / 2108).
     syscache_seams::lookup_pg_proc_fmgr::set(|funcid| {
-        Ok(matches!(funcid, 2803 | 2108).then_some(syscache_seams::PgProcFmgrShape {
-            prolang: 12,
-            prorettype: INT8OID,
-            pronargs: if funcid == 2108 { 1 } else { 0 },
-            proisstrict: false,
-            proretset: false,
-            prosecdef: false,
-            proconfig_isnull: true,
-            xmin: 0,
-            tid: Default::default(),
-        }))
+        Ok(
+            matches!(funcid, 2803 | 2108).then_some(syscache_seams::PgProcFmgrShape {
+                prolang: 12,
+                prorettype: INT8OID,
+                pronargs: if funcid == 2108 { 1 } else { 0 },
+                proisstrict: false,
+                proretset: false,
+                prosecdef: false,
+                proconfig_isnull: true,
+                xmin: 0,
+                tid: Default::default(),
+            }),
+        )
     });
     syscache_seams::lookup_pg_proc_prosrc::set(|cx, funcid| {
         Ok(match funcid {
@@ -577,7 +619,8 @@ pub(crate) fn install_fixtures() {
         parser_seams::raw_parser::set(|mcx, q, mode| {
             let list = gram_core::raw_parser(mcx, q, mode)?;
             let mut v = mcx::PgVec::new_in(mcx);
-            v.try_reserve_exact(list.len()).map_err(|_| mcx.oom(list.len()))?;
+            v.try_reserve_exact(list.len())
+                .map_err(|_| mcx.oom(list.len()))?;
             for n in list.iter() {
                 let rs = n.as_raw_stmt().expect("raw_parser yields RawStmt");
                 v.push(types_nodes::rawnodes::RawStmt {
@@ -632,7 +675,10 @@ pub(crate) fn install_fixtures() {
         });
         resowner_seams::resource_owner_enlarge::set(|_| Ok(()));
         resowner_seams::resource_owner_remember_snapshot::set(|owner, snapshot| {
-            SNAPSHOT_REFS.with(|v| v.borrow_mut().push((owner, std::rc::Rc::as_ptr(&snapshot) as usize)));
+            SNAPSHOT_REFS.with(|v| {
+                v.borrow_mut()
+                    .push((owner, std::rc::Rc::as_ptr(&snapshot) as usize))
+            });
         });
         resowner_seams::resource_owner_forget_snapshot::set(|owner, snapshot| {
             let key = (owner, std::rc::Rc::as_ptr(&snapshot) as usize);
@@ -892,7 +938,12 @@ fn scripted_batches() -> Vec<(&'static str, Vec<u8>)> {
         ),
         (
             "empty_query",
-            cat(&[parse_msg("", "", &[]), bind_msg("", "", &[]), execute_msg("", 0), sync_msg()]),
+            cat(&[
+                parse_msg("", "", &[]),
+                bind_msg("", "", &[]),
+                execute_msg("", 0),
+                sync_msg(),
+            ]),
         ),
         (
             "row_count_suspension",
@@ -916,7 +967,11 @@ fn scripted_batches() -> Vec<(&'static str, Vec<u8>)> {
         ),
         (
             "bind_missing_stmt_skip_till_sync",
-            cat(&[bind_msg("", "nope", &[b"1"]), execute_msg("", 0), sync_msg()]),
+            cat(&[
+                bind_msg("", "nope", &[b"1"]),
+                execute_msg("", 0),
+                sync_msg(),
+            ]),
         ),
         (
             "binary_param_and_result",
@@ -963,7 +1018,10 @@ fn extended_query_session_matches_live_pg_trace() {
     install_fixtures();
 
     let batches = scripted_batches();
-    let input: Vec<u8> = batches.iter().flat_map(|(_, b)| b.iter().copied()).collect();
+    let input: Vec<u8> = batches
+        .iter()
+        .flat_map(|(_, b)| b.iter().copied())
+        .collect();
     let wire = run_session(input);
 
     // Split the reply stream at each ReadyForQuery ('Z') into per-batch chunks.
@@ -981,7 +1039,11 @@ fn extended_query_session_matches_live_pg_trace() {
     // The startup ReadyForQuery (sent before any client message; the fixture
     // capture consumed it with the greeting).
     let startup = chunks.remove(0);
-    assert_eq!(startup, vec![(b'Z', b"I".to_vec())], "initial ReadyForQuery");
+    assert_eq!(
+        startup,
+        vec![(b'Z', b"I".to_vec())],
+        "initial ReadyForQuery"
+    );
 
     let expected = fixture_replies();
     assert_eq!(chunks.len(), expected.len(), "one reply chunk per batch");
@@ -1001,7 +1063,11 @@ fn extended_query_session_matches_live_pg_trace() {
                 Some("prepared statement \"nope\" does not exist"),
                 "{name}"
             );
-            assert_eq!(got.last().unwrap().1, exp.last().unwrap().1, "{name}: Z status");
+            assert_eq!(
+                got.last().unwrap().1,
+                exp.last().unwrap().1,
+                "{name}: Z status"
+            );
             continue;
         }
         let got_flat: Vec<u8> = got
@@ -1038,8 +1104,7 @@ fn hex(b: &[u8]) -> String {
 #[test]
 fn generic_plan_reads_param_extern_from_bind() {
     install_fixtures();
-    guc_tables::vars::plan_cache_mode
-        .write(guc_tables::consts::PLAN_CACHE_MODE_FORCE_GENERIC_PLAN);
+    guc_tables::vars::plan_cache_mode.write(guc_tables::consts::PLAN_CACHE_MODE_FORCE_GENERIC_PLAN);
 
     let input: Vec<u8> = [
         parse_msg("g1", "SELECT $1", &[INT4OID]),
@@ -1052,17 +1117,28 @@ fn generic_plan_reads_param_extern_from_bind() {
     let all = frames(&wire);
 
     let types: Vec<u8> = all.iter().map(|(t, _)| *t).collect();
-    assert_eq!(types, vec![b'Z', b'1', b'2', b'D', b'C', b'Z'], "reply shape");
+    assert_eq!(
+        types,
+        vec![b'Z', b'1', b'2', b'D', b'C', b'Z'],
+        "reply shape"
+    );
     let datarow = &all[3].1;
     let mut exp = Vec::new();
     exp.extend(1u16.to_be_bytes());
     exp.extend(2i32.to_be_bytes());
     exp.extend(b"42");
-    assert_eq!(datarow, &exp, "Bind(42) -> DataRow(42) through the generic plan");
+    assert_eq!(
+        datarow, &exp,
+        "Bind(42) -> DataRow(42) through the generic plan"
+    );
     assert_eq!(all[4].1, b"SELECT 1\0", "CommandComplete tag");
 
     let (generic, custom) = crate::extended_query::plan_cache_counts("g1").unwrap();
-    assert_eq!((generic, custom), (1, 0), "plan cache chose the generic plan");
+    assert_eq!(
+        (generic, custom),
+        (1, 0),
+        "plan cache chose the generic plan"
+    );
 }
 
 fn int4in_enabling_param_logging(
@@ -1108,8 +1184,14 @@ fn param_text_is_kept_when_the_input_function_enables_logging() {
     PARAM_LOG_PROBE.set(false);
     guc_tables::backing::set_log_parameter_max_length_on_error(0);
     let all = frames(&wire);
-    let err = all.iter().find(|(t, _)| *t == b'E').expect("int4out fixture error");
-    assert_eq!(error_field(&err.1, b'M').as_deref(), Some("int4out fixture refuses"));
+    let err = all
+        .iter()
+        .find(|(t, _)| *t == b'E')
+        .expect("int4out fixture error");
+    assert_eq!(
+        error_field(&err.1, b'M').as_deref(),
+        Some("int4out fixture refuses")
+    );
     assert_eq!(
         error_field(&err.1, b'W').as_deref(),
         Some("unnamed portal with parameters: $1 = '007'"),
@@ -1129,13 +1211,25 @@ fn simple_query_msg(sql: &str) -> Vec<u8> {
 fn simple_query_generate_series_returns_10_rows() {
     install_generate_series_fixture();
 
-    let input: Vec<u8> =
-        [simple_query_msg("SELECT * FROM generate_series(1, 10)"), msg(b'X', &[])].concat();
+    let input: Vec<u8> = [
+        simple_query_msg("SELECT * FROM generate_series(1, 10)"),
+        msg(b'X', &[]),
+    ]
+    .concat();
     let wire = run_session(input);
     let all = frames(&wire);
 
-    let datarows: Vec<&Vec<u8>> = all.iter().filter(|(t, _)| *t == b'D').map(|(_, b)| b).collect();
-    assert_eq!(datarows.len(), 10, "frame types: {:?}", all.iter().map(|f| f.0 as char).collect::<Vec<_>>());
+    let datarows: Vec<&Vec<u8>> = all
+        .iter()
+        .filter(|(t, _)| *t == b'D')
+        .map(|(_, b)| b)
+        .collect();
+    assert_eq!(
+        datarows.len(),
+        10,
+        "frame types: {:?}",
+        all.iter().map(|f| f.0 as char).collect::<Vec<_>>()
+    );
     for (i, row) in datarows.iter().enumerate() {
         let text = &row[6..];
         assert_eq!(
@@ -1144,7 +1238,10 @@ fn simple_query_generate_series_returns_10_rows() {
             "row {i}"
         );
     }
-    let complete = all.iter().find(|(t, _)| *t == b'C').expect("CommandComplete");
+    let complete = all
+        .iter()
+        .find(|(t, _)| *t == b'C')
+        .expect("CommandComplete");
     assert_eq!(complete.1, b"SELECT 10\0");
 }
 
@@ -1160,8 +1257,17 @@ fn simple_query_count_over_generate_series() {
     let wire = run_session(input);
     let all = frames(&wire);
 
-    let datarows: Vec<&Vec<u8>> = all.iter().filter(|(t, _)| *t == b'D').map(|(_, b)| b).collect();
-    assert_eq!(datarows.len(), 1, "frame types: {:?}", all.iter().map(|f| f.0 as char).collect::<Vec<_>>());
+    let datarows: Vec<&Vec<u8>> = all
+        .iter()
+        .filter(|(t, _)| *t == b'D')
+        .map(|(_, b)| b)
+        .collect();
+    assert_eq!(
+        datarows.len(),
+        1,
+        "frame types: {:?}",
+        all.iter().map(|f| f.0 as char).collect::<Vec<_>>()
+    );
     assert_eq!(core::str::from_utf8(&datarows[0][6..]).unwrap(), "1000");
 }
 
@@ -1191,8 +1297,17 @@ fn simple_query_count_sum_over_generate_series() {
     let wire = run_session(input);
     let all = frames(&wire);
 
-    let datarows: Vec<&Vec<u8>> = all.iter().filter(|(t, _)| *t == b'D').map(|(_, b)| b).collect();
-    assert_eq!(datarows.len(), 1, "frame types: {:?}", all.iter().map(|f| f.0 as char).collect::<Vec<_>>());
+    let datarows: Vec<&Vec<u8>> = all
+        .iter()
+        .filter(|(t, _)| *t == b'D')
+        .map(|(_, b)| b)
+        .collect();
+    assert_eq!(
+        datarows.len(),
+        1,
+        "frame types: {:?}",
+        all.iter().map(|f| f.0 as char).collect::<Vec<_>>()
+    );
     assert_eq!(datarow_cols(datarows[0]), ["100", "5050"]);
 }
 
@@ -1209,20 +1324,31 @@ fn simple_query_prepare_execute_deallocate_round_trip() {
     let wire = run_session(input);
     let all = frames(&wire);
 
-    let tags: Vec<&[u8]> =
-        all.iter().filter(|(t, _)| *t == b'C').map(|(_, b)| b.as_slice()).collect();
+    let tags: Vec<&[u8]> = all
+        .iter()
+        .filter(|(t, _)| *t == b'C')
+        .map(|(_, b)| b.as_slice())
+        .collect();
     assert_eq!(
         tags,
         [b"PREPARE\0".as_slice(), b"SELECT 1\0", b"DEALLOCATE\0"],
         "frame types: {:?}",
         all.iter().map(|f| f.0 as char).collect::<Vec<_>>()
     );
-    let datarows: Vec<&Vec<u8>> = all.iter().filter(|(t, _)| *t == b'D').map(|(_, b)| b).collect();
+    let datarows: Vec<&Vec<u8>> = all
+        .iter()
+        .filter(|(t, _)| *t == b'D')
+        .map(|(_, b)| b)
+        .collect();
     assert_eq!(datarows.len(), 1);
     assert_eq!(core::str::from_utf8(&datarows[0][6..]).unwrap(), "1");
 
     // EXECUTE after DEALLOCATE: C's 26000 through the same wire path.
-    let errs: Vec<&Vec<u8>> = all.iter().filter(|(t, _)| *t == b'E').map(|(_, b)| b).collect();
+    let errs: Vec<&Vec<u8>> = all
+        .iter()
+        .filter(|(t, _)| *t == b'E')
+        .map(|(_, b)| b)
+        .collect();
     assert_eq!(errs.len(), 1);
     assert_eq!(error_field(errs[0], b'C').as_deref(), Some("26000"));
     assert_eq!(
@@ -1250,7 +1376,9 @@ fn simple_query_debug_print_gucs_emit_log_detail_pairs() {
     static SEEN: Mutex<Vec<(String, Option<String>)>> = Mutex::new(Vec::new());
     fn capture(e: &types_error::PgError, _output_to_server: &mut bool) {
         if e.level == types_error::LOG {
-            SEEN.lock().unwrap().push((e.message.clone(), e.detail.clone()));
+            SEEN.lock()
+                .unwrap()
+                .push((e.message.clone(), e.detail.clone()));
         }
     }
     // The capture opens after this thread served a Gravity statement once: the
@@ -1279,8 +1407,11 @@ fn simple_query_debug_print_gucs_emit_log_detail_pairs() {
     let all = frames(&wire);
 
     // Every statement still completes with the dumps on.
-    let tags: Vec<&[u8]> =
-        all.iter().filter(|(t, _)| *t == b'C').map(|(_, b)| b.as_slice()).collect();
+    let tags: Vec<&[u8]> = all
+        .iter()
+        .filter(|(t, _)| *t == b'C')
+        .map(|(_, b)| b.as_slice())
+        .collect();
     assert_eq!(tags.len(), 11, "tags: {tags:?}");
     assert_eq!(tags[3], b"SELECT 1\0");
     let datarows: Vec<String> = all
@@ -1306,30 +1437,44 @@ fn simple_query_debug_print_gucs_emit_log_detail_pairs() {
             P, R, //       RESET debug_print_plan
             P, R, //       RESET debug_print_rewritten
             P, //          RESET debug_print_parse
-                   //      SELECT 2: silence
+               //      SELECT 2: silence
         ]
     );
     for (i, (title, detail)) in seen.iter().enumerate() {
-        let d = detail.as_deref().unwrap_or_else(|| panic!("{i} {title} carries a DETAIL"));
+        let d = detail
+            .as_deref()
+            .unwrap_or_else(|| panic!("{i} {title} carries a DETAIL"));
         assert!(!d.contains("not yet ported"), "{i} {title}: {d}");
         let head = match title.as_str() {
             "parse tree:" => "{QUERY",
             "rewritten parse tree:" => "(",
             _ => "{PLANNEDSTMT",
         };
-        assert!(d.trim_start().starts_with(head), "{i} {title} first line: {d:?}");
+        assert!(
+            d.trim_start().starts_with(head),
+            "{i} {title} first line: {d:?}"
+        );
         if (8..=12).contains(&i) {
             // debug_pretty_print off: format_node_dump's 78-column wrap, no indent.
             assert!(d.starts_with(head), "{i} {title} flat first char: {d:?}");
-            assert!(d.lines().all(|l| l.len() <= 78), "{i} {title} flat wrap: {d:?}");
+            assert!(
+                d.lines().all(|l| l.len() <= 78),
+                "{i} {title} flat wrap: {d:?}"
+            );
         } else {
-            assert!(d.lines().count() > 1, "{i} {title}: pretty dump spans lines: {d:?}");
+            assert!(
+                d.lines().count() > 1,
+                "{i} {title}: pretty dump spans lines: {d:?}"
+            );
         }
     }
     // The SELECT count(*) trees carry the statement's operators.
     assert!(seen[4].1.as_deref().unwrap().contains(":hasAggs true"));
     let plan = seen[5].1.as_deref().unwrap();
-    assert!(plan.contains("{AGG") && plan.contains("{FUNCTIONSCAN"), "{plan}");
+    assert!(
+        plan.contains("{AGG") && plan.contains("{FUNCTIONSCAN"),
+        "{plan}"
+    );
 }
 
 // Rows + completion tags pinned against live PG 18.3 (Homebrew) running the
@@ -1356,8 +1501,11 @@ fn simple_query_cursor_fetch_move_close_round_trip() {
     let wire = run_session(input);
     let all = frames(&wire);
 
-    let tags: Vec<&[u8]> =
-        all.iter().filter(|(t, _)| *t == b'C').map(|(_, b)| b.as_slice()).collect();
+    let tags: Vec<&[u8]> = all
+        .iter()
+        .filter(|(t, _)| *t == b'C')
+        .map(|(_, b)| b.as_slice())
+        .collect();
     assert_eq!(
         tags,
         [
@@ -1379,10 +1527,17 @@ fn simple_query_cursor_fetch_move_close_round_trip() {
         .filter(|(t, _)| *t == b'D')
         .map(|(_, b)| datarow_cols(b).join(","))
         .collect();
-    assert_eq!(rows, ["1", "2", "3", "2", "1", "4", "5", "6", "7", "8", "9", "10"]);
+    assert_eq!(
+        rows,
+        ["1", "2", "3", "2", "1", "4", "5", "6", "7", "8", "9", "10"]
+    );
 
     // FETCH after CLOSE+COMMIT: C's 34000 through the same wire path.
-    let errs: Vec<&Vec<u8>> = all.iter().filter(|(t, _)| *t == b'E').map(|(_, b)| b).collect();
+    let errs: Vec<&Vec<u8>> = all
+        .iter()
+        .filter(|(t, _)| *t == b'E')
+        .map(|(_, b)| b)
+        .collect();
     assert_eq!(errs.len(), 1);
     assert_eq!(error_field(errs[0], b'C').as_deref(), Some("34000"));
     assert_eq!(
@@ -1414,7 +1569,11 @@ fn execute_commit_with_bound_param_logs_context_and_survives_commit() {
     let all = frames(&wire);
 
     let types: Vec<u8> = all.iter().map(|f| f.0).collect();
-    assert_eq!(types, vec![b'Z', b'1', b'2', b'N', b'C', b'Z'], "frame types: {types:?}");
+    assert_eq!(
+        types,
+        vec![b'Z', b'1', b'2', b'N', b'C', b'Z'],
+        "frame types: {types:?}"
+    );
     let notice = &all[3].1;
     assert_eq!(error_field(notice, b'C').as_deref(), Some("25P01"));
     assert_eq!(
@@ -1444,10 +1603,18 @@ fn execute_without_param_logging_adds_no_portal_context() {
     let all = frames(&wire);
 
     let types: Vec<u8> = all.iter().map(|f| f.0).collect();
-    assert_eq!(types, vec![b'Z', b'1', b'2', b'N', b'C', b'Z'], "frame types: {types:?}");
+    assert_eq!(
+        types,
+        vec![b'Z', b'1', b'2', b'N', b'C', b'Z'],
+        "frame types: {types:?}"
+    );
     let notice = &all[3].1;
     assert_eq!(error_field(notice, b'C').as_deref(), Some("25P01"));
-    assert_eq!(error_field(notice, b'W'), None, "no parameters were logged at bind");
+    assert_eq!(
+        error_field(notice, b'W'),
+        None,
+        "no parameters were logged at bind"
+    );
 }
 
 // postgres.c:1804: the Bind context callback names the portal by its stored
@@ -1468,8 +1635,17 @@ fn bind_context_uses_stored_portal_name() {
     guc_tables::backing::set_log_parameter_max_length_on_error(0);
     let all = frames(&wire);
 
-    let errs: Vec<&Vec<u8>> = all.iter().filter(|(t, _)| *t == b'E').map(|(_, b)| b).collect();
-    assert_eq!(errs.len(), 1, "frame types: {:?}", all.iter().map(|f| f.0 as char).collect::<Vec<_>>());
+    let errs: Vec<&Vec<u8>> = all
+        .iter()
+        .filter(|(t, _)| *t == b'E')
+        .map(|(_, b)| b)
+        .collect();
+    assert_eq!(
+        errs.len(),
+        1,
+        "frame types: {:?}",
+        all.iter().map(|f| f.0 as char).collect::<Vec<_>>()
+    );
     let stored = "p".repeat(63);
     assert_eq!(error_field(errs[0], b'C').as_deref(), Some("22P02"));
     assert_eq!(
@@ -1497,8 +1673,14 @@ fn execute_context_uses_stored_portal_name() {
     PARAM_LOG_PROBE.set(false);
     guc_tables::backing::set_log_parameter_max_length_on_error(0);
     let all = frames(&wire);
-    let err = all.iter().find(|(t, _)| *t == b'E').expect("int4out fixture error");
-    assert_eq!(error_field(&err.1, b'M').as_deref(), Some("int4out fixture refuses"));
+    let err = all
+        .iter()
+        .find(|(t, _)| *t == b'E')
+        .expect("int4out fixture error");
+    assert_eq!(
+        error_field(&err.1, b'M').as_deref(),
+        Some("int4out fixture refuses")
+    );
     let stored = "q".repeat(63);
     assert_eq!(
         error_field(&err.1, b'W').as_deref(),
@@ -1510,16 +1692,27 @@ fn execute_context_uses_stored_portal_name() {
 #[test]
 fn parse_multiple_commands_error_carries_c_location() {
     install_generate_series_fixture();
-    let input: Vec<u8> =
-        [parse_msg("", "SELECT 1; SELECT 2", &[]), sync_msg(), msg(b'X', &[])].concat();
+    let input: Vec<u8> = [
+        parse_msg("", "SELECT 1; SELECT 2", &[]),
+        sync_msg(),
+        msg(b'X', &[]),
+    ]
+    .concat();
     let wire = run_session(input);
     let all = frames(&wire);
-    let errs: Vec<&Vec<u8>> = all.iter().filter(|(t, _)| *t == b'E').map(|(_, b)| b).collect();
+    let errs: Vec<&Vec<u8>> = all
+        .iter()
+        .filter(|(t, _)| *t == b'E')
+        .map(|(_, b)| b)
+        .collect();
     assert_eq!(errs.len(), 1);
     assert_eq!(error_field(errs[0], b'C').as_deref(), Some("42601"));
     assert_eq!(error_field(errs[0], b'F').as_deref(), Some("postgres.c"));
     assert_eq!(error_field(errs[0], b'L').as_deref(), Some("1475"));
-    assert_eq!(error_field(errs[0], b'R').as_deref(), Some("exec_parse_message"));
+    assert_eq!(
+        error_field(errs[0], b'R').as_deref(),
+        Some("exec_parse_message")
+    );
 }
 
 #[test]
@@ -1534,7 +1727,11 @@ fn explain_generate_series_matches_live_pg_shape() {
     let wire = run_session(input);
     let all = frames(&wire);
 
-    let datarows: Vec<&Vec<u8>> = all.iter().filter(|(t, _)| *t == b'D').map(|(_, b)| b).collect();
+    let datarows: Vec<&Vec<u8>> = all
+        .iter()
+        .filter(|(t, _)| *t == b'D')
+        .map(|(_, b)| b)
+        .collect();
     let errs: Vec<String> = all
         .iter()
         .filter(|(t, _)| *t == b'E')
@@ -1568,7 +1765,11 @@ fn explain_rows_from_sqlvaluefunction_matches_live_pg_shape() {
     let wire = run_session(input);
     let all = frames(&wire);
 
-    let datarows: Vec<&Vec<u8>> = all.iter().filter(|(t, _)| *t == b'D').map(|(_, b)| b).collect();
+    let datarows: Vec<&Vec<u8>> = all
+        .iter()
+        .filter(|(t, _)| *t == b'D')
+        .map(|(_, b)| b)
+        .collect();
     let errs: Vec<String> = all
         .iter()
         .filter(|(t, _)| *t == b'E')
@@ -1598,7 +1799,12 @@ fn simple_query_multi_statement_message_does_not_retain_n_times_len() {
     let all = frames(&wire);
 
     let completes = all.iter().filter(|(t, _)| *t == b'C').count();
-    assert_eq!(completes, n, "frame types: {:?}", all.iter().map(|f| f.0 as char).collect::<Vec<_>>());
+    assert_eq!(
+        completes,
+        n,
+        "frame types: {:?}",
+        all.iter().map(|f| f.0 as char).collect::<Vec<_>>()
+    );
 
     let peak = PEAK_MESSAGE_USED.with(|c| c.get());
     let n_times_len = n * sql.len();
@@ -1614,7 +1820,9 @@ fn simple_query_multi_statement_message_does_not_retain_n_times_len() {
 // message leaves the normal cause.
 #[test]
 fn client_eof_sets_disconnect_client_eof_cause() {
-    use pgstat::database::{pgstat_session_end_cause, pgstat_set_session_end_cause, SessionEndType};
+    use pgstat::database::{
+        pgstat_session_end_cause, pgstat_set_session_end_cause, SessionEndType,
+    };
     install_fixtures();
     pgstat_set_session_end_cause(SessionEndType::DisconnectNormal);
     run_session([simple_query_msg("SELECT 1"), msg(b'X', &[])].concat());
@@ -1622,5 +1830,8 @@ fn client_eof_sets_disconnect_client_eof_cause() {
 
     pgstat_set_session_end_cause(SessionEndType::DisconnectNormal);
     run_session(simple_query_msg("SELECT 1"));
-    assert_eq!(pgstat_session_end_cause(), SessionEndType::DisconnectClientEof);
+    assert_eq!(
+        pgstat_session_end_cause(),
+        SessionEndType::DisconnectClientEof
+    );
 }

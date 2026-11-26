@@ -38,12 +38,29 @@ fn drain(open: &Open<'_>, cursor: &AtomicU64, ordinal: u16) -> Result<u64, Error
 
 /// One unkeyed parallel statement under `salt` on each of `entries`, all open before any ends: the worker slots come
 /// from the depot (or are built) at each open and go back to it at each end.
-fn statements(entries: &mut [Entry], program: &Arc<Program>, derive: &mut FakeDerive, salt: u64, flag: &AtomicU8) {
+fn statements(
+    entries: &mut [Entry],
+    program: &Arc<Program>,
+    derive: &mut FakeDerive,
+    salt: u64,
+    flag: &AtomicU8,
+) {
     let mut sinks: Vec<LegSink> = entries.iter().map(|_| LegSink::new()).collect();
-    let mut bindings: Vec<_> = sinks.iter_mut().map(|sink| binding(&[100], &NULLS, sink, flag)).collect();
+    let mut bindings: Vec<_> = sinks
+        .iter_mut()
+        .map(|sink| binding(&[100], &NULLS, sink, flag))
+        .collect();
     let mut execs = Vec::new();
     for (entry, b) in entries.iter_mut().zip(bindings.iter_mut()) {
-        let mut exec = entry.start(None, program, derive, b, lease(gravity_driver::Grant::of(8 << 20))).unwrap();
+        let mut exec = entry
+            .start(
+                None,
+                program,
+                derive,
+                b,
+                lease(gravity_driver::Grant::of(8 << 20)),
+            )
+            .unwrap();
         exec.set_slot_salt(Some(salt));
         let open = entry.open_section(&mut exec, b, derive, 0, WIDTH).unwrap();
         let cursor = AtomicU64::new(0);
@@ -51,7 +68,12 @@ fn statements(entries: &mut [Entry], program: &Arc<Program>, derive: &mut FakeDe
             drain(&open, &cursor, o).unwrap();
         }
         entry.close_section(open, b, &CountMerge, true).unwrap();
-        assert_eq!(entry.run(&mut exec, b, gravity_driver::Call::batch(4)).unwrap(), Step::Done);
+        assert_eq!(
+            entry
+                .run(&mut exec, b, gravity_driver::Call::batch(4))
+                .unwrap(),
+            Step::Done
+        );
         execs.push(exec);
     }
     for (entry, exec) in entries.iter_mut().zip(execs) {
@@ -73,7 +95,11 @@ fn the_depot_keeps_a_bounded_number_of_sets_and_counts_their_sources_buffers() {
     statements(&mut one, &program, &mut derive, 0, &flag);
     let s = DEPOT.stats();
     assert_eq!(s.entries, 1);
-    assert!(s.bytes >= WIDTH as usize * KEPT, "{} bytes parked for {WIDTH} slots keeping {KEPT} each", s.bytes);
+    assert!(
+        s.bytes >= WIDTH as usize * KEPT,
+        "{} bytes parked for {WIDTH} slots keeping {KEPT} each",
+        s.bytes
+    );
 
     // one key's statements in flight together park one set each, down to the per-key cap (the oldest go)
     DEPOT.clear();
@@ -81,7 +107,11 @@ fn the_depot_keeps_a_bounded_number_of_sets_and_counts_their_sources_buffers() {
     let ev = DEPOT.stats().evictions;
     statements(&mut many, &program, &mut derive, 1, &flag);
     let s = DEPOT.stats();
-    assert_eq!((s.entries, s.evictions - ev), (DEPOT_SETS_PER_KEY, 3), "one key keeps DEPOT_SETS_PER_KEY sets");
+    assert_eq!(
+        (s.entries, s.evictions - ev),
+        (DEPOT_SETS_PER_KEY, 3),
+        "one key keeps DEPOT_SETS_PER_KEY sets"
+    );
 
     // keys no statement takes again: the count cap drops the least recently put, so the depot stops growing
     DEPOT.clear();
@@ -91,12 +121,33 @@ fn the_depot_keeps_a_bounded_number_of_sets_and_counts_their_sources_buffers() {
         statements(&mut one, &program, &mut derive, 0x3213_0000 + salt, &flag);
     }
     let s = DEPOT.stats();
-    assert_eq!((s.entries, s.evictions - ev), (DEPOT_SETS, 40), "past DEPOT_SETS distinct keys the oldest sets drop");
-    assert!(s.bytes >= DEPOT_SETS * WIDTH as usize * KEPT, "the parked sets' sources' buffers counted");
+    assert_eq!(
+        (s.entries, s.evictions - ev),
+        (DEPOT_SETS, 40),
+        "past DEPOT_SETS distinct keys the oldest sets drop"
+    );
+    assert!(
+        s.bytes >= DEPOT_SETS * WIDTH as usize * KEPT,
+        "the parked sets' sources' buffers counted"
+    );
     let takes = s.takes;
-    statements(&mut one, &program, &mut derive, 0x3213_0000 + keys - 1, &flag);
-    assert_eq!(DEPOT.stats().takes, takes + 1, "the newest key's set is taken again");
+    statements(
+        &mut one,
+        &program,
+        &mut derive,
+        0x3213_0000 + keys - 1,
+        &flag,
+    );
+    assert_eq!(
+        DEPOT.stats().takes,
+        takes + 1,
+        "the newest key's set is taken again"
+    );
     statements(&mut one, &program, &mut derive, 0x3213_0000, &flag);
-    assert_eq!(DEPOT.stats().takes, takes + 1, "the oldest key's set was dropped: its statement built its slots");
+    assert_eq!(
+        DEPOT.stats().takes,
+        takes + 1,
+        "the oldest key's set was dropped: its statement built its slots"
+    );
     assert_eq!(DEPOT.stats().entries, DEPOT_SETS);
 }

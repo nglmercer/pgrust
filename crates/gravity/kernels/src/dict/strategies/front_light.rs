@@ -7,11 +7,15 @@
 //! Memory: the counts and the list are `u32` per code (8 bytes a code, at most the cost home's `LIGHT_MAX_CODES`: 8 MiB a
 //! worker, plus the list's spare entry), from the claim's arena, which draws on the statement's grant (a refused draw
 //! leaves the part on the hashed table) and is released with the claim's scratch; nothing outlives the statement.
-use gravity_abi::{word, PtrWord, Word};
-use gravity_abi::breaker::{light_claim_takes, light_dense, light_keeps, light_takes, light_ways, prefetch_read, Appender, KeyCell, Rec, RecordLayout, CODE_FRONT_MIN_CODES, LIGHT_KEYS_MAX_GROUPS, LIGHT_MAX_CODES, LIGHT_WAYS, T1, T1_BYPASS};
-use gravity_abi::hash::KeyHash;
+use gravity_abi::breaker::{
+    light_claim_takes, light_dense, light_keeps, light_takes, light_ways, prefetch_read, Appender,
+    KeyCell, Rec, RecordLayout, CODE_FRONT_MIN_CODES, LIGHT_KEYS_MAX_GROUPS, LIGHT_MAX_CODES,
+    LIGHT_WAYS, T1, T1_BYPASS,
+};
 use gravity_abi::ctx::{lane, site_ptr};
+use gravity_abi::hash::KeyHash;
 use gravity_abi::Ctx;
+use gravity_abi::{word, PtrWord, Word};
 
 use crate::host_abi::AggState;
 use crate::table::image::AlignedImage;
@@ -147,7 +151,10 @@ unsafe fn bind_keys(ctx: *mut Ctx, st: *mut u8, w: *mut LightWords, desc: u64, p
         (*w).part = part;
     }
     (*w).cap = 0;
-    let (site, nkeys) = (site_ptr(ctx, (desc >> 40 & 0xffff) as usize), (desc >> 24 & 0xff) as usize);
+    let (site, nkeys) = (
+        site_ptr(ctx, (desc >> 40 & 0xffff) as usize),
+        (desc >> 24 & 0xff) as usize,
+    );
     if *declined(w, nkeys) != 0 {
         return 0;
     }
@@ -177,10 +184,24 @@ unsafe fn bind_keys(ctx: *mut Ctx, st: *mut u8, w: *mut LightWords, desc: u64, p
 /// the hashed table, the same records).
 #[inline(always)]
 unsafe fn convert_keys(ctx: *mut Ctx, st: *mut u8, w: *mut LightWords, desc: u64) -> i64 {
-    let (ix, latch) = (Many { keys: key(w, 0), n: (desc >> 24 & 0xff) as usize }, declined(w, (desc >> 24 & 0xff) as usize));
+    let (ix, latch) = (
+        Many {
+            keys: key(w, 0),
+            n: (desc >> 24 & 0xff) as usize,
+        },
+        declined(w, (desc >> 24 & 0xff) as usize),
+    );
     let w = &mut *w;
     let (touched, mut rows) = (if w.cap != 0 { w.n } else { 0 }, 0u64);
-    let r = walk_by::<_, 1>(ctx, st, w, desc, w.n * light_dense() >= w.ncodes, ix, &mut rows);
+    let r = walk_by::<_, 1>(
+        ctx,
+        st,
+        w,
+        desc,
+        w.n * light_dense() >= w.ncodes,
+        ix,
+        &mut rows,
+    );
     if touched != 0 && !light_keeps(touched, rows) {
         *latch = 1;
     }
@@ -188,7 +209,14 @@ unsafe fn convert_keys(ctx: *mut Ctx, st: *mut u8, w: *mut LightWords, desc: u64
 }
 
 #[inline(always)]
-unsafe fn bind(ctx: *mut Ctx, st: *mut u8, w: &mut LightWords, desc: u64, part: u64, fps: *const [u64; 2]) -> i64 {
+unsafe fn bind(
+    ctx: *mut Ctx,
+    st: *mut u8,
+    w: &mut LightWords,
+    desc: u64,
+    part: u64,
+    fps: *const [u64; 2],
+) -> i64 {
     if w.part != part {
         let r = convert(ctx, st, w, desc);
         if r < 0 {
@@ -204,7 +232,10 @@ unsafe fn bind(ctx: *mut Ctx, st: *mut u8, w: &mut LightWords, desc: u64, part: 
     // the claim's rows: its granules' windows (the window's rows a granule); a claim of fewer rows than fill the part's
     // arrays counts each code it touches about once and walks its list at random (W8: 4 granules over 1 M codes)
     let rows = (*ctx).claim.len().saturating_mul((*site).rows as u64);
-    if l.kind != lane::KIND_CODES || w.ncodes > LIGHT_MAX_CODES || !light_claim_takes(w.ncodes, rows) {
+    if l.kind != lane::KIND_CODES
+        || w.ncodes > LIGHT_MAX_CODES
+        || !light_claim_takes(w.ncodes, rows)
+    {
         return 0;
     }
     // D3159: a part of few codes a row counts in ways (the cost home's `light_ways` at the bound window's rows), when the
@@ -227,13 +258,21 @@ unsafe fn grow(ctx: *mut Ctx, w: &mut LightWords) -> i64 {
         // the list holds one entry past the codes: the row loop writes `touched[n]` on every row, `n` counting fresh codes
         let cap = w.ncodes.next_power_of_two().max(CODE_FRONT_MIN_CODES) as usize;
         let wcap = ways as usize;
-        let (c, t) = (crate::util::scratch(ctx, cap * 4 * wcap), crate::util::scratch(ctx, cap * 4 + 8));
+        let (c, t) = (
+            crate::util::scratch(ctx, cap * 4 * wcap),
+            crate::util::scratch(ctx, cap * 4 + 8),
+        );
         if c.is_null() || t.is_null() {
             (w.alloc, w.wcap, w.ways) = (0, 0, 0);
             return 0;
         }
         core::ptr::write_bytes(c, 0, cap * 4 * wcap);
-        (w.cnt, w.touched, w.alloc, w.wcap) = (word(c as *mut u32), word(t as *mut u32), cap as u64, wcap as u64);
+        (w.cnt, w.touched, w.alloc, w.wcap) = (
+            word(c as *mut u32),
+            word(t as *mut u32),
+            cap as u64,
+            wcap as u64,
+        );
     }
     if w.ways != 0 {
         (w.cap, w.n) = (0, 1);
@@ -265,8 +304,16 @@ unsafe fn walk(ctx: *mut Ctx, st: *mut u8, w: &mut LightWords, desc: u64, dense:
         return 0;
     }
     let (a_st, rep) = (st as *mut AggState, desc >> 8 & 0xff);
-    let rep_off = if rep != LD_NONE { (*(*a_st).layout.ptr()).slot_off(rep as usize) as usize } else { 0 };
-    let ix = One { fps: w.fps.ptr(), rep, rep_off };
+    let rep_off = if rep != LD_NONE {
+        (*(*a_st).layout.ptr()).slot_off(rep as usize) as usize
+    } else {
+        0
+    };
+    let ix = One {
+        fps: w.fps.ptr(),
+        rep,
+        rep_off,
+    };
     match w.ways {
         0 => walk_by::<_, 1>(ctx, st, w, desc, dense, ix, &mut 0),
         _ => walk_ways(ctx, st, w, desc, ix),
@@ -364,7 +411,8 @@ impl CountIndex for Many {
         for k in 0..self.n {
             let (e, c) = self.code(k, i);
             if (*e).rep != LD_NONE {
-                *(d.add(layout.slot_off((*e).rep as usize) as usize) as *mut u64) = KeyCell::code_word(part, c);
+                *(d.add(layout.slot_off((*e).rep as usize) as usize) as *mut u64) =
+                    KeyCell::code_word(part, c);
             }
         }
     }
@@ -382,7 +430,15 @@ impl CountIndex for Many {
 /// `walk` over index reader `ix` of a part counted in `WAYS` count arrays (stride `alloc`; `WAYS` > 1 walks in code order),
 /// the counted rows added to `rows`.
 #[inline(always)]
-unsafe fn walk_by<I: CountIndex, const WAYS: usize>(ctx: *mut Ctx, st: *mut u8, w: &mut LightWords, desc: u64, dense: bool, ix: I, rows: &mut u64) -> i64 {
+unsafe fn walk_by<I: CountIndex, const WAYS: usize>(
+    ctx: *mut Ctx,
+    st: *mut u8,
+    w: &mut LightWords,
+    desc: u64,
+    dense: bool,
+    ix: I,
+    rows: &mut u64,
+) -> i64 {
     if w.n == 0 {
         return 0;
     }
@@ -395,7 +451,13 @@ unsafe fn walk_by<I: CountIndex, const WAYS: usize>(ctx: *mut Ctx, st: *mut u8, 
     let once = !layout.has_validity();
     let count_off = layout.slot_off(count) as usize;
     let n = if dense { w.ncodes } else { w.n };
-    let code_at = |i: u64| if dense { i as u32 } else { *w.touched.ptr().add(i as usize) };
+    let code_at = |i: u64| {
+        if dense {
+            i as u32
+        } else {
+            *w.touched.ptr().add(i as usize)
+        }
+    };
     let stride = w.alloc as usize;
     // the code's count over the ways, and the ways cleared behind it
     let count_of = |c: *mut u32| (0..WAYS).fold(0u64, |a, k| a + *c.add(k * stride) as u64);
@@ -429,7 +491,10 @@ unsafe fn walk_by<I: CountIndex, const WAYS: usize>(ctx: *mut Ctx, st: *mut u8, 
             // buffer through one appender (`locate`'s route and `append_new`'s zeroed open), its head words held across
             // the walk; a full pool finishes the appender and takes M1's locate below (its flush), then a fresh one
             let a = ap.get_or_insert_with(|| T1::appender(t));
-            let at = a.reserve((*t).route(keys, KeyHash::of(keys)).part((*a_st).pbits as u32));
+            let at = a.reserve(
+                (*t).route(keys, KeyHash::of(keys))
+                    .part((*a_st).pbits as u32),
+            );
             if at.is_none() {
                 ap.take().unwrap().finish();
             }
@@ -472,10 +537,10 @@ mod fit {
     //! `LIGHT_WAY_WALK`, _support/cost_profile front.rs) on synthetic parts at the dev seed. Run on a quiet box, optimized:
     //!   cargo test --profile fast-profile -p gravity_kernels --lib dict::strategies::front_light::fit -- --ignored --nocapture
     use super::*;
+    use cost_profile::fit::{break_even_div, least_squares};
     use gravity_abi::breaker::{HashAgg, KeyKind, RecordLayout, SlotKind};
     use gravity_abi::ctx::ctx_size;
     use gravity_abi::{Partials, ProgramBlock};
-    use cost_profile::fit::{break_even_div, least_squares};
     use std::time::Instant;
 
     const DEV_SEED: u64 = 0x5eed_0de7;
@@ -513,7 +578,10 @@ mod fit {
     unsafe fn time(ncodes: u64, touched: &[u32], dense: bool, ways: bool) -> f64 {
         let mut own = vec![0u64; SHARE as usize / 8]; // alloc: Cold
         HashAgg::arm(own.as_mut_ptr() as *mut u8, SHARE);
-        let mut partials = Box::new(Partials::two(own.as_mut_ptr() as *mut u8, [core::ptr::null_mut(); 2])); // alloc: Cold
+        let mut partials = Box::new(Partials::two(
+            own.as_mut_ptr() as *mut u8,
+            [core::ptr::null_mut(); 2],
+        )); // alloc: Cold
         let mut program = Box::new(ProgramBlock::NONE); // alloc: Cold
         program.partial = &mut *partials;
         program.spill = Some(scatter);
@@ -523,14 +591,32 @@ mod fit {
         let mut st = [0u64; crate::host_abi::AGG_STATE_BYTES as usize / 8];
         let sp = st.as_mut_ptr() as *mut u8;
         assert_eq!(crate::host_abi::agg_open(ctx, sp, &LAYOUT, 1, 0), 0);
-        let fps: Vec<[u64; 2]> = (0..ncodes).map(|c| [(c + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15), c ^ 0x5555]).collect();
+        let fps: Vec<[u64; 2]> = (0..ncodes)
+            .map(|c| [(c + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15), c ^ 0x5555])
+            .collect();
         let wn = if ways { LIGHT_WAYS } else { 1 };
-        let (mut cnt, mut list) = (vec![0u32; (ncodes * wn) as usize], vec![0u32; touched.len() + 1]); // alloc: Cold
-        let mut w = LightWords { cnt: word(cnt.as_mut_ptr()), touched: word(list.as_mut_ptr()), n: 0, cap: if ways { 0 } else { ncodes }, alloc: ncodes, part: 7, fps: word(fps.as_ptr()), ncodes, ways: if ways { ncodes } else { 0 }, wcap: wn };
+        let (mut cnt, mut list) = (
+            vec![0u32; (ncodes * wn) as usize],
+            vec![0u32; touched.len() + 1],
+        ); // alloc: Cold
+        let mut w = LightWords {
+            cnt: word(cnt.as_mut_ptr()),
+            touched: word(list.as_mut_ptr()),
+            n: 0,
+            cap: if ways { 0 } else { ncodes },
+            alloc: ncodes,
+            part: 7,
+            fps: word(fps.as_ptr()),
+            ncodes,
+            ways: if ways { ncodes } else { 0 },
+            wcap: wn,
+        };
         let once = |w: &mut LightWords| {
             for (i, &c) in touched.iter().enumerate() {
                 // a ways part's count is in the way of its row (any way: the walk adds the four)
-                *w.cnt.ptr().add(c as usize + (i as u64 % wn * ncodes) as usize) = 1;
+                *w.cnt
+                    .ptr()
+                    .add(c as usize + (i as u64 % wn * ncodes) as usize) = 1;
                 *w.touched.ptr().add(i) = c;
             }
             w.n = if ways { 1 } else { touched.len() as u64 };
@@ -571,19 +657,30 @@ mod fit {
                     perm.swap(i, j);
                 }
                 let touched = &perm[..n];
-                let (d, l) = unsafe { (time(ncodes, touched, true, false), time(ncodes, touched, false, false)) };
+                let (d, l) = unsafe {
+                    (
+                        time(ncodes, touched, true, false),
+                        time(ncodes, touched, false, false),
+                    )
+                };
                 println!("fit\t{ncodes}\t{n}\tdense\t{d:.0}\tlist\t{l:.0}");
                 d_pts.push((n as f64, d));
                 l_pts.push((n as f64, l));
             }
             let ((ad, p), (al, q)) = (least_squares(&d_pts), least_squares(&l_pts));
-            println!("fit\t{ncodes}\twalk-fixed\t{:.0}\tper-touched dense\t{p:.3}\tlist\t{q:.3}", ad - al);
+            println!(
+                "fit\t{ncodes}\twalk-fixed\t{:.0}\tper-touched dense\t{p:.3}\tlist\t{q:.3}",
+                ad - al
+            );
             walk_pts.push((ncodes as f64, ad - al));
             list_ns.push(q - p);
         }
         let (_, walk) = least_squares(&walk_pts);
         let list = list_ns.iter().sum::<f64>() / list_ns.len() as f64;
-        println!("fit\tLIGHT_WALK\t{walk:.4}\tLIGHT_LIST\t{list:.4}\tLIGHT_DENSE\t{}", break_even_div(list, walk));
+        println!(
+            "fit\tLIGHT_WALK\t{walk:.4}\tLIGHT_LIST\t{list:.4}\tLIGHT_DENSE\t{}",
+            break_even_div(list, walk)
+        );
         assert!(walk > 0.0 && list > 0.0, "both walks cost something");
     }
 
@@ -606,7 +703,12 @@ mod fit {
                     perm.swap(i, j);
                 }
                 let touched = &perm[..n];
-                let (wy, l) = unsafe { (time(ncodes, touched, true, true), time(ncodes, touched, false, false)) };
+                let (wy, l) = unsafe {
+                    (
+                        time(ncodes, touched, true, true),
+                        time(ncodes, touched, false, false),
+                    )
+                };
                 println!("fitways\t{ncodes}\t{n}\tways\t{wy:.0}\tlist\t{l:.0}");
                 w_pts.push((n as f64, wy));
                 l_pts.push((n as f64, l));

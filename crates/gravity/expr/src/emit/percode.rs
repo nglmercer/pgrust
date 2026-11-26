@@ -25,14 +25,35 @@ pub struct CodeRef {
 /// header's fault bitmap non-null (a loop clone).
 #[derive(Clone, Copy, Debug)]
 pub enum TableRef {
-    Bits { words: Value, faults: Option<Value> },
-    Words { vals: Value, faults: Option<Value> },
+    Bits {
+        words: Value,
+        faults: Option<Value>,
+    },
+    Words {
+        vals: Value,
+        faults: Option<Value>,
+    },
     /// The dictionary index's length fields in place (R4): `index` is the header's `data`.
-    IdxLen { index: Value, field: LenField },
-    Fp128 { vals: Value },
+    IdxLen {
+        index: Value,
+        field: LenField,
+    },
+    Fp128 {
+        vals: Value,
+    },
     /// A per-code length, the window's form resolved once into the row's linear read (`len_table` / `len_read`).
-    Len { base: Value, stride: Value, sa: Value, ma: Value, mb: Value },
-    LenMasked { base: Value, stride: Value, mask: Value },
+    Len {
+        base: Value,
+        stride: Value,
+        sa: Value,
+        ma: Value,
+        mb: Value,
+    },
+    LenMasked {
+        base: Value,
+        stride: Value,
+        mask: Value,
+    },
 }
 
 /// The code at `row`: `u16` / `u32` zero-extended, the low 32 bits of the datum word.
@@ -64,7 +85,9 @@ pub fn bit_of(b: &mut FunctionBuilder<'_>, words: Value, code: Value) -> Value {
 
 /// The fingerprint words `[lo, hi]` of `code` from an `Fp128` table.
 pub fn fingerprint(b: &mut FunctionBuilder<'_>, t: &TableRef, code: Value) -> Option<[Value; 2]> {
-    let TableRef::Fp128 { vals } = *t else { return None };
+    let TableRef::Fp128 { vals } = *t else {
+        return None;
+    };
     let p = b.ptr_add(vals, code, 16, 0);
     Some([b.load(Type::I64, p, 0), b.load(Type::I64, p, 8)])
 }
@@ -103,10 +126,24 @@ pub fn len_table(b: &mut FunctionBuilder<'_>, base: Value, form: Value) -> Table
     let sa = b.select(is_abs, s32, zero);
     let ma = b.select(is_words, all, m32);
     let mb = b.select(is_delta, m32, zero);
-    TableRef::Len { base, stride, sa, ma, mb }
+    TableRef::Len {
+        base,
+        stride,
+        sa,
+        ma,
+        mb,
+    }
 }
 
-pub fn len_read(b: &mut FunctionBuilder<'_>, base: Value, stride: Value, sa: Value, ma: Value, mb: Value, code: Value) -> Value {
+pub fn len_read(
+    b: &mut FunctionBuilder<'_>,
+    base: Value,
+    stride: Value,
+    sa: Value,
+    ma: Value,
+    mb: Value,
+    code: Value,
+) -> Value {
     let off = b.int_bin(IntBinOp::Mul, code, stride);
     let p = b.ptr_add(base, off, 1, 0);
     let v = b.load_unaligned(Type::I64, p, 0);
@@ -121,8 +158,15 @@ pub fn len_read(b: &mut FunctionBuilder<'_>, base: Value, stride: Value, sa: Val
 
 impl<'e, 'b, 'mcx> super::scalar::Em<'e, 'b, 'mcx> {
     pub(crate) fn percode(&mut self, r: &Root) -> Result<Lowered, EmitError> {
-        let cr = *self.row.codes.iter().find(|c| c.attno == r.attno).ok_or(EmitError::NoColumn(r.attno))?;
-        let ColsRef::Lanes { row, .. } = self.row.scan else { return Err(EmitError::NoColumn(r.attno)) };
+        let cr = *self
+            .row
+            .codes
+            .iter()
+            .find(|c| c.attno == r.attno)
+            .ok_or(EmitError::NoColumn(r.attno))?;
+        let ColsRef::Lanes { row, .. } = self.row.scan else {
+            return Err(EmitError::NoColumn(r.attno));
+        };
         let code = match cr.code {
             Some(c) => c,
             None => code_at(self.b, &cr.lane, row),
@@ -134,15 +178,27 @@ impl<'e, 'b, 'mcx> super::scalar::Em<'e, 'b, 'mcx> {
             Form::Derived => return Err(EmitError::PerCodeByRef),
             Form::Bits | Form::Words => {
                 let i = r.table.expect("a tabled form has its need");
-                let t = *self.row.tables.get(i as usize).ok_or(EmitError::NoTable(i))?;
+                let t = *self
+                    .row
+                    .tables
+                    .get(i as usize)
+                    .ok_or(EmitError::NoTable(i))?;
                 let (value, faults) = match t {
                     TableRef::Bits { words, faults } => (bit_of(self.b, words, code), faults),
                     TableRef::Words { vals, faults } => {
                         let p = self.b.ptr_add(vals, code, 8, 0);
                         (self.b.load(Type::I64, p, 0), faults)
                     }
-                    TableRef::IdxLen { index, field } => (idx_len(self.b, index, field, code), None),
-                    TableRef::Len { base, stride, sa, ma, mb } => (len_read(self.b, base, stride, sa, ma, mb, code), None),
+                    TableRef::IdxLen { index, field } => {
+                        (idx_len(self.b, index, field, code), None)
+                    }
+                    TableRef::Len {
+                        base,
+                        stride,
+                        sa,
+                        ma,
+                        mb,
+                    } => (len_read(self.b, base, stride, sa, ma, mb, code), None),
                     TableRef::LenMasked { base, stride, mask } => {
                         let off = self.b.int_bin(IntBinOp::Mul, code, stride);
                         let p = self.b.ptr_add(base, off, 1, 0);
@@ -177,7 +233,14 @@ impl<'e, 'b, 'mcx> super::scalar::Em<'e, 'b, 'mcx> {
                 let ok = self.not(isnull);
                 let valid = self.and(valid, ok);
                 let z = self.zero;
-                (valid, if matches!(self.b.const_of(err), Some((_, 0))) { err } else { self.b.select(ok, err, z) })
+                (
+                    valid,
+                    if matches!(self.b.const_of(err), Some((_, 0))) {
+                        err
+                    } else {
+                        self.b.select(ok, err, z)
+                    },
+                )
             }
             None => (valid, err),
         };

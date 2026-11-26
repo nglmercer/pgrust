@@ -11,8 +11,7 @@ pub const ROWGROUP_SIZE: usize = N_VECTORS_PER_ROWGROUP * VECTOR_SIZE;
 /// (ROWGROUP_SIZE / ROWGROUP_VECTOR_SAMPLES) / VECTOR_SIZE in integer
 /// arithmetic, so a full rowgroup samples 9 vectors (0, 12, .., 96), not 8.
 pub const ROWGROUP_VECTOR_SAMPLES: usize = 8;
-pub const ROWGROUP_SAMPLES_JUMP: usize =
-    (ROWGROUP_SIZE / ROWGROUP_VECTOR_SAMPLES) / VECTOR_SIZE;
+pub const ROWGROUP_SAMPLES_JUMP: usize = (ROWGROUP_SIZE / ROWGROUP_VECTOR_SAMPLES) / VECTOR_SIZE;
 
 pub const SAMPLES_PER_VECTOR: usize = 32;
 pub const MAX_K_COMBINATIONS: usize = 5;
@@ -47,49 +46,15 @@ pub const RD_EXCEPTION_POSITION_SIZE_BITS: u64 = 16;
 
 /// 10^e as f64 (exact through 10^18: 5^18 < 2^53).
 pub const EXP_ARR: [f64; 19] = [
-    1.0,
-    1e1,
-    1e2,
-    1e3,
-    1e4,
-    1e5,
-    1e6,
-    1e7,
-    1e8,
-    1e9,
-    1e10,
-    1e11,
-    1e12,
-    1e13,
-    1e14,
-    1e15,
-    1e16,
-    1e17,
-    1e18,
+    1.0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15, 1e16,
+    1e17, 1e18,
 ];
 
 /// 10^-f as f64. Decimal literals parse to the same nearest-doubles as the
 /// reference's C++ table; do not replace with powi (not correctly rounded).
 pub const FRAC_ARR: [f64; 19] = [
-    1.0,
-    1e-1,
-    1e-2,
-    1e-3,
-    1e-4,
-    1e-5,
-    1e-6,
-    1e-7,
-    1e-8,
-    1e-9,
-    1e-10,
-    1e-11,
-    1e-12,
-    1e-13,
-    1e-14,
-    1e-15,
-    1e-16,
-    1e-17,
-    1e-18,
+    1.0, 1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11, 1e-12, 1e-13, 1e-14,
+    1e-15, 1e-16, 1e-17, 1e-18,
 ];
 
 /// 10^f as exact integers (decode multiplies these back in as f64).

@@ -34,8 +34,22 @@ impl KeySet {
     /// A set over keys of `width` bytes (1, 2, 4 or 8): a narrower datum's high bits are not part of the key.
     pub fn new(width: u8) -> KeySet {
         let width_mask = width_mask(width);
-        let header = Box::new(KeyTable { keys: gravity_abi::word(core::ptr::null()), tags: gravity_abi::word(core::ptr::null()), mask: 0, flags: 0 }); // alloc: Exec
-        let mut s = KeySet { keys: ChargedVec::none(), tags: ChargedVec::none(), len: 0, flags: 0, width_mask, header, owner: None, owned: false };
+        let header = Box::new(KeyTable {
+            keys: gravity_abi::word(core::ptr::null()),
+            tags: gravity_abi::word(core::ptr::null()),
+            mask: 0,
+            flags: 0,
+        }); // alloc: Exec
+        let mut s = KeySet {
+            keys: ChargedVec::none(),
+            tags: ChargedVec::none(),
+            len: 0,
+            flags: 0,
+            width_mask,
+            header,
+            owner: None,
+            owned: false,
+        };
         s.publish();
         s
     }
@@ -63,7 +77,12 @@ impl KeySet {
             true => (&EMPTY_KEYS, &EMPTY_TAGS),
             false => (&self.keys, &self.tags),
         };
-        *self.header = KeyTable { keys: gravity_abi::word(keys.as_ptr()), tags: gravity_abi::word(tags.as_ptr()), mask: keys.len() as u64 - 1, flags: self.flags };
+        *self.header = KeyTable {
+            keys: gravity_abi::word(keys.as_ptr()),
+            tags: gravity_abi::word(tags.as_ptr()),
+            mask: keys.len() as u64 - 1,
+            flags: self.flags,
+        };
     }
 
     fn put(keys: &mut [u64], tags: &mut [u8], key: u64) -> bool {
@@ -86,7 +105,10 @@ impl KeySet {
     /// The arrays doubled, every key put again; a refused block leaves the set as it was.
     fn grow(&mut self) -> core::result::Result<(), TryReserveError> {
         let n = (self.keys.len() * 2).max(KEYSET_MIN_SLOTS);
-        let (o, k) = (self.owner.map(|(o, _)| o), self.owner.map_or(Kind::Distinct, |(_, k)| k));
+        let (o, k) = (
+            self.owner.map(|(o, _)| o),
+            self.owner.map_or(Kind::Distinct, |(_, k)| k),
+        );
         let (mut keys, mut tags) = (ChargedVec::<u64>::new(o, k), ChargedVec::<u8>::new(o, k));
         keys.resize(n, 0)?; // alloc: Exec charged self.owner
         tags.resize(n, 0)?; // alloc: Exec charged self.owner
@@ -101,7 +123,11 @@ impl KeySet {
 
     /// One build row's key (`isnull`: a NULL key, counted, never stored); a growth the allocator refuses is the error (the
     /// statement's out of memory), the set unchanged.
-    pub fn insert(&mut self, value: u64, isnull: bool) -> core::result::Result<(), TryReserveError> {
+    pub fn insert(
+        &mut self,
+        value: u64,
+        isnull: bool,
+    ) -> core::result::Result<(), TryReserveError> {
         self.flags |= NONEMPTY;
         if isnull {
             self.flags |= HAS_NULL;
@@ -137,10 +163,13 @@ impl KeySet {
 impl Sink for KeySet {
     fn push(&mut self, b: BorrowedBatch<'_>) -> Result<Flow> {
         if b.natts != 1 {
-            return Err(Error::host("gravity: a hashed SubPlan's build row is not one key column"));
+            return Err(Error::host(
+                "gravity: a hashed SubPlan's build row is not one key column",
+            ));
         }
         for (v, n) in b.iter() {
-            self.insert(v[0], n[0] != 0).map_err(|_| Error::out_of_memory(self.grow_bytes() as u64))?;
+            self.insert(v[0], n[0] != 0)
+                .map_err(|_| Error::out_of_memory(self.grow_bytes() as u64))?;
         }
         Ok(Flow::Continue)
     }
@@ -156,7 +185,10 @@ mod tests {
     fn keys_nulls_and_growth() {
         let mut s = KeySet::new(4);
         // SAFETY: the header is the set's own, live here.
-        assert_eq!(unsafe { lookup(s.word() as *const KeyTable, 5, 4) }, (false, false, false));
+        assert_eq!(
+            unsafe { lookup(s.word() as *const KeyTable, 5, 4) },
+            (false, false, false)
+        );
         for i in 0..1000u64 {
             s.insert((i * 7) | 0xdead_0000_0000_0000, false).unwrap();
             s.insert(i * 7, false).unwrap();
@@ -166,7 +198,10 @@ mod tests {
         // SAFETY: as above.
         unsafe {
             assert_eq!(lookup(w, 14, 4), (true, true, false));
-            assert_eq!(lookup(w, 14 | 0xffff_ffff_0000_0000, 4), (true, true, false));
+            assert_eq!(
+                lookup(w, 14 | 0xffff_ffff_0000_0000, 4),
+                (true, true, false)
+            );
             assert_eq!(lookup(w, 15, 4), (true, false, false));
         }
         s.insert(0, true).unwrap();
@@ -179,17 +214,32 @@ mod tests {
     fn a_batch_is_its_rows() {
         let mut s = KeySet::new(8);
         let (values, nulls) = ([3u64, 0, 3, u64::MAX], [0u8, 1, 0, 0]);
-        s.push(BorrowedBatch { natts: 1, rows: 4, values: &values, isnull: &nulls, region: &[] }).unwrap();
+        s.push(BorrowedBatch {
+            natts: 1,
+            rows: 4,
+            values: &values,
+            isnull: &nulls,
+            region: &[],
+        })
+        .unwrap();
         assert_eq!(s.len(), 2);
         // SAFETY: as above.
-        assert_eq!(unsafe { lookup(s.word() as *const KeyTable, u64::MAX, 8) }, (true, true, true));
+        assert_eq!(
+            unsafe { lookup(s.word() as *const KeyTable, u64::MAX, 8) },
+            (true, true, true)
+        );
     }
 
     #[test]
     fn a_full_table_probe_ends() {
         // No empty tag anywhere: the probe walks each slot once and answers absent.
         let (keys, tags) = ([1u64, 2, 3, 4], [1u8; 4]);
-        let t = KeyTable { keys: gravity_abi::word(keys.as_ptr()), tags: gravity_abi::word(tags.as_ptr()), mask: 3, flags: NONEMPTY };
+        let t = KeyTable {
+            keys: gravity_abi::word(keys.as_ptr()),
+            tags: gravity_abi::word(tags.as_ptr()),
+            mask: 3,
+            flags: NONEMPTY,
+        };
         // SAFETY: `t`'s arrays are `mask + 1` long and live here.
         unsafe {
             assert_eq!(lookup(&t, 9, 8), (true, false, false));

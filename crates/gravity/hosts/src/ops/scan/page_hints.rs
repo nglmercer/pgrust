@@ -29,14 +29,20 @@ impl Table {
     /// `bytes` with `len` arrays of `entries` entries together in the map's capacity.
     fn bytes_with(&self, len: usize, entries: usize) -> u64 {
         let slot = core::mem::size_of::<(RelFileLocator, Arc<[AtomicI32]>)>() + 1;
-        (self.arrays.capacity() * slot + len * array_bytes(0) + entries * core::mem::size_of::<AtomicI32>()) as u64
+        (self.arrays.capacity() * slot
+            + len * array_bytes(0)
+            + entries * core::mem::size_of::<AtomicI32>()) as u64
     }
 
     /// D4635: the arrays of the relation files `gone` names let go. The charge refits down for them first (their bytes
     /// leave the holder for this thread's account), then they leave the map: each frees here, on that account, unless a
     /// scan still holds it (then at its last drop, as a replaced array does).
     fn forget_where(&mut self, gone: impl Fn(&RelFileLocator) -> bool) {
-        let (n, entries) = self.arrays.iter().filter(|(l, _)| gone(l)).fold((0, 0), |(n, e), (_, a)| (n + 1, e + a.len()));
+        let (n, entries) = self
+            .arrays
+            .iter()
+            .filter(|(l, _)| gone(l))
+            .fold((0, 0), |(n, e), (_, a)| (n + 1, e + a.len()));
         if n == 0 {
             return;
         }
@@ -47,9 +53,16 @@ impl Table {
     }
 
     fn refit(&mut self) {
-        const OWNER: memledger::Owner = memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::SharedBuffers));
+        const OWNER: memledger::Owner =
+            memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::SharedBuffers));
         if self.charge.owner() != OWNER {
-            self.charge = memledger::Charge::open(OWNER, memledger::charge::release_of(OWNER), memledger::Kind::Region, memledger::charge::Door::Heap, 0);
+            self.charge = memledger::Charge::open(
+                OWNER,
+                memledger::charge::release_of(OWNER),
+                memledger::Kind::Region,
+                memledger::charge::Door::Heap,
+                0,
+            );
         }
         let bytes = self.bytes();
         self.charge.fit_committed(bytes);
@@ -57,7 +70,8 @@ impl Table {
 }
 
 fn array_bytes(len: usize) -> usize {
-    (2 * core::mem::size_of::<usize>() + len * core::mem::size_of::<AtomicI32>()).next_multiple_of(core::mem::size_of::<usize>())
+    (2 * core::mem::size_of::<usize>() + len * core::mem::size_of::<AtomicI32>())
+        .next_multiple_of(core::mem::size_of::<usize>())
 }
 
 static TABLE: Mutex<Option<Table>> = Mutex::new(None);
@@ -103,14 +117,22 @@ pub fn install_forget() {
 
 impl PageHints {
     /// The array covering `nblocks` (capped at the pool's size, so always within `budget`): once per bind, never per page.
-    pub fn of(locator: RelFileLocator, nblocks: BlockNumber, nbuffers: Buffer) -> Option<PageHints> {
+    pub fn of(
+        locator: RelFileLocator,
+        nblocks: BlockNumber,
+        nbuffers: Buffer,
+    ) -> Option<PageHints> {
         let want = (nblocks as usize).min(nbuffers.max(0) as usize);
         let budget = budget(nbuffers);
         if want == 0 || want > budget {
             return None;
         }
         let mut guard = TABLE.lock().unwrap_or_else(|p| p.into_inner());
-        let t = guard.get_or_insert_with(|| Table { arrays: HashMap::new(), entries: 0, charge: memledger::Charge::NONE });
+        let t = guard.get_or_insert_with(|| Table {
+            arrays: HashMap::new(),
+            entries: 0,
+            charge: memledger::Charge::NONE,
+        });
         if let Some(a) = t.arrays.get(&locator) {
             if a.len() >= want {
                 return Some(PageHints(a.clone()));
@@ -122,7 +144,15 @@ impl PageHints {
         if t.entries + len > budget {
             t.forget_where(|_| true);
         }
-        let fresh: Arc<[AtomicI32]> = (0..len).map(|i| AtomicI32::new(old.as_ref().and_then(|a| a.get(i)).map_or(0, |h| h.load(Ordering::Relaxed)))).collect(); // alloc: Exec charged shared buffers (Table::refit)
+        let fresh: Arc<[AtomicI32]> = (0..len)
+            .map(|i| {
+                AtomicI32::new(
+                    old.as_ref()
+                        .and_then(|a| a.get(i))
+                        .map_or(0, |h| h.load(Ordering::Relaxed)),
+                )
+            })
+            .collect(); // alloc: Exec charged shared buffers (Table::refit)
         t.arrays.insert(locator, fresh.clone()); // alloc: Exec charged shared buffers (Table::refit)
         t.entries += len;
         t.refit();
@@ -132,7 +162,9 @@ impl PageHints {
     /// 0 = none.
     #[inline]
     pub fn get(&self, blk: BlockNumber) -> Buffer {
-        self.0.get(blk as usize).map_or(0, |h| h.load(Ordering::Relaxed))
+        self.0
+            .get(blk as usize)
+            .map_or(0, |h| h.load(Ordering::Relaxed))
     }
 
     #[inline]
@@ -155,12 +187,28 @@ mod tests {
         assert_eq!(budget(BUDGET as Buffer), BUDGET);
         assert_eq!(budget(-1), BUDGET);
         let big = (BUDGET + 4096) as Buffer;
-        assert_eq!(budget(big), BUDGET + 4096, "a pool past 64 GiB: its own size");
-        let h = PageHints::of(RelFileLocator::new(1663, 5, 900_001), BUDGET as BlockNumber + 100, big).expect("a pool-sized array");
-        assert_eq!(h.0.len(), BUDGET + 100 + SLACK, "nblocks + SLACK, under the budget");
+        assert_eq!(
+            budget(big),
+            BUDGET + 4096,
+            "a pool past 64 GiB: its own size"
+        );
+        let h = PageHints::of(
+            RelFileLocator::new(1663, 5, 900_001),
+            BUDGET as BlockNumber + 100,
+            big,
+        )
+        .expect("a pool-sized array");
+        assert_eq!(
+            h.0.len(),
+            BUDGET + 100 + SLACK,
+            "nblocks + SLACK, under the budget"
+        );
         h.set(BUDGET as BlockNumber + 99, 7);
         assert_eq!(h.get(BUDGET as BlockNumber + 99), 7);
-        assert!(PageHints::of(RelFileLocator::new(1663, 5, 900_002), 0, big).is_none(), "an empty relation: none");
+        assert!(
+            PageHints::of(RelFileLocator::new(1663, 5, 900_002), 0, big).is_none(),
+            "an empty relation: none"
+        );
     }
 
     #[test]
@@ -169,10 +217,17 @@ mod tests {
         let h = PageHints::of(loc, 64, 16_384).expect("hints");
         let g = TABLE.lock().unwrap_or_else(|p| p.into_inner());
         let t = g.as_ref().expect("the table");
-        assert_eq!(t.charge.owner(), memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::SharedBuffers)));
+        assert_eq!(
+            t.charge.owner(),
+            memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::SharedBuffers))
+        );
         assert_eq!(t.charge.committed(), t.bytes(), "refit at the insert");
         if t.arrays.contains_key(&loc) {
-            assert!(t.bytes() >= (array_bytes(0) + (64 + SLACK) * 4) as u64, "the array is in it: {}", t.bytes());
+            assert!(
+                t.bytes() >= (array_bytes(0) + (64 + SLACK) * 4) as u64,
+                "the array is in it: {}",
+                t.bytes()
+            );
         }
         drop(g);
         drop(h);

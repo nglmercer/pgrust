@@ -94,7 +94,15 @@ const COMPLETE: u32 = 2;
 const WORD1: u32 = 4;
 
 impl Hot {
-    const FREE: Hot = Hot { hash: 0, prev: NIL, next: NIL, chain: NIL, word: 0, rows: 0, flags: 0 };
+    const FREE: Hot = Hot {
+        hash: 0,
+        prev: NIL,
+        next: NIL,
+        chain: NIL,
+        word: 0,
+        rows: 0,
+        flags: 0,
+    };
 }
 
 /// One entry's owned half: its key, its rows (`rows[0]` = the row count, `rows[1]` = the columns, then per row per column
@@ -177,7 +185,27 @@ pub struct Stats {
 impl MemoTable {
     /// A cache under `limit` bytes; `fns` one per key unless `binary`.
     pub fn new(binary: bool, singlerow: bool, limit: u64, fns: Vec<KeyFns>) -> MemoTable {
-        MemoTable { charge: Charge::NONE, charged: 0, owned: false, on: false, entries_heap: 0, binary, singlerow, limit, fns, hot: Vec::new(), cold: Vec::new(), free: Vec::new(), live: 0, buckets: Vec::new(), head: NIL, tail: NIL, mem_used: 0, current: None, stats: Stats::default() } // alloc: Exec
+        MemoTable {
+            charge: Charge::NONE,
+            charged: 0,
+            owned: false,
+            on: false,
+            entries_heap: 0,
+            binary,
+            singlerow,
+            limit,
+            fns,
+            hot: Vec::new(),
+            cold: Vec::new(),
+            free: Vec::new(),
+            live: 0,
+            buckets: Vec::new(),
+            head: NIL,
+            tail: NIL,
+            mem_used: 0,
+            current: None,
+            stats: Stats::default(),
+        } // alloc: Exec
     }
 
     pub fn mem_used(&self) -> u64 {
@@ -195,14 +223,19 @@ impl MemoTable {
     pub fn own(&mut self, owner: Option<(Owner, Kind)>) {
         self.owned = true;
         if let Some((o, k)) = owner {
-            (self.charge, self.charged, self.on) = (Charge::open(o, Release::Statement, k, Door::Heap, 0), 0, true);
+            (self.charge, self.charged, self.on) = (
+                Charge::open(o, Release::Statement, k, Door::Heap, 0),
+                0,
+                true,
+            );
             self.sync(0);
         }
     }
 
     /// The heap bytes the cache holds: every live entry's own blocks, and the slabs', free list's and buckets' blocks.
     pub fn heap_bytes(&self) -> u64 {
-        let slabs = self.hot.capacity() * core::mem::size_of::<Hot>() + self.cold.capacity() * core::mem::size_of::<Cold>();
+        let slabs = self.hot.capacity() * core::mem::size_of::<Hot>()
+            + self.cold.capacity() * core::mem::size_of::<Cold>();
         self.entries_heap + (slabs + (self.free.capacity() + self.buckets.capacity()) * 4) as u64
     }
 
@@ -216,10 +249,19 @@ impl MemoTable {
     #[cfg(test)]
     fn recount(&self) -> u64 {
         let one = |c: &Cold| {
-            let key = c.key.capacity() * core::mem::size_of::<Stored>() + c.key.iter().map(|k| k.image.as_ref().map_or(0, |b| b.len() * 8)).sum::<usize>();
-            key + c.rows.capacity() * 8 + c.copies.capacity() * core::mem::size_of::<Box<[u64]>>() + c.copies.iter().map(|b| b.len() * 8).sum::<usize>()
+            let key = c.key.capacity() * core::mem::size_of::<Stored>()
+                + c.key
+                    .iter()
+                    .map(|k| k.image.as_ref().map_or(0, |b| b.len() * 8))
+                    .sum::<usize>();
+            key + c.rows.capacity() * 8
+                + c.copies.capacity() * core::mem::size_of::<Box<[u64]>>()
+                + c.copies.iter().map(|b| b.len() * 8).sum::<usize>()
         };
-        let entries = (0..self.hot.len()).filter(|&i| self.hot[i].flags & LIVE != 0).map(|i| one(&self.cold[i]) as u64).sum::<u64>();
+        let entries = (0..self.hot.len())
+            .filter(|&i| self.hot[i].flags & LIVE != 0)
+            .map(|i| one(&self.cold[i]) as u64)
+            .sum::<u64>();
         entries + self.heap_bytes() - self.entries_heap
     }
 
@@ -258,7 +300,14 @@ impl MemoTable {
     /// copies dropped, the LRU and the running scan's entry cleared, `mem_used` 0; the entries count as evictions.
     pub fn purge_all(&mut self) {
         self.stats.evictions += self.len() as u64;
-        (self.head, self.tail, self.mem_used, self.current, self.live, self.entries_heap) = (NIL, NIL, 0, None, 0, 0);
+        (
+            self.head,
+            self.tail,
+            self.mem_used,
+            self.current,
+            self.live,
+            self.entries_heap,
+        ) = (NIL, NIL, 0, None, 0, 0);
         self.hot.clear();
         self.cold.clear();
         self.free.clear();
@@ -299,8 +348,10 @@ impl MemoTable {
             let n = (self.live * 2).next_power_of_two();
             self.buckets.clear();
             self.buckets.resize(n, NIL); // alloc: Exec charged self.charge
-            // a label-only step (no tick), opened only when the buckets double: a long relink is checker 2's under its own label
-            let _step = cancelpoll::step("memoize store chain_in: the entries relinked into the doubled buckets");
+                                         // a label-only step (no tick), opened only when the buckets double: a long relink is checker 2's under its own label
+            let _step = cancelpoll::step(
+                "memoize store chain_in: the entries relinked into the doubled buckets",
+            );
             // bounded("other: the buckets' doubling: each pass only relinks one slab entry into its bucket by its stored hash, with no key read and no function called; run when the live entries outnumber the buckets, so its cost is amortized over the lookups that stored them; a doubling runs to its end (a stop would leave entries out of their chains), as PG's simplehash grow relinks the same with no poll")
             for i in 0..self.hot.len() {
                 if self.hot[i].flags & LIVE != 0 {
@@ -345,7 +396,9 @@ impl MemoTable {
     }
 
     fn unlink(&mut self, s: usize) {
-        let Hot { prev: p, next: n, .. } = self.hot[s];
+        let Hot {
+            prev: p, next: n, ..
+        } = self.hot[s];
         match p {
             NIL => self.head = n,
             p => self.hot[p as usize].next = n,
@@ -384,7 +437,16 @@ impl MemoTable {
 
 /// A key's bytes as PG counts the key tuple (`params->t_len`).
 fn key_bytes(k: &[Stored]) -> u64 {
-    MINTUPLE_HEADER + k.iter().map(|s| if s.image.is_some() { (s.len as u64).next_multiple_of(8) } else { 8 }).sum::<u64>()
+    MINTUPLE_HEADER
+        + k.iter()
+            .map(|s| {
+                if s.image.is_some() {
+                    (s.len as u64).next_multiple_of(8)
+                } else {
+                    8
+                }
+            })
+            .sum::<u64>()
 }
 
 /// PG's `murmurhash32` finalizer.
@@ -404,17 +466,31 @@ mod tests {
     use super::*;
 
     fn int(v: u64) -> Probe {
-        Probe { word: v, null: false, len: 0 }
+        Probe {
+            word: v,
+            null: false,
+            len: 0,
+        }
     }
 
     fn col(v: u64) -> Col {
-        Col { word: v, null: false, len: 0 }
+        Col {
+            word: v,
+            null: false,
+            len: 0,
+        }
     }
 
     /// Row `r` of a hit's rows: its (word, null) pairs.
     unsafe fn rows(at: *const u64) -> Vec<Vec<(u64, u64)>> {
         let (n, c) = (*at as usize, *at.add(1) as usize);
-        (0..n).map(|r| (0..c).map(|k| (*at.add(2 + 2 * (r * c + k)), *at.add(3 + 2 * (r * c + k)))).collect()).collect()
+        (0..n)
+            .map(|r| {
+                (0..c)
+                    .map(|k| (*at.add(2 + 2 * (r * c + k)), *at.add(3 + 2 * (r * c + k))))
+                    .collect()
+            })
+            .collect()
     }
 
     /// CONVERT wave 2 (site 11): with by-reference keys and rows (images, copies), refills and evictions past the limit,
@@ -433,19 +509,43 @@ mod tests {
             let check = |t: &MemoTable, at: &str| {
                 let (h, c) = (t.heap_bytes(), t.charged());
                 assert_eq!(h, t.recount(), "{at}: the running heap bytes");
-                assert_eq!(committed() - base, c as i64, "{at}: the owner's committed bytes");
+                assert_eq!(
+                    committed() - base,
+                    c as i64,
+                    "{at}: the owner's committed bytes"
+                );
                 assert!(h.abs_diff(c) < SYNC_SLACK, "{at}: heap {h}, charged {c}");
             };
             unsafe {
-                t.lookup(&[Probe { word: text.as_ptr() as u64, null: false, len: 40 }, int(u64::MAX)]).unwrap();
+                t.lookup(&[
+                    Probe {
+                        word: text.as_ptr() as u64,
+                        null: false,
+                        len: 40,
+                    },
+                    int(u64::MAX),
+                ])
+                .unwrap();
                 assert!(t.needs_owner());
                 t.own(Some((o, memledger::Kind::Region)));
                 check(&t, "owned after the first lookup");
                 for k in 0..3000u64 {
-                    let key = Probe { word: text.as_ptr() as u64, null: false, len: 8 + k % 200 };
+                    let key = Probe {
+                        word: text.as_ptr() as u64,
+                        null: false,
+                        len: 8 + k % 200,
+                    };
                     if t.lookup(&[key, int(k)]).unwrap() == (Lookup::Miss { current: true }) {
                         for r in 0..(k % 5) {
-                            t.store(&[col(r), Col { word: text.as_ptr() as u64, null: false, len: 16 + r * 50 }]).unwrap();
+                            t.store(&[
+                                col(r),
+                                Col {
+                                    word: text.as_ptr() as u64,
+                                    null: false,
+                                    len: 16 + r * 50,
+                                },
+                            ])
+                            .unwrap();
                         }
                         if k % 7 != 0 {
                             t.done();
@@ -453,13 +553,22 @@ mod tests {
                     }
                     check(&t, &format!("key {k}")); // alloc: Cold
                 }
-                assert!(t.stats.evictions > 0 && t.heap_bytes() > SYNC_SLACK, "evictions {}, heap {}", t.stats.evictions, t.heap_bytes());
+                assert!(
+                    t.stats.evictions > 0 && t.heap_bytes() > SYNC_SLACK,
+                    "evictions {}, heap {}",
+                    t.stats.evictions,
+                    t.heap_bytes()
+                );
                 t.purge_all();
                 assert_eq!(t.charged(), t.heap_bytes(), "exact at the purge");
                 check(&t, "purged");
             }
             drop(t);
-            assert_eq!(committed(), base, "the table's bytes left the owner with it");
+            assert_eq!(
+                committed(),
+                base,
+                "the table's bytes left the owner with it"
+            );
             memledger::statement_end();
             memledger::unbind_backend();
         })
@@ -473,13 +582,26 @@ mod tests {
         unsafe {
             assert_eq!(t.lookup(&[int(7)]).unwrap(), Lookup::Miss { current: true });
             assert!(t.store(&[col(1), col(2)]).unwrap());
-            assert!(t.store(&[col(3), Col { word: 0, null: true, len: 0 }]).unwrap());
+            assert!(t
+                .store(&[
+                    col(3),
+                    Col {
+                        word: 0,
+                        null: true,
+                        len: 0
+                    }
+                ])
+                .unwrap());
             t.done();
-            let Lookup::Hit(at) = t.lookup(&[int(7)]).unwrap() else { panic!("a hit") };
+            let Lookup::Hit(at) = t.lookup(&[int(7)]).unwrap() else {
+                panic!("a hit")
+            };
             assert_eq!(rows(at), vec![vec![(1, 0), (2, 0)], vec![(3, 0), (0, 1)]]); // alloc: Cold
             assert_eq!(t.lookup(&[int(8)]).unwrap(), Lookup::Miss { current: true });
             t.done();
-            let Lookup::Hit(at) = t.lookup(&[int(8)]).unwrap() else { panic!("an empty hit") };
+            let Lookup::Hit(at) = t.lookup(&[int(8)]).unwrap() else {
+                panic!("an empty hit")
+            };
             assert!(rows(at).is_empty());
         }
         assert_eq!((t.stats.hits, t.stats.misses), (2, 2));
@@ -496,7 +618,9 @@ mod tests {
             t.store(&[col(10)]).unwrap();
             t.store(&[col(11)]).unwrap();
             t.done();
-            let Lookup::Hit(at) = t.lookup(&[int(1)]).unwrap() else { panic!("a hit") };
+            let Lookup::Hit(at) = t.lookup(&[int(1)]).unwrap() else {
+                panic!("a hit")
+            };
             assert_eq!(rows(at), vec![vec![(10, 0)], vec![(11, 0)]]); // alloc: Cold
         }
     }
@@ -514,13 +638,25 @@ mod tests {
             t.store(&[col(9)]).unwrap();
             t.purge_all();
             assert_eq!((t.len(), t.mem_used()), (0, 0));
-            assert_eq!(t.stats.evictions, 4, "the three complete entries and the one being filled");
-            assert!(!t.store(&[col(1)]).unwrap(), "no fill survives a purge (bypass until the next lookup)");
+            assert_eq!(
+                t.stats.evictions, 4,
+                "the three complete entries and the one being filled"
+            );
+            assert!(
+                !t.store(&[col(1)]).unwrap(),
+                "no fill survives a purge (bypass until the next lookup)"
+            );
             for k in [0, 9] {
-                assert_eq!(t.lookup(&[int(k)]).unwrap(), Lookup::Miss { current: true }, "key {k} refills after the purge");
+                assert_eq!(
+                    t.lookup(&[int(k)]).unwrap(),
+                    Lookup::Miss { current: true },
+                    "key {k} refills after the purge"
+                );
                 assert!(t.store(&[col(k + 100)]).unwrap());
                 t.done();
-                let Lookup::Hit(at) = t.lookup(&[int(k)]).unwrap() else { panic!("a hit") };
+                let Lookup::Hit(at) = t.lookup(&[int(k)]).unwrap() else {
+                    panic!("a hit")
+                };
                 assert_eq!(rows(at), vec![vec![(k + 100, 0)]]); // alloc: Cold
             }
             assert_eq!(t.len(), 2);
@@ -530,13 +666,22 @@ mod tests {
     #[test]
     fn null_keys_are_not_distinct_and_singlerow_completes_at_the_first_row() {
         let mut t = MemoTable::new(true, true, 1 << 20, Vec::new()); // alloc: Cold
-        let null = Probe { word: 0, null: true, len: 0 };
+        let null = Probe {
+            word: 0,
+            null: true,
+            len: 0,
+        };
         unsafe {
             t.lookup(&[null, int(2)]).unwrap();
             t.store(&[col(5)]).unwrap();
-            let Lookup::Hit(at) = t.lookup(&[null, int(2)]).unwrap() else { panic!("singlerow: complete after one row") };
+            let Lookup::Hit(at) = t.lookup(&[null, int(2)]).unwrap() else {
+                panic!("singlerow: complete after one row")
+            };
             assert_eq!(rows(at), vec![vec![(5, 0)]]); // alloc: Cold
-            assert_eq!(t.lookup(&[int(0), int(2)]).unwrap(), Lookup::Miss { current: true });
+            assert_eq!(
+                t.lookup(&[int(0), int(2)]).unwrap(),
+                Lookup::Miss { current: true }
+            );
             t.store(&[col(6)]).unwrap();
             let e = t.store(&[col(7)]).unwrap_err();
             assert_eq!(e.message(), "cache entry already complete");
@@ -547,12 +692,19 @@ mod tests {
     fn binary_keys_compare_by_image() {
         let mut t = MemoTable::new(true, false, 1 << 20, Vec::new()); // alloc: Cold
         let (a, b) = (b"\x0babc".to_vec(), b"\x0babd".to_vec());
-        let p = |v: &Vec<u8>| Probe { word: v.as_ptr() as u64, null: false, len: v.len() as u64 };
+        let p = |v: &Vec<u8>| Probe {
+            word: v.as_ptr() as u64,
+            null: false,
+            len: v.len() as u64,
+        };
         unsafe {
             t.lookup(&[p(&a)]).unwrap();
             t.store(&[col(1)]).unwrap();
             t.done();
-            assert!(matches!(t.lookup(&[p(&a.clone())]).unwrap(), Lookup::Hit(_)));
+            assert!(matches!(
+                t.lookup(&[p(&a.clone())]).unwrap(),
+                Lookup::Hit(_)
+            ));
             assert_eq!(t.lookup(&[p(&b)]).unwrap(), Lookup::Miss { current: true });
         }
     }
@@ -565,12 +717,18 @@ mod tests {
         let mut t = MemoTable::new(true, false, limit, Vec::new()); // alloc: Cold
         unsafe {
             let fill = |t: &mut MemoTable, k: u64| {
-                assert_eq!(t.lookup(&[int(k)]).unwrap(), Lookup::Miss { current: true }, "key {k} misses");
+                assert_eq!(
+                    t.lookup(&[int(k)]).unwrap(),
+                    Lookup::Miss { current: true },
+                    "key {k} misses"
+                );
                 assert!(t.store(&[col(k)]).unwrap());
                 t.done();
             };
             let hit = |t: &mut MemoTable, k: u64| {
-                let Lookup::Hit(at) = t.lookup(&[int(k)]).unwrap() else { panic!("key {k} hits") };
+                let Lookup::Hit(at) = t.lookup(&[int(k)]).unwrap() else {
+                    panic!("key {k} hits")
+                };
                 assert_eq!(rows(at), vec![vec![(k, 0)]]); // alloc: Cold
             };
             fill(&mut t, a);
@@ -586,7 +744,11 @@ mod tests {
             hit(&mut t, b);
             fill(&mut t, c);
             hit(&mut t, b);
-            assert_eq!(t.lookup(&[int(a)]).unwrap(), Lookup::Miss { current: true }, "a went from the chain's head");
+            assert_eq!(
+                t.lookup(&[int(a)]).unwrap(),
+                Lookup::Miss { current: true },
+                "a went from the chain's head"
+            );
         }
     }
 
@@ -601,12 +763,19 @@ mod tests {
                 assert!(t.store(&[col(k)]).unwrap());
                 t.done();
             }
-            assert!(matches!(t.lookup(&[int(0)]).unwrap(), Lookup::Hit(_)), "key 0 is now the LRU tail");
+            assert!(
+                matches!(t.lookup(&[int(0)]).unwrap(), Lookup::Hit(_)),
+                "key 0 is now the LRU tail"
+            );
             t.lookup(&[int(2)]).unwrap();
             assert!(t.store(&[col(2)]).unwrap());
             t.done();
             assert!(t.mem_used() <= limit);
-            assert_eq!(t.lookup(&[int(1)]).unwrap(), Lookup::Miss { current: true }, "key 1 was the LRU head");
+            assert_eq!(
+                t.lookup(&[int(1)]).unwrap(),
+                Lookup::Miss { current: true },
+                "key 1 was the LRU head"
+            );
             // a scan far past the limit evicts everything, itself last: bypass
             let mut stored = true;
             for r in 0..64 {
@@ -618,7 +787,11 @@ mod tests {
             assert!(!stored);
             assert!(!t.store(&[col(0)]).unwrap(), "bypass until the next lookup");
             t.done();
-            assert_eq!(t.lookup(&[int(1)]).unwrap(), Lookup::Miss { current: true }, "nothing cached for the bypassed scan");
+            assert_eq!(
+                t.lookup(&[int(1)]).unwrap(),
+                Lookup::Miss { current: true },
+                "nothing cached for the bypassed scan"
+            );
         }
         assert!(t.stats.evictions >= 3);
     }
@@ -628,25 +801,40 @@ mod tests {
         let mut t = MemoTable::new(true, false, 1 << 30, Vec::new()); // alloc: Cold
         unsafe {
             for k in 0..5000u64 {
-                assert_eq!(t.lookup(&[int(k * 7919)]).unwrap(), Lookup::Miss { current: true });
+                assert_eq!(
+                    t.lookup(&[int(k * 7919)]).unwrap(),
+                    Lookup::Miss { current: true }
+                );
                 assert!(t.store(&[col(k)]).unwrap());
                 t.done();
             }
             for k in (0..5000u64).rev() {
-                let Lookup::Hit(at) = t.lookup(&[int(k * 7919)]).unwrap() else { panic!("key {k} hits") };
+                let Lookup::Hit(at) = t.lookup(&[int(k * 7919)]).unwrap() else {
+                    panic!("key {k} hits")
+                };
                 assert_eq!(rows(at), vec![vec![(k, 0)]]); // alloc: Cold
             }
             assert_eq!(t.len(), 5000);
             // the LRU is now 4999 .. 0: a limit of 1000 entries evicts 4999 first
             let one = ENTRY_BYTES + MINTUPLE_HEADER + 8 + TUPLE_BYTES + MINTUPLE_HEADER + 8;
             t.limit = 1000 * one;
-            assert_eq!(t.lookup(&[int(u64::MAX)]).unwrap(), Lookup::Miss { current: true });
+            assert_eq!(
+                t.lookup(&[int(u64::MAX)]).unwrap(),
+                Lookup::Miss { current: true }
+            );
             assert!(t.store(&[col(1)]).unwrap());
             t.done();
             assert_eq!(t.len(), 1000);
             assert_eq!(t.stats.evictions, 4001);
-            assert!(matches!(t.lookup(&[int(0)]).unwrap(), Lookup::Hit(_)), "the most recent survives");
-            assert_eq!(t.lookup(&[int(4999 * 7919)]).unwrap(), Lookup::Miss { current: true }, "the oldest went");
+            assert!(
+                matches!(t.lookup(&[int(0)]).unwrap(), Lookup::Hit(_)),
+                "the most recent survives"
+            );
+            assert_eq!(
+                t.lookup(&[int(4999 * 7919)]).unwrap(),
+                Lookup::Miss { current: true },
+                "the oldest went"
+            );
         }
     }
 }

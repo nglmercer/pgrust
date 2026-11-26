@@ -42,9 +42,14 @@ fn verbatim_part() -> BuiltFixture {
         db: 5,
         relfilenumber: 4532,
         schema: vec![text_col(1)],
-        oracle: vec![(0..ROWS).map(|i| Some(OracleVal::Bytes(value(i)))).collect()],
+        oracle: vec![(0..ROWS)
+            .map(|i| Some(OracleVal::Bytes(value(i))))
+            .collect()],
         plans: vec![],
-        policy: PartCutPolicy { max_rows: ROWS, ..PartCutPolicy::default() },
+        policy: PartCutPolicy {
+            max_rows: ROWS,
+            ..PartCutPolicy::default()
+        },
     };
     let cands = CodecCandidates::new(ColumnPosture::default());
     let sources: [&dyn CandidateSource; 2] = [&cands, &ReferenceCandidates];
@@ -59,8 +64,14 @@ fn verbatim_part() -> BuiltFixture {
     w.publish(&mut vfs, &probe).expect("publish");
     probe.mark(fxid, TxnVerdict::Committed);
     let files = vfs.snapshot_dir(&fx.dir);
-    let manifest = effective_manifest(&mut vfs, &fx.dir, &probe, None).expect("effective").expect("committed generation");
-    BuiltFixture { fx, files, manifest }
+    let manifest = effective_manifest(&mut vfs, &fx.dir, &probe, None)
+        .expect("effective")
+        .expect("committed generation");
+    BuiltFixture {
+        fx,
+        files,
+        manifest,
+    }
 }
 
 /// One statement's read of the whole part as code lanes in one claim (a W8 worker's whole-part claim), the uses released
@@ -87,7 +98,11 @@ fn scan(bf: &BuiltFixture, ino: u64, registry: &Arc<PartRegistry>) -> Vec<(u64, 
         if n == 0 {
             break;
         }
-        assert_eq!(w.lanes()[0].kind, gravity_abi::ctx::lane::KIND_CODES, "a verbatim part publishes ranked codes");
+        assert_eq!(
+            w.lanes()[0].kind,
+            gravity_abi::ctx::lane::KIND_CODES,
+            "a verbatim part publishes ranked codes"
+        );
         rows += n as u64;
         seen.push((registry.in_use_bytes(), pgrc_read::partcache::bytes()));
     }
@@ -105,7 +120,10 @@ fn a_whole_column_walk_pins_its_read_ahead_not_the_part() {
     pgrc_read::partcache::set_budget(u64::MAX);
     scan(&bf, 4_315_000, &registry);
     let whole = pgrc_read::partcache::bytes();
-    assert!(whole >= 8 << 20, "the part's eight extents are cached after the scan: {whole} bytes");
+    assert!(
+        whole >= 8 << 20,
+        "the part's eight extents are cached after the scan: {whole} bytes"
+    );
 
     // cold, past the level: a fresh part identity walks again; the trim takes what the cursor passed while the part is in use
     registry.trim_contents(0);

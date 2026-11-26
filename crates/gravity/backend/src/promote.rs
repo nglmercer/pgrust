@@ -44,7 +44,12 @@ impl Queue {
     }
 }
 
-static QUEUE: Mutex<Queue> = Mutex::new(Queue { jobs: VecDeque::new(), threads: 0, running: 0, stopped: false });
+static QUEUE: Mutex<Queue> = Mutex::new(Queue {
+    jobs: VecDeque::new(),
+    threads: 0,
+    running: 0,
+    stopped: false,
+});
 static WAKE: Condvar = Condvar::new();
 static IDLE: Condvar = Condvar::new();
 
@@ -55,22 +60,43 @@ pub static DROPPED: AtomicU64 = AtomicU64::new(0);
 pub static FAILED: AtomicU64 = AtomicU64::new(0);
 
 fn on() -> bool {
-    !matches!(gravity_driver::env::text(ASYNC_ENV).as_deref().map(str::trim), Some("off"))
+    !matches!(
+        gravity_driver::env::text(ASYNC_ENV)
+            .as_deref()
+            .map(str::trim),
+        Some("off")
+    )
 }
 
 /// Hand `program`'s module (every entry: one compile serves them all, D230) to the pool; false = not queued. `hold_ms`:
 /// the compile holds the module's key that long first (D3811's fault injection, 0 = none).
-pub(crate) fn submit(program: Arc<Program>, entries: Arc<[Func]>, hold_ms: u64, key: crate::cache::CodeKey) -> bool {
+pub(crate) fn submit(
+    program: Arc<Program>,
+    entries: Arc<[Func]>,
+    hold_ms: u64,
+    key: crate::cache::CodeKey,
+) -> bool {
     if !on() {
         return false;
     }
     let mut q = QUEUE.lock().unwrap_or_else(|e| e.into_inner());
-    if !q.push(Job { program, entries, hold_ms, key }, COMPILE_QUEUE_MAX) {
+    if !q.push(
+        Job {
+            program,
+            entries,
+            hold_ms,
+            key,
+        },
+        COMPILE_QUEUE_MAX,
+    ) {
         DROPPED.fetch_add(1, Ordering::Relaxed);
         return false;
     }
     if q.threads < COMPILE_POOL_THREADS.min(q.running + q.jobs.len()) {
-        match pgsync::thread::Builder::new().name("gravity-tier0-compile".into()).spawn(pagegive::pinned(worker)) {
+        match pgsync::thread::Builder::new()
+            .name("gravity-tier0-compile".into())
+            .spawn(pagegive::pinned(worker))
+        {
             Ok(_) => q.threads += 1,
             Err(_) if q.threads == 0 => {
                 q.jobs.pop_back();
@@ -127,7 +153,9 @@ fn run(job: Job) -> Option<Box<dyn std::any::Any + Send>> {
     // (a program its statement let go drops here) are the program caches' (`cache::home`), never this thread's (UNBOUND),
     // so every context this thread drops parks its keeper as theirs, and every keeper it takes is theirs
     let _home = crate::cache::home().enter();
-    let exit = match gravity_abi::status::unwind::catch(|| crate::pool_compiled_all(&job.program, &job.entries, job.hold_ms, job.key)) {
+    let exit = match gravity_abi::status::unwind::catch(|| {
+        crate::pool_compiled_all(&job.program, &job.entries, job.hold_ms, job.key)
+    }) {
         Ok(Ok((_, o))) if o.lookup == crate::Lookup::Miss => {
             FILED.fetch_add(1, Ordering::Relaxed);
             None
@@ -141,7 +169,11 @@ fn run(job: Job) -> Option<Box<dyn std::any::Any + Send>> {
         Err(p) if types_error::is_exit_payload(&*p) => Some(p),
         Err(p) => {
             FAILED.fetch_add(1, Ordering::Relaxed);
-            let msg = p.downcast_ref::<String>().map(String::as_str).or_else(|| p.downcast_ref::<&str>().copied()).unwrap_or("(non-string payload)");
+            let msg = p
+                .downcast_ref::<String>()
+                .map(String::as_str)
+                .or_else(|| p.downcast_ref::<&str>().copied())
+                .unwrap_or("(non-string payload)");
             eprintln!("gravity backend: tier 0's asynchronous compile panicked, its next execution compiles inline: {msg}");
             None
         }
@@ -190,12 +222,22 @@ mod tests {
         drop(b);
         let program = pb.finish();
         let key = crate::cache::key_of(&program);
-        Job { program: Arc::new(program), entries: vec![f].into(), hold_ms: 0, key }
+        Job {
+            program: Arc::new(program),
+            entries: vec![f].into(),
+            hold_ms: 0,
+            key,
+        }
     }
 
     #[test]
     fn the_queue_takes_jobs_up_to_its_cap_and_none_once_stopped() {
-        let mut q = Queue { jobs: VecDeque::new(), threads: 0, running: 0, stopped: false };
+        let mut q = Queue {
+            jobs: VecDeque::new(),
+            threads: 0,
+            running: 0,
+            stopped: false,
+        };
         for i in 0..3 {
             assert!(q.push(job(), 3), "job {i}");
         }

@@ -203,12 +203,12 @@ pub fn from_char_parse_int_len(
             errsave(
                 escontext.as_deref_mut(),
                 invalid_value(&copy, node_name)
-                .with_detail(format!(
-                    "Field requires {len} characters, but only {used} could be parsed."
-                ))
-                .with_hint(
-                    "If your source string is not fixed-width, try using the \"FM\" modifier.",
-                ),
+                    .with_detail(format!(
+                        "Field requires {len} characters, but only {used} could be parsed."
+                    ))
+                    .with_hint(
+                        "If your source string is not fixed-width, try using the \"FM\" modifier.",
+                    ),
             )?;
             return Ok(None);
         }
@@ -369,11 +369,7 @@ fn casefold_str_cmp<'mcx>(
     Ok(&lower[..lower_len] == element)
 }
 
-pub fn seq_search_localized(
-    name: &[u8],
-    array: &[Vec<u8>],
-    collid: Oid,
-) -> PgResult<(i32, usize)> {
+pub fn seq_search_localized(name: &[u8], array: &[Vec<u8>], collid: Oid) -> PgResult<(i32, usize)> {
     if name.is_empty() || name[0] == 0 {
         return Ok((-1, 0));
     }

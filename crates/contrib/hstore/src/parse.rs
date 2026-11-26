@@ -50,7 +50,11 @@ fn grow_pairs(pcur: usize, plen: usize) -> PgResult<usize> {
 
 // get_val: one token starting at ptr; Ok(None) is EOF at token start.
 #[allow(clippy::if_same_then_else)]
-fn get_val(input: &[u8], mut ptr: usize, ignoreeq: bool) -> PgResult<Option<(Vec<u8>, bool, usize)>> {
+fn get_val(
+    input: &[u8],
+    mut ptr: usize,
+    ignoreeq: bool,
+) -> PgResult<Option<(Vec<u8>, bool, usize)>> {
     let mut st = Gv::WaitVal;
     let mut wordlen = 32usize;
     let mut word: Vec<u8> = ::mcx::std_vec_with_capacity("contrib", wordlen)?;
@@ -174,10 +178,11 @@ pub fn parse_hstore(input: &[u8]) -> PgResult<Vec<Pair>> {
                 Some((word, escaped, newptr)) => {
                     ptr = newptr;
                     check_val_len(word.len())?;
-                    let isnull =
-                        word.len() == 4 && !escaped && word.eq_ignore_ascii_case(b"null");
+                    let isnull = word.len() == 4 && !escaped && word.eq_ignore_ascii_case(b"null");
                     crate::check_pair_count(pairs.len() + 1)?;
-                    pairs.try_reserve(1).map_err(|_| ::mcx::oom_named("hstore_in", 56))?;
+                    pairs
+                        .try_reserve(1)
+                        .map_err(|_| ::mcx::oom_named("hstore_in", 56))?;
                     pairs.push(Pair {
                         key: cur_key.take().expect("key set before value"),
                         val: (!isnull).then_some(word),
@@ -249,10 +254,16 @@ mod tests {
         assert_eq!(resize_prsbuf(31, 32).unwrap(), 64);
         assert_eq!(resize_prsbuf(536870910, 536870912).unwrap(), 536870912);
         let err = resize_prsbuf(536870911, 536870912).unwrap_err();
-        assert_eq!(err.message(), "invalid memory alloc request size 1073741824");
+        assert_eq!(
+            err.message(),
+            "invalid memory alloc request size 1073741824"
+        );
         assert!(crate::to_array_alloc_guard(67108863).is_ok());
         let err = crate::to_array_alloc_guard(67108864).unwrap_err();
-        assert_eq!(err.message(), "invalid memory alloc request size 1073741824");
+        assert_eq!(
+            err.message(),
+            "invalid memory alloc request size 1073741824"
+        );
     }
 
     fn kv(input: &str) -> Vec<(String, Option<String>)> {
@@ -276,7 +287,10 @@ mod tests {
         assert_eq!(grow_pairs(16, 16).unwrap(), 32);
         assert_eq!(grow_pairs(16777215, 16777216).unwrap(), 16777216);
         let err = grow_pairs(16777216, 16777216).unwrap_err();
-        assert_eq!(err.message(), "invalid memory alloc request size 1342177280");
+        assert_eq!(
+            err.message(),
+            "invalid memory alloc request size 1342177280"
+        );
     }
 
     #[test]
@@ -297,7 +311,10 @@ mod tests {
     fn basic_forms() {
         assert_eq!(kv("a=>b"), vec![("a".into(), Some("b".into()))]);
         assert_eq!(kv(" a => NULL "), vec![("a".into(), None)]);
-        assert_eq!(kv(r#""x y"=>"z,w""#), vec![("x y".into(), Some("z,w".into()))]);
+        assert_eq!(
+            kv(r#""x y"=>"z,w""#),
+            vec![("x y".into(), Some("z,w".into()))]
+        );
         assert_eq!(kv(r#"a=>"NULL""#), vec![("a".into(), Some("NULL".into()))]);
         assert_eq!(kv(r"a\=>b=>1"), vec![("a=>b".into(), Some("1".into()))]);
         assert!(kv("").is_empty());

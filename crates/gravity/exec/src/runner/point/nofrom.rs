@@ -23,11 +23,19 @@ use crate::inputs::knobs::seam::{point_path, POINT_PATH_OFF, POINT_PATH_STRICT};
 /// The first feature of a SELECT without FROM that keeps it on the planner (PL/pgSQL's simple-expression rules without
 /// the one-column limit); `None` when it is one hook A builds.
 fn nofrom_refusal(q: &Query<'_>) -> Option<&'static str> {
-    let jt = q.jointree.map_or((true, true), |j| (j.fromlist.is_nil(), j.quals.is_none()));
+    let jt = q
+        .jointree
+        .map_or((true, true), |j| (j.fromlist.is_nil(), j.quals.is_none()));
     let checks: [(bool, &'static str); 19] = [
         (q.utilityStmt.is_some() || !q.canSetTag, "utility or rule"),
         (!jt.1, "where"),
-        (q.hasAggs || !q.groupClause.is_nil() || !q.groupingSets.is_nil() || q.havingQual.is_some(), "aggregate or group"),
+        (
+            q.hasAggs
+                || !q.groupClause.is_nil()
+                || !q.groupingSets.is_nil()
+                || q.havingQual.is_some(),
+            "aggregate or group",
+        ),
         (q.hasWindowFuncs || !q.windowClause.is_nil(), "window"),
         (q.hasTargetSRFs, "srf"),
         (q.hasSubLinks, "sublink"),
@@ -37,16 +45,44 @@ fn nofrom_refusal(q: &Query<'_>) -> Option<&'static str> {
         (q.limitOffset.is_some() || q.limitCount.is_some(), "limit"),
         (q.setOperations.is_some(), "set operation"),
         (q.hasForUpdate || !q.rowMarks.is_nil(), "row marks"),
-        (q.hasRowSecurity || !q.withCheckOptions.is_nil(), "row security"),
-        (!q.returningList.is_nil() || q.onConflict.is_some() || !q.mergeActionList.is_nil(), "write clause"),
+        (
+            q.hasRowSecurity || !q.withCheckOptions.is_nil(),
+            "row security",
+        ),
+        (
+            !q.returningList.is_nil() || q.onConflict.is_some() || !q.mergeActionList.is_nil(),
+            "write clause",
+        ),
         (q.isReturn, "return"),
-        (q.targetList.iter().any(|t| t.as_target_entry().is_none_or(|te| te.resjunk)), "junk entry"),
-        (q.targetList.iter().any(|t| t.as_target_entry().is_some_and(|te| te.resname.is_some_and(|n| n.len() >= gravity_program::program::NAME_LEN))), "long name"),
+        (
+            q.targetList
+                .iter()
+                .any(|t| t.as_target_entry().is_none_or(|te| te.resjunk)),
+            "junk entry",
+        ),
+        (
+            q.targetList.iter().any(|t| {
+                t.as_target_entry().is_some_and(|te| {
+                    te.resname
+                        .is_some_and(|n| n.len() >= gravity_program::program::NAME_LEN)
+                })
+            }),
+            "long name",
+        ),
         (q.targetList.is_nil(), "no columns"),
-        (q.targetList.iter().any(|t| t.as_target_entry().is_some_and(cstring)), "cstring column"),
+        (
+            q.targetList
+                .iter()
+                .any(|t| t.as_target_entry().is_some_and(cstring)),
+            "cstring column",
+        ),
     ];
     // the walk last, over a target list the checks above passed (no aggregate, window, SRF or sublink)
-    checks.iter().find(|(hit, _)| *hit).map(|(_, why)| *why).or_else(|| runs_sql(&q.targetList).then_some(RUNS_SQL))
+    checks
+        .iter()
+        .find(|(hit, _)| *hit)
+        .map(|(_, why)| *why)
+        .or_else(|| runs_sql(&q.targetList).then_some(RUNS_SQL))
 }
 
 /// D4547: a target list that may run SQL keeps its statement on the planner and Gravity, so a statement its code runs is
@@ -62,7 +98,11 @@ pub(super) fn runs_sql(tlist: &NodeList<'_>) -> bool {
     use gravity_decompose::{catalog::expr_type::type_of, effects};
     tlist.iter().any(|t| {
         t.as_target_entry().is_none_or(|te| {
-            type_of(te.expr).and_then(effects::builtin_type_io).is_none() || effects::code_may_write(&gravity_decompose::NoFacts, te.expr) || runs_statements(te.expr)
+            type_of(te.expr)
+                .and_then(effects::builtin_type_io)
+                .is_none()
+                || effects::code_may_write(&gravity_decompose::NoFacts, te.expr)
+                || runs_statements(te.expr)
         })
     })
 }
@@ -73,24 +113,37 @@ pub(super) fn runs_sql(tlist: &NodeList<'_>) -> bool {
 /// database_to_xmlschema, pg_get_viewdef / pg_get_ruledef); a node the walk cannot see counts.
 fn runs_statements(n: Node<'_>) -> bool {
     stack_depth_core::check_stack_depth_or_panic();
-    let call = |f: u32| gravity_decompose::effects::builtin_sql_body(f) || gravity_decompose::effects::runs_catalog_query(f);
-    let mut any = n.as_func_expr().is_some_and(|x| call(x.funcid)) || n.as_op_expr().is_some_and(|o| call(o.opfuncid));
+    let call = |f: u32| {
+        gravity_decompose::effects::builtin_sql_body(f)
+            || gravity_decompose::effects::runs_catalog_query(f)
+    };
+    let mut any = n.as_func_expr().is_some_and(|x| call(x.funcid))
+        || n.as_op_expr().is_some_and(|o| call(o.opfuncid));
     let known = gravity_decompose::expr::kids(n, &mut |c| any = any || runs_statements(c));
     any || !known
 }
 
 fn nofrom(q: &Query<'_>) -> bool {
-    q.commandType == CmdType::CMD_SELECT && q.rtable.is_nil() && q.jointree.is_none_or(|j| j.fromlist.is_nil())
+    q.commandType == CmdType::CMD_SELECT
+        && q.rtable.is_nil()
+        && q.jointree.is_none_or(|j| j.fromlist.is_nil())
 }
 
 /// Hook A: the statement's plan built here, or its queries handed back to the planner.
-pub fn plan_skip<'mcx>(mcx: Mcx<'mcx>, querytrees: PgVec<'mcx, Query<'mcx>>, dest: CommandDest) -> PgResult<Result<PgVec<'mcx, PlannedStmt<'mcx>>, PgVec<'mcx, Query<'mcx>>>> {
+pub fn plan_skip<'mcx>(
+    mcx: Mcx<'mcx>,
+    querytrees: PgVec<'mcx, Query<'mcx>>,
+    dest: CommandDest,
+) -> PgResult<Result<PgVec<'mcx, PlannedStmt<'mcx>>, PgVec<'mcx, Query<'mcx>>>> {
     BUILT.with(|b| b.set(false));
     if point_path() == POINT_PATH_OFF || querytrees.len() != 1 || !nofrom(&querytrees[0]) {
         return Ok(Err(querytrees));
     }
-    let observed = || crate::inputs::knobs::seam::planning_observed().then_some("planning observed");
-    let why = nofrom_refusal(&querytrees[0]).or_else(|| runtime_refusal(dest)).or_else(observed);
+    let observed =
+        || crate::inputs::knobs::seam::planning_observed().then_some("planning observed");
+    let why = nofrom_refusal(&querytrees[0])
+        .or_else(|| runtime_refusal(dest))
+        .or_else(observed);
     if let Some(why) = why {
         if reporting() {
             report(&format!("declined nofrom ({why})")); // alloc: Cold
@@ -102,7 +155,8 @@ pub fn plan_skip<'mcx>(mcx: Mcx<'mcx>, querytrees: PgVec<'mcx, Query<'mcx>>, des
         plancheck(mcx, querytrees, &stmt)?;
     }
     let mut out: PgVec<'mcx, PlannedStmt<'mcx>> = PgVec::new_in(mcx);
-    out.try_reserve_exact(1).map_err(|_| mcx.oom(core::mem::size_of::<PlannedStmt<'_>>()))?;
+    out.try_reserve_exact(1)
+        .map_err(|_| mcx.oom(core::mem::size_of::<PlannedStmt<'_>>()))?;
     out.push(stmt);
     BUILT.with(|b| b.set(true));
     Ok(Ok(out))
@@ -122,7 +176,13 @@ fn result_plan<'mcx>(mcx: Mcx<'mcx>, q: &Query<'mcx>) -> PgResult<PlannedStmt<'m
     res.plan.targetlist = tlist;
     res.plan.plan_rows = 1.0;
     res.plan.total_cost = 0.01;
-    let eref = mcx::alloc_leak_in(mcx, Alias { aliasname: Some("*RESULT*"), colnames: NodeList::nil() })?;
+    let eref = mcx::alloc_leak_in(
+        mcx,
+        Alias {
+            aliasname: Some("*RESULT*"),
+            colnames: NodeList::nil(),
+        },
+    )?;
     let mut rte = Node::build::<RangeTblEntry<'mcx>>(mcx)?;
     rte.rtekind = RTEKind::RTE_RESULT;
     rte.eref = Some(eref);
@@ -141,15 +201,44 @@ fn result_plan<'mcx>(mcx: Mcx<'mcx>, q: &Query<'mcx>) -> PgResult<PlannedStmt<'m
 /// PGRUST_GRAVITY_POINT_PLANCHECK (proof runs): the planner plans the statement too and its plan is compared with hook A's;
 /// a difference is one LOG line. The planner's folding runs a second time (an immutable function's NOTICE shows twice).
 #[cold]
-fn plancheck<'mcx>(mcx: Mcx<'mcx>, querytrees: PgVec<'mcx, Query<'mcx>>, ours: &PlannedStmt<'mcx>) -> PgResult<()> {
+fn plancheck<'mcx>(
+    mcx: Mcx<'mcx>,
+    querytrees: PgVec<'mcx, Query<'mcx>>,
+    ours: &PlannedStmt<'mcx>,
+) -> PgResult<()> {
     let qs: &'mcx mut [Query<'mcx>] = querytrees.leak();
     let q0: &'mcx mut Query<'mcx> = &mut qs[0];
-    let theirs = planner_seams::planner::call(mcx, q0, "", types_nodes::parsenodes::CURSOR_OPT_PARALLEL_OK, types_portal::ParamListHandle::NULL)?;
-    let tl = |p: &PlannedStmt<'mcx>| p.planTree.and_then(|n| n.as_result()).filter(|r| r.plan.lefttree.is_none() && r.resconstantqual.is_none() && r.plan.initPlan.is_nil()).map(|r| &r.plan.targetlist);
+    let theirs = planner_seams::planner::call(
+        mcx,
+        q0,
+        "",
+        types_nodes::parsenodes::CURSOR_OPT_PARALLEL_OK,
+        types_portal::ParamListHandle::NULL,
+    )?;
+    let tl = |p: &PlannedStmt<'mcx>| {
+        p.planTree
+            .and_then(|n| n.as_result())
+            .filter(|r| {
+                r.plan.lefttree.is_none() && r.resconstantqual.is_none() && r.plan.initPlan.is_nil()
+            })
+            .map(|r| &r.plan.targetlist)
+    };
     let why = match (tl(ours), tl(&theirs)) {
         (_, None) => Some("the planner's plan is not a childless Result"),
-        (Some(a), Some(b)) if a.len() != b.len() || a.iter().zip(b.iter()).any(|(x, y)| !types_nodes::equal::equal(x, y)) => Some("target lists differ"),
-        _ if ours.rtable.len() != theirs.rtable.len() || !theirs.subplans.is_nil() || !theirs.paramExecTypes.is_nil() => Some("range table or subplans differ"),
+        (Some(a), Some(b))
+            if a.len() != b.len()
+                || a.iter()
+                    .zip(b.iter())
+                    .any(|(x, y)| !types_nodes::equal::equal(x, y)) =>
+        {
+            Some("target lists differ")
+        }
+        _ if ours.rtable.len() != theirs.rtable.len()
+            || !theirs.subplans.is_nil()
+            || !theirs.paramExecTypes.is_nil() =>
+        {
+            Some("range table or subplans differ")
+        }
         _ => None,
     };
     if let Some(why) = why {
@@ -160,22 +249,50 @@ fn plancheck<'mcx>(mcx: Mcx<'mcx>, querytrees: PgVec<'mcx, Query<'mcx>>, ours: &
 
 /// The target list of a plan hook B serves: a SELECT whose plan is a childless Result over at most an RTE_RESULT.
 pub(super) fn bare_result<'p>(p: &PlannedStmt<'p>) -> Option<&'p NodeList<'p>> {
-    let plain = p.commandType == CmdType::CMD_SELECT && p.utilityStmt.is_none() && p.canSetTag && !p.hasReturning && !p.hasModifyingCTE;
-    let empty = p.rowMarks.is_nil() && p.subplans.is_nil() && p.paramExecTypes.is_nil() && p.resultRelations.is_nil();
-    let rtable = p.rtable.len() <= 1 && p.rtable.iter().all(|r| r.as_range_tbl_entry().is_some_and(|e| e.rtekind == RTEKind::RTE_RESULT));
+    let plain = p.commandType == CmdType::CMD_SELECT
+        && p.utilityStmt.is_none()
+        && p.canSetTag
+        && !p.hasReturning
+        && !p.hasModifyingCTE;
+    let empty = p.rowMarks.is_nil()
+        && p.subplans.is_nil()
+        && p.paramExecTypes.is_nil()
+        && p.resultRelations.is_nil();
+    let rtable = p.rtable.len() <= 1
+        && p.rtable.iter().all(|r| {
+            r.as_range_tbl_entry()
+                .is_some_and(|e| e.rtekind == RTEKind::RTE_RESULT)
+        });
     if !(plain && empty && rtable) {
         return None;
     }
     let r = p.planTree?.as_result()?;
-    let childless = r.plan.lefttree.is_none() && r.plan.righttree.is_none() && r.resconstantqual.is_none() && r.plan.initPlan.is_nil() && r.plan.qual.is_nil();
+    let childless = r.plan.lefttree.is_none()
+        && r.plan.righttree.is_none()
+        && r.resconstantqual.is_none()
+        && r.plan.initPlan.is_nil()
+        && r.plan.qual.is_nil();
     let entries = !r.plan.targetlist.is_nil()
-        && r.plan.targetlist.iter().all(|t| t.as_target_entry().is_some_and(|te| !te.resjunk && !cstring(te) && te.resname.is_none_or(|n| n.len() < gravity_program::program::NAME_LEN)));
+        && r.plan.targetlist.iter().all(|t| {
+            t.as_target_entry().is_some_and(|te| {
+                !te.resjunk
+                    && !cstring(te)
+                    && te
+                        .resname
+                        .is_none_or(|n| n.len() < gravity_program::program::NAME_LEN)
+            })
+        });
     (childless && entries).then_some(&r.plan.targetlist)
 }
 
 /// Hook B for a FROM-less plan (`built`: hook A built it; `mode`: the session's point_path, not off): `None` leaves the
 /// statement to Gravity, unchanged.
-pub(super) fn serve(pstmt: &PlannedStmt<'_>, dest: &mut DestReceiver<'_>, built: bool, mode: i32) -> Option<PgResult<Option<QueryCompletion>>> {
+pub(super) fn serve(
+    pstmt: &PlannedStmt<'_>,
+    dest: &mut DestReceiver<'_>,
+    built: bool,
+    mode: i32,
+) -> Option<PgResult<Option<QueryCompletion>>> {
     let tlist = bare_result(pstmt);
     let why = match tlist {
         None => Some("plan"),
@@ -211,16 +328,26 @@ fn run(pstmt: &PlannedStmt<'_>, tlist: &NodeList<'_>) -> PgResult<QueryCompletio
 
 /// ExecInitResult's projection (every entry initialized, an EXECUTE privilege error before any message), then
 /// ExecutorRun's: the RowDescription, the entries in order, their output.
-fn project<'p: 'm, 'm>(tlist: &NodeList<'p>, mcx: Mcx<'m>, wire: &mut gravity_wire::WireNode) -> PgResult<QueryCompletion> {
+fn project<'p: 'm, 'm>(
+    tlist: &NodeList<'p>,
+    mcx: Mcx<'m>,
+    wire: &mut gravity_wire::WireNode,
+) -> PgResult<QueryCompletion> {
     let n = tlist.len();
     let mut cols: PgVec<'m, OutCol> = PgVec::new_in(mcx);
     let mut states: PgVec<'m, mcx::PgBox<'m, execexpr::ExprState<'m>>> = PgVec::new_in(mcx);
-    cols.try_reserve_exact(n).map_err(|_| mcx.oom(n * core::mem::size_of::<OutCol>()))?;
-    states.try_reserve_exact(n).map_err(|_| mcx.oom(n * core::mem::size_of::<usize>()))?;
+    cols.try_reserve_exact(n)
+        .map_err(|_| mcx.oom(n * core::mem::size_of::<OutCol>()))?;
+    states
+        .try_reserve_exact(n)
+        .map_err(|_| mcx.oom(n * core::mem::size_of::<usize>()))?;
     for t in tlist.iter() {
         let te = t.as_target_entry().expect("checked by bare_result");
         cols.push(out_col(te)?);
-        states.push(execexpr::exec_init_expr(mcx, Some(te.expr), execexpr::ParamBind::NONE)?.expect("a target entry has an expression"));
+        states.push(
+            execexpr::exec_init_expr(mcx, Some(te.expr), execexpr::ParamBind::NONE)?
+                .expect("a target entry has an expression"),
+        );
     }
     wire.prepare_cols(&cols, None)?;
     wire.reset();
@@ -231,7 +358,11 @@ fn project<'p: 'm, 'm>(tlist: &NodeList<'p>, mcx: Mcx<'m>, wire: &mut gravity_wi
     let mut isnull: PgVec<'m, u8> = PgVec::new_in(mcx);
     values.try_reserve_exact(n).map_err(|_| mcx.oom(n * 8))?;
     isnull.try_reserve_exact(n).map_err(|_| mcx.oom(n))?;
-    let mut slots = execexpr::EvalSlots { scan: None, inner: None, outer: None };
+    let mut slots = execexpr::EvalSlots {
+        scan: None,
+        inner: None,
+        outer: None,
+    };
     for st in states.iter_mut() {
         st.arm_result_mcx(mcx);
         let d = execexpr::exec_eval_expr(st, &mut slots)?;

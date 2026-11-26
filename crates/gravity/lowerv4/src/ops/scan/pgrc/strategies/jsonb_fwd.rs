@@ -48,16 +48,33 @@ pub(crate) fn engage(px: &Px<'_, '_>, k: usize, site: &mut SiteDesc) {
 /// hidden columns ride it): its op index and entries.
 fn feed<'g, 'p>(gx: &Gx<'g, 'p>, k: usize) -> Option<(usize, &'g types_nodes::NodeList<'p>)> {
     let ops = &gx.pipelines()[k].ops;
-    let lead = ops.iter().take_while(|op| matches!(op, Op::Filter(_) | Op::Gate(_))).count();
-    let Some(Op::Project(list)) = ops.get(lead).filter(|_| lead + 1 == ops.len()) else { return None };
+    let lead = ops
+        .iter()
+        .take_while(|op| matches!(op, Op::Filter(_) | Op::Gate(_)))
+        .count();
+    let Some(Op::Project(list)) = ops.get(lead).filter(|_| lead + 1 == ops.len()) else {
+        return None;
+    };
     crate::table::emit_group::fed_group(gx, k, lead).map(|_| (lead, *list))
 }
 
 /// Projection entry `r` of pipeline `k` (its feed) as a bare scan Var of a jsonb column: the column.
 fn fwd_col(gx: &Gx<'_, '_>, k: usize, r: i16) -> Option<i16> {
-    let (Source::Range { scanrelid, .. }, Some((_, list))) = (&gx.pipelines()[k].source, feed(gx, k)) else { return None };
-    let te = list.iter().filter_map(|n| n.as_target_entry()).find(|te| te.resno == r)?;
-    let v = te.expr.as_var().filter(|v| v.varno == *scanrelid as i32 && v.varlevelsup == 0 && v.varattno > 0 && v.vartype == types_core::JSONBOID)?;
+    let (Source::Range { scanrelid, .. }, Some((_, list))) =
+        (&gx.pipelines()[k].source, feed(gx, k))
+    else {
+        return None;
+    };
+    let te = list
+        .iter()
+        .filter_map(|n| n.as_target_entry())
+        .find(|te| te.resno == r)?;
+    let v = te.expr.as_var().filter(|v| {
+        v.varno == *scanrelid as i32
+            && v.varlevelsup == 0
+            && v.varattno > 0
+            && v.vartype == types_core::JSONBOID
+    })?;
     Some(v.varattno)
 }
 
@@ -77,13 +94,19 @@ fn read<'g>(gx: &Gx<'g, '_>, k: usize, n: Node<'_>) -> Option<(u8, i16, PgVec<'g
 /// FILTERs hold, whose path the relation's parts elected at the read's kind (a number at scale 0, a text).
 pub(crate) fn paths<'g>(gx: &Gx<'g, '_>, k: usize) -> PgVec<'g, (u8, i16, PgVec<'g, u8>)> {
     let mcx = gx.mcx;
-    let Source::Range { relid, .. } = &gx.pipelines()[k].source else { return PgVec::new_in(mcx) };
+    let Source::Range { relid, .. } = &gx.pipelines()[k].source else {
+        return PgVec::new_in(mcx);
+    };
     let g = gx.group_at(k).filter(|_| feed(gx, k).is_some());
     if strategy::off().has(JSONB_LANES) || g.is_none() {
         return PgVec::new_in(mcx);
     }
     let mut found: PgVec<'g, (u8, i16, PgVec<'g, u8>)> = PgVec::new_in(mcx);
-    for n in g.iter().flat_map(|g| g.aggs.iter()).flat_map(|a| a.filter.iter().copied().chain([a.node])) {
+    for n in g
+        .iter()
+        .flat_map(|g| g.aggs.iter())
+        .flat_map(|a| a.filter.iter().copied().chain([a.node]))
+    {
         walk(n, &mut |x| {
             // a cast's own `->>` is the cast's read (the int8 lane), not a text one
             let f = read(gx, k, x).filter(|f| !found.iter().any(|g| g.1 == f.1 && g.2 == f.2));
@@ -93,7 +116,10 @@ pub(crate) fn paths<'g>(gx: &Gx<'g, '_>, k: usize) -> PgVec<'g, (u8, i16, PgVec<
             true
         });
     }
-    found.retain(|(kind, attno, path)| segments(path, mcx).is_some_and(|keys| gx.facts.shred_election(*relid, *attno, &keys) == Some((*kind, 0))));
+    found.retain(|(kind, attno, path)| {
+        segments(path, mcx)
+            .is_some_and(|keys| gx.facts.shred_election(*relid, *attno, &keys) == Some((*kind, 0)))
+    });
     found
 }
 
@@ -105,13 +131,34 @@ pub(crate) fn lane_cols<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgVec<'g
         return PgVec::new_in(mcx);
     }
     let reads = paths(px.gx, k);
-    let Some(site) = px.site_mut(k) else { return PgVec::new_in(mcx) };
-    reads.iter().filter_map(|(kind, attno, path)| shred_of(site, *kind, *attno, path).map(|n| (SHRED_AT + n as i16, if *kind == shred_kind::TEXT { types_core::TEXTOID } else { types_core::INT8OID }))).collect_in(mcx)
+    let Some(site) = px.site_mut(k) else {
+        return PgVec::new_in(mcx);
+    };
+    reads
+        .iter()
+        .filter_map(|(kind, attno, path)| {
+            shred_of(site, *kind, *attno, path).map(|n| {
+                (
+                    SHRED_AT + n as i16,
+                    if *kind == shred_kind::TEXT {
+                        types_core::TEXTOID
+                    } else {
+                        types_core::INT8OID
+                    },
+                )
+            })
+        })
+        .collect_in(mcx)
 }
 
 /// The site's shred `n` of path `path` of column `attno` at `kind` (scale 0).
 fn shred_of(site: &SiteDesc, kind: u8, attno: i16, path: &[u8]) -> Option<usize> {
-    site.shreds.iter().position(|d| d.kind == kind && d.scale == 0 && site.out_attnos.get(d.lane as usize) == Some(&attno) && site.table_arg_at(d.path) == path)
+    site.shreds.iter().position(|d| {
+        d.kind == kind
+            && d.scale == 0
+            && site.out_attnos.get(d.lane as usize) == Some(&attno)
+            && site.table_arg_at(d.path) == path
+    })
 }
 
 /// P1c: each forwarded path read of a declared lane that step `j` (pipeline `k`'s end: its group's argument) compiles,
@@ -119,34 +166,83 @@ fn shred_of(site: &SiteDesc, kind: u8, attno: i16, path: &[u8]) -> Option<usize>
 pub(crate) fn rewrite(px: &mut Px<'_, '_>, (k, j): (usize, usize), c: &mut Compiled<'_>) {
     let gx = px.gx;
     let mcx = px.mcx();
-    if k >= gx.pipelines().len() || j != gx.pipelines()[k].ops.len() || strategy::off().has(JSONB_LANES) {
+    if k >= gx.pipelines().len()
+        || j != gx.pipelines()[k].ops.len()
+        || strategy::off().has(JSONB_LANES)
+    {
         return;
     }
-    let Some((at, list)) = feed(gx, k) else { return };
+    let Some((at, list)) = feed(gx, k) else {
+        return;
+    };
     let cols = lane_cols(px, k, at);
     if cols.is_empty() {
         return;
     }
-    let hidden = list.len() + crate::table::emit_group::hidden_reps(gx, k, at).len() + crate::table::emit_group::image_keys(gx, k, at).len();
+    let hidden = list.len()
+        + crate::table::emit_group::hidden_reps(gx, k, at).len()
+        + crate::table::emit_group::image_keys(gx, k, at).len();
     let Some(site) = px.site_mut(k) else { return };
     for i in 0..c.prog.nodes.len() {
-        let island = c.prog.islands.iter().any(|s| (s.first.0 as usize..=s.root.0 as usize).contains(&i));
+        let island = c
+            .prog
+            .islands
+            .iter()
+            .any(|s| (s.first.0 as usize..=s.root.0 as usize).contains(&i));
         let (kind, arg) = match &c.prog.nodes[i] {
-            ExprNode::CoerceViaIO(io) if gravity_fn::typesem::pgrc::int8_in(c.prog.sites[io.inp.0 as usize].funcid) => (shred_kind::NUMERIC_FS, io.arg),
+            ExprNode::CoerceViaIO(io)
+                if gravity_fn::typesem::pgrc::int8_in(c.prog.sites[io.inp.0 as usize].funcid) =>
+            {
+                (shred_kind::NUMERIC_FS, io.arg)
+            }
             ExprNode::Op(_) | ExprNode::Func(_) => (shred_kind::TEXT, NodeId(i as u32)),
             _ => continue,
         };
-        let Some(((VarSource::Outer, r, typ), keys)) = super::jsonb_inplace::field(c, arg).filter(|_| !island) else { continue };
-        let (Some(attno), Some(path)) = (fwd_col(gx, k, r).filter(|_| typ == types_core::JSONBOID), site_path(&keys, mcx)) else { continue };
-        let Some(n) = shred_of(site, kind, attno, &path) else { continue };
-        let Some(h) = cols.iter().position(|&(a, _)| a == SHRED_AT + n as i16) else { continue };
+        let Some(((VarSource::Outer, r, typ), keys)) =
+            super::jsonb_inplace::field(c, arg).filter(|_| !island)
+        else {
+            continue;
+        };
+        let (Some(attno), Some(path)) = (
+            fwd_col(gx, k, r).filter(|_| typ == types_core::JSONBOID),
+            site_path(&keys, mcx),
+        ) else {
+            continue;
+        };
+        let Some(n) = shred_of(site, kind, attno, &path) else {
+            continue;
+        };
+        let Some(h) = cols.iter().position(|&(a, _)| a == SHRED_AT + n as i16) else {
+            continue;
+        };
         let p = &mut c.prog;
         let (base, ks) = (p.nodes.len() as u32, p.kids.len() as u32);
         let (lane, nt, orig) = (NodeId(base), NodeId(base + 1), NodeId(base + 2));
         p.kids.extend_in([nt, orig]);
-        let moved = core::mem::replace(&mut p.nodes[i], ExprNode::Case(Case { arg: None, whens: Kids { start: ks, len: 2 }, default: Some(lane) }));
-        let var = Var { src: VarSource::Outer, attno: (hidden + 1 + h) as i16, typ: cols[h].1, desc: 0 };
-        p.nodes.extend_in([ExprNode::Var(var), ExprNode::NullTest(NullTestNode { arg: lane, is_null: true, row: false, site: None }), moved]);
+        let moved = core::mem::replace(
+            &mut p.nodes[i],
+            ExprNode::Case(Case {
+                arg: None,
+                whens: Kids { start: ks, len: 2 },
+                default: Some(lane),
+            }),
+        );
+        let var = Var {
+            src: VarSource::Outer,
+            attno: (hidden + 1 + h) as i16,
+            typ: cols[h].1,
+            desc: 0,
+        };
+        p.nodes.extend_in([
+            ExprNode::Var(var),
+            ExprNode::NullTest(NullTestNode {
+                arg: lane,
+                is_null: true,
+                row: false,
+                site: None,
+            }),
+            moved,
+        ]);
     }
 }
 
@@ -157,7 +253,27 @@ fn opened(n: Node<'_>) -> bool {
     use NodeTag::*;
     matches!(
         n.node_tag(),
-        T_Var | T_Const | T_Param | T_OpExpr | T_FuncExpr | T_DistinctExpr | T_NullIfExpr | T_ScalarArrayOpExpr | T_BoolExpr | T_CoalesceExpr | T_NullTest | T_BooleanTest | T_RelabelType | T_CoerceViaIO | T_CollateExpr | T_CaseExpr | T_CaseWhen | T_CaseTestExpr | T_TargetEntry | T_Aggref | T_SortGroupClause
+        T_Var
+            | T_Const
+            | T_Param
+            | T_OpExpr
+            | T_FuncExpr
+            | T_DistinctExpr
+            | T_NullIfExpr
+            | T_ScalarArrayOpExpr
+            | T_BoolExpr
+            | T_CoalesceExpr
+            | T_NullTest
+            | T_BooleanTest
+            | T_RelabelType
+            | T_CoerceViaIO
+            | T_CollateExpr
+            | T_CaseExpr
+            | T_CaseWhen
+            | T_CaseTestExpr
+            | T_TargetEntry
+            | T_Aggref
+            | T_SortGroupClause
     )
 }
 
@@ -166,31 +282,61 @@ fn opened(n: Node<'_>) -> bool {
 /// read of `r` in its aggregates' arguments, FILTERs and DISTINCT keys is one, no key is the column itself, no aggregate is
 /// a numeric fold's tree (num_keyed.rs binds its leaves to the row), and every node is one `opened` lets through.
 pub(crate) fn served(gx: &Gx<'_, '_>, k: usize, site: &SiteDesc, r: i16) -> bool {
-    lane_read(gx, k, r, &|kind, a, path| shred_of(site, kind, a, path).is_some())
+    lane_read(gx, k, r, &|kind, a, path| {
+        shred_of(site, kind, a, path).is_some()
+    })
 }
 
 /// D3023 (jsonb_lanes.rs `read_after`, a lowering-time cost gate): `served` before the site is drafted, a read counting
 /// as a lane's where `paths` (the parts' elections) holds it.
 pub(crate) fn lane_only(gx: &Gx<'_, '_>, k: usize, r: i16) -> bool {
     let elected = paths(gx, k);
-    lane_read(gx, k, r, &|kind, a, path| elected.iter().any(|(x, y, z)| *x == kind && *y == a && &**z == path))
+    lane_read(gx, k, r, &|kind, a, path| {
+        elected
+            .iter()
+            .any(|(x, y, z)| *x == kind && *y == a && &**z == path)
+    })
 }
 
 fn lane_read(gx: &Gx<'_, '_>, k: usize, r: i16, declared: &dyn Fn(u8, i16, &[u8]) -> bool) -> bool {
-    let (Some(attno), Some(g)) = (fwd_col(gx, k, r), gx.group_at(k)) else { return false };
-    if strategy::off().has(JSONB_LANES) || g.keys.iter().any(|x| x.resno > 0 && crate::table::emit_group::key_col(gx, k, x) == Some(r)) {
+    let (Some(attno), Some(g)) = (fwd_col(gx, k, r), gx.group_at(k)) else {
+        return false;
+    };
+    if strategy::off().has(JSONB_LANES)
+        || g.keys
+            .iter()
+            .any(|x| x.resno > 0 && crate::table::emit_group::key_col(gx, k, x) == Some(r))
+    {
         return false;
     }
-    let numeric = g.aggs.iter().any(|a| a.node.as_aggref().is_none_or(|x| x.aggtype == types_core::NUMERICOID));
-    let lane = |x: Node<'_>| read(gx, k, x).is_some_and(|(kind, a, path)| a == attno && declared(kind, a, &path));
+    let numeric = g.aggs.iter().any(|a| {
+        a.node
+            .as_aggref()
+            .is_none_or(|x| x.aggtype == types_core::NUMERICOID)
+    });
+    let lane = |x: Node<'_>| {
+        read(gx, k, x).is_some_and(|(kind, a, path)| a == attno && declared(kind, a, &path))
+    };
     !numeric && gravity_decompose::facts::demand::group_reads_only_under(g, r, &opened, &lane)
 }
 
 /// jsonb_nums.rs `check`: a projection entry at op `j` of pipeline `k` that is the bare column `attno` is the feed's
 /// forwarded column, and each of the feed's entries that is that bare column is `served`.
-pub(crate) fn bare_served(gx: &Gx<'_, '_>, k: usize, j: usize, site: &SiteDesc, attno: i16) -> bool {
-    let Some((_, list)) = feed(gx, k).filter(|(at, _)| *at == j) else { return false };
-    let mut bare = list.iter().filter_map(|n| n.as_target_entry()).filter(|te| fwd_col(gx, k, te.resno) == Some(attno)).peekable();
+pub(crate) fn bare_served(
+    gx: &Gx<'_, '_>,
+    k: usize,
+    j: usize,
+    site: &SiteDesc,
+    attno: i16,
+) -> bool {
+    let Some((_, list)) = feed(gx, k).filter(|(at, _)| *at == j) else {
+        return false;
+    };
+    let mut bare = list
+        .iter()
+        .filter_map(|n| n.as_target_entry())
+        .filter(|te| fwd_col(gx, k, te.resno) == Some(attno))
+        .peekable();
     bare.peek().is_some() && bare.all(|te| served(gx, k, site, te.resno))
 }
 
@@ -205,15 +351,39 @@ pub(crate) fn check(px: &mut Px<'_, '_>, (k, j): (usize, usize), c: &Compiled<'_
     let Some((_, list)) = feed(gx, k) else { return };
     let arena = px.arena;
     let mcx = px.mcx();
-    let Some(site) = px.site_mut(k).map(|s| s.copy_in(arena)) else { return };
+    let Some(site) = px.site_mut(k).map(|s| s.copy_in(arena)) else {
+        return;
+    };
     let cols = super::jsonb_nums::late(px, k, &site);
-    let rs: PgVec<'_, i16> = list.iter().filter_map(|n| n.as_target_entry()).filter(|te| fwd_col(gx, k, te.resno).is_some_and(|a| site.lanes().iter().take(64).enumerate().any(|(l, d)| cols >> l & 1 != 0 && matches!(d.id, gravity_program::LaneId::Attr(x) if x == a)))).map(|te| te.resno).collect_in(mcx);
+    let rs: PgVec<'_, i16> = list
+        .iter()
+        .filter_map(|n| n.as_target_entry())
+        .filter(|te| {
+            fwd_col(gx, k, te.resno).is_some_and(|a| {
+                site.lanes().iter().take(64).enumerate().any(|(l, d)| {
+                    cols >> l & 1 != 0 && matches!(d.id, gravity_program::LaneId::Attr(x) if x == a)
+                })
+            })
+        })
+        .map(|te| te.resno)
+        .collect_in(mcx);
     if rs.is_empty() {
         return;
     }
     let n = list.len() as i16;
     let outer = |v: &Var| v.src == VarSource::Outer;
-    if !super::jsonb_nums::under_lanes(c, &|v| outer(v) && rs.contains(&v.attno), &|v| outer(v) && v.attno > n, mcx) {
-        crate::refuse!(node, crate::admit::refusal::Reason::Bug { payload: "a read of a late guarded forwarded jsonb column outside a path lane's NULL arm" });
+    if !super::jsonb_nums::under_lanes(
+        c,
+        &|v| outer(v) && rs.contains(&v.attno),
+        &|v| outer(v) && v.attno > n,
+        mcx,
+    ) {
+        crate::refuse!(
+            node,
+            crate::admit::refusal::Reason::Bug {
+                payload:
+                    "a read of a late guarded forwarded jsonb column outside a path lane's NULL arm"
+            }
+        );
     }
 }

@@ -11,7 +11,10 @@ fn a_distinct_that_repeats_a_column_lowers() {
     let p = common::plans_dir().join("regress-full/select_distinct-002.plan");
     let text = std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
     let pgrc = text.replace(" am=heap ", " am=pgrcolumnar ");
-    assert_ne!(pgrc, text, "select_distinct-002: no heap relation to read as pgrc");
+    assert_ne!(
+        pgrc, text,
+        "select_distinct-002: no heap relation to read as pgrc"
+    );
     match common::lower_fixture(&pgrc) {
         Some(Ok(_)) => {}
         Some(Err(e)) => panic!("DISTINCT two, four, two refused: {e} (D384)"),

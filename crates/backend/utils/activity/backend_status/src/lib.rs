@@ -207,7 +207,8 @@ fn write_barrier() {
 // Pub for backend_progress (backend_progress.c writes under the same bracket).
 pub fn begin_write_activity(e: &PgBackendStatus) {
     g::StartCriticalSection();
-    e.st_changecount.store(e.st_changecount.load(Relaxed).wrapping_add(1), Relaxed);
+    e.st_changecount
+        .store(e.st_changecount.load(Relaxed).wrapping_add(1), Relaxed);
     write_barrier();
 }
 
@@ -258,8 +259,12 @@ fn write_activity(slot: i32, s: &[u8]) {
 }
 
 pub fn own_activity_for_crash_report(out: &mut [u8]) -> usize {
-    let Some(entry) = MY_BE_ENTRY.try_with(Cell::get).ok().flatten() else { return 0 };
-    let Some(buf) = BACKEND_ACTIVITY_BUFFER.get() else { return 0 };
+    let Some(entry) = MY_BE_ENTRY.try_with(Cell::get).ok().flatten() else {
+        return 0;
+    };
+    let Some(buf) = BACKEND_ACTIVITY_BUFFER.get() else {
+        return 0;
+    };
     if entry.slot < 0 || (entry.slot as usize + 1) * buf.query_size > buf.total {
         return 0;
     }
@@ -272,7 +277,11 @@ pub fn own_activity_for_crash_report(out: &mut [u8]) -> usize {
         if b == 0 {
             break;
         }
-        out[n] = if (32..=127).contains(&b) || matches!(b, b'\n' | b'\r' | b'\t') { b } else { b'?' };
+        out[n] = if (32..=127).contains(&b) || matches!(b, b'\n' | b'\r' | b'\t') {
+            b
+        } else {
+            b'?'
+        };
         n += 1;
     }
     n
@@ -335,7 +344,10 @@ pub fn BackendStatusShmemSize() -> PgResult<usize> {
     size = shmem::add_size(size, shmem::mul_size(NAMELEN, slots)?)?;
     size = shmem::add_size(size, shmem::mul_size(query_size(), slots)?)?;
     if cfg!(feature = "ssl") {
-        size = shmem::add_size(size, shmem::mul_size(C_SIZEOF_PG_BACKEND_SSL_STATUS, slots)?)?;
+        size = shmem::add_size(
+            size,
+            shmem::mul_size(C_SIZEOF_PG_BACKEND_SSL_STATUS, slots)?,
+        )?;
     }
     Ok(size)
 }
@@ -363,7 +375,11 @@ pub fn BackendStatusShmemInit() -> PgResult<()> {
     )?;
     let total = shmem::mul_size(qsize, slots as usize)?;
     let (base, _) = shmem::ShmemInitStruct("Backend Activity Buffer", total)?;
-    let _ = BACKEND_ACTIVITY_BUFFER.set(ActivityBuffer { base, query_size: qsize, total });
+    let _ = BACKEND_ACTIVITY_BUFFER.set(ActivityBuffer {
+        base,
+        query_size: qsize,
+        total,
+    });
     if cfg!(feature = "ssl") {
         shmem::ShmemInitStruct(
             "Backend SSL Status Buffer",
@@ -482,8 +498,7 @@ pub fn pgstat_bestart_initial() -> PgResult<()> {
         SockAddr::zeroed()
     };
     let clienthostname = if g::HaveMyProcPort() {
-        g::WithMyProcPort(|p| p.remote_hostname.as_deref().map(str_to_name))
-            .unwrap_or([0; NAMELEN])
+        g::WithMyProcPort(|p| p.remote_hostname.as_deref().map(str_to_name)).unwrap_or([0; NAMELEN])
     } else {
         [0; NAMELEN]
     };
@@ -528,11 +543,14 @@ fn read_ssl_status() -> PgResult<(bool, PgBackendSSLStatus)> {
         ssl = true;
         // SAFETY: own-backend write / cross-backend read serialized by the st_changecount protocol
         unsafe {
-            lssl.ssl_bits.set(be_secure_openssl::be_tls_get_cipher_bits());
-            lssl.ssl_version
-                .set(str_to_name(&be_secure_openssl::be_tls_get_version().unwrap_or_default()));
-            lssl.ssl_cipher
-                .set(str_to_name(&be_secure_openssl::be_tls_get_cipher().unwrap_or_default()));
+            lssl.ssl_bits
+                .set(be_secure_openssl::be_tls_get_cipher_bits());
+            lssl.ssl_version.set(str_to_name(
+                &be_secure_openssl::be_tls_get_version().unwrap_or_default(),
+            ));
+            lssl.ssl_cipher.set(str_to_name(
+                &be_secure_openssl::be_tls_get_cipher().unwrap_or_default(),
+            ));
             // be_tls_get_peer_subject_name / be_tls_get_peer_issuer_name:
             // X509_NAME_to_cstring's ERRORs (NID_undef, untranslatable
             // character) surface here, at connection start, as in C.
@@ -575,9 +593,8 @@ pub fn pgstat_bestart_security() -> PgResult<()> {
     assert!(g::HaveMyProcPort());
 
     let (ssl, lssl) = read_ssl_status()?;
-    let (gss, lgss) = g::WithMyProcPort(|port| {
-        (port.gss.is_some(), PgBackendGSSStatus::from_port(port))
-    });
+    let (gss, lgss) =
+        g::WithMyProcPort(|port| (port.gss.is_some(), PgBackendGSSStatus::from_port(port)));
 
     begin_write_activity(beentry);
     // SAFETY: own-backend write / cross-backend read serialized by the st_changecount protocol
@@ -588,9 +605,18 @@ pub fn pgstat_bestart_security() -> PgResult<()> {
         beentry.st_sslstatus.ssl_bits.set(lssl.ssl_bits.get());
         beentry.st_sslstatus.ssl_version.set(lssl.ssl_version.get());
         beentry.st_sslstatus.ssl_cipher.set(lssl.ssl_cipher.get());
-        beentry.st_sslstatus.ssl_client_dn.set(lssl.ssl_client_dn.get());
-        beentry.st_sslstatus.ssl_client_serial.set(lssl.ssl_client_serial.get());
-        beentry.st_sslstatus.ssl_issuer_dn.set(lssl.ssl_issuer_dn.get());
+        beentry
+            .st_sslstatus
+            .ssl_client_dn
+            .set(lssl.ssl_client_dn.get());
+        beentry
+            .st_sslstatus
+            .ssl_client_serial
+            .set(lssl.ssl_client_serial.get());
+        beentry
+            .st_sslstatus
+            .ssl_issuer_dn
+            .set(lssl.ssl_issuer_dn.get());
     }
     end_write_activity(beentry);
     Ok(())
@@ -631,7 +657,9 @@ pub fn pgstat_bestart_final() -> PgResult<()> {
 }
 
 fn pgstat_beshutdown_hook(_code: i32, _arg: usize) {
-    let Some(beentry) = MY_BE_ENTRY.get() else { return };
+    let Some(beentry) = MY_BE_ENTRY.get() else {
+        return;
+    };
     begin_write_activity(beentry);
     // SAFETY: own-backend write / cross-backend read serialized by the st_changecount protocol
     unsafe { beentry.st_procpid.set(0) };
@@ -694,7 +722,9 @@ impl Drop for PoolWorkerServe {
 /// showed the entry as a plain background worker; `PoolWorkerServe::begin`
 /// shows it again for the next serve. Idempotent.
 pub fn pgstat_pool_worker_park() {
-    let Some(beentry) = MY_BE_ENTRY.get() else { return };
+    let Some(beentry) = MY_BE_ENTRY.get() else {
+        return;
+    };
     begin_write_activity(beentry);
     // SAFETY: own-backend write / cross-backend read serialized by the st_changecount protocol
     unsafe {
@@ -712,7 +742,9 @@ pub fn pgstat_pool_worker_park() {
 }
 
 pub fn pgstat_report_activity(state: BackendState, cmd_str: Option<&str>) {
-    let Some(beentry) = MY_BE_ENTRY.get() else { return };
+    let Some(beentry) = MY_BE_ENTRY.get() else {
+        return;
+    };
 
     if !track_activities() {
         // SAFETY: own-backend write / cross-backend read serialized by the st_changecount protocol
@@ -732,7 +764,9 @@ pub fn pgstat_report_activity(state: BackendState, cmd_str: Option<&str>) {
                 beentry.st_plan_id.set(0);
             }
             if let Some(procno) = lmgr_proc::MyProc() {
-                lmgr_proc::GetPGProcByNumber(procno).wait_event_info.store(0, Relaxed);
+                lmgr_proc::GetPGProcByNumber(procno)
+                    .wait_event_info
+                    .store(0, Relaxed);
             }
             end_write_activity(beentry);
         }
@@ -788,7 +822,9 @@ pub fn pgstat_report_activity(state: BackendState, cmd_str: Option<&str>) {
 }
 
 pub fn pgstat_report_query_id(query_id: i64, force: bool) {
-    let Some(beentry) = MY_BE_ENTRY.get() else { return };
+    let Some(beentry) = MY_BE_ENTRY.get() else {
+        return;
+    };
     if !track_activities() {
         return;
     }
@@ -804,7 +840,9 @@ pub fn pgstat_report_query_id(query_id: i64, force: bool) {
 }
 
 pub fn pgstat_report_plan_id(plan_id: i64, force: bool) {
-    let Some(beentry) = MY_BE_ENTRY.get() else { return };
+    let Some(beentry) = MY_BE_ENTRY.get() else {
+        return;
+    };
     if !track_activities() {
         return;
     }
@@ -819,7 +857,9 @@ pub fn pgstat_report_plan_id(plan_id: i64, force: bool) {
 }
 
 pub fn pgstat_report_appname(appname: &str) {
-    let Some(beentry) = MY_BE_ENTRY.get() else { return };
+    let Some(beentry) = MY_BE_ENTRY.get() else {
+        return;
+    };
     let len = mbutils::pg_mbcliplen(appname.as_bytes(), appname.len() as i32, NAMEDATALEN - 1);
     let mut name = [0u8; NAMELEN];
     name[..len as usize].copy_from_slice(&appname.as_bytes()[..len as usize]);
@@ -831,7 +871,9 @@ pub fn pgstat_report_appname(appname: &str) {
 }
 
 pub fn pgstat_report_xact_timestamp(tstamp: TimestampTz) {
-    let Some(beentry) = MY_BE_ENTRY.get() else { return };
+    let Some(beentry) = MY_BE_ENTRY.get() else {
+        return;
+    };
     if !track_activities() {
         return;
     }
@@ -843,16 +885,23 @@ pub fn pgstat_report_xact_timestamp(tstamp: TimestampTz) {
 
 pub fn pgstat_get_my_query_id() -> i64 {
     // SAFETY: own-backend write / cross-backend read serialized by the st_changecount protocol
-    MY_BE_ENTRY.get().map_or(0, |e| unsafe { e.st_query_id.get() })
+    MY_BE_ENTRY
+        .get()
+        .map_or(0, |e| unsafe { e.st_query_id.get() })
 }
 
 pub fn pgstat_get_my_plan_id() -> i64 {
     // SAFETY: own-backend write / cross-backend read serialized by the st_changecount protocol
-    MY_BE_ENTRY.get().map_or(0, |e| unsafe { e.st_plan_id.get() })
+    MY_BE_ENTRY
+        .get()
+        .map_or(0, |e| unsafe { e.st_plan_id.get() })
 }
 
 pub fn pgstat_backend_running_by_proc_number(procNumber: ProcNumber) -> bool {
-    let Some(e) = usize::try_from(procNumber).ok().and_then(|i| backend_status_array().get(i)) else {
+    let Some(e) = usize::try_from(procNumber)
+        .ok()
+        .and_then(|i| backend_status_array().get(i))
+    else {
         return false;
     };
     // SAFETY: own-backend write / cross-backend read serialized by the st_changecount protocol
@@ -864,7 +913,11 @@ pub fn pgstat_backend_running_by_proc_number(procNumber: ProcNumber) -> bool {
 
 pub fn pgstat_get_backend_type_by_proc_number(procNumber: ProcNumber) -> BackendType {
     // SAFETY: own-backend write / cross-backend read serialized by the st_changecount protocol
-    unsafe { backend_status_array()[procNumber as usize].st_backendType.get() }
+    unsafe {
+        backend_status_array()[procNumber as usize]
+            .st_backendType
+            .get()
+    }
 }
 
 pub fn pgstat_get_backend_current_activity(pid: i32, check_user: bool) -> PgResult<String> {
@@ -919,7 +972,13 @@ pub fn pgstat_get_crashed_backend_activity(pid: i32) -> Option<String> {
 pub fn ascii_safe(raw: &[u8]) -> String {
     raw.iter()
         .take_while(|&&b| b != 0)
-        .map(|&b| if (32..=127).contains(&b) || matches!(b, b'\n' | b'\r' | b'\t') { b as char } else { '?' })
+        .map(|&b| {
+            if (32..=127).contains(&b) || matches!(b, b'\n' | b'\r' | b'\t') {
+                b as char
+            } else {
+                '?'
+            }
+        })
         .collect()
 }
 
@@ -931,8 +990,8 @@ pub fn pgstat_clip_activity(raw_activity: &[u8]) -> String {
     // (C limits by rawlen) and clamp, so a torn read ending mid-multibyte-char
     // (where pg_mbcliplen over-adds the final char's declared length) can never
     // produce an out-of-bounds slice bound.
-    let cliplen = (mbutils::pg_mbcliplen(raw, raw.len() as i32, raw.len() as i32) as usize)
-        .min(raw.len());
+    let cliplen =
+        (mbutils::pg_mbcliplen(raw, raw.len() as i32, raw.len() as i32) as usize).min(raw.len());
     String::from_utf8_lossy(&raw[..cliplen]).into_owned()
 }
 
@@ -1018,7 +1077,9 @@ fn pgstat_read_current_status() {
                     st_ssl_version: name_to_string(&beentry.st_sslstatus.ssl_version.get()),
                     st_ssl_cipher: name_to_string(&beentry.st_sslstatus.ssl_cipher.get()),
                     st_ssl_client_dn: NameBytes(beentry.st_sslstatus.ssl_client_dn.get()),
-                    st_ssl_client_serial: name_to_string(&beentry.st_sslstatus.ssl_client_serial.get()),
+                    st_ssl_client_serial: name_to_string(
+                        &beentry.st_sslstatus.ssl_client_serial.get(),
+                    ),
                     st_ssl_issuer_dn: NameBytes(beentry.st_sslstatus.ssl_issuer_dn.get()),
                     st_gss: beentry.st_gss.get(),
                     st_gssstatus: beentry.st_gssstatus.get(),
@@ -1072,8 +1133,7 @@ pub fn pgstat_get_local_beentry_by_index(idx: i32) -> Option<LocalPgBackendStatu
     if idx < 1 {
         return None;
     }
-    LOCAL_BACKEND_STATUS_TABLE
-        .with(|t| t.borrow().as_ref().unwrap().get(idx as usize - 1).cloned())
+    LOCAL_BACKEND_STATUS_TABLE.with(|t| t.borrow().as_ref().unwrap().get(idx as usize - 1).cloned())
 }
 
 pub fn pgstat_get_beentry_by_proc_number(proc_number: ProcNumber) -> Option<LocalPgBackendStatus> {

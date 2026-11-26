@@ -11,7 +11,16 @@ use super::{Cell, Stream};
 use crate::ops::scan::pgrc::granule_source::GranuleRecipe;
 
 mcx::forget_safe_nodrop!(Cell);
-mcx::forget_safe_struct!(Stream { start, end, g, row, at, member, done, own });
+mcx::forget_safe_struct!(Stream {
+    start,
+    end,
+    g,
+    row,
+    at,
+    member,
+    done,
+    own
+});
 
 /// The recipe a merged source owns, lent to its members for as long as they live. The caller is that source: it drops its
 /// members before its recipe (field order; `unbind` keeps them, the source's drop drops them first), and it never moves
@@ -23,13 +32,20 @@ pub(super) fn lent(r: &GranuleRecipe) -> &'static GranuleRecipe {
 
 /// Member `at / lp`'s window lanes: `lanes[at..]`, a buffer the build sized once and never grows.
 pub(super) fn lanes_at(lanes: &mut ArenaVec<Lane>, at: usize) -> *mut Lane {
-    assert!(at < lanes.len(), "a member's lanes inside the reserved lanes");
+    assert!(
+        at < lanes.len(),
+        "a member's lanes inside the reserved lanes"
+    );
     lanes.as_mut_ptr().wrapping_add(at)
 }
 
 /// Lane `k` of the window `site` holds (the member's own window: `k < nlanes`, checked by the callers).
 pub(super) fn site_lane(site: &Site, k: usize) -> Lane {
-    assert!(k < site.nlanes as usize, "lane {k} of a window of {} lanes", site.nlanes);
+    assert!(
+        k < site.nlanes as usize,
+        "lane {k} of a window of {} lanes",
+        site.nlanes
+    );
     // SAFETY: the site's lane array holds `nlanes` lanes its source published.
     unsafe { *site.lanes().as_ptr().add(k) }
 }
@@ -78,17 +94,32 @@ pub(super) fn cell_at(l: &Lane, row: usize, byref: bool) -> Option<Cell> {
         }
         let w = l.datum(row);
         if !byref {
-            return Some(Cell { null: false, w, p: core::ptr::null(), n: 0 });
+            return Some(Cell {
+                null: false,
+                w,
+                p: core::ptr::null(),
+                n: 0,
+            });
         }
         // the by-reference cell is a varlena image in the source's arena: a short (1-byte) or a plain 4-byte header
         let p = w as *const u8;
         let b0 = *p;
         if b0 & 0x01 == 0x01 && b0 != 0x01 {
-            return Some(Cell { null: false, w: 0, p: p.add(1), n: ((b0 >> 1) as u32).saturating_sub(1) });
+            return Some(Cell {
+                null: false,
+                w: 0,
+                p: p.add(1),
+                n: ((b0 >> 1) as u32).saturating_sub(1),
+            });
         }
         if b0 & 0x03 == 0 {
             let h = (p as *const u32).read_unaligned();
-            return Some(Cell { null: false, w: 0, p: p.add(4), n: (h >> 2).saturating_sub(4) });
+            return Some(Cell {
+                null: false,
+                w: 0,
+                p: p.add(4),
+                n: (h >> 2).saturating_sub(4),
+            });
         }
         None
     }

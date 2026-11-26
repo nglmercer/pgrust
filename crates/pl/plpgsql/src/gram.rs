@@ -164,7 +164,11 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
             let ident = t.1.word.as_ref().map(|w| w.ident.as_str()).unwrap_or("");
             self.word_is_not_variable(ident, t.2)
         } else if t.0 == T_CWORD {
-            let name = t.1.cword.as_ref().map(|c| c.idents.join(".")).unwrap_or_default();
+            let name =
+                t.1.cword
+                    .as_ref()
+                    .map(|c| c.idents.join("."))
+                    .unwrap_or_default();
             self.word_is_not_variable(&name, t.2)
         } else {
             self.yyerror("syntax error", t.2)
@@ -249,7 +253,11 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
                 if parenlevel != 0 {
                     return Err(self.yyerror("mismatched parentheses", lloc));
                 }
-                let what = if isexpression { "expression" } else { "statement" };
+                let what = if isexpression {
+                    "expression"
+                } else {
+                    "statement"
+                };
                 return Err(self.gram_err_pos(
                     ERRCODE_SYNTAX_ERROR,
                     format!("missing \"{expected}\" at end of SQL {what}"),
@@ -266,7 +274,11 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
             *e = tok_final;
         }
         if startlocation >= endlocation {
-            let msg = if isexpression { "missing expression" } else { "missing SQL statement" };
+            let msg = if isexpression {
+                "missing expression"
+            } else {
+                "missing SQL statement"
+            };
             return Err(self.yyerror(msg, startlocation));
         }
         let text = self.source_span(startlocation, endlocation);
@@ -315,8 +327,9 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
     // plpgsql_sql_error_callback; the built type carries fn_input_collation
     // and remembers its SQL spelling for later re-resolution.
     fn parse_datatype(&mut self, type_name: &str, location: i32) -> PgResult<PlType> {
-        let cb =
-            elog::push_emit_context_callback(self.sql_error_ctx((location >= 0).then_some(location)));
+        let cb = elog::push_emit_context_callback(
+            self.sql_error_ctx((location >= 0).then_some(location)),
+        );
         let r = parse_utilcmd::parseTypeString(self.scratch, type_name);
         elog::pop_emit_context_callback(cb);
         let (typoid, typmod) = r.map_err(|e| self.sql_error_callback(e, location))?;
@@ -407,7 +420,11 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
                 t = t2;
             }
         } else if t.0 == T_CWORD {
-            let idents = t.1.cword.as_ref().map(|c| c.idents.clone()).unwrap_or_default();
+            let idents =
+                t.1.cword
+                    .as_ref()
+                    .map(|c| c.idents.clone())
+                    .unwrap_or_default();
             let t2 = self.yylex()?;
             if t2.0 == ('%' as i32) {
                 let t3 = self.yylex()?;
@@ -759,7 +776,11 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
                 break;
             }
         }
-        Ok(ExceptionBlock { sqlstate_varno, sqlerrm_varno, exc_list })
+        Ok(ExceptionBlock {
+            sqlstate_varno,
+            sqlerrm_varno,
+            exc_list,
+        })
     }
 
     // proc_condition (pl_gram.y): one name may map to several SQLSTATEs.
@@ -772,7 +793,9 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
             }
             let code = s.1.str_.clone().unwrap_or_default();
             if code.len() != 5
-                || !code.bytes().all(|c| c.is_ascii_digit() || c.is_ascii_uppercase())
+                || !code
+                    .bytes()
+                    .all(|c| c.is_ascii_digit() || c.is_ascii_uppercase())
             {
                 return Err(self.yyerror("invalid SQLSTATE code", s.2));
             }
@@ -853,7 +876,10 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
                 return Err(self.yyerror("syntax error", ct.2));
             };
             let refs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
-            Some((catalog_namespace::get_collation_oid(&refs, false)?, collate_loc))
+            Some((
+                catalog_namespace::get_collation_oid(&refs, false)?,
+                collate_loc,
+            ))
         } else {
             self.push_back(&t)?;
             None
@@ -952,7 +978,9 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
             loop {
                 let (argname, _, arg_lineno) = self.decl_varname()?;
                 let datatype = self.read_datatype(None)?;
-                let dno = self.comp.build_variable(&argname, arg_lineno, datatype, true)?;
+                let dno = self
+                    .comp
+                    .build_variable(&argname, arg_lineno, datatype, true)?;
                 varnos.push(dno);
                 let sep = self.yylex()?;
                 if sep.0 == (',' as i32) {
@@ -1025,19 +1053,32 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
         // extra_errors carries shadowed_variables, WARNING when only
         // extra_warnings does; both are validator-only (pl_comp.c:249-250).
         if (self.comp.extra_warnings | self.comp.extra_errors) & crate::comp::XCHECK_SHADOWVAR != 0
-            && self.comp.ns_lookup(self.comp.ns_top, false, &name, None, None).is_some()
+            && self
+                .comp
+                .ns_lookup(self.comp.ns_top, false, &name, None, None)
+                .is_some()
         {
             let is_error = self.comp.extra_errors & crate::comp::XCHECK_SHADOWVAR != 0;
-            let b = elog::ereport(if is_error { ERROR } else { types_error::WARNING })
-                .errcode(types_error::ERRCODE_DUPLICATE_ALIAS)
-                .errmsg(format!("variable \"{name}\" shadows a previously defined variable"));
+            let b = elog::ereport(if is_error {
+                ERROR
+            } else {
+                types_error::WARNING
+            })
+            .errcode(types_error::ERRCODE_DUPLICATE_ALIAS)
+            .errmsg(format!(
+                "variable \"{name}\" shadows a previously defined variable"
+            ));
             let b = self.sc.internal_errposition(b, loc);
             if is_error {
                 return Err(Box::new(b.into_error()));
             }
             // The warning's cursor transposes onto the CREATE statement via
             // the compile-scope emit callback (do_compile).
-            b.finish(types_error::ErrorLocation::new(file!(), line!() as i32, "decl_varname"))?;
+            b.finish(types_error::ErrorLocation::new(
+                file!(),
+                line!() as i32,
+                "decl_varname",
+            ))?;
         }
         Ok((name, loc, lineno))
     }
@@ -1047,25 +1088,30 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
         // pl_gram.y:663/678/704: "does not exist" carries parser_errposition(@1).
         let nsi = if t.0 == T_WORD {
             let ident = &t.1.word.as_ref().expect("T_WORD").ident;
-            self.comp.ns_lookup(self.comp.ns_top, false, ident, None, None).ok_or_else(|| {
-                self.gram_err_pos(
-                    types_error::ERRCODE_UNDEFINED_OBJECT,
-                    format!("variable \"{ident}\" does not exist"),
-                    t.2,
-                )
-            })?
+            self.comp
+                .ns_lookup(self.comp.ns_top, false, ident, None, None)
+                .ok_or_else(|| {
+                    self.gram_err_pos(
+                        types_error::ERRCODE_UNDEFINED_OBJECT,
+                        format!("variable \"{ident}\" does not exist"),
+                        t.2,
+                    )
+                })?
         } else if let Some(kw) = Self::unreserved_keyword_name(&t) {
-            self.comp.ns_lookup(self.comp.ns_top, false, kw, None, None).ok_or_else(|| {
-                self.gram_err_pos(
-                    types_error::ERRCODE_UNDEFINED_OBJECT,
-                    format!("variable \"{kw}\" does not exist"),
-                    t.2,
-                )
-            })?
+            self.comp
+                .ns_lookup(self.comp.ns_top, false, kw, None, None)
+                .ok_or_else(|| {
+                    self.gram_err_pos(
+                        types_error::ERRCODE_UNDEFINED_OBJECT,
+                        format!("variable \"{kw}\" does not exist"),
+                        t.2,
+                    )
+                })?
         } else if t.0 == T_CWORD {
             let idents = &t.1.cword.as_ref().expect("T_CWORD").idents;
             let found = if idents.len() == 2 {
-                self.comp.ns_lookup(self.comp.ns_top, false, &idents[0], Some(&idents[1]), None)
+                self.comp
+                    .ns_lookup(self.comp.ns_top, false, &idents[0], Some(&idents[1]), None)
             } else if idents.len() == 3 {
                 self.comp.ns_lookup(
                     self.comp.ns_top,
@@ -1177,7 +1223,11 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
                     None,
                     None,
                 )?;
-                Ok(Some(PlStmt::Call { lineno, expr, is_call: t.0 == K_CALL }))
+                Ok(Some(PlStmt::Call {
+                    lineno,
+                    expr,
+                    is_call: t.0 == K_CALL,
+                }))
             }
             K_COMMIT | K_ROLLBACK => {
                 let chain = self.parse_opt_transaction_chain()?;
@@ -1249,7 +1299,10 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
             if v.datatype.typoid != REFCURSOROID {
                 return Err(self.gram_err_pos(
                     types_error::ERRCODE_DATATYPE_MISMATCH,
-                    format!("variable \"{}\" must be of type cursor or refcursor", v.refname),
+                    format!(
+                        "variable \"{}\" must be of type cursor or refcursor",
+                        v.refname
+                    ),
                     t.2,
                 ));
             }
@@ -1292,8 +1345,12 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
             let t = self.yylex()?;
             if t.0 == K_EXECUTE {
                 let mut endtoken = 0i32;
-                dynquery =
-                    Some(self.read_sql_expression2(K_USING, ';' as i32, "USING or ;", &mut endtoken)?);
+                dynquery = Some(self.read_sql_expression2(
+                    K_USING,
+                    ';' as i32,
+                    "USING or ;",
+                    &mut endtoken,
+                )?);
                 if endtoken == K_USING {
                     loop {
                         let mut term = 0i32;
@@ -1475,7 +1532,10 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
     fn parse_close(&mut self, lloc: i32) -> PgResult<PlStmt> {
         let curvar = self.cursor_variable()?;
         self.expect(';' as i32, "syntax error")?;
-        Ok(PlStmt::Close { lineno: self.lineno(lloc), curvar })
+        Ok(PlStmt::Close {
+            lineno: self.lineno(lloc),
+            curvar,
+        })
     }
 
     // read_cursor_args (pl_gram.y:3908): positional/named args re-serialized
@@ -1523,8 +1583,7 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
             // pl_gram.y:3963: plpgsql_peek2 sees raw tokens, so a compound
             // reference (IDENT '.' ...) is never a named argument.
             let named_candidate = t1.0 == T_WORD
-                || (t1.0 == T_DATUM
-                    && !t1.1.wdatum.as_ref().expect("T_DATUM").ident.is_empty())
+                || (t1.0 == T_DATUM && !t1.1.wdatum.as_ref().expect("T_DATUM").ident.is_empty())
                 || Self::token_is_unreserved_keyword(&t1);
             let argname: Option<String> = if named_candidate {
                 let t2 = self.yylex()?;
@@ -1553,9 +1612,7 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
                     None => {
                         return Err(self.gram_err_pos(
                             ERRCODE_SYNTAX_ERROR,
-                            format!(
-                                "cursor \"{curname}\" has no argument named \"{name}\""
-                            ),
+                            format!("cursor \"{curname}\" has no argument named \"{name}\""),
                             arglocation,
                         ));
                     }
@@ -1623,7 +1680,11 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
 
     fn parse_assign(&mut self, t: Tok) -> PgResult<PlStmt> {
         let w = t.1.wdatum.clone().expect("T_DATUM");
-        let nnames = if !w.ident.is_empty() { 1 } else { w.idents.len() };
+        let nnames = if !w.ident.is_empty() {
+            1
+        } else {
+            w.idents.len()
+        };
         let pmode = match nnames {
             1 => RawParseMode::RAW_PARSE_PLPGSQL_ASSIGN1,
             2 => RawParseMode::RAW_PARSE_PLPGSQL_ASSIGN2,
@@ -1634,23 +1695,18 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
         let lineno = self.lineno(t.2);
         let varno = w.dno;
         self.push_back(&t)?;
-        let mut expr = self.read_sql_construct(
-            ';' as i32,
-            0,
-            0,
-            ";",
-            pmode,
-            false,
-            true,
-            None,
-            None,
-        )?;
+        let mut expr =
+            self.read_sql_construct(';' as i32, 0, 0, ";", pmode, false, true, None, None)?;
         if matches!(&self.comp.datums[varno as usize], PlDatum::Var(v) if v.promise == PROMISE_NONE)
         {
             expr.target_param = varno;
             expr.target_is_local = true;
         }
-        Ok(PlStmt::Assign { lineno, varno, expr })
+        Ok(PlStmt::Assign {
+            lineno,
+            varno,
+            expr,
+        })
     }
 
     fn check_assignable(&self, dno: Dno, location: i32) -> PgResult<()> {
@@ -1770,16 +1826,13 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
                 };
                 let lineno = self.lineno(loc);
                 match &self.comp.datums[w.dno as usize] {
-                    PlDatum::Row(_) | PlDatum::Rec(_) => {
-                        Ok((name, lineno, None, Some(w.dno), loc))
-                    }
+                    PlDatum::Row(_) | PlDatum::Rec(_) => Ok((name, lineno, None, Some(w.dno), loc)),
                     _ => {
                         let nt = self.yylex()?;
                         let is_comma = nt.0 == (',' as i32);
                         self.push_back(&nt)?;
                         if is_comma {
-                            let row =
-                                self.read_into_scalar_list(&name, w.dno, loc)?;
+                            let row = self.read_into_scalar_list(&name, w.dno, loc)?;
                             Ok((name, lineno, Some(w.dno), Some(row), loc))
                         } else {
                             Ok((name, lineno, Some(w.dno), None, loc))
@@ -2066,7 +2119,14 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
                 expr.ns = self.comp.ns_top;
             }
         }
-        Ok(PlStmt::Case { lineno, t_expr, t_varno, whens, have_else, else_stmts })
+        Ok(PlStmt::Case {
+            lineno,
+            t_expr,
+            t_varno,
+            whens,
+            have_else,
+            else_stmts,
+        })
     }
 
     // stmt_foreach_a (pl_gram.y).
@@ -2114,7 +2174,9 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
 
     fn make_scalar_list1(&mut self, name: &str, dno: Dno, lineno: i32, loc: i32) -> PgResult<Dno> {
         self.check_assignable(dno, loc)?;
-        Ok(self.comp.build_row_named("(unnamed row)", lineno, vec![dno], vec![name.to_string()]))
+        Ok(self
+            .comp
+            .build_row_named("(unnamed row)", lineno, vec![dno], vec![name.to_string()]))
     }
 
     fn read_into_scalar_list(
@@ -2172,7 +2234,9 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
             }
         }
         let lineno = self.lineno(initial_loc);
-        Ok(self.comp.build_row_named("(unnamed row)", lineno, varnos, fieldnames))
+        Ok(self
+            .comp
+            .build_row_named("(unnamed row)", lineno, varnos, fieldnames))
     }
 
     fn parse_exit(&mut self, is_exit: bool, lloc: i32) -> PgResult<PlStmt> {
@@ -2248,7 +2312,11 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
                     .errhint("Use RETURN NEXT or RETURN QUERY.");
                 return Err(Box::new(self.sc.internal_errposition(b, t.2).into_error()));
             }
-            return Ok(PlStmt::Return { lineno, expr: None, retvarno: -1 });
+            return Ok(PlStmt::Return {
+                lineno,
+                expr: None,
+                retvarno: -1,
+            });
         }
         if self.fn_rettype == VOIDOID {
             let t = self.yylex()?;
@@ -2266,7 +2334,11 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
                     t.2,
                 ));
             }
-            return Ok(PlStmt::Return { lineno, expr: None, retvarno: -1 });
+            return Ok(PlStmt::Return {
+                lineno,
+                expr: None,
+                retvarno: -1,
+            });
         }
         if self.out_param_varno >= 0 {
             let t = self.yylex()?;
@@ -2277,7 +2349,11 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
                     t.2,
                 ));
             }
-            return Ok(PlStmt::Return { lineno, expr: None, retvarno: self.out_param_varno });
+            return Ok(PlStmt::Return {
+                lineno,
+                expr: None,
+                retvarno: self.out_param_varno,
+            });
         }
 
         let t = self.yylex()?;
@@ -2291,12 +2367,20 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
             ) {
                 let semi = self.yylex()?;
                 debug_assert_eq!(semi.0, ';' as i32);
-                return Ok(PlStmt::Return { lineno, expr: None, retvarno });
+                return Ok(PlStmt::Return {
+                    lineno,
+                    expr: None,
+                    retvarno,
+                });
             }
         }
         self.push_back(&t)?;
         let expr = self.read_sql_expression(';' as i32, ";")?;
-        Ok(PlStmt::Return { lineno, expr: Some(expr), retvarno: -1 })
+        Ok(PlStmt::Return {
+            lineno,
+            expr: Some(expr),
+            retvarno: -1,
+        })
     }
 
     // make_return_next_stmt (pl_gram.y:3437).
@@ -2319,7 +2403,11 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
                     t.2,
                 ));
             }
-            return Ok(PlStmt::ReturnNext { lineno, expr: None, retvarno: self.out_param_varno });
+            return Ok(PlStmt::ReturnNext {
+                lineno,
+                expr: None,
+                retvarno: self.out_param_varno,
+            });
         }
         let t = self.yylex()?;
         if t.0 == T_DATUM && self.peek()? == (';' as i32) {
@@ -2330,12 +2418,20 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
             ) {
                 let semi = self.yylex()?;
                 debug_assert_eq!(semi.0, ';' as i32);
-                return Ok(PlStmt::ReturnNext { lineno, expr: None, retvarno });
+                return Ok(PlStmt::ReturnNext {
+                    lineno,
+                    expr: None,
+                    retvarno,
+                });
             }
         }
         self.push_back(&t)?;
         let expr = self.read_sql_expression(';' as i32, ";")?;
-        Ok(PlStmt::ReturnNext { lineno, expr: Some(expr), retvarno: -1 })
+        Ok(PlStmt::ReturnNext {
+            lineno,
+            expr: Some(expr),
+            retvarno: -1,
+        })
     }
 
     // make_return_query_stmt (pl_gram.y:3501).
@@ -2362,7 +2458,12 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
                 None,
                 None,
             )?;
-            return Ok(PlStmt::ReturnQuery { lineno, query: Some(query), dynquery: None, params: Vec::new() });
+            return Ok(PlStmt::ReturnQuery {
+                lineno,
+                query: Some(query),
+                dynquery: None,
+                params: Vec::new(),
+            });
         }
         let mut term = 0i32;
         let dynquery = self.read_sql_expression2(';' as i32, K_USING, "; or USING", &mut term)?;
@@ -2377,7 +2478,12 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
                 }
             }
         }
-        Ok(PlStmt::ReturnQuery { lineno, query: None, dynquery: Some(dynquery), params })
+        Ok(PlStmt::ReturnQuery {
+            lineno,
+            query: None,
+            dynquery: Some(dynquery),
+            params,
+        })
     }
 
     fn recognize_err_condition(&self, condname: &str, allow_sqlstate: bool) -> PgResult<()> {
@@ -2588,7 +2694,11 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
         } else {
             None
         };
-        Ok(PlStmt::Assert { lineno, cond, message })
+        Ok(PlStmt::Assert {
+            lineno,
+            cond,
+            message,
+        })
     }
 
     fn parse_perform(&mut self, t: Tok, lloc: i32) -> PgResult<PlStmt> {
@@ -2637,13 +2747,18 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
                 let w = vt.1.wdatum.as_ref().expect("T_DATUM");
                 let (dno, nm) = (
                     w.dno,
-                    if !w.ident.is_empty() { w.ident.clone() } else { w.idents.join(".") },
+                    if !w.ident.is_empty() {
+                        w.ident.clone()
+                    } else {
+                        w.idents.join(".")
+                    },
                 );
                 // pl_gram.y:1163-1174: a row, a record, or an array element
                 // (next token '[') is "not a scalar variable".
-                let not_scalar =
-                    matches!(&self.comp.datums[dno as usize], PlDatum::Row(_) | PlDatum::Rec(_))
-                        || self.peek()? == ('[' as i32);
+                let not_scalar = matches!(
+                    &self.comp.datums[dno as usize],
+                    PlDatum::Row(_) | PlDatum::Rec(_)
+                ) || self.peek()? == ('[' as i32);
                 if not_scalar {
                     return Err(self.gram_err_pos(
                         ERRCODE_SYNTAX_ERROR,
@@ -2719,7 +2834,10 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
                 ));
             }
             if !is_stacked
-                && !matches!(kind, GETDIAG_ROW_COUNT | GETDIAG_ROUTINE_OID | GETDIAG_CONTEXT)
+                && !matches!(
+                    kind,
+                    GETDIAG_ROW_COUNT | GETDIAG_ROUTINE_OID | GETDIAG_CONTEXT
+                )
             {
                 return Err(self.gram_err_pos(
                     ERRCODE_SYNTAX_ERROR,
@@ -2789,7 +2907,8 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
                 {
                     tokens[token_count] = b'f';
                 }
-                if tokens[1] == b'f' || (tokens[1] == b'o' && tokens[2] == b'r' && tokens[3] == b'f')
+                if tokens[1] == b'f'
+                    || (tokens[1] == b'o' && tokens[2] == b'r' && tokens[3] == b'f')
                 {
                     in_routine_definition = true;
                 }
@@ -2834,7 +2953,10 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
 
         let mut text = if have_into {
             let mut s = self.source_span(location, into_start_loc);
-            s.extend(std::iter::repeat_n(' ',(into_end_loc - into_start_loc).max(0) as usize));
+            s.extend(std::iter::repeat_n(
+                ' ',
+                (into_end_loc - into_start_loc).max(0) as usize,
+            ));
             s.push_str(&self.source_span(into_end_loc, end_loc));
             s
         } else {
@@ -2948,8 +3070,7 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
                     if nt.0 == (',' as i32) {
                         return Err(self.gram_err_pos(
                             ERRCODE_SYNTAX_ERROR,
-                            "record variable cannot be part of multiple-item INTO list"
-                                .to_string(),
+                            "record variable cannot be part of multiple-item INTO list".to_string(),
                             nt.2,
                         ));
                     }
@@ -3000,14 +3121,14 @@ mod audit_b081_tests;
 mod audit_b202_tests;
 
 #[cfg(test)]
-#[path = "gram_bugs_batch75_tests.rs"]
-mod bugs_batch75_tests;
-#[cfg(test)]
 #[path = "gram_bugs_batch186_tests.rs"]
 mod bugs_batch186_tests;
 #[cfg(test)]
 #[path = "gram_bugs_batch233_tests.rs"]
 mod bugs_batch233_tests;
+#[cfg(test)]
+#[path = "gram_bugs_batch75_tests.rs"]
+mod bugs_batch75_tests;
 #[cfg(test)]
 #[path = "gram_wio_w2_tests.rs"]
 mod wio_w2_tests;
@@ -3076,7 +3197,10 @@ mod tests {
         let others = parser.parse_proc_condition().unwrap();
         let success = parser.parse_proc_condition().unwrap();
         assert_eq!(others[0].sqlerrstate, types_error::SqlState(-1));
-        assert_eq!(success[0].sqlerrstate, types_error::make_sqlstate(*b"00000"));
+        assert_eq!(
+            success[0].sqlerrstate,
+            types_error::make_sqlstate(*b"00000")
+        );
     }
 
     // plpgsql_yyerror quotes only the token at yylloc (plpgsql_varprops:
@@ -3085,8 +3209,11 @@ mod tests {
     fn syntax_error_quotes_the_offending_token_only() {
         let cx = mcx::MemoryContext::new("plpgsql syntax error test");
         let mut comp = crate::comp::CompState::new();
-        let mut parser =
-            parser_for!(cx, comp, b"begin for x[1], y in select 1, 2 loop end loop; end");
+        let mut parser = parser_for!(
+            cx,
+            comp,
+            b"begin for x[1], y in select 1, 2 loop end loop; end"
+        );
         let err = parser.parse_function_body().unwrap_err();
         assert_eq!(err.sqlstate, types_error::ERRCODE_SYNTAX_ERROR);
         assert_eq!(err.message, "syntax error at or near \"[\"");
@@ -3114,7 +3241,10 @@ mod tests {
         let e = Box::new(PgError::error("type \"mutable2\" does not exist"));
         let e = parser.sql_error_callback(e, 11);
         assert_eq!(e.internal_position, Some(12));
-        assert_eq!(e.internal_query.as_deref(), Some(core::str::from_utf8(src).unwrap()));
+        assert_eq!(
+            e.internal_query.as_deref(),
+            Some(core::str::from_utf8(src).unwrap())
+        );
         assert_eq!(e.cursor_position, None);
 
         let mut e = Box::new(PgError::error("syntax error at or near \"(\""));
@@ -3151,7 +3281,9 @@ mod tests {
         let cx = mcx::MemoryContext::new("plpgsql for_variable test");
         let mut comp = crate::comp::CompState::new();
         comp.ns_push_label(Some("blk"), LABEL_BLOCK);
-        let dno = comp.build_variable("i", 1, scalar_int_type(), true).unwrap();
+        let dno = comp
+            .build_variable("i", 1, scalar_int_type(), true)
+            .unwrap();
         let mut parser = parser_for!(cx, comp, b"blk.i in 1..1");
         let (name, _, scalar, row, _) = parser.parse_for_variable().unwrap();
         assert_eq!(name, "blk.i");
@@ -3196,13 +3328,18 @@ mod tests {
                 target_is_local: false,
             });
         }
-        comp.build_variable("x", 1, scalar_int_type(), true).unwrap();
-        comp.build_variable("y", 1, scalar_int_type(), true).unwrap();
+        comp.build_variable("x", 1, scalar_int_type(), true)
+            .unwrap();
+        comp.build_variable("y", 1, scalar_int_type(), true)
+            .unwrap();
         let ndatums = comp.datums.len();
         let mut parser = parser_for!(cx, comp, b"begin for x, y in c loop end loop; end");
         let err = parser.parse_function_body().unwrap_err();
         assert_eq!(err.sqlstate, types_error::ERRCODE_SYNTAX_ERROR);
-        assert_eq!(err.message, "cursor FOR loop must have only one target variable");
+        assert_eq!(
+            err.message,
+            "cursor FOR loop must have only one target variable"
+        );
         // pl_gram.y parser_errposition = plpgsql_scanner_errposition: an
         // internal-query cursor over the body, never a primary cursor.
         assert_eq!(err.internal_position, Some(11));
@@ -3210,7 +3347,9 @@ mod tests {
         // The loop's private RECORD variable was never built (C errors first);
         // only the scalar-list row for "x, y" was.
         assert!(
-            !comp.datums[ndatums..].iter().any(|d| matches!(d, PlDatum::Rec(_))),
+            !comp.datums[ndatums..]
+                .iter()
+                .any(|d| matches!(d, PlDatum::Rec(_))),
             "no loop record variable is built after the error"
         );
 
@@ -3231,7 +3370,8 @@ mod tests {
                 target_is_local: false,
             });
         }
-        comp.build_variable("x", 1, scalar_int_type(), true).unwrap();
+        comp.build_variable("x", 1, scalar_int_type(), true)
+            .unwrap();
         let mut parser = parser_for!(cx, comp, b"begin for x in c loop end loop; end");
         let block = parser.parse_function_body().unwrap();
         assert!(matches!(block.body.as_slice(), [PlStmt::ForC { .. }]));

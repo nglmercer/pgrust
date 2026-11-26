@@ -36,13 +36,13 @@ use types_nodes::plannodes::{Agg, IncrementalSort, Limit};
 use types_nodes::primnodes::{AGGKIND_NORMAL, OUTER_VAR};
 use types_nodes::{Node, NodeTag};
 
+use crate::catalog::typefacts::facts_of;
 use crate::effects::{of_plan, Cx};
 use crate::graph::{Bound, Col, Op, Order, OrderKey, MAX_ORDER_KEYS};
 use crate::ledger::Kind;
-use crate::ops::shared::agg_class::{Class, Collect};
 use crate::ops::shared::agg::KeyDecl;
+use crate::ops::shared::agg_class::{Class, Collect};
 use crate::ops::shared::sort::SortForm;
-use crate::catalog::typefacts::facts_of;
 use crate::walk::{Builder, Open};
 
 /// A stop handed to the sort below a stopping consumer: plan node `sort` (an Incremental Sort) ends its producer once the
@@ -106,7 +106,8 @@ pub fn group_streams<'p>(b: &Builder<'p, '_>, l: &'p Limit<'p>) -> Option<Stop<'
     let child = l.plan.lefttree?;
     match child.as_unique() {
         Some(_) => unique_stop(b, child, count.saturating_add(offset)),
-        None => group_stop(b, child, count.saturating_add(offset)).or_else(|| window_stop(b, child, count.saturating_add(offset))),
+        None => group_stop(b, child, count.saturating_add(offset))
+            .or_else(|| window_stop(b, child, count.saturating_add(offset))),
     }
 }
 
@@ -118,11 +119,18 @@ fn unique_stop<'p>(b: &Builder<'p, '_>, child: Node<'p>, need: u64) -> Option<St
     let n = s.numCols as usize;
     let keys = s.sortColIdx.get(..n)?;
     let uniq = u.uniqColIdx.get(..u.numCols.max(0) as usize)?;
-    let same = |set: &[i16]| uniq.len() == set.len() && uniq.iter().all(|c| set.contains(c)) && set.iter().all(|c| uniq.contains(c));
+    let same = |set: &[i16]| {
+        uniq.len() == set.len()
+            && uniq.iter().all(|c| set.contains(c))
+            && set.iter().all(|c| uniq.contains(c))
+    };
     // topn_core-0240: a Unique over exactly the presorted prefix keys hands on one row per prefix group (`per_group`)
     let pre = (inc.nPresortedCols.max(0) as usize).min(n);
     let (all, per_group) = (same(keys), pre < n && same(&keys[..pre]));
-    let default = s.sortOperators.get(..n).is_some_and(|ops| ops.iter().all(|&op| super::order::default_order(b.facts, op)));
+    let default = s.sortOperators.get(..n).is_some_and(|ops| {
+        ops.iter()
+            .all(|&op| super::order::default_order(b.facts, op))
+    });
     if pre < 1 || !s.plan.qual.is_nil() || !(all || per_group) || !default {
         return None;
     }
@@ -133,7 +141,16 @@ fn unique_stop<'p>(b: &Builder<'p, '_>, child: Node<'p>, need: u64) -> Option<St
     if below.acts {
         return None;
     }
-    Some(Stop { sort: s.plan.plan_node_id, need, groups: false, per_group, folds: false, late: !below.may_raise, rows: false, one: None })
+    Some(Stop {
+        sort: s.plan.plan_node_id,
+        need,
+        groups: false,
+        per_group,
+        folds: false,
+        late: !below.may_raise,
+        rows: false,
+        one: None,
+    })
 }
 
 /// The group form: `child` (the Limit's) a sorted GroupAggregate, or a top Incremental Sort presorted on every group key
@@ -150,7 +167,13 @@ fn group_stop<'p>(b: &Builder<'p, '_>, child: Node<'p>, c: u64) -> Option<Stop<'
         None => (child.as_agg()?, c),
     };
     let ngrp = a.numCols.max(0) as usize;
-    if a.aggstrategy != AGG_SORTED || ngrp == 0 || !a.plan.qual.is_nil() || !a.groupingSets.is_nil() || !a.chain.is_nil() || a.gravity_rewrite.is_some() {
+    if a.aggstrategy != AGG_SORTED
+        || ngrp == 0
+        || !a.plan.qual.is_nil()
+        || !a.groupingSets.is_nil()
+        || !a.chain.is_nil()
+        || a.gravity_rewrite.is_some()
+    {
         return None;
     }
     let grp = a.grpColIdx.get(..ngrp)?;
@@ -160,7 +183,10 @@ fn group_stop<'p>(b: &Builder<'p, '_>, child: Node<'p>, c: u64) -> Option<Stop<'
         None => a.plan.lefttree?.as_incremental_sort()?,
     };
     let s = &inc.sort;
-    let (n, pre) = (s.numCols.max(0) as usize, inc.nPresortedCols.max(0) as usize);
+    let (n, pre) = (
+        s.numCols.max(0) as usize,
+        inc.nPresortedCols.max(0) as usize,
+    );
     // a group column as the sort's column: through the window's target list (a plain outer column) when one lies between
     let col = |g: i16| match window {
         Some(w) => outer(&w.plan.targetlist, g),
@@ -169,11 +195,18 @@ fn group_stop<'p>(b: &Builder<'p, '_>, child: Node<'p>, c: u64) -> Option<Stop<'
     // the sort's leading keys are the group keys (PostgreSQL's group pathkeys lead its input's) and its presorted prefix
     // lies inside them: each prefix group holds one group or more, so counting prefix groups stops no earlier
     let lead = s.sortColIdx.get(..n.min(ngrp))?;
-    let same = lead.len() == ngrp && lead.iter().all(|&c| grp.iter().any(|&g| col(g) == Some(c))) && grp.iter().all(|&g| col(g).is_some_and(|c| lead.contains(&c)));
+    let same = lead.len() == ngrp
+        && lead.iter().all(|&c| grp.iter().any(|&g| col(g) == Some(c)))
+        && grp
+            .iter()
+            .all(|&g| col(g).is_some_and(|c| lead.contains(&c)));
     if pre < 1 || pre > ngrp || !s.plan.qual.is_nil() || !same {
         return None;
     }
-    if !s.sortOperators.get(..pre).is_some_and(|ops| ops.iter().all(|&op| super::order::default_order(b.facts, op))) {
+    if !s.sortOperators.get(..pre).is_some_and(|ops| {
+        ops.iter()
+            .all(|&op| super::order::default_order(b.facts, op))
+    }) {
         return None;
     }
     // wbig-0021 (perf): a WindowAgg between the group and the sort hands each prefix group on whole and adds no row when it
@@ -184,8 +217,15 @@ fn group_stop<'p>(b: &Builder<'p, '_>, child: Node<'p>, c: u64) -> Option<Stop<'
     // (`numbering_only`) and nothing below the sort may raise or acts.
     if let Some(w) = window {
         let part = w.partColIdx.get(..w.partNumCols.max(0) as usize)?;
-        let inside = s.sortColIdx.get(..pre).is_some_and(|keys| keys.iter().all(|c| part.contains(c)));
-        if !w.plan.qual.is_nil() || !inside || !crate::ops::window::partitions_never_empty(w) || !crate::ops::window::numbering_only(w) {
+        let inside = s
+            .sortColIdx
+            .get(..pre)
+            .is_some_and(|keys| keys.iter().all(|c| part.contains(c)));
+        if !w.plan.qual.is_nil()
+            || !inside
+            || !crate::ops::window::partitions_never_empty(w)
+            || !crate::ops::window::numbering_only(w)
+        {
             return None;
         }
     }
@@ -201,11 +241,33 @@ fn group_stop<'p>(b: &Builder<'p, '_>, child: Node<'p>, c: u64) -> Option<Stop<'
     // Needed where code below the sort may raise; also taken where it does not, as it reads no more than the prefix-group
     // count: a prefix group holding many groups (`GROUP BY customer_id, status, channel` over an index on customer_id,
     // LIMIT 40) read 40 prefix groups where PostgreSQL read 2
-    let all = n == ngrp && s.sortOperators.get(..n).is_some_and(|ops| ops.iter().all(|&op| super::order::default_order(b.facts, op)));
+    let all = n == ngrp
+        && s.sortOperators.get(..n).is_some_and(|ops| {
+            ops.iter()
+                .all(|&op| super::order::default_order(b.facts, op))
+        });
     if all && window.is_none() {
-        return Some(Stop { sort: s.plan.plan_node_id, need: rows.saturating_add(1), groups: false, per_group: false, folds: true, late: !below.may_raise, rows: false, one: None });
+        return Some(Stop {
+            sort: s.plan.plan_node_id,
+            need: rows.saturating_add(1),
+            groups: false,
+            per_group: false,
+            folds: true,
+            late: !below.may_raise,
+            rows: false,
+            one: None,
+        });
     }
-    (!below.may_raise).then_some(Stop { sort: s.plan.plan_node_id, need: rows, groups: true, per_group: false, folds: false, late: true, rows: false, one: None })
+    (!below.may_raise).then_some(Stop {
+        sort: s.plan.plan_node_id,
+        need: rows,
+        groups: true,
+        per_group: false,
+        folds: false,
+        late: true,
+        rows: false,
+        one: None,
+    })
 }
 
 /// The window form (S2, ci-0065: rank() OVER (PARTITION BY cat ORDER BY amt DESC) ... ORDER BY cat, amt DESC, id LIMIT 5
@@ -229,8 +291,18 @@ fn window_stop<'p>(b: &Builder<'p, '_>, child: Node<'p>, c: u64) -> Option<Stop<
     let (child, one) = match child.as_subquery_scan() {
         Some(sq) => {
             let sub = sq.subplan?;
-            let plain = sq.scan.plan.targetlist.iter().filter_map(|t| t.as_target_entry()).all(|t| t.expr.as_var().is_some_and(|v| v.varlevelsup == 0));
-            let k = crate::ops::window::first_rows_only(sub.as_window_agg()?, sq.scan.scanrelid, &sq.scan.plan.qual)?;
+            let plain = sq
+                .scan
+                .plan
+                .targetlist
+                .iter()
+                .filter_map(|t| t.as_target_entry())
+                .all(|t| t.expr.as_var().is_some_and(|v| v.varlevelsup == 0));
+            let k = crate::ops::window::first_rows_only(
+                sub.as_window_agg()?,
+                sq.scan.scanrelid,
+                &sq.scan.plan.qual,
+            )?;
             (plain.then_some(sub)?, Some(k))
         }
         None => (child, None),
@@ -241,12 +313,24 @@ fn window_stop<'p>(b: &Builder<'p, '_>, child: Node<'p>, c: u64) -> Option<Stop<
     };
     let inc = w.plan.lefttree?.as_incremental_sort()?;
     let s = &inc.sort;
-    let (n, pre) = (s.numCols.max(0) as usize, inc.nPresortedCols.max(0) as usize);
+    let (n, pre) = (
+        s.numCols.max(0) as usize,
+        inc.nPresortedCols.max(0) as usize,
+    );
     let keys = s.sortColIdx.get(..n)?;
     let part = w.partColIdx.get(..w.partNumCols.max(0) as usize)?;
     let inside = pre >= 1 && pre <= n && keys[..pre].iter().all(|c| part.contains(c));
-    let default = |k: usize| s.sortOperators.get(..k).is_some_and(|ops| ops.iter().all(|&op| super::order::default_order(b.facts, op)));
-    if !inside || !s.plan.qual.is_nil() || !w.plan.qual.is_nil() || !crate::ops::window::numbering_only(w) {
+    let default = |k: usize| {
+        s.sortOperators.get(..k).is_some_and(|ops| {
+            ops.iter()
+                .all(|&op| super::order::default_order(b.facts, op))
+        })
+    };
+    if !inside
+        || !s.plan.qual.is_nil()
+        || !w.plan.qual.is_nil()
+        || !crate::ops::window::numbering_only(w)
+    {
         return None;
     }
     let below = of_plan(&Cx::new(b.stmt, b.facts, b.arena), s.plan.lefttree?);
@@ -260,30 +344,68 @@ fn window_stop<'p>(b: &Builder<'p, '_>, child: Node<'p>, c: u64) -> Option<Stop<
         // D3376: code below the sort that may raise reads no row past PostgreSQL's batches: the Limit's `c` rows counted
         // exactly (`Stop::rows`), with no top (whose own batches pull past the window's rows)
         if below.may_raise {
-            return top.is_none().then_some(Stop { sort: s.plan.plan_node_id, need: c, groups: false, per_group: false, folds: true, late: false, rows: true, one: None });
+            return top.is_none().then_some(Stop {
+                sort: s.plan.plan_node_id,
+                need: c,
+                groups: false,
+                per_group: false,
+                folds: true,
+                late: false,
+                rows: true,
+                one: None,
+            });
         }
         let rows = match top {
             Some(t) if top_on_sort(t, w, keys) => c.saturating_add(1),
             Some(_) => return None,
             None => c,
         };
-        return Some(Stop { sort: s.plan.plan_node_id, need: rows, groups: false, per_group: false, folds: true, late: true, rows: false, one: None });
+        return Some(Stop {
+            sort: s.plan.plan_node_id,
+            need: rows,
+            groups: false,
+            per_group: false,
+            folds: true,
+            late: true,
+            rows: false,
+            one: None,
+        });
     }
-    let groups = top.is_none() && default(pre) && crate::ops::window::partitions_never_empty(w) && !below.may_raise;
-    groups.then_some(Stop { sort: s.plan.plan_node_id, need: c, groups: true, per_group: false, folds: false, late: true, rows: false, one })
+    let groups = top.is_none()
+        && default(pre)
+        && crate::ops::window::partitions_never_empty(w)
+        && !below.may_raise;
+    groups.then_some(Stop {
+        sort: s.plan.plan_node_id,
+        need: c,
+        groups: true,
+        per_group: false,
+        folds: false,
+        late: true,
+        rows: false,
+        one,
+    })
 }
 
 /// Whether top Incremental Sort `t` (no qual) over WindowAgg `w` is presorted on exactly the keys `keys` of the sort below
 /// the window, in their order: each presorted key a column of `t`'s input that is `w`'s plain output of that sort column.
 /// The top's prefix groups are then the distinct rows the window form counts, so one distinct row past its bound's last
 /// closes it.
-fn top_on_sort<'p>(t: &'p IncrementalSort<'p>, w: &'p types_nodes::plannodes::WindowAgg<'p>, keys: &[i16]) -> bool {
+fn top_on_sort<'p>(
+    t: &'p IncrementalSort<'p>,
+    w: &'p types_nodes::plannodes::WindowAgg<'p>,
+    keys: &[i16],
+) -> bool {
     let pre = t.nPresortedCols.max(0) as usize;
-    let Some(cols) = t.sort.sortColIdx.get(..pre) else { return false };
+    let Some(cols) = t.sort.sortColIdx.get(..pre) else {
+        return false;
+    };
     if pre != keys.len() || !t.sort.plan.qual.is_nil() {
         return false;
     }
-    let mapped = |i: usize| outer(&t.sort.plan.targetlist, cols[i]).and_then(|r| outer(&w.plan.targetlist, r));
+    let mapped = |i: usize| {
+        outer(&t.sort.plan.targetlist, cols[i]).and_then(|r| outer(&w.plan.targetlist, r))
+    };
     (0..pre).all(|i| mapped(i) == Some(keys[i]))
 }
 
@@ -305,19 +427,36 @@ pub fn streams_to_stop<'p>(b: &Builder<'p, '_>, a: &'p Agg<'p>) -> bool {
     // over a full Sort only where the group keeps that Sort anyway (a call reads the row order: no key-sort absorb), so the
     // stream adds no sort the breaker form left out; the sort reads its input whole in PostgreSQL too, the stop saves the
     // groups past the Limit's
-    let kept_sort = a.plan.lefttree.is_some_and(|n| n.as_sort().is_some()) && !crate::ops::group::absorb::order_free(b, a);
+    let kept_sort = a.plan.lefttree.is_some_and(|n| n.as_sort().is_some())
+        && !crate::ops::group::absorb::order_free(b, a);
     // a collect with no ORDER BY of its own streams over a feed in PostgreSQL's order, ties too (`scan_spine`): its rows
     // reach it as they reach PG's (any_value's first non-NULL one too), and lowerv4 hosted.rs #530 licenses only the feed's
     // work before the run (aggtrans_core-0339, USEROP agg_shop-0044); over any other feed it keeps the breaker form
     let first_row = !kept_sort && scan_spine(b, a.plan.lefttree);
-    if a.aggstrategy != AGG_SORTED || !(ordered_feed(a.plan.lefttree) || kept_sort) || !ties_free(a, first_row) || a.numCols < 1 || !a.groupingSets.is_nil() || !a.chain.is_nil() || a.gravity_rewrite.is_some() {
+    if a.aggstrategy != AGG_SORTED
+        || !(ordered_feed(a.plan.lefttree) || kept_sort)
+        || !ties_free(a, first_row)
+        || a.numCols < 1
+        || !a.groupingSets.is_nil()
+        || !a.chain.is_nil()
+        || a.gravity_rewrite.is_some()
+    {
         return false;
     }
     let me = a.plan.plan_node_id;
     let mut top = false;
     crate::rerun::each_plan_node(b.stmt, &mut |n| {
-        let t = n.as_incremental_sort().filter(|t| t.sort.plan.plan_node_id == id);
-        top |= t.is_some_and(|t| t.sort.plan.lefttree.and_then(|l| l.as_plan()).is_some_and(|l| l.plan_node_id == me) && top_on_keys(t, a));
+        let t = n
+            .as_incremental_sort()
+            .filter(|t| t.sort.plan.plan_node_id == id);
+        top |= t.is_some_and(|t| {
+            t.sort
+                .plan
+                .lefttree
+                .and_then(|l| l.as_plan())
+                .is_some_and(|l| l.plan_node_id == me)
+                && top_on_keys(t, a)
+        });
         // the top's rows may come from the group through a nest loop's outer side (rnd-0600): its stop is then exact
         top |= t.is_some_and(|t| spine_reaches(t.sort.plan.lefttree, me) && exact_prefix(b, t));
     });
@@ -336,7 +475,9 @@ pub fn spine_reaches(from: Option<Node<'_>>, to: i32) -> bool {
         }
         n = match (node.as_nest_loop(), node.as_result()) {
             (Some(nl), _) => nl.join.plan.lefttree,
-            (None, Some(r)) if r.resconstantqual.is_none() && r.plan.qual.is_nil() => r.plan.lefttree,
+            (None, Some(r)) if r.resconstantqual.is_none() && r.plan.qual.is_nil() => {
+                r.plan.lefttree
+            }
             _ => return false,
         };
     }
@@ -349,9 +490,21 @@ pub fn spine_reaches(from: Option<Node<'_>>, to: i32) -> bool {
 /// past it), so a group streamed under it reads PostgreSQL's rows whatever row-at-a-time nodes run between.
 fn exact_prefix<'p>(b: &Builder<'p, '_>, t: &'p IncrementalSort<'p>) -> bool {
     let pre = t.nPresortedCols.max(0) as usize;
-    let Some(cols) = t.sort.sortColIdx.get(..pre) else { return false };
-    let key = |resno: i16| t.sort.plan.targetlist.iter().find_map(|n| n.as_target_entry().filter(|te| te.resno == resno)).and_then(|te| crate::catalog::expr_type::type_of(te.expr));
-    let exact = |ty: u32| facts_of(b.facts, ty).is_some_and(|tf| tf.byval && (tf.image.is_word() || tf.image.is_float()));
+    let Some(cols) = t.sort.sortColIdx.get(..pre) else {
+        return false;
+    };
+    let key = |resno: i16| {
+        t.sort
+            .plan
+            .targetlist
+            .iter()
+            .find_map(|n| n.as_target_entry().filter(|te| te.resno == resno))
+            .and_then(|te| crate::catalog::expr_type::type_of(te.expr))
+    };
+    let exact = |ty: u32| {
+        facts_of(b.facts, ty)
+            .is_some_and(|tf| tf.byval && (tf.image.is_word() || tf.image.is_float()))
+    };
     pre > 0 && cols.iter().all(|&c| key(c).is_some_and(exact))
 }
 
@@ -366,7 +519,13 @@ fn exact_prefix<'p>(b: &Builder<'p, '_>, t: &'p IncrementalSort<'p>) -> bool {
 /// its group's tie order, and plain calls (no DISTINCT, no aggregate ORDER BY, no ordered-set call: the streamed group
 /// builds no per-group set nor an aggregate's sort, as `agg_stops`).
 pub fn merge_inner<'p>(b: &Builder<'p, '_>, a: &'p Agg<'p>) -> bool {
-    if a.aggstrategy != AGG_SORTED || a.aggsplit != 0 || a.numCols < 1 || !a.groupingSets.is_nil() || !a.chain.is_nil() || a.gravity_rewrite.is_some() {
+    if a.aggstrategy != AGG_SORTED
+        || a.aggsplit != 0
+        || a.numCols < 1
+        || !a.groupingSets.is_nil()
+        || !a.chain.is_nil()
+        || a.gravity_rewrite.is_some()
+    {
         return false;
     }
     if !ordered_feed(a.plan.lefttree) || !ties_free(a, false) {
@@ -377,13 +536,16 @@ pub fn merge_inner<'p>(b: &Builder<'p, '_>, a: &'p Agg<'p>) -> bool {
     let mut inner = false;
     crate::rerun::each_plan_node(b.stmt, &mut |n| {
         let r = n.as_merge_join().and_then(|mj| mj.join.plan.righttree);
-        inner |= r.is_some_and(|r| id(Some(r)) == me || r.as_material().is_some_and(|m| id(m.plan.lefttree) == me));
+        inner |= r.is_some_and(|r| {
+            id(Some(r)) == me || r.as_material().is_some_and(|m| id(m.plan.lefttree) == me)
+        });
     });
     let mut plain = inner;
     for e in a.plan.targetlist.iter().chain(a.plan.qual.iter()) {
         crate::expr::walk(e, &mut |x| {
             if let Some(r) = x.as_aggref() {
-                plain &= r.aggdistinct.is_nil() && r.aggorder.is_nil() && r.aggkind == AGGKIND_NORMAL;
+                plain &=
+                    r.aggdistinct.is_nil() && r.aggorder.is_nil() && r.aggkind == AGGKIND_NORMAL;
                 return false;
             }
             plain
@@ -403,18 +565,33 @@ pub fn merge_inner<'p>(b: &Builder<'p, '_>, a: &'p Agg<'p>) -> bool {
 /// is not PostgreSQL's. Plain calls only (every call AGGKIND_NORMAL with no DISTINCT and no aggregate ORDER BY: the
 /// streamed group builds no aggregate sort), no grouping sets, no split, no hint.
 pub fn collect_streams<'p>(b: &Builder<'p, '_>, a: &'p Agg<'p>) -> bool {
-    if a.aggstrategy != AGG_SORTED || a.aggsplit != 0 || a.numCols < 1 || !a.groupingSets.is_nil() || !a.chain.is_nil() || a.gravity_rewrite.is_some() {
+    if a.aggstrategy != AGG_SORTED
+        || a.aggsplit != 0
+        || a.numCols < 1
+        || !a.groupingSets.is_nil()
+        || !a.chain.is_nil()
+        || a.gravity_rewrite.is_some()
+    {
         return false;
     }
     let (mut plain, mut hit) = (true, false);
     for e in a.plan.targetlist.iter().chain(a.plan.qual.iter()) {
         crate::expr::walk(e, &mut |x| {
             if let Some(r) = x.as_aggref() {
-                plain &= r.aggdistinct.is_nil() && r.aggorder.is_nil() && r.aggkind == AGGKIND_NORMAL;
+                plain &=
+                    r.aggdistinct.is_nil() && r.aggorder.is_nil() && r.aggkind == AGGKIND_NORMAL;
                 let row = crate::ops::agg::trans::table::row(r.aggfnoid);
-                let range = row.is_some_and(|w| matches!(w.class, Class::Collect(Collect::Range | Collect::RangeIntersect)));
+                let range = row.is_some_and(|w| {
+                    matches!(
+                        w.class,
+                        Class::Collect(Collect::Range | Collect::RangeIntersect)
+                    )
+                });
                 plain &= range || row.is_some_and(|w| !matches!(w.class, Class::Collect(_)));
-                hit |= range && r.aggargtypes.iter().any(|t| crate::effects::of_compare(b.facts, t).acts); // a user range's comparator
+                hit |= range
+                    && r.aggargtypes
+                        .iter()
+                        .any(|t| crate::effects::of_compare(b.facts, t).acts); // a user range's comparator
                 return false;
             }
             plain
@@ -433,7 +610,9 @@ pub fn collect_streams<'p>(b: &Builder<'p, '_>, a: &'p Agg<'p>) -> bool {
 /// which folds every row before its first group leaves.
 fn leaves_late<'p>(b: &Builder<'p, '_>, a: &'p Agg<'p>) -> bool {
     let (raising, plain) = raising(a);
-    !raising || read_whole(b.stmt.planTree, a.plan.plan_node_id) || (plain && order_spine(b, a.plan.lefttree))
+    !raising
+        || read_whole(b.stmt.planTree, a.plan.plan_node_id)
+        || (plain && order_spine(b, a.plan.lefttree))
 }
 
 /// Whether a call of `a` raises by its partial sums (`effects::raises_by_order`, or a call the class table does not
@@ -444,9 +623,13 @@ fn raising<'p>(a: &'p Agg<'p>) -> (bool, bool) {
     for e in a.plan.targetlist.iter().chain(a.plan.qual.iter()) {
         crate::expr::walk(e, &mut |x| {
             if let Some(r) = x.as_aggref() {
-                let raises = crate::ops::agg::trans::table::row(r.aggfnoid).is_none_or(|w| crate::effects::raises_by_order(w.class));
+                let raises = crate::ops::agg::trans::table::row(r.aggfnoid)
+                    .is_none_or(|w| crate::effects::raises_by_order(w.class));
                 raising |= raises;
-                plain &= !raises || (r.aggdistinct.is_nil() && r.aggorder.is_nil() && r.aggkind == AGGKIND_NORMAL);
+                plain &= !raises
+                    || (r.aggdistinct.is_nil()
+                        && r.aggorder.is_nil()
+                        && r.aggkind == AGGKIND_NORMAL);
                 return false;
             }
             true
@@ -461,7 +644,10 @@ fn raising<'p>(a: &'p Agg<'p>) -> (bool, bool) {
 /// is what lets `leaves_late` stream it under a LIMIT: a row handed on before the raise is one PostgreSQL hands on too.
 pub fn in_order<'p>(b: &Builder<'p, '_>, a: &'p Agg<'p>) -> bool {
     let (raising, plain) = raising(a);
-    raising && plain && !read_whole(b.stmt.planTree, a.plan.plan_node_id) && order_spine(b, a.plan.lefttree)
+    raising
+        && plain
+        && !read_whole(b.stmt.planTree, a.plan.plan_node_id)
+        && order_spine(b, a.plan.lefttree)
 }
 
 /// D3374: whether PostgreSQL reads plan node `id`'s every row when the statement is read to its end: `id` sits in the
@@ -495,8 +681,14 @@ pub(crate) fn whole_written(b: &Builder<'_, '_>, id: i32) -> bool {
             return Some(true);
         }
         let sub = n.as_subquery_scan().and_then(|s| s.subplan);
-        let members = n.as_append().map(|a| &a.appendplans).or_else(|| n.as_merge_append().map(|m| &m.mergeplans));
-        let kids = [p.lefttree, p.righttree, sub].into_iter().flatten().chain(members.into_iter().flat_map(|l| l.iter()));
+        let members = n
+            .as_append()
+            .map(|a| &a.appendplans)
+            .or_else(|| n.as_merge_append().map(|m| &m.mergeplans));
+        let kids = [p.lefttree, p.righttree, sub]
+            .into_iter()
+            .flatten()
+            .chain(members.into_iter().flat_map(|l| l.iter()));
         let found = kids.into_iter().find_map(|c| go(c, id))?;
         Some(found && whole(n))
     }
@@ -514,9 +706,16 @@ fn read_whole(n: Option<Node<'_>>, me: i32) -> bool {
         if p.plan_node_id == me {
             return Some(whole);
         }
-        let whole = whole || node.as_sort().is_some() || node.as_agg().is_some_and(|a| a.aggstrategy == AGG_PLAIN || a.aggstrategy == AGG_HASHED);
-        let sub = node.as_subquery_scan().and_then(|s| found(s.subplan, me, whole));
-        sub.or_else(|| found(p.lefttree, me, whole)).or_else(|| found(p.righttree, me, whole))
+        let whole = whole
+            || node.as_sort().is_some()
+            || node
+                .as_agg()
+                .is_some_and(|a| a.aggstrategy == AGG_PLAIN || a.aggstrategy == AGG_HASHED);
+        let sub = node
+            .as_subquery_scan()
+            .and_then(|s| found(s.subplan, me, whole));
+        sub.or_else(|| found(p.lefttree, me, whole))
+            .or_else(|| found(p.righttree, me, whole))
     }
     found(n, me, false) == Some(true)
 }
@@ -536,7 +735,13 @@ fn read_whole(n: Option<Node<'_>>, me: i32) -> bool {
 /// held every group's state to the input's end (500,000 max(text) states of 16.5 kB filled a 12 GiB server), where
 /// PostgreSQL's Sort spills at work_mem and its GroupAggregate frees each group's states at the next group.
 pub fn sorts_stream<'p>(b: &Builder<'p, '_>, a: &'p Agg<'p>) -> bool {
-    if a.aggstrategy != AGG_SORTED || a.aggsplit != 0 || a.numCols < 1 || !a.groupingSets.is_nil() || !a.chain.is_nil() || a.gravity_rewrite.is_some() {
+    if a.aggstrategy != AGG_SORTED
+        || a.aggsplit != 0
+        || a.numCols < 1
+        || !a.groupingSets.is_nil()
+        || !a.chain.is_nil()
+        || a.gravity_rewrite.is_some()
+    {
         return false;
     }
     let (mut plain, mut hit, mut hosted) = (true, false, false);
@@ -551,12 +756,22 @@ pub fn sorts_stream<'p>(b: &Builder<'p, '_>, a: &'p Agg<'p>) -> bool {
             true
         });
     }
-    let sorted = a.plan.lefttree.is_some_and(|n| n.as_sort().is_some() || n.as_incremental_sort().is_some());
+    let sorted = a
+        .plan
+        .lefttree
+        .is_some_and(|n| n.as_sort().is_some() || n.as_incremental_sort().is_some());
     let union = a.plan.lefttree.is_some_and(|n| n.as_append().is_some()); // a pruned union's arms do not stream
-    if union || !(ordered_feed(a.plan.lefttree) || sorted && (hosted || !crate::ops::group::absorb::order_free(b, a))) || !ties_free(a, false) {
+    if union
+        || !(ordered_feed(a.plan.lefttree)
+            || sorted && (hosted || !crate::ops::group::absorb::order_free(b, a)))
+        || !ties_free(a, false)
+    {
         return false;
     }
-    plain && (hit || hosted) && stream_read(b.stmt.planTree, a.plan.plan_node_id) && leaves_late(b, a)
+    plain
+        && (hit || hosted)
+        && stream_read(b.stmt.planTree, a.plan.plan_node_id)
+        && leaves_late(b, a)
 }
 
 /// D3578: call `r`'s state is one the host keeps by reference (`Trans::Var`) under the most native fold its class has
@@ -566,11 +781,23 @@ pub fn sorts_stream<'p>(b: &Builder<'p, '_>, a: &'p Agg<'p>) -> bool {
 /// bounds by work_mem. A state of a by-value type is held in its slot (`by_ref_state`: an enum extreme's 4-byte oid), and
 /// a money sum's is a word: no context growth; a call the class table does not know is `ties_free`'s.
 fn hosted_state<'p>(b: &Builder<'p, '_>, r: &types_nodes::primnodes::Aggref<'_>) -> bool {
-    let Some(row) = crate::ops::agg::trans::table::row(r.aggfnoid) else { return false };
-    let arg = r.args.iter().filter_map(|n| n.as_target_entry()).map(|t| t.expr).next();
-    let column = arg.is_some_and(|e| e.as_var().is_some() || e.as_relabel_type().is_some_and(|x| x.arg.as_var().is_some()));
+    let Some(row) = crate::ops::agg::trans::table::row(r.aggfnoid) else {
+        return false;
+    };
+    let arg = r
+        .args
+        .iter()
+        .filter_map(|n| n.as_target_entry())
+        .map(|t| t.expr)
+        .next();
+    let column = arg.is_some_and(|e| {
+        e.as_var().is_some()
+            || e.as_relabel_type()
+                .is_some_and(|x| x.arg.as_var().is_some())
+    });
     row.class != Class::SumMoney
-        && crate::ops::shared::agg::fold_of(row.class, r.aggfnoid, column, true).1 == crate::ops::shared::agg_class::Trans::Var
+        && crate::ops::shared::agg::fold_of(row.class, r.aggfnoid, column, true).1
+            == crate::ops::shared::agg_class::Trans::Var
         && by_ref_state(b, row.transtype, r.aggtranstype)
 }
 
@@ -593,8 +820,20 @@ fn by_ref_state<'p>(b: &Builder<'p, '_>, declared: u32, resolved: u32) -> bool {
 /// the sort, so its calls, NOTICEs and error stay where the breaker form's call order puts them (lowerv4 regroup.rs
 /// `call_order` refuses the ones that may act there; D1371).
 pub(crate) fn sorts_builtin(b: &Builder<'_, '_>, r: &types_nodes::primnodes::Aggref<'_>) -> bool {
-    let col = |i: u32| r.args.iter().filter_map(|t| t.as_target_entry()).find(|t| t.ressortgroupref == i).and_then(|t| crate::catalog::expr_type::type_of(t.expr));
-    r.aggorder.iter().all(|n| n.as_sort_group_clause().is_some_and(|c| !crate::effects::user_order(b.facts, c.sortop) && col(c.tleSortGroupRef).is_some_and(|t| !crate::effects::of_compare(b.facts, t).acts)))
+    let col = |i: u32| {
+        r.args
+            .iter()
+            .filter_map(|t| t.as_target_entry())
+            .find(|t| t.ressortgroupref == i)
+            .and_then(|t| crate::catalog::expr_type::type_of(t.expr))
+    };
+    r.aggorder.iter().all(|n| {
+        n.as_sort_group_clause().is_some_and(|c| {
+            !crate::effects::user_order(b.facts, c.sortop)
+                && col(c.tleSortGroupRef)
+                    .is_some_and(|t| !crate::effects::of_compare(b.facts, t).acts)
+        })
+    })
 }
 
 /// Whether sorted GroupAggregate `me` (in the plan from `n`) hands its groups to nodes that read a streamed group as they
@@ -606,20 +845,35 @@ pub(crate) fn sorts_builtin(b: &Builder<'_, '_>, r: &types_nodes::primnodes::Agg
 fn stream_read(n: Option<Node<'_>>, me: i32) -> bool {
     crate::walk::stack_check(); // D3748
     let Some(node) = n else { return false };
-    let Some(p) = node.as_plan() else { return false };
+    let Some(p) = node.as_plan() else {
+        return false;
+    };
     if p.plan_node_id == me {
         return true;
     }
-    let is_me = |c: Option<Node<'_>>| c.and_then(|c| c.as_plan()).is_some_and(|q| q.plan_node_id == me);
+    let is_me = |c: Option<Node<'_>>| {
+        c.and_then(|c| c.as_plan())
+            .is_some_and(|q| q.plan_node_id == me)
+    };
     if let Some(mj) = node.as_merge_join() {
         let r = mj.join.plan.righttree;
-        return is_me(r) || r.and_then(|r| r.as_material()).is_some_and(|m| is_me(m.plan.lefttree));
+        return is_me(r)
+            || r.and_then(|r| r.as_material())
+                .is_some_and(|m| is_me(m.plan.lefttree));
     }
     if let Some(s) = node.as_subquery_scan() {
         return stream_read(s.subplan, me);
     }
-    let result = node.as_result().is_some_and(|r| r.resconstantqual.is_none() && r.plan.qual.is_nil());
-    let passes = result || node.as_nest_loop().is_some() || node.as_agg().is_some() || node.as_sort().is_some() || node.as_incremental_sort().is_some() || node.as_limit().is_some() || node.as_unique().is_some();
+    let result = node
+        .as_result()
+        .is_some_and(|r| r.resconstantqual.is_none() && r.plan.qual.is_nil());
+    let passes = result
+        || node.as_nest_loop().is_some()
+        || node.as_agg().is_some()
+        || node.as_sort().is_some()
+        || node.as_incremental_sort().is_some()
+        || node.as_limit().is_some()
+        || node.as_unique().is_some();
     passes && stream_read(p.lefttree, me)
 }
 
@@ -667,7 +921,12 @@ fn scan_spine<'p>(b: &Builder<'p, '_>, input: Option<Node<'p>>) -> bool {
         if scan(node) {
             return true;
         }
-        let Some(mj) = node.as_merge_join().filter(|mj| mj.join.plan.righttree.is_some_and(scan)) else { return false };
+        let Some(mj) = node
+            .as_merge_join()
+            .filter(|mj| mj.join.plan.righttree.is_some_and(scan))
+        else {
+            return false;
+        };
         n = mj.join.plan.lefttree;
     }
     false
@@ -675,9 +934,23 @@ fn scan_spine<'p>(b: &Builder<'p, '_>, input: Option<Node<'p>>) -> bool {
 
 /// Whether `n` is an Index or Index Only Scan of a heap relation.
 fn heap_index_scan<'p>(b: &Builder<'p, '_>, n: Node<'p>) -> bool {
-    let heap = |scanrelid: u32| b.stmt.rtable.iter().nth((scanrelid as usize).wrapping_sub(1)).and_then(|e| e.as_range_tbl_entry()).is_some_and(|r| b.facts.rel(r.relid).is_some_and(|f| f.am == crate::catalog::Am::Heap));
+    let heap = |scanrelid: u32| {
+        b.stmt
+            .rtable
+            .iter()
+            .nth((scanrelid as usize).wrapping_sub(1))
+            .and_then(|e| e.as_range_tbl_entry())
+            .is_some_and(|r| {
+                b.facts
+                    .rel(r.relid)
+                    .is_some_and(|f| f.am == crate::catalog::Am::Heap)
+            })
+    };
     #[allow(clippy::redundant_closure)]
-    n.as_index_scan().map(|s| s.scan.scanrelid).or_else(|| n.as_index_only_scan().map(|s| s.scan.scanrelid)).is_some_and(|r| heap(r))
+    n.as_index_scan()
+        .map(|s| s.scan.scanrelid)
+        .or_else(|| n.as_index_only_scan().map(|s| s.scan.scanrelid))
+        .is_some_and(|r| heap(r))
 }
 
 /// D2922 (R1): whether `input` is a Merge Append whose every arm is an Index or Index Only Scan of a heap relation (a
@@ -687,7 +960,9 @@ fn heap_index_scan<'p>(b: &Builder<'p, '_>, n: Node<'p>) -> bool {
 /// with its raising folds in plan order (`in_order`) refuses by name where lowerv4 does not pull the merge
 /// (ops/group/stream.rs), so this order is PostgreSQL's wherever such a group runs.
 fn merge_spine<'p>(b: &Builder<'p, '_>, input: Option<Node<'p>>) -> bool {
-    input.and_then(|n| n.as_merge_append()).is_some_and(|m| !m.mergeplans.is_nil() && m.mergeplans.iter().all(|arm| heap_index_scan(b, arm)))
+    input.and_then(|n| n.as_merge_append()).is_some_and(|m| {
+        !m.mergeplans.is_nil() && m.mergeplans.iter().all(|arm| heap_index_scan(b, arm))
+    })
 }
 
 /// A feed in PostgreSQL's row order, ties too: `scan_spine`'s, or `merge_spine`'s index merge (D2922). Only the raising
@@ -700,7 +975,9 @@ fn order_spine<'p>(b: &Builder<'p, '_>, input: Option<Node<'p>>) -> bool {
 /// The same for a Group or Unique node `plan` (no aggregates): right under a counted LIMIT over an ordered feed, its runs
 /// stream through a first-of-run op (V4R-147's), so the Limit after it ends the walk where PostgreSQL's does.
 pub fn limit_streams<'p>(b: &Builder<'p, '_>, plan: &'p types_nodes::plannodes::Plan<'p>) -> bool {
-    (counted(b) && b.limit.is_some_and(|(id, ..)| id == plan.plan_node_id) || cursor_root(b) == Some(plan.plan_node_id)) && ordered_feed(plan.lefttree)
+    (counted(b) && b.limit.is_some_and(|(id, ..)| id == plan.plan_node_id)
+        || cursor_root(b) == Some(plan.plan_node_id))
+        && ordered_feed(plan.lefttree)
 }
 
 /// C1 part 2: the plan node a named cursor's FETCH count reaches (`PipelineGraph::partial`), a stopping consumer of
@@ -716,7 +993,13 @@ pub fn cursor_root(b: &Builder<'_, '_>) -> Option<i32> {
     loop {
         let c = n?;
         match c.as_result() {
-            Some(r) if r.resconstantqual.is_none() && r.plan.lefttree.is_some() && r.plan.qual.is_nil() => n = r.plan.lefttree,
+            Some(r)
+                if r.resconstantqual.is_none()
+                    && r.plan.lefttree.is_some()
+                    && r.plan.qual.is_nil() =>
+            {
+                n = r.plan.lefttree
+            }
             _ => return c.as_plan().map(|p| p.plan_node_id),
         }
     }
@@ -738,7 +1021,11 @@ pub fn partial_stops(stmt: &types_nodes::plannodes::PlannedStmt<'_>) -> bool {
             n = r.plan.lefttree;
             continue;
         }
-        if c.as_merge_append().is_some() || c.as_unique().is_some() || c.as_group().is_some() || c.as_agg().is_some_and(|a| a.aggstrategy == AGG_SORTED) {
+        if c.as_merge_append().is_some()
+            || c.as_unique().is_some()
+            || c.as_group().is_some()
+            || c.as_agg().is_some_and(|a| a.aggstrategy == AGG_SORTED)
+        {
             return true;
         }
         if root && c.as_incremental_sort().is_some() {
@@ -757,18 +1044,33 @@ pub fn partial_stops(stmt: &types_nodes::plannodes::PlannedStmt<'_>) -> bool {
 /// Whether the Limit being walked (`Builder::limit`) counts: a constant count of at least 1, a constant offset (or none),
 /// no WITH TIES.
 fn counted(b: &Builder<'_, '_>) -> bool {
-    b.limit.is_some_and(|(_, count, offset, ties)| !ties && matches!(count, Bound::Const(c) if c >= 1) && matches!(offset, Bound::All | Bound::Const(0..=i64::MAX)))
+    b.limit.is_some_and(|(_, count, offset, ties)| {
+        !ties
+            && matches!(count, Bound::Const(c) if c >= 1)
+            && matches!(offset, Bound::All | Bound::Const(0..=i64::MAX))
+    })
 }
 
 /// Whether `input` hands on ordered rows one at a time: a scan, a join or a merge, no Sort, Incremental Sort or Gather
 /// (an Incremental Sort below a group keeps `group_stop`'s stop; a Sort reads its input whole in PostgreSQL too).
 fn ordered_feed(input: Option<Node<'_>>) -> bool {
-    input.is_some_and(|n| n.as_sort().is_none() && n.as_incremental_sort().is_none() && n.as_gather_merge().is_none() && n.as_gather().is_none())
+    input.is_some_and(|n| {
+        n.as_sort().is_none()
+            && n.as_incremental_sort().is_none()
+            && n.as_gather_merge().is_none()
+            && n.as_gather().is_none()
+    })
 }
 
 /// The column of `tlist` at `resno`, when its entry is a plain outer column.
 fn outer(tlist: &types_nodes::list::NodeList<'_>, resno: i16) -> Option<i16> {
-    tlist.iter().find_map(|n| n.as_target_entry().filter(|te| te.resno == resno).and_then(|te| te.expr.as_var()).filter(|v| v.varno == OUTER_VAR && v.varlevelsup == 0).map(|v| v.varattno))
+    tlist.iter().find_map(|n| {
+        n.as_target_entry()
+            .filter(|te| te.resno == resno)
+            .and_then(|te| te.expr.as_var())
+            .filter(|v| v.varno == OUTER_VAR && v.varlevelsup == 0)
+            .map(|v| v.varattno)
+    })
 }
 
 /// Whether top Incremental Sort `t` (no qual) is presorted on exactly the group keys of `a` right under it: each presorted
@@ -776,12 +1078,18 @@ fn outer(tlist: &types_nodes::list::NodeList<'_>, resno: i16) -> Option<i16> {
 fn top_on_keys<'p>(t: &'p IncrementalSort<'p>, a: &'p Agg<'p>) -> bool {
     let pre = t.nPresortedCols.max(0) as usize;
     let grp = &a.grpColIdx[..(a.numCols.max(0) as usize).min(a.grpColIdx.len())];
-    let Some(cols) = t.sort.sortColIdx.get(..pre) else { return false };
+    let Some(cols) = t.sort.sortColIdx.get(..pre) else {
+        return false;
+    };
     if pre != grp.len() || !t.sort.plan.qual.is_nil() {
         return false;
     }
-    let mapped = |i: usize| outer(&t.sort.plan.targetlist, cols[i]).and_then(|r| outer(&a.plan.targetlist, r));
-    (0..pre).all(|i| mapped(i).is_some_and(|g| grp.contains(&g) && (0..i).all(|j| mapped(j) != Some(g))))
+    let mapped = |i: usize| {
+        outer(&t.sort.plan.targetlist, cols[i]).and_then(|r| outer(&a.plan.targetlist, r))
+    };
+    (0..pre).all(|i| {
+        mapped(i).is_some_and(|g| grp.contains(&g) && (0..i).all(|j| mapped(j) != Some(g)))
+    })
 }
 
 /// The streamed form: a sorted GroupAggregate right under a counted LIMIT over an index's order (an Index or Index Only
@@ -793,9 +1101,27 @@ fn top_on_keys<'p>(t: &'p IncrementalSort<'p>, a: &'p Agg<'p>) -> bool {
 /// BY, no ordered-set call): the streamed group builds no per-group set (M6) nor an aggregate's sort, and a refusal there
 /// would unserve what the fold-ahead form serves.
 pub fn agg_stops<'p>(b: &Builder<'p, '_>, a: &'p Agg<'p>) -> bool {
-    let counted = b.limit.is_some_and(|(id, count, _, _)| id == a.plan.plan_node_id && !matches!(count, Bound::All)) || cursor_root(b) == Some(a.plan.plan_node_id);
-    let ordered = a.plan.lefttree.is_some_and(|n| matches!(n.node_tag(), NodeTag::T_IndexScan | NodeTag::T_IndexOnlyScan | NodeTag::T_NestLoop | NodeTag::T_MergeJoin));
-    if !counted || !ordered || a.aggstrategy != AGG_SORTED || a.aggsplit != 0 || a.numCols < 1 || !a.groupingSets.is_nil() || !a.chain.is_nil() {
+    let counted = b
+        .limit
+        .is_some_and(|(id, count, _, _)| id == a.plan.plan_node_id && !matches!(count, Bound::All))
+        || cursor_root(b) == Some(a.plan.plan_node_id);
+    let ordered = a.plan.lefttree.is_some_and(|n| {
+        matches!(
+            n.node_tag(),
+            NodeTag::T_IndexScan
+                | NodeTag::T_IndexOnlyScan
+                | NodeTag::T_NestLoop
+                | NodeTag::T_MergeJoin
+        )
+    });
+    if !counted
+        || !ordered
+        || a.aggstrategy != AGG_SORTED
+        || a.aggsplit != 0
+        || a.numCols < 1
+        || !a.groupingSets.is_nil()
+        || !a.chain.is_nil()
+    {
         return false;
     }
     let mut plain = true;
@@ -806,8 +1132,13 @@ pub fn agg_stops<'p>(b: &Builder<'p, '_>, a: &'p Agg<'p>) -> bool {
                 // no #530 collect) keeps the breaker form: lowerv4 hosted.rs #530 refuses it streamed beside an index scan's
                 // rows, which the breaker form serves under fold_ahead's licence (group_stop_streamed_scan,
                 // agg_shop-0040..0043, agg_typed-0015..0017)
-                let collect = crate::ops::agg::trans::table::row(r.aggfnoid).is_some_and(|w| matches!(w.class, Class::Collect(c) if c != Collect::AnyValue));
-                plain &= r.aggdistinct.is_nil() && r.aggorder.is_nil() && r.aggkind == AGGKIND_NORMAL && !collect;
+                let collect = crate::ops::agg::trans::table::row(r.aggfnoid).is_some_and(
+                    |w| matches!(w.class, Class::Collect(c) if c != Collect::AnyValue),
+                );
+                plain &= r.aggdistinct.is_nil()
+                    && r.aggorder.is_nil()
+                    && r.aggkind == AGGKIND_NORMAL
+                    && !collect;
                 return false;
             }
             plain
@@ -823,7 +1154,10 @@ pub fn top_stops(ops: &[Op<'_>]) -> bool {
     for op in ops {
         match op {
             Op::Project(_) => {}
-            Op::Sort(d) => return d.presorted > 0 && matches!(d.form, SortForm::TopK { count, ties: false, .. } if !matches!(count, Bound::All)),
+            Op::Sort(d) => {
+                return d.presorted > 0
+                    && matches!(d.form, SortForm::TopK { count, ties: false, .. } if !matches!(count, Bound::All))
+            }
             _ => return false,
         }
     }
@@ -841,13 +1175,33 @@ pub fn family_order<'p>(b: &Builder<'p, '_>, child: &Open<'p>, keys: &[KeyDecl<'
     let mut want = Order::NONE;
     for key in keys {
         let col = Col::outer(key.resno);
-        let m = (0..o.n as usize).find(|&m| if o.fams[m] == 0 { o.same(o.keys[m].col, col) } else { o.keys[m].col == col });
+        let m = (0..o.n as usize).find(|&m| {
+            if o.fams[m] == 0 {
+                o.same(o.keys[m].col, col)
+            } else {
+                o.keys[m].col == col
+            }
+        });
         match m {
             Some(m) => want.push_fam(OrderKey { col, ..o.keys[m] }, o.fams[m]),
-            None => want.push(OrderKey { col, desc: false, nulls_first: false }),
+            None => want.push(OrderKey {
+                col,
+                desc: false,
+                nulls_first: false,
+            }),
         }
     }
-    want.fams[..want.n as usize].iter().any(|&f| f != 0) && crate::ops::shared::order::ordered_as_order(&o, crate::ops::shared::order::projection(child), &want, Kind::Agg, 0, "", "").is_ok()
+    want.fams[..want.n as usize].iter().any(|&f| f != 0)
+        && crate::ops::shared::order::ordered_as_order(
+            &o,
+            crate::ops::shared::order::projection(child),
+            &want,
+            Kind::Agg,
+            0,
+            "",
+            "",
+        )
+        .is_ok()
 }
 
 /// The stop road under a join: a group streamed to a counted LIMIT (`streams_to_stop`, `limit_streams`) ends the walk of
@@ -857,12 +1211,25 @@ pub fn family_order<'p>(b: &Builder<'p, '_>, child: &Open<'p>, keys: &[KeyDecl<'
 /// or a Material over one (as `mergejoin::ask_exact` asks an acting one): lowerv4's merge pulls it one row per fetch
 /// where its first form reaches (ops/mergejoin/exact_inner.rs), and spools it as before where it does not.
 pub fn ask_spine<'p>(b: &mut Builder<'p, '_>, plan: &'p types_nodes::plannodes::Plan<'p>) {
-    let scan = |n: Option<Node<'p>>| n.is_some_and(|n| n.as_seq_scan().is_some() || n.as_index_scan().is_some() || n.as_index_only_scan().is_some() || n.as_bitmap_heap_scan().is_some());
+    let scan = |n: Option<Node<'p>>| {
+        n.is_some_and(|n| {
+            n.as_seq_scan().is_some()
+                || n.as_index_scan().is_some()
+                || n.as_index_only_scan().is_some()
+                || n.as_bitmap_heap_scan().is_some()
+        })
+    };
     let mut n = plan.lefttree;
     while let Some(node) = n {
         if let Some(mj) = node.as_merge_join() {
-            let inner = mj.join.plan.righttree.filter(|&i| scan(Some(i)) || i.as_material().is_some_and(|m| scan(m.plan.lefttree)));
-            if let Some(id) = inner.and_then(|i| i.as_plan()).map(|p| p.plan_node_id).filter(|id| !b.graph.exact.contains(id)) {
+            let inner = mj.join.plan.righttree.filter(|&i| {
+                scan(Some(i)) || i.as_material().is_some_and(|m| scan(m.plan.lefttree))
+            });
+            if let Some(id) = inner
+                .and_then(|i| i.as_plan())
+                .map(|p| p.plan_node_id)
+                .filter(|id| !b.graph.exact.contains(id))
+            {
                 b.graph.exact.push(id);
             }
             n = mj.join.plan.lefttree;
@@ -890,19 +1257,43 @@ pub fn presort_stop<'p>(b: &Builder<'p, '_>, a: &'p Agg<'p>) -> Option<i32> {
     let sp = &t.sort.plan;
     let n = a.numCols.max(0) as usize;
     let (grp, pre) = (a.grpColIdx.get(..n)?, t.nPresortedCols.max(0) as usize);
-    let scan = sp.lefttree.is_some_and(|l| l.as_index_scan().is_some() || l.as_index_only_scan().is_some()) || merge_spine(b, sp.lefttree);
+    let scan = sp
+        .lefttree
+        .is_some_and(|l| l.as_index_scan().is_some() || l.as_index_only_scan().is_some())
+        || merge_spine(b, sp.lefttree);
     let me = a.plan.plan_node_id;
     let mut top = false;
     if id != me {
         crate::rerun::each_plan_node(b.stmt, &mut |n| {
-            let u = n.as_incremental_sort().filter(|u| u.sort.plan.plan_node_id == id);
-            top |= u.is_some_and(|u| u.sort.plan.lefttree.and_then(|l| l.as_plan()).is_some_and(|l| l.plan_node_id == me) && top_on_keys(u, a));
+            let u = n
+                .as_incremental_sort()
+                .filter(|u| u.sort.plan.plan_node_id == id);
+            top |= u.is_some_and(|u| {
+                u.sort
+                    .plan
+                    .lefttree
+                    .and_then(|l| l.as_plan())
+                    .is_some_and(|l| l.plan_node_id == me)
+                    && top_on_keys(u, a)
+            });
         });
     }
-    if (id != me && !top) || a.aggstrategy != AGG_SORTED || n == 0 || pre != n || !scan || a.aggsplit != 0 || !a.groupingSets.is_nil() || !a.chain.is_nil() || a.gravity_rewrite.is_some() {
+    if (id != me && !top)
+        || a.aggstrategy != AGG_SORTED
+        || n == 0
+        || pre != n
+        || !scan
+        || a.aggsplit != 0
+        || !a.groupingSets.is_nil()
+        || !a.chain.is_nil()
+        || a.gravity_rewrite.is_some()
+    {
         return None;
     }
-    if !sp.qual.is_nil() || !sp.initPlan.is_nil() || crate::facts::hints::Hint::of_sort(&t.sort).is_some() {
+    if !sp.qual.is_nil()
+        || !sp.initPlan.is_nil()
+        || crate::facts::hints::Hint::of_sort(&t.sort).is_some()
+    {
         return None;
     }
     let cols = t.sort.sortColIdx.get(..pre)?;

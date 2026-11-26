@@ -17,16 +17,30 @@ fn every_region_is_8_aligned_under_its_tables_view() {
     let mut held: Vec<RegionBuf> = Vec::new();
     for i in 0..24usize {
         let bytes = 4096 + 8 * i + i % 5;
-        let mut r = if i % 2 == 0 { try_region(bytes) } else { REGIONS.take(bytes, None) }.expect("the unarmed pool draws");
-        assert!(r.len() >= bytes && r.capacity() == r.len(), "region {i}: {} B for {bytes}", r.len());
+        let mut r = if i % 2 == 0 {
+            try_region(bytes)
+        } else {
+            REGIONS.take(bytes, None)
+        }
+        .expect("the unarmed pool draws");
+        assert!(
+            r.len() >= bytes && r.capacity() == r.len(),
+            "region {i}: {} B for {bytes}",
+            r.len()
+        );
         let p = r.as_mut_ptr();
         assert_eq!(p as usize % ALIGN, 0, "region {i} ({bytes} B) at {p:p}");
         // SAFETY: `r` holds at least `bytes` (> the table) writable bytes, 8-aligned (asserted); its header zeroed here, as
         // the driver zeroes a region's prefix at every open.
         unsafe {
             core::ptr::write_bytes(p, 0, HASHAGG_HDR);
-            HashAgg::at(p, &layout, 1, bytes as u32).single().add_count(0, i as i64 + 1);
-            assert_eq!(HashAgg::at(p, &layout, 1, bytes as u32).single().count(0), i as i64 + 1);
+            HashAgg::at(p, &layout, 1, bytes as u32)
+                .single()
+                .add_count(0, i as i64 + 1);
+            assert_eq!(
+                HashAgg::at(p, &layout, 1, bytes as u32).single().count(0),
+                i as i64 + 1
+            );
         }
         held.push(r);
     }

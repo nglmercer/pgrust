@@ -17,14 +17,17 @@ use gravity_decompose::ops::shared::agg::AggDecl;
 use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::Value;
 
-use crate::ops::agg::numeric::class_num_varlena::FOLD;
 use crate::face::fold::{Acc, AccShape, ClassImpl, FoldClass};
 use crate::face::kinds::KindId;
 use crate::frame::env::Env;
+use crate::ops::agg::numeric::class_num_varlena::FOLD;
 use crate::ops::Table;
 use crate::rep::CellRef;
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::ClassText, &ClassImpl(&TEXT))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::ClassText, &ClassImpl(&TEXT))],
+    ..crate::ops::NONE
+};
 
 /// The hosted fold (any collation: PG's own `text_smaller` / `text_larger` / `byteasmaller` / `bytealarger`).
 struct Text;
@@ -40,15 +43,35 @@ impl FoldClass for Text {
         FOLD.init(b, env, a, acc)
     }
 
-    fn step(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, acc: Acc<'_>, args: &[CellRef<'_>]) {
+    fn step(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        a: &AggDecl<'_>,
+        acc: Acc<'_>,
+        args: &[CellRef<'_>],
+    ) {
         FOLD.step(b, env, a, acc, args)
     }
 
-    fn merge(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, into: Acc<'_>, from: Acc<'_>) {
+    fn merge(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        a: &AggDecl<'_>,
+        into: Acc<'_>,
+        from: Acc<'_>,
+    ) {
         FOLD.merge(b, env, a, into, from)
     }
 
-    fn finish(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, acc: Acc<'_>) -> (Value, Value) {
+    fn finish(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        a: &AggDecl<'_>,
+        acc: Acc<'_>,
+    ) -> (Value, Value) {
         FOLD.finish(b, env, a, acc)
     }
 }

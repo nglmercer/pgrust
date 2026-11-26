@@ -36,7 +36,9 @@ pub unsafe fn rearm_at(h: u64) -> PgResult<()> {
     let cell = h as *const abi::WinCell;
     // SAFETY: the caller's contract: a nonzero `h` is a laid cell's address, its magic read before any other field
     if cell.is_null() || unsafe { (*cell).head.magic } != abi::WIN_MAGIC {
-        return Err(bad("window.agg: a re-armed window's handle word is not its object (D4237)"));
+        return Err(bad(
+            "window.agg: a re-armed window's handle word is not its object (D4237)",
+        ));
     }
     // SAFETY: the cell is the first field of the `#[repr(C)]` `WinObj` that laid it, live for the execution
     unsafe { &*cell.cast::<WinObj>() }.rearm()
@@ -96,13 +98,19 @@ impl Drop for Words {
             unsafe { pagepool::give(self.ptr.cast(), self.len * 8) };
         } else if self.len > 0 {
             // SAFETY: the global allocator's block of `len` u64s `zeroed_words` allocated with this layout, freed once.
-            unsafe { std::alloc::dealloc(self.ptr.as_ptr().cast(), std::alloc::Layout::array::<u64>(self.len).expect("layout")) };
+            unsafe {
+                std::alloc::dealloc(
+                    self.ptr.as_ptr().cast(),
+                    std::alloc::Layout::array::<u64>(self.len).expect("layout"),
+                )
+            };
         }
     }
 }
 
 /// pagepool P3: a window store's segment from the page pool, statement-lived and zeroed.
-const POOL_HINT: pagepool::Hint = pagepool::Hint::new(pagepool::Class::Task, pagepool::Tag::OP).zero(pagepool::Zero::Dense);
+const POOL_HINT: pagepool::Hint =
+    pagepool::Hint::new(pagepool::Class::Task, pagepool::Tag::OP).zero(pagepool::Zero::Dense);
 
 /// pagepool P3: an owned store's segments of 1 KiB and up come from the page pool (the server's switch, read by the pool,
 /// with the pool reserved).
@@ -112,24 +120,44 @@ pub(super) fn pooled() -> bool {
 
 /// A heap segment's `n` zeroed words (`pool`: the page pool's when it serves them, `pooled`), the allocator's refusal the
 /// statement's 53200 (PG's palloc failure in the tuplestore's context).
-pub(super) fn zeroed_words(n: usize, pool: bool) -> PgResult<Words> { // alloc: Exec charged the store's charge (Store::sync)
+pub(super) fn zeroed_words(n: usize, pool: bool) -> PgResult<Words> {
+    // alloc: Exec charged the store's charge (Store::sync)
     let oom = || {
-        Box::new(PgError::error("out of memory".to_string()).with_sqlstate(types_error::ERRCODE_OUT_OF_MEMORY).with_detail(format!("Failed on request of size {} in a window's stored rows.", n * 8))) // alloc: Cold
+        Box::new(
+            PgError::error("out of memory".to_string())
+                .with_sqlstate(types_error::ERRCODE_OUT_OF_MEMORY)
+                .with_detail(format!(
+                    "Failed on request of size {} in a window's stored rows.",
+                    n * 8
+                )),
+        ) // alloc: Cold
     };
     let layout = std::alloc::Layout::array::<u64>(n).map_err(|_| oom())?;
     if layout.size() == 0 {
-        return Ok(Words { ptr: core::ptr::NonNull::dangling(), len: 0, pooled: false });
+        return Ok(Words {
+            ptr: core::ptr::NonNull::dangling(),
+            len: 0,
+            pooled: false,
+        });
     }
     if pool && layout.size() >= 1 << 10 {
         if let Some(b) = pagepool::take(layout.size(), 8, POOL_HINT) {
-            return Ok(Words { ptr: b.cast::<u64>(), len: b.len() / 8, pooled: true });
+            return Ok(Words {
+                ptr: b.cast::<u64>(),
+                len: b.len() / 8,
+                pooled: true,
+            });
         }
     }
     // SAFETY: a nonzero-size layout of `n` u64s.
     let p = unsafe { std::alloc::alloc_zeroed(layout) } as *mut u64; // alloc: Exec charged the store's charge (Store::sync)
     let ptr = core::ptr::NonNull::new(p).ok_or_else(oom)?;
     // `p` is a fresh global-allocator block of `n` zeroed (valid) u64s with `layout`, the layout `Words` frees with.
-    Ok(Words { ptr, len: n, pooled: false })
+    Ok(Words {
+        ptr,
+        len: n,
+        pooled: false,
+    })
 }
 
 /// The object's runtime (`Head::op`): the entry's operation, ERROR with the error stashed else.
@@ -140,24 +168,49 @@ pub(super) unsafe fn op(h: *mut abi::Head, ctx: *mut Ctx, code: u64, a: u64, b: 
     let fill = match code {
         // CONVERT wave 2 (site 12): the store's heap segments go to the breaker the fill's pipeline runs for under its
         // kind (the statement's, Region, when none), looked up at its first stored row
-        abi::OP_PUT => Some(obj.store.try_borrow_mut().map_err(|_| bad("m10_win_put: the stored rows in use")).and_then(|mut s| {
-            if s.needs_owner() {
-                s.own(OpArena::slot_owner_kind(ctx));
-            }
-            s.put(a as *const u64)
-        })),
-        abi::OP_ARGERR => Some(obj.store.try_borrow_mut().map_err(|_| bad("m10_win_argerr: the stored rows in use")).and_then(|mut s| s.argerr(a, b))),
+        abi::OP_PUT => Some(
+            obj.store
+                .try_borrow_mut()
+                .map_err(|_| bad("m10_win_put: the stored rows in use"))
+                .and_then(|mut s| {
+                    if s.needs_owner() {
+                        s.own(OpArena::slot_owner_kind(ctx));
+                    }
+                    s.put(a as *const u64)
+                }),
+        ),
+        abi::OP_ARGERR => Some(
+            obj.store
+                .try_borrow_mut()
+                .map_err(|_| bad("m10_win_argerr: the stored rows in use"))
+                .and_then(|mut s| s.argerr(a, b)),
+        ),
         // the fill's open: its rows go; the walk restarts too unless a pull of the object's own call opened it (the
         // reader's open restarted it then)
-        abi::OP_OPEN if a == abi::OPEN_FILL => Some(obj.store.try_borrow_mut().map_err(|_| bad("m10_win_open: the stored rows in use")).map(|mut s| {
-            s.clear();
-            if let Ok(mut rt) = obj.rt.try_borrow_mut() {
-                rt.open(false);
-            }
-            0
-        })),
-        abi::OP_ROWS => Some(obj.store.try_borrow().map_err(|_| bad("m10_win_rows: the stored rows in use")).map(|s| s.nrows as i64)),
-        abi::OP_REC => Some(obj.store.try_borrow().map_err(|_| bad("m10_win_rec: the stored rows in use")).and_then(|s| s.rec(a).map(|p| p as i64))),
+        abi::OP_OPEN if a == abi::OPEN_FILL => Some(
+            obj.store
+                .try_borrow_mut()
+                .map_err(|_| bad("m10_win_open: the stored rows in use"))
+                .map(|mut s| {
+                    s.clear();
+                    if let Ok(mut rt) = obj.rt.try_borrow_mut() {
+                        rt.open(false);
+                    }
+                    0
+                }),
+        ),
+        abi::OP_ROWS => Some(
+            obj.store
+                .try_borrow()
+                .map_err(|_| bad("m10_win_rows: the stored rows in use"))
+                .map(|s| s.nrows as i64),
+        ),
+        abi::OP_REC => Some(
+            obj.store
+                .try_borrow()
+                .map_err(|_| bad("m10_win_rec: the stored rows in use"))
+                .and_then(|s| s.rec(a).map(|p| p as i64)),
+        ),
         _ => None,
     };
     if let Some(r) = fill {
@@ -167,7 +220,9 @@ pub(super) unsafe fn op(h: *mut abi::Head, ctx: *mut Ctx, code: u64, a: u64, b: 
         });
     }
     let Ok(mut rt) = obj.rt.try_borrow_mut() else {
-        gravity_fn::stash_error(bad("window.agg: a window object entered inside its own call"));
+        gravity_fn::stash_error(bad(
+            "window.agg: a window object entered inside its own call",
+        ));
         return ERROR;
     };
     let r = match code {
@@ -187,7 +242,10 @@ pub(super) unsafe fn op(h: *mut abi::Head, ctx: *mut Ctx, code: u64, a: u64, b: 
         abi::OP_READS => rt.reads(a, b),
         abi::OP_SAMEPART => rt.same_part(a as *const u64).map(i64::from),
         abi::OP_ASK => rt.ask(a),
-        abi::OP_PARAMS => match (rt.lazy.as_mut(), crate::ops::window::raw::param_records(a as *const u64, b)) {
+        abi::OP_PARAMS => match (
+            rt.lazy.as_mut(),
+            crate::ops::window::raw::param_records(a as *const u64, b),
+        ) {
             (Some(lz), Some(recs)) => lz.set_params(recs).map(|()| 0),
             (None, _) => Err(bad("m10_win_params: a window with no lazy argument")),
             (_, None) => Err(bad("m10_win_params: no values")),
@@ -209,7 +267,7 @@ impl Store {
         if p.is_null() {
             return Err(bad("m10_win_put: a null row"));
         }
-        if ( self.nrows as usize).is_multiple_of( CHUNK_ROWS) {
+        if (self.nrows as usize).is_multiple_of(CHUNK_ROWS) {
             self.lay_chunk(self.nrows)?;
         }
         let ncols = self.cols.len();
@@ -254,9 +312,16 @@ impl Store {
     unsafe fn copy_cell(&mut self, d: Datum, typlen: i16) -> PgResult<Datum> {
         let p = d.as_u64() as usize as *const u8;
         let size = match typlen {
-            -1 if types_tuple::varatt::varatt_is_external_expanded(p) => return execexpr::agg_datum_copy(self.copies.mcx(), d, typlen),
+            -1 if types_tuple::varatt::varatt_is_external_expanded(p) => {
+                return execexpr::agg_datum_copy(self.copies.mcx(), d, typlen)
+            }
             -1 => types_tuple::varatt::varsize_any(p),
-            -2 => core::ffi::CStr::from_ptr(p as *const core::ffi::c_char).to_bytes().len() + 1,
+            -2 => {
+                core::ffi::CStr::from_ptr(p as *const core::ffi::c_char)
+                    .to_bytes()
+                    .len()
+                    + 1
+            }
             n if n > 0 => n as usize,
             _ => return execexpr::agg_datum_copy(self.copies.mcx(), d, typlen),
         };
@@ -274,8 +339,16 @@ unsafe fn wide(d: Datum, typlen: i16) -> bool {
     let p = d.as_u64() as usize as *const u8;
     let limit = gravity_program::cost::WINDOW_DEFER_BYTES;
     match typlen {
-        -1 => types_tuple::varatt::varatt_is_external_expanded(p) || types_tuple::varatt::varsize_any(p) > limit,
-        -2 => core::ffi::CStr::from_ptr(p as *const core::ffi::c_char).to_bytes().len() >= limit,
+        -1 => {
+            types_tuple::varatt::varatt_is_external_expanded(p)
+                || types_tuple::varatt::varsize_any(p) > limit
+        }
+        -2 => {
+            core::ffi::CStr::from_ptr(p as *const core::ffi::c_char)
+                .to_bytes()
+                .len()
+                >= limit
+        }
         _ => false,
     }
 }
@@ -293,19 +366,35 @@ impl Frame {
             return Err(bad("m10_win_offsets: no values"));
         }
         let mut out = [Datum::null(); 2];
-        for (i, (flag, starting)) in [(FRAMEOPTION_START_OFFSET, true), (FRAMEOPTION_END_OFFSET, false)].into_iter().enumerate() {
+        for (i, (flag, starting)) in [
+            (FRAMEOPTION_START_OFFSET, true),
+            (FRAMEOPTION_END_OFFSET, false),
+        ]
+        .into_iter()
+        .enumerate()
+        {
             if self.fo & flag == 0 {
                 continue;
             }
             let which = if starting { "starting" } else { "ending" };
             if vals.add(2 * i + 1).read() != 0 {
-                return Err(Box::new(PgError::error(format!("frame {which} offset must not be null")).with_sqlstate(types_error::ERRCODE_NULL_VALUE_NOT_ALLOWED))); // alloc: Cold
+                return Err(Box::new(
+                    PgError::error(format!("frame {which} offset must not be null"))
+                        .with_sqlstate(types_error::ERRCODE_NULL_VALUE_NOT_ALLOWED),
+                )); // alloc: Cold
             }
             let v = Datum::from_u64(vals.add(2 * i).read());
             let (typlen, byval) = s.offsets[i];
-            out[i] = if byval { v } else { execexpr::agg_datum_copy(self.keep.mcx(), v, typlen)? };
+            out[i] = if byval {
+                v
+            } else {
+                execexpr::agg_datum_copy(self.keep.mcx(), v, typlen)?
+            };
             if self.fo & (FRAMEOPTION_ROWS | FRAMEOPTION_GROUPS) != 0 && v.as_i64() < 0 {
-                return Err(Box::new(PgError::error(format!("frame {which} offset must not be negative")).with_sqlstate(types_error::ERRCODE_INVALID_PRECEDING_OR_FOLLOWING_SIZE))); // alloc: Cold
+                return Err(Box::new(
+                    PgError::error(format!("frame {which} offset must not be negative"))
+                        .with_sqlstate(types_error::ERRCODE_INVALID_PRECEDING_OR_FOLLOWING_SIZE),
+                )); // alloc: Cold
             }
         }
         self.off = Some(out);
@@ -331,13 +420,25 @@ pub(super) fn set_valid(valid: &mut [u64], i: usize, v: u8) {
 
 /// `f` bound with its `fn_expr` carrier (`get_fn_expr_argtype` reads `types`; its result type `rettype`; `coll` the
 /// WindowFunc's inputcollid, the polymorphic OUT columns' input collation).
-pub(super) fn bind(f: Oid, rettype: Oid, types: Vec<Oid>, coll: Oid, carriers: &mut Vec<(Box<AggFnArgTypes>, Box<[Oid]>)>) -> PgResult<FmgrInfo> {
+pub(super) fn bind(
+    f: Oid,
+    rettype: Oid,
+    types: Vec<Oid>,
+    coll: Oid,
+    carriers: &mut Vec<(Box<AggFnArgTypes>, Box<[Oid]>)>,
+) -> PgResult<FmgrInfo> {
     let mut info = fmgr_core::fmgr_info(f)?;
     let types = types.into_boxed_slice();
     // SAFETY: the slice's box lives in `carriers` as long as the FmgrInfo reading it.
     let argtypes: &'static [Oid] = unsafe { &*(&*types as *const [Oid]) };
-    let carrier = Box::new(AggFnArgTypes { rettype, argtypes, variadic: false, stable: 0, inputcollid: coll }); // alloc: Exec
-    // SAFETY: as above, the carrier's box outlives the FmgrInfo.
+    let carrier = Box::new(AggFnArgTypes {
+        rettype,
+        argtypes,
+        variadic: false,
+        stable: 0,
+        inputcollid: coll,
+    }); // alloc: Exec
+        // SAFETY: as above, the carrier's box outlives the FmgrInfo.
     info.fn_expr = Some(unsafe { FnExprErased::from_node_ref(&*carrier) });
     carriers.push((carrier, types)); // alloc: Exec
     Ok(info)
@@ -408,7 +509,7 @@ mod store_tests {
     /// One stored row `n` as `Store::put` lays it: its chunk at a chunk's first row, its word, a by-reference copy carved
     /// beside it.
     fn store_row(s: &mut Store, n: u64, copy: usize) {
-        if ( n as usize).is_multiple_of( CHUNK_ROWS) {
+        if (n as usize).is_multiple_of(CHUNK_ROWS) {
             s.lay_chunk(n).unwrap();
         }
         let p = s.carve(copy, n).unwrap();
@@ -427,7 +528,10 @@ mod store_tests {
         unsafe {
             assert_eq!(s.at(n).read(), n, "row {n}'s word");
             let p = s.at(n).add(1).read() as *const u8;
-            assert!((0..copy).all(|i| p.add(i).read() == n as u8), "row {n}'s copy");
+            assert!(
+                (0..copy).all(|i| p.add(i).read() == n as u8),
+                "row {n}'s copy"
+            );
         }
     }
 
@@ -436,13 +540,20 @@ mod store_tests {
     /// watermark is each partition's start, and `clear` (the fill's next open) starts from no rows.
     #[test]
     fn partitions_release_their_segments() {
-        let mut s = Store::new(uncharged(&[(8, true), (-1, false)]), uncharged(&[false; 2]), MemoryContext::new("t")); // alloc: Cold
+        let mut s = Store::new(
+            uncharged(&[(8, true), (-1, false)]),
+            uncharged(&[false; 2]),
+            MemoryContext::new("t"),
+        ); // alloc: Cold
         let (part, copy) = (3000u64, 200usize);
         let mut peak = 0;
         for n in 0..20 * part {
             if n > 0 && n % part == 0 {
                 s.release_before(n);
-                assert!(s.released == n && s.held(n).is_ok(), "the watermark at row {n}");
+                assert!(
+                    s.released == n && s.held(n).is_ok(),
+                    "the watermark at row {n}"
+                );
             }
             store_row(&mut s, n, copy);
             peak = peak.max(s.census().0);
@@ -453,10 +564,16 @@ mod store_tests {
             }
         }
         let one = part as usize * (copy + s.rw * 8);
-        assert!(peak < 3 * one + WINDOW_SEG_MAX_BYTES, "the heap held {peak} bytes for partitions of {one}");
+        assert!(
+            peak < 3 * one + WINDOW_SEG_MAX_BYTES,
+            "the heap held {peak} bytes for partitions of {one}"
+        );
         assert_eq!(s.released, 19 * part, "the last partition's start");
         let (_, base, chunks, _) = s.census();
-        assert!(base > 0 && chunks < 2 * part as usize / CHUNK_ROWS + 4, "{chunks} chunks held from {base}");
+        assert!(
+            base > 0 && chunks < 2 * part as usize / CHUNK_ROWS + 4,
+            "{chunks} chunks held from {base}"
+        );
         s.clear();
         assert_eq!((s.nrows, s.released, s.census()), (0, 0, (0, 0, 0, 0)));
         for n in 0..2 * CHUNK_ROWS as u64 {
@@ -470,7 +587,11 @@ mod store_tests {
     #[test]
     fn the_heap_segments_and_the_spare_follow_the_owners_charge() {
         std::thread::spawn(|| {
-            let mut s = Store::new(uncharged(&[(8, true), (-1, false)]), uncharged(&[false; 2]), MemoryContext::new("t")); // alloc: Cold
+            let mut s = Store::new(
+                uncharged(&[(8, true), (-1, false)]),
+                uncharged(&[false; 2]),
+                MemoryContext::new("t"),
+            ); // alloc: Cold
             memledger::bind_backend(3996, 0);
             memledger::statement_begin();
             let (o, _) = memledger::charge::context();
@@ -485,15 +606,29 @@ mod store_tests {
                 }
                 store_row(&mut s, n, copy);
                 let (held, charged) = s.charge_census();
-                assert_eq!((committed() - base, charged), (held as i64, held), "row {n}");
+                assert_eq!(
+                    (committed() - base, charged),
+                    (held as i64, held),
+                    "row {n}"
+                );
                 peak = peak.max(held);
             }
-            assert!(peak >= (part as usize * copy) as u64, "the store held {peak} bytes");
+            assert!(
+                peak >= (part as usize * copy) as u64,
+                "the store held {peak} bytes"
+            );
             s.clear();
             let (held, _) = s.charge_census();
-            assert!(held > 0 && committed() - base == held as i64, "the spare kept after a clear: {held}");
+            assert!(
+                held > 0 && committed() - base == held as i64,
+                "the spare kept after a clear: {held}"
+            );
             drop(s);
-            assert_eq!(committed(), base, "the store's bytes left the owner with it");
+            assert_eq!(
+                committed(),
+                base,
+                "the store's bytes left the owner with it"
+            );
             memledger::statement_end();
             memledger::unbind_backend();
         })

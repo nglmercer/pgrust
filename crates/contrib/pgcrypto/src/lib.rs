@@ -1,15 +1,17 @@
-mod settings;
 mod cipher;
 mod crypt;
 mod hashing;
 mod pgp;
+mod settings;
 
 use datum::Datum;
 use elog::ereport;
-use types_error::{ErrorLocation, PgError, PgResult, NOTICE,
-    ERRCODE_ARRAY_SUBSCRIPT_ERROR, ERRCODE_EXTERNAL_ROUTINE_INVOCATION_EXCEPTION,
-    ERRCODE_FEATURE_NOT_SUPPORTED, ERRCODE_INTERNAL_ERROR,
-    ERRCODE_INVALID_PARAMETER_VALUE, ERRCODE_NULL_VALUE_NOT_ALLOWED};
+use types_error::{
+    ErrorLocation, PgError, PgResult, ERRCODE_ARRAY_SUBSCRIPT_ERROR,
+    ERRCODE_EXTERNAL_ROUTINE_INVOCATION_EXCEPTION, ERRCODE_FEATURE_NOT_SUPPORTED,
+    ERRCODE_INTERNAL_ERROR, ERRCODE_INVALID_PARAMETER_VALUE, ERRCODE_NULL_VALUE_NOT_ALLOWED,
+    NOTICE,
+};
 use types_fmgr::{FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction};
 
 const LIBRARY: &str = "pgcrypto";
@@ -20,7 +22,9 @@ fn bytea_result(fcinfo: &mut Fcinfo, bytes: &[u8]) -> PgResult<Datum> {
 }
 
 fn px_err(msg: String) -> Box<PgError> {
-    PgError::error(msg).with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE).into()
+    PgError::error(msg)
+        .with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE)
+        .into()
 }
 
 fn hash_err(e: hashing::HashError) -> Box<PgError> {
@@ -33,9 +37,11 @@ fn hash_err(e: hashing::HashError) -> Box<PgError> {
 
 fn crypt_err(e: crypt::CryptError) -> Box<PgError> {
     match e {
-        crypt::CryptError::Unsupported(what) => PgError::error(format!("pgcrypto: {what} not yet ported"))
-            .with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED)
-            .into(),
+        crypt::CryptError::Unsupported(what) => {
+            PgError::error(format!("pgcrypto: {what} not yet ported"))
+                .with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED)
+                .into()
+        }
         // C's genuine-NULL path is pgcrypto.c:234: px_crypt returned NULL and
         // pg_crypt raises 39000 (ERRCODE_EXTERNAL_ROUTINE_INVOCATION_EXCEPTION)
         // — EXECUTED on stock 18.3 (crypt('foox','$2$') => ERROR 39000),
@@ -260,7 +266,6 @@ fn fc_pg_check_fipsmode(_flinfo: Option<&mut FmgrInfo>, _fcinfo: &mut Fcinfo) ->
     Ok(Datum::from_bool(check_fips_mode()))
 }
 
-
 #[track_caller]
 fn here(func: &'static str) -> ErrorLocation {
     // pgrust is Rust: report OUR source site (call site via track_caller).
@@ -269,7 +274,9 @@ fn here(func: &'static str) -> ErrorLocation {
 }
 
 fn pgp_notice(msg: &str) {
-    let _ = ereport(NOTICE).errmsg(msg.to_string()).finish(here("pgp_decrypt"));
+    let _ = ereport(NOTICE)
+        .errmsg(msg.to_string())
+        .finish(here("pgp_decrypt"));
 }
 
 // pgcrypto px_THROW text is rendered verbatim (byte-identical to C's ERROR).
@@ -281,12 +288,15 @@ fn pgp_notice(msg: &str) {
 // arm — mis-states the code on every px-throwing path (dearmor,
 // pgp_armor_headers, and the four pgp sym/pub wrappers).
 fn px_msg(msg: &str) -> Box<PgError> {
-    let sqlstate = if msg == pgp::consts::NO_RANDOM || msg.starts_with(pgp::decrypt::ALLOC_SIZE_ERROR) {
-        ERRCODE_INTERNAL_ERROR
-    } else {
-        ERRCODE_EXTERNAL_ROUTINE_INVOCATION_EXCEPTION
-    };
-    PgError::error(msg.to_string()).with_sqlstate(sqlstate).into()
+    let sqlstate =
+        if msg == pgp::consts::NO_RANDOM || msg.starts_with(pgp::decrypt::ALLOC_SIZE_ERROR) {
+            ERRCODE_INTERNAL_ERROR
+        } else {
+            ERRCODE_EXTERNAL_ROUTINE_INVOCATION_EXCEPTION
+        };
+    PgError::error(msg.to_string())
+        .with_sqlstate(sqlstate)
+        .into()
 }
 
 fn opt_arg_bytes(fcinfo: &Fcinfo, i: usize) -> PgResult<Option<Vec<u8>>> {
@@ -295,7 +305,7 @@ fn opt_arg_bytes(fcinfo: &Fcinfo, i: usize) -> PgResult<Option<Vec<u8>>> {
     }
     // SAFETY: arg present and non-null per the guard above.
     let img = unsafe { fcinfo.arg_varlena_packed(i)? };
-    Ok(Some(::mcx::std_vec_from_slice("pgcrypto",img.data())?))
+    Ok(Some(::mcx::std_vec_from_slice("pgcrypto", img.data())?))
 }
 
 // pgp-pgsql.c:76 convert_from_utf8 / :92 convert_to_utf8.
@@ -350,7 +360,11 @@ fn mbuf_room(mut cap: usize, need: usize) -> PgResult<()> {
 
 // pgp-pgsql.c:537 decrypt_internal: a 'u' literal comes back from UTF-8
 // before the text wrapper's pg_verifymbstr (pgp-pgsql.c:627).
-fn decrypt_output(fcinfo: &mut Fcinfo, out: pgp::DecryptOutput, need_text: bool) -> PgResult<Datum> {
+fn decrypt_output(
+    fcinfo: &mut Fcinfo,
+    out: pgp::DecryptOutput,
+    need_text: bool,
+) -> PgResult<Datum> {
     for n in &out.notices {
         pgp_notice(n);
     }
@@ -367,7 +381,10 @@ fn decrypt_output(fcinfo: &mut Fcinfo, out: pgp::DecryptOutput, need_text: bool)
 fn pgp_sym_encrypt(fcinfo: &mut Fcinfo, is_text: bool) -> PgResult<Datum> {
     // SAFETY: strict on arg0/arg1 (data, key); arg2 (args) optional/nullable.
     let (data, key) = unsafe { (fcinfo.arg_varlena_packed(0)?, fcinfo.arg_varlena_packed(1)?) };
-    let (data, key) = (::mcx::std_vec_from_slice("pgcrypto",data.data())?, key.data().to_vec());
+    let (data, key) = (
+        ::mcx::std_vec_from_slice("pgcrypto", data.data())?,
+        key.data().to_vec(),
+    );
     let args = opt_arg_bytes(fcinfo, 2)?;
     let (data, cap) = encrypt_setup(data, args.as_deref(), is_text)?;
     let out = pgp::sym_encrypt(&data, &key, args.as_deref(), is_text).map_err(|e| px_msg(&e))?;
@@ -378,7 +395,10 @@ fn pgp_sym_encrypt(fcinfo: &mut Fcinfo, is_text: bool) -> PgResult<Datum> {
 fn pgp_sym_decrypt(fcinfo: &mut Fcinfo, need_text: bool) -> PgResult<Datum> {
     // SAFETY: strict on arg0/arg1 (data, key); arg2 (args) optional/nullable.
     let (data, key) = unsafe { (fcinfo.arg_varlena_packed(0)?, fcinfo.arg_varlena_packed(1)?) };
-    let (data, key) = (::mcx::std_vec_from_slice("pgcrypto",data.data())?, key.data().to_vec());
+    let (data, key) = (
+        ::mcx::std_vec_from_slice("pgcrypto", data.data())?,
+        key.data().to_vec(),
+    );
     let args = opt_arg_bytes(fcinfo, 2)?;
     pgp::validate_args(args.as_deref()).map_err(|e| px_msg(&e))?;
     mbuf_create(data.len(), 2048)?;
@@ -396,7 +416,10 @@ fn pgp_sym_decrypt(fcinfo: &mut Fcinfo, need_text: bool) -> PgResult<Datum> {
 fn pgp_pub_encrypt(fcinfo: &mut Fcinfo, is_text: bool) -> PgResult<Datum> {
     // SAFETY: strict on arg0/arg1 (data, key); arg2 (args) optional/nullable.
     let (data, key) = unsafe { (fcinfo.arg_varlena_packed(0)?, fcinfo.arg_varlena_packed(1)?) };
-    let (data, key) = (::mcx::std_vec_from_slice("pgcrypto",data.data())?, key.data().to_vec());
+    let (data, key) = (
+        ::mcx::std_vec_from_slice("pgcrypto", data.data())?,
+        key.data().to_vec(),
+    );
     let args = opt_arg_bytes(fcinfo, 2)?;
     let (data, cap) = encrypt_setup(data, args.as_deref(), is_text)?;
     let out = pgp::pub_encrypt(&data, &key, args.as_deref(), is_text).map_err(|e| {
@@ -412,7 +435,10 @@ fn pgp_pub_encrypt(fcinfo: &mut Fcinfo, is_text: bool) -> PgResult<Datum> {
 fn pgp_pub_decrypt(fcinfo: &mut Fcinfo, need_text: bool) -> PgResult<Datum> {
     // SAFETY: strict on arg0/arg1 (msg, seckey); arg2 psw, arg3 args optional.
     let (data, key) = unsafe { (fcinfo.arg_varlena_packed(0)?, fcinfo.arg_varlena_packed(1)?) };
-    let (data, key) = (::mcx::std_vec_from_slice("pgcrypto",data.data())?, key.data().to_vec());
+    let (data, key) = (
+        ::mcx::std_vec_from_slice("pgcrypto", data.data())?,
+        key.data().to_vec(),
+    );
     let psw = opt_arg_bytes(fcinfo, 2)?;
     let args = opt_arg_bytes(fcinfo, 3)?;
     pgp::validate_args(args.as_deref()).map_err(|e| px_msg(&e))?;
@@ -463,7 +489,8 @@ fn fc_pgp_key_id_w(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<D
 
 fn fc_pg_armor(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     // SAFETY: strict fn — arg0 bytea; arg1/arg2 text[] when present.
-    let data = ::mcx::std_vec_from_slice("pgcrypto",unsafe { fcinfo.arg_varlena_packed(0)? }.data())?;
+    let data =
+        ::mcx::std_vec_from_slice("pgcrypto", unsafe { fcinfo.arg_varlena_packed(0)? }.data())?;
     let (keys, values) = if fcinfo.nargs() == 3 {
         let scratch = mcx::MemoryContext::new("pgp_armor headers");
         // SAFETY: strict fn — args non-null.
@@ -484,13 +511,15 @@ fn fc_pg_armor(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum
 fn fc_pg_dearmor(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     // SAFETY: strict fn — arg0 text.
     let data = unsafe { fcinfo.arg_varlena_packed(0)? };
-    let out = pgp::armor::armor_decode(data.data()).map_err(|()| px_msg(pgp::armor::CORRUPT_ARMOR))?;
+    let out =
+        pgp::armor::armor_decode(data.data()).map_err(|()| px_msg(pgp::armor::CORRUPT_ARMOR))?;
     bytea_result(fcinfo, &out)
 }
 
 fn fc_pgp_armor_headers(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     // SAFETY: strict fn — arg0 text.
-    let data = ::mcx::std_vec_from_slice("pgcrypto",unsafe { fcinfo.arg_varlena_packed(0)? }.data())?;
+    let data =
+        ::mcx::std_vec_from_slice("pgcrypto", unsafe { fcinfo.arg_varlena_packed(0)? }.data())?;
     let headers = pgp::armor::extract_armor_headers(&data).map_err(|e| match e {
         pgp::armor::ArmorError::Corrupt => px_msg(pgp::armor::CORRUPT_ARMOR),
         pgp::armor::ArmorError::Pg(e) => e,
@@ -525,11 +554,13 @@ unsafe fn array_image(fcinfo: &Fcinfo, i: usize) -> PgResult<Vec<u8>> {
         let d = v.data();
         let total = 4 + d.len();
         let mut buf = ::mcx::std_vec_with_capacity("pgcrypto", total)?;
-        buf.extend_from_slice(&types_tuple::varatt::set_varsize_4b_word(total as u32).to_ne_bytes());
+        buf.extend_from_slice(
+            &types_tuple::varatt::set_varsize_4b_word(total as u32).to_ne_bytes(),
+        );
         buf.extend_from_slice(d);
         Ok(buf)
     } else {
-        Ok(::mcx::std_vec_from_slice("pgcrypto",v.image())?)
+        Ok(::mcx::std_vec_from_slice("pgcrypto", v.image())?)
     }
 }
 
@@ -539,13 +570,19 @@ fn text_elem_bytes(d: Datum) -> Vec<u8> {
     // SAFETY: non-null text element datum inside the array image.
     unsafe {
         let total = types_tuple::varatt::varsize_any(p);
-        let hdr = if types_tuple::varatt::varatt_is_1b(p) { 1 } else { 4 };
+        let hdr = if types_tuple::varatt::varatt_is_1b(p) {
+            1
+        } else {
+            4
+        };
         core::slice::from_raw_parts(p.add(hdr), total - hdr).to_vec()
     }
 }
 
 fn armor_header_err(msg: &str, sqlstate: types_error::SqlState) -> Box<PgError> {
-    PgError::error(msg.to_string()).with_sqlstate(sqlstate).into()
+    PgError::error(msg.to_string())
+        .with_sqlstate(sqlstate)
+        .into()
 }
 
 // C pg_is_ascii (high bit clear on every byte).
@@ -577,10 +614,18 @@ fn parse_key_value_arrays(
         return Ok((Vec::new(), Vec::new()));
     }
 
-    let (key_datums, key_nulls) =
-        arrayfuncs::construct::deconstruct_array_builtin(mcx, key_image, types_core::TEXTOID, true)?;
-    let (val_datums, val_nulls) =
-        arrayfuncs::construct::deconstruct_array_builtin(mcx, val_image, types_core::TEXTOID, true)?;
+    let (key_datums, key_nulls) = arrayfuncs::construct::deconstruct_array_builtin(
+        mcx,
+        key_image,
+        types_core::TEXTOID,
+        true,
+    )?;
+    let (val_datums, val_nulls) = arrayfuncs::construct::deconstruct_array_builtin(
+        mcx,
+        val_image,
+        types_core::TEXTOID,
+        true,
+    )?;
 
     if key_datums.len() != val_datums.len() {
         return Err(armor_header_err(
@@ -990,7 +1035,10 @@ mod armor_header_tests {
     #[test]
     fn crypt_err_maps_null_path_to_39000_and_rest_to_22023() {
         assert_eq!(
-            crypt_err(crypt::CryptError::Message("crypt(3) returned NULL".to_string())).sqlstate,
+            crypt_err(crypt::CryptError::Message(
+                "crypt(3) returned NULL".to_string()
+            ))
+            .sqlstate,
             ERRCODE_EXTERNAL_ROUTINE_INVOCATION_EXCEPTION
         );
         assert_eq!(
@@ -1030,11 +1078,15 @@ mod mbuf_tests {
     #[test]
     fn encrypt_args_are_parsed_before_the_output_mbuf_is_sized() {
         assert_eq!(
-            encrypt_setup(vec![0u8; 1073741692], Some(b"foo=1"), false).unwrap_err().message,
+            encrypt_setup(vec![0u8; 1073741692], Some(b"foo=1"), false)
+                .unwrap_err()
+                .message,
             "Illegal argument to function"
         );
         assert_eq!(
-            encrypt_setup(vec![0u8; 1073741692], None, false).unwrap_err().message,
+            encrypt_setup(vec![0u8; 1073741692], None, false)
+                .unwrap_err()
+                .message,
             "invalid memory alloc request size 1073741824"
         );
     }
@@ -1048,7 +1100,9 @@ mod mbuf_tests {
             "invalid memory alloc request size 1073774591"
         );
         assert_eq!(
-            mbuf_room(1073741823 - 32768, 1073741823 + 1).unwrap_err().message,
+            mbuf_room(1073741823 - 32768, 1073741823 + 1)
+                .unwrap_err()
+                .message,
             "invalid memory alloc request size 1073774591"
         );
     }

@@ -40,7 +40,7 @@ pub(crate) fn calm_emit(gx: &Gx<'_, '_>, emit: usize, calm: &dyn Fn(Node<'_>) ->
     gx.pipelines()[emit].ops.iter().all(|op| match op {
         Op::Append(AppendDesc::Union { .. }) => true,
         Op::Filter(x) => calm(*x),
-        Op::Project(l) => l.iter().all( calm),
+        Op::Project(l) => l.iter().all(calm),
         _ => false,
     })
 }
@@ -57,9 +57,23 @@ pub(crate) fn calm_emit(gx: &Gx<'_, '_>, emit: usize, calm: &dyn Fn(Node<'_>) ->
 /// inner plan's F5 facts below VOLATILE (the effects home's `nest_inner_calm`). When and how often that fill runs stays
 /// the Material's own form question.
 pub(crate) fn calm_nest(gx: &Gx<'_, '_>, emit: usize, op: &Op<'_>) -> bool {
-    let Op::Join(JoinDesc::Nest { params, qual, inner, facts, .. }) = op else { return false };
+    let Op::Join(JoinDesc::Nest {
+        params,
+        qual,
+        inner,
+        facts,
+        ..
+    }) = op
+    else {
+        return false;
+    };
     let calm = |x: Node<'_>| calm_in(gx, x);
-    if !crate::effects::nest_inner_calm(facts.volatility) || !params.iter().all(|p| p.as_nest_loop_param().is_some_and(|p| calm(p.paramval))) || !qual.iter().all(calm) {
+    if !crate::effects::nest_inner_calm(facts.volatility)
+        || !params
+            .iter()
+            .all(|p| p.as_nest_loop_param().is_some_and(|p| calm(p.paramval)))
+        || !qual.iter().all(calm)
+    {
         return false;
     }
     let own = |s: &u8| matches!(inner.source, Source::Breaker { slot } if slot == *s);
@@ -67,8 +81,16 @@ pub(crate) fn calm_nest(gx: &Gx<'_, '_>, emit: usize, op: &Op<'_>) -> bool {
         return false;
     }
     match inner.source {
-        Source::Range { am: gravity_decompose::Am::Heap, .. } | Source::Index { am: gravity_decompose::Am::Heap, .. } => true,
-        Source::Breaker { slot } => crate::rerun::union_reads::fill_of(gx, emit, inner, slot).is_some_and(|f| chain_calm(gx, f)),
+        Source::Range {
+            am: gravity_decompose::Am::Heap,
+            ..
+        }
+        | Source::Index {
+            am: gravity_decompose::Am::Heap,
+            ..
+        } => true,
+        Source::Breaker { slot } => crate::rerun::union_reads::fill_of(gx, emit, inner, slot)
+            .is_some_and(|f| chain_calm(gx, f)),
         _ => false,
     }
 }
@@ -82,7 +104,12 @@ pub(crate) fn calm_in(gx: &Gx<'_, '_>, n: Node<'_>) -> bool {
     if gx.fx(n).user_calls() || gx.fx(n).volatile_any() || gx.fx(n).user_typed() {
         return false;
     }
-    let nest_param = |id: i32| gx.graph.params.iter().any(|(p, r)| *p == id && matches!(r.owner, ParamOwner::Nest { .. }));
+    let nest_param = |id: i32| {
+        gx.graph
+            .params
+            .iter()
+            .any(|(p, r)| *p == id && matches!(r.owner, ParamOwner::Nest { .. }))
+    };
     gx.fx(n).raise_only_by(&nest_param)
 }
 
@@ -91,9 +118,19 @@ pub(crate) fn calm_in(gx: &Gx<'_, '_>, n: Node<'_>) -> bool {
 /// group (an aggregate's transitions are their own calls).
 pub(crate) fn chain_calm(gx: &Gx<'_, '_>, f: usize) -> bool {
     let ps = gx.pipelines();
-    let src = if let Source::Breaker { slot } = ps[f].source { Some(slot) } else { None };
-    let feeders = crate::ops::hashjoin::build_class::feed(gx, f, ps[f].desc.consumes.iter().copied().chain(src));
-    core::iter::once(f).chain(feeders).all(|x| x < ps.len() && steps_calm(gx, &ps[x]) && gx.group_at(x).is_none())
+    let src = if let Source::Breaker { slot } = ps[f].source {
+        Some(slot)
+    } else {
+        None
+    };
+    let feeders = crate::ops::hashjoin::build_class::feed(
+        gx,
+        f,
+        ps[f].desc.consumes.iter().copied().chain(src),
+    );
+    core::iter::once(f)
+        .chain(feeders)
+        .all(|x| x < ps.len() && steps_calm(gx, &ps[x]) && gx.group_at(x).is_none())
 }
 
 /// Pipeline (or nest inner) `p`'s source and ops call nothing that acts (`calm_in`): a heap range, a breaker, a constant,
@@ -106,25 +143,58 @@ pub(crate) fn steps_calm(gx: &Gx<'_, '_>, p: &PipelineNode<'_>) -> bool {
     let calm = |x: Node<'_>| calm_in(gx, x);
     let builtin = |opno: u32| opno == 0 || gravity_decompose::effects::builtin_oper(opno).is_some();
     let src = match &p.source {
-        Source::Range { am: gravity_decompose::Am::Heap, .. } | Source::Breaker { .. } | Source::Const => true,
-        Source::Index { am: gravity_decompose::Am::Heap, keys, recheck, .. } => keys.iter().all(|k| calm(k.value) && builtin(k.opno)) && recheck.iter().all(calm),
+        Source::Range {
+            am: gravity_decompose::Am::Heap,
+            ..
+        }
+        | Source::Breaker { .. }
+        | Source::Const => true,
+        Source::Index {
+            am: gravity_decompose::Am::Heap,
+            keys,
+            recheck,
+            ..
+        } => keys.iter().all(|k| calm(k.value) && builtin(k.opno)) && recheck.iter().all(calm),
         _ => false,
     };
     src && p.ops.iter().all(|op| match op {
         Op::Filter(x) | Op::Gate(x) => calm(*x),
         Op::Project(l) => l.iter().all(calm),
-        Op::Join(JoinDesc::Probe { keys, clauses, qual, .. }) => keys.iter().chain(clauses.iter()).chain(qual.iter()).all(calm),
+        Op::Join(JoinDesc::Probe {
+            keys,
+            clauses,
+            qual,
+            ..
+        }) => keys
+            .iter()
+            .chain(clauses.iter())
+            .chain(qual.iter())
+            .all(calm),
         Op::Join(JoinDesc::Build { keys, .. }) => keys.iter().all(calm),
-        Op::Join(JoinDesc::Memo { keys, ops, .. }) => keys.iter().all(calm) && ops.iter().all(|&o| builtin(o)),
+        Op::Join(JoinDesc::Memo { keys, ops, .. }) => {
+            keys.iter().all(calm) && ops.iter().all(|&o| builtin(o))
+        }
         Op::Join(JoinDesc::Spool) => true,
-        Op::Join(JoinDesc::Nest { params, qual, inner, facts, .. }) => {
+        Op::Join(JoinDesc::Nest {
+            params,
+            qual,
+            inner,
+            facts,
+            ..
+        }) => {
             crate::effects::nest_inner_calm(facts.volatility)
-                && params.iter().all(|x| x.as_nest_loop_param().is_some_and(|x| calm(x.paramval)))
+                && params
+                    .iter()
+                    .all(|x| x.as_nest_loop_param().is_some_and(|x| calm(x.paramval)))
                 && qual.iter().all(calm)
                 && steps_calm(gx, inner)
         }
         Op::Append(AppendDesc::Feed { .. } | AppendDesc::Union { prune: None, .. }) => true,
-        Op::Sort(d) => matches!(d.form, SortForm::Runs) && d.keys.iter().all(|k| builtin(k.opno)) && d.tlist.iter().all(calm),
+        Op::Sort(d) => {
+            matches!(d.form, SortForm::Runs)
+                && d.keys.iter().all(|k| builtin(k.opno))
+                && d.tlist.iter().all(calm)
+        }
         _ => false,
     })
 }
@@ -141,15 +211,24 @@ pub(crate) fn calm_write(gx: &Gx<'_, '_>, w: &WriteDesc<'_>) -> bool {
     };
     let plain = matches!(w.cmd, Cmd::Insert | Cmd::Update | Cmd::Delete);
     // a partitioned root's UPDATE / DELETE that sets no partition key moves no row (`partColsUpdated` false)
-    let stays = w.route.as_ref().is_none_or(|r| !r.cross_partition && w.cmd != Cmd::Insert);
-    plain && w.on_conflict.is_none() && w.merge.is_none() && stays && w.checks.is_empty()
+    let stays = w
+        .route
+        .as_ref()
+        .is_none_or(|r| !r.cross_partition && w.cmd != Cmd::Insert);
+    plain
+        && w.on_conflict.is_none()
+        && w.merge.is_none()
+        && stays
+        && w.checks.is_empty()
         && w.returning.is_none_or(|l| l.iter().all(|x| calm_in(gx, x)))
         && written(w, &mut |r| quiet(r))
 }
 
 /// `f` holds for every relation write `w` writes: its target, its partitions' targets and a routed root.
 pub(crate) fn written(w: &WriteDesc<'_>, f: &mut dyn FnMut(u32) -> bool) -> bool {
-    f(w.plan.target_rel) && w.targets.iter().all(|t| f(t.relid)) && w.route.as_ref().is_none_or(|r| f(r.root_relid))
+    f(w.plan.target_rel)
+        && w.targets.iter().all(|t| f(t.relid))
+        && w.route.as_ref().is_none_or(|r| f(r.root_relid))
 }
 
 /// A call in `n` that S2q's refill never runs ahead of PostgreSQL's pulls: a user or VOLATILE one the side class reads

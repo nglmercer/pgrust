@@ -52,7 +52,10 @@ pub fn fc_pg_database_collation_actual_version(
             .to_owned()
     };
     match pg_locale::get_collation_actual_version(row.datlocprovider, &locale)? {
-        Some(v) => Ok(types_fmgr::varlena_result(varlena::cstring_to_text(mcx, v.as_bytes(),)?)),
+        Some(v) => Ok(types_fmgr::varlena_result(varlena::cstring_to_text(
+            mcx,
+            v.as_bytes(),
+        )?)),
         None => Ok(fcinfo.return_null()),
     }
 }
@@ -61,7 +64,12 @@ use ::types_fmgr::builtin_strict as b;
 
 pub const DBCOMMANDS_BUILTINS: &[FmgrBuiltin] = &[
     b(861, "current_database", 0, fc_current_database),
-    b(6249, "pg_database_collation_actual_version", 1, fc_pg_database_collation_actual_version,),
+    b(
+        6249,
+        "pg_database_collation_actual_version",
+        1,
+        fc_pg_database_collation_actual_version,
+    ),
 ];
 
 #[cfg(test)]

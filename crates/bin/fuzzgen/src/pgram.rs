@@ -273,8 +273,10 @@ fn gen_lateral(g: &mut Gen) -> Vec<StmtKind> {
     let _ = g;
     let mut v = vec![
         raw("CREATE TABLE fz_pg_lt (pk int4 PRIMARY KEY, a int4, arr int4[]);"),
-        raw("INSERT INTO fz_pg_lt SELECT i, i % 7, ARRAY[i, i + 1, i % 3] \
-             FROM generate_series(1, 40) i;"),
+        raw(
+            "INSERT INTO fz_pg_lt SELECT i, i % 7, ARRAY[i, i + 1, i % 3] \
+             FROM generate_series(1, 40) i;",
+        ),
     ];
     v.extend(raws(&[
         // LATERAL subquery / function-call / implicit-LATERAL SRF forms.
@@ -377,18 +379,22 @@ fn gen_merge(g: &mut Gen) -> Vec<StmtKind> {
              WHEN NOT MATCHED BY SOURCE THEN DO NOTHING;"),
         raw("SELECT * FROM fz_pg_mt ORDER BY pk;"),
         raw("SELECT count(*)::int8, coalesce(sum(v), 0)::int8 FROM fz_pg_mt;"),
-        raw("WITH m AS (MERGE INTO fz_pg_mt t USING fz_pg_ms s ON t.pk = s.pk \
+        raw(
+            "WITH m AS (MERGE INTO fz_pg_mt t USING fz_pg_ms s ON t.pk = s.pk \
              WHEN MATCHED THEN UPDATE SET v = t.v + 1 \
              WHEN NOT MATCHED THEN INSERT (pk, v) VALUES (s.pk, s.v) \
              RETURNING merge_action(), t.pk, t.v) \
-             SELECT * FROM m ORDER BY pk;"),
+             SELECT * FROM m ORDER BY pk;",
+        ),
         raw("ROLLBACK;"),
         // Standalone runtime-error MERGE arms (autocommit: a failed MERGE
         // changes nothing, and keeping them out of the brackets means no
         // 25P02 cascade over the probes).
-        raw("MERGE INTO fz_pg_mt t USING (VALUES (1, 5), (99, 6)) AS s(pk, v) ON t.pk = s.pk \
+        raw(
+            "MERGE INTO fz_pg_mt t USING (VALUES (1, 5), (99, 6)) AS s(pk, v) ON t.pk = s.pk \
              WHEN NOT MATCHED THEN INSERT DEFAULT VALUES \
-             WHEN MATCHED THEN UPDATE SET v = DEFAULT;"),
+             WHEN MATCHED THEN UPDATE SET v = DEFAULT;",
+        ),
         raw("MERGE INTO fz_pg_mt t USING fz_pg_ms s ON t.pk = s.pk \
              WHEN NOT MATCHED THEN INSERT (pk, v) OVERRIDING USER VALUE VALUES (s.pk, s.v);"),
         raw("BEGIN;"),
@@ -479,8 +485,10 @@ fn gen_stats(g: &mut Gen) -> Vec<StmtKind> {
     let tgt = 10 + g.rng.below_usize(90) as i64;
     let mut v = vec![
         raw("CREATE TABLE fz_pg_st (pk int4 PRIMARY KEY, a int4, b int4, c text);"),
-        raw("INSERT INTO fz_pg_st SELECT i, i % 10, i % 10, 'c' || (i % 10) \
-             FROM generate_series(1, 100) i;"),
+        raw(
+            "INSERT INTO fz_pg_st SELECT i, i % 10, i % 10, 'c' || (i % 10) \
+             FROM generate_series(1, 100) i;",
+        ),
     ];
     v.extend(raws(&[
         // Every kind combination + expression statistics.
@@ -527,7 +535,8 @@ fn gen_stats(g: &mut Gen) -> Vec<StmtKind> {
 
 fn gen_partbound(g: &mut Gen) -> Vec<StmtKind> {
     let m = 2 + g.rng.below_usize(3) as i64; // modulus 2..4
-    let mut v = vec![
+    let mut v =
+        vec![
         raw("CREATE TABLE fz_pg_pr (pk int4, r int4, s text, PRIMARY KEY (pk, r)) \
              PARTITION BY RANGE (r, s);"),
         // Multi-column range bounds with MINVALUE/MAXVALUE tails.
@@ -843,8 +852,18 @@ fn gen_poly(g: &mut Gen) -> Vec<StmtKind> {
     // the side where fz_pg_pany's CREATE failed (SQB-F2 asymmetry), and
     // the leftover functions cascade 42723 into every later poly group.
     for f in [
-        "fz_pg_pid", "fz_pg_parr", "fz_pg_pel", "fz_pg_pna", "fz_pg_prng", "fz_pg_pmr",
-        "fz_pg_pc2", "fz_pg_pca", "fz_pg_pcr", "fz_pg_pout", "fz_pg_pset", "fz_pg_pva",
+        "fz_pg_pid",
+        "fz_pg_parr",
+        "fz_pg_pel",
+        "fz_pg_pna",
+        "fz_pg_prng",
+        "fz_pg_pmr",
+        "fz_pg_pc2",
+        "fz_pg_pca",
+        "fz_pg_pcr",
+        "fz_pg_pout",
+        "fz_pg_pset",
+        "fz_pg_pva",
     ] {
         v.push(raw(format!("DROP FUNCTION {f};")));
     }
@@ -859,8 +878,10 @@ fn gen_cte(g: &mut Gen) -> Vec<StmtKind> {
     let lim = 5 + g.rng.below_usize(5) as i64;
     let mut v = vec![
         raw("CREATE TABLE fz_pg_ct (pk int4 PRIMARY KEY, up int4, lbl text);"),
-        raw("INSERT INTO fz_pg_ct VALUES (1, NULL, 'root'), (2, 1, 'a'), (3, 1, 'b'), \
-             (4, 2, 'aa'), (5, 2, 'ab'), (6, 3, 'ba'), (7, 4, 'aaa');"),
+        raw(
+            "INSERT INTO fz_pg_ct VALUES (1, NULL, 'root'), (2, 1, 'a'), (3, 1, 'b'), \
+             (4, 2, 'aa'), (5, 2, 'ab'), (6, 3, 'ba'), (7, 4, 'aaa');",
+        ),
     ];
     v.push(raw(format!(
         "WITH RECURSIVE r AS (SELECT pk, up, lbl, 0 AS d FROM fz_pg_ct WHERE up IS NULL \
@@ -1399,11 +1420,16 @@ mod tests {
         for group in gen_groups(41, 300) {
             let joined = group.join("\n");
             for sql in &group {
-                let Some(rest) = sql.strip_prefix("CREATE TABLE ") else { continue };
+                let Some(rest) = sql.strip_prefix("CREATE TABLE ") else {
+                    continue;
+                };
                 let t = rest.split_whitespace().next().unwrap().to_string();
                 let base = t.clone();
-                if base.contains("_e") || base.contains("fz_pg_ph_") || base.contains("fz_pg_pr_")
-                    || base.contains("fz_pg_pl_") || base.contains("fz_pg_lk_c")
+                if base.contains("_e")
+                    || base.contains("fz_pg_ph_")
+                    || base.contains("fz_pg_pr_")
+                    || base.contains("fz_pg_pl_")
+                    || base.contains("fz_pg_lk_c")
                     || base.contains("fz_pg_att")
                 {
                     continue; // error arms / partition children / LIKE clones (bulk-dropped)

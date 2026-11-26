@@ -29,7 +29,8 @@ fn fixture() -> Program {
 fn no_spill_or_demotion_inside_a_branch_region() {
     let p = fixture();
     let ctx = MemoryContext::new("gravity-tpde-test");
-    let c = gravity_tpde::compile_recording(ctx.mcx(), &p).unwrap_or_else(|e| panic!("compile: {e:?}"));
+    let c =
+        gravity_tpde::compile_recording(ctx.mcx(), &p).unwrap_or_else(|e| panic!("compile: {e:?}"));
     let mut regions = 0usize;
     let mut depth = 0i32;
     let mut inside = vec![];
@@ -44,13 +45,21 @@ fn no_spill_or_demotion_inside_a_branch_region() {
                 assert_eq!(depth, 1, "region end without a begin");
                 depth -= 1;
             }
-            RegallocEvent::Spill | RegallocEvent::Demote if depth > 0 => inside.push((e.func, e.block, e.event)),
+            RegallocEvent::Spill | RegallocEvent::Demote if depth > 0 => {
+                inside.push((e.func, e.block, e.event))
+            }
             _ => {}
         }
     }
     assert_eq!(depth, 0, "a branch region never ended");
-    assert!(regions > 100, "the fixture's pipeline has many conditional branches (saw {regions} regions)");
-    assert!(inside.is_empty(), "value state changed inside a branch region: {inside:?}");
+    assert!(
+        regions > 100,
+        "the fixture's pipeline has many conditional branches (saw {regions} regions)"
+    );
+    assert!(
+        inside.is_empty(),
+        "value state changed inside a branch region: {inside:?}"
+    );
 }
 
 /// The demotion the release compiler performed inside the edge is now a
@@ -60,13 +69,18 @@ fn no_spill_or_demotion_inside_a_branch_region() {
 fn demotions_happen_outside_regions_only() {
     let p = fixture();
     let ctx = MemoryContext::new("gravity-tpde-test");
-    let c = gravity_tpde::compile_recording(ctx.mcx(), &p).unwrap_or_else(|e| panic!("compile: {e:?}"));
+    let c =
+        gravity_tpde::compile_recording(ctx.mcx(), &p).unwrap_or_else(|e| panic!("compile: {e:?}"));
     let mut depth = 0i32;
     for e in c.regalloc() {
         match e.event {
             RegallocEvent::RegionBegin => depth += 1,
             RegallocEvent::RegionEnd => depth -= 1,
-            RegallocEvent::Demote => assert_eq!(depth, 0, "demotion inside a branch region (block {:?})", e.block),
+            RegallocEvent::Demote => assert_eq!(
+                depth, 0,
+                "demotion inside a branch region (block {:?})",
+                e.block
+            ),
             _ => {}
         }
     }

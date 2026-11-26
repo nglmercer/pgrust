@@ -4,9 +4,14 @@ use std::sync::Arc;
 use gravity_abi::MorselRange;
 use gravity_parallel::{BlockRange, ClaimSize, Job, MorselSource, Pool};
 use gravity_pool::{Ambient, RuntimePool};
-use pgstat::io::{pgstat_count_io_op, pgstat_count_io_op_time, pgstat_have_pending_io, pgstat_pending_io, pgstat_prepare_io_time, shared_blk_read_time, IOContext, IOObject, IOOp};
+use pgstat::io::{
+    pgstat_count_io_op, pgstat_count_io_op_time, pgstat_have_pending_io, pgstat_pending_io,
+    pgstat_prepare_io_time, shared_blk_read_time, IOContext, IOObject, IOOp,
+};
 use pgstat::relation::{find_tabstat_entry, pgstat_count_buffer_reads};
-use pgstat::section::{discard_thread_deltas, fold_thread_deltas, take_thread_deltas, ThreadDeltas};
+use pgstat::section::{
+    discard_thread_deltas, fold_thread_deltas, take_thread_deltas, ThreadDeltas,
+};
 use pgstat::slru::{pgstat_count_slru_page_hit, pgstat_slru_pending};
 use runtime::{Runtime, RuntimeConfig, WorkerPool};
 use types_core::instrument::WalUsage;
@@ -26,8 +31,20 @@ fn pool(threads: usize) -> (WorkerPool, RuntimePool) {
 
 fn count_blocks(range: MorselRange, reads: u32, hits: u32) {
     for _ in range.lo..range.hi {
-        pgstat_count_io_op(IOObject::Relation, IOContext::IOCONTEXT_NORMAL, IOOp::Read, reads, 0);
-        pgstat_count_io_op(IOObject::Relation, IOContext::IOCONTEXT_NORMAL, IOOp::Hit, hits, 0);
+        pgstat_count_io_op(
+            IOObject::Relation,
+            IOContext::IOCONTEXT_NORMAL,
+            IOOp::Read,
+            reads,
+            0,
+        );
+        pgstat_count_io_op(
+            IOObject::Relation,
+            IOContext::IOCONTEXT_NORMAL,
+            IOOp::Hit,
+            hits,
+            0,
+        );
     }
 }
 
@@ -38,13 +55,19 @@ fn a_sections_worker_io_lands_in_the_leaders_pending_as_its_own() {
     let claims = BlockRange::new(64, ClaimSize::Fixed(1));
     let ran = AtomicU64::new(0);
     let job: Box<Job<'_>> = Box::new(|_ordinal, range| {
-        assert!(!pgstat_have_pending_io(), "a claim starts with nothing pending on its thread");
+        assert!(
+            !pgstat_have_pending_io(),
+            "a claim starts with nothing pending on its thread"
+        );
         count_blocks(range, 1, 2);
         ran.fetch_add(1, Ordering::Relaxed);
         Ok(())
     });
     pool.run(4, &claims, &job).expect("section");
-    assert!((1..=64).contains(&ran.load(Ordering::Relaxed)), "the runtime's sizer cuts the claims");
+    assert!(
+        (1..=64).contains(&ran.load(Ordering::Relaxed)),
+        "the runtime's sizer cuts the claims"
+    );
     let io = pgstat_pending_io();
     assert!(pgstat_have_pending_io());
     assert_eq!(io.counts[REL][NORMAL][READ], 64);
@@ -97,7 +120,10 @@ fn deltas_add_and_fold_as_values() {
     assert_eq!(bank.io.counts[REL][NORMAL][HIT], 5);
     fold_thread_deltas(&bank);
     let io = pgstat_pending_io();
-    assert_eq!((io.counts[REL][NORMAL][READ], io.counts[REL][NORMAL][HIT]), (3, 5));
+    assert_eq!(
+        (io.counts[REL][NORMAL][READ], io.counts[REL][NORMAL][HIT]),
+        (3, 5)
+    );
     assert!(take_thread_deltas().is_some());
     assert!(take_thread_deltas().is_none());
 }
@@ -120,7 +146,14 @@ fn a_workers_io_time_and_slru_counts_reach_the_leader() {
         for _ in range.lo..range.hi {
             // a read that took TOOK_NS under track_io_timing: its start stamped that long ago
             let start = pgstat_prepare_io_time(true) - TOOK_NS;
-            pgstat_count_io_op_time(IOObject::Relation, IOContext::IOCONTEXT_NORMAL, IOOp::Read, start, 1, 8192);
+            pgstat_count_io_op_time(
+                IOObject::Relation,
+                IOContext::IOCONTEXT_NORMAL,
+                IOOp::Read,
+                start,
+                1,
+                8192,
+            );
             pgstat_count_slru_page_hit(SLRU);
             blocks.fetch_add(1, Ordering::Relaxed);
         }
@@ -131,7 +164,11 @@ fn a_workers_io_time_and_slru_counts_reach_the_leader() {
     assert_eq!(n, 12, "every block of the range ran once");
     let took = shared_blk_read_time() - read0;
     assert!(took >= n * TOOK_NS, "the claims' read time is the leader's pgBufferUsage after the section: {took} ns of at least {} ns", n * TOOK_NS);
-    assert_eq!(pgstat_slru_pending(SLRU as usize).blocks_hit - hit0, n, "the claims' SLRU hits are the leader's pending after the section");
+    assert_eq!(
+        pgstat_slru_pending(SLRU as usize).blocks_hit - hit0,
+        n,
+        "the claims' SLRU hits are the leader's pending after the section"
+    );
     let (read_us, _) = pgstat::database::take_block_time_pending();
     assert!(read_us >= n * TOOK_NS / 1000, "the claims' read time is the leader's pending database block read time: {read_us} us of at least {} us", n * TOOK_NS / 1000);
     discard_thread_deltas();
@@ -154,18 +191,39 @@ fn a_workers_wal_usage_and_last_record_end_reach_the_leader() {
     let job: Box<Job<'_>> = Box::new(|_ordinal, range| {
         for b in range.lo..range.hi {
             // a hint bit's full-page image: one record with its image, and the record's end
-            transam_xlog_seams::wal_usage_add::call(&WalUsage { wal_records: 1, wal_fpi: 1, wal_bytes: 8192, wal_buffers_full: 0 });
+            transam_xlog_seams::wal_usage_add::call(&WalUsage {
+                wal_records: 1,
+                wal_fpi: 1,
+                wal_bytes: 8192,
+                wal_buffers_full: 0,
+            });
             transam_xlog_seams::set_xact_last_rec_end::call(base + (b + 1) * 8192);
             blocks.fetch_add(1, Ordering::Relaxed);
         }
         Ok(())
     });
     pool.run(3, &claims, &job).expect("section");
-    assert_eq!(blocks.load(Ordering::Relaxed), 12, "every block of the range ran once");
+    assert_eq!(
+        blocks.load(Ordering::Relaxed),
+        12,
+        "every block of the range ran once"
+    );
     let wal = transam_xlog::pgWalUsage();
-    let took = (wal.wal_records - wal0.wal_records, wal.wal_fpi - wal0.wal_fpi, wal.wal_bytes.wrapping_sub(wal0.wal_bytes));
-    assert_eq!(took, (12, 12, 12 * 8192), "the claims' WAL usage is the leader's pgWalUsage after the section");
-    assert_eq!(transam_xlog::XactLastRecEnd(), base + 12 * 8192, "the leader's XactLastRecEnd reaches the claims' last record end");
+    let took = (
+        wal.wal_records - wal0.wal_records,
+        wal.wal_fpi - wal0.wal_fpi,
+        wal.wal_bytes.wrapping_sub(wal0.wal_bytes),
+    );
+    assert_eq!(
+        took,
+        (12, 12, 12 * 8192),
+        "the claims' WAL usage is the leader's pgWalUsage after the section"
+    );
+    assert_eq!(
+        transam_xlog::XactLastRecEnd(),
+        base + 12 * 8192,
+        "the leader's XactLastRecEnd reaches the claims' last record end"
+    );
     transam_xlog_seams::set_xact_last_rec_end::call(end0);
     discard_thread_deltas();
     workers.shutdown();

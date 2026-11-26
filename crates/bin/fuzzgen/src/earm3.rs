@@ -865,7 +865,10 @@ mod tests {
             ("CREATE FUNCTION ea3_wf(", "DROP FUNCTION ea3_wf();"),
             ("CREATE VIEW ea3_wv ", "DROP VIEW ea3_wv;"),
             ("CREATE SEQUENCE ea3_ws;", "DROP SEQUENCE ea3_ws;"),
-            ("CREATE MATERIALIZED VIEW ea3_wm ", "DROP MATERIALIZED VIEW ea3_wm;"),
+            (
+                "CREATE MATERIALIZED VIEW ea3_wm ",
+                "DROP MATERIALIZED VIEW ea3_wm;",
+            ),
             ("CREATE TABLE ea3_wt ", "DROP TABLE ea3_wt;"),
             ("CREATE ROLE ea3_wown;", "DROP ROLE ea3_wown;"),
             ("CREATE TABLE ea3_ap ", "DROP TABLE ea3_ap;"),
@@ -874,14 +877,29 @@ mod tests {
             ("CREATE TABLE ea3_dtab ", "DROP TABLE ea3_dtab;"),
             ("CREATE FUNCTION ea3_c1(", "DROP FUNCTION ea3_c1(int);"),
             ("CREATE FUNCTION ea3_c2(", "DROP FUNCTION ea3_c2(text);"),
-            ("CREATE FUNCTION ea3_c3(", "DROP FUNCTION ea3_c3(int, int, boolean);"),
-            ("CREATE FUNCTION ea3_opf(", "DROP FUNCTION ea3_opf(int, int);"),
-            ("CREATE FUNCTION ea3_cmp(", "DROP FUNCTION ea3_cmp(int, int);"),
-            ("CREATE FUNCTION ea3_cmp_wrong(", "DROP FUNCTION ea3_cmp_wrong(text, text);"),
+            (
+                "CREATE FUNCTION ea3_c3(",
+                "DROP FUNCTION ea3_c3(int, int, boolean);",
+            ),
+            (
+                "CREATE FUNCTION ea3_opf(",
+                "DROP FUNCTION ea3_opf(int, int);",
+            ),
+            (
+                "CREATE FUNCTION ea3_cmp(",
+                "DROP FUNCTION ea3_cmp(int, int);",
+            ),
+            (
+                "CREATE FUNCTION ea3_cmp_wrong(",
+                "DROP FUNCTION ea3_cmp_wrong(text, text);",
+            ),
             ("CREATE TABLE ea3_r ", "DROP TABLE ea3_r;"),
             ("CREATE TABLE ea3_x ", "DROP TABLE ea3_x;"),
             ("CREATE TABLE ea3_y ", "DROP TABLE ea3_y;"),
-            ("CREATE FUNCTION ea3_getb(", "DROP FUNCTION ea3_getb(ea3_x);"),
+            (
+                "CREATE FUNCTION ea3_getb(",
+                "DROP FUNCTION ea3_getb(ea3_x);",
+            ),
             ("CREATE ROLE ea3_own1;", "DROP ROLE ea3_own1;"),
             ("CREATE ROLE ea3_own2;", "DROP ROLE ea3_own2;"),
             ("CREATE SCHEMA ea3_ds ", "DROP SCHEMA ea3_ds CASCADE;"),
@@ -889,10 +907,22 @@ mod tests {
             ("CREATE TABLE ea3_dft ", "DROP TABLE ea3_dft;"),
             ("CREATE TABLE ea3_det ", "DROP TABLE ea3_det;"),
             ("CREATE TABLE ea3_dst ", "DROP TABLE ea3_dst;"),
-            ("CREATE TEXT SEARCH DICTIONARY ea3_d1 ", "DROP TEXT SEARCH DICTIONARY ea3_d1;"),
-            ("CREATE TEXT SEARCH DICTIONARY ea3_d2 ", "DROP TEXT SEARCH DICTIONARY ea3_d2;"),
-            ("CREATE TEXT SEARCH CONFIGURATION ea3_cfg ", "DROP TEXT SEARCH CONFIGURATION ea3_cfg;"),
-            ("CREATE TEXT SEARCH PARSER ea3_prs ", "DROP TEXT SEARCH PARSER ea3_prs;"),
+            (
+                "CREATE TEXT SEARCH DICTIONARY ea3_d1 ",
+                "DROP TEXT SEARCH DICTIONARY ea3_d1;",
+            ),
+            (
+                "CREATE TEXT SEARCH DICTIONARY ea3_d2 ",
+                "DROP TEXT SEARCH DICTIONARY ea3_d2;",
+            ),
+            (
+                "CREATE TEXT SEARCH CONFIGURATION ea3_cfg ",
+                "DROP TEXT SEARCH CONFIGURATION ea3_cfg;",
+            ),
+            (
+                "CREATE TEXT SEARCH PARSER ea3_prs ",
+                "DROP TEXT SEARCH PARSER ea3_prs;",
+            ),
         ];
         for (name, pool) in all_sections() {
             let joined = pool.join("\n");
@@ -916,7 +946,10 @@ mod tests {
             // No transaction spans in this module.
             assert!(!joined.contains("BEGIN;"), "{name}: unexpected BEGIN span");
             // No GUC pollution.
-            assert!(!joined.contains("SET search_path"), "{name}: search_path touched");
+            assert!(
+                !joined.contains("SET search_path"),
+                "{name}: search_path touched"
+            );
         }
     }
 

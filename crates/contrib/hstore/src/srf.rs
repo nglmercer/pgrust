@@ -34,7 +34,10 @@ fn first_call_pairs(flinfo: &mut FmgrInfo, fcinfo: &Fcinfo) -> PgResult<()> {
 }
 
 // The pair at call_cntr: None past the end.
-fn current_pair<'a>(flinfo: &'a mut FmgrInfo, name: &str) -> Option<&'a (Vec<u8>, Option<Vec<u8>>)> {
+fn current_pair<'a>(
+    flinfo: &'a mut FmgrInfo,
+    name: &str,
+) -> Option<&'a (Vec<u8>, Option<Vec<u8>>)> {
     let fctx = ::funcapi::per_MultiFuncCall(flinfo);
     let idx = fctx.call_cntr as usize;
     fctx.user_fctx
@@ -49,7 +52,10 @@ pub fn fc_hstore_skeys(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> Pg
     let flinfo = flinfo.expect("hstore_skeys: resolved FmgrInfo required");
     first_call_pairs(flinfo, fcinfo)?;
     let item = match current_pair(flinfo, "hstore_skeys") {
-        Some((key, _)) => Some(varlena_result(varlena::cstring_to_text(fcinfo.result_mcx(), key)?)),
+        Some((key, _)) => Some(varlena_result(varlena::cstring_to_text(
+            fcinfo.result_mcx(),
+            key,
+        )?)),
         None => None,
     };
     Ok(match item {
@@ -62,9 +68,10 @@ pub fn fc_hstore_svals(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> Pg
     let flinfo = flinfo.expect("hstore_svals: resolved FmgrInfo required");
     first_call_pairs(flinfo, fcinfo)?;
     let item = match current_pair(flinfo, "hstore_svals") {
-        Some((_, Some(val))) => {
-            Some(Some(varlena_result(varlena::cstring_to_text(fcinfo.result_mcx(), val)?)))
-        }
+        Some((_, Some(val))) => Some(Some(varlena_result(varlena::cstring_to_text(
+            fcinfo.result_mcx(),
+            val,
+        )?))),
         Some((_, None)) => Some(None),
         None => None,
     };
@@ -87,7 +94,9 @@ fn each_rows(flinfo: &FmgrInfo, fcinfo: &mut Fcinfo, pairs: Pairs) -> PgResult<V
     if resolved.class != ::funcapi::TypeFuncClass::Composite {
         return Err(Box::new(PgError::error("return type must be a row type")));
     }
-    let mut desc = resolved.result_tuple_desc.expect("composite result carries a tupdesc");
+    let mut desc = resolved
+        .result_tuple_desc
+        .expect("composite result carries a tupdesc");
     // BlessTupleDesc (execTuples.c:2262): a named composite keeps its typmod.
     if desc.tdtypeid == types_core::RECORDOID && desc.tdtypmod < 0 {
         ::typcache_seams::assign_record_type_typmod::call(&mut desc)?;
@@ -101,7 +110,7 @@ fn each_rows(flinfo: &FmgrInfo, fcinfo: &mut Fcinfo, pairs: Pairs) -> PgResult<V
             None => (Datum::null(), true),
         };
         let tuple = heaptuple::heap_form_tuple(mcx, &desc, &[k, v], &[false, vnull])?;
-        rows.push(::mcx::std_vec_from_slice("contrib",tuple.image())?);
+        rows.push(::mcx::std_vec_from_slice("contrib", tuple.image())?);
     }
     Ok(rows)
 }

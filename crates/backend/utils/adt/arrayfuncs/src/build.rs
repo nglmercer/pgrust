@@ -11,7 +11,9 @@ use ::types_error::{
 };
 use ::types_fmgr::{receive_function_call, send_function_call, FmgrInfo};
 
-use crate::construct::{construct_empty_array, construct_md_array, write_dims_lbounds, write_header};
+use crate::construct::{
+    construct_empty_array, construct_md_array, write_dims_lbounds, write_header,
+};
 use crate::element::array_bitmap_copy;
 use crate::foundation::{
     arr_data_offset, arr_nullbitmap_off, arr_overhead_nonulls, arr_overhead_withnulls, arr_size,
@@ -159,7 +161,11 @@ pub fn array_agg_combine_clone<'mcx>(
     s1.typbyval = s2.typbyval;
     s1.typalign = s2.typalign;
     for i in 0..s2.nelems as usize {
-        let v = if !s2.dnulls[i] { datum_copy_into(&s1, s2.dvalues[i])? } else { Datum::null() };
+        let v = if !s2.dnulls[i] {
+            datum_copy_into(&s1, s2.dvalues[i])?
+        } else {
+            Datum::null()
+        };
         s1.dvalues.push(v);
         s1.dnulls.push(s2.dnulls[i]);
     }
@@ -178,7 +184,11 @@ pub fn array_agg_combine_append(
         s1.grow(pg_nextpower2_32(reqsize as u32) as i32)?;
     }
     for i in 0..s2.nelems as usize {
-        let v = if !s2.dnulls[i] { datum_copy_into(s1, s2.dvalues[i])? } else { Datum::null() };
+        let v = if !s2.dnulls[i] {
+            datum_copy_into(s1, s2.dvalues[i])?
+        } else {
+            Datum::null()
+        };
         s1.dvalues.push(v);
         s1.dnulls.push(s2.dnulls[i]);
     }
@@ -221,8 +231,7 @@ pub fn array_agg_serialize_state<'mcx>(
             let total = varsize_any(p);
             ::pqformat::pq_sendint32(&mut buf, (total - VARHDRSZ) as u32)?;
             // SAFETY: send fns return a live 4B-header bytea of `total` bytes.
-            let payload =
-                unsafe { core::slice::from_raw_parts(p.add(VARHDRSZ), total - VARHDRSZ) };
+            let payload = unsafe { core::slice::from_raw_parts(p.add(VARHDRSZ), total - VARHDRSZ) };
             ::pqformat::pq_sendbytes(&mut buf, payload)?;
         }
     }
@@ -257,7 +266,9 @@ pub fn array_agg_deserialize_state<'mcx>(
     if result.typbyval {
         let raw = ::pqformat::pq_getmsgbytes(&mut buf, n * 8)?;
         for c in raw.chunks_exact(8) {
-            result.dvalues.push(Datum::from_u64(u64::from_ne_bytes(c.try_into().unwrap())));
+            result
+                .dvalues
+                .push(Datum::from_u64(u64::from_ne_bytes(c.try_into().unwrap())));
         }
     } else {
         let (proc, typioparam) =
@@ -442,7 +453,7 @@ pub fn accum_array_result_arr<'mcx>(
             None => {
                 // First input with nulls: prior inputs marked all-non-null.
                 st.aitems = pg_nextpower2_32(core::cmp::max(256, newnitems + 1) as u32) as i32;
-                let need = (st.aitems as usize).div_ceil( 8);
+                let need = (st.aitems as usize).div_ceil(8);
                 let mut bm: PgVec<u8> = vec_with_capacity_in(mcx, need)?;
                 bm.resize(need, 0);
                 array_bitmap_copy(&mut bm, 0, 0, None, 0, st.nitems);
@@ -451,7 +462,7 @@ pub fn accum_array_result_arr<'mcx>(
             Some(bm) => {
                 if newnitems > st.aitems {
                     st.aitems = core::cmp::max(st.aitems * 2, newnitems);
-                    bm.resize((st.aitems as usize).div_ceil( 8), 0);
+                    bm.resize((st.aitems as usize).div_ceil(8), 0);
                 }
             }
         }
@@ -531,11 +542,21 @@ pub fn accum_array_result_any<'mcx>(
         None => init_array_result_any(mcx, input_type, true)?,
     };
     if st.scalarstate.is_some() {
-        st.scalarstate =
-            Some(accum_array_result(mcx, st.scalarstate.take(), dvalue, disnull, input_type)?);
+        st.scalarstate = Some(accum_array_result(
+            mcx,
+            st.scalarstate.take(),
+            dvalue,
+            disnull,
+            input_type,
+        )?);
     } else {
-        st.arraystate =
-            Some(accum_array_result_arr(mcx, st.arraystate.take(), dvalue, disnull, input_type)?);
+        st.arraystate = Some(accum_array_result_arr(
+            mcx,
+            st.arraystate.take(),
+            dvalue,
+            disnull,
+            input_type,
+        )?);
     }
     Ok(st)
 }

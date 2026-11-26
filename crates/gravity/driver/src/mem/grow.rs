@@ -94,7 +94,12 @@ fn next_len(len: u64, need: u64, head: u64, tail: u64, exact: bool) -> Option<u6
 
 fn oom(bytes: u64) -> Error {
     let pool = &crate::mem::grant::POOL;
-    Error::OutOfMemory { bytes, held: pool.held(), capacity: pool.capacity(), why: None }
+    Error::OutOfMemory {
+        bytes,
+        held: pool.held(),
+        capacity: pool.capacity(),
+        why: None,
+    }
 }
 
 /// `oom` for a region whose grown length would pass `MAX_REGION` (or that cannot grow): no pool asked (D4914's branch).
@@ -109,7 +114,17 @@ pub(crate) fn max_region(bytes: u64) -> Error {
 /// exec glue writes the row in the server log when the error is the statement's. Any other error is as it is.
 pub(crate) fn debt_refused(e: Error, home: Option<NoSpill>, road: Option<NoSpill>) -> Error {
     match e {
-        Error::OutOfMemory { bytes, held, capacity, why } => Error::OutOfMemory { bytes, held, capacity, why: road.or(why).or(home) },
+        Error::OutOfMemory {
+            bytes,
+            held,
+            capacity,
+            why,
+        } => Error::OutOfMemory {
+            bytes,
+            held,
+            capacity,
+            why: road.or(why).or(home),
+        },
         e => e,
     }
 }
@@ -118,21 +133,47 @@ pub(crate) fn debt_refused(e: Error, home: Option<NoSpill>, road: Option<NoSpill
 /// `[0, head)` at its start and the old `[old_len - tail, old_len)` at its end; the bytes between are unspecified, as every
 /// region's are until its table lays them out.
 /// # Safety — `old` holds `old_len` readable bytes.
-pub(crate) unsafe fn reopen(old: *const u8, old_len: usize, head: usize, tail: usize, len: usize, w: &mut u64, stmt: Option<&Reservation>, worker: bool) -> Result<(RegionBuf, *mut u8)> {
-    reopen_road(old, old_len, head, tail, len, w, stmt, worker, false)?.ok_or_else(|| oom(len as u64))
+pub(crate) unsafe fn reopen(
+    old: *const u8,
+    old_len: usize,
+    head: usize,
+    tail: usize,
+    len: usize,
+    w: &mut u64,
+    stmt: Option<&Reservation>,
+    worker: bool,
+) -> Result<(RegionBuf, *mut u8)> {
+    reopen_road(old, old_len, head, tail, len, w, stmt, worker, false)?
+        .ok_or_else(|| oom(len as u64))
 }
 
 /// `reopen`; `now`: the bytes past W and G are the pool's room as it is now (`chunk_region_now`: no wait), `None` when it
 /// has none (a breaker under its ceiling, which spills then: `region_grow_capped`).
 /// # Safety — as `reopen`.
-pub(crate) unsafe fn reopen_road(old: *const u8, old_len: usize, head: usize, tail: usize, len: usize, w: &mut u64, stmt: Option<&Reservation>, worker: bool, now: bool) -> Result<Option<(RegionBuf, *mut u8)>> {
+pub(crate) unsafe fn reopen_road(
+    old: *const u8,
+    old_len: usize,
+    head: usize,
+    tail: usize,
+    len: usize,
+    w: &mut u64,
+    stmt: Option<&Reservation>,
+    worker: bool,
+    now: bool,
+) -> Result<Option<(RegionBuf, *mut u8)>> {
     if head.checked_add(tail).is_none_or(|t| t > old_len) {
-        return Err(Error::host(format!("gravity: region_grow: head {head} + tail {tail} past the region's {old_len} bytes"))); // alloc: Cold
+        return Err(Error::host(format!(
+            "gravity: region_grow: head {head} + tail {tail} past the region's {old_len} bytes"
+        ))); // alloc: Cold
     }
     if let Some(s) = stmt {
         s.region_draw()?;
     }
-    let buf = if now { crate::node::chunk_region_now(len + ALIGN, Some(w), stmt, worker) } else { crate::node::chunk_region(len + ALIGN, Some(w), stmt, worker) };
+    let buf = if now {
+        crate::node::chunk_region_now(len + ALIGN, Some(w), stmt, worker)
+    } else {
+        crate::node::chunk_region(len + ALIGN, Some(w), stmt, worker)
+    };
     let Some(mut buf) = buf else { return Ok(None) };
     let p = buf.as_mut_ptr();
     let base = p.add(p.align_offset(ALIGN));
@@ -153,14 +194,23 @@ pub(crate) fn ceil_cap(ceil: u64) -> u64 {
 /// The reopened length of a breaker region under its ceiling `ceil` (`grant::ceiling_of`; the leader's
 /// `grant::leader_ceiling`): `grown_len`'s, at most the ceiling's region bytes; `None` when the need itself is past the
 /// ceiling (the breaker spills: counted in `AT_CEILING`) or the region cannot grow.
-pub fn capped_len(len: u64, need: u64, head: u64, tail: u64, ceil: u64, exact: bool) -> Option<u64> {
+pub fn capped_len(
+    len: u64,
+    need: u64,
+    head: u64,
+    tail: u64,
+    ceil: u64,
+    exact: bool,
+) -> Option<u64> {
     let cap = ceil_cap(ceil);
     let want = head.checked_add(tail)?.checked_add(need)?;
     if mempolicy::grow::spills_at_ceiling(want, cap) {
         at_ceiling();
         return None;
     }
-    next_len(len, need, head, tail, exact).map(|n| n.min(cap)).filter(|&n| n > len && n >= want)
+    next_len(len, need, head, tail, exact)
+        .map(|n| n.min(cap))
+        .filter(|&n| n > len && n >= want)
 }
 
 /// A breaker's grow refused at its ceiling: counted (`AT_CEILING`) and fired.
@@ -174,13 +224,35 @@ fn at_ceiling() {
 /// has no room, so the breaker spills there, as PostgreSQL's node spills past work_mem. G's room past the ceiling no
 /// longer grows it.
 /// # Safety — as `region_grow`.
-unsafe fn region_grow_capped(n: &mut Inner, len: u64, need: u64, head: u64, tail: u64, ceil: u64) -> Result<Option<u64>> {
-    let Some(new) = capped_len(len, need, head, tail, ceil, false) else { return Ok(None) };
+unsafe fn region_grow_capped(
+    n: &mut Inner,
+    len: u64,
+    need: u64,
+    head: u64,
+    tail: u64,
+    ceil: u64,
+) -> Result<Option<u64>> {
+    let Some(new) = capped_len(len, need, head, tail, ceil, false) else {
+        return Ok(None);
+    };
     match n.home {
         Home::Slot(r) => {
             let r = &mut *r;
             let stmt = n.stmt.as_ref();
-            let Some((mut buf, base)) = reopen_road(r.ptr, len as usize, head as usize, tail as usize, new as usize, &mut n.w, stmt, false, true)? else { return Ok(None) };
+            let Some((mut buf, base)) = reopen_road(
+                r.ptr,
+                len as usize,
+                head as usize,
+                tail as usize,
+                new as usize,
+                &mut n.w,
+                stmt,
+                false,
+                true,
+            )?
+            else {
+                return Ok(None);
+            };
             if let Some(o) = r.owner {
                 buf.own_by(o); // LEDGER2 step 5: the reopened region is its slot owner's, as the one it replaces
             }
@@ -192,8 +264,12 @@ unsafe fn region_grow_capped(n: &mut Inner, len: u64, need: u64, head: u64, tail
             (*n.partials).own = gravity_abi::word(base);
             Ok(Some(base as u64))
         }
-        Home::Worker(s) => Ok(crate::slots::grow_partial_to(s, n, new, head, tail)?.map(|b| b as u64)),
-        Home::None => Err(Error::host("gravity: region_grow from a pipeline that produces no region")),
+        Home::Worker(s) => {
+            Ok(crate::slots::grow_partial_to(s, n, new, head, tail)?.map(|b| b as u64))
+        }
+        Home::None => Err(Error::host(
+            "gravity: region_grow from a pipeline that produces no region",
+        )),
     }
 }
 
@@ -230,15 +306,27 @@ pub static REVOKE_CUTS: core::sync::atomic::AtomicU64 = core::sync::atomic::Atom
 pub static REVOKE_REFUSED: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
 
 impl Fault {
-    pub(crate) const OFF: Fault = Fault { every: 0, asks: 0, revoke_every: 0, cut: false, debt: false };
+    pub(crate) const OFF: Fault = Fault {
+        every: 0,
+        asks: 0,
+        revoke_every: 0,
+        cut: false,
+        debt: false,
+    };
 
     pub(crate) const fn every(every: u32) -> Fault {
-        Fault { every, ..Fault::OFF }
+        Fault {
+            every,
+            ..Fault::OFF
+        }
     }
 
     /// `self` with the revoke test lever at every `n`th ask (0 = off).
     pub(crate) const fn with_revoke_every(self, n: u32) -> Fault {
-        Fault { revoke_every: n, ..self }
+        Fault {
+            revoke_every: n,
+            ..self
+        }
     }
 
     /// `self` with NR-6's debt lever (`debt`; false = off).
@@ -283,10 +371,10 @@ impl Fault {
             return true;
         }
         self.asks = self.asks.wrapping_add(1);
-        if self.revoke_every != 0 && self.asks.is_multiple_of( self.revoke_every) {
+        if self.revoke_every != 0 && self.asks.is_multiple_of(self.revoke_every) {
             mcx::revoke::request_self();
         }
-        if self.every == 0 || ! self.asks.is_multiple_of( self.every) {
+        if self.every == 0 || !self.asks.is_multiple_of(self.every) {
             return false;
         }
         FORCED.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
@@ -344,11 +432,18 @@ pub(crate) unsafe fn revoke_home(n: &mut Inner) -> bool {
 /// nothing there), `Other` when it was never laid out or names no spillable table.
 /// # Safety — as `revoke_home`.
 unsafe fn home_op(n: &Inner) -> mcx::revoke::Op {
-    use gravity_abi::breaker::{table_kind, TABLE_AGG, TABLE_BUILD, TABLE_KIND_OFF, TABLE_OWNED, TABLE_SORT, TABLE_T1, TABLE_V4BUILD};
+    use gravity_abi::breaker::{
+        table_kind, TABLE_AGG, TABLE_BUILD, TABLE_KIND_OFF, TABLE_OWNED, TABLE_SORT, TABLE_T1,
+        TABLE_V4BUILD,
+    };
     use mcx::revoke::Op;
     let (road, at, len) = match n.home {
         Home::Slot(r) => ((*r).ceil != 0, (*r).buf.as_ptr(), (*r).buf.len()),
-        Home::Worker(s) => ((*s).share_ceil != 0, (*s).state_ptr as *const u8, (*s).state_bytes as usize),
+        Home::Worker(s) => (
+            (*s).share_ceil != 0,
+            (*s).state_ptr as *const u8,
+            (*s).state_bytes as usize,
+        ),
         Home::None => return Op::Other,
     };
     if !road {
@@ -377,7 +472,9 @@ unsafe fn cut_kind(n: &Inner) -> mempolicy::reclaim::CutKind {
     match home_op(n) {
         Op::HashAggT1 => CutKind::HashAggT1,
         Op::HashAgg => CutKind::HashAgg,
-        Op::HashBuild if home_table_kind(n) == gravity_abi::breaker::TABLE_V4BUILD => CutKind::HashBuild,
+        Op::HashBuild if home_table_kind(n) == gravity_abi::breaker::TABLE_V4BUILD => {
+            CutKind::HashBuild
+        }
         Op::Sort => CutKind::Sort,
         Op::Owned => CutKind::Owned,
         _ => CutKind::Other,
@@ -392,7 +489,11 @@ unsafe fn home_table_kind(n: &Inner) -> u8 {
         Home::Worker(s) => ((*s).state_ptr as *const u8, (*s).state_bytes as usize),
         Home::None => return 0,
     };
-    if at.is_null() || len <= gravity_abi::breaker::TABLE_KIND_OFF { 0 } else { gravity_abi::breaker::table_kind(at) }
+    if at.is_null() || len <= gravity_abi::breaker::TABLE_KIND_OFF {
+        0
+    } else {
+        gravity_abi::breaker::table_kind(at)
+    }
 }
 
 /// C5: the region this participant fills was cut by a revoke (`revoke_home`).
@@ -411,7 +512,11 @@ pub static REVOKE_GIVEN: core::sync::atomic::AtomicU64 = core::sync::atomic::Ato
 /// C5: this process's revoke counters, `[cuts, refused asks, bytes given back]` (the report line's, exec runner).
 pub fn revoke_counts() -> [u64; 3] {
     use core::sync::atomic::Ordering::Relaxed;
-    [REVOKE_CUTS.load(Relaxed), REVOKE_REFUSED.load(Relaxed), REVOKE_GIVEN.load(Relaxed)]
+    [
+        REVOKE_CUTS.load(Relaxed),
+        REVOKE_REFUSED.load(Relaxed),
+        REVOKE_GIVEN.load(Relaxed),
+    ]
 }
 
 /// D4265: why a cut home's give-back gave what it gave, process-wide (`give_back_counts`): `[tried, given, no growth,
@@ -419,7 +524,8 @@ pub fn revoke_counts() -> [u64; 3] {
 /// its first attempt's reason when it gave nothing; every give-back counts under `given`. A cut home that never scattered
 /// again before its region was parked is `REVOKE_CUTS` less `tried`. D4394: `not home` (the table is not the cut home's
 /// buffer, `cut_buf`'s `None`) apart from `not reserved` (it is, but that buffer is no reservation).
-pub static GIVE_BACK: [core::sync::atomic::AtomicU64; 6] = [const { core::sync::atomic::AtomicU64::new(0) }; 6];
+pub static GIVE_BACK: [core::sync::atomic::AtomicU64; 6] =
+    [const { core::sync::atomic::AtomicU64::new(0) }; 6];
 const GIVE_TRIED: usize = 0;
 const GIVE_GIVEN: usize = 1;
 const GIVE_NO_GROWTH: usize = 2;
@@ -429,7 +535,9 @@ const GIVE_NOT_HOME: usize = 5;
 
 /// D4265: `GIVE_BACK` now (`[tried, given, no growth, not reserved, does not fit, not home]`).
 pub fn give_back_counts() -> [u64; 6] {
-    GIVE_BACK.each_ref().map(|c| c.load(core::sync::atomic::Ordering::Relaxed))
+    GIVE_BACK
+        .each_ref()
+        .map(|c| c.load(core::sync::atomic::Ordering::Relaxed))
 }
 
 /// D4394: where a give-back attempt looked for its table, for its `revoke-giveback:` line: the participant's home (`slot`,
@@ -452,7 +560,11 @@ impl core::fmt::Display for GiveAt {
         if !self.miss.is_empty() {
             write!(f, " miss={}", self.miss)?;
         }
-        write!(f, " off={} len={} reserve={} committed={}", self.off, self.len, self.reserve, self.committed)
+        write!(
+            f,
+            " off={} len={} reserve={} committed={}",
+            self.off, self.len, self.reserve, self.committed
+        )
     }
 }
 
@@ -470,11 +582,32 @@ unsafe fn give_at(n: &Inner, region: *const u8) -> GiveAt {
     match n.home {
         Home::Slot(r) => {
             let b = &(*r).buf;
-            at("slot", if !(*r).fault.get().is_cut() { "uncut" } else if b.as_ptr() != region { "base" } else { "" }, b)
+            at(
+                "slot",
+                if !(*r).fault.get().is_cut() {
+                    "uncut"
+                } else if b.as_ptr() != region {
+                    "base"
+                } else {
+                    ""
+                },
+                b,
+            )
         }
-        Home::Worker(s) if !(*s).share_fault.is_cut() => GiveAt { home: "worker", miss: "uncut", off: 0, len: 0, reserve: 0, committed: 0 },
+        Home::Worker(s) if !(*s).share_fault.is_cut() => GiveAt {
+            home: "worker",
+            miss: "uncut",
+            off: 0,
+            len: 0,
+            reserve: 0,
+            committed: 0,
+        },
         Home::Worker(s) => match crate::slots::share_buf_of(s) {
-            Some(b) => at("worker", if b.as_ptr() != region { "base" } else { "" }, &*b),
+            Some(b) => at(
+                "worker",
+                if b.as_ptr() != region { "base" } else { "" },
+                &*b,
+            ),
             None => GiveAt {
                 home: "worker",
                 miss: "noshare",
@@ -484,7 +617,14 @@ unsafe fn give_at(n: &Inner, region: *const u8) -> GiveAt {
                 committed: 0,
             },
         },
-        Home::None => GiveAt { home: "none", miss: "nohome", off: 0, len: 0, reserve: 0, committed: 0 },
+        Home::None => GiveAt {
+            home: "none",
+            miss: "nohome",
+            off: 0,
+            len: 0,
+            reserve: 0,
+            committed: 0,
+        },
     }
 }
 
@@ -503,10 +643,18 @@ fn give_tried(n: &mut Inner, table: &str, why: usize, bytes: u64, at: GiveAt) {
         GIVE_BACK[GIVE_TRIED].fetch_add(1, Relaxed);
     }
     GIVE_BACK[why].fetch_add(1, Relaxed);
-    const WHY: [&str; 6] = ["tried", "given", "no-growth", "not-reserved", "no-fit", "not-home"];
+    const WHY: [&str; 6] = [
+        "tried",
+        "given",
+        "no-growth",
+        "not-reserved",
+        "no-fit",
+        "not-home",
+    ];
     let c = give_back_counts();
     let cuts = REVOKE_CUTS.load(Relaxed);
-    eprintln!("revoke-giveback: {table} {} bytes={bytes} {at} (process: cuts={cuts} tried={} given={} no_growth={} not_reserved={} no_fit={} not_home={})", WHY[why], c[0], c[1], c[2], c[3], c[4], c[5]); // alloc: Cold
+    eprintln!("revoke-giveback: {table} {} bytes={bytes} {at} (process: cuts={cuts} tried={} given={} no_growth={} not_reserved={} no_fit={} not_home={})", WHY[why], c[0], c[1], c[2], c[3], c[4], c[5]);
+    // alloc: Cold
 }
 
 /// D4265: the region buffer of this participant's CUT home whose table is at `region` (the leader's slot, a worker's share),
@@ -515,7 +663,9 @@ fn give_tried(n: &mut Inner, table: &str, why: usize, bytes: u64, at: GiveAt) {
 /// # Safety — as `revoke_home`.
 unsafe fn cut_buf<'a>(n: &Inner, region: *const u8) -> Option<(&'a mut RegionBuf, *mut u32)> {
     match n.home {
-        Home::Slot(r) if (*r).fault.get().is_cut() && (*r).buf.as_ptr() == region => Some((&mut (*r).buf, core::ptr::addr_of_mut!((*r).bytes))),
+        Home::Slot(r) if (*r).fault.get().is_cut() && (*r).buf.as_ptr() == region => {
+            Some((&mut (*r).buf, core::ptr::addr_of_mut!((*r).bytes)))
+        }
         Home::Worker(s) if (*s).share_fault.is_cut() => match crate::slots::share_buf_of(s) {
             Some(b) if b.as_ptr() == region => Some((b, core::ptr::addr_of_mut!((*s).state_bytes))),
             _ => None,
@@ -572,7 +722,9 @@ pub(crate) unsafe fn give_back_scattered(n: &mut Inner, region: *mut u8) -> u64 
 /// no reservation grown in place at that base, or nothing was committed past it (counted: `give_tried`).
 /// # Safety — as `revoke_home`; `region` is the build the calling owner fills.
 pub(crate) unsafe fn build_keep(n: &mut Inner, region: *const u8) -> u64 {
-    if !home_cut(n) || gravity_abi::breaker::table_kind(region) != gravity_abi::breaker::TABLE_V4BUILD {
+    if !home_cut(n)
+        || gravity_abi::breaker::table_kind(region) != gravity_abi::breaker::TABLE_V4BUILD
+    {
         return 0;
     }
     let at = give_at(n, region);
@@ -603,7 +755,9 @@ pub(crate) unsafe fn give_back_build(n: &mut Inner, region: *mut u8, keep: u64, 
         give_tried(n, "hashbuild", GIVE_NO_FIT, 0, at);
         return 0;
     }
-    let Some((buf, bytes)) = cut_buf(n, region) else { return 0 };
+    let Some((buf, bytes)) = cut_buf(n, region) else {
+        return 0;
+    };
     if keep != buf.len() as u64 || !buf.is_reserved() {
         return 0;
     }
@@ -646,10 +800,18 @@ unsafe fn home_spillable(n: &Inner) -> u64 {
     if !mempolicy::reclaim::cut_gives_back(cut_kind(n)) {
         return 0;
     }
-    let grown = |b: &RegionBuf| if b.is_reserved() { b.committed() as u64 } else { 0 };
+    let grown = |b: &RegionBuf| {
+        if b.is_reserved() {
+            b.committed() as u64
+        } else {
+            0
+        }
+    };
     match n.home {
         Home::Slot(r) if (*r).ceil != 0 && (*r).spills => grown(&(*r).buf),
-        Home::Worker(s) if (*s).share_ceil != 0 && (*s).share_spills => crate::slots::share_buf_of(s).map_or(0, |b| grown(&*b)),
+        Home::Worker(s) if (*s).share_ceil != 0 && (*s).share_spills => {
+            crate::slots::share_buf_of(s).map_or(0, |b| grown(&*b))
+        }
         _ => 0,
     }
 }
@@ -722,7 +884,11 @@ unsafe fn home_ceil(n: &Inner) -> u64 {
 /// reservation, held to the ceiling's region bytes (`ceil_cap`). A reservation can be a parked mapping a larger ask left
 /// (`take_reserved` serves any at least the ask), and a breaker grows into it only up to its own ceiling, then spills.
 pub(crate) fn in_place_cap(reserve: u64, ceil: u64) -> u64 {
-    if ceil == 0 { reserve } else { reserve.min(ceil_cap(ceil)) }
+    if ceil == 0 {
+        reserve
+    } else {
+        reserve.min(ceil_cap(ceil))
+    }
 }
 
 /// D2894: the leader slot `r` (`len` bytes in use) grown in place within its reservation (`grow_in_place`): `grown_len`'s
@@ -730,7 +896,18 @@ pub(crate) fn in_place_cap(reserve: u64, ceil: u64) -> u64 {
 /// `ceil`, 0 = none); `Some((true, new))` with `r.bytes` = new, `Some((false, new))` refused (nothing changed), `None` when
 /// `r` is no reservation the need fits, or the need passes the ceiling's cap (the caller reopens, or takes its ceiling road).
 /// # Safety — `r` is a live slot of the running statement, on the leader's thread.
-unsafe fn slot_in_place(r: &mut SlotRegion, len: u64, need: u64, head: u64, tail: u64, w: Option<&mut u64>, stmt: Option<&Reservation>, spills: bool, exact: bool, ceil: u64) -> Option<(bool, u64)> {
+unsafe fn slot_in_place(
+    r: &mut SlotRegion,
+    len: u64,
+    need: u64,
+    head: u64,
+    tail: u64,
+    w: Option<&mut u64>,
+    stmt: Option<&Reservation>,
+    spills: bool,
+    exact: bool,
+    ceil: u64,
+) -> Option<(bool, u64)> {
     if !r.buf.is_reserved() || r.ptr != r.buf.as_mut_ptr() {
         return None;
     }
@@ -751,11 +928,33 @@ unsafe fn slot_in_place(r: &mut SlotRegion, len: u64, need: u64, head: u64, tail
 /// pool: `put_from_life`). `arm`: the u32 limit at offset 8 re-armed to the new length (`HashAgg::arm`, what the IR's tables
 /// read).
 /// # Safety — `r` is a live slot of the running statement, on the leader's thread.
-unsafe fn grow_slot(r: &mut SlotRegion, need: u64, head: u64, tail: u64, w: &mut u64, stmt: Option<&Reservation>, grew: &mut Grew, arm: bool, exact: bool) -> Result<*mut u8> {
+unsafe fn grow_slot(
+    r: &mut SlotRegion,
+    need: u64,
+    head: u64,
+    tail: u64,
+    w: &mut u64,
+    stmt: Option<&Reservation>,
+    grew: &mut Grew,
+    arm: bool,
+    exact: bool,
+) -> Result<*mut u8> {
     let len = r.bytes as u64;
-    let new = next_len(len, need, head, tail, exact).ok_or_else(|| max_region(head.saturating_add(tail).saturating_add(need)))?;
+    let new = next_len(len, need, head, tail, exact)
+        .ok_or_else(|| max_region(head.saturating_add(tail).saturating_add(need)))?;
     // D2894: a floor reservation (or a set operation side's) grows in place, no reopen, no copy past its tail
-    match slot_in_place(r, len, need, head, tail, Some(&mut *w), stmt, false, exact, 0) {
+    match slot_in_place(
+        r,
+        len,
+        need,
+        head,
+        tail,
+        Some(&mut *w),
+        stmt,
+        false,
+        exact,
+        0,
+    ) {
         Some((true, new)) => {
             if arm {
                 HashAgg::arm(r.ptr, new as u32);
@@ -766,7 +965,16 @@ unsafe fn grow_slot(r: &mut SlotRegion, need: u64, head: u64, tail: u64, w: &mut
         Some((false, new)) => return Err(oom(new - len)),
         None => {}
     }
-    let (mut buf, base) = reopen(r.ptr, len as usize, head as usize, tail as usize, new as usize, w, stmt, false)?;
+    let (mut buf, base) = reopen(
+        r.ptr,
+        len as usize,
+        head as usize,
+        tail as usize,
+        new as usize,
+        w,
+        stmt,
+        false,
+    )?;
     if let Some(o) = r.owner {
         buf.own_by(o); // LEDGER2 step 5: as region_grow_capped's
     }
@@ -785,11 +993,18 @@ unsafe fn grow_slot(r: &mut SlotRegion, need: u64, head: u64, tail: u64, w: &mut
 /// road no lowering named (a bug key: the breaker declared it spills), `[1]` on a road a SPILL-DEBT row names
 /// (`region_grow_debt`, `State::grow_debt`), or of a region whose breaker names one (NR-1: `SlotRegion::debt`,
 /// `WorkerSlot::share_debt`). Exec's runner reports a statement's (`uncapped_line`).
-pub static UNCAPPED: [core::sync::atomic::AtomicU64; 2] = [core::sync::atomic::AtomicU64::new(0), core::sync::atomic::AtomicU64::new(0)];
+pub static UNCAPPED: [core::sync::atomic::AtomicU64; 2] = [
+    core::sync::atomic::AtomicU64::new(0),
+    core::sync::atomic::AtomicU64::new(0),
+];
 /// The last unnamed one's `[slot, bytes asked past the grant]`, for the report line.
-pub static UNCAPPED_LAST: [core::sync::atomic::AtomicU64; 2] = [core::sync::atomic::AtomicU64::new(0), core::sync::atomic::AtomicU64::new(0)];
+pub static UNCAPPED_LAST: [core::sync::atomic::AtomicU64; 2] = [
+    core::sync::atomic::AtomicU64::new(0),
+    core::sync::atomic::AtomicU64::new(0),
+];
 /// NR-1: `UNCAPPED[1]` by the SPILL-DEBT row that named the grow (`NoSpill::code`), this process.
-pub static NAMED: [core::sync::atomic::AtomicU64; NoSpill::ALL.len()] = [const { core::sync::atomic::AtomicU64::new(0) }; NoSpill::ALL.len()];
+pub static NAMED: [core::sync::atomic::AtomicU64; NoSpill::ALL.len()] =
+    [const { core::sync::atomic::AtomicU64::new(0) }; NoSpill::ALL.len()];
 
 /// C10: `UNCAPPED` now, a statement's start for `uncapped_line`.
 pub fn uncapped_at() -> [u64; 2] {
@@ -801,7 +1016,12 @@ pub fn uncapped_at() -> [u64; 2] {
 pub fn uncapped_since(at: [u64; 2]) -> [u64; 4] {
     use core::sync::atomic::Ordering::Relaxed;
     let now = uncapped_at();
-    [now[0].saturating_sub(at[0]), now[1].saturating_sub(at[1]), UNCAPPED_LAST[0].load(Relaxed), UNCAPPED_LAST[1].load(Relaxed)]
+    [
+        now[0].saturating_sub(at[0]),
+        now[1].saturating_sub(at[1]),
+        UNCAPPED_LAST[0].load(Relaxed),
+        UNCAPPED_LAST[1].load(Relaxed),
+    ]
 }
 
 /// NR-1: `NAMED` now, a statement's start for `named_since`.
@@ -820,7 +1040,12 @@ fn named_field(now: [u64; NoSpill::ALL.len()], at: [u64; NoSpill::ALL.len()]) ->
     let mut out = String::new();
     for ((r, now), at) in NoSpill::ALL.into_iter().zip(now).zip(at) {
         if now > at {
-            let _ = write!(out, "{}{r:?}:{}", if out.is_empty() { "" } else { "," }, now - at); // alloc: Cold
+            let _ = write!(
+                out,
+                "{}{r:?}:{}",
+                if out.is_empty() { "" } else { "," },
+                now - at
+            ); // alloc: Cold
         }
     }
     if out.is_empty() {
@@ -833,7 +1058,14 @@ fn named_field(now: [u64; NoSpill::ALL.len()], at: [u64; NoSpill::ALL.len()]) ->
 /// ceiling `ceil` (0: none), its share `w` and, on the leader, the statement's G left (`left`): past them it is counted,
 /// named by `debt` (by row in `NAMED`) or not. An unnamed one fires `breaker.spills_uncapped`, and is a Bug in a debug
 /// build (the lowering named no such road). NR-6: the row a named one is counted as (`debt_draw`), else `None`.
-fn note_uncapped(slot: u8, new: u64, ceil: u64, w: u64, left: Option<u64>, debt: Option<NoSpill>) -> Option<NoSpill> {
+fn note_uncapped(
+    slot: u8,
+    new: u64,
+    ceil: u64,
+    w: u64,
+    left: Option<u64>,
+    debt: Option<NoSpill>,
+) -> Option<NoSpill> {
     use core::sync::atomic::Ordering::Relaxed;
     let cap = uncapped_cap(ceil, w, left);
     if new <= cap {
@@ -854,7 +1086,11 @@ fn note_uncapped(slot: u8, new: u64, ceil: u64, w: u64, left: Option<u64>, debt:
 
 /// `note_uncapped`'s cap: the ceiling's region bytes (`ceil` 0: none), else the larger of the share `w` and the G left.
 fn uncapped_cap(ceil: u64, w: u64, left: Option<u64>) -> u64 {
-    if ceil != 0 { ceil_cap(ceil) } else { w.max(left.unwrap_or(0)) }
+    if ceil != 0 {
+        ceil_cap(ceil)
+    } else {
+        w.max(left.unwrap_or(0))
+    }
 }
 
 /// NR-6: a draw of `bytes` counted past its region's cap as the SPILL-DEBT row `named` (`note_uncapped`), refused when
@@ -880,7 +1116,11 @@ unsafe fn home_debt_lever(n: &Inner) -> bool {
 /// NR-1: how an uncapped grow of a home is counted: a spilling home's as its road names it (`road`; none: unnamed), a home
 /// whose breaker names a SPILL-DEBT row (`home`) as the road's row, else its own; `None` (not counted) for a home that
 /// neither spills nor names a row (a program constant, a form PostgreSQL holds too: no road of either grows past a grant).
-fn counted_as(spills: bool, home: Option<NoSpill>, road: Option<NoSpill>) -> Option<Option<NoSpill>> {
+fn counted_as(
+    spills: bool,
+    home: Option<NoSpill>,
+    road: Option<NoSpill>,
+) -> Option<Option<NoSpill>> {
     match home {
         _ if spills => Some(road),
         Some(h) => Some(Some(road.unwrap_or(h))),
@@ -892,16 +1132,39 @@ fn counted_as(spills: bool, home: Option<NoSpill>, road: Option<NoSpill>) -> Opt
 /// uncapped road, `debt` the road's named debt (`SPILL_REGION_GROW_DEBT`); nothing for a region `counted_as` skips. NR-6:
 /// a named one the debt lever refuses (`debt_draw`) is the grow's error, before it draws.
 /// # Safety — as `region_grow`.
-pub(crate) unsafe fn uncapped_op(n: &Inner, need: u64, head: u64, tail: u64, debt: Option<NoSpill>) -> Result<()> {
+pub(crate) unsafe fn uncapped_op(
+    n: &Inner,
+    need: u64,
+    head: u64,
+    tail: u64,
+    debt: Option<NoSpill>,
+) -> Result<()> {
     let (spills, home, len, leader) = match n.home {
         Home::Slot(r) => ((*r).spills, (*r).debt, (*r).bytes as u64, true),
-        Home::Worker(s) => ((*s).share_spills, (*s).share_debt, (*s).state_bytes as u64, false),
+        Home::Worker(s) => (
+            (*s).share_spills,
+            (*s).share_debt,
+            (*s).state_bytes as u64,
+            false,
+        ),
         Home::None => return Ok(()),
     };
-    let Some(debt) = counted_as(spills, home, debt) else { return Ok(()) };
-    let Some(new) = grown_len(len, need, head, tail) else { return Ok(()) };
-    let left = if leader { n.stmt.as_ref().map(|s| s.left()) } else { None };
-    debt_draw(note_uncapped(n.own_slot, new, home_ceil(n), n.w, left, debt), home_debt_lever(n), new)
+    let Some(debt) = counted_as(spills, home, debt) else {
+        return Ok(());
+    };
+    let Some(new) = grown_len(len, need, head, tail) else {
+        return Ok(());
+    };
+    let left = if leader {
+        n.stmt.as_ref().map(|s| s.left())
+    } else {
+        None
+    };
+    debt_draw(
+        note_uncapped(n.own_slot, new, home_ceil(n), n.w, left, debt),
+        home_debt_lever(n),
+        new,
+    )
 }
 
 /// C10: a pinned region (`hostimpl::arena` pin: a fresh pool chunk of `bytes`) drawn when
@@ -909,7 +1172,12 @@ pub(crate) unsafe fn uncapped_op(n: &Inner, need: u64, head: u64, tail: u64, deb
 /// counts, grown or pinned. `road` names it (an owner-phase breaker's owner pins, `arena::pin_owner`: `AggOwnerAll`);
 /// an unnamed one counts for a spilling home only (the calling owner's produced region, `uncapped_op`'s).
 /// # Safety — `n` is a bound owner, on the thread running it.
-pub(crate) unsafe fn uncapped_pin(n: &Inner, bytes: u64, held: (u64, Option<u64>), road: Option<NoSpill>) {
+pub(crate) unsafe fn uncapped_pin(
+    n: &Inner,
+    bytes: u64,
+    held: (u64, Option<u64>),
+    road: Option<NoSpill>,
+) {
     let spills = match n.home {
         _ if road.is_some() => true,
         Home::Slot(r) => (*r).spills,
@@ -926,8 +1194,15 @@ pub(crate) unsafe fn uncapped_pin(n: &Inner, bytes: u64, held: (u64, Option<u64>
 /// (`Fault::debt`) or, on the leader, its statement's (`Grant::refuse_debt`: an owner phase pins outside any home's
 /// fault).
 /// # Safety — as `uncapped_pin`.
-pub(crate) unsafe fn debt_pin_refused(n: &Inner, bytes: u64, held: (u64, Option<u64>), road: Option<NoSpill>) -> bool {
-    road.is_some() && (home_debt_lever(n) || n.stmt.as_ref().is_some_and(|s| s.grant.refuse_debt)) && bytes > uncapped_cap(0, held.0, held.1)
+pub(crate) unsafe fn debt_pin_refused(
+    n: &Inner,
+    bytes: u64,
+    held: (u64, Option<u64>),
+    road: Option<NoSpill>,
+) -> bool {
+    road.is_some()
+        && (home_debt_lever(n) || n.stmt.as_ref().is_some_and(|s| s.grant.refuse_debt))
+        && bytes > uncapped_cap(0, held.0, held.1)
 }
 
 /// C10: `note_uncapped` for the leader slot behind `s` grown to `bytes` on the uncapped road (`State::grow`,
@@ -935,8 +1210,19 @@ pub(crate) unsafe fn debt_pin_refused(n: &Inner, bytes: u64, held: (u64, Option<
 fn uncapped_state(s: &State<'_>, bytes: usize, debt: Option<NoSpill>) -> Result<()> {
     let Some(h) = s.home else { return Ok(()) };
     // SAFETY: the slot and the reservation belong to the Node this State borrows, read on the leader's thread.
-    let (spills, home, len, ceil, left, lever) = unsafe { ((*h.region).spills, (*h.region).debt, (*h.region).bytes as u64, (*h.region).ceil, h.stmt.as_ref().map(|r| r.left()), (*h.region).fault.get().debt) };
-    let Some(debt) = counted_as(spills, home, debt) else { return Ok(()) };
+    let (spills, home, len, ceil, left, lever) = unsafe {
+        (
+            (*h.region).spills,
+            (*h.region).debt,
+            (*h.region).bytes as u64,
+            (*h.region).ceil,
+            h.stmt.as_ref().map(|r| r.left()),
+            (*h.region).fault.get().debt,
+        )
+    };
+    let Some(debt) = counted_as(spills, home, debt) else {
+        return Ok(());
+    };
     if bytes as u64 <= len {
         return Ok(());
     }
@@ -950,12 +1236,27 @@ pub(crate) unsafe fn region_grow(n: &mut Inner, need: u64, head: u64, tail: u64)
     match n.home {
         Home::Slot(r) => {
             let stmt = n.stmt.as_ref();
-            let base = grow_slot(&mut *r, need, head, tail, &mut n.w, stmt, &mut n.grew, true, false).map_err(|e| debt_refused(e, (*r).debt, None))?;
+            let base = grow_slot(
+                &mut *r,
+                need,
+                head,
+                tail,
+                &mut n.w,
+                stmt,
+                &mut n.grew,
+                true,
+                false,
+            )
+            .map_err(|e| debt_refused(e, (*r).debt, None))?;
             (*n.partials).own = gravity_abi::word(base);
             Ok(base as u64)
         }
-        Home::Worker(s) => crate::slots::grow_partial(s, n, need, head, tail).map(|b| b as u64).map_err(|e| debt_refused(e, (*s).share_debt, None)),
-        Home::None => Err(Error::host("gravity: region_grow from a pipeline that produces no region")),
+        Home::Worker(s) => crate::slots::grow_partial(s, n, need, head, tail)
+            .map(|b| b as u64)
+            .map_err(|e| debt_refused(e, (*s).share_debt, None)),
+        Home::None => Err(Error::host(
+            "gravity: region_grow from a pipeline that produces no region",
+        )),
     }
 }
 
@@ -964,15 +1265,21 @@ pub(crate) unsafe fn region_grow(n: &mut Inner, need: u64, head: u64, tail: u64)
 /// record), at most `MAX_REGION`. Address space only: the allocator's pages cost nothing until the fold commits and
 /// touches them. 0 for any other breaker, or when the bound fits the share (the region is the share, as today).
 pub(crate) fn pool_reserve(pipe: &gravity_program::Pipeline, share: u64) -> u64 {
-    if !pipe.breaker().is_some_and(|b| b.budget == gravity_abi::breaker::Budget::Pool) {
+    if !pipe
+        .breaker()
+        .is_some_and(|b| b.budget == gravity_abi::breaker::Budget::Pool)
+    {
         return 0;
     }
-    let Some(c) = gravity_program::cost::breaker::of(pipe) else { return 0 };
+    let Some(c) = gravity_program::cost::breaker::of(pipe) else {
+        return 0;
+    };
     let bound = gravity_program::cost::breaker::rows_bytes(c.rows, c.record);
     if bound <= share {
         return 0;
     }
-    (crate::park::region_bytes(share.saturating_add(bound).min(MAX_REGION) as usize) as u64).min(MAX_REGION)
+    (crate::park::region_bytes(share.saturating_add(bound).min(MAX_REGION) as usize) as u64)
+        .min(MAX_REGION)
 }
 
 /// `Program.spill(ctx, SPILL_REGION_COMMIT, need)` (option c'): the calling owner's produced region's reservation (`need` 0;
@@ -992,14 +1299,33 @@ pub(crate) unsafe fn region_commit(n: &mut Inner, need: u64) -> Result<u64> {
     if !buf.is_reserved() {
         // D4033: a worker share the pool's room opened smaller carries its section's share (no reservation bytes), so
         // kernels `fold_bits` cut its partitions as the other workers' are: the owner phase reads all at one count
-        return Ok(if need == 0 { gravity_abi::program::reserve_share_word(cut) } else { 0 });
+        return Ok(if need == 0 {
+            gravity_abi::program::reserve_share_word(cut)
+        } else {
+            0
+        });
     }
     if need == 0 {
         // D2894: a floor's answer carries `RESERVE_FLOOR` (its T1 commits before it compacts)
         // D3809: a laid region's answer carries the share its partitions are cut by (kernels `fold_bits`); D4033: so does
         // a worker share the pool's room opened smaller (`WorkerSlot::share_cut`)
-        let share = if buf.is_laid() { buf.lay_share() as u64 } else { cut };
-        return Ok(buf.lay_reserve() as u64 | if buf.is_floor() { gravity_abi::program::RESERVE_FLOOR } else { 0 } | if buf.is_laid() { gravity_abi::program::RESERVE_LAYOUT } else { 0 } | gravity_abi::program::reserve_share_word(share));
+        let share = if buf.is_laid() {
+            buf.lay_share() as u64
+        } else {
+            cut
+        };
+        return Ok(buf.lay_reserve() as u64
+            | if buf.is_floor() {
+                gravity_abi::program::RESERVE_FLOOR
+            } else {
+                0
+            }
+            | if buf.is_laid() {
+                gravity_abi::program::RESERVE_LAYOUT
+            } else {
+                0
+            }
+            | gravity_abi::program::reserve_share_word(share));
     }
     // the forced-spill test fault: a floor's commit refused as at its ceiling (never a set operation side's: its refusal
     // is 53200)
@@ -1020,7 +1346,11 @@ pub(crate) unsafe fn region_commit(n: &mut Inner, need: u64) -> Result<u64> {
     }
     // D2894: a floor's pool (a hash aggregate's T1: a spilling kind) takes pool bytes only if the pool has them now; a
     // refusal compacts, then spills (`road_held_now`). A set operation side's waits as before (its refusal is 53200)
-    let held = if buf.is_floor() { crate::node::road_held_now(need as usize, Some(&mut n.w), stmt, worker) } else { crate::node::road_held(need as usize, Some(&mut n.w), stmt, worker) };
+    let held = if buf.is_floor() {
+        crate::node::road_held_now(need as usize, Some(&mut n.w), stmt, worker)
+    } else {
+        crate::node::road_held(need as usize, Some(&mut n.w), stmt, worker)
+    };
     let Some(held) = held else { return Ok(0) };
     if !buf.commit(need as usize, held) {
         return Ok(0);
@@ -1049,11 +1379,25 @@ fn fire_commit(buf: &crate::node::RegionBuf) {
 /// (`leader`) its node's at `width` (`grant::leader_ceiling`). Without one: `width` is the leader's 1, a
 /// worker's its section's width (exactsize D3215: a partitioned record table's worker reserves its cut of the floor,
 /// `grant::worker_floor`).
-pub(crate) fn floor_reserve(pipe: &gravity_program::Pipeline, grant: Option<crate::mem::grant::Grant>, share: u64, width: u16, leader: bool) -> u64 {
-    let (Some(_), Some(g)) = (pipe.breaker(), grant) else { return 0 };
+pub(crate) fn floor_reserve(
+    pipe: &gravity_program::Pipeline,
+    grant: Option<crate::mem::grant::Grant>,
+    share: u64,
+    width: u16,
+    leader: bool,
+) -> u64 {
+    let (Some(_), Some(g)) = (pipe.breaker(), grant) else {
+        return 0;
+    };
     let floor = match crate::mem::grant::ceiling_of(g, pipe) {
-        0 => crate::mem::grant::worker_floor(pipe, crate::mem::grant::floor_for(g, pipe), if leader { 1 } else { width }),
-        c if leader => pipe.breaker().map_or(c, |b| crate::mem::grant::leader_ceiling(c, width, b.kind)),
+        0 => crate::mem::grant::worker_floor(
+            pipe,
+            crate::mem::grant::floor_for(g, pipe),
+            if leader { 1 } else { width },
+        ),
+        c if leader => pipe
+            .breaker()
+            .map_or(c, |b| crate::mem::grant::leader_ceiling(c, width, b.kind)),
         c => c,
     }
     .min(MAX_REGION);
@@ -1066,7 +1410,13 @@ pub(crate) fn floor_reserve(pipe: &gravity_program::Pipeline, grant: Option<crat
 /// The reservation a started-small region (`grant::starts_small`) of `share` bytes binds in: the share itself, its layout,
 /// or its kind's PostgreSQL floor where that is more (`floor_reserve` at `width`), at most `MAX_REGION`. Its region commits
 /// `grant::start_bytes` of it and grows in place.
-pub(crate) fn start_reserve(pipe: &gravity_program::Pipeline, grant: Option<crate::mem::grant::Grant>, share: u64, width: u16, leader: bool) -> u64 {
+pub(crate) fn start_reserve(
+    pipe: &gravity_program::Pipeline,
+    grant: Option<crate::mem::grant::Grant>,
+    share: u64,
+    width: u16,
+    leader: bool,
+) -> u64 {
     let lay = (crate::park::region_bytes(share.min(MAX_REGION) as usize) as u64).min(MAX_REGION);
     lay.max(floor_reserve(pipe, grant, share, width, leader))
 }
@@ -1074,9 +1424,22 @@ pub(crate) fn start_reserve(pipe: &gravity_program::Pipeline, grant: Option<crat
 /// The reservation a shared region of `share` bytes binds in (0 = none): a set operation side's rows bound (option c',
 /// `pool_reserve`) or a breaker's PostgreSQL floor or ceiling (D2894, `floor_reserve` at `width`, the leader's when
 /// `leader`), the larger; and whether it is the floor.
-pub(crate) fn share_reserve(pipe: &gravity_program::Pipeline, grant: Option<crate::mem::grant::Grant>, share: u64, width: u16, leader: bool) -> (u64, bool) {
-    let (pool, floor) = (pool_reserve(pipe, share), floor_reserve(pipe, grant, share, width, leader));
-    if floor > pool { (floor, true) } else { (pool, false) }
+pub(crate) fn share_reserve(
+    pipe: &gravity_program::Pipeline,
+    grant: Option<crate::mem::grant::Grant>,
+    share: u64,
+    width: u16,
+    leader: bool,
+) -> (u64, bool) {
+    let (pool, floor) = (
+        pool_reserve(pipe, share),
+        floor_reserve(pipe, grant, share, width, leader),
+    );
+    if floor > pool {
+        (floor, true)
+    } else {
+        (pool, false)
+    }
 }
 
 /// D2894: a reserved region (`buf`, its bytes at `base`, `len` of them in use) grown to `new` IN PLACE: the bytes past what
@@ -1085,13 +1448,31 @@ pub(crate) fn share_reserve(pipe: &gravity_program::Pipeline, grant: Option<crat
 /// when the region is no reservation of that base or `new` passes it (the caller reopens as before); `Some(false)` when
 /// the draw (or the kernel's protection) is refused, nothing changed.
 /// # Safety — `base` holds `len` live bytes of `buf`, on the thread that owns it.
-pub(crate) unsafe fn grow_in_place(buf: &mut crate::node::RegionBuf, base: *mut u8, len: u64, new: u64, tail: u64, w: Option<&mut u64>, stmt: Option<&Reservation>, worker: bool, spills: bool) -> Option<bool> {
-    if !buf.is_reserved() || base != buf.as_mut_ptr() || new > buf.reserve() as u64 || new <= len || tail > len {
+pub(crate) unsafe fn grow_in_place(
+    buf: &mut crate::node::RegionBuf,
+    base: *mut u8,
+    len: u64,
+    new: u64,
+    tail: u64,
+    w: Option<&mut u64>,
+    stmt: Option<&Reservation>,
+    worker: bool,
+    spills: bool,
+) -> Option<bool> {
+    if !buf.is_reserved()
+        || base != buf.as_mut_ptr()
+        || new > buf.reserve() as u64
+        || new <= len
+        || tail > len
+    {
         return None;
     }
     // D4373 (c): a canceled statement grows nothing: refused, the caller's road runs (a sort puts its run, whose put polls
     // the cancel and stops), never another doubling of pages the scan then fills before its next poll
-    if cancelpoll::step("grow in place: a region's doubling").tick().is_err() {
+    if cancelpoll::step("grow in place: a region's doubling")
+        .tick()
+        .is_err()
+    {
         return Some(false);
     }
     let have = (buf.len() + buf.committed()) as u64;
@@ -1100,7 +1481,11 @@ pub(crate) unsafe fn grow_in_place(buf: &mut crate::node::RegionBuf, base: *mut 
         if stmt.is_some_and(|s| s.region_draw().is_err()) {
             return Some(false);
         }
-        let held = if spills { crate::node::road_held_now(need, w, stmt, worker) } else { crate::node::road_held(need, w, stmt, worker) };
+        let held = if spills {
+            crate::node::road_held_now(need, w, stmt, worker)
+        } else {
+            crate::node::road_held(need, w, stmt, worker)
+        };
         let Some(held) = held else { return Some(false) };
         if !buf.commit(need, held) {
             return Some(false);
@@ -1109,7 +1494,11 @@ pub(crate) unsafe fn grow_in_place(buf: &mut crate::node::RegionBuf, base: *mut 
         fire_commit(buf);
     }
     if tail != 0 {
-        core::ptr::copy(base.add((len - tail) as usize), base.add((new - tail) as usize), tail as usize);
+        core::ptr::copy(
+            base.add((len - tail) as usize),
+            base.add((new - tail) as usize),
+            tail as usize,
+        );
     }
     Some(true)
 }
@@ -1121,14 +1510,23 @@ pub static GROWN_DRAWS: core::sync::atomic::AtomicU64 = core::sync::atomic::Atom
 
 /// (exact, grown) draws so far (`EXACT_DRAWS`, `GROWN_DRAWS`).
 pub fn draws() -> (u64, u64) {
-    (EXACT_DRAWS.load(core::sync::atomic::Ordering::Relaxed), GROWN_DRAWS.load(core::sync::atomic::Ordering::Relaxed))
+    (
+        EXACT_DRAWS.load(core::sync::atomic::Ordering::Relaxed),
+        GROWN_DRAWS.load(core::sync::atomic::Ordering::Relaxed),
+    )
 }
 
 /// A reserved region (`buf`, its bytes at `base`) committed in place up to `new` in ONE exact draw
 /// (`road_held_exact`: W, G, else the pool directly, waiting for its room), never through the past-G grow road. False
 /// (nothing changed) when it is no reservation of that base, `new` passes it, or the pool stayed short.
 /// # Safety — `base` is `buf`'s, on the thread that owns it.
-pub(crate) unsafe fn commit_exact(buf: &mut crate::node::RegionBuf, base: *mut u8, new: u64, w: Option<&mut u64>, stmt: Option<&Reservation>) -> bool {
+pub(crate) unsafe fn commit_exact(
+    buf: &mut crate::node::RegionBuf,
+    base: *mut u8,
+    new: u64,
+    w: Option<&mut u64>,
+    stmt: Option<&Reservation>,
+) -> bool {
     if !buf.is_reserved() || base != buf.as_mut_ptr() || new > buf.reserve() as u64 {
         return false;
     }
@@ -1140,7 +1538,9 @@ pub(crate) unsafe fn commit_exact(buf: &mut crate::node::RegionBuf, base: *mut u
     if stmt.is_some_and(|s| s.region_draw().is_err()) {
         return false;
     }
-    let Some(held) = crate::node::road_held_exact(need, w, stmt) else { return false };
+    let Some(held) = crate::node::road_held_exact(need, w, stmt) else {
+        return false;
+    };
     if !buf.commit(need, held) {
         return false;
     }
@@ -1153,7 +1553,8 @@ pub(crate) unsafe fn commit_exact(buf: &mut crate::node::RegionBuf, base: *mut u
 /// draw to `new` (`commit_exact`, the owner phase's `owners_in_place`); whether it committed. Refused, nothing is drawn.
 #[doc(hidden)]
 pub fn exact_commit_witness(start: usize, reserve: usize, new: u64, stmt: &Reservation) -> bool {
-    let mut buf = crate::mem::region::laid_region(start, reserve, start, None, Some(stmt)).expect("a laid region");
+    let mut buf = crate::mem::region::laid_region(start, reserve, start, None, Some(stmt))
+        .expect("a laid region");
     let base = buf.as_mut_ptr();
     // SAFETY: `buf` is this thread's own reservation and `base` its base; nothing else reads it
     unsafe { commit_exact(&mut buf, base, new, None, Some(stmt)) }
@@ -1167,7 +1568,11 @@ pub fn exact_commit_witness(start: usize, reserve: usize, new: u64, stmt: &Reser
 /// # Safety — `n` is a bound owner inside a Call, on the thread running it.
 pub(crate) unsafe fn region_grow_place(n: &mut Inner, need: u64, head: u64) -> u64 {
     // D4373 (c): a canceled statement's run puts (its put polls and stops) instead of doubling in place
-    if home_refuses(n) || cancelpoll::step("spill region place: a sort run's growth").tick().is_err() {
+    if home_refuses(n)
+        || cancelpoll::step("spill region place: a sort run's growth")
+            .tick()
+            .is_err()
+    {
         return 0;
     }
     let ceil = home_ceil(n);
@@ -1186,7 +1591,18 @@ pub(crate) unsafe fn region_grow_place(n: &mut Inner, need: u64, head: u64) -> u
         return 0;
     };
     let worker = matches!(n.home, Home::Worker(_)) && n.w_only;
-    if grow_in_place(buf, base, len, new, 0, Some(&mut n.w), n.stmt.as_ref(), worker, true) != Some(true) {
+    if grow_in_place(
+        buf,
+        base,
+        len,
+        new,
+        0,
+        Some(&mut n.w),
+        n.stmt.as_ref(),
+        worker,
+        true,
+    ) != Some(true)
+    {
         return 0;
     }
     HashAgg::arm(base, new as u32);
@@ -1208,17 +1624,28 @@ fn place_len(buf: &RegionBuf, len: u64, need: u64, head: u64) -> Option<u64> {
     if !buf.is_laid() || head.checked_add(need)? > lay {
         return None;
     }
-    grown_len(len, need, head, 0).map(|n| n.min(lay)).filter(|&n| n > len)
+    grown_len(len, need, head, 0)
+        .map(|n| n.min(lay))
+        .filter(|&n| n > len)
 }
 
 /// M7-SPILL (V4R-359, decision 5 (a)): `region_grow` only within the owner's limit: its share W, or for the leader the
 /// statement's G; `None` (nothing drawn, no error) when the grown length fits neither, so a kind-7 build spills instead.
 /// # Safety — as `region_grow`.
-pub(crate) unsafe fn region_grow_in(n: &mut Inner, need: u64, head: u64, tail: u64) -> Result<Option<u64>> {
+pub(crate) unsafe fn region_grow_in(
+    n: &mut Inner,
+    need: u64,
+    head: u64,
+    tail: u64,
+) -> Result<Option<u64>> {
     let (len, leader) = match n.home {
         Home::Slot(r) => ((*r).bytes as u64, true),
         Home::Worker(s) => ((*s).state_bytes as u64, false),
-        Home::None => return Err(Error::host("gravity: region_grow from a pipeline that produces no region")),
+        Home::None => {
+            return Err(Error::host(
+                "gravity: region_grow from a pipeline that produces no region",
+            ))
+        }
     };
     if home_refuses(n) {
         return Ok(None);
@@ -1227,7 +1654,18 @@ pub(crate) unsafe fn region_grow_in(n: &mut Inner, need: u64, head: u64, tail: u
     // D2894: a reserved region (a breaker's floor) commits in place up to its reservation before it spills, pool bytes past
     // W and G only if the pool has them now: PostgreSQL's hash join fills hash_mem before it batches
     match n.home {
-        Home::Slot(r) => match slot_in_place(&mut *r, len, need, head, tail, Some(&mut n.w), n.stmt.as_ref(), true, false, ceil) {
+        Home::Slot(r) => match slot_in_place(
+            &mut *r,
+            len,
+            need,
+            head,
+            tail,
+            Some(&mut n.w),
+            n.stmt.as_ref(),
+            true,
+            false,
+            ceil,
+        ) {
             Some((true, new)) => {
                 HashAgg::arm((*r).ptr, new as u32);
                 (*n.partials).own = gravity_abi::word((*r).ptr);
@@ -1237,17 +1675,21 @@ pub(crate) unsafe fn region_grow_in(n: &mut Inner, need: u64, head: u64, tail: u
             Some((false, _)) => return Ok(None),
             None => {}
         },
-        Home::Worker(s) => match crate::slots::grow_partial_in_place(s, n, need, head, tail, true, ceil) {
-            Some(Some(base)) => return Ok(Some(base as u64)),
-            Some(None) => return Ok(None),
-            None => {}
-        },
+        Home::Worker(s) => {
+            match crate::slots::grow_partial_in_place(s, n, need, head, tail, true, ceil) {
+                Some(Some(base)) => return Ok(Some(base as u64)),
+                Some(None) => return Ok(None),
+                None => {}
+            }
+        }
         Home::None => {}
     }
     if ceil != 0 {
         return region_grow_capped(n, len, need, head, tail, ceil);
     }
-    let Some(new) = grown_len(len, need, head, tail) else { return Ok(None) };
+    let Some(new) = grown_len(len, need, head, tail) else {
+        return Ok(None);
+    };
     let g = leader && n.stmt.as_ref().is_some_and(|s| s.left() >= new);
     if n.w < new && !g {
         return Ok(None);
@@ -1259,17 +1701,34 @@ pub(crate) unsafe fn region_grow_in(n: &mut Inner, need: u64, head: u64, tail: u
 /// pool bytes past both when the pool has them now) too: its draw only within W, or the leader's G, else `None` (nothing
 /// drawn): the merge join's Sort inner puts its run, as PostgreSQL's Sort spills past work_mem.
 /// # Safety — as `region_grow`.
-pub(crate) unsafe fn region_grow_within(n: &mut Inner, need: u64, head: u64, tail: u64) -> Result<Option<u64>> {
+pub(crate) unsafe fn region_grow_within(
+    n: &mut Inner,
+    need: u64,
+    head: u64,
+    tail: u64,
+) -> Result<Option<u64>> {
     let (buf, base, len, leader): (Option<&RegionBuf>, *const u8, u64, bool) = match n.home {
         Home::Slot(r) => (Some(&(*r).buf), (*r).ptr, (*r).bytes as u64, true),
-        Home::Worker(s) => (crate::slots::share_buf_of(s).map(|b| &*b), (*s).state_ptr, (*s).state_bytes as u64, false),
-        Home::None => return Err(Error::host("gravity: region_grow from a pipeline that produces no region")),
+        Home::Worker(s) => (
+            crate::slots::share_buf_of(s).map(|b| &*b),
+            (*s).state_ptr,
+            (*s).state_bytes as u64,
+            false,
+        ),
+        Home::None => {
+            return Err(Error::host(
+                "gravity: region_grow from a pipeline that produces no region",
+            ))
+        }
     };
     // under a ceiling the reserved region commits up to it from the pool's room now (`region_grow_in`), as a Sort fills
     // work_mem before it puts a run
     let capped = home_ceil(n) != 0;
-    if let Some(buf) = buf.filter(|b| !capped && b.is_reserved() && core::ptr::eq(b.as_ptr(), base)) {
-        let Some(g) = grown_len(len, need, head, tail) else { return Ok(None) };
+    if let Some(buf) = buf.filter(|b| !capped && b.is_reserved() && core::ptr::eq(b.as_ptr(), base))
+    {
+        let Some(g) = grown_len(len, need, head, tail) else {
+            return Ok(None);
+        };
         let new = g.min((buf.reserve() as u64).max(head.saturating_add(tail).saturating_add(need)));
         let draw = new.saturating_sub((buf.len() + buf.committed()) as u64);
         let in_g = leader && n.stmt.as_ref().is_some_and(|s| s.left() >= draw);
@@ -1286,8 +1745,12 @@ pub(crate) fn fold(g: &mut Grew, counters: &Counters, kind: Option<BreakerKind>)
     if g.n == 0 {
         return;
     }
-    counters.past_share.set(counters.past_share.get() + g.n as u64);
-    counters.past_share_bytes.set(counters.past_share_bytes.get() + g.top.saturating_sub(g.share));
+    counters
+        .past_share
+        .set(counters.past_share.get() + g.n as u64);
+    counters
+        .past_share_bytes
+        .set(counters.past_share_bytes.get() + g.top.saturating_sub(g.share));
     if !counters.past_share_logged.replace(true) {
         log_past_share(kind, g.top, g.share);
     }
@@ -1297,13 +1760,17 @@ pub(crate) fn fold(g: &mut Grew, counters: &Counters, kind: Option<BreakerKind>)
 fn log_past_share(kind: Option<BreakerKind>, bytes: u64, share: u64) {
     match kind {
         Some(k) => eprintln!("gravity: {k:?} past its share: {bytes} of {share}"), // alloc: Cold
-        None => eprintln!("gravity: region past its share: {bytes} of {share}"), // alloc: Cold
+        None => eprintln!("gravity: region past its share: {bytes} of {share}"),   // alloc: Cold
     }
 }
 
 /// The breaker kind of the pipeline that produces `slot` (the log line's name).
 pub(crate) fn kind_of(program: &gravity_program::Program, slot: u8) -> Option<BreakerKind> {
-    program.pipelines.iter().find_map(|p| p.breaker().filter(|b| b.slot == slot)).map(|b| b.kind)
+    program
+        .pipelines
+        .iter()
+        .find_map(|p| p.breaker().filter(|b| b.slot == slot))
+        .map(|b| b.kind)
 }
 
 impl Node {
@@ -1315,20 +1782,30 @@ impl Node {
 
     pub(crate) fn leader_home(&mut self, slot: u8) -> Leader {
         let kind = kind_of(self.program(), slot);
-        Leader { region: &mut self.slots[slot as usize] as *mut SlotRegion, stmt: self.stmt_ptr(), counters: &self.counters as *const Counters, kind, spill: &mut *self.spill as *mut crate::mem::spill::SpillTable, slot }
+        Leader {
+            region: &mut self.slots[slot as usize] as *mut SlotRegion,
+            stmt: self.stmt_ptr(),
+            counters: &self.counters as *const Counters,
+            kind,
+            spill: &mut *self.spill as *mut crate::mem::spill::SpillTable,
+            slot,
+        }
     }
 }
 
 /// D3625: `State::hash_ceiling`: the statement's grant's hash ceiling (0 = none).
 pub(crate) fn hash_ceiling(s: &State<'_>) -> u64 {
     // SAFETY: as `exact_build`'s: the reservation belongs to the Node this State borrows, read on the leader's thread.
-    s.home.and_then(|h| unsafe { h.stmt.as_ref() }.map(|r| r.grant.hash_ceil)).unwrap_or(0)
+    s.home
+        .and_then(|h| unsafe { h.stmt.as_ref() }.map(|r| r.grant.hash_ceil))
+        .unwrap_or(0)
 }
 
 /// CONVERT1: `State::op_owner`: the leader slot's ledger owner (`SlotRegion::owner`).
 pub(crate) fn op_owner(s: &State<'_>) -> Option<memledger::Owner> {
     // SAFETY: as `hash_ceiling`'s: the slot belongs to the Node this State borrows, read on the leader's thread.
-    s.home.and_then(|h| unsafe { h.region.as_ref() }.and_then(|r| r.owner))
+    s.home
+        .and_then(|h| unsafe { h.region.as_ref() }.and_then(|r| r.owner))
 }
 
 /// `State::grow`: the leader's slot reopened at max(2 x len, bytes) when it is shorter than `bytes`, the whole old region copied,
@@ -1339,7 +1816,12 @@ pub(crate) fn grow_state(s: &mut State<'_>, bytes: usize) -> Result<()> {
 }
 
 /// C10: `State::grow_debt`: `grow_state` (`grow_exact`'s when `counted`) on a road the SPILL-DEBT row `why` names.
-pub(crate) fn grow_state_debt(s: &mut State<'_>, bytes: usize, counted: Option<u64>, why: NoSpill) -> Result<()> {
+pub(crate) fn grow_state_debt(
+    s: &mut State<'_>,
+    bytes: usize,
+    counted: Option<u64>,
+    why: NoSpill,
+) -> Result<()> {
     uncapped_state(s, bytes, Some(why))?;
     match counted {
         Some(n) => grow_exact_named(s, bytes, n),
@@ -1351,14 +1833,20 @@ pub(crate) fn grow_state_debt(s: &mut State<'_>, bytes: usize, counted: Option<u
 /// exactsize B1a: whether the statement behind `s` sizes its hash builds from their count (`Grant::exact_build`).
 pub(crate) fn exact_build(s: &State<'_>) -> bool {
     // SAFETY: the reservation belongs to the Node this State borrows (it outlives the State), read on the leader's thread.
-    s.home.is_some_and(|h| unsafe { h.stmt.as_ref() }.is_some_and(|r| r.grant.exact_build()))
+    s.home
+        .is_some_and(|h| unsafe { h.stmt.as_ref() }.is_some_and(|r| r.grant.exact_build()))
 }
 
 /// exactsize B1a: `State::grow_exact` / `grow_in_exact`: the region grown to the counted `bytes` (`exact_len`) when the
 /// statement sizes from counts (`exact_build`), else `grow` / `grow_in`. One PHASES line per boundary under
 /// PGRUST_GRAVITY_PHASES (`EXACT kind=build slot=<s> counted=<rows> need=<bytes> grown=<len> road=<...>`) and the shapecheck
 /// fire `exact.build_boundary`; `within`: `grow_in`'s G-only draw (false = refused, nothing drawn).
-pub(crate) fn grow_exact(s: &mut State<'_>, bytes: usize, counted: u64, within: bool) -> Result<bool> {
+pub(crate) fn grow_exact(
+    s: &mut State<'_>,
+    bytes: usize,
+    counted: u64,
+    within: bool,
+) -> Result<bool> {
     if !within {
         uncapped_state(s, bytes, None)?;
     }
@@ -1373,10 +1861,18 @@ fn grow_exact_named(s: &mut State<'_>, bytes: usize, counted: u64) -> Result<()>
 /// `grow_exact` past its uncapped check.
 fn grow_exact_at(s: &mut State<'_>, bytes: usize, counted: u64, within: bool) -> Result<bool> {
     if !exact_build(s) {
-        return if within { grow_state_in(s, bytes) } else { grow_state_at(s, bytes, false).map(|()| true) };
+        return if within {
+            grow_state_in(s, bytes)
+        } else {
+            grow_state_at(s, bytes, false).map(|()| true)
+        };
     }
     let (len, base) = (s.bytes.len(), s.bytes.as_ptr());
-    let ok = if within { grow_state_in_at(s, bytes, true)? } else { grow_state_at(s, bytes, true).map(|()| true)? };
+    let ok = if within {
+        grow_state_in_at(s, bytes, true)?
+    } else {
+        grow_state_at(s, bytes, true).map(|()| true)?
+    };
     fires::fire_shared("exact.build_boundary");
     if crate::env::set("PGRUST_GRAVITY_PHASES") {
         let road = match ok {
@@ -1393,11 +1889,17 @@ fn grow_exact_at(s: &mut State<'_>, bytes: usize, counted: u64, within: bool) ->
 
 /// exactsize B1d: `State::room_in`.
 pub(crate) fn room_in(s: &State<'_>) -> u64 {
-    let Some(h) = s.home else { return s.bytes.len() as u64 };
+    let Some(h) = s.home else {
+        return s.bytes.len() as u64;
+    };
     // SAFETY: the slot and the reservation belong to the Node this State borrows, read on the leader's thread.
     unsafe {
         let r = &*h.region;
-        let reserved = if r.buf.is_reserved() && std::ptr::eq( r.ptr, r.buf.as_ptr()) { r.buf.reserve() as u64 } else { 0 };
+        let reserved = if r.buf.is_reserved() && std::ptr::eq(r.ptr, r.buf.as_ptr()) {
+            r.buf.reserve() as u64
+        } else {
+            0
+        };
         // under a ceiling `grow_state_in` reopens the slot at most at it (`grow_state_capped`), whatever G has left
         if r.ceil != 0 {
             return reserved.max(ceil_cap(r.ceil));
@@ -1411,14 +1913,20 @@ pub(crate) fn room_in(s: &State<'_>) -> u64 {
 
 /// `grow_state`, its length `exact_len`'s when `exact` (exactsize B1a), else `grown_len`'s.
 fn grow_state_at(s: &mut State<'_>, bytes: usize, exact: bool) -> Result<()> {
-    let Some(h) = s.home else { return Err(Error::host("gravity: State::grow on a fixed view (no leader slot behind it)")) };
+    let Some(h) = s.home else {
+        return Err(Error::host(
+            "gravity: State::grow on a fixed view (no leader slot behind it)",
+        ));
+    };
     // SAFETY: `h` was taken from the Node this State borrows, on the leader's thread; the slot is the one `s.bytes` views.
     unsafe {
         let r = &mut *h.region;
         // D292: an unopened slot (null: never opened this statement, or settled; `bytes` then keeps a fixed slot's size) is no
         // region to grow: a named ERROR, never a write through the empty view
         if r.ptr.is_null() {
-            return Err(Error::host("gravity: State::grow on a leader slot not opened for its pipeline (D292)"));
+            return Err(Error::host(
+                "gravity: State::grow on a leader slot not opened for its pipeline (D292)",
+            ));
         }
         let len = r.bytes as usize;
         if bytes <= len {
@@ -1426,7 +1934,18 @@ fn grow_state_at(s: &mut State<'_>, bytes: usize, exact: bool) -> Result<()> {
         }
         let mut g = Grew::default();
         let mut w = 0;
-        let base = grow_slot(r, (bytes - len) as u64, len as u64, 0, &mut w, h.stmt.as_ref(), &mut g, false, exact).map_err(|e| debt_refused(e, r.debt, None))?;
+        let base = grow_slot(
+            r,
+            (bytes - len) as u64,
+            len as u64,
+            0,
+            &mut w,
+            h.stmt.as_ref(),
+            &mut g,
+            false,
+            exact,
+        )
+        .map_err(|e| debt_refused(e, r.debt, None))?;
         s.bytes = core::slice::from_raw_parts_mut(base, r.bytes as usize);
         fold(&mut g, &*h.counters, h.kind);
     }
@@ -1441,7 +1960,11 @@ pub(crate) fn grow_state_in(s: &mut State<'_>, bytes: usize) -> Result<bool> {
 
 /// `grow_state_in`, its length `exact_len`'s when `exact` (exactsize B1a).
 fn grow_state_in_at(s: &mut State<'_>, bytes: usize, exact: bool) -> Result<bool> {
-    let Some(h) = s.home else { return Err(Error::host("gravity: State::grow_in on a fixed view (no leader slot behind it)")) };
+    let Some(h) = s.home else {
+        return Err(Error::host(
+            "gravity: State::grow_in on a fixed view (no leader slot behind it)",
+        ));
+    };
     // SAFETY: as `grow_state`: the slot and the reservation belong to the Node this State borrows, on the leader's thread.
     let (len, stmt) = unsafe { ((*h.region).bytes as u64, h.stmt.as_ref()) };
     if bytes as u64 <= len {
@@ -1456,7 +1979,18 @@ fn grow_state_in_at(s: &mut State<'_>, bytes: usize, exact: bool) -> Result<bool
     unsafe {
         let r = &mut *h.region;
         let ceil = r.ceil;
-        if let Some((ok, _)) = slot_in_place(r, len, bytes as u64 - len, len, 0, None, stmt, true, exact, ceil) {
+        if let Some((ok, _)) = slot_in_place(
+            r,
+            len,
+            bytes as u64 - len,
+            len,
+            0,
+            None,
+            stmt,
+            true,
+            exact,
+            ceil,
+        ) {
             if ok {
                 s.bytes = core::slice::from_raw_parts_mut(r.ptr, r.bytes as usize);
                 let mut g = Grew::default();
@@ -1482,18 +2016,39 @@ fn grow_state_in_at(s: &mut State<'_>, bytes: usize, exact: bool) -> Result<bool
 /// whole old region copied, the bytes past G the pool's room now; `false` (nothing drawn) past the ceiling or when the
 /// pool has no room, so the merge spills.
 fn grow_state_capped(s: &mut State<'_>, bytes: usize, ceil: u64, exact: bool) -> Result<bool> {
-    let Some(h) = s.home else { return Err(Error::host("gravity: State::grow_in on a fixed view (no leader slot behind it)")) };
+    let Some(h) = s.home else {
+        return Err(Error::host(
+            "gravity: State::grow_in on a fixed view (no leader slot behind it)",
+        ));
+    };
     // SAFETY: as `grow_state`: the slot and the reservation belong to the Node this State borrows, on the leader's thread
     unsafe {
         let r = &mut *h.region;
         if r.ptr.is_null() {
-            return Err(Error::host("gravity: State::grow on a leader slot not opened for its pipeline (D292)"));
+            return Err(Error::host(
+                "gravity: State::grow on a leader slot not opened for its pipeline (D292)",
+            ));
         }
         let len = r.bytes as u64;
-        let Some(new) = capped_len(len, bytes as u64 - len, len, 0, ceil, exact) else { return Ok(false) };
+        let Some(new) = capped_len(len, bytes as u64 - len, len, 0, ceil, exact) else {
+            return Ok(false);
+        };
         let stmt = h.stmt.as_ref();
         let mut w = 0;
-        let Some((mut buf, base)) = reopen_road(r.ptr, len as usize, len as usize, 0, new as usize, &mut w, stmt, false, true)? else { return Ok(false) };
+        let Some((mut buf, base)) = reopen_road(
+            r.ptr,
+            len as usize,
+            len as usize,
+            0,
+            new as usize,
+            &mut w,
+            stmt,
+            false,
+            true,
+        )?
+        else {
+            return Ok(false);
+        };
         if let Some(o) = r.owner {
             buf.own_by(o); // LEDGER2 step 5: as region_grow_capped's
         }
@@ -1510,9 +2065,17 @@ fn grow_state_capped(s: &mut State<'_>, bytes: usize, ceil: u64, exact: bool) ->
 
 /// M7-SPILL (V4R-359): `State::spill_write`: one epoch of the leader's (index 0) stored file of the State's slot.
 pub(crate) fn spill_write(s: &mut State<'_>, bits: u8, parts: &[(u32, &[u8])]) -> Result<()> {
-    let Some(h) = s.home else { return Err(Error::host("gravity: State::spill_write on a fixed view (no leader slot behind it)")) };
+    let Some(h) = s.home else {
+        return Err(Error::host(
+            "gravity: State::spill_write on a fixed view (no leader slot behind it)",
+        ));
+    };
     // SAFETY: the Node's spill table (heap-stable), on the leader's thread after the section: no owner writes index 0 now.
-    unsafe { (*h.spill).file_stored(h.slot, 0, bits, true)?.write_epoch(parts) }
+    unsafe {
+        (*h.spill)
+            .file_stored(h.slot, 0, bits, true)?
+            .write_epoch(parts)
+    }
 }
 
 #[cfg(test)]
@@ -1526,11 +2089,23 @@ mod tests {
     fn under_grow_modes_ceiling_a_region_grows_past_work_mem() {
         const MIB: u64 = 1 << 20;
         let wall = mempolicy::grow::grow_ceiling(0, MAX_REGION);
-        assert_eq!(capped_len(8 * MIB, 56 * MIB, 64, 0, 8 * MIB, false), None, "today: past hash_mem, the breaker spills");
+        assert_eq!(
+            capped_len(8 * MIB, 56 * MIB, 64, 0, 8 * MIB, false),
+            None,
+            "today: past hash_mem, the breaker spills"
+        );
         let grown = capped_len(8 * MIB, 56 * MIB, 64, 0, wall, false).expect("grow mode: it grows");
         assert!(grown >= 56 * MIB + 64 && grown <= wall, "grown to {grown}");
-        assert_eq!(capped_len(8 * MIB, wall, 64, 0, wall, false), None, "past the region wall: it spills");
-        assert_eq!(in_place_cap(1 << 30, wall), 1 << 30, "in place up to its whole reservation");
+        assert_eq!(
+            capped_len(8 * MIB, wall, 64, 0, wall, false),
+            None,
+            "past the region wall: it spills"
+        );
+        assert_eq!(
+            in_place_cap(1 << 30, wall),
+            1 << 30,
+            "in place up to its whole reservation"
+        );
     }
 
     /// C10: a spilling breaker's uncapped grow counts only past its grant (its ceiling's region bytes, else W and the
@@ -1539,12 +2114,41 @@ mod tests {
     fn an_uncapped_grow_counts_past_the_grant_as_its_named_road() {
         use core::sync::atomic::Ordering::Relaxed;
         let n0 = UNCAPPED[1].load(Relaxed);
-        note_uncapped(3, 1 << 20, 0, 1 << 20, None, Some(NoSpill::BuildLeaderMerge));
-        note_uncapped(3, 1 << 20, 0, 1 << 19, Some(1 << 20), Some(NoSpill::BuildLeaderMerge));
+        note_uncapped(
+            3,
+            1 << 20,
+            0,
+            1 << 20,
+            None,
+            Some(NoSpill::BuildLeaderMerge),
+        );
+        note_uncapped(
+            3,
+            1 << 20,
+            0,
+            1 << 19,
+            Some(1 << 20),
+            Some(NoSpill::BuildLeaderMerge),
+        );
         note_uncapped(3, ceil_cap(1 << 20), 1 << 20, 0, None, None);
-        assert_eq!(UNCAPPED[1].load(Relaxed), n0, "within W, G or the ceiling's bytes is within the grant");
-        note_uncapped(3, 64 << 20, 1 << 20, 8 << 20, Some(8 << 20), Some(NoSpill::BuildLeaderMerge));
-        assert_eq!(UNCAPPED[1].load(Relaxed), n0 + 1, "a ceiling bounds the grow whatever W and G hold");
+        assert_eq!(
+            UNCAPPED[1].load(Relaxed),
+            n0,
+            "within W, G or the ceiling's bytes is within the grant"
+        );
+        note_uncapped(
+            3,
+            64 << 20,
+            1 << 20,
+            8 << 20,
+            Some(8 << 20),
+            Some(NoSpill::BuildLeaderMerge),
+        );
+        assert_eq!(
+            UNCAPPED[1].load(Relaxed),
+            n0 + 1,
+            "a ceiling bounds the grow whatever W and G hold"
+        );
     }
 
     /// NR-1: a region whose breaker names a SPILL-DEBT row and builds no spill road (a nest inner's build) grown past the
@@ -1561,10 +2165,22 @@ mod tests {
         if let Some(debt) = counted_as(held.spills(), held.debt(), None) {
             note_uncapped(2, 4 << 20, 0, 0, Some(1 << 20), debt);
         }
-        assert_eq!(UNCAPPED[1].load(Relaxed), n0 + 1, "a debt region past G counts as named");
+        assert_eq!(
+            UNCAPPED[1].load(Relaxed),
+            n0 + 1,
+            "a debt region past G counts as named"
+        );
         assert_eq!(NAMED[row].load(Relaxed), r0 + 1, "as its own row's");
-        assert_eq!(counted_as(held.spills(), held.debt(), Some(NoSpill::BuildLeaderMerge)), Some(Some(NoSpill::BuildLeaderMerge)), "a road that names its row counts as the road's");
-        assert_eq!(counted_as(true, None, None), Some(None), "a spilling region's unnamed road stays a bug key");
+        assert_eq!(
+            counted_as(held.spills(), held.debt(), Some(NoSpill::BuildLeaderMerge)),
+            Some(Some(NoSpill::BuildLeaderMerge)),
+            "a road that names its row counts as the road's"
+        );
+        assert_eq!(
+            counted_as(true, None, None),
+            Some(None),
+            "a spilling region's unnamed road stays a bug key"
+        );
     }
 
     /// NR-1: a region whose breaker neither spills nor names a row (a form PostgreSQL holds too, a program constant) is
@@ -1572,7 +2188,10 @@ mod tests {
     #[test]
     fn a_pg_holds_too_regions_grow_past_g_fires_no_assert() {
         use gravity_program::spill::{Holds, PgHolds, Proof};
-        for held in [Holds::Bounded(Proof::PgHoldsToo(PgHolds::SetOpSide)), Holds::Bounded(Proof::Constant(64))] {
+        for held in [
+            Holds::Bounded(Proof::PgHoldsToo(PgHolds::SetOpSide)),
+            Holds::Bounded(Proof::Constant(64)),
+        ] {
             let counted = counted_as(held.spills(), held.debt(), None);
             assert_eq!(counted, None, "{held:?} is no road's");
             if let Some(debt) = counted {
@@ -1591,7 +2210,10 @@ mod tests {
         now[NoSpill::ConstantPastCap.code() as usize] = 3;
         let mut later = at;
         later[NoSpill::ConstantPastCap.code() as usize] = 1;
-        assert_eq!(named_field(now, later), "BuildNestInner:1,ConstantPastCap:2");
+        assert_eq!(
+            named_field(now, later),
+            "BuildNestInner:1,ConstantPastCap:2"
+        );
     }
 
     /// NR-6: the debt lever (`pgrust.gravity_test_refuse_debt`) off is today's road: a grant has it off unless set (a trim
@@ -1602,18 +2224,45 @@ mod tests {
     fn the_debt_lever_off_is_todays_road() {
         use crate::mem::grant::Grant;
         use core::sync::atomic::Ordering::Relaxed;
-        assert!(!Grant::of(1 << 20).refuse_debt && !Grant::of(1 << 20).trimmed(1 << 19).refuse_debt, "off unless set");
-        assert!(Grant::of(1 << 20).with_refuse_debt(true).trimmed(1 << 19).refuse_debt, "a trim keeps it");
+        assert!(
+            !Grant::of(1 << 20).refuse_debt && !Grant::of(1 << 20).trimmed(1 << 19).refuse_debt,
+            "off unless set"
+        );
+        assert!(
+            Grant::of(1 << 20)
+                .with_refuse_debt(true)
+                .trimmed(1 << 19)
+                .refuse_debt,
+            "a trim keeps it"
+        );
         let row = NoSpill::MergeRunPulled;
         let r0 = NAMED[row.code() as usize].load(Relaxed);
         let named = note_uncapped(4, 4 << 20, 0, 0, Some(1 << 20), Some(row));
         assert_eq!(named, Some(row), "past the cap: counted as its row");
         assert!(NAMED[row.code() as usize].load(Relaxed) > r0);
-        assert!(debt_draw(named, false, 4 << 20).is_ok(), "off: drawn, as before the lever");
-        assert!(matches!(debt_draw(named, true, 4 << 20), Err(Error::OutOfMemory { why: Some(r), .. }) if r == row), "on: the pool's out of memory, its row named");
-        assert_eq!(note_uncapped(4, 1 << 20, 0, 0, Some(1 << 20), Some(row)), None, "within the cap: not counted");
-        assert!(debt_draw(None, true, 1 << 20).is_ok(), "within the cap: never refused");
-        for f in [Fault::OFF, Fault::every(3), Fault::every(0).with_revoke_every(2), Fault::every(5).with_revoke_every(7)] {
+        assert!(
+            debt_draw(named, false, 4 << 20).is_ok(),
+            "off: drawn, as before the lever"
+        );
+        assert!(
+            matches!(debt_draw(named, true, 4 << 20), Err(Error::OutOfMemory { why: Some(r), .. }) if r == row),
+            "on: the pool's out of memory, its row named"
+        );
+        assert_eq!(
+            note_uncapped(4, 1 << 20, 0, 0, Some(1 << 20), Some(row)),
+            None,
+            "within the cap: not counted"
+        );
+        assert!(
+            debt_draw(None, true, 1 << 20).is_ok(),
+            "within the cap: never refused"
+        );
+        for f in [
+            Fault::OFF,
+            Fault::every(3),
+            Fault::every(0).with_revoke_every(2),
+            Fault::every(5).with_revoke_every(7),
+        ] {
             assert!(!f.debt, "every fault is built with the lever off");
             for on in [false, true] {
                 let (mut a, mut b) = (f, f.with_refuse_debt(on));
@@ -1621,7 +2270,10 @@ mod tests {
                 for _ in 0..16 {
                     assert_eq!(a.refuse(), b.refuse(), "nor changes which ask is refused");
                 }
-                assert_eq!((a.every, a.asks, a.revoke_every, a.cut), (b.every, b.asks, b.revoke_every, b.cut));
+                assert_eq!(
+                    (a.every, a.asks, a.revoke_every, a.cut),
+                    (b.every, b.asks, b.revoke_every, b.cut)
+                );
             }
         }
     }
@@ -1640,7 +2292,10 @@ mod tests {
     fn a_region_at_max_region_cannot_grow() {
         assert_eq!(grown_len(MAX_REGION, 16, MAX_REGION - 4096, 0), None);
         assert_eq!(grown_len(MAX_REGION, 16, 64, 64), None);
-        assert_eq!(grown_len(MAX_REGION / 2 + 4096, 16, 64, 64), Some(MAX_REGION));
+        assert_eq!(
+            grown_len(MAX_REGION / 2 + 4096, 16, 64, 64),
+            Some(MAX_REGION)
+        );
         assert!(grown_len(1 << 20, 16, 1 << 19, 1 << 19).is_some_and(|n| n >= 2 << 20));
         assert_eq!(grown_len(1 << 20, MAX_REGION, 64, 0), None);
     }
@@ -1650,11 +2305,30 @@ mod tests {
     #[test]
     fn a_region_grows_up_to_its_ceiling_and_never_past_it() {
         const MIB: u64 = 1 << 20;
-        assert_eq!(capped_len(MIB, 16, MIB / 2, MIB / 2, 4 * MIB, false), Some(2 * MIB), "doubles under the ceiling");
-        assert_eq!(capped_len(3 * MIB, 16, 3 * MIB / 2, 3 * MIB / 2, 4 * MIB, false), Some(4 * MIB), "held to the ceiling");
+        assert_eq!(
+            capped_len(MIB, 16, MIB / 2, MIB / 2, 4 * MIB, false),
+            Some(2 * MIB),
+            "doubles under the ceiling"
+        );
+        assert_eq!(
+            capped_len(3 * MIB, 16, 3 * MIB / 2, 3 * MIB / 2, 4 * MIB, false),
+            Some(4 * MIB),
+            "held to the ceiling"
+        );
         let before = AT_CEILING.load(core::sync::atomic::Ordering::Relaxed);
-        assert_eq!(capped_len(4 * MIB, 16, 2 * MIB, 2 * MIB, 4 * MIB, false), None, "past the ceiling: spill");
-        assert!(AT_CEILING.load(core::sync::atomic::Ordering::Relaxed) > before, "counted");
-        assert_eq!(capped_len(MIB, 3 * MIB, MIB / 2, 0, 4 * MIB, true), Some(crate::park::region_bytes((3 * MIB + MIB / 2) as usize) as u64), "exact: the need, not a doubling");
+        assert_eq!(
+            capped_len(4 * MIB, 16, 2 * MIB, 2 * MIB, 4 * MIB, false),
+            None,
+            "past the ceiling: spill"
+        );
+        assert!(
+            AT_CEILING.load(core::sync::atomic::Ordering::Relaxed) > before,
+            "counted"
+        );
+        assert_eq!(
+            capped_len(MIB, 3 * MIB, MIB / 2, 0, 4 * MIB, true),
+            Some(crate::park::region_bytes((3 * MIB + MIB / 2) as usize) as u64),
+            "exact: the need, not a doubling"
+        );
     }
 }

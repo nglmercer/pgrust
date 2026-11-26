@@ -859,9 +859,7 @@ fn body(g: &mut Gen, shape: &str) -> Vec<StmtKind> {
             let mut v = raws(&["CREATE ROLE ea_aclrole;"]);
             // The CREATE above makes the duplicate/self-grant probes
             // deterministic; skip the pool's own copy of the create.
-            v.extend(
-                sample(g, &ROLE_PROBES[1..], 10).into_iter().map(raw),
-            );
+            v.extend(sample(g, &ROLE_PROBES[1..], 10).into_iter().map(raw));
             // Fixed membership block (order-sensitive: the circular grant
             // needs the first grant in place; DROP ROLE clears the
             // memberships either way).
@@ -945,7 +943,10 @@ fn body(g: &mut Gen, shape: &str) -> Vec<StmtKind> {
                 "CREATE FUNCTION ea_rec() RETURNS record LANGUAGE sql AS $$SELECT 1 AS r1, 'x'::text AS r2$$;",
             ]));
             v.extend(sample(g, COLREF_PROBES, 9).into_iter().map(raw));
-            v.extend(raws(&["DROP FUNCTION ea_rec();", "DROP FUNCTION ea_f(int);"]));
+            v.extend(raws(&[
+                "DROP FUNCTION ea_rec();",
+                "DROP FUNCTION ea_f(int);",
+            ]));
             v.extend(fx_tables_drop());
             v
         }
@@ -1007,8 +1008,7 @@ fn body(g: &mut Gen, shape: &str) -> Vec<StmtKind> {
             v
         }
         "earm:guc" => {
-            let mut v: Vec<StmtKind> =
-                sample(g, GUC_PROBES, 9).into_iter().map(raw).collect();
+            let mut v: Vec<StmtKind> = sample(g, GUC_PROBES, 9).into_iter().map(raw).collect();
             v.extend(raws(&[
                 // The "C" clone succeeds when its probe fired.
                 "DROP COLLATION IF EXISTS \"C\";",
@@ -1147,11 +1147,9 @@ fn replace_word(s: &str, from: &str, to: &str) -> String {
     let mut i = 0;
     while i < b.len() {
         if b[i..].starts_with(fb) {
-            let before_ok =
-                i == 0 || !(b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_');
+            let before_ok = i == 0 || !(b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_');
             let j = i + fb.len();
-            let after_ok =
-                j >= b.len() || !(b[j].is_ascii_alphanumeric() || b[j] == b'_');
+            let after_ok = j >= b.len() || !(b[j].is_ascii_alphanumeric() || b[j] == b'_');
             if before_ok && after_ok {
                 out.extend_from_slice(to.as_bytes());
                 i = j;
@@ -1373,15 +1371,25 @@ mod tests {
             let joined = group.join(" ");
             if joined.contains("SET ROLE ea_aclnobody") {
                 let set = joined.find("SET ROLE ea_aclnobody").unwrap();
-                let reset = joined.rfind("RESET ROLE;").expect("SET ROLE without RESET ROLE");
+                let reset = joined
+                    .rfind("RESET ROLE;")
+                    .expect("SET ROLE without RESET ROLE");
                 assert!(reset > set, "RESET ROLE precedes SET ROLE");
                 // The role drops come after the RESET.
-                let drop = joined.rfind("DROP ROLE ea_aclnobody").expect("role not dropped");
+                let drop = joined
+                    .rfind("DROP ROLE ea_aclnobody")
+                    .expect("role not dropped");
                 assert!(drop > reset);
             }
             if joined.contains("SET datestyle") || joined.contains("SET TIME ZONE") {
-                assert!(joined.contains("RESET datestyle;"), "datestyle not reset: {joined}");
-                assert!(joined.contains("RESET timezone;"), "timezone not reset: {joined}");
+                assert!(
+                    joined.contains("RESET datestyle;"),
+                    "datestyle not reset: {joined}"
+                );
+                assert!(
+                    joined.contains("RESET timezone;"),
+                    "timezone not reset: {joined}"
+                );
             }
         }
     }
@@ -1397,12 +1405,18 @@ mod tests {
         // (or are covered by the tails' IF EXISTS drops), so a group is
         // balanced iff each fired create fragment has its drop fragment.
         const PAIRS: &[(&str, &str)] = &[
-            ("CREATE TABLE ea_base (a int PRIMARY KEY", "DROP TABLE ea_base;"),
+            (
+                "CREATE TABLE ea_base (a int PRIMARY KEY",
+                "DROP TABLE ea_base;",
+            ),
             ("CREATE TABLE ea_ref (x int", "DROP TABLE ea_ref;"),
             ("CREATE TABLE ea_reftext ", "DROP TABLE ea_reftext;"),
             ("CREATE TABLE ea_dup ", "DROP TABLE ea_dup;"),
             ("CREATE VIEW ea_v ", "DROP VIEW ea_v;"),
-            ("CREATE MATERIALIZED VIEW ea_mv ", "DROP MATERIALIZED VIEW ea_mv;"),
+            (
+                "CREATE MATERIALIZED VIEW ea_mv ",
+                "DROP MATERIALIZED VIEW ea_mv;",
+            ),
             ("CREATE SEQUENCE ea_seq;", "DROP SEQUENCE ea_seq;"),
             ("CREATE TABLE ea_part ", "DROP TABLE ea_part;"),
             ("CREATE TYPE ea_comp AS ", "DROP TYPE ea_comp;"),
@@ -1410,8 +1424,14 @@ mod tests {
             ("CREATE DOMAIN ea_dom AS ", "DROP DOMAIN ea_dom;"),
             ("CREATE SCHEMA ea_s;", "DROP SCHEMA ea_s;"),
             ("CREATE FUNCTION ea_f(", "DROP FUNCTION ea_f(int);"),
-            ("CREATE FUNCTION ea_any(", "DROP FUNCTION ea_any(anyelement, anyelement);"),
-            ("CREATE FUNCTION ea_anyarr(", "DROP FUNCTION ea_anyarr(anyarray, anyelement);"),
+            (
+                "CREATE FUNCTION ea_any(",
+                "DROP FUNCTION ea_any(anyelement, anyelement);",
+            ),
+            (
+                "CREATE FUNCTION ea_anyarr(",
+                "DROP FUNCTION ea_anyarr(anyarray, anyelement);",
+            ),
             ("CREATE FUNCTION ea_rec(", "DROP FUNCTION ea_rec();"),
             ("CREATE ROLE ea_aclnobody;", "DROP ROLE ea_aclnobody;"),
             ("CREATE ROLE ea_aclowner;", "DROP ROLE ea_aclowner;"),

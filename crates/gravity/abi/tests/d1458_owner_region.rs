@@ -37,5 +37,8 @@ fn d1458_an_owned_view_hands_out_writable_owner_regions() {
         unsafe { *(o.owner(i) as *mut u64) = 100 + i as u64 };
     }
     assert_eq!(o.nowners, 2);
-    assert_eq!(unsafe { (*(o.owner(0) as *const u64), *(o.owner(1) as *const u64)) }, (100, 101));
+    assert_eq!(
+        unsafe { (*(o.owner(0) as *const u64), *(o.owner(1) as *const u64)) },
+        (100, 101)
+    );
 }

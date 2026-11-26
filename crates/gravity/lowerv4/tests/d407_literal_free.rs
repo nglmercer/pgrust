@@ -36,7 +36,12 @@ fn consts(text: &str) -> Vec<(u32, usize, usize)> {
         if !byval && !c.contains(":constbyval false :constisnull false") {
             continue;
         }
-        let ty: u32 = c[c.find(":consttype ").unwrap() + 11..].split(' ').next().unwrap().parse().unwrap();
+        let ty: u32 = c[c.find(":consttype ").unwrap() + 11..]
+            .split(' ')
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap();
         let b = at + c.find('[').unwrap() + 1;
         out.push((if byval { BYVAL } else { ty }, b, end - 1));
     }
@@ -49,27 +54,27 @@ const BYVAL: u32 = 0;
 fn perturb(ty: u32, v: &mut [u32]) -> Option<()> {
     let step = |b: &mut u32| match *b as u8 {
         b'a'..=b'y' | b'A'..=b'Y' | b'0'..=b'8' => {
-            let _:() =*b += 1;
+            let _: () = *b += 1;
             Some(())
-        },
+        }
         b'z' | b'Z' | b'9' => {
-            let _:() =*b -= 1;
+            let _: () = *b -= 1;
             Some(())
-        },
+        }
         _ => None,
     };
     match ty {
         _ if ARRAYS.contains(&ty) => perturb_array(ty, v),
         BYVAL => {
-            let _:() =v[0] ^= 1;
+            let _: () = v[0] ^= 1;
             Some(())
-        },
+        }
         25 | 1043 | 1042 if v.len() > 4 => v[4..].iter_mut().find_map(step),
         19 => v.iter_mut().find_map(step),
         17 if v.len() > 4 => {
-            let _:() =v[4] ^= 1;
+            let _: () = v[4] ^= 1;
             Some(())
-        },
+        }
         1700 if v.len() > 6 => {
             let h = v[4] | v[5] << 8;
             let first = match h & 0xC000 {
@@ -79,7 +84,7 @@ fn perturb(ty: u32, v: &mut [u32]) -> Option<()> {
             };
             let g = v[first] | v[first + 1] << 8;
             let mut s = 1;
-            while g.is_multiple_of (s * 10) && s < 1000 {
+            while g.is_multiple_of(s * 10) && s < 1000 {
                 s *= 10;
             }
             let n = if g + s < 10000 { g + s } else { g - s };
@@ -96,30 +101,39 @@ const ARRAYS: &[u32] = &[1005, 1007, 1016, 1028, 1009, 1015, 1014, 1003];
 /// Another list of the same count: its first element's value changed (an integer's low bit, a string's first letter or
 /// digit), a plain one-dimensional image without NULLs only.
 fn perturb_array(ty: u32, v: &mut [u32]) -> Option<()> {
-    let at = |i: usize| v.get(i..i + 4).map(|b| b[0] | b[1] << 8 | b[2] << 16 | b[3] << 24);
+    let at = |i: usize| {
+        v.get(i..i + 4)
+            .map(|b| b[0] | b[1] << 8 | b[2] << 16 | b[3] << 24)
+    };
     if v.first()? & 3 != 0 || at(4)? != 1 || at(8)? != 0 || at(16)? == 0 {
         return None;
     }
     let data = 24;
     match ty {
         1005 | 1007 | 1016 | 1028 => {
-            let _:() =*v.get_mut(data)? ^= 1;
+            let _: () = *v.get_mut(data)? ^= 1;
             Some(())
-        },
+        }
         _ => {
             // the first element's payload: after its 1-byte (short) or 4-byte header
-            let (from, len) = if v.get(data)? & 1 == 1 { (data + 1, (v[data] >> 1) as usize - 1) } else { (data + 4, (at(data)? >> 2) as usize - 4) };
-            v.get_mut(from..from + len)?.iter_mut().find_map(|b| match *b as u8 {
-                b'a'..=b'y' | b'A'..=b'Y' | b'0'..=b'8' => {
-                    let _:() =*b += 1;
-                    Some(())
-                },
-                b'z' | b'Z' | b'9' => {
-                    let _:() =*b -= 1;
-                    Some(())
-                },
-                _ => None,
-            })
+            let (from, len) = if v.get(data)? & 1 == 1 {
+                (data + 1, (v[data] >> 1) as usize - 1)
+            } else {
+                (data + 4, (at(data)? >> 2) as usize - 4)
+            };
+            v.get_mut(from..from + len)?
+                .iter_mut()
+                .find_map(|b| match *b as u8 {
+                    b'a'..=b'y' | b'A'..=b'Y' | b'0'..=b'8' => {
+                        let _: () = *b += 1;
+                        Some(())
+                    }
+                    b'z' | b'Z' | b'9' => {
+                        let _: () = *b -= 1;
+                        Some(())
+                    }
+                    _ => None,
+                })
         }
     }
 }
@@ -129,14 +143,20 @@ fn content_of(text: &str) -> Option<(u128, Vec<Vec<u8>>)> {
     let (ctx, arena) = (MemoryContext::new("d407 content"), Arena::new(1 << 22));
     let fx = corpus::load(ctx.mcx(), text).ok()?;
     let graph = gravity_decompose::decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx).ok()?;
-    let lists = gravity_lower::inputs::key::class_keyed_lists(&graph).into_iter().map(|a| {
-        // SAFETY: a class-keyed list is a non-null by-reference array image of the loaded plan (4-byte or short header).
-        unsafe {
-            let p = a as *const u8;
-            let len = if *p & 1 == 1 { (*p >> 1) as usize } else { (u32::from_le_bytes([*p, *p.add(1), *p.add(2), *p.add(3)]) >> 2) as usize };
-            core::slice::from_raw_parts(p, len).to_vec()
-        }
-    });
+    let lists = gravity_lower::inputs::key::class_keyed_lists(&graph)
+        .into_iter()
+        .map(|a| {
+            // SAFETY: a class-keyed list is a non-null by-reference array image of the loaded plan (4-byte or short header).
+            unsafe {
+                let p = a as *const u8;
+                let len = if *p & 1 == 1 {
+                    (*p >> 1) as usize
+                } else {
+                    (u32::from_le_bytes([*p, *p.add(1), *p.add(2), *p.add(3)]) >> 2) as usize
+                };
+                core::slice::from_raw_parts(p, len).to_vec()
+            }
+        });
     Some((gravity_lower::inputs::key::key(&graph).0, lists.collect()))
 }
 
@@ -157,7 +177,12 @@ fn front_of(text: &str) -> Option<(u128, Option<u128>, Option<u128>)> {
 const DERIVED: &[(&str, &str, &str, &str)] = &[
     ("bench-126-n-mul-k", "bench-126", M_VAR, K_15),
     ("bench-126-k-mul-m", "bench-126", N_VAR, K_15),
-    ("bench-126-n-add-k", "bench-126-n-mul-k", ":opno 1760 :opfuncid 1726", ":opno 1758 :opfuncid 1724"),
+    (
+        "bench-126-n-add-k",
+        "bench-126-n-mul-k",
+        ":opno 1760 :opfuncid 1726",
+        ":opno 1758 :opfuncid 1724",
+    ),
 ];
 const N_VAR: &str = "{VAR :varno 1 :varattno 3 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 3 :location 31}";
 const M_VAR: &str = "{VAR :varno 1 :varattno 4 :vartype 1700 :vartypmod 393223 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 4 :location 35}";
@@ -180,19 +205,37 @@ fn ir_of(text: &str) -> Option<(u128, Vec<([u64; 4], u64)>)> {
 /// where its literal guards decide alike on the hit's literals (exec admit `lits_hold`), so a literal the front key leaves
 /// out may be another program exactly where a guard decides otherwise on it (the tally's zero test, summary.rs).
 fn decided(guards: &[key::EstGuard]) -> Vec<([u64; 4], u64)> {
-    guards.iter().filter(|g| key::literal(g)).map(|g| (g.args, g.want)).collect()
+    guards
+        .iter()
+        .filter(|g| key::literal(g))
+        .map(|g| (g.args, g.want))
+        .collect()
 }
 
 #[test]
 fn a_literal_the_front_key_leaves_out_is_not_in_the_program() {
     let mut fixtures = common::files(&common::plans_dir(), "plan");
-    fixtures.extend(common::files(&common::plans_dir().join("regress-full"), "plan"));
+    fixtures.extend(common::files(
+        &common::plans_dir().join("regress-full"),
+        "plan",
+    ));
     for k in 1..=3 {
-        fixtures.extend(common::files(&common::milestone_dir(k), "plan").into_iter().map(|(n, t)| (format!("m{k}/{n}"), t)));
+        fixtures.extend(
+            common::files(&common::milestone_dir(k), "plan")
+                .into_iter()
+                .map(|(n, t)| (format!("m{k}/{n}"), t)),
+        );
     }
     for &(name, base, from, to) in DERIVED {
-        let text = &fixtures.iter().find(|f| f.0 == base).unwrap_or_else(|| panic!("{base}: no such fixture")).1;
-        assert!(text.contains(from), "{name}: {base} no longer holds the text it is derived from");
+        let text = &fixtures
+            .iter()
+            .find(|f| f.0 == base)
+            .unwrap_or_else(|| panic!("{base}: no such fixture"))
+            .1;
+        assert!(
+            text.contains(from),
+            "{name}: {base} no longer holds the text it is derived from"
+        );
         fixtures.push((name.to_owned(), text.replacen(from, to, 1)));
     }
     let mut derived = 0;
@@ -200,16 +243,29 @@ fn a_literal_the_front_key_leaves_out_is_not_in_the_program() {
     let mut bad = Vec::new();
     for (name, text) in &fixtures {
         // the lowering first: it installs the rig's catalog seams the front walk reads
-        let Some((ir, lits)) = ir_of(text) else { continue };
+        let Some((ir, lits)) = ir_of(text) else {
+            continue;
+        };
         let Some(main) = front_of(text) else { continue };
-        (lowered, derived) = (lowered + 1, derived + DERIVED.iter().any(|d| d.0 == name) as usize);
+        (lowered, derived) = (
+            lowered + 1,
+            derived + DERIVED.iter().any(|d| d.0 == name) as usize,
+        );
         for (ty, b, e) in consts(text) {
-            let mut v: Vec<u32> = text[b..e].split_whitespace().map(|x| x.parse().unwrap()).collect();
+            let mut v: Vec<u32> = text[b..e]
+                .split_whitespace()
+                .map(|x| x.parse().unwrap())
+                .collect();
             if perturb(ty, &mut v).is_none() {
                 continue;
             }
             tried += 1;
-            let t = format!("{} {} {}", &text[..b], v.iter().map(u32::to_string).collect::<Vec<_>>().join(" "), &text[e..]);
+            let t = format!(
+                "{} {} {}",
+                &text[..b],
+                v.iter().map(u32::to_string).collect::<Vec<_>>().join(" "),
+                &text[e..]
+            );
             if front_of(&t) != Some(main) {
                 continue;
             }
@@ -217,13 +273,17 @@ fn a_literal_the_front_key_leaves_out_is_not_in_the_program() {
             let img: Vec<u8> = v.iter().map(|&b| b as u8).collect();
             // V4R-110: a list the content key keys by its class keeps the content key too (one filed program), and is
             // never read (a pgrcolumnar graph's is keyed by its image: a per-code table's)
-            let classed = ARRAYS.contains(&ty) && content_of(&t).is_some_and(|(k, keyed)| {
-                let classed = keyed.contains(&img);
-                if classed && Some(k) != content_of(text).map(|c| c.0) {
-                    bad.push(format!("{name}: type {ty} list [{}]: another content key", text[b..e].trim()));
-                }
-                classed
-            });
+            let classed = ARRAYS.contains(&ty)
+                && content_of(&t).is_some_and(|(k, keyed)| {
+                    let classed = keyed.contains(&img);
+                    if classed && Some(k) != content_of(text).map(|c| c.0) {
+                        bad.push(format!(
+                            "{name}: type {ty} list [{}]: another content key",
+                            text[b..e].trim()
+                        ));
+                    }
+                    classed
+                });
             lists += classed as usize;
             let (r, guards) = key::guarded(|| common::lower_fixture_baked(&t, &img));
             let other = decided(&guards) != lits;
@@ -235,21 +295,47 @@ fn a_literal_the_front_key_leaves_out_is_not_in_the_program() {
                 // a literal the admission logged as read is a baked variant's (V4R-18: its image is in the filed key); a
                 // class-keyed list never is (V4R-110)
                 Some((Some(_), true)) if ty != BYVAL && !classed => baked += 1,
-                p => bad.push(format!("{name}: type {} literal [{}]: {}", if ty == BYVAL { "(by value)".to_owned() } else { ty.to_string() }, text[b..e].trim(), match p {
-                    Some((Some(_), true)) => "a list baked",
-                    Some((Some(_), false)) => "another program",
-                    _ => "no longer lowers",
-                })),
+                p => bad.push(format!(
+                    "{name}: type {} literal [{}]: {}",
+                    if ty == BYVAL {
+                        "(by value)".to_owned()
+                    } else {
+                        ty.to_string()
+                    },
+                    text[b..e].trim(),
+                    match p {
+                        Some((Some(_), true)) => "a list baked",
+                        Some((Some(_), false)) => "another program",
+                        _ => "no longer lowers",
+                    }
+                )),
             }
         }
     }
     eprintln!("--stats d407: {lowered} fixtures lowered and keyed ({derived} derived), {tried} literals perturbed, {kept} kept the front key, {baked} of them baked (logged, a variant each), {lists} of them lists, {guarded} of them a literal guard's other outcome");
     let owes = |l: &String, o: &(&str, &str)| l.starts_with(&format!("{}:", o.0));
-    let paid: Vec<_> = OWED.iter().filter(|o| !bad.iter().any(|l| owes(l, o))).collect();
+    let paid: Vec<_> = OWED
+        .iter()
+        .filter(|o| !bad.iter().any(|l| owes(l, o)))
+        .collect();
     bad.retain(|l| !OWED.iter().any(|o| owes(l, o)));
-    assert!(paid.is_empty(), "owed sites that now pass (drop their OWED rows): {paid:?}");
-    assert!(bad.is_empty(), "{} literals the front key leaves out reach the program:\n{}", bad.len(), bad.join("\n"));
+    assert!(
+        paid.is_empty(),
+        "owed sites that now pass (drop their OWED rows): {paid:?}"
+    );
+    assert!(
+        bad.is_empty(),
+        "{} literals the front key leaves out reach the program:\n{}",
+        bad.len(),
+        bad.join("\n")
+    );
     assert_eq!(derived, DERIVED.len(), "every derived statement lowers");
-    assert!(kept > 200, "the corpus exercises the rule ({kept} perturbed literals kept the front key)");
-    assert!(lists > 0, "the corpus exercises the list rule ({lists} perturbed lists kept the front key)");
+    assert!(
+        kept > 200,
+        "the corpus exercises the rule ({kept} perturbed literals kept the front key)"
+    );
+    assert!(
+        lists > 0,
+        "the corpus exercises the list rule ({lists} perturbed lists kept the front key)"
+    );
 }

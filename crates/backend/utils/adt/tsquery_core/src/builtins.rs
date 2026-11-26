@@ -84,7 +84,11 @@ fn join_tsqueries<'mcx>(
     let res = QtNode {
         item: Item::Opr(Operator {
             oper,
-            distance: if oper == OP_PHRASE { distance as i16 } else { 0 },
+            distance: if oper == OP_PHRASE {
+                distance as i16
+            } else {
+                0
+            },
             left: 0,
         }),
         word: PgVec::new_in(mcx),
@@ -146,7 +150,11 @@ pub fn fc_tsquery_not(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> Pg
     children.try_reserve_exact(1).map_err(|_| mcx.oom(1))?;
     children.push(qt2qtn(mcx, a, 0)?);
     let res = QtNode {
-        item: Item::Opr(Operator { oper: OP_NOT, distance: 0, left: 0 }),
+        item: Item::Opr(Operator {
+            oper: OP_NOT,
+            distance: 0,
+            left: 0,
+        }),
         word: PgVec::new_in(mcx),
         sign: children[0].sign,
         flags: 0,
@@ -217,5 +225,10 @@ pub const TSQUERY_BUILTINS: &[FmgrBuiltin] = &[
     b(3691, "tsq_mcontains", 2, fc_tsq_mcontains),
     b(3692, "tsq_mcontained", 2, fc_tsq_mcontained),
     b(5003, "tsquery_phrase", 2, fc_tsquery_phrase),
-    b(5004, "tsquery_phrase_distance", 3, fc_tsquery_phrase_distance),
+    b(
+        5004,
+        "tsquery_phrase_distance",
+        3,
+        fc_tsquery_phrase_distance,
+    ),
 ];

@@ -55,8 +55,11 @@ pub fn dsynonym_init(init: &DictInitData<'static>) -> PgResult<DictSyn> {
         if name.as_slice() == b"synonyms" {
             filename = Some(def_get_string(name, value)?);
         } else if name.as_slice() == b"casesensitive" {
-            case_sensitive =
-                def_get_boolean(name, value.as_ref().map(|v| v.as_slice()), init.int_options[i])?;
+            case_sensitive = def_get_boolean(
+                name,
+                value.as_ref().map(|v| v.as_slice()),
+                init.int_options[i],
+            )?;
         } else {
             return Err(invalid_param(format!(
                 "unrecognized synonym parameter: \"{}\"",
@@ -85,7 +88,10 @@ pub fn dsynonym_init(init: &DictInitData<'static>) -> PgResult<DictSyn> {
         rd.with_context(parsed)?;
     }
     let syn = sort_syn(mcx, syn)?;
-    Ok(DictSyn { syn, case_sensitive })
+    Ok(DictSyn {
+        syn,
+        case_sensitive,
+    })
 }
 
 // dict_synonym.c:32 compareSyn: strcmp on the input word only.
@@ -162,7 +168,11 @@ fn synonym_line(
     } else {
         (lowerstr(mcx, &line[bi..ei])?, lowerstr(mcx, &line[bo..eo])?)
     };
-    syn.push(Syn { input, output, flags });
+    syn.push(Syn {
+        input,
+        output,
+        flags,
+    });
     Ok(())
 }
 
@@ -202,6 +212,10 @@ pub fn dsynonym_lexize<'mcx>(
     let mut lexeme = vec_with_capacity_in(mcx, found.output.len())?;
     lexeme.extend_from_slice(&found.output);
     let mut out = PgVec::new_in(mcx);
-    out.push(TsLexeme { nvariant: 0, flags: found.flags, lexeme });
+    out.push(TsLexeme {
+        nvariant: 0,
+        flags: found.flags,
+        lexeme,
+    });
     Ok(Some(LexizeResult(out)))
 }

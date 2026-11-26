@@ -30,7 +30,10 @@ use types_nodes::primnodes::MergeMatchKind;
 use crate::admit::refusal::Reason;
 use crate::graph::Gx;
 use crate::ops::modifytable::merge::admit::shape;
-use crate::ops::modifytable::nest_write::{BESIDE, BY_SOURCE, COPY, INDETERMINATE_COLLATION, INNER_OPS, JOINTYPE, MARKED, OUTER, RECHECK_INITPLAN};
+use crate::ops::modifytable::nest_write::{
+    BESIDE, BY_SOURCE, COPY, INDETERMINATE_COLLATION, INNER_OPS, JOINTYPE, MARKED, OUTER,
+    RECHECK_INITPLAN,
+};
 
 /// The form's outer a union read first that `first` does not take: PostgreSQL's EvalPlanQual hands no scan that union's
 /// COPY mark and evaluates its arms again, then takes the first joined row.
@@ -40,7 +43,11 @@ pub(crate) const UNION_OUTER: &str = "a MERGE through a root over a nested loop 
 /// `w`'s result relations' arms (module doc), else `None`: several heap result relations named by a junk tableoid, one
 /// nest (INNER or LEFT) before the write, its inner the union's emit (the Union op first, then filters and projections), each feed one result relation's heap range or index scan under filters and projections into the
 /// union's slot.
-pub(crate) fn arms<'g>(gx: &Gx<'g, '_>, k: usize, w: &WriteDesc<'_>) -> Option<mcx::PgVec<'g, usize>> {
+pub(crate) fn arms<'g>(
+    gx: &Gx<'g, '_>,
+    k: usize,
+    w: &WriteDesc<'_>,
+) -> Option<mcx::PgVec<'g, usize>> {
     use crate::rerun::union_arms::{feed_of, union_of};
     let ps = gx.pipelines();
     let p = ps.get(k)?;
@@ -48,14 +55,37 @@ pub(crate) fn arms<'g>(gx: &Gx<'g, '_>, k: usize, w: &WriteDesc<'_>) -> Option<m
         return None;
     }
     let wi = p.ops.iter().position(|o| matches!(o, Op::Write(_)))?;
-    let mut nests = p.ops[..wi].iter().enumerate().filter(|(_, o)| matches!(o, Op::Join(JoinDesc::Nest { .. })));
-    let (Some((j, Op::Join(JoinDesc::Nest { jointype: JoinType::JOIN_INNER | JoinType::JOIN_LEFT, .. }))), None) = (nests.next(), nests.next()) else { return None };
+    let mut nests = p.ops[..wi]
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| matches!(o, Op::Join(JoinDesc::Nest { .. })));
+    let (
+        Some((
+            j,
+            Op::Join(JoinDesc::Nest {
+                jointype: JoinType::JOIN_INNER | JoinType::JOIN_LEFT,
+                ..
+            }),
+        )),
+        None,
+    ) = (nests.next(), nests.next())
+    else {
+        return None;
+    };
     let ik = ps.inner_of(k, j)?;
     let ip = &ps[ik];
-    let Source::Breaker { slot } = ip.source else { return None };
-    let simple = |ops: &[Op<'_>]| ops.iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_)));
+    let Source::Breaker { slot } = ip.source else {
+        return None;
+    };
+    let simple = |ops: &[Op<'_>]| {
+        ops.iter()
+            .all(|o| matches!(o, Op::Filter(_) | Op::Project(_)))
+    };
     // (a run-time pruning by the nest's parameters prunes again at the recheck's one open: rerun/inner_arms.rs `nest_prune`)
-    let first = ip.ops.first().is_some_and(|o| crate::graph::step_kind(o) == crate::face::kinds::KindId::SrcAppend && !crate::graph::is_arm(o));
+    let first = ip.ops.first().is_some_and(|o| {
+        crate::graph::step_kind(o) == crate::face::kinds::KindId::SrcAppend
+            && !crate::graph::is_arm(o)
+    });
     if union_of(ip).map(|u| u.0) != Some(slot) || !first || !simple(&ip.ops[1..]) {
         return None;
     }
@@ -67,14 +97,33 @@ pub(crate) fn arms<'g>(gx: &Gx<'g, '_>, k: usize, w: &WriteDesc<'_>) -> Option<m
     for &f in feeds.iter() {
         let q = &ps[f];
         let (rti, relid) = match &q.source {
-            Source::Range { am: Am::Heap, scanrelid, relid, .. } | Source::Index { am: Am::Heap, scanrelid, relid, only: false, .. } => (u32::from(*scanrelid), *relid),
+            Source::Range {
+                am: Am::Heap,
+                scanrelid,
+                relid,
+                ..
+            }
+            | Source::Index {
+                am: Am::Heap,
+                scanrelid,
+                relid,
+                only: false,
+                ..
+            } => (u32::from(*scanrelid), *relid),
             _ => return None,
         };
         let (last, body) = q.ops.split_last()?;
-        if feed_of(q) != Some(slot) || matches!(last, Op::Filter(_) | Op::Project(_)) || !q.desc.consumes.is_empty() || !simple(body) {
+        if feed_of(q) != Some(slot)
+            || matches!(last, Op::Filter(_) | Op::Project(_))
+            || !q.desc.consumes.is_empty()
+            || !simple(body)
+        {
             return None;
         }
-        let i = w.targets.iter().position(|t| t.rti == rti && t.relid == relid)?;
+        let i = w
+            .targets
+            .iter()
+            .position(|t| t.rti == rti && t.relid == relid)?;
         if by[i] != usize::MAX {
             return None;
         }
@@ -85,46 +134,97 @@ pub(crate) fn arms<'g>(gx: &Gx<'g, '_>, k: usize, w: &WriteDesc<'_>) -> Option<m
 
 /// nest_write.rs `merge`'s check of the form (module doc) for pipeline `k`'s MERGE `w` (`m`) over its nest op `j`; the
 /// target's "producer" returned: `feed`, the first result relation's arm.
-pub(crate) fn admit(gx: &Gx<'_, '_>, (k, j): (usize, usize), w: &WriteDesc<'_>, m: &MergeDesc<'_>, node: i32, feed: usize) -> usize {
+pub(crate) fn admit(
+    gx: &Gx<'_, '_>,
+    (k, j): (usize, usize),
+    w: &WriteDesc<'_>,
+    m: &MergeDesc<'_>,
+    node: i32,
+    feed: usize,
+) -> usize {
     use crate::ops::modifytable::nest_write::{loose, rerun_init};
     use crate::rerun::epq::marks::{nest_ref, own_copy_at};
     let ps = gx.pipelines();
     let p = &ps[k];
-    let wi = p.ops.iter().position(|o| matches!(o, Op::Write(_))).unwrap_or(p.ops.len());
+    let wi = p
+        .ops
+        .iter()
+        .position(|o| matches!(o, Op::Write(_)))
+        .unwrap_or(p.ops.len());
     // a union outer rechecks in the IR (`first`), its marks never stored
-    let union_outer = j > 0 && p.ops.first().is_some_and(|o| crate::graph::step_kind(o) == crate::face::kinds::KindId::SrcAppend && !crate::graph::is_arm(o));
+    let union_outer = j > 0
+        && p.ops.first().is_some_and(|o| {
+            crate::graph::step_kind(o) == crate::face::kinds::KindId::SrcAppend
+                && !crate::graph::is_arm(o)
+        });
     if union_outer && first(gx, k, w).is_none() {
         shape(node, UNION_OUTER);
     }
-    if p.ops[..wi].iter().enumerate().any(|(i, o)| i != j && !(union_outer && i == 0) && !matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_))) {
+    if p.ops[..wi].iter().enumerate().any(|(i, o)| {
+        i != j
+            && !(union_outer && i == 0)
+            && !matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_))
+    }) {
         shape(node, BESIDE);
     }
-    let Op::Join(JoinDesc::Nest { jointype, .. }) = &p.ops[j] else { crate::refuse!(node, Reason::Bug { payload: "a nest op that is not a nest" }) };
+    let Op::Join(JoinDesc::Nest { jointype, .. }) = &p.ops[j] else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a nest op that is not a nest"
+            }
+        )
+    };
     let kind = |x: MergeMatchKind| m.actions.iter().any(|a| a.kind == x);
     if kind(MergeMatchKind::MERGE_WHEN_NOT_MATCHED_BY_SOURCE) {
         shape(node, BY_SOURCE);
     }
-    if !(*jointype == JoinType::JOIN_INNER || *jointype == JoinType::JOIN_LEFT && kind(MergeMatchKind::MERGE_WHEN_NOT_MATCHED_BY_TARGET)) {
+    if !(*jointype == JoinType::JOIN_INNER
+        || *jointype == JoinType::JOIN_LEFT
+            && kind(MergeMatchKind::MERGE_WHEN_NOT_MATCHED_BY_TARGET))
+    {
         shape(node, JOINTYPE);
     }
-    let Some(ik) = ps.inner_of(k, j) else { crate::refuse!(node, Reason::Bug { payload: "a nest without its embedded inner" }) };
-    if !ps[ik].ops.iter().skip(1).all(|o| matches!(o, Op::Filter(_) | Op::Project(_))) {
+    let Some(ik) = ps.inner_of(k, j) else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a nest without its embedded inner"
+            }
+        )
+    };
+    if !ps[ik]
+        .ops
+        .iter()
+        .skip(1)
+        .all(|o| matches!(o, Op::Filter(_) | Op::Project(_)))
+    {
         shape(node, INNER_OPS);
     }
     // the outer's row at the recheck: a COPY-marked row the nest's outer takes (its own VALUES scan, or a subquery's copy
     // entry before the nest) stored whole, or a REFERENCE-marked relation it scans itself refetched (nest_write.rs `merge`'s
     // COPYROW / 13a); every other relation's mark refuses, as there
     let target = |rti: u32| w.targets.iter().any(|t| t.rti == rti);
-    let copied = |mk: &RowMark| mk.mark == RowMarkType::ROW_MARK_COPY && own_copy_at(gx, k, mk.rti).is_some_and(|at| at <= j);
+    let copied = |mk: &RowMark| {
+        mk.mark == RowMarkType::ROW_MARK_COPY
+            && own_copy_at(gx, k, mk.rti).is_some_and(|at| at <= j)
+    };
     let stored = |mk: &RowMark| copied(mk) || nest_ref(gx, k, mk);
-    if !union_outer && w.mark_descs.iter().any(|mk| !target(mk.rti) && mk.mark == RowMarkType::ROW_MARK_COPY && !stored(mk)) {
+    if !union_outer
+        && w.mark_descs
+            .iter()
+            .any(|mk| !target(mk.rti) && mk.mark == RowMarkType::ROW_MARK_COPY && !stored(mk))
+    {
         shape(node, COPY);
     }
     if !union_outer && w.mark_descs.iter().any(|mk| !target(mk.rti) && !stored(mk)) {
         shape(node, MARKED);
     }
     // the recheck's outer yields at most one row, so the inner (and each arm) opens once over its substituted source
-    if !union_outer && !matches!(p.source, Source::Const) && !w.mark_descs.iter().any(|mk| !target(mk.rti) && stored(mk)) {
+    if !union_outer
+        && !matches!(p.source, Source::Const)
+        && !w.mark_descs.iter().any(|mk| !target(mk.rti) && stored(mk))
+    {
         shape(node, OUTER);
     }
     if rerun_init(gx, true, &p.ops[..wi], ik) {
@@ -155,31 +255,65 @@ pub(crate) fn first(gx: &Gx<'_, '_>, k: usize, w: &WriteDesc<'_>) -> Option<(usi
     let ps = gx.pipelines();
     let p = &ps[k];
     let wi = p.ops.iter().position(|o| matches!(o, Op::Write(_)))?;
-    if !p.ops.first().is_some_and(crate::rerun::union_arms::union_op) {
+    if !p
+        .ops
+        .first()
+        .is_some_and(crate::rerun::union_arms::union_op)
+    {
         return None;
     }
-    let jn = p.ops[..wi].iter().position(|o| matches!(o, Op::Join(JoinDesc::Nest { .. })))?;
-    let Op::Join(JoinDesc::Nest { jointype: JoinType::JOIN_LEFT, params, qual, .. }) = &p.ops[jn] else { return None };
+    let jn = p.ops[..wi]
+        .iter()
+        .position(|o| matches!(o, Op::Join(JoinDesc::Nest { .. })))?;
+    let Op::Join(JoinDesc::Nest {
+        jointype: JoinType::JOIN_LEFT,
+        params,
+        qual,
+        ..
+    }) = &p.ops[jn]
+    else {
+        return None;
+    };
     let kind = |x: MergeMatchKind| m.actions.iter().any(|a| a.kind == x);
-    if !kind(MergeMatchKind::MERGE_WHEN_NOT_MATCHED_BY_TARGET) || kind(MergeMatchKind::MERGE_WHEN_NOT_MATCHED_BY_SOURCE) {
+    if !kind(MergeMatchKind::MERGE_WHEN_NOT_MATCHED_BY_TARGET)
+        || kind(MergeMatchKind::MERGE_WHEN_NOT_MATCHED_BY_SOURCE)
+    {
         return None;
     }
-    if !p.ops[1..wi].iter().enumerate().all(|(i, o)| i + 1 == jn || matches!(o, Op::Project(_) | Op::Gate(_))) {
+    if !p.ops[1..wi]
+        .iter()
+        .enumerate()
+        .all(|(i, o)| i + 1 == jn || matches!(o, Op::Project(_) | Op::Gate(_)))
+    {
         return None;
     }
     let outer = gx.union_feeds(k);
     let &f0 = outer.first()?;
     let q0 = &ps[f0];
     let (_, body) = q0.ops.split_last()?;
-    if !matches!(q0.source, Source::Const) || body.is_empty() || !body.iter().all(|o| matches!(o, Op::Project(_))) || !q0.desc.consumes.is_empty() {
+    if !matches!(q0.source, Source::Const)
+        || body.is_empty()
+        || !body.iter().all(|o| matches!(o, Op::Project(_)))
+        || !q0.desc.consumes.is_empty()
+    {
         return None;
     }
     let ik = ps.inner_of(k, jn)?;
     let copy = |rti: u32| w.copy_arms.iter().any(|e| e.0 == rti);
-    if w.mark_descs.iter().any(|mk| mk.parent || mk.mark != RowMarkType::ROW_MARK_COPY || !copy(mk.rti)) {
+    if w.mark_descs
+        .iter()
+        .any(|mk| mk.parent || mk.mark != RowMarkType::ROW_MARK_COPY || !copy(mk.rti))
+    {
         return None;
     }
-    if [Member::CrossPartition, Member::TargetView, Member::WriteSubPlan].into_iter().any(|x| w.members.has(x)) {
+    if [
+        Member::CrossPartition,
+        Member::TargetView,
+        Member::WriteSubPlan,
+    ]
+    .into_iter()
+    .any(|x| w.members.has(x))
+    {
         return None;
     }
     if w.targets.iter().any(|t| {
@@ -191,31 +325,43 @@ pub(crate) fn first(gx: &Gx<'_, '_>, k: usize, w: &WriteDesc<'_>) -> Option<(usi
     // what the redo evaluates: the first feed's projections, the write pipeline's ops around the nest, the nest's
     // parameters (each one's value, nest_write.rs `vals`) and quals, each arm's recheck quals and ops, the inner
     // union's emit ops
-    let init = |id: i32| crate::rerun::params::producer(gx, id) == Some(crate::face::kinds::KindId::NestInitplan);
-    let loud = |e: types_nodes::Node<'_>| gravity_decompose::expr::has_subplan(e) || crate::ops::modifytable::rowop_epq::reads(e, &init);
+    let init = |id: i32| {
+        crate::rerun::params::producer(gx, id) == Some(crate::face::kinds::KindId::NestInitplan)
+    };
+    let loud = |e: types_nodes::Node<'_>| {
+        gravity_decompose::expr::has_subplan(e)
+            || crate::ops::modifytable::rowop_epq::reads(e, &init)
+    };
     if crate::frame::iface::nest_param_vals(params, &loud) {
         return None;
     }
-    for o in body.iter().chain(p.ops[1..wi].iter()).chain(ps[ik].ops.iter().skip(1)) {
+    for o in body
+        .iter()
+        .chain(p.ops[1..wi].iter())
+        .chain(ps[ik].ops.iter().skip(1))
+    {
         match o {
             Op::Project(l) => {
-                if l.iter().any(& loud) {
+                if l.iter().any(&loud) {
                     return None;
                 }
             }
-            Op::Filter(x) | Op::Gate(x)
-                if loud(*x) => {
-                    return None;
-                }
+            Op::Filter(x) | Op::Gate(x) if loud(*x) => {
+                return None;
+            }
             _ => {}
         }
     }
-    if qual.iter().any(& loud) {
+    if qual.iter().any(&loud) {
         return None;
     }
     for &f in feeds.iter() {
-        let row = crate::ops::modifytable::rowop_epq::below(&ps[f], ps[f].ops.len().saturating_sub(1), gx.mcx)?;
-        if row.into_iter().any(& loud) {
+        let row = crate::ops::modifytable::rowop_epq::below(
+            &ps[f],
+            ps[f].ops.len().saturating_sub(1),
+            gx.mcx,
+        )?;
+        if row.into_iter().any(&loud) {
             return None;
         }
     }
@@ -231,12 +377,27 @@ pub(crate) fn first(gx: &Gx<'_, '_>, k: usize, w: &WriteDesc<'_>) -> Option<(usi
 pub(crate) fn covers(gx: &Gx<'_, '_>, arm: &PipelineNode<'_>) -> bool {
     let ps = gx.pipelines();
     let at = arm as *const PipelineNode<'_> as *const u8;
-    let Some(a) = (0..ps.len()).find(|&q| std::ptr::eq(&ps[q] as *const PipelineNode<'_> as *const u8, at)) else { return false };
+    let Some(a) =
+        (0..ps.len()).find(|&q| std::ptr::eq(&ps[q] as *const PipelineNode<'_> as *const u8, at))
+    else {
+        return false;
+    };
     let mut writers = (0..ps.len()).filter(|&q| crate::rerun::inner_arms_index::writes(&ps[q]));
-    let (Some(k), None) = (writers.next(), writers.next()) else { return false };
-    let mut ws = ps[k].ops.iter().filter_map(|o| if let Op::Write(w) = o { Some(w) } else { None });
-    let (Some(w), None) = (ws.next(), ws.next()) else { return false };
+    let (Some(k), None) = (writers.next(), writers.next()) else {
+        return false;
+    };
+    let mut ws = ps[k]
+        .ops
+        .iter()
+        .filter_map(|o| if let Op::Write(w) = o { Some(w) } else { None });
+    let (Some(w), None) = (ws.next(), ws.next()) else {
+        return false;
+    };
     use crate::ops::modifytable::update_built::{copied_union, nest_union};
-    let feeds = if w.merge.is_some() { arms(gx, k, w) } else { nest_union(gx, k, w).filter(|_| !copied_union(gx, k, w)) };
+    let feeds = if w.merge.is_some() {
+        arms(gx, k, w)
+    } else {
+        nest_union(gx, k, w).filter(|_| !copied_union(gx, k, w))
+    };
     ps[k].ops.iter().all(|o| !matches!(o, Op::Lock(_))) && feeds.is_some_and(|f| f.contains(&a))
 }

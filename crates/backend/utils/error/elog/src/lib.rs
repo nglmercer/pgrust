@@ -25,6 +25,8 @@ pub use config::{
     assign_syslog_ident, check_backtrace_functions, check_log_destination,
     matches_backtrace_functions, BacktraceFunctionList,
 };
+pub use config::{in_postmaster_context, postmaster_context, PostmasterContext};
+pub use errposition::{arm_parser_errposition, ParserErrpositionScope};
 pub use policy::{
     is_log_level_output, message_level_is_interesting, should_output_to_client,
     should_output_to_server,
@@ -36,28 +38,26 @@ pub use report::{
     send_message_to_frontend, send_message_to_server_log, set_backtrace, unpack_sql_state,
     vwrite_stderr, write_console, write_pipe_chunks, write_stderr, DebugFileOpen,
 };
-pub use config::{in_postmaster_context, postmaster_context, PostmasterContext};
 pub use sink::{
     backend_log_context, clear_retired_debug_query_string, debug_query_string_scope,
-    set_backend_log_context, set_emit_log_hook,
-    set_frontend_redirect, set_server_log_defer, with_debug_query_string, BackendLogContext,
-    DebugQueryStringScope, EmitLogHook, FrontendRedirect, ServerLogDefer,
+    set_backend_log_context, set_emit_log_hook, set_frontend_redirect, set_server_log_defer,
+    with_debug_query_string, BackendLogContext, DebugQueryStringScope, EmitLogHook,
+    FrontendRedirect, ServerLogDefer,
 };
-pub use errposition::{arm_parser_errposition, ParserErrpositionScope};
 pub use stack::{
-    clear_emit_context_callbacks, emit_error_report_for, emit_unhandled_error_report, ereport_msg,
+    abort_on_plain_panic, apply_emit_context_callbacks_below, clear_emit_context_callbacks,
+    context_stack_mark, emit_error_report_for, emit_unhandled_error_report, ereport_msg,
     err_generic_string, errbacktrace, errcode, errcode_for_file_access, errcode_for_socket_access,
     errcontext_msg, errdetail, errdetail_internal, errdetail_log, errdetail_log_plural,
     errdetail_plural, errfinish, errhidecontext, errhidestmt, errhint, errhint_internal,
     errhint_plural, errmsg, errmsg_internal, errmsg_plural, error_stack_clean, errposition,
     errsave_finish, errsave_start, errstart, errstart_cold, geterrcode, geterrposition,
     getinternalerrposition, in_error_recursion_trouble, internalerrposition, internalerrquery,
-    abort_on_plain_panic, panic_on_crit_section_escape, pg_re_throw, pop_emit_context_callback, push_context_frame,
-    push_context_frame_borrowed,
-    apply_emit_context_callbacks_below, context_stack_mark,
-    push_emit_context_callback, reset_statement_suppressed, set_errcontext_domain,
-    suppress_statement, try_emit_error_report_for, CopyErrorData, EmitErrorReport, FlushErrorState,
-    FreeErrorData, GetErrorContextStack, ReThrowError, ThrowErrorData, ERRORDATA_STACK_SIZE,
+    panic_on_crit_section_escape, pg_re_throw, pop_emit_context_callback, push_context_frame,
+    push_context_frame_borrowed, push_emit_context_callback, reset_statement_suppressed,
+    set_errcontext_domain, suppress_statement, try_emit_error_report_for, CopyErrorData,
+    EmitErrorReport, FlushErrorState, FreeErrorData, GetErrorContextStack, ReThrowError,
+    ThrowErrorData, ERRORDATA_STACK_SIZE,
 };
 pub use syslog::write_syslog;
 

@@ -19,21 +19,24 @@ use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{HostFlags, IntBinOp, IntCond, StateMask, Type, Value};
 use gravity_kernels::ops::agg::trans::entries::m6_extract_word;
 use gravity_kernels::ops::scan::entries::{tz_fixed_offset, tz_offset_at};
-use mcx::{CollectIn, Mcx, PgVec, GrowIn};
+use mcx::{CollectIn, GrowIn, Mcx, PgVec};
 use types_nodes::{Node, NodeTag};
 
+use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::face::step::{Claim, ExprExtImpl, ExprExtMech, SubEmit, EXT_AT};
 use crate::frame::env::Env;
 use crate::frame::px::{ExId, Px};
 use crate::frame::row::RowVals;
-use crate::admit::refusal::{Reason, ShapeWhy};
 
 crate::strategies! {
     /// Date_trunc / extract as integer arithmetic, Umulh, strict key words.
     EXPR_FUSION = 62, "expr.fusion", DatetimeExpr;
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(EXPR_FUSION, &ExprExtImpl(&FUSE))], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(EXPR_FUSION, &ExprExtImpl(&FUSE))],
+    ..crate::ops::NONE
+};
 
 struct Fuse;
 static FUSE: Fuse = Fuse;
@@ -57,7 +60,9 @@ fn tz_form(funcid: u32) -> Option<&'static str> {
 
 /// Whether `x` is a `FuncExpr` over a fused form.
 fn is_plan_call(x: Node<'_>) -> bool {
-    x.node_tag() == NodeTag::T_FuncExpr && x.as_func_expr().is_some_and(|f| tz_form(f.funcid).is_some())
+    x.node_tag() == NodeTag::T_FuncExpr
+        && x.as_func_expr()
+            .is_some_and(|f| tz_form(f.funcid).is_some())
 }
 
 /// The plan's `FuncExpr` nodes over a fused form, in walk order.
@@ -90,21 +95,44 @@ pub(crate) fn word_claimable(node: Node<'_>) -> bool {
     let node = node.as_target_entry().map_or(node, |te| te.expr);
     // under an integer cast root (`extract(hour FROM ts)::int`) the word is the extract's (gravity_expr `word_node`)
     let node = crate::table::emit_group::word_cast_arg(node).0;
-    let Some(f) = node.as_func_expr().filter(|f| f.args.len() == 2) else { return false };
+    let Some(f) = node.as_func_expr().filter(|f| f.args.len() == 2) else {
+        return false;
+    };
     let is_extract = gravity_fn::row_of(f.funcid).is_some_and(|r| r.name == "extract_timestamptz");
-    let unit = f.args.nth(0).as_const().filter(|c| !c.constisnull).and_then(gravity_decompose::expr::const_bytes);
-    is_extract && unit.and_then(datetime::extract_timestamp_unit).is_some_and(|u| !u.monotonic()) && plan_call_count(node) == 1
+    let unit = f
+        .args
+        .nth(0)
+        .as_const()
+        .filter(|c| !c.constisnull)
+        .and_then(gravity_decompose::expr::const_bytes);
+    is_extract
+        && unit
+            .and_then(datetime::extract_timestamp_unit)
+            .is_some_and(|u| !u.monotonic())
+        && plan_call_count(node) == 1
 }
 
 /// One call per expression: the program's only fused call, matched to the plan's only one (two calls of one expression
 /// stay hosted). `word`: the root is a group key's word (an `extract` is claimed only there).
-fn claim<'p>(node: Node<'p>, c: &mut Compiled<'p>, sub: &mut dyn FnMut(Node<'p>) -> u32, mcx: Mcx<'_>, word: bool) -> Option<Claim> {
+fn claim<'p>(
+    node: Node<'p>,
+    c: &mut Compiled<'p>,
+    sub: &mut dyn FnMut(Node<'p>) -> u32,
+    mcx: Mcx<'_>,
+    word: bool,
+) -> Option<Claim> {
     let p = &c.prog;
-    let at: PgVec<'_, (usize, DtForm)> = p.nodes.iter().enumerate().filter_map(|(i, n)| {
-        let ExprNode::Func(f) = n else { return None };
-        let call = &p.sites[f.site.0 as usize];
-        tz_form(call.funcid).map(|name| (i, datetime::form_of(p, call, name, word)))
-    }).filter_map(|(i, f)| Some((i, f?))).collect_in(mcx);
+    let at: PgVec<'_, (usize, DtForm)> = p
+        .nodes
+        .iter()
+        .enumerate()
+        .filter_map(|(i, n)| {
+            let ExprNode::Func(f) = n else { return None };
+            let call = &p.sites[f.site.0 as usize];
+            tz_form(call.funcid).map(|name| (i, datetime::form_of(p, call, name, word)))
+        })
+        .filter_map(|(i, f)| Some((i, f?)))
+        .collect_in(mcx);
     let calls = plan_calls(node, mcx);
     let [(i, form)] = at[..] else { return None };
     let [call] = calls[..] else { return None };
@@ -118,16 +146,26 @@ fn claim<'p>(node: Node<'p>, c: &mut Compiled<'p>, sub: &mut dyn FnMut(Node<'p>)
         Kind::Extract => 1700,
         _ => 701,
     };
-    c.prog.nodes[i] = ExprNode::Var(Var { src: VarSource::Scan, attno: EXT_AT, typ, desc: 0 });
+    c.prog.nodes[i] = ExprNode::Var(Var {
+        src: VarSource::Scan,
+        attno: EXT_AT,
+        typ,
+        desc: 0,
+    });
     let (a, whole) = (sub(ts), sub(call));
     debug_assert_eq!((a, whole), (0, 1));
-    Some(Claim { plan: Rc::new(Plan { form, word }), skip: vec![call.as_raw().as_ptr() as usize] }) // alloc: Program
+    Some(Claim {
+        plan: Rc::new(Plan { form, word }),
+        skip: vec![call.as_raw().as_ptr() as usize],
+    }) // alloc: Program
 }
 
 /// B2-31: `ex` holds the word claim: its value is the field's word, so a root integer cast over it is that word too
 /// (step/expr.rs sets `RowRefs::word_root`, gravity_expr `word_node`).
 pub(crate) fn word_claimed(e: &crate::hir::Ex<'_>) -> bool {
-    crate::face::step::ExtPlan::of(e).and_then(|x| x.plan.downcast_ref::<Plan>()).is_some_and(|p| p.word)
+    crate::face::step::ExtPlan::of(e)
+        .and_then(|x| x.plan.downcast_ref::<Plan>())
+        .is_some_and(|p| p.word)
 }
 
 /// B2-31: the word-root claim `compile_word` tries before `WordRoot` (`word_claimable`).
@@ -135,32 +173,89 @@ struct FuseWord;
 pub(crate) static FUSE_WORD: &dyn ExprExtMech = &FuseWord;
 
 impl ExprExtMech for FuseWord {
-    fn attach<'p>(&self, px: &mut Px<'_, 'p>, _at: (usize, usize), node: Node<'p>, c: &mut Compiled<'p>, _ex: ExId, sub: &mut dyn FnMut(Node<'p>) -> u32) -> Option<Claim> {
+    fn attach<'p>(
+        &self,
+        px: &mut Px<'_, 'p>,
+        _at: (usize, usize),
+        node: Node<'p>,
+        c: &mut Compiled<'p>,
+        _ex: ExId,
+        sub: &mut dyn FnMut(Node<'p>) -> u32,
+    ) -> Option<Claim> {
         let mcx = px.mcx();
-        let claimed = word_claimable(node).then(|| claim(node, c, sub, mcx, true)).flatten();
+        let claimed = word_claimable(node)
+            .then(|| claim(node, c, sub, mcx, true))
+            .flatten();
         if claimed.is_some() {
             fires::fire("expr.fusion.word"); // B2-31 witness signal: a timestamptz extract group key claimed by its word
         }
         claimed
     }
 
-    fn emit(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals, ex: ExId, site: u32, sub: SubEmit<'_>) -> [Value; 3] {
+    fn emit(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        row: &RowVals,
+        ex: ExId,
+        site: u32,
+        sub: SubEmit<'_>,
+    ) -> [Value; 3] {
         FUSE.emit(b, env, row, ex, site, sub)
     }
 }
 
 impl ExprExtMech for Fuse {
-    fn attach<'p>(&self, px: &mut Px<'_, 'p>, _at: (usize, usize), node: Node<'p>, c: &mut Compiled<'p>, _ex: ExId, sub: &mut dyn FnMut(Node<'p>) -> u32) -> Option<Claim> {
+    fn attach<'p>(
+        &self,
+        px: &mut Px<'_, 'p>,
+        _at: (usize, usize),
+        node: Node<'p>,
+        c: &mut Compiled<'p>,
+        _ex: ExId,
+        sub: &mut dyn FnMut(Node<'p>) -> u32,
+    ) -> Option<Claim> {
         claim(node, c, sub, px.mcx(), false)
     }
 
-    fn emit(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, _row: &RowVals, ex: ExId, _site: u32, sub: SubEmit<'_>) -> [Value; 3] {
-        let plan = crate::face::step::ExtPlan::of(env.placed(ex)).and_then(|x| x.plan.downcast_ref::<Plan>()).map(|p| (p.form, p.word));
-        let Some((form, word)) = plan else { crate::refuse!(env.node, Reason::Bug { payload: "expr.fusion emitted a site it never claimed" }) };
+    fn emit(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        _row: &RowVals,
+        ex: ExId,
+        _site: u32,
+        sub: SubEmit<'_>,
+    ) -> [Value; 3] {
+        let plan = crate::face::step::ExtPlan::of(env.placed(ex))
+            .and_then(|x| x.plan.downcast_ref::<Plan>())
+            .map(|p| (p.form, p.word));
+        let Some((form, word)) = plan else {
+            crate::refuse!(
+                env.node,
+                Reason::Bug {
+                    payload: "expr.fusion emitted a site it never claimed"
+                }
+            )
+        };
         // session state: not a worker host (a program calling it runs on the leader)
-        let flags = HostFlags { may_error: false, pure: false, touches_memory: false, worker: false, state: StateMask::NONE };
-        let h = b.declare_host_once("tz_fixed_offset", &[Type::Ptr], Some(Type::I64), tz_fixed_offset as *const () as usize, flags);
-        let off = b.call_host(h, &[env.ctx], Some(Type::I64)).unwrap_or(env.zero);
+        let flags = HostFlags {
+            may_error: false,
+            pure: false,
+            touches_memory: false,
+            worker: false,
+            state: StateMask::NONE,
+        };
+        let h = b.declare_host_once(
+            "tz_fixed_offset",
+            &[Type::Ptr],
+            Some(Type::I64),
+            tz_fixed_offset as *const () as usize,
+            flags,
+        );
+        let off = b
+            .call_host(h, &[env.ctx], Some(Type::I64))
+            .unwrap_or(env.zero);
         let min = b.iconst(Type::I64, i64::MIN);
         let dst = b.icmp(IntCond::Eq, off, min);
         let (l_host, l_fused) = (b.create_block(&[]), b.create_block(&[]));
@@ -171,7 +266,11 @@ impl ExprExtMech for Fuse {
         // a zone with DST: the hosted call; each side's column reads are memoised in its own block only
         b.switch_to(l_host);
         let memo = env.memo.set_aside();
-        let host = if word { dst_word(b, env, form, flags, &mut *sub) } else { sub(b, env, 1) };
+        let host = if word {
+            dst_word(b, env, form, flags, &mut *sub)
+        } else {
+            sub(b, env, 1)
+        };
         env.memo.restore(memo);
         let types = host.map(|v| b.value_type(v));
         let l_join = b.create_block(&types);
@@ -181,8 +280,17 @@ impl ExprExtMech for Fuse {
         let [ts, ok, err] = sub(b, env, 0);
         env.memo.restore(memo);
         let fused = fused(b, form, off, ts, ok, err);
-        if fused.iter().zip(types.iter()).any(|(&v, &t)| b.value_type(v) != t) {
-            crate::refuse!(env.node, Reason::Shape { why: ShapeWhy("a fused datetime value whose form differs from the hosted one") });
+        if fused
+            .iter()
+            .zip(types.iter())
+            .any(|(&v, &t)| b.value_type(v) != t)
+        {
+            crate::refuse!(
+                env.node,
+                Reason::Shape {
+                    why: ShapeWhy("a fused datetime value whose form differs from the hosted one")
+                }
+            );
         }
         b.br(l_join, &fused);
         b.switch_to(l_join);
@@ -195,11 +303,25 @@ impl ExprExtMech for Fuse {
 /// `timestamp2tm`'s `pg_localtime`) and open-codes the field over `ts + offset`, as a fixed zone's does; a row whose offset
 /// it cannot read that way (out of `pg_localtime`'s range, a leap second, an infinity) takes the hosted call, its numeric
 /// converted to the integer word (`extract_word`: rep.hosted.hash's conversion, PG's int4 range and its raise).
-fn dst_word(b: &mut FunctionBuilder<'_>, env: &mut Env, form: DtForm, flags: HostFlags, sub: SubEmit<'_>) -> [Value; 3] {
+fn dst_word(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    form: DtForm,
+    flags: HostFlags,
+    sub: SubEmit<'_>,
+) -> [Value; 3] {
     let [ts, ok, err] = sub(b, env, 0);
-    let h = b.declare_host_once("tz_offset_at", &[Type::Ptr, Type::I64], Some(Type::I64), tz_offset_at as *const () as usize, flags);
+    let h = b.declare_host_once(
+        "tz_offset_at",
+        &[Type::Ptr, Type::I64],
+        Some(Type::I64),
+        tz_offset_at as *const () as usize,
+        flags,
+    );
     let min = b.iconst(Type::I64, i64::MIN);
-    let off = b.call_host(h, &[env.ctx, ts], Some(Type::I64)).unwrap_or(min);
+    let off = b
+        .call_host(h, &[env.ctx, ts], Some(Type::I64))
+        .unwrap_or(min);
     let unread = b.icmp(IntCond::Eq, off, min);
     let (l_host, l_fused) = (b.create_block(&[]), b.create_block(&[]));
     b.mark_cold(l_host);
@@ -212,8 +334,17 @@ fn dst_word(b: &mut FunctionBuilder<'_>, env: &mut Env, form: DtForm, flags: Hos
     b.br(l_join, &host);
     b.switch_to(l_fused);
     let fused = fused(b, form, off, ts, ok, err);
-    if fused.iter().zip(types.iter()).any(|(&v, &t)| b.value_type(v) != t) {
-        crate::refuse!(env.node, Reason::Shape { why: ShapeWhy("a fused datetime value whose form differs from the hosted one") });
+    if fused
+        .iter()
+        .zip(types.iter())
+        .any(|(&v, &t)| b.value_type(v) != t)
+    {
+        crate::refuse!(
+            env.node,
+            Reason::Shape {
+                why: ShapeWhy("a fused datetime value whose form differs from the hosted one")
+            }
+        );
     }
     b.br(l_join, &fused);
     b.switch_to(l_join);
@@ -222,7 +353,14 @@ fn dst_word(b: &mut FunctionBuilder<'_>, env: &mut Env, form: DtForm, flags: Hos
 }
 
 /// `form` over timestamptz word `ts` (valid `ok`, raise word `err`) under the fixed offset `off` (seconds east).
-fn fused(b: &mut FunctionBuilder<'_>, form: DtForm, off: Value, ts: Value, ok: Value, err: Value) -> [Value; 3] {
+fn fused(
+    b: &mut FunctionBuilder<'_>,
+    form: DtForm,
+    off: Value,
+    ts: Value,
+    ok: Value,
+    err: Value,
+) -> [Value; 3] {
     let (lo, hi) = (b.iconst(Type::I64, i64::MIN), b.iconst(Type::I64, i64::MAX));
     let (nlo, nhi) = (b.icmp(IntCond::Ne, ts, lo), b.icmp(IntCond::Ne, ts, hi));
     let finite = b.int_bin(IntBinOp::And, nlo, nhi);
@@ -240,9 +378,15 @@ fn fused(b: &mut FunctionBuilder<'_>, form: DtForm, off: Value, ts: Value, ok: V
             let min = b.iconst(Type::I64, datetime::MIN_TS);
             let low = b.icmp(IntCond::Slt, back, min);
             let bad = b.int_bin(IntBinOp::And, finite, low);
-            let range = b.iconst(Type::I64, gravity_abi::status::raise::bit(gravity_abi::status::raise::TS_RANGE) as i64);
+            let range = b.iconst(
+                Type::I64,
+                gravity_abi::status::raise::bit(gravity_abi::status::raise::TS_RANGE) as i64,
+            );
             let range = b.select(bad, range, zero);
-            (b.select(finite, back, out.value), b.int_bin(IntBinOp::Or, out.err, range))
+            (
+                b.select(finite, back, out.value),
+                b.int_bin(IntBinOp::Or, out.err, range),
+            )
         }
         _ => (out.value, out.err),
     };
@@ -268,15 +412,34 @@ fn extract_word(b: &mut FunctionBuilder<'_>, [v, ok, err]: [Value; 3]) -> [Value
     let (l_conv, l_out) = (b.create_block(&[]), b.create_block(&[Type::I64, Type::I64]));
     b.cond_br(live, (l_conv, &[]), (l_out, &[zero, err]));
     b.switch_to(l_conv);
-    let p = if b.value_type(v) == Type::Ptr { v } else { b.conv(gravity_ir::ConvOp::IntToPtr, Type::Ptr, v) };
+    let p = if b.value_type(v) == Type::Ptr {
+        v
+    } else {
+        b.conv(gravity_ir::ConvOp::IntToPtr, Type::Ptr, v)
+    };
     let slot = b.declare_stack_slot(16, 8);
     let out = b.stack_addr(slot);
-    let flags = HostFlags { may_error: true, touches_memory: true, ..HostFlags::default() };
-    let h = b.declare_host_once("m6_extract_word", &[Type::Ptr, Type::Ptr], Some(Type::I64), m6_extract_word as *const () as usize, flags);
-    let st = b.call_host(h, &[p, out], Some(Type::I64)).expect("m6_extract_word returns its status");
+    let flags = HostFlags {
+        may_error: true,
+        touches_memory: true,
+        ..HostFlags::default()
+    };
+    let h = b.declare_host_once(
+        "m6_extract_word",
+        &[Type::Ptr, Type::Ptr],
+        Some(Type::I64),
+        m6_extract_word as *const () as usize,
+        flags,
+    );
+    let st = b
+        .call_host(h, &[p, out], Some(Type::I64))
+        .expect("m6_extract_word returns its status");
     let w = b.load(Type::I64, out, 0);
     let bad = b.icmp(IntCond::Ne, st, zero);
-    let host_bit = b.iconst(Type::I64, gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64);
+    let host_bit = b.iconst(
+        Type::I64,
+        gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64,
+    );
     let e = b.select(bad, host_bit, zero);
     b.br(l_out, &[w, e]);
     b.switch_to(l_out);

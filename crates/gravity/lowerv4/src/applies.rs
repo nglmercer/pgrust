@@ -2,12 +2,12 @@
 //! `props.rs` computes, mirroring `docs/gravity/lowerv4/tools/v4plan.py` `pred()` term for term. Closed at M0 and frozen by
 //! the parity test (the census through both, `tests/m0_faces.rs`); narrowing a predicate later is an extension reopen.
 //! Admission (R-A) is here too: the one place a statement refuses because a kind or an applicable road is not built.
+use crate::admit::refusal::Variant;
 use crate::face::kinds::{KindId as K, KindSet};
 use crate::face::strategy::{self, Strategy, StrategySet, STRATEGIES, WRITE_ROUTE};
 use crate::graph::Gx;
-use crate::props::Props;
-use crate::admit::refusal::Variant;
 use crate::ops as registry;
+use crate::props::Props;
 
 macro_rules! tokens {
     ($(#[$m:meta])* $ty:ident { $($v:ident $name:literal),* $(,)? }) => {
@@ -95,14 +95,67 @@ impl PropSet {
     }
 }
 
-const KEYED: KindSet = KindSet::of(&[K::KeyedHashagg, K::KeyedDistinctGrouped, K::KeyedDistinctPlain, K::KeyedGsets, K::KeyedTwopass]);
-const NEST: KindSet = KindSet::of(&[K::NestLoop, K::NestSpool, K::NestParam, K::NestMemo, K::NestSubplan, K::NestInitplan, K::NestRerun, K::NestCte]);
+const KEYED: KindSet = KindSet::of(&[
+    K::KeyedHashagg,
+    K::KeyedDistinctGrouped,
+    K::KeyedDistinctPlain,
+    K::KeyedGsets,
+    K::KeyedTwopass,
+]);
+const NEST: KindSet = KindSet::of(&[
+    K::NestLoop,
+    K::NestSpool,
+    K::NestParam,
+    K::NestMemo,
+    K::NestSubplan,
+    K::NestInitplan,
+    K::NestRerun,
+    K::NestCte,
+]);
 /// The nest kinds that may run a pipeline more than once per execution (every `nest.*` but an initplan and a CTE).
-const NEST_RESCAN: KindSet = KindSet::of(&[K::NestLoop, K::NestSpool, K::NestParam, K::NestMemo, K::NestSubplan, K::NestRerun]);
+const NEST_RESCAN: KindSet = KindSet::of(&[
+    K::NestLoop,
+    K::NestSpool,
+    K::NestParam,
+    K::NestMemo,
+    K::NestSubplan,
+    K::NestRerun,
+]);
 /// Every `src.*` kind but `src.result` and `src.values`.
-const SRCS: KindSet = KindSet::of(&[K::SrcPgrc, K::SrcIndex, K::SrcHeap, K::SrcIndexOnly, K::SrcIndexArray, K::SrcIndexAm, K::SrcBitmap, K::SrcBitmapTree, K::SrcTid, K::SrcSample, K::SrcAppend, K::SrcPrune]);
-const WRITE: KindSet = KindSet::of(&[K::WriteDelete, K::WriteInsert, K::WriteUpdate, K::WriteMerge, K::WriteReturning, K::WriteOnconflict, K::WriteLock, K::WriteTransition]);
-const RUNS_WINDOW: KindSet = KindSet::of(&[K::RunsTopkGroups, K::RunsSort, K::RunsTopkRows, K::RunsUnique, K::RunsGroup, K::RunsIncremental, K::RunsMergeappend, K::WindowAgg]);
+const SRCS: KindSet = KindSet::of(&[
+    K::SrcPgrc,
+    K::SrcIndex,
+    K::SrcHeap,
+    K::SrcIndexOnly,
+    K::SrcIndexArray,
+    K::SrcIndexAm,
+    K::SrcBitmap,
+    K::SrcBitmapTree,
+    K::SrcTid,
+    K::SrcSample,
+    K::SrcAppend,
+    K::SrcPrune,
+]);
+const WRITE: KindSet = KindSet::of(&[
+    K::WriteDelete,
+    K::WriteInsert,
+    K::WriteUpdate,
+    K::WriteMerge,
+    K::WriteReturning,
+    K::WriteOnconflict,
+    K::WriteLock,
+    K::WriteTransition,
+]);
+const RUNS_WINDOW: KindSet = KindSet::of(&[
+    K::RunsTopkGroups,
+    K::RunsSort,
+    K::RunsTopkRows,
+    K::RunsUnique,
+    K::RunsGroup,
+    K::RunsIncremental,
+    K::RunsMergeappend,
+    K::WindowAgg,
+]);
 const DISTINCT: KindSet = KindSet::of(&[K::KeyedDistinctPlain, K::KeyedDistinctGrouped]);
 /// The kinds that sort rows (V4R-127: a Group / Unique / sorted aggregate reads an order and sorts nothing; its input's
 /// Sort, when it has one, is runs.sort's own kind).
@@ -169,19 +222,30 @@ pub fn holds(a: Applies, k: KindSet, p: PropSet) -> bool {
         Applies::DatetimeExpr => p.has(P::Datetime),
         Applies::Append => k.has(K::SrcAppend),
         Applies::CountTopk => k.has(K::RunsTopkGroups) && p.has(P::CountOrder),
-        Applies::CodeFilterTopk => pg && p.has(P::Code) && p.has(P::Filter) && k.has(K::RunsTopkGroups) && p.has(P::CountOrder),
+        Applies::CodeFilterTopk => {
+            pg && p.has(P::Code)
+                && p.has(P::Filter)
+                && k.has(K::RunsTopkGroups)
+                && p.has(P::CountOrder)
+        }
         Applies::CodeKeyedTopk => code_keyed && k.has(K::RunsTopkGroups) && p.has(P::CountOrder),
         Applies::TopkRows => k.has(K::RunsTopkRows),
         Applies::Walkable => p.has(P::Walk),
         Applies::TopkWide => k.has(K::RunsTopkRows) && p.has(P::TopkWide),
         Applies::Sort => k.any(SORT),
-        Applies::SortKeylane => k.any(KindSet::of(&[K::RunsSort, K::RunsIncremental])) && p.has(P::LaneKey),
+        Applies::SortKeylane => {
+            k.any(KindSet::of(&[K::RunsSort, K::RunsIncremental])) && p.has(P::LaneKey)
+        }
         Applies::DistinctOn => p.has(P::DistinctOn),
         Applies::ExprKey => p.has(P::ModKey),
         Applies::ExprOrder => p.any(&[P::MinmaxExpr, P::OrderExpr]),
         Applies::CodeCaseKey => p.has(P::Code) && p.has(P::ExprKey) && p.has(P::Case),
         // D3007: code.cut's group form cuts a value-set group's entries under a top over its key (runs.topk_groups)
-        Applies::CodeTopk => p.has(P::Code) && p.has(P::FpSortkey) && (k.has(K::RunsTopkRows) || k.has(K::RunsTopkGroups)),
+        Applies::CodeTopk => {
+            p.has(P::Code)
+                && p.has(P::FpSortkey)
+                && (k.has(K::RunsTopkRows) || k.has(K::RunsTopkGroups))
+        }
         Applies::VarlenaKey => k.any(VARLENA_KEY),
         // key.tagged engages only where no key meets a dictionary's Fp128 (no pgrc source, no code key)
         Applies::VarlenaKeyHeap => k.any(VARLENA_KEY) && !pg && !code_keyed,
@@ -226,13 +290,19 @@ pub const WIDENED: &[(Strategy, Prop)] = &[(WRITE_ROUTE, Prop::MultiTarget)];
 pub const NARROWED: &[(Strategy, &[Prop], &[Prop])] = &[(WRITE_ROUTE, &[Prop::Route], &[])];
 
 fn narrowed(r: Strategy, p: PropSet) -> bool {
-    NARROWED.iter().filter(|n| n.0 == r).all(|&(_, need, not)| need.iter().all(|&t| p.has(t)) && !not.iter().any(|&t| p.has(t)))
+    NARROWED
+        .iter()
+        .filter(|n| n.0 == r)
+        .all(|&(_, need, not)| need.iter().all(|&t| p.has(t)) && !not.iter().any(|&t| p.has(t)))
 }
 
 /// `v4plan.py roads_for(K, P)`: every road whose predicate holds (within NARROWED), or that WIDENED widens.
 pub fn strategies_for(k: KindSet, p: PropSet) -> StrategySet {
     let mut out = StrategySet::EMPTY;
-    for d in STRATEGIES.iter().filter(|d| holds(d.premise(), k, p) && narrowed(**d, p) || WIDENED.iter().any(|&(r, t)| r == **d && p.has(t))) {
+    for d in STRATEGIES.iter().filter(|d| {
+        holds(d.premise(), k, p) && narrowed(**d, p)
+            || WIDENED.iter().any(|&(r, t)| r == **d && p.has(t))
+    }) {
         out.add(*d);
     }
     out
@@ -242,7 +312,8 @@ pub fn strategies_for(k: KindSet, p: PropSet) -> StrategySet {
 /// dropped and the ones `gravity_road_off` takes off (those serve on their straight form).
 pub fn applicable(p: &Props) -> StrategySet {
     let on = strategies_for(p.kinds, p.props);
-    on.minus(registry::dropped_strategies()).minus(strategy::off())
+    on.minus(registry::dropped_strategies())
+        .minus(strategy::off())
 }
 
 /// The exit report: the applicable strategies no table provides. An unbuilt strategy never refuses: the statement serves
@@ -259,7 +330,13 @@ pub fn pick(p: &Props) -> Option<(Variant, Option<i32>)> {
 /// The unbuilt kind (not in `kinds`) with the latest milestone (ties: graph order), with its node; `None`: admitted (an
 /// unbuilt strategy never refuses).
 pub fn pick_in(p: &Props, kinds: KindSet) -> Option<(Variant, Option<i32>)> {
-    let kind = p.need.iter().enumerate().filter(|(_, (k, _))| !kinds.has(*k)).max_by_key(|(i, (k, _))| (k.decl().milestone, core::cmp::Reverse(*i))).map(|(_, e)| e);
+    let kind = p
+        .need
+        .iter()
+        .enumerate()
+        .filter(|(_, (k, _))| !kinds.has(*k))
+        .max_by_key(|(i, (k, _))| (k.decl().milestone, core::cmp::Reverse(*i)))
+        .map(|(_, e)| e);
     kind.map(|&(k, node)| (Variant::Kind(k), Some(node)))
 }
 

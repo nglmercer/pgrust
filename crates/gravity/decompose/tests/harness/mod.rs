@@ -8,7 +8,7 @@
 // The corpus walk runs on every core (std::thread::scope); the result order is the sorted fixture order
 // whatever the scheduling, so the goldens, the histogram and the failure lists are deterministic.
 // Every test ends with a `--stats` line (`cargo test … -- --nocapture` shows it).
-#![allow(clippy::duplicate_mod,dead_code)]
+#![allow(clippy::duplicate_mod, dead_code)]
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -36,7 +36,10 @@ pub fn plans_root() -> PathBuf {
 
 /// The fixture's name as FIXTURES matches it: its path under tests/plans without the extension.
 pub fn fixture_name(path: &Path) -> String {
-    let rel = path.strip_prefix(plans_root()).unwrap_or(path).with_extension("");
+    let rel = path
+        .strip_prefix(plans_root())
+        .unwrap_or(path)
+        .with_extension("");
     rel.to_string_lossy().replace('\\', "/")
 }
 
@@ -71,7 +74,8 @@ pub fn selected(path: &Path) -> bool {
         None => true,
         Some(pats) => {
             let name = fixture_name(path);
-            pats.iter().any(|p| glob_match(p.as_bytes(), name.as_bytes()))
+            pats.iter()
+                .any(|p| glob_match(p.as_bytes(), name.as_bytes()))
         }
     }
 }
@@ -89,7 +93,10 @@ pub fn fixtures_in(dir: &Path) -> Vec<PathBuf> {
 
 /// `f` over every item on all cores; the output is in input order.
 pub fn par_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
-    let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1).min(items.len().max(1));
+    let threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1)
+        .min(items.len().max(1));
     if threads <= 1 {
         return items.iter().map(&f).collect();
     }
@@ -109,7 +116,10 @@ pub fn par_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec
                 })
             })
             .collect();
-        handles.into_iter().map(|h| h.join().expect("a fixture worker panicked")).collect()
+        handles
+            .into_iter()
+            .map(|h| h.join().expect("a fixture worker panicked"))
+            .collect()
     });
     let mut all: Vec<(usize, R)> = parts.drain(..).flatten().collect();
     all.sort_by_key(|(i, _)| *i);
@@ -141,7 +151,14 @@ pub struct Stats {
 
 impl Stats {
     pub fn new(label: &'static str) -> Self {
-        Stats { label, loaded: 0, compared: 0, rewritten: Vec::new(), failures: Vec::new(), start: Instant::now() }
+        Stats {
+            label,
+            loaded: 0,
+            compared: 0,
+            rewritten: Vec::new(),
+            failures: Vec::new(),
+            start: Instant::now(),
+        }
     }
 
     /// Compare `got` with the golden at `golden` under the REGEN mode; `name` labels it in the report.
@@ -157,18 +174,26 @@ impl Stats {
                 Some(want) if want == got => {}
                 Some(want) => {
                     fs::write(golden, got).unwrap();
-                    self.rewritten.push(format!("{name}: {}", diff_summary(&want, got)));
+                    self.rewritten
+                        .push(format!("{name}: {}", diff_summary(&want, got)));
                 }
                 None => {
                     fs::create_dir_all(golden.parent().unwrap()).unwrap();
                     fs::write(golden, got).unwrap();
-                    self.rewritten.push(format!("{name}: new ({} lines)", got.lines().count()));
+                    self.rewritten
+                        .push(format!("{name}: new ({} lines)", got.lines().count()));
                 }
             },
             Regen::Off => match stored {
                 Some(want) if want == got => {}
-                Some(want) => self.failures.push(format!("{name}: differs from its golden ({})\n--- want\n{want}\n--- got\n{got}", diff_summary(&want, got))),
-                None => self.failures.push(format!("{name}: no golden at {} (REGEN=1 writes it)", golden.display())),
+                Some(want) => self.failures.push(format!(
+                    "{name}: differs from its golden ({})\n--- want\n{want}\n--- got\n{got}",
+                    diff_summary(&want, got)
+                )),
+                None => self.failures.push(format!(
+                    "{name}: no golden at {} (REGEN=1 writes it)",
+                    golden.display()
+                )),
             },
         }
     }
@@ -201,5 +226,9 @@ impl Stats {
 /// env!()'s path baked in at compile time: a test binary reused from another checkout would read that checkout's files.
 fn manifest_dir() -> &'static std::path::Path {
     static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| std::env::var_os("CARGO_MANIFEST_DIR").map(Into::into).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)"))
+    DIR.get_or_init(|| {
+        std::env::var_os("CARGO_MANIFEST_DIR")
+            .map(Into::into)
+            .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+    })
 }

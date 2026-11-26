@@ -8,13 +8,25 @@ impl GranuleRangeSource {
     /// `cond_words` and `win`: the zone verdicts, the runtime filter, the condition cache, then bloom and PSMA.
     pub(super) fn verdict(&mut self, p: usize, lg: u32, rows: u32) {
         self.arm_part_dec(p);
-        let (verdict, mixed) = if self.nzone > 0 { self.verdicts_of(p, lg, rows) } else { (V_MIXED, ALL_PREDS) };
+        let (verdict, mixed) = if self.nzone > 0 {
+            self.verdicts_of(p, lg, rows)
+        } else {
+            (V_MIXED, ALL_PREDS)
+        };
         self.ne_granule(verdict, mixed);
         if self.nzone > 0 {
-            fires::fire_shared(if verdict == V_NONE { "pgrc.zone_skip" } else { "pgrc.zone" });
+            fires::fire_shared(if verdict == V_NONE {
+                "pgrc.zone_skip"
+            } else {
+                "pgrc.zone"
+            });
         }
         // D3009: a disjunction every arm of which this granule's verdicts prove none
-        let verdict = if verdict != V_NONE && self.any_none(p, lg, rows) { V_NONE } else { verdict };
+        let verdict = if verdict != V_NONE && self.any_none(p, lg, rows) {
+            V_NONE
+        } else {
+            verdict
+        };
         self.verdict = verdict;
         self.tallied_win = self.tallies(verdict, mixed);
         let mut la = core::mem::take(&mut self.lane_all);
@@ -32,9 +44,14 @@ impl GranuleRangeSource {
         if self.verdict != V_NONE && self.cond_ready(p) {
             let (q, e) = self.cond_entry.take().expect("ready");
             {
-                memledger::value::lookup(memledger::Consumer::CondCache, crate::ops::scan::pgrc::cond_cache::value_key(&e, lg as usize), 0);
+                memledger::value::lookup(
+                    memledger::Consumer::CondCache,
+                    crate::ops::scan::pgrc::cond_cache::value_key(&e, lg as usize),
+                    0,
+                );
                 let hit = e.get(lg as usize);
-                self.tally.cond[(hit == crate::ops::scan::pgrc::cond_cache::Hit::Unknown) as usize] += 1;
+                self.tally.cond
+                    [(hit == crate::ops::scan::pgrc::cond_cache::Hit::Unknown) as usize] += 1;
                 match hit {
                     crate::ops::scan::pgrc::cond_cache::Hit::None => {
                         self.tally.cond_skipped += 1;
@@ -50,7 +67,10 @@ impl GranuleRangeSource {
                         self.cond_words.fill(0);
                         self.cond_hit = V_MIXED;
                         // the miss's price: its granule's evaluation up to the words' publish (`Entry::put`), sampled
-                        memledger::value::arm(memledger::Consumer::CondCache, crate::ops::scan::pgrc::cond_cache::value_key(&e, lg as usize));
+                        memledger::value::arm(
+                            memledger::Consumer::CondCache,
+                            crate::ops::scan::pgrc::cond_cache::value_key(&e, lg as usize),
+                        );
                     }
                 }
             }
@@ -59,7 +79,11 @@ impl GranuleRangeSource {
         // the bloom verdict and the PSMA candidate rows over a Mixed granule the cache did not decide (H02 b / c); never
         // over one the tally answers (SRC-21: Mixed on tallied predicates alone), whose rows are not read
         self.win = None;
-        if self.verdict == V_MIXED && self.cond_hit != V_ALL && self.nzone_decl > 0 && !self.tallied_win {
+        if self.verdict == V_MIXED
+            && self.cond_hit != V_ALL
+            && self.nzone_decl > 0
+            && !self.tallied_win
+        {
             if self.bloom_absent(p, lg, rows) {
                 self.tally.bloom += 1;
                 self.verdict = V_NONE;
@@ -134,9 +158,24 @@ impl GranuleRangeSource {
     /// The lane of the site filter `f` reads: its column's, when the column's exact key is the datum word (or the filter is
     /// empty, or a text key's over a code lane).
     fn rt_lane_of(&self, f: &RtFilter) -> Option<usize> {
-        let k = (0..self.recipe.natts).position(|k| self.recipe.attnos[k] == f.attno && self.recipe.shred_of(k).is_none());
+        let k = (0..self.recipe.natts)
+            .position(|k| self.recipe.attnos[k] == f.attno && self.recipe.shred_of(k).is_none());
         let text = |k: usize| !f.fps.is_empty() && self.recipe.kinds[k] == lane::KIND_CODES;
-        let faithful = |k: usize| f.lo > f.hi || text(k) || f.fps.is_empty() && self.recipe.profiles.get(k).copied().flatten().is_some_and(|p| p.key.exact_key_to_datum_word(f.lo) == Some(f.lo as u64) && p.key.exact_key_to_datum_word(f.hi) == Some(f.hi as u64));
+        let faithful = |k: usize| {
+            f.lo > f.hi
+                || text(k)
+                || f.fps.is_empty()
+                    && self
+                        .recipe
+                        .profiles
+                        .get(k)
+                        .copied()
+                        .flatten()
+                        .is_some_and(|p| {
+                            p.key.exact_key_to_datum_word(f.lo) == Some(f.lo as u64)
+                                && p.key.exact_key_to_datum_word(f.hi) == Some(f.hi as u64)
+                        })
+        };
         k.filter(|&k| faithful(k))
     }
 
@@ -172,7 +211,9 @@ impl GranuleRangeSource {
         if !s.armed() {
             return false;
         }
-        let Some(f) = s.f.as_deref() else { return false };
+        let Some(f) = s.f.as_deref() else {
+            return false;
+        };
         if f.lo > f.hi {
             return true;
         }
@@ -182,14 +223,18 @@ impl GranuleRangeSource {
         }
         // D3155: an idle filter's granule body is not read (`granule_stats`): its part's record bounds the granule
         let rec = match lg {
-            Some(lg) => self.facts_of(p, s.lane, lg).or_else(|| self.part_facts_of(p, s.lane)),
+            Some(lg) => self
+                .facts_of(p, s.lane, lg)
+                .or_else(|| self.part_facts_of(p, s.lane)),
             None => self.part_facts_of(p, s.lane),
         };
         let Some(rec) = rec else { return false };
         if rec.nonnull == 0 {
             return true;
         }
-        if rec.key_kind != KeyKind::Exact.as_u8() || rec.min_key == i64::MIN && rec.max_key == i64::MAX {
+        if rec.key_kind != KeyKind::Exact.as_u8()
+            || rec.min_key == i64::MIN && rec.max_key == i64::MAX
+        {
             return false;
         }
         rec.max_key < f.lo || rec.min_key > f.hi || f.misses(rec.min_key, rec.max_key)
@@ -202,7 +247,10 @@ impl GranuleRangeSource {
     /// no row is ever filtered (the probe still tests every row of a kept part).
     pub(super) fn rt_text_cuts(&mut self, k: usize, p: usize) -> PgResult<bool> {
         let lane = self.rt[k].lane;
-        if !self.rt[k].armed() || !self.rt[k].text() || self.parts().list.faces.absent(self.face(lane), p) {
+        if !self.rt[k].armed()
+            || !self.rt[k].text()
+            || self.parts().list.faces.absent(self.face(lane), p)
+        {
             return Ok(false);
         }
         self.open_dict(p, lane)?;
@@ -214,7 +262,14 @@ impl GranuleRangeSource {
         let tkey = self.table_key(p, lane, &part)?;
         let read_err_cell = core::cell::Cell::new(None);
         let t = match self.dict_at(p, lane).map(|e| &e.dict) {
-            Some(Dict::Part(d)) => crate::dict::text_hosts::fp_table_in(self.fp_memo(), &part, tkey, &crate::dict::text_hosts::DictView::Part(d, &read_err_cell), 0, false),
+            Some(Dict::Part(d)) => crate::dict::text_hosts::fp_table_in(
+                self.fp_memo(),
+                &part,
+                tkey,
+                &crate::dict::text_hosts::DictView::Part(d, &read_err_cell),
+                0,
+                false,
+            ),
             Some(Dict::Ranked { table, .. }) => Ok(table.arc_clone()),
             None => return Ok(false),
         };
@@ -245,7 +300,10 @@ impl GranuleRangeSource {
 
     /// The measuring slots, one bit each (`granule_stats` reads a part's bodies again when they change).
     pub(super) fn rt_mask(&self) -> u8 {
-        self.rt.iter().enumerate().fold(0, |m, (k, s)| m | (s.measuring() as u8) << k)
+        self.rt
+            .iter()
+            .enumerate()
+            .fold(0, |m, (k, s)| m | (s.measuring() as u8) << k)
     }
 
     /// Whether this granule (or part) asks the armed runtime filter of slot `k`: every one while it measures, one in
@@ -312,17 +370,40 @@ impl GranuleRangeSource {
         rec.clear();
         let ne = |z: &ZonePred| z.op == ZoneOp::Ne && z.prefix;
         // bounded("other: one zone predicate of the statement's own quals each (an IN list's member is one): the query text bounds them, and PG's ExecQual tests the same quals per row with no poll")
-        for z in self.zone.iter().filter(|z| ne(z) && (z.lane as usize) < natts && self.recipe.kinds[z.lane as usize] == lane::KIND_CODES) {
+        for z in self.zone.iter().filter(|z| {
+            ne(z)
+                && (z.lane as usize) < natts
+                && self.recipe.kinds[z.lane as usize] == lane::KIND_CODES
+        }) {
             rec.set(z.lane as usize);
         }
         // bounded("other: one zone predicate of the statement's own quals each (an IN list's member is one): the query text bounds them, and PG's ExecQual tests the same quals per row with no poll")
-        for z in self.zone.iter().filter(|z| !ne(z)).chain(self.any.iter()).filter(|z| (z.lane as usize) < natts) {
+        for z in self
+            .zone
+            .iter()
+            .filter(|z| !ne(z))
+            .chain(self.any.iter())
+            .filter(|z| (z.lane as usize) < natts)
+        {
             rec.unset(z.lane as usize);
         }
-        let preds = |f: &dyn Fn(usize) -> bool| self.zone.iter().take(63).enumerate().filter(|(_, z)| f(z.lane as usize)).fold(0, |m, (i, _)| m | pred_bit(i));
+        let preds = |f: &dyn Fn(usize) -> bool| {
+            self.zone
+                .iter()
+                .take(63)
+                .enumerate()
+                .filter(|(_, z)| f(z.lane as usize))
+                .fold(0, |m, (i, _)| m | pred_bit(i))
+        };
         let watch = preds(&|k| rec.has(k));
         let elides = watch & preds(&|k| self.filter_lanes.has(k) || self.answer_lanes.has(k));
-        (self.ne_watch, self.ne_elides, self.ne_paid, self.ne_asked, self.ne_dry) = (watch, elides, 0, false, 0);
+        (
+            self.ne_watch,
+            self.ne_elides,
+            self.ne_paid,
+            self.ne_asked,
+            self.ne_dry,
+        ) = (watch, elides, 0, false, 0);
         rec.clear();
         self.record_lanes = rec;
     }
@@ -343,7 +424,14 @@ impl GranuleRangeSource {
         // bounded("small-fixed: the zone predicates a trial watches, at most 63")
         for i in (0..63).filter(|i| out >> i & 1 != 0) {
             let k = self.zone[i].lane;
-            let of_k = self.zone.iter().take(63).enumerate().filter(|(_, z)| z.lane == k).fold(0, |m, (j, _)| m | pred_bit(j)) & self.ne_watch;
+            let of_k = self
+                .zone
+                .iter()
+                .take(63)
+                .enumerate()
+                .filter(|(_, z)| z.lane == k)
+                .fold(0, |m, (j, _)| m | pred_bit(j))
+                & self.ne_watch;
             if of_k & !out == 0 {
                 self.record_lanes.set(k as usize);
                 self.ne_watch &= !of_k;
@@ -358,7 +446,12 @@ impl GranuleRangeSource {
     pub(super) fn ne_granule(&mut self, verdict: u8, mixed: u64) {
         if self.ne_watch != 0 {
             self.ne_asked = true;
-            self.ne_paid |= self.ne_watch & if verdict == V_NONE { u64::MAX } else { !mixed & self.ne_elides };
+            self.ne_paid |= self.ne_watch
+                & if verdict == V_NONE {
+                    u64::MAX
+                } else {
+                    !mixed & self.ne_elides
+                };
         }
     }
 
@@ -374,9 +467,15 @@ impl GranuleRangeSource {
             let zoned = zone
                 && match self.map_verdict(p, lg, rows, z) {
                     Some(v) => v == V_NONE,
-                    None => self.facts_of(p, z.lane as usize, lg).is_some_and(|f| zone_verdict(&f, rows, z) == V_NONE),
+                    None => self
+                        .facts_of(p, z.lane as usize, lg)
+                        .is_some_and(|f| zone_verdict(&f, rows, z) == V_NONE),
                 };
-            zoned || bloom && z.op == ZoneOp::Eq && !z.prefix && self.bloom_lacks(p, lg, rows, z.lane, z.value)
+            zoned
+                || bloom
+                    && z.op == ZoneOp::Eq
+                    && !z.prefix
+                    && self.bloom_lacks(p, lg, rows, z.lane, z.value)
         };
         let mut lo = 0usize;
         // bounded("other: the statement's own OR quals, one zone test per arm: the query text bounds them, and PG's ExecQual tests the same arms per row with no poll")
@@ -409,7 +508,10 @@ impl GranuleRangeSource {
             ZoneOp::HashEq => self.bloom_lacks_packed(p, lg, z.lane, z.value),
             _ => false,
         };
-        if decl.iter().any(|z| matches!(z.op, ZoneOp::Eq | ZoneOp::HashEq) && lacks(z)) {
+        if decl
+            .iter()
+            .any(|z| matches!(z.op, ZoneOp::Eq | ZoneOp::HashEq) && lacks(z))
+        {
             fires::fire_shared("pgrc.bloom");
             return true;
         }
@@ -418,7 +520,13 @@ impl GranuleRangeSource {
             let list = |y: &&ZonePred| y.op == z.op && y.lane == z.lane;
             matches!(z.op, ZoneOp::InMember | ZoneOp::HashIn)
                 && !decl[..i].iter().any(|y| list(&y))
-                && self.bloom_lacks_all(p, lg, z.lane, z.op == ZoneOp::HashIn, decl[i..].iter().filter(list).map(|y| y.value))
+                && self.bloom_lacks_all(
+                    p,
+                    lg,
+                    z.lane,
+                    z.op == ZoneOp::HashIn,
+                    decl[i..].iter().filter(list).map(|y| y.value),
+                )
         });
         if absent {
             fires::fire_shared("pgrc.bloom");
@@ -432,13 +540,27 @@ impl GranuleRangeSource {
     /// `eq_bloomable`), and the lowering declared the word only under a collation whose equality is byte equality.
     fn bloom_lacks_packed(&self, p: usize, lg: u32, lane: u16, packed: i64) -> bool {
         let k = lane as usize;
-        if !self.recipe.profiles.get(k).copied().flatten().is_some_and(|pr| pr.eq_bloomable) {
+        if !self
+            .recipe
+            .profiles
+            .get(k)
+            .copied()
+            .flatten()
+            .is_some_and(|pr| pr.eq_bloomable)
+        {
             return false;
         }
         let rp = self.parts();
         let granules = rp.list.parts()[p].granules;
-        let Some(body) = rp.meta_if_read(p, self.face(k)).and_then(|m| m.bloom.as_deref()) else { return false };
-        let Ok(Some((bk, block))) = bloom::bloom_block_for(body, granules, lg) else { return false };
+        let Some(body) = rp
+            .meta_if_read(p, self.face(k))
+            .and_then(|m| m.bloom.as_deref())
+        else {
+            return false;
+        };
+        let Ok(Some((bk, block))) = bloom::bloom_block_for(body, granules, lg) else {
+            return false;
+        };
         !bloom::bloom_may_contain_packed(block, bk, packed)
     }
 
@@ -447,27 +569,65 @@ impl GranuleRangeSource {
     /// exact key range or absent from the block, as `bloom_lacks` decides one). The profile, block and record are resolved
     /// once for the list, and a member costs a range test and the block's bit tests: a list as long as a granule's members
     /// are rare would otherwise pay `bloom_lacks`' whole lowering per member and granule until its first maybe.
-    fn bloom_lacks_all(&self, p: usize, lg: u32, lane: u16, hashed: bool, mut members: impl Iterator<Item = i64>) -> bool {
+    fn bloom_lacks_all(
+        &self,
+        p: usize,
+        lg: u32,
+        lane: u16,
+        hashed: bool,
+        mut members: impl Iterator<Item = i64>,
+    ) -> bool {
         let k = lane as usize;
-        let Some(profile) = self.recipe.profiles.get(k).copied().flatten().filter(|pr| pr.eq_bloomable) else { return false };
+        let Some(profile) = self
+            .recipe
+            .profiles
+            .get(k)
+            .copied()
+            .flatten()
+            .filter(|pr| pr.eq_bloomable)
+        else {
+            return false;
+        };
         let rp = self.parts();
         let granules = rp.list.parts()[p].granules;
-        let Some(body) = rp.meta_if_read(p, self.face(k)).and_then(|m| m.bloom.as_deref()) else { return false };
-        let Ok(Some((bk, block))) = bloom::bloom_block_for(body, granules, lg) else { return false };
+        let Some(body) = rp
+            .meta_if_read(p, self.face(k))
+            .and_then(|m| m.bloom.as_deref())
+        else {
+            return false;
+        };
+        let Ok(Some((bk, block))) = bloom::bloom_block_for(body, granules, lg) else {
+            return false;
+        };
         if hashed {
             return members.all(|w| !bloom::bloom_may_contain_packed(block, bk, w));
         }
         // the constant's equality bytes as `lower_const` makes them for a word: its little-endian bytes at the class width
         let width = profile.class.width() as usize;
-        if !matches!(profile.class, StorageClass::ByvalWord { .. } | StorageClass::Bool) || width == 0 {
+        if !matches!(
+            profile.class,
+            StorageClass::ByvalWord { .. } | StorageClass::Bool
+        ) || width == 0
+        {
             return false;
         }
-        let range = self.facts_of(p, k, lg).filter(|r| r.key_kind == KeyKind::Exact.as_u8()).map(|r| (r.min_key, r.max_key));
+        let range = self
+            .facts_of(p, k, lg)
+            .filter(|r| r.key_kind == KeyKind::Exact.as_u8())
+            .map(|r| (r.min_key, r.max_key));
         members.all(|v| {
             range.is_some_and(|(lo, hi)| v < lo || v > hi)
                 || profile.key.exact_key_to_datum_word(v).is_some_and(|w| {
-                    let w = if profile.class == StorageClass::Bool { (w != 0) as u64 } else { w };
-                    !bloom::bloom_may_contain_packed(block, bk, bloom::bloom_pack(&w.to_le_bytes()[..width]))
+                    let w = if profile.class == StorageClass::Bool {
+                        (w != 0) as u64
+                    } else {
+                        w
+                    };
+                    !bloom::bloom_may_contain_packed(
+                        block,
+                        bk,
+                        bloom::bloom_pack(&w.to_le_bytes()[..width]),
+                    )
                 })
         })
     }
@@ -478,19 +638,45 @@ impl GranuleRangeSource {
         let k = lane as usize;
         let rp = self.parts();
         let granules = rp.list.parts()[p].granules;
-        let Some(profile) = self.recipe.profiles.get(k).copied().flatten() else { return false };
-        let Some(word) = profile.key.exact_key_to_datum_word(value) else { return false };
-        let Some(body) = rp.meta_if_read(p, self.face(k)).and_then(|m| m.bloom.as_deref()) else { return false };
-        let Some(rec) = self.record_of(p, k, lg) else { return false };
-        let Ok(Some((bk, block))) = bloom::bloom_block_for(body, granules, lg) else { return false };
-        let Lowering::Lowered(lc) = lower_const(&profile, ConstInput::Word(word)) else { return false };
-        evaluate(&profile, GrainFacts { rows: rows as u64 }, &rec, &ZonePredicate::Eq(lc), Some(BloomEvidence { k: bk, block })) == MetaVerdict::AllFail
+        let Some(profile) = self.recipe.profiles.get(k).copied().flatten() else {
+            return false;
+        };
+        let Some(word) = profile.key.exact_key_to_datum_word(value) else {
+            return false;
+        };
+        let Some(body) = rp
+            .meta_if_read(p, self.face(k))
+            .and_then(|m| m.bloom.as_deref())
+        else {
+            return false;
+        };
+        let Some(rec) = self.record_of(p, k, lg) else {
+            return false;
+        };
+        let Ok(Some((bk, block))) = bloom::bloom_block_for(body, granules, lg) else {
+            return false;
+        };
+        let Lowering::Lowered(lc) = lower_const(&profile, ConstInput::Word(word)) else {
+            return false;
+        };
+        evaluate(
+            &profile,
+            GrainFacts { rows: rows as u64 },
+            &rec,
+            &ZonePredicate::Eq(lc),
+            Some(BloomEvidence { k: bk, block }),
+        ) == MetaVerdict::AllFail
     }
 
     /// P5-13: whether lane `lane`'s prefix predicates are a memcmp-ordered fixed image's order keys (its profile's class is
     /// `Fixed`: uuid, macaddr, macaddr8), which its PSMA blocks are built over; a text prefix predicate's lane is a varlena.
     pub(super) fn fixed_keyed(&self, lane: u16) -> bool {
-        self.recipe.profiles.get(lane as usize).copied().flatten().is_some_and(|pr| matches!(pr.class, StorageClass::Fixed { .. }))
+        self.recipe
+            .profiles
+            .get(lane as usize)
+            .copied()
+            .flatten()
+            .is_some_and(|pr| matches!(pr.class, StorageClass::Fixed { .. }))
     }
 
     /// The candidate rows of granule `lg` of part `p` (H02c, v1's `psma_window`): the intersection over the constant
@@ -503,25 +689,49 @@ impl GranuleRangeSource {
         let granules = rp.list.parts()[p].granules;
         let mut win: Option<(u32, u32)> = None;
         // bounded("other: one zone predicate of the statement's own quals each (an IN list's member is one): the query text bounds them, and PG's ExecQual tests the same quals per row with no poll")
-        for z in self.zone[..self.nzone_decl].iter().filter(|z| !z.prefix || self.fixed_keyed(z.lane)) {
+        for z in self.zone[..self.nzone_decl]
+            .iter()
+            .filter(|z| !z.prefix || self.fixed_keyed(z.lane))
+        {
             let k = z.lane as usize;
-            let Some(body) = rp.meta_if_read(p, self.face(k)).and_then(|m| m.psma.as_deref()) else { continue };
+            let Some(body) = rp
+                .meta_if_read(p, self.face(k))
+                .and_then(|m| m.psma.as_deref())
+            else {
+                continue;
+            };
             // P5-13: a fixed image's prefix predicate reads a Coarse record never strict (`key(x) = key(c)` may hold for
             // `x < c`, so `<` bounds by `key(c)` itself), an Exact one as a word's
-            let Some(rec) = self.facts_of(p, k, lg).filter(|r| r.key_kind == KeyKind::Exact.as_u8() || z.prefix && r.key_kind == KeyKind::Coarse.as_u8()) else { continue };
+            let Some(rec) = self.facts_of(p, k, lg).filter(|r| {
+                r.key_kind == KeyKind::Exact.as_u8()
+                    || z.prefix && r.key_kind == KeyKind::Coarse.as_u8()
+            }) else {
+                continue;
+            };
             let (kmin, kmax, c) = (rec.min_key, rec.max_key, z.value);
             if kmin == i64::MIN && kmax == i64::MAX {
                 continue;
             }
-            let Ok(Some(block)) = psma::psma_block_for(body, granules, lg) else { continue };
+            let Ok(Some(block)) = psma::psma_block_for(body, granules, lg) else {
+                continue;
+            };
             let strict = rec.key_kind == KeyKind::Exact.as_u8();
             let cand = match z.op {
                 ZoneOp::Eq => psma::psma_candidates_eq(block, kmin, kmax, c),
-                ZoneOp::Lt if strict => c.checked_sub(1).and_then(|h| psma::psma_candidates_range(block, kmin, kmax, kmin, h)),
+                ZoneOp::Lt if strict => c
+                    .checked_sub(1)
+                    .and_then(|h| psma::psma_candidates_range(block, kmin, kmax, kmin, h)),
                 ZoneOp::Lt | ZoneOp::Le => psma::psma_candidates_range(block, kmin, kmax, kmin, c),
-                ZoneOp::Gt if strict => c.checked_add(1).and_then(|l| psma::psma_candidates_range(block, kmin, kmax, l, kmax)),
+                ZoneOp::Gt if strict => c
+                    .checked_add(1)
+                    .and_then(|l| psma::psma_candidates_range(block, kmin, kmax, l, kmax)),
                 ZoneOp::Gt | ZoneOp::Ge => psma::psma_candidates_range(block, kmin, kmax, c, kmax),
-                ZoneOp::Ne | ZoneOp::NotNull | ZoneOp::IsNull | ZoneOp::InMember | ZoneOp::HashEq | ZoneOp::HashIn => None,
+                ZoneOp::Ne
+                | ZoneOp::NotNull
+                | ZoneOp::IsNull
+                | ZoneOp::InMember
+                | ZoneOp::HashEq
+                | ZoneOp::HashIn => None,
             };
             let Some((lo, hi)) = cand else { continue };
             let (lo, hi) = (lo as u32, (hi as u32).min(rows));
@@ -543,14 +753,36 @@ impl GranuleRangeSource {
         if self.cond_entry.as_ref().is_some_and(|(q, _)| *q == p) {
             return true;
         }
-        let Some(part) = self.parts().part_if_open(p).map(Arc::clone) else { return false };
-        let Some(granules) = self.list.as_ref().map(|l| l.parts()[p].granules as usize) else { return false };
+        let Some(part) = self.parts().part_if_open(p).map(Arc::clone) else {
+            return false;
+        };
+        let Some(granules) = self.list.as_ref().map(|l| l.parts()[p].granules as usize) else {
+            return false;
+        };
         let u = part.uuid();
-        let (Ok(lo), Ok(hi)) = (u[..8].try_into(), u[8..].try_into()) else { return false };
+        let (Ok(lo), Ok(hi)) = (u[..8].try_into(), u[8..].try_into()) else {
+            return false;
+        };
         // FASTADD: a part that lacks a column is read with its stand-in's fill, which the key carries
-        let Some(unit) = self.list.as_ref().map(|l| l.content_key(p, [u64::from_le_bytes(lo), u64::from_le_bytes(hi)])) else { return false };
+        let Some(unit) = self
+            .list
+            .as_ref()
+            .map(|l| l.content_key(p, [u64::from_le_bytes(lo), u64::from_le_bytes(hi)]))
+        else {
+            return false;
+        };
         let owner: Arc<dyn std::any::Any + Send + Sync> = part;
-        self.cond_entry = Some((p, crate::ops::scan::pgrc::cond_cache::entry_for_mode(self.cond_fp, unit, &owner, granules, ROWS, self.cond_mode)));
+        self.cond_entry = Some((
+            p,
+            crate::ops::scan::pgrc::cond_cache::entry_for_mode(
+                self.cond_fp,
+                unit,
+                &owner,
+                granules,
+                ROWS,
+                self.cond_mode,
+            ),
+        ));
         true
     }
 
@@ -569,11 +801,16 @@ impl GranuleRangeSource {
         if self.cond_ready(p) {
             match self.cond_entry.as_ref().map(|(_, e)| e.get(lg as usize)) {
                 Some(crate::ops::scan::pgrc::cond_cache::Hit::None) => return false,
-                Some(crate::ops::scan::pgrc::cond_cache::Hit::All | crate::ops::scan::pgrc::cond_cache::Hit::Mixed(_)) => return true,
+                Some(
+                    crate::ops::scan::pgrc::cond_cache::Hit::All
+                    | crate::ops::scan::pgrc::cond_cache::Hit::Mixed(_),
+                ) => return true,
                 _ => {}
             }
         }
-        !(self.nzone_decl > 0 && (self.bloom_absent(p, lg, rows) || self.psma_rows(p, lg, rows).is_some_and(|(lo, hi)| lo >= hi)))
+        !(self.nzone_decl > 0
+            && (self.bloom_absent(p, lg, rows)
+                || self.psma_rows(p, lg, rows).is_some_and(|(lo, hi)| lo >= hi)))
     }
 
     /// A sparse mixed hit's selection straight from the cache's survivor list (cond_cache `Entry::rows`: the same rows its
@@ -583,10 +820,15 @@ impl GranuleRangeSource {
         if self.has_dv {
             return None;
         }
-        let (Some((q, e)), sel, sel16) = (&self.cond_entry, &mut self.sel, &mut self.sel16) else { return None };
+        let (Some((q, e)), sel, sel16) = (&self.cond_entry, &mut self.sel, &mut self.sel16) else {
+            return None;
+        };
         let rows = e.rows(lg as usize).filter(|_| *q == p)?;
         // the list's tail was masked at the publish's rows: a granule's rows never change on an immutable part
-        debug_assert!(rows.last().is_none_or(|&r| (r as usize) < nrows), "a kept row past the granule's rows");
+        debug_assert!(
+            rows.last().is_none_or(|&r| (r as usize) < nrows),
+            "a kept row past the granule's rows"
+        );
         sel16.clear();
         sel16.extend_from_slice(rows);
         sel.clear();
@@ -601,13 +843,20 @@ impl GranuleRangeSource {
         let mut words = [0u64; VALIDITY_WORDS];
         // bounded("small-fixed: the mask words of one granule, at most VALIDITY_WORDS (128)")
         for (w, o) in words[..n].iter_mut().enumerate() {
-            *o = if self.has_dv { self.cond_words[w] & !self.dv[w] } else { self.cond_words[w] };
+            *o = if self.has_dv {
+                self.cond_words[w] & !self.dv[w]
+            } else {
+                self.cond_words[w]
+            };
         }
-        if ! rows.is_multiple_of( 64) {
+        if !rows.is_multiple_of(64) {
             words[n - 1] &= (1u64 << (rows % 64)) - 1;
         }
         self.sel16_ok = false;
-        (true, words_to_sel32(&words[..n], &mut self.sel, &mut self.sel16))
+        (
+            true,
+            words_to_sel32(&words[..n], &mut self.sel, &mut self.sel16),
+        )
     }
 
     /// The verdict of the registered predicates over the whole part `p` (its part-grain records), with the predicates that
@@ -620,7 +869,9 @@ impl GranuleRangeSource {
             let v = match self.code_verdict(p, i, None, rows) {
                 Some(v) => v,
                 None => {
-                    let Some(rec) = self.part_facts_of(p, z.lane as usize) else { return (V_MIXED, ALL_PREDS) };
+                    let Some(rec) = self.part_facts_of(p, z.lane as usize) else {
+                        return (V_MIXED, ALL_PREDS);
+                    };
                     self.text_verdict(i, &rec, rows, z)
                 }
             };
@@ -639,7 +890,10 @@ impl GranuleRangeSource {
         let mut mixed = 0u64;
         // bounded("other: one zone predicate of the statement's own quals each (an IN list's member is one): the query text bounds them, and PG's ExecQual tests the same quals per row with no poll")
         for (i, z) in self.zone[..self.nzone].iter().enumerate() {
-            let v = match self.code_verdict(p, i, Some(lg), rows).or_else(|| self.map_verdict(p, lg, rows, z)) {
+            let v = match self
+                .code_verdict(p, i, Some(lg), rows)
+                .or_else(|| self.map_verdict(p, lg, rows, z))
+            {
                 Some(v) => v,
                 None => match self.facts_of(p, z.lane as usize, lg) {
                     Some(rec) => self.text_verdict(i, &rec, rows, z),
@@ -688,7 +942,14 @@ impl GranuleRangeSource {
 
     /// `part_decides`' answer as `part_dec` keeps it.
     fn part_dec_of(&self, p: usize, i: usize, z: &ZonePred) -> u8 {
-        let Some(rows) = self.list.as_ref().and_then(|l| l.parts().get(p)).and_then(|s| u32::try_from(s.rows).ok()) else { return PD_NOTHING };
+        let Some(rows) = self
+            .list
+            .as_ref()
+            .and_then(|l| l.parts().get(p))
+            .and_then(|s| u32::try_from(s.rows).ok())
+        else {
+            return PD_NOTHING;
+        };
         match self.part_facts_of(p, z.lane as usize) {
             None => PD_ASK,
             Some(rec) => match self.text_verdict(i, &rec, rows, z) {
@@ -740,13 +1001,27 @@ impl GranuleRangeSource {
         if !z.prefix || !matches!(z.op, ZoneOp::Eq | ZoneOp::Ne) || self.fixed_keyed(z.lane) {
             return NO_LEN;
         }
-        let lens = self.recipe.profiles.get(z.lane as usize).copied().flatten().is_some_and(|pr| pr.len_stats != pgrc_meta::profile::LenStats::None);
-        let mut hits = self.zcode_images.iter().filter(|c| c.lane == z.lane && c.op == z.op && c.key == z.value);
-        let Some(c) = hits.next().filter(|_| lens) else { return NO_LEN };
+        let lens = self
+            .recipe
+            .profiles
+            .get(z.lane as usize)
+            .copied()
+            .flatten()
+            .is_some_and(|pr| pr.len_stats != pgrc_meta::profile::LenStats::None);
+        let mut hits = self
+            .zcode_images
+            .iter()
+            .filter(|c| c.lane == z.lane && c.op == z.op && c.key == z.value);
+        let Some(c) = hits.next().filter(|_| lens) else {
+            return NO_LEN;
+        };
         if hits.any(|o| o.image.len() != c.image.len()) {
             return NO_LEN;
         }
-        u32::try_from(c.image.len()).ok().filter(|&l| l != NO_LEN).unwrap_or(NO_LEN)
+        u32::try_from(c.image.len())
+            .ok()
+            .filter(|&l| l != NO_LEN)
+            .unwrap_or(NO_LEN)
     }
 
     /// sortpath (code-keyed zones): part `p`'s compare of each zone predicate on its codes (`zcode_preds`), at its pin: a
@@ -766,15 +1041,27 @@ impl GranuleRangeSource {
             for (i, z) in self.zone[..self.nzone].iter().enumerate() {
                 step.tick().map_err(|_| err(WALK_CANCELED))?;
                 // a record lane's `<>` constant is placed at the window (`row_code`), with no code zones read
-                if !z.prefix || z.tallied || self.fixed_keyed(z.lane) || self.record_lanes.has(z.lane as usize) {
+                if !z.prefix
+                    || z.tallied
+                    || self.fixed_keyed(z.lane)
+                    || self.record_lanes.has(z.lane as usize)
+                {
                     continue;
                 }
-                let mut hits = self.zcode_images.iter().filter(|c| c.lane == z.lane && c.op == z.op && c.key == z.value);
+                let mut hits = self
+                    .zcode_images
+                    .iter()
+                    .filter(|c| c.lane == z.lane && c.op == z.op && c.key == z.value);
                 let Some(c) = hits.next() else { continue };
                 if hits.any(|o| o.image != c.image) {
                     continue;
                 }
-                let Some((_, d)) = self.parts().code_zones(p, self.face(z.lane as usize), part)? else { continue };
+                let Some((_, d)) = self
+                    .parts()
+                    .code_zones(p, self.face(z.lane as usize), part)?
+                else {
+                    continue;
+                };
                 preds[i] = code_pred(d, z, &c.image)?;
             }
         }
@@ -786,24 +1073,51 @@ impl GranuleRangeSource {
     /// sortpath (code-keyed zones): predicate `i`'s verdict over granule `lg` of part `p` (`None`: the whole part, its
     /// rollup) from the part's code zones, exact; `None` where the part has no compare on codes for it (`pin_codes`).
     #[inline]
-    pub(super) fn code_verdict(&self, p: usize, i: usize, lg: Option<u32>, rows: u32) -> Option<u8> {
+    pub(super) fn code_verdict(
+        &self,
+        p: usize,
+        i: usize,
+        lg: Option<u32>,
+        rows: u32,
+    ) -> Option<u8> {
         if self.zcode_part != p {
             return None;
         }
         let c = self.zcode_preds.get(i)?.as_ref()?;
-        let (body, _) = self.parts().code_zones_if_read(p, self.face(c.lane as usize))?;
+        let (body, _) = self
+            .parts()
+            .code_zones_if_read(p, self.face(c.lane as usize))?;
         let k = c.lane as usize;
         let ((min, max), nonnull) = match lg {
-            Some(lg) => (pgrc_format::meta::codezone_at(body, lg as usize)?, self.facts_of(p, k, lg)?.nonnull),
-            None => (pgrc_format::meta::codezone_at(body, pgrc_format::meta::codezones_len(body)? - 1)?, self.part_facts_of(p, k)?.nonnull),
+            Some(lg) => (
+                pgrc_format::meta::codezone_at(body, lg as usize)?,
+                self.facts_of(p, k, lg)?.nonnull,
+            ),
+            None => (
+                pgrc_format::meta::codezone_at(body, pgrc_format::meta::codezones_len(body)? - 1)?,
+                self.part_facts_of(p, k)?.nonnull,
+            ),
         };
         // a range and a count that disagree (none valid, yet a non-NULL row) decide nothing
         if (min > max) != (nonnull == 0) {
             return None;
         }
-        let f = ZoneFacts { min_key: min as i64, max_key: max as i64, nonnull, byte_len_min: 0, byte_len_max: 0, computed: false, key_kind: KeyKind::Exact.as_u8(), sorted: 0 };
+        let f = ZoneFacts {
+            min_key: min as i64,
+            max_key: max as i64,
+            nonnull,
+            byte_len_min: 0,
+            byte_len_max: 0,
+            computed: false,
+            key_kind: KeyKind::Exact.as_u8(),
+            sorted: 0,
+        };
         let v = zone_verdict(&f, rows, c);
-        fires::fire_shared(if v == V_NONE { "pgrc.code_zone_skip" } else { "pgrc.code_zone" });
+        fires::fire_shared(if v == V_NONE {
+            "pgrc.code_zone_skip"
+        } else {
+            "pgrc.code_zone"
+        });
         Some(v)
     }
 
@@ -822,15 +1136,34 @@ impl GranuleRangeSource {
         let (min, max) = *r.get((list.starts()[p] + lg as u64) as usize)?;
         let all = self.map_all_part == p && self.map_all.has(z.lane as usize);
         if z.op == ZoneOp::IsNull {
-            return Some(if min > max { V_ALL } else if all { V_NONE } else { V_MIXED });
+            return Some(if min > max {
+                V_ALL
+            } else if all {
+                V_NONE
+            } else {
+                V_MIXED
+            });
         }
         if min > max {
             return Some(V_NONE);
         }
         if (min, max) == (i64::MIN, i64::MAX) {
-            return Some(if z.op == ZoneOp::NotNull && all { V_ALL } else { V_MIXED });
+            return Some(if z.op == ZoneOp::NotNull && all {
+                V_ALL
+            } else {
+                V_MIXED
+            });
         }
-        let f = ZoneFacts { min_key: min, max_key: max, nonnull: rows, byte_len_min: 0, byte_len_max: 0, computed: false, key_kind: KeyKind::Exact.as_u8(), sorted: 0 };
+        let f = ZoneFacts {
+            min_key: min,
+            max_key: max,
+            nonnull: rows,
+            byte_len_min: 0,
+            byte_len_max: 0,
+            computed: false,
+            key_kind: KeyKind::Exact.as_u8(),
+            sorted: 0,
+        };
         let v = zone_verdict(&f, rows, z);
         Some(if v == V_ALL && !all { V_MIXED } else { v })
     }
@@ -844,12 +1177,21 @@ impl GranuleRangeSource {
         for c in self.map_cols.iter_mut() {
             *c = None;
         }
-        let Some(list) = self.list.as_ref() else { return };
-        let Some(zones) = list.zones.get() else { return };
+        let Some(list) = self.list.as_ref() else {
+            return;
+        };
+        let Some(zones) = list.zones.get() else {
+            return;
+        };
         // bounded("other: one zone predicate of the statement's own quals each (an IN list's member is one): the query text bounds them, and PG's ExecQual tests the same quals per row with no poll")
         for z in &self.zone[..self.nzone] {
             let k = z.lane as usize;
-            if z.prefix || k >= self.recipe.natts || self.answer_lanes.has(k) || self.mapped.has(k) || Faces::is_shred(self.face(k)) {
+            if z.prefix
+                || k >= self.recipe.natts
+                || self.answer_lanes.has(k)
+                || self.mapped.has(k)
+                || Faces::is_shred(self.face(k))
+            {
                 continue;
             }
             let attno = self.recipe.attnos[k] as u32;
@@ -911,7 +1253,11 @@ mod rt_window_tests {
     use std::sync::Arc;
 
     fn armed() -> GranuleRangeSource {
-        let mut s = GranuleRangeSource::new(GranuleRecipe::for_test(1, &[1], Arc::new(pgrc_read::PartRegistry::new(1 << 20))));
+        let mut s = GranuleRangeSource::new(GranuleRecipe::for_test(
+            1,
+            &[1],
+            Arc::new(pgrc_read::PartRegistry::new(1 << 20)),
+        ));
         s.rt[0].lane = 0;
         s
     }
@@ -932,16 +1278,24 @@ mod rt_window_tests {
     #[test]
     fn a_window_without_a_cut_idles_the_filter_and_a_sampled_cut_arms_it_again() {
         let div = rt_div();
-        assert!(div as u32 > RT_PROBE, "on the reference box one cut in a window keeps the filter armed");
+        assert!(
+            div as u32 > RT_PROBE,
+            "on the reference box one cut in a window keeps the filter armed"
+        );
         let mut s = armed();
         for _ in 0..RT_PROBE {
             assert!(granule(&mut s, false));
         }
         assert!(!s.rt_measuring(), "a window without a cut idles the filter");
-        assert!(!s.rt_cuts(0, Some(0)), "the claim's read plan no longer asks it");
+        assert!(
+            !s.rt_cuts(0, Some(0)),
+            "the claim's read plan no longer asks it"
+        );
         let checked = (0..3 * div).filter(|_| granule(&mut s, false)).count();
         assert_eq!(checked, 3, "idle: one granule in rt_div() is checked");
-        let late = (0..div).position(|_| granule(&mut s, true)).expect("a sampled check within rt_div() granules");
+        let late = (0..div)
+            .position(|_| granule(&mut s, true))
+            .expect("a sampled check within rt_div() granules");
         assert_eq!(late, div - 1);
         assert!(s.rt_measuring(), "a sampled cut arms the filter again");
         // armed: a window with one cut in RT_PROBE stays armed (one in RT_PROBE is at least one in rt_div() here)
@@ -952,7 +1306,10 @@ mod rt_window_tests {
         for _ in 0..RT_PROBE {
             granule(&mut s, false);
         }
-        assert!(!s.rt_measuring(), "the next window is judged afresh: no cut, idle");
+        assert!(
+            !s.rt_measuring(),
+            "the next window is judged afresh: no cut, idle"
+        );
     }
 
     /// H14 (kept: the filter is armed by measurement, `RT_PROBE` checks a window): the near form that must not idle it
@@ -963,11 +1320,17 @@ mod rt_window_tests {
     fn a_filter_asked_fewer_than_a_window_of_checks_stays_armed() {
         let mut s = armed();
         for _ in 1..RT_PROBE {
-            assert!(granule(&mut s, false), "every granule is checked while the filter measures");
+            assert!(
+                granule(&mut s, false),
+                "every granule is checked while the filter measures"
+            );
             assert!(s.rt_measuring());
         }
         assert!(granule(&mut s, false));
-        assert!(!s.rt_measuring(), "the RT_PROBE-th check completes the window");
+        assert!(
+            !s.rt_measuring(),
+            "the RT_PROBE-th check completes the window"
+        );
         // a fresh bind: the window starts again
         let mut s = armed();
         assert!((0..RT_PROBE / 2).all(|_| granule(&mut s, false)) && s.rt_measuring());
@@ -980,13 +1343,19 @@ mod rt_window_tests {
     #[test]
     fn a_re_armed_filter_is_taken_again_and_keeps_its_measuring_window() {
         use super::super::RtFilter;
-        let f = |lo: i64, hi: i64| RtFilter::charged(1, lo, hi, &[], &[], None).expect("an uncharged filter");
+        let f = |lo: i64, hi: i64| {
+            RtFilter::charged(1, lo, hi, &[], &[], None).expect("an uncharged filter")
+        };
         let mut s = armed();
         s.cell.arm_rt(f(0, 10));
         s.rt[0].lane = usize::MAX;
         s.rt_arm();
         let first = s.rt_gen;
-        assert_ne!(first, u64::MAX, "the first part takes the cell's generation");
+        assert_ne!(
+            first,
+            u64::MAX,
+            "the first part takes the cell's generation"
+        );
         s.rt[0].lane = 0;
         for _ in 0..RT_PROBE {
             granule(&mut s, false);
@@ -995,13 +1364,28 @@ mod rt_window_tests {
         // the build ran again: a new filter, the source re-takes it at its next part and stays idle
         s.cell.arm_rt(f(20, 30));
         s.rt_arm();
-        assert!(s.rt_gen > first, "the re-armed filter's generation is taken");
-        assert!(s.rt[0].idle, "a re-armed filter keeps the window's idle verdict (no new warm-up)");
-        assert!(s.rt[0].f.as_deref().is_none_or(|r| (r.lo, r.hi) == (20, 30)), "never the first run's keys");
+        assert!(
+            s.rt_gen > first,
+            "the re-armed filter's generation is taken"
+        );
+        assert!(
+            s.rt[0].idle,
+            "a re-armed filter keeps the window's idle verdict (no new warm-up)"
+        );
+        assert!(
+            s.rt[0]
+                .f
+                .as_deref()
+                .is_none_or(|r| (r.lo, r.hi) == (20, 30)),
+            "never the first run's keys"
+        );
         // the set re-opened: no filter until the build arms
         s.cell.clear_rt();
         s.rt_arm();
-        assert!(s.rt[0].f.is_none() && s.rt[0].lane == usize::MAX, "a cleared cell leaves the source no filter");
+        assert!(
+            s.rt[0].f.is_none() && s.rt[0].lane == usize::MAX,
+            "a cleared cell leaves the source no filter"
+        );
     }
 }
 
@@ -1014,7 +1398,11 @@ mod rt_slot_tests {
     /// keys, and a run set meets a range only where a run does.
     #[test]
     fn each_slot_measures_alone_and_runs_fold_consecutive_keys() {
-        let mut s = GranuleRangeSource::new(GranuleRecipe::for_test(1, &[1], Arc::new(pgrc_read::PartRegistry::new(1 << 20))));
+        let mut s = GranuleRangeSource::new(GranuleRecipe::for_test(
+            1,
+            &[1],
+            Arc::new(pgrc_read::PartRegistry::new(1 << 20)),
+        ));
         (s.rt[0].lane, s.rt[RT_SLOTS - 1].lane) = (0, 0);
         for i in 0..RT_PROBE {
             for (k, cut) in [(0, false), (RT_SLOTS - 1, i % 8 == 0)] {
@@ -1022,15 +1410,47 @@ mod rt_slot_tests {
                 s.rt_count(k, cut);
             }
         }
-        assert!(s.rt[0].idle && !s.rt[RT_SLOTS - 1].idle, "a slot that cut stays armed beside one that idled");
+        assert!(
+            s.rt[0].idle && !s.rt[RT_SLOTS - 1].idle,
+            "a slot that cut stays armed beside one that idled"
+        );
         assert!(s.rt_measuring() && s.rt_measuring_lane(0) && s.rt_mask() == 1 << (RT_SLOTS - 1));
-        assert_eq!(RtFilter::runs_of(&mut cancelpoll::step("test"), &[3, 4, 5, 9, 11, 12, i64::MAX]).unwrap(), [(3, 5), (9, 9), (11, 12), (i64::MAX, i64::MAX)]);
-        let f = RtFilter::charged(1, 3, 12, &RtFilter::runs_of(&mut cancelpoll::step("test"), &[3, 4, 5, 9, 11, 12]).unwrap(), &[], None).expect("an uncharged filter"); // alloc: Cold
-        for (min, max, miss) in [(6, 8, true), (6, 9, false), (10, 10, true), (0, 2, true), (13, 20, true), (5, 5, false), (0, 100, false)] {
+        assert_eq!(
+            RtFilter::runs_of(
+                &mut cancelpoll::step("test"),
+                &[3, 4, 5, 9, 11, 12, i64::MAX]
+            )
+            .unwrap(),
+            [(3, 5), (9, 9), (11, 12), (i64::MAX, i64::MAX)]
+        );
+        let f = RtFilter::charged(
+            1,
+            3,
+            12,
+            &RtFilter::runs_of(&mut cancelpoll::step("test"), &[3, 4, 5, 9, 11, 12]).unwrap(),
+            &[],
+            None,
+        )
+        .expect("an uncharged filter"); // alloc: Cold
+        for (min, max, miss) in [
+            (6, 8, true),
+            (6, 9, false),
+            (10, 10, true),
+            (0, 2, true),
+            (13, 20, true),
+            (5, 5, false),
+            (0, 100, false),
+        ] {
             assert_eq!(f.misses(min, max), miss, "[{min}, {max}]");
         }
-        let range = RtFilter { runs: memledger::ChargedVec::none(), ..f };
-        assert!(!range.misses(6, 8), "the range alone misses nothing inside it");
+        let range = RtFilter {
+            runs: memledger::ChargedVec::none(),
+            ..f
+        };
+        assert!(
+            !range.misses(6, 8),
+            "the range alone misses nothing inside it"
+        );
     }
 }
 
@@ -1043,12 +1463,33 @@ mod code_zone_tests {
     /// never covers one with a failing row.
     #[test]
     fn code_zone_verdicts_agree_with_the_byte_compare() {
-        let dict: [&[u8]; 4] = [b"app.bsky.feed.like", b"app.bsky.feed.post", b"app.bsky.graph.block", b"app.bsky.graph.follow"];
-        let consts: [&[u8]; 8] = [b"", b"app.bsky.feed.like", b"app.bsky.feed.m", b"app.bsky.feed.post", b"app.bsky.g", b"app.bsky.graph.block", b"app.bsky.graph.follow", b"z"];
+        let dict: [&[u8]; 4] = [
+            b"app.bsky.feed.like",
+            b"app.bsky.feed.post",
+            b"app.bsky.graph.block",
+            b"app.bsky.graph.follow",
+        ];
+        let consts: [&[u8]; 8] = [
+            b"",
+            b"app.bsky.feed.like",
+            b"app.bsky.feed.m",
+            b"app.bsky.feed.post",
+            b"app.bsky.g",
+            b"app.bsky.graph.block",
+            b"app.bsky.graph.follow",
+            b"z",
+        ];
         for c in consts {
             let r = dict.partition_point(|e| *e < c) as u32;
             let found = dict.get(r as usize) == Some(&c);
-            for op in [ZoneOp::Eq, ZoneOp::Ne, ZoneOp::Lt, ZoneOp::Le, ZoneOp::Gt, ZoneOp::Ge] {
+            for op in [
+                ZoneOp::Eq,
+                ZoneOp::Ne,
+                ZoneOp::Lt,
+                ZoneOp::Le,
+                ZoneOp::Gt,
+                ZoneOp::Ge,
+            ] {
                 let (wop, v) = code_word(op, r, found).expect("a compare");
                 for lo in 0..4u32 {
                     for hi in lo..4u32 {
@@ -1062,10 +1503,30 @@ mod code_zone_tests {
                             _ => x >= c,
                         };
                         let n = (lo..=hi).filter(|&k| pass(dict[k as usize])).count() as u32;
-                        let f = ZoneFacts { min_key: lo as i64, max_key: hi as i64, nonnull: rows, byte_len_min: 0, byte_len_max: 0, computed: false, key_kind: KeyKind::Exact.as_u8(), sorted: 0 };
+                        let f = ZoneFacts {
+                            min_key: lo as i64,
+                            max_key: hi as i64,
+                            nonnull: rows,
+                            byte_len_min: 0,
+                            byte_len_max: 0,
+                            computed: false,
+                            key_kind: KeyKind::Exact.as_u8(),
+                            sorted: 0,
+                        };
                         let got = zone_verdict(&f, rows, &ZonePred::word(0, wop, v));
-                        let want = if n == 0 { V_NONE } else if n == rows { V_ALL } else { got };
-                        assert_eq!(got, want, "{op:?} {:?} over [{lo}, {hi}]", core::str::from_utf8(c));
+                        let want = if n == 0 {
+                            V_NONE
+                        } else if n == rows {
+                            V_ALL
+                        } else {
+                            got
+                        };
+                        assert_eq!(
+                            got,
+                            want,
+                            "{op:?} {:?} over [{lo}, {hi}]",
+                            core::str::from_utf8(c)
+                        );
                         assert!(got == V_NONE || n > 0);
                     }
                 }
@@ -1076,14 +1537,24 @@ mod code_zone_tests {
 
 #[cfg(test)]
 mod ne_trial_tests {
-    use super::super::{GranuleRangeSource, GranuleRecipe, ZoneOp, ZonePred, V_ALL, V_MIXED, V_NONE};
+    use super::super::{
+        GranuleRangeSource, GranuleRecipe, ZoneOp, ZonePred, V_ALL, V_MIXED, V_NONE,
+    };
     use std::sync::Arc;
 
     /// Two code lanes, `t <> c` on lane 0 and `u <> d` on lane 1 (and `t <> e` on lane 0 with `second`); lane 0 read for its
     /// filter alone when `filter_only`.
     fn source(filter_only: bool, second: bool) -> GranuleRangeSource {
-        let mut s = GranuleRangeSource::new(GranuleRecipe::for_test_codes(1, &[1, 2], &[0b11], Arc::new(pgrc_read::PartRegistry::new(1 << 20))));
-        s.zone = vec![ZonePred::prefix(0, ZoneOp::Ne, 7), ZonePred::prefix(1, ZoneOp::Ne, 9)]; // alloc: Cold
+        let mut s = GranuleRangeSource::new(GranuleRecipe::for_test_codes(
+            1,
+            &[1, 2],
+            &[0b11],
+            Arc::new(pgrc_read::PartRegistry::new(1 << 20)),
+        ));
+        s.zone = vec![
+            ZonePred::prefix(0, ZoneOp::Ne, 7),
+            ZonePred::prefix(1, ZoneOp::Ne, 9),
+        ]; // alloc: Cold
         if second {
             s.zone.push(ZonePred::prefix(0, ZoneOp::Ne, 11));
         }
@@ -1116,13 +1587,22 @@ mod ne_trial_tests {
         part(&mut s, &[(V_ALL, 0)]);
         part(&mut s, &[(V_ALL, 0)]);
         part(&mut s, &[]);
-        assert!(!s.record_lanes.has(0), "its AllMatch granules elide the filter-only lane");
-        assert!(s.record_lanes.has(1), "a lane read past its filters decodes its AllMatch granules anyway");
+        assert!(
+            !s.record_lanes.has(0),
+            "its AllMatch granules elide the filter-only lane"
+        );
+        assert!(
+            s.record_lanes.has(1),
+            "a lane read past its filters decodes its AllMatch granules anyway"
+        );
         let mut s = source(false, false);
         part(&mut s, &[(V_NONE, u64::MAX)]);
         part(&mut s, &[DRY, (V_NONE, u64::MAX)]);
         part(&mut s, &[]);
-        assert!(!s.record_lanes.has(0) && !s.record_lanes.has(1), "a NoneMatch granule is skipped: paid");
+        assert!(
+            !s.record_lanes.has(0) && !s.record_lanes.has(1),
+            "a NoneMatch granule is skipped: paid"
+        );
     }
 
     /// Two parts asked whose records paid for no granule of the lane make it a record lane at the next pin; one paid
@@ -1135,17 +1615,26 @@ mod ne_trial_tests {
         part(&mut s, &[DRY, DRY]);
         assert!(!s.record_lanes.has(0), "one dry part: still on trial");
         part(&mut s, &[DRY]);
-        assert!(s.record_lanes.has(0) && s.record_lanes.has(1), "two dry parts running: record lanes");
+        assert!(
+            s.record_lanes.has(0) && s.record_lanes.has(1),
+            "two dry parts running: record lanes"
+        );
         assert_eq!(s.ne_watch, 0);
         s.arm_record_lanes();
-        assert!(!s.record_lanes.has(0) && s.ne_watch == 0b11, "the next bind tries them again");
+        assert!(
+            !s.record_lanes.has(0) && s.ne_watch == 0b11,
+            "the next bind tries them again"
+        );
 
         let mut s = source(true, false);
         part(&mut s, &[DRY, DRY]);
         part(&mut s, &[DRY, (V_MIXED, !0b1), DRY]);
         part(&mut s, &[DRY]);
         part(&mut s, &[]);
-        assert!(!s.record_lanes.has(0), "a paid granule restarts the count; a part not asked counts nothing");
+        assert!(
+            !s.record_lanes.has(0),
+            "a paid granule restarts the count; a part not asked counts nothing"
+        );
         part(&mut s, &[DRY]);
         part(&mut s, &[]);
         assert!(s.record_lanes.has(0));

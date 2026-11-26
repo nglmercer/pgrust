@@ -41,7 +41,10 @@ crate::strategies! {
     JOIN_PROBE_STAGED = 151, "join.probe.staged", Join;
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(JOIN_PROBE_STAGED, &Staged)], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(JOIN_PROBE_STAGED, &Staged)],
+    ..crate::ops::NONE
+};
 
 /// Stage 3's touch of a record's lines: none, hinted, loaded, or hinted by stage 2 as it finds the record (no stage 3).
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -72,7 +75,9 @@ struct Mode {
 }
 
 fn mode() -> Mode {
-    let rows = gravity_driver::env::num::<usize>("PGRUST_GRAVITY_PROBE_STAGE_ROWS").filter(|r| matches!(r, 32 | 64 | 128 | 256)).unwrap_or(64);
+    let rows = gravity_driver::env::num::<usize>("PGRUST_GRAVITY_PROBE_STAGE_ROWS")
+        .filter(|r| matches!(r, 32 | 64 | 128 | 256))
+        .unwrap_or(64);
     let loads = gravity_driver::env::text("PGRUST_GRAVITY_PROBE_STAGE_LOADS").unwrap_or_default();
     let at = |i: usize, d: u8| loads.as_bytes().get(i).copied().unwrap_or(d);
     let recs = match at(1, b'm') {
@@ -82,10 +87,19 @@ fn mode() -> Mode {
         _ => Recs::Early,
     };
     let marks = gravity_driver::env::num::<u32>("PGRUST_GRAVITY_PROBE_STAGE_MARKS") != Some(0);
-    let foot = gravity_driver::env::text("PGRUST_GRAVITY_PROBE_STAGE_GATE").is_none_or(|g| g.trim() != "dir");
+    let foot = gravity_driver::env::text("PGRUST_GRAVITY_PROBE_STAGE_GATE")
+        .is_none_or(|g| g.trim() != "dir");
     let split = gravity_driver::env::num::<u32>("PGRUST_GRAVITY_PROBE_STAGE_SPLIT") != Some(0);
     let memo = gravity_driver::env::num::<u32>("PGRUST_GRAVITY_PROBE_STAGE_MEMO") != Some(0);
-    Mode { rows, head_hint: at(0, b'p') == b'p', recs, marks, foot, split, memo }
+    Mode {
+        rows,
+        head_hint: at(0, b'p') == b'p',
+        recs,
+        marks,
+        foot,
+        split,
+        memo,
+    }
 }
 
 /// A straight chunk's rows (frame.rs `chunks`).
@@ -117,7 +131,9 @@ pub(crate) fn takes(jt: JoinType) -> bool {
     }
     match jt {
         JoinType::JOIN_INNER | JoinType::JOIN_SEMI => true,
-        JoinType::JOIN_RIGHT | JoinType::JOIN_RIGHT_SEMI | JoinType::JOIN_RIGHT_ANTI => mode().marks,
+        JoinType::JOIN_RIGHT | JoinType::JOIN_RIGHT_SEMI | JoinType::JOIN_RIGHT_ANTI => {
+            mode().marks
+        }
         _ => false,
     }
 }
@@ -126,19 +142,33 @@ pub(crate) fn takes(jt: JoinType) -> bool {
 /// maps a key column to its column there), `fill` the key columns' late lanes: the rows that walk and their first
 /// records. `None`: a key that is no by-value lane cell of the source's row, or lanes the source cannot fill alone.
 #[allow(clippy::type_complexity)]
-pub(crate) fn block(p: &Probe<'_>, b: &mut FunctionBuilder<'_>, env: &mut Env, (row, back): (&RowVals, &dyn Fn(i16) -> Option<i16>), rows: BatchRows, fill: &mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env, &[i16]) -> bool) -> Option<Batched> {
+pub(crate) fn block(
+    p: &Probe<'_>,
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    (row, back): (&RowVals, &dyn Fn(i16) -> Option<i16>),
+    rows: BatchRows,
+    fill: &mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env, &[i16]) -> bool,
+) -> Option<Batched> {
     let hv = p.hv.get()?;
     let mcx = env.mcx;
     let mut keys: PgVec<'_, KeySrc> = mcx::reserved_in(p.keys.len(), mcx);
     for k in p.keys.iter() {
-        let KeySrc::Col(a, tf, c) = *k else { return None };
+        let KeySrc::Col(a, tf, c) = *k else {
+            return None;
+        };
         keys.push_in(KeySrc::Col(back(a)?, tf, c));
     }
-    let cols: PgVec<'_, i16> = keys.iter().map(|k| if let KeySrc::Col(a, ..) = k { *a } else { 0 }).collect_in(mcx);
+    let cols: PgVec<'_, i16> = keys
+        .iter()
+        .map(|k| if let KeySrc::Col(a, ..) = k { *a } else { 0 })
+        .collect_in(mcx);
     let cells = key_cells(b, env, p.node, row, &keys, None);
     let mut widths: PgVec<'_, u8> = mcx::reserved_in(cells.len(), mcx);
     for c in cells.iter() {
-        let (At::Lane(_), Rep::Word { bytes }) = (c.0.at, c.0.rep) else { return None };
+        let (At::Lane(_), Rep::Word { bytes }) = (c.0.at, c.0.rep) else {
+            return None;
+        };
         widths.push_in(bytes);
     }
     if !fill(b, env, &cols[..]) {
@@ -151,27 +181,38 @@ pub(crate) fn block(p: &Probe<'_>, b: &mut FunctionBuilder<'_>, env: &mut Env, (
     let (kept, hits) = (array(b, rows.nw), array(b, rows.nw));
     let key = (&cells, &widths[..], &keys[..]);
     hashes(p, b, env, &hv, key, rows, (hs, firsts, kept), m.head_hint);
-    each(b, env, (kept, rows.nw), Some(hits), true, &mut |b, env, t, bit, acc| {
-        let at = b.ptr_add(hs, t, 8, 0);
-        let h = b.load(Type::I64, at, 0);
-        let hp = head_at(b, &hv, h);
-        let head = b.load(Type::I64, hp, 0);
-        let first = p.head_first(b, env, &hv, h, head);
-        let at = b.ptr_add(firsts, t, 8, 0);
-        b.store(at, 0, first);
-        let none = b.icmp(IntCond::Eq, first, env.zero);
-        if m.recs == Recs::Early {
-            let r = b.select(none, hv.recs, first);
-            let rec = b.conv(ConvOp::IntToPtr, Type::Ptr, r);
-            lines(p, env).iter().for_each(|&o| b.prefetch(rec, o));
-        }
-        let with = b.int_bin(IntBinOp::Or, acc, bit);
-        b.select(none, acc, with)
-    });
+    each(
+        b,
+        env,
+        (kept, rows.nw),
+        Some(hits),
+        true,
+        &mut |b, env, t, bit, acc| {
+            let at = b.ptr_add(hs, t, 8, 0);
+            let h = b.load(Type::I64, at, 0);
+            let hp = head_at(b, &hv, h);
+            let head = b.load(Type::I64, hp, 0);
+            let first = p.head_first(b, env, &hv, h, head);
+            let at = b.ptr_add(firsts, t, 8, 0);
+            b.store(at, 0, first);
+            let none = b.icmp(IntCond::Eq, first, env.zero);
+            if m.recs == Recs::Early {
+                let r = b.select(none, hv.recs, first);
+                let rec = b.conv(ConvOp::IntToPtr, Type::Ptr, r);
+                lines(p, env).iter().for_each(|&o| b.prefetch(rec, o));
+            }
+            let with = b.int_bin(IntBinOp::Or, acc, bit);
+            b.select(none, acc, with)
+        },
+    );
     if !matches!(m.recs, Recs::Skip | Recs::Early) {
         records(p, b, env, (hits, rows.nw), (firsts, hs), m.recs);
     }
-    Some(Batched { walk: if rows.all { rows.masks } else { hits }, offset: p.offset, firsts })
+    Some(Batched {
+        walk: if rows.all { rows.masks } else { hits },
+        offset: p.offset,
+        firsts,
+    })
 }
 
 /// A block's array of `n` words (`Ptr`).
@@ -184,8 +225,20 @@ fn array(b: &mut FunctionBuilder<'_>, n: usize) -> Value {
 /// threading a word through the word's rows (from its mask, or 0 with `from_zero`), stored at `out` after each mask word.
 /// At most 64 turns a word, inside the checked block loop.
 #[allow(clippy::type_complexity)]
-fn each(b: &mut FunctionBuilder<'_>, env: &mut Env, (masks, nw): (Value, usize), out: Option<Value>, from_zero: bool, f: &mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env, Value, Value, Value) -> Value) {
-    let (l_word, l_bits, l_one, l_done) = (b.create_block(&[Type::I64]), b.create_block(&[Type::I64, Type::I64, Type::I64]), b.create_block(&[]), b.create_block(&[]));
+fn each(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    (masks, nw): (Value, usize),
+    out: Option<Value>,
+    from_zero: bool,
+    f: &mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env, Value, Value, Value) -> Value,
+) {
+    let (l_word, l_bits, l_one, l_done) = (
+        b.create_block(&[Type::I64]),
+        b.create_block(&[Type::I64, Type::I64, Type::I64]),
+        b.create_block(&[]),
+        b.create_block(&[]),
+    );
     b.br(l_word, &[env.zero]);
     b.mark_loop_header(l_word);
     env.bounded.push_in(l_word);
@@ -202,7 +255,11 @@ fn each(b: &mut FunctionBuilder<'_>, env: &mut Env, (masks, nw): (Value, usize),
     b.mark_loop_header(l_bits);
     env.bounded.push_in(l_bits);
     b.switch_to(l_bits);
-    let (bits, acc, w) = (b.block_params(l_bits)[0], b.block_params(l_bits)[1], b.block_params(l_bits)[2]);
+    let (bits, acc, w) = (
+        b.block_params(l_bits)[0],
+        b.block_params(l_bits)[1],
+        b.block_params(l_bits)[2],
+    );
     let (none, l_next) = (b.icmp(IntCond::Eq, bits, env.zero), b.create_block(&[]));
     b.cond_br(none, (l_next, &[]), (l_one, &[]));
     b.switch_to(l_one);
@@ -227,8 +284,19 @@ fn each(b: &mut FunctionBuilder<'_>, env: &mut Env, (masks, nw): (Value, usize),
 
 /// Row `t`'s KeyHash: the image of `cells` moved `t` elements on (each lane `widths` bytes a row), kept in its slot of
 /// `hs`. The image's branch dominates nothing after it: its reads leave no memo entry.
-fn hashed(p: &Probe<'_>, b: &mut FunctionBuilder<'_>, env: &mut Env, (cells, widths, keys): (&KeyVals, &[u8], &[KeySrc]), hs: Value, t: Value) -> Value {
-    let moved: KeyVals<'_> = cells.iter().zip(widths).map(|(c, &w)| (c.0, b.ptr_add(c.1, t, w, 0), None, c.3)).collect_in(env.mcx);
+fn hashed(
+    p: &Probe<'_>,
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    (cells, widths, keys): (&KeyVals, &[u8], &[KeySrc]),
+    hs: Value,
+    t: Value,
+) -> Value {
+    let moved: KeyVals<'_> = cells
+        .iter()
+        .zip(widths)
+        .map(|(c, &w)| (c.0, b.ptr_add(c.1, t, w, 0), None, c.3))
+        .collect_in(env.mcx);
     let outer = env.memo.set_aside();
     let mut lx = env.lx(b, p.node);
     let img = image(&mut lx, p.node, &moved, keys);
@@ -244,7 +312,16 @@ fn hashed(p: &Probe<'_>, b: &mut FunctionBuilder<'_>, env: &mut Env, (cells, wid
 /// test (the words stay in L2: D3194) drops a row (its first record 0 when every row walks, `rows.all`), and the block
 /// counts in the sample once while the window samples; with `hint`, each row that goes on hints its head's line.
 #[allow(clippy::type_complexity)]
-fn hashes(p: &Probe<'_>, b: &mut FunctionBuilder<'_>, env: &mut Env, hv: &Hv, key: (&KeyVals, &[u8], &[KeySrc]), rows: BatchRows, (hs, firsts, kept): (Value, Value, Value), hint: bool) {
+fn hashes(
+    p: &Probe<'_>,
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    hv: &Hv,
+    key: (&KeyVals, &[u8], &[KeySrc]),
+    rows: BatchRows,
+    (hs, firsts, kept): (Value, Value, Value),
+    hint: bool,
+) {
     let set = (rows.masks, rows.nw);
     let plain = |b: &mut FunctionBuilder<'_>, env: &mut Env| {
         each(b, env, set, Some(kept), false, &mut |b, env, t, _, acc| {
@@ -256,25 +333,44 @@ fn hashes(p: &Probe<'_>, b: &mut FunctionBuilder<'_>, env: &mut Env, hv: &Hv, ke
             acc
         })
     };
-    let Some(((word, _), f)) = p.rf.zip(p.rfl.get()) else { return plain(b, env) };
-    let (l_armed, l_plain, l_out) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));
+    let Some(((word, _), f)) = p.rf.zip(p.rfl.get()) else {
+        return plain(b, env);
+    };
+    let (l_armed, l_plain, l_out) = (
+        b.create_block(&[]),
+        b.create_block(&[]),
+        b.create_block(&[]),
+    );
     b.cond_br(f.armed, (l_armed, &[]), (l_plain, &[]));
     b.switch_to(l_plain);
     plain(b, env);
     b.br(l_out, &[]);
     b.switch_to(l_armed);
-    each(b, env, set, Some(kept), false, &mut |b, env, t, bit, acc| {
-        let h = hashed(p, b, env, key, hs, t);
-        filtered(b, env, (hv, &f), (h, t, bit, acc), (firsts, rows.all, hint))
-    });
+    each(
+        b,
+        env,
+        set,
+        Some(kept),
+        false,
+        &mut |b, env, t, bit, acc| {
+            let h = hashed(p, b, env, key, hs, t);
+            filtered(b, env, (hv, &f), (h, t, bit, acc), (firsts, rows.all, hint))
+        },
+    );
     let l_count = b.create_block(&[]);
     b.cond_br(f.sampling, (l_count, &[]), (l_out, &[]));
     b.switch_to(l_count);
     let (mut all, mut passed) = (env.zero, env.zero);
     for w in 0..rows.nw as i32 {
-        let (x, y) = (b.load(Type::I64, rows.masks, 8 * w), b.load(Type::I64, kept, 8 * w));
+        let (x, y) = (
+            b.load(Type::I64, rows.masks, 8 * w),
+            b.load(Type::I64, kept, 8 * w),
+        );
         let (x, y) = (b.int_un(IntUnOp::Popcnt, x), b.int_un(IntUnOp::Popcnt, y));
-        (all, passed) = (b.int_bin(IntBinOp::Add, all, x), b.int_bin(IntBinOp::Add, passed, y));
+        (all, passed) = (
+            b.int_bin(IntBinOp::Add, all, x),
+            b.int_bin(IntBinOp::Add, passed, y),
+        );
     }
     rowfilter::count_rows(b, env, word, all, passed);
     b.br(l_out, &[]);
@@ -282,13 +378,23 @@ fn hashes(p: &Probe<'_>, b: &mut FunctionBuilder<'_>, env: &mut Env, hv: &Hv, ke
 }
 
 /// Stage 1's filter test of row `t` (`bit`, its key hash `h`) in the rows kept so far `acc`: the rows kept after it.
-fn filtered(b: &mut FunctionBuilder<'_>, env: &mut Env, (hv, f): (&Hv, &Live), (h, t, bit, acc): (Value, Value, Value, Value), (firsts, all, hint): (Value, bool, bool)) -> Value {
+fn filtered(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    (hv, f): (&Hv, &Live),
+    (h, t, bit, acc): (Value, Value, Value, Value),
+    (firsts, all, hint): (Value, bool, bool),
+) -> Value {
     let pass = rowfilter::hit(b, env, f, h);
     let dropped = b.int_bin(IntBinOp::Xor, acc, bit);
     if !hint && !all {
         return b.select(pass, acc, dropped);
     }
-    let (l_pass, l_drop, l_next): (Block, Block, Block) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[Type::I64]));
+    let (l_pass, l_drop, l_next): (Block, Block, Block) = (
+        b.create_block(&[]),
+        b.create_block(&[]),
+        b.create_block(&[Type::I64]),
+    );
     b.cond_br(pass, (l_pass, &[]), (l_drop, &[]));
     b.switch_to(l_pass);
     if hint {
@@ -308,7 +414,14 @@ fn filtered(b: &mut FunctionBuilder<'_>, env: &mut Env, (hv, f): (&Hv, &Live), (
 
 /// Stage 3: each row of `hits`' first record's lines (its first word, each 64 bytes on, its last word; at most four),
 /// hinted or loaded (the loaded words folded into the row's slot of `sink`, so no load is dead).
-fn records(p: &Probe<'_>, b: &mut FunctionBuilder<'_>, env: &mut Env, set: (Value, usize), (firsts, sink): (Value, Value), recs: Recs) {
+fn records(
+    p: &Probe<'_>,
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    set: (Value, usize),
+    (firsts, sink): (Value, Value),
+    recs: Recs,
+) {
     let offs = lines(p, env);
     each(b, env, set, None, true, &mut |b, env, t, _, acc| {
         let at = b.ptr_add(firsts, t, 8, 0);

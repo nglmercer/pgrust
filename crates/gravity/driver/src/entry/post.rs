@@ -24,11 +24,16 @@ pub static POST_TURN: OnceLock<fn() -> Result<()>> = OnceLock::new();
 /// pipeline whose group's writer has not bound (its first), the runner's hook, then that writer bound on the execution's
 /// node. An error leaves the execution failed.
 pub fn turn(exec: &mut Exec, binding: &mut Binding<'_>, p: usize) -> Result<()> {
-    let Ok(at) = u16::try_from(p) else { return Ok(()) };
+    let Ok(at) = u16::try_from(p) else {
+        return Ok(());
+    };
     if !exec.node.program().pipelines.get(p).is_some_and(|x| x.post) || !exec.node.binds_at(at) {
         return Ok(());
     }
-    let r = POST_TURN.get().map_or(Ok(()), |f| f()).and_then(|()| exec.node.bind_at(&binding.as_ref(), at));
+    let r = POST_TURN
+        .get()
+        .map_or(Ok(()), |f| f())
+        .and_then(|()| exec.node.bind_at(&binding.as_ref(), at));
     if r.is_err() {
         exec.state = ExecState::Failed;
     }

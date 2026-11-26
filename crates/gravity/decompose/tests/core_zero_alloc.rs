@@ -1,6 +1,6 @@
 use std::alloc::{GlobalAlloc, Layout, System};
-use std::fmt::Write;
 use std::cell::Cell;
+use std::fmt::Write;
 
 use gravity_decompose::{corpus, decompose, dump};
 use gravity_program::Arena;
@@ -36,14 +36,24 @@ const CHUNKS: usize = 8;
 
 fn allocate_nothing_after_warmup(c: usize) {
     let dir = manifest_dir().join("tests/plans");
-    let mut paths: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().path()).filter(|p| p.extension().is_some_and(|e| e == "plan")).collect();
+    let mut paths: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.extension().is_some_and(|e| e == "plan"))
+        .collect();
     paths.sort();
     let ctx = MemoryContext::new("fixtures");
     let n = paths.len();
     assert!(n >= CHUNKS, "{n} fixtures");
     let paths = &paths[c * n / CHUNKS..(c + 1) * n / CHUNKS];
-    let texts: Vec<String> = paths.iter().map(|p| std::fs::read_to_string(p).unwrap()).collect();
-    let fixtures: Vec<_> = texts.iter().map(|t| corpus::load(ctx.mcx(), t).unwrap()).collect();
+    let texts: Vec<String> = paths
+        .iter()
+        .map(|p| std::fs::read_to_string(p).unwrap())
+        .collect();
+    let fixtures: Vec<_> = texts
+        .iter()
+        .map(|t| corpus::load(ctx.mcx(), t).unwrap())
+        .collect();
     assert!(!fixtures.is_empty());
     let arena = Arena::new(1 << 20);
     let mut out = String::with_capacity(1 << 16);
@@ -66,7 +76,12 @@ fn allocate_nothing_after_warmup(c: usize) {
         run(&mut out);
     }
     ON.with(|o| o.set(false));
-    assert_eq!(ALLOCS.with(Cell::get), 0, "steady-state allocations over {} fixtures (chunk {c} of {CHUNKS})", fixtures.len());
+    assert_eq!(
+        ALLOCS.with(Cell::get),
+        0,
+        "steady-state allocations over {} fixtures (chunk {c} of {CHUNKS})",
+        fixtures.len()
+    );
 }
 
 macro_rules! chunk_tests {
@@ -92,12 +107,20 @@ chunk_tests! {
 
 #[test]
 fn decompose_and_dump_chunks_cover_the_fixtures() {
-    assert_eq!(CHUNK_TESTS, (0..CHUNKS).collect::<Vec<_>>().as_slice(), "one test per chunk");
+    assert_eq!(
+        CHUNK_TESTS,
+        (0..CHUNKS).collect::<Vec<_>>().as_slice(),
+        "one test per chunk"
+    );
 }
 
 /// D793-b: the checkout under test, read at run time (cargo sets CARGO_MANIFEST_DIR for every test process), never
 /// env!()'s path baked in at compile time: a test binary reused from another checkout would read that checkout's files.
 fn manifest_dir() -> &'static std::path::Path {
     static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| std::env::var_os("CARGO_MANIFEST_DIR").map(Into::into).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)"))
+    DIR.get_or_init(|| {
+        std::env::var_os("CARGO_MANIFEST_DIR")
+            .map(Into::into)
+            .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+    })
 }

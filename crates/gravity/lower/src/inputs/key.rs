@@ -9,10 +9,12 @@
 use core::fmt;
 use core::hash::{Hash, Hasher};
 
+use gravity_decompose::effects::{
+    bit_index_class, divisor_class, numeric_typmod_class, plan_word, sample_class, text_arg_class,
+};
+use gravity_decompose::join::JoinDesc;
 use gravity_decompose::ops::shared::append::AppendDesc;
 use gravity_decompose::ops::shared::scan::BitmapPlan;
-use gravity_decompose::effects::{bit_index_class, divisor_class, numeric_typmod_class, plan_word, sample_class, text_arg_class};
-use gravity_decompose::join::JoinDesc;
 use gravity_decompose::ops::shared::sort::SortForm;
 use gravity_decompose::ops::shared::srf::{SrfKind, SrfPlace};
 use gravity_decompose::ops::shared::subplan::SubForm;
@@ -63,7 +65,22 @@ struct Fnv128 {
 impl Fnv128 {
     /// A hasher whose scratch is arena `a`'s (`ArenaRef::EMPTY` for one that hashes words only and never pushes).
     fn new(lo: u64, hi: u64, a: ArenaRef) -> Fnv128 {
-        Fnv128 { h: gravity_abi::hash::Fnv128 { lo, hi }, lists: false, island: 0, list: 0, a, listed: ArenaVec::new_in(a), lit: false, faces: ArenaVec::new_in(a), words: None, refs: ArenaVec::new_in(a), prune: 0, pos: 0, code: false, tables: Runs::NONE }
+        Fnv128 {
+            h: gravity_abi::hash::Fnv128 { lo, hi },
+            lists: false,
+            island: 0,
+            list: 0,
+            a,
+            listed: ArenaVec::new_in(a),
+            lit: false,
+            faces: ArenaVec::new_in(a),
+            words: None,
+            refs: ArenaVec::new_in(a),
+            prune: 0,
+            pos: 0,
+            code: false,
+            tables: Runs::NONE,
+        }
     }
 
     /// The 128-bit key: the high lane above the low.
@@ -119,7 +136,9 @@ fn node<'p>(h: &mut Fnv128, v: Visit<'_, 'p>, n: Node<'p>) {
     // two bytes for the tag and four for the type (0 = none: no type has OID 0) — the hasher
     // costs a step per byte, and every node pays these
     (tag as u16).hash(h);
-    gravity_decompose::catalog::expr_type::type_of(n).unwrap_or(0).hash(h);
+    gravity_decompose::catalog::expr_type::type_of(n)
+        .unwrap_or(0)
+        .hash(h);
     let island = gravity_expr::nodes::island_capable(n);
     if island {
         island_consts(h, n);
@@ -143,7 +162,15 @@ fn node<'p>(h: &mut Fnv128, v: Visit<'_, 'p>, n: Node<'p>) {
         NodeTag::T_Var => {
             let x = n.as_var().unwrap();
             // D887: RETURNING's old.v and new.v differ only by varreturningtype (the front key's T_Var hashes it too)
-            (x.varno, x.varattno, x.vartype, x.vartypmod, x.varlevelsup, x.varreturningtype as u32).hash(h);
+            (
+                x.varno,
+                x.varattno,
+                x.vartype,
+                x.vartypmod,
+                x.varlevelsup,
+                x.varreturningtype as u32,
+            )
+                .hash(h);
             coll(h, x.varcollid);
         }
         NodeTag::T_Const => {
@@ -164,10 +191,22 @@ fn node<'p>(h: &mut Fnv128, v: Visit<'_, 'p>, n: Node<'p>) {
                     unsafe { varlena_image(c.constvalue.as_usize() as *const u8) }.hash(h);
                 } else if c.constlen == -2 {
                     // SAFETY: a non-null cstring constant points at its NUL-terminated bytes.
-                    unsafe { core::ffi::CStr::from_ptr(c.constvalue.as_usize() as *const core::ffi::c_char) }.to_bytes().hash(h);
+                    unsafe {
+                        core::ffi::CStr::from_ptr(
+                            c.constvalue.as_usize() as *const core::ffi::c_char
+                        )
+                    }
+                    .to_bytes()
+                    .hash(h);
                 } else if c.constlen > 0 {
                     // SAFETY: a fixed-length by-reference constant points at `constlen` bytes.
-                    unsafe { core::slice::from_raw_parts(c.constvalue.as_usize() as *const u8, c.constlen as usize) }.hash(h);
+                    unsafe {
+                        core::slice::from_raw_parts(
+                            c.constvalue.as_usize() as *const u8,
+                            c.constlen as usize,
+                        )
+                    }
+                    .hash(h);
                 } else {
                     c.constvalue.as_u64().hash(h);
                 }
@@ -175,7 +214,12 @@ fn node<'p>(h: &mut Fnv128, v: Visit<'_, 'p>, n: Node<'p>) {
         }
         NodeTag::T_Param => {
             let p = n.as_param().unwrap();
-            ((p.paramkind == ParamKind::PARAM_EXTERN) as u8, p.paramid, p.paramtype).hash(h);
+            (
+                (p.paramkind == ParamKind::PARAM_EXTERN) as u8,
+                p.paramid,
+                p.paramtype,
+            )
+                .hash(h);
             typmod_code(h, p.paramtypmod);
             coll(h, p.paramcollid);
         }
@@ -217,7 +261,13 @@ fn node<'p>(h: &mut Fnv128, v: Visit<'_, 'p>, n: Node<'p>) {
             // D3788 (DC-14 over a list): whether every element of a constant pattern list is good, the class decompose's
             // `quiet_pattern_list` reads (exec front.rs `pattern_list_class` holds the same); the list's values stay words
             let coll = s.inputcollid;
-            if let Some(q) = gravity_decompose::effects::pattern_list_good(s.opfuncid, &s.args, coll, true, &|pat, icase| gravity_fn::typesem::collation::regex_compiles(pat, icase, coll)) {
+            if let Some(q) = gravity_decompose::effects::pattern_list_good(
+                s.opfuncid,
+                &s.args,
+                coll,
+                true,
+                &|pat, icase| gravity_fn::typesem::collation::regex_compiles(pat, icase, coll),
+            ) {
                 (0xd378u16, q).hash(h);
             }
         }
@@ -247,7 +297,14 @@ fn node<'p>(h: &mut Fnv128, v: Visit<'_, 'p>, n: Node<'p>) {
         }
         NodeTag::T_Aggref => {
             let a = n.as_aggref().unwrap();
-            (a.aggfnoid, a.aggstar, a.aggkind, a.aggdistinct.len() as u32, a.aggorder.len() as u32).hash(h);
+            (
+                a.aggfnoid,
+                a.aggstar,
+                a.aggkind,
+                a.aggdistinct.len() as u32,
+                a.aggorder.len() as u32,
+            )
+                .hash(h);
             coll(h, a.aggcollid);
             coll(h, a.inputcollid);
         }
@@ -367,7 +424,14 @@ fn node<'p>(h: &mut Fnv128, v: Visit<'_, 'p>, n: Node<'p>) {
         }
         NodeTag::T_XmlExpr => {
             let x = n.as_xml_expr().unwrap();
-            (x.op as u32, x.xmloption as u32, x.indent, x.r#type, x.typmod).hash(h);
+            (
+                x.op as u32,
+                x.xmloption as u32,
+                x.indent,
+                x.r#type,
+                x.typmod,
+            )
+                .hash(h);
             x.name.hash(h);
             for a in x.arg_names.iter() {
                 a.as_string().map(|s| s.sval).hash(h);
@@ -375,7 +439,14 @@ fn node<'p>(h: &mut Fnv128, v: Visit<'_, 'p>, n: Node<'p>) {
         }
         NodeTag::T_JsonExpr => {
             let j = n.as_json_expr().unwrap();
-            (j.op as u32, j.wrapper as u32, j.omit_quotes, j.use_io_coercion, j.use_json_coercion).hash(h);
+            (
+                j.op as u32,
+                j.wrapper as u32,
+                j.omit_quotes,
+                j.use_io_coercion,
+                j.use_json_coercion,
+            )
+                .hash(h);
             coll(h, j.collation);
             j.column_name.hash(h);
             j.returning.map(|r| (r.typid, r.typmod)).hash(h);
@@ -441,7 +512,12 @@ fn node<'p>(h: &mut Fnv128, v: Visit<'_, 'p>, n: Node<'p>) {
 /// image); the Const that follows hashes no image. Off `lists`, under an island or where `list_len` cannot read the
 /// count, the Const hashes its image as any by-reference literal.
 fn list_class(h: &mut Fnv128, value: Node<'_>) {
-    let Some(c) = value.as_const().filter(|c| h.lists && h.island == 0 && !c.constbyval && !c.constisnull) else { return };
+    let Some(c) = value
+        .as_const()
+        .filter(|c| h.lists && h.island == 0 && !c.constbyval && !c.constisnull)
+    else {
+        return;
+    };
     let image = c.constvalue.as_usize();
     // SAFETY: a non-null by-reference constant points at its image.
     if let Some(n) = unsafe { gravity_expr::nodes::konst::list_len(image) } {
@@ -459,9 +535,13 @@ fn list_class(h: &mut Fnv128, value: Node<'_>) {
 /// the eager program, raising where PostgreSQL never runs the Material's child. The step form is decompose srf.rs
 /// `kind_of`'s, the one map of the series functions lowerv4 reads too (OID-18: no OID list of its own).
 pub fn series_step(funcid: u32, args: &types_nodes::list::NodeList<'_>) -> Option<bool> {
-    use gravity_decompose::ops::srf::kind_of;
     use gravity_decompose::ops::shared::srf::SrfKind;
-    let step = args.iter().nth(2).and_then(|a| a.as_const()).filter(|c| !c.constisnull && c.constbyval)?;
+    use gravity_decompose::ops::srf::kind_of;
+    let step = args
+        .iter()
+        .nth(2)
+        .and_then(|a| a.as_const())
+        .filter(|c| !c.constisnull && c.constbyval)?;
     let stepped = matches!(kind_of(funcid, true), SrfKind::SeriesInt { step: true, .. });
     (stepped && args.len() == 3).then(|| step.constvalue.as_usize() != 0)
 }
@@ -510,10 +590,19 @@ fn bound<'p>(h: &mut Fnv128, v: Visit<'_, 'p>, b: Bound<'p>) {
 /// `col` too: an expression column's `attno` is 0, so two keys on two expression columns of one index differ only there.
 fn keys<'p>(h: &mut Fnv128, v: Visit<'_, 'p>, keys: &[IndexKey<'p>]) {
     for k in keys {
-        let IndexKey { attno, col, opno, value, form } = *k;
+        let IndexKey {
+            attno,
+            col,
+            opno,
+            value,
+            form,
+        } = *k;
         (attno, col, opno, form as u8).hash(h);
         // an `= ANY` key's constant array: a key word at the seek (V4R-108), keyed by its class (V4R-110)
-        if matches!(form, gravity_decompose::graph::KeyForm::Any | gravity_decompose::graph::KeyForm::AmAny) {
+        if matches!(
+            form,
+            gravity_decompose::graph::KeyForm::Any | gravity_decompose::graph::KeyForm::AmAny
+        ) {
             list_class(h, value);
         }
         node(h, v, value);
@@ -524,12 +613,26 @@ fn bitmap<'p>(h: &mut Fnv128, v: Visit<'_, 'p>, p: &BitmapPlan<'p>) {
     crate::stack_check();
     match p {
         // D2918: the bitmap's index scans by their plan node ids too (exec sites_heap.rs reads each one's quals by id)
-        BitmapPlan::Index { node_id, indexid, keys: ks, .. } => {
+        BitmapPlan::Index {
+            node_id,
+            indexid,
+            keys: ks,
+            ..
+        } => {
             (0u8, *indexid, *node_id).hash(h);
             keys(h, v, ks);
         }
         BitmapPlan::And { node_id, plans } | BitmapPlan::Or { node_id, plans } => {
-            (if matches!(p, BitmapPlan::And { .. }) { 1u8 } else { 2u8 }, plans.len(), *node_id).hash(h);
+            (
+                if matches!(p, BitmapPlan::And { .. }) {
+                    1u8
+                } else {
+                    2u8
+                },
+                plans.len(),
+                *node_id,
+            )
+                .hash(h);
             for q in plans.iter() {
                 bitmap(h, v, q);
             }
@@ -548,22 +651,59 @@ fn pipeline<'p>(h: &mut Fnv128, v: Visit<'_, 'p>, p: &PipelineNode<'p>) {
     h.lists = outer && heap_source(p);
     let words = h.words.take();
     h.words = match &p.source {
-        Source::Range { site, am: gravity_decompose::Am::Pgrcolumnar, scanrelid, .. } => {
-            let word = |l: &&gravity_program::LaneDesc| l.kind == gravity_abi::ctx::lane::KIND_BYVAL && !matches!(l.rep, gravity_program::Rep::PackedNum { .. });
+        Source::Range {
+            site,
+            am: gravity_decompose::Am::Pgrcolumnar,
+            scanrelid,
+            ..
+        } => {
+            let word = |l: &&gravity_program::LaneDesc| {
+                l.kind == gravity_abi::ctx::lane::KIND_BYVAL
+                    && !matches!(l.rep, gravity_program::Rep::PackedNum { .. })
+            };
             // a code lane's IN list stays keyed by its image: its per-code table holds the members (dict percode `Eq`)
-            let fixed = |l: &gravity_program::LaneDesc| matches!(l.rep, gravity_program::Rep::FixedPtr { .. });
-            let probe = |l: &&gravity_program::LaneDesc| fixed(l) || l.kind == gravity_abi::ctx::lane::KIND_BYREF;
-            let attr = |l: &gravity_program::LaneDesc| match l.id { gravity_program::LaneId::Attr(a) => Some(a), _ => None };
-            let (mut attnos, mut probes, mut codes) = (ArenaVec::new_in(h.a), ArenaVec::new_in(h.a), ArenaVec::new_in(h.a));
-            site.lanes().iter().filter(word).filter_map(attr).for_each(|a| attnos.push(a));
-            site.lanes().iter().filter(probe).filter_map(|l| Some((attr(l)?, fixed(l)))).for_each(|p| probes.push(p));
-            site.lanes().iter().filter(|l| l.kind == gravity_abi::ctx::lane::KIND_CODES).filter_map(attr).for_each(|a| codes.push(a));
+            let fixed = |l: &gravity_program::LaneDesc| {
+                matches!(l.rep, gravity_program::Rep::FixedPtr { .. })
+            };
+            let probe = |l: &&gravity_program::LaneDesc| {
+                fixed(l) || l.kind == gravity_abi::ctx::lane::KIND_BYREF
+            };
+            let attr = |l: &gravity_program::LaneDesc| match l.id {
+                gravity_program::LaneId::Attr(a) => Some(a),
+                _ => None,
+            };
+            let (mut attnos, mut probes, mut codes) = (
+                ArenaVec::new_in(h.a),
+                ArenaVec::new_in(h.a),
+                ArenaVec::new_in(h.a),
+            );
+            site.lanes()
+                .iter()
+                .filter(word)
+                .filter_map(attr)
+                .for_each(|a| attnos.push(a));
+            site.lanes()
+                .iter()
+                .filter(probe)
+                .filter_map(|l| Some((attr(l)?, fixed(l))))
+                .for_each(|p| probes.push(p));
+            site.lanes()
+                .iter()
+                .filter(|l| l.kind == gravity_abi::ctx::lane::KIND_CODES)
+                .filter_map(attr)
+                .for_each(|a| codes.push(a));
             Some((*scanrelid as i32, attnos, probes, codes))
         }
         _ => None,
     };
     let refs = core::mem::replace(&mut h.refs, ArenaVec::new_in(h.a));
-    if let Source::Range { site, am: gravity_decompose::Am::Pgrcolumnar, scanrelid, .. } = &p.source {
+    if let Source::Range {
+        site,
+        am: gravity_decompose::Am::Pgrcolumnar,
+        scanrelid,
+        ..
+    } = &p.source
+    {
         h.refs = bound_refs(p, *scanrelid as i32, site.lanes(), h.a);
     }
     pipeline_body(h, v, p);
@@ -579,11 +719,20 @@ fn pipeline<'p>(h: &mut Fnv128, v: Visit<'_, 'p>, p: &PipelineNode<'p>) {
 /// word per execution (verdict_zone.rs `byref_of`, `hash_of`) and the filter reads it as a word, so the key holds its class.
 /// Entry C: and the text comparands its code lanes' per-code tables read per execution (`bound_text_refs`). A lowering
 /// that reads one anyway files no program (`lowering_reads_lists`).
-fn bound_refs(p: &PipelineNode<'_>, varno: i32, lanes: &[gravity_program::LaneDesc], a: ArenaRef) -> ArenaVec<usize> {
+fn bound_refs(
+    p: &PipelineNode<'_>,
+    varno: i32,
+    lanes: &[gravity_program::LaneDesc],
+    a: ArenaRef,
+) -> ArenaVec<usize> {
     use gravity_decompose::ops::shared::scan::same_type_zone_op;
     let fixed = |attno: i16| {
         lanes.iter().find_map(|l| match (&l.id, &l.rep) {
-            (gravity_program::LaneId::Attr(a), gravity_program::Rep::FixedPtr { len }) if *a == attno => Some(*len),
+            (gravity_program::LaneId::Attr(a), gravity_program::Rep::FixedPtr { len })
+                if *a == attno =>
+            {
+                Some(*len)
+            }
             _ => None,
         })
     };
@@ -591,17 +740,33 @@ fn bound_refs(p: &PipelineNode<'_>, varno: i32, lanes: &[gravity_program::LaneDe
         let o = q.as_op_expr().filter(|o| o.args.len() == 2)?;
         let (_, typ) = same_type_zone_op(o.opno)?;
         let len = gravity_fn::typesem::pgrc::memcmp_fixed(typ)?;
-        let col = |n: Node<'_>| n.as_var().filter(|v| v.varno == varno && v.varlevelsup == 0 && fixed(v.varattno) == Some(len)).is_some();
+        let col = |n: Node<'_>| {
+            n.as_var()
+                .filter(|v| {
+                    v.varno == varno && v.varlevelsup == 0 && fixed(v.varattno) == Some(len)
+                })
+                .is_some()
+        };
         let (a0, a1) = (o.args.nth(0), o.args.nth(1));
         let c = match (col(a0), col(a1)) {
             (true, false) => a1.as_const(),
             (false, true) => a0.as_const(),
             _ => None,
         };
-        c.filter(|c| !c.constbyval && !c.constisnull && c.consttype == typ && c.constlen == len as i32).map(|c| c.constvalue.as_usize())
+        c.filter(|c| {
+            !c.constbyval && !c.constisnull && c.consttype == typ && c.constlen == len as i32
+        })
+        .map(|c| c.constvalue.as_usize())
     };
     let mut codes = ArenaVec::new_in(a);
-    lanes.iter().filter(|l| l.kind == gravity_abi::ctx::lane::KIND_CODES).filter_map(|l| match l.id { gravity_program::LaneId::Attr(a) => Some(a), _ => None }).for_each(|a| codes.push(a));
+    lanes
+        .iter()
+        .filter(|l| l.kind == gravity_abi::ctx::lane::KIND_CODES)
+        .filter_map(|l| match l.id {
+            gravity_program::LaneId::Attr(a) => Some(a),
+            _ => None,
+        })
+        .for_each(|a| codes.push(a));
     let mut refs = ArenaVec::new_in(a);
     let mut qual = |q: Node<'_>| {
         if let Some(r) = fixed_ref(q) {
@@ -629,10 +794,14 @@ fn bound_refs(p: &PipelineNode<'_>, varno: i32, lanes: &[gravity_program::LaneDe
 fn bound_text_refs(q: Node<'_>, varno: i32, codes: &[i16], refs: &mut ArenaVec<usize>) {
     crate::stack_check();
     if let Some(b) = q.as_bool_expr() {
-        b.args.iter().for_each(|a| bound_text_refs(a, varno, codes, refs));
+        b.args
+            .iter()
+            .for_each(|a| bound_text_refs(a, varno, codes, refs));
         return;
     }
-    let Some(o) = q.as_op_expr().filter(|o| o.args.len() == 2) else { return };
+    let Some(o) = q.as_op_expr().filter(|o| o.args.len() == 2) else {
+        return;
+    };
     let (a0, a1) = (o.args.nth(0), o.args.nth(1));
     let c = match (code_col(a0, varno, codes), code_col(a1, varno, codes)) {
         (Some(_), None) => a1.as_const(),
@@ -640,7 +809,12 @@ fn bound_text_refs(q: Node<'_>, varno: i32, codes: &[i16], refs: &mut ArenaVec<u
         _ => None,
     };
     // `''` stays keyed by its image: the per-code road builds its set as before (gravity_expr percode `code_set`)
-    if let Some(c) = c.filter(|c| !c.constbyval && !c.constisnull && c.constlen == -1 && gravity_decompose::expr::const_text_empty(c) == Some(false)) {
+    if let Some(c) = c.filter(|c| {
+        !c.constbyval
+            && !c.constisnull
+            && c.constlen == -1
+            && gravity_decompose::expr::const_text_empty(c) == Some(false)
+    }) {
         if gravity_expr::percode::bound_text_compare(o.opfuncid, o.inputcollid) {
             refs.push(c.constvalue.as_usize());
         }
@@ -654,9 +828,16 @@ fn code_col(n: Node<'_>, varno: i32, codes: &[i16]) -> Option<i16> {
         Some(r) => (r.arg, Some(r.resulttype)),
         None => (n, None),
     };
-    let v = n.as_var().filter(|v| v.varno == varno && v.varlevelsup == 0 && codes.contains(&v.varattno))?;
+    let v = n
+        .as_var()
+        .filter(|v| v.varno == varno && v.varlevelsup == 0 && codes.contains(&v.varattno))?;
     match to {
-        Some(t) if gravity_expr::nodes::cast::relabel_canon(v.vartype, t) != gravity_expr::nodes::cast::Canon::Keep => None,
+        Some(t)
+            if gravity_expr::nodes::cast::relabel_canon(v.vartype, t)
+                != gravity_expr::nodes::cast::Canon::Keep =>
+        {
+            None
+        }
         _ => Some(v.varattno),
     }
 }
@@ -670,7 +851,9 @@ fn code_col(n: Node<'_>, varno: i32, codes: &[i16]) -> Option<i16> {
 fn word_list(h: &Fnv128, s: &types_nodes::primnodes::ScalarArrayOpExpr<'_>) -> bool {
     use gravity_decompose::ops::shared::scan::{same_type_zone_op, text_zone_op, zone_op};
     use gravity_program::ZoneOp::Eq;
-    let Some((varno, attnos, probes, codes)) = h.words.as_ref() else { return false };
+    let Some((varno, attnos, probes, codes)) = h.words.as_ref() else {
+        return false;
+    };
     if s.args.len() != 2 {
         return false;
     }
@@ -686,7 +869,12 @@ fn word_list(h: &Fnv128, s: &types_nodes::primnodes::ScalarArrayOpExpr<'_>) -> b
         Some(f) if f.args.len() == 1 && types_core::quiet::int_widen(f.funcid) => f.args.nth(0),
         _ => n,
     };
-    let Some(v) = n.as_var().filter(|v| v.varno == *varno && v.varlevelsup == 0) else { return false };
+    let Some(v) = n
+        .as_var()
+        .filter(|v| v.varno == *varno && v.varlevelsup == 0)
+    else {
+        return false;
+    };
     // a by-value word lane under a zone `=`; a byte-equality lane under its type's `=` (a fixed image's btree equality,
     // text's): lowerv4 reads no member of either (its probe words are the execution's)
     let probe = probes.iter().find(|p| p.0 == v.varattno).map(|p| p.1);
@@ -785,7 +973,13 @@ pub fn guarded<T>(lower: impl FnOnce() -> T) -> (T, Vec<EstGuard>) {
 /// `decide(rows, &args)`, filed as a guard of the lowering `guarded` runs. `usize::MAX`: a pipeline outside the graph's
 /// list (a nest inner's, lowerv4 props/ops.rs): decided, never filed.
 pub fn decide(pipeline: usize, build: bool, rows: u64, decide: Decide, args: [u64; 4]) -> u64 {
-    decide_on(pipeline, if build { Est::Build } else { Est::Rows }, rows, decide, args)
+    decide_on(
+        pipeline,
+        if build { Est::Build } else { Est::Rows },
+        rows,
+        decide,
+        args,
+    )
 }
 
 /// NEW-48: `decide` on graph pipeline `pipeline`'s `end_rate` (`rate`, the rows reaching its end per innermost-loop
@@ -799,14 +993,30 @@ fn decide_on(pipeline: usize, est: Est, value: u64, decide: Decide, args: [u64; 
     if pipeline > u16::MAX as usize {
         return want;
     }
-    file(EstGuard { pipeline: pipeline as u16, est, lit: NOT_LIT, at: 0, decide, args, want });
+    file(EstGuard {
+        pipeline: pipeline as u16,
+        est,
+        lit: NOT_LIT,
+        at: 0,
+        decide,
+        args,
+        want,
+    });
     want
 }
 
 fn file(g: EstGuard) {
     GUARDS.with(|l| {
         if let Some(v) = l.borrow_mut().as_mut() {
-            let same = |x: &EstGuard| x.pipeline == g.pipeline && x.est == g.est && x.lit == g.lit && x.at == g.at && x.args == g.args && x.want == g.want && x.decide as usize == g.decide as usize;
+            let same = |x: &EstGuard| {
+                x.pipeline == g.pipeline
+                    && x.est == g.est
+                    && x.lit == g.lit
+                    && x.at == g.at
+                    && x.args == g.args
+                    && x.want == g.want
+                    && x.decide as usize == g.decide as usize
+            };
             if !v.iter().any(same) {
                 v.push(g); // alloc: Cold
             }
@@ -837,7 +1047,15 @@ pub fn cost_decide(graph: &PipelineGraph<'_>, node: i32, ids: &[i32]) -> u64 {
         args[1 + i / 2] |= (id as u32 as u64) << (32 * (i % 2));
     }
     let want = graph.eager_initplans(node, ids);
-    file(EstGuard { pipeline: 0, est: Est::Rows, lit: COST, at: 0, decide: as_decided, args, want });
+    file(EstGuard {
+        pipeline: 0,
+        est: Est::Rows,
+        lit: COST,
+        at: 0,
+        decide: as_decided,
+        args,
+        want,
+    });
     want
 }
 
@@ -866,12 +1084,19 @@ fn cost_outcome(g: &EstGuard, graph: &PipelineGraph<'_>) -> u64 {
 /// range scan's `scan_charge` by plan node id, and `inits`, the statement's InitPlans (`InitCharge::of`), both read off
 /// the plan by the front walk (exec inputs/front.rs). They are what decompose's graph holds for one plan, so this matches
 /// `guards_hold` there.
-pub fn costs_hold(guards: &[EstGuard], scans: &[(i32, f64)], inits: &[gravity_decompose::graph::InitCharge<'_>]) -> bool {
+pub fn costs_hold(
+    guards: &[EstGuard],
+    scans: &[(i32, f64)],
+    inits: &[gravity_decompose::graph::InitCharge<'_>],
+) -> bool {
     guards.iter().filter(|g| g.lit == COST).all(|g| {
         let mut buf = [0; COST_IDS];
         let (node, ids) = cost_args(g, &mut buf);
         let scan = scans.iter().find(|c| c.0 == node).map(|c| c.1);
-        (g.decide)(gravity_decompose::graph::eager_mask(scan, inits, ids), &g.args) == g.want
+        (g.decide)(
+            gravity_decompose::graph::eager_mask(scan, inits, ids),
+            &g.args,
+        ) == g.want
     })
 }
 
@@ -883,7 +1108,15 @@ pub fn costs_hold(guards: &[EstGuard], scans: &[(i32, f64)], inits: &[gravity_de
 /// statement lowers again. `None` when `at` is no non-NULL by-value Const (the key holds NULL-ness and the type).
 pub fn lit_decide(at: Node<'_>, decide: Decide, args: [u64; 4]) -> Option<u64> {
     let want = decide(lit_word(at)?, &args);
-    file(EstGuard { pipeline: 0, est: Est::Rows, lit: LIT_LOST, at: at.as_raw().as_ptr() as usize, decide, args, want });
+    file(EstGuard {
+        pipeline: 0,
+        est: Est::Rows,
+        lit: LIT_LOST,
+        at: at.as_raw().as_ptr() as usize,
+        decide,
+        args,
+        want,
+    });
     Some(want)
 }
 
@@ -896,13 +1129,23 @@ pub fn lit_decide(at: Node<'_>, decide: Decide, args: [u64; 4]) -> Option<u64> {
 /// lowers again.
 pub fn rel_decide(relid: u32, rows: u64, decide: Decide, args: [u64; 4]) -> u64 {
     let want = decide(rows, &args);
-    file(EstGuard { pipeline: 0, est: Est::Rows, lit: REL, at: relid as usize, decide, args, want });
+    file(EstGuard {
+        pipeline: 0,
+        est: Est::Rows,
+        lit: REL,
+        at: relid as usize,
+        decide,
+        args,
+        want,
+    });
     want
 }
 
 /// What relation guard `g` decides on its relation's pages now (`None`: no bound, the relation is gone or not a heap).
 fn rel_outcome(g: &EstGuard, facts: &dyn Facts) -> Option<u64> {
-    facts.rel_rows_bound(g.at as u32).map(|rows| (g.decide)(rows, &g.args))
+    facts
+        .rel_rows_bound(g.at as u32)
+        .map(|rows| (g.decide)(rows, &g.args))
 }
 
 /// Whether `guards` holds a relation guard (`rel_decide`): each serve of its program decides it again (`rels_hold`).
@@ -913,31 +1156,46 @@ pub fn has_rels(guards: &[EstGuard]) -> bool {
 /// Whether every relation guard of `guards` decides as it did on its relation's pages now (one page count each; true
 /// without one): a front hit's and a plan memo serve's check (the estimate guards are the front key's, the plan's).
 pub fn rels_hold(guards: &[EstGuard], facts: &dyn Facts) -> bool {
-    guards.iter().filter(|g| g.lit == REL).all(|g| rel_outcome(g, facts) == Some(g.want))
+    guards
+        .iter()
+        .filter(|g| g.lit == REL)
+        .all(|g| rel_outcome(g, facts) == Some(g.want))
 }
 
 /// Names each literal guard of `guards` by its literal's first position among `nodes`, the admitted graph's key walk
 /// (`key_and_nodes`); a literal outside it stays `LIT_LOST`.
 pub fn place_lits(guards: &mut [EstGuard], nodes: &[Node<'_>]) {
     for g in guards.iter_mut().filter(|g| literal(g)) {
-        g.lit = nodes.iter().position(|n| n.as_raw().as_ptr() as usize == g.at).map_or(LIT_LOST, |p| p as u32);
+        g.lit = nodes
+            .iter()
+            .position(|n| n.as_raw().as_ptr() as usize == g.at)
+            .map_or(LIT_LOST, |p| p as u32);
     }
 }
 
 /// A non-NULL by-value literal's word (the value a literal guard decides on).
 fn lit_word(n: Node<'_>) -> Option<u64> {
-    n.as_const().filter(|c| c.constbyval && !c.constisnull).map(|c| c.constvalue.as_u64())
+    n.as_const()
+        .filter(|c| c.constbyval && !c.constisnull)
+        .map(|c| c.constvalue.as_u64())
 }
 
 /// What literal guard `g` decides on the key walk's nodes `nodes` (`None`: no such literal there).
 fn lit_outcome(g: &EstGuard, nodes: &[Node<'_>]) -> Option<u64> {
-    nodes.get(g.lit as usize).copied().and_then(lit_word).map(|w| (g.decide)(w, &g.args))
+    nodes
+        .get(g.lit as usize)
+        .copied()
+        .and_then(lit_word)
+        .map(|w| (g.decide)(w, &g.args))
 }
 
 /// Whether every literal guard of `guards` decides as it did on the key walk's nodes `nodes` (a front hit's, which binds
 /// without a graph; exec admit.rs): the estimate guards are the front key's (it holds the plan's rows exactly).
 pub fn lits_hold(guards: &[EstGuard], nodes: &[Node<'_>]) -> bool {
-    guards.iter().filter(|g| literal(g)).all(|g| lit_outcome(g, nodes) == Some(g.want))
+    guards
+        .iter()
+        .filter(|g| literal(g))
+        .all(|g| lit_outcome(g, nodes) == Some(g.want))
 }
 
 /// Whether each literal guard's literal among `nodes` (the admitted key walk) is one a front hit rebuilds, so that
@@ -948,7 +1206,11 @@ pub fn lits_hold(guards: &[EstGuard], nodes: &[Node<'_>]) -> bool {
 /// entry otherwise. A guard no key-walk position names (`LIT_LOST`) holds for no other statement.
 pub fn lits_walked(guards: &[EstGuard], nodes: &[Node<'_>], walk: &[Node<'_>]) -> bool {
     let at = |n: &Node<'_>| n.as_raw().as_ptr() as usize;
-    guards.iter().filter(|g| literal(g)).all(|g| nodes.get(g.lit as usize).is_some_and(|n| walk.iter().any(|w| at(w) == at(n)) || lit_word(*n).is_some()))
+    guards.iter().filter(|g| literal(g)).all(|g| {
+        nodes
+            .get(g.lit as usize)
+            .is_some_and(|n| walk.iter().any(|w| at(w) == at(n)) || lit_word(*n).is_some())
+    })
 }
 
 /// The key walk's nodes of `graph` when a guard of `guards` names a literal (none otherwise: no walk), in the graph's arena
@@ -963,9 +1225,17 @@ fn lit_nodes<'p>(guards: &[EstGuard], graph: &PipelineGraph<'p>) -> ArenaVec<Nod
 
 /// What guard `g` decides on `graph` (`nodes`: its key walk, `lit_nodes`) and, a relation guard, on its relation's pages
 /// now (`facts`); `None`: the pipeline, the literal or the relation's bound is not there.
-fn outcome(g: &EstGuard, graph: &PipelineGraph<'_>, nodes: &[Node<'_>], facts: &dyn Facts) -> Option<u64> {
+fn outcome(
+    g: &EstGuard,
+    graph: &PipelineGraph<'_>,
+    nodes: &[Node<'_>],
+    facts: &dyn Facts,
+) -> Option<u64> {
     match g.lit {
-        NOT_LIT => graph.pipelines.get(g.pipeline as usize).map(|p| (g.decide)(g.est.of(&p.desc), &g.args)),
+        NOT_LIT => graph
+            .pipelines
+            .get(g.pipeline as usize)
+            .map(|p| (g.decide)(g.est.of(&p.desc), &g.args)),
         COST => Some(cost_outcome(g, graph)),
         REL => rel_outcome(g, facts),
         _ => lit_outcome(g, nodes),
@@ -976,7 +1246,9 @@ fn outcome(g: &EstGuard, graph: &PipelineGraph<'_>, nodes: &[Node<'_>], facts: &
 /// content key) and on its relations' pages now (`facts`, `rel_decide`).
 pub fn guards_hold(guards: &[EstGuard], graph: &PipelineGraph<'_>, facts: &dyn Facts) -> bool {
     let nodes = lit_nodes(guards, graph);
-    guards.iter().all(|g| outcome(g, graph, &nodes, facts) == Some(g.want))
+    guards
+        .iter()
+        .all(|g| outcome(g, graph, &nodes, facts) == Some(g.want))
 }
 
 /// The constant of every filter of a pgrc range pipeline that compares a scan column (or its integer widening) with a
@@ -1001,10 +1273,15 @@ fn zone_constants(h: &mut Fnv128, p: &PipelineNode<'_>, varno: i32) {
             _ => n,
         };
         let n = n.as_relabel_type().map_or(n, |r| r.arg);
-        n.as_var().is_some_and(|v| v.varno == varno && v.varlevelsup == 0)
+        n.as_var()
+            .is_some_and(|v| v.varno == varno && v.varlevelsup == 0)
     };
     let mut qual = |q: Node<'_>| {
-        let Some(o) = q.as_op_expr().filter(|o| o.args.len() == 2 && (zone_op(o.opno).is_some() || float_op(o.opno).is_some())) else { return };
+        let Some(o) = q.as_op_expr().filter(|o| {
+            o.args.len() == 2 && (zone_op(o.opno).is_some() || float_op(o.opno).is_some())
+        }) else {
+            return;
+        };
         let (a0, a1) = (o.args.nth(0), o.args.nth(1));
         let c = match (scan_var(a0), scan_var(a1)) {
             (true, false) => a1.as_const(),
@@ -1017,8 +1294,15 @@ fn zone_constants(h: &mut Fnv128, p: &PipelineNode<'_>, varno: i32) {
     };
     // PS1-07: an OR of ANDs (`or_of_ands`: BETWEEN SYMMETRIC, ORed ranges) bakes its arms' constants as a hull
     let mut qual = |q: Node<'_>| match gravity_decompose::ops::shared::scan::or_of_ands(q) {
-        true => q.as_bool_expr().into_iter().flat_map(|b| b.args.iter()).filter_map(|a| a.as_bool_expr()).flat_map(|a| a.args.iter()).for_each(&mut qual),
-        false if gravity_decompose::ops::shared::scan::bound_form(q, varno, &|_| true).is_some() => {}
+        true => q
+            .as_bool_expr()
+            .into_iter()
+            .flat_map(|b| b.args.iter())
+            .filter_map(|a| a.as_bool_expr())
+            .flat_map(|a| a.args.iter())
+            .for_each(&mut qual),
+        false
+            if gravity_decompose::ops::shared::scan::bound_form(q, varno, &|_| true).is_some() => {}
         false => qual(q),
     };
     for op in p.ops.iter() {
@@ -1036,7 +1320,11 @@ fn zone_constants(h: &mut Fnv128, p: &PipelineNode<'_>, varno: i32) {
 /// given), `key` itself without guards. Programs of one content key whose estimate decisions differ are filed side by
 /// side, so a statement whose estimates flip a guard of the program under `key` finds the one lowered for its own outcomes
 /// (exec admit `find`), and statements that alternate across a guard lower once each, never at every execution.
-pub fn variant(key: u128, guards: &[EstGuard], graph: Option<(&PipelineGraph<'_>, &dyn Facts)>) -> u128 {
+pub fn variant(
+    key: u128,
+    guards: &[EstGuard],
+    graph: Option<(&PipelineGraph<'_>, &dyn Facts)>,
+) -> u128 {
     if guards.is_empty() {
         return key;
     }
@@ -1046,7 +1334,11 @@ pub fn variant(key: u128, guards: &[EstGuard], graph: Option<(&PipelineGraph<'_>
         None => guards.iter().for_each(|g| g.want.hash(&mut h)),
         Some((graph, facts)) => {
             let nodes = lit_nodes(guards, graph);
-            guards.iter().for_each(|g| outcome(g, graph, &nodes, facts).unwrap_or(u64::MAX).hash(&mut h));
+            guards.iter().for_each(|g| {
+                outcome(g, graph, &nodes, facts)
+                    .unwrap_or(u64::MAX)
+                    .hash(&mut h)
+            });
         }
     }
     h.key()
@@ -1055,7 +1347,11 @@ pub fn variant(key: u128, guards: &[EstGuard], graph: Option<(&PipelineGraph<'_>
 fn pipeline_body<'p>(h: &mut Fnv128, v: Visit<'_, 'p>, p: &PipelineNode<'p>) {
     // the planner's estimates are no part of the key (`estimates_out`: the program's bind key leaves out the same ones), nor
     // the end's spill answer (C10 `holds`: the graph it is settled from is)
-    gravity_program::Pipeline { holds: None, ..gravity_program::estimates_out(&p.desc) }.hash(h);
+    gravity_program::Pipeline {
+        holds: None,
+        ..gravity_program::estimates_out(&p.desc)
+    }
+    .hash(h);
     // D2918: a program binds PostgreSQL plan node ids (write.literals' VALUES scan, `values_node`; window.agg's WindowAgg;
     // agg.arena's Agg; a set function's node; a scan site's parameter-key recipe; EXPLAIN ANALYZE's counter cells), so the
     // key holds every plan node the pipeline runs: one graph content planned with another numbering (sorted vs hashed
@@ -1070,14 +1366,30 @@ fn pipeline_body<'p>(h: &mut Fnv128, v: Visit<'_, 'p>, p: &PipelineNode<'p>) {
         pg_tuple.hash(h);
     }
     match &p.source {
-        Source::Range { site, am, scanrelid, relid } => {
+        Source::Range {
+            site,
+            am,
+            scanrelid,
+            relid,
+        } => {
             (0u8, *scanrelid, *relid, *am).hash(h);
             site.hash(h);
             if *am == gravity_decompose::Am::Pgrcolumnar {
                 zone_constants(h, p, *scanrelid as i32);
             }
         }
-        Source::Index { site, am, scanrelid, relid, indexid, keys: ks, only, backward, recheck, .. } => {
+        Source::Index {
+            site,
+            am,
+            scanrelid,
+            relid,
+            indexid,
+            keys: ks,
+            only,
+            backward,
+            recheck,
+            ..
+        } => {
             (1u8, *scanrelid, *relid, *indexid, *only, *backward, *am).hash(h);
             site.hash(h);
             keys(h, v, ks);
@@ -1101,16 +1413,32 @@ fn pipeline_body<'p>(h: &mut Fnv128, v: Visit<'_, 'p>, p: &PipelineNode<'p>) {
             h.lit = false;
             // D4449: a table of Consts alone: its rows and cells are no word and each its list's own node (`Runs`)
             if lit && !h.code {
-                h.tables.add(start, h.pos, *lists as *const types_nodes::NodeList<'_> as usize);
+                h.tables.add(
+                    start,
+                    h.pos,
+                    *lists as *const types_nodes::NodeList<'_> as usize,
+                );
             }
             h.code = code;
         }
         Source::Breaker { slot } => (4u8, *slot).hash(h),
-        Source::Named { scanrelid, relid, name } => {
+        Source::Named {
+            scanrelid,
+            relid,
+            name,
+        } => {
             (5u8, *scanrelid, *relid).hash(h);
             name.hash(h);
         }
-        Source::Bitmap { site, am, scanrelid, relid, plan, recheck, morsel } => {
+        Source::Bitmap {
+            site,
+            am,
+            scanrelid,
+            relid,
+            plan,
+            recheck,
+            morsel,
+        } => {
             (6u8, *scanrelid, *relid, *am, *morsel).hash(h);
             site.hash(h);
             bitmap(h, v, plan);
@@ -1118,16 +1446,37 @@ fn pipeline_body<'p>(h: &mut Fnv128, v: Visit<'_, 'p>, p: &PipelineNode<'p>) {
                 node(h, v, q);
             }
         }
-        Source::Tid { site, am, scanrelid, relid, form, quals } => {
+        Source::Tid {
+            site,
+            am,
+            scanrelid,
+            relid,
+            form,
+            quals,
+        } => {
             (7u8, *scanrelid, *relid, *am, *form as u8).hash(h);
             site.hash(h);
             for q in quals.iter() {
                 node(h, v, q);
             }
         }
-        Source::Sample { site, am, scanrelid, relid, sample } => {
+        Source::Sample {
+            site,
+            am,
+            scanrelid,
+            relid,
+            sample,
+        } => {
             // D1643: a value evaluated at each open is the host's cell, not a word: another program
-            (8u8, *scanrelid, *relid, *am, sample.handler, sample.per_open).hash(h);
+            (
+                8u8,
+                *scanrelid,
+                *relid,
+                *am,
+                sample.handler,
+                sample.per_open,
+            )
+                .hash(h);
             // D1920 / D1644: the clause's raise class, which the effects walk reads from the percentage's word
             sample_class(sample.handler, sample.args, sample.repeatable, &plan_word).hash(h);
             site.hash(h);
@@ -1135,7 +1484,12 @@ fn pipeline_body<'p>(h: &mut Fnv128, v: Visit<'_, 'p>, p: &PipelineNode<'p>) {
                 node(h, v, a);
             }
         }
-        Source::TableFunc { scanrelid, func, cols, ordinality } => {
+        Source::TableFunc {
+            scanrelid,
+            func,
+            cols,
+            ordinality,
+        } => {
             (9u8, *scanrelid, *cols, *ordinality).hash(h);
             table_func(h, v, func);
         }
@@ -1156,7 +1510,11 @@ fn pipeline_body<'p>(h: &mut Fnv128, v: Visit<'_, 'p>, p: &PipelineNode<'p>) {
                     node(h, v, e);
                 }
             }
-            Op::Limit { count, offset, ties } => {
+            Op::Limit {
+                count,
+                offset,
+                ties,
+            } => {
                 (3u8, ties.is_some()).hash(h);
                 if let Some(t) = ties {
                     // the tie keys come from the plan's uniqColIdx, not from any op hashed here
@@ -1184,12 +1542,23 @@ fn pipeline_body<'p>(h: &mut Fnv128, v: Visit<'_, 'p>, p: &PipelineNode<'p>) {
                 }
                 match d.form {
                     SortForm::Runs => 0u8.hash(h),
-                    SortForm::TopK { count, offset, ties } => {
+                    SortForm::TopK {
+                        count,
+                        offset,
+                        ties,
+                    } => {
                         (1u8, ties).hash(h);
                         topk_bound(h, v, count);
                         topk_bound(h, v, offset);
                     }
-                    SortForm::Walk { attno, desc, nulls_first, count, offset, ties } => {
+                    SortForm::Walk {
+                        attno,
+                        desc,
+                        nulls_first,
+                        count,
+                        offset,
+                        ties,
+                    } => {
                         (2u8, attno, desc, nulls_first, ties).hash(h);
                         topk_bound(h, v, count);
                         topk_bound(h, v, offset);
@@ -1221,7 +1590,15 @@ fn pipeline_body<'p>(h: &mut Fnv128, v: Visit<'_, 'p>, p: &PipelineNode<'p>) {
                 dumped(h, &|w| d.dump(w));
             }
             Op::SubPlan(d) => {
-                (8u8, d.plan_id, d.link as u8, d.unknown_eq_false, d.alternative, d.set_spool).hash(h);
+                (
+                    8u8,
+                    d.plan_id,
+                    d.link as u8,
+                    d.unknown_eq_false,
+                    d.alternative,
+                    d.set_spool,
+                )
+                    .hash(h);
                 if let Some(t) = d.test {
                     node(h, v, t);
                 }
@@ -1243,8 +1620,19 @@ fn pipeline_body<'p>(h: &mut Fnv128, v: Visit<'_, 'p>, p: &PipelineNode<'p>) {
                 // D3586: an Append's arms share its prune info, which lists every partition: an arm whose info is the one
                 // the last pruned arm keyed is keyed by that, not by the list again (N arms keyed N lists of N)
                 match d {
-                    AppendDesc::Arm { i, n, ordered, prune: Some(p) } if h.prune == p.info as *const _ as usize => {
-                        let _ = fmt::Write::write_fmt(h, format_args!("  append arm {i}/{n}{} prune=same", if *ordered { " ordered" } else { "" }));
+                    AppendDesc::Arm {
+                        i,
+                        n,
+                        ordered,
+                        prune: Some(p),
+                    } if h.prune == p.info as *const _ as usize => {
+                        let _ = fmt::Write::write_fmt(
+                            h,
+                            format_args!(
+                                "  append arm {i}/{n}{} prune=same",
+                                if *ordered { " ordered" } else { "" }
+                            ),
+                        );
                     }
                     _ => {
                         if let AppendDesc::Arm { prune: Some(p), .. } = d {
@@ -1255,7 +1643,16 @@ fn pipeline_body<'p>(h: &mut Fnv128, v: Visit<'_, 'p>, p: &PipelineNode<'p>) {
                 }
             }
             Op::Write(d) => {
-                (10u8, d.cmd, d.rti, d.site.natts() as u32, d.epq, d.marks.len() as u32, d.on_conflict.is_some()).hash(h);
+                (
+                    10u8,
+                    d.cmd,
+                    d.rti,
+                    d.site.natts() as u32,
+                    d.epq,
+                    d.marks.len() as u32,
+                    d.on_conflict.is_some(),
+                )
+                    .hash(h);
                 write_plan(h, &d.plan);
                 // the check options are the program's (`exec/src/admit.rs` relocates each qual per admission by its traversal index)
                 (d.checks.len() as u32).hash(h);
@@ -1284,7 +1681,13 @@ fn pipeline_body<'p>(h: &mut Fnv128, v: Visit<'_, 'p>, p: &PipelineNode<'p>) {
                     }
                 }
                 if let Some(m) = &d.merge {
-                    (m.rowid_col, m.target_cols.len() as u32, m.returning_action, m.join_cond.is_some()).hash(h);
+                    (
+                        m.rowid_col,
+                        m.target_cols.len() as u32,
+                        m.returning_action,
+                        m.join_cond.is_some(),
+                    )
+                        .hash(h);
                     for q in m.join_cond.iter() {
                         nodes(h, v, q);
                     }
@@ -1311,8 +1714,17 @@ fn pipeline_body<'p>(h: &mut Fnv128, v: Visit<'_, 'p>, p: &PipelineNode<'p>) {
             }
             Op::Srf(d) => {
                 // by structure, never the dump's text: a call's literals go through `node` (a word stays a word)
-                (12u8, d.place == SrfPlace::TargetList, d.functions.len() as u32).hash(h);
-                if let SrfPlace::From { scanrelid, ordinality } = d.place {
+                (
+                    12u8,
+                    d.place == SrfPlace::TargetList,
+                    d.functions.len() as u32,
+                )
+                    .hash(h);
+                if let SrfPlace::From {
+                    scanrelid,
+                    ordinality,
+                } = d.place
+                {
                     (scanrelid, ordinality).hash(h);
                 }
                 nodes(h, v, d.tlist);
@@ -1325,7 +1737,8 @@ fn pipeline_body<'p>(h: &mut Fnv128, v: Visit<'_, 'p>, p: &PipelineNode<'p>) {
                     // its arguments; the IR only deforms the store): its by-reference literals are keyed by class (`lit`,
                     // logged with the lists: a lowering that read one files no program), one program for every argument
                     let lit = h.lit;
-                    h.lit = matches!(d.place, SrfPlace::From { .. }) && !matches!(f.kind, SrfKind::Scalar | SrfKind::Expr);
+                    h.lit = matches!(d.place, SrfPlace::From { .. })
+                        && !matches!(f.kind, SrfKind::Scalar | SrfKind::Expr);
                     node(h, v, f.node);
                     h.lit = lit;
                 }
@@ -1336,8 +1749,20 @@ fn pipeline_body<'p>(h: &mut Fnv128, v: Visit<'_, 'p>, p: &PipelineNode<'p>) {
 
 /// The write desc's D1 faces (decompose.md §7 need 1), keyed before any member that reads them is bound:
 /// expressions go through `node` (a literal stays a word), never through the dump's text.
-fn write_faces<'p>(h: &mut Fnv128, v: Visit<'_, 'p>, d: &gravity_decompose::ops::shared::modifytable::WriteDesc<'p>) {
-    (d.members.0, d.tableoid_col, d.targets.len() as u32, d.old_new.old, d.old_new.new, d.route.is_some()).hash(h);
+fn write_faces<'p>(
+    h: &mut Fnv128,
+    v: Visit<'_, 'p>,
+    d: &gravity_decompose::ops::shared::modifytable::WriteDesc<'p>,
+) {
+    (
+        d.members.0,
+        d.tableoid_col,
+        d.targets.len() as u32,
+        d.old_new.old,
+        d.old_new.new,
+        d.route.is_some(),
+    )
+        .hash(h);
     if let Some(r) = &d.route {
         (r.root_rti, r.root_relid, r.root_natts, r.cross_partition).hash(h);
     }
@@ -1374,20 +1799,57 @@ fn write_faces<'p>(h: &mut Fnv128, v: Visit<'_, 'p>, d: &gravity_decompose::ops:
 /// The leaves' and targets' facts that hold no expression, as one sub-key per (targets, leaves) slice pair of the walk: a
 /// streamed union copies its Write into every arm (decompose append.rs `push_union`), so a write over N partitions hashed
 /// N x N facts (m4_l20's 4100-partition UPDATE: the key walk 15% of its admission). The sub-key is the facts' content.
-fn target_facts(h: &mut Fnv128, d: &gravity_decompose::ops::shared::modifytable::WriteDesc<'_>) -> u128 {
-    let id = [d.targets.as_ptr() as usize, d.targets.len(), d.leaves.as_ptr() as usize, d.leaves.len()];
+fn target_facts(
+    h: &mut Fnv128,
+    d: &gravity_decompose::ops::shared::modifytable::WriteDesc<'_>,
+) -> u128 {
+    let id = [
+        d.targets.as_ptr() as usize,
+        d.targets.len(),
+        d.leaves.as_ptr() as usize,
+        d.leaves.len(),
+    ];
     if let Some(&(_, k)) = h.faces.iter().find(|f| f.0 == id) {
         return k;
     }
     let mut f = Fnv128::new(0x7461_7267_6574_7301, 0x84222325_cbf29ce4, h.a);
     (d.leaves.len() as u32).hash(&mut f);
     for l in d.leaves.iter() {
-        (l.relid, l.natts, l.heap, l.same_layout, l.has_triggers, l.has_rules, l.has_generated, l.nindexes, l.indexes_plain).hash(&mut f);
+        (
+            l.relid,
+            l.natts,
+            l.heap,
+            l.same_layout,
+            l.has_triggers,
+            l.has_rules,
+            l.has_generated,
+            l.nindexes,
+            l.indexes_plain,
+        )
+            .hash(&mut f);
     }
     for (i, t) in d.targets.iter().enumerate() {
-        (t.rti, t.relid, t.kind as u8, t.site.natts() as u32, t.junk_col, t.wholerow_col).hash(&mut f);
-        (t.instead.insert, t.instead.update, t.instead.delete, t.instead.known, t.generated.len() as u32, t.to_root.len() as u32).hash(&mut f);
-        dumped(&mut f, &|w| gravity_decompose::ops::modifytable::dump_indexes(t, w));
+        (
+            t.rti,
+            t.relid,
+            t.kind as u8,
+            t.site.natts() as u32,
+            t.junk_col,
+            t.wholerow_col,
+        )
+            .hash(&mut f);
+        (
+            t.instead.insert,
+            t.instead.update,
+            t.instead.delete,
+            t.instead.known,
+            t.generated.len() as u32,
+            t.to_root.len() as u32,
+        )
+            .hash(&mut f);
+        dumped(&mut f, &|w| {
+            gravity_decompose::ops::modifytable::dump_indexes(t, w)
+        });
         for g in t.generated.iter() {
             g.hash(&mut f);
         }
@@ -1470,7 +1932,12 @@ fn table_func<'p>(h: &mut Fnv128, v: Visit<'_, 'p>, f: &'p types_nodes::primnode
     opt_node(h, v, f.rowexpr);
     nodes(h, v, &f.colnames);
     (f.coltypes.len() as u32).hash(h);
-    for ((t, m), c) in f.coltypes.iter().zip(f.coltypmods.iter()).zip(f.colcollations.iter()) {
+    for ((t, m), c) in f
+        .coltypes
+        .iter()
+        .zip(f.coltypmods.iter())
+        .zip(f.colcollations.iter())
+    {
         (t, m).hash(h);
         coll(h, c);
     }
@@ -1507,14 +1974,37 @@ fn join<'p>(h: &mut Fnv128, v: Visit<'_, 'p>, d: &JoinDesc<'p>) {
             0u8.hash(h);
             nodes(h, v, keys);
         }
-        JoinDesc::Probe { slot, jointype, clauses, keys, qual, unique, marks, decls: _, inner_node: _, outer_first, catalog: _ } => {
+        JoinDesc::Probe {
+            slot,
+            jointype,
+            clauses,
+            keys,
+            qual,
+            unique,
+            marks,
+            decls: _,
+            inner_node: _,
+            outer_first,
+            catalog: _,
+        } => {
             (1u8, *slot, *jointype as u32, *unique, *marks, *outer_first).hash(h);
             nodes(h, v, clauses);
             nodes(h, v, keys);
             nodes(h, v, qual);
         }
         JoinDesc::Drain { matches, jointype } => (2u8, *matches, *jointype as u32).hash(h),
-        JoinDesc::Merge { slot, jointype, clauses, reversals, nulls_first, families, collations, qual, unique, inner_node: _ } => {
+        JoinDesc::Merge {
+            slot,
+            jointype,
+            clauses,
+            reversals,
+            nulls_first,
+            families,
+            collations,
+            qual,
+            unique,
+            inner_node: _,
+        } => {
             (3u8, *slot, *jointype as u32, *unique).hash(h);
             nodes(h, v, clauses);
             reversals.hash(h);
@@ -1524,16 +2014,41 @@ fn join<'p>(h: &mut Fnv128, v: Visit<'_, 'p>, d: &JoinDesc<'p>) {
             collations.hash(h);
             nodes(h, v, qual);
         }
-        JoinDesc::Nest { jointype, params, inner, qual, unique, inner_node: _, facts: _ } => {
+        JoinDesc::Nest {
+            jointype,
+            params,
+            inner,
+            qual,
+            unique,
+            inner_node: _,
+            facts: _,
+        } => {
             (4u8, *jointype as u32, *unique).hash(h);
             nodes(h, v, params);
             nodes(h, v, qual);
             pipeline(h, v, inner);
         }
-        JoinDesc::Memo { keys, entries, singlerow, binary, ops, colls, purge, nonkey } => {
+        JoinDesc::Memo {
+            keys,
+            entries,
+            singlerow,
+            binary,
+            ops,
+            colls,
+            purge,
+            nonkey,
+        } => {
             // ops / colls: the lowered lookup bakes each key's hash equality operator and collation (MC-1); a memo PG may purge
             // (memoize item 5) lowers another lookup: its own tag and the params it purges on, every other memo's key unchanged
-            (if *purge { 7u8 } else { 5u8 }, *entries, *singlerow, *binary, *ops, *colls).hash(h);
+            (
+                if *purge { 7u8 } else { 5u8 },
+                *entries,
+                *singlerow,
+                *binary,
+                *ops,
+                *colls,
+            )
+                .hash(h);
             if *purge {
                 nonkey.hash(h);
             }
@@ -1570,7 +2085,10 @@ pub fn class_keyed_lists(graph: &PipelineGraph<'_>) -> ArenaVec<usize> {
 /// keys by its class (`class_keyed_lists`): that program is its list's, so it is never filed (`Descs::no_cache`). Its
 /// reads are handed on to the enclosing scopes (the front key's) as if it had opened none.
 pub fn lowering_reads_lists<T>(graph: &PipelineGraph<'_>, lower: impl FnOnce() -> T) -> (T, bool) {
-    let (e, d) = (gravity_expr::bake::Scope::open(), gravity_decompose::bake::Scope::open());
+    let (e, d) = (
+        gravity_expr::bake::Scope::open(),
+        gravity_decompose::bake::Scope::open(),
+    );
     let r = lower();
     let (re, rd) = (e.reads(), d.reads());
     drop((e, d));
@@ -1605,14 +2123,21 @@ pub fn values_node(p: &PipelineNode<'_>) -> i32 {
 /// longer takes the heap pipelines' lists of the same graph back to their bytes.
 fn heap_source(p: &PipelineNode<'_>) -> bool {
     match &p.source {
-        Source::Range { am, .. } | Source::Index { am, .. } | Source::Bitmap { am, .. } | Source::Tid { am, .. } | Source::Sample { am, .. } => *am == gravity_decompose::Am::Heap,
+        Source::Range { am, .. }
+        | Source::Index { am, .. }
+        | Source::Bitmap { am, .. }
+        | Source::Tid { am, .. }
+        | Source::Sample { am, .. } => *am == gravity_decompose::Am::Heap,
         _ => true,
     }
 }
 
 /// The walk's scratch is the graph's arena (its pipelines' allocator): the admission's, reset with the graph at the end of
 /// its scope, so nothing the walk keeps outlives the statement and every byte of it has the arena's owner.
-fn walk_graph<'p>(graph: &PipelineGraph<'p>, visit: Visit<'_, 'p>) -> (ContentKey, ArenaVec<usize>, Runs) {
+fn walk_graph<'p>(
+    graph: &PipelineGraph<'p>,
+    visit: Visit<'_, 'p>,
+) -> (ContentKey, ArenaVec<usize>, Runs) {
     let a = *graph.pipelines.allocator();
     let mut h = Fnv128::new(0x6c6f_7765_7232_0002, 0x84222325_cbf29ce4, a);
     let mut at: ArenaVec<Node<'p>> = ArenaVec::new_in(a);
@@ -1620,7 +2145,12 @@ fn walk_graph<'p>(graph: &PipelineGraph<'p>, visit: Visit<'_, 'p>) -> (ContentKe
         at.push(n);
         visit(n)
     };
-    (graph.pipelines.len() as u8, graph.breakers.len() as u8, graph.root).hash(&mut h);
+    (
+        graph.pipelines.len() as u8,
+        graph.breakers.len() as u8,
+        graph.root,
+    )
+        .hash(&mut h);
     // C1 part 2: a partial reader's graph (a named cursor's FETCH, decompose `PipelineGraph::partial`) lowers its stop
     // roads to the cursor's root, so it is keyed apart; every other key is unchanged
     if graph.partial {
@@ -1692,7 +2222,12 @@ pub enum AliasPut {
 /// the RTE's own, which no other plan field holds; a copy is an appendrel child's, never a VALUES row's), so what the
 /// passes over the other positions put is what the passes over all of them put. The passes' scratch is arena `a`'s (the
 /// walk's: the admission's graph arena), handed back on return: `put` keys what it is given and allocates nothing in `a`.
-pub fn alias_walk(a: ArenaRef, at: &[Node<'_>], tables: &[(u32, u32)], put: &mut dyn FnMut(AliasPut)) {
+pub fn alias_walk(
+    a: ArenaRef,
+    at: &[Node<'_>],
+    tables: &[(u32, u32)],
+    put: &mut dyn FnMut(AliasPut),
+) {
     if tables.is_empty() {
         alias_over(a, || at.iter().copied(), &|i| i, put);
     } else {
@@ -1702,7 +2237,12 @@ pub fn alias_walk(a: ArenaRef, at: &[Node<'_>], tables: &[(u32, u32)], put: &mut
 
 /// `alias_walk` over the nodes `nodes()` yields (each pass takes a fresh iterator), position `i` of them being walk
 /// position `at(i)`.
-fn alias_over<'p, I: Iterator<Item = Node<'p>>>(a: ArenaRef, nodes: impl Fn() -> I, at: &dyn Fn(u32) -> u32, put: &mut dyn FnMut(AliasPut)) {
+fn alias_over<'p, I: Iterator<Item = Node<'p>>>(
+    a: ArenaRef,
+    nodes: impl Fn() -> I,
+    at: &dyn Fn(u32) -> u32,
+    put: &mut dyn FnMut(AliasPut),
+) {
     let _passes = a.scope();
     let ids = alias_ids(a, &nodes);
     let mut n = 0usize;
@@ -1731,7 +2271,12 @@ fn alias_over<'p, I: Iterator<Item = Node<'p>>>(a: ArenaRef, nodes: impl Fn() ->
 /// their number, the shares. A walk with literal-table runs, more than `FUSED_LITS` literals, or two literals of one
 /// location and type that are no copies (`first_copies`' false, where the sort decides) is `alias_walk`'s own. What it
 /// puts equals `alias_walk`'s (`the_fused_alias_pass_puts_what_alias_walk_puts`).
-pub fn alias_walk_fused(a: ArenaRef, at: &[Node<'_>], tables: &[(u32, u32)], put: &mut dyn FnMut(AliasPut)) {
+pub fn alias_walk_fused(
+    a: ArenaRef,
+    at: &[Node<'_>],
+    tables: &[(u32, u32)],
+    put: &mut dyn FnMut(AliasPut),
+) {
     if !tables.is_empty() || !alias_fused(a, at, put) {
         alias_walk(a, at, tables, put);
     }
@@ -1756,7 +2301,10 @@ fn alias_fused(a: ArenaRef, at: &[Node<'_>], put: &mut dyn FnMut(AliasPut)) -> b
             if nlits > FUSED_LITS {
                 return false;
             }
-            if let Some(f) = lits.first((u64::from(s.typ) << 32) | u64::from(s.location as u32), i as u32) {
+            if let Some(f) = lits.first(
+                (u64::from(s.typ) << 32) | u64::from(s.location as u32),
+                i as u32,
+            ) {
                 let first = at[f as usize];
                 if lit_share(first) != Some(s) {
                     return false;
@@ -1798,7 +2346,12 @@ pub struct Runs {
 const RUNS: usize = 8;
 
 impl Runs {
-    pub const NONE: Runs = Runs { n: 0, twice: false, at: [(0, 0); RUNS], lists: [0; RUNS] };
+    pub const NONE: Runs = Runs {
+        n: 0,
+        twice: false,
+        at: [(0, 0); RUNS],
+        lists: [0; RUNS],
+    };
 
     /// Records positions `[start, end)` of list `list`, after every run recorded before.
     pub fn add(&mut self, start: u32, end: u32, list: usize) {
@@ -1812,7 +2365,11 @@ impl Runs {
     }
 
     pub fn as_slice(&self) -> &[(u32, u32)] {
-        if self.twice { &[] } else { &self.at[..self.n as usize] }
+        if self.twice {
+            &[]
+        } else {
+            &self.at[..self.n as usize]
+        }
     }
 }
 
@@ -1826,7 +2383,12 @@ struct Kept<'a, 'p> {
 
 impl<'a, 'p> Kept<'a, 'p> {
     fn new(at: &'a [Node<'p>], runs: &'a [(u32, u32)]) -> Kept<'a, 'p> {
-        Kept { at, runs, i: 0, r: 0 }
+        Kept {
+            at,
+            runs,
+            i: 0,
+            r: 0,
+        }
     }
 }
 
@@ -1895,8 +2457,16 @@ impl PosTable {
     /// A table for at most `n` keys.
     pub fn with_capacity(n: usize) -> PosTable {
         let cap = pos_cap(n);
-        let slots = if cap > POS_INLINE { core::iter::repeat_n((0, u32::MAX), cap).collect() } else { Default::default() }; // alloc: Cold
-        PosTable { inline: [(0, u32::MAX); POS_INLINE], slots, bits: cap.trailing_zeros() }
+        let slots = if cap > POS_INLINE {
+            core::iter::repeat_n((0, u32::MAX), cap).collect()
+        } else {
+            Default::default()
+        }; // alloc: Cold
+        PosTable {
+            inline: [(0, u32::MAX); POS_INLINE],
+            slots,
+            bits: cap.trailing_zeros(),
+        }
     }
 }
 
@@ -1908,17 +2478,29 @@ impl PosTable<ArenaVec<(u64, u32)>> {
         if cap > POS_INLINE {
             slots.resize(cap, (0, u32::MAX));
         }
-        PosTable { inline: [(0, u32::MAX); POS_INLINE], slots, bits: cap.trailing_zeros() }
+        PosTable {
+            inline: [(0, u32::MAX); POS_INLINE],
+            slots,
+            bits: cap.trailing_zeros(),
+        }
     }
 }
 
 impl<S: core::ops::DerefMut<Target = [(u64, u32)]>> PosTable<S> {
     fn table(&self) -> &[(u64, u32)] {
-        if self.slots.is_empty() { &self.inline[..1 << self.bits] } else { &self.slots }
+        if self.slots.is_empty() {
+            &self.inline[..1 << self.bits]
+        } else {
+            &self.slots
+        }
     }
 
     fn table_mut(&mut self) -> &mut [(u64, u32)] {
-        if self.slots.is_empty() { &mut self.inline[..1 << self.bits] } else { &mut self.slots }
+        if self.slots.is_empty() {
+            &mut self.inline[..1 << self.bits]
+        } else {
+            &mut self.slots
+        }
     }
 
     /// The slot holding `k`, else the empty slot where it goes.
@@ -2004,21 +2586,40 @@ pub fn lit_share<'a>(n: Node<'a>) -> Option<LitShare<'a>> {
     let (value, image): (u64, &'a [u8]) = if c.constisnull {
         (0, &[])
     } else if c.constbyval {
-        (gravity_expr::nodes::konst::word_canon(c.consttype, c.constvalue).as_u64(), &[])
+        (
+            gravity_expr::nodes::konst::word_canon(c.consttype, c.constvalue).as_u64(),
+            &[],
+        )
     } else {
         (0, super::raw::const_image(c)?)
     };
-    Some(LitShare { location: c.location, typ: c.consttype, typmod: c.consttypmod, coll: c.constcollid, len: c.constlen, byval: c.constbyval, null: c.constisnull, value, image })
+    Some(LitShare {
+        location: c.location,
+        typ: c.consttype,
+        typmod: c.consttypmod,
+        coll: c.constcollid,
+        len: c.constlen,
+        byval: c.constbyval,
+        null: c.constisnull,
+        value,
+        image,
+    })
 }
 
 /// D3642: each node's identity for `alias`: its address, or for a literal with copies (`lit_share`) its first copy's.
 /// D4449: over the nodes `nodes()` yields (a walk's, or those outside its runs: `Kept`), positions counted in their order.
 /// Both lists are arena `a`'s.
-pub fn alias_ids<'p, I: Iterator<Item = Node<'p>>>(a: ArenaRef, nodes: impl Fn() -> I) -> ArenaVec<usize> {
+pub fn alias_ids<'p, I: Iterator<Item = Node<'p>>>(
+    a: ArenaRef,
+    nodes: impl Fn() -> I,
+) -> ArenaVec<usize> {
     let mut ids = ArenaVec::with_capacity_in(nodes().size_hint().0, a);
     nodes().for_each(|n| ids.push(n.as_raw().as_ptr() as usize));
     let mut lits: ArenaVec<(LitShare<'_>, u32)> = ArenaVec::new_in(a);
-    nodes().enumerate().filter_map(|(i, n)| lit_share(n).map(|s| (s, i as u32))).for_each(|l| lits.push(l));
+    nodes()
+        .enumerate()
+        .filter_map(|(i, n)| lit_share(n).map(|s| (s, i as u32)))
+        .for_each(|l| lits.push(l));
     if lits.len() > 1 && !first_copies(a, &lits, &mut ids) {
         first_copies_sorted(&mut lits, &mut ids);
     }
@@ -2033,9 +2634,14 @@ pub fn alias_ids<'p, I: Iterator<Item = Node<'p>>>(a: ArenaRef, nodes: impl Fn()
 fn first_copies(a: ArenaRef, lits: &[(LitShare<'_>, u32)], ids: &mut [usize]) -> bool {
     let mut first = PosTable::with_capacity_in(lits.len(), a);
     for (k, (s, p)) in lits.iter().enumerate() {
-        match first.first((u64::from(s.typ) << 32) | u64::from(s.location as u32), k as u32) {
+        match first.first(
+            (u64::from(s.typ) << 32) | u64::from(s.location as u32),
+            k as u32,
+        ) {
             None => {}
-            Some(f) if lits[f as usize].0 == *s => ids[*p as usize] = ids[lits[f as usize].1 as usize],
+            Some(f) if lits[f as usize].0 == *s => {
+                ids[*p as usize] = ids[lits[f as usize].1 as usize]
+            }
             Some(_) => return false,
         }
     }
@@ -2067,7 +2673,9 @@ fn record_rows(h: &mut Fnv128, graph: &PipelineGraph<'_>) {
     for r in graph.record_rows.iter() {
         (r.scanrelid, r.node_id, r.named, r.cols.len() as u32).hash(h);
         for c in r.cols.iter() {
-            let ty = c.expr.map_or(c.ty, |e| (expr_type(e), expr_typmod(e), expr_collation(e)));
+            let ty = c
+                .expr
+                .map_or(c.ty, |e| (expr_type(e), expr_typmod(e), expr_collation(e)));
             (c.resno, ty, c.name).hash(h);
         }
     }
@@ -2081,7 +2689,10 @@ mod estimate_key {
     use types_nodes::list::IntList;
     use types_nodes::NodeList;
 
-    use super::{cost_decide, costs_hold, decide, decide_end_rate, guarded, guards_hold, lits_hold, place_lits, variant, Est};
+    use super::{
+        cost_decide, costs_hold, decide, decide_end_rate, guarded, guards_hold, lits_hold,
+        place_lits, variant, Est,
+    };
     use gravity_decompose::NoFacts;
 
     /// A one-pipeline graph whose pipeline predicts `rows`, ending in a hash build of `build_rows` with PG's tuple bound
@@ -2092,7 +2703,11 @@ mod estimate_key {
         let mut p = PipelineNode::new(a, 1, Source::Const, Pipeline::eligible(0, End::Sink, rows));
         if let Some((build_rows, pg_tuple)) = build {
             p.desc.build_rows = build_rows;
-            p.push(Op::Join(JoinDesc::Build { keys: none, decls: gravity_program::ArenaVec::new_in(a), pg_tuple }));
+            p.push(Op::Join(JoinDesc::Build {
+                keys: none,
+                decls: gravity_program::ArenaVec::new_in(a),
+                pg_tuple,
+            }));
         }
         g.pipelines.push(p);
         g
@@ -2115,7 +2730,11 @@ mod estimate_key {
         assert_eq!(key_of(0, None), key_of(1, None));
         assert_eq!(key_of(100, Some((300, 48))), key_of(100, Some((310, 48))));
         assert_eq!(key_of(100, Some((0, 48))), key_of(100, Some((9_000, 48))));
-        assert_ne!(key_of(100, Some((300, 48))), key_of(100, Some((300, 56))), "the tuple bound is keyed");
+        assert_ne!(
+            key_of(100, Some((300, 48))),
+            key_of(100, Some((300, 56))),
+            "the tuple bound is keyed"
+        );
     }
 
     fn at_least(rows: u64, a: &[u64; 4]) -> u64 {
@@ -2131,27 +2750,61 @@ mod estimate_key {
         let filed = graph_of(a, 5_000, Some((300, 48)));
         let (made, guards) = guarded(|| {
             let p = &filed.pipelines[0].desc;
-            (decide(0, false, p.predicted_rows, at_least, [4_096, 0, 0, 0]), decide(0, false, p.predicted_rows, at_least, [4_096, 0, 0, 0]), decide(0, true, p.build_rows, at_least, [1_000, 0, 0, 0]))
+            (
+                decide(0, false, p.predicted_rows, at_least, [4_096, 0, 0, 0]),
+                decide(0, false, p.predicted_rows, at_least, [4_096, 0, 0, 0]),
+                decide(0, true, p.build_rows, at_least, [1_000, 0, 0, 0]),
+            )
         });
         assert_eq!(made, (1, 1, 0));
         assert_eq!(guards.len(), 2, "the same decision twice is one guard");
         assert!(guards_hold(&guards, &filed, &NoFacts));
-        assert!(guards_hold(&guards, &graph_of(a, 9_000_000, Some((999, 48))), &NoFacts), "both decisions unchanged");
-        assert!(!guards_hold(&guards, &graph_of(a, 4_095, Some((300, 48))), &NoFacts), "the rows decision flips");
-        assert!(!guards_hold(&guards, &graph_of(a, 5_000, Some((1_000, 48))), &NoFacts), "the build decision flips");
-        assert_eq!(decide(0, false, 1, at_least, [4_096, 0, 0, 0]), 0, "outside `guarded` a decision files nothing");
+        assert!(
+            guards_hold(&guards, &graph_of(a, 9_000_000, Some((999, 48))), &NoFacts),
+            "both decisions unchanged"
+        );
+        assert!(
+            !guards_hold(&guards, &graph_of(a, 4_095, Some((300, 48))), &NoFacts),
+            "the rows decision flips"
+        );
+        assert!(
+            !guards_hold(&guards, &graph_of(a, 5_000, Some((1_000, 48))), &NoFacts),
+            "the build decision flips"
+        );
+        assert_eq!(
+            decide(0, false, 1, at_least, [4_096, 0, 0, 0]),
+            0,
+            "outside `guarded` a decision files nothing"
+        );
         assert!(guarded(|| ()).1.is_empty());
     }
 
     /// A graph with pgrc scan node 5 costing `scan` and two InitPlans, plan 1 setting PARAM_EXEC 7 and plan 2 setting 8,
     /// charging `c1` and `c2` (`None`: a cost the graph does not hold).
-    fn costed<'p>(a: ArenaRef, sets: (&'p IntList<'p>, &'p IntList<'p>), scan: f64, c1: Option<f64>, c2: f64) -> PipelineGraph<'p> {
+    fn costed<'p>(
+        a: ArenaRef,
+        sets: (&'p IntList<'p>, &'p IntList<'p>),
+        scan: f64,
+        c1: Option<f64>,
+        c2: f64,
+    ) -> PipelineGraph<'p> {
         use gravity_decompose::effects::Volatility;
         use gravity_decompose::graph::InitPlan;
         use gravity_decompose::ops::shared::subplan::SubLink;
         let mut g = PipelineGraph::new(a);
         for (plan_id, params) in [(1, sets.0), (2, sets.1)] {
-            g.init_plans.push(InitPlan { plan_id, pipeline: 0, link: SubLink::Expr, param: params.nth(0), params, slot: None, volatility: Volatility::Stable, raise_free: true, parallel_safe: true, attach: 5 });
+            g.init_plans.push(InitPlan {
+                plan_id,
+                pipeline: 0,
+                link: SubLink::Expr,
+                param: params.nth(0),
+                params,
+                slot: None,
+                volatility: Volatility::Stable,
+                raise_free: true,
+                parallel_safe: true,
+                attach: 5,
+            });
         }
         g.scan_costs.push((5, scan));
         if let Some(c) = c1 {
@@ -2169,30 +2822,101 @@ mod estimate_key {
         let ctx = mcx::MemoryContext::new("cost guard");
         let arena = Arena::new(1 << 16);
         let a = arena.handle();
-        let sets: (&IntList<'_>, &IntList<'_>) = (Box::leak(Box::new(IntList::make1(ctx.mcx(), 7).unwrap())), Box::leak(Box::new(IntList::make1(ctx.mcx(), 8).unwrap()))); // alloc: Cold
+        let sets: (&IntList<'_>, &IntList<'_>) = (
+            Box::leak(Box::new(IntList::make1(ctx.mcx(), 7).unwrap())),
+            Box::leak(Box::new(IntList::make1(ctx.mcx(), 8).unwrap())),
+        ); // alloc: Cold
         let filed = costed(a, sets, 100.0, Some(30.0), 60.0);
-        let (made, mut guards) = guarded(|| (cost_decide(&filed, 5, &[7, 8, 7]), cost_decide(&filed, 5, &[7, 8, 7])));
-        assert_eq!(made, (0b111, 0b111), "30 + 60 < 100, and 7 again adds nothing");
+        let (made, mut guards) = guarded(|| {
+            (
+                cost_decide(&filed, 5, &[7, 8, 7]),
+                cost_decide(&filed, 5, &[7, 8, 7]),
+            )
+        });
+        assert_eq!(
+            made,
+            (0b111, 0b111),
+            "30 + 60 < 100, and 7 again adds nothing"
+        );
         assert_eq!(guards.len(), 1, "the same decision twice is one guard");
         // a front hit decides it on its plan's costs (the walk's `scan_charge` / `InitCharge::of`), as on the graph
-        let charge = |plan_id, sets, cost| gravity_decompose::graph::InitCharge { plan_id, sets, cost };
+        let charge = |plan_id, sets, cost| gravity_decompose::graph::InitCharge {
+            plan_id,
+            sets,
+            cost,
+        };
         let inits = [charge(1, sets.0, Some(30.0)), charge(2, sets.1, Some(60.0))];
         assert!(costs_hold(&guards, &[(4, 1.0), (5, 100.0)], &inits));
-        assert!(!costs_hold(&guards, &[(5, 80.0)], &inits), "plan 2 no longer fits");
-        assert!(!costs_hold(&guards, &[(4, 100.0)], &inits), "no cost for the scan");
-        assert!(!costs_hold(&guards, &[(5, 100.0)], &[charge(1, sets.0, None), inits[1]]), "a CTE's charge is none");
-        assert!(costs_hold(&[], &[], &[]), "no cost guard: nothing to decide");
+        assert!(
+            !costs_hold(&guards, &[(5, 80.0)], &inits),
+            "plan 2 no longer fits"
+        );
+        assert!(
+            !costs_hold(&guards, &[(4, 100.0)], &inits),
+            "no cost for the scan"
+        );
+        assert!(
+            !costs_hold(&guards, &[(5, 100.0)], &[charge(1, sets.0, None), inits[1]]),
+            "a CTE's charge is none"
+        );
+        assert!(
+            costs_hold(&[], &[], &[]),
+            "no cost guard: nothing to decide"
+        );
         place_lits(&mut guards, &[]);
-        assert!(guards_hold(&guards, &filed, &NoFacts) && lits_hold(&guards, &[]), "a cost guard is no literal's");
-        assert!(guards_hold(&guards, &costed(a, sets, 1_000.0, Some(10.0), 10.0), &NoFacts), "the costs moved, the decision did not");
-        assert!(!guards_hold(&guards, &costed(a, sets, 80.0, Some(30.0), 60.0), &NoFacts), "plan 2 no longer fits");
-        assert!(!guards_hold(&guards, &costed(a, sets, 100.0, None, 60.0), &NoFacts), "a cost the graph does not hold is no");
-        assert_eq!(costed(a, sets, 80.0, Some(30.0), 60.0).eager_initplans(5, &[7, 8, 7]), 0b101);
-        assert_eq!(costed(a, sets, 30.0, Some(30.0), 1.0).eager_initplans(5, &[7, 8]), 0b10, "not under: equal is no");
-        assert_eq!(costed(a, sets, 100.0, Some(1.0), 1.0).eager_initplans(6, &[7]), 0, "no cost for the scan");
+        assert!(
+            guards_hold(&guards, &filed, &NoFacts) && lits_hold(&guards, &[]),
+            "a cost guard is no literal's"
+        );
+        assert!(
+            guards_hold(
+                &guards,
+                &costed(a, sets, 1_000.0, Some(10.0), 10.0),
+                &NoFacts
+            ),
+            "the costs moved, the decision did not"
+        );
+        assert!(
+            !guards_hold(&guards, &costed(a, sets, 80.0, Some(30.0), 60.0), &NoFacts),
+            "plan 2 no longer fits"
+        );
+        assert!(
+            !guards_hold(&guards, &costed(a, sets, 100.0, None, 60.0), &NoFacts),
+            "a cost the graph does not hold is no"
+        );
+        assert_eq!(
+            costed(a, sets, 80.0, Some(30.0), 60.0).eager_initplans(5, &[7, 8, 7]),
+            0b101
+        );
+        assert_eq!(
+            costed(a, sets, 30.0, Some(30.0), 1.0).eager_initplans(5, &[7, 8]),
+            0b10,
+            "not under: equal is no"
+        );
+        assert_eq!(
+            costed(a, sets, 100.0, Some(1.0), 1.0).eager_initplans(6, &[7]),
+            0,
+            "no cost for the scan"
+        );
         let k = 0x1234_5678_9abc_def0_0fed_cba9_8765_4321u128;
-        assert_eq!(variant(k, &guards, Some((&costed(a, sets, 80.0, Some(30.0), 60.0), &NoFacts))), variant(k, &guarded(|| cost_decide(&costed(a, sets, 80.0, Some(30.0), 60.0), 5, &[7, 8, 7])).1, None), "a flipped guard: the program lowered for it");
-        assert_eq!(guarded(|| cost_decide(&filed, 5, &[8, 8, 8, 8, 8, 8, 7])).0, 0b11_1111, "an id past COST_IDS stays lazy");
+        assert_eq!(
+            variant(
+                k,
+                &guards,
+                Some((&costed(a, sets, 80.0, Some(30.0), 60.0), &NoFacts))
+            ),
+            variant(
+                k,
+                &guarded(|| cost_decide(&costed(a, sets, 80.0, Some(30.0), 60.0), 5, &[7, 8, 7])).1,
+                None
+            ),
+            "a flipped guard: the program lowered for it"
+        );
+        assert_eq!(
+            guarded(|| cost_decide(&filed, 5, &[8, 8, 8, 8, 8, 8, 7])).0,
+            0b11_1111,
+            "an id past COST_IDS stays lazy"
+        );
     }
 
     /// Programs of one content key whose decisions differ are filed side by side: the variant key is the outcomes', so a
@@ -2202,13 +2926,33 @@ mod estimate_key {
         let arena = Arena::new(1 << 16);
         let a = arena.handle();
         let filed = graph_of(a, 5_000, None);
-        let (_, guards) = guarded(|| decide(0, false, filed.pipelines[0].desc.predicted_rows, at_least, [4_096, 0, 0, 0]));
+        let (_, guards) = guarded(|| {
+            decide(
+                0,
+                false,
+                filed.pipelines[0].desc.predicted_rows,
+                at_least,
+                [4_096, 0, 0, 0],
+            )
+        });
         let (_, small) = guarded(|| decide(0, false, 100, at_least, [4_096, 0, 0, 0]));
         let k = 0x1234_5678_9abc_def0_0fed_cba9_8765_4321u128;
-        assert_eq!(variant(k, &[], Some((&filed, &NoFacts))), k, "no guards: the content key");
+        assert_eq!(
+            variant(k, &[], Some((&filed, &NoFacts))),
+            k,
+            "no guards: the content key"
+        );
         assert_ne!(variant(k, &guards, None), k);
-        assert_eq!(variant(k, &guards, None), variant(k, &guards, Some((&graph_of(a, 9_000_000, None), &NoFacts))), "the same outcome");
-        assert_eq!(variant(k, &guards, Some((&graph_of(a, 100, None), &NoFacts))), variant(k, &small, None), "a flipped guard: the program lowered for it");
+        assert_eq!(
+            variant(k, &guards, None),
+            variant(k, &guards, Some((&graph_of(a, 9_000_000, None), &NoFacts))),
+            "the same outcome"
+        );
+        assert_eq!(
+            variant(k, &guards, Some((&graph_of(a, 100, None), &NoFacts))),
+            variant(k, &small, None),
+            "a flipped guard: the program lowered for it"
+        );
         assert_ne!(variant(k, &guards, None), variant(k, &small, None));
     }
 
@@ -2225,21 +2969,55 @@ mod estimate_key {
             g
         };
         let (low, high) = (rated(40_000), rated(1_000_000));
-        assert_eq!(super::key(&low), super::key(&high), "no end_rate in the key");
-        assert_eq!(super::key(&low), super::key(&rated(gravity_program::END_RATE_NONE)));
-        let carry = |g: &PipelineGraph<'_>| guarded(|| decide_end_rate(0, g.pipelines[0].desc.end_rate, at_least, [450_000, 0, 0, 0]));
+        assert_eq!(
+            super::key(&low),
+            super::key(&high),
+            "no end_rate in the key"
+        );
+        assert_eq!(
+            super::key(&low),
+            super::key(&rated(gravity_program::END_RATE_NONE))
+        );
+        let carry = |g: &PipelineGraph<'_>| {
+            guarded(|| {
+                decide_end_rate(
+                    0,
+                    g.pipelines[0].desc.end_rate,
+                    at_least,
+                    [450_000, 0, 0, 0],
+                )
+            })
+        };
         let ((off, gl), (on, gh)) = (carry(&low), carry(&high));
         assert_eq!((off, on), (0, 1));
         assert_eq!((gl.len(), gh.len()), (1, 1));
         assert_eq!(gl[0].est, Est::EndRate);
-        assert!(guards_hold(&gl, &rated(410_000), &NoFacts) && !guards_hold(&gl, &rated(500_000), &NoFacts), "re-decided on the fresh end_rate");
-        assert!(guards_hold(&gh, &rated(gravity_program::END_RATE_NONE), &NoFacts), "no loop past the source: the carry");
+        assert!(
+            guards_hold(&gl, &rated(410_000), &NoFacts)
+                && !guards_hold(&gl, &rated(500_000), &NoFacts),
+            "re-decided on the fresh end_rate"
+        );
+        assert!(
+            guards_hold(&gh, &rated(gravity_program::END_RATE_NONE), &NoFacts),
+            "no loop past the source: the carry"
+        );
         let mut big = graph_of(a, 9_000_000, None);
         big.pipelines[0].desc.end_rate = 40_000;
-        assert!(guards_hold(&gl, &big, &NoFacts), "the rows estimate is not this guard's");
+        assert!(
+            guards_hold(&gl, &big, &NoFacts),
+            "the rows estimate is not this guard's"
+        );
         let k = super::key(&low).0;
-        assert_ne!(variant(k, &gl, None), variant(k, &gh, None), "two outcomes: two programs");
-        assert_eq!(variant(k, &gl, Some((&rated(100), &NoFacts))), variant(k, &gl, None), "the same outcome: the same program");
+        assert_ne!(
+            variant(k, &gl, None),
+            variant(k, &gh, None),
+            "two outcomes: two programs"
+        );
+        assert_eq!(
+            variant(k, &gl, Some((&rated(100), &NoFacts))),
+            variant(k, &gl, None),
+            "the same outcome: the same program"
+        );
     }
 }
 
@@ -2256,15 +3034,28 @@ mod arbiter_key {
         let arena = Arena::new(1 << 12);
         let a = arena.handle();
         let hash = |arbiters: &[u32], conflict: Conflict| {
-            let p = WritePlan::write(a, Cmd::Insert, 1000, &[]).with_conflict(a, conflict, arbiters);
+            let p =
+                WritePlan::write(a, Cmd::Insert, 1000, &[]).with_conflict(a, conflict, arbiters);
             let mut h = super::Fnv128::new(0xcbf2_9ce4_8422_2325, 0x84222325_cbf29ce4, a);
             super::write_plan(&mut h, &p);
             h.finish()
         };
-        assert_ne!(hash(&[2001], Conflict::Update), hash(&[2002], Conflict::Update));
-        assert_ne!(hash(&[2001], Conflict::Update), hash(&[2001], Conflict::Nothing));
-        assert_ne!(hash(&[], Conflict::Nothing), hash(&[2001], Conflict::Nothing));
-        assert_eq!(hash(&[2001], Conflict::Update), hash(&[2001], Conflict::Update));
+        assert_ne!(
+            hash(&[2001], Conflict::Update),
+            hash(&[2002], Conflict::Update)
+        );
+        assert_ne!(
+            hash(&[2001], Conflict::Update),
+            hash(&[2001], Conflict::Nothing)
+        );
+        assert_ne!(
+            hash(&[], Conflict::Nothing),
+            hash(&[2001], Conflict::Nothing)
+        );
+        assert_eq!(
+            hash(&[2001], Conflict::Update),
+            hash(&[2001], Conflict::Update)
+        );
     }
 }
 
@@ -2282,14 +3073,34 @@ mod merge_key {
     fn the_merge_key_carries_the_family_and_the_collation() {
         fn hash(families: &[u32], collations: &[u32]) -> u64 {
             let (none, flags) = (NodeList::default(), [false]);
-            let d = JoinDesc::Merge { slot: 0, jointype: JoinType::JOIN_INNER, clauses: &none, reversals: &flags, nulls_first: &flags, families, collations, qual: &none, unique: false, inner_node: 1 };
+            let d = JoinDesc::Merge {
+                slot: 0,
+                jointype: JoinType::JOIN_INNER,
+                clauses: &none,
+                reversals: &flags,
+                nulls_first: &flags,
+                families,
+                collations,
+                qual: &none,
+                unique: false,
+                inner_node: 1,
+            };
             let arena = gravity_program::Arena::new(1 << 12);
-            let mut h = super::Fnv128::new(0xcbf2_9ce4_8422_2325, 0x84222325_cbf29ce4, arena.handle());
+            let mut h =
+                super::Fnv128::new(0xcbf2_9ce4_8422_2325, 0x84222325_cbf29ce4, arena.handle());
             super::join(&mut h, &mut |_| {}, &d);
             h.finish()
         }
-        assert_ne!(hash(&[1994], &[100]), hash(&[2095], &[100]), "text_ops vs text_pattern_ops");
-        assert_ne!(hash(&[1994], &[100]), hash(&[1994], &[950]), "the default collation vs C");
+        assert_ne!(
+            hash(&[1994], &[100]),
+            hash(&[2095], &[100]),
+            "text_ops vs text_pattern_ops"
+        );
+        assert_ne!(
+            hash(&[1994], &[100]),
+            hash(&[1994], &[950]),
+            "the default collation vs C"
+        );
         assert_eq!(hash(&[1994], &[100]), hash(&[1994], &[100]));
     }
 }
@@ -2302,12 +3113,40 @@ mod lit_share {
 
     use super::{alias_ids, lit_share};
 
-    fn lit<'m>(mcx: mcx::Mcx<'m>, typ: u32, len: i32, value: Datum, byval: bool, location: i32) -> Node<'m> {
+    fn lit<'m>(
+        mcx: mcx::Mcx<'m>,
+        typ: u32,
+        len: i32,
+        value: Datum,
+        byval: bool,
+        location: i32,
+    ) -> Node<'m> {
         lit_or_null(mcx, typ, len, value, byval, location, false)
     }
 
-    fn lit_or_null<'m>(mcx: mcx::Mcx<'m>, typ: u32, len: i32, value: Datum, byval: bool, location: i32, null: bool) -> Node<'m> {
-        Node::mk(mcx, Const { consttype: typ, consttypmod: -1, constcollid: 0, constlen: len, constvalue: value, constisnull: null, constbyval: byval, location }).unwrap()
+    fn lit_or_null<'m>(
+        mcx: mcx::Mcx<'m>,
+        typ: u32,
+        len: i32,
+        value: Datum,
+        byval: bool,
+        location: i32,
+        null: bool,
+    ) -> Node<'m> {
+        Node::mk(
+            mcx,
+            Const {
+                consttype: typ,
+                consttypmod: -1,
+                constcollid: 0,
+                constlen: len,
+                constvalue: value,
+                constisnull: null,
+                constbyval: byval,
+                location,
+            },
+        )
+        .unwrap()
     }
 
     /// A varlena image with a 1-byte header (`len` < 127 bytes in all).
@@ -2328,16 +3167,53 @@ mod lit_share {
         let b = lit(m, int4, 4, Datum::from_i32(1), true, 30);
         assert_eq!(lit_share(a), lit_share(b), "two copies");
         assert!(lit_share(a).is_some());
-        assert_ne!(lit_share(a), lit_share(lit(m, int8, 8, Datum::from_i64(1), true, 30)), "int4 1 vs int8 1");
-        assert_ne!(lit_share(a), lit_share(lit(m, int4, 4, Datum::from_i32(2), true, 30)), "another value");
-        assert_ne!(lit_share(a), lit_share(lit(m, int4, 4, Datum::from_i32(1), true, 31)), "another literal");
-        assert_eq!(lit_share(lit(m, int4, 4, Datum::from_i32(1), true, -1)), None, "the planner's");
+        assert_ne!(
+            lit_share(a),
+            lit_share(lit(m, int8, 8, Datum::from_i64(1), true, 30)),
+            "int4 1 vs int8 1"
+        );
+        assert_ne!(
+            lit_share(a),
+            lit_share(lit(m, int4, 4, Datum::from_i32(2), true, 30)),
+            "another value"
+        );
+        assert_ne!(
+            lit_share(a),
+            lit_share(lit(m, int4, 4, Datum::from_i32(1), true, 31)),
+            "another literal"
+        );
+        assert_eq!(
+            lit_share(lit(m, int4, 4, Datum::from_i32(1), true, -1)),
+            None,
+            "the planner's"
+        );
         // two by-reference images of one numeric value at two display scales (1.0 vs 1.00): different bytes
         let one_0 = short(&[0x80, 0x01, 0x01, 0x00]);
         let one_00 = short(&[0x80, 0x02, 0x01, 0x00]);
-        let n1 = lit(m, numeric, -1, Datum::from_usize(one_0.as_ptr() as usize), false, 12);
-        let n2 = lit(m, numeric, -1, Datum::from_usize(one_00.as_ptr() as usize), false, 12);
-        let n3 = lit(m, numeric, -1, Datum::from_usize(short(&[0x80, 0x01, 0x01, 0x00]).as_ptr() as usize), false, 12);
+        let n1 = lit(
+            m,
+            numeric,
+            -1,
+            Datum::from_usize(one_0.as_ptr() as usize),
+            false,
+            12,
+        );
+        let n2 = lit(
+            m,
+            numeric,
+            -1,
+            Datum::from_usize(one_00.as_ptr() as usize),
+            false,
+            12,
+        );
+        let n3 = lit(
+            m,
+            numeric,
+            -1,
+            Datum::from_usize(short(&[0x80, 0x01, 0x01, 0x00]).as_ptr() as usize),
+            false,
+            12,
+        );
         assert_ne!(lit_share(n1), lit_share(n2), "1.0 vs 1.00");
         assert_eq!(lit_share(n1), lit_share(n3), "one image at two addresses");
         // the keys' alias: a copy is its first copy's node; the rest keep their own
@@ -2353,14 +3229,26 @@ mod lit_share {
             h.key()
         };
         assert_ne!(alias(&[a, a]), alias(&[a, b]), "a node twice vs two copies");
-        assert_eq!(alias(&[a, b]), alias(&[n1, n3]), "two copies, whatever the literal");
-        assert_eq!(alias(&[a, n2]), alias(&[a, lit(m, int4, 4, Datum::from_i32(5), true, 31)]), "no copies: as before");
+        assert_eq!(
+            alias(&[a, b]),
+            alias(&[n1, n3]),
+            "two copies, whatever the literal"
+        );
+        assert_eq!(
+            alias(&[a, n2]),
+            alias(&[a, lit(m, int4, 4, Datum::from_i32(5), true, 31)]),
+            "no copies: as before"
+        );
     }
 
     /// The sort-based `alias_ids` the linear pass replaced (D4449): the reference it must equal.
     fn ids_sorted(at: &[Node<'_>]) -> Vec<usize> {
         let mut ids: Vec<usize> = at.iter().map(|n| n.as_raw().as_ptr() as usize).collect(); // alloc: Cold
-        let mut lits: Vec<_> = at.iter().enumerate().filter_map(|(i, n)| lit_share(*n).map(|s| (s, i as u32))).collect(); // alloc: Cold
+        let mut lits: Vec<_> = at
+            .iter()
+            .enumerate()
+            .filter_map(|(i, n)| lit_share(*n).map(|s| (s, i as u32)))
+            .collect(); // alloc: Cold
         if lits.len() > 1 {
             lits.sort_unstable();
             let mut first = 0;
@@ -2378,9 +3266,17 @@ mod lit_share {
     /// The sort-based repeats the linear pass replaced (D4449): every adjacent pair of one identity's positions as
     /// (later, earlier), by the later position.
     fn repeats_sorted(ids: &[usize]) -> Vec<(u32, u32)> {
-        let mut by: Vec<(usize, u32)> = ids.iter().enumerate().map(|(i, &a)| (a, i as u32)).collect(); // alloc: Cold
+        let mut by: Vec<(usize, u32)> = ids
+            .iter()
+            .enumerate()
+            .map(|(i, &a)| (a, i as u32))
+            .collect(); // alloc: Cold
         by.sort_unstable();
-        let mut repeats: Vec<(u32, u32)> = by.windows(2).filter(|p| p[0].0 == p[1].0).map(|p| (p[1].1, p[0].1)).collect(); // alloc: Cold
+        let mut repeats: Vec<(u32, u32)> = by
+            .windows(2)
+            .filter(|p| p[0].0 == p[1].0)
+            .map(|p| (p[1].1, p[0].1))
+            .collect(); // alloc: Cold
         repeats.sort_unstable();
         repeats
     }
@@ -2433,7 +3329,11 @@ mod lit_share {
             let raw: Vec<usize> = at.iter().map(|n| addr(*n)).collect(); // alloc: Cold
             let mut linear: Vec<(u32, u32)> = Vec::new(); // alloc: Cold
             super::alias_repeats(a, &raw, &mut |i, j| linear.push((i, j))); // alloc: Cold
-            assert_eq!(linear, repeats_sorted(&raw), "round {round}: repeats by address");
+            assert_eq!(
+                linear,
+                repeats_sorted(&raw),
+                "round {round}: repeats by address"
+            );
         }
     }
 
@@ -2486,19 +3386,31 @@ mod lit_share {
                 let i = next(len);
                 at.insert(i, clash);
             }
-            let tables: Vec<(u32, u32)> = if round % 11 == 0 && at.len() > 4 { vec![(1, 3)] } else { Vec::new() }; // alloc: Cold
+            let tables: Vec<(u32, u32)> = if round % 11 == 0 && at.len() > 4 {
+                vec![(1, 3)]
+            } else {
+                Vec::new()
+            }; // alloc: Cold
             let mut old: Vec<(u8, u64, u64)> = Vec::new(); // alloc: Cold
             alias_walk(a, &at, &tables, &mut |p| old.push(words(p))); // alloc: Cold
             let mut new: Vec<(u8, u64, u64)> = Vec::new(); // alloc: Cold
             alias_walk_fused(a, &at, &tables, &mut |p| new.push(words(p))); // alloc: Cold
-            assert_eq!(new, old, "round {round}: len {} tables {tables:?}", at.len());
+            assert_eq!(
+                new,
+                old,
+                "round {round}: len {} tables {tables:?}",
+                at.len()
+            );
             let mut probe: Vec<(u8, u64, u64)> = Vec::new(); // alloc: Cold
             if tables.is_empty() && super::alias_fused(a, &at, &mut |p| probe.push(words(p))) {
                 fused_taken += 1;
                 assert_eq!(probe, old, "round {round}: the fused pass itself");
             }
         }
-        assert!(fused_taken > 1000, "the fused pass decided {fused_taken} of 3000 walks");
+        assert!(
+            fused_taken > 1000,
+            "the fused pass decided {fused_taken} of 3000 walks"
+        );
     }
 
     /// D4449: `alias_walk` over a walk with literal-table runs (fresh Consts, each at one position, no literal's copy:
@@ -2553,10 +3465,18 @@ mod lit_share {
                 runs.add(start as u32, (start + len) as u32, r + 1);
                 shift += len;
             }
-            assert_eq!(puts(&at, runs.as_slice()), puts(&at, &[]), "round {round}: runs {:?}", runs.as_slice());
+            assert_eq!(
+                puts(&at, runs.as_slice()),
+                puts(&at, &[]),
+                "round {round}: runs {:?}",
+                runs.as_slice()
+            );
             let mut twice = runs;
             twice.add(0, 1, 1);
-            assert!(k == 0 || twice.as_slice().is_empty(), "round {round}: a list met twice makes no run");
+            assert!(
+                k == 0 || twice.as_slice().is_empty(),
+                "round {round}: a list met twice makes no run"
+            );
         }
     }
 }

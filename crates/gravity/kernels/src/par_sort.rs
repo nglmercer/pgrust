@@ -1,21 +1,26 @@
-use gravity_abi::PtrWord;
-use gravity_abi::ctx::{hdr, resume, RESUME_NONE};
-use gravity_abi::{Ctx, Datum};
-use gravity_abi::status::{DONE, ERROR};
+use crate::util::HOST_STOP;
 use gravity_abi::breaker::{Breaker, BreakerKind, Budget, SortRun, Spill};
-use gravity_abi::program::{SPILL_RUN_PUT};
-use crate::util::{HOST_STOP};
+use gravity_abi::ctx::{hdr, resume, RESUME_NONE};
+use gravity_abi::program::SPILL_RUN_PUT;
+use gravity_abi::status::{DONE, ERROR};
+use gravity_abi::PtrWord;
+use gravity_abi::{Ctx, Datum};
 
 use crate::ops::sort::runmerge;
 use crate::ops::sort::runmerge::{norm_i64, MERGING};
-use crate::util::{advance, emit, end, flush, for_each_row, lane, partial, range_seek, site as site_of};
+use crate::util::{
+    advance, emit, end, flush, for_each_row, lane, partial, range_seek, site as site_of,
+};
 use crate::{Touch, SITE_EXEC_CELLS};
 
 /// `SELECT cols FROM t ORDER BY cols[0] [DESC] [NULLS FIRST]` (§2 decision 12, `breakers.md`):
 /// the worker's rows are collected in its share as normalised rows across its claims, sorted and
 /// written as one run at the section's end (`SECTION_END`, item 20; at overflow too), and the
 /// emit k-way merges the runs.
-pub const TOUCH: Touch = Touch { hdr: &[hdr::RESUME], sites: &[(0, SITE_EXEC_CELLS)] };
+pub const TOUCH: Touch = Touch {
+    hdr: &[hdr::RESUME],
+    sites: &[(0, SITE_EXEC_CELLS)],
+};
 /// The kernel words: the output width, the key's direction (1 = DESC), its null placement (1 = NULLS FIRST).
 pub const PARAM_NATTS: usize = 0;
 pub const PARAM_DESC: usize = 1;
@@ -26,7 +31,13 @@ pub const fn params(natts: u32, desc: bool, nulls_first: bool) -> [u64; NPARAMS]
     [natts as u64, desc as u64, nulls_first as u64]
 }
 
-pub const BREAKER: Breaker = Breaker { kind: BreakerKind::Sort, slot: 0, bytes: 0, budget: Budget::Share, spill: Spill::Runs };
+pub const BREAKER: Breaker = Breaker {
+    kind: BreakerKind::Sort,
+    slot: 0,
+    bytes: 0,
+    budget: Budget::Share,
+    spill: Spill::Runs,
+};
 
 /// A row: `[flags][key][natts datums][natts null bytes]`, 8-aligned; `(flags, key)` compare as two
 /// unsigned words — a NULL key sorts by `flags` alone (0 first, 2 last), a value by `key` (its
@@ -43,7 +54,11 @@ struct Params {
 
 unsafe fn params_of(ctx: *mut Ctx) -> Params {
     let p = (*ctx).params.ptr();
-    Params { natts: (*p.add(PARAM_NATTS) as usize).max(1), desc: *p.add(PARAM_DESC) != 0, nulls_first: *p.add(PARAM_NULLS_FIRST) != 0 }
+    Params {
+        natts: (*p.add(PARAM_NATTS) as usize).max(1),
+        desc: *p.add(PARAM_DESC) != 0,
+        nulls_first: *p.add(PARAM_NULLS_FIRST) != 0,
+    }
 }
 
 /// # Safety
@@ -72,7 +87,18 @@ pub unsafe extern "C-unwind" fn par_sort(ctx: *mut Ctx) -> i64 {
         let mut out = 0u64;
         let mut code = 0i64;
         let ok = for_each_row(s, |i| {
-            let (flags, k) = if key.is_valid(i) { (1u64, if p.desc { !norm_i64(key.datum(i) as i64) } else { norm_i64(key.datum(i) as i64) }) } else { (if p.nulls_first { 0 } else { 2 }, 0) };
+            let (flags, k) = if key.is_valid(i) {
+                (
+                    1u64,
+                    if p.desc {
+                        !norm_i64(key.datum(i) as i64)
+                    } else {
+                        norm_i64(key.datum(i) as i64)
+                    },
+                )
+            } else {
+                (if p.nulls_first { 0 } else { 2 }, 0)
+            };
             if (*run).len == (*run).cap && put_run(ctx, run) < 0 {
                 code = ERROR;
                 return false;
@@ -132,7 +158,11 @@ unsafe fn key_of(row: *const u8) -> (u64, u64) {
 
 unsafe fn emit_row(ctx: *mut Ctx, row: *const u8) -> i64 {
     let natts = params_of(ctx).natts;
-    let f = emit(ctx, natts, &[(row.add(16) as *const Datum, row.add(16 + natts * 8), natts)]);
+    let f = emit(
+        ctx,
+        natts,
+        &[(row.add(16) as *const Datum, row.add(16 + natts * 8), natts)],
+    );
     if f < 0 {
         return ERROR;
     }

@@ -104,7 +104,11 @@ pub fn copy_file(
             name
         ));
     } else if checksum_ctx.checksum_type() == PgChecksumType::None {
-        log_debug(&format!("copying \"{}\" to \"{}\"", src.display(), dst.display()));
+        log_debug(&format!(
+            "copying \"{}\" to \"{}\"",
+            src.display(),
+            dst.display()
+        ));
     } else {
         log_debug(&format!(
             "copying \"{}\" to \"{}\" and checksumming with {}",
@@ -221,7 +225,14 @@ fn copy_file_clone(src: &Path, dest: &Path, checksum_ctx: &mut PgChecksumContext
     let csrc = crate::app::fsutil::cstring(src);
     let cdst = crate::app::fsutil::cstring(dest);
     // SAFETY: NUL-terminated paths, NULL state.
-    let rc = unsafe { copyfile(csrc.as_ptr(), cdst.as_ptr(), std::ptr::null_mut(), COPYFILE_CLONE_FORCE) };
+    let rc = unsafe {
+        copyfile(
+            csrc.as_ptr(),
+            cdst.as_ptr(),
+            std::ptr::null_mut(),
+            COPYFILE_CLONE_FORCE,
+        )
+    };
     if rc < 0 {
         let e = std::io::Error::last_os_error();
         pg_fatal!(

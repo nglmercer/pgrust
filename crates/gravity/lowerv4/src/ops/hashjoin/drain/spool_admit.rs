@@ -15,20 +15,26 @@ use mcx::{CollectIn, GrowIn, PgVec};
 use types_nodes::jointype::JoinType;
 use types_nodes::Node;
 
-use crate::face::kinds::KindId;
-use crate::graph::{EndKind, Gx};
 use crate::effects::op_raise_free;
 #[allow(unused_imports)]
-use crate::effects::visible::drain::{graph_acts, order_free, order_free_as, pipe_acts, quiet, subplans, user_end, user_index, SEEN};
+use crate::effects::visible::drain::{
+    graph_acts, order_free, order_free_as, pipe_acts, quiet, subplans, user_end, user_index, SEEN,
+};
+use crate::face::kinds::KindId;
+use crate::graph::{EndKind, Gx};
 use crate::ops::hashjoin::drain::lower::drain_of;
 
-pub(crate) const N1: &str = "a spooled drain whose probe or a pipeline before the drain can show it ran (D2129)";
+pub(crate) const N1: &str =
+    "a spooled drain whose probe or a pipeline before the drain can show it ran (D2129)";
 pub(crate) const N3: &str = "a spooled drain inside a rerun set (D2130)";
 pub(crate) const N5: &str = "a write or row lock in a statement with a spooled drain (D2131)";
 pub(crate) const ARMS: &str = "a spooled drain that is an arm of a union or reads one (D2132)";
-pub(crate) const USER: &str = "a spooled drain whose probe, tail or end may call a user support function (D2133)";
-pub(crate) const TAILSTOP: &str = "a spooled drain whose tail may raise under a LIMIT or a sink a cursor may stop (D2135)";
-pub(crate) const A2END: &str = "a spooled drain under an end the spooled form does not take (D2136)";
+pub(crate) const USER: &str =
+    "a spooled drain whose probe, tail or end may call a user support function (D2133)";
+pub(crate) const TAILSTOP: &str =
+    "a spooled drain whose tail may raise under a LIMIT or a sink a cursor may stop (D2135)";
+pub(crate) const A2END: &str =
+    "a spooled drain under an end the spooled form does not take (D2136)";
 
 impl Gx<'_, '_> {
     /// Why drain `d` (its Drain op `jd`) of probe `k` cannot be spooled, in the design's order, or `None`. A sink is read as
@@ -61,8 +67,19 @@ impl Gx<'_, '_> {
     pub(crate) fn drain_exact(&self, k: usize, d: usize, jd: usize) -> bool {
         let pd = &self.pipelines()[d];
         let tail = &pd.ops[jd + 1..];
-        let right = matches!(pd.ops.get(jd), Some(Op::Join(JoinDesc::Drain { jointype: JoinType::JOIN_RIGHT | JoinType::JOIN_FULL | JoinType::JOIN_RIGHT_SEMI, .. })));
-        if !self.graph.partial || !right || self.end_kind(d) != EndKind::Sink || crate::frame::iface::holds_limit(tail) || !self.stream_shape(k, d, jd) {
+        let right = matches!(
+            pd.ops.get(jd),
+            Some(Op::Join(JoinDesc::Drain {
+                jointype: JoinType::JOIN_RIGHT | JoinType::JOIN_FULL | JoinType::JOIN_RIGHT_SEMI,
+                ..
+            }))
+        );
+        if !self.graph.partial
+            || !right
+            || self.end_kind(d) != EndKind::Sink
+            || crate::frame::iface::holds_limit(tail)
+            || !self.stream_shape(k, d, jd)
+        {
             return false;
         }
         SEEN.with(|c| c.set(0));
@@ -120,27 +137,52 @@ impl Gx<'_, '_> {
         // a pipeline with no write has nothing to free (row A2a's kinds all hold one)
         let j = ps[q].ops.iter().position(|o| matches!(o, Op::Write(_)))?;
         let n = ps.len();
-        let ctes: PgVec<'_, usize> = (0..n).filter(|&k| self.cte_write(k) && !self.still_cte(k)).collect_in(self.mcx);
-        let late_in = |after: &[usize]| ctes.iter().all(|&k| after.contains(&k) || self.built_whole(k, d));
+        let ctes: PgVec<'_, usize> = (0..n)
+            .filter(|&k| self.cte_write(k) && !self.still_cte(k))
+            .collect_in(self.mcx);
+        let late_in = |after: &[usize]| {
+            ctes.iter()
+                .all(|&k| after.contains(&k) || self.built_whole(k, d))
+        };
         let late = || late_in(&self.after_emit());
         let a2a = || self.a2a_write(q);
         // L1 OWN-A2A
         let own_a2a = || q == d && a2a().is_some();
         // L2 ROOT-A2A
-        let root_a2a = || q == self.graph.root as usize && self.merge_drained_target(q).is_none() && self.drained_build_target(q).is_none() && self.hashed_union_build(q).is_none() && (ctes.is_empty() || late()) && a2a().is_some();
+        let root_a2a = || {
+            q == self.graph.root as usize
+                && self.merge_drained_target(q).is_none()
+                && self.drained_build_target(q).is_none()
+                && self.hashed_union_build(q).is_none()
+                && (ctes.is_empty() || late())
+                && a2a().is_some()
+        };
         // L3 CTE-POST
         let cte_post = || ctes.contains(&q) && late() && a2a().is_some();
         // L4 APART
         let apart = || {
             let after = self.after_emit();
-            q != d && ctes.contains(&q) && after.contains(&q) && after.contains(&d) && late_in(&after) && !crate::frame::px::feeds(self, q, d) && !crate::frame::px::feeds(self, d, q)
+            q != d
+                && ctes.contains(&q)
+                && after.contains(&q)
+                && after.contains(&d)
+                && late_in(&after)
+                && !crate::frame::px::feeds(self, q, d)
+                && !crate::frame::px::feeds(self, d, q)
         };
         // L5 SEMI-PROBE-DRAIN
-        let semi_probe = || q == self.graph.root as usize && ctes.is_empty() && super::lower::semi_probe(self, q) == Some(d) && a2a().is_some();
+        let semi_probe = || {
+            q == self.graph.root as usize
+                && ctes.is_empty()
+                && super::lower::semi_probe(self, q) == Some(d)
+                && a2a().is_some()
+        };
         // D3800 HELD (nestfast): or the drain's own UPDATE / DELETE over its held row (`held_write`)
         match own_a2a() || root_a2a() || cte_post() || semi_probe() {
             true => a2a(),
-            false => apart().then_some(j).or_else(|| self.held_write(q).filter(|_| q == d)),
+            false => apart()
+                .then_some(j)
+                .or_else(|| self.held_write(q).filter(|_| q == d)),
         }
     }
 
@@ -162,9 +204,18 @@ impl Gx<'_, '_> {
     pub(crate) fn held_write(&self, d: usize) -> Option<usize> {
         let ops = &self.pipelines().get(d)?.ops;
         let wj = ops.iter().position(|o| matches!(o, Op::Write(_)))?;
-        let jd = ops.iter().position(|o| matches!(o, Op::Join(JoinDesc::Drain { jointype: JoinType::JOIN_RIGHT, .. })))?;
+        let jd = ops.iter().position(|o| {
+            matches!(
+                o,
+                Op::Join(JoinDesc::Drain {
+                    jointype: JoinType::JOIN_RIGHT,
+                    ..
+                })
+            )
+        })?;
         let same = right_same(self, d, jd) || right_ordered(self, d, jd);
-        (jd < wj && same && pinned(self, d, jd, wj) && crate::frame::iface::drain_held(self, d)).then_some(wj)
+        (jd < wj && same && pinned(self, d, jd, wj) && crate::frame::iface::drain_held(self, d))
+            .then_some(wj)
     }
 
     /// D3800: pipeline `q` ran to its end before drain `d`'s build did: down the sources from the build's pipeline, each
@@ -175,10 +226,18 @@ impl Gx<'_, '_> {
     fn built_before(&self, q: usize, d: usize) -> bool {
         let ps = self.pipelines();
         let producer = |x: usize| match ps[x].source {
-            Source::Breaker { slot } => self.life_of(x, slot).map(|l| usize::from(l.0)).filter(|&p| p < x && ps[p].desc.produces() == Some(slot)),
+            Source::Breaker { slot } => self
+                .life_of(x, slot)
+                .map(|l| usize::from(l.0))
+                .filter(|&p| p < x && ps[p].desc.produces() == Some(slot)),
             _ => None,
         };
-        let stops = |x: usize| ps[x].ops.iter().any(|o| matches!(o, Op::Gate(_)) || crate::frame::iface::holds_limit(core::slice::from_ref(o)));
+        let stops = |x: usize| {
+            ps[x].ops.iter().any(|o| {
+                matches!(o, Op::Gate(_))
+                    || crate::frame::iface::holds_limit(core::slice::from_ref(o))
+            })
+        };
         let mut x = producer(d);
         while let Some(b) = x {
             if b == q {
@@ -197,7 +256,9 @@ impl Gx<'_, '_> {
         let ps = self.pipelines();
         let seen = SEEN.with(|c| c.get());
         SEEN.with(|c| c.set(0));
-        let still = (0..=k).filter(|&x| crate::frame::px::feeds(self, k, x)).all(|x| !writes(&ps[x], None) && !graph_acts(self, x, 0) && !user_end(self, x));
+        let still = (0..=k)
+            .filter(|&x| crate::frame::px::feeds(self, k, x))
+            .all(|x| !writes(&ps[x], None) && !graph_acts(self, x, 0) && !user_end(self, x));
         SEEN.with(|c| c.set(seen));
         still
     }
@@ -214,16 +275,32 @@ impl Gx<'_, '_> {
         let ps = self.pipelines();
         let Some(pd) = ps.get(d) else { return false };
         let Some(m) = pd.ops.iter().find_map(|o| match o {
-            Op::Join(JoinDesc::Drain { matches, jointype: JoinType::JOIN_RIGHT | JoinType::JOIN_FULL }) => Some(*matches),
+            Op::Join(JoinDesc::Drain {
+                matches,
+                jointype: JoinType::JOIN_RIGHT | JoinType::JOIN_FULL,
+            }) => Some(*matches),
             _ => None,
         }) else {
             return false;
         };
-        let (Some(j), Some(s)) = (self.a2a_write(c), ps[c].desc.produces()) else { return false };
+        let (Some(j), Some(s)) = (self.a2a_write(c), ps[c].desc.produces()) else {
+            return false;
+        };
         // the Drain op reads the probe's spool: the build is the producer of the table the probe's last Probe op reads
-        let Some(k) = (0..d).rev().find(|&q| ps[q].desc.produces() == Some(m)) else { return false };
-        let probed = ps[k].ops.iter().rev().find_map(|o| if let Op::Join(JoinDesc::Probe { slot, .. }) = o { Some(*slot) } else { None });
-        let Some(b) = probed.and_then(|h| (0..k).rev().find(|&q| ps[q].desc.produces() == Some(h))) else { return false };
+        let Some(k) = (0..d).rev().find(|&q| ps[q].desc.produces() == Some(m)) else {
+            return false;
+        };
+        let probed = ps[k].ops.iter().rev().find_map(|o| {
+            if let Op::Join(JoinDesc::Probe { slot, .. }) = o {
+                Some(*slot)
+            } else {
+                None
+            }
+        });
+        let Some(b) = probed.and_then(|h| (0..k).rev().find(|&q| ps[q].desc.produces() == Some(h)))
+        else {
+            return false;
+        };
         let readers = (0..ps.len()).filter(|&q| q != c && ps[q].desc.consumes.contains(&s));
         // the build's own work between two CTE rows (its filters, projections and keys) raises nothing and calls nothing,
         // so running it after the CTE's whole write shows nothing PostgreSQL's interleaving does not
@@ -237,7 +314,9 @@ impl Gx<'_, '_> {
                 })
         });
         let reused = (c + 1..ps.len()).any(|q| q != b && ps[q].desc.produces() == Some(s));
-        let Op::Write(w) = &ps[c].ops[j] else { return false };
+        let Op::Write(w) = &ps[c].ops[j] else {
+            return false;
+        };
         let rel = w.plan.target_rel;
         let shared = ps.iter().enumerate().any(|(q, p)| {
             q != c && p.ops.iter().any(|o| matches!(o, Op::Write(x) if x.cmd != gravity_program::Cmd::Select && (x.plan.target_rel == rel || x.targets.iter().any(|t| t.relid == rel))))
@@ -269,22 +348,44 @@ impl Gx<'_, '_> {
         // D3800: or the one row lock of a pipeline that writes nothing and ran to its end before the drain's build did
         // (`built_before`), the drain's write held (`held_write`)
         let qo = &self.pipelines().get(q)?.ops;
-        let mut locks = qo.iter().enumerate().filter(|(_, o)| matches!(o, Op::Lock(_) | Op::Write(_)));
+        let mut locks = qo
+            .iter()
+            .enumerate()
+            .filter(|(_, o)| matches!(o, Op::Lock(_) | Op::Write(_)));
         if let (Some((l, Op::Lock(_))), None) = (locks.next(), locks.next()) {
             if q != d && self.held_write(d).is_some() && self.built_before(q, d) {
                 return Some(l);
             }
         }
         let ops = &self.pipelines().get(d)?.ops;
-        let jd = ops.iter().position(|o| matches!(o, Op::Join(JoinDesc::Drain { jointype: JoinType::JOIN_RIGHT_SEMI | JoinType::JOIN_RIGHT, .. })))?;
-        let j = ops.iter().position(|o| matches!(o, Op::Lock(_))).filter(|&j| q == d && jd < j)?;
-        let quiet = ops[jd + 1..j].iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_) | Op::SubPlan(_)));
+        let jd = ops.iter().position(|o| {
+            matches!(
+                o,
+                Op::Join(JoinDesc::Drain {
+                    jointype: JoinType::JOIN_RIGHT_SEMI | JoinType::JOIN_RIGHT,
+                    ..
+                })
+            )
+        })?;
+        let j = ops
+            .iter()
+            .position(|o| matches!(o, Op::Lock(_)))
+            .filter(|&j| q == d && jd < j)?;
+        let quiet = ops[jd + 1..j]
+            .iter()
+            .all(|o| matches!(o, Op::Filter(_) | Op::Project(_) | Op::SubPlan(_)));
         let above = ops[j + 1..].iter().all(|o| matches!(o, Op::Project(_)));
         (quiet && above && self.end_kind(d) == EndKind::Sink).then_some(j)
     }
 
     /// `spool_refusal`, with a sink read whole (`sink_whole`) or as one a cursor may stop.
-    fn spool_refusal_as(&self, k: usize, d: usize, jd: usize, sink_whole: bool) -> Option<&'static str> {
+    fn spool_refusal_as(
+        &self,
+        k: usize,
+        d: usize,
+        jd: usize,
+        sink_whole: bool,
+    ) -> Option<&'static str> {
         let ps = self.pipelines();
         let (pk, pd) = (&ps[k], &ps[d]);
         let tail = &pd.ops[jd + 1..];
@@ -294,18 +395,34 @@ impl Gx<'_, '_> {
         // A RIGHT SEMI drain takes the names a RIGHT one does (D1922): PG hands each build row on at its first match, as a
         // RIGHT join its joined rows, while the spool runs the probe whole first; N1 under a stop, TAILSTOP and a
         // sink's reader (`spool_whole_read`) read that difference the same way
-        let Some(m) = crate::frame::iface::breaker_of(&pk.desc) else { return Some(A2END) };
+        let Some(m) = crate::frame::iface::breaker_of(&pk.desc) else {
+            return Some(A2END);
+        };
         if self.set_refused(k, d, jd, m.slot) {
             return Some(N3);
         }
-        if ps.iter().enumerate().any(|(q, p)| writes(p, self.free_write(q, d).or_else(|| self.free_lock(q, d)))) {
+        if ps
+            .iter()
+            .enumerate()
+            .any(|(q, p)| writes(p, self.free_write(q, d).or_else(|| self.free_lock(q, d))))
+        {
             return Some(N5);
         }
         // writesubplan (merge#368 group): but the drained-arms MERGE (drain/lower.rs `merge_drained_arms`), whose arms' one
         // Append op is their bare marker and whose tail holds none, fills one spool in arm order (spool.rs)
         // drain (regress updatable_views#865): or any other drain whose arms are plain (drain/lower.rs `plain_drained_arms`)
-        let arms_merge = self.drained_arms(k).is_some_and(|r| self.merge_drained_arms(d).is_some() || self.plain_drained_arms(r, d)) && !tail.iter().any(|o| matches!(o, Op::Append(_)));
-        if !arms_merge && (self.drained_arms(k).is_some() || pk.ops.iter().any(|o| matches!(o, Op::Append(_))) || tail.iter().any(|o| matches!(o, Op::Append(_)) && !crate::ops::hashjoin::drain::spool_arms::arm_whole(self, d, o, tail))) {
+        let arms_merge = self
+            .drained_arms(k)
+            .is_some_and(|r| self.merge_drained_arms(d).is_some() || self.plain_drained_arms(r, d))
+            && !tail.iter().any(|o| matches!(o, Op::Append(_)));
+        if !arms_merge
+            && (self.drained_arms(k).is_some()
+                || pk.ops.iter().any(|o| matches!(o, Op::Append(_)))
+                || tail.iter().any(|o| {
+                    matches!(o, Op::Append(_))
+                        && !crate::ops::hashjoin::drain::spool_arms::arm_whole(self, d, o, tail)
+                }))
+        {
             return Some(ARMS);
         }
         // N1 where nothing stops the read: with no LIMIT in the tail and a sort, top-N or fold end (each takes every row
@@ -315,7 +432,11 @@ impl Gx<'_, '_> {
         // Under a stop, D393's quiet as before.
         let whole = every_row(self, d, jd, sink_whole);
         let calls_none = |q: usize| match q == k {
-            true => matches!(pk.ops.last(), Some(Op::Join(JoinDesc::Probe { .. }))) && m.kind == BreakerKind::Materialize && !pipe_acts(self, pk, k, 0),
+            true => {
+                matches!(pk.ops.last(), Some(Op::Join(JoinDesc::Probe { .. })))
+                    && m.kind == BreakerKind::Materialize
+                    && !pipe_acts(self, pk, k, 0)
+            }
             false => !graph_acts(self, q, 0) && !user_end(self, q),
         };
         // under a stop too: a probe over a scan or a breaker (a drain under a drain: its Drain op hands records on) whose every
@@ -323,16 +444,29 @@ impl Gx<'_, '_> {
         // how far PostgreSQL ran it
         let subs = subplans(&pk.ops, self.mcx);
         let src = matches!(pk.source, Source::Range { .. } | Source::Breaker { .. });
-        let still = src && calls_none(k) && pk.ops.iter().all(|o| matches!(o, Op::Join(JoinDesc::Drain { .. })) || op_raise_free(self, o, Some(&subs[..])));
+        let still = src
+            && calls_none(k)
+            && pk.ops.iter().all(|o| {
+                matches!(o, Op::Join(JoinDesc::Drain { .. }))
+                    || op_raise_free(self, o, Some(&subs[..]))
+            });
         // a RIGHT ANTI drain into a sink (`anti_whole`): PostgreSQL's first fetch runs every probe row, as the spool does, so
         // only a call that acts can show the probe's order
         let anti = anti_whole(self, d, jd) && calls_none(k);
         // D3853: and under a stop, a pipeline between that fills a tail join's build or plan Material from a scan and
         // neither raises nor acts (`between_still`, as `drain_exact` takes it) shows nothing of whether PostgreSQL ran it
-        if !(k..d).all(|q| (q > k && (exempt(self, q, tail) || between_still(self, q))) || quiet(self, q) || (q == k && (still || anti)) || (whole && calls_none(q))) {
+        if !(k..d).all(|q| {
+            (q > k && (exempt(self, q, tail) || between_still(self, q)))
+                || quiet(self, q)
+                || (q == k && (still || anti))
+                || (whole && calls_none(q))
+        }) {
             return Some(N1);
         }
-        if (k..=d).any(|q| self.user_drain_arms(q, q)) || tail.iter().any(|o| user_index(self, o, 0)) || user_end(self, d) {
+        if (k..=d).any(|q| self.user_drain_arms(q, q))
+            || tail.iter().any(|o| user_index(self, o, 0))
+            || user_end(self, d)
+        {
             return Some(USER);
         }
         // D2134 (TAILVOL) is gone (a VOLATILE or user call's count is free, at least once per row
@@ -350,7 +484,8 @@ impl Gx<'_, '_> {
             return Some(A2END);
         }
         // writesubplan (heldout ald_joindrain-0014): a CTE's store as a drain's spool: its readers' pulls may stop it early
-        let under = self.end_kind(d) == EndKind::Breaker(BreakerKind::Materialize) && matches!(self.spool_kind(d), KindId::JoinDrain | KindId::NestCte);
+        let under = self.end_kind(d) == EndKind::Breaker(BreakerKind::Materialize)
+            && matches!(self.spool_kind(d), KindId::JoinDrain | KindId::NestCte);
         // D2135 (D3377): a LIMIT in the tail stops the drain pipeline (serial: its source the spool) at its count, row by row:
         // the joined rows reach the tail in the probe's order (PostgreSQL's; N1 above keeps a probe run whole quiet), the
         // drained records in record order where PostgreSQL goes bucket by bucket. Which rows reach a tail that may raise
@@ -360,7 +495,8 @@ impl Gx<'_, '_> {
         // A sink a cursor may stop, or a CTE store whose readers may stop, keeps it too: those reads may run past the
         // reader's stop, not only in another order.
         let acts = tail.iter().any(|o| matches!(o, Op::Write(_) | Op::Lock(_)));
-        let stops = (crate::frame::iface::holds_limit(tail) && acts) || (self.end_kind(d) == EndKind::Sink && !sink_whole);
+        let stops = (crate::frame::iface::holds_limit(tail) && acts)
+            || (self.end_kind(d) == EndKind::Sink && !sink_whole);
         let stops = stops || (under && !whole);
         (stops && !tail.iter().all(|o| op_raise_free(self, o, Some(&subs[..])))).then_some(TAILSTOP)
     }
@@ -378,12 +514,22 @@ impl Gx<'_, '_> {
     /// pg_class) under the views' GROUP BY, which an unparameterised nest loop re-runs (D3724).
     fn set_refused(&self, k: usize, d: usize, jd: usize, m: u8) -> bool {
         let sets = &self.graph.reruns;
-        let has = |r: &gravity_decompose::graph::Rerun, q: usize| r.pipelines.iter().any(|&p| p as usize == q);
-        if !sets.iter().any(|r| has(r, k) || has(r, d) || self.leases_spool(r, k, d, m)) {
+        let has = |r: &gravity_decompose::graph::Rerun, q: usize| {
+            r.pipelines.iter().any(|&p| p as usize == q)
+        };
+        if !sets
+            .iter()
+            .any(|r| has(r, k) || has(r, d) || self.leases_spool(r, k, d, m))
+        {
             return false;
         }
-        let together = sets.iter().all(|r| has(r, k) == has(r, d) && (has(r, k) || !self.leases_spool(r, k, d, m)));
-        !together || self.drained_arms(k).is_some() || self.drain_streams(k, d, jd) || self.pipelines().iter().any(|p| writes(p, None))
+        let together = sets
+            .iter()
+            .all(|r| has(r, k) == has(r, d) && (has(r, k) || !self.leases_spool(r, k, d, m)));
+        !together
+            || self.drained_arms(k).is_some()
+            || self.drain_streams(k, d, jd)
+            || self.pipelines().iter().any(|p| writes(p, None))
     }
 
     /// D3834: whether rerun set `r` leases spool slot `m` (probe `k`'s, read by drain `d`) in the spool's own life: a member
@@ -396,11 +542,22 @@ impl Gx<'_, '_> {
         if !slot_has(&r.slots, m) {
             return false;
         }
-        let Some(life) = self.life_of(d, m) else { return true };
+        let Some(life) = self.life_of(d, m) else {
+            return true;
+        };
         let ps = self.pipelines();
-        let lo = self.drained_arms(k).map_or(k, |(f, _)| f).min(life.0 as usize);
-        let reads = |q: usize| ps[q].desc.consumes.contains(&m) || matches!(ps[q].source, Source::Breaker { slot } if slot == m);
-        r.pipelines.iter().map(|&p| p as usize).any(|q| (lo..=d).contains(&q) || (reads(q) && self.life_of(q, m) == Some(life)))
+        let lo = self
+            .drained_arms(k)
+            .map_or(k, |(f, _)| f)
+            .min(life.0 as usize);
+        let reads = |q: usize| {
+            ps[q].desc.consumes.contains(&m)
+                || matches!(ps[q].source, Source::Breaker { slot } if slot == m)
+        };
+        r.pipelines
+            .iter()
+            .map(|&p| p as usize)
+            .any(|q| (lo..=d).contains(&q) || (reads(q) && self.life_of(q, m) == Some(life)))
     }
 
     /// INNER-SPOOL: why probe `k`'s RIGHT / FULL drain `d` (its Drain op `jd`), a nest's embedded inner, cannot take the
@@ -415,7 +572,12 @@ impl Gx<'_, '_> {
     /// does, in the spool's order: free (D2134 gone: call counts; DECISIONS 6b: order). N3 does not apply: a set that re-runs the probe re-opens the
     /// inner after it, and the fill's open notes where the run's records begin (`DrainFill::open`), which the inner's open
     /// reads.
-    pub(crate) fn inner_spool_refusal(&self, k: usize, d: usize, jd: usize) -> Option<&'static str> {
+    pub(crate) fn inner_spool_refusal(
+        &self,
+        k: usize,
+        d: usize,
+        jd: usize,
+    ) -> Option<&'static str> {
         self.inner_spool_refusal_as(k, d, jd, true)
     }
 
@@ -429,7 +591,13 @@ impl Gx<'_, '_> {
 
     /// `inner_spool_refusal`, with the statement's sink read whole (`sink_whole`) or as one a cursor may stop: A2END's
     /// `order_free_as` takes it as the graph drain's `spool_refusal_as` does.
-    fn inner_spool_refusal_as(&self, k: usize, d: usize, jd: usize, sink_whole: bool) -> Option<&'static str> {
+    fn inner_spool_refusal_as(
+        &self,
+        k: usize,
+        d: usize,
+        jd: usize,
+        sink_whole: bool,
+    ) -> Option<&'static str> {
         let ps = self.pipelines();
         let (pk, pd) = (&ps[k], &ps[d]);
         let tail = &pd.ops[jd + 1..];
@@ -445,7 +613,9 @@ impl Gx<'_, '_> {
         // lone probe is (drain/lower.rs `end` asks for every arm)
         let run = self.drained_arms(k);
         let arms = run.is_some_and(|r| self.plain_drained_arms(r, d));
-        if !arms && (run.is_some() || pk.ops.iter().any(|o| matches!(o, Op::Append(_)))) || tail.iter().any(|o| matches!(o, Op::Append(_))) {
+        if !arms && (run.is_some() || pk.ops.iter().any(|o| matches!(o, Op::Append(_))))
+            || tail.iter().any(|o| matches!(o, Op::Append(_)))
+        {
             return Some(ARMS);
         }
         // V4R-533: a LIMIT in the tail over the arms keeps the name drain/lower.rs `end` gives it for a graph drain
@@ -455,15 +625,25 @@ impl Gx<'_, '_> {
         // the first arm's open empties the spool (spool.rs `rewind`) and every later arm appends, so a rerun set that re-runs
         // one arm re-runs them all (N3's name otherwise: a set re-running a later arm alone would append to the last run's rows)
         if let Some((f, l)) = run {
-            let has = |r: &gravity_decompose::graph::Rerun, q: usize| r.pipelines.iter().any(|&p| p as usize == q);
-            if self.graph.reruns.iter().any(|r| (f..=l).any(|q| has(r, q)) && !(f..=l).all(|q| has(r, q))) {
+            let has = |r: &gravity_decompose::graph::Rerun, q: usize| {
+                r.pipelines.iter().any(|&p| p as usize == q)
+            };
+            if self
+                .graph
+                .reruns
+                .iter()
+                .any(|r| (f..=l).any(|q| has(r, q)) && !(f..=l).all(|q| has(r, q)))
+            {
                 return Some(N3);
             }
         }
         if !quiet(self, k) && !probe_side_safe(self, k) {
             return Some(N1);
         }
-        if self.user_drain_arms(k, k) || tail.iter().any(|o| user_index(self, o, 0)) || user_end(self, d) {
+        if self.user_drain_arms(k, k)
+            || tail.iter().any(|o| user_index(self, o, 0))
+            || user_end(self, d)
+        {
             return Some(USER);
         }
         // the graph pipeline that runs the inner (a nested inner's owner's owner, up to the graph)
@@ -484,12 +664,34 @@ impl Gx<'_, '_> {
     pub(crate) fn semi_build_unseen(&self, k: usize) -> bool {
         use crate::ops::hashjoin::build_class::{side_by, Side};
         let ps = self.pipelines();
-        let Some(Op::Join(JoinDesc::Probe { slot, jointype: JoinType::JOIN_RIGHT_SEMI, .. })) = ps[k].ops.last() else { return false };
-        let Some(kb) = self.life_of(k, *slot).map(|l| l.0 as usize).filter(|&b| b < k) else { return false };
+        let Some(Op::Join(JoinDesc::Probe {
+            slot,
+            jointype: JoinType::JOIN_RIGHT_SEMI,
+            ..
+        })) = ps[k].ops.last()
+        else {
+            return false;
+        };
+        let Some(kb) = self
+            .life_of(k, *slot)
+            .map(|l| l.0 as usize)
+            .filter(|&b| b < k)
+        else {
+            return false;
+        };
         let writes = |q: usize| ps[q].desc.produces() == Some(*slot);
-        let reads = |q: usize| ps[q].desc.consumes.contains(slot) || matches!(ps[q].source, Source::Breaker { slot: s } if s == *slot);
-        let from = (0..kb).rev().find(|&q| !writes(q) && reads(q)).map_or(0, |q| q + 1);
-        SEMI_LOUD_BUILD || (from..=kb).filter(|&q| writes(q)).all(|q| side_by(self, q, usize::MAX, false) == Side::Safe)
+        let reads = |q: usize| {
+            ps[q].desc.consumes.contains(slot)
+                || matches!(ps[q].source, Source::Breaker { slot: s } if s == *slot)
+        };
+        let from = (0..kb)
+            .rev()
+            .find(|&q| !writes(q) && reads(q))
+            .map_or(0, |q| q + 1);
+        SEMI_LOUD_BUILD
+            || (from..=kb)
+                .filter(|&q| writes(q))
+                .all(|q| side_by(self, q, usize::MAX, false) == Side::Safe)
     }
 }
 
@@ -504,23 +706,36 @@ const SEMI_LOUD_BUILD: bool = false;
 fn between_still(gx: &Gx<'_, '_>, q: usize) -> bool {
     let p = &gx.pipelines()[q];
     let subs = subplans(&p.ops, gx.mcx);
-    let end = matches!(crate::frame::iface::end_breaker(gx, q), Some(BreakerKind::Materialize | BreakerKind::HashBuild));
+    let end = matches!(
+        crate::frame::iface::end_breaker(gx, q),
+        Some(BreakerKind::Materialize | BreakerKind::HashBuild)
+    );
     let still = |o: &Op<'_>| match o {
         Op::Join(JoinDesc::Spool) => true,
-        Op::Join(JoinDesc::Build { keys, .. }) => keys.iter().all(|n| crate::effects::raise_free(gx, n)),
+        Op::Join(JoinDesc::Build { keys, .. }) => {
+            keys.iter().all(|n| crate::effects::raise_free(gx, n))
+        }
         _ => op_raise_free(gx, o, Some(&subs[..])),
     };
-    end && matches!(p.source, Source::Range { .. } | Source::Breaker { .. }) && !graph_acts(gx, q, 0) && !user_end(gx, q) && p.ops.iter().all(still)
+    end && matches!(p.source, Source::Range { .. } | Source::Breaker { .. })
+        && !graph_acts(gx, q, 0)
+        && !user_end(gx, q)
+        && p.ops.iter().all(still)
 }
 
 /// N5: a write or row lock anywhere, a nest's or nested SubPlan's inner included, but the drain's own row A2a write `own`.
 fn writes(p: &PipelineNode<'_>, own: Option<usize>) -> bool {
     crate::stack_check(); // D3832
-    p.ops.iter().enumerate().any(|(j, o)| Some(j) != own && match o {
-        Op::Write(_) | Op::Lock(_) => true,
-        Op::Join(JoinDesc::Nest { inner, .. }) => writes(inner, None),
-        Op::SubPlan(s) => matches!(&s.form, SubForm::Nested { inner } if writes(inner, None)),
-        _ => false,
+    p.ops.iter().enumerate().any(|(j, o)| {
+        Some(j) != own
+            && match o {
+                Op::Write(_) | Op::Lock(_) => true,
+                Op::Join(JoinDesc::Nest { inner, .. }) => writes(inner, None),
+                Op::SubPlan(s) => {
+                    matches!(&s.form, SubForm::Nested { inner } if writes(inner, None))
+                }
+                _ => false,
+            }
     })
 }
 
@@ -551,34 +766,92 @@ fn writes(p: &PipelineNode<'_>, own: Option<usize>) -> bool {
 fn probe_side_safe(gx: &Gx<'_, '_>, q: usize) -> bool {
     use crate::ops::hashjoin::build_class::{feed, side_by, Side};
     let p = &gx.pipelines()[q];
-    let Some((j, Op::Join(JoinDesc::Probe { slot, qual, keys, .. }))) = p.ops.iter().enumerate().next_back() else { return false };
+    let Some((
+        j,
+        Op::Join(JoinDesc::Probe {
+            slot, qual, keys, ..
+        }),
+    )) = p.ops.iter().enumerate().next_back()
+    else {
+        return false;
+    };
     let bound = |id: i32| gx.graph.params.iter().any(|x| x.0 == id);
-    let still = |n: Node<'_>| crate::effects::raise_free_by(gx, n, &bound, false) && !crate::effects::user_fn(gx, n) && !crate::effects::volatile(gx, n);
-    let probed = |s: &u8| p.ops.iter().any(|o| matches!(o, Op::Join(JoinDesc::Probe { slot, .. }) if slot == s));
-    let src = if let Source::Breaker { slot } = p.source { Some(slot) } else { None };
-    let drained = |s: &u8| p.ops.iter().any(|o| matches!(o, Op::Join(JoinDesc::Drain { matches, .. }) if matches == s));
-    let fed_still = || feed(gx, q, src.into_iter().chain(p.desc.consumes.iter().copied().filter(|s| drained(s)))).into_iter().all(|x| x != q && !graph_acts(gx, x, 1));
-    let group = src.and_then(|s| gx.life_of(q, s)).and_then(|l| gx.group_at(l.0 as usize));
-    let read = |n: Node<'_>| group.is_some_and(|g| crate::effects::visible::topn::quiet_entry(gx, g, n));
-    let own = || p.ops[..j].iter().all(|o| match o {
-        Op::Project(l) => l.iter().all(read),
-        Op::Filter(n) | Op::Gate(n) => read(*n),
-        _ => false,
-    });
-    let finals = || own() && keys.iter().all(|k| crate::effects::raise_free_each(gx, k, &bound)) && side_by(gx, q, 0, false) == Side::Safe;
+    let still = |n: Node<'_>| {
+        crate::effects::raise_free_by(gx, n, &bound, false)
+            && !crate::effects::user_fn(gx, n)
+            && !crate::effects::volatile(gx, n)
+    };
+    let probed = |s: &u8| {
+        p.ops
+            .iter()
+            .any(|o| matches!(o, Op::Join(JoinDesc::Probe { slot, .. }) if slot == s))
+    };
+    let src = if let Source::Breaker { slot } = p.source {
+        Some(slot)
+    } else {
+        None
+    };
+    let drained = |s: &u8| {
+        p.ops
+            .iter()
+            .any(|o| matches!(o, Op::Join(JoinDesc::Drain { matches, .. }) if matches == s))
+    };
+    let fed_still = || {
+        feed(
+            gx,
+            q,
+            src.into_iter()
+                .chain(p.desc.consumes.iter().copied().filter(|s| drained(s))),
+        )
+        .into_iter()
+        .all(|x| x != q && !graph_acts(gx, x, 1))
+    };
+    let group = src
+        .and_then(|s| gx.life_of(q, s))
+        .and_then(|l| gx.group_at(l.0 as usize));
+    let read =
+        |n: Node<'_>| group.is_some_and(|g| crate::effects::visible::topn::quiet_entry(gx, g, n));
+    let own = || {
+        p.ops[..j].iter().all(|o| match o {
+            Op::Project(l) => l.iter().all(read),
+            Op::Filter(n) | Op::Gate(n) => read(*n),
+            _ => false,
+        })
+    };
+    let finals = || {
+        own()
+            && keys
+                .iter()
+                .all(|k| crate::effects::raise_free_each(gx, k, &bound))
+            && side_by(gx, q, 0, false) == Side::Safe
+    };
     let side = || side_by(gx, q, j, true) == Side::Safe || (group.is_some() && finals());
-    crate::frame::iface::end_breaker(gx, q) == Some(BreakerKind::Materialize) && p.desc.consumes.contains(slot) && p.desc.consumes.iter().all(|s| probed(s) || src == Some(*s) || drained(s)) && qual.iter().all(still) && !pipe_acts(gx, p, q, 0) && fed_still() && side()
+    crate::frame::iface::end_breaker(gx, q) == Some(BreakerKind::Materialize)
+        && p.desc.consumes.contains(slot)
+        && p.desc
+            .consumes
+            .iter()
+            .all(|s| probed(s) || src == Some(*s) || drained(s))
+        && qual.iter().all(still)
+        && !pipe_acts(gx, p, q, 0)
+        && fed_still()
+        && side()
 }
 
 /// (a)'s one exemption: `q` is in a rerun set whose owner (the Nest of its node, the SubPlan of its plan id) is a tail op,
 /// so the drain pipeline runs it per row as PostgreSQL does.
 fn exempt(gx: &Gx<'_, '_>, q: usize, tail: &[Op<'_>]) -> bool {
-    let owns = |r: &gravity_decompose::graph::Rerun| tail.iter().any(|o| match o {
-        Op::SubPlan(s) => r.plan_id != 0 && s.plan_id == r.plan_id,
-        Op::Join(JoinDesc::Nest { facts, .. }) => r.plan_id == 0 && facts.node == r.node_id,
-        _ => false,
-    });
-    gx.graph.reruns.iter().any(|r| r.pipelines.iter().any(|&p| p as usize == q) && owns(r))
+    let owns = |r: &gravity_decompose::graph::Rerun| {
+        tail.iter().any(|o| match o {
+            Op::SubPlan(s) => r.plan_id != 0 && s.plan_id == r.plan_id,
+            Op::Join(JoinDesc::Nest { facts, .. }) => r.plan_id == 0 && facts.node == r.node_id,
+            _ => false,
+        })
+    };
+    gx.graph
+        .reruns
+        .iter()
+        .any(|r| r.pipelines.iter().any(|&p| p as usize == q) && owns(r))
 }
 
 /// Whether drain `d` (its Drain op `jd`) hands every row on to an end that takes them all before it hands one on: a tail of
@@ -590,27 +863,71 @@ fn exempt(gx: &Gx<'_, '_>, q: usize, tail: &[Op<'_>]) -> bool {
 fn every_row(gx: &Gx<'_, '_>, d: usize, jd: usize, sink: bool) -> bool {
     crate::stack_check();
     let p = &gx.pipelines()[d];
-    let write = gx.a2a_write(d).or_else(|| gx.held_write(d)).and_then(|j| j.checked_sub(jd + 1));
+    let write = gx
+        .a2a_write(d)
+        .or_else(|| gx.held_write(d))
+        .and_then(|j| j.checked_sub(jd + 1));
     // a bare arm marker (D2132 narrowed) hands every row on to the union's end; a settled union's Feed (domain#507) to its
     // record, filled whole before its emit reads a row (`union_record`)
-    let arm = |o: &Op<'_>| crate::ops::hashjoin::drain::spool_arms::bare_arm(o) || crate::ops::hashjoin::drain::spool_arms::feed_whole(gx, o);
-    p.ops[jd + 1..].iter().enumerate().all(|(i, o)| Some(i) == write || arm(o) || matches!(o, Op::Filter(_) | Op::Project(_) | Op::Sort(_) | Op::Join(_) | Op::SubPlan(_)))
-        && (write.is_some()
-            || match (gx.end_kind(d), p.desc.produces()) {
-                (EndKind::Breaker(BreakerKind::Sort | BreakerKind::TopK | BreakerKind::PlainAgg | BreakerKind::HashAgg | BreakerKind::HashBuild), _) => true,
-                // D3731: a hashed SubPlan's set (buildSubPlanHash reads its plan to the end)
-                (EndKind::Breaker(BreakerKind::Distinct), _) if crate::ops::hashjoin::drain::lower::set_fill(gx, d) => true,
-                // D2136: a pair set, plain or grouped (a HashAggregate's hashed DISTINCT aggregate reads its input to the end
-                // before it hands a group on, as the pair set's owner does)
-                (EndKind::Breaker(BreakerKind::Distinct), _) if gx.group_at(d).is_some_and(|g| matches!(crate::graph::group_kind(g), KindId::KeyedDistinctPlain | KindId::KeyedDistinctGrouped)) => true,
-                (EndKind::Sink, _) => sink,
-                (EndKind::Breaker(BreakerKind::Materialize), _) if crate::ops::hashjoin::drain::spool_arms::union_record(gx, d) => true,
-                (EndKind::Breaker(BreakerKind::Materialize), Some(m)) if gx.spool_kind(d) == KindId::JoinDrain => {
-                    drain_of(gx, d, m).is_some_and(|(e, je)| every_row(gx, e, je, sink))
-                }
-                (EndKind::Breaker(BreakerKind::Materialize), _) if gx.spool_kind(d) == KindId::NestCte => cte_read_whole(gx, d),
-                _ => false,
-            })
+    let arm = |o: &Op<'_>| {
+        crate::ops::hashjoin::drain::spool_arms::bare_arm(o)
+            || crate::ops::hashjoin::drain::spool_arms::feed_whole(gx, o)
+    };
+    p.ops[jd + 1..].iter().enumerate().all(|(i, o)| {
+        Some(i) == write
+            || arm(o)
+            || matches!(
+                o,
+                Op::Filter(_) | Op::Project(_) | Op::Sort(_) | Op::Join(_) | Op::SubPlan(_)
+            )
+    }) && (write.is_some()
+        || match (gx.end_kind(d), p.desc.produces()) {
+            (
+                EndKind::Breaker(
+                    BreakerKind::Sort
+                    | BreakerKind::TopK
+                    | BreakerKind::PlainAgg
+                    | BreakerKind::HashAgg
+                    | BreakerKind::HashBuild,
+                ),
+                _,
+            ) => true,
+            // D3731: a hashed SubPlan's set (buildSubPlanHash reads its plan to the end)
+            (EndKind::Breaker(BreakerKind::Distinct), _)
+                if crate::ops::hashjoin::drain::lower::set_fill(gx, d) =>
+            {
+                true
+            }
+            // D2136: a pair set, plain or grouped (a HashAggregate's hashed DISTINCT aggregate reads its input to the end
+            // before it hands a group on, as the pair set's owner does)
+            (EndKind::Breaker(BreakerKind::Distinct), _)
+                if gx.group_at(d).is_some_and(|g| {
+                    matches!(
+                        crate::graph::group_kind(g),
+                        KindId::KeyedDistinctPlain | KindId::KeyedDistinctGrouped
+                    )
+                }) =>
+            {
+                true
+            }
+            (EndKind::Sink, _) => sink,
+            (EndKind::Breaker(BreakerKind::Materialize), _)
+                if crate::ops::hashjoin::drain::spool_arms::union_record(gx, d) =>
+            {
+                true
+            }
+            (EndKind::Breaker(BreakerKind::Materialize), Some(m))
+                if gx.spool_kind(d) == KindId::JoinDrain =>
+            {
+                drain_of(gx, d, m).is_some_and(|(e, je)| every_row(gx, e, je, sink))
+            }
+            (EndKind::Breaker(BreakerKind::Materialize), _)
+                if gx.spool_kind(d) == KindId::NestCte =>
+            {
+                cte_read_whole(gx, d)
+            }
+            _ => false,
+        })
 }
 
 /// D3377 (writesubplan c7): CTE producer `d`'s store is read to its end by every reader that runs. Each reader is a graph
@@ -622,17 +939,42 @@ fn cte_read_whole(gx: &Gx<'_, '_>, d: usize) -> bool {
     let of_d = |j: usize, s: u8| gx.life_of(j, s).is_some_and(|l| l.0 as usize == d);
     let reads = |j: usize| {
         let p = &ps[j];
-        let src = if let Source::Breaker { slot } = p.source { Some(slot) } else { None };
-        p.desc.consumes.iter().copied().chain(src).any(|s| of_d(j, s))
+        let src = if let Source::Breaker { slot } = p.source {
+            Some(slot)
+        } else {
+            None
+        };
+        p.desc
+            .consumes
+            .iter()
+            .copied()
+            .chain(src)
+            .any(|s| of_d(j, s))
     };
     let whole = |j: usize| {
         let p = &ps[j];
         j < ps.len()
             && matches!(p.source, Source::Breaker { slot } if of_d(j, slot))
-            && p.ops.iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_) | Op::Sort(_) | Op::SubPlan(_)))
-            && matches!(gx.end_kind(j), EndKind::Breaker(BreakerKind::Sort | BreakerKind::TopK | BreakerKind::PlainAgg | BreakerKind::HashAgg | BreakerKind::HashBuild))
+            && p.ops.iter().all(|o| {
+                matches!(
+                    o,
+                    Op::Filter(_) | Op::Project(_) | Op::Sort(_) | Op::SubPlan(_)
+                )
+            })
+            && matches!(
+                gx.end_kind(j),
+                EndKind::Breaker(
+                    BreakerKind::Sort
+                        | BreakerKind::TopK
+                        | BreakerKind::PlainAgg
+                        | BreakerKind::HashAgg
+                        | BreakerKind::HashBuild
+                )
+            )
     };
-    let mut readers = (0..ps.len() + ps.inners().len()).filter(|&j| j != d && reads(j)).peekable();
+    let mut readers = (0..ps.len() + ps.inners().len())
+        .filter(|&j| j != d && reads(j))
+        .peekable();
     readers.peek().is_some() && readers.all(whole)
 }
 
@@ -643,19 +985,29 @@ fn cte_read_whole(gx: &Gx<'_, '_>, d: usize) -> bool {
 /// first fetch runs every probe row whatever it takes after, as the spool does.
 fn anti_whole(gx: &Gx<'_, '_>, d: usize, jd: usize) -> bool {
     let p = &gx.pipelines()[d];
-    matches!(p.ops[jd], Op::Join(JoinDesc::Drain { jointype: JoinType::JOIN_RIGHT_ANTI, .. }))
-        && gx.end_kind(d) == EndKind::Sink
-        && p.ops[jd + 1..].iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_) | Op::SubPlan(_) | Op::Join(JoinDesc::Nest { .. })))
+    matches!(
+        p.ops[jd],
+        Op::Join(JoinDesc::Drain {
+            jointype: JoinType::JOIN_RIGHT_ANTI,
+            ..
+        })
+    ) && gx.end_kind(d) == EndKind::Sink
+        && p.ops[jd + 1..].iter().all(|o| {
+            matches!(
+                o,
+                Op::Filter(_) | Op::Project(_) | Op::SubPlan(_) | Op::Join(JoinDesc::Nest { .. })
+            )
+        })
 }
 
 #[cfg(test)]
 mod tests {
     use gravity_abi::breaker::{Breaker, KeyKind};
-    use gravity_decompose::effects::Volatility;
-    use gravity_decompose::graph::{Bound, Rerun};
-    use gravity_decompose::facts::nest::NestFacts;
-    use gravity_decompose::ops::shared::sort::{KeyImage, SortDesc, SortForm, SortKey};
     use gravity_decompose::catalog::typefacts::KeyColl;
+    use gravity_decompose::effects::Volatility;
+    use gravity_decompose::facts::nest::NestFacts;
+    use gravity_decompose::graph::{Bound, Rerun};
+    use gravity_decompose::ops::shared::sort::{KeyImage, SortDesc, SortForm, SortKey};
     use gravity_decompose::{Am, NoFacts, PipelineGraph};
     use gravity_program::{Arena, ArenaBox, ArenaVec, End, Pipeline, Reason, SiteDesc};
     use types_nodes::list::NodeList;
@@ -665,12 +1017,24 @@ mod tests {
     /// The m-rule shape the spooled form takes (the psql describe family's): build 0, the probe 1 (a RIGHT JOIN's quiet
     /// probe into its spool 1), pipeline 2 (no probe) the rerun set of the set's `owner` node, the drain 3 whose tail runs a
     /// nest loop of node 77 (`vol` / `rf` its F5 facts) into a sink.
-    fn verdict(owner: i32, members: &[u16], jt: JoinType, vol: Volatility, rf: bool) -> Option<&'static str> {
+    fn verdict(
+        owner: i32,
+        members: &[u16],
+        jt: JoinType,
+        vol: Volatility,
+        rf: bool,
+    ) -> Option<&'static str> {
         verdict_nw(owner, members, jt, vol, rf, Nw::None)
     }
 
     /// The same shape under a reader that takes the sink whole (D1922): `spool_refusal`, and `spool_whole_read`.
-    fn verdict_whole(owner: i32, members: &[u16], jt: JoinType, vol: Volatility, rf: bool) -> (Option<&'static str>, bool) {
+    fn verdict_whole(
+        owner: i32,
+        members: &[u16],
+        jt: JoinType,
+        vol: Volatility,
+        rf: bool,
+    ) -> (Option<&'static str>, bool) {
         let (_, loose, whole_read) = shape_nw(owner, members, jt, vol, rf, Nw::None);
         (loose, whole_read)
     }
@@ -686,48 +1050,149 @@ mod tests {
     }
 
     /// The shape's sink read as one a cursor may stop (the names below pin that reading).
-    fn verdict_nw(owner: i32, members: &[u16], jt: JoinType, vol: Volatility, rf: bool, nw: Nw) -> Option<&'static str> {
+    fn verdict_nw(
+        owner: i32,
+        members: &[u16],
+        jt: JoinType,
+        vol: Volatility,
+        rf: bool,
+        nw: Nw,
+    ) -> Option<&'static str> {
         shape_nw(owner, members, jt, vol, rf, nw).0
     }
 
     /// (a sink read as one a cursor may stop, `spool_refusal`, `spool_whole_read`)
-    fn shape_nw(owner: i32, members: &[u16], jt: JoinType, vol: Volatility, rf: bool, nw: Nw) -> (Option<&'static str>, Option<&'static str>, bool) {
+    fn shape_nw(
+        owner: i32,
+        members: &[u16],
+        jt: JoinType,
+        vol: Volatility,
+        rf: bool,
+        nw: Nw,
+    ) -> (Option<&'static str>, Option<&'static str>, bool) {
         let rig = mcx::MemoryContext::new("GravityPlanRig");
         let arena = Arena::new(1 << 16);
         let a = arena.handle();
         let nil: &NodeList<'_> = Box::leak(Box::new(NodeList::nil()));
-        let scan = || Source::Range { site: SiteDesc::none_in(a), am: Am::Pgrcolumnar, scanrelid: 1, relid: 16384 };
-        let into = |kind, slot| Pipeline::serial(-1, End::Breaker(Breaker::sized(kind, 4096).in_slot(slot)), Reason::NoDrivingSite);
+        let scan = || Source::Range {
+            site: SiteDesc::none_in(a),
+            am: Am::Pgrcolumnar,
+            scanrelid: 1,
+            relid: 16384,
+        };
+        let into = |kind, slot| {
+            Pipeline::serial(
+                -1,
+                End::Breaker(Breaker::sized(kind, 4096).in_slot(slot)),
+                Reason::NoDrivingSite,
+            )
+        };
         let sink = || Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite);
         let mut g = PipelineGraph::new(a);
-        g.pipelines.push(PipelineNode::new(a, 1, scan(), into(BreakerKind::HashBuild, 0)));
+        g.pipelines.push(PipelineNode::new(
+            a,
+            1,
+            scan(),
+            into(BreakerKind::HashBuild, 0),
+        ));
         let mut k = PipelineNode::new(a, 2, scan(), into(BreakerKind::Materialize, 1));
-        k.push(Op::Join(JoinDesc::Probe { slot: 0, jointype: jt, clauses: nil, keys: nil, qual: nil, unique: false, marks: true, decls: ArenaVec::new_in(a), inner_node: 1, outer_first: false, catalog: false }));
+        k.push(Op::Join(JoinDesc::Probe {
+            slot: 0,
+            jointype: jt,
+            clauses: nil,
+            keys: nil,
+            qual: nil,
+            unique: false,
+            marks: true,
+            decls: ArenaVec::new_in(a),
+            inner_node: 1,
+            outer_first: false,
+            catalog: false,
+        }));
         g.pipelines.push(k);
         let mut two = PipelineNode::new(a, 5, scan(), into(BreakerKind::Materialize, 2));
         if nw == Nw::SetOp {
-            two.push(Op::SetOp(gravity_decompose::ops::shared::setop::SetDesc::Identity { keys: ArenaVec::new_in(a) }));
+            two.push(Op::SetOp(
+                gravity_decompose::ops::shared::setop::SetDesc::Identity {
+                    keys: ArenaVec::new_in(a),
+                },
+            ));
         }
         if nw == Nw::Merge {
-            two.push(Op::Join(JoinDesc::Merge { slot: 0, jointype: JoinType::JOIN_INNER, clauses: nil, reversals: &[], nulls_first: &[], families: &[], collations: &[], qual: nil, unique: false, inner_node: 1 }));
+            two.push(Op::Join(JoinDesc::Merge {
+                slot: 0,
+                jointype: JoinType::JOIN_INNER,
+                clauses: nil,
+                reversals: &[],
+                nulls_first: &[],
+                families: &[],
+                collations: &[],
+                qual: nil,
+                unique: false,
+                inner_node: 1,
+            }));
         }
         g.pipelines.push(two);
         if nw == Nw::Cte {
-            let params: &types_nodes::list::IntList<'_> = Box::leak(Box::new(types_nodes::list::IntList::nil()));
+            let params: &types_nodes::list::IntList<'_> =
+                Box::leak(Box::new(types_nodes::list::IntList::nil()));
             let link = gravity_decompose::ops::shared::subplan::SubLink::Cte;
-            g.init_plans.push(gravity_decompose::graph::InitPlan { plan_id: 9, pipeline: 2, link, param: -1, params, slot: Some(2), volatility: Volatility::Immutable, raise_free: true, parallel_safe: true, attach: -1 });
+            g.init_plans.push(gravity_decompose::graph::InitPlan {
+                plan_id: 9,
+                pipeline: 2,
+                link,
+                param: -1,
+                params,
+                slot: Some(2),
+                volatility: Volatility::Immutable,
+                raise_free: true,
+                parallel_safe: true,
+                attach: -1,
+            });
         }
         let mut d = PipelineNode::new(a, 2, Source::Breaker { slot: 0 }, sink());
-        d.push(Op::Join(JoinDesc::Drain { matches: 1, jointype: jt }));
-        let facts = NestFacts { node: 77, invariant: true, volatility: vol, raise_free: rf, eq: None };
+        d.push(Op::Join(JoinDesc::Drain {
+            matches: 1,
+            jointype: jt,
+        }));
+        let facts = NestFacts {
+            node: 77,
+            invariant: true,
+            volatility: vol,
+            raise_free: rf,
+            eq: None,
+        };
         let inner = ArenaBox::new_in(PipelineNode::new(a, 9, scan(), sink()), a);
-        d.push(Op::Join(JoinDesc::Nest { jointype: JoinType::JOIN_INNER, params: nil, inner, qual: nil, unique: false, inner_node: 9, facts }));
+        d.push(Op::Join(JoinDesc::Nest {
+            jointype: JoinType::JOIN_INNER,
+            params: nil,
+            inner,
+            qual: nil,
+            unique: false,
+            inner_node: 9,
+            facts,
+        }));
         g.pipelines.push(d);
         let mut pipelines = ArenaVec::new_in(a);
         members.iter().for_each(|&m| pipelines.push(m));
-        g.reruns.push(Rerun { node_id: owner, plan_id: 0, pipelines, slots: [0; 4] });
-        let gx = Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
-        (gx.spool_refusal_as(1, 3, 0, false), gx.spool_refusal(1, 3, 0), gx.spool_whole_read(1, 3, 0))
+        g.reruns.push(Rerun {
+            node_id: owner,
+            plan_id: 0,
+            pipelines,
+            slots: [0; 4],
+        });
+        let gx = Gx {
+            graph: &g,
+            facts: &NoFacts,
+            catalog: &gravity_expr::PgCatalog,
+            over: None,
+            mcx: rig.mcx(),
+        };
+        (
+            gx.spool_refusal_as(1, 3, 0, false),
+            gx.spool_refusal(1, 3, 0),
+            gx.spool_whole_read(1, 3, 0),
+        )
     }
 
     /// (a) exact, both ways (design r2 C2): a pipeline between the probe and the drain that may show it ran (here one
@@ -737,11 +1202,31 @@ mod tests {
     #[test]
     fn a_pipeline_between_is_exempt_only_under_its_tail_owner() {
         let (i, s, v) = (Volatility::Immutable, JoinType::JOIN_RIGHT, true);
-        assert_eq!(verdict_nw(77, &[2], s, i, v, Nw::SetOp), None, "the tail nest owns pipeline 2");
-        assert_eq!(verdict_nw(78, &[2], s, i, v, Nw::SetOp), Some(N1), "a set another node owns");
-        assert_eq!(verdict_nw(77, &[], s, i, v, Nw::SetOp), Some(N1), "a pipeline in no set");
-        assert_eq!(verdict(78, &[2], s, i, v), None, "D3853: a still pipeline in a set another node owns");
-        assert_eq!(verdict(77, &[], s, i, v), None, "D3853: a still pipeline in no set");
+        assert_eq!(
+            verdict_nw(77, &[2], s, i, v, Nw::SetOp),
+            None,
+            "the tail nest owns pipeline 2"
+        );
+        assert_eq!(
+            verdict_nw(78, &[2], s, i, v, Nw::SetOp),
+            Some(N1),
+            "a set another node owns"
+        );
+        assert_eq!(
+            verdict_nw(77, &[], s, i, v, Nw::SetOp),
+            Some(N1),
+            "a pipeline in no set"
+        );
+        assert_eq!(
+            verdict(78, &[2], s, i, v),
+            None,
+            "D3853: a still pipeline in a set another node owns"
+        );
+        assert_eq!(
+            verdict(77, &[], s, i, v),
+            None,
+            "D3853: a still pipeline in no set"
+        );
     }
 
     /// The names in the design's order: a set holding the drain (N3), a tail that may raise into a sink a cursor may stop
@@ -751,11 +1236,26 @@ mod tests {
     fn each_name_where_it_holds() {
         let (i, r) = (Volatility::Immutable, JoinType::JOIN_RIGHT);
         assert_eq!(verdict(77, &[2], JoinType::JOIN_RIGHT_SEMI, i, true), None);
-        assert_eq!(verdict(77, &[2], JoinType::JOIN_RIGHT_SEMI, i, false), Some(TAILSTOP));
+        assert_eq!(
+            verdict(77, &[2], JoinType::JOIN_RIGHT_SEMI, i, false),
+            Some(TAILSTOP)
+        );
         assert_eq!(verdict(77, &[2, 3], r, i, true), Some(N3));
-        assert_eq!(verdict(77, &[2], r, Volatility::Volatile, true), None, "a VOLATILE raise-free tail: D2134 gone");
-        assert_eq!(verdict(77, &[2], r, Volatility::Volatile, false), Some(TAILSTOP), "a VOLATILE tail that may raise under a stop");
-        assert_eq!(verdict(77, &[2], r, Volatility::Stable, true), None, "a STABLE builtin nest acts on nothing");
+        assert_eq!(
+            verdict(77, &[2], r, Volatility::Volatile, true),
+            None,
+            "a VOLATILE raise-free tail: D2134 gone"
+        );
+        assert_eq!(
+            verdict(77, &[2], r, Volatility::Volatile, false),
+            Some(TAILSTOP),
+            "a VOLATILE tail that may raise under a stop"
+        );
+        assert_eq!(
+            verdict(77, &[2], r, Volatility::Stable, true),
+            None,
+            "a STABLE builtin nest acts on nothing"
+        );
         assert_eq!(verdict(77, &[2], r, i, false), Some(TAILSTOP));
         assert_eq!(verdict(77, &[2], JoinType::JOIN_FULL, i, true), None);
     }
@@ -766,11 +1266,36 @@ mod tests {
     fn no_widen_names_refuse_statement_wide() {
         let (i, r) = (Volatility::Immutable, JoinType::JOIN_RIGHT);
         assert_eq!(verdict_nw(77, &[2], r, i, true, Nw::None), None);
-        assert_eq!(verdict_nw(77, &[2], r, i, true, Nw::Cte), None, "D2178 lifted (writesubplan, main's GO)");
-        assert_eq!(verdict_nw(77, &[2], r, i, true, Nw::SetOp), None, "D2197 lifted at its root fix (main's GO)");
-        let full = |nw| verdict_nw(77, &[2], JoinType::JOIN_FULL, Volatility::Volatile, true, nw);
-        assert_eq!(full(Nw::SetOp), full(Nw::None), "a set operation adds no name of its own");
-        assert_eq!(verdict_nw(77, &[2], r, i, true, Nw::Merge), None, "a merge join in the tail nest's rerun set runs per row, as PG's (exempt)");
+        assert_eq!(
+            verdict_nw(77, &[2], r, i, true, Nw::Cte),
+            None,
+            "D2178 lifted (writesubplan, main's GO)"
+        );
+        assert_eq!(
+            verdict_nw(77, &[2], r, i, true, Nw::SetOp),
+            None,
+            "D2197 lifted at its root fix (main's GO)"
+        );
+        let full = |nw| {
+            verdict_nw(
+                77,
+                &[2],
+                JoinType::JOIN_FULL,
+                Volatility::Volatile,
+                true,
+                nw,
+            )
+        };
+        assert_eq!(
+            full(Nw::SetOp),
+            full(Nw::None),
+            "a set operation adds no name of its own"
+        );
+        assert_eq!(
+            verdict_nw(77, &[2], r, i, true, Nw::Merge),
+            None,
+            "a merge join in the tail nest's rerun set runs per row, as PG's (exempt)"
+        );
     }
 
     /// Build 0, the RIGHT probe 1 over a VALUES source (not D393's quiet: no scan; a Result's one row is) into its spool 1,
@@ -781,59 +1306,160 @@ mod tests {
     }
 
     /// (`whole`'s verdict, the same under a reader that takes the sink whole: `spool_refusal`, `spool_whole_read`)
-    fn whole_as(between: Volatility, sink: bool) -> (Option<&'static str>, Option<&'static str>, bool) {
+    fn whole_as(
+        between: Volatility,
+        sink: bool,
+    ) -> (Option<&'static str>, Option<&'static str>, bool) {
         whole_with(between, sink, None)
     }
 
     /// `whole_as`, the drain's tail ending in a Sort op over `key` when given (its sort end's own sort).
-    fn whole_with(between: Volatility, sink: bool, key: Option<SortKey>) -> (Option<&'static str>, Option<&'static str>, bool) {
+    fn whole_with(
+        between: Volatility,
+        sink: bool,
+        key: Option<SortKey>,
+    ) -> (Option<&'static str>, Option<&'static str>, bool) {
         whole_set(between, sink, key, None)
     }
 
     /// `whole_with` under a rerun set of node 80 (a nest's, plan 0) when given: its members, and the slots it leases.
-    fn whole_set(between: Volatility, sink: bool, key: Option<SortKey>, set: Option<(&[u16], &[u8])>) -> (Option<&'static str>, Option<&'static str>, bool) {
+    fn whole_set(
+        between: Volatility,
+        sink: bool,
+        key: Option<SortKey>,
+        set: Option<(&[u16], &[u8])>,
+    ) -> (Option<&'static str>, Option<&'static str>, bool) {
         let rig = mcx::MemoryContext::new("GravityPlanRig");
         let arena = Arena::new(1 << 16);
         let a = arena.handle();
         let nil: &NodeList<'_> = Box::leak(Box::new(NodeList::nil()));
-        let scan = || Source::Range { site: SiteDesc::none_in(a), am: Am::Heap, scanrelid: 1, relid: 16384 };
-        let into = |kind, slot| Pipeline::serial(-1, End::Breaker(Breaker::sized(kind, 4096).in_slot(slot)), Reason::NoDrivingSite);
+        let scan = || Source::Range {
+            site: SiteDesc::none_in(a),
+            am: Am::Heap,
+            scanrelid: 1,
+            relid: 16384,
+        };
+        let into = |kind, slot| {
+            Pipeline::serial(
+                -1,
+                End::Breaker(Breaker::sized(kind, 4096).in_slot(slot)),
+                Reason::NoDrivingSite,
+            )
+        };
         let sink_end = || Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite);
         let nest = |node: i32, volatility| {
-            let facts = NestFacts { node, invariant: true, volatility, raise_free: true, eq: None };
+            let facts = NestFacts {
+                node,
+                invariant: true,
+                volatility,
+                raise_free: true,
+                eq: None,
+            };
             let inner = ArenaBox::new_in(PipelineNode::new(a, 9, scan(), sink_end()), a);
-            Op::Join(JoinDesc::Nest { jointype: JoinType::JOIN_INNER, params: nil, inner, qual: nil, unique: false, inner_node: 9, facts })
+            Op::Join(JoinDesc::Nest {
+                jointype: JoinType::JOIN_INNER,
+                params: nil,
+                inner,
+                qual: nil,
+                unique: false,
+                inner_node: 9,
+                facts,
+            })
         };
         let mut g = PipelineGraph::new(a);
-        g.pipelines.push(PipelineNode::new(a, 1, scan(), into(BreakerKind::HashBuild, 0)));
-        let mut k = PipelineNode::new(a, 2, Source::Values { scanrelid: 2, lists: nil }, into(BreakerKind::Materialize, 1));
-        k.push(Op::Join(JoinDesc::Probe { slot: 0, jointype: JoinType::JOIN_RIGHT, clauses: nil, keys: nil, qual: nil, unique: false, marks: true, decls: ArenaVec::new_in(a), inner_node: 1, outer_first: false, catalog: false }));
+        g.pipelines.push(PipelineNode::new(
+            a,
+            1,
+            scan(),
+            into(BreakerKind::HashBuild, 0),
+        ));
+        let mut k = PipelineNode::new(
+            a,
+            2,
+            Source::Values {
+                scanrelid: 2,
+                lists: nil,
+            },
+            into(BreakerKind::Materialize, 1),
+        );
+        k.push(Op::Join(JoinDesc::Probe {
+            slot: 0,
+            jointype: JoinType::JOIN_RIGHT,
+            clauses: nil,
+            keys: nil,
+            qual: nil,
+            unique: false,
+            marks: true,
+            decls: ArenaVec::new_in(a),
+            inner_node: 1,
+            outer_first: false,
+            catalog: false,
+        }));
         g.pipelines.push(k);
         let mut two = PipelineNode::new(a, 5, scan(), into(BreakerKind::Sort, 2));
         two.push(nest(78, between));
         g.pipelines.push(two);
-        let mut d = PipelineNode::new(a, 2, Source::Breaker { slot: 0 }, if sink { sink_end() } else { into(BreakerKind::Sort, 3) });
-        d.push(Op::Join(JoinDesc::Drain { matches: 1, jointype: JoinType::JOIN_RIGHT }));
+        let mut d = PipelineNode::new(
+            a,
+            2,
+            Source::Breaker { slot: 0 },
+            if sink {
+                sink_end()
+            } else {
+                into(BreakerKind::Sort, 3)
+            },
+        );
+        d.push(Op::Join(JoinDesc::Drain {
+            matches: 1,
+            jointype: JoinType::JOIN_RIGHT,
+        }));
         d.push(nest(77, Volatility::Immutable));
         if let Some(key) = key {
             let mut keys = ArenaVec::new_in(a);
             keys.push(key);
-            d.push(Op::Sort(SortDesc { keys, presorted: 0, form: SortForm::Runs, tlist: nil }));
+            d.push(Op::Sort(SortDesc {
+                keys,
+                presorted: 0,
+                form: SortForm::Runs,
+                tlist: nil,
+            }));
         }
         g.pipelines.push(d);
         // D3834: a member 4 is a pipeline after the drain's read filling slot 1 again (a later life of the spool's slot id)
         if set.is_some_and(|(members, _)| members.contains(&4)) {
-            g.pipelines.push(PipelineNode::new(a, 6, scan(), into(BreakerKind::Materialize, 1)));
+            g.pipelines.push(PipelineNode::new(
+                a,
+                6,
+                scan(),
+                into(BreakerKind::Materialize, 1),
+            ));
         }
         if let Some((members, leased)) = set {
             let mut pipelines = ArenaVec::new_in(a);
             members.iter().for_each(|&m| pipelines.push(m));
             let mut slots = [0; 4];
-            leased.iter().for_each(|&s| gravity_decompose::graph::slot_set(&mut slots, s));
-            g.reruns.push(Rerun { node_id: 80, plan_id: 0, pipelines, slots });
+            leased
+                .iter()
+                .for_each(|&s| gravity_decompose::graph::slot_set(&mut slots, s));
+            g.reruns.push(Rerun {
+                node_id: 80,
+                plan_id: 0,
+                pipelines,
+                slots,
+            });
         }
-        let gx = Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
-        (gx.spool_refusal_as(1, 3, 0, false), gx.spool_refusal(1, 3, 0), gx.spool_whole_read(1, 3, 0))
+        let gx = Gx {
+            graph: &g,
+            facts: &NoFacts,
+            catalog: &gravity_expr::PgCatalog,
+            over: None,
+            mcx: rig.mcx(),
+        };
+        (
+            gx.spool_refusal_as(1, 3, 0, false),
+            gx.spool_refusal(1, 3, 0),
+            gx.spool_whole_read(1, 3, 0),
+        )
     }
 
     /// D3724 (N3 narrowed, `set_refused`): the sort-end shape inside a nest's rerun set is served where every set holding
@@ -841,12 +1467,30 @@ mod tests {
     /// set holding one of the two, or leasing the spool alone, keeps N3.
     #[test]
     fn a_set_running_the_probe_with_its_drain_is_served() {
-        let at = |members: &[u16], leased: &[u8]| whole_set(Volatility::Immutable, false, None, Some((members, leased)));
-        assert_eq!(at(&[0, 1, 2, 3], &[0, 1, 2]), (None, None, false), "the whole join in one set, its slots leased");
-        assert_eq!(at(&[1, 3], &[1]), (None, None, false), "the probe and its drain, the pipeline between outside");
-        assert_eq!(at(&[0, 1, 2], &[0, 1]).1, Some(N3), "the drain outside the set");
+        let at = |members: &[u16], leased: &[u8]| {
+            whole_set(Volatility::Immutable, false, None, Some((members, leased)))
+        };
+        assert_eq!(
+            at(&[0, 1, 2, 3], &[0, 1, 2]),
+            (None, None, false),
+            "the whole join in one set, its slots leased"
+        );
+        assert_eq!(
+            at(&[1, 3], &[1]),
+            (None, None, false),
+            "the probe and its drain, the pipeline between outside"
+        );
+        assert_eq!(
+            at(&[0, 1, 2], &[0, 1]).1,
+            Some(N3),
+            "the drain outside the set"
+        );
         assert_eq!(at(&[2, 3], &[]).1, Some(N3), "the probe outside the set");
-        assert_eq!(at(&[2], &[1]).1, Some(N3), "a set leasing the spool without the probe or the drain");
+        assert_eq!(
+            at(&[2], &[1]).1,
+            Some(N3),
+            "a set leasing the spool without the probe or the drain"
+        );
         assert_eq!(at(&[2], &[]), (None, None, false), "a set touching neither");
     }
 
@@ -854,10 +1498,24 @@ mod tests {
     /// does not lease the spool: no N3. A member running while the spool holds the slot (the pipeline between) keeps it.
     #[test]
     fn a_set_leasing_the_spool_slot_id_in_a_later_life_is_no_touch() {
-        let at = |members: &[u16], leased: &[u8]| whole_set(Volatility::Immutable, false, None, Some((members, leased)));
-        assert_eq!(at(&[4], &[1]), (None, None, false), "slot 1 refilled after the drain read the spool");
-        assert_eq!(at(&[2, 4], &[1]).1, Some(N3), "a member while the spool holds slot 1");
-        assert_eq!(at(&[4], &[]), (None, None, false), "a later set leasing nothing");
+        let at = |members: &[u16], leased: &[u8]| {
+            whole_set(Volatility::Immutable, false, None, Some((members, leased)))
+        };
+        assert_eq!(
+            at(&[4], &[1]),
+            (None, None, false),
+            "slot 1 refilled after the drain read the spool"
+        );
+        assert_eq!(
+            at(&[2, 4], &[1]).1,
+            Some(N3),
+            "a member while the spool holds slot 1"
+        );
+        assert_eq!(
+            at(&[4], &[]),
+            (None, None, false),
+            "a later set leasing nothing"
+        );
     }
 
     /// D2136 narrowed (held-out rnd-3270, jcore-0255): build 0, the RIGHT probe 1 into its spool 1, the drain 2 into the
@@ -868,24 +1526,81 @@ mod tests {
         let arena = Arena::new(1 << 16);
         let a = arena.handle();
         let nil: &NodeList<'_> = Box::leak(Box::new(NodeList::nil()));
-        let scan = || Source::Range { site: SiteDesc::none_in(a), am: Am::Heap, scanrelid: 1, relid: 16384 };
-        let into = |kind, slot| Pipeline::serial(-1, End::Breaker(Breaker::sized(kind, 4096).in_slot(slot)), Reason::NoDrivingSite);
-        let probe = |slot, jointype, unique, inner_node| Op::Join(JoinDesc::Probe { slot, jointype, clauses: nil, keys: nil, qual: nil, unique, marks: jointype == JoinType::JOIN_RIGHT, decls: ArenaVec::new_in(a), inner_node, outer_first: false, catalog: false });
+        let scan = || Source::Range {
+            site: SiteDesc::none_in(a),
+            am: Am::Heap,
+            scanrelid: 1,
+            relid: 16384,
+        };
+        let into = |kind, slot| {
+            Pipeline::serial(
+                -1,
+                End::Breaker(Breaker::sized(kind, 4096).in_slot(slot)),
+                Reason::NoDrivingSite,
+            )
+        };
+        let probe = |slot, jointype, unique, inner_node| {
+            Op::Join(JoinDesc::Probe {
+                slot,
+                jointype,
+                clauses: nil,
+                keys: nil,
+                qual: nil,
+                unique,
+                marks: jointype == JoinType::JOIN_RIGHT,
+                decls: ArenaVec::new_in(a),
+                inner_node,
+                outer_first: false,
+                catalog: false,
+            })
+        };
         let mut g = PipelineGraph::new(a);
-        g.pipelines.push(PipelineNode::new(a, 1, scan(), into(BreakerKind::HashBuild, 0)));
+        g.pipelines.push(PipelineNode::new(
+            a,
+            1,
+            scan(),
+            into(BreakerKind::HashBuild, 0),
+        ));
         let mut k = PipelineNode::new(a, 2, scan(), into(BreakerKind::Materialize, 1));
         k.push(probe(0, JoinType::JOIN_RIGHT, false, 1));
         g.pipelines.push(k);
-        let mut d = PipelineNode::new(a, 2, Source::Breaker { slot: 0 }, into(BreakerKind::HashBuild, 2));
-        d.push(Op::Join(JoinDesc::Drain { matches: 1, jointype: JoinType::JOIN_RIGHT }));
+        let mut d = PipelineNode::new(
+            a,
+            2,
+            Source::Breaker { slot: 0 },
+            into(BreakerKind::HashBuild, 2),
+        );
+        d.push(Op::Join(JoinDesc::Drain {
+            matches: 1,
+            jointype: JoinType::JOIN_RIGHT,
+        }));
         g.pipelines.push(d);
-        let mut r = PipelineNode::new(a, 4, scan(), if reads { into(BreakerKind::Sort, 3).consuming(&[2]) } else { into(BreakerKind::Sort, 3) });
+        let mut r = PipelineNode::new(
+            a,
+            4,
+            scan(),
+            if reads {
+                into(BreakerKind::Sort, 3).consuming(&[2])
+            } else {
+                into(BreakerKind::Sort, 3)
+            },
+        );
         r.push(probe(2, jt, unique, 2));
         if limit {
-            r.push(Op::Limit { count: Bound::Const(3), offset: Bound::Const(0), ties: None });
+            r.push(Op::Limit {
+                count: Bound::Const(3),
+                offset: Bound::Const(0),
+                ties: None,
+            });
         }
         g.pipelines.push(r);
-        let gx = Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
+        let gx = Gx {
+            graph: &g,
+            facts: &NoFacts,
+            catalog: &gravity_expr::PgCatalog,
+            over: None,
+            mcx: rig.mcx(),
+        };
         order_free(&gx, 2)
     }
 
@@ -895,10 +1610,22 @@ mod tests {
     #[test]
     fn a_hash_build_end_is_free_where_its_readers_are() {
         let (inner, semi) = (JoinType::JOIN_INNER, JoinType::JOIN_SEMI);
-        assert!(build_end(inner, false, false, true), "an inner probe into a sort end");
-        assert!(build_end(semi, false, false, true), "a semi probe whose keys and quals raise nothing");
-        assert!(build_end(inner, true, false, true), "a unique inner whose keys and quals raise nothing");
-        assert!(!build_end(inner, false, true, true), "a LIMIT past the probe reads rows in the table's order");
+        assert!(
+            build_end(inner, false, false, true),
+            "an inner probe into a sort end"
+        );
+        assert!(
+            build_end(semi, false, false, true),
+            "a semi probe whose keys and quals raise nothing"
+        );
+        assert!(
+            build_end(inner, true, false, true),
+            "a unique inner whose keys and quals raise nothing"
+        );
+        assert!(
+            !build_end(inner, false, true, true),
+            "a LIMIT past the probe reads rows in the table's order"
+        );
         assert!(!build_end(inner, false, false, false), "no known reader");
     }
 
@@ -908,9 +1635,34 @@ mod tests {
     /// included, is not this name's.)
     #[test]
     fn a_sort_key_comparator_is_not_user() {
-        let key = |opno: u32, own_family: bool| SortKey { resno: 1, opno, desc: false, nulls_first: false, kind: KeyKind::Fp128, image: KeyImage::ByRef, scale: 0, coll: KeyColl { oid: 0, bytes_eq: true, bytes_order: true }, own_family, no_proc: None, eq_tie: false, per_row: false };
-        assert_eq!(whole_with(Volatility::Immutable, false, None), (None, None, false), "the plain sort end");
-        for (k, what) in [(key(2990, false), "record <"), (key(1072, false), "anyarray <"), (key(97, true), "a user family's int4 <")] {
+        let key = |opno: u32, own_family: bool| SortKey {
+            resno: 1,
+            opno,
+            desc: false,
+            nulls_first: false,
+            kind: KeyKind::Fp128,
+            image: KeyImage::ByRef,
+            scale: 0,
+            coll: KeyColl {
+                oid: 0,
+                bytes_eq: true,
+                bytes_order: true,
+            },
+            own_family,
+            no_proc: None,
+            eq_tie: false,
+            per_row: false,
+        };
+        assert_eq!(
+            whole_with(Volatility::Immutable, false, None),
+            (None, None, false),
+            "the plain sort end"
+        );
+        for (k, what) in [
+            (key(2990, false), "record <"),
+            (key(1072, false), "anyarray <"),
+            (key(97, true), "a user family's int4 <"),
+        ] {
             let v = whole_with(Volatility::Immutable, false, Some(k));
             assert_ne!(v.0, Some(USER), "{what}");
             assert_ne!(v.1, Some(USER), "{what}");
@@ -922,12 +1674,36 @@ mod tests {
     #[test]
     fn a_sink_read_whole_takes_the_whole_rule_and_its_mark() {
         let (i, r) = (Volatility::Immutable, JoinType::JOIN_RIGHT);
-        assert_eq!(whole_as(Volatility::Immutable, true), (Some(N1), None, true), "N1 asks only for calls");
-        assert_eq!(whole_as(Volatility::Volatile, true), (Some(N1), Some(N1), true), "a VOLATILE call between still refuses");
-        assert_eq!(whole_as(Volatility::Immutable, false), (None, None, false), "a sort end needs no mark");
-        assert_eq!(verdict_whole(77, &[2], r, i, false), (None, true), "TAILSTOP holds only for a reader that may stop");
-        assert_eq!(verdict_whole(77, &[2], r, i, true), (None, false), "a quiet tail needs no mark");
-        assert_eq!(verdict_whole(77, &[2], r, Volatility::Volatile, true), (None, false), "a VOLATILE raise-free tail: D2134 gone");
+        assert_eq!(
+            whole_as(Volatility::Immutable, true),
+            (Some(N1), None, true),
+            "N1 asks only for calls"
+        );
+        assert_eq!(
+            whole_as(Volatility::Volatile, true),
+            (Some(N1), Some(N1), true),
+            "a VOLATILE call between still refuses"
+        );
+        assert_eq!(
+            whole_as(Volatility::Immutable, false),
+            (None, None, false),
+            "a sort end needs no mark"
+        );
+        assert_eq!(
+            verdict_whole(77, &[2], r, i, false),
+            (None, true),
+            "TAILSTOP holds only for a reader that may stop"
+        );
+        assert_eq!(
+            verdict_whole(77, &[2], r, i, true),
+            (None, false),
+            "a quiet tail needs no mark"
+        );
+        assert_eq!(
+            verdict_whole(77, &[2], r, Volatility::Volatile, true),
+            (None, false),
+            "a VOLATILE raise-free tail: D2134 gone"
+        );
     }
 
     /// N1 where nothing stops the read (a sort end, no LIMIT): a probe and a pipeline between that call nothing pass though
@@ -954,34 +1730,111 @@ mod tests {
         let arena = Arena::new(1 << 16);
         let a = arena.handle();
         let nil: &NodeList<'_> = Box::leak(Box::new(NodeList::nil()));
-        let scan = || Source::Range { site: SiteDesc::none_in(a), am: Am::Pgrcolumnar, scanrelid: 1, relid: 16384 };
-        let into = |kind, slot| Pipeline::serial(-1, End::Breaker(Breaker::sized(kind, 4096).in_slot(slot)), Reason::NoDrivingSite);
+        let scan = || Source::Range {
+            site: SiteDesc::none_in(a),
+            am: Am::Pgrcolumnar,
+            scanrelid: 1,
+            relid: 16384,
+        };
+        let into = |kind, slot| {
+            Pipeline::serial(
+                -1,
+                End::Breaker(Breaker::sized(kind, 4096).in_slot(slot)),
+                Reason::NoDrivingSite,
+            )
+        };
         let sink = || Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite);
         let mut g = PipelineGraph::new(a);
-        g.pipelines.push(PipelineNode::new(a, 1, scan(), into(BreakerKind::HashBuild, 0)));
+        g.pipelines.push(PipelineNode::new(
+            a,
+            1,
+            scan(),
+            into(BreakerKind::HashBuild, 0),
+        ));
         let mut k = PipelineNode::new(a, 2, scan(), into(BreakerKind::Materialize, 1));
-        k.push(Op::Join(JoinDesc::Probe { slot: 0, jointype: JoinType::JOIN_RIGHT, clauses: nil, keys: nil, qual: nil, unique: false, marks: true, decls: ArenaVec::new_in(a), inner_node: 1, outer_first: false, catalog: false }));
+        k.push(Op::Join(JoinDesc::Probe {
+            slot: 0,
+            jointype: JoinType::JOIN_RIGHT,
+            clauses: nil,
+            keys: nil,
+            qual: nil,
+            unique: false,
+            marks: true,
+            decls: ArenaVec::new_in(a),
+            inner_node: 1,
+            outer_first: false,
+            catalog: false,
+        }));
         g.pipelines.push(k);
-        let mut d = PipelineNode::new(a, 2, Source::Breaker { slot: 0 }, into(BreakerKind::Materialize, 2));
-        d.push(Op::Join(JoinDesc::Drain { matches: 1, jointype: JoinType::JOIN_RIGHT }));
-        let facts = NestFacts { node: 77, invariant: true, volatility: Volatility::Immutable, raise_free: false, eq: None };
+        let mut d = PipelineNode::new(
+            a,
+            2,
+            Source::Breaker { slot: 0 },
+            into(BreakerKind::Materialize, 2),
+        );
+        d.push(Op::Join(JoinDesc::Drain {
+            matches: 1,
+            jointype: JoinType::JOIN_RIGHT,
+        }));
+        let facts = NestFacts {
+            node: 77,
+            invariant: true,
+            volatility: Volatility::Immutable,
+            raise_free: false,
+            eq: None,
+        };
         let inner = ArenaBox::new_in(PipelineNode::new(a, 9, scan(), sink()), a);
-        d.push(Op::Join(JoinDesc::Nest { jointype: JoinType::JOIN_INNER, params: nil, inner, qual: nil, unique: false, inner_node: 9, facts }));
+        d.push(Op::Join(JoinDesc::Nest {
+            jointype: JoinType::JOIN_INNER,
+            params: nil,
+            inner,
+            qual: nil,
+            unique: false,
+            inner_node: 9,
+            facts,
+        }));
         g.pipelines.push(d);
-        let params: &types_nodes::list::IntList<'_> = Box::leak(Box::new(types_nodes::list::IntList::nil()));
+        let params: &types_nodes::list::IntList<'_> =
+            Box::leak(Box::new(types_nodes::list::IntList::nil()));
         let link = gravity_decompose::ops::shared::subplan::SubLink::Cte;
-        g.init_plans.push(gravity_decompose::graph::InitPlan { plan_id: 9, pipeline: 2, link, param: -1, params, slot: Some(2), volatility: Volatility::Immutable, raise_free: true, parallel_safe: true, attach: -1 });
+        g.init_plans.push(gravity_decompose::graph::InitPlan {
+            plan_id: 9,
+            pipeline: 2,
+            link,
+            param: -1,
+            params,
+            slot: Some(2),
+            volatility: Volatility::Immutable,
+            raise_free: true,
+            parallel_safe: true,
+            attach: -1,
+        });
         for (i, r) in readers.iter().enumerate() {
-            let mut p = PipelineNode::new(a, 10 + i as i32, Source::Breaker { slot: 2 }, match r {
-                CteReader::Sink => sink(),
-                _ => into(BreakerKind::Sort, 3 + i as u8),
-            });
+            let mut p = PipelineNode::new(
+                a,
+                10 + i as i32,
+                Source::Breaker { slot: 2 },
+                match r {
+                    CteReader::Sink => sink(),
+                    _ => into(BreakerKind::Sort, 3 + i as u8),
+                },
+            );
             if let CteReader::Limited = r {
-                p.push(Op::Limit { count: Bound::Const(1), offset: Bound::Const(0), ties: None });
+                p.push(Op::Limit {
+                    count: Bound::Const(1),
+                    offset: Bound::Const(0),
+                    ties: None,
+                });
             }
             g.pipelines.push(p);
         }
-        let gx = Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
+        let gx = Gx {
+            graph: &g,
+            facts: &NoFacts,
+            catalog: &gravity_expr::PgCatalog,
+            over: None,
+            mcx: rig.mcx(),
+        };
         gx.spool_refusal(1, 2, 0)
     }
 
@@ -993,8 +1846,16 @@ mod tests {
         use CteReader::{Limited, Sink, Sort};
         assert_eq!(cte_store(&[Sort]), None, "one sorting reader");
         assert_eq!(cte_store(&[Sort, Sort]), None, "two sorting readers");
-        assert_eq!(cte_store(&[Sink]), Some(TAILSTOP), "the client's sink a cursor may stop");
-        assert_eq!(cte_store(&[Sort, Limited]), Some(TAILSTOP), "a LIMIT before a reader's sort");
+        assert_eq!(
+            cte_store(&[Sink]),
+            Some(TAILSTOP),
+            "the client's sink a cursor may stop"
+        );
+        assert_eq!(
+            cte_store(&[Sort, Limited]),
+            Some(TAILSTOP),
+            "a LIMIT before a reader's sort"
+        );
         assert_eq!(cte_store(&[]), Some(TAILSTOP), "no reader");
     }
 }
@@ -1024,11 +1885,29 @@ enum Col {
 fn right_ordered(gx: &Gx<'_, '_>, d: usize, jd: usize) -> bool {
     use gravity_decompose::Am;
     let ps = gx.pipelines();
-    let Some(Op::Join(JoinDesc::Drain { matches, .. })) = ps[d].ops.get(jd) else { return false };
-    let Some(k) = gx.life_of(d, *matches).map(|l| usize::from(l.0)) else { return false };
-    let heap = matches!(ps[k].source, Source::Range { am: Am::Heap, .. } | Source::Index { am: Am::Heap, .. } | Source::Bitmap { am: Am::Heap, .. });
+    let Some(Op::Join(JoinDesc::Drain { matches, .. })) = ps[d].ops.get(jd) else {
+        return false;
+    };
+    let Some(k) = gx.life_of(d, *matches).map(|l| usize::from(l.0)) else {
+        return false;
+    };
+    let heap = matches!(
+        ps[k].source,
+        Source::Range { am: Am::Heap, .. }
+            | Source::Index { am: Am::Heap, .. }
+            | Source::Bitmap { am: Am::Heap, .. }
+    );
     let quiet = |o: &Op<'_>| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_));
-    let probe = ps[k].ops.split_last().is_some_and(|(l, before)| matches!(l, Op::Join(JoinDesc::Probe { jointype: JoinType::JOIN_RIGHT, catalog: false, .. })) && before.iter().all(quiet));
+    let probe = ps[k].ops.split_last().is_some_and(|(l, before)| {
+        matches!(
+            l,
+            Op::Join(JoinDesc::Probe {
+                jointype: JoinType::JOIN_RIGHT,
+                catalog: false,
+                ..
+            })
+        ) && before.iter().all(quiet)
+    });
     let tail = ps[d].ops[jd + 1..].iter().all(|o| match o {
         Op::Join(JoinDesc::Nest { jointype, .. }) => *jointype == JoinType::JOIN_INNER,
         Op::Write(w) => w.checks.is_empty(),
@@ -1046,9 +1925,15 @@ fn right_ordered(gx: &Gx<'_, '_>, d: usize, jd: usize) -> bool {
 fn right_same(gx: &Gx<'_, '_>, d: usize, jd: usize) -> bool {
     use types_nodes::primnodes::OUTER_VAR;
     let ps = gx.pipelines();
-    let Some(Op::Join(JoinDesc::Drain { matches, .. })) = ps[d].ops.get(jd) else { return false };
-    let Some(k) = gx.life_of(d, *matches).map(|l| usize::from(l.0)) else { return false };
-    let Some(Op::Join(JoinDesc::Probe { keys, .. })) = ps[k].ops.last() else { return false };
+    let Some(Op::Join(JoinDesc::Drain { matches, .. })) = ps[d].ops.get(jd) else {
+        return false;
+    };
+    let Some(k) = gx.life_of(d, *matches).map(|l| usize::from(l.0)) else {
+        return false;
+    };
+    let Some(Op::Join(JoinDesc::Probe { keys, .. })) = ps[k].ops.last() else {
+        return false;
+    };
     let mut key_cols = PgVec::new_in(gx.mcx);
     for e in keys.iter() {
         match bare_var(e) {
@@ -1063,7 +1948,11 @@ fn right_same(gx: &Gx<'_, '_>, d: usize, jd: usize) -> bool {
         let outer = |a: i16| match &row {
             None if key_cols.contains(&a) => Col::Key,
             None => Col::Loose,
-            Some(cols) => usize::try_from(a).ok().and_then(|a| a.checked_sub(1)).and_then(|a| cols.get(a).copied()).unwrap_or(Col::Loose),
+            Some(cols) => usize::try_from(a)
+                .ok()
+                .and_then(|a| a.checked_sub(1))
+                .and_then(|a| cols.get(a).copied())
+                .unwrap_or(Col::Loose),
         };
         let fixed = |e: Node<'_>| reads_same(e, &outer);
         match o {
@@ -1084,8 +1973,15 @@ fn right_same(gx: &Gx<'_, '_>, d: usize, jd: usize) -> bool {
                 }
             }
             Op::Filter(x) | Op::Gate(x) if fixed(*x) => {}
-            Op::Join(JoinDesc::Nest { jointype: JoinType::JOIN_INNER, params, qual, .. }) => {
-                if crate::frame::iface::nest_param_vals(params, &|v| !fixed(v)) || !qual.iter().all(fixed) {
+            Op::Join(JoinDesc::Nest {
+                jointype: JoinType::JOIN_INNER,
+                params,
+                qual,
+                ..
+            }) => {
+                if crate::frame::iface::nest_param_vals(params, &|v| !fixed(v))
+                    || !qual.iter().all(fixed)
+                {
                     return false;
                 }
             }
@@ -1094,7 +1990,11 @@ fn right_same(gx: &Gx<'_, '_>, d: usize, jd: usize) -> bool {
                 let cells = row.as_deref().unwrap_or(&[]);
                 let set = cells.len() >= n && cells[..n].iter().all(|&c| c == Col::Fixed);
                 let old = w.old_cols.iter().all(|&(_, c)| outer(c) == Col::Fixed);
-                if !set || !old || !w.checks.is_empty() || !w.returning.is_none_or(|l| l.iter().all(fixed)) {
+                if !set
+                    || !old
+                    || !w.checks.is_empty()
+                    || !w.returning.is_none_or(|l| l.iter().all(fixed))
+                {
                     return false;
                 }
                 written = true;
@@ -1117,19 +2017,50 @@ fn pinned(gx: &Gx<'_, '_>, d: usize, jd: usize, wj: usize) -> bool {
     use types_nodes::primnodes::{ParamKind, INNER_VAR, OUTER_VAR};
     let ps = gx.pipelines();
     let ops = &ps[d].ops;
-    let (Some(Op::Join(JoinDesc::Drain { matches, .. })), Some(Op::Write(w))) = (ops.get(jd), ops.get(wj)) else { return false };
+    let (Some(Op::Join(JoinDesc::Drain { matches, .. })), Some(Op::Write(w))) =
+        (ops.get(jd), ops.get(wj))
+    else {
+        return false;
+    };
     // the build pipeline: the one whose table the drain's probe reads
-    let Some(k) = gx.life_of(d, *matches).map(|l| usize::from(l.0)) else { return false };
-    let Some(Op::Join(JoinDesc::Probe { slot, .. })) = ps[k].ops.last() else { return false };
-    let Some(b) = gx.life_of(k, *slot).map(|l| usize::from(l.0)).filter(|&b| b < k && ps[b].desc.produces() == Some(*slot)) else { return false };
-    let Some(bj) = ps[b].ops.iter().rposition(|o| matches!(o, Op::Join(JoinDesc::Build { .. }))) else { return false };
+    let Some(k) = gx.life_of(d, *matches).map(|l| usize::from(l.0)) else {
+        return false;
+    };
+    let Some(Op::Join(JoinDesc::Probe { slot, .. })) = ps[k].ops.last() else {
+        return false;
+    };
+    let Some(b) = gx
+        .life_of(k, *slot)
+        .map(|l| usize::from(l.0))
+        .filter(|&b| b < k && ps[b].desc.produces() == Some(*slot))
+    else {
+        return false;
+    };
+    let Some(bj) = ps[b]
+        .ops
+        .iter()
+        .rposition(|o| matches!(o, Op::Join(JoinDesc::Build { .. })))
+    else {
+        return false;
+    };
     // the build record's column `a` (INNER_VAR) column `c` (OUTER_VAR) of the row entering op `i` of the drain's tail
     // carries, through its filters and projections
     let build_col = |mut i: usize, mut c: i16| -> Option<i16> {
         loop {
-            let at = ops[jd + 1..i].iter().rposition(|o| !matches!(o, Op::Filter(_) | Op::Gate(_)))? + jd + 1;
-            let Op::Project(l) = &ops[at] else { return None };
-            let v = l.iter().filter_map(|n| n.as_target_entry()).find(|te| te.resno == c).and_then(|te| bare_var(te.expr)).filter(|v| v.varlevelsup == 0)?;
+            let at = ops[jd + 1..i]
+                .iter()
+                .rposition(|o| !matches!(o, Op::Filter(_) | Op::Gate(_)))?
+                + jd
+                + 1;
+            let Op::Project(l) = &ops[at] else {
+                return None;
+            };
+            let v = l
+                .iter()
+                .filter_map(|n| n.as_target_entry())
+                .find(|te| te.resno == c)
+                .and_then(|te| bare_var(te.expr))
+                .filter(|v| v.varlevelsup == 0)?;
             let first = !ops[jd + 1..at].iter().any(|o| matches!(o, Op::Project(_)));
             match v.varno {
                 OUTER_VAR if !first => (i, c) = (at, v.varattno),
@@ -1139,18 +2070,45 @@ fn pinned(gx: &Gx<'_, '_>, d: usize, jd: usize, wj: usize) -> bool {
         }
     };
     (jd + 1..wj).any(|jn| {
-        let Op::Join(JoinDesc::Nest { jointype: JoinType::JOIN_INNER, params, .. }) = &ops[jn] else { return false };
-        let Some(ik) = ps.inner_of(d, jn) else { return false };
-        let Source::Index { relid, scanrelid, keys, .. } = &ps[ik].source else { return false };
+        let Op::Join(JoinDesc::Nest {
+            jointype: JoinType::JOIN_INNER,
+            params,
+            ..
+        }) = &ops[jn]
+        else {
+            return false;
+        };
+        let Some(ik) = ps.inner_of(d, jn) else {
+            return false;
+        };
+        let Source::Index {
+            relid,
+            scanrelid,
+            keys,
+            ..
+        } = &ps[ik].source
+        else {
+            return false;
+        };
         if *relid != w.plan.target_rel || u32::from(*scanrelid) != w.rti {
             return false;
         }
         keys.iter().any(|key| {
-            let Some(p) = gravity_decompose::expr::through_relabel(key.value).unwrap_or(key.value).as_param().filter(|p| p.paramkind == ParamKind::PARAM_EXEC) else { return false };
+            let Some(p) = gravity_decompose::expr::through_relabel(key.value)
+                .unwrap_or(key.value)
+                .as_param()
+                .filter(|p| p.paramkind == ParamKind::PARAM_EXEC)
+            else {
+                return false;
+            };
             let carried = crate::frame::iface::nest_param_val(params, p.paramid).and_then(bare_var);
             key.form == KeyForm::Op
                 && gravity_decompose::catalog::keysem::image_eq(gx.facts, key.opno).is_some()
-                && carried.is_some_and(|v| v.varno == OUTER_VAR && v.varlevelsup == 0 && build_col(jn, v.varattno).is_some_and(|a| distinct(gx, b, bj, a, 0)))
+                && carried.is_some_and(|v| {
+                    v.varno == OUTER_VAR
+                        && v.varlevelsup == 0
+                        && build_col(jn, v.varattno).is_some_and(|a| distinct(gx, b, bj, a, 0))
+                })
         })
     })
 }
@@ -1165,24 +2123,44 @@ fn pinned(gx: &Gx<'_, '_>, d: usize, jd: usize, wj: usize) -> bool {
 fn distinct(gx: &Gx<'_, '_>, k: usize, mut pos: usize, mut a: i16, depth: u8) -> bool {
     crate::stack_check();
     use gravity_decompose::Am;
-    use types_nodes::primnodes::{INNER_VAR, INDEX_VAR, OUTER_VAR};
+    use types_nodes::primnodes::{INDEX_VAR, INNER_VAR, OUTER_VAR};
     let ps = gx.pipelines();
     let p = &ps[k];
     // an op that drops rows or keeps them, its columns the row's
-    let drops = |o: &Op<'_>| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Lock(_)) || crate::frame::iface::holds_limit(core::slice::from_ref(o));
+    let drops = |o: &Op<'_>| {
+        matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Lock(_))
+            || crate::frame::iface::holds_limit(core::slice::from_ref(o))
+    };
     let mut scan = false;
     #[allow(clippy::while_let_loop)]
     loop {
-        let Some(i) = p.ops[..pos].iter().rposition(|o| !drops(o) && !matches!(o, Op::Window(_) | Op::Sort(_))) else { break };
-        let Op::Project(l) = &p.ops[i] else { return false };
-        let Some(v) = l.iter().filter_map(|n| n.as_target_entry()).find(|te| te.resno == a).and_then(|te| bare_var(te.expr)).filter(|v| v.varlevelsup == 0) else { return false };
+        let Some(i) = p.ops[..pos]
+            .iter()
+            .rposition(|o| !drops(o) && !matches!(o, Op::Window(_) | Op::Sort(_)))
+        else {
+            break;
+        };
+        let Op::Project(l) = &p.ops[i] else {
+            return false;
+        };
+        let Some(v) = l
+            .iter()
+            .filter_map(|n| n.as_target_entry())
+            .find(|te| te.resno == a)
+            .and_then(|te| bare_var(te.expr))
+            .filter(|v| v.varlevelsup == 0)
+        else {
+            return false;
+        };
         match v.varno {
             OUTER_VAR => (pos, a) = (i, v.varattno),
             INNER_VAR | INDEX_VAR => return false,
             _ => {
                 // a scan column: the source's own
                 let own = match &p.source {
-                    Source::Range { scanrelid, .. } | Source::Index { scanrelid, .. } | Source::Bitmap { scanrelid, .. } => i32::from(*scanrelid) == v.varno,
+                    Source::Range { scanrelid, .. }
+                    | Source::Index { scanrelid, .. }
+                    | Source::Bitmap { scanrelid, .. } => i32::from(*scanrelid) == v.varno,
                     Source::Breaker { .. } => true,
                     _ => false,
                 };
@@ -1195,10 +2173,40 @@ fn distinct(gx: &Gx<'_, '_>, k: usize, mut pos: usize, mut a: i16, depth: u8) ->
         }
     }
     match &p.source {
-        Source::Range { am: Am::Heap, relid, .. } | Source::Index { am: Am::Heap, relid, only: false, .. } | Source::Bitmap { am: Am::Heap, relid, .. } => scan && a > 0 && crate::ops::shared::unique::unique_on(gx, *relid, &[a]),
+        Source::Range {
+            am: Am::Heap,
+            relid,
+            ..
+        }
+        | Source::Index {
+            am: Am::Heap,
+            relid,
+            only: false,
+            ..
+        }
+        | Source::Bitmap {
+            am: Am::Heap,
+            relid,
+            ..
+        } => scan && a > 0 && crate::ops::shared::unique::unique_on(gx, *relid, &[a]),
         Source::Breaker { slot } if depth < 8 => {
-            let Some(q) = gx.life_of(k, *slot).map(|l| usize::from(l.0)).filter(|&q| q < k) else { return false };
-            let keeps = crate::frame::iface::breaker_of(&ps[q].desc).is_some_and(|b| b.slot == *slot && matches!(b.kind, BreakerKind::Sort | BreakerKind::TopK | BreakerKind::Distinct | BreakerKind::Materialize));
+            let Some(q) = gx
+                .life_of(k, *slot)
+                .map(|l| usize::from(l.0))
+                .filter(|&q| q < k)
+            else {
+                return false;
+            };
+            let keeps = crate::frame::iface::breaker_of(&ps[q].desc).is_some_and(|b| {
+                b.slot == *slot
+                    && matches!(
+                        b.kind,
+                        BreakerKind::Sort
+                            | BreakerKind::TopK
+                            | BreakerKind::Distinct
+                            | BreakerKind::Materialize
+                    )
+            });
             keeps && distinct(gx, q, ps[q].ops.len(), a, depth + 1)
         }
         _ => false,
@@ -1207,7 +2215,9 @@ fn distinct(gx: &Gx<'_, '_>, k: usize, mut pos: usize, mut a: i16, depth: u8) ->
 
 /// `e` through any RelabelType, as a Var.
 fn bare_var<'p>(e: Node<'p>) -> Option<&'p types_nodes::primnodes::Var<'p>> {
-    gravity_decompose::expr::through_relabel(e).unwrap_or(e).as_var()
+    gravity_decompose::expr::through_relabel(e)
+        .unwrap_or(e)
+        .as_var()
 }
 
 /// `right_same`'s Fixed expression: a Key column only under IS [NOT] NULL, no Loose column, over `outer`'s classes.

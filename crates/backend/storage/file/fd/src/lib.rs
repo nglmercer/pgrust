@@ -8,9 +8,9 @@ pub mod buffile;
 pub mod copydir;
 pub mod desc;
 pub mod fileset;
-pub mod reinit;
 pub mod io;
 pub mod orphan;
+pub mod reinit;
 pub mod sync;
 pub mod temp;
 pub mod vfd;
@@ -32,30 +32,32 @@ pub use buffile::{
     BufFile, BufFileCreateFileSet, BufFileCreateTemp, BufFileDeleteFileSet, BufFileOpenFileSet,
     BufFileOpenFileSetMaybe, PrepareTempTablespaces,
 };
-pub use fileset::{FileSet, FileSetKey};
-pub use copydir::{copy_file, copy_file_by_method, copydir, directory_is_empty, pg_mkdir_p, rmtree};
+pub use copydir::{
+    copy_file, copy_file_by_method, copydir, directory_is_empty, pg_mkdir_p, rmtree,
+};
 pub use desc::{
     closeAllVfds, with_allocated_dir, with_allocated_dir_path, with_allocated_stdio, AllocateDir,
-    AllocateDirPath, AllocateFile, AllocateFilePath, ClosePipeStream, CloseTransientFile, FreeDir, FreeFile,
-    OpenPipeStream, OpenTransientFile, OpenTransientFilePath, OpenTransientFilePerm,
+    AllocateDirPath, AllocateFile, AllocateFilePath, ClosePipeStream, CloseTransientFile, FreeDir,
+    FreeFile, OpenPipeStream, OpenTransientFile, OpenTransientFilePath, OpenTransientFilePerm,
     OpenTransientFilePermPath, PipeStreamGets, PipeStreamRead, PipeStreamWrite, ReadDir,
-    ReadDirEntry, ReadDirExtended, ReadDirPath, StdioFlush, StdioSetBuf, StdioWrite, TransientFileRawFd,
+    ReadDirEntry, ReadDirExtended, ReadDirPath, StdioFlush, StdioSetBuf, StdioWrite,
+    TransientFileRawFd,
 };
+pub use fileset::{FileSet, FileSetKey};
 pub use io::{
-    pg_file_size_raw, pg_pread, pg_pwrite, FileClose, FileCloseGeneration, FileFallocate, FileGeneration, FileGetRawDesc,
-    FileGetRawFlags, FileGetRawMode, FilePathName, FilePrefetch, FileRead, FileReadV, FileSize,
-    FileRawDescForAio, FileStartBufferRead, FileStartReadV, FileSync, FileTruncate, FileWrite,
-    FileWriteV,
-    FileWriteback, FileZero, PathNameOpenFile, PathNameOpenFilePerm, zero_block,
+    pg_file_size_raw, pg_pread, pg_pwrite, zero_block, FileClose, FileCloseGeneration,
+    FileFallocate, FileGeneration, FileGetRawDesc, FileGetRawFlags, FileGetRawMode, FilePathName,
+    FilePrefetch, FileRawDescForAio, FileRead, FileReadV, FileSize, FileStartBufferRead,
+    FileStartReadV, FileSync, FileTruncate, FileWrite, FileWriteV, FileWriteback, FileZero,
+    PathNameOpenFile, PathNameOpenFilePerm,
 };
 pub use sync::{
     data_sync_elevel, durable_rename, durable_unlink, fsync_fname, fsync_fname_ext,
-    get_dirent_type_path, looks_like_temp_rel_name, pg_close, pg_fdatasync, pg_file_exists, pg_flush_data, pg_fstat,
-    pg_fsync, pg_fsync_no_writethrough, pg_fsync_writethrough, pg_lstat, pg_lstat_path,
-    pg_readlink, pg_readlink_path, pg_rename,
-    pg_stat, pg_truncate, pg_unlink, read_whole_file, write_whole_file, AtEOSubXact_Files,
-    AtEOXact_Files, BeforeShmemExit_Files, RemovePgTempFiles, RemovePgTempFilesInDir,
-    PgFileType, SyncDataDirectory,
+    get_dirent_type_path, looks_like_temp_rel_name, pg_close, pg_fdatasync, pg_file_exists,
+    pg_flush_data, pg_fstat, pg_fsync, pg_fsync_no_writethrough, pg_fsync_writethrough, pg_lstat,
+    pg_lstat_path, pg_readlink, pg_readlink_path, pg_rename, pg_stat, pg_truncate, pg_unlink,
+    read_whole_file, write_whole_file, AtEOSubXact_Files, AtEOXact_Files, BeforeShmemExit_Files,
+    PgFileType, RemovePgTempFiles, RemovePgTempFilesInDir, SyncDataDirectory,
 };
 // The VFS's plain stat carrier, for the pg_stat/pg_lstat callers.
 pub use ::vfs::FileInfo;
@@ -67,16 +69,16 @@ pub use ::vfs::{get_errno, set_errno};
 pub use temp::{
     GetNextTempTableSpace, GetTempTablespaces, OpenTemporaryFile, PathNameCreateTemporaryDir,
     PathNameCreateTemporaryFile, PathNameDeleteTemporaryDir, PathNameDeleteTemporaryFile,
-    PathNameDeleteTemporaryFilesWith, PathNameOpenTemporaryFile, SetTempTablespaces, SetTempTablespacesShared,
-    TempTablespacePath,
-    TempTablespacesAreSet,
+    PathNameDeleteTemporaryFilesWith, PathNameOpenTemporaryFile, SetTempTablespaces,
+    SetTempTablespacesShared, TempTablespacePath, TempTablespacesAreSet,
 };
 pub use vfd::resowner::FILE_RESOWNER_DESC;
 pub use vfd::{
-    io_direct_flags, max_files_per_process, max_safe_fds, set_io_direct_flags, set_max_safe_fds,
-    AcquireExternalFD, BasicOpenFile, BasicOpenFilePerm, InitFileAccess, InitTemporaryFileAccess,
-    MakePGDirectory, MakePGDirectoryPath, ReattachRetainedFileAccess, ReleaseExternalFD,
-    ReserveExternalFD, ShedIdleFiles, FileAccessReady, TempFileAccessReady, temp_account, charge_temp_to,
+    charge_temp_to, io_direct_flags, max_files_per_process, max_safe_fds, set_io_direct_flags,
+    set_max_safe_fds, temp_account, AcquireExternalFD, BasicOpenFile, BasicOpenFilePerm,
+    FileAccessReady, InitFileAccess, InitTemporaryFileAccess, MakePGDirectory, MakePGDirectoryPath,
+    ReattachRetainedFileAccess, ReleaseExternalFD, ReserveExternalFD, ShedIdleFiles,
+    TempFileAccessReady,
 };
 
 pub fn init_seams() {
@@ -86,7 +88,7 @@ pub fn init_seams() {
     });
     file_seams::close_transient_file::set(desc::CloseTransientFile);
     file_seams::pg_fsync::set(sync::pg_fsync);
-    file_seams::fsync_fname::set( sync::fsync_fname);
+    file_seams::fsync_fname::set(sync::fsync_fname);
     file_seams::data_sync_elevel::set(sync::data_sync_elevel);
     file_seams::with_allocated_dir::set(desc::with_allocated_dir);
     file_seams::acquire_external_fd::set(vfd::AcquireExternalFD);

@@ -23,12 +23,29 @@ use types_storage::lock::AccessShareLock;
 static FLAG: AtomicU8 = AtomicU8::new(0);
 
 fn binding_ref<'a>(snap: &'a Rc<SnapshotData<'static>>, resolved: &'a Resolved) -> BindingRef<'a> {
-    BindingRef { snapshot: Snapshot(snap as *const _ as u64), command_id: CommandId(0), params: &[], abort_flag: &FLAG, pins: Pins(0), per_tuple: PerTuple(0), identity: Identity::default(), resolved: Some(resolved), ordinal: None }
+    BindingRef {
+        snapshot: Snapshot(snap as *const _ as u64),
+        command_id: CommandId(0),
+        params: &[],
+        abort_flag: &FLAG,
+        pins: Pins(0),
+        per_tuple: PerTuple(0),
+        identity: Identity::default(),
+        resolved: Some(resolved),
+        ordinal: None,
+    }
 }
 
 /// Worker slot `ordinal`'s binding (driver `WorkerBinding::as_ref`), bound on the leader's thread as `bind_hosts` binds it.
-fn worker_ref<'a>(snap: &'a Rc<SnapshotData<'static>>, resolved: &'a Resolved, ordinal: u16) -> BindingRef<'a> {
-    BindingRef { ordinal: Some(ordinal), ..binding_ref(snap, resolved) }
+fn worker_ref<'a>(
+    snap: &'a Rc<SnapshotData<'static>>,
+    resolved: &'a Resolved,
+    ordinal: u16,
+) -> BindingRef<'a> {
+    BindingRef {
+        ordinal: Some(ordinal),
+        ..binding_ref(snap, resolved)
+    }
 }
 
 /// The seams a bitmap heap scan asks beyond the rig's (`common::install`).
@@ -44,7 +61,15 @@ fn leaf(mcx: mcx::Mcx<'static>) -> SiteRecipe {
     let heap = Relation::open(heap_relation_data(mcx), None);
     let index = Relation::open(index_relation_data(mcx, false), None);
     let quals = indexqual_param(mcx, INDEX_VAR, OP_INT4GT, F_INT4GT);
-    SiteRecipe::from_plan_any_am(&heap, &index, &quals, &types_nodes::NodeList::nil(), AccessShareLock, &[1]).unwrap()
+    SiteRecipe::from_plan_any_am(
+        &heap,
+        &index,
+        &quals,
+        &types_nodes::NodeList::nil(),
+        AccessShareLock,
+        &[1],
+    )
+    .unwrap()
 }
 
 /// A recheck qual that passes every row and counts its calls.
@@ -92,19 +117,34 @@ fn a_parked_bitmap_source_rechecks_with_each_executions_qual_and_charges_its_buf
     let kept = src.kept_bytes() as i64;
     assert!(kept > 0, "a bound source keeps its key and row buffers");
     assert_eq!(c(stmt), kept, "bound: the statement's");
-    assert!(substituted(&mut src, pos, 1), "the row passes the key and the recheck");
+    assert!(
+        substituted(&mut src, pos, 1),
+        "the row passes the key and the recheck"
+    );
     assert_eq!((a.get(), b.get()), (1, 0), "statement 1's qual rechecks");
     src.unbind();
     drop(res);
     drop(reg);
     memledger::statement_end();
-    assert_eq!((c(session) - s0, Rc::strong_count(&a)), (kept, 1), "parked: the session's bytes, and no qual of statement 1 held");
+    assert_eq!(
+        (c(session) - s0, Rc::strong_count(&a)),
+        (kept, 1),
+        "parked: the session's bytes, and no qual of statement 1 held"
+    );
 
     // a worker set's park and take move the bytes through the slot depot
     src.transfer_held(depot, Release::Evict);
-    assert_eq!((c(session) - s0, c(depot) - d0), (0, kept), "parked in the depot: its holder's");
+    assert_eq!(
+        (c(session) - s0, c(depot) - d0),
+        (0, kept),
+        "parked in the depot: its holder's"
+    );
     src.transfer_held(session, Release::Session);
-    assert_eq!((c(session) - s0, c(depot) - d0), (kept, 0), "back on the session");
+    assert_eq!(
+        (c(session) - s0, c(depot) - d0),
+        (kept, 0),
+        "back on the session"
+    );
 
     // statement 2, another admission: its own registry's qual B
     let mut reg = HostRegistry::new();
@@ -114,9 +154,17 @@ fn a_parked_bitmap_source_rechecks_with_each_executions_qual_and_charges_its_buf
     let mut res = Resolved::new();
     res.cells_from(&reg);
     src.bind(&binding_ref(&snap, &res)).unwrap();
-    assert_eq!((c(stmt2), c(session) - s0), (kept, 0), "bound again: statement 2's");
+    assert_eq!(
+        (c(stmt2), c(session) - s0),
+        (kept, 0),
+        "bound again: statement 2's"
+    );
     assert!(substituted(&mut src, pos, 1));
-    assert_eq!((a.get(), b.get()), (1, 1), "statement 2's qual rechecks, never statement 1's");
+    assert_eq!(
+        (a.get(), b.get()),
+        (1, 1),
+        "statement 2's qual rechecks, never statement 1's"
+    );
     src.unbind();
     drop(res);
     drop(reg);
@@ -133,17 +181,28 @@ fn a_parked_bitmap_source_rechecks_with_each_executions_qual_and_charges_its_buf
     res.cells_from(&reg);
     src.bind(&worker_ref(&snap, &res, 3)).unwrap();
     assert!(substituted(&mut src, pos, 1));
-    assert_eq!((a.get(), b.get(), cq.get()), (1, 1, 1), "statement 3's qual rechecks on the worker slot");
+    assert_eq!(
+        (a.get(), b.get(), cq.get()),
+        (1, 1, 1),
+        "statement 3's qual rechecks on the worker slot"
+    );
     src.unbind();
     drop(res);
     drop(reg);
     memledger::statement_end();
-    assert_eq!(Rc::strong_count(&cq), 1, "unbound: the worker slot's source holds no qual of statement 3");
+    assert_eq!(
+        Rc::strong_count(&cq),
+        1,
+        "unbound: the worker slot's source holds no qual of statement 3"
+    );
 
     // a parked rechecking source bound without its statement's qual is refused, never run without one
     memledger::statement_begin();
     let none = Resolved::new();
-    assert!(src.bind(&binding_ref(&snap, &none)).is_err(), "no recheck qual for a rechecking entry");
+    assert!(
+        src.bind(&binding_ref(&snap, &none)).is_err(),
+        "no recheck qual for a rechecking entry"
+    );
     drop(none);
     memledger::statement_end();
 

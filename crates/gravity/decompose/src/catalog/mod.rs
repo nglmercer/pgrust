@@ -62,10 +62,21 @@ pub enum IndexAm {
 
 impl IndexAm {
     pub fn of_name(name: &str) -> IndexAm {
-        IndexAm::ALL.iter().copied().find(|a| a.name() == name).unwrap_or(IndexAm::Other)
+        IndexAm::ALL
+            .iter()
+            .copied()
+            .find(|a| a.name() == name)
+            .unwrap_or(IndexAm::Other)
     }
 
-    pub const ALL: [IndexAm; 6] = [IndexAm::Btree, IndexAm::Hash, IndexAm::Gist, IndexAm::Spgist, IndexAm::Gin, IndexAm::Brin];
+    pub const ALL: [IndexAm; 6] = [
+        IndexAm::Btree,
+        IndexAm::Hash,
+        IndexAm::Gist,
+        IndexAm::Spgist,
+        IndexAm::Gin,
+        IndexAm::Brin,
+    ];
 
     pub const fn name(self) -> &'static str {
         match self {
@@ -113,7 +124,15 @@ pub struct RelFact {
 
 impl RelFact {
     pub const fn plain(relid: u32, am: Am, relkind: u8, natts: i16) -> RelFact {
-        RelFact { relid, am, relkind, natts, sorted: [0; limits::KEYS], nsorted: 0, rows: false }
+        RelFact {
+            relid,
+            am,
+            relkind,
+            natts,
+            sorted: [0; limits::KEYS],
+            nsorted: 0,
+            rows: false,
+        }
     }
 
     pub fn sorted_by(&self) -> &[i16] {
@@ -240,7 +259,14 @@ pub fn expr_fp(node: Node<'_>, varno: i32) -> Option<ExprFp> {
 
 /// The fingerprint of `column <op> value` as `expr_fp` would hash the `OpExpr` a target list carries for it: a
 /// nearest-neighbour walk's order key (`KeyForm::OrderBy`), whose expression the source keeps only in parts.
-pub fn op_expr_fp(opno: u32, varno: i32, attno: i16, typid: u32, typmod: i32, value: Node<'_>) -> Option<ExprFp> {
+pub fn op_expr_fp(
+    opno: u32,
+    varno: i32,
+    attno: i16,
+    typid: u32,
+    typmod: i32,
+    value: Node<'_>,
+) -> Option<ExprFp> {
     let mut a = DefaultHasher::new();
     let mut b = DefaultHasher::new();
     1u8.hash(&mut a);
@@ -280,7 +306,13 @@ fn fp_walk(node: Node<'_>, varno: i32, a: &mut DefaultHasher, b: &mut DefaultHas
         }
         NodeTag::T_Const => {
             let c = node.as_const()?;
-            h!((c.consttype, c.consttypmod, c.constlen, c.constisnull, c.constbyval));
+            h!((
+                c.consttype,
+                c.consttypmod,
+                c.constlen,
+                c.constisnull,
+                c.constbyval
+            ));
             if c.constisnull {
                 return Some(());
             }
@@ -411,7 +443,15 @@ pub struct KeyBind {
 }
 
 impl IndexExt {
-    pub const UNKNOWN: IndexExt = IndexExt { deferrable: false, valid: true, ready: true, exclusion: false, primary: false, nkeyatts: 0, known: false };
+    pub const UNKNOWN: IndexExt = IndexExt {
+        deferrable: false,
+        valid: true,
+        ready: true,
+        exclusion: false,
+        primary: false,
+        nkeyatts: 0,
+        known: false,
+    };
 }
 
 /// D2063: per key column of an index, whether a scan keyed by initdb operators over initdb types reaches only initdb
@@ -433,7 +473,11 @@ pub struct IndexOpc {
 const _: () = assert!(limits::KEYS <= u32::BITS as usize);
 
 impl IndexOpc {
-    pub const UNKNOWN: IndexOpc = IndexOpc { builtin: 0, nkeys: 0, known: false };
+    pub const UNKNOWN: IndexOpc = IndexOpc {
+        builtin: 0,
+        nkeys: 0,
+        known: false,
+    };
 
     /// Key column `i` passes (false when unknown or past the key columns).
     pub const fn col(self, i: usize) -> bool {
@@ -499,12 +543,29 @@ pub struct LeafFact {
 }
 
 impl RelExt {
-    pub const UNKNOWN: RelExt = RelExt { has_triggers: false, has_rules: false, has_subclass: false, is_partition: false, known: false, temp: false };
+    pub const UNKNOWN: RelExt = RelExt {
+        has_triggers: false,
+        has_rules: false,
+        has_subclass: false,
+        is_partition: false,
+        known: false,
+        temp: false,
+    };
 }
 
 impl InsteadOf {
-    pub const UNKNOWN: InsteadOf = InsteadOf { insert: false, update: false, delete: false, known: false };
-    pub const NONE: InsteadOf = InsteadOf { insert: false, update: false, delete: false, known: true };
+    pub const UNKNOWN: InsteadOf = InsteadOf {
+        insert: false,
+        update: false,
+        delete: false,
+        known: false,
+    };
+    pub const NONE: InsteadOf = InsteadOf {
+        insert: false,
+        update: false,
+        delete: false,
+        known: true,
+    };
 
     pub const fn any(self) -> bool {
         self.insert || self.update || self.delete
@@ -514,7 +575,11 @@ impl InsteadOf {
     pub fn letters(self) -> [u8; 3] {
         let mut l = [0u8; 3];
         let mut n = 0;
-        for (f, c) in [(self.insert, b'i'), (self.update, b'u'), (self.delete, b'd')] {
+        for (f, c) in [
+            (self.insert, b'i'),
+            (self.update, b'u'),
+            (self.delete, b'd'),
+        ] {
             if f {
                 l[n] = c;
                 n += 1;
@@ -527,7 +592,12 @@ impl InsteadOf {
     }
 
     pub fn of_letters(s: &str) -> InsteadOf {
-        InsteadOf { insert: s.contains('i'), update: s.contains('u'), delete: s.contains('d'), known: true }
+        InsteadOf {
+            insert: s.contains('i'),
+            update: s.contains('u'),
+            delete: s.contains('d'),
+            known: true,
+        }
     }
 }
 
@@ -537,7 +607,10 @@ impl core::fmt::Display for InsteadOf {
         if !self.known {
             return f.write_char('?');
         }
-        self.letters().iter().filter(|c| **c != 0).try_for_each(|c| f.write_char(*c as char))
+        self.letters()
+            .iter()
+            .filter(|c| **c != 0)
+            .try_for_each(|c| f.write_char(*c as char))
     }
 }
 
@@ -558,7 +631,18 @@ pub struct AggSupport {
 impl AggSupport {
     /// The support functions the aggregate has.
     pub fn each(self) -> impl Iterator<Item = u32> {
-        [self.trans, self.final_, self.combine, self.serial, self.deserial, self.mtrans, self.minv, self.mfinal].into_iter().filter(|&f| f != 0)
+        [
+            self.trans,
+            self.final_,
+            self.combine,
+            self.serial,
+            self.deserial,
+            self.mtrans,
+            self.minv,
+            self.mfinal,
+        ]
+        .into_iter()
+        .filter(|&f| f != 0)
     }
 }
 
@@ -595,7 +679,11 @@ impl KeyOrder {
     /// The direction table's answer (`Some(true)` = descending): the direction of an ordering operator of its input type's
     /// default btree family (decision 49), whose order a key's image keeps; none for another family's.
     pub const fn dir(self) -> Option<bool> {
-        if self.default_family { Some(self.desc) } else { None }
+        if self.default_family {
+            Some(self.desc)
+        } else {
+            None
+        }
     }
 }
 
@@ -616,7 +704,9 @@ impl OpCalls {
     /// Every proc it names (none 0).
     pub fn each(&self) -> impl Iterator<Item = u32> {
         let (o, h) = (self.order.unwrap_or([0, 0]), self.hash.unwrap_or([0, 0]));
-        [self.code, o[0], o[1], h[0], h[1]].into_iter().filter(|&p| p != 0)
+        [self.code, o[0], o[1], h[0], h[1]]
+            .into_iter()
+            .filter(|&p| p != 0)
     }
 
     /// An ordering operator whose family has neither a sortsupport nor a comparator for its type.
@@ -933,7 +1023,11 @@ pub trait Facts {
         false
     }
     fn result_life(&self, _proc_oid: u32, ret_byval: bool) -> gravity_program::FnLife {
-        if ret_byval { gravity_program::FnLife::Value } else { gravity_program::FnLife::Call }
+        if ret_byval {
+            gravity_program::FnLife::Value
+        } else {
+            gravity_program::FnLife::Call
+        }
     }
     /// KeySem slice 3: what key `req` compares by, as PostgreSQL resolves it. `KeyReq::sort`: the ordering operator's
     /// `KeyOrder` (`get_ordering_op_properties`, the type cache's default btree family, the family's comparator and
@@ -1006,7 +1100,11 @@ pub trait Facts {
     }
     /// D1018 (create_function_sql#92): `f` over function `funcid`'s pg_proc row as text (its namespace's name, its name, its
     /// language oid, its body) when the catalog has one; false without the catalog (the default) or the row.
-    fn proc_text(&self, _funcid: u32, _f: &mut dyn FnMut(&[u8], &[u8], u32, &[u8]) -> bool) -> bool {
+    fn proc_text(
+        &self,
+        _funcid: u32,
+        _f: &mut dyn FnMut(&[u8], &[u8], u32, &[u8]) -> bool,
+    ) -> bool {
         false
     }
     /// FACTS-1b: an operator's function and hash / merge properties (`fnprops.rs`); none = unknown (no equality conjunct).
@@ -1048,7 +1146,11 @@ pub trait Facts {
         self.indexes_of(relid, &mut |i| {
             let e = self.index_ext(i.indexid);
             if pk.is_none() && e.known && e.primary && !e.deferrable {
-                let n = if e.nkeyatts == 0 { i.nkeys } else { e.nkeyatts.min(i.nkeys) };
+                let n = if e.nkeyatts == 0 {
+                    i.nkeys
+                } else {
+                    e.nkeyatts.min(i.nkeys)
+                };
                 pk = Some((i.keys, n));
             }
         });
@@ -1060,7 +1162,10 @@ pub trait Facts {
 /// where the builtin type table's pseudo-types are record and anyarray.
 pub fn pseudo_type(f: &dyn Facts, typid: u32) -> bool {
     use types_core::catalog::{ANYARRAYOID, RECORDOID};
-    f.type_row(typid).map_or(matches!(typid, RECORDOID | ANYARRAYOID), |r| r.typtype == b'p')
+    f.type_row(typid)
+        .map_or(matches!(typid, RECORDOID | ANYARRAYOID), |r| {
+            r.typtype == b'p'
+        })
 }
 
 /// Whether `typid` is `record`, the anonymous row type: a value of it carries its columns in its datum (the blessed typmod
@@ -1070,7 +1175,11 @@ pub fn anonymous_record(typid: u32) -> bool {
 }
 
 /// The k-th expression of an index's `indexprs` list, `k` = the expression columns before `col`.
-pub fn nth_index_expr<'p>(idx: &IndexFact, exprs: &types_nodes::list::NodeList<'p>, col: u8) -> Option<Node<'p>> {
+pub fn nth_index_expr<'p>(
+    idx: &IndexFact,
+    exprs: &types_nodes::list::NodeList<'p>,
+    col: u8,
+) -> Option<Node<'p>> {
     let col = col as usize;
     if col >= idx.nkeys as usize || idx.keys[col] != 0 {
         return None;
@@ -1082,19 +1191,36 @@ pub fn nth_index_expr<'p>(idx: &IndexFact, exprs: &types_nodes::list::NodeList<'
 /// The facts of a relation as the capture's header lines without the names (`rel`, `att`, `idx`, `idxexpr` with
 /// the fingerprint): one rendering for every source, so a live server's facts and a fixture's compare as text.
 pub fn render(facts: &dyn Facts, relid: u32, out: &mut dyn core::fmt::Write) -> core::fmt::Result {
-    let Some(r) = facts.rel(relid) else { return writeln!(out, "rel {relid} none") };
-    write!(out, "rel {relid} am={} kind={} natts={}", r.am.name(), r.relkind as char, r.natts)?;
+    let Some(r) = facts.rel(relid) else {
+        return writeln!(out, "rel {relid} none");
+    };
+    write!(
+        out,
+        "rel {relid} am={} kind={} natts={}",
+        r.am.name(),
+        r.relkind as char,
+        r.natts
+    )?;
     // the AM's whole-relation order rides only on a relation that has one (the capture prints it only then)
     for (i, a) in r.sorted_by().iter().enumerate() {
         write!(out, "{}{a}", if i == 0 { " sorted=" } else { "," })?;
     }
-    if r.rows { // PGRCSERVE G4: on the rows road (`am=other` then)
+    if r.rows {
+        // PGRCSERVE G4: on the rows road (`am=other` then)
         write!(out, " rows=t")?;
     }
     writeln!(out)?;
     for attno in 1..=r.natts {
         if let Some(a) = facts.att(relid, attno) {
-            write!(out, "att {relid} {attno} typid={} typmod={} len={} byval={} notnull={}", a.typid, a.typmod, a.typlen, tf(a.byval), tf(a.notnull))?;
+            write!(
+                out,
+                "att {relid} {attno} typid={} typmod={} len={} byval={} notnull={}",
+                a.typid,
+                a.typmod,
+                a.typlen,
+                tf(a.byval),
+                tf(a.notnull)
+            )?;
             // D2700: a domain's base rides only on a domain column (the capture prints it only then)
             if (a.base, a.base_typmod) != (a.typid, a.typmod) {
                 write!(out, " base={}:{}", a.base, a.base_typmod)?;
@@ -1126,11 +1252,25 @@ pub fn render(facts: &dyn Facts, relid: u32, out: &mut dyn core::fmt::Write) -> 
                 write!(out, "{}{}", if k > 0 { "," } else { "" }, i.opts[k])?;
             }
             let e = facts.index_ext(i.indexid);
-            writeln!(out, " unique={} am={} partial={} deferrable={} excl={} primary={} nkeyatts={}", tf(i.unique), facts.index_am(i.indexid).name(), tf(i.partial), tf(e.deferrable), tf(e.exclusion), tf(e.primary), e.nkeyatts)?;
+            writeln!(
+                out,
+                " unique={} am={} partial={} deferrable={} excl={} primary={} nkeyatts={}",
+                tf(i.unique),
+                facts.index_am(i.indexid).name(),
+                tf(i.partial),
+                tf(e.deferrable),
+                tf(e.exclusion),
+                tf(e.primary),
+                e.nkeyatts
+            )?;
             for k in 0..i.nkeys {
                 if i.keys[k as usize] == 0 {
                     match facts.index_expr(i.indexid, k) {
-                        Some(fp) => writeln!(out, "idxexpr {} {k} fp={:016x}{:016x}", i.indexid, fp.0, fp.1)?,
+                        Some(fp) => writeln!(
+                            out,
+                            "idxexpr {} {k} fp={:016x}{:016x}",
+                            i.indexid, fp.0, fp.1
+                        )?,
                         None => writeln!(out, "idxexpr {} {k} fp=none", i.indexid)?,
                     }
                 }
@@ -1178,8 +1318,22 @@ pub const NUMERICOID: u32 = 1700;
 
 impl AttFact {
     /// A column that is no domain: its base is its own type.
-    pub const fn plain(typid: u32, typmod: i32, typlen: i16, byval: bool, notnull: bool) -> AttFact {
-        AttFact { typid, typmod, typlen, byval, notnull, base: typid, base_typmod: typmod }
+    pub const fn plain(
+        typid: u32,
+        typmod: i32,
+        typlen: i16,
+        byval: bool,
+        notnull: bool,
+    ) -> AttFact {
+        AttFact {
+            typid,
+            typmod,
+            typlen,
+            byval,
+            notnull,
+            base: typid,
+            base_typmod: typmod,
+        }
     }
 
     /// D2700: text, varchar or bpchar, or a domain over one (its base's bytes).
@@ -1198,6 +1352,10 @@ impl AttFact {
 
     /// D2700: a numeric column's facts from its typmod, a domain over `numeric(p, s)` by the domain's.
     pub const fn num_facts(&self) -> gravity_program::NumTypmod {
-        if self.base == NUMERICOID { gravity_program::NumTypmod::of_typmod(self.base_typmod) } else { gravity_program::NumTypmod::NONE }
+        if self.base == NUMERICOID {
+            gravity_program::NumTypmod::of_typmod(self.base_typmod)
+        } else {
+            gravity_program::NumTypmod::NONE
+        }
     }
 }

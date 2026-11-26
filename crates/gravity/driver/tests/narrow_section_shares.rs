@@ -25,16 +25,27 @@ const WIDE: u16 = 3;
 /// `program` admitted at `footprint(.., WIDE)`, each eligible pipeline a section at its width in `widths`: the rows and
 /// the bytes reserved past G.
 fn run(program: &Arc<Program>, grant: Grant, widths: &[u16]) -> (Vec<Vec<Datum>>, u64) {
-    let res = std::rc::Rc::new(POOL.admit_need(grant, &|g| footprint(g, program, WIDE), Duration::from_millis(10)).expect("admitted"));
+    let res = std::rc::Rc::new(
+        POOL.admit_need(
+            grant,
+            &|g| footprint(g, program, WIDE),
+            Duration::from_millis(10),
+        )
+        .expect("admitted"),
+    );
     let mut derive = FakeDerive::ranges(RangeTable::new(BLOCKS, 10));
     let mut entry = Entry::new(2);
     let flag = AtomicU8::new(0);
     let mut sink = LegSink::new();
     let mut b = binding(&[8], &NULLS, &mut sink, &flag);
-    let mut exec = entry.start(None, program, &mut derive, &mut b, res.clone()).expect("started");
+    let mut exec = entry
+        .start(None, program, &mut derive, &mut b, res.clone())
+        .expect("started");
     let grown = res.grown();
     for (p, &width) in widths.iter().enumerate() {
-        let open = entry.open_section(&mut exec, &b, &mut derive, p, width).expect("the section binds");
+        let open = entry
+            .open_section(&mut exec, &b, &mut derive, p, width)
+            .expect("the section binds");
         let cursor = AtomicU64::new(0);
         'claims: loop {
             for o in 0..width {
@@ -42,10 +53,16 @@ fn run(program: &Arc<Program>, grant: Grant, widths: &[u16]) -> (Vec<Vec<Datum>>
                 if lo >= BLOCKS {
                     break 'claims;
                 }
-                assert_eq!(open.run_claim(o, MorselRange::new(lo, (lo + CLAIM).min(BLOCKS))).unwrap(), Claimed::Done);
+                assert_eq!(
+                    open.run_claim(o, MorselRange::new(lo, (lo + CLAIM).min(BLOCKS)))
+                        .unwrap(),
+                    Claimed::Done
+                );
             }
         }
-        entry.close_section(open, &mut b, &GroupMerge, true).unwrap();
+        entry
+            .close_section(open, &mut b, &GroupMerge, true)
+            .unwrap();
     }
     entry.run_to_end(&mut exec, &mut b).expect("the emit");
     entry.end(exec, true);
@@ -65,7 +82,10 @@ fn a_narrower_section_between_wider_ones_binds_its_workers_inside_the_reservatio
     let (wide, wide_past) = run(&program, grant, &[WIDE, WIDE, WIDE]);
     assert_eq!(wide_past, 0, "sections at the reserved width bind inside G");
     let (mixed, mixed_past) = run(&program, grant, &[WIDE, 2, WIDE]);
-    assert_eq!(mixed_past, 0, "a width-2 section between width-3 ones reserved {mixed_past} B past G");
+    assert_eq!(
+        mixed_past, 0,
+        "a width-2 section between width-3 ones reserved {mixed_past} B past G"
+    );
     assert_eq!(mixed, wide, "the same groups at either widths");
     assert!(!wide.is_empty());
 

@@ -6,7 +6,7 @@ use types_error::PgResult;
 use types_scan::scankey::ScanKeyData;
 use types_tuple::{HeapTupleData, ItemPointerData};
 
-use crate::compute::{fast_hash_probe, hash_index, int4_hash, CatCKey, CCFastKind};
+use crate::compute::{fast_hash_probe, hash_index, int4_hash, CCFastKind, CatCKey};
 use crate::graph::{create_entry_from_scan, create_entry_negative, remove_ct};
 use crate::{eq_stored, init, with_state, NONE};
 
@@ -54,23 +54,38 @@ const PROBE_UNREG: usize = 4; // V4R-453: no cache `id` on this thread
 impl ProbeRet {
     #[inline(always)]
     fn hit(image: *mut u8, slot: u32) -> Self {
-        ProbeRet { p: image, w: slot as u64 }
+        ProbeRet {
+            p: image,
+            w: slot as u64,
+        }
     }
     #[inline(always)]
     fn negative() -> Self {
-        ProbeRet { p: core::ptr::without_provenance_mut(PROBE_NEG), w: 0 }
+        ProbeRet {
+            p: core::ptr::without_provenance_mut(PROBE_NEG),
+            w: 0,
+        }
     }
     #[inline(always)]
     fn miss(hash_value: u32) -> Self {
-        ProbeRet { p: core::ptr::without_provenance_mut(PROBE_MISS), w: hash_value as u64 }
+        ProbeRet {
+            p: core::ptr::without_provenance_mut(PROBE_MISS),
+            w: hash_value as u64,
+        }
     }
     #[inline(always)]
     fn needs_init() -> Self {
-        ProbeRet { p: core::ptr::without_provenance_mut(PROBE_INIT), w: 0 }
+        ProbeRet {
+            p: core::ptr::without_provenance_mut(PROBE_INIT),
+            w: 0,
+        }
     }
     #[cold]
     fn unregistered() -> Self {
-        ProbeRet { p: core::ptr::without_provenance_mut(PROBE_UNREG), w: 0 }
+        ProbeRet {
+            p: core::ptr::without_provenance_mut(PROBE_UNREG),
+            w: 0,
+        }
     }
 }
 
@@ -199,16 +214,23 @@ fn keys_match<K: ProbeKeys>(
 #[inline(always)]
 fn probe<K: ProbeKeys>(cache_id: i32, keys: &K) -> ProbeRet {
     with_state(|st| {
-        let Some(cache) = st.caches.get_mut(cache_id as usize).and_then(|c| c.as_mut()) else {
+        let Some(cache) = st
+            .caches
+            .get_mut(cache_id as usize)
+            .and_then(|c| c.as_mut())
+        else {
             return ProbeRet::unregistered();
         };
         if !cache.initialized {
             return ProbeRet::needs_init();
         }
-        let nkeys = if K::NKEYS > 0 { K::NKEYS } else { cache.cc_nkeys };
+        let nkeys = if K::NKEYS > 0 {
+            K::NKEYS
+        } else {
+            cache.cc_nkeys
+        };
         debug_assert!(K::NKEYS < 0 || cache.cc_nkeys == nkeys);
         let kinds = cache.cc_kind;
-
 
         if K::NKEYS == 1 {
             if let (CCFastKind::Int4, CatCKey::Value(w)) = (kinds[0], keys.slot(0)) {
@@ -298,7 +320,11 @@ fn search_internal<K: ProbeKeys>(cache_id: i32, keys: &K) -> PgResult<Option<Cat
         match r.p.addr() {
             PROBE_NEG => return Ok(None),
             PROBE_UNREG => return Err(crate::unregistered(cache_id)),
-            PROBE_MISS if noted => return gravity_deps::suppressed(|| search_miss(cache_id, r.w as u32, &keys.to_array())),
+            PROBE_MISS if noted => {
+                return gravity_deps::suppressed(|| {
+                    search_miss(cache_id, r.w as u32, &keys.to_array())
+                })
+            }
             PROBE_MISS => return search_miss(cache_id, r.w as u32, &keys.to_array()),
             PROBE_INIT => {
                 /* init re-enters the catcache; no borrow held, then retry */
@@ -327,8 +353,16 @@ fn search_internal<K: ProbeKeys>(cache_id: i32, keys: &K) -> PgResult<Option<Cat
 #[inline(never)]
 fn note_search<K: ProbeKeys>(cache_id: i32, keys: &K, whole: bool) -> bool {
     let hash = with_state(|st| {
-        let c = st.caches.get(cache_id as usize).and_then(|c| c.as_ref()).filter(|c| c.initialized)?;
-        Some(hash_keys(&c.cc_kind, if K::NKEYS > 0 { K::NKEYS } else { c.cc_nkeys }, keys))
+        let c = st
+            .caches
+            .get(cache_id as usize)
+            .and_then(|c| c.as_ref())
+            .filter(|c| c.initialized)?;
+        Some(hash_keys(
+            &c.cc_kind,
+            if K::NKEYS > 0 { K::NKEYS } else { c.cc_nkeys },
+            keys,
+        ))
     });
     match hash {
         Some(h) => gravity_deps::note_cat(cache_id, h),
@@ -344,7 +378,11 @@ fn note_search<K: ProbeKeys>(cache_id: i32, keys: &K, whole: bool) -> bool {
 /// bootstrap, uncommitted-DDL sessions and parallel workers
 /// (l2cache::private_build_mode — the overlay rule), and recursive builds.
 #[cold]
-fn search_miss(cache_id: i32, hash_value: u32, keys: &[CatCKey<'_>; 4]) -> PgResult<Option<CatCTuple>> {
+fn search_miss(
+    cache_id: i32,
+    hash_value: u32,
+    keys: &[CatCKey<'_>; 4],
+) -> PgResult<Option<CatCTuple>> {
     if !l2cache::enabled()
         || miscinit_seams::is_bootstrap_processing_mode::call()
         || l2cache::private_build_mode()
@@ -375,9 +413,9 @@ fn search_miss(cache_id: i32, hash_value: u32, keys: &[CatCKey<'_>; 4]) -> PgRes
     // time-travel mid-transaction), and a processed one already advanced this.
     let gen = l2cache::view_gen(domain);
     loop {
-        if let Some(v) =
-            l2cache::lookup(l2key, gen, |a| crate::l2::entry_matches(a, &kinds, nkeys, keys))
-        {
+        if let Some(v) = l2cache::lookup(l2key, gen, |a| {
+            crate::l2::entry_matches(a, &kinds, nkeys, keys)
+        }) {
             let ent = v
                 .downcast::<crate::l2::CatL2Entry>()
                 .expect("KIND_CAT entries are CatL2Entry");
@@ -389,17 +427,14 @@ fn search_miss(cache_id: i32, hash_value: u32, keys: &[CatCKey<'_>; 4]) -> PgRes
             // The bounded wait expired (possible undetected deadlock): fall
             // back to a private build instead of retrying forever.
             l2cache::GateOutcome::TimedOut => return search_miss_scan(cache_id, hash_value, keys),
-            l2cache::GateOutcome::Recursive => {
-                return search_miss_scan(cache_id, hash_value, keys)
-            }
+            l2cache::GateOutcome::Recursive => return search_miss_scan(cache_id, hash_value, keys),
             l2cache::GateOutcome::Owner(_guard) => {
                 let built = scan_to_l2(cache_id, hash_value, keys)?;
                 // Publish only if no generation bump raced the build: the scan
                 // ran under this thread's own catalog snapshot, and a
                 // concurrent DDL commit could have put either version in it —
                 // data of uncertain generation must not be stamped with ours.
-                let publish =
-                    l2cache::current_gen(domain) == gen && !l2cache::private_build_mode();
+                let publish = l2cache::current_gen(domain) == gen && !l2cache::private_build_mode();
                 let ent = if publish {
                     let v: std::sync::Arc<dyn core::any::Any + Send + Sync> = built.clone();
                     l2cache::insert(l2key, gen, v, built.approx_bytes(), |a| {
@@ -493,7 +528,11 @@ fn scan_to_l2(
 
 /// `SearchCatCacheMiss` (pre-D3.2 body): private catalog scan into L1.
 #[cold]
-fn search_miss_scan(cache_id: i32, hash_value: u32, keys: &[CatCKey<'_>; 4]) -> PgResult<Option<CatCTuple>> {
+fn search_miss_scan(
+    cache_id: i32,
+    hash_value: u32,
+    keys: &[CatCKey<'_>; 4],
+) -> PgResult<Option<CatCTuple>> {
     let (reloid, indexoid, nkeys) = with_state(|st| {
         let c = st.cache(cache_id);
         (c.cc_reloid, c.cc_indexoid, c.cc_nkeys)
@@ -580,7 +619,11 @@ pub(crate) fn build_scan_keys<'mcx>(
     Ok(out)
 }
 
-pub(crate) fn frame_scan_arg(mcx: mcx::Mcx<'_>, kind: CCFastKind, key: &CatCKey<'_>) -> PgResult<Datum> {
+pub(crate) fn frame_scan_arg(
+    mcx: mcx::Mcx<'_>,
+    kind: CCFastKind,
+    key: &CatCKey<'_>,
+) -> PgResult<Datum> {
     use types_tuple::varatt::VARHDRSZ;
     Ok(match kind {
         CCFastKind::Char | CCFastKind::Int2 | CCFastKind::Int4 => key.word(),
@@ -652,7 +695,11 @@ pub fn SearchCatCache1(cache_id: i32, v1: CatCKey<'_>) -> PgResult<Option<CatCTu
 }
 
 #[inline]
-pub fn SearchCatCache2(cache_id: i32, v1: CatCKey<'_>, v2: CatCKey<'_>) -> PgResult<Option<CatCTuple>> {
+pub fn SearchCatCache2(
+    cache_id: i32,
+    v1: CatCKey<'_>,
+    v2: CatCKey<'_>,
+) -> PgResult<Option<CatCTuple>> {
     search_internal(cache_id, &K2(v1, v2))
 }
 

@@ -199,7 +199,9 @@ fn gen_gin(g: &mut Gen) -> Vec<StmtKind> {
     ]));
     v.extend(bracket(
         SEQOFF,
-        vec![raw("SELECT count(*)::int8 FROM fz_ix_gin WHERE arr @> ARRAY[7];")],
+        vec![raw(
+            "SELECT count(*)::int8 FROM fz_ix_gin WHERE arr @> ARRAY[7];",
+        )],
     ));
     v.push(raw("DROP TABLE fz_ix_gin;"));
     v
@@ -211,7 +213,11 @@ fn gen_gin(g: &mut Gen) -> Vec<StmtKind> {
 /// polygon / circle / range / inet opclasses at page-splitting volume.
 fn gen_gist(g: &mut Gen) -> Vec<StmtKind> {
     let rows = 6000 + 3000 * g.rng.below_usize(3) as i64; // 6k..12k
-    let buffering = if g.rng.below_usize(2) == 1 { "on" } else { "off" };
+    let buffering = if g.rng.below_usize(2) == 1 {
+        "on"
+    } else {
+        "off"
+    };
     let mut v = vec![
         raw("CREATE TABLE fz_ix_gist (pk int4 PRIMARY KEY, pt point, bx box, pl polygon, \
              cr circle, rng int4range, addr inet) WITH (autovacuum_enabled = off);"),
@@ -387,8 +393,10 @@ fn gen_spgist(g: &mut Gen) -> Vec<StmtKind> {
 fn gen_cover(g: &mut Gen) -> Vec<StmtKind> {
     let rows = 4000 + 2000 * g.rng.below_usize(3) as i64; // 4k..8k
     let mut v = vec![
-        raw("CREATE TABLE fz_ix_cov (pk int4 PRIMARY KEY, a int4, b int4, c text, d int4) \
-             WITH (autovacuum_enabled = off);"),
+        raw(
+            "CREATE TABLE fz_ix_cov (pk int4 PRIMARY KEY, a int4, b int4, c text, d int4) \
+             WITH (autovacuum_enabled = off);",
+        ),
         raw(format!(
             "INSERT INTO fz_ix_cov SELECT i, (i * 7) % 1000, (i * 13) % 1000, \
              'c' || lpad(((i * 3) % 900)::text, 4, '0'), i % 5 \
@@ -449,7 +457,9 @@ fn gen_cover(g: &mut Gen) -> Vec<StmtKind> {
     ]));
     v.extend(bracket(
         SEQOFF,
-        vec![raw("SELECT count(*)::int8 FROM fz_ix_cov WHERE a % 97 = 3;")],
+        vec![raw(
+            "SELECT count(*)::int8 FROM fz_ix_cov WHERE a % 97 = 3;",
+        )],
     ));
     v.push(raw("DROP TABLE fz_ix_cov;"));
     v

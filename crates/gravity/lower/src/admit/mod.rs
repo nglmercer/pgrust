@@ -37,5 +37,9 @@ pub fn refuse(r: Refuse) -> ! {
 
 /// A lowering invariant does not hold at `node`: `refuse` with `Gap::Invariant`.
 pub fn invariant(node: i32, family: Family, what: &'static str) -> ! {
-    refuse(Refuse { node, family, gap: Gap::Invariant(what) })
+    refuse(Refuse {
+        node,
+        family,
+        gap: Gap::Invariant(what),
+    })
 }

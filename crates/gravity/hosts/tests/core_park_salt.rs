@@ -11,7 +11,11 @@ use mcx::MemoryContext;
 use types_rel::Relation;
 use types_storage::lock::{AccessShareLock, RowShareLock};
 
-fn recipe(heap_oid: Option<u32>, lockmode: types_storage::lock::LOCKMODE, attnos: &[i16]) -> SiteRecipe {
+fn recipe(
+    heap_oid: Option<u32>,
+    lockmode: types_storage::lock::LOCKMODE,
+    attnos: &[i16],
+) -> SiteRecipe {
     let ctx = MemoryContext::new("park salt");
     let mcx = ctx.mcx();
     let mut hd = heap_relation_data(mcx);
@@ -21,7 +25,15 @@ fn recipe(heap_oid: Option<u32>, lockmode: types_storage::lock::LOCKMODE, attnos
     let heap = Relation::open(hd, None);
     let index = Relation::open(index_relation_data(mcx, true), None);
     let quals = indexqual_param(mcx, INDEX_VAR, OP_INT4EQ, F_INT4EQ);
-    SiteRecipe::from_plan(&heap, &index, &quals, &types_nodes::NodeList::nil(), lockmode, attnos).unwrap()
+    SiteRecipe::from_plan(
+        &heap,
+        &index,
+        &quals,
+        &types_nodes::NodeList::nil(),
+        lockmode,
+        attnos,
+    )
+    .unwrap()
 }
 
 #[test]
@@ -29,14 +41,39 @@ fn equal_recipes_salt_equal_and_any_held_difference_salts_differently() {
     let _g = serial();
     install();
     reset_fixture();
-    let base = recipe(None, AccessShareLock, &[1]).park_salt().expect("an unfiltered recipe has a salt");
-    assert_eq!(recipe(None, AccessShareLock, &[1]).park_salt(), Some(base), "the same recipe, built again");
+    let base = recipe(None, AccessShareLock, &[1])
+        .park_salt()
+        .expect("an unfiltered recipe has a salt");
+    assert_eq!(
+        recipe(None, AccessShareLock, &[1]).park_salt(),
+        Some(base),
+        "the same recipe, built again"
+    );
     let others = [
-        ("another heap", recipe(Some(HEAP_OID + 7), AccessShareLock, &[1]).park_salt()),
-        ("another lock mode", recipe(None, RowShareLock, &[1]).park_salt()),
-        ("another out column list", recipe(None, AccessShareLock, &[1, 1]).park_salt()),
-        ("a backward walk", recipe(None, AccessShareLock, &[1]).with_backward(true).park_salt()),
-        ("an index-only walk", recipe(None, AccessShareLock, &[1]).with_only(true).park_salt()),
+        (
+            "another heap",
+            recipe(Some(HEAP_OID + 7), AccessShareLock, &[1]).park_salt(),
+        ),
+        (
+            "another lock mode",
+            recipe(None, RowShareLock, &[1]).park_salt(),
+        ),
+        (
+            "another out column list",
+            recipe(None, AccessShareLock, &[1, 1]).park_salt(),
+        ),
+        (
+            "a backward walk",
+            recipe(None, AccessShareLock, &[1])
+                .with_backward(true)
+                .park_salt(),
+        ),
+        (
+            "an index-only walk",
+            recipe(None, AccessShareLock, &[1])
+                .with_only(true)
+                .park_salt(),
+        ),
     ];
     for (what, s) in others {
         let s = s.expect("an unfiltered recipe has a salt");
@@ -66,11 +103,24 @@ fn a_bitmap_entry_answers_no_park_recipe() {
     let mut reg = gravity_hosts::HostRegistry::new();
     reg.push_bitmap(recipe(None, AccessShareLock, &[1]), None);
     reg.push(recipe(None, AccessShareLock, &[1]));
-    assert!(reg.recipe(0).is_none(), "a bitmap entry offers a park recipe: its per-execution recheck would outlive its context");
+    assert!(
+        reg.recipe(0).is_none(),
+        "a bitmap entry offers a park recipe: its per-execution recheck would outlive its context"
+    );
     assert!(reg.recipe(1).is_some(), "an index entry answers its recipe");
-    assert!(reg.bitmap_site(0).is_some_and(|r| r.park_salt() == reg.recipe(1).and_then(|r| r.park_salt())), "a bitmap entry answers its own park recipe");
-    assert!(reg.bitmap_site(1).is_none(), "an index entry is no bitmap site");
-    assert!(reg.bitmap_recheck(0).is_none(), "a bitmap entry made without a recheck files none");
+    assert!(
+        reg.bitmap_site(0)
+            .is_some_and(|r| r.park_salt() == reg.recipe(1).and_then(|r| r.park_salt())),
+        "a bitmap entry answers its own park recipe"
+    );
+    assert!(
+        reg.bitmap_site(1).is_none(),
+        "an index entry is no bitmap site"
+    );
+    assert!(
+        reg.bitmap_recheck(0).is_none(),
+        "a bitmap entry made without a recheck files none"
+    );
 }
 
 /// A bitmap entry's recheck qual reaches the statement's `Resolved` (`cells_from`) for every bind (the leader's and a
@@ -87,9 +137,15 @@ fn a_bitmap_recheck_is_filed_for_each_bind() {
     let mut res = gravity_hosts::ops::scan::pgrc::granule_source::Resolved::new();
     res.cells_from(&reg);
     assert!(res.recheck(0).is_none(), "an index entry has no recheck");
-    assert!(res.recheck(1).is_some_and(|f| Rc::ptr_eq(&f, &pass)), "a bind takes this execution's recheck");
+    assert!(
+        res.recheck(1).is_some_and(|f| Rc::ptr_eq(&f, &pass)),
+        "a bind takes this execution's recheck"
+    );
     let mut plain = gravity_hosts::HostRegistry::new();
     plain.push(recipe(None, AccessShareLock, &[1]));
     res.cells_from(&plain);
-    assert!(res.recheck(0).is_none() && res.recheck(1).is_none(), "the next statement's registry replaces the quals");
+    assert!(
+        res.recheck(0).is_none() && res.recheck(1).is_none(),
+        "the next statement's registry replaces the quals"
+    );
 }

@@ -17,8 +17,8 @@ use types_core::{
     BlockNumber, ForkNumber, InvalidBlockNumber, MaxBlockNumber, TransactionId,
 };
 use types_error::{
-    PgError, PgResult, ERRCODE_DATATYPE_MISMATCH,
-    ERRCODE_INVALID_PARAMETER_VALUE, ERRCODE_WRONG_OBJECT_TYPE,
+    PgError, PgResult, ERRCODE_DATATYPE_MISMATCH, ERRCODE_INVALID_PARAMETER_VALUE,
+    ERRCODE_WRONG_OBJECT_TYPE,
 };
 use types_fmgr::{byref_result, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction};
 use types_rel::pg_class::RELKIND_HAS_TABLE_AM;
@@ -84,7 +84,9 @@ fn summary_tupdesc<'m>(
     if resolved.class != funcapi::TypeFuncClass::Composite {
         return Err(Box::new(PgError::error("return type must be a row type")));
     }
-    let td = resolved.result_tuple_desc.expect("composite result has tupdesc");
+    let td = resolved
+        .result_tuple_desc
+        .expect("composite result has tupdesc");
     // C forms its two int8 values against whatever list was declared and
     // crashes on a mismatch (pg_visibility.c:317); refuse it instead.
     if td.natts != 2 || (0..2).any(|i| td.attr(i).atttypid != types_core::INT8OID) {
@@ -114,7 +116,14 @@ fn pg_visibility_tupdesc<'m>(
     tupdesc::TupleDescInitBuiltinEntry(&mut td, a, "all_frozen", types_core::BOOLOID, -1, 0)?;
     if include_pd {
         a += 1;
-        tupdesc::TupleDescInitBuiltinEntry(&mut td, a, "pd_all_visible", types_core::BOOLOID, -1, 0)?;
+        tupdesc::TupleDescInitBuiltinEntry(
+            &mut td,
+            a,
+            "pd_all_visible",
+            types_core::BOOLOID,
+            -1,
+            0,
+        )?;
     }
     debug_assert_eq!(a, maxattr as i16);
     typcache_seams::assign_record_type_typmod::call(&mut td)?;
@@ -140,7 +149,7 @@ fn tuple_image(
     nulls: &[bool],
 ) -> PgResult<Vec<u8>> {
     let tup = heaptuple::heap_form_tuple(mcx, tupdesc, values, nulls)?;
-    ::mcx::std_vec_from_slice("pg_visibility",tup.image())
+    ::mcx::std_vec_from_slice("pg_visibility", tup.image())
 }
 
 struct RowSet {
@@ -182,7 +191,6 @@ fn tid_image(blkno: BlockNumber, offnum: u16) -> Vec<u8> {
     out
 }
 
-
 fn r_u16(b: &[u8], off: usize) -> u16 {
     u16::from_ne_bytes(b[off..off + 2].try_into().unwrap())
 }
@@ -223,7 +231,6 @@ fn page_item_id(b: &[u8], offnum: usize) -> ItemIdView {
     }
 }
 
-
 struct VBits {
     bits: Vec<u8>,
 }
@@ -239,7 +246,9 @@ fn collect_visibility_data(
     check_relation_relkind(&rel)?;
 
     let nblocks = bufmgr::RelationGetNumberOfBlocksInFork(&rel, ForkNumber::MAIN_FORKNUM)?;
-    let mut info = VBits { bits: ::mcx::std_vec_from_elem("pg_visibility", 0u8, nblocks as usize)? };
+    let mut info = VBits {
+        bits: ::mcx::std_vec_from_elem("pg_visibility", 0u8, nblocks as usize)?,
+    };
     let mut p = read_stream::BlockRangeReadStreamPrivate::new(0, nblocks);
     let mut stream = if include_pd {
         Some(read_stream::read_stream_begin_relation::<()>(
@@ -475,7 +484,6 @@ fn collect_corrupt_items(
     Ok(items)
 }
 
-
 fn fc_pg_visibility_map(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let relid = fcinfo.arg(0).as_oid();
     let blkno = fcinfo.arg(1).as_i64();
@@ -548,11 +556,7 @@ fn fc_pg_visibility(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRe
     composite_result(mcx, &tupdesc, &values, &[false; 3])
 }
 
-fn vbits_rows(
-    mcx: Mcx<'_>,
-    relid: types_core::Oid,
-    include_pd: bool,
-) -> PgResult<Vec<Vec<u8>>> {
+fn vbits_rows(mcx: Mcx<'_>, relid: types_core::Oid, include_pd: bool) -> PgResult<Vec<Vec<u8>>> {
     let tupdesc = pg_visibility_tupdesc(mcx, true, include_pd)?;
     let info = collect_visibility_data(mcx, relid, include_pd)?;
     let mut rows = ::mcx::std_vec_with_capacity("pg_visibility", info.bits.len())?;
@@ -566,7 +570,12 @@ fn vbits_rows(
             values.push(Datum::from_bool(bits & (1 << 2) != 0));
         }
         let n = values.len();
-        rows.push(tuple_image(mcx, &tupdesc, &values, &::mcx::std_vec_from_elem("pg_visibility", false, n)?)?);
+        rows.push(tuple_image(
+            mcx,
+            &tupdesc,
+            &values,
+            &::mcx::std_vec_from_elem("pg_visibility", false, n)?,
+        )?);
     }
     Ok(rows)
 }
@@ -686,7 +695,11 @@ fn fc_pg_truncate_visibility_map(
     let rlocator = bufmgr_seams::relation_smgr_locator::call(&rel);
     smgr::smgropen(rlocator.locator, rlocator.backend)?;
 
-    smgr::smgr_set_cached_nblocks(rlocator, ForkNumber::VISIBILITYMAP_FORKNUM, InvalidBlockNumber)?;
+    smgr::smgr_set_cached_nblocks(
+        rlocator,
+        ForkNumber::VISIBILITYMAP_FORKNUM,
+        InvalidBlockNumber,
+    )?;
 
     let block = visibilitymap_prepare_truncate(&rel, 0)?;
     let old_block = if block != InvalidBlockNumber {
@@ -700,7 +713,8 @@ fn fc_pg_truncate_visibility_map(
     let my_procno = lmgr_proc::MyProc().expect("pg_truncate_visibility_map: backend PGPROC");
     let my_proc = lmgr_proc::GetPGProcByNumber(my_procno);
     debug_assert_eq!(
-        my_proc.delayChkptFlags.load(Ordering::Relaxed) & (DELAY_CHKPT_START | DELAY_CHKPT_COMPLETE),
+        my_proc.delayChkptFlags.load(Ordering::Relaxed)
+            & (DELAY_CHKPT_START | DELAY_CHKPT_COMPLETE),
         0
     );
     my_proc
@@ -743,9 +757,10 @@ fn fc_pg_truncate_visibility_map(
         elog::panic_on_crit_section_escape(err);
     }
     init_small::globals::EndCriticalSection();
-    my_proc
-        .delayChkptFlags
-        .fetch_and(!(DELAY_CHKPT_START | DELAY_CHKPT_COMPLETE), Ordering::SeqCst);
+    my_proc.delayChkptFlags.fetch_and(
+        !(DELAY_CHKPT_START | DELAY_CHKPT_COMPLETE),
+        Ordering::SeqCst,
+    );
     crit?;
 
     // Release the lock right away, not at commit (only a non-transactional
@@ -754,7 +769,6 @@ fn fc_pg_truncate_visibility_map(
 
     Ok(Datum::from_i32(0)) // PG_RETURN_VOID
 }
-
 
 fn lookup(function: &str) -> Option<PGFunction> {
     Some(match function {

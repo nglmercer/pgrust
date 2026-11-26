@@ -13,12 +13,19 @@ unsafe impl Send for Mapped {}
 unsafe impl Sync for Mapped {}
 
 /// `program`'s `entry` compiled through TPDE into `context`: the mapping and its entry address.
-fn compile_in(context: &'static MemoryContext, program: &Program, entry: Func) -> PgResult<(gravity_tpde::Compiled<'static>, gravity_program::Entry)> {
+fn compile_in(
+    context: &'static MemoryContext,
+    program: &Program,
+    entry: Func,
+) -> PgResult<(gravity_tpde::Compiled<'static>, gravity_program::Entry)> {
     check_entries(program, &[entry])?;
-    let compiled = gravity_deps::catalog_free(|| gravity_tpde::compile_owned(context.mcx(), program, own_scratch))?;
+    let compiled = gravity_deps::catalog_free(|| {
+        gravity_tpde::compile_owned(context.mcx(), program, own_scratch)
+    })?;
     // SAFETY: `check_entry` fixed the signature to `(ptr) -> (i64)`, which under the backend's value
     // convention (64-bit integers and pointers) is `extern "C" fn(*mut Ctx) -> i64`.
-    let entry_fn: gravity_program::Entry = unsafe { core::mem::transmute::<usize, gravity_program::Entry>(compiled.entry(entry)) };
+    let entry_fn: gravity_program::Entry =
+        unsafe { core::mem::transmute::<usize, gravity_program::Entry>(compiled.entry(entry)) };
     Ok((compiled, entry_fn))
 }
 
@@ -33,12 +40,19 @@ pub fn mapped(program: &Program, entry: Func) -> PgResult<Code> {
     let ctx: &'static MemoryContext = unsafe { &*(ctx as *const MemoryContext) };
     let (compiled, entry_fn) = compile_in(ctx, program, entry)?;
     let bytes = compiled.code_bytes();
-    Ok(Code::mapped(entry_fn, bytes, Box::new(Mapped { compiled, context }))) // alloc: Program
+    Ok(Code::mapped(
+        entry_fn,
+        bytes,
+        Box::new(Mapped { compiled, context }),
+    )) // alloc: Program
 }
 
 /// The statement being admitted's rows-read estimate and bound (`with_row_estimate`): computed at its first miss (a hit
 /// reads nothing), then kept.
-type Estimate = (*const (dyn Fn() -> (u64, u64) + 'static), Option<(u64, u64)>);
+type Estimate = (
+    *const (dyn Fn() -> (u64, u64) + 'static),
+    Option<(u64, u64)>,
+);
 
 leader_tls::leader_tls! {
     thread_local! {
@@ -61,14 +75,21 @@ pub fn with_row_estimate<R>(rows: &dyn Fn() -> (u64, u64), f: impl FnOnce() -> R
     }
     // SAFETY: the pointer is read only inside `f` (the guard puts the previous one back when `f` returns or unwinds), so
     // it never outlives `rows`; the 'static is the thread-local's spelling, not a lifetime anything relies on.
-    let erased: *const (dyn Fn() -> (u64, u64) + 'static) = unsafe { core::mem::transmute::<*const (dyn Fn() -> (u64, u64) + '_), *const (dyn Fn() -> (u64, u64) + 'static)>(rows) };
+    let erased: *const (dyn Fn() -> (u64, u64) + 'static) = unsafe {
+        core::mem::transmute::<
+            *const (dyn Fn() -> (u64, u64) + '_),
+            *const (dyn Fn() -> (u64, u64) + 'static),
+        >(rows)
+    };
     let _restore = Restore(ROW_ESTIMATE.with(|e| e.replace(Some((erased, None)))));
     f()
 }
 
 /// The admitted statement's rows read, computed once per admission; `u64::MAX` outside one.
 pub(super) fn rows_read() -> (u64, u64) {
-    let Some((f, known)) = ROW_ESTIMATE.with(core::cell::Cell::get) else { return (u64::MAX, u64::MAX) };
+    let Some((f, known)) = ROW_ESTIMATE.with(core::cell::Cell::get) else {
+        return (u64::MAX, u64::MAX);
+    };
     if let Some(n) = known {
         return n;
     }
@@ -104,7 +125,13 @@ pub(super) mod wasm {
         /// env.__stack_pointer: the server's own), put its exports `entry0..entry<n-1>` in `n` consecutive table slots
         /// and answer the first slot; -1 with the error's text written (NUL-terminated, truncated) to `err`; -2 when the
         /// embedder has no JIT host (a stub).
-        fn gravity_install(bytes: *const u8, len: usize, n: u32, err: *mut u8, err_cap: usize) -> i32;
+        fn gravity_install(
+            bytes: *const u8,
+            len: usize,
+            n: u32,
+            err: *mut u8,
+            err_cap: usize,
+        ) -> i32;
         /// Null the `n` slots from `first` and give them back to the embedder's free list.
         fn gravity_uninstall(first: u32, n: u32);
     }
@@ -128,21 +155,38 @@ pub(super) mod wasm {
     pub(in super::super) fn install(bytes: &[u8], n: usize) -> Result<Installed, InstallError> {
         let mut err = [0u8; 512];
         // SAFETY: the import reads `len` bytes at `bytes` and writes at most `err_cap` bytes at `err`, both live here.
-        let r = unsafe { gravity_install(bytes.as_ptr(), bytes.len(), n as u32, err.as_mut_ptr(), err.len()) };
+        let r = unsafe {
+            gravity_install(
+                bytes.as_ptr(),
+                bytes.len(),
+                n as u32,
+                err.as_mut_ptr(),
+                err.len(),
+            )
+        };
         match r {
             -2 => Err(InstallError::NoHost),
             r if r < 0 => {
                 let end = err.iter().position(|&b| b == 0).unwrap_or(err.len());
-                Err(InstallError::Failed(String::from_utf8_lossy(&err[..end]).into_owned())) // alloc: Cold
+                Err(InstallError::Failed(
+                    String::from_utf8_lossy(&err[..end]).into_owned(),
+                )) // alloc: Cold
             }
-            r => Ok(Installed { first: r as u32, n: n as u32 }),
+            r => Ok(Installed {
+                first: r as u32,
+                n: n as u32,
+            }),
         }
     }
 
     impl Installed {
         /// Entry `i`'s function pointer: slot `first + i` holds the module's `entry<i>`, an `(i32) -> i64` wrapper.
         pub(in super::super) fn entry(&self, i: usize) -> Entry {
-            assert!(i < self.n as usize, "gravity_backend: entry {i} of an installed module of {}", self.n);
+            assert!(
+                i < self.n as usize,
+                "gravity_backend: entry {i} of an installed module of {}",
+                self.n
+            );
             // SAFETY: the slot holds the module's `entry<i>`, `(i32) -> i64`, which is `Entry`'s wasm32 signature (one
             // pointer in, one i64 out); it stays installed while this `Installed` lives, and every `Code` holding the
             // pointer holds this `Installed` too.
@@ -161,7 +205,10 @@ pub(super) mod wasm {
         // SAFETY: only the symbol's address is taken.
         let low = unsafe { core::ptr::addr_of!(__stack_low) } as usize as u32;
         let margin = gravity_program::cost::runtime::WASM_STACK_FLOOR_MARGIN;
-        gravity_wasm::StackGuard { floor: low + margin, overflow: stack_overflow as *const () as usize as u32 }
+        gravity_wasm::StackGuard {
+            floor: low + margin,
+            overflow: stack_overflow as *const () as usize as u32,
+        }
     }
 
     gravity_abi::host! {

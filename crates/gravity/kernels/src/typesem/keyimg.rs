@@ -1,11 +1,13 @@
-use gravity_abi::PtrWord;
 use crate::host_abi::*;
+use gravity_abi::PtrWord;
 
 // ---- the key-image hosts (M4-work §B.4 / §B.5): the bad-image fingerprint, the bpchar trim, the provider's sort key, the collation compare, the numeric mantissa, the process seed ----
 
 /// `[lo, hi]` of `bytes` under the process seed into `out`; `ERROR` before the seed is installed.
 unsafe fn fp_out(bytes: &[u8], out: *mut u64) -> i64 {
-    let Some(k) = gravity_dict::fp::keys() else { return bare("a fingerprint before the process seed is installed") };
+    let Some(k) = gravity_dict::fp::keys() else {
+        return bare("a fingerprint before the process seed is installed");
+    };
     let fp = k.fp_bytes(bytes);
     out.write_unaligned(fp[0]);
     out.add(1).write_unaligned(fp[1]);
@@ -213,19 +215,35 @@ mod key_image_tests {
         let want = gravity_dict::fp::fp128(b"hello world").unwrap();
         for img in [varlena4(b"hello world"), varlena1(b"hello world")] {
             let mut out = [0u64; 2];
-            assert_eq!(unsafe { text_fp(img.as_ptr() as u64, out.as_mut_ptr() as u64) }, 0);
+            assert_eq!(
+                unsafe { text_fp(img.as_ptr() as u64, out.as_mut_ptr() as u64) },
+                0
+            );
             assert_eq!(out, want);
         }
         let mut out = [0u64; 2];
         let empty = varlena1(b"");
-        assert_eq!(unsafe { text_fp(empty.as_ptr() as u64, out.as_mut_ptr() as u64) }, 0);
+        assert_eq!(
+            unsafe { text_fp(empty.as_ptr() as u64, out.as_mut_ptr() as u64) },
+            0
+        );
         assert_eq!(out, gravity_dict::fp::fp128(b"").unwrap());
     }
 
     #[test]
     fn text_trim_drops_trailing_spaces_only() {
-        for (s, n) in [("abc  ", 3usize), ("  abc", 5), ("     ", 0), ("", 0), ("a b ", 3)] {
-            assert_eq!(unsafe { text_trim(s.as_ptr() as u64, s.len() as u64) }, n as u64, "{s:?}");
+        for (s, n) in [
+            ("abc  ", 3usize),
+            ("  abc", 5),
+            ("     ", 0),
+            ("", 0),
+            ("a b ", 3),
+        ] {
+            assert_eq!(
+                unsafe { text_trim(s.as_ptr() as u64, s.len() as u64) },
+                n as u64,
+                "{s:?}"
+            );
         }
     }
 
@@ -236,12 +254,27 @@ mod key_image_tests {
         assert_eq!(unsafe { name_image(n.as_ptr()) }, b"abc");
         assert_eq!(unsafe { name_image([0u8; 64].as_ptr()) }, b"");
         let full = [b'z'; 64];
-        assert_eq!(unsafe { name_image(full.as_ptr()) }.len(), 64, "a 63-byte name's NUL, or none: never past 64");
+        assert_eq!(
+            unsafe { name_image(full.as_ptr()) }.len(),
+            64,
+            "a 63-byte name's NUL, or none: never past 64"
+        );
         // namecmp under C (strncmp over NAMEDATALEN): "ab" < "abc", as the trimmed images compare
         let mut ab = [0u8; 64];
         ab[..2].copy_from_slice(b"ab");
         assert!(unsafe { name_image(ab.as_ptr()) } < unsafe { name_image(n.as_ptr()) });
-        assert_eq!(SK_NAME & (SK_SLOT | SK_DESC | SK_NULLS_FIRST | SK_TEXT | SK_HEAP | SK_FLOAT | SK_UNSIGNED | SK_BPCHAR), 0);
+        assert_eq!(
+            SK_NAME
+                & (SK_SLOT
+                    | SK_DESC
+                    | SK_NULLS_FIRST
+                    | SK_TEXT
+                    | SK_HEAP
+                    | SK_FLOAT
+                    | SK_UNSIGNED
+                    | SK_BPCHAR),
+            0
+        );
     }
 
     /// SK_CMP (M6-HOSTED): a comparator whose bind or call fails stashes its error once and compares Equal; the error
@@ -250,11 +283,33 @@ mod key_image_tests {
     fn a_failed_comparator_stashes_its_error_once() {
         let _ = gravity_fn::take_error();
         CMP_ERR.with(|c| c.set(false));
-        assert_eq!(gravity_fn::typesem::keysem::call::order(0xdead_beef, 0, 0, 0).unwrap_or_else(order_failed), Ordering::Equal, "an id no lowering resolved binds nothing");
+        assert_eq!(
+            gravity_fn::typesem::keysem::call::order(0xdead_beef, 0, 0, 0)
+                .unwrap_or_else(order_failed),
+            Ordering::Equal,
+            "an id no lowering resolved binds nothing"
+        );
         assert!(CMP_ERR.with(|c| c.replace(false)));
-        assert!(gravity_fn::take_error().is_some_and(|e| e.message.contains("no lowering resolved")));
-        assert!(gravity_fn::take_error().is_none(), "one error, stashed once");
-        assert_eq!(SK_CMP & (SK_SLOT | SK_DESC | SK_NULLS_FIRST | SK_TEXT | SK_HEAP | SK_FLOAT | SK_UNSIGNED | SK_BPCHAR | SK_NAME), 0);
+        assert!(
+            gravity_fn::take_error().is_some_and(|e| e.message.contains("no lowering resolved"))
+        );
+        assert!(
+            gravity_fn::take_error().is_none(),
+            "one error, stashed once"
+        );
+        assert_eq!(
+            SK_CMP
+                & (SK_SLOT
+                    | SK_DESC
+                    | SK_NULLS_FIRST
+                    | SK_TEXT
+                    | SK_HEAP
+                    | SK_FLOAT
+                    | SK_UNSIGNED
+                    | SK_BPCHAR
+                    | SK_NAME),
+            0
+        );
     }
 
     /// D1165 residual: `SK_CMP` on a key word (an enum's oid) orders through its comparator, never the word: classified
@@ -262,20 +317,43 @@ mod key_image_tests {
     #[test]
     fn a_key_word_ordered_by_its_comparator_is_never_its_raw_word() {
         assert!(sk_key_cmp(SK_CMP | 3) && sk_key_cmp(SK_CMP | SK_DESC | 2 << SK_NULL_SHIFT));
-        assert!(!sk_key_cmp(SK_CMP | SK_TEXT | SK_HEAP) && !sk_key_cmp(SK_CMP | SK_SLOT | 1) && !sk_key_cmp(3) && !sk_key_cmp(SK_TEXT | 2 << SK_TEXT_LANE_SHIFT));
+        assert!(
+            !sk_key_cmp(SK_CMP | SK_TEXT | SK_HEAP)
+                && !sk_key_cmp(SK_CMP | SK_SLOT | 1)
+                && !sk_key_cmp(3)
+                && !sk_key_cmp(SK_TEXT | 2 << SK_TEXT_LANE_SHIFT)
+        );
         let _ = gravity_fn::take_error();
         let err = core::cell::Cell::new(0i64);
-        assert_eq!(unsafe { word_cmp(2, 4, 0xdead_beef, &err) }, Ordering::Equal, "no raw order: the comparator decides");
+        assert_eq!(
+            unsafe { word_cmp(2, 4, 0xdead_beef, &err) },
+            Ordering::Equal,
+            "no raw order: the comparator decides"
+        );
         assert_eq!(err.get(), ERROR);
         assert!(gravity_fn::take_error().is_some());
-        assert_eq!(unsafe { word_cmp(4, 2, 0xdead_beef, &err) }, Ordering::Equal);
-        assert!(gravity_fn::take_error().is_none(), "no call after the first error");
+        assert_eq!(
+            unsafe { word_cmp(4, 2, 0xdead_beef, &err) },
+            Ordering::Equal
+        );
+        assert!(
+            gravity_fn::take_error().is_none(),
+            "no call after the first error"
+        );
     }
 
     #[test]
     fn text_cmp_coll_under_c_is_the_byte_order() {
-        for (a, b, want) in [("a", "b", -1i64), ("b", "a", 1), ("ab", "ab", 0), ("ab", "abc", -1), ("", "", 0)] {
-            let got = unsafe { text_cmp_coll(a.as_ptr(), a.len() as u64, b.as_ptr(), b.len() as u64, 950) };
+        for (a, b, want) in [
+            ("a", "b", -1i64),
+            ("b", "a", 1),
+            ("ab", "ab", 0),
+            ("ab", "abc", -1),
+            ("", "", 0),
+        ] {
+            let got = unsafe {
+                text_cmp_coll(a.as_ptr(), a.len() as u64, b.as_ptr(), b.len() as u64, 950)
+            };
             assert_eq!(got, want, "{a:?} vs {b:?}");
         }
     }
@@ -289,7 +367,10 @@ mod key_image_tests {
         }
         let img = varlena4(&payload);
         assert_eq!(unsafe { num_mantissa(img.as_ptr(), 2) }, 1234);
-        assert_eq!(unsafe { num_mantissa(img.as_ptr(), 3) }, gravity_fn::agg_final::NO_MANTISSA);
+        assert_eq!(
+            unsafe { num_mantissa(img.as_ptr(), 3) },
+            gravity_fn::agg_final::NO_MANTISSA
+        );
     }
 
     /// `n / 10^ds` as a long-form numeric varlena (base-10000 groups, zero groups trimmed).
@@ -316,7 +397,10 @@ mod key_image_tests {
         }
         let sign = if n < 0 { 0x4000u16 } else { 0 };
         let mut payload = Vec::new(); // alloc: Cold
-        for h in [sign | ds as u16, weight as i16 as u16].into_iter().chain(groups) {
+        for h in [sign | ds as u16, weight as i16 as u16]
+            .into_iter()
+            .chain(groups)
+        {
             payload.extend_from_slice(&h.to_ne_bytes());
         }
         varlena4(&payload)
@@ -324,13 +408,50 @@ mod key_image_tests {
 
     #[test]
     fn num_cmp_mantissa_is_the_exact_order() {
-        let vals = [0i128, 1, -1, 5, -5, 199, -199, 200, 2000, 12345, -12345, 99_999_999, 10_000_000_000_000_001, -7_000_000_000_000_000_003];
+        let vals = [
+            0i128,
+            1,
+            -1,
+            5,
+            -5,
+            199,
+            -199,
+            200,
+            2000,
+            12345,
+            -12345,
+            99_999_999,
+            10_000_000_000_000_001,
+            -7_000_000_000_000_000_003,
+        ];
         for &n in &vals {
             for ds in [0u32, 1, 2, 3, 5, 8, 20] {
                 let img = num_image(n, ds);
                 for scale in [0u32, 2, 3] {
-                    for m in [-201i64, -200, -20, -2, -1, 0, 1, 2, 19, 20, 21, 199, 200, 1234, 1235, 12345, 123450, i64::MIN + 2, i64::MAX - 2] {
-                        let Some(lhs) = (m as i128).checked_mul(10i128.pow(ds)) else { continue };
+                    for m in [
+                        -201i64,
+                        -200,
+                        -20,
+                        -2,
+                        -1,
+                        0,
+                        1,
+                        2,
+                        19,
+                        20,
+                        21,
+                        199,
+                        200,
+                        1234,
+                        1235,
+                        12345,
+                        123450,
+                        i64::MIN + 2,
+                        i64::MAX - 2,
+                    ] {
+                        let Some(lhs) = (m as i128).checked_mul(10i128.pow(ds)) else {
+                            continue;
+                        };
                         let rhs = n * 10i128.pow(scale);
                         let want = (lhs.cmp(&rhs) as i64).signum();
                         let got = unsafe { num_cmp_mantissa(m, scale as u64, img.as_ptr()) };
@@ -341,8 +462,20 @@ mod key_image_tests {
         }
         let nan = varlena4(&0xC000u16.to_ne_bytes());
         assert_eq!(unsafe { num_cmp_mantissa(5, 2, nan.as_ptr()) }, -1);
-        assert_eq!(unsafe { num_cmp_mantissa(gravity_fn::agg_final::MANT_NAN, 2, nan.as_ptr()) }, 0);
-        assert_eq!(unsafe { num_cmp_mantissa(gravity_fn::agg_final::MANT_NINF, 2, num_image(-5, 0).as_ptr()) }, -1);
+        assert_eq!(
+            unsafe { num_cmp_mantissa(gravity_fn::agg_final::MANT_NAN, 2, nan.as_ptr()) },
+            0
+        );
+        assert_eq!(
+            unsafe {
+                num_cmp_mantissa(
+                    gravity_fn::agg_final::MANT_NINF,
+                    2,
+                    num_image(-5, 0).as_ptr(),
+                )
+            },
+            -1
+        );
     }
 
     #[test]

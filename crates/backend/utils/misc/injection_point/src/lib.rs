@@ -30,9 +30,9 @@
 //! (injection_points_set_local) are not ported: every backend is a thread of
 //! the one server process, and no test in our suite uses set_local.
 
+use pgsync::Mutex;
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
-use pgsync::Mutex;
 
 use condition_variable::{
     ConditionVariable, ConditionVariableBroadcast, ConditionVariableCancelSleep,
@@ -305,7 +305,11 @@ fn cache_add(name: &str, action: Action, generation: u64) {
         if cache.is_empty() {
             GATE.fetch_add(CACHE_HOLDER, Relaxed);
         }
-        cache.push(CacheEntry { name: name.to_string(), action, generation });
+        cache.push(CacheEntry {
+            name: name.to_string(),
+            action,
+            generation,
+        });
     });
 }
 
@@ -467,7 +471,10 @@ mod tests {
         // name-length check in InjectionPointAttach.
         let long = "z".repeat(64);
         let err = attach(&long, "explode").unwrap_err();
-        assert_eq!(err.message(), "incorrect action \"explode\" for injection point creation");
+        assert_eq!(
+            err.message(),
+            "incorrect action \"explode\" for injection point creation"
+        );
         assert!(!is_attached(&long));
     }
 
@@ -509,13 +516,22 @@ mod tests {
         injection_point_cached(name, None).unwrap();
         load(name);
         let err = injection_point_cached(name, None).unwrap_err();
-        assert_eq!(err.message(), format!("error triggered for injection point {name}"));
+        assert_eq!(
+            err.message(),
+            format!("error triggered for injection point {name}")
+        );
         // injection_points.c:233: the optional argument is appended.
         let err = injection_point_cached(name, Some("foobar")).unwrap_err();
-        assert_eq!(err.message(), format!("error triggered for injection point {name} (foobar)"));
+        assert_eq!(
+            err.message(),
+            format!("error triggered for injection point {name} (foobar)")
+        );
         // InjectionPointRun serves from the same cache (:545-556).
         let err = injection_point(name).unwrap_err();
-        assert_eq!(err.message(), format!("error triggered for injection point {name}"));
+        assert_eq!(
+            err.message(),
+            format!("error triggered for injection point {name}")
+        );
 
         // Detached: the cache-only path keeps firing (:562 never consults
         // the registry) ...
@@ -537,13 +553,14 @@ mod tests {
         // Stale notice entry: cache-only sees no error.
         // (The NOTICE itself cannot be emitted without a session; the
         // generation check is what this arm pins.)
-        let stale = CACHE.with(|c| {
-            c.borrow().iter().find(|e| e.name == name).map(|e| e.action)
-        });
+        let stale = CACHE.with(|c| c.borrow().iter().find(|e| e.name == name).map(|e| e.action));
         assert_eq!(stale, Some(Action::Notice));
         load(name);
         let err = injection_point_cached(name, None).unwrap_err();
-        assert_eq!(err.message(), format!("error triggered for injection point {name}"));
+        assert_eq!(
+            err.message(),
+            format!("error triggered for injection point {name}")
+        );
         assert!(detach(name));
         assert!(detach("crash-skips-load-cached-keepalive"));
         // Leave this thread's cache empty for the siblings.

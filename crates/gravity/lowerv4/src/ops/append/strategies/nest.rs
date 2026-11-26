@@ -14,7 +14,10 @@ crate::strategies! {
     APPEND_NEST = 141, "append.nest", Append;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(APPEND_NEST, &())], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(APPEND_NEST, &())],
+    ..crate::ops::NONE
+};
 
 /// Whether road append.nest is on for the statement exec admission is about to decompose: the option is read first (the
 /// lowering reads it again at its top, road_off.rs `apply`; an unknown id is the statement's ERROR either way), so a `SET`

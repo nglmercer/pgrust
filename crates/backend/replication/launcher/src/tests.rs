@@ -10,7 +10,8 @@ fn ctx_test_guard() -> std::sync::MutexGuard<'static, ()> {
 }
 
 // lock_release_all seam probe: records every (lockmethodid, allLocks) call.
-static LOCK_RELEASE_ALL_CALLS: std::sync::Mutex<Vec<(u8, bool)>> = std::sync::Mutex::new(Vec::new());
+static LOCK_RELEASE_ALL_CALLS: std::sync::Mutex<Vec<(u8, bool)>> =
+    std::sync::Mutex::new(Vec::new());
 fn install_lock_release_all_probe() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
@@ -22,10 +23,16 @@ fn install_lock_release_all_probe() {
             Ok(())
         });
     });
-    LOCK_RELEASE_ALL_CALLS.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    LOCK_RELEASE_ALL_CALLS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
 }
 fn lock_release_all_calls() -> Vec<(u8, bool)> {
-    LOCK_RELEASE_ALL_CALLS.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    LOCK_RELEASE_ALL_CALLS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
 }
 
 // An attached apply worker of subscription 100 in slot 0 (this thread is the
@@ -127,11 +134,20 @@ fn tablesync_start_times_are_a_separate_table_from_apply_start_times() {
 #[test]
 fn apply_worker_restart_wait_follows_timestamp_difference_milliseconds() {
     // now < last_start: elapsed 0 -> wait exactly wal_retrieve_retry_interval.
-    assert_eq!(apply_worker_restart_wait_ms(10_000_000, 4_000_000, 5000), Some(5000));
+    assert_eq!(
+        apply_worker_restart_wait_ms(10_000_000, 4_000_000, 5000),
+        Some(5000)
+    );
     // 4999.001 ms elapsed rounds up to 5000 -> eligible now.
-    assert_eq!(apply_worker_restart_wait_ms(1_000_000, 1_000_000 + 4_999_001, 5000), None);
+    assert_eq!(
+        apply_worker_restart_wait_ms(1_000_000, 1_000_000 + 4_999_001, 5000),
+        None
+    );
     // 4998.5 ms rounds up to 4999 -> wait 1 ms.
-    assert_eq!(apply_worker_restart_wait_ms(1_000_000, 1_000_000 + 4_998_500, 5000), Some(1));
+    assert_eq!(
+        apply_worker_restart_wait_ms(1_000_000, 1_000_000 + 4_998_500, 5000),
+        Some(1)
+    );
     // Never started -> eligible.
     assert_eq!(apply_worker_restart_wait_ms(0, 123, 5000), None);
 }
@@ -141,8 +157,16 @@ fn apply_worker_restart_wait_follows_timestamp_difference_milliseconds() {
 // exactly wal_receiver_timeout ago is collected on this cycle.
 #[test]
 fn stuck_worker_slot_gc_fires_at_exactly_wal_receiver_timeout() {
-    assert!(worker_attach_timed_out(1_000_000, 1_000_000 + 60_000_000, 60_000));
-    assert!(!worker_attach_timed_out(1_000_000, 1_000_000 + 59_999_999, 60_000));
+    assert!(worker_attach_timed_out(
+        1_000_000,
+        1_000_000 + 60_000_000,
+        60_000
+    ));
+    assert!(!worker_attach_timed_out(
+        1_000_000,
+        1_000_000 + 59_999_999,
+        60_000
+    ));
 }
 
 // launcher.c:506: WORKERTYPE_UNKNOWN is elog(ERROR, "unknown worker type"),
@@ -151,7 +175,9 @@ fn stuck_worker_slot_gc_fires_at_exactly_wal_receiver_timeout() {
 fn unknown_worker_type_is_an_error_not_a_panic() {
     let r = std::panic::catch_unwind(|| worker_bgw_identity(LogicalRepWorkerType::Unknown, 1, 0));
     let Ok(Err(e)) = r else {
-        panic!("WORKERTYPE_UNKNOWN must raise elog(ERROR, \"unknown worker type\") (launcher.c:506)");
+        panic!(
+            "WORKERTYPE_UNKNOWN must raise elog(ERROR, \"unknown worker type\") (launcher.c:506)"
+        );
     };
     assert_eq!(e.message(), "unknown worker type");
 }
@@ -165,7 +191,10 @@ fn worker_wakeup_without_launcher_shmem_is_a_noop() {
     *CTX.lock().unwrap_or_else(|e| e.into_inner()) = None;
     let r = std::panic::catch_unwind(|| logicalrep_worker_wakeup(100, InvalidOid));
     ApplyLauncherShmemInit();
-    assert!(r.is_ok(), "logicalrep_worker_wakeup panicked without launcher shmem");
+    assert!(
+        r.is_ok(),
+        "logicalrep_worker_wakeup panicked without launcher shmem"
+    );
 }
 
 // ApplyLauncherShmemInit registers "Logical Replication Launcher Data" in the
@@ -177,7 +206,10 @@ fn launcher_shmem_is_registered_in_the_shmem_index() {
     assert_eq!(max_logical_replication_workers(), 4);
     ApplyLauncherShmemInit();
     let (_, found) = shmem::ShmemInitStruct("Logical Replication Launcher Data", 528).unwrap();
-    assert!(found, "\"Logical Replication Launcher Data\" (528 bytes) missing from the shmem index");
+    assert!(
+        found,
+        "\"Logical Replication Launcher Data\" (528 bytes) missing from the shmem index"
+    );
 }
 
 fn test_latches() -> &'static [Latch] {
@@ -272,14 +304,16 @@ fn worker_stop_leaves_a_reused_slot_alone() {
         ctx.workers[0].generation = 8;
         ctx.workers[0].proc_pid = 4711;
     });
-    let stopper = std::thread::spawn(|| {
-        logicalrep_worker_stop_internal(0, 7, procsignal::signums::SIGTERM)
-    });
+    let stopper =
+        std::thread::spawn(|| logicalrep_worker_stop_internal(0, 7, procsignal::signums::SIGTERM));
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     while !stopper.is_finished() && std::time::Instant::now() < deadline {
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
-    assert!(stopper.is_finished(), "stop of a stale generation must return at once");
+    assert!(
+        stopper.is_finished(),
+        "stop of a stale generation must return at once"
+    );
     stopper.join().unwrap().unwrap();
     let w = worker_snapshot(0).unwrap();
     assert!(
@@ -297,12 +331,22 @@ fn worker_setup_initialises_stats_times_to_now() {
     let _g = ctx_test_guard();
     attach_apply_worker_in_slot0();
     let before = worker_snapshot(0).unwrap();
-    assert_eq!((before.last_send_time, before.last_recv_time, before.reply_time), (0, 0, 0));
+    assert_eq!(
+        (
+            before.last_send_time,
+            before.last_recv_time,
+            before.reply_time
+        ),
+        (0, 0, 0)
+    );
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| timestamp_seams::get_current_timestamp::set(|| 777_000_000));
     my_worker_init_stats_times();
     let w = worker_snapshot(0).unwrap();
-    assert_eq!((w.last_send_time, w.last_recv_time, w.reply_time), (777_000_000, 777_000_000, 777_000_000));
+    assert_eq!(
+        (w.last_send_time, w.last_recv_time, w.reply_time),
+        (777_000_000, 777_000_000, 777_000_000)
+    );
     ipc::shmem_exit(0).unwrap();
 }
 
@@ -323,7 +367,10 @@ fn claimed_worker_slot_starts_its_message_times_at_nobegin() {
     assert_eq!(w.last_recv_time, TIMESTAMP_NOBEGIN);
     assert_eq!(w.reply_time, TIMESTAMP_NOBEGIN);
     assert_eq!(TIMESTAMP_NOBEGIN, i64::MIN);
-    assert_ne!(w.last_send_time, 0, "0 is the NULL sentinel of pg_stat_get_subscription");
+    assert_ne!(
+        w.last_send_time, 0,
+        "0 is the NULL sentinel of pg_stat_get_subscription"
+    );
 }
 
 // applyparallelworker.c:955: the parallel apply worker zeroes the three
@@ -344,6 +391,9 @@ fn parallel_apply_worker_clears_launch_time_stats_to_null() {
     logicalrep_worker_attach(0).unwrap();
     my_worker_clear_stat_times();
     let w = worker_snapshot(0).unwrap();
-    assert_eq!((w.last_send_time, w.last_recv_time, w.reply_time), (0, 0, 0));
+    assert_eq!(
+        (w.last_send_time, w.last_recv_time, w.reply_time),
+        (0, 0, 0)
+    );
     logicalrep_worker_detach();
 }

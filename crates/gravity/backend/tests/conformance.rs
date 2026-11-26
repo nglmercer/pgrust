@@ -34,7 +34,14 @@ unsafe extern "C" fn h_advance(ctx: u64) -> u64 {
 }
 
 unsafe extern "C" fn h_add_count(ctx: u64, n: u64) -> u64 {
-    HashAgg::at(partial(ctx as *mut Ctx), &par_scan_count::LAYOUT, 1, par_scan_count::BYTES).single().add_count(0, n as i64);
+    HashAgg::at(
+        partial(ctx as *mut Ctx),
+        &par_scan_count::LAYOUT,
+        1,
+        par_scan_count::BYTES,
+    )
+    .single()
+    .add_count(0, n as i64);
     0
 }
 
@@ -42,9 +49,27 @@ unsafe extern "C" fn h_add_count(ctx: u64, n: u64) -> u64 {
 /// once per window (seek, advance, add_count: abi-v2 §3); the row loop is IR loads and branches.
 fn count_ir() -> (gravity_ir::Program, Func) {
     let mut pb = ProgramBuilder::new();
-    let seek = pb.declare_host("seek", &[Type::Ptr], Some(Type::I64), h_seek as *const () as usize, HostFlags::default());
-    let adv = pb.declare_host("advance", &[Type::Ptr], Some(Type::I64), h_advance as *const () as usize, HostFlags::default());
-    let add = pb.declare_host("add_count", &[Type::Ptr, Type::I64], Some(Type::I64), h_add_count as *const () as usize, HostFlags::default());
+    let seek = pb.declare_host(
+        "seek",
+        &[Type::Ptr],
+        Some(Type::I64),
+        h_seek as *const () as usize,
+        HostFlags::default(),
+    );
+    let adv = pb.declare_host(
+        "advance",
+        &[Type::Ptr],
+        Some(Type::I64),
+        h_advance as *const () as usize,
+        HostFlags::default(),
+    );
+    let add = pb.declare_host(
+        "add_count",
+        &[Type::Ptr, Type::I64],
+        Some(Type::I64),
+        h_add_count as *const () as usize,
+        HostFlags::default(),
+    );
     let f = pb.declare_func("count_lt", &[Type::Ptr], &[Type::I64]);
     let mut b = pb.define(f);
     let ctx = b.params()[0];
@@ -187,20 +212,59 @@ fn count_program(code: Code, rows: u64) -> Program {
     let sites = [SiteDesc::range_source(st.handle(), T_A, &[1])];
     let out = [OutCol::new("count", INT8, -1, 8, true)];
     let pipes = [
-        (Pipeline::eligible(0, End::Breaker(Breaker::sized(BreakerKind::PlainAgg, par_scan_count::BYTES)), rows), code),
-        (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), Code::hand(par_scan_count::par_scan_count_emit)),
+        (
+            Pipeline::eligible(
+                0,
+                End::Breaker(Breaker::sized(BreakerKind::PlainAgg, par_scan_count::BYTES)),
+                rows,
+            ),
+            code,
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            Code::hand(par_scan_count::par_scan_count_emit),
+        ),
     ];
-    Program::with_pipelines(Layout { nsites: 1, out_natts: 1, out_rows: 1, scratch_bytes: 0, exec_bytes: 0 }, &sites, &out, WritePlan::SELECT, pipes)
+    Program::with_pipelines(
+        Layout {
+            nsites: 1,
+            out_natts: 1,
+            out_rows: 1,
+            scratch_bytes: 0,
+            exec_bytes: 0,
+        },
+        &sites,
+        &out,
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
-fn run_all(program: Arc<Program>, table: &Arc<FixtureTable>, derive: &mut FixtureDerive, pool: &FixturePool, thr: u64) -> Vec<(u16, u64, Vec<Vec<u64>>)> {
+fn run_all(
+    program: Arc<Program>,
+    table: &Arc<FixtureTable>,
+    derive: &mut FixtureDerive,
+    pool: &FixturePool,
+    thr: u64,
+) -> Vec<(u16, u64, Vec<Vec<u64>>)> {
     let mut entry = Entry::new(2);
     let mut out = Vec::new();
     for w in WIDTHS {
         for claim in [1u64, 7, 64] {
             table.fresh();
             let mut sink = LegSink::new(true);
-            let rows = run_once(&mut entry, &program, derive, pool, w, claim, &[thr], &NO_ABORT, &mut sink).unwrap();
+            let rows = run_once(
+                &mut entry,
+                &program,
+                derive,
+                pool,
+                w,
+                claim,
+                &[thr],
+                &NO_ABORT,
+                &mut sink,
+            )
+            .unwrap();
             assert_eq!(rows, 1, "width {w} claim {claim}");
             assert!(table.ledger.consumed_once(), "width {w} claim {claim}");
             out.push((w, claim, sink.sorted()));
@@ -221,13 +285,37 @@ fn the_count_kernel_through_tpde_and_the_interpreter_matches_the_hand_kernel_at_
     let expect = table.rows().filter(|r| r[0] < thr as i64).count() as u64;
 
     let mapped = gravity_backend::mapped(&ir, f).unwrap_or_else(|e| panic!("{e:?}"));
-    assert!(!mapped.is_hand() && !mapped.is_interp() && mapped.bytes() > 0, "{mapped:?}");
+    assert!(
+        !mapped.is_hand() && !mapped.is_interp() && mapped.bytes() > 0,
+        "{mapped:?}"
+    );
     let interp = gravity_backend::interp(ir.clone(), f).unwrap();
     assert!(interp.is_interp(), "{interp:?}");
 
-    let hand = run_all(Arc::new(count_program(Code::hand(par_scan_count::par_scan_count), 10_000)), &table, &mut derive, &pool, thr);
-    let tpde = run_all(Arc::new(count_program(mapped, 10_000)), &table, &mut derive, &pool, thr);
-    let interp = run_all(Arc::new(count_program(interp, 10_000)), &table, &mut derive, &pool, thr);
+    let hand = run_all(
+        Arc::new(count_program(
+            Code::hand(par_scan_count::par_scan_count),
+            10_000,
+        )),
+        &table,
+        &mut derive,
+        &pool,
+        thr,
+    );
+    let tpde = run_all(
+        Arc::new(count_program(mapped, 10_000)),
+        &table,
+        &mut derive,
+        &pool,
+        thr,
+    );
+    let interp = run_all(
+        Arc::new(count_program(interp, 10_000)),
+        &table,
+        &mut derive,
+        &pool,
+        thr,
+    );
     for (w, claim, rows) in &hand {
         assert_eq!(rows, &vec![vec![expect]], "hand width {w} claim {claim}");
     }
@@ -314,9 +402,23 @@ fn pure_arithmetic_and_branches_agree_between_tpde_and_the_interpreter() {
     gravity_ir::verify::verify_dominance(&ir).unwrap_or_else(|e| panic!("{e:?}"));
     let ctx = MemoryContext::new("gravity-backend-conformance");
     let compiled = gravity_tpde::compile(ctx.mcx(), &ir).unwrap_or_else(|e| panic!("{e:?}"));
-    let native: unsafe extern "C" fn(i64, i64) -> i64 = unsafe { core::mem::transmute(compiled.entry(f)) };
+    let native: unsafe extern "C" fn(i64, i64) -> i64 =
+        unsafe { core::mem::transmute(compiled.entry(f)) };
     let interp = gravity_interp::Interp::new(&ir);
-    let grid: [i64; 12] = [-7, -3, -1, 0, 1, 2, 3, 10, 1000, 48, i32::MAX as i64, -(1 << 40)];
+    let grid: [i64; 12] = [
+        -7,
+        -3,
+        -1,
+        0,
+        1,
+        2,
+        3,
+        10,
+        1000,
+        48,
+        i32::MAX as i64,
+        -(1 << 40),
+    ];
     let mut n = 0;
     for &a in &grid {
         for &x in &grid {
@@ -338,6 +440,9 @@ fn the_entry_contract_is_checked_and_interpreter_code_has_an_identity_entry() {
     let (ir, f) = count_ir();
     let code = gravity_backend::interp(ir, f).unwrap();
     assert!(code.is_interp() && !code.is_hand() && code.bytes() == 0);
-    assert_ne!(code.entry() as usize, par_scan_count::par_scan_count as *const () as usize);
+    assert_ne!(
+        code.entry() as usize,
+        par_scan_count::par_scan_count as *const () as usize
+    );
     assert_eq!(format!("{code:?}").split(',').next(), Some("Code(interp"));
 }

@@ -65,7 +65,11 @@ pub mod json {
                 (Value::Str(a), Value::Str(b)) => a == b,
                 (Value::Arr(a), Value::Arr(b)) => a == b,
                 (Value::Obj(a), Value::Obj(b)) => {
-                    a.len() == b.len() && sorted_fields(a).iter().zip(sorted_fields(b).iter()).all(|(x, y)| x == y)
+                    a.len() == b.len()
+                        && sorted_fields(a)
+                            .iter()
+                            .zip(sorted_fields(b).iter())
+                            .all(|(x, y)| x == y)
                 }
                 _ => false,
             }
@@ -151,8 +155,10 @@ pub mod json {
 
         /// Object keys, sorted (the contract's notion of "the key set").
         pub fn keys(&self) -> Vec<&str> {
-            let mut ks: Vec<&str> =
-                self.as_obj().map(|o| o.iter().map(|(k, _)| k.as_str()).collect()).unwrap_or_default();
+            let mut ks: Vec<&str> = self
+                .as_obj()
+                .map(|o| o.iter().map(|(k, _)| k.as_str()).collect())
+                .unwrap_or_default();
             ks.sort_unstable();
             ks
         }
@@ -206,12 +212,21 @@ pub mod json {
 
     /// String list → JSON array of strings.
     pub fn str_arr<S: AsRef<str>>(items: &[S]) -> Value {
-        Value::Arr(items.iter().map(|s| Value::Str(s.as_ref().to_string())).collect())
+        Value::Arr(
+            items
+                .iter()
+                .map(|s| Value::Str(s.as_ref().to_string()))
+                .collect(),
+        )
     }
 
     /// String map → JSON object (sorted by key).
     pub fn str_map(m: &BTreeMap<String, String>) -> Value {
-        Value::Obj(m.iter().map(|(k, v)| (k.clone(), Value::Str(v.clone()))).collect())
+        Value::Obj(
+            m.iter()
+                .map(|(k, v)| (k.clone(), Value::Str(v.clone())))
+                .collect(),
+        )
     }
 
     /// Optional value → the value or JSON null.
@@ -474,7 +489,8 @@ pub mod json {
                 return self.err("short \\u escape");
             }
             let h = std::str::from_utf8(&self.s[self.i..self.i + 4]).map_err(|e| e.to_string())?;
-            let v = u32::from_str_radix(h, 16).map_err(|e| format!("json: bad \\u escape: {}", e))?;
+            let v =
+                u32::from_str_radix(h, 16).map_err(|e| format!("json: bad \\u escape: {}", e))?;
             self.i += 4;
             Ok(v)
         }
@@ -483,12 +499,16 @@ pub mod json {
             self.expect(b'"')?;
             let mut out: Vec<u8> = Vec::new();
             loop {
-                let Some(b) = self.peek() else { return self.err("unterminated string") };
+                let Some(b) = self.peek() else {
+                    return self.err("unterminated string");
+                };
                 self.i += 1;
                 match b {
                     b'"' => break,
                     b'\\' => {
-                        let Some(e) = self.peek() else { return self.err("unterminated escape") };
+                        let Some(e) = self.peek() else {
+                            return self.err("unterminated escape");
+                        };
                         self.i += 1;
                         match e {
                             b'"' => out.push(b'"'),
@@ -512,7 +532,9 @@ pub mod json {
                                     }
                                     cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
                                 }
-                                let Some(c) = char::from_u32(cp) else { return self.err("bad code point") };
+                                let Some(c) = char::from_u32(cp) else {
+                                    return self.err("bad code point");
+                                };
                                 let mut buf = [0u8; 4];
                                 out.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
                             }
@@ -544,9 +566,13 @@ pub mod json {
             }
             let text = std::str::from_utf8(&self.s[start..self.i]).map_err(|e| e.to_string())?;
             if is_float {
-                text.parse::<f64>().map(Value::Float).map_err(|e| format!("json: bad number {:?}: {}", text, e))
+                text.parse::<f64>()
+                    .map(Value::Float)
+                    .map_err(|e| format!("json: bad number {:?}: {}", text, e))
             } else {
-                text.parse::<i64>().map(Value::Int).map_err(|e| format!("json: bad integer {:?}: {}", text, e))
+                text.parse::<i64>()
+                    .map(Value::Int)
+                    .map_err(|e| format!("json: bad integer {:?}: {}", text, e))
             }
         }
     }
@@ -554,7 +580,10 @@ pub mod json {
     /// Parse one JSON document (surrounding whitespace allowed, nothing
     /// else trailing).
     pub fn parse(text: &str) -> Result<Value, String> {
-        let mut p = Parser { s: text.as_bytes(), i: 0 };
+        let mut p = Parser {
+            s: text.as_bytes(),
+            i: 0,
+        };
         let v = p.value()?;
         p.ws();
         if p.i != p.s.len() {
@@ -569,19 +598,27 @@ pub use json::Value;
 /// Field-access helpers shared by every `from_json` below: a missing
 /// required key or a wrong type is an error naming the key.
 fn req<'a>(v: &'a Value, key: &str) -> Result<&'a Value, String> {
-    v.get(key).ok_or_else(|| format!("missing required key {:?}", key))
+    v.get(key)
+        .ok_or_else(|| format!("missing required key {:?}", key))
 }
 fn req_str(v: &Value, key: &str) -> Result<String, String> {
-    req(v, key)?.as_str().map(str::to_string).ok_or_else(|| format!("{:?} must be a string", key))
+    req(v, key)?
+        .as_str()
+        .map(str::to_string)
+        .ok_or_else(|| format!("{:?} must be a string", key))
 }
 fn req_i64(v: &Value, key: &str) -> Result<i64, String> {
-    req(v, key)?.as_i64().ok_or_else(|| format!("{:?} must be an integer", key))
+    req(v, key)?
+        .as_i64()
+        .ok_or_else(|| format!("{:?} must be an integer", key))
 }
 fn req_u64(v: &Value, key: &str) -> Result<u64, String> {
     u64::try_from(req_i64(v, key)?).map_err(|_| format!("{:?} must be non-negative", key))
 }
 fn req_bool(v: &Value, key: &str) -> Result<bool, String> {
-    req(v, key)?.as_bool().ok_or_else(|| format!("{:?} must be a boolean", key))
+    req(v, key)?
+        .as_bool()
+        .ok_or_else(|| format!("{:?} must be a boolean", key))
 }
 fn req_str_arr(v: &Value, key: &str) -> Result<Vec<String>, String> {
     str_arr_of(req(v, key)?, key)
@@ -590,7 +627,11 @@ fn str_arr_of(v: &Value, key: &str) -> Result<Vec<String>, String> {
     v.as_arr()
         .ok_or_else(|| format!("{:?} must be an array", key))?
         .iter()
-        .map(|x| x.as_str().map(str::to_string).ok_or_else(|| format!("{:?} items must be strings", key)))
+        .map(|x| {
+            x.as_str()
+                .map(str::to_string)
+                .ok_or_else(|| format!("{:?} items must be strings", key))
+        })
         .collect()
 }
 fn opt_str(v: &Value, key: &str) -> Result<Option<String>, String> {
@@ -624,7 +665,9 @@ fn str_map_of(v: &Value, key: &str) -> Result<BTreeMap<String, String>, String> 
             .ok_or_else(|| format!("{:?} must be an object", key))?
             .iter()
             .map(|(k, x)| {
-                x.as_str().map(|s| (k.clone(), s.to_string())).ok_or_else(|| format!("{:?}.{} must be a string", key, k))
+                x.as_str()
+                    .map(|s| (k.clone(), s.to_string()))
+                    .ok_or_else(|| format!("{:?}.{} must be a string", key, k))
             })
             .collect(),
     }
@@ -657,7 +700,9 @@ impl Bytes {
 
     fn printable(&self) -> Option<&str> {
         let s = std::str::from_utf8(&self.0).ok()?;
-        if s.chars().any(|c| (c as u32) < 0x20 && c != '\n' && c != '\t') {
+        if s.chars()
+            .any(|c| (c as u32) < 0x20 && c != '\n' && c != '\t')
+        {
             return None;
         }
         Some(s)
@@ -691,7 +736,7 @@ pub fn hex(b: &[u8]) -> String {
 }
 
 pub fn unhex(s: &str) -> Result<Vec<u8>, String> {
-    if ! s.len().is_multiple_of( 2) {
+    if !s.len().is_multiple_of(2) {
         return Err("odd-length hex".to_string());
     }
     (0..s.len())
@@ -860,7 +905,15 @@ pub struct XProto {
 impl XProto {
     /// The plain unnamed parse/bind/execute shape.
     pub fn simple(mode: &str) -> XProto {
-        XProto { mode: mode.into(), params: Vec::new(), stmt: String::new(), portal: String::new(), limit: 0, describe: String::new(), repeat: 1 }
+        XProto {
+            mode: mode.into(),
+            params: Vec::new(),
+            stmt: String::new(),
+            portal: String::new(),
+            limit: 0,
+            describe: String::new(),
+            repeat: 1,
+        }
     }
 
     pub fn to_json(&self) -> Value {
@@ -868,7 +921,12 @@ impl XProto {
             .with("mode", Value::from(self.mode.as_str()))
             .with(
                 "params",
-                Value::Arr(self.params.iter().map(|p| p.as_ref().map(Bytes::to_json).unwrap_or(Value::Null)).collect()),
+                Value::Arr(
+                    self.params
+                        .iter()
+                        .map(|p| p.as_ref().map(Bytes::to_json).unwrap_or(Value::Null))
+                        .collect(),
+                ),
             )
             .with("stmt", Value::from(self.stmt.as_str()))
             .with("portal", Value::from(self.portal.as_str()))
@@ -881,12 +939,24 @@ impl XProto {
     }
 
     pub fn from_json(v: &Value) -> Result<XProto, String> {
-        reject_unknown(v, &["mode", "params", "stmt", "portal", "limit", "describe", "repeat"], "xproto")?;
+        reject_unknown(
+            v,
+            &[
+                "mode", "params", "stmt", "portal", "limit", "describe", "repeat",
+            ],
+            "xproto",
+        )?;
         let params = req(v, "params")?
             .as_arr()
             .ok_or("xproto.params must be an array")?
             .iter()
-            .map(|p| if p.is_null() { Ok(None) } else { Bytes::from_json(p).map(Some) })
+            .map(|p| {
+                if p.is_null() {
+                    Ok(None)
+                } else {
+                    Bytes::from_json(p).map(Some)
+                }
+            })
             .collect::<Result<Vec<_>, _>>()?;
         Ok(XProto {
             mode: req_str(v, "mode")?,
@@ -936,8 +1006,21 @@ pub struct StepRecord {
 
 impl StepRecord {
     pub const KEYS: &'static [&'static str] = &[
-        "scenario", "seq", "session", "role", "kind", "sql", "xproto", "productions", "targets", "ordered",
-        "expect_c", "bracket", "recipe", "mutant", "slots",
+        "scenario",
+        "seq",
+        "session",
+        "role",
+        "kind",
+        "sql",
+        "xproto",
+        "productions",
+        "targets",
+        "ordered",
+        "expect_c",
+        "bracket",
+        "recipe",
+        "mutant",
+        "slots",
     ];
 
     pub fn to_json(&self) -> Value {
@@ -948,7 +1031,13 @@ impl StepRecord {
             .with("role", Value::from(self.role.as_str()))
             .with("kind", Value::Str(self.kind.to_string_key()))
             .with("sql", json::opt(self.sql.as_deref()))
-            .with("xproto", self.xproto.as_ref().map(XProto::to_json).unwrap_or(Value::Null))
+            .with(
+                "xproto",
+                self.xproto
+                    .as_ref()
+                    .map(XProto::to_json)
+                    .unwrap_or(Value::Null),
+            )
             .with("productions", json::str_arr(&self.productions))
             .with("targets", json::str_arr(&self.targets))
             .with("ordered", Value::from(self.ordered.as_str()))
@@ -959,7 +1048,11 @@ impl StepRecord {
                 "mutant",
                 self.mutant
                     .as_ref()
-                    .map(|m| Value::obj().with("op", Value::from(m.op.as_str())).with("seed", Value::from(m.seed)))
+                    .map(|m| {
+                        Value::obj()
+                            .with("op", Value::from(m.op.as_str()))
+                            .with("seed", Value::from(m.seed))
+                    })
                     .unwrap_or(Value::Null),
             )
             .with("slots", json::str_map(&self.slots))
@@ -973,7 +1066,10 @@ impl StepRecord {
         };
         let mutant = match v.get("mutant") {
             None | Some(Value::Null) => None,
-            Some(m) => Some(Mutant { op: req_str(m, "op")?, seed: req_u64(m, "seed")? }),
+            Some(m) => Some(Mutant {
+                op: req_str(m, "op")?,
+                seed: req_u64(m, "seed")?,
+            }),
         };
         Ok(StepRecord {
             scenario: req_str(v, "scenario")?,
@@ -1033,7 +1129,13 @@ impl ColDesc {
             .with("fmt", Value::from(self.fmt))
     }
     fn from_json(v: &Value) -> Result<ColDesc, String> {
-        reject_unknown(v, &["name", "tableoid", "attnum", "typoid", "typlen", "typmod", "fmt"], "column")?;
+        reject_unknown(
+            v,
+            &[
+                "name", "tableoid", "attnum", "typoid", "typlen", "typmod", "fmt",
+            ],
+            "column",
+        )?;
         Ok(ColDesc {
             name: Bytes::from_json(req(v, "name")?)?,
             tableoid: req_i64(v, "tableoid")? as u32,
@@ -1051,7 +1153,11 @@ impl ColDesc {
 pub type ErrFields = BTreeMap<char, Bytes>;
 
 fn err_fields_to_json(f: &ErrFields) -> Value {
-    Value::Obj(f.iter().map(|(k, v)| (k.to_string(), v.to_json())).collect())
+    Value::Obj(
+        f.iter()
+            .map(|(k, v)| (k.to_string(), v.to_json()))
+            .collect(),
+    )
 }
 
 fn err_fields_from_json(v: &Value) -> Result<ErrFields, String> {
@@ -1082,13 +1188,25 @@ pub enum WireMsg {
     /// 'C' — the full tag text, e.g. "INSERT 0 3".
     CommandComplete(Bytes),
     /// 'S'
-    ParameterStatus { name: Bytes, value: Bytes },
+    ParameterStatus {
+        name: Bytes,
+        value: Bytes,
+    },
     /// 'A'
-    NotificationResponse { pid: u32, channel: Bytes, payload: Bytes },
+    NotificationResponse {
+        pid: u32,
+        channel: Bytes,
+        payload: Bytes,
+    },
     /// 'K' — protocol 3.2 allows a variable-length key.
-    BackendKeyData { pid: u32, key: Bytes },
+    BackendKeyData {
+        pid: u32,
+        key: Bytes,
+    },
     /// 'Z' — 'I' | 'T' | 'E'
-    ReadyForQuery { status: char },
+    ReadyForQuery {
+        status: char,
+    },
     /// 'I'
     EmptyQueryResponse,
     /// '1' / '2' / '3' / 'n' / 's' / 'c'
@@ -1101,16 +1219,31 @@ pub enum WireMsg {
     /// 't'
     ParameterDescription(Vec<u32>),
     /// 'G' / 'H' — overall format + per-column formats.
-    CopyInResponse { fmt: i8, col_fmts: Vec<i16> },
-    CopyOutResponse { fmt: i8, col_fmts: Vec<i16> },
+    CopyInResponse {
+        fmt: i8,
+        col_fmts: Vec<i16>,
+    },
+    CopyOutResponse {
+        fmt: i8,
+        col_fmts: Vec<i16>,
+    },
     /// 'd'
     CopyData(Bytes),
     /// 'R' — auth kind + trailing bytes (SASL mechanisms, salt, ...).
-    Authentication { kind: i32, data: Bytes },
+    Authentication {
+        kind: i32,
+        data: Bytes,
+    },
     /// 'v'
-    NegotiateProtocolVersion { minor: i32, unknown_options: Vec<Bytes> },
+    NegotiateProtocolVersion {
+        minor: i32,
+        unknown_options: Vec<Bytes>,
+    },
     /// Anything else, verbatim.
-    Raw { code: char, data: Bytes },
+    Raw {
+        code: char,
+        data: Bytes,
+    },
 }
 
 fn one_char(v: &Value, key: &str) -> Result<char, String> {
@@ -1127,7 +1260,11 @@ fn i16_arr(v: &Value, key: &str) -> Result<Vec<i16>, String> {
         .as_arr()
         .ok_or_else(|| format!("{:?} must be an array", key))?
         .iter()
-        .map(|x| x.as_i64().map(|i| i as i16).ok_or_else(|| format!("{:?} items must be integers", key)))
+        .map(|x| {
+            x.as_i64()
+                .map(|i| i as i16)
+                .ok_or_else(|| format!("{:?} items must be integers", key))
+        })
         .collect()
 }
 
@@ -1163,24 +1300,40 @@ impl WireMsg {
     pub fn to_json(&self) -> Value {
         let base = Value::obj().with("t", Value::Str(self.code().to_string()));
         match self {
-            WireMsg::ErrorResponse(f) | WireMsg::NoticeResponse(f) => base.with("fields", err_fields_to_json(f)),
-            WireMsg::RowDescription(cols) => {
-                base.with("columns", Value::Arr(cols.iter().map(ColDesc::to_json).collect()))
+            WireMsg::ErrorResponse(f) | WireMsg::NoticeResponse(f) => {
+                base.with("fields", err_fields_to_json(f))
             }
+            WireMsg::RowDescription(cols) => base.with(
+                "columns",
+                Value::Arr(cols.iter().map(ColDesc::to_json).collect()),
+            ),
             WireMsg::DataRow(cells) => base.with(
                 "cells",
-                Value::Arr(cells.iter().map(|c| c.as_ref().map(Bytes::to_json).unwrap_or(Value::Null)).collect()),
+                Value::Arr(
+                    cells
+                        .iter()
+                        .map(|c| c.as_ref().map(Bytes::to_json).unwrap_or(Value::Null))
+                        .collect(),
+                ),
             ),
             WireMsg::CommandComplete(tag) => base.with("tag", tag.to_json()),
-            WireMsg::ParameterStatus { name, value } => base.with("name", name.to_json()).with("value", value.to_json()),
-            WireMsg::NotificationResponse { pid, channel, payload } => base
+            WireMsg::ParameterStatus { name, value } => base
+                .with("name", name.to_json())
+                .with("value", value.to_json()),
+            WireMsg::NotificationResponse {
+                pid,
+                channel,
+                payload,
+            } => base
                 .with("pid", Value::from(*pid))
                 .with("channel", channel.to_json())
                 .with("payload", payload.to_json()),
-            WireMsg::BackendKeyData { pid, key } => {
-                base.with("pid", Value::from(*pid)).with("key", Value::Str(hex(&key.0)))
+            WireMsg::BackendKeyData { pid, key } => base
+                .with("pid", Value::from(*pid))
+                .with("key", Value::Str(hex(&key.0))),
+            WireMsg::ReadyForQuery { status } => {
+                base.with("status", Value::Str(status.to_string()))
             }
-            WireMsg::ReadyForQuery { status } => base.with("status", Value::Str(status.to_string())),
             WireMsg::EmptyQueryResponse
             | WireMsg::ParseComplete
             | WireMsg::BindComplete
@@ -1188,26 +1341,36 @@ impl WireMsg {
             | WireMsg::NoData
             | WireMsg::PortalSuspended
             | WireMsg::CopyDone => base,
-            WireMsg::ParameterDescription(oids) => {
-                base.with("typoids", Value::Arr(oids.iter().map(|o| Value::from(*o)).collect()))
+            WireMsg::ParameterDescription(oids) => base.with(
+                "typoids",
+                Value::Arr(oids.iter().map(|o| Value::from(*o)).collect()),
+            ),
+            WireMsg::CopyInResponse { fmt, col_fmts }
+            | WireMsg::CopyOutResponse { fmt, col_fmts } => {
+                base.with("fmt", Value::Int(*fmt as i64)).with(
+                    "col_fmts",
+                    Value::Arr(col_fmts.iter().map(|f| Value::from(*f)).collect()),
+                )
             }
-            WireMsg::CopyInResponse { fmt, col_fmts } | WireMsg::CopyOutResponse { fmt, col_fmts } => base
-                .with("fmt", Value::Int(*fmt as i64))
-                .with("col_fmts", Value::Arr(col_fmts.iter().map(|f| Value::from(*f)).collect())),
             WireMsg::CopyData(d) => base.with("data", d.to_json()),
-            WireMsg::Authentication { kind, data } => {
-                base.with("kind", Value::from(*kind)).with("data", Value::Str(hex(&data.0)))
-            }
-            WireMsg::NegotiateProtocolVersion { minor, unknown_options } => base
-                .with("minor", Value::from(*minor))
-                .with("unknown_options", Value::Arr(unknown_options.iter().map(Bytes::to_json).collect())),
+            WireMsg::Authentication { kind, data } => base
+                .with("kind", Value::from(*kind))
+                .with("data", Value::Str(hex(&data.0))),
+            WireMsg::NegotiateProtocolVersion {
+                minor,
+                unknown_options,
+            } => base.with("minor", Value::from(*minor)).with(
+                "unknown_options",
+                Value::Arr(unknown_options.iter().map(Bytes::to_json).collect()),
+            ),
             WireMsg::Raw { data, .. } => base.with("data", Value::Str(hex(&data.0))),
         }
     }
 
     pub fn from_json(v: &Value) -> Result<WireMsg, String> {
         let t = one_char(v, "t")?;
-        let hex_bytes = |key: &str| -> Result<Bytes, String> { unhex(&req_str(v, key)?).map(Bytes) };
+        let hex_bytes =
+            |key: &str| -> Result<Bytes, String> { unhex(&req_str(v, key)?).map(Bytes) };
         Ok(match t {
             'E' => WireMsg::ErrorResponse(err_fields_from_json(req(v, "fields")?)?),
             'N' => WireMsg::NoticeResponse(err_fields_from_json(req(v, "fields")?)?),
@@ -1224,7 +1387,13 @@ impl WireMsg {
                     .as_arr()
                     .ok_or("cells must be an array")?
                     .iter()
-                    .map(|c| if c.is_null() { Ok(None) } else { Bytes::from_json(c).map(Some) })
+                    .map(|c| {
+                        if c.is_null() {
+                            Ok(None)
+                        } else {
+                            Bytes::from_json(c).map(Some)
+                        }
+                    })
                     .collect::<Result<_, _>>()?,
             ),
             'C' => WireMsg::CommandComplete(Bytes::from_json(req(v, "tag")?)?),
@@ -1237,8 +1406,13 @@ impl WireMsg {
                 channel: Bytes::from_json(req(v, "channel")?)?,
                 payload: Bytes::from_json(req(v, "payload")?)?,
             },
-            'K' => WireMsg::BackendKeyData { pid: req_i64(v, "pid")? as u32, key: hex_bytes("key")? },
-            'Z' => WireMsg::ReadyForQuery { status: one_char(v, "status")? },
+            'K' => WireMsg::BackendKeyData {
+                pid: req_i64(v, "pid")? as u32,
+                key: hex_bytes("key")?,
+            },
+            'Z' => WireMsg::ReadyForQuery {
+                status: one_char(v, "status")?,
+            },
             'I' => WireMsg::EmptyQueryResponse,
             '1' => WireMsg::ParseComplete,
             '2' => WireMsg::BindComplete,
@@ -1251,13 +1425,26 @@ impl WireMsg {
                     .as_arr()
                     .ok_or("typoids must be an array")?
                     .iter()
-                    .map(|x| x.as_i64().map(|i| i as u32).ok_or_else(|| "typoids items must be integers".to_string()))
+                    .map(|x| {
+                        x.as_i64()
+                            .map(|i| i as u32)
+                            .ok_or_else(|| "typoids items must be integers".to_string())
+                    })
                     .collect::<Result<_, _>>()?,
             ),
-            'G' => WireMsg::CopyInResponse { fmt: req_i64(v, "fmt")? as i8, col_fmts: i16_arr(v, "col_fmts")? },
-            'H' => WireMsg::CopyOutResponse { fmt: req_i64(v, "fmt")? as i8, col_fmts: i16_arr(v, "col_fmts")? },
+            'G' => WireMsg::CopyInResponse {
+                fmt: req_i64(v, "fmt")? as i8,
+                col_fmts: i16_arr(v, "col_fmts")?,
+            },
+            'H' => WireMsg::CopyOutResponse {
+                fmt: req_i64(v, "fmt")? as i8,
+                col_fmts: i16_arr(v, "col_fmts")?,
+            },
             'd' => WireMsg::CopyData(Bytes::from_json(req(v, "data")?)?),
-            'R' => WireMsg::Authentication { kind: req_i64(v, "kind")? as i32, data: hex_bytes("data")? },
+            'R' => WireMsg::Authentication {
+                kind: req_i64(v, "kind")? as i32,
+                data: hex_bytes("data")?,
+            },
             'v' => WireMsg::NegotiateProtocolVersion {
                 minor: req_i64(v, "minor")? as i32,
                 unknown_options: req(v, "unknown_options")?
@@ -1267,7 +1454,10 @@ impl WireMsg {
                     .map(Bytes::from_json)
                     .collect::<Result<_, _>>()?,
             },
-            code => WireMsg::Raw { code, data: hex_bytes("data")? },
+            code => WireMsg::Raw {
+                code,
+                data: hex_bytes("data")?,
+            },
         })
     }
 }
@@ -1301,8 +1491,18 @@ pub struct LogLine {
 }
 
 impl LogLine {
-    const KEYS: &'static [&'static str] =
-        &["source", "raw", "ts", "backend_type", "pid", "app", "level", "sqlstate", "message", "location"];
+    const KEYS: &'static [&'static str] = &[
+        "source",
+        "raw",
+        "ts",
+        "backend_type",
+        "pid",
+        "app",
+        "level",
+        "sqlstate",
+        "message",
+        "location",
+    ];
 
     pub fn to_json(&self) -> Value {
         Value::obj()
@@ -1314,7 +1514,13 @@ impl LogLine {
             .with("app", json::opt(self.app.as_deref()))
             .with("level", json::opt(self.level.as_deref()))
             .with("sqlstate", json::opt(self.sqlstate.as_deref()))
-            .with("message", self.message.as_ref().map(Bytes::to_json).unwrap_or(Value::Null))
+            .with(
+                "message",
+                self.message
+                    .as_ref()
+                    .map(Bytes::to_json)
+                    .unwrap_or(Value::Null),
+            )
             .with("location", json::opt(self.location.as_deref()))
     }
 
@@ -1380,8 +1586,14 @@ pub struct ServerCounters {
 }
 
 impl ServerCounters {
-    const KEYS: &'static [&'static str] =
-        &["alloc_calls", "alloc_bytes", "live_bytes", "committed_bytes", "rss_kb", "footprint"];
+    const KEYS: &'static [&'static str] = &[
+        "alloc_calls",
+        "alloc_bytes",
+        "live_bytes",
+        "committed_bytes",
+        "rss_kb",
+        "footprint",
+    ];
 
     pub fn to_json(&self) -> Value {
         Value::obj()
@@ -1434,8 +1646,8 @@ pub struct ObservationRecord {
 
 impl ObservationRecord {
     pub const KEYS: &'static [&'static str] = &[
-        "scenario", "seq", "session", "side", "wire", "log", "panic", "crash", "hang", "probes", "server",
-        "liveness", "ms", "version",
+        "scenario", "seq", "session", "side", "wire", "log", "panic", "crash", "hang", "probes",
+        "server", "liveness", "ms", "version",
     ];
 
     pub fn to_json(&self) -> Value {
@@ -1446,7 +1658,10 @@ impl ObservationRecord {
                 Value::obj()
                     .with("site", Value::from(p.site.as_str()))
                     .with("message", p.message.to_json())
-                    .with("query", p.query.as_ref().map(Bytes::to_json).unwrap_or(Value::Null))
+                    .with(
+                        "query",
+                        p.query.as_ref().map(Bytes::to_json).unwrap_or(Value::Null),
+                    )
             })
             .unwrap_or(Value::Null);
         let crash = self
@@ -1457,26 +1672,53 @@ impl ObservationRecord {
                     .with("side", Value::from(c.side.as_str()))
                     .with("generation", Value::from(c.generation))
                     .with("signal", json::opt(c.signal.as_deref()))
-                    .with("log_tail", Value::Arr(c.log_tail.iter().map(Bytes::to_json).collect()))
+                    .with(
+                        "log_tail",
+                        Value::Arr(c.log_tail.iter().map(Bytes::to_json).collect()),
+                    )
             })
             .unwrap_or(Value::Null);
         let hang = self
             .hang
             .as_ref()
-            .map(|h| Value::obj().with("ms", Value::from(h.ms)).with("ladder", json::opt(h.ladder.as_deref())))
+            .map(|h| {
+                Value::obj()
+                    .with("ms", Value::from(h.ms))
+                    .with("ladder", json::opt(h.ladder.as_deref()))
+            })
             .unwrap_or(Value::Null);
         Value::obj()
             .with("scenario", Value::from(self.scenario.as_str()))
             .with("seq", Value::from(self.seq))
             .with("session", Value::from(self.session.as_str()))
             .with("side", Value::from(self.side.as_str()))
-            .with("wire", Value::Arr(self.wire.iter().map(WireMsg::to_json).collect()))
-            .with("log", Value::Arr(self.log.iter().map(LogLine::to_json).collect()))
+            .with(
+                "wire",
+                Value::Arr(self.wire.iter().map(WireMsg::to_json).collect()),
+            )
+            .with(
+                "log",
+                Value::Arr(self.log.iter().map(LogLine::to_json).collect()),
+            )
             .with("panic", panic)
             .with("crash", crash)
             .with("hang", hang)
-            .with("probes", Value::Obj(self.probes.iter().map(|(k, v)| (k.clone(), v.clone())).collect()))
-            .with("server", self.server.as_ref().map(ServerCounters::to_json).unwrap_or(Value::Null))
+            .with(
+                "probes",
+                Value::Obj(
+                    self.probes
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect(),
+                ),
+            )
+            .with(
+                "server",
+                self.server
+                    .as_ref()
+                    .map(ServerCounters::to_json)
+                    .unwrap_or(Value::Null),
+            )
             .with("liveness", Value::from(self.liveness.as_str()))
             .with("ms", Value::from(self.ms))
             .with("version", Value::from(self.version.as_str()))
@@ -1535,7 +1777,10 @@ impl ObservationRecord {
             None | Some(Value::Null) => None,
             Some(h) => {
                 reject_unknown(h, &["ms", "ladder"], "hang")?;
-                Some(Hang { ms: req_u64(h, "ms")?, ladder: opt_str(h, "ladder")? })
+                Some(Hang {
+                    ms: req_u64(h, "ms")?,
+                    ladder: opt_str(h, "ladder")?,
+                })
             }
         };
         let probes = match v.get("probes") {
@@ -1645,7 +1890,11 @@ impl Class {
     }
 
     pub fn parse(s: &str) -> Result<Class, String> {
-        Class::ALL.iter().copied().find(|c| c.as_str() == s).ok_or_else(|| format!("unknown class {:?}", s))
+        Class::ALL
+            .iter()
+            .copied()
+            .find(|c| c.as_str() == s)
+            .ok_or_else(|| format!("unknown class {:?}", s))
     }
 
     /// True for the two classes outside the ratified vocabulary.
@@ -1702,8 +1951,15 @@ pub enum Status {
 }
 
 impl Status {
-    pub const ALL: &'static [Status] =
-        &[Status::New, Status::Banked, Status::Ruled, Status::Dup, Status::Flaky, Status::Latent, Status::Timing];
+    pub const ALL: &'static [Status] = &[
+        Status::New,
+        Status::Banked,
+        Status::Ruled,
+        Status::Dup,
+        Status::Flaky,
+        Status::Latent,
+        Status::Timing,
+    ];
 
     pub fn as_str(self) -> &'static str {
         match self {
@@ -1717,7 +1973,11 @@ impl Status {
         }
     }
     pub fn parse(s: &str) -> Result<Status, String> {
-        Status::ALL.iter().copied().find(|c| c.as_str() == s).ok_or_else(|| format!("unknown status {:?}", s))
+        Status::ALL
+            .iter()
+            .copied()
+            .find(|c| c.as_str() == s)
+            .ok_or_else(|| format!("unknown status {:?}", s))
     }
 }
 
@@ -1774,8 +2034,15 @@ pub struct AuditFields {
 }
 
 impl AuditFields {
-    const KEYS: &'static [&'static str] =
-        &["site", "reproduced", "repro", "c_output", "pgrust_output", "rust_site", "already_tracked"];
+    const KEYS: &'static [&'static str] = &[
+        "site",
+        "reproduced",
+        "repro",
+        "c_output",
+        "pgrust_output",
+        "rust_site",
+        "already_tracked",
+    ];
 
     fn to_json(&self) -> Value {
         Value::obj()
@@ -1785,7 +2052,10 @@ impl AuditFields {
             .with("c_output", json::opt(self.c_output.as_deref()))
             .with("pgrust_output", json::opt(self.pgrust_output.as_deref()))
             .with("rust_site", json::opt(self.rust_site.as_deref()))
-            .with("already_tracked", json::opt(self.already_tracked.as_deref()))
+            .with(
+                "already_tracked",
+                json::opt(self.already_tracked.as_deref()),
+            )
     }
 
     fn from_json(v: &Value) -> Result<AuditFields, String> {
@@ -1840,8 +2110,24 @@ pub struct Finding {
 
 impl Finding {
     pub const KEYS: &'static [&'static str] = &[
-        "id", "plane", "class", "severity", "signature", "units", "recipe", "seed", "cell_id", "a", "b", "log_marks",
-        "repro", "verified", "timing", "rule", "status", "audit",
+        "id",
+        "plane",
+        "class",
+        "severity",
+        "signature",
+        "units",
+        "recipe",
+        "seed",
+        "cell_id",
+        "a",
+        "b",
+        "log_marks",
+        "repro",
+        "verified",
+        "timing",
+        "rule",
+        "status",
+        "audit",
     ];
 
     pub fn to_json(&self) -> Value {
@@ -1889,7 +2175,9 @@ impl Finding {
             )
             .with(
                 "verified",
-                Value::obj().with("fresh_runs", Value::from(self.verified.fresh_runs)).with("independent", independent),
+                Value::obj()
+                    .with("fresh_runs", Value::from(self.verified.fresh_runs))
+                    .with("independent", independent),
             )
             .with("timing", timing)
             .with("rule", json::opt(self.rule.as_deref()))
@@ -1906,7 +2194,11 @@ impl Finding {
         let independent = match verified_v.get("independent") {
             None | Some(Value::Null) => None,
             Some(i) => {
-                reject_unknown(i, &["host_class", "pgrust_sha", "c_sha", "verdict"], "independent")?;
+                reject_unknown(
+                    i,
+                    &["host_class", "pgrust_sha", "c_sha", "verdict"],
+                    "independent",
+                )?;
                 Some(Independent {
                     host_class: req_str(i, "host_class")?,
                     pgrust_sha: req_str(i, "pgrust_sha")?,
@@ -1948,7 +2240,10 @@ impl Finding {
                 cell_json: req_str(repro_v, "cell_json")?,
                 spec: opt_str(repro_v, "spec")?,
             },
-            verified: Verified { fresh_runs: req_u64(verified_v, "fresh_runs")? as u32, independent },
+            verified: Verified {
+                fresh_runs: req_u64(verified_v, "fresh_runs")? as u32,
+                independent,
+            },
             timing,
             rule: opt_str(v, "rule")?,
             status: Status::parse(&req_str(v, "status")?)?,
@@ -2033,7 +2328,16 @@ pub struct Cell {
 
 impl Cell {
     pub const KEYS: &'static [&'static str] = &[
-        "oracle", "b_build", "initdb", "conf", "logging", "hba", "server_flags", "topology", "fs_fixtures", "host",
+        "oracle",
+        "b_build",
+        "initdb",
+        "conf",
+        "logging",
+        "hba",
+        "server_flags",
+        "topology",
+        "fs_fixtures",
+        "host",
         "faults",
     ];
 
@@ -2103,7 +2407,10 @@ impl Cell {
                     .with("mode", Value::from(self.logging_mode.as_str()))
                     .with("prefix", Value::from(self.logging_prefix.as_str()))
                     .with("timezone", Value::from(self.logging_timezone.as_str()))
-                    .with("min_messages", Value::from(self.logging_min_messages.as_str()))
+                    .with(
+                        "min_messages",
+                        Value::from(self.logging_min_messages.as_str()),
+                    )
                     .with("csvlog", Value::from(self.logging_csvlog))
                     .with("jsonlog", Value::from(self.logging_jsonlog)),
             )
@@ -2145,7 +2452,18 @@ impl Cell {
         let conf = req(v, "conf")?;
         reject_unknown(conf, &["profile", "gucs", "guc_pin", "cmm"], "conf")?;
         let logging = req(v, "logging")?;
-        reject_unknown(logging, &["mode", "prefix", "timezone", "min_messages", "csvlog", "jsonlog"], "logging")?;
+        reject_unknown(
+            logging,
+            &[
+                "mode",
+                "prefix",
+                "timezone",
+                "min_messages",
+                "csvlog",
+                "jsonlog",
+            ],
+            "logging",
+        )?;
         let hba = req(v, "hba")?;
         reject_unknown(hba, &["method", "responders", "rules"], "hba")?;
         let fs_fixtures = match v.get("fs_fixtures") {
@@ -2156,7 +2474,11 @@ impl Cell {
                 .iter()
                 .map(|f| {
                     reject_unknown(f, &["kind", "path", "variant"], "fs_fixture")?;
-                    Ok(FsFixture { kind: req_str(f, "kind")?, path: req_str(f, "path")?, variant: opt_str(f, "variant")? })
+                    Ok(FsFixture {
+                        kind: req_str(f, "kind")?,
+                        path: req_str(f, "path")?,
+                        variant: opt_str(f, "variant")?,
+                    })
                 })
                 .collect::<Result<Vec<_>, String>>()?,
         };
@@ -2247,14 +2569,19 @@ pub struct RecipeHeader {
 
 impl RecipeHeader {
     pub const KEYS: &'static [&'static str] = &[
-        "id", "targets", "env", "session", "protocol", "slots", "provides", "requires", "ordered", "expect_c",
-        "oracle", "origin",
+        "id", "targets", "env", "session", "protocol", "slots", "provides", "requires", "ordered",
+        "expect_c", "oracle", "origin",
     ];
-    const REQUIRED: &'static [&'static str] =
-        &["id", "targets", "env", "session", "protocol", "ordered", "oracle", "origin"];
+    const REQUIRED: &'static [&'static str] = &[
+        "id", "targets", "env", "session", "protocol", "ordered", "oracle", "origin",
+    ];
 
     fn split_list(v: &str) -> Vec<String> {
-        v.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect()
+        v.split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect()
     }
 
     /// Parse the header block from the full recipe text. Returns the
@@ -2273,9 +2600,13 @@ impl RecipeHeader {
                 body_start += line.len();
                 continue;
             }
-            let Some(rest) = trimmed.strip_prefix("--") else { break };
+            let Some(rest) = trimmed.strip_prefix("--") else {
+                break;
+            };
             let rest = rest.trim();
-            let Some((k, v)) = rest.split_once(':') else { break };
+            let Some((k, v)) = rest.split_once(':') else {
+                break;
+            };
             let k = k.trim();
             if k.is_empty() || k.contains(char::is_whitespace) || !Self::KEYS.contains(&k) {
                 break;
@@ -2308,8 +2639,14 @@ impl RecipeHeader {
             session: kv["session"].clone(),
             protocol: kv["protocol"].clone(),
             slots,
-            provides: kv.get("provides").map(|s| Self::split_list(s)).unwrap_or_default(),
-            requires: kv.get("requires").map(|s| Self::split_list(s)).unwrap_or_default(),
+            provides: kv
+                .get("provides")
+                .map(|s| Self::split_list(s))
+                .unwrap_or_default(),
+            requires: kv
+                .get("requires")
+                .map(|s| Self::split_list(s))
+                .unwrap_or_default(),
             ordered: Ordered::parse(&kv["ordered"])?,
             expect_c,
             oracle: kv["oracle"].clone(),
@@ -2328,12 +2665,20 @@ impl RecipeHeader {
         let _ = writeln!(out, "-- env: {}", self.env);
         let _ = writeln!(out, "-- session: {}", self.session);
         let _ = writeln!(out, "-- protocol: {}", self.protocol);
-        let slots: Vec<String> = self.slots.iter().map(|(k, v)| format!("{}:{}", k, v)).collect();
+        let slots: Vec<String> = self
+            .slots
+            .iter()
+            .map(|(k, v)| format!("{}:{}", k, v))
+            .collect();
         let _ = writeln!(out, "-- slots: {}", slots.join(", "));
         let _ = writeln!(out, "-- provides: {}", list(&self.provides));
         let _ = writeln!(out, "-- requires: {}", list(&self.requires));
         let _ = writeln!(out, "-- ordered: {}", self.ordered.as_str());
-        let _ = writeln!(out, "-- expect_c: {}", self.expect_c.as_deref().unwrap_or(""));
+        let _ = writeln!(
+            out,
+            "-- expect_c: {}",
+            self.expect_c.as_deref().unwrap_or("")
+        );
         let _ = writeln!(out, "-- oracle: {}", self.oracle);
         let _ = writeln!(out, "-- origin: {}", self.origin);
         out
@@ -2413,10 +2758,20 @@ pub mod toml {
                 Some('\\') => out.push('\\'),
                 Some('u') => {
                     let h: String = cs.by_ref().take(4).collect();
-                    let cp = u32::from_str_radix(&h, 16).map_err(|_| format!("toml line {}: bad \\u escape", line))?;
-                    out.push(char::from_u32(cp).ok_or_else(|| format!("toml line {}: bad code point", line))?);
+                    let cp = u32::from_str_radix(&h, 16)
+                        .map_err(|_| format!("toml line {}: bad \\u escape", line))?;
+                    out.push(
+                        char::from_u32(cp)
+                            .ok_or_else(|| format!("toml line {}: bad code point", line))?,
+                    );
                 }
-                other => return Err(format!("toml line {}: bad escape \\{}", line, other.unwrap_or(' '))),
+                other => {
+                    return Err(format!(
+                        "toml line {}: bad escape \\{}",
+                        line,
+                        other.unwrap_or(' ')
+                    ))
+                }
             }
         }
         Ok(out)
@@ -2437,14 +2792,16 @@ pub mod toml {
         Err(format!("toml line {}: unterminated string", line))
     }
 
-    fn parse_scalar(s: & str, line: usize) -> Result<(Value, & str), String> {
+    fn parse_scalar(s: &str, line: usize) -> Result<(Value, &str), String> {
         let s = s.trim_start();
         if s.starts_with('"') {
             let (raw, after) = take_basic(s, line)?;
             return Ok((Value::Str(unescape_basic(raw, line)?), after));
         }
         if let Some(rest) = s.strip_prefix('\'') {
-            let end = rest.find('\'').ok_or_else(|| format!("toml line {}: unterminated literal string", line))?;
+            let end = rest
+                .find('\'')
+                .ok_or_else(|| format!("toml line {}: unterminated literal string", line))?;
             return Ok((Value::Str(rest[..end].to_string()), &rest[end + 1..]));
         }
         if let Some(rest) = s.strip_prefix("true") {
@@ -2453,19 +2810,26 @@ pub mod toml {
         if let Some(rest) = s.strip_prefix("false") {
             return Ok((Value::Bool(false), rest));
         }
-        let end = s.find(|c: char| !(c.is_ascii_digit() || c == '-' || c == '_')).unwrap_or(s.len());
+        let end = s
+            .find(|c: char| !(c.is_ascii_digit() || c == '-' || c == '_'))
+            .unwrap_or(s.len());
         let num = &s[..end];
         if num.is_empty() {
             return Err(format!("toml line {}: unsupported value {:?}", line, s));
         }
-        let i = num.replace('_', "").parse::<i64>().map_err(|e| format!("toml line {}: bad integer {:?}: {}", line, num, e))?;
+        let i = num
+            .replace('_', "")
+            .parse::<i64>()
+            .map_err(|e| format!("toml line {}: bad integer {:?}: {}", line, num, e))?;
         Ok((Value::Int(i), &s[end..]))
     }
 
     fn parse_value(s: &str, line: usize) -> Result<Value, String> {
         let s = s.trim();
         if let Some(inner) = s.strip_prefix('[') {
-            let inner = inner.strip_suffix(']').ok_or_else(|| format!("toml line {}: unterminated array", line))?;
+            let inner = inner
+                .strip_suffix(']')
+                .ok_or_else(|| format!("toml line {}: unterminated array", line))?;
             let mut items = Vec::new();
             let mut rest = inner.trim();
             while !rest.is_empty() {
@@ -2509,7 +2873,10 @@ pub mod toml {
     }
 
     pub fn parse(text: &str) -> Result<Doc, String> {
-        let mut doc = Doc { top: Vec::new(), tables: Vec::new() };
+        let mut doc = Doc {
+            top: Vec::new(),
+            tables: Vec::new(),
+        };
         let mut current: Option<usize> = None;
         for (idx, raw) in text.lines().enumerate() {
             let line_no = idx + 1;
@@ -2518,8 +2885,13 @@ pub mod toml {
                 continue;
             }
             if let Some(h) = line.strip_prefix("[[") {
-                let name = h.strip_suffix("]]").ok_or_else(|| format!("toml line {}: bad table header", line_no))?.trim();
-                if name.is_empty() || name.contains(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-')) {
+                let name = h
+                    .strip_suffix("]]")
+                    .ok_or_else(|| format!("toml line {}: bad table header", line_no))?
+                    .trim();
+                if name.is_empty()
+                    || name.contains(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-'))
+                {
                     return Err(format!("toml line {}: bad table name {:?}", line_no, name));
                 }
                 doc.tables.push((name.to_string(), Vec::new()));
@@ -2527,11 +2899,18 @@ pub mod toml {
                 continue;
             }
             if line.starts_with('[') {
-                return Err(format!("toml line {}: plain [table] headers are not supported", line_no));
+                return Err(format!(
+                    "toml line {}: plain [table] headers are not supported",
+                    line_no
+                ));
             }
-            let (k, v) = line.split_once('=').ok_or_else(|| format!("toml line {}: expected key = value", line_no))?;
+            let (k, v) = line
+                .split_once('=')
+                .ok_or_else(|| format!("toml line {}: expected key = value", line_no))?;
             let k = k.trim();
-            if k.is_empty() || k.contains(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-')) {
+            if k.is_empty()
+                || k.contains(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-'))
+            {
                 return Err(format!("toml line {}: bad key {:?}", line_no, k));
             }
             let v = parse_value(v, line_no)?;
@@ -2600,8 +2979,9 @@ pub struct Ruling {
 }
 
 impl Ruling {
-    pub const KEYS: &'static [&'static str] =
-        &["id", "plane", "field", "a", "b", "ref", "owner", "created", "expires", "hits", "stmt"];
+    pub const KEYS: &'static [&'static str] = &[
+        "id", "plane", "field", "a", "b", "ref", "owner", "created", "expires", "hits", "stmt",
+    ];
     const REQUIRED: &'static [&'static str] = &["id", "plane", "ref", "owner", "created", "hits"];
 
     fn from_fields(fields: &[(String, Value)]) -> Result<Ruling, String> {
@@ -2615,12 +2995,18 @@ impl Ruling {
         let date_ok = |s: &str| s.len() == 10 && s.as_bytes()[4] == b'-' && s.as_bytes()[7] == b'-';
         let created = req_str(&v, "created")?;
         if !date_ok(&created) {
-            return Err(format!("ruling {:?}: created must be YYYY-MM-DD", req_str(&v, "id")?));
+            return Err(format!(
+                "ruling {:?}: created must be YYYY-MM-DD",
+                req_str(&v, "id")?
+            ));
         }
         let expires = opt_str(&v, "expires")?;
         if let Some(e) = &expires {
             if !date_ok(e) {
-                return Err(format!("ruling {:?}: expires must be YYYY-MM-DD", req_str(&v, "id")?));
+                return Err(format!(
+                    "ruling {:?}: expires must be YYYY-MM-DD",
+                    req_str(&v, "id")?
+                ));
             }
         }
         Ok(Ruling {
@@ -2725,7 +3111,10 @@ impl Rulings {
     }
 
     pub fn to_json(&self) -> Value {
-        Value::obj().with("ruling", Value::Arr(self.rulings.iter().map(Ruling::to_json).collect()))
+        Value::obj().with(
+            "ruling",
+            Value::Arr(self.rulings.iter().map(Ruling::to_json).collect()),
+        )
     }
 }
 
@@ -2771,7 +3160,12 @@ mod tests {
             std::fs::create_dir_all(p.parent().unwrap()).unwrap();
             std::fs::write(&p, rendered).unwrap();
         }
-        assert_eq!(read(&p), rendered, "fixture {} differs from its builder output", name);
+        assert_eq!(
+            read(&p),
+            rendered,
+            "fixture {} differs from its builder output",
+            name
+        );
     }
 
     /// Schema walk: every `required` key present, every present key
@@ -2823,13 +3217,20 @@ mod tests {
             kind: StepKind::Sql,
             sql: Some("INSERT INTO fz_hp_3 (a, b) VALUES ((1, 2));".into()),
             xproto: None,
-            productions: vec!["dml.insert".into(), "dml.insert.values".into(), "expr.row".into()],
+            productions: vec![
+                "dml.insert".into(),
+                "dml.insert.values".into(),
+                "expr.row".into(),
+            ],
             targets: vec!["ereport:parser_analyze.c:1123".into()],
             ordered: Ordered::None,
             expect_c: Some("42601".into()),
             bracket: Some("txn-7".into()),
             recipe: Some("parser/analyze/parser_analyze-2".into()),
-            mutant: Some(Mutant { op: "arity".into(), seed: 91 }),
+            mutant: Some(Mutant {
+                op: "arity".into(),
+                seed: 91,
+            }),
             slots,
         }
     }
@@ -2868,8 +3269,14 @@ mod tests {
 
     fn common_wire_head() -> Vec<WireMsg> {
         vec![
-            WireMsg::ParameterStatus { name: Bytes::text("client_encoding"), value: Bytes::text("UTF8") },
-            WireMsg::BackendKeyData { pid: 41233, key: Bytes(vec![0x1f, 0x9a, 0x00, 0x7c]) },
+            WireMsg::ParameterStatus {
+                name: Bytes::text("client_encoding"),
+                value: Bytes::text("UTF8"),
+            },
+            WireMsg::BackendKeyData {
+                pid: 41233,
+                key: Bytes(vec![0x1f, 0x9a, 0x00, 0x7c]),
+            },
         ]
     }
 
@@ -2882,9 +3289,15 @@ mod tests {
             ('S', "ERROR"),
             ('V', "ERROR"),
             ('C', "23502"),
-            ('M', "null value in column \"a\" of relation \"t\" violates not-null constraint"),
+            (
+                'M',
+                "null value in column \"a\" of relation \"t\" violates not-null constraint",
+            ),
             ('D', "Failing row contains (null, 1)."),
-            ('H', "Supply a value for column \"a\" or drop the constraint."),
+            (
+                'H',
+                "Supply a value for column \"a\" or drop the constraint.",
+            ),
             ('P', "1"),
             ('p', "13"),
             ('q', "INSERT INTO t VALUES (NULL, 1)"),
@@ -2950,7 +3363,12 @@ mod tests {
             ]))
         };
         let mut wire = common_wire_head();
-        wire.push(info("analyzing \"public.t\"", "analyze.c", "319", "do_analyze_rel"));
+        wire.push(info(
+            "analyzing \"public.t\"",
+            "analyze.c",
+            "319",
+            "do_analyze_rel",
+        ));
         wire.push(info(
             "\"t\": scanned 1 of 1 pages, containing 10 live rows and 0 dead rows; 10 rows in sample, 10 estimated total rows",
             "analyze.c",
@@ -2960,11 +3378,30 @@ mod tests {
         wire.push(WireMsg::CommandComplete(Bytes::text("ANALYZE")));
         wire.push(WireMsg::ReadyForQuery { status: 'I' });
         wire.push(WireMsg::RowDescription(vec![
-            ColDesc { name: Bytes::text("a"), tableoid: 16401, attnum: 1, typoid: 23, typlen: 4, typmod: -1, fmt: 0 },
-            ColDesc { name: Bytes::text("?column?"), tableoid: 0, attnum: 0, typoid: 25, typlen: -1, typmod: -1, fmt: 0 },
+            ColDesc {
+                name: Bytes::text("a"),
+                tableoid: 16401,
+                attnum: 1,
+                typoid: 23,
+                typlen: 4,
+                typmod: -1,
+                fmt: 0,
+            },
+            ColDesc {
+                name: Bytes::text("?column?"),
+                tableoid: 0,
+                attnum: 0,
+                typoid: 25,
+                typlen: -1,
+                typmod: -1,
+                fmt: 0,
+            },
         ]));
         wire.push(WireMsg::DataRow(vec![Some(Bytes::text("1")), None]));
-        wire.push(WireMsg::DataRow(vec![Some(Bytes::text("2")), Some(Bytes(vec![0xff, 0x00, 0x41]))]));
+        wire.push(WireMsg::DataRow(vec![
+            Some(Bytes::text("2")),
+            Some(Bytes(vec![0xff, 0x00, 0x41])),
+        ]));
         wire.push(WireMsg::CommandComplete(Bytes::text("SELECT 2")));
         wire.push(WireMsg::NotificationResponse {
             pid: 41233,
@@ -3127,7 +3564,11 @@ mod tests {
         slots.insert("n".into(), "int4".into());
         RecipeHeader {
             id: "commands/analyze/analyze-1".into(),
-            targets: vec!["ereport:analyze.c:316".into(), "ereport:analyze.c:321".into(), "ereport:analyze.c:1345".into()],
+            targets: vec![
+                "ereport:analyze.c:316".into(),
+                "ereport:analyze.c:321".into(),
+                "ereport:analyze.c:1345".into(),
+            ],
             env: "base".into(),
             session: "superuser".into(),
             protocol: "simple".into(),
@@ -3151,7 +3592,13 @@ drop table t;
     fn rulings_fixture() -> Rulings {
         let owner = "fuzzgen ruled.rs (migrated by L0.0)";
         let created = "2026-09-02";
-        let row = |id: &str, plane: &str, field: Option<&str>, a: Option<&str>, b: Option<&str>, stmt: Option<&str>, reference: &str| Ruling {
+        let row = |id: &str,
+                   plane: &str,
+                   field: Option<&str>,
+                   a: Option<&str>,
+                   b: Option<&str>,
+                   stmt: Option<&str>,
+                   reference: &str| Ruling {
             id: id.into(),
             plane: plane.into(),
             field: field.map(Into::into),
@@ -3224,45 +3671,71 @@ drop table t;
 
     #[test]
     fn json_parse_and_canonical() {
-        let v = json::parse(r#" {"b": [1, -2, 3.5, "xé\n", null, true], "a": {"z": 1, "y": {}}} "#).unwrap();
+        let v = json::parse(r#" {"b": [1, -2, 3.5, "xé\n", null, true], "a": {"z": 1, "y": {}}} "#)
+            .unwrap();
         assert_eq!(
             json::to_canonical(&v).unwrap(),
             r#"{"a":{"y":{},"z":1},"b":[1,-2,3.5,"xé\n",null,true]}"#
         );
         let again = json::parse(&json::to_pretty(&v).unwrap()).unwrap();
-        assert_eq!(json::to_canonical(&again).unwrap(), json::to_canonical(&v).unwrap());
+        assert_eq!(
+            json::to_canonical(&again).unwrap(),
+            json::to_canonical(&v).unwrap()
+        );
         assert!(json::parse("{\"a\":1,}").is_err());
         assert!(json::parse("{\"a\":1} x").is_err());
         assert!(json::parse("{\"a\":1,\"a\":2}").is_err());
-        assert!(json::parse("\"\\ud83d\\ude00\"").unwrap().as_str().unwrap().starts_with('\u{1F600}'));
+        assert!(json::parse("\"\\ud83d\\ude00\"")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .starts_with('\u{1F600}'));
         assert_eq!(json::to_canonical(&Value::Float(2.0)).unwrap(), "2.0");
         assert!(json::to_canonical(&Value::Float(f64::NAN)).is_err());
     }
 
     #[test]
     fn bytes_json_is_lossless() {
-        for b in [b"plain".to_vec(), b"tab\tand\nnewline".to_vec(), vec![0xff, 0x00, 0x41], b"\x01ctl".to_vec()] {
+        for b in [
+            b"plain".to_vec(),
+            b"tab\tand\nnewline".to_vec(),
+            vec![0xff, 0x00, 0x41],
+            b"\x01ctl".to_vec(),
+        ] {
             let v = Bytes(b.clone()).to_json();
             assert_eq!(Bytes::from_json(&v).unwrap(), Bytes(b));
         }
-        assert_eq!(Bytes(vec![0xff, 0x00]).to_json(), Value::obj().with("hex", Value::from("ff00")));
+        assert_eq!(
+            Bytes(vec![0xff, 0x00]).to_json(),
+            Value::obj().with("hex", Value::from("ff00"))
+        );
     }
 
     // ---- StepRecord ----
 
     #[test]
     fn step_record_fixture() {
-        for (name, rec) in [("step-record.json", step_fixture()), ("step-record-xproto.json", step_xproto_fixture())] {
+        for (name, rec) in [
+            ("step-record.json", step_fixture()),
+            ("step-record-xproto.json", step_xproto_fixture()),
+        ] {
             let rendered = json::to_pretty(&rec.to_json()).unwrap();
             pin(name, &rendered);
-            let parsed = StepRecord::from_json(&json::parse(&read(&fixture_path(name))).unwrap()).unwrap();
+            let parsed =
+                StepRecord::from_json(&json::parse(&read(&fixture_path(name))).unwrap()).unwrap();
             assert_eq!(parsed, rec);
             assert_eq!(json::to_pretty(&parsed.to_json()).unwrap(), rendered);
             assert_eq!(StepRecord::from_jsonl(&rec.to_jsonl()).unwrap(), rec);
             check_schema(&schema("step-record.schema.json"), &parsed.to_json(), name);
         }
-        assert_eq!(StepKind::parse("probe:catalog").unwrap(), StepKind::Probe("catalog".into()));
-        assert_eq!(StepKind::parse("env:reload").unwrap().to_string_key(), "env:reload");
+        assert_eq!(
+            StepKind::parse("probe:catalog").unwrap(),
+            StepKind::Probe("catalog".into())
+        );
+        assert_eq!(
+            StepKind::parse("env:reload").unwrap().to_string_key(),
+            "env:reload"
+        );
         assert!(StepKind::parse("probe:").is_err());
         assert!(StepKind::parse("bogus").is_err());
     }
@@ -3280,15 +3753,22 @@ drop table t;
         for (name, rec) in cases {
             let rendered = json::to_pretty(&rec.to_json()).unwrap();
             pin(name, &rendered);
-            let parsed = ObservationRecord::from_json(&json::parse(&read(&fixture_path(name))).unwrap()).unwrap();
+            let parsed =
+                ObservationRecord::from_json(&json::parse(&read(&fixture_path(name))).unwrap())
+                    .unwrap();
             assert_eq!(parsed, rec);
             assert_eq!(json::to_pretty(&parsed.to_json()).unwrap(), rendered);
-            assert_eq!(ObservationRecord::from_jsonl(&rec.to_jsonl().unwrap()).unwrap(), rec);
+            assert_eq!(
+                ObservationRecord::from_jsonl(&rec.to_jsonl().unwrap()).unwrap(),
+                rec
+            );
             check_schema(&sch, &parsed.to_json(), name);
         }
         // Every ErrorResponse field code the protocol defines is present
         // in the error fixture.
-        let WireMsg::ErrorResponse(f) = &obs_error_fixture().wire[0] else { panic!() };
+        let WireMsg::ErrorResponse(f) = &obs_error_fixture().wire[0] else {
+            panic!()
+        };
         for c in "SVCMDHPpqWstcdnFLR".chars() {
             assert!(f.contains_key(&c), "error fixture lacks field {}", c);
         }
@@ -3305,12 +3785,27 @@ drop table t;
             WireMsg::PortalSuspended,
             WireMsg::CopyDone,
             WireMsg::ParameterDescription(vec![23, 25]),
-            WireMsg::CopyInResponse { fmt: 0, col_fmts: vec![0, 0] },
-            WireMsg::CopyOutResponse { fmt: 1, col_fmts: vec![1] },
+            WireMsg::CopyInResponse {
+                fmt: 0,
+                col_fmts: vec![0, 0],
+            },
+            WireMsg::CopyOutResponse {
+                fmt: 1,
+                col_fmts: vec![1],
+            },
             WireMsg::CopyData(Bytes(vec![b'a', b'\t', 0x00])),
-            WireMsg::Authentication { kind: 10, data: Bytes::text("SCRAM-SHA-256\0\0") },
-            WireMsg::NegotiateProtocolVersion { minor: 0, unknown_options: vec![Bytes::text("_pq_.foo")] },
-            WireMsg::Raw { code: 'Q', data: Bytes(vec![1, 2, 3]) },
+            WireMsg::Authentication {
+                kind: 10,
+                data: Bytes::text("SCRAM-SHA-256\0\0"),
+            },
+            WireMsg::NegotiateProtocolVersion {
+                minor: 0,
+                unknown_options: vec![Bytes::text("_pq_.foo")],
+            },
+            WireMsg::Raw {
+                code: 'Q',
+                data: Bytes(vec![1, 2, 3]),
+            },
         ];
         for m in msgs {
             let v = m.to_json();
@@ -3355,7 +3850,13 @@ drop table t;
         // Content-addressed: the id is a pure function of the canonical
         // form, key order on disk does not matter, any axis change does.
         assert_eq!(c.cell_id(), parsed.cell_id());
-        assert_eq!(c.cell_id(), CELL_BASE_ID, "base cell id drifted: id={} canonical={}", c.cell_id(), c.canonical_json());
+        assert_eq!(
+            c.cell_id(),
+            CELL_BASE_ID,
+            "base cell id drifted: id={} canonical={}",
+            c.cell_id(),
+            c.canonical_json()
+        );
         let mut other = c.clone();
         other.conf_cmm = Some("debug1".into());
         assert_ne!(other.cell_id(), c.cell_id());
@@ -3378,12 +3879,24 @@ drop table t;
         assert_eq!(parsed, h);
         assert_eq!(&text[body_start..], RECIPE_BODY);
         assert_eq!(parsed.render(), h.render());
-        check_schema(&schema("recipe-header.schema.json"), &parsed.to_json(), "recipe-header");
+        check_schema(
+            &schema("recipe-header.schema.json"),
+            &parsed.to_json(),
+            "recipe-header",
+        );
         assert_eq!(RecipeHeader::from_json(&parsed.to_json()).unwrap(), h);
         // Header ends at the first non-header line; missing keys are errors.
-        assert!(RecipeHeader::parse("-- id: x\nselect 1;\n").unwrap_err().contains("missing required key"));
-        assert!(RecipeHeader::parse(&format!("{}-- id: dup\n", h.render())).unwrap_err().contains("duplicate"));
-        let (_, off) = RecipeHeader::parse(&format!("\n{}\n-- a plain comment\nselect 1;\n", h.render())).unwrap();
+        assert!(RecipeHeader::parse("-- id: x\nselect 1;\n")
+            .unwrap_err()
+            .contains("missing required key"));
+        assert!(RecipeHeader::parse(&format!("{}-- id: dup\n", h.render()))
+            .unwrap_err()
+            .contains("duplicate"));
+        let (_, off) = RecipeHeader::parse(&format!(
+            "\n{}\n-- a plain comment\nselect 1;\n",
+            h.render()
+        ))
+        .unwrap();
         assert_eq!(off, 1 + h.render().len() + 1);
     }
 
@@ -3409,20 +3922,32 @@ drop table t;
 
     #[test]
     fn toml_subset_errors_are_loud() {
-        assert!(Rulings::parse("[[ruling]]\nid = \"x\"\n").unwrap_err().contains("missing required key"));
-        assert!(Rulings::parse("[table]\n").unwrap_err().contains("not supported"));
+        assert!(Rulings::parse("[[ruling]]\nid = \"x\"\n")
+            .unwrap_err()
+            .contains("missing required key"));
+        assert!(Rulings::parse("[table]\n")
+            .unwrap_err()
+            .contains("not supported"));
         assert!(Rulings::parse("x = 1\n").unwrap_err().contains("top-level"));
         assert!(toml::parse("a = 1.5\n").is_err());
         assert!(toml::parse("a = \"unterminated\n").is_err());
-        assert!(toml::parse("a = 1\na = 2\n").unwrap_err().contains("duplicate"));
-        let d = toml::parse("# c\n[[r]]\nk = 'lit # not comment' # comment\nn = -4_2\nb = true\nl = [\"a\", 'b']\n").unwrap();
+        assert!(toml::parse("a = 1\na = 2\n")
+            .unwrap_err()
+            .contains("duplicate"));
+        let d = toml::parse(
+            "# c\n[[r]]\nk = 'lit # not comment' # comment\nn = -4_2\nb = true\nl = [\"a\", 'b']\n",
+        )
+        .unwrap();
         assert_eq!(
             d.tables[0].1,
             vec![
                 ("k".to_string(), Value::from("lit # not comment")),
                 ("n".to_string(), Value::Int(-42)),
                 ("b".to_string(), Value::Bool(true)),
-                ("l".to_string(), Value::Arr(vec![Value::from("a"), Value::from("b")])),
+                (
+                    "l".to_string(),
+                    Value::Arr(vec![Value::from("a"), Value::from("b")])
+                ),
             ]
         );
         assert_eq!(toml::quote("a\"b\\c\n"), "\"a\\\"b\\\\c\\n\"");

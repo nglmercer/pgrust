@@ -262,7 +262,13 @@ pub fn reconstruct_from_incremental_file(
      */
     if let Some(ci) = copy_source_index {
         let copy_src = source[ci].as_ref().unwrap().filename.clone();
-        copy_file(&copy_src, output_filename, &mut checksum_ctx, copy_method, dry_run);
+        copy_file(
+            &copy_src,
+            output_filename,
+            &mut checksum_ctx,
+            copy_method,
+            dry_run,
+        );
     } else if sidx == 0 && source[0].as_ref().unwrap().header_length != 0 {
         pg_fatal!(
             "full backup contains unexpected incremental file \"{}\"",
@@ -421,7 +427,7 @@ fn make_incremental_rfile(filename: &Path) -> Rfile {
      * Round header length to a multiple of BLCKSZ, so that block contents
      * are properly aligned. Only when the file actually has data blocks.
      */
-    if rf.num_blocks > 0 && ! rf.header_length.is_multiple_of( BLCKSZ) {
+    if rf.num_blocks > 0 && !rf.header_length.is_multiple_of(BLCKSZ) {
         rf.header_length += BLCKSZ - (rf.header_length % BLCKSZ);
     }
 
@@ -599,7 +605,12 @@ fn write_reconstructed_file(
              * an uninitialized block, so just zero-fill it.
              */
             buffer.fill(0);
-            write_block(wfd.as_mut().unwrap(), output_filename, &buffer, checksum_ctx);
+            write_block(
+                wfd.as_mut().unwrap(),
+                output_filename,
+                &buffer,
+                checksum_ctx,
+            );
             continue;
         };
 
@@ -610,7 +621,12 @@ fn write_reconstructed_file(
              * out, possibly with a checksum update.
              */
             read_block(s, offsetmap[i], &mut buffer);
-            write_block(wfd.as_mut().unwrap(), output_filename, &buffer, checksum_ctx);
+            write_block(
+                wfd.as_mut().unwrap(),
+                output_filename,
+                &buffer,
+                checksum_ctx,
+            );
         } else {
             /* use copy_file_range */
             copy_block_by_range(

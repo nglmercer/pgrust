@@ -22,7 +22,11 @@ pub struct RemoteConn {
 
 impl RemoteConn {
     fn new(conn: PgConn) -> RemoteConn {
-        RemoteConn { conn, open_cursor_count: 0, new_xact_for_cursor: false }
+        RemoteConn {
+            conn,
+            open_cursor_count: 0,
+            new_xact_for_cursor: false,
+        }
     }
 }
 
@@ -147,7 +151,11 @@ fn close_connections_at_exit(_code: i32, _arg: usize) {
         terminate(slot);
     }
     let _ = PCONN_COUNTERS.try_with(|k| k.set((0, false)));
-    let named = NAMED.try_with(|m| m.try_borrow_mut().ok().map(|mut m| core::mem::replace(&mut *m, NamedConns::new())));
+    let named = NAMED.try_with(|m| {
+        m.try_borrow_mut()
+            .ok()
+            .map(|mut m| core::mem::replace(&mut *m, NamedConns::new()))
+    });
     if let Ok(Some(named)) = named {
         named.map.into_values().for_each(terminate);
     }
@@ -195,7 +203,7 @@ pub fn init() -> PgResult<()> {
 // partial multibyte tail, and distinct tails must stay distinct keys.
 fn conn_key(name: &str, warn: bool) -> PgResult<Vec<u8>> {
     if name.len() < NAMEDATALEN as usize {
-        return::mcx::std_vec_from_slice("dblink",name.as_bytes());
+        return ::mcx::std_vec_from_slice("dblink", name.as_bytes());
     }
     let scratch = mcx::MemoryContext::new("dblink conn key");
     let mut buf: mcx::PgVec<'_, u8> = mcx::vec_with_capacity_in(scratch.mcx(), name.len())?;
@@ -229,7 +237,11 @@ fn lift(slot: &mut Slot) -> Option<RemoteConn> {
     }
 }
 
-fn run_lifted<R>(slot_cancel: Option<pgclient::CancelTarget>, taken: Option<RemoteConn>, f: impl FnOnce(Access) -> R) -> (R, Option<RemoteConn>) {
+fn run_lifted<R>(
+    slot_cancel: Option<pgclient::CancelTarget>,
+    taken: Option<RemoteConn>,
+    f: impl FnOnce(Access) -> R,
+) -> (R, Option<RemoteConn>) {
     match (taken, slot_cancel) {
         (Some(mut rc), _) => {
             let r = f(Access::Ready(&mut rc));
@@ -271,7 +283,11 @@ pub fn set_unnamed(conn: PgConn) {
         old.conn.terminate();
     }
     let (open_cursor_count, new_xact_for_cursor) = PCONN_COUNTERS.with(Cell::get);
-    let rc = RemoteConn { conn, open_cursor_count, new_xact_for_cursor };
+    let rc = RemoteConn {
+        conn,
+        open_cursor_count,
+        new_xact_for_cursor,
+    };
     PCONN.with(|c| *c.borrow_mut() = Some(Slot::Ready(rc)));
 }
 
@@ -359,7 +375,10 @@ pub fn unreserve_named(name: &str) -> PgResult<()> {
 pub fn store_named(name: &str, conn: PgConn) -> PgResult<()> {
     let key = conn_key(name, false)?;
     NAMED.with(|m| {
-        let prev = m.borrow_mut().map.insert(key, Slot::Ready(RemoteConn::new(conn)));
+        let prev = m
+            .borrow_mut()
+            .map
+            .insert(key, Slot::Ready(RemoteConn::new(conn)));
         debug_assert!(prev.is_none(), "store_named without reserve_named");
         Ok(())
     })
@@ -384,7 +403,10 @@ pub fn delete_named(name: &str) -> PgResult<()> {
 pub fn all_named_names() -> Vec<Vec<u8>> {
     NAMED.with(|m| {
         let m = m.borrow();
-        m.scan_order().into_iter().filter(|k| m.map.contains_key(k)).collect()
+        m.scan_order()
+            .into_iter()
+            .filter(|k| m.map.contains_key(k))
+            .collect()
     })
 }
 
@@ -404,7 +426,8 @@ pub fn conn_not_avail(conname: Option<&str>) -> Box<PgError> {
 pub fn connstr_has_pw(connstr: &str) -> bool {
     match pgclient::parse_conninfo(connstr) {
         Ok(opts) => {
-            opts.iter().all(|(k, _)| pgclient::conninfo::lookup_option(k).is_some())
+            opts.iter()
+                .all(|(k, _)| pgclient::conninfo::lookup_option(k).is_some())
                 && pgclient::opt(&opts, "password").is_some_and(|p| !p.is_empty())
         }
         Err(_) => false,
@@ -415,7 +438,8 @@ pub fn connstr_has_pw(connstr: &str) -> bool {
 // login was a completed SCRAM exchange, so its ClientKey/ServerKey are held
 // in the Port (auth-scram.c, exchange.rs) for pass-through.
 fn port_has_scram_keys() -> bool {
-    init_small::globals::HaveMyProcPort() && init_small::globals::WithMyProcPort(|p| p.has_scram_keys)
+    init_small::globals::HaveMyProcPort()
+        && init_small::globals::WithMyProcPort(|p| p.has_scram_keys)
 }
 
 // dblink_connstr_has_required_scram_options (dblink.c:2626): the connstr
@@ -542,13 +566,28 @@ pub fn get_connect_string(mcx: mcx::Mcx<'_>, servername: &str) -> PgResult<Optio
     // options always carry values (grammar-enforced), so a NULL here is the
     // hand-built-text[] path C would crash on — error loudly instead.
     for opt in fdw.options.iter() {
-        append_opt(&mut buf, opt.name, opt.require_value()?, crate::fdw::FDW_CONTEXT);
+        append_opt(
+            &mut buf,
+            opt.name,
+            opt.require_value()?,
+            crate::fdw::FDW_CONTEXT,
+        );
     }
     for opt in server.options.iter() {
-        append_opt(&mut buf, opt.name, opt.require_value()?, crate::fdw::SERVER_CONTEXT);
+        append_opt(
+            &mut buf,
+            opt.name,
+            opt.require_value()?,
+            crate::fdw::SERVER_CONTEXT,
+        );
     }
     for opt in mapping.options.iter() {
-        append_opt(&mut buf, opt.name, opt.require_value()?, crate::fdw::USER_MAPPING_CONTEXT);
+        append_opt(
+            &mut buf,
+            opt.name,
+            opt.require_value()?,
+            crate::fdw::USER_MAPPING_CONTEXT,
+        );
     }
     Ok(Some(buf))
 }
@@ -559,12 +598,10 @@ pub fn get_connect_string(mcx: mcx::Mcx<'_>, servername: &str) -> PgResult<Optio
 fn append_scram_keys_info(buf: &mut String) -> PgResult<()> {
     let (client, server) =
         init_small::globals::WithMyProcPort(|p| (p.scram_client_key, p.scram_server_key));
-    let client_key = b64_key(&client).ok_or_else(|| {
-        Box::new(PgError::error("could not encode SCRAM client key"))
-    })?;
-    let server_key = b64_key(&server).ok_or_else(|| {
-        Box::new(PgError::error("could not encode SCRAM server key"))
-    })?;
+    let client_key = b64_key(&client)
+        .ok_or_else(|| Box::new(PgError::error("could not encode SCRAM client key")))?;
+    let server_key = b64_key(&server)
+        .ok_or_else(|| Box::new(PgError::error("could not encode SCRAM server key")))?;
     buf.push_str(&format!("scram_client_key='{client_key}' "));
     buf.push_str(&format!("scram_server_key='{server_key}' "));
     buf.push_str("require_auth='scram-sha-256' ");
@@ -592,7 +629,9 @@ fn use_scram_passthrough<'mcx>(
 ) -> PgResult<bool> {
     for opt in mapping.options.iter().chain(server.options.iter()) {
         if opt.name == "use_scram_passthrough" {
-            return commands_define::defGetBoolean(&crate::fdw::mk_def_elem(mcx, opt.name, opt.value)?);
+            return commands_define::defGetBoolean(&crate::fdw::mk_def_elem(
+                mcx, opt.name, opt.value,
+            )?);
         }
     }
     Ok(false)
@@ -632,7 +671,10 @@ mod tests {
         reserve_named("cx").unwrap();
         reserve_named("cx").unwrap();
         NAMED.with(|m| {
-            m.borrow_mut().map.insert(b"cx".to_vec(), Slot::InUse(pgclient::CancelTarget::detached()))
+            m.borrow_mut().map.insert(
+                b"cx".to_vec(),
+                Slot::InUse(pgclient::CancelTarget::detached()),
+            )
         });
         let e = reserve_named("cx").unwrap_err();
         assert_eq!(e.sqlstate, ERRCODE_DUPLICATE_OBJECT);
@@ -657,7 +699,10 @@ mod tests {
         }
         assert!(!h.enter(b"beta"));
         let order = |h: &NamedConns| -> Vec<String> {
-            h.scan_order().into_iter().map(|k| String::from_utf8(k).unwrap()).collect()
+            h.scan_order()
+                .into_iter()
+                .map(|k| String::from_utf8(k).unwrap())
+                .collect()
         };
         assert_eq!(order(&h), ["alpha", "delta", "dtest1", "gamma", "beta"]);
         assert!(h.remove(b"beta"));
@@ -695,7 +740,10 @@ mod tests {
         NAMED.with(|m| *m.borrow_mut() = NamedConns::new());
         reserve_named("busy").unwrap();
         NAMED.with(|m| {
-            m.borrow_mut().map.insert(b"busy".to_vec(), Slot::InUse(pgclient::CancelTarget::detached()))
+            m.borrow_mut().map.insert(
+                b"busy".to_vec(),
+                Slot::InUse(pgclient::CancelTarget::detached()),
+            )
         });
         let seen = with_named_present("busy", |a| match a {
             Access::Busy(t) => t.cancel(0).unwrap(),
@@ -748,7 +796,10 @@ mod tests {
             connstr_scram_options(&format!("{full} scram_server_key=")),
             (true, false, true)
         );
-        assert_eq!(connstr_scram_options("host=h user=u"), (false, false, false));
+        assert_eq!(
+            connstr_scram_options("host=h user=u"),
+            (false, false, false)
+        );
         // URI form: the base64 '=' padding must be percent-encoded in a
         // query parameter (a bare '=' is "extra key/value separator").
         let ukey = key.replace('=', "%3D");

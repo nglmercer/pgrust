@@ -21,11 +21,22 @@ const STORED: i8 = types_core::catalog::ATTRIBUTE_GENERATED_STORED as i8;
 
 impl StoredGenerated {
     pub fn new() -> StoredGenerated {
-        StoredGenerated { armed: None, exprs: None, slot: None, words: Vec::new(), wnulls: Vec::new(), replaced: false } // alloc: Node
+        StoredGenerated {
+            armed: None,
+            exprs: None,
+            slot: None,
+            words: Vec::new(),
+            wnulls: Vec::new(),
+            replaced: false,
+        } // alloc: Node
     }
 
     fn arm(rel: &Relation<'_>) -> bool {
-        rel.rd_att.constr.as_deref().is_some_and(|c| c.has_generated_stored) || (0..rel.rd_att.natts as usize).any(|i| rel.rd_att.attr(i).attgenerated == STORED)
+        rel.rd_att
+            .constr
+            .as_deref()
+            .is_some_and(|c| c.has_generated_stored)
+            || (0..rel.rd_att.natts as usize).any(|i| rel.rd_att.attr(i).attgenerated == STORED)
     }
 
     pub fn reset(&mut self, mcx: Mcx<'static>) {
@@ -50,7 +61,12 @@ impl StoredGenerated {
     }
 
     pub fn take_words(&mut self) -> Option<(Vec<u64>, Vec<u8>)> {
-        self.replaced.then(|| (core::mem::take(&mut self.words), core::mem::take(&mut self.wnulls)))
+        self.replaced.then(|| {
+            (
+                core::mem::take(&mut self.words),
+                core::mem::take(&mut self.wnulls),
+            )
+        })
     }
 
     pub fn keep(&mut self, w: (Vec<u64>, Vec<u8>)) {
@@ -58,7 +74,14 @@ impl StoredGenerated {
         self.wnulls = w.1;
     }
 
-    pub fn compute(&mut self, mcx: Mcx<'static>, row_mcx: Mcx<'_>, rel: &Relation<'static>, values: &mut [Datum], nulls: &mut [bool]) -> PgResult<()> {
+    pub fn compute(
+        &mut self,
+        mcx: Mcx<'static>,
+        row_mcx: Mcx<'_>,
+        rel: &Relation<'static>,
+        values: &mut [Datum],
+        nulls: &mut [bool],
+    ) -> PgResult<()> {
         self.replaced = false;
         if !*self.armed.get_or_insert_with(|| Self::arm(rel)) {
             return Ok(());
@@ -67,7 +90,11 @@ impl StoredGenerated {
             // a virtual slot: its materialized row goes into the slot's retained buffer, reused row after row. The
             // relation's own slot kind formed a new heap image per row, which the per-bind context (a bump context: a
             // free is a no-op) kept until unbind, where PG pfrees it at the next clear.
-            self.slot = Some(exectuples::make_tuple_table_slot(mcx, types_slot::TupleSlotKind::Virtual, Some(rel.rd_att.clone()))); // alloc: Exec
+            self.slot = Some(exectuples::make_tuple_table_slot(
+                mcx,
+                types_slot::TupleSlotKind::Virtual,
+                Some(rel.rd_att.clone()),
+            )); // alloc: Exec
         }
         let slot = self.slot.as_mut().expect("just created");
         exectuples::exec_clear_tuple(slot, mcx);
@@ -79,7 +106,13 @@ impl StoredGenerated {
         }
         exectuples::exec_store_virtual_tuple(slot);
         slot.base_mut().tts_tableOid = rel.rd_id;
-        nodemodifytable::exec_compute_stored_generated_in_row(mcx, row_mcx, &mut self.exprs, rel, slot)?;
+        nodemodifytable::exec_compute_stored_generated_in_row(
+            mcx,
+            row_mcx,
+            &mut self.exprs,
+            rel,
+            slot,
+        )?;
         exectuples::slot_getallattrs(slot);
         let base = slot.base();
         self.words.clear();
@@ -116,8 +149,16 @@ mod tests {
         g.replaced = true;
         let taken = g.take_words().expect("computed");
         g.keep(taken);
-        assert_eq!(g.written(), Some((&[7u64, 14][..], &[0u8, 0][..])), "the row as written, after the op's take and keep");
+        assert_eq!(
+            g.written(),
+            Some((&[7u64, 14][..], &[0u8, 0][..])),
+            "the row as written, after the op's take and keep"
+        );
         g.forget();
-        assert_eq!(g.written(), None, "a DELETE after an INSERT in one host (MERGE) hands back no computed row");
+        assert_eq!(
+            g.written(),
+            None,
+            "a DELETE after an INSERT in one host (MERGE) hands back no computed row"
+        );
     }
 }

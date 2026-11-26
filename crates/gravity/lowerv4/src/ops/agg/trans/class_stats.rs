@@ -21,10 +21,10 @@ use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{ConvOp, IntBinOp, IntCond, Type, Value};
 use mcx::{CollectIn, Mcx, PgVec};
 
+use crate::admit::refusal::Reason;
 use crate::face::fold::{Acc, AccShape, AnswerForm, BlockFold, ClassImpl, FinalOrder, FoldClass};
 use crate::face::kinds::KindId;
 use crate::frame::env::Env;
-use crate::admit::refusal::Reason;
 use crate::ops::Table;
 use crate::rep::CellRef;
 
@@ -35,7 +35,11 @@ crate::strategies! {
 }
 
 #[allow(clippy::needless_update)]
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::ClassStats, &ClassImpl(&STATS))], strategies: &[(STAT_REG, &())], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::ClassStats, &ClassImpl(&STATS))],
+    strategies: &[(STAT_REG, &())],
+    ..crate::ops::NONE
+};
 
 struct Stats;
 static STATS: Stats = Stats;
@@ -55,19 +59,52 @@ impl FoldClass for Stats {
     fn init(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, acc: Acc<'_>) {
         pick(a).init(b, env, a, acc)
     }
-    fn step(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, acc: Acc<'_>, args: &[CellRef<'_>]) {
+    fn step(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        a: &AggDecl<'_>,
+        acc: Acc<'_>,
+        args: &[CellRef<'_>],
+    ) {
         pick(a).step(b, env, a, acc, args)
     }
-    fn merge(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, into: Acc<'_>, from: Acc<'_>) {
+    fn merge(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        a: &AggDecl<'_>,
+        into: Acc<'_>,
+        from: Acc<'_>,
+    ) {
         pick(a).merge(b, env, a, into, from)
     }
-    fn finish(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, acc: Acc<'_>) -> (Value, Value) {
+    fn finish(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        a: &AggDecl<'_>,
+        acc: Acc<'_>,
+    ) -> (Value, Value) {
         pick(a).finish(b, env, a, acc)
     }
-    fn finish_direct(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, acc: Acc<'_>, direct: &[(Value, Value)]) -> (Value, Value) {
+    fn finish_direct(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        a: &AggDecl<'_>,
+        acc: Acc<'_>,
+        direct: &[(Value, Value)],
+    ) -> (Value, Value) {
         pick(a).finish_direct(b, env, a, acc, direct)
     }
-    fn fold_ahead(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, acc: Acc<'_>) {
+    fn fold_ahead(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        a: &AggDecl<'_>,
+        acc: Acc<'_>,
+    ) {
         pick(a).fold_ahead(b, env, a, acc)
     }
     fn order(&self, a: &AggDecl<'_>) -> Option<FinalOrder> {
@@ -90,7 +127,10 @@ static EXACT: Exact = Exact;
 /// The companion's word offset from the slot's and its validity (the next bit), as class_num's dscale companion.
 fn companion(off: i32, valid: CellValid) -> (i32, CellValid) {
     let v = match valid {
-        CellValid::Bit { off, bit: 7 } => CellValid::Bit { off: off + 1, bit: 0 },
+        CellValid::Bit { off, bit: 7 } => CellValid::Bit {
+            off: off + 1,
+            bit: 0,
+        },
         CellValid::Bit { off, bit } => CellValid::Bit { off, bit: bit + 1 },
         v => v,
     };
@@ -130,7 +170,12 @@ fn store(b: &mut FunctionBuilder<'_>, env: &Env, acc: Acc<'_>, w: &[Value]) {
 }
 
 /// Two states added (`numeric_poly_combine`: each sum exact in 128 bits, the counts).
-fn combine<'e>(b: &mut FunctionBuilder<'_>, mcx: Mcx<'e>, x: &[Value], y: &[Value]) -> PgVec<'e, Value> {
+fn combine<'e>(
+    b: &mut FunctionBuilder<'_>,
+    mcx: Mcx<'e>,
+    x: &[Value],
+    y: &[Value],
+) -> PgVec<'e, Value> {
     use crate::ops::agg::trans::class_word::add128;
     let (lo, hi) = add128(b, x[0], x[1], y[0], y[1]);
     let (qlo, qhi) = add128(b, x[2], x[3], y[2], y[3]);
@@ -156,13 +201,22 @@ fn form(env: &Env, a: &AggDecl<'_>) -> (bool, bool) {
         Class::Stat3I128(Stat::VarSamp) => (false, true),
         Class::Stat3I128(Stat::StddevPop) => (true, false),
         Class::Stat3I128(Stat::StddevSamp) => (true, true),
-        _ => crate::refuse!(env.node, Reason::Bug { payload: "the exact stat register over another class" }),
+        _ => crate::refuse!(
+            env.node,
+            Reason::Bug {
+                payload: "the exact stat register over another class"
+            }
+        ),
     }
 }
 
 impl FoldClass for Exact {
     fn shape(&self, _a: &AggDecl<'_>) -> AccShape {
-        AccShape { words: 5, bytes: 40, align: 8 }
+        AccShape {
+            words: 5,
+            bytes: 40,
+            align: 8,
+        }
     }
 
     fn init(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, _a: &AggDecl<'_>, acc: Acc<'_>) {
@@ -171,9 +225,21 @@ impl FoldClass for Exact {
     }
 
     /// One row (`row`) added to the state; a NULL argument is the strict transition's skip.
-    fn step(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, acc: Acc<'_>, args: &[CellRef<'_>]) {
+    fn step(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        a: &AggDecl<'_>,
+        acc: Acc<'_>,
+        args: &[CellRef<'_>],
+    ) {
         if args.len() != 1 {
-            crate::refuse!(env.node, Reason::Bug { payload: "the exact stat register over other than one argument" });
+            crate::refuse!(
+                env.node,
+                Reason::Bug {
+                    payload: "the exact stat register over other than one argument"
+                }
+            );
         }
         let (x, ok) = crate::ops::agg::trans::plain::args_ok(b, env, a, args);
         let r = row(b, x, ok, env.zero);
@@ -182,7 +248,14 @@ impl FoldClass for Exact {
         store(b, env, acc, &new[..]);
     }
 
-    fn merge(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, _a: &AggDecl<'_>, into: Acc<'_>, from: Acc<'_>) {
+    fn merge(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        _a: &AggDecl<'_>,
+        into: Acc<'_>,
+        from: Acc<'_>,
+    ) {
         let (x, y) = (load(b, env, &into), load(b, env, &from));
         let new = combine(b, env.mcx, &x[..], &y[..]);
         store(b, env, into, &new[..]);
@@ -190,18 +263,51 @@ impl FoldClass for Exact {
 
     /// `numeric_poly_stddev_internal` over the state (gravity_fn agg_final `int128_stat`): NULL with no row, or one row
     /// for a sample form, as PG's (the host is entered only past that).
-    fn finish(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, acc: Acc<'_>) -> (Value, Value) {
+    fn finish(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        a: &AggDecl<'_>,
+        acc: Acc<'_>,
+    ) -> (Value, Value) {
         let (root, samp) = form(env, a);
         let w = load(b, env, &acc);
         let one = b.iconst(Type::I64, 1);
-        let null = b.icmp(if samp { IntCond::Sle } else { IntCond::Eq }, w[4], if samp { one } else { env.zero });
+        let null = b.icmp(
+            if samp { IntCond::Sle } else { IntCond::Eq },
+            w[4],
+            if samp { one } else { env.zero },
+        );
         let (name, host) = match (root, samp) {
-            (false, false) => ("gravity_expr::int_var_pop", gravity_abi::host_words!(gravity_expr::emit::agg::int_var_pop(region, sx_lo, sx_hi, sq_lo, sq_hi, n))),
-            (false, true) => ("gravity_expr::int_var_samp", gravity_abi::host_words!(gravity_expr::emit::agg::int_var_samp(region, sx_lo, sx_hi, sq_lo, sq_hi, n))),
-            (true, false) => ("gravity_expr::int_stddev_pop", gravity_abi::host_words!(gravity_expr::emit::agg::int_stddev_pop(region, sx_lo, sx_hi, sq_lo, sq_hi, n))),
-            (true, true) => ("gravity_expr::int_stddev_samp", gravity_abi::host_words!(gravity_expr::emit::agg::int_stddev_samp(region, sx_lo, sx_hi, sq_lo, sq_hi, n))),
+            (false, false) => (
+                "gravity_expr::int_var_pop",
+                gravity_abi::host_words!(gravity_expr::emit::agg::int_var_pop(
+                    region, sx_lo, sx_hi, sq_lo, sq_hi, n
+                )),
+            ),
+            (false, true) => (
+                "gravity_expr::int_var_samp",
+                gravity_abi::host_words!(gravity_expr::emit::agg::int_var_samp(
+                    region, sx_lo, sx_hi, sq_lo, sq_hi, n
+                )),
+            ),
+            (true, false) => (
+                "gravity_expr::int_stddev_pop",
+                gravity_abi::host_words!(gravity_expr::emit::agg::int_stddev_pop(
+                    region, sx_lo, sx_hi, sq_lo, sq_hi, n
+                )),
+            ),
+            (true, true) => (
+                "gravity_expr::int_stddev_samp",
+                gravity_abi::host_words!(gravity_expr::emit::agg::int_stddev_samp(
+                    region, sx_lo, sx_hi, sq_lo, sq_hi, n
+                )),
+            ),
         };
-        (crate::ops::agg::trans::plain::host_final(b, env, name, host, &w[..], null), null)
+        (
+            crate::ops::agg::trans::plain::host_final(b, env, name, host, &w[..], null),
+            null,
+        )
     }
 }
 
@@ -210,7 +316,11 @@ mod tests {
     use super::*;
 
     /// `f` over word params, its words returned, in the interpreter.
-    fn run(args: &[u64], out: usize, f: impl FnOnce(&mut FunctionBuilder<'_>, &[Value]) -> Vec<Value>) -> Vec<u64> {
+    fn run(
+        args: &[u64],
+        out: usize,
+        f: impl FnOnce(&mut FunctionBuilder<'_>, &[Value]) -> Vec<Value>,
+    ) -> Vec<u64> {
         let mut pb = gravity_ir::builder::ProgramBuilder::new();
         let fid = pb.declare_func("t", &vec![Type::I64; args.len()], &vec![Type::I64; out]);
         let mut b = pb.define(fid);
@@ -218,7 +328,9 @@ mod tests {
         let r = f(&mut b, &p);
         b.ret(&r);
         let prog = pb.finish();
-        gravity_interp::Interp::new(&prog).run(fid, args).expect("runs")
+        gravity_interp::Interp::new(&prog)
+            .run(fid, args)
+            .expect("runs")
     }
 
     /// `rows` folded from the empty state, one row at a time (`None`: a NULL argument), as the IR's words.
@@ -226,7 +338,15 @@ mod tests {
         let cx = mcx::MemoryContext::new("d4565");
         let mut s = [0u64; 5];
         for x in rows {
-            let args = [s[0], s[1], s[2], s[3], s[4], x.unwrap_or(0) as u64, x.is_some() as u64];
+            let args = [
+                s[0],
+                s[1],
+                s[2],
+                s[3],
+                s[4],
+                x.unwrap_or(0) as u64,
+                x.is_some() as u64,
+            ];
             let w = run(&args, 5, |b, p| {
                 let zero = b.iconst(Type::I64, 0);
                 let ok = b.icmp(IntCond::Ne, p[6], zero);
@@ -240,14 +360,18 @@ mod tests {
 
     fn merged(x: [u64; 5], y: [u64; 5]) -> [u64; 5] {
         let cx = mcx::MemoryContext::new("d4565");
-        let w = run(&[x, y].concat(), 5, |b, p| combine(b, cx.mcx(), &p[..5], &p[5..]).to_vec());
+        let w = run(&[x, y].concat(), 5, |b, p| {
+            combine(b, cx.mcx(), &p[..5], &p[5..]).to_vec()
+        });
         w.try_into().unwrap()
     }
 
     /// numeric.c's Int128AggState after `do_int128_accum` over the non-NULL rows, as `[sx_lo, sx_hi, sq_lo, sq_hi, n]`.
     fn pg(rows: &[Option<i64>]) -> [u64; 5] {
         let mut st = adt_numeric::Int128AggState::new(true);
-        rows.iter().flatten().for_each(|&x| adt_numeric::aggregates::do_int128_accum(&mut st, x as i128));
+        rows.iter()
+            .flatten()
+            .for_each(|&x| adt_numeric::aggregates::do_int128_accum(&mut st, x as i128));
         let w = |v: i128| [v as u64, (v >> 64) as u64];
         let (sx, sq) = (w(st.sum_x), w(st.sum_x2));
         [sx[0], sx[1], sq[0], sq[1], st.n as u64]
@@ -265,14 +389,22 @@ mod tests {
             vec![Some(5)],
             vec![Some(max); 40],
             [vec![Some(min); 33], vec![Some(max); 7], vec![None]].concat(),
-            vec![Some(i16::MIN as i64), Some(i16::MAX as i64), Some(-1), Some(0)],
+            vec![
+                Some(i16::MIN as i64),
+                Some(i16::MAX as i64),
+                Some(-1),
+                Some(0),
+            ],
         ];
         for rows in &sets {
             assert_eq!(fold(rows), pg(rows), "{rows:?}");
             let (a, b) = rows.split_at(rows.len() / 2);
             assert_eq!(merged(fold(a), fold(b)), pg(rows), "{rows:?} in two parts");
         }
-        assert!(pg(&sets[4])[1] != 0 && pg(&sets[4])[3] != 0, "the extremes carry into the high words");
+        assert!(
+            pg(&sets[4])[1] != 0 && pg(&sets[4])[3] != 0,
+            "the extremes carry into the high words"
+        );
     }
 
     /// The final: numeric_poly_stddev_internal over the state, NULL with no row (or one, sampled), as PG's catalog finals.
@@ -280,16 +412,38 @@ mod tests {
     fn exact_final_is_numeric_poly_stddev() {
         let rows = [Some(1), Some(2), Some(4), None, Some(-8)];
         let s = pg(&rows);
-        let st = adt_numeric::Int128AggState { calc_sum_x2: true, n: 4, sum_x: -1, sum_x2: 85 };
+        let st = adt_numeric::Int128AggState {
+            calc_sum_x2: true,
+            n: 4,
+            sum_x: -1,
+            sum_x2: 85,
+        };
         for (stddev, sample) in [(false, false), (false, true), (true, false), (true, true)] {
-            let want = adt_numeric::aggregates::numeric_poly_stddev_internal(Some(&st), !stddev, sample).unwrap().unwrap();
+            let want =
+                adt_numeric::aggregates::numeric_poly_stddev_internal(Some(&st), !stddev, sample)
+                    .unwrap()
+                    .unwrap();
             let mut buf = [0u8; 256];
             let mut r = gravity_fn::Region::over(&mut buf);
             let mut e = gravity_fn::ErrSlot::NONE;
-            let got = gravity_fn::agg_final::int128_stat(&mut e, &mut r, s[0] as i64, s[1] as i64, s[2] as i64, s[3] as i64, s[4] as i64, stddev, sample);
+            let got = gravity_fn::agg_final::int128_stat(
+                &mut e,
+                &mut r,
+                s[0] as i64,
+                s[1] as i64,
+                s[2] as i64,
+                s[3] as i64,
+                s[4] as i64,
+                stddev,
+                sample,
+            );
             assert_eq!(got.status, gravity_fn::OK, "{stddev} {sample}");
             let at = got.val as usize - buf.as_ptr() as usize;
-            assert_eq!(&buf[at..at + want.as_bytes().len()], want.as_bytes(), "{stddev} {sample}");
+            assert_eq!(
+                &buf[at..at + want.as_bytes().len()],
+                want.as_bytes(),
+                "{stddev} {sample}"
+            );
         }
     }
 }

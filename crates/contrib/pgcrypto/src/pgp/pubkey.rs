@@ -1,4 +1,3 @@
-
 use super::cfb::PgpCfb;
 use super::consts::*;
 use super::context::PgpContext;
@@ -35,9 +34,7 @@ pub enum KeyMaterial {
     /// DSA (sign-only): the public MPIs only feed calc_key_id; the secret
     /// `x` is read and checksummed like C (pgp-pubkey.c:434) so a signing
     /// subkey is validated then skipped, not mistaken for corrupt data.
-    Dsa {
-        x: Option<Mpi>,
-    },
+    Dsa { x: Option<Mpi> },
 }
 
 #[derive(Clone)]
@@ -112,16 +109,7 @@ fn read_public_key_last(
             let g = read_mpi(body, pos, ctx)?;
             let y = read_mpi(body, pos, ctx)?;
             let pubm = vec![p.clone(), g.clone(), y.clone()];
-            (
-                KeyMaterial::Elg {
-                    p,
-                    g,
-                    y,
-                    x: None,
-                },
-                true,
-                pubm,
-            )
+            (KeyMaterial::Elg { p, g, y, x: None }, true, pubm)
         }
         _ => {
             ctx.dbg(&format!("unknown public algo: {algo}"));
@@ -239,7 +227,12 @@ fn process_secret_key(
 /// pgp-pubkey.c:253 check_key_sha1 — SHA1 over the secret MPIs must match
 /// the trailing 20 bytes; a mismatch is PXE_PGP_KEYPKT_CORRUPT (:290), a
 /// short read PXE_PGP_CORRUPT_DATA. Returns the position after the digest.
-fn check_key_sha1(pk: &PubKey, sec: &[u8], at: usize, ctx: &mut PgpContext) -> Result<usize, String> {
+fn check_key_sha1(
+    pk: &PubKey,
+    sec: &[u8],
+    at: usize,
+    ctx: &mut PgpContext,
+) -> Result<usize, String> {
     let got = read_fixed(sec, at, 20, ctx)?;
     let mut md = Digest::new(PGP_DIGEST_SHA1).ok_or(UNSUPPORTED_HASH.to_string())?;
     for m in secret_mpis(pk) {
@@ -256,7 +249,12 @@ fn check_key_sha1(pk: &PubKey, sec: &[u8], at: usize, ctx: &mut PgpContext) -> R
 /// pgp-pubkey.c:299 check_key_cksum — 16-bit sum over the secret MPIs must
 /// match the 2 trailing bytes; a mismatch is PXE_PGP_KEYPKT_CORRUPT (:331).
 /// Returns the position after the checksum.
-fn check_key_cksum(pk: &PubKey, sec: &[u8], at: usize, ctx: &mut PgpContext) -> Result<usize, String> {
+fn check_key_cksum(
+    pk: &PubKey,
+    sec: &[u8],
+    at: usize,
+    ctx: &mut PgpContext,
+) -> Result<usize, String> {
     let buf = read_fixed(sec, at, 2, ctx)?;
     let got = ((buf[0] as u32) << 8) + buf[1] as u32;
     let mut my = 0u32;
@@ -275,7 +273,7 @@ fn secret_mpis(pk: &PubKey) -> Vec<&Mpi> {
         KeyMaterial::Rsa { d, p, q, u, .. } => {
             let mut v = Vec::new();
             for m in [d, p, q, u].into_iter().flatten() {
-                    v.push(m);
+                v.push(m);
             }
             v
         }
@@ -295,7 +293,10 @@ pub fn read_key(
     let mut got_main_key = false;
 
     loop {
-        let hdr = match rdr.read_hdr().map_err(|e| super::decrypt::hdr_failure(ctx, e))? {
+        let hdr = match rdr
+            .read_hdr()
+            .map_err(|e| super::decrypt::hdr_failure(ctx, e))?
+        {
             None => break,
             Some(h) => h,
         };
@@ -327,7 +328,9 @@ pub fn read_key(
             }
         }
         // pgp-decrypt.c:201 pktreader_pull: a truncated body reads as EOF.
-        let body = rdr.read_body_avail(&hdr).map_err(|e| super::decrypt::hdr_failure(ctx, e))?;
+        let body = rdr
+            .read_body_avail(&hdr)
+            .map_err(|e| super::decrypt::hdr_failure(ctx, e))?;
 
         let mut found: Option<PubKey> = None;
         match hdr.tag {

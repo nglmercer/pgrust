@@ -25,12 +25,31 @@ pub(crate) fn is_name(tf: &TypeFacts) -> bool {
 /// varlena header (SET_VARSIZE: `(len + 4) << 2`) in a stack slot, live for the row. A NULL row copies the zeroed slot
 /// (its image words are 0 either way: the image's flags word marks it). A name in any other form (a dictionary code)
 /// refuses by name.
-pub(crate) fn text_cell(lx: &mut Lx<'_, '_, '_>, node: i32, &(cell, val, null, tf): &(Cell, Value, Option<Value>, TypeFacts)) -> (Cell, Value, Option<Value>, TypeFacts) {
-    let Some(text) = typefacts::row_of(TEXTOID).copied() else { crate::refuse!(node, Reason::Bug { payload: "text's type facts" }) };
+pub(crate) fn text_cell(
+    lx: &mut Lx<'_, '_, '_>,
+    node: i32,
+    &(cell, val, null, tf): &(Cell, Value, Option<Value>, TypeFacts),
+) -> (Cell, Value, Option<Value>, TypeFacts) {
+    let Some(text) = typefacts::row_of(TEXTOID).copied() else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "text's type facts"
+            }
+        )
+    };
     if !matches!(cell.rep, Rep::FixedPtr { len } if i32::from(len) == NAME_BYTES) {
         crate::refuse!(node, Reason::Shape { why: ShapeWhy("a name join key beside a text key whose name is not its 64 bytes (a dictionary code)") });
     }
-    let (p, _) = crate::rep::datum(lx, CellRef { cell: &cell, val, null }, &tf);
+    let (p, _) = crate::rep::datum(
+        lx,
+        CellRef {
+            cell: &cell,
+            val,
+            null,
+        },
+        &tf,
+    );
     let n0 = lx.b.num_blocks();
     let b = &mut *lx.b;
     let slot = b.declare_stack_slot(8 + NAME_BYTES as u32, 8);
@@ -53,7 +72,11 @@ pub(crate) fn text_cell(lx: &mut Lx<'_, '_, '_>, node: i32, &(cell, val, null, t
         b.store(body, off, w);
     }
     // strnlen: the bytes before the first NUL (a name always holds one; the bound keeps the loop finite)
-    let (l_head, l_byte, l_done) = (b.create_block(&[Type::I64]), b.create_block(&[]), b.create_block(&[Type::I64]));
+    let (l_head, l_byte, l_done) = (
+        b.create_block(&[Type::I64]),
+        b.create_block(&[]),
+        b.create_block(&[Type::I64]),
+    );
     b.br(l_head, &[zero]);
     b.switch_to(l_head);
     b.mark_loop_header(l_head);
@@ -78,15 +101,32 @@ pub(crate) fn text_cell(lx: &mut Lx<'_, '_, '_>, node: i32, &(cell, val, null, t
     let v = b.ptr_add(base, zero, 1, 4);
     let v = b.conv(ConvOp::PtrToInt, Type::I64, v);
     lx.memo.bounded_since(lx.b, n0);
-    let life = CellLife { until: Until::Row, home: CellHome::RowCx };
-    (Cell { rep: Rep::VarlenaPtr, typid: TEXTOID, num: NumTypmod::NONE, life, at: At::Value(0), null: cell.null }, v, null, text)
+    let life = CellLife {
+        until: Until::Row,
+        home: CellHome::RowCx,
+    };
+    (
+        Cell {
+            rep: Rep::VarlenaPtr,
+            typid: TEXTOID,
+            num: NumTypmod::NONE,
+            life,
+            at: At::Value(0),
+            null: cell.null,
+        },
+        v,
+        null,
+        text,
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use gravity_decompose::catalog::keysem::image::name_text;
+    use gravity_decompose::catalog::typefacts::{
+        KeyColl, C_COLLATION, DEFAULT_COLLATION, FIRST_NORMAL_OID,
+    };
     use gravity_decompose::catalog::NoFacts;
-    use gravity_decompose::catalog::typefacts::{KeyColl, C_COLLATION, DEFAULT_COLLATION, FIRST_NORMAL_OID};
 
     #[test]
     fn a_name_pairs_with_text_or_varchar_under_a_set_deterministic_collation_only() {
@@ -98,7 +138,13 @@ mod tests {
             assert!(!name_text(&NoFacts, (name, t), c), "{t}");
         }
         assert!(!name_text(&NoFacts, (text, text), c));
-        assert!(!name_text(&NoFacts, (name, text), KeyColl::of(0)), "an unset collation raises in PostgreSQL");
-        assert!(!name_text(&NoFacts, (name, text), KeyColl::of(FIRST_NORMAL_OID)), "a nondeterministic collation");
+        assert!(
+            !name_text(&NoFacts, (name, text), KeyColl::of(0)),
+            "an unset collation raises in PostgreSQL"
+        );
+        assert!(
+            !name_text(&NoFacts, (name, text), KeyColl::of(FIRST_NORMAL_OID)),
+            "a nondeterministic collation"
+        );
     }
 }

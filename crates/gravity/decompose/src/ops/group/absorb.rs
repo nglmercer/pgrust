@@ -27,11 +27,11 @@ use types_nodes::plannodes::{Agg, Plan};
 use types_nodes::primnodes::{Aggref, OUTER_VAR};
 use types_nodes::Node;
 
+use crate::catalog::typefacts;
 use crate::catalog::word_order;
+use crate::facts::hints::Hint;
 use crate::facts::order::{call_order_free, distinct_order_free};
 use crate::ops::shared::agg::KeyDecl;
-use crate::facts::hints::Hint;
-use crate::catalog::typefacts;
 use crate::walk::Builder;
 
 /// D612's absorb test (sorted aggregate `a`'s calls fold the same in any row order), facts/order.rs
@@ -62,44 +62,88 @@ impl KeySort {
 /// The key Sort under group node `plan` over key columns `cols` in collations `colls`, when the group may absorb it:
 /// D612's test, else under road `group.hashchain` (D4676, default off) where no reader reads the order it would keep
 /// (`road_sort`).
-pub fn key_sort<'p>(b: &Builder<'p, '_>, plan: &'p Plan<'p>, cols: &[i16], colls: &[u32]) -> Option<KeySort> {
+pub fn key_sort<'p>(
+    b: &Builder<'p, '_>,
+    plan: &'p Plan<'p>,
+    cols: &[i16],
+    colls: &[u32],
+) -> Option<KeySort> {
     sort_dirs(b, plan, cols, colls, true).or_else(|| road_sort(b, plan, cols, colls))
 }
 
 /// D2061: the same full Sort by any key type, or an Incremental Sort (it orders by every key as a Sort does), which
 /// stays a pipe, so a group's printed key is its first row's, as in PostgreSQL: a sorted group by more than eight keys
 /// reads its directions past the eight keys an `Order` holds.
-pub fn wide_sort<'p>(b: &Builder<'p, '_>, plan: &'p Plan<'p>, cols: &[i16], colls: &[u32]) -> Option<KeySort> {
+pub fn wide_sort<'p>(
+    b: &Builder<'p, '_>,
+    plan: &'p Plan<'p>,
+    cols: &[i16],
+    colls: &[u32],
+) -> Option<KeySort> {
     sort_dirs(b, plan, cols, colls, false)
 }
 
-fn sort_dirs<'p>(b: &Builder<'p, '_>, plan: &'p Plan<'p>, cols: &[i16], colls: &[u32], absorbs: bool) -> Option<KeySort> {
+fn sort_dirs<'p>(
+    b: &Builder<'p, '_>,
+    plan: &'p Plan<'p>,
+    cols: &[i16],
+    colls: &[u32],
+    absorbs: bool,
+) -> Option<KeySort> {
     dirs_of(b, plan, cols, colls, absorbs, absorbs)
 }
 
 /// `sort_dirs` with its key-type test apart: `same` asks every key to be one value when equal (`same_when_equal`).
-fn dirs_of<'p>(b: &Builder<'p, '_>, plan: &'p Plan<'p>, cols: &[i16], colls: &[u32], absorbs: bool, same: bool) -> Option<KeySort> {
+fn dirs_of<'p>(
+    b: &Builder<'p, '_>,
+    plan: &'p Plan<'p>,
+    cols: &[i16],
+    colls: &[u32],
+    absorbs: bool,
+    same: bool,
+) -> Option<KeySort> {
     let s = plain_sort(b, plan, !absorbs).filter(|s| !absorbs || !rescan_kept(b, s))?;
     let sp = &s.plan;
     let n = cols.len();
-    if n == 0 || s.numCols.max(0) as usize != n || s.sortColIdx.len() < n || s.sortOperators.len() < n || s.nullsFirst.len() < n {
+    if n == 0
+        || s.numCols.max(0) as usize != n
+        || s.sortColIdx.len() < n
+        || s.sortOperators.len() < n
+        || s.nullsFirst.len() < n
+    {
         return None;
     }
     let mut dirs = ArenaVec::with_capacity_in(n, b.arena);
     #[allow(clippy::needless_range_loop)]
     for i in 0..n {
         let (c, coll) = (cols[i], colls.get(i).copied().unwrap_or(0));
-        if s.sortColIdx[i] != c || s.collations.get(i).copied().unwrap_or(0) != coll || c < 1 || c as usize > sp.targetlist.len() {
+        if s.sortColIdx[i] != c
+            || s.collations.get(i).copied().unwrap_or(0) != coll
+            || c < 1
+            || c as usize > sp.targetlist.len()
+        {
             return None;
         }
-        let desc = b.facts.key(crate::catalog::KeyReq::sort(s.sortOperators[i])).and_then(crate::catalog::KeyOrder::dir)?;
-        let v = sp.targetlist.nth(c as usize - 1).as_target_entry()?.expr.as_var()?;
+        let desc = b
+            .facts
+            .key(crate::catalog::KeyReq::sort(s.sortOperators[i]))
+            .and_then(crate::catalog::KeyOrder::dir)?;
+        let v = sp
+            .targetlist
+            .nth(c as usize - 1)
+            .as_target_entry()?
+            .expr
+            .as_var()?;
         if same && !same_when_equal(b, v.vartype, v.vartypmod, coll) {
             return None;
         }
         dirs.push((c, desc, s.nullsFirst[i]));
     }
-    Some(KeySort { id: sp.plan_node_id, dirs, chain: None })
+    Some(KeySort {
+        id: sp.plan_node_id,
+        dirs,
+        chain: None,
+    })
 }
 
 /// D4676: the road (default off: lowerv4 road_off.rs `DEFAULT_OFF`, read through `Facts::road_on`) under which a sorted
@@ -116,15 +160,32 @@ pub const HASH_CHAIN_ROAD: &str = "group.hashchain";
 /// - `plan`'s own rows may come in any order (`Builder::order_free`): its direct full Sort is absorbed and the emit hands
 ///   the groups on unordered (`agg::key_order`), so no key needs to order by its words. Fires `group.freesort`.
 /// - Otherwise (no direct Sort, or the group's order read) `chain_of`: a group over a Unique over the Unique's key Sort.
-fn road_sort<'p>(b: &Builder<'p, '_>, plan: &'p Plan<'p>, cols: &[i16], colls: &[u32]) -> Option<KeySort> {
+fn road_sort<'p>(
+    b: &Builder<'p, '_>,
+    plan: &'p Plan<'p>,
+    cols: &[i16],
+    colls: &[u32],
+) -> Option<KeySort> {
     if cols.is_empty() || !b.facts.road_on(HASH_CHAIN_ROAD) {
         return None;
     }
-    let det = |colls: &[u32], n: usize| (0..n).all(|i| colls.get(i).is_none_or(|&c| c == 0 || b.facts.coll(c).bytes_eq));
+    let det = |colls: &[u32], n: usize| {
+        (0..n).all(|i| {
+            colls
+                .get(i)
+                .is_none_or(|&c| c == 0 || b.facts.coll(c).bytes_eq)
+        })
+    };
     if b.chain == Some(plan.plan_node_id) {
-        return det(colls, cols.len()).then(|| dirs_of(b, plan, cols, colls, true, false)).flatten();
+        return det(colls, cols.len())
+            .then(|| dirs_of(b, plan, cols, colls, true, false))
+            .flatten();
     }
-    if let Some(s) = det(colls, cols.len()).then(|| dirs_of(b, plan, cols, colls, true, false)).flatten().filter(|_| b.order_free) {
+    if let Some(s) = det(colls, cols.len())
+        .then(|| dirs_of(b, plan, cols, colls, true, false))
+        .flatten()
+        .filter(|_| b.order_free)
+    {
         fires::fire("group.freesort"); // shapecheck fire signal (D4676): an order-free group's key Sort absorbed, any key type
         return Some(s);
     }
@@ -141,10 +202,19 @@ fn road_sort<'p>(b: &Builder<'p, '_>, plan: &'p Plan<'p>, cols: &[i16], colls: &
 /// then absorbs its Sort whatever the key types and hands its rows on unordered, and the group, which hashes them, orders
 /// only its own groups by these keys where a reader above reads that order (`agg::key_order`); then the group's keys
 /// must order by their key words as the Sort did (`same_when_equal`, D612's rule). Fires `group.hashchain`.
-fn chain_of<'p>(b: &Builder<'p, '_>, plan: &'p Plan<'p>, cols: &[i16], colls: &[u32]) -> Option<KeySort> {
+fn chain_of<'p>(
+    b: &Builder<'p, '_>,
+    plan: &'p Plan<'p>,
+    cols: &[i16],
+    colls: &[u32],
+) -> Option<KeySort> {
     let u = plan.lefttree?.as_unique()?;
     let up = &u.plan;
-    if plan.righttree.is_some() || up.righttree.is_some() || !up.qual.is_nil() || !up.initPlan.is_nil() {
+    if plan.righttree.is_some()
+        || up.righttree.is_some()
+        || !up.qual.is_nil()
+        || !up.initPlan.is_nil()
+    {
         return None;
     }
     let n = (u.numCols.max(0) as usize).min(u.uniqColIdx.len());
@@ -155,14 +225,23 @@ fn chain_of<'p>(b: &Builder<'p, '_>, plan: &'p Plan<'p>, cols: &[i16], colls: &[
     // every output column a key, each its input's column passed through (a planner Unique's dummy target list)
     for (i, e) in up.targetlist.iter().enumerate() {
         let v = e.as_target_entry()?.expr.as_var()?;
-        if v.varno != OUTER_VAR || v.varlevelsup != 0 || v.varattno as usize != i + 1 || !ucols.contains(&((i + 1) as i16)) {
+        if v.varno != OUTER_VAR
+            || v.varlevelsup != 0
+            || v.varattno as usize != i + 1
+            || !ucols.contains(&((i + 1) as i16))
+        {
             return None;
         }
     }
-    if (0..cols.len()).any(|i| cols[i] != ucols[i] || colls.get(i).copied().unwrap_or(0) != ucolls[i]) {
+    if (0..cols.len())
+        .any(|i| cols[i] != ucols[i] || colls.get(i).copied().unwrap_or(0) != ucolls[i])
+    {
         return None;
     }
-    if !ucolls[..n].iter().all(|&c| c == 0 || b.facts.coll(c).bytes_eq) {
+    if !ucolls[..n]
+        .iter()
+        .all(|&c| c == 0 || b.facts.coll(c).bytes_eq)
+    {
         return None;
     }
     let mut ks = dirs_of(b, up, ucols, &ucolls[..n], true, false)?;
@@ -170,7 +249,12 @@ fn chain_of<'p>(b: &Builder<'p, '_>, plan: &'p Plan<'p>, cols: &[i16], colls: &[
         let sp = &up.lefttree?.as_plan()?.targetlist;
         for (i, &c) in cols.iter().enumerate() {
             let v = sp.nth(c as usize - 1).as_target_entry()?.expr.as_var()?;
-            if !same_when_equal(b, v.vartype, v.vartypmod, colls.get(i).copied().unwrap_or(0)) {
+            if !same_when_equal(
+                b,
+                v.vartype,
+                v.vartypmod,
+                colls.get(i).copied().unwrap_or(0),
+            ) {
                 return None;
             }
         }
@@ -183,11 +267,24 @@ fn chain_of<'p>(b: &Builder<'p, '_>, plan: &'p Plan<'p>, cols: &[i16], colls: &[
 /// The full Sort directly under `plan` that only re-orders: no qual, InitPlan, hint or Limit of its own, and a target
 /// list passing its input's columns through in order (a planner Sort never projects; a Const entry is its input's own
 /// Const, D3735). With `incremental`, an Incremental Sort's sort too (only a pipe reads it: the group never absorbs one).
-fn plain_sort<'p>(b: &Builder<'p, '_>, plan: &'p Plan<'p>, incremental: bool) -> Option<&'p types_nodes::plannodes::Sort<'p>> {
+fn plain_sort<'p>(
+    b: &Builder<'p, '_>,
+    plan: &'p Plan<'p>,
+    incremental: bool,
+) -> Option<&'p types_nodes::plannodes::Sort<'p>> {
     let l = plan.lefttree?;
-    let s = l.as_sort().or_else(|| l.as_incremental_sort().filter(|_| incremental).map(|i| &i.sort))?;
+    let s = l.as_sort().or_else(|| {
+        l.as_incremental_sort()
+            .filter(|_| incremental)
+            .map(|i| &i.sort)
+    })?;
     let sp = &s.plan;
-    if plan.righttree.is_some() || sp.righttree.is_some() || sp.lefttree.is_none() || !sp.qual.is_nil() || !sp.initPlan.is_nil() {
+    if plan.righttree.is_some()
+        || sp.righttree.is_some()
+        || sp.lefttree.is_none()
+        || !sp.qual.is_nil()
+        || !sp.initPlan.is_nil()
+    {
         return None;
     }
     if Hint::of_sort(s).is_some() || b.limit.is_some_and(|l| l.0 == sp.plan_node_id) {
@@ -217,7 +314,8 @@ fn plain_sort<'p>(b: &Builder<'p, '_>, plan: &'p Plan<'p>, incremental: bool) ->
 /// input. Unknown flags (the node not found) count as kept.
 fn rescan_kept(b: &Builder<'_, '_>, s: &types_nodes::plannodes::Sort<'_>) -> bool {
     use crate::lifetime::{BACKWARD, MARK, REWIND};
-    crate::lifetime::eflags_in(b.stmt, s.plan.plan_node_id).is_none_or(|ef| ef & (REWIND | MARK | BACKWARD) != 0)
+    crate::lifetime::eflags_in(b.stmt, s.plan.plan_node_id)
+        .is_none_or(|ef| ef & (REWIND | MARK | BACKWARD) != 0)
 }
 
 /// D345 (M6-FOLD): a sorted aggregate whose every key the planner dropped (numCols 0), or (HITS9-E5) a plain one, over the
@@ -246,8 +344,13 @@ pub fn distinct_sort<'p>(b: &Builder<'p, '_>, a: &'p Agg<'p>) -> Option<i32> {
         return None;
     }
     if a.aggstrategy == AGG_PLAIN {
-        let (cx, lists) = (crate::effects::Cx::new(b.stmt, b.facts, b.arena), [&a.plan.targetlist, &a.plan.qual]);
-        if crate::effects::agg::volatile_inputs(&cx, &lists) || crate::effects::agg::per_group_acts(&cx, &lists) {
+        let (cx, lists) = (
+            crate::effects::Cx::new(b.stmt, b.facts, b.arena),
+            [&a.plan.targetlist, &a.plan.qual],
+        );
+        if crate::effects::agg::volatile_inputs(&cx, &lists)
+            || crate::effects::agg::per_group_acts(&cx, &lists)
+        {
             return None;
         }
     }
@@ -259,7 +362,8 @@ pub fn distinct_sort<'p>(b: &Builder<'p, '_>, a: &'p Agg<'p>) -> Option<i32> {
         return None;
     }
     let s = plain_sort(b, &a.plan, false).filter(|s| !rescan_kept(b, s))?;
-    let (mut calls, mut any, mut one, mut raises, mut numeric, mut word) = (true, false, true, false, false, true);
+    let (mut calls, mut any, mut one, mut raises, mut numeric, mut word) =
+        (true, false, true, false, false, true);
     let mut first: Option<(ArenaVec<Node<'p>>, u32)> = None;
     let mut judge = |r: &Aggref<'p>| {
         calls &= distinct_order_free(b, r) || call_order_free(b, r);
@@ -272,17 +376,28 @@ pub fn distinct_sort<'p>(b: &Builder<'p, '_>, a: &'p Agg<'p>) -> Option<i32> {
         any = true;
         word &= r.aggargtypes.iter().all(|t| one_word(b, t));
         if let Some((args, coll)) = &first {
-            one &= *coll == r.inputcollid && args.len() == r.args.len() && args.iter().zip(r.args.iter()).all(|(x, y)| types_nodes::equal(*x, y));
+            one &= *coll == r.inputcollid
+                && args.len() == r.args.len()
+                && args
+                    .iter()
+                    .zip(r.args.iter())
+                    .all(|(x, y)| types_nodes::equal(*x, y));
             return;
         }
         let mut args = ArenaVec::new_in(b.arena); // alloc: Cold
         args.extend(r.args.iter());
         first = Some((args, r.inputcollid));
     };
-    let seen = [&a.plan.targetlist, &a.plan.qual].iter().all(|l| l.iter().all(|n| aggrefs_in(n, &mut judge)));
-    let drained = s.plan.lefttree.is_some_and(drains) && (numeric || crate::admit::plan_rows(&s.plan) < drain_set_rows(b, word));
-    let joined = a.aggstrategy == AGG_PLAIN && !s.plan.lefttree.is_some_and(one_relation) && (raises || !s.plan.lefttree.is_some_and(hash_joined) || drained);
-    (seen && calls && any && !joined && (one || a.aggstrategy == AGG_SORTED)).then_some(s.plan.plan_node_id)
+    let seen = [&a.plan.targetlist, &a.plan.qual]
+        .iter()
+        .all(|l| l.iter().all(|n| aggrefs_in(n, &mut judge)));
+    let drained = s.plan.lefttree.is_some_and(drains)
+        && (numeric || crate::admit::plan_rows(&s.plan) < drain_set_rows(b, word));
+    let joined = a.aggstrategy == AGG_PLAIN
+        && !s.plan.lefttree.is_some_and(one_relation)
+        && (raises || !s.plan.lefttree.is_some_and(hash_joined) || drained);
+    (seen && calls && any && !joined && (one || a.aggstrategy == AGG_SORTED))
+        .then_some(s.plan.plan_node_id)
 }
 
 /// D3374 (D345): whether Agg `a` reads, outside its aggregates (its non-junk target list and its qual: facts::demand
@@ -290,14 +405,23 @@ pub fn distinct_sort<'p>(b: &Builder<'p, '_>, a: &'p Agg<'p>) -> Option<i32> {
 fn pin_shows_member(b: &Builder<'_, '_>, a: &Agg<'_>) -> bool {
     use crate::facts::demand::{agg_reads, Junk};
     let mut many = false;
-    agg_reads(&a.plan.targetlist, &a.plan.qual, Junk::Skip, &mut |v| many |= !crate::catalog::keysem::one_image(b.facts, v.vartype, v.varcollid));
+    agg_reads(&a.plan.targetlist, &a.plan.qual, Junk::Skip, &mut |v| {
+        many |= !crate::catalog::keysem::one_image(b.facts, v.vartype, v.varcollid)
+    });
     many
 }
 
 /// A Sort input that reads one relation: a scan, or a Gather over one.
 fn one_relation(n: Node<'_>) -> bool {
-    let scan = |n: Node<'_>| n.as_seq_scan().is_some() || n.as_index_scan().is_some() || n.as_index_only_scan().is_some() || n.as_bitmap_heap_scan().is_some();
-    scan(n) || n.as_gather().is_some_and(|g| g.plan.lefttree.is_some_and(scan))
+    let scan = |n: Node<'_>| {
+        n.as_seq_scan().is_some()
+            || n.as_index_scan().is_some()
+            || n.as_index_only_scan().is_some()
+            || n.as_bitmap_heap_scan().is_some()
+    };
+    scan(n)
+        || n.as_gather()
+            .is_some_and(|g| g.plan.lefttree.is_some_and(scan))
 }
 
 /// NEW-33: whether the plan under `n` is hash joins over relations only: a scan (`one_relation`), a Gather over one, or a
@@ -312,7 +436,11 @@ fn hash_joined(n: Node<'_>) -> bool {
     if let Some(h) = n.as_hash() {
         return h.plan.lefttree.is_some_and(hash_joined);
     }
-    n.as_hash_join().is_some_and(|j| (!crate::join::hash_drains(j.join.jointype) || drain_hands(j.join.jointype)) && j.join.plan.lefttree.is_some_and(hash_joined) && j.join.plan.righttree.is_some_and(hash_joined))
+    n.as_hash_join().is_some_and(|j| {
+        (!crate::join::hash_drains(j.join.jointype) || drain_hands(j.join.jointype))
+            && j.join.plan.lefttree.is_some_and(hash_joined)
+            && j.join.plan.righttree.is_some_and(hash_joined)
+    })
 }
 
 /// NEW-41: a draining hash join whose probe hands its joined rows on beside the drain (RIGHT, FULL), so the probe's
@@ -329,7 +457,11 @@ fn drains(n: Node<'_>) -> bool {
     if let Some(h) = n.as_hash() {
         return h.plan.lefttree.is_some_and(drains);
     }
-    n.as_hash_join().is_some_and(|j| drain_hands(j.join.jointype) || j.join.plan.lefttree.is_some_and(drains) || j.join.plan.righttree.is_some_and(drains))
+    n.as_hash_join().is_some_and(|j| {
+        drain_hands(j.join.jointype)
+            || j.join.plan.lefttree.is_some_and(drains)
+            || j.join.plan.righttree.is_some_and(drains)
+    })
 }
 
 /// NEW-41 / NEW-51: PostgreSQL's estimate of the presort's rows (the joined rows) under which a draining join keeps the
@@ -351,7 +483,10 @@ fn one_word(b: &Builder<'_, '_>, typid: u32) -> bool {
 /// NEW-41: a numeric sum / avg / min / max, whose packed register reads its argument's column form (`num_scale`).
 fn numeric_rider(c: crate::ops::shared::agg_class::Class) -> bool {
     use crate::ops::shared::agg_class::{Class, Ext};
-    matches!(c, Class::SumNum | Class::AvgNum | Class::Min(Ext::Num) | Class::Max(Ext::Num))
+    matches!(
+        c,
+        Class::SumNum | Class::AvgNum | Class::Min(Ext::Num) | Class::Max(Ext::Num)
+    )
 }
 
 /// The stop road over a DISTINCT group's presort (facts/stream.rs `presort_stop`): one DISTINCT call or more, each folding
@@ -361,10 +496,16 @@ pub fn distinct_free<'p>(b: &Builder<'p, '_>, a: &'p Agg<'p>) -> bool {
     let (mut calls, mut any) = (true, false);
     let mut judge = |r: &Aggref<'p>| {
         let d = !r.aggdistinct.is_nil();
-        calls &= if d { distinct_order_free(b, r) } else { call_order_free(b, r) };
+        calls &= if d {
+            distinct_order_free(b, r)
+        } else {
+            call_order_free(b, r)
+        };
         any |= d;
     };
-    let seen = [&a.plan.targetlist, &a.plan.qual].iter().all(|l| l.iter().all(|n| aggrefs_in(n, &mut judge)));
+    let seen = [&a.plan.targetlist, &a.plan.qual]
+        .iter()
+        .all(|l| l.iter().all(|n| aggrefs_in(n, &mut judge)));
     seen && calls && any
 }
 
@@ -384,10 +525,14 @@ fn aggrefs_in<'p>(n: Node<'p>, f: &mut dyn FnMut(&Aggref<'p>)) -> bool {
 /// its rows came first): a word type catalog/word_order.rs `ordered` names (a domain by its base), or a text-like one
 /// under a deterministic collation (a char(n) padded to n, so its trimmed equals are its byte equals).
 pub(crate) fn same_when_equal(b: &Builder<'_, '_>, typid: u32, typmod: i32, coll: u32) -> bool {
-    let Some(tf) = typefacts::facts_of(b.facts, typid) else { return false };
+    let Some(tf) = typefacts::facts_of(b.facts, typid) else {
+        return false;
+    };
     let coll_ok = coll == 0 || b.facts.coll(coll).bytes_eq;
     if tf.image.is_word() {
         return coll_ok && word_order::ordered(&tf);
     }
-    tf.image.text_trim().is_some_and(|bpchar_trim| coll_ok && (!bpchar_trim || typmod > 0))
+    tf.image
+        .text_trim()
+        .is_some_and(|bpchar_trim| coll_ok && (!bpchar_trim || typmod > 0))
 }

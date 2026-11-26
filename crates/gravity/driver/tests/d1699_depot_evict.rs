@@ -43,18 +43,39 @@ fn drain(open: &Open<'_>, cursor: &AtomicU64, ordinal: u16) -> Result<u64, Error
 }
 
 /// One unkeyed parallel statement: its worker slots from (and back to) the depot under `salt`; the leader Node drops at end.
-fn cycle(entry: &mut Entry, program: &Arc<Program>, derive: &mut FakeDerive, salt: u64, flag: &AtomicU8) {
+fn cycle(
+    entry: &mut Entry,
+    program: &Arc<Program>,
+    derive: &mut FakeDerive,
+    salt: u64,
+    flag: &AtomicU8,
+) {
     let mut sink = LegSink::new();
     let mut b = binding(&[100], &NULLS, &mut sink, flag);
-    let mut exec = entry.start(None, program, derive, &mut b, lease(gravity_driver::Grant::of(8 << 20))).unwrap();
+    let mut exec = entry
+        .start(
+            None,
+            program,
+            derive,
+            &mut b,
+            lease(gravity_driver::Grant::of(8 << 20)),
+        )
+        .unwrap();
     exec.set_slot_salt(Some(salt));
     let open = entry.open_section(&mut exec, &b, derive, 0, WIDTH).unwrap();
     let cursor = AtomicU64::new(0);
     for o in 0..WIDTH {
         drain(&open, &cursor, o).unwrap();
     }
-    entry.close_section(open, &mut b, &CountMerge, true).unwrap();
-    assert_eq!(entry.run(&mut exec, &mut b, gravity_driver::Call::batch(4)).unwrap(), Step::Done);
+    entry
+        .close_section(open, &mut b, &CountMerge, true)
+        .unwrap();
+    assert_eq!(
+        entry
+            .run(&mut exec, &mut b, gravity_driver::Call::batch(4))
+            .unwrap(),
+        Step::Done
+    );
     entry.end(exec, true);
 }
 
@@ -73,16 +94,30 @@ fn a_slot_set_evicted_past_the_depot_cap_drops_after_the_depot_lock() {
     cycle(&mut entry, &program, &mut derive, SALT_A, &flag);
     let s1 = DEPOT.stats();
     assert_eq!(s1.entries, 1, "the first statement's set parks");
-    assert!(s1.bytes > DEPOT_BYTES / 2 && s1.bytes <= DEPOT_BYTES, "one set parks past half the cap ({} of {DEPOT_BYTES})", s1.bytes);
+    assert!(
+        s1.bytes > DEPOT_BYTES / 2 && s1.bytes <= DEPOT_BYTES,
+        "one set parks past half the cap ({} of {DEPOT_BYTES})",
+        s1.bytes
+    );
 
     table.drop_probe.store(true, Ordering::Relaxed);
     cycle(&mut entry, &program, &mut derive, SALT_B, &flag);
     table.drop_probe.store(false, Ordering::Relaxed);
     let s2 = DEPOT.stats();
-    assert_eq!((s2.entries, s2.evictions), (1, s1.evictions + 1), "the second set took the depot past its cap and evicted the first");
-    let (free, locked) = (table.drops_free.load(Ordering::Relaxed), table.drops_locked.load(Ordering::Relaxed));
+    assert_eq!(
+        (s2.entries, s2.evictions),
+        (1, s1.evictions + 1),
+        "the second set took the depot past its cap and evicted the first"
+    );
+    let (free, locked) = (
+        table.drops_free.load(Ordering::Relaxed),
+        table.drops_locked.load(Ordering::Relaxed),
+    );
     assert_eq!(locked, 0, "{locked} evicted slot source(s) dropped while the depot's lock was held (inside put); {free} after it");
-    assert!(free >= WIDTH as u64, "the evicted set's {WIDTH} worker sources dropped ({free} probed drops)");
+    assert!(
+        free >= WIDTH as u64,
+        "the evicted set's {WIDTH} worker sources dropped ({free} probed drops)"
+    );
 
     DEPOT.trim();
     assert_eq!(DEPOT.stats().entries, 0);

@@ -61,7 +61,10 @@ pub enum Unit {
 impl Unit {
     /// PostgreSQL's monotonic units: an infinite timestamp's field is ±Infinity (the others': NULL).
     pub fn monotonic(self) -> bool {
-        matches!(self, Unit::Year | Unit::Decade | Unit::Century | Unit::Millennium | Unit::Isoyear)
+        matches!(
+            self,
+            Unit::Year | Unit::Decade | Unit::Century | Unit::Millennium | Unit::Isoyear
+        )
     }
 }
 
@@ -99,7 +102,21 @@ fn kind_of(name: &str) -> Option<(Kind, bool)> {
 /// The units date.c `extract_date` serves with an integer this form computes (a time-of-day unit raises there: PostgreSQL's
 /// "unit not supported for type date" stays the call's).
 fn date_unit(u: Unit) -> bool {
-    matches!(u, Unit::Day | Unit::Month | Unit::Quarter | Unit::Year | Unit::Decade | Unit::Century | Unit::Millennium | Unit::Dow | Unit::Isodow | Unit::Doy | Unit::Week | Unit::Isoyear)
+    matches!(
+        u,
+        Unit::Day
+            | Unit::Month
+            | Unit::Quarter
+            | Unit::Year
+            | Unit::Decade
+            | Unit::Century
+            | Unit::Millennium
+            | Unit::Dow
+            | Unit::Isodow
+            | Unit::Doy
+            | Unit::Week
+            | Unit::Isoyear
+    )
 }
 
 /// The unit PostgreSQL's `DecodeUnits` reads (the constant lowercased); the fractional fields serve
@@ -142,7 +159,9 @@ pub fn form_of(p: &Program<'_>, call: &Call, name: &str, word_root: bool) -> Opt
     if call.nargs != 2 || (kind == Kind::Extract && !word_root) {
         return None;
     }
-    let ExprNode::Const(c) = &p.nodes[p.kids[call.args.start as usize].0 as usize] else { return None };
+    let ExprNode::Const(c) = &p.nodes[p.kids[call.args.start as usize].0 as usize] else {
+        return None;
+    };
     if c.is_null() || c.typ != TEXTOID {
         return None;
     }
@@ -157,7 +176,12 @@ pub fn form_of(p: &Program<'_>, call: &Call, name: &str, word_root: bool) -> Opt
 pub fn word_node(p: &Program<'_>, root: NodeId) -> (NodeId, bool) {
     if let ExprNode::Func(n) = &p.nodes[root.0 as usize] {
         let call = &p.sites[n.site.0 as usize];
-        if call.nargs == 1 && matches!(gravity_fn::row_of(call.funcid).map(|r| r.name), Some("numeric_int4" | "numeric_int8")) {
+        if call.nargs == 1
+            && matches!(
+                gravity_fn::row_of(call.funcid).map(|r| r.name),
+                Some("numeric_int4" | "numeric_int8")
+            )
+        {
             return (p.kids[call.args.start as usize], true);
         }
     }
@@ -193,7 +217,11 @@ struct Dt<'a, 'b> {
 impl Dt<'_, '_> {
     /// The bit bound of a quotient operand that grows with the Julian day or the year: a timestamp's `b`, a date's 5 more.
     fn jb(&self, b: u32) -> u32 {
-        if self.wide { b + 5 } else { b }
+        if self.wide {
+            b + 5
+        } else {
+            b
+        }
     }
 
     fn k(&mut self, v: i64) -> Value {
@@ -243,7 +271,8 @@ impl Dt<'_, '_> {
         }
         // past one product's reach (a date's day range): the high product over the operand's own bound
         let Some((m, s)) = magic(d, bits) else {
-            let (m, s) = magic_hi(d, bits).unwrap_or_else(|| panic!("no high magic for {d} over {bits} bits"));
+            let (m, s) = magic_hi(d, bits)
+                .unwrap_or_else(|| panic!("no high magic for {d} over {bits} bits"));
             let hi = self.umulh(x, m);
             return self.ushr(hi, s - 64);
         };
@@ -260,7 +289,8 @@ impl Dt<'_, '_> {
         if d == 1 {
             return x;
         }
-        let (m, s) = magic_hi(d, 64 - k).unwrap_or_else(|| panic!("no high magic for {d} over {} bits", 64 - k));
+        let (m, s) = magic_hi(d, 64 - k)
+            .unwrap_or_else(|| panic!("no high magic for {d} over {} bits", 64 - k));
         let hi = self.umulh(x, m);
         self.ushr(hi, s - 64)
     }
@@ -596,7 +626,11 @@ pub fn finite(b: &mut FunctionBuilder<'_>, ts: Value) -> Value {
 pub fn source_inf(b: &mut FunctionBuilder<'_>, form: DtForm, x: Value) -> (Value, Value) {
     let (x, lo, hi) = if form.date {
         let d = b.conv(ConvOp::Trunc, Type::I32, x);
-        (b.conv(ConvOp::Sext, Type::I64, d), i32::MIN as i64, i32::MAX as i64)
+        (
+            b.conv(ConvOp::Sext, Type::I64, d),
+            i32::MIN as i64,
+            i32::MAX as i64,
+        )
     } else {
         (x, i64::MIN, i64::MAX)
     };
@@ -641,7 +675,8 @@ pub fn surrogate_unit(funcid: u32, unit: &[u8]) -> Option<Unit> {
     if gravity_fn::row_of(funcid)?.name != "timestamp_trunc" {
         return None;
     }
-    unit_of(Kind::Trunc, unit).filter(|u| matches!(u, Unit::Day | Unit::Month | Unit::Quarter | Unit::Year))
+    unit_of(Kind::Trunc, unit)
+        .filter(|u| matches!(u, Unit::Day | Unit::Month | Unit::Quarter | Unit::Year))
 }
 
 /// The unit of an `extract(unit FROM ts)` call on the computed-key road — `extract_timestamp` by function id (the session
@@ -654,7 +689,9 @@ pub fn extract_timestamp_unit(unit: &[u8]) -> Option<Unit> {
 }
 
 pub fn extract_unit(funcid: u32, unit: &[u8]) -> Option<Unit> {
-    let (Kind::Extract, date) = kind_of(gravity_fn::row_of(funcid)?.name)? else { return None };
+    let (Kind::Extract, date) = kind_of(gravity_fn::row_of(funcid)?.name)? else {
+        return None;
+    };
     unit_of(Kind::Extract, unit).filter(|&u| !date || date_unit(u))
 }
 
@@ -746,7 +783,11 @@ pub fn surrogate_of(unit: Unit, ts: i64) -> i64 {
     let quad = julian / 1461;
     julian -= quad * 1461;
     let y = julian * 4 / 1461;
-    julian = if y != 0 { (julian + 305) % 365 } else { (julian + 306) % 366 } + 123;
+    julian = if y != 0 {
+        (julian + 305) % 365
+    } else {
+        (julian + 306) % 366
+    } + 123;
     let year = (y + quad * 4) as i64 - 4800;
     let month = ((julian * 2141 / 65536 + 10) % 12 + 1) as i64;
     match unit {
@@ -758,16 +799,38 @@ pub fn surrogate_of(unit: Unit, ts: i64) -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{magic, magic_hi, MIN_TS, USECS_PER_DAY, USECS_PER_HOUR, USECS_PER_MINUTE, USECS_PER_SEC};
+    use super::{
+        magic, magic_hi, MIN_TS, USECS_PER_DAY, USECS_PER_HOUR, USECS_PER_MINUTE, USECS_PER_SEC,
+    };
 
     /// Every `(d, bits)` pair the single-product route uses has a magic, exact over a dense sample.
     #[test]
     fn magics_exist_and_divide() {
-        for (d, bits) in [(234_375u64, 24u32), (3_515_625, 27), (146_097, 28), (146_097, 20), (1461, 28), (1461, 13), (365, 11), (366, 11), (12, 5), (7, 28), (100, 20), (3, 4), (10, 20), (1000, 20), (7, 9)] {
+        for (d, bits) in [
+            (234_375u64, 24u32),
+            (3_515_625, 27),
+            (146_097, 28),
+            (146_097, 20),
+            (1461, 28),
+            (1461, 13),
+            (365, 11),
+            (366, 11),
+            (12, 5),
+            (7, 28),
+            (100, 20),
+            (3, 4),
+            (10, 20),
+            (1000, 20),
+            (7, 9),
+        ] {
             let (m, s) = magic(d, bits).unwrap_or_else(|| panic!("no magic for {d} / {bits}"));
             let top = 1u64 << bits;
             let step = (top / 4_000_000).max(1);
-            for x in (0..top).step_by(step as usize).chain(top.saturating_sub(1000)..top).chain(0..top.min(1000)) {
+            for x in (0..top)
+                .step_by(step as usize)
+                .chain(top.saturating_sub(1000)..top)
+                .chain(0..top.min(1000))
+            {
                 assert_eq!(x.wrapping_mul(m) >> s, x / d, "{d} / {bits} at {x}");
             }
         }
@@ -781,15 +844,37 @@ mod tests {
     /// of reach `udiv` takes the high product over the operand's bound; it exists and divides the range exactly.
     #[test]
     fn wide_divisors_divide() {
-        for (d, bits) in [(146_097u64, 33u32), (1461, 33), (146_097, 20), (1461, 13), (365, 11), (366, 11), (7, 33), (100, 24), (100, 25), (10, 24), (1000, 24), (4, 24)] {
+        for (d, bits) in [
+            (146_097u64, 33u32),
+            (1461, 33),
+            (146_097, 20),
+            (1461, 13),
+            (365, 11),
+            (366, 11),
+            (7, 33),
+            (100, 24),
+            (100, 25),
+            (10, 24),
+            (1000, 24),
+            (4, 24),
+        ] {
             let top = 1u64 << bits;
             let step = (top / 4_000_000).max(1);
-            let xs = || (0..top).step_by(step as usize).chain(top.saturating_sub(1000)..top).chain(0..top.min(1000));
+            let xs = || {
+                (0..top)
+                    .step_by(step as usize)
+                    .chain(top.saturating_sub(1000)..top)
+                    .chain(0..top.min(1000))
+            };
             match magic(d, bits) {
-                Some((m, s)) => xs().for_each(|x| assert_eq!(x.wrapping_mul(m) >> s, x / d, "{d} / {bits} at {x}")),
+                Some((m, s)) => xs()
+                    .for_each(|x| assert_eq!(x.wrapping_mul(m) >> s, x / d, "{d} / {bits} at {x}")),
                 None => {
-                    let (m, s) = magic_hi(d, bits).unwrap_or_else(|| panic!("no high magic for {d} / {bits}"));
-                    xs().for_each(|x| assert_eq!(umulh(x, m) >> (s - 64), x / d, "{d} / {bits} at {x}"));
+                    let (m, s) = magic_hi(d, bits)
+                        .unwrap_or_else(|| panic!("no high magic for {d} / {bits}"));
+                    xs().for_each(|x| {
+                        assert_eq!(umulh(x, m) >> (s - 64), x / d, "{d} / {bits} at {x}")
+                    });
                 }
             }
         }
@@ -800,11 +885,18 @@ mod tests {
     #[test]
     fn high_magics_divide_the_biased_range() {
         assert_eq!(MIN_TS, -211_813_488_000_000_000);
-        for d in [1000u64, USECS_PER_SEC as u64, USECS_PER_MINUTE as u64, USECS_PER_HOUR as u64, USECS_PER_DAY as u64] {
+        for d in [
+            1000u64,
+            USECS_PER_SEC as u64,
+            USECS_PER_MINUTE as u64,
+            USECS_PER_HOUR as u64,
+            USECS_PER_DAY as u64,
+        ] {
             assert_eq!(MIN_TS % d as i64, 0);
             let k = d.trailing_zeros();
             let dd = d >> k;
-            let (m, s) = magic_hi(dd, 64 - k).unwrap_or_else(|| panic!("no high magic for {dd} / {}", 64 - k));
+            let (m, s) = magic_hi(dd, 64 - k)
+                .unwrap_or_else(|| panic!("no high magic for {dd} / {}", 64 - k));
             let q = |x: u64| umulh(x >> k, m) >> (s - 64);
             let mut x = 0u64;
             let step = u64::MAX / 1_000_003;

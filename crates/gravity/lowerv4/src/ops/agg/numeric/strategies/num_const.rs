@@ -23,14 +23,32 @@ pub(crate) fn const_of<'g>(c: &types_nodes::primnodes::Const, strict: bool) -> O
         INT8OID => c.constvalue.as_usize() as i64,
         INT2OID | INT4OID => c.constvalue.as_i32() as i64,
         NUMERICOID => {
-            let n = gravity_fn::typesem::numeric::mantissa(gravity_decompose::expr::const_bytes(c)?)?;
+            let n =
+                gravity_fn::typesem::numeric::mantissa(gravity_decompose::expr::const_bytes(c)?)?;
             let scale = i16::try_from(n.dscale).ok().filter(|&s| s <= 18)?;
             return match n.word() {
-                Some(m) => Some(Tree::Const { m, scale, digits: digits_i64(m) }),
-                None => Some(Tree::PastWord { m: n.value, scale, digits: n.digits }).filter(|t| !strict || (n.value.is_some() && crate::ops::agg::numeric::strategies::num_tree::bounded(t))),
+                Some(m) => Some(Tree::Const {
+                    m,
+                    scale,
+                    digits: digits_i64(m),
+                }),
+                None => Some(Tree::PastWord {
+                    m: n.value,
+                    scale,
+                    digits: n.digits,
+                })
+                .filter(|t| {
+                    !strict
+                        || (n.value.is_some()
+                            && crate::ops::agg::numeric::strategies::num_tree::bounded(t))
+                }),
             };
         }
         _ => return None,
     };
-    Some(Tree::Const { m, scale: 0, digits: digits_i64(m) })
+    Some(Tree::Const {
+        m,
+        scale: 0,
+        digits: digits_i64(m),
+    })
 }

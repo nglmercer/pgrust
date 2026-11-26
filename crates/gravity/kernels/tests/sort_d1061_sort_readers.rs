@@ -8,7 +8,9 @@ use gravity_kernels_rig as common;
 use common::*;
 use gravity_abi::breaker::SortRun;
 use gravity_abi::ctx::RESUME_NONE;
-use gravity_kernels::host_abi::{sort_begin_at, sort_full, sort_last, sort_next_at, sort_open, SORT_MODE_MERGE};
+use gravity_kernels::host_abi::{
+    sort_begin_at, sort_full, sort_last, sort_next_at, sort_open, SORT_MODE_MERGE,
+};
 use gravity_program::hand::{self as programs, Oids};
 
 const ROW_BYTES: u32 = 40;
@@ -33,7 +35,8 @@ unsafe fn spilled(rig: &mut Rig) -> Vec<u64> {
     assert_eq!(sort_last(ctx, run, 2, 0), 0);
     assert_eq!(rig.host.runs.len(), 2, "two runs put");
     let own = gravity_abi::program::partial(ctx);
-    core::slice::from_raw_parts(own as *const u64, SortRun::region_bytes(own, ROW_BYTES) / 8).to_vec() // alloc: Cold
+    core::slice::from_raw_parts(own as *const u64, SortRun::region_bytes(own, ROW_BYTES) / 8)
+        .to_vec() // alloc: Cold
 }
 
 unsafe fn consume(rig: &mut Rig, region: &mut [u64], fold: &mut [u64]) {
@@ -43,7 +46,14 @@ unsafe fn consume(rig: &mut Rig, region: &mut [u64], fold: &mut [u64]) {
 }
 
 unsafe fn next(rig: &mut Rig, i: usize) -> Option<i64> {
-    let p = sort_next_at(rig.ctx(), SORT_TBL.as_ptr(), SORT_MODE_MERGE as u64, i as u64, 0, 3);
+    let p = sort_next_at(
+        rig.ctx(),
+        SORT_TBL.as_ptr(),
+        SORT_MODE_MERGE as u64,
+        i as u64,
+        0,
+        3,
+    );
     assert!(p as i64 >= 0, "a status below zero");
     (!p.is_null()).then(|| *(p as *const u64).add(2) as i64)
 }
@@ -56,15 +66,24 @@ fn three_readers_of_one_spilled_run_each_read_every_row() {
         let mut fold = vec![0u64; 1 << 12]; // alloc: Cold
         for reader in 0..3 {
             consume(&mut rig, &mut region, &mut fold);
-            assert_eq!(sort_begin_at(rig.ctx(), SORT_TBL.as_ptr(), 0, 3), SORT_MODE_MERGE, "reader {reader}");
+            assert_eq!(
+                sort_begin_at(rig.ctx(), SORT_TBL.as_ptr(), 0, 3),
+                SORT_MODE_MERGE,
+                "reader {reader}"
+            );
             // readers 0 and 2 stop at the total, as an emit does (`sort_total`); reader 1 reads to the end
-            let got: Vec<i64> = (0..100).map(|i| next(&mut rig, i).expect("a row")).collect(); // alloc: Cold
+            let got: Vec<i64> = (0..100)
+                .map(|i| next(&mut rig, i).expect("a row"))
+                .collect(); // alloc: Cold
             assert_eq!(got, (0..100).collect::<Vec<i64>>(), "reader {reader}");
             if reader == 1 {
                 assert_eq!(next(&mut rig, 100), None);
             }
         }
-        assert!(fold.iter().all(|&w| w == 0), "every merge in the run's region");
+        assert!(
+            fold.iter().all(|&w| w == 0),
+            "every merge in the run's region"
+        );
         assert_eq!(rig.host.runs.len(), 2, "the runs outlive their readers");
     }
 }
@@ -76,14 +95,21 @@ fn a_reader_begun_over_a_merge_in_flight_is_a_bug() {
         let mut region = spilled(&mut rig);
         let (mut fold, mut other) = (vec![0u64; 1 << 12], vec![0u64; 1 << 12]); // alloc: Cold
         consume(&mut rig, &mut region, &mut fold);
-        assert_eq!(sort_begin_at(rig.ctx(), SORT_TBL.as_ptr(), 0, 3), SORT_MODE_MERGE);
+        assert_eq!(
+            sort_begin_at(rig.ctx(), SORT_TBL.as_ptr(), 0, 3),
+            SORT_MODE_MERGE
+        );
         assert_eq!(next(&mut rig, 0), Some(0));
         // another reader (its own region elsewhere) while the first's merge is in flight
         consume(&mut rig, &mut region, &mut other);
         let _ = gravity_fn::take_error();
         assert!(sort_begin_at(rig.ctx(), SORT_TBL.as_ptr(), 0, 3) < 0);
         let msg = gravity_fn::take_error().map(|e| e.message().to_owned()); // alloc: Cold
-        assert!(msg.as_deref().is_some_and(|m| m.contains("Bug: a sort emit's merge laid over another reader's merge in flight")), "{msg:?}");
+        assert!(
+            msg.as_deref().is_some_and(|m| m
+                .contains("Bug: a sort emit's merge laid over another reader's merge in flight")),
+            "{msg:?}"
+        );
     }
 }
 
@@ -93,15 +119,24 @@ fn a_reader_begun_again_over_its_own_merge_in_flight_reads_every_row() {
     unsafe {
         let mut region = spilled(&mut rig);
         let mut fold = vec![0u64; 1 << 12]; // alloc: Cold
-        // the reader stops after 1, then 57 rows (its merge left in flight each time), then reads to the end twice
+                                            // the reader stops after 1, then 57 rows (its merge left in flight each time), then reads to the end twice
         for stop in [1usize, 57, 100, 100] {
             consume(&mut rig, &mut region, &mut fold);
-            assert_eq!(sort_begin_at(rig.ctx(), SORT_TBL.as_ptr(), 0, 3), SORT_MODE_MERGE, "stop {stop}");
-            let got: Vec<i64> = (0..stop).map(|i| next(&mut rig, i).expect("a row")).collect(); // alloc: Cold
+            assert_eq!(
+                sort_begin_at(rig.ctx(), SORT_TBL.as_ptr(), 0, 3),
+                SORT_MODE_MERGE,
+                "stop {stop}"
+            );
+            let got: Vec<i64> = (0..stop)
+                .map(|i| next(&mut rig, i).expect("a row"))
+                .collect(); // alloc: Cold
             assert_eq!(got, (0..stop as i64).collect::<Vec<i64>>(), "stop {stop}");
         }
         assert_eq!(next(&mut rig, 100), None);
-        assert!(fold.iter().all(|&w| w == 0), "every merge in the run's region");
+        assert!(
+            fold.iter().all(|&w| w == 0),
+            "every merge in the run's region"
+        );
         assert_eq!(rig.host.runs.len(), 2, "the runs outlive their readers");
     }
 }

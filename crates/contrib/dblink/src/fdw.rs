@@ -3,8 +3,9 @@
 // keywords is libpq's PQconndefaults table (pgclient::CONNINFO_OPTIONS); the
 // context rules mirror C's dispchar-based classification.
 use datum::Datum;
-use types_core::{Oid, FOREIGN_DATA_WRAPPER_RELATION_ID, FOREIGN_SERVER_RELATION_ID,
-    USER_MAPPING_RELATION_ID};
+use types_core::{
+    Oid, FOREIGN_DATA_WRAPPER_RELATION_ID, FOREIGN_SERVER_RELATION_ID, USER_MAPPING_RELATION_ID,
+};
 use types_error::{PgError, PgResult, ERRCODE_FDW_OPTION_NAME_NOT_FOUND};
 use types_fmgr::FmgrInfo;
 use types_fmgr::FunctionCallInfoBaseData as Fcinfo;
@@ -61,7 +62,9 @@ pub(crate) fn mk_def_elem<'mcx>(
     Ok(DefElem {
         defnamespace: None,
         defname: Some(name),
-        arg: value.map(|v| Node::mk(mcx, types_nodes::String { sval: v })).transpose()?,
+        arg: value
+            .map(|v| Node::mk(mcx, types_nodes::String { sval: v }))
+            .transpose()?,
         defaction: DefElemAction::DEFELEM_UNSPEC,
         location: -1,
     })
@@ -111,7 +114,10 @@ fn invalid_option_error(mcx: mcx::Mcx<'_>, name: &str, context: Oid) -> PgResult
     Ok(Box::new(e))
 }
 
-pub fn fc_dblink_fdw_validator(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
+pub fn fc_dblink_fdw_validator(
+    _flinfo: Option<&mut FmgrInfo>,
+    fcinfo: &mut Fcinfo,
+) -> PgResult<Datum> {
     let mcx = fcinfo.result_mcx();
     let options = foreigncmds::options::untransform_options(mcx, Some(fcinfo.arg(0)))?;
     let context = fcinfo.arg(1).as_oid();
@@ -145,20 +151,38 @@ mod tests {
         assert!(is_valid_dblink_option("host", SERVER_CONTEXT));
         // banned everywhere.
         assert!(!is_valid_dblink_option("client_encoding", SERVER_CONTEXT));
-        assert!(!is_valid_dblink_option("client_encoding", USER_MAPPING_CONTEXT));
+        assert!(!is_valid_dblink_option(
+            "client_encoding",
+            USER_MAPPING_CONTEXT
+        ));
         assert!(!is_valid_dblink_option("replication", SERVER_CONTEXT)); // debug 'D'
         assert!(!is_valid_dblink_option("oauth_issuer", SERVER_CONTEXT));
-        assert!(!is_valid_dblink_option("oauth_client_id", USER_MAPPING_CONTEXT));
+        assert!(!is_valid_dblink_option(
+            "oauth_client_id",
+            USER_MAPPING_CONTEXT
+        ));
         assert!(!is_valid_dblink_option("bogus", SERVER_CONTEXT));
     }
 
     #[test]
     fn fdw_specific_option() {
-        assert!(is_valid_dblink_fdw_option("use_scram_passthrough", SERVER_CONTEXT));
-        assert!(is_valid_dblink_fdw_option("use_scram_passthrough", USER_MAPPING_CONTEXT));
+        assert!(is_valid_dblink_fdw_option(
+            "use_scram_passthrough",
+            SERVER_CONTEXT
+        ));
+        assert!(is_valid_dblink_fdw_option(
+            "use_scram_passthrough",
+            USER_MAPPING_CONTEXT
+        ));
         // upstream cd777e27e203 (18.6): meaningless on the wrapper itself.
-        assert!(!is_valid_dblink_fdw_option("use_scram_passthrough", FDW_CONTEXT));
-        assert!(!is_valid_dblink_option("use_scram_passthrough", SERVER_CONTEXT));
+        assert!(!is_valid_dblink_fdw_option(
+            "use_scram_passthrough",
+            FDW_CONTEXT
+        ));
+        assert!(!is_valid_dblink_option(
+            "use_scram_passthrough",
+            SERVER_CONTEXT
+        ));
     }
 
     // upstream e5d019fbdc12 (18.6): the value goes through defGetBoolean.
@@ -175,7 +199,10 @@ mod tests {
         assert!(check(None).unwrap());
         for bad in ["invalid", "1", "", "yes"] {
             let e = check(Some(bad)).unwrap_err();
-            assert_eq!(e.message(), "use_scram_passthrough requires a Boolean value");
+            assert_eq!(
+                e.message(),
+                "use_scram_passthrough requires a Boolean value"
+            );
             assert_eq!(e.sqlstate(), types_error::ERRCODE_SYNTAX_ERROR);
         }
     }

@@ -1,21 +1,34 @@
 // gravity_driver_rig's root: a native integration-test rig that reads the program ABI's words as raw pointers. The
 // site's wasm gate checks every workspace member for wasm32, where the rig is empty.
 #![cfg(not(target_family = "wasm"))]
-#![allow(clippy::duplicate_mod,dead_code)]
+#![allow(clippy::duplicate_mod, dead_code)]
 
 use std::cell::Cell;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+use gravity_abi::breaker::{
+    Breaker, BreakerKind, Budget, HashAgg, KeyKind, RecordLayout, SlotKind, Spill, SHARE,
+};
 use gravity_abi::ctx::{cancel_pending, hdr, lane, site_ptr, RESUME_NONE};
 use gravity_abi::program::{SPILL_PARTS, SPILL_REFILL, SPILL_SCATTER, WRITE_UPDATE};
 use gravity_abi::site::{next_row, seek as site_seek, site};
-use gravity_abi::status::{recheck, suspend, unsupported, CANCELLED, DONE, ERROR, OK, STOP, UNSUPPORTED_SCRATCH, WRITE_DONE, WRITE_RECHECK, WRITE_SKIPPED};
+use gravity_abi::status::{
+    recheck, suspend, unsupported, CANCELLED, DONE, ERROR, OK, STOP, UNSUPPORTED_SCRATCH,
+    WRITE_DONE, WRITE_RECHECK, WRITE_SKIPPED,
+};
 use gravity_abi::{Ctx, Datum, Lane, ScanPos, Site};
-use gravity_driver::{box_locker, box_source, box_writer, ArenaBox, ArenaRef, SourceBox, Binding, BindingParts, BindingRef, BorrowedBatch, CommandId, Cursor, Derive, Error, Flow, Identity, Locker, Merge, Outcome, Partial, PerTuple, Pins, Result, LegRef, Sink, SinkLeg, Snapshot, Source, State, Window, WindowBase, WriteOp, Writer};
-use gravity_abi::breaker::{Breaker, BreakerKind, Budget, HashAgg, KeyKind, RecordLayout, SlotKind, Spill, SHARE};
-use gravity_program::{Arena, Cmd, Code, End, IndexPlan, Layout, LockKind, OutCol, Pipeline, Program, Reason, SiteDesc, WaitPolicy, WritePlan};
+use gravity_driver::{
+    box_locker, box_source, box_writer, ArenaBox, ArenaRef, Binding, BindingParts, BindingRef,
+    BorrowedBatch, CommandId, Cursor, Derive, Error, Flow, Identity, LegRef, Locker, Merge,
+    Outcome, Partial, PerTuple, Pins, Result, Sink, SinkLeg, Snapshot, Source, SourceBox, State,
+    Window, WindowBase, WriteOp, Writer,
+};
+use gravity_program::{
+    Arena, Cmd, Code, End, IndexPlan, Layout, LockKind, OutCol, Pipeline, Program, Reason,
+    SiteDesc, WaitPolicy, WritePlan,
+};
 
 fn stage() -> Arena {
     Arena::new(1 << 14)
@@ -47,7 +60,11 @@ pub struct FixedRows {
 
 impl FixedRows {
     pub const fn empty() -> FixedRows {
-        FixedRows { n: 0, cols: [[0; MAXR]; MAXC], valid: [0; MAXC] }
+        FixedRows {
+            n: 0,
+            cols: [[0; MAXR]; MAXC],
+            valid: [0; MAXC],
+        }
     }
 
     pub fn push(&mut self, v: &[Datum]) {
@@ -182,7 +199,9 @@ impl Source for FakeSource {
         self.rows.n = 0;
         match self.substituted.take() {
             // the "newest version at pos": a row spelled from the position
-            Some(pos) => self.rows.push(&[pos.block as u64, pos.off as u64, pos.rel as u64]),
+            Some(pos) => self
+                .rows
+                .push(&[pos.block as u64, pos.off as u64, pos.rel as u64]),
             None => (self.fill)(keys, &mut self.rows),
         }
         self.cursor = 0;
@@ -205,7 +224,16 @@ impl Source for FakeSource {
         }
         let i = self.cursor;
         for k in 0..self.natts {
-            w.set(k, Lane::byval(self.rows.cols[k][i..].as_ptr() as *const u8, core::ptr::null(), 8, lane::REGION_ARENA, lane::id(lane::ID_ATTR, k as u32)));
+            w.set(
+                k,
+                Lane::byval(
+                    self.rows.cols[k][i..].as_ptr() as *const u8,
+                    core::ptr::null(),
+                    8,
+                    lane::REGION_ARENA,
+                    lane::id(lane::ID_ATTR, k as u32),
+                ),
+            );
         }
         w.rows = 1;
         w.set_base(WindowBase::at(ScanPos::new(self.rel, i as u32 + 1, 0)));
@@ -281,7 +309,13 @@ impl Writer for FakeWriter {
         Ok(())
     }
 
-    fn write(&mut self, op: WriteOp, pos: ScanPos, values: &[Datum], _isnull: &[u8]) -> Result<Outcome> {
+    fn write(
+        &mut self,
+        op: WriteOp,
+        pos: ScanPos,
+        values: &[Datum],
+        _isnull: &[u8],
+    ) -> Result<Outcome> {
         assert!(self.bound, "write on an unbound writer");
         if let Some(s) = &self.stats {
             s.writes.set(s.writes.get() + 1);
@@ -343,7 +377,13 @@ impl Default for FakeSink {
 
 impl FakeSink {
     pub fn new() -> FakeSink {
-        FakeSink { rows: Cell::new(0), batches: Cell::new(0), last: Cell::new([0; MAXC]), stop_after: Cell::new(None), fail_after: Cell::new(None) }
+        FakeSink {
+            rows: Cell::new(0),
+            batches: Cell::new(0),
+            last: Cell::new([0; MAXC]),
+            stop_after: Cell::new(None),
+            fail_after: Cell::new(None),
+        }
     }
 
     pub fn rows(&self) -> usize {
@@ -372,7 +412,11 @@ impl Sink for &FakeSink {
             last[..values.len()].copy_from_slice(values);
             s.last.set(last);
         }
-        Ok(if s.stop_after.get().is_some_and(|n| s.rows.get() >= n) { Flow::Stop } else { Flow::Continue })
+        Ok(if s.stop_after.get().is_some_and(|n| s.rows.get() >= n) {
+            Flow::Stop
+        } else {
+            Flow::Continue
+        })
     }
 }
 
@@ -454,7 +498,34 @@ pub const PROBE_WAIT: std::time::Duration = std::time::Duration::from_millis(500
 
 impl RangeTable {
     pub fn new(blocks: u64, per_block: u64) -> Arc<RangeTable> {
-        Arc::new(RangeTable { blocks, per_block, pins: AtomicI64::new(0), fail_block: AtomicU64::new(u64::MAX), leak: AtomicBool::new(false), binds: AtomicU64::new(0), bound_now: AtomicI64::new(0), rebinds: AtomicU64::new(0), rearms: AtomicU64::new(0), leader_image: AtomicU64::new(0), worker_images: AtomicU64::new(0), foreign_unpins: AtomicU64::new(0), keep: AtomicBool::new(false), token: Arc::new(()), drop_probe: AtomicBool::new(false), drops_free: AtomicU64::new(0), drops_locked: AtomicU64::new(0), kept_bytes: AtomicUsize::new(0), record_owners: AtomicBool::new(false), owners: Mutex::new(Vec::new()), held_heap: AtomicUsize::new(0), shed_on_park: AtomicBool::new(false), parks: AtomicU64::new(0), heaps: AtomicU64::new(0), at_claim: AtomicBool::new(false), bind_threads: Mutex::new(Vec::new()) })
+        Arc::new(RangeTable {
+            blocks,
+            per_block,
+            pins: AtomicI64::new(0),
+            fail_block: AtomicU64::new(u64::MAX),
+            leak: AtomicBool::new(false),
+            binds: AtomicU64::new(0),
+            bound_now: AtomicI64::new(0),
+            rebinds: AtomicU64::new(0),
+            rearms: AtomicU64::new(0),
+            leader_image: AtomicU64::new(0),
+            worker_images: AtomicU64::new(0),
+            foreign_unpins: AtomicU64::new(0),
+            keep: AtomicBool::new(false),
+            token: Arc::new(()),
+            drop_probe: AtomicBool::new(false),
+            drops_free: AtomicU64::new(0),
+            drops_locked: AtomicU64::new(0),
+            kept_bytes: AtomicUsize::new(0),
+            record_owners: AtomicBool::new(false),
+            owners: Mutex::new(Vec::new()),
+            held_heap: AtomicUsize::new(0),
+            shed_on_park: AtomicBool::new(false),
+            parks: AtomicU64::new(0),
+            heaps: AtomicU64::new(0),
+            at_claim: AtomicBool::new(false),
+            bind_threads: Mutex::new(Vec::new()),
+        })
     }
 
     pub fn rows(&self) -> u64 {
@@ -497,7 +568,11 @@ impl Drop for FakeRangeSource {
         std::thread::spawn(move || {
             let _ = tx.send(gravity_driver::DEPOT.stats());
         });
-        let counter = if rx.recv_timeout(PROBE_WAIT).is_ok() { &self.table.drops_free } else { &self.table.drops_locked };
+        let counter = if rx.recv_timeout(PROBE_WAIT).is_ok() {
+            &self.table.drops_free
+        } else {
+            &self.table.drops_locked
+        };
         counter.fetch_add(1, Ordering::Relaxed);
     }
 }
@@ -517,7 +592,10 @@ impl FakeRangeSource {
 impl Source for FakeRangeSource {
     fn bind(&mut self, b: &BindingRef<'_>) -> Result<()> {
         match b.ordinal {
-            None => self.table.leader_image.store(b.params.len() as u64, Ordering::Relaxed),
+            None => self
+                .table
+                .leader_image
+                .store(b.params.len() as u64, Ordering::Relaxed),
             Some(_) if !b.params.is_empty() => {
                 self.table.worker_images.fetch_add(1, Ordering::Relaxed);
             }
@@ -533,14 +611,24 @@ impl Source for FakeRangeSource {
         self.table.binds.fetch_add(1, Ordering::Relaxed);
         // only under `at_claim` (D4630's witness): the steady-state allocation tests bind worker slots every section
         if self.worker && self.table.at_claim.load(Ordering::Relaxed) {
-            self.table.bind_threads.lock().unwrap().push(std::thread::current().id()); // alloc: Exec
+            self.table
+                .bind_threads
+                .lock()
+                .unwrap()
+                .push(std::thread::current().id()); // alloc: Exec
         }
         let n = self.table.held_heap.load(Ordering::Relaxed);
         if n > 0 && self.held.is_none() {
             use gravity_driver::mem::budget as ledger;
             self.heap = vec![1u8; n]; // alloc: Node
             let (o, release) = ledger::charge::context();
-            self.held = Some(ledger::Charge::open(o, release, ledger::Kind::Region, ledger::charge::Door::Heap, n as u64));
+            self.held = Some(ledger::Charge::open(
+                o,
+                release,
+                ledger::Kind::Region,
+                ledger::charge::Door::Heap,
+                n as u64,
+            ));
             if self.worker {
                 self.table.heaps.fetch_add(1, Ordering::Relaxed);
             }
@@ -562,10 +650,18 @@ impl Source for FakeRangeSource {
     }
 
     fn park_bytes(&self) -> usize {
-        if self.table.shed_on_park.load(Ordering::Relaxed) { self.heap.capacity() } else { 0 }
+        if self.table.shed_on_park.load(Ordering::Relaxed) {
+            self.heap.capacity()
+        } else {
+            0
+        }
     }
 
-    fn transfer_held(&mut self, to: gravity_driver::mem::budget::Owner, release: gravity_driver::mem::budget::Release) {
+    fn transfer_held(
+        &mut self,
+        to: gravity_driver::mem::budget::Owner,
+        release: gravity_driver::mem::budget::Release,
+    ) {
         if let Some(c) = self.held.as_mut() {
             c.transfer(to, release);
         }
@@ -596,7 +692,11 @@ impl Source for FakeRangeSource {
             return Err(Error::host("range read failed"));
         }
         if self.table.record_owners.load(Ordering::Relaxed) {
-            let seen = SeenOwners { worker: self.worker, op: w.op_owner().map(|(o, k)| (o.words(), k as u8)), stmt: w.stmt_owner().map(|(o, r)| (o.words(), r as u8)) };
+            let seen = SeenOwners {
+                worker: self.worker,
+                op: w.op_owner().map(|(o, k)| (o.words(), k as u8)),
+                stmt: w.stmt_owner().map(|(o, r)| (o.words(), r as u8)),
+            };
             self.table.owners.lock().unwrap().push(seen);
         }
         let n = self.table.per_block as usize;
@@ -606,7 +706,16 @@ impl Source for FakeRangeSource {
             self.lanes[1][r] = self.block;
         }
         for k in 0..self.natts {
-            w.set(k, Lane::byval(self.lanes[k].as_ptr() as *const u8, core::ptr::null(), 8, lane::REGION_ARENA, lane::id(lane::ID_ATTR, k as u32)));
+            w.set(
+                k,
+                Lane::byval(
+                    self.lanes[k].as_ptr() as *const u8,
+                    core::ptr::null(),
+                    8,
+                    lane::REGION_ARENA,
+                    lane::id(lane::ID_ATTR, k as u32),
+                ),
+            );
         }
         w.rows = n as u32;
         let mut base = WindowBase::at(ScanPos::new(self.rel, self.block as u32, 0));
@@ -651,7 +760,9 @@ impl Source for FakeRangeSource {
         if self.bound || (rel != 0 && rel != self.rel) {
             return None;
         }
-        self.kept.take().map(|k| Box::new(k) as Box<dyn core::any::Any>)
+        self.kept
+            .take()
+            .map(|k| Box::new(k) as Box<dyn core::any::Any>)
     }
 
     fn rel_read(&self) -> u32 {
@@ -694,7 +805,12 @@ impl Default for LegSink {
 
 impl LegSink {
     pub fn new() -> LegSink {
-        LegSink { rows: Mutex::new(Vec::new()), stop_after: None, leg_pushes: AtomicU64::new(0), legs: true }
+        LegSink {
+            rows: Mutex::new(Vec::new()),
+            stop_after: None,
+            leg_pushes: AtomicU64::new(0),
+            legs: true,
+        }
     }
 
     pub fn sorted(&self) -> Vec<Vec<Datum>> {
@@ -708,7 +824,11 @@ impl LegSink {
         for (v, _) in batch.iter() {
             rows.push(v.to_vec());
         }
-        Ok(if self.stop_after.is_some_and(|n| rows.len() >= n) { Flow::Stop } else { Flow::Continue })
+        Ok(if self.stop_after.is_some_and(|n| rows.len() >= n) {
+            Flow::Stop
+        } else {
+            Flow::Continue
+        })
     }
 }
 
@@ -770,7 +890,19 @@ pub struct FakeDerive {
 
 impl FakeDerive {
     pub fn new(fills: [Fill; 4]) -> FakeDerive {
-        FakeDerive { fills, bind_fail_site: None, fail_next: None, write_outcome: Outcome::Done, lock_outcomes: [Outcome::Done; 4], stats: None, range: None, source_hint: 0, identity: 0, seen: Vec::with_capacity(8), arena: Arena::new(1 << 16) }
+        FakeDerive {
+            fills,
+            bind_fail_site: None,
+            fail_next: None,
+            write_outcome: Outcome::Done,
+            lock_outcomes: [Outcome::Done; 4],
+            stats: None,
+            range: None,
+            source_hint: 0,
+            identity: 0,
+            seen: Vec::with_capacity(8),
+            arena: Arena::new(1 << 16),
+        }
     }
 
     pub fn ranges(table: Arc<RangeTable>) -> FakeDerive {
@@ -802,14 +934,35 @@ impl Derive for FakeDerive {
     }
 
     fn size_hint(&self, _desc: &SiteDesc) -> usize {
-        core::mem::size_of::<FakeSource>().max(core::mem::size_of::<FakeRangeSource>()).max(self.source_hint)
+        core::mem::size_of::<FakeSource>()
+            .max(core::mem::size_of::<FakeRangeSource>())
+            .max(self.source_hint)
     }
 
     fn derive_source(&mut self, desc: &SiteDesc, a: ArenaRef) -> SourceBox {
         let i = self.index_of(desc);
         if desc.is_range() {
             let table = self.range.clone().expect("a range table for a range site");
-            return box_source(FakeRangeSource { table, lo: 0, hi: 0, block: 0, pinned: false, pin_thread: None, natts: desc.natts(), rel: desc.relation, bound: false, worker: false, cur: Cursor::new(), lanes: [[0; MAX_PER_BLOCK]; 2], kept: None, held: None, heap: Vec::new() }, a);
+            return box_source(
+                FakeRangeSource {
+                    table,
+                    lo: 0,
+                    hi: 0,
+                    block: 0,
+                    pinned: false,
+                    pin_thread: None,
+                    natts: desc.natts(),
+                    rel: desc.relation,
+                    bound: false,
+                    worker: false,
+                    cur: Cursor::new(),
+                    lanes: [[0; MAX_PER_BLOCK]; 2],
+                    kept: None,
+                    held: None,
+                    heap: Vec::new(),
+                },
+                a,
+            );
         }
         box_source(
             FakeSource {
@@ -839,7 +992,14 @@ impl Derive for FakeDerive {
     }
 
     fn derive_writer(&mut self, _plan: &WritePlan, a: ArenaRef) -> ArenaBox<dyn Writer> {
-        box_writer(FakeWriter { outcome: self.write_outcome, bound: false, stats: self.stats.clone() }, a)
+        box_writer(
+            FakeWriter {
+                outcome: self.write_outcome,
+                bound: false,
+                stats: self.stats.clone(),
+            },
+            a,
+        )
     }
 
     fn locker_size_hint(&self) -> usize {
@@ -847,7 +1007,15 @@ impl Derive for FakeDerive {
     }
 
     fn derive_locker(&mut self, _plan: &WritePlan, a: ArenaRef) -> ArenaBox<dyn Locker> {
-        box_locker(FakeLocker { outcomes: self.lock_outcomes, calls: 0, bound: false, stats: self.stats.clone() }, a)
+        box_locker(
+            FakeLocker {
+                outcomes: self.lock_outcomes,
+                calls: 0,
+                bound: false,
+                stats: self.stats.clone(),
+            },
+            a,
+        )
     }
 }
 
@@ -858,7 +1026,10 @@ pub fn arm_pool() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
         if pagepool::switches().gravity {
-            assert!(pagepool::init(&pagepool::Config::from_policy()), "the pool reserves its zones");
+            assert!(
+                pagepool::init(&pagepool::Config::from_policy()),
+                "the pool reserves its zones"
+            );
         }
     });
 }
@@ -870,10 +1041,29 @@ pub fn pool_armed() -> bool {
 
 pub fn parts<'a>(params: &'a [Datum], nulls: &'a [u8], flag: &'a AtomicU8) -> BindingParts<'a> {
     arm_pool();
-    BindingParts { snapshot: Snapshot(0x5A), command_id: CommandId(3), params, param_nulls: nulls, abort_flag: flag, pins: Pins(1), per_tuple: PerTuple(2), identity: Identity { proc_number: 7, resource_owner: 0xAB, latch: 0xCD }, resolved: None }
+    BindingParts {
+        snapshot: Snapshot(0x5A),
+        command_id: CommandId(3),
+        params,
+        param_nulls: nulls,
+        abort_flag: flag,
+        pins: Pins(1),
+        per_tuple: PerTuple(2),
+        identity: Identity {
+            proc_number: 7,
+            resource_owner: 0xAB,
+            latch: 0xCD,
+        },
+        resolved: None,
+    }
 }
 
-pub fn binding<'a, S: Sink>(params: &'a [Datum], nulls: &'a [u8], sink: &'a mut S, flag: &'a AtomicU8) -> Binding<'a> {
+pub fn binding<'a, S: Sink>(
+    params: &'a [Datum],
+    nulls: &'a [u8],
+    sink: &'a mut S,
+    flag: &'a AtomicU8,
+) -> Binding<'a> {
     Binding::new(parts(params, nulls, flag), sink)
 }
 
@@ -1024,11 +1214,22 @@ pub unsafe extern "C-unwind" fn k_join(ctx: *mut Ctx) -> i64 {
             inner.state = site::STATE_EOF;
             (*ctx).resume = RESUME_OPEN;
             if stop {
-                return if flush(ctx) < 0 { ERROR } else { suspend(false) };
+                return if flush(ctx) < 0 {
+                    ERROR
+                } else {
+                    suspend(false)
+                };
             }
             continue;
         }
-        let f = emit(ctx, 6, &[(outer.values, outer.isnull, 3), (inner.values, inner.isnull, 3)]);
+        let f = emit(
+            ctx,
+            6,
+            &[
+                (outer.values, outer.isnull, 3),
+                (inner.values, inner.isnull, 3),
+            ],
+        );
         stop |= f == STOP;
         if f < 0 && f != STOP {
             return f;
@@ -1119,7 +1320,13 @@ pub unsafe extern "C-unwind" fn k_noop(_ctx: *mut Ctx) -> i64 {
 }
 
 fn layout(nsites: u16, out_natts: u16, out_rows: u32) -> Layout {
-    Layout { nsites, out_natts, out_rows, scratch_bytes: 0, exec_bytes: 0 }
+    Layout {
+        nsites,
+        out_natts,
+        out_rows,
+        scratch_bytes: 0,
+        exec_bytes: 0,
+    }
 }
 
 const NAMES: [&str; 8] = ["c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7"];
@@ -1131,45 +1338,110 @@ fn cols<const N: usize>() -> [OutCol; N] {
 pub fn p_lookup3(out_rows: u32) -> Program {
     let st = stage();
     let a = st.handle();
-    let sites = [SiteDesc::index_source(a, 1001, 1101, &[1, 2, 3], &[0, 1, 2], &[4, 5, 6])];
-    Program::new(layout(1, 3, out_rows), &sites, &cols::<3>(), WritePlan::SELECT, Code::hand(k_lookup3))
+    let sites = [SiteDesc::index_source(
+        a,
+        1001,
+        1101,
+        &[1, 2, 3],
+        &[0, 1, 2],
+        &[4, 5, 6],
+    )];
+    Program::new(
+        layout(1, 3, out_rows),
+        &sites,
+        &cols::<3>(),
+        WritePlan::SELECT,
+        Code::hand(k_lookup3),
+    )
 }
 
 /// D776: `p_lookup3` whose kernel stores a marked row of site 0's scan in site 1.
 pub fn p_lookup3_marked(out_rows: u32) -> Program {
     let st = stage();
     let a = st.handle();
-    let sites = [SiteDesc::index_source(a, 1001, 1101, &[1, 2, 3], &[0, 1, 2], &[4, 5, 6]), SiteDesc::row_of(a, 0, 1001)];
-    Program::new(layout(2, 3, out_rows), &sites, &cols::<3>(), WritePlan::SELECT, Code::hand(k_lookup3_marked))
+    let sites = [
+        SiteDesc::index_source(a, 1001, 1101, &[1, 2, 3], &[0, 1, 2], &[4, 5, 6]),
+        SiteDesc::row_of(a, 0, 1001),
+    ];
+    Program::new(
+        layout(2, 3, out_rows),
+        &sites,
+        &cols::<3>(),
+        WritePlan::SELECT,
+        Code::hand(k_lookup3_marked),
+    )
 }
 
 pub fn p_lookup4(out_rows: u32) -> Program {
     let st = stage();
     let a = st.handle();
-    let sites = [SiteDesc::index_source(a, 1001, 1102, &[1, 2, 7, 8], &[0, 1, 2, 3], &[3, 4])];
-    Program::new(layout(1, 2, out_rows), &sites, &cols::<2>(), WritePlan::SELECT, Code::hand(k_lookup4))
+    let sites = [SiteDesc::index_source(
+        a,
+        1001,
+        1102,
+        &[1, 2, 7, 8],
+        &[0, 1, 2, 3],
+        &[3, 4],
+    )];
+    Program::new(
+        layout(1, 2, out_rows),
+        &sites,
+        &cols::<2>(),
+        WritePlan::SELECT,
+        Code::hand(k_lookup4),
+    )
 }
 
 pub fn p_join(out_rows: u32) -> Program {
     let st = stage();
     let a = st.handle();
-    let sites = [SiteDesc::index_source(a, 1008, 1108, &[1, 2, 3], &[0, 1, 2], &[3, 4, 5]), SiteDesc::index_source(a, 1009, 1109, &[1, 2, 3], &[0, 1, -1], &[4, 5, 6])];
-    Program::new(layout(2, 6, out_rows), &sites, &cols::<6>(), WritePlan::SELECT, Code::hand(k_join))
+    let sites = [
+        SiteDesc::index_source(a, 1008, 1108, &[1, 2, 3], &[0, 1, 2], &[3, 4, 5]),
+        SiteDesc::index_source(a, 1009, 1109, &[1, 2, 3], &[0, 1, -1], &[4, 5, 6]),
+    ];
+    Program::new(
+        layout(2, 6, out_rows),
+        &sites,
+        &cols::<6>(),
+        WritePlan::SELECT,
+        Code::hand(k_join),
+    )
 }
 
 pub fn p_update() -> Program {
     let st = stage();
     let a = st.handle();
-    let sites = [SiteDesc::index_source(a, 1005, 1105, &[1, 2], &[0, 1], &[1, 2]), SiteDesc::write(1005, 2)];
-    let write = WritePlan::write(a, Cmd::Update, 1005, &[IndexPlan::new(a, 1105, &[1, 2], true)]);
+    let sites = [
+        SiteDesc::index_source(a, 1005, 1105, &[1, 2], &[0, 1], &[1, 2]),
+        SiteDesc::write(1005, 2),
+    ];
+    let write = WritePlan::write(
+        a,
+        Cmd::Update,
+        1005,
+        &[IndexPlan::new(a, 1105, &[1, 2], true)],
+    );
     Program::new(layout(2, 0, 1), &sites, &[], write, Code::hand(k_update))
 }
 
 pub fn p_lock() -> Program {
     let st = stage();
     let a = st.handle();
-    let sites = [SiteDesc::index_source(a, 1005, 1105, &[1, 2], &[0, 1], &[3])];
-    Program::new(layout(1, 1, 64), &sites, &cols::<1>(), WritePlan::locking(1005, LockKind::Exclusive, WaitPolicy::Block), Code::hand(k_lock))
+    let sites = [SiteDesc::index_source(
+        a,
+        1005,
+        1105,
+        &[1, 2],
+        &[0, 1],
+        &[3],
+    )];
+    Program::new(
+        layout(1, 1, 64),
+        &sites,
+        &cols::<1>(),
+        WritePlan::locking(1005, LockKind::Exclusive, WaitPolicy::Block),
+        Code::hand(k_lock),
+    )
 }
 
 unsafe fn range_seek(ctx: *mut Ctx, i: usize) -> i64 {
@@ -1258,7 +1530,8 @@ pub unsafe extern "C-unwind" fn k_range_count_w(ctx: *mut Ctx) -> i64 {
 
 /// The share-budgeted fixture: `v % params[0]` → count, sum(v) into a `GROUP` table that opens
 /// at `GROUP_INIT` records and grows to the share the driver armed (`SHARE`).
-pub const GROUP: RecordLayout = RecordLayout::new(&[KeyKind::I64], &[SlotKind::Count, SlotKind::SumI64]);
+pub const GROUP: RecordLayout =
+    RecordLayout::new(&[KeyKind::I64], &[SlotKind::Count, SlotKind::SumI64]);
 pub const GROUP_INIT: u32 = 4;
 
 #[allow(clippy::missing_safety_doc)]
@@ -1300,7 +1573,11 @@ pub unsafe extern "C-unwind" fn k_range_group_share(ctx: *mut Ctx) -> i64 {
 #[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C-unwind" fn k_emit_groups(ctx: *mut Ctx) -> i64 {
     let table = HashAgg::at(own(ctx), &GROUP, GROUP_INIT, SHARE);
-    let mut i = if (*ctx).resume == RESUME_NONE { 0 } else { (*ctx).resume as usize };
+    let mut i = if (*ctx).resume == RESUME_NONE {
+        0
+    } else {
+        (*ctx).resume as usize
+    };
     while i < table.cap as usize {
         let r = table.record(i);
         i += 1;
@@ -1330,14 +1607,22 @@ pub struct GroupMerge;
 impl Merge for GroupMerge {
     /// The same rule as `gravity_parallel::HashAggPartial`: both fit the leader's largest capacity at 7/8 load.
     fn room_for(&self, leader: &[u8], partial: Partial<'_>) -> bool {
-        if partial.bytes.len() < gravity_abi::breaker::HASHAGG_HDR || leader.len() < gravity_abi::breaker::HASHAGG_HDR {
+        if partial.bytes.len() < gravity_abi::breaker::HASHAGG_HDR
+            || leader.len() < gravity_abi::breaker::HASHAGG_HDR
+        {
             return true;
         }
-        let (p, l) = unsafe { (HashAgg::view(partial.bytes.as_ptr()), HashAgg::view(leader.as_ptr())) };
+        let (p, l) = unsafe {
+            (
+                HashAgg::view(partial.bytes.as_ptr()),
+                HashAgg::view(leader.as_ptr()),
+            )
+        };
         if p.cap == 0 {
             return true;
         }
-        let max_cap = HashAgg::cap_of(&p.layout, if l.limit != 0 { l.limit } else { p.limit }) as u64;
+        let max_cap =
+            HashAgg::cap_of(&p.layout, if l.limit != 0 { l.limit } else { p.limit }) as u64;
         (l.len as u64 + p.len as u64) <= max_cap - max_cap / 8
     }
 
@@ -1348,7 +1633,10 @@ impl Merge for GroupMerge {
         }
         let l = unsafe { HashAgg::at(leader.bytes.as_mut_ptr(), &p.layout, p.cap, SHARE) };
         for r in p.records() {
-            l.find_or_insert(r.keys()).ok_or(Error::Unsupported(UNSUPPORTED_SCRATCH))?.fold(&r).map_err(|_| Error::Raised(gravity_abi::breaker::FloatOverflow::MASK))?;
+            l.find_or_insert(r.keys())
+                .ok_or(Error::Unsupported(UNSUPPORTED_SCRATCH))?
+                .fold(&r)
+                .map_err(|_| Error::Raised(gravity_abi::breaker::FloatOverflow::MASK))?;
         }
         Ok(())
     }
@@ -1359,7 +1647,10 @@ impl Merge for GroupMerge {
 pub unsafe extern "C-unwind" fn k_emit_two(ctx: *mut Ctx) -> i64 {
     let a = count_sum(consumed(ctx, 0));
     let b = count_sum(consumed(ctx, 1));
-    let v = [(a.count(0) + b.count(0)) as u64, (a.i64(1) + b.i64(1)) as u64];
+    let v = [
+        (a.count(0) + b.count(0)) as u64,
+        (a.i64(1) + b.i64(1)) as u64,
+    ];
     let n = [0u8; 2];
     if emit(ctx, 2, &[(v.as_ptr(), n.as_ptr(), 2)]) < 0 {
         return ERROR;
@@ -1431,10 +1722,26 @@ pub fn p_count(out_rows: u32) -> Program {
     let a = st.handle();
     let sites = [SiteDesc::range_source(a, 2001, &[1, 2])];
     let pipes = [
-        (Pipeline::eligible(0, End::Breaker(Breaker::sized(BreakerKind::PlainAgg, COUNT_SUM_BYTES)), 1000), Code::hand(k_range_count)),
-        (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), Code::hand(k_emit_count)),
+        (
+            Pipeline::eligible(
+                0,
+                End::Breaker(Breaker::sized(BreakerKind::PlainAgg, COUNT_SUM_BYTES)),
+                1000,
+            ),
+            Code::hand(k_range_count),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            Code::hand(k_emit_count),
+        ),
     ];
-    Program::with_pipelines(layout(1, 2, out_rows), &sites, &cols::<2>(), WritePlan::SELECT, pipes)
+    Program::with_pipelines(
+        layout(1, 2, out_rows),
+        &sites,
+        &cols::<2>(),
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
 /// `p_count`'s shape (a range count into a PlainAgg slot, then its emit to the sink) over the given kernels (CONVERT wave 2:
@@ -1443,8 +1750,24 @@ pub fn p_count_with(scan: Code, emit: Code, out_rows: u32) -> Program {
     let st = stage();
     let a = st.handle();
     let sites = [SiteDesc::range_source(a, 2001, &[1, 2])];
-    let pipes = [(Pipeline::eligible(0, End::Breaker(Breaker::sized(BreakerKind::PlainAgg, COUNT_SUM_BYTES)), 1000), scan), (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), emit)];
-    Program::with_pipelines(layout(1, 2, out_rows), &sites, &cols::<2>(), WritePlan::SELECT, pipes)
+    let pipes = [
+        (
+            Pipeline::eligible(
+                0,
+                End::Breaker(Breaker::sized(BreakerKind::PlainAgg, COUNT_SUM_BYTES)),
+                1000,
+            ),
+            scan,
+        ),
+        (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), emit),
+    ];
+    Program::with_pipelines(
+        layout(1, 2, out_rows),
+        &sites,
+        &cols::<2>(),
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
 pub fn p_count_w(out_rows: u32) -> Program {
@@ -1452,10 +1775,26 @@ pub fn p_count_w(out_rows: u32) -> Program {
     let a = st.handle();
     let sites = [SiteDesc::range_source(a, 2001, &[1, 2])];
     let pipes = [
-        (Pipeline::eligible(0, End::Breaker(Breaker::sized(BreakerKind::PlainAgg, COUNT_SUM_BYTES)), 1000), Code::hand(k_range_count_w)),
-        (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), Code::hand(k_emit_count)),
+        (
+            Pipeline::eligible(
+                0,
+                End::Breaker(Breaker::sized(BreakerKind::PlainAgg, COUNT_SUM_BYTES)),
+                1000,
+            ),
+            Code::hand(k_range_count_w),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            Code::hand(k_emit_count),
+        ),
     ];
-    Program::with_pipelines(layout(1, 2, out_rows), &sites, &cols::<2>(), WritePlan::SELECT, pipes)
+    Program::with_pipelines(
+        layout(1, 2, out_rows),
+        &sites,
+        &cols::<2>(),
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
 /// `GROUP BY v % $0`: a share-budgeted hash aggregate in slot 0 and its emit.
@@ -1463,9 +1802,30 @@ pub fn p_group_share(out_rows: u32) -> Program {
     let st = stage();
     let a = st.handle();
     let sites = [SiteDesc::range_source(a, 2001, &[1, 2])];
-    let breaker = Breaker { kind: BreakerKind::HashAgg, slot: 0, bytes: 0, budget: Budget::Share, spill: Spill::None };
-    let pipes = [(Pipeline::eligible(0, End::Breaker(breaker), 1000), Code::hand(k_range_group_share)), (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), Code::hand(k_emit_groups))];
-    Program::with_pipelines(layout(1, 3, out_rows), &sites, &cols::<3>(), WritePlan::SELECT, pipes)
+    let breaker = Breaker {
+        kind: BreakerKind::HashAgg,
+        slot: 0,
+        bytes: 0,
+        budget: Budget::Share,
+        spill: Spill::None,
+    };
+    let pipes = [
+        (
+            Pipeline::eligible(0, End::Breaker(breaker), 1000),
+            Code::hand(k_range_group_share),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            Code::hand(k_emit_groups),
+        ),
+    ];
+    Program::with_pipelines(
+        layout(1, 3, out_rows),
+        &sites,
+        &cols::<3>(),
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
 /// `p_group_share` whose section merge declares an owner `d` (D193: the one-owner fold's pinned region is in the footprint).
@@ -1473,9 +1833,30 @@ pub fn p_group_share_owned(out_rows: u32, d: gravity_program::OwnerDesc) -> Prog
     let st = stage();
     let a = st.handle();
     let sites = [SiteDesc::range_source(a, 2001, &[1, 2])];
-    let breaker = Breaker { kind: BreakerKind::HashAgg, slot: 0, bytes: 0, budget: Budget::Share, spill: Spill::None };
-    let pipes = [(Pipeline::eligible(0, End::Breaker(breaker), 1000).owner(d), Code::hand(k_range_group_share)), (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), Code::hand(k_emit_groups))];
-    Program::with_pipelines(layout(1, 3, out_rows), &sites, &cols::<3>(), WritePlan::SELECT, pipes)
+    let breaker = Breaker {
+        kind: BreakerKind::HashAgg,
+        slot: 0,
+        bytes: 0,
+        budget: Budget::Share,
+        spill: Spill::None,
+    };
+    let pipes = [
+        (
+            Pipeline::eligible(0, End::Breaker(breaker), 1000).owner(d),
+            Code::hand(k_range_group_share),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            Code::hand(k_emit_groups),
+        ),
+    ];
+    Program::with_pipelines(
+        layout(1, 3, out_rows),
+        &sites,
+        &cols::<3>(),
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
 /// `p_group_share` three times in a chain, slots 0 → 1 → 2 (each consumes the one before): slot 0 is dead when slot 2 opens.
@@ -1488,14 +1869,40 @@ pub fn p_group_chain_rows(out_rows: u32, rows: u64) -> Program {
     let st = stage();
     let a = st.handle();
     let sites = [SiteDesc::range_source(a, 2001, &[1, 2])];
-    let b = |slot| End::Breaker(Breaker { kind: BreakerKind::HashAgg, slot, bytes: 0, budget: Budget::Share, spill: Spill::None });
+    let b = |slot| {
+        End::Breaker(Breaker {
+            kind: BreakerKind::HashAgg,
+            slot,
+            bytes: 0,
+            budget: Budget::Share,
+            spill: Spill::None,
+        })
+    };
     let pipes = [
-        (Pipeline::eligible(0, b(0), rows), Code::hand(k_range_group_share)),
-        (Pipeline::eligible(0, b(1), rows).consuming(&[0]), Code::hand(k_range_group_share)),
-        (Pipeline::eligible(0, b(2), rows).consuming(&[1]), Code::hand(k_range_group_share)),
-        (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), Code::hand(k_emit_groups)),
+        (
+            Pipeline::eligible(0, b(0), rows),
+            Code::hand(k_range_group_share),
+        ),
+        (
+            Pipeline::eligible(0, b(1), rows).consuming(&[0]),
+            Code::hand(k_range_group_share),
+        ),
+        (
+            Pipeline::eligible(0, b(2), rows).consuming(&[1]),
+            Code::hand(k_range_group_share),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            Code::hand(k_emit_groups),
+        ),
     ];
-    Program::with_pipelines(layout(1, 3, out_rows), &sites, &cols::<3>(), WritePlan::SELECT, pipes)
+    Program::with_pipelines(
+        layout(1, 3, out_rows),
+        &sites,
+        &cols::<3>(),
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
 /// Unequal peaks (D192): slot 0 alone (peak 1, no consumer), then slots 1, 2, 3 live together (peak 3) into the emit.
@@ -1503,15 +1910,44 @@ pub fn p_group_peaks(out_rows: u32) -> Program {
     let st = stage();
     let a = st.handle();
     let sites = [SiteDesc::range_source(a, 2001, &[1, 2])];
-    let b = |slot| End::Breaker(Breaker { kind: BreakerKind::HashAgg, slot, bytes: 0, budget: Budget::Share, spill: Spill::None });
+    let b = |slot| {
+        End::Breaker(Breaker {
+            kind: BreakerKind::HashAgg,
+            slot,
+            bytes: 0,
+            budget: Budget::Share,
+            spill: Spill::None,
+        })
+    };
     let pipes = [
-        (Pipeline::eligible(0, b(0), 1000), Code::hand(k_range_group_share)),
-        (Pipeline::eligible(0, b(1), 1000), Code::hand(k_range_group_share)),
-        (Pipeline::eligible(0, b(2), 1000), Code::hand(k_range_group_share)),
-        (Pipeline::eligible(0, b(3), 1000), Code::hand(k_range_group_share)),
-        (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming(&[1, 2, 3]), Code::hand(k_emit_groups)),
+        (
+            Pipeline::eligible(0, b(0), 1000),
+            Code::hand(k_range_group_share),
+        ),
+        (
+            Pipeline::eligible(0, b(1), 1000),
+            Code::hand(k_range_group_share),
+        ),
+        (
+            Pipeline::eligible(0, b(2), 1000),
+            Code::hand(k_range_group_share),
+        ),
+        (
+            Pipeline::eligible(0, b(3), 1000),
+            Code::hand(k_range_group_share),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming(&[1, 2, 3]),
+            Code::hand(k_emit_groups),
+        ),
     ];
-    Program::with_pipelines(layout(1, 3, out_rows), &sites, &cols::<3>(), WritePlan::SELECT, pipes)
+    Program::with_pipelines(
+        layout(1, 3, out_rows),
+        &sites,
+        &cols::<3>(),
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
 /// `p_group_share` declaring a `MinVar` owner slot: a program whose owners pin group images (`program_images`).
@@ -1519,11 +1955,39 @@ pub fn p_group_images(out_rows: u32) -> Program {
     let st = stage();
     let a = st.handle();
     let sites = [SiteDesc::range_source(a, 2001, &[1, 2])];
-    let breaker = Breaker { kind: BreakerKind::HashAgg, slot: 0, bytes: 0, budget: Budget::Share, spill: Spill::None };
-    let images = RecordLayout::new(&[KeyKind::I64], &[SlotKind::Count, SlotKind::SumI64, SlotKind::MinVar]);
-    let scan = Pipeline { owner: Some(gravity_program::OwnerDesc::generic(images, gravity_abi::breaker::ORDER_NONE, 0)), ..Pipeline::eligible(0, End::Breaker(breaker), 1000) };
-    let pipes = [(scan, Code::hand(k_range_group_share)), (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), Code::hand(k_emit_groups))];
-    Program::with_pipelines(layout(1, 3, out_rows), &sites, &cols::<3>(), WritePlan::SELECT, pipes)
+    let breaker = Breaker {
+        kind: BreakerKind::HashAgg,
+        slot: 0,
+        bytes: 0,
+        budget: Budget::Share,
+        spill: Spill::None,
+    };
+    let images = RecordLayout::new(
+        &[KeyKind::I64],
+        &[SlotKind::Count, SlotKind::SumI64, SlotKind::MinVar],
+    );
+    let scan = Pipeline {
+        owner: Some(gravity_program::OwnerDesc::generic(
+            images,
+            gravity_abi::breaker::ORDER_NONE,
+            0,
+        )),
+        ..Pipeline::eligible(0, End::Breaker(breaker), 1000)
+    };
+    let pipes = [
+        (scan, Code::hand(k_range_group_share)),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            Code::hand(k_emit_groups),
+        ),
+    ];
+    Program::with_pipelines(
+        layout(1, 3, out_rows),
+        &sites,
+        &cols::<3>(),
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
 /// Two producers into one consumer: slot 0 and slot 1 each a `COUNT_SUM` record, the emit reads both.
@@ -1532,40 +1996,112 @@ pub fn p_two_slots(out_rows: u32) -> Program {
     let a = st.handle();
     let sites = [SiteDesc::range_source(a, 2001, &[1, 2])];
     let pipes = [
-        (Pipeline::eligible(0, End::Breaker(Breaker::sized(BreakerKind::PlainAgg, COUNT_SUM_BYTES).in_slot(0)), 1000), Code::hand(k_range_count_w)),
-        (Pipeline::eligible(0, End::Breaker(Breaker::sized(BreakerKind::PlainAgg, COUNT_SUM_BYTES).in_slot(1)), 1000), Code::hand(k_range_count_w)),
-        (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming(&[0, 1]), Code::hand(k_emit_two)),
+        (
+            Pipeline::eligible(
+                0,
+                End::Breaker(Breaker::sized(BreakerKind::PlainAgg, COUNT_SUM_BYTES).in_slot(0)),
+                1000,
+            ),
+            Code::hand(k_range_count_w),
+        ),
+        (
+            Pipeline::eligible(
+                0,
+                End::Breaker(Breaker::sized(BreakerKind::PlainAgg, COUNT_SUM_BYTES).in_slot(1)),
+                1000,
+            ),
+            Code::hand(k_range_count_w),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming(&[0, 1]),
+            Code::hand(k_emit_two),
+        ),
     ];
-    Program::with_pipelines(layout(1, 2, out_rows), &sites, &cols::<2>(), WritePlan::SELECT, pipes)
+    Program::with_pipelines(
+        layout(1, 2, out_rows),
+        &sites,
+        &cols::<2>(),
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
 /// Multi-emit (main 09-23): two UNION ALL arms, each a Sink pipeline over its own range site.
 pub fn p_two_arms(out_rows: u32) -> Program {
     let st = stage();
     let a = st.handle();
-    let sites = [SiteDesc::range_source(a, 2001, &[1, 2]), SiteDesc::range_source(a, 2002, &[1, 2])];
-    let pipes = [(Pipeline::eligible(0, End::Sink, 1000), Code::hand(k_range_rows)), (Pipeline::eligible(1, End::Sink, 1000), Code::hand(k_range_rows_1))];
-    Program::with_pipelines(layout(2, 2, out_rows), &sites, &cols::<2>(), WritePlan::SELECT, pipes)
+    let sites = [
+        SiteDesc::range_source(a, 2001, &[1, 2]),
+        SiteDesc::range_source(a, 2002, &[1, 2]),
+    ];
+    let pipes = [
+        (
+            Pipeline::eligible(0, End::Sink, 1000),
+            Code::hand(k_range_rows),
+        ),
+        (
+            Pipeline::eligible(1, End::Sink, 1000),
+            Code::hand(k_range_rows_1),
+        ),
+    ];
+    Program::with_pipelines(
+        layout(2, 2, out_rows),
+        &sites,
+        &cols::<2>(),
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
 /// Multi-emit with a producer between the arms: arm 0 (rows over site 1), the count fold over site 0, arm 1 (the count's row).
 pub fn p_arm_fold_arm(out_rows: u32) -> Program {
     let st = stage();
     let a = st.handle();
-    let sites = [SiteDesc::range_source(a, 2001, &[1, 2]), SiteDesc::range_source(a, 2002, &[1, 2])];
-    let pipes = [
-        (Pipeline::eligible(1, End::Sink, 1000), Code::hand(k_range_rows_1)),
-        (Pipeline::eligible(0, End::Breaker(Breaker::sized(BreakerKind::PlainAgg, COUNT_SUM_BYTES)), 1000), Code::hand(k_range_count)),
-        (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), Code::hand(k_emit_count)),
+    let sites = [
+        SiteDesc::range_source(a, 2001, &[1, 2]),
+        SiteDesc::range_source(a, 2002, &[1, 2]),
     ];
-    Program::with_pipelines(layout(2, 2, out_rows), &sites, &cols::<2>(), WritePlan::SELECT, pipes)
+    let pipes = [
+        (
+            Pipeline::eligible(1, End::Sink, 1000),
+            Code::hand(k_range_rows_1),
+        ),
+        (
+            Pipeline::eligible(
+                0,
+                End::Breaker(Breaker::sized(BreakerKind::PlainAgg, COUNT_SUM_BYTES)),
+                1000,
+            ),
+            Code::hand(k_range_count),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            Code::hand(k_emit_count),
+        ),
+    ];
+    Program::with_pipelines(
+        layout(2, 2, out_rows),
+        &sites,
+        &cols::<2>(),
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
 pub fn p_rows(out_rows: u32) -> Program {
     let st = stage();
     let a = st.handle();
     let sites = [SiteDesc::range_source(a, 2001, &[1, 2])];
-    Program::with_pipelines(layout(1, 2, out_rows), &sites, &cols::<2>(), WritePlan::SELECT, [(Pipeline::eligible(0, End::Sink, 1000), Code::hand(k_range_rows))])
+    Program::with_pipelines(
+        layout(1, 2, out_rows),
+        &sites,
+        &cols::<2>(),
+        WritePlan::SELECT,
+        [(
+            Pipeline::eligible(0, End::Sink, 1000),
+            Code::hand(k_range_rows),
+        )],
+    )
 }
 
 /// P2 W1: `p_rows` over relation `rel` (its range site's), so a park holds Nodes of more than one relation.
@@ -1573,7 +2109,16 @@ pub fn p_rows_on(rel: u32, out_rows: u32) -> Program {
     let st = stage();
     let a = st.handle();
     let sites = [SiteDesc::range_source(a, rel, &[1, 2])];
-    Program::with_pipelines(layout(1, 2, out_rows), &sites, &cols::<2>(), WritePlan::SELECT, [(Pipeline::eligible(0, End::Sink, 1000), Code::hand(k_range_rows))])
+    Program::with_pipelines(
+        layout(1, 2, out_rows),
+        &sites,
+        &cols::<2>(),
+        WritePlan::SELECT,
+        [(
+            Pipeline::eligible(0, End::Sink, 1000),
+            Code::hand(k_range_rows),
+        )],
+    )
 }
 
 /// CONVERT wave 2 (commit 7): `p_rows` with its scan's code: a sink pipeline, which produces and consumes no slot.
@@ -1581,7 +2126,13 @@ pub fn p_rows_with(scan: Code, out_rows: u32) -> Program {
     let st = stage();
     let a = st.handle();
     let sites = [SiteDesc::range_source(a, 2001, &[1, 2])];
-    Program::with_pipelines(layout(1, 2, out_rows), &sites, &cols::<2>(), WritePlan::SELECT, [(Pipeline::eligible(0, End::Sink, 1000), scan)])
+    Program::with_pipelines(
+        layout(1, 2, out_rows),
+        &sites,
+        &cols::<2>(),
+        WritePlan::SELECT,
+        [(Pipeline::eligible(0, End::Sink, 1000), scan)],
+    )
 }
 
 /// A sink over the range whose claim ends at its first row (a LIMIT 1 reached: DONE mid-range, the page still pinned, D227).
@@ -1589,7 +2140,16 @@ pub fn p_first_row(out_rows: u32) -> Program {
     let st = stage();
     let a = st.handle();
     let sites = [SiteDesc::range_source(a, 2001, &[1, 2])];
-    Program::with_pipelines(layout(1, 2, out_rows), &sites, &cols::<2>(), WritePlan::SELECT, [(Pipeline::eligible(0, End::Sink, 1000), Code::hand(k_range_first_row))])
+    Program::with_pipelines(
+        layout(1, 2, out_rows),
+        &sites,
+        &cols::<2>(),
+        WritePlan::SELECT,
+        [(
+            Pipeline::eligible(0, End::Sink, 1000),
+            Code::hand(k_range_first_row),
+        )],
+    )
 }
 
 /// # Safety — `ctx` is bound to `p_first_row`.
@@ -1610,7 +2170,19 @@ pub unsafe extern "C-unwind" fn k_range_first_row(ctx: *mut Ctx) -> i64 {
 }
 
 pub fn p_code(code: Code, out_rows: u32, exec_bytes: u32) -> Program {
-    Program::new(Layout { nsites: 0, out_natts: 0, out_rows, scratch_bytes: 0, exec_bytes }, &[], &[], WritePlan::SELECT, code)
+    Program::new(
+        Layout {
+            nsites: 0,
+            out_natts: 0,
+            out_rows,
+            scratch_bytes: 0,
+            exec_bytes,
+        },
+        &[],
+        &[],
+        WritePlan::SELECT,
+        code,
+    )
 }
 
 pub fn hdr_cell(node: &gravity_driver::Node, off: usize) -> u64 {
@@ -1618,7 +2190,6 @@ pub fn hdr_cell(node: &gravity_driver::Node, off: usize) -> u64 {
 }
 
 pub const RESUME_CELL: usize = hdr::RESUME;
-
 
 // ---- the fixture spill store (§2 commit 4): in-memory epochs, live-file accounting
 
@@ -1640,10 +2211,16 @@ impl Drop for MemSpillFile {
 
 impl gravity_driver::SpillFile for MemSpillFile {
     fn write_epoch(&mut self, parts: &[(u32, &[u8])]) -> Result<()> {
-        assert!(parts.windows(2).all(|w| w[0].0 < w[1].0), "partitions ascend inside an epoch");
+        assert!(
+            parts.windows(2).all(|w| w[0].0 < w[1].0),
+            "partitions ascend inside an epoch"
+        );
         for (part, bytes) in parts {
             let v = &mut self.parts[*part as usize];
-            assert!(v.len() + bytes.len() <= v.capacity(), "the fixture's partition buffer is pre-sized");
+            assert!(
+                v.len() + bytes.len() <= v.capacity(),
+                "the fixture's partition buffer is pre-sized"
+            );
             v.extend_from_slice(bytes);
             self.bytes += bytes.len() as u64;
         }
@@ -1661,7 +2238,9 @@ impl gravity_driver::SpillFile for MemSpillFile {
 
     fn open_part(&self, part: u32) -> Result<Option<Box<dyn gravity_driver::RunReader>>> {
         let bytes = self.parts[part as usize].clone();
-        Ok((!bytes.is_empty()).then(|| Box::new(MemRunReader { bytes, pos: 0 }) as Box<dyn gravity_driver::RunReader>))
+        Ok((!bytes.is_empty()).then(|| {
+            Box::new(MemRunReader { bytes, pos: 0 }) as Box<dyn gravity_driver::RunReader>
+        }))
     }
 
     fn spilled_bytes(&self) -> u64 {
@@ -1693,10 +2272,19 @@ impl Drop for MemSpillSet {
 }
 
 impl gravity_driver::SpillSet for MemSpillSet {
-    fn open(&mut self, _purpose: &str, _generation: u64, _worker: usize, nparts: u32) -> Result<Box<dyn gravity_driver::SpillFile>> {
+    fn open(
+        &mut self,
+        _purpose: &str,
+        _generation: u64,
+        _worker: usize,
+        nparts: u32,
+    ) -> Result<Box<dyn gravity_driver::SpillFile>> {
         SPILL_FILES_LIVE.fetch_add(1, Ordering::Relaxed);
         // pre-sized partitions: the store's own growth is not the driver's steady state
-        Ok(Box::new(MemSpillFile { parts: (0..nparts).map(|_| Vec::with_capacity(1 << 20)).collect(), bytes: 0 }))
+        Ok(Box::new(MemSpillFile {
+            parts: (0..nparts).map(|_| Vec::with_capacity(1 << 20)).collect(),
+            bytes: 0,
+        }))
     }
 }
 
@@ -1784,7 +2372,14 @@ pub unsafe extern "C-unwind" fn k_emit_groups_spill(ctx: *mut Ctx) -> i64 {
     }
     let table = HashAgg::at(own(ctx), &GROUP, GROUP_INIT, SHARE);
     let word = (*ctx).resume;
-    let (mut part, mut i) = if word == RESUME_NONE { (0u32, 0usize) } else { ((resume::position(word) >> 32) as u32, (resume::position(word) & 0xffff_ffff) as usize) };
+    let (mut part, mut i) = if word == RESUME_NONE {
+        (0u32, 0usize)
+    } else {
+        (
+            (resume::position(word) >> 32) as u32,
+            (resume::position(word) & 0xffff_ffff) as usize,
+        )
+    };
     loop {
         // the refill queue grows when a partition splits: its length is read per token
         let parts = gravity_abi::program::spill(ctx, SPILL_PARTS, 0);
@@ -1828,40 +2423,111 @@ pub unsafe extern "C-unwind" fn k_emit_groups_spill(ctx: *mut Ctx) -> i64 {
 pub fn p_two_group_spills(out_rows: u32) -> Program {
     let st = stage();
     let a = st.handle();
-    let sites = [SiteDesc::range_source(a, 2001, &[1, 2]), SiteDesc::range_source(a, 2002, &[1, 2])];
-    let breaker = Breaker { kind: BreakerKind::HashAgg, slot: 0, bytes: 0, budget: Budget::Share, spill: Spill::Partitioned { bits: 3 } };
-    let pipes = [
-        (Pipeline::eligible(0, End::Breaker(breaker), 1000), Code::hand(k_range_group_spill)),
-        (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), Code::hand(k_emit_groups_spill)),
-        (Pipeline::eligible(1, End::Breaker(breaker), 1000), Code::hand(k_range_group_spill_1)),
-        (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), Code::hand(k_emit_groups_spill)),
+    let sites = [
+        SiteDesc::range_source(a, 2001, &[1, 2]),
+        SiteDesc::range_source(a, 2002, &[1, 2]),
     ];
-    Program::with_pipelines(layout(2, 3, out_rows), &sites, &cols::<3>(), WritePlan::SELECT, pipes)
+    let breaker = Breaker {
+        kind: BreakerKind::HashAgg,
+        slot: 0,
+        bytes: 0,
+        budget: Budget::Share,
+        spill: Spill::Partitioned { bits: 3 },
+    };
+    let pipes = [
+        (
+            Pipeline::eligible(0, End::Breaker(breaker), 1000),
+            Code::hand(k_range_group_spill),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            Code::hand(k_emit_groups_spill),
+        ),
+        (
+            Pipeline::eligible(1, End::Breaker(breaker), 1000),
+            Code::hand(k_range_group_spill_1),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            Code::hand(k_emit_groups_spill),
+        ),
+    ];
+    Program::with_pipelines(
+        layout(2, 3, out_rows),
+        &sites,
+        &cols::<3>(),
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
 pub fn p_group_spill(out_rows: u32) -> Program {
     let st = stage();
     let a = st.handle();
     let sites = [SiteDesc::range_source(a, 2001, &[1, 2])];
-    let breaker = Breaker { kind: BreakerKind::HashAgg, slot: 0, bytes: 0, budget: Budget::Share, spill: Spill::Partitioned { bits: 3 } };
-    let pipes = [(Pipeline::eligible(0, End::Breaker(breaker), 1000), Code::hand(k_range_group_spill)), (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), Code::hand(k_emit_groups_spill))];
-    Program::with_pipelines(layout(1, 3, out_rows), &sites, &cols::<3>(), WritePlan::SELECT, pipes)
+    let breaker = Breaker {
+        kind: BreakerKind::HashAgg,
+        slot: 0,
+        bytes: 0,
+        budget: Budget::Share,
+        spill: Spill::Partitioned { bits: 3 },
+    };
+    let pipes = [
+        (
+            Pipeline::eligible(0, End::Breaker(breaker), 1000),
+            Code::hand(k_range_group_spill),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            Code::hand(k_emit_groups_spill),
+        ),
+    ];
+    Program::with_pipelines(
+        layout(1, 3, out_rows),
+        &sites,
+        &cols::<3>(),
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
 /// DR-12: `p_group_spill`'s shape over `rows` planner rows at `bits` partition bits, its section's merge declaring owner `d`
 /// when given (the parallel owner phase, `own_single` past the leader region).
-pub fn p_group_spill_rows(out_rows: u32, rows: u64, bits: u8, d: Option<gravity_program::OwnerDesc>) -> Program {
+pub fn p_group_spill_rows(
+    out_rows: u32,
+    rows: u64,
+    bits: u8,
+    d: Option<gravity_program::OwnerDesc>,
+) -> Program {
     let st = stage();
     let a = st.handle();
     let sites = [SiteDesc::range_source(a, 2001, &[1, 2])];
-    let breaker = Breaker { kind: BreakerKind::HashAgg, slot: 0, bytes: 0, budget: Budget::Share, spill: Spill::Partitioned { bits } };
+    let breaker = Breaker {
+        kind: BreakerKind::HashAgg,
+        slot: 0,
+        bytes: 0,
+        budget: Budget::Share,
+        spill: Spill::Partitioned { bits },
+    };
     let scan = Pipeline::eligible(0, End::Breaker(breaker), rows);
     let scan = match d {
         Some(d) => scan.owner(d),
         None => scan,
     };
-    let pipes = [(scan, Code::hand(k_range_group_spill)), (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), Code::hand(k_emit_groups_spill))];
-    Program::with_pipelines(layout(1, 3, out_rows), &sites, &cols::<3>(), WritePlan::SELECT, pipes)
+    let pipes = [
+        (scan, Code::hand(k_range_group_spill)),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            Code::hand(k_emit_groups_spill),
+        ),
+    ];
+    Program::with_pipelines(
+        layout(1, 3, out_rows),
+        &sites,
+        &cols::<3>(),
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
 std::thread_local! {
@@ -1940,7 +2606,11 @@ pub unsafe extern "C-unwind" fn k_range_grow(ctx: *mut Ctx) -> i64 {
                     return ERROR;
                 }
                 assert_eq!(b % 64, 0, "a reopened region is 64-aligned");
-                assert_eq!(b as usize as *mut u8, own(ctx), "Partials.own moved to the new base");
+                assert_eq!(
+                    b as usize as *mut u8,
+                    own(ctx),
+                    "Partials.own moved to the new base"
+                );
                 if b as usize as *mut u8 != base {
                     GROW_MOVES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
@@ -1965,8 +2635,14 @@ pub unsafe extern "C-unwind" fn k_range_grow(ctx: *mut Ctx) -> i64 {
 pub unsafe fn grow_totals(p: *mut u8) -> [u64; 4] {
     let h = grow_hdr(p);
     let len = h.limit as u64;
-    let head = (GROW_HDR..h.head).step_by(8).map(|o| *(p.add(o as usize) as *const u64)).sum::<u64>();
-    let tail = (len - h.tail..len).step_by(8).map(|o| !*(p.add(o as usize) as *const u64)).sum::<u64>();
+    let head = (GROW_HDR..h.head)
+        .step_by(8)
+        .map(|o| *(p.add(o as usize) as *const u64))
+        .sum::<u64>();
+    let tail = (len - h.tail..len)
+        .step_by(8)
+        .map(|o| !*(p.add(o as usize) as *const u64))
+        .sum::<u64>();
     [h.count, h.sum, head, tail]
 }
 
@@ -1988,9 +2664,30 @@ pub fn p_grow_share(out_rows: u32) -> Program {
     let st = stage();
     let a = st.handle();
     let sites = [SiteDesc::range_source(a, 2001, &[1, 2])];
-    let breaker = Breaker { kind: BreakerKind::HashBuild, slot: 0, bytes: 0, budget: Budget::Share, spill: Spill::None };
-    let pipes = [(Pipeline::eligible(0, End::Breaker(breaker), 1000), Code::hand(k_range_grow)), (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), Code::hand(k_emit_grow))];
-    Program::with_pipelines(layout(1, 4, out_rows), &sites, &cols::<4>(), WritePlan::SELECT, pipes)
+    let breaker = Breaker {
+        kind: BreakerKind::HashBuild,
+        slot: 0,
+        bytes: 0,
+        budget: Budget::Share,
+        spill: Spill::None,
+    };
+    let pipes = [
+        (
+            Pipeline::eligible(0, End::Breaker(breaker), 1000),
+            Code::hand(k_range_grow),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            Code::hand(k_emit_grow),
+        ),
+    ];
+    Program::with_pipelines(
+        layout(1, 4, out_rows),
+        &sites,
+        &cols::<4>(),
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
 /// The grows `k_range_grow_in` saw refused (`region_grow_in` answered 1: the breaker spills there, the row is dropped here)
@@ -2029,7 +2726,10 @@ pub unsafe extern "C-unwind" fn k_range_grow_in(ctx: *mut Ctx) -> i64 {
                     }
                     b => {
                         base = b as usize as *mut u8;
-                        GROW_IN_LIMIT.fetch_max(grow_hdr(base).limit as u64, std::sync::atomic::Ordering::Relaxed);
+                        GROW_IN_LIMIT.fetch_max(
+                            grow_hdr(base).limit as u64,
+                            std::sync::atomic::Ordering::Relaxed,
+                        );
                     }
                 }
             }
@@ -2052,9 +2752,30 @@ pub fn p_grow_in(out_rows: u32) -> Program {
     let st = stage();
     let a = st.handle();
     let sites = [SiteDesc::range_source(a, 2001, &[1, 2])];
-    let breaker = Breaker { kind: BreakerKind::HashAgg, slot: 0, bytes: 0, budget: Budget::Share, spill: Spill::Partitioned { bits: 3 } };
-    let pipes = [(Pipeline::eligible(0, End::Breaker(breaker), 1000), Code::hand(k_range_grow_in)), (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), Code::hand(k_emit_grow))];
-    Program::with_pipelines(layout(1, 4, out_rows), &sites, &cols::<4>(), WritePlan::SELECT, pipes)
+    let breaker = Breaker {
+        kind: BreakerKind::HashAgg,
+        slot: 0,
+        bytes: 0,
+        budget: Budget::Share,
+        spill: Spill::Partitioned { bits: 3 },
+    };
+    let pipes = [
+        (
+            Pipeline::eligible(0, End::Breaker(breaker), 1000),
+            Code::hand(k_range_grow_in),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            Code::hand(k_emit_grow),
+        ),
+    ];
+    Program::with_pipelines(
+        layout(1, 4, out_rows),
+        &sites,
+        &cols::<4>(),
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
 /// Fold partial `p` (a `GrowHdr` region) into the leader's, which grows first when the records do not fit (`State::grow`
@@ -2063,7 +2784,11 @@ pub fn grow_fold(leader: &mut State<'_>, p: &[u8]) -> Result<()> {
     unsafe {
         let pp = p.as_ptr() as *mut u8;
         let ph = grow_hdr(pp);
-        assert_eq!(ph.limit as usize, p.len(), "Partial.bytes is the grown partial");
+        assert_eq!(
+            ph.limit as usize,
+            p.len(),
+            "Partial.bytes is the grown partial"
+        );
         let (pc, ps, phead, ptail) = (ph.count, ph.sum, ph.head, ph.tail);
         let lh = grow_hdr(leader.bytes.as_mut_ptr());
         let need = (phead - GROW_HDR) + ptail;
@@ -2077,10 +2802,18 @@ pub fn grow_fold(leader: &mut State<'_>, p: &[u8]) -> Result<()> {
         }
         let base = leader.bytes.as_mut_ptr();
         let lh = grow_hdr(base);
-        core::ptr::copy_nonoverlapping(pp.add(GROW_HDR as usize), base.add(lh.head as usize), (phead - GROW_HDR) as usize);
+        core::ptr::copy_nonoverlapping(
+            pp.add(GROW_HDR as usize),
+            base.add(lh.head as usize),
+            (phead - GROW_HDR) as usize,
+        );
         lh.head += phead - GROW_HDR;
         lh.tail += ptail;
-        core::ptr::copy_nonoverlapping(pp.add(p.len() - ptail as usize), base.add((lh.limit as u64 - lh.tail) as usize), ptail as usize);
+        core::ptr::copy_nonoverlapping(
+            pp.add(p.len() - ptail as usize),
+            base.add((lh.limit as u64 - lh.tail) as usize),
+            ptail as usize,
+        );
         lh.count += pc;
         lh.sum += ps;
     }
@@ -2099,8 +2832,21 @@ impl Merge for GrowMerge {
 /// naming its member probe (lowerv4 lifetime `program`'s declaration for a set no cell holds).
 pub fn rerun_set(mut p: Program, members: &[u16]) -> Program {
     use gravity_program::lifetime::{Lifetimes, RunLife, RunMember, Runner, NO_PROBE};
-    let probe = |m: u16| u16::try_from(p.pipelines[m as usize].lazy_for).ok().filter(|q| members.contains(q)).unwrap_or(NO_PROBE);
-    let ms = members.iter().map(|&m| RunMember { pipeline: m, runner: Runner::Set(0), life: RunLife::EveryRun, lazy_probe: probe(m) }).collect();
+    let probe = |m: u16| {
+        u16::try_from(p.pipelines[m as usize].lazy_for)
+            .ok()
+            .filter(|q| members.contains(q))
+            .unwrap_or(NO_PROBE)
+    };
+    let ms = members
+        .iter()
+        .map(|&m| RunMember {
+            pipeline: m,
+            runner: Runner::Set(0),
+            life: RunLife::EveryRun,
+            lazy_probe: probe(m),
+        })
+        .collect();
     let mut d = p.v4.as_deref().map(|d| d.thaw()).unwrap_or_default();
     d.lifetimes = Lifetimes::new(ms).expect("one runner per member");
     p.set_v4(&d);

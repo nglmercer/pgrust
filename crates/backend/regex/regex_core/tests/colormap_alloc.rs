@@ -32,7 +32,10 @@ fn column_doubling_over_max_alloc_size_raises_c_alloc_error() {
     let mut cm = colormap(1, 512, 524_288);
     let e = newhicolorcols(ctx.mcx(), &mut cm).unwrap_err();
     assert_eq!(e.code(), REG_CANCEL);
-    assert_eq!(take_cancel_error().message(), "invalid memory alloc request size 1073741824");
+    assert_eq!(
+        take_cancel_error().message(),
+        "invalid memory alloc request size 1073741824"
+    );
 }
 
 #[test]
@@ -44,5 +47,8 @@ fn row_doubling_over_max_alloc_size_raises_c_alloc_error() {
     cm.hicolormap = vec![WHITE; 1024];
     let e = newhicolorrow(ctx.mcx(), &mut cm, 0).unwrap_err();
     assert_eq!(e.code(), REG_CANCEL);
-    assert_eq!(take_cancel_error().message(), "invalid memory alloc request size 1073741824");
+    assert_eq!(
+        take_cancel_error().message(),
+        "invalid memory alloc request size 1073741824"
+    );
 }

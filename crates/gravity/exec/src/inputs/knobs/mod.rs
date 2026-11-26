@@ -1,6 +1,5 @@
 //! The exec crate's knobs (docs/gravity/breakers.md "Knobs"): one file per feature, each owning its GUC / env rows and their readers; this table is the census a rig checks every literal against.
 
-
 pub mod diag;
 pub mod dump;
 pub mod feedback_file;
@@ -29,7 +28,17 @@ pub struct Knob {
 }
 
 /// Every feature file's rows, in file order.
-pub const TABLES: &[&[Knob]] = &[diag::KNOBS, dump::KNOBS, grant::KNOBS, lowerer::KNOBS, perfmap::KNOBS, room::KNOBS, seam::KNOBS, tier0::KNOBS, width::KNOBS];
+pub const TABLES: &[&[Knob]] = &[
+    diag::KNOBS,
+    dump::KNOBS,
+    grant::KNOBS,
+    lowerer::KNOBS,
+    perfmap::KNOBS,
+    room::KNOBS,
+    seam::KNOBS,
+    tier0::KNOBS,
+    width::KNOBS,
+];
 
 pub fn table() -> impl Iterator<Item = &'static Knob> {
     TABLES.iter().flat_map(|t| t.iter())
@@ -68,7 +77,11 @@ mod tests {
     /// env!()'s path baked in at compile time: a test binary reused from another checkout would read that checkout's files.
     fn manifest_dir() -> &'static std::path::Path {
         static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-        DIR.get_or_init(|| std::env::var_os("CARGO_MANIFEST_DIR").map(Into::into).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)"))
+        DIR.get_or_init(|| {
+            std::env::var_os("CARGO_MANIFEST_DIR")
+                .map(Into::into)
+                .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+        })
     }
 
     fn rust_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
@@ -102,12 +115,17 @@ mod tests {
         let mut missing = Vec::new(); // alloc: Cold
         for f in files {
             let text = std::fs::read_to_string(&f).unwrap();
-            let mut names = literals(&text, "pgrust.gravity_", |c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.');
-            names.extend(literals(&text, "PGRUST_GRAVITY_", |c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_'));
+            let mut names = literals(&text, "pgrust.gravity_", |c| {
+                c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.'
+            });
+            names.extend(literals(&text, "PGRUST_GRAVITY_", |c| {
+                c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_'
+            }));
             for n in names {
                 let n = n.trim_end_matches('_');
                 let row = format!("{}: {n}", f.display()); // alloc: Cold
-                if n.len() > "PGRUST_GRAVITY_".len() && find(n).is_none() && !missing.contains(&row) {
+                if n.len() > "PGRUST_GRAVITY_".len() && find(n).is_none() && !missing.contains(&row)
+                {
                     missing.push(row);
                 }
             }

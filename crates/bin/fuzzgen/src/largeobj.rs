@@ -146,7 +146,10 @@ fn gen_bytea(g: &mut Gen) -> Vec<StmtKind> {
 /// so it is immediately consumed by lo_unlink and never compared — the result
 /// is 1 on both sides while inv_create/inv_drop still run.
 fn gen_creat(g: &mut Gen) -> Vec<StmtKind> {
-    let mode = match g.weights.pick(g.rng, &["largeobj:creat:neg", "largeobj:creat:rw"]) {
+    let mode = match g
+        .weights
+        .pick(g.rng, &["largeobj:creat:neg", "largeobj:creat:rw"])
+    {
         "largeobj:creat:rw" => INV_RW as i64,
         _ => -1,
     };
@@ -175,7 +178,11 @@ fn gen_putget(g: &mut Gen) -> Vec<StmtKind> {
 fn pick_whence(g: &mut Gen) -> i32 {
     match g.weights.pick(
         g.rng,
-        &["largeobj:whence:set", "largeobj:whence:cur", "largeobj:whence:end"],
+        &[
+            "largeobj:whence:set",
+            "largeobj:whence:cur",
+            "largeobj:whence:end",
+        ],
     ) {
         "largeobj:whence:cur" => 1,
         "largeobj:whence:end" => 2,
@@ -191,9 +198,9 @@ fn gen_fd(g: &mut Gen) -> Vec<StmtKind> {
     // A seek target that stays in range for every whence: 2 from SET, +1 from
     // CUR (fd sits at 8 after the write), -3 from END (len 8 -> 5).
     let off: i64 = match whence {
-        1 => 1,   // SEEK_CUR (fd at 8 -> 9, still < len? clamp read to 0)
-        2 => -3,  // SEEK_END (len 8 -> 5)
-        _ => 2,   // SEEK_SET
+        1 => 1,  // SEEK_CUR (fd at 8 -> 9, still < len? clamp read to 0)
+        2 => -3, // SEEK_END (len 8 -> 5)
+        _ => 2,  // SEEK_SET
     };
     vec![
         raw("BEGIN;".to_string()),
@@ -221,7 +228,10 @@ fn gen_chunk(g: &mut Gen) -> Vec<StmtKind> {
     let start = 2040 + g.rng.below(6); // 2040..2045
     vec![
         raw(format!("SELECT lo_create({l});")),
-        raw(format!("SELECT lo_put({l}, {start}, {});", payload("7e", 40))),
+        raw(format!(
+            "SELECT lo_put({l}, {start}, {});",
+            payload("7e", 40)
+        )),
         raw(format!("SELECT length(lo_get({l}));")),
         raw(format!("SELECT encode(lo_get({l}, 2044, 8), 'hex');")),
         raw(format!(
@@ -237,12 +247,22 @@ fn gen_chunk(g: &mut Gen) -> Vec<StmtKind> {
 /// lo_truncate grow (zero-fill past EOF) or shrink, in a descriptor bracket.
 fn gen_trunc(g: &mut Gen) -> Vec<StmtKind> {
     let l = alloc(g);
-    let grow = g.weights.pick(g.rng, &["largeobj:trunc:grow", "largeobj:trunc:shrink"])
+    let grow = g
+        .weights
+        .pick(g.rng, &["largeobj:trunc:grow", "largeobj:trunc:shrink"])
         == "largeobj:trunc:grow";
-    g.fire(if grow { "largeobj:trunc:grow" } else { "largeobj:trunc:shrink" });
+    g.fire(if grow {
+        "largeobj:trunc:grow"
+    } else {
+        "largeobj:trunc:shrink"
+    });
     // Base payload 100 bytes; grow to a value crossing the page edge, shrink
     // to a small value.
-    let newlen: i64 = if grow { 2100 + g.rng.below(60) as i64 } else { 10 + g.rng.below(40) as i64 };
+    let newlen: i64 = if grow {
+        2100 + g.rng.below(60) as i64
+    } else {
+        10 + g.rng.below(40) as i64
+    };
     vec![
         raw("BEGIN;".to_string()),
         raw(format!("SELECT lo_create({l});")),

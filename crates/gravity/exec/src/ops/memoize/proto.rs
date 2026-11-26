@@ -68,10 +68,19 @@ struct WideKey {
 impl WideKey {
     /// The key's functions bound for the participant making its table (`FmgrCall::bind_resolved`: no catalog access).
     fn bind(&self) -> PgResult<KeyFns> {
-        let (Some(hash), Some(eq)) = (FmgrCall::bind_resolved(self.hash, 1, self.coll), FmgrCall::bind_resolved(self.eq, 2, self.coll)) else {
-            return Err(bad("nest.memo: a widened memo's key function is not resolved"));
+        let (Some(hash), Some(eq)) = (
+            FmgrCall::bind_resolved(self.hash, 1, self.coll),
+            FmgrCall::bind_resolved(self.eq, 2, self.coll),
+        ) else {
+            return Err(bad(
+                "nest.memo: a widened memo's key function is not resolved",
+            ));
         };
-        Ok(KeyFns { hash, eq, word_eq: self.word_eq })
+        Ok(KeyFns {
+            hash,
+            eq,
+            word_eq: self.word_eq,
+        })
     }
 }
 
@@ -81,7 +90,12 @@ const ORDINALS: usize = 256;
 
 impl MemoRt {
     fn new(limit: u64) -> MemoRt {
-        MemoRt { limit, table: None, probe: Vec::new(), row: Vec::new() } // alloc: Exec
+        MemoRt {
+            limit,
+            table: None,
+            probe: Vec::new(),
+            row: Vec::new(),
+        } // alloc: Exec
     }
 }
 
@@ -92,13 +106,24 @@ impl MemoObj {
     fn new(limit: u64, wide: bool, key: Option<WideKey>, owner: Option<(Owner, Kind)>) -> MemoObj {
         let wide = match wide {
             true => {
-                let mut runtimes: ChargedVec<RefCell<MemoRt>> = ChargedVec::new(owner.map(|o| o.0), owner.map_or(Kind::Region, |o| o.1)); // alloc: Exec charged owner.map(|o| o.0)
-                runtimes.with_vec(|v| v.extend((1..ORDINALS).map(|_| RefCell::new(MemoRt::new(limit))))); // alloc: Exec charged owner
+                let mut runtimes: ChargedVec<RefCell<MemoRt>> =
+                    ChargedVec::new(owner.map(|o| o.0), owner.map_or(Kind::Region, |o| o.1)); // alloc: Exec charged owner.map(|o| o.0)
+                runtimes.with_vec(|v| {
+                    v.extend((1..ORDINALS).map(|_| RefCell::new(MemoRt::new(limit))))
+                }); // alloc: Exec charged owner
                 runtimes
             }
             false => ChargedVec::none(),
         };
-        MemoObj { head: abi::Head { magic: abi::MEMO_MAGIC, op }, rt: RefCell::new(MemoRt::new(limit)), wide, key }
+        MemoObj {
+            head: abi::Head {
+                magic: abi::MEMO_MAGIC,
+                op,
+            },
+            rt: RefCell::new(MemoRt::new(limit)),
+            wide,
+            key,
+        }
     }
 
     /// D3014 M2: worker `ordinal`'s runtime of a wide run (ordinal 0's is `rt`); `None` past the runtimes made.
@@ -115,7 +140,12 @@ impl MemoObj {
         if self.wide.is_empty() {
             return None;
         }
-        let used = |c: &RefCell<MemoRt>| c.try_borrow().ok().and_then(|r| r.table.as_ref().map(MemoTable::mem_used)).unwrap_or(0);
+        let used = |c: &RefCell<MemoRt>| {
+            c.try_borrow()
+                .ok()
+                .and_then(|r| r.table.as_ref().map(MemoTable::mem_used))
+                .unwrap_or(0)
+        };
         Some(used(&self.rt) + self.wide.iter().map(used).sum::<u64>())
     }
 }
@@ -144,7 +174,11 @@ impl Live for MemoLive {
     }
 
     /// D3014 M2: a widened nest's tables (every participant's) charged to the grant at each pipeline end; no step.
-    fn after_pipeline(&self, _pipeline: usize, exec: &mut gravity_driver::Exec) -> Option<gravity_driver::Result<()>> {
+    fn after_pipeline(
+        &self,
+        _pipeline: usize,
+        exec: &mut gravity_driver::Exec,
+    ) -> Option<gravity_driver::Result<()>> {
         if let Some(bytes) = self.obj.wide_bytes() {
             exec.reservation().charge_growth(&self.charged, bytes); // no worker runs here
         }
@@ -198,18 +232,37 @@ impl Protocol for Memo {
 fn wide_key(arg: u64) -> PgResult<Option<WideKey>> {
     let (op, coll) = (arg as u32, (arg >> 32) as u32);
     let Some((hash, _)) = gravity_fn::typesem::memoize::op_hash_functions(op)? else {
-        return Err(bad(&format!("nest.memo: could not find hash function for hash operator {op}"))); // alloc: Cold
+        return Err(bad(&format!(
+            "nest.memo: could not find hash function for hash operator {op}"
+        ))); // alloc: Cold
     };
     let eq = lsyscache::get_opcode(op)?;
     if !gravity_fn::session::pool_hosted(hash) || !gravity_fn::session::pool_hosted(eq) {
         return Ok(None);
     }
-    let (Ok(hash_id), Ok(eq_id)) = (gravity_fn::resolved::resolve(hash)?, gravity_fn::resolved::resolve(eq)?) else { return Ok(None) };
-    Ok(Some(WideKey { op, coll, hash: hash_id, eq: eq_id, word_eq: word_equality(eq) }))
+    let (Ok(hash_id), Ok(eq_id)) = (
+        gravity_fn::resolved::resolve(hash)?,
+        gravity_fn::resolved::resolve(eq)?,
+    ) else {
+        return Ok(None);
+    };
+    Ok(Some(WideKey {
+        op,
+        coll,
+        hash: hash_id,
+        eq: eq_id,
+        word_eq: word_equality(eq),
+    }))
 }
 
 /// The memo lives of `program` alone, laid as prepare lays them: the crate rig's (lowerv4 tests/common).
-pub fn prepare_bare(program: &gravity_program::Program, words: &mut [u64], nulls: &mut [u8], nparams: &mut usize, out: &mut crate::ops::LiveList) -> PgResult<()> {
+pub fn prepare_bare(
+    program: &gravity_program::Program,
+    words: &mut [u64],
+    nulls: &mut [u8],
+    nparams: &mut usize,
+    out: &mut crate::ops::LiveList,
+) -> PgResult<()> {
     let protos = program.v4.as_ref().map_or(&[][..], |d| &d.protos[..]);
     for p in protos.iter().filter(|p| p.kind == ProtoKind::Cache) {
         let l = lay(p, words, nulls, nparams, false, None, None)?;
@@ -228,26 +281,46 @@ pub fn fresh(p: &Proto, words: &mut [u64], nulls: &mut [u8]) -> PgResult<Box<dyn
 }
 
 /// One Cache proto's object laid in its handle word (`wide`, `key`: a wide run's runtimes and key functions, D3014 M2).
-fn lay(p: &Proto, words: &mut [u64], nulls: &mut [u8], nparams: &mut usize, wide: bool, key: Option<WideKey>, owner: Option<(Owner, Kind)>) -> PgResult<Box<dyn Live>> {
+fn lay(
+    p: &Proto,
+    words: &mut [u64],
+    nulls: &mut [u8],
+    nparams: &mut usize,
+    wide: bool,
+    key: Option<WideKey>,
+    owner: Option<(Owner, Kind)>,
+) -> PgResult<Box<dyn Live>> {
     let base = p.words.base as usize;
     if p.words.n != 1 || base >= words.len() || base >= nulls.len() {
-        return Err(glue::internal("gravity: nest.memo's declaration is not its memo object's (one handle word)"));
+        return Err(glue::internal(
+            "gravity: nest.memo's declaration is not its memo object's (one handle word)",
+        ));
     }
     let obj = Box::new(MemoObj::new(hash_memory_limit(), wide, key, owner)); // alloc: Exec
     words[base] = &obj.head as *const abi::Head as u64;
     nulls[base] = 0;
     *nparams = (*nparams).max(base + 1);
-    Ok(Box::new(MemoLive { obj, base: base as u32, charged: Cell::new(0) })) // alloc: Exec
+    Ok(Box::new(MemoLive {
+        obj,
+        base: base as u32,
+        charged: Cell::new(0),
+    })) // alloc: Exec
 }
 
 /// A key's hash function and equality function, from its hash equality operator (ExecInitMemoize:
 /// `get_op_hash_functions` and `get_opcode`), bound with its collation.
 fn key_fns(opno: u32, coll: u32) -> PgResult<KeyFns> {
     let Some((hash, _)) = gravity_fn::typesem::memoize::op_hash_functions(opno)? else {
-        return Err(bad(&format!("nest.memo: could not find hash function for hash operator {opno}"))); // alloc: Cold
+        return Err(bad(&format!(
+            "nest.memo: could not find hash function for hash operator {opno}"
+        ))); // alloc: Cold
     };
     let eq = lsyscache::get_opcode(opno)?;
-    Ok(KeyFns { hash: FmgrCall::bind(hash, 1, coll)?, eq: FmgrCall::bind(eq, 2, coll)?, word_eq: word_equality(eq) })
+    Ok(KeyFns {
+        hash: FmgrCall::bind(hash, 1, coll)?,
+        eq: FmgrCall::bind(eq, 2, coll)?,
+        word_eq: word_equality(eq),
+    })
 }
 
 /// D2988: an equality function that is word equality on its by-value type (the probe and the stored key are the same
@@ -257,7 +330,10 @@ fn word_equality(eq: u32) -> bool {
     const F_INT8EQ: u32 = 467;
     const F_DATE_EQ: u32 = 1086;
     use types_core::fmgr::{F_BOOLEQ, F_CHAREQ, F_INT2EQ, F_INT4EQ, F_OIDEQ};
-    [F_INT2EQ, F_INT4EQ, F_INT8EQ, F_OIDEQ, F_BOOLEQ, F_CHAREQ, F_DATE_EQ].contains(&eq)
+    [
+        F_INT2EQ, F_INT4EQ, F_INT8EQ, F_OIDEQ, F_BOOLEQ, F_CHAREQ, F_DATE_EQ,
+    ]
+    .contains(&eq)
 }
 
 #[cold]
@@ -306,27 +382,58 @@ mod tests {
         assert!(obj().wide_bytes().is_none(), "a serial run is not charged");
         let o = Box::new(MemoObj::new(1 << 20, true, None, None)); // alloc: Cold
         let (mut w1, mut w2, mut serial) = (ctx(1, 8), ctx(2, 8), ctx(5, 1));
-        let (w1, w2, serial) = (&mut w1 as *mut Ctx, &mut w2 as *mut Ctx, &mut serial as *mut Ctx);
+        let (w1, w2, serial) = (
+            &mut w1 as *mut Ctx,
+            &mut w2 as *mut Ctx,
+            &mut serial as *mut Ctx,
+        );
         let purge = |v: u64| vec![1, abi::MEMO_BINARY | abi::MEMO_PURGE, v, 0, 0, 0, 0, 8]; // alloc: Cold
         let row = [1u64, 42, 0, 0];
         unsafe {
             assert_eq!(abi::m8_memo_miss(serial, h(&o), key(4).as_ptr()), 0);
             assert_eq!(abi::m8_memo_store(serial, h(&o), row.as_ptr()), 1);
             assert_eq!(abi::m8_memo_done(serial, h(&o)), 0);
-            assert!(abi::m8_memo_miss(serial, h(&o), key(4).as_ptr()) > 0, "a serial run (any ordinal at width 1) hits ordinal 0's table");
-            assert_eq!(abi::m8_memo_miss(w1, h(&o), key(4).as_ptr()), 0, "worker 1 has its own table: a miss");
+            assert!(
+                abi::m8_memo_miss(serial, h(&o), key(4).as_ptr()) > 0,
+                "a serial run (any ordinal at width 1) hits ordinal 0's table"
+            );
+            assert_eq!(
+                abi::m8_memo_miss(w1, h(&o), key(4).as_ptr()),
+                0,
+                "worker 1 has its own table: a miss"
+            );
             assert_eq!(abi::m8_memo_store(w1, h(&o), row.as_ptr()), 1);
             assert_eq!(abi::m8_memo_done(w1, h(&o)), 0);
-            assert!(abi::m8_memo_miss(w1, h(&o), key(4).as_ptr()) > 0, "and hits it");
-            assert_eq!(abi::m8_memo_miss(w2, h(&o), key(4).as_ptr()), 0, "worker 2 misses: its own table");
+            assert!(
+                abi::m8_memo_miss(w1, h(&o), key(4).as_ptr()) > 0,
+                "and hits it"
+            );
+            assert_eq!(
+                abi::m8_memo_miss(w2, h(&o), key(4).as_ptr()),
+                0,
+                "worker 2 misses: its own table"
+            );
             assert_eq!(abi::m8_memo_store(w2, h(&o), row.as_ptr()), 1);
             assert_eq!(abi::m8_memo_done(w2, h(&o)), 0);
-            assert_eq!(abi::m8_memo_miss(w2, h(&o), purge(4).as_ptr()), 0, "worker 2's purge drops its own entry");
-            assert!(abi::m8_memo_miss(w1, h(&o), key(4).as_ptr()) > 0, "worker 1's entry stays");
+            assert_eq!(
+                abi::m8_memo_miss(w2, h(&o), purge(4).as_ptr()),
+                0,
+                "worker 2's purge drops its own entry"
+            );
+            assert!(
+                abi::m8_memo_miss(w1, h(&o), key(4).as_ptr()) > 0,
+                "worker 1's entry stays"
+            );
             let mut w0 = ctx(0, 8);
-            assert!(abi::m8_memo_miss(&mut w0, h(&o), key(4).as_ptr()) > 0, "worker 0 shares ordinal 0's table");
+            assert!(
+                abi::m8_memo_miss(&mut w0, h(&o), key(4).as_ptr()) > 0,
+                "worker 0 shares ordinal 0's table"
+            );
         }
-        assert!(o.wide_bytes().is_some_and(|b| b > 0), "a wide run's tables count");
+        assert!(
+            o.wide_bytes().is_some_and(|b| b > 0),
+            "a wide run's tables count"
+        );
     }
 
     #[test]
@@ -350,13 +457,28 @@ mod tests {
         let ctx: *mut Ctx = core::ptr::null_mut();
         let purge = |v: u64| vec![1, abi::MEMO_BINARY | abi::MEMO_PURGE, v, 0, 0, 0, 0, 8]; // alloc: Cold
         unsafe {
-            assert_eq!(abi::m8_memo_miss(ctx, h(&o), purge(4).as_ptr()), 0, "no table yet: a plain miss");
+            assert_eq!(
+                abi::m8_memo_miss(ctx, h(&o), purge(4).as_ptr()),
+                0,
+                "no table yet: a plain miss"
+            );
             let row = [1u64, 42, 0, 0];
             assert_eq!(abi::m8_memo_store(ctx, h(&o), row.as_ptr()), 1);
             assert_eq!(abi::m8_memo_done(ctx, h(&o)), 0);
-            assert!(abi::m8_memo_miss(ctx, h(&o), key(4).as_ptr()) > 0, "no purge flag: the entry hits");
-            assert_eq!(abi::m8_memo_miss(ctx, h(&o), purge(4).as_ptr()), 0, "the purge drops it: a miss");
-            assert_eq!(abi::m8_memo_store(ctx, h(&o), row.as_ptr()), 1, "and the miss fills a new entry");
+            assert!(
+                abi::m8_memo_miss(ctx, h(&o), key(4).as_ptr()) > 0,
+                "no purge flag: the entry hits"
+            );
+            assert_eq!(
+                abi::m8_memo_miss(ctx, h(&o), purge(4).as_ptr()),
+                0,
+                "the purge drops it: a miss"
+            );
+            assert_eq!(
+                abi::m8_memo_store(ctx, h(&o), row.as_ptr()),
+                1,
+                "and the miss fills a new entry"
+            );
             assert_eq!(abi::m8_memo_done(ctx, h(&o)), 0);
             assert!(abi::m8_memo_miss(ctx, h(&o), key(4).as_ptr()) > 0);
             let rt = o.rt.borrow();
@@ -374,7 +496,8 @@ mod tests {
         let wide = |last: u64| {
             let mut k = vec![40, abi::MEMO_BINARY]; // alloc: Cold
             for i in 0..40u64 {
-                k.extend_from_slice(&[if i == 39 { last } else { i }, 0, 0, 0, 0, 8]); // alloc: Cold
+                k.extend_from_slice(&[if i == 39 { last } else { i }, 0, 0, 0, 0, 8]);
+                // alloc: Cold
             }
             k
         };
@@ -383,8 +506,15 @@ mod tests {
             let row = [1u64, 42, 0, 0];
             assert_eq!(abi::m8_memo_store(ctx, h(&o), row.as_ptr()), 1);
             assert_eq!(abi::m8_memo_done(ctx, h(&o)), 0);
-            assert!(abi::m8_memo_miss(ctx, h(&o), wide(7).as_ptr()) > 0, "the same 40 keys hit");
-            assert_eq!(abi::m8_memo_miss(ctx, h(&o), wide(8).as_ptr()), 0, "the 40th key differs: a miss");
+            assert!(
+                abi::m8_memo_miss(ctx, h(&o), wide(7).as_ptr()) > 0,
+                "the same 40 keys hit"
+            );
+            assert_eq!(
+                abi::m8_memo_miss(ctx, h(&o), wide(8).as_ptr()),
+                0,
+                "the 40th key differs: a miss"
+            );
         }
     }
 
@@ -395,7 +525,12 @@ mod tests {
         unsafe {
             let row = [0u64];
             assert_eq!(abi::m8_memo_store(ctx, h(&o), row.as_ptr()), ERROR);
-            assert_eq!(gravity_fn::take_error().map(|e| e.message().to_owned()).unwrap_or_default(), "gravity: m8_memo_store: a store before any lookup");
+            assert_eq!(
+                gravity_fn::take_error()
+                    .map(|e| e.message().to_owned())
+                    .unwrap_or_default(),
+                "gravity: m8_memo_store: a store before any lookup"
+            );
             let k = [0u64, 0];
             assert_eq!(abi::m8_memo_miss(ctx, h(&o), k.as_ptr()), ERROR);
             assert!(gravity_fn::take_error().is_some());

@@ -40,8 +40,7 @@ const Anum_pg_trigger_tgoldtable: i32 = 18;
 const Anum_pg_trigger_tgnewtable: i32 = 19;
 
 fn trigger_type_matches(tgtype: i16, level: i16, timing: i16, event: i16) -> bool {
-    tgtype & (TRIGGER_TYPE_LEVEL_MASK | TRIGGER_TYPE_TIMING_MASK | event)
-        == level | timing | event
+    tgtype & (TRIGGER_TYPE_LEVEL_MASK | TRIGGER_TYPE_TIMING_MASK | event) == level | timing | event
 }
 
 fn name_datum_str(tup: &HeapTupleData<'_>, d: datum::Datum) -> String {
@@ -84,9 +83,7 @@ pub(crate) fn build_trigger_desc(
             let dim1 = unsafe { core::ptr::read_unaligned(hdr.add(16) as *const i32) };
             let mut v: PgVec<'static, i16> = mcx::vec_with_capacity_in(mcx, dim1 as usize)?;
             for i in 0..dim1 as usize {
-                v.push(unsafe {
-                    core::ptr::read_unaligned(hdr.add(24 + 2 * i) as *const i16)
-                });
+                v.push(unsafe { core::ptr::read_unaligned(hdr.add(24 + 2 * i) as *const i16) });
             }
             (dim1 as i16, v)
         };
@@ -196,34 +193,61 @@ pub(crate) fn build_trigger_desc(
         desc.trig_update_old_table |= t & TRIGGER_TYPE_UPDATE != 0 && has_old;
         desc.trig_update_new_table |= t & TRIGGER_TYPE_UPDATE != 0 && has_new;
         desc.trig_delete_old_table |= t & TRIGGER_TYPE_DELETE != 0 && has_old;
-        desc.trig_insert_before_row |= m(TRIGGER_TYPE_ROW, TRIGGER_TYPE_BEFORE, TRIGGER_TYPE_INSERT);
+        desc.trig_insert_before_row |=
+            m(TRIGGER_TYPE_ROW, TRIGGER_TYPE_BEFORE, TRIGGER_TYPE_INSERT);
         desc.trig_insert_after_row |= m(TRIGGER_TYPE_ROW, TRIGGER_TYPE_AFTER, TRIGGER_TYPE_INSERT);
         desc.trig_insert_instead_row |=
             m(TRIGGER_TYPE_ROW, TRIGGER_TYPE_INSTEAD, TRIGGER_TYPE_INSERT);
-        desc.trig_insert_before_statement |=
-            m(TRIGGER_TYPE_STATEMENT, TRIGGER_TYPE_BEFORE, TRIGGER_TYPE_INSERT);
-        desc.trig_insert_after_statement |=
-            m(TRIGGER_TYPE_STATEMENT, TRIGGER_TYPE_AFTER, TRIGGER_TYPE_INSERT);
-        desc.trig_update_before_row |= m(TRIGGER_TYPE_ROW, TRIGGER_TYPE_BEFORE, TRIGGER_TYPE_UPDATE);
+        desc.trig_insert_before_statement |= m(
+            TRIGGER_TYPE_STATEMENT,
+            TRIGGER_TYPE_BEFORE,
+            TRIGGER_TYPE_INSERT,
+        );
+        desc.trig_insert_after_statement |= m(
+            TRIGGER_TYPE_STATEMENT,
+            TRIGGER_TYPE_AFTER,
+            TRIGGER_TYPE_INSERT,
+        );
+        desc.trig_update_before_row |=
+            m(TRIGGER_TYPE_ROW, TRIGGER_TYPE_BEFORE, TRIGGER_TYPE_UPDATE);
         desc.trig_update_after_row |= m(TRIGGER_TYPE_ROW, TRIGGER_TYPE_AFTER, TRIGGER_TYPE_UPDATE);
         desc.trig_update_instead_row |=
             m(TRIGGER_TYPE_ROW, TRIGGER_TYPE_INSTEAD, TRIGGER_TYPE_UPDATE);
-        desc.trig_update_before_statement |=
-            m(TRIGGER_TYPE_STATEMENT, TRIGGER_TYPE_BEFORE, TRIGGER_TYPE_UPDATE);
-        desc.trig_update_after_statement |=
-            m(TRIGGER_TYPE_STATEMENT, TRIGGER_TYPE_AFTER, TRIGGER_TYPE_UPDATE);
-        desc.trig_delete_before_row |= m(TRIGGER_TYPE_ROW, TRIGGER_TYPE_BEFORE, TRIGGER_TYPE_DELETE);
+        desc.trig_update_before_statement |= m(
+            TRIGGER_TYPE_STATEMENT,
+            TRIGGER_TYPE_BEFORE,
+            TRIGGER_TYPE_UPDATE,
+        );
+        desc.trig_update_after_statement |= m(
+            TRIGGER_TYPE_STATEMENT,
+            TRIGGER_TYPE_AFTER,
+            TRIGGER_TYPE_UPDATE,
+        );
+        desc.trig_delete_before_row |=
+            m(TRIGGER_TYPE_ROW, TRIGGER_TYPE_BEFORE, TRIGGER_TYPE_DELETE);
         desc.trig_delete_after_row |= m(TRIGGER_TYPE_ROW, TRIGGER_TYPE_AFTER, TRIGGER_TYPE_DELETE);
         desc.trig_delete_instead_row |=
             m(TRIGGER_TYPE_ROW, TRIGGER_TYPE_INSTEAD, TRIGGER_TYPE_DELETE);
-        desc.trig_delete_before_statement |=
-            m(TRIGGER_TYPE_STATEMENT, TRIGGER_TYPE_BEFORE, TRIGGER_TYPE_DELETE);
-        desc.trig_delete_after_statement |=
-            m(TRIGGER_TYPE_STATEMENT, TRIGGER_TYPE_AFTER, TRIGGER_TYPE_DELETE);
-        desc.trig_truncate_before_statement |=
-            m(TRIGGER_TYPE_STATEMENT, TRIGGER_TYPE_BEFORE, TRIGGER_TYPE_TRUNCATE);
-        desc.trig_truncate_after_statement |=
-            m(TRIGGER_TYPE_STATEMENT, TRIGGER_TYPE_AFTER, TRIGGER_TYPE_TRUNCATE);
+        desc.trig_delete_before_statement |= m(
+            TRIGGER_TYPE_STATEMENT,
+            TRIGGER_TYPE_BEFORE,
+            TRIGGER_TYPE_DELETE,
+        );
+        desc.trig_delete_after_statement |= m(
+            TRIGGER_TYPE_STATEMENT,
+            TRIGGER_TYPE_AFTER,
+            TRIGGER_TYPE_DELETE,
+        );
+        desc.trig_truncate_before_statement |= m(
+            TRIGGER_TYPE_STATEMENT,
+            TRIGGER_TYPE_BEFORE,
+            TRIGGER_TYPE_TRUNCATE,
+        );
+        desc.trig_truncate_after_statement |= m(
+            TRIGGER_TYPE_STATEMENT,
+            TRIGGER_TYPE_AFTER,
+            TRIGGER_TYPE_TRUNCATE,
+        );
     }
     Ok(Some(desc))
 }
@@ -259,7 +283,9 @@ fn detoast_image<'mcx>(mcx: Mcx<'mcx>, d: datum::Datum) -> PgResult<PgVec<'mcx, 
 #[inline(never)]
 pub(crate) fn corrupt(relname: &str, field: &str) -> Box<PgError> {
     Box::new(
-        PgError::error(format!("{field} is null in trigger for relation \"{relname}\""))
-            .with_sqlstate(ERRCODE_INTERNAL_ERROR),
+        PgError::error(format!(
+            "{field} is null in trigger for relation \"{relname}\""
+        ))
+        .with_sqlstate(ERRCODE_INTERNAL_ERROR),
     )
 }

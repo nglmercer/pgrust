@@ -33,7 +33,12 @@ impl Fold {
             for b in tr.chain(part) {
                 for i in 0..b.recs {
                     let r = unsafe { Rec::at(b.ptr.add(i * L.size() as usize) as *mut u8, &L) };
-                    assert_eq!(r.route().part(tr.pbits as u32), part, "key {} in its partition", r.key(0));
+                    assert_eq!(
+                        r.route().part(tr.pbits as u32),
+                        part,
+                        "key {} in its partition",
+                        r.key(0)
+                    );
                     *self.got.entry(r.key(0)).or_default() += r.count(0);
                 }
             }
@@ -102,7 +107,12 @@ fn check_homes(t: *const T1) {
         let r = t.record(i);
         if r.used() {
             let home = KeyHash::of(r.keys()).home(t.cap.trailing_zeros(), Depth::TOP);
-            assert!(i == home || i == (home + 1) & mask, "key {} at slot {i}, home {home} (cap {})", r.key(0), t.cap);
+            assert!(
+                i == home || i == (home + 1) & mask,
+                "key {} at slot {i}, home {home} (cap {})",
+                r.key(0),
+                t.cap
+            );
             live += 1;
         }
     }
@@ -127,16 +137,31 @@ fn mix(j: u64) -> u64 {
 
 /// `n` rows over `keys` distinct keys, scattered (a multiplicative walk, so a key's rows are not adjacent).
 fn rows(n: u64, keys: u64) -> Vec<u64> {
-    (0..n).map(|i| mix(i.wrapping_mul(0x9E37_79B1) % keys)).collect()
+    (0..n)
+        .map(|i| mix(i.wrapping_mul(0x9E37_79B1) % keys))
+        .collect()
 }
 
 #[test]
 fn the_table_grows_in_place_across_doublings_every_record_in_its_home_pair() {
     let limit = 4 << 20;
     let mut buf = region(limit, 0);
-    let t = unsafe { T1::at_sized(buf.as_mut_ptr() as *mut u8, &L, 4, 512 << 10, 1 << 10, limit as u32) } as *mut T1;
+    let t = unsafe {
+        T1::at_sized(
+            buf.as_mut_ptr() as *mut u8,
+            &L,
+            4,
+            512 << 10,
+            1 << 10,
+            limit as u32,
+        )
+    } as *mut T1;
     let (first, max) = unsafe { ((*t).cap, (*t).max_cap()) };
-    assert_eq!((first as usize * L.size() as usize, max * L.size() as usize), (1 << 10, 512 << 10), "opened at the bound, reserved to the default");
+    assert_eq!(
+        (first as usize * L.size() as usize, max * L.size() as usize),
+        (1 << 10, 512 << 10),
+        "opened at the bound, reserved to the default"
+    );
     let data = rows(200_000, (max / 8) as u64);
     let mut f = Fold::default();
     for &k in &data {
@@ -144,7 +169,11 @@ fn the_table_grows_in_place_across_doublings_every_record_in_its_home_pair() {
     }
     let cap = unsafe { (*t).cap } as usize;
     assert_eq!(cap, max, "grown to the reservation");
-    assert_eq!(f.grows, (max / first as usize).trailing_zeros(), "one doubling at a time");
+    assert_eq!(
+        f.grows,
+        (max / first as usize).trailing_zeros(),
+        "one doubling at a time"
+    );
     let f = f.finish(t);
     assert_eq!(f.got, want(&data));
 }
@@ -153,13 +182,29 @@ fn the_table_grows_in_place_across_doublings_every_record_in_its_home_pair() {
 fn lazy_zero_a_poisoned_region_never_shows_a_stale_slot() {
     let limit = 2 << 20;
     let mut buf = region(limit, POISON);
-    let t = unsafe { T1::at_sized(buf.as_mut_ptr() as *mut u8, &L, 3, 256 << 10, 512, limit as u32) } as *mut T1;
+    let t = unsafe {
+        T1::at_sized(
+            buf.as_mut_ptr() as *mut u8,
+            &L,
+            3,
+            256 << 10,
+            512,
+            limit as u32,
+        )
+    } as *mut T1;
     let rec = L.size() as usize;
     let untouched = |t: *const T1| {
         let t = unsafe { &*t };
-        (t.cap as usize..t.max_cap()).all(|i| unsafe { core::slice::from_raw_parts(t.slot_ptr(i), rec) }.iter().all(|&b| b == POISON))
+        (t.cap as usize..t.max_cap()).all(|i| {
+            unsafe { core::slice::from_raw_parts(t.slot_ptr(i), rec) }
+                .iter()
+                .all(|&b| b == POISON)
+        })
     };
-    assert!(untouched(t), "past the opened slots nothing is zeroed at the open");
+    assert!(
+        untouched(t),
+        "past the opened slots nothing is zeroed at the open"
+    );
     let data = rows(40_000, 3_000);
     let keys: std::collections::BTreeSet<u64> = data.iter().copied().collect();
     let mut f = Fold::default();
@@ -170,7 +215,11 @@ fn lazy_zero_a_poisoned_region_never_shows_a_stale_slot() {
             let tr = unsafe { &*t };
             for i in 0..tr.cap as usize {
                 let r = tr.record(i);
-                assert!(!r.used() || keys.contains(&r.key(0)), "slot {i} holds a key no row had: {:#x}", r.key(0));
+                assert!(
+                    !r.used() || keys.contains(&r.key(0)),
+                    "slot {i} holds a key no row had: {:#x}",
+                    r.key(0)
+                );
             }
             assert!(untouched(t), "past the grown cap nothing is zeroed");
         }
@@ -185,14 +234,28 @@ fn a_grown_table_folds_what_a_presized_table_folds() {
     for keys in [100u64, 5_000, 40_000] {
         let data = rows(120_000, keys);
         let (mut a, mut b) = (region(limit, 0), region(limit, 0));
-        let grown = unsafe { T1::at_sized(a.as_mut_ptr() as *mut u8, &L, 4, 512 << 10, 256, limit as u32) } as *mut T1;
-        let fixed = unsafe { T1::at(b.as_mut_ptr() as *mut u8, &L, 4, 512 << 10, limit as u32) } as *mut T1;
+        let grown = unsafe {
+            T1::at_sized(
+                a.as_mut_ptr() as *mut u8,
+                &L,
+                4,
+                512 << 10,
+                256,
+                limit as u32,
+            )
+        } as *mut T1;
+        let fixed =
+            unsafe { T1::at(b.as_mut_ptr() as *mut u8, &L, 4, 512 << 10, limit as u32) } as *mut T1;
         let (mut fg, mut ff) = (Fold::default(), Fold::default());
         for &k in &data {
             fg.row(grown, k, true);
             ff.row(fixed, k, false);
         }
-        assert_eq!(unsafe { (*grown).max_cap() }, unsafe { (*fixed).cap } as usize, "the same reservation");
+        assert_eq!(
+            unsafe { (*grown).max_cap() },
+            unsafe { (*fixed).cap } as usize,
+            "the same reservation"
+        );
         let (g, f) = (fg.finish(grown), ff.finish(fixed));
         assert_eq!(g.got, f.got, "{keys} keys: grown against presized");
         assert_eq!(g.got, want(&data), "{keys} keys");
@@ -204,16 +267,36 @@ fn a_spill_after_a_grow_loses_no_row() {
     // a share whose pool holds a few thousand records: the grown table's evictions spend it and the flushes empty it
     let limit = 192 << 10;
     let mut buf = region(limit, POISON);
-    let t = unsafe { T1::at_sized(buf.as_mut_ptr() as *mut u8, &L, 3, 512 << 10, 1 << 10, limit as u32) } as *mut T1;
+    let t = unsafe {
+        T1::at_sized(
+            buf.as_mut_ptr() as *mut u8,
+            &L,
+            3,
+            512 << 10,
+            1 << 10,
+            limit as u32,
+        )
+    } as *mut T1;
     let max = unsafe { (*t).max_cap() };
-    assert!(max * (L.size() as usize) <= limit / 2, "the reservation clipped to half the share");
+    assert!(
+        max * (L.size() as usize) <= limit / 2,
+        "the reservation clipped to half the share"
+    );
     let data = rows(300_000, 60_000);
     let mut f = Fold::default();
     for &k in &data {
         f.row(t, k, true);
     }
-    assert!(f.grows >= 2 && unsafe { (*t).cap } as usize == max, "grown to the reservation ({} grows)", f.grows);
-    assert!(f.flushes >= 2, "the pool spilled after the grows ({} flushes)", f.flushes);
+    assert!(
+        f.grows >= 2 && unsafe { (*t).cap } as usize == max,
+        "grown to the reservation ({} grows)",
+        f.grows
+    );
+    assert!(
+        f.flushes >= 2,
+        "the pool spilled after the grows ({} flushes)",
+        f.flushes
+    );
     assert_eq!(f.finish(t).got, want(&data));
 }
 
@@ -221,7 +304,16 @@ fn a_spill_after_a_grow_loses_no_row() {
 fn past_the_reservation_the_table_evicts_and_bypasses_as_before() {
     let limit = 4 << 20;
     let mut buf = region(limit, 0);
-    let t = unsafe { T1::at_sized(buf.as_mut_ptr() as *mut u8, &L, 4, 64 << 10, 1 << 10, limit as u32) } as *mut T1;
+    let t = unsafe {
+        T1::at_sized(
+            buf.as_mut_ptr() as *mut u8,
+            &L,
+            4,
+            64 << 10,
+            1 << 10,
+            limit as u32,
+        )
+    } as *mut T1;
     let max = unsafe { (*t).max_cap() };
     // a million distinct keys against a table sized for 64 groups: the grows stop at the reservation, then evictions, then
     // the observation's bypass
@@ -230,8 +322,15 @@ fn past_the_reservation_the_table_evicts_and_bypasses_as_before() {
     for &k in &data {
         f.row(t, k, true);
     }
-    assert_eq!(unsafe { (*t).cap } as usize, max, "grown to the reservation, no further");
-    assert!(unsafe { (*t).flags } & T1_BYPASS != 0, "the observation switched the bypass");
+    assert_eq!(
+        unsafe { (*t).cap } as usize,
+        max,
+        "grown to the reservation, no further"
+    );
+    assert!(
+        unsafe { (*t).flags } & T1_BYPASS != 0,
+        "the observation switched the bypass"
+    );
     assert_eq!(f.finish(t).got, want(&data));
 }
 
@@ -243,28 +342,54 @@ fn a_grow_evicts_a_record_with_no_free_slot_or_declines_on_a_spent_pool() {
     let home = |k: u64, b: u32| KeyHash::of(&[k]).home(b, Depth::TOP);
     let mut pick = (0..).filter(|&k| home(k, ob) == 100 && home(k, nb) == 201);
     let (k1, k2) = (pick.next().unwrap(), pick.next().unwrap());
-    let k3 = (0..).find(|&k| home(k, ob) == 101 && home(k, nb) == 202).unwrap();
+    let k3 = (0..)
+        .find(|&k| home(k, ob) == 101 && home(k, nb) == 202)
+        .unwrap();
     for spent in [false, true] {
         let limit = 1 << 20;
         let mut buf = region(limit, 0);
-        let t = unsafe { T1::at_sized(buf.as_mut_ptr() as *mut u8, &L, 3, 64 << 10, 16 << 10, limit as u32) } as *mut T1;
+        let t = unsafe {
+            T1::at_sized(
+                buf.as_mut_ptr() as *mut u8,
+                &L,
+                3,
+                64 << 10,
+                16 << 10,
+                limit as u32,
+            )
+        } as *mut T1;
         assert_eq!(unsafe { (*t).cap }, 1 << ob);
         let mut f = Fold::default();
         for k in [k1, k2, k3] {
             f.row(t, k, false);
         }
-        let slot = |k: u64| (0..unsafe { (*t).cap } as usize).find(|&i| unsafe { (*t).record(i) }.used() && unsafe { (*t).record(i) }.key(0) == k);
-        assert_eq!((slot(k1), slot(k2), slot(k3)), (Some(100), Some(101), Some(102)));
+        let slot = |k: u64| {
+            (0..unsafe { (*t).cap } as usize).find(|&i| {
+                unsafe { (*t).record(i) }.used() && unsafe { (*t).record(i) }.key(0) == k
+            })
+        };
+        assert_eq!(
+            (slot(k1), slot(k2), slot(k3)),
+            (Some(100), Some(101), Some(102))
+        );
         if spent {
             let part = unsafe { (*t).part_of(&[1], KeyHash::of(&[1])) };
             while unsafe { T1::append_new(t, part, &[1]) }.is_some() {}
             assert!(!unsafe { T1::grow(t) }, "a spent pool declines the grow");
-            assert_eq!((unsafe { (*t).cap }, slot(k1), slot(k2), slot(k3)), (1 << ob, Some(100), Some(101), Some(102)), "declined: unchanged");
+            assert_eq!(
+                (unsafe { (*t).cap }, slot(k1), slot(k2), slot(k3)),
+                (1 << ob, Some(100), Some(101), Some(102)),
+                "declined: unchanged"
+            );
             continue;
         }
         assert!(unsafe { T1::grow(t) });
         check_homes(t);
-        assert_eq!((unsafe { (*t).cap }, slot(k1), slot(k2), slot(k3)), (1 << nb, None, Some(201), Some(202)), "k1 evicted to its partition");
+        assert_eq!(
+            (unsafe { (*t).cap }, slot(k1), slot(k2), slot(k3)),
+            (1 << nb, None, Some(201), Some(202)),
+            "k1 evicted to its partition"
+        );
         assert_eq!(unsafe { ((*t).len, (*t).evictions) }, (2, 1));
         assert_eq!(f.finish(t).got, want(&[k1, k2, k3]));
     }
@@ -293,7 +418,16 @@ fn a_recurring_collision_under_the_fill_grows_the_table_not_the_bypass() {
     let limit = 4 << 20;
     let mut buf = region(limit, 0);
     let first = (1usize << bits) * L.size() as usize;
-    let t = unsafe { T1::at_sized(buf.as_mut_ptr() as *mut u8, &L, 3, 512 << 10, first as u32, limit as u32) } as *mut T1;
+    let t = unsafe {
+        T1::at_sized(
+            buf.as_mut_ptr() as *mut u8,
+            &L,
+            3,
+            512 << 10,
+            first as u32,
+            limit as u32,
+        )
+    } as *mut T1;
     assert_eq!(unsafe { (*t).cap }, 1 << bits);
     let data: Vec<u64> = (0..60_000).map(|i| keys[i % 32]).collect();
     let mut f = Fold::default();
@@ -301,8 +435,19 @@ fn a_recurring_collision_under_the_fill_grows_the_table_not_the_bypass() {
         f.row(t, k, true);
     }
     let (cap, flags, evictions) = unsafe { ((*t).cap, (*t).flags, (*t).evictions) };
-    assert_eq!(flags & T1_BYPASS, 0, "no bypass ({evictions} evictions, cap {cap})");
-    assert!(f.grows >= 1 && cap > 1 << bits, "the recurring collision doubled the table ({} grows)", f.grows);
-    assert!(evictions < 64, "a fill's worth of reopens at most before each doubling: {evictions} evictions");
+    assert_eq!(
+        flags & T1_BYPASS,
+        0,
+        "no bypass ({evictions} evictions, cap {cap})"
+    );
+    assert!(
+        f.grows >= 1 && cap > 1 << bits,
+        "the recurring collision doubled the table ({} grows)",
+        f.grows
+    );
+    assert!(
+        evictions < 64,
+        "a fill's worth of reopens at most before each doubling: {evictions} evictions"
+    );
     assert_eq!(f.finish(t).got, want(&data));
 }

@@ -45,9 +45,14 @@ fn verbatim_fixture() -> BuiltFixture {
         db: 5,
         relfilenumber: 7329,
         schema: vec![text_col(1)],
-        oracle: vec![(0..ROWS).map(|i| Some(OracleVal::Bytes(value(i)))).collect()],
+        oracle: vec![(0..ROWS)
+            .map(|i| Some(OracleVal::Bytes(value(i))))
+            .collect()],
         plans: vec![],
-        policy: PartCutPolicy { max_rows: 20_000, ..PartCutPolicy::default() },
+        policy: PartCutPolicy {
+            max_rows: 20_000,
+            ..PartCutPolicy::default()
+        },
     };
     let cands = CodecCandidates::new(ColumnPosture::default());
     let sources: [&dyn CandidateSource; 2] = [&cands, &ReferenceCandidates];
@@ -62,18 +67,35 @@ fn verbatim_fixture() -> BuiltFixture {
     w.publish(&mut vfs, &probe).expect("publish");
     probe.mark(fxid, TxnVerdict::Committed);
     let files = vfs.snapshot_dir(&fx.dir);
-    let manifest = effective_manifest(&mut vfs, &fx.dir, &probe, None).expect("effective").expect("committed generation");
-    BuiltFixture { fx, files, manifest }
+    let manifest = effective_manifest(&mut vfs, &fx.dir, &probe, None)
+        .expect("effective")
+        .expect("committed generation");
+    BuiltFixture {
+        fx,
+        files,
+        manifest,
+    }
 }
 
 /// Every row of the column read as code lanes (each part's dictionary built at its first window): the rows read, or the
 /// first error. `ino`: the parts' inode numbers (a fresh part identity a call, so no cached table serves it).
 fn read_codes(bf: &BuiltFixture, ino: u64) -> Result<u64, Box<types_error::PgError>> {
     // a host's PostgreSQL error is stashed on the thread (`gravity_hosts::stash`) behind the driver's error
-    let pg = |e: gravity_driver::Error| take_error().unwrap_or_else(|| Box::new(types_error::PgError::error(format!("no stashed error: {e:?}"))));
+    let pg = |e: gravity_driver::Error| {
+        take_error().unwrap_or_else(|| {
+            Box::new(types_error::PgError::error(format!(
+                "no stashed error: {e:?}"
+            )))
+        })
+    };
     let list = part_list_at(bf, ino);
     let total = list.granules();
-    let recipe = GranuleRecipe::for_test_codes(REL_TEXT + 29, &[1], &[1], Arc::new(PartRegistry::new(64 << 20)));
+    let recipe = GranuleRecipe::for_test_codes(
+        REL_TEXT + 29,
+        &[1],
+        &[1],
+        Arc::new(PartRegistry::new(64 << 20)),
+    );
     let resolved = Resolved::for_recipe(&recipe, list.clone());
     let mut src = GranuleRangeSource::new(recipe);
     src.bind(&binding_ref(&resolved)).map_err(pg)?;
@@ -86,7 +108,11 @@ fn read_codes(bf: &BuiltFixture, ino: u64) -> Result<u64, Box<types_error::PgErr
         match src.window(&mut w) {
             Ok(0) => break Ok(rows),
             Ok(n) => {
-                assert_eq!(w.lanes()[0].kind, gravity_abi::ctx::lane::KIND_CODES, "a verbatim part publishes ranked codes");
+                assert_eq!(
+                    w.lanes()[0].kind,
+                    gravity_abi::ctx::lane::KIND_CODES,
+                    "a verbatim part publishes ranked codes"
+                );
                 rows += n as u64;
             }
             Err(e) => break Err(pg(e)),
@@ -104,16 +130,33 @@ fn a_verbatim_parts_dictionary_build_charges_the_pool_past_its_room() {
     let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let bf = verbatim_fixture();
     gravity_driver::POOL.arm(256 << 10);
-    let past = || gravity_driver::POOL.overdraws().iter().fold((0u64, 0u64), |a, o| (a.0 + o.0, a.1 + o.1));
+    let past = || {
+        gravity_driver::POOL
+            .overdraws()
+            .iter()
+            .fold((0u64, 0u64), |a, o| (a.0 + o.0, a.1 + o.1))
+    };
     let (held, before) = (gravity_driver::POOL.held(), past());
     let r = read_codes(&bf, 4_329_000);
     let (after_held, after) = (gravity_driver::POOL.held(), past());
     gravity_driver::POOL.arm(0);
-    assert_eq!(r.expect("a build past the pool's room is served, never refused"), ROWS);
-    assert!(after.0 > before.0, "the build's working memory went past the pool as an overdraft ({before:?} -> {after:?})");
+    assert_eq!(
+        r.expect("a build past the pool's room is served, never refused"),
+        ROWS
+    );
+    assert!(
+        after.0 > before.0,
+        "the build's working memory went past the pool as an overdraft ({before:?} -> {after:?})"
+    );
     // each part's copied column alone is about 4 MB (20,000 rows of ~200 bytes)
-    assert!(after.1 - before.1 >= 4 << 20, "the overdraft covers the build's copy of the column ({before:?} -> {after:?})");
-    assert_eq!(after_held, held, "the build's overdraft went back at its end");
+    assert!(
+        after.1 - before.1 >= 4 << 20,
+        "the overdraft covers the build's copy of the column ({before:?} -> {after:?})"
+    );
+    assert_eq!(
+        after_held, held,
+        "the build's overdraft went back at its end"
+    );
 }
 
 /// With room: every row reads as before, the build's draws came from the pool, and every byte is back once it ended.

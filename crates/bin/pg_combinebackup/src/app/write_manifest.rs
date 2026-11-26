@@ -78,8 +78,7 @@ impl ManifestWriter {
             .extend_from_slice(format!("\"Size\": {size}, ").as_bytes());
 
         self.buf.extend_from_slice(b"\"Last-Modified\": \"");
-        self.buf
-            .extend_from_slice(format_gmtime(mtime).as_bytes());
+        self.buf.extend_from_slice(format_gmtime(mtime).as_bytes());
         self.buf.push(b'"');
 
         if self.buf.len() > 128 * 1024 {

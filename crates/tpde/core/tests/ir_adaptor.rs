@@ -314,7 +314,6 @@ fn pinned_concepts_and_complete_callback_trace() {
     );
 }
 
-
 fn compile_fixture(work: &Path, deps: &Path, name: &str, fixture: &str, main: &str) -> Output {
     let path = work.join(format!("{name}.rs"));
     fs::write(&path, format!("#![allow(dead_code,unused_imports)]\nuse tpde_core::ir_adaptor;\n{fixture}\nfn main() {{ {main} }}\n")).unwrap();

@@ -4,12 +4,12 @@
 mod attrs;
 mod domain;
 mod index;
-mod triggers;
 mod pg_class;
 mod policies;
 mod rules;
 #[cfg(test)]
 mod tests;
+mod triggers;
 
 use core::slice;
 
@@ -39,7 +39,12 @@ pub fn init_seams() {
     relcache_build_seams::scan_pg_constraint_fkeys::set(attrs::scan_pg_constraint_fkeys);
 }
 
-pub(crate) fn scan_key(attno: i32, strategy: StrategyNumber, func: RegProcedure, arg: Datum) -> ScanKeyData {
+pub(crate) fn scan_key(
+    attno: i32,
+    strategy: StrategyNumber,
+    func: RegProcedure,
+    arg: Datum,
+) -> ScanKeyData {
     let mut key = ScanKeyData::empty();
     key.sk_attno = attno as AttrNumber;
     key.sk_strategy = strategy;
@@ -54,7 +59,11 @@ pub(crate) fn oid_key(attno: i32, oid: Oid) -> ScanKeyData {
     scan_key(attno, BTEqualStrategyNumber, F_OIDEQ, Datum::from_oid(oid))
 }
 
-pub(crate) fn getattr(td: &TupleDescData<'_>, tup: &HeapTupleData<'_>, attno: i32) -> (Datum, bool) {
+pub(crate) fn getattr(
+    td: &TupleDescData<'_>,
+    tup: &HeapTupleData<'_>,
+    attno: i32,
+) -> (Datum, bool) {
     let mut isnull = false;
     // SAFETY: tup is a catalog row read under its relation's descriptor;
     // attno is a declared column of that catalog.
@@ -78,7 +87,11 @@ pub(crate) struct CatalogRow<'r, 't, 'd> {
 
 impl<'r, 't, 'd> CatalogRow<'r, 't, 'd> {
     pub(crate) fn new(td: &'r TupleDescData<'d>, tup: &'r HeapTupleData<'t>, nfixed: i32) -> Self {
-        let fixed = if fixed_prefix_present(td, tup, nfixed) { nfixed } else { 0 };
+        let fixed = if fixed_prefix_present(td, tup, nfixed) {
+            nfixed
+        } else {
+            0
+        };
         CatalogRow { td, tup, fixed }
     }
 
@@ -95,7 +108,11 @@ impl<'r, 't, 'd> CatalogRow<'r, 't, 'd> {
     }
 }
 
-pub(crate) fn fixed_prefix_present(td: &TupleDescData<'_>, tup: &HeapTupleData<'_>, nfixed: i32) -> bool {
+pub(crate) fn fixed_prefix_present(
+    td: &TupleDescData<'_>,
+    tup: &HeapTupleData<'_>,
+    nfixed: i32,
+) -> bool {
     if nfixed < 1 || td.natts < nfixed || (tup.t_data().natts() as i32) < nfixed {
         return false;
     }
@@ -107,7 +124,10 @@ pub(crate) fn fixed_prefix_present(td: &TupleDescData<'_>, tup: &HeapTupleData<'
     // row's natts (>= nfixed here) bits, so its first ceil(n / 8) bytes lie
     // inside the tuple header.
     let bits = unsafe {
-        slice::from_raw_parts(tup.header_ptr().add(types_tuple::SizeofHeapTupleHeader), n.div_ceil(8))
+        slice::from_raw_parts(
+            tup.header_ptr().add(types_tuple::SizeofHeapTupleHeader),
+            n.div_ceil(8),
+        )
     };
     let tail = (1u8 << (n % 8)).wrapping_sub(1);
     bits[..n / 8].iter().all(|&b| b == 0xFF) && bits[n / 8..].iter().all(|&b| b & tail == tail)

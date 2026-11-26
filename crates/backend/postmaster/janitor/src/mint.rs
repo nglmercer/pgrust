@@ -594,8 +594,11 @@ pub(crate) fn service_pass() -> PgResult<()> {
     // probe. gather_batch also re-snapshots after each handout round, so
     // Ensures arriving while a round's renames run are served this same
     // pass instead of aging a loop turn.
-    let (batch, deferred) =
-        gather_batch(registry::pending_ensures, crate::pool::service_handouts, MINT_BATCH_MAX)?;
+    let (batch, deferred) = gather_batch(
+        registry::pending_ensures,
+        crate::pool::service_handouts,
+        MINT_BATCH_MAX,
+    )?;
     log_deferral(deferred);
     if batch.is_empty() {
         return Ok(());
@@ -683,7 +686,10 @@ fn service_serial(entries: &[registry::PendingEnsure]) -> PgResult<()> {
                     e,
                     &format!("minting ephemeral database \"{}\"", p.name),
                 )?;
-                (registry::complete_ensure(p.gen, Err(saved), pg_clock::mono_ns()), None)
+                (
+                    registry::complete_ensure(p.gen, Err(saved), pg_clock::mono_ns()),
+                    None,
+                )
             }
         };
         wake_waiters(&outcome);
@@ -731,8 +737,10 @@ fn service_batch(to_mint: &[registry::PendingEnsure]) -> PgResult<()> {
                 // all-wal_log batch (F2) requested NO checkpoints at all —
                 // its suffix says that instead (the race suite's
                 // zero-checkpoint witness).
-                let n_filecopy =
-                    created.iter().filter(|c| c.strategy == MintStrategy::FileCopy).count();
+                let n_filecopy = created
+                    .iter()
+                    .filter(|c| c.strategy == MintStrategy::FileCopy)
+                    .count();
                 let suffix = if n_filecopy > 0 {
                     "one shared checkpoint cycle"
                 } else {
@@ -754,8 +762,10 @@ fn service_batch(to_mint: &[registry::PendingEnsure]) -> PgResult<()> {
             for (p, o) in to_mint.iter().zip(outcomes) {
                 match o {
                     BatchOutcome::Minted { copied } => {
-                        let db_oid =
-                            created_oids.next().expect("created oids track Minted outcomes").oid;
+                        let db_oid = created_oids
+                            .next()
+                            .expect("created oids track Minted outcomes")
+                            .oid;
                         if copied > 0 {
                             let _ = log_report(
                                 LOG,
@@ -895,8 +905,11 @@ fn gather_batch(
 /// suite's dispatch phase pins the zero-deferral invariant against this
 /// pass exactly as against service_pass.
 pub(crate) fn late_handout_pass() -> PgResult<()> {
-    let (_cold, deferred) =
-        gather_batch(registry::pending_ensures, crate::pool::service_handouts, MINT_BATCH_MAX)?;
+    let (_cold, deferred) = gather_batch(
+        registry::pending_ensures,
+        crate::pool::service_handouts,
+        MINT_BATCH_MAX,
+    )?;
     log_deferral(deferred);
     Ok(())
 }
@@ -1223,7 +1236,10 @@ fn mint_batch_body(
             #[cfg(pgrust_sim)]
             MintStrategy::FileCopy => dbcommands::createdb_skip_checkpoints(mcx, &stmt)?,
         };
-        created.push(CreatedDb { oid: db_oid, strategy });
+        created.push(CreatedDb {
+            oid: db_oid,
+            strategy,
+        });
         let copied = pg_db_role_setting::copy_database_settings(mcx, tpl.oid, db_oid)?;
         outcomes.push(BatchOutcome::Minted { copied });
         // Multi-statement-transaction shape: make this member's catalog
@@ -1244,7 +1260,10 @@ fn mint_batch_body(
         run_deferred_copies(&deferred)?;
     }
 
-    let n_filecopy = created.iter().filter(|c| member_owes_post(c.strategy)).count();
+    let n_filecopy = created
+        .iter()
+        .filter(|c| member_owes_post(c.strategy))
+        .count();
     if n_filecopy > 0 {
         if !pre_checkpointed {
             // The race suite's skip witness: copies happened and the
@@ -1304,7 +1323,10 @@ fn run_deferred_copies(deferred: &[dbcommands::DeferredFileCopy]) -> PgResult<()
                     "source database with OID {} is being accessed by other users",
                     d.src_dboid
                 ))
-                .errdetail(dbcommands::errdetail_busy_db(notherbackends, npreparedxacts))
+                .errdetail(dbcommands::errdetail_busy_db(
+                    notherbackends,
+                    npreparedxacts,
+                ))
                 .into_error()
                 .into());
         }
@@ -1312,7 +1334,10 @@ fn run_deferred_copies(deferred: &[dbcommands::DeferredFileCopy]) -> PgResult<()
     let mut jobs = Vec::new();
     for d in deferred {
         for dir in &d.dirs {
-            jobs.push(crate::parcopy::enumerate_dir_job(&dir.srcpath, &dir.dstpath)?);
+            jobs.push(crate::parcopy::enumerate_dir_job(
+                &dir.srcpath,
+                &dir.dstpath,
+            )?);
         }
     }
     let members = deferred.len();
@@ -1322,7 +1347,12 @@ fn run_deferred_copies(deferred: &[dbcommands::DeferredFileCopy]) -> PgResult<()
     // the pgrcolumnar table directories the file copy skips (copydir's population), on this thread
     for d in deferred {
         for dir in &d.dirs {
-            pgrc_am::dircopy::copy_table_dirs(&dir.srcpath, &dir.dstpath, dir.dst_tablespace, d.db_oid)?;
+            pgrc_am::dircopy::copy_table_dirs(
+                &dir.srcpath,
+                &dir.dstpath,
+                dir.dst_tablespace,
+                d.db_oid,
+            )?;
         }
     }
 
@@ -1341,7 +1371,12 @@ fn run_deferred_copies(deferred: &[dbcommands::DeferredFileCopy]) -> PgResult<()
     // the pgrcolumnar table directories the file copy skips (D2388), on this thread
     for d in deferred {
         for dir in &d.dirs {
-            dbcommands::copy_columnar_table_dirs(&dir.srcpath, &dir.dstpath, dir.dst_tablespace, d.db_oid)?;
+            dbcommands::copy_columnar_table_dirs(
+                &dir.srcpath,
+                &dir.dstpath,
+                dir.dst_tablespace,
+                d.db_oid,
+            )?;
         }
     }
     for d in deferred {
@@ -1603,7 +1638,11 @@ pub(crate) fn mint_one(p: &registry::PendingEnsure) -> PgResult<Option<Oid>> {
 /// One string-valued DefElem (the gram_core actions.rs construction
 /// precedent), shared by the createdb and ALTER DATABASE stmt builders
 /// (seal.rs builds its IS_TEMPLATE/ALLOW_CONNECTIONS flip from it too).
-pub(crate) fn def<'mcx>(mcx: Mcx<'mcx>, defname: &'static str, value: &str) -> PgResult<Node<'mcx>> {
+pub(crate) fn def<'mcx>(
+    mcx: Mcx<'mcx>,
+    defname: &'static str,
+    value: &str,
+) -> PgResult<Node<'mcx>> {
     Node::mk(
         mcx,
         DefElem {
@@ -1658,7 +1697,11 @@ pub(crate) fn build_alterdb_allowconn_stmt<'mcx>(
 ) -> PgResult<types_nodes::parsenodes::AlterDatabaseStmt<'mcx>> {
     let options = NodeList::make1(
         mcx,
-        def(mcx, "allow_connections", if allow { "true" } else { "false" })?,
+        def(
+            mcx,
+            "allow_connections",
+            if allow { "true" } else { "false" },
+        )?,
     )?;
     Ok(types_nodes::parsenodes::AlterDatabaseStmt {
         dbname: Some(str_in(mcx, name)?),
@@ -1781,28 +1824,55 @@ mod tests {
             (pres, post)
         };
         // All file_copy, nothing marked, no probes: ONE shared pre.
-        assert_eq!(plan(&[(FileCopy, false, false), (FileCopy, false, false)]), (1, true));
+        assert_eq!(
+            plan(&[(FileCopy, false, false), (FileCopy, false, false)]),
+            (1, true)
+        );
         // All file_copy, all marked: pre skipped (the D3 skip), post owed.
-        assert_eq!(plan(&[(FileCopy, true, false), (FileCopy, true, false)]), (0, true));
+        assert_eq!(
+            plan(&[(FileCopy, true, false), (FileCopy, true, false)]),
+            (0, true)
+        );
         // Marked + unmarked file_copy: one pre (the unmarked member), post.
-        assert_eq!(plan(&[(FileCopy, true, false), (FileCopy, false, false)]), (1, true));
+        assert_eq!(
+            plan(&[(FileCopy, true, false), (FileCopy, false, false)]),
+            (1, true)
+        );
         // All wal_log: ZERO checkpoints, regardless of mark state.
-        assert_eq!(plan(&[(WalLog, false, false), (WalLog, true, false)]), (0, false));
+        assert_eq!(
+            plan(&[(WalLog, false, false), (WalLog, true, false)]),
+            (0, false)
+        );
         assert_eq!(plan(&[]), (0, false));
         // Mixed: wal_log members never contribute a term; the file_copy
         // member alone decides.
-        assert_eq!(plan(&[(WalLog, false, false), (FileCopy, true, false)]), (0, true));
-        assert_eq!(plan(&[(WalLog, true, false), (FileCopy, false, false)]), (1, true));
+        assert_eq!(
+            plan(&[(WalLog, false, false), (FileCopy, true, false)]),
+            (0, true)
+        );
+        assert_eq!(
+            plan(&[(WalLog, true, false), (FileCopy, false, false)]),
+            (1, true)
+        );
         // THE HAZARD CELL (probe-dirties-template): a first-touch batch
         // over two distinct new templates probes both; member 2's probe
         // lands AFTER member 1's checkpoint, so it must RE-fire — two
         // pres, never one.
-        assert_eq!(plan(&[(FileCopy, false, true), (FileCopy, false, true)]), (2, true));
+        assert_eq!(
+            plan(&[(FileCopy, false, true), (FileCopy, false, true)]),
+            (2, true)
+        );
         // Same template twice: the second member cache-hits (no probe) and
         // is marked by member 1 — steady one-pre shape.
-        assert_eq!(plan(&[(FileCopy, false, true), (FileCopy, true, false)]), (1, true));
+        assert_eq!(
+            plan(&[(FileCopy, false, true), (FileCopy, true, false)]),
+            (1, true)
+        );
         // A probing WAL_LOG pick never fires (no file copy to protect).
-        assert_eq!(plan(&[(WalLog, false, true), (WalLog, false, true)]), (0, false));
+        assert_eq!(
+            plan(&[(WalLog, false, true), (WalLog, false, true)]),
+            (0, false)
+        );
         // SIGHUP-flip shape: mark exists from an earlier era but the first
         // post-flip pick probes (mark cleared, probed) — re-pays even as
         // the batch's first member.
@@ -1858,9 +1928,8 @@ mod tests {
         // plus 2 warm stragglers that arrive DURING the first handout
         // round (pushed by the handout fake below, modeling posts landing
         // while the renames run).
-        let pending: RefCell<Vec<registry::PendingEnsure>> = RefCell::new(
-            (0..64).map(warm).chain((0..40).map(cold)).collect(),
-        );
+        let pending: RefCell<Vec<registry::PendingEnsure>> =
+            RefCell::new((0..64).map(warm).chain((0..40).map(cold)).collect());
         let served: RefCell<Vec<String>> = RefCell::new(Vec::new());
         let rounds: RefCell<usize> = RefCell::new(0);
 
@@ -1895,16 +1964,32 @@ mod tests {
 
         // Every warm entry — including the two mid-pass arrivals — was
         // served, uncapped: 66 > 2 x MINT_BATCH_MAX.
-        assert_eq!(served.borrow().len(), 66, "all warm entries served in ONE pass");
+        assert_eq!(
+            served.borrow().len(),
+            66,
+            "all warm entries served in ONE pass"
+        );
         assert!(
-            served.borrow().iter().any(|n| n == "w500") && served.borrow().iter().any(|n| n == "w501"),
+            served.borrow().iter().any(|n| n == "w500")
+                && served.borrow().iter().any(|n| n == "w501"),
             "mid-pass arrivals served the same pass"
         );
         // The cold remainder alone feeds the capped batch path.
-        assert_eq!(batch.len(), MINT_BATCH_MAX, "cold batch capped at MINT_BATCH_MAX");
+        assert_eq!(
+            batch.len(),
+            MINT_BATCH_MAX,
+            "cold batch capped at MINT_BATCH_MAX"
+        );
         assert_eq!(deferred, 40 - MINT_BATCH_MAX, "only cold overflow defers");
-        assert!(batch.iter().all(|p| p.template == "tpl_cold"), "no warm entry in the cold batch");
-        assert_eq!(batch.first().unwrap().gen, 1000, "cold batch keeps oldest-first order");
+        assert!(
+            batch.iter().all(|p| p.template == "tpl_cold"),
+            "no warm entry in the cold batch"
+        );
+        assert_eq!(
+            batch.first().unwrap().gen,
+            1000,
+            "cold batch keeps oldest-first order"
+        );
 
         // Degenerate shapes: empty queue, and an all-cold queue (handout
         // serves nothing -> exactly one round, straight to the cap).
@@ -1922,7 +2007,11 @@ mod tests {
         )
         .unwrap();
         assert_eq!((b.len(), d), (5, 0));
-        assert_eq!(*calls.borrow(), 1, "an all-cold round terminates the drain immediately");
+        assert_eq!(
+            *calls.borrow(),
+            1,
+            "an all-cold round terminates the drain immediately"
+        );
     }
 
     /// Batch assembly (split_batch) + validation split (preflight_verdict):
@@ -1965,7 +2054,10 @@ mod tests {
             preflight_verdict(true, Some((true, false))),
             PreflightVerdict::AlreadyExists
         );
-        assert_eq!(preflight_verdict(true, None), PreflightVerdict::AlreadyExists);
+        assert_eq!(
+            preflight_verdict(true, None),
+            PreflightVerdict::AlreadyExists
+        );
         assert_eq!(
             preflight_verdict(true, Some((false, true))),
             PreflightVerdict::AlreadyExists
@@ -1974,7 +2066,10 @@ mod tests {
         // each refusal classifies distinctly (distinct errors). Sealing is
         // decided on datistemplate alone — datallowconn never turns a
         // refusal into a mint or vice versa.
-        assert_eq!(preflight_verdict(false, None), PreflightVerdict::TemplateMissing);
+        assert_eq!(
+            preflight_verdict(false, None),
+            PreflightVerdict::TemplateMissing
+        );
         assert_eq!(
             preflight_verdict(false, Some((false, false))),
             PreflightVerdict::TemplateUnsealed

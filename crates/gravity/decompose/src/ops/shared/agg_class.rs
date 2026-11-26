@@ -215,13 +215,32 @@ impl Class {
 
     /// The fold's result depends on the input order (ORDER BY inside the call is honoured through a `Var` list).
     pub const fn order_sensitive(self) -> bool {
-        matches!(self, Class::SumF32 | Class::SumF64 | Class::AvgF64 | Class::Stat3F64(_) | Class::Stat6F64(_) | Class::Collect(_) | Class::OrderedSet(_) | Class::Hypothetical(_) | Class::User)
+        matches!(
+            self,
+            Class::SumF32
+                | Class::SumF64
+                | Class::AvgF64
+                | Class::Stat3F64(_)
+                | Class::Stat6F64(_)
+                | Class::Collect(_)
+                | Class::OrderedSet(_)
+                | Class::Hypothetical(_)
+                | Class::User
+        )
     }
 
     /// The classes whose DISTINCT form is the pair set (ir-probe §14): the group's (keys, argument) identity set folded on the emit side.
     /// It reads the class and the DISTINCT modifier, never a spelling: normalize's `distinct_count` gives a count(*) over a
     /// subquery grouped by one NOT NULL column (GROUP BY or SELECT DISTINCT, hashed or sorted) as this count(DISTINCT k).
     pub const fn pair_fold(self) -> bool {
-        matches!(self, Class::CountAny | Class::SumI64 | Class::SumI128 | Class::AvgI128 | Class::Min(Ext::Int) | Class::Max(Ext::Int))
+        matches!(
+            self,
+            Class::CountAny
+                | Class::SumI64
+                | Class::SumI128
+                | Class::AvgI128
+                | Class::Min(Ext::Int)
+                | Class::Max(Ext::Int)
+        )
     }
 }

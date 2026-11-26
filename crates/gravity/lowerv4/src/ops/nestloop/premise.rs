@@ -8,7 +8,9 @@ use crate::props::Walk;
 impl<'p> Walk<'_, '_, 'p> {
     /// One Op::Join(JoinDesc::Nest).
     pub(crate) fn nestloop(&mut self, j: &JoinDesc<'p>) {
-        let JoinDesc::Nest { params, qual, .. } = j else { return };
+        let JoinDesc::Nest { params, qual, .. } = j else {
+            return;
+        };
         if params.len() > 0 {
             self.add(KindId::NestParam);
         }

@@ -13,7 +13,9 @@ use gravity_ir::*;
 
 /// `f(p: ptr) -> i64`: a loop header `walk(w: i64)` re-entered from an
 /// exit-side block through the edge `shape` builds.
-fn walk_program(shape: impl Fn(&mut gravity_ir::builder::FunctionBuilder<'_>, Value, Value, Block, Block)) -> Program {
+fn walk_program(
+    shape: impl Fn(&mut gravity_ir::builder::FunctionBuilder<'_>, Value, Value, Block, Block),
+) -> Program {
     let mut pb = ProgramBuilder::new();
     let f = pb.declare_func("f", &[Type::Ptr], &[Type::I64]);
     let mut b = pb.define(f);
@@ -66,21 +68,33 @@ fn an_edge_with_too_few_arguments_is_rejected() {
     });
     let e = verify(&p).unwrap_err();
     assert_eq!(e.func, "f");
-    assert!(e.message.contains("has 0 args, block has 1 params"), "{}", e.message);
+    assert!(
+        e.message.contains("has 0 args, block has 1 params"),
+        "{}",
+        e.message
+    );
 }
 
 #[test]
 fn an_edge_with_too_many_arguments_is_rejected() {
     let p = walk_program(|b, w, _arr, walk, _fin| b.br(walk, &[w, w]));
     let e = verify(&p).unwrap_err();
-    assert!(e.message.contains("has 2 args, block has 1 params"), "{}", e.message);
+    assert!(
+        e.message.contains("has 2 args, block has 1 params"),
+        "{}",
+        e.message
+    );
 }
 
 #[test]
 fn an_unconditional_edge_with_too_few_arguments_is_rejected() {
     let p = walk_program(|b, _w, _arr, walk, _fin| b.br(walk, &[]));
     let e = verify(&p).unwrap_err();
-    assert!(e.message.contains("has 0 args, block has 1 params"), "{}", e.message);
+    assert!(
+        e.message.contains("has 0 args, block has 1 params"),
+        "{}",
+        e.message
+    );
 }
 
 #[test]
@@ -120,7 +134,11 @@ fn a_use_not_dominated_by_its_definition_is_rejected() {
     let prog = pb.finish();
     gravity_ir::verify::verify_structure(&prog).unwrap();
     let e = gravity_ir::verify::verify_dominance(&prog).unwrap_err();
-    assert!(e.message.contains("does not dominate the use"), "{}", e.message);
+    assert!(
+        e.message.contains("does not dominate the use"),
+        "{}",
+        e.message
+    );
     assert_eq!(verify(&prog).unwrap_err(), e);
 }
 
@@ -168,9 +186,31 @@ fn a_zero_stored_at_an_earlier_cursor_lands_there() {
     let prog = pb.finish();
     verify(&prog).unwrap();
     let insts = &prog.funcs[0].blocks[at.0.index()].insts;
-    assert!(matches!(insts[0].op, Op::Load { offset: 0, .. }), "{:?}", insts[0].op);
-    assert!(matches!(insts[1].op, Op::Const { ty: Type::I64, bits: 0 }), "{:?}", insts[1].op);
+    assert!(
+        matches!(insts[0].op, Op::Load { offset: 0, .. }),
+        "{:?}",
+        insts[0].op
+    );
+    assert!(
+        matches!(
+            insts[1].op,
+            Op::Const {
+                ty: Type::I64,
+                bits: 0
+            }
+        ),
+        "{:?}",
+        insts[1].op
+    );
     let z = insts[1].result.unwrap();
-    assert!(matches!(insts[2].op, Op::Store { offset: 16, value, .. } if value == z), "{:?}", insts[2].op);
-    assert!(matches!(insts[3].op, Op::Load { offset: 8, .. }), "{:?}", insts[3].op);
+    assert!(
+        matches!(insts[2].op, Op::Store { offset: 16, value, .. } if value == z),
+        "{:?}",
+        insts[2].op
+    );
+    assert!(
+        matches!(insts[3].op, Op::Load { offset: 8, .. }),
+        "{:?}",
+        insts[3].op
+    );
 }

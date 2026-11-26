@@ -14,8 +14,8 @@ pub mod jsonb;
 pub mod percode;
 pub mod prim;
 mod row;
-pub(crate) mod store;
 pub mod scalar;
+pub(crate) mod store;
 mod subscript;
 pub mod vec;
 mod whole;
@@ -52,11 +52,28 @@ pub struct LaneRef {
 #[derive(Clone, Copy)]
 pub enum ColsRef<'a> {
     None,
-    Slot { values: Value, nulls: Value },
-    Values { values: &'a [Value], valids: &'a [Value] },
-    Lanes { row: Value, lanes: &'a [Option<LaneRef>] },
-    Record { base: Value, offsets: &'a [u32] },
-    RecordNulls { base: Value, offsets: &'a [u32], null_off: u32, bits: &'a [u8] },
+    Slot {
+        values: Value,
+        nulls: Value,
+    },
+    Values {
+        values: &'a [Value],
+        valids: &'a [Value],
+    },
+    Lanes {
+        row: Value,
+        lanes: &'a [Option<LaneRef>],
+    },
+    Record {
+        base: Value,
+        offsets: &'a [u32],
+    },
+    RecordNulls {
+        base: Value,
+        offsets: &'a [u32],
+        null_off: u32,
+        bits: &'a [u8],
+    },
 }
 
 pub const NULL_BIT_NONE: u8 = 0xff;
@@ -135,18 +152,76 @@ pub trait LazySites {
     fn has_col(&self, _src: crate::eval::Source, _attno: i16) -> bool {
         false
     }
-    fn emit_col(&self, _b: &mut FunctionBuilder<'_>, _src: crate::eval::Source, attno: i16) -> [Value; 3] {
+    fn emit_col(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        _src: crate::eval::Source,
+        attno: i16,
+    ) -> [Value; 3] {
         unreachable!("a lazy column {attno} the hook does not hold")
     }
 }
 
 impl<'a> RowRefs<'a> {
-    pub fn scan(scan: ColsRef<'a>, consts: &'a [Value], consts_null: &'a [Value], scratch: Mcx<'a>) -> RowRefs<'a> {
-        RowRefs { scan, inner: ColsRef::None, outer: ColsRef::None, consts, consts_null, region: None, cells: None, shreds: &[], codes: &[], tables: &[], rec: None, aggs: &[], word_root: false, whole: None, ctx: None, col_raises: &[], lazy: None, late: &[], scratch }
+    pub fn scan(
+        scan: ColsRef<'a>,
+        consts: &'a [Value],
+        consts_null: &'a [Value],
+        scratch: Mcx<'a>,
+    ) -> RowRefs<'a> {
+        RowRefs {
+            scan,
+            inner: ColsRef::None,
+            outer: ColsRef::None,
+            consts,
+            consts_null,
+            region: None,
+            cells: None,
+            shreds: &[],
+            codes: &[],
+            tables: &[],
+            rec: None,
+            aggs: &[],
+            word_root: false,
+            whole: None,
+            ctx: None,
+            col_raises: &[],
+            lazy: None,
+            late: &[],
+            scratch,
+        }
     }
 
-    pub fn record(scan: ColsRef<'a>, consts: &'a [Value], consts_null: &'a [Value], rec: Value, aggs: &'a [AggCell], region: Option<Value>, scratch: Mcx<'a>) -> RowRefs<'a> {
-        RowRefs { scan, inner: ColsRef::None, outer: ColsRef::None, consts, consts_null, region, cells: None, shreds: &[], codes: &[], tables: &[], rec: Some(rec), aggs, word_root: false, whole: None, ctx: None, col_raises: &[], lazy: None, late: &[], scratch }
+    pub fn record(
+        scan: ColsRef<'a>,
+        consts: &'a [Value],
+        consts_null: &'a [Value],
+        rec: Value,
+        aggs: &'a [AggCell],
+        region: Option<Value>,
+        scratch: Mcx<'a>,
+    ) -> RowRefs<'a> {
+        RowRefs {
+            scan,
+            inner: ColsRef::None,
+            outer: ColsRef::None,
+            consts,
+            consts_null,
+            region,
+            cells: None,
+            shreds: &[],
+            codes: &[],
+            tables: &[],
+            rec: Some(rec),
+            aggs,
+            word_root: false,
+            whole: None,
+            ctx: None,
+            col_raises: &[],
+            lazy: None,
+            late: &[],
+            scratch,
+        }
     }
 }
 
@@ -186,11 +261,20 @@ pub enum EmitError {
 pub enum ParamNeed {
     Const(NullableDatum),
     Elem(NullableDatum),
-    Extern { id: i32, typ: Oid },
-    Exec { id: i32, typ: Oid },
+    Extern {
+        id: i32,
+        typ: Oid,
+    },
+    Exec {
+        id: i32,
+        typ: Oid,
+    },
     /// D2834: a deferred extern parameter's word (nodes/param.rs `DEFERRED`): the execution's parameter list, which the
     /// emitted code hands its evaluation-time fetch (host.rs `param_deferred`); never the slot's value.
-    Deferred { id: i32, typ: Oid },
+    Deferred {
+        id: i32,
+        typ: Oid,
+    },
 }
 
 /// The parameter words an emit reads (`plan`), in the emit's scratch (the planning context the caller passes).
@@ -219,7 +303,10 @@ impl Plan<'_> {
         }
     }
     pub fn elems_of(&self, id: NodeId) -> Option<(u32, u32, bool)> {
-        self.elems.iter().find(|(n, ..)| *n == id).map(|(_, s, n, null)| (*s, *n, *null))
+        self.elems
+            .iter()
+            .find(|(n, ..)| *n == id)
+            .map(|(_, s, n, null)| (*s, *n, *null))
     }
 }
 
@@ -235,8 +322,19 @@ pub struct KidIter<'p> {
 }
 
 impl<'p> KidIter<'p> {
-    fn of(head: Option<NodeId>, a: &'p [NodeId], b: &'p [NodeId], tail: Option<NodeId>) -> KidIter<'p> {
-        KidIter { head, a: a.iter(), b: b.iter(), tail, skip_none: false }
+    fn of(
+        head: Option<NodeId>,
+        a: &'p [NodeId],
+        b: &'p [NodeId],
+        tail: Option<NodeId>,
+    ) -> KidIter<'p> {
+        KidIter {
+            head,
+            a: a.iter(),
+            b: b.iter(),
+            tail,
+            skip_none: false,
+        }
     }
 
     pub fn none() -> KidIter<'p> {
@@ -245,7 +343,13 @@ impl<'p> KidIter<'p> {
 
     /// The walk again from where this one stands: the same lists re-borrowed.
     fn again(&self) -> KidIter<'p> {
-        KidIter { head: self.head, a: self.a.as_slice().iter(), b: self.b.as_slice().iter(), tail: self.tail, skip_none: self.skip_none }
+        KidIter {
+            head: self.head,
+            a: self.a.as_slice().iter(),
+            b: self.b.as_slice().iter(),
+            tail: self.tail,
+            skip_none: self.skip_none,
+        }
     }
 
     /// How many children (a count of the walk).
@@ -260,7 +364,11 @@ impl<'p> KidIter<'p> {
 
     /// The children as the program's own list, when they are one (a call's arguments, a BoolExpr's operands, none).
     pub fn slice(&self) -> Option<&'p [NodeId]> {
-        (self.head.is_none() && self.b.as_slice().is_empty() && self.tail.is_none() && !self.skip_none).then_some( self.a.as_slice())
+        (self.head.is_none()
+            && self.b.as_slice().is_empty()
+            && self.tail.is_none()
+            && !self.skip_none)
+            .then_some(self.a.as_slice())
     }
 }
 
@@ -287,11 +395,16 @@ impl Iterator for KidIter<'_> {
 
 /// The children of `id` in evaluation order (the kinds `emit` serves; none for the rest).
 pub fn kids<'p>(p: &'p Program<'_>, id: NodeId) -> KidIter<'p> {
-    let range = |k: crate::nodes::Kids| &p.kids[k.start as usize..k.start as usize + k.len as usize];
+    let range =
+        |k: crate::nodes::Kids| &p.kids[k.start as usize..k.start as usize + k.len as usize];
     let one = |k: NodeId| KidIter::of(Some(k), &[], &[], None);
     match &p.nodes[id.0 as usize] {
-        ExprNode::Func(n) | ExprNode::Op(n) | ExprNode::Distinct(n) | ExprNode::NullIf(n) => KidIter::of(None, range(p.sites[n.site.0 as usize].args), &[], None),
-        ExprNode::ScalarArrayOp(n) => KidIter::of(None, range(p.sites[n.site.0 as usize].args), &[], None),
+        ExprNode::Func(n) | ExprNode::Op(n) | ExprNode::Distinct(n) | ExprNode::NullIf(n) => {
+            KidIter::of(None, range(p.sites[n.site.0 as usize].args), &[], None)
+        }
+        ExprNode::ScalarArrayOp(n) => {
+            KidIter::of(None, range(p.sites[n.site.0 as usize].args), &[], None)
+        }
         ExprNode::Bool(n) => KidIter::of(None, range(n.args), &[], None),
         ExprNode::NullTest(n) => one(n.arg),
         ExprNode::BooleanTest(n) => one(n.arg),
@@ -310,13 +423,21 @@ pub fn kids<'p>(p: &'p Program<'_>, id: NodeId) -> KidIter<'p> {
         ExprNode::Returning(n) => one(n.arg),
         ExprNode::Array(n) => KidIter::of(None, range(n.elements), &[], None),
         // an open slice bound is no node
-        ExprNode::Subscripting(n) => KidIter { skip_none: true, ..KidIter::of(Some(n.container), range(n.upper), range(n.lower), n.assign) },
+        ExprNode::Subscripting(n) => KidIter {
+            skip_none: true,
+            ..KidIter::of(Some(n.container), range(n.upper), range(n.lower), n.assign)
+        },
         _ => KidIter::none(),
     }
 }
 
 pub(crate) fn plan<'s>(p: &Program<'_>, root: NodeId, scratch: Mcx<'s>) -> PgResult<Plan<'s>> {
-    let mut out = Plan { needs: PgVec::new_in(scratch), elems: PgVec::new_in(scratch), at: PgVec::new_in(scratch), nodes: p.nodes.len() };
+    let mut out = Plan {
+        needs: PgVec::new_in(scratch),
+        elems: PgVec::new_in(scratch),
+        at: PgVec::new_in(scratch),
+        nodes: p.nodes.len(),
+    };
     walk(p, root, &mut out)?;
     Ok(out)
 }
@@ -334,15 +455,24 @@ fn walk(p: &Program<'_>, id: NodeId, out: &mut Plan<'_>) -> PgResult<()> {
         }
         ExprNode::Param(n) if n.kind == ParamKind::PARAM_EXTERN => {
             out.put(id);
-            out.needs.push_in(ParamNeed::Extern { id: n.id, typ: n.typ });
+            out.needs.push_in(ParamNeed::Extern {
+                id: n.id,
+                typ: n.typ,
+            });
         }
         ExprNode::Param(n) if n.kind == ParamKind::PARAM_EXEC => {
             out.put(id);
-            out.needs.push_in(ParamNeed::Exec { id: n.id, typ: n.typ });
+            out.needs.push_in(ParamNeed::Exec {
+                id: n.id,
+                typ: n.typ,
+            });
         }
         ExprNode::Param(n) if crate::nodes::param::is_deferred(n) => {
             out.put(id);
-            out.needs.push_in(ParamNeed::Deferred { id: n.id, typ: n.typ });
+            out.needs.push_in(ParamNeed::Deferred {
+                id: n.id,
+                typ: n.typ,
+            });
         }
         ExprNode::ScalarArrayOp(n) => {
             let args = p.sites[n.site.0 as usize].args;
@@ -418,7 +548,10 @@ impl<'mcx> Compiled<'mcx> {
         let p = plan(&self.prog, self.root, scratch).ok()?;
         match w.elem {
             None => p.index(w.node),
-            Some(k) => p.elems_of(w.node).filter(|&(_, n, null)| !null && k < n).map(|(start, _, _)| start + k),
+            Some(k) => p
+                .elems_of(w.node)
+                .filter(|&(_, n, null)| !null && k < n)
+                .map(|(start, _, _)| start + k),
         }
     }
 
@@ -435,7 +568,12 @@ impl<'mcx> Compiled<'mcx> {
     /// The tier B and C sites the emitted code calls per row (the lowerer's admission fact), and the array walks over a
     /// tier-A site (`scalar::walked`: the walk is one host call through the site's cell whatever its tier).
     pub fn host_calls(&self) -> usize {
-        self.prog.sites.iter().filter(|s| !prim::is_prim(&self.prog, s, false)).count() + self.prim_walks()
+        self.prog
+            .sites
+            .iter()
+            .filter(|s| !prim::is_prim(&self.prog, s, false))
+            .count()
+            + self.prim_walks()
     }
 
     pub fn host_calls_root(&self, word_root: bool) -> usize {
@@ -445,8 +583,24 @@ impl<'mcx> Compiled<'mcx> {
         };
         // B2-31: under a root integer cast the word is its argument's, and the cast itself is never called
         let (at, cast) = prim::datetime::word_node(&self.prog, self.root);
-        let (root, skipped) = (site(at), if word_root && cast { site(self.root) } else { None });
-        self.prog.sites.iter().enumerate().filter(|(i, s)| Some(SiteId(*i as u32)) != skipped && !prim::is_prim(&self.prog, s, word_root && root == Some(SiteId(*i as u32)))).count() + self.prim_walks()
+        let (root, skipped) = (
+            site(at),
+            if word_root && cast {
+                site(self.root)
+            } else {
+                None
+            },
+        );
+        self.prog
+            .sites
+            .iter()
+            .enumerate()
+            .filter(|(i, s)| {
+                Some(SiteId(*i as u32)) != skipped
+                    && !prim::is_prim(&self.prog, s, word_root && root == Some(SiteId(*i as u32)))
+            })
+            .count()
+            + self.prim_walks()
     }
 
     /// The walked ScalarArrayOps whose site is tier A (`host_calls`).
@@ -460,14 +614,28 @@ impl<'mcx> Compiled<'mcx> {
         EmitState::new(self, m)
     }
 
-    pub fn emit(&self, f: &mut FunctionBuilder<'_>, row: &RowRefs<'_>) -> Result<Lowered, EmitError> {
+    pub fn emit(
+        &self,
+        f: &mut FunctionBuilder<'_>,
+        row: &RowRefs<'_>,
+    ) -> Result<Lowered, EmitError> {
         self.emit_at(f, row, self.root)
     }
 
     /// `emit` of the subtree at `node` (a per-code body swept over a one-column row holding the entry's image).
-    pub fn emit_at(&self, f: &mut FunctionBuilder<'_>, row: &RowRefs<'_>, node: NodeId) -> Result<Lowered, EmitError> {
-        let plan = plan(&self.prog, self.root, row.scratch).map_err(|_| EmitError::Unsupported(Kind::Const))?;
-        let pc = if row.codes.is_empty() { PerCodePlan::new_in(row.scratch) } else { crate::percode::analyze(&self.prog, self.root, row.codes, row.scratch)? };
+    pub fn emit_at(
+        &self,
+        f: &mut FunctionBuilder<'_>,
+        row: &RowRefs<'_>,
+        node: NodeId,
+    ) -> Result<Lowered, EmitError> {
+        let plan = plan(&self.prog, self.root, row.scratch)
+            .map_err(|_| EmitError::Unsupported(Kind::Const))?;
+        let pc = if row.codes.is_empty() {
+            PerCodePlan::new_in(row.scratch)
+        } else {
+            crate::percode::analyze(&self.prog, self.root, row.codes, row.scratch)?
+        };
         let mut em = scalar::Em::new(&self.prog, f, row, &plan, pc, self.root);
         em.node(node)
     }
@@ -479,11 +647,22 @@ impl<'mcx> Compiled<'mcx> {
     /// or a by-value shim whose by-reference arguments are leaves (`host::leaf_images`: a literal's or a parameter's image,
     /// which holds still with the parameters; no call's region image), as `current_date - interval '12 months'`. A bare
     /// leaf is no root (it is a word already); an island is none (the interpreter's).
-    pub fn late_roots(&self, param_ok: &dyn Fn(&crate::nodes::param::Param) -> bool, call_ok: &dyn Fn(&crate::nodes::func::Call) -> bool, scratch: Mcx<'_>) -> Vec<NodeId> {
+    pub fn late_roots(
+        &self,
+        param_ok: &dyn Fn(&crate::nodes::param::Param) -> bool,
+        call_ok: &dyn Fn(&crate::nodes::func::Call) -> bool,
+        scratch: Mcx<'_>,
+    ) -> Vec<NodeId> {
         type Test<'a, T> = &'a dyn Fn(&T) -> bool;
         // D3930: `closed` per node, once (0 not asked yet, 1 no, 2 yes): `walk` asks it at every call above a subtree that
         // is not, so asked afresh a left-deep chain was quadratic in its depth (and in `call_ok`'s catalog reads).
-        fn closed(p: &Program<'_>, id: NodeId, param_ok: Test<'_, crate::nodes::param::Param>, call_ok: Test<'_, crate::nodes::func::Call>, memo: &mut [u8]) -> bool {
+        fn closed(
+            p: &Program<'_>,
+            id: NodeId,
+            param_ok: Test<'_, crate::nodes::param::Param>,
+            call_ok: Test<'_, crate::nodes::func::Call>,
+            memo: &mut [u8],
+        ) -> bool {
             crate::stack_check();
             match memo.get(id.0 as usize) {
                 Some(1) => return false,
@@ -496,7 +675,13 @@ impl<'mcx> Compiled<'mcx> {
             }
             r
         }
-        fn closed_at(p: &Program<'_>, id: NodeId, param_ok: Test<'_, crate::nodes::param::Param>, call_ok: Test<'_, crate::nodes::func::Call>, memo: &mut [u8]) -> bool {
+        fn closed_at(
+            p: &Program<'_>,
+            id: NodeId,
+            param_ok: Test<'_, crate::nodes::param::Param>,
+            call_ok: Test<'_, crate::nodes::func::Call>,
+            memo: &mut [u8],
+        ) -> bool {
             if p.islands.iter().any(|i| i.root == id) {
                 return false;
             }
@@ -506,16 +691,32 @@ impl<'mcx> Compiled<'mcx> {
                 ExprNode::Relabel(r) => closed(p, r.arg, param_ok, call_ok, memo),
                 ExprNode::Func(n) | ExprNode::Op(n) => {
                     let c = &p.sites[n.site.0 as usize];
-                    (prim::is_prim(p, c, false) || host::direct(p, c).is_some() || host::leaf_images(p, c)) && call_ok(c) && kids(p, id).into_iter().all(|k| closed(p, k, param_ok, call_ok, memo))
+                    (prim::is_prim(p, c, false)
+                        || host::direct(p, c).is_some()
+                        || host::leaf_images(p, c))
+                        && call_ok(c)
+                        && kids(p, id)
+                            .into_iter()
+                            .all(|k| closed(p, k, param_ok, call_ok, memo))
                 }
                 _ => false,
             }
         }
-        fn walk(p: &Program<'_>, id: NodeId, param_ok: Test<'_, crate::nodes::param::Param>, call_ok: Test<'_, crate::nodes::func::Call>, memo: &mut [u8], out: &mut Vec<NodeId>) {
+        fn walk(
+            p: &Program<'_>,
+            id: NodeId,
+            param_ok: Test<'_, crate::nodes::param::Param>,
+            call_ok: Test<'_, crate::nodes::func::Call>,
+            memo: &mut [u8],
+            out: &mut Vec<NodeId>,
+        ) {
             crate::stack_check();
             let call = match &p.nodes[id.0 as usize] {
                 ExprNode::Func(_) | ExprNode::Op(_) => true,
-                ExprNode::Relabel(r) => matches!(p.nodes[r.arg.0 as usize], ExprNode::Func(_) | ExprNode::Op(_)),
+                ExprNode::Relabel(r) => matches!(
+                    p.nodes[r.arg.0 as usize],
+                    ExprNode::Func(_) | ExprNode::Op(_)
+                ),
                 _ => false,
             };
             if call && closed(p, id, param_ok, call_ok, memo) {
@@ -526,80 +727,193 @@ impl<'mcx> Compiled<'mcx> {
         }
         let mut memo = mcx::vec_elem_in(scratch, 0u8, self.prog.nodes.len());
         let mut out = Vec::new(); // alloc: Program
-        walk(&self.prog, self.root, param_ok, call_ok, &mut memo, &mut out);
+        walk(
+            &self.prog, self.root, param_ok, call_ok, &mut memo, &mut out,
+        );
         out
     }
 
     /// `emit` as a branch condition (§7.7); a NULL row's `cond` is unspecified (test `valid`).
-    pub fn emit_pred(&self, f: &mut FunctionBuilder<'_>, row: &RowRefs<'_>) -> Result<Pred, EmitError> {
-        let plan = plan(&self.prog, self.root, row.scratch).map_err(|_| EmitError::Unsupported(Kind::Const))?;
-        let pc = if row.codes.is_empty() { PerCodePlan::new_in(row.scratch) } else { crate::percode::analyze(&self.prog, self.root, row.codes, row.scratch)? };
+    pub fn emit_pred(
+        &self,
+        f: &mut FunctionBuilder<'_>,
+        row: &RowRefs<'_>,
+    ) -> Result<Pred, EmitError> {
+        let plan = plan(&self.prog, self.root, row.scratch)
+            .map_err(|_| EmitError::Unsupported(Kind::Const))?;
+        let pc = if row.codes.is_empty() {
+            PerCodePlan::new_in(row.scratch)
+        } else {
+            crate::percode::analyze(&self.prog, self.root, row.codes, row.scratch)?
+        };
         let mut em = scalar::Em::new(&self.prog, f, row, &plan, pc, self.root);
         let l = em.node(self.root)?;
         let cond = em.truth_of(&l);
-        Ok(Pred { cond, valid: l.valid, err: l.err })
+        Ok(Pred {
+            cond,
+            valid: l.valid,
+            err: l.err,
+        })
     }
 
     /// The per-code roots over `codes`; the walk's printing in `scratch`.
-    pub fn percode<'m>(&self, codes: &[CodeCol], scratch: Mcx<'m>) -> Result<PerCodePlan<'m>, EmitError> {
+    pub fn percode<'m>(
+        &self,
+        codes: &[CodeCol],
+        scratch: Mcx<'m>,
+    ) -> Result<PerCodePlan<'m>, EmitError> {
         crate::percode::analyze(&self.prog, self.root, codes, scratch)
     }
 
     /// The whole expression is one per-code root over `codes` (evaluated per dictionary entry, never a host call per row).
     pub fn percode_whole(&self, codes: &[CodeCol], scratch: Mcx<'_>) -> bool {
-        self.percode(codes, scratch).is_ok_and(|p| p.root_at(self.root).is_some())
+        self.percode(codes, scratch)
+            .is_ok_and(|p| p.root_at(self.root).is_some())
     }
 
     /// The tables the caller binds per window (`RowRefs::tables`), in order.
-    pub fn table_needs<'m>(&self, codes: &[CodeCol], scratch: Mcx<'m>) -> Result<mcx::PgVec<'m, TableNeed<'m>>, EmitError> {
+    pub fn table_needs<'m>(
+        &self,
+        codes: &[CodeCol],
+        scratch: Mcx<'m>,
+    ) -> Result<mcx::PgVec<'m, TableNeed<'m>>, EmitError> {
         Ok(self.percode(codes, scratch)?.needs)
     }
 
     /// `host_calls` with the per-code roots' sites excluded (evaluated per entry, not per row).
     pub fn host_calls_over(&self, codes: &[CodeCol], scratch: Mcx<'_>) -> Result<usize, EmitError> {
-        Ok(crate::percode::host_calls(&self.prog, self.root, &self.percode(codes, scratch)?))
+        Ok(crate::percode::host_calls(
+            &self.prog,
+            self.root,
+            &self.percode(codes, scratch)?,
+        ))
     }
 
     /// The 64-row vector form of a predicate over fixed-width lanes (§2.1): the word's mask.
-    pub fn emit_word(&self, f: &mut FunctionBuilder<'_>, w: &word::WordRefs<'_>, base: Value) -> Result<Value, EmitError> {
+    pub fn emit_word(
+        &self,
+        f: &mut FunctionBuilder<'_>,
+        w: &word::WordRefs<'_>,
+        base: Value,
+    ) -> Result<Value, EmitError> {
         self.emit_word_codes(f, w, &[], base)
     }
 
     /// `emit_word` with the per-code roots over `codes` (a `<> ''` root compares the code lane with the window's empty code).
-    pub fn emit_word_codes(&self, f: &mut FunctionBuilder<'_>, w: &word::WordRefs<'_>, codes: &[CodeRef], base: Value) -> Result<Value, EmitError> {
-        let plan = plan(&self.prog, self.root, w.scratch).map_err(|_| EmitError::Unsupported(Kind::Const))?;
-        let pc = if codes.is_empty() { PerCodePlan::new_in(w.scratch) } else { crate::percode::analyze(&self.prog, self.root, codes, w.scratch)? };
-        word::emit(&self.prog, self.root, f, w, &plan, base, (!codes.is_empty()).then_some((&pc, codes)))
+    pub fn emit_word_codes(
+        &self,
+        f: &mut FunctionBuilder<'_>,
+        w: &word::WordRefs<'_>,
+        codes: &[CodeRef],
+        base: Value,
+    ) -> Result<Value, EmitError> {
+        let plan = plan(&self.prog, self.root, w.scratch)
+            .map_err(|_| EmitError::Unsupported(Kind::Const))?;
+        let pc = if codes.is_empty() {
+            PerCodePlan::new_in(w.scratch)
+        } else {
+            crate::percode::analyze(&self.prog, self.root, codes, w.scratch)?
+        };
+        word::emit(
+            &self.prog,
+            self.root,
+            f,
+            w,
+            &plan,
+            base,
+            (!codes.is_empty()).then_some((&pc, codes)),
+        )
     }
 
     /// `emit_word_codes` gathering a `Bits` root only within `within` (the caller's earlier words) when few rows survive.
-    pub fn emit_word_codes_within(&self, f: &mut FunctionBuilder<'_>, w: &word::WordRefs<'_>, codes: &[CodeRef], base: Value, within: Value) -> Result<Value, EmitError> {
-        let plan = plan(&self.prog, self.root, w.scratch).map_err(|_| EmitError::Unsupported(Kind::Const))?;
-        let pc = if codes.is_empty() { PerCodePlan::new_in(w.scratch) } else { crate::percode::analyze(&self.prog, self.root, codes, w.scratch)? };
-        word::emit_within(&self.prog, self.root, f, w, &plan, base, (!codes.is_empty()).then_some((&pc, codes)), Some(within))
+    pub fn emit_word_codes_within(
+        &self,
+        f: &mut FunctionBuilder<'_>,
+        w: &word::WordRefs<'_>,
+        codes: &[CodeRef],
+        base: Value,
+        within: Value,
+    ) -> Result<Value, EmitError> {
+        let plan = plan(&self.prog, self.root, w.scratch)
+            .map_err(|_| EmitError::Unsupported(Kind::Const))?;
+        let pc = if codes.is_empty() {
+            PerCodePlan::new_in(w.scratch)
+        } else {
+            crate::percode::analyze(&self.prog, self.root, codes, w.scratch)?
+        };
+        word::emit_within(
+            &self.prog,
+            self.root,
+            f,
+            w,
+            &plan,
+            base,
+            (!codes.is_empty()).then_some((&pc, codes)),
+            Some(within),
+        )
     }
 
     /// Whether the word form of this predicate is one `Bits` root (a per-row table gather).
     pub fn word_is_bits(&self, w: &word::WordRefs<'_>, codes: &[CodeRef]) -> bool {
-        let Ok(plan) = plan(&self.prog, self.root, w.scratch) else { return false };
-        let Ok(pc) = (if codes.is_empty() { Ok(PerCodePlan::new_in(w.scratch)) } else { crate::percode::analyze(&self.prog, self.root, codes, w.scratch) }) else { return false };
-        word::is_bits_root(&self.prog, self.root, w, &plan, (!codes.is_empty()).then_some((&pc, codes)))
+        let Ok(plan) = plan(&self.prog, self.root, w.scratch) else {
+            return false;
+        };
+        let Ok(pc) = (if codes.is_empty() {
+            Ok(PerCodePlan::new_in(w.scratch))
+        } else {
+            crate::percode::analyze(&self.prog, self.root, codes, w.scratch)
+        }) else {
+            return false;
+        };
+        word::is_bits_root(
+            &self.prog,
+            self.root,
+            w,
+            &plan,
+            (!codes.is_empty()).then_some((&pc, codes)),
+        )
     }
 
     /// The per-window guard of the vector form: every constant fits its lane (`I64` 0 / 1).
-    pub fn emit_word_ok(&self, f: &mut FunctionBuilder<'_>, w: &word::WordRefs<'_>) -> Result<Value, EmitError> {
+    pub fn emit_word_ok(
+        &self,
+        f: &mut FunctionBuilder<'_>,
+        w: &word::WordRefs<'_>,
+    ) -> Result<Value, EmitError> {
         self.emit_word_ok_codes(f, w, &[])
     }
 
-    pub fn emit_word_ok_codes(&self, f: &mut FunctionBuilder<'_>, w: &word::WordRefs<'_>, codes: &[CodeRef]) -> Result<Value, EmitError> {
-        let plan = plan(&self.prog, self.root, w.scratch).map_err(|_| EmitError::Unsupported(Kind::Const))?;
-        let pc = if codes.is_empty() { PerCodePlan::new_in(w.scratch) } else { crate::percode::analyze(&self.prog, self.root, codes, w.scratch)? };
-        word::ok(&self.prog, self.root, f, w, &plan, (!codes.is_empty()).then_some((&pc, codes)))
+    pub fn emit_word_ok_codes(
+        &self,
+        f: &mut FunctionBuilder<'_>,
+        w: &word::WordRefs<'_>,
+        codes: &[CodeRef],
+    ) -> Result<Value, EmitError> {
+        let plan = plan(&self.prog, self.root, w.scratch)
+            .map_err(|_| EmitError::Unsupported(Kind::Const))?;
+        let pc = if codes.is_empty() {
+            PerCodePlan::new_in(w.scratch)
+        } else {
+            crate::percode::analyze(&self.prog, self.root, codes, w.scratch)?
+        };
+        word::ok(
+            &self.prog,
+            self.root,
+            f,
+            w,
+            &plan,
+            (!codes.is_empty()).then_some((&pc, codes)),
+        )
     }
 
     /// The vector value form (§8.1), prepared where the loop is entered; `VecEmit::chunk` per chunk.
-    pub fn emit_vec<'s>(&self, f: &mut FunctionBuilder<'_>, w: &word::WordRefs<'s>) -> Result<vec::VecEmit<'s>, EmitError> {
-        let plan = plan(&self.prog, self.root, w.scratch).map_err(|_| EmitError::Unsupported(Kind::Const))?;
+    pub fn emit_vec<'s>(
+        &self,
+        f: &mut FunctionBuilder<'_>,
+        w: &word::WordRefs<'s>,
+    ) -> Result<vec::VecEmit<'s>, EmitError> {
+        let plan = plan(&self.prog, self.root, w.scratch)
+            .map_err(|_| EmitError::Unsupported(Kind::Const))?;
         vec::emit(&self.prog, self.root, f, w, &plan)
     }
 }

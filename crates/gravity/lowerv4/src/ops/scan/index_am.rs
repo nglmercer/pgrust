@@ -8,14 +8,14 @@
 //! the host's cell with its parameters as input cells (params_key.rs; exec / hosts v4/m8_param_key.rs over M2's recipe). No
 //! declared order: a KNN distance is not a column order. No old lowerer served these walks (v3 refused). Registers kind
 //! `src.index_am`. Owner M2-INDEX.
-use mcx::{CollectIn, GrowIn, PgBox, PgVec};
 use gravity_decompose::graph::KeyForm;
 use gravity_decompose::{IndexKey, Source};
 use gravity_ir::builder::{FunctionBuilder, ProgramBuilder};
 use gravity_ir::{Block, Value};
 use gravity_program::{limits, LaneDesc, Pipeline};
+use mcx::{CollectIn, GrowIn, PgBox, PgVec};
 
-use crate::ops::scan::index_only::{only_site, remap, remapped, shape};
+use crate::admit::refusal::Reason;
 use crate::face::kinds::KindId;
 use crate::face::source::{Locator, SourceMech, WinConds};
 use crate::frame::env::Env;
@@ -23,11 +23,14 @@ use crate::frame::frame::{SourceMaker, Win, WordWin};
 use crate::frame::px::Px;
 use crate::frame::row::{Carry, RowVals};
 use crate::frame::site::{index_site, Reader, CTID_AT};
-use crate::admit::refusal::Reason;
 use crate::lifetime::bound::{self, Feed, KeyAt};
+use crate::ops::scan::index_only::{only_site, remap, remapped, shape};
 use crate::ops::Table;
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::SrcIndexAm, &SourceMaker(make))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::SrcIndexAm, &SourceMaker(make))],
+    ..crate::ops::NONE
+};
 
 struct IndexAm<'g> {
     rd: Reader<'g>,
@@ -36,22 +39,37 @@ struct IndexAm<'g> {
 }
 
 /// The key words: each clause key's value, then each ORDER BY argument (the host binds them in that order).
-fn key_words<'g, 'p>(px: &mut Px<'g, 'p>, node: i32, keys: &[IndexKey<'p>]) -> (PgVec<'g, u16>, PgVec<'g, i16>) {
+fn key_words<'g, 'p>(
+    px: &mut Px<'g, 'p>,
+    node: i32,
+    keys: &[IndexKey<'p>],
+) -> (PgVec<'g, u16>, PgVec<'g, i16>) {
     let mut vals = mcx::reserved_in(keys.len(), px.mcx());
     for pass in [false, true] {
         for key in keys.iter().filter(|k| (k.form == KeyForm::OrderBy) == pass) {
             match key.form {
-                KeyForm::Op | KeyForm::AmOp | KeyForm::OrderBy => vals.push_in((key.attno, key.value)),
+                KeyForm::Op | KeyForm::AmOp | KeyForm::OrderBy => {
+                    vals.push_in((key.attno, key.value))
+                }
                 // no AM but btree searches arrays natively (amsearcharray): the planner puts such keys in a bitmap scan
-                KeyForm::Any | KeyForm::AmAny => shape(node, "an = ANY key on an index walk of an access method without native array keys"),
+                KeyForm::Any | KeyForm::AmAny => shape(
+                    node,
+                    "an = ANY key on an index walk of an access method without native array keys",
+                ),
                 // `column IS [NOT] NULL` (amsearchnulls): the host's SK_SEARCHNULL / SK_SEARCHNOTNULL key, no word
                 KeyForm::Null | KeyForm::NotNull => {}
-                KeyForm::Row => shape(node, "a row comparison key on an index walk that is not a btree"),
+                KeyForm::Row => shape(
+                    node,
+                    "a row comparison key on an index walk that is not a btree",
+                ),
             }
         }
     }
     if vals.len() > limits::KEYS {
-        shape(node, "an index scan with more key words than INDEX_MAX_KEYS");
+        shape(
+            node,
+            "an index scan with more key words than INDEX_MAX_KEYS",
+        );
     }
     let mut slots = mcx::reserved_in(vals.len(), px.mcx());
     let mut attnos = mcx::reserved_in(vals.len(), px.mcx());
@@ -67,11 +85,22 @@ fn key_words<'g, 'p>(px: &mut Px<'g, 'p>, node: i32, keys: &[IndexKey<'p>]) -> (
         }
         attnos.push_in(attno);
     }
-    if crate::rerun::params_key::input_cells(px, node, &ids, &ids, vals.iter().map(|v| v.1), &mut slots, &mut attnos) {
+    if crate::rerun::params_key::input_cells(
+        px,
+        node,
+        &ids,
+        &ids,
+        vals.iter().map(|v| v.1),
+        &mut slots,
+        &mut attnos,
+    ) {
         crate::rerun::params_key::host_keys_serial(px);
     }
     if slots.len() > limits::KEYS {
-        shape(node, "an index scan with more key words and computed keys' parameters than INDEX_MAX_KEYS");
+        shape(
+            node,
+            "an index scan with more key words and computed keys' parameters than INDEX_MAX_KEYS",
+        );
     }
     (slots, attnos)
 }
@@ -80,14 +109,36 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
     let gx = px.gx;
     let p = &gx.pipelines()[k];
     let node = p.node_id;
-    let Source::Index { site, am, relid, indexid, keys, only, .. } = &p.source else { crate::refuse!(node, Reason::Bug { payload: "an any-AM index entry over another source" }) };
+    let Source::Index {
+        site,
+        am,
+        relid,
+        indexid,
+        keys,
+        only,
+        ..
+    } = &p.source
+    else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "an any-AM index entry over another source"
+            }
+        )
+    };
     if !crate::ops::scan::index::index_fetch(gx, *am, *relid) {
-        shape(node, "an index scan over a relation that is not a heap table");
+        shape(
+            node,
+            "an index scan over a relation that is not a heap table",
+        );
     }
     let (slots, attnos) = key_words(px, node, keys);
     let index_cols = only.then(|| match gx.facts.index(*indexid) {
         Some(f) => mcx::to_vec_in(f.keys(), gx.mcx),
-        None => shape(node, "an index-only scan over an index the catalog does not describe"),
+        None => shape(
+            node,
+            "an index-only scan over an index the catalog does not describe",
+        ),
     });
     let (mut s, ctid) = match &index_cols {
         Some(_) => (only_site(px, site, *relid, &slots, &attnos, node), false),
@@ -120,18 +171,43 @@ impl<'g> SourceMech for IndexAm<'g> {
     fn next_window(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, l_eof: Block) -> Win {
         let (cursor, end) = self.rd.window(b, env, l_eof);
         let w = self.rd.vals();
-        Win { cursor, end, facts: WinConds { nonulls: self.rd.nonulls(b), nosel: Some(w.sel_null), ..WinConds::default() } }
+        Win {
+            cursor,
+            end,
+            facts: WinConds {
+                nonulls: self.rd.nonulls(b),
+                nosel: Some(w.sel_null),
+                ..WinConds::default()
+            },
+        }
     }
 
-    fn word_win<'e>(&self, _b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win) -> Option<WordWin<'e>> {
+    fn word_win<'e>(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+    ) -> Option<WordWin<'e>> {
         let w = self.rd.word_win(env.mcx)?;
         Some(match &self.index_cols {
-            Some(ic) => WordWin { lanes: remap(&ic[..], &w.lanes, env.mcx), valid: remap(&ic[..], &w.valid, env.mcx), plain: w.plain },
+            Some(ic) => WordWin {
+                lanes: remap(&ic[..], &w.lanes, env.mcx),
+                valid: remap(&ic[..], &w.valid, env.mcx),
+                plain: w.plain,
+            },
             None => w,
         })
     }
 
-    fn row<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e> {
+    fn row<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+        j: Value,
+        carry: Carry<'e>,
+        next: Value,
+    ) -> RowVals<'e> {
         let mut r = self.rd.row(b, env, j, carry, next);
         if let Some(ic) = &self.index_cols {
             r.cols = remapped(&ic[..], &r.cols).collect_in(env.mcx);
@@ -140,7 +216,12 @@ impl<'g> SourceMech for IndexAm<'g> {
     }
 
     /// A heap walk's row locator (an index-only walk fetches no row for a write).
-    fn locator(&self, b: &mut FunctionBuilder<'_>, _env: &mut Env, _row: &RowVals) -> Option<Locator> {
+    fn locator(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        _env: &mut Env,
+        _row: &RowVals,
+    ) -> Option<Locator> {
         if self.index_cols.is_some() {
             return None;
         }

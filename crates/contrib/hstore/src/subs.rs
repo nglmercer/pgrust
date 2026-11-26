@@ -30,7 +30,10 @@ pub(crate) fn fetch<'m>(mcx: Mcx<'m>, source: Datum, key: Datum) -> PgResult<Nul
     match find_key(&hs, None, key) {
         Some(idx) if !hs.val_isnull(idx) => {
             let t = varlena::cstring_to_text(mcx, hs.val(idx))?;
-            Ok(NullableDatum { value: types_fmgr::varlena_result(t), isnull: false })
+            Ok(NullableDatum {
+                value: types_fmgr::varlena_result(t),
+                isnull: false,
+            })
         }
         _ => Ok(NullableDatum::null()),
     }
@@ -42,16 +45,20 @@ pub(crate) fn assign<'m>(
     key: Datum,
     replace: NullableDatum,
 ) -> PgResult<Datum> {
-    let key = ::mcx::std_vec_from_slice("hstore",text_payload(mcx, key)?)?;
+    let key = ::mcx::std_vec_from_slice("hstore", text_payload(mcx, key)?)?;
     check_key_len(key.len())?;
     let val = if replace.isnull {
         None
     } else {
-        let v = ::mcx::std_vec_from_slice("hstore",text_payload(mcx, replace.value)?)?;
+        let v = ::mcx::std_vec_from_slice("hstore", text_payload(mcx, replace.value)?)?;
         check_val_len(v.len())?;
         Some(v)
     };
-    let p = Pair { key, val, needfree: false };
+    let p = Pair {
+        key,
+        val,
+        needfree: false,
+    };
 
     let img = if source.isnull {
         ::mcx::check_alloc_size(crate::repr::c_int32_alloc_size(null_assign_alloc_size(
@@ -81,7 +88,11 @@ pub(crate) fn null_assign_alloc_size(keylen: usize, vallen: usize) -> usize {
 
 // hstore_subs.c:204: CALCDATASIZE(s1count + 1, VARSIZE(hs) + keylen + vallen).
 pub(crate) fn assign_alloc_size(hs: &HstoreView<'_>, p: &Pair) -> usize {
-    (hs.count() + 1) * 8 + 8 + crate::varsize(hs) + p.key.len() + p.val.as_ref().map_or(0, |v| v.len())
+    (hs.count() + 1) * 8
+        + 8
+        + crate::varsize(hs)
+        + p.key.len()
+        + p.val.as_ref().map_or(0, |v| v.len())
 }
 
 // The handler function exists only for CREATE EXTENSION's C-symbol

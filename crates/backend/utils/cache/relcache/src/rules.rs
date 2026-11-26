@@ -70,7 +70,8 @@ pub fn RelationGetRules<'mcx>(mcx: Mcx<'mcx>, relid: Oid) -> PgResult<Option<Rc<
         return Ok(Some(hit));
     }
     // No state borrow across the scan: it re-enters the relcache.
-    let rows = gravity_deps::suppressed(|| relcache_build_seams::scan_pg_rewrite::call(mcx, relid))?;
+    let rows =
+        gravity_deps::suppressed(|| relcache_build_seams::scan_pg_rewrite::call(mcx, relid))?;
     if rows.is_empty() {
         return Ok(None);
     }
@@ -84,7 +85,8 @@ pub fn RelationGetRules<'mcx>(mcx: Mcx<'mcx>, relid: Oid) -> PgResult<Option<Rc<
     // Every tree read through the handle is reachable only through that
     // Rc<RdRules> (consumers copy_* out), and `rules` drops before `_rulescxt`.
     let rmcx: Mcx<'static> = unsafe { rulescxt.handle() };
-    let mut rules: Vec<RewriteRuleMeta> = ::mcx::std_vec_with_capacity("CacheMemoryContext", rows.len())?;
+    let mut rules: Vec<RewriteRuleMeta> =
+        ::mcx::std_vec_with_capacity("CacheMemoryContext", rows.len())?;
     for row in rows.iter() {
         rules.push(RewriteRuleMeta {
             rule_id: row.rule_id,
@@ -182,7 +184,9 @@ mod tests {
         let mcx = ctx.mcx();
         SCANS.with(|c| c.set(0));
 
-        let r = super::RelationGetRules(mcx, 21000).unwrap().expect("view has a rule");
+        let r = super::RelationGetRules(mcx, 21000)
+            .unwrap()
+            .expect("view has a rule");
         assert_eq!(r.rules.len(), 1);
         let rule = &r.rules[0];
         assert_eq!(rule.rule_id, 31000);
@@ -205,8 +209,14 @@ mod tests {
         // Per-use copies land in the caller's context and serialize identically.
         let copy = rule.copy_actions(mcx).unwrap();
         assert!(!copy.ptr_eq(rule.actions));
-        let a = outfuncs::nodeToString(mcx, copy).unwrap().as_str().to_string();
-        let orig = outfuncs::nodeToString(mcx, rule.actions).unwrap().as_str().to_string();
+        let a = outfuncs::nodeToString(mcx, copy)
+            .unwrap()
+            .as_str()
+            .to_string();
+        let orig = outfuncs::nodeToString(mcx, rule.actions)
+            .unwrap()
+            .as_str()
+            .to_string();
         assert_eq!(a, orig);
         assert!(rule.copy_qual(mcx).unwrap().is_none());
 
@@ -216,7 +226,10 @@ mod tests {
         let rebuilt = super::RelationGetRules(mcx, 21000).unwrap().unwrap();
         assert_eq!(SCANS.with(|c| c.get()), 2);
         assert!(!std::rc::Rc::ptr_eq(&r, &rebuilt));
-        let b = outfuncs::nodeToString(mcx, r.rules[0].actions).unwrap().as_str().to_string();
+        let b = outfuncs::nodeToString(mcx, r.rules[0].actions)
+            .unwrap()
+            .as_str()
+            .to_string();
         assert_eq!(a, b);
 
         assert!(super::RelationGetRules(mcx, 21001).unwrap().is_none());
@@ -231,7 +244,9 @@ mod tests {
         install();
         let ctx = MemoryContext::new("t");
         super::forget(21000);
-        let r = super::RelationGetRules(ctx.mcx(), 21000).unwrap().expect("view has a rule");
+        let r = super::RelationGetRules(ctx.mcx(), 21000)
+            .unwrap()
+            .expect("view has a rule");
         let owned: &MemoryContext = &r._rulescxt;
         assert!(core::ptr::eq(r.fill_cxt, owned));
     }

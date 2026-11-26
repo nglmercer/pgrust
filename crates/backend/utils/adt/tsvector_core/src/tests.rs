@@ -53,7 +53,10 @@ fn tsvector_io_matrix() {
         roundtrip("base:7 hidden:6 rebel:1 spaceship:2,33A,34B,35C,36D strike:3"),
         "'base':7 'hidden':6 'rebel':1 'spaceship':2,33A,34B,35C,36 'strike':3"
     );
-    assert_eq!(parse_err("'' '1' '2'"), "syntax error in tsvector: \"'' '1' '2'\"");
+    assert_eq!(
+        parse_err("'' '1' '2'"),
+        "syntax error in tsvector: \"'' '1' '2'\""
+    );
     assert_eq!(roundtrip("foo"), "'foo'");
 }
 
@@ -73,7 +76,9 @@ fn tsvector_soft_error() {
 
 fn tsv<'a>(mcx: ::mcx::Mcx<'a>, s: &str) -> TsVec<'a> {
     let img = tsvector_in_core(mcx, s.as_bytes(), None).unwrap().unwrap();
-    TsVec { payload: &img.leak()[4..] }
+    TsVec {
+        payload: &img.leak()[4..],
+    }
 }
 
 #[test]
@@ -90,13 +95,22 @@ fn tsvector_ops() {
 
     let v = tsv(mcx, "w:12B w:13* w:12,5,6 a:1,3* a:3 w asd:1dc asd");
     let stripped = tsvector_strip_core(mcx, v).unwrap();
-    let s = tsvector_out_core(mcx, TsVec { payload: &stripped[4..] }).unwrap();
+    let s = tsvector_out_core(
+        mcx,
+        TsVec {
+            payload: &stripped[4..],
+        },
+    )
+    .unwrap();
     assert_eq!(&s[..s.len() - 1], b"'a' 'asd' 'w'");
 
     let v = tsv(mcx, "a:1,3A asd:1C w:5,6,12B,13A zxc:81,222A,567");
     let out = tsvector_setweight_core(mcx, v, 1).unwrap();
     let s = tsvector_out_core(mcx, TsVec { payload: &out[4..] }).unwrap();
-    assert_eq!(&s[..s.len() - 1], b"'a':1C,3C 'asd':1C 'w':5C,6C,12C,13C 'zxc':81C,222C,567C");
+    assert_eq!(
+        &s[..s.len() - 1],
+        b"'a':1C,3C 'asd':1C 'w':5C,6C,12C,13C 'zxc':81C,222C,567C"
+    );
 
     assert_eq!(silly_cmp_tsvector(a, a), 0);
     assert_ne!(silly_cmp_tsvector(a, b), 0);
@@ -109,7 +123,7 @@ fn tsq<'a>(mcx: ::mcx::Mcx<'a>, s: &str) -> TsQueryRef<'a> {
     items.extend_from_slice(&1i32.to_ne_bytes());
     let mut raw = [0u8; 12];
     raw[0] = 1;
-    let packed =s.len() as u32 & 0xfff;
+    let packed = s.len() as u32 & 0xfff;
     raw[8..12].copy_from_slice(&packed.to_ne_bytes());
     items.extend_from_slice(&raw);
     items.extend_from_slice(s.as_bytes());
@@ -229,7 +243,10 @@ fn tsvector_out_over_ceiling_lenbuf_raises_palloc_error() {
     let ctx = MemoryContext::new("t85");
     let err = tsvector_out_core(ctx.mcx(), TsVec { payload: &payload })
         .expect_err("worst-case text form above MaxAllocSize must raise palloc's error");
-    assert_eq!(err.message(), format!("invalid memory alloc request size {lenbuf}"));
+    assert_eq!(
+        err.message(),
+        format!("invalid memory alloc request size {lenbuf}")
+    );
 }
 
 // upstream c5194139cb4c (18.6): an invalid weight is 22023 with the symbol
@@ -250,7 +267,11 @@ fn parse_weight_reports_invalid_symbols_like_c() {
         (0u8, "unrecognized weight: \"\\000\""),
     ] {
         let err = parse_weight(cw).expect_err("invalid weight");
-        assert_eq!(err.sqlstate(), ::types_error::ERRCODE_INVALID_PARAMETER_VALUE, "{cw:#x}");
+        assert_eq!(
+            err.sqlstate(),
+            ::types_error::ERRCODE_INVALID_PARAMETER_VALUE,
+            "{cw:#x}"
+        );
         assert_eq!(err.message(), want, "{cw:#x}");
     }
 }
@@ -267,26 +288,32 @@ fn tsvector_recv_rejects_invalid_shapes() {
         let mut buf = ::stringinfo::StringInfo::from_vec(vec).expect("si");
         crate::io::tsvector_recv_core(mcx, &mut buf).map_err(|e| e.message().to_string())
     };
-    assert_eq!(recv(&[0, 0, 0, 1, 0, 0, 0]).unwrap_err(), "invalid tsvector: empty lexeme");
+    assert_eq!(
+        recv(&[0, 0, 0, 1, 0, 0, 0]).unwrap_err(),
+        "invalid tsvector: empty lexeme"
+    );
     // nentries = 0x00100000 = MAXSTRPOS + 1
-    assert_eq!(recv(&[0, 0x10, 0, 0]).unwrap_err(), "invalid size of tsvector");
+    assert_eq!(
+        recv(&[0, 0x10, 0, 0]).unwrap_err(),
+        "invalid size of tsvector"
+    );
     // 512 x 2047-byte lexemes = 1048064 bytes; the last lexeme decides
     let mut wire: Vec<u8> = 513i32.to_be_bytes().to_vec();
     for i in 0..512u32 {
         let tag = i.to_string();
-        wire.extend(std::iter::repeat_n(b'x',2047 - tag.len()));
+        wire.extend(std::iter::repeat_n(b'x', 2047 - tag.len()));
         wire.extend_from_slice(tag.as_bytes());
         wire.extend_from_slice(&[0, 0, 0]);
     }
     let base = wire.len();
-    wire.extend(std::iter::repeat_n(b'y',512));
+    wire.extend(std::iter::repeat_n(b'y', 512));
     wire.extend_from_slice(&[0, 0, 0]);
     assert_eq!(
         recv(&wire).unwrap_err(),
         "invalid tsvector: maximum total lexeme length exceeded"
     );
     wire.truncate(base);
-    wire.extend(std::iter::repeat_n(b'y',511));
+    wire.extend(std::iter::repeat_n(b'y', 511));
     wire.extend_from_slice(&[0, 0, 0]);
     let img = recv(&wire).expect("datalen == MAXSTRPOS fits");
     assert_eq!(TsVec { payload: &img[4..] }.size(), 513);
@@ -319,6 +346,9 @@ fn parser_messages_keep_non_utf8_input_bytes() {
         Some(&b"there is no escaped character: \"\xff \\\""[..])
     );
     let e = tsvector_in_core(mcx, b"'\xff", None).unwrap_err();
-    assert_eq!(e.message_raw.as_deref(), Some(&b"syntax error in tsvector: \"'\xff\""[..]));
+    assert_eq!(
+        e.message_raw.as_deref(),
+        Some(&b"syntax error in tsvector: \"'\xff\""[..])
+    );
     assert_eq!(parse_err("a:0"), "wrong position info in tsvector: \"a:0\"");
 }

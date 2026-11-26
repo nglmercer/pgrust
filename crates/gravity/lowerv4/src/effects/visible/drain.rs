@@ -8,19 +8,19 @@
 //! ops/hashjoin/drain/arms.rs: D393's quiet drain arms (`Gx::quiet_drain_arms`, `arm_quiet`, `source_still`), and the one
 //! `user_clause` both files kept a copy of.
 use gravity_abi::breaker::BreakerKind;
+use gravity_decompose::catalog::typefacts::FIRST_NORMAL_OID;
 use gravity_decompose::catalog::IndexAm;
 use gravity_decompose::effects::{self, builtin_oper, Volatility};
 use gravity_decompose::graph::{Bound, IndexKey, KeyForm, Source};
 use gravity_decompose::join::JoinDesc;
-use gravity_decompose::ops::shared::append::{AppendDesc, PruneDesc};
 use gravity_decompose::ops::shared::agg_class::{Class, Ext};
-use gravity_decompose::catalog::typefacts::FIRST_NORMAL_OID;
+use gravity_decompose::ops::shared::append::{AppendDesc, PruneDesc};
 use gravity_decompose::ops::shared::scan::BitmapPlan;
 use gravity_decompose::ops::shared::subplan::SubForm;
 use gravity_decompose::{Op, PipelineNode};
+use mcx::{CollectIn, Mcx, PgVec};
 use types_nodes::jointype::JoinType;
 use types_nodes::plannodes::PartitionPruneStepOp;
-use mcx::{CollectIn, Mcx, PgVec};
 use types_nodes::Node;
 
 use crate::effects::visible::errorhold::quiet_cmp;
@@ -51,13 +51,23 @@ pub(crate) const DEEP: u8 = 24;
 /// evaluates nothing (a spool), and nothing in it that acts.
 pub(crate) fn quiet(gx: &Gx<'_, '_>, q: usize) -> bool {
     let p = &gx.pipelines()[q];
-    gx.quiet_drain_arms(q, q) && matches!(p.ops.last(), Some(Op::Join(JoinDesc::Probe { .. }))) && crate::frame::iface::end_breaker(gx, q) == Some(BreakerKind::Materialize) && !pipe_acts(gx, p, q, 0)
+    gx.quiet_drain_arms(q, q)
+        && matches!(p.ops.last(), Some(Op::Join(JoinDesc::Probe { .. })))
+        && crate::frame::iface::end_breaker(gx, q) == Some(BreakerKind::Materialize)
+        && !pipe_acts(gx, p, q, 0)
 }
 
-pub(crate) fn index_acts(gx: &Gx<'_, '_>, indexid: u32, keys: &[gravity_decompose::graph::IndexKey<'_>]) -> bool {
+pub(crate) fn index_acts(
+    gx: &Gx<'_, '_>,
+    indexid: u32,
+    keys: &[gravity_decompose::graph::IndexKey<'_>],
+) -> bool {
     // D3800 (River's JobSchedule: the Bitmap Index Scan of the unique index under `unique_key IS NOT NULL`): an IS [NOT]
     // NULL key calls no operator (the btree tests the key's null flag, _bt_checkkeys' SK_ISNULL arm)
-    let ops = keys.iter().filter(|k| !matches!(k.form, KeyForm::NotNull | KeyForm::Null)).map(|k| k.opno);
+    let ops = keys
+        .iter()
+        .filter(|k| !matches!(k.form, KeyForm::NotNull | KeyForm::Null))
+        .map(|k| k.opno);
     effects::of_index(gx.facts, indexid, ops).acts
 }
 
@@ -86,7 +96,9 @@ pub(crate) fn user_bitmap(gx: &Gx<'_, '_>, p: &BitmapPlan<'_>) -> bool {
     crate::stack_check();
     match p {
         BitmapPlan::Index { indexid, keys, .. } => index_acts(gx, *indexid, keys),
-        BitmapPlan::And { plans, .. } | BitmapPlan::Or { plans, .. } => plans.iter().any(|x| user_bitmap(gx, x)),
+        BitmapPlan::And { plans, .. } | BitmapPlan::Or { plans, .. } => {
+            plans.iter().any(|x| user_bitmap(gx, x))
+        }
     }
 }
 
@@ -102,10 +114,14 @@ pub(crate) fn user_bitmap(gx: &Gx<'_, '_>, p: &BitmapPlan<'_>) -> bool {
 pub(crate) fn user_end(gx: &Gx<'_, '_>, d: usize) -> bool {
     let type_acts = |t: u32| effects::of_type(gx.facts, t).acts;
     let group = gx.group_at(d).is_some_and(|g| {
-        g.keys.iter().any(|k| k.image.is_by_ref() && type_acts(k.tf))
+        g.keys
+            .iter()
+            .any(|k| k.image.is_by_ref() && type_acts(k.tf))
             || g.aggs.iter().any(|a| match a.class {
                 Class::User => true,
-                Class::Min(Ext::Opaque) | Class::Max(Ext::Opaque) => a.node.as_aggref().is_none_or(|r| type_acts(r.aggtype)),
+                Class::Min(Ext::Opaque) | Class::Max(Ext::Opaque) => {
+                    a.node.as_aggref().is_none_or(|r| type_acts(r.aggtype))
+                }
                 _ => false,
             })
     });
@@ -141,10 +157,16 @@ pub(crate) fn order_free_as(gx: &Gx<'_, '_>, d: usize, sums: bool, whole: bool) 
         EndKind::Sink | EndKind::Breaker(BreakerKind::Sort | BreakerKind::TopK) => true,
         // a drain under a drain: its rows reach the next join's drain's end in the spool's order (joined, then drained);
         // D3894 (c-random rnd-3255): that drain a nest's embedded inner, through the nest to its owner's end (`rows_free`)
-        EndKind::Breaker(BreakerKind::Materialize) if gx.spool_kind(d) == KindId::JoinDrain => gx.pipelines()[d].desc.produces().is_some_and(|m| match drain_of(gx, d, m) {
-            Some((e, _)) => order_free_as(gx, e, sums, whole),
-            None => inner_drain_of(gx, d, m).is_some_and(|(e, j)| rows_free(gx, e, j + 1, &|q| order_free_as(gx, q, sums, whole))),
-        }),
+        EndKind::Breaker(BreakerKind::Materialize) if gx.spool_kind(d) == KindId::JoinDrain => gx
+            .pipelines()[d]
+            .desc
+            .produces()
+            .is_some_and(|m| match drain_of(gx, d, m) {
+                Some((e, _)) => order_free_as(gx, e, sums, whole),
+                None => inner_drain_of(gx, d, m).is_some_and(|(e, j)| {
+                    rows_free(gx, e, j + 1, &|q| order_free_as(gx, q, sums, whole))
+                }),
+            }),
         // D2247: a plan Material stores the rows as they come and its nest inner re-reads them in that order, as a sink hands
         // them on (the joined rows, then the drained build rows in record order where PostgreSQL goes bucket by bucket)
         EndKind::Breaker(BreakerKind::Materialize) => true,
@@ -154,14 +176,34 @@ pub(crate) fn order_free_as(gx: &Gx<'_, '_>, d: usize, sums: bool, whole: bool) 
         // to an order-free end (`table_free`, D2136 narrowed)
         EndKind::Breaker(BreakerKind::HashBuild) => {
             let (ps, root) = (gx.pipelines(), gx.graph.root as usize);
-            let to_root = |q: usize| q == root || ps[q].desc.produces().is_some_and(|m| gx.spool_kind(q) == KindId::JoinDrain && drain_of(gx, q, m).is_some_and(|(e, _)| e == root));
-            let readers = |s: u8| (d + 1..ps.len()).filter(move |&q| gx.life_of(q, s).is_some_and(|l| l.0 as usize == d));
-            ps[d].desc.produces().is_some_and(|s| (gx.free_write(root, usize::MAX).is_some() && readers(s).all(to_root)) || table_free(gx, d, s, whole))
+            let to_root = |q: usize| {
+                q == root
+                    || ps[q].desc.produces().is_some_and(|m| {
+                        gx.spool_kind(q) == KindId::JoinDrain
+                            && drain_of(gx, q, m).is_some_and(|(e, _)| e == root)
+                    })
+            };
+            let readers = |s: u8| {
+                (d + 1..ps.len())
+                    .filter(move |&q| gx.life_of(q, s).is_some_and(|l| l.0 as usize == d))
+            };
+            ps[d].desc.produces().is_some_and(|s| {
+                (gx.free_write(root, usize::MAX).is_some() && readers(s).all(to_root))
+                    || table_free(gx, d, s, whole)
+            })
         }
-        EndKind::Breaker(BreakerKind::PlainAgg | BreakerKind::HashAgg) => gx.group_at(d).is_some_and(|g| g.aggs.iter().all(|a| call_free(a, &class))),
+        EndKind::Breaker(BreakerKind::PlainAgg | BreakerKind::HashAgg) => gx
+            .group_at(d)
+            .is_some_and(|g| g.aggs.iter().all(|a| call_free(a, &class))),
         // D3731: a hashed SubPlan's set answers membership only (drain/lower.rs `set_fill`)
-        EndKind::Breaker(BreakerKind::Distinct) if crate::ops::hashjoin::drain::lower::set_fill(gx, d) => true,
-        EndKind::Breaker(BreakerKind::Distinct) => gx.group_at(d).is_some_and(|g| distinct_set_free(g, &class)),
+        EndKind::Breaker(BreakerKind::Distinct)
+            if crate::ops::hashjoin::drain::lower::set_fill(gx, d) =>
+        {
+            true
+        }
+        EndKind::Breaker(BreakerKind::Distinct) => {
+            gx.group_at(d).is_some_and(|g| distinct_set_free(g, &class))
+        }
         // D3800: or a write over the drain's held row whose every row for one build record writes the same
         // (spool_admit.rs `held_write`): only the writes' order differs, which RETURNING and the triggers take in any order
         EndKind::RowOp(_) => gx.a2a_write(d).is_some() || gx.held_write(d).is_some(),
@@ -184,13 +226,26 @@ pub(crate) fn order_free_as(gx: &Gx<'_, '_>, d: usize, sums: bool, whole: bool) 
 /// is kept once, which member of an equal run X15 leaves free, and its riders fold every row of the pair in arrival
 /// order, merged per group, an order-free class each. More than one DISTINCT argument (keyed.distinct_multi) and any
 /// other group form stay A2END's.
-fn distinct_set_free(g: &gravity_decompose::ops::shared::agg::GroupDecl<'_>, class: &dyn Fn(Class) -> bool) -> bool {
+fn distinct_set_free(
+    g: &gravity_decompose::ops::shared::agg::GroupDecl<'_>,
+    class: &dyn Fn(Class) -> bool,
+) -> bool {
     use gravity_decompose::ops::shared::agg::FinalForm;
-    let call = |a: &gravity_decompose::ops::shared::agg::AggDecl<'_>| (class(a.class) || collect_free(a)) && a.mods.order == 0;
+    let call = |a: &gravity_decompose::ops::shared::agg::AggDecl<'_>| {
+        (class(a.class) || collect_free(a)) && a.mods.order == 0
+    };
     match crate::graph::group_kind(g) {
         KindId::KeyedDistinctPlain | KindId::KeyedDistinctGrouped => g.aggs.iter().all(call),
         KindId::RunsUnique => g.aggs.is_empty(),
-        KindId::FoldPlain => g.aggs.iter().any(|a| a.mods.distinct > 0) && g.aggs.iter().all(|a| call(a) && (a.mods.distinct == 0 || (a.final_ == FinalForm::Distinct && crate::ops::shared::agg::sorted(a)))),
+        KindId::FoldPlain => {
+            g.aggs.iter().any(|a| a.mods.distinct > 0)
+                && g.aggs.iter().all(|a| {
+                    call(a)
+                        && (a.mods.distinct == 0
+                            || (a.final_ == FinalForm::Distinct
+                                && crate::ops::shared::agg::sorted(a)))
+                })
+        }
         _ => false,
     }
 }
@@ -204,16 +259,31 @@ fn distinct_set_free(g: &gravity_decompose::ops::shared::agg::GroupDecl<'_>, cla
 /// inner: it compares the records ahead of that match in one order and not in the other).
 fn table_free(gx: &Gx<'_, '_>, d: usize, s: u8, whole: bool) -> bool {
     let ps = gx.pipelines();
-    let read = |q: usize| ps[q].desc.consumes.contains(&s) && gx.life_of(q, s).is_some_and(|l| l.0 as usize == d);
+    let read = |q: usize| {
+        ps[q].desc.consumes.contains(&s) && gx.life_of(q, s).is_some_and(|l| l.0 as usize == d)
+    };
     if (ps.len()..ps.len() + ps.inners().len()).any(read) {
         return false;
     }
     let first = |o: &Op<'_>| match o {
-        Op::Join(JoinDesc::Probe { slot, jointype: JoinType::JOIN_SEMI | JoinType::JOIN_ANTI | JoinType::JOIN_RIGHT_SEMI | JoinType::JOIN_RIGHT_ANTI, .. }) => *slot == s,
-        Op::Join(JoinDesc::Probe { slot, unique: true, .. }) => *slot == s,
+        Op::Join(JoinDesc::Probe {
+            slot,
+            jointype:
+                JoinType::JOIN_SEMI
+                | JoinType::JOIN_ANTI
+                | JoinType::JOIN_RIGHT_SEMI
+                | JoinType::JOIN_RIGHT_ANTI,
+            ..
+        }) => *slot == s,
+        Op::Join(JoinDesc::Probe {
+            slot, unique: true, ..
+        }) => *slot == s,
         _ => false,
     };
-    let still = |o: &Op<'_>, subs: &[i32]| crate::effects::op_raise_free(gx, o, Some(subs)) && matches!(o, Op::Join(JoinDesc::Probe { clauses, .. }) if clauses.iter().all(|n| crate::effects::raise_free(gx, n)));
+    let still = |o: &Op<'_>, subs: &[i32]| {
+        crate::effects::op_raise_free(gx, o, Some(subs))
+            && matches!(o, Op::Join(JoinDesc::Probe { clauses, .. }) if clauses.iter().all(|n| crate::effects::raise_free(gx, n)))
+    };
     let mut readers = (d + 1..ps.len()).filter(|&q| read(q)).peekable();
     readers.peek().is_some()
         && readers.all(|q| {
@@ -233,23 +303,49 @@ fn reader_free(gx: &Gx<'_, '_>, q: usize, whole: bool) -> bool {
     crate::stack_check();
     let ops = &gx.pipelines()[q].ops;
     let subs = subplans(ops, gx.mcx);
-    !ops.iter().any(|o| crate::graph::step_kind(o) == KindId::StepLimit)
+    !ops.iter()
+        .any(|o| crate::graph::step_kind(o) == KindId::StepLimit)
         && match gx.end_kind(q) {
-            EndKind::Breaker(BreakerKind::Sort | BreakerKind::TopK | BreakerKind::PlainAgg | BreakerKind::HashAgg | BreakerKind::Distinct | BreakerKind::HashBuild) => order_free_as(gx, q, false, whole),
-            EndKind::Breaker(BreakerKind::Materialize) if gx.spool_kind(q) == KindId::JoinDrain => gx.pipelines()[q].desc.produces().is_some_and(|m| match drain_of(gx, q, m) {
-                Some((e, _)) => reader_free(gx, e, whole),
-                None => inner_drain_of(gx, q, m).is_some_and(|(e, j)| rows_free(gx, e, j + 1, &|r| reader_free(gx, r, whole))),
-            }),
+            EndKind::Breaker(
+                BreakerKind::Sort
+                | BreakerKind::TopK
+                | BreakerKind::PlainAgg
+                | BreakerKind::HashAgg
+                | BreakerKind::Distinct
+                | BreakerKind::HashBuild,
+            ) => order_free_as(gx, q, false, whole),
+            EndKind::Breaker(BreakerKind::Materialize) if gx.spool_kind(q) == KindId::JoinDrain => {
+                gx.pipelines()[q]
+                    .desc
+                    .produces()
+                    .is_some_and(|m| match drain_of(gx, q, m) {
+                        Some((e, _)) => reader_free(gx, e, whole),
+                        None => inner_drain_of(gx, q, m).is_some_and(|(e, j)| {
+                            rows_free(gx, e, j + 1, &|r| reader_free(gx, r, whole))
+                        }),
+                    })
+            }
             // D3732 (TypeORM's and Rails' chained LEFT JOINs with no ORDER BY: a Hash Right Join's drain into the next Hash
             // Right Join's build): a reader that is the table's own drain hands its unmatched records on through its Drain
             // op, which evaluates nothing (N1's `still` reads it so too)
             // D2136: or a sink its reader takes whole (`whole`): every row reaches its ops in either order, so one that may
             // raise does so in both or in neither (the statement fails either way, its error raised from whichever row comes first)
-            EndKind::Sink => whole || ops.iter().all(|o| matches!(o, Op::Join(JoinDesc::Drain { .. })) || crate::effects::op_raise_free(gx, o, Some(&subs[..]))),
+            EndKind::Sink => {
+                whole
+                    || ops.iter().all(|o| {
+                        matches!(o, Op::Join(JoinDesc::Drain { .. }))
+                            || crate::effects::op_raise_free(gx, o, Some(&subs[..]))
+                    })
+            }
             // D3894 (c-random rnd-4163: a Hash Join over the drained build under the Material a nest loop re-reads): a plan
             // Material's store (nest.spool) keeps the rows in the order they come, the order D2247's arm of `order_free_in`
             // reads as a sink's; here every reader of the store must take it as free (`store_free`)
-            EndKind::Breaker(BreakerKind::Materialize) if gx.spool_kind(q) == KindId::NestSpool => gx.pipelines()[q].desc.produces().is_some_and(|m| store_free(gx, q, m, whole)),
+            EndKind::Breaker(BreakerKind::Materialize) if gx.spool_kind(q) == KindId::NestSpool => {
+                gx.pipelines()[q]
+                    .desc
+                    .produces()
+                    .is_some_and(|m| store_free(gx, q, m, whole))
+            }
             _ => false,
         }
 }
@@ -260,7 +356,9 @@ fn reader_free(gx: &Gx<'_, '_>, q: usize, whole: bool) -> bool {
 fn store_free(gx: &Gx<'_, '_>, q: usize, m: u8, whole: bool) -> bool {
     let ps = gx.pipelines();
     let reads = |j: usize| matches!(ps[j].source, Source::Breaker { slot } if slot == m && gx.life_of(j, slot).is_some_and(|l| l.0 as usize == q));
-    let mut readers = (0..ps.len() + ps.inners().len()).filter(|&j| reads(j)).peekable();
+    let mut readers = (0..ps.len() + ps.inners().len())
+        .filter(|&j| reads(j))
+        .peekable();
     readers.peek().is_some() && readers.all(|j| rows_free(gx, j, 0, &|e| reader_free(gx, e, whole)))
 }
 
@@ -273,23 +371,46 @@ fn store_free(gx: &Gx<'_, '_>, q: usize, m: u8, whole: bool) -> bool {
 /// first match (an inner or left nest, not unique: PG's ExecNestLoop then reads the whole inner for each outer row, as
 /// the inner's reader does here, so the same pairs meet its qual in another order); a nested SubPlan's inner (it may stop
 /// at its first row) and a nest that stops keep A2END.
-fn rows_free(gx: &Gx<'_, '_>, mut j: usize, mut from: usize, at_end: &dyn Fn(usize) -> bool) -> bool {
+fn rows_free(
+    gx: &Gx<'_, '_>,
+    mut j: usize,
+    mut from: usize,
+    at_end: &dyn Fn(usize) -> bool,
+) -> bool {
     use gravity_decompose::ops::shared::sort::SortForm;
     let ps = gx.pipelines();
     let (n, inners) = (ps.len(), ps.inners());
     loop {
         for o in ps[j].ops.get(from..).unwrap_or(&[]) {
             match o {
-                Op::Sort(s) if s.presorted == 0 && matches!(s.form, SortForm::Runs | SortForm::TopK { .. }) => return true,
-                Op::Filter(_) | Op::Gate(_) | Op::Project(_) | Op::SubPlan(_) | Op::Join(JoinDesc::Probe { .. } | JoinDesc::Nest { .. }) => {}
+                Op::Sort(s)
+                    if s.presorted == 0
+                        && matches!(s.form, SortForm::Runs | SortForm::TopK { .. }) =>
+                {
+                    return true
+                }
+                Op::Filter(_)
+                | Op::Gate(_)
+                | Op::Project(_)
+                | Op::SubPlan(_)
+                | Op::Join(JoinDesc::Probe { .. } | JoinDesc::Nest { .. }) => {}
                 _ => return false,
             }
         }
         if j < n {
             return at_end(j);
         }
-        let Some(&((o, at), _)) = inners.get(j - n) else { return false };
-        if !matches!(ps[o].ops.get(at), Some(Op::Join(JoinDesc::Nest { jointype: JoinType::JOIN_INNER | JoinType::JOIN_LEFT, unique: false, .. }))) {
+        let Some(&((o, at), _)) = inners.get(j - n) else {
+            return false;
+        };
+        if !matches!(
+            ps[o].ops.get(at),
+            Some(Op::Join(JoinDesc::Nest {
+                jointype: JoinType::JOIN_INNER | JoinType::JOIN_LEFT,
+                unique: false,
+                ..
+            }))
+        ) {
             return false;
         }
         (j, from) = (o, at + 1);
@@ -302,8 +423,13 @@ fn rows_free(gx: &Gx<'_, '_>, mut j: usize, mut from: usize, at_end: &dyn Fn(usi
 /// it (aggpresorted: a Sort under the Agg, so the call reads its input order). PG's nodeAgg sorts the group's rows by it
 /// before the call folds them, as the call's host sort does here, so the spool's order shows only among the rows tied on
 /// every ORDER BY key, which is free (D1428: any order among an aggregate ORDER BY's ties, checked tie-aware).
-fn call_free(a: &gravity_decompose::ops::shared::agg::AggDecl<'_>, class: &dyn Fn(Class) -> bool) -> bool {
-    (class(a.class) || collect_free(a)) && a.mods.distinct == 0 && (a.mods.order == 0 || !gravity_decompose::facts::order::presorted_call(a))
+fn call_free(
+    a: &gravity_decompose::ops::shared::agg::AggDecl<'_>,
+    class: &dyn Fn(Class) -> bool,
+) -> bool {
+    (class(a.class) || collect_free(a))
+        && a.mods.distinct == 0
+        && (a.mods.order == 0 || !gravity_decompose::facts::order::presorted_call(a))
 }
 
 /// A2END's classes (design r2 item 9; review r1 F2: every class named, so a new one is decided here): the folds whose value
@@ -318,12 +444,36 @@ fn call_free(a: &gravity_decompose::ops::shared::agg::AggDecl<'_>, class: &dyn F
 /// range_agg's multirange is canonical: the same value in any input order.
 fn order_free_class(c: Class) -> bool {
     use gravity_decompose::ops::shared::agg_class::{Collect, Mods, Split};
-    const BARE: Mods = Mods { distinct: 0, order: 0, filter: false, direct: 0, split: Split::Simple, star: false };
+    const BARE: Mods = Mods {
+        distinct: 0,
+        order: 0,
+        filter: false,
+        direct: 0,
+        split: Split::Simple,
+        star: false,
+    };
     match c {
-        Class::CountStar | Class::CountAny | Class::CountPair | Class::SumI64 | Class::SumI128 | Class::SumNum | Class::AvgI128 | Class::AvgNum => true,
-        Class::Min(_) | Class::Max(_) | Class::BoolAnd | Class::BoolOr | Class::BitI64(_) | Class::Stat3I128(_) | Class::Stat3Num(_) => true,
-        Class::SumF32 | Class::SumF64 | Class::AvgF64 | Class::Stat3F64(_) | Class::Stat6F64(_) => gravity_decompose::facts::order::order_free(c, &BARE),
-        Class::OrderedSet(_) | Class::Hypothetical(_) | Class::Collect(Collect::Range) => gravity_decompose::facts::order::order_free(c, &BARE),
+        Class::CountStar
+        | Class::CountAny
+        | Class::CountPair
+        | Class::SumI64
+        | Class::SumI128
+        | Class::SumNum
+        | Class::AvgI128
+        | Class::AvgNum => true,
+        Class::Min(_)
+        | Class::Max(_)
+        | Class::BoolAnd
+        | Class::BoolOr
+        | Class::BitI64(_)
+        | Class::Stat3I128(_)
+        | Class::Stat3Num(_) => true,
+        Class::SumF32 | Class::SumF64 | Class::AvgF64 | Class::Stat3F64(_) | Class::Stat6F64(_) => {
+            gravity_decompose::facts::order::order_free(c, &BARE)
+        }
+        Class::OrderedSet(_) | Class::Hypothetical(_) | Class::Collect(Collect::Range) => {
+            gravity_decompose::facts::order::order_free(c, &BARE)
+        }
         Class::SumMoney | Class::SumInterval | Class::AvgInterval | Class::BitVar(_) => false,
         Class::Collect(_) | Class::User => false,
     }
@@ -342,13 +492,20 @@ fn order_free_class(c: Class) -> bool {
 /// aggregate stay A2END's (range_agg and the ordered-set calls are `order_free_class`'s).
 fn collect_free(a: &gravity_decompose::ops::shared::agg::AggDecl<'_>) -> bool {
     use gravity_decompose::ops::shared::agg_class::Collect as C;
-    let Some(r) = a.node.as_aggref() else { return false };
+    let Some(r) = a.node.as_aggref() else {
+        return false;
+    };
     if a.mods.distinct != 0 {
         return false;
     }
     match a.class {
         Class::Collect(C::Array | C::ArrayOfArrays | C::Json) => true,
-        Class::Collect(C::String) => r.args.iter().filter_map(|t| t.as_target_entry()).nth(1).is_some_and(|t| t.expr.as_const().is_some()),
+        Class::Collect(C::String) => r
+            .args
+            .iter()
+            .filter_map(|t| t.as_target_entry())
+            .nth(1)
+            .is_some_and(|t| t.expr.as_const().is_some()),
         _ => false,
     }
 }
@@ -363,13 +520,24 @@ fn sums_by_order(c: Class) -> bool {
 /// D3637: the group spooled drain `d`'s rows fold into (through drains under drains) when that end is
 /// order-free but for its `sums_by_order` calls: the end pipeline and the group. Its lowering takes those calls only under
 /// their licence (`effects::drain_sums`), else A2END names it.
-pub(crate) fn sums_end<'g, 'p>(gx: &Gx<'g, 'p>, d: usize) -> Option<(usize, &'g gravity_decompose::ops::shared::agg::GroupDecl<'p>)> {
+pub(crate) fn sums_end<'g, 'p>(
+    gx: &Gx<'g, 'p>,
+    d: usize,
+) -> Option<(
+    usize,
+    &'g gravity_decompose::ops::shared::agg::GroupDecl<'p>,
+)> {
     crate::stack_check();
     match gx.end_kind(d) {
-        EndKind::Breaker(BreakerKind::Materialize) if gx.spool_kind(d) == KindId::JoinDrain => {
-            gx.pipelines()[d].desc.produces().and_then(|m| drain_of(gx, d, m)).and_then(|(e, _)| sums_end(gx, e))
-        }
-        EndKind::Breaker(BreakerKind::PlainAgg | BreakerKind::HashAgg | BreakerKind::Distinct) if !order_free_in(gx, d, false) && order_free_in(gx, d, true) => {
+        EndKind::Breaker(BreakerKind::Materialize) if gx.spool_kind(d) == KindId::JoinDrain => gx
+            .pipelines()[d]
+            .desc
+            .produces()
+            .and_then(|m| drain_of(gx, d, m))
+            .and_then(|(e, _)| sums_end(gx, e)),
+        EndKind::Breaker(BreakerKind::PlainAgg | BreakerKind::HashAgg | BreakerKind::Distinct)
+            if !order_free_in(gx, d, false) && order_free_in(gx, d, true) =>
+        {
             gx.group_at(d).map(|g| (d, g))
         }
         _ => None,
@@ -402,14 +570,24 @@ pub(crate) fn user_clause(gx: &Gx<'_, '_>, c: Node<'_>) -> bool {
 /// a test of any other form acts. The test's own expressions are walked beside it (`op_acts`' `s.test`).
 fn set_user(gx: &Gx<'_, '_>, t: Node<'_>) -> bool {
     match t.as_bool_expr() {
-        Some(b) if b.boolop == types_nodes::primnodes::BoolExprType::AND_EXPR => b.args.iter().any(|c| user_clause(gx, c)),
+        Some(b) if b.boolop == types_nodes::primnodes::BoolExprType::AND_EXPR => {
+            b.args.iter().any(|c| user_clause(gx, c))
+        }
         _ => user_clause(gx, t),
     }
 }
 
 /// The SubPlan ids a pipeline's ops evaluate: an expression reading one of them is walked at its op.
 pub(crate) fn subplans<'m>(ops: &[Op<'_>], mcx: Mcx<'m>) -> PgVec<'m, i32> {
-    ops.iter().filter_map(|o| if let Op::SubPlan(s) = o { Some(s.plan_id) } else { None }).collect_in(mcx)
+    ops.iter()
+        .filter_map(|o| {
+            if let Op::SubPlan(s) = o {
+                Some(s.plan_id)
+            } else {
+                None
+            }
+        })
+        .collect_in(mcx)
 }
 
 /// Whether evaluating `n` may act (F5's coverage): see the file's head. `subs`: the SubPlans its pipeline's ops evaluate.
@@ -418,7 +596,8 @@ pub(crate) fn subplans<'m>(ops: &[Op<'_>], mcx: Mcx<'m>) -> PgVec<'m, i32> {
 /// cast's I/O functions), GREATEST / LEAST over a type whose compare is not `cmp_free`, a SubPlan no op of the pipeline
 /// evaluates, a domain cast, a sequence's nextval, the XML / JSON nodes, and any node the walk cannot see.
 fn acts(gx: &Gx<'_, '_>, n: Node<'_>, subs: &[i32]) -> bool {
-    gx.fx(n).volatile_by(&crate::effects::volatile::Reading::spool(subs))
+    gx.fx(n)
+        .volatile_by(&crate::effects::volatile::Reading::spool(subs))
 }
 
 /// The graph pipelines one `spool_refusal` may walk (review r1 lens 0: rerun sets and breaker feeders share pipelines, so
@@ -438,14 +617,21 @@ pub(crate) fn graph_acts(gx: &Gx<'_, '_>, q: usize, depth: u8) -> bool {
         c.set(c.get().saturating_add(1));
         c.get()
     });
-    seen > VISITS || depth > DEEP || pipe_acts(gx, &gx.pipelines()[q], q, depth) || group_acts(gx, q)
+    seen > VISITS
+        || depth > DEEP
+        || pipe_acts(gx, &gx.pipelines()[q], q, depth)
+        || group_acts(gx, q)
 }
 
 /// The aggregates pipeline `q`'s end folds (their arguments, FILTER and function).
 fn group_acts(gx: &Gx<'_, '_>, q: usize) -> bool {
     // an argument reading a SubPlan the pipeline's own op evaluates (a pulled-up subquery's column) is walked at that op
     let subs = subplans(&gx.pipelines()[q].ops, gx.mcx);
-    gx.group_at(q).is_some_and(|g| g.aggs.iter().any(|a| a.class == Class::User || acts(gx, a.node, &subs)))
+    gx.group_at(q).is_some_and(|g| {
+        g.aggs
+            .iter()
+            .any(|a| a.class == Class::User || acts(gx, a.node, &subs))
+    })
 }
 
 /// Pipeline `p`'s source and ops, `at` the graph pipeline it runs in (a breaker it reads is `at`'s life).
@@ -454,7 +640,16 @@ pub(crate) fn pipe_acts(gx: &Gx<'_, '_>, p: &PipelineNode<'_>, at: usize, depth:
     let a = |n: Node<'_>| acts(gx, n, &subs);
     let src = match &p.source {
         Source::Range { .. } | Source::Const | Source::Breaker { .. } => false,
-        Source::Index { keys, recheck, indexid, .. } => index_acts(gx, *indexid, keys) || keys.iter().any(|x| a(x.value)) || recheck.iter().any(a),
+        Source::Index {
+            keys,
+            recheck,
+            indexid,
+            ..
+        } => {
+            index_acts(gx, *indexid, keys)
+                || keys.iter().any(|x| a(x.value))
+                || recheck.iter().any(a)
+        }
         Source::Bitmap { plan, recheck, .. } => user_bitmap(gx, plan) || recheck.iter().any(a),
         Source::Values { lists, .. } => lists.iter().any(a),
         _ => true,
@@ -465,34 +660,72 @@ pub(crate) fn pipe_acts(gx: &Gx<'_, '_>, p: &PipelineNode<'_>, at: usize, depth:
 /// An embedded inner (a nest's, a nested SubPlan's): its pipeline, and what it reads through a breaker source (a producer
 /// numbered past `at` runs on demand inside it, a rerun set's member: walked like any other; `at` itself, a cycle, acts).
 fn inner_acts(gx: &Gx<'_, '_>, p: &PipelineNode<'_>, at: usize, depth: u8) -> bool {
-    let fed = |s: u8| crate::ops::hashjoin::build_class::feed(gx, at, core::iter::once(s)).into_iter().any(|x| x == at || graph_acts(gx, x, depth + 1));
+    let fed = |s: u8| {
+        crate::ops::hashjoin::build_class::feed(gx, at, core::iter::once(s))
+            .into_iter()
+            .any(|x| x == at || graph_acts(gx, x, depth + 1))
+    };
     matches!(p.source, Source::Breaker { slot } if fed(slot)) || pipe_acts(gx, p, at, depth + 1)
 }
 
 /// The members of the rerun sets of a nest (`plan_id` 0, its `node`) or a SubPlan (`plan_id`), each walked wherever it is
 /// numbered (`at` itself acts).
 fn members_act(gx: &Gx<'_, '_>, node: i32, plan_id: i32, at: usize, depth: u8) -> bool {
-    let set = |r: &&gravity_decompose::graph::Rerun| if plan_id == 0 { r.plan_id == 0 && r.node_id == node } else { r.plan_id == plan_id };
-    gx.graph.reruns.iter().filter(set).flat_map(|r| r.pipelines.iter()).any(|&x| x as usize == at || graph_acts(gx, x as usize, depth + 1))
+    let set = |r: &&gravity_decompose::graph::Rerun| {
+        if plan_id == 0 {
+            r.plan_id == 0 && r.node_id == node
+        } else {
+            r.plan_id == plan_id
+        }
+    };
+    gx.graph
+        .reruns
+        .iter()
+        .filter(set)
+        .flat_map(|r| r.pipelines.iter())
+        .any(|&x| x as usize == at || graph_acts(gx, x as usize, depth + 1))
 }
 
 /// Whether op `o` of graph pipeline `at` (or of an inner it runs) may act; an op kind not listed does.
 fn op_acts(gx: &Gx<'_, '_>, o: &Op<'_>, subs: &[i32], at: usize, depth: u8) -> bool {
     crate::stack_check();
     let a = |n: Node<'_>| acts(gx, n, subs);
-    let fed = |s: u8| crate::ops::hashjoin::build_class::feed(gx, at, core::iter::once(s)).into_iter().any(|x| x == at || graph_acts(gx, x, depth + 1));
+    let fed = |s: u8| {
+        crate::ops::hashjoin::build_class::feed(gx, at, core::iter::once(s))
+            .into_iter()
+            .any(|x| x == at || graph_acts(gx, x, depth + 1))
+    };
     match o {
         Op::Filter(n) | Op::Gate(n) => a(*n),
         Op::Project(l) => l.iter().any(a),
-        Op::Limit { count, offset, .. } => [count, offset].into_iter().any(|b| matches!(*b, Bound::Expr(n) if a(n))),
+        Op::Limit { count, offset, .. } => [count, offset]
+            .into_iter()
+            .any(|b| matches!(*b, Bound::Expr(n) if a(n))),
         Op::Sort(s) => s.keys.iter().any(|k| k.own_family || user_op(k.opno)),
         Op::Join(JoinDesc::Drain { .. } | JoinDesc::Spool) => false,
         Op::Join(JoinDesc::Build { keys, .. }) => keys.iter().any(a),
-        Op::Join(JoinDesc::Probe { clauses, keys, qual, .. }) => keys.iter().chain(qual.iter()).any(a) || clauses.iter().any(|c| user_clause(gx, c)),
-        Op::Join(JoinDesc::Memo { keys, ops, .. }) => keys.iter().any(a) || ops.iter().any(|&x| user_op(x)),
-        Op::Join(JoinDesc::Nest { params, inner, qual, facts, .. }) => {
+        Op::Join(JoinDesc::Probe {
+            clauses,
+            keys,
+            qual,
+            ..
+        }) => keys.iter().chain(qual.iter()).any(a) || clauses.iter().any(|c| user_clause(gx, c)),
+        Op::Join(JoinDesc::Memo { keys, ops, .. }) => {
+            keys.iter().any(a) || ops.iter().any(|&x| user_op(x))
+        }
+        Op::Join(JoinDesc::Nest {
+            params,
+            inner,
+            qual,
+            facts,
+            ..
+        }) => {
             let param = |p: Node<'_>| p.as_nest_loop_param().is_none_or(|p| a(p.paramval));
-            facts.volatility == Volatility::Volatile || params.iter().any(param) || qual.iter().any(a) || inner_acts(gx, inner, at, depth) || members_act(gx, facts.node, 0, at, depth)
+            facts.volatility == Volatility::Volatile
+                || params.iter().any(param)
+                || qual.iter().any(a)
+                || inner_acts(gx, inner, at, depth)
+                || members_act(gx, facts.node, 0, at, depth)
         }
         Op::SubPlan(s) => {
             let form = match &s.form {
@@ -500,32 +733,62 @@ fn op_acts(gx: &Gx<'_, '_>, o: &Op<'_>, subs: &[i32], at: usize, depth: u8) -> b
                 SubForm::Hashed { slot } => fed(*slot),
                 SubForm::Build => s.test.is_none_or(|t| set_user(gx, t)),
             };
-            s.volatility == Volatility::Volatile || s.test.is_some_and(a) || s.args.iter().any(a) || form || members_act(gx, 0, s.plan_id, at, depth)
+            s.volatility == Volatility::Volatile
+                || s.test.is_some_and(a)
+                || s.args.iter().any(a)
+                || form
+                || members_act(gx, 0, s.plan_id, at, depth)
         }
         Op::Srf(s) => s.functions.iter().any(|f| a(f.node)),
         Op::Window(_) => crate::effects::window_acts(o, &a, &user_op),
-        Op::Write(_) => gx.a2a_write(at).is_none_or(|j| !core::ptr::addr_eq(o, &gx.pipelines()[at].ops[j])),
-        Op::Lock(_) => gx.free_lock(at, at).is_none_or(|j| !core::ptr::addr_eq(o, &gx.pipelines()[at].ops[j])),
+        Op::Write(_) => gx
+            .a2a_write(at)
+            .is_none_or(|j| !core::ptr::addr_eq(o, &gx.pipelines()[at].ops[j])),
+        Op::Lock(_) => gx
+            .free_lock(at, at)
+            .is_none_or(|j| !core::ptr::addr_eq(o, &gx.pipelines()[at].ops[j])),
         // rows moved, nothing called
         _ if crate::ops::hashjoin::drain::lower::bare_append(o) => false,
         _ => true,
     }
 }
 
-
 /// `quiet`'s source: a heap scan, a Result's one row (its target list is the arm's projection), an index scan whose keys
 /// and recheck are `still`, or a bitmap one over initdb btree indexes with quiet keys and a `still` recheck.
-pub(crate) fn source_still(gx: &Gx<'_, '_>, p: &gravity_decompose::PipelineNode<'_>, still: &dyn Fn(Node<'_>) -> bool) -> bool {
+pub(crate) fn source_still(
+    gx: &Gx<'_, '_>,
+    p: &gravity_decompose::PipelineNode<'_>,
+    still: &dyn Fn(Node<'_>) -> bool,
+) -> bool {
     match &p.source {
         Source::Range { .. } | Source::Const => true,
-        Source::Index { keys, recheck, .. } => keys.iter().map(|x| x.value).chain(recheck.iter()).all(still),
+        Source::Index { keys, recheck, .. } => keys
+            .iter()
+            .map(|x| x.value)
+            .chain(recheck.iter())
+            .all(still),
         // D393's bitmap arms: a bitmap PG builds whole before the arm's first row (MultiExecBitmapIndexScan) over
         // btree indexes whose opclasses and key operators are initdb ones that raise on no input (`initdb_index`, D2063's
         // facts), its keys quiet (`quiet_key`; `col = ANY (array)` too: one probe per element under the same leakproof
         // operator, PG 18's OR clauses on one column), its recheck quiet: a partition's bitmap scan arm (held-out rnd-0186)
         Source::Bitmap { plan, recheck, .. } => {
-            let key = |x: &IndexKey<'_>| quiet_key(gx, &IndexKey { form: if x.form == KeyForm::Any { KeyForm::Op } else { x.form }, ..*x }, &|_| false) && still(x.value);
-            bitmap_all(plan, &|i, k, am| am == IndexAm::Btree && initdb_index(gx, i, k) && k.iter().all(key)) && recheck.iter().all(still)
+            let key = |x: &IndexKey<'_>| {
+                quiet_key(
+                    gx,
+                    &IndexKey {
+                        form: if x.form == KeyForm::Any {
+                            KeyForm::Op
+                        } else {
+                            x.form
+                        },
+                        ..*x
+                    },
+                    &|_| false,
+                ) && still(x.value)
+            };
+            bitmap_all(plan, &|i, k, am| {
+                am == IndexAm::Btree && initdb_index(gx, i, k) && k.iter().all(key)
+            }) && recheck.iter().all(still)
         }
         _ => false,
     }
@@ -534,23 +797,50 @@ pub(crate) fn source_still(gx: &Gx<'_, '_>, p: &gravity_decompose::PipelineNode<
 /// `Gx::quiet_drain_arms`'s test of arm `q` (drain/arms.rs's `quiet`, moved as it was).
 fn arm_quiet(gx: &Gx<'_, '_>, q: usize) -> bool {
     let p = &gx.pipelines()[q];
-    let still = |n: Node<'_>| (gx.fx(n).quiet() || quiet_cmp(gx, n)) && !gx.fx(n).user_calls() && !gx.fx(n).volatile_any();
+    let still = |n: Node<'_>| {
+        (gx.fx(n).quiet() || quiet_cmp(gx, n)) && !gx.fx(n).user_calls() && !gx.fx(n).volatile_any()
+    };
     let src = source_still(gx, p, &still);
-    let Some(j) = p.ops.iter().rposition(|o| matches!(o, Op::Join(JoinDesc::Probe { .. }))) else { return false };
-    src && p.desc.consumes.iter().all(|s| p.ops.iter().any(|o| matches!(o, Op::Join(JoinDesc::Probe { slot, .. }) if slot == s)))
-        && p.ops[..=j].iter().all(|op| match op {
-            Op::Filter(n) | Op::Gate(n) => still(*n),
-            Op::Project(l) => l.iter().all(still),
-            Op::Append(AppendDesc::Arm { prune, .. }) => prune.as_ref().is_none_or(|d| steps(d, &mut |o| o.exprs.iter().all(still))),
-            Op::Join(JoinDesc::Probe { keys, qual, .. }) => keys.iter().chain(qual.iter()).all(still),
-            _ => false,
-        })
+    let Some(j) = p
+        .ops
+        .iter()
+        .rposition(|o| matches!(o, Op::Join(JoinDesc::Probe { .. })))
+    else {
+        return false;
+    };
+    src && p.desc.consumes.iter().all(|s| {
+        p.ops
+            .iter()
+            .any(|o| matches!(o, Op::Join(JoinDesc::Probe { slot, .. }) if slot == s))
+    }) && p.ops[..=j].iter().all(|op| match op {
+        Op::Filter(n) | Op::Gate(n) => still(*n),
+        Op::Project(l) => l.iter().all(still),
+        Op::Append(AppendDesc::Arm { prune, .. }) => prune
+            .as_ref()
+            .is_none_or(|d| steps(d, &mut |o| o.exprs.iter().all(still))),
+        Op::Join(JoinDesc::Probe { keys, qual, .. }) => keys.iter().chain(qual.iter()).all(still),
+        _ => false,
+    })
 }
 
 /// Every PartitionPruneStepOp of prune `d` (each PartitionedRelPruneInfo level's initial and exec steps) passes `f`.
-pub(crate) fn steps(d: &PruneDesc<'_>, f: &mut dyn FnMut(&PartitionPruneStepOp<'_>) -> bool) -> bool {
-    let mut levels = d.info.prune_infos.iter().flat_map(|l| l.as_list().into_iter().flat_map(|l| l.iter()));
-    levels.all(|r| r.as_partitioned_rel_prune_info().is_some_and(|r| r.initial_pruning_steps.iter().chain(r.exec_pruning_steps.iter()).all(|s| s.as_partition_prune_step_op().is_none_or(&mut *f))))
+pub(crate) fn steps(
+    d: &PruneDesc<'_>,
+    f: &mut dyn FnMut(&PartitionPruneStepOp<'_>) -> bool,
+) -> bool {
+    let mut levels = d
+        .info
+        .prune_infos
+        .iter()
+        .flat_map(|l| l.as_list().into_iter().flat_map(|l| l.iter()));
+    levels.all(|r| {
+        r.as_partitioned_rel_prune_info().is_some_and(|r| {
+            r.initial_pruning_steps
+                .iter()
+                .chain(r.exec_pruning_steps.iter())
+                .all(|s| s.as_partition_prune_step_op().is_none_or(&mut *f))
+        })
+    })
 }
 
 /// D1752 under DECISIONS 6b: drain `d`'s order decides which of its tail's calls run when the tail holds a LIMIT (`limit`),

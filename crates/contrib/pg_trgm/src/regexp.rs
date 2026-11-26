@@ -98,12 +98,11 @@ pub fn create_trgm_nfa(
         match rex::seam_pg_regcomp(&wide, REG_ADVANCED | REG_NOSUB | REG_ICASE, collation)? {
             RegcompResult::Compiled(c) => c,
             RegcompResult::Failed(f) => {
-                return Err(PgError::error(format!(
-                    "invalid regular expression: {}",
-                    f.message
-                ))
-                .with_sqlstate(ERRCODE_INVALID_REGULAR_EXPRESSION)
-                .into())
+                return Err(
+                    PgError::error(format!("invalid regular expression: {}", f.message))
+                        .with_sqlstate(ERRCODE_INVALID_REGULAR_EXPRESSION)
+                        .into(),
+                )
             }
         };
     drop(wide);
@@ -160,7 +159,8 @@ fn get_color_info(
             });
             continue;
         }
-        let mut chars = ::mcx::std_vec_from_elem("pg_trgm", 0 as types_core::PgWChar, chars_count as usize)?;
+        let mut chars =
+            ::mcx::std_vec_from_elem("pg_trgm", 0 as types_core::PgWChar, chars_count as usize)?;
         rex::pg_reg_getcharacters(regex, co, &mut chars);
         let mut info = ColorInfo {
             expandable: true,
@@ -171,7 +171,10 @@ fn get_color_info(
             let Some(mb) = convert_pg_wchar(c, env, scratch)? else {
                 continue;
             };
-            let len = mb.iter().position(|&b| b == 0).unwrap_or(MAX_MULTIBYTE_CHAR_LEN);
+            let len = mb
+                .iter()
+                .position(|&b| b == 0)
+                .unwrap_or(MAX_MULTIBYTE_CHAR_LEN);
             if (env.isalnum)(&mb[..len]) {
                 info.word_chars.push(mb);
             } else {
@@ -368,8 +371,11 @@ impl Nfa<'_> {
                 Some([COLOR_UNKNOWN, COLOR_UNKNOWN])
             } else if arc.co >= 0 {
                 let info = &self.colors[arc.co as usize];
-                let (expandable, contains_non_word, has_word_chars) =
-                    (info.expandable, info.contains_non_word, !info.word_chars.is_empty());
+                let (expandable, contains_non_word, has_word_chars) = (
+                    info.expandable,
+                    info.contains_non_word,
+                    !info.word_chars.is_empty(),
+                );
                 if expandable {
                     if contains_non_word && !valid_arc_label(&key, COLOR_BLANK) {
                         self.keys_queue.push(StateKey {
@@ -392,7 +398,10 @@ impl Nfa<'_> {
                 Some([COLOR_UNKNOWN, COLOR_UNKNOWN])
             };
             if let Some(prefix) = dest {
-                self.keys_queue.push(StateKey { prefix, nstate: arc.to });
+                self.keys_queue.push(StateKey {
+                    prefix,
+                    nstate: arc.to,
+                });
             }
         }
     }
@@ -407,7 +416,11 @@ impl Nfa<'_> {
                 debug_assert!((arc.co as usize) < self.colors.len());
                 let (expandable, contains_non_word, has_word_chars) = {
                     let info = &self.colors[arc.co as usize];
-                    (info.expandable, info.contains_non_word, !info.word_chars.is_empty())
+                    (
+                        info.expandable,
+                        info.contains_non_word,
+                        !info.word_chars.is_empty(),
+                    )
                 };
                 if !expandable {
                     continue;
@@ -544,15 +557,15 @@ impl Nfa<'_> {
                     self.states[source as usize].flags | self.states[source as usize].tent_flags;
                 while let Some(tp) = self.states[source as usize].tent_parent {
                     source = tp;
-                    source_flags |=
-                        self.states[source as usize].flags | self.states[source as usize].tent_flags;
+                    source_flags |= self.states[source as usize].flags
+                        | self.states[source as usize].tent_flags;
                 }
                 let mut target_flags =
                     self.states[target as usize].flags | self.states[target as usize].tent_flags;
                 while let Some(tp) = self.states[target as usize].tent_parent {
                     target = tp;
-                    target_flags |=
-                        self.states[target as usize].flags | self.states[target as usize].tent_flags;
+                    target_flags |= self.states[target as usize].flags
+                        | self.states[target as usize].tent_flags;
                 }
 
                 if (source_flags | target_flags) & (TSTATE_INIT | TSTATE_FIN)
@@ -697,8 +710,11 @@ impl Nfa<'_> {
         arcs.sort();
         arcs.dedup();
 
-        let color_trigram_groups: Vec<i32> =
-            ctrgms.iter().filter(|c| c.expanded).map(|c| c.count).collect();
+        let color_trigram_groups: Vec<i32> = ctrgms
+            .iter()
+            .filter(|c| c.expanded)
+            .map(|c| c.count)
+            .collect();
 
         let mut packed_arcs: Vec<TrgmPackedArc> = Vec::with_capacity(arcs.len());
         let mut states: Vec<(u32, u32)> = Vec::with_capacity(snumber as usize);

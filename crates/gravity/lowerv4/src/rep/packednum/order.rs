@@ -11,23 +11,34 @@ use gravity_program::{Rep, Until};
 #[allow(unused_imports)]
 use types_core::catalog::NUMERICOID;
 
-use crate::face::kinds::KindId;
 use crate::admit::refusal::Reason;
+use crate::face::kinds::KindId;
 use crate::ops::Table;
 use crate::rep::{self, CellRef, DatumArm, Lx, OrderArm, RetainHome, Words};
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::RepPackedOrder, &ARM)], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::RepPackedOrder, &ARM)],
+    ..crate::ops::NONE
+};
 
 pub(crate) const ARM: OrderArm = OrderArm { image, name: None };
 
 /// The mantissa word (0 for a NULL: `fold` places it by its flag).
 fn image(cx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, tf: &TypeFacts, _coll: KeyColl) -> Words {
     if !matches!(c.cell.rep, Rep::PackedNum { .. }) {
-        crate::refuse!(cx, Reason::Bug { payload: "a packed order image over a cell that is not a packed numeric" });
+        crate::refuse!(
+            cx,
+            Reason::Bug {
+                payload: "a packed order image over a cell that is not a packed numeric"
+            }
+        );
     }
     let retain = rep::arm::<DatumArm>(&*cx, KindId::RepPackedDatum).retain;
     let kept = retain(cx, c, tf, Until::Row, RetainHome::Frame);
-    Words { w: [Some(kept.val), None], exact: true }
+    Words {
+        w: [Some(kept.val), None],
+        exact: true,
+    }
 }
 
 #[cfg(test)]
@@ -39,7 +50,7 @@ mod tests {
     use gravity_interp::Interp;
     use gravity_ir::builder::ProgramBuilder;
     use gravity_ir::{IntCond, Type};
-    use gravity_program::{NumTypmod, NumForm};
+    use gravity_program::{NumForm, NumTypmod};
 
     /// The order word of a kept packed word `m` (`None`: NULL).
     fn ord(m: Option<i64>) -> i64 {
@@ -47,7 +58,20 @@ mod tests {
         crate::catch(9, || {
             let tf = *row_of(NUMERICOID).expect("numeric");
             let facts = NumTypmod::of(12, 2);
-            let c = Cell { rep: Rep::PackedNum { facts, form: NumForm::Word }, typid: NUMERICOID, num: facts, life: CellLife { until: Until::Row, home: CellHome::RowCx }, at: At::Value(0), null: Nullable::Maybe };
+            let c = Cell {
+                rep: Rep::PackedNum {
+                    facts,
+                    form: NumForm::Word,
+                },
+                typid: NUMERICOID,
+                num: facts,
+                life: CellLife {
+                    until: Until::Row,
+                    home: CellHome::RowCx,
+                },
+                at: At::Value(0),
+                null: Nullable::Maybe,
+            };
             let mut pb = ProgramBuilder::new();
             let fid = pb.declare_func("o", &[Type::I64, Type::I64], &[Type::I64]);
             let mut b = pb.define(fid);
@@ -56,13 +80,24 @@ mod tests {
                 let zero = b.iconst(Type::I64, 0);
                 let null = b.icmp(IntCond::Ne, nw, zero);
                 let mut cx = Lx::new(&mut b, 9, rig.mcx());
-                let w = image(&mut cx, CellRef { cell: &c, val: v, null: Some(null) }, &tf, KeyColl::NONE);
+                let w = image(
+                    &mut cx,
+                    CellRef {
+                        cell: &c,
+                        val: v,
+                        null: Some(null),
+                    },
+                    &tf,
+                    KeyColl::NONE,
+                );
                 assert!(w.exact && w.w[1].is_none());
                 w.w[0].unwrap()
             };
             b.ret(&[out]);
             let prog = pb.finish();
-            Interp::new(&prog).run(fid, &[m.unwrap_or(7) as u64, m.is_none() as u64]).expect("runs")[0] as i64
+            Interp::new(&prog)
+                .run(fid, &[m.unwrap_or(7) as u64, m.is_none() as u64])
+                .expect("runs")[0] as i64
         })
         .expect("an order word")
     }
@@ -70,7 +105,17 @@ mod tests {
     /// cmp_numerics' order over the sentinels and finite values; a NULL reads nothing.
     #[test]
     fn words_order_as_postgres() {
-        let xs = [MANT_NINF, -999_999_999_999, -1, 0, 1, 12_345, 999_999_999_999, MANT_PINF, MANT_NAN];
+        let xs = [
+            MANT_NINF,
+            -999_999_999_999,
+            -1,
+            0,
+            1,
+            12_345,
+            999_999_999_999,
+            MANT_PINF,
+            MANT_NAN,
+        ];
         let w: Vec<i64> = xs.iter().map(|&m| ord(Some(m))).collect();
         assert!(w.windows(2).all(|p| p[0] < p[1]), "{w:?}");
         assert_eq!(ord(Some(MANT_NAN)), ord(Some(MANT_NAN)), "NaN = NaN");

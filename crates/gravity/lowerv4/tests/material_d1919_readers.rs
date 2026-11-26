@@ -10,7 +10,10 @@ use gravity_decompose::ops::shared::subplan::{SubForm, SubPlanDesc};
 use gravity_decompose::{corpus, Am, Op, PipelineNode, Source};
 
 fn text(rel: &str) -> String {
-    let p = [common::plans_dir(), common::milestone_dir(8).join("d1919")].map(|d| d.join(rel)).into_iter().find(|p| p.exists());
+    let p = [common::plans_dir(), common::milestone_dir(8).join("d1919")]
+        .map(|d| d.join(rel))
+        .into_iter()
+        .find(|p| p.exists());
     let p = p.unwrap_or_else(|| panic!("{rel}: no plan fixture"));
     std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display()))
 }
@@ -36,10 +39,18 @@ const U: u32 = 16422;
 fn walk_src(rel: &str) -> Vec<(Key, bool)> {
     fn sources(p: &PipelineNode<'_>, out: &mut Vec<(Key, bool)>) {
         if let Some((_, r, sd)) = p.source.relation() {
-            out.push(((r, sd.index, sd.out_attnos.to_vec()), matches!(p.source, Source::Range { am: Am::Heap, .. })));
+            out.push((
+                (r, sd.index, sd.out_attnos.to_vec()),
+                matches!(p.source, Source::Range { am: Am::Heap, .. }),
+            ));
         }
         for op in p.ops.iter() {
-            if let Op::Join(JoinDesc::Nest { inner, .. }) | Op::SubPlan(SubPlanDesc { form: SubForm::Nested { inner }, .. }) = op {
+            if let Op::Join(JoinDesc::Nest { inner, .. })
+            | Op::SubPlan(SubPlanDesc {
+                form: SubForm::Nested { inner },
+                ..
+            }) = op
+            {
                 sources(inner, out);
             }
         }
@@ -48,7 +59,9 @@ fn walk_src(rel: &str) -> Vec<(Key, bool)> {
     let arena = gravity_program::Arena::new(1 << 20);
     let t = text(rel);
     let fx = corpus::load(ctx.mcx(), &t).unwrap_or_else(|e| panic!("{rel}: {e}"));
-    let g = gravity_decompose::decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx).ok().unwrap_or_else(|| panic!("{rel}: decompose refused"));
+    let g = gravity_decompose::decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx)
+        .ok()
+        .unwrap_or_else(|| panic!("{rel}: decompose refused"));
     let mut out = Vec::new();
     g.pipelines.iter().for_each(|p| sources(p, &mut out));
     out
@@ -61,8 +74,15 @@ fn walk(rel: &str) -> Vec<Key> {
 /// The program's source sites in site order (the order exec admit pairs them with `walk`'s, first unused by relation and
 /// index).
 fn sites(rel: &str) -> Vec<Key> {
-    let l = common::lower_fixture(&text(rel)).expect("decomposes").unwrap_or_else(|r| panic!("{rel} refused: {r:?}"));
-    l.descs.sites.iter().filter(|s| s.is_source()).map(|s| (s.relation, s.index, s.out_attnos.to_vec())).collect()
+    let l = common::lower_fixture(&text(rel))
+        .expect("decomposes")
+        .unwrap_or_else(|r| panic!("{rel} refused: {r:?}"));
+    l.descs
+        .sites
+        .iter()
+        .filter(|s| s.is_source())
+        .map(|s| (s.relation, s.index, s.out_attnos.to_vec()))
+        .collect()
 }
 
 fn rels(keys: &[Key]) -> Vec<u32> {
@@ -84,17 +104,31 @@ fn in_walk_order(rel: &str, want: &[u32]) {
 fn paired(rel: &str, distinct: &[(u32, u32)]) {
     let w = walk_src(rel);
     for &(r, i) in distinct {
-        let mut cols: Vec<&Vec<i16>> = w.iter().filter(|e| (e.0 .0, e.0 .1) == (r, i)).map(|e| &e.0 .2).collect();
+        let mut cols: Vec<&Vec<i16>> = w
+            .iter()
+            .filter(|e| (e.0 .0, e.0 .1) == (r, i))
+            .map(|e| &e.0 .2)
+            .collect();
         let n = cols.len();
         cols.dedup();
-        assert!(n > 1 && cols.len() == n, "{rel}: ({r}, {i}) has no distinct column lists: {cols:?}");
+        assert!(
+            n > 1 && cols.len() == n,
+            "{rel}: ({r}, {i}) has no distinct column lists: {cols:?}"
+        );
     }
     let mut used = vec![false; w.len()];
     for s in sites(rel) {
         let same = |e: &(Key, bool)| (e.0 .0, e.0 .1) == (s.0, s.1);
-        let i = (0..w.len()).find(|&i| !used[i] && same(&w[i])).or_else(|| (0..w.len()).find(|&i| same(&w[i]))).unwrap_or_else(|| panic!("{rel}: no source for {s:?}"));
+        let i = (0..w.len())
+            .find(|&i| !used[i] && same(&w[i]))
+            .or_else(|| (0..w.len()).find(|&i| same(&w[i])))
+            .unwrap_or_else(|| panic!("{rel}: no source for {s:?}"));
         used[i] = true;
-        assert!(w.iter().filter(|e| same(e)).all(|e| e.1) || w[i].0 == s, "{rel}: site {s:?} pairs {:?}", w[i].0);
+        assert!(
+            w.iter().filter(|e| same(e)).all(|e| e.1) || w[i].0 == s,
+            "{rel}: site {s:?} pairs {:?}",
+            w[i].0
+        );
     }
 }
 
@@ -102,10 +136,19 @@ fn paired(rel: &str, distinct: &[(u32, u32)]) {
 fn walk_nodes(rel: &str) -> Vec<(Key, bool, i32)> {
     fn sources(p: &PipelineNode<'_>, out: &mut Vec<(Key, bool, i32)>) {
         if let Some((_, r, sd)) = p.source.relation() {
-            out.push(((r, sd.index, sd.out_attnos.to_vec()), matches!(p.source, Source::Range { am: Am::Heap, .. }), p.node_id));
+            out.push((
+                (r, sd.index, sd.out_attnos.to_vec()),
+                matches!(p.source, Source::Range { am: Am::Heap, .. }),
+                p.node_id,
+            ));
         }
         for op in p.ops.iter() {
-            if let Op::Join(JoinDesc::Nest { inner, .. }) | Op::SubPlan(SubPlanDesc { form: SubForm::Nested { inner }, .. }) = op {
+            if let Op::Join(JoinDesc::Nest { inner, .. })
+            | Op::SubPlan(SubPlanDesc {
+                form: SubForm::Nested { inner },
+                ..
+            }) = op
+            {
                 sources(inner, out);
             }
         }
@@ -114,7 +157,9 @@ fn walk_nodes(rel: &str) -> Vec<(Key, bool, i32)> {
     let arena = gravity_program::Arena::new(1 << 20);
     let t = text(rel);
     let fx = corpus::load(ctx.mcx(), &t).unwrap_or_else(|e| panic!("{rel}: {e}"));
-    let g = gravity_decompose::decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx).ok().unwrap_or_else(|| panic!("{rel}: decompose refused"));
+    let g = gravity_decompose::decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx)
+        .ok()
+        .unwrap_or_else(|| panic!("{rel}: decompose refused"));
     let mut out = Vec::new();
     g.pipelines.iter().for_each(|p| sources(p, &mut out));
     out
@@ -126,21 +171,43 @@ fn walk_nodes(rel: &str) -> Vec<(Key, bool, i32)> {
 /// are all heap ranges), and each pinned node is a distinct source. The pinned nodes, in pin order.
 fn paired_pinned(rel: &str) -> Vec<i32> {
     let w = walk_nodes(rel);
-    let l = common::lower_fixture(&text(rel)).expect("decomposes").unwrap_or_else(|r| panic!("{rel} refused: {r:?}"));
-    let sites: Vec<(usize, Key)> = l.descs.sites.iter().enumerate().filter(|(_, s)| s.is_source()).map(|(i, s)| (i, (s.relation, s.index, s.out_attnos.to_vec()))).collect();
+    let l = common::lower_fixture(&text(rel))
+        .expect("decomposes")
+        .unwrap_or_else(|r| panic!("{rel} refused: {r:?}"));
+    let sites: Vec<(usize, Key)> = l
+        .descs
+        .sites
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| s.is_source())
+        .map(|(i, s)| (i, (s.relation, s.index, s.out_attnos.to_vec())))
+        .collect();
     let (mut used, mut got) = (vec![false; w.len()], vec![None; l.descs.sites.len()]);
     let mut nodes = Vec::new();
     for &(si, node) in l.descs.v4.site_pins.iter() {
-        let s = &sites.iter().find(|x| x.0 == si as usize).unwrap_or_else(|| panic!("{rel}: pinned site {si} is no source site")).1;
-        let i = (0..w.len()).find(|&i| !used[i] && w[i].2 == node && (w[i].0 .0, w[i].0 .1) == (s.0, s.1)).unwrap_or_else(|| panic!("{rel}: pinned site {si}: no unused source of node {node}"));
+        let s = &sites
+            .iter()
+            .find(|x| x.0 == si as usize)
+            .unwrap_or_else(|| panic!("{rel}: pinned site {si} is no source site"))
+            .1;
+        let i = (0..w.len())
+            .find(|&i| !used[i] && w[i].2 == node && (w[i].0 .0, w[i].0 .1) == (s.0, s.1))
+            .unwrap_or_else(|| panic!("{rel}: pinned site {si}: no unused source of node {node}"));
         (used[i], got[si as usize]) = (true, Some(i));
         nodes.push(node);
     }
     for (si, s) in sites.iter() {
         let same = |e: &(Key, bool, i32)| (e.0 .0, e.0 .1) == (s.0, s.1);
-        let i = got[*si].or_else(|| (0..w.len()).find(|&i| !used[i] && same(&w[i]))).or_else(|| (0..w.len()).find(|&i| same(&w[i]))).unwrap_or_else(|| panic!("{rel}: no source for {s:?}"));
+        let i = got[*si]
+            .or_else(|| (0..w.len()).find(|&i| !used[i] && same(&w[i])))
+            .or_else(|| (0..w.len()).find(|&i| same(&w[i])))
+            .unwrap_or_else(|| panic!("{rel}: no source for {s:?}"));
         used[i] = true;
-        assert!(w.iter().filter(|e| same(e)).all(|e| e.1) || w[i].0 == *s, "{rel}: site {s:?} pairs {:?}", w[i].0);
+        assert!(
+            w.iter().filter(|e| same(e)).all(|e| e.1) || w[i].0 == *s,
+            "{rel}: site {s:?} pairs {:?}",
+            w[i].0
+        );
     }
     nodes
 }
@@ -169,7 +236,10 @@ fn a_two_level_pull_child_takes_the_walk_order() {
 fn an_outer_nest_with_parameters_serves_and_its_heap_ranges_pair_freely() {
     let rel = "regress-full/join-091.plan";
     assert_eq!(rels(&walk(rel)), [16400, 16400, 16400, 16403]);
-    assert!(walk_src(rel).iter().all(|e| e.1), "{rel}: every source a heap range");
+    assert!(
+        walk_src(rel).iter().all(|e| e.1),
+        "{rel}: every source a heap range"
+    );
     assert_eq!(rels(&sites(rel)), [16400, 16400, 16403, 16400]);
     paired(rel, &[]);
 }
@@ -201,9 +271,15 @@ fn the_pull_and_eager_children_take_the_walk_order_at_two_and_three_levels() {
 #[test]
 fn one_index_two_sites_pair_by_the_walk() {
     in_walk_order("d1919-w2.plan", &[X, X, M]);
-    assert_eq!(walk("d1919-w2.plan")[..2], [(X, X_ID, vec![1, 2]), (X, X_ID, vec![1, 2, 3])]);
+    assert_eq!(
+        walk("d1919-w2.plan")[..2],
+        [(X, X_ID, vec![1, 2]), (X, X_ID, vec![1, 2, 3])]
+    );
     in_walk_order("d1919-w1.plan", &[W, W]);
-    assert_eq!(walk("d1919-w1.plan"), [(W, W_ID, vec![1, 2]), (W, W_ID, vec![1, 2])]);
+    assert_eq!(
+        walk("d1919-w1.plan"),
+        [(W, W_ID, vec![1, 2]), (W, W_ID, vec![1, 2])]
+    );
 }
 
 /// join-278 (join#782 / #783): the Material's child is an index scan keyed by the OUTER nest's parameter ($exec0 =
@@ -224,7 +300,10 @@ fn a_child_reading_the_outer_nests_parameter_takes_the_eager_refill() {
 /// scan of filters and projections (D1108), takes D1107's eager refill: the SubPlan's one rerun set re-runs it whole.
 #[test]
 fn a_subplan_link_passes_the_reader_walk() {
-    for rel in ["regress-full/join-167.plan", "regress-full/foreign_key-051.plan"] {
+    for rel in [
+        "regress-full/join-167.plan",
+        "regress-full/foreign_key-051.plan",
+    ] {
         match common::lower_fixture(&text(rel)).expect("decomposes") {
             Ok(_) => eprintln!("{rel}: lowered"),
             Err(r) => {
@@ -233,7 +312,8 @@ fn a_subplan_link_passes_the_reader_walk() {
             }
         }
     }
-    if let Err(r) = common::lower_fixture(&text("regress-full/join-167.plan")).expect("decomposes") {
+    if let Err(r) = common::lower_fixture(&text("regress-full/join-167.plan")).expect("decomposes")
+    {
         panic!("regress-full/join-167.plan: {}", r.what);
     }
 }
@@ -293,7 +373,12 @@ fn a_child_after_an_inner_of_its_key_is_pinned_to_its_own_source() {
     assert_eq!(nodes.len(), 2, "{rel}: pins {nodes:?}");
     assert_ne!(nodes[0], nodes[1], "{rel}: pins {nodes:?}");
     let w = walk_nodes(rel);
-    assert!(nodes.iter().all(|n| w.iter().any(|e| e.2 == *n && (e.0 .0, e.0 .1) == (W, W_ID))), "{rel}: pins {nodes:?} over {w:?}");
+    assert!(
+        nodes
+            .iter()
+            .all(|n| w.iter().any(|e| e.2 == *n && (e.0 .0, e.0 .1) == (W, W_ID))),
+        "{rel}: pins {nodes:?} over {w:?}"
+    );
 }
 
 /// D1637 in-row (B-R1): where B-R1 serves, a child whose index key is an expression over no executor parameter (a

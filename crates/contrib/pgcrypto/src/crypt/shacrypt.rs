@@ -43,7 +43,11 @@ fn notice(msg: &str) {
     let _ = elog::ereport(types_error::NOTICE)
         .errcode(types_error::ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE)
         .errmsg(msg.to_string())
-        .finish(types_error::ErrorLocation { filename: None, lineno: 0, funcname: None });
+        .finish(types_error::ErrorLocation {
+            filename: None,
+            lineno: 0,
+            funcname: None,
+        });
 }
 
 // ereport(ERROR, errcode(ERRCODE_INVALID_PARAMETER_VALUE), ...) — 22023.
@@ -374,7 +378,7 @@ pub fn crypt_sha(pw: &[u8], setting: &[u8]) -> Result<String, CryptError> {
                 "unknown crypt identifier \"{}\"",
                 // C prints the raw byte via %c.
                 c as char
-            )))
+            )));
         }
     };
 
@@ -498,7 +502,9 @@ mod tests {
             let (msg, clamped) = clamp_rounds(srounds).expect("below MIN => a NOTICE");
             assert_eq!(
                 msg,
-                format!("rounds={want_srounds} is below supported value (1000), using 1000 instead")
+                format!(
+                    "rounds={want_srounds} is below supported value (1000), using 1000 instead"
+                )
             );
             assert_eq!(clamped, ROUNDS_MIN);
         }

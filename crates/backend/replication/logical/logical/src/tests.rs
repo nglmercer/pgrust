@@ -105,7 +105,10 @@ fn twophase_enabled_by_every_prepare_family_callback() {
 #[test]
 fn missing_stream_prepare_cb_message_matches_c() {
     let err = crate::missing_stream_prepare_cb().unwrap_err();
-    assert_eq!(err.sqlstate(), types_error::ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE);
+    assert_eq!(
+        err.sqlstate(),
+        types_error::ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE
+    );
     assert_eq!(
         err.message(),
         "logical streaming at prepare time requires a stream_prepare_cb callback"
@@ -148,7 +151,10 @@ fn out_buffer_refuses_growth_past_max_alloc_size_like_enlarge_string_info() {
     out.overflow = Some((0x3fff_fffe, 1));
     let err = out.check_limit().unwrap_err();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED);
-    assert_eq!(err.message(), "string buffer exceeds maximum allowed length (1073741823 bytes)");
+    assert_eq!(
+        err.message(),
+        "string buffer exceeds maximum allowed length (1073741823 bytes)"
+    );
     assert_eq!(
         err.detail(),
         Some("Cannot enlarge string buffer containing 1073741822 bytes by 1 more bytes.")
@@ -170,7 +176,10 @@ fn out_buffer_refuses_growth_past_max_alloc_size_via_as_mut_vec() {
     assert!(out.overflow.is_none());
     let err = out.check_limit().unwrap_err();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED);
-    assert_eq!(err.message(), "string buffer exceeds maximum allowed length (1073741823 bytes)");
+    assert_eq!(
+        err.message(),
+        "string buffer exceeds maximum allowed length (1073741823 bytes)"
+    );
     assert_eq!(
         err.detail(),
         Some("Cannot enlarge string buffer containing 1073741823 bytes by 2 more bytes.")

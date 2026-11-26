@@ -8,8 +8,19 @@ use std::path::PathBuf;
 use gravity_lint::*;
 
 const LOWERING_CRATES: &[&str] = &["decompose", "lower", "lowerv4", "fn", "expr"];
-const HANDOFFS: &[&str] = &["thread::spawn", "thread::scope", "thread::Builder", "rayon::", "gravity_pool::"];
-const CODEGEN: &[&str] = &["gravity_tpde::compile(", "gravity_tpde::compile_owned(", "gravity_tpde::compile_tagged(", "gravity_wasm::compile_entries("];
+const HANDOFFS: &[&str] = &[
+    "thread::spawn",
+    "thread::scope",
+    "thread::Builder",
+    "rayon::",
+    "gravity_pool::",
+];
+const CODEGEN: &[&str] = &[
+    "gravity_tpde::compile(",
+    "gravity_tpde::compile_owned(",
+    "gravity_tpde::compile_tagged(",
+    "gravity_wasm::compile_entries(",
+];
 
 /// The lines of `text` outside `#[cfg(test)]` items (brace-matched from the attribute's item).
 fn production_lines(text: &str) -> Vec<(usize, &str)> {
@@ -27,7 +38,9 @@ fn production_lines(text: &str) -> Vec<(usize, &str)> {
                     _ => {}
                 }
             }
-            if opened && depth <= 0 || !opened && line.trim_end().ends_with(';') && !line.contains("#[cfg(test)]") {
+            if opened && depth <= 0
+                || !opened && line.trim_end().ends_with(';') && !line.contains("#[cfg(test)]")
+            {
                 skipping = false;
             }
             continue;
@@ -51,7 +64,11 @@ fn lowering_hands_no_work_to_another_thread() {
             }
         }
     }
-    assert!(failures.is_empty(), "a lowering crate hands work to another thread:\n{}", failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "a lowering crate hands work to another thread:\n{}",
+        failures.join("\n")
+    );
 }
 
 #[test]
@@ -79,8 +96,15 @@ fn gravity_sources() -> Vec<(PathBuf, String)> {
 /// The text of the function holding line `n` (1-based), from its `fn` line.
 fn enclosing_fn(lines: &[(usize, &str)], n: usize) -> String {
     let at = lines.iter().position(|e| e.0 == n).unwrap();
-    let from = (0..=at).rev().find(|&i| lines[i].1.contains("fn ")).unwrap_or(0);
-    lines[from..=at].iter().map(|e| e.1).collect::<Vec<_>>().join("\n")
+    let from = (0..=at)
+        .rev()
+        .find(|&i| lines[i].1.contains("fn "))
+        .unwrap_or(0);
+    lines[from..=at]
+        .iter()
+        .map(|e| e.1)
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[test]
@@ -94,7 +118,8 @@ fn the_code_generator_runs_catalog_free() {
                 continue;
             }
             calls += 1;
-            let via_cache = rel(&path) == "crates/gravity/backend/src/lib.rs" && enclosing_fn(&lines, n).contains("cache::get_or_compile_");
+            let via_cache = rel(&path) == "crates/gravity/backend/src/lib.rs"
+                && enclosing_fn(&lines, n).contains("cache::get_or_compile_");
             if !code.contains("gravity_deps::catalog_free(") && !via_cache {
                 failures.push(format!("{}:{n}: a code generator call outside `gravity_deps::catalog_free` and the code cache's compile", rel(&path)));
             }
@@ -104,11 +129,28 @@ fn the_code_generator_runs_catalog_free() {
     let text = fs::read_to_string(&cache).unwrap();
     let invokes: Vec<(usize, &str)> = production_lines(&text)
         .into_iter()
-        .filter(|(_, code)| code.match_indices("compile(").any(|(i, _)| i == 0 || !code.as_bytes()[i - 1].is_ascii_alphanumeric() && code.as_bytes()[i - 1] != b'_'))
+        .filter(|(_, code)| {
+            code.match_indices("compile(").any(|(i, _)| {
+                i == 0
+                    || !code.as_bytes()[i - 1].is_ascii_alphanumeric()
+                        && code.as_bytes()[i - 1] != b'_'
+            })
+        })
         .collect();
-    if invokes.len() != 1 || !invokes[0].1.contains("gravity_deps::catalog_free(|| compile(") {
+    if invokes.len() != 1
+        || !invokes[0]
+            .1
+            .contains("gravity_deps::catalog_free(|| compile(")
+    {
         failures.push(format!("{}: the code cache calls its compile outside one `gravity_deps::catalog_free`: {invokes:?}", rel(&cache)));
     }
-    assert!(calls >= 4, "the scan found the code generator's callers ({calls})");
-    assert!(failures.is_empty(), "the code generator can read the catalog off the lowering's recording:\n{}", failures.join("\n"));
+    assert!(
+        calls >= 4,
+        "the scan found the code generator's callers ({calls})"
+    );
+    assert!(
+        failures.is_empty(),
+        "the code generator can read the catalog off the lowering's recording:\n{}",
+        failures.join("\n")
+    );
 }

@@ -23,8 +23,8 @@ use types_error::{
     ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE,
 };
 use types_storage::buf::{
-    IOContext, BM_CHECKPOINT_NEEDED, BM_DIRTY, BM_IO_IN_PROGRESS, BM_PERMANENT, BM_PIN_COUNT_WAITER,
-    BM_TAG_VALID, BM_VALID, BUF_FLAG_MASK, BUF_USAGECOUNT_MASK,
+    IOContext, BM_CHECKPOINT_NEEDED, BM_DIRTY, BM_IO_IN_PROGRESS, BM_PERMANENT,
+    BM_PIN_COUNT_WAITER, BM_TAG_VALID, BM_VALID, BUF_FLAG_MASK, BUF_USAGECOUNT_MASK,
 };
 use types_storage::waiteventset::{WL_EXIT_ON_PM_DEATH, WL_LATCH_SET, WL_TIMEOUT};
 
@@ -51,15 +51,21 @@ pub(crate) fn apply_grow() {
     if GROW_GOAL.load(Ordering::Acquire) == 0 {
         return;
     }
-    let recovering = transam_xlog_seams::recovery_in_progress::is_installed() && transam_xlog_seams::recovery_in_progress::call();
+    let recovering = transam_xlog_seams::recovery_in_progress::is_installed()
+        && transam_xlog_seams::recovery_in_progress::call();
     if BG_GOAL.load(Ordering::Acquire) != 0 || recovering {
         GROW_GOAL.store(0, Ordering::Release);
         return;
     }
-    if RESIZING.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
+    if RESIZING
+        .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+        .is_err()
+    {
         return;
     }
-    let goal = GROW_GOAL.swap(0, Ordering::AcqRel).min(extent::max_buffers());
+    let goal = GROW_GOAL
+        .swap(0, Ordering::AcqRel)
+        .min(extent::max_buffers());
     let before = extent::active_buffers();
     if goal > before && BG_GOAL.load(Ordering::Acquire) == 0 {
         grow(goal);
@@ -73,7 +79,10 @@ pub(crate) fn apply_grow() {
 
 /// buf_grow: (grows applied, bytes they activated) since start.
 pub fn grow_counts() -> (u64, u64) {
-    (GROWS.load(Ordering::Relaxed), GROWN.load(Ordering::Relaxed).saturating_mul(BLCKSZ as u64))
+    (
+        GROWS.load(Ordering::Relaxed),
+        GROWN.load(Ordering::Relaxed).saturating_mul(BLCKSZ as u64),
+    )
 }
 static TARGET_BUFFERS: AtomicI32 = AtomicI32::new(0);
 static RELOCATED: AtomicU64 = AtomicU64::new(0);
@@ -148,7 +157,10 @@ fn param_error(msg: String, hint: Option<String>) -> Box<PgError> {
 /// timeout, recovery in progress, or another resize already running.
 pub fn BufferPoolResize(target_bytes: i64, timeout_ms: i32) -> PgResult<ResizeOutcome> {
     if timeout_ms < 0 {
-        return Err(param_error(format!("timeout must not be negative: {timeout_ms}"), None));
+        return Err(param_error(
+            format!("timeout must not be negative: {timeout_ms}"),
+            None,
+        ));
     }
     let max = extent::max_buffers();
     let floor = extent::pin_floor_buffers();
@@ -199,7 +211,11 @@ pub fn BufferPoolResize(target_bytes: i64, timeout_ms: i32) -> PgResult<ResizeOu
 fn run(target: i32, timeout_ms: i32) -> PgResult<ResizeOutcome> {
     abandon_background();
     let active = extent::active_buffers();
-    let goal = if target >= active { grow_goal(target) } else { shrink_goal(target) };
+    let goal = if target >= active {
+        grow_goal(target)
+    } else {
+        shrink_goal(target)
+    };
     TARGET_BUFFERS.store(goal, Ordering::Relaxed);
     if goal > active {
         grow(target);
@@ -359,7 +375,8 @@ fn shrink(target: i32, timeout_ms: i32) -> PgResult<()> {
 }
 
 fn relocate_on() -> bool {
-    !guc_tables::vars::pgrust_buffer_pool_relocate.installed() || guc_tables::vars::pgrust_buffer_pool_relocate.read()
+    !guc_tables::vars::pgrust_buffer_pool_relocate.installed()
+        || guc_tables::vars::pgrust_buffer_pool_relocate.read()
 }
 
 fn read_rate() -> i64 {
@@ -457,7 +474,10 @@ fn plan(d: &mut Drain<'_>) {
             break;
         }
         extent::set_state(e, DRAINING);
-        d.inflight.push(InFlight { extent: e, fails: 0 });
+        d.inflight.push(InFlight {
+            extent: e,
+            fails: 0,
+        });
         d.draining += extent_len(e);
     }
 }
@@ -465,7 +485,11 @@ fn plan(d: &mut Drain<'_>) {
 /// One pass over the extents in flight, retiring the cleared ones. Some(progressed), or None at the deadline
 /// (`one`: after at least one extent's pass).
 fn pass_inflight(d: &mut Drain<'_>, one: bool) -> PgResult<Option<bool>> {
-    let window = if d.writes == Writes::Inline { usize::MAX } else { GIVEBACK_WINDOW };
+    let window = if d.writes == Writes::Inline {
+        usize::MAX
+    } else {
+        GIVEBACK_WINDOW
+    };
     let mut open = 0;
     let mut progressed = false;
     let mut i = 0;
@@ -560,7 +584,12 @@ fn pace(d: &Drain<'_>) -> PgResult<()> {
 fn sleep_ms(ms: i64) -> PgResult<()> {
     postgres_seams::check_for_interrupts::call()?;
     if let Some(latch) = globals::MyLatch() {
-        latch::WaitLatch(Some(latch), WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH, ms, 0)?;
+        latch::WaitLatch(
+            Some(latch),
+            WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+            ms,
+            0,
+        )?;
         latch::ResetLatch(latch);
     }
     postgres_seams::check_for_interrupts::call()
@@ -595,9 +624,12 @@ fn evacuate(d: &mut Drain<'_>, desc: &BufferDesc, st: u32) -> PgResult<Drained> 
                 return Ok(Drained::Later);
             }
             let hdr = LockBufHdr(desc);
-            let lsn = crate::ops::buffer_page_get_lsn(crate::buf_hdr::BufferDescriptorGetBuffer(desc));
+            let lsn =
+                crate::ops::buffer_page_get_lsn(crate::buf_hdr::BufferDescriptorGetBuffer(desc));
             UnlockBufHdr(desc, hdr);
-            let wal_waits = hdr & BM_PERMANENT != 0 && !force_wal && transam_xlog_seams::xlog_needs_flush::call(lsn);
+            let wal_waits = hdr & BM_PERMANENT != 0
+                && !force_wal
+                && transam_xlog_seams::xlog_needs_flush::call(lsn);
             if wal_waits || !write_token() {
                 LWLockRelease(&desc.content_lock)?;
                 d.wal_later += wal_waits as u32;
@@ -612,8 +644,8 @@ fn evacuate(d: &mut Drain<'_>, desc: &BufferDesc, st: u32) -> PgResult<Drained> 
         WRITTEN.fetch_add(1, Ordering::Relaxed);
     }
     let st = desc.state.load(Ordering::Acquire);
-    let clean_valid = st & BM_VALID != 0
-        && st & (BM_DIRTY | BM_CHECKPOINT_NEEDED | BM_IO_IN_PROGRESS) == 0;
+    let clean_valid =
+        st & BM_VALID != 0 && st & (BM_DIRTY | BM_CHECKPOINT_NEEDED | BM_IO_IN_PROGRESS) == 0;
     if d.relocate && clean_valid && buffer_usagecount(st) >= 1 {
         match relocate_buffer(desc, d.writes != Writes::Inline)? {
             Relocated::Moved => {
@@ -642,7 +674,10 @@ fn write_token() -> bool {
     let refill = (rate as i128 * now.saturating_sub(last) as i128 / 1_000_000_000) as i64;
     let have = (BG_TOKENS.load(Ordering::Relaxed) + refill).min((rate / 10).max(BLCKSZ as i64));
     let ok = have >= BLCKSZ as i64;
-    BG_TOKENS.store(if ok { have - BLCKSZ as i64 } else { have }, Ordering::Relaxed);
+    BG_TOKENS.store(
+        if ok { have - BLCKSZ as i64 } else { have },
+        Ordering::Relaxed,
+    );
     ok
 }
 
@@ -693,7 +728,9 @@ fn relocate_buffer(src: &BufferDesc, clean_victim: bool) -> PgResult<Relocated> 
         UnlockBufHdr(src, sst);
         LWLockRelease(partition_lock)?;
         give_back_victim(dst);
-        return Err(Box::new(PgError::error("shared buffer hash table corrupted")));
+        return Err(Box::new(PgError::error(
+            "shared buffer hash table corrupted",
+        )));
     }
     // SAFETY: both blocks are pinned by us alone and unreachable through the
     // mapping (exclusive partition lock); distinct buffers never overlap.
@@ -707,7 +744,10 @@ fn relocate_buffer(src: &BufferDesc, clean_victim: bool) -> PgResult<Relocated> 
         src.set_tag(cleared_buftag());
     }
     let moved = sst & (BM_TAG_VALID | BM_VALID | BM_PERMANENT | BUF_USAGECOUNT_MASK);
-    UnlockBufHdr(dst, (dst_st & !(BUF_FLAG_MASK | BUF_USAGECOUNT_MASK)) | moved);
+    UnlockBufHdr(
+        dst,
+        (dst_st & !(BUF_FLAG_MASK | BUF_USAGECOUNT_MASK)) | moved,
+    );
     UnlockBufHdr(src, sst & !(BUF_FLAG_MASK | BUF_USAGECOUNT_MASK));
     LWLockRelease(partition_lock)?;
     UnpinBuffer(dst);
@@ -790,7 +830,10 @@ fn clear_carry() {
 fn save_carry(inflight: &[InFlight]) {
     clear_carry();
     for (slot, f) in CARRY.iter().zip(inflight.iter().filter(|f| f.fails > 0)) {
-        slot.store(((f.extent as u32 as u64 + 1) << 32) | f.fails as u64, Ordering::Relaxed);
+        slot.store(
+            ((f.extent as u32 as u64 + 1) << 32) | f.fails as u64,
+            Ordering::Relaxed,
+        );
     }
 }
 
@@ -836,7 +879,10 @@ fn slice_locked(budget: Duration) -> PgResult<GivebackStep> {
     let started = pg_clock::MonoStamp::now();
     let wal_since = BG_WAL_SINCE_NS.load(Ordering::Relaxed);
     let mut d = Drain {
-        writes: Writes::Paced { force_wal: wal_since != 0 && pg_clock::mono_ns().saturating_sub(wal_since) >= WAL_FORCE_NS },
+        writes: Writes::Paced {
+            force_wal: wal_since != 0
+                && pg_clock::mono_ns().saturating_sub(wal_since) >= WAL_FORCE_NS,
+        },
         later: 0,
         wal_later: 0,
         target,
@@ -854,7 +900,10 @@ fn slice_locked(budget: Duration) -> PgResult<GivebackStep> {
     };
     for e in (0..extent::n_extents()).rev() {
         if extent::state(e) == DRAINING {
-            d.inflight.push(InFlight { extent: e, fails: carried_fails(e) });
+            d.inflight.push(InFlight {
+                extent: e,
+                fails: carried_fails(e),
+            });
             d.draining += extent_len(e);
         }
     }
@@ -887,7 +936,7 @@ fn background_drain(d: &mut Drain<'_>) -> PgResult<Option<u32>> {
         }
         d.later = 0;
         d.wal_later = 0;
-        let progressed = pass_inflight(d, true)?.unwrap_or( true);
+        let progressed = pass_inflight(d, true)?.unwrap_or(true);
         note_wal_wait(d.wal_later > 0);
         if progressed {
             BG_BACKOFF_MS.store(1, Ordering::Relaxed);

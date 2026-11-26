@@ -1,9 +1,9 @@
 //! The sizes the pgrc columnar source and its lowering run by: caches, buffers and per-site or per-relation caps.
 //! None of them changes an answer; each bounds memory or work. A CHOSEN value's note says why it was picked and what a
 //! measurement would weigh; a FITTED one is the cost home's break-even rule (`fit`) over unit costs measured on dev data.
-use cost_profile::device::Device;
 use super::anchor::{self, Anchor, Ratios};
 use super::fit::{break_even_div, Fitted};
+use cost_profile::device::Device;
 
 /// lowerv4 ops/scan/pgrc/strategies/jsonb_inplace.rs (D564): the most elements of a constant `= ANY` / `<> ALL` text list
 /// whose array the jsonb.inplace claim decodes into frame words once per call (1 + 2n words); a longer list keeps the
@@ -92,7 +92,12 @@ const MACHINE: &str = "box 45: c8g.4xlarge, Graviton 4 (Neoverse V2), 16 vCPU";
 const CORPUS: &str = "tests/cost_fit.rs at the dev seed (machine units, one granule)";
 
 const fn fitted(ns: f64, anchor: Anchor) -> Fitted {
-    Fitted { ns, machine: MACHINE, corpus: CORPUS, anchor }
+    Fitted {
+        ns,
+        machine: MACHINE,
+        corpus: CORPUS,
+        anchor,
+    }
 }
 
 /// A granule's rows per lane (pgrc's elected granule; one window).
@@ -133,12 +138,18 @@ const SELECT_MACHINE: &str = "box 87: Graviton 4 (Neoverse V2), 16 vCPU";
 /// seed, one 8,192-row granule of a synthetic by-value lane per encoding and width, random and frame-clustered survivors,
 /// least of five takes; the hosts' own kernels on both sides (BYTE_FOR's `sel_at_framed`, any other stream's `decode_sel`
 /// and a scatter; `decode_narrow` / `decode_full`).
-const SELECT_CORPUS: &str = "pgrc_codec tests/select_fit.rs at the dev seed (one granule, least of five)";
+const SELECT_CORPUS: &str =
+    "pgrc_codec tests/select_fit.rs at the dev seed (one granule, least of five)";
 
 /// A survivor's gather moves with the gather anchor (data-dependent positions); a frame's unpack and a whole decode, with
 /// the read anchor.
 const fn select_fitted(ns: f64, anchor: Anchor) -> Fitted {
-    Fitted { ns, machine: SELECT_MACHINE, corpus: SELECT_CORPUS, anchor }
+    Fitted {
+        ns,
+        machine: SELECT_MACHINE,
+        corpus: SELECT_CORPUS,
+        anchor,
+    }
 }
 
 /// One gather call's fixed cost (the selection's walk set up, the stream addressed): select_fit's intercepts, 12-36 ns.
@@ -189,7 +200,9 @@ impl LaneDecode {
     /// a frame two calls touch counts twice), on a host of ratios `r`.
     pub fn gather_ns_on(self, r: &Ratios, calls: u64, frames: u64, survivors: u64) -> f64 {
         let (row, frame) = match self {
-            Self::ByteFor { delta: 1 | 2 | 4 | 8 } => (GATHER_BYTE_FOR_ROW.on(r), 0.0),
+            Self::ByteFor {
+                delta: 1 | 2 | 4 | 8,
+            } => (GATHER_BYTE_FOR_ROW.on(r), 0.0),
             Self::ByteFor { .. } => (GATHER_BYTE_FOR_MASKED_ROW.on(r), 0.0),
             Self::Verbatim => (GATHER_SEL_ROW.on(r), 0.0),
             Self::Ffor => (GATHER_SEL_ROW.on(r), GATHER_FFOR_FRAME.on(r)),
@@ -201,7 +214,9 @@ impl LaneDecode {
     /// The whole decode of `rows` rows into a lane of `lane_bytes` bytes a value, on a host of ratios `r`.
     pub fn whole_ns_on(self, r: &Ratios, lane_bytes: u8, rows: u64) -> f64 {
         let row = match self {
-            Self::ByteFor { delta: 1 | 2 | 4 | 8 } => WHOLE_BYTE_FOR_BYTE.on(r) * lane_bytes as f64,
+            Self::ByteFor {
+                delta: 1 | 2 | 4 | 8,
+            } => WHOLE_BYTE_FOR_BYTE.on(r) * lane_bytes as f64,
             Self::ByteFor { .. } => WHOLE_BYTE_FOR_MASKED_ROW.on(r),
             Self::Verbatim => WHOLE_VERBATIM_BYTE.on(r) * lane_bytes as f64,
             Self::Ffor => WHOLE_FFOR_ROW.on(r),
@@ -212,7 +227,14 @@ impl LaneDecode {
 
     /// Whether one gather of `survivors` rows touching `frames` frames costs less than the whole decode of the granule's
     /// `rows` rows, on a host of ratios `r`.
-    pub fn gather_pays_on(self, r: &Ratios, lane_bytes: u8, rows: u64, survivors: u64, frames: u64) -> bool {
+    pub fn gather_pays_on(
+        self,
+        r: &Ratios,
+        lane_bytes: u8,
+        rows: u64,
+        survivors: u64,
+        frames: u64,
+    ) -> bool {
         self.gather_ns_on(r, 1, frames, survivors) < self.whole_ns_on(r, lane_bytes, rows)
     }
 
@@ -278,7 +300,11 @@ mod tests {
     fn the_reference_box_sizes() {
         assert_eq!(RT_DIV, 137);
         assert_eq!(READ_HOLE_BYTES, 334_567);
-        assert_eq!(read_run_bytes(16 * 8192, 16), 2 << 20, "PostgreSQL's defaults: io_combine_limit 128 kB x effective_io_concurrency 16");
+        assert_eq!(
+            read_run_bytes(16 * 8192, 16),
+            2 << 20,
+            "PostgreSQL's defaults: io_combine_limit 128 kB x effective_io_concurrency 16"
+        );
         assert_eq!(read_run_bytes(u64::MAX, 2), u64::MAX);
     }
 
@@ -288,21 +314,52 @@ mod tests {
     fn the_reference_box_gather_crossovers() {
         const ROWS: u64 = 8192;
         let pays_down_to = |d: LaneDecode, lane_bytes: u8| {
-            [128u64, 64, 32, 24, 16, 12, 10, 8, 6, 5, 4, 3, 2].into_iter().take_while(|div| d.gather_pays(lane_bytes, ROWS, ROWS / div, 8)).last()
+            [128u64, 64, 32, 24, 16, 12, 10, 8, 6, 5, 4, 3, 2]
+                .into_iter()
+                .take_while(|div| d.gather_pays(lane_bytes, ROWS, ROWS / div, 8))
+                .last()
         };
         let bf = |delta| LaneDecode::ByteFor { delta };
         // BYTE_FOR i16 at 1 / 2 bytes: whole cheaper from 1/32 / 1/24
-        assert_eq!((pays_down_to(bf(1), 2), pays_down_to(bf(2), 2)), (Some(32), Some(32)));
+        assert_eq!(
+            (pays_down_to(bf(1), 2), pays_down_to(bf(2), 2)),
+            (Some(32), Some(32))
+        );
         // i32 at 1 / 2 / 4 bytes: from 1/16 / 1/16 / 1/12; at 3 bytes from 1/4
-        assert_eq!((pays_down_to(bf(1), 4), pays_down_to(bf(4), 4), pays_down_to(bf(3), 4)), (Some(16), Some(16), Some(4)));
+        assert_eq!(
+            (
+                pays_down_to(bf(1), 4),
+                pays_down_to(bf(4), 4),
+                pays_down_to(bf(3), 4)
+            ),
+            (Some(16), Some(16), Some(4))
+        );
         // i64 at 1 / 2 / 4 / 8 bytes: from 1/6 / 1/6 / 1/8 / 1/6; at 5 bytes from 1/3
-        assert_eq!((pays_down_to(bf(8), 8), pays_down_to(bf(5), 8)), (Some(8), Some(4)));
+        assert_eq!(
+            (pays_down_to(bf(8), 8), pays_down_to(bf(5), 8)),
+            (Some(8), Some(4))
+        );
         // VERBATIM i32 / i64: from 1/24 / 1/12
-        assert_eq!((pays_down_to(LaneDecode::Verbatim, 4), pays_down_to(LaneDecode::Verbatim, 8)), (Some(32), Some(16)));
+        assert_eq!(
+            (
+                pays_down_to(LaneDecode::Verbatim, 4),
+                pays_down_to(LaneDecode::Verbatim, 8)
+            ),
+            (Some(32), Some(16))
+        );
         // FFOR (any width): from 1/24, i64 at 40 bits from 1/128; DELTA_FOR: from 1/16
-        assert_eq!((pays_down_to(LaneDecode::Ffor, 4), pays_down_to(LaneDecode::DeltaFor, 4)), (Some(32), Some(24)));
+        assert_eq!(
+            (
+                pays_down_to(LaneDecode::Ffor, 4),
+                pays_down_to(LaneDecode::DeltaFor, 4)
+            ),
+            (Some(32), Some(24))
+        );
         // survivors in one frame: FFOR and DELTA_FOR gather a quarter of a frame's rows for less than the granule's decode
-        assert!(LaneDecode::Ffor.gather_pays(4, ROWS, 256, 1) && LaneDecode::DeltaFor.gather_pays(4, ROWS, 256, 1));
+        assert!(
+            LaneDecode::Ffor.gather_pays(4, ROWS, 256, 1)
+                && LaneDecode::DeltaFor.gather_pays(4, ROWS, 256, 1)
+        );
         // the late fills' sum: 16 calls of 64 survivors, each unpacking its own frame, against 1,024 rows decoded whole
         assert!(LaneDecode::Ffor.gather_ns(16, 16, 1024) > LaneDecode::Ffor.whole_ns(4, 1024));
     }

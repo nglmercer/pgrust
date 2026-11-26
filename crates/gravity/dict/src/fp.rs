@@ -11,7 +11,10 @@ const READY: u8 = 2;
 
 /// Install the process seed once; later calls keep the first seed (they return false).
 pub fn install(k0: u64, k1: u64) -> bool {
-    if STATE.compare_exchange(EMPTY, WRITING, Ordering::AcqRel, Ordering::Acquire).is_err() {
+    if STATE
+        .compare_exchange(EMPTY, WRITING, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
         while STATE.load(Ordering::Acquire) != READY {
             core::hint::spin_loop();
         }
@@ -29,7 +32,10 @@ pub fn seed() -> Option<(u64, u64)> {
     if STATE.load(Ordering::Acquire) != READY {
         return None;
     }
-    Some((SEED[0].load(Ordering::Relaxed), SEED[1].load(Ordering::Relaxed)))
+    Some((
+        SEED[0].load(Ordering::Relaxed),
+        SEED[1].load(Ordering::Relaxed),
+    ))
 }
 
 /// The fingerprint of `b` under the process seed as `[lo, hi]`; `None` before `install`.
@@ -120,10 +126,17 @@ fn sip_round(v: &mut [u64; 4]) {
 /// SipHash-2-4-128 keyed by `(k0, k1)`: `[lo, hi]` = the reference's 16 output bytes, little-endian.
 #[inline]
 pub fn siphash128(k0: u64, k1: u64, b: &[u8]) -> [u64; 2] {
-    let mut v = [k0 ^ 0x736f_6d65_7073_6575, k1 ^ 0x646f_7261_6e64_6f6d ^ 0xee, k0 ^ 0x6c79_6765_6e65_7261, k1 ^ 0x7465_6462_7974_6573];
+    let mut v = [
+        k0 ^ 0x736f_6d65_7073_6575,
+        k1 ^ 0x646f_7261_6e64_6f6d ^ 0xee,
+        k0 ^ 0x6c79_6765_6e65_7261,
+        k1 ^ 0x7465_6462_7974_6573,
+    ];
     let mut rest = b;
     while rest.len() >= 8 {
-        let m = u64::from_le_bytes([rest[0], rest[1], rest[2], rest[3], rest[4], rest[5], rest[6], rest[7]]);
+        let m = u64::from_le_bytes([
+            rest[0], rest[1], rest[2], rest[3], rest[4], rest[5], rest[6], rest[7],
+        ]);
         v[3] ^= m;
         sip_round(&mut v);
         sip_round(&mut v);

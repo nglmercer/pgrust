@@ -14,35 +14,36 @@ use core::cell::{Cell, RefCell};
 use mcx::{Mcx, MemoryContext, PgHashMap, PgString};
 use types_core::catalog::{C_COLLATION_OID, DEFAULT_COLLATION_OID};
 use types_core::{Oid, OidIsValid};
-use types_error::{PgError, PgResult, ERRCODE_WRONG_OBJECT_TYPE, ErrorLocation, WARNING};
+use types_error::{ErrorLocation, PgError, PgResult, ERRCODE_WRONG_OBJECT_TYPE, WARNING};
 
 mod builtin_case;
 mod chklocale;
 mod icu;
-mod lc;
-mod locale_time;
 mod icu_ffi;
+mod lc;
 mod lconv;
 mod libc_locale;
+mod locale_time;
 mod setup;
 #[cfg(test)]
 mod tests;
 
-pub use icu::{
-    icu_available_locale_ids, icu_language_tag, icu_locale_display_name_ascii,
-    icu_validate_locale, icu_wc_isclass, icu_wc_tolower, icu_wc_toupper,
-};
 pub use chklocale::pg_get_encoding_from_locale;
+pub use icu::{
+    icu_available_locale_ids, icu_language_tag, icu_locale_display_name_ascii, icu_validate_locale,
+    icu_wc_isclass, icu_wc_tolower, icu_wc_toupper,
+};
 pub use lconv::{pglc_localeconv, PgLconv, CHAR_MAX};
-pub use locale_time::{cache_locale_time, LocalizedTimeNames};
 pub use libc_locale::{
     backend_isalpha, backend_toupper, pg_tolower, pg_toupper, with_backend_ctype, WcClass,
 };
+pub use locale_time::{cache_locale_time, LocalizedTimeNames};
 pub use setup::{
-    assign_locale_messages, assign_locale_monetary, assign_locale_numeric, assign_locale_time,
-    check_locale, check_locale_messages, check_locale_monetary, check_locale_numeric,
-    check_locale_time, database_ctype_is_c, freeze_global_locale, pg_perm_setlocale,
-    set_database_ctype_is_c, arm_database_ctype, capture_database_ctype, restore_database_ctype, DatabaseCtype,
+    arm_database_ctype, assign_locale_messages, assign_locale_monetary, assign_locale_numeric,
+    assign_locale_time, capture_database_ctype, check_locale, check_locale_messages,
+    check_locale_monetary, check_locale_numeric, check_locale_time, database_ctype_is_c,
+    freeze_global_locale, pg_perm_setlocale, restore_database_ctype, set_database_ctype_is_c,
+    DatabaseCtype,
 };
 
 pub use pg_database_seams::{COLLPROVIDER_BUILTIN, COLLPROVIDER_ICU, COLLPROVIDER_LIBC};
@@ -83,7 +84,12 @@ pub static C_LOCALE: PgLocale = PgLocale {
 
 impl PgLocale {
     pub fn ctype_identity(&self) -> (u8, bool, bool, usize) {
-        (self.provider, self.ctype_is_c, self.builtin_casemap_full, self.lt.id())
+        (
+            self.provider,
+            self.ctype_is_c,
+            self.builtin_casemap_full,
+            self.lt.id(),
+        )
     }
 
     // pg_strncoll (pg_locale.c): the ICU arm's failures are ereport(ERROR)s
@@ -142,7 +148,10 @@ impl PgLocale {
     }
 
     pub fn pg_strnxfrm_prefix(&self, dest: &mut [u8], src: &[u8]) -> PgResult<usize> {
-        debug_assert!(self.provider == COLLPROVIDER_ICU, "strnxfrm_prefix is ICU-only");
+        debug_assert!(
+            self.provider == COLLPROVIDER_ICU,
+            "strnxfrm_prefix is ICU-only"
+        );
         icu::strnxfrm_prefix(dest, src, self.icu)
     }
 
@@ -380,7 +389,9 @@ pub fn arm_default_locale(locale: Option<&'static PgLocale>) {
 pub fn resolved_collations() -> PgResult<&'static [(Oid, &'static PgLocale)]> {
     COLLATION_CACHE.with(|cell| {
         let slot = cell.borrow();
-        let Some(cache) = slot.as_ref() else { return Ok(&[][..]) };
+        let Some(cache) = slot.as_ref() else {
+            return Ok(&[][..]);
+        };
         let have = RESOLVED.with(Cell::get);
         if have.len() == cache.map.len() {
             return Ok(have);
@@ -434,7 +445,11 @@ pub fn pg_newlocale_from_collation(collid: Oid) -> PgResult<&'static PgLocale> {
             return Ok(entry);
         }
     }
-    if let Some(&(_, entry)) = ARMED_COLLATIONS.with(Cell::get).iter().find(|(o, _)| *o == collid) {
+    if let Some(&(_, entry)) = ARMED_COLLATIONS
+        .with(Cell::get)
+        .iter()
+        .find(|(o, _)| *o == collid)
+    {
         return Ok(entry);
     }
 

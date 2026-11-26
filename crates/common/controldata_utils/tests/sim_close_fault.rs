@@ -19,7 +19,11 @@ fn mint_datadir() {
     assert_eq!(vfs::mkdir(&cpath(DATADIR), 0o700), 0);
     assert_eq!(vfs::mkdir(&cpath(&format!("{DATADIR}/global")), 0o700), 0);
     let path = format!("{DATADIR}/{XLOG_CONTROL_FILE}");
-    let fd = vfs::open(&cpath(&path), libc::O_RDWR | libc::O_CREAT | libc::O_TRUNC, 0o600);
+    let fd = vfs::open(
+        &cpath(&path),
+        libc::O_RDWR | libc::O_CREAT | libc::O_TRUNC,
+        0o600,
+    );
     assert!(fd >= 0, "sim open failed: errno {}", vfs::get_errno());
     assert_eq!(vfs::pwrite(fd, FIXTURE, 0), FIXTURE.len() as isize);
     assert_eq!(vfs::close(fd), 0);

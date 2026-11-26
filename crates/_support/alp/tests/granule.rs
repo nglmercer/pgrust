@@ -40,7 +40,10 @@ fn roundtrip(values: &[f64]) -> GranuleEncoded {
     assert_eq!(r.total_values, values.len());
     assert_eq!(r.raw_bytes, values.len() * 8);
     // frame_bytes is EXACT: the emitted frames' total length, nothing else.
-    assert_eq!(r.frame_bytes, enc.frames.iter().map(|f| f.len()).sum::<usize>());
+    assert_eq!(
+        r.frame_bytes,
+        enc.frames.iter().map(|f| f.len()).sum::<usize>()
+    );
     // Raw arm accounting is closed-form: header per granule + bit images.
     assert_eq!(r.raw_frame_bytes, 4 * r.ngranules + r.raw_bytes);
     // Per-granule raw fallback bounds every arm's emitted size.
@@ -50,7 +53,11 @@ fn roundtrip(values: &[f64]) -> GranuleEncoded {
     // ... and every individual frame is bounded by its raw image.
     for (g, frame) in enc.frames.iter().enumerate() {
         let glen = values[g * GRANULE_VALUES..].len().min(GRANULE_VALUES);
-        assert!(frame.len() <= 4 + 8 * glen, "granule {g}: {} bytes", frame.len());
+        assert!(
+            frame.len() <= 4 + 8 * glen,
+            "granule {g}: {} bytes",
+            frame.len()
+        );
     }
     // analyze() is encode() minus the frames; the reports must be equal
     // (this also witnesses election determinism across two runs).
@@ -58,7 +65,11 @@ fn roundtrip(values: &[f64]) -> GranuleEncoded {
     let decoded = enc.decode().expect("decode");
     assert_eq!(decoded.len(), values.len());
     for (i, (a, b)) in values.iter().zip(decoded.iter()).enumerate() {
-        assert_eq!(a.to_bits(), b.to_bits(), "bit mismatch at {i}: {a:?} vs {b:?}");
+        assert_eq!(
+            a.to_bits(),
+            b.to_bits(),
+            "bit mismatch at {i}: {a:?} vs {b:?}"
+        );
     }
     enc
 }
@@ -66,8 +77,9 @@ fn roundtrip(values: &[f64]) -> GranuleEncoded {
 #[test]
 fn decimal_origin_elects_alp() {
     let mut rng = Rng::new(0x41);
-    let values: Vec<f64> =
-        (0..65_536).map(|_| rng.i64_in(-1_000_000, 1_000_000) as f64 / 100.0).collect();
+    let values: Vec<f64> = (0..65_536)
+        .map(|_| rng.i64_in(-1_000_000, 1_000_000) as f64 / 100.0)
+        .collect();
     let enc = roundtrip(&values);
     let r = &enc.report;
     assert_eq!(r.granules_using(Scheme::Alp), 8, "{r:?}");
@@ -95,7 +107,9 @@ fn real_doubles_elect_rd() {
 #[test]
 fn random_bits_fall_to_raw() {
     let mut rng = Rng::new(0x43);
-    let values: Vec<f64> = (0..65_536).map(|_| f64::from_bits(rng.next_u64())).collect();
+    let values: Vec<f64> = (0..65_536)
+        .map(|_| f64::from_bits(rng.next_u64()))
+        .collect();
     let enc = roundtrip(&values);
     let r = &enc.report;
     assert_eq!(r.granules_using(Scheme::Raw), 8, "{r:?}");
@@ -131,8 +145,9 @@ fn mixed_regimes_split_per_granule() {
 fn specials_across_frame_boundaries() {
     let mut rng = Rng::new(0x45);
     let n = 3 * GRANULE_VALUES + 511;
-    let mut values: Vec<f64> =
-        (0..n).map(|_| rng.i64_in(-100_000, 100_000) as f64 / 1000.0).collect();
+    let mut values: Vec<f64> = (0..n)
+        .map(|_| rng.i64_in(-100_000, 100_000) as f64 / 1000.0)
+        .collect();
     // Straddle every granule boundary (and the short tail's edges) with
     // the bit-exactness hazards: NaN payloads, -0.0, infinities, denormal.
     for b in [GRANULE_VALUES, 2 * GRANULE_VALUES, 3 * GRANULE_VALUES] {
@@ -178,8 +193,9 @@ fn tails_at_granule_and_vector_level() {
         65_537,
         70_000,
     ] {
-        let values: Vec<f64> =
-            (0..n).map(|_| rng.i64_in(-50_000, 50_000) as f64 / 100.0).collect();
+        let values: Vec<f64> = (0..n)
+            .map(|_| rng.i64_in(-50_000, 50_000) as f64 / 100.0)
+            .collect();
         roundtrip(&values);
         // And the same lengths on incompressible input (raw frames).
         let values: Vec<f64> = (0..n).map(|_| f64::from_bits(rng.next_u64())).collect();
@@ -216,8 +232,9 @@ fn encoding_is_deterministic() {
 #[test]
 fn corrupt_frames_error_not_panic() {
     let mut rng = Rng::new(0x48);
-    let values: Vec<f64> =
-        (0..10_000).map(|_| rng.i64_in(-1_000_000, 1_000_000) as f64 / 100.0).collect();
+    let values: Vec<f64> = (0..10_000)
+        .map(|_| rng.i64_in(-1_000_000, 1_000_000) as f64 / 100.0)
+        .collect();
     let enc = granule::encode(&values);
     assert_eq!(enc.report.granule_schemes[0], Scheme::Alp);
     let frame = &enc.frames[0];
@@ -233,11 +250,17 @@ fn corrupt_frames_error_not_panic() {
     // Unknown scheme tag.
     let mut bad = frame.clone();
     bad[0] = 9;
-    assert_eq!(granule::decode_frame(&bad, &mut out), Err(FrameError::BadScheme(9)));
+    assert_eq!(
+        granule::decode_frame(&bad, &mut out),
+        Err(FrameError::BadScheme(9))
+    );
     // Trailing bytes past the declared payload.
     let mut bad = frame.clone();
     bad.push(0);
-    assert_eq!(granule::decode_frame(&bad, &mut out), Err(FrameError::Trailing));
+    assert_eq!(
+        granule::decode_frame(&bad, &mut out),
+        Err(FrameError::Trailing)
+    );
     // Out-of-range field: first vector's exponent byte (header 4 + len 2).
     let mut bad = frame.clone();
     bad[6] = 200;
@@ -248,7 +271,10 @@ fn corrupt_frames_error_not_panic() {
     // Zero vector count.
     let mut bad = frame.clone();
     bad[1] = 0;
-    assert_eq!(granule::decode_frame(&bad, &mut out), Err(FrameError::BadField("nvectors")));
+    assert_eq!(
+        granule::decode_frame(&bad, &mut out),
+        Err(FrameError::BadField("nvectors"))
+    );
     assert_eq!(out, vec![7.0f64; 3]);
 
     // The pristine frame still decodes after all that.

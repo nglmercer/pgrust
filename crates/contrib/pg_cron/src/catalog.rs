@@ -52,7 +52,10 @@ fn arg_name_str(fcinfo: &Fcinfo, i: usize) -> String {
 
 /// CStringGetTextDatum for SPI parameters, allocated in `mcx`.
 pub(crate) fn text_datum(mcx: Mcx<'_>, s: &str) -> PgResult<Datum> {
-    Ok(types_fmgr::varlena_result(varlena::cstring_to_text(mcx, s.as_bytes())?))
+    Ok(types_fmgr::varlena_result(varlena::cstring_to_text(
+        mcx,
+        s.as_bytes(),
+    )?))
 }
 
 #[cold]
@@ -84,9 +87,11 @@ fn superuser_jobs_disallowed() -> Box<PgError> {
 }
 
 fn current_user_name(mcx: Mcx<'_>) -> PgResult<String> {
-    Ok(miscinit::GetUserNameFromId(mcx, miscinit::GetUserId(), false)?
-        .map(|s| s.as_str().to_owned())
-        .unwrap_or_default())
+    Ok(
+        miscinit::GetUserNameFromId(mcx, miscinit::GetUserId(), false)?
+            .map(|s| s.as_str().to_owned())
+            .unwrap_or_default(),
+    )
 }
 
 fn role_name(mcx: Mcx<'_>, roleid: Oid) -> PgResult<String> {
@@ -140,8 +145,11 @@ pub fn cron_extension_owner() -> PgResult<Oid> {
                 .with_sqlstate(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
         ));
     };
-    let (d, isnull) =
-        cache_syscache::SysCacheGetAttr(cache_syscache::EXTENSIONNAME, &tup, extension::Anum_pg_extension_extowner)?;
+    let (d, isnull) = cache_syscache::SysCacheGetAttr(
+        cache_syscache::EXTENSIONNAME,
+        &tup,
+        extension::Anum_pg_extension_extowner,
+    )?;
     debug_assert!(!isnull);
     let owner = d.as_oid();
     cache_syscache::ReleaseSysCache(tup);
@@ -163,9 +171,10 @@ pub fn role_oid_if_can_login(username: &str) -> PgResult<Oid> {
 /// `InvalidateJobCache`: a relcache inval on cron.job, which the launcher's
 pub fn invalidate_job_cache() -> PgResult<()> {
     let relid = cron_job_relation_id()?;
-    if let Some(tup) =
-        cache_syscache::SearchSysCache1(cache_syscache::RELOID, cache_syscache::SysCacheKey::Value(Datum::from_oid(relid)))?
-    {
+    if let Some(tup) = cache_syscache::SearchSysCache1(
+        cache_syscache::RELOID,
+        cache_syscache::SysCacheKey::Value(Datum::from_oid(relid)),
+    )? {
         inval::invalidate::CacheInvalidateRelcacheByTuple(&tup.tuple())?;
         cache_syscache::ReleaseSysCache(tup);
     }
@@ -205,7 +214,15 @@ fn spi_as_extension_owner<R>(
             return Err(err("SPI_connect failed"));
         }
         let nulls = [false; 8];
-        let rc = spi::SPI_execute_extended(sql, argtypes, values, &nulls[..values.len()], false, false, None)?;
+        let rc = spi::SPI_execute_extended(
+            sql,
+            argtypes,
+            values,
+            &nulls[..values.len()],
+            false,
+            false,
+            None,
+        )?;
         if rc != expect {
             spi::SPI_finish()?;
             return Err(err(format!("SPI_exec failed: {sql}")));
@@ -260,14 +277,18 @@ fn schedule_cron_job(
         job_user = u.to_owned();
         acl_user = role_oid_if_can_login(u)?;
     }
-    let database_name = database.map(str::to_owned).unwrap_or_else(gucs::database_name);
+    let database_name = database
+        .map(str::to_owned)
+        .unwrap_or_else(gucs::database_name);
 
     if !gucs::enable_superuser_jobs() && superuser_seams::superuser_arg::call(acl_user)? {
         return Err(superuser_jobs_disallowed());
     }
     ensure_connect_privilege(mcx, acl_user, &database_name)?;
 
-    let mut argtypes = vec![TEXTOID, TEXTOID, TEXTOID, INT4OID, TEXTOID, TEXTOID, BOOLOID];
+    let mut argtypes = vec![
+        TEXTOID, TEXTOID, TEXTOID, INT4OID, TEXTOID, TEXTOID, BOOLOID,
+    ];
     let mut values = vec![
         text_datum(mcx, schedule)?,
         text_datum(mcx, command)?,
@@ -282,14 +303,24 @@ fn schedule_cron_job(
         values.push(text_datum(mcx, n)?);
     }
 
-    let job_id = spi_as_extension_owner(&sql, &argtypes, &values, spi::SPI_OK_INSERT_RETURNING, |processed| {
-        if processed == 0 {
-            return Err(err(format!("query did not return any rows: {sql}")));
-        }
-        Ok(spi::SPI_tuptable()
-            .map(|h| spi::tuptable_with(h, |d| spi::SPI_getbinval(&d.vals[0], &d.tupdesc, 1).0.as_i64()))
-            .unwrap_or(0))
-    })?;
+    let job_id = spi_as_extension_owner(
+        &sql,
+        &argtypes,
+        &values,
+        spi::SPI_OK_INSERT_RETURNING,
+        |processed| {
+            if processed == 0 {
+                return Err(err(format!("query did not return any rows: {sql}")));
+            }
+            Ok(spi::SPI_tuptable()
+                .map(|h| {
+                    spi::tuptable_with(h, |d| {
+                        spi::SPI_getbinval(&d.vals[0], &d.tupdesc, 1).0.as_i64()
+                    })
+                })
+                .unwrap_or(0))
+        },
+    )?;
     invalidate_job_cache()?;
     Ok(job_id)
 }
@@ -368,7 +399,9 @@ fn alter_job(
 
     let processed = spi_as_extension_owner(&sql, &argtypes, &values, spi::SPI_OK_UPDATE, Ok)?;
     if processed == 0 {
-        return Err(err(format!("Job {job_id} does not exist or you don't own it")));
+        return Err(err(format!(
+            "Job {job_id} does not exist or you don't own it"
+        )));
     }
     invalidate_job_cache()
 }
@@ -380,16 +413,30 @@ fn ensure_delete_permission(mcx: Mcx<'_>, owner_name: &str) -> PgResult<()> {
         return Ok(());
     }
     let relid = cron_job_relation_id()?;
-    let acl = aclchk::pg_class_aclcheck(relid, miscinit::GetUserId(), types_nodes::parsenodes::ACL_DELETE)?;
+    let acl = aclchk::pg_class_aclcheck(
+        relid,
+        miscinit::GetUserId(),
+        types_nodes::parsenodes::ACL_DELETE,
+    )?;
     if acl != aclchk::ACLCHECK_OK {
-        let name = lsyscache::get_rel_name(mcx, relid)?.map(|s| s.as_str().to_owned()).unwrap_or_default();
-        aclchk::aclcheck_error(acl, types_nodes::parsenodes::ObjectType::OBJECT_TABLE, &name)?;
+        let name = lsyscache::get_rel_name(mcx, relid)?
+            .map(|s| s.as_str().to_owned())
+            .unwrap_or_default();
+        aclchk::aclcheck_error(
+            acl,
+            types_nodes::parsenodes::ObjectType::OBJECT_TABLE,
+            &name,
+        )?;
     }
     Ok(())
 }
 
 /// C's ScanKeyInit leaves sk_collation InvalidOid and texteq/nameeq tolerate
-fn eq_key(attno: i32, proc_oid: types_core::RegProcedure, arg: Datum) -> PgResult<types_scan::scankey::ScanKeyData> {
+fn eq_key(
+    attno: i32,
+    proc_oid: types_core::RegProcedure,
+    arg: Datum,
+) -> PgResult<types_scan::scankey::ScanKeyData> {
     let mut k = types_scan::scankey::ScanKeyData::empty();
     k.sk_attno = attno as types_core::AttrNumber;
     k.sk_strategy = types_scan::scankey::BTEqualStrategyNumber;
@@ -430,7 +477,8 @@ fn delete_one_job(
 ) -> PgResult<()> {
     let rel = table::table_open(mcx, cron_job_relation_id()?, RowExclusiveLock)?;
     let desc = rel.descr();
-    let mut scan = genam::systable_beginscan(mcx, &rel, index_oid, index_oid != InvalidOid, None, keys)?;
+    let mut scan =
+        genam::systable_beginscan(mcx, &rel, index_oid, index_oid != InvalidOid, None, keys)?;
     let Some(tup) = genam::systable_getnext(mcx, &mut scan)? else {
         genam::systable_endscan(mcx, scan)?;
         rel.close(NoLock)?;
@@ -511,7 +559,9 @@ fn fc_cron_unschedule(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> Pg
     let nsp = catalog_namespace::get_namespace_oid(CRON_SCHEMA_NAME, false)?;
     let index = lsyscache::get_relname_relid(JOB_ID_INDEX_NAME, nsp)?;
     let key = eq_key(Anum_cron_job_jobid, F_INT8EQ, Datum::from_i64(job_id))?;
-    delete_one_job(mcx, &[key], index, || err(format!("could not find valid entry for job {job_id}")))?;
+    delete_one_job(mcx, &[key], index, || {
+        err(format!("could not find valid entry for job {job_id}"))
+    })?;
     Ok(Datum::from_bool(true))
 }
 
@@ -523,10 +573,24 @@ fn fc_cron_unschedule_named(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) 
     let mcx = fcinfo.result_mcx();
     let (jobname, name_key) = if funcapi::get_fn_expr_argtype(flinfo.as_deref(), 0) == NAMEOID {
         let s = arg_name_str(fcinfo, 0);
-        (s, eq_key(Anum_cron_job_jobname, types_core::fmgr::F_NAMEEQ, fcinfo.arg(0))?)
+        (
+            s,
+            eq_key(
+                Anum_cron_job_jobname,
+                types_core::fmgr::F_NAMEEQ,
+                fcinfo.arg(0),
+            )?,
+        )
     } else {
         let s = arg_text(fcinfo, 0)?;
-        (s, eq_key(Anum_cron_job_jobname, types_core::fmgr::F_TEXTEQ, fcinfo.arg(0))?)
+        (
+            s,
+            eq_key(
+                Anum_cron_job_jobname,
+                types_core::fmgr::F_TEXTEQ,
+                fcinfo.arg(0),
+            )?,
+        )
     };
     let user_key = eq_key(
         Anum_cron_job_username,
@@ -546,13 +610,21 @@ fn fc_cron_alter_job(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgR
     }
     let job_id = fcinfo.arg_i64(0);
     let opt = |i: usize| -> PgResult<Option<String>> {
-        if fcinfo.argisnull(i) { Ok(None) } else { arg_text(fcinfo, i).map(Some) }
+        if fcinfo.argisnull(i) {
+            Ok(None)
+        } else {
+            arg_text(fcinfo, i).map(Some)
+        }
     };
     let schedule = opt(1)?;
     let command = opt(2)?;
     let database = opt(3)?;
     let username = opt(4)?;
-    let active = if fcinfo.argisnull(5) { None } else { Some(fcinfo.arg_bool(5)) };
+    let active = if fcinfo.argisnull(5) {
+        None
+    } else {
+        Some(fcinfo.arg_bool(5))
+    };
     let mcx = fcinfo.result_mcx();
     alter_job(
         mcx,
@@ -567,7 +639,10 @@ fn fc_cron_alter_job(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgR
 }
 
 /// `cron_job_cache_invalidate()`: the AFTER trigger on cron.job.
-fn fc_cron_job_cache_invalidate(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
+fn fc_cron_job_cache_invalidate(
+    _flinfo: Option<&mut FmgrInfo>,
+    fcinfo: &mut Fcinfo,
+) -> PgResult<Datum> {
     // SAFETY: the trigger call machinery keeps the TriggerData live for the call.
     if unsafe { types_trigger_call::trigger_data_from_fcinfo(fcinfo) }.is_none() {
         return Err(Box::new(

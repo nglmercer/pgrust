@@ -31,7 +31,9 @@ pub enum Parallel {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ClaimKind {
     Source,
-    SpillPartitions { slot: u8 },
+    SpillPartitions {
+        slot: u8,
+    },
     /// D3024 (b): a keyed group emit's claims over the owner runs of the table it consumes first: a fixed count of slices
     /// (abi `OWNER_RUN_SLICES`), each claim's runs gathered by kernels table/emit.rs `agg_gather_claim`; owner runs are
     /// disjoint by key hash, so the claims split the groups with no overlap.
@@ -40,7 +42,9 @@ pub enum ClaimKind {
     /// ops/hashjoin/drain/source.rs) over the records of the build in slot `slot`: the same fixed slices (abi
     /// `OWNER_RUN_SLICES` = S), claim `[lo, hi)` taking records `[T*lo/S, T*hi/S)` of its T (the NULL-key tail included)
     /// and each spilled partition `p` whose slice `p*S/2^bits` falls in `[lo, hi)`, so each goes out exactly once.
-    BuildRecords { slot: u8 },
+    BuildRecords {
+        slot: u8,
+    },
 }
 
 /// Construct C2 (b): which licence a lowering holds for a pipeline it runs ahead of PostgreSQL's demand (decompose
@@ -64,7 +68,11 @@ pub enum LicenceStamp {
     /// `Licence::exact` (D1): a structural proof that PostgreSQL 18.6 runs the same code to the same first error. The tracer
     /// counts it apart (AHEAD-EXACT, by `proof`), never as licensed; `node`: the plan node the proof cites; `check`: what
     /// the lowering could check of it.
-    Exact { proof: ProofStamp, node: i32, check: ProofCheck },
+    Exact {
+        proof: ProofStamp,
+        node: i32,
+        check: ProofCheck,
+    },
     /// The accepted class (decompose `effects::accepted` / `effects::volatile_free`): early work whose departure is
     /// only an error PostgreSQL never hits, or extra VOLATILE calls, which are free. The tracer counts it apart
     /// (AHEAD-ACCEPTED), never as a key.
@@ -289,9 +297,19 @@ pub struct PipeEst {
 /// of the same estimates). A statement of other estimates drops an `end_rows` no graph pipeline names (the lowering
 /// statement's rows past its joins) where it binds rows: that breaker is sized by its bound rows, as before D4047. A
 /// serial pipeline's (no rows) stay the program's, as `pgrust.gravity_exact_size` = final | all reads them (D3205).
-pub fn bind_estimates<'g>(ps: &[Pipeline], graph: impl Fn(u16) -> Option<&'g Pipeline>) -> Option<Box<[PipeEst]>> {
+pub fn bind_estimates<'g>(
+    ps: &[Pipeline],
+    graph: impl Fn(u16) -> Option<&'g Pipeline>,
+) -> Option<Box<[PipeEst]>> {
     let of = |j: u16, filed: u64, f: fn(&Pipeline) -> u64| graph(j).map_or(filed, f);
-    let mut est: Vec<PipeEst> = ps.iter().map(|p| PipeEst { rows: of(p.rows_of, p.predicted_rows, |d| d.predicted_rows), build: of(p.build_of, p.build_rows, |d| d.build_rows), end: of(p.end_of, p.end_rows, |d| d.end_rows) }).collect(); // alloc: Cold
+    let mut est: Vec<PipeEst> = ps
+        .iter()
+        .map(|p| PipeEst {
+            rows: of(p.rows_of, p.predicted_rows, |d| d.predicted_rows),
+            build: of(p.build_of, p.build_rows, |d| d.build_rows),
+            end: of(p.end_of, p.end_rows, |d| d.end_rows),
+        })
+        .collect(); // alloc: Cold
     if ps.iter().zip(est.iter()).all(|(p, e)| p.est() == *e) {
         return None;
     }
@@ -322,7 +340,17 @@ pub const END_RATE_NONE: u64 = u64::MAX;
 impl core::fmt::Debug for Pipeline {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut d = f.debug_struct("Pipeline");
-        d.field("driving_site", &self.driving_site).field("ends_in", &self.ends_in).field("parallel", &self.parallel).field("predicted_rows", &self.predicted_rows).field("consumes", &self.consumes).field("claims", &self.claims).field("owner", &self.owner).field("admit", &self.admit).field("words", &self.words).field("topk", &self.topk).field("finish", &self.finish);
+        d.field("driving_site", &self.driving_site)
+            .field("ends_in", &self.ends_in)
+            .field("parallel", &self.parallel)
+            .field("predicted_rows", &self.predicted_rows)
+            .field("consumes", &self.consumes)
+            .field("claims", &self.claims)
+            .field("owner", &self.owner)
+            .field("admit", &self.admit)
+            .field("words", &self.words)
+            .field("topk", &self.topk)
+            .field("finish", &self.finish);
         if self.store_row_bytes != 0 {
             d.field("store_row_bytes", &self.store_row_bytes);
         }
@@ -394,35 +422,153 @@ pub(crate) static SLOT_TABLE: [u8; 256] = {
 
 impl Pipeline {
     pub const fn serial(driving_site: i16, ends_in: End, reason: Reason) -> Pipeline {
-        Pipeline { driving_site, ends_in, parallel: Parallel::Ineligible { site: driving_site, reason }, predicted_rows: 0, consumes: &[], consumes_from: &[], claims: ClaimKind::Source, owner: None, admit: None, words: None, topk: None, finish: false, store_row_bytes: 0, build_rows: 0, recheck_skip: false, lazy_for: -1, recheck_hold: false, recheck_hold_epq: false, held_sort: false, held_at: false, recheck: false, whole_read: false, ahead: None, pg_gate: -1, pg_regions: [-1; 4], quiet: false, licence: LicenceStamp::None, gate_tags: None, live_through: -1, rows_of: u16::MAX, build_of: u16::MAX, source_of: u16::MAX, pass_of: u16::MAX, row_width: 0, post: false, first_call: false, end_rate: END_RATE_NONE, end_rows: 0, end_of: u16::MAX, top_rows: 0, holds: None, refills: false, cascade: false }
+        Pipeline {
+            driving_site,
+            ends_in,
+            parallel: Parallel::Ineligible {
+                site: driving_site,
+                reason,
+            },
+            predicted_rows: 0,
+            consumes: &[],
+            consumes_from: &[],
+            claims: ClaimKind::Source,
+            owner: None,
+            admit: None,
+            words: None,
+            topk: None,
+            finish: false,
+            store_row_bytes: 0,
+            build_rows: 0,
+            recheck_skip: false,
+            lazy_for: -1,
+            recheck_hold: false,
+            recheck_hold_epq: false,
+            held_sort: false,
+            held_at: false,
+            recheck: false,
+            whole_read: false,
+            ahead: None,
+            pg_gate: -1,
+            pg_regions: [-1; 4],
+            quiet: false,
+            licence: LicenceStamp::None,
+            gate_tags: None,
+            live_through: -1,
+            rows_of: u16::MAX,
+            build_of: u16::MAX,
+            source_of: u16::MAX,
+            pass_of: u16::MAX,
+            row_width: 0,
+            post: false,
+            first_call: false,
+            end_rate: END_RATE_NONE,
+            end_rows: 0,
+            end_of: u16::MAX,
+            top_rows: 0,
+            holds: None,
+            refills: false,
+            cascade: false,
+        }
     }
 
-    pub const fn eligible(driving_site: i16, ends_in: End, predicted_rows: u64) -> Pipeline {  
-        Pipeline { driving_site, ends_in, parallel: Parallel::Eligible, predicted_rows, consumes: &[], consumes_from: &[], claims: ClaimKind::Source, owner: None, admit: None, words: None, topk: None, finish: false, store_row_bytes: 0, build_rows: 0, recheck_skip: false, lazy_for: -1, recheck_hold: false, recheck_hold_epq: false, held_sort: false, held_at: false, recheck: false, whole_read: false, ahead: None, pg_gate: -1, pg_regions: [-1; 4], quiet: false, licence: LicenceStamp::None, gate_tags: None, live_through: -1, rows_of: u16::MAX, build_of: u16::MAX, source_of: u16::MAX, pass_of: u16::MAX, row_width: 0, post: false, first_call: false, end_rate: END_RATE_NONE, end_rows: 0, end_of: u16::MAX, top_rows: 0, holds: None, refills: false, cascade: false }
+    pub const fn eligible(driving_site: i16, ends_in: End, predicted_rows: u64) -> Pipeline {
+        Pipeline {
+            driving_site,
+            ends_in,
+            parallel: Parallel::Eligible,
+            predicted_rows,
+            consumes: &[],
+            consumes_from: &[],
+            claims: ClaimKind::Source,
+            owner: None,
+            admit: None,
+            words: None,
+            topk: None,
+            finish: false,
+            store_row_bytes: 0,
+            build_rows: 0,
+            recheck_skip: false,
+            lazy_for: -1,
+            recheck_hold: false,
+            recheck_hold_epq: false,
+            held_sort: false,
+            held_at: false,
+            recheck: false,
+            whole_read: false,
+            ahead: None,
+            pg_gate: -1,
+            pg_regions: [-1; 4],
+            quiet: false,
+            licence: LicenceStamp::None,
+            gate_tags: None,
+            live_through: -1,
+            rows_of: u16::MAX,
+            build_of: u16::MAX,
+            source_of: u16::MAX,
+            pass_of: u16::MAX,
+            row_width: 0,
+            post: false,
+            first_call: false,
+            end_rate: END_RATE_NONE,
+            end_rows: 0,
+            end_of: u16::MAX,
+            top_rows: 0,
+            holds: None,
+            refills: false,
+            cascade: false,
+        }
     }
 
     /// KEY-PREDICTED-ROWS road (b): its estimates as the lowering statement's planner gave them.
     pub const fn est(&self) -> PipeEst {
-        PipeEst { rows: self.predicted_rows, build: self.build_rows, end: self.end_rows }
+        PipeEst {
+            rows: self.predicted_rows,
+            build: self.build_rows,
+            end: self.end_rows,
+        }
     }
 
     /// This pipeline with a statement's estimates (`bind_estimates`) over the lowering statement's.
     pub const fn with_est(self, e: PipeEst) -> Pipeline {
-        Pipeline { predicted_rows: e.rows, build_rows: e.build, end_rows: e.end, ..self }
+        Pipeline {
+            predicted_rows: e.rows,
+            build_rows: e.build,
+            end_rows: e.end,
+            ..self
+        }
     }
 
     pub const fn admitting(mut self, d: TwoPassDesc) -> Pipeline {
-        assert!(matches!(self.ends_in, End::Breaker(_)), "the admitting pass produces a breaker");
-        assert!(self.owner.is_some(), "the admitting pass declares its owner phase");
+        assert!(
+            matches!(self.ends_in, End::Breaker(_)),
+            "the admitting pass produces a breaker"
+        );
+        assert!(
+            self.owner.is_some(),
+            "the admitting pass declares its owner phase"
+        );
         self.admit = Some(d);
         self
     }
 
     /// Declare the top-k run (`TopKDesc`): the pipeline ends in a `TopK` breaker and, for a walk, drives a source.
     pub const fn topk(mut self, d: TopKDesc) -> Pipeline {
-        assert!(matches!(self.ends_in, End::Breaker(Breaker { kind: gravity_abi::breaker::BreakerKind::TopK, .. })), "a declared top-k run needs a TopK breaker");
+        assert!(
+            matches!(
+                self.ends_in,
+                End::Breaker(Breaker {
+                    kind: gravity_abi::breaker::BreakerKind::TopK,
+                    ..
+                })
+            ),
+            "a declared top-k run needs a TopK breaker"
+        );
         assert!(d.n > 0, "a declared top-k run keeps at least one row");
-        assert!(d.walk_attno == 0 || self.driving_site >= 0, "the zone walk orders a driving site's claims");
+        assert!(
+            d.walk_attno == 0 || self.driving_site >= 0,
+            "the zone walk orders a driving site's claims"
+        );
         self.topk = Some(d);
         self
     }
@@ -438,7 +584,10 @@ impl Pipeline {
         self
     }
     pub const fn finishing(mut self) -> Pipeline {
-        assert!(matches!(self.parallel, Parallel::Eligible) && self.driving_site >= 0, "the section end is a claim-driven pipeline's");
+        assert!(
+            matches!(self.parallel, Parallel::Eligible) && self.driving_site >= 0,
+            "the section end is a claim-driven pipeline's"
+        );
         self.finish = true;
         self
     }
@@ -447,25 +596,55 @@ impl Pipeline {
         let s = d.slots();
         let mut i = 0;
         while i < s.len() {
-            assert!(s[i] == WordsDesc::NONE || s[i] < d.nparams, "a kernel word past the extent");
+            assert!(
+                s[i] == WordsDesc::NONE || s[i] < d.nparams,
+                "a kernel word past the extent"
+            );
             i += 1;
         }
-        let group = d.topk != WordsDesc::NONE || d.dense_lo != WordsDesc::NONE || d.dense_hi != WordsDesc::NONE || d.order != WordsDesc::NONE;
-        assert!(!group || matches!(self.ends_in, End::Breaker(Breaker { kind: gravity_abi::breaker::BreakerKind::HashAgg, .. })), "the group facts need a HashAgg");
-        assert!(d.bits == WordsDesc::NONE || matches!(self.ends_in, End::Breaker(_)), "the bits word needs a breaker");
+        let group = d.topk != WordsDesc::NONE
+            || d.dense_lo != WordsDesc::NONE
+            || d.dense_hi != WordsDesc::NONE
+            || d.order != WordsDesc::NONE;
+        assert!(
+            !group
+                || matches!(
+                    self.ends_in,
+                    End::Breaker(Breaker {
+                        kind: gravity_abi::breaker::BreakerKind::HashAgg,
+                        ..
+                    })
+                ),
+            "the group facts need a HashAgg"
+        );
+        assert!(
+            d.bits == WordsDesc::NONE || matches!(self.ends_in, End::Breaker(_)),
+            "the bits word needs a breaker"
+        );
         self.words = Some(d);
         self
     }
 
     pub const fn owner(mut self, d: OwnerDesc) -> Pipeline {
-        assert!(matches!(self.ends_in, End::Breaker(_)), "an owner phase needs a breaker");
+        assert!(
+            matches!(self.ends_in, End::Breaker(_)),
+            "an owner phase needs a breaker"
+        );
         assert!(d.layout.nkeys() > 0, "an owner phase folds keyed records");
         if d.ctor.is_none() && d.ctor_desc.is_none() {
             // the generic phase serves three forms (exec's `owner.rs`): unordered runs, `ORDER_KEY` (ascending keys, no top-k), and the count-ordered form — `order_slot` a `Count` slot of the layout with `topk` = n
             if d.order_slot == ORDER_KEY {
-                assert!(d.topk == 0, "a key-ordered owner keeps every record (no top-k)");
+                assert!(
+                    d.topk == 0,
+                    "a key-ordered owner keeps every record (no top-k)"
+                );
             } else if d.order_slot != ORDER_NONE {
-                assert!(d.topk > 0 && (d.order_slot as usize) < d.layout.nslots() && matches!(d.layout.slot_kind(d.order_slot as usize), SlotKind::Count), "the count-ordered owner form: a Count slot of the layout and a bound");
+                assert!(
+                    d.topk > 0
+                        && (d.order_slot as usize) < d.layout.nslots()
+                        && matches!(d.layout.slot_kind(d.order_slot as usize), SlotKind::Count),
+                    "the count-ordered owner form: a Count slot of the layout and a bound"
+                );
             }
         }
         if let Some((_, sh)) = d.bits {
@@ -498,14 +677,20 @@ impl Pipeline {
 
     /// Declare one consumed slot (no arena: the slice is the static table's).
     pub const fn consuming_one(mut self, slot: u8) -> Pipeline {
-        assert!(self.consumes.is_empty(), "consuming_one declares the first slot");
+        assert!(
+            self.consumes.is_empty(),
+            "consuming_one declares the first slot"
+        );
         self.consumes = SLOT_TABLE.split_at(slot as usize).1.split_at(1).0;
         self
     }
 
     /// Declare one more consumed slot: the first from the static table, the rest grow in `arena` (the program's).
     pub fn consuming_in(mut self, arena: ArenaRef, slot: u8) -> Pipeline {
-        assert!(!self.consumes.contains(&slot), "a pipeline consumes one slot twice");
+        assert!(
+            !self.consumes.contains(&slot),
+            "a pipeline consumes one slot twice"
+        );
         if self.consumes.is_empty() {
             return self.consuming_one(slot);
         }
@@ -519,9 +704,13 @@ impl Pipeline {
 
     /// Declare one more consumed slot and the life it is read from.
     pub fn consuming_from_in(self, arena: ArenaRef, slot: u8, life: LifeId) -> Pipeline {
-        assert!(self.consumes_from.len() == self.consumes.len(), "a pipeline names the life of every slot it consumes or of none");
+        assert!(
+            self.consumes_from.len() == self.consumes.len(),
+            "a pipeline names the life of every slot it consumes or of none"
+        );
         let mut p = self.consuming_in(arena, slot);
-        let mut v: ArenaVec<LifeId> = ArenaVec::with_capacity_in(self.consumes_from.len() + 1, arena);
+        let mut v: ArenaVec<LifeId> =
+            ArenaVec::with_capacity_in(self.consumes_from.len() + 1, arena);
         v.extend_from_slice(self.consumes_from);
         v.push(life);
         // SAFETY: the arena outlives every copy of the pipeline (the program's).
@@ -531,7 +720,11 @@ impl Pipeline {
 
     /// D3914: the program pipeline this one is a pass of (`pass_of`), `None` for every other pipeline.
     pub const fn pass_of(&self) -> Option<usize> {
-        if self.pass_of == u16::MAX { None } else { Some(self.pass_of as usize) }
+        if self.pass_of == u16::MAX {
+            None
+        } else {
+            Some(self.pass_of as usize)
+        }
     }
 
     /// The slot this pipeline produces.

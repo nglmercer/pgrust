@@ -441,7 +441,13 @@ fn home_from_passwd() -> Option<String> {
     // SAFETY: getpwuid_r writes only into pwbuf/buf/pw, all live for the call;
     // pw_dir then points into buf, which outlives the copy below.
     let rc = unsafe {
-        libc::getpwuid_r(libc::geteuid(), &mut pwbuf, buf.as_mut_ptr(), buf.len(), &mut pw)
+        libc::getpwuid_r(
+            libc::geteuid(),
+            &mut pwbuf,
+            buf.as_mut_ptr(),
+            buf.len(),
+            &mut pw,
+        )
     };
     if rc != 0 || pw.is_null() {
         return None;
@@ -595,7 +601,8 @@ fn normalize_exec_path(
     // strlcpy(path, abspath, MAXPGPATH) cuts at the byte; the lossy decode
     // of a split trailing character is backed off below so the result still
     // fits the callers' MAXPGPATH buffers.
-    let mut out = String::from_utf8_lossy(&abspath[..abspath.len().min(MAXPGPATH - 1)]).into_owned();
+    let mut out =
+        String::from_utf8_lossy(&abspath[..abspath.len().min(MAXPGPATH - 1)]).into_owned();
     // SAFETY: resolved was malloc'd by realpath.
     unsafe { libc::free(resolved.cast()) };
     let n = truncate_maxpgpath(&out).len();
@@ -636,7 +643,12 @@ pub fn find_my_exec(
         // exec.c:173
         let errnum = errno();
         let prefix = format!("invalid binary \"{retpath}\"");
-        log_error_errno(&mut log_error, ExecLogCode::WrongObjectType, errnum, prefix.clone());
+        log_error_errno(
+            &mut log_error,
+            ExecLogCode::WrongObjectType,
+            errnum,
+            prefix.clone(),
+        );
         return Err(format!("{prefix}: {}", strerror(errnum)));
     }
 
@@ -736,7 +748,10 @@ pub fn find_other_exec(
 // (pg_get_line semantics: up to and including the newline; None when the
 // command produced nothing or could not be run).
 #[cfg(not(target_family = "wasm"))]
-pub fn pipe_read_line(cmd: &str, log_error: &mut impl FnMut(ExecLogCode, String)) -> Option<String> {
+pub fn pipe_read_line(
+    cmd: &str,
+    log_error: &mut impl FnMut(ExecLogCode, String),
+) -> Option<String> {
     // SAFETY: fflush(NULL) flushes every open output stream; no pointers.
     unsafe { libc::fflush(core::ptr::null_mut()) };
 
@@ -820,7 +835,10 @@ fn pipe_first_line(
 #[cfg(not(target_family = "wasm"))]
 // Kept safe on purpose (3 call sites): `stream` must come from popen and is closed here exactly once.
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub fn pclose_check(stream: *mut libc::FILE, log_error: &mut impl FnMut(ExecLogCode, String)) -> i32 {
+pub fn pclose_check(
+    stream: *mut libc::FILE,
+    log_error: &mut impl FnMut(ExecLogCode, String),
+) -> i32 {
     // SAFETY: stream came from popen and is closed exactly once here.
     let exitstatus = unsafe { libc::pclose(stream) };
 
@@ -831,9 +849,17 @@ pub fn pclose_check(stream: *mut libc::FILE, log_error: &mut impl FnMut(ExecLogC
     if exitstatus == -1 {
         /* pclose() itself failed, and hopefully set errno */
         let errnum = errno();
-        log_error_errno(&mut *log_error, ExecLogCode::SystemError, errnum, "pclose() failed".to_string());
+        log_error_errno(
+            &mut *log_error,
+            ExecLogCode::SystemError,
+            errnum,
+            "pclose() failed".to_string(),
+        );
     } else {
-        log_error(ExecLogCode::SystemError, wait_error::wait_result_to_str(exitstatus));
+        log_error(
+            ExecLogCode::SystemError,
+            wait_error::wait_result_to_str(exitstatus),
+        );
     }
     exitstatus
 }
@@ -845,11 +871,7 @@ pub const PG_TEXTDOMAIN_POSTGRES: &str = "postgres-18";
 // reports at LOG level and the failure is otherwise silent), then set
 // PGSYSCONFDIR for libpq without overriding an existing setting. The
 // ENABLE_NLS arm (bindtextdomain/PGLOCALEDIR) is not built.
-pub fn set_pglocale_pgservice(
-    argv0: &str,
-    app: &str,
-    log_error: impl FnMut(ExecLogCode, String),
-) {
+pub fn set_pglocale_pgservice(argv0: &str, app: &str, log_error: impl FnMut(ExecLogCode, String)) {
     /* don't set LC_ALL in the backend */
     // wasm32-wasip1: libc exposes no LC_ALL / setlocale; the C locale is the
     // only one (the wasm pg_locale arm).

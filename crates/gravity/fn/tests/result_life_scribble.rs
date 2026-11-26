@@ -18,7 +18,16 @@ const NUMERICOID: u32 = 1700;
 static SERIAL: Mutex<()> = Mutex::new(());
 
 fn input(call: &mut FmgrCall, s: &CString, typoid: u32) -> Datum {
-    let r = call.call_site(&[Datum::from_usize(s.as_ptr() as usize), Datum::from_u32(typoid), Datum::from_i32(-1)], &[false; 3]).unwrap();
+    let r = call
+        .call_site(
+            &[
+                Datum::from_usize(s.as_ptr() as usize),
+                Datum::from_u32(typoid),
+                Datum::from_i32(-1),
+            ],
+            &[false; 3],
+        )
+        .unwrap();
     assert!(!r.isnull);
     r.value
 }
@@ -45,7 +54,10 @@ fn a_kept_outbuf_result_reads_tildes_after_the_next_call() {
     let parent = MemoryContext::new("statement grant");
     let mut call = FmgrCall::bind_under(TEXTIN, 3, 0, &parent, -1).unwrap();
     assert_eq!(call.result_life(), ResultLife::UntilNextCall);
-    let (a, b) = (CString::new("first value").unwrap(), CString::new("second").unwrap());
+    let (a, b) = (
+        CString::new("first value").unwrap(),
+        CString::new("second").unwrap(),
+    );
     let r1 = input(&mut call, &a, TEXTOID);
     let kept = text(r1);
     assert_eq!(payload(&kept), b"first value");
@@ -53,7 +65,10 @@ fn a_kept_outbuf_result_reads_tildes_after_the_next_call() {
     assert_eq!(payload(&text(r2)), b"second");
     // SAFETY: the scribbled copy lives in the site's context until its reset.
     let stale = unsafe { core::slice::from_raw_parts(r1.as_usize() as *const u8, kept.len()) };
-    assert!(stale.iter().all(|&c| c == scribble::BYTE), "the kept pointer must read tildes: {stale:?}");
+    assert!(
+        stale.iter().all(|&c| c == scribble::BYTE),
+        "the kept pointer must read tildes: {stale:?}"
+    );
 }
 
 #[test]
@@ -67,7 +82,10 @@ fn another_site_of_the_same_builtin_scribbles_too() {
     input(&mut b, &CString::new("site b").unwrap(), TEXTOID);
     // SAFETY: as above.
     let stale = unsafe { core::slice::from_raw_parts(r1.as_usize() as *const u8, len) };
-    assert!(stale.iter().all(|&c| c == scribble::BYTE), "a thread-shared scratch builtin: any site's call ends the result");
+    assert!(
+        stale.iter().all(|&c| c == scribble::BYTE),
+        "a thread-shared scratch builtin: any site's call ends the result"
+    );
 }
 
 #[test]
@@ -82,9 +100,17 @@ fn a_retained_copy_and_other_builtins_survive() {
     // SAFETY: r1 is live until textin's next call.
     let copy = unsafe { copy_result(r1, -1, &mut region) }.unwrap();
     input(&mut n, &CString::new("1.5").unwrap(), NUMERICOID);
-    assert_eq!(payload(&text(r1)), b"kept by retain", "another builtin's call leaves the result alone");
+    assert_eq!(
+        payload(&text(r1)),
+        b"kept by retain",
+        "another builtin's call leaves the result alone"
+    );
     input(&mut t, &CString::new("next row").unwrap(), TEXTOID);
-    assert_eq!(payload(&text(copy)), b"kept by retain", "the retained copy outlives the next call");
+    assert_eq!(
+        payload(&text(copy)),
+        b"kept by retain",
+        "the retained copy outlives the next call"
+    );
 }
 
 #[test]
@@ -115,11 +141,18 @@ fn a_site_context_stays_bounded_under_a_per_row_reset() {
         n.reset_window();
         input(&mut n, &v, NUMERICOID);
     }
-    assert!(n.result_bytes() <= FMGR_SITE_ALLOWANCE, "per-row reset: {} bytes", n.result_bytes());
+    assert!(
+        n.result_bytes() <= FMGR_SITE_ALLOWANCE,
+        "per-row reset: {} bytes",
+        n.result_bytes()
+    );
     for _ in 0..20_000 {
         input(&mut n, &v, NUMERICOID);
     }
-    assert!(n.result_bytes() > FMGR_SITE_ALLOWANCE, "no reset (D212's shape) grows with the rows");
+    assert!(
+        n.result_bytes() > FMGR_SITE_ALLOWANCE,
+        "no reset (D212's shape) grows with the rows"
+    );
 }
 
 /// D324: a site that a thread-local's destructor drops at thread exit (a cached program's `FmgrCall` when a backend ends)
@@ -146,7 +179,16 @@ fn a_site_dropped_at_thread_exit_after_the_live_list_forgets_quietly() {
         return;
     }
     let exe = std::env::current_exe().unwrap();
-    let out = std::process::Command::new(exe).args([NAME, "--exact", "--nocapture", "--test-threads=1"]).env("GRAVITY_FN_D324_CHILD", "1").output().unwrap();
-    let log = String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
-    assert!(out.status.success() && log.contains("1 passed"), "the child ended {:?}:\n{log}", out.status);
+    let out = std::process::Command::new(exe)
+        .args([NAME, "--exact", "--nocapture", "--test-threads=1"])
+        .env("GRAVITY_FN_D324_CHILD", "1")
+        .output()
+        .unwrap();
+    let log =
+        String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success() && log.contains("1 passed"),
+        "the child ended {:?}:\n{log}",
+        out.status
+    );
 }

@@ -571,7 +571,8 @@ impl<'c, M: GuardMachine<N>, const N: usize> ValuePartRef<'c, M, N> {
             };
             return Ok(Self::constant_inline(
                 self.machine,
-                extended,to.div_ceil( 8),
+                extended,
+                to.div_ceil(8),
                 self.bank(),
             ));
         }

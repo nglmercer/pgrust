@@ -806,11 +806,11 @@ fn gen_special(g: &mut Gen) -> Vec<StmtKind> {
         }
         _ => {
             // NaN ordering + special comparisons (bool, exact).
-                "SELECT ('NaN'::float8 = 'NaN'::float8), ('NaN'::float8 > 'Infinity'::float8), \
+            "SELECT ('NaN'::float8 = 'NaN'::float8), ('NaN'::float8 > 'Infinity'::float8), \
                  ('Infinity'::float8 > 1e308::float8), ('-0'::float8 = 0::float8), \
                  (5e-324::float8 > 0::float8), (least('NaN'::float8, 1::float8)), \
-                 (greatest('NaN'::float8, 1::float8));".to_string(
-            )
+                 (greatest('NaN'::float8, 1::float8));"
+                .to_string()
         }
     };
     vec![raw(sql)]
@@ -968,8 +968,10 @@ mod tests {
         for _ in 0..4000 {
             let mut prods = Vec::new();
             let mut g = crate::stmt::Gen::new(&mut rng, &cat, &w, &mut prods, 3);
-            let stmts: Vec<String> =
-                gen_floatmath_module(&mut g).iter().map(|s| s.to_sql()).collect();
+            let stmts: Vec<String> = gen_floatmath_module(&mut g)
+                .iter()
+                .map(|s| s.to_sql())
+                .collect();
             let stat_idx = stmts.iter().position(|s| s.contains("var_pop"));
             if let Some(si) = stat_idx {
                 saw_stat = true;
@@ -984,7 +986,9 @@ mod tests {
                     "stat probe not serial-pinned: {stmts:?}"
                 );
                 assert!(
-                    stmts.iter().any(|s| s == "RESET max_parallel_workers_per_gather;"),
+                    stmts
+                        .iter()
+                        .any(|s| s == "RESET max_parallel_workers_per_gather;"),
                     "missing RESET: {stmts:?}"
                 );
             }

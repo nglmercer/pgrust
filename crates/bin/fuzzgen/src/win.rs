@@ -49,8 +49,14 @@ const SENSITIVE_PRODS: &[&str] = &[
     "win:nth_value",
 ];
 
-const INSENSITIVE_PRODS: &[&str] =
-    &["win:rank", "win:dense_rank", "win:count", "win:sum", "win:min", "win:max"];
+const INSENSITIVE_PRODS: &[&str] = &[
+    "win:rank",
+    "win:dense_rank",
+    "win:count",
+    "win:sum",
+    "win:min",
+    "win:max",
+];
 
 const MINMAX_TYPES: &[SqlType] = &[
     SqlType::Int2,
@@ -69,10 +75,14 @@ pub fn gen_win_stmt(g: &mut Gen) -> SelectStmt {
     g.fire("select");
     // Row source: a single table, or a two-table join of unique-keyed
     // tables (the combined unique keys keep a total order available).
-    let keyed: Vec<&Table> =
-        g.catalog.tables.iter().filter(|t| t.unique_key.is_some()).collect();
-    let join = !keyed.is_empty()
-        && g.weights.pick(g.rng, &["win:single", "win:join"]) == "win:join";
+    let keyed: Vec<&Table> = g
+        .catalog
+        .tables
+        .iter()
+        .filter(|t| t.unique_key.is_some())
+        .collect();
+    let join =
+        !keyed.is_empty() && g.weights.pick(g.rng, &["win:single", "win:join"]) == "win:join";
     let mut rels: Vec<ScopeRel> = Vec::new();
     // (alias, unique-key column) per relation that has one.
     let mut uks: Vec<(String, String)> = Vec::new();
@@ -86,8 +96,7 @@ pub fn gen_win_stmt(g: &mut Gen) -> SelectStmt {
         rels.push(ScopeRel::from_table(tb, ab.clone()));
         uks.push((aa.clone(), ta.unique_key.clone().expect("keyed")));
         uks.push((ab.clone(), tb.unique_key.clone().expect("keyed")));
-        let kind = if g.weights.pick(g.rng, &["win:join:inner", "win:join:left"])
-            == "win:join:left"
+        let kind = if g.weights.pick(g.rng, &["win:join:inner", "win:join:left"]) == "win:join:left"
         {
             g.fire("win:join:left");
             JoinKind::Left
@@ -100,12 +109,24 @@ pub fn gen_win_stmt(g: &mut Gen) -> SelectStmt {
         // NULL-extended, and differ in the left key.
         let on = Expr::Binary {
             op: "=",
-            lhs: Box::new(Expr::ColRef { alias: aa, name: "k_int".to_string() }),
-            rhs: Box::new(Expr::ColRef { alias: ab, name: "k_int".to_string() }),
+            lhs: Box::new(Expr::ColRef {
+                alias: aa,
+                name: "k_int".to_string(),
+            }),
+            rhs: Box::new(Expr::ColRef {
+                alias: ab,
+                name: "k_int".to_string(),
+            }),
         };
         FromItem::Join {
-            left: Box::new(FromItem::Table { name: ta.name.clone(), alias: rels[0].alias.clone() }),
-            right: Box::new(FromItem::Table { name: tb.name.clone(), alias: rels[1].alias.clone() }),
+            left: Box::new(FromItem::Table {
+                name: ta.name.clone(),
+                alias: rels[0].alias.clone(),
+            }),
+            right: Box::new(FromItem::Table {
+                name: tb.name.clone(),
+                alias: rels[1].alias.clone(),
+            }),
             kind,
             cond: JoinCond::On(on),
         }
@@ -117,12 +138,18 @@ pub fn gen_win_stmt(g: &mut Gen) -> SelectStmt {
         if let Some(uk) = &table.unique_key {
             uks.push((alias.clone(), uk.clone()));
         }
-        FromItem::Table { name: table.name.clone(), alias }
+        FromItem::Table {
+            name: table.name.clone(),
+            alias,
+        }
     };
     // A total window order is constructible iff every relation has a
     // unique key (fz_scalar deliberately has none — the fallback path).
     let total_possible = uks.len() == rels.len();
-    let scope = Scope { rels: &rels, outer: None };
+    let scope = Scope {
+        rels: &rels,
+        outer: None,
+    };
 
     // Plain output columns alongside the window columns.
     let mut items: Vec<SelectItem> = Vec::new();
@@ -130,7 +157,11 @@ pub fn gen_win_stmt(g: &mut Gen) -> SelectStmt {
     for _ in 0..nplain {
         let ty = g.any_type(&scope);
         let expr = g.gen_typed(&scope, ty, 2);
-        items.push(SelectItem { expr, alias: None, ty });
+        items.push(SelectItem {
+            expr,
+            alias: None,
+            ty,
+        });
     }
 
     // Occasional named WINDOW clause shared by the window items. Named
@@ -150,7 +181,13 @@ pub fn gen_win_stmt(g: &mut Gen) -> SelectStmt {
 
     let nwin = 1 + usize::from(g.rng.chance(1, 3));
     for _ in 0..nwin {
-        items.push(gen_window_item(g, &scope, &uks, total_possible, named.as_ref()));
+        items.push(gen_window_item(
+            g,
+            &scope,
+            &uks,
+            total_possible,
+            named.as_ref(),
+        ));
     }
 
     let where_clause = if g.rng.chance(1, 2) {
@@ -181,7 +218,11 @@ fn gen_window_item(
     // Order-sensitive functions are offered only when a total window order
     // is available (inline) or the named window is total.
     let named_total = named.is_some_and(|(_, t)| *t);
-    let can_sensitive = if named.is_some() { named_total } else { total_possible };
+    let can_sensitive = if named.is_some() {
+        named_total
+    } else {
+        total_possible
+    };
     let mut opts: Vec<&'static str> = INSENSITIVE_PRODS.to_vec();
     if can_sensitive {
         opts.extend_from_slice(SENSITIVE_PRODS);
@@ -200,7 +241,12 @@ fn gen_window_item(
         "win:count" => {
             if g.rng.chance(1, 3) {
                 // count(*) OVER — rendered through a literal star argument.
-                (vec![Expr::Lit { sql: "*".to_string() }], SqlType::Int8)
+                (
+                    vec![Expr::Lit {
+                        sql: "*".to_string(),
+                    }],
+                    SqlType::Int8,
+                )
             } else {
                 let t = g.any_type(scope);
                 (vec![g.gen_typed(scope, t, 2)], SqlType::Int8)
@@ -209,9 +255,12 @@ fn gen_window_item(
         "win:sum" => {
             // Integer/numeric only: exact accumulation, safe even when the
             // window order underdetermines the accumulation order.
-            let t = *g
-                .rng
-                .pick(&[SqlType::Int2, SqlType::Int4, SqlType::Int8, SqlType::Numeric]);
+            let t = *g.rng.pick(&[
+                SqlType::Int2,
+                SqlType::Int4,
+                SqlType::Int8,
+                SqlType::Numeric,
+            ]);
             let ty = match t {
                 SqlType::Int2 | SqlType::Int4 => SqlType::Int8,
                 _ => SqlType::Numeric,
@@ -220,7 +269,11 @@ fn gen_window_item(
         }
         "win:min" | "win:max" => {
             let t = *g.rng.pick(MINMAX_TYPES);
-            let ty = if t == SqlType::Varchar { SqlType::Text } else { t };
+            let ty = if t == SqlType::Varchar {
+                SqlType::Text
+            } else {
+                t
+            };
             (vec![g.gen_typed(scope, t, 2)], ty)
         }
         "win:lag" | "win:lead" => {
@@ -229,10 +282,16 @@ fn gen_window_item(
             let mut args = vec![e];
             match g.rng.below(3) {
                 0 => {}
-                1 => args.push(Expr::Lit { sql: g.rng.below(4).to_string() }),
+                1 => args.push(Expr::Lit {
+                    sql: g.rng.below(4).to_string(),
+                }),
                 _ => {
-                    args.push(Expr::Lit { sql: g.rng.below(4).to_string() });
-                    args.push(Expr::Lit { sql: g.gen_literal(t) });
+                    args.push(Expr::Lit {
+                        sql: g.rng.below(4).to_string(),
+                    });
+                    args.push(Expr::Lit {
+                        sql: g.gen_literal(t),
+                    });
                 }
             }
             (args, t)
@@ -244,7 +303,10 @@ fn gen_window_item(
         "win:nth_value" => {
             let t = g.any_type(scope);
             let n = 1 + g.rng.below(4);
-            (vec![g.gen_typed(scope, t, 2), Expr::Lit { sql: n.to_string() }], t)
+            (
+                vec![g.gen_typed(scope, t, 2), Expr::Lit { sql: n.to_string() }],
+                t,
+            )
         }
         other => unreachable!("unknown window production {}", other),
     };
@@ -258,7 +320,15 @@ fn gen_window_item(
             WindowOver::Inline(gen_window_def(g, scope, uks, total, total))
         }
     };
-    SelectItem { expr: Expr::WindowFunc { name: fname, args, over }, alias: None, ty }
+    SelectItem {
+        expr: Expr::WindowFunc {
+            name: fname,
+            args,
+            over,
+        },
+        alias: None,
+        ty,
+    }
 }
 
 /// One window definition. `total` appends every relation's unique key to
@@ -272,7 +342,10 @@ pub(crate) fn gen_window_def(
     allow_frame: bool,
 ) -> WindowDef {
     debug_assert!(!total || !uks.is_empty());
-    let npart = match g.weights.pick(g.rng, &["win:part:0", "win:part:1", "win:part:2"]) {
+    let npart = match g
+        .weights
+        .pick(g.rng, &["win:part:0", "win:part:1", "win:part:2"])
+    {
         "win:part:1" => 1,
         "win:part:2" => 2,
         _ => 0,
@@ -285,13 +358,19 @@ pub(crate) fn gen_window_def(
 
     let mut order_by: Vec<WinOrderKey> = Vec::new();
     if total {
-        if g.weights.pick(g.rng, &["win:order:extra", "win:order:plain"]) == "win:order:extra" {
+        if g.weights
+            .pick(g.rng, &["win:order:extra", "win:order:plain"])
+            == "win:order:extra"
+        {
             g.fire("win:order:extra");
             let key = random_colref(g, scope);
             order_by.push(gen_order_key(g, key));
         }
         for (alias, col) in uks {
-            let key = Expr::ColRef { alias: alias.clone(), name: col.clone() };
+            let key = Expr::ColRef {
+                alias: alias.clone(),
+                name: col.clone(),
+            };
             order_by.push(gen_order_key(g, key));
         }
     } else {
@@ -303,7 +382,10 @@ pub(crate) fn gen_window_def(
     }
 
     let frame = if allow_frame && total {
-        match g.weights.pick(g.rng, &["win:frame:none", "win:frame:rows", "win:frame:range"]) {
+        match g.weights.pick(
+            g.rng,
+            &["win:frame:none", "win:frame:rows", "win:frame:range"],
+        ) {
             "win:frame:rows" => {
                 g.fire("win:frame:rows");
                 Some(Frame {
@@ -329,7 +411,11 @@ pub(crate) fn gen_window_def(
     } else {
         None
     };
-    WindowDef { partition_by, order_by, frame }
+    WindowDef {
+        partition_by,
+        order_by,
+        frame,
+    }
 }
 
 fn gen_order_key(g: &mut Gen, expr: Expr) -> WinOrderKey {
@@ -339,7 +425,11 @@ fn gen_order_key(g: &mut Gen, expr: Expr) -> WinOrderKey {
         1 => Some(false),
         _ => None,
     };
-    WinOrderKey { expr, desc, nulls_first }
+    WinOrderKey {
+        expr,
+        desc,
+        nulls_first,
+    }
 }
 
 /// Random in-scope column reference (partition/order keys).
@@ -348,7 +438,10 @@ pub(crate) fn random_colref(g: &mut Gen, scope: &Scope) -> Expr {
     let cols = scope.columns_of_type(ty);
     debug_assert!(!cols.is_empty(), "any_type returned a type with no columns");
     let (alias, c) = *g.rng.pick(&cols);
-    Expr::ColRef { alias: alias.to_string(), name: c.name.clone() }
+    Expr::ColRef {
+        alias: alias.to_string(),
+        name: c.name.clone(),
+    }
 }
 
 fn pick_start(g: &mut Gen, offset_ok: bool) -> FrameBound {
@@ -413,7 +506,10 @@ mod tests {
             "UNBOUNDED PRECEDING",
             " JOIN ",
         ] {
-            assert!(sqls.contains(frag), "window flavor {frag:?} never generated");
+            assert!(
+                sqls.contains(frag),
+                "window flavor {frag:?} never generated"
+            );
         }
     }
 
@@ -437,7 +533,9 @@ mod tests {
             let stmt = gen_win_stmt(&mut g);
             let rel_uks = rel_unique_keys(stmt.from.as_ref().unwrap(), &cat);
             for item in &stmt.items {
-                let Expr::WindowFunc { name, over, .. } = &item.expr else { continue };
+                let Expr::WindowFunc { name, over, .. } = &item.expr else {
+                    continue;
+                };
                 let def = match over {
                     WindowOver::Inline(d) => d,
                     WindowOver::Named(n) => {
@@ -449,8 +547,7 @@ mod tests {
                             .1
                     }
                 };
-                let needs_total =
-                    ORDER_SENSITIVE_WINDOW_FNS.contains(name) || def.frame.is_some();
+                let needs_total = ORDER_SENSITIVE_WINDOW_FNS.contains(name) || def.frame.is_some();
                 if !needs_total {
                     continue;
                 }
@@ -472,13 +569,9 @@ mod tests {
                     );
                 }
                 if let Some(f) = &def.frame {
-                    let has_offset = matches!(
-                        f.start,
-                        FrameBound::Preceding(_) | FrameBound::Following(_)
-                    ) || matches!(
-                        f.end,
-                        FrameBound::Preceding(_) | FrameBound::Following(_)
-                    );
+                    let has_offset =
+                        matches!(f.start, FrameBound::Preceding(_) | FrameBound::Following(_))
+                            || matches!(f.end, FrameBound::Preceding(_) | FrameBound::Following(_));
                     assert!(
                         !(f.range && has_offset) || def.order_by.len() == 1,
                         "RANGE offset frame over a multi-key order: {}",
@@ -487,14 +580,21 @@ mod tests {
                 }
             }
         }
-        assert!(checked > 100, "order-sensitive windows rarely generated ({checked})");
+        assert!(
+            checked > 100,
+            "order-sensitive windows rarely generated ({checked})"
+        );
     }
 
     /// (alias, unique key) for every base relation in a FROM tree.
     fn rel_unique_keys(item: &FromItem, cat: &Catalog) -> Vec<(String, Option<String>)> {
         match item {
             FromItem::Table { name, alias } => {
-                let t = cat.tables.iter().find(|t| &t.name == name).expect("fixture table");
+                let t = cat
+                    .tables
+                    .iter()
+                    .find(|t| &t.name == name)
+                    .expect("fixture table");
                 vec![(alias.clone(), t.unique_key.clone())]
             }
             FromItem::Join { left, right, .. } => {

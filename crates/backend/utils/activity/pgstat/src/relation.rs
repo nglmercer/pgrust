@@ -95,10 +95,10 @@ pub fn pgstat_unlink_relation(_relid: Oid, _relisshared: bool) {}
 // from the same root stay aliasing-clean. Sound: the allocation outlives the
 // returned borrow (freed only via removal paths, which need &mut PgStatState).
 fn pgstat_prep_relation_pending(
-    st: & mut PgStatState,
+    st: &mut PgStatState,
     relid: Oid,
     relisshared: bool,
-) -> & mut PgStat_TableStatus {
+) -> &mut PgStat_TableStatus {
     let key = relation_key(relid, relisshared);
     match st.prep_pending_entry(key) {
         PendingData::Relation(rp) => {
@@ -111,7 +111,7 @@ fn pgstat_prep_relation_pending(
     }
 }
 
-fn table_mut(st: & mut PgStatState, key: PgStat_HashKey) -> & mut PgStat_TableStatus {
+fn table_mut(st: &mut PgStatState, key: PgStat_HashKey) -> &mut PgStat_TableStatus {
     match st.pending.get_mut(&key) {
         Some(PendingData::Relation(rp)) => unsafe { &mut *rp.as_ptr() },
         _ => unreachable!("relation pending entry vanished"),
@@ -337,7 +337,14 @@ pub fn pgstat_count_scan(
     returned: u64,
     fetched: u64,
 ) {
-    count_scan_link(rel.rd_id, rel.rd_rel.relisshared, &rel.pgstat_link, scans, returned, fetched);
+    count_scan_link(
+        rel.rd_id,
+        rel.rd_rel.relisshared,
+        &rel.pgstat_link,
+        scans,
+        returned,
+        fetched,
+    );
 }
 
 #[inline]
@@ -399,9 +406,7 @@ pub fn pgstat_relation_link_counts(relid: Oid, relisshared: bool) -> *mut () {
     pending::with_state(|st| {
         pgstat_prep_relation_pending(st, relid, relisshared);
         match st.pending.get_mut(&key) {
-            Some(PendingData::Relation(rp)) => {
-                unsafe { &raw mut (*rp.as_ptr()).counts }.cast()
-            }
+            Some(PendingData::Relation(rp)) => unsafe { &raw mut (*rp.as_ptr()).counts }.cast(),
             _ => unreachable!("relation pending entry vanished"),
         }
     })

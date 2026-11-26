@@ -77,13 +77,11 @@ fn invalid_hex_digit(s: &[u8]) -> PgResult<PgError> {
     let n = (mbutils_seams::pg_mblen_range::call(s)? as usize).min(s.len());
     // C's %.*s stops at a NUL inside the mbchar (encode.c:238).
     let n = s[..n].iter().position(|&b| b == 0).unwrap_or(n);
-    Ok(
-        PgError::error(format!(
-            "invalid hexadecimal digit: \"{}\"",
-            String::from_utf8_lossy(&s[..n])
-        ))
-        .with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE),
-    )
+    Ok(PgError::error(format!(
+        "invalid hexadecimal digit: \"{}\"",
+        String::from_utf8_lossy(&s[..n])
+    ))
+    .with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE))
 }
 
 #[cold]
@@ -142,7 +140,9 @@ pub fn hex_decode_into(
         // SAFETY: one output byte per digit pair; pairs <= src.len()/2, within
         // the asserted spare capacity past old.
         unsafe {
-            out.as_mut_ptr().add(old + written).write(((v1 as u8) << 4) | v2 as u8);
+            out.as_mut_ptr()
+                .add(old + written)
+                .write(((v1 as u8) << 4) | v2 as u8);
         }
         written += 1;
     }
@@ -281,7 +281,9 @@ pub fn byteaout_into(v: &[u8], mode: i32, out: &mut Vec<u8>) -> PgResult<()> {
             }
         }
     } else {
-        return Err(PgError::error(format!("unrecognized \"bytea_output\" setting: {mode}")).into());
+        return Err(
+            PgError::error(format!("unrecognized \"bytea_output\" setting: {mode}")).into(),
+        );
     }
     out.push(0);
     Ok(())

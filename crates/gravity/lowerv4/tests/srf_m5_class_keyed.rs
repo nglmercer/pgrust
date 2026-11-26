@@ -24,12 +24,21 @@ const CASES: &[(&str, &str)] = &[
 #[test]
 fn the_lowering_never_reads_a_class_keyed_literal() {
     for (id, bytes) in CASES {
-        let text = std::fs::read_to_string(common::plans_dir().join(format!("{id}.plan"))).unwrap_or_else(|e| panic!("{id}: {e}"));
-        assert_eq!(text.matches(&format!("[ {bytes} ]")).count(), 1, "{id}: the fixture holds the literal once");
+        let text = std::fs::read_to_string(common::plans_dir().join(format!("{id}.plan")))
+            .unwrap_or_else(|e| panic!("{id}: {e}"));
+        assert_eq!(
+            text.matches(&format!("[ {bytes} ]")).count(),
+            1,
+            "{id}: the fixture holds the literal once"
+        );
         let image: Vec<u8> = bytes.split(' ').map(|b| b.parse().unwrap()).collect();
-        let (l, baked) = common::lower_fixture_baked(&text, &image).unwrap_or_else(|| panic!("{id}: decomposes"));
+        let (l, baked) = common::lower_fixture_baked(&text, &image)
+            .unwrap_or_else(|| panic!("{id}: decomposes"));
         let l = l.unwrap_or_else(|r| panic!("{id}: lowers: {r}"));
         assert!(!baked, "{id}: the lowering read the literal's image (the content key keys it by class: D715 / D745)");
-        assert!(!l.descs.no_cache, "{id}: the program is filed (no class-keyed image read)");
+        assert!(
+            !l.descs.no_cache,
+            "{id}: the program is filed (no class-keyed image read)"
+        );
     }
 }

@@ -36,10 +36,10 @@ use types_core::xact::{
 };
 use types_core::Oid;
 use types_error::{
-    make_sqlstate, PgError, PgResult, DEBUG3, WARNING, ERRCODE_CONNECTION_EXCEPTION,
+    make_sqlstate, PgError, PgResult, DEBUG3, ERRCODE_CONNECTION_EXCEPTION,
     ERRCODE_CONNECTION_FAILURE, ERRCODE_FEATURE_NOT_SUPPORTED,
     ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION,
-    ERRCODE_S_R_E_PROHIBITED_SQL_STATEMENT_ATTEMPTED,
+    ERRCODE_S_R_E_PROHIBITED_SQL_STATEMENT_ATTEMPTED, WARNING,
 };
 
 use foreigncmds::foreign::{ForeignServer, UserMapping};
@@ -190,7 +190,9 @@ pub(crate) fn remote_error(res: &QueryResult, sql: Option<&str>) -> Box<PgError>
 // pgfdw_report_error(WARNING, ...): emit and continue (cleanup paths).
 fn remote_warning(res: &QueryResult, sql: Option<&str>) {
     let e = remote_error(res, sql);
-    let mut b = ereport(WARNING).errcode(e.sqlstate).errmsg_internal(e.message.clone());
+    let mut b = ereport(WARNING)
+        .errcode(e.sqlstate)
+        .errmsg_internal(e.message.clone());
     if let Some(d) = &e.detail {
         b = b.errdetail_internal(d.clone());
     }
@@ -210,7 +212,9 @@ fn pchomp(s: &str) -> String {
 // ---------- entry access ----------
 
 fn take_entry(key: Oid) -> ConnCacheEntry {
-    CONNECTIONS.with(|c| c.borrow_mut().remove(&key)).unwrap_or_else(ConnCacheEntry::new)
+    CONNECTIONS
+        .with(|c| c.borrow_mut().remove(&key))
+        .unwrap_or_else(ConnCacheEntry::new)
 }
 
 fn put_entry(key: Oid, entry: ConnCacheEntry) {
@@ -221,10 +225,7 @@ fn put_entry(key: Oid, entry: ConnCacheEntry) {
 
 // Remote-I/O access to a cached connection. The closure MUST NOT touch
 // catalogs (see the RefCell discipline note at the top).
-pub(crate) fn with_entry<R>(
-    key: Oid,
-    f: impl FnOnce(&mut ConnCacheEntry) -> R,
-) -> PgResult<R> {
+pub(crate) fn with_entry<R>(key: Oid, f: impl FnOnce(&mut ConnCacheEntry) -> R) -> PgResult<R> {
     CONNECTIONS.with(|c| {
         let mut map = c.borrow_mut();
         let Some(entry) = map.get_mut(&key) else {
@@ -260,7 +261,10 @@ pub(crate) fn exec_query_params(
         let conn = e.conn.as_mut().expect("live connection");
         conn.drain();
         if !conn.send_query_params(sql, &[], params) {
-            return Err(remote_error(&QueryResult::conn_error(conn.error_message()), Some(sql)));
+            return Err(remote_error(
+                &QueryResult::conn_error(conn.error_message()),
+                Some(sql),
+            ));
         }
         drain_last_result(conn, Some(query))
     })?
@@ -286,7 +290,9 @@ fn drain_last_result(conn: &mut PgConn, query: Option<&str>) -> PgResult<QueryRe
 // C's fetch_more_data raises a failed FETCH here, before any other command
 // reaches the (now aborted) remote transaction (postgres_fdw.c:3798).
 pub(crate) fn park_pending_entry(e: &mut ConnCacheEntry) -> PgResult<()> {
-    let Some(p) = e.pending_fetch.take() else { return Ok(()) };
+    let Some(p) = e.pending_fetch.take() else {
+        return Ok(());
+    };
     let conn = e.conn.as_mut().expect("live connection");
     let res = drain_last_result(conn, Some(&p.query))?;
     if res.status != pgclient::ExecStatus::TuplesOk {
@@ -322,8 +328,11 @@ pub(crate) fn begin_async_fetch(
                 Some(query),
             ));
         }
-        e.pending_fetch =
-            Some(PendingFetch { cursor_number, requestor_id, query: query.to_string() });
+        e.pending_fetch = Some(PendingFetch {
+            cursor_number,
+            requestor_id,
+            query: query.to_string(),
+        });
         Ok(())
     })?
 }
@@ -356,7 +365,9 @@ pub(crate) fn drop_parked(key: Oid, cursor_number: u32) -> PgResult<()> {
 
 #[allow(dead_code)] // phase 3: MOVE BACKWARD gate for pre-15 remotes
 pub(crate) fn server_version(key: Oid) -> PgResult<i32> {
-    with_entry(key, |e| e.conn.as_ref().expect("live connection").server_version())
+    with_entry(key, |e| {
+        e.conn.as_ref().expect("live connection").server_version()
+    })
 }
 
 // ---------- GetConnection ----------
@@ -457,7 +468,9 @@ pub(crate) fn get_connection<'mcx>(
                 .map(|c| c.error_message())
                 .unwrap_or_default();
             let _ = ereport(DEBUG3)
-                .errmsg_internal(format!("could not start remote transaction on connection {ptr}"))
+                .errmsg_internal(format!(
+                    "could not start remote transaction on connection {ptr}"
+                ))
                 .errdetail_internal(detail.trim_end_matches('\n').to_string())
                 .finish(loc("GetConnection"));
             debug3(format!("closing connection {ptr} to reestablish a new one"));
@@ -662,7 +675,10 @@ fn resolve_application_name(opts: &mut Vec<(String, String)>) -> PgResult<()> {
             opts.remove(i);
         }
     }
-    opts.push(("fallback_application_name".to_string(), "postgres_fdw".to_string()));
+    opts.push((
+        "fallback_application_name".to_string(),
+        "postgres_fdw".to_string(),
+    ));
     Ok(())
 }
 
@@ -678,7 +694,8 @@ fn add_scram_passthrough_options(
         return Ok(());
     }
     let Some((client_key, server_key)) = init_small::globals::TryWithMyProcPort(|p| {
-        p.has_scram_keys.then_some((p.scram_client_key, p.scram_server_key))
+        p.has_scram_keys
+            .then_some((p.scram_client_key, p.scram_server_key))
     })
     .flatten() else {
         return Ok(());
@@ -694,7 +711,9 @@ fn b64_scram_key(key: &[u8]) -> PgResult<String> {
     let mut out = ::mcx::std_vec_from_elem("postgres_fdw", 0u8, len as usize)?;
     let encoded_len = pg_b64::pg_b64_encode(key, key.len() as i32, &mut out, len);
     if encoded_len < 0 {
-        return Err(Box::new(PgError::error("could not encode SCRAM client key")));
+        return Err(Box::new(PgError::error(
+            "could not encode SCRAM client key",
+        )));
     }
     out.truncate(encoded_len as usize);
     Ok(String::from_utf8(out).expect("base64 is ASCII"))
@@ -850,7 +869,10 @@ pub(crate) fn do_sql_command(conn: &mut PgConn, sql: &str) -> PgResult<()> {
 // do_sql_command_begin: send without waiting (parallel commit).
 fn do_sql_command_begin(conn: &mut PgConn, sql: &str) -> PgResult<()> {
     if !conn.send_query(sql) {
-        return Err(remote_error(&QueryResult::conn_error(conn.error_message()), Some(sql)));
+        return Err(remote_error(
+            &QueryResult::conn_error(conn.error_message()),
+            Some(sql),
+        ));
     }
     Ok(())
 }
@@ -858,7 +880,10 @@ fn do_sql_command_begin(conn: &mut PgConn, sql: &str) -> PgResult<()> {
 // do_sql_command_end: collect the command's last result (pgfdw_get_result).
 fn do_sql_command_end(conn: &mut PgConn, sql: &str, consume_input: bool) -> PgResult<()> {
     if consume_input && !conn.consume_input() {
-        return Err(remote_error(&QueryResult::conn_error(conn.error_message()), Some(sql)));
+        return Err(remote_error(
+            &QueryResult::conn_error(conn.error_message()),
+            Some(sql),
+        ));
     }
     let mut last = None;
     while let Some(r) = conn.get_result()? {
@@ -873,19 +898,24 @@ fn do_sql_command_end(conn: &mut PgConn, sql: &str, consume_input: bool) -> PgRe
 
 // pgfdw_finish_pre_commit_cleanup: collect each COMMIT sent in parallel,
 // then any DEALLOCATE ALL, also sent in parallel (errors ignored).
-fn pgfdw_finish_pre_commit_cleanup(
-    map: &mut ConnMap,
-    pending: &[Oid],
-) -> PgResult<()> {
+fn pgfdw_finish_pre_commit_cleanup(map: &mut ConnMap, pending: &[Oid]) -> PgResult<()> {
     let mut pending_deallocs = Vec::new();
     for key in pending {
         let entry = map.get_mut(key).expect("pending entry");
         debug_assert!(entry.changing_xact_state);
-        do_sql_command_end(entry.conn.as_mut().expect("live connection"), "COMMIT TRANSACTION", true)?;
+        do_sql_command_end(
+            entry.conn.as_mut().expect("live connection"),
+            "COMMIT TRANSACTION",
+            true,
+        )?;
         entry.changing_xact_state = false;
         if entry.have_prep_stmt
             && entry.have_error
-            && entry.conn.as_mut().expect("live connection").send_query("DEALLOCATE ALL")
+            && entry
+                .conn
+                .as_mut()
+                .expect("live connection")
+                .send_query("DEALLOCATE ALL")
         {
             pending_deallocs.push(*key);
             continue;
@@ -916,7 +946,10 @@ fn begin_remote_xact(entry: &mut ConnCacheEntry) -> PgResult<()> {
     let curlevel = xact::GetCurrentTransactionNestLevel();
     if entry.xact_depth <= 0 {
         // connection.c:864, elog(DEBUG3).
-        debug3(format!("starting remote transaction on connection {}", conn_ptr(entry)));
+        debug3(format!(
+            "starting remote transaction on connection {}",
+            conn_ptr(entry)
+        ));
         let sql = if xact::IsolationIsSerializable() {
             "START TRANSACTION ISOLATION LEVEL SERIALIZABLE"
         } else {
@@ -976,7 +1009,9 @@ fn conn_ptr(entry: &ConnCacheEntry) -> String {
 
 // elog(DEBUG3, ...): never an error (DEBUG levels do not throw).
 fn debug3(msg: String) {
-    let _ = ereport(DEBUG3).errmsg_internal(msg).finish(loc("connection"));
+    let _ = ereport(DEBUG3)
+        .errmsg_internal(msg)
+        .finish(loc("connection"));
 }
 
 // ---------- transaction callbacks ----------
@@ -1099,7 +1134,10 @@ fn pgfdw_subxact_callback(
     _parent_subid: types_core::xact::SubTransactionId,
     _arg: Datum,
 ) -> PgResult<()> {
-    if !matches!(event, SUBXACT_EVENT_PRE_COMMIT_SUB | SUBXACT_EVENT_ABORT_SUB) {
+    if !matches!(
+        event,
+        SUBXACT_EVENT_PRE_COMMIT_SUB | SUBXACT_EVENT_ABORT_SUB
+    ) {
         return Ok(());
     }
     if !XACT_GOT_CONNECTION.with(Cell::get) {
@@ -1198,8 +1236,7 @@ fn pgfdw_reset_xact_state(entry: &mut ConnCacheEntry, toplevel: bool) {
         let unhealthy = match entry.conn.as_ref() {
             None => false,
             Some(conn) => {
-                conn.connection_bad()
-                    || conn.transaction_status() != TransactionStatus::Idle
+                conn.connection_bad() || conn.transaction_status() != TransactionStatus::Idle
             }
         };
         if entry.conn.is_some()
@@ -1272,8 +1309,7 @@ fn pgfdw_abort_cleanup(entry: &mut ConnCacheEntry, toplevel: bool) -> PgResult<(
 // its result within the cleanup deadline.
 fn pgfdw_cancel_query(conn: &mut PgConn) -> PgResult<bool> {
     let endtime = Instant::now() + Duration::from_millis(CONNECTION_CLEANUP_TIMEOUT_MS as u64);
-    let retrycanceltime =
-        Instant::now() + Duration::from_millis(RETRY_CANCEL_TIMEOUT_MS as u64);
+    let retrycanceltime = Instant::now() + Duration::from_millis(RETRY_CANCEL_TIMEOUT_MS as u64);
     // pgfdw_cancel_query_begin: send the cancel request.
     if let Some(msg) = conn.cancel(CONNECTION_CLEANUP_TIMEOUT_MS)? {
         let _ = ereport(WARNING)
@@ -1306,11 +1342,7 @@ fn pgfdw_cancel_query(conn: &mut PgConn) -> PgResult<bool> {
 
 // pgfdw_exec_cleanup_query: run a cleanup command with the 30s deadline.
 // false = the connection is unsalvageable (warnings already emitted).
-fn pgfdw_exec_cleanup_query(
-    conn: &mut PgConn,
-    query: &str,
-    ignore_errors: bool,
-) -> PgResult<bool> {
+fn pgfdw_exec_cleanup_query(conn: &mut PgConn, query: &str, ignore_errors: bool) -> PgResult<bool> {
     let endtime = Instant::now() + Duration::from_millis(CONNECTION_CLEANUP_TIMEOUT_MS as u64);
     if !conn.send_query(query) {
         remote_warning(&QueryResult::conn_error(conn.error_message()), Some(query));
@@ -1329,7 +1361,10 @@ fn pgfdw_exec_cleanup_query(
             Ok(false)
         }
         CleanupResult::Done(res) => {
-            if res.as_ref().is_some_and(|r| r.status == pgclient::ExecStatus::CommandOk) {
+            if res
+                .as_ref()
+                .is_some_and(|r| r.status == pgclient::ExecStatus::CommandOk)
+            {
                 Ok(true)
             } else {
                 if let Some(r) = res {
@@ -1373,7 +1408,11 @@ fn pgfdw_conn_check(conn: &PgConn) -> i32 {
 
 #[cfg(target_os = "linux")]
 fn poll_rdhup(sock: types_core::pgsocket) -> i32 {
-    let mut input_fd = libc::pollfd { fd: sock, events: libc::POLLRDHUP, revents: 0 };
+    let mut input_fd = libc::pollfd {
+        fd: sock,
+        events: libc::POLLRDHUP,
+        revents: 0,
+    };
     loop {
         // SAFETY: one live pollfd, zero timeout.
         let result = unsafe { libc::poll(&mut input_fd, 1, 0) };
@@ -1384,8 +1423,7 @@ fn poll_rdhup(sock: types_core::pgsocket) -> i32 {
             return -1;
         }
     }
-    if input_fd.revents & (libc::POLLRDHUP | libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0
-    {
+    if input_fd.revents & (libc::POLLRDHUP | libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0 {
         1
     } else {
         0
@@ -1467,7 +1505,9 @@ fn get_connections_internal(
     let mut srf = funcapi::InitMaterializedSRF(mcx, flinfo, fcinfo, 0)?;
     let expected = if v1_2 { 6 } else { 2 };
     if srf.tupdesc.natts != expected {
-        return Err(Box::new(PgError::error("incorrect number of output arguments")));
+        return Err(Box::new(PgError::error(
+            "incorrect number of output arguments",
+        )));
     }
     // check_conn (v1.2 first argument): the SQL function is STRICT, so the
     // argument is never NULL when called from SQL (C PG_GETARG_BOOL(0)).
@@ -1490,7 +1530,8 @@ fn get_connections_internal(
     });
     for row in rows {
         let server_name = server_name_missing_ok(row.serverid)?;
-        let mut values = ::mcx::std_vec_from_elem("postgres_fdw", Datum::null(), expected as usize)?;
+        let mut values =
+            ::mcx::std_vec_from_elem("postgres_fdw", Datum::null(), expected as usize)?;
         let mut nulls = ::mcx::std_vec_from_elem("postgres_fdw", true, expected as usize)?;
         if let Some(n) = &server_name {
             values[0] = types_fmgr::varlena_result(varlena::cstring_to_text(mcx, n.as_bytes())?);
@@ -1595,7 +1636,9 @@ pub(crate) fn fc_postgres_fdw_disconnect(
         String::from_utf8_lossy(v.data()).into_owned()
     };
     let serverid = foreigncmds::foreign::get_foreign_server_oid(&name, false)?;
-    Ok(Datum::from_bool(disconnect_cached_connections(Some(serverid))?))
+    Ok(Datum::from_bool(disconnect_cached_connections(Some(
+        serverid,
+    ))?))
 }
 
 pub(crate) fn fc_postgres_fdw_disconnect_all(
@@ -1670,7 +1713,10 @@ mod tests {
             ("dbname".to_string(), "db".to_string()),
             ("sslmode".to_string(), "".to_string()),
             ("application_name".to_string(), "".to_string()),
-            ("fallback_application_name".to_string(), "postgres_fdw".to_string()),
+            (
+                "fallback_application_name".to_string(),
+                "postgres_fdw".to_string(),
+            ),
         ];
         assert_eq!(
             params_conninfo(&opts).unwrap(),
@@ -1690,7 +1736,10 @@ mod tests {
         assert!(!opts.iter().any(|(k, _)| k == "application_name"));
         assert_eq!(
             opts.last().unwrap(),
-            &("fallback_application_name".to_string(), "postgres_fdw".to_string())
+            &(
+                "fallback_application_name".to_string(),
+                "postgres_fdw".to_string()
+            )
         );
 
         let mut opts = vec![
@@ -1704,7 +1753,10 @@ mod tests {
             vec![
                 ("application_name".to_string(), "first%".to_string()),
                 ("application_name".to_string(), "".to_string()),
-                ("fallback_application_name".to_string(), "postgres_fdw".to_string()),
+                (
+                    "fallback_application_name".to_string(),
+                    "postgres_fdw".to_string()
+                ),
             ]
         );
     }
@@ -1715,7 +1767,9 @@ mod tests {
     #[test]
     fn required_scram_options_need_both_keys_and_require_auth() {
         let o = |v: &[(&str, &str)]| -> Vec<(String, String)> {
-            v.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+            v.iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
         };
         assert!(has_required_scram_options(&o(&[
             ("scram_client_key", "a"),
@@ -1744,7 +1798,10 @@ mod tests {
     #[test]
     fn scram_keys_are_base64_encoded_for_libpq() {
         let key = [0x01u8; 32];
-        assert_eq!(b64_scram_key(&key).unwrap(), "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=");
+        assert_eq!(
+            b64_scram_key(&key).unwrap(),
+            "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="
+        );
     }
 
     // pgfdw_report_error (connection.c:1011-1022): only an ABSENT primary
@@ -1766,9 +1823,15 @@ mod tests {
             err: "ERROR:  missing error text\n".into(),
         };
         let e = remote_error(&res, Some("SELECT 1"));
-        assert_eq!(e.message(), "could not obtain message string for remote error");
+        assert_eq!(
+            e.message(),
+            "could not obtain message string for remote error"
+        );
         assert_eq!(e.sqlstate(), make_sqlstate(*b"P0001"));
-        let e = remote_error(&QueryResult::conn_error("server closed the connection\n".into()), None);
+        let e = remote_error(
+            &QueryResult::conn_error("server closed the connection\n".into()),
+            None,
+        );
         assert_eq!(e.message(), "server closed the connection");
     }
 

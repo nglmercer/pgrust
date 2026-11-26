@@ -18,7 +18,10 @@ crate::strategies! {
 }
 
 pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
-    strategies: &[(WIDTH_WORK, &WidthImpl(&BY_WORK)), (WIDTH_WRITE, &WidthImpl(&BY_WORK))],
+    strategies: &[
+        (WIDTH_WORK, &WidthImpl(&BY_WORK)),
+        (WIDTH_WRITE, &WidthImpl(&BY_WORK)),
+    ],
     ..crate::ops::NONE
 };
 

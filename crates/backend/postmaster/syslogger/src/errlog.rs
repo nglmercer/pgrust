@@ -133,7 +133,9 @@ pub(crate) fn csvlog_line(edata: &PgError) -> String {
     buf.push(',');
 
     // remote host and port
-    if let Some(remote_host) = context.filter(|c| c.has_client_port()).and_then(|c| c.remote_host())
+    if let Some(remote_host) = context
+        .filter(|c| c.has_client_port())
+        .and_then(|c| c.remote_host())
     {
         buf.push('"');
         buf.push_str(&remote_host);
@@ -158,7 +160,15 @@ pub(crate) fn csvlog_line(edata: &PgError) -> String {
 
     // PS display
     if has_port {
-        append_csv_literal(&mut buf, Some(context.and_then(|c| c.ps_display()).as_deref().unwrap_or("")));
+        append_csv_literal(
+            &mut buf,
+            Some(
+                context
+                    .and_then(|c| c.ps_display())
+                    .as_deref()
+                    .unwrap_or(""),
+            ),
+        );
     }
     buf.push(',');
 
@@ -189,7 +199,10 @@ pub(crate) fn csvlog_line(edata: &PgError) -> String {
     buf.push(',');
 
     // errdetail or errdetail_log
-    append_csv_literal(&mut buf, edata.detail_log.as_deref().or(edata.detail.as_deref()));
+    append_csv_literal(
+        &mut buf,
+        edata.detail_log.as_deref().or(edata.detail.as_deref()),
+    );
     buf.push(',');
 
     // errhint
@@ -216,7 +229,11 @@ pub(crate) fn csvlog_line(edata: &PgError) -> String {
 
     // user query — only reported if not disabled by the caller
     let print_stmt = check_log_of_query(edata);
-    let query = if print_stmt { current_query_string() } else { None };
+    let query = if print_stmt {
+        current_query_string()
+    } else {
+        None
+    };
     append_csv_literal(&mut buf, query.as_deref());
     buf.push(',');
     if query.is_some() {
@@ -292,15 +309,27 @@ pub(crate) fn jsonlog_line(edata: &PgError) -> String {
     append_escaped_json(&mut buf, &get_formatted_log_time());
 
     if has_port {
-        append_json_key_value(&mut buf, "user", context.and_then(|c| c.user_name()).as_deref(), true);
-        append_json_key_value(&mut buf, "dbname", context.and_then(|c| c.database_name()).as_deref(), true);
+        append_json_key_value(
+            &mut buf,
+            "user",
+            context.and_then(|c| c.user_name()).as_deref(),
+            true,
+        );
+        append_json_key_value(
+            &mut buf,
+            "dbname",
+            context.and_then(|c| c.database_name()).as_deref(),
+            true,
+        );
     }
 
     if my_pid != 0 {
         append_json_key_value(&mut buf, "pid", Some(&my_pid.to_string()), false);
     }
 
-    if let Some(remote_host) = context.filter(|c| c.has_client_port()).and_then(|c| c.remote_host())
+    if let Some(remote_host) = context
+        .filter(|c| c.has_client_port())
+        .and_then(|c| c.remote_host())
     {
         append_json_key_value(&mut buf, "remote_host", Some(&remote_host), true);
         if let Some(remote_port) = context.and_then(|c| c.remote_port()) {
@@ -311,22 +340,42 @@ pub(crate) fn jsonlog_line(edata: &PgError) -> String {
     }
 
     let start = context.map_or_else(init_small::globals::MyStartTime, |c| c.session_start_time());
-    append_json_key_value(&mut buf, "session_id", Some(&format!("{:x}.{:x}", start, my_pid)), true);
+    append_json_key_value(
+        &mut buf,
+        "session_id",
+        Some(&format!("{:x}.{:x}", start, my_pid)),
+        true,
+    );
     append_json_key_value(&mut buf, "line_num", Some(&line_number.to_string()), false);
 
     if has_port {
         append_json_key_value(
             &mut buf,
             "ps",
-            Some(context.and_then(|c| c.ps_display()).as_deref().unwrap_or("")),
+            Some(
+                context
+                    .and_then(|c| c.ps_display())
+                    .as_deref()
+                    .unwrap_or(""),
+            ),
             true,
         );
     }
 
-    append_json_key_value(&mut buf, "session_start", Some(&get_formatted_start_time()), true);
+    append_json_key_value(
+        &mut buf,
+        "session_start",
+        Some(&get_formatted_start_time()),
+        true,
+    );
 
     if let Some((proc_number, lxid)) = context.and_then(|c| c.virtual_transaction_id()) {
-        append_json_key_value(&mut buf, "vxid", Some(&format!("{}/{}", proc_number, lxid)), true);
+        append_json_key_value(
+            &mut buf,
+            "vxid",
+            Some(&format!("{}/{}", proc_number, lxid)),
+            true,
+        );
     }
 
     append_json_key_value(
@@ -336,9 +385,19 @@ pub(crate) fn jsonlog_line(edata: &PgError) -> String {
         false,
     );
 
-    append_json_key_value(&mut buf, "error_severity", Some(error_severity(edata.level)), true);
+    append_json_key_value(
+        &mut buf,
+        "error_severity",
+        Some(error_severity(edata.level)),
+        true,
+    );
     if edata.sqlstate.0 != 0 {
-        append_json_key_value(&mut buf, "state_code", Some(&unpack_sql_state(edata.sqlstate)), true);
+        append_json_key_value(
+            &mut buf,
+            "state_code",
+            Some(&unpack_sql_state(edata.sqlstate)),
+            true,
+        );
     }
     append_json_key_value(&mut buf, "message", Some(edata.message.as_str()), true);
     append_json_key_value(
@@ -348,7 +407,12 @@ pub(crate) fn jsonlog_line(edata: &PgError) -> String {
         true,
     );
     append_json_key_value(&mut buf, "hint", edata.hint.as_deref(), true);
-    append_json_key_value(&mut buf, "internal_query", edata.internal_query.as_deref(), true);
+    append_json_key_value(
+        &mut buf,
+        "internal_query",
+        edata.internal_query.as_deref(),
+        true,
+    );
     if let (Some(pos), Some(_)) = (edata.internal_position, &edata.internal_query) {
         if pos > 0 {
             append_json_key_value(&mut buf, "internal_position", Some(&pos.to_string()), false);
@@ -363,7 +427,12 @@ pub(crate) fn jsonlog_line(edata: &PgError) -> String {
             append_json_key_value(&mut buf, "statement", Some(&query), true);
             if let Some(pos) = edata.cursor_position {
                 if pos > 0 {
-                    append_json_key_value(&mut buf, "cursor_position", Some(&pos.to_string()), false);
+                    append_json_key_value(
+                        &mut buf,
+                        "cursor_position",
+                        Some(&pos.to_string()),
+                        false,
+                    );
                 }
             }
         }
@@ -374,7 +443,12 @@ pub(crate) fn jsonlog_line(edata: &PgError) -> String {
             append_json_key_value(&mut buf, "func_name", loc.funcname.as_deref(), true);
             if let Some(file) = &loc.filename {
                 append_json_key_value(&mut buf, "file_name", Some(file), true);
-                append_json_key_value(&mut buf, "file_line_num", Some(&loc.lineno.to_string()), false);
+                append_json_key_value(
+                    &mut buf,
+                    "file_line_num",
+                    Some(&loc.lineno.to_string()),
+                    false,
+                );
             }
         }
     }
@@ -385,7 +459,12 @@ pub(crate) fn jsonlog_line(edata: &PgError) -> String {
         }
     }
 
-    append_json_key_value(&mut buf, "backend_type", Some(&elog::get_backend_type_for_log()), true);
+    append_json_key_value(
+        &mut buf,
+        "backend_type",
+        Some(&elog::get_backend_type_for_log()),
+        true,
+    );
 
     if let Some(leader_pid) = context.and_then(|c| c.lock_group_leader_pid()) {
         if leader_pid != my_pid {

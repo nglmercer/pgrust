@@ -35,7 +35,9 @@ pub fn catalog_from_rows(rows: &[Vec<Option<String>>]) -> Result<Catalog, String
         let [Some(rel), Some(att), Some(oid), Some(notnull)] = row.as_slice() else {
             return Err(format!("introspection row with NULLs: {row:?}"));
         };
-        let oid: u32 = oid.parse().map_err(|e| format!("bad atttypid {oid:?}: {e}"))?;
+        let oid: u32 = oid
+            .parse()
+            .map_err(|e| format!("bad atttypid {oid:?}: {e}"))?;
         let Some(ty) = SqlType::from_oid(oid) else {
             continue; // type the generator doesn't model
         };
@@ -55,7 +57,12 @@ pub fn catalog_from_rows(rows: &[Vec<Option<String>>]) -> Result<Catalog, String
             });
         }
         let table = tables.last_mut().expect("just pushed");
-        table.columns.push(Column { name: att.clone(), ty, nullable, ddl_type: None });
+        table.columns.push(Column {
+            name: att.clone(),
+            ty,
+            nullable,
+            ddl_type: None,
+        });
     }
     tables.retain(|t| !t.columns.is_empty());
     if tables.is_empty() {
@@ -73,7 +80,9 @@ impl CatalogSource for LiveCatalog {
             .map_err(|ConnLost(e)| format!("live catalog: {e}"))?;
         let result = results.last().ok_or("live catalog: empty exchange")?;
         if let Some((state, message)) = &result.error {
-            return Err(format!("live catalog: introspection failed: {state} {message}"));
+            return Err(format!(
+                "live catalog: introspection failed: {state} {message}"
+            ));
         }
         catalog_from_rows(&result.rows)
     }

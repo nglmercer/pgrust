@@ -44,12 +44,18 @@ pub fn path_of(p: &Program<'_>, id: NodeId) -> Option<(i16, Vec<Vec<u8>>, bool)>
                     F_JSONB_OBJECT_FIELD => false,
                     _ => return None,
                 };
-                if call.args.len != 2 || (text.is_none() && !is_text) || (text.is_some() && is_text) {
+                if call.args.len != 2 || (text.is_none() && !is_text) || (text.is_some() && is_text)
+                {
                     return None;
                 }
                 text.get_or_insert(is_text);
-                let (obj, key) = (p.kids[call.args.start as usize], p.kids[call.args.start as usize + 1]);
-                let ExprNode::Const(c) = &p.nodes[key.0 as usize] else { return None };
+                let (obj, key) = (
+                    p.kids[call.args.start as usize],
+                    p.kids[call.args.start as usize + 1],
+                );
+                let ExprNode::Const(c) = &p.nodes[key.0 as usize] else {
+                    return None;
+                };
                 if c.is_null() || c.typlen != -1 {
                     return None;
                 }
@@ -70,13 +76,22 @@ fn text_bytes(d: Datum) -> Vec<u8> {
     // SAFETY: a non-null text constant is a live varlena image the plan owns.
     unsafe {
         if varatt::varatt_is_1b(ptr) {
-            core::slice::from_raw_parts(ptr.add(1), varatt::varsize_1b(ptr) - 1).to_vec() // alloc: Program
+            core::slice::from_raw_parts(ptr.add(1), varatt::varsize_1b(ptr) - 1).to_vec()
+        // alloc: Program
         } else {
-            core::slice::from_raw_parts(ptr.add(4), varatt::varsize_4b(ptr) - 4).to_vec() // alloc: Program
+            core::slice::from_raw_parts(ptr.add(4), varatt::varsize_4b(ptr) - 4).to_vec()
+            // alloc: Program
         }
     }
 }
 
-pub fn find<'a>(shreds: &'a [ShredRef], attno: i16, path: &[Vec<u8>], typ: ShredType) -> Option<&'a ShredRef> {
-    shreds.iter().find(|s| s.attno == attno && s.path == path && s.typ == typ)
+pub fn find<'a>(
+    shreds: &'a [ShredRef],
+    attno: i16,
+    path: &[Vec<u8>],
+    typ: ShredType,
+) -> Option<&'a ShredRef> {
+    shreds
+        .iter()
+        .find(|s| s.attno == attno && s.path == path && s.typ == typ)
 }

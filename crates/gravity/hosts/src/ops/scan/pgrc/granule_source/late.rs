@@ -20,7 +20,18 @@ impl GranuleRangeSource {
         let mut want = core::mem::take(&mut self.scratch_a);
         want.clear();
         let mut stopped = false;
-        let psma = |z: &ZonePred| self.on(VERDICT_PSMA) && !matches!(z.op, ZoneOp::Ne | ZoneOp::NotNull | ZoneOp::IsNull | ZoneOp::InMember | ZoneOp::HashEq | ZoneOp::HashIn);
+        let psma = |z: &ZonePred| {
+            self.on(VERDICT_PSMA)
+                && !matches!(
+                    z.op,
+                    ZoneOp::Ne
+                        | ZoneOp::NotNull
+                        | ZoneOp::IsNull
+                        | ZoneOp::InMember
+                        | ZoneOp::HashEq
+                        | ZoneOp::HashIn
+                )
+        };
         let applies = |z: &ZonePred| {
             self.on(VERDICT_BLOOM) && z.is_hashed()
                 || !z.prefix && (self.on(VERDICT_BLOOM) && matches!(z.op, ZoneOp::Eq | ZoneOp::InMember) || psma(z))
@@ -32,7 +43,9 @@ impl GranuleRangeSource {
         for z in self.zone[..self.nzone_decl].iter().filter(|z| applies(z)) {
             let k = z.lane as usize;
             let face = self.face(k);
-            if self.mapped.has(k) && (rp.meta_if_read(p, face).is_none() || rp.body_if_read(p, face).is_none()) {
+            if self.mapped.has(k)
+                && (rp.meta_if_read(p, face).is_none() || rp.body_if_read(p, face).is_none())
+            {
                 want.set(k);
             }
         }
@@ -41,7 +54,10 @@ impl GranuleRangeSource {
                 need.assign(&want);
             } else {
                 let start = list.starts()[p];
-                let (lo, hi) = (g.saturating_sub(start), self.hi.min(list.end_of(p)).saturating_sub(start));
+                let (lo, hi) = (
+                    g.saturating_sub(start),
+                    self.hi.min(list.end_of(p)).saturating_sub(start),
+                );
                 let base = p * self.recipe.natts;
                 // C9: a tick per granule of the claim (its verdicts over the zone predicates)
                 let mut step = cancelpoll::step("granule_source stage: a claim's late meta need");
@@ -50,12 +66,17 @@ impl GranuleRangeSource {
                         stopped = true;
                         break;
                     }
-                    let rows = self.cursors[base + self.rows_lane].as_deref().map_or(0, |c| c.rows_in_granule(lg));
+                    let rows = self.cursors[base + self.rows_lane]
+                        .as_deref()
+                        .map_or(0, |c| c.rows_in_granule(lg));
                     if self.nzone > 0 && self.verdicts_of(p, lg, rows).0 == V_NONE {
                         continue;
                     }
                     // bounded("other: one zone predicate of the statement's own quals each (an IN list's member is one): the query text bounds them, and PG's ExecQual tests the same quals per row with no poll")
-                    for z in self.zone[..self.nzone_decl].iter().filter(|z| applies(z) && want.has(z.lane as usize)) {
+                    for z in self.zone[..self.nzone_decl]
+                        .iter()
+                        .filter(|z| applies(z) && want.has(z.lane as usize))
+                    {
                         // a prefix predicate's record is no map's (the map holds exact keys): one granule left asks it
                         if z.prefix || self.map_verdict(p, lg, rows, z) == Some(V_MIXED) {
                             need.set(z.lane as usize);
@@ -102,17 +123,32 @@ impl GranuleRangeSource {
     /// decode.late: lane `k` of granule `lg` left for `lane_fill`: its kind and validity now (a window's `VALID` and its
     /// no-nulls fact are exact before any fill), no row decoded.
     pub(super) fn late_stage(&mut self, p: usize, k: usize, lg: u32, rows: usize) -> PgResult<()> {
-        let cur = self.cursors[p * self.recipe.natts + k].as_deref_mut().expect("cursor");
+        let cur = self.cursors[p * self.recipe.natts + k]
+            .as_deref_mut()
+            .expect("cursor");
         if cur.rows_in_granule(lg) as usize != rows {
             return Err(err("gravity: pgrc granule row skew"));
         }
         if self.recipe.numeric.has(k) && cur.key().encoding != EncodingId::PackedNumeric as u16 {
             self.lane_byref.set(k);
         }
-        self.all_valid[k] = !cur.has_validity_stream() || matches!(cur.validity(lg, &mut self.valid[k * VALIDITY_WORDS..(k + 1) * VALIDITY_WORDS]).map_err(read_err)?, ValidityVerdict::AllValid);
+        self.all_valid[k] = !cur.has_validity_stream()
+            || matches!(
+                cur.validity(
+                    lg,
+                    &mut self.valid[k * VALIDITY_WORDS..(k + 1) * VALIDITY_WORDS]
+                )
+                .map_err(read_err)?,
+                ValidityVerdict::AllValid
+            );
         self.late_done[k * VALIDITY_WORDS..(k + 1) * VALIDITY_WORDS].fill(0);
         self.late_at[k] = (0, 0);
-        (self.late_cnt[k], self.late_req[k], self.late_span[k], self.late_calls[k]) = (0, 0, 0, (0, 0));
+        (
+            self.late_cnt[k],
+            self.late_req[k],
+            self.late_span[k],
+            self.late_calls[k],
+        ) = (0, 0, 0, (0, 0));
         self.late_pend |= 1 << k;
         Ok(())
     }
@@ -142,9 +178,21 @@ impl GranuleRangeSource {
             return Ok(1);
         }
         // the frames holding a row no earlier fill decoded: the ones this fill unpacks
-        let (fw, done) = (FRAME_VALUES as usize / 64, &self.late_done[k * VALIDITY_WORDS..(k + 1) * VALIDITY_WORDS]);
-        let frames = (lo / fw..=hi / fw).filter(|f| (f * fw..((f + 1) * fw).min(VALIDITY_WORDS)).any(|w| need[w] & !done[w] != 0)).count() as u32;
-        if self.late_dense(k, asked, (hi * 64 + 64 - need[hi].leading_zeros() as usize) as u32, frames) {
+        let (fw, done) = (
+            FRAME_VALUES as usize / 64,
+            &self.late_done[k * VALIDITY_WORDS..(k + 1) * VALIDITY_WORDS],
+        );
+        let frames = (lo / fw..=hi / fw)
+            .filter(|f| {
+                (f * fw..((f + 1) * fw).min(VALIDITY_WORDS)).any(|w| need[w] & !done[w] != 0)
+            })
+            .count() as u32;
+        if self.late_dense(
+            k,
+            asked,
+            (hi * 64 + 64 - need[hi].leading_zeros() as usize) as u32,
+            frames,
+        ) {
             return self.late_whole(k, p, lg, rows);
         }
         let natts = self.recipe.natts;
@@ -212,13 +260,25 @@ impl GranuleRangeSource {
         if span < SAMPLE_ROWS {
             return false;
         }
-        let kind = if self.lane_byref.has(k) { lane::KIND_BYREF } else { self.recipe.kinds[k] };
-        let cur = self.cursors[self.late_g.0 * self.recipe.natts + k].as_deref().expect("cursor");
+        let kind = if self.lane_byref.has(k) {
+            lane::KIND_BYREF
+        } else {
+            self.recipe.kinds[k]
+        };
+        let cur = self.cursors[self.late_g.0 * self.recipe.natts + k]
+            .as_deref()
+            .expect("cursor");
         match lane_decode(cur.key(), kind, self.recipe.widths[k]) {
             Some(d) => {
                 // a frame-coded stream's fills unpack whole frames: against the whole decode of the frames the span reaches
-                let whole = if matches!(d, LaneDecode::Ffor | LaneDecode::DeltaFor) { span.next_multiple_of(FRAME_VALUES as usize).min(self.late_g.2) } else { span };
-                d.gather_ns(calls as u64, frames as u64, self.late_req[k] as u64) >= d.whole_ns(self.recipe.widths[k], whole as u64)
+                let whole = if matches!(d, LaneDecode::Ffor | LaneDecode::DeltaFor) {
+                    span.next_multiple_of(FRAME_VALUES as usize)
+                        .min(self.late_g.2)
+                } else {
+                    span
+                };
+                d.gather_ns(calls as u64, frames as u64, self.late_req[k] as u64)
+                    >= d.whole_ns(self.recipe.widths[k], whole as u64)
             }
             None => self.late_req[k] as usize * SELECT_DIV > span,
         }
@@ -231,7 +291,10 @@ impl GranuleRangeSource {
         fires::fire_shared("pgrc.late_whole");
         self.late_decode(k, p, lg, rows, None)?;
         // bounded("small-fixed: the validity words of one granule, at most VALIDITY_WORDS (128)")
-        for (w, d) in self.late_done[k * VALIDITY_WORDS..(k + 1) * VALIDITY_WORDS].iter_mut().enumerate() {
+        for (w, d) in self.late_done[k * VALIDITY_WORDS..(k + 1) * VALIDITY_WORDS]
+            .iter_mut()
+            .enumerate()
+        {
             *d = match rows.saturating_sub(w * 64) {
                 0 => 0,
                 l if l >= 64 => u64::MAX,
@@ -246,7 +309,14 @@ impl GranuleRangeSource {
     /// Lane `k` of the staged granule: the `n` rows of `late_sel` / `late_sel16` gathered to their positions, or (`None`)
     /// every row; a by-reference lane's images into its arena chunk past the window's earlier images (the next chunk,
     /// twice the last, when that one is full).
-    pub(super) fn late_decode(&mut self, k: usize, p: usize, lg: u32, rows: usize, sel: Option<usize>) -> PgResult<()> {
+    pub(super) fn late_decode(
+        &mut self,
+        k: usize,
+        p: usize,
+        lg: u32,
+        rows: usize,
+        sel: Option<usize>,
+    ) -> PgResult<()> {
         let natts = self.recipe.natts;
         let scale = self.lane_scale(p, k) as i32;
         let cur = self.cursors[p * natts + k].as_deref_mut().expect("cursor");
@@ -255,11 +325,23 @@ impl GranuleRangeSource {
                 fires::fire_shared("pgrc.packed_dyn"); // shapecheck fire signal (N14): a min / max lane reads a chunk's packed codes
             }
             // lane k's slot; the late selection holds `n`
-            super::raw::decode_lane_mantissa(cur, scale, lg, rows, sel, &mut self.datums[k * ROWS..], &self.late_sel16)
+            super::raw::decode_lane_mantissa(
+                cur,
+                scale,
+                lg,
+                rows,
+                sel,
+                &mut self.datums[k * ROWS..],
+                &self.late_sel16,
+            )
         } else if self.recipe.kinds[k] == lane::KIND_CODES {
             return Err(err("gravity: a code lane is never late"));
         } else {
-            let kind = if self.lane_byref.has(k) { lane::KIND_BYREF } else { self.recipe.kinds[k] };
+            let kind = if self.lane_byref.has(k) {
+                lane::KIND_BYREF
+            } else {
+                self.recipe.kinds[k]
+            };
             let mut small = [0u64; 8];
             // bounded("small-fixed: one retry per doubling of the window's arena chunk, at most 64 (a usize's bits)")
             loop {
@@ -276,11 +358,30 @@ impl GranuleRangeSource {
                 };
                 let mut took = 0;
                 // as `decode_lane`'s; the late selection holds `n` rows
-                let (want, r) = super::raw::decode_lane_into(cur, kind, self.recipe.widths[k], lg, rows, sel, &mut self.datums[k * ROWS..], &mut self.dense, &self.late_sel16, &self.late_sel, arena, &mut took);
+                let (want, r) = super::raw::decode_lane_into(
+                    cur,
+                    kind,
+                    self.recipe.widths[k],
+                    lg,
+                    rows,
+                    sel,
+                    &mut self.datums[k * ROWS..],
+                    &mut self.dense,
+                    &self.late_sel16,
+                    &self.late_sel,
+                    arena,
+                    &mut took,
+                );
                 match r {
-                    Err(pgrc_read::ReadError::Format(pgrc_format::FormatError::ArenaExhausted { .. })) if kind == lane::KIND_BYREF => {
+                    Err(pgrc_read::ReadError::Format(
+                        pgrc_format::FormatError::ArenaExhausted { .. },
+                    )) if kind == lane::KIND_BYREF => {
                         // the next chunk (twice the last): the window's earlier images stay where they are
-                        let last = if c == 0 { self.arenas[k].len() } else { self.late_more[k][c - 1].len() };
+                        let last = if c == 0 {
+                            self.arenas[k].len()
+                        } else {
+                            self.late_more[k][c - 1].len()
+                        };
                         // the data sizes the chunk (D2582), reserved fallibly: a machine that cannot hold it is the typed error
                         let size = 2 * last;
                         if self.late_more[k].len() <= c {
@@ -309,8 +410,16 @@ impl GranuleRangeSource {
     /// (`decode_sel`) into the render's chunks, an image that stays for the statement (the leader's
     /// fold holds the datums).
     /// D4548: each new chunk is charged to the source's held owner as it is pushed (`push_render`).
-    pub(super) fn render_row(&mut self, p: usize, k: usize, lg: u32, i: u32) -> PgResult<(Word, u32)> {
-        let cur = self.cursors[p * self.recipe.natts + k].as_deref_mut().expect("cursor");
+    pub(super) fn render_row(
+        &mut self,
+        p: usize,
+        k: usize,
+        lg: u32,
+        i: u32,
+    ) -> PgResult<(Word, u32)> {
+        let cur = self.cursors[p * self.recipe.natts + k]
+            .as_deref_mut()
+            .expect("cursor");
         if i >= cur.rows_in_granule(lg) {
             return Err(err("gravity: a row locator outside its granule"));
         }
@@ -334,7 +443,10 @@ impl GranuleRangeSource {
                 self.render_used = 0;
                 continue;
             }
-            let mut out = DecodeOut { datums: &mut one, arena };
+            let mut out = DecodeOut {
+                datums: &mut one,
+                arena,
+            };
             match cur.decode_sel(lg, &pgrc_format::abi::Selection { rows: &sel }, &mut out) {
                 Ok(1) => {
                     self.render_used = out.arena.used();
@@ -343,8 +455,14 @@ impl GranuleRangeSource {
                     return Ok((one[0], (hdr >> 2) - 4));
                 }
                 Ok(_) => return Err(err("gravity: render decoded count")),
-                Err(pgrc_read::ReadError::Format(pgrc_format::FormatError::ArenaExhausted { needed })) => {
-                    push_render(&mut self.render, &mut self.held, (needed * 2).max(len * 2).div_ceil(8));
+                Err(pgrc_read::ReadError::Format(pgrc_format::FormatError::ArenaExhausted {
+                    needed,
+                })) => {
+                    push_render(
+                        &mut self.render,
+                        &mut self.held,
+                        (needed * 2).max(len * 2).div_ceil(8),
+                    );
                     self.render_used = 0;
                 }
                 Err(e) => return Err(read_err(e)),
@@ -383,13 +501,21 @@ mod tests {
             super::push_render(&mut render, &mut h, 1 << 17);
             assert_eq!(c(stmt), 1 << 20, "the first chunk: the owner's at its push");
             super::push_render(&mut render, &mut h, 1 << 18);
-            assert_eq!(c(stmt), 3 << 20, "a chunk past the first: the owner's at its push");
+            assert_eq!(
+                c(stmt),
+                3 << 20,
+                "a chunk past the first: the owner's at its push"
+            );
             let held = |r: &Vec<Vec<u64>>| r.iter().map(|v| v.capacity() * 8).sum::<usize>() as u64;
             h.sync(held(&render));
             assert_eq!(c(stmt), 3 << 20, "the next sync finds the chunks charged");
             render.truncate(1);
             h.sync(held(&render));
-            assert_eq!(c(stmt), 1 << 20, "the bind's truncate: the freed chunk given back at its sync");
+            assert_eq!(
+                c(stmt),
+                1 << 20,
+                "the bind's truncate: the freed chunk given back at its sync"
+            );
             drop(h);
             assert_eq!(c(stmt), 0, "dropped with the source");
             memledger::statement_end();

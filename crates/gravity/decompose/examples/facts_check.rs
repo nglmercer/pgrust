@@ -9,8 +9,8 @@ use std::fs;
 use std::path::Path;
 
 use gravity_decompose::catalog::render;
-use gravity_decompose::Facts;
 use gravity_decompose::corpus;
+use gravity_decompose::Facts;
 use mcx::MemoryContext;
 
 fn blocks(text: &str) -> BTreeMap<u32, String> {
@@ -36,7 +36,12 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let (plans, live) = (Path::new(&args[1]), Path::new(&args[2]));
     let (mut fixtures, mut checked, mut missing, mut bad) = (0usize, 0usize, 0usize, 0usize);
-    let mut names: Vec<_> = fs::read_dir(plans).unwrap().filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "plan")).collect();
+    let mut names: Vec<_> = fs::read_dir(plans)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "plan"))
+        .collect();
     names.sort();
     for path in names {
         let stem = path.file_stem().unwrap().to_string_lossy().to_string();
@@ -47,7 +52,8 @@ fn main() {
         fixtures += 1;
         let text = fs::read_to_string(&path).unwrap();
         let ctx = MemoryContext::new("fixture");
-        let fx = corpus::load(ctx.mcx(), &text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let fx =
+            corpus::load(ctx.mcx(), &text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
         let live_blocks = blocks(&live_text);
         for (r, _) in fx.facts.rels.iter() {
             let mut mine = String::new();
@@ -57,15 +63,27 @@ fn main() {
                 Some(l) if *l == mine => {}
                 Some(l) => {
                     bad += 1;
-                    println!("MISMATCH {stem} rel {}:\n--- fixture\n{mine}--- live\n{l}", r.relid);
+                    println!(
+                        "MISMATCH {stem} rel {}:\n--- fixture\n{mine}--- live\n{l}",
+                        r.relid
+                    );
                 }
                 None => {
                     bad += 1;
-                    println!("MISMATCH {stem} rel {}: the server logged no facts for it", r.relid);
+                    println!(
+                        "MISMATCH {stem} rel {}: the server logged no facts for it",
+                        r.relid
+                    );
                 }
             }
         }
     }
     println!("checked={checked} fixtures={fixtures} missing={missing} mismatches={bad}");
-    std::process::exit(if bad > 0 { 1 } else if checked == 0 { 2 } else { 0 });
+    std::process::exit(if bad > 0 {
+        1
+    } else if checked == 0 {
+        2
+    } else {
+        0
+    });
 }

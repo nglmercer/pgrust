@@ -11,8 +11,8 @@ use crate::boolquery;
 use crate::tool::{gensign, getbit, hashval, IntArray};
 use crate::{
     detoasted_image, entry_arg, entry_result, image_result, opclass_option_i32,
-    RT_CONTAINED_BY, RT_CONTAINS, RT_OLD_CONTAINED_BY, RT_OLD_CONTAINS, RT_OVERLAP, RT_SAME,
-    BOOLEAN_SEARCH_STRATEGY,
+    BOOLEAN_SEARCH_STRATEGY, RT_CONTAINED_BY, RT_CONTAINS, RT_OLD_CONTAINED_BY, RT_OLD_CONTAINS,
+    RT_OVERLAP, RT_SAME,
 };
 
 pub(crate) const SIGLEN_DEFAULT: i32 = 63 * 4;
@@ -180,8 +180,11 @@ pub(crate) fn fc_g_intbig_penalty(
     let penalty = fcinfo.arg(2).as_usize() as *mut f32;
     // SAFETY: penalty out-param live in the caller frame.
     unsafe {
-        *penalty =
-            hemdist(crate::key_image(origentry.key), crate::key_image(newentry.key), siglen) as f32
+        *penalty = hemdist(
+            crate::key_image(origentry.key),
+            crate::key_image(newentry.key),
+            siglen,
+        ) as f32
     };
     Ok(fcinfo.arg(2))
 }
@@ -194,9 +197,15 @@ struct SignKey {
 impl SignKey {
     fn from_image(img: &[u8], siglen: usize) -> PgResult<SignKey> {
         if is_alltrue(img) {
-            Ok(SignKey { alltrue: true, sign: ::mcx::std_vec_from_elem("intarray", 0u8, siglen)? })
+            Ok(SignKey {
+                alltrue: true,
+                sign: ::mcx::std_vec_from_elem("intarray", 0u8, siglen)?,
+            })
         } else {
-            Ok(SignKey { alltrue: false, sign: ::mcx::std_vec_from_slice("intarray", &sign_of(img)[..siglen])? })
+            Ok(SignKey {
+                alltrue: false,
+                sign: ::mcx::std_vec_from_slice("intarray", &sign_of(img)[..siglen])?,
+            })
         }
     }
 
@@ -267,7 +276,10 @@ pub(crate) fn fc_g_intbig_picksplit(
     for j in 1..=maxoff {
         let size_alpha = datum_l.hemdist_img(key(j), siglen);
         let size_beta = datum_r.hemdist_img(key(j), siglen);
-        costvector.push(SplitCost { pos: j, cost: (size_alpha - size_beta).abs() });
+        costvector.push(SplitCost {
+            pos: j,
+            cost: (size_alpha - size_beta).abs(),
+        });
     }
     // qsort(costvector, maxoff, sizeof(SPLITCOST), comparecost): the
     // equal-cost order pg_qsort produces decides page membership.
@@ -359,8 +371,18 @@ pub(crate) fn fc_g_intbig_consistent(
     let query = IntArray::from_image(query_img)?;
     query.check_valid()?;
 
-    let overlap = |sign: &[u8]| query.elems().iter().any(|&v| getbit(sign, hashval(v, siglen)));
-    let contains = |sign: &[u8]| query.elems().iter().all(|&v| getbit(sign, hashval(v, siglen)));
+    let overlap = |sign: &[u8]| {
+        query
+            .elems()
+            .iter()
+            .any(|&v| getbit(sign, hashval(v, siglen)))
+    };
+    let contains = |sign: &[u8]| {
+        query
+            .elems()
+            .iter()
+            .all(|&v| getbit(sign, hashval(v, siglen)))
+    };
 
     let retval = match strategy {
         RT_OVERLAP => overlap(sign),

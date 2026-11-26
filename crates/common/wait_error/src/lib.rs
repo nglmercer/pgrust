@@ -63,7 +63,9 @@ fn system_tracked_with(
     reaped: impl FnOnce(u32),
 ) -> i32 {
     use std::os::unix::process::ExitStatusExt;
-    let Some(mut child) = spawn_sh(command, ignore_sigint) else { return -1 };
+    let Some(mut child) = spawn_sh(command, ignore_sigint) else {
+        return -1;
+    };
     let pid = child.id();
     spawned(pid);
     let rc = match child.wait() {
@@ -95,7 +97,9 @@ pub fn system_tracked_ticking(
             }
         }
     }
-    let Some(mut child) = spawn_sh(command, false) else { return -1 };
+    let Some(mut child) = spawn_sh(command, false) else {
+        return -1;
+    };
     let pid = child.id();
     spawned(pid);
     let _reap = Reap(pid, Some(reaped));
@@ -109,7 +113,11 @@ pub fn system_tracked_ticking(
 }
 
 #[cfg(target_family = "wasm")]
-pub fn system_tracked(_command: &str, _spawned: impl FnOnce(u32), _reaped: impl FnOnce(u32)) -> i32 {
+pub fn system_tracked(
+    _command: &str,
+    _spawned: impl FnOnce(u32),
+    _reaped: impl FnOnce(u32),
+) -> i32 {
     -1
 }
 
@@ -186,7 +194,9 @@ pub fn pg_strsignal(signum: i32) -> String {
         return "unrecognized signal".to_string();
     }
     // SAFETY: non-NULL NUL-terminated string from libc.
-    unsafe { std::ffi::CStr::from_ptr(p) }.to_string_lossy().into_owned()
+    unsafe { std::ffi::CStr::from_ptr(p) }
+        .to_string_lossy()
+        .into_owned()
 }
 
 // wasm32: no strsignal in the wasi libc crate; C's NULL fallback string.
@@ -203,7 +213,9 @@ fn strerror_now() -> String {
         return format!("error {errnum}");
     }
     // SAFETY: non-NULL NUL-terminated string from libc.
-    unsafe { std::ffi::CStr::from_ptr(p) }.to_string_lossy().into_owned()
+    unsafe { std::ffi::CStr::from_ptr(p) }
+        .to_string_lossy()
+        .into_owned()
 }
 
 pub fn wait_result_to_str(exitstatus: i32) -> String {
@@ -332,7 +344,10 @@ mod tests {
 
     #[test]
     fn exit_code_classification() {
-        assert_eq!(wait_result_to_str(exited(0)), "child process exited with exit code 0");
+        assert_eq!(
+            wait_result_to_str(exited(0)),
+            "child process exited with exit code 0"
+        );
         assert_eq!(wait_result_to_str(exited(126)), "command not executable");
         assert_eq!(wait_result_to_str(exited(127)), "command not found");
     }
@@ -345,8 +360,14 @@ mod tests {
 
     #[test]
     fn is_signal_matches_direct_and_shell_form() {
-        assert!(wait_result_is_signal(signaled(libc::SIGTERM), libc::SIGTERM));
-        assert!(wait_result_is_signal(exited(128 + libc::SIGTERM), libc::SIGTERM));
+        assert!(wait_result_is_signal(
+            signaled(libc::SIGTERM),
+            libc::SIGTERM
+        ));
+        assert!(wait_result_is_signal(
+            exited(128 + libc::SIGTERM),
+            libc::SIGTERM
+        ));
         assert!(!wait_result_is_signal(exited(1), libc::SIGTERM));
     }
 
@@ -361,7 +382,10 @@ mod tests {
     #[test]
     fn exit_code_roundtrip() {
         assert_eq!(wait_result_to_exit_code(exited(3)), 3);
-        assert_eq!(wait_result_to_exit_code(signaled(libc::SIGTERM)), 128 + libc::SIGTERM);
+        assert_eq!(
+            wait_result_to_exit_code(signaled(libc::SIGTERM)),
+            128 + libc::SIGTERM
+        );
         assert_eq!(wait_result_to_exit_code(-1), -1);
     }
 }

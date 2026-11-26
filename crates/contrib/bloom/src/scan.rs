@@ -32,10 +32,7 @@ pub fn blbeginscan<'mcx>(
 }
 
 /// Drops the computed signature; new keys arrive from the dispatcher.
-pub fn blrescan(
-    scan: &mut IndexScanDescData<'_>,
-    keys: Option<&[ScanKeyData]>,
-) -> PgResult<()> {
+pub fn blrescan(scan: &mut IndexScanDescData<'_>, keys: Option<&[ScanKeyData]>) -> PgResult<()> {
     let IndexScanOpaque::Bloom(so) = &mut scan.opaque else {
         unreachable!("blrescan on non-bloom opaque")
     };
@@ -78,7 +75,11 @@ pub fn blgetbitmap(
         };
         if so.sign.is_none() {
             let scratch = mcx::MemoryContext::new_wholesale("Bloom scan key context");
-            let mut sign = ::mcx::std_vec_from_elem("bloom", 0 as BloomSignatureWord, so.state.opts.bloom_length as usize)?;
+            let mut sign = ::mcx::std_vec_from_elem(
+                "bloom",
+                0 as BloomSignatureWord,
+                so.state.opts.bloom_length as usize,
+            )?;
             for skey in keys.iter().take(nkeys) {
                 // Bloom-indexable operators are assumed strict: NULL matches nothing.
                 if skey.sk_flags & SK_ISNULL != 0 {

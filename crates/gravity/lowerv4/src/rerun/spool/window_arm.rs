@@ -11,8 +11,8 @@
 //! are earlier pipelines, so they run ahead of the arms before this one; they act nowhere, so the only thing that can show
 //! is which error a statement reports that PostgreSQL fails too (DECISIONS.md 4 (a)). Registers nothing.
 use gravity_decompose::ops::shared::sort::{EqKey, SortDesc, SortForm};
-use gravity_decompose::ops::window::WindowDesc;
 use gravity_decompose::ops::shared::window::FrameBound;
+use gravity_decompose::ops::window::WindowDesc;
 use gravity_decompose::{Op, PipelineNode};
 use gravity_program::LifeId;
 use mcx::{CollectIn, PgVec};
@@ -24,16 +24,39 @@ use crate::graph::Gx;
 /// slot's one producer is read by `p` alone and is itself rule B's (`fill`: union_arms.rs's test over a pipeline and the
 /// ops it runs), and the breaker is a window's partition buffer whose Window is `p`'s first op, or a full sort (a window's
 /// order) whose keys compare by builtin operators of their default family; then filters, gates and projections.
-pub(crate) fn still(gx: &Gx<'_, '_>, p: &PipelineNode<'_>, slot: u8, body: &[Op<'_>], calm: &dyn Fn(Node<'_>) -> bool, fill: &dyn Fn(&PipelineNode<'_>, &[Op<'_>]) -> bool) -> bool {
+pub(crate) fn still(
+    gx: &Gx<'_, '_>,
+    p: &PipelineNode<'_>,
+    slot: u8,
+    body: &[Op<'_>],
+    calm: &dyn Fn(Node<'_>) -> bool,
+    fill: &dyn Fn(&PipelineNode<'_>, &[Op<'_>]) -> bool,
+) -> bool {
     let ps = gx.pipelines();
     let n = gx.graph.pipelines.len();
-    let Some(LifeId(q)) = p.desc.consumes_from.first().copied().filter(|_| p.desc.consumes[..] == [slot]) else { return false };
+    let Some(LifeId(q)) = p
+        .desc
+        .consumes_from
+        .first()
+        .copied()
+        .filter(|_| p.desc.consumes[..] == [slot])
+    else {
+        return false;
+    };
     let q = q as usize;
     if q >= n {
         return false;
     }
     // the fill's rows go to `p` alone
-    let readers = (0..n).filter(|&c| ps[c].desc.consumes.iter().any(|&s| gx.life_of(c, s) == Some(LifeId(q as u16)))).count();
+    let readers = (0..n)
+        .filter(|&c| {
+            ps[c]
+                .desc
+                .consumes
+                .iter()
+                .any(|&s| gx.life_of(c, s) == Some(LifeId(q as u16)))
+        })
+        .count();
     let qops = &ps[q].ops[..];
     let (fill_ops, ops) = match (body.split_first(), qops.split_last()) {
         // the Window first: the slot is its partition buffer (decompose window.rs `map` closes the Materialize the Window's
@@ -74,7 +97,9 @@ fn window(d: &WindowDesc<'_>, calm: &dyn Fn(Node<'_>) -> bool) -> bool {
         && d.partition.iter().chain(d.order.iter()).all(key)
         && bound(d.frame.start)
         && bound(d.frame.end)
-        && d.functions.iter().all(|f| calm(f.node) && bound(f.cursor.start) && bound(f.cursor.end))
+        && d.functions
+            .iter()
+            .all(|f| calm(f.node) && bound(f.cursor.start) && bound(f.cursor.end))
         && d.run_condition.iter().all(calm)
 }
 
@@ -93,11 +118,18 @@ pub(crate) const W_INNER_LOUD: &str = "a WindowAgg a nest's or SubPlan's inner r
 
 /// The licence of fill `q`'s run ahead when what it evaluates is pure over the owner's given parameters: it shows
 /// nothing (`effects::unobservable`).
-pub(crate) fn inner_fill_ok(gx: &Gx<'_, '_>, q: usize) -> Option<gravity_decompose::effects::Licence> {
+pub(crate) fn inner_fill_ok(
+    gx: &Gx<'_, '_>,
+    q: usize,
+) -> Option<gravity_decompose::effects::Licence> {
     // a nest's and a per-row SubPlan's own parameters are values its owner wrote before the set runs (graph.params, F6); an
     // InitPlan's still runs its plan at a first read
     let given: PgVec<'_, i32> = gx.graph.params.iter().map(|x| x.0).collect_in(gx.mcx);
-    fill_by(gx, q, &|n| crate::props::pure_given(gx, n, &given[..])).then(|| gravity_decompose::effects::unobservable(gravity_decompose::effects::Effects::NONE)).flatten()
+    fill_by(gx, q, &|n| crate::props::pure_given(gx, n, &given[..]))
+        .then(|| {
+            gravity_decompose::effects::unobservable(gravity_decompose::effects::Effects::NONE)
+        })
+        .flatten()
 }
 
 /// D3373: a fill `inner_fill_ok` refuses only because what it evaluates may raise: the same source and ops, none calling
@@ -106,9 +138,15 @@ pub(crate) fn inner_fill_ok(gx: &Gx<'_, '_>, q: usize) -> Option<gravity_decompo
 /// re-open reads rows PostgreSQL's spool may never reach (a LIMIT met, a run condition, a first match), so the rows are
 /// the same and an error from such a row is the licence's tagged one (`DECISIONS.md` 4 (D) b).
 /// That licence comes back.
-pub(crate) fn inner_fill_ahead(px: &mut crate::frame::px::Px<'_, '_>, q: usize) -> Option<gravity_decompose::effects::Licence> {
+pub(crate) fn inner_fill_ahead(
+    px: &mut crate::frame::px::Px<'_, '_>,
+    q: usize,
+) -> Option<gravity_decompose::effects::Licence> {
     let gx = px.gx;
-    let calls = |n: Node<'_>| crate::effects::visible::hashjoin::side_calls(gx, n) || crate::effects::visible::hashjoin::hidden(gx, n);
+    let calls = |n: Node<'_>| {
+        crate::effects::visible::hashjoin::side_calls(gx, n)
+            || crate::effects::visible::hashjoin::hidden(gx, n)
+    };
     if !fill_by(gx, q, &|n| !calls(n)) {
         return None;
     }
@@ -119,12 +157,17 @@ pub(crate) fn inner_fill_ahead(px: &mut crate::frame::px::Px<'_, '_>, q: usize) 
 fn fill_by(gx: &Gx<'_, '_>, q: usize, calm: &dyn Fn(Node<'_>) -> bool) -> bool {
     use gravity_decompose::Source;
     let ps = gx.pipelines();
-    let Some(p) = ps.get(q).filter(|_| q < ps.len()) else { return false };
+    let Some(p) = ps.get(q).filter(|_| q < ps.len()) else {
+        return false;
+    };
     let src = match &p.source {
         Source::Range { .. } => true,
         Source::Index { recheck, .. } | Source::Bitmap { recheck, .. } => recheck.iter().all(calm),
         // a full sort's run (an incremental sort's is runs.incremental: it streams by presorted group, so it refuses)
-        Source::Breaker { .. } => matches!(gx.source_kind(q), crate::face::kinds::KindId::RunsSort | crate::face::kinds::KindId::RunsTopkRows),
+        Source::Breaker { .. } => matches!(
+            gx.source_kind(q),
+            crate::face::kinds::KindId::RunsSort | crate::face::kinds::KindId::RunsTopkRows
+        ),
         _ => false,
     };
     // the ops up to the buffer's end: filters and projections only

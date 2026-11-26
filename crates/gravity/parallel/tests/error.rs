@@ -6,8 +6,10 @@ use std::time::Duration;
 
 use common::*;
 use gravity_driver::{Entry, Error};
+use gravity_parallel::{
+    ErrorFunnel, FirstError, FixturePool, Job, MorselRange, MorselSource, Pool, Unit,
+};
 use gravity_program::hand as programs;
-use gravity_parallel::{ErrorFunnel, FirstError, FixturePool, Job, MorselRange, MorselSource, Pool, Unit};
 
 /// The fixture pool with every block claim handed out past block `past` held until a worker's error closed the
 /// hand-out (D2588): the test waits on that event, not on the failing worker's speed. Unheld, "the cursor closed"
@@ -41,7 +43,10 @@ impl MorselSource for Held<'_> {
         if self.claims.unit() == Unit::Block && r.lo > self.past {
             let mut closed = self.closed.lock().unwrap_or_else(|e| e.into_inner());
             while !*closed {
-                let (g, t) = self.wake.wait_timeout(closed, Duration::from_secs(120)).unwrap_or_else(|e| e.into_inner());
+                let (g, t) = self
+                    .wake
+                    .wait_timeout(closed, Duration::from_secs(120))
+                    .unwrap_or_else(|e| e.into_inner());
                 closed = g;
                 if t.timed_out() && !*closed {
                     self.unreleased.store(true, Ordering::Relaxed);
@@ -88,7 +93,13 @@ impl Pool for HoldPastFailure<'_> {
         if past == u64::MAX {
             return self.pool.run(width, claims, job);
         }
-        let held = Held { claims, past, closed: Mutex::new(false), wake: Condvar::new(), unreleased: &self.unreleased };
+        let held = Held {
+            claims,
+            past,
+            closed: Mutex::new(false),
+            wake: Condvar::new(),
+            unreleased: &self.unreleased,
+        };
         self.pool.run(width, &held, job)
     }
     fn claims_run(&self) -> u64 {
@@ -105,30 +116,68 @@ fn a_worker_error_surfaces_once_as_the_leaders_error_with_no_leaked_claims() {
     let mut derive = FixtureDerive::new(&[&table]);
     let program = Arc::new(programs::par_hashagg_with(T_KV, 16, 9000));
     let fixture = FixturePool::new(8);
-    let pool = HoldPastFailure { pool: &fixture, past: AtomicU64::new(u64::MAX), unreleased: AtomicBool::new(false) };
+    let pool = HoldPastFailure {
+        pool: &fixture,
+        past: AtomicU64::new(u64::MAX),
+        unreleased: AtomicBool::new(false),
+    };
     let mut entry = Entry::new(2);
     for w in [2u16, 4, 8] {
         table.fresh();
         table.fail_block.store(137, Ordering::Relaxed);
         pool.past.store(137, Ordering::Relaxed);
         let mut sink = LegSink::new(true);
-        let r = run_keyed(&mut entry, &program, &mut derive, &pool, w, 4, &gravity_kernels::table::params::DEFAULT_PARAMS, &NO_ABORT, &mut sink);
+        let r = run_keyed(
+            &mut entry,
+            &program,
+            &mut derive,
+            &pool,
+            w,
+            4,
+            &gravity_kernels::table::params::DEFAULT_PARAMS,
+            &NO_ABORT,
+            &mut sink,
+        );
         pool.past.store(u64::MAX, Ordering::Relaxed);
         assert_eq!(r, Err(Error::host("range read failed")), "width {w}");
         assert!(!pool.unreleased.load(Ordering::Relaxed), "width {w}: a claim past the failing block waited 120 s and no error closed the hand-out");
-        assert!(table.ledger.consumed() < table.blocks, "width {w}: the cursor closed");
+        assert!(
+            table.ledger.consumed() < table.blocks,
+            "width {w}: the cursor closed"
+        );
         assert_eq!(table.ledger.twice(), 0, "width {w}");
         assert_eq!(table.pins.load(Ordering::Relaxed), 0, "width {w}");
-        assert!(sink.sorted().is_empty(), "width {w}: no rows after a failed section");
+        assert!(
+            sink.sorted().is_empty(),
+            "width {w}: no rows after a failed section"
+        );
         table.fail_block.store(u64::MAX, Ordering::Relaxed);
         table.fresh();
         let mut sink = LegSink::new(true);
-        let rows = run_keyed(&mut entry, &program, &mut derive, &pool, w, 4, &gravity_kernels::table::params::DEFAULT_PARAMS, &NO_ABORT, &mut sink).unwrap();
-        assert_eq!(rows, 97, "width {w}: the parked node runs again after the failure");
+        let rows = run_keyed(
+            &mut entry,
+            &program,
+            &mut derive,
+            &pool,
+            w,
+            4,
+            &gravity_kernels::table::params::DEFAULT_PARAMS,
+            &NO_ABORT,
+            &mut sink,
+        )
+        .unwrap();
+        assert_eq!(
+            rows, 97,
+            "width {w}: the parked node runs again after the failure"
+        );
         assert!(table.ledger.consumed_once());
     }
     let st = entry.stats();
-    assert_eq!((st.ended_failed, st.built), (3, 1), "one node, parked across every failure");
+    assert_eq!(
+        (st.ended_failed, st.built),
+        (3, 1),
+        "one node, parked across every failure"
+    );
 }
 
 #[test]
@@ -140,6 +189,9 @@ fn the_funnel_keeps_the_error_of_the_lowest_claim() {
     f.offer(8, 4, Error::host("same claim, higher ordinal"));
     f.offer(9, 0, Error::Cancelled);
     let first = f.take().unwrap();
-    assert_eq!((first.claim_lo, first.ordinal, first.error), (8, 3, Error::host("first")));
+    assert_eq!(
+        (first.claim_lo, first.ordinal, first.error),
+        (8, 3, Error::host("first"))
+    );
     assert!(f.take().is_none());
 }

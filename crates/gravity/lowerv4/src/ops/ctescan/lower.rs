@@ -57,12 +57,12 @@
 use core::cell::Cell as Once;
 
 use gravity_abi::breaker::BreakerKind;
-use gravity_decompose::ops::shared::append::AppendDesc;
+use gravity_decompose::catalog::typefacts::{facts_of, TypeFacts};
 use gravity_decompose::effects::Licence;
 use gravity_decompose::graph::InitPlan;
+use gravity_decompose::ops::shared::append::AppendDesc;
 use gravity_decompose::ops::shared::setop::{SetDesc, RECURSIVE_SET};
 use gravity_decompose::ops::shared::subplan::SubLink;
-use gravity_decompose::catalog::typefacts::{facts_of, TypeFacts};
 use gravity_decompose::{Op, Source};
 use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{Block, HostFlags, IntBinOp, IntCond, Type, Value};
@@ -72,7 +72,7 @@ use gravity_program::{Parallel, Pipeline, Reason as Why};
 use mcx::{CollectIn, GrowIn, PgBox, PgVec};
 use types_nodes::list::NodeList;
 
-use crate::rerun::spool::rec::Rec;
+use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::face::end::EndMech;
 use crate::face::kinds::{Face, KindId};
 use crate::face::source::{SourceMech, WinConds};
@@ -83,12 +83,18 @@ use crate::frame::px::{Late, Px, WordKey};
 use crate::frame::row::{Carry, RowVals};
 use crate::frame::stop::Exits;
 use crate::graph::Gx;
-use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::ops::shared::cte_reads::{reads, WINDOW};
 use crate::ops::Table;
 use crate::rep::CellRef;
+use crate::rerun::spool::rec::Rec;
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::NestCte, &EndMaker(make_end)), (KindId::NestCte, &SourceMaker(make_source))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[
+        (KindId::NestCte, &EndMaker(make_end)),
+        (KindId::NestCte, &SourceMaker(make_source)),
+    ],
+    ..crate::ops::NONE
+};
 
 crate::strategies! {
     /// D3256: an order-free reader of a store filled whole and sealed (D3040) reads it by record claims on the statement's
@@ -130,7 +136,9 @@ pub(crate) fn fed<'g>(gx: &Gx<'g, '_>, k: usize) -> PgVec<'g, usize> {
 
 /// Whether pipeline `k` or any pipeline feeding it has an op `hit` names (a data-modifying CTE's ModifyTable, a FOR UPDATE).
 pub(crate) fn feeds(gx: &Gx<'_, '_>, k: usize, hit: fn(&Op<'_>) -> bool) -> bool {
-    fed(gx, k).into_iter().any(|p| gx.pipelines()[p].ops.iter().any(hit))
+    fed(gx, k)
+        .into_iter()
+        .any(|p| gx.pipelines()[p].ops.iter().any(hit))
 }
 
 /// D1385's eager form (the module doc): CTE `k` (InitPlan `i`) is a member of a nest's or a SubPlan's rerun set (not a
@@ -140,17 +148,42 @@ pub(crate) fn feeds(gx: &Gx<'_, '_>, k: usize, hit: fn(&Op<'_>) -> bool) -> bool
 /// The licence of its run ahead of its readers comes back: its quiet code shows nothing there
 /// (`effects::unobservable`).
 pub(crate) fn eager(gx: &Gx<'_, '_>, k: usize, i: &InitPlan<'_>) -> Option<Licence> {
-    let mut sets = gx.graph.reruns.iter().filter(|r| r.pipelines.contains(&(k as u16)));
-    let (Some(r), None) = (sets.next(), sets.next()) else { return None };
+    let mut sets = gx
+        .graph
+        .reruns
+        .iter()
+        .filter(|r| r.pipelines.contains(&(k as u16)));
+    let (Some(r), None) = (sets.next(), sets.next()) else {
+        return None;
+    };
     let quiet = crate::effects::visible::ctescan::quiet(gx, k, i) && !drains(gx, k);
     let ps = gx.pipelines();
     let readers = (0..ps.len()).filter(|&p| p != k && reads(gx, p).contains(&k));
-    let inner = ps.inners().iter().any(|(_, q)| q.desc.consumes_from.contains(&gravity_program::LifeId(k as u16)));
+    let inner = ps.inners().iter().any(|(_, q)| {
+        q.desc
+            .consumes_from
+            .contains(&gravity_program::LifeId(k as u16))
+    });
     // surface rec-0004: a CTE whose plan holds a recursive union's term takes the re-arm form (`rearms`), never this one:
     // run whole by the set, the term's members would be run by both sets (D_RERUN_SHARED)
-    let term = fed(gx, k).into_iter().any(|q| gx.graph.reruns.iter().any(|t| t.plan_id == RECURSIVE_SET && t.pipelines.contains(&(q as u16))));
-    let taken = r.plan_id != RECURSIVE_SET && quiet && !inner && !term && readers.into_iter().all(|p| p > k && r.pipelines.contains(&(p as u16)));
-    taken.then(|| gravity_decompose::effects::unobservable(gravity_decompose::effects::Effects::NONE)).flatten()
+    let term = fed(gx, k).into_iter().any(|q| {
+        gx.graph
+            .reruns
+            .iter()
+            .any(|t| t.plan_id == RECURSIVE_SET && t.pipelines.contains(&(q as u16)))
+    });
+    let taken = r.plan_id != RECURSIVE_SET
+        && quiet
+        && !inner
+        && !term
+        && readers
+            .into_iter()
+            .all(|p| p > k && r.pipelines.contains(&(p as u16)));
+    taken
+        .then(|| {
+            gravity_decompose::effects::unobservable(gravity_decompose::effects::Effects::NONE)
+        })
+        .flatten()
 }
 
 /// D3037 (`CTE_PRODUCERS_AHEAD`): CTE `k`'s producers run ahead in program order, at their own widths, and only its own
@@ -174,48 +207,82 @@ fn producers_ahead(px: &Px<'_, '_>, k: usize) -> Option<Option<Licence>> {
     }
     let on = on_demand(gx);
     let readers = readers_of(gx, k);
-    let pulls = |p: usize| reads_from_start(gx, k, p) && gx.pipelines()[p].desc.lazy_for < 0 && !on.contains(&p) && !gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(p as u16)));
-    if readers.iter().any(|p| on.contains(p)) && !readers.iter().any(|&p| pulls(p) && whole(px, p)) {
+    let pulls = |p: usize| {
+        reads_from_start(gx, k, p)
+            && gx.pipelines()[p].desc.lazy_for < 0
+            && !on.contains(&p)
+            && !gx
+                .graph
+                .reruns
+                .iter()
+                .any(|r| r.pipelines.contains(&(p as u16)))
+    };
+    if readers.iter().any(|p| on.contains(p)) && !readers.iter().any(|&p| pulls(p) && whole(px, p))
+    {
         return None;
     }
-    let i = gx.graph.init_plans.iter().find(|i| i.pipeline as usize == k && matches!(i.link, SubLink::Cte))?;
+    let i = gx
+        .graph
+        .init_plans
+        .iter()
+        .find(|i| i.pipeline as usize == k && matches!(i.link, SubLink::Cte))?;
     let quiet = crate::effects::visible::ctescan::quiet(gx, k, i);
-    Some(quiet.then(|| gravity_decompose::effects::unobservable(gravity_decompose::effects::Effects::NONE)).flatten())
+    Some(
+        quiet
+            .then(|| {
+                gravity_decompose::effects::unobservable(gravity_decompose::effects::Effects::NONE)
+            })
+            .flatten(),
+    )
 }
 
 /// D1: the exact licence of CTE `k`'s plan run from the statement's first fetch (`effects::visible::ctescan::first_fetch`'s
 /// D3097 proof, re-checked by the licence home's `Proof::first_fetch`): `None` for a quiet plan (no proof needed, its run
 /// shows nothing), a plan that acts (denied) or one whose CteScan is not the first fetch.
 fn first_fetch_exact(gx: &Gx<'_, '_>, k: usize) -> Option<Licence> {
-    let i = gx.graph.init_plans.iter().find(|i| i.pipeline as usize == k && matches!(i.link, SubLink::Cte))?;
+    let i = gx
+        .graph
+        .init_plans
+        .iter()
+        .find(|i| i.pipeline as usize == k && matches!(i.link, SubLink::Cte))?;
     if crate::effects::visible::ctescan::quiet(gx, k, i) {
         return None;
     }
     let proof = gravity_decompose::effects::Proof::first_fetch(gx.graph.stmt?, i.plan_id)?;
-    gravity_decompose::effects::exact(gravity_decompose::effects::Effects::of_init_plan(i), proof).ok()
+    gravity_decompose::effects::exact(gravity_decompose::effects::Effects::of_init_plan(i), proof)
+        .ok()
 }
 
 /// D3095: the pipelines reading CTE `k`'s store (graph pipelines and embedded inners).
 fn readers_of<'g>(gx: &Gx<'g, '_>, k: usize) -> PgVec<'g, usize> {
-    (0..gx.pipelines().end()).filter(|&p| p != k && reads(gx, p).contains(&k)).collect_in(gx.mcx)
+    (0..gx.pipelines().end())
+        .filter(|&p| p != k && reads(gx, p).contains(&k))
+        .collect_in(gx.mcx)
 }
 
 /// The pipelines an InitPlan that is no CTE runs on demand (a scalar SubPlan's: its reader may pull later, or never).
 fn on_demand<'g>(gx: &Gx<'g, '_>) -> PgVec<'g, usize> {
-    gx.graph.init_plans.iter().filter(|j| !matches!(j.link, SubLink::Cte)).flat_map(|j| fed(gx, j.pipeline as usize)).collect_in(gx.mcx)
+    gx.graph
+        .init_plans
+        .iter()
+        .filter(|j| !matches!(j.link, SubLink::Cte))
+        .flat_map(|j| fed(gx, j.pipeline as usize))
+        .collect_in(gx.mcx)
 }
 
 /// Whether graph pipeline `p`'s source is CTE `k`'s store.
 fn reads_from_start(gx: &Gx<'_, '_>, k: usize, p: usize) -> bool {
     let ps = gx.pipelines();
-    p < ps.len() && matches!(ps[p].source, Source::Breaker { slot } if gx.life_of(p, slot).is_some_and(|l| l.0 as usize == k))
+    p < ps.len()
+        && matches!(ps[p].source, Source::Breaker { slot } if gx.life_of(p, slot).is_some_and(|l| l.0 as usize == k))
 }
 
 /// Whether reader pipeline `p` reads its source whole: no LIMIT bound over it (the Request's bound), no gate step in it.
 fn whole(px: &Px<'_, '_>, p: usize) -> bool {
     let ps = px.gx.pipelines();
     let node = ps[p].node_ops.first().map_or(ps[p].node_id, |n| n.node_id);
-    !matches!(px.request(node).bound, crate::frame::iface::Bound::Rows(_)) && !ps[p].ops.iter().any(|o| matches!(o, Op::Gate(_)))
+    !matches!(px.request(node).bound, crate::frame::iface::Bound::Rows(_))
+        && !ps[p].ops.iter().any(|o| matches!(o, Op::Gate(_)))
 }
 
 /// D3037 / D3040's gate (`producers_ahead`, `fills_parallel`): CTE `k` is quiet (or, D3097, the statement's first fetch
@@ -228,19 +295,43 @@ fn whole(px: &Px<'_, '_>, p: usize) -> bool {
 /// D3336 (A2 (iii), `loud`): a plan that may raise and is neither quiet nor the first fetch passes when `cte.wholefill`
 /// licenses its run ahead (wholefill.rs `licensable`).
 fn cte_whole_gate(gx: &Gx<'_, '_>, k: usize, demand: bool, chain: bool, loud: bool) -> bool {
-    let Some(i) = gx.graph.init_plans.iter().find(|i| i.pipeline as usize == k && matches!(i.link, SubLink::Cte)) else { return false };
-    let rerun = |p: usize| gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(p as u16)));
+    let Some(i) = gx
+        .graph
+        .init_plans
+        .iter()
+        .find(|i| i.pipeline as usize == k && matches!(i.link, SubLink::Cte))
+    else {
+        return false;
+    };
+    let rerun = |p: usize| {
+        gx.graph
+            .reruns
+            .iter()
+            .any(|r| r.pipelines.contains(&(p as u16)))
+    };
     let ps = gx.pipelines();
     // an InitPlan's run (a scalar SubPlan over the CTE) is on demand: its reader may pull later, or never
     let on_demand = on_demand(gx);
     let lazy = |p: usize| ps[p].desc.lazy_for >= 0 || on_demand.contains(&p);
     let reader = |p: usize| p < ps.len() && !rerun(p) && !lazy(p) && reads_from_start(gx, k, p);
-    let asks = |p: usize| demand && p < ps.len() && !rerun(p) && ps[p].desc.lazy_for < 0 && on_demand.contains(&p) && reads_from_start(gx, k, p);
+    let asks = |p: usize| {
+        demand
+            && p < ps.len()
+            && !rerun(p)
+            && ps[p].desc.lazy_for < 0
+            && on_demand.contains(&p)
+            && reads_from_start(gx, k, p)
+    };
     let readers = readers_of(gx, k);
-    (loud || crate::effects::visible::ctescan::quiet(gx, k, i) || crate::effects::visible::ctescan::first_fetch(gx, k, i))
+    (loud
+        || crate::effects::visible::ctescan::quiet(gx, k, i)
+        || crate::effects::visible::ctescan::first_fetch(gx, k, i))
         && !drains(gx, k)
         && !rerun(k)
-        && fed(gx, k).into_iter().filter(|&p| p != k).all(|p| p < ps.len() && !rerun(p) && (chain || !is_cte(gx, p)))
+        && fed(gx, k)
+            .into_iter()
+            .filter(|&p| p != k)
+            .all(|p| p < ps.len() && !rerun(p) && (chain || !is_cte(gx, p)))
         && readers.iter().any(|&p| reader(p))
         && readers.iter().all(|&p| reader(p) || asks(p))
 }
@@ -253,11 +344,17 @@ fn cte_whole_gate(gx: &Gx<'_, '_>, k: usize, demand: bool, chain: bool, loud: bo
 /// plan, when those CTEs fill ahead too (`fill_set`).
 fn fills_parallel(px: &mut Px<'_, '_>, k: usize) -> bool {
     use crate::rerun::params::NestExt;
-    if px.ext::<NestExt>(Face::Nest).is_none_or(|x| x.cte_fills.is_none()) {
+    if px
+        .ext::<NestExt>(Face::Nest)
+        .is_none_or(|x| x.cte_fills.is_none())
+    {
         let set = fill_set(px);
         px.ext_mut::<NestExt>(Face::Nest).cte_fills = Some(set);
     }
-    let fill = px.ext::<NestExt>(Face::Nest).and_then(|x| x.cte_fills.as_ref()).is_some_and(|s| s.contains(&k));
+    let fill = px
+        .ext::<NestExt>(Face::Nest)
+        .and_then(|x| x.cte_fills.as_ref())
+        .is_some_and(|s| s.contains(&k));
     // D4048: a plan that may raise, filled whole ahead of a reader streaming to the statement's sink, runs rows PostgreSQL's
     // CteScan never pulls only for a reader that stops early, which D3450 reads for a named cursor alone: the program is
     // served to a reader that takes every row (`Px::whole_read`), so a reader whose count shows only at its run (a SQL
@@ -271,8 +368,17 @@ fn fills_parallel(px: &mut Px<'_, '_>, k: usize) -> bool {
 /// D4048: a reader that stops early would see CTE `k`'s fill run past its stop: the plan is not quiet
 /// (`effects::visible::ctescan::quiet`) and a reader of its store streams to the statement's sink (D3450's reader).
 fn stop_sees_fill(gx: &Gx<'_, '_>, k: usize) -> bool {
-    let Some(i) = gx.graph.init_plans.iter().find(|i| i.pipeline as usize == k && matches!(i.link, SubLink::Cte)) else { return true };
-    let sink = |p: usize| p != k && gx.end_kind(p) == crate::graph::EndKind::Sink && reads(gx, p).contains(&k);
+    let Some(i) = gx
+        .graph
+        .init_plans
+        .iter()
+        .find(|i| i.pipeline as usize == k && matches!(i.link, SubLink::Cte))
+    else {
+        return true;
+    };
+    let sink = |p: usize| {
+        p != k && gx.end_kind(p) == crate::graph::EndKind::Sink && reads(gx, p).contains(&k)
+    };
     !crate::effects::visible::ctescan::quiet(gx, k, i) && (0..gx.pipelines().len()).any(sink)
 }
 
@@ -286,8 +392,18 @@ fn stop_sees_fill(gx: &Gx<'_, '_>, k: usize) -> bool {
 fn fill_set(px: &Px<'_, '_>) -> Vec<usize> {
     let gx = px.gx;
     let mcx = px.mcx();
-    let ctes: PgVec<'_, usize> = gx.graph.init_plans.iter().filter(|i| matches!(i.link, SubLink::Cte)).map(|i| i.pipeline as usize).collect_in(mcx);
-    let mut set: Vec<usize> = ctes.iter().copied().filter(|&k| fills_alone(px, k)).collect(); // alloc: Program
+    let ctes: PgVec<'_, usize> = gx
+        .graph
+        .init_plans
+        .iter()
+        .filter(|i| matches!(i.link, SubLink::Cte))
+        .map(|i| i.pipeline as usize)
+        .collect_in(mcx);
+    let mut set: Vec<usize> = ctes
+        .iter()
+        .copied()
+        .filter(|&k| fills_alone(px, k))
+        .collect(); // alloc: Program
     if set.is_empty() || ctes.len() == 1 {
         return set;
     }
@@ -299,14 +415,21 @@ fn fill_set(px: &Px<'_, '_>) -> Vec<usize> {
         .filter(|(k, _)| set.contains(k))
         .map(|(&k, own)| {
             let readers = readers_of(gx, k);
-            let held = |(&c, plan): (&usize, &PgVec<'_, usize>)| (c != k && (own.contains(&c) || readers.iter().any(|p| plan.contains(p)))).then_some(c);
+            let held = |(&c, plan): (&usize, &PgVec<'_, usize>)| {
+                (c != k && (own.contains(&c) || readers.iter().any(|p| plan.contains(p))))
+                    .then_some(c)
+            };
             (k, ctes.iter().zip(&plans).filter_map(held).collect_in(mcx))
         })
         .collect_in(mcx);
     let mut on = mcx::pg_vec![in mcx; false; gx.pipelines().end()];
     loop {
         set.iter().for_each(|&k| on[k] = true);
-        let kept: Vec<usize> = needs.iter().filter(|(k, near)| on[*k] && near.iter().all(|&c| on[c])).map(|n| n.0).collect(); // alloc: Program
+        let kept: Vec<usize> = needs
+            .iter()
+            .filter(|(k, near)| on[*k] && near.iter().all(|&c| on[c]))
+            .map(|n| n.0)
+            .collect(); // alloc: Program
         if kept.len() == set.len() {
             return set;
         }
@@ -328,13 +451,16 @@ fn fills_alone(px: &Px<'_, '_>, k: usize) -> bool {
     if !cte_whole_gate(gx, k, false, true, loud) {
         return false;
     }
-    reader_facts(px, k).is_some_and(|(quietly, whole, stops, early)| whole && (quietly || loud && !stops && !early))
+    reader_facts(px, k).is_some_and(|(quietly, whole, stops, early)| {
+        whole && (quietly || loud && !stops && !early)
+    })
 }
 
 /// D3336 (A2 (iii)): CTE `k`'s fill (`fills_parallel`) is `cte.wholefill`'s alone: D3040's own gate and test refuse it, so
 /// its run ahead needs the road's licence (wholefill.rs `license`).
 fn wholefill_only(px: &Px<'_, '_>, k: usize) -> bool {
-    !(cte_whole_gate(px.gx, k, false, true, false) && reader_facts(px, k).is_some_and(|(quietly, whole, _, _)| quietly && whole))
+    !(cte_whole_gate(px.gx, k, false, true, false)
+        && reader_facts(px, k).is_some_and(|(quietly, whole, _, _)| quietly && whole))
 }
 
 /// `fills_alone`'s reading of CTE `k`'s readers: whether its plan fills ahead quietly (`fills_ahead_quietly`), whether every
@@ -344,8 +470,14 @@ fn reader_facts(px: &Px<'_, '_>, k: usize) -> Option<(bool, bool, bool, bool)> {
     let gx = px.gx;
     let ps = gx.pipelines();
     // D3097: a plan that may raise fills ahead of its readers only when no reader can raise first (PG's interleaved pulls)
-    let readers: PgVec<'_, usize> = (0..ps.len()).filter(|&p| p != k && reads(gx, p).contains(&k)).collect_in(px.mcx());
-    let i = gx.graph.init_plans.iter().find(|i| i.pipeline as usize == k && matches!(i.link, SubLink::Cte))?;
+    let readers: PgVec<'_, usize> = (0..ps.len())
+        .filter(|&p| p != k && reads(gx, p).contains(&k))
+        .collect_in(px.mcx());
+    let i = gx
+        .graph
+        .init_plans
+        .iter()
+        .find(|i| i.pipeline as usize == k && matches!(i.link, SubLink::Cte))?;
     // D3450: a named cursor's FETCH may stop the root's stream (graph.partial) where PostgreSQL's CteScan has pulled the
     // plan only one row per miss, so a plan that is not quiet is never filled ahead of a reader streaming to that sink
     // (the same-row rule's `row_first`)
@@ -354,8 +486,18 @@ fn reader_facts(px: &Px<'_, '_>, k: usize) -> Option<(bool, bool, bool, bool)> {
     // filled store's pipeline would join the pulled set as a producer another pipeline also reads
     let whole_readers = readers.iter().all(|&p| whole(px, p));
     let stops = readers.iter().any(|&p| stops(p));
-    let quietly = crate::effects::visible::ctescan::fills_ahead_quietly(gx, k, i, &readers[..], whole_readers, stops).is_some();
-    let early = readers.iter().any(|&p| crate::ops::ctescan::wholefill::stops_early(gx, p));
+    let quietly = crate::effects::visible::ctescan::fills_ahead_quietly(
+        gx,
+        k,
+        i,
+        &readers[..],
+        whole_readers,
+        stops,
+    )
+    .is_some();
+    let early = readers
+        .iter()
+        .any(|&p| crate::ops::ctescan::wholefill::stops_early(gx, p));
     Some((quietly, whole_readers, stops, early))
 }
 
@@ -382,12 +524,19 @@ pub(crate) fn rearm_set(gx: &Gx<'_, '_>, k: usize) -> Option<usize> {
 
 /// Whether pipeline `p` is a CTE's (an InitPlan's `Cte` link fills its store).
 pub(crate) fn is_cte(gx: &Gx<'_, '_>, p: usize) -> bool {
-    gx.graph.init_plans.iter().any(|i| i.pipeline as usize == p && matches!(i.link, SubLink::Cte))
+    gx.graph
+        .init_plans
+        .iter()
+        .any(|i| i.pipeline as usize == p && matches!(i.link, SubLink::Cte))
 }
 
 /// Whether CTE `k` takes D1385's eager form (`cte_of` admitted it): a member of a rerun set, not re-armed (`rearms`).
 fn rerun_member(gx: &Gx<'_, '_>, k: usize) -> bool {
-    gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(k as u16))) && !rearms(gx, k)
+    gx.graph
+        .reruns
+        .iter()
+        .any(|r| r.pipelines.contains(&(k as u16)))
+        && !rearms(gx, k)
 }
 
 /// setop_rec-0043: CTE `k` takes the RE-ARM form (the module doc's D1385 paragraph): a member of one nest's or SubPlan's
@@ -402,8 +551,17 @@ fn rerun_member(gx: &Gx<'_, '_>, k: usize) -> bool {
 /// the union driver's (`work`): the driver swaps each generation in, and the CTE's pull never runs the seed again
 /// (program protos.rs `producers_in` stops there too).
 pub(crate) fn rearms(gx: &Gx<'_, '_>, k: usize) -> bool {
-    let Some(i) = gx.graph.init_plans.iter().find(|i| i.pipeline as usize == k && matches!(i.link, SubLink::Cte)) else { return false };
-    let Some(r) = rearm_set(gx, k).map(|s| &gx.graph.reruns[s]) else { return false };
+    let Some(i) = gx
+        .graph
+        .init_plans
+        .iter()
+        .find(|i| i.pipeline as usize == k && matches!(i.link, SubLink::Cte))
+    else {
+        return false;
+    };
+    let Some(r) = rearm_set(gx, k).map(|s| &gx.graph.reruns[s]) else {
+        return false;
+    };
     if eager(gx, k, i).is_some() || drains(gx, k) || feeds(gx, k, |op| matches!(op, Op::Lock(_))) {
         return false;
     }
@@ -411,26 +569,51 @@ pub(crate) fn rearms(gx: &Gx<'_, '_>, k: usize) -> bool {
     // set's owner-run words (ops/setop/recursive.rs `rearm_resets`, rerun/sets.rs `rearming_set`), emptied before every
     // outer generation, as PG's ExecReScanRecursiveUnion empties both tables when `wtParam` reaches it
     let body = fed(gx, k);
-    let term = |q: usize| gx.graph.reruns.iter().any(|t| t.plan_id == RECURSIVE_SET && t.pipelines.contains(&(q as u16)) && t.pipelines.iter().all(|&m| body.contains(&(m as usize))));
+    let term = |q: usize| {
+        gx.graph.reruns.iter().any(|t| {
+            t.plan_id == RECURSIVE_SET
+                && t.pipelines.contains(&(q as u16))
+                && t.pipelines.iter().all(|&m| body.contains(&(m as usize)))
+        })
+    };
     let ps = gx.pipelines();
     // a graph pipeline outside the set reads the store only through embedded inners whose re-open runs the set first (the
     // SubPlan's or nest's own CteScan inner: `owner_set`)
     let via_owner = |p: usize| {
-        let mut ins = (ps.len()..ps.end()).filter(|&i| root_of(gx, i) == p && reads(gx, i).contains(&k)).peekable();
-        ins.peek().is_some() && ins.all(|i| crate::rerun::sets::owner_set(gx, i) == Some((r.node_id, r.plan_id)))
+        let mut ins = (ps.len()..ps.end())
+            .filter(|&i| root_of(gx, i) == p && reads(gx, i).contains(&k))
+            .peekable();
+        ins.peek().is_some()
+            && ins.all(|i| crate::rerun::sets::owner_set(gx, i) == Some((r.node_id, r.plan_id)))
     };
     // subselect#316 / #317: the working table of the union whose term set `r` is, which the CTE's plan reads through its
     // WorkTableScan: filled by the seed `q` and swapped in per generation by the union's driver, never by the CTE's pull
-    let work = |q: usize| r.plan_id == RECURSIVE_SET && (0..ps.len()).any(|p| ps[p].ops.iter().any(|o| matches!(o, Op::SetOp(SetDesc::Iter(d)) if r.pipelines.contains(&d.body) && gx.life_of(p, d.work).is_some_and(|l| l.0 as usize == q))));
+    let work = |q: usize| {
+        r.plan_id == RECURSIVE_SET && (0..ps.len()).any(|p| ps[p].ops.iter().any(|o| matches!(o, Op::SetOp(SetDesc::Iter(d)) if r.pipelines.contains(&d.body) && gx.life_of(p, d.work).is_some_and(|l| l.0 as usize == q))))
+    };
     // with#170 / #171: another CTE no rerun set re-runs, read inside the plan (a Hash over its CteScan), with its plan: its
     // own pull fills its store once and only appends (lifetime/cte.rs `kept_whole`), never re-armed here
-    let once = |q: usize| !gx.graph.reruns.iter().any(|t| t.pipelines.contains(&(q as u16)));
-    let apart: PgVec<'_, usize> = body.iter().copied().filter(|&c| c != k && is_cte(gx, c) && once(c)).flat_map(|c| fed(gx, c)).collect_in(gx.mcx);
+    let once = |q: usize| {
+        !gx.graph
+            .reruns
+            .iter()
+            .any(|t| t.pipelines.contains(&(q as u16)))
+    };
+    let apart: PgVec<'_, usize> = body
+        .iter()
+        .copied()
+        .filter(|&c| c != k && is_cte(gx, c) && once(c))
+        .flat_map(|c| fed(gx, c))
+        .collect_in(gx.mcx);
     // with#170 / #171: a once-run producer of the term set's plan (a Hash build over that other CTE's store, read by a
     // member's probe) is kept: the set's decomposer left it out (no node of it reads `wtParam`, PG keeps its one-batch
     // table), its slot is the set's, and a re-arm leaves it run (exec ops/ctescan/proto.rs `rearmed`)
     let kept = |q: usize| r.plan_id == RECURSIVE_SET && q != k && once(q);
-    body.iter().all(|&q| r.pipelines.contains(&(q as u16)) || term(q) || work(q) || apart.contains(&q) || kept(q)) && (0..ps.len()).filter(|&p| p != k && reads(gx, p).contains(&k)).all(|p| r.pipelines.contains(&(p as u16)) || via_owner(p))
+    body.iter().all(|&q| {
+        r.pipelines.contains(&(q as u16)) || term(q) || work(q) || apart.contains(&q) || kept(q)
+    }) && (0..ps.len())
+        .filter(|&p| p != k && reads(gx, p).contains(&k))
+        .all(|p| r.pipelines.contains(&(p as u16)) || via_owner(p))
 }
 
 /// The graph pipeline embedding pipeline `q` (`q` itself when it is a graph pipeline, else the root of its inners' chain).
@@ -449,17 +632,36 @@ fn root_of(gx: &Gx<'_, '_>, mut q: usize) -> usize {
 /// re-arming the CTE: each run of the set re-arms the CTE before that pipeline runs again, and the inner's re-opens inside
 /// one run read the one store, rewound, as PG's CteScan rescan without a changed parameter rewinds its read pointer.
 pub(crate) fn rearmed_inner(gx: &Gx<'_, '_>, ik: usize) -> bool {
-    let Source::Breaker { slot } = gx.pipelines()[ik].source else { return false };
-    let Some(k) = gx.life_of(ik, slot).map(|l| l.0 as usize) else { return false };
+    let Source::Breaker { slot } = gx.pipelines()[ik].source else {
+        return false;
+    };
+    let Some(k) = gx.life_of(ik, slot).map(|l| l.0 as usize) else {
+        return false;
+    };
     let set = crate::rerun::sets::owner_set(gx, ik);
-    let holds = |r: &gravity_decompose::graph::Rerun| Some((r.node_id, r.plan_id)) == set || set.is_none() && r.pipelines.contains(&(root_of(gx, ik) as u16));
-    rearms(gx, k) && gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(k as u16)) && holds(r))
+    let holds = |r: &gravity_decompose::graph::Rerun| {
+        Some((r.node_id, r.plan_id)) == set
+            || set.is_none() && r.pipelines.contains(&(root_of(gx, ik) as u16))
+    };
+    rearms(gx, k)
+        && gx
+            .graph
+            .reruns
+            .iter()
+            .any(|r| r.pipelines.contains(&(k as u16)) && holds(r))
 }
 
 /// The CTE whose pipeline is `k`: its InitPlan (link `Cte`).
 fn cte_of<'g, 'p>(px: &Px<'g, 'p>, k: usize, node: i32) -> &'g InitPlan<'p> {
     let gx = px.gx;
-    let Some(i) = gx.graph.init_plans.iter().find(|i| i.pipeline as usize == k && matches!(i.link, SubLink::Cte)) else { bug(node, "a nest.cte face over no CTE") };
+    let Some(i) = gx
+        .graph
+        .init_plans
+        .iter()
+        .find(|i| i.pipeline as usize == k && matches!(i.link, SubLink::Cte))
+    else {
+        bug(node, "a nest.cte face over no CTE")
+    };
     if let Some(why) = crate::lifetime::cte::rerun_refused(gx, k, i) {
         shape(node, why);
     }
@@ -478,7 +680,12 @@ fn drains(gx: &Gx<'_, '_>, k: usize) -> bool {
             todo.extend_in(reads(gx, p));
         }
     }
-    seen.into_iter().any(|p| gx.pipelines()[p].ops.iter().any(|op| matches!(op, Op::Write(_))))
+    seen.into_iter().any(|p| {
+        gx.pipelines()[p]
+            .ops
+            .iter()
+            .any(|op| matches!(op, Op::Write(_)))
+    })
 }
 
 /// D2605 PULLED (ops/modifytable/rowop.rs `pulled_ends`): CTE pipeline `k` writes (INSERT / UPDATE / DELETE, with a
@@ -486,9 +693,22 @@ fn drains(gx: &Gx<'_, '_>, k: usize) -> bool {
 /// (`object`'s DRAIN form): not D1385's eager form, its store's row its RETURNING projection, no Append arm.
 pub(crate) fn pulled_write(gx: &Gx<'_, '_>, k: usize) -> bool {
     let p = &gx.pipelines()[k];
-    let writes = p.ops.iter().filter(|o| matches!(o, Op::Write(w) if w.cmd != gravity_program::Cmd::Select)).count();
-    let returns = p.ops.iter().any(|o| matches!(o, Op::Write(w) if w.returning.is_some()));
-    is_cte(gx, k) && !rerun_member(gx, k) && drains(gx, k) && writes == 1 && returns && matches!(p.ops.last(), Some(Op::Project(_))) && !p.ops.iter().any(crate::graph::is_arm)
+    let writes = p
+        .ops
+        .iter()
+        .filter(|o| matches!(o, Op::Write(w) if w.cmd != gravity_program::Cmd::Select))
+        .count();
+    let returns = p
+        .ops
+        .iter()
+        .any(|o| matches!(o, Op::Write(w) if w.returning.is_some()));
+    is_cte(gx, k)
+        && !rerun_member(gx, k)
+        && drains(gx, k)
+        && writes == 1
+        && returns
+        && matches!(p.ops.last(), Some(Op::Project(_)))
+        && !p.ops.iter().any(crate::graph::is_arm)
 }
 
 /// The row the CTE's pipeline `k` hands its end: its projection's entries, the pipeline's LAST op (as nest.spool's end
@@ -496,7 +716,10 @@ pub(crate) fn pulled_write(gx: &Gx<'_, '_>, k: usize) -> bool {
 fn cols<'g, 'p>(px: &Px<'g, 'p>, k: usize, node: i32) -> &'g NodeList<'p> {
     match px.gx.pipelines()[k].ops.last() {
         Some(Op::Project(cols)) => cols,
-        _ => shape(node, "a stored CTE row whose pipeline does not end in its projection"),
+        _ => shape(
+            node,
+            "a stored CTE row whose pipeline does not end in its projection",
+        ),
     }
 }
 
@@ -505,8 +728,16 @@ fn cols<'g, 'p>(px: &Px<'g, 'p>, k: usize, node: i32) -> &'g NodeList<'p> {
 /// whole row, a system column or an expression decompose does not know, no CteScan of the CTE, the union being every
 /// column, or a recursive union's CTE (fail closed).
 pub(crate) fn kept<'g>(gx: &Gx<'g, '_>, k: usize, ncols: usize) -> Option<PgVec<'g, i16>> {
-    let i = gx.graph.init_plans.iter().find(|i| i.pipeline as usize == k && matches!(i.link, SubLink::Cte))?;
-    if gx.pipelines()[k].ops.iter().any(|o| matches!(o, Op::SetOp(SetDesc::Iter(_)))) {
+    let i = gx
+        .graph
+        .init_plans
+        .iter()
+        .find(|i| i.pipeline as usize == k && matches!(i.link, SubLink::Cte))?;
+    if gx.pipelines()[k]
+        .ops
+        .iter()
+        .any(|o| matches!(o, Op::SetOp(SetDesc::Iter(_))))
+    {
         return None;
     }
     let (mut out, mut any) = (PgVec::new_in(gx.mcx), false);
@@ -525,27 +756,53 @@ pub(crate) fn kept<'g>(gx: &Gx<'g, '_>, k: usize, ncols: usize) -> Option<PgVec<
 /// D2633: the columns reader pipeline `k`'s row carries when its source is a CteScan over a store `kept` narrows
 /// (step/project.rs `carried`: a bare entry over another passes on as no cell); `None` for any other pipeline.
 pub(crate) fn carried<'g>(gx: &Gx<'g, '_>, k: usize) -> Option<PgVec<'g, i16>> {
-    let &Source::Breaker { slot } = &gx.pipelines()[k].source else { return None };
+    let &Source::Breaker { slot } = &gx.pipelines()[k].source else {
+        return None;
+    };
     let q = gx.life_of(k, slot)?.0 as usize;
     if q >= gx.graph.pipelines.len() || gx.spool_kind(q) != KindId::NestCte {
         return None;
     }
-    let Some(Op::Project(cols)) = gx.pipelines()[q].ops.last() else { return None };
+    let Some(Op::Project(cols)) = gx.pipelines()[q].ops.last() else {
+        return None;
+    };
     kept(gx, q, cols.len())
 }
 
 /// The record of the columns `keep` names (`None`: every column), each column's type facts (rerun/spool/rec.rs `types`).
-fn kept_types<'g>(px: &Px<'g, '_>, node: i32, cols: &NodeList<'_>, keep: &[i16]) -> PgVec<'g, TypeFacts> {
-    keep.iter().map(|&a| {
-        let te = cols.iter().nth(a as usize - 1).and_then(|n| n.as_target_entry()).filter(|te| te.resno == a).unwrap_or_else(|| shape(node, "a stored CTE column out of resno order"));
-        let typ = gravity_decompose::catalog::expr_type::type_of(te.expr).unwrap_or_else(|| gravity_decompose::catalog::expr_type::result_type(te.expr));
-        facts_of(px.gx.facts, typ).unwrap_or_else(|| shape(node, "a stored CTE column whose type the catalog does not know"))
-    }).collect_in(px.mcx())
+fn kept_types<'g>(
+    px: &Px<'g, '_>,
+    node: i32,
+    cols: &NodeList<'_>,
+    keep: &[i16],
+) -> PgVec<'g, TypeFacts> {
+    keep.iter()
+        .map(|&a| {
+            let te = cols
+                .iter()
+                .nth(a as usize - 1)
+                .and_then(|n| n.as_target_entry())
+                .filter(|te| te.resno == a)
+                .unwrap_or_else(|| shape(node, "a stored CTE column out of resno order"));
+            let typ = gravity_decompose::catalog::expr_type::type_of(te.expr)
+                .unwrap_or_else(|| gravity_decompose::catalog::expr_type::result_type(te.expr));
+            facts_of(px.gx.facts, typ).unwrap_or_else(|| {
+                shape(
+                    node,
+                    "a stored CTE column whose type the catalog does not know",
+                )
+            })
+        })
+        .collect_in(px.mcx())
 }
 
 /// The CTE's store (its record and the columns it keeps, `kept`) and its object's words (handle, first extra word),
 /// declared once per CTE by its end or its first reader.
-fn object<'g>(px: &mut Px<'g, '_>, k: usize, node: i32) -> (Rec<'g>, Option<PgVec<'g, i16>>, u16, u16) {
+fn object<'g>(
+    px: &mut Px<'g, '_>,
+    k: usize,
+    node: i32,
+) -> (Rec<'g>, Option<PgVec<'g, i16>>, u16, u16) {
     let cols = cols(px, k, node);
     let keep = kept(px.gx, k, cols.len());
     let find = |px: &Px<'g, '_>| match &keep {
@@ -559,13 +816,21 @@ fn object<'g>(px: &mut Px<'g, '_>, k: usize, node: i32) -> (Rec<'g>, Option<PgVe
             Rec::declare_tfs(px, k, k, node, tfs, 3)
         }
     };
-    if let Some(p) = px.protos.iter().find(|p| p.kind == ProtoKind::Cte && p.pipeline as usize == k) {
+    if let Some(p) = px
+        .protos
+        .iter()
+        .find(|p| p.kind == ProtoKind::Cte && p.pipeline as usize == k)
+    {
         let (h, x) = (p.words.base, p.arg as u16);
         return (find(px), keep, h, x);
     }
     // D1385's eager form: the store alone (the count word sits before the extra words, rerun/spool/rec.rs `declare`)
     if rerun_member(px.gx, k) {
-        if let Some(p) = px.protos.iter().find(|p| p.kind == ProtoKind::Spool && p.peer as usize == k) {
+        if let Some(p) = px
+            .protos
+            .iter()
+            .find(|p| p.kind == ProtoKind::Spool && p.peer as usize == k)
+        {
             let x = p.words.base + 2;
             return (find(px), keep, 0, x);
         }
@@ -589,7 +854,9 @@ fn object<'g>(px: &mut Px<'g, '_>, k: usize, node: i32) -> (Rec<'g>, Option<PgVe
     // (`Late::Unanswered`) it keeps the pull it had (C2 debt), never a refusal.
     let producers = match (plan_late(px, k), producers) {
         (Late::No, p) => p,
-        (Late::Ordered, None) => Some(Some(licensed_first(px, k).unwrap_or_else(|| shape(node, LICENSED_LATE)))),
+        (Late::Ordered, None) => Some(Some(
+            licensed_first(px, k).unwrap_or_else(|| shape(node, LICENSED_LATE)),
+        )),
         (Late::Ordered, Some(p)) if producers_first(px, k) => Some(p),
         (Late::Ordered, Some(_)) => shape(node, LICENSED_LATE),
         (Late::Unanswered, None) => licensed_first(px, k).map(Some),
@@ -612,7 +879,10 @@ fn object<'g>(px: &mut Px<'g, '_>, k: usize, node: i32) -> (Rec<'g>, Option<PgVe
     // D1 exact (FirstFetch), PG 18.6 CteScanNext: the statement's first ExecProcNode reaches this CteScan first and pulls
     // the CTE plan there, where a breaker producer (ExecSort, MultiExecHash, agg_fill_hash_table) reads its input whole
     if let (Some(None), Some(l)) = (producers, first_fetch_exact(px.gx, k)) {
-        fed(px.gx, k).into_iter().filter(|&q| q != k).for_each(|q| px.hold(q, &l));
+        fed(px.gx, k)
+            .into_iter()
+            .filter(|&q| q != k)
+            .for_each(|q| px.hold(q, &l));
     }
     // D1 exact (FirstFetch), PG 18.6 CteScanNext: pulled from the statement's first fetch by readers that read it whole and
     // raise nothing (`fills_ahead_quietly`), the plan's rows and its first error are the fill's
@@ -630,9 +900,21 @@ fn object<'g>(px: &mut Px<'g, '_>, k: usize, node: i32) -> (Rec<'g>, Option<PgVe
     // D2605: a drained CTE's rank, its plan id (the statement-end drain runs the higher first, as PG's es_auxmodifytables)
     let rank = match drain {
         0 => 0,
-        _ => px.gx.graph.init_plans.iter().find(|i| i.pipeline as usize == k && matches!(i.link, SubLink::Cte)).map_or(0, |i| (i.plan_id.clamp(0, 0xffff) as u64) << gravity_program::protos::CTE_RANK_SHIFT),
+        _ => px
+            .gx
+            .graph
+            .init_plans
+            .iter()
+            .find(|i| i.pipeline as usize == k && matches!(i.link, SubLink::Cte))
+            .map_or(0, |i| {
+                (i.plan_id.clamp(0, 0xffff) as u64) << gravity_program::protos::CTE_RANK_SHIFT
+            }),
     };
-    px.declare_proto(Proto::new(ProtoKind::Cte, k as u16).words(h, 1).arg(x as u64 | drain | ahead | rank));
+    px.declare_proto(
+        Proto::new(ProtoKind::Cte, k as u16)
+            .words(h, 1)
+            .arg(x as u64 | drain | ahead | rank),
+    );
     (rec, keep, h, x)
 }
 
@@ -647,8 +929,17 @@ pub(crate) const LICENSED_LATE: &str = "a CTE whose plan reads a group or a wind
 /// nothing ahead).
 pub(crate) fn plan_late(px: &Px<'_, '_>, k: usize) -> Late {
     let gx = px.gx;
-    let inner: PgVec<'_, usize> = fed(gx, k).into_iter().filter(|&c| c != k && is_cte(gx, c)).flat_map(|c| fed(gx, c)).collect_in(px.mcx());
-    fed(gx, k).into_iter().filter(|q| !inner.contains(q)).map(|q| px.licensed_late(q)).max().unwrap_or(Late::No)
+    let inner: PgVec<'_, usize> = fed(gx, k)
+        .into_iter()
+        .filter(|&c| c != k && is_cte(gx, c))
+        .flat_map(|c| fed(gx, c))
+        .collect_in(px.mcx());
+    fed(gx, k)
+        .into_iter()
+        .filter(|q| !inner.contains(q))
+        .map(|q| px.licensed_late(q))
+        .max()
+        .unwrap_or(Late::No)
 }
 
 /// D4203: CTE `k`'s producers (its plan's pipelines but its own) all come before the statement's first emitting pipeline
@@ -658,12 +949,27 @@ pub(crate) fn plan_late(px: &Px<'_, '_>, k: usize) -> Late {
 fn producers_first(px: &Px<'_, '_>, k: usize) -> bool {
     let gx = px.gx;
     let ps = gx.pipelines();
-    let body: PgVec<'_, usize> = fed(gx, k).into_iter().filter(|&p| p != k).collect_in(px.mcx());
-    let rerun = |p: usize| gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(p as u16)));
+    let body: PgVec<'_, usize> = fed(gx, k)
+        .into_iter()
+        .filter(|&p| p != k)
+        .collect_in(px.mcx());
+    let rerun = |p: usize| {
+        gx.graph
+            .reruns
+            .iter()
+            .any(|r| r.pipelines.contains(&(p as u16)))
+    };
     let init = |q: usize| gx.graph.init_plans.iter().any(|i| i.pipeline as usize == q);
     let emits = |q: usize| !matches!(gx.end_kind(q), crate::graph::EndKind::Breaker(_)) && !init(q);
-    let Some(&last) = body.iter().max() else { return false };
-    !body.iter().any(|&p| p >= ps.len() || rerun(p) || is_cte(gx, p)) && !rerun(k) && !drains(gx, k) && !(0..=last).any(emits)
+    let Some(&last) = body.iter().max() else {
+        return false;
+    };
+    !body
+        .iter()
+        .any(|&p| p >= ps.len() || rerun(p) || is_cte(gx, p))
+        && !rerun(k)
+        && !drains(gx, k)
+        && !(0..=last).any(emits)
 }
 
 /// D4203: a CTE `Px::licensed_late` names, which D3037's own gate (`producers_ahead`) does not take, runs its producers
@@ -679,8 +985,15 @@ fn producers_first(px: &Px<'_, '_>, k: usize) -> bool {
 fn licensed_first(px: &mut Px<'_, '_>, k: usize) -> Option<Licence> {
     use gravity_decompose::effects::{licence, Departure, Effects};
     let gx = px.gx;
-    let body: PgVec<'_, usize> = fed(gx, k).into_iter().filter(|&p| p != k).collect_in(px.mcx());
-    let user = |q: usize| crate::effects::fed_user_code(gx, q) || crate::effects::hides_user_code(gx, q) && crate::effects::statement_user_code(gx, px.arena);
+    let body: PgVec<'_, usize> = fed(gx, k)
+        .into_iter()
+        .filter(|&p| p != k)
+        .collect_in(px.mcx());
+    let user = |q: usize| {
+        crate::effects::fed_user_code(gx, q)
+            || crate::effects::hides_user_code(gx, q)
+                && crate::effects::statement_user_code(gx, px.arena)
+    };
     if !producers_first(px, k) || body.iter().any(|&q| user(q)) {
         return None;
     }
@@ -703,7 +1016,13 @@ fn set_word(b: &mut FunctionBuilder<'_>, env: &Env, w: u16, v: Value) {
 /// A CTE's filler or reader runs on the leader in the plan's order (the pull runs there).
 fn serial(d: Pipeline, reason: Why) -> Pipeline {
     match d.is_eligible() {
-        true => Pipeline { parallel: Parallel::Ineligible { site: d.driving_site, reason }, ..d },
+        true => Pipeline {
+            parallel: Parallel::Ineligible {
+                site: d.driving_site,
+                reason,
+            },
+            ..d
+        },
         false => d,
     }
 }
@@ -727,8 +1046,16 @@ fn make_end<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn EndMech + 'g> {
     cte_of(px, k, node);
     let (rec, keep, _, x) = object(px, k, node);
     eager_resets(px, k, x, node);
-    let fill = px.protos.iter().any(|p| p.kind == ProtoKind::Cte && p.pipeline as usize == k && p.arg & gravity_program::protos::CTE_FILL_PARALLEL != 0);
-    let ordered = fill && wholefill_only(px, k) && readers_of(px.gx, k).iter().any(|&p| !crate::effects::visible::ctescan::order_free(px.gx, p));
+    let fill = px.protos.iter().any(|p| {
+        p.kind == ProtoKind::Cte
+            && p.pipeline as usize == k
+            && p.arg & gravity_program::protos::CTE_FILL_PARALLEL != 0
+    });
+    let ordered = fill
+        && wholefill_only(px, k)
+        && readers_of(px.gx, k)
+            .iter()
+            .any(|&p| !crate::effects::visible::ctescan::order_free(px.gx, p));
     mcx::pg_box_dyn!(px.mcx(), CteEnd { rec, fill, ordered, keep, x } => dyn EndMech + 'g)
 }
 
@@ -741,14 +1068,30 @@ const EAGER_STORE: &str = "a CTE's eager store count and pull words (D1385)";
 /// `Rerun::run`), which then runs the CTE's pipeline whole, never resumed. The records' by-reference copies stay in the
 /// spool's arena to the statement's end (a value read from them may be held above).
 fn eager_resets(px: &mut Px<'_, '_>, k: usize, x: u16, node: i32) {
-    let Some(set) = px.gx.graph.reruns.iter().position(|r| r.pipelines.contains(&(k as u16))) else { return };
+    let Some(set) = px
+        .gx
+        .graph
+        .reruns
+        .iter()
+        .position(|r| r.pipelines.contains(&(k as u16)))
+    else {
+        return;
+    };
     // a kept member runs at the set's first run only (graph.kept): its store would be cleared under its rows
     if px.gx.graph.kept.contains(&(k as u16)) {
         bug(node, "a CTE in its rerun set's kept members (D1385's eager form re-runs the CTE whole at every run)");
     }
     for w in [x - 1, x + W_BUDGET, x + W_GOT, x + W_DONE] {
-        let place = crate::lifetime::Place::Param { off: w as i32 * 8, ty: Type::I64, init: 0 };
-        let d = crate::lifetime::Declared { what: EAGER_STORE, scope: crate::lifetime::Scope::OwnerRun { set: set as u16 }, place };
+        let place = crate::lifetime::Place::Param {
+            off: w as i32 * 8,
+            ty: Type::I64,
+            init: 0,
+        };
+        let d = crate::lifetime::Declared {
+            what: EAGER_STORE,
+            scope: crate::lifetime::Scope::OwnerRun { set: set as u16 },
+            place,
+        };
         if px.lifetimes.declare(d).is_err() {
             bug(node, "a CTE's eager store words declared after its rerun set's owner captured its run, or in another role (D1385)");
         }
@@ -758,27 +1101,47 @@ fn eager_resets(px: &mut Px<'_, '_>, k: usize, x: u16, node: i32) {
 impl<'g> EndMech for CteEnd<'g> {
     /// PG `tuplestore_puttupleslot` (CteScanNext's `eof_cte` read): the row stored and counted; the pull's budget taken, a
     /// resumable stop after it. A zero budget (no reader's pull: the statement-end drain) never stops.
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, _x: &Exits) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        _x: &Exits,
+    ) -> Carry<'e> {
         match &self.keep {
             None => self.rec.append(b, env, row),
             Some(keep) => {
-                let cells: PgVec<'_, Option<CellRef<'_>>> = keep.iter().map(|&a| row.col(a)).collect_in(env.mcx);
+                let cells: PgVec<'_, Option<CellRef<'_>>> =
+                    keep.iter().map(|&a| row.col(a)).collect_in(env.mcx);
                 self.rec.store(b, env, &cells[..], true);
             }
         }
         if self.fill {
             // D3040: no pull, no budget; the parameter words are read-only to the fill's workers
             let out = b.int_bin(IntBinOp::Add, row.carry.out, env.one);
-            return Carry { out, accs: mcx::to_vec_in(&row.carry.accs[..], env.mcx) };
+            return Carry {
+                out,
+                accs: mcx::to_vec_in(&row.carry.accs[..], env.mcx),
+            };
         }
         let got = word(b, env, self.x + W_GOT);
         let got = b.int_bin(IntBinOp::Add, got, env.one);
         set_word(b, env, self.x + W_GOT, got);
         let budget = word(b, env, self.x + W_BUDGET);
         let out = b.int_bin(IntBinOp::Add, row.carry.out, env.one);
-        let carry = Carry { out, accs: mcx::to_vec_in(&row.carry.accs[..], env.mcx) };
-        let (taken, set) = (b.icmp(IntCond::Uge, got, budget), b.icmp(IntCond::Ne, budget, env.zero));
-        let (full, l_stop, l_on) = (b.int_bin(IntBinOp::And, taken, set), b.create_block(&[]), b.create_block(&[]));
+        let carry = Carry {
+            out,
+            accs: mcx::to_vec_in(&row.carry.accs[..], env.mcx),
+        };
+        let (taken, set) = (
+            b.icmp(IntCond::Uge, got, budget),
+            b.icmp(IntCond::Ne, budget, env.zero),
+        );
+        let (full, l_stop, l_on) = (
+            b.int_bin(IntBinOp::And, taken, set),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         b.cond_br(full, (l_stop, &[]), (l_on, &[]));
         b.switch_to(l_stop);
         let st = b.iconst(Type::I64, gravity_abi::status::suspend(false));
@@ -826,7 +1189,8 @@ struct CteRows<'g> {
 /// fill's (`q`, the CTE's pipeline), else the first site of the CTE's plan, as a wide emit names its producer's: a fill out
 /// of a group's table or a union's slot has no site of its own.
 fn fill_site(px: &Px<'_, '_>, q: usize) -> Option<usize> {
-    px.pipeline_site(q).or_else(|| fed(px.gx, q).into_iter().find_map(|p| px.pipeline_site(p)))
+    px.pipeline_site(q)
+        .or_else(|| fed(px.gx, q).into_iter().find_map(|p| px.pipeline_site(p)))
 }
 
 /// D3256: whether reader `k` of a sealed store may read it by record claims, on many workers: what it hands on no row order
@@ -848,8 +1212,15 @@ fn claimable(gx: &Gx<'_, '_>, k: usize) -> bool {
     let plain = |op: &Op<'_>| matches!(op, Op::Filter(_) | Op::Gate(_) | Op::Project(_));
     let probe = |op: &Op<'_>| matches!(op, Op::Join(JoinDesc::Probe { .. }));
     match crate::frame::iface::end_breaker(gx, k) {
-        Some(BreakerKind::HashAgg | BreakerKind::PlainAgg) => ops.iter().all(|o| plain(o) || probe(o)) && crate::effects::visible::wide_visible(gx, k).is_none(),
-        Some(BreakerKind::HashBuild) => ops.iter().all(|o| plain(o) || matches!(o, Op::Join(JoinDesc::Build { .. }))) && crate::effects::visible::calls_visible(gx, k).is_none(),
+        Some(BreakerKind::HashAgg | BreakerKind::PlainAgg) => {
+            ops.iter().all(|o| plain(o) || probe(o))
+                && crate::effects::visible::wide_visible(gx, k).is_none()
+        }
+        Some(BreakerKind::HashBuild) => {
+            ops.iter()
+                .all(|o| plain(o) || matches!(o, Op::Join(JoinDesc::Build { .. })))
+                && crate::effects::visible::calls_visible(gx, k).is_none()
+        }
         _ => false,
     }
 }
@@ -858,7 +1229,10 @@ fn claimable(gx: &Gx<'_, '_>, k: usize) -> bool {
 /// a pool thread does not see: 'record type has not been registered' (v4/m8_cte_wholerow at W8).
 fn record_row(gx: &Gx<'_, '_>, k: usize) -> bool {
     let p = &gx.pipelines()[k];
-    gx.graph.record_rows.iter().any(|r| r.node_id == p.node_id || p.node_ops.iter().any(|n| n.node_id == r.node_id))
+    gx.graph
+        .record_rows
+        .iter()
+        .any(|r| r.node_id == p.node_id || p.node_ops.iter().any(|n| n.node_id == r.node_id))
 }
 
 /// The rows one pull asks of the CTE's plan.
@@ -890,10 +1264,19 @@ const HELD: i64 = 2;
 /// effects home's `user_fn`, which reads decompose's `effects::user_code` as D439's cap does, `user_typed`, `volatile`, `volatile_check`), with no group, ending in a store. Anything
 /// else, fail closed, pulls one row per miss: user code's raise leaves SPI, GUC or snapshot state the statement cannot
 /// hold (D2044), so no row of it may run ahead to be held.
-fn grows(gx: &Gx<'_, '_>, k: usize, i: &InitPlan<'_>) -> Option<gravity_decompose::effects::Licence> {
+fn grows(
+    gx: &Gx<'_, '_>,
+    k: usize,
+    i: &InitPlan<'_>,
+) -> Option<gravity_decompose::effects::Licence> {
     use crate::graph::EndKind;
     use types_nodes::Node;
-    let still = |n: Node<'_>| !crate::effects::user_fn(gx, n) && !crate::effects::user_typed(gx, n) && !crate::effects::volatile(gx, n) && !crate::effects::volatile_check(gx, n);
+    let still = |n: Node<'_>| {
+        !crate::effects::user_fn(gx, n)
+            && !crate::effects::user_typed(gx, n)
+            && !crate::effects::volatile(gx, n)
+            && !crate::effects::volatile_check(gx, n)
+    };
     // the effects licence for running the plan ahead of its readers (denied in the plan-order run, `deny_all`); its recheck
     // is not taken: the held error is raised where PG raises it, so no re-run repairs anything
     use gravity_decompose::effects::{licence, Departure, Effects};
@@ -901,7 +1284,12 @@ fn grows(gx: &Gx<'_, '_>, k: usize, i: &InitPlan<'_>) -> Option<gravity_decompos
     let acts = own.acts || drains(gx, k) || feeds(gx, k, |op| matches!(op, Op::Lock(_)));
     let l = licence(Effects { acts, ..own }, Departure::Ahead).ok()?;
     // the statement's one recursive union's term set (D2212), whichever CTE it is: checking more only fails closed
-    let term = gx.graph.reruns.iter().filter(|r| r.plan_id == RECURSIVE_SET).flat_map(|r| r.pipelines.iter().map(|&m| m as usize));
+    let term = gx
+        .graph
+        .reruns
+        .iter()
+        .filter(|r| r.plan_id == RECURSIVE_SET)
+        .flat_map(|r| r.pipelines.iter().map(|&m| m as usize));
     let grows = fed(gx, k).into_iter().chain(term).all(|q| {
         let p = &gx.pipelines()[q];
         let src = match &p.source {
@@ -909,8 +1297,12 @@ fn grows(gx: &Gx<'_, '_>, k: usize, i: &InitPlan<'_>) -> Option<gravity_decompos
             Source::Values { lists, .. } => lists.iter().all(still),
             _ => false,
         };
-        let end = matches!(gx.end_kind(q), EndKind::Sink | EndKind::Breaker(BreakerKind::Materialize));
-        src && end && gx.group_at(q).is_none()
+        let end = matches!(
+            gx.end_kind(q),
+            EndKind::Sink | EndKind::Breaker(BreakerKind::Materialize)
+        );
+        src && end
+            && gx.group_at(q).is_none()
             && p.ops.iter().all(|op| match op {
                 Op::Filter(n) | Op::Gate(n) => still(*n),
                 Op::Project(l) => l.iter().all(still),
@@ -940,17 +1332,33 @@ fn batches(gx: &Gx<'_, '_>, k: usize, i: &InitPlan<'_>) -> Option<Licence> {
     if crate::face::strategy::off().has(CTE_BATCH) {
         return None;
     }
-    let still = |n: Node<'_>| !crate::effects::user_fn(gx, n) && !crate::effects::user_typed(gx, n) && !crate::effects::volatile(gx, n) && !crate::effects::volatile_check(gx, n);
+    let still = |n: Node<'_>| {
+        !crate::effects::user_fn(gx, n)
+            && !crate::effects::user_typed(gx, n)
+            && !crate::effects::volatile(gx, n)
+            && !crate::effects::volatile_check(gx, n)
+    };
     let p = &gx.pipelines()[k];
     let own = matches!(p.source, Source::Breaker { .. })
         && gx.group_at(k).is_none()
-        && matches!(gx.end_kind(k), EndKind::Sink | EndKind::Breaker(BreakerKind::Materialize))
+        && matches!(
+            gx.end_kind(k),
+            EndKind::Sink | EndKind::Breaker(BreakerKind::Materialize)
+        )
         && p.ops.iter().all(|op| match op {
             Op::Filter(n) | Op::Gate(n) => still(*n),
             Op::Project(l) => l.iter().all(still),
             _ => false,
         });
-    let finals = || fed(gx, k).into_iter().filter(|&q| q != k).all(|q| gx.group_at(q).is_none_or(|g| g.aggs.iter().all(|a| crate::effects::builtin_plain_agg(a.node))));
+    let finals = || {
+        fed(gx, k).into_iter().filter(|&q| q != k).all(|q| {
+            gx.group_at(q).is_none_or(|g| {
+                g.aggs
+                    .iter()
+                    .all(|a| crate::effects::builtin_plain_agg(a.node))
+            })
+        })
+    };
     if !own || !finals() {
         return None;
     }
@@ -964,13 +1372,20 @@ fn batches(gx: &Gx<'_, '_>, k: usize, i: &InitPlan<'_>) -> Option<Licence> {
 fn make_source<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
     let gx = px.gx;
     let p = &gx.pipelines()[k];
-    let &Source::Breaker { slot } = &p.source else { bug(p.node_id, "a CteScan that reads no slot") };
-    let Some(life) = gx.life_of(k, slot) else { bug(p.node_id, "a CteScan over no CTE's slot") };
+    let &Source::Breaker { slot } = &p.source else {
+        bug(p.node_id, "a CteScan that reads no slot")
+    };
+    let Some(life) = gx.life_of(k, slot) else {
+        bug(p.node_id, "a CteScan over no CTE's slot")
+    };
     let q = life.0 as usize;
     let cte = cte_of(px, q, p.node_id);
     let pull = match crate::effects::visible::ctescan::quiet(gx, q, cte) {
         true => Pull::Window,
-        false => batches(gx, q, cte).map(Pull::Batch).or_else(|| grows(gx, q, cte).map(Pull::Grow)).unwrap_or(Pull::One),
+        false => batches(gx, q, cte)
+            .map(Pull::Batch)
+            .or_else(|| grows(gx, q, cte).map(Pull::Grow))
+            .unwrap_or(Pull::One),
     };
     let node = p.node_ops.first().map_or(p.node_id, |n| n.node_id);
     let bound = match px.request(node).bound {
@@ -980,13 +1395,28 @@ fn make_source<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 
     // setop_rec-0043: the bound counts the CteScan's output; its own qual drops stored rows the bound never counts, so its
     // pulls grow with the store (`Pull::Grow`'s doubling, a quiet plan's too), never capped by the bound: capped, a filter
     // under a LIMIT pulled one row (one recursive generation) a pull
-    let own = p.node_ops.get(1).map_or(p.ops.len(), |n| n.first_op as usize);
+    let own = p
+        .node_ops
+        .get(1)
+        .map_or(p.ops.len(), |n| n.first_op as usize);
     let (pull, bound) = match bound {
-        Some(_) if p.ops[..own.min(p.ops.len())].iter().any(|o| matches!(o, Op::Filter(_))) => (match pull {
-            Pull::Window => gravity_decompose::effects::unobservable(gravity_decompose::effects::Effects::NONE).map_or(pull, Pull::Grow),
-            Pull::Batch(l) => Pull::Grow(l),
-            p => p,
-        }, None),
+        Some(_)
+            if p.ops[..own.min(p.ops.len())]
+                .iter()
+                .any(|o| matches!(o, Op::Filter(_))) =>
+        {
+            (
+                match pull {
+                    Pull::Window => gravity_decompose::effects::unobservable(
+                        gravity_decompose::effects::Effects::NONE,
+                    )
+                    .map_or(pull, Pull::Grow),
+                    Pull::Batch(l) => Pull::Grow(l),
+                    p => p,
+                },
+                None,
+            )
+        }
         b => (pull, b),
     };
     if matches!(pull, Pull::Batch(_)) {
@@ -996,14 +1426,30 @@ fn make_source<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 
     }
     let (rec, keep, h, x) = object(px, q, p.node_id);
     let keep = keep.map(|keep| (keep, cols(px, q, p.node_id).len()));
-    let cursor = px.frame_word(WordKey::Open { face: Face::Source, k, j: u64::MAX, i: 0 }) as i32 * 8;
-    let filled = px.protos.iter().any(|c| c.kind == ProtoKind::Cte && c.pipeline as usize == q && c.arg & gravity_program::protos::CTE_FILL_PARALLEL != 0);
+    let cursor = px.frame_word(WordKey::Open {
+        face: Face::Source,
+        k,
+        j: u64::MAX,
+        i: 0,
+    }) as i32
+        * 8;
+    let filled = px.protos.iter().any(|c| {
+        c.kind == ProtoKind::Cte
+            && c.pipeline as usize == q
+            && c.arg & gravity_program::protos::CTE_FILL_PARALLEL != 0
+    });
     // D3256: a sealed store's order-free reader claims record ranges of it (the fill's site, nominal), as gsets_spool.rs's
     // readers claim the grouping-set spool's
     // D3336 (A2 (iii), `cte.wholefill`): or a reader into a sort's runs (wholefill.rs `sort_reader`), each claim filling
     // its own run, sealed at its section end, as over a wide group emit (`Px::wide`)
     let sort_ok = || !record_row(gx, k) && crate::ops::ctescan::wholefill::sort_reader(px, k);
-    let chunks = fill_site(px, q).filter(|_| filled && rec.is_owned() && k < gx.pipelines().len() && !crate::face::strategy::off().has(CTE_CLAIMS) && (claimable(gx, k) || sort_ok()));
+    let chunks = fill_site(px, q).filter(|_| {
+        filled
+            && rec.is_owned()
+            && k < gx.pipelines().len()
+            && !crate::face::strategy::off().has(CTE_CLAIMS)
+            && (claimable(gx, k) || sort_ok())
+    });
     let sorts = chunks.is_some() && !claimable(gx, k);
     if sorts {
         px.wide.push_in(k);
@@ -1011,7 +1457,11 @@ fn make_source<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 
     }
     if chunks.is_some() {
         let (rh, _) = rec.words();
-        px.declare_proto(Proto::new(ProtoKind::SpoolChunks, k as u16).peer(q as u16).words(rh, 1));
+        px.declare_proto(
+            Proto::new(ProtoKind::SpoolChunks, k as u16)
+                .peer(q as u16)
+                .words(rh, 1),
+        );
         fires::fire("lower.cte.claims"); // shapecheck fire signal (D3256): a CTE reader reads its sealed store by record claims
         fires::fire("cte.claims"); // the road's own name, apart from cte.batch's in this file
     }
@@ -1061,13 +1511,23 @@ impl<'g> CteRows<'g> {
         let far = b.int_bin(IntBinOp::Add, cur, w);
         let past = b.icmp(IntCond::Sgt, far, total);
         let end = b.select(past, total, far);
-        Win { cursor: cur, end, facts: WinConds::default() }
+        Win {
+            cursor: cur,
+            end,
+            facts: WinConds::default(),
+        }
     }
 }
 
 impl<'g> SourceMech for CteRows<'g> {
     fn open_words(&self, w: &mut OpenWords) {
-        w.declare(OpenWord::open("nest.cte read pointer", Base::Words, self.cursor, Type::I64, 0));
+        w.declare(OpenWord::open(
+            "nest.cte read pointer",
+            Base::Words,
+            self.cursor,
+            Type::I64,
+            0,
+        ));
     }
 
     fn open(&self, _b: &mut FunctionBuilder<'_>, env: &mut Env) -> Value {
@@ -1089,11 +1549,19 @@ impl<'g> SourceMech for CteRows<'g> {
             let far = b.int_bin(IntBinOp::Add, cur, w);
             let lt = b.icmp(IntCond::Slt, far, hi);
             let end = b.select(lt, far, hi);
-            return Win { cursor: cur, end, facts: WinConds::default() };
+            return Win {
+                cursor: cur,
+                end,
+                facts: WinConds::default(),
+            };
         }
         let cur = env.load_word(b, self.cursor);
         let n = self.rec.count(b, env);
-        let (more, l_win, l_past) = (b.icmp(IntCond::Slt, cur, n), b.create_block(&[Type::I64]), b.create_block(&[]));
+        let (more, l_win, l_past) = (
+            b.icmp(IntCond::Slt, cur, n),
+            b.create_block(&[Type::I64]),
+            b.create_block(&[]),
+        );
         b.cond_br(more, (l_win, &[n]), (l_past, &[]));
         b.switch_to(l_past);
         if self.eager {
@@ -1107,16 +1575,35 @@ impl<'g> SourceMech for CteRows<'g> {
         let budget = self.budget(b, env, n, cur);
         set_word(b, env, self.x + W_BUDGET, budget);
         set_word(b, env, self.x + W_GOT, env.zero);
-        let f = b.declare_host_once("m8_cte_pull", &[Type::Ptr, Type::I64, Type::I64], Some(Type::I64), m8::m8_cte_pull as *const () as usize, HostFlags { touches_memory: true, may_error: true, ..HostFlags::default() });
+        let f = b.declare_host_once(
+            "m8_cte_pull",
+            &[Type::Ptr, Type::I64, Type::I64],
+            Some(Type::I64),
+            m8::m8_cte_pull as *const () as usize,
+            HostFlags {
+                touches_memory: true,
+                may_error: true,
+                ..HostFlags::default()
+            },
+        );
         let hv = word(b, env, self.h);
-        let r = b.call_host(f, &[env.ctx, hv, budget], Some(Type::I64)).expect("m8_cte_pull returns its status");
+        let r = b
+            .call_host(f, &[env.ctx, hv, budget], Some(Type::I64))
+            .expect("m8_cte_pull returns its status");
         set_word(b, env, self.x + W_BUDGET, env.zero); // the statement-end drain of a data-modifying CTE runs unbudgeted
-        // below zero: the pull's error (the host stashed it), raised where PG raises it, inside the reader's read
-        let (bad, l_bad, l_ok) = (b.icmp(IntCond::Slt, r, env.zero), b.create_block(&[]), b.create_block(&[]));
+                                                       // below zero: the pull's error (the host stashed it), raised where PG raises it, inside the reader's read
+        let (bad, l_bad, l_ok) = (
+            b.icmp(IntCond::Slt, r, env.zero),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         b.mark_cold(l_bad);
         b.cond_br(bad, (l_bad, &[]), (l_ok, &[]));
         b.switch_to(l_bad);
-        let e = b.iconst(Type::I64, gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64);
+        let e = b.iconst(
+            Type::I64,
+            gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64,
+        );
         b.br(env.l_raise, &[e]);
         b.switch_to(l_ok);
         // 1: the CTE ended (sticky: later reads never pull)
@@ -1135,7 +1622,9 @@ impl<'g> SourceMech for CteRows<'g> {
         b.mark_cold(l_again);
         b.cond_br(held, (l_again, &[]), (l_eof, &[env.zero]));
         b.switch_to(l_again);
-        let r2 = b.call_host(f, &[env.ctx, hv, budget], Some(Type::I64)).expect("m8_cte_pull returns its status");
+        let r2 = b
+            .call_host(f, &[env.ctx, hv, budget], Some(Type::I64))
+            .expect("m8_cte_pull returns its status");
         let bad2 = b.icmp(IntCond::Slt, r2, env.zero);
         b.cond_br(bad2, (l_bad, &[]), (l_eof, &[env.zero]));
         self.window(b, l_win, cur)
@@ -1143,7 +1632,15 @@ impl<'g> SourceMech for CteRows<'g> {
 
     /// Stored row `j` (by reference: the store's copy, alive to the statement's end); D2633: a narrowed store's cells at
     /// their CTE columns' attnos, the other columns not carried.
-    fn row<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e> {
+    fn row<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+        j: Value,
+        carry: Carry<'e>,
+        next: Value,
+    ) -> RowVals<'e> {
         if !self.win.get() {
             bug(self.node, "a CTE row before its window");
         }
@@ -1181,9 +1678,16 @@ impl<'g> SourceMech for CteRows<'g> {
         match self.chunks {
             // D3336 (A2 (iii)): a sort's claims reader the leader keeps (a pool-unsafe call: emit_group.rs `kept_on_leader`,
             // whose end then seals its run itself, `RunEnd::kept_serial`) reads its claim whole on the leader
-            Some(_) if self.sorts && crate::table::emit_group::kept_on_leader(px, k) => serial(d, Why::Host),
+            Some(_) if self.sorts && crate::table::emit_group::kept_on_leader(px, k) => {
+                serial(d, Why::Host)
+            }
             // D3256: a claims reader is wide (the fill's predicted rows)
-            Some(s) => Pipeline { parallel: Parallel::Eligible, driving_site: s as i16, predicted_rows: self.rows, ..d },
+            Some(s) => Pipeline {
+                parallel: Parallel::Eligible,
+                driving_site: s as i16,
+                predicted_rows: self.rows,
+                ..d
+            },
             None => serial(d, Why::Host),
         }
     }

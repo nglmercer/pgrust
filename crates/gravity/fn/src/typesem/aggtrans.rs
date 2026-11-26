@@ -13,12 +13,22 @@ const TYPTYPE_MULTIRANGE: i8 = b'm' as i8;
 /// range's subtype, a multirange's range), appended to `images`: its equality and ordering operators and its comparison
 /// procedure with their FmgrInfos (array_cmp's element compare, an enum's order, the extremes' comparisons), and a range's
 /// or multirange's own info (its subtype's compare).
-pub fn compare_closure(t: Oid, typtype: i8, images: &mut Vec<typcache::armed::TypcacheImage>) -> PgResult<()> {
+pub fn compare_closure(
+    t: Oid,
+    typtype: i8,
+    images: &mut Vec<typcache::armed::TypcacheImage>,
+) -> PgResult<()> {
     let more = match typtype {
         TYPTYPE_RANGE => typcache::TYPECACHE_RANGE_INFO,
         TYPTYPE_MULTIRANGE => typcache::TYPECACHE_MULTIRANGE_INFO,
         _ => 0,
     };
-    let flags = typcache::TYPECACHE_EQ_OPR | typcache::TYPECACHE_LT_OPR | typcache::TYPECACHE_GT_OPR | typcache::TYPECACHE_CMP_PROC | typcache::TYPECACHE_EQ_OPR_FINFO | typcache::TYPECACHE_CMP_PROC_FINFO | more;
+    let flags = typcache::TYPECACHE_EQ_OPR
+        | typcache::TYPECACHE_LT_OPR
+        | typcache::TYPECACHE_GT_OPR
+        | typcache::TYPECACHE_CMP_PROC
+        | typcache::TYPECACHE_EQ_OPR_FINFO
+        | typcache::TYPECACHE_CMP_PROC_FINFO
+        | more;
     typcache::armed::image_closure(t, flags, images)
 }

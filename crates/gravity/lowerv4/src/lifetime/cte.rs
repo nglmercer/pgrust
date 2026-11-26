@@ -23,7 +23,14 @@ pub(crate) const ONCE_RUN_NOT_WHOLE: &str = "a CTE whose rerun set reads a once-
 /// shows the same (a member of a rerun set neither eager nor re-armed: RERUN_CTE), or when a rerun set in its plan reads
 /// a once-run producer not kept whole (ONCE_RUN_NOT_WHOLE).
 pub(crate) fn rerun_refused(gx: &Gx<'_, '_>, k: usize, i: &InitPlan<'_>) -> Option<&'static str> {
-    if gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(k as u16))) && lower::eager(gx, k, i).is_none() && !lower::rearms(gx, k) {
+    if gx
+        .graph
+        .reruns
+        .iter()
+        .any(|r| r.pipelines.contains(&(k as u16)))
+        && lower::eager(gx, k, i).is_none()
+        && !lower::rearms(gx, k)
+    {
         return Some(RERUN_CTE);
     }
     (reads_once_run(gx, k) == Some(false)).then_some(ONCE_RUN_NOT_WHOLE)
@@ -38,11 +45,20 @@ pub(crate) fn rerun_refused(gx: &Gx<'_, '_>, k: usize, i: &InitPlan<'_>) -> Opti
 /// Another CTE's pipeline is kept whole when no rerun set re-runs it: it ends in that CTE's store, which its pulls append
 /// to and never reset while the statement runs (spool_rec's Rec), as pipeline `k`'s own (`reads_once_run`).
 pub(crate) fn kept_whole(gx: &Gx<'_, '_>, p: usize) -> bool {
-    if lower::is_cte(gx, p) && !gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(p as u16))) {
+    if lower::is_cte(gx, p)
+        && !gx
+            .graph
+            .reruns
+            .iter()
+            .any(|r| r.pipelines.contains(&(p as u16)))
+    {
         return true;
     }
     match gx.graph.pipelines.get(p).and_then(|x| breaker_of(&x.desc)) {
-        Some(br) => matches!(br.kind, BreakerKind::HashBuild | BreakerKind::PlainAgg) || (br.kind == BreakerKind::Sort && br.spill == Spill::None),
+        Some(br) => {
+            matches!(br.kind, BreakerKind::HashBuild | BreakerKind::PlainAgg)
+                || (br.kind == BreakerKind::Sort && br.spill == Spill::None)
+        }
         None => false,
     }
 }
@@ -53,10 +69,23 @@ pub(crate) fn kept_whole(gx: &Gx<'_, '_>, p: usize) -> bool {
 /// producer: it ends in the CTE's store, which the pulls keep (spool_rec's Rec), so a rerun set that reads the CTE (a
 /// correlated SubPlan over it) is trunk's served CT-2 reader.
 fn reads_once_run(gx: &Gx<'_, '_>, k: usize) -> Option<bool> {
-    let body: PgVec<'_, usize> = lower::fed(gx, k).into_iter().filter(|&p| p != k).collect_in(gx.mcx);
+    let body: PgVec<'_, usize> = lower::fed(gx, k)
+        .into_iter()
+        .filter(|&p| p != k)
+        .collect_in(gx.mcx);
     let mut once = None;
-    for r in gx.graph.reruns.iter().filter(|r| r.plan_id != RECURSIVE_SET) {
-        for p in r.pipelines.iter().flat_map(|&m| crate::ops::shared::cte_reads::reads(gx, m as usize)).filter(|&p| body.contains(&p) && !r.pipelines.contains(&(p as u16))) {
+    for r in gx
+        .graph
+        .reruns
+        .iter()
+        .filter(|r| r.plan_id != RECURSIVE_SET)
+    {
+        for p in r
+            .pipelines
+            .iter()
+            .flat_map(|&m| crate::ops::shared::cte_reads::reads(gx, m as usize))
+            .filter(|&p| body.contains(&p) && !r.pipelines.contains(&(p as u16)))
+        {
             if !kept_whole(gx, p) {
                 return Some(false);
             }

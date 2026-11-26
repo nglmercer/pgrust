@@ -18,12 +18,21 @@ pub const SIZE: usize = 0;
 /// column's cursor, `(pages cached, pages)` over its values and validity extents, file-contiguous extents probed as one
 /// span (one cachestat each, never per granule); `None` when the part cannot tell (an in-memory image, a kernel
 /// without cachestat): the walk then takes its cold width.
-pub fn extent_resident(cur: &pgrc_read::StreamCursor<'_>, g_lo: u32, g_hi: u32) -> Option<(u64, u64)> {
-    spans_resident(&mut |f| cur.granule_extents(g_lo, g_hi, f), &|off, len| cur.page_resident(off, len))
+pub fn extent_resident(
+    cur: &pgrc_read::StreamCursor<'_>,
+    g_lo: u32,
+    g_hi: u32,
+) -> Option<(u64, u64)> {
+    spans_resident(&mut |f| cur.granule_extents(g_lo, g_hi, f), &|off, len| {
+        cur.page_resident(off, len)
+    })
 }
 
 /// `extents`' file-contiguous runs each probed once by `probe`, the answers summed; `None` once one cannot tell.
-fn spans_resident(extents: &mut dyn FnMut(&mut dyn FnMut(u64, u64)), probe: &dyn Fn(u64, u64) -> Option<(u64, u64)>) -> Option<(u64, u64)> {
+fn spans_resident(
+    extents: &mut dyn FnMut(&mut dyn FnMut(u64, u64)),
+    probe: &dyn Fn(u64, u64) -> Option<(u64, u64)>,
+) -> Option<(u64, u64)> {
     let (mut span, mut acc) = ((0u64, 0u64), Some((0u64, 0u64)));
     let add = |s: (u64, u64), acc: &mut Option<(u64, u64)>| {
         if let (Some((c, p)), true) = (*acc, s.1 != 0) {
@@ -54,15 +63,34 @@ mod tests {
     #[ignore]
     fn resident_probe_cost() {
         let dir = std::env::var("M3_RESIDENT_DIR").expect("M3_RESIDENT_DIR");
-        let attnos: Vec<u32> = std::env::var("M3_RESIDENT_ATTNOS").unwrap_or("5".into()).split(',').map(|a| a.parse().unwrap()).collect();
-        let mut parts: Vec<_> = std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "pgrc")).collect();
+        let attnos: Vec<u32> = std::env::var("M3_RESIDENT_ATTNOS")
+            .unwrap_or("5".into())
+            .split(',')
+            .map(|a| a.parse().unwrap())
+            .collect();
+        let mut parts: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|x| x == "pgrc"))
+            .collect();
         parts.sort();
         for attno in attnos {
             let (mut ns, mut cached, mut pages, mut unknown) = (Vec::new(), 0u64, 0u64, 0u64); // alloc: Cold
             for path in parts.iter() {
                 let c = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
-                let part = std::sync::Arc::new(pgrc_read::OpenPart::open(Box::new(pgrc_read::VfsPartIo::open(&c).unwrap()), &pgrc_read::PartExpect::none()).unwrap()); // alloc: Cold
-                let Ok(cur) = pgrc_read::StreamCursor::open(part, pgrc_am::scan::codec_binding(), attno, 0) else { continue };
+                let part = std::sync::Arc::new(
+                    pgrc_read::OpenPart::open(
+                        Box::new(pgrc_read::VfsPartIo::open(&c).unwrap()),
+                        &pgrc_read::PartExpect::none(),
+                    )
+                    .unwrap(),
+                ); // alloc: Cold
+                let Ok(cur) =
+                    pgrc_read::StreamCursor::open(part, pgrc_am::scan::codec_binding(), attno, 0)
+                else {
+                    continue;
+                };
                 for g in 0..cur.granule_count() {
                     let t = std::time::Instant::now();
                     let r = super::extent_resident(&cur, g, g + 1);
@@ -91,9 +119,15 @@ mod tests {
         let got = spans_resident(&mut |f| ext.iter().for_each(|&(o, l)| f(o, l)), &probe);
         assert_eq!(*calls.borrow(), [(0, 16384), (32768, 16384)]);
         assert_eq!(got, Some((4, 8)));
-        assert_eq!(spans_resident(&mut |_| {}, &probe), Some((0, 0)), "no extents: nothing to probe");
+        assert_eq!(
+            spans_resident(&mut |_| {}, &probe),
+            Some((0, 0)),
+            "no extents: nothing to probe"
+        );
         let unknown = |off: u64, _| (off == 0).then_some((1, 1));
-        assert_eq!(spans_resident(&mut |f| ext.iter().for_each(|&(o, l)| f(o, l)), &unknown), None);
+        assert_eq!(
+            spans_resident(&mut |f| ext.iter().for_each(|&(o, l)| f(o, l)), &unknown),
+            None
+        );
     }
 }
-

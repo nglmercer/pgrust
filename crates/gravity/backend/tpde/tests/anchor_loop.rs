@@ -62,12 +62,20 @@ fn program() -> Program {
 #[test]
 fn anchor_edge_inside_a_loop_keeps_its_move() {
     let p = program();
-    gravity_ir::verify::verify(&p).and_then(|()| gravity_ir::verify::verify_dominance(&p)).unwrap_or_else(|e| panic!("{} {}", e.func, e.message));
+    gravity_ir::verify::verify(&p)
+        .and_then(|()| gravity_ir::verify::verify_dominance(&p))
+        .unwrap_or_else(|e| panic!("{} {}", e.func, e.message));
     let cells: [i64; 2] = [1000, 1];
     for n in [1i64, 2, 3] {
-        let interp = gravity_interp::Interp::new(&p).run(Func(0), &[cells.as_ptr() as u64, n as u64]).unwrap();
+        let interp = gravity_interp::Interp::new(&p)
+            .run(Func(0), &[cells.as_ptr() as u64, n as u64])
+            .unwrap();
         let native = common::native(&p, Func(0), &[cells.as_ptr() as u64, n as u64]);
-        assert_eq!(native, vec![(1001 * n) as u64], "n {n}: every outer round adds v + u");
+        assert_eq!(
+            native,
+            vec![(1001 * n) as u64],
+            "n {n}: every outer round adds v + u"
+        );
         assert_eq!(native, interp, "n {n}: native vs interpreter");
     }
 }

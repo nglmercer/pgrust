@@ -11,7 +11,10 @@ use std::sync::atomic::AtomicU8;
 use std::sync::Arc;
 
 use gravity_abi::Ctx;
-use gravity_driver::{ArenaBox, Binding, BindingParts, CommandId, Entry, Grant, Identity, Locker, PerTuple, Pins, Reservation, Snapshot, SourceBox, Writer};
+use gravity_driver::{
+    ArenaBox, Binding, BindingParts, CommandId, Entry, Grant, Identity, Locker, PerTuple, Pins,
+    Reservation, Snapshot, SourceBox, Writer,
+};
 use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{Block, IntBinOp, Type, Value};
 use gravity_lower::{assemble, compile, Backend, Sequential};
@@ -36,18 +39,46 @@ impl SourceMech for OneRow {
         b.iconst(Type::I64, 0)
     }
     fn next_window(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, _l_eof: Block) -> Win {
-        Win { cursor: env.zero, end: b.iconst(Type::I64, 1), facts: Default::default() }
+        Win {
+            cursor: env.zero,
+            end: b.iconst(Type::I64, 1),
+            facts: Default::default(),
+        }
     }
-    fn row<'e>(&self, _b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e> {
-        RowVals { row: gravity_lowerv4::cell::Row::new_in(env.mcx), vals: mcx::PgVec::new_in(env.mcx), cols: mcx::PgVec::new_in(env.mcx), carry, next, at: j }
+    fn row<'e>(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+        j: Value,
+        carry: Carry<'e>,
+        next: Value,
+    ) -> RowVals<'e> {
+        RowVals {
+            row: gravity_lowerv4::cell::Row::new_in(env.mcx),
+            vals: mcx::PgVec::new_in(env.mcx),
+            cols: mcx::PgVec::new_in(env.mcx),
+            carry,
+            next,
+            at: j,
+        }
     }
 }
 
 struct Count;
 
 impl EndMech for Count {
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, _x: &Exits) -> Carry<'e> {
-        Carry { out: b.int_bin(IntBinOp::Add, row.carry.out, env.one), accs: mcx::to_vec_in(&row.carry.accs[..], env.mcx) }
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        _x: &Exits,
+    ) -> Carry<'e> {
+        Carry {
+            out: b.int_bin(IntBinOp::Add, row.carry.out, env.one),
+            accs: mcx::to_vec_in(&row.carry.accs[..], env.mcx),
+        }
     }
 }
 
@@ -63,13 +94,21 @@ impl gravity_driver::Derive for Derive {
     fn writer_size_hint(&self) -> usize {
         0
     }
-    fn derive_writer(&mut self, _plan: &WritePlan, _a: gravity_program::ArenaRef) -> ArenaBox<dyn Writer> {
+    fn derive_writer(
+        &mut self,
+        _plan: &WritePlan,
+        _a: gravity_program::ArenaRef,
+    ) -> ArenaBox<dyn Writer> {
         panic!("no writer")
     }
     fn locker_size_hint(&self) -> usize {
         0
     }
-    fn derive_locker(&mut self, _plan: &WritePlan, _a: gravity_program::ArenaRef) -> ArenaBox<dyn Locker> {
+    fn derive_locker(
+        &mut self,
+        _plan: &WritePlan,
+        _a: gravity_program::ArenaRef,
+    ) -> ArenaBox<dyn Locker> {
         panic!("no locker")
     }
 }
@@ -77,11 +116,13 @@ impl gravity_driver::Derive for Derive {
 struct NoRows;
 
 impl gravity_driver::Sink for NoRows {
-    fn push(&mut self, _b: gravity_driver::BorrowedBatch<'_>) -> gravity_driver::Result<gravity_driver::Flow> {
+    fn push(
+        &mut self,
+        _b: gravity_driver::BorrowedBatch<'_>,
+    ) -> gravity_driver::Result<gravity_driver::Flow> {
         Ok(gravity_driver::Flow::Continue)
     }
 }
-
 
 /// The spill epoch a hosted function entering the statement's ctx would record, for each of `n` statements, each on a
 /// fresh Entry (its Node built anew) and each drawing one spill region before it ends (the settle drops it).
@@ -94,11 +135,32 @@ fn epochs(n: usize) -> Vec<u64> {
     let arena = Arena::new(1 << 20);
     let a = arena.handle();
     let mut g = gravity_decompose::PipelineGraph::new(a);
-    g.pipelines.push(gravity_decompose::PipelineNode::new(a, 0, gravity_decompose::Source::Const, gravity_program::Pipeline::serial(-1, gravity_program::End::Sink, gravity_program::Reason::NoDrivingSite)));
-    let gx = Gx { graph: &g, facts: &gravity_decompose::NoFacts, catalog: common::RigCatalog::get(), over: None, mcx: rig.mcx() };
+    g.pipelines.push(gravity_decompose::PipelineNode::new(
+        a,
+        0,
+        gravity_decompose::Source::Const,
+        gravity_program::Pipeline::serial(
+            -1,
+            gravity_program::End::Sink,
+            gravity_program::Reason::NoDrivingSite,
+        ),
+    ));
+    let gx = Gx {
+        graph: &g,
+        facts: &gravity_decompose::NoFacts,
+        catalog: common::RigCatalog::get(),
+        over: None,
+        mcx: rig.mcx(),
+    };
     let mut words = Sequential::new(a);
     let mut px = Px::new(a, &gx, &mut words);
-    let m = Mechs::new(&mut px, 0, mcx::pg_box_dyn!(rig.mcx(), OneRow => dyn SourceMech), mcx::PgVec::new_in(rig.mcx()), mcx::pg_box_dyn!(rig.mcx(), Count => dyn EndMech));
+    let m = Mechs::new(
+        &mut px,
+        0,
+        mcx::pg_box_dyn!(rig.mcx(), OneRow => dyn SourceMech),
+        mcx::PgVec::new_in(rig.mcx()),
+        mcx::pg_box_dyn!(rig.mcx(), Count => dyn EndMech),
+    );
     let l = program::emit(&mut px, vec![m]);
     drop(px);
     let codes = compile(&l, Backend::Interp).unwrap_or_else(|e| panic!("backend: {}", e.message()));
@@ -108,15 +170,34 @@ fn epochs(n: usize) -> Vec<u64> {
     for _ in 0..n {
         let mut entry = Entry::new(1);
         let mut sink = NoRows;
-        let parts = BindingParts { snapshot: Snapshot(0), command_id: CommandId(0), params: &[0], param_nulls: &[0], abort_flag: &flag, pins: Pins(0), per_tuple: PerTuple(0), identity: Identity { proc_number: 0, resource_owner: 0, latch: 0 }, resolved: None };
+        let parts = BindingParts {
+            snapshot: Snapshot(0),
+            command_id: CommandId(0),
+            params: &[0],
+            param_nulls: &[0],
+            abort_flag: &flag,
+            pins: Pins(0),
+            per_tuple: PerTuple(0),
+            identity: Identity {
+                proc_number: 0,
+                resource_owner: 0,
+                latch: 0,
+            },
+            resolved: None,
+        };
         let mut b = Binding::new(parts, &mut sink);
         let lease = std::rc::Rc::new(Reservation::unadmitted(Grant::of(1 << 30)));
-        let exec = entry.start(None, &program, &mut Derive, &mut b, lease).unwrap_or_else(|e| panic!("start: {e:?}"));
+        let exec = entry
+            .start(None, &program, &mut Derive, &mut b, lease)
+            .unwrap_or_else(|e| panic!("start: {e:?}"));
         let ctx: *mut Ctx = exec.node().ctx();
         // SAFETY: `ctx` is the started statement's bound ctx.
         unsafe {
             seen.push(gravity_driver::hostimpl::arena::spill_epoch(ctx));
-            assert!(!gravity_driver::hostimpl::arena::spill_region(ctx, 1 << 20).is_null(), "the spill draw");
+            assert!(
+                !gravity_driver::hostimpl::arena::spill_region(ctx, 1 << 20).is_null(),
+                "the spill draw"
+            );
         }
         entry.end(exec, true);
     }
@@ -129,6 +210,9 @@ fn epochs(n: usize) -> Vec<u64> {
 fn a_recreated_node_never_shows_a_recorded_epoch() {
     let seen = epochs(4);
     for (i, e) in seen.iter().enumerate() {
-        assert!(!seen[..i].contains(e), "statement {i} shows epoch {e} again: {seen:?}");
+        assert!(
+            !seen[..i].contains(e),
+            "statement {i} shows epoch {e} again: {seen:?}"
+        );
     }
 }

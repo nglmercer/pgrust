@@ -95,9 +95,12 @@ impl<'mcx> DrTstore<'mcx> {
         // upstream 37b8f3b0e05e (18.6): Cross-check the type of a portal running EXECUTE or FETCH.
         self.tupmap = match &self.target_tupdesc {
             Some(target) => {
-                let msg = self.map_failure_msg.expect("target_tupdesc without map_failure_msg");
+                let msg = self
+                    .map_failure_msg
+                    .expect("target_tupdesc without map_failure_msg");
                 tuplestore::hold::with_store(self.tstore, |store| -> PgResult<Option<Vec<i16>>> {
-                    let map_opt = tupdesc::convert_tuples_by_position(store.mcx(), typeinfo, target, msg)?;
+                    let map_opt =
+                        tupdesc::convert_tuples_by_position(store.mcx(), typeinfo, target, msg)?;
                     match map_opt {
                         Some(m) => Ok(Some(::mcx::std_vec_from_slice("tstoreReceiver", &m)?)),
                         None => Ok(None),
@@ -107,7 +110,10 @@ impl<'mcx> DrTstore<'mcx> {
             None => None,
         };
         if self.needtoast {
-            debug_assert!(self.tupmap.is_none(), "tstoreReceiver: detoast with a tuple map");
+            debug_assert!(
+                self.tupmap.is_none(),
+                "tstoreReceiver: detoast with a tuple map"
+            );
         }
         // C's outvalues/tofree (detoast) and mapslot (tupmap) workspace: one
         // per-row scratch context, reset after every stored row.
@@ -125,9 +131,18 @@ impl<'mcx> DrTstore<'mcx> {
     // over target_tupdesc, the crate's detoast-arm idiom.
     fn receive_slot_tupmap(&mut self, slot: &mut SlotData<'_>) -> PgResult<bool> {
         exectuples::slot_getallattrs(slot);
-        let tupmap = self.tupmap.as_deref().expect("startup ran before receive_slot");
-        let target = self.target_tupdesc.as_deref().expect("tupmap without target_tupdesc");
-        let ctx = self.scratch.as_mut().expect("startup ran before receive_slot");
+        let tupmap = self
+            .tupmap
+            .as_deref()
+            .expect("startup ran before receive_slot");
+        let target = self
+            .target_tupdesc
+            .as_deref()
+            .expect("tupmap without target_tupdesc");
+        let ctx = self
+            .scratch
+            .as_mut()
+            .expect("startup ran before receive_slot");
         {
             let mcx = ctx.mcx();
             let base = slot.base();
@@ -158,7 +173,10 @@ impl<'mcx> DrTstore<'mcx> {
             return Ok(true);
         }
         exectuples::slot_getallattrs(slot);
-        let ctx = self.scratch.as_mut().expect("startup ran before receive_slot");
+        let ctx = self
+            .scratch
+            .as_mut()
+            .expect("startup ran before receive_slot");
         {
             let mcx = ctx.mcx();
             let base = slot.base();

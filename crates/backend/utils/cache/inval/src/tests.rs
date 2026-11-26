@@ -100,16 +100,18 @@ fn install() {
             SENT.with(|s| s.borrow_mut().push(msgs.to_vec()));
             Ok(())
         });
-        sinval_seams::receive_shared_invalid_messages::set(|inval_fn, _reset_fn| {
-            loop {
-                let msg = PENDING.with(|p| {
-                    let mut p = p.borrow_mut();
-                    if p.is_empty() { None } else { Some(p.remove(0)) }
-                });
-                match msg {
-                    Some(m) => inval_fn(&m)?,
-                    None => return Ok(()),
+        sinval_seams::receive_shared_invalid_messages::set(|inval_fn, _reset_fn| loop {
+            let msg = PENDING.with(|p| {
+                let mut p = p.borrow_mut();
+                if p.is_empty() {
+                    None
+                } else {
+                    Some(p.remove(0))
                 }
+            });
+            match msg {
+                Some(m) => inval_fn(&m)?,
+                None => return Ok(()),
             }
         });
     });
@@ -128,7 +130,10 @@ fn commit_sends_catalog_message_after_local_processing() {
 
     clear_events();
     CommandEndInvalidationMessages().unwrap();
-    assert_eq!(events(), vec!["snapshot".to_string(), "flush_catalog(1259)".to_string()]);
+    assert_eq!(
+        events(),
+        vec!["snapshot".to_string(), "flush_catalog(1259)".to_string()]
+    );
 
     AtEOXact_Inval(true).unwrap();
     let flat = sent_flat();
@@ -150,9 +155,14 @@ fn abort_locally_processes_prior_and_sends_nothing() {
 
     clear_events();
     AtEOXact_Inval(false).unwrap();
-    assert_eq!(events(), vec!["snapshot".to_string(), "flush_catalog(1259)".to_string()]);
+    assert_eq!(
+        events(),
+        vec!["snapshot".to_string(), "flush_catalog(1259)".to_string()]
+    );
     assert!(sent().is_empty());
-    assert!(with_state(|s| s.trans_stack.is_empty() && s.msg_arrays[0].is_empty()));
+    assert!(with_state(
+        |s| s.trans_stack.is_empty() && s.msg_arrays[0].is_empty()
+    ));
 }
 
 #[test]
@@ -308,7 +318,10 @@ fn xact_get_committed_messages_keeps_ateoxact_order() {
         })
         .collect();
     // Prior:Cat, Current:Cat, Prior:Rel, Current:Rel.
-    assert_eq!(kinds, vec![(true, 1259), (true, 1247), (false, 100), (false, 200)]);
+    assert_eq!(
+        kinds,
+        vec![(true, 1259), (true, 1247), (false, 100), (false, 200)]
+    );
     AtEOXact_Inval(false).unwrap();
 }
 
@@ -330,11 +343,16 @@ fn syscache_callback_chain_runs_in_registration_order() {
 
     clear_events();
     CallSyscacheCallbacks(11, 42).unwrap();
-    assert_eq!(events(), vec!["A(7,11,42)".to_string(), "B(11,42)".to_string()]);
+    assert_eq!(
+        events(),
+        vec!["A(7,11,42)".to_string(), "B(11,42)".to_string()]
+    );
 
     assert!(CallSyscacheCallbacks(99, 0).is_err());
     assert_eq!(
-        CacheRegisterSyscacheCallback(-1, cb_a, Datum::null()).unwrap_err().level(),
+        CacheRegisterSyscacheCallback(-1, cb_a, Datum::null())
+            .unwrap_err()
+            .level(),
         types_error::FATAL
     );
 }
@@ -360,7 +378,10 @@ fn callback_may_reenter_registration_mid_dispatch() {
     // C re-reads ccitem->link after each invocation, so the callback
     // registered mid-dispatch runs in the same walk.
     CallSyscacheCallbacks(20, 1).unwrap();
-    assert_eq!(events(), vec!["registering".to_string(), "late".to_string()]);
+    assert_eq!(
+        events(),
+        vec!["registering".to_string(), "late".to_string()]
+    );
 }
 
 #[test]
@@ -394,7 +415,11 @@ fn invalidate_system_caches_extended_fires_everything() {
 fn smgr_message_roundtrips_the_packed_proc_number() {
     install();
     let rlocator = types_storage::RelFileLocatorBackend {
-        locator: types_storage::RelFileLocator { spcOid: 1663, dbOid: 5, relNumber: 16384 },
+        locator: types_storage::RelFileLocator {
+            spcOid: 1663,
+            dbOid: 5,
+            relNumber: 16384,
+        },
         backend: 0x12345,
     };
     CacheInvalidateSmgr(rlocator).unwrap();
@@ -429,11 +454,17 @@ fn accept_drains_queue_filtering_foreign_databases() {
     clear_events();
     AcceptInvalidationMessages().unwrap();
     let moved = l2cache::current_gen(cat4) != before;
-    let exact = vec!["snapshot".to_string(), "syscache_invalidate(4,99)".to_string()];
+    let exact = vec![
+        "snapshot".to_string(),
+        "syscache_invalidate(4,99)".to_string(),
+    ];
     let mut advanced = exact.clone();
     advanced.push("snapshot".to_string());
     let ev = events();
-    assert!(ev == exact || moved && ev == advanced, "events {ev:?} (Cat(4) generation moved during the call: {moved})");
+    assert!(
+        ev == exact || moved && ev == advanced,
+        "events {ev:?} (Cat(4) generation moved during the call: {moved})"
+    );
 }
 
 #[test]
@@ -457,7 +488,10 @@ static REPLAY_LOGS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::n
 
 fn capture_replay_log(e: &types_error::PgError, _output_to_server: &mut bool) {
     if e.level == types_error::DEBUG4 {
-        REPLAY_LOGS.lock().unwrap_or_else(|e| e.into_inner()).push(e.message().to_string());
+        REPLAY_LOGS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(e.message().to_string());
     }
 }
 
@@ -465,13 +499,18 @@ fn capture_replay_log(e: &types_error::PgError, _output_to_server: &mut bool) {
 fn committed_replay_logs_at_debug4_like_c() {
     install();
     elog::init_seams();
-    let msgs = [SharedInvalidationMessage::Relcache(types_storage::SharedInvalRelcacheMsg {
-        dbId: 5,
-        relId: 100,
-    })];
+    let msgs = [SharedInvalidationMessage::Relcache(
+        types_storage::SharedInvalRelcacheMsg {
+            dbId: 5,
+            relId: 100,
+        },
+    )];
     let prior_min = elog::config::log_min_messages();
     elog::config::set_log_min_messages(types_error::DEBUG4);
-    REPLAY_LOGS.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    REPLAY_LOGS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
     let prior = elog::sink::set_emit_log_hook(Some(capture_replay_log));
     let r1 = ProcessCommittedInvalidationMessages(&msgs, false, 5, 1663);
     let r2 = ProcessCommittedInvalidationMessages(&msgs, true, InvalidOid, InvalidOid);
@@ -481,7 +520,10 @@ fn committed_replay_logs_at_debug4_like_c() {
     r1.unwrap();
     r2.unwrap();
     r3.unwrap();
-    let logs = REPLAY_LOGS.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let logs = REPLAY_LOGS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
     assert_eq!(
         logs,
         vec![
@@ -512,8 +554,18 @@ fn pending_touch_names_what_the_transaction_registered() {
     register(47);
     assert!(!crate::PendingInvalidationsTouch(&[200], &[47, 82]));
     // C3 S5d: but a read made under the DDL may have found the created row
-    assert!(crate::PendingInvalidationsTouchParts(&[200], &[], &[47], true));
-    assert!(!crate::PendingInvalidationsTouchParts(&[200], &[200], &[82], true));
+    assert!(crate::PendingInvalidationsTouchParts(
+        &[200],
+        &[],
+        &[47],
+        true
+    ));
+    assert!(!crate::PendingInvalidationsTouchParts(
+        &[200],
+        &[200],
+        &[82],
+        true
+    ));
     register(3);
     assert!(crate::PendingInvalidationsTouch(&[200], &[3]));
     assert!(!crate::PendingInvalidationsTouch(&[200], &[47, 82]));
@@ -531,7 +583,10 @@ fn pending_touch_names_what_the_transaction_registered() {
     assert!(!crate::PendingInvalidationsTouch(&[12345], &[]));
 }
 
-fn family_relids<'mcx>(mcx: mcx::Mcx<'mcx>, families: &[Oid]) -> types_error::PgResult<mcx::PgVec<'mcx, Oid>> {
+fn family_relids<'mcx>(
+    mcx: mcx::Mcx<'mcx>,
+    families: &[Oid],
+) -> types_error::PgResult<mcx::PgVec<'mcx, Oid>> {
     let mut v = mcx::PgVec::new_in(mcx);
     if families == [77] {
         v.push(300);
@@ -550,9 +605,18 @@ fn pre_commit_names_the_relations_built_from_a_changed_family() {
     assert!(!crate::PendingInvalidationsTouch(&[300], &[]));
     with_state(|state| state.support_families.push(77));
     PreCommit_Inval().unwrap();
-    assert!(crate::PendingInvalidationsTouch(&[300], &[]) && crate::PendingInvalidationsTouch(&[301], &[]));
+    assert!(
+        crate::PendingInvalidationsTouch(&[300], &[])
+            && crate::PendingInvalidationsTouch(&[301], &[])
+    );
     assert!(with_state(|state| state.support_families.is_empty()));
     AtEOXact_Inval(true).unwrap();
-    let rels: Vec<Oid> = sent_flat().iter().filter_map(|m| match m { SharedInvalidationMessage::Relcache(r) => Some(r.relId), _ => None }).collect();
+    let rels: Vec<Oid> = sent_flat()
+        .iter()
+        .filter_map(|m| match m {
+            SharedInvalidationMessage::Relcache(r) => Some(r.relId),
+            _ => None,
+        })
+        .collect();
     assert!(rels.contains(&300) && rels.contains(&301), "{rels:?}");
 }

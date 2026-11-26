@@ -8,7 +8,18 @@ use crate::ops::shared::agg_class::Class;
 /// at the first unequal row, which input order decides beside another row's error). A caller that folds one out of PostgreSQL's order asks
 /// a recheck licence for it (`effects::licence` with `Departure::Ahead`).
 pub const fn raises_by_order(c: Class) -> bool {
-    matches!(c, Class::SumF32 | Class::SumF64 | Class::AvgF64 | Class::Stat3F64(_) | Class::Stat6F64(_) | Class::SumMoney | Class::SumInterval | Class::AvgInterval | Class::BitVar(_))
+    matches!(
+        c,
+        Class::SumF32
+            | Class::SumF64
+            | Class::AvgF64
+            | Class::Stat3F64(_)
+            | Class::Stat6F64(_)
+            | Class::SumMoney
+            | Class::SumInterval
+            | Class::AvgInterval
+            | Class::BitVar(_)
+    )
 }
 
 /// D2597: whether class `c` raises by its partial sums with no guard of its own for a row order PG's scan does not take:

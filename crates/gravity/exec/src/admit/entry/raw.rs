@@ -42,7 +42,10 @@ fn in_use(h: QueryDescHandle) -> *mut QueryDesc {
         let mut d = d.borrow_mut();
         match d.slots.get_mut(idx as usize) {
             Some(Some(qd)) if qd.generation == generation => {
-                assert!(!qd.in_use.replace(true), "gravity_entry: re-entered QueryDescHandle {h:?}");
+                assert!(
+                    !qd.in_use.replace(true),
+                    "gravity_entry: re-entered QueryDescHandle {h:?}"
+                );
                 &mut **qd as *mut QueryDesc
             }
             _ => panic!("gravity_entry: stale QueryDescHandle {h:?}"),
@@ -109,7 +112,9 @@ pub(super) fn snapshot(p: *const Rc<SnapshotData<'static>>) -> &'static Rc<Snaps
 }
 
 /// The producers' resolved set for the binding (`Serve::open`).
-pub(super) fn resolved(r: &(dyn core::any::Any + Send + Sync)) -> &'static (dyn core::any::Any + Send + Sync) {
+pub(super) fn resolved(
+    r: &(dyn core::any::Any + Send + Sync),
+) -> &'static (dyn core::any::Any + Send + Sync) {
     // SAFETY: the producers live in the boxed Serve until `close_run`, past every borrow of the binding (as the snapshot).
     unsafe { &*(r as *const (dyn core::any::Any + Send + Sync)) }
 }

@@ -6,12 +6,15 @@
 //! `ConvertRowtypeExpr` re-forms by attribute name or relabels the header. Descriptors live in
 //! `State::descs` on their own context; every formed tuple is an image in the region.
 
-use mcx::GrowIn;
 use gravity_fn::{Datum, NullableDatum, Region};
+use mcx::GrowIn;
 use mcx::{Mcx, MemoryContext};
 use types_core::Oid;
 use types_error::{PgError, PgResult};
-use types_nodes::primnodes::{ConvertRowtypeExpr, FieldSelect as FieldSelectTree, FieldStore as FieldStoreTree, RowExpr as RowExprTree};
+use types_nodes::primnodes::{
+    ConvertRowtypeExpr, FieldSelect as FieldSelectTree, FieldStore as FieldStoreTree,
+    RowExpr as RowExprTree,
+};
 use types_tuple::{varatt, HeapTupleData, HeapTupleHeaderData, ItemPointerData, TupleDescData};
 
 use crate::eval::{eval, Cols, Cx, Source};
@@ -38,7 +41,12 @@ pub struct Desc {
 
 impl Desc {
     fn new() -> Desc {
-        Desc { desc: None, cx: Box::new(gravity_fn::session::root_context("gravity_expr tupdesc")), key: Vec::new(), conv_in: u32::MAX } // alloc: Program
+        Desc {
+            desc: None,
+            cx: Box::new(gravity_fn::session::root_context("gravity_expr tupdesc")),
+            key: Vec::new(),
+            conv_in: u32::MAX,
+        } // alloc: Program
     }
 
     fn mcx(&self) -> Mcx<'static> {
@@ -54,11 +62,19 @@ impl Desc {
     /// The descriptor's content as words (the owner signature: a program whose IR is another's must not share its
     /// descriptors — `ROW(c1, c2)` named `(a, b)` and `(x, y)` render differently).
     pub fn sig(&self, out: &mut Vec<u32>) {
-        let Some(d) = self.desc.as_ref() else { return out.push(u32::MAX) };
+        let Some(d) = self.desc.as_ref() else {
+            return out.push(u32::MAX);
+        };
         out.extend([d.natts as u32, d.tdtypeid, d.tdtypmod as u32]);
         for a in d.attrs.iter() {
             let name = a.attname.name_str();
-            out.extend([a.atttypid, a.atttypmod as u32, name.iter().fold(0x811c9dc5u32, |h, &b| (h ^ b as u32).wrapping_mul(0x01000193))]);
+            out.extend([
+                a.atttypid,
+                a.atttypmod as u32,
+                name.iter().fold(0x811c9dc5u32, |h, &b| {
+                    (h ^ b as u32).wrapping_mul(0x01000193)
+                }),
+            ]);
         }
     }
 }
@@ -77,7 +93,10 @@ fn push_desc(b: &mut Builder<'_, '_>, d: Desc) -> u32 {
     ix
 }
 
-pub fn compile_field_select<'mcx>(b: &mut Builder<'_, 'mcx>, f: &FieldSelectTree<'mcx>) -> CompileResult<NodeId> {
+pub fn compile_field_select<'mcx>(
+    b: &mut Builder<'_, 'mcx>,
+    f: &FieldSelectTree<'mcx>,
+) -> CompileResult<NodeId> {
     let arg = b.compile(f.arg)?;
     let byref = !b.catalog.type_facts(f.resulttype)?.byval;
     let site = crate::nodes::field::field_site(b, byref);
@@ -88,12 +107,27 @@ pub fn compile_field_select<'mcx>(b: &mut Builder<'_, 'mcx>, f: &FieldSelectTree
     } else {
         let mut typmod = -1;
         let base = b.catalog.base_type(argtyp, &mut typmod)?;
-        if base == RECORDOID { NO_DESC } else { rowtype_desc(b, base, -1)? }
+        if base == RECORDOID {
+            NO_DESC
+        } else {
+            rowtype_desc(b, base, -1)?
+        }
     };
-    Ok(b.push(ExprNode::FieldSelect(FieldSelect { arg, fieldnum: f.fieldnum, typ: f.resulttype, site, desc })))
+    Ok(b.push(ExprNode::FieldSelect(FieldSelect {
+        arg,
+        fieldnum: f.fieldnum,
+        typ: f.resulttype,
+        site,
+        desc,
+    })))
 }
 
-pub fn eval_field_select(p: &Prog<'_, '_>, st: &mut St<'_>, n: &FieldSelect, cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
+pub fn eval_field_select(
+    p: &Prog<'_, '_>,
+    st: &mut St<'_>,
+    n: &FieldSelect,
+    cx: &mut Cx<'_, '_>,
+) -> PgResult<NullableDatum> {
     let v = eval(p, st, n.arg, cx)?;
     if v.isnull {
         return Ok(v);
@@ -101,23 +135,37 @@ pub fn eval_field_select(p: &Prog<'_, '_>, st: &mut St<'_>, n: &FieldSelect, cx:
     let raw = v.value.as_usize() as *const u8;
     // SAFETY: a non-null composite datum addresses a live varlena image.
     if unsafe { varatt::varatt_is_external_expanded(raw) } {
-        let (value, isnull) = expandedrecord_seams::expanded_record_field_select::call(v.value, n.fieldnum as i32, n.typ)?;
+        let (value, isnull) = expandedrecord_seams::expanded_record_field_select::call(
+            v.value,
+            n.fieldnum as i32,
+            n.typ,
+        )?;
         return Ok(NullableDatum { value, isnull });
     }
     let img = image_view(v.value, -1, cx.region)?;
-    let desc = if n.desc == NO_DESC { None } else { st.descs[n.desc as usize].desc.as_ref() };
+    let desc = if n.desc == NO_DESC {
+        None
+    } else {
+        st.descs[n.desc as usize].desc.as_ref()
+    };
     field_of(img.ptr, n.fieldnum, n.typ, desc)
 }
 
 /// C `ExecEvalFieldSelect`'s heap-composite leg over a plain image; `known` is the argument's compile-time descriptor,
 /// used when the image's header names it (C's `argdesc` cache), else the typcache's copy for the header's rowtype.
-pub fn field_of(img: *const u8, fieldnum: i16, typ: Oid, known: Option<&TupleDescData<'_>>) -> PgResult<NullableDatum> {
+pub fn field_of(
+    img: *const u8,
+    fieldnum: i16,
+    typ: Oid,
+    known: Option<&TupleDescData<'_>>,
+) -> PgResult<NullableDatum> {
     // SAFETY: a plain 4-byte-header composite image: the tuple header prefix is in bounds.
     let hdr = unsafe { &*(img as *const HeapTupleHeaderData) };
     if fieldnum <= 0 {
         return Err(system_column(fieldnum));
     }
-    if let Some(desc) = known.filter(|d| d.tdtypeid == hdr.type_id() && d.tdtypmod == hdr.typmod()) {
+    if let Some(desc) = known.filter(|d| d.tdtypeid == hdr.type_id() && d.tdtypmod == hdr.typmod())
+    {
         return field_in(img, fieldnum, typ, desc);
     }
     with_scratch(|mcx| {
@@ -126,7 +174,12 @@ pub fn field_of(img: *const u8, fieldnum: i16, typ: Oid, known: Option<&TupleDes
     })
 }
 
-fn field_in(img: *const u8, fieldnum: i16, typ: Oid, desc: &TupleDescData<'_>) -> PgResult<NullableDatum> {
+fn field_in(
+    img: *const u8,
+    fieldnum: i16,
+    typ: Oid,
+    desc: &TupleDescData<'_>,
+) -> PgResult<NullableDatum> {
     if fieldnum as i32 > desc.natts {
         return Err(beyond_columns(fieldnum, desc.natts));
     }
@@ -156,11 +209,19 @@ fn tuple_over<'a>(img: *const u8) -> HeapTupleData<'a> {
 }
 
 /// `n` datum and null cells in the region.
-pub(crate) fn row_cells<'a>(region: &mut Region, n: usize) -> PgResult<(&'a mut [Datum], &'a mut [bool])> {
+pub(crate) fn row_cells<'a>(
+    region: &mut Region,
+    n: usize,
+) -> PgResult<(&'a mut [Datum], &'a mut [bool])> {
     let v = region.reserve(n * 8).ok_or_else(no_space)?;
     let b = region.reserve(n.max(1)).ok_or_else(no_space)?;
     // SAFETY: both reservations are inside the region and sized for `n` entries.
-    Ok(unsafe { (core::slice::from_raw_parts_mut(v.cast::<Datum>(), n), core::slice::from_raw_parts_mut(b.cast::<bool>(), n)) })
+    Ok(unsafe {
+        (
+            core::slice::from_raw_parts_mut(v.cast::<Datum>(), n),
+            core::slice::from_raw_parts_mut(b.cast::<bool>(), n),
+        )
+    })
 }
 
 /// `heap_form_tuple` over the descriptor on the scratch context, the image copied into the region. A composite datum
@@ -169,11 +230,17 @@ pub(crate) fn row_cells<'a>(region: &mut Region, n: usize) -> PgResult<(&'a mut 
 /// lane's toast pointer is flattened on the scratch context first, else `INSERT INTO dest SELECT ARRAY[ROW(f1, f1)]
 /// FROM src` stores a pointer into `src`'s toast table (pg_regress `arrays`: "unexpected chunk number" once `src` is
 /// deleted from).
-pub(crate) fn form(desc: &TupleDescData<'_>, values: &[Datum], nulls: &[bool], region: &mut Region) -> PgResult<NullableDatum> {
+pub(crate) fn form(
+    desc: &TupleDescData<'_>,
+    values: &[Datum],
+    nulls: &[bool],
+    region: &mut Region,
+) -> PgResult<NullableDatum> {
     with_scratch(|mcx| {
         let tuple = heaptuple::heap_form_tuple(mcx, desc, values, nulls)?;
         let img = if tuple.as_tuple().has_external() {
-            detoast_seams::toast_flatten_tuple_to_datum::call(mcx, tuple.as_tuple(), desc)?.as_usize() as *const u8
+            detoast_seams::toast_flatten_tuple_to_datum::call(mcx, tuple.as_tuple(), desc)?
+                .as_usize() as *const u8
         } else {
             tuple.image().as_ptr()
         };
@@ -182,7 +249,12 @@ pub(crate) fn form(desc: &TupleDescData<'_>, values: &[Datum], nulls: &[bool], r
 }
 
 /// Deform a composite image into `values` / `nulls`.
-pub(crate) fn deform(img: *const u8, desc: &TupleDescData<'_>, values: &mut [Datum], nulls: &mut [bool]) {
+pub(crate) fn deform(
+    img: *const u8,
+    desc: &TupleDescData<'_>,
+    values: &mut [Datum],
+    nulls: &mut [bool],
+) {
     let tuple = tuple_over(img);
     types_tuple::heap_deform_tuple(&tuple, desc, values, nulls);
     #[allow(clippy::forget_non_drop)]
@@ -197,18 +269,36 @@ pub fn compile_whole_row(b: &mut Builder<'_, '_>, src: Source, typ: Oid) -> Comp
         let base = b.catalog.base_type(typ, &mut typmod)?;
         rowtype_desc(b, base, -1)?
     };
-    Ok(b.push(ExprNode::Var(Var { src, attno: 0, typ, desc })))
+    Ok(b.push(ExprNode::Var(Var {
+        src,
+        attno: 0,
+        typ,
+        desc,
+    })))
 }
 
 /// The whole-row `Var` (C `ExecEvalWholeRowVar`): the slot's columns as a composite datum.
 pub fn eval_whole_row(n: &Var, st: &mut St<'_>, cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
     let src = cx.row.source(n.src);
-    let Cols::Slot { values, nulls, desc: Some(slot_desc), .. } = *src else { return Err(no_descriptor()) };
+    let Cols::Slot {
+        values,
+        nulls,
+        desc: Some(slot_desc),
+        ..
+    } = *src
+    else {
+        return Err(no_descriptor());
+    };
     let d = &mut st.descs[n.desc as usize];
     if n.typ == RECORDOID {
         bless_record(d, slot_desc)?;
     } else {
-        check_named(d.desc.as_ref().expect("a named rowtype binds its descriptor"), slot_desc)?;
+        check_named(
+            d.desc
+                .as_ref()
+                .expect("a named rowtype binds its descriptor"),
+            slot_desc,
+        )?;
     }
     let natts = slot_desc.natts as usize;
     let (vals, nls) = row_cells(cx.region, natts)?;
@@ -224,14 +314,22 @@ pub fn eval_whole_row(n: &Var, st: &mut St<'_>, cx: &mut Cx<'_, '_>) -> PgResult
             }
         }
     }
-    let desc = st.descs[n.desc as usize].desc.as_ref().expect("resolved above");
+    let desc = st.descs[n.desc as usize]
+        .desc
+        .as_ref()
+        .expect("resolved above");
     form(desc, vals, nls, cx.region)
 }
 
 /// The `record` leg: the slot's descriptor copied, stamped `record` and blessed (its typmod from
 /// the typcache's registry), cached by the slot's attribute types.
 fn bless_record(d: &mut Desc, slot_desc: &TupleDescData<'_>) -> PgResult<()> {
-    let same = d.desc.is_some() && d.key.len() == slot_desc.natts as usize && d.key.iter().zip(slot_desc.attrs.iter()).all(|(&k, a)| k == a.atttypid);
+    let same = d.desc.is_some()
+        && d.key.len() == slot_desc.natts as usize
+        && d.key
+            .iter()
+            .zip(slot_desc.attrs.iter())
+            .all(|(&k, a)| k == a.atttypid);
     if same {
         return Ok(());
     }
@@ -249,7 +347,16 @@ fn bless_record(d: &mut Desc, slot_desc: &TupleDescData<'_>) -> PgResult<()> {
 /// The named leg's check: the slot's row matches the rowtype (C's `42804` details).
 fn check_named(var_desc: &TupleDescData<'_>, slot_desc: &TupleDescData<'_>) -> PgResult<()> {
     if var_desc.natts != slot_desc.natts {
-        return Err(row_type_mismatch(format!("Table row contains {} {}, but query expects {}.", slot_desc.natts, if slot_desc.natts == 1 { "attribute" } else { "attributes" }, var_desc.natts))); // alloc: Cold
+        return Err(row_type_mismatch(format!(
+            "Table row contains {} {}, but query expects {}.",
+            slot_desc.natts,
+            if slot_desc.natts == 1 {
+                "attribute"
+            } else {
+                "attributes"
+            },
+            var_desc.natts
+        ))); // alloc: Cold
     }
     for i in 0..var_desc.natts as usize {
         let (v, s) = (&var_desc.attrs[i], &slot_desc.attrs[i]);
@@ -258,23 +365,37 @@ fn check_named(var_desc: &TupleDescData<'_>, slot_desc: &TupleDescData<'_>) -> P
         }
         if !v.attisdropped {
             let f = |o: Oid| format_type::format_type_be(o).unwrap_or_else(|_| o.to_string()); // alloc: Cold
-            return Err(row_type_mismatch(format!("Table has type {} at ordinal position {}, but query expects {}.", f(s.atttypid), i + 1, f(v.atttypid)))); // alloc: Cold
+            return Err(row_type_mismatch(format!(
+                "Table has type {} at ordinal position {}, but query expects {}.",
+                f(s.atttypid),
+                i + 1,
+                f(v.atttypid)
+            ))); // alloc: Cold
         }
         if v.attlen != s.attlen || v.attalign != s.attalign {
-            return Err(row_type_mismatch(format!("Physical storage mismatch on dropped attribute at ordinal position {}.", i + 1))); // alloc: Cold
+            return Err(row_type_mismatch(format!(
+                "Physical storage mismatch on dropped attribute at ordinal position {}.",
+                i + 1
+            ))); // alloc: Cold
         }
     }
     Ok(())
 }
 
-pub fn compile_field_store<'mcx>(b: &mut Builder<'_, 'mcx>, f: &FieldStoreTree<'mcx>) -> CompileResult<NodeId> {
+pub fn compile_field_store<'mcx>(
+    b: &mut Builder<'_, 'mcx>,
+    f: &FieldStoreTree<'mcx>,
+) -> CompileResult<NodeId> {
     let desc = rowtype_desc(b, f.resulttype, -1)?;
     let natts = b.state.descs[desc as usize].desc.as_ref().unwrap().natts;
     let arg = b.compile(f.arg)?;
     let fieldnums = b.prog.oids.len() as u32;
     for fnum in f.fieldnums.iter() {
         if fnum <= 0 || fnum > natts {
-            return Err(Box::new(PgError::error(format!("field number {fnum} is out of range in FieldStore"))).into()); // alloc: Cold
+            return Err(Box::new(PgError::error(format!(
+                "field number {fnum} is out of range in FieldStore"
+            )))
+            .into()); // alloc: Cold
         }
         b.prog.oids.push_in(fnum as Oid);
     }
@@ -283,10 +404,22 @@ pub fn compile_field_store<'mcx>(b: &mut Builder<'_, 'mcx>, f: &FieldStoreTree<'
         return unsupported(Kind::FieldStore);
     }
     let site = crate::emit::store::field_store_site(b, newvals.len as usize);
-    Ok(b.push(ExprNode::FieldStore(FieldStore { arg, newvals, fieldnums, typ: f.resulttype, desc, site })))
+    Ok(b.push(ExprNode::FieldStore(FieldStore {
+        arg,
+        newvals,
+        fieldnums,
+        typ: f.resulttype,
+        desc,
+        site,
+    })))
 }
 
-pub fn eval_field_store(p: &Prog<'_, '_>, st: &mut St<'_>, n: &FieldStore, cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
+pub fn eval_field_store(
+    p: &Prog<'_, '_>,
+    st: &mut St<'_>,
+    n: &FieldStore,
+    cx: &mut Cx<'_, '_>,
+) -> PgResult<NullableDatum> {
     let v = eval(p, st, n.arg, cx)?;
     let natts = st.descs[n.desc as usize].desc.as_ref().unwrap().natts as usize;
     let (vals, nls) = row_cells(cx.region, natts)?;
@@ -295,31 +428,62 @@ pub fn eval_field_store(p: &Prog<'_, '_>, st: &mut St<'_>, n: &FieldStore, cx: &
         nls.fill(true);
     } else {
         let img = image_view(v.value, -1, cx.region)?;
-        deform(img.ptr, st.descs[n.desc as usize].desc.as_ref().unwrap(), vals, nls);
+        deform(
+            img.ptr,
+            st.descs[n.desc as usize].desc.as_ref().unwrap(),
+            vals,
+            nls,
+        );
     }
     for i in 0..n.newvals.len as usize {
         let f = p.oids[n.fieldnums as usize + i] as usize - 1;
         let saved = cx.casetest;
-        cx.casetest = NullableDatum { value: vals[f], isnull: nls[f] };
+        cx.casetest = NullableDatum {
+            value: vals[f],
+            isnull: nls[f],
+        };
         let r = eval(p, st, p.kids[n.newvals.start as usize + i], cx);
         cx.casetest = saved;
         let r = r?;
         vals[f] = r.value;
         nls[f] = r.isnull;
     }
-    form(st.descs[n.desc as usize].desc.as_ref().unwrap(), vals, nls, cx.region)
+    form(
+        st.descs[n.desc as usize].desc.as_ref().unwrap(),
+        vals,
+        nls,
+        cx.region,
+    )
 }
 
-pub fn compile_row_expr<'mcx>(b: &mut Builder<'_, 'mcx>, r: &RowExprTree<'mcx>) -> CompileResult<NodeId> {
+pub fn compile_row_expr<'mcx>(
+    b: &mut Builder<'_, 'mcx>,
+    r: &RowExprTree<'mcx>,
+) -> CompileResult<NodeId> {
     let nargs = r.args.len();
     let desc = if r.row_typeid == RECORDOID {
         let mut d = Desc::new();
         let mut desc = tupdesc::CreateTemplateTupleDesc(d.mcx(), nargs as i32)?;
         for (i, e) in r.args.iter().enumerate() {
-            let colname = if r.colnames.len() > i { r.colnames.nth(i).as_string().map(|s| s.sval) } else { None };
-            tupdesc::TupleDescInitEntry(&mut desc, (i + 1) as i16, colname, nodes_core::expr_type(e), nodes_core::expr_typmod(e), 0)?;
+            let colname = if r.colnames.len() > i {
+                r.colnames.nth(i).as_string().map(|s| s.sval)
+            } else {
+                None
+            };
+            tupdesc::TupleDescInitEntry(
+                &mut desc,
+                (i + 1) as i16,
+                colname,
+                nodes_core::expr_type(e),
+                nodes_core::expr_typmod(e),
+                0,
+            )?;
             // D1887: C ExecTypeFromExprList's column collation, the argument's (record_cmp / record_eq compare under it)
-            tupdesc::TupleDescInitEntryCollation(&mut desc, (i + 1) as i16, nodes_core::expr_collation(e));
+            tupdesc::TupleDescInitEntryCollation(
+                &mut desc,
+                (i + 1) as i16,
+                nodes_core::expr_collation(e),
+            );
         }
         desc.tdtypeid = RECORDOID;
         desc.tdtypmod = -1;
@@ -342,12 +506,26 @@ pub fn compile_row_expr<'mcx>(b: &mut Builder<'_, 'mcx>, r: &RowExprTree<'mcx>) 
         let have = nodes_core::expr_type(e);
         if have != att.atttypid {
             let f = |o: Oid| format_type::format_type_be(o).unwrap_or_else(|_| o.to_string()); // alloc: Cold
-            return Err(Box::new(PgError::error(format!("ROW() column has type {} instead of type {}", f(have), f(att.atttypid))).with_sqlstate(types_error::ERRCODE_DATATYPE_MISMATCH)).into()); // alloc: Cold
+            return Err(Box::new(
+                PgError::error(format!(
+                    "ROW() column has type {} instead of type {}",
+                    f(have),
+                    f(att.atttypid)
+                ))
+                .with_sqlstate(types_error::ERRCODE_DATATYPE_MISMATCH),
+            )
+            .into()); // alloc: Cold
         }
     }
     let args = b.kids(&r.args)?;
     let site = crate::nodes::row::row_site(b, nargs);
-    Ok(b.push(ExprNode::Row(RowExpr { args, row_type: r.row_typeid, desc, natts: natts as u32, site })))
+    Ok(b.push(ExprNode::Row(RowExpr {
+        args,
+        row_type: r.row_typeid,
+        desc,
+        natts: natts as u32,
+        site,
+    })))
 }
 
 /// EXPR-ODDS A: a named tuplestore scan's whole row as a `record` (C `ExecEvalWholeRowVar`'s RECORD leg): the scan slot's
@@ -356,7 +534,12 @@ pub fn compile_row_expr<'mcx>(b: &mut Builder<'_, 'mcx>, r: &RowExprTree<'mcx>) 
 /// name or a dropped column keeps its own) and blessed; the row is that descriptor over `Var(src, 1..n)`, `n` the last
 /// live column (trailing dropped columns take no argument: the row leaves them NULL), a dropped one before it reading
 /// the first live column, whose value the row skips (`attisdropped`, as `eval_row_expr` and the row site do).
-pub fn compile_relation_record(b: &mut Builder<'_, '_>, src: Source, relid: Oid, names: &[&str]) -> CompileResult<NodeId> {
+pub fn compile_relation_record(
+    b: &mut Builder<'_, '_>,
+    src: Source,
+    relid: Oid,
+    names: &[&str],
+) -> CompileResult<NodeId> {
     let reltype = lsyscache::get_rel_type_id(relid)?;
     let mut d = Desc::new();
     let mut desc = typcache::lookup_rowtype_tupdesc_copy(d.mcx(), reltype, -1)?;
@@ -369,21 +552,44 @@ pub fn compile_relation_record(b: &mut Builder<'_, '_>, src: Source, relid: Oid,
         }
     }
     typcache::assign_record_type_typmod(&mut desc)?;
-    let cols: Vec<(bool, Oid)> = desc.attrs.iter().take(desc.natts.max(0) as usize).map(|a| (a.attisdropped, a.atttypid)).collect(); // alloc: Program
+    let cols: Vec<(bool, Oid)> = desc
+        .attrs
+        .iter()
+        .take(desc.natts.max(0) as usize)
+        .map(|a| (a.attisdropped, a.atttypid))
+        .collect(); // alloc: Program
     d.set(desc);
     let n = cols.iter().rposition(|c| !c.0).map_or(0, |p| p + 1);
     let ix = push_desc(b, d);
     let first = cols.iter().position(|c| !c.0).unwrap_or(0);
-    let args: Vec<NodeId> = (0..n).map(|a| {
-        let a = if cols[a].0 { first } else { a };
-        b.push(ExprNode::Var(Var { src, attno: a as i16 + 1, typ: cols[a].1, desc: 0 }))
-    }).collect(); // alloc: Program
+    let args: Vec<NodeId> = (0..n)
+        .map(|a| {
+            let a = if cols[a].0 { first } else { a };
+            b.push(ExprNode::Var(Var {
+                src,
+                attno: a as i16 + 1,
+                typ: cols[a].1,
+                desc: 0,
+            }))
+        })
+        .collect(); // alloc: Program
     let kids = b.kids_of(&args);
     let site = crate::nodes::row::row_site(b, n);
-    Ok(b.push(ExprNode::Row(RowExpr { args: kids, row_type: RECORDOID, desc: ix, natts: cols.len() as u32, site })))
+    Ok(b.push(ExprNode::Row(RowExpr {
+        args: kids,
+        row_type: RECORDOID,
+        desc: ix,
+        natts: cols.len() as u32,
+        site,
+    })))
 }
 
-pub fn eval_row_expr(p: &Prog<'_, '_>, st: &mut St<'_>, n: &RowExpr, cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
+pub fn eval_row_expr(
+    p: &Prog<'_, '_>,
+    st: &mut St<'_>,
+    n: &RowExpr,
+    cx: &mut Cx<'_, '_>,
+) -> PgResult<NullableDatum> {
     let natts = n.natts as usize;
     let (vals, nls) = row_cells(cx.region, natts)?;
     vals.fill(Datum::null());
@@ -398,10 +604,18 @@ pub fn eval_row_expr(p: &Prog<'_, '_>, st: &mut St<'_>, n: &RowExpr, cx: &mut Cx
         vals[i] = r.value;
         nls[i] = r.isnull;
     }
-    form(st.descs[n.desc as usize].desc.as_ref().unwrap(), vals, nls, cx.region)
+    form(
+        st.descs[n.desc as usize].desc.as_ref().unwrap(),
+        vals,
+        nls,
+        cx.region,
+    )
 }
 
-pub fn compile_convert_rowtype<'mcx>(b: &mut Builder<'_, 'mcx>, c: &ConvertRowtypeExpr<'mcx>) -> CompileResult<NodeId> {
+pub fn compile_convert_rowtype<'mcx>(
+    b: &mut Builder<'_, 'mcx>,
+    c: &ConvertRowtypeExpr<'mcx>,
+) -> CompileResult<NodeId> {
     let arg = b.compile(c.arg)?;
     let intype = nodes_core::expr_type(c.arg);
     let indesc = rowtype_desc(b, intype, -1)?;
@@ -410,9 +624,19 @@ pub fn compile_convert_rowtype<'mcx>(b: &mut Builder<'_, 'mcx>, c: &ConvertRowty
     let map = attr_map(b, indesc, outdesc)?;
     // the emitted site carries the map as constant words; one wider than a site's arguments is the emit's refusal
     let outnatts = b.state.descs[outdesc as usize].desc.as_ref().unwrap().natts as usize;
-    let wide = map.is_some() && crate::nodes::row::CONVERT_HEAD + outnatts > crate::nodes::func::MAX_ARGS;
-    let site = crate::nodes::row::convert_site(b, if map.is_some() && !wide { outnatts } else { 0 });
-    Ok(b.push(ExprNode::ConvertRowtype(ConvertRowtype { arg, result_type: c.resulttype, indesc, outdesc, map, site, wide })))
+    let wide =
+        map.is_some() && crate::nodes::row::CONVERT_HEAD + outnatts > crate::nodes::func::MAX_ARGS;
+    let site =
+        crate::nodes::row::convert_site(b, if map.is_some() && !wide { outnatts } else { 0 });
+    Ok(b.push(ExprNode::ConvertRowtype(ConvertRowtype {
+        arg,
+        result_type: c.resulttype,
+        indesc,
+        outdesc,
+        map,
+        site,
+        wide,
+    })))
 }
 
 /// `build_attrmap_by_name` + `check_attrmap_match`: the map into `Program::oids`, or none when
@@ -420,7 +644,9 @@ pub fn compile_convert_rowtype<'mcx>(b: &mut Builder<'_, 'mcx>, c: &ConvertRowty
 fn attr_map(b: &mut Builder<'_, '_>, indesc: u32, outdesc: u32) -> CompileResult<Option<u32>> {
     let ind = b.state.descs[indesc as usize].desc.as_ref().unwrap();
     let outd = b.state.descs[outdesc as usize].desc.as_ref().unwrap();
-    let Some(map) = map_by_name(ind, outd)? else { return Ok(None) };
+    let Some(map) = map_by_name(ind, outd)? else {
+        return Ok(None);
+    };
     let at = b.prog.oids.len() as u32;
     b.prog.oids.extend_in(map.iter().map(|&m| m as Oid));
     Ok(Some(at))
@@ -428,7 +654,10 @@ fn attr_map(b: &mut Builder<'_, '_>, indesc: u32, outdesc: u32) -> CompileResult
 
 /// `build_attrmap_by_name` + `check_attrmap_match` over two descriptors: out attribute `i` from in attribute `map[i]`
 /// (0: a dropped out attribute), or `None` when the rows convert by a header relabel alone.
-fn map_by_name(ind: &TupleDescData<'_>, outd: &TupleDescData<'_>) -> Result<Option<Vec<i16>>, Box<PgError>> {
+fn map_by_name(
+    ind: &TupleDescData<'_>,
+    outd: &TupleDescData<'_>,
+) -> Result<Option<Vec<i16>>, Box<PgError>> {
     let (innatts, outnatts) = (ind.natts as usize, outd.natts as usize);
     let mut map = vec![0i16; outnatts]; // alloc: Program
     let mut next: isize = -1;
@@ -448,19 +677,35 @@ fn map_by_name(ind: &TupleDescData<'_>, outd: &TupleDescData<'_>) -> Result<Opti
                 continue;
             }
             if outatt.atttypid != inatt.atttypid || outatt.atttypmod != inatt.atttypmod {
-                return Err(row_convert_error(outatt.attname.name_str(), outd.tdtypeid, ind.tdtypeid, true));
+                return Err(row_convert_error(
+                    outatt.attname.name_str(),
+                    outd.tdtypeid,
+                    ind.tdtypeid,
+                    true,
+                ));
             }
             map[i] = inatt.attnum;
             break;
         }
         if map[i] == 0 {
-            return Err(row_convert_error(outatt.attname.name_str(), outd.tdtypeid, ind.tdtypeid, false));
+            return Err(row_convert_error(
+                outatt.attname.name_str(),
+                outd.tdtypeid,
+                ind.tdtypeid,
+                false,
+            ));
         }
     }
-    let identity = innatts == outnatts && (0..outnatts).all(|i| {
-        let (ia, oa) = (&ind.attrs[i], &outd.attrs[i]);
-        map[i] == (i + 1) as i16 || (map[i] == 0 && ia.attisdropped && oa.attisdropped && ia.attlen == oa.attlen && ia.attalign == oa.attalign)
-    });
+    let identity = innatts == outnatts
+        && (0..outnatts).all(|i| {
+            let (ia, oa) = (&ind.attrs[i], &outd.attrs[i]);
+            map[i] == (i + 1) as i16
+                || (map[i] == 0
+                    && ia.attisdropped
+                    && oa.attisdropped
+                    && ia.attlen == oa.attlen
+                    && ia.attalign == oa.attalign)
+        });
     Ok((!identity).then_some(map))
 }
 
@@ -484,12 +729,18 @@ thread_local! {
 /// The pairs `CURRENT` keeps before it starts over (a long session's many programs; a dropped one only costs a lookup).
 const CURRENT_PAIRS: usize = 64;
 
-pub(crate) fn refreshed(ind: &TupleDescData<'static>, outd: &TupleDescData<'static>) -> PgResult<Option<Fresh>> {
+pub(crate) fn refreshed(
+    ind: &TupleDescData<'static>,
+    outd: &TupleDescData<'static>,
+) -> PgResult<Option<Fresh>> {
     if ind.tdtypeid == RECORDOID || outd.tdtypeid == RECORDOID {
         return Ok(None);
     }
     let n = typcache::rel_inval_count();
-    let key = (ind as *const TupleDescData<'static> as usize, outd as *const TupleDescData<'static> as usize);
+    let key = (
+        ind as *const TupleDescData<'static> as usize,
+        outd as *const TupleDescData<'static> as usize,
+    );
     let seen = CURRENT.with(|c| {
         let mut c = c.borrow_mut();
         if c.0 != n {
@@ -514,7 +765,11 @@ pub(crate) fn refreshed(ind: &TupleDescData<'static>, outd: &TupleDescData<'stat
         return Ok(None);
     }
     let map = map_by_name(&fi, &fo)?;
-    Ok(Some(Fresh { ind: fi, outd: fo, map }))
+    Ok(Some(Fresh {
+        ind: fi,
+        outd: fo,
+        map,
+    }))
 }
 
 /// A named rowtype's descriptor as the typcache holds it now.
@@ -522,17 +777,35 @@ fn current_rowtype(typ: Oid) -> PgResult<std::rc::Rc<TupleDescData<'static>>> {
     let e = typcache::lookup_type_cache(typ, typcache::TYPECACHE_TUPDESC)?;
     e.tupdesc().ok_or_else(|| {
         let name = format_type::format_type_be(typ).unwrap_or_else(|_| typ.to_string()); // alloc: Cold
-        Box::new(PgError::error(format!("type {name} is not composite")).with_sqlstate(types_error::ERRCODE_WRONG_OBJECT_TYPE)) // alloc: Cold
+        Box::new(
+            PgError::error(format!("type {name} is not composite"))
+                .with_sqlstate(types_error::ERRCODE_WRONG_OBJECT_TYPE),
+        ) // alloc: Cold
     })
 }
 
 /// `convert_image` by `refreshed`'s current descriptors.
-pub(crate) fn convert_fresh(img: *const u8, f: &Fresh, region: &mut Region) -> PgResult<NullableDatum> {
+pub(crate) fn convert_fresh(
+    img: *const u8,
+    f: &Fresh,
+    region: &mut Region,
+) -> PgResult<NullableDatum> {
     let ind = f.map.as_ref().map(|_| &*f.ind);
-    convert_image(img, ind, &f.outd, |i| f.map.as_ref().map_or(0, |m| m[i] as usize), region)
+    convert_image(
+        img,
+        ind,
+        &f.outd,
+        |i| f.map.as_ref().map_or(0, |m| m[i] as usize),
+        region,
+    )
 }
 
-pub fn eval_convert_rowtype(p: &Prog<'_, '_>, st: &mut St<'_>, n: &ConvertRowtype, cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
+pub fn eval_convert_rowtype(
+    p: &Prog<'_, '_>,
+    st: &mut St<'_>,
+    n: &ConvertRowtype,
+    cx: &mut Cx<'_, '_>,
+) -> PgResult<NullableDatum> {
     let v = eval(p, st, n.arg, cx)?;
     if v.isnull {
         return Ok(v);
@@ -542,14 +815,22 @@ pub fn eval_convert_rowtype(p: &Prog<'_, '_>, st: &mut St<'_>, n: &ConvertRowtyp
     if let Some(f) = refreshed(st.descs[n.indesc as usize].desc.as_ref().unwrap(), outd)? {
         return convert_fresh(img.ptr, &f, cx.region);
     }
-    let ind = n.map.map(|_| st.descs[n.indesc as usize].desc.as_ref().unwrap());
+    let ind = n
+        .map
+        .map(|_| st.descs[n.indesc as usize].desc.as_ref().unwrap());
     let at = n.map.unwrap_or(0) as usize;
     convert_image(img.ptr, ind, outd, |i| p.oids[at + i] as usize, cx.region)
 }
 
 /// C `ExecEvalConvertRowtype` over a composite image: with no in descriptor the rows convert by a header relabel,
 /// else the image deforms by `ind` and re-forms by `outd`, out attribute `i` from in attribute `map(i)` (0: NULL).
-pub(crate) fn convert_image(img: *const u8, ind: Option<&TupleDescData<'static>>, outd: &TupleDescData<'static>, map: impl Fn(usize) -> usize, region: &mut Region) -> PgResult<NullableDatum> {
+pub(crate) fn convert_image(
+    img: *const u8,
+    ind: Option<&TupleDescData<'static>>,
+    outd: &TupleDescData<'static>,
+    map: impl Fn(usize) -> usize,
+    region: &mut Region,
+) -> PgResult<NullableDatum> {
     let Some(ind) = ind else {
         let d = copy_into(region, datum_of(img), -1)?;
         // SAFETY: the copy is a plain composite image; its header carries the rowtype.
@@ -582,13 +863,20 @@ pub fn composite_datum(img: *const u8) -> Datum {
 #[cold]
 #[inline(never)]
 fn no_descriptor() -> Box<PgError> {
-    Box::new(PgError::error("gravity_expr: a whole-row reference needs the row's descriptor").with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED)) // alloc: Cold
+    Box::new(
+        PgError::error("gravity_expr: a whole-row reference needs the row's descriptor")
+            .with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED),
+    ) // alloc: Cold
 }
 
 #[cold]
 #[inline(never)]
 fn row_type_mismatch(detail: String) -> Box<PgError> {
-    Box::new(PgError::error("table row type and query-specified row type do not match").with_sqlstate(types_error::ERRCODE_DATATYPE_MISMATCH).with_detail(detail)) // alloc: Cold
+    Box::new(
+        PgError::error("table row type and query-specified row type do not match")
+            .with_sqlstate(types_error::ERRCODE_DATATYPE_MISMATCH)
+            .with_detail(detail),
+    ) // alloc: Cold
 }
 
 #[cold]
@@ -597,28 +885,58 @@ fn row_convert_error(attname: &[u8], outtype: Oid, intype: Oid, mismatch: bool) 
     let name = String::from_utf8_lossy(attname).into_owned(); // alloc: Cold
     let f = |o: Oid| format_type::format_type_be(o).unwrap_or_else(|_| o.to_string()); // alloc: Cold
     let detail = if mismatch {
-        format!("Attribute \"{name}\" of type {} does not match corresponding attribute of type {}.", f(outtype), f(intype)) // alloc: Cold
+        format!(
+            "Attribute \"{name}\" of type {} does not match corresponding attribute of type {}.",
+            f(outtype),
+            f(intype)
+        ) // alloc: Cold
     } else {
-        format!("Attribute \"{name}\" of type {} does not exist in type {}.", f(outtype), f(intype)) // alloc: Cold
+        format!(
+            "Attribute \"{name}\" of type {} does not exist in type {}.",
+            f(outtype),
+            f(intype)
+        ) // alloc: Cold
     };
-    Box::new(PgError::error("could not convert row type").with_sqlstate(types_error::ERRCODE_DATATYPE_MISMATCH).with_detail(detail)) // alloc: Cold
+    Box::new(
+        PgError::error("could not convert row type")
+            .with_sqlstate(types_error::ERRCODE_DATATYPE_MISMATCH)
+            .with_detail(detail),
+    ) // alloc: Cold
 }
 
 #[cold]
 #[inline(never)]
 fn system_column(fieldnum: i16) -> Box<PgError> {
-    Box::new(PgError::error(format!("unsupported reference to system column {fieldnum} in FieldSelect")).with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR)) // alloc: Cold
+    Box::new(
+        PgError::error(format!(
+            "unsupported reference to system column {fieldnum} in FieldSelect"
+        ))
+        .with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR),
+    ) // alloc: Cold
 }
 
 #[cold]
 #[inline(never)]
 fn beyond_columns(fieldnum: i16, natts: i32) -> Box<PgError> {
-    Box::new(PgError::error(format!("attribute number {fieldnum} exceeds number of columns {natts}")).with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR)) // alloc: Cold
+    Box::new(
+        PgError::error(format!(
+            "attribute number {fieldnum} exceeds number of columns {natts}"
+        ))
+        .with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR),
+    ) // alloc: Cold
 }
 
 #[cold]
 #[inline(never)]
 fn wrong_type(fieldnum: i16, has: Oid, wants: Oid) -> Box<PgError> {
     let f = |o: Oid| format_type::format_type_be(o).unwrap_or_else(|_| o.to_string()); // alloc: Cold
-    Box::new(PgError::error(format!("attribute {fieldnum} has wrong type")).with_sqlstate(types_error::ERRCODE_DATATYPE_MISMATCH).with_detail(format!("Table has type {}, but query expects {}.", f(has), f(wants)))) // alloc: Cold
+    Box::new(
+        PgError::error(format!("attribute {fieldnum} has wrong type"))
+            .with_sqlstate(types_error::ERRCODE_DATATYPE_MISMATCH)
+            .with_detail(format!(
+                "Table has type {}, but query expects {}.",
+                f(has),
+                f(wants)
+            )),
+    ) // alloc: Cold
 }

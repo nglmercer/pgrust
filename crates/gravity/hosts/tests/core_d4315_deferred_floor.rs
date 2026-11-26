@@ -11,8 +11,12 @@ use std::sync::atomic::AtomicU8;
 use std::sync::Arc;
 
 use gravity_abi::Lane;
-use gravity_driver::{blank_site, BindingRef, CommandId, Identity, PerTuple, Pins, Snapshot, Source, Window};
-use gravity_hosts::ops::scan::pgrc::granule_source::{GranuleRangeSource, GranuleRecipe, PartIoSpec, PartList, PartSpec, Resolved};
+use gravity_driver::{
+    blank_site, BindingRef, CommandId, Identity, PerTuple, Pins, Snapshot, Source, Window,
+};
+use gravity_hosts::ops::scan::pgrc::granule_source::{
+    GranuleRangeSource, GranuleRecipe, PartIoSpec, PartList, PartSpec, Resolved,
+};
 use pgrc_format::dirlayout::part_file_name;
 use pgrc_qa::corpus::{build_fixture, int8_fixture};
 use pgrc_read::io::MemPartIo;
@@ -26,19 +30,65 @@ const G: u64 = 1 << 30;
 static FLAG: AtomicU8 = AtomicU8::new(0);
 
 fn binding_ref(resolved: &Resolved) -> BindingRef<'_> {
-    BindingRef { snapshot: Snapshot(0), command_id: CommandId(0), params: &[], abort_flag: &FLAG, pins: Pins(0), per_tuple: PerTuple(0), identity: Identity::default(), resolved: Some(resolved), ordinal: None }
+    BindingRef {
+        snapshot: Snapshot(0),
+        command_id: CommandId(0),
+        params: &[],
+        abort_flag: &FLAG,
+        pins: Pins(0),
+        per_tuple: PerTuple(0),
+        identity: Identity::default(),
+        resolved: Some(resolved),
+        ordinal: None,
+    }
 }
 
 /// Three parts of a 60,000-row int8 fixture opened through `reg` (so its floor walks them), and their list.
-fn fixture(reg: &Arc<PartRegistry>) -> (Vec<Arc<OpenPart>>, Vec<pgrc_read::registry::PartPin>, Arc<PartList>) {
-    let bf = build_fixture(int8_fixture("gravity_d4315_floor", REL as u64, ROWS, vec![], PartCutPolicy { max_rows: 20_000, ..PartCutPolicy::default() }, |i| Some((i as i64 * 31) % 1000)));
+fn fixture(
+    reg: &Arc<PartRegistry>,
+) -> (
+    Vec<Arc<OpenPart>>,
+    Vec<pgrc_read::registry::PartPin>,
+    Arc<PartList>,
+) {
+    let bf = build_fixture(int8_fixture(
+        "gravity_d4315_floor",
+        REL as u64,
+        ROWS,
+        vec![],
+        PartCutPolicy {
+            max_rows: 20_000,
+            ..PartCutPolicy::default()
+        },
+        |i| Some((i as i64 * 31) % 1000),
+    ));
     let (mut parts, mut pins, mut specs) = (Vec::new(), Vec::new(), Vec::new());
     for (i, rec) in bf.manifest.parts.iter().enumerate() {
-        let bytes = bf.files.get(&part_file_name(rec.part_no)).expect("part file").clone();
+        let bytes = bf
+            .files
+            .get(&part_file_name(rec.part_no))
+            .expect("part file")
+            .clone();
         let ino = 1010 + i as u64;
-        let pin = reg.open_pinned(&PartExpect::none(), || Ok(Box::new(MemPartIo::new(bytes.clone(), 7, ino)) as Box<dyn pgrc_read::io::PartIo>)).expect("open part");
+        let pin = reg
+            .open_pinned(&PartExpect::none(), || {
+                Ok(Box::new(MemPartIo::new(bytes.clone(), 7, ino))
+                    as Box<dyn pgrc_read::io::PartIo>)
+            })
+            .expect("open part");
         let part = Arc::clone(pin.part());
-        specs.push(PartSpec { io: PartIoSpec::Mem { bytes: Arc::from(bytes.as_slice()), dev: 7, ino }, expect: PartExpect::none(), rows: rec.rows, granules: rec.granule_count, deletes: None, part: Some(part.clone()) });
+        specs.push(PartSpec {
+            io: PartIoSpec::Mem {
+                bytes: Arc::from(bytes.as_slice()),
+                dev: 7,
+                ino,
+            },
+            expect: PartExpect::none(),
+            rows: rec.rows,
+            granules: rec.granule_count,
+            deletes: None,
+            part: Some(part.clone()),
+        });
         parts.push(part);
         pins.push(pin);
     }
@@ -86,8 +136,15 @@ fn a_deferred_part_is_not_in_the_part_caches_floor() {
     src.bind(&binding_ref(&resolved)).unwrap();
     let rows: u64 = (0..list.granules()).map(|g| claim(&mut src, g)).sum();
     assert_eq!(rows, ROWS);
-    assert_eq!(resolved.part_release_counts().0, 0, "with room the gate keeps every finished part for the statement's next run (D3268)");
-    assert!(parts.iter().all(|p| p.live_users() >= 1), "the running statement still uses every part");
+    assert_eq!(
+        resolved.part_release_counts().0,
+        0,
+        "with room the gate keeps every finished part for the statement's next run (D3268)"
+    );
+    assert!(
+        parts.iter().all(|p| p.live_users() >= 1),
+        "the running statement still uses every part"
+    );
     assert!(cached(&parts) > 0, "the parts' streams are cached");
     assert_eq!(reg.in_use_bytes(), 0, "every claim left every part: the deferred parts are not in the cache's floor (trunk: all of them, {} bytes)", cached(&parts));
 
@@ -97,7 +154,11 @@ fn a_deferred_part_is_not_in_the_part_caches_floor() {
     let mut site = blank_site(lanes.as_mut_ptr());
     let mut w = Window::over(&mut site);
     assert!(src.window(&mut w).unwrap() > 0);
-    assert_eq!(reg.in_use_bytes(), parts[0].cache_bytes(), "entered again: the first part is in a live claim's read, the others stay out");
+    assert_eq!(
+        reg.in_use_bytes(),
+        parts[0].cache_bytes(),
+        "entered again: the first part is in a live claim's read, the others stay out"
+    );
 
     src.unbind();
     drop(resolved);

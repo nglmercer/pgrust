@@ -61,7 +61,10 @@ fn parser_errors_are_internal_positions_over_the_function_body() {
     assert_eq!(err.sqlstate, types_error::ERRCODE_SYNTAX_ERROR);
     assert_eq!(err.message, "syntax error at or near \"[\"");
     assert_eq!(err.internal_position, Some(12));
-    assert_eq!(err.internal_query.as_deref(), Some(core::str::from_utf8(src).unwrap()));
+    assert_eq!(
+        err.internal_query.as_deref(),
+        Some(core::str::from_utf8(src).unwrap())
+    );
     assert_eq!(err.cursor_position, None);
 
     // A grammar-raised error (parser_errposition(@1)) goes the same way.
@@ -72,7 +75,10 @@ fn parser_errors_are_internal_positions_over_the_function_body() {
     let err = parser.parse_function_body().unwrap_err();
     assert_eq!(err.message, "\"nosuch\" is not a known variable");
     assert_eq!(err.internal_position, Some(12));
-    assert_eq!(err.internal_query.as_deref(), Some(core::str::from_utf8(src).unwrap()));
+    assert_eq!(
+        err.internal_query.as_deref(),
+        Some(core::str::from_utf8(src).unwrap())
+    );
     assert_eq!(err.cursor_position, None);
 }
 
@@ -82,13 +88,22 @@ fn parser_errors_are_internal_positions_over_the_function_body() {
 // uses where the grammar reads tokens by hand.
 #[test]
 fn end_of_input_inside_a_block_is_a_plain_syntax_error() {
-    for src in [&b"begin "[..], &b"begin if true then "[..], &b"begin begin "[..]] {
+    for src in [
+        &b"begin "[..],
+        &b"begin if true then "[..],
+        &b"begin begin "[..],
+    ] {
         let cx = mcx::MemoryContext::new("plpgsql b081 eof");
         let mut comp = crate::comp::CompState::new();
         let mut parser = parser_for!(cx, comp, src);
         let err = parser.parse_function_body().unwrap_err();
         assert_eq!(err.sqlstate, types_error::ERRCODE_SYNTAX_ERROR);
-        assert_eq!(err.message, "syntax error at end of input", "{:?}", core::str::from_utf8(src));
+        assert_eq!(
+            err.message,
+            "syntax error at end of input",
+            "{:?}",
+            core::str::from_utf8(src)
+        );
         assert_eq!(err.internal_position, Some(src.len() as i32 + 1));
     }
     // read_sql_construct-style hand reads keep C's own message.
@@ -96,7 +111,10 @@ fn end_of_input_inside_a_block_is_a_plain_syntax_error() {
     let mut comp = crate::comp::CompState::new();
     let mut parser = parser_for!(cx, comp, b"begin raise notice 'x' using ");
     let err = parser.parse_function_body().unwrap_err();
-    assert_eq!(err.message, "unexpected end of function definition at end of input");
+    assert_eq!(
+        err.message,
+        "unexpected end of function definition at end of input"
+    );
 }
 
 // pl_gram.y getdiag_target (1163-1174): an array element is "not a scalar
@@ -142,9 +160,19 @@ fn cursor_variable_must_be_a_simple_variable() {
         comp.build_rec("r", 1, true);
         let mut parser = parser_for!(cx, comp, src);
         let err = parser.parse_function_body().unwrap_err();
-        assert_eq!(err.sqlstate, types_error::ERRCODE_DATATYPE_MISMATCH, "{:?}", core::str::from_utf8(src));
+        assert_eq!(
+            err.sqlstate,
+            types_error::ERRCODE_DATATYPE_MISMATCH,
+            "{:?}",
+            core::str::from_utf8(src)
+        );
         assert_eq!(err.message, msg, "{:?}", core::str::from_utf8(src));
-        assert_eq!(err.internal_position, Some(pos), "{:?}", core::str::from_utf8(src));
+        assert_eq!(
+            err.internal_position,
+            Some(pos),
+            "{:?}",
+            core::str::from_utf8(src)
+        );
     }
     // A non-cursor Var keeps its own message.
     let cx = mcx::MemoryContext::new("plpgsql b081 cursor variable type");
@@ -153,14 +181,18 @@ fn cursor_variable_must_be_a_simple_variable() {
     comp.build_variable("n", 1, int_type(), true).unwrap();
     let mut parser = parser_for!(cx, comp, b"begin open n; end");
     let err = parser.parse_function_body().unwrap_err();
-    assert_eq!(err.message, "variable \"n\" must be of type cursor or refcursor");
+    assert_eq!(
+        err.message,
+        "variable \"n\" must be of type cursor or refcursor"
+    );
 }
 
 // pl_gram.y for_control: a bad loop target is 42601 for a query loop
 // (1592-1596) and 42804 for an EXECUTE loop (1399-1403) — same message.
 #[test]
 fn query_for_loop_target_errors_carry_the_c_sqlstates() {
-    let msg = "loop variable of loop over rows must be a record variable or list of scalar variables";
+    let msg =
+        "loop variable of loop over rows must be a record variable or list of scalar variables";
     let cx = mcx::MemoryContext::new("plpgsql b081 for query");
     let mut comp = crate::comp::CompState::new();
     let mut parser = parser_for!(cx, comp, b"begin for unk in select 1 loop end loop; end");
@@ -171,7 +203,11 @@ fn query_for_loop_target_errors_carry_the_c_sqlstates() {
 
     let cx = mcx::MemoryContext::new("plpgsql b081 for execute");
     let mut comp = crate::comp::CompState::new();
-    let mut parser = parser_for!(cx, comp, b"begin for unk in execute 'select 1' loop end loop; end");
+    let mut parser = parser_for!(
+        cx,
+        comp,
+        b"begin for unk in execute 'select 1' loop end loop; end"
+    );
     let err = parser.parse_function_body().unwrap_err();
     assert_eq!(err.sqlstate, types_error::ERRCODE_DATATYPE_MISMATCH);
     assert_eq!(err.message, msg);

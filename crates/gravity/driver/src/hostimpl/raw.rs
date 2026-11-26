@@ -2,8 +2,8 @@
 //! moved verbatim from mod.rs (private ones pub(super)); it imports them back.
 #![allow(unsafe_code)]
 
-use gravity_abi::PtrWord;
 use super::*;
+use gravity_abi::PtrWord;
 
 /// # Safety — `env` is the `Inner` the block was bound with.
 pub(crate) unsafe fn inner<'a>(env: *mut u8) -> &'a mut Inner {
@@ -27,7 +27,11 @@ pub(crate) unsafe fn env_of(ctx: *mut Ctx) -> *mut Inner {
 /// (`failed` gets its status), and `gravity_program::Code::call` resumes the unwind the moment the program returns.
 /// # Safety — `env` is the `Inner` the block was bound with.
 #[inline(always)]
-pub(crate) unsafe fn guarded<T>(env: *mut u8, body: impl FnOnce() -> T, failed: impl FnOnce(i64) -> T) -> T {
+pub(crate) unsafe fn guarded<T>(
+    env: *mut u8,
+    body: impl FnOnce() -> T,
+    failed: impl FnOnce(i64) -> T,
+) -> T {
     // C9: every host entry is a step (the probe's label: the host entry and its source or host type) polled at its entry
     // and its exit. A set abort bit is seen, never a skipped body: a release must run; the kernel stops at its next check
     let mut step = cancelpoll::step(core::any::type_name_of_val(&body));
@@ -44,5 +48,8 @@ pub(crate) unsafe fn guarded<T>(env: *mut u8, body: impl FnOnce() -> T, failed: 
 #[cold]
 #[inline(never)]
 pub(super) unsafe fn unwound(env: *mut u8) -> i64 {
-    fail(inner(env), Error::host("gravity: a host call unwound (resumed past the program)"))
+    fail(
+        inner(env),
+        Error::host("gravity: a host call unwound (resumed past the program)"),
+    )
 }

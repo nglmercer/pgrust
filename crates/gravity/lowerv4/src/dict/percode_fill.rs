@@ -6,9 +6,9 @@ use std::rc::Rc;
 
 use gravity_abi::ctx::site_off;
 use gravity_abi::site::site;
-use gravity_dict::lane::{ELEM_BITS, ELEM_FP128};
 use gravity_decompose::graph::Source;
 use gravity_decompose::Op;
+use gravity_dict::lane::{ELEM_BITS, ELEM_FP128};
 use gravity_expr::emit::{ColsRef, RowRefs};
 use gravity_expr::{Compiled, ExprNode, Kids, NodeId, Program};
 use gravity_ir::builder::FunctionBuilder;
@@ -37,14 +37,26 @@ pub(crate) fn lazy(sw: &Sweep) -> bool {
 /// and the step is a filter, a projection or the end. An embedded inner (a nest inner, a SubPlan's plan) runs for some
 /// outer rows only, so it never counts.
 pub(crate) fn every_row(px: &Px<'_, '_>, k: usize, j: usize) -> bool {
-    let Some(p) = px.gx.pipelines().get(k).filter(|p| matches!(p.source, Source::Range { .. })) else { return false };
+    let Some(p) = px
+        .gx
+        .pipelines()
+        .get(k)
+        .filter(|p| matches!(p.source, Source::Range { .. }))
+    else {
+        return false;
+    };
     let at = match p.ops.get(j) {
         Some(o) => matches!(o, Op::Filter(_) | Op::Project(_)),
         None => j == p.ops.len(),
     };
     // a Limit, or a consumer's bound on any node the pipeline runs (EXISTS, a semi join, a cursor's fetch: frame::iface)
-    let stops = p.ops.iter().any(|o| crate::frame::iface::demand(o).is_some())
-        || std::iter::once(p.node_id).chain(p.node_ops.iter().map(|n| n.node_id)).any(|n| !matches!(px.request(n).bound, crate::frame::iface::Bound::All));
+    let stops = p
+        .ops
+        .iter()
+        .any(|o| crate::frame::iface::demand(o).is_some())
+        || std::iter::once(p.node_id)
+            .chain(p.node_ops.iter().map(|n| n.node_id))
+            .any(|n| !matches!(px.request(n).bound, crate::frame::iface::Bound::All));
     at && p.ops[..j].iter().all(|o| matches!(o, Op::Project(_))) && !stops
 }
 
@@ -52,7 +64,13 @@ pub(crate) fn every_row(px: &Px<'_, '_>, k: usize, j: usize) -> bool {
 /// (`every_row`): on the path from `c`'s root through nodes that evaluate each child (a call, an operator, a cast, a test,
 /// GREATEST / LEAST) or the first child of AND / OR / COALESCE, and at an end no aggregate has a FILTER or a CASE in its
 /// call (its arguments, a wide sum's WHEN arms, run for some rows only). Any other root keeps the rows' fill.
-pub(crate) fn unconditional(px: &Px<'_, '_>, k: usize, j: usize, c: &Compiled<'_>, at: NodeId) -> bool {
+pub(crate) fn unconditional(
+    px: &Px<'_, '_>,
+    k: usize,
+    j: usize,
+    c: &Compiled<'_>,
+    at: NodeId,
+) -> bool {
     let plain = |n: types_nodes::Node<'_>| {
         let mut case = false;
         gravity_decompose::expr::walk(n, &mut |x| {
@@ -61,7 +79,13 @@ pub(crate) fn unconditional(px: &Px<'_, '_>, k: usize, j: usize, c: &Compiled<'_
         });
         !case
     };
-    let aggs = || j < px.gx.pipelines()[k].ops.len() || px.gx.group_at(k).is_none_or(|g| g.aggs.iter().all(|a| a.filter.is_none() && plain(a.node)));
+    let aggs = || {
+        j < px.gx.pipelines()[k].ops.len()
+            || px
+                .gx
+                .group_at(k)
+                .is_none_or(|g| g.aggs.iter().all(|a| a.filter.is_none() && plain(a.node)))
+    };
     every_row(px, k, j) && aggs() && reaches(&c.prog, c.root, at)
 }
 
@@ -76,7 +100,9 @@ fn reaches(p: &Program<'_>, id: NodeId, at: NodeId) -> bool {
     }
     let range = |k: Kids| &p.kids[k.start as usize..(k.start + k.len) as usize];
     let kids: &[NodeId] = match &p.nodes[id.0 as usize] {
-        ExprNode::Func(n) | ExprNode::Op(n) | ExprNode::Distinct(n) | ExprNode::NullIf(n) => range(p.sites[n.site.0 as usize].args),
+        ExprNode::Func(n) | ExprNode::Op(n) | ExprNode::Distinct(n) | ExprNode::NullIf(n) => {
+            range(p.sites[n.site.0 as usize].args)
+        }
         ExprNode::ScalarArrayOp(n) => range(p.sites[n.site.0 as usize].args),
         ExprNode::MinMax(n) => range(n.args),
         ExprNode::Bool(n) => &range(n.args)[..n.args.len.min(1) as usize],
@@ -93,16 +119,44 @@ fn reaches(p: &Program<'_>, id: NodeId, at: NodeId) -> bool {
 
 /// D2074: lazy table `sw` (site lane `lane`, bind slot `sw.t` of `out`) published for the part with every entry faulting
 /// (`agg_table_done` keeps the bitmap): a row reading an entry takes the cold re-evaluation, which fills it (`fill`).
-pub(crate) fn faulting(b: &mut FunctionBuilder<'_>, env: &mut Env, site_v: Value, out: Value, lane: u8, sw: &Sweep, l_exit: Block) {
-    let h_n = b.declare_host_once("agg_table_ncodes", &[Type::Ptr, Type::I64, Type::I64], Some(Type::I64), abi::agg_table_ncodes as *const () as usize, mem());
-    let h_done = b.declare_host_once("agg_table_done", &[Type::Ptr, Type::I64, Type::I64, Type::I64], Some(Type::I64), abi::agg_table_done as *const () as usize, mem());
+pub(crate) fn faulting(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    site_v: Value,
+    out: Value,
+    lane: u8,
+    sw: &Sweep,
+    l_exit: Block,
+) {
+    let h_n = b.declare_host_once(
+        "agg_table_ncodes",
+        &[Type::Ptr, Type::I64, Type::I64],
+        Some(Type::I64),
+        abi::agg_table_ncodes as *const () as usize,
+        mem(),
+    );
+    let h_done = b.declare_host_once(
+        "agg_table_done",
+        &[Type::Ptr, Type::I64, Type::I64, Type::I64],
+        Some(Type::I64),
+        abi::agg_table_done as *const () as usize,
+        mem(),
+    );
     let lane_v = b.iconst(Type::I64, lane as i64);
-    let n = b.call_host(h_n, &[env.ctx, site_v, lane_v], Some(Type::I64)).unwrap_or(env.zero);
+    let n = b
+        .call_host(h_n, &[env.ctx, site_v, lane_v], Some(Type::I64))
+        .unwrap_or(env.zero);
     exit_neg(b, env, n, l_exit);
     if sw.elem == ELEM_FP128 {
         // a key table has no bitmap: every entry `[0, 0]` (the source zeroed it) sends its row to the re-evaluation, which
         // stores the entry (percode_key.rs `cell`)
-        let st = b.call_host(h_done, &[env.ctx, site_v, lane_v, env.zero], Some(Type::I64)).unwrap_or(env.zero);
+        let st = b
+            .call_host(
+                h_done,
+                &[env.ctx, site_v, lane_v, env.zero],
+                Some(Type::I64),
+            )
+            .unwrap_or(env.zero);
         exit_neg(b, env, st, l_exit);
         return;
     }
@@ -126,7 +180,9 @@ pub(crate) fn faulting(b: &mut FunctionBuilder<'_>, env: &mut Env, site_v: Value
     let w1 = b.int_bin(IntBinOp::Add, w, env.one);
     b.br(l_loop, &[w1]);
     b.switch_to(l_done);
-    let st = b.call_host(h_done, &[env.ctx, site_v, lane_v, n], Some(Type::I64)).unwrap_or(env.zero);
+    let st = b
+        .call_host(h_done, &[env.ctx, site_v, lane_v, n], Some(Type::I64))
+        .unwrap_or(env.zero);
     exit_neg(b, env, st, l_exit);
 }
 
@@ -135,36 +191,69 @@ pub(crate) fn faulting(b: &mut FunctionBuilder<'_>, env: &mut Env, site_v: Value
 /// last fault cleared drops its bitmap: `agg_table_filled`); a code with
 /// no image, a raise or a NULL leaves the fault (the row's whole re-evaluation answers it, as a swept fault). The region
 /// is given back after each entry. `false`: the expression reads no lazy table (nothing emitted).
-pub(crate) fn fill(b: &mut FunctionBuilder<'_>, env: &mut Env, node: i32, row: &RowVals, id: ExId) -> bool {
-    let (Some(pl), Some(out)) = (crate::step::expr::plan_of(env, id), env.tables) else { return false };
+pub(crate) fn fill(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    node: i32,
+    row: &RowVals,
+    id: ExId,
+) -> bool {
+    let (Some(pl), Some(out)) = (crate::step::expr::plan_of(env, id), env.tables) else {
+        return false;
+    };
     let tabs = Rc::clone(&pl.tabs);
     let tb = tabs.borrow();
     let Some(site_k) = tb.site else { return false };
-    let mut fills = pl.tables.iter().filter(|x| matches!(x.1, Class::Bits | Class::Words)).filter_map(|x| tb.sweeps.iter().find(|s| s.t == x.0 as usize && lazy(s))).peekable();
+    let mut fills = pl
+        .tables
+        .iter()
+        .filter(|x| matches!(x.1, Class::Bits | Class::Words))
+        .filter_map(|x| tb.sweeps.iter().find(|s| s.t == x.0 as usize && lazy(s)))
+        .peekable();
     if fills.peek().is_none() {
         return false;
     }
     fires::fire("percode.lazy");
     let (codes, _) = crate::dict::percode_len::refs(b, env, node, row, pl);
     let site_v = b.iconst(Type::I64, site_k as i64);
-    let pid = b.load_zext(Type::I32, env.ctx, site_off(site_k) as i32 + site::PART_ID as i32);
+    let pid = b.load_zext(
+        Type::I32,
+        env.ctx,
+        site_off(site_k) as i32 + site::PART_ID as i32,
+    );
     let s32 = b.iconst(Type::I64, 32);
     let part = b.int_bin(IntBinOp::Shl, pid, s32);
     for sw in fills {
-        let Some(cr) = codes.iter().find(|c| c.attno == sw.attno) else { continue };
+        let Some(cr) = codes.iter().find(|c| c.attno == sw.attno) else {
+            continue;
+        };
         let code = gravity_expr::emit::percode::code_at(b, &cr.lane, env.zero);
         let at = (BIND_OUT_WORDS * sw.t * 8) as i32;
         let (data, faults) = (b.load(Type::Ptr, out, at), b.load(Type::Ptr, out, at + 8));
         let fb = gravity_expr::emit::percode::bit_of(b, faults, code);
         let faulted = b.icmp(IntCond::Ne, fb, env.zero);
-        let go = match cr.lane.valid_null { Some(ok) => b.int_bin(IntBinOp::And, ok, faulted), None => faulted };
-        let (l_do, l_eval, l_back, l_next) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));
+        let go = match cr.lane.valid_null {
+            Some(ok) => b.int_bin(IntBinOp::And, ok, faulted),
+            None => faulted,
+        };
+        let (l_do, l_eval, l_back, l_next) = (
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         b.cond_br(go, (l_do, &[]), (l_next, &[]));
         b.switch_to(l_do);
         let mark = env.hir.mark(b);
         let over_v = b.iconst(Type::I64, sw.over as i64);
         let word = b.int_bin(IntBinOp::Or, part, code);
-        let p = b.call_host(env.core.render, &[env.ctx, site_v, over_v, word], Some(Type::Ptr)).unwrap_or(env.zero);
+        let p = b
+            .call_host(
+                env.core.render,
+                &[env.ctx, site_v, over_v, word],
+                Some(Type::Ptr),
+            )
+            .unwrap_or(env.zero);
         let pi = b.conv(ConvOp::PtrToInt, Type::I64, p);
         exit_neg(b, env, pi, env.x.l_exit);
         let none = b.icmp(IntCond::Eq, pi, env.zero);
@@ -173,10 +262,32 @@ pub(crate) fn fill(b: &mut FunctionBuilder<'_>, env: &mut Env, node: i32, row: &
         let (cv, cn) = crate::frame::hoist::words(b, env, sw.node, sw.ex);
         let t = b.bconst(true);
         let width = sw.attno.max(1) as usize;
-        let (values, valids) = (mcx::pg_vec![in env.mcx; pi; width], mcx::pg_vec![in env.mcx; t; width]);
+        let (values, valids) = (
+            mcx::pg_vec![in env.mcx; pi; width],
+            mcx::pg_vec![in env.mcx; t; width],
+        );
         let e = env.placed(sw.ex);
-        let refs = env.hir.with_ex(b, e, RowRefs::scan(ColsRef::Values { values: &values[..], valids: &valids[..] }, &cv, &cn, env.mcx));
-        let Ok(l) = e.c.emit_at(b, &refs, sw.root) else { crate::refuse!(sw.node, Reason::Bug { payload: "a per-code body with no emit over its image" }) };
+        let refs = env.hir.with_ex(
+            b,
+            e,
+            RowRefs::scan(
+                ColsRef::Values {
+                    values: &values[..],
+                    valids: &valids[..],
+                },
+                &cv,
+                &cn,
+                env.mcx,
+            ),
+        );
+        let Ok(l) = e.c.emit_at(b, &refs, sw.root) else {
+            crate::refuse!(
+                sw.node,
+                Reason::Bug {
+                    payload: "a per-code body with no emit over its image"
+                }
+            )
+        };
         let raised = b.icmp(IntCond::Ne, l.err, env.zero);
         let null = b.int_bin(IntBinOp::Xor, l.valid, t);
         let bad = b.int_bin(IntBinOp::Or, raised, null);
@@ -193,15 +304,30 @@ pub(crate) fn fill(b: &mut FunctionBuilder<'_>, env: &mut Env, node: i32, row: &
             b.switch_to(l_clear);
         } else {
             if b.value_type(l.value) != Type::I64 {
-                crate::refuse!(sw.node, Reason::Shape { why: crate::admit::refusal::ShapeWhy("a per-code word body whose value is not a word") });
+                crate::refuse!(
+                    sw.node,
+                    Reason::Shape {
+                        why: crate::admit::refusal::ShapeWhy(
+                            "a per-code word body whose value is not a word"
+                        )
+                    }
+                );
             }
             let at = b.ptr_add(data, code, 8, 0);
             b.store(at, 0, l.value);
         }
         clear_bit(b, faults, code);
-        let h_filled = b.declare_host_once("agg_table_filled", &[Type::Ptr, Type::I64, Type::I64], Some(Type::I64), gravity_kernels::contract::entry2::<abi::TableFilled> as *const () as usize, mem());
+        let h_filled = b.declare_host_once(
+            "agg_table_filled",
+            &[Type::Ptr, Type::I64, Type::I64],
+            Some(Type::I64),
+            gravity_kernels::contract::entry2::<abi::TableFilled> as *const () as usize,
+            mem(),
+        );
         let lane_v = b.iconst(Type::I64, tb.lanes[sw.t].0 as i64);
-        let st = b.call_host(h_filled, &[env.ctx, site_v, lane_v], Some(Type::I64)).unwrap_or(env.zero);
+        let st = b
+            .call_host(h_filled, &[env.ctx, site_v, lane_v], Some(Type::I64))
+            .unwrap_or(env.zero);
         exit_neg(b, env, st, env.x.l_exit);
         b.br(l_back, &[]);
         b.switch_to(l_back);

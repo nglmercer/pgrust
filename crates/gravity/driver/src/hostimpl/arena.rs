@@ -3,9 +3,15 @@ use gravity_abi::Ctx;
 use super::{guarded, inner_of};
 
 mod raw;
-pub use raw::{grow, object_map, object_overdraw, object_region, pin_host, spill_epoch, spill_region};
 #[allow(unused_imports)]
-pub(crate) use raw::{file_slot_pin, give_owner_pin, map_owners, owner_wall_of, pin, pin_batch, pin_owner, pin_room, pin_room_one, spill_region_now, spill_region_spills, spill_region_unzeroed, spill_region_within, unmap_owners};
+pub(crate) use raw::{
+    file_slot_pin, give_owner_pin, map_owners, owner_wall_of, pin, pin_batch, pin_owner, pin_room,
+    pin_room_one, spill_region_now, spill_region_spills, spill_region_unzeroed,
+    spill_region_within, unmap_owners,
+};
+pub use raw::{
+    grow, object_map, object_overdraw, object_region, pin_host, spill_epoch, spill_region,
+};
 
 pub use gravity_program::cost::runtime::HOST_ARENA_CHUNK as CHUNK;
 
@@ -17,7 +23,9 @@ pub use gravity_program::cost::runtime::HOST_ARENA_CHUNK as CHUNK;
 pub(crate) fn settle_grow_chunks(n: &mut crate::node::Inner) {
     let keep = n.pinned + crate::node::PARK_CHUNKS;
     // a label-only step (no tick): a long settle is checker 2's under its own label
-    let _step = cancelpoll::step("arena settle_grow_chunks: a statement's grown arena chunks parked or returned");
+    let _step = cancelpoll::step(
+        "arena settle_grow_chunks: a statement's grown arena chunks parked or returned",
+    );
     // bounded("other: the statement's end settles every arena chunk the ctx owner grew: each pass only parks one chunk or returns its pages (one madvise) and reads no row (a chunk is CHUNK bytes or more); a teardown runs to its end (a stop would leave chunks neither parked nor returned), as PG's MemoryContextReset at the executor's end polls no deeper")
     for (i, c) in n.chunks.drain(..).enumerate() {
         if i < keep {
@@ -53,7 +61,9 @@ pub(crate) fn drop_result_spills(n: &mut crate::node::Inner) {
     n.work_maps.clear();
     n.pin_map = (0, 0);
     // a label-only step (no tick): a long hand-back is checker 2's under its own label
-    let _step = cancelpoll::step("arena drop_result_spills: a statement's spill regions handed back and parked");
+    let _step = cancelpoll::step(
+        "arena drop_result_spills: a statement's spill regions handed back and parked",
+    );
     // bounded("other: the statement's end hands back every spill region the ctx owner drew: each pass only frees one region's pages lazily (one MADV_FREE) and parks it, and reads no row; a teardown runs to its end (a stop would leave regions unparked past their epoch), as PG's MemoryContextReset at the executor's end polls no deeper")
     for mut c in n.spills.drain(..) {
         c.park_free();
@@ -66,6 +76,15 @@ pub(crate) fn drop_result_spills(n: &mut crate::node::Inner) {
 fn refused(n: &crate::node::Inner, want: usize) {
     if crate::env::set("PGRUST_GRAVITY_REPORT") {
         let pool = &crate::mem::grant::POOL;
-        eprintln!("gravity: pin refused: want={} w={} reserve={} held={} capacity={} chunks={} pinned={}", want, n.w, n.stmt().map_or(0, |s| s.left()), pool.held(), pool.capacity(), n.chunks.len(), n.pinned);
+        eprintln!(
+            "gravity: pin refused: want={} w={} reserve={} held={} capacity={} chunks={} pinned={}",
+            want,
+            n.w,
+            n.stmt().map_or(0, |s| s.left()),
+            pool.held(),
+            pool.capacity(),
+            n.chunks.len(),
+            n.pinned
+        );
     }
 }

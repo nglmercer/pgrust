@@ -16,17 +16,19 @@ use std::cell::UnsafeCell;
 use std::rc::Rc;
 
 use gravity_abi::{Datum as Word, ScanPos};
-use gravity_driver::{box_source, ArenaRef, BindingRef, Cursor, Error, Result, Source, SourceBox, Window};
+use gravity_driver::{
+    box_source, ArenaRef, BindingRef, Cursor, Error, Result, Source, SourceBox, Window,
+};
 use gravity_program::SiteDesc;
 use types_core::Oid;
 use types_portal::params::ParamExecData;
 
 use crate::ops::scan::bitmap_source::BitmapSource;
+use crate::ops::scan::bitmap_window::{Tree, TreeRecipe};
 use crate::ops::scan::index_source::SiteRecipe;
 use crate::ops::shared::key_fn::KeyFn;
 use crate::recipe::HostRecipe;
 use crate::scratch::NodeScratch;
-use crate::ops::scan::bitmap_window::{Tree, TreeRecipe};
 use crate::FilterFn;
 
 mod raw;
@@ -38,12 +40,19 @@ pub struct ExecVals(Box<[UnsafeCell<ParamExecData>]>);
 impl ExecVals {
     /// `n` parameters (the largest paramid the qual reads, plus one), each NULL until a seek writes it.
     pub fn new(n: usize) -> Rc<ExecVals> {
-        Rc::new(ExecVals((0..n).map(|_| UnsafeCell::new(ParamExecData::EMPTY)).collect())) // alloc: Program
+        Rc::new(ExecVals(
+            (0..n)
+                .map(|_| UnsafeCell::new(ParamExecData::EMPTY))
+                .collect(),
+        )) // alloc: Program
     }
 
     /// The array's first element and its length, for the recheck's compile binding.
     pub fn bind(&self) -> (core::ptr::NonNull<ParamExecData>, u32) {
-        (core::ptr::NonNull::new(self.0.as_ptr() as *mut ParamExecData).expect("a boxed slice"), self.0.len() as u32)
+        (
+            core::ptr::NonNull::new(self.0.as_ptr() as *mut ParamExecData).expect("a boxed slice"),
+            self.0.len() as u32,
+        )
     }
 }
 
@@ -69,10 +78,20 @@ impl HostRecipe for ParamBitmapRecipe {
     fn derive(&self, desc: &SiteDesc, a: ArenaRef) -> SourceBox {
         // the site's key cells are the recipe's words (then a computed key's input cells), as v3_r1b.rs's `Recipe::Bitmap` arm checks
         let r = &self.leaf;
-        assert!(!desc.is_range() && r.heap == desc.relation && r.index == desc.index && r.words.len() + inputs(&self.words, r.words.len()) == desc.nkeys() && r.natts == desc.natts(), "gravity: bitmap recipe does not match its site descriptor");
+        assert!(
+            !desc.is_range()
+                && r.heap == desc.relation
+                && r.index == desc.index
+                && r.words.len() + inputs(&self.words, r.words.len()) == desc.nkeys()
+                && r.natts == desc.natts(),
+            "gravity: bitmap recipe does not match its site descriptor"
+        );
         // M2: a site that keeps an Offset lane takes one window per heap page (hosts v4/m2_bitmap.rs `PageBatch`)
         let inner = BitmapSource::new(r.clone(), Some(self.recheck.clone())).paged_by(desc);
-        box_source(ParamBitmap::new(inner, &self.vals, &self.words, &self.keys, r.words.len()), a)
+        box_source(
+            ParamBitmap::new(inner, &self.vals, &self.words, &self.keys, r.words.len()),
+            a,
+        )
     }
     fn clone_box(&self) -> Box<dyn HostRecipe> {
         Box::new(self.clone()) // alloc: Program
@@ -100,9 +119,17 @@ impl HostRecipe for ParamTreeRecipe {
     }
     fn derive(&self, desc: &SiteDesc, a: ArenaRef) -> SourceBox {
         let n = self.tree.nkeys();
-        assert!(n + inputs(&self.words, n) == desc.nkeys(), "gravity: bitmap tree recipe does not match its site descriptor");
-        let inner = BitmapSource::new(self.tree.leaves[0].clone(), Some(self.recheck.clone())).with_tree(Tree::new(self.tree.clone())).paged_by(desc);
-        box_source(ParamBitmap::new(inner, &self.vals, &self.words, &self.keys, n), a)
+        assert!(
+            n + inputs(&self.words, n) == desc.nkeys(),
+            "gravity: bitmap tree recipe does not match its site descriptor"
+        );
+        let inner = BitmapSource::new(self.tree.leaves[0].clone(), Some(self.recheck.clone()))
+            .with_tree(Tree::new(self.tree.clone()))
+            .paged_by(desc);
+        box_source(
+            ParamBitmap::new(inner, &self.vals, &self.words, &self.keys, n),
+            a,
+        )
     }
     fn clone_box(&self) -> Box<dyn HostRecipe> {
         Box::new(self.clone()) // alloc: Program
@@ -129,10 +156,24 @@ pub struct ParamBitmap {
 }
 
 impl ParamBitmap {
-    fn new(inner: BitmapSource, vals: &Rc<ExecVals>, words: &Rc<[(u16, u16)]>, keys: &Rc<[(u16, KeyFn)]>, n: usize) -> ParamBitmap {
+    fn new(
+        inner: BitmapSource,
+        vals: &Rc<ExecVals>,
+        words: &Rc<[(u16, u16)]>,
+        keys: &Rc<[(u16, KeyFn)]>,
+        n: usize,
+    ) -> ParamBitmap {
         let n = if keys.is_empty() { 0 } else { n };
         let scratch = (!keys.is_empty()).then(|| NodeScratch::new("GravityParamBitmapKey"));
-        ParamBitmap { inner, vals: vals.clone(), words: words.clone(), keys: keys.clone(), seek_words: vec![0; n], seek_nulls: vec![0; n], scratch } // alloc: Node
+        ParamBitmap {
+            inner,
+            vals: vals.clone(),
+            words: words.clone(),
+            keys: keys.clone(),
+            seek_words: vec![0; n],
+            seek_nulls: vec![0; n],
+            scratch,
+        } // alloc: Node
     }
 }
 
@@ -147,14 +188,22 @@ impl Source for ParamBitmap {
         // bounded("other: one input cell per outer value the site's computed keys read, which the statement's index quals bound")
         for &(w, id) in self.words.iter() {
             let w = w as usize;
-            self.vals.set(id as usize, keys.get(w).copied().unwrap_or(0), !matches!(keys_null.get(w), Some(&0)));
+            self.vals.set(
+                id as usize,
+                keys.get(w).copied().unwrap_or(0),
+                !matches!(keys_null.get(w), Some(&0)),
+            );
         }
-        let Some(scratch) = self.scratch.as_mut() else { return self.inner.seek(keys, keys_null) };
+        let Some(scratch) = self.scratch.as_mut() else {
+            return self.inner.seek(keys, keys_null);
+        };
         // D1016 row 6: every computed key over this seek's parameters (ExecIndexEvalRuntimeKeys at every rescan); the last
         // seek's by-reference keys die here, as PG resets the runtime-key context at ExecReScanBitmapIndexScan
         let n = self.seek_words.len();
         if keys.len() < n || keys_null.len() < n {
-            return Err(Error::host("a computed-key bitmap seek with fewer key words than its leaves"));
+            return Err(Error::host(
+                "a computed-key bitmap seek with fewer key words than its leaves",
+            ));
         }
         self.seek_words.copy_from_slice(&keys[..n]);
         self.seek_nulls.copy_from_slice(&keys_null[..n]);

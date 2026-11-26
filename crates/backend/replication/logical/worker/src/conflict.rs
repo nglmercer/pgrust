@@ -87,7 +87,13 @@ pub(crate) struct ConflictTupleInfo<'a, 'mcx> {
 impl<'a, 'mcx> ConflictTupleInfo<'a, 'mcx> {
     // C's `ConflictTupleInfo conflicttuple = {0}` for the missing-row reports.
     pub(crate) fn missing() -> Self {
-        ConflictTupleInfo { slot: None, indexoid: InvalidOid, xmin: 0, origin: InvalidRepOriginId, ts: 0 }
+        ConflictTupleInfo {
+            slot: None,
+            indexoid: InvalidOid,
+            xmin: 0,
+            origin: InvalidRepOriginId,
+            ts: 0,
+        }
     }
 }
 
@@ -211,7 +217,9 @@ fn errdetail_apply_conflict<'mcx>(
 ) -> PgResult<()> {
     let index_name = if ty.is_unique_conflict() {
         debug_assert!(indexoid != InvalidOid);
-        lsyscache::get_rel_name(mcx, indexoid)?.map(|s| s.as_str().to_string()).unwrap_or_default()
+        lsyscache::get_rel_name(mcx, indexoid)?
+            .map(|s| s.as_str().to_string())
+            .unwrap_or_default()
     } else {
         String::new()
     };
@@ -282,7 +290,12 @@ fn build_tuple_value_details<'mcx>(
         // The 'modifiedCols' only applies to the new tuple, hence NULL for
         // the existing local row.
         if let Some(desc) = execpartition::slot_value_description(mcx, rel, slot, None, None)? {
-            append_part(&mut tuple_value, "existing local row", "Existing local row", &desc);
+            append_part(
+                &mut tuple_value,
+                "existing local row",
+                "Existing local row",
+                &desc,
+            );
         }
     }
 
@@ -306,7 +319,12 @@ fn build_tuple_value_details<'mcx>(
         };
         if let Some(desc) = desc {
             if replica_index != InvalidOid {
-                append_part(&mut tuple_value, "replica identity", "Replica identity", &desc);
+                append_part(
+                    &mut tuple_value,
+                    "replica identity",
+                    "Replica identity",
+                    &desc,
+                );
             } else {
                 append_part(
                     &mut tuple_value,
@@ -522,14 +540,24 @@ pub(crate) fn check_and_report_conflict<'mcx>(
         };
         let (xmin, ctsdata) = get_tuple_transaction_info(&conflictslot)?;
         let (ts, origin) = ctsdata.unwrap_or((0, InvalidRepOriginId));
-        found.push(Found { slot: conflictslot, indexoid: uniqueidx, xmin, origin, ts });
+        found.push(Found {
+            slot: conflictslot,
+            indexoid: uniqueidx,
+            xmin,
+            origin,
+            ts,
+        });
     }
 
     // Report the conflict, if found.
     if found.is_empty() {
         return Ok(());
     }
-    let ty = if found.len() > 1 { ConflictType::MultipleUniqueConflicts } else { ty };
+    let ty = if found.len() > 1 {
+        ConflictType::MultipleUniqueConflicts
+    } else {
+        ty
+    };
     let mut infos: Vec<ConflictTupleInfo<'_, 'mcx>> = found
         .iter_mut()
         .map(|f| ConflictTupleInfo {
@@ -540,6 +568,14 @@ pub(crate) fn check_and_report_conflict<'mcx>(
             ts: f.ts,
         })
         .collect();
-    report_apply_conflict(mcx, rel, ERROR, ty, searchslot, Some(remoteslot), &mut infos)?;
+    report_apply_conflict(
+        mcx,
+        rel,
+        ERROR,
+        ty,
+        searchslot,
+        Some(remoteslot),
+        &mut infos,
+    )?;
     Ok(())
 }

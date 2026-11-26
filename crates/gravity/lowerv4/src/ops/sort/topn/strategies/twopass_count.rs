@@ -31,7 +31,9 @@ use mcx::PgBox;
 use crate::face::end::EndMech;
 use crate::frame::px::Px;
 use crate::ops::shared::twopass::Rule;
-use crate::ops::sort::topn::strategies::twopass::{fold_eighths, second_read_pays, split_by, SPLIT_FLOOR_EIGHTHS};
+use crate::ops::sort::topn::strategies::twopass::{
+    fold_eighths, second_read_pays, split_by, SPLIT_FLOOR_EIGHTHS,
+};
 use crate::table::face::CrossPass;
 use crate::table::rec::GroupRec;
 
@@ -41,7 +43,10 @@ crate::strategies! {
     TWOPASS_COUNT = 165, "twopass.count", CountTopk;
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(TWOPASS_COUNT, &CountSplit)], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(TWOPASS_COUNT, &CountSplit)],
+    ..crate::ops::NONE
+};
 
 /// `twopass.count`'s registry value: `split` (keyed_hashagg `make` asks it before twopass.having's split).
 pub(crate) struct CountSplit;
@@ -49,19 +54,36 @@ pub(crate) struct CountSplit;
 /// The split of graph pipeline `k`'s group `g` (`rec` its record) under its count top, or `None`: one pass, or
 /// twopass.having's split. The same shapes as `having_split` decline (a hashed or sorted group of its own, no planner
 /// pass, set, cascade base, rerun set or union arm, folds over the split floor that cannot raise).
-pub(crate) fn split<'g, 'p>(px: &mut Px<'g, 'p>, k: usize, g: &'g GroupDecl<'p>, rec: &GroupRec<'g, 'p>) -> Option<PgBox<'g, dyn EndMech + 'g>> {
+pub(crate) fn split<'g, 'p>(
+    px: &mut Px<'g, 'p>,
+    k: usize,
+    g: &'g GroupDecl<'p>,
+    rec: &GroupRec<'g, 'p>,
+) -> Option<PgBox<'g, dyn EndMech + 'g>> {
     use crate::ops::shared::twopass::{LEAD_COUNT, LEAD_F32, LEAD_F64};
     let gx = px.gx;
     let eighths: u64 = rec.aggs.iter().map(fold_eighths).sum();
-    if !CrossPass::CountTop.on() || !matches!(g.form, GroupForm::Hashed | GroupForm::Sorted) || g.two_pass.is_some() || g.set.is_some() || !crate::graph::grouped(g) || gx.cascade_base(g) {
+    if !CrossPass::CountTop.on()
+        || !matches!(g.form, GroupForm::Hashed | GroupForm::Sorted)
+        || g.two_pass.is_some()
+        || g.set.is_some()
+        || !crate::graph::grouped(g)
+        || gx.cascade_base(g)
+    {
         return None;
     }
-    if eighths <= SPLIT_FLOOR_EIGHTHS || crate::rerun::sets::in_owner_set(gx, k) || px.union_of(k, gx.pipelines()[k].ops.len() + 1).is_some() {
+    if eighths <= SPLIT_FLOOR_EIGHTHS
+        || crate::rerun::sets::in_owner_set(gx, k)
+        || px.union_of(k, gx.pipelines()[k].ops.len() + 1).is_some()
+    {
         return None;
     }
     let lead = crate::ops::sort::topn::lower::top_lead(px, k, rec, true, true)?;
     // pass 2 folds no row of a group under T: every fold but the lead, which pass 1 folds over every row, raises nothing
-    if !rec.aggs.iter().all(|a| (lead.lead != LEAD_COUNT && a.d.aggno == lead.aggno) || crate::effects::visible::topn::fold_quiet(&a.d, true)) {
+    if !rec.aggs.iter().all(|a| {
+        (lead.lead != LEAD_COUNT && a.d.aggno == lead.aggno)
+            || crate::effects::visible::topn::fold_quiet(&a.d, true)
+    }) {
         return None;
     }
     // no row estimate keeps one pass
@@ -86,7 +108,14 @@ pub(crate) fn split<'g, 'p>(px: &mut Px<'g, 'p>, k: usize, g: &'g GroupDecl<'p>,
     };
     let node = gx.pipelines()[k].node_id;
     // a count top's rule word as before 5c-F6 (no NULL to place)
-    let rule = Rule { top_count: true, lead: lead.lead, desc: lead.desc, nulls_first: lead.lead != LEAD_COUNT && lead.nulls_first, n: lead.n, ..Rule::of(&rec1, off, node) };
+    let rule = Rule {
+        top_count: true,
+        lead: lead.lead,
+        desc: lead.desc,
+        nulls_first: lead.lead != LEAD_COUNT && lead.nulls_first,
+        n: lead.n,
+        ..Rule::of(&rec1, off, node)
+    };
     fires::fire("twopass.count"); // shapecheck fire signal (registry road-fires.tsv)
     if lead.lead != LEAD_COUNT {
         fires::fire("twopass.count.sum"); // 5c-F6: the split's lead is a sum

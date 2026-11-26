@@ -1,4 +1,4 @@
-#![allow(non_snake_case,non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 use fmgr::FmgrInfo;
 use mcx::{vec_with_capacity_in, Mcx, PgString, PgVec};
@@ -122,7 +122,10 @@ fn expr_type(expr: Option<Node<'_>>) -> Oid {
 // transfn FuncExpr) have no expression node; consumers needing arg types go
 // through get_fn_expr_argtype, which understands the carrier.
 pub fn call_expr_node(flinfo: &FmgrInfo) -> Option<Node<'static>> {
-    flinfo.fn_expr.as_ref().and_then(|e| e.downcast_ref::<Node<'static>>().copied())
+    flinfo
+        .fn_expr
+        .as_ref()
+        .and_then(|e| e.downcast_ref::<Node<'static>>().copied())
 }
 
 /// C: exprType over a call expression node (get_fn_expr_rettype's core).
@@ -144,7 +147,10 @@ pub fn get_fn_expr_rettype(flinfo: &FmgrInfo) -> Oid {
 }
 
 fn agg_carrier(flinfo: &FmgrInfo) -> Option<&types_core::fmgr::AggFnArgTypes> {
-    flinfo.fn_expr.as_ref().and_then(|e| e.downcast_ref::<types_core::fmgr::AggFnArgTypes>())
+    flinfo
+        .fn_expr
+        .as_ref()
+        .and_then(|e| e.downcast_ref::<types_core::fmgr::AggFnArgTypes>())
 }
 
 // The call a result type is resolved against: a call-expression node, or an
@@ -228,7 +234,8 @@ pub fn erased_call_expr_argtype(e: &types_core::fmgr::FnExprErased, argnum: usiz
     if let Some(agg) = e.downcast_ref::<types_core::fmgr::AggFnArgTypes>() {
         return agg.argtypes.get(argnum).copied().unwrap_or(InvalidOid);
     }
-    e.downcast_ref::<Node<'static>>().map_or(InvalidOid, |n| get_call_expr_argtype(*n, argnum))
+    e.downcast_ref::<Node<'static>>()
+        .map_or(InvalidOid, |n| get_call_expr_argtype(*n, argnum))
 }
 
 /// C: get_fn_expr_rettype's core over an erased fn_expr (node or carrier).
@@ -236,7 +243,8 @@ pub fn erased_call_expr_rettype(e: &types_core::fmgr::FnExprErased) -> Oid {
     if let Some(agg) = e.downcast_ref::<types_core::fmgr::AggFnArgTypes>() {
         return agg.rettype;
     }
-    e.downcast_ref::<Node<'static>>().map_or(InvalidOid, |n| expr_type(Some(*n)))
+    e.downcast_ref::<Node<'static>>()
+        .map_or(InvalidOid, |n| expr_type(Some(*n)))
 }
 
 /// C: get_fn_expr_arg_stable (fmgr.c) — Const or external Param arguments.
@@ -296,8 +304,7 @@ pub fn extract_variadic_args<'mcx>(
         // SAFETY: checked non-null; a variadic-any last arg is an array datum.
         let p = unsafe { fcinfo.arg_ptr(variadic_start) };
         // SAFETY: a live varlena readable through its full VARSIZE_ANY.
-        let raw =
-            unsafe { core::slice::from_raw_parts(p, types_tuple::varatt::varsize_any(p)) };
+        let raw = unsafe { core::slice::from_raw_parts(p, types_tuple::varatt::varsize_any(p)) };
         let flat: &'mcx [u8] = detoast_seams::detoast_attr::call(mcx, raw)?.leak();
         let element_type = arrayfuncs::arr_elemtype(flat);
         let (typlen, typbyval, typalign) = lsyscache::get_typlenbyvalalign(element_type)?;
@@ -339,8 +346,11 @@ pub fn extract_variadic_args<'mcx>(
         }
         if !types_core::OidIsValid(typ) || (convert_unknown && typ == UNKNOWNOID) {
             return Err(Box::new(
-                PgError::error(format!("could not determine data type for argument {}", i + 1))
-                    .with_sqlstate(types_error::ERRCODE_INVALID_PARAMETER_VALUE),
+                PgError::error(format!(
+                    "could not determine data type for argument {}",
+                    i + 1
+                ))
+                .with_sqlstate(types_error::ERRCODE_INVALID_PARAMETER_VALUE),
             ));
         }
         args.push(val);
@@ -508,10 +518,18 @@ pub fn get_expr_result_type<'mcx>(
 
     let typid = expr_type(expr);
     let (class, base_typid) = get_type_func_class(typid)?;
-    let mut out = ResolvedResultType { class, result_type_id: typid, result_tuple_desc: None };
-    if matches!(class, TypeFuncClass::Composite | TypeFuncClass::CompositeDomain) {
-        out.result_tuple_desc =
-            Some(typcache_seams::lookup_rowtype_tupdesc_copy::call(mcx, base_typid, -1)?);
+    let mut out = ResolvedResultType {
+        class,
+        result_type_id: typid,
+        result_tuple_desc: None,
+    };
+    if matches!(
+        class,
+        TypeFuncClass::Composite | TypeFuncClass::CompositeDomain
+    ) {
+        out.result_tuple_desc = Some(typcache_seams::lookup_rowtype_tupdesc_copy::call(
+            mcx, base_typid, -1,
+        )?);
     }
     Ok(out)
 }
@@ -603,8 +621,11 @@ fn internal_get_result_type<'mcx>(
     let mut result_tuple_desc = None;
     match class {
         TypeFuncClass::Composite | TypeFuncClass::CompositeDomain => {
-            result_tuple_desc =
-                Some(typcache_seams::lookup_rowtype_tupdesc_copy::call(mcx, base_rettype, -1)?);
+            result_tuple_desc = Some(typcache_seams::lookup_rowtype_tupdesc_copy::call(
+                mcx,
+                base_rettype,
+                -1,
+            )?);
         }
         TypeFuncClass::Scalar => {}
         TypeFuncClass::Record => {
@@ -617,7 +638,11 @@ fn internal_get_result_type<'mcx>(
         TypeFuncClass::Other => {}
     }
 
-    Ok(ResolvedResultType { class, result_type_id: rettype, result_tuple_desc })
+    Ok(ResolvedResultType {
+        class,
+        result_type_id: rettype,
+        result_tuple_desc,
+    })
 }
 
 pub fn get_expr_result_tupdesc<'mcx>(
@@ -896,7 +921,9 @@ fn resolve_anyarray_from_others(a: &mut PolymorphicActuals) -> PgResult<()> {
         a.anyarray_type = arr;
         Ok(())
     } else {
-        Err(Box::new(PgError::error("could not determine polymorphic type".to_string())))
+        Err(Box::new(PgError::error(
+            "could not determine polymorphic type".to_string(),
+        )))
     }
 }
 
@@ -918,7 +945,9 @@ fn resolve_anyrange_from_others(a: &mut PolymorphicActuals) -> PgResult<()> {
         a.anyrange_type = mr_range;
         Ok(())
     } else {
-        Err(Box::new(PgError::error("could not determine polymorphic type".to_string())))
+        Err(Box::new(PgError::error(
+            "could not determine polymorphic type".to_string(),
+        )))
     }
 }
 
@@ -938,7 +967,9 @@ fn resolve_anymultirange_from_others(a: &mut PolymorphicActuals) -> PgResult<()>
         a.anymultirange_type = mr;
         Ok(())
     } else {
-        Err(Box::new(PgError::error("could not determine polymorphic type".to_string())))
+        Err(Box::new(PgError::error(
+            "could not determine polymorphic type".to_string(),
+        )))
     }
 }
 
@@ -988,10 +1019,9 @@ pub fn resolve_polymorphic_argtypes(
                 have_result[ridx] = true;
             } else {
                 if *actual == InvalidOid {
-                    *actual =
-                        call_expr
-                            .as_ref()
-                            .map_or(InvalidOid, |e| erased_call_expr_argtype(e, inargno));
+                    *actual = call_expr
+                        .as_ref()
+                        .map_or(InvalidOid, |e| erased_call_expr_argtype(e, inargno));
                     if *actual == InvalidOid {
                         return Ok(false);
                     }
@@ -1089,7 +1119,10 @@ pub fn cfunc_resolve_polymorphic_argtypes(
     } else {
         for t in argtypes.iter_mut() {
             *t = match *t {
-                ANYELEMENTOID | ANYNONARRAYOID | ANYENUMOID | ANYCOMPATIBLEOID
+                ANYELEMENTOID
+                | ANYNONARRAYOID
+                | ANYENUMOID
+                | ANYCOMPATIBLEOID
                 | ANYCOMPATIBLENONARRAYOID => types_core::INT4OID,
                 ANYARRAYOID | ANYCOMPATIBLEARRAYOID => INT4ARRAYOID,
                 ANYRANGEOID | ANYCOMPATIBLERANGEOID => INT4RANGEOID,

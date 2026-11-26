@@ -31,15 +31,29 @@ use raw::call_host;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Trap {
     /// `Terminator::Unreachable` was executed.
-    Unreachable { func: Func, block: Block },
-    DivideByZero { func: Func, block: Block },
+    Unreachable {
+        func: Func,
+        block: Block,
+    },
+    DivideByZero {
+        func: Func,
+        block: Block,
+    },
     /// Signed `MIN / -1` or `MIN % -1`.
-    DivideOverflow { func: Func, block: Block },
+    DivideOverflow {
+        func: Func,
+        block: Block,
+    },
     /// A value was read before any definition wrote it (a dominance bug in
     /// the producer of the IR).
-    UndefinedValue { func: Func, value: Value },
+    UndefinedValue {
+        func: Func,
+        value: Value,
+    },
     /// Host function signature the trampolines cannot express.
-    UnsupportedHostSignature { host: HostFn },
+    UnsupportedHostSignature {
+        host: HostFn,
+    },
     /// Recursion deeper than `MAX_DEPTH`.
     StackOverflow,
 }
@@ -66,7 +80,12 @@ impl<'p> Interp<'p> {
             return Err(Trap::StackOverflow);
         }
         let f = self.program.func(func);
-        assert_eq!(args.len(), f.params.len(), "{}: wrong argument count", f.name);
+        assert_eq!(
+            args.len(),
+            f.params.len(),
+            "{}: wrong argument count",
+            f.name
+        );
         let mut frame = Frame::new(f);
         let mut block = f.entry;
         for (&p, &a) in f.block(block).params.iter().zip(args) {
@@ -79,17 +98,29 @@ impl<'p> Interp<'p> {
             }
             let edge = match &b.term {
                 Terminator::Br(e) => e,
-                Terminator::CondBr { cond, then_edge, else_edge } => {
+                Terminator::CondBr {
+                    cond,
+                    then_edge,
+                    else_edge,
+                } => {
                     if frame.get(f, func, *cond)? != 0 {
                         then_edge
                     } else {
                         else_edge
                     }
                 }
-                Terminator::Switch { value, cases, default } => {
+                Terminator::Switch {
+                    value,
+                    cases,
+                    default,
+                } => {
                     let ty = f.value_type(*value);
                     let v = mask(ty, frame.get(f, func, *value)?);
-                    cases.iter().find(|c| mask(ty, c.value) == v).map(|c| &c.edge).unwrap_or(default)
+                    cases
+                        .iter()
+                        .find(|c| mask(ty, c.value) == v)
+                        .map(|c| &c.edge)
+                        .unwrap_or(default)
                 }
                 Terminator::Return(vals) => {
                     return vals.iter().map(|&v| frame.get(f, func, v)).collect();
@@ -117,7 +148,15 @@ impl<'p> Interp<'p> {
         }
     }
 
-    fn exec(&self, f: &Function, func: Func, block: Block, fr: &mut Frame, inst: &Instruction, depth: usize) -> Result<(), Trap> {
+    fn exec(
+        &self,
+        f: &Function,
+        func: Func,
+        block: Block,
+        fr: &mut Frame,
+        inst: &Instruction,
+        depth: usize,
+    ) -> Result<(), Trap> {
         if is_vec_op(&inst.op) {
             let r = exec_vec(f, func, fr, &inst.op)?;
             match (inst.result, r) {
@@ -149,7 +188,11 @@ impl<'p> Interp<'p> {
                         if xs == min && ys == -1 {
                             return Err(Trap::DivideOverflow { func, block });
                         }
-                        (if *op == IntBinOp::Sdiv { xs / ys } else { xs % ys }) as u64
+                        (if *op == IntBinOp::Sdiv {
+                            xs / ys
+                        } else {
+                            xs % ys
+                        }) as u64
                     }
                     IntBinOp::Udiv | IntBinOp::Urem => {
                         if yu == 0 {
@@ -265,7 +308,7 @@ impl<'p> Interp<'p> {
                 }
                 let x = get(*a)?;
                 let r = match op {
-                    ConvOp::Sext => canon(*to, x),          // already sign-extended
+                    ConvOp::Sext => canon(*to, x), // already sign-extended
                     ConvOp::Zext => canon(*to, mask(from, x)),
                     ConvOp::Trunc => canon(*to, x),
                     // one rounding to the target width (C's `(float4) int64`); through f64 first rounds twice
@@ -287,15 +330,30 @@ impl<'p> Interp<'p> {
                 Some(r)
             }
             Op::Select { cond, a, b } => Some(if get(*cond)? != 0 { get(*a)? } else { get(*b)? }),
-            Op::LoadZext { ty, ptr, offset, unaligned } => {
+            Op::LoadZext {
+                ty,
+                ptr,
+                offset,
+                unaligned,
+            } => {
                 let p = (get(*ptr)? as i64 + *offset as i64) as usize as *const u8;
                 Some(raw::load_zext(p, ty.bytes(), *unaligned))
             }
-            Op::Load { ty, ptr, offset, unaligned } => {
+            Op::Load {
+                ty,
+                ptr,
+                offset,
+                unaligned,
+            } => {
                 let p = (get(*ptr)? as i64 + *offset as i64) as usize as *const u8;
                 Some(canon(*ty, raw::load(p, ty.bytes(), *unaligned)))
             }
-            Op::Store { ptr, offset, value, unaligned } => {
+            Op::Store {
+                ptr,
+                offset,
+                value,
+                unaligned,
+            } => {
                 let p = (get(*ptr)? as i64 + *offset as i64) as usize as *mut u8;
                 let v = get(*value)?;
                 let ty = f.value_type(*value);
@@ -313,10 +371,18 @@ impl<'p> Interp<'p> {
                 Some(get(*ahi)?.wrapping_add(get(*bhi)?).wrapping_add(carry))
             }
             Op::StackAddr { slot } => Some(fr.slot_addr(*slot) as u64),
-            Op::PtrAdd { base, index, scale, offset } => {
+            Op::PtrAdd {
+                base,
+                index,
+                scale,
+                offset,
+            } => {
                 let b = get(*base)? as i64;
                 let i = get(*index)? as i64;
-                Some(b.wrapping_add(i.wrapping_mul(*scale as i64)).wrapping_add(*offset as i64) as u64)
+                Some(
+                    b.wrapping_add(i.wrapping_mul(*scale as i64))
+                        .wrapping_add(*offset as i64) as u64,
+                )
             }
             Op::Call { callee, args } => {
                 let mut av = Vec::with_capacity(args.len());
@@ -329,16 +395,36 @@ impl<'p> Interp<'p> {
             Op::CallHost { callee, args } => {
                 let decl = self.program.host_fn(*callee);
                 let mut av = [0u64; MAX_HOST_ARGS];
-                if args.len() > MAX_HOST_ARGS || decl.params.iter().any(|t| t.is_float()) || decl.ret.is_some_and(|t| t.is_float()) {
+                if args.len() > MAX_HOST_ARGS
+                    || decl.params.iter().any(|t| t.is_float())
+                    || decl.ret.is_some_and(|t| t.is_float())
+                {
                     return Err(Trap::UnsupportedHostSignature { host: *callee });
                 }
                 for (slot, &a) in av.iter_mut().zip(args.iter()) {
                     *slot = get(a)?;
                 }
-                let raw = call_host(decl.addr, &av[..args.len()], host_narrow(&decl.params), host_ret(decl.ret));
+                let raw = call_host(
+                    decl.addr,
+                    &av[..args.len()],
+                    host_narrow(&decl.params),
+                    host_ret(decl.ret),
+                );
                 decl.ret.map(|t| canon(t, raw))
             }
-            Op::VecLoad { .. } | Op::VecStore { .. } | Op::VecBin { .. } | Op::VecShift { .. } | Op::VecCmp { .. } | Op::VecSelect { .. } | Op::VecReduceAdd { .. } | Op::VecMovmask { .. } | Op::VecSplat { .. } | Op::VecExtract { .. } | Op::VecInsert { .. } | Op::VecWiden { .. } | Op::VecNarrow { .. } => {
+            Op::VecLoad { .. }
+            | Op::VecStore { .. }
+            | Op::VecBin { .. }
+            | Op::VecShift { .. }
+            | Op::VecCmp { .. }
+            | Op::VecSelect { .. }
+            | Op::VecReduceAdd { .. }
+            | Op::VecMovmask { .. }
+            | Op::VecSplat { .. }
+            | Op::VecExtract { .. }
+            | Op::VecInsert { .. }
+            | Op::VecWiden { .. }
+            | Op::VecNarrow { .. } => {
                 unreachable!("vector ops run in exec_vec")
             }
         };
@@ -355,8 +441,24 @@ impl<'p> Interp<'p> {
 
 fn is_vec_op(op: &Op) -> bool {
     match op {
-        Op::VecLoad { .. } | Op::VecStore { .. } | Op::VecBin { .. } | Op::VecShift { .. } | Op::VecCmp { .. } | Op::VecSelect { .. } | Op::VecReduceAdd { .. } | Op::VecMovmask { .. } | Op::VecSplat { .. } | Op::VecExtract { .. } | Op::VecInsert { .. } | Op::VecWiden { .. } | Op::VecNarrow { .. } => true,
-        Op::Conv { op: ConvOp::Bitcast, to, .. } => to.is_vector(),
+        Op::VecLoad { .. }
+        | Op::VecStore { .. }
+        | Op::VecBin { .. }
+        | Op::VecShift { .. }
+        | Op::VecCmp { .. }
+        | Op::VecSelect { .. }
+        | Op::VecReduceAdd { .. }
+        | Op::VecMovmask { .. }
+        | Op::VecSplat { .. }
+        | Op::VecExtract { .. }
+        | Op::VecInsert { .. }
+        | Op::VecWiden { .. }
+        | Op::VecNarrow { .. } => true,
+        Op::Conv {
+            op: ConvOp::Bitcast,
+            to,
+            ..
+        } => to.is_vector(),
         _ => false,
     }
 }
@@ -368,7 +470,11 @@ fn unpack(ty: Type, (lo, hi): (u64, u64)) -> [u64; 16] {
     let w = 128 / n as u32;
     let mut out = [0u64; 16];
     let v = (lo as u128) | ((hi as u128) << 64);
-    let m: u128 = if w == 64 { u64::MAX as u128 } else { (1u128 << w) - 1 };
+    let m: u128 = if w == 64 {
+        u64::MAX as u128
+    } else {
+        (1u128 << w) - 1
+    };
     for (k, o) in out.iter_mut().enumerate().take(n) {
         *o = ((v >> (k as u32 * w)) & m) as u64;
     }
@@ -379,7 +485,11 @@ fn unpack(ty: Type, (lo, hi): (u64, u64)) -> [u64; 16] {
 fn pack(ty: Type, lanes: &[u64; 16]) -> (u64, u64) {
     let n = ty.lanes() as usize;
     let w = 128 / n as u32;
-    let m: u128 = if w == 64 { u64::MAX as u128 } else { (1u128 << w) - 1 };
+    let m: u128 = if w == 64 {
+        u64::MAX as u128
+    } else {
+        (1u128 << w) - 1
+    };
     let mut v: u128 = 0;
     for (k, &l) in lanes.iter().enumerate().take(n) {
         v |= ((l as u128) & m) << (k as u32 * w);
@@ -400,13 +510,27 @@ fn exec_vec(f: &Function, func: Func, fr: &mut Frame, op: &Op) -> Result<Option<
         Ok((t, unpack(t, get2(v)?)))
     };
     Ok(match op {
-        Op::Conv { op: ConvOp::Bitcast, a, .. } => Some(get2(*a)?),
-        Op::VecLoad { ptr, offset, unaligned, .. } => {
+        Op::Conv {
+            op: ConvOp::Bitcast,
+            a,
+            ..
+        } => Some(get2(*a)?),
+        Op::VecLoad {
+            ptr,
+            offset,
+            unaligned,
+            ..
+        } => {
             let p = (get(*ptr)? as i64 + *offset as i64) as usize as *const u8;
             let v: [u64; 2] = raw::load16(p, *unaligned);
             Some((v[0], v[1]))
         }
-        Op::VecStore { ptr, offset, value, unaligned } => {
+        Op::VecStore {
+            ptr,
+            offset,
+            value,
+            unaligned,
+        } => {
             let p = (get(*ptr)? as i64 + *offset as i64) as usize as *mut u8;
             let (lo, hi) = get2(*value)?;
             raw::store16(p, [lo, hi], *unaligned);
@@ -419,7 +543,13 @@ fn exec_vec(f: &Function, func: Func, fr: &mut Frame, op: &Op) -> Result<Option<
                 VecBinOp::And => Some((x.0 & y.0, x.1 & y.1)),
                 VecBinOp::Or => Some((x.0 | y.0, x.1 | y.1)),
                 VecBinOp::Xor => Some((x.0 ^ y.0, x.1 ^ y.1)),
-                VecBinOp::Add | VecBinOp::Sub | VecBinOp::Mul | VecBinOp::Smin | VecBinOp::Smax | VecBinOp::Umin | VecBinOp::Umax => {
+                VecBinOp::Add
+                | VecBinOp::Sub
+                | VecBinOp::Mul
+                | VecBinOp::Smin
+                | VecBinOp::Smax
+                | VecBinOp::Umin
+                | VecBinOp::Umax => {
                     let (xl, yl) = (unpack(ty, x), unpack(ty, y));
                     let w = 128 / ty.lanes();
                     let mut r = [0u64; 16];
@@ -435,7 +565,8 @@ fn exec_vec(f: &Function, func: Func, fr: &mut Frame, op: &Op) -> Result<Option<
                                 .to_bits()
                             }
                             Type::V4F32 => {
-                                let (p, q) = (f32::from_bits(xl[k] as u32), f32::from_bits(yl[k] as u32));
+                                let (p, q) =
+                                    (f32::from_bits(xl[k] as u32), f32::from_bits(yl[k] as u32));
                                 (match op {
                                     VecBinOp::Add => p + q,
                                     VecBinOp::Sub => p - q,
@@ -446,8 +577,12 @@ fn exec_vec(f: &Function, func: Func, fr: &mut Frame, op: &Op) -> Result<Option<
                             _ => match op {
                                 VecBinOp::Add => xl[k].wrapping_add(yl[k]),
                                 VecBinOp::Sub => xl[k].wrapping_sub(yl[k]),
-                                VecBinOp::Smin => sext_lane(w, xl[k]).min(sext_lane(w, yl[k])) as u64,
-                                VecBinOp::Smax => sext_lane(w, xl[k]).max(sext_lane(w, yl[k])) as u64,
+                                VecBinOp::Smin => {
+                                    sext_lane(w, xl[k]).min(sext_lane(w, yl[k])) as u64
+                                }
+                                VecBinOp::Smax => {
+                                    sext_lane(w, xl[k]).max(sext_lane(w, yl[k])) as u64
+                                }
                                 VecBinOp::Umin => xl[k].min(yl[k]),
                                 VecBinOp::Umax => xl[k].max(yl[k]),
                                 _ => xl[k].wrapping_mul(yl[k]),
@@ -607,7 +742,14 @@ impl Frame {
             let (base, mark) = STACK.with(|s| s.borrow_mut().push(size, max_align));
             (base, Some(mark))
         };
-        Self { slots: vec![0; f.values.len()], hi: vec![0; f.values.len()], defined: vec![false; f.values.len()], base, slot_offsets, mark }
+        Self {
+            slots: vec![0; f.values.len()],
+            hi: vec![0; f.values.len()],
+            defined: vec![false; f.values.len()],
+            base,
+            slot_offsets,
+            mark,
+        }
     }
     #[inline]
     fn get(&self, f: &Function, func: Func, v: Value) -> Result<u64, Trap> {
@@ -683,16 +825,24 @@ impl Stack {
         let (chunk, at) = match self.chunks.get(self.chunk).and_then(|c| fits(c, self.off)) {
             Some(at) => (self.chunk, at),
             None => {
-                let next = if self.chunks.is_empty() { 0 } else { self.chunk + 1 };
+                let next = if self.chunks.is_empty() {
+                    0
+                } else {
+                    self.chunk + 1
+                };
                 if self.chunks.get(next).and_then(|c| fits(c, 0)).is_none() {
-                    let chunk = vec![0u8; (bytes + align).max(INTERP_STACK_CHUNK)].into_boxed_slice();
+                    let chunk =
+                        vec![0u8; (bytes + align).max(INTERP_STACK_CHUNK)].into_boxed_slice();
                     if next < self.chunks.len() {
                         self.chunks[next] = chunk;
                     } else {
                         self.chunks.push(chunk);
                     }
                 }
-                (next, fits(&self.chunks[next], 0).expect("a fresh chunk holds the frame"))
+                (
+                    next,
+                    fits(&self.chunks[next], 0).expect("a fresh chunk holds the frame"),
+                )
             }
         };
         let c = &mut self.chunks[chunk];
@@ -721,7 +871,11 @@ pub fn crc32c_u64(acc: u32, data: u64) -> u32 {
     for i in 0..8 {
         crc ^= ((data >> (8 * i)) & 0xff) as u32;
         for _ in 0..8 {
-            crc = if crc & 1 != 0 { (crc >> 1) ^ 0x82F6_3B78 } else { crc >> 1 };
+            crc = if crc & 1 != 0 {
+                (crc >> 1) ^ 0x82F6_3B78
+            } else {
+                crc >> 1
+            };
         }
     }
     crc
@@ -785,7 +939,8 @@ fn float_bin(ty: Type, op: FloatBinOp, a: u64, b: u64) -> u64 {
         }};
     }
     match ty {
-        Type::F32 => go!(f32, |v: u64| f32::from_bits(v as u32), |r: f32| r.to_bits() as u64),
+        Type::F32 => go!(f32, |v: u64| f32::from_bits(v as u32), |r: f32| r.to_bits()
+            as u64),
         _ => go!(f64, f64::from_bits, |r: f64| r.to_bits()),
     }
 }
@@ -807,7 +962,8 @@ fn float_un(ty: Type, op: FloatUnOp, a: u64) -> u64 {
         }};
     }
     match ty {
-        Type::F32 => go!(f32, |v: u64| f32::from_bits(v as u32), |r: f32| r.to_bits() as u64),
+        Type::F32 => go!(f32, |v: u64| f32::from_bits(v as u32), |r: f32| r.to_bits()
+            as u64),
         _ => go!(f64, f64::from_bits, |r: f64| r.to_bits()),
     }
 }
@@ -816,7 +972,13 @@ fn float_un(ty: Type, op: FloatUnOp, a: u64) -> u64 {
 /// a wasm32 host takes as `i32`. A `Ptr` is a 64-bit word like an `I64`: every host takes it as one (the host ABI is
 /// i64 words, gravity_abi::host; gravity_lint's host_decls test holds each declared host to it).
 fn host_narrow(params: &[Type]) -> u16 {
-    params.iter().enumerate().fold(0, |m, (k, &t)| if matches!(t, Type::I32 | Type::I16 | Type::I8 | Type::Bool) { m | 1 << k } else { m })
+    params.iter().enumerate().fold(0, |m, (k, &t)| {
+        if matches!(t, Type::I32 | Type::I16 | Type::I8 | Type::Bool) {
+            m | 1 << k
+        } else {
+            m
+        }
+    })
 }
 
 /// A host declaration's result as `call_typed` reads it.

@@ -25,14 +25,34 @@ fn run(gens: [Option<u64>; 2]) -> (Option<(i64, i64)>, bool) {
 
 #[test]
 fn a_read_speaks_only_when_the_generation_holds_across_it() {
-    assert_eq!(run([Some(7), Some(7)]), (Some((3, 9)), true), "the list's generation throughout: its extrema");
-    assert_eq!(run([Some(7), Some(8)]), (None, true), "a generation published between the resolves: no bound");
-    assert_eq!(run([None, Some(7)]), (None, false), "the list is not the latest generation: nothing read");
-    assert_eq!(run([Some(7), None]), (None, true), "the list's parts retired under the read: no bound");
+    assert_eq!(
+        run([Some(7), Some(7)]),
+        (Some((3, 9)), true),
+        "the list's generation throughout: its extrema"
+    );
+    assert_eq!(
+        run([Some(7), Some(8)]),
+        (None, true),
+        "a generation published between the resolves: no bound"
+    );
+    assert_eq!(
+        run([None, Some(7)]),
+        (None, false),
+        "the list is not the latest generation: nothing read"
+    );
+    assert_eq!(
+        run([Some(7), None]),
+        (None, true),
+        "the list's parts retired under the read: no bound"
+    );
 }
 
 #[test]
 fn a_read_error_is_returned_not_taken_for_no_bound() {
-    let r = bracketed(&mut || Ok(Some(1)), || -> types_error::PgResult<()> { Err(Box::new(types_error::PgError::error("gravity: a zone column read failed"))) });
+    let r = bracketed(&mut || Ok(Some(1)), || -> types_error::PgResult<()> {
+        Err(Box::new(types_error::PgError::error(
+            "gravity: a zone column read failed",
+        )))
+    });
     assert!(r.is_err());
 }

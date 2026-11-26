@@ -7,13 +7,17 @@
 use gravity_abi::hash::{Depth, KeyHash};
 use gravity_driver::{ArenaRef, SourceBox};
 use gravity_fn::arena::{AVec, Kind, OpArena};
-use gravity_kernels::table::entries::{admit_filter_add, admit_filter_bits, ADMIT_ALL, ADMIT_EMPTY};
+use gravity_kernels::table::entries::{
+    admit_filter_add, admit_filter_bits, ADMIT_ALL, ADMIT_EMPTY,
+};
 use gravity_program::{SiteDesc, ZonePred};
 use memledger::{ChargedVec, Owner};
 use types_error::{PgError, PgResult};
 use types_rel::Relation;
 
-use crate::ops::scan::pgrc::granule_source::{part_extrema, zone_census, GranuleRecipe, PartList, RtFilter, ROWS};
+use crate::ops::scan::pgrc::granule_source::{
+    part_extrema, zone_census, GranuleRecipe, PartList, RtFilter, ROWS,
+};
 use crate::ops::Recipe;
 
 /// No recipe kind of M1's own: every M1 site derives through registry.rs's earlier rows.
@@ -44,7 +48,14 @@ impl AdmitSet {
         let (mut filter, mut set) = (ChargedVec::default(), ChargedVec::default());
         filter.with_vec(|v| v.push(if every { u64::MAX } else { 0 })); // alloc: Exec
         set.with_vec(|v| v.extend([ADMIT_EMPTY; 2])); // alloc: Exec
-        AdmitSet { set, mask: 0, count: every as u64, empty_key: if every { ADMIT_ALL } else { 0 }, filter, filter_bits: 6 }
+        AdmitSet {
+            set,
+            mask: 0,
+            count: every as u64,
+            empty_key: if every { ADMIT_ALL } else { 0 },
+            filter,
+            filter_bits: 6,
+        }
     }
 }
 
@@ -60,7 +71,12 @@ pub fn admit_set(read: Reading<'_>, owner: Option<(Owner, Kind)>) -> PgResult<Op
     let (mut keys, mut refused) = (AVec::<([u64; 2], usize)>::new(), None);
     let got = read(&mut |w0, w1, nw| {
         if refused.is_none() {
-            refused = keys.push(&a, ([w0, if nw == 2 { w1 } else { 0 }], nw.clamp(1, 2) as usize)).err();
+            refused = keys
+                .push(
+                    &a,
+                    ([w0, if nw == 2 { w1 } else { 0 }], nw.clamp(1, 2) as usize),
+                )
+                .err();
         }
     });
     if got.is_none() {
@@ -70,14 +86,20 @@ pub fn admit_set(read: Reading<'_>, owner: Option<(Owner, Kind)>) -> PgResult<Op
         return Err(out_of_memory(r.bytes));
     }
     let keys = keys.as_slice(&a);
-    let bits = (2 * keys.len()).next_power_of_two().max(64).trailing_zeros();
+    let bits = (2 * keys.len())
+        .next_power_of_two()
+        .max(64)
+        .trailing_zeros();
     let mask = (1usize << bits) - 1;
     let mut set = ChargedVec::new(o, k); // alloc: Exec charged o
-    set.resize(2 * (mask + 1), ADMIT_EMPTY).map_err(|_| out_of_memory(16 * (mask as u64 + 1)))?;
+    set.resize(2 * (mask + 1), ADMIT_EMPTY)
+        .map_err(|_| out_of_memory(16 * (mask as u64 + 1)))?;
     let (mut count, mut empty_key) = (0u64, 0u64);
     let fbits = admit_filter_bits(keys.len());
     let mut filter = ChargedVec::new(o, k); // alloc: Exec charged o
-    filter.resize((1usize << fbits) / 64, 0).map_err(|_| out_of_memory((1u64 << fbits) / 8))?;
+    filter
+        .resize((1usize << fbits) / 64, 0)
+        .map_err(|_| out_of_memory((1u64 << fbits) / 8))?;
     for (k, nw) in keys.iter() {
         cancelpoll::interrupts::check()?;
         admit_filter_add(&mut filter, fbits, KeyHash::of(&k[..*nw]));
@@ -97,13 +119,22 @@ pub fn admit_set(read: Reading<'_>, owner: Option<(Owner, Kind)>) -> PgResult<Op
             i = (i + 1) & mask;
         }
     }
-    Ok(Some(AdmitSet { set, mask: mask as u64, count, empty_key, filter, filter_bits: fbits as u64 }))
+    Ok(Some(AdmitSet {
+        set,
+        mask: mask as u64,
+        count,
+        empty_key,
+        filter,
+        filter_bits: fbits as u64,
+    }))
 }
 
 /// PG's "out of memory" (53200) for `bytes` a scratch arena or a charged list was refused.
 #[cold]
 fn out_of_memory(bytes: u64) -> Box<PgError> {
-    let e = PgError::error("out of memory").with_detail(format!("Failed on request of size {bytes} in a Gravity scratch region.")); // alloc: Cold
+    let e = PgError::error("out of memory").with_detail(format!(
+        "Failed on request of size {bytes} in a Gravity scratch region."
+    )); // alloc: Cold
     Box::<PgError>::new(e.with_sqlstate(types_error::ERRCODE_OUT_OF_MEMORY)) // alloc: Cold
 }
 
@@ -136,12 +167,32 @@ fn dedup_len<T: Copy + PartialEq>(s: &mut [T]) -> usize {
 /// A granule site's `facts` for this execution's snapshot `list`: its surviving rows (the granules the zone predicates
 /// keep, at most the list's rows, at most an entries window's entries) and lane `lane`'s dense domain, the parts' exact
 /// extrema when the lane's key is its datum word (`None` otherwise).
-pub fn site_facts(rel: &Relation<'_>, list: &PartList, r: &GranuleRecipe, preds: &[ZonePred], lane: Option<usize>) -> PgResult<(u64, Option<(i64, i64)>)> {
+pub fn site_facts(
+    rel: &Relation<'_>,
+    list: &PartList,
+    r: &GranuleRecipe,
+    preds: &[ZonePred],
+    lane: Option<usize>,
+) -> PgResult<(u64, Option<(i64, i64)>)> {
     let (alive, _) = zone_census(rel, list, &r.attnos[..r.natts], preds)?;
-    let rows = list.rows().min(alive.saturating_mul(ROWS as u64)).min(entries_bound(rel, r)?);
-    let Some(k) = lane.filter(|&k| k < r.natts) else { return Ok((rows, None)) };
-    let word = |v: i64| r.profiles.get(k).copied().flatten().is_some_and(|p| p.key.exact_key_to_datum_word(v) == Some(v as u64));
-    Ok((rows, part_extrema(list, r.attnos[k] as u32)?.filter(|&(lo, hi)| word(lo) && word(hi))))
+    let rows = list
+        .rows()
+        .min(alive.saturating_mul(ROWS as u64))
+        .min(entries_bound(rel, r)?);
+    let Some(k) = lane.filter(|&k| k < r.natts) else {
+        return Ok((rows, None));
+    };
+    let word = |v: i64| {
+        r.profiles
+            .get(k)
+            .copied()
+            .flatten()
+            .is_some_and(|p| p.key.exact_key_to_datum_word(v) == Some(v as u64))
+    };
+    Ok((
+        rows,
+        part_extrema(list, r.attnos[k] as u32)?.filter(|&(lo, hi)| word(lo) && word(hi)),
+    ))
 }
 
 /// An entries window's rows (`GranuleRecipe::entries`, road dict.entries; its parts' entry runs): when every
@@ -150,8 +201,16 @@ pub fn site_facts(rel: &Relation<'_>, list: &PartList, r: &GranuleRecipe, preds:
 /// entries against 100 M rows: P = 9, not 11). A bound on the table's groups, not a row count: a part with deletes
 /// publishes its rows, each value among its entries. Any other column, or no committed publish: no bound (`u64::MAX`).
 fn entries_bound(rel: &Relation<'_>, r: &GranuleRecipe) -> PgResult<u64> {
-    let Some(a) = r.entries.and_then(|k| r.attnos.get(k)).and_then(|&a| usize::try_from(a).ok()?.checked_sub(1)) else { return Ok(u64::MAX) };
-    let Some(c) = pgrc_am::footer::footer_codecs(rel)? else { return Ok(u64::MAX) };
+    let Some(a) = r
+        .entries
+        .and_then(|k| r.attnos.get(k))
+        .and_then(|&a| usize::try_from(a).ok()?.checked_sub(1))
+    else {
+        return Ok(u64::MAX);
+    };
+    let Some(c) = pgrc_am::footer::footer_codecs(rel)? else {
+        return Ok(u64::MAX);
+    };
     Ok(match (c.codec.get(a), c.ncodes.get(a)) {
         (Some(&pgrc_am::footer::CODEC_DICT), Some(&n)) if n > 0 => n,
         _ => u64::MAX,
@@ -167,9 +226,16 @@ fn entries_bound(rel: &Relation<'_>, r: &GranuleRecipe) -> PgResult<u64> {
 /// CONVERT (wave 2): the keys and images read are a scratch arena of the call on `owner` (the build's slot owner and
 /// kind; a refused carve is no filter: the probe reads every row). D4533: the kept filter's own runs and images are
 /// copies charged to `owner` too (`RtFilter::charged`; a refused copy is no filter).
-pub fn rt_filter(attno: i16, cap: usize, clip: &dyn Fn() -> Option<(i64, i64)>, read: Reading<'_>, owner: Option<(Owner, Kind)>) -> Option<RtFilter> {
+pub fn rt_filter(
+    attno: i16,
+    cap: usize,
+    clip: &dyn Fn() -> Option<(i64, i64)>,
+    read: Reading<'_>,
+    owner: Option<(Owner, Kind)>,
+) -> Option<RtFilter> {
     let ar = OpArena::scratch_of(owner.map(|o| o.0), owner.map_or(Kind::Region, |o| o.1));
-    let (mut range, mut keys, mut fps, mut ok) = (None, AVec::<i64>::new(), AVec::<u128>::new(), true);
+    let (mut range, mut keys, mut fps, mut ok) =
+        (None, AVec::<i64>::new(), AVec::<u128>::new(), true);
     let n = read(&mut |item, a, b| {
         ok &= match item {
             0 => {
@@ -204,7 +270,12 @@ pub fn rt_filter(attno: i16, cap: usize, clip: &dyn Fn() -> Option<(i64, i64)>, 
         }
     }
     // a cancel publishes no filter (the scan reads every row; the build's next tick stops it)
-    let Ok(mut runs) = RtFilter::runs_of(&mut cancelpoll::step("rt_filter: a build's key runs"), keys.as_slice(&ar)) else { return None };
+    let Ok(mut runs) = RtFilter::runs_of(
+        &mut cancelpoll::step("rt_filter: a build's key runs"),
+        keys.as_slice(&ar),
+    ) else {
+        return None;
+    };
     if runs.len() > cap {
         runs.clear();
     } else if keys.len() > cap {

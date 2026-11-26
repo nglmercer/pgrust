@@ -9,16 +9,22 @@ use std::sync::{Arc, Mutex};
 use granule_fixtures::*;
 use gravity_abi::Lane;
 use gravity_driver::{blank_site, Source, Window};
-use gravity_hosts::dict::text_hosts::{fp_cache_drop_all, fp_seed, fp_tables_resident, TableFn, TableSpec};
+use gravity_hosts::dict::text_hosts::{
+    fp_cache_drop_all, fp_seed, fp_tables_resident, TableFn, TableSpec,
+};
+use gravity_hosts::ops::scan::pgrc::granule_source::{
+    GranuleRangeSource, GranuleRecipe, PartIoSpec, PartList, PartSpec, Resolved,
+};
 use memledger::charge::{context, enter_portal, pins_of, portal_begin};
 use memledger::{account_row, bind_backend, statement_begin, statement_end, unbind_backend, Acct};
-use gravity_hosts::ops::scan::pgrc::granule_source::{GranuleRangeSource, GranuleRecipe, PartIoSpec, PartList, PartSpec, Resolved};
 use pgrc_format::dirlayout::part_file_name;
 use pgrc_qa::corpus::{BuiltFixture, Fixture, OracleVal};
 use pgrc_qa::text_col;
 use pgrc_read::{MemPartIo, OpenPart, PartExpect, PartRegistry};
 use pgrc_write::dict::TextSemantics;
-use pgrc_write::elect::{CandidateSource, CodecCandidates, ColumnPosture, DictPolicy, ReferenceCandidates};
+use pgrc_write::elect::{
+    CandidateSource, CodecCandidates, ColumnPosture, DictPolicy, ReferenceCandidates,
+};
 use pgrc_write::writer::PartCutPolicy;
 use pgrc_write::wvfs::WriteVfs;
 
@@ -71,9 +77,19 @@ fn fixture() -> BuiltFixture {
         schema: vec![text_col(1)],
         oracle: vec![(0..ROWS).map(|i| Some(OracleVal::Bytes(word(i)))).collect()],
         plans: vec![],
-        policy: PartCutPolicy { max_rows: 20_000, ..PartCutPolicy::default() },
+        policy: PartCutPolicy {
+            max_rows: 20_000,
+            ..PartCutPolicy::default()
+        },
     };
-    let posture = ColumnPosture { dict: Some(DictPolicy { ndv_cap: 100_000, exec_ok: true, sem: TextSemantics::BytesOnly }), ..ColumnPosture::default() };
+    let posture = ColumnPosture {
+        dict: Some(DictPolicy {
+            ndv_cap: 100_000,
+            exec_ok: true,
+            sem: TextSemantics::BytesOnly,
+        }),
+        ..ColumnPosture::default()
+    };
     let cands = CodecCandidates::new(ColumnPosture::default()).with_column(1, 0, posture);
     let sources: [&dyn CandidateSource; 2] = [&cands, &ReferenceCandidates];
     let mut vfs = pgrc_qa::simvfs::SimVfs::new();
@@ -87,9 +103,15 @@ fn fixture() -> BuiltFixture {
     w.publish(&mut vfs, &probe).expect("publish");
     probe.mark(fxid, TxnVerdict::Committed);
     let files = vfs.snapshot_dir(&fx.dir);
-    let manifest = effective_manifest(&mut vfs, &fx.dir, &probe, None).expect("effective").expect("committed generation");
+    let manifest = effective_manifest(&mut vfs, &fx.dir, &probe, None)
+        .expect("effective")
+        .expect("committed generation");
     assert_eq!(manifest.parts.len(), 1, "one part");
-    BuiltFixture { fx, files, manifest }
+    BuiltFixture {
+        fx,
+        files,
+        manifest,
+    }
 }
 
 /// The part in memory, held open by the list for the test's length.
@@ -99,10 +121,22 @@ fn mem_list(bf: &BuiltFixture) -> Arc<PartList> {
 
 fn mem_list_at(bf: &BuiltFixture, ino: u64) -> Arc<PartList> {
     let rec = &bf.manifest.parts[0];
-    let bytes = bf.files.get(&part_file_name(rec.part_no)).expect("part file").clone();
-    let part = OpenPart::open(Box::new(MemPartIo::new(bytes.clone(), DEV, ino)), &PartExpect::none()).expect("open");
+    let bytes = bf
+        .files
+        .get(&part_file_name(rec.part_no))
+        .expect("part file")
+        .clone();
+    let part = OpenPart::open(
+        Box::new(MemPartIo::new(bytes.clone(), DEV, ino)),
+        &PartExpect::none(),
+    )
+    .expect("open");
     Arc::new(PartList::new(vec![PartSpec {
-        io: PartIoSpec::Mem { bytes: Arc::from(bytes.as_slice()), dev: DEV, ino },
+        io: PartIoSpec::Mem {
+            bytes: Arc::from(bytes.as_slice()),
+            dev: DEV,
+            ino,
+        },
         expect: PartExpect::none(),
         rows: ROWS,
         granules: rec.granule_count,
@@ -118,12 +152,20 @@ struct Scan {
 }
 
 fn open(list: &Arc<PartList>, rel: u32) -> Scan {
-    let recipe = GranuleRecipe::for_test_codes(rel, &[1], &[1], Arc::new(PartRegistry::new(64 << 20))).with_tables(vec![TableSpec { over: 0, func: TableFn::Fingerprint }]);
+    let recipe =
+        GranuleRecipe::for_test_codes(rel, &[1], &[1], Arc::new(PartRegistry::new(64 << 20)))
+            .with_tables(vec![TableSpec {
+                over: 0,
+                func: TableFn::Fingerprint,
+            }]);
     let resolved = Box::new(Resolved::for_recipe(&recipe, list.clone()));
     let mut src = GranuleRangeSource::new(recipe);
     src.bind(&binding_ref(&resolved)).unwrap();
     src.seek(&[0, list.granules()], &[0, 0]).unwrap();
-    Scan { src, _resolved: resolved }
+    Scan {
+        src,
+        _resolved: resolved,
+    }
 }
 
 /// One window of the scan (all the lanes it fills).
@@ -135,7 +177,11 @@ fn step(scan: &mut Scan) -> u32 {
     let n = src.window(&mut w).unwrap();
     if n > 0 {
         let mut t = Lane::NONE;
-        assert_eq!(src.lane(2, &[], &mut t).unwrap(), 1, "the fingerprint lane fills");
+        assert_eq!(
+            src.lane(2, &[], &mut t).unwrap(),
+            1,
+            "the fingerprint lane fills"
+        );
     }
     n
 }
@@ -166,7 +212,11 @@ fn a_scan_holding_an_evicted_table_counts_it_pinned_and_a_cursor_keeps_its_row()
         };
         let bytes = fp_tables_resident().3 as i64;
         assert!(bytes > 0, "the table is in the cache");
-        assert_eq!(pins_of(cursor), (bytes, 0, 0), "the cursor's scan references the entry: pinned, not evicted");
+        assert_eq!(
+            pins_of(cursor),
+            (bytes, 0, 0),
+            "the cursor's scan references the entry: pinned, not evicted"
+        );
         assert_eq!(sum(), (bytes, 0, 0));
         // the cache evicts the entry while the scan holds it: all of its bytes are evicted-pinned, the one holder's share
         assert_eq!(fp_cache_drop_all(), 1);
@@ -178,14 +228,30 @@ fn a_scan_holding_an_evicted_table_counts_it_pinned_and_a_cursor_keeps_its_row()
         let other = context().0;
         let mut s2 = open(&list2, REL_TEXT + 91);
         assert!(step(&mut s2) > 0);
-        assert_eq!(pins_of(cursor), (bytes, bytes, bytes), "the cursor's pins stay on the cursor's row");
-        assert_eq!(pins_of(other).0, bytes, "the statement's scan holds the rebuilt table");
+        assert_eq!(
+            pins_of(cursor),
+            (bytes, bytes, bytes),
+            "the cursor's pins stay on the cursor's row"
+        );
+        assert_eq!(
+            pins_of(other).0,
+            bytes,
+            "the statement's scan holds the rebuilt table"
+        );
         assert_eq!(pins_of(other).1, 0);
         drop(s2);
-        assert_eq!(pins_of(other), (0, 0, 0), "a dropped scan takes its pins off");
+        assert_eq!(
+            pins_of(other),
+            (0, 0, 0),
+            "a dropped scan takes its pins off"
+        );
         statement_end();
         assert_eq!(pins_of(cursor), (bytes, bytes, bytes));
-        assert_eq!(sum(), (bytes, bytes, bytes), "the backend's sum is the cursor's alone");
+        assert_eq!(
+            sum(),
+            (bytes, bytes, bytes),
+            "the backend's sum is the cursor's alone"
+        );
         // two holders of one evicted entry: its bytes shared, none counted twice
         statement_begin();
         let st3 = context().0;
@@ -197,14 +263,26 @@ fn a_scan_holding_an_evicted_table_counts_it_pinned_and_a_cursor_keeps_its_row()
         assert_eq!(pins_of(st3).0, 2 * bytes, "each scan references it");
         assert_eq!(pins_of(st3), (2 * bytes, 0, 0));
         assert_eq!(fp_cache_drop_all(), 1, "the one shared entry evicted");
-        assert_eq!(pins_of(st3), (2 * bytes, 2 * bytes, bytes), "two holders share the one entry's bytes: counted once in share");
+        assert_eq!(
+            pins_of(st3),
+            (2 * bytes, 2 * bytes, bytes),
+            "two holders share the one entry's bytes: counted once in share"
+        );
         drop(s3);
-        assert_eq!(pins_of(st3), (bytes, bytes, bytes), "the last holder has the whole");
+        assert_eq!(
+            pins_of(st3),
+            (bytes, bytes, bytes),
+            "the last holder has the whole"
+        );
         drop(s4);
         assert_eq!(pins_of(st3), (0, 0, 0));
         statement_end();
         drop(cursor_scan);
-        assert_eq!(sum(), (0, 0, 0), "the cursor's scan ended: everything is back to 0");
+        assert_eq!(
+            sum(),
+            (0, 0, 0),
+            "the cursor's scan ended: everything is back to 0"
+        );
         unbind_backend();
     })
     .join()
@@ -217,7 +295,9 @@ fn a_scan_holding_an_evicted_table_counts_it_pinned_and_a_cursor_keeps_its_row()
 #[test]
 fn an_evicted_table_a_scan_holds_stays_out_of_every_freeable_count() {
     use gravity_driver::mem::budget::{hooks, Consumer};
-    use gravity_driver::mem::reclaim::{backstop_bytes, fast_bytes, ladder_elastic, ladder_protected};
+    use gravity_driver::mem::reclaim::{
+        backstop_bytes, fast_bytes, ladder_elastic, ladder_protected,
+    };
     use gravity_hosts::dict::text_hosts::{fp_cache_trim_to, fp_pinned_bytes};
     let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     datadir();
@@ -231,18 +311,49 @@ fn an_evicted_table_a_scan_holds_stays_out_of_every_freeable_count() {
         let st = context().0;
         let fp = hooks(Consumer::FpTables).expect("registered");
         let fp_free = || (fp.current)().saturating_sub((fp.floor)());
-        let counts = || (ladder_elastic(), ladder_protected(), backstop_bytes(), fast_bytes());
+        let counts = || {
+            (
+                ladder_elastic(),
+                ladder_protected(),
+                backstop_bytes(),
+                fast_bytes(),
+            )
+        };
         let mut s = open(&list, REL_TEXT + 93);
         assert!(step(&mut s) > 0);
         let bytes = fp_tables_resident().3;
         assert!(bytes > 0, "the table is in the cache");
-        assert_eq!((fp_pinned_bytes(), fp_free()), (bytes, 0), "held by the scan: the fp tables' floor, nothing freeable");
-        assert_eq!(fp_cache_trim_to(0), 0, "the reclaim never drops a held entry");
+        assert_eq!(
+            (fp_pinned_bytes(), fp_free()),
+            (bytes, 0),
+            "held by the scan: the fp tables' floor, nothing freeable"
+        );
+        assert_eq!(
+            fp_cache_trim_to(0),
+            0,
+            "the reclaim never drops a held entry"
+        );
         let held = counts();
-        assert_eq!(fp_cache_drop_all(), 1, "the cache evicts it while the scan holds it");
-        assert_eq!((fp_tables_resident().3, fp_free()), (0, 0), "out of the cache's count");
-        assert_eq!(pins_of(st), (bytes as i64, bytes as i64, bytes as i64), "its bytes are the holder's, evicted-pinned");
-        assert_eq!(counts(), held, "R2a's, R2b's and the backstop's counts gain none of them");
+        assert_eq!(
+            fp_cache_drop_all(),
+            1,
+            "the cache evicts it while the scan holds it"
+        );
+        assert_eq!(
+            (fp_tables_resident().3, fp_free()),
+            (0, 0),
+            "out of the cache's count"
+        );
+        assert_eq!(
+            pins_of(st),
+            (bytes as i64, bytes as i64, bytes as i64),
+            "its bytes are the holder's, evicted-pinned"
+        );
+        assert_eq!(
+            counts(),
+            held,
+            "R2a's, R2b's and the backstop's counts gain none of them"
+        );
         drop(s);
         assert_eq!(pins_of(st), (0, 0, 0), "the scan's end lets them go");
         statement_end();
@@ -259,7 +370,9 @@ fn an_evicted_table_a_scan_holds_stays_out_of_every_freeable_count() {
 #[test]
 fn the_fp_cap_passes_over_a_table_a_scan_holds_with_cache_fp_cap_pins() {
     use gravity_driver::mem::budget::{hooks, Consumer};
-    use gravity_hosts::dict::text_hosts::{fp_cache_trim_to, fp_cap_evicted_bytes, fp_over_cap_pinned, fp_pinned_bytes};
+    use gravity_hosts::dict::text_hosts::{
+        fp_cache_trim_to, fp_cap_evicted_bytes, fp_over_cap_pinned, fp_pinned_bytes,
+    };
     use mempolicy::consts::{set, K};
     struct Restore;
     impl Drop for Restore {
@@ -299,20 +412,48 @@ fn the_fp_cap_passes_over_a_table_a_scan_holds_with_cache_fp_cap_pins() {
             assert!(step(&mut s2) > 0);
             let total = pins_of(st).0 as u64;
             assert!(total > bytes, "both scans hold a table");
-            let now = (fp_tables_resident().3, pins_of(st).1 as u64, fp_cap_evicted_bytes() - ev, fp_pinned_bytes());
-            let past = (fp_over_cap_pinned().0 - over.0, fp_over_cap_pinned().1 - over.1);
+            let now = (
+                fp_tables_resident().3,
+                pins_of(st).1 as u64,
+                fp_cap_evicted_bytes() - ev,
+                fp_pinned_bytes(),
+            );
+            let past = (
+                fp_over_cap_pinned().0 - over.0,
+                fp_over_cap_pinned().1 - over.1,
+            );
             if skip == 0 {
-                assert_eq!(now, (total - bytes, bytes, bytes, total - bytes), "today: the held table is evicted, its bytes stay");
+                assert_eq!(
+                    now,
+                    (total - bytes, bytes, bytes, total - bytes),
+                    "today: the held table is evicted, its bytes stay"
+                );
                 assert_eq!(past, (0, 0));
             } else {
-                assert_eq!(now, (total, 0, 0, total), "the cap passes over the held table: none evicted, both in the floor");
-                assert_eq!(past, (1, total - bytes), "the new table kept past the budget, counted");
+                assert_eq!(
+                    now,
+                    (total, 0, 0, total),
+                    "the cap passes over the held table: none evicted, both in the floor"
+                );
+                assert_eq!(
+                    past,
+                    (1, total - bytes),
+                    "the new table kept past the budget, counted"
+                );
             }
             assert_eq!(droppable(), 0, "both held: nothing droppable");
             drop(s);
             let d = droppable();
-            assert_eq!(d, skip * bytes, "the first table: gone with its scan today, else in the cache unheld");
-            assert_eq!(fp_cache_trim_to(0), d, "droppable is what a trim to 0 frees");
+            assert_eq!(
+                d,
+                skip * bytes,
+                "the first table: gone with its scan today, else in the cache unheld"
+            );
+            assert_eq!(
+                fp_cache_trim_to(0),
+                d,
+                "droppable is what a trim to 0 frees"
+            );
             drop(s2);
             assert_eq!(pins_of(st), (0, 0, 0));
             statement_end();

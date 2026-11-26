@@ -22,7 +22,9 @@ use gravity_abi::breaker::{Breaker, BreakerKind, HashAgg};
 use gravity_abi::ctx::site_ptr;
 use gravity_abi::status::{DONE, ERROR};
 use gravity_abi::Ctx;
-use gravity_driver::{ArenaBox, ArenaRef, Binding, Derive, Error, Frame, Locker, Merge, Result, SourceBox, Writer};
+use gravity_driver::{
+    ArenaBox, ArenaRef, Binding, Derive, Error, Frame, Locker, Merge, Result, SourceBox, Writer,
+};
 use gravity_kernels::par_scan_count::{BYTES, LAYOUT};
 use gravity_kernels::util::{consumed, emit, flush, partial, range_seek, window};
 use gravity_parallel::{FixturePool, MorselSource, Plan};
@@ -60,15 +62,21 @@ unsafe extern "C-unwind" fn k_count(ctx: *mut Ctx) -> i64 {
         if r <= 0 {
             return if r == 0 { DONE } else { r };
         }
-        HashAgg::at(partial(ctx), &LAYOUT, 1, BYTES).single().add_count(0, r);
+        HashAgg::at(partial(ctx), &LAYOUT, 1, BYTES)
+            .single()
+            .add_count(0, r);
         (*site_ptr(ctx, 0)).cursor += r as u32;
     }
 }
 
 /// The emit (2): the member's count and the reader's.
 unsafe extern "C-unwind" fn k_emit(ctx: *mut Ctx) -> i64 {
-    let a = HashAgg::at(consumed(ctx, 0), &LAYOUT, 1, BYTES).single().count(0);
-    let b = HashAgg::at(consumed(ctx, 1), &LAYOUT, 1, BYTES).single().count(0);
+    let a = HashAgg::at(consumed(ctx, 0), &LAYOUT, 1, BYTES)
+        .single()
+        .count(0);
+    let b = HashAgg::at(consumed(ctx, 1), &LAYOUT, 1, BYTES)
+        .single()
+        .count(0);
     let v = [a as u64, b as u64];
     let n = [0u8; 2];
     if emit(ctx, 2, &[(v.as_ptr(), n.as_ptr(), 2)]) < 0 || flush(ctx) < 0 {
@@ -80,14 +88,32 @@ unsafe extern "C-unwind" fn k_emit(ctx: *mut Ctx) -> i64 {
 fn program() -> Program {
     let st = gravity_program::Arena::new(1 << 12);
     let sites = [SiteDesc::range_source(st.handle(), T_A, &[1])];
-    let out = [OutCol::new("member", 20, -1, 8, true), OutCol::new("reader", 20, -1, 8, true)];
+    let out = [
+        OutCol::new("member", 20, -1, 8, true),
+        OutCol::new("reader", 20, -1, 8, true),
+    ];
     let count = |slot| End::Breaker(Breaker::sized(BreakerKind::PlainAgg, BYTES).in_slot(slot));
     let pipes = [
         (Pipeline::eligible(0, count(0), ROWS), Code::hand(k_count)),
         (Pipeline::eligible(0, count(1), ROWS), Code::hand(k_count)),
-        (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming(&[0, 1]), Code::hand(k_emit)),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming(&[0, 1]),
+            Code::hand(k_emit),
+        ),
     ];
-    Program::with_pipelines(Layout { nsites: 1, out_natts: 2, out_rows: 8, scratch_bytes: 0, exec_bytes: 0 }, &sites, &out, WritePlan::SELECT, pipes)
+    Program::with_pipelines(
+        Layout {
+            nsites: 1,
+            out_natts: 2,
+            out_rows: 8,
+            scratch_bytes: 0,
+            exec_bytes: 0,
+        },
+        &sites,
+        &out,
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
 /// The fixture derive, counting its source derives as the server's registry does (`HostRegistry::derive_source`).
@@ -145,10 +171,14 @@ impl Plan for Ahead {
     fn late_words(&self, p: usize) -> Result<gravity_parallel::LateWords> {
         if p == 1 && !self.ran.replace(true) {
             let f = self.frame.get();
-            let Some(mut f) = f else { return Err(Error::host("no frame published to the plan")) };
+            let Some(mut f) = f else {
+                return Err(Error::host("no frame published to the plan"));
+            };
             // SAFETY: the frame published to this plan (`publish`), alive while published; this thread's only.
             if !unsafe { f.as_mut() }.prerun_members(1, &[0])? {
-                return Err(Error::host("a reader that runs as a section did not run its Init ahead"));
+                return Err(Error::host(
+                    "a reader that runs as a section did not run its Init ahead",
+                ));
             }
         }
         Ok(gravity_parallel::LateWords::none())
@@ -163,16 +193,39 @@ fn run() -> Result<(Vec<Vec<u64>>, u64)> {
     let table = FixtureTable::new(T_A, BLOCKS, PER_BLOCK, gen_a);
     let fixture = FixtureDerive::new(&[&table]);
     let program = Arc::new(program());
-    let plan = Ahead { inner: FixturePlan::new(&program, &fixture, 2, 1), frame: Cell::new(None), ran: Cell::new(false) };
+    let plan = Ahead {
+        inner: FixturePlan::new(&program, &fixture, 2, 1),
+        frame: Cell::new(None),
+        ran: Cell::new(false),
+    };
     let mut derive = Counted { fixture, next: 0 };
     let pool = FixturePool::new(2);
     let mut entry = gravity_driver::Entry::new(2);
     let mut sink = LegSink::new(true);
     let nulls = [0u8; 1];
     let mut b = Binding::new(parts(&[0], &nulls, &NO_ABORT), &mut sink);
-    let mut exec = entry.start(None, &program, &mut derive, &mut b, lease(gravity_driver::Grant::of(16 << 20)))?;
-    let mut recheck = |_: &mut gravity_driver::Entry, _: &mut gravity_driver::Exec, _: &mut Binding<'_>, _: &mut Counted, site: u8| -> Result<bool> { Err(Error::Recheck(site)) };
-    let r = gravity_parallel::run_program_rechecking(&mut entry, &mut exec, &mut b, &mut derive, &pool, &plan, &mut recheck);
+    let mut exec = entry.start(
+        None,
+        &program,
+        &mut derive,
+        &mut b,
+        lease(gravity_driver::Grant::of(16 << 20)),
+    )?;
+    let mut recheck = |_: &mut gravity_driver::Entry,
+                       _: &mut gravity_driver::Exec,
+                       _: &mut Binding<'_>,
+                       _: &mut Counted,
+                       site: u8|
+     -> Result<bool> { Err(Error::Recheck(site)) };
+    let r = gravity_parallel::run_program_rechecking(
+        &mut entry,
+        &mut exec,
+        &mut b,
+        &mut derive,
+        &pool,
+        &plan,
+        &mut recheck,
+    );
     entry.end(exec, r.is_ok());
     r?;
     assert!(plan.ran.get(), "the reader's late step ran");
@@ -182,6 +235,13 @@ fn run() -> Result<(Vec<Vec<u64>>, u64)> {
 #[test]
 fn an_inits_run_ahead_opens_its_members_section_through_the_derive_every_outer_arm_holds_raw() {
     let (rows, derives) = run().unwrap();
-    assert_eq!(rows, vec![vec![ROWS, ROWS]], "the member ran ahead whole at width 2, then the reader");
-    assert_eq!(derives, 3, "the leader's source at the start, then one per worker slot at the member's section open");
+    assert_eq!(
+        rows,
+        vec![vec![ROWS, ROWS]],
+        "the member ran ahead whole at width 2, then the reader"
+    );
+    assert_eq!(
+        derives, 3,
+        "the leader's source at the start, then one per worker slot at the member's section open"
+    );
 }

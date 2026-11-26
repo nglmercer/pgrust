@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use gravity_lower::{assemble, compile, Backend};
 use gravity_lowerv4::face::kinds::{KindId, KindSet};
-use gravity_lowerv4::face::strategy::{Strategy, StrategySet, OWNER_COUNT, set_off};
+use gravity_lowerv4::face::strategy::{set_off, Strategy, StrategySet, OWNER_COUNT};
 use gravity_lowerv4::mechs_used::{record, used_names, RECORDED};
 
 fn names(k: KindSet) -> Vec<&'static str> {
@@ -21,7 +21,10 @@ type Fx = (PathBuf, &'static [Strategy]);
 /// LIMIT 10`) with owner.count off (tests/m3_owner.rs's forced-off twin): a count top the sort's makers hand to
 /// runs.topk_groups (runs/sort.rs), so runs.sort is fetched and declined.
 fn top() -> Fx {
-    (common::plans_dir().join("fieldobs-033.plan"), &[OWNER_COUNT])
+    (
+        common::plans_dir().join("fieldobs-033.plan"),
+        &[OWNER_COUNT],
+    )
 }
 
 /// m6x-003 (`SELECT g, count(*) FROM tt GROUP BY g`): a hash aggregate that borrows join.inner's spill bits (keyed/spill.rs).
@@ -36,7 +39,8 @@ fn lowered((p, off): &Fx) -> common::LoweredIn {
     set_off(set);
     let l = common::lower_fixture(&text);
     set_off(StrategySet::EMPTY);
-    l.unwrap_or_else(|| panic!("{}: no graph", p.display())).unwrap_or_else(|r| panic!("{}: refused: {r}", p.display()))
+    l.unwrap_or_else(|| panic!("{}: no graph", p.display()))
+        .unwrap_or_else(|r| panic!("{}: refused: {r}", p.display()))
 }
 
 fn kinds(fx: &Fx) -> KindSet {
@@ -48,22 +52,35 @@ fn kinds(fx: &Fx) -> KindSet {
 fn program(fx: &Fx, on: bool) -> gravity_program::Program {
     record(on);
     let l = lowered(fx);
-    let codes = compile(&l, Backend::Interp).unwrap_or_else(|e| panic!("{}: backend: {}", fx.0.display(), e.message()));
+    let codes = compile(&l, Backend::Interp)
+        .unwrap_or_else(|e| panic!("{}: backend: {}", fx.0.display(), e.message()));
     assemble(&l, codes)
 }
 
 #[test]
 fn a_sort_handed_to_the_group_top_is_not_recorded() {
     let k = kinds(&top());
-    assert!(k.has(KindId::RunsTopkGroups), "the count top records {:?}", names(k));
-    assert!(!k.has(KindId::RunsSort), "the count top records runs.sort, whose makers handed the node over: {:?}", names(k));
+    assert!(
+        k.has(KindId::RunsTopkGroups),
+        "the count top records {:?}",
+        names(k)
+    );
+    assert!(
+        !k.has(KindId::RunsSort),
+        "the count top records runs.sort, whose makers handed the node over: {:?}",
+        names(k)
+    );
 }
 
 /// A hash aggregate borrows join.inner's spill bits (keyed/spill.rs): a helper, not a join.
 #[test]
 fn a_borrowed_helper_kind_is_not_recorded() {
     let k = kinds(&hash());
-    assert!(!k.has(KindId::JoinInner), "m6x-003 has no join but records join.inner: {:?}", names(k));
+    assert!(
+        !k.has(KindId::JoinInner),
+        "m6x-003 has no join but records join.inner: {:?}",
+        names(k)
+    );
 }
 
 /// main's condition (1): the record never enters the content key; the same unit with the line on and off gets one program
@@ -73,8 +90,16 @@ fn the_record_on_or_off_leaves_the_program_key() {
     for fx in [top(), hash()] {
         let (on, off) = (program(&fx, true), program(&fx, false));
         let name = fx.0.display();
-        assert!(on.used != 0 && off.used == 0, "{name}: record on {:#x}, off {:#x}", on.used, off.used);
-        assert_eq!(on.key, off.key, "{name}: the mechanisms record changed the program key");
+        assert!(
+            on.used != 0 && off.used == 0,
+            "{name}: record on {:#x}, off {:#x}",
+            on.used,
+            off.used
+        );
+        assert_eq!(
+            on.key, off.key,
+            "{name}: the mechanisms record changed the program key"
+        );
     }
 }
 
@@ -88,13 +113,29 @@ fn a_program_lowered_off_and_served_from_the_cache_prints_unknown() {
     let mut cache = gravity_program::ProgramCache::new(64 << 20, 16);
     cache.insert(None, off.clone());
     record(true);
-    let hit = cache.l2(off.key).expect("the program is cached under its content key");
-    assert_eq!(used_names(hit.used), "?", "a program lowered with the record off");
+    let hit = cache
+        .l2(off.key)
+        .expect("the program is cached under its content key");
+    assert_eq!(
+        used_names(hit.used),
+        "?",
+        "a program lowered with the record off"
+    );
     let on = std::sync::Arc::new(program(&top(), true));
     assert_eq!(on.key, off.key);
-    assert!(used_names(on.used).split(',').any(|k| k == "runs.topk_groups"), "{}", used_names(on.used));
+    assert!(
+        used_names(on.used)
+            .split(',')
+            .any(|k| k == "runs.topk_groups"),
+        "{}",
+        used_names(on.used)
+    );
     cache.insert(None, on);
-    assert_eq!(used_names(cache.l2(off.key).expect("cached").used), "?", "the cache kept the first program");
+    assert_eq!(
+        used_names(cache.l2(off.key).expect("cached").used),
+        "?",
+        "the cache kept the first program"
+    );
 }
 
 /// Every fixture v4 lowers records at least one kind: the line names what made each served program.
@@ -108,14 +149,20 @@ fn every_lowered_fixture_records_its_kinds() {
             continue;
         }
         for (name, text) in common::files(&dir, "plan") {
-            let Some(Ok(l)) = common::lower_fixture(&text) else { continue };
+            let Some(Ok(l)) = common::lower_fixture(&text) else {
+                continue;
+            };
             n += 1;
             if l.descs.used & !RECORDED == 0 {
                 bad.push(name);
             }
         }
     }
-    assert!(n > 0 && bad.is_empty(), "{} of {n} lowered fixtures record no kind: {bad:?}", bad.len());
+    assert!(
+        n > 0 && bad.is_empty(),
+        "{} of {n} lowered fixtures record no kind: {bad:?}",
+        bad.len()
+    );
 }
 
 /// D4352: the record is off in every backend without PGRUST_GRAVITY_REPORT (production, the stress kits), so `used` is 0
@@ -129,7 +176,16 @@ fn d4352_a_program_lowered_with_the_record_off_is_lowered() {
         let (on, off) = (program(&fx, true), program(&fx, false));
         let name = fx.0.display();
         assert!(on.lowered(), "{name}: lowered with the record on");
-        assert!(off.lowered(), "{name}: lowered with the record off (used {:#x}) reads as a hand program", off.used);
-        assert!(off.pipelines.iter().any(|p| p.holds().is_some_and(|h| h.spills())), "{name}: a breaker with a spill road");
+        assert!(
+            off.lowered(),
+            "{name}: lowered with the record off (used {:#x}) reads as a hand program",
+            off.used
+        );
+        assert!(
+            off.pipelines
+                .iter()
+                .any(|p| p.holds().is_some_and(|h| h.spills())),
+            "{name}: a breaker with a spill road"
+        );
     }
 }

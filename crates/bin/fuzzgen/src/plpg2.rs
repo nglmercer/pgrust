@@ -186,7 +186,9 @@ fn gen_diag_group(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("plpg2:diag");
     let n = g.plpg.next_p2();
     let name = format!("fz_pl2_dg_{n}");
-    let form = g.weights.pick(g.rng, &["plpg2:diag:cur", "plpg2:diag:stacked"]);
+    let form = g
+        .weights
+        .pick(g.rng, &["plpg2:diag:cur", "plpg2:diag:stacked"]);
     g.fire(form);
     let (ret, body) = if form == "plpg2:diag:cur" {
         (
@@ -219,9 +221,10 @@ fn gen_srf_group(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("plpg2:srf");
     let n = g.plpg.next_p2();
     let name = format!("fz_pl2_sf_{n}");
-    let form = g
-        .weights
-        .pick(g.rng, &["plpg2:srf:table", "plpg2:srf:setof", "plpg2:srf:record"]);
+    let form = g.weights.pick(
+        g.rng,
+        &["plpg2:srf:table", "plpg2:srf:setof", "plpg2:srf:record"],
+    );
     g.fire(form);
     match form {
         // RETURNS TABLE: OUT-column assignment + RETURN NEXT, then RETURN
@@ -257,7 +260,9 @@ fn gen_srf_group(g: &mut Gen) -> Vec<StmtKind> {
                  FROM generate_series(1, 3) gs LOOP RETURN NEXT r; END LOOP; \
                  RETURN; END $fzp$;"
             )),
-            StmtKind::Raw(format!("SELECT a, b FROM {name}() AS tt(a int4, b int4) ORDER BY a;")),
+            StmtKind::Raw(format!(
+                "SELECT a, b FROM {name}() AS tt(a int4, b int4) ORDER BY a;"
+            )),
             StmtKind::Raw(format!("DROP FUNCTION {name}();")),
         ],
     }
@@ -273,7 +278,11 @@ fn gen_cursor_group(g: &mut Gen) -> Vec<StmtKind> {
     let name = format!("fz_pl2_cu_{n}");
     let form = g.weights.pick(
         g.rng,
-        &["plpg2:cursor:forc", "plpg2:cursor:explicit", "plpg2:cursor:exec"],
+        &[
+            "plpg2:cursor:forc",
+            "plpg2:cursor:explicit",
+            "plpg2:cursor:exec",
+        ],
     );
     g.fire(form);
     let body = match form {
@@ -327,7 +336,9 @@ fn gen_foreach_group(g: &mut Gen) -> Vec<StmtKind> {
 fn gen_dynexec_group(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("plpg2:dynexec");
     let n = g.plpg.next_p2();
-    let form = g.weights.pick(g.rng, &["plpg2:dyn2:into", "plpg2:dyn2:dml"]);
+    let form = g
+        .weights
+        .pick(g.rng, &["plpg2:dyn2:into", "plpg2:dyn2:dml"]);
     g.fire(form);
     if form == "plpg2:dyn2:into" {
         let name = format!("fz_pl2_dy_{n}");
@@ -448,7 +459,9 @@ fn gen_assert_group(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("plpg2:assert");
     let n = g.plpg.next_p2();
     let name = format!("fz_pl2_as_{n}");
-    let form = g.weights.pick(g.rng, &["plpg2:assert:pass", "plpg2:assert:fail"]);
+    let form = g
+        .weights
+        .pick(g.rng, &["plpg2:assert:pass", "plpg2:assert:fail"]);
     g.fire(form);
     let body = if form == "plpg2:assert:pass" {
         "DECLARE s int4 := 0; BEGIN ASSERT 1 = 1; ASSERT s = 0, 'expected zero'; \

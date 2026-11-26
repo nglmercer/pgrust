@@ -10,13 +10,15 @@ use gravity_driver::mem::spill_host::v4;
 use gravity_driver::{Error, Partial, State};
 use gravity_fn::arena::{AVec, ChargedVec, Kind, OpArena, Owner, Refused};
 
-use crate::ops::hashjoin::build::{D_CSTR, D_VARLENA, END, FLAGS, F_COMPACT, HDR, HI, LIMIT, LO, N, PHASE, REC, TOP, WORDS};
+use crate::ops::hashjoin::build::{
+    D_CSTR, D_VARLENA, END, FLAGS, F_COMPACT, HDR, HI, LIMIT, LO, N, PHASE, REC, TOP, WORDS,
+};
 use crate::ops::hashjoin::layout::{self, desc_at};
 use crate::ops::hashjoin::rt::{append, head, headed, rd, tail, varlena_len, wr, Rt};
 use crate::ops::hashjoin::spill::build::{route, wider, PBITS, ROW_STACK, SPILL, SPILLED};
-use gravity_program::cost::JOIN_SPILL_EPOCH;
 use crate::ops::hashjoin::spill::raw;
 use crate::ops::hashjoin::strategies::dedup;
+use gravity_program::cost::JOIN_SPILL_EPOCH;
 
 /// Record `i`'s partition: its image words hashed, then routed.
 unsafe fn part_of(t: &Rt, i: usize, bits: u8) -> u32 {
@@ -34,7 +36,9 @@ pub(crate) unsafe fn image(t: &Rt, i: usize, c: usize) -> Option<(usize, usize)>
     let p = t.d.add(off);
     let len = match kind {
         D_VARLENA => varlena_len(p),
-        D_CSTR => core::ffi::CStr::from_ptr(p as *const core::ffi::c_char).to_bytes_with_nul().len(),
+        D_CSTR => core::ffi::CStr::from_ptr(p as *const core::ffi::c_char)
+            .to_bytes_with_nul()
+            .len(),
         l => l as usize,
     };
     Some((off, len))
@@ -42,9 +46,18 @@ pub(crate) unsafe fn image(t: &Rt, i: usize, c: usize) -> Option<(usize, usize)>
 
 /// The bytes of the serialized record at `one` under header `d` (its record size, image words and payload kinds).
 pub(crate) unsafe fn serialized_len(d: *const u8, one: *const u8) -> usize {
-    let (rec, words, pay) = (rd::<u32>(d, REC) as usize, rd::<u8>(d, WORDS) as usize, layout::pay_of(d));
+    let (rec, words, pay) = (
+        rd::<u32>(d, REC) as usize,
+        rd::<u8>(d, WORDS) as usize,
+        layout::pay_of(d),
+    );
     let mut len = rec;
-    for c in (0..pay).filter(|&c| rd::<u16>(d, desc_at(c)) != 0 && { let (o, bit) = layout::null_at(words, pay, c); rd::<u64>(one, o) >> bit & 1 == 0 }) {
+    for c in (0..pay).filter(|&c| {
+        rd::<u16>(d, desc_at(c)) != 0 && {
+            let (o, bit) = layout::null_at(words, pay, c);
+            rd::<u64>(one, o) >> bit & 1 == 0
+        }
+    }) {
         len += (rd::<u64>(one, 8 * (words + 1 + c)) as usize).next_multiple_of(8);
     }
     len
@@ -56,10 +69,21 @@ pub(crate) unsafe fn serialized_len(d: *const u8, one: *const u8) -> usize {
 /// CONVERT1: its working memory (one serialized record, then the kept images' list) is carved from `a`, the hash build
 /// operator's arena (`OpArena::scratch_of` its slot's owner: the allocator's chunks, charged to that operator's ledger
 /// row and kind); a carve the allocator refuses is the statement's out of memory (53200), not the process's abort.
-pub(crate) unsafe fn scatter(a: &OpArena, d: *mut u8, len: usize, n: usize, mask: u64, bits: u8, put: &mut dyn FnMut(u32, &[u8]) -> gravity_driver::Result<()>) -> gravity_driver::Result<usize> {
+pub(crate) unsafe fn scatter(
+    a: &OpArena,
+    d: *mut u8,
+    len: usize,
+    n: usize,
+    mask: u64,
+    bits: u8,
+    put: &mut dyn FnMut(u32, &[u8]) -> gravity_driver::Result<()>,
+) -> gravity_driver::Result<usize> {
     wr::<u64>(d, N, n as u64);
     let t = Rt::of(d, len);
-    let (mut keep, mut buf) = (0, AVec::<u8>::with_capacity(a, t.rec + 64).map_err(refused)?);
+    let (mut keep, mut buf) = (
+        0,
+        AVec::<u8>::with_capacity(a, t.rec + 64).map_err(refused)?,
+    );
     for i in 0..n {
         let p = part_of(&t, i, bits);
         if mask >> p & 1 != 0 {
@@ -77,12 +101,16 @@ pub(crate) unsafe fn scatter(a: &OpArena, d: *mut u8, len: usize, n: usize, mask
     let pay = layout::pay_of(d);
     // at most one image per kept record and by-distance payload (exactly that with no NULLs): the list's room taken
     // whole, one carve
-    let cols = (0..pay).filter(|&c| rd::<u16>(t.d, desc_at(c)) != 0).count();
-    let mut imgs = AVec::<(usize, usize, usize, usize)>::with_capacity(a, keep * cols).map_err(refused)?;
+    let cols = (0..pay)
+        .filter(|&c| rd::<u16>(t.d, desc_at(c)) != 0)
+        .count();
+    let mut imgs =
+        AVec::<(usize, usize, usize, usize)>::with_capacity(a, keep * cols).map_err(refused)?;
     for i in 0..keep {
         for c in 0..pay {
             if let Some((off, len)) = image(&t, i, c) {
-                imgs.push(a, (off, len.next_multiple_of(8), i, c)).map_err(refused)?;
+                imgs.push(a, (off, len.next_multiple_of(8), i, c))
+                    .map_err(refused)?;
             }
         }
     }
@@ -94,9 +122,12 @@ pub(crate) unsafe fn scatter(a: &OpArena, d: *mut u8, len: usize, n: usize, mask
         top -= l8;
         core::ptr::copy(d.add(off), d.add(top), l8);
         wr::<u64>(t.rec(i), 8 * (t.words + 1 + c), (end - top) as u64);
-    }wr::<u64>(d, TOP, top as u64); wr::<u64>(d, N, keep as u64);
+    }
+    wr::<u64>(d, TOP, top as u64);
+    wr::<u64>(d, N, keep as u64);
     // the newest carve first: the arena's bump rewinds, so the caller's next scatter reuses the same chunk
-imgs.release(a); buf.release(a);
+    imgs.release(a);
+    buf.release(a);
     Ok(keep)
 }
 
@@ -231,8 +262,14 @@ unsafe fn shrink_to(d: *mut u8, keep: u64) {
     let (end, top) = (rd::<u64>(d, END), rd::<u64>(d, TOP));
     let tail = end - top;
     if end != keep {
-        core::ptr::copy(d.add(top as usize), d.add((keep - tail) as usize), tail as usize);
-    }wr::<u64>(d, END, keep); wr::<u64>(d, TOP, keep - tail);
+        core::ptr::copy(
+            d.add(top as usize),
+            d.add((keep - tail) as usize),
+            tail as usize,
+        );
+    }
+    wr::<u64>(d, END, keep);
+    wr::<u64>(d, TOP, keep - tail);
 }
 
 gravity_abi::host! {
@@ -247,14 +284,22 @@ gravity_abi::host! {
 /// Whether a region may spill: `PBITS` is set on a record layout the files take (not the compact bits form).
 pub(crate) unsafe fn spilling(d: *const u8) -> bool {
     // a build that never spills (PBITS 0) reads its other spill words 0 too: the driver zeroed them at its open (`init`)
-    debug_assert!(rd::<u8>(d, PBITS) != 0 || (rd::<u8>(d, SPILL) == 0 && rd::<u64>(d, SPILLED) == 0), "gravity: a build's spill words not zeroed at its open");
+    debug_assert!(
+        rd::<u8>(d, PBITS) != 0 || (rd::<u8>(d, SPILL) == 0 && rd::<u64>(d, SPILLED) == 0),
+        "gravity: a build's spill words not zeroed at its open"
+    );
     rd::<u8>(d, PHASE) != 0 && rd::<u8>(d, PBITS) != 0 && rd::<u8>(d, FLAGS) & F_COMPACT == 0
 }
 
 /// Whether any partial spilled. If one did, `plan` in build_part.rs keeps the serial merge, whose leader spills too.
 pub(crate) fn any_spilled(partials: &[Partial<'_>]) -> bool {
     // SAFETY: a partial of at least the header's bytes is this build's region, read only.
-    partials.iter().filter(|p| p.bytes.len() >= HDR).any(|p| unsafe { rd::<u8>(p.bytes.as_ptr(), PHASE) != 0 && rd::<u64>(p.bytes.as_ptr(), SPILLED) != 0 })
+    partials
+        .iter()
+        .filter(|p| p.bytes.len() >= HDR)
+        .any(|p| unsafe {
+            rd::<u8>(p.bytes.as_ptr(), PHASE) != 0 && rd::<u64>(p.bytes.as_ptr(), SPILLED) != 0
+        })
 }
 
 /// The leader's spill writes, per partition. Each is written as an epoch of the leader's file past `JOIN_SPILL_EPOCH` (the cost home) and at the end.
@@ -275,18 +320,27 @@ impl Out {
     /// No part staged yet; its blocks charged to the leader's slot owner.
     fn of(leader: &State<'_>, bits: u8) -> Out {
         let owner = leader.op_owner();
-        Out { bits, owner, parts: ChargedVec::new(owner, Kind::HashBuild) }
+        Out {
+            bits,
+            owner,
+            parts: ChargedVec::new(owner, Kind::HashBuild),
+        }
     }
 
     fn put(&mut self, st: &mut State<'_>, p: u32, bytes: &[u8]) -> gravity_driver::Result<()> {
         let at = match self.parts.iter().position(|e| e.0 == p) {
             Some(i) => i,
             None => {
-                self.parts.push((p, ChargedVec::new(self.owner, Kind::HashBuild))).map_err(|_| refused_heap(core::mem::size_of::<(u32, ChargedVec<u8>)>()))?; // alloc: Exec charged self.owner
+                self.parts
+                    .push((p, ChargedVec::new(self.owner, Kind::HashBuild)))
+                    .map_err(|_| refused_heap(core::mem::size_of::<(u32, ChargedVec<u8>)>()))?; // alloc: Exec charged self.owner
                 self.parts.len() - 1
             }
         };
-        self.parts[at].1.extend_from_slice(bytes).map_err(|_| refused_heap(bytes.len()))?; // alloc: Exec charged self.owner
+        self.parts[at]
+            .1
+            .extend_from_slice(bytes)
+            .map_err(|_| refused_heap(bytes.len()))?; // alloc: Exec charged self.owner
         if self.parts[at].1.len() >= JOIN_SPILL_EPOCH {
             st.spill_write(self.bits, &[(p, self.parts[at].1.as_slice())])?;
             self.parts[at].1.clear();
@@ -297,9 +351,14 @@ impl Out {
     fn flush(&mut self, st: &mut State<'_>) -> gravity_driver::Result<()> {
         // an epoch's parts go in ascending order (the spill set's write rule)
         let mut parts = ChargedVec::<(u32, &[u8])>::new(self.owner, Kind::HashBuild);
-        parts.try_reserve(self.parts.len()).map_err(|_| refused_heap(core::mem::size_of::<(u32, &[u8])>() * self.parts.len()))?; // alloc: Exec charged self.owner
+        parts
+            .try_reserve(self.parts.len())
+            .map_err(|_| refused_heap(core::mem::size_of::<(u32, &[u8])>() * self.parts.len()))?; // alloc: Exec charged self.owner
         for e in self.parts.iter().filter(|e| !e.1.is_empty()) {
-            parts.push((e.0, e.1.as_slice())).map_err(|_| refused_heap(core::mem::size_of::<(u32, &[u8])>()))?; // alloc: Exec charged self.owner
+            parts
+                .push((e.0, e.1.as_slice()))
+                .map_err(|_| refused_heap(core::mem::size_of::<(u32, &[u8])>()))?;
+            // alloc: Exec charged self.owner
         }
         parts.sort_unstable_by_key(|e| e.0);
         if !parts.is_empty() {
@@ -332,8 +391,11 @@ unsafe fn spill_to(st: &mut State<'_>, out: &mut Out, m2: u64) -> gravity_driver
     let (len, n) = (st.bytes.len(), rd::<u64>(d, N) as usize);
     // CONVERT1: the scatter's working memory, on the leader slot's operator row
     let a = OpArena::scratch_of(st.op_owner(), Kind::HashBuild);
-    scatter(&a, d, len, n, m2 & !mask, bits, &mut |p, b| out.put(st, p, b))?;
-    wr::<u8>(d, SPILL, bits); wr::<u64>(d, SPILLED, m2);
+    scatter(&a, d, len, n, m2 & !mask, bits, &mut |p, b| {
+        out.put(st, p, b)
+    })?;
+    wr::<u8>(d, SPILL, bits);
+    wr::<u64>(d, SPILLED, m2);
     Ok(())
 }
 
@@ -351,7 +413,11 @@ unsafe fn fit_prefix(st: &State<'_>) -> Option<u64> {
     let (d, len) = (st.bytes.as_ptr() as *mut u8, st.bytes.len());
     let (bits, mask) = (rd::<u8>(d, PBITS), rd::<u64>(d, SPILLED));
     let parts = 1usize << bits.min(6);
-    let all = if parts >= 64 { u64::MAX } else { (1u64 << parts) - 1 };
+    let all = if parts >= 64 {
+        u64::MAX
+    } else {
+        (1u64 << parts) - 1
+    };
     let r = ((mask & all).trailing_zeros() as usize).min(parts);
     if r == 0 {
         return None;
@@ -371,10 +437,17 @@ unsafe fn fit_prefix(st: &State<'_>) -> Option<u64> {
     // keeps the prefix that fits the region
     let room = (st.room_in().min(usize::MAX as u64) as usize).max(rd::<u64>(d, END) as usize);
     let fits = |k: usize| {
-        let (m, b) = (recs[..k].iter().sum::<usize>(), imgs[..k].iter().sum::<usize>());
+        let (m, b) = (
+            recs[..k].iter().sum::<usize>(),
+            imgs[..k].iter().sum::<usize>(),
+        );
         // as `Rt::dir` lays them: the records, their marks (a marking build), a cache line up, then the KeyHash heads
         let at = (t.base + m * t.rec).next_multiple_of(64);
-        let dir = if t.marks { (at + m).next_multiple_of(64) } else { at };
+        let dir = if t.marks {
+            (at + m).next_multiple_of(64)
+        } else {
+            at
+        };
         dir + (8usize << crate::ops::hashjoin::rt::dir_bits(m as u64)) + b <= room
     };
     let k = (0..r).rev().find(|&k| fits(k))?;
@@ -384,10 +457,19 @@ unsafe fn fit_prefix(st: &State<'_>) -> Option<u64> {
 /// Grows the leader to `bytes` (within G when `within`), moving its images to the new end as build_rt's `grow_to` does.
 /// Returns false when G refused. `counted`: `bytes` is the build's counted need at its end (its records, the directory laid
 /// next), grown to as `grow_to_exact` grows (exactsize B1a); `None`: a merge's room, doubled as before.
-pub(crate) unsafe fn grow_leader(st: &mut State<'_>, bytes: usize, within: bool, counted: Option<u64>) -> gravity_driver::Result<bool> {
+pub(crate) unsafe fn grow_leader(
+    st: &mut State<'_>,
+    bytes: usize,
+    within: bool,
+    counted: Option<u64>,
+) -> gravity_driver::Result<bool> {
     let d = st.bytes.as_mut_ptr();
     let fresh = rd::<u8>(d, PHASE) == 0;
-    let (end, t) = if fresh { (st.bytes.len(), 0) } else { (rd::<u64>(d, END) as usize, tail(d)) };
+    let (end, t) = if fresh {
+        (st.bytes.len(), 0)
+    } else {
+        (rd::<u64>(d, END) as usize, tail(d))
+    };
     if bytes <= end {
         return Ok(true);
     }
@@ -401,7 +483,8 @@ pub(crate) unsafe fn grow_leader(st: &mut State<'_>, bytes: usize, within: bool,
     let (d, len) = (st.bytes.as_mut_ptr(), st.bytes.len());
     if !fresh {
         core::ptr::copy(d.add(end - t), d.add(len - t), t);
-        wr::<u64>(d, TOP, (len - t) as u64); wr::<u64>(d, END, len as u64);
+        wr::<u64>(d, TOP, (len - t) as u64);
+        wr::<u64>(d, END, len as u64);
     }
     wr::<u32>(d, LIMIT, len.min(u32::MAX as usize) as u32);
     Ok(true)
@@ -412,7 +495,8 @@ pub(crate) unsafe fn grow_leader(st: &mut State<'_>, bytes: usize, within: bool,
 unsafe fn room(st: &mut State<'_>, out: &mut Out, need: usize) -> gravity_driver::Result<()> {
     loop {
         let d = st.bytes.as_mut_ptr();
-        let used = layout::base(layout::pay_of(d)) + rd::<u64>(d, N) as usize * rd::<u32>(d, REC) as usize;
+        let used =
+            layout::base(layout::pay_of(d)) + rd::<u64>(d, N) as usize * rd::<u32>(d, REC) as usize;
         if used + need <= rd::<u64>(d, TOP) as usize {
             return Ok(());
         }
@@ -436,25 +520,37 @@ unsafe fn compacted(st: &mut State<'_>) -> bool {
 /// appends as the plain merge does. Otherwise the partial's spilled partitions become the leader's (the leader's records
 /// of them written out). Each of the partial's records then goes out when its partition is spilled, else in, with room
 /// made as `room` makes it.
-pub(crate) unsafe fn merge_into(leader: &mut State<'_>, partial: &[u8]) -> gravity_driver::Result<()> {
+pub(crate) unsafe fn merge_into(
+    leader: &mut State<'_>,
+    partial: &[u8],
+) -> gravity_driver::Result<()> {
     let s = partial.as_ptr();
     headed(leader)?;
     let d = leader.bytes.as_mut_ptr();
     let fresh = rd::<u8>(d, PHASE) == 0;
     if rd::<u64>(s, SPILLED) == 0 && (fresh || rd::<u64>(d, SPILLED) == 0) {
-        let (nd, td) = if fresh { (0, 0) } else { (rd::<u64>(d, N) as usize, tail(d)) };
-        let want = layout::base(layout::pay_of(s)) + (nd + rd::<u64>(s, N) as usize) * rd::<u32>(s, REC) as usize + td + tail(s);
+        let (nd, td) = if fresh {
+            (0, 0)
+        } else {
+            (rd::<u64>(d, N) as usize, tail(d))
+        };
+        let want = layout::base(layout::pay_of(s))
+            + (nd + rd::<u64>(s, N) as usize) * rd::<u32>(s, REC) as usize
+            + td
+            + tail(s);
         if grow_leader(leader, want, true, None)? {
             append(leader.bytes, partial)?;
             let d = leader.bytes.as_mut_ptr();
-            wr::<u8>(d, SPILL, 0); wr::<u64>(d, SPILLED, 0);
+            wr::<u8>(d, SPILL, 0);
+            wr::<u64>(d, SPILLED, 0);
             return Ok(());
         }
     }
     let d = leader.bytes.as_mut_ptr();
     if rd::<u8>(d, PHASE) == 0 {
         head(d, s, leader.bytes.len());
-        wr::<u8>(d, SPILL, 0); wr::<u64>(d, SPILLED, 0);
+        wr::<u8>(d, SPILL, 0);
+        wr::<u64>(d, SPILLED, 0);
     }
     let bits = rd::<u8>(s, PBITS);
     let mut out = Out::of(leader, bits);
@@ -463,9 +559,12 @@ pub(crate) unsafe fn merge_into(leader: &mut State<'_>, partial: &[u8]) -> gravi
     let a = OpArena::scratch_of(leader.op_owner(), Kind::HashBuild);
     if want & !mask != 0 {
         let (len, n) = (leader.bytes.len(), rd::<u64>(d, N) as usize);
-        scatter(&a, d, len, n, want & !mask, bits, &mut |p, b| out.put(leader, p, b))?;
+        scatter(&a, d, len, n, want & !mask, bits, &mut |p, b| {
+            out.put(leader, p, b)
+        })?;
         let d = leader.bytes.as_mut_ptr();
-        wr::<u8>(d, SPILL, bits); wr::<u64>(d, SPILLED, mask | want);
+        wr::<u8>(d, SPILL, bits);
+        wr::<u64>(d, SPILLED, mask | want);
     }
     let ts = Rt::of(s as *mut u8, usize::MAX);
     let mut one = AVec::<u8>::with_capacity(&a, ts.rec + 64).map_err(refused)?;
@@ -516,7 +615,10 @@ pub(crate) unsafe fn put_record(d: *mut u8, one: &[u8]) -> usize {
 /// BuildMerge's `finish` for a region that may spill. Room for the directory is made within G, else by spilling more of
 /// the leader, else by a named grow, and the spilled records are written. `need` gives the region bytes the lay-out
 /// needs over the records now in.
-pub(crate) unsafe fn finish_room(leader: &mut State<'_>, need: &dyn Fn(*mut u8, usize) -> usize) -> gravity_driver::Result<()> {
+pub(crate) unsafe fn finish_room(
+    leader: &mut State<'_>,
+    need: &dyn Fn(*mut u8, usize) -> usize,
+) -> gravity_driver::Result<()> {
     let bits = rd::<u8>(leader.bytes.as_ptr(), PBITS);
     let mut out = Out::of(leader, bits);
     let mut fitted = false;

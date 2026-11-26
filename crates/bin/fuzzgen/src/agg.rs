@@ -82,11 +82,21 @@ pub fn gen_agg_stmt(g: &mut Gen) -> SelectStmt {
     let table = g.pick_table();
     let alias = g.next_alias();
     let rels = vec![ScopeRel::from_table(table, alias.clone())];
-    let from = FromItem::Table { name: table.name.clone(), alias };
+    let from = FromItem::Table {
+        name: table.name.clone(),
+        alias,
+    };
 
     let shape = g.weights.pick(
         g.rng,
-        &["agg:plain", "agg:group", "agg:distinct", "agg:rollup", "agg:cube", "agg:groupingsets"],
+        &[
+            "agg:plain",
+            "agg:group",
+            "agg:distinct",
+            "agg:rollup",
+            "agg:cube",
+            "agg:groupingsets",
+        ],
     );
     g.fire(shape);
     let mut stmt = match shape {
@@ -110,11 +120,21 @@ fn gen_plain(g: &mut Gen, rels: &[ScopeRel], from: FromItem) -> SelectStmt {
     let mut items = Vec::with_capacity(naggs);
     for _ in 0..naggs {
         let a = gen_aggregate(g, &scope, false);
-        items.push(SelectItem { expr: a.expr, alias: None, ty: a.ty });
+        items.push(SelectItem {
+            expr: a.expr,
+            alias: None,
+            ty: a.ty,
+        });
     }
     let where_clause = gen_where(g, &scope);
     let having = maybe_having(g, &scope, &[]);
-    SelectStmt { items, from: Some(from), where_clause, having, ..Default::default() }
+    SelectStmt {
+        items,
+        from: Some(from),
+        where_clause,
+        having,
+        ..Default::default()
+    }
 }
 
 /// GROUP BY on 1-3 keys (columns or text-stable expressions); the keys
@@ -131,13 +151,21 @@ fn gen_grouped(g: &mut Gen, rels: &[ScopeRel], from: FromItem) -> SelectStmt {
     for (e, ty) in &group_exprs {
         // Group keys usually project; PostgreSQL does not require it.
         if g.rng.chance(5, 6) {
-            items.push(SelectItem { expr: e.clone(), alias: None, ty: *ty });
+            items.push(SelectItem {
+                expr: e.clone(),
+                alias: None,
+                ty: *ty,
+            });
         }
     }
     let naggs = 1 + g.rng.below_usize(2);
     for _ in 0..naggs {
         let a = gen_aggregate(g, &scope, false);
-        items.push(SelectItem { expr: a.expr, alias: None, ty: a.ty });
+        items.push(SelectItem {
+            expr: a.expr,
+            alias: None,
+            ty: a.ty,
+        });
     }
     let distinct = g.rng.chance(1, 6);
     let where_clause = gen_where(g, &scope);
@@ -147,7 +175,9 @@ fn gen_grouped(g: &mut Gen, rels: &[ScopeRel], from: FromItem) -> SelectStmt {
         items,
         from: Some(from),
         where_clause,
-        group_by: Some(GroupBy::Plain(group_exprs.into_iter().map(|(e, _)| e).collect())),
+        group_by: Some(GroupBy::Plain(
+            group_exprs.into_iter().map(|(e, _)| e).collect(),
+        )),
         having,
         ..Default::default()
     }
@@ -162,10 +192,20 @@ fn gen_distinct(g: &mut Gen, rels: &[ScopeRel], from: FromItem) -> SelectStmt {
     for _ in 0..ncols {
         let ty = *g.rng.pick(STABLE_TYPES);
         let expr = g.gen_typed(&scope, ty, 2);
-        items.push(SelectItem { expr, alias: None, ty });
+        items.push(SelectItem {
+            expr,
+            alias: None,
+            ty,
+        });
     }
     let where_clause = gen_where(g, &scope);
-    SelectStmt { distinct: true, items, from: Some(from), where_clause, ..Default::default() }
+    SelectStmt {
+        distinct: true,
+        items,
+        from: Some(from),
+        where_clause,
+        ..Default::default()
+    }
 }
 
 /// ROLLUP / CUBE / GROUPING SETS over 2-3 distinct text-stable columns.
@@ -211,12 +251,20 @@ fn gen_grouping_sets(g: &mut Gen, rels: &[ScopeRel], from: FromItem, shape: &str
     };
     let mut items: Vec<SelectItem> = cols
         .iter()
-        .map(|(e, ty)| SelectItem { expr: e.clone(), alias: None, ty: *ty })
+        .map(|(e, ty)| SelectItem {
+            expr: e.clone(),
+            alias: None,
+            ty: *ty,
+        })
         .collect();
     let naggs = 1 + g.rng.below_usize(2);
     for _ in 0..naggs {
         let a = gen_aggregate(g, &scope, false);
-        items.push(SelectItem { expr: a.expr, alias: None, ty: a.ty });
+        items.push(SelectItem {
+            expr: a.expr,
+            alias: None,
+            ty: a.ty,
+        });
     }
     let where_clause = gen_where(g, &scope);
     let having = maybe_having(g, &scope, &cols);
@@ -243,7 +291,9 @@ fn gen_where(g: &mut Gen, scope: &Scope) -> Option<Expr> {
 /// expression over the scope.
 fn gen_group_key(g: &mut Gen, scope: &Scope) -> (Expr, SqlType) {
     let stable = stable_columns(scope);
-    let picked = g.weights.pick(g.rng, &["agg:groupby:col", "agg:groupby:expr"]);
+    let picked = g
+        .weights
+        .pick(g.rng, &["agg:groupby:col", "agg:groupby:expr"]);
     if picked == "agg:groupby:col" && !stable.is_empty() {
         g.fire("agg:groupby:col");
         let (alias, name, ty) = stable[g.rng.below_usize(stable.len())].clone();
@@ -261,7 +311,10 @@ fn gen_group_key(g: &mut Gen, scope: &Scope) -> (Expr, SqlType) {
         let e = if contains_colref(&e) {
             e
         } else {
-            Expr::Cast { arg: Box::new(e), to: ty }
+            Expr::Cast {
+                arg: Box::new(e),
+                to: ty,
+            }
         };
         (e, ty)
     }
@@ -277,9 +330,11 @@ fn contains_colref(e: &Expr) -> bool {
         Expr::Unary { arg, .. } => contains_colref(arg),
         Expr::Binary { lhs, rhs, .. } => contains_colref(lhs) || contains_colref(rhs),
         Expr::Func { args, .. } => args.iter().any(contains_colref),
-        Expr::Case { cond, then_e, else_e } => {
-            contains_colref(cond) || contains_colref(then_e) || contains_colref(else_e)
-        }
+        Expr::Case {
+            cond,
+            then_e,
+            else_e,
+        } => contains_colref(cond) || contains_colref(then_e) || contains_colref(else_e),
         Expr::Cast { arg, .. } => contains_colref(arg),
         Expr::IsNull { arg, .. } => contains_colref(arg),
         // T1's literal-only pre/post wrapper (EXTRACT, subscripts, ANY/ALL):
@@ -315,14 +370,20 @@ fn maybe_having(g: &mut Gen, scope: &Scope, group_exprs: &[(Expr, SqlType)]) -> 
     if g.rng.chance(1, 3) {
         let rhs = gen_having_conjunct(g, scope, group_exprs);
         let op = *g.rng.pick(&["AND", "OR"]);
-        pred = Expr::Binary { op, lhs: Box::new(pred), rhs: Box::new(rhs) };
+        pred = Expr::Binary {
+            op,
+            lhs: Box::new(pred),
+            rhs: Box::new(rhs),
+        };
     }
     Some(pred)
 }
 
 fn gen_having_conjunct(g: &mut Gen, scope: &Scope, group_exprs: &[(Expr, SqlType)]) -> Expr {
     let use_group = !group_exprs.is_empty()
-        && g.weights.pick(g.rng, &["agg:having:group", "agg:having:agg"]) == "agg:having:group";
+        && g.weights
+            .pick(g.rng, &["agg:having:group", "agg:having:agg"])
+            == "agg:having:group";
     let (lhs, ty) = if use_group {
         g.fire("agg:having:group");
         let (e, ty) = group_exprs[g.rng.below_usize(group_exprs.len())].clone();
@@ -333,8 +394,14 @@ fn gen_having_conjunct(g: &mut Gen, scope: &Scope, group_exprs: &[(Expr, SqlType
         (a.expr, a.ty)
     };
     let op = g.pick_cmp_op();
-    let rhs = Expr::Lit { sql: g.gen_literal(ty) };
-    Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs) }
+    let rhs = Expr::Lit {
+        sql: g.gen_literal(ty),
+    };
+    Expr::Binary {
+        op,
+        lhs: Box::new(lhs),
+        rhs: Box::new(rhs),
+    }
 }
 
 /// One aggregate call. `for_having` excludes ruled-soft float aggregates
@@ -372,14 +439,24 @@ fn gen_aggregate(g: &mut Gen, scope: &Scope, for_having: bool) -> AggPick {
             let t = g.any_type(scope);
             let arg = g.gen_typed(scope, t, 2);
             (
-                agg("count", false, picked == "agg:count_distinct", vec![arg], None),
+                agg(
+                    "count",
+                    false,
+                    picked == "agg:count_distinct",
+                    vec![arg],
+                    None,
+                ),
                 SqlType::Int8,
             )
         }
         "agg:sum:int" => {
             let t = *g.rng.pick(&[SqlType::Int2, SqlType::Int4, SqlType::Int8]);
             let arg = g.gen_typed(scope, t, 2);
-            let ty = if t == SqlType::Int8 { SqlType::Numeric } else { SqlType::Int8 };
+            let ty = if t == SqlType::Int8 {
+                SqlType::Numeric
+            } else {
+                SqlType::Int8
+            };
             (agg("sum", false, false, vec![arg], None), ty)
         }
         "agg:sum:numeric" => {
@@ -411,18 +488,28 @@ fn gen_aggregate(g: &mut Gen, scope: &Scope, for_having: bool) -> AggPick {
             let t = *g.rng.pick(MINMAX_TYPES);
             let arg = g.gen_typed(scope, t, 2);
             // min/max over varchar resolve through the text aggregate.
-            let ty = if t == SqlType::Varchar { SqlType::Text } else { t };
+            let ty = if t == SqlType::Varchar {
+                SqlType::Text
+            } else {
+                t
+            };
             (agg(name, false, false, vec![arg], None), ty)
         }
         "agg:bool_and" | "agg:bool_or" => {
-            let name = if picked == "agg:bool_and" { "bool_and" } else { "bool_or" };
+            let name = if picked == "agg:bool_and" {
+                "bool_and"
+            } else {
+                "bool_or"
+            };
             let arg = g.gen_bool(scope, 2);
             (agg(name, false, false, vec![arg], None), SqlType::Bool)
         }
         "agg:string_agg" => {
             let t = *g.rng.pick(&[SqlType::Text, SqlType::Varchar]);
             let arg = g.gen_typed(scope, t, 2);
-            let delim = Expr::Lit { sql: (*g.rng.pick(&["','", "''", "' '", "'|'"])).to_string() };
+            let delim = Expr::Lit {
+                sql: (*g.rng.pick(&["','", "''", "' '", "'|'"])).to_string(),
+            };
             let desc = g.rng.chance(1, 3);
             (
                 agg_ordered("string_agg", vec![arg.clone(), delim], arg, desc),
@@ -437,10 +524,15 @@ fn gen_aggregate(g: &mut Gen, scope: &Scope, for_having: bool) -> AggPick {
             // recorded ty only feeds the LIMIT float guard and derived-table
             // typing (neither applies to an array column here) — Text is a
             // harmless stand-in.
-            (agg_ordered("array_agg", vec![arg.clone()], arg, desc), SqlType::Text)
+            (
+                agg_ordered("array_agg", vec![arg.clone()], arg, desc),
+                SqlType::Text,
+            )
         }
         "agg:stddev:numeric" => {
-            let name = *g.rng.pick(&["stddev_samp", "stddev_pop", "var_samp", "var_pop"]);
+            let name = *g
+                .rng
+                .pick(&["stddev_samp", "stddev_pop", "var_samp", "var_pop"]);
             let t = *g.rng.pick(&[
                 SqlType::Int2,
                 SqlType::Int4,
@@ -451,7 +543,9 @@ fn gen_aggregate(g: &mut Gen, scope: &Scope, for_having: bool) -> AggPick {
             (agg(name, false, false, vec![arg], None), SqlType::Numeric)
         }
         "agg:stddev:float" => {
-            let name = *g.rng.pick(&["stddev_samp", "stddev_pop", "var_samp", "var_pop"]);
+            let name = *g
+                .rng
+                .pick(&["stddev_samp", "stddev_pop", "var_samp", "var_pop"]);
             let arg = g.gen_typed(scope, SqlType::Float8, 2);
             (agg(name, false, false, vec![arg], None), SqlType::Float8)
         }
@@ -474,7 +568,14 @@ fn agg(
     args: Vec<Expr>,
     filter: Option<Box<Expr>>,
 ) -> Expr {
-    Expr::Agg { name, star, distinct, args, order_within: None, filter }
+    Expr::Agg {
+        name,
+        star,
+        distinct,
+        args,
+        order_within: None,
+        filter,
+    }
 }
 
 /// Ordered-input aggregate: the inner ORDER BY is always the first
@@ -493,7 +594,14 @@ fn agg_ordered(name: &'static str, args: Vec<Expr>, order_expr: Expr, desc: bool
 
 fn with_filter(e: Expr, f: Expr) -> Expr {
     match e {
-        Expr::Agg { name, star, distinct, args, order_within, .. } => Expr::Agg {
+        Expr::Agg {
+            name,
+            star,
+            distinct,
+            args,
+            order_within,
+            ..
+        } => Expr::Agg {
             name,
             star,
             distinct,
@@ -611,7 +719,10 @@ fn aggx_ordset(g: &mut Gen) -> Vec<StmtKind> {
 fn aggx_regr(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("aggx:regr");
     let a = g.rng.below(9);
-    let vals = format!("(VALUES (1::float8, 2::float8), (2, 4), (3, 7), (4, {})) v(x, y)", 5 + a);
+    let vals = format!(
+        "(VALUES (1::float8, 2::float8), (2, 4), (3, 7), (4, {})) v(x, y)",
+        5 + a
+    );
     let sql = match g.rng.below(3) {
         0 => format!("SELECT corr(y, x)::text, covar_pop(y, x)::text, covar_samp(y, x)::text FROM {vals};"),
         1 => format!(
@@ -886,7 +997,10 @@ mod tests {
             "var_",
             " ORDER BY ",
         ] {
-            assert!(sqls.contains(frag), "aggregate flavor {frag:?} never generated");
+            assert!(
+                sqls.contains(frag),
+                "aggregate flavor {frag:?} never generated"
+            );
         }
     }
 
@@ -908,12 +1022,21 @@ mod tests {
                 seen += check_ordered_aggs(h);
             }
         }
-        assert!(seen > 20, "ordered-input aggregates rarely generated ({seen})");
+        assert!(
+            seen > 20,
+            "ordered-input aggregates rarely generated ({seen})"
+        );
     }
 
     fn check_ordered_aggs(e: &Expr) -> usize {
         let mut n = 0;
-        if let Expr::Agg { name, args, order_within, .. } = e {
+        if let Expr::Agg {
+            name,
+            args,
+            order_within,
+            ..
+        } = e
+        {
             match *name {
                 "string_agg" | "array_agg" => {
                     let (oe, _) = order_within
@@ -940,10 +1063,7 @@ mod tests {
     #[test]
     fn group_keys_are_never_bare_literals() {
         let cat = FixtureCatalog.load_catalog().unwrap();
-        let w = WeightTable::parse(
-            "agg:group=50,agg:groupby:expr=50,agg:groupby:col=0",
-        )
-        .unwrap();
+        let w = WeightTable::parse("agg:group=50,agg:groupby:expr=50,agg:groupby:col=0").unwrap();
         let mut rng = Rng::new(13);
         let mut keys = 0;
         for _ in 0..300 {
@@ -962,7 +1082,10 @@ mod tests {
                 }
             }
         }
-        assert!(keys > 100, "expression group keys rarely generated ({keys})");
+        assert!(
+            keys > 100,
+            "expression group keys rarely generated ({keys})"
+        );
     }
 
     /// Ruled-soft float-aggregate columns: correctly reported, never under
@@ -996,6 +1119,9 @@ mod tests {
                 assert!(matches!(&stmt.items[i].expr, Expr::Agg { .. }));
             }
         }
-        assert!(soft_stmts > 50, "soft float aggregates rarely generated ({soft_stmts})");
+        assert!(
+            soft_stmts > 50,
+            "soft float aggregates rarely generated ({soft_stmts})"
+        );
     }
 }

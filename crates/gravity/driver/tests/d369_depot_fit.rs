@@ -17,7 +17,9 @@ fn a_charged_sub_page_take_reuses_its_parked_page_and_d225_still_bounds_the_fit(
     REGIONS.trim();
     assert_eq!(POOL.held(), 0, "a previous test left bytes held");
     POOL.arm(64 * MIB);
-    let a = POOL.admit(Grant::of(8 * MIB), 1, 2, Duration::from_millis(10)).expect("admitted");
+    let a = POOL
+        .admit(Grant::of(8 * MIB), 1, 2, Duration::from_millis(10))
+        .expect("admitted");
     let base = REGIONS.stats();
     // a slot's program-constant region, taken and parked back once per statement
     for ask in [64usize, REGION_MIN + 1] {
@@ -26,17 +28,29 @@ fn a_charged_sub_page_take_reuses_its_parked_page_and_d225_still_bounds_the_fit(
             assert!(buf.len() >= ask);
             REGIONS.put(buf);
             let s = REGIONS.stats();
-            assert!(s.entries <= base.entries + 2, "ask {ask} take {i}: the depot grew to {} entries (a new page per take)", s.entries);
+            assert!(
+                s.entries <= base.entries + 2,
+                "ask {ask} take {i}: the depot grew to {} entries (a new page per take)",
+                s.entries
+            );
         }
     }
     let s = REGIONS.stats();
-    assert_eq!(s.allocs - base.allocs, 2, "one fresh region per ask size, every later take reused it");
+    assert_eq!(
+        s.allocs - base.allocs,
+        2,
+        "one fresh region per ask size, every later take reused it"
+    );
     // D225: a charged take of two pages does not take a parked 64 KiB region (the fresh one is mapped)
     REGIONS.trim();
     REGIONS.put(try_region(64 << 10).expect("capacity"));
     let before = REGIONS.stats();
     let buf = REGIONS.take(REGION_MIN + 1, Some(&a)).expect("a region");
-    assert_eq!(buf.len(), 2 * REGION_MIN, "the page-rounded fresh region, not the 64 KiB one");
+    assert_eq!(
+        buf.len(),
+        2 * REGION_MIN,
+        "the page-rounded fresh region, not the 64 KiB one"
+    );
     assert_eq!(REGIONS.stats().allocs, before.allocs + 1);
     drop(buf);
     REGIONS.trim();

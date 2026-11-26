@@ -73,9 +73,19 @@ fn program() -> Program {
 #[test]
 fn scratch_over_a_spilled_constant_rematerializes() {
     let p = program();
-    gravity_ir::verify::verify(&p).and_then(|()| gravity_ir::verify::verify_dominance(&p)).unwrap_or_else(|e| panic!("{} {}", e.func, e.message));
-    let cells: Vec<i64> = (0..64).map(|k| 0x0102_0304_0506_0708u64.wrapping_mul(k as u64 + 1).rotate_left(k as u32 * 3) as i64).collect();
-    let interp = gravity_interp::Interp::new(&p).run(Func(0), &[cells.as_ptr() as u64]).unwrap();
+    gravity_ir::verify::verify(&p)
+        .and_then(|()| gravity_ir::verify::verify_dominance(&p))
+        .unwrap_or_else(|e| panic!("{} {}", e.func, e.message));
+    let cells: Vec<i64> = (0..64)
+        .map(|k| {
+            0x0102_0304_0506_0708u64
+                .wrapping_mul(k as u64 + 1)
+                .rotate_left(k as u32 * 3) as i64
+        })
+        .collect();
+    let interp = gravity_interp::Interp::new(&p)
+        .run(Func(0), &[cells.as_ptr() as u64])
+        .unwrap();
     let native = common::native(&p, Func(0), &[cells.as_ptr() as u64]);
     assert_eq!(native, interp, "native vs interpreter");
 }

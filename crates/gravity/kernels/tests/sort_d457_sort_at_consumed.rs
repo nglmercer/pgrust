@@ -7,7 +7,10 @@ use gravity_kernels_rig as common;
 use common::*;
 use gravity_abi::breaker::{HashAgg, SortRun, SORTRUN_HDR};
 use gravity_abi::ctx::resume;
-use gravity_kernels::host_abi::{sort_begin, sort_begin_at, sort_full, sort_last, sort_next_at, sort_open, sort_stop_at, SORT_MODE_MEM, SORT_MODE_MERGE};
+use gravity_kernels::host_abi::{
+    sort_begin, sort_begin_at, sort_full, sort_last, sort_next_at, sort_open, sort_stop_at,
+    SORT_MODE_MEM, SORT_MODE_MERGE,
+};
 use gravity_program::hand::{self as programs, Oids};
 
 const ROW_BYTES: u32 = 40;
@@ -63,11 +66,21 @@ fn a_sealed_sort_feeding_a_fold_is_read_from_its_consumed_region() {
         let mut sorted: Vec<u64> = core::slice::from_raw_parts(own as *const u64, words).to_vec(); // alloc: Cold
         let mut fold = vec![0u64; 1 << 12]; // alloc: Cold
         consume(&mut rig, sorted.as_mut_ptr() as *mut u8, &mut fold);
-        assert!(sort_begin(ctx, SORT_TBL.as_ptr()) < 0, "the old open reads the fold's region: no sealed run there");
+        assert!(
+            sort_begin(ctx, SORT_TBL.as_ptr()) < 0,
+            "the old open reads the fold's region: no sealed run there"
+        );
         assert_eq!(sort_begin_at(ctx, SORT_TBL.as_ptr(), 0, 3), SORT_MODE_MEM);
-        assert_eq!(drain(&mut rig, SORT_MODE_MEM), (0..100).collect::<Vec<i64>>());
+        assert_eq!(
+            drain(&mut rig, SORT_MODE_MEM),
+            (0..100).collect::<Vec<i64>>()
+        );
         sort_stop_at(ctx, SORT_TBL.as_ptr(), SORT_MODE_MEM as u64, 8, 1, 0);
-        assert_eq!((*ctx).resume, resume::word(resume::EMIT, 7), "the held row is re-delivered");
+        assert_eq!(
+            (*ctx).resume,
+            resume::word(resume::EMIT, 7),
+            "the held row is re-delivered"
+        );
         assert!(fold.iter().all(|&w| w == 0), "the fold's region untouched");
     }
 }
@@ -84,8 +97,14 @@ fn a_spilled_sort_feeding_a_fold_merges_in_its_consumed_region() {
         let mut fold = vec![0u64; 1 << 12]; // alloc: Cold
         consume(&mut rig, region.as_mut_ptr() as *mut u8, &mut fold);
         assert_eq!(sort_begin_at(ctx, SORT_TBL.as_ptr(), 0, 3), SORT_MODE_MERGE);
-        assert_eq!(drain(&mut rig, SORT_MODE_MERGE), (0..100).collect::<Vec<i64>>());
-        assert!(fold.iter().all(|&w| w == 0), "the merge and its fills in the sort's region, none in the fold's");
+        assert_eq!(
+            drain(&mut rig, SORT_MODE_MERGE),
+            (0..100).collect::<Vec<i64>>()
+        );
+        assert!(
+            fold.iter().all(|&w| w == 0),
+            "the merge and its fills in the sort's region, none in the fold's"
+        );
         assert!(region[SORTRUN_HDR / 8..].iter().any(|&w| w != 0));
     }
 }

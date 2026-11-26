@@ -34,7 +34,11 @@ pub struct ExecSlot {
     pub(super) cid: u32,
     /// H16 (a), the served Bind: the result descriptor of the plan this slot last bound, under that plan's key and program;
     /// the next Bind of the same plan hands the portal the same descriptor instead of building it again.
-    desc: Option<(PlanKey, *const Program, Rc<types_tuple::TupleDescData<'static>>)>,
+    desc: Option<(
+        PlanKey,
+        *const Program,
+        Rc<types_tuple::TupleDescData<'static>>,
+    )>,
     /// D3547: a named portal's SELECT (its bit in `Backend::named_home` while it is at its level): sent away before another
     /// statement runs at that level (`send_away`), so a statement nested in that one may FETCH, MOVE or CLOSE it.
     pub(super) named: bool,
@@ -52,13 +56,22 @@ impl ExecSlot {
         let o = crate::BACKEND_OWNER;
         ExecSlot {
             // the slot's block, which the caller boxes on this thread
-            held: memledger::Charge::open(o, memledger::charge::release_of(o), memledger::Kind::Region, memledger::charge::Door::Heap, core::mem::size_of::<ExecSlot>() as u64),
+            held: memledger::Charge::open(
+                o,
+                memledger::charge::release_of(o),
+                memledger::Kind::Region,
+                memledger::charge::Door::Heap,
+                core::mem::size_of::<ExecSlot>() as u64,
+            ),
             gen: 0,
             plan: 0,
-            key: PlanKey { handle: gravity_program::Handle(0), generation: gravity_program::Generation(0) },
+            key: PlanKey {
+                handle: gravity_program::Handle(0),
+                generation: gravity_program::Generation(0),
+            },
             // empty: each Bind sizes both to its statement's words (`size_words`)
             kparams: Vec::new(), // alloc: Cold
-            knulls: Vec::new(), // alloc: Cold
+            knulls: Vec::new(),  // alloc: Cold
             nkparams: 0,
             cmd: Cmd::Select,
             out_natts: 0,
@@ -79,8 +92,12 @@ impl ExecSlot {
 
     /// The holder fitted to the slot's bytes now: its block, its key words' capacity and a cached descriptor's block.
     fn refit(&mut self) {
-        let now = (core::mem::size_of::<ExecSlot>() + self.kparams.capacity() * 8 + self.knulls.capacity()) as u64
-            + self.desc.as_ref().map_or(0, |_| memledger::arc_bytes::<types_tuple::TupleDescData<'static>>());
+        let now = (core::mem::size_of::<ExecSlot>()
+            + self.kparams.capacity() * 8
+            + self.knulls.capacity()) as u64
+            + self.desc.as_ref().map_or(0, |_| {
+                memledger::arc_bytes::<types_tuple::TupleDescData<'static>>()
+            });
         let was = self.held.committed();
         if now > was {
             self.held.commit(now - was);
@@ -163,7 +180,17 @@ pub(super) struct PortalPins {
 
 impl PortalPins {
     fn new() -> PortalPins {
-        PortalPins { run: None, snap: None, owner: types_resowner::ResourceOwner::NULL, pulled: None, serial: None, held: held::Held::default(), held_to_drop: true, orphan: false, c8: None }
+        PortalPins {
+            run: None,
+            snap: None,
+            owner: types_resowner::ResourceOwner::NULL,
+            pulled: None,
+            serial: None,
+            held: held::Held::default(),
+            held_to_drop: true,
+            orphan: false,
+            c8: None,
+        }
     }
 
     /// C8: the portal becomes a memory owner (its Bind), live until `end_owner`.
@@ -191,7 +218,12 @@ impl PortalPins {
     /// the slot's home level only (D3547 `home` false: built at another level, torn down, `close_unparked`); an orphan's
     /// Node unparked (D3579); the pull's relations and protocols dropped; the snapshot unregistered from the portal's owner
     /// (one release for a completed, failed or dropped run, and for a Bind whose Execute never came).
-    pub(super) fn close_run(&mut self, entry: &mut gravity_driver::Entry, home: bool, key: PlanKey) {
+    pub(super) fn close_run(
+        &mut self,
+        entry: &mut gravity_driver::Entry,
+        home: bool,
+        key: PlanKey,
+    ) {
         if let Some(run) = self.run.as_mut() {
             match home {
                 true => run.close(entry, true),
@@ -218,7 +250,12 @@ impl PortalPins {
     /// nothing, so an end's error is reported as a WARNING where PostgreSQL raises it from PortalDrop), the run's end
     /// (`close_run`), then the relations the plan held from Bind (D761).
     fn end(&mut self, entry: &mut gravity_driver::Entry, home: bool, key: PlanKey) {
-        if let Err(mut e) = self.serial.as_deref().filter(|_| xact::IsTransactionState()).map_or(Ok(()), SerialWords::end) {
+        if let Err(mut e) = self
+            .serial
+            .as_deref()
+            .filter(|_| xact::IsTransactionState())
+            .map_or(Ok(()), SerialWords::end)
+        {
             e.level = types_error::WARNING;
             elog::emit_error_report_for(&e);
         }
@@ -254,7 +291,9 @@ pub(super) fn prime_once() {
     gravity_hosts::ops::scan::pgrc::residency::arm_part_cache();
     // D3147: the idle release reaches this backend's parked Nodes (installed once; one relaxed load after)
     static SHED_ARMED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
-    if !SHED_ARMED.load(core::sync::atomic::Ordering::Relaxed) && !SHED_ARMED.swap(true, core::sync::atomic::Ordering::AcqRel) {
+    if !SHED_ARMED.load(core::sync::atomic::Ordering::Relaxed)
+        && !SHED_ARMED.swap(true, core::sync::atomic::Ordering::AcqRel)
+    {
         gravity_driver::mem::grant::set_idle_shed(idle_shed);
         gravity_driver::mem::grant::set_mem_wait(mem_wait_start, mem_wait_end);
     }
@@ -282,7 +321,8 @@ fn mem_wait_start() {
     }
     let mut id = MEM_WAIT_EVENT.with(core::cell::Cell::get);
     if id == 0 {
-        id = waitevent::custom::WaitEventExtensionNew("GravityMemory").unwrap_or(waitevent::PG_WAIT_EXTENSION);
+        id = waitevent::custom::WaitEventExtensionNew("GravityMemory")
+            .unwrap_or(waitevent::PG_WAIT_EXTENSION);
         MEM_WAIT_EVENT.with(|e| e.set(id));
     }
     waitevent::pgstat_report_wait_start(id);
@@ -311,23 +351,44 @@ fn idle_shed() {
 /// or refuses it (admit/entry `counted_partial`, `counted_whole_read`).
 pub fn whole_read(a: &Admitted) -> bool {
     let whole = |p: &Program| p.pipelines.iter().any(|x| x.whole_read);
-    whole(&a.program) || a.graph.as_ref().is_some_and(|g| g.arms.iter().any(|x| whole(&x.program)) || g.inits.iter().any(|x| whole(&x.program))) || super::admission::counted_refused(a)
+    whole(&a.program)
+        || a.graph.as_ref().is_some_and(|g| {
+            g.arms.iter().any(|x| whole(&x.program)) || g.inits.iter().any(|x| whole(&x.program))
+        })
+        || super::admission::counted_refused(a)
 }
 
 /// D2044: a program of the statement's declares a Volatile proto tagged `VOLATILE_ONCE_STORE` (lowerv4 srf/function_store.rs).
 pub fn once_store(a: &Admitted) -> bool {
     use gravity_program::protos::{ProtoKind, VOLATILE_ONCE_STORE};
-    let tagged = |p: &Program| p.v4.as_ref().is_some_and(|d| d.protos.iter().any(|x| x.kind == ProtoKind::Volatile && x.arg == VOLATILE_ONCE_STORE));
-    tagged(&a.program) || a.graph.as_ref().is_some_and(|g| g.arms.iter().any(|x| tagged(&x.program)) || g.inits.iter().any(|x| tagged(&x.program)))
+    let tagged = |p: &Program| {
+        p.v4.as_ref().is_some_and(|d| {
+            d.protos
+                .iter()
+                .any(|x| x.kind == ProtoKind::Volatile && x.arg == VOLATILE_ONCE_STORE)
+        })
+    };
+    tagged(&a.program)
+        || a.graph.as_ref().is_some_and(|g| {
+            g.arms.iter().any(|x| tagged(&x.program)) || g.inits.iter().any(|x| tagged(&x.program))
+        })
 }
 
 /// The served Bind, under the portal's resource owner as PortalStart runs (D3525 / D3526: the snapshot, the relations
 /// `held::take` opens and whatever the admission pins belong to the portal, so a savepoint's end does not release them).
-pub fn bind(portal: &Portal<'static>, cplan: CachedPlanHandle, params: ParamListHandle) -> PgResult<bool> {
+pub fn bind(
+    portal: &Portal<'static>,
+    cplan: CachedPlanHandle,
+    params: ParamListHandle,
+) -> PgResult<bool> {
     pquery::with_portal_owner(portal, || bind_owned(portal, cplan, params))
 }
 
-fn bind_owned(portal: &Portal<'static>, cplan: CachedPlanHandle, params: ParamListHandle) -> PgResult<bool> {
+fn bind_owned(
+    portal: &Portal<'static>,
+    cplan: CachedPlanHandle,
+    params: ParamListHandle,
+) -> PgResult<bool> {
     // D3198: an executor-hook module acts on this backend's statements: the portal runs its own strategy, whose executor
     // seams the entry serves with the hooks fired (`execute::executor_hooks_active`)
     if super::execute::executor_hooks_active() {
@@ -352,25 +413,39 @@ fn bind_owned(portal: &Portal<'static>, cplan: CachedPlanHandle, params: ParamLi
             return Ok(false);
         }
         let named = !portal.borrow().name.is_empty();
-        if stmts.first().is_some_and(|p| super::execute::entry_routed(p, named) || super::execute::rewriter_added(p)) {
+        if stmts.first().is_some_and(|p| {
+            super::execute::entry_routed(p, named) || super::execute::rewriter_added(p)
+        }) {
             return Ok(false);
         }
         // D3580: WHERE CURRENT OF a named portal with row marks over a plan that prunes at start reads PG's
         // es_unpruned_relids, which the portal's own strategy keeps (the entry's `unpruned`): routing, never a refusal
-        if named && stmts.first().is_some_and(|p| !p.rowMarks.is_nil() && !p.partPruneInfos.is_nil()) {
+        if named
+            && stmts
+                .first()
+                .is_some_and(|p| !p.rowMarks.is_nil() && !p.partPruneInfos.is_nil())
+        {
             return Ok(false);
         }
         if b.lookup(key) == Some(Verdict::Refused) {
             return Err(fall("memo: refused plan"));
         }
-        let Some(slot_idx) = b.execs.iter().position(|s| s.as_ref().is_none_or(|s| !s.live)) else {
+        let Some(slot_idx) = b
+            .execs
+            .iter()
+            .position(|s| s.as_ref().is_none_or(|s| !s.live))
+        else {
             b.note_fallthrough("no free exec slot");
             return Ok(false);
         };
         // a refusal or a full memo (D1789) notes its own fallthrough line
-        let Some(plan_idx) = lookup_or_admit(b, key, cplan, params)? else { return Ok(false) };
+        let Some(plan_idx) = lookup_or_admit(b, key, cplan, params)? else {
+            return Ok(false);
+        };
         let stmts = plancache::CachedPlanStmtList(cplan);
-        let Some(pstmt) = stmts.first() else { return Ok(false) };
+        let Some(pstmt) = stmts.first() else {
+            return Ok(false);
+        };
         // a locking SELECT runs under the Bind-time snapshot (portal_snapshot.rs, as PortalStart's); a write here is an
         // unnamed portal's without RETURNING rows (`entry_routed` sent the rest to the portal's own strategy)
         let cmd = b.plans[plan_idx].as_ref().expect("admitted").served.cmd;
@@ -383,12 +458,23 @@ fn bind_owned(portal: &Portal<'static>, cplan: CachedPlanHandle, params: ParamLi
         // portal early, and the entry refuses a named portal, or a run started under a count (PortalKind, WHOLE_READ). So is
         // an admission holding a timestamptz constant converted in the session TimeZone (B2-31: the entry starts a run under
         // max_rows, or in another zone, again with nothing converted: `zone_restart`)
-        if b.plans[plan_idx].as_ref().is_some_and(|s| s.served.is_parallel() || once_store(&s.served) || whole_read(&s.served) || s.served.timezone.is_some()) {
+        if b.plans[plan_idx].as_ref().is_some_and(|s| {
+            s.served.is_parallel()
+                || once_store(&s.served)
+                || whole_read(&s.served)
+                || s.served.timezone.is_some()
+        }) {
             return Ok(false);
         }
         grant_start();
         let amcx = b.admit_mcx();
-        let Backend { execs, plans, next_gen, named_home, .. } = b;
+        let Backend {
+            execs,
+            plans,
+            next_gen,
+            named_home,
+            ..
+        } = b;
         let a: &mut Admitted = plans[plan_idx].as_mut().expect("admitted").served.as_mut();
         // the free slot's key words, sized by the statement and bound in place (its buffers reused from its last Bind)
         let slot = execs[slot_idx].get_or_insert_with(|| Box::new(ExecSlot::new())); // alloc: Cold charged ExecSlot::held
@@ -398,7 +484,9 @@ fn bind_owned(portal: &Portal<'static>, cplan: CachedPlanHandle, params: ParamLi
         // a write's own snapshot is taken when it runs (`at_execute`), and its words with it (D3516: `eval_at_execute`)
         let owner = portal.borrow().resowner;
         // D761: the relations PortalStart's ExecutorStart opens, before any expression of the statement runs
-        let rels = a.graph.as_ref().map_or(Ok(held::Held::default()), |g| held::take(amcx, pstmt, &g.held, params, None))?;
+        let rels = a.graph.as_ref().map_or(Ok(held::Held::default()), |g| {
+            held::take(amcx, pstmt, &g.held, params, None)
+        })?;
         injection_point::injection_point("gravity-bind-before-snapshot")?;
         let held = crate::portal_snapshot::at_bind(a, owner)?;
         // A write takes its snapshot at Execute, after this Bind: its entry admits under it. Either is the entry's
@@ -468,7 +556,13 @@ fn bind_owned(portal: &Portal<'static>, cplan: CachedPlanHandle, params: ParamLi
             // D2085: a SELECT's portal is ready to run, as PortalStart leaves it (PORTAL_ONE_SELECT at its start), so a SQL
             // FETCH / MOVE of it runs (pquery's PortalRunSelect asks `fetch` for the rows)
             let mut p = portal.borrow_mut();
-            (p.strategy, p.status, p.atStart, p.atEnd, p.portalPos) = (types_portal::PORTAL_ONE_SELECT, types_portal::PORTAL_READY, true, false, 0);
+            (p.strategy, p.status, p.atStart, p.atEnd, p.portalPos) = (
+                types_portal::PORTAL_ONE_SELECT,
+                types_portal::PORTAL_READY,
+                true,
+                false,
+                0,
+            );
         }
         crate::phases::mark("bind");
         Ok(true)
@@ -505,14 +599,20 @@ pub fn describe(portal: &Portal<'static>) -> PgResult<bool> {
     }
     let _stepping = Stepping::set(token);
     let r = crate::with_backend(|b| -> PgResult<bool> {
-        let Some(idx) = slot_of(b, token) else { return Ok(false) };
+        let Some(idx) = slot_of(b, token) else {
+            return Ok(false);
+        };
         let Backend { execs, plans, .. } = b;
         let slot = execs[idx].as_mut().expect("slot");
         let a = plans[slot.plan].as_ref().expect("admitted").served.as_ref();
         if !emits_rows(a.cmd, a.out_natts) {
             return Ok(false); // a write portal without RETURNING has no tupDesc; tcop sends NoData
         }
-        let fmts = if formats.is_empty() { None } else { Some(&formats[..]) };
+        let fmts = if formats.is_empty() {
+            None
+        } else {
+            Some(&formats[..])
+        };
         slot.wire.prepare(&a.program, fmts)?;
         slot.wire.send_rowdesc()?;
         Ok(true)
@@ -564,7 +664,10 @@ pub fn drop(portal: &Portal<'static>) {
 // serve runs away from a busy level (D2355); away from its home its Node parks nowhere (D2190: a Node built over the
 // lent admission). Its PortalDrop gives the admission back at its home level (`Backend::give_back_away`), or retires
 // it there (D3346) when a function's CLOSE runs while the home level is held.
-const _: () = assert!(crate::MAX_EXECS <= 32, "named_home has one bit an exec slot");
+const _: () = assert!(
+    crate::MAX_EXECS <= 32,
+    "named_home has one bit an exec slot"
+);
 const _: () = assert!(crate::MAX_EXECS < 0xff);
 
 /// D3547: the named portals of one plan slot sent away from their level together (`send_away`), with the admission they
@@ -636,14 +739,29 @@ pub fn send_away(b: &mut Backend, depth: usize) {
             }
         };
         // the live slots running this plan slot's admission (this one among them)
-        let runs = b.execs.iter().enumerate().filter(|(_, o)| o.as_ref().is_some_and(|o| o.runs(plan, key))).fold(0u32, |m, (j, _)| m | (1 << j));
+        let runs = b
+            .execs
+            .iter()
+            .enumerate()
+            .filter(|(_, o)| o.as_ref().is_some_and(|o| o.runs(plan, key)))
+            .fold(0u32, |m, (j, _)| m | (1 << j));
         bits &= !(runs | (1 << i));
-        let filed = b.plans.get(plan).and_then(Option::as_ref).is_some_and(|p| p.key == key);
-        let movable = |j: usize| b.execs[j].as_ref().is_some_and(|o| o.named && !o.pins.orphan && o.token(j) != stepping);
+        let filed = b
+            .plans
+            .get(plan)
+            .and_then(Option::as_ref)
+            .is_some_and(|p| p.key == key);
+        let movable = |j: usize| {
+            b.execs[j]
+                .as_ref()
+                .is_some_and(|o| o.named && !o.pins.orphan && o.token(j) != stepping)
+        };
         if !filed || (0..b.execs.len()).any(|j| runs & (1 << j) != 0 && !movable(j)) {
             continue;
         }
-        let Some(lent) = b.plans[plan].take() else { continue };
+        let Some(lent) = b.plans[plan].take() else {
+            continue;
+        };
         let mut slots = Vec::with_capacity(runs.count_ones() as usize); // alloc: Exec charged Away::held
         for j in (0..b.execs.len()).filter(|&j| runs & (1 << j) != 0) {
             if let Some(slot) = b.execs[j].take() {
@@ -654,8 +772,20 @@ pub fn send_away(b: &mut Backend, depth: usize) {
         // the group's block, allocated just above on this thread, moves to the holder
         let o = crate::BACKEND_OWNER;
         let bytes = (slots.capacity() * core::mem::size_of::<(u64, Box<ExecSlot>)>()) as u64;
-        let held = memledger::Charge::open(o, memledger::charge::release_of(o), memledger::Kind::Region, memledger::charge::Door::Heap, bytes);
-        away_push(Away { held, home: depth, key, a: lent.served, slots });
+        let held = memledger::Charge::open(
+            o,
+            memledger::charge::release_of(o),
+            memledger::Kind::Region,
+            memledger::charge::Door::Heap,
+            bytes,
+        );
+        away_push(Away {
+            held,
+            home: depth,
+            key,
+            a: lent.served,
+            slots,
+        });
     }
 }
 
@@ -665,7 +795,8 @@ fn away_push(w: Away) {
     AWAY.with(|v| {
         let mut v = v.borrow_mut();
         if v.owner().is_none() && v.capacity() == 0 {
-            *v = memledger::ChargedVec::new(Some(crate::BACKEND_OWNER), memledger::Kind::Region); // alloc: Exec charged crate::BACKEND_OWNER
+            *v = memledger::ChargedVec::new(Some(crate::BACKEND_OWNER), memledger::Kind::Region);
+            // alloc: Exec charged crate::BACKEND_OWNER
         }
         v.with_vec(|v| v.push(w)); // alloc: Exec charged crate::BACKEND_OWNER
     })
@@ -679,7 +810,12 @@ pub(super) fn take_away(token: u64) -> Option<(Away, usize)> {
         if v.is_empty() {
             return None;
         }
-        let (g, k) = v.iter().enumerate().find_map(|(g, w)| w.slots.iter().position(|(t, _)| *t == token).map(|k| (g, k)))?;
+        let (g, k) = v.iter().enumerate().find_map(|(g, w)| {
+            w.slots
+                .iter()
+                .position(|(t, _)| *t == token)
+                .map(|k| (g, k))
+        })?;
         Some((v.with_vec(|v| v.swap_remove(g)), k))
     })
 }
@@ -696,7 +832,11 @@ fn describe_away(token: u64, formats: &[i16]) -> Option<PgResult<bool>> {
         if !emits_rows(a.cmd, a.out_natts) {
             return Ok(false); // a write portal without RETURNING has no tupDesc; tcop sends NoData
         }
-        let fmts = if formats.is_empty() { None } else { Some(formats) };
+        let fmts = if formats.is_empty() {
+            None
+        } else {
+            Some(formats)
+        };
         let slot = &mut w.slots[k].1;
         slot.wire.prepare(&a.program, fmts)?;
         slot.wire.send_rowdesc()?;
@@ -710,9 +850,15 @@ fn describe_away(token: u64, formats: &[i16]) -> Option<PgResult<bool>> {
 /// executor entry's `Serve::host_busy`, D2355): run away from its busy home, it would share that state with the running
 /// statement, so it is refused by name instead (`reentry::AWAY_REFUSAL`).
 pub(super) fn host_busy(a: &Admitted) -> bool {
-    let running = |o: &dyn core::any::Any| gravity_driver::node::owner_running(o as *const dyn core::any::Any as *const u8);
+    let running = |o: &dyn core::any::Any| {
+        gravity_driver::node::owner_running(o as *const dyn core::any::Any as *const u8)
+    };
     let busy = |p: &Program| p.owner.as_deref().is_some_and(running);
-    busy(&a.program) || a.registry.owner_of().is_some_and(running) || a.graph.as_ref().is_some_and(|g| g.arms.iter().any(|x| busy(&x.program)) || g.inits.iter().any(|x| busy(&x.program)))
+    busy(&a.program)
+        || a.registry.owner_of().is_some_and(running)
+        || a.graph.as_ref().is_some_and(|g| {
+            g.arms.iter().any(|x| busy(&x.program)) || g.inits.iter().any(|x| busy(&x.program))
+        })
 }
 
 /// D3547: PortalDrop of an away portal: its run ends at the first level free now, as at home (PortalCleanup's
@@ -725,19 +871,26 @@ fn drop_away(mut w: Away, k: usize) {
     let last = w.slots.is_empty();
     let (home, key) = (w.home, w.key);
     let (mut slot, mut w) = (Some(slot), Some(w));
-    let _ = crate::admit::reentry::enter(Some(crate::admit::reentry::built), None, false, |b, depth| {
-        let at_home = depth == home;
-        slot.as_mut().expect("once").drop_portal(&mut b.entry, at_home);
-        if at_home {
-            let idx = ((token & 0xff) as usize).wrapping_sub(1);
-            if b.execs.get(idx).is_some_and(Option::is_none) {
-                b.execs[idx] = slot.take();
+    let _ = crate::admit::reentry::enter(
+        Some(crate::admit::reentry::built),
+        None,
+        false,
+        |b, depth| {
+            let at_home = depth == home;
+            slot.as_mut()
+                .expect("once")
+                .drop_portal(&mut b.entry, at_home);
+            if at_home {
+                let idx = ((token & 0xff) as usize).wrapping_sub(1);
+                if b.execs.get(idx).is_some_and(Option::is_none) {
+                    b.execs[idx] = slot.take();
+                }
+                if last {
+                    b.give_back_away(key, w.take().expect("once").a);
+                }
             }
-            if last {
-                b.give_back_away(key, w.take().expect("once").a);
-            }
-        }
-    });
+        },
+    );
     match w {
         Some(w) if last => crate::admit::reentry::retire(home, key, w.a),
         Some(w) => put_away(w),
@@ -779,7 +932,18 @@ pub(super) fn register_snapshot() -> PgResult<Rc<SnapshotData<'static>>> {
 /// The portal's token and result descriptor. The descriptor is `cache`'s when it was built for this plan (`key`: the plan
 /// source and its generation, so a replan builds anew) and this program; else built (`desc_of`) and kept there. It is
 /// never mutated after it is built: every portal of the plan shares it, each dropping its clone at PortalDrop.
-fn set_portal_desc(portal: &Portal<'static>, token: u64, a: &Admitted, mcx: Mcx<'static>, key: PlanKey, cache: &mut Option<(PlanKey, *const Program, Rc<types_tuple::TupleDescData<'static>>)>) {
+fn set_portal_desc(
+    portal: &Portal<'static>,
+    token: u64,
+    a: &Admitted,
+    mcx: Mcx<'static>,
+    key: PlanKey,
+    cache: &mut Option<(
+        PlanKey,
+        *const Program,
+        Rc<types_tuple::TupleDescData<'static>>,
+    )>,
+) {
     let mut p = portal.borrow_mut();
     p.gravity = token;
     if a.out_natts > 0 {
@@ -803,24 +967,56 @@ fn set_portal_desc(portal: &Portal<'static>, token: u64, a: &Admitted, mcx: Mcx<
 /// scan (`PullAdapter::taken`: execCurrentOf's scan node current tuple; a bounded Execute's run stops right after its last
 /// row), with `current`'s checks; another plan with PG's error when it has no scan of the table. The typed refusal
 /// otherwise, and for a portal whose own run asks (its level is the one running) or that no level holds.
-pub fn portal_current_of(portal: &Portal<'static>, token: u64, name: &str, table_oid: types_core::Oid, table_name: &str) -> PgResult<Option<types_tuple::ItemPointerData>> {
+pub fn portal_current_of(
+    portal: &Portal<'static>,
+    token: u64,
+    name: &str,
+    table_oid: types_core::Oid,
+    table_name: &str,
+) -> PgResult<Option<types_tuple::ItemPointerData>> {
     use crate::admit::entry::current_of as co;
     let stmts = portal.borrow().stmts;
-    let Some(pstmt) = pquery::stmt_list::resolve(stmts).first() else { return Err(co::unsupported(name)) };
-    let read = |s: &ExecSlot| s.pins.run.as_ref().map_or((gravity_abi::ScanPos::NONE, gravity_abi::ScanPos::NONE), |r| (r.locked(table_oid), r.taken()));
-    let away = AWAY.with(|v| v.borrow().iter().find_map(|w| w.slots.iter().find(|(t, _)| *t == token).map(|(_, s)| read(s))));
+    let Some(pstmt) = pquery::stmt_list::resolve(stmts).first() else {
+        return Err(co::unsupported(name));
+    };
+    let read = |s: &ExecSlot| {
+        s.pins.run.as_ref().map_or(
+            (gravity_abi::ScanPos::NONE, gravity_abi::ScanPos::NONE),
+            |r| (r.locked(table_oid), r.taken()),
+        )
+    };
+    let away = AWAY.with(|v| {
+        v.borrow().iter().find_map(|w| {
+            w.slots
+                .iter()
+                .find(|(t, _)| *t == token)
+                .map(|(_, s)| read(s))
+        })
+    });
     let seen = match away {
         Some(x) => Some(x),
         None if STEPPING.with(|c| c.get()) == token => None,
-        None => crate::with_existing_backend(|b| slot_of(b, token).and_then(|i| b.execs[i].as_deref().map(read))).flatten(),
+        None => crate::with_existing_backend(|b| {
+            slot_of(b, token).and_then(|i| b.execs[i].as_deref().map(read))
+        })
+        .flatten(),
     };
-    let Some((locked, taken)) = seen else { return Err(co::unsupported(name)) };
+    let Some((locked, taken)) = seen else {
+        return Err(co::unsupported(name));
+    };
     if !pstmt.rowMarks.is_nil() {
         return co::current_rowmark(portal, pstmt, None, locked, name, table_oid, table_name);
     }
     if matches!(co::plan_cursor(pstmt), co::Cursor::Identity) {
         return match taken.is_valid() {
-            true => co::current(portal, pstmt, Some((taken.rel, ((taken.block as u64) << 16) | taken.off as u64)), name, table_oid, table_name),
+            true => co::current(
+                portal,
+                pstmt,
+                Some((taken.rel, ((taken.block as u64) << 16) | taken.off as u64)),
+                name,
+                table_oid,
+                table_name,
+            ),
             false => co::current_running(portal, pstmt, None, name, table_oid, table_name),
         };
     }
@@ -835,29 +1031,47 @@ pub fn portal_current_of(portal: &Portal<'static>, token: u64, name: &str, table
 /// program's own `OutCol::collation` where no plan is kept). CREATE TABLE AS defines its columns from this descriptor.
 pub fn desc_of(mcx: Mcx<'static>, a: &Admitted) -> Rc<types_tuple::TupleDescData<'static>> {
     let mut desc = build_desc(mcx, &a.program);
-    let Some(plan) = a.pstmt.and_then(|p| p.planTree).and_then(|n| n.as_plan()) else { return desc };
+    let Some(plan) = a.pstmt.and_then(|p| p.planTree).and_then(|n| n.as_plan()) else {
+        return desc;
+    };
     let d = Rc::get_mut(&mut desc).expect("a fresh descriptor");
     let mut k = 0i16;
     for tle in plan.targetlist.iter() {
-        let Some(t) = tle.as_target_entry() else { break };
+        let Some(t) = tle.as_target_entry() else {
+            break;
+        };
         if t.resjunk {
             continue;
         }
         if k as i32 >= d.natts {
             break;
         }
-        tupdesc::TupleDescInitEntryCollation(d, k + 1, gravity_decompose::catalog::expr_type::collation_of(t.expr));
+        tupdesc::TupleDescInitEntryCollation(
+            d,
+            k + 1,
+            gravity_decompose::catalog::expr_type::collation_of(t.expr),
+        );
         k += 1;
     }
     desc
 }
 
-pub fn build_desc(mcx: Mcx<'static>, program: &gravity_program::Program) -> Rc<types_tuple::TupleDescData<'static>> {
+pub fn build_desc(
+    mcx: Mcx<'static>,
+    program: &gravity_program::Program,
+) -> Rc<types_tuple::TupleDescData<'static>> {
     let natts = program.out.len();
     let mut desc = tupdesc::CreateTemplateTupleDesc(mcx, natts as i32).expect("template tupdesc");
     for (i, col) in program.out.iter().enumerate() {
         let name = core::str::from_utf8(col.name_bytes()).unwrap_or("");
-        let _ = tupdesc::TupleDescInitEntry(&mut desc, i as i16 + 1, Some(name), col.typid, col.typmod, 0);
+        let _ = tupdesc::TupleDescInitEntry(
+            &mut desc,
+            i as i16 + 1,
+            Some(name),
+            col.typid,
+            col.typmod,
+            0,
+        );
         if col.collation != 0 {
             tupdesc::TupleDescInitEntryCollation(&mut desc, i as i16 + 1, col.collation);
         }
@@ -877,12 +1091,17 @@ pub(super) fn perm_denied(relid: types_core::Oid) -> Box<types_error::PgError> {
         _ => "table",
     };
     let ctx = gravity_driver::mem::root::Root::new("GravityPermError"); // alloc: Cold
-    let name = lsyscache::relation::get_rel_name(ctx.mcx(), relid).ok().flatten().map(|n| n.to_string()); // alloc: Cold
+    let name = lsyscache::relation::get_rel_name(ctx.mcx(), relid)
+        .ok()
+        .flatten()
+        .map(|n| n.to_string()); // alloc: Cold
     let msg = match name {
         Some(n) => format!("permission denied for {noun} {n}"), // alloc: Cold
         None => format!("permission denied for relation with oid {relid}"), // alloc: Cold
     };
-    Box::new(types_error::PgError::error(msg).with_sqlstate(types_error::ERRCODE_INSUFFICIENT_PRIVILEGE)) // alloc: Cold
+    Box::new(
+        types_error::PgError::error(msg).with_sqlstate(types_error::ERRCODE_INSUFFICIENT_PRIVILEGE),
+    ) // alloc: Cold
 }
 
 #[cfg(test)]
@@ -895,12 +1114,24 @@ mod hold_tests {
     fn e_hold_an_exec_slot_is_on_the_per_backend_holder() {
         let mut s = Box::new(ExecSlot::new()); // alloc: Cold
         let block = core::mem::size_of::<ExecSlot>() as u64;
-        assert_eq!((s.held.owner(), s.held.committed()), (crate::BACKEND_OWNER, block), "its block, at new");
+        assert_eq!(
+            (s.held.owner(), s.held.committed()),
+            (crate::BACKEND_OWNER, block),
+            "its block, at new"
+        );
         s.size_words(40);
         let words = (s.kparams.capacity() * 8 + s.knulls.capacity()) as u64;
         assert!(words >= 40 * 9);
-        assert_eq!(s.held.committed(), block + words, "its block and its key words' capacity");
+        assert_eq!(
+            s.held.committed(),
+            block + words,
+            "its block and its key words' capacity"
+        );
         s.size_words(2);
-        assert_eq!(s.held.committed(), block + words, "a smaller Bind keeps the buffers, and the charge with them");
+        assert_eq!(
+            s.held.committed(),
+            block + words,
+            "a smaller Bind keeps the buffers, and the charge with them"
+        );
     }
 }

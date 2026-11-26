@@ -9,7 +9,9 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::time::Duration;
 
-use gravity_driver::{install_spill_factory, Result, RunReader, SpillFactory, SpillFile, SpillSet, SpillTable};
+use gravity_driver::{
+    install_spill_factory, Result, RunReader, SpillFactory, SpillFile, SpillSet, SpillTable,
+};
 
 /// A stored file's epoch write in progress (the window a torn read needs).
 static WRITING: AtomicBool = AtomicBool::new(false);
@@ -33,7 +35,13 @@ impl SpillFactory for Factory {
 }
 
 impl SpillSet for Set {
-    fn open(&mut self, _purpose: &str, _generation: u64, _worker: usize, _nparts: u32) -> Result<Box<dyn SpillFile>> {
+    fn open(
+        &mut self,
+        _purpose: &str,
+        _generation: u64,
+        _worker: usize,
+        _nparts: u32,
+    ) -> Result<Box<dyn SpillFile>> {
         Ok(Box::new(File))
     }
 }
@@ -79,11 +87,14 @@ impl Shared {
 
 #[test]
 fn d1719_a_pair_claims_open_never_meets_another_claims_drain_part_write() {
-    assert!(install_spill_factory(&FACTORY), "this binary owns the process's spill factory");
+    assert!(
+        install_spill_factory(&FACTORY),
+        "this binary owns the process's spill factory"
+    );
     const BITS: u8 = 3;
     let mut table = Box::new(SpillTable::with_slots(1));
     table.provision(3); // the leader sizes every owner's slot before the section
-    // owner 1's build part 5, written in the build's section (its file now exists; the pass reads it)
+                        // owner 1's build part 5, written in the build's section (its file now exists; the pass reads it)
     table.stage_put(0, 1, BITS, 5, b"build records").unwrap();
     table.stage_flush(0, 1, BITS).unwrap();
     for round in 0..4 {
@@ -95,12 +106,14 @@ fn d1719_a_pair_claims_open_never_meets_another_claims_drain_part_write() {
         let writer = std::thread::spawn(move || {
             // SAFETY: the production law: the table outlives the pass; owner 1 writes its own file alone
             let t = unsafe { &mut *w.get() };
-            t.stage_put(0, 1, BITS, (2 << BITS) + round, b"drain part").unwrap();
+            t.stage_put(0, 1, BITS, (2 << BITS) + round, b"drain part")
+                .unwrap();
             t.stage_flush(0, 1, BITS).unwrap();
         });
         // owner 2's claim: partition 5 of every owner's file, owner 1's among them, once owner 1's write has begun
         let reader = std::thread::spawn(move || {
-            rx.recv_timeout(Duration::from_secs(5)).expect("the drain part's write began");
+            rx.recv_timeout(Duration::from_secs(5))
+                .expect("the drain part's write began");
             // SAFETY: as the pass's claims: `open_stored` reads the stream (the stored-stream lock is the fix)
             let t = unsafe { &*r.get() };
             t.open_stored(0, 1, 5).unwrap();
@@ -108,6 +121,15 @@ fn d1719_a_pair_claims_open_never_meets_another_claims_drain_part_write() {
         writer.join().unwrap();
         reader.join().unwrap();
     }
-    assert_eq!(OPENED.load(Ordering::SeqCst), 4, "every round's reader opened owner 1's part");
-    assert_eq!(RACED.load(Ordering::SeqCst), 0, "{} of 4 opens met owner 1's epoch write in progress (D1719)", RACED.load(Ordering::SeqCst));
+    assert_eq!(
+        OPENED.load(Ordering::SeqCst),
+        4,
+        "every round's reader opened owner 1's part"
+    );
+    assert_eq!(
+        RACED.load(Ordering::SeqCst),
+        0,
+        "{} of 4 opens met owner 1's epoch write in progress (D1719)",
+        RACED.load(Ordering::SeqCst)
+    );
 }

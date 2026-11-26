@@ -15,34 +15,37 @@ use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{ConvOp, IntBinOp, IntCond, Type, Value};
 use mcx::{CollectIn, GrowIn, Mcx, PgVec};
 
+#[allow(unused_imports)]
+use crate::admit::refusal::{Reason, Variant};
 use crate::face::fold::{Acc, FoldClass, WideTerm};
 use crate::face::kinds::KindId;
 use crate::face::strategy::NUM_WINDOW;
 use crate::frame::env::Env;
 use crate::frame::px::Px;
 use crate::frame::row::RowVals;
-#[allow(unused_imports)]
-use crate::admit::refusal::{Reason, Variant};
 
+use crate::ops::agg::hashagg::{AccAt, Agg, GroupRec};
 use crate::ops::agg::numeric::strategies::memo_num::Memo;
 use crate::ops::agg::numeric::strategies::num_tree::{bounded, digits_of, scale_of, Tree, NARROW};
 use crate::ops::agg::numeric::strategies::num_window::{finite, leaf_codes, mul128x64, sext, Val};
 use crate::ops::agg::trans::plain::of_agg;
 use crate::props::class_kind;
-use crate::ops::agg::hashagg::{AccAt, Agg, GroupRec};
 
 type Trees<'g, 'p> = Option<(Tree<'g>, PgVec<'g, types_nodes::Node<'p>>)>;
 
 /// Whether `g`'s end folds num.window trees: a Hashed group's, the road on (a plain end's: fold/plain.rs).
 pub(crate) fn on(px: &Px<'_, '_>, g: &GroupDecl<'_>) -> bool {
-    forms(g, px.mcx()) && px.strategies.has(NUM_WINDOW) && crate::face::source::on(Variant::Strategy(NUM_WINDOW))
+    forms(g, px.mcx())
+        && px.strategies.has(NUM_WINDOW)
+        && crate::face::source::on(Variant::Strategy(NUM_WINDOW))
 }
 
 /// The keyed group forms whose end folds trees: Hashed; Sorted (runs.group's end is keyed.hashagg's over the same record,
 /// ops/group/lower.rs) where a tree takes one of its aggregates, so a Sorted group without one keeps its record as it was
 /// (code.front_light reads a record with no tree list).
 pub(crate) fn forms(g: &GroupDecl<'_>, mcx: Mcx<'_>) -> bool {
-    g.form == GroupForm::Hashed || g.form == GroupForm::Sorted && g.aggs.iter().any(|a| keyed_tree(a, mcx).is_some())
+    g.form == GroupForm::Hashed
+        || g.form == GroupForm::Sorted && g.aggs.iter().any(|a| keyed_tree(a, mcx).is_some())
 }
 
 /// The tree a keyed end folds for `a`: a class.num_wide product, a packed argument past one mantissa word, or a narrow
@@ -52,10 +55,16 @@ pub(crate) fn forms(g: &GroupDecl<'_>, mcx: Mcx<'_>) -> bool {
 /// takes num_case.rs's masked add, as a plain end does), a division by a constant (D4567 (a): x x c and a dscale word). A
 /// bare column keeps its column step (num.lean's word).
 pub(crate) fn keyed_tree<'g, 'p>(a: &AggDecl<'p>, mcx: Mcx<'g>) -> Trees<'g, 'p> {
-    let e = a.node.as_aggref().and_then(|r| r.args.iter().next()).map(|t| t.as_target_entry().map_or(t, |t| t.expr))?;
+    let e = a
+        .node
+        .as_aggref()
+        .and_then(|r| r.args.iter().next())
+        .map(|t| t.as_target_entry().map_or(t, |t| t.expr))?;
     match class_kind(a) {
         KindId::ClassNumWide => of_wide(a, mcx),
-        KindId::ClassNumPacked if crate::ops::agg::numeric::strategies::num_tree::wide(e, mcx) => of_agg(a, mcx),
+        KindId::ClassNumPacked if crate::ops::agg::numeric::strategies::num_tree::wide(e, mcx) => {
+            of_agg(a, mcx)
+        }
         KindId::ClassNumPacked => of_agg(a, mcx).filter(|t| !matches!(t.0, Tree::Col { .. })),
         _ => None,
     }
@@ -63,34 +72,72 @@ pub(crate) fn keyed_tree<'g, 'p>(a: &AggDecl<'p>, mcx: Mcx<'g>) -> Trees<'g, 'p>
 
 /// A class.num_wide decl's argument as its num.window wide tree (num_tree `compile_wide`) with its WHEN nodes.
 pub(crate) fn of_wide<'g, 'p>(a: &AggDecl<'p>, mcx: Mcx<'g>) -> Trees<'g, 'p> {
-    let r = a.node.as_aggref().filter(|r| r.args.len() == 1 && matches!(a.reg, Register::SumNumWide | Register::AvgNumWide))?;
-    let e = r.args.iter().next().map(|t| t.as_target_entry().map_or(t, |t| t.expr))?;
+    let r = a.node.as_aggref().filter(|r| {
+        r.args.len() == 1 && matches!(a.reg, Register::SumNumWide | Register::AvgNumWide)
+    })?;
+    let e = r
+        .args
+        .iter()
+        .next()
+        .map(|t| t.as_target_entry().map_or(t, |t| t.expr))?;
     let mut whens = PgVec::new_in(mcx);
-    crate::ops::agg::numeric::strategies::num_tree::compile_wide(e, a.scale, &mut whens, mcx).map(|t| (t, whens))
+    crate::ops::agg::numeric::strategies::num_tree::compile_wide(e, a.scale, &mut whens, mcx)
+        .map(|t| (t, whens))
 }
 
 /// group_rec.rs `compile_args`: `a`'s tree (`keyed_tree`) bound over the producer's row, pushed to `nums` with its FILTER
 /// compiled; false (nothing compiled) where the end folds no trees or none takes `a`.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn compile<'g, 'p>(nums: &mut Option<PgVec<'g, (i16, Tree<'g>, bool)>>, a: &mut Agg<'p>, px: &mut Px<'g, 'p>, producer: usize, nops: usize, node: i32, image_only: bool) -> bool {
-    let Some(nums) = nums.as_mut().filter(|_| !image_only) else { return false };
+pub(crate) fn compile<'g, 'p>(
+    nums: &mut Option<PgVec<'g, (i16, Tree<'g>, bool)>>,
+    a: &mut Agg<'p>,
+    px: &mut Px<'g, 'p>,
+    producer: usize,
+    nops: usize,
+    node: i32,
+    image_only: bool,
+) -> bool {
+    let Some(nums) = nums.as_mut().filter(|_| !image_only) else {
+        return false;
+    };
     let mcx = px.mcx();
-    let Some((mut t, whens)) = keyed_tree(&a.d, mcx) else { return false };
-    let ids: PgVec<'_, _> = whens.into_iter().map(|w| crate::step::expr::compile_at(px, producer, nops, w, None, node)).collect_in(mcx);
+    let Some((mut t, whens)) = keyed_tree(&a.d, mcx) else {
+        return false;
+    };
+    let ids: PgVec<'_, _> = whens
+        .into_iter()
+        .map(|w| crate::step::expr::compile_at(px, producer, nops, w, None, node))
+        .collect_in(mcx);
     crate::ops::agg::numeric::strategies::num_tree::bind(&mut t, &ids[..]);
     nums.push_in((a.d.aggno, t, class_kind(&a.d) == KindId::ClassNumWide));
     fires::fire("num.window.keyed"); // shapecheck fire signal (A-24c (c): a keyed end folds an aggregate's num.window tree)
-    a.filter = a.d.filter.map(|f| crate::step::expr::compile_at(px, producer, nops, f, None, node));
+    a.filter =
+        a.d.filter
+            .map(|f| crate::step::expr::compile_at(px, producer, nops, f, None, node));
     true
 }
 
 /// One row's tree term folded into `acc`: a wide product's i256 by its class (`fold_wide`), a packed one by
 /// class.num_packed's fold under V4R-68's window guard `g` (`None`: add_sum per row; a wide sum is never guarded).
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn fold_term<'t>(b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals, a: &AggDecl<'_>, class: &dyn FoldClass, t: &'t Tree, wide: bool, memo: &mut Memo<'t>, acc: Acc<'_>, g: Option<Value>) {
+pub(crate) fn fold_term<'t>(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    row: &RowVals,
+    a: &AggDecl<'_>,
+    class: &dyn FoldClass,
+    t: &'t Tree,
+    wide: bool,
+    memo: &mut Memo<'t>,
+    acc: Acc<'_>,
+    g: Option<Value>,
+) {
     if wide {
         // D619: packed windows take the lean i256 add; the generic fold below runs for a verbatim one, its subtrees kept
-        let (lean, mark) = (crate::ops::agg::numeric::strategies::num_lean::wide(b, env, row, a, class, t, &acc), memo.len());
+        let (lean, mark) = (
+            crate::ops::agg::numeric::strategies::num_lean::wide(b, env, row, a, class, t, &acc),
+            memo.len(),
+        );
         let term = wide_term(b, env, row, t, memo);
         class.fold_wide(b, env, a, acc, &term);
         if lean.is_some() {
@@ -99,7 +146,10 @@ pub(crate) fn fold_term<'t>(b: &mut FunctionBuilder<'_>, env: &mut Env, row: &Ro
         crate::ops::agg::numeric::strategies::num_lean::join(b, env, lean);
     } else {
         // D3224 A1: likewise a packed window's tree term folds without the specials (num_lean.rs `tree`)
-        let (lean, mark) = (crate::ops::agg::numeric::strategies::num_lean::tree(b, env, row, a, t, &acc, g), memo.len());
+        let (lean, mark) = (
+            crate::ops::agg::numeric::strategies::num_lean::tree(b, env, row, a, t, &acc, g),
+            memo.len(),
+        );
         let term = crate::ops::agg::numeric::strategies::num_window::term(b, env, row, t, memo);
         crate::ops::agg::numeric::class_num::fold(b, env, a, acc, &term, g);
         if lean.is_some() {
@@ -110,8 +160,17 @@ pub(crate) fn fold_term<'t>(b: &mut FunctionBuilder<'_>, env: &mut Env, row: &Ro
 }
 
 /// hashagg.rs `step`: `a`'s tree (`compile`) folded into `acc` under its FILTER; `acc` back where `a` folds no tree.
-pub(crate) fn step<'a>(gr: &GroupRec<'_, '_>, b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals, a: &Agg<'_>, acc: AccAt<'a>) -> Option<AccAt<'a>> {
-    let Some((_, t, wide)) = gr.nums.iter().flatten().find(|n| n.0 == a.d.aggno) else { return Some(acc) };
+pub(crate) fn step<'a>(
+    gr: &GroupRec<'_, '_>,
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    row: &RowVals,
+    a: &Agg<'_>,
+    acc: AccAt<'a>,
+) -> Option<AccAt<'a>> {
+    let Some((_, t, wide)) = gr.nums.iter().flatten().find(|n| n.0 == a.d.aggno) else {
+        return Some(acc);
+    };
     let fold = |b: &mut FunctionBuilder<'_>, env: &mut Env, acc: Acc<'_>| {
         let mcx = env.mcx;
         let mut memo = Memo::new(false, mcx);
@@ -120,11 +179,16 @@ pub(crate) fn step<'a>(gr: &GroupRec<'_, '_>, b: &mut FunctionBuilder<'_>, env: 
             None => fold_term(b, env, row, &a.d, a.class, t, *wide, &mut memo, acc, None),
             Some((at, sel, on)) => {
                 memo.sel = Some((at, sel));
-                crate::ops::agg::trans::filter::acc_when(b, env, on, acc, |b, env, acc| fold_term(b, env, row, &a.d, a.class, t, *wide, &mut memo, acc, None));
+                crate::ops::agg::trans::filter::acc_when(b, env, on, acc, |b, env, acc| {
+                    fold_term(b, env, row, &a.d, a.class, t, *wide, &mut memo, acc, None)
+                });
             }
         }
     };
-    let pred = |b: &mut FunctionBuilder<'_>, env: &mut Env| a.filter.map(|ex| crate::step::expr::pred(b, env, gr.node, row, ex));
+    let pred = |b: &mut FunctionBuilder<'_>, env: &mut Env| {
+        a.filter
+            .map(|ex| crate::step::expr::pred(b, env, gr.node, row, ex))
+    };
     match acc {
         AccAt::Slot(base, slot, _) => {
             let acc = gr.slot(base, slot);
@@ -160,7 +224,13 @@ pub(crate) fn step<'a>(gr: &GroupRec<'_, '_>, b: &mut FunctionBuilder<'_>, env: 
 
 /// class.num_wide's term for the row: the root wide node (num_tree `compile_wide`) as its exact i256 (`wide_val`) and its
 /// specials code (see the module doc).
-pub(crate) fn wide_term<'t>(b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals, t: &'t Tree, memo: &mut Memo<'t>) -> WideTerm {
+pub(crate) fn wide_term<'t>(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    row: &RowVals,
+    t: &'t Tree,
+    memo: &mut Memo<'t>,
+) -> WideTerm {
     let (w, v) = wide_val(b, env, row, t, memo);
     let ok = v.ok;
     let mut flags: PgVec<'_, Value> = PgVec::new_in(env.mcx);
@@ -186,13 +256,35 @@ pub(crate) fn wide_term<'t>(b: &mut FunctionBuilder<'_>, env: &mut Env, row: &Ro
 /// wide factor's i128 times the one-word factor, 192 bits sign-extended; a wide sum / difference (OID-04): its sides'
 /// words rescaled to its scale (`times10`) and added in 256 bits (`add256`), exact under the 55-digit bound
 /// (num_tree `compile_wide`); any other node: its `finite` value sign-extended. Never a raise.
-fn wide_val<'t>(b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals, t: &'t Tree, memo: &mut Memo<'t>) -> ([Value; 4], Val<'t>) {
+fn wide_val<'t>(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    row: &RowVals,
+    t: &'t Tree,
+    memo: &mut Memo<'t>,
+) -> ([Value; 4], Val<'t>) {
     let mcx = memo.mcx;
-    let val = |w: [Value; 4], ok, kids| Val { lo: w[0], hi: Some(w[1]), sp: None, ok, kids, sel: PgVec::new_in(mcx), ds: None, raw: None };
+    let val = |w: [Value; 4], ok, kids| Val {
+        lo: w[0],
+        hi: Some(w[1]),
+        sp: None,
+        ok,
+        kids,
+        sel: PgVec::new_in(mcx),
+        ds: None,
+        raw: None,
+    };
     match t {
         Tree::Mul(x, y) if !bounded(t) => {
-            let (vx, vy) = (finite(b, env, row, x, memo, None), finite(b, env, row, y, memo, None));
-            let (w, s) = if digits_of(y) <= NARROW { (&vx, vy.lo) } else { (&vy, vx.lo) };
+            let (vx, vy) = (
+                finite(b, env, row, x, memo, None),
+                finite(b, env, row, y, memo, None),
+            );
+            let (w, s) = if digits_of(y) <= NARROW {
+                (&vx, vy.lo)
+            } else {
+                (&vy, vx.lo)
+            };
             let wh = w.hi.unwrap_or_else(|| sext(b, w.lo));
             let (p0, p1, _, p2) = mul128x64(b, w.lo, wh, s);
             let p3 = sext(b, p2);
@@ -202,9 +294,19 @@ fn wide_val<'t>(b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals, t: &'
         }
         Tree::Add(x, y) | Tree::Sub(x, y) if !bounded(t) => {
             let s = scale_of(t);
-            let ((wx, vx), (wy, vy)) = (wide_val(b, env, row, x, memo), wide_val(b, env, row, y, memo));
-            let (wx, wy) = (times10(b, wx, s - scale_of(x)), times10(b, wy, s - scale_of(y)));
-            let wy = if matches!(t, Tree::Sub(..)) { neg256(b, env, wy) } else { wy };
+            let ((wx, vx), (wy, vy)) = (
+                wide_val(b, env, row, x, memo),
+                wide_val(b, env, row, y, memo),
+            );
+            let (wx, wy) = (
+                times10(b, wx, s - scale_of(x)),
+                times10(b, wy, s - scale_of(y)),
+            );
+            let wy = if matches!(t, Tree::Sub(..)) {
+                neg256(b, env, wy)
+            } else {
+                wy
+            };
             let w = add256(b, wx, wy);
             let ok = b.int_bin(IntBinOp::And, vx.ok, vy.ok);
             (w, val(w, ok, mcx::pg_vec![in mcx; vx, vy]))
@@ -228,7 +330,10 @@ fn times10(b: &mut FunctionBuilder<'_>, w: [Value; 4], k: i16) -> [Value; 4] {
     let mut out = w;
     let mut carry: Option<Value> = None;
     for (o, &x) in out.iter_mut().zip(w.iter()) {
-        let (lo, hi) = (b.int_bin(IntBinOp::Mul, x, f), b.int_bin(IntBinOp::Umulh, x, f));
+        let (lo, hi) = (
+            b.int_bin(IntBinOp::Mul, x, f),
+            b.int_bin(IntBinOp::Umulh, x, f),
+        );
         *o = lo;
         let mut hi = hi;
         if let Some(c) = carry {
@@ -307,23 +412,49 @@ mod tests {
     /// `a * f` exactly in 256 bits.
     fn prod(a: i128, f: i64) -> [u64; 4] {
         let r = mul(ext(a), f.unsigned_abs());
-        if f < 0 { neg(r) } else { r }
+        if f < 0 {
+            neg(r)
+        } else {
+            r
+        }
     }
 
     /// OID-04: a sum / difference over wide products (and a packed side) is its exact i256 at the larger scale
     /// (`wide_val`: each side rescaled by `times10`, added by `add256`, a subtrahend negated by `neg256`); `-x` is `0 - x`.
     #[test]
     fn a_sum_of_wide_products_is_its_exact_i256() {
-        let (c1, c2): (i128, i128) = (123_456_789_012_345_678_901_234_567_890_123_456, -98_765_432_109_876_543_210_987_654_321_098_765);
+        let (c1, c2): (i128, i128) = (
+            123_456_789_012_345_678_901_234_567_890_123_456,
+            -98_765_432_109_876_543_210_987_654_321_098_765,
+        );
         let (f1, f2): (i64, i64) = (987_654_321_098_765_432, -123_456_789_012_345_678);
         let cx = mcx::MemoryContext::new("oid04");
         let bx = |t| mcx::box_in(t, cx.mcx());
-        let big = |m: i128, scale| bx(Tree::PastWord { m: Some(m), scale, digits: 36 });
-        let k = |m: i64, scale| bx(Tree::Const { m, scale, digits: 18 });
+        let big = |m: i128, scale| {
+            bx(Tree::PastWord {
+                m: Some(m),
+                scale,
+                digits: 36,
+            })
+        };
+        let k = |m: i64, scale| {
+            bx(Tree::Const {
+                m,
+                scale,
+                digits: 18,
+            })
+        };
         let run = |t: &Tree| -> [u64; 4] {
             let word = |i: usize| {
                 crate::frame::stop::tests::run1(&[], &mut |b, env| {
-                    let row = RowVals { row: crate::cell::Row::new_in(env.mcx), vals: mcx::PgVec::new_in(env.mcx), cols: mcx::PgVec::new_in(env.mcx), carry: crate::frame::row::Carry::new(env.zero, env.mcx), next: env.zero, at: env.zero };
+                    let row = RowVals {
+                        row: crate::cell::Row::new_in(env.mcx),
+                        vals: mcx::PgVec::new_in(env.mcx),
+                        cols: mcx::PgVec::new_in(env.mcx),
+                        carry: crate::frame::row::Carry::new(env.zero, env.mcx),
+                        next: env.zero,
+                        at: env.zero,
+                    };
                     let mut memo = Memo::new(false, env.mcx);
                     wide_term(b, env, &row, t, &mut memo).w[i]
                 }) as u64
@@ -331,14 +462,46 @@ mod tests {
             [word(0), word(1), word(2), word(3)]
         };
         // scales: c1 * f1 at 2 + 2 = 4, c2 * f2 at 3 + 0 = 3 (rescaled by 10 to 4)
-        let (p1, p2) = (Tree::Mul(big(c1, 2), k(f1, 2)), Tree::Mul(big(c2, 3), k(f2, 0)));
+        let (p1, p2) = (
+            Tree::Mul(big(c1, 2), k(f1, 2)),
+            Tree::Mul(big(c2, 3), k(f2, 0)),
+        );
         let (e1, e2) = (prod(c1, f1), mul(prod(c2, f2), 10));
         assert_eq!(run(&p1), e1, "a wide product");
-        assert_eq!(run(&Tree::Add(bx(Tree::Mul(big(c1, 2), k(f1, 2))), bx(Tree::Mul(big(c2, 3), k(f2, 0))))), add(e1, e2), "x * y + z * w");
-        assert_eq!(run(&Tree::Sub(bx(Tree::Mul(big(c1, 2), k(f1, 2))), bx(Tree::Mul(big(c2, 3), k(f2, 0))))), add(e1, neg(e2)), "x * y - z * w");
-        assert_eq!(run(&Tree::Sub(bx(Tree::Mul(big(c2, 3), k(f2, 0))), bx(Tree::Mul(big(c1, 2), k(f1, 2))))), add(e2, neg(e1)), "z * w - x * y");
-        assert_eq!(run(&Tree::Sub(k(0, 4), bx(p2))), neg(e2), "-(z * w) as 0 - z * w");
+        assert_eq!(
+            run(&Tree::Add(
+                bx(Tree::Mul(big(c1, 2), k(f1, 2))),
+                bx(Tree::Mul(big(c2, 3), k(f2, 0)))
+            )),
+            add(e1, e2),
+            "x * y + z * w"
+        );
+        assert_eq!(
+            run(&Tree::Sub(
+                bx(Tree::Mul(big(c1, 2), k(f1, 2))),
+                bx(Tree::Mul(big(c2, 3), k(f2, 0)))
+            )),
+            add(e1, neg(e2)),
+            "x * y - z * w"
+        );
+        assert_eq!(
+            run(&Tree::Sub(
+                bx(Tree::Mul(big(c2, 3), k(f2, 0))),
+                bx(Tree::Mul(big(c1, 2), k(f1, 2)))
+            )),
+            add(e2, neg(e1)),
+            "z * w - x * y"
+        );
+        assert_eq!(
+            run(&Tree::Sub(k(0, 4), bx(p2))),
+            neg(e2),
+            "-(z * w) as 0 - z * w"
+        );
         // a packed side (a 36-digit constant at scale 1) rescaled by 10^3 and added to a wide product
-        assert_eq!(run(&Tree::Add(bx(p1), big(c2, 1))), add(e1, mul(ext(c2), 1000)), "x * y + c");
+        assert_eq!(
+            run(&Tree::Add(bx(p1), big(c2, 1))),
+            add(e1, mul(ext(c2), 1000)),
+            "x * y + c"
+        );
     }
 }

@@ -66,7 +66,6 @@ fn inet_net_ntop_ipv4(src: &[u8], bits: i32, dst: &mut [u8]) -> Option<usize> {
     }
 
     #[allow(clippy::explicit_counter_loop)]
-
     for _b in (1..=4).rev() {
         if size <= 5 {
             return None;
@@ -103,7 +102,6 @@ fn decoct(src: &[u8], bytes: usize, dst: &mut [u8], d0: usize) -> usize {
     let mut si = 0usize;
 
     #[allow(clippy::explicit_counter_loop)]
-
     for b in 1..=bytes {
         if size <= 5 {
             return 0;

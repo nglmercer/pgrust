@@ -34,7 +34,10 @@ impl PlanKey {
 
     /// D3865 L5: this plan key's identity key.
     pub const fn identity(self) -> PlanKey {
-        PlanKey { handle: self.handle, generation: Generation(self.generation.0 | Self::IDENTITY) }
+        PlanKey {
+            handle: self.handle,
+            generation: Generation(self.generation.0 | Self::IDENTITY),
+        }
     }
 
     /// D3865 L5: an identity key (`identity`); never a content key.
@@ -74,7 +77,15 @@ impl ProgramCache {
     /// D3620: the tables grow with their filings (up to `max_entries`): a backend level that files one program holds one
     /// entry's table, not `max_entries`' (every level of a deep SQL-function recursion builds its own cache).
     pub fn new(budget_bytes: usize, max_entries: usize) -> ProgramCache {
-        ProgramCache { l1: HashMap::new(), l2: HashMap::new(), clock: 0, l2_bytes: 0, budget_bytes, max_entries, stats: CacheStats::default() }
+        ProgramCache {
+            l1: HashMap::new(),
+            l2: HashMap::new(),
+            clock: 0,
+            l2_bytes: 0,
+            budget_bytes,
+            max_entries,
+            stats: CacheStats::default(),
+        }
     }
 
     pub fn l1(&mut self, key: PlanKey) -> Option<Arc<Program>> {
@@ -110,30 +121,52 @@ impl ProgramCache {
             return;
         }
         let bytes = program.code_bytes();
-        while !self.l2.is_empty() && (self.l2.len() >= self.max_entries || self.l2_bytes + bytes > self.budget_bytes) {
+        while !self.l2.is_empty()
+            && (self.l2.len() >= self.max_entries || self.l2_bytes + bytes > self.budget_bytes)
+        {
             self.evict_one();
         }
         self.clock += 1;
         self.l2_bytes += bytes;
-        self.l2.insert(content, L2Entry { program, last_use: self.clock, bytes });
+        self.l2.insert(
+            content,
+            L2Entry {
+                program,
+                last_use: self.clock,
+                bytes,
+            },
+        );
     }
 
     /// File `program` under a front key (`Program::front_key`): a later `l2(front)` returns it. The
     /// entry is an L2 entry like any other (budget, eviction, `reset`).
     pub fn install(&mut self, front: ContentKey, program: Arc<Program>) {
         let bytes = program.code_bytes();
-        while !self.l2.is_empty() && (self.l2.len() >= self.max_entries || self.l2_bytes + bytes > self.budget_bytes) {
+        while !self.l2.is_empty()
+            && (self.l2.len() >= self.max_entries || self.l2_bytes + bytes > self.budget_bytes)
+        {
             self.evict_one();
         }
         self.clock += 1;
-        if let Some(old) = self.l2.insert(front, L2Entry { program, last_use: self.clock, bytes }) {
+        if let Some(old) = self.l2.insert(
+            front,
+            L2Entry {
+                program,
+                last_use: self.clock,
+                bytes,
+            },
+        ) {
             self.l2_bytes -= old.bytes;
         }
         self.l2_bytes += bytes;
     }
 
     fn evict_one(&mut self) {
-        let victim = self.l2.iter().min_by_key(|(_, e)| e.last_use).map(|(k, _)| *k);
+        let victim = self
+            .l2
+            .iter()
+            .min_by_key(|(_, e)| e.last_use)
+            .map(|(k, _)| *k);
         if let Some(k) = victim {
             let e = self.l2.remove(&k).expect("victim present");
             self.l2_bytes -= e.bytes;
@@ -209,8 +242,20 @@ impl<V: Clone> SharedCache<V> {
     /// `max_entries` / `budget_bytes` bound the whole tier; each shard takes its `1 / SHARDS` part (at least one entry).
     pub fn new(max_entries: usize, budget_bytes: usize) -> SharedCache<V> {
         use std::sync::atomic::AtomicU64;
-        let shards = (0..SHARDS).map(|_| pgsync::RwLock::new(HashMap::new())).collect::<Vec<_>>().into_boxed_slice(); // alloc: Cold
-        SharedCache { shards, clock: AtomicU64::new(0), max_entries: (max_entries / SHARDS).max(1), budget_bytes: budget_bytes / SHARDS, hits: AtomicU64::new(0), misses: AtomicU64::new(0), inserts: AtomicU64::new(0), evictions: AtomicU64::new(0) }
+        let shards = (0..SHARDS)
+            .map(|_| pgsync::RwLock::new(HashMap::new()))
+            .collect::<Vec<_>>()
+            .into_boxed_slice(); // alloc: Cold
+        SharedCache {
+            shards,
+            clock: AtomicU64::new(0),
+            max_entries: (max_entries / SHARDS).max(1),
+            budget_bytes: budget_bytes / SHARDS,
+            hits: AtomicU64::new(0),
+            misses: AtomicU64::new(0),
+            inserts: AtomicU64::new(0),
+            evictions: AtomicU64::new(0),
+        }
     }
 
     fn shard(&self, key: u128) -> &pgsync::RwLock<HashMap<u128, SharedEntry<V>>> {
@@ -219,7 +264,9 @@ impl<V: Clone> SharedCache<V> {
     }
 
     fn tick(&self) -> u64 {
-        self.clock.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
+        self.clock
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            + 1
     }
 
     pub fn get(&self, key: u128) -> Option<V> {
@@ -252,7 +299,13 @@ impl<V: Clone> SharedCache<V> {
     }
 
     /// `insert_filed`, where a value already filed is kept only while `live` holds of it (a stale one is replaced).
-    pub fn insert_over(&self, key: u128, value: V, bytes: usize, live: impl Fn(&V) -> bool) -> (V, bool) {
+    pub fn insert_over(
+        &self,
+        key: u128,
+        value: V,
+        bytes: usize,
+        live: impl Fn(&V) -> bool,
+    ) -> (V, bool) {
         use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
         let mut s = self.shard(key).write().unwrap_or_else(|e| e.into_inner());
         if let Some(e) = s.get(&key) {
@@ -268,18 +321,32 @@ impl<V: Clone> SharedCache<V> {
         }
         let mut used: usize = s.values().map(|e| e.bytes).sum();
         while !s.is_empty() && (s.len() >= self.max_entries || used + bytes > self.budget_bytes) {
-            let victim = s.iter().min_by_key(|(_, e)| e.last_use.load(Relaxed)).map(|(k, _)| *k).expect("a non-empty shard");
+            let victim = s
+                .iter()
+                .min_by_key(|(_, e)| e.last_use.load(Relaxed))
+                .map(|(k, _)| *k)
+                .expect("a non-empty shard");
             let e = s.remove(&victim).expect("victim present");
             used -= e.bytes;
             self.evictions.fetch_add(1, Relaxed);
         }
-        s.insert(key, SharedEntry { value: value.clone(), bytes, last_use: AtomicU64::new(self.tick()) }); // alloc: Program
+        s.insert(
+            key,
+            SharedEntry {
+                value: value.clone(),
+                bytes,
+                last_use: AtomicU64::new(self.tick()),
+            },
+        ); // alloc: Program
         self.inserts.fetch_add(1, Relaxed);
         (value, true)
     }
 
     pub fn contains(&self, key: u128) -> bool {
-        self.shard(key).read().unwrap_or_else(|e| e.into_inner()).contains_key(&key)
+        self.shard(key)
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains_key(&key)
     }
 
     /// D4579: takes out every entry whose value `doomed` names (one that can never be served again: its database dropped,
@@ -289,7 +356,11 @@ impl<V: Clone> SharedCache<V> {
     /// on the stack. The caller sizes `PASS` to its shards' entry bound (the program tier: SHARED_ENTRIES / SHARDS), so
     /// each shard takes one pass, O(entries) `doomed` calls; a shard over `PASS` takes one more pass per full one. The
     /// entries taken.
-    pub fn remove_where<const PASS: usize>(&self, doomed: impl Fn(&V) -> bool, mut gone: impl FnMut(V)) -> usize {
+    pub fn remove_where<const PASS: usize>(
+        &self,
+        doomed: impl Fn(&V) -> bool,
+        mut gone: impl FnMut(V),
+    ) -> usize {
         use std::sync::atomic::Ordering::Relaxed;
         let mut n = 0;
         for s in self.shards.iter() {
@@ -353,6 +424,13 @@ impl<V: Clone> SharedCache<V> {
             entries += s.len();
             bytes += s.values().map(|e| e.bytes).sum::<usize>();
         }
-        SharedStats { hits: self.hits.load(Relaxed), misses: self.misses.load(Relaxed), inserts: self.inserts.load(Relaxed), evictions: self.evictions.load(Relaxed), entries, bytes }
+        SharedStats {
+            hits: self.hits.load(Relaxed),
+            misses: self.misses.load(Relaxed),
+            inserts: self.inserts.load(Relaxed),
+            evictions: self.evictions.load(Relaxed),
+            entries,
+            bytes,
+        }
     }
 }

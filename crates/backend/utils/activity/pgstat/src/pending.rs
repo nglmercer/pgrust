@@ -179,8 +179,7 @@ pub(crate) fn with_state<R>(f: impl FnOnce(&mut PgStatState) -> R) -> R {
         let st = slot.get_or_insert_with(|| {
             crate::note_state_built();
             // C's lazily-created pgStatPendingContext; leaked: backend-lifetime.
-            let ctx: &'static MemoryContext =
-                ::mcx::session_root("PgStat Pending");
+            let ctx: &'static MemoryContext = ::mcx::session_root("PgStat Pending");
             // D4682: the teardown retires this root; clear the slot first, so a reused thread's next
             // session builds a new one.
             // The pgstat shutdown hook flushed the pending entries first (the exit-callback drain precedes the teardown).

@@ -19,12 +19,19 @@ pub(crate) fn rearm_ctes(ctx: *mut Ctx, ctes: &[usize]) -> PgResult<()> {
         return Ok(());
     }
     if ctx.is_null() {
-        return Err(glue::internal("gravity: m8_rerun: a CTE to re-arm with no context (setop_rec-0043)"));
+        return Err(glue::internal(
+            "gravity: m8_rerun: a CTE to re-arm with no context (setop_rec-0043)",
+        ));
     }
     for &h in ctes {
         // SAFETY: the caller's bound context (above); its params hold the handle words, a nonzero one the object's head, its
         // magic checked before any other read
-        let o = unsafe { *(*(ctx as *const u8).add(gravity_abi::ctx::hdr::PARAMS).cast::<*const u64>()).add(h) } as *const Head;
+        let o = unsafe {
+            *(*(ctx as *const u8)
+                .add(gravity_abi::ctx::hdr::PARAMS)
+                .cast::<*const u64>())
+            .add(h)
+        } as *const Head;
         // SAFETY: as above: a nonzero handle word is a laid object's head
         if o.is_null() || unsafe { (*o).magic } != CTE_MAGIC {
             return Err(glue::internal("gravity: m8_rerun: a re-armed CTE's handle word is not its object (setop_rec-0043)"));
@@ -46,11 +53,18 @@ pub(crate) fn on_demand(f: &mut Frame) -> &mut (dyn gravity_driver::OnDemand + '
 /// The object laid in `cell` (WORDS words, proto.rs `lay`): the head, whose operation is `op` below, then the address of
 /// `rt`, the state `lay` made beside it; both live in the Live to the execution's end.
 pub(crate) fn lay_head(cell: &mut [u64], rt: &CteRt) {
-    assert_eq!(cell.len(), WORDS, "nest.cte's object is its head and its state's address");
+    assert_eq!(
+        cell.len(),
+        WORDS,
+        "nest.cte's object is its head and its state's address"
+    );
     // SAFETY: `cell` is WORDS words: the head, then the state's address; both live in the Live to the execution's end.
     unsafe {
         let c = cell.as_mut_ptr();
-        c.cast::<Head>().write(Head { magic: CTE_MAGIC, op });
+        c.cast::<Head>().write(Head {
+            magic: CTE_MAGIC,
+            op,
+        });
         c.add(WORDS - 1).write(rt as *const CteRt as u64);
     }
 }

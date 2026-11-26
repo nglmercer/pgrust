@@ -12,18 +12,33 @@ fn first_byte(v: View, _: &mut gravity_dict::Region) -> Result<View, gravity_dic
 
 #[test]
 fn colliding_derived_values_share_one_canonical_index() {
-    let d = VecDict::of(&["apple", "avocado", "banana", "blueberry", "cherry", "apricot", "", "coconut"]);
+    let d = VecDict::of(&[
+        "apple",
+        "avocado",
+        "banana",
+        "blueberry",
+        "cherry",
+        "apricot",
+        "",
+        "coconut",
+    ]);
     let mut buf = Buf::new(8192);
     let mut r = buf.region();
     let t = Derived::build(&d, &mut r, &mut first_byte).unwrap();
     assert_eq!(t.ndistinct(), 4, "a b c and the empty string");
-    let canon: Vec<u32> = (0..d.ncodes_pub()).map(|c| unsafe { t.canonical(c) }).collect();
+    let canon: Vec<u32> = (0..d.ncodes_pub())
+        .map(|c| unsafe { t.canonical(c) })
+        .collect();
     assert_eq!(canon, [0, 0, 1, 1, 2, 0, 3, 2]);
     let mut by_bytes: HashMap<Vec<u8>, u32> = HashMap::new();
     for c in 0..d.ncodes_pub() {
         let v = unsafe { t.view(c).bytes() }.to_vec();
         let k = unsafe { t.canonical(c) };
-        assert_eq!(*by_bytes.entry(v.clone()).or_insert(k), k, "one index per value");
+        assert_eq!(
+            *by_bytes.entry(v.clone()).or_insert(k),
+            k,
+            "one index per value"
+        );
         assert_eq!(unsafe { t.hash(c) }, hash_bytes(&v));
     }
     assert_eq!(by_bytes.len(), 4);
@@ -47,7 +62,11 @@ fn the_same_derived_value_hashes_alike_across_parts() {
     assert_eq!(group(&t1, 1), group(&t2, 0));
     assert_eq!(group(&t1, 2), group(&t2, 2));
     assert_ne!(group(&t1, 2), group(&t2, 1));
-    assert_ne!(unsafe { t1.canonical(0) }, unsafe { t2.canonical(3) }, "canonical indices are per part; identity across parts is (hash, bytes)");
+    assert_ne!(
+        unsafe { t1.canonical(0) },
+        unsafe { t2.canonical(3) },
+        "canonical indices are per part; identity across parts is (hash, bytes)"
+    );
     let mut groups: HashMap<(u64, Vec<u8>), u32> = HashMap::new();
     for t in [&t1, &t2] {
         for c in 0..t.ncodes() {

@@ -26,11 +26,30 @@ pub enum Store<'p> {
 
 /// D1920: whether `visit` stops (returns true) at one of the stores a rescan of SubPlan `s`'s plan keeps, the SubPlan's own
 /// params and `changed` changed (its plan under REWIND when it is in rewindPlanIDs), in the plan's walk order.
-pub fn subplan_stores<'p>(stmt: &'p PlannedStmt<'p>, arena: ArenaRef, s: &'p SubPlan<'p>, changed: &[i32], visit: &mut dyn FnMut(Store<'p>) -> bool) -> bool {
-    let Some(root) = crate::rerun::subplan_root(stmt, s.plan_id) else { return visit(Store::Unknown) };
+pub fn subplan_stores<'p>(
+    stmt: &'p PlannedStmt<'p>,
+    arena: ArenaRef,
+    s: &'p SubPlan<'p>,
+    changed: &[i32],
+    visit: &mut dyn FnMut(Store<'p>) -> bool,
+) -> bool {
+    let Some(root) = crate::rerun::subplan_root(stmt, s.plan_id) else {
+        return visit(Store::Unknown);
+    };
     let mut ch: ArenaVec<i32> = ArenaVec::new_in(arena); // alloc: Cold
     ch.extend(changed.iter().copied().chain(s.parParam.iter()));
-    walk(stmt, arena, root, if stmt.rewindPlanIDs.is_member(s.plan_id) { REWIND } else { 0 }, &ch, visit)
+    walk(
+        stmt,
+        arena,
+        root,
+        if stmt.rewindPlanIDs.is_member(s.plan_id) {
+            REWIND
+        } else {
+            0
+        },
+        &ch,
+        visit,
+    )
 }
 
 /// D1920's VOLATILE half: the root of SubPlan `s`'s plan is itself a store PG's rescan of the plan keeps whole, so nothing
@@ -38,8 +57,14 @@ pub fn subplan_stores<'p>(stmt: &'p PlannedStmt<'p>, arena: ArenaRef, s: &'p Sub
 /// and the root is a Material or a Sort its REWIND keeps (the plan in rewindPlanIDs: ExecReScanMaterial / ExecReScanSort
 /// rewind the store) or a FunctionScan (ExecReScanFunctionScan rewinds each tuplestore no funcparam changed).
 pub fn root_store<'p>(stmt: &'p PlannedStmt<'p>, s: &'p SubPlan<'p>, root: Node<'p>) -> bool {
-    let Some(p) = root.as_plan() else { return false };
-    if s.useHashTable || !s.parParam.is_nil() || !s.args.is_nil() || p.allParam.iter().next().is_some() {
+    let Some(p) = root.as_plan() else {
+        return false;
+    };
+    if s.useHashTable
+        || !s.parParam.is_nil()
+        || !s.args.is_nil()
+        || p.allParam.iter().next().is_some()
+    {
         return false;
     }
     match root.node_tag() {
@@ -52,11 +77,28 @@ pub fn root_store<'p>(stmt: &'p PlannedStmt<'p>, s: &'p SubPlan<'p>, root: Node<
 /// The stores a rescan of subtree `n` (executor flags `ef`: REWIND, MARK) changing only `changed` keeps. A store whose input
 /// reads a changed param is rebuilt (chgParam), so it is not one; a non-CTE InitPlan is one parameter cell for every copy,
 /// run once, so it is none either.
-fn walk<'p>(stmt: &'p PlannedStmt<'p>, arena: ArenaRef, n: Node<'p>, ef: u8, changed: &[i32], visit: &mut dyn FnMut(Store<'p>) -> bool) -> bool {
+fn walk<'p>(
+    stmt: &'p PlannedStmt<'p>,
+    arena: ArenaRef,
+    n: Node<'p>,
+    ef: u8,
+    changed: &[i32],
+    visit: &mut dyn FnMut(Store<'p>) -> bool,
+) -> bool {
     crate::walk::stack_check(); // D3748
-    let Some(p) = n.as_plan() else { return visit(Store::Unknown) };
-    let reads = |x: Option<Node<'p>>| x.and_then(|x| x.as_plan()).is_some_and(|c| c.allParam.iter().any(|q| changed.contains(&q)));
-    for s in p.initPlan.iter().filter_map(|s| s.as_sub_plan()).filter(|s| s.subLinkType == SubLinkType::CTE_SUBLINK) {
+    let Some(p) = n.as_plan() else {
+        return visit(Store::Unknown);
+    };
+    let reads = |x: Option<Node<'p>>| {
+        x.and_then(|x| x.as_plan())
+            .is_some_and(|c| c.allParam.iter().any(|q| changed.contains(&q)))
+    };
+    for s in p
+        .initPlan
+        .iter()
+        .filter_map(|s| s.as_sub_plan())
+        .filter(|s| s.subLinkType == SubLinkType::CTE_SUBLINK)
+    {
         let hit = match crate::rerun::subplan_root(stmt, s.plan_id) {
             Some(r) => visit(Store::Plan(r)),
             None => visit(Store::Unknown),
@@ -69,7 +111,9 @@ fn walk<'p>(stmt: &'p PlannedStmt<'p>, arena: ArenaRef, n: Node<'p>, ef: u8, cha
     crate::ops::subplan::own_lists(n, &mut |e| {
         crate::expr::walk(e, &mut |x| {
             if !hit {
-                hit = x.as_sub_plan().is_some_and(|s| called(stmt, arena, s, changed, &mut *visit));
+                hit = x
+                    .as_sub_plan()
+                    .is_some_and(|s| called(stmt, arena, s, changed, &mut *visit));
             }
             !hit
         });
@@ -78,11 +122,17 @@ fn walk<'p>(stmt: &'p PlannedStmt<'p>, arena: ArenaRef, n: Node<'p>, ef: u8, cha
         return true;
     }
     let (l, r) = (p.lefttree, p.righttree);
-    let hashed = n.as_agg().is_some_and(|a| matches!(a.aggstrategy, AGG_HASHED | AGG_MIXED)) || n.as_set_op().is_some_and(|s| s.strategy == 1);
-    let strip = n.as_agg().is_some_and(|a| a.aggstrategy == AGG_HASHED) || n.as_set_op().is_some_and(|s| s.strategy == 1);
+    let hashed = n
+        .as_agg()
+        .is_some_and(|a| matches!(a.aggstrategy, AGG_HASHED | AGG_MIXED))
+        || n.as_set_op().is_some_and(|s| s.strategy == 1);
+    let strip = n.as_agg().is_some_and(|a| a.aggstrategy == AGG_HASHED)
+        || n.as_set_op().is_some_and(|s| s.strategy == 1);
     let kept = match n.node_tag() {
         NodeTag::T_FunctionScan => {
-            let fresh = |f: &types_nodes::parsenodes::RangeTblFunction<'p>| f.funcparams.iter().any(|q| changed.contains(&q));
+            let fresh = |f: &types_nodes::parsenodes::RangeTblFunction<'p>| {
+                f.funcparams.iter().any(|q| changed.contains(&q))
+            };
             for f in n.as_function_scan().unwrap().functions.iter() {
                 let hit = match f.as_range_tbl_function() {
                     None => visit(Store::Unknown),
@@ -109,22 +159,62 @@ fn walk<'p>(stmt: &'p PlannedStmt<'p>, arena: ArenaRef, n: Node<'p>, ef: u8, cha
     if kept {
         return visit(Store::Plan(n));
     }
-    let mut kid = |c: Option<Node<'p>>, f: u8| c.is_some_and(|c| walk(stmt, arena, c, f, changed, &mut *visit));
+    let mut kid = |c: Option<Node<'p>>, f: u8| {
+        c.is_some_and(|c| walk(stmt, arena, c, f, changed, &mut *visit))
+    };
     match n.node_tag() {
         NodeTag::T_Sort | NodeTag::T_Material => kid(l, 0),
-        NodeTag::T_NestLoop => kid(l, ef) || kid(r, if n.as_nest_loop().unwrap().nestParams.is_nil() { ef | REWIND } else { ef & !REWIND }),
-        NodeTag::T_MergeJoin => kid(l, ef) || kid(r, if n.as_merge_join().unwrap().skip_mark_restore { ef } else { ef | MARK }),
+        NodeTag::T_NestLoop => {
+            kid(l, ef)
+                || kid(
+                    r,
+                    if n.as_nest_loop().unwrap().nestParams.is_nil() {
+                        ef | REWIND
+                    } else {
+                        ef & !REWIND
+                    },
+                )
+        }
+        NodeTag::T_MergeJoin => {
+            kid(l, ef)
+                || kid(
+                    r,
+                    if n.as_merge_join().unwrap().skip_mark_restore {
+                        ef
+                    } else {
+                        ef | MARK
+                    },
+                )
+        }
         _ if strip => kid(l, ef & !REWIND) || kid(r, ef & !REWIND),
         _ => {
-            let lists = [n.as_append().map(|a| &a.appendplans), n.as_merge_append().map(|a| &a.mergeplans), n.as_bitmap_and().map(|a| &a.bitmapplans), n.as_bitmap_or().map(|a| &a.bitmapplans), n.as_agg().map(|a| &a.chain)];
-            kid(l, ef) || kid(r, ef) || lists.into_iter().flatten().any(|ls| ls.iter().any(|c| kid(Some(c), ef))) || kid(n.as_subquery_scan().and_then(|s| s.subplan), ef)
+            let lists = [
+                n.as_append().map(|a| &a.appendplans),
+                n.as_merge_append().map(|a| &a.mergeplans),
+                n.as_bitmap_and().map(|a| &a.bitmapplans),
+                n.as_bitmap_or().map(|a| &a.bitmapplans),
+                n.as_agg().map(|a| &a.chain),
+            ];
+            kid(l, ef)
+                || kid(r, ef)
+                || lists
+                    .into_iter()
+                    .flatten()
+                    .any(|ls| ls.iter().any(|c| kid(Some(c), ef)))
+                || kid(n.as_subquery_scan().and_then(|s| s.subplan), ef)
         }
     }
 }
 
 /// SubPlan `s`, called inside a subtree the rescan reaches: a hashed one keeps its table (its whole plan fills it); a nested
 /// one what its own plan's rescan keeps (`subplan_stores`).
-fn called<'p>(stmt: &'p PlannedStmt<'p>, arena: ArenaRef, s: &'p SubPlan<'p>, changed: &[i32], visit: &mut dyn FnMut(Store<'p>) -> bool) -> bool {
+fn called<'p>(
+    stmt: &'p PlannedStmt<'p>,
+    arena: ArenaRef,
+    s: &'p SubPlan<'p>,
+    changed: &[i32],
+    visit: &mut dyn FnMut(Store<'p>) -> bool,
+) -> bool {
     match crate::rerun::subplan_root(stmt, s.plan_id) {
         Some(root) if s.useHashTable => visit(Store::Plan(root)),
         _ => subplan_stores(stmt, arena, s, changed, visit),

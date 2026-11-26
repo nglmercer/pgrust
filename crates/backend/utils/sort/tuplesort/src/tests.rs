@@ -3,7 +3,9 @@ use std::rc::Rc;
 use ::datum::Datum;
 use ::mcx::{Mcx, MemoryContext, PgVec};
 use ::types_slot::{SlotData, TupleSlotKind};
-use ::types_tuple::{CompactAttribute, FormData_pg_attribute, TupleDescData, TYPALIGN_INT, TYPSTORAGE_PLAIN};
+use ::types_tuple::{
+    CompactAttribute, FormData_pg_attribute, TupleDescData, TYPALIGN_INT, TYPSTORAGE_PLAIN,
+};
 
 use crate::*;
 
@@ -51,18 +53,42 @@ fn int32_key(attno: i16, nulls_first: bool, reverse: bool) -> SortSupport {
 
 // Deterministic pseudo-random stream (LCG); varied inputs, stable tests.
 fn lcg(seed: &mut u64) -> u64 {
-    *seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+    *seed = seed
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
     *seed >> 33
 }
 
-fn datum_sort_oracle(mut input: Vec<Option<i32>>, nulls_first: bool, reverse: bool) -> Vec<Option<i32>> {
+fn datum_sort_oracle(
+    mut input: Vec<Option<i32>>,
+    nulls_first: bool,
+    reverse: bool,
+) -> Vec<Option<i32>> {
     input.sort_by(|a, b| {
         use std::cmp::Ordering;
         match (a, b) {
             (None, None) => Ordering::Equal,
-            (None, Some(_)) => if nulls_first { Ordering::Less } else { Ordering::Greater },
-            (Some(_), None) => if nulls_first { Ordering::Greater } else { Ordering::Less },
-            (Some(x), Some(y)) => if reverse { y.cmp(x) } else { x.cmp(y) },
+            (None, Some(_)) => {
+                if nulls_first {
+                    Ordering::Less
+                } else {
+                    Ordering::Greater
+                }
+            }
+            (Some(_), None) => {
+                if nulls_first {
+                    Ordering::Greater
+                } else {
+                    Ordering::Less
+                }
+            }
+            (Some(x), Some(y)) => {
+                if reverse {
+                    y.cmp(x)
+                } else {
+                    x.cmp(y)
+                }
+            }
         }
     });
     input
@@ -80,7 +106,8 @@ fn run_datum_sort(
         ts.set_bound(b);
     }
     for v in input {
-        ts.putdatum(v.map_or(Datum::null(), Datum::from_i32), v.is_none()).unwrap();
+        ts.putdatum(v.map_or(Datum::null(), Datum::from_i32), v.is_none())
+            .unwrap();
     }
     ts.performsort().unwrap();
     let mut out = Vec::new();
@@ -90,7 +117,11 @@ fn run_datum_sort(
         let Some(nd) = ts.getdatum(true).unwrap() else {
             break;
         };
-        out.push(if nd.isnull { None } else { Some(nd.value.as_i32()) });
+        out.push(if nd.isnull {
+            None
+        } else {
+            Some(nd.value.as_i32())
+        });
     }
     (ts, out)
 }
@@ -101,7 +132,11 @@ fn datum_sort_matches_oracle_all_orderings() {
     let mut input: Vec<Option<i32>> = (0..5000)
         .map(|_| {
             let r = lcg(&mut seed);
-            if r.is_multiple_of( 17) { None } else { Some((r % 1000) as i32 - 500) }
+            if r.is_multiple_of(17) {
+                None
+            } else {
+                Some((r % 1000) as i32 - 500)
+            }
         })
         .collect();
     input.push(Some(i32::MAX));
@@ -151,8 +186,14 @@ fn run_datum_sort_batched(
     let mut out = Vec::new();
     let limit = bound.map_or(usize::MAX, |b| b as usize);
     while out.len() < limit {
-        let Some(nd) = ts.getdatum(true).unwrap() else { break };
-        out.push(if nd.isnull { None } else { Some(nd.value.as_i32()) });
+        let Some(nd) = ts.getdatum(true).unwrap() else {
+            break;
+        };
+        out.push(if nd.isnull {
+            None
+        } else {
+            Some(nd.value.as_i32())
+        });
     }
     (ts, out)
 }
@@ -163,11 +204,15 @@ fn batched_putdatum_matches_oracle_across_grow_and_bounds() {
     let input: Vec<Option<i32>> = (0..20_000)
         .map(|_| {
             let r = lcg(&mut seed);
-            if r.is_multiple_of( 13) { None } else { Some(r as i32) }
+            if r.is_multiple_of(13) {
+                None
+            } else {
+                Some(r as i32)
+            }
         })
         .collect();
     let mut expected: Vec<Option<i32>> = input.clone();
-    expected.extend(std::iter::repeat_n(Some(-1),input.chunks(777).count()));
+    expected.extend(std::iter::repeat_n(Some(-1), input.chunks(777).count()));
     let oracle = datum_sort_oracle(expected.clone(), false, false);
 
     let (_ts, got) = run_datum_sort_batched(&input, TUPLESORT_NONE, None);
@@ -182,7 +227,8 @@ fn batched_putdatum_matches_oracle_across_grow_and_bounds() {
 fn batched_putdatum_small_batches_and_empty() {
     let mut ts = Tuplesort::begin_datum_with_key(int32_key(1, false, false), 1024, TUPLESORT_NONE);
     ts.putdatum_batch(|_| Ok(())).unwrap();
-    ts.putdatum_batch(|p| p.put(Datum::from_i32(3), false)).unwrap();
+    ts.putdatum_batch(|p| p.put(Datum::from_i32(3), false))
+        .unwrap();
     ts.putdatum_batch(|p| {
         p.put(Datum::from_i32(1), false)?;
         p.put(Datum::null(), true)?;
@@ -192,7 +238,11 @@ fn batched_putdatum_small_batches_and_empty() {
     ts.performsort().unwrap();
     let mut out = Vec::new();
     while let Some(nd) = ts.getdatum(true).unwrap() {
-        out.push(if nd.isnull { None } else { Some(nd.value.as_i32()) });
+        out.push(if nd.isnull {
+            None
+        } else {
+            Some(nd.value.as_i32())
+        });
     }
     assert_eq!(out, vec![Some(1), Some(2), Some(3), None]);
 }
@@ -235,11 +285,22 @@ fn batched_bounded_boundary_tie_marks_tie_dirty() {
 fn bounded_top_n_heapsort_used_and_correct() {
     let mut seed = 99u64;
     let input: Vec<Option<i32>> = (0..10_000)
-        .map(|_| if lcg(&mut seed).is_multiple_of( 31) { None } else { Some(lcg(&mut seed) as i32) })
+        .map(|_| {
+            if lcg(&mut seed).is_multiple_of(31) {
+                None
+            } else {
+                Some(lcg(&mut seed) as i32)
+            }
+        })
         .collect();
     for (nulls_first, reverse) in [(false, false), (true, true)] {
-        let (ts, got) =
-            run_datum_sort(&input, nulls_first, reverse, TUPLESORT_ALLOWBOUNDED, Some(100));
+        let (ts, got) = run_datum_sort(
+            &input,
+            nulls_first,
+            reverse,
+            TUPLESORT_ALLOWBOUNDED,
+            Some(100),
+        );
         assert!(ts.used_bound());
         assert_eq!(got.len(), 100);
         let oracle = datum_sort_oracle(input.clone(), nulls_first, reverse);
@@ -259,7 +320,8 @@ fn skiptuples_past_bound_is_error() {
     assert!(ts.used_bound());
     let err = ts.skiptuples(4, true).unwrap_err();
     assert!(
-        err.message().contains("retrieved too many tuples in a bounded sort"),
+        err.message()
+            .contains("retrieved too many tuples in a bounded sort"),
         "message: {}",
         err.message()
     );
@@ -305,7 +367,9 @@ fn topk_boundary_tracks_kth_worst_and_tightens() {
     ts.performsort().unwrap();
     let mut out = Vec::new();
     while out.len() < 3 {
-        let Some(nd) = ts.getdatum(true).unwrap() else { break };
+        let Some(nd) = ts.getdatum(true).unwrap() else {
+            break;
+        };
         out.push(nd.value.as_i32());
     }
     assert_eq!(out, kept);
@@ -359,7 +423,8 @@ fn store_row(slot: &mut SlotData<'static>, mcx: Mcx<'static>, vals: &[Option<i32
 fn heap_sort_two_keys_with_tiebreak() {
     let mcx = leaked_mcx();
     let desc = int4_desc(mcx, 2);
-    let mut in_slot = exectuples::make_tuple_table_slot(mcx, TupleSlotKind::Virtual, Some(desc.clone()));
+    let mut in_slot =
+        exectuples::make_tuple_table_slot(mcx, TupleSlotKind::Virtual, Some(desc.clone()));
     let mut out_slot =
         exectuples::make_tuple_table_slot(mcx, TupleSlotKind::MinimalTuple, Some(desc.clone()));
 
@@ -371,7 +436,14 @@ fn heap_sort_two_keys_with_tiebreak() {
         .map(|_| {
             let a = lcg(&mut seed) % 20;
             let b = lcg(&mut seed);
-            (Some(a as i32), if b.is_multiple_of( 13) { None } else { Some((b % 50) as i32) })
+            (
+                Some(a as i32),
+                if b.is_multiple_of(13) {
+                    None
+                } else {
+                    Some((b % 50) as i32)
+                },
+            )
         })
         .collect();
     for (a, b) in &rows {
@@ -421,7 +493,8 @@ fn heap_sort_two_keys_with_tiebreak() {
 fn heap_sort_gettupleslot_copy_survives() {
     let mcx = leaked_mcx();
     let desc = int4_desc(mcx, 1);
-    let mut in_slot = exectuples::make_tuple_table_slot(mcx, TupleSlotKind::Virtual, Some(desc.clone()));
+    let mut in_slot =
+        exectuples::make_tuple_table_slot(mcx, TupleSlotKind::Virtual, Some(desc.clone()));
     let mut out_slot =
         exectuples::make_tuple_table_slot(mcx, TupleSlotKind::MinimalTuple, Some(desc.clone()));
 
@@ -439,7 +512,10 @@ fn heap_sort_gettupleslot_copy_survives() {
     assert!(ts.gettupleslot(true, true, &mut out_slot, mcx).unwrap());
     ts.end();
     let mut isnull = false;
-    assert_eq!(exectuples::slot_getattr(&mut out_slot, 1, &mut isnull).as_i32(), 1);
+    assert_eq!(
+        exectuples::slot_getattr(&mut out_slot, 1, &mut isnull).as_i32(),
+        1
+    );
     assert!(!isnull);
 }
 
@@ -448,12 +524,20 @@ fn unsigned_and_signed_comparator_arms() {
     for (cmp, vals, expect) in [
         (
             SortComparator::SignedI64,
-            vec![Datum::from_i64(-1), Datum::from_i64(5), Datum::from_i64(i64::MIN)],
+            vec![
+                Datum::from_i64(-1),
+                Datum::from_i64(5),
+                Datum::from_i64(i64::MIN),
+            ],
             vec![i64::MIN, -1, 5],
         ),
         (
             SortComparator::Unsigned,
-            vec![Datum::from_u64(u64::MAX), Datum::from_u64(0), Datum::from_u64(7)],
+            vec![
+                Datum::from_u64(u64::MAX),
+                Datum::from_u64(0),
+                Datum::from_u64(7),
+            ],
             vec![0, 7, u64::MAX as i64],
         ),
     ] {
@@ -485,7 +569,11 @@ fn miri_scale_unsafe_paths() {
     let input: Vec<Option<i32>> = (0..120)
         .map(|_| {
             let r = lcg(&mut seed);
-            if r.is_multiple_of( 11) { None } else { Some((r % 8) as i32) }
+            if r.is_multiple_of(11) {
+                None
+            } else {
+                Some((r % 8) as i32)
+            }
         })
         .collect();
     let (_ts, got) = run_datum_sort(&input, false, false, TUPLESORT_NONE, None);
@@ -498,7 +586,7 @@ fn miri_scale_unsafe_paths() {
     let (ts, got) = run_datum_sort_batched(&input, TUPLESORT_ALLOWBOUNDED, Some(15));
     assert!(ts.used_bound());
     let mut expected = input.clone();
-    expected.extend(std::iter::repeat_n(Some(-1),input.chunks(777).count()));
+    expected.extend(std::iter::repeat_n(Some(-1), input.chunks(777).count()));
     assert_eq!(got, datum_sort_oracle(expected, false, false)[..15]);
 
     let mcx = leaked_mcx();
@@ -516,7 +604,14 @@ fn miri_scale_unsafe_paths() {
         store_row(
             &mut in_slot,
             mcx,
-            &[Some(a), if b.is_multiple_of( 5) { None } else { Some((b % 9) as i32) }],
+            &[
+                Some(a),
+                if b.is_multiple_of(5) {
+                    None
+                } else {
+                    Some((b % 9) as i32)
+                },
+            ],
         );
         ts.puttupleslot(&mut in_slot, mcx).unwrap();
     }
@@ -617,7 +712,11 @@ fn tid(blk: u32, pos: u16) -> ::types_tuple::itemptr::ItemPointerData {
     }
 }
 
-fn drain_index(ts: &mut Tuplesort, desc: &TupleDescData<'_>, nkeys: usize) -> Vec<(Vec<Option<i64>>, (u32, u16))> {
+fn drain_index(
+    ts: &mut Tuplesort,
+    desc: &TupleDescData<'_>,
+    nkeys: usize,
+) -> Vec<(Vec<Option<i64>>, (u32, u16))> {
     let mut out = Vec::new();
     while let Some(itup) = ts.getindextuple(true).unwrap() {
         let mut keys = Vec::new();
@@ -625,11 +724,21 @@ fn drain_index(ts: &mut Tuplesort, desc: &TupleDescData<'_>, nkeys: usize) -> Ve
             let mut isnull = false;
             // SAFETY: live sorted image under desc.
             let d = unsafe { nbtree::itup::index_getattr(itup, k as i16, desc, &mut isnull) };
-            keys.push(if isnull { None } else { Some(d.as_i32() as i64) });
+            keys.push(if isnull {
+                None
+            } else {
+                Some(d.as_i32() as i64)
+            });
         }
         // SAFETY: live image.
         let t = unsafe { nbtree::itup::t_tid(itup) };
-        out.push((keys, (((t.ip_blkid.bi_hi as u32) << 16) | t.ip_blkid.bi_lo as u32, t.ip_posid)));
+        out.push((
+            keys,
+            (
+                ((t.ip_blkid.bi_hi as u32) << 16) | t.ip_blkid.bi_lo as u32,
+                t.ip_posid,
+            ),
+        ));
     }
     out
 }
@@ -639,14 +748,25 @@ fn index_sort_int4_key_then_tid_with_nulls() {
     let mcx = leaked_mcx();
     let desc = int4_desc(mcx, 1);
     let mut ts = Tuplesort::begin_index_with_keys(
-        desc.clone(), &[int32_key(1, false, false)], 1, false, false, "t_a_idx", None, 1024,
+        desc.clone(),
+        &[int32_key(1, false, false)],
+        1,
+        false,
+        false,
+        "t_a_idx",
+        None,
+        1024,
         TUPLESORT_NONE,
     );
     let mut seed = 3u64;
     let mut oracle: Vec<(Option<i64>, (u32, u16))> = Vec::new();
     for i in 0..400u32 {
         let r = lcg(&mut seed);
-        let key = if r.is_multiple_of( 19) { None } else { Some((r % 40) as i32) };
+        let key = if r.is_multiple_of(19) {
+            None
+        } else {
+            Some((r % 40) as i32)
+        };
         let t = tid(i / 100, (i % 100 + 1) as u16);
         ts.putindextuplevalues(
             t,
@@ -671,15 +791,27 @@ fn index_sort_two_keys_then_tid() {
     let desc = int4_desc(mcx, 2);
     let keys = [int32_key(1, false, false), int32_key(2, false, false)];
     let mut ts = Tuplesort::begin_index_with_keys(
-        desc.clone(), &keys, 2, false, false, "t_ab_idx", None, 1024, TUPLESORT_NONE,
+        desc.clone(),
+        &keys,
+        2,
+        false,
+        false,
+        "t_ab_idx",
+        None,
+        1024,
+        TUPLESORT_NONE,
     );
     let mut seed = 9u64;
     let mut oracle = Vec::new();
     for i in 0..300u32 {
         let (a, b) = ((lcg(&mut seed) % 5) as i32, (lcg(&mut seed) % 7) as i32);
         let t = tid(i, 1);
-        ts.putindextuplevalues(t, &[Datum::from_i32(a), Datum::from_i32(b)], &[false, false])
-            .unwrap();
+        ts.putindextuplevalues(
+            t,
+            &[Datum::from_i32(a), Datum::from_i32(b)],
+            &[false, false],
+        )
+        .unwrap();
         oracle.push((vec![Some(a as i64), Some(b as i64)], (i, 1u16)));
     }
     oracle.sort_by(|x, y| x.0.cmp(&y.0).then(x.1.cmp(&y.1)));
@@ -730,13 +862,9 @@ fn index_sort_image_feed_matches_values_feed() {
     let scratch = mcx::MemoryContext::new("image feed scratch");
     let mut by_image = mk();
     for (k, (blk, pos)) in rows.iter().rev() {
-        let mut buf = nbtree::itup::index_form_tuple(
-            scratch.mcx(),
-            &desc,
-            &[Datum::from_i32(*k)],
-            &[false],
-        )
-        .unwrap();
+        let mut buf =
+            nbtree::itup::index_form_tuple(scratch.mcx(), &desc, &[Datum::from_i32(*k)], &[false])
+                .unwrap();
         let t = tid(*blk, *pos);
         // SAFETY: t_tid = first 6 bytes of the owned image (itup.h).
         unsafe {
@@ -754,7 +882,10 @@ fn index_sort_image_feed_matches_values_feed() {
     by_image.performsort().unwrap();
     let a = drain_index(&mut by_values, &desc, 1);
     let b = drain_index(&mut by_image, &desc, 1);
-    assert_eq!(a, b, "sorted stream must be entry-point- and arrival-order-independent");
+    assert_eq!(
+        a, b,
+        "sorted stream must be entry-point- and arrival-order-independent"
+    );
     by_values.end();
     by_image.end();
 }
@@ -764,7 +895,15 @@ fn index_sort_unique_violation_is_23505() {
     let mcx = leaked_mcx();
     let desc = int4_desc(mcx, 1);
     let mut ts = Tuplesort::begin_index_with_keys(
-        desc, &[int32_key(1, false, false)], 1, true, false, "t_a_key", None, 1024, TUPLESORT_NONE,
+        desc,
+        &[int32_key(1, false, false)],
+        1,
+        true,
+        false,
+        "t_a_key",
+        None,
+        1024,
+        TUPLESORT_NONE,
     );
     for i in 0..10u16 {
         ts.putindextuplevalues(tid(0, i + 1), &[Datum::from_i32((i % 9) as i32)], &[false])
@@ -772,8 +911,12 @@ fn index_sort_unique_violation_is_23505() {
     }
     let err = ts.performsort().unwrap_err();
     assert_eq!(err.sqlstate(), ERRCODE_UNIQUE_VIOLATION);
-    assert!(err.message().contains("could not create unique index \"t_a_key\""),
-        "message: {}", err.message());
+    assert!(
+        err.message()
+            .contains("could not create unique index \"t_a_key\""),
+        "message: {}",
+        err.message()
+    );
 }
 
 #[test]
@@ -781,11 +924,19 @@ fn index_sort_unique_null_keys_do_not_collide() {
     let mcx = leaked_mcx();
     let desc = int4_desc(mcx, 1);
     let mut ts = Tuplesort::begin_index_with_keys(
-        desc.clone(), &[int32_key(1, false, false)], 1, true, false, "t_a_key", None, 1024,
+        desc.clone(),
+        &[int32_key(1, false, false)],
+        1,
+        true,
+        false,
+        "t_a_key",
+        None,
+        1024,
         TUPLESORT_NONE,
     );
     for i in 0..8u16 {
-        ts.putindextuplevalues(tid(0, i + 1), &[Datum::null()], &[true]).unwrap();
+        ts.putindextuplevalues(tid(0, i + 1), &[Datum::null()], &[true])
+            .unwrap();
     }
     ts.performsort().unwrap();
     assert_eq!(drain_index(&mut ts, &desc, 1).len(), 8);
@@ -830,10 +981,26 @@ fn index_sort_text_c_collation_memcmp_order() {
         comparator: SortComparator::TextC,
     };
     let mut ts = Tuplesort::begin_index_with_keys(
-        desc.clone(), &[key], 1, false, false, "t_txt_idx", None, 1024, TUPLESORT_NONE,
+        desc.clone(),
+        &[key],
+        1,
+        false,
+        false,
+        "t_txt_idx",
+        None,
+        1024,
+        TUPLESORT_NONE,
     );
     let words: Vec<&[u8]> = vec![
-        b"pear", b"apple", b"Banana", b"apples", b"app", b"zebra", b"", b"apple", b"\xc3\xa9clair",
+        b"pear",
+        b"apple",
+        b"Banana",
+        b"apples",
+        b"app",
+        b"zebra",
+        b"",
+        b"apple",
+        b"\xc3\xa9clair",
     ];
     let mut images = Vec::new();
     for w in &words {
@@ -841,7 +1008,8 @@ fn index_sort_text_c_collation_memcmp_order() {
     }
     for (i, img) in images.iter().enumerate() {
         let d = Datum::from_usize(img.as_bytes().as_ptr() as usize);
-        ts.putindextuplevalues(tid(0, (i + 1) as u16), &[d], &[false]).unwrap();
+        ts.putindextuplevalues(tid(0, (i + 1) as u16), &[d], &[false])
+            .unwrap();
     }
     ts.performsort().unwrap();
     let mut got = Vec::new();
@@ -893,7 +1061,10 @@ fn text_key(nulls_first: bool, reverse: bool) -> SortSupport {
 }
 
 fn text_abbrev_arm() -> AbbrevArm {
-    AbbrevArm { kind: AbbrevKind::VarStrC, full_comparator: SortComparator::TextC }
+    AbbrevArm {
+        kind: AbbrevKind::VarStrC,
+        full_comparator: SortComparator::TextC,
+    }
 }
 
 fn begin_text_datum_abbrev(sortopt: i32) -> Tuplesort {
@@ -912,7 +1083,7 @@ fn random_texts(n: usize, seed: u64, shared_prefix: &[u8]) -> Vec<Option<Vec<u8>
     let mut s = seed;
     (0..n)
         .map(|_| {
-            if lcg(&mut s).is_multiple_of( 17) {
+            if lcg(&mut s).is_multiple_of(17) {
                 return None;
             }
             let len = (lcg(&mut s) % 24) as usize;
@@ -936,8 +1107,20 @@ fn text_oracle(mut vals: Vec<Option<Vec<u8>>>, nulls_first: bool) -> Vec<Option<
         use std::cmp::Ordering;
         match (a, b) {
             (None, None) => Ordering::Equal,
-            (None, Some(_)) => if nulls_first { Ordering::Less } else { Ordering::Greater },
-            (Some(_), None) => if nulls_first { Ordering::Greater } else { Ordering::Less },
+            (None, Some(_)) => {
+                if nulls_first {
+                    Ordering::Less
+                } else {
+                    Ordering::Greater
+                }
+            }
+            (Some(_), None) => {
+                if nulls_first {
+                    Ordering::Greater
+                } else {
+                    Ordering::Less
+                }
+            }
             (Some(x), Some(y)) => x.cmp(y),
         }
     });
@@ -971,8 +1154,10 @@ fn drain_text_datums(ts: &mut Tuplesort) -> Vec<Option<Vec<u8>>> {
 fn abbrev_text_datum_sort_returns_originals_in_full_cmp_order() {
     let vals = random_texts(700, 0xabcd, b"");
     let mut ts = begin_text_datum_abbrev(TUPLESORT_NONE);
-    let blobs: Vec<Option<Box<[u64]>>> =
-        vals.iter().map(|v| v.as_ref().map(|p| text_blob(p))).collect();
+    let blobs: Vec<Option<Box<[u64]>>> = vals
+        .iter()
+        .map(|v| v.as_ref().map(|p| text_blob(p)))
+        .collect();
     for b in &blobs {
         match b {
             Some(blob) => ts
@@ -993,8 +1178,10 @@ fn abbrev_abort_low_cardinality_prefix_still_sorts() {
     // must restore original datum1 for already-stored tuples.
     let vals = random_texts(4000, 0x77, b"zzzzzzzz");
     let mut ts = begin_text_datum_abbrev(TUPLESORT_NONE);
-    let blobs: Vec<Option<Box<[u64]>>> =
-        vals.iter().map(|v| v.as_ref().map(|p| text_blob(p))).collect();
+    let blobs: Vec<Option<Box<[u64]>>> = vals
+        .iter()
+        .map(|v| v.as_ref().map(|p| text_blob(p)))
+        .collect();
     for b in &blobs {
         match b {
             Some(blob) => ts
@@ -1015,8 +1202,10 @@ fn reset_keeps_abbrev_next_threshold() {
     // (only tuplesort_begin_common sets it, tuplesort.c:687).
     let vals = random_texts(64, 0x11, b"");
     let mut ts = begin_text_datum_abbrev(TUPLESORT_NONE);
-    let blobs: Vec<Option<Box<[u64]>>> =
-        vals.iter().map(|v| v.as_ref().map(|p| text_blob(p))).collect();
+    let blobs: Vec<Option<Box<[u64]>>> = vals
+        .iter()
+        .map(|v| v.as_ref().map(|p| text_blob(p)))
+        .collect();
     for b in &blobs {
         match b {
             Some(blob) => ts
@@ -1026,7 +1215,10 @@ fn reset_keeps_abbrev_next_threshold() {
         }
     }
     let before = ts.0.with(|st| st.abbrev_next);
-    assert!(before > 10, "abbrevNext must have advanced past the first checkpoint");
+    assert!(
+        before > 10,
+        "abbrevNext must have advanced past the first checkpoint"
+    );
     ts.performsort().unwrap();
     drain_text_datums(&mut ts);
     ts.reset().unwrap();
@@ -1062,8 +1254,10 @@ fn abbrev_bounded_text_sort_top_n() {
         assert!(st.abbrev.is_none());
         assert!(matches!(st.sort_keys[0].comparator, SortComparator::TextC));
     });
-    let blobs: Vec<Option<Box<[u64]>>> =
-        vals.iter().map(|v| v.as_ref().map(|p| text_blob(p))).collect();
+    let blobs: Vec<Option<Box<[u64]>>> = vals
+        .iter()
+        .map(|v| v.as_ref().map(|p| text_blob(p)))
+        .collect();
     for b in &blobs {
         match b {
             Some(blob) => ts
@@ -1117,7 +1311,10 @@ fn abbrev_uuid_datum_sort() {
         ssup_attno: 1,
         comparator: SortComparator::Unsigned,
     };
-    let arm = AbbrevArm { kind: AbbrevKind::Uuid, full_comparator: SortComparator::Uuid };
+    let arm = AbbrevArm {
+        kind: AbbrevKind::Uuid,
+        full_comparator: SortComparator::Uuid,
+    };
     let mut ts = Tuplesort::begin_common(
         1024,
         TUPLESORT_NONE,
@@ -1128,7 +1325,8 @@ fn abbrev_uuid_datum_sort() {
         ::pg_rusage::PgRUsage::default(),
     );
     for u in &uuids {
-        ts.putdatum(Datum::from_usize(u.as_ptr() as usize), false).unwrap();
+        ts.putdatum(Datum::from_usize(u.as_ptr() as usize), false)
+            .unwrap();
     }
     ts.performsort().unwrap();
     let mut got = Vec::new();
@@ -1187,7 +1385,9 @@ fn abbrev_heap_text_sort_with_tiebreak_key() {
         &keys,
         false,
         Some(Box::new(AbbrevState::new(text_abbrev_arm()))),
-        SortVariant::Heap { tup_desc: desc.clone() },
+        SortVariant::Heap {
+            tup_desc: desc.clone(),
+        },
         ::pg_rusage::PgRUsage::default(),
     );
 
@@ -1304,8 +1504,7 @@ fn mksort_two_key_unique() {
     for i in (1..order.len()).rev() {
         order.swap(i, (lcg(&mut seed) % (i as u64 + 1)) as usize);
     }
-    let rows: Vec<Vec<Option<i32>>> =
-        order.iter().map(|&i| vec![Some(i % 25), Some(i)]).collect();
+    let rows: Vec<Vec<Option<i32>>> = order.iter().map(|&i| vec![Some(i % 25), Some(i)]).collect();
     let got = heap_sort_rows(mcx, 2, &keys, &rows);
     let mut oracle = rows.clone();
     oracle.sort();
@@ -1325,7 +1524,14 @@ fn mksort_six_key_unique() {
     let rows: Vec<Vec<Option<i32>>> = order
         .iter()
         .map(|&i| {
-            vec![Some(i % 3), Some(i % 4), Some(i % 5), Some(i % 7), Some(i % 11), Some(i)]
+            vec![
+                Some(i % 3),
+                Some(i % 4),
+                Some(i % 5),
+                Some(i % 7),
+                Some(i % 11),
+                Some(i),
+            ]
         })
         .collect();
     let got = heap_sort_rows(mcx, 6, &keys, &rows);
@@ -1345,7 +1551,11 @@ fn mksort_ties_match_pgqsort_order() {
         .map(|i| {
             let k1 = (lcg(&mut seed) % 5) as i32;
             let k2 = lcg(&mut seed) % 4;
-            vec![Some(k1), if k2 == 0 { None } else { Some(k2 as i32) }, Some(i)]
+            vec![
+                Some(k1),
+                if k2 == 0 { None } else { Some(k2 as i32) },
+                Some(i),
+            ]
         })
         .collect();
     let got_mksort = heap_sort_rows(mcx, 3, &keys, &rows);
@@ -1411,7 +1621,10 @@ fn numeric_key(nulls_first: bool, reverse: bool) -> SortSupport {
 }
 
 fn numeric_abbrev_arm() -> AbbrevArm {
-    AbbrevArm { kind: AbbrevKind::Numeric, full_comparator: SortComparator::Numeric }
+    AbbrevArm {
+        kind: AbbrevKind::Numeric,
+        full_comparator: SortComparator::Numeric,
+    }
 }
 
 fn numeric_corpus(n: usize, seed: u64) -> Vec<Option<String>> {
@@ -1432,7 +1645,11 @@ fn numeric_corpus(n: usize, seed: u64) -> Vec<Option<String>> {
                 // decides (exceeds the 4 packed digit words).
                 8 => format!("123456789012345678901234567890.{:04}", lcg(&mut s) % 10000),
                 _ => {
-                    let sign = if lcg(&mut s).is_multiple_of( 2) { "" } else { "-" };
+                    let sign = if lcg(&mut s).is_multiple_of(2) {
+                        ""
+                    } else {
+                        "-"
+                    };
                     let int = lcg(&mut s) % 1_000_000_000;
                     let frac = lcg(&mut s) % 100_000;
                     format!("{sign}{int}.{frac}")
@@ -1459,8 +1676,20 @@ fn numeric_oracle(vals: &[Option<String>], nulls_first: bool) -> Vec<Option<Vec<
         use std::cmp::Ordering;
         match (&imgs[i], &imgs[j]) {
             (None, None) => Ordering::Equal,
-            (None, Some(_)) => if nulls_first { Ordering::Less } else { Ordering::Greater },
-            (Some(_), None) => if nulls_first { Ordering::Greater } else { Ordering::Less },
+            (None, Some(_)) => {
+                if nulls_first {
+                    Ordering::Less
+                } else {
+                    Ordering::Greater
+                }
+            }
+            (Some(_), None) => {
+                if nulls_first {
+                    Ordering::Greater
+                } else {
+                    Ordering::Less
+                }
+            }
             (Some(x), Some(y)) => ::adt_numeric::cmp_numerics(x.num(), y.num()).cmp(&0),
         }
     });
@@ -1497,11 +1726,15 @@ fn abbrev_numeric_datum_sort_matches_cmp_numerics_order() {
         SortVariant::Datum { byref_typlen: -1 },
         ::pg_rusage::PgRUsage::default(),
     );
-    let blobs: Vec<Option<Box<[u64]>>> =
-        vals.iter().map(|v| v.as_ref().map(|s| numeric_blob(s))).collect();
+    let blobs: Vec<Option<Box<[u64]>>> = vals
+        .iter()
+        .map(|v| v.as_ref().map(|s| numeric_blob(s)))
+        .collect();
     for b in &blobs {
         match b {
-            Some(blob) => ts.putdatum(Datum::from_usize(blob.as_ptr() as usize), false).unwrap(),
+            Some(blob) => ts
+                .putdatum(Datum::from_usize(blob.as_ptr() as usize), false)
+                .unwrap(),
             None => ts.putdatum(Datum::null(), true).unwrap(),
         }
     }
@@ -1522,11 +1755,15 @@ fn abbrev_numeric_datum_sort_reverse_nulls_first() {
         SortVariant::Datum { byref_typlen: -1 },
         ::pg_rusage::PgRUsage::default(),
     );
-    let blobs: Vec<Option<Box<[u64]>>> =
-        vals.iter().map(|v| v.as_ref().map(|s| numeric_blob(s))).collect();
+    let blobs: Vec<Option<Box<[u64]>>> = vals
+        .iter()
+        .map(|v| v.as_ref().map(|s| numeric_blob(s)))
+        .collect();
     for b in &blobs {
         match b {
-            Some(blob) => ts.putdatum(Datum::from_usize(blob.as_ptr() as usize), false).unwrap(),
+            Some(blob) => ts
+                .putdatum(Datum::from_usize(blob.as_ptr() as usize), false)
+                .unwrap(),
             None => ts.putdatum(Datum::null(), true).unwrap(),
         }
     }
@@ -1553,14 +1790,23 @@ fn numeric_abbrev_abort_low_cardinality_still_sorts() {
         SortVariant::Datum { byref_typlen: -1 },
         ::pg_rusage::PgRUsage::default(),
     );
-    let blobs: Vec<Option<Box<[u64]>>> =
-        vals.iter().map(|v| v.as_ref().map(|s| numeric_blob(s))).collect();
+    let blobs: Vec<Option<Box<[u64]>>> = vals
+        .iter()
+        .map(|v| v.as_ref().map(|s| numeric_blob(s)))
+        .collect();
     for b in &blobs {
-        ts.putdatum(Datum::from_usize(b.as_ref().unwrap().as_ptr() as usize), false).unwrap();
+        ts.putdatum(
+            Datum::from_usize(b.as_ref().unwrap().as_ptr() as usize),
+            false,
+        )
+        .unwrap();
     }
     ts.0.with(|st| assert!(st.abbrev.is_none(), "abort should have fired"));
     ts.0.with(|st| {
-        assert!(matches!(st.sort_keys[0].comparator, SortComparator::Numeric));
+        assert!(matches!(
+            st.sort_keys[0].comparator,
+            SortComparator::Numeric
+        ));
     });
     ts.performsort().unwrap();
     assert_eq!(drain_numeric_datums(&mut ts), numeric_oracle(&vals, false));
@@ -1582,13 +1828,20 @@ fn numeric_bounded_sort_disarms_abbrev() {
     ts.set_bound(20);
     ts.0.with(|st| {
         assert!(st.abbrev.is_none());
-        assert!(matches!(st.sort_keys[0].comparator, SortComparator::Numeric));
+        assert!(matches!(
+            st.sort_keys[0].comparator,
+            SortComparator::Numeric
+        ));
     });
-    let blobs: Vec<Option<Box<[u64]>>> =
-        vals.iter().map(|v| v.as_ref().map(|s| numeric_blob(s))).collect();
+    let blobs: Vec<Option<Box<[u64]>>> = vals
+        .iter()
+        .map(|v| v.as_ref().map(|s| numeric_blob(s)))
+        .collect();
     for b in &blobs {
         match b {
-            Some(blob) => ts.putdatum(Datum::from_usize(blob.as_ptr() as usize), false).unwrap(),
+            Some(blob) => ts
+                .putdatum(Datum::from_usize(blob.as_ptr() as usize), false)
+                .unwrap(),
             None => ts.putdatum(Datum::null(), true).unwrap(),
         }
     }
@@ -1641,11 +1894,15 @@ fn text_datum_sort_run(
         SortVariant::Datum { byref_typlen: -1 },
         ::pg_rusage::PgRUsage::default(),
     );
-    let blobs: Vec<Option<Box<[u64]>>> =
-        vals.iter().map(|v| v.as_ref().map(|p| text_blob(p))).collect();
+    let blobs: Vec<Option<Box<[u64]>>> = vals
+        .iter()
+        .map(|v| v.as_ref().map(|p| text_blob(p)))
+        .collect();
     for b in &blobs {
         match b {
-            Some(blob) => ts.putdatum(Datum::from_usize(blob.as_ptr() as usize), false).unwrap(),
+            Some(blob) => ts
+                .putdatum(Datum::from_usize(blob.as_ptr() as usize), false)
+                .unwrap(),
             None => ts.putdatum(Datum::null(), true).unwrap(),
         }
     }
@@ -1673,7 +1930,11 @@ fn radix_text_datum_unique_matches_oracle_and_pgqsort() {
     radix_counters_reset();
     let got = text_datum_sort_run(&vals, false, false, false);
     let (attempts, completed) = radix_counters();
-    assert_eq!((attempts, completed), (1, 1), "radix must engage and complete");
+    assert_eq!(
+        (attempts, completed),
+        (1, 1),
+        "radix must engage and complete"
+    );
     assert_eq!(got, text_oracle(vals.clone(), false));
     let got_qsort = text_datum_sort_run(&vals, false, false, true);
     assert_eq!(got, got_qsort);
@@ -1719,8 +1980,9 @@ fn radix_reverse_and_nulls_first() {
 
 #[test]
 fn radix_presorted_strictly_increasing_short_circuits() {
-    let vals: Vec<Option<Vec<u8>>> =
-        (0..2000).map(|i| Some(format!("{i:08}").into_bytes())).collect();
+    let vals: Vec<Option<Vec<u8>>> = (0..2000)
+        .map(|i| Some(format!("{i:08}").into_bytes()))
+        .collect();
     radix_counters_reset();
     let got = text_datum_sort_run(&vals, false, false, false);
     assert_eq!(radix_counters(), (1, 1));
@@ -1768,7 +2030,7 @@ fn radix_heap_two_key_matches_pgqsort() {
     let mut s = 41u64;
     let rows: Vec<(Option<Vec<u8>>, i32)> = (0..3000)
         .map(|i| {
-            let t = if lcg(&mut s).is_multiple_of( 19) {
+            let t = if lcg(&mut s).is_multiple_of(19) {
                 None
             } else {
                 // dup texts; (text, i2) pairs include full duplicates
@@ -1790,7 +2052,9 @@ fn radix_heap_two_key_matches_pgqsort() {
             &keys,
             false,
             Some(Box::new(AbbrevState::new(text_abbrev_arm()))),
-            SortVariant::Heap { tup_desc: desc.clone() },
+            SortVariant::Heap {
+                tup_desc: desc.clone(),
+            },
             ::pg_rusage::PgRUsage::default(),
         );
         let mut in_slot =
@@ -1815,11 +2079,8 @@ fn radix_heap_two_key_matches_pgqsort() {
         }
         ts.performsort().unwrap();
         let mut got = Vec::new();
-        let mut out_slot = exectuples::make_tuple_table_slot(
-            mcx,
-            TupleSlotKind::MinimalTuple,
-            Some(desc.clone()),
-        );
+        let mut out_slot =
+            exectuples::make_tuple_table_slot(mcx, TupleSlotKind::MinimalTuple, Some(desc.clone()));
         while ts.gettupleslot(true, false, &mut out_slot, mcx).unwrap() {
             let mut n1 = false;
             let mut n2 = false;
@@ -1860,10 +2121,16 @@ fn radix_direct_small_covers_unsafe_paths() {
     // group / copy-back unsafe blocks, success and fallback legs.
     let uniq = unique_texts(80, 9, 3);
     let mut ts = begin_text_datum_abbrev(TUPLESORT_NONE);
-    let blobs: Vec<Option<Box<[u64]>>> =
-        uniq.iter().map(|v| v.as_ref().map(|p| text_blob(p))).collect();
+    let blobs: Vec<Option<Box<[u64]>>> = uniq
+        .iter()
+        .map(|v| v.as_ref().map(|p| text_blob(p)))
+        .collect();
     for b in &blobs {
-        ts.putdatum(Datum::from_usize(b.as_ref().unwrap().as_ptr() as usize), false).unwrap();
+        ts.putdatum(
+            Datum::from_usize(b.as_ref().unwrap().as_ptr() as usize),
+            false,
+        )
+        .unwrap();
     }
     ts.0.with_mut(|st| {
         let mut tuples = core::mem::replace(&mut st.memtuples, PgVec::new_in(st.mcx));
@@ -1876,31 +2143,43 @@ fn radix_direct_small_covers_unsafe_paths() {
 
     let dups = random_texts(90, 0xdead, b"");
     let mut ts = begin_text_datum_abbrev(TUPLESORT_NONE);
-    let blobs: Vec<Option<Box<[u64]>>> =
-        dups.iter().map(|v| v.as_ref().map(|p| text_blob(p))).collect();
+    let blobs: Vec<Option<Box<[u64]>>> = dups
+        .iter()
+        .map(|v| v.as_ref().map(|p| text_blob(p)))
+        .collect();
     for b in &blobs {
         match b {
-            Some(blob) => ts.putdatum(Datum::from_usize(blob.as_ptr() as usize), false).unwrap(),
+            Some(blob) => ts
+                .putdatum(Datum::from_usize(blob.as_ptr() as usize), false)
+                .unwrap(),
             None => ts.putdatum(Datum::null(), true).unwrap(),
         }
     }
     let before: Vec<(u64, bool)> = ts.0.with(|st| {
-        st.memtuples.iter().map(|t| (t.datum1.as_u64(), t.isnull1)).collect()
+        st.memtuples
+            .iter()
+            .map(|t| (t.datum1.as_u64(), t.isnull1))
+            .collect()
     });
     ts.0.with_mut(|st| {
         let mut tuples = core::mem::replace(&mut st.memtuples, PgVec::new_in(st.mcx));
-        assert!(!st.radix_sort_abbrev(&mut tuples).unwrap(), "dups must fall back");
+        assert!(
+            !st.radix_sort_abbrev(&mut tuples).unwrap(),
+            "dups must fall back"
+        );
         st.memtuples = tuples;
     });
     let after: Vec<(u64, bool)> = ts.0.with(|st| {
-        st.memtuples.iter().map(|t| (t.datum1.as_u64(), t.isnull1)).collect()
+        st.memtuples
+            .iter()
+            .map(|t| (t.datum1.as_u64(), t.isnull1))
+            .collect()
     });
     assert_eq!(before, after, "fallback must leave the array untouched");
     ts.performsort().unwrap();
     assert_eq!(drain_text_datums(&mut ts), text_oracle(dups, false));
     ts.end();
 }
-
 
 // cstring (typlen -2) datum-sort rig: the shim comparator is the
 // BTORDER_PROC-per-comparison lane C uses when no sortsupport routine
@@ -1944,7 +2223,11 @@ fn cstring_sort(work_mem: i32, sortopt: i32) -> Tuplesort {
         ssup_reverse: false,
         ssup_nulls_first: false,
         ssup_attno: 1,
-        comparator: SortComparator::Shim(crate::ssup::ShimCmp { fn_addr: fc_cstrcmp, fn_oid: 0, slot: 0 }),
+        comparator: SortComparator::Shim(crate::ssup::ShimCmp {
+            fn_addr: fc_cstrcmp,
+            fn_oid: 0,
+            slot: 0,
+        }),
     };
     Tuplesort::begin_common(
         work_mem,
@@ -1967,7 +2250,8 @@ fn cstring_datum_sort_in_memory() {
     for s in inputs {
         let c = std::ffi::CString::new(s).unwrap();
         // datumCopy inside putdatum: the source buffer may die right after.
-        ts.putdatum(Datum::from_usize(c.as_ptr() as usize), false).unwrap();
+        ts.putdatum(Datum::from_usize(c.as_ptr() as usize), false)
+            .unwrap();
         drop(c);
     }
     ts.putdatum(Datum::null(), true).unwrap();
@@ -2004,7 +2288,8 @@ fn cstring_datum_sort_bounded_eviction() {
         let s = format!("v{:08}", lcg(&mut seed) % 100_000);
         oracle.push(s.clone());
         let c = std::ffi::CString::new(s).unwrap();
-        ts.putdatum(Datum::from_usize(c.as_ptr() as usize), false).unwrap();
+        ts.putdatum(Datum::from_usize(c.as_ptr() as usize), false)
+            .unwrap();
     }
     oracle.sort_unstable();
     ts.performsort().unwrap();
@@ -2012,9 +2297,8 @@ fn cstring_datum_sort_bounded_eviction() {
         let nd = ts.getdatum(true).unwrap().unwrap();
         assert!(!nd.isnull);
         // SAFETY: live tuplecontext cstring image.
-        let c = unsafe {
-            core::ffi::CStr::from_ptr(nd.value.as_usize() as *const core::ffi::c_char)
-        };
+        let c =
+            unsafe { core::ffi::CStr::from_ptr(nd.value.as_usize() as *const core::ffi::c_char) };
         assert_eq!(c.to_str().unwrap(), want);
     }
     ts.end();
@@ -2032,7 +2316,9 @@ mod spill {
     static CWD: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     fn enter_datadir(tag: &str) -> (std::sync::MutexGuard<'static, ()>, String) {
-        let guard = CWD.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let guard = CWD
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let dir = format!(
             "{}/pgrust-tsortspill-{}-{}",
             std::env::temp_dir().display(),
@@ -2104,7 +2390,10 @@ mod spill {
     fn reset_releases_outstanding_merge_tuples() {
         setup();
         let (_cwd, _dir) = enter_datadir("resetrelease");
-        let key = SortSupport { comparator: SortComparator::TextC, ..text_key(false, false) };
+        let key = SortSupport {
+            comparator: SortComparator::TextC,
+            ..text_key(false, false)
+        };
         let mut ts = Tuplesort::begin_common(
             64,
             TUPLESORT_NONE,
@@ -2123,13 +2412,17 @@ mod spill {
         let mut used = Vec::new();
         for round in 0..10 {
             for b in &blobs {
-                ts.putdatum(Datum::from_usize(b.as_ptr() as usize), false).unwrap();
+                ts.putdatum(Datum::from_usize(b.as_ptr() as usize), false)
+                    .unwrap();
             }
             ts.performsort().unwrap();
             if round == 0 {
                 let stats = ts.get_stats();
                 assert!(
-                    matches!(stats.sortMethod, ::types_core::instrument::TuplesortMethod::ExternalMerge),
+                    matches!(
+                        stats.sortMethod,
+                        ::types_core::instrument::TuplesortMethod::ExternalMerge
+                    ),
                     "expected a spilled final merge: {:?} {:?} {}",
                     stats.sortMethod,
                     stats.spaceType,
@@ -2243,7 +2536,14 @@ mod spill {
             .map(|_| {
                 let a = lcg(&mut seed) % 1000;
                 let b = lcg(&mut seed);
-                (Some(a as i32), if b.is_multiple_of( 17) { None } else { Some((b % 100) as i32) })
+                (
+                    Some(a as i32),
+                    if b.is_multiple_of(17) {
+                        None
+                    } else {
+                        Some((b % 100) as i32)
+                    },
+                )
             })
             .collect();
         for (a, b) in &rows {
@@ -2298,7 +2598,8 @@ mod spill {
         let keys = [int32_key(1, false, false), int32_key(2, false, false)];
         // Bounded-capable, but the bound transition is never reached before
         // memory runs out: the sort spills as a plain external sort.
-        let mut ts = Tuplesort::begin_heap_with_keys(desc.clone(), &keys, 64, TUPLESORT_ALLOWBOUNDED);
+        let mut ts =
+            Tuplesort::begin_heap_with_keys(desc.clone(), &keys, 64, TUPLESORT_ALLOWBOUNDED);
         ts.set_bound(20_000);
 
         let mut seed = 7u64;
@@ -2347,10 +2648,8 @@ mod spill {
             ts.putdatum(Datum::from_i32(v), false).unwrap();
         }
         ts.performsort().unwrap();
-        let vals: Vec<i32> = std::iter::from_fn(|| {
-            ts.getdatum(true).unwrap().map(|nd| nd.value.as_i32())
-        })
-        .collect();
+        let vals: Vec<i32> =
+            std::iter::from_fn(|| ts.getdatum(true).unwrap().map(|nd| nd.value.as_i32())).collect();
         assert_eq!(vals, vec![1, 3, 5]);
         ts.end();
     }
@@ -2393,7 +2692,8 @@ mod spill {
     #[test]
     fn grow_memtuples_last_increment_matches_c() {
         setup();
-        let mut ts = Tuplesort::begin_datum_with_key(int32_key(1, false, false), 64, TUPLESORT_NONE);
+        let mut ts =
+            Tuplesort::begin_datum_with_key(int32_key(1, false, false), 64, TUPLESORT_NONE);
         ts.0.with_mut(|st| {
             assert_eq!(st.memtuples.capacity(), INITIAL_MEMTUPSIZE);
             let array = memtuples_space(INITIAL_MEMTUPSIZE);
@@ -2418,18 +2718,24 @@ mod spill {
     fn reset_grown_array_spills_at_fresh_sort_boundary() {
         setup();
         let (_cwd, _dir) = enter_datadir("reset-boundary");
-        let mut reused = Tuplesort::begin_datum_with_key(int32_key(1, false, false), 64, TUPLESORT_NONE);
+        let mut reused =
+            Tuplesort::begin_datum_with_key(int32_key(1, false, false), 64, TUPLESORT_NONE);
         for v in 0..1500 {
             reused.putdatum(Datum::from_i32(v), false).unwrap();
         }
-        reused.0.with_mut(|st| assert!(st.memtuples.capacity() > INITIAL_MEMTUPSIZE));
+        reused
+            .0
+            .with_mut(|st| assert!(st.memtuples.capacity() > INITIAL_MEMTUPSIZE));
         reused.performsort().unwrap();
         reused.reset().unwrap();
-        let mut fresh = Tuplesort::begin_datum_with_key(int32_key(1, false, false), 64, TUPLESORT_NONE);
+        let mut fresh =
+            Tuplesort::begin_datum_with_key(int32_key(1, false, false), 64, TUPLESORT_NONE);
         for v in (0..10000).rev() {
             reused.putdatum(Datum::from_i32(v), false).unwrap();
             fresh.putdatum(Datum::from_i32(v), false).unwrap();
-            let snapshot = |ts: &mut Tuplesort| ts.0.with_mut(|st| (st.status, st.avail_mem, st.memtuples.capacity()));
+            let snapshot = |ts: &mut Tuplesort| {
+                ts.0.with_mut(|st| (st.status, st.avail_mem, st.memtuples.capacity()))
+            };
             assert_eq!(snapshot(&mut reused), snapshot(&mut fresh));
         }
         reused.performsort().unwrap();
@@ -2485,8 +2791,12 @@ mod spill {
             for i in 0..nrows {
                 let key = (lcg(&mut seed) % 5_000) as i32;
                 let t = tid(w * 1_000 + i / 200, (i % 200 + 1) as u16);
-                ts.putindextuplevalues(t, &[Datum::from_i32(key)], &[false]).unwrap();
-                oracle.push((Some(i64::from(key)), (w * 1_000 + i / 200, (i % 200 + 1) as u16)));
+                ts.putindextuplevalues(t, &[Datum::from_i32(key)], &[false])
+                    .unwrap();
+                oracle.push((
+                    Some(i64::from(key)),
+                    (w * 1_000 + i / 200, (i % 200 + 1) as u16),
+                ));
             }
             ts.performsort().unwrap();
             ts.0.with_mut(|st| assert_eq!(st.status, TupSortStatus::SortedOnTape));
@@ -2505,13 +2815,21 @@ mod spill {
             },
         );
         leader.performsort().unwrap();
-        leader.0.with_mut(|st| assert_eq!(st.status, TupSortStatus::FinalMerge));
-        let got: Vec<(Option<i64>, (u32, u16))> =
-            drain_index(&mut leader, &desc, 1).into_iter().map(|(k, t)| (k[0], t)).collect();
+        leader
+            .0
+            .with_mut(|st| assert_eq!(st.status, TupSortStatus::FinalMerge));
+        let got: Vec<(Option<i64>, (u32, u16))> = drain_index(&mut leader, &desc, 1)
+            .into_iter()
+            .map(|(k, t)| (k[0], t))
+            .collect();
         assert_eq!(got, oracle);
         leader.end();
         drop(shared);
-        assert_eq!(temp_files(&dir), 0, "fileset directory removed with the last participant");
+        assert_eq!(
+            temp_files(&dir),
+            0,
+            "fileset directory removed with the last participant"
+        );
     }
 
     // Duplicates that land in different workers meet only in the leader's
@@ -2535,7 +2853,11 @@ mod spill {
                 },
             );
             for i in 0..5u16 {
-                let key = if w == 1 && i == 4 { 2 } else { i32::from(w * 10 + i) };
+                let key = if w == 1 && i == 4 {
+                    2
+                } else {
+                    i32::from(w * 10 + i)
+                };
                 ts.putindextuplevalues(tid(u32::from(w), i + 1), &[Datum::from_i32(key)], &[false])
                     .unwrap();
             }
@@ -2546,7 +2868,11 @@ mod spill {
             &desc,
             true,
             1024,
-            &crate::SortCoordinate { is_worker: false, n_participants: 2, sharedsort: Arc::clone(&shared) },
+            &crate::SortCoordinate {
+                is_worker: false,
+                n_participants: 2,
+                sharedsort: Arc::clone(&shared),
+            },
         );
         let err = match leader.performsort() {
             Err(e) => e,
@@ -2579,19 +2905,31 @@ mod spill {
             &desc,
             false,
             1024,
-            &crate::SortCoordinate { is_worker: true, n_participants: -1, sharedsort: Arc::clone(&shared) },
+            &crate::SortCoordinate {
+                is_worker: true,
+                n_participants: -1,
+                sharedsort: Arc::clone(&shared),
+            },
         );
-        ts.putindextuplevalues(tid(0, 1), &[Datum::from_i32(1)], &[false]).unwrap();
+        ts.putindextuplevalues(tid(0, 1), &[Datum::from_i32(1)], &[false])
+            .unwrap();
         ts.performsort().unwrap();
         ts.end();
         let mut leader = coordinated_index_sort(
             &desc,
             false,
             1024,
-            &crate::SortCoordinate { is_worker: false, n_participants: 2, sharedsort: Arc::clone(&shared) },
+            &crate::SortCoordinate {
+                is_worker: false,
+                n_participants: 2,
+                sharedsort: Arc::clone(&shared),
+            },
         );
         let err = leader.performsort().unwrap_err();
-        assert_eq!(err.message(), "cannot take over tapes before all workers finish");
+        assert_eq!(
+            err.message(),
+            "cannot take over tapes before all workers finish"
+        );
     }
 
     // cstring (typlen -2) datum spill: writetup_datum sizes the image as
@@ -2607,7 +2945,8 @@ mod spill {
         for _ in 0..30_000 {
             let s = format!("k{:012}", lcg(&mut seed) % 1_000_000);
             let c = std::ffi::CString::new(s.clone()).unwrap();
-            ts.putdatum(Datum::from_usize(c.as_ptr() as usize), false).unwrap();
+            ts.putdatum(Datum::from_usize(c.as_ptr() as usize), false)
+                .unwrap();
             oracle.push(s);
         }
         oracle.sort_unstable();
@@ -2633,8 +2972,7 @@ mod detoast_payload {
 
     fn compressed_image(input: &[u8]) -> Vec<u8> {
         let mut dest = vec![MaybeUninit::<u8>::uninit(); pglz::pglz_max_output(input.len())];
-        let n =
-            pglz::pglz_compress_into(input, &mut dest, &pglz::PGLZ_STRATEGY_ALWAYS).unwrap();
+        let n = pglz::pglz_compress_into(input, &mut dest, &pglz::PGLZ_STRATEGY_ALWAYS).unwrap();
         let total = 8 + n;
         let mut image = (((total as u32) << 2) | 0x02).to_ne_bytes().to_vec();
         image.extend_from_slice(&(input.len() as u32).to_ne_bytes());
@@ -2718,10 +3056,12 @@ pub(super) mod values_sort {
     pub(super) fn i64_text_desc(mcx: Mcx<'static>) -> Rc<TupleDescData<'static>> {
         let mut attrs = PgVec::new_in(mcx);
         let mut compact = PgVec::new_in(mcx);
-        for (i, (typid, len, byval, align)) in
-            [(20u32, 8i16, true, ::types_tuple::TYPALIGN_DOUBLE), (25, -1, false, TYPALIGN_INT)]
-                .iter()
-                .enumerate()
+        for (i, (typid, len, byval, align)) in [
+            (20u32, 8i16, true, ::types_tuple::TYPALIGN_DOUBLE),
+            (25, -1, false, TYPALIGN_INT),
+        ]
+        .iter()
+        .enumerate()
         {
             let att = FormData_pg_attribute {
                 attnum: (i + 1) as i16,
@@ -2781,7 +3121,10 @@ pub(super) mod values_sort {
         let mut rows: Vec<(i64, Vec<u8>)> = (0..2000)
             .map(|_| {
                 let k = lcg(&mut seed);
-                ((k % 1000) as i64 - 500, format!("k{:03}", k % 250).into_bytes())
+                (
+                    (k % 1000) as i64 - 500,
+                    format!("k{:03}", k % 250).into_bytes(),
+                )
             })
             .collect();
         let mut keep = Vec::new();
@@ -2807,8 +3150,8 @@ pub(super) mod values_sort {
 }
 
 mod values_sort_large {
-    use super::*;
     use super::values_sort::*;
+    use super::*;
 
     #[test]
     fn putvalues_getvalues_sorts_67k_rows() {
@@ -2887,7 +3230,11 @@ mod bounded_memory_discipline {
         }];
         let mut ts = Tuplesort::begin_heap_with_keys(desc, &keys, 4096, TUPLESORT_ALLOWBOUNDED);
         ts.set_bound(10);
-        assert_eq!(ts.tuplecontext_stats().kind, "AllocSet", "bounded arm must be pfree-capable");
+        assert_eq!(
+            ts.tuplecontext_stats().kind,
+            "AllocSet",
+            "bounded arm must be pfree-capable"
+        );
         let mut seed = 7u64;
         let mut keep = Vec::new();
         let mut mins: Vec<i64> = Vec::new();
@@ -2924,13 +3271,15 @@ mod bounded_memory_discipline {
         let mut ts = begin_text_datum_abbrev(TUPLESORT_ALLOWBOUNDED);
         ts.set_bound(25);
         assert_eq!(ts.tuplecontext_stats().kind, "AllocSet");
-        let blobs: Vec<Option<Box<[u64]>>> =
-            vals.iter().map(|v| v.as_ref().map(|p| text_blob(p))).collect();
+        let blobs: Vec<Option<Box<[u64]>>> = vals
+            .iter()
+            .map(|v| v.as_ref().map(|p| text_blob(p)))
+            .collect();
         for b in &blobs {
             match b {
-                Some(blob) => {
-                    ts.putdatum(Datum::from_usize(blob.as_ptr() as usize), false).unwrap()
-                }
+                Some(blob) => ts
+                    .putdatum(Datum::from_usize(blob.as_ptr() as usize), false)
+                    .unwrap(),
                 None => ts.putdatum(Datum::null(), true).unwrap(),
             }
         }
@@ -3142,7 +3491,12 @@ mod sortsupport_guards {
             rd_newRelfilelocatorSubid: Cell::new(0),
             rd_firstRelfilelocatorSubid: Cell::new(0),
             rd_droppedSubid: Cell::new(0),
-            rd_lockInfo: LockInfoData { lockRelId: LockRelId { relId: oid, dbId: 5 } },
+            rd_lockInfo: LockInfoData {
+                lockRelId: LockRelId {
+                    relId: oid,
+                    dbId: 5,
+                },
+            },
             rd_rel: FormData_pg_class {
                 relname,
                 relnamespace: 2200,
@@ -3215,14 +3569,21 @@ mod sortsupport_guards {
     #[test]
     fn invalid_ordering_operator_is_an_error_not_a_panic() {
         install_catalog_seams();
-        let init = SortSupportInit { ssup_collation: 0, ssup_nulls_first: false, ssup_attno: 1 };
+        let init = SortSupportInit {
+            ssup_collation: 0,
+            ssup_nulls_first: false,
+            ssup_attno: 1,
+        };
         let bogus: Oid = 551; // int4pl: a real operator, never an ordering one
         let outcome = std::panic::catch_unwind(|| {
             prepare_sort_support_from_ordering_op(bogus, &init).map(|_| ())
         });
         let result = outcome.expect("PrepareSortSupportFromOrderingOp must elog, not panic");
         let err = result.expect_err("a non-ordering operator must be refused");
-        assert_eq!(err.message(), "operator 551 is not a valid ordering operator");
+        assert_eq!(
+            err.message(),
+            "operator 551 is not a valid ordering operator"
+        );
         assert_eq!(err.sqlstate(), ERRCODE_INTERNAL_ERROR);
     }
 
@@ -3259,7 +3620,13 @@ mod sortsupport_guards {
 
 #[test]
 fn small_datum_sort_reports_c_chunk_memory() {
-    let (mut ts, output) = run_datum_sort(&[Some(3), Some(1), Some(2)], false, false, TUPLESORT_NONE, None);
+    let (mut ts, output) = run_datum_sort(
+        &[Some(3), Some(1), Some(2)],
+        false,
+        false,
+        TUPLESORT_NONE,
+        None,
+    );
     assert_eq!(output, vec![Some(1), Some(2), Some(3)]);
     assert_eq!(ts.get_stats().spaceUsed, 25);
 }
@@ -3272,10 +3639,15 @@ fn bounded_cluster_frees_complete_blobs() {
         let mut attnums = [0; 32];
         attnums[0] = if expression { 0 } else { 1 };
         let mut ts = Tuplesort::begin_common(
-            4096, TUPLESORT_ALLOWBOUNDED, &[int32_key(1, false, false)],
-            false, None,
+            4096,
+            TUPLESORT_ALLOWBOUNDED,
+            &[int32_key(1, false, false)],
+            false,
+            None,
             SortVariant::Cluster {
-                tup_desc: desc.clone(), attnums, nkeys: 1,
+                tup_desc: desc.clone(),
+                attnums,
+                nkeys: 1,
                 index_desc: expression.then(|| desc.clone()),
             },
             ::pg_rusage::PgRUsage::default(),
@@ -3284,9 +3656,8 @@ fn bounded_cluster_frees_complete_blobs() {
         for k in (0..32).rev().chain(32..64) {
             let values = [Datum::from_i32(k)];
             let tuple = heaptuple::heap_form_tuple(mcx, &desc, &values, &[false]).unwrap();
-            let index = expression.then(|| nbtree::itup::index_form_tuple(
-                mcx, &desc, &values, &[false],
-            ).unwrap());
+            let index = expression
+                .then(|| nbtree::itup::index_form_tuple(mcx, &desc, &values, &[false]).unwrap());
             let image = index.as_ref().map(|itup| {
                 // SAFETY: the formed index image remains live through putheaptuple.
                 unsafe { core::slice::from_raw_parts(itup.as_ptr(), itup.size()) }
@@ -3295,7 +3666,10 @@ fn bounded_cluster_frees_complete_blobs() {
         }
         ts.performsort().unwrap();
         assert!(ts.used_bound());
-        assert!(ts.tuplecontext_stats().used <= 3 * 128, "only three small blobs remain live");
+        assert!(
+            ts.tuplecontext_stats().used <= 3 * 128,
+            "only three small blobs remain live"
+        );
         for expected in 0..3 {
             let tuple = ts.getheaptuple(true).unwrap().unwrap();
             let mut isnull = false;
@@ -3321,15 +3695,19 @@ fn text_index_key() -> SortSupport {
 }
 
 fn put_text_index_tuples(ts: &mut Tuplesort, vals: &[Option<Vec<u8>>]) -> Vec<Option<Box<[u64]>>> {
-    let blobs: Vec<Option<Box<[u64]>>> =
-        vals.iter().map(|v| v.as_ref().map(|p| text_blob(p))).collect();
+    let blobs: Vec<Option<Box<[u64]>>> = vals
+        .iter()
+        .map(|v| v.as_ref().map(|p| text_blob(p)))
+        .collect();
     for (i, b) in blobs.iter().enumerate() {
         let t = tid((i / 200) as u32, (i % 200 + 1) as u16);
         match b {
             Some(blob) => ts
                 .putindextuplevalues(t, &[Datum::from_usize(blob.as_ptr() as usize)], &[false])
                 .unwrap(),
-            None => ts.putindextuplevalues(t, &[Datum::null()], &[true]).unwrap(),
+            None => ts
+                .putindextuplevalues(t, &[Datum::null()], &[true])
+                .unwrap(),
         }
     }
     blobs
@@ -3366,12 +3744,23 @@ fn index_sort_text_arms_leading_key_abbreviation() {
     let desc = text_desc(mcx);
     let vals = random_texts(3000, 0x5151, b"");
     let mut ts = Tuplesort::begin_index_with_keys(
-        desc.clone(), &[text_index_key()], 1, false, false, "t_txt_idx", None, 1024, TUPLESORT_NONE,
+        desc.clone(),
+        &[text_index_key()],
+        1,
+        false,
+        false,
+        "t_txt_idx",
+        None,
+        1024,
+        TUPLESORT_NONE,
     );
     // C: sortKey->abbreviate = (i == 0 && haveDatum1) in tuplesort_begin_index_btree.
     ts.0.with(|st| {
         assert!(st.abbrev.is_some(), "index sort must arm abbreviation");
-        assert!(matches!(st.sort_keys[0].comparator, SortComparator::Unsigned));
+        assert!(matches!(
+            st.sort_keys[0].comparator,
+            SortComparator::Unsigned
+        ));
     });
     let _blobs = put_text_index_tuples(&mut ts, &vals);
     ts.performsort().unwrap();
@@ -3387,7 +3776,15 @@ fn index_sort_abbrev_abort_refetches_index_datum1() {
     // varstr_abbrev_abort fires; removeabbrev_index restores datum1.
     let vals = random_texts(4000, 0x77, b"zzzzzzzz");
     let mut ts = Tuplesort::begin_index_with_keys(
-        desc.clone(), &[text_index_key()], 1, false, false, "t_txt_idx", None, 1024, TUPLESORT_NONE,
+        desc.clone(),
+        &[text_index_key()],
+        1,
+        false,
+        false,
+        "t_txt_idx",
+        None,
+        1024,
+        TUPLESORT_NONE,
     );
     let _blobs = put_text_index_tuples(&mut ts, &vals);
     ts.0.with(|st| assert!(st.abbrev.is_none(), "abort should have fired"));
@@ -3407,19 +3804,37 @@ fn index_sort_abbrev_unique_violation_uses_full_comparator() {
         .map(|s| Some(s.to_vec()))
         .collect();
     let mut ts = Tuplesort::begin_index_with_keys(
-        desc.clone(), &[text_index_key()], 1, true, false, "t_txt_key", None, 1024, TUPLESORT_NONE,
+        desc.clone(),
+        &[text_index_key()],
+        1,
+        true,
+        false,
+        "t_txt_key",
+        None,
+        1024,
+        TUPLESORT_NONE,
     );
     let _blobs = put_text_index_tuples(&mut ts, &vals);
     let err = ts.performsort().unwrap_err();
     assert_eq!(err.sqlstate(), ERRCODE_UNIQUE_VIOLATION);
-    assert!(err.message().contains("could not create unique index \"t_txt_key\""));
+    assert!(err
+        .message()
+        .contains("could not create unique index \"t_txt_key\""));
 
     let vals: Vec<Option<Vec<u8>>> = [b"abcdefghXY".as_slice(), b"abcdefghXZ", b"abcdefghXW"]
         .iter()
         .map(|s| Some(s.to_vec()))
         .collect();
     let mut ts = Tuplesort::begin_index_with_keys(
-        desc.clone(), &[text_index_key()], 1, true, false, "t_txt_key", None, 1024, TUPLESORT_NONE,
+        desc.clone(),
+        &[text_index_key()],
+        1,
+        true,
+        false,
+        "t_txt_key",
+        None,
+        1024,
+        TUPLESORT_NONE,
     );
     let _blobs = put_text_index_tuples(&mut ts, &vals);
     ts.performsort().unwrap();
@@ -3433,7 +3848,10 @@ fn locale_sort_buffers_admit_large_values_independently() {
         assert_eq!(ssup::coll_buffer_size(len).unwrap(), len + 1);
     }
     let err = ssup::coll_buffer_size(mcx::MAX_ALLOC_SIZE).unwrap_err();
-    assert_eq!(err.message(), "invalid memory alloc request size 1073741824");
+    assert_eq!(
+        err.message(),
+        "invalid memory alloc request size 1073741824"
+    );
 }
 
 #[test]
@@ -3442,13 +3860,30 @@ fn locale_sort_terminated_buffers() {
         .iter()
         .find_map(|n| pg_locale::libc_locale_for_tests(n).ok())
         .expect("en_US libc locale required");
-    for (a, b) in [(b"a".as_slice(), b"b".as_slice()), (b"a", b"ab"), (b"A", b"a")] {
+    for (a, b) in [
+        (b"a".as_slice(), b"b".as_slice()),
+        (b"a", b"ab"),
+        (b"A", b"a"),
+    ] {
         let raw = locale.pg_strncoll(a, b).unwrap();
-        let expected = if raw == 0 { a.cmp(b) as i32 } else { raw.signum() };
-        assert_eq!(ssup::varstrfastcmp_locale(a, b, &locale, false).signum(), expected);
-        assert_eq!(ssup::varstrfastcmp_locale(b, a, &locale, false).signum(), -expected);
+        let expected = if raw == 0 {
+            a.cmp(b) as i32
+        } else {
+            raw.signum()
+        };
+        assert_eq!(
+            ssup::varstrfastcmp_locale(a, b, &locale, false).signum(),
+            expected
+        );
+        assert_eq!(
+            ssup::varstrfastcmp_locale(b, a, &locale, false).signum(),
+            -expected
+        );
     }
-    assert_eq!(ssup::varstrfastcmp_locale(b"same", b"same", &locale, false), 0);
+    assert_eq!(
+        ssup::varstrfastcmp_locale(b"same", b"same", &locale, false),
+        0
+    );
     assert_eq!(ssup::varstrfastcmp_locale(b"a  ", b"a", &locale, true), 0);
     assert!(ssup::varstrfastcmp_locale(b"b  ", b"a", &locale, true) > 0);
 }
@@ -3457,10 +3892,20 @@ fn locale_sort_terminated_buffers() {
 fn index_merge_compare_uses_full_comparator_after_abbrev_sort() {
     let mcx = leaked_mcx();
     let desc = text_desc(mcx);
-    let vals: Vec<Option<Vec<u8>>> =
-        [b"zzzzzzzzzzzz".as_slice(), b"aaaaaaaaaaaa"].iter().map(|s| Some(s.to_vec())).collect();
+    let vals: Vec<Option<Vec<u8>>> = [b"zzzzzzzzzzzz".as_slice(), b"aaaaaaaaaaaa"]
+        .iter()
+        .map(|s| Some(s.to_vec()))
+        .collect();
     let mut ts = Tuplesort::begin_index_with_keys(
-        desc.clone(), &[text_index_key()], 1, true, false, "t_txt_key", None, 1024, TUPLESORT_NONE,
+        desc.clone(),
+        &[text_index_key()],
+        1,
+        true,
+        false,
+        "t_txt_key",
+        None,
+        1024,
+        TUPLESORT_NONE,
     );
     let _blobs = put_text_index_tuples(&mut ts, &vals);
     ts.performsort().unwrap();
@@ -3480,7 +3925,10 @@ fn index_merge_compare_uses_full_comparator_after_abbrev_sort() {
     let (z, a) = unsafe {
         std::ptr::copy_nonoverlapping(images[1].as_ptr(), base, images[1].len());
         std::ptr::copy_nonoverlapping(images[0].as_ptr(), base.add(256), images[0].len());
-        (base as nbtree::itup::ITup, base.add(256) as nbtree::itup::ITup)
+        (
+            base as nbtree::itup::ITup,
+            base.add(256) as nbtree::itup::ITup,
+        )
     };
     // SAFETY: images formed under this sort's descriptor.
     unsafe {
@@ -3496,7 +3944,8 @@ fn index_merge_compare_uses_full_comparator_after_abbrev_sort() {
 fn release_without_end_trace_puts_the_flag_back_on_an_unwind() {
     assert!(!abort_release());
     assert!(release_without_end_trace(abort_release));
-    let unwound = std::panic::catch_unwind(|| release_without_end_trace(|| panic!("teardown unwinds")));
+    let unwound =
+        std::panic::catch_unwind(|| release_without_end_trace(|| panic!("teardown unwinds")));
     assert!(unwound.is_err());
     assert!(!abort_release(), "the flag stayed set past the unwind");
 }

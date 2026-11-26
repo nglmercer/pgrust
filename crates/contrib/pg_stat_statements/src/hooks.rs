@@ -4,17 +4,13 @@
 
 use std::cell::RefCell;
 
-use types_core::instrument::{
-    instr_time, BufferUsage, Instrumentation, WalUsage, INSTRUMENT_ALL,
-};
+use types_core::instrument::{instr_time, BufferUsage, Instrumentation, WalUsage, INSTRUMENT_ALL};
+use types_error::PgResult;
 use types_nodes::parsenodes::Query;
 use types_nodes::plannodes::PlannedStmt;
-use types_error::PgResult;
 use types_nodes::NodeTag;
 use types_portal::{QueryCompletion, QueryDescHandle};
-use utility::consts::{
-    CMDTAG_COPY, CMDTAG_FETCH, CMDTAG_REFRESH_MATERIALIZED_VIEW, CMDTAG_SELECT,
-};
+use utility::consts::{CMDTAG_COPY, CMDTAG_FETCH, CMDTAG_REFRESH_MATERIALIZED_VIEW, CMDTAG_SELECT};
 
 use crate::store::pgss_store;
 use crate::{gucs, nesting_add, nesting_level, pgss_enabled, PGSS_EXEC, PGSS_PLAN};
@@ -40,7 +36,11 @@ impl Snapshot {
 
     fn buf_diff(&self) -> BufferUsage {
         let mut d = BufferUsage::default();
-        instrument::buffer_usage_accum_diff(&mut d, &instrument::pg_buffer_usage(), &self.bufusage_start);
+        instrument::buffer_usage_accum_diff(
+            &mut d,
+            &instrument::pg_buffer_usage(),
+            &self.bufusage_start,
+        );
         d
     }
 
@@ -110,10 +110,12 @@ pub(crate) fn pgss_post_parse_analyze(
 
 /// `pgss_planner` (enter half).
 pub(crate) fn pgss_planner_enter(query_id: i64) {
-    let tracked =
-        pgss_enabled(nesting_level()) && gucs::pgss_track_planning() && query_id != 0;
+    let tracked = pgss_enabled(nesting_level()) && gucs::pgss_track_planning() && query_id != 0;
     PLAN_FRAMES.with(|f| {
-        f.borrow_mut().push(PlanFrame { tracked, snap: tracked.then(Snapshot::take) })
+        f.borrow_mut().push(PlanFrame {
+            tracked,
+            snap: tracked.then(Snapshot::take),
+        })
     });
     nesting_add(1);
 }
@@ -194,8 +196,11 @@ pub(crate) fn pgss_executor_end(h: QueryDescHandle) -> PgResult<()> {
         }
         let (stmt_location, stmt_len) = (pstmt.stmt_location, pstmt.stmt_len);
         let source_text = qd.source_text;
-        let (rows, pw_to_launch, pw_launched) =
-            (qd.total_processed, qd.parallel_workers_to_launch, qd.parallel_workers_launched);
+        let (rows, pw_to_launch, pw_launched) = (
+            qd.total_processed,
+            qd.parallel_workers_to_launch,
+            qd.parallel_workers_launched,
+        );
         let t = qd.totaltime.as_deref_mut().expect("checked above");
         instrument::instr_end_loop(t);
         pgss_store(
@@ -224,7 +229,10 @@ pub(crate) fn pgss_process_utility_enter(pstmt: &PlannedStmt<'_>) {
         unsafe { pstmt.queryId.set(0) };
     }
     let tag = pstmt.utilityStmt.map(|u| u.node_tag());
-    let exempt = matches!(tag, Some(NodeTag::T_ExecuteStmt) | Some(NodeTag::T_PrepareStmt));
+    let exempt = matches!(
+        tag,
+        Some(NodeTag::T_ExecuteStmt) | Some(NodeTag::T_PrepareStmt)
+    );
     let tracked = enabled && !exempt;
     UTIL_FRAMES.with(|f| {
         f.borrow_mut().push(UtilFrame {
@@ -268,7 +276,9 @@ pub(crate) fn pgss_process_utility_leave(
         }
         _ => 0,
     };
-    let snap = frame.snap.expect("tracked utility frame carries a snapshot");
+    let snap = frame
+        .snap
+        .expect("tracked utility frame carries a snapshot");
     pgss_store(
         source_text,
         frame.saved_query_id,

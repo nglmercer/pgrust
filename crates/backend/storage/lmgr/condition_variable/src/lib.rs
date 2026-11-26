@@ -68,7 +68,9 @@ fn cv_wait_link(procno: ProcNumber) -> proclist_node {
 
 fn set_cv_wait_link(procno: ProcNumber, node: proclist_node) {
     // SAFETY: [CV] serialized by the condition variable's spinlock
-    unsafe { GetPGProcByNumber(procno).cvWaitLink.set(node); }
+    unsafe {
+        GetPGProcByNumber(procno).cvWaitLink.set(node);
+    }
 }
 
 fn proclist_push_tail(list: &mut proclist_head, procno: ProcNumber) {
@@ -178,7 +180,9 @@ pub fn ConditionVariableTimedSleep(
     timeout: i64,
     wait_event_info: u32,
 ) -> PgResult<bool> {
-    let target_is_cv = CV_SLEEP_TARGET.with(|t| t.get()).is_some_and(|t| core::ptr::eq(t, cv));
+    let target_is_cv = CV_SLEEP_TARGET
+        .with(|t| t.get())
+        .is_some_and(|t| core::ptr::eq(t, cv));
     if !target_is_cv {
         ConditionVariablePrepareToSleep(cv);
         return Ok(false);
@@ -224,7 +228,10 @@ pub fn ConditionVariableTimedSleep(
         cv.mutex.unlock();
 
         postgres_seams::check_for_interrupts::call()?;
-        if !CV_SLEEP_TARGET.with(|t| t.get()).is_some_and(|t| core::ptr::eq(t, cv)) {
+        if !CV_SLEEP_TARGET
+            .with(|t| t.get())
+            .is_some_and(|t| core::ptr::eq(t, cv))
+        {
             done = true;
         }
 
@@ -345,7 +352,10 @@ static BARRIER_CV_INIT: Spinlock = Spinlock::new();
 /// (procsignal.c:156): allocate one CV per ProcSignal slot. A repeat call
 /// keeps the first slab (psh_slot's init-once shape).
 pub fn ProcSignalBarrierCvsInit(num_slots: i32) {
-    assert!(num_slots > 0, "ProcSignalBarrierCvsInit: NumProcSignalSlots not initialized");
+    assert!(
+        num_slots > 0,
+        "ProcSignalBarrierCvsInit: NumProcSignalSlots not initialized"
+    );
     spin_acquire(&BARRIER_CV_INIT);
     if BARRIER_CVS.load(Acquire).is_null() {
         let cvs: &'static mut [ConditionVariable] = (0..num_slots)

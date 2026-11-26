@@ -33,7 +33,9 @@ fn disasm(p: &Program, name: &str) -> Vec<(i64, String)> {
         let w = u32::from_le_bytes(bytes[i..i + 4].try_into().unwrap());
         let mut s = [0u8; 128];
         let ddi = tpde_disarm::decode(w);
-        let line = tpde_disarm::da64_format(&ddi, &mut s).map(|n| String::from_utf8_lossy(&s[..n]).into_owned()).unwrap_or_else(|_| "??".into());
+        let line = tpde_disarm::da64_format(&ddi, &mut s)
+            .map(|n| String::from_utf8_lossy(&s[..n]).into_owned())
+            .unwrap_or_else(|_| "??".into());
         out.push(((i - off) as i64, line));
         if w == 0xd65f03c0 {
             break;
@@ -49,13 +51,20 @@ fn disasm(p: &Program, name: &str) -> Vec<(i64, String)> {
 fn latch_moves(lines: &[(i64, String)]) -> usize {
     let mut n = 0;
     for (off, line) in lines {
-        let Some(rel) = line.strip_prefix("b #0x") else { continue };
+        let Some(rel) = line.strip_prefix("b #0x") else {
+            continue;
+        };
         let rel = u64::from_str_radix(rel.trim(), 16).unwrap() as i64;
         if rel >= 0 {
             continue;
         }
         let target = off + rel;
-        n += lines.iter().filter(|(o, l)| *o >= target && *o <= *off && l.starts_with("orr x") && l.contains(", xzr, x")).count();
+        n += lines
+            .iter()
+            .filter(|(o, l)| {
+                *o >= target && *o <= *off && l.starts_with("orr x") && l.contains(", xzr, x")
+            })
+            .count();
     }
     n
 }
@@ -63,7 +72,10 @@ fn latch_moves(lines: &[(i64, String)]) -> usize {
 /// Loads from the frame (`[x29, ...]`) anywhere in the function.
 #[cfg(target_arch = "aarch64")]
 fn frame_loads(lines: &[(i64, String)]) -> usize {
-    lines.iter().filter(|(_, l)| l.starts_with("ld") && l.contains("[x29")).count()
+    lines
+        .iter()
+        .filter(|(_, l)| l.starts_with("ld") && l.contains("[x29"))
+        .count()
 }
 
 /// `sum(0..n)`: both latch incomings (`i + 1`, `acc + i`) are defined in
@@ -245,7 +257,10 @@ fn invariant_pointer_stays_in_a_register() {
     let p = load(INVARIANT);
     let arr: Vec<i64> = (0..100).map(|i| i * 3).collect();
     let ctx: [i64; 2] = [arr.as_ptr() as i64, arr.len() as i64];
-    assert_eq!(run(&p, "dot", &[ctx.as_ptr() as u64])[0], arr.iter().sum::<i64>() as u64);
+    assert_eq!(
+        run(&p, "dot", &[ctx.as_ptr() as u64])[0],
+        arr.iter().sum::<i64>() as u64
+    );
     #[cfg(target_arch = "aarch64")]
     {
         let lines = disasm(&p, "dot");
@@ -328,26 +343,63 @@ fn and_or_of_compares_fuse_to_ccmp() {
         for &b in &vals {
             for &c in &vals {
                 let args = [a as u64, b as u64, c as u64];
-                assert_eq!(run(&p, "both_cmps", &args)[0], (a < b && c != 0) as u64, "both_cmps {a} {b} {c}");
-                assert_eq!(run(&p, "either", &args)[0], (a < b || c == 7) as u64, "either {a} {b} {c}");
+                assert_eq!(
+                    run(&p, "both_cmps", &args)[0],
+                    (a < b && c != 0) as u64,
+                    "both_cmps {a} {b} {c}"
+                );
+                assert_eq!(
+                    run(&p, "either", &args)[0],
+                    (a < b || c == 7) as u64,
+                    "either {a} {b} {c}"
+                );
                 let s = a.wrapping_add(b);
                 let ovf = s != s as i32 as i64;
-                assert_eq!(run(&p, "with_flag", &args)[0], if ovf && c != 0 { -1i64 as u64 } else { s as u64 }, "with_flag {a} {b} {c}");
-                assert_eq!(run(&p, "flag_or", &args)[0], (c != 0 || a == b) as u64, "flag_or {a} {b} {c}");
+                assert_eq!(
+                    run(&p, "with_flag", &args)[0],
+                    if ovf && c != 0 {
+                        -1i64 as u64
+                    } else {
+                        s as u64
+                    },
+                    "with_flag {a} {b} {c}"
+                );
+                assert_eq!(
+                    run(&p, "flag_or", &args)[0],
+                    (c != 0 || a == b) as u64,
+                    "flag_or {a} {b} {c}"
+                );
             }
         }
     }
     #[cfg(target_arch = "aarch64")]
-    for (name, want_and) in [("both_cmps", true), ("either", true), ("with_flag", true), ("flag_or", true)] {
+    for (name, want_and) in [
+        ("both_cmps", true),
+        ("either", true),
+        ("with_flag", true),
+        ("flag_or", true),
+    ] {
         let lines = disasm(&p, name);
         let text: String = lines.iter().map(|(o, l)| format!("{o:5}: {l}\n")).collect();
-        assert_eq!(lines.iter().filter(|(_, l)| l.starts_with("ccmp ")).count(), 1, "{name}: one ccmp expected:\n{text}");
+        assert_eq!(
+            lines.iter().filter(|(_, l)| l.starts_with("ccmp ")).count(),
+            1,
+            "{name}: one ccmp expected:\n{text}"
+        );
         // No materialized predicate: no `csinc` (cset) and no `and`/`orr`
         // of two flags feeding a `cbnz`.
         if want_and {
-            assert!(!lines.iter().any(|(_, l)| l.starts_with("csinc ")), "{name}: predicate materialized:\n{text}");
+            assert!(
+                !lines.iter().any(|(_, l)| l.starts_with("csinc ")),
+                "{name}: predicate materialized:\n{text}"
+            );
         }
-        assert!(!lines.iter().any(|(_, l)| l.starts_with("cbnz ") || l.starts_with("cbz ")), "{name}: register-test branch remains:\n{text}");
+        assert!(
+            !lines
+                .iter()
+                .any(|(_, l)| l.starts_with("cbnz ") || l.starts_with("cbz ")),
+            "{name}: register-test branch remains:\n{text}"
+        );
     }
 }
 
@@ -386,7 +438,16 @@ fn consecutive_stores_pair_and_zero_stores_widen() {
     let p = load(STORES);
     let mut vals = [0i64; 2];
     let mut nulls = [0xffu8; 8];
-    let r = run(&p, "pairs", &[vals.as_mut_ptr() as u64, nulls.as_mut_ptr() as u64, 5u64, (-9i64) as u64]);
+    let r = run(
+        &p,
+        "pairs",
+        &[
+            vals.as_mut_ptr() as u64,
+            nulls.as_mut_ptr() as u64,
+            5u64,
+            (-9i64) as u64,
+        ],
+    );
     assert_eq!(r[0], (-4i64) as u64);
     assert_eq!(vals, [5, -9]);
     assert_eq!(nulls, [0, 0, 0, 0, 0xff, 0xff, 0xff, 0xff]);
@@ -403,14 +464,48 @@ fn consecutive_stores_pair_and_zero_stores_widen() {
     {
         let lines = disasm(&p, "pairs");
         let text: String = lines.iter().map(|(o, l)| format!("{o:5}: {l}\n")).collect();
-        assert_eq!(lines.iter().filter(|(_, l)| l.starts_with("stp x")).count(), 1, "one stp expected:\n{text}");
-        assert_eq!(lines.iter().filter(|(_, l)| l.starts_with("strb ") || l.starts_with("strh ")).count(), 0, "narrow zero stores remain:\n{text}");
-        assert_eq!(lines.iter().filter(|(_, l)| l.starts_with("str wzr")).count(), 1, "one 4-byte zero store expected:\n{text}");
+        assert_eq!(
+            lines.iter().filter(|(_, l)| l.starts_with("stp x")).count(),
+            1,
+            "one stp expected:\n{text}"
+        );
+        assert_eq!(
+            lines
+                .iter()
+                .filter(|(_, l)| l.starts_with("strb ") || l.starts_with("strh "))
+                .count(),
+            0,
+            "narrow zero stores remain:\n{text}"
+        );
+        assert_eq!(
+            lines
+                .iter()
+                .filter(|(_, l)| l.starts_with("str wzr"))
+                .count(),
+            1,
+            "one 4-byte zero store expected:\n{text}"
+        );
         let lines = disasm(&p, "three");
         let text: String = lines.iter().map(|(o, l)| format!("{o:5}: {l}\n")).collect();
         // `a, 0` pair (xzr as the second register), `c` alone, one `strh wzr`.
-        assert_eq!(lines.iter().filter(|(_, l)| l.starts_with("stp x")).count(), 1, "one stp expected:\n{text}");
-        assert!(lines.iter().any(|(_, l)| l.starts_with("stp x") && l.contains("xzr")), "xzr pair expected:\n{text}");
-        assert_eq!(lines.iter().filter(|(_, l)| l.starts_with("strh wzr")).count(), 1, "one strh wzr expected:\n{text}");
+        assert_eq!(
+            lines.iter().filter(|(_, l)| l.starts_with("stp x")).count(),
+            1,
+            "one stp expected:\n{text}"
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|(_, l)| l.starts_with("stp x") && l.contains("xzr")),
+            "xzr pair expected:\n{text}"
+        );
+        assert_eq!(
+            lines
+                .iter()
+                .filter(|(_, l)| l.starts_with("strh wzr"))
+                .count(),
+            1,
+            "one strh wzr expected:\n{text}"
+        );
     }
 }

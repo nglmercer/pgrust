@@ -10,17 +10,32 @@ use gravity_program::cost::Machine;
 fn the_reference_machine_is_one_set_of_facts() {
     let r = MachineProfile::reference();
     let m = Machine::REFERENCE;
-    assert_eq!((m.l1d, m.l2, m.prefetch, m.smt), (r.l1d_bytes, REFERENCE_L2, REFERENCE_PREFETCH, r.smt));
-    assert_eq!(r.cost(), m, "the reference profile is the cost home's reference machine");
+    assert_eq!(
+        (m.l1d, m.l2, m.prefetch, m.smt),
+        (r.l1d_bytes, REFERENCE_L2, REFERENCE_PREFETCH, r.smt)
+    );
+    assert_eq!(
+        r.cost(),
+        m,
+        "the reference profile is the cost home's reference machine"
+    );
     assert_eq!((m.l2_share(), m.prefetch), (r.partition_bytes, r.prefetch));
-    assert_eq!(m.prefetch, FOLD_PF, "the owner fold's ring is the reference prefetch distance (D16)");
+    assert_eq!(
+        m.prefetch, FOLD_PF,
+        "the owner fold's ring is the reference prefetch distance (D16)"
+    );
 }
 
 #[test]
 fn a_detected_profile_derives_what_the_driver_derives() {
     let p = profile();
     let m = Machine::detected(Some(p.l1d_bytes), p.l2_bytes, p.smt, p.prefetch);
-    assert_eq!((m.l2_share(), m.prefetch), (p.partition_bytes, p.prefetch), "{}", p.describe());
+    assert_eq!(
+        (m.l2_share(), m.prefetch),
+        (p.partition_bytes, p.prefetch),
+        "{}",
+        p.describe()
+    );
     assert_eq!((p.cost(), m.l1d), (m, p.l1d_bytes), "{}", p.describe());
 }
 

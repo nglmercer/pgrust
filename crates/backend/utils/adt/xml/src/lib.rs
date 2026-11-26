@@ -11,10 +11,10 @@ pub mod chvalid;
 pub mod errhandler;
 pub mod libxml;
 pub mod stringinfo;
-pub mod xmltable;
-pub mod xpath;
 #[cfg(test)]
 mod tests;
+pub mod xmltable;
+pub mod xpath;
 
 use core::ffi::{c_char, c_int, c_void};
 
@@ -23,16 +23,16 @@ use ::types_error::{
     ereturn, PgError, PgResult, SoftErrorContext, ERRCODE_FEATURE_NOT_SUPPORTED,
     ERRCODE_INTERNAL_ERROR, ERRCODE_INVALID_PARAMETER_VALUE, ERRCODE_INVALID_XML_COMMENT,
     ERRCODE_INVALID_XML_CONTENT, ERRCODE_INVALID_XML_DOCUMENT,
-    ERRCODE_INVALID_XML_PROCESSING_INSTRUCTION, ERRCODE_NOT_AN_XML_DOCUMENT,
-    ERRCODE_OUT_OF_MEMORY, WARNING,
+    ERRCODE_INVALID_XML_PROCESSING_INSTRUCTION, ERRCODE_NOT_AN_XML_DOCUMENT, ERRCODE_OUT_OF_MEMORY,
+    WARNING,
 };
 
 use errhandler::{
-    pg_xml_init, xml_ereport, xml_err_occurred, PG_XML_STRICTNESS_ALL,
-    PG_XML_STRICTNESS_WELLFORMED,
+    pg_xml_init, xml_ereport, xml_err_occurred, PG_XML_STRICTNESS_ALL, PG_XML_STRICTNESS_WELLFORMED,
 };
-use libxml::{cstr, xml2, xmlDoc, xmlDocHdr, xmlNode, XML_PARSE_DTDATTR, XML_PARSE_NOBLANKS,
-    XML_PARSE_NOENT};
+use libxml::{
+    cstr, xml2, xmlDoc, xmlDocHdr, xmlNode, XML_PARSE_DTDATTR, XML_PARSE_NOBLANKS, XML_PARSE_NOENT,
+};
 
 pub const PG_UTF8: i32 = 6;
 pub const PG_XML_DEFAULT_VERSION: &[u8] = b"1.0";
@@ -169,12 +169,12 @@ pub fn xml_in(s: &[u8], escontext: Option<&mut SoftErrorContext>) -> PgResult<Op
     if !xml_parse_ok(s, xmloption(), true, GetDatabaseEncoding(), escontext)? {
         return Ok(None);
     }
-    Ok(Some(::mcx::std_vec_from_slice("xml",s)?))
+    Ok(Some(::mcx::std_vec_from_slice("xml", s)?))
 }
 
 /// C `xml_out_internal` (xml.c:311).
 pub fn xml_out_internal(x: &[u8], target_encoding: i32) -> PgResult<Vec<u8>> {
-    let mut work = ::mcx::std_vec_from_slice("xml",x)?;
+    let mut work = ::mcx::std_vec_from_slice("xml", x)?;
     work.push(0);
 
     let mut len = x.len();
@@ -191,9 +191,10 @@ pub fn xml_out_internal(x: &[u8], target_encoding: i32) -> PgResult<Vec<u8>> {
     if res_code == XML_ERR_OK {
         let mut buf: Vec<u8> = Vec::new();
         if !print_xml_decl(&mut buf, version.as_deref(), target_encoding, standalone)
-            && x.get(len) == Some(&b'\n') {
-                len += 1;
-            }
+            && x.get(len) == Some(&b'\n')
+        {
+            len += 1;
+        }
         buf.extend_from_slice(&x[len.min(x.len())..]);
         return Ok(buf);
     }
@@ -208,7 +209,7 @@ pub fn xml_out_internal(x: &[u8], target_encoding: i32) -> PgResult<Vec<u8>> {
             348,
             "xml_out_internal",
         ));
-        ::mcx::std_vec_from_slice("xml",x)
+    ::mcx::std_vec_from_slice("xml", x)
 }
 
 /// C `xml_out` (xml.c:355).
@@ -219,7 +220,7 @@ pub fn xml_out(x: &[u8]) -> PgResult<Vec<u8>> {
 /// C `xml_recv` (xml.c:370). `raw` is the unread remainder of the message.
 pub fn xml_recv<'mcx>(mcx: ::mcx::Mcx<'mcx>, raw: &[u8]) -> PgResult<::mcx::PgVec<'mcx, u8>> {
     require_libxml()?;
-    let mut work = ::mcx::std_vec_from_slice("xml",raw)?;
+    let mut work = ::mcx::std_vec_from_slice("xml", raw)?;
     work.push(0);
 
     let mut encoding_str: Option<Vec<u8>> = None;
@@ -239,10 +240,7 @@ pub fn xml_recv<'mcx>(mcx: ::mcx::Mcx<'mcx>, raw: &[u8]) -> PgResult<::mcx::PgVe
 }
 
 /// C `xml_send` (xml.c:438).
-pub fn xml_send<'mcx>(
-    mcx: ::mcx::Mcx<'mcx>,
-    x: &[u8],
-) -> PgResult<::datum::Varlena<'mcx>> {
+pub fn xml_send<'mcx>(mcx: ::mcx::Mcx<'mcx>, x: &[u8]) -> PgResult<::datum::Varlena<'mcx>> {
     let outval = xml_out_internal(x, ::mbutils::pg_get_client_encoding())?;
     let mut buf = pqformat::pq_begintypsend(mcx)?;
     pqformat::pq_sendtext(&mut buf, &outval)?;
@@ -310,8 +308,14 @@ pub(crate) fn stringinfo_limit_error(len: usize, needed: usize) -> Box<::types_e
         ::mcx::MAX_ALLOC_SIZE
     ))
     .with_sqlstate(::types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED)
-    .with_detail(format!("Cannot enlarge string buffer containing {len} bytes by {needed} more bytes."))
-    .with_error_location(::types_error::ErrorLocation::new("stringinfo.c", 364, "enlargeStringInfo"))
+    .with_detail(format!(
+        "Cannot enlarge string buffer containing {len} bytes by {needed} more bytes."
+    ))
+    .with_error_location(::types_error::ErrorLocation::new(
+        "stringinfo.c",
+        364,
+        "enlargeStringInfo",
+    ))
     .into()
 }
 
@@ -333,7 +337,7 @@ pub fn xmlconcat(args: &[&[u8]]) -> PgResult<Vec<u8>> {
 
     for &x in args {
         let mut len = x.len();
-        let mut str = ::mcx::std_vec_from_slice("xml",x)?;
+        let mut str = ::mcx::std_vec_from_slice("xml", x)?;
         str.push(0);
 
         let mut version: Option<Vec<u8>> = None;
@@ -385,8 +389,8 @@ pub fn xmlconcat(args: &[&[u8]]) -> PgResult<Vec<u8>> {
 pub fn xmlconcat2(arg1: Option<&[u8]>, arg2: Option<&[u8]>) -> PgResult<Option<Vec<u8>>> {
     match (arg1, arg2) {
         (None, None) => Ok(None),
-        (None, Some(a2)) => Ok(Some(::mcx::std_vec_from_slice("xml",a2)?)),
-        (Some(a1), None) => Ok(Some(::mcx::std_vec_from_slice("xml",a1)?)),
+        (None, Some(a2)) => Ok(Some(::mcx::std_vec_from_slice("xml", a2)?)),
+        (Some(a1), None) => Ok(Some(::mcx::std_vec_from_slice("xml", a1)?)),
         (Some(a1), Some(a2)) => Ok(Some(xmlconcat(&[a1, a2])?)),
     }
 }
@@ -397,7 +401,8 @@ pub fn texttoxml(data: &[u8]) -> PgResult<Vec<u8>> {
 }
 
 /// C `xmltotext` (xml.c:645) — binary compatible.
-pub fn xmltotext(data: &[u8]) -> PgResult<Vec<u8>> {::mcx::std_vec_from_slice("xml",data)
+pub fn xmltotext(data: &[u8]) -> PgResult<Vec<u8>> {
+    ::mcx::std_vec_from_slice("xml", data)
 }
 
 /// C `xmlparse` (xml.c:993).
@@ -414,7 +419,7 @@ pub fn xmlparse(
         GetDatabaseEncoding(),
         None,
     )?;
-    ::mcx::std_vec_from_slice("xml",data)
+    ::mcx::std_vec_from_slice("xml", data)
 }
 
 /// C `xmlpi` (xml.c:1011). Returns `None` for SQL NULL.
@@ -459,7 +464,7 @@ pub fn xmlroot(
 ) -> PgResult<Vec<u8>> {
     require_libxml()?;
     let mut len = data.len();
-    let mut str = ::mcx::std_vec_from_slice("xml",data)?;
+    let mut str = ::mcx::std_vec_from_slice("xml", data)?;
     str.push(0);
 
     let mut orig_version: Option<Vec<u8>> = None;
@@ -530,7 +535,7 @@ pub fn xmltotext_with_options(
 ) -> PgResult<Vec<u8>> {
     require_libxml()?;
     if xmloption_arg != XmlOptionType::XMLOPTION_DOCUMENT && !indent {
-        return::mcx::std_vec_from_slice("xml",data);
+        return ::mcx::std_vec_from_slice("xml", data);
     }
 
     let mut esc = SoftErrorContext::new(false);
@@ -551,7 +556,7 @@ pub fn xmltotext_with_options(
 
     if !indent {
         parsed.free();
-        return::mcx::std_vec_from_slice("xml",data);
+        return ::mcx::std_vec_from_slice("xml", data);
     }
 
     let result = serialize_indented(&parsed, data, xmloption_arg);
@@ -574,7 +579,7 @@ fn serialize_indented(
             return Err(oom("could not allocate xmlBuffer").into());
         }
 
-        let mut work = ::mcx::std_vec_from_slice("adt",data)?;
+        let mut work = ::mcx::std_vec_from_slice("adt", data)?;
         work.push(0);
         let mut decl_len: usize = 0;
         parse_xml_decl(&work, Some(&mut decl_len), None, None, None)?;
@@ -590,15 +595,16 @@ fn serialize_indented(
             return Err(oom("could not allocate xmlSaveCtxt").into());
         }
 
-        let fail = |msg: &str, code| -> Box<PgError> {
-            Box::new(xml_ereport(msg, code))
-        };
+        let fail = |msg: &str, code| -> Box<PgError> { Box::new(xml_ereport(msg, code)) };
 
         if parsed.parsed_as_document() {
             if (x.xmlSaveDoc)(ctxt, parsed.doc) == -1 || xml_err_occurred() {
                 (x.xmlSaveClose)(ctxt);
                 (x.xmlBufferFree)(buf);
-                return Err(fail("could not save document to xmlBuffer", ERRCODE_OUT_OF_MEMORY));
+                return Err(fail(
+                    "could not save document to xmlBuffer",
+                    ERRCODE_OUT_OF_MEMORY,
+                ));
             }
         } else if !parsed.content_nodes.is_null() {
             // Non-singly-rooted XML: fake content-root container, newline
@@ -632,13 +638,19 @@ fn serialize_indented(
                     (x.xmlFreeNode)(newline);
                     (x.xmlSaveClose)(ctxt);
                     (x.xmlBufferFree)(buf);
-                    return Err(fail("could not save newline to xmlBuffer", ERRCODE_OUT_OF_MEMORY));
+                    return Err(fail(
+                        "could not save newline to xmlBuffer",
+                        ERRCODE_OUT_OF_MEMORY,
+                    ));
                 }
                 if (x.xmlSaveTree)(ctxt, node) == -1 || xml_err_occurred() {
                     (x.xmlFreeNode)(newline);
                     (x.xmlSaveClose)(ctxt);
                     (x.xmlBufferFree)(buf);
-                    return Err(fail("could not save content to xmlBuffer", ERRCODE_OUT_OF_MEMORY));
+                    return Err(fail(
+                        "could not save content to xmlBuffer",
+                        ERRCODE_OUT_OF_MEMORY,
+                    ));
                 }
                 node = hdr.next;
             }
@@ -647,7 +659,10 @@ fn serialize_indented(
 
         if (x.xmlSaveClose)(ctxt) == -1 || xml_err_occurred() {
             (x.xmlBufferFree)(buf);
-            return Err(fail("could not close xmlSaveCtxtPtr", ERRCODE_INTERNAL_ERROR));
+            return Err(fail(
+                "could not close xmlSaveCtxtPtr",
+                ERRCODE_INTERNAL_ERROR,
+            ));
         }
 
         let mut bytes = libxml::buffer_to_vec(buf);
@@ -830,13 +845,19 @@ fn pg_xml_is_name_char(c: i32) -> bool {
 }
 
 fn starts_with_at(str: &[u8], p: usize, needle: &[u8]) -> bool {
-    str.get(p..p + needle.len()).map(|s| s == needle).unwrap_or(false)
+    str.get(p..p + needle.len())
+        .map(|s| s == needle)
+        .unwrap_or(false)
 }
 
 // xmlStrchr: a C-string search, so an embedded NUL ends it.
 fn memchr_from(str: &[u8], from: usize, byte: u8) -> Option<usize> {
     str.get(from..)
-        .and_then(|s| s.iter().position(|&b| b == byte || b == 0).map(|i| from + i))
+        .and_then(|s| {
+            s.iter()
+                .position(|&b| b == byte || b == 0)
+                .map(|i| from + i)
+        })
         .filter(|&i| str[i] == byte)
 }
 
@@ -1008,7 +1029,9 @@ pub fn print_xml_decl(
     encoding: i32,
     standalone: i32,
 ) -> bool {
-    let version_nondefault = version.map(|v| v != PG_XML_DEFAULT_VERSION).unwrap_or(false);
+    let version_nondefault = version
+        .map(|v| v != PG_XML_DEFAULT_VERSION)
+        .unwrap_or(false);
 
     if version_nondefault || (encoding != 0 && encoding != PG_UTF8) || standalone != -1 {
         buf.extend_from_slice(b"<?xml");
@@ -1113,7 +1136,14 @@ pub fn xml_parse_doc(
     encoding: i32,
     escontext: Option<&mut SoftErrorContext>,
 ) -> PgResult<Option<ParsedXml>> {
-    xml_parse_doc_ext(data, xmloption_arg, preserve_whitespace, encoding, escontext, false)
+    xml_parse_doc_ext(
+        data,
+        xmloption_arg,
+        preserve_whitespace,
+        encoding,
+        escontext,
+        false,
+    )
 }
 
 // `want_nodes`: libxml2 hands ownership of the CONTENT node list to a
@@ -1149,7 +1179,7 @@ pub fn xml_parse_doc_ext(
 
     pg_xml_init(PG_XML_STRICTNESS_WELLFORMED);
 
-    let mut work = ::mcx::std_vec_from_slice("xml",utf8)?;
+    let mut work = ::mcx::std_vec_from_slice("xml", utf8)?;
     work.push(0);
 
     let mut parse_as_document = xmloption_arg == XmlOptionType::XMLOPTION_DOCUMENT;
@@ -1189,7 +1219,11 @@ pub fn xml_parse_doc_ext(
             }
             let options = XML_PARSE_NOENT
                 | XML_PARSE_DTDATTR
-                | if preserve_whitespace { 0 } else { XML_PARSE_NOBLANKS };
+                | if preserve_whitespace {
+                    0
+                } else {
+                    XML_PARSE_NOBLANKS
+                };
             let doc = (x.xmlCtxtReadDoc)(
                 ctxt,
                 work.as_ptr(),
@@ -1247,7 +1281,11 @@ pub fn xml_parse_doc_ext(
                     core::ptr::null_mut(),
                     0,
                     tail.as_ptr(),
-                    if want_nodes { &mut nodes } else { core::ptr::null_mut() },
+                    if want_nodes {
+                        &mut nodes
+                    } else {
+                        core::ptr::null_mut()
+                    },
                 );
                 if rc != 0 || xml_err_occurred() {
                     (x.xmlKeepBlanksDefault)(save);
@@ -1287,7 +1325,13 @@ pub fn xml_parse_ok(
     encoding: i32,
     escontext: Option<&mut SoftErrorContext>,
 ) -> PgResult<bool> {
-    match xml_parse_doc(data, xmloption_arg, preserve_whitespace, encoding, escontext)? {
+    match xml_parse_doc(
+        data,
+        xmloption_arg,
+        preserve_whitespace,
+        encoding,
+        escontext,
+    )? {
         Some(parsed) => {
             parsed.free();
             Ok(true)

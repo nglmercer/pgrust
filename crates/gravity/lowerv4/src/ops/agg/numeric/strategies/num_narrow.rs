@@ -45,14 +45,23 @@ crate::strategies! {
     NUM_NARROW = 125, "num.narrow", NumHeap;
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(NUM_NARROW, &Road)], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(NUM_NARROW, &Road)],
+    ..crate::ops::NONE
+};
 
 /// Road num.narrow's registration value (the decode is `leaf`'s).
 struct Road;
 
 /// Cell `c`'s mantissa word at `scale` and its bad bit (NULL or a special): with `narrow` (road num.narrow) `leaf`'s,
 /// else today's.
-pub(crate) fn term(b: &mut FunctionBuilder<'_>, env: &mut Env, c: CellRef<'_>, scale: i16, narrow: bool) -> (Value, Value) {
+pub(crate) fn term(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    c: CellRef<'_>,
+    scale: i16,
+    narrow: bool,
+) -> (Value, Value) {
     match narrow.then(|| leaf(b, env, c, scale)).flatten() {
         Some(r) => r,
         None => today(b, env, c, scale),
@@ -72,14 +81,23 @@ const SCALES: i16 = 8;
 
 /// The narrow decode, today's past it (cold); the row memo gets the word, as `word` puts it. `None`: a packed lane, a
 /// scale past `SCALES`.
-fn leaf(b: &mut FunctionBuilder<'_>, env: &mut Env, c: CellRef<'_>, scale: i16) -> Option<(Value, Value)> {
+fn leaf(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    c: CellRef<'_>,
+    scale: i16,
+) -> Option<(Value, Value)> {
     if matches!(c.cell.rep, Rep::PackedNum { .. }) || !(0..=SCALES).contains(&scale) {
         return None;
     }
     let mut cx = env.lx(b, env.node);
     let (p, none) = crate::rep::datum(&mut cx, c, &crate::step::expr::tf_datum(1700));
     env.memo = cx.memo;
-    let (key, memo, yes) = ((p, none, scale, false), env.applies(NUM_MEMO), b.bconst(true));
+    let (key, memo, yes) = (
+        (p, none, scale, false),
+        env.applies(NUM_MEMO),
+        b.bconst(true),
+    );
     if let Some((m, _)) = env.memo.num(key).filter(|_| memo) {
         let sp = crate::ops::agg::numeric::num_word::sentinel(b, env, m, yes).1;
         return Some((m, b.int_bin(IntBinOp::Or, none, sp)));
@@ -147,7 +165,12 @@ fn decode(b: &mut FunctionBuilder<'_>, env: &Env, ptr: Value, s: i16) -> (Value,
     let (g, c48) = (c(b, 0xFFFF), c(b, 48));
     let mut r = bin(b, IntBinOp::Ushr, v, c48);
     for (sh, mul) in [(32, 10_000i64), (16, 100_000_000), (0, 1_000_000_000_000)] {
-        let x = if sh == 0 { v } else { let k = c(b, sh); bin(b, IntBinOp::Ushr, v, k) };
+        let x = if sh == 0 {
+            v
+        } else {
+            let k = c(b, sh);
+            bin(b, IntBinOp::Ushr, v, k)
+        };
         let x = bin(b, IntBinOp::And, x, g);
         let k = c(b, mul);
         let x = bin(b, IntBinOp::Mul, x, k);
@@ -173,7 +196,13 @@ fn decode(b: &mut FunctionBuilder<'_>, env: &Env, ptr: Value, s: i16) -> (Value,
         } else if e > 0 {
             let tens = c(b, 10i64.pow(e as u32));
             let m = bin(b, IntBinOp::Mul, r, tens);
-            (m, (e >= 3).then(|| { let lim = c(b, 10i64.pow(18 - e as u32)); b.icmp(IntCond::Ult, r, lim) }))
+            (
+                m,
+                (e >= 3).then(|| {
+                    let lim = c(b, 10i64.pow(18 - e as u32));
+                    b.icmp(IntCond::Ult, r, lim)
+                }),
+            )
         } else {
             let (kv, inv) = (c(b, -e as i64), c(b, inv5(-e as u32) as i64));
             let q = bin(b, IntBinOp::Ushr, r, kv);
@@ -188,7 +217,10 @@ fn decode(b: &mut FunctionBuilder<'_>, env: &Env, ptr: Value, s: i16) -> (Value,
         m = b.select(is, mk, m);
         small = match (small, sk) {
             (None, None) => None,
-            (x, y) => { let yes = b.bconst(true); Some(b.select(is, y.unwrap_or(yes), x.unwrap_or(yes))) }
+            (x, y) => {
+                let yes = b.bconst(true);
+                Some(b.select(is, y.unwrap_or(yes), x.unwrap_or(yes)))
+            }
         };
     }
     if let Some(sm) = small {
@@ -201,14 +233,18 @@ fn decode(b: &mut FunctionBuilder<'_>, env: &Env, ptr: Value, s: i16) -> (Value,
     let neg = b.icmp(IntCond::Ne, neg, z);
     let mneg = bin(b, IntBinOp::Sub, z, m);
     let m = b.select(neg, mneg, m);
-    let ok = [fits, short, okf].into_iter().fold(hdr, |x, y| bin(b, IntBinOp::And, x, y));
+    let ok = [fits, short, okf]
+        .into_iter()
+        .fold(hdr, |x, y| bin(b, IntBinOp::And, x, y));
     (m, ok)
 }
 
 /// `5^-k mod 2^64` (Newton's iteration: each step doubles the bits right).
 fn inv5(k: u32) -> u64 {
     let p = 5u64.pow(k);
-    (0..6).fold(p, |x, _| x.wrapping_mul(2u64.wrapping_sub(p.wrapping_mul(x))))
+    (0..6).fold(p, |x, _| {
+        x.wrapping_mul(2u64.wrapping_sub(p.wrapping_mul(x)))
+    })
 }
 
 #[cfg(test)]
@@ -250,10 +286,17 @@ mod tests {
             p.extend_from_slice(&((if neg { 0x4000 } else { 0 }) | d as u16).to_le_bytes());
             p.extend_from_slice(&(w as i16).to_le_bytes());
         } else {
-            p.extend_from_slice(&(0x8000 | if neg { 0x2000 } else { 0 } | ((d as u16) << 7) | (w as u16 & 0x7F)).to_le_bytes());
+            p.extend_from_slice(
+                &(0x8000 | if neg { 0x2000 } else { 0 } | ((d as u16) << 7) | (w as u16 & 0x7F))
+                    .to_le_bytes(),
+            );
         }
         g.iter().for_each(|x| p.extend_from_slice(&x.to_le_bytes()));
-        let mut out = if four { (((p.len() + 4) as u32) << 2).to_le_bytes().to_vec() } else { vec![(((p.len() + 1) as u8) << 1) | 1] }; // alloc: Program
+        let mut out = if four {
+            (((p.len() + 4) as u32) << 2).to_le_bytes().to_vec()
+        } else {
+            vec![(((p.len() + 1) as u8) << 1) | 1]
+        }; // alloc: Program
         out.extend_from_slice(&p);
         out
     }
@@ -274,14 +317,24 @@ mod tests {
     /// in magnitude. Returns the serves.
     fn check(img: &[u8], s: i16, served: bool) -> usize {
         let mut n = 0;
-        let ats: &[usize] = if img[0] & 1 == 0 { &[0, 4] } else { &[0, 1, 3, 6] };
+        let ats: &[usize] = if img[0] & 1 == 0 {
+            &[0, 4]
+        } else {
+            &[0, 1, 3, 6]
+        };
         for &at in ats {
-            let mut buf =[0xA5u8; 48]; // alloc: Program
+            let mut buf = [0xA5u8; 48]; // alloc: Program
             let base = (buf.as_ptr() as usize).next_multiple_of(8) - buf.as_ptr() as usize + 8 + at;
             buf[base..base + img.len()].copy_from_slice(img);
             let p = buf[base..].as_ptr();
-            let (got, host) = (run(p, s), unsafe { num_mantissa(core::ptr::null_mut(), p, s as i64).val });
-            assert_eq!(got != NO_MANTISSA, served && host.unsigned_abs() < 10u64.pow(18), "{img:02x?} at {at}, scale {s}: got {got}, host {host}");
+            let (got, host) = (run(p, s), unsafe {
+                num_mantissa(core::ptr::null_mut(), p, s as i64).val
+            });
+            assert_eq!(
+                got != NO_MANTISSA,
+                served && host.unsigned_abs() < 10u64.pow(18),
+                "{img:02x?} at {at}, scale {s}: got {got}, host {host}"
+            );
             if got != NO_MANTISSA {
                 assert_eq!(got, host, "{img:02x?} at {at}, scale {s}");
                 n += 1;
@@ -300,14 +353,21 @@ mod tests {
             for d in (s.max(1) - 1) as u32..=s as u32 + 1 {
                 let mut vals = vec![0i128]; // alloc: Program
                 for digits in 1u32..=18 {
-                    for v in [10i128.pow(digits - 1), 10i128.pow(digits) - 1, 10i128.pow(digits) / 7 + 1, 10i128.pow(digits - 1) * 5] {
+                    for v in [
+                        10i128.pow(digits - 1),
+                        10i128.pow(digits) - 1,
+                        10i128.pow(digits) / 7 + 1,
+                        10i128.pow(digits - 1) * 5,
+                    ] {
                         vals.extend([v, -v]); // alloc: Program
                     }
                 }
                 for v in vals {
                     let (_, w, g) = parts(v, d);
                     let f = g.len() as i32 - 1 - w;
-                    let ok = d == s as u32 && g.len() <= 4 && (g.is_empty() || (0..=(s as i32 + 3) / 4).contains(&f) && f <= 4);
+                    let ok = d == s as u32
+                        && g.len() <= 4
+                        && (g.is_empty() || (0..=(s as i32 + 3) / 4).contains(&f) && f <= 4);
                     served += check(&image(v, d, false, false), s, ok);
                     for (long, four) in [(false, true), (true, false), (true, true)] {
                         check(&image(v, d, long, four), s, false);
@@ -323,7 +383,11 @@ mod tests {
     fn specials_and_toast_decline() {
         for h in [0xC000u16, 0xD000, 0xF000] {
             for s in 0..=18 {
-                assert_eq!(check(&[&[(3 << 1) | 1][..], &h.to_le_bytes()].concat(), s, false), 0, "{h:x}");
+                assert_eq!(
+                    check(&[&[(3 << 1) | 1][..], &h.to_le_bytes()].concat(), s, false),
+                    0,
+                    "{h:x}"
+                );
             }
         }
         let toast = [&[1u8, 18][..], &[0x55; 16]].concat();
@@ -344,7 +408,11 @@ mod tests {
         // SAFETY: a private anonymous three-page mapping, its first and last pages made inaccessible; unmapped below.
         let (base, page) = unsafe {
             let page = getpagesize() as usize;
-            let map_anon = if cfg!(target_os = "macos") { 0x1000 } else { 0x20 };
+            let map_anon = if cfg!(target_os = "macos") {
+                0x1000
+            } else {
+                0x20
+            };
             let base = mmap(core::ptr::null_mut(), 3 * page, 3, 0x02 | map_anon, -1, 0);
             assert!(!base.is_null() && base as isize != -1, "mmap");
             assert_eq!(mprotect(base, page, 0), 0, "mprotect below");
@@ -362,7 +430,9 @@ mod tests {
                     p as *const u8
                 };
                 // SAFETY: `p` holds the image for the call.
-                let (got, host) = (run(p, 2), unsafe { num_mantissa(core::ptr::null_mut(), p, 2).val });
+                let (got, host) = (run(p, 2), unsafe {
+                    num_mantissa(core::ptr::null_mut(), p, 2).val
+                });
                 if got != NO_MANTISSA {
                     assert_eq!(got, host, "{img:02x?} at page offset {at}");
                     served += 1;
@@ -379,7 +449,14 @@ mod tests {
     #[test]
     fn narrow_ops() {
         let img = [vec![0u8; 8], image(12_345, 2, false, false)].concat(); // alloc: Program
-        let count = |b: &FunctionBuilder<'_>| b.func().blocks.iter().flat_map(|k| k.insts.iter()).filter(|i| !matches!(i.op, gravity_ir::Op::Const { .. })).count();
+        let count = |b: &FunctionBuilder<'_>| {
+            b.func()
+                .blocks
+                .iter()
+                .flat_map(|k| k.insts.iter())
+                .filter(|i| !matches!(i.op, gravity_ir::Op::Const { .. }))
+                .count()
+        };
         let (mut n, mut blocks) = (0, 0);
         run1(&[], &mut |b, env| {
             let (n0, k0) = (count(b), b.num_blocks());

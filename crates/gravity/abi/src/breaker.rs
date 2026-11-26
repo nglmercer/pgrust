@@ -1,7 +1,9 @@
 use core::cmp::Ordering;
 use core::mem::size_of;
 
-use crate::hash::{build_sparse_rows, Depth, KeyHash, BUILD_IN_PLACE_LOAD, BUILD_MIN_CAP_BITS, BUILD_SPARSE_LOAD};
+use crate::hash::{
+    build_sparse_rows, Depth, KeyHash, BUILD_IN_PLACE_LOAD, BUILD_MIN_CAP_BITS, BUILD_SPARSE_LOAD,
+};
 
 /// D1704: a table's typed view `&mut T` over region bytes at `p`, its alignment asserted in debug builds (a borrow through a
 /// raw pointer is not checked; a driver region is `REGION_ALIGN`-aligned, and Miri places a block at exactly the ask).
@@ -9,7 +11,12 @@ use crate::hash::{build_sparse_rows, Depth, KeyHash, BUILD_IN_PLACE_LOAD, BUILD_
 /// `p` points at a live `T`, aligned for it, not otherwise borrowed for `'a`.
 #[inline(always)]
 pub(crate) unsafe fn aligned_mut<'a, T>(p: *mut u8) -> &'a mut T {
-    debug_assert!(p.cast::<T>().is_aligned(), "gravity: a {} view at {p:p} is not {}-aligned (D1704)", core::any::type_name::<T>(), core::mem::align_of::<T>());
+    debug_assert!(
+        p.cast::<T>().is_aligned(),
+        "gravity: a {} view at {p:p} is not {}-aligned (D1704)",
+        core::any::type_name::<T>(),
+        core::mem::align_of::<T>()
+    );
     &mut *p.cast::<T>()
 }
 
@@ -18,7 +25,12 @@ pub(crate) unsafe fn aligned_mut<'a, T>(p: *mut u8) -> &'a mut T {
 /// `p` points at a live `T`, aligned for it, not mutably borrowed for `'a`.
 #[inline(always)]
 pub(crate) unsafe fn aligned_ref<'a, T>(p: *const u8) -> &'a T {
-    debug_assert!(p.cast::<T>().is_aligned(), "gravity: a {} view at {p:p} is not {}-aligned (D1704)", core::any::type_name::<T>(), core::mem::align_of::<T>());
+    debug_assert!(
+        p.cast::<T>().is_aligned(),
+        "gravity: a {} view at {p:p} is not {}-aligned (D1704)",
+        core::any::type_name::<T>(),
+        core::mem::align_of::<T>()
+    );
     &*p.cast::<T>()
 }
 
@@ -73,7 +85,13 @@ pub struct Breaker {
 
 impl Breaker {
     pub const fn sized(kind: BreakerKind, bytes: u32) -> Breaker {
-        Breaker { kind, slot: 0, bytes, budget: Budget::Fixed(bytes), spill: Spill::None }
+        Breaker {
+            kind,
+            slot: 0,
+            bytes,
+            budget: Budget::Fixed(bytes),
+            spill: Spill::None,
+        }
     }
 
     pub const fn in_slot(mut self, slot: u8) -> Breaker {
@@ -149,7 +167,10 @@ impl KeyCell {
         match kind {
             KeyKind::I32 => KeyCell::I32(w as i32),
             KeyKind::I64 => KeyCell::I64(w as i64),
-            KeyKind::Code => KeyCell::Code { part: (w >> 32) as u32, code: w as u32 },
+            KeyKind::Code => KeyCell::Code {
+                part: (w >> 32) as u32,
+                code: w as u32,
+            },
             KeyKind::Date => KeyCell::Date(w as i32),
             KeyKind::Timestamp => KeyCell::Timestamp(w as i64),
             KeyKind::Fp128 => KeyCell::Fp128(w),
@@ -238,7 +259,12 @@ pub const fn side_image(w: u64) -> u64 {
 /// held one, and a form taken from the source alone holds the later member (the source holds no member of the other
 /// form at that value, else that form would have taken it on the tie). The image moves by address: a merge's source is
 /// a partial it discards.
-pub fn side_fold<const NEWER: bool>(a: u64, s: u64, key_took: bool, min: bool) -> (u64, bool, bool) {
+pub fn side_fold<const NEWER: bool>(
+    a: u64,
+    s: u64,
+    key_took: bool,
+    min: bool,
+) -> (u64, bool, bool) {
     let (ai, si) = (side_image(a), side_image(s));
     let (side_took, unordered) = match (ai, si) {
         (_, 0) => (false, false),
@@ -253,7 +279,12 @@ pub fn side_fold<const NEWER: bool>(a: u64, s: u64, key_took: bool, min: bool) -
                 (false, false) => c == Ordering::Greater,
             };
             // SAFETY: as above
-            (take, !NEWER && c == Ordering::Equal && unsafe { varlena_cmp(si as *const u8, ai as *const u8) } != Ordering::Equal)
+            (
+                take,
+                !NEWER
+                    && c == Ordering::Equal
+                    && unsafe { varlena_cmp(si as *const u8, ai as *const u8) } != Ordering::Equal,
+            )
         }
     };
     let img = if side_took { si } else { ai };
@@ -301,7 +332,8 @@ pub struct IntervalSum {
 /// PG's `INTERVAL_NOT_FINITE`: the `-infinity` or `+infinity` image.
 #[inline(always)]
 pub const fn interval_not_finite(time: i64, day: i32, month: i32) -> bool {
-    (time == i64::MIN && day == i32::MIN && month == i32::MIN) || (time == i64::MAX && day == i32::MAX && month == i32::MAX)
+    (time == i64::MIN && day == i32::MIN && month == i32::MIN)
+        || (time == i64::MAX && day == i32::MAX && month == i32::MAX)
 }
 
 impl IntervalSum {
@@ -309,7 +341,9 @@ impl IntervalSum {
     /// a component's absolute sum reaches its type's maximum (below it, every prefix in every order stays strictly inside).
     #[inline(always)]
     pub const fn may_overflow(&self) -> bool {
-        self.abs_time >= i64::MAX as u64 || self.abs_day >= i32::MAX as u64 || self.abs_month >= i32::MAX as u64
+        self.abs_time >= i64::MAX as u64
+            || self.abs_day >= i32::MAX as u64
+            || self.abs_month >= i32::MAX as u64
     }
 
     /// One input row, as PG's `do_interval_accum`: an infinity counts; a finite value adds to the sums as
@@ -366,7 +400,13 @@ impl SlotKind {
     /// larger keep their second argument): a W0 owner then folds a partition's partials oldest first, as a hosted state's
     /// (parallel merge.rs `fold_sub`), so the member is PG's, the later in input order.
     pub const fn keeps_later_member(self) -> bool {
-        matches!(self, SlotKind::IntervalMin | SlotKind::IntervalMax | SlotKind::NumSideMin | SlotKind::NumSideMax)
+        matches!(
+            self,
+            SlotKind::IntervalMin
+                | SlotKind::IntervalMax
+                | SlotKind::NumSideMin
+                | SlotKind::NumSideMax
+        )
     }
 
     /// NEW-numeric-1 N13: an order-key extreme's side companion.
@@ -383,7 +423,11 @@ impl SlotKind {
 
     pub const fn bytes(self) -> u8 {
         match self {
-            SlotKind::SumI128 | SlotKind::SumNum | SlotKind::AggState | SlotKind::IntervalMin | SlotKind::IntervalMax => 16,
+            SlotKind::SumI128
+            | SlotKind::SumNum
+            | SlotKind::AggState
+            | SlotKind::IntervalMin
+            | SlotKind::IntervalMax => 16,
             SlotKind::AvgI128 | SlotKind::AvgNum | SlotKind::F64Accum => 24,
             SlotKind::SumNumWide => 32,
             SlotKind::AvgNumWide => 40,
@@ -467,25 +511,52 @@ pub enum AggSlot {
     SumI128(i128),
     MinI64(i64),
     MaxI64(i64),
-    AvgI128 { sum: i128, n: i64 },
+    AvgI128 {
+        sum: i128,
+        n: i64,
+    },
     SumF64(f64),
-    MinCode { part: u32, code: u32 },
-    MaxCode { part: u32, code: u32 },
+    MinCode {
+        part: u32,
+        code: u32,
+    },
+    MaxCode {
+        part: u32,
+        code: u32,
+    },
     SumNum(i128),
-    AvgNum { sum: i128, n: i64 },
+    AvgNum {
+        sum: i128,
+        n: i64,
+    },
     SumNumWide(NumWide),
-    AvgNumWide { sum: NumWide, n: i64 },
+    AvgNumWide {
+        sum: NumWide,
+        n: i64,
+    },
     MinVar(u64),
     MaxVar(u64),
     SumF32(f64),
-    F64Accum { n: f64, sx: f64, sxx: f64 },
+    F64Accum {
+        n: f64,
+        sx: f64,
+        sxx: f64,
+    },
     BitAnd(i64),
     BitOr(i64),
     BitXor(i64),
     /// A held hosted state's transition value word (a datum or an arena pointer; only its host reads it).
     AggState(u64),
-    IntervalMin { time: i64, day: i32, month: i32 },
-    IntervalMax { time: i64, day: i32, month: i32 },
+    IntervalMin {
+        time: i64,
+        day: i32,
+        month: i32,
+    },
+    IntervalMax {
+        time: i64,
+        day: i32,
+        month: i32,
+    },
     /// NEW-numeric-1 N13: a side companion's word (`side_image` and `NUM_SIDE_T`).
     NumSide(u64),
     IntervalSum(IntervalSum),
@@ -526,7 +597,11 @@ pub struct RecordLayout {
 const _: () = assert!(size_of::<RecordLayout>() == 40);
 
 const fn sat_u8(n: usize) -> u8 {
-    if n > u8::MAX as usize { u8::MAX } else { n as u8 }
+    if n > u8::MAX as usize {
+        u8::MAX
+    } else {
+        n as u8
+    }
 }
 
 /// The wide tier of a `RecordLayout` (decision 82): the arrays past the inline eight, `u32` offsets, interned for
@@ -543,15 +618,33 @@ pub struct WideLayout {
 
 impl WideLayout {
     /// The wide tier's rule (`RecordLayout::build`'s): `slots` carries the appended sentinel; `slot_off` holds `slots.len()` offsets.
-    pub fn compute(keys: &'static [KeyKind], slots: &'static [SlotKind], slot_off: &'static mut [u32], validity: bool) -> WideLayout {
-        let sentinel = first_count(slots).expect("record shape: the wide tier's slots carry the count sentinel");
+    pub fn compute(
+        keys: &'static [KeyKind],
+        slots: &'static [SlotKind],
+        slot_off: &'static mut [u32],
+        validity: bool,
+    ) -> WideLayout {
+        let sentinel = first_count(slots)
+            .expect("record shape: the wide tier's slots carry the count sentinel");
         WideLayout::compute_at(keys, slots, slot_off, validity, sentinel)
     }
 
-    pub fn compute_at(keys: &'static [KeyKind], slots: &'static [SlotKind], slot_off: &'static mut [u32], validity: bool, sentinel: usize) -> WideLayout {
-        assert!(keys.len() <= u16::MAX as usize && slots.len() <= u16::MAX as usize, "record shape: the u16 word / slot ids are the sanity limit");
+    pub fn compute_at(
+        keys: &'static [KeyKind],
+        slots: &'static [SlotKind],
+        slot_off: &'static mut [u32],
+        validity: bool,
+        sentinel: usize,
+    ) -> WideLayout {
+        assert!(
+            keys.len() <= u16::MAX as usize && slots.len() <= u16::MAX as usize,
+            "record shape: the u16 word / slot ids are the sanity limit"
+        );
         assert_eq!(slot_off.len(), slots.len(), "record shape");
-        assert!(matches!(slots[sentinel], SlotKind::Count), "record shape: the sentinel is a count slot");
+        assert!(
+            matches!(slots[sentinel], SlotKind::Count),
+            "record shape: the sentinel is a count slot"
+        );
         let mut off = 8 * keys.len() as u32;
         for (j, s) in slots.iter().enumerate() {
             slot_off[j] = off;
@@ -562,14 +655,21 @@ impl WideLayout {
         if validity {
             off += validity_bytes(slots.len());
         }
-        WideLayout { keys, slots, slot_off: &*slot_off, size: off, sentinel_off: sentinel, valid_off }
+        WideLayout {
+            keys,
+            slots,
+            slot_off: &*slot_off,
+            size: off,
+            sentinel_off: sentinel,
+            valid_off,
+        }
     }
 }
 
 /// The validity region's bytes for `nslots` slots: the valid bits (bit `j` at byte `j / 8`), the `null_seen`
 /// byte after them, rounded to a word — 8 bytes through 8 slots (the 8-key tier's word), 16 through 56, …
 pub const fn validity_bytes(nslots: usize) -> u32 {
-    ((nslots.div_ceil( 8) + 1).div_ceil( 8) * 8) as u32
+    ((nslots.div_ceil(8) + 1).div_ceil(8) * 8) as u32
 }
 
 /// The first `Count` slot: `new` / `new_nn`'s sentinel rule.
@@ -589,7 +689,12 @@ pub const fn fits_inline(keys: &[KeyKind], slots: &[SlotKind], validity: bool) -
     fits_inline_at(keys, slots, validity, first_count(slots))
 }
 
-pub const fn fits_inline_at(keys: &[KeyKind], slots: &[SlotKind], validity: bool, sentinel: Option<usize>) -> bool {
+pub const fn fits_inline_at(
+    keys: &[KeyKind],
+    slots: &[SlotKind],
+    validity: bool,
+    sentinel: Option<usize>,
+) -> bool {
     let has_count = sentinel.is_some();
     let mut off = 8 * keys.len();
     let mut j = 0;
@@ -638,8 +743,20 @@ pub fn numeric_payload_cmp(a: &[u8], b: &[u8]) -> Ordering {
     // cmp_var_common
     match (x.n, y.n) {
         (0, 0) => return Ordering::Equal,
-        (0, _) => return if y.neg { Ordering::Greater } else { Ordering::Less },
-        (_, 0) => return if x.neg { Ordering::Less } else { Ordering::Greater },
+        (0, _) => {
+            return if y.neg {
+                Ordering::Greater
+            } else {
+                Ordering::Less
+            }
+        }
+        (_, 0) => {
+            return if x.neg {
+                Ordering::Less
+            } else {
+                Ordering::Greater
+            }
+        }
         _ => {}
     }
     match (x.neg, y.neg) {
@@ -663,14 +780,42 @@ struct NumParts<'a> {
 
 impl<'a> NumParts<'a> {
     fn of(p: &'a [u8]) -> NumParts<'a> {
-        let rd = |i: usize| p.get(2 * i..2 * i + 2).map_or(0, |b| u16::from_le_bytes([b[0], b[1]]));
+        let rd = |i: usize| {
+            p.get(2 * i..2 * i + 2)
+                .map_or(0, |b| u16::from_le_bytes([b[0], b[1]]))
+        };
         let h = rd(0);
         let (class, neg, weight, first) = match h & 0xC000 {
-            0xC000 => (match h & 0xF000 { 0xD000 => 2, 0xF000 => 0, _ => 3 }, false, 0, p.len() / 2),
-            0x8000 => (1, h & 0x2000 != 0, if h & 0x40 != 0 { (h | !0x3F) as i16 as i32 } else { (h & 0x3F) as i32 }, 1),
+            0xC000 => (
+                match h & 0xF000 {
+                    0xD000 => 2,
+                    0xF000 => 0,
+                    _ => 3,
+                },
+                false,
+                0,
+                p.len() / 2,
+            ),
+            0x8000 => (
+                1,
+                h & 0x2000 != 0,
+                if h & 0x40 != 0 {
+                    (h | !0x3F) as i16 as i32
+                } else {
+                    (h & 0x3F) as i32
+                },
+                1,
+            ),
             sign => (1, sign == 0x4000, rd(1) as i16 as i32, 2),
         };
-        NumParts { p, class, neg, weight, first, n: (p.len() / 2).saturating_sub(first) }
+        NumParts {
+            p,
+            class,
+            neg,
+            weight,
+            first,
+            n: (p.len() / 2).saturating_sub(first),
+        }
     }
 
     fn digit(&self, i: usize) -> u16 {
@@ -715,17 +860,25 @@ fn cmp_abs(x: &NumParts<'_>, y: &NumParts<'_>) -> Ordering {
 /// # Safety
 /// Both point at such varlenas.
 pub unsafe fn numeric_image_cmp(a: *const u8, b: *const u8) -> Ordering {
-    let len = |p: *const u8| (u32::from_le(core::ptr::read_unaligned(p as *const u32)) >> 2) as usize - 4;
-    numeric_payload_cmp(core::slice::from_raw_parts(a.add(4), len(a)), core::slice::from_raw_parts(b.add(4), len(b)))
+    let len =
+        |p: *const u8| (u32::from_le(core::ptr::read_unaligned(p as *const u32)) >> 2) as usize - 4;
+    numeric_payload_cmp(
+        core::slice::from_raw_parts(a.add(4), len(a)),
+        core::slice::from_raw_parts(b.add(4), len(b)),
+    )
 }
 
 /// Two 4-byte-header varlenas (`agg_image_put`'s form: the header `(len + 4) << 2` little-endian) by their payload bytes, then their lengths.
 /// # Safety
 /// Both point at such varlenas.
 pub unsafe fn varlena_cmp(a: *const u8, b: *const u8) -> Ordering {
-    let len = |p: *const u8| (u32::from_le(core::ptr::read_unaligned(p as *const u32)) >> 2) as usize - 4;
+    let len =
+        |p: *const u8| (u32::from_le(core::ptr::read_unaligned(p as *const u32)) >> 2) as usize - 4;
     let (la, lb) = (len(a), len(b));
-    let (x, y) = (core::slice::from_raw_parts(a.add(4), la), core::slice::from_raw_parts(b.add(4), lb));
+    let (x, y) = (
+        core::slice::from_raw_parts(a.add(4), la),
+        core::slice::from_raw_parts(b.add(4), lb),
+    );
     x.cmp(y)
 }
 
@@ -758,18 +911,41 @@ impl RecordLayout {
 
     /// The sentinel slot named: a `Count` every opened record counts a row in (`count(*)`, a count over a NOT NULL argument);
     /// `None` appends the implicit one even when the slots hold a `Count` (a nullable count stays 0 and would read as empty).
-    pub const fn with_sentinel(keys: &[KeyKind], slots: &[SlotKind], validity: bool, sentinel: Option<usize>) -> RecordLayout {
+    pub const fn with_sentinel(
+        keys: &[KeyKind],
+        slots: &[SlotKind],
+        validity: bool,
+        sentinel: Option<usize>,
+    ) -> RecordLayout {
         RecordLayout::build(keys, slots, validity, sentinel)
     }
 
     /// One key word and no slot, no sentinel: a key set's layout (the dominance export's `BARE`).
     pub const fn bare(key: KeyKind, size: u8) -> RecordLayout {
-        RecordLayout { nkeys: 1, nslots: 0, keys: [key; MAX_RECORD_KEYS], slots: [SlotKind::Count; MAX_RECORD_SLOTS], slot_off: [0; MAX_RECORD_SLOTS], size, flags: 0, sentinel_off: 0, valid_off: 0, mincode_bits: 0, pkeys: 0, wide: crate::layout::word(None) }
+        RecordLayout {
+            nkeys: 1,
+            nslots: 0,
+            keys: [key; MAX_RECORD_KEYS],
+            slots: [SlotKind::Count; MAX_RECORD_SLOTS],
+            slot_off: [0; MAX_RECORD_SLOTS],
+            size,
+            flags: 0,
+            sentinel_off: 0,
+            valid_off: 0,
+            mincode_bits: 0,
+            pkeys: 0,
+            wide: crate::layout::word(None),
+        }
     }
 
     /// This layout over other keys: the slots, the validity and the sentinel slot kept (an implicit one is among `slot_kinds()`).
     pub fn rekeyed(&self, keys: &[KeyKind]) -> RecordLayout {
-        RecordLayout::build(keys, self.slot_kinds(), self.has_validity(), Some(self.sentinel_slot()))
+        RecordLayout::build(
+            keys,
+            self.slot_kinds(),
+            self.has_validity(),
+            Some(self.sentinel_slot()),
+        )
     }
 
     /// The sentinel's slot index.
@@ -788,18 +964,48 @@ impl RecordLayout {
     pub const fn new_nn(keys: &[KeyKind], slots: &[SlotKind]) -> RecordLayout {
         let mut j = 0;
         while j < slots.len() {
-            assert!(!matches!(slots[j], SlotKind::MinI64 | SlotKind::MaxI64 | SlotKind::MaxCode), "a min/max slot needs the validity word");
+            assert!(
+                !matches!(
+                    slots[j],
+                    SlotKind::MinI64 | SlotKind::MaxI64 | SlotKind::MaxCode
+                ),
+                "a min/max slot needs the validity word"
+            );
             j += 1;
         }
         RecordLayout::build(keys, slots, false, first_count(slots))
     }
 
-    const fn build(keys: &[KeyKind], slots: &[SlotKind], validity: bool, sentinel_slot: Option<usize>) -> RecordLayout {
-        assert!(keys.len() <= MAX_RECORD_KEYS && slots.len() <= MAX_RECORD_SLOTS, "record shape");
+    const fn build(
+        keys: &[KeyKind],
+        slots: &[SlotKind],
+        validity: bool,
+        sentinel_slot: Option<usize>,
+    ) -> RecordLayout {
+        assert!(
+            keys.len() <= MAX_RECORD_KEYS && slots.len() <= MAX_RECORD_SLOTS,
+            "record shape"
+        );
         if let Some(j) = sentinel_slot {
-            assert!(j < slots.len() && matches!(slots[j], SlotKind::Count), "record shape: the sentinel is a count slot");
+            assert!(
+                j < slots.len() && matches!(slots[j], SlotKind::Count),
+                "record shape: the sentinel is a count slot"
+            );
         }
-        let mut l = RecordLayout { nkeys: keys.len() as u8, nslots: slots.len() as u8, keys: [KeyKind::I32; MAX_RECORD_KEYS], slots: [SlotKind::Count; MAX_RECORD_SLOTS], slot_off: [0; MAX_RECORD_SLOTS], size: 0, flags: 0, sentinel_off: 0, valid_off: 0, mincode_bits: 0, pkeys: 0, wide: crate::layout::word(None) };
+        let mut l = RecordLayout {
+            nkeys: keys.len() as u8,
+            nslots: slots.len() as u8,
+            keys: [KeyKind::I32; MAX_RECORD_KEYS],
+            slots: [SlotKind::Count; MAX_RECORD_SLOTS],
+            slot_off: [0; MAX_RECORD_SLOTS],
+            size: 0,
+            flags: 0,
+            sentinel_off: 0,
+            valid_off: 0,
+            mincode_bits: 0,
+            pkeys: 0,
+            wide: crate::layout::word(None),
+        };
         let mut i = 0;
         while i < keys.len() {
             l.keys[i] = keys[i];
@@ -823,7 +1029,10 @@ impl RecordLayout {
             j += 1;
         }
         if sentinel == usize::MAX {
-            assert!(slots.len() < MAX_RECORD_SLOTS, "record shape: no room for the count sentinel");
+            assert!(
+                slots.len() < MAX_RECORD_SLOTS,
+                "record shape: no room for the count sentinel"
+            );
             l.slots[j] = SlotKind::Count;
             l.slot_off[j] = off as u8;
             l.nslots += 1;
@@ -845,8 +1054,23 @@ impl RecordLayout {
     /// The wide tier over a computed `WideLayout` (the program arena's, or a static). `implicit`: the sentinel
     /// was appended (`w.slots`' last is the implicit `Count`).
     pub const fn wide(w: &'static WideLayout, validity: bool, implicit: bool) -> RecordLayout {
-        let flags = LAYOUT_WIDE | if validity { LAYOUT_VALIDITY } else { 0 } | if implicit { LAYOUT_IMPLICIT_COUNT } else { 0 };
-        RecordLayout { nkeys: sat_u8(w.keys.len()), nslots: sat_u8(w.slots.len()), keys: [KeyKind::I32; MAX_RECORD_KEYS], slots: [SlotKind::Count; MAX_RECORD_SLOTS], slot_off: [0; MAX_RECORD_SLOTS], size: 0, flags, sentinel_off: 0, valid_off: 0, mincode_bits: 0, pkeys: 0, wide: crate::layout::word(Some(w)) }
+        let flags = LAYOUT_WIDE
+            | if validity { LAYOUT_VALIDITY } else { 0 }
+            | if implicit { LAYOUT_IMPLICIT_COUNT } else { 0 };
+        RecordLayout {
+            nkeys: sat_u8(w.keys.len()),
+            nslots: sat_u8(w.slots.len()),
+            keys: [KeyKind::I32; MAX_RECORD_KEYS],
+            slots: [SlotKind::Count; MAX_RECORD_SLOTS],
+            slot_off: [0; MAX_RECORD_SLOTS],
+            size: 0,
+            flags,
+            sentinel_off: 0,
+            valid_off: 0,
+            mincode_bits: 0,
+            pkeys: 0,
+            wide: crate::layout::word(Some(w)),
+        }
     }
 
     pub const fn is_wide(&self) -> bool {
@@ -860,7 +1084,11 @@ impl RecordLayout {
     }
 
     pub const fn partition_keys(&self) -> usize {
-        if self.pkeys == 0 { self.nkeys() } else { self.pkeys as usize }
+        if self.pkeys == 0 {
+            self.nkeys()
+        } else {
+            self.pkeys as usize
+        }
     }
 
     pub const fn size(&self) -> u32 {
@@ -962,7 +1190,7 @@ impl RecordLayout {
     /// The `null_seen` byte: after the valid bits (byte 1 of the 8-key tier's word).
     #[inline(always)]
     pub const fn null_seen_off(&self) -> usize {
-        self.valid_off() as usize +self.nslots().div_ceil( 8)
+        self.valid_off() as usize + self.nslots().div_ceil(8)
     }
 }
 
@@ -1025,7 +1253,10 @@ impl<'a> Rec<'a> {
     /// # Safety
     /// `p` points at `layout.size()` writable bytes, 8-aligned, zeroed or a live record of that layout.
     pub unsafe fn at(p: *mut u8, layout: &'a RecordLayout) -> Rec<'a> {
-        debug_assert!(p.cast::<u64>().is_aligned(), "gravity: a record at {p:p} is not 8-aligned (D1704)");
+        debug_assert!(
+            p.cast::<u64>().is_aligned(),
+            "gravity: a record at {p:p} is not 8-aligned (D1704)"
+        );
         Rec { p, layout }
     }
 
@@ -1111,7 +1342,9 @@ impl<'a> Rec<'a> {
         }
         match self.layout.slot_kind(j) {
             SlotKind::MinCode => self.u64_at(self.off(j)) != MINCODE_NONE,
-            SlotKind::MinVar | SlotKind::MaxVar | SlotKind::NumSideMin | SlotKind::NumSideMax => self.u64_at(self.off(j)) != 0,
+            SlotKind::MinVar | SlotKind::MaxVar | SlotKind::NumSideMin | SlotKind::NumSideMax => {
+                self.u64_at(self.off(j)) != 0
+            }
             SlotKind::AvgI128 | SlotKind::AvgNum => self.u64_at(self.off(j) + 16) != 0,
             SlotKind::AvgNumWide => self.u64_at(self.off(j) + 32) != 0,
             SlotKind::F64Accum => self.u64_at(self.off(j)) != 0,
@@ -1252,7 +1485,12 @@ impl<'a> Rec<'a> {
     #[inline(always)]
     pub fn num256(&self, j: usize) -> NumWide {
         let o = self.off(j);
-        [self.u64_at(o), self.u64_at(o + 8), self.u64_at(o + 16), self.u64_at(o + 24)]
+        [
+            self.u64_at(o),
+            self.u64_at(o + 8),
+            self.u64_at(o + 16),
+            self.u64_at(o + 24),
+        ]
     }
 
     /// `(sum, n)` of an `AvgNumWide` slot.
@@ -1311,7 +1549,11 @@ impl<'a> Rec<'a> {
     #[inline(always)]
     pub fn interval(&self, j: usize) -> (i64, i32, i32) {
         let (o, w) = (self.off(j), self.u64_at(self.off(j) + 8));
-        (self.u64_at(o) as i64, w as u32 as i32, (w >> 32) as u32 as i32)
+        (
+            self.u64_at(o) as i64,
+            w as u32 as i32,
+            (w >> 32) as u32 as i32,
+        )
     }
 
     /// `interval_smaller / larger(this, v)` into an `IntervalMin` / `IntervalMax` slot: an empty slot takes `v`; else `v` wins
@@ -1322,7 +1564,10 @@ impl<'a> Rec<'a> {
         let o = self.off(j);
         if self.valid(j) {
             let (t, d, m) = self.interval(j);
-            let (cur, new) = (interval_cmp_value(t, d, m), interval_cmp_value(v.0, v.1, v.2));
+            let (cur, new) = (
+                interval_cmp_value(t, d, m),
+                interval_cmp_value(v.0, v.1, v.2),
+            );
             if min && cur < new || !min && cur > new {
                 return;
             }
@@ -1377,7 +1622,11 @@ impl<'a> Rec<'a> {
     /// record then garbage, as a float merge's.
     #[inline(always)]
     pub fn fold_interval_sum(&self, j: usize, v: &IntervalSum) -> Result<(), FloatOverflow> {
-        let mut s = if self.valid(j) { self.interval_sum(j) } else { IntervalSum::default() };
+        let mut s = if self.valid(j) {
+            self.interval_sum(j)
+        } else {
+            IntervalSum::default()
+        };
         let raise = s.compose(v);
         self.set_interval_sum(j, &s);
         if raise {
@@ -1431,7 +1680,11 @@ impl<'a> Rec<'a> {
     #[allow(clippy::double_must_use)]
     pub fn add_f64(&self, j: usize, v: f64) -> Result<(), FloatOverflow> {
         let o = self.off(j);
-        let s = if self.layout.has_validity() && !self.valid(j) { v } else { float8_pl(self.f64(j), v)? };
+        let s = if self.layout.has_validity() && !self.valid(j) {
+            v
+        } else {
+            float8_pl(self.f64(j), v)?
+        };
         self.set_u64(o, s.to_bits());
         self.mark(j);
         Ok(())
@@ -1443,7 +1696,11 @@ impl<'a> Rec<'a> {
     #[allow(clippy::double_must_use)]
     pub fn add_f32(&self, j: usize, v: f64) -> Result<(), FloatOverflow> {
         let o = self.off(j);
-        let s = if self.layout.has_validity() && !self.valid(j) { v as f32 } else { float4_pl(self.f64(j) as f32, v as f32)? };
+        let s = if self.layout.has_validity() && !self.valid(j) {
+            v as f32
+        } else {
+            float4_pl(self.f64(j) as f32, v as f32)?
+        };
         self.set_u64(o, (s as f64).to_bits());
         self.mark(j);
         Ok(())
@@ -1584,7 +1841,9 @@ impl<'a> Rec<'a> {
                 let (time, day, month) = self.interval(j);
                 AggSlot::IntervalMax { time, day, month }
             }
-            SlotKind::NumSideMin | SlotKind::NumSideMax => AggSlot::NumSide(self.u64_at(self.off(j))),
+            SlotKind::NumSideMin | SlotKind::NumSideMax => {
+                AggSlot::NumSide(self.u64_at(self.off(j)))
+            }
             SlotKind::IntervalSum => AggSlot::IntervalSum(self.interval_sum(j)),
         })
     }
@@ -1611,14 +1870,17 @@ impl<'a> Rec<'a> {
     /// are never written, an empty `into` takes PG's copy), every other slot as `fold`. `Err(FOLD_OVERFLOW)`: a float
     /// merge overflowed; `Err(FOLD_HOST)`: the combine raised (the host's error stashed).
     pub fn fold_with(&self, src: &Rec<'_>, combine: &mut StateCombine<'_>) -> Result<(), i64> {
-        self.fold_slots::<false>(src, true).map_err(|_| FOLD_OVERFLOW)?;
+        self.fold_slots::<false>(src, true)
+            .map_err(|_| FOLD_OVERFLOW)?;
         self.combine_states(src, combine)
     }
 
     /// V4R-375: every `AggState` slot emptied (held 0: a group's first partial copied into the owner, its states then
     /// combined in, so the owner never shares a source's state).
     pub fn clear_states(&self) {
-        for j in (0..self.layout.nslots()).filter(|&j| self.layout.slot_kind(j) == SlotKind::AggState) {
+        for j in
+            (0..self.layout.nslots()).filter(|&j| self.layout.slot_kind(j) == SlotKind::AggState)
+        {
             let o = self.off(j);
             self.set_u64(o, 0);
             self.set_u64(o + 8, 0);
@@ -1626,7 +1888,9 @@ impl<'a> Rec<'a> {
     }
 
     fn combine_states(&self, src: &Rec<'_>, combine: &mut StateCombine<'_>) -> Result<(), i64> {
-        for j in (0..self.layout.nslots()).filter(|&j| self.layout.slot_kind(j) == SlotKind::AggState) {
+        for j in
+            (0..self.layout.nslots()).filter(|&j| self.layout.slot_kind(j) == SlotKind::AggState)
+        {
             let so = src.off(j);
             if src.u8_at(so + AGGSTATE_HELD) == 0 {
                 continue;
@@ -1641,7 +1905,11 @@ impl<'a> Rec<'a> {
         Ok(())
     }
 
-    fn fold_slots<const NEWER: bool>(&self, src: &Rec<'_>, hosted: bool) -> Result<(), FloatOverflow> {
+    fn fold_slots<const NEWER: bool>(
+        &self,
+        src: &Rec<'_>,
+        hosted: bool,
+    ) -> Result<(), FloatOverflow> {
         debug_assert_eq!(*self.layout, *src.layout);
         if src.null_seen() {
             self.set_null_seen();
@@ -1664,7 +1932,12 @@ impl<'a> Rec<'a> {
             }
             if self.layout.slot_kind(j).is_num_side() {
                 // read whatever `src` holds: its key may have taken the member while it has no side image
-                tied |= self.side_extreme::<NEWER>(j, src, key_took, self.layout.slot_kind(j) == SlotKind::NumSideMin);
+                tied |= self.side_extreme::<NEWER>(
+                    j,
+                    src,
+                    key_took,
+                    self.layout.slot_kind(j) == SlotKind::NumSideMin,
+                );
                 continue;
             }
             if validity && !src.valid(j) {
@@ -1673,7 +1946,11 @@ impl<'a> Rec<'a> {
             // perf: the common kinds merge here, one dispatch per slot (through `fold_slot`'s match behind this one: +2.5 %
             // instructions on a grouped statement)
             match self.layout.slot_kind(j) {
-                SlotKind::Count if implicit && self.layout.slot_off(j) == self.layout.sentinel_off() => self.add_count(j, (src.count(j) - 1).max(0)),
+                SlotKind::Count
+                    if implicit && self.layout.slot_off(j) == self.layout.sentinel_off() =>
+                {
+                    self.add_count(j, (src.count(j) - 1).max(0))
+                }
                 SlotKind::Count => self.add_count(j, src.count(j)),
                 SlotKind::SumI64 => self.add_i64(j, src.i64(j)),
                 SlotKind::SumI128 => self.add_i128(j, src.i128(j)),
@@ -1718,7 +1995,11 @@ impl<'a> Rec<'a> {
         let validity = self.layout.has_validity();
         let implicit = self.layout.flags & LAYOUT_IMPLICIT_COUNT != 0;
         match self.layout.slot_kind(j) {
-            SlotKind::Count if implicit && self.layout.slot_off(j) == self.layout.sentinel_off() => self.add_count(j, (src.count(j) - 1).max(0)),
+            SlotKind::Count
+                if implicit && self.layout.slot_off(j) == self.layout.sentinel_off() =>
+            {
+                self.add_count(j, (src.count(j) - 1).max(0))
+            }
             SlotKind::Count => self.add_count(j, src.count(j)),
             SlotKind::SumI64 => self.add_i64(j, src.i64(j)),
             SlotKind::SumI128 => self.add_i128(j, src.i128(j)),
@@ -1757,7 +2038,9 @@ impl<'a> Rec<'a> {
             SlotKind::IntervalMin => self.fold_interval(j, src.interval(j), true),
             SlotKind::IntervalMax => self.fold_interval(j, src.interval(j), false),
             SlotKind::IntervalSum => self.fold_interval_sum(j, &src.interval_sum(j))?,
-            SlotKind::AggState | SlotKind::NumSideMin | SlotKind::NumSideMax => unreachable!("fold_slots' own"),
+            SlotKind::AggState | SlotKind::NumSideMin | SlotKind::NumSideMax => {
+                unreachable!("fold_slots' own")
+            }
         }
         Ok(())
     }
@@ -1785,10 +2068,20 @@ impl<'a> Rec<'a> {
     /// NEW-numeric-1 N13: side companion `j` of key slot `j - 1` folds `src`'s (`side_fold`), `key_took` saying whether the
     /// key slot took `src`'s member. True where the merge cannot order the pair (not `NEWER`): two images equal in value at
     /// two byte forms, or a key member and a side member of the merged record from two records.
-    fn side_extreme<const NEWER: bool>(&self, j: usize, src: &Rec<'_>, key_took: bool, min: bool) -> bool {
+    fn side_extreme<const NEWER: bool>(
+        &self,
+        j: usize,
+        src: &Rec<'_>,
+        key_took: bool,
+        min: bool,
+    ) -> bool {
         let o = self.off(j);
         let a = if self.valid(j) { self.u64_at(o) } else { 0 };
-        let s = if src.valid(j) { src.u64_at(src.off(j)) } else { 0 };
+        let s = if src.valid(j) {
+            src.u64_at(src.off(j))
+        } else {
+            0
+        };
         let (w, side_took, unordered) = side_fold::<NEWER>(a, s, key_took, min);
         if w == 0 {
             return unordered;
@@ -1811,7 +2104,10 @@ impl<'a> Rec<'a> {
         if self.u8_at(o + AGGSTATE_HELD) != 0 {
             // a Bug, never an overflow: the hosted plain merge (exec v4/m6.rs) combines two held states before this fold
             // (D806); FloatOverflow is only Rec::fold's one error status (the label's fix is debt)
-            debug_assert!(false, "two held hosted aggregate states in a record fold: a Bug (D806)");
+            debug_assert!(
+                false,
+                "two held hosted aggregate states in a record fold: a Bug (D806)"
+            );
             return Err(FloatOverflow);
         }
         self.set_u64(o, src.u64_at(so));
@@ -1841,7 +2137,7 @@ pub fn num_sum_order(k: SlotKind, w: [u64; 4]) -> Option<(u8, i128, u128)> {
     let (top, hi) = match k {
         SlotKind::SumNumWide => (w[3] as i64, ((w[3] as u128) << 64 | w[2] as u128) as i128),
         SlotKind::SumNum => (w[1] as i64, (lo as i128) >> 127), // sum(numeric): its sentinel on the high word
-        _ => (0, (lo as i128) >> 127),                           // sum(int8): never a sentinel
+        _ => (0, (lo as i128) >> 127),                          // sum(int8): never a sentinel
     };
     if top != NUM_SENT_HI {
         return Some((1, hi, lo));
@@ -1860,9 +2156,18 @@ pub fn num_add(a: i128, b: i128) -> i128 {
     let (ahi, bhi) = ((a >> 64) as i64, (b >> 64) as i64);
     let sent = |c: i64| ((NUM_SENT_HI as i128) << 64) | c as u64 as i128;
     if ahi != NUM_SENT_HI && bhi != NUM_SENT_HI {
-        return a.checked_add(b).filter(|s| ((s >> 64) as i64).wrapping_add(NUM_SUM_HI_LIMIT) >= 0).unwrap_or(sent(NUM_SP_OVERFLOW));
+        return a
+            .checked_add(b)
+            .filter(|s| ((s >> 64) as i64).wrapping_add(NUM_SUM_HI_LIMIT) >= 0)
+            .unwrap_or(sent(NUM_SP_OVERFLOW));
     }
-    let code = |hi: i64, v: i128| if hi == NUM_SENT_HI { v as u64 as i64 } else { 0 };
+    let code = |hi: i64, v: i128| {
+        if hi == NUM_SENT_HI {
+            v as u64 as i64
+        } else {
+            0
+        }
+    };
     let (x, y) = (code(ahi, a), code(bhi, b));
     let inf = |c: i64| c == 2 || c == 3;
     let c = match () {
@@ -1890,13 +2195,20 @@ pub fn num_add256(a: NumWide, b: NumWide) -> NumWide {
         let (l, c) = lo(a).overflowing_add(lo(b));
         let h = hi(a).wrapping_add(hi(b)).wrapping_add(c as i128);
         let s = [l as u64, (l >> 64) as u64, h as u64, (h >> 64) as u64];
-        return if (s[3] as i64).wrapping_add(NUM_SUM_HI_LIMIT) >= 0 { s } else { sent(NUM_SP_OVERFLOW) };
+        return if (s[3] as i64).wrapping_add(NUM_SUM_HI_LIMIT) >= 0 {
+            s
+        } else {
+            sent(NUM_SP_OVERFLOW)
+        };
     }
     // a special (or OVERFLOW) wins over a finite sum; two combine as `num_add`'s codes
     match (at == NUM_SENT_HI, bt == NUM_SENT_HI) {
         (false, _) => b,
         (_, false) => a,
-        _ => sent(num_add(((NUM_SENT_HI as i128) << 64) | a[0] as i128, ((NUM_SENT_HI as i128) << 64) | b[0] as i128) as u64 as i64),
+        _ => sent(num_add(
+            ((NUM_SENT_HI as i128) << 64) | a[0] as i128,
+            ((NUM_SENT_HI as i128) << 64) | b[0] as i128,
+        ) as u64 as i64),
     }
 }
 
@@ -1922,22 +2234,47 @@ pub const fn rec_face(l: &RecordLayout) -> RecFace {
         slot_off[j] = l.slot_off(j);
         j += 1;
     }
-    RecFace { base_off: HASHAGG_HDR as u32, slot_off, nslots: l.nslots() as u32, sentinel_off: l.sentinel_off(), valid_off: if l.has_validity() { l.valid_off() } else { NO_VALIDITY }, moving_bit: MOVING, size: l.size() }
+    RecFace {
+        base_off: HASHAGG_HDR as u32,
+        slot_off,
+        nslots: l.nslots() as u32,
+        sentinel_off: l.sentinel_off(),
+        valid_off: if l.has_validity() {
+            l.valid_off()
+        } else {
+            NO_VALIDITY
+        },
+        moving_bit: MOVING,
+        size: l.size(),
+    }
 }
 
-pub type RecOpenFn = Option<unsafe extern "C" fn(*mut crate::Ctx, u32, *const RecordLayout, u32, u32, *const u64) -> i64>;
+pub type RecOpenFn = Option<
+    unsafe extern "C" fn(*mut crate::Ctx, u32, *const RecordLayout, u32, u32, *const u64) -> i64,
+>;
 
 /// `ProgramBlock.rec_open` (ir-probe.md §12.2): the record of `keys` in region `partial`'s table (0 own, 1 / 2 consumed), opened when new; 0 = refused.
 /// # Safety
 /// `ctx` is bound; `layout` and `keys` (`layout.nkeys` words) are readable; `HashAgg::at`'s contract.
-pub unsafe extern "C" fn rec_open(ctx: *mut crate::Ctx, partial: u32, layout: *const RecordLayout, cap: u32, limit: u32, keys: *const u64) -> i64 {
+pub unsafe extern "C" fn rec_open(
+    ctx: *mut crate::Ctx,
+    partial: u32,
+    layout: *const RecordLayout,
+    cap: u32,
+    limit: u32,
+    keys: *const u64,
+) -> i64 {
     let region = match partial {
         0 => crate::program::partial(ctx),
         k => crate::program::consumed(ctx, k as usize - 1),
     };
     let layout = &*layout;
     let t = HashAgg::at(region, layout, cap, limit);
-    let r = if layout.nkeys == 0 { Some(t.single()) } else { t.find_or_insert(core::slice::from_raw_parts(keys, layout.nkeys())) };
+    let r = if layout.nkeys == 0 {
+        Some(t.single())
+    } else {
+        t.find_or_insert(core::slice::from_raw_parts(keys, layout.nkeys()))
+    };
     match r {
         Some(r) => r.as_ptr() as i64,
         None => 0,
@@ -2029,14 +2366,22 @@ impl HashAgg {
     /// `p` points at `limit` writable bytes, 8-aligned, zeroed or a live table of `layout`
     /// (any capacity); `bytes(layout, cap) <= limit`, `cap` a power of two. With `limit ==
     /// SHARE` the region's armed `limit` (`arm`) is the bound.
-    pub unsafe fn at<'a>(p: *mut u8, layout: &RecordLayout, cap: u32, limit: u32) -> &'a mut HashAgg {
+    pub unsafe fn at<'a>(
+        p: *mut u8,
+        layout: &RecordLayout,
+        cap: u32,
+        limit: u32,
+    ) -> &'a mut HashAgg {
         let t = aligned_mut::<HashAgg>(p);
         let shared = limit == SHARE;
         let limit = if shared { t.limit } else { limit };
         assert!(limit != 0, "hash aggregate region without a limit");
         if t.cap == 0 {
             let cap = cap.min(HashAgg::cap_of(layout, limit)).max(1);
-            assert!(cap.is_power_of_two() && HashAgg::bytes(layout, cap) <= limit, "hash aggregate shape");
+            assert!(
+                cap.is_power_of_two() && HashAgg::bytes(layout, cap) <= limit,
+                "hash aggregate shape"
+            );
             // the region beyond the header may be dirty (a share zeroed over its prefix only): the records are zeroed here
             core::ptr::write_bytes(p.add(HASHAGG_HDR), 0, cap as usize * layout.size() as usize);
             t.cap = cap;
@@ -2049,7 +2394,13 @@ impl HashAgg {
         }
         // D2600: a region of another kind (a wrong region index) is reported by its scalars alone: its layout bytes are not a
         // layout (the derived Debug follows the wide tier's word, and a garbage one asked for 7.6e18 bytes, aborting the backend)
-        assert!(t.kind == TABLE_AGG, "hash aggregate shape: the region holds kind {} cap {} limit {}, not a hash aggregate", t.kind, t.cap, t.limit);
+        assert!(
+            t.kind == TABLE_AGG,
+            "hash aggregate shape: the region holds kind {} cap {} limit {}, not a hash aggregate",
+            t.kind,
+            t.cap,
+            t.limit
+        );
         assert!(t.layout.same(layout) && t.limit == limit, "hash aggregate shape: the region holds cap {} limit {} layout {:x?}, opened for limit {} layout {:x?}", t.cap, t.limit, t.layout.words(), limit, layout.words());
         t
     }
@@ -2112,11 +2463,18 @@ impl HashAgg {
     #[inline(always)]
     pub fn record(&self, i: usize) -> Rec<'_> {
         debug_assert!(i < self.cap as usize);
-        unsafe { Rec::at(self.base().add(i * self.layout.size() as usize), &self.layout) }
+        unsafe {
+            Rec::at(
+                self.base().add(i * self.layout.size() as usize),
+                &self.layout,
+            )
+        }
     }
 
     pub fn records(&self) -> impl Iterator<Item = Rec<'_>> + '_ {
-        (0..self.cap as usize).map(|i| self.record(i)).filter(|r| r.used())
+        (0..self.cap as usize)
+            .map(|i| self.record(i))
+            .filter(|r| r.used())
     }
 
     pub fn single(&mut self) -> Rec<'_> {
@@ -2169,7 +2527,13 @@ impl HashAgg {
     /// home prefetched `FOLD_PF` records ahead); `FOLD_OVERFLOW` when a float merge overflowed.
     /// # Safety
     /// `recs` holds `nrecs` whole records of this table's layout, read-only during the fold.
-    pub unsafe fn fold_run(&mut self, recs: *const u8, nrecs: usize, split: SubSplit, cand: &mut Candidates) -> i64 {
+    pub unsafe fn fold_run(
+        &mut self,
+        recs: *const u8,
+        nrecs: usize,
+        split: SubSplit,
+        cand: &mut Candidates,
+    ) -> i64 {
         self.fold_run_in(recs, nrecs, split, cand, None)
     }
 
@@ -2179,13 +2543,31 @@ impl HashAgg {
     /// when a combine raised.
     /// # Safety
     /// `fold_run`'s.
-    pub unsafe fn fold_run_with(&mut self, recs: *const u8, nrecs: usize, split: SubSplit, cand: &mut Candidates, combine: &mut StateCombine<'_>) -> i64 {
+    pub unsafe fn fold_run_with(
+        &mut self,
+        recs: *const u8,
+        nrecs: usize,
+        split: SubSplit,
+        cand: &mut Candidates,
+        combine: &mut StateCombine<'_>,
+    ) -> i64 {
         self.fold_run_in(recs, nrecs, split, cand, Some(combine))
     }
 
-    unsafe fn fold_run_in(&mut self, recs: *const u8, nrecs: usize, split: SubSplit, cand: &mut Candidates, mut combine: Option<&mut StateCombine<'_>>) -> i64 {
+    unsafe fn fold_run_in(
+        &mut self,
+        recs: *const u8,
+        nrecs: usize,
+        split: SubSplit,
+        cand: &mut Candidates,
+        mut combine: Option<&mut StateCombine<'_>>,
+    ) -> i64 {
         let layout = self.layout;
-        let (rec, nkeys, pkeys) = (layout.size() as usize, layout.nkeys(), layout.partition_keys());
+        let (rec, nkeys, pkeys) = (
+            layout.size() as usize,
+            layout.nkeys(),
+            layout.partition_keys(),
+        );
         let mut ring = [KeyHash::word(0); FOLD_PF];
         #[allow(clippy::needless_range_loop)]
         for i in 0..nrecs.min(FOLD_PF) {
@@ -2206,7 +2588,9 @@ impl HashAgg {
                 continue;
             }
             let r = Rec::at(p as *mut u8, &layout);
-            let Some((j, found)) = self.fold_slot(r.keys(), h) else { return -1 - folded };
+            let Some((j, found)) = self.fold_slot(r.keys(), h) else {
+                return -1 - folded;
+            };
             folded += 1;
             let d = self.record(j);
             match (found, combine.as_deref_mut()) {
@@ -2282,7 +2666,8 @@ impl HashAgg {
     }
 
     pub fn find(&self, keys: &[u64]) -> Option<Rec<'_>> {
-        self.find_index(keys, KeyHash::of(keys)).map(|i| self.record(i))
+        self.find_index(keys, KeyHash::of(keys))
+            .map(|i| self.record(i))
     }
 
     #[inline(always)]
@@ -2310,7 +2695,9 @@ impl HashAgg {
             return false;
         }
         let rec = self.layout.size() as usize;
-        unsafe { core::ptr::write_bytes(self.base().add(cap as usize * rec), 0, cap as usize * rec) };
+        unsafe {
+            core::ptr::write_bytes(self.base().add(cap as usize * rec), 0, cap as usize * rec)
+        };
         self.cap = cap * 2;
         for i in 0..cap as usize {
             let r = self.record(i);
@@ -2372,13 +2759,25 @@ impl HashAgg {
             return false;
         }
         let rec = self.layout.size() as usize;
-        unsafe { core::ptr::write_bytes(self.base().add(self.cap as usize * rec), 0, self.cap as usize * rec) };
+        unsafe {
+            core::ptr::write_bytes(
+                self.base().add(self.cap as usize * rec),
+                0,
+                self.cap as usize * rec,
+            )
+        };
         self.cap *= 2;
         true
     }
 
     pub fn clear(&mut self) {
-        unsafe { core::ptr::write_bytes(self.base(), 0, self.cap as usize * self.layout.size() as usize) };
+        unsafe {
+            core::ptr::write_bytes(
+                self.base(),
+                0,
+                self.cap as usize * self.layout.size() as usize,
+            )
+        };
         self.len = 0;
         self.mode = HASHED;
     }
@@ -2411,23 +2810,24 @@ impl HashAgg {
         let at = |i: usize| unsafe { base.add(i * rec) as *const u8 };
         // SAFETY: records 0..n are live, `rec` bytes each, from `base`; every index is < n.
         unsafe {
-            let sift = |root: usize, end: usize, less: &mut dyn FnMut(*const u8, *const u8) -> bool| {
-                let mut root = root;
-                loop {
-                    let mut child = 2 * root + 1;
-                    if child >= end {
-                        return;
+            let sift =
+                |root: usize, end: usize, less: &mut dyn FnMut(*const u8, *const u8) -> bool| {
+                    let mut root = root;
+                    loop {
+                        let mut child = 2 * root + 1;
+                        if child >= end {
+                            return;
+                        }
+                        if child + 1 < end && less(at(child), at(child + 1)) {
+                            child += 1;
+                        }
+                        if !less(at(root), at(child)) {
+                            return;
+                        }
+                        swap_rec(base, rec, root, child);
+                        root = child;
                     }
-                    if child + 1 < end && less(at(child), at(child + 1)) {
-                        child += 1;
-                    }
-                    if !less(at(root), at(child)) {
-                        return;
-                    }
-                    swap_rec(base, rec, root, child);
-                    root = child;
-                }
-            };
+                };
             for start in (0..n / 2).rev() {
                 sift(start, n, less);
             }
@@ -2444,7 +2844,7 @@ impl HashAgg {
     pub fn sort_dense_by_words(&mut self, g: usize) {
         let rec = self.layout.size() as usize;
         debug_assert!(8 * g <= rec, "the order's words lie in the record");
-        if ! rec.is_multiple_of( 8) || rec > 128 || !( self.base() as usize).is_multiple_of( 8) {
+        if !rec.is_multiple_of(8) || rec > 128 || !(self.base() as usize).is_multiple_of(8) {
             // SAFETY (the closure): each pointer is a live record of `rec >= 8 * g` bytes.
             let words = |p: *const u8| unsafe { core::slice::from_raw_parts(p as *const u64, g) };
             return self.sort_dense_by(&mut |a, b| words(a) < words(b));
@@ -2478,7 +2878,10 @@ impl HashAgg {
 
     /// Runs of `same` neighbours of a sorted `DENSE` table folded into their first record (`Rec::fold`); the new `len`,
     /// or a float merge's overflow.
-    pub fn coalesce_dense(&mut self, same: &mut dyn FnMut(*const u8, *const u8) -> bool) -> Result<u32, FloatOverflow> {
+    pub fn coalesce_dense(
+        &mut self,
+        same: &mut dyn FnMut(*const u8, *const u8) -> bool,
+    ) -> Result<u32, FloatOverflow> {
         debug_assert_eq!(self.mode, DENSE);
         let n = self.len as usize;
         let mut out = 0usize;
@@ -2546,7 +2949,8 @@ unsafe fn sift_rec(base: *mut u8, rec: usize, koff: usize, mut root: usize, end:
         if child >= end {
             return;
         }
-        if child + 1 < end && key_rec(base, rec, koff, child) < key_rec(base, rec, koff, child + 1) {
+        if child + 1 < end && key_rec(base, rec, koff, child) < key_rec(base, rec, koff, child + 1)
+        {
             child += 1;
         }
         if key_rec(base, rec, koff, root) >= key_rec(base, rec, koff, child) {
@@ -2651,7 +3055,13 @@ pub const fn img_data_off(size: usize) -> usize {
 /// D3312: the bytes of the chunk an arena pins after one of `prev` bytes (0: none) for an image of `need` bytes: 64 KiB
 /// doubling to 32 MiB, or the image's own bytes with the header and the map when it is larger.
 pub const fn img_chunk_bytes(prev: usize, need: usize) -> usize {
-    let s = if 2 * prev < T1_IMAGE_CHUNK { T1_IMAGE_CHUNK } else if 2 * prev > T1_IMAGE_CHUNK_MAX { T1_IMAGE_CHUNK_MAX } else { 2 * prev };
+    let s = if 2 * prev < T1_IMAGE_CHUNK {
+        T1_IMAGE_CHUNK
+    } else if 2 * prev > T1_IMAGE_CHUNK_MAX {
+        T1_IMAGE_CHUNK_MAX
+    } else {
+        2 * prev
+    };
     if s - img_data_off(s) >= need {
         return s;
     }
@@ -2672,7 +3082,11 @@ pub unsafe fn img_hdr(base: usize, i: usize) -> *mut u64 {
 /// As `img_hdr`.
 #[inline]
 pub unsafe fn img_chunk(base: usize) -> (usize, usize, usize) {
-    (*img_hdr(base, IMG_NEXT) as usize, *img_hdr(base, IMG_SIZE) as usize, *img_hdr(base, IMG_FIRST) as usize)
+    (
+        *img_hdr(base, IMG_NEXT) as usize,
+        *img_hdr(base, IMG_SIZE) as usize,
+        *img_hdr(base, IMG_FIRST) as usize,
+    )
 }
 
 /// D3312: where the images of the chunk at `base` end once the cursor left it (`img_set_fill`); the open chunk's end is
@@ -2697,7 +3111,11 @@ pub unsafe fn img_set_fill(base: usize, at: usize) {
 /// `w` is three live words of a cursor `img_bump` bumps.
 #[inline(always)]
 pub unsafe fn img_open_chunk(w: *const u64) -> usize {
-    if *w == 0 { 0 } else { (*w.add(1) - *w.add(2)) as usize }
+    if *w == 0 {
+        0
+    } else {
+        (*w.add(1) - *w.add(2)) as usize
+    }
 }
 
 /// D3312: an image starts at `at` in the chunk at `base`.
@@ -2741,7 +3159,10 @@ pub unsafe fn img_extent(base: usize, at: usize, fill: usize) -> Option<(usize, 
     while s < last {
         let word = *map.add(s / 64) >> (s % 64);
         if word != 0 {
-            return Some((base + 8 * start, base + 8 * (s + word.trailing_zeros() as usize).min(last)));
+            return Some((
+                base + 8 * start,
+                base + 8 * (s + word.trailing_zeros() as usize).min(last),
+            ));
         }
         s = (s / 64 + 1) * 64;
     }
@@ -2753,11 +3174,20 @@ pub unsafe fn img_extent(base: usize, at: usize, fill: usize) -> Option<(usize, 
 /// `p` holds `size` writable, 8-aligned bytes, `size` past `img_data_off(size)`.
 pub unsafe fn img_lay(p: *mut u8, size: usize) -> [u64; 3] {
     let base = p as usize;
-    for (i, v) in [(IMG_NEXT, 0), (IMG_SIZE, size), (IMG_FILL, base + img_data_off(size)), (IMG_FIRST, base)] {
+    for (i, v) in [
+        (IMG_NEXT, 0),
+        (IMG_SIZE, size),
+        (IMG_FILL, base + img_data_off(size)),
+        (IMG_FIRST, base),
+    ] {
         *img_hdr(base, i) = v as u64;
     }
     img_unmark_all(base);
-    [(base + img_data_off(size)) as u64, (base + size) as u64, size as u64]
+    [
+        (base + img_data_off(size)) as u64,
+        (base + size) as u64,
+        size as u64,
+    ]
 }
 
 /// D3312: `need` bytes (a multiple of 8) bumped from image cursor `w` (`[cur, end, chunk]`, resolved: `T1::img_resolve`),
@@ -2769,11 +3199,10 @@ pub unsafe fn img_lay(p: *mut u8, size: usize) -> [u64; 3] {
 /// 8-aligned bytes that live as long as the cursor's images.
 #[inline]
 pub unsafe fn img_bump(w: *mut u64, need: usize, pin: impl FnOnce(u64) -> *mut u8) -> *mut u8 {
-    debug_assert!(need.is_multiple_of( 8), "an image's bytes are whole words");
-    if ( *w == 0 || *w.add(1) - *w < need as u64)
-        && !img_next_chunk(w, need, pin) {
-            return core::ptr::null_mut();
-        }
+    debug_assert!(need.is_multiple_of(8), "an image's bytes are whole words");
+    if (*w == 0 || *w.add(1) - *w < need as u64) && !img_next_chunk(w, need, pin) {
+        return core::ptr::null_mut();
+    }
     let d = *w as usize;
     *w += need as u64;
     img_mark((*w.add(1) - *w.add(2)) as usize, d);
@@ -2799,7 +3228,14 @@ unsafe fn img_next_chunk(w: *mut u64, need: usize, pin: impl FnOnce(u64) -> *mut
         }
     }
     if next == 0 {
-        let size = img_chunk_bytes(if last == 0 { 0 } else { *img_hdr(last, IMG_SIZE) as usize }, need);
+        let size = img_chunk_bytes(
+            if last == 0 {
+                0
+            } else {
+                *img_hdr(last, IMG_SIZE) as usize
+            },
+            need,
+        );
         let p = pin(size as u64);
         if p.is_null() {
             return false;
@@ -2812,14 +3248,25 @@ unsafe fn img_next_chunk(w: *mut u64, need: usize, pin: impl FnOnce(u64) -> *mut
         }
     }
     let size = *img_hdr(next, IMG_SIZE) as usize;
-    debug_assert!(size - img_data_off(size) >= need, "a chunk holds the image it was taken for");
-    (*w, *w.add(1), *w.add(2)) = ((next + img_data_off(size)) as u64, (next + size) as u64, size as u64);
+    debug_assert!(
+        size - img_data_off(size) >= need,
+        "a chunk holds the image it was taken for"
+    );
+    (*w, *w.add(1), *w.add(2)) = (
+        (next + img_data_off(size)) as u64,
+        (next + size) as u64,
+        size as u64,
+    );
     true
 }
 /// The light code front (kernels dict/strategies front_light.rs): its first arrays' capacity in codes. CHOSEN, not measured
 /// (the text front's rung value, carried unchanged). Its largest part dictionary and its walk choice live in the cost home.
 pub const CODE_FRONT_MIN_CODES: u64 = 1024;
-pub use cost_profile::front::{code_key_pays, light_claim_takes, light_dense, light_keeps, light_takes, light_ways, light_ways_max_codes, LIGHT_DENSE, LIGHT_KEYS_MAX_GROUPS, LIGHT_MAX_CODES, LIGHT_WAYS, LIGHT_WAYS_MAX_CODES};
+pub use cost_profile::front::{
+    code_key_pays, light_claim_takes, light_dense, light_keeps, light_takes, light_ways,
+    light_ways_max_codes, LIGHT_DENSE, LIGHT_KEYS_MAX_GROUPS, LIGHT_MAX_CODES, LIGHT_WAYS,
+    LIGHT_WAYS_MAX_CODES,
+};
 /// A block's bytes: at most `BLOCK_MAX` plus the stagger (a block's bytes left ride its partition's head word).
 /// MEASURED-HELDOUT (D07, held-out group corpus, 87 statements, W8): 8 KiB 131.4 s, 16 KiB 130.7 s, 32 KiB 130.2 s, flat
 /// and best at 32 KiB; larger blocks do not fit `BLOCK_MAX` (sweep file shapecheck/sweep-D07.tsv).
@@ -2962,7 +3409,12 @@ pub fn machine_slice() -> u64 {
 /// D03: the machine the abi tables size by: an L2 share of four slices (`machine_slice` is a quarter of the driver's
 /// `partition_bytes`, its L2 / SMT), the reference's otherwise.
 pub fn detected_machine() -> cost_profile::machine::Machine {
-    cost_profile::machine::Machine::detected(None, 4 * machine_slice(), 1, cost_profile::machine::Machine::REFERENCE.prefetch)
+    cost_profile::machine::Machine::detected(
+        None,
+        4 * machine_slice(),
+        1,
+        cost_profile::machine::Machine::REFERENCE.prefetch,
+    )
 }
 
 /// Sets `machine_slice`; 0 restores the reference's.
@@ -3033,14 +3485,21 @@ pub struct T1 {
 
 const _: () = assert!(size_of::<T1>() == 160);
 // OF-TG2-1: the planner reads the phase-1 layout through cost_profile (`t1_fold_records`): its sizes are these.
-const _: () = assert!(T1_HDR as u64 == cost_profile::hash::T1_HDR_BYTES && T1_DEFAULT_BYTES as u64 == cost_profile::hash::T1_TABLE_BYTES);
+const _: () = assert!(
+    T1_HDR as u64 == cost_profile::hash::T1_HDR_BYTES
+        && T1_DEFAULT_BYTES as u64 == cost_profile::hash::T1_TABLE_BYTES
+);
 pub const OPENED_OVER: u32 = u32::MAX;
 /// D1392 (a): the third image word of a state that names its table's words by reference (`T1::img_resolve`).
 pub const IMG_BY_REF: u64 = u64::MAX;
 
 /// The opened-slot list's capacity: an eighth of the slots (a fuller table's walk is within 8× its `len`).
 pub const fn open_cap(cap: usize) -> usize {
-    if cap / 8 < 2 { 2 } else { cap / 8 }
+    if cap / 8 < 2 {
+        2
+    } else {
+        cap / 8
+    }
 }
 /// The append switch's window of inserts and the from-row-0 factor over the slots.
 /// MEASURED-HELDOUT (D09, held-out group corpus, 87 statements, W8): 32K..256K inserts within 0.8% (127.7..128.7 s);
@@ -3052,12 +3511,19 @@ pub const ADAPT_FACTOR: u64 = 8;
 /// table (`T1_DEFAULT_BYTES` of 32-byte slots, 16,384) takes `ADAPT_WIN`; the held-out sweep above is flat from 2 to 16
 /// turns and 8 % slower at one.
 pub const ADAPT_TURNS: u64 = 4;
-const _: () = assert!(ADAPT_TURNS * (T1_DEFAULT_BYTES as u64 / 32) == ADAPT_WIN, "the reference table keeps ADAPT_WIN");
+const _: () = assert!(
+    ADAPT_TURNS * (T1_DEFAULT_BYTES as u64 / 32) == ADAPT_WIN,
+    "the reference table keeps ADAPT_WIN"
+);
 
 /// D09: the append switch's window for a table of `cap` slots (`ADAPT_TURNS` turns, at least one `T1_MIN_SLOTS` table's).
 #[inline(always)]
 pub const fn adapt_win(cap: u64) -> u64 {
-    let c = if cap < T1_MIN_SLOTS { T1_MIN_SLOTS } else { cap };
+    let c = if cap < T1_MIN_SLOTS {
+        T1_MIN_SLOTS
+    } else {
+        cap
+    };
     ADAPT_TURNS * c
 }
 
@@ -3090,7 +3556,16 @@ impl Appender {
         let hp = self.heads.add(part as usize);
         let mut h = *hp;
         if h < self.thresh {
-            (h, self.next_block) = take_block(self.first, self.next, self.next_block, self.nblocks, self.block_bytes, self.pool, part, h)?;
+            (h, self.next_block) = take_block(
+                self.first,
+                self.next,
+                self.next_block,
+                self.nblocks,
+                self.block_bytes,
+                self.pool,
+                part,
+                h,
+            )?;
         }
         *hp = h.wrapping_add(self.delta);
         self.appended += 1;
@@ -3119,7 +3594,16 @@ impl Appender {
         if h >= self.thresh {
             return true;
         }
-        match take_block(self.first, self.next, self.next_block, self.nblocks, self.block_bytes, self.pool, part, h) {
+        match take_block(
+            self.first,
+            self.next,
+            self.next_block,
+            self.nblocks,
+            self.block_bytes,
+            self.pool,
+            part,
+            h,
+        ) {
             Some((nh, nb)) => {
                 *hp = nh;
                 self.next_block = nb;
@@ -3158,7 +3642,10 @@ pub const HEAD_POS: u64 = (1 << HEAD_LEFT) - 1;
 /// D2473: the most bytes one block may hold: the bytes left sit above `HEAD_LEFT` and the head word must stay positive as an
 /// `i64` (a reader takes `head as i64 <= 0` for no block), so 15 bits; a 64 KiB block packed a negative head.
 pub const BLOCK_MAX: usize = (1 << (63 - HEAD_LEFT)) - 1;
-const _: () = assert!(BLOCK_BYTES as usize - BLOCK_STAGGER <= BLOCK_MAX, "a full block's bytes left fit the head word");
+const _: () = assert!(
+    BLOCK_BYTES as usize - BLOCK_STAGGER <= BLOCK_MAX,
+    "a full block's bytes left fit the head word"
+);
 
 /// A record copied by its width in whole words (a runtime-length copy is a `memcpy` call per record). # Safety — `n` bytes each, disjoint.
 #[inline(always)]
@@ -3166,7 +3653,10 @@ const _: () = assert!(BLOCK_BYTES as usize - BLOCK_STAGGER <= BLOCK_MAX, "a full
 pub unsafe fn copy_record(src: *const u8, dst: *mut u8, n: usize) {
     macro_rules! words {
         ($k:literal) => {
-            core::ptr::write_unaligned(dst as *mut [u64; $k], core::ptr::read_unaligned(src as *const [u64; $k]))
+            core::ptr::write_unaligned(
+                dst as *mut [u64; $k],
+                core::ptr::read_unaligned(src as *const [u64; $k]),
+            )
         };
     }
     match n {
@@ -3186,7 +3676,16 @@ pub unsafe fn copy_record(src: *const u8, dst: *mut u8, n: usize) {
 /// field address never escapes stays in the loop's registers), `None` when the pool is exhausted.
 #[cold]
 #[inline(never)]
-unsafe fn take_block(first: *mut u32, next: *mut u32, next_block: u32, nblocks: u32, block_bytes: u32, pool: *mut u8, part: u32, h: u64) -> Option<(u64, u32)> {
+unsafe fn take_block(
+    first: *mut u32,
+    next: *mut u32,
+    next_block: u32,
+    nblocks: u32,
+    block_bytes: u32,
+    pool: *mut u8,
+    part: u32,
+    h: u64,
+) -> Option<(u64, u32)> {
     let nb = next_block;
     if nb >= nblocks {
         return None;
@@ -3199,7 +3698,10 @@ unsafe fn take_block(first: *mut u32, next: *mut u32, next_block: u32, nblocks: 
         let b = ((h & HEAD_POS) as usize - 1 - pool as usize) / block_bytes as usize;
         *next.add(b) = nb;
     }
-    Some(((block_bytes as u64) << HEAD_LEFT | pool.add(nb as usize * block_bytes as usize) as u64, nb + 1))
+    Some((
+        (block_bytes as u64) << HEAD_LEFT | pool.add(nb as usize * block_bytes as usize) as u64,
+        nb + 1,
+    ))
 }
 
 /// One block of a partition buffer: its first record and how many it holds.
@@ -3213,7 +3715,13 @@ impl T1 {
     /// # Safety
     /// `p` points at `limit` writable bytes, 8-aligned, its header prefix zeroed and (with `limit ==
     /// SHARE`) armed, or a live table laid out here.
-    pub unsafe fn at<'a>(p: *mut u8, layout: &RecordLayout, pbits: u8, t1_bytes: u32, limit: u32) -> &'a mut T1 {
+    pub unsafe fn at<'a>(
+        p: *mut u8,
+        layout: &RecordLayout,
+        pbits: u8,
+        t1_bytes: u32,
+        limit: u32,
+    ) -> &'a mut T1 {
         T1::at_sized(p, layout, pbits, t1_bytes, t1_bytes, limit)
     }
 
@@ -3222,7 +3730,14 @@ impl T1 {
     /// only those are zeroed; `grow` doubles it in place, zeroing each new half as it comes.
     /// # Safety
     /// As `at`.
-    pub unsafe fn at_sized<'a>(p: *mut u8, layout: &RecordLayout, pbits: u8, max_bytes: u32, first_bytes: u32, limit: u32) -> &'a mut T1 {
+    pub unsafe fn at_sized<'a>(
+        p: *mut u8,
+        layout: &RecordLayout,
+        pbits: u8,
+        max_bytes: u32,
+        first_bytes: u32,
+        limit: u32,
+    ) -> &'a mut T1 {
         T1::at_reserved(p, layout, pbits, max_bytes, first_bytes, limit, 0)
     }
 
@@ -3232,8 +3747,25 @@ impl T1 {
     /// in place. `reserve` at or under `limit` (or too little past it for a block) lays the table as `at_sized` does.
     /// # Safety
     /// As `at`; `reserve` bytes at `p` are writable when it is past `limit`.
-    pub unsafe fn at_reserved<'a>(p: *mut u8, layout: &RecordLayout, pbits: u8, max_bytes: u32, first_bytes: u32, limit: u32, reserve: u64) -> &'a mut T1 {
-        T1::at_laid(p, layout, pbits, max_bytes, first_bytes, limit, reserve, false)
+    pub unsafe fn at_reserved<'a>(
+        p: *mut u8,
+        layout: &RecordLayout,
+        pbits: u8,
+        max_bytes: u32,
+        first_bytes: u32,
+        limit: u32,
+        reserve: u64,
+    ) -> &'a mut T1 {
+        T1::at_laid(
+            p,
+            layout,
+            pbits,
+            max_bytes,
+            first_bytes,
+            limit,
+            reserve,
+            false,
+        )
     }
 
     /// `at_reserved` in a region that started small (`laid`: the driver's `RESERVE_LAYOUT` answer): its `limit` is the
@@ -3243,18 +3775,31 @@ impl T1 {
     /// # Safety
     /// As `at_reserved`.
     #[allow(clippy::too_many_arguments)]
-    pub unsafe fn at_laid<'a>(p: *mut u8, layout: &RecordLayout, pbits: u8, max_bytes: u32, first_bytes: u32, limit: u32, reserve: u64, laid: bool) -> &'a mut T1 {
+    pub unsafe fn at_laid<'a>(
+        p: *mut u8,
+        layout: &RecordLayout,
+        pbits: u8,
+        max_bytes: u32,
+        first_bytes: u32,
+        limit: u32,
+        reserve: u64,
+        laid: bool,
+    ) -> &'a mut T1 {
         let t = aligned_mut::<T1>(p);
         let limit = if limit == SHARE { t.limit } else { limit };
         assert!(limit != 0, "phase-1 table region without a limit");
         if t.cap == 0 {
             let reserve = (reserve.min(u32::MAX as u64) as usize).max(limit as usize);
             let parts = 1usize << pbits;
-            assert!(pbits as u32 <= T1_MAX_PARTS.trailing_zeros(), "phase-1 partitions");
+            assert!(
+                pbits as u32 <= T1_MAX_PARTS.trailing_zeros(),
+                "phase-1 partitions"
+            );
             let rec = layout.size() as usize;
             let meta = T1_HDR + 12 * parts;
             let avail = (limit as usize).saturating_sub(meta);
-            let floor2 = |bytes: usize| 1usize << (usize::BITS - 1 - (bytes / rec).max(2).leading_zeros());
+            let floor2 =
+                |bytes: usize| 1usize << (usize::BITS - 1 - (bytes / rec).max(2).leading_zeros());
             let cap = floor2((max_bytes as usize).min(avail / 2));
             let first = floor2(first_bytes as usize).min(cap);
             // the slots' partition words, the opened-slot list, then the side words (`T1_SIDE_BYTES`: the copy-slot word, the
@@ -3268,7 +3813,13 @@ impl T1 {
             // (V4R-236) where the pool cannot give each chain BLOCK_FULL_CHAIN full blocks and the halved block keeps BLOCK_HALVED_MIN
             let full = BLOCK_BYTES as usize - BLOCK_STAGGER;
             let block_of = |pool: usize| {
-                let per = if pool < BLOCK_FULL_CHAIN * parts * full && pool / (8 * parts).max(1) >= BLOCK_HALVED_MIN { 8 } else { 4 };
+                let per = if pool < BLOCK_FULL_CHAIN * parts * full
+                    && pool / (8 * parts).max(1) >= BLOCK_HALVED_MIN
+                {
+                    8
+                } else {
+                    4
+                };
                 (full.min(pool / (per * parts).max(1)) / rec * rec).max(rec)
             };
             let mut block_bytes = block_of(pool_avail);
@@ -3284,10 +3835,14 @@ impl T1 {
             debug_assert!(block_bytes <= BLOCK_MAX, "D203: one record per block at least (a small share); fewer blocks than chains flush when spent");
             let mut nblocks = pool_avail / (block_bytes + 4);
             // the table's 8-alignment after the chain words may take the 4 bytes the last block's word was budgeted (an odd count over an odd share: a text min() group-by at W = 8)
-            if nblocks * (block_bytes + 4) + ((meta + 4 * nblocks).wrapping_neg() & 7) > pool_avail {
+            if nblocks * (block_bytes + 4) + ((meta + 4 * nblocks).wrapping_neg() & 7) > pool_avail
+            {
                 nblocks -= 1;
             }
-            debug_assert!(nblocks >= 1, "the table takes at most half of what the header leaves");
+            debug_assert!(
+                nblocks >= 1,
+                "the table takes at most half of what the header leaves"
+            );
             // option c': chain words for the reservation's blocks (`reserved_blocks`), the share's blocks behind them; the
             // share keeps what fits it after the longer chain-word array (none: laid as an unreserved table)
             let (mut nmax, mut flags) = (nblocks, 0);
@@ -3295,7 +3850,8 @@ impl T1 {
                 let fixed = cap * rec + side;
                 // the count the chain words' length gives back (`reserved_blocks`: the table's 8-alignment may add a word)
                 let words = |n: usize| (((meta + 4 * n + 7) & !7) - meta) / 4;
-                let fits = |n: usize| meta + 4 * words(n) + 8 + fixed + words(n) * block_bytes <= reserve;
+                let fits =
+                    |n: usize| meta + 4 * words(n) + 8 + fixed + words(n) * block_bytes <= reserve;
                 let mut n = (reserve - meta - fixed - 8) / (block_bytes + 4);
                 while n > nblocks && !fits(n) {
                     n -= 1;
@@ -3314,16 +3870,61 @@ impl T1 {
             if laid {
                 flags |= T1_LAID;
             }
-            let end = if flags & T1_RESERVED != 0 { reserve } else { limit as usize };
-            assert!(p as usize + end <= HEAD_POS as usize, "the pool's addresses fit the head word");
+            let end = if flags & T1_RESERVED != 0 {
+                reserve
+            } else {
+                limit as usize
+            };
+            assert!(
+                p as usize + end <= HEAD_POS as usize,
+                "the pool's addresses fit the head word"
+            );
             let table_off = (meta + 4 * nmax + 7) & !7;
             let hash_off = table_off + cap * rec;
             let pool_off = hash_off + side;
-            assert!(pool_off + nblocks * block_bytes <= limit as usize, "phase-1 layout");
-            assert!(pool_off + nmax * block_bytes <= end, "phase-1 reserved layout");
-            let max_bits = if first < cap { cap.trailing_zeros() as u8 } else { 0 };
-            *t = T1 { cap: first as u32, len: 0, limit, pbits, flags, max_bits, kind: TABLE_T1, layout: *layout, block_bytes: block_bytes as u32, nblocks: nblocks as u32, next_block: 0, table_off: table_off as u32, pool_off: pool_off as u32, hash_off: hash_off as u32, opened: 0, block_recs: (block_bytes / rec) as u32, buffered: 0, inserts: 0, evictions: 0, flushes: 0, win_at: 0, win_ev: 0, img: core::cell::UnsafeCell::new([0; 3]), cell: core::cell::UnsafeCell::new([]) };
-            debug_assert!(flags == 0 || t.reserved_blocks() as usize >= nmax, "the chain words cover the reservation");
+            assert!(
+                pool_off + nblocks * block_bytes <= limit as usize,
+                "phase-1 layout"
+            );
+            assert!(
+                pool_off + nmax * block_bytes <= end,
+                "phase-1 reserved layout"
+            );
+            let max_bits = if first < cap {
+                cap.trailing_zeros() as u8
+            } else {
+                0
+            };
+            *t = T1 {
+                cap: first as u32,
+                len: 0,
+                limit,
+                pbits,
+                flags,
+                max_bits,
+                kind: TABLE_T1,
+                layout: *layout,
+                block_bytes: block_bytes as u32,
+                nblocks: nblocks as u32,
+                next_block: 0,
+                table_off: table_off as u32,
+                pool_off: pool_off as u32,
+                hash_off: hash_off as u32,
+                opened: 0,
+                block_recs: (block_bytes / rec) as u32,
+                buffered: 0,
+                inserts: 0,
+                evictions: 0,
+                flushes: 0,
+                win_at: 0,
+                win_ev: 0,
+                img: core::cell::UnsafeCell::new([0; 3]),
+                cell: core::cell::UnsafeCell::new([]),
+            };
+            debug_assert!(
+                flags == 0 || t.reserved_blocks() as usize >= nmax,
+                "the chain words cover the reservation"
+            );
             // the region beyond the header may be dirty: the heads, the chain words and the table are written here; the pool is written before read
             core::ptr::write_bytes(p.add(T1_HDR), 0, 8 * parts);
             core::ptr::write_bytes(p.add(T1_HDR + 8 * parts), 0xff, 4 * parts + 4 * nblocks);
@@ -3332,7 +3933,10 @@ impl T1 {
             // start empty
             core::ptr::write_bytes(p.add(pool_off - T1_SIDE_BYTES), 0, T1_SIDE_BYTES);
         }
-        assert!(t.kind == TABLE_T1 && t.layout.same(layout) && t.pbits == pbits, "phase-1 table shape");
+        assert!(
+            t.kind == TABLE_T1 && t.layout.same(layout) && t.pbits == pbits,
+            "phase-1 table shape"
+        );
         t
     }
 
@@ -3342,7 +3946,11 @@ impl T1 {
     /// `this` is a live table, laid out by `T1::at` (kind `TABLE_T1`: no other table kind carries the words).
     #[inline(always)] // a call per image copy otherwise: fast-profile has no LTO across crates
     pub unsafe fn img_words(this: *mut T1) -> *mut u64 {
-        debug_assert_eq!(core::ptr::addr_of!((*this).kind).read(), TABLE_T1, "D1392: image words on a table that is not a T1");
+        debug_assert_eq!(
+            core::ptr::addr_of!((*this).kind).read(),
+            TABLE_T1,
+            "D1392: image words on a table that is not a T1"
+        );
         (*core::ptr::addr_of_mut!((*this).img)).get() as *mut u64
     }
 
@@ -3354,7 +3962,11 @@ impl T1 {
     /// `w` is null or three live words.
     #[inline(always)] // a call per image copy otherwise: fast-profile has no LTO across crates
     pub unsafe fn img_resolve(w: *mut u64) -> *mut u64 {
-        if !w.is_null() && w.add(2).read() == IMG_BY_REF { w.read() as usize as *mut u64 } else { w }
+        if !w.is_null() && w.add(2).read() == IMG_BY_REF {
+            w.read() as usize as *mut u64
+        } else {
+            w
+        }
     }
 
     /// D3312: the table a claim's state words `w` name by reference (`[T1::img_words, the table, IMG_BY_REF]`, kernels
@@ -3364,7 +3976,11 @@ impl T1 {
     /// `w` is null or three live words.
     #[inline(always)]
     pub unsafe fn img_table(w: *mut u64) -> *mut T1 {
-        if !w.is_null() && w.add(2).read() == IMG_BY_REF { w.add(1).read() as usize as *mut T1 } else { core::ptr::null_mut() }
+        if !w.is_null() && w.add(2).read() == IMG_BY_REF {
+            w.add(1).read() as usize as *mut T1
+        } else {
+            core::ptr::null_mut()
+        }
     }
 
     /// D3312: the dedupe word (`T1_DEDUPE_WORD`), laid zero with the table.
@@ -3444,7 +4060,8 @@ impl T1 {
         let mut h = crate::hash::PHI64 ^ ((head as u64) << 32 | bytes.len() as u64);
         let mut c = bytes.chunks_exact(8);
         for w in &mut c {
-            h = (h ^ u64::from_le_bytes([w[0], w[1], w[2], w[3], w[4], w[5], w[6], w[7]])).wrapping_mul(crate::hash::PHI64);
+            h = (h ^ u64::from_le_bytes([w[0], w[1], w[2], w[3], w[4], w[5], w[6], w[7]]))
+                .wrapping_mul(crate::hash::PHI64);
             h ^= h >> 29;
         }
         let mut t = [0u8; 8];
@@ -3458,7 +4075,12 @@ impl T1 {
     /// # Safety
     /// `cache` is an armed cache (`img_cache`); `same` reads at most `len` bytes of the address it is given.
     #[inline]
-    pub unsafe fn img_find(cache: *mut u64, h: u64, len: usize, same: impl Fn(*const u8) -> bool) -> Result<*mut u8, usize> {
+    pub unsafe fn img_find(
+        cache: *mut u64,
+        h: u64,
+        len: usize,
+        same: impl Fn(*const u8) -> bool,
+    ) -> Result<*mut u8, usize> {
         let set = (h as usize & (T1_DEDUPE_ENTRIES / 2 - 1)) * 2;
         for e in [set, set + 1] {
             let (a, n) = (*cache.add(2 * e), *cache.add(2 * e + 1));
@@ -3466,7 +4088,13 @@ impl T1 {
                 return Ok(a as usize as *mut u8);
             }
         }
-        Err(if *cache.add(2 * set) == 0 { set } else if *cache.add(2 * set + 2) == 0 { set + 1 } else { set + (h >> 63) as usize })
+        Err(if *cache.add(2 * set) == 0 {
+            set
+        } else if *cache.add(2 * set + 2) == 0 {
+            set + 1
+        } else {
+            set + (h >> 63) as usize
+        })
     }
 
     /// D3312: entry `e` (`img_find`'s miss) names the image of `len` bytes copied at `at`.
@@ -3486,7 +4114,8 @@ impl T1 {
     /// The phase-1 table a region holds, when the region is a table header or longer and its header names a T1.
     pub fn of(region: &[u8]) -> Option<&T1> {
         // SAFETY: `region` holds a table header; a T1 header names its shape, laid by `at`.
-        (region.len() >= HASHAGG_HDR && unsafe { table_kind(region.as_ptr()) } == TABLE_T1).then(|| unsafe { T1::view(region.as_ptr()) })
+        (region.len() >= HASHAGG_HDR && unsafe { table_kind(region.as_ptr()) } == TABLE_T1)
+            .then(|| unsafe { T1::view(region.as_ptr()) })
     }
 
     pub const fn parts(&self) -> usize {
@@ -3511,7 +4140,10 @@ impl T1 {
 
     #[inline(always)]
     pub fn slot_ptr(&self, i: usize) -> *mut u8 {
-        unsafe { self.base().add(self.table_off as usize + i * self.layout.size() as usize) }
+        unsafe {
+            self.base()
+                .add(self.table_off as usize + i * self.layout.size() as usize)
+        }
     }
 
     /// Per slot: its occupant's partition (`u32[max_cap]`), then the opened-slot list.
@@ -3539,7 +4171,11 @@ impl T1 {
     /// table is not `T1_RESERVED` or its reservation is spent.
     pub const fn pool_growth(&self) -> u64 {
         let room = self.reserved_blocks().saturating_sub(self.nblocks);
-        let more = if self.nblocks < room { self.nblocks } else { room };
+        let more = if self.nblocks < room {
+            self.nblocks
+        } else {
+            room
+        };
         more as u64 * self.block_bytes as u64
     }
 
@@ -3551,7 +4187,10 @@ impl T1 {
     pub unsafe fn grow_pool(this: *mut T1, bytes: u64) -> bool {
         let bb = (*this).block_bytes as u64;
         let more = bytes / bb;
-        if (*this).flags & T1_RESERVED == 0 || more == 0 || (*this).nblocks as u64 + more > (*this).reserved_blocks() as u64 {
+        if (*this).flags & T1_RESERVED == 0
+            || more == 0
+            || (*this).nblocks as u64 + more > (*this).reserved_blocks() as u64
+        {
             return false;
         }
         (*this).nblocks += more as u32;
@@ -3567,7 +4206,14 @@ impl T1 {
     /// `this` is a live table, no appender open.
     pub unsafe fn shrink_pool(this: *mut T1, bytes: u64) -> bool {
         let bb = (*this).block_bytes as u64;
-        if (*this).flags & T1_RESERVED == 0 || bb == 0 || bytes == 0 || ! bytes.is_multiple_of( bb) || (*this).buffered != 0 || (*this).next_block != 0 || (*this).len != 0 {
+        if (*this).flags & T1_RESERVED == 0
+            || bb == 0
+            || bytes == 0
+            || !bytes.is_multiple_of(bb)
+            || (*this).buffered != 0
+            || (*this).next_block != 0
+            || (*this).len != 0
+        {
             return false;
         }
         let less = bytes / bb;
@@ -3582,7 +4228,11 @@ impl T1 {
     /// The slots the layout reserves: `cap` grows in place up to them (`grow`).
     #[inline(always)]
     pub const fn max_cap(&self) -> usize {
-        if self.max_bits == 0 { self.cap as usize } else { 1 << self.max_bits }
+        if self.max_bits == 0 {
+            self.cap as usize
+        } else {
+            1 << self.max_bits
+        }
     }
 
     /// Room to double, and past the sizing's fill (a group per `ADAPT_FACTOR` slots, `t1_bytes`) by the keys the table
@@ -3601,7 +4251,11 @@ impl T1 {
     #[inline(always)]
     pub fn route(&self, keys: &[u64], full: KeyHash) -> KeyHash {
         let pk = self.layout.partition_keys();
-        if pk == keys.len() { full } else { KeyHash::of(&keys[..pk]) }
+        if pk == keys.len() {
+            full
+        } else {
+            KeyHash::of(&keys[..pk])
+        }
     }
 
     /// The partition of `keys` (full hash `full`).
@@ -3626,7 +4280,10 @@ impl T1 {
 
     #[inline(always)]
     fn block_ptr(&self, b: u32) -> *mut u8 {
-        unsafe { self.base().add(self.pool_off as usize + b as usize * self.block_bytes as usize) }
+        unsafe {
+            self.base()
+                .add(self.pool_off as usize + b as usize * self.block_bytes as usize)
+        }
     }
 
     #[inline(always)]
@@ -3637,7 +4294,9 @@ impl T1 {
 
     /// The table's live records (not the buffers').
     pub fn records(&self) -> impl Iterator<Item = Rec<'_>> + '_ {
-        (0..self.cap as usize).map(|i| self.record(i)).filter(|r| r.used())
+        (0..self.cap as usize)
+            .map(|i| self.record(i))
+            .filter(|r| r.used())
     }
 
     /// The home slot of `h`: a producer table holds every partition, so its homes consumed no route bit (`Depth::TOP`).
@@ -3715,7 +4374,9 @@ impl T1 {
         }
         // an eviction's partition takes at most a block per `block_recs` of them, plus its first
         let evict = T1::rehome(this, old, Some(bits));
-        if evict.div_ceil((*this).block_recs as usize) + evict.min((*this).parts()) > ((*this).nblocks - (*this).next_block) as usize {
+        if evict.div_ceil((*this).block_recs as usize) + evict.min((*this).parts())
+            > ((*this).nblocks - (*this).next_block) as usize
+        {
             return false;
         }
         core::ptr::write_bytes((*this).slot_ptr(old), 0, old * rec);
@@ -3735,7 +4396,12 @@ impl T1 {
     /// pair, else moves to the pair's first free slot, else is evicted; the evictions. `dry`: only the occupancy bitmap
     /// changes (the table is untouched, `cap` still the old one).
     unsafe fn rehome(this: *mut T1, old: usize, dry: Option<*mut u64>) -> usize {
-        let (mask, nk, rec, bits) = (2 * old - 1, (*this).layout.nkeys(), (*this).layout.size() as usize, (2 * old).trailing_zeros());
+        let (mask, nk, rec, bits) = (
+            2 * old - 1,
+            (*this).layout.nkeys(),
+            (*this).layout.size() as usize,
+            (2 * old).trailing_zeros(),
+        );
         let sentinel = (*this).layout.sentinel_off() as usize;
         let occ = |i: usize| match dry {
             Some(b) => *b.add(i / 64) >> (i % 64) & 1 != 0,
@@ -3743,7 +4409,11 @@ impl T1 {
         };
         let mark = |i: usize, on: bool| {
             if let Some(b) = dry {
-                *b.add(i / 64) = if on { *b.add(i / 64) | 1 << (i % 64) } else { *b.add(i / 64) & !(1 << (i % 64)) };
+                *b.add(i / 64) = if on {
+                    *b.add(i / 64) | 1 << (i % 64)
+                } else {
+                    *b.add(i / 64) & !(1 << (i % 64))
+                };
             }
         };
         let mut evicted = 0;
@@ -3828,7 +4498,20 @@ impl T1 {
     #[allow(clippy::missing_safety_doc)]
     pub unsafe fn appender(this: *mut T1) -> Appender {
         let rec = (*this).layout.size() as u64;
-        Appender { t: this, thresh: rec << HEAD_LEFT, delta: rec.wrapping_sub(rec << HEAD_LEFT), rec: rec as u32, block_bytes: (*this).block_bytes, nblocks: (*this).nblocks, next_block: (*this).next_block, first: (*this).first(), heads: (*this).heads(), next: (*this).next(), pool: (*this).base().add((*this).pool_off as usize), appended: 0 }
+        Appender {
+            t: this,
+            thresh: rec << HEAD_LEFT,
+            delta: rec.wrapping_sub(rec << HEAD_LEFT),
+            rec: rec as u32,
+            block_bytes: (*this).block_bytes,
+            nblocks: (*this).nblocks,
+            next_block: (*this).next_block,
+            first: (*this).first(),
+            heads: (*this).heads(),
+            next: (*this).next(),
+            pool: (*this).base().add((*this).pool_off as usize),
+            appended: 0,
+        }
     }
 
     /// `src`'s record bytes appended to buffer `part`; false when the pool is exhausted.
@@ -3836,7 +4519,9 @@ impl T1 {
     /// `this` is a live table; `src` points at `layout.size()` bytes.
     #[inline(always)]
     pub unsafe fn append_bytes(this: *mut T1, part: u32, src: *const u8) -> bool {
-        let Some(dst) = T1::reserve(this, part) else { return false };
+        let Some(dst) = T1::reserve(this, part) else {
+            return false;
+        };
         copy_record(src, dst, (*this).layout.size() as usize);
         true
     }
@@ -3865,7 +4550,16 @@ impl T1 {
         let hp = (*this).heads().add(part as usize);
         let mut h = *hp;
         if h < rec << HEAD_LEFT {
-            (h, (*this).next_block) = take_block((*this).first(), (*this).next(), (*this).next_block, (*this).nblocks, (*this).block_bytes, (*this).base().add((*this).pool_off as usize), part, h)?;
+            (h, (*this).next_block) = take_block(
+                (*this).first(),
+                (*this).next(),
+                (*this).next_block,
+                (*this).nblocks,
+                (*this).block_bytes,
+                (*this).base().add((*this).pool_off as usize),
+                part,
+                h,
+            )?;
         }
         *hp = h.wrapping_add(rec).wrapping_sub(rec << HEAD_LEFT);
         (*this).buffered += 1;
@@ -3881,7 +4575,9 @@ impl T1 {
             return true;
         }
         let (cap, rec) = ((*this).cap as usize, (*this).layout.size() as usize);
-        let mut listed = ((*this).opened != OPENED_OVER).then(|| core::slice::from_raw_parts_mut((*this).opened_list(), (*this).opened as usize));
+        let mut listed = ((*this).opened != OPENED_OVER).then(|| {
+            core::slice::from_raw_parts_mut((*this).opened_list(), (*this).opened as usize)
+        });
         let n = match listed.as_mut() {
             Some(l) => {
                 l.sort_unstable();
@@ -3941,7 +4637,10 @@ impl T1 {
 
     /// D2587: the most records one partition buffer holds (`compact`'s index is sized from it).
     pub fn longest_chain(&self) -> usize {
-        (0..self.parts() as u32).map(|p| self.chain(p).map(|b| b.recs).sum::<usize>()).max().unwrap_or(0)
+        (0..self.parts() as u32)
+            .map(|p| self.chain(p).map(|b| b.recs).sum::<usize>())
+            .max()
+            .unwrap_or(0)
     }
 
     /// D2587 (CAND-M25): the partition buffers folded by key in place, as PostgreSQL's HashAggregate keeps one state per
@@ -3952,12 +4651,38 @@ impl T1 {
     /// `index`: scratch, a power of two at least twice `longest_chain`; `map`: scratch, `nblocks` long. The records held.
     /// # Safety
     /// `this` is a live table with no appender open; `fold` writes `into` only.
-    pub unsafe fn compact(this: *mut T1, index: &mut [u32], map: &mut [u32], fold: &mut dyn FnMut(*mut u8, *const u8) -> bool) -> u64 {
-        let (rec, nk, br, parts) = ((*this).layout.size() as usize, (*this).layout.nkeys(), (*this).block_recs as usize, (*this).parts());
-        let (first, next, heads, bb) = ((*this).first(), (*this).next(), (*this).heads(), (*this).block_bytes as usize);
-        let (mask, ibits, depth) = (index.len() - 1, index.len().trailing_zeros(), Depth::part((*this).pbits as u32).unwrap_or(Depth::TOP));
-        debug_assert!(index.len().is_power_of_two() && index.len() >= 2 * (*this).longest_chain() && map.len() >= (*this).nblocks as usize);
-        debug_assert!(((*this).nblocks as usize).saturating_mul(br) < u32::MAX as usize, "a record's place fits an index word");
+    pub unsafe fn compact(
+        this: *mut T1,
+        index: &mut [u32],
+        map: &mut [u32],
+        fold: &mut dyn FnMut(*mut u8, *const u8) -> bool,
+    ) -> u64 {
+        let (rec, nk, br, parts) = (
+            (*this).layout.size() as usize,
+            (*this).layout.nkeys(),
+            (*this).block_recs as usize,
+            (*this).parts(),
+        );
+        let (first, next, heads, bb) = (
+            (*this).first(),
+            (*this).next(),
+            (*this).heads(),
+            (*this).block_bytes as usize,
+        );
+        let (mask, ibits, depth) = (
+            index.len() - 1,
+            index.len().trailing_zeros(),
+            Depth::part((*this).pbits as u32).unwrap_or(Depth::TOP),
+        );
+        debug_assert!(
+            index.len().is_power_of_two()
+                && index.len() >= 2 * (*this).longest_chain()
+                && map.len() >= (*this).nblocks as usize
+        );
+        debug_assert!(
+            ((*this).nblocks as usize).saturating_mul(br) < u32::MAX as usize,
+            "a record's place fits an index word"
+        );
         let pool = (*this).base().add((*this).pool_off as usize) as usize;
         let at = |w: usize| (*this).block_ptr((w / br) as u32).add(w % br * rec);
         map.fill(NO_BLOCK);
@@ -3979,7 +4704,11 @@ impl T1 {
             let (mut rb, mut wb, mut wi, mut read, start) = (f, f, 0usize, 0usize, held);
             while rb != NO_BLOCK {
                 let nb = *next.add(rb as usize);
-                let recs = if nb == NO_BLOCK { ((*heads.add(part) & HEAD_POS) as usize - (*this).block_ptr(rb) as usize) / rec } else { br };
+                let recs = if nb == NO_BLOCK {
+                    ((*heads.add(part) & HEAD_POS) as usize - (*this).block_ptr(rb) as usize) / rec
+                } else {
+                    br
+                };
                 read += recs;
                 for ri in 0..recs {
                     let p = (*this).block_ptr(rb).add(ri * rec);
@@ -4028,7 +4757,8 @@ impl T1 {
                 drop = *next.add(drop as usize);
             }
             *next.add(wb as usize) = NO_BLOCK;
-            *heads.add(part) = ((bb - wi * rec) as u64) << HEAD_LEFT | ((*this).block_ptr(wb) as usize + wi * rec) as u64;
+            *heads.add(part) = ((bb - wi * rec) as u64) << HEAD_LEFT
+                | ((*this).block_ptr(wb) as usize + wi * rec) as u64;
             // a key's partition is its hash's top bits, so the chains sample the keys alike: once the chains folded so far
             // read `COMPACT_SAMPLE` records, a fold keeping three quarters of them frees too little to stop a spill, and the
             // walk over the other chains is not paid
@@ -4048,7 +4778,12 @@ impl T1 {
     /// slot table may still hold records (a drain the full pool stopped, `scatter_t1_destaging`): they live in the
     /// slots, not in the blocks, and the drain goes on into the freed blocks.
     pub unsafe fn destage(this: *mut T1, out: &[u64], map: &mut [u32]) -> u64 {
-        let (parts, first, heads, bb) = ((*this).parts(), (*this).first(), (*this).heads(), (*this).block_bytes as usize);
+        let (parts, first, heads, bb) = (
+            (*this).parts(),
+            (*this).first(),
+            (*this).heads(),
+            (*this).block_bytes as usize,
+        );
         debug_assert!(out.len() * 64 >= parts && map.len() >= (*this).nblocks as usize);
         let pool = (*this).base().add((*this).pool_off as usize) as usize;
         map.fill(NO_BLOCK);
@@ -4078,12 +4813,22 @@ impl T1 {
     /// # Safety
     /// `this` is a live table whose chains and heads name only blocks `map` keeps.
     unsafe fn fill_blocks(this: *mut T1, map: &mut [u32]) -> u32 {
-        let (parts, first, next, heads, bb) = ((*this).parts(), (*this).first(), (*this).next(), (*this).heads(), (*this).block_bytes as usize);
+        let (parts, first, next, heads, bb) = (
+            (*this).parts(),
+            (*this).first(),
+            (*this).next(),
+            (*this).heads(),
+            (*this).block_bytes as usize,
+        );
         let pool = (*this).base().add((*this).pool_off as usize) as usize;
         let n = (*this).next_block as usize;
         let kept = map[..n].iter().filter(|&&m| m != NO_BLOCK).count();
         // the stayers keep their index; the freed blocks below the kept count stay NO_BLOCK, the movers' places in order
-        for m in map[..kept].iter_mut().enumerate().filter(|(_, m)| **m != NO_BLOCK) {
+        for m in map[..kept]
+            .iter_mut()
+            .enumerate()
+            .filter(|(_, m)| **m != NO_BLOCK)
+        {
             *m.1 = m.0 as u32;
         }
         let mut hole = 0usize;
@@ -4094,9 +4839,16 @@ impl T1 {
             while map[hole] != NO_BLOCK {
                 hole += 1;
             }
-            debug_assert!(hole < kept, "a block past the kept count has a freed block below it");
+            debug_assert!(
+                hole < kept,
+                "a block past the kept count has a freed block below it"
+            );
             map[b] = hole as u32;
-            core::ptr::copy_nonoverlapping((*this).block_ptr(b as u32), (*this).block_ptr(hole as u32), bb);
+            core::ptr::copy_nonoverlapping(
+                (*this).block_ptr(b as u32),
+                (*this).block_ptr(hole as u32),
+                bb,
+            );
             hole += 1;
         }
         // each kept block's link at its place: a stayer's read and written in place, a mover's read at its old index (never
@@ -4107,7 +4859,11 @@ impl T1 {
                 continue;
             }
             let link = *next.add(b);
-            *next.add(nb as usize) = if link == NO_BLOCK { NO_BLOCK } else { map[link as usize] };
+            *next.add(nb as usize) = if link == NO_BLOCK {
+                NO_BLOCK
+            } else {
+                map[link as usize]
+            };
         }
         for part in 0..parts {
             let f = *first.add(part);
@@ -4138,10 +4894,29 @@ impl T1 {
     /// GP-1b: `prune_held_above` with each key cell XOR `flip` compared to `bound` (a descending walk's NOT of the key).
     /// # Safety
     /// As `prune_held_above`.
-    pub unsafe fn prune_held_above_by(this: *mut T1, k: usize, bound: i64, map: &mut [u32], flip: i64) -> u64 {
-        debug_assert_eq!((*this).len, 0, "the prune reads the buffers of a drained table");
-        let (rec, br, parts) = ((*this).layout.size() as usize, (*this).block_recs as usize, (*this).parts());
-        let (first, next, heads, bb) = ((*this).first(), (*this).next(), (*this).heads(), (*this).block_bytes as usize);
+    pub unsafe fn prune_held_above_by(
+        this: *mut T1,
+        k: usize,
+        bound: i64,
+        map: &mut [u32],
+        flip: i64,
+    ) -> u64 {
+        debug_assert_eq!(
+            (*this).len,
+            0,
+            "the prune reads the buffers of a drained table"
+        );
+        let (rec, br, parts) = (
+            (*this).layout.size() as usize,
+            (*this).block_recs as usize,
+            (*this).parts(),
+        );
+        let (first, next, heads, bb) = (
+            (*this).first(),
+            (*this).next(),
+            (*this).heads(),
+            (*this).block_bytes as usize,
+        );
         debug_assert!(map.len() >= (*this).nblocks as usize);
         map.fill(NO_BLOCK);
         let mut held = 0u64;
@@ -4153,7 +4928,11 @@ impl T1 {
             let (mut rb, mut wb, mut wi) = (f, f, 0usize);
             while rb != NO_BLOCK {
                 let nb = *next.add(rb as usize);
-                let recs = if nb == NO_BLOCK { ((*heads.add(part) & HEAD_POS) as usize - (*this).block_ptr(rb) as usize) / rec } else { br };
+                let recs = if nb == NO_BLOCK {
+                    ((*heads.add(part) & HEAD_POS) as usize - (*this).block_ptr(rb) as usize) / rec
+                } else {
+                    br
+                };
                 for ri in 0..recs {
                     let p = (*this).block_ptr(rb).add(ri * rec);
                     if Rec::at(p, &(*this).layout).key(k) as i64 ^ flip > bound {
@@ -4187,7 +4966,8 @@ impl T1 {
                 drop = *next.add(drop as usize);
             }
             *next.add(wb as usize) = NO_BLOCK;
-            *heads.add(part) = ((bb - wi * rec) as u64) << HEAD_LEFT | ((*this).block_ptr(wb) as usize + wi * rec) as u64;
+            *heads.add(part) = ((bb - wi * rec) as u64) << HEAD_LEFT
+                | ((*this).block_ptr(wb) as usize + wi * rec) as u64;
         }
         ((*this).next_block, (*this).buffered) = (T1::pack_blocks(this, map), held);
         held
@@ -4199,10 +4979,20 @@ impl T1 {
     /// # Safety
     /// `this` is a live table whose chains and heads name only blocks `map` keeps.
     unsafe fn pack_blocks(this: *mut T1, map: &mut [u32]) -> u32 {
-        let (parts, first, next, heads, bb) = ((*this).parts(), (*this).first(), (*this).next(), (*this).heads(), (*this).block_bytes as usize);
+        let (parts, first, next, heads, bb) = (
+            (*this).parts(),
+            (*this).first(),
+            (*this).next(),
+            (*this).heads(),
+            (*this).block_bytes as usize,
+        );
         let pool = (*this).base().add((*this).pool_off as usize) as usize;
         let mut used = 0u32;
-        for m in map.iter_mut().take((*this).next_block as usize).filter(|m| **m != NO_BLOCK) {
+        for m in map
+            .iter_mut()
+            .take((*this).next_block as usize)
+            .filter(|m| **m != NO_BLOCK)
+        {
             (*m, used) = (used, used + 1);
         }
         for b in 0..(*this).next_block as usize {
@@ -4211,9 +5001,17 @@ impl T1 {
                 continue;
             }
             let link = *next.add(b);
-            *next.add(nb as usize) = if link == NO_BLOCK { NO_BLOCK } else { map[link as usize] };
+            *next.add(nb as usize) = if link == NO_BLOCK {
+                NO_BLOCK
+            } else {
+                map[link as usize]
+            };
             if nb as usize != b {
-                core::ptr::copy_nonoverlapping((*this).block_ptr(b as u32), (*this).block_ptr(nb), bb);
+                core::ptr::copy_nonoverlapping(
+                    (*this).block_ptr(b as u32),
+                    (*this).block_ptr(nb),
+                    bb,
+                );
             }
         }
         for part in 0..parts {
@@ -4231,7 +5029,13 @@ impl T1 {
 
     /// Empty: the table zeroed, the pool reset.
     pub fn clear(&mut self) {
-        unsafe { core::ptr::write_bytes(self.slot_ptr(0), 0, self.cap as usize * self.layout.size() as usize) };
+        unsafe {
+            core::ptr::write_bytes(
+                self.slot_ptr(0),
+                0,
+                self.cap as usize * self.layout.size() as usize,
+            )
+        };
         self.len = 0;
         self.opened = 0;
         self.reset_pool();
@@ -4240,7 +5044,11 @@ impl T1 {
 
     /// The blocks of partition `part`'s buffer in append order.
     pub fn chain(&self, part: u32) -> Chain<'_> {
-        Chain { t: self, part, block: unsafe { *self.first().add(part as usize) } }
+        Chain {
+            t: self,
+            part,
+            block: unsafe { *self.first().add(part as usize) },
+        }
     }
 
     /// D2988: every partition whose buffer chain holds a record, as bit `part` of `mask` (parallel merge.rs `held_parts`, an
@@ -4248,9 +5056,13 @@ impl T1 {
     /// walked only where one starts (a rescanned fold's owner phase walked every partition's chain per rescan).
     pub fn held_chains(&self, mask: &mut [u64]) {
         // SAFETY: the table lays one first-block word per partition (`first`, `parts()` of them).
-        let first = unsafe { core::slice::from_raw_parts(self.first() as *const u32, self.parts()) };
+        let first =
+            unsafe { core::slice::from_raw_parts(self.first() as *const u32, self.parts()) };
         for (w, words) in first.chunks(64).enumerate() {
-            let mut started = words.iter().enumerate().fold(0u64, |m, (i, &b)| m | u64::from(b != NO_BLOCK) << i);
+            let mut started = words
+                .iter()
+                .enumerate()
+                .fold(0u64, |m, (i, &b)| m | u64::from(b != NO_BLOCK) << i);
             while started != 0 {
                 let part = 64 * w + started.trailing_zeros() as usize;
                 started &= started - 1;
@@ -4268,7 +5080,11 @@ impl T1 {
 
     /// The `n`-th smallest key cell `k` over the table's records (the zone walk's bound).
     pub fn nth_smallest_key(&self, k: usize, n: usize) -> Option<i64> {
-        nth_smallest(n, self.len as usize, self.records().map(|r| r.key(k) as i64))
+        nth_smallest(
+            n,
+            self.len as usize,
+            self.records().map(|r| r.key(k) as i64),
+        )
     }
 
     /// `nth_smallest_key_held` for any `n`: the held keys copied into the caller's scratch (at least `held()` long,
@@ -4280,15 +5096,32 @@ impl T1 {
 
     /// GP-1b: `nth_smallest_key_held_in` over each key cell XOR `flip` (`!0`: the NOT of the key, a descending walk's
     /// order read as ascending; 0: the key).
-    pub fn nth_smallest_key_held_in_by(&self, k: usize, n: usize, scratch: &mut [i64], flip: i64) -> Option<i64> {
+    pub fn nth_smallest_key_held_in_by(
+        &self,
+        k: usize,
+        n: usize,
+        scratch: &mut [i64],
+        flip: i64,
+    ) -> Option<i64> {
         let held = usize::try_from(self.held()).ok()?;
         if n == 0 || held < n || scratch.len() < held {
             return None;
         }
         let rec = self.layout.size() as usize;
-        let table = (self.len != 0).then(|| self.records()).into_iter().flatten().map(move |r| r.key(k) as i64 ^ flip);
+        let table = (self.len != 0)
+            .then(|| self.records())
+            .into_iter()
+            .flatten()
+            .map(move |r| r.key(k) as i64 ^ flip);
         // SAFETY: a block holds `recs` whole records of the layout.
-        let buffered = (0..self.parts() as u32).flat_map(|p| self.chain(p)).flat_map(move |b| (0..b.recs).map(move |i| unsafe { Rec::at(b.ptr.add(i * rec) as *mut u8, &self.layout) }.key(k) as i64 ^ flip));
+        let buffered = (0..self.parts() as u32)
+            .flat_map(|p| self.chain(p))
+            .flat_map(move |b| {
+                (0..b.recs).map(move |i| {
+                    unsafe { Rec::at(b.ptr.add(i * rec) as *mut u8, &self.layout) }.key(k) as i64
+                        ^ flip
+                })
+            });
         let mut m = 0usize;
         for (slot, key) in scratch[..held].iter_mut().zip(table.chain(buffered)) {
             *slot = key;
@@ -4313,7 +5146,9 @@ impl T1 {
     /// the next claims), the table is drained (its records are all in the buffers, as at a claim's open) and it is no code
     /// front's held table (`T1_HOLD`).
     pub fn prune_due(&self, n: usize) -> bool {
-        self.len == 0 && self.flags & T1_HOLD == 0 && self.held() > (T1::PRUNE_HELD_FACTOR * n as u64).max(T1::PRUNE_HELD_MIN)
+        self.len == 0
+            && self.flags & T1_HOLD == 0
+            && self.held() > (T1::PRUNE_HELD_FACTOR * n as u64).max(T1::PRUNE_HELD_MIN)
     }
 
     /// `prune_due`'s ratio of records held to the walk's `n`, and its floor.
@@ -4335,9 +5170,20 @@ impl T1 {
             return None;
         }
         let rec = self.layout.size() as usize;
-        let table = (self.len != 0).then(|| self.records()).into_iter().flatten().map(move |r| r.key(k) as i64 ^ flip);
+        let table = (self.len != 0)
+            .then(|| self.records())
+            .into_iter()
+            .flatten()
+            .map(move |r| r.key(k) as i64 ^ flip);
         // SAFETY: a block holds `recs` whole records of the layout.
-        let buffered = (0..self.parts() as u32).flat_map(|p| self.chain(p)).flat_map(move |b| (0..b.recs).map(move |i| unsafe { Rec::at(b.ptr.add(i * rec) as *mut u8, &self.layout) }.key(k) as i64 ^ flip));
+        let buffered = (0..self.parts() as u32)
+            .flat_map(|p| self.chain(p))
+            .flat_map(move |b| {
+                (0..b.recs).map(move |i| {
+                    unsafe { Rec::at(b.ptr.add(i * rec) as *mut u8, &self.layout) }.key(k) as i64
+                        ^ flip
+                })
+            });
         let mut heap = [i64::MAX; SELECT_MAX];
         let mut hl = 0usize;
         let mut set = KeySet::new(n);
@@ -4454,7 +5300,10 @@ impl Iterator for Chain<'_> {
                 t.block_recs as usize
             }
         };
-        Some(Block { ptr: t.block_ptr(b), recs })
+        Some(Block {
+            ptr: t.block_ptr(b),
+            recs,
+        })
     }
 }
 
@@ -4472,7 +5321,12 @@ struct KeySet {
 impl KeySet {
     fn new(n: usize) -> KeySet {
         let cap = (2 * n).next_power_of_two().clamp(64, 2 * SELECT_MAX);
-        KeySet { keys: [const { core::mem::MaybeUninit::uninit() }; 2 * SELECT_MAX], used: [0; 2 * SELECT_MAX / 64], mask: cap - 1, shift: 64 - cap.trailing_zeros() }
+        KeySet {
+            keys: [const { core::mem::MaybeUninit::uninit() }; 2 * SELECT_MAX],
+            used: [0; 2 * SELECT_MAX / 64],
+            mask: cap - 1,
+            shift: 64 - cap.trailing_zeros(),
+        }
     }
     /// splitmix64's finalizer, then the top bits: a key cell's low bits may all be zero (a multiply alone then clusters
     /// the homes and the probe runs grow long).
@@ -4524,7 +5378,11 @@ impl KeySet {
             }
             let h = self.home(self.at(j));
             // the key at j stays when its home lies cyclically in (i, j]
-            let stays = if i <= j { i < h && h <= j } else { i < h || h <= j };
+            let stays = if i <= j {
+                i < h && h <= j
+            } else {
+                i < h || h <= j
+            };
             if !stays {
                 self.keys[i] = core::mem::MaybeUninit::new(self.at(j));
                 i = j;
@@ -4600,7 +5458,11 @@ pub const OWNED_BATCHED: u64 = u64::from_le_bytes(*b"batched\0");
 /// C10 2b (D3582): the emit state a batched slot's refill files at its owner's table space (kernels `EmitState`: the
 /// pointer array's address, its length and the kept count), the pointer array right behind it.
 pub const OWNED_EMIT_BYTES: usize = 24;
-const _: () = assert!(core::mem::offset_of!(Owned, kind) == 15 && core::mem::offset_of!(Owned, base) == 16 && core::mem::offset_of!(Owned, pad1) == 24);
+const _: () = assert!(
+    core::mem::offset_of!(Owned, kind) == 15
+        && core::mem::offset_of!(Owned, base) == 16
+        && core::mem::offset_of!(Owned, pad1) == 24
+);
 /// D15: the most owners a leader region carries = the driver's partial-slot capacity (`driver::SLOTS`, a fixed array
 /// bound, not a machine fact). A statement's owner count is its width, which `exec::inputs::knobs::room::clamp_width`
 /// sizes from the PG parallel knobs bounded by the installed pool's worker threads and then by this capacity.
@@ -4621,7 +5483,11 @@ impl Owned {
     }
 
     pub fn owner(&self, i: usize) -> *mut u8 {
-        let base = if self.base == 0 { unsafe { (self as *const Owned as *mut u8).add(OWNED_HDR) } } else { self.base as *mut u8 };
+        let base = if self.base == 0 {
+            unsafe { (self as *const Owned as *mut u8).add(OWNED_HDR) }
+        } else {
+            self.base as *mut u8
+        };
         unsafe { base.add(i * self.owner_bytes as usize) }
     }
 
@@ -4702,9 +5568,22 @@ impl Owned {
     /// one batch). An owner whose reduce pruned groups unseen (`GROUPS_UNCOUNTED`) has no count, so `groups` is then `None`.
     pub fn counts(region: &[u8]) -> Option<(u64, Option<u64>)> {
         // SAFETY: a leader region at least an `Owned` header long; its kind byte names the layout before it is viewed.
-        if region.len() >= OWNED_HDR && unsafe { table_kind(region.as_ptr()) } == TABLE_OWNED && !unsafe { Owned::view(region.as_ptr()) }.batched() {
+        if region.len() >= OWNED_HDR
+            && unsafe { table_kind(region.as_ptr()) } == TABLE_OWNED
+            && !unsafe { Owned::view(region.as_ptr()) }.batched()
+        {
             let o = unsafe { Owned::view(region.as_ptr()) };
-            Some((0..o.nowners as usize).map(|i| unsafe { OwnerTop::view(o.owner(i)) }).fold((0u64, Some(0u64)), |(r, g), t| (r + t.records, g.filter(|_| t.groups != GROUPS_UNCOUNTED).map(|g| g + t.groups))))
+            Some(
+                (0..o.nowners as usize)
+                    .map(|i| unsafe { OwnerTop::view(o.owner(i)) })
+                    .fold((0u64, Some(0u64)), |(r, g), t| {
+                        (
+                            r + t.records,
+                            g.filter(|_| t.groups != GROUPS_UNCOUNTED)
+                                .map(|g| g + t.groups),
+                        )
+                    }),
+            )
         } else {
             None
         }
@@ -4723,9 +5602,18 @@ impl Owned {
     /// its deduped pairs, the groups its phase-1 pair table holds.
     pub fn totals(region: &[u8]) -> Option<(u64, Option<u64>)> {
         // SAFETY: as `counts`.
-        if region.len() >= OWNED_HDR && unsafe { table_kind(region.as_ptr()) } == TABLE_OWNED && !unsafe { Owned::view(region.as_ptr()) }.batched() {
+        if region.len() >= OWNED_HDR
+            && unsafe { table_kind(region.as_ptr()) } == TABLE_OWNED
+            && !unsafe { Owned::view(region.as_ptr()) }.batched()
+        {
             let o = unsafe { Owned::view(region.as_ptr()) };
-            Some((0..o.nowners as usize).map(|i| unsafe { OwnerTop::view(o.owner(i)) }).fold((0, Some(0)), |(r, g), t| (r + t.records, g.map(|g: u64| g + t.total))))
+            Some(
+                (0..o.nowners as usize)
+                    .map(|i| unsafe { OwnerTop::view(o.owner(i)) })
+                    .fold((0, Some(0)), |(r, g), t| {
+                        (r + t.records, g.map(|g: u64| g + t.total))
+                    }),
+            )
         } else {
             None
         }
@@ -4736,11 +5624,18 @@ impl Owned {
     /// is no `Owned` leader.
     pub fn key_range(region: &[u8]) -> Option<(i64, i64)> {
         // SAFETY: as `counts`.
-        if region.len() < OWNED_HDR || unsafe { table_kind(region.as_ptr()) } != TABLE_OWNED || unsafe { Owned::view(region.as_ptr()) }.batched() {
+        if region.len() < OWNED_HDR
+            || unsafe { table_kind(region.as_ptr()) } != TABLE_OWNED
+            || unsafe { Owned::view(region.as_ptr()) }.batched()
+        {
             return None;
         }
         let o = unsafe { Owned::view(region.as_ptr()) };
-        let (lo, hi) = (0..o.nowners as usize).map(|i| unsafe { OwnerTop::view(o.owner(i)) }).fold((KEY_LO_NONE, KEY_HI_NONE), |(lo, hi), t| (lo.min(t.key_lo), hi.max(t.key_hi)));
+        let (lo, hi) = (0..o.nowners as usize)
+            .map(|i| unsafe { OwnerTop::view(o.owner(i)) })
+            .fold((KEY_LO_NONE, KEY_HI_NONE), |(lo, hi), t| {
+                (lo.min(t.key_lo), hi.max(t.key_hi))
+            });
         (lo <= hi).then_some((lo, hi))
     }
 }
@@ -4772,12 +5667,26 @@ pub struct OwnerFns {
     pub fold: Option<FoldFn>,
 }
 
-pub type ReduceFn = unsafe fn(params: *const u64, owner: *mut u8, table: *const HashAgg, site: *mut crate::Site, cand: *const u32, ncand: i64) -> i64;
+pub type ReduceFn = unsafe fn(
+    params: *const u64,
+    owner: *mut u8,
+    table: *const HashAgg,
+    site: *mut crate::Site,
+    cand: *const u32,
+    ncand: i64,
+) -> i64;
 
 /// `nrecs` whole records at `recs` folded into `table` in order under the split's filter, each noted in
 /// `cand`: the records folded, or `-1 - folded` when the table refused one (7/8 load; the driver splits), or
 /// `FOLD_OVERFLOW` when a float merge overflowed (D244: the statement raises).
-pub type FoldFn = unsafe fn(params: *const u64, table: *mut HashAgg, recs: *const u8, nrecs: usize, split: SubSplit, cand: *mut Candidates) -> i64;
+pub type FoldFn = unsafe fn(
+    params: *const u64,
+    table: *mut HashAgg,
+    recs: *const u8,
+    nrecs: usize,
+    split: SubSplit,
+    cand: *mut Candidates,
+) -> i64;
 
 /// The owner fold's second generation: sub-partition `sub` of the `3 · depth` hash bits above `pbits` (`depth` 0: every record);
 /// `reread` 1: the same stream read again at this depth after its table filled (the records before that fill are noted already).
@@ -4792,7 +5701,12 @@ pub struct SubSplit {
 }
 
 impl SubSplit {
-    pub const NONE: SubSplit = SubSplit { pbits: 0, depth: 0, reread: 0, sub: 0 };
+    pub const NONE: SubSplit = SubSplit {
+        pbits: 0,
+        depth: 0,
+        reread: 0,
+        sub: 0,
+    };
 
     /// The sub-partition path of a record whose route is `route`: the `3 · depth` route bits after `pbits`, the first split's
     /// the most significant (a split at depth d fans a path `sub` out to `sub << 3 | s`).
@@ -4830,14 +5744,31 @@ pub struct Candidates {
 
 impl Candidates {
     pub const fn none() -> Candidates {
-        Candidates { ptr: core::ptr::null_mut(), len: 0, cap: 0, off: 0, thr: 0, overflow: true }
+        Candidates {
+            ptr: core::ptr::null_mut(),
+            len: 0,
+            cap: 0,
+            off: 0,
+            thr: 0,
+            overflow: true,
+        }
     }
 
     /// # Safety
     /// `ptr` has room for `cap` indexes, 4-aligned.
     pub unsafe fn at(ptr: *mut u8, cap: usize, off: usize, thr: i64) -> Candidates {
-        debug_assert!(ptr.cast::<u32>().is_aligned(), "gravity: candidates at {ptr:p} are not 4-aligned (D1704)");
-        Candidates { ptr: ptr as *mut u32, len: 0, cap, off, thr, overflow: false }
+        debug_assert!(
+            ptr.cast::<u32>().is_aligned(),
+            "gravity: candidates at {ptr:p} are not 4-aligned (D1704)"
+        );
+        Candidates {
+            ptr: ptr as *mut u32,
+            len: 0,
+            cap,
+            off,
+            thr,
+            overflow: false,
+        }
     }
 
     /// # Safety
@@ -4862,7 +5793,11 @@ impl Candidates {
     }
 
     pub fn ncand(&self) -> i64 {
-        if self.overflow { -1 } else { self.len as i64 }
+        if self.overflow {
+            -1
+        } else {
+            self.len as i64
+        }
     }
 }
 
@@ -4918,14 +5853,19 @@ impl SortRun {
         if r.cap == 0 {
             let armed = r.row_bytes;
             if armed as usize <= SORTRUN_HDR + SORTRUN_VAR_WORDS as usize + row_bytes as usize {
-                crate::limits::exceeded(format_args!("a share too small for one sort row: {armed} bytes for a {row_bytes}-byte row"));
+                crate::limits::exceeded(format_args!(
+                    "a share too small for one sort row: {armed} bytes for a {row_bytes}-byte row"
+                ));
             }
             r.cap = (armed - SORTRUN_HDR as u32 - SORTRUN_VAR_WORDS) / row_bytes;
             r.row_bytes = row_bytes;
             r.kind = TABLE_SORT;
             r.clear();
         }
-        assert!(r.row_bytes == row_bytes && r.kind == TABLE_SORT, "sort run shape");
+        assert!(
+            r.row_bytes == row_bytes && r.kind == TABLE_SORT,
+            "sort run shape"
+        );
         r
     }
 
@@ -4947,24 +5887,36 @@ impl SortRun {
         if r.cap == 0 {
             let armed = r.row_bytes;
             if armed as usize <= SORTRUN_HDR + SORTRUN_SIZED_WORDS as usize + row_bytes as usize {
-                crate::limits::exceeded(format_args!("a share too small for one spool row: {armed} bytes for a {row_bytes}-byte row"));
+                crate::limits::exceeded(format_args!(
+                    "a share too small for one spool row: {armed} bytes for a {row_bytes}-byte row"
+                ));
             }
             let most = (armed - SORTRUN_HDR as u32 - SORTRUN_SIZED_WORDS) / row_bytes;
             // D17: the estimate's rows with one doubling of headroom (the step `grow` takes), at least one page of rows
-            r.cap = rows.saturating_mul(2).max((SORTRUN_FLOOR_BYTES / row_bytes).max(1)).min(most);
+            r.cap = rows
+                .saturating_mul(2)
+                .max((SORTRUN_FLOOR_BYTES / row_bytes).max(1))
+                .min(most);
             r.row_bytes = row_bytes;
             r.kind = TABLE_SORT;
             r.pad[1] = SORTRUN_SIZED;
             r.clear();
             *r.var_words_mut().add(2) = armed;
         }
-        assert!(r.row_bytes == row_bytes && r.kind == TABLE_SORT, "sort run shape");
+        assert!(
+            r.row_bytes == row_bytes && r.kind == TABLE_SORT,
+            "sort run shape"
+        );
         r
     }
 
     /// The bytes of the region an `at_rows` run was opened in; 0 for a share-wide run (its extent is the region).
     pub fn region(&self) -> u32 {
-        if self.pad[1] == SORTRUN_SIZED { unsafe { *self.var_words().add(2) } } else { 0 }
+        if self.pad[1] == SORTRUN_SIZED {
+            unsafe { *self.var_words().add(2) }
+        } else {
+            0
+        }
     }
 
     /// The capacity doubled within the region, the trailer moved past the new rows (the rows stay): false when the region is full or a by-reference copy is held (it would move) — the tail puts the run.
@@ -5044,7 +5996,10 @@ impl SortRun {
     /// The next row's bytes (the caller fills them); the buffer must have room.
     pub fn push(&mut self) -> *mut u8 {
         debug_assert!(self.len < self.cap);
-        let p = unsafe { self.base_mut().add(self.len as usize * self.row_bytes as usize) };
+        let p = unsafe {
+            self.base_mut()
+                .add(self.len as usize * self.row_bytes as usize)
+        };
         self.len += 1;
         p
     }
@@ -5090,9 +6045,16 @@ impl SortRun {
         let base = self.base_mut();
         // SAFETY: rows 0..n are live, `rb` bytes each, from `base`.
         unsafe {
-            let key = |i: usize| -> (u64, u64) { (*(base.add(i * rb) as *const u64), *(base.add(i * rb + 8) as *const u64)) };
+            let key = |i: usize| -> (u64, u64) {
+                (
+                    *(base.add(i * rb) as *const u64),
+                    *(base.add(i * rb + 8) as *const u64),
+                )
+            };
             // D327: rows of any width swap in place (a fixed 256 B buffer asserted wider sort rows away)
-            let swap = |a: usize, b: usize| core::ptr::swap_nonoverlapping(base.add(a * rb), base.add(b * rb), rb);
+            let swap = |a: usize, b: usize| {
+                core::ptr::swap_nonoverlapping(base.add(a * rb), base.add(b * rb), rb)
+            };
             let sift = |mut root: usize, end: usize| loop {
                 let mut child = 2 * root + 1;
                 if child >= end {
@@ -5153,7 +6115,10 @@ impl DenseFront {
     /// The `AccCell`s behind the slots (8-aligned; present under the table's `FLAG_ACC`).
     #[inline(always)]
     pub fn cells(&self) -> *mut AccCell {
-        unsafe { (self as *const DenseFront as *mut u8).add(((DenseFront::bytes(self.n) + 7) & !7) as usize) as *mut AccCell }
+        unsafe {
+            (self as *const DenseFront as *mut u8)
+                .add(((DenseFront::bytes(self.n) + 7) & !7) as usize) as *mut AccCell
+        }
     }
 
     /// The domain's size: `None` when it is empty or past the front's `u32` count (the structural bound;
@@ -5191,7 +6156,9 @@ impl DenseFront {
 
     #[inline(always)]
     fn slots(&self) -> *const u32 {
-        unsafe { (self as *const DenseFront as *const u8).add(size_of::<DenseFront>()) as *const u32 }
+        unsafe {
+            (self as *const DenseFront as *const u8).add(size_of::<DenseFront>()) as *const u32
+        }
     }
 
     /// D1358b: the slots' writers derive their pointer from the front's own `&mut` borrow, never from `&self` (Tree Borrows:
@@ -5300,13 +6267,20 @@ impl HashBuild {
         if b.cap == 0 {
             // a hashed table probes for empty slots: its extent is zeroed here (a partition appends, `len` gates its reads)
             if table == BUILD_TABLE {
-                core::ptr::write_bytes((b as *mut HashBuild as *mut u8).add(HASHBUILD_HDR), 0, cap as usize * HASHBUILD_ENTRY);
+                core::ptr::write_bytes(
+                    (b as *mut HashBuild as *mut u8).add(HASHBUILD_HDR),
+                    0,
+                    cap as usize * HASHBUILD_ENTRY,
+                );
             }
             b.cap = cap;
             b.table = table;
             b.kind = TABLE_BUILD;
         }
-        assert!(b.cap == cap && b.table == table && (table == BUILD_PARTITION || cap.is_power_of_two()), "hash build shape");
+        assert!(
+            b.cap == cap && b.table == table && (table == BUILD_PARTITION || cap.is_power_of_two()),
+            "hash build shape"
+        );
         b
     }
 
@@ -5320,15 +6294,30 @@ impl HashBuild {
     /// `at_partitioned` opened at `cap` entries (a power of two; the region's largest when larger).
     /// # Safety
     /// As `at_partitioned`.
-    pub unsafe fn at_partitioned_sized<'a>(p: *mut u8, bytes: u32, pbits: u8, cap: u32) -> &'a mut HashBuild {
+    pub unsafe fn at_partitioned_sized<'a>(
+        p: *mut u8,
+        bytes: u32,
+        pbits: u8,
+        cap: u32,
+    ) -> &'a mut HashBuild {
         let b = aligned_mut::<HashBuild>(p);
-        assert!(b.cap == 0, "a partitioned build is laid out over a fresh region");
+        assert!(
+            b.cap == 0,
+            "a partitioned build is laid out over a fresh region"
+        );
         debug_assert!(HashBuild::table_cap_of(bytes) >= 1 << pbits, "D209: a region of {bytes} B under one entry per partition ({pbits} bits); the caller refuses first");
         let cap = cap.min(HashBuild::table_cap_of(bytes)).max(1 << pbits);
-        assert!(cap.is_power_of_two() && cap >= 1 << pbits, "partition slices need at least one entry each");
+        assert!(
+            cap.is_power_of_two() && cap >= 1 << pbits,
+            "partition slices need at least one entry each"
+        );
         // D1358: through the build's own borrow, never `p` beside it (a write past the header through `p` while `b` lives
         // disables `b`'s claim on the entries its caller then reads)
-        core::ptr::write_bytes((b as *mut HashBuild as *mut u8).add(HASHBUILD_HDR), 0, cap as usize * HASHBUILD_ENTRY);
+        core::ptr::write_bytes(
+            (b as *mut HashBuild as *mut u8).add(HASHBUILD_HDR),
+            0,
+            cap as usize * HASHBUILD_ENTRY,
+        );
         b.cap = cap;
         b.table = BUILD_TABLE;
         b.pbits = pbits;
@@ -5371,9 +6360,15 @@ impl HashBuild {
             assert!(b.table == table, "hash build shape");
             return b;
         }
-        let cap = if table == BUILD_TABLE { HashBuild::table_cap_of(region).min(cap.max(1024)) } else { HashBuild::cap_of(region) };
+        let cap = if table == BUILD_TABLE {
+            HashBuild::table_cap_of(region).min(cap.max(1024))
+        } else {
+            HashBuild::cap_of(region)
+        };
         if cap == 0 {
-            crate::limits::exceeded(format_args!("a region too small for one build entry: {region} bytes"));
+            crate::limits::exceeded(format_args!(
+                "a region too small for one build entry: {region} bytes"
+            ));
         }
         let b = HashBuild::at(p, cap, table);
         b.region = region;
@@ -5388,9 +6383,15 @@ impl HashBuild {
         let armed = HashBuild::armed(p);
         if armed != 0 {
             (*(p as *mut HashBuild)).table = 0;
-            let cap = if table == BUILD_TABLE { HashBuild::table_cap_of(armed).min(cap.max(1024)) } else { HashBuild::cap_of(armed) };
+            let cap = if table == BUILD_TABLE {
+                HashBuild::table_cap_of(armed).min(cap.max(1024))
+            } else {
+                HashBuild::cap_of(armed)
+            };
             if cap == 0 {
-                crate::limits::exceeded(format_args!("a share too small for one build entry: {armed} bytes"));
+                crate::limits::exceeded(format_args!(
+                    "a share too small for one build entry: {armed} bytes"
+                ));
             }
             let b = HashBuild::at(p, cap, table);
             b.sorted = 0;
@@ -5414,7 +6415,10 @@ impl HashBuild {
     #[inline(always)]
     fn slice_of(&self, key: i32) -> (usize, usize) {
         let sub = (self.cap as usize) >> self.pbits;
-        (HashBuild::partition_of(key, self.pbits) as usize * sub, sub - 1)
+        (
+            HashBuild::partition_of(key, self.pbits) as usize * sub,
+            sub - 1,
+        )
     }
 
     #[inline(always)]
@@ -5424,27 +6428,51 @@ impl HashBuild {
 
     pub fn entry(&self, i: usize) -> &HashBuildEntry {
         debug_assert!(i < self.cap as usize);
-        unsafe { &*(self as *const HashBuild as *const u8).add(HASHBUILD_HDR).cast::<HashBuildEntry>().add(i) }
+        unsafe {
+            &*(self as *const HashBuild as *const u8)
+                .add(HASHBUILD_HDR)
+                .cast::<HashBuildEntry>()
+                .add(i)
+        }
     }
 
     pub fn entry_mut(&mut self, i: usize) -> &mut HashBuildEntry {
         debug_assert!(i < self.cap as usize);
-        unsafe { &mut *(self as *mut HashBuild as *mut u8).add(HASHBUILD_HDR).cast::<HashBuildEntry>().add(i) }
+        unsafe {
+            &mut *(self as *mut HashBuild as *mut u8)
+                .add(HASHBUILD_HDR)
+                .cast::<HashBuildEntry>()
+                .add(i)
+        }
     }
 
     fn entry_ptr(&self, i: usize) -> *const HashBuildEntry {
-        unsafe { (self as *const HashBuild as *const u8).add(HASHBUILD_HDR).cast::<HashBuildEntry>().add(i) }
+        unsafe {
+            (self as *const HashBuild as *const u8)
+                .add(HASHBUILD_HDR)
+                .cast::<HashBuildEntry>()
+                .add(i)
+        }
     }
 
     /// Entry `i` for a writer, from `&mut self` (D1358: a write through `entry_ptr`'s pointer, a shared borrow of the build,
     /// is undefined behaviour the optimizer may act on).
     fn entry_ptr_mut(&mut self, i: usize) -> *mut HashBuildEntry {
-        unsafe { (self as *mut HashBuild as *mut u8).add(HASHBUILD_HDR).cast::<HashBuildEntry>().add(i) }
+        unsafe {
+            (self as *mut HashBuild as *mut u8)
+                .add(HASHBUILD_HDR)
+                .cast::<HashBuildEntry>()
+                .add(i)
+        }
     }
 
     /// The used entries: a partition's `0..len` (its tail may be dirty), a table's used slots.
     pub fn entries(&self) -> impl Iterator<Item = &HashBuildEntry> + '_ {
-        let n = if self.table == BUILD_PARTITION { self.len as usize } else { self.cap as usize };
+        let n = if self.table == BUILD_PARTITION {
+            self.len as usize
+        } else {
+            self.cap as usize
+        };
         (0..n).map(|i| self.entry(i)).filter(|e| e.used != 0)
     }
 
@@ -5464,7 +6492,9 @@ impl HashBuild {
             return false;
         }
         let old = self.cap as usize;
-        unsafe { core::ptr::write_bytes(self.entry_ptr_mut(old) as *mut u8, 0, old * HASHBUILD_ENTRY) };
+        unsafe {
+            core::ptr::write_bytes(self.entry_ptr_mut(old) as *mut u8, 0, old * HASHBUILD_ENTRY)
+        };
         for i in 0..old {
             let e = self.entry_mut(i);
             if e.used != 0 {
@@ -5483,7 +6513,11 @@ impl HashBuild {
         let place = |b: &mut HashBuild, mut e: HashBuildEntry| {
             e.used &= !BUILD_MOVING;
             loop {
-                let (base, smask) = if pbits == 0 { (0, mask) } else { b.slice_of(e.key) };
+                let (base, smask) = if pbits == 0 {
+                    (0, mask)
+                } else {
+                    b.slice_of(e.key)
+                };
                 let mut j = base + home_of(e.key, smask);
                 loop {
                     let slot = *b.entry(j);
@@ -5493,7 +6527,10 @@ impl HashBuild {
                     }
                     if slot.used & BUILD_MOVING != 0 {
                         *b.entry_mut(j) = e;
-                        e = HashBuildEntry { used: slot.used & !BUILD_MOVING, ..slot };
+                        e = HashBuildEntry {
+                            used: slot.used & !BUILD_MOVING,
+                            ..slot
+                        };
                         break;
                     }
                     j = base + ((j - base + 1) & smask);
@@ -5512,7 +6549,12 @@ impl HashBuild {
 
     pub fn dense_bytes(&self) -> &[u8] {
         debug_assert_eq!(self.table, BUILD_PARTITION);
-        unsafe { core::slice::from_raw_parts(self.entry_ptr(0) as *const u8, self.len as usize * HASHBUILD_ENTRY) }
+        unsafe {
+            core::slice::from_raw_parts(
+                self.entry_ptr(0) as *const u8,
+                self.len as usize * HASHBUILD_ENTRY,
+            )
+        }
     }
 
     pub fn insert(&mut self, key: i32, payload: i64) -> bool {
@@ -5545,7 +6587,12 @@ impl HashBuild {
     /// Insert into the key's slice, `len` added atomically; `None` when the slice is full.
     /// # Safety
     /// `this` is a live `BUILD_TABLE` and the slice is this thread's (a raw pointer, never `&self`).
-    pub unsafe fn insert_partitioned(this: *mut HashBuild, key: i32, payload: i64, used: u32) -> Option<()> {
+    pub unsafe fn insert_partitioned(
+        this: *mut HashBuild,
+        key: i32,
+        payload: i64,
+        used: u32,
+    ) -> Option<()> {
         HashBuild::insert_at(this, key, payload, used)?;
         HashBuild::add_len(this, 1);
         Some(())
@@ -5554,21 +6601,29 @@ impl HashBuild {
     /// # Safety
     /// As `insert_partitioned` (`len` untouched: a job adds its count once, `add_len`).
     #[inline(always)]
-    pub unsafe fn insert_partitioned_uncounted(this: *mut HashBuild, key: i32, payload: i64, used: u32) -> Option<()> {
+    pub unsafe fn insert_partitioned_uncounted(
+        this: *mut HashBuild,
+        key: i32,
+        payload: i64,
+        used: u32,
+    ) -> Option<()> {
         HashBuild::insert_at(this, key, payload, used)
     }
 
     /// # Safety
     /// `this` is a live build shared by the partition jobs (`len += n` atomically).
     pub unsafe fn add_len(this: *mut HashBuild, n: u32) {
-        (*(core::ptr::addr_of_mut!((*this).len) as *const core::sync::atomic::AtomicU32)).fetch_add(n, core::sync::atomic::Ordering::Relaxed);
+        (*(core::ptr::addr_of_mut!((*this).len) as *const core::sync::atomic::AtomicU32))
+            .fetch_add(n, core::sync::atomic::Ordering::Relaxed);
     }
 
     unsafe fn insert_at(this: *mut HashBuild, key: i32, payload: i64, used: u32) -> Option<()> {
         debug_assert_eq!((*this).table, BUILD_TABLE);
         let (base, mask) = (*this).slice_of(key);
         let mut i = base + (*this).home(key, mask);
-        let entries = (this as *mut u8).add(HASHBUILD_HDR).cast::<HashBuildEntry>();
+        let entries = (this as *mut u8)
+            .add(HASHBUILD_HDR)
+            .cast::<HashBuildEntry>();
         for _ in 0..=mask {
             let e = entries.add(i);
             if (*e).used == 0 {
@@ -5582,7 +6637,13 @@ impl HashBuild {
 
     pub fn clear(&mut self) {
         let cap = self.cap as usize;
-        unsafe { core::ptr::write_bytes((self as *mut HashBuild as *mut u8).add(HASHBUILD_HDR), 0, cap * HASHBUILD_ENTRY) };
+        unsafe {
+            core::ptr::write_bytes(
+                (self as *mut HashBuild as *mut u8).add(HASHBUILD_HDR),
+                0,
+                cap * HASHBUILD_ENTRY,
+            )
+        };
         self.len = 0;
         self.sorted = 0;
     }
@@ -5592,7 +6653,9 @@ impl HashBuild {
         debug_assert_eq!(self.table, BUILD_PARTITION);
         let parts = 1usize << pbits;
         if parts > MAX_BUILD_PARTS {
-            crate::limits::exceeded(format_args!("{parts} build partitions: at most {MAX_BUILD_PARTS}"));
+            crate::limits::exceeded(format_args!(
+                "{parts} build partitions: at most {MAX_BUILD_PARTS}"
+            ));
         }
         let n = self.len as usize;
         let dir_entries = (4 * (parts + 1)).div_ceil(HASHBUILD_ENTRY);
@@ -5600,7 +6663,8 @@ impl HashBuild {
             return false;
         }
         let entries = self.entry_ptr_mut(0);
-        let part_of = |i: usize| unsafe { HashBuild::partition_of((*entries.add(i)).key, pbits) as usize };
+        let part_of =
+            |i: usize| unsafe { HashBuild::partition_of((*entries.add(i)).key, pbits) as usize };
         let mut counts = [0u32; MAX_BUILD_PARTS];
         for i in 0..n {
             counts[part_of(i)] += 1;
@@ -5637,18 +6701,34 @@ impl HashBuild {
             return None;
         }
         let dir = self.entry_ptr(self.len as usize) as *const u32;
-        unsafe { Some((*dir.add(part as usize) as usize, *dir.add(part as usize + 1) as usize)) }
+        unsafe {
+            Some((
+                *dir.add(part as usize) as usize,
+                *dir.add(part as usize + 1) as usize,
+            ))
+        }
     }
 
     /// `at_partitioned_sized` without zeroing the slices (`zero_slice_at`, one per job).
     /// # Safety
     /// `p` points at `bytes` writable bytes, 8-aligned, the header zeroed.
-    pub unsafe fn at_partitioned_lazy<'a>(p: *mut u8, bytes: u32, pbits: u8, cap: u32) -> &'a mut HashBuild {
+    pub unsafe fn at_partitioned_lazy<'a>(
+        p: *mut u8,
+        bytes: u32,
+        pbits: u8,
+        cap: u32,
+    ) -> &'a mut HashBuild {
         let b = aligned_mut::<HashBuild>(p);
-        assert!(b.cap == 0, "a partitioned build is laid out over a fresh region");
+        assert!(
+            b.cap == 0,
+            "a partitioned build is laid out over a fresh region"
+        );
         debug_assert!(HashBuild::table_cap_of(bytes) >= 1 << pbits, "D209: a region of {bytes} B under one entry per partition ({pbits} bits); the caller refuses first");
         let cap = cap.min(HashBuild::table_cap_of(bytes)).max(1 << pbits);
-        assert!(cap.is_power_of_two() && cap >= 1 << pbits, "partition slices need at least one entry each");
+        assert!(
+            cap.is_power_of_two() && cap >= 1 << pbits,
+            "partition slices need at least one entry each"
+        );
         b.cap = cap;
         b.table = BUILD_TABLE;
         b.pbits = pbits;
@@ -5660,13 +6740,21 @@ impl HashBuild {
     /// `this` is a live partitioned `BUILD_TABLE`; slice `part` is this thread's alone.
     pub unsafe fn zero_slice_at(this: *mut HashBuild, part: u32) {
         let sub = ((*this).cap >> (*this).pbits) as usize;
-        core::ptr::write_bytes((*this).entry_ptr(part as usize * sub) as *mut u8, 0, sub * HASHBUILD_ENTRY);
+        core::ptr::write_bytes(
+            (*this).entry_ptr(part as usize * sub) as *mut u8,
+            0,
+            sub * HASHBUILD_ENTRY,
+        );
     }
 
     /// A table's capacity for `len` entries (at least 2^`BUILD_MIN_CAP_BITS`, capped by the caller's region): the hash
     /// loads' `BUILD_IN_PLACE_LOAD`, or `BUILD_SPARSE_LOAD` up to `build_sparse_rows` (D155, D03: from the L2 share).
     pub fn table_cap_for(len: u64) -> u32 {
-        let l = if len <= build_sparse_rows() { BUILD_SPARSE_LOAD } else { BUILD_IN_PLACE_LOAD };
+        let l = if len <= build_sparse_rows() {
+            BUILD_SPARSE_LOAD
+        } else {
+            BUILD_IN_PLACE_LOAD
+        };
         let want = (len * l.den).div_ceil(l.num);
         want.next_power_of_two().max(1 << BUILD_MIN_CAP_BITS) as u32
     }
@@ -5697,7 +6785,13 @@ impl HashBuild {
         }
         // the dirty tail inside the new table is zeroed; entries past the capacity are taken in hand first
         if len < cap {
-            unsafe { core::ptr::write_bytes(self.entry_ptr_mut(len) as *mut u8, 0, (cap - len) * HASHBUILD_ENTRY) };
+            unsafe {
+                core::ptr::write_bytes(
+                    self.entry_ptr_mut(len) as *mut u8,
+                    0,
+                    (cap - len) * HASHBUILD_ENTRY,
+                )
+            };
         }
         self.table = BUILD_TABLE;
         self.pbits = 0;
@@ -5718,7 +6812,10 @@ impl HashBuild {
                     }
                     if slot.used & BUILD_MOVING != 0 {
                         *self.entry_mut(j) = e;
-                        e = HashBuildEntry { used: slot.used & !BUILD_MOVING, ..slot };
+                        e = HashBuildEntry {
+                            used: slot.used & !BUILD_MOVING,
+                            ..slot
+                        };
                         continue 'place;
                     }
                     j = (j + 1) & mask;
@@ -5732,13 +6829,27 @@ impl HashBuild {
     pub fn probe(&self, key: i32) -> Probe<'_> {
         debug_assert_eq!(self.table, BUILD_TABLE, "probe on a partition");
         let (base, mask) = self.slice_of(key);
-        Probe { b: self, base, mask, i: self.home(key, mask), key, left: mask + 1 }
+        Probe {
+            b: self,
+            base,
+            mask,
+            i: self.home(key, mask),
+            key,
+            left: mask + 1,
+        }
     }
 
     /// Continue a probe chain at in-slice position `at` (the `cont` cell, decision 9).
     pub fn probe_from(&self, key: i32, at: usize) -> Probe<'_> {
         let (base, mask) = self.slice_of(key);
-        Probe { b: self, base, mask, i: at & mask, key, left: mask + 1 }
+        Probe {
+            b: self,
+            base,
+            mask,
+            i: at & mask,
+            key,
+            left: mask + 1,
+        }
     }
 }
 
@@ -5820,14 +6931,19 @@ impl TopK {
         if t.n == 0 {
             assert!(n > 0, "a top-k run keeps at least one row");
             if cap < n {
-                crate::limits::exceeded(format_args!("top-k run capacity: {cap} rows for a LIMIT of {n}"));
+                crate::limits::exceeded(format_args!(
+                    "top-k run capacity: {cap} rows for a LIMIT of {n}"
+                ));
             }
             t.n = n;
             t.natts = natts;
             t.cap = cap;
             t.flags = flags;
         }
-        assert!(t.n == n && t.natts == natts && t.cap == cap && t.flags == flags, "top-k run shape");
+        assert!(
+            t.n == n && t.natts == natts && t.cap == cap && t.flags == flags,
+            "top-k run shape"
+        );
         t
     }
 
@@ -5860,7 +6976,12 @@ impl TopK {
 
     pub fn row(&self, i: usize) -> (&[u64], &[u8]) {
         let w = self.natts as usize;
-        unsafe { (core::slice::from_raw_parts(self.values().add(i * w), w), core::slice::from_raw_parts(self.nulls().add(i * w), w)) }
+        unsafe {
+            (
+                core::slice::from_raw_parts(self.values().add(i * w), w),
+                core::slice::from_raw_parts(self.nulls().add(i * w), w),
+            )
+        }
     }
 
     pub fn key_of(&self, i: usize) -> i64 {
@@ -5874,7 +6995,14 @@ impl TopK {
 
     /// The key of `values` as its order tuple: `(word as i64, 0)`, or the pair `(flags as i64, word)` under `TOPK_PAIRS`.
     pub fn key_tuple(&self, values: &[u64]) -> (i64, u64) {
-        (values[0] as i64, if self.flags & TOPK_PAIRS != 0 { values[1] } else { 0 })
+        (
+            values[0] as i64,
+            if self.flags & TOPK_PAIRS != 0 {
+                values[1]
+            } else {
+                0
+            },
+        )
     }
 
     /// The second key of `values` (`TOPK_SECOND`): `(0, word)` — the word unsigned — or the pair `(flags as i64, word)` under `TOPK_SECOND_PAIR`.
@@ -5911,8 +7039,18 @@ impl TopK {
         let (len, n) = (self.len as usize, self.n as usize);
         let ties = self.ties();
         let by_pair = !ties && self.flags & TOPK_SECOND != 0;
-        let second = if by_pair { self.second_tuple(values) } else { (0, 0) };
-        let below = |run: &TopK, i: usize| if by_pair { (key, second) < (run.key_at(i), run.second_tuple(run.row(i).0)) } else { key < run.key_at(i) };
+        let second = if by_pair {
+            self.second_tuple(values)
+        } else {
+            (0, 0)
+        };
+        let below = |run: &TopK, i: usize| {
+            if by_pair {
+                (key, second) < (run.key_at(i), run.second_tuple(run.row(i).0))
+            } else {
+                key < run.key_at(i)
+            }
+        };
         if len >= n && n > 0 {
             let b = self.key_at(n - 1);
             if by_pair {
@@ -5929,13 +7067,22 @@ impl TopK {
         }
         let full = len == self.cap as usize;
         if full && ties {
-            let new_bound = if i + 1 > n { self.key_at(n - 1) } else if i + 1 == n { key } else { self.key_at(n - 2) };
+            let new_bound = if i + 1 > n {
+                self.key_at(n - 1)
+            } else if i + 1 == n {
+                key
+            } else {
+                self.key_at(n - 2)
+            };
             if self.key_at(len - 1) <= new_bound {
                 return None;
             }
         }
         let last = if full { len - 1 } else { len };
-        debug_assert!(i <= last, "a full run drops a row past the new bound, so the slot lies below it");
+        debug_assert!(
+            i <= last,
+            "a full run drops a row past the new bound, so the slot lies below it"
+        );
         unsafe {
             let (v, nl) = self.cells_mut();
             if last > i {
@@ -5954,7 +7101,12 @@ impl TopK {
     /// `insert` under the kernel's own order: `less` (the full comparator over every key: a text
     /// key's bytes on an image tie) places the row, the run keeps its `n` best and no ties — a row
     /// not below the n-th row of a full run does not enter; true when it entered.
-    pub fn insert_by(&mut self, values: &[u64], nulls: &[u8], mut less: impl FnMut((&[u64], &[u8]), (&[u64], &[u8])) -> bool) -> bool {
+    pub fn insert_by(
+        &mut self,
+        values: &[u64],
+        nulls: &[u8],
+        mut less: impl FnMut((&[u64], &[u8]), (&[u64], &[u8])) -> bool,
+    ) -> bool {
         let w = self.natts as usize;
         let (len, n) = (self.len as usize, self.n as usize);
         let full = len >= n;
@@ -6007,7 +7159,12 @@ impl TopK {
     pub fn row_mut(&mut self, i: usize) -> (&mut [u64], &mut [u8]) {
         let w = self.natts as usize;
         let (v, nl) = self.cells_mut();
-        unsafe { (core::slice::from_raw_parts_mut(v.add(i * w), w), core::slice::from_raw_parts_mut(nl.add(i * w), w)) }
+        unsafe {
+            (
+                core::slice::from_raw_parts_mut(v.add(i * w), w),
+                core::slice::from_raw_parts_mut(nl.add(i * w), w),
+            )
+        }
     }
 }
 
@@ -6025,8 +7182,14 @@ mod topk_pairs_tests {
         assert!(ins(t, 1, 7, 3));
         assert_eq!(t.bound(), Some(2), "the first word of row n − 1");
         assert!(!ins(t, 2, 0, 4), "at the bound: does not enter");
-        assert!(ins(t, 1, 1 << 63, 5), "below the largest value: the NULL leaves");
-        assert!(!ins(t, 1, u64::MAX, 6), "equal to row n − 1: does not enter");
+        assert!(
+            ins(t, 1, 1 << 63, 5),
+            "below the largest value: the NULL leaves"
+        );
+        assert!(
+            !ins(t, 1, u64::MAX, 6),
+            "equal to row n − 1: does not enter"
+        );
         assert!(ins(t, 0, 0, 7), "a NULL first");
         let tags: [u64; 3] = core::array::from_fn(|i| t.row(i).0[2]);
         assert_eq!(tags, [7, 3, 5]);
@@ -6035,20 +7198,49 @@ mod topk_pairs_tests {
     #[test]
     fn the_second_key_as_a_pair_and_the_ties_on_the_pair() {
         let mut reg = [0u64; 64];
-        let t = unsafe { TopK::at_cap(reg.as_mut_ptr().cast(), 2, 2, 5, TOPK_SECOND | TOPK_PAIRS | TOPK_SECOND_PAIR) };
+        let t = unsafe {
+            TopK::at_cap(
+                reg.as_mut_ptr().cast(),
+                2,
+                2,
+                5,
+                TOPK_SECOND | TOPK_PAIRS | TOPK_SECOND_PAIR,
+            )
+        };
         assert!(t.insert(&[1, 5, 1, 9, 1], &[0; 5]));
-        assert!(t.insert(&[1, 5, 1, 3, 2], &[0; 5]), "the same key, a smaller second: placed before");
-        assert!(t.insert(&[1, 5, 0, 0, 3], &[0; 5]), "a NULL-first second: enters first, the last leaves");
+        assert!(
+            t.insert(&[1, 5, 1, 3, 2], &[0; 5]),
+            "the same key, a smaller second: placed before"
+        );
+        assert!(
+            t.insert(&[1, 5, 0, 0, 3], &[0; 5]),
+            "a NULL-first second: enters first, the last leaves"
+        );
         let tags: [u64; 2] = core::array::from_fn(|i| t.row(i).0[4]);
         assert_eq!(tags, [3, 2]);
-        assert!(!t.insert(&[1, 5, 1, 3, 4], &[0; 5]), "equal to row n − 1 on both pairs");
+        assert!(
+            !t.insert(&[1, 5, 1, 3, 4], &[0; 5]),
+            "equal to row n − 1 on both pairs"
+        );
         let mut reg2 = [0u64; 64];
         let tt = unsafe { TopK::at_cap(reg2.as_mut_ptr().cast(), 2, 6, 3, TOPK_TIES | TOPK_PAIRS) };
         assert_eq!(tt.insert_ties(&[1, 4, 1], &[0; 3]), Some(true));
         assert_eq!(tt.insert_ties(&[2, 0, 2], &[0; 3]), Some(true));
-        assert_eq!(tt.insert_ties(&[2, 0, 3], &[0; 3]), Some(true), "a tie on the pair (a NULL equals a NULL) stays");
-        assert_eq!(tt.insert_ties(&[1, 5, 4], &[0; 3]), Some(true), "below the bound: the NULLs move past n");
-        assert_eq!(tt.insert_ties(&[2, 0, 5], &[0; 3]), Some(false), "past the bound (1, 5): does not enter");
+        assert_eq!(
+            tt.insert_ties(&[2, 0, 3], &[0; 3]),
+            Some(true),
+            "a tie on the pair (a NULL equals a NULL) stays"
+        );
+        assert_eq!(
+            tt.insert_ties(&[1, 5, 4], &[0; 3]),
+            Some(true),
+            "below the bound: the NULLs move past n"
+        );
+        assert_eq!(
+            tt.insert_ties(&[2, 0, 5], &[0; 3]),
+            Some(false),
+            "past the bound (1, 5): does not enter"
+        );
         assert_eq!(tt.len, 4);
         let tags: [u64; 4] = core::array::from_fn(|i| tt.row(i).0[2]);
         assert_eq!(tags, [1, 4, 2, 3]);
@@ -6078,7 +7270,12 @@ mod num_add_tests {
     }
 
     fn w(v: i128) -> NumWide {
-        [v as u64, (v >> 64) as u64, (v >> 127) as u64, (v >> 127) as u64]
+        [
+            v as u64,
+            (v >> 64) as u64,
+            (v >> 127) as u64,
+            (v >> 127) as u64,
+        ]
     }
 
     /// V4R-38: `num_add256` adds exactly across all four words (carries, signs); past |2^254| a finite sum is the sticky
@@ -6086,14 +7283,34 @@ mod num_add_tests {
     #[test]
     fn num_add256_is_exact_and_sticky() {
         assert_eq!(num_add256(w(5), w(-7)), w(-2));
-        assert_eq!(num_add256(w(i128::MAX), w(1)), [0, 1 << 63, 0, 0], "a carry into the third word");
-        assert_eq!(num_add256(num_add256(w(i128::MAX), w(1)), w(-1)), w(i128::MAX));
-        assert_eq!(num_add256(w(i128::MIN), w(-1)), [u64::MAX, (1 << 63) - 1, u64::MAX, u64::MAX]);
+        assert_eq!(
+            num_add256(w(i128::MAX), w(1)),
+            [0, 1 << 63, 0, 0],
+            "a carry into the third word"
+        );
+        assert_eq!(
+            num_add256(num_add256(w(i128::MAX), w(1)), w(-1)),
+            w(i128::MAX)
+        );
+        assert_eq!(
+            num_add256(w(i128::MIN), w(-1)),
+            [u64::MAX, (1 << 63) - 1, u64::MAX, u64::MAX]
+        );
         let top = [0, 0, 0, (1 << 62) - 1];
         let ovf = [NUM_SP_OVERFLOW as u64, 0, 0, NUM_SENT_HI as u64];
         assert_eq!(num_add256(top, [0, 0, 0, 0]), top);
-        assert_eq!(num_add256(top, [0, 0, 0, 1]), ovf, "2^254 is past the range");
-        assert_eq!(num_add256([0, 0, 0, (-(1i64 << 62)) as u64], [u64::MAX, u64::MAX, u64::MAX, u64::MAX]), ovf);
+        assert_eq!(
+            num_add256(top, [0, 0, 0, 1]),
+            ovf,
+            "2^254 is past the range"
+        );
+        assert_eq!(
+            num_add256(
+                [0, 0, 0, (-(1i64 << 62)) as u64],
+                [u64::MAX, u64::MAX, u64::MAX, u64::MAX]
+            ),
+            ovf
+        );
         assert_eq!(num_add256(ovf, w(12)), ovf);
         let sent = |c: i64| [c as u64, 0, 0, NUM_SENT_HI as u64];
         assert_eq!(num_add256(w(-3), sent(2)), sent(2));
@@ -6101,4 +7318,3 @@ mod num_add_tests {
         assert_eq!(num_add256(ovf, sent(1)), sent(1));
     }
 }
-

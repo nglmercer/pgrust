@@ -15,7 +15,17 @@ use crate::ops::lockrows::rerun::{epq_lazy, verdict, Road};
 pub(crate) fn admit(px: &Px<'_, '_>, k: usize, node: i32, marks: &[RowMark], targets: &[u32]) {
     let lazy = epq_lazy(px, k);
     let init = super::marks::init_members(px);
-    if let Some(why) = verdict(px.gx, k, marks, Road::Write { targets, arena: px.arena, init: &init }, &lazy) {
+    if let Some(why) = verdict(
+        px.gx,
+        k,
+        marks,
+        Road::Write {
+            targets,
+            arena: px.arena,
+            init: &init,
+        },
+        &lazy,
+    ) {
         crate::refuse!(node, Reason::Shape { why });
     }
 }

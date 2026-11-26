@@ -14,7 +14,8 @@ struct Chunk {
 }
 
 /// The shared block's bytes beside the byte list: the strong and weak counts and the `Chunk`.
-const SHARED_BLOCK: u64 = (core::mem::size_of::<(AtomicUsize, AtomicUsize)>() + core::mem::size_of::<Chunk>()) as u64;
+const SHARED_BLOCK: u64 =
+    (core::mem::size_of::<(AtomicUsize, AtomicUsize)>() + core::mem::size_of::<Chunk>()) as u64;
 
 /// A holder of a hand-off chunk: the file's list, or a reader's extent.
 pub(super) struct ChunkRef(Arc<Chunk>);

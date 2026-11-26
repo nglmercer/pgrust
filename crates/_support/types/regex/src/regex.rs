@@ -16,7 +16,10 @@ pub struct RegMatch {
 }
 
 impl RegMatch {
-    pub const UNSET: RegMatch = RegMatch { rm_so: -1, rm_eo: -1, };
+    pub const UNSET: RegMatch = RegMatch {
+        rm_so: -1,
+        rm_eo: -1,
+    };
 }
 
 #[derive(Clone)]

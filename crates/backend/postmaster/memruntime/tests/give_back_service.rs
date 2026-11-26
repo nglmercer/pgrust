@@ -7,23 +7,35 @@
 
 /// The thread of this process named `name`, by its comm.
 fn tid_of(name: &str) -> Option<i32> {
-    std::fs::read_dir("/proc/self/task").ok()?.flatten().find_map(|e| {
-        let comm = std::fs::read_to_string(e.path().join("comm")).ok()?;
-        if comm.trim_end() != name {
-            return None;
-        }
-        let tid = e.file_name();
-        tid.to_str()?.parse().ok()
-    })
+    std::fs::read_dir("/proc/self/task")
+        .ok()?
+        .flatten()
+        .find_map(|e| {
+            let comm = std::fs::read_to_string(e.path().join("comm")).ok()?;
+            if comm.trim_end() != name {
+                return None;
+            }
+            let tid = e.file_name();
+            tid.to_str()?.parse().ok()
+        })
 }
 
 #[test]
 fn the_give_back_service_thread_runs_at_the_spawning_threads_priority() {
-    assert!(!memruntime::service::enabled(), "give_back_service defaults to 0");
+    assert!(
+        !memruntime::service::enabled(),
+        "give_back_service defaults to 0"
+    );
     mempolicy::consts::set(mempolicy::consts::K::GiveBackService, 1);
     assert!(memruntime::service::enabled());
-    assert!(memruntime::release::start(), "the knob starts pg:memrelease");
-    assert!(allocarena::own::service_cap() > 0, "the service's admission is in place");
+    assert!(
+        memruntime::release::start(),
+        "the knob starts pg:memrelease"
+    );
+    assert!(
+        allocarena::own::service_cap() > 0,
+        "the service's admission is in place"
+    );
     let tid = (0..500)
         .find_map(|_| {
             let t = tid_of("pg:memrelease");
@@ -41,6 +53,9 @@ fn the_give_back_service_thread_runs_at_the_spawning_threads_priority() {
             libc::sched_getscheduler(tid),
         )
     };
-    assert_eq!(nice, own_nice, "the service's nice is the spawning thread's");
+    assert_eq!(
+        nice, own_nice,
+        "the service's nice is the spawning thread's"
+    );
     assert_eq!(policy, libc::SCHED_OTHER, "the normal scheduling policy");
 }

@@ -53,17 +53,28 @@ fn parse_args() -> Result<Args, String> {
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
         let mut value = |name: &str| {
-            it.next().ok_or_else(|| format!("{} requires a value", name))
+            it.next()
+                .ok_or_else(|| format!("{} requires a value", name))
         };
         match a.as_str() {
-            "--seed" => args.seed = value("--seed")?.parse().map_err(|e| format!("bad --seed: {}", e))?,
-            "--count" => args.count = value("--count")?.parse().map_err(|e| format!("bad --count: {}", e))?,
+            "--seed" => {
+                args.seed = value("--seed")?
+                    .parse()
+                    .map_err(|e| format!("bad --seed: {}", e))?
+            }
+            "--count" => {
+                args.count = value("--count")?
+                    .parse()
+                    .map_err(|e| format!("bad --count: {}", e))?
+            }
             "--modules" => args.modules = Some(value("--modules")?),
             "--swarm" => args.swarm = true,
             "--weight" => args.weights.apply_spec(&value("--weight")?)?,
             "--print-weights" => args.print_weights = true,
             "--max-depth" => {
-                args.max_depth = value("--max-depth")?.parse().map_err(|e| format!("bad --max-depth: {}", e))?
+                args.max_depth = value("--max-depth")?
+                    .parse()
+                    .map_err(|e| format!("bad --max-depth: {}", e))?
             }
             "--format" => {
                 args.format = value("--format")?;

@@ -18,7 +18,10 @@ pub const PM_STATE_NAMES: [&str; 13] = [
 ];
 
 pub fn pm_state_name(state: u8) -> &'static str {
-    PM_STATE_NAMES.get(state as usize).copied().unwrap_or("unknown")
+    PM_STATE_NAMES
+        .get(state as usize)
+        .copied()
+        .unwrap_or("unknown")
 }
 
 pub const STATUS_SCHEMA: &str = "pgrust.instance_aux.status/v1";

@@ -6,11 +6,22 @@
 //! mixed with an int8 key word and a count slot.
 use gravity_abi::breaker::{KeyKind, RecordLayout, SlotKind, LAYOUT_WORDS, NUM_SENT_HI};
 use gravity_abi::Ctx;
-use gravity_kernels::host_abi::{agg_sort, agg_sort_generic, EmitState, DESC_BYTES, DESC_FORM, DESC_LAYOUT, DESC_NSORT, DESC_SORT, FORM_BOUND_SHIFT, FORM_NULLKEY_SHIFT, FORM_TIES, SK_DESC, SK_NULLS_FIRST, SK_SLOT};
+use gravity_kernels::host_abi::{
+    agg_sort, agg_sort_generic, EmitState, DESC_BYTES, DESC_FORM, DESC_LAYOUT, DESC_NSORT,
+    DESC_SORT, FORM_BOUND_SHIFT, FORM_NULLKEY_SHIFT, FORM_TIES, SK_DESC, SK_NULLS_FIRST, SK_SLOT,
+};
 
 /// Keys: an int8 key (word 0), the NULL-flags word (word 1: its high bits the record's index, so the key rows are unique).
 /// Slots: 0 sum(numeric) (`SumNum`), 1 a wide sum(numeric) (`SumNumWide`), 2 sum(int8) (`SumI128`), 3 count.
-const LAYOUT: RecordLayout = RecordLayout::new(&[KeyKind::I64, KeyKind::I64], &[SlotKind::SumNum, SlotKind::SumNumWide, SlotKind::SumI128, SlotKind::Count]);
+const LAYOUT: RecordLayout = RecordLayout::new(
+    &[KeyKind::I64, KeyKind::I64],
+    &[
+        SlotKind::SumNum,
+        SlotKind::SumNumWide,
+        SlotKind::SumI128,
+        SlotKind::Count,
+    ],
+);
 
 struct Rng(u64);
 impl Rng {
@@ -29,13 +40,28 @@ impl Rng {
 type Sum = Result<i128, u64>;
 
 fn pick(rng: &mut Rng, big: bool) -> Sum {
-    let small = [-7i128, -1, 0, 0, 3, 3, 1 << 40, -(1 << 61), (1 << 62) - 1, -(1 << 62)];
+    let small = [
+        -7i128,
+        -1,
+        0,
+        0,
+        3,
+        3,
+        1 << 40,
+        -(1 << 61),
+        (1 << 62) - 1,
+        -(1 << 62),
+    ];
     match rng.below(14) {
         0 => Err(1),
         1 => Err(2),
         2 => Err(3),
         3 => Err(4),
-        4 if big => Ok(if rng.below(2) == 0 { 1 << 62 } else { -(1i128 << 100) }),
+        4 if big => Ok(if rng.below(2) == 0 {
+            1 << 62
+        } else {
+            -(1i128 << 100)
+        }),
         _ => Ok(small[rng.below(small.len() as u64) as usize]),
     }
 }
@@ -66,7 +92,10 @@ fn records(rng: &mut Rng, m: usize, big: bool) -> Vec<Vec<u64>> {
             [r[slot(2)], r[slot(2) + 1]] = [c as u64, (c as u128 >> 64) as u64];
             r[slot(3)] = rng.below(3);
             // a NULL sum in about one record of six per slot (the count is never NULL)
-            let bits = (0..3).fold(0b1000u8, |b, j| if rng.below(6) == 0 { b } else { b | 1 << j });
+            let bits = (0..3).fold(
+                0b1000u8,
+                |b, j| if rng.below(6) == 0 { b } else { b | 1 << j },
+            );
             set_valid(&mut r, bits);
             r
         })
@@ -81,34 +110,61 @@ fn set_valid(r: &mut [u64], bits: u8) {
 }
 
 /// The records' indexes in the order `agg_sort` (or the generic seam) leaves them, and the call's return.
-fn sorted(recs: &mut [Vec<u64>], words: &[u64], bound: Option<usize>, generic: bool, ties: bool) -> (Vec<usize>, i64) {
+fn sorted(
+    recs: &mut [Vec<u64>],
+    words: &[u64],
+    bound: Option<usize>,
+    generic: bool,
+    ties: bool,
+) -> (Vec<usize>, i64) {
     let mut ptrs: Vec<*const u8> = recs.iter_mut().map(|r| r.as_ptr() as *const u8).collect();
     let all: Vec<*const u8> = ptrs.clone();
     let m = ptrs.len();
-    let mut st = EmitState { ptrs: ptrs.as_mut_ptr(), len: m as u64, kept: m as u64 };
+    let mut st = EmitState {
+        ptrs: ptrs.as_mut_ptr(),
+        len: m as u64,
+        kept: m as u64,
+    };
     let mut desc = vec![0u64; DESC_BYTES as usize / 8];
     let lw: [u64; LAYOUT_WORDS] = LAYOUT.words();
     desc[DESC_LAYOUT / 8..DESC_LAYOUT / 8 + LAYOUT_WORDS].copy_from_slice(&lw);
-    desc[DESC_FORM / 8] = 2 << FORM_NULLKEY_SHIFT | bound.map_or(0, |n| (n as u64 + 1) << FORM_BOUND_SHIFT) | if ties { FORM_TIES } else { 0 };
+    desc[DESC_FORM / 8] = 2 << FORM_NULLKEY_SHIFT
+        | bound.map_or(0, |n| (n as u64 + 1) << FORM_BOUND_SHIFT)
+        | if ties { FORM_TIES } else { 0 };
     desc[DESC_NSORT / 8] = words.len() as u64;
     desc[DESC_SORT / 8..DESC_SORT / 8 + words.len()].copy_from_slice(words);
     // SAFETY: a ctx is plain words; zero is its closed state (no text word reads a site).
     let mut ctx: Ctx = unsafe { core::mem::zeroed() };
-    let (stp, dp) = (&mut st as *mut EmitState as *mut u8, desc.as_ptr() as *const u8);
+    let (stp, dp) = (
+        &mut st as *mut EmitState as *mut u8,
+        desc.as_ptr() as *const u8,
+    );
     // SAFETY: `st` holds `m` live records of `LAYOUT`, `desc` a descriptor of it.
-    let r = unsafe { if generic { agg_sort_generic(&mut ctx, stp, dp) } else { agg_sort(&mut ctx as *mut _ as u64, stp as u64, dp as u64) } };
-    (ptrs.iter().map(|p| all.iter().position(|q| q == p).expect("a record")).collect(), r)
+    let r = unsafe {
+        if generic {
+            agg_sort_generic(&mut ctx, stp, dp)
+        } else {
+            agg_sort(&mut ctx as *mut _ as u64, stp as u64, dp as u64)
+        }
+    };
+    (
+        ptrs.iter()
+            .map(|p| all.iter().position(|q| q == p).expect("a record"))
+            .collect(),
+        r,
+    )
 }
 
 fn word(rng: &mut Rng) -> u64 {
     let base = match rng.below(6) {
-        0 | 1 => SK_SLOT,     // sum(numeric)
-        2 => SK_SLOT | 1,     // the wide sum
-        3 => SK_SLOT | 2,     // sum(int8)
-        4 => SK_SLOT | 3,     // count
-        _ => 0,               // the int8 key
+        0 | 1 => SK_SLOT, // sum(numeric)
+        2 => SK_SLOT | 1, // the wide sum
+        3 => SK_SLOT | 2, // sum(int8)
+        4 => SK_SLOT | 3, // count
+        _ => 0,           // the int8 key
     };
-    base | if rng.below(2) == 0 { SK_DESC } else { 0 } | if rng.below(2) == 0 { SK_NULLS_FIRST } else { 0 }
+    base | if rng.below(2) == 0 { SK_DESC } else { 0 }
+        | if rng.below(2) == 0 { SK_NULLS_FIRST } else { 0 }
 }
 
 #[test]
@@ -128,17 +184,28 @@ fn numeric_sum_rows_order_as_the_comparator() {
         for n in [0, 1, 2, m / 2, m.saturating_sub(1), m, m + 3] {
             let cut = sorted(&mut recs, &words, Some(n), false, false).0;
             let k = n.min(m);
-            assert_eq!(cut[..k], want[..k], "case {case}: bound {n}, words {words:x?}");
+            assert_eq!(
+                cut[..k],
+                want[..k],
+                "case {case}: bound {n}, words {words:x?}"
+            );
             let (mut rest, mut rest_want) = (cut[k..].to_vec(), want[k..].to_vec());
             rest.sort_unstable();
             rest_want.sort_unstable();
-            assert_eq!(rest, rest_want, "case {case}: bound {n}: the records past the cut are the rest");
+            assert_eq!(
+                rest, rest_want,
+                "case {case}: bound {n}: the records past the cut are the rest"
+            );
             if n > 0 && n <= m {
                 // WITH TIES: the lead it returns is the whole sort's first records
                 let (lead, k) = sorted(&mut recs, &words, Some(n), false, true);
                 let k = k as usize;
                 assert!(k >= n && k <= m, "case {case}: ties bound {n}: lead {k}");
-                assert_eq!(lead[..k], want[..k], "case {case}: ties bound {n}, words {words:x?}");
+                assert_eq!(
+                    lead[..k],
+                    want[..k],
+                    "case {case}: ties bound {n}, words {words:x?}"
+                );
             }
         }
     }
@@ -161,11 +228,29 @@ fn numeric_sum_rows_are_numeric_cmp_order() {
         set_valid(&mut r, if s.is_some() { 0b1111 } else { 0b1110 });
         r
     };
-    let input = [Some(Err(1)), Some(Ok(5)), None, Some(Err(3)), Some(Ok(-(1i128 << 61))), Some(Err(4)), Some(Err(2)), Some(Ok(0))];
+    let input = [
+        Some(Err(1)),
+        Some(Ok(5)),
+        None,
+        Some(Err(3)),
+        Some(Ok(-(1i128 << 61))),
+        Some(Err(4)),
+        Some(Err(2)),
+        Some(Ok(0)),
+    ];
     let mut recs: Vec<Vec<u64>> = input.iter().enumerate().map(|(i, &s)| rec(i, s)).collect();
     let by = |recs: &mut Vec<Vec<u64>>, w: u64| sorted(recs, &[w], None, false, false).0;
     assert_eq!(by(&mut recs, SK_SLOT), vec![5, 3, 4, 7, 1, 6, 0, 2]);
-    assert_eq!(by(&mut recs, SK_SLOT | SK_NULLS_FIRST), vec![5, 2, 3, 4, 7, 1, 6, 0]);
-    assert_eq!(by(&mut recs, SK_SLOT | SK_DESC), vec![5, 0, 6, 1, 7, 4, 3, 2]);
-    assert_eq!(by(&mut recs, SK_SLOT | SK_DESC | SK_NULLS_FIRST), vec![5, 2, 0, 6, 1, 7, 4, 3]);
+    assert_eq!(
+        by(&mut recs, SK_SLOT | SK_NULLS_FIRST),
+        vec![5, 2, 3, 4, 7, 1, 6, 0]
+    );
+    assert_eq!(
+        by(&mut recs, SK_SLOT | SK_DESC),
+        vec![5, 0, 6, 1, 7, 4, 3, 2]
+    );
+    assert_eq!(
+        by(&mut recs, SK_SLOT | SK_DESC | SK_NULLS_FIRST),
+        vec![5, 2, 0, 6, 1, 7, 4, 3]
+    );
 }

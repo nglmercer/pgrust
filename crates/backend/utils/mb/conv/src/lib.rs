@@ -670,7 +670,10 @@ impl ConvArgs {
 }
 
 // utf8_and_iso8859_1.c: LATIN1 is algorithmic (Unicode 0x80..=0xFF), no map.
-pub fn fc_iso8859_1_to_utf8(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
+pub fn fc_iso8859_1_to_utf8(
+    _flinfo: Option<&mut FmgrInfo>,
+    fcinfo: &mut Fcinfo,
+) -> PgResult<Datum> {
     let a = unsafe { ConvArgs::from(fcinfo) };
     check_encoding_conversion_args(a.src_encoding, a.dest_encoding, a.len, PG_LATIN1, PG_UTF8)?;
     let src = a.src();
@@ -699,7 +702,10 @@ pub fn fc_iso8859_1_to_utf8(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo)
     Ok(Datum::from_i32(pos as i32))
 }
 
-pub fn fc_utf8_to_iso8859_1(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
+pub fn fc_utf8_to_iso8859_1(
+    _flinfo: Option<&mut FmgrInfo>,
+    fcinfo: &mut Fcinfo,
+) -> PgResult<Datum> {
     let a = unsafe { ConvArgs::from(fcinfo) };
     check_encoding_conversion_args(a.src_encoding, a.dest_encoding, a.len, PG_UTF8, PG_LATIN1)?;
     let src = a.src();
@@ -874,7 +880,17 @@ pub fn fc_win_to_utf8(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> Pg
     let a = unsafe { ConvArgs::from(fcinfo) };
     check_encoding_conversion_args(a.src_encoding, a.dest_encoding, a.len, -1, PG_UTF8)?;
     let (to_utf8, _) = family_maps(a.src_encoding, &WIN_FAMILY, "WIN", win_maps)?;
-    let n = unsafe { LocalToUtf(a.src(), a.dest, to_utf8, &[], None, a.src_encoding, a.no_error)? };
+    let n = unsafe {
+        LocalToUtf(
+            a.src(),
+            a.dest,
+            to_utf8,
+            &[],
+            None,
+            a.src_encoding,
+            a.no_error,
+        )?
+    };
     Ok(Datum::from_i32(n))
 }
 
@@ -882,7 +898,17 @@ pub fn fc_utf8_to_win(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> Pg
     let a = unsafe { ConvArgs::from(fcinfo) };
     check_encoding_conversion_args(a.src_encoding, a.dest_encoding, a.len, PG_UTF8, -1)?;
     let (_, from_utf8) = family_maps(a.dest_encoding, &WIN_FAMILY, "WIN", win_maps)?;
-    let n = unsafe { UtfToLocal(a.src(), a.dest, from_utf8, &[], None, a.dest_encoding, a.no_error)? };
+    let n = unsafe {
+        UtfToLocal(
+            a.src(),
+            a.dest,
+            from_utf8,
+            &[],
+            None,
+            a.dest_encoding,
+            a.no_error,
+        )?
+    };
     Ok(Datum::from_i32(n))
 }
 
@@ -890,7 +916,17 @@ pub fn fc_iso8859_to_utf8(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -
     let a = unsafe { ConvArgs::from(fcinfo) };
     check_encoding_conversion_args(a.src_encoding, a.dest_encoding, a.len, -1, PG_UTF8)?;
     let (to_utf8, _) = family_maps(a.src_encoding, &ISO8859_FAMILY, "ISO 8859", iso8859_maps)?;
-    let n = unsafe { LocalToUtf(a.src(), a.dest, to_utf8, &[], None, a.src_encoding, a.no_error)? };
+    let n = unsafe {
+        LocalToUtf(
+            a.src(),
+            a.dest,
+            to_utf8,
+            &[],
+            None,
+            a.src_encoding,
+            a.no_error,
+        )?
+    };
     Ok(Datum::from_i32(n))
 }
 
@@ -898,7 +934,17 @@ pub fn fc_utf8_to_iso8859(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -
     let a = unsafe { ConvArgs::from(fcinfo) };
     check_encoding_conversion_args(a.src_encoding, a.dest_encoding, a.len, PG_UTF8, -1)?;
     let (_, from_utf8) = family_maps(a.dest_encoding, &ISO8859_FAMILY, "ISO 8859", iso8859_maps)?;
-    let n = unsafe { UtfToLocal(a.src(), a.dest, from_utf8, &[], None, a.dest_encoding, a.no_error)? };
+    let n = unsafe {
+        UtfToLocal(
+            a.src(),
+            a.dest,
+            from_utf8,
+            &[],
+            None,
+            a.dest_encoding,
+            a.no_error,
+        )?
+    };
     Ok(Datum::from_i32(n))
 }
 

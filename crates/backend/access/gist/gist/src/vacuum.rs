@@ -105,8 +105,7 @@ pub fn gistvacuumcleanup<'mcx>(
 // created/rewritten in the current subtransaction — no other backend can be
 // extending it, so the extension lock can be skipped.
 fn relation_is_local(rel: &::types_rel::RelationData<'_>) -> bool {
-    rel.rd_islocaltemp
-        || rel.rd_createSubid.get() != ::types_core::InvalidSubTransactionId
+    rel.rd_islocaltemp || rel.rd_createSubid.get() != ::types_core::InvalidSubTransactionId
 }
 
 /// gistvacuumscan: physical-order scan; the relation length is rechecked so
@@ -421,10 +420,7 @@ fn gistdeletepage<'mcx>(
         }
 
         let parent_page = parent.page();
-        if parent_page.is_new()
-            || GistPageIsDeleted(&parent_page)
-            || GistPageIsLeaf(&parent_page)
-        {
+        if parent_page.is_new() || GistPageIsDeleted(&parent_page) || GistPageIsLeaf(&parent_page) {
             debug_assert!(false, "internal pages are never deleted");
             return Ok(false);
         }

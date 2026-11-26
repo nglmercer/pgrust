@@ -82,7 +82,8 @@ impl Drop for Entry {
 }
 
 /// C8: the owner of a filed entry's context bytes.
-pub(crate) const PROGRAM_CACHES: memledger::Owner = memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::ProgramCaches));
+pub(crate) const PROGRAM_CACHES: memledger::Owner =
+    memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::ProgramCaches));
 
 /// D4762: the program caches' home. A compile with no backend on its thread (the tier-0 compile pool, `promote::run`; a
 /// server-start worker) runs in it: the module's entry, its context headers, the compile's transients and the codes are
@@ -149,14 +150,19 @@ pub fn take_interrupt() -> PgResult<bool> {
 
 /// The crate's error for a compile that could not finish (tpde's own `invalid`'s class, 22023): a refusal at admission.
 fn backend_error(message: String) -> Box<PgError> {
-    PgError::error(message).with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE).into()
+    PgError::error(message)
+        .with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE)
+        .into()
 }
 
 /// F1 (D296's census): the compile under a catch. The code generator's asserts guard properties `gravity_ir::verify`
 /// leaves out (SSA dominance, an edge into a function's entry block), so a lowerer bug can reach them; a panic there is
 /// the compile's `Err` (the admission refuses "backend", the fallback takes the statement), never an unwind through the
 /// executor. A Postgres error or a thread exit passes through unchanged; the root drops either way, after the compile.
-fn compile_caught(mut root: SendRoot, compile: impl FnOnce(&'static MemoryContext) -> PgResult<gravity_tpde::Compiled<'static>>) -> PgResult<(gravity_tpde::Compiled<'static>, SendRoot)> {
+fn compile_caught(
+    mut root: SendRoot,
+    compile: impl FnOnce(&'static MemoryContext) -> PgResult<gravity_tpde::Compiled<'static>>,
+) -> PgResult<(gravity_tpde::Compiled<'static>, SendRoot)> {
     let ctx = raw::compile_context(&mut root);
     match gravity_abi::status::unwind::catch(|| gravity_deps::catalog_free(|| compile(ctx))) {
         Ok(Ok(c)) => Ok((c, root)),
@@ -173,8 +179,14 @@ fn compile_caught(mut root: SendRoot, compile: impl FnOnce(&'static MemoryContex
             if p.is::<gravity_tpde::Interrupted>() {
                 return Err(backend_error(String::from(INTERRUPTED))); // alloc: Cold
             }
-            let msg = p.downcast_ref::<String>().map(String::as_str).or_else(|| p.downcast_ref::<&str>().copied()).unwrap_or("(non-string payload)");
-            Err(backend_error(format!("gravity backend: the code generator panicked: {msg}"))) // alloc: Cold
+            let msg = p
+                .downcast_ref::<String>()
+                .map(String::as_str)
+                .or_else(|| p.downcast_ref::<&str>().copied())
+                .unwrap_or("(non-string payload)");
+            Err(backend_error(format!(
+                "gravity backend: the code generator panicked: {msg}"
+            ))) // alloc: Cold
         }
     }
 }
@@ -230,14 +242,30 @@ struct State {
 
 impl State {
     fn new(budget: usize) -> State {
-        State { map: HashMap::new(), sides: HashMap::new(), bytes: 0, budget, inflight: HashMap::new() }
+        State {
+            map: HashMap::new(),
+            sides: HashMap::new(),
+            bytes: 0,
+            budget,
+            inflight: HashMap::new(),
+        }
     }
 
     /// The least recently used module or staged IR out of the cache, its bytes off `bytes`: never `keep` (the module just
     /// filed) or `keep_side`; with `idle`, only one nothing but the cache holds.
     fn evict(&mut self, keep: Option<CodeKey>, keep_side: Option<u64>, idle: bool) -> Option<Gone> {
-        let module = self.map.iter().filter(|(k, e)| Some(**k) != keep && (!idle || Arc::strong_count(e) == 1)).min_by_key(|(_, e)| e.last_use.load(Ordering::Relaxed)).map(|(k, e)| (*k, e.last_use.load(Ordering::Relaxed)));
-        let side = self.sides.iter().filter(|(id, x)| Some(**id) != keep_side && (!idle || Arc::strong_count(x) == 1)).min_by_key(|(_, x)| x.last_use.load(Ordering::Relaxed)).map(|(id, x)| (*id, x.last_use.load(Ordering::Relaxed)));
+        let module = self
+            .map
+            .iter()
+            .filter(|(k, e)| Some(**k) != keep && (!idle || Arc::strong_count(e) == 1))
+            .min_by_key(|(_, e)| e.last_use.load(Ordering::Relaxed))
+            .map(|(k, e)| (*k, e.last_use.load(Ordering::Relaxed)));
+        let side = self
+            .sides
+            .iter()
+            .filter(|(id, x)| Some(**id) != keep_side && (!idle || Arc::strong_count(x) == 1))
+            .min_by_key(|(_, x)| x.last_use.load(Ordering::Relaxed))
+            .map(|(id, x)| (*id, x.last_use.load(Ordering::Relaxed)));
         let gone = match (module, side) {
             (Some((k, a)), Some((_, b))) if a <= b => Gone::Module(self.map.remove(&k)?),
             (Some((k, _)), None) => Gone::Module(self.map.remove(&k)?),
@@ -300,7 +328,8 @@ impl SideRef {
             SideRef::Filed(_, w) => w.upgrade()?,
             SideRef::Kept(x) => x.clone(),
         };
-        x.last_use.store(CLOCK.fetch_add(1, Ordering::Relaxed), Ordering::Relaxed);
+        x.last_use
+            .store(CLOCK.fetch_add(1, Ordering::Relaxed), Ordering::Relaxed);
         Some(x)
     }
 
@@ -324,9 +353,20 @@ static SIDE_IDS: AtomicU64 = AtomicU64::new(0);
 /// `ir` (owned by the program caches) filed as a staged function's IR, evicting to the budget as a module's filing does;
 /// with the cache off, kept by its side alone.
 pub fn file_side(ir: Program) -> SideRef {
-    let own = memledger::charge::Charge::open(PROGRAM_CACHES, memledger::charge::release_of(PROGRAM_CACHES), memledger::Kind::Region, memledger::charge::Door::Heap, side_own_bytes());
+    let own = memledger::charge::Charge::open(
+        PROGRAM_CACHES,
+        memledger::charge::release_of(PROGRAM_CACHES),
+        memledger::Kind::Region,
+        memledger::charge::Door::Heap,
+        side_own_bytes(),
+    );
     let bytes = ir.bytes() + side_own_bytes() as usize;
-    let x = Arc::new(SideIr { _own: own, ir, bytes, last_use: AtomicU64::new(CLOCK.fetch_add(1, Ordering::Relaxed)) }); // alloc: Program charged PROGRAM_CACHES (SideIr::own)
+    let x = Arc::new(SideIr {
+        _own: own,
+        ir,
+        bytes,
+        last_use: AtomicU64::new(CLOCK.fetch_add(1, Ordering::Relaxed)),
+    }); // alloc: Program charged PROGRAM_CACHES (SideIr::own)
     let mut g = CACHE.write().unwrap_or_else(|e| e.into_inner());
     let s = g.get_or_insert_with(|| State::new(budget_bytes())); // alloc: Cold
     if s.budget == 0 {
@@ -373,7 +413,11 @@ impl Flight {
             if gravity_tpde::interrupt_pending() {
                 return Err(backend_error(String::from(INTERRUPTED))); // alloc: Cold
             }
-            d = self.cv.wait_timeout(d, WAIT_SLICE).map(|(g, _)| g).unwrap_or_else(|e| e.into_inner().0);
+            d = self
+                .cv
+                .wait_timeout(d, WAIT_SLICE)
+                .map(|(g, _)| g)
+                .unwrap_or_else(|e| e.into_inner().0);
         }
         Ok(())
     }
@@ -430,13 +474,16 @@ static BUDGET: OnceLock<usize> = OnceLock::new();
 /// when it is installed (the fp cache's precedent), else the cost home's share of the machine's RAM, never under the
 /// reference box's (`code_cache_bytes`); 0 = the cache is off (every call compiles, nothing is kept: the uncached arm of a measurement).
 pub fn budget_bytes() -> usize {
-    *BUDGET.get_or_init(|| match gravity_driver::env::guc_num::<u64>(CODE_CACHE_GUC) {
-        Some(mb) => (mb as usize) << 20,
-        None => {
-            use gravity_driver::machine::{profile, REFERENCE_RAM};
-            gravity_program::cost::runtime::code_cache_bytes(profile().ram_bytes, REFERENCE_RAM) as usize
-        }
-    })
+    *BUDGET.get_or_init(
+        || match gravity_driver::env::guc_num::<u64>(CODE_CACHE_GUC) {
+            Some(mb) => (mb as usize) << 20,
+            None => {
+                use gravity_driver::machine::{profile, REFERENCE_RAM};
+                gravity_program::cost::runtime::code_cache_bytes(profile().ram_bytes, REFERENCE_RAM)
+                    as usize
+            }
+        },
+    )
 }
 
 /// Set the budget for this process (tests; before or after entries exist — the next insert evicts to it).
@@ -449,7 +496,8 @@ pub fn set_budget_bytes(bytes: usize) {
 }
 
 fn touch(e: &Entry) {
-    e.last_use.store(CLOCK.fetch_add(1, Ordering::Relaxed), Ordering::Relaxed);
+    e.last_use
+        .store(CLOCK.fetch_add(1, Ordering::Relaxed), Ordering::Relaxed);
     if e.doomed.load(Ordering::Relaxed) {
         e.doomed.store(false, Ordering::Relaxed);
     }
@@ -472,7 +520,16 @@ fn hit(key: CodeKey, entries: &[Func]) -> Option<(Vec<Code>, Outcome)> {
     let e = g.as_ref().and_then(|s| s.map.get(&key))?;
     touch(e);
     HITS.fetch_add(1, Ordering::Relaxed);
-    Some((codes_of(e, entries), Outcome { lookup: Lookup::Hit, key, bytes: e.bytes, timing: CompileTiming::default(), ns: 0 }))
+    Some((
+        codes_of(e, entries),
+        Outcome {
+            lookup: Lookup::Hit,
+            key,
+            bytes: e.bytes,
+            timing: CompileTiming::default(),
+            ns: 0,
+        },
+    ))
 }
 
 /// `Code::mapped` for each of `program`'s `entries` from the cache, all from one mapping: the hit path is the key (`key_of`)
@@ -483,14 +540,23 @@ fn hit(key: CodeKey, entries: &[Func]) -> Option<(Vec<Code>, Outcome)> {
 /// A miss whose key another compile is running for (a backend's, or tier 0's compile pool's, `crate::promote`) waits for
 /// it and takes its module, so one key compiles once at a time; when that compile failed, the waiter compiles itself. A
 /// waiter with an interrupt pending leaves with `INTERRUPTED` (D3811, `Flight::wait`).
-pub fn get_or_compile_all(program: &Program, entries: &[Func], compile: impl FnOnce(&'static MemoryContext) -> PgResult<gravity_tpde::Compiled<'static>>) -> PgResult<(Vec<Code>, Outcome)> {
+pub fn get_or_compile_all(
+    program: &Program,
+    entries: &[Func],
+    compile: impl FnOnce(&'static MemoryContext) -> PgResult<gravity_tpde::Compiled<'static>>,
+) -> PgResult<(Vec<Code>, Outcome)> {
     get_or_compile_keyed(key_of(program), program, entries, compile)
 }
 
 /// `get_or_compile_all` under `key`, the program's `key_of` taken once by the caller: a tier-0 program's promotions
 /// (lib.rs `tiered_codes`) hash the module once for all its entries, not once per entry (D3696: n entries each hashing
 /// the whole module made a deep set-operation chain's compile quadratic).
-pub fn get_or_compile_keyed(key: CodeKey, program: &Program, entries: &[Func], compile: impl FnOnce(&'static MemoryContext) -> PgResult<gravity_tpde::Compiled<'static>>) -> PgResult<(Vec<Code>, Outcome)> {
+pub fn get_or_compile_keyed(
+    key: CodeKey,
+    program: &Program,
+    entries: &[Func],
+    compile: impl FnOnce(&'static MemoryContext) -> PgResult<gravity_tpde::Compiled<'static>>,
+) -> PgResult<(Vec<Code>, Outcome)> {
     let t0 = Instant::now();
     let flight = loop {
         if let Some((codes, mut out)) = hit(key, entries) {
@@ -510,7 +576,9 @@ pub fn get_or_compile_keyed(key: CodeKey, program: &Program, entries: &[Func], c
         None => compile_and_file(program, entries, key, compile),
         Some(f) => {
             // the flight lands on every exit, an unwind's included (a resource error the compile throws as an ereport)
-            let made = gravity_abi::status::unwind::catch(|| compile_and_file(program, entries, key, compile));
+            let made = gravity_abi::status::unwind::catch(|| {
+                compile_and_file(program, entries, key, compile)
+            });
             land(key, &f);
             made.unwrap_or_else(|p| std::panic::resume_unwind(p))
         }
@@ -523,16 +591,36 @@ pub fn get_or_compile_keyed(key: CodeKey, program: &Program, entries: &[Func], c
 
 /// The miss half of `get_or_compile_all`: compile `program` into a fresh context and file it under `key`.
 /// `ns` 0: the caller times it.
-fn compile_and_file(program: &Program, entries: &[Func], key: CodeKey, compile: impl FnOnce(&'static MemoryContext) -> PgResult<gravity_tpde::Compiled<'static>>) -> PgResult<(Vec<Code>, Outcome)> {
+fn compile_and_file(
+    program: &Program,
+    entries: &[Func],
+    key: CodeKey,
+    compile: impl FnOnce(&'static MemoryContext) -> PgResult<gravity_tpde::Compiled<'static>>,
+) -> PgResult<(Vec<Code>, Outcome)> {
     // D4762: no backend here: the whole build is the program caches' (`home`); a backend's stays its statement's until the
     // filing adopts the root
-    let entered = if birth_owner() == PROGRAM_CACHES { home().enter() } else { None };
+    let entered = if birth_owner() == PROGRAM_CACHES {
+        home().enter()
+    } else {
+        None
+    };
     let homed = entered.is_some();
     let (compiled, root) = compile_caught(new_root(), compile)?;
     crate::dump::on_compile(program, key.0, &compiled);
     let timing = compiled.timing();
     let bytes = compiled.code_bytes();
-    let mut entry = Entry { own: memledger::charge::Charge::NONE, key, bytes, timing, last_use: AtomicU64::new(0), doomed: AtomicBool::new(false), compiled, root, homed, home_exit: memledger::HomeExit::new() };
+    let mut entry = Entry {
+        own: memledger::charge::Charge::NONE,
+        key,
+        bytes,
+        timing,
+        last_use: AtomicU64::new(0),
+        doomed: AtomicBool::new(false),
+        compiled,
+        root,
+        homed,
+        home_exit: memledger::HomeExit::new(),
+    };
     let mut g = CACHE.write().unwrap_or_else(|e| e.into_inner());
     let s = g.get_or_insert_with(|| State::new(budget_bytes())); // alloc: Cold
     let file = s.budget != 0;
@@ -540,7 +628,13 @@ fn compile_and_file(program: &Program, entries: &[Func], key: CodeKey, compile: 
         if let Some(e) = s.map.get(&key) {
             touch(e);
             LOST.fetch_add(1, Ordering::Relaxed);
-            let out = Outcome { lookup: Lookup::Lost, key, bytes: e.bytes, timing, ns: 0 };
+            let out = Outcome {
+                lookup: Lookup::Lost,
+                key,
+                bytes: e.bytes,
+                timing,
+                ns: 0,
+            };
             let codes = codes_of(e, entries);
             drop(g);
             drop(entry);
@@ -549,7 +643,13 @@ fn compile_and_file(program: &Program, entries: &[Func], key: CodeKey, compile: 
         // C2 (planprod P2): the filed module's root is the program caches' from here, by construction (its live blocks
         // move onto their row and leave it at the drop), adopted before the entry is shared
         entry.root.set_owner(PROGRAM_CACHES);
-        entry.own = memledger::charge::Charge::open(PROGRAM_CACHES, memledger::charge::release_of(PROGRAM_CACHES), memledger::Kind::Region, memledger::charge::Door::Heap, own_bytes());
+        entry.own = memledger::charge::Charge::open(
+            PROGRAM_CACHES,
+            memledger::charge::release_of(PROGRAM_CACHES),
+            memledger::Kind::Region,
+            memledger::charge::Door::Heap,
+            own_bytes(),
+        );
     }
     if homed {
         // its Arc block, made here in the home, leaves it with the entry's last field
@@ -560,7 +660,16 @@ fn compile_and_file(program: &Program, entries: &[Func], key: CodeKey, compile: 
     if !file {
         drop(g);
         MISSES.fetch_add(1, Ordering::Relaxed);
-        return Ok((codes_of(&fresh, entries), Outcome { lookup: Lookup::Miss, key, bytes, timing, ns: 0 }));
+        return Ok((
+            codes_of(&fresh, entries),
+            Outcome {
+                lookup: Lookup::Miss,
+                key,
+                bytes,
+                timing,
+                ns: 0,
+            },
+        ));
     }
     touch(&fresh);
     s.bytes += bytes;
@@ -571,14 +680,31 @@ fn compile_and_file(program: &Program, entries: &[Func], key: CodeKey, compile: 
         }
     }
     MISSES.fetch_add(1, Ordering::Relaxed);
-    let out = Outcome { lookup: Lookup::Miss, key, bytes, timing, ns: 0 };
+    let out = Outcome {
+        lookup: Lookup::Miss,
+        key,
+        bytes,
+        timing,
+        ns: 0,
+    };
     Ok((codes_of(&fresh, entries), out))
 }
 
 pub fn stats() -> CodeCacheStats {
     let g = CACHE.read().unwrap_or_else(|e| e.into_inner());
-    let (entries, bytes, budget) = g.as_ref().map_or((0, 0, budget_bytes()), |s| (s.map.len(), s.bytes, s.budget));
-    CodeCacheStats { hits: HITS.load(Ordering::Relaxed), misses: MISSES.load(Ordering::Relaxed), lost: LOST.load(Ordering::Relaxed), waited: WAITED.load(Ordering::Relaxed), evictions: EVICTIONS.load(Ordering::Relaxed), entries, bytes, budget }
+    let (entries, bytes, budget) = g
+        .as_ref()
+        .map_or((0, 0, budget_bytes()), |s| (s.map.len(), s.bytes, s.budget));
+    CodeCacheStats {
+        hits: HITS.load(Ordering::Relaxed),
+        misses: MISSES.load(Ordering::Relaxed),
+        lost: LOST.load(Ordering::Relaxed),
+        waited: WAITED.load(Ordering::Relaxed),
+        evictions: EVICTIONS.load(Ordering::Relaxed),
+        entries,
+        bytes,
+        budget,
+    }
 }
 
 /// D4298 (T4 E2, the memory ladder's R2a tail): evict least-recently-used modules no running code holds (the map's `Arc`
@@ -588,10 +714,14 @@ pub fn stats() -> CodeCacheStats {
 pub fn trim_to(target: usize) -> usize {
     let mut gone = Vec::new(); // alloc: Cold
     {
-        let Ok(mut g) = CACHE.try_write() else { return 0 };
+        let Ok(mut g) = CACHE.try_write() else {
+            return 0;
+        };
         let Some(s) = g.as_mut() else { return 0 };
         while s.bytes > target {
-            let Some(v) = s.evict(None, None, true) else { break };
+            let Some(v) = s.evict(None, None, true) else {
+                break;
+            };
             gone.push(v); // alloc: Cold
         }
     }
@@ -601,8 +731,21 @@ pub fn trim_to(target: usize) -> usize {
 /// D4298: the bytes of the modules running code holds now and of the staged IR a compile reads (never evicted: the
 /// ladder's floor for the cache); a held lock reads as all of the cache in use.
 pub fn in_use_bytes() -> usize {
-    let Ok(g) = CACHE.try_read() else { return usize::MAX };
-    g.as_ref().map_or(0, |s| s.map.values().filter(|e| Arc::strong_count(e) > 1).map(|e| e.bytes).sum::<usize>() + s.sides.values().filter(|x| Arc::strong_count(x) > 1).map(|x| x.bytes).sum::<usize>())
+    let Ok(g) = CACHE.try_read() else {
+        return usize::MAX;
+    };
+    g.as_ref().map_or(0, |s| {
+        s.map
+            .values()
+            .filter(|e| Arc::strong_count(e) > 1)
+            .map(|e| e.bytes)
+            .sum::<usize>()
+            + s.sides
+                .values()
+                .filter(|x| Arc::strong_count(x) > 1)
+                .map(|x| x.bytes)
+                .sum::<usize>()
+    })
 }
 
 /// D4579: marks the modules at `mappings` (`gravity_program::Code::mapping`: a module's address) doomed: the program tier
@@ -661,7 +804,12 @@ pub fn evict_doomed() -> usize {
         let gone = {
             let mut g = CACHE.write().unwrap_or_else(|e| e.into_inner());
             let Some(s) = g.as_mut() else { break };
-            let Some(k) = s.map.iter().find(|(_, e)| e.doomed.load(Ordering::Relaxed) && Arc::strong_count(e) == 1).map(|(k, _)| *k) else {
+            let Some(k) = s
+                .map
+                .iter()
+                .find(|(_, e)| e.doomed.load(Ordering::Relaxed) && Arc::strong_count(e) == 1)
+                .map(|(k, _)| *k)
+            else {
                 // the mark is cleared under the write lock, which `doom_mappings`' read lock excludes
                 if !s.map.values().any(|e| e.doomed.load(Ordering::Relaxed)) {
                     ANY_DOOMED.store(false, Ordering::Relaxed);
@@ -703,7 +851,13 @@ mod tests {
     /// `f(ptr) -> i64 { load i64 [ptr] + c }`, `host` a declared (uncalled) host at `addr`.
     fn program(c: i64, host_addr: usize) -> (Program, Func) {
         let mut pb = ProgramBuilder::new();
-        pb.declare_host("h", &[Type::I64], Some(Type::I64), host_addr, HostFlags::default());
+        pb.declare_host(
+            "h",
+            &[Type::I64],
+            Some(Type::I64),
+            host_addr,
+            HostFlags::default(),
+        );
         let f = pb.declare_func("f", &[Type::Ptr], &[Type::I64]);
         let mut b = pb.define(f);
         let p = b.params()[0];
@@ -754,9 +908,17 @@ mod tests {
         assert_eq!((run(&codes[0], 5), run(&codes[1], 5)), (8, 15));
         let bytes = stats().bytes;
         let (g, o2) = crate::mapped_cached(&p, fs[1]).unwrap();
-        assert_eq!(o2.lookup, Lookup::Hit, "a second entry of the same program is a hit");
+        assert_eq!(
+            o2.lookup,
+            Lookup::Hit,
+            "a second entry of the same program is a hit"
+        );
         assert_eq!(g.entry() as usize, codes[1].entry() as usize, "one mapping");
-        assert_eq!((stats().entries, stats().bytes), (1, bytes), "resident bytes flat per program");
+        assert_eq!(
+            (stats().entries, stats().bytes),
+            (1, bytes),
+            "resident bytes flat per program"
+        );
     }
 
     #[test]
@@ -769,8 +931,16 @@ mod tests {
         set_budget_bytes(o.bytes + o.bytes / 2);
         let (_c1, _) = get(201);
         let (_c2, _) = get(202);
-        assert_eq!(crate::mapped_cached(&p, fs[0]).unwrap().1.lookup, Lookup::Miss, "evicted");
-        assert_eq!((run(&held[0], 1), run(&held[1], 2)), (5, 8), "evicted while held: both entries still run");
+        assert_eq!(
+            crate::mapped_cached(&p, fs[0]).unwrap().1.lookup,
+            Lookup::Miss,
+            "evicted"
+        );
+        assert_eq!(
+            (run(&held[0], 1), run(&held[1], 2)),
+            (5, 8),
+            "evicted while held: both entries still run"
+        );
         drop(held);
         set_budget_bytes(64 << 20);
     }
@@ -807,12 +977,22 @@ mod tests {
             assert!(allocated > 0 && named >= allocated, "the entry's blocks on the program caches' row: named {named}, the root's {allocated}");
         }
         let (total, unattributed) = program_caches_unattributed();
-        assert!(unattributed.abs() <= (16i64 << 20).max(total.abs() / 50), "program caches: account {total}, unattributed {unattributed}");
+        assert!(
+            unattributed.abs() <= (16i64 << 20).max(total.abs() / 50),
+            "program caches: account {total}, unattributed {unattributed}"
+        );
         let (_h, o2) = get(301);
         assert_eq!(o2.lookup, Lookup::Hit);
         set_budget_bytes(0);
         let (_u, o3) = get(302);
-        assert!(CACHE.read().unwrap_or_else(|e| e.into_inner()).as_ref().is_none_or(|s| !s.map.contains_key(&o3.key)), "not filed");
+        assert!(
+            CACHE
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+                .is_none_or(|s| !s.map.contains_key(&o3.key)),
+            "not filed"
+        );
         set_budget_bytes(64 << 20);
     }
 
@@ -829,18 +1009,32 @@ mod tests {
             assert!(a.is_backend(), "a backend slot");
             memledger::bind_backend(4075, 9000 + 4075);
             memledger::statement_begin();
-            let stmt = memledger::Owner::Statement { acct: a, stmt: memledger::running_statement(a) };
+            let stmt = memledger::Owner::Statement {
+                acct: a,
+                stmt: memledger::running_statement(a),
+            };
             set_budget_bytes(0);
             let (code, o) = get(311);
             assert_eq!(o.lookup, Lookup::Miss);
             let named = memledger::charge::owner_ctx(stmt).0;
-            assert!(named > 0, "an entry the cache does not keep is its statement's: {named}");
+            assert!(
+                named > 0,
+                "an entry the cache does not keep is its statement's: {named}"
+            );
             drop(code);
-            assert_eq!(memledger::charge::owner_ctx(stmt).0, 0, "and goes with its code");
+            assert_eq!(
+                memledger::charge::owner_ctx(stmt).0,
+                0,
+                "and goes with its code"
+            );
             set_budget_bytes(64 << 20);
             let (_c, o) = get(312);
             assert_eq!(o.lookup, Lookup::Miss);
-            assert_eq!(memledger::charge::owner_ctx(stmt).0, 0, "a filed entry is the program caches'");
+            assert_eq!(
+                memledger::charge::owner_ctx(stmt).0,
+                0,
+                "a filed entry is the program caches'"
+            );
             memledger::statement_end();
             memledger::unbind_backend();
         })
@@ -933,16 +1127,36 @@ mod tests {
         let one = get(300).1.bytes;
         let (held, _) = get(301);
         let _ = get(302);
-        assert_eq!((stats().entries, in_use_bytes()), (3, one), "one module held by running code");
+        assert_eq!(
+            (stats().entries, in_use_bytes()),
+            (3, one),
+            "one module held by running code"
+        );
         let before = stats().evictions;
-        assert_eq!(trim_to(2 * one), one, "the least recently used module not in use first");
+        assert_eq!(
+            trim_to(2 * one),
+            one,
+            "the least recently used module not in use first"
+        );
         assert_eq!((stats().entries, stats().evictions), (2, before + 1));
-        assert_eq!(get(300).1.lookup, Lookup::Miss, "300 (the oldest, not in use) was evicted");
+        assert_eq!(
+            get(300).1.lookup,
+            Lookup::Miss,
+            "300 (the oldest, not in use) was evicted"
+        );
         let _ = trim_to(0);
-        assert_eq!((stats().entries, stats().bytes), (1, one), "the module in use stays");
+        assert_eq!(
+            (stats().entries, stats().bytes),
+            (1, one),
+            "the module in use stays"
+        );
         assert_eq!(run(&held, 1), 302, "and still runs");
         drop(held);
-        assert_eq!((in_use_bytes(), trim_to(0), stats().entries), (0, one, 0), "once released it goes too");
+        assert_eq!(
+            (in_use_bytes(), trim_to(0), stats().entries),
+            (0, one, 0),
+            "once released it goes too"
+        );
     }
 
     /// D4579: the modules a tier removal names are evicted once nothing holds them: one still held stays doomed until its
@@ -961,16 +1175,28 @@ mod tests {
         assert_eq!(doom_mappings([ma, mb, mc].into_iter()), 3);
         drop((a, b));
         let (c2, again) = get(402);
-        assert_eq!(again.lookup, Lookup::Hit, "402 is wanted again: the hit takes its mark off");
+        assert_eq!(
+            again.lookup,
+            Lookup::Hit,
+            "402 is wanted again: the hit takes its mark off"
+        );
         drop((c, c2));
-        assert_eq!(evict_doomed(), 2 * one, "400 and 401: doomed and no longer held");
+        assert_eq!(
+            evict_doomed(),
+            2 * one,
+            "400 and 401: doomed and no longer held"
+        );
         assert_eq!(stats().entries, 1, "402 stays: a hit after the mark");
         assert_eq!(get(400).1.lookup, Lookup::Miss);
         let (held, _) = get(403);
         assert_eq!(doom_mappings([held.mapping()].into_iter()), 1);
         assert_eq!(evict_doomed(), 0, "a doomed module still held stays");
         drop(held);
-        assert_eq!(evict_doomed(), one, "its holder let go: the next pass takes it");
+        assert_eq!(
+            evict_doomed(),
+            one,
+            "its holder let go: the next pass takes it"
+        );
     }
 
     #[test]
@@ -989,7 +1215,11 @@ mod tests {
         assert!(s.bytes <= s.budget);
         assert_eq!(run(&c0, 1), 101, "evicted while held: still runs");
         assert_eq!(get(100).1.lookup, Lookup::Miss, "evicted");
-        assert_eq!(get(102).1.lookup, Lookup::Hit, "the most recently used survived");
+        assert_eq!(
+            get(102).1.lookup,
+            Lookup::Hit,
+            "the most recently used survived"
+        );
         set_budget_bytes(64 << 20);
     }
 
@@ -1033,10 +1263,18 @@ mod tests {
         set_budget_bytes(64 << 20);
         let (p, f) = program(3, 0x1000);
         let _ = crate::mapped_cached(&p, f).unwrap();
-        let mut ns: Vec<u64> = (0..2000).map(|_| crate::mapped_cached(&p, f).unwrap().1.ns).collect();
+        let mut ns: Vec<u64> = (0..2000)
+            .map(|_| crate::mapped_cached(&p, f).unwrap().1.ns)
+            .collect();
         ns.sort_unstable();
-        let (p50, p90, p99) = (ns[ns.len() / 2], ns[ns.len() * 9 / 10], ns[ns.len() * 99 / 100]);
-        println!("code cache hit (1 function, 4 instructions): p50 {p50} ns, p90 {p90} ns, p99 {p99} ns");
+        let (p50, p90, p99) = (
+            ns[ns.len() / 2],
+            ns[ns.len() * 9 / 10],
+            ns[ns.len() * 99 / 100],
+        );
+        println!(
+            "code cache hit (1 function, 4 instructions): p50 {p50} ns, p90 {p90} ns, p99 {p99} ns"
+        );
         if !cfg!(debug_assertions) {
             assert!(p90 <= 5_000, "p90 {p90} ns");
         }

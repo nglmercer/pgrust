@@ -252,7 +252,11 @@ mod imp {
         let sq_len_raw = p.sq_off.array as usize + p.sq_entries as usize * 4;
         let cq_len = p.cq_off.cqes as usize + p.cq_entries as usize * std::mem::size_of::<Cqe>();
         let single = p.features & IORING_FEAT_SINGLE_MMAP != 0;
-        let sq_len = if single { sq_len_raw.max(cq_len) } else { sq_len_raw };
+        let sq_len = if single {
+            sq_len_raw.max(cq_len)
+        } else {
+            sq_len_raw
+        };
         let map = |len: usize, off: i64| -> *mut u8 {
             // SAFETY: mapping the ring fd regions the kernel defined in `p`.
             let m = unsafe {
@@ -265,7 +269,11 @@ mod imp {
                     off,
                 )
             };
-            if m == libc::MAP_FAILED { std::ptr::null_mut() } else { m.cast() }
+            if m == libc::MAP_FAILED {
+                std::ptr::null_mut()
+            } else {
+                m.cast()
+            }
         };
         let sq_ptr = map(sq_len, IORING_OFF_SQ_RING);
         if sq_ptr.is_null() {
@@ -273,7 +281,11 @@ mod imp {
             close_fd(fd);
             return None;
         }
-        let cq_ptr = if single { sq_ptr } else { map(cq_len, IORING_OFF_CQ_RING) };
+        let cq_ptr = if single {
+            sq_ptr
+        } else {
+            map(cq_len, IORING_OFF_CQ_RING)
+        };
         let sqes_len = p.sq_entries as usize * std::mem::size_of::<Sqe>();
         let sqes = map(sqes_len, IORING_OFF_SQES);
         if cq_ptr.is_null() || sqes.is_null() {
@@ -285,10 +297,19 @@ mod imp {
         let (owner, release) = if acct.is_backend() {
             (memledger::Owner::Session(acct), memledger::Release::Session)
         } else {
-            (memledger::Owner::Cache(memledger::Holder::of_acct(acct)), memledger::Release::Evict)
+            (
+                memledger::Owner::Cache(memledger::Holder::of_acct(acct)),
+                memledger::Release::Evict,
+            )
         };
         let mapped = (sq_len + if single { 0 } else { cq_len } + sqes_len) as u64;
-        let charge = memledger::Charge::open(owner, release, memledger::Kind::Mapped, memledger::charge::Door::Mapped, mapped);
+        let charge = memledger::Charge::open(
+            owner,
+            release,
+            memledger::Kind::Mapped,
+            memledger::charge::Door::Mapped,
+            mapped,
+        );
         // SAFETY: offsets come from the kernel's io_uring_params for these maps.
         unsafe {
             let sq_mask = *sq_ptr.add(p.sq_off.ring_mask as usize).cast::<u32>();
@@ -311,7 +332,11 @@ mod imp {
                 cq_tail: cq_ptr.add(p.cq_off.tail as usize).cast(),
                 cq_mask,
                 cqes: cq_ptr.add(p.cq_off.cqes as usize).cast(),
-                free: if SLOTS == 128 { u128::MAX } else { (1u128 << SLOTS) - 1 },
+                free: if SLOTS == 128 {
+                    u128::MAX
+                } else {
+                    (1u128 << SLOTS) - 1
+                },
                 done: 0,
                 inflight: 0,
                 next_gen: 1,
@@ -328,7 +353,10 @@ mod imp {
         let id = RING_ID.get();
         if id >= 0 {
             // SAFETY: registry entries are leaked Boxes, never freed.
-            return Some((unsafe { &*REGISTRY[id as usize].load(Ordering::Relaxed) }, id as u32));
+            return Some((
+                unsafe { &*REGISTRY[id as usize].load(Ordering::Relaxed) },
+                id as u32,
+            ));
         }
         if id == -2 {
             return None;
@@ -462,16 +490,19 @@ mod imp {
         }
         // O_DIRECT DMA contract: pool pages are PG_IO_ALIGN_SIZE-aligned and
         // whole blocks are 4k multiples, so addr/off/len all satisfy DIO.
-        const _: () = assert!(types_core::BLCKSZ.is_multiple_of( 4096));
+        const _: () = assert!(types_core::BLCKSZ.is_multiple_of(4096));
         debug_assert!(offset % 4096 == 0);
-        debug_assert!((bufmgr::BufferGetBlockPtr(buffer) as usize).is_multiple_of( 4096));
+        debug_assert!((bufmgr::BufferGetBlockPtr(buffer) as usize).is_multiple_of(4096));
         let slot = st.free.trailing_zeros();
         let gen = st.next_gen;
         st.next_gen += 1;
         // One IoToken per in-flight read (§2.9): cqe id = the slot
         // generation; completed by whichever thread reaps the CQE.
-        st.slots[slot as usize] =
-            Slot { buffer, gen, token: Some(Arc::new(IoToken::new(ring_id, gen))) };
+        st.slots[slot as usize] = Slot {
+            buffer,
+            gen,
+            token: Some(Arc::new(IoToken::new(ring_id, gen))),
+        };
         // Arm the wref before the SQE can complete: waiters route to this ring.
         bufmgr::uring_set_io_wref(buffer, ring_id * SLOTS + slot + 1, gen);
         // SAFETY: module invariant; idx masked into the SQE array; the slot bit
@@ -530,10 +561,7 @@ mod imp {
     /// pre-M1 wait loop's exit predicate exactly.
     fn io_settled(st: &RingState, slot: usize, generation: u64) -> bool {
         let bit = 1u128 << slot;
-        !st.alive
-            || st.slots[slot].gen != generation
-            || st.free & bit != 0
-            || st.done & bit != 0
+        !st.alive || st.slots[slot].gen != generation || st.free & bit != 0 || st.done & bit != 0
     }
 
     /// Targeted blocking reap on the owning ring (any-thread-completes):
@@ -594,8 +622,8 @@ mod imp {
         // and reacquires after the wait — the runtime's IoGuard, reached
         // through the seam pair. Plain backends: seam uninstalled or
         // returns false, a no-op.
-        let released = aio_seams::io_permit_release::is_installed()
-            && aio_seams::io_permit_release::call();
+        let released =
+            aio_seams::io_permit_release::is_installed() && aio_seams::io_permit_release::call();
         match token {
             Some(token) => {
                 // Owner reaps at its task boundaries; park on the token.
@@ -723,7 +751,11 @@ mod imp {
                 }
             }
             st.done = 0;
-            st.free = if SLOTS == 128 { u128::MAX } else { (1u128 << SLOTS) - 1 };
+            st.free = if SLOTS == 128 {
+                u128::MAX
+            } else {
+                (1u128 << SLOTS) - 1
+            };
             // Crash-cycle reset: drop the tokens WITHOUT completing them —
             // every child that could have parked on one is dead.
             for s in st.slots.iter_mut() {
@@ -818,8 +850,7 @@ mod tests {
     // demand: the old smgr_read fake stamped pages in memory (an infinite
     // disk), and the short-read test reads past FILE_PAGES — the sync
     // arrival must always find a full page here.
-    static URING_SYNC_FILE: std::sync::Mutex<Option<std::fs::File>> =
-        std::sync::Mutex::new(None);
+    static URING_SYNC_FILE: std::sync::Mutex<Option<std::fs::File>> = std::sync::Mutex::new(None);
 
     // The backing files are process-wide (shared by every test of the binary), so no per-test guard can own
     // them: each is created in its own scratch directory, opened, then unlinked with its directory at once.
@@ -864,7 +895,8 @@ mod tests {
         let cur = f.metadata().unwrap().len();
         if cur < needed_end {
             let first = (cur / BLCKSZ as u64) as u32;
-            f.seek(SeekFrom::Start(first as u64 * BLCKSZ as u64)).unwrap();
+            f.seek(SeekFrom::Start(first as u64 * BLCKSZ as u64))
+                .unwrap();
             let mut page = vec![0u8; BLCKSZ];
             for b in first..(blocknum + nblocks) {
                 valid_page_into(&mut page, b);
@@ -897,7 +929,10 @@ mod tests {
                 }
                 f.flush().unwrap();
                 f.sync_all().unwrap();
-                let opened = match std::fs::OpenOptions::new().read(true).custom_flags(libc::O_DIRECT).open(&path)
+                let opened = match std::fs::OpenOptions::new()
+                    .read(true)
+                    .custom_flags(libc::O_DIRECT)
+                    .open(&path)
                 {
                     Ok(dio) => {
                         DIO_ENGAGED.store(true, Ordering::Relaxed);
@@ -1045,7 +1080,11 @@ mod tests {
             smgr_seams::aio_md_readv_report::set(|result, _td, elevel| {
                 elog::ereport(elevel)
                     .errmsg(format!("test md readv failed: {:?}", result.status))
-                    .finish(types_error::ErrorLocation::new("tests", 0, "md_readv_report"))
+                    .finish(types_error::ErrorLocation::new(
+                        "tests",
+                        0,
+                        "md_readv_report",
+                    ))
             });
             smgr_seams::smgr_start_buffer_read::set(|rlb, _f, blocknum, buffer| {
                 // URING_REL is the M0 suite's shared relation; the M1
@@ -1076,11 +1115,7 @@ mod tests {
             globals::set_max_worker_processes(2);
             globals::SetNBuffers(TEST_NBUFFERS);
             globals::SetMaxBackends(
-                TEST_MAX_CONNECTIONS
-                    + 3
-                    + 2
-                    + 2
-                    + types_storage::storage::NUM_SPECIAL_WORKER_PROCS,
+                TEST_MAX_CONNECTIONS + 3 + 2 + 2 + types_storage::storage::NUM_SPECIAL_WORKER_PROCS,
             );
             lmgr_proc::init_seams();
             lmgr_proc::InitProcGlobal(&lmgr_proc::ProcGlobalConfig {
@@ -1095,9 +1130,10 @@ mod tests {
             bufmgr::BufferManagerShmemInit().unwrap();
             bufmgr::init_seams();
             aio_core::init_seams();
-            guc_tables::vars::io_max_combine_limit.install_if_absent(
-                guc_tables::GucVarAccessors { get: || 16, set: |_| {} },
-            );
+            guc_tables::vars::io_max_combine_limit.install_if_absent(guc_tables::GucVarAccessors {
+                get: || 16,
+                set: |_| {},
+            });
             aio_core::AioShmemSize().unwrap();
             aio_core::AioShmemInit().unwrap();
             crate::init_seams();
@@ -1112,7 +1148,11 @@ mod tests {
 
     fn rel_smgr(rel: u32) -> RelFileLocatorBackend {
         RelFileLocatorBackend {
-            locator: RelFileLocator { spcOid: 1663, dbOid: 5, relNumber: rel },
+            locator: RelFileLocator {
+                spcOid: 1663,
+                dbOid: 5,
+                relNumber: rel,
+            },
             backend: INVALID_PROC_NUMBER,
         }
     }
@@ -1194,7 +1234,10 @@ mod tests {
         }
         uring_file_fd();
         if std::path::Path::new("/work").is_dir() {
-            assert!(DIO_ENGAGED.load(Ordering::Relaxed), "O_DIRECT refused on /work NVMe");
+            assert!(
+                DIO_ENGAGED.load(Ordering::Relaxed),
+                "O_DIRECT refused on /work NVMe"
+            );
         } else if !DIO_ENGAGED.load(Ordering::Relaxed) {
             eprintln!("O_DIRECT unavailable on this filesystem; suites ran buffered");
         }
@@ -1208,17 +1251,29 @@ mod tests {
         }
         let before_sync = SYNC_READS.load(Ordering::Relaxed);
         for blk in 0..4u32 {
-            assert_eq!(uring_start(blk), Some(PrefetchOutcome::Issued), "block {blk}");
+            assert_eq!(
+                uring_start(blk),
+                Some(PrefetchOutcome::Issued),
+                "block {blk}"
+            );
         }
         assert_eq!(uring_start(0), Some(PrefetchOutcome::Cached));
         let mut bufs = Vec::new();
         for blk in 0..4u32 {
             let b = read_blk(blk);
-            assert_eq!(page_block_field(b), blk + 100, "page must arrive via uring DMA");
+            assert_eq!(
+                page_block_field(b),
+                blk + 100,
+                "page must arrive via uring DMA"
+            );
             ReleaseBuffer(b).unwrap();
             bufs.push(b);
         }
-        assert_eq!(SYNC_READS.load(Ordering::Relaxed), before_sync, "no sync fallback");
+        assert_eq!(
+            SYNC_READS.load(Ordering::Relaxed),
+            before_sync,
+            "no sync fallback"
+        );
         bufmgr::uring_collect_pins();
         for b in bufs {
             assert_eq!(GetPrivateRefCount(b), 0, "prefetch pin must be collected");
@@ -1236,7 +1291,11 @@ mod tests {
         let before_sync = SYNC_READS.load(Ordering::Relaxed);
         assert_eq!(uring_start(blk), Some(PrefetchOutcome::Issued));
         let b = read_blk(blk);
-        assert_eq!(page_block_field(b), blk, "content must come from the sync re-read");
+        assert_eq!(
+            page_block_field(b),
+            blk,
+            "content must come from the sync re-read"
+        );
         assert_eq!(SYNC_READS.load(Ordering::Relaxed), before_sync + 1);
         ReleaseBuffer(b).unwrap();
         bufmgr::uring_collect_pins();
@@ -1276,7 +1335,11 @@ mod tests {
             return;
         }
         for blk in 6..FILE_PAGES {
-            assert_eq!(uring_start(blk), Some(PrefetchOutcome::Issued), "block {blk}");
+            assert_eq!(
+                uring_start(blk),
+                Some(PrefetchOutcome::Issued),
+                "block {blk}"
+            );
         }
         AtEOXact_Buffers(true);
         for blk in 6..FILE_PAGES {
@@ -1291,7 +1354,10 @@ mod tests {
     // ---- M1 §2.9: IoToken wiring, boundary reaping, permit discipline ------
 
     fn permit_counts() -> (i32, i32) {
-        (PERMIT_RELEASES.load(Ordering::SeqCst), PERMIT_REACQUIRES.load(Ordering::SeqCst))
+        (
+            PERMIT_RELEASES.load(Ordering::SeqCst),
+            PERMIT_REACQUIRES.load(Ordering::SeqCst),
+        )
     }
 
     /// Every wait path pairs release with reacquire — the IoGuard contract.
@@ -1318,7 +1384,10 @@ mod tests {
             return;
         }
         let ring = aio_seams::uring_worker_ring_init::call();
-        assert!(ring >= 0, "worker ring init must succeed where uring is available");
+        assert!(
+            ring >= 0,
+            "worker ring init must succeed where uring is available"
+        );
         let before_sync = SYNC_READS.load(Ordering::Relaxed);
         let before_permits = permit_counts();
 
@@ -1338,14 +1407,26 @@ mod tests {
             aio_seams::uring_boundary_reap::call();
             std::thread::sleep(std::time::Duration::from_micros(200));
         }
-        assert_eq!(foreign.join().unwrap(), blk + 100, "page must arrive via uring DMA");
-        assert_eq!(SYNC_READS.load(Ordering::Relaxed), before_sync, "no sync fallback");
+        assert_eq!(
+            foreign.join().unwrap(),
+            blk + 100,
+            "page must arrive via uring DMA"
+        );
+        assert_eq!(
+            SYNC_READS.load(Ordering::Relaxed),
+            before_sync,
+            "no sync fallback"
+        );
         assert_permit_pairing(before_permits);
 
         // Boundary reaps must have collected the issuer pin.
         aio_seams::uring_boundary_reap::call();
         let b = read_blk_rel(rel, blk);
-        assert_eq!(GetPrivateRefCount(b), 1, "issuer prefetch pin must be collected");
+        assert_eq!(
+            GetPrivateRefCount(b),
+            1,
+            "issuer prefetch pin must be collected"
+        );
         ReleaseBuffer(b).unwrap();
         AtEOXact_Buffers(true);
     }
@@ -1433,7 +1514,11 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(1));
         }
         assert_eq!(foreign.join().unwrap(), blk + 100);
-        assert_eq!(SYNC_READS.load(Ordering::Relaxed), before_sync, "no sync fallback");
+        assert_eq!(
+            SYNC_READS.load(Ordering::Relaxed),
+            before_sync,
+            "no sync fallback"
+        );
         assert_permit_pairing(before_permits);
         bufmgr::uring_collect_pins();
         AtEOXact_Buffers(true);
@@ -1461,7 +1546,11 @@ mod tests {
 
         // Issue the whole file's reads from the issuer (readahead shape).
         for blk in 0..FILE_PAGES {
-            assert_eq!(uring_start_rel(rel, blk), Some(PrefetchOutcome::Issued), "block {blk}");
+            assert_eq!(
+                uring_start_rel(rel, blk),
+                Some(PrefetchOutcome::Issued),
+                "block {blk}"
+            );
         }
         // DOP arrival threads, each scanning EVERY block (max contention on
         // the WaitIO/token paths), asserting byte parity per page.
@@ -1493,8 +1582,7 @@ mod tests {
             assert!(std::time::Instant::now() < deadline, "cold DOP scan wedged");
             aio_seams::uring_boundary_reap::call();
             std::thread::sleep(std::time::Duration::from_micros(200));
-            let (done, rest): (Vec<_>, Vec<_>) =
-                pending.into_iter().partition(|h| h.is_finished());
+            let (done, rest): (Vec<_>, Vec<_>) = pending.into_iter().partition(|h| h.is_finished());
             for h in done {
                 h.join().unwrap();
             }
@@ -1544,7 +1632,10 @@ mod tests {
         let before_permits = permit_counts();
         let b = read_blk_rel(rel, blk);
         let field = page_block_field(b);
-        assert!(field == blk + 100 || field == blk, "torn/foreign page after teardown");
+        assert!(
+            field == blk + 100 || field == blk,
+            "torn/foreign page after teardown"
+        );
         ReleaseBuffer(b).unwrap();
         assert_permit_pairing(before_permits);
         AtEOXact_Buffers(true);

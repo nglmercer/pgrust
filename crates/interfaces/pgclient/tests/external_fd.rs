@@ -21,20 +21,51 @@ fn connect_reserves_and_releases_one_external_fd() {
         let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         l.local_addr().unwrap().port()
     };
-    let we = pgclient::WaitEvents { connect: 0, receive: 0 };
+    let we = pgclient::WaitEvents {
+        connect: 0,
+        receive: 0,
+    };
     let conninfo = format!("hostaddr=127.0.0.1 port={p} user=u");
-    let err = pgclient::connect_db(&conninfo, None, we).unwrap().err().unwrap();
-    assert!(err.starts_with(&format!("connection to server at \"127.0.0.1\", port {p} failed: ")), "{err}");
-    assert_eq!((ACQUIRES.load(Ordering::Relaxed), RELEASES.load(Ordering::Relaxed)), (1, 1));
+    let err = pgclient::connect_db(&conninfo, None, we)
+        .unwrap()
+        .err()
+        .unwrap();
+    assert!(
+        err.starts_with(&format!(
+            "connection to server at \"127.0.0.1\", port {p} failed: "
+        )),
+        "{err}"
+    );
+    assert_eq!(
+        (
+            ACQUIRES.load(Ordering::Relaxed),
+            RELEASES.load(Ordering::Relaxed)
+        ),
+        (1, 1)
+    );
 
     ADMIT.store(false, Ordering::Relaxed);
-    let Err(err) = pgclient::connect_db(&conninfo, None, we) else { panic!("reservation refused, yet dialed") };
+    let Err(err) = pgclient::connect_db(&conninfo, None, we) else {
+        panic!("reservation refused, yet dialed")
+    };
     assert_eq!(err.message, "could not establish connection");
-    assert_eq!(err.sqlstate, types_error::ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION);
-    assert_eq!(err.detail.as_deref(), Some("There are too many open files on the local server."));
+    assert_eq!(
+        err.sqlstate,
+        types_error::ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION
+    );
+    assert_eq!(
+        err.detail.as_deref(),
+        Some("There are too many open files on the local server.")
+    );
     assert_eq!(
         err.hint.as_deref(),
         Some("Raise the server's \"max_files_per_process\" and/or \"ulimit -n\" limits.")
     );
-    assert_eq!((ACQUIRES.load(Ordering::Relaxed), RELEASES.load(Ordering::Relaxed)), (2, 1));
+    assert_eq!(
+        (
+            ACQUIRES.load(Ordering::Relaxed),
+            RELEASES.load(Ordering::Relaxed)
+        ),
+        (2, 1)
+    );
 }

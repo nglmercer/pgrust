@@ -105,7 +105,12 @@ pub fn gen_scalar(st: &mut u64) -> String {
     match lcg(st) % 100 {
         0..=34 => (*pick(st, STR_VALUES)).to_string(),
         35..=64 => (*pick(st, NUM_VALUES)).to_string(),
-        65..=79 => if lcg(st).is_multiple_of( 2) { "true" } else { "false" }.to_string(),
+        65..=79 => if lcg(st).is_multiple_of(2) {
+            "true"
+        } else {
+            "false"
+        }
+        .to_string(),
         80..=89 => "null".to_string(),
         _ => {
             let form = (lcg(st) % 3) as u8;
@@ -132,7 +137,12 @@ pub fn gen_value(st: &mut u64, depth: u32) -> String {
             let body: Vec<String> = (0..n).map(|_| gen_value(st, depth + 1)).collect();
             format!("[{}]", body.join(", "))
         }
-        _ => if lcg(st).is_multiple_of( 2) { "{}" } else { "[]" }.to_string(),
+        _ => if lcg(st).is_multiple_of(2) {
+            "{}"
+        } else {
+            "[]"
+        }
+        .to_string(),
     }
 }
 
@@ -147,7 +157,10 @@ pub fn gen_s4(st: &mut u64) -> String {
             lcg(st) % 40
         ),
         80..=94 => r#"{"source": "manual"}"#.to_string(),
-        _ => format!(r#"{{"source": "import", "importId": "{}"}}"#, gen_uuid(st, 0)),
+        _ => format!(
+            r#"{{"source": "import", "importId": "{}"}}"#,
+            gen_uuid(st, 0)
+        ),
     }
 }
 

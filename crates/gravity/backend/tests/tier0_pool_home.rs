@@ -32,7 +32,9 @@ unsafe impl GlobalAlloc for Door1 {
 static A: Door1 = Door1;
 
 fn konst(k: i64) -> (gravity_ir::Program, Func) {
-    let src = format!("(program (fn e ((c ptr)) (i64) (block entry ((c ptr)) (k (const i64 {k})) (return k))))");
+    let src = format!(
+        "(program (fn e ((c ptr)) (i64) (block entry ((c ptr)) (k (const i64 {k})) (return k))))"
+    );
     let p = parse_program(&src, &|_| None).unwrap_or_else(|e| panic!("{e}"));
     let f = Func(p.funcs.iter().position(|f| f.name == "e").unwrap() as u32);
     (p, f)
@@ -49,7 +51,8 @@ fn the_pool_builds_files_and_frees_its_modules_in_the_program_caches_account() {
     memledger::set_home(true);
     std::env::set_var("PGRUST_GRAVITY_TIER0", "force");
     cache::set_budget_bytes(1 << 30);
-    let pc = memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::ProgramCaches)).acct();
+    let pc =
+        memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::ProgramCaches)).acct();
     let unbound = memledger::Acct::UNBOUND;
     let at = |a: memledger::Acct| memledger::account_row(a).account_bytes;
     // the statements' side is one backend, on its own account; the pool's thread is the only UNBOUND one that runs

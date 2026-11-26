@@ -17,8 +17,7 @@ pub fn fc_pg_isolation_test_session_is_blocked(
     let Some(proc) = procarray::BackendPidGetProc(blocked_pid) else {
         return Ok(Datum::from_bool(false));
     };
-    let wait_event_type =
-        waitevent::pgstat_get_wait_event_type(proc.wait_event_info.load(Relaxed));
+    let wait_event_type = waitevent::pgstat_get_wait_event_type(proc.wait_event_info.load(Relaxed));
     if wait_event_type == Some("InjectionPoint") {
         return Ok(Datum::from_bool(true));
     }
@@ -101,6 +100,9 @@ fn bitmap_contains_nulls(payload: &[u8], ndim: usize, nelems: usize) -> bool {
 
 use ::types_fmgr::builtin_strict as b;
 
-pub const WAITFUNCS_BUILTINS: &[FmgrBuiltin] = &[
-    b(3378, "pg_isolation_test_session_is_blocked", 2, fc_pg_isolation_test_session_is_blocked),
-];
+pub const WAITFUNCS_BUILTINS: &[FmgrBuiltin] = &[b(
+    3378,
+    "pg_isolation_test_session_is_blocked",
+    2,
+    fc_pg_isolation_test_session_is_blocked,
+)];

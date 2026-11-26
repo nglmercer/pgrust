@@ -28,7 +28,10 @@ pub fn breaker_of_mut(d: &mut Pipeline) -> Option<&mut Breaker> {
 /// unchanged. The one way a lowering states that answer.
 pub fn end_holds(d: Pipeline, shape: Shape) -> Pipeline {
     match d.ends_in {
-        End::Breaker(b) => Pipeline { holds: Some(spill::plan(&b, shape)), ..d },
+        End::Breaker(b) => Pipeline {
+            holds: Some(spill::plan(&b, shape)),
+            ..d
+        },
         End::Sink => d,
     }
 }
@@ -38,7 +41,20 @@ pub fn end_holds(d: Pipeline, shape: Shape) -> Pipeline {
 /// rows: the rows its Hash node receives, D3355); every other field is `d`'s. A pipeline that takes over another's end
 /// (a fused drain's probe ends as its drain ends) asks this instead of copying the fields itself.
 pub fn with_end_of(src: &Pipeline, d: Pipeline) -> Pipeline {
-    Pipeline { ends_in: src.ends_in, owner: src.owner, admit: src.admit, words: src.words, topk: src.topk, finish: src.finish, store_row_bytes: src.store_row_bytes, row_width: src.row_width, end_rows: src.end_rows, build_rows: src.build_rows, holds: src.holds, ..d }
+    Pipeline {
+        ends_in: src.ends_in,
+        owner: src.owner,
+        admit: src.admit,
+        words: src.words,
+        topk: src.topk,
+        finish: src.finish,
+        store_row_bytes: src.store_row_bytes,
+        row_width: src.row_width,
+        end_rows: src.end_rows,
+        build_rows: src.build_rows,
+        holds: src.holds,
+        ..d
+    }
 }
 
 #[cfg(test)]
@@ -50,26 +66,52 @@ mod tests {
     #[test]
     fn a_breaker_end_is_read_and_edited_whole() {
         let b = Breaker::sized(BreakerKind::Materialize, 64).in_slot(2);
-        assert_eq!(super::breaker_of(&Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite)), None);
+        assert_eq!(
+            super::breaker_of(&Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite)),
+            None
+        );
         let mut p = Pipeline::serial(-1, End::Breaker(b), Reason::NoDrivingSite);
         assert_eq!(super::breaker_of(&p), Some(b));
-        assert_eq!(super::breaker_of(&p).map(|b| b.slot), p.produces(), "the slot is the one the description produces");
+        assert_eq!(
+            super::breaker_of(&p).map(|b| b.slot),
+            p.produces(),
+            "the slot is the one the description produces"
+        );
         if let Some(e) = super::breaker_of_mut(&mut p) {
             *e = e.in_slot(5);
         }
         assert_eq!(p.ends_in, End::Breaker(b.in_slot(5)));
-        assert!(super::breaker_of_mut(&mut Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite)).is_none());
+        assert!(
+            super::breaker_of_mut(&mut Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite))
+                .is_none()
+        );
     }
 
     /// `with_end_of` carries the end and the fields that describe it from its source and keeps every other field.
     #[test]
     fn with_end_of_takes_the_end_and_keeps_the_rest() {
         let b = Breaker::sized(BreakerKind::Materialize, 64).in_slot(3);
-        let src = Pipeline { finish: true, store_row_bytes: 40, row_width: 24, build_rows: 9, ..Pipeline::serial(-1, End::Breaker(b), Reason::NoDrivingSite) };
-        let d = Pipeline { predicted_rows: 77, ..Pipeline::serial(4, End::Sink, Reason::NoDrivingSite) };
+        let src = Pipeline {
+            finish: true,
+            store_row_bytes: 40,
+            row_width: 24,
+            build_rows: 9,
+            ..Pipeline::serial(-1, End::Breaker(b), Reason::NoDrivingSite)
+        };
+        let d = Pipeline {
+            predicted_rows: 77,
+            ..Pipeline::serial(4, End::Sink, Reason::NoDrivingSite)
+        };
         let n = super::with_end_of(&src, d);
         assert_eq!(n.ends_in, End::Breaker(b));
-        assert_eq!((n.finish, n.store_row_bytes, n.row_width, n.build_rows), (true, 40, 24, 9));
-        assert_eq!((n.driving_site, n.predicted_rows), (d.driving_site, 77), "the other fields are the description's own");
+        assert_eq!(
+            (n.finish, n.store_row_bytes, n.row_width, n.build_rows),
+            (true, 40, 24, 9)
+        );
+        assert_eq!(
+            (n.driving_site, n.predicted_rows),
+            (d.driving_site, 77),
+            "the other fields are the description's own"
+        );
     }
 }

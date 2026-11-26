@@ -83,7 +83,10 @@ pub(crate) fn process_group_locally(
 /// D3866: cache `id`'s bit in `InvalState::stamp_touched` (0 outside 0..128: such an id names no catcache).
 #[inline]
 pub(crate) fn stamp_bit(id: i32) -> u128 {
-    u32::try_from(id).ok().and_then(|i| 1u128.checked_shl(i)).unwrap_or(0)
+    u32::try_from(id)
+        .ok()
+        .and_then(|i| 1u128.checked_shl(i))
+        .unwrap_or(0)
 }
 
 pub(crate) fn l2_bump_debug() -> bool {
@@ -143,7 +146,11 @@ pub(crate) fn l2_bump_for_messages(msgs: &[SharedInvalidationMessage], scoped: O
                 if m.relId == types_core::InvalidOid {
                     l2cache::bump_all_rel();
                 } else if s & crate::REL_SCOPE_ALL == 0 {
-                    l2cache::invalidate_rel_part(m.relId, m.dbId, s & crate::REL_SCOPE_STORAGE != 0);
+                    l2cache::invalidate_rel_part(
+                        m.relId,
+                        m.dbId,
+                        s & crate::REL_SCOPE_STORAGE != 0,
+                    );
                 } else {
                     l2cache::invalidate_key(
                         l2cache::Domain::Rel(m.relId),
@@ -171,7 +178,14 @@ fn send_group(state: &InvalState<'_>, group: &InvalidationMsgsGroup) -> PgResult
     for subgroup in [CAT_CACHE_MSGS, REL_CACHE_MSGS] {
         let msgs = subgroup_slice(&state.msg_arrays, group, subgroup);
         if !msgs.is_empty() {
-            l2_bump_for_messages(msgs, Some(Scopes { touched: state.stamp_touched, rels: &state.rel_scopes[..], cats: &state.cat_scopes[..] }));
+            l2_bump_for_messages(
+                msgs,
+                Some(Scopes {
+                    touched: state.stamp_touched,
+                    rels: &state.rel_scopes[..],
+                    cats: &state.cat_scopes[..],
+                }),
+            );
             sinval_seams::send_shared_invalid_messages::call(msgs)?;
         }
     }
@@ -338,7 +352,11 @@ pub fn AtEOSubXact_Inval(isCommit: bool) -> PgResult<()> {
 
         if !parent_is_adjacent {
             with_state(|state| {
-                state.trans_stack.last_mut().expect("checked non-empty").my_level -= 1;
+                state
+                    .trans_stack
+                    .last_mut()
+                    .expect("checked non-empty")
+                    .my_level -= 1;
             });
             return Ok(());
         }
@@ -393,7 +411,10 @@ pub fn PreInplace_Inval() -> PgResult<()> {
 
 pub fn AtInplace_Inval() -> PgResult<()> {
     let relcache_init_file_inval = match with_state(|state| {
-        state.inplace_info.as_ref().map(|info| info.relcache_init_file_inval)
+        state
+            .inplace_info
+            .as_ref()
+            .map(|info| info.relcache_init_file_inval)
     }) {
         Some(flag) => flag,
         None => return Ok(()),
@@ -513,7 +534,11 @@ pub fn ProcessCommittedInvalidationMessages(
         format!(
             "replaying commit with {} messages{}",
             msgs.len(),
-            if relcache_init_file_inval { " and relcache file invalidation" } else { "" }
+            if relcache_init_file_inval {
+                " and relcache file invalidation"
+            } else {
+                ""
+            }
         ),
     )?;
 
@@ -562,7 +587,11 @@ pub fn LogLogicalInvalidations() -> PgResult<()> {
 
         // Reused scratch wire images; xlog_insert never re-enters inval, so
         // the borrow stays held.
-        let InvalState { msg_arrays, wal_scratch, .. } = state;
+        let InvalState {
+            msg_arrays,
+            wal_scratch,
+            ..
+        } = state;
         for subgroup in [CAT_CACHE_MSGS, REL_CACHE_MSGS] {
             let buf = &mut wal_scratch[subgroup];
             buf.clear();

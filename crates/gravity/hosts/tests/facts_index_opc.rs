@@ -65,8 +65,18 @@ const RECORD_OPS: Oid = 2994;
 type Procs = &'static [(Oid, Oid, i16, Oid)];
 type Ops = &'static [(Oid, Oid, i16, Oid, Oid)];
 
-const INT_PROCS: Procs = &[(INT4, INT4, 1, 351), (INT4, INT4, 2, 3130), (INT4, INT8, 1, 2188), (INT8, INT8, 1, 842)];
-const INT_OPS: Ops = &[(INT4, INT4, 1, 97, 0), (INT4, INT4, 3, 96, 0), (INT4, INT8, 1, 37, 0), (INT8, INT8, 1, 412, 0)];
+const INT_PROCS: Procs = &[
+    (INT4, INT4, 1, 351),
+    (INT4, INT4, 2, 3130),
+    (INT4, INT8, 1, 2188),
+    (INT8, INT8, 1, 842),
+];
+const INT_OPS: Ops = &[
+    (INT4, INT4, 1, 97, 0),
+    (INT4, INT4, 3, 96, 0),
+    (INT4, INT8, 1, 37, 0),
+    (INT8, INT8, 1, 412, 0),
+];
 
 fn family(fam: Oid) -> Option<(Vec<(Oid, Oid, i16, Oid)>, Vec<(Oid, Oid, i16, Oid, Oid)>)> {
     let with = |p: Procs, o: Ops| Some(([INT_PROCS, p].concat(), [INT_OPS, o].concat()));
@@ -74,15 +84,43 @@ fn family(fam: Oid) -> Option<(Vec<(Oid, Oid, i16, Oid)>, Vec<(Oid, Oid, i16, Oi
         INTEGER_OPS | USER_FAMILY => with(&[], &[]),
         F_ADD_PROC => with(&[(INT4, NUMERIC, 1, USER_FN)], &[]),
         F_ADD_OP => with(&[], &[(INT4, NUMERIC, 1, USER_OP, 0)]),
-        F_USER_TYPED => with(&[(INT8ALIAS1, INT8ALIAS1, 1, USER_FN), (INT8ALIAS1, INT8, 1, USER_FN)], &[(INT8ALIAS1, INT8ALIAS1, 1, USER_OP, 0), (INT8ALIAS1, INT8, 3, USER_OP, 0)]),
+        F_USER_TYPED => with(
+            &[
+                (INT8ALIAS1, INT8ALIAS1, 1, USER_FN),
+                (INT8ALIAS1, INT8, 1, USER_FN),
+            ],
+            &[
+                (INT8ALIAS1, INT8ALIAS1, 1, USER_OP, 0),
+                (INT8ALIAS1, INT8, 3, USER_OP, 0),
+            ],
+        ),
         F_INITDB_OP_USER_TYPE => with(&[], &[(INT4, INT8ALIAS1, 3, 96, 0)]),
         F_USER_SORTFAM => with(&[], &[(INT4, INT8, 6, 37, USER_SORTFAM)]),
         F_NO_INITDB_PROC => Some((vec![(INT8ALIAS1, INT8ALIAS1, 1, USER_FN)], INT_OPS.to_vec())),
-        F_ZT => with(&[(ZT, ZT, 1, USER_FN), (ZT, INT4, 1, USER_FN)], &[(ZT, ZT, 1, USER_OP, 0), (ZT, INT4, 3, USER_OP, 0)]),
-        HASH_INTEGER_OPS => Some((vec![(INT4, INT4, 1, 450), (INT4, INT4, 2, 425)], vec![(INT4, INT4, 1, 96, 0)])),
-        GIST_BOX_OPS => Some((vec![(BOX, BOX, 1, 2578), (BOX, BOX, 2, 2583), (ZB, ZB, 1, USER_FN)], vec![(BOX, BOX, 3, 500, 0), (ZB, ZB, 3, USER_OP, 0)])),
-        ARRAY_OPS => Some((vec![(ANYARRAY, ANYARRAY, 1, 382)], vec![(ANYARRAY, ANYARRAY, 1, 1072, 0)])),
-        RECORD_OPS => Some((vec![(RECORD, RECORD, 1, 2987)], vec![(RECORD, RECORD, 1, 2990, 0)])),
+        F_ZT => with(
+            &[(ZT, ZT, 1, USER_FN), (ZT, INT4, 1, USER_FN)],
+            &[(ZT, ZT, 1, USER_OP, 0), (ZT, INT4, 3, USER_OP, 0)],
+        ),
+        HASH_INTEGER_OPS => Some((
+            vec![(INT4, INT4, 1, 450), (INT4, INT4, 2, 425)],
+            vec![(INT4, INT4, 1, 96, 0)],
+        )),
+        GIST_BOX_OPS => Some((
+            vec![
+                (BOX, BOX, 1, 2578),
+                (BOX, BOX, 2, 2583),
+                (ZB, ZB, 1, USER_FN),
+            ],
+            vec![(BOX, BOX, 3, 500, 0), (ZB, ZB, 3, USER_OP, 0)],
+        )),
+        ARRAY_OPS => Some((
+            vec![(ANYARRAY, ANYARRAY, 1, 382)],
+            vec![(ANYARRAY, ANYARRAY, 1, 1072, 0)],
+        )),
+        RECORD_OPS => Some((
+            vec![(RECORD, RECORD, 1, 2987)],
+            vec![(RECORD, RECORD, 1, 2990, 0)],
+        )),
         _ => None,
     }
 }
@@ -97,7 +135,11 @@ struct Shape {
 const BUSY: Oid = 80099;
 
 fn shape(indexid: Oid) -> Shape {
-    let s = |relam: Oid, keys: &'static [(Oid, Oid, Oid)], include: usize| Shape { relam, keys, include };
+    let s = |relam: Oid, keys: &'static [(Oid, Oid, Oid)], include: usize| Shape {
+        relam,
+        keys,
+        include,
+    };
     match indexid {
         80001 | BUSY => s(BTREE_AM_OID, &[(INT4, INT4, INTEGER_OPS)], 0),
         80002 => s(EXT_AM, &[(INT4, INT4, INTEGER_OPS)], 0),
@@ -117,8 +159,16 @@ fn shape(indexid: Oid) -> Shape {
         80016 => s(BTREE_AM_OID, &[(INT4, INT4, F_ZT)], 0),
         80017 => s(BTREE_AM_OID, &[(ANYARRAY, POINT_ARRAY, ARRAY_OPS)], 0),
         80018 => s(BTREE_AM_OID, &[(RECORD, RECORD, RECORD_OPS)], 0),
-        80019 => s(BTREE_AM_OID, &[(INT4, INT4, USER_FAMILY), (INT4, INT4, INTEGER_OPS)], 1),
-        80020 => s(BTREE_AM_OID, &[(INT4, INT4, INTEGER_OPS), (INT8, INT8, INTEGER_OPS)], 1),
+        80019 => s(
+            BTREE_AM_OID,
+            &[(INT4, INT4, USER_FAMILY), (INT4, INT4, INTEGER_OPS)],
+            1,
+        ),
+        80020 => s(
+            BTREE_AM_OID,
+            &[(INT4, INT4, INTEGER_OPS), (INT8, INT8, INTEGER_OPS)],
+            1,
+        ),
         80021 => s(HASH_AM_OID, &[(INT4, INT4, HASH_INTEGER_OPS)], 0),
         other => panic!("unknown index {other}"),
     }
@@ -128,11 +178,28 @@ fn tupdesc<'m>(mcx: Mcx<'m>, types: &[Oid]) -> TupleDescData<'m> {
     let mut attrs = PgVec::new_in(mcx);
     let mut compact_attrs = PgVec::new_in(mcx);
     for (i, &t) in types.iter().enumerate() {
-        let att = FormData_pg_attribute { attnum: i as i16 + 1, atttypid: t, atttypmod: -1, attlen: 4, attbyval: true, attalign: types_tuple::TYPALIGN_INT, attstorage: types_tuple::TYPSTORAGE_PLAIN, ..Default::default() };
+        let att = FormData_pg_attribute {
+            attnum: i as i16 + 1,
+            atttypid: t,
+            atttypmod: -1,
+            attlen: 4,
+            attbyval: true,
+            attalign: types_tuple::TYPALIGN_INT,
+            attstorage: types_tuple::TYPSTORAGE_PLAIN,
+            ..Default::default()
+        };
         compact_attrs.push(CompactAttribute::populate_from(&att));
         attrs.push(att);
     }
-    TupleDescData { natts: types.len() as i32, tdtypeid: 0, tdtypmod: -1, tdrefcount: -1, constr: None, compact_attrs, attrs }
+    TupleDescData {
+        natts: types.len() as i32,
+        tdtypeid: 0,
+        tdtypmod: -1,
+        tdrefcount: -1,
+        constr: None,
+        compact_attrs,
+        attrs,
+    }
 }
 
 fn index_data(mcx: Mcx<'_>, indexid: Oid) -> RelationData<'_> {
@@ -140,7 +207,8 @@ fn index_data(mcx: Mcx<'_>, indexid: Oid) -> RelationData<'_> {
     let mut d = common::index_relation_data(mcx, false);
     d.rd_id = indexid;
     d.rd_rel.relam = s.relam;
-    let (mut opcintype, mut opfamily, mut indkey) = (PgVec::new_in(mcx), PgVec::new_in(mcx), PgVec::new_in(mcx));
+    let (mut opcintype, mut opfamily, mut indkey) =
+        (PgVec::new_in(mcx), PgVec::new_in(mcx), PgVec::new_in(mcx));
     let mut stored: Vec<Oid> = s.keys.iter().map(|k| k.1).collect();
     stored.extend(std::iter::repeat_n(INT4, s.include));
     for &(t, _, f) in s.keys {
@@ -164,22 +232,46 @@ fn index_data(mcx: Mcx<'_>, indexid: Oid) -> RelationData<'_> {
 fn install() {
     static INIT: Once = Once::new();
     INIT.call_once(|| {
-        relation_seams::relation_open::set(|mcx, relid, _lockmode| Ok(Relation::open(index_data(mcx, relid), None)));
+        relation_seams::relation_open::set(|mcx, relid, _lockmode| {
+            Ok(Relation::open(index_data(mcx, relid), None))
+        });
         lmgr_seams::conditional_lock_relation_oid::set(|relid, _mode| Ok(relid != BUSY));
         lmgr_seams::unlock_relation_oid::set(|_relid, _mode| Ok(()));
         syscache_seams::lookup_pg_amproc_rows::set(|mcx, fam| {
-            let Some((procs, _)) = family(fam) else { return Err(Box::new(types_error::PgError::error("cache lookup failed for operator family"))) };
+            let Some((procs, _)) = family(fam) else {
+                return Err(Box::new(types_error::PgError::error(
+                    "cache lookup failed for operator family",
+                )));
+            };
             let mut v = PgVec::new_in(mcx);
             for (l, r, n, p) in procs {
-                v.push(PgAmprocRow { amprocfamily: fam, amproclefttype: l, amprocrighttype: r, amprocnum: n, amproc: p });
+                v.push(PgAmprocRow {
+                    amprocfamily: fam,
+                    amproclefttype: l,
+                    amprocrighttype: r,
+                    amprocnum: n,
+                    amproc: p,
+                });
             }
             Ok((v, true))
         });
         syscache_seams::lookup_pg_amop_rows::set(|mcx, fam| {
-            let Some((_, ops)) = family(fam) else { return Err(Box::new(types_error::PgError::error("cache lookup failed for operator family"))) };
+            let Some((_, ops)) = family(fam) else {
+                return Err(Box::new(types_error::PgError::error(
+                    "cache lookup failed for operator family",
+                )));
+            };
             let mut v = PgVec::new_in(mcx);
             for (l, r, s, o, sf) in ops {
-                v.push(PgAmopRow { amopfamily: fam, amoplefttype: l, amoprighttype: r, amopstrategy: s, amoppurpose: if sf == 0 { b's' as i8 } else { b'o' as i8 }, amopopr: o, amopsortfamily: sf });
+                v.push(PgAmopRow {
+                    amopfamily: fam,
+                    amoplefttype: l,
+                    amoprighttype: r,
+                    amopstrategy: s,
+                    amoppurpose: if sf == 0 { b's' as i8 } else { b'o' as i8 },
+                    amopopr: o,
+                    amopsortfamily: sf,
+                });
             }
             Ok((v, true))
         });
@@ -201,37 +293,80 @@ fn passes(indexid: Oid) -> bool {
 
 #[test]
 fn an_initdb_int4_btree_column_passes() {
-    assert_eq!(opc(80001), IndexOpc { builtin: 1, nkeys: 1, known: true });
+    assert_eq!(
+        opc(80001),
+        IndexOpc {
+            builtin: 1,
+            nkeys: 1,
+            known: true
+        }
+    );
     assert!(opc(80001).all() && opc(80001).col(0));
     assert!(passes(80021), "a hash integer_ops column");
-    assert!(passes(80014), "a gist box_ops column: the family's (zb, zb) rows are reached only by a zb key");
+    assert!(
+        passes(80014),
+        "a gist box_ops column: the family's (zb, zb) rows are reached only by a zb key"
+    );
 }
 
 #[test]
 fn each_condition_fails_alone() {
     assert!(!opc(80002).known, "(a) an extension AM's index is unknown");
-    assert!(!passes(80003), "(b) a domain column: its stored type is a user type");
+    assert!(
+        !passes(80003),
+        "(b) a domain column: its stored type is a user type"
+    );
     assert!(!passes(80004), "(c) a user family of initdb procs");
     assert!(!passes(80005), "(c) no family");
-    assert!(!passes(80006), "(d) ALTER OPERATOR FAMILY integer_ops ADD FUNCTION 1 (int4, numeric) <user function>");
+    assert!(
+        !passes(80006),
+        "(d) ALTER OPERATOR FAMILY integer_ops ADD FUNCTION 1 (int4, numeric) <user function>"
+    );
     assert!(!passes(80007), "(d) no support proc over initdb types");
-    assert!(!passes(80008), "(e) ALTER OPERATOR FAMILY integer_ops ADD OPERATOR 1 <user operator> (int4, numeric)");
-    assert!(!passes(80009), "(e) an initdb ordering operator with a user sort family");
-    assert!(!passes(80010), "(e) an initdb operator registered over a user type");
+    assert!(
+        !passes(80008),
+        "(e) ALTER OPERATOR FAMILY integer_ops ADD OPERATOR 1 <user operator> (int4, numeric)"
+    );
+    assert!(
+        !passes(80009),
+        "(e) an initdb ordering operator with a user sort family"
+    );
+    assert!(
+        !passes(80010),
+        "(e) an initdb operator registered over a user type"
+    );
 }
 
 #[test]
 fn a_member_over_a_user_type_does_not_fail_its_family() {
-    assert!(passes(80011), "equivclass.sql's int8alias1 rows in integer_ops");
-    assert!(passes(80016), "an int4_ops column of a family that also holds zt_ops's rows");
+    assert!(
+        passes(80011),
+        "equivclass.sql's int8alias1 rows in integer_ops"
+    );
+    assert!(
+        passes(80016),
+        "an int4_ops column of a family that also holds zt_ops's rows"
+    );
 }
 
 #[test]
 fn a_user_or_dispatching_opcintype_fails() {
-    assert!(!passes(80013), "W1: a gist opclass FOR TYPE zb (a domain over box) in box_ops, STORAGE box");
-    assert!(!passes(80015), "W2: zt_ops FOR TYPE zt in integer_ops over an int4 column");
-    assert!(!passes(80017), "W3: array_ops over point[] calls point's DEFAULT btree opclass through the typcache");
-    assert!(!passes(80018), "record_ops calls each field type's DEFAULT opclass through the typcache");
+    assert!(
+        !passes(80013),
+        "W1: a gist opclass FOR TYPE zb (a domain over box) in box_ops, STORAGE box"
+    );
+    assert!(
+        !passes(80015),
+        "W2: zt_ops FOR TYPE zt in integer_ops over an int4 column"
+    );
+    assert!(
+        !passes(80017),
+        "W3: array_ops over point[] calls point's DEFAULT btree opclass through the typcache"
+    );
+    assert!(
+        !passes(80018),
+        "record_ops calls each field type's DEFAULT opclass through the typcache"
+    );
 }
 
 #[test]
@@ -239,9 +374,19 @@ fn two_keys_and_an_include_column() {
     let o = opc(80019);
     assert_eq!((o.known, o.nkeys), (true, 2));
     assert!(!o.col(0) && o.col(1) && !o.col(2), "{o:?}");
-    assert!(!o.all() && !o.through(0) && !o.through(1), "a user leading column fails every prefix");
+    assert!(
+        !o.all() && !o.through(0) && !o.through(1),
+        "a user leading column fails every prefix"
+    );
     let o = opc(80020);
-    assert_eq!(o, IndexOpc { builtin: 0b11, nkeys: 2, known: true });
+    assert_eq!(
+        o,
+        IndexOpc {
+            builtin: 0b11,
+            nkeys: 2,
+            known: true
+        }
+    );
     assert!(o.all() && o.through(1) && !o.through(2));
 }
 

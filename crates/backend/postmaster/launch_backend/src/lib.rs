@@ -59,7 +59,7 @@ enum Main {
     // C-parity table vocabulary: rows re-enter Unported when child kinds are added pre-port.
     #[allow(dead_code)]
     Unported(&'static str), // real C main_fn, owning unit not yet ported
-    None,                   // NULL in the C table
+    None, // NULL in the C table
 }
 
 struct ChildProcessKind {
@@ -72,7 +72,11 @@ struct ChildProcessKind {
 
 /// C `child_process_kinds[]`, in BackendType order (asserted in tests).
 static CHILD_PROCESS_KINDS: [ChildProcessKind; BACKEND_NUM_TYPES] = [
-    ChildProcessKind { name: "invalid", main_fn: Main::None, shmem_attach: false },
+    ChildProcessKind {
+        name: "invalid",
+        main_fn: Main::None,
+        shmem_attach: false,
+    },
     ChildProcessKind {
         name: "backend",
         main_fn: Main::Ported(backend_startup::backend_main),
@@ -98,13 +102,21 @@ static CHILD_PROCESS_KINDS: [ChildProcessKind; BACKEND_NUM_TYPES] = [
         main_fn: Main::Ported(bgworker::BackgroundWorkerMain),
         shmem_attach: true,
     },
-    ChildProcessKind { name: "wal sender", main_fn: Main::None, shmem_attach: true },
+    ChildProcessKind {
+        name: "wal sender",
+        main_fn: Main::None,
+        shmem_attach: true,
+    },
     ChildProcessKind {
         name: "slot sync worker",
         main_fn: Main::Ported(slotsync::ReplSlotSyncWorkerMain),
         shmem_attach: true,
     },
-    ChildProcessKind { name: "standalone backend", main_fn: Main::None, shmem_attach: false },
+    ChildProcessKind {
+        name: "standalone backend",
+        main_fn: Main::None,
+        shmem_attach: false,
+    },
     ChildProcessKind {
         name: "archiver",
         main_fn: Main::Ported(pgarch::PgArchiverMain),
@@ -247,7 +259,10 @@ fn pid_is_live(pid: pid_t) -> bool {
         .unwrap_or_else(|e| e.into_inner())
         .iter()
         .any(|(p, _)| *p == pid)
-        || RESERVED_PIDS.lock().unwrap_or_else(|e| e.into_inner()).contains(&pid)
+        || RESERVED_PIDS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(&pid)
 }
 
 // Populations that never enter CHILD_THREADS (rtgang, rtpool, bgjobs) still
@@ -257,7 +272,10 @@ static RESERVED_PIDS: pgsync::Mutex<std::collections::BTreeSet<pid_t>> =
     pgsync::Mutex::new(std::collections::BTreeSet::new());
 
 fn release_reserved_pid(pid: pid_t) {
-    RESERVED_PIDS.lock().unwrap_or_else(|e| e.into_inner()).remove(&pid);
+    RESERVED_PIDS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&pid);
 }
 
 /// Reserve a synthetic child pid. Guarantees the returned value is (a)
@@ -297,12 +315,16 @@ fn reserve_child_pid() -> Option<pid_t> {
         // 0/negative), normalizing any out-of-range value the same way.
         let mut cur = NEXT_CHILD_PID.load(Ordering::Relaxed);
         let candidate = loop {
-            let c = if !( MIN_SYNTHETIC_PID..= MAX_SYNTHETIC_PID).contains(&cur) {
+            let c = if !(MIN_SYNTHETIC_PID..=MAX_SYNTHETIC_PID).contains(&cur) {
                 MIN_SYNTHETIC_PID
             } else {
                 cur
             };
-            let next = if c == MAX_SYNTHETIC_PID { MIN_SYNTHETIC_PID } else { c + 1 };
+            let next = if c == MAX_SYNTHETIC_PID {
+                MIN_SYNTHETIC_PID
+            } else {
+                c + 1
+            };
             match NEXT_CHILD_PID.compare_exchange_weak(
                 cur,
                 next,
@@ -318,7 +340,10 @@ fn reserve_child_pid() -> Option<pid_t> {
         if candidate == postmaster_pid || pid_is_live(candidate) {
             continue;
         }
-        RESERVED_PIDS.lock().unwrap_or_else(|e| e.into_inner()).insert(candidate);
+        RESERVED_PIDS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(candidate);
         return Some(candidate);
     }
     None
@@ -347,7 +372,9 @@ pub fn join_announced_child(pid: pid_t) {
     }
     let handle = {
         let mut t = CHILD_THREADS.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(idx) = t.iter().position(|(p, _)| *p == pid) else { return };
+        let Some(idx) = t.iter().position(|(p, _)| *p == pid) else {
+            return;
+        };
         release_reserved_pid(pid);
         t.swap_remove(idx).1
     };
@@ -574,9 +601,7 @@ pub fn report_startup_failure_to_client(sock: i32, msg: &str) {
         if flags >= 0 && libc::fcntl(sock, libc::F_SETFL, flags | libc::O_NONBLOCK) >= 0 {
             loop {
                 let rc = libc::send(sock, buf.as_ptr() as *const libc::c_void, buf.len(), 0);
-                if rc >= 0
-                    || std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR)
-                {
+                if rc >= 0 || std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
                     break;
                 }
             }
@@ -604,7 +629,11 @@ pub fn panic_payload_to_exit_status(payload: &(dyn std::any::Any + Send)) -> i32
     payload
         .downcast_ref::<ipc::ProcExitThread>()
         .map(|p| p.code << 8)
-        .or_else(|| payload.downcast_ref::<ipc::KilledBySignal>().map(|k| k.signo))
+        .or_else(|| {
+            payload
+                .downcast_ref::<ipc::KilledBySignal>()
+                .map(|k| k.signo)
+        })
         .unwrap_or(procsignal::signums::SIGABRT)
 }
 
@@ -652,8 +681,7 @@ fn run_child_task(
         Main::Ported(f) => f,
         Main::Unported(what) => panic!(
             "run_child_task: {} unported (child kind \"{}\")",
-            what,
-            CHILD_PROCESS_KINDS[child_type as usize].name
+            what, CHILD_PROCESS_KINDS[child_type as usize].name
         ),
         Main::None => panic!(
             "run_child_task: no main_fn for child kind \"{}\"",
@@ -662,12 +690,12 @@ fn run_child_task(
     };
 
     if is_external_connection_backend(child_type) {
-        let StartupData::Backend(bsdata) = &startup_data else { unreachable!() };
+        let StartupData::Backend(bsdata) = &startup_data else {
+            unreachable!()
+        };
         backend_startup::conn_timing::set_socket_create(bsdata.socket_created);
         backend_startup::conn_timing::set_fork_start(bsdata.fork_started);
-        backend_startup::conn_timing::set_fork_end(
-            timestamp_seams::get_current_timestamp::call(),
-        );
+        backend_startup::conn_timing::set_fork_end(timestamp_seams::get_current_timestamp::call());
     }
 
     // ClosePostmasterPorts: no-op, shared fd table (module doc).
@@ -740,9 +768,9 @@ fn run_child_task(
     }
 
     // unwind-ok: log-then-die
-    let Err(payload) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        main_fn(&startup_data)
-    })) else {
+    let Err(payload) =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| main_fn(&startup_data)))
+    else {
         unreachable!("child main_fn returns !")
     };
     // proc_exit's deferred half: the unwind above ran the stack's Drop glue
@@ -757,8 +785,7 @@ fn run_child_task(
     // estate drain ran after a quickdie that skipped the abort ceremony and
     // dropped a FAILED portal into freed memory). Read BEFORE the drain
     // consumes the flag.
-    let clean_proc_exit =
-        payload.is::<ipc::ProcExitThread>() && ipc::exit_callbacks_pending();
+    let clean_proc_exit = payload.is::<ipc::ProcExitThread>() && ipc::exit_callbacks_pending();
     let payload = match payload.downcast_ref::<ipc::ProcExitThread>() {
         Some(p) => {
             let code = p.code;
@@ -802,8 +829,7 @@ fn run_child_task(
     // keep their retained caches by design. The payload re-check drops the
     // clean claim if a deferred callback crashed mid-drain.
     let mut client_parks = false;
-    if !parks && clean_proc_exit && payload.downcast_ref::<ipc::ProcExitThread>().is_some()
-    {
+    if !parks && clean_proc_exit && payload.downcast_ref::<ipc::ProcExitThread>().is_some() {
         mcxt_stats::run_session_teardown();
         // D4682: a clean exit(0) of a client session may park the thread for the next connection, keeping its heap.
         client_parks = exitstatus == 0 && cpool::decide_park(child_type, child_pid);
@@ -869,8 +895,7 @@ pub fn postmaster_child_launch(
     client_sock: Option<ClientSocket>,
 ) -> pid_t {
     debug_assert!(
-        init_small::globals::IsPostmasterEnvironment()
-            && !init_small::globals::IsUnderPostmaster()
+        init_small::globals::IsPostmasterEnvironment() && !init_small::globals::IsUnderPostmaster()
     );
 
     // M4 bgjobs virtual child (docs/design/m4-bgjobs.md §3.6): a migrated
@@ -903,10 +928,16 @@ pub fn postmaster_child_launch(
     let _main_fn: ChildMainFn = match kind.main_fn {
         Main::Ported(f) => f,
         Main::Unported(what) => {
-            panic!("postmaster_child_launch: {} unported (child kind \"{}\")", what, kind.name)
+            panic!(
+                "postmaster_child_launch: {} unported (child kind \"{}\")",
+                what, kind.name
+            )
         }
         Main::None => {
-            panic!("postmaster_child_launch: no main_fn for child kind \"{}\"", kind.name)
+            panic!(
+                "postmaster_child_launch: no main_fn for child kind \"{}\"",
+                kind.name
+            )
         }
     };
 
@@ -946,8 +977,7 @@ pub fn postmaster_child_launch(
     // lossless and stays below the synthetic ranges). No-op unless
     // PGRUST_SIM_SCHED=1 under `pgrust_sim`.
     #[cfg(pgrust_sim)]
-    let sim_sched_slot =
-        pgsync::sim::spawn_door::register_child(child_pid as u32, kind.name);
+    let sim_sched_slot = pgsync::sim::spawn_door::register_child(child_pid as u32, kind.name);
     // SIMVFS-SHARED: parent-side universe capture — the simulated process's
     // filesystem follows its threads (a fork inherits the fd table). None
     // when sharing is off: the child keeps its private universe, exactly
@@ -1048,10 +1078,13 @@ pub fn postmaster_child_launch(
 // if the cap ever binds). Unlimited/unknown rlimit reserves at least 16MiB.
 fn child_thread_stack_size() -> usize {
     let rlim = stack_depth::get_stack_depth_rlimit();
-    let scaled_need =
-        stack_depth::scaled_max_stack_depth_bytes().max(0) as usize + (8 << 20);
+    let scaled_need = stack_depth::scaled_max_stack_depth_bytes().max(0) as usize + (8 << 20);
     let unlimited_reserve = (16usize << 20).max(scaled_need);
-    let rlim = if rlim > 0 && rlim < isize::MAX { rlim as usize } else { unlimited_reserve };
+    let rlim = if rlim > 0 && rlim < isize::MAX {
+        rlim as usize
+    } else {
+        unlimited_reserve
+    };
     let min_stack = std::env::var("RUST_MIN_STACK")
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
@@ -1089,9 +1122,7 @@ pub fn init_seams() {
     // cannot name pmsignal in production — the POOL_GATE fn-pointer
     // precedent).
     parallel::standing::install_pool_busy_poke(|| {
-        pmsignal::SendPostmasterSignal(
-            pmsignal::PMSignalReason::PMSIGNAL_ADVANCE_STATE_MACHINE,
-        )
+        pmsignal::SendPostmasterSignal(pmsignal::PMSignalReason::PMSIGNAL_ADVANCE_STATE_MACHINE)
     });
 }
 
@@ -1282,7 +1313,7 @@ pub mod wpool {
     pub fn flush() {
         FLUSH_EPOCH.fetch_add(1, Relaxed);
         available().clear(); // dropped channels retire the standbys
-        // D4682: parked client threads leave too (reload: a fresh start for the pool; crash: before shmem resets).
+                             // D4682: parked client threads leave too (reload: a fresh start for the pool; crash: before shmem resets).
         super::cpool::flush();
     }
 
@@ -1355,8 +1386,7 @@ pub mod wpool {
                 let _local_latch_release = miscinit::LocalLatchReleaseGuard::new();
                 // As on the spawn path: a rotating standby's exit must close
                 // its wait event sets (parked standbys keep them warm).
-                let _wait_event_sets_release =
-                    waiteventset::WaitEventSetReleaseGuard::new();
+                let _wait_event_sets_release = waiteventset::WaitEventSetReleaseGuard::new();
                 inherited.apply();
                 let _ = stack_depth::set_stack_base();
                 stack_depth::set_thread_stack_ceiling(stack_size);
@@ -1404,7 +1434,9 @@ pub mod wpool {
     /// A standby exiting on a path whose announce (if any) the reaper
     /// skips as a park: drop its own reaper entry and pid reservation.
     pub(super) fn retire_child_thread(thread_key: pid_t) {
-        let mut t = super::CHILD_THREADS.lock().unwrap_or_else(|e| e.into_inner());
+        let mut t = super::CHILD_THREADS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         if let Some(i) = t.iter().position(|(p, _)| *p == thread_key) {
             t.swap_remove(i);
             super::release_reserved_pid(thread_key);
@@ -1438,9 +1470,7 @@ pub mod wpool {
                     // §5 leak guard: a claimed standby must not carry a
                     // previous session's GUC bind.
                     debug_assert!(!guc::store::session_bound());
-                    init_small::wretain::begin_task(
-                        init_small::wretain::retention_enabled(),
-                    );
+                    init_small::wretain::begin_task(init_small::wretain::retention_enabled());
                     if task.reserved {
                         lmgr_proc::adopt_bgworker_reservation();
                     }
@@ -1671,7 +1701,10 @@ pub mod wpool {
                         if reserved {
                             lmgr_proc::unreserve_bgworker_proc();
                         }
-                        let Some(v) = avail.iter().position(|s| s.db != InvalidOid && s.db != dboid) else {
+                        let Some(v) = avail
+                            .iter()
+                            .position(|s| s.db != InvalidOid && s.db != dboid)
+                        else {
                             return 0;
                         };
                         let Standby { tx, released, .. } = avail.swap_remove(v);
@@ -1700,8 +1733,7 @@ pub mod wpool {
                 // retires the standby; its own wake skips the shared-
                 // memory release through the parked-epoch check.
                 let mut avail = available();
-                if FLUSH_EPOCH.load(Relaxed) == pop_flush
-                    && CRASH_EPOCH.load(Relaxed) == pop_crash
+                if FLUSH_EPOCH.load(Relaxed) == pop_flush && CRASH_EPOCH.load(Relaxed) == pop_crash
                 {
                     avail.push(sb);
                 }
@@ -1782,7 +1814,9 @@ pub mod wpool {
         if old_pid == new_pid {
             return;
         }
-        let mut t = super::CHILD_THREADS.lock().unwrap_or_else(|e| e.into_inner());
+        let mut t = super::CHILD_THREADS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         if let Some(entry) = t.iter_mut().find(|(p, _)| *p == old_pid) {
             entry.0 = new_pid;
             super::release_reserved_pid(old_pid);
@@ -1804,9 +1838,9 @@ pub mod wpool {
             std::thread::spawn(|| {
                 for _ in 0..8 {
                     let root = mcx::session_root("retired-standby-test");
-                    root.mcx().alloc_uninit_bytes(
-                        std::alloc::Layout::from_size_align(4096, 8).unwrap(),
-                    ).unwrap();
+                    root.mcx()
+                        .alloc_uninit_bytes(std::alloc::Layout::from_size_align(4096, 8).unwrap())
+                        .unwrap();
                     assert!(mcxt_stats::session_cleanup_count() > 0);
                     let (tx, rx) = pgsync::mpsc::sync_channel(1);
                     let (ack_tx, ack_rx) = pgsync::mpsc::sync_channel(1);
@@ -1914,7 +1948,9 @@ pub mod rtpool {
 
         impl pgrc_am::scan::SampleRg for Rg {
             fn try_done(&self) -> Option<bool> {
-                self.waiter.try_wait().map(|o| o == runtime::RgOutcome::Completed)
+                self.waiter
+                    .try_wait()
+                    .map(|o| o == runtime::RgOutcome::Completed)
             }
             fn abort(&self) {
                 self.rg.abort();
@@ -1925,7 +1961,12 @@ pub mod rtpool {
             fn available(&self) -> bool {
                 runtime::runtime_enabled()
             }
-            fn submit(&self, ntasks: usize, width: usize, run: Arc<dyn Fn(usize) + Send + Sync>) -> Box<dyn pgrc_am::scan::SampleRg> {
+            fn submit(
+                &self,
+                ntasks: usize,
+                width: usize,
+                run: Arc<dyn Fn(usize) + Send + Sync>,
+            ) -> Box<dyn pgrc_am::scan::SampleRg> {
                 static NEXT_QUERY_ID: AtomicU64 = AtomicU64::new(1);
                 let (rg, waiter) = self.0.submit_utility(
                     runtime::QuerySpec {
@@ -2000,13 +2041,19 @@ pub mod rtpool {
     /// C3: the fast rungs of the memory policy's decide (their bytes, their reclaim), which the postmaster installs on the
     /// memory watchdog's thread (`memruntime::set_fast_rungs`) before starting it.
     pub fn gravity_fast_rungs() -> (fn() -> u64, fn(u64) -> u64) {
-        (gravity_hosts::membroker::fast_bytes, gravity_hosts::membroker::fast_reclaim)
+        (
+            gravity_hosts::membroker::fast_bytes,
+            gravity_hosts::membroker::fast_reclaim,
+        )
     }
 
     /// D3992: the backstop's rungs (their bytes, their reclaim before a cancel), installed on the memory watchdog's thread
     /// (`memruntime::set_backstop_rungs`) before starting it.
     pub fn gravity_backstop_rungs() -> (fn() -> u64, fn(u64) -> u64) {
-        (gravity_hosts::membroker::backstop_bytes, gravity_hosts::membroker::backstop_reclaim)
+        (
+            gravity_hosts::membroker::backstop_bytes,
+            gravity_hosts::membroker::backstop_reclaim,
+        )
     }
 
     /// D4353: the memory ladder's R2a count (`memruntime::set_ladder_elastic`).
@@ -2016,7 +2063,10 @@ pub mod rtpool {
 
     /// D4353 (C): the ladder's R2a reclaim and R2b's protected bytes (`memruntime::set_ladder_floors`).
     pub fn gravity_ladder_floors() -> (fn(u64) -> u64, fn() -> u64) {
-        (gravity_hosts::membroker::ladder_reclaim, gravity_hosts::membroker::ladder_protected)
+        (
+            gravity_hosts::membroker::ladder_reclaim,
+            gravity_hosts::membroker::ladder_protected,
+        )
     }
 
     /// D3793: the postmaster's check of the part cache's setting against the memory limit (`limit` bytes, from
@@ -2039,7 +2089,10 @@ pub mod rtpool {
             let s = rt.stats();
             s.rgs_submitted.saturating_sub(s.rgs_completed)
         };
-        runtime::global().map_or(0, live) + EXTRA_RUNTIMES.get().map_or(0, |rts| rts.iter().map(live).sum())
+        runtime::global().map_or(0, live)
+            + EXTRA_RUNTIMES
+                .get()
+                .map_or(0, |rts| rts.iter().map(live).sum())
     }
 
     /// The process runtime, if the kill switch enabled it. M0: called by
@@ -2151,7 +2204,12 @@ pub mod rtpool {
         }
         let cfg = pool_config();
         // per-node pools (runtime cpuset): pool k >= 1 is sized to its node's cpu set.
-        let extra: usize = runtime::cpuset::plan().pools.iter().skip(1).map(|p| p.len() + cfg.standbys).sum();
+        let extra: usize = runtime::cpuset::plan()
+            .pools
+            .iter()
+            .skip(1)
+            .map(|p| p.len() + cfg.standbys)
+            .sum();
         ((cfg.workers + cfg.standbys + extra) as i64).clamp(0, 2048) as i32
     }
 
@@ -2309,7 +2367,12 @@ pub mod rtpool {
     /// open to the plain executor loop (inc-1 behavior; the gate refuses
     /// serves); identity-holding exits release through the fence-checked
     /// drain below and respawn.
-    fn pooldb_thread_main(pool: usize, ordinal: usize, child_pid: pid_t, body: Box<dyn FnOnce() + Send>) {
+    fn pooldb_thread_main(
+        pool: usize,
+        ordinal: usize,
+        child_pid: pid_t,
+        body: Box<dyn FnOnce() + Send>,
+    ) {
         // Thread-scoped local latch slot (returned on thread exit).
         let _local_latch_release = miscinit::LocalLatchReleaseGuard::new();
         let _wait_event_sets_release = waiteventset::WaitEventSetReleaseGuard::new();
@@ -2328,7 +2391,10 @@ pub mod rtpool {
         if let Err(e) = guc_ok {
             let _ = elog::elog(
                 types_error::WARNING,
-                format!("pool executor {ordinal}: GUC bring-up failed: {}", e.message()),
+                format!(
+                    "pool executor {ordinal}: GUC bring-up failed: {}",
+                    e.message()
+                ),
             );
             POOL_IDENT.with(|c| c.set(PoolIdent::Poisoned));
             body();
@@ -2513,8 +2579,12 @@ pub mod rtpool {
             EXTRA_RUNTIMES.get().and_then(|v| v.get(pool - 1).cloned())
         };
         let Some(rt2) = rt else { return };
-        if spawn_worker_in(pool, ordinal, Box::new(move || runtime::worker_loop(&rt2, ordinal)))
-            .is_err()
+        if spawn_worker_in(
+            pool,
+            ordinal,
+            Box::new(move || runtime::worker_loop(&rt2, ordinal)),
+        )
+        .is_err()
         {
             let _ = elog::elog(
                 types_error::WARNING,
@@ -2577,13 +2647,20 @@ pub mod rtpool {
             runtime::install_global(Arc::clone(&rt));
             // loadstats (c): ANALYZE's pgrcolumnar sample windows run as Utility morsels on this pool (pgrc_am
             // sits below the runtime crate, so the pool is handed to it here)
-            pgrc_am::scan::install_sample_pool(Box::new(sample_pool::RtSamplePool(Arc::clone(&rt))));
+            pgrc_am::scan::install_sample_pool(Box::new(sample_pool::RtSamplePool(Arc::clone(
+                &rt,
+            ))));
             // per-node pools (runtime cpuset `per-node`, lane numapool): one
             // more runtime per NUMA node, sized to that node's cpu set and
             // pinned there by cpuaff's pool-k policy; `runtime::global()`
             // and the gang stay pool 0; a statement is placed whole on one
             // pool (gravity_parallel::place). Dormant on a one-node box.
-            let extra_sets: Vec<Vec<usize>> = runtime::cpuset::plan().pools.iter().skip(1).cloned().collect();
+            let extra_sets: Vec<Vec<usize>> = runtime::cpuset::plan()
+                .pools
+                .iter()
+                .skip(1)
+                .cloned()
+                .collect();
             let mut extra_rts: Vec<Arc<runtime::Runtime>> = Vec::with_capacity(extra_sets.len());
             for (k, set) in extra_sets.iter().enumerate() {
                 let pool_ix = k + 1;
@@ -2604,7 +2681,10 @@ pub mod rtpool {
                 let pool: &'static gravity_pool::RuntimePool = Box::leak(Box::new(pool));
                 let mut pools: Vec<&'static (dyn gravity_parallel::Pool + Sync)> = vec![pool];
                 for rt_k in &extra_rts {
-                    let p = gravity_pool::RuntimePool::new(Arc::clone(rt_k), gravity_pool::Ambient::SERVER);
+                    let p = gravity_pool::RuntimePool::new(
+                        Arc::clone(rt_k),
+                        gravity_pool::Ambient::SERVER,
+                    );
                     pools.push(Box::leak(Box::new(p)));
                 }
                 gravity_parallel::install_pools(pools);
@@ -2639,9 +2719,7 @@ pub mod rtpool {
     ) -> std::io::Result<std::thread::JoinHandle<()>> {
         let Some(pid) = super::reserve_child_pid() else {
             // Synthetic pid space exhausted: fail the worker spawn cleanly.
-            return Err(std::io::Error::other(
-                "synthetic child pid space exhausted",
-            ));
+            return Err(std::io::Error::other("synthetic child pid space exhausted"));
         };
         let inherited = super::Inherited::capture();
         // PERMIT-S5 (s2 §6 item 3 / review NB-1): the rtpool worker spawn
@@ -2657,8 +2735,11 @@ pub mod rtpool {
         // SIMVFS-SHARED: parent-side universe capture (fd-table inheritance).
         #[cfg(pgrust_sim)]
         let sim_universe = super::sim_universe_capture();
-        let thread_name =
-            if pool == 0 { format!("pg:rtworker{ordinal}:{pid}") } else { format!("pg:rtn{pool}w{ordinal}:{pid}") };
+        let thread_name = if pool == 0 {
+            format!("pg:rtworker{ordinal}:{pid}")
+        } else {
+            format!("pg:rtn{pool}w{ordinal}:{pid}")
+        };
         let stack_size = super::child_thread_stack_size();
         let spawned = std::thread::Builder::new()
             .name(thread_name)
@@ -2781,12 +2862,11 @@ pub mod rtpool {
                 } else {
                     guc::store::initialize_guc_options_for_child(&guc_snapshot)
                         .and_then(|()| guc::store::restore_nondefault_variables(&guc_snapshot))
-                        .unwrap_or_else(|e| {
-                            panic!("bgjobs dispatcher GUC prelude failed: {e:?}")
-                        });
+                        .unwrap_or_else(|e| panic!("bgjobs dispatcher GUC prelude failed: {e:?}"));
                 }
                 body();
-            })); spawned
+            }));
+        spawned
     }
 
     /// M4 bgjobs increment 4 (docs/design/m4-bgjobs.md §3.6, the virtual
@@ -2912,8 +2992,7 @@ pub mod rtgang {
     #[cfg(pgrust_sim)]
     fn doorskip_red_armed() -> bool {
         static ARMED: OnceLock<bool> = OnceLock::new();
-        *ARMED
-            .get_or_init(|| std::env::var("PGRUST_SIM_DOORSKIP").as_deref() == Ok("rtgang"))
+        *ARMED.get_or_init(|| std::env::var("PGRUST_SIM_DOORSKIP").as_deref() == Ok("rtgang"))
     }
 
     /// PGPROCs to boot-reserve for the gang: PGRUST_RUNTIME=1 (+ the
@@ -2957,8 +3036,7 @@ pub mod rtgang {
         }
         let _ = BOOT.set(Boot {
             inherited: super::Inherited::capture(),
-            guc_base: guc::layers::base_share_enabled()
-                .then(guc::layers::ensure_base_current),
+            guc_base: guc::layers::base_share_enabled().then(guc::layers::ensure_base_current),
             guc_snapshot: if guc::layers::base_share_enabled() {
                 Vec::new()
             } else {
@@ -3057,7 +3135,10 @@ pub mod rtgang {
         if let Err(e) = guc_ok {
             let _ = elog::elog(
                 types_error::WARNING,
-                format!("standing executor {ordinal}: GUC bring-up failed: {}", e.message()),
+                format!(
+                    "standing executor {ordinal}: GUC bring-up failed: {}",
+                    e.message()
+                ),
             );
             parallel::standing::note_worker_exit(ordinal);
             return;
@@ -3068,7 +3149,10 @@ pub mod rtgang {
         if let Err(e) = miscinit::InitPostmasterChild(child_pid) {
             let _ = elog::elog(
                 types_error::WARNING,
-                format!("standing executor {ordinal}: InitPostmasterChild failed: {}", e.message()),
+                format!(
+                    "standing executor {ordinal}: InitPostmasterChild failed: {}",
+                    e.message()
+                ),
             );
             parallel::standing::note_worker_exit(ordinal);
             return;
@@ -3116,14 +3200,20 @@ pub mod rtgang {
             if let Err(e) = lmgr_proc::InitProcess(types_core::init::BackendType::BgWorker) {
                 let _ = elog::elog(
                     types_error::WARNING,
-                    format!("standing executor {ordinal}: InitProcess failed: {}", e.message()),
+                    format!(
+                        "standing executor {ordinal}: InitProcess failed: {}",
+                        e.message()
+                    ),
                 );
                 return;
             }
             if let Err(e) = postinit::BaseInit() {
                 let _ = elog::elog(
                     types_error::WARNING,
-                    format!("standing executor {ordinal}: BaseInit failed: {}", e.message()),
+                    format!(
+                        "standing executor {ordinal}: BaseInit failed: {}",
+                        e.message()
+                    ),
                 );
                 // PGPROC is claimed: release identity via the exit path.
                 ipc::proc_exit(1, init_small::globals::MyProcPid());
@@ -3185,9 +3275,7 @@ pub mod rtgang {
                     // included); a mid-drain panic leaves us no worse.
                     let _ = elog::elog(
                         types_error::WARNING,
-                        format!(
-                            "standing executor {ordinal} died on a panic; releasing identity"
-                        ),
+                        format!("standing executor {ordinal} died on a panic; releasing identity"),
                     );
                     // proc_exit arms the deferred-callback flag (and
                     // unwinds ProcExitThread, caught here); the drain then

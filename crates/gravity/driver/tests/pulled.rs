@@ -14,10 +14,18 @@ use gravity_abi::ctx::{cancel_pending, resume, site_ptr, RESUME_NONE};
 use gravity_abi::site::{next_row, seek, site};
 use gravity_abi::status::{suspend, CANCELLED, DONE, ERROR};
 use gravity_abi::Ctx;
-use gravity_driver::{Binding, Call, Entry, Error, Exec, Grant, Pulled, Step, DEPOT, POOL, REGIONS};
-use gravity_program::{Arena, Code, End, Generation, Handle, Layout, OutCol, Pipeline, PlanKey, Program, Reason, SiteDesc, WritePlan};
+use gravity_driver::{
+    Binding, Call, Entry, Error, Exec, Grant, Pulled, Step, DEPOT, POOL, REGIONS,
+};
+use gravity_program::{
+    Arena, Code, End, Generation, Handle, Layout, OutCol, Pipeline, PlanKey, Program, Reason,
+    SiteDesc, WritePlan,
+};
 
-const KEY: PlanKey = PlanKey { handle: Handle(32), generation: Generation(6) };
+const KEY: PlanKey = PlanKey {
+    handle: Handle(32),
+    generation: Generation(6),
+};
 const BLOCKS: u64 = 4;
 const PER_BLOCK: u64 = 10;
 const ROWS: u64 = BLOCKS * PER_BLOCK;
@@ -58,7 +66,8 @@ unsafe extern "C-unwind" fn k_pull(ctx: *mut Ctx) -> i64 {
     PULL_CALLS.fetch_add(1, Relaxed);
     let s = &mut *site_ptr(ctx, 1);
     if resume::phase((*ctx).resume) != resume::EMIT {
-        (*s.keys, *s.keys.add(1), *s.keys_null, *s.keys_null.add(1)) = ((*ctx).claim.lo, (*ctx).claim.hi, 0, 0);
+        (*s.keys, *s.keys.add(1), *s.keys_null, *s.keys_null.add(1)) =
+            ((*ctx).claim.lo, (*ctx).claim.hi, 0, 0);
         seek(s);
         PROD_SEEN.store(count_sum(consumed(ctx, 0)).count(0), Relaxed);
     }
@@ -104,19 +113,52 @@ unsafe extern "C-unwind" fn k_read(ctx: *mut Ctx) -> i64 {
 
 fn program() -> Program {
     let st = Arena::new(1 << 14);
-    let sites = [SiteDesc::range_source(st.handle(), 2001, &[1, 2]), SiteDesc::range_source(st.handle(), 2002, &[1, 2])];
-    let agg = |slot| End::Breaker(Breaker::sized(BreakerKind::PlainAgg, COUNT_SUM_BYTES).in_slot(slot));
+    let sites = [
+        SiteDesc::range_source(st.handle(), 2001, &[1, 2]),
+        SiteDesc::range_source(st.handle(), 2002, &[1, 2]),
+    ];
+    let agg =
+        |slot| End::Breaker(Breaker::sized(BreakerKind::PlainAgg, COUNT_SUM_BYTES).in_slot(slot));
     let pipes = [
-        (Pipeline::serial(0, agg(1), Reason::Host), Code::hand(k_prod)),
-        (Pipeline::serial(1, agg(0), Reason::Host).consuming(&[1]), Code::hand(k_pull)),
-        (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming(&[0]), Code::hand(k_read)),
-        (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming(&[0]), Code::hand(k_read)),
+        (
+            Pipeline::serial(0, agg(1), Reason::Host),
+            Code::hand(k_prod),
+        ),
+        (
+            Pipeline::serial(1, agg(0), Reason::Host).consuming(&[1]),
+            Code::hand(k_pull),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming(&[0]),
+            Code::hand(k_read),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming(&[0]),
+            Code::hand(k_read),
+        ),
     ];
     let cols: [OutCol; 1] = [OutCol::new("c0", 20, -1, 8, true)];
-    Program::with_pipelines(Layout { nsites: 2, out_natts: 1, out_rows: 4, scratch_bytes: 0, exec_bytes: 0 }, &sites, &cols, WritePlan::SELECT, pipes)
+    Program::with_pipelines(
+        Layout {
+            nsites: 2,
+            out_natts: 1,
+            out_rows: 4,
+            scratch_bytes: 0,
+            exec_bytes: 0,
+        },
+        &sites,
+        &cols,
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
-fn run_whole(e: &mut Entry, x: &mut Exec, b: &mut Binding<'_>, p: usize) -> gravity_driver::Result<()> {
+fn run_whole(
+    e: &mut Entry,
+    x: &mut Exec,
+    b: &mut Binding<'_>,
+    p: usize,
+) -> gravity_driver::Result<()> {
     match e.run_pipeline(x, b, Call::batch(4))? {
         Step::Done => Ok(()),
         s => panic!("producer {p} stopped with {s:?}"),
@@ -135,8 +177,15 @@ const THR: [u64; 1] = [1000];
 const SET: [u16; 2] = [0, 1];
 
 /// The statement over the program: the set's producer and CTE plan stepped past (deferred), both readers its owners.
-fn begin(entry: &mut Entry, derive: &mut FakeDerive, program: &Arc<Program>, b: &mut Binding<'_>) -> Exec {
-    let mut exec = entry.start(Some(KEY), program, derive, b, lease(Grant::of(8 << 20))).unwrap();
+fn begin(
+    entry: &mut Entry,
+    derive: &mut FakeDerive,
+    program: &Arc<Program>,
+    b: &mut Binding<'_>,
+) -> Exec {
+    let mut exec = entry
+        .start(Some(KEY), program, derive, b, lease(Grant::of(8 << 20)))
+        .unwrap();
     entry.skip_deferred(&mut exec);
     entry.skip_pulled(&mut exec, &[2, 3]).unwrap();
     assert_eq!(exec.next_pipeline(), 2);
@@ -159,24 +208,65 @@ fn budgets_1_7_and_10k_pull_one_whole_run_the_producer_once_and_the_end_is_stick
         let mut pulls = 0u64;
         loop {
             pulls += 1;
-            match entry.pull_nested(&mut exec, &mut b, &SET, &mut run_whole).unwrap() {
-                Pulled::Stopped => assert_eq!(exec.node().parked_pulls(), 1, "a stop parks the call"),
+            match entry
+                .pull_nested(&mut exec, &mut b, &SET, &mut run_whole)
+                .unwrap()
+            {
+                Pulled::Stopped => {
+                    assert_eq!(exec.node().parked_pulls(), 1, "a stop parks the call")
+                }
                 Pulled::Done => break,
             }
-            assert_eq!(exec.next_pipeline(), 2, "the reader's place back after each pull");
+            assert_eq!(
+                exec.next_pipeline(),
+                2,
+                "the reader's place back after each pull"
+            );
         }
-        assert_eq!(pulls, ROWS / budget + 1, "budget {budget}: one stop per budget, then the end");
-        assert_eq!(LANDED.load(Relaxed), ROWS, "budget {budget}: one whole run's rows");
-        assert_eq!(PROD_CALLS.load(Relaxed), 1, "budget {budget}: the producer ran once");
+        assert_eq!(
+            pulls,
+            ROWS / budget + 1,
+            "budget {budget}: one stop per budget, then the end"
+        );
+        assert_eq!(
+            LANDED.load(Relaxed),
+            ROWS,
+            "budget {budget}: one whole run's rows"
+        );
+        assert_eq!(
+            PROD_CALLS.load(Relaxed),
+            1,
+            "budget {budget}: the producer ran once"
+        );
         assert_eq!(PROD_SEEN.load(Relaxed), ROWS as i64);
         assert_eq!(exec.node().parked_pulls(), 0);
         let calls = PULL_CALLS.load(Relaxed);
-        assert_eq!(entry.pull_nested(&mut exec, &mut b, &SET, &mut run_whole).unwrap(), Pulled::Done, "Done is sticky");
-        assert_eq!(PULL_CALLS.load(Relaxed), calls, "a pull after the end calls nothing");
+        assert_eq!(
+            entry
+                .pull_nested(&mut exec, &mut b, &SET, &mut run_whole)
+                .unwrap(),
+            Pulled::Done,
+            "Done is sticky"
+        );
+        assert_eq!(
+            PULL_CALLS.load(Relaxed),
+            calls,
+            "a pull after the end calls nothing"
+        );
         for reader in [2, 3] {
             READ.store(-1, Relaxed);
-            assert_eq!(entry.run_pipeline(&mut exec, &mut b, Call::batch(4)).unwrap(), Step::Done, "reader {reader}");
-            assert_eq!(READ.load(Relaxed), ROWS as i64, "reader {reader} reads the whole store");
+            assert_eq!(
+                entry
+                    .run_pipeline(&mut exec, &mut b, Call::batch(4))
+                    .unwrap(),
+                Step::Done,
+                "reader {reader}"
+            );
+            assert_eq!(
+                READ.load(Relaxed),
+                ROWS as i64,
+                "reader {reader} reads the whole store"
+            );
         }
         entry.end(exec, true);
     }
@@ -194,15 +284,54 @@ fn a_parked_pull_survives_a_readers_hold_and_a_second_readers_open() {
     let mut sink = LegSink::new();
     let mut b = binding(&THR, &[0], &mut sink, &flag);
     let mut exec = begin(&mut entry, &mut derive, &program, &mut b);
-    assert_eq!(entry.pull_nested(&mut exec, &mut b, &SET, &mut run_whole).unwrap(), Pulled::Stopped);
+    assert_eq!(
+        entry
+            .pull_nested(&mut exec, &mut b, &SET, &mut run_whole)
+            .unwrap(),
+        Pulled::Stopped
+    );
     READER_STOP.store(1, Relaxed);
-    assert!(matches!(entry.run_pipeline(&mut exec, &mut b, Call::batch(4)).unwrap(), Step::Suspended { .. }), "reader 2 opens (site-less: its sweep skips the parked site) and stops");
-    assert_eq!(entry.pull_nested(&mut exec, &mut b, &SET, &mut run_whole).unwrap(), Pulled::Stopped, "a pull inside reader 2's call");
-    assert_eq!(entry.run_pipeline(&mut exec, &mut b, Call::resume(4)).unwrap(), Step::Done, "reader 2 resumes after the pull");
-    assert_eq!(READ.load(Relaxed), 2, "reader 2 reads the two rows pulled so far");
+    assert!(
+        matches!(
+            entry
+                .run_pipeline(&mut exec, &mut b, Call::batch(4))
+                .unwrap(),
+            Step::Suspended { .. }
+        ),
+        "reader 2 opens (site-less: its sweep skips the parked site) and stops"
+    );
+    assert_eq!(
+        entry
+            .pull_nested(&mut exec, &mut b, &SET, &mut run_whole)
+            .unwrap(),
+        Pulled::Stopped,
+        "a pull inside reader 2's call"
+    );
+    assert_eq!(
+        entry
+            .run_pipeline(&mut exec, &mut b, Call::resume(4))
+            .unwrap(),
+        Step::Done,
+        "reader 2 resumes after the pull"
+    );
+    assert_eq!(
+        READ.load(Relaxed),
+        2,
+        "reader 2 reads the two rows pulled so far"
+    );
     READER_STOP.store(0, Relaxed);
-    while entry.pull_nested(&mut exec, &mut b, &SET, &mut run_whole).unwrap() == Pulled::Stopped {}
-    assert_eq!(entry.run_pipeline(&mut exec, &mut b, Call::batch(4)).unwrap(), Step::Done, "reader 3 opens over the store");
+    while entry
+        .pull_nested(&mut exec, &mut b, &SET, &mut run_whole)
+        .unwrap()
+        == Pulled::Stopped
+    {}
+    assert_eq!(
+        entry
+            .run_pipeline(&mut exec, &mut b, Call::batch(4))
+            .unwrap(),
+        Step::Done,
+        "reader 3 opens over the store"
+    );
     assert_eq!(READ.load(Relaxed), ROWS as i64);
     assert_eq!(LANDED.load(Relaxed), ROWS);
     entry.end(exec, true);
@@ -221,19 +350,66 @@ fn pulls_inside_a_readers_hold_keep_the_site_parked_over_a_later_readers_open() 
     let mut sink = LegSink::new();
     let mut b = binding(&THR, &[0], &mut sink, &flag);
     let mut exec = begin(&mut entry, &mut derive, &program, &mut b);
-    assert_eq!(entry.pull_nested(&mut exec, &mut b, &SET, &mut run_whole).unwrap(), Pulled::Stopped);
+    assert_eq!(
+        entry
+            .pull_nested(&mut exec, &mut b, &SET, &mut run_whole)
+            .unwrap(),
+        Pulled::Stopped
+    );
     READER_STOP.store(1, Relaxed);
-    assert!(matches!(entry.run_pipeline(&mut exec, &mut b, Call::batch(4)).unwrap(), Step::Suspended { .. }), "reader 2 opens and stops");
+    assert!(
+        matches!(
+            entry
+                .run_pipeline(&mut exec, &mut b, Call::batch(4))
+                .unwrap(),
+            Step::Suspended { .. }
+        ),
+        "reader 2 opens and stops"
+    );
     for i in 0..2 {
-        assert_eq!(entry.pull_nested(&mut exec, &mut b, &SET, &mut run_whole).unwrap(), Pulled::Stopped, "pull {i} inside reader 2's call");
+        assert_eq!(
+            entry
+                .pull_nested(&mut exec, &mut b, &SET, &mut run_whole)
+                .unwrap(),
+            Pulled::Stopped,
+            "pull {i} inside reader 2's call"
+        );
     }
-    assert_eq!(entry.run_pipeline(&mut exec, &mut b, Call::resume(4)).unwrap(), Step::Done, "reader 2 resumes after the pulls");
+    assert_eq!(
+        entry
+            .run_pipeline(&mut exec, &mut b, Call::resume(4))
+            .unwrap(),
+        Step::Done,
+        "reader 2 resumes after the pulls"
+    );
     assert_eq!(READ.load(Relaxed), 3);
-    assert!(matches!(entry.run_pipeline(&mut exec, &mut b, Call::batch(4)).unwrap(), Step::Suspended { .. }), "reader 3 opens (its sweep skips the parked site) and stops");
-    while entry.pull_nested(&mut exec, &mut b, &SET, &mut run_whole).unwrap() == Pulled::Stopped {}
-    assert_eq!(entry.run_pipeline(&mut exec, &mut b, Call::resume(4)).unwrap(), Step::Done, "reader 3 resumes over the whole store");
+    assert!(
+        matches!(
+            entry
+                .run_pipeline(&mut exec, &mut b, Call::batch(4))
+                .unwrap(),
+            Step::Suspended { .. }
+        ),
+        "reader 3 opens (its sweep skips the parked site) and stops"
+    );
+    while entry
+        .pull_nested(&mut exec, &mut b, &SET, &mut run_whole)
+        .unwrap()
+        == Pulled::Stopped
+    {}
+    assert_eq!(
+        entry
+            .run_pipeline(&mut exec, &mut b, Call::resume(4))
+            .unwrap(),
+        Step::Done,
+        "reader 3 resumes over the whole store"
+    );
     assert_eq!(READ.load(Relaxed), ROWS as i64);
-    assert_eq!(LANDED.load(Relaxed), ROWS, "each row landed once: no re-read from the first block");
+    assert_eq!(
+        LANDED.load(Relaxed),
+        ROWS,
+        "each row landed once: no re-read from the first block"
+    );
     entry.end(exec, true);
 }
 
@@ -249,20 +425,63 @@ fn the_drain_after_a_later_readers_open_lands_each_row_once() {
     let mut sink = LegSink::new();
     let mut b = binding(&THR, &[0], &mut sink, &flag);
     let mut exec = begin(&mut entry, &mut derive, &program, &mut b);
-    assert_eq!(entry.pull_nested(&mut exec, &mut b, &SET, &mut run_whole).unwrap(), Pulled::Stopped);
+    assert_eq!(
+        entry
+            .pull_nested(&mut exec, &mut b, &SET, &mut run_whole)
+            .unwrap(),
+        Pulled::Stopped
+    );
     READER_STOP.store(1, Relaxed);
-    assert!(matches!(entry.run_pipeline(&mut exec, &mut b, Call::batch(4)).unwrap(), Step::Suspended { .. }), "reader 2 opens and stops");
+    assert!(
+        matches!(
+            entry
+                .run_pipeline(&mut exec, &mut b, Call::batch(4))
+                .unwrap(),
+            Step::Suspended { .. }
+        ),
+        "reader 2 opens and stops"
+    );
     for i in 0..2 {
-        assert_eq!(entry.pull_nested(&mut exec, &mut b, &SET, &mut run_whole).unwrap(), Pulled::Stopped, "pull {i} inside reader 2's call");
+        assert_eq!(
+            entry
+                .pull_nested(&mut exec, &mut b, &SET, &mut run_whole)
+                .unwrap(),
+            Pulled::Stopped,
+            "pull {i} inside reader 2's call"
+        );
     }
-    assert_eq!(entry.run_pipeline(&mut exec, &mut b, Call::resume(4)).unwrap(), Step::Done, "reader 2 resumes after the pulls");
+    assert_eq!(
+        entry
+            .run_pipeline(&mut exec, &mut b, Call::resume(4))
+            .unwrap(),
+        Step::Done,
+        "reader 2 resumes after the pulls"
+    );
     READER_STOP.store(0, Relaxed);
-    assert_eq!(entry.run_pipeline(&mut exec, &mut b, Call::batch(4)).unwrap(), Step::Done, "reader 3 opens (its sweep skips the parked site) and reads");
-    assert_eq!(READ.load(Relaxed), 3, "reader 3 reads the store as it stands");
+    assert_eq!(
+        entry
+            .run_pipeline(&mut exec, &mut b, Call::batch(4))
+            .unwrap(),
+        Step::Done,
+        "reader 3 opens (its sweep skips the parked site) and reads"
+    );
+    assert_eq!(
+        READ.load(Relaxed),
+        3,
+        "reader 3 reads the store as it stands"
+    );
     assert_eq!(exec.node().parked_pulls(), 1);
-    while entry.pull_nested(&mut exec, &mut b, &SET, &mut run_whole).unwrap() == Pulled::Stopped {}
+    while entry
+        .pull_nested(&mut exec, &mut b, &SET, &mut run_whole)
+        .unwrap()
+        == Pulled::Stopped
+    {}
     assert_eq!(exec.node().parked_pulls(), 0);
-    assert_eq!(LANDED.load(Relaxed), ROWS, "each row landed once: no re-read from the first block");
+    assert_eq!(
+        LANDED.load(Relaxed),
+        ROWS,
+        "each row landed once: no re-read from the first block"
+    );
     entry.end(exec, true);
 }
 
@@ -280,10 +499,25 @@ fn an_error_past_the_first_budget_raises_at_the_pull_that_reaches_it_and_every_l
     let mut b = binding(&THR, &[0], &mut sink, &flag);
     let mut exec = begin(&mut entry, &mut derive, &program, &mut b);
     for i in 0..3 {
-        assert_eq!(entry.pull_nested(&mut exec, &mut b, &SET, &mut run_whole).unwrap(), Pulled::Stopped, "pull {i} before the error row");
+        assert_eq!(
+            entry
+                .pull_nested(&mut exec, &mut b, &SET, &mut run_whole)
+                .unwrap(),
+            Pulled::Stopped,
+            "pull {i} before the error row"
+        );
     }
-    assert_eq!(LANDED.load(Relaxed), 3, "the rows before the error landed; the error has not raised");
-    assert!(entry.pull_nested(&mut exec, &mut b, &SET, &mut run_whole).is_err(), "the pull reaching the error row raises");
+    assert_eq!(
+        LANDED.load(Relaxed),
+        3,
+        "the rows before the error landed; the error has not raised"
+    );
+    assert!(
+        entry
+            .pull_nested(&mut exec, &mut b, &SET, &mut run_whole)
+            .is_err(),
+        "the pull reaching the error row raises"
+    );
     assert_eq!(exec.node().parked_pulls(), 0);
     match entry.pull_nested(&mut exec, &mut b, &SET, &mut run_whole) {
         Err(Error::Refused(m)) => assert!(m.contains("read again after its error"), "{m}"),
@@ -306,12 +540,21 @@ fn a_cancel_mid_pull_drops_the_parked_call_and_nothing_outlives_the_statement() 
     let mut sink = LegSink::new();
     let mut b = binding(&THR, &[0], &mut sink, &flag);
     let mut exec = begin(&mut entry, &mut derive, &program, &mut b);
-    assert_eq!(entry.pull_nested(&mut exec, &mut b, &SET, &mut run_whole).unwrap(), Pulled::Stopped);
+    assert_eq!(
+        entry
+            .pull_nested(&mut exec, &mut b, &SET, &mut run_whole)
+            .unwrap(),
+        Pulled::Stopped
+    );
     assert_eq!(exec.node().parked_pulls(), 1);
     flag.store(1, Relaxed);
     let r = entry.pull_nested(&mut exec, &mut b, &SET, &mut run_whole);
     assert!(matches!(r, Err(Error::Cancelled)), "{r:?}");
-    assert_eq!(exec.node().parked_pulls(), 0, "the cancel dropped the parked call");
+    assert_eq!(
+        exec.node().parked_pulls(),
+        0,
+        "the cancel dropped the parked call"
+    );
     entry.end(exec, false);
     // the entry's parked node (its plan cache) is the statement's no longer: gone with the entry, every region back
     #[allow(clippy::drop_non_drop)]
@@ -319,7 +562,11 @@ fn a_cancel_mid_pull_drops_the_parked_call_and_nothing_outlives_the_statement() 
     drop(entry);
     REGIONS.trim();
     DEPOT.trim();
-    assert_eq!(POOL.held(), held, "no region or grant outlives the statement");
+    assert_eq!(
+        POOL.held(),
+        held,
+        "no region or grant outlives the statement"
+    );
 }
 
 /// main 18:18Z condition 2 (the driver's half; the runners' order is gravity_parallel's test): a set no reader pulled
@@ -336,7 +583,11 @@ fn a_never_pulled_sets_drain_lands_its_rows_exactly_once() {
     let mut b = binding(&THR, &[0], &mut sink, &flag);
     let mut exec = begin(&mut entry, &mut derive, &program, &mut b);
     for _ in 0..2 {
-        while entry.pull_nested(&mut exec, &mut b, &SET, &mut run_whole).unwrap() == Pulled::Stopped {}
+        while entry
+            .pull_nested(&mut exec, &mut b, &SET, &mut run_whole)
+            .unwrap()
+            == Pulled::Stopped
+        {}
         assert_eq!(LANDED.load(Relaxed), ROWS, "the set's rows landed once");
     }
     entry.end(exec, true);

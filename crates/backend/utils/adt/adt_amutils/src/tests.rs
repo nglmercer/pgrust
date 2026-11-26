@@ -3,7 +3,10 @@ use super::*;
 #[test]
 fn prop_names_case_insensitive() {
     assert!(matches!(lookup_prop_name(b"ASC"), Prop::Asc));
-    assert!(matches!(lookup_prop_name(b"distance_orderable"), Prop::DistanceOrderable));
+    assert!(matches!(
+        lookup_prop_name(b"distance_orderable"),
+        Prop::DistanceOrderable
+    ));
     assert!(matches!(lookup_prop_name(b"Can_Include"), Prop::CanInclude));
     assert!(matches!(lookup_prop_name(b"bogus"), Prop::Unknown));
     assert!(matches!(lookup_prop_name(b"asc2"), Prop::Unknown));
@@ -101,7 +104,10 @@ fn index_cache_lookup_failure_is_a_catchable_xx000() {
 // the first NUL, so a byteain-built name with an embedded NUL still matches.
 #[test]
 fn prop_names_stop_at_the_first_nul() {
-    assert!(matches!(lookup_prop_name(b"can_order\0junk"), Prop::CanOrder));
+    assert!(matches!(
+        lookup_prop_name(b"can_order\0junk"),
+        Prop::CanOrder
+    ));
     assert!(matches!(lookup_prop_name(b"CAN_ORDER\0"), Prop::CanOrder));
     assert!(matches!(lookup_prop_name(b"\0can_order"), Prop::Unknown));
 }

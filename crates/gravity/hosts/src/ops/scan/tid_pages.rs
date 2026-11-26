@@ -4,11 +4,18 @@
 //! probe's TIDs) and the pool's index-only leaf walk (index_leaves.rs: the entries the visibility map does not vouch for).
 //! An ordered reader (index_ranges.rs) leaves the list in index order unsorted: each staged block is then a run of
 //! consecutive TIDs on one block, and `keep_page_listed` hands its tuples on in the run's order.
-use types_core::{BlockNumber, InvalidTransactionId, TransactionId, TransactionIdIsValid, TransactionIdPrecedes};
+use types_core::{
+    BlockNumber, InvalidTransactionId, TransactionId, TransactionIdIsValid, TransactionIdPrecedes,
+};
 use types_error::PgResult;
 use types_storage::bufpage::{MaxHeapTuplesPerPage, PageRef};
-use types_tuple::htup::{HeapTupleHeaderData, HEAP_XMAX_COMMITTED, HEAP_XMAX_INVALID, HEAP_XMAX_IS_LOCKED_ONLY, HEAP_XMAX_IS_MULTI};
-use types_tuple::itemptr::{FirstOffsetNumber, ItemPointerData, ItemPointerGetBlockNumber, ItemPointerGetOffsetNumber};
+use types_tuple::htup::{
+    HeapTupleHeaderData, HEAP_XMAX_COMMITTED, HEAP_XMAX_INVALID, HEAP_XMAX_IS_LOCKED_ONLY,
+    HEAP_XMAX_IS_MULTI,
+};
+use types_tuple::itemptr::{
+    FirstOffsetNumber, ItemPointerData, ItemPointerGetBlockNumber, ItemPointerGetOffsetNumber,
+};
 
 pub struct TidPages {
     /// memsig E-pub t3: charged to the owner of the window that fills it (`set_owner`), as `order`'s sort scratch is;
@@ -35,7 +42,15 @@ impl Default for TidPages {
 
 impl TidPages {
     pub fn new() -> TidPages {
-        TidPages { tids: memledger::ChargedVec::none(), at: 0, words: [0; MaxHeapTuplesPerPage.div_ceil(64)], roots: Box::new([0; MaxHeapTuplesPerPage]), run: (0, 0), walked: false, owner: None } // alloc: Node
+        TidPages {
+            tids: memledger::ChargedVec::none(),
+            at: 0,
+            words: [0; MaxHeapTuplesPerPage.div_ceil(64)],
+            roots: Box::new([0; MaxHeapTuplesPerPage]),
+            run: (0, 0),
+            walked: false,
+            owner: None,
+        } // alloc: Node
     }
 
     /// The list, emptied for a new fill (its capacity kept).
@@ -78,26 +93,38 @@ impl TidPages {
     /// matches). `Err`: the statement's cancel, the list in no order.
     pub fn order(&mut self, step: &mut cancelpoll::Step) -> Result<(), cancelpoll::Canceled> {
         self.at = 0;
-        let key = |t: &ItemPointerData| (ItemPointerGetBlockNumber(t), ItemPointerGetOffsetNumber(t));
-        let (n, mut scratch) = (self.tids.len(), crate::ops::scan::heap_source::charged_scratch(self.owner));
+        let key =
+            |t: &ItemPointerData| (ItemPointerGetBlockNumber(t), ItemPointerGetOffsetNumber(t));
+        let (n, mut scratch) = (
+            self.tids.len(),
+            crate::ops::scan::heap_source::charged_scratch(self.owner),
+        );
         if n > cancelpoll::SORT_RUN && scratch.resize(n, ItemPointerData::default()).is_err() {
             // a refused scratch: the list sorted in place, polled as the merge is
             return heap_sort(step, self.tids.as_mut_slice(), key);
         }
-        cancelpoll::sort_by(step, self.tids.as_mut_slice(), scratch.as_mut_slice(), |a, b| key(a).cmp(&key(b)))
+        cancelpoll::sort_by(
+            step,
+            self.tids.as_mut_slice(),
+            scratch.as_mut_slice(),
+            |a, b| key(a).cmp(&key(b)),
+        )
     }
 
     /// The next block holding a listed TID, its offsets staged; `None` past the last. A block past the relation's end at
     /// the bind (`nblocks`) holds no tuple the snapshot sees (as a bitmap's) and is skipped.
     pub fn next_block(&mut self, nblocks: BlockNumber) -> PgResult<Option<BlockNumber>> {
         // a skipped block is the unit: a relation extended after the bind can leave any number of listed blocks past its end
-        let mut step = cancelpoll::step("tid_pages next_block: a listed block past the relation's end skipped");
+        let mut step = cancelpoll::step(
+            "tid_pages next_block: a listed block past the relation's end skipped",
+        );
         while self.at < self.tids.len() {
             let blk = ItemPointerGetBlockNumber(&self.tids[self.at]);
             self.words = [0; MaxHeapTuplesPerPage.div_ceil(64)];
             self.run.0 = self.at;
             // bounded("small-fixed: one block's listed TIDs (an index holds a TID once: at most MaxHeapTuplesPerPage, 291 at 8 K pages), a bit set each")
-            while self.at < self.tids.len() && ItemPointerGetBlockNumber(&self.tids[self.at]) == blk {
+            while self.at < self.tids.len() && ItemPointerGetBlockNumber(&self.tids[self.at]) == blk
+            {
                 let off = ItemPointerGetOffsetNumber(&self.tids[self.at]) as usize;
                 if (1..=MaxHeapTuplesPerPage).contains(&off) {
                     self.words[(off - 1) / 64] |= 1 << ((off - 1) % 64);
@@ -108,7 +135,9 @@ impl TidPages {
             if blk < nblocks {
                 return Ok(Some(blk));
             }
-            step.tick().map_err(|_| crate::pg_err("gravity: a TID list's walk stopped for its statement's cancel"))?;
+            step.tick().map_err(|_| {
+                crate::pg_err("gravity: a TID list's walk stopped for its statement's cancel")
+            })?;
         }
         Ok(None)
     }
@@ -123,13 +152,26 @@ impl TidPages {
     /// `keep_page`, and each listed offset of block `blk` whose HOT chain has no member the snapshot sees and is all dead
     /// before `horizon` (`chain_all_dead`) into `dead` (up to `cap` TIDs in all): the index-only leaf walk's dead entries
     /// (index_leaves). Only the walk of the roots finds one: when every listed offset is a visible tuple's own, there is none.
-    pub fn keep_page_dead(&mut self, blk: BlockNumber, page: PageRef<'_>, vis: &mut [u16], horizon: TransactionId, dead: &mut Vec<ItemPointerData>, cap: usize) -> PgResult<usize> {
+    pub fn keep_page_dead(
+        &mut self,
+        blk: BlockNumber,
+        page: PageRef<'_>,
+        vis: &mut [u16],
+        horizon: TransactionId,
+        dead: &mut Vec<ItemPointerData>,
+        cap: usize,
+    ) -> PgResult<usize> {
         self.keep(page, vis, Some((blk, horizon, dead, cap)))
     }
 
     /// `keep_page` (or `keep_page_dead` with `dead`) over an unsorted list's staged run, the kept tuples in the run's
     /// order (each its listed TID's chain member) rather than the page's: an ordered reader's heap fetches.
-    pub fn keep_page_listed(&mut self, page: PageRef<'_>, vis: &mut [u16], dead: Option<(BlockNumber, TransactionId, &mut Vec<ItemPointerData>, usize)>) -> PgResult<usize> {
+    pub fn keep_page_listed(
+        &mut self,
+        page: PageRef<'_>,
+        vis: &mut [u16],
+        dead: Option<(BlockNumber, TransactionId, &mut Vec<ItemPointerData>, usize)>,
+    ) -> PgResult<usize> {
         let n = self.keep(page, vis, dead)?;
         if n > 1 {
             // each kept tuple at its root's place in the run (a TID is listed once: an index holds a TID once)
@@ -144,15 +186,26 @@ impl TidPages {
             }
             let roots = &self.roots;
             // bounded("small-fixed: one page's kept line pointers, at most MaxHeapTuplesPerPage (291 at 8 K pages), sorted by a table lookup")
-            vis[..n].sort_unstable_by_key(|&off| at[(if walked { roots[off as usize - 1] } else { off }) as usize - 1]);
+            vis[..n].sort_unstable_by_key(|&off| {
+                at[(if walked { roots[off as usize - 1] } else { off }) as usize - 1]
+            });
         }
         Ok(n)
     }
 
-    fn keep(&mut self, page: PageRef<'_>, vis: &mut [u16], dead: Option<(BlockNumber, TransactionId, &mut Vec<ItemPointerData>, usize)>) -> PgResult<usize> {
+    fn keep(
+        &mut self,
+        page: PageRef<'_>,
+        vis: &mut [u16],
+        dead: Option<(BlockNumber, TransactionId, &mut Vec<ItemPointerData>, usize)>,
+    ) -> PgResult<usize> {
         self.walked = false;
         let words = self.words;
-        let has = |off: u16| off >= 1 && (off as usize) <= MaxHeapTuplesPerPage && words[(off as usize - 1) / 64] >> ((off as usize - 1) % 64) & 1 != 0;
+        let has = |off: u16| {
+            off >= 1
+                && (off as usize) <= MaxHeapTuplesPerPage
+                && words[(off as usize - 1) / 64] >> ((off as usize - 1) % 64) & 1 != 0
+        };
         let set: u32 = words.iter().map(|w| w.count_ones()).sum();
         if vis.iter().filter(|&&o| has(o)).count() as u32 == set {
             let mut n = 0;
@@ -220,8 +273,12 @@ fn chain_all_dead(page: PageRef<'_>, root: u16, horizon: TransactionId) -> bool 
             }
             return true;
         }
-        let Some(h) = crate::ops::scan::raw::heap_header(page, lp) else { return false };
-        if (at_start && h.is_heap_only()) || (TransactionIdIsValid(prev_xmax) && prev_xmax != h.xmin()) {
+        let Some(h) = crate::ops::scan::raw::heap_header(page, lp) else {
+            return false;
+        };
+        if (at_start && h.is_heap_only())
+            || (TransactionIdIsValid(prev_xmax) && prev_xmax != h.xmin())
+        {
             return true;
         }
         if !surely_dead(h, horizon) {
@@ -246,7 +303,11 @@ fn surely_dead(h: &HeapTupleHeaderData, horizon: TransactionId) -> bool {
         return h.xmin_invalid();
     }
     let m = h.t_infomask;
-    if m & HEAP_XMAX_INVALID != 0 || HEAP_XMAX_IS_LOCKED_ONLY(m) || m & HEAP_XMAX_IS_MULTI != 0 || m & HEAP_XMAX_COMMITTED == 0 {
+    if m & HEAP_XMAX_INVALID != 0
+        || HEAP_XMAX_IS_LOCKED_ONLY(m)
+        || m & HEAP_XMAX_IS_MULTI != 0
+        || m & HEAP_XMAX_COMMITTED == 0
+    {
         return false;
     }
     TransactionIdPrecedes(h.xmax_raw(), horizon)
@@ -256,7 +317,10 @@ fn surely_dead(h: &HeapTupleHeaderData, horizon: TransactionId) -> bool {
 /// is refused. `Err`: the statement's cancel, `v` in no order (as `cancelpoll::sort_by`).
 /// memsig E-pub t3: a window's scratch list on `owner` (a `HeldOwner`, the window's): nothing when it is already its; else
 /// its items, if any, copied once into a list charged to `owner` (an empty list just changes hands).
-pub(crate) fn charged_onto<T: Copy>(v: &mut memledger::ChargedVec<T>, owner: crate::ops::scan::heap_source::HeldOwner) {
+pub(crate) fn charged_onto<T: Copy>(
+    v: &mut memledger::ChargedVec<T>,
+    owner: crate::ops::scan::heap_source::HeldOwner,
+) {
     if v.owner() == owner.map(|o| o.0) {
         return;
     }
@@ -267,7 +331,11 @@ pub(crate) fn charged_onto<T: Copy>(v: &mut memledger::ChargedVec<T>, owner: cra
     *v = to;
 }
 
-fn heap_sort<K: Ord>(step: &mut cancelpoll::Step, v: &mut [ItemPointerData], key: impl Fn(&ItemPointerData) -> K) -> Result<(), cancelpoll::Canceled> {
+fn heap_sort<K: Ord>(
+    step: &mut cancelpoll::Step,
+    v: &mut [ItemPointerData],
+    key: impl Fn(&ItemPointerData) -> K,
+) -> Result<(), cancelpoll::Canceled> {
     let sift = |v: &mut [ItemPointerData], mut root: usize, end: usize| {
         // bounded("small-fixed: one sift-down, a level a pass: at most log2 of the list's length (64) levels")
         loop {
@@ -305,17 +373,29 @@ mod tests {
     /// The refused-scratch order (`heap_sort`) puts a long probe list in the merge's block order.
     #[test]
     fn heap_sort_orders_a_list_as_the_merge_does() {
-        let key = |t: &ItemPointerData| (ItemPointerGetBlockNumber(t), ItemPointerGetOffsetNumber(t));
+        let key =
+            |t: &ItemPointerData| (ItemPointerGetBlockNumber(t), ItemPointerGetOffsetNumber(t));
         let tid = |i: u32| {
             let mut t = ItemPointerData::default();
-            types_tuple::itemptr::ItemPointerSet(&mut t, i.wrapping_mul(7919) % 5000, (i % 291 + 1) as u16);
+            types_tuple::itemptr::ItemPointerSet(
+                &mut t,
+                i.wrapping_mul(7919) % 5000,
+                (i % 291 + 1) as u16,
+            );
             t
         };
-        let mut a: Vec<ItemPointerData> = (0..(cancelpoll::SORT_RUN as u32 + 1000)).map(tid).collect(); // alloc: Cold
+        let mut a: Vec<ItemPointerData> =
+            (0..(cancelpoll::SORT_RUN as u32 + 1000)).map(tid).collect(); // alloc: Cold
         let mut b = a.clone();
         let mut scratch = vec![ItemPointerData::default(); b.len()]; // alloc: Cold
         heap_sort(&mut cancelpoll::step("test: heap sort"), &mut a, key).unwrap();
-        cancelpoll::sort_by(&mut cancelpoll::step("test: merge sort"), &mut b, &mut scratch, |x, y| key(x).cmp(&key(y))).unwrap();
+        cancelpoll::sort_by(
+            &mut cancelpoll::step("test: merge sort"),
+            &mut b,
+            &mut scratch,
+            |x, y| key(x).cmp(&key(y)),
+        )
+        .unwrap();
         assert!(a.iter().map(key).eq(b.iter().map(key)), "the same order");
         assert!(a.windows(2).all(|w| key(&w[0]) <= key(&w[1])));
     }

@@ -17,17 +17,20 @@ use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{ConvOp, HostFlags, HostFn, IntBinOp, IntCond, IntUnOp, Type, Value};
 use gravity_kernels::host_abi::{self as abi, AggState, AGG_BYPASS_WORD, AGG_STATE_BYTES};
 
-use crate::table::face::{TableDecl, TableImpl, TableMech};
-use crate::table::keyimg::ImageWords;
 use crate::frame::env::Env;
 use crate::frame::stop::Exits;
+use crate::table::face::{TableDecl, TableImpl, TableMech};
+use crate::table::keyimg::ImageWords;
 
 crate::strategies! {
     /// Observed-eviction bypass + owner phase.
     TABLE_BYPASS = 34, "table.bypass", Keyed;
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(TABLE_BYPASS, &TableImpl(&HASHED))], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(TABLE_BYPASS, &TableImpl(&HASHED))],
+    ..crate::ops::NONE
+};
 
 pub(crate) use crate::table::radix::open_record;
 
@@ -47,13 +50,30 @@ const T1_FLAGS: i32 = offset_of!(T1, flags) as i32;
 pub(crate) const T1_LAYOUT: i32 = offset_of!(T1, layout) as i32;
 const T1_BUFFERED: i32 = offset_of!(T1, buffered) as i32;
 
-pub(crate) fn host(b: &mut FunctionBuilder<'_>, name: &str, params: &[Type], addr: usize) -> HostFn {
-    b.declare_host_once(name, params, Some(Type::I64), addr, HostFlags { touches_memory: true, may_error: true, ..HostFlags::default() })
+pub(crate) fn host(
+    b: &mut FunctionBuilder<'_>,
+    name: &str,
+    params: &[Type],
+    addr: usize,
+) -> HostFn {
+    b.declare_host_once(
+        name,
+        params,
+        Some(Type::I64),
+        addr,
+        HostFlags {
+            touches_memory: true,
+            may_error: true,
+            ..HostFlags::default()
+        },
+    )
 }
 
 /// The table's words: `AggState`, the append count, the bypass word.
 pub(crate) fn state(b: &mut FunctionBuilder<'_>, env: &Env, t: &TableDecl) -> Value {
-    let st = env.state.expect("the end's state slot is laid before its open");
+    let st = env
+        .state
+        .expect("the end's state slot is laid before its open");
     b.ptr_add(st, env.zero, 1, t.state_off as i32)
 }
 
@@ -76,8 +96,19 @@ pub(crate) fn fail_on(b: &mut FunctionBuilder<'_>, env: &Env, x: &Exits, r: Valu
 impl Hashed {
     /// `upsert` (V4R-201 count-at-append): with `n`, the appended record's sentinel is `1 + n` already, `counted` true there.
     #[allow(clippy::too_many_arguments)]
-    fn upsert_at(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &TableDecl, img: &ImageWords, h: Value, n: Option<Value>) -> (Value, Value, Value) {
-        debug_assert!(img.exact, "a record decides a hit by its words: an inexact image never keys a table");
+    fn upsert_at(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        t: &TableDecl,
+        img: &ImageWords,
+        h: Value,
+        n: Option<Value>,
+    ) -> (Value, Value, Value) {
+        debug_assert!(
+            img.exact,
+            "a record decides a hit by its words: an inexact image never keys a table"
+        );
         let (ctx, zero, x, words) = (env.ctx, env.zero, env.x, &img.words.words);
         let st = state(b, env, t);
         let l_out = b.create_block(&[Type::Ptr, Type::Bool, Type::Bool]);
@@ -103,8 +134,15 @@ impl Hashed {
         for (k, w) in words.iter().enumerate() {
             b.store(kp, 8 * k as i32, *w);
         }
-        let locate = host(b, "agg_locate", &[Type::Ptr, Type::Ptr, Type::Ptr], gravity_abi::host_words!(gravity_kernels::table::entries::agg_locate(ctx, st, keys)));
-        let r = b.call_host(locate, &[ctx, st, kp], Some(Type::I64)).expect("agg_locate returns a record or a status");
+        let locate = host(
+            b,
+            "agg_locate",
+            &[Type::Ptr, Type::Ptr, Type::Ptr],
+            gravity_abi::host_words!(gravity_kernels::table::entries::agg_locate(ctx, st, keys)),
+        );
+        let r = b
+            .call_host(locate, &[ctx, st, kp], Some(Type::I64))
+            .expect("agg_locate returns a record or a status");
         fail_on(b, env, &x, r);
         // the observation may have switched T1 to the bypass inside `locate`: the row loop follows it from the next row
         sync_bypass(b, st);
@@ -112,11 +150,23 @@ impl Hashed {
         let (fresh, counted) = (b.bconst(true), b.bconst(false));
         b.br(l_out, &[p, fresh, counted]);
         b.switch_to(l_out);
-        (b.block_params(l_out)[0], b.block_params(l_out)[1], b.block_params(l_out)[2])
+        (
+            b.block_params(l_out)[0],
+            b.block_params(l_out)[1],
+            b.block_params(l_out)[2],
+        )
     }
 
     /// The home pair's probe: `l_hit(record)` or `l_miss`.
-    fn probe(&self, b: &mut FunctionBuilder<'_>, env: &Env, t: &TableDecl, st: Value, img: &ImageWords, h: Value) -> (gravity_ir::Block, gravity_ir::Block) {
+    fn probe(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &Env,
+        t: &TableDecl,
+        st: Value,
+        img: &ImageWords,
+        h: Value,
+    ) -> (gravity_ir::Block, gravity_ir::Block) {
         let (rec, so) = (t.layout.size(), t.layout.sentinel_off() as i32);
         let (l_hit, l_miss) = (b.create_block(&[Type::Ptr]), b.create_block(&[]));
         let table = b.load(Type::Ptr, st, ST_TABLE);
@@ -149,16 +199,45 @@ impl TableMech for Hashed {
         true
     }
 
-    fn upsert(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &TableDecl, img: &ImageWords, h: Value) -> (Value, Value) {
+    fn upsert(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        t: &TableDecl,
+        img: &ImageWords,
+        h: Value,
+    ) -> (Value, Value) {
         let (r, f, _) = self.upsert_at(b, env, t, img, h, None);
         (r, f)
     }
 
-    fn upsert_n(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &TableDecl, img: &ImageWords, h: Value, n: Option<Value>) -> (Value, Value, Value) {
-        self.upsert_at(b, env, t, img, h, n.filter(|_| t.layout.flags & gravity_abi::breaker::LAYOUT_IMPLICIT_COUNT != 0))
+    fn upsert_n(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        t: &TableDecl,
+        img: &ImageWords,
+        h: Value,
+        n: Option<Value>,
+    ) -> (Value, Value, Value) {
+        self.upsert_at(
+            b,
+            env,
+            t,
+            img,
+            h,
+            n.filter(|_| t.layout.flags & gravity_abi::breaker::LAYOUT_IMPLICIT_COUNT != 0),
+        )
     }
 
-    fn find(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &TableDecl, img: &ImageWords, h: Value) -> Value {
+    fn find(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        t: &TableDecl,
+        img: &ImageWords,
+        h: Value,
+    ) -> Value {
         let st = state(b, env, t);
         let l_out = b.create_block(&[Type::Ptr]);
         let (l_hit, l_miss) = self.probe(b, env, t, st, img, h);
@@ -186,25 +265,48 @@ impl TableMech for Hashed {
     fn finish(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &TableDecl, x: &Exits) {
         let st = state(b, env, t);
         let t1 = b.load(Type::Ptr, st, ST_T1);
-        let (app, buffered) = (b.load(Type::I64, st, ST_APP), b.load(Type::I64, t1, T1_BUFFERED));
+        let (app, buffered) = (
+            b.load(Type::I64, st, ST_APP),
+            b.load(Type::I64, t1, T1_BUFFERED),
+        );
         let sum = b.int_bin(IntBinOp::Add, buffered, app);
         b.store(t1, T1_BUFFERED, sum);
         b.store(st, ST_APP, env.zero);
-        let fin = host(b, "agg_finish", &[Type::Ptr, Type::Ptr], gravity_abi::host_words!(abi::agg_finish(ctx, st)));
-        let r = b.call_host(fin, &[env.ctx, st], Some(Type::I64)).expect("agg_finish returns a status");
+        let fin = host(
+            b,
+            "agg_finish",
+            &[Type::Ptr, Type::Ptr],
+            gravity_abi::host_words!(abi::agg_finish(ctx, st)),
+        );
+        let r = b
+            .call_host(fin, &[env.ctx, st], Some(Type::I64))
+            .expect("agg_finish returns a status");
         fail_on(b, env, x, r);
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::ops::agg::testkit::{fold, want, Case};
     use super::HASHED;
+    use crate::ops::agg::testkit::{fold, want, Case};
 
     #[test]
     fn a_few_keys_fold_in_the_table_and_many_keys_bypass_into_their_partitions() {
-        for (n, key, bypass) in [(10_000, (|i| i % 37) as fn(i64) -> i64, false), (300_000, |i| i % 150_000, true)] {
-            let (got, bypassed) = fold(Case { n, win: 4096, key, table: &HASHED, run: None, runs: None, code: false, null: 0, dense: None });
+        for (n, key, bypass) in [
+            (10_000, (|i| i % 37) as fn(i64) -> i64, false),
+            (300_000, |i| i % 150_000, true),
+        ] {
+            let (got, bypassed) = fold(Case {
+                n,
+                win: 4096,
+                key,
+                table: &HASHED,
+                run: None,
+                runs: None,
+                code: false,
+                null: 0,
+                dense: None,
+            });
             assert_eq!(got, want(n, key, 0), "{n} rows");
             assert_eq!(bypassed, bypass, "{n} rows: the bypass");
         }

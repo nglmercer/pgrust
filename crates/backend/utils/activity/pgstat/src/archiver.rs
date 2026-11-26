@@ -52,7 +52,11 @@ pub fn pgstat_report_archiver(xlog: &str, failed: bool) {
     let mut guard = pgsync::lock(&SHARED_ARCHIVER);
     let shared = &mut *guard;
     let (dst, count, ts) = if failed {
-        (&mut shared.last_failed_wal, &mut shared.failed_count, &mut shared.last_failed_timestamp)
+        (
+            &mut shared.last_failed_wal,
+            &mut shared.failed_count,
+            &mut shared.last_failed_timestamp,
+        )
     } else {
         (
             &mut shared.last_archived_wal,

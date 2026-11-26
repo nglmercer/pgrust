@@ -81,8 +81,9 @@ pub(crate) fn RelationInitTableAccessMethod(relid: Oid, relkind: u8, relam: Oid)
     let amhandler = syscache_seams::pg_am_amhandler::call(relam)?;
     let dispatches_to_heap = match amhandler {
         Some(F_HEAP_TABLEAM_HANDLER) => true,
-        Some(other) => fmgr_core::internal_builtin_of(other)?
-            .is_some_and(|b| b.foid == F_HEAP_TABLEAM_HANDLER),
+        Some(other) => {
+            fmgr_core::internal_builtin_of(other)?.is_some_and(|b| b.foid == F_HEAP_TABLEAM_HANDLER)
+        }
         None => false,
     };
     match amhandler {
@@ -226,10 +227,16 @@ fn resolve_backend(form: &FormData_pg_class) -> PgResult<(ProcNumber, bool)> {
 // clears it during abort.
 pub(crate) fn build_desc_data(target_rel_id: Oid) -> PgResult<Option<RelationData<'static>>> {
     if elog::message_level_is_interesting(types_error::DEBUG5) {
-        let _ = elog::elog(types_error::DEBUG5, format!("relcache: build desc {target_rel_id}"));
+        let _ = elog::elog(
+            types_error::DEBUG5,
+            format!("relcache: build desc {target_rel_id}"),
+        );
     }
     let offset = with_state(|st| {
-        st.in_progress.push(InProgressEnt { reloid: target_rel_id, invalidated: false });
+        st.in_progress.push(InProgressEnt {
+            reloid: target_rel_id,
+            invalidated: false,
+        });
         st.in_progress.len() - 1
     });
 
@@ -248,54 +255,54 @@ pub(crate) fn build_desc_data(target_rel_id: Oid) -> PgResult<Option<RelationDat
         let mcx = cache_mcx();
         let (rd_backend, rd_islocaltemp) = resolve_backend(&scanned.form)?;
         RelationInitTableAccessMethod(target_rel_id, scanned.form.relkind, scanned.form.relam)?;
-        let rd_att =
-            relcache_build_seams::relation_build_tuple_desc::call(
+        let rd_att = relcache_build_seams::relation_build_tuple_desc::call(
+            mcx,
+            smcx,
+            target_rel_id,
+            &scanned.form,
+            scanned.relnatts,
+            scanned.relchecks,
+        )?;
+
+        let (rd_index, opcintype, opfamily, indoption, indcollation, supportinfo, support) = if matches!(
+            scanned.form.relkind,
+            RELKIND_INDEX | RELKIND_PARTITIONED_INDEX
+        ) {
+            let ii = relcache_build_seams::relation_init_index_access_info::call(
                 mcx,
-                smcx,
                 target_rel_id,
                 &scanned.form,
                 scanned.relnatts,
-                scanned.relchecks,
             )?;
-
-        let (rd_index, opcintype, opfamily, indoption, indcollation, supportinfo, support) =
-            if matches!(
-                scanned.form.relkind,
-                RELKIND_INDEX | RELKIND_PARTITIONED_INDEX
-            ) {
-                let ii = relcache_build_seams::relation_init_index_access_info::call(
-                    mcx,
-                    target_rel_id,
-                    &scanned.form,
-                    scanned.relnatts,
-                )?;
-                (
-                    Some(ii.index),
-                    ii.opcintype,
-                    ii.opfamily,
-                    ii.indoption,
-                    ii.indcollation,
-                    ii.supportinfo,
-                    ii.support,
-                )
-            } else {
-                (
-                    None,
-                    PgVec::new_in(mcx),
-                    PgVec::new_in(mcx),
-                    PgVec::new_in(mcx),
-                    PgVec::new_in(mcx),
-                    Vec::new(),
-                    PgVec::new_in(mcx),
-                )
-            };
+            (
+                Some(ii.index),
+                ii.opcintype,
+                ii.opfamily,
+                ii.indoption,
+                ii.indcollation,
+                ii.supportinfo,
+                ii.support,
+            )
+        } else {
+            (
+                None,
+                PgVec::new_in(mcx),
+                PgVec::new_in(mcx),
+                PgVec::new_in(mcx),
+                PgVec::new_in(mcx),
+                Vec::new(),
+                PgVec::new_in(mcx),
+            )
+        };
 
         // rules/triggers/RLS live with the nodexform unit (no rd_rules/
         // trigdesc/rd_rsdesc fields in the trimmed entry); rd_locator/rd_smgr
         // wait on the storage unit (RelationInitPhysicalAddr absent).
         let rd_lockInfo = lmgr::RelationInitLockInfo(target_rel_id, scanned.form.relisshared);
 
-        let data = RelationData { rd_locator: Default::default(), rd_smgr: Default::default(),
+        let data = RelationData {
+            rd_locator: Default::default(),
+            rd_smgr: Default::default(),
             rd_id: target_rel_id,
             rd_backend,
             rd_islocaltemp,
@@ -316,13 +323,17 @@ pub(crate) fn build_desc_data(target_rel_id: Oid) -> PgResult<Option<RelationDat
             pgstat_enabled: Cell::new(false),
             pgstat_link: core::cell::Cell::new((0, core::ptr::null_mut())),
             rd_amcache: Default::default(),
-            rd_amcache_hash: Default::default(), rd_amcache_gin: Default::default(), rd_amcache_spgist: Default::default(), rd_amcache_bloom: Default::default(),
+            rd_amcache_hash: Default::default(),
+            rd_amcache_gin: Default::default(),
+            rd_amcache_spgist: Default::default(),
+            rd_amcache_bloom: Default::default(),
             rd_support: support,
             rd_supportinfo: core::cell::RefCell::new(supportinfo),
             rd_opcoptions: Default::default(),
             rd_indexlist: Default::default(),
             rd_trigdesc: Default::default(),
-            rd_hastriggers: scanned.relhastriggers, rd_hasrules: scanned.relhasrules,
+            rd_hastriggers: scanned.relhastriggers,
+            rd_hasrules: scanned.relhasrules,
         };
         RelationInitPhysicalAddr(&data)?;
 
@@ -396,7 +407,11 @@ pub fn formrdesc(cat: &BootstrapCatalog) -> PgResult<()> {
         relowner: InvalidOid,
         relam: HEAP_TABLE_AM_OID,
         relfilenode: InvalidRelFileNumber,
-        reltablespace: if cat.shared { GLOBALTABLESPACE_OID } else { InvalidOid },
+        reltablespace: if cat.shared {
+            GLOBALTABLESPACE_OID
+        } else {
+            InvalidOid
+        },
         relpages: 0,
         reltuples: -1.0,
         relallvisible: 0,
@@ -418,7 +433,9 @@ pub fn formrdesc(cat: &BootstrapCatalog) -> PgResult<()> {
         relmapper_seams::relation_map_update_map::call(relid, relid, cat.shared, true)?;
     }
 
-    let data = RelationData { rd_locator: Default::default(), rd_smgr: Default::default(),
+    let data = RelationData {
+        rd_locator: Default::default(),
+        rd_smgr: Default::default(),
         rd_id: relid,
         rd_backend: INVALID_PROC_NUMBER,
         rd_islocaltemp: false,
@@ -439,13 +456,17 @@ pub fn formrdesc(cat: &BootstrapCatalog) -> PgResult<()> {
         pgstat_enabled: Cell::new(false),
         pgstat_link: core::cell::Cell::new((0, core::ptr::null_mut())),
         rd_amcache: Default::default(),
-        rd_amcache_hash: Default::default(), rd_amcache_gin: Default::default(), rd_amcache_spgist: Default::default(), rd_amcache_bloom: Default::default(),
+        rd_amcache_hash: Default::default(),
+        rd_amcache_gin: Default::default(),
+        rd_amcache_spgist: Default::default(),
+        rd_amcache_bloom: Default::default(),
         rd_support: PgVec::new_in(mcx),
         rd_supportinfo: Default::default(),
         rd_opcoptions: Default::default(),
         rd_indexlist: Default::default(),
-            rd_trigdesc: Default::default(),
-            rd_hastriggers: false, rd_hasrules: false,
+        rd_trigdesc: Default::default(),
+        rd_hastriggers: false,
+        rd_hasrules: false,
     };
     RelationInitPhysicalAddr(&data)?;
 

@@ -32,7 +32,11 @@ fn disasm(p: &Program, name: &str) -> Vec<String> {
         let w = u32::from_le_bytes(bytes[i..i + 4].try_into().unwrap());
         let mut s = [0u8; 128];
         let ddi = tpde_disarm::decode(w);
-        out.push(tpde_disarm::da64_format(&ddi, &mut s).map(|n| String::from_utf8_lossy(&s[..n]).into_owned()).unwrap_or_else(|_| "??".into()));
+        out.push(
+            tpde_disarm::da64_format(&ddi, &mut s)
+                .map(|n| String::from_utf8_lossy(&s[..n]).into_owned())
+                .unwrap_or_else(|_| "??".into()),
+        );
         if w == 0xd65f03c0 {
             break;
         }
@@ -89,7 +93,11 @@ fn a_zero_index_state_read_is_one_load() {
     let want = buf[14] + buf[0] + buf[2];
     assert_eq!(run(&p, "state", &[buf.as_mut_ptr() as u64]) as i64, want);
     for v in [0i64, 1, -1, i64::MIN, i64::MAX] {
-        assert_eq!(run(&p, "slot", &[v as u64]) as i64, v.wrapping_mul(2), "slot {v}");
+        assert_eq!(
+            run(&p, "slot", &[v as u64]) as i64,
+            v.wrapping_mul(2),
+            "slot {v}"
+        );
     }
     let big = vec![0x5a5a_i64; 100_000 / 8 + 2];
     let off_elems = 100_000 / 8;
@@ -100,16 +108,36 @@ fn a_zero_index_state_read_is_one_load() {
         let lines = disasm(&p, "state");
         let text = lines.join("\n");
         // the three loads, two `iadd`s and nothing that adds a zero index or copies the base
-        assert_eq!(lines.iter().filter(|l| l.starts_with("ldr x")).count(), 3, "three loads:\n{text}");
-        let adds = lines.iter().filter(|l| l.starts_with("add x") && !l.contains("sp")).count();
+        assert_eq!(
+            lines.iter().filter(|l| l.starts_with("ldr x")).count(),
+            3,
+            "three loads:\n{text}"
+        );
+        let adds = lines
+            .iter()
+            .filter(|l| l.starts_with("add x") && !l.contains("sp"))
+            .count();
         assert_eq!(adds, 2, "only the two iadds (no zero-index add):\n{text}");
-        assert!(lines.iter().any(|l| l.starts_with("ldr x") && (l.contains("#112") || l.contains("#0x70"))), "no ldr [p, #112]:\n{text}");
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.starts_with("ldr x") && (l.contains("#112") || l.contains("#0x70"))),
+            "no ldr [p, #112]:\n{text}"
+        );
         let lines = disasm(&p, "slot");
         let text = lines.join("\n");
         // the loads forward from the stores; the stores take the slot's address with an immediate
-        assert!(lines.iter().any(|l| l.starts_with("str x") && (l.contains("#112") || l.contains("#0x70"))), "slot: no str [slot, #112]:\n{text}");
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.starts_with("str x") && (l.contains("#112") || l.contains("#0x70"))),
+            "slot: no str [slot, #112]:\n{text}"
+        );
         // adds off the frame: only the `iadd` (the old code also added the materialized zero to the slot address)
-        let rr = lines.iter().filter(|l| l.starts_with("add x") && !l.contains("sp") && !l.contains("x29")).count();
+        let rr = lines
+            .iter()
+            .filter(|l| l.starts_with("add x") && !l.contains("sp") && !l.contains("x29"))
+            .count();
         assert_eq!(rr, 1, "slot: a zero-index add:\n{text}");
     }
 }

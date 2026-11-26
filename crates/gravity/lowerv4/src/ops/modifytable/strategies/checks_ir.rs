@@ -33,10 +33,10 @@ use types_nodes::parsenodes::WCOKind;
 use types_nodes::primnodes::ParamKind;
 use types_nodes::{Node, NodeTag};
 
+use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::face::end::ChecksAt;
 use crate::face::kinds::KindId;
 use crate::graph::Gx;
-use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::ops::Table;
 
 crate::strategies! {
@@ -44,7 +44,10 @@ crate::strategies! {
     WRITE_CHECKS = 118, "write.checks", InsertUpdate;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(WRITE_CHECKS, &Checks)], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(WRITE_CHECKS, &Checks)],
+    ..crate::ops::NONE
+};
 
 pub(crate) struct Checks;
 
@@ -64,7 +67,9 @@ impl Checks {
             // maintains a ready one and skips a not-ready one as ExecInsertIndexTuples does
             let pending = |i: &gravity_decompose::ops::shared::modifytable::IndexDesc| {
                 let e = gx.facts.index_ext(i.indexid);
-                e.known && !(e.valid && e.ready) && !t.plan.indexes().iter().any(|p| p.index_oid == i.indexid)
+                e.known
+                    && !(e.valid && e.ready)
+                    && !t.plan.indexes().iter().any(|p| p.index_oid == i.indexid)
             };
             for i in t.indexes.iter().filter(|i| !pending(i)) {
                 if let Some(why) = unmaintainable(i) {
@@ -76,7 +81,10 @@ impl Checks {
                 }
             }
             if t.plan.indexes().len() != t.indexes.iter().filter(|i| !pending(i)).count() {
-                shape(node, "an index of the written relation outside the frozen plan (index_maint)");
+                shape(
+                    node,
+                    "an index of the written relation outside the frozen plan (index_maint)",
+                );
             }
         }
         ChecksAt::Host
@@ -90,9 +98,18 @@ const SUBPLAN: &str = "a check option qual with a subplan";
 /// INSERT's ON CONFLICT DO NOTHING too (no list of its own: the host's conflict path parks at the RLS insert check and the
 /// view check as the plain INSERT's does, hosts write.rs `insert_on_conflict`); DO UPDATE keeps D1112.
 pub(crate) fn check_only(w: &WriteDesc<'_>) -> bool {
-    let ret = |r: Option<&types_nodes::NodeList<'_>>| r.is_some_and(|r| r.iter().any(gravity_decompose::expr::has_subplan));
-    let conflict = w.on_conflict.as_ref().is_none_or(|oc| w.cmd == Cmd::Insert && !oc.update);
-    matches!(w.cmd, Cmd::Insert | Cmd::Update) && conflict && w.merge.is_none() && !ret(w.returning) && !w.targets.iter().any(|t| ret(t.returning))
+    let ret = |r: Option<&types_nodes::NodeList<'_>>| {
+        r.is_some_and(|r| r.iter().any(gravity_decompose::expr::has_subplan))
+    };
+    let conflict = w
+        .on_conflict
+        .as_ref()
+        .is_none_or(|oc| w.cmd == Cmd::Insert && !oc.update);
+    matches!(w.cmd, Cmd::Insert | Cmd::Update)
+        && conflict
+        && w.merge.is_none()
+        && !ret(w.returning)
+        && !w.targets.iter().any(|t| ret(t.returning))
 }
 
 fn shape(node: i32, why: &'static str) -> ! {
@@ -100,7 +117,9 @@ fn shape(node: i32, why: &'static str) -> ! {
 }
 
 /// `hosts::index_maint::unmaintainable`'s conditions off the decomposer's classification (validity: `pending`, D624).
-fn unmaintainable(i: &gravity_decompose::ops::shared::modifytable::IndexDesc) -> Option<&'static str> {
+fn unmaintainable(
+    i: &gravity_decompose::ops::shared::modifytable::IndexDesc,
+) -> Option<&'static str> {
     if !i.insertable {
         Some("an index whose access method is not btree / hash / gin / gist / spgist / brin / bloom (index_maint)")
     } else if !matches!(i.am, IndexAm::Btree) && i.unique && !i.exclusion {
@@ -120,7 +139,12 @@ fn unmaintainable(i: &gravity_decompose::ops::shared::modifytable::IndexDesc) ->
 fn unservable(gx: &Gx<'_, '_>, w: &WriteDesc<'_>, c: &CheckOpt<'_>) -> Option<&'static str> {
     let (mut param, mut subplan) = (false, false);
     // W2: an InitPlan's setParam is the host's lazy read (hosts write_check.rs); any other Param refuses by name
-    let init = |n: Node<'_>| n.as_param().is_some_and(|p| p.paramkind == ParamKind::PARAM_EXEC && crate::rerun::params::producer(gx, p.paramid) == Some(KindId::NestInitplan));
+    let init = |n: Node<'_>| {
+        n.as_param().is_some_and(|p| {
+            p.paramkind == ParamKind::PARAM_EXEC
+                && crate::rerun::params::producer(gx, p.paramid) == Some(KindId::NestInitplan)
+        })
+    };
     let mut clause = |q: Node<'_>| {
         subplan |= gravity_decompose::expr::has_subplan(q);
         // W6-D1112: a SubPlan's own parameters (an ANY / ALL test's) are write/rowop_sub.rs's
@@ -139,8 +163,12 @@ fn unservable(gx: &Gx<'_, '_>, w: &WriteDesc<'_>, c: &CheckOpt<'_>) -> Option<&'
     // actions update or delete and never insert (the same host over its MergeOps, W6-MERGE-ROUTE-MATCHED); an
     // INSERT-only MERGE through the root checks each routed row by the first result relation's list mapped onto its leaf
     // (hosts RouteHost `checks_of`, merge/nm.rs `route_plan`; ExecInitPartitionInfo), the other lists being the same quals
-    let merge = w.merge.as_ref().is_some_and(|m| !m.actions.iter().any(|a| a.cmd == Some(Cmd::Insert)) || crate::ops::modifytable::merge::nm::insert_only(m));
-    let several = w.targets.len() > 1 && (w.cmd == Cmd::Update && w.merge.is_none() || w.cmd == Cmd::Merge && merge);
+    let merge = w.merge.as_ref().is_some_and(|m| {
+        !m.actions.iter().any(|a| a.cmd == Some(Cmd::Insert))
+            || crate::ops::modifytable::merge::nm::insert_only(m)
+    });
+    let several = w.targets.len() > 1
+        && (w.cmd == Cmd::Update && w.merge.is_none() || w.cmd == Cmd::Merge && merge);
     if c.target != 0 && !several {
         Some("a check option of a routed target")
     } else if !matches!(c.kind, WCOKind::WCO_VIEW_CHECK | WCOKind::WCO_RLS_INSERT_CHECK | WCOKind::WCO_RLS_UPDATE_CHECK)
@@ -149,7 +177,10 @@ fn unservable(gx: &Gx<'_, '_>, w: &WriteDesc<'_>, c: &CheckOpt<'_>) -> Option<&'
         && !(w.merge.is_some() && matches!(c.kind, WCOKind::WCO_RLS_MERGE_UPDATE_CHECK | WCOKind::WCO_RLS_MERGE_DELETE_CHECK))
     {
         Some("a check option kind of ON CONFLICT / MERGE")
-    } else if subplan && !check_only(w) && !crate::ops::modifytable::returning::returning_and_checks(w) {
+    } else if subplan
+        && !check_only(w)
+        && !crate::ops::modifytable::returning::returning_and_checks(w)
+    {
         Some(SUBPLAN)
     } else if param {
         Some("a check option qual over a parameter")

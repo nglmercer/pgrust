@@ -5,14 +5,17 @@
 use std::fs;
 use std::path::PathBuf;
 
-use gravity_decompose::catalog::{rows, AttFact, ExprFp, Facts, IndexExt, IndexFact, InsteadOf, KeyBind, KeyOrder, KeyReq, LeafFact, RelFact};
+use gravity_decompose::catalog::{
+    rows, AttFact, ExprFp, Facts, IndexExt, IndexFact, InsteadOf, KeyBind, KeyOrder, KeyReq,
+    LeafFact, RelFact,
+};
 use gravity_decompose::corpus::{self, FixtureFacts};
+use gravity_decompose::decompose_in;
 use gravity_decompose::effects::FuncProps;
 use gravity_decompose::graph::{Op, PipelineNode};
 use gravity_decompose::join::JoinDesc;
 use gravity_decompose::ops::modifytable::trig_facts::TrigExt;
 use gravity_decompose::ops::shared::subplan::SubForm;
-use gravity_decompose::decompose_in;
 use gravity_program::Arena;
 use mcx::MemoryContext;
 use types_nodes::plannodes::PlannedStmt;
@@ -35,13 +38,21 @@ impl Facts for Keyed<'_> {
         self.inner.att_range(relid, attno)
     }
     fn index(&self, indexid: u32) -> Option<IndexFact> {
-        self.inner.index(indexid).map(|i| IndexFact { immediate: i.immediate && self.immediate, ..i })
+        self.inner.index(indexid).map(|i| IndexFact {
+            immediate: i.immediate && self.immediate,
+            ..i
+        })
     }
     fn index_am(&self, indexid: u32) -> gravity_decompose::catalog::IndexAm {
         self.inner.index_am(indexid)
     }
     fn indexes_of(&self, relid: u32, f: &mut dyn FnMut(IndexFact)) {
-        self.inner.indexes_of(relid, &mut |i| f(IndexFact { immediate: i.immediate && self.immediate, ..i }))
+        self.inner.indexes_of(relid, &mut |i| {
+            f(IndexFact {
+                immediate: i.immediate && self.immediate,
+                ..i
+            })
+        })
     }
     fn index_ext(&self, indexid: u32) -> IndexExt {
         self.inner.index_ext(indexid)
@@ -74,17 +85,38 @@ impl Facts for Keyed<'_> {
         self.inner.func(funcid)
     }
     fn unique_bound(&self, indexid: u32, binds: &[KeyBind], partial_ok: bool) -> bool {
-        let (Some(i), e) = (self.index(indexid), self.index_ext(indexid)) else { return false };
+        let (Some(i), e) = (self.index(indexid), self.index_ext(indexid)) else {
+            return false;
+        };
         let n = if e.nkeyatts == 0 { i.nkeys } else { e.nkeyatts } as usize;
-        i.unique && i.immediate && !e.deferrable && e.valid && (partial_ok || !i.partial) && n > 0 && (0..n).all(|k| binds.iter().any(|b| b.col as usize == k && self.inner.op_eq(b.opno)))
+        i.unique
+            && i.immediate
+            && !e.deferrable
+            && e.valid
+            && (partial_ok || !i.partial)
+            && n > 0
+            && (0..n).all(|k| {
+                binds
+                    .iter()
+                    .any(|b| b.col as usize == k && self.inner.op_eq(b.opno))
+            })
     }
 }
 
 fn fixture(sql: &str) -> PathBuf {
     let hits: Vec<PathBuf> = harness::fixtures_in(&harness::plans_root())
         .into_iter()
-        .filter(|p| p.file_name().and_then(|f| f.to_str()).is_some_and(|f| f.starts_with("cte-")))
-        .filter(|p| fs::read_to_string(p).unwrap().lines().any(|l| l.strip_prefix("-- sql: ").is_some_and(|q| q.trim().trim_end_matches(';') == sql)))
+        .filter(|p| {
+            p.file_name()
+                .and_then(|f| f.to_str())
+                .is_some_and(|f| f.starts_with("cte-"))
+        })
+        .filter(|p| {
+            fs::read_to_string(p).unwrap().lines().any(|l| {
+                l.strip_prefix("-- sql: ")
+                    .is_some_and(|q| q.trim().trim_end_matches(';') == sql)
+            })
+        })
         .collect();
     assert_eq!(hits.len(), 1, "cte fixtures of {sql}: {hits:?}");
     hits.into_iter().next().unwrap()
@@ -96,8 +128,27 @@ fn bounds(sql: &str) -> Vec<(Option<u64>, Option<u64>, Option<u64>)> {
     let ctx = MemoryContext::new("facts_rows");
     let fx = corpus::load(ctx.mcx(), &text).unwrap();
     let stmt: &PlannedStmt<'_> = fx.stmt;
-    let (keyed, deferred) = (Keyed { inner: &fx.facts, immediate: true }, Keyed { inner: &fx.facts, immediate: false });
-    stmt.subplans.iter().flatten().map(|r| (rows::max_rows(&fx.facts, stmt, r), rows::max_rows(&keyed, stmt, r), rows::max_rows(&deferred, stmt, r))).collect()
+    let (keyed, deferred) = (
+        Keyed {
+            inner: &fx.facts,
+            immediate: true,
+        },
+        Keyed {
+            inner: &fx.facts,
+            immediate: false,
+        },
+    );
+    stmt.subplans
+        .iter()
+        .flatten()
+        .map(|r| {
+            (
+                rows::max_rows(&fx.facts, stmt, r),
+                rows::max_rows(&keyed, stmt, r),
+                rows::max_rows(&deferred, stmt, r),
+            )
+        })
+        .collect()
 }
 
 /// The F5 raise-free reading of every SubPlan op of the decomposed statement.
@@ -105,9 +156,13 @@ fn raise_free(sql: &str, immediate: bool) -> Vec<bool> {
     let text = fs::read_to_string(fixture(sql)).unwrap();
     let ctx = MemoryContext::new("facts_rows");
     let fx = corpus::load(ctx.mcx(), &text).unwrap();
-    let keyed = Keyed { inner: &fx.facts, immediate };
+    let keyed = Keyed {
+        inner: &fx.facts,
+        immediate,
+    };
     let arena = Arena::new(1 << 20);
-    let g = decompose_in(arena.handle(), fx.stmt, &keyed, fx.mcx).unwrap_or_else(|r| panic!("{sql}: refused {r:?}"));
+    let g = decompose_in(arena.handle(), fx.stmt, &keyed, fx.mcx)
+        .unwrap_or_else(|r| panic!("{sql}: refused {r:?}"));
     let mut out = Vec::new();
     fn walk(p: &PipelineNode<'_>, out: &mut Vec<bool>) {
         for op in p.ops.iter() {
@@ -154,7 +209,11 @@ fn the_structural_roots_keep_their_bound() {
         "SELECT (SELECT a FROM t WHERE b = 1 ORDER BY a LIMIT 1) AS first, x FROM u WHERE x < 3",
     ] {
         for (alone, keyed, deferred) in bounds(sql) {
-            assert_eq!((alone, keyed, deferred), (Some(1), Some(1), Some(1)), "{sql}");
+            assert_eq!(
+                (alone, keyed, deferred),
+                (Some(1), Some(1), Some(1)),
+                "{sql}"
+            );
         }
     }
 }
@@ -162,12 +221,26 @@ fn the_structural_roots_keep_their_bound() {
 #[test]
 fn a_range_or_a_non_unique_key_has_no_bound() {
     let sql = "SELECT a, ARRAY(SELECT y FROM u WHERE u.x = t.a) FROM t WHERE a < 3";
-    assert!(bounds(sql).iter().all(|&(a, k, _)| a.is_none() && k == Some(1)), "{sql}");
-    let text = fs::read_to_string(fixture("WITH c AS (SELECT a, b FROM t WHERE b = 1) SELECT a FROM c")).unwrap();
+    assert!(
+        bounds(sql)
+            .iter()
+            .all(|&(a, k, _)| a.is_none() && k == Some(1)),
+        "{sql}"
+    );
+    let text = fs::read_to_string(fixture(
+        "WITH c AS (SELECT a, b FROM t WHERE b = 1) SELECT a FROM c",
+    ))
+    .unwrap();
     let ctx = MemoryContext::new("facts_rows");
     let fx = corpus::load(ctx.mcx(), &text).unwrap();
-    let keyed = Keyed { inner: &fx.facts, immediate: true };
-    assert_eq!(rows::max_rows(&keyed, fx.stmt, fx.stmt.planTree.unwrap()), None);
+    let keyed = Keyed {
+        inner: &fx.facts,
+        immediate: true,
+    };
+    assert_eq!(
+        rows::max_rows(&keyed, fx.stmt, fx.stmt.planTree.unwrap()),
+        None
+    );
 }
 
 #[test]

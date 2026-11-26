@@ -39,7 +39,9 @@ fn run(policy: u64) -> (u64, [u64; 7]) {
         assert!(cond_cache::held_bytes() <= one * 100, "the budget holds");
     }
     let c1 = cond_cache::tinylfu_census();
-    let kept = (0..HOT).filter(|&i| cond_cache::entry_for([9, i], [0, 0], &o, 8, 64).get(0) == Hit::None).count() as u64;
+    let kept = (0..HOT)
+        .filter(|&i| cond_cache::entry_for([9, i], [0, 0], &o, 8, 64).get(0) == Hit::None)
+        .count() as u64;
     let mut d = c1;
     // bounded("const-domain: the census's 4 move counts")
     for i in 0..4 {
@@ -52,15 +54,35 @@ fn run(policy: u64) -> (u64, [u64; 7]) {
 fn cachepolicy_tinylfu_a_hot_set_survives_a_one_off_scan_that_lru_keeps_none_of() {
     let _s = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let (kept, d) = run(2);
-    assert_eq!(kept, HOT, "W-TinyLFU keeps every hot entry through the scan");
-    assert!(d[1] >= SCAN - 100, "the scan's entries are refused at the window: {d:?}");
-    assert_eq!(d[0], 0, "none of the scan's entries beats the main space's least recent one: {d:?}");
-    assert!(d[2] >= HOT - 1, "the hot entries' probation hits promoted them: {d:?}");
-    assert_eq!(d[4] + d[5] + d[6], cond_cache::held_bytes(), "the segments' bytes are the cache's");
+    assert_eq!(
+        kept, HOT,
+        "W-TinyLFU keeps every hot entry through the scan"
+    );
+    assert!(
+        d[1] >= SCAN - 100,
+        "the scan's entries are refused at the window: {d:?}"
+    );
+    assert_eq!(
+        d[0], 0,
+        "none of the scan's entries beats the main space's least recent one: {d:?}"
+    );
+    assert!(
+        d[2] >= HOT - 1,
+        "the hot entries' probation hits promoted them: {d:?}"
+    );
+    assert_eq!(
+        d[4] + d[5] + d[6],
+        cond_cache::held_bytes(),
+        "the segments' bytes are the cache's"
+    );
     let (kept, d) = run(0);
     assert_eq!(kept, 0, "lru: the scan pushed every hot entry out");
     assert_eq!(&d[..4], &[0, 0, 0, 0], "lru moves no W-TinyLFU state");
-    assert_eq!((d[4], d[5], d[6]), (cond_cache::held_bytes(), 0, 0), "lru: every entry in the window");
+    assert_eq!(
+        (d[4], d[5], d[6]),
+        (cond_cache::held_bytes(), 0, 0),
+        "lru: every entry in the window"
+    );
     set(K::CachePolicy, 0);
     cond_cache::drop_all();
 }
@@ -80,14 +102,26 @@ fn cachepolicy_tinylfu_a_frequent_entry_gets_in_and_the_trim_takes_probation_fir
     }
     let _ = cond_cache::entry_for([11, 1], [0, 0], &o, 8, 64);
     let c1 = cond_cache::tinylfu_census();
-    assert_eq!(c1[0] - c0[0], 1, "the frequent entry admitted past the main space's least recent");
-    assert_eq!(cond_cache::entry_for([11, 0], [0, 0], &o, 8, 64).get(0), Hit::None, "it is resident");
+    assert_eq!(
+        c1[0] - c0[0],
+        1,
+        "the frequent entry admitted past the main space's least recent"
+    );
+    assert_eq!(
+        cond_cache::entry_for([11, 0], [0, 0], &o, 8, 64).get(0),
+        Hit::None,
+        "it is resident"
+    );
     // the trim: probation (now the frequent entry, promoted by the hit just above, is in protected) goes before protected
     let protected = cond_cache::tinylfu_census()[6];
     let window = cond_cache::tinylfu_census()[4];
     cond_cache::trim_to(protected + window);
     let c2 = cond_cache::tinylfu_census();
-    assert_eq!((c2[5], c2[6], c2[4]), (0, protected, window), "probation went first, protected and the window stayed");
+    assert_eq!(
+        (c2[5], c2[6], c2[4]),
+        (0, protected, window),
+        "probation went first, protected and the window stayed"
+    );
     set(K::CachePolicy, 0);
     cond_cache::drop_all();
 }

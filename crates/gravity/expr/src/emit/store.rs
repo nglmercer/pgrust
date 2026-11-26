@@ -19,16 +19,21 @@
 //! Every call here runs only while the row has not raised (the error PG reports is the first one, and nothing after
 //! it runs); an operand after a raise is not evaluated (`guarded`).
 
-use gravity_fn::{Arg, ArgKind, Datum, ErrSlot, Family, NullableDatum, Region, Ret, Shim, ERROR, NULL, OK};
+use gravity_fn::{
+    Arg, ArgKind, Datum, ErrSlot, Family, NullableDatum, Region, Ret, Shim, ERROR, NULL, OK,
+};
 use gravity_ir::{IntCond, Type, Value};
-use mcx::{GrowIn, PgVec};
 use gravity_program::cost::expr::FIELD_STORE_BATCH;
+use mcx::{GrowIn, PgVec};
 use types_error::PgResult;
 
 use super::host::CELL_AUX;
 use super::scalar::Em;
 use super::{EmitError, Lowered};
-use crate::nodes::array::{assign_array, assign_hstore, assign_jsonb, fetch, index_of, null_subscript_error, Handler, Subs, MAXDIM};
+use crate::nodes::array::{
+    assign_array, assign_hstore, assign_jsonb, fetch, index_of, null_subscript_error, Handler,
+    Subs, MAXDIM,
+};
 use crate::nodes::field::FieldStore;
 use crate::nodes::func::{ArgConv, Call, How};
 use crate::nodes::misc::NextValue;
@@ -50,12 +55,32 @@ const FS_CUR_NULL: i64 = 2;
 
 const F_NEXTVAL: u32 = 1574;
 
-fn site(b: &mut Builder<'_, '_>, funcid: u32, nargs: usize, shim: &'static Shim, byref: bool, rettype: u32, volatile: bool) -> SiteId {
+fn site(
+    b: &mut Builder<'_, '_>,
+    funcid: u32,
+    nargs: usize,
+    shim: &'static Shim,
+    byref: bool,
+    rettype: u32,
+    volatile: bool,
+) -> SiteId {
     let convs = b.prog.convs.len() as u32;
     for _ in 0..nargs {
-        b.prog.convs.push_in(ArgConv { kind: ArgKind::V, typlen: 0 });
+        b.prog.convs.push_in(ArgConv {
+            kind: ArgKind::V,
+            typlen: 0,
+        });
     }
-    b.site(Call { funcid, args: Kids::NONE, nargs: nargs as u8, strict: false, collation: 0, how: How::Shim { shim, convs, byref }, rettype, volatile })
+    b.site(Call {
+        funcid,
+        args: Kids::NONE,
+        nargs: nargs as u8,
+        strict: false,
+        collation: 0,
+        how: How::Shim { shim, convs, byref },
+        rettype,
+        volatile,
+    })
 }
 
 pub(crate) fn sbs_store_site(b: &mut Builder<'_, '_>, provided: usize) -> SiteId {
@@ -63,7 +88,15 @@ pub(crate) fn sbs_store_site(b: &mut Builder<'_, '_>, provided: usize) -> SiteId
 }
 
 pub(crate) fn field_store_site(b: &mut Builder<'_, '_>, nnew: usize) -> SiteId {
-    site(b, 0, FS_HEAD + 2 * nnew.clamp(1, FIELD_STORE_BATCH), &FIELD_STORE_SITE, true, 0, false)
+    site(
+        b,
+        0,
+        FS_HEAD + 2 * nnew.clamp(1, FIELD_STORE_BATCH),
+        &FIELD_STORE_SITE,
+        true,
+        0,
+        false,
+    )
 }
 
 pub(crate) fn next_value_site(b: &mut Builder<'_, '_>, typ: u32) -> SiteId {
@@ -73,11 +106,19 @@ pub(crate) fn next_value_site(b: &mut Builder<'_, '_>, typ: u32) -> SiteId {
 impl Em<'_, '_, '_> {
     fn word_arg(&mut self, w: i64) -> Lowered {
         let value = self.b.iconst(Type::I64, w);
-        Lowered { value, valid: self.t, err: self.zero }
+        Lowered {
+            value,
+            valid: self.t,
+            err: self.zero,
+        }
     }
 
     fn val_arg(&self, v: Value) -> Lowered {
-        Lowered { value: v, valid: self.t, err: self.zero }
+        Lowered {
+            value: v,
+            valid: self.t,
+            err: self.zero,
+        }
     }
 
     fn fresh(&mut self, err: Value) -> Value {
@@ -91,7 +132,12 @@ impl Em<'_, '_, '_> {
     }
 
     /// The site called over `args` only where `go` holds, else a null with no raise.
-    pub(super) fn call_when(&mut self, go: Value, site: SiteId, args: &[Lowered]) -> Result<Lowered, EmitError> {
+    pub(super) fn call_when(
+        &mut self,
+        go: Value,
+        site: SiteId,
+        args: &[Lowered],
+    ) -> Result<Lowered, EmitError> {
         if go == self.t {
             return self.call(site, args, false);
         }
@@ -104,7 +150,11 @@ impl Em<'_, '_, '_> {
         self.b.br(l_join, &[r.value, r.valid, r.err]);
         self.b.switch_to(l_join);
         let ps = self.b.block_params(l_join);
-        Ok(Lowered { value: ps[0], valid: ps[1], err: ps[2] })
+        Ok(Lowered {
+            value: ps[0],
+            valid: ps[1],
+            err: ps[2],
+        })
     }
 
     /// The `SubscriptingRef` assignment.
@@ -133,7 +183,13 @@ impl Em<'_, '_, '_> {
         let cur_null = self.null_bit(cur.valid, CUR_NULL);
         let fresh = self.fresh(err);
         let go = self.and(all, fresh);
-        let head = [self.word_arg(w0), self.word_arg(w1), self.val_arg(cur_null), self.val_arg(cur.value), self.val_arg(self.zero)];
+        let head = [
+            self.word_arg(w0),
+            self.word_arg(w1),
+            self.val_arg(cur_null),
+            self.val_arg(cur.value),
+            self.val_arg(self.zero),
+        ];
         let mut args = mcx::concat_in(&[&head, &subs], self.row.scratch);
         let saved = self.casetest;
         if n.fetch_old {
@@ -159,23 +215,32 @@ impl Em<'_, '_, '_> {
         let fresh = self.fresh(err);
         let r = self.call_when(fresh, n.site, &args)?;
         let err = self.or(err, r.err);
-        Ok(Lowered { value: r.value, valid: r.valid, err })
+        Ok(Lowered {
+            value: r.value,
+            valid: r.valid,
+            err,
+        })
     }
 
     /// `FieldStore`: the composite, the new values in order, formed in runs broken where a new value reads its field.
     pub(super) fn field_store(&mut self, n: &FieldStore) -> Result<Lowered, EmitError> {
-        let Some(cells) = self.row.cells else { return Err(EmitError::NoCells) };
+        let Some(cells) = self.row.cells else {
+            return Err(EmitError::NoCells);
+        };
         let mut cur = self.node(n.arg)?;
         let mut err = cur.err;
         let cell = self.site_cell(cells, n.site.0 as usize);
         let desc = self.b.load(Type::I64, cell, CELL_AUX);
         let nargs = self.p.sites[n.site.0 as usize].nargs as usize;
-        let mut pending: PgVec<'_, (i64, Lowered)> = mcx::reserved_in(FIELD_STORE_BATCH, self.row.scratch);
+        let mut pending: PgVec<'_, (i64, Lowered)> =
+            mcx::reserved_in(FIELD_STORE_BATCH, self.row.scratch);
         let mut first = n.arg.0 as usize + 1;
         for i in 0..n.newvals.len as usize {
             let id = self.p.kids[n.newvals.start as usize + i];
             let fnum = self.p.oids[n.fieldnums as usize + i] as i64;
-            let reads_old = self.p.nodes[first..=id.0 as usize].iter().any(|x| matches!(x, ExprNode::CaseTest));
+            let reads_old = self.p.nodes[first..=id.0 as usize]
+                .iter()
+                .any(|x| matches!(x, ExprNode::CaseTest));
             first = id.0 as usize + 1;
             let saved = self.casetest;
             if reads_old {
@@ -185,7 +250,14 @@ impl Em<'_, '_, '_> {
                 let cur_null = self.null_bit(cur.valid, FS_CUR_NULL);
                 let ctl = self.b.iconst(Type::I64, fnum << 16);
                 let ctl = self.or(ctl, cur_null);
-                let mut args = mcx::vec_array_in(self.row.scratch, [self.val_arg(desc), self.val_arg(ctl), self.val_arg(cur.value)]);
+                let mut args = mcx::vec_array_in(
+                    self.row.scratch,
+                    [
+                        self.val_arg(desc),
+                        self.val_arg(ctl),
+                        self.val_arg(cur.value),
+                    ],
+                );
                 let z = self.val_arg(self.zero);
                 args.resize_in(nargs, z);
                 let fresh = self.fresh(err);
@@ -206,16 +278,34 @@ impl Em<'_, '_, '_> {
         if !pending.is_empty() || n.newvals.len == 0 {
             cur = self.form(n.site, desc, nargs, cur, &mut err, &mut pending)?;
         }
-        Ok(Lowered { value: cur.value, valid: cur.valid, err })
+        Ok(Lowered {
+            value: cur.value,
+            valid: cur.valid,
+            err,
+        })
     }
 
     /// The pending fields stored into `cur` (a null composite is all nulls first): one call, the formed image.
-    fn form(&mut self, site: SiteId, desc: Value, nargs: usize, cur: Lowered, err: &mut Value, pending: &mut PgVec<'_, (i64, Lowered)>) -> Result<Lowered, EmitError> {
+    fn form(
+        &mut self,
+        site: SiteId,
+        desc: Value,
+        nargs: usize,
+        cur: Lowered,
+        err: &mut Value,
+        pending: &mut PgVec<'_, (i64, Lowered)>,
+    ) -> Result<Lowered, EmitError> {
         let cur_null = self.null_bit(cur.valid, FS_CUR_NULL);
-        let ctl = self.b.iconst(Type::I64, FS_STORE | (pending.len() as i64) << 8);
+        let ctl = self
+            .b
+            .iconst(Type::I64, FS_STORE | (pending.len() as i64) << 8);
         let mut ctl = self.or(ctl, cur_null);
         let mut args = mcx::reserved_in(nargs.max(3 + 2 * pending.len()), self.row.scratch);
-        args.extend_from_slice_in(&[self.val_arg(desc), self.val_arg(ctl), self.val_arg(cur.value)]);
+        args.extend_from_slice_in(&[
+            self.val_arg(desc),
+            self.val_arg(ctl),
+            self.val_arg(cur.value),
+        ]);
         for (k, (fnum, v)) in pending.drain(..).enumerate() {
             let bit = self.null_bit(v.valid, 1 << (16 + k));
             ctl = self.or(ctl, bit);
@@ -243,21 +333,63 @@ gravity_abi::host! {
     unsafe fn no_addr() {}
 }
 
-pub static SBS_STORE_SITE: Shim = Shim { oid: 0, name: "subscript store", family: Family::None, nargs: SBS_HEAD as u8, coll: false, region: true, args: &[ArgKind::V; SBS_HEAD], tyargs: &[], addr: gravity_fn::Addr(no_addr), call: sbs_shim };
-pub static FIELD_STORE_SITE: Shim = Shim { oid: 0, name: "field store", family: Family::None, nargs: FS_HEAD as u8, coll: false, region: true, args: &[ArgKind::V; FS_HEAD], tyargs: &[], addr: gravity_fn::Addr(no_addr), call: fs_shim };
-pub static NEXTVAL_SITE: Shim = Shim { oid: 0, name: "nextval", family: Family::None, nargs: 2, coll: false, region: true, args: &[ArgKind::V, ArgKind::V], tyargs: &[], addr: gravity_fn::Addr(no_addr), call: nextval_shim };
+pub static SBS_STORE_SITE: Shim = Shim {
+    oid: 0,
+    name: "subscript store",
+    family: Family::None,
+    nargs: SBS_HEAD as u8,
+    coll: false,
+    region: true,
+    args: &[ArgKind::V; SBS_HEAD],
+    tyargs: &[],
+    addr: gravity_fn::Addr(no_addr),
+    call: sbs_shim,
+};
+pub static FIELD_STORE_SITE: Shim = Shim {
+    oid: 0,
+    name: "field store",
+    family: Family::None,
+    nargs: FS_HEAD as u8,
+    coll: false,
+    region: true,
+    args: &[ArgKind::V; FS_HEAD],
+    tyargs: &[],
+    addr: gravity_fn::Addr(no_addr),
+    call: fs_shim,
+};
+pub static NEXTVAL_SITE: Shim = Shim {
+    oid: 0,
+    name: "nextval",
+    family: Family::None,
+    nargs: 2,
+    coll: false,
+    region: true,
+    args: &[ArgKind::V, ArgKind::V],
+    tyargs: &[],
+    addr: gravity_fn::Addr(no_addr),
+    call: nextval_shim,
+};
 
 fn ret(e: *mut ErrSlot, r: PgResult<NullableDatum>) -> Ret {
     match r {
-        Ok(v) if v.isnull => Ret { val: 0, status: NULL },
-        Ok(v) => Ret { val: v.value.as_i64(), status: OK },
+        Ok(v) if v.isnull => Ret {
+            val: 0,
+            status: NULL,
+        },
+        Ok(v) => Ret {
+            val: v.value.as_i64(),
+            status: OK,
+        },
         Err(err) => {
             // SAFETY: the host passes the cell's live slot; a previous error in it is dropped through `take`.
             unsafe {
                 drop((*e).take());
                 (*e).err = gravity_abi::word(Box::into_raw(err));
             }
-            Ret { val: 0, status: ERROR }
+            Ret {
+                val: 0,
+                status: ERROR,
+            }
         }
     }
 }
@@ -297,15 +429,39 @@ fn sbs_run(a: &[Arg], region: &mut Region) -> PgResult<NullableDatum> {
             }
         }
     }
-    let cur = if ctl & CUR_NULL != 0 { NullableDatum::null() } else { NullableDatum::value(Datum::from_i64(a[3].v())) };
+    let cur = if ctl & CUR_NULL != 0 {
+        NullableDatum::null()
+    } else {
+        NullableDatum::value(Datum::from_i64(a[3].v()))
+    };
     if ctl & ASSIGN == 0 {
         // the old value: null over a null container (C `array_subscript_fetch_old`, `jsonb_subscript_fetch_old`)
-        return if cur.isnull { Ok(cur) } else { fetch(handler, nupper, slice, cur, &mut s, region) };
+        return if cur.isnull {
+            Ok(cur)
+        } else {
+            fetch(handler, nupper, slice, cur, &mut s, region)
+        };
     }
-    let replace = if ctl & REP_NULL != 0 { NullableDatum::null() } else { NullableDatum::value(Datum::from_i64(a[4].v())) };
+    let replace = if ctl & REP_NULL != 0 {
+        NullableDatum::null()
+    } else {
+        NullableDatum::value(Datum::from_i64(a[4].v()))
+    };
     match handler {
-        Handler::Array { attrlen, elem } => assign_array(nupper, slice, ctl & PARAM != 0, attrlen, elem, cur, replace, &mut s, region),
-        Handler::Jsonb { int4_index } => assign_jsonb(int4_index, nupper.min(MAXDIM), cur, replace, &s, region),
+        Handler::Array { attrlen, elem } => assign_array(
+            nupper,
+            slice,
+            ctl & PARAM != 0,
+            attrlen,
+            elem,
+            cur,
+            replace,
+            &mut s,
+            region,
+        ),
+        Handler::Jsonb { int4_index } => {
+            assign_jsonb(int4_index, nupper.min(MAXDIM), cur, replace, &s, region)
+        }
         Handler::Hstore => assign_hstore(cur, replace, &s, region),
     }
 }
@@ -331,7 +487,10 @@ fn fs_run(a: &[Arg], region: &mut Region) -> PgResult<NullableDatum> {
     if ctl & FS_STORE == 0 {
         // the field as stored so far, for a new value that reads it (C: CaseTest over `values[fieldnum - 1]`)
         let f = (ctl >> 16) as usize - 1;
-        return Ok(NullableDatum { value: vals[f], isnull: nls[f] });
+        return Ok(NullableDatum {
+            value: vals[f],
+            isnull: nls[f],
+        });
     }
     let k = (ctl >> 8 & 0xff) as usize;
     for j in 0..k {

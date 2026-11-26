@@ -48,7 +48,12 @@
 use crate::ssi::{Scenario, Step};
 
 fn step(name: &'static str, session: usize, sql: &str) -> Step {
-    Step { name, session, sql: sql.to_string(), group: None }
+    Step {
+        name,
+        session,
+        sql: sql.to_string(),
+        group: None,
+    }
 }
 
 const T_C: &str = "DROP TABLE IF EXISTS concur_t; \
@@ -56,7 +61,10 @@ const T_C: &str = "DROP TABLE IF EXISTS concur_t; \
      INSERT INTO concur_t SELECT g, g % 2 + 1, 10 FROM generate_series(1, 100) g";
 
 fn probe_t() -> (&'static str, String) {
-    ("concur_t", "SELECT id, class, v FROM concur_t ORDER BY id".to_string())
+    (
+        "concur_t",
+        "SELECT id, class, v FROM concur_t ORDER BY id".to_string(),
+    )
 }
 
 fn to_20s() -> Vec<String> {
@@ -75,7 +83,8 @@ pub fn deck() -> Vec<Scenario> {
     // and must apply on top of the NEW version (v = 200 + 1).
     v.push(Scenario {
         name: "epq-update-qual-pass",
-        description: "RC UPDATE blocks on concurrent update; EPQ requal passes; applies on new version",
+        description:
+            "RC UPDATE blocks on concurrent update; EPQ requal passes; applies on new version",
         setup: vec![T_C.into()],
         sessions: 2,
         session_setup: to_20s(),
@@ -93,14 +102,19 @@ pub fn deck() -> Vec<Scenario> {
     // (UPDATE 0) — the TM_Updated -> EvalPlanQual -> no-tuple arm.
     v.push(Scenario {
         name: "epq-update-qual-fail",
-        description: "RC UPDATE with value qual; concurrent update falsifies it; EPQ recheck -> UPDATE 0",
+        description:
+            "RC UPDATE with value qual; concurrent update falsifies it; EPQ recheck -> UPDATE 0",
         setup: vec![T_C.into()],
         sessions: 2,
         session_setup: to_20s(),
         steps: vec![
             step("s1-begin", 0, "BEGIN"),
             step("s1-upd", 0, "UPDATE concur_t SET v = 200 WHERE id = 6"),
-            step("s2-upd", 1, "UPDATE concur_t SET v = v + 1 WHERE id = 6 AND v = 10"), // blocks
+            step(
+                "s2-upd",
+                1,
+                "UPDATE concur_t SET v = v + 1 WHERE id = 6 AND v = 10",
+            ), // blocks
             step("s1-commit", 0, "COMMIT"), // s2 unblocks -> UPDATE 0
         ],
         probes: vec![probe_t()],
@@ -155,18 +169,27 @@ pub fn deck() -> Vec<Scenario> {
     // pass returns the committed NEW row values.
     v.push(Scenario {
         name: "epq-forupdate-requal",
-        description: "SELECT FOR UPDATE EPQ: value qual falsified -> 0 rows; key-only qual -> new version",
+        description:
+            "SELECT FOR UPDATE EPQ: value qual falsified -> 0 rows; key-only qual -> new version",
         setup: vec![T_C.into()],
         sessions: 2,
         session_setup: to_20s(),
         steps: vec![
             step("s1-begin", 0, "BEGIN"),
             step("s1-upd", 0, "UPDATE concur_t SET v = 999 WHERE id = 12"),
-            step("s2-lock-fail", 1, "SELECT id, v FROM concur_t WHERE id = 12 AND v = 10 FOR UPDATE"), // blocks
+            step(
+                "s2-lock-fail",
+                1,
+                "SELECT id, v FROM concur_t WHERE id = 12 AND v = 10 FOR UPDATE",
+            ), // blocks
             step("s1-commit", 0, "COMMIT"), // s2 -> 0 rows
             step("s1-begin2", 0, "BEGIN"),
             step("s1-upd2", 0, "UPDATE concur_t SET v = 42 WHERE id = 13"),
-            step("s2-lock-pass", 1, "SELECT id, v FROM concur_t WHERE id = 13 FOR UPDATE"), // blocks
+            step(
+                "s2-lock-pass",
+                1,
+                "SELECT id, v FROM concur_t WHERE id = 13 FOR UPDATE",
+            ), // blocks
             step("s1-commit2", 0, "COMMIT"), // s2 -> (13, 42)
         ],
         probes: vec![probe_t()],
@@ -177,7 +200,8 @@ pub fn deck() -> Vec<Scenario> {
     // relation's non-locked rowmark.
     v.push(Scenario {
         name: "epq-lockrows-join",
-        description: "FOR UPDATE OF a in a join; concurrent update forces EPQ re-eval across both rels",
+        description:
+            "FOR UPDATE OF a in a join; concurrent update forces EPQ re-eval across both rels",
         setup: vec![
             T_C.into(),
             "DROP TABLE IF EXISTS concur_b; \
@@ -218,15 +242,14 @@ pub fn deck() -> Vec<Scenario> {
     // exact class, A and B must agree.
     v.push(Scenario {
         name: "epq-cross-partition",
-        description: "UPDATE/SELECT FOR UPDATE blocked on a row concurrently moved to another partition",
-        setup: vec![
-            "DROP TABLE IF EXISTS concur_p; \
+        description:
+            "UPDATE/SELECT FOR UPDATE blocked on a row concurrently moved to another partition",
+        setup: vec!["DROP TABLE IF EXISTS concur_p; \
              CREATE TABLE concur_p (id int, v int) PARTITION BY RANGE (id); \
              CREATE TABLE concur_p_a PARTITION OF concur_p FOR VALUES FROM (0) TO (100); \
              CREATE TABLE concur_p_b PARTITION OF concur_p FOR VALUES FROM (100) TO (200); \
              INSERT INTO concur_p SELECT g, 10 FROM generate_series(1, 99) g"
-                .into(),
-        ],
+            .into()],
         sessions: 2,
         session_setup: to_20s(),
         steps: vec![
@@ -236,13 +259,14 @@ pub fn deck() -> Vec<Scenario> {
             step("s1-commit", 0, "COMMIT"), // s2: moved-row outcome (C = spec)
             step("s1-begin2", 0, "BEGIN"),
             step("s1-move2", 0, "UPDATE concur_p SET id = 151 WHERE id = 51"),
-            step("s2-lock", 1, "SELECT id, v FROM concur_p WHERE id = 51 FOR UPDATE"), // blocks
+            step(
+                "s2-lock",
+                1,
+                "SELECT id, v FROM concur_p WHERE id = 51 FOR UPDATE",
+            ), // blocks
             step("s1-commit2", 0, "COMMIT"),
         ],
-        probes: vec![(
-            "concur_p",
-            "SELECT id, v FROM concur_p ORDER BY id".into(),
-        )],
+        probes: vec![("concur_p", "SELECT id, v FROM concur_p ORDER BY id".into())],
     });
 
     // -------------------------------------------------- MERGE re-check --
@@ -363,7 +387,8 @@ pub fn deck() -> Vec<Scenario> {
 
     v.push(Scenario {
         name: "onconflict-doupdate-race",
-        description: "INSERT ON CONFLICT DO UPDATE vs concurrent inserter: takes the update arm on commit",
+        description:
+            "INSERT ON CONFLICT DO UPDATE vs concurrent inserter: takes the update arm on commit",
         setup: vec![T_C.into()],
         sessions: 2,
         session_setup: to_20s(),
@@ -439,17 +464,26 @@ pub fn deck() -> Vec<Scenario> {
     // reprocess the (now single-member) lock state.
     v.push(Scenario {
         name: "lock-upgrade-update",
-        description: "FOR SHARE co-holders; holder upgrades to UPDATE, waits out the multixact, applies",
+        description:
+            "FOR SHARE co-holders; holder upgrades to UPDATE, waits out the multixact, applies",
         setup: vec![T_C.into()],
         sessions: 2,
         session_setup: to_20s(),
         steps: vec![
             step("s1-begin", 0, "BEGIN"),
             step("s2-begin", 1, "BEGIN"),
-            step("s1-share", 0, "SELECT id FROM concur_t WHERE id = 46 FOR SHARE"),
-            step("s2-share", 1, "SELECT id FROM concur_t WHERE id = 46 FOR SHARE"), // multixact
+            step(
+                "s1-share",
+                0,
+                "SELECT id FROM concur_t WHERE id = 46 FOR SHARE",
+            ),
+            step(
+                "s2-share",
+                1,
+                "SELECT id FROM concur_t WHERE id = 46 FOR SHARE",
+            ), // multixact
             step("s1-upgrade", 0, "UPDATE concur_t SET v = 900 WHERE id = 46"), // blocks on s2
-            step("s2-commit", 1, "COMMIT"), // s1 unblocks
+            step("s2-commit", 1, "COMMIT"),                                     // s1 unblocks
             step("s1-commit", 0, "COMMIT"),
         ],
         probes: vec![probe_t()],
@@ -461,19 +495,22 @@ pub fn deck() -> Vec<Scenario> {
     // be valid and identical on both engines.
     v.push(Scenario {
         name: "cic-wait",
-        description: "CREATE INDEX CONCURRENTLY waits for an open write xact, then builds a valid index",
-        setup: vec![
-            "DROP TABLE IF EXISTS concur_cic; \
+        description:
+            "CREATE INDEX CONCURRENTLY waits for an open write xact, then builds a valid index",
+        setup: vec!["DROP TABLE IF EXISTS concur_cic; \
              CREATE TABLE concur_cic (id int PRIMARY KEY, v int); \
              INSERT INTO concur_cic SELECT g, g % 7 FROM generate_series(1, 50) g"
-                .into(),
-        ],
+            .into()],
         sessions: 2,
         session_setup: to_20s(),
         steps: vec![
             step("s1-begin", 0, "BEGIN"),
             step("s1-write", 0, "INSERT INTO concur_cic VALUES (1001, 42)"),
-            step("s2-cic", 1, "CREATE INDEX CONCURRENTLY concur_cic_v ON concur_cic (v)"), // blocks
+            step(
+                "s2-cic",
+                1,
+                "CREATE INDEX CONCURRENTLY concur_cic_v ON concur_cic (v)",
+            ), // blocks
             step("s1-commit", 0, "COMMIT"), // s2 proceeds through remaining phases
         ],
         probes: vec![
@@ -483,29 +520,29 @@ pub fn deck() -> Vec<Scenario> {
                  JOIN pg_class c ON c.oid = i.indexrelid WHERE c.relname = 'concur_cic_v'"
                     .into(),
             ),
-            (
-                "cic-rows",
-                "SELECT count(*), sum(v) FROM concur_cic".into(),
-            ),
+            ("cic-rows", "SELECT count(*), sum(v) FROM concur_cic".into()),
         ],
     });
 
     // REINDEX INDEX CONCURRENTLY with a concurrent lock holder.
     v.push(Scenario {
         name: "reindex-conc-wait",
-        description: "REINDEX INDEX CONCURRENTLY waits for a row-lock-holding xact, then swaps validly",
-        setup: vec![
-            "DROP TABLE IF EXISTS concur_ric; \
+        description:
+            "REINDEX INDEX CONCURRENTLY waits for a row-lock-holding xact, then swaps validly",
+        setup: vec!["DROP TABLE IF EXISTS concur_ric; \
              CREATE TABLE concur_ric (id int PRIMARY KEY, v int); \
              INSERT INTO concur_ric SELECT g, g % 5 FROM generate_series(1, 50) g; \
              CREATE INDEX concur_ric_v ON concur_ric (v)"
-                .into(),
-        ],
+            .into()],
         sessions: 2,
         session_setup: to_20s(),
         steps: vec![
             step("s1-begin", 0, "BEGIN"),
-            step("s1-lock", 0, "SELECT id FROM concur_ric WHERE id = 3 FOR UPDATE"),
+            step(
+                "s1-lock",
+                0,
+                "SELECT id FROM concur_ric WHERE id = 3 FOR UPDATE",
+            ),
             step("s2-reindex", 1, "REINDEX INDEX CONCURRENTLY concur_ric_v"), // blocks
             step("s1-commit", 0, "COMMIT"),
         ],
@@ -628,8 +665,14 @@ pub fn deck() -> Vec<Scenario> {
                  WHERE c.relname = 'concur_dq'"
                     .into(),
             ),
-            ("dq-parent", "SELECT id, v FROM concur_dq ORDER BY id".into()),
-            ("dq-detached", "SELECT id, v FROM concur_dq_a ORDER BY id".into()),
+            (
+                "dq-parent",
+                "SELECT id, v FROM concur_dq ORDER BY id".into(),
+            ),
+            (
+                "dq-detached",
+                "SELECT id, v FROM concur_dq_a ORDER BY id".into(),
+            ),
         ],
     });
 
@@ -697,7 +740,8 @@ pub fn deck() -> Vec<Scenario> {
     // deferral in ExecModifyTable + the ExecMergeNotMatched resume path.
     v.push(Scenario {
         name: "merge-returning-pending",
-        description: "MERGE RETURNING races a concurrent delete: pending NOT MATCHED action resume path",
+        description:
+            "MERGE RETURNING races a concurrent delete: pending NOT MATCHED action resume path",
         setup: vec![T_C.into()],
         sessions: 2,
         session_setup: to_20s(),
@@ -764,13 +808,12 @@ pub fn deck() -> Vec<Scenario> {
     // by-source row concurrently updated (prologue lock re-check).
     v.push(Scenario {
         name: "merge-by-source-concurrent",
-        description: "MERGE WHEN NOT MATCHED BY SOURCE races a concurrent update on the source-less row",
-        setup: vec![
-            "DROP TABLE IF EXISTS concur_ms; \
+        description:
+            "MERGE WHEN NOT MATCHED BY SOURCE races a concurrent update on the source-less row",
+        setup: vec!["DROP TABLE IF EXISTS concur_ms; \
              CREATE TABLE concur_ms (id int PRIMARY KEY, v int); \
              INSERT INTO concur_ms VALUES (25, 10), (26, 10)"
-                .into(),
-        ],
+            .into()],
         sessions: 2,
         session_setup: to_20s(),
         steps: vec![
@@ -796,14 +839,19 @@ pub fn deck() -> Vec<Scenario> {
     // EPQ recheck plus the RETURNING old/new tuple fetch arms.
     v.push(Scenario {
         name: "epq-returning",
-        description: "UPDATE/DELETE RETURNING blocked on concurrent update; EPQ then RETURNING fetch",
+        description:
+            "UPDATE/DELETE RETURNING blocked on concurrent update; EPQ then RETURNING fetch",
         setup: vec![T_C.into()],
         sessions: 2,
         session_setup: to_20s(),
         steps: vec![
             step("s1-begin", 0, "BEGIN"),
             step("s1-upd", 0, "UPDATE concur_t SET v = 850 WHERE id = 55"),
-            step("s2-del-ret", 1, "DELETE FROM concur_t WHERE id = 55 RETURNING id, class, v"), // blocks
+            step(
+                "s2-del-ret",
+                1,
+                "DELETE FROM concur_t WHERE id = 55 RETURNING id, class, v",
+            ), // blocks
             step("s1-commit", 0, "COMMIT"), // s2 -> row with v = 850
             step("s1-begin2", 0, "BEGIN"),
             step("s1-upd2", 0, "UPDATE concur_t SET v = 851 WHERE id = 56"),

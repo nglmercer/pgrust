@@ -59,7 +59,8 @@ pub fn io_combine_limit() -> i32 {
     // server boot; guard so unit tests that arm the read path without wiring it
     // fall back to the raw value rather than panicking on an uninstalled slot.
     if guc_tables::vars::io_max_combine_limit.installed() {
-        raw.min(guc_tables::vars::io_max_combine_limit.read()).max(1)
+        raw.min(guc_tables::vars::io_max_combine_limit.read())
+            .max(1)
     } else {
         raw
     }

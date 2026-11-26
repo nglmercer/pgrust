@@ -21,7 +21,10 @@ use memledger::Kind;
 use crate::ops::window::object::{abi, bad, Rt, CHUNK_ROWS};
 
 // D3345: a heap segment's bytes (the store's heap bytes halved, within these bounds); a streaming fill's largest pull
-use gravity_program::cost::{WINDOW_PULL_MAX_ROWS as PULL_MAX, WINDOW_SEG_MAX_BYTES as SEG_MAX, WINDOW_SEG_MIN_BYTES as SEG_MIN};
+use gravity_program::cost::{
+    WINDOW_PULL_MAX_ROWS as PULL_MAX, WINDOW_SEG_MAX_BYTES as SEG_MAX,
+    WINDOW_SEG_MIN_BYTES as SEG_MIN,
+};
 
 /// The stored rows, apart from the object's walk over them (`Rt`): the fill writes them (`m10_win_put` /
 /// `m10_win_argerr` / the fill's `m10_win_open`) while the object's call that pulled it is still running (the exact
@@ -92,9 +95,38 @@ enum SegMem {
 }
 
 impl Store {
-    pub(crate) fn new(cols: memledger::ChargedVec<(i16, bool)>, defer: memledger::ChargedVec<bool>, copies: MemoryContext) -> Store {
+    pub(crate) fn new(
+        cols: memledger::ChargedVec<(i16, bool)>,
+        defer: memledger::ChargedVec<bool>,
+        copies: MemoryContext,
+    ) -> Store {
         let budget = (crate::inputs::work_mem_kb().max(64) as usize) << 10;
-        Store { charge: Charge::NONE, charged: 0, pool_charge: Charge::NONE, pool_charged: 0, pool: false, owned: false, on: false, rw: abi::record_bytes(cols.len()) / 8, cols, defer, chunks: VecDeque::new(), base: 0, nrows: 0, released: 0, segs: VecDeque::new(), heap: 0, pooled: 0, budget, mapped: 0, spare: None, copies, pending: Vec::new(), errs: HashMap::new(), want: u64::MAX } // alloc: Exec
+        Store {
+            charge: Charge::NONE,
+            charged: 0,
+            pool_charge: Charge::NONE,
+            pool_charged: 0,
+            pool: false,
+            owned: false,
+            on: false,
+            rw: abi::record_bytes(cols.len()) / 8,
+            cols,
+            defer,
+            chunks: VecDeque::new(),
+            base: 0,
+            nrows: 0,
+            released: 0,
+            segs: VecDeque::new(),
+            heap: 0,
+            pooled: 0,
+            budget,
+            mapped: 0,
+            spare: None,
+            copies,
+            pending: Vec::new(),
+            errs: HashMap::new(),
+            want: u64::MAX,
+        } // alloc: Exec
     }
 
     /// Whether the store still waits for its owner (`own`): the first `m10_win_put`'s caller reads it, so the lookup is once.
@@ -106,9 +138,17 @@ impl Store {
     pub(crate) fn own(&mut self, owner: Option<(Owner, Kind)>) {
         self.owned = true;
         if let Some((o, k)) = owner {
-            (self.charge, self.charged, self.on) = (Charge::open(o, Release::Statement, k, Door::Heap, 0), 0, true);
+            (self.charge, self.charged, self.on) = (
+                Charge::open(o, Release::Statement, k, Door::Heap, 0),
+                0,
+                true,
+            );
             if crate::ops::window::raw::pooled() {
-                (self.pool_charge, self.pool_charged, self.pool) = (Charge::open(o, Release::Statement, k, Door::Pool, 0), 0, true);
+                (self.pool_charge, self.pool_charged, self.pool) = (
+                    Charge::open(o, Release::Statement, k, Door::Pool, 0),
+                    0,
+                    true,
+                );
             }
             self.sync();
         }
@@ -121,7 +161,12 @@ impl Store {
 
     /// pagepool P3: of `heap_bytes`, the pool's.
     fn pool_bytes(&self) -> u64 {
-        (self.pooled + self.spare.as_ref().filter(|b| b.pooled()).map_or(0, |b| b.len() * 8)) as u64
+        (self.pooled
+            + self
+                .spare
+                .as_ref()
+                .filter(|b| b.pooled())
+                .map_or(0, |b| b.len() * 8)) as u64
     }
 
     /// The charge re-synced to `heap_bytes`: a commit of a segment just allocated (on this thread: the allocator counted it
@@ -178,10 +223,13 @@ impl Store {
             return;
         }
         // a label-only step (no tick): a long release is checker 2's under its own label
-        let _step = cancelpoll::step("window store release_segs: the segments of released rows freed");
+        let _step =
+            cancelpoll::step("window store release_segs: the segments of released rows freed");
         // bounded("other: each pass only frees one segment of the rows a partition's start or the fill's reopen leaves behind (a heap block dropped or kept as the spare, a mapped file unmapped; each SEG_MIN, 64 KiB, of stored rows or more) and reads no row; a release runs to its end (a stop would keep freed rows' segments), as PG's tuplestore_trim frees the same rows with no poll")
         while self.segs.front().is_some_and(|s| s.last < j) {
-            let Some(s) = self.segs.pop_front() else { break };
+            let Some(s) = self.segs.pop_front() else {
+                break;
+            };
             // the segments before it are gone, so its chunks and every one before them are the front's
             // bounded("other: each pass only pops one chunk number (CHUNK_ROWS, 256, rows a chunk) laid in the segment being freed and reads no row; a release runs to its end, as PG's tuplestore_trim frees the same rows with no poll")
             while self.base < s.chunks.end && self.chunks.pop_front().is_some() {
@@ -212,10 +260,17 @@ impl Store {
         }
         let want = bytes.max((self.heap / 2).clamp(SEG_MIN, SEG_MAX));
         let map = if self.heap + want > self.budget {
-            let len = bytes.max(self.mapped.clamp(MAPPED_ROAD_MIN_BYTES, MAPPED_ROAD_MAX_BYTES));
+            let len = bytes.max(
+                self.mapped
+                    .clamp(MAPPED_ROAD_MIN_BYTES, MAPPED_ROAD_MAX_BYTES),
+            );
             match gravity_driver::map_temp(len) {
                 Ok(m) => m,
-                Err(_) => return Err(crate::take_error().unwrap_or_else(|| bad("a temp file map for the window's stored rows failed"))),
+                Err(_) => {
+                    return Err(crate::take_error().unwrap_or_else(|| {
+                        bad("a temp file map for the window's stored rows failed")
+                    }))
+                }
             }
         } else {
             None
@@ -246,7 +301,13 @@ impl Store {
             SegMem::Mapped(m) => (m.as_mut_ptr() as usize, m.len()),
         };
         let c = self.base + self.chunks.len();
-        self.segs.push_back(Seg { mem, at: at + bytes, end: at + len, last, chunks: c..c }); // alloc: Exec
+        self.segs.push_back(Seg {
+            mem,
+            at: at + bytes,
+            end: at + len,
+            last,
+            chunks: c..c,
+        }); // alloc: Exec
         Ok(at as *mut u8)
     }
 
@@ -256,7 +317,11 @@ impl Store {
         self.chunks.push_back(p as *mut u64); // alloc: Exec
         let end = self.base + self.chunks.len();
         if let Some(s) = self.segs.back_mut() {
-            s.chunks = if s.chunks.is_empty() { end - 1..end } else { s.chunks.start..end };
+            s.chunks = if s.chunks.is_empty() {
+                end - 1..end
+            } else {
+                s.chunks.start..end
+            };
         }
         Ok(())
     }
@@ -270,9 +335,16 @@ impl Store {
         let e = match raise::describe(code) {
             Some((state, msg)) => {
                 drop(crate::take_any_error());
-                Box::new(PgError::error(msg.to_string()).with_sqlstate(types_error::make_sqlstate(*state))) // alloc: Cold
+                Box::new(
+                    PgError::error(msg.to_string())
+                        .with_sqlstate(types_error::make_sqlstate(*state)),
+                ) // alloc: Cold
             }
-            None => crate::take_any_error().unwrap_or_else(|| bad(&format!("window.agg: an argument's error without a message (raise code {code})"))), // alloc: Cold
+            None => crate::take_any_error().unwrap_or_else(|| {
+                bad(&format!(
+                    "window.agg: an argument's error without a message (raise code {code})"
+                ))
+            }), // alloc: Cold
         };
         self.pending.push((col as u32, e)); // alloc: Exec
         Ok(0)
@@ -291,9 +363,15 @@ impl Store {
     /// partition's start, as nodeWindowAgg's positions after release_partition): a debug build asserts it, a release build
     /// refuses by name rather than read freed memory.
     pub(crate) fn held(&self, j: u64) -> PgResult<()> {
-        debug_assert!(j >= self.released, "D3345: stored row {j} read after its partition was released (rows below {} are)", self.released);
+        debug_assert!(
+            j >= self.released,
+            "D3345: stored row {j} read after its partition was released (rows below {} are)",
+            self.released
+        );
         if j < self.released {
-            return Err(bad("window.agg: a stored row read after its partition was released"));
+            return Err(bad(
+                "window.agg: a stored row read after its partition was released",
+            ));
         }
         Ok(())
     }
@@ -302,7 +380,6 @@ impl Store {
         let (c, r) = (j as usize / CHUNK_ROWS, j as usize % CHUNK_ROWS);
         self.chunks[c - self.base].wrapping_add(r * self.rw)
     }
-
 }
 
 impl Rt {
@@ -371,10 +448,18 @@ impl Rt {
         // `r` is a stored, held row (the positions stay inside the partition) and `c` one of its cells
         let (v, nb) = crate::ops::window::raw::cell_at(at, self.spec.cols.len(), c);
         match nb {
-            0 => Ok(NullableDatum { value: Datum::from_u64(v), isnull: false }),
+            0 => Ok(NullableDatum {
+                value: Datum::from_u64(v),
+                isnull: false,
+            }),
             1 => Ok(NullableDatum::null()),
             abi::CELL_LAZY => self.eval_lazy(r, c),
-            _ => Err(self.store.borrow_mut().errs.remove(&(r, c as u32)).unwrap_or_else(|| bad("window.agg: a failed cell read twice"))),
+            _ => Err(self
+                .store
+                .borrow_mut()
+                .errs
+                .remove(&(r, c as u32))
+                .unwrap_or_else(|| bad("window.agg: a failed cell read twice"))),
         }
     }
 
@@ -391,11 +476,23 @@ impl Rt {
 /// cancel, a resource, system or internal error, nor a refusal, which the statement raises wherever it meets them (exec
 /// setop/generation.rs `holdable`'s rule).
 fn holdable(e: &PgError) -> bool {
-    use types_error::{errcode_to_category as class, ERRCODE_FEATURE_NOT_SUPPORTED, ERRCODE_INSUFFICIENT_RESOURCES, ERRCODE_INTERNAL_ERROR, ERRCODE_QUERY_CANCELED, ERRCODE_SYSTEM_ERROR};
+    use types_error::{
+        errcode_to_category as class, ERRCODE_FEATURE_NOT_SUPPORTED,
+        ERRCODE_INSUFFICIENT_RESOURCES, ERRCODE_INTERNAL_ERROR, ERRCODE_QUERY_CANCELED,
+        ERRCODE_SYSTEM_ERROR,
+    };
     let c = class(e.sqlstate());
     e.level() == types_error::ERROR
-        && ![ERRCODE_QUERY_CANCELED, ERRCODE_SYSTEM_ERROR, ERRCODE_INSUFFICIENT_RESOURCES, ERRCODE_INTERNAL_ERROR].iter().any(|&k| class(k) == c)
-        && !(e.sqlstate() == ERRCODE_FEATURE_NOT_SUPPORTED && e.message().starts_with("gravity: refused ("))
+        && ![
+            ERRCODE_QUERY_CANCELED,
+            ERRCODE_SYSTEM_ERROR,
+            ERRCODE_INSUFFICIENT_RESOURCES,
+            ERRCODE_INTERNAL_ERROR,
+        ]
+        .iter()
+        .any(|&k| class(k) == c)
+        && !(e.sqlstate() == ERRCODE_FEATURE_NOT_SUPPORTED
+            && e.message().starts_with("gravity: refused ("))
 }
 
 #[cfg(test)]

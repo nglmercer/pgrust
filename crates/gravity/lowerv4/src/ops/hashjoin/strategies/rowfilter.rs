@@ -59,16 +59,27 @@ crate::strategies! {
     JOIN_ROWFILTER_COST = 150, "join.rowfilter.cost", Join;
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(JOIN_ROWFILTER, &RowFilter), (JOIN_ROWFILTER_SINGLE, &RowFilter), (JOIN_ROWFILTER_COST, &RowFilter)], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[
+        (JOIN_ROWFILTER, &RowFilter),
+        (JOIN_ROWFILTER_SINGLE, &RowFilter),
+        (JOIN_ROWFILTER_COST, &RowFilter),
+    ],
+    ..crate::ops::NONE
+};
 
 /// D3323: whether the filter's verdict comes from measured costs (cost.rs), road `join.rowfilter.cost`.
 pub(crate) fn costed() -> bool {
-    crate::face::source::on(crate::admit::refusal::Variant::Strategy(JOIN_ROWFILTER_COST))
+    crate::face::source::on(crate::admit::refusal::Variant::Strategy(
+        JOIN_ROWFILTER_COST,
+    ))
 }
 
 /// D3323: whether an armed filter runs ahead of a later probe's one-row body (frame.rs), road `join.rowfilter.single`.
 pub(crate) fn before_single() -> bool {
-    crate::face::source::on(crate::admit::refusal::Variant::Strategy(JOIN_ROWFILTER_SINGLE))
+    crate::face::source::on(crate::admit::refusal::Variant::Strategy(
+        JOIN_ROWFILTER_SINGLE,
+    ))
 }
 
 /// The state line ahead of the words (a cache line of its own): the sampled rows seen and passed, and the off word.
@@ -82,18 +93,39 @@ const REJECT: i64 = 1 << 32;
 /// Whether probe op `j` of graph pipeline `k` tests its build's filter: the road is on, the probe drops its unmatched rows
 /// and is no catalog probe, and it is its pipeline's first probe (one filtered body a window).
 pub(crate) fn takes(gx: &Gx<'_, '_>, k: usize, j: usize) -> bool {
-    if k >= gx.pipelines().len() || !crate::face::source::on(crate::admit::refusal::Variant::Strategy(JOIN_ROWFILTER)) {
+    if k >= gx.pipelines().len()
+        || !crate::face::source::on(crate::admit::refusal::Variant::Strategy(JOIN_ROWFILTER))
+    {
         return false;
     }
     let ops = &gx.pipelines()[k].ops;
-    let Some(Op::Join(JoinDesc::Probe { jointype, catalog: false, .. })) = ops.get(j) else { return false };
-    let drops = matches!(*jointype, JoinType::JOIN_UNIQUE_OUTER | JoinType::JOIN_UNIQUE_INNER) || crate::ops::shared::scan::drops_unmatched(*jointype);
-    drops && ops.iter().position(|op| matches!(op, Op::Join(JoinDesc::Probe { .. }))) == Some(j)
+    let Some(Op::Join(JoinDesc::Probe {
+        jointype,
+        catalog: false,
+        ..
+    })) = ops.get(j)
+    else {
+        return false;
+    };
+    let drops = matches!(
+        *jointype,
+        JoinType::JOIN_UNIQUE_OUTER | JoinType::JOIN_UNIQUE_INNER
+    ) || crate::ops::shared::scan::drops_unmatched(*jointype);
+    drops
+        && ops
+            .iter()
+            .position(|op| matches!(op, Op::Join(JoinDesc::Probe { .. })))
+            == Some(j)
 }
 
 /// The words' log2 for a build of `n` keys on this machine: `within` half one core's L2 share (`rowfilter_max_bits`).
 pub(crate) fn bits_for(n: u64) -> Option<u32> {
-    within(n, gravity_program::cost::rowfilter_max_bits(gravity_driver::machine::profile().partition_bytes))
+    within(
+        n,
+        gravity_program::cost::rowfilter_max_bits(
+            gravity_driver::machine::profile().partition_bytes,
+        ),
+    )
 }
 
 /// The words' log2 for `n` keys: at least `ROWFILTER_BITS_PER_KEY` bits a key in a power of two of words (one cache line
@@ -102,7 +134,10 @@ pub(crate) fn bits_for(n: u64) -> Option<u32> {
 fn within(n: u64, most: u32) -> Option<u32> {
     use gravity_program::cost::{ROWFILTER_BITS_PER_KEY, ROWFILTER_MIN_BITS_PER_KEY};
     let words = n.saturating_mul(ROWFILTER_BITS_PER_KEY).div_ceil(64).max(8);
-    let fb = words.checked_next_power_of_two().map_or(most, u64::trailing_zeros).min(most);
+    let fb = words
+        .checked_next_power_of_two()
+        .map_or(most, u64::trailing_zeros)
+        .min(most);
     (64u64 << fb >= n.saturating_mul(ROWFILTER_MIN_BITS_PER_KEY)).then_some(fb)
 }
 
@@ -114,7 +149,13 @@ pub(crate) const fn bytes(fb: u32) -> usize {
 /// Key hash `h`'s word among 2^`fb` and its four bits there.
 pub(crate) fn place(h: KeyHash, fb: u32) -> (usize, u64) {
     let s = h.stored() as u64;
-    (h.home(fb, Depth::TOP), (1 << (s & 63)) | (1 << ((s >> 6) & 63)) | (1 << ((s >> 12) & 63)) | (1 << ((s >> 18) & 63)))
+    (
+        h.home(fb, Depth::TOP),
+        (1 << (s & 63))
+            | (1 << ((s >> 6) & 63))
+            | (1 << ((s >> 12) & 63))
+            | (1 << ((s >> 18) & 63)),
+    )
 }
 
 /// A probe's filter in this window, read at its start (`window`): whether the filtered body runs (`armed`), the words
@@ -135,13 +176,21 @@ pub(crate) struct Live {
 /// tests it. A region without words (another form, no `A_RF`, no room) is never armed and its state never touched.
 /// D3323: with the window count's frame word `win` (road `join.rowfilter.cost`) the verdict is cost.rs's, and a filter
 /// whose directory fits L2 never touches its state.
-pub(crate) fn window(b: &mut FunctionBuilder<'_>, env: &mut Env, (r, form, dir, bits): (Value, Value, Value, Value), (word, win): (i32, Option<i32>)) -> Live {
+pub(crate) fn window(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    (r, form, dir, bits): (Value, Value, Value, Value),
+    (word, win): (i32, Option<i32>),
+) -> Live {
     let fb = b.load_zext(Type::I8, r, RF_BITS as i32);
     let hash = b.iconst(Type::I64, HASH as i64);
     let is_h = b.icmp(IntCond::Eq, form, hash);
     let some = b.icmp(IntCond::Ne, fb, env.zero);
     let has = b.int_bin(IntBinOp::And, is_h, some);
-    let (l_has, l_join) = (b.create_block(&[]), b.create_block(&[Type::Bool, Type::Ptr, Type::Bool]));
+    let (l_has, l_join) = (
+        b.create_block(&[]),
+        b.create_block(&[Type::Bool, Type::Ptr, Type::Bool]),
+    );
     let (f, null) = (b.bconst(false), b.iconst(Type::I64, 0));
     let null = b.conv(ConvOp::IntToPtr, Type::Ptr, null);
     b.cond_br(has, (l_has, &[]), (l_join, &[f, null, f]));
@@ -151,25 +200,46 @@ pub(crate) fn window(b: &mut FunctionBuilder<'_>, env: &mut Env, (r, form, dir, 
     let state = b.ptr_add(dir, dbytes, 1, 0);
     if let Some(win) = win {
         let words = b.ptr_add(state, env.zero, 1, STATE as i32);
-        let (big, l_big) = (crate::frame::prefetch::above_l2(b, dbytes), b.create_block(&[]));
+        let (big, l_big) = (
+            crate::frame::prefetch::above_l2(b, dbytes),
+            b.create_block(&[]),
+        );
         b.cond_br(big, (l_big, &[]), (l_join, &[f, words, f]));
         b.switch_to(l_big);
         let (armed, sampling) = cost::verdict(b, env, state, (word, win));
         b.br(l_join, &[armed, words, sampling]);
         b.switch_to(l_join);
         let p = b.block_params(l_join);
-        return Live { armed: p[0], words: p[1], fb, sampling: p[2], cost: true };
+        return Live {
+            armed: p[0],
+            words: p[1],
+            fb,
+            sampling: p[2],
+            cost: true,
+        };
     }
     let c = env.load_word(b, word);
     env.store_word(b, word, env.zero);
     // the first sample decides: once it is in, every participant only reads the state line (no window writes it again)
-    let (sample, shift) = (b.iconst(Type::I64, gravity_program::cost::ROWFILTER_SAMPLE as i64), b.iconst(Type::I64, gravity_program::cost::ROWFILTER_PASS_SHIFT as i64));
-    let (seen0, off0) = (b.load(Type::I64, state, ST_SEEN), b.load(Type::I64, state, ST_OFF));
+    let (sample, shift) = (
+        b.iconst(Type::I64, gravity_program::cost::ROWFILTER_SAMPLE as i64),
+        b.iconst(
+            Type::I64,
+            gravity_program::cost::ROWFILTER_PASS_SHIFT as i64,
+        ),
+    );
+    let (seen0, off0) = (
+        b.load(Type::I64, state, ST_SEEN),
+        b.load(Type::I64, state, ST_OFF),
+    );
     let sampling = b.icmp(IntCond::Ult, seen0, sample);
     let (l_fold, l_off) = (b.create_block(&[]), b.create_block(&[Type::I64]));
     b.cond_br(sampling, (l_fold, &[]), (l_off, &[off0]));
     b.switch_to(l_fold);
-    let (s32, low) = (b.iconst(Type::I64, 32), b.iconst(Type::I64, u32::MAX as i64));
+    let (s32, low) = (
+        b.iconst(Type::I64, 32),
+        b.iconst(Type::I64, u32::MAX as i64),
+    );
     let passed = b.int_bin(IntBinOp::And, c, low);
     let rejected = b.int_bin(IntBinOp::Ushr, c, s32);
     let tested = b.int_bin(IntBinOp::Add, passed, rejected);
@@ -192,7 +262,13 @@ pub(crate) fn window(b: &mut FunctionBuilder<'_>, env: &mut Env, (r, form, dir, 
     b.br(l_join, &[armed, words, sampling]);
     b.switch_to(l_join);
     let p = b.block_params(l_join);
-    Live { armed: p[0], words: p[1], fb, sampling: p[2], cost: false }
+    Live {
+        armed: p[0],
+        words: p[1],
+        fb,
+        sampling: p[2],
+        cost: false,
+    }
 }
 
 /// `state`'s word at `off` plus `v`, stored back: the new value.
@@ -206,7 +282,14 @@ fn add_at(b: &mut FunctionBuilder<'_>, state: Value, off: i32, v: Value) -> Valu
 /// In the filtered body, ahead of the directory head of a row whose key hashes to `h`: the row goes on to `l_dir` when
 /// every bit of its word is set, else to `l_miss` with no record (0); while the window samples it counts in frame word
 /// `word` (D3700: a load / add / store per row, chained through the word, that nothing reads once the sample is in).
-pub(crate) fn test(b: &mut FunctionBuilder<'_>, env: &Env, f: &Live, h: Value, word: i32, (l_dir, l_miss): (Block, Block)) {
+pub(crate) fn test(
+    b: &mut FunctionBuilder<'_>,
+    env: &Env,
+    f: &Live,
+    h: Value,
+    word: i32,
+    (l_dir, l_miss): (Block, Block),
+) {
     // the test in each arm: a pass computed before the branch would live across it (a stack home in the baseline backend)
     let (l_count, l_plain) = (b.create_block(&[]), b.create_block(&[]));
     b.cond_br(f.sampling, (l_count, &[]), (l_plain, &[]));
@@ -249,7 +332,14 @@ pub(crate) fn hit(b: &mut FunctionBuilder<'_>, env: &Env, f: &Live, h: Value) ->
 /// rule, only while the window samples: a window that counted nothing leaves the state line alone). `None`: a key
 /// that is no such cell, or lanes the source cannot fill alone (each row then tests on its own, `test`).
 #[allow(clippy::type_complexity)]
-pub(crate) fn block(p: &Probe<'_>, b: &mut FunctionBuilder<'_>, env: &mut Env, (row, _j, mask): (&RowVals, Value, Mask), (word, f): (i32, &Live), fill: &mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env, &[i16]) -> bool) -> Option<Value> {
+pub(crate) fn block(
+    p: &Probe<'_>,
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    (row, _j, mask): (&RowVals, Value, Mask),
+    (word, f): (i32, &Live),
+    fill: &mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env, &[i16]) -> bool,
+) -> Option<Value> {
     let mut cols: PgVec<'_, i16> = mcx::reserved_in(p.keys.len(), env.mcx);
     for k in p.keys.iter() {
         let KeySrc::Col(a, ..) = k else { return None };
@@ -258,13 +348,19 @@ pub(crate) fn block(p: &Probe<'_>, b: &mut FunctionBuilder<'_>, env: &mut Env, (
     let cells = key_cells(b, env, p.node, row, &p.keys, None);
     let mut widths: PgVec<'_, u8> = mcx::reserved_in(cells.len(), env.mcx);
     for c in cells.iter() {
-        let (At::Lane(_), Rep::Word { bytes }) = (c.0.at, c.0.rep) else { return None };
+        let (At::Lane(_), Rep::Word { bytes }) = (c.0.at, c.0.rep) else {
+            return None;
+        };
         widths.push_in(bytes);
     }
     if !fill(b, env, &cols[..]) {
         return None;
     }
-    let (l_loop, l_one, l_done) = (b.create_block(&[Type::I64, Type::I64]), b.create_block(&[]), b.create_block(&[Type::I64]));
+    let (l_loop, l_one, l_done) = (
+        b.create_block(&[Type::I64, Type::I64]),
+        b.create_block(&[]),
+        b.create_block(&[Type::I64]),
+    );
     b.br(l_loop, &[mask.0, mask.0]);
     // at most 64 turns (one per row of the mask), inside the checked block loop
     b.mark_loop_header(l_loop);
@@ -275,7 +371,11 @@ pub(crate) fn block(p: &Probe<'_>, b: &mut FunctionBuilder<'_>, env: &mut Env, (
     b.cond_br(none, (l_done, &[out]), (l_one, &[]));
     b.switch_to(l_one);
     let t = b.int_un(IntUnOp::Ctz, bits);
-    let moved: KeyVals<'_> = cells.iter().zip(&widths).map(|(c, &w)| (c.0, b.ptr_add(c.1, t, w, 0), None, c.3)).collect_in(env.mcx);
+    let moved: KeyVals<'_> = cells
+        .iter()
+        .zip(&widths)
+        .map(|(c, &w)| (c.0, b.ptr_add(c.1, t, w, 0), None, c.3))
+        .collect_in(env.mcx);
     // the test's branch dominates nothing after it: its reads leave no memo entry
     let outer = env.memo.set_aside();
     let mut lx = env.lx(b, p.node);
@@ -292,12 +392,19 @@ pub(crate) fn block(p: &Probe<'_>, b: &mut FunctionBuilder<'_>, env: &mut Env, (
     b.br(l_loop, &[rest, out2]);
     b.switch_to(l_done);
     let out = b.block_params(l_done)[0];
-    let (passed, all) = (b.int_un(IntUnOp::Popcnt, out), b.int_un(IntUnOp::Popcnt, mask.0));
+    let (passed, all) = (
+        b.int_un(IntUnOp::Popcnt, out),
+        b.int_un(IntUnOp::Popcnt, mask.0),
+    );
     let rejected = b.int_bin(IntBinOp::Sub, all, passed);
     let s32 = b.iconst(Type::I64, 32);
     let rejected = b.int_bin(IntBinOp::Shl, rejected, s32);
     let add = b.int_bin(IntBinOp::Add, passed, rejected);
-    let add = if f.cost { b.select(f.sampling, add, env.zero) } else { add };
+    let add = if f.cost {
+        b.select(f.sampling, add, env.zero)
+    } else {
+        add
+    };
     let c = env.load_word(b, word);
     let c = b.int_bin(IntBinOp::Add, c, add);
     env.store_word(b, word, c);
@@ -306,7 +413,13 @@ pub(crate) fn block(p: &Probe<'_>, b: &mut FunctionBuilder<'_>, env: &mut Env, (
 
 /// D3168 (probe_stage.rs): a staged block's rows counted in frame word `word` once, `all` (an `I64` count) tested and
 /// `passed` passed: as `block`'s count.
-pub(crate) fn count_rows(b: &mut FunctionBuilder<'_>, env: &Env, word: i32, all: Value, passed: Value) {
+pub(crate) fn count_rows(
+    b: &mut FunctionBuilder<'_>,
+    env: &Env,
+    word: i32,
+    all: Value,
+    passed: Value,
+) {
     let rejected = b.int_bin(IntBinOp::Sub, all, passed);
     let s32 = b.iconst(Type::I64, 32);
     let rejected = b.int_bin(IntBinOp::Shl, rejected, s32);
@@ -333,9 +446,17 @@ mod tests {
         }
         let full = (64u64 << 17) / gravity_program::cost::ROWFILTER_BITS_PER_KEY;
         assert_eq!(within(full, 17), Some(17), "the most keys at 8 bits a key");
-        assert_eq!(within(full + 1, 17), Some(17), "past them: fewer bits a key in the same words");
+        assert_eq!(
+            within(full + 1, 17),
+            Some(17),
+            "past them: fewer bits a key in the same words"
+        );
         let most = (64u64 << 17) / gravity_program::cost::ROWFILTER_MIN_BITS_PER_KEY;
-        assert_eq!(within(most, 17), Some(17), "the most keys that lay words: 4 bits a key");
+        assert_eq!(
+            within(most, 17),
+            Some(17),
+            "the most keys that lay words: 4 bits a key"
+        );
         assert_eq!(within(most + 1, 17), None, "one more lays none");
         assert_eq!(within(u64::MAX, 17), None);
     }
@@ -346,15 +467,28 @@ mod tests {
         assert_eq!(gravity_program::cost::rowfilter_max_bits(2 << 20), 17);
         assert_eq!(gravity_program::cost::rowfilter_max_bits(1 << 20), 16);
         let share = gravity_driver::machine::profile().partition_bytes;
-        let fb = (0..40).filter_map(|s| bits_for(1u64 << s)).max().expect("a small build lays words");
-        assert!(8u64 << fb <= (share / 2).max(64), "2^{fb} words past half an L2 share of {share} bytes");
+        let fb = (0..40)
+            .filter_map(|s| bits_for(1u64 << s))
+            .max()
+            .expect("a small build lays words");
+        assert!(
+            8u64 << fb <= (share / 2).max(64),
+            "2^{fb} words past half an L2 share of {share} bytes"
+        );
     }
 
     /// Four bits of one word a key: every key's own bits are set, and a key outside the build passes about the blocked
     /// formula's share (8-16 bits a key, four bits: 1-4 %), for sequential, strided and scattered keys alike.
     #[test]
     fn a_key_outside_the_build_passes_about_the_formula_share() {
-        let sets: [(&str, Box<dyn Fn(u64) -> u64>); 3] = [("sequential", Box::new(|i| i)), ("stride 32", Box::new(|i| i * 32)), ("scattered", Box::new(|i| i.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 7))];
+        let sets: [(&str, Box<dyn Fn(u64) -> u64>); 3] = [
+            ("sequential", Box::new(|i| i)),
+            ("stride 32", Box::new(|i| i * 32)),
+            (
+                "scattered",
+                Box::new(|i| i.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 7),
+            ),
+        ];
         for (name, key) in sets {
             let n = 200_000u64;
             let fb = bits_for(n).expect("under the cap");
@@ -367,9 +501,15 @@ mod tests {
                 let (at, m) = place(KeyHash::word(k), fb);
                 w[at] & m == m
             };
-            assert!((0..n).all(|i| hit(key(i))), "{name}: a member always passes");
+            assert!(
+                (0..n).all(|i| hit(key(i))),
+                "{name}: a member always passes"
+            );
             let probes = 400_000u64;
-            let fp = (0..probes).filter(|&i| hit(key(n + 1 + i) ^ 1 << 62)).count() as f64 / probes as f64;
+            let fp = (0..probes)
+                .filter(|&i| hit(key(n + 1 + i) ^ 1 << 62))
+                .count() as f64
+                / probes as f64;
             assert!(fp < 0.04, "{name}: false positives {fp}");
         }
     }
@@ -389,10 +529,21 @@ mod tests {
                     env.words = Some(b.conv(ConvOp::IntToPtr, Type::Ptr, at));
                     let at = b.iconst(Type::I64, wp);
                     let words = b.conv(ConvOp::IntToPtr, Type::Ptr, at);
-                    let (armed, s, fb) = (b.bconst(true), b.bconst(sampling), b.iconst(Type::I64, 3));
-                    let f = Live { armed, words, fb, sampling: s, cost: false };
+                    let (armed, s, fb) =
+                        (b.bconst(true), b.bconst(sampling), b.iconst(Type::I64, 3));
+                    let f = Live {
+                        armed,
+                        words,
+                        fb,
+                        sampling: s,
+                        cost: false,
+                    };
                     let h = b.iconst(Type::I64, 0x2545_F491_4F6C_DD1D);
-                    let (l_dir, l_miss, l_out) = (b.create_block(&[]), b.create_block(&[Type::I64]), b.create_block(&[Type::I64]));
+                    let (l_dir, l_miss, l_out) = (
+                        b.create_block(&[]),
+                        b.create_block(&[Type::I64]),
+                        b.create_block(&[Type::I64]),
+                    );
                     test(b, env, &f, h, 8, (l_dir, l_miss));
                     b.switch_to(l_dir);
                     let one = b.iconst(Type::I64, 1);
@@ -404,8 +555,16 @@ mod tests {
                     b.block_params(l_out)[0]
                 });
                 assert_eq!(went, pass as i64, "sampling {sampling}: the row's way");
-                let want = match (sampling, pass) { (false, _) => 0, (true, true) => 1, (true, false) => REJECT as u64 };
-                assert_eq!(frame, [0, want, 0, 0], "sampling {sampling} pass {pass}: the frame word");
+                let want = match (sampling, pass) {
+                    (false, _) => 0,
+                    (true, true) => 1,
+                    (true, false) => REJECT as u64,
+                };
+                assert_eq!(
+                    frame,
+                    [0, want, 0, 0],
+                    "sampling {sampling} pass {pass}: the frame word"
+                );
             }
         }
     }

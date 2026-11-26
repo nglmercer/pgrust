@@ -11,12 +11,19 @@ use types_core::Oid;
 use types_error::PgResult;
 use types_storage::lock::NoLock;
 
-use crate::admit::{refuse, AdmitCx, AdmitResult, AdmitTpl, BindCx, BindResult, RecipeTpl, Refused};
+use crate::admit::{
+    refuse, AdmitCx, AdmitResult, AdmitTpl, BindCx, BindResult, RecipeTpl, Refused,
+};
 use crate::shapes;
 
 pub(crate) fn admit(cx: &AdmitCx<'_>) -> AdmitResult {
-    let Some(am) = claims(cx.source, cx.site) else { return Ok(Ok(None)) };
-    debug_assert!(cx.attnos.iter().all(|&a| a > 0), "a fetch site's attnos are its attribute lanes, never the RowId lane");
+    let Some(am) = claims(cx.source, cx.site) else {
+        return Ok(Ok(None));
+    };
+    debug_assert!(
+        cx.attnos.iter().all(|&a| a > 0),
+        "a fetch site's attnos are its attribute lanes, never the RowId lane"
+    );
     let rel = table::table_open(cx.mcx, cx.site.relation as Oid, NoLock)?;
     let tpl = match am {
         Am::Heap => heap_template(HeapFetchRecipe::from_plan(&rel, cx.attnos)),
@@ -29,7 +36,10 @@ pub(crate) fn admit(cx: &AdmitCx<'_>) -> AdmitResult {
 /// The sites this admit takes, by their relation's AM: a pgrc or heap range whose site carries a `RowId` lane.
 fn claims(source: &Source<'_>, site: &SiteDesc) -> Option<Am> {
     match source {
-        Source::Range { am: am @ (Am::Pgrcolumnar | Am::Heap), .. } if site.lanes().iter().any(|l| l.id == LaneId::RowId) => Some(*am),
+        Source::Range {
+            am: am @ (Am::Pgrcolumnar | Am::Heap),
+            ..
+        } if site.lanes().iter().any(|l| l.id == LaneId::RowId) => Some(*am),
         _ => None,
     }
 }
@@ -48,7 +58,12 @@ fn template(recipe: PgResult<FetchRecipe>) -> Result<Option<AdmitTpl>, Refused> 
     }
 }
 
-pub(crate) fn bind(t: &RecipeTpl, reg: &mut HostRegistry, _cx: &BindCx<'_>, _exprs: &mut shapes::KeyExprs) -> BindResult {
+pub(crate) fn bind(
+    t: &RecipeTpl,
+    reg: &mut HostRegistry,
+    _cx: &BindCx<'_>,
+    _exprs: &mut shapes::KeyExprs,
+) -> BindResult {
     match t {
         RecipeTpl::Fetch(r) => reg.push_fetch(r.clone()),
         RecipeTpl::HeapFetch(r) => reg.push_rung(Box::new(r.clone())), // alloc: Program
@@ -69,16 +84,51 @@ mod tests {
         let arena = Arena::new(1 << 16);
         let site = |rowid: bool| {
             let s = SiteDesc::range_source(arena.handle(), 7, &[1, 2]);
-            if rowid { s.with_lane(LaneDesc::rowid(), false) } else { s }
+            if rowid {
+                s.with_lane(LaneDesc::rowid(), false)
+            } else {
+                s
+            }
         };
-        let range = |am, rowid| Source::Range { site: site(rowid), am, scanrelid: 1, relid: 7 };
-        assert_eq!(claims(&range(Am::Pgrcolumnar, true), &site(true)), Some(Am::Pgrcolumnar));
-        assert_eq!(claims(&range(Am::Heap, true), &site(true)), Some(Am::Heap), "a heap wide top fetches its winners by TID (D519)");
-        assert_eq!(claims(&range(Am::Pgrcolumnar, false), &site(false)), None, "a pgrc scan site is M1's granule admit's");
-        assert_eq!(claims(&range(Am::Heap, false), &site(false)), None, "a heap scan site is M2's range admit's");
+        let range = |am, rowid| Source::Range {
+            site: site(rowid),
+            am,
+            scanrelid: 1,
+            relid: 7,
+        };
+        assert_eq!(
+            claims(&range(Am::Pgrcolumnar, true), &site(true)),
+            Some(Am::Pgrcolumnar)
+        );
+        assert_eq!(
+            claims(&range(Am::Heap, true), &site(true)),
+            Some(Am::Heap),
+            "a heap wide top fetches its winners by TID (D519)"
+        );
+        assert_eq!(
+            claims(&range(Am::Pgrcolumnar, false), &site(false)),
+            None,
+            "a pgrc scan site is M1's granule admit's"
+        );
+        assert_eq!(
+            claims(&range(Am::Heap, false), &site(false)),
+            None,
+            "a heap scan site is M2's range admit's"
+        );
         let reg = std::sync::Arc::new(pgrc_read::PartRegistry::new(1 << 20));
-        let r = FetchRecipe::for_test(7, &[1, 2], &[gravity_hosts::ops::scan::pgrc::fetch_site::KIND_INT, gravity_hosts::ops::scan::pgrc::fetch_site::KIND_TEXT], reg);
+        let r = FetchRecipe::for_test(
+            7,
+            &[1, 2],
+            &[
+                gravity_hosts::ops::scan::pgrc::fetch_site::KIND_INT,
+                gravity_hosts::ops::scan::pgrc::fetch_site::KIND_TEXT,
+            ],
+            reg,
+        );
         assert!(matches!(template(Ok(r)), Ok(Some(RecipeTpl::Fetch(_)))));
-        assert!(template(Err(Box::new(types_error::PgError::error("gravity: fetch attno")))).is_err_and(|r| r.what.contains("fetch attno"))); // alloc: Cold
+        assert!(template(Err(Box::new(types_error::PgError::error(
+            "gravity: fetch attno"
+        ))))
+        .is_err_and(|r| r.what.contains("fetch attno"))); // alloc: Cold
     }
 }

@@ -10,8 +10,12 @@ use std::sync::atomic::AtomicU8;
 use std::sync::Arc;
 
 use gravity_abi::Lane;
-use gravity_driver::{blank_site, BindingRef, CommandId, Identity, PerTuple, Pins, Snapshot, Source, Window};
-use gravity_hosts::ops::scan::pgrc::granule_source::{GranuleRangeSource, GranuleRecipe, PartIoSpec, PartList, PartSpec, Resolved};
+use gravity_driver::{
+    blank_site, BindingRef, CommandId, Identity, PerTuple, Pins, Snapshot, Source, Window,
+};
+use gravity_hosts::ops::scan::pgrc::granule_source::{
+    GranuleRangeSource, GranuleRecipe, PartIoSpec, PartList, PartSpec, Resolved,
+};
 use pgrc_format::dirlayout::part_file_name;
 use pgrc_qa::corpus::{build_fixture, int8_fixture};
 use pgrc_read::{PartExpect, PartRegistry};
@@ -24,20 +28,55 @@ const REL: u32 = 4531;
 static FLAG: AtomicU8 = AtomicU8::new(0);
 
 fn binding_ref(resolved: &Resolved) -> BindingRef<'_> {
-    BindingRef { snapshot: Snapshot(0), command_id: CommandId(0), params: &[], abort_flag: &FLAG, pins: Pins(0), per_tuple: PerTuple(0), identity: Identity::default(), resolved: Some(resolved), ordinal: None }
+    BindingRef {
+        snapshot: Snapshot(0),
+        command_id: CommandId(0),
+        params: &[],
+        abort_flag: &FLAG,
+        pins: Pins(0),
+        per_tuple: PerTuple(0),
+        identity: Identity::default(),
+        resolved: Some(resolved),
+        ordinal: None,
+    }
 }
 
 /// One part of a 1M-row int8 column whose words do not encode small (about 8 bytes a row on file).
 fn list() -> Arc<PartList> {
-    let bf = build_fixture(int8_fixture("gravity_d4315_unpin", REL as u64, ROWS, vec![], PartCutPolicy { max_rows: ROWS, ..PartCutPolicy::default() }, |i| Some(i.wrapping_mul(0x9E37_79B9_7F4A_7C15) as i64)));
+    let bf = build_fixture(int8_fixture(
+        "gravity_d4315_unpin",
+        REL as u64,
+        ROWS,
+        vec![],
+        PartCutPolicy {
+            max_rows: ROWS,
+            ..PartCutPolicy::default()
+        },
+        |i| Some(i.wrapping_mul(0x9E37_79B9_7F4A_7C15) as i64),
+    ));
     let specs = bf
         .manifest
         .parts
         .iter()
         .enumerate()
         .map(|(i, rec)| {
-            let bytes = bf.files.get(&part_file_name(rec.part_no)).expect("part file").clone();
-            PartSpec { io: PartIoSpec::Mem { bytes: Arc::from(bytes.as_slice()), dev: 7, ino: 4315 + i as u64 }, expect: PartExpect::none(), rows: rec.rows, granules: rec.granule_count, deletes: None, part: None }
+            let bytes = bf
+                .files
+                .get(&part_file_name(rec.part_no))
+                .expect("part file")
+                .clone();
+            PartSpec {
+                io: PartIoSpec::Mem {
+                    bytes: Arc::from(bytes.as_slice()),
+                    dev: 7,
+                    ino: 4315 + i as u64,
+                },
+                expect: PartExpect::none(),
+                rows: rec.rows,
+                granules: rec.granule_count,
+                deletes: None,
+                part: None,
+            }
         })
         .collect();
     let list = Arc::new(PartList::new(specs));
@@ -83,20 +122,38 @@ fn a_whole_part_claim_pins_its_read_ahead_not_the_part() {
     pgrc_read::partcache::set_budget(u64::MAX);
     scan(&list, &registry);
     let whole = pgrc_read::partcache::bytes();
-    assert!(whole >= 6 << 20, "the part's sixteen extents are cached after the scan: {whole} bytes");
+    assert!(
+        whole >= 6 << 20,
+        "the part's sixteen extents are cached after the scan: {whole} bytes"
+    );
     let evicted = pgrc_read::partcache::counters().2;
     scan(&list, &registry);
-    assert_eq!(pgrc_read::partcache::bytes(), whole, "a hot repeat finds every image cached");
-    assert_eq!(pgrc_read::partcache::counters().2, evicted, "with room nothing is evicted");
+    assert_eq!(
+        pgrc_read::partcache::bytes(),
+        whole,
+        "a hot repeat finds every image cached"
+    );
+    assert_eq!(
+        pgrc_read::partcache::counters().2,
+        evicted,
+        "with room nothing is evicted"
+    );
 
     // past the level: the trim takes what the scan passed while the part stays in use
     let cap = whole / 8;
     pgrc_read::partcache::set_budget(cap);
     registry.trim_contents(0);
-    assert_eq!(pgrc_read::partcache::bytes(), 0, "the unused part's images went back");
+    assert_eq!(
+        pgrc_read::partcache::bytes(),
+        0,
+        "the unused part's images went back"
+    );
     let seen = scan(&list, &registry);
     let pinned = seen.iter().map(|s| s.0).max().unwrap();
     let resident = seen.iter().map(|s| s.1).max().unwrap();
     assert!(pinned <= whole / 2, "pinned at most about the read-ahead: {pinned} of the part's {whole} bytes (trunk: the whole part) {seen:?}");
-    assert!(resident <= whole / 2, "resident at most about the read-ahead: {resident} of {whole} bytes {seen:?}");
+    assert!(
+        resident <= whole / 2,
+        "resident at most about the read-ahead: {resident} of {whole} bytes {seen:?}"
+    );
 }

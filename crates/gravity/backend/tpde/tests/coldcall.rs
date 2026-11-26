@@ -50,14 +50,21 @@ extern "C" fn host_touch(p: *mut i64) {
 /// Eight arguments: every AAPCS argument register (x0-x7) is taken by the
 /// call, so a pinned value must sit elsewhere.
 extern "C" fn host_sum8(a: i64, b: i64, c: i64, d: i64, e: i64, f: i64, g: i64, h: i64) -> i64 {
-    [a, b, c, d, e, f, g, h].iter().enumerate().fold(0i64, |s, (i, v)| s.wrapping_add(v.wrapping_mul(i as i64 + 1)))
+    [a, b, c, d, e, f, g, h]
+        .iter()
+        .enumerate()
+        .fold(0i64, |s, (i, v)| {
+            s.wrapping_add(v.wrapping_mul(i as i64 + 1))
+        })
 }
 
 fn load(src: &str) -> Program {
     parse_program(src, &|name| match name {
         "trash" => Some(host_trash as extern "C" fn(*mut i64) -> i64 as usize),
         "touch" => Some(host_touch as extern "C" fn(*mut i64) as usize),
-        "sum8" => Some(host_sum8 as extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64) -> i64 as usize),
+        "sum8" => {
+            Some(host_sum8 as extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64) -> i64 as usize)
+        }
         _ => None,
     })
     .unwrap_or_else(|e| panic!("{e}"))
@@ -76,7 +83,11 @@ fn block_calls(p: &Program, src: &str, block: &str) -> BlockCalls {
     let rules: &'static dyn gravity_tpde::view::ImmRules = &gravity_tpde::frontend_x64::X64_IMM;
     let ctx = mcx::MemoryContext::new("coldcall-view");
     let view = FnView::build(ctx.mcx(), f, rules);
-    let b = src.match_indices("(block ").map(|(i, _)| &src[i + 7..]).position(|rest| rest.starts_with(block) && rest[block.len()..].starts_with(' ')).unwrap_or_else(|| panic!("no block {block}"));
+    let b = src
+        .match_indices("(block ")
+        .map(|(i, _)| &src[i + 7..])
+        .position(|rest| rest.starts_with(block) && rest[block.len()..].starts_with(' '))
+        .unwrap_or_else(|| panic!("no block {block}"));
     view.block_calls[b]
 }
 
@@ -128,19 +139,39 @@ const LOOP_FETCH: &str = r#"
 #[test]
 fn loop_state_across_a_cold_fetch_with_result() {
     let p = load(LOOP_FETCH);
-    assert_eq!(block_calls(&p, LOOP_FETCH, "fetch"), BlockCalls { hot: false, cold: true });
+    assert_eq!(
+        block_calls(&p, LOOP_FETCH, "fetch"),
+        BlockCalls {
+            hot: false,
+            cold: true
+        }
+    );
     assert_eq!(block_calls(&p, LOOP_FETCH, "step"), BlockCalls::default());
     // Enough pages: the loop runs to `n`.
-    for (n, a, b) in [(0i64, 3i64, 5i64), (1, 3, 5), (16, 7, -2), (100, 11, 13), (1000, -5, 9)] {
+    for (n, a, b) in [
+        (0i64, 3i64, 5i64),
+        (1, 3, 5),
+        (16, 7, -2),
+        (100, 11, 13),
+        (1000, -5, 9),
+    ] {
         let mut acc = 0i64;
         for i in 0..n {
             acc = acc.wrapping_add(i.wrapping_mul(a).wrapping_add(b));
         }
-        assert_eq!(run(&p, "f", &[n as u64, 1_000_000, a as u64, b as u64]), vec![acc as u64], "n={n}");
+        assert_eq!(
+            run(&p, "f", &[n as u64, 1_000_000, a as u64, b as u64]),
+            vec![acc as u64],
+            "n={n}"
+        );
     }
     // Few pages: the fetch answers "done" partway and the cold exit reads
     // the loop state.
-    for (n, pages, a, b) in [(100i64, 1i64, 3i64, 5i64), (100, 3, 7, -2), (1000, 10, 11, 13)] {
+    for (n, pages, a, b) in [
+        (100i64, 1i64, 3i64, 5i64),
+        (100, 3, 7, -2),
+        (1000, 10, 11, 13),
+    ] {
         let mut acc = 0i64;
         let mut left = pages;
         let mut out = None;
@@ -154,7 +185,11 @@ fn loop_state_across_a_cold_fetch_with_result() {
             }
             acc = acc.wrapping_add(i.wrapping_mul(a).wrapping_add(b));
         }
-        assert_eq!(run(&p, "f", &[n as u64, pages as u64, a as u64, b as u64]), vec![out.unwrap() as u64], "n={n} pages={pages}");
+        assert_eq!(
+            run(&p, "f", &[n as u64, pages as u64, a as u64, b as u64]),
+            vec![out.unwrap() as u64],
+            "n={n} pages={pages}"
+        );
     }
 }
 
@@ -216,9 +251,27 @@ fn cold_calls_without_result_and_with_all_argument_registers() {
       (return r r3))))
 "#;
     let p = load(src);
-    assert_eq!(block_calls(&p, src, "fetch"), BlockCalls { hot: false, cold: true });
-    assert_eq!(block_calls(&p, src, "wide"), BlockCalls { hot: false, cold: true });
-    for (n, a, b, c) in [(0i64, 3i64, 5i64, 2i64), (7, 3, 5, 2), (8, 3, 5, 2), (100, 7, -2, 3), (1000, 11, 13, -4)] {
+    assert_eq!(
+        block_calls(&p, src, "fetch"),
+        BlockCalls {
+            hot: false,
+            cold: true
+        }
+    );
+    assert_eq!(
+        block_calls(&p, src, "wide"),
+        BlockCalls {
+            hot: false,
+            cold: true
+        }
+    );
+    for (n, a, b, c) in [
+        (0i64, 3i64, 5i64, 2i64),
+        (7, 3, 5, 2),
+        (8, 3, 5, 2),
+        (100, 7, -2, 3),
+        (1000, 11, 13, -4),
+    ] {
         let (mut acc, mut acc2) = (0i64, 0i64);
         let mut cnt = 1_000_000i64;
         for i in 0..n {
@@ -230,9 +283,15 @@ fn cold_calls_without_result_and_with_all_argument_registers() {
                 acc2 = acc2.wrapping_add(host_sum8(i, acc, a, b, c, n, acc2, i));
             }
             acc = acc.wrapping_add(i.wrapping_mul(a).wrapping_add(b));
-            acc2 = acc2.wrapping_add(acc2.wrapping_mul(0)).wrapping_add(i.wrapping_mul(c));
+            acc2 = acc2
+                .wrapping_add(acc2.wrapping_mul(0))
+                .wrapping_add(i.wrapping_mul(c));
         }
-        assert_eq!(run(&p, "f", &[n as u64, a as u64, b as u64, c as u64]), vec![acc as u64, acc2.wrapping_add(cnt) as u64], "n={n}");
+        assert_eq!(
+            run(&p, "f", &[n as u64, a as u64, b as u64, c as u64]),
+            vec![acc as u64, acc2.wrapping_add(cnt) as u64],
+            "n={n}"
+        );
     }
 }
 
@@ -297,9 +356,27 @@ fn nested_loops_with_cold_calls_at_both_levels() {
       (return r))))
 "#;
     let p = load(src);
-    assert_eq!(block_calls(&p, src, "fetch"), BlockCalls { hot: false, cold: true });
-    assert_eq!(block_calls(&p, src, "per_outer"), BlockCalls { hot: false, cold: true });
-    for (n, m, a) in [(0i64, 5i64, 1i64), (3, 0, 1), (3, 5, 2), (10, 40, -3), (50, 33, 7)] {
+    assert_eq!(
+        block_calls(&p, src, "fetch"),
+        BlockCalls {
+            hot: false,
+            cold: true
+        }
+    );
+    assert_eq!(
+        block_calls(&p, src, "per_outer"),
+        BlockCalls {
+            hot: false,
+            cold: true
+        }
+    );
+    for (n, m, a) in [
+        (0i64, 5i64, 1i64),
+        (3, 0, 1),
+        (3, 5, 2),
+        (10, 40, -3),
+        (50, 33, 7),
+    ] {
         let mut total = 0i64;
         for i in 0..n {
             let mut acc = 0i64;
@@ -308,7 +385,11 @@ fn nested_loops_with_cold_calls_at_both_levels() {
             }
             total = total.wrapping_add(acc);
         }
-        assert_eq!(run(&p, "f", &[n as u64, m as u64, a as u64]), vec![total as u64], "n={n} m={m}");
+        assert_eq!(
+            run(&p, "f", &[n as u64, m as u64, a as u64]),
+            vec![total as u64],
+            "n={n} m={m}"
+        );
     }
 }
 
@@ -344,13 +425,23 @@ fn per_row_call_stays_hot() {
       (return r))))
 "#;
     let p = load(src);
-    assert_eq!(block_calls(&p, src, "body"), BlockCalls { hot: true, cold: false });
+    assert_eq!(
+        block_calls(&p, src, "body"),
+        BlockCalls {
+            hot: true,
+            cold: false
+        }
+    );
     for (n, a) in [(0i64, 3i64), (1, 3), (100, 7), (1000, -5)] {
         let mut acc = 0i64;
         for i in 0..n {
             acc = acc.wrapping_add(i.wrapping_mul(a).wrapping_add(1));
         }
-        assert_eq!(run(&p, "f", &[n as u64, a as u64]), vec![acc as u64], "n={n}");
+        assert_eq!(
+            run(&p, "f", &[n as u64, a as u64]),
+            vec![acc as u64],
+            "n={n}"
+        );
     }
 }
 
@@ -376,7 +467,9 @@ fn dump_loop_fetch() {
         let w = u32::from_le_bytes(bytes[i..i + 4].try_into().unwrap());
         let mut s = [0u8; 128];
         let ddi = tpde_disarm::decode(w);
-        let text = tpde_disarm::da64_format(&ddi, &mut s).map(|n| String::from_utf8_lossy(&s[..n]).into_owned()).unwrap_or_else(|_| "??".into());
+        let text = tpde_disarm::da64_format(&ddi, &mut s)
+            .map(|n| String::from_utf8_lossy(&s[..n]).into_owned())
+            .unwrap_or_else(|_| "??".into());
         eprintln!("{:#06x}: {w:08x}  {text}", i - off);
         i += 4;
     }

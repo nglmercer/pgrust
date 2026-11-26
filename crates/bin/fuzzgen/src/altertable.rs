@@ -113,7 +113,10 @@ fn tag(g: &mut Gen) -> u32 {
 
 /// Small deterministic row count for the base load.
 fn nrows(g: &mut Gen) -> u32 {
-    match g.weights.pick(g.rng, &["alt:rows:200", "alt:rows:800", "alt:rows:2000"]) {
+    match g
+        .weights
+        .pick(g.rng, &["alt:rows:200", "alt:rows:800", "alt:rows:2000"])
+    {
         "alt:rows:200" => 200,
         "alt:rows:800" => 800,
         _ => 2000,
@@ -147,7 +150,9 @@ fn gen_coltype_using(g: &mut Gen) -> Vec<StmtKind> {
     g.fire(shape);
     // Base: id pk, n int, s text. Values are pure functions of the series.
     let mut stmts = vec![
-        raw(format!("CREATE TABLE {t} (id int PRIMARY KEY, n int, s text);")),
+        raw(format!(
+            "CREATE TABLE {t} (id int PRIMARY KEY, n int, s text);"
+        )),
         raw(format!(
             "INSERT INTO {t} SELECT g, (g * 7) % 1000, \
              CASE WHEN g % 2 = 0 THEN 't' ELSE 'f' END \
@@ -168,9 +173,7 @@ fn gen_coltype_using(g: &mut Gen) -> Vec<StmtKind> {
             "n",
         ),
         "alt:cu:int2numeric" => (
-            format!(
-                "ALTER TABLE {t} ALTER COLUMN n TYPE numeric(18,6) USING (n::numeric / 7);"
-            ),
+            format!("ALTER TABLE {t} ALTER COLUMN n TYPE numeric(18,6) USING (n::numeric / 7);"),
             "n",
         ),
         "alt:cu:text2bool" => (
@@ -336,12 +339,16 @@ fn gen_setdropdefault(g: &mut Gen) -> Vec<StmtKind> {
     ];
     if g.weights.pick(g.rng, &["alt:dd:set", "alt:dd:drop"]) == "alt:dd:set" {
         g.fire("alt:dd:set");
-        stmts.push(raw(format!("ALTER TABLE {t} ALTER COLUMN n SET DEFAULT 999;")));
+        stmts.push(raw(format!(
+            "ALTER TABLE {t} ALTER COLUMN n SET DEFAULT 999;"
+        )));
         // New row uses the default.
         stmts.push(raw(format!("INSERT INTO {t} (id) VALUES ({});", rows + 1)));
     } else {
         g.fire("alt:dd:drop");
-        stmts.push(raw(format!("ALTER TABLE {t} ALTER COLUMN n SET DEFAULT 999;")));
+        stmts.push(raw(format!(
+            "ALTER TABLE {t} ALTER COLUMN n SET DEFAULT 999;"
+        )));
         stmts.push(raw(format!("ALTER TABLE {t} ALTER COLUMN n DROP DEFAULT;")));
         // Default gone -> the new row's n is NULL.
         stmts.push(raw(format!("INSERT INTO {t} (id) VALUES ({});", rows + 1)));
@@ -371,7 +378,9 @@ fn gen_notnull(g: &mut Gen) -> Vec<StmtKind> {
     stmts.push(attr_probe(&t));
     if g.rng.chance(1, 2) {
         g.fire("alt:nn:drop");
-        stmts.push(raw(format!("ALTER TABLE {t} ALTER COLUMN n DROP NOT NULL;")));
+        stmts.push(raw(format!(
+            "ALTER TABLE {t} ALTER COLUMN n DROP NOT NULL;"
+        )));
         stmts.push(attr_probe(&t));
     }
     stmts.push(content_probe(&t, &["id", "n"]));
@@ -389,7 +398,9 @@ fn gen_setopts(g: &mut Gen) -> Vec<StmtKind> {
     let t = format!("fz_at_{n}");
     let rows = nrows(g);
     let mut stmts = vec![
-        raw(format!("CREATE TABLE {t} (id int PRIMARY KEY, n int, s text);")),
+        raw(format!(
+            "CREATE TABLE {t} (id int PRIMARY KEY, n int, s text);"
+        )),
         raw(format!(
             "INSERT INTO {t} SELECT g, g % 100, repeat('a', 1 + g % 20) \
              FROM generate_series(1, {rows}) g;"
@@ -463,7 +474,9 @@ fn gen_logged(g: &mut Gen) -> Vec<StmtKind> {
     let t = format!("fz_at_{n}");
     let rows = nrows(g);
     let mut stmts = vec![
-        raw(format!("CREATE TABLE {t} (id int PRIMARY KEY, n int, s text);")),
+        raw(format!(
+            "CREATE TABLE {t} (id int PRIMARY KEY, n int, s text);"
+        )),
         raw(format!(
             "INSERT INTO {t} SELECT g, g * 13, md5(g::text) FROM generate_series(1, {rows}) g;"
         )),
@@ -494,7 +507,10 @@ fn gen_generated(g: &mut Gen) -> Vec<StmtKind> {
             "INSERT INTO {t} SELECT g, (g * 9) % 400 FROM generate_series(1, {rows}) g;"
         )),
     ];
-    if g.weights.pick(g.rng, &["alt:gen:add", "alt:gen:addcol_then_gen"]) == "alt:gen:add" {
+    if g.weights
+        .pick(g.rng, &["alt:gen:add", "alt:gen:addcol_then_gen"])
+        == "alt:gen:add"
+    {
         g.fire("alt:gen:add");
         stmts.push(raw(format!(
             "ALTER TABLE {t} ADD COLUMN gcol int GENERATED ALWAYS AS (n * 2 + id) STORED;"
@@ -556,7 +572,11 @@ fn gen_coltype_indexed(g: &mut Gen) -> Vec<StmtKind> {
     let idx = format!("fz_ati_{n}");
     let rows = nrows(g);
     let unique = g.weights.pick(g.rng, &["alt:ci:plain", "alt:ci:unique"]) == "alt:ci:unique";
-    g.fire(if unique { "alt:ci:unique" } else { "alt:ci:plain" });
+    g.fire(if unique {
+        "alt:ci:unique"
+    } else {
+        "alt:ci:plain"
+    });
     let mut stmts = vec![
         raw(format!("CREATE TABLE {t} (id int PRIMARY KEY, k int);")),
         // k distinct so a UNIQUE index is valid; values are the series.
@@ -609,7 +629,11 @@ fn gen_inherit(g: &mut Gen) -> Vec<StmtKind> {
     ];
     let shape = g.weights.pick(
         g.rng,
-        &["alt:inh:cascade_add", "alt:inh:only_set", "alt:inh:noinherit"],
+        &[
+            "alt:inh:cascade_add",
+            "alt:inh:only_set",
+            "alt:inh:noinherit",
+        ],
     );
     g.fire(shape);
     match shape {
@@ -624,7 +648,9 @@ fn gen_inherit(g: &mut Gen) -> Vec<StmtKind> {
             // not required to cascade, so ONLY is legal here — unlike ONLY
             // ADD COLUMN, which C rejects when children exist). A new parent
             // row picks up the parent's default; child inserts are unaffected.
-            stmts.push(raw(format!("ALTER TABLE ONLY {p} ALTER COLUMN n SET DEFAULT 555;")));
+            stmts.push(raw(format!(
+                "ALTER TABLE ONLY {p} ALTER COLUMN n SET DEFAULT 555;"
+            )));
             stmts.push(raw(format!("INSERT INTO {p} (id) VALUES ({});", rows + 1)));
             // Whole hierarchy (parent + child).
             stmts.push(content_probe(&p, &["id", "n"]));
@@ -655,14 +681,21 @@ fn gen_replident(g: &mut Gen) -> Vec<StmtKind> {
     let idx = format!("fz_atri_{n}");
     let rows = nrows(g);
     let mut stmts = vec![
-        raw(format!("CREATE TABLE {t} (id int PRIMARY KEY, n int NOT NULL);")),
+        raw(format!(
+            "CREATE TABLE {t} (id int PRIMARY KEY, n int NOT NULL);"
+        )),
         raw(format!(
             "INSERT INTO {t} SELECT g, g FROM generate_series(1, {rows}) g;"
         )),
     ];
     let shape = g.weights.pick(
         g.rng,
-        &["alt:ri:full", "alt:ri:nothing", "alt:ri:default", "alt:ri:index"],
+        &[
+            "alt:ri:full",
+            "alt:ri:nothing",
+            "alt:ri:default",
+            "alt:ri:index",
+        ],
     );
     g.fire(shape);
     match shape {
@@ -672,7 +705,9 @@ fn gen_replident(g: &mut Gen) -> Vec<StmtKind> {
         _ => {
             // USING INDEX needs a UNIQUE index on NOT NULL columns.
             stmts.push(raw(format!("CREATE UNIQUE INDEX {idx} ON {t} (n);")));
-            stmts.push(raw(format!("ALTER TABLE {t} REPLICA IDENTITY USING INDEX {idx};")));
+            stmts.push(raw(format!(
+                "ALTER TABLE {t} REPLICA IDENTITY USING INDEX {idx};"
+            )));
         }
     }
     // relreplident: char in pg_class.
@@ -729,7 +764,9 @@ fn gen_partition(g: &mut Gen) -> Vec<StmtKind> {
             stmts.push(content_probe(&p, &["id", "n", "e"]));
         }
         "alt:pt:setdefault" => {
-            stmts.push(raw(format!("ALTER TABLE {p} ALTER COLUMN n SET DEFAULT 55;")));
+            stmts.push(raw(format!(
+                "ALTER TABLE {p} ALTER COLUMN n SET DEFAULT 55;"
+            )));
             // A new row into the default-carrying partition range.
             stmts.push(raw(format!("INSERT INTO {p} (id) VALUES (1);")));
             stmts.push(content_probe(&p, &["id", "n"]));
@@ -856,12 +893,13 @@ mod tests {
             // partition/child removed by a CASCADE / parent drop.
             for c in &created {
                 let direct = dropped.iter().any(|d| d == c);
-                let by_cascade = group.iter().any(|s| {
-                    s.starts_with("DROP TABLE ") && s.contains("CASCADE")
-                }) && (c.contains("_a")
-                    || c.contains("_b")
-                    || c.contains("_c")
-                    || c.starts_with("fz_atc_"));
+                let by_cascade = group
+                    .iter()
+                    .any(|s| s.starts_with("DROP TABLE ") && s.contains("CASCADE"))
+                    && (c.contains("_a")
+                        || c.contains("_b")
+                        || c.contains("_c")
+                        || c.starts_with("fz_atc_"));
                 let partition_leaf = c.contains("fz_atpp_") && c != c.trim_end_matches("_a");
                 assert!(
                     direct || by_cascade || partition_leaf || c.contains("fz_atpp_"),
@@ -881,7 +919,10 @@ mod tests {
         for sql in flat(13, 600) {
             if sql.contains("ORDER BY") {
                 for bad in ["random(", "::float", "float8", "avg(", "clock_timestamp"] {
-                    assert!(!sql.contains(bad), "float/nondeterministic ordered probe: {sql}");
+                    assert!(
+                        !sql.contains(bad),
+                        "float/nondeterministic ordered probe: {sql}"
+                    );
                 }
             }
         }
@@ -899,7 +940,10 @@ mod tests {
             // Any SELECT over a table that received a volatile default must be
             // aggregate-only (no bare column projection ordered by pk).
             if sql.starts_with("SELECT") && sql.contains("count(") {
-                assert!(!sql.contains("ORDER BY"), "aggregate fact probe should not order: {sql}");
+                assert!(
+                    !sql.contains("ORDER BY"),
+                    "aggregate fact probe should not order: {sql}"
+                );
             }
         }
     }
@@ -986,7 +1030,10 @@ mod tests {
             // metadata probe
             "FROM pg_attribute",
         ] {
-            assert!(stmts.contains(needle), "signature never fired in 4000 groups: {needle}");
+            assert!(
+                stmts.contains(needle),
+                "signature never fired in 4000 groups: {needle}"
+            );
         }
     }
 }

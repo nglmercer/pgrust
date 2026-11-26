@@ -9,7 +9,7 @@ fn cfi_installed() {
     ONCE.call_once(|| ::postgres_seams::check_for_interrupts::set(|| Ok(())));
 }
 
-use ::mcx::{MemoryContext, Mcx};
+use ::mcx::{Mcx, MemoryContext};
 
 use crate::io::{tsq_mcontains_core, tsquery_in_core, tsquery_out_core, tsquerytree_core};
 
@@ -57,15 +57,24 @@ fn tsquery_io_matrix() {
     assert_eq!(roundtrip("1|(2|(4|(5|6)))"), "'1' | '2' | '4' | '5' | '6'");
     assert_eq!(roundtrip("1|2|4|5|6"), "'1' | '2' | '4' | '5' | '6'");
     assert_eq!(roundtrip("1&(2&(4&(5&6)))"), "'1' & '2' & '4' & '5' & '6'");
-    assert_eq!(roundtrip("1&(2&(4&(5|6)))"), "'1' & '2' & '4' & ( '5' | '6' )");
-    assert_eq!(roundtrip("1&(2&(4&(5|!6)))"), "'1' & '2' & '4' & ( '5' | !'6' )");
+    assert_eq!(
+        roundtrip("1&(2&(4&(5|6)))"),
+        "'1' & '2' & '4' & ( '5' | '6' )"
+    );
+    assert_eq!(
+        roundtrip("1&(2&(4&(5|!6)))"),
+        "'1' & '2' & '4' & ( '5' | !'6' )"
+    );
     assert_eq!(roundtrip("1<->2"), "'1' <-> '2'");
     assert_eq!(roundtrip("1 <2> 2"), "'1' <2> '2'");
     assert_eq!(roundtrip("(1&2)<->3"), "( '1' & '2' ) <-> '3'");
     assert_eq!(roundtrip("1<->(2&3)"), "'1' <-> ( '2' & '3' )");
     assert_eq!(roundtrip("(1<->2)<->3"), "'1' <-> '2' <-> '3'");
     assert_eq!(roundtrip("1<->(2<->3)"), "'1' <-> ( '2' <-> '3' )");
-    assert_eq!(roundtrip("a:* & nbb:*ac | doo:a* | goo"), "'a':* & 'nbb':*AC | 'doo':*A | 'goo'");
+    assert_eq!(
+        roundtrip("a:* & nbb:*ac | doo:a* | goo"),
+        "'a':* & 'nbb':*AC | 'doo':*A | 'goo'"
+    );
     assert_eq!(parse_err("1|"), "no operand in tsquery: \"1|\"");
     assert_eq!(parse_err("|2"), "syntax error in tsquery: \"|2\"");
 }
@@ -82,12 +91,16 @@ fn tsquery_soft_error() {
 
 fn q<'a>(mcx: Mcx<'a>, s: &str) -> TsQueryRef<'a> {
     let img = tsquery_in_core(mcx, s.as_bytes(), None).unwrap().unwrap();
-    TsQueryRef { payload: &img.leak()[4..] }
+    TsQueryRef {
+        payload: &img.leak()[4..],
+    }
 }
 
 fn v<'a>(mcx: Mcx<'a>, s: &str) -> TsVec<'a> {
     let img = tsvector_in_core(mcx, s.as_bytes(), None).unwrap().unwrap();
-    TsVec { payload: &img.leak()[4..] }
+    TsVec {
+        payload: &img.leak()[4..],
+    }
 }
 
 #[test]
@@ -105,7 +118,11 @@ fn match_matrix() {
         ("d:AC & c:*C", false),
         ("d:AC & c:*CB", true),
     ] {
-        assert_eq!(ts_match_vq_core(mcx, doc, q(mcx, query)).unwrap(), want, "{query}");
+        assert_eq!(
+            ts_match_vq_core(mcx, doc, q(mcx, query)).unwrap(),
+            want,
+            "{query}"
+        );
     }
 
     let doc2 = v(mcx, "wa:1D wb:2A");
@@ -187,9 +204,10 @@ fn tsquery_deep_recursion_raises_54001_and_does_not_abort() {
         ("paren", 100_000),
         ("phrase", 20000),
     ];
-    if let (Ok(d), Ok(kind)) =
-        (std::env::var("TSQ_STACK_PROBE_DEPTH"), std::env::var("TSQ_STACK_PROBE_KIND"))
-    {
+    if let (Ok(d), Ok(kind)) = (
+        std::env::var("TSQ_STACK_PROBE_DEPTH"),
+        std::env::var("TSQ_STACK_PROBE_KIND"),
+    ) {
         let depth: usize = d.parse().unwrap();
         let s: String = match kind.as_str() {
             // findoprnd_recurse / infix / qt2qtn: one frame per tree level.
@@ -241,9 +259,12 @@ fn tsquery_deep_recursion_raises_54001_and_does_not_abort() {
             .output()
             .unwrap();
         let se = String::from_utf8_lossy(&out.stderr);
-        let line = se.lines().find(|l| l.starts_with("PROBE")).unwrap_or_else(|| {
-            panic!("{kind}/{depth}: process died without a verdict (stack overflow): {se}")
-        });
+        let line = se
+            .lines()
+            .find(|l| l.starts_with("PROBE"))
+            .unwrap_or_else(|| {
+                panic!("{kind}/{depth}: process died without a verdict (stack overflow): {se}")
+            });
         // The depth at which the guard trips is a function of frame size and is
         // NOT a comparison surface against C. That the process SURVIVES and
         // reports 54001 rather than aborting is.
@@ -281,13 +302,22 @@ fn tsquery_out_over_ceiling_raises_c_repalloc_error() {
     pool.push(0);
     // Every leaf shares the pool's single operand (distance 0); infix never
     // reads valcrc or Operator.left, so those stay 0.
-    let leaf =
-        Item::Val(Operand { weight: 0, prefix: false, valcrc: 0, length: oplen, distance: 0 });
+    let leaf = Item::Val(Operand {
+        weight: 0,
+        prefix: false,
+        valcrc: 0,
+        length: oplen,
+        distance: 0,
+    });
     fn gen(items: &mut std::vec::Vec<Item>, depth: u32, leaf: Item) {
         if depth == 0 {
             items.push(leaf);
         } else {
-            items.push(Item::Opr(Operator { oper: OP_AND, distance: 0, left: 0 }));
+            items.push(Item::Opr(Operator {
+                oper: OP_AND,
+                distance: 0,
+                left: 0,
+            }));
             gen(items, depth - 1, leaf);
             gen(items, depth - 1, leaf);
         }
@@ -297,7 +327,10 @@ fn tsquery_out_over_ceiling_raises_c_repalloc_error() {
     let img = crate::parse::build_query_image(mcx, &items, &pool).expect("image builds");
     let err = tsquery_out_core(mcx, TsQueryRef { payload: &img[4..] })
         .expect_err("over-ceiling tsquery output must raise C's repalloc refusal");
-    assert_eq!(err.message(), "invalid memory alloc request size 1073741824");
+    assert_eq!(
+        err.message(),
+        "invalid memory alloc request size 1073741824"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -336,7 +369,13 @@ fn sortview(input: &str) -> String {
     qtn_sort(&mut tree).expect("sort");
     qtn_binary(mcx, &mut tree).expect("binary");
     let out_img = qtn2qt(mcx, &tree).expect("qtn2qt");
-    let out = tsquery_out_core(mcx, TsQueryRef { payload: &out_img[4..] }).expect("out ok");
+    let out = tsquery_out_core(
+        mcx,
+        TsQueryRef {
+            payload: &out_img[4..],
+        },
+    )
+    .expect("out ok");
     String::from_utf8(out[..out.len() - 1].to_vec()).expect("utf8")
 }
 
@@ -390,7 +429,9 @@ fn val_descriptor(n: &QtNode<'_>) -> (std::vec::Vec<u8>, u8, bool) {
 ///       instantiation.)
 #[test]
 fn qtn_sort_tie_fixtures_multiset_and_proxy_exact() {
-    let tie_pool = ["a:A", "a:B", "a:C", "a:D", "a", "a:*", "a:AB", "a:CD", "a:ABCD"];
+    let tie_pool = [
+        "a:A", "a:B", "a:C", "a:D", "a", "a:*", "a:AB", "a:CD", "a:ABCD",
+    ];
     let word_pool = ["b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m"];
     let mut fixtures: std::vec::Vec<String> = std::vec::Vec::new();
     // All-equal keys: every child ties with every other.
@@ -405,7 +446,11 @@ fn qtn_sort_tie_fixtures_multiset_and_proxy_exact() {
             terms.push(match i % 3 {
                 0 => tie_pool[(i / 3) % tie_pool.len()].to_string(),
                 1 => word_pool[i % word_pool.len()].to_string(),
-                _ => format!("{}:{}", word_pool[i % word_pool.len()], ["A", "B"][(i / 3) % 2]),
+                _ => format!(
+                    "{}:{}",
+                    word_pool[i % word_pool.len()],
+                    ["A", "B"][(i / 3) % 2]
+                ),
             });
         }
         fixtures.push(terms.join(" | "));
@@ -422,7 +467,9 @@ fn qtn_sort_tie_fixtures_multiset_and_proxy_exact() {
         // Gate (b): proxy-applied order == canonical pg_qsort_arg order.
         let ctx = MemoryContext::new("t135b");
         let mcx = ctx.mcx();
-        let img = tsquery_in_core(mcx, input.as_bytes(), None).unwrap().unwrap();
+        let img = tsquery_in_core(mcx, input.as_bytes(), None)
+            .unwrap()
+            .unwrap();
         let mut tree = qt2qtn(mcx, TsQueryRef { payload: &img[4..] }, 0).unwrap();
         qtn_ternary(&mut tree).unwrap();
         let pre: std::vec::Vec<_> = tree.children.iter().map(val_descriptor).collect();
@@ -436,8 +483,7 @@ fn qtn_sort_tie_fixtures_multiset_and_proxy_exact() {
         }
         qtn_sort(&mut tree).unwrap();
         let got: std::vec::Vec<_> = tree.children.iter().map(val_descriptor).collect();
-        let expect: std::vec::Vec<_> =
-            idx.iter().map(|&k| pre[k as usize].clone()).collect();
+        let expect: std::vec::Vec<_> = idx.iter().map(|&k| pre[k as usize].clone()).collect();
         assert_eq!(got, expect, "proxy-exactness gate: {input}");
     }
 }
@@ -455,7 +501,11 @@ fn qtn_sort_stack_error_propagates_as_54001() {
     fn descend(depth: usize, tree: &mut QtNode<'_>) -> ::types_error::PgResult<()> {
         let pad = [0u8; 512];
         std::hint::black_box(&pad);
-        if depth == 0 { qtn_sort(tree) } else { descend(depth - 1, tree) }
+        if depth == 0 {
+            qtn_sort(tree)
+        } else {
+            descend(depth - 1, tree)
+        }
     }
     let h = std::thread::Builder::new()
         .stack_size(8 << 20)
@@ -498,7 +548,13 @@ mod qtn2qt_too_large {
         let mut word = ::mcx::vec_with_capacity_in(mcx, WORD).unwrap();
         word.resize(WORD, b'a');
         QtNode {
-            item: QItem::Val(Operand { weight: 0, prefix: false, valcrc: 1, length: WORD, distance: 0 }),
+            item: QItem::Val(Operand {
+                weight: 0,
+                prefix: false,
+                valcrc: 1,
+                length: WORD,
+                distance: 0,
+            }),
             word,
             sign: 1,
             flags: 0,
@@ -516,7 +572,11 @@ mod qtn2qt_too_large {
         children.push(or_tree(mcx, n / 2));
         children.push(or_tree(mcx, n - n / 2));
         QtNode {
-            item: QItem::Opr(Operator { oper: OP_OR, distance: 0, left: 0 }),
+            item: QItem::Opr(Operator {
+                oper: OP_OR,
+                distance: 0,
+                left: 0,
+            }),
             word: PgVec::new_in(mcx),
             sign: 1,
             flags: 0,
@@ -537,7 +597,9 @@ mod qtn2qt_too_large {
 
         let img = qtn2qt(mcx, &or_tree(mcx, last_ok + 1)).expect("last operand may run past");
         let q = TsQueryRef { payload: &img[4..] };
-        let QItem::Val(last) = q.item(q.size() - 1) else { panic!("last item is the operand") };
+        let QItem::Val(last) = q.item(q.size() - 1) else {
+            panic!("last item is the operand")
+        };
         assert_eq!(last.distance, last_ok * (WORD + 1));
         assert_eq!(q.operand_str(&last).len(), WORD);
     }
@@ -551,10 +613,15 @@ fn qtn_binary_child_allocation_failure_is_catchable() {
     let tiny = MemoryContext::new("tiny").with_limit(1);
     let ctx = MemoryContext::new("t");
     let mcx = ctx.mcx();
-    let img = tsquery_in_core(mcx, b"a & b & c", None).expect("parse ok").expect("no soft error");
+    let img = tsquery_in_core(mcx, b"a & b & c", None)
+        .expect("parse ok")
+        .expect("no soft error");
     let mut tree = qt2qtn(mcx, TsQueryRef { payload: &img[4..] }, 0).expect("qt2qtn");
     qtn_ternary(&mut tree).expect("ternary");
-    assert!(tree.children.len() > 2, "ternary form has a >2-ary node to rebuild");
+    assert!(
+        tree.children.len() > 2,
+        "ternary form has a >2-ary node to rebuild"
+    );
     let err = qtn_binary(tiny.mcx(), &mut tree).expect_err("allocation failure is an error");
     assert_eq!(err.sqlstate(), ::types_error::ERRCODE_OUT_OF_MEMORY);
 }
@@ -577,9 +644,15 @@ fn parser_messages_keep_non_utf8_input_bytes() {
     let ctx = MemoryContext::new("t");
     let mcx = ctx.mcx();
     let e = tsquery_in_core(mcx, b"\xff &", None).unwrap_err();
-    assert_eq!(e.message_raw.as_deref(), Some(&b"no operand in tsquery: \"\xff &\""[..]));
+    assert_eq!(
+        e.message_raw.as_deref(),
+        Some(&b"no operand in tsquery: \"\xff &\""[..])
+    );
     let e = tsquery_in_core(mcx, b"\xff & )", None).unwrap_err();
-    assert_eq!(e.message_raw.as_deref(), Some(&b"syntax error in tsquery: \"\xff & )\""[..]));
+    assert_eq!(
+        e.message_raw.as_deref(),
+        Some(&b"syntax error in tsquery: \"\xff & )\""[..])
+    );
     let e = tsquery_in_core(mcx, b"a & )", None).unwrap_err();
     assert_eq!(e.message_raw, None);
     assert_eq!(e.message(), "syntax error in tsquery: \"a & )\"");
@@ -593,5 +666,8 @@ fn tsquery_recv_checks_c_item_array_size_first() {
     buf.append_bytes(&89_478_485u32.to_be_bytes()).unwrap();
     buf.append_bytes(&[1, 0, 0, 0]).unwrap();
     let err = crate::io::tsquery_recv_core(mcx, &mut buf).unwrap_err();
-    assert_eq!(err.message(), "invalid memory alloc request size 1073741828");
+    assert_eq!(
+        err.message(),
+        "invalid memory alloc request size 1073741828"
+    );
 }

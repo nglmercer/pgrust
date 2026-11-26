@@ -95,7 +95,23 @@ impl ClaimOrder {
     }
 
     pub fn new(window: usize, width: usize, first: u64) -> ClaimOrder {
-        ClaimOrder { window: AtomicUsize::new(window.max(1)), width, st: Mutex::new(St { next: first, done: Vec::with_capacity(window * 2), admitted: 0, stopped: false, failed_at: u64::MAX, parked: Vec::new(), running: Vec::new() }), wake: Wake::default(), waits: AtomicU64::new(0), overruns: AtomicU64::new(0), room_wait: ROOM_WAIT } // alloc: Exec
+        ClaimOrder {
+            window: AtomicUsize::new(window.max(1)),
+            width,
+            st: Mutex::new(St {
+                next: first,
+                done: Vec::with_capacity(window * 2),
+                admitted: 0,
+                stopped: false,
+                failed_at: u64::MAX,
+                parked: Vec::new(),
+                running: Vec::new(),
+            }),
+            wake: Wake::default(),
+            waits: AtomicU64::new(0),
+            overruns: AtomicU64::new(0),
+            room_wait: ROOM_WAIT,
+        } // alloc: Exec
     }
 
     /// The same order with claims waiting up to `wait` for room instead of `ROOM_WAIT`.
@@ -112,13 +128,17 @@ impl ClaimOrder {
     /// admitted claims leave room in the window plus the width. Narrowed (window 0), only the head.
     fn has_room(&self, s: &St, claim: MorselRange) -> bool {
         let window = self.window.load(Ordering::Relaxed);
-        claim.lo == s.next || (s.failed_at != u64::MAX && claim.lo < s.failed_at) || (window > 0 && s.done.len() + s.admitted < window + self.width)
+        claim.lo == s.next
+            || (s.failed_at != u64::MAX && claim.lo < s.failed_at)
+            || (window > 0 && s.done.len() + s.admitted < window + self.width)
     }
 
     /// The head is held by a claim: finished (waiting for the leader), running, or parked (the next release wakes it). In a
     /// narrowed window only a head no claim holds (a hand-out that skips it) lets a claim start at `ROOM_WAIT` (D2985).
     fn head_held(s: &St) -> bool {
-        s.done.iter().any(|&(lo, _, _)| lo == s.next) || s.running.contains(&s.next) || s.parked.iter().any(|&(lo, _)| lo == s.next)
+        s.done.iter().any(|&(lo, _, _)| lo == s.next)
+            || s.running.contains(&s.next)
+            || s.parked.iter().any(|&(lo, _)| lo == s.next)
     }
 
     /// D2985: the claims a narrowed window lets be finished or admitted behind a held head (`ROOM_WAIT` overruns): 2 x W.
@@ -141,8 +161,16 @@ impl ClaimOrder {
         let mut room = self.room(s);
         for w in out.iter_mut() {
             let head = s.parked.iter().position(|&(lo, _)| lo == s.next);
-            let lowest = || s.parked.iter().enumerate().min_by_key(|&(_, &(lo, _))| lo).map(|(i, _)| i);
-            let Some(i) = head.or_else(|| if room > 0 { lowest() } else { None }) else { break };
+            let lowest = || {
+                s.parked
+                    .iter()
+                    .enumerate()
+                    .min_by_key(|&(_, &(lo, _))| lo)
+                    .map(|(i, _)| i)
+            };
+            let Some(i) = head.or_else(|| if room > 0 { lowest() } else { None }) else {
+                break;
+            };
             let (lo, word) = s.parked.swap_remove(i);
             room -= (lo != s.next) as usize;
             *w = word;
@@ -173,7 +201,11 @@ impl ClaimOrder {
         if self.has_room(&g, claim) {
             g.admitted += 1;
             g.running.push(claim.lo); // alloc: Exec
-            let wake = if g.parked.is_empty() { [0; 2] } else { self.wakes(&mut g) };
+            let wake = if g.parked.is_empty() {
+                [0; 2]
+            } else {
+                self.wakes(&mut g)
+            };
             drop(g);
             self.unpark(wake);
             return true;
@@ -197,7 +229,11 @@ impl ClaimOrder {
                 Some(false)
             } else if self.has_room(&g, claim) {
                 Some(true)
-            } else if deadline.expired() && self.window.load(Ordering::Relaxed) == 0 && Self::head_held(&g) && g.done.len() + g.admitted >= self.overrun_cap() {
+            } else if deadline.expired()
+                && self.window.load(Ordering::Relaxed) == 0
+                && Self::head_held(&g)
+                && g.done.len() + g.admitted >= self.overrun_cap()
+            {
                 // D2985: the head runs or is finished and waits for the leader, whose sink is slow (a COPY TO a client
                 // that reads slower than the workers produce): the head's finish and the leader's release make room.
                 // Overrun here and every parked claim ran once per `ROOM_WAIT` while the leader blocked on the socket
@@ -259,7 +295,11 @@ impl ClaimOrder {
             }
             g.next = first_live_at(hi);
         }
-        let wake = if out.len() > n { self.wakes(&mut g) } else { [0; 2] };
+        let wake = if out.len() > n {
+            self.wakes(&mut g)
+        } else {
+            [0; 2]
+        };
         drop(g);
         self.unpark(wake);
     }

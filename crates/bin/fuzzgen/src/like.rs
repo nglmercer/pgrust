@@ -82,23 +82,8 @@ const SUBJECTS: &[&str] = &[
 /// and a pattern whose only content is a trailing-escape-free backslash
 /// run. The trailing-escape *error* pattern is emitted by `gen_err`.
 const PATTERNS: &[&str] = &[
-    "%",
-    "_",
-    "a%",
-    "%c",
-    "%b%",
-    "a_c",
-    "___",
-    "abc",
-    "",
-    "%%",
-    "a%%c",
-    "a\\%b",
-    "a\\_b",
-    "\\\\",
-    "%a%b%",
-    "_%_",
-    "100\\%",
+    "%", "_", "a%", "%c", "%b%", "a_c", "___", "abc", "", "%%", "a%%c", "a\\%b", "a\\_b", "\\\\",
+    "%a%b%", "_%_", "100\\%",
 ];
 
 /// Multibyte UTF-8 subjects (2/3/4-byte code points, combining forms).
@@ -212,7 +197,11 @@ fn gen_ilike(g: &mut Gen) -> String {
 
 fn gen_escape(g: &mut Gen) -> String {
     g.fire("like:escape");
-    let op = if g.rng.chance(1, 4) { "NOT LIKE" } else { "LIKE" };
+    let op = if g.rng.chance(1, 4) {
+        "NOT LIKE"
+    } else {
+        "LIKE"
+    };
     let s = q(g.rng.pick(SUBJECTS));
     let esc = *g.rng.pick(ESCAPES);
     // Choose a pattern whose escape marker matches the chosen ESCAPE char so
@@ -233,7 +222,9 @@ fn gen_esclit(g: &mut Gen) -> String {
     // Subjects that contain the literal wildcard/backslash bytes so the
     // escaped-literal pattern can actually match.
     let s = q(g.rng.pick(&["a%b", "a_b", "a\\b", "100%", "a_b_c", "\\"]));
-    let p = q(g.rng.pick(&["a\\%b", "a\\_b", "\\\\", "100\\%", "a\\_b\\_c", "%\\\\%"]));
+    let p = q(g
+        .rng
+        .pick(&["a\\%b", "a\\_b", "\\\\", "100\\%", "a\\_b\\_c", "%\\\\%"]));
     format!("SELECT '{s}' {op} '{p}';")
 }
 
@@ -263,7 +254,11 @@ fn gen_bytea(g: &mut Gen) -> String {
 
 fn gen_similar(g: &mut Gen) -> String {
     g.fire("like:similar");
-    let op = if g.rng.chance(1, 3) { "NOT SIMILAR TO" } else { "SIMILAR TO" };
+    let op = if g.rng.chance(1, 3) {
+        "NOT SIMILAR TO"
+    } else {
+        "SIMILAR TO"
+    };
     let s = q(g.rng.pick(SUBJECTS));
     let p = q(g.rng.pick(SIMILAR_PATTERNS));
     if g.rng.chance(1, 3) {
@@ -277,7 +272,9 @@ fn gen_substr(g: &mut Gen) -> String {
     g.fire("like:substr");
     let s = q(g.rng.pick(&["abcdef", "xabcx", "foo123bar", "café-99", ""]));
     // SIMILAR-substring patterns carry the `#"..."#` capture markers.
-    let p = q(g.rng.pick(&["%#\"cd#\"%", "x#\"abc#\"x", "%#\"[0-9]+#\"%", "%#\"_#\"%"]));
+    let p = q(g
+        .rng
+        .pick(&["%#\"cd#\"%", "x#\"abc#\"x", "%#\"[0-9]+#\"%", "%#\"_#\"%"]));
     format!("SELECT substring('{s}' SIMILAR '{p}' ESCAPE '#');")
 }
 
@@ -367,16 +364,26 @@ mod tests {
                 let low = sql.to_ascii_lowercase();
                 assert!(!low.contains("now("), "nondeterministic now(): {sql}");
                 assert!(!low.contains("random("), "nondeterministic random(): {sql}");
-                assert!(!low.contains("current_"), "nondeterministic current_*: {sql}");
+                assert!(
+                    !low.contains("current_"),
+                    "nondeterministic current_*: {sql}"
+                );
             }
             for p in &prods {
                 seen.insert(p.clone());
             }
         }
         for p in [
-            "like:basic", "like:ilike", "like:escape", "like:esclit",
-            "like:mb", "like:bytea", "like:similar", "like:substr",
-            "like:col", "like:err",
+            "like:basic",
+            "like:ilike",
+            "like:escape",
+            "like:esclit",
+            "like:mb",
+            "like:bytea",
+            "like:similar",
+            "like:substr",
+            "like:col",
+            "like:err",
         ] {
             assert!(seen.contains(p), "production {p} never fired");
         }

@@ -6,12 +6,14 @@
 #![allow(unsafe_code)]
 use std::cell::RefCell;
 
+use gravity_abi::limits::{MAPPED_ROAD_MAX_BYTES, MAPPED_ROAD_MIN_BYTES};
 use gravity_abi::status::ERROR;
 use gravity_abi::Ctx;
-use gravity_abi::limits::{MAPPED_ROAD_MAX_BYTES, MAPPED_ROAD_MIN_BYTES};
 use gravity_driver::{RegionBuf, TempMap};
 use gravity_kernels::ops::shared::object::entries as abi;
-use gravity_program::cost::runtime::{SEAL_COPY_CHUNK as SEAL_CHUNK, SEAL_COPY_FLOOR as SEAL_FLOOR, SPOOL_COPY_CHUNK as COPY_CHUNK};
+use gravity_program::cost::runtime::{
+    SEAL_COPY_CHUNK as SEAL_CHUNK, SEAL_COPY_FLOOR as SEAL_FLOOR, SPOOL_COPY_CHUNK as COPY_CHUNK,
+};
 use types_error::PgResult;
 
 use crate::glue;
@@ -25,12 +27,19 @@ pub(crate) fn restart_spools(ctx: *mut Ctx, spools: &[usize]) -> PgResult<()> {
         return Ok(());
     }
     if ctx.is_null() {
-        return Err(glue::internal("gravity: m8_rerun: a spool to restart with no context (setop_rec-0043)"));
+        return Err(glue::internal(
+            "gravity: m8_rerun: a spool to restart with no context (setop_rec-0043)",
+        ));
     }
     for &h in spools {
         // SAFETY: the caller's bound context (above); its params hold the handle words, a nonzero one the spool cell's head,
         // its magic checked before any other read
-        let o = unsafe { *(*(ctx as *const u8).add(gravity_abi::ctx::hdr::PARAMS).cast::<*const u64>()).add(h) } as *const abi::Head;
+        let o = unsafe {
+            *(*(ctx as *const u8)
+                .add(gravity_abi::ctx::hdr::PARAMS)
+                .cast::<*const u64>())
+            .add(h)
+        } as *const abi::Head;
         // SAFETY: as above: a nonzero handle word is a laid cell's head
         if o.is_null() || unsafe { (*o).magic } != abi::SPOOL_MAGIC {
             return Err(glue::internal("gravity: m8_rerun: a re-armed CTE's spool handle word is not its spool (setop_rec-0043)"));
@@ -162,8 +171,13 @@ impl Road {
     unsafe fn carve(&mut self, ctx: *mut Ctx, bytes: usize) -> PgResult<Option<usize>> {
         let bytes = bytes.next_multiple_of(8);
         if self.end - self.at < bytes {
-            let want = self.mapped.clamp(MAPPED_ROAD_MIN_BYTES, MAPPED_ROAD_MAX_BYTES).max(bytes);
-            let Some(m) = Road::map(ctx, want)? else { return Ok(None) };
+            let want = self
+                .mapped
+                .clamp(MAPPED_ROAD_MIN_BYTES, MAPPED_ROAD_MAX_BYTES)
+                .max(bytes);
+            let Some(m) = Road::map(ctx, want)? else {
+                return Ok(None);
+            };
             self.mapped += m.len();
             (self.at, self.end) = (m.as_mut_ptr() as usize, m.as_mut_ptr() as usize + m.len());
             self.maps.push(m); // alloc: Exec
@@ -181,18 +195,41 @@ impl Road {
 /// temp-file road (`Road`) drops every copy and the road's mappings and asks the pool again, as tuplestore_clear
 /// truncates its file. The caller re-arms outside every read of the records.
 pub(crate) fn restart(o: &SpoolObj) -> PgResult<()> {
-    let Ok(mut rt) = o.rt.try_borrow_mut() else { return Err(bad("nest.spool: a spool restarted inside its own call")) };
+    let Ok(mut rt) = o.rt.try_borrow_mut() else {
+        return Err(bad("nest.spool: a spool restarted inside its own call"));
+    };
     rt.restart();
     Ok(())
 }
 
 /// An empty spool of `rec`-byte records (8-aligned, at most `MAX_RECORD`), its regions drawn by `draw`.
 pub(crate) fn new_obj(rec: u64, draw: Draw) -> PgResult<Box<SpoolObj>> {
-    if rec == 0 || ! rec.is_multiple_of( 8) || rec > MAX_RECORD {
-        return Err(glue::internal(&format!("gravity: nest.spool's record of {rec} bytes (8-aligned, 8 to {MAX_RECORD})"))); // alloc: Cold
+    if rec == 0 || !rec.is_multiple_of(8) || rec > MAX_RECORD {
+        return Err(glue::internal(&format!(
+            "gravity: nest.spool's record of {rec} bytes (8-aligned, 8 to {MAX_RECORD})"
+        ))); // alloc: Cold
     }
-    let cell = abi::SpoolCell { head: abi::Head { magic: abi::SPOOL_MAGIC, op }, base: 0, cap: 0, rec };
-    Ok(Box::new(SpoolObj { cell, rt: RefCell::new(SpoolRt { draw, region: None, copies: Vec::new(), used: 0, large: Vec::new(), road: Road::default() }), owned: false })) // alloc: Exec
+    let cell = abi::SpoolCell {
+        head: abi::Head {
+            magic: abi::SPOOL_MAGIC,
+            op,
+        },
+        base: 0,
+        cap: 0,
+        rec,
+    };
+    Ok(Box::new(SpoolObj {
+        cell,
+        rt: RefCell::new(SpoolRt {
+            draw,
+            region: None,
+            copies: Vec::new(),
+            used: 0,
+            large: Vec::new(),
+            road: Road::default(),
+        }),
+        owned: false,
+    })) // alloc: Exec
 }
 
 /// D3040 (`abi::SPOOL_OWNED`): an owned spool: the merged cell its readers read, and one spool per owner ordinal, each
@@ -221,10 +258,32 @@ pub(crate) fn new_owned(rec: u64, draw: Draw) -> PgResult<Box<OwnedObj>> {
         o.owned = true;
         owners.push(o); // alloc: Exec
     }
-    let cell = abi::SpoolCell { head: abi::Head { magic: abi::SPOOL_MAGIC, op: op_merged }, base: 0, cap: 0, rec };
-    let slots = core::array::from_fn(|i| abi::OwnedSlot { cell: owners[i].handle(), n: 0, pad: [0; 6] });
-    let spools = core::cell::UnsafeCell::new(abi::OwnedSpools { cell, total: 0, pad: [0; 2], slots });
-    Ok(Box::new(OwnedObj { spools, owners, merged: RefCell::new(None), draw })) // alloc: Exec
+    let cell = abi::SpoolCell {
+        head: abi::Head {
+            magic: abi::SPOOL_MAGIC,
+            op: op_merged,
+        },
+        base: 0,
+        cap: 0,
+        rec,
+    };
+    let slots = core::array::from_fn(|i| abi::OwnedSlot {
+        cell: owners[i].handle(),
+        n: 0,
+        pad: [0; 6],
+    });
+    let spools = core::cell::UnsafeCell::new(abi::OwnedSpools {
+        cell,
+        total: 0,
+        pad: [0; 2],
+        slots,
+    });
+    Ok(Box::new(OwnedObj {
+        spools,
+        owners,
+        merged: RefCell::new(None),
+        draw,
+    })) // alloc: Exec
 }
 
 /// D3040: owned spool `o` sealed after its fill pipeline, on the leader with no worker running (`ctx` the leader's): every
@@ -242,19 +301,38 @@ pub(crate) fn seal(o: &OwnedObj, ctx: *mut Ctx, wide: Option<u16>) -> gravity_dr
     let sp = unsafe { &mut *o.spools.get() };
     let rec = sp.cell.rec;
     let total: u64 = sp.slots.iter().map(|s| s.n).sum();
-    let bytes = total.checked_mul(rec).filter(|&n| n <= isize::MAX as u64).ok_or(Error::Host("gravity: nest.spool: an owned spool past the address space".into()))? as usize;
+    let bytes = total
+        .checked_mul(rec)
+        .filter(|&n| n <= isize::MAX as u64)
+        .ok_or(Error::Host(
+            "gravity: nest.spool: an owned spool past the address space".into(),
+        ))? as usize;
     for (slot, owner) in sp.slots.iter().zip(o.owners.iter()) {
         if slot.n > 0 && (slot.n > owner.cell.cap || owner.cell.base == 0) {
-            return Err(Error::Host("gravity: nest.spool: an owner's count past its spool's records".into()));
+            return Err(Error::Host(
+                "gravity: nest.spool: an owner's count past its spool's records".into(),
+            ));
         }
     }
     let held = sp.slots.iter().filter(|s| s.n > 0).count();
     if wide.is_some() && held == 1 {
         // D4628: the one owner's region becomes the merged one, its records where they lie (its copies stay its own)
-        let Some(i) = sp.slots.iter().position(|s| s.n > 0) else { return Err(Error::Host("gravity: nest.spool: no owner holds the records".into())) };
+        let Some(i) = sp.slots.iter().position(|s| s.n > 0) else {
+            return Err(Error::Host(
+                "gravity: nest.spool: no owner holds the records".into(),
+            ));
+        };
         let owner = &o.owners[i];
-        let Ok(mut rt) = owner.rt.try_borrow_mut() else { return Err(Error::Host("gravity: nest.spool: an owned spool sealed inside its own call".into())) };
-        let Some(region) = rt.region.take() else { return Err(Error::Host("gravity: nest.spool: an owner's records with no region".into())) };
+        let Ok(mut rt) = owner.rt.try_borrow_mut() else {
+            return Err(Error::Host(
+                "gravity: nest.spool: an owned spool sealed inside its own call".into(),
+            ));
+        };
+        let Some(region) = rt.region.take() else {
+            return Err(Error::Host(
+                "gravity: nest.spool: an owner's records with no region".into(),
+            ));
+        };
         sp.cell.base = owner.cell.base;
         sp.cell.cap = total;
         sp.total = total;
@@ -265,14 +343,22 @@ pub(crate) fn seal(o: &OwnedObj, ctx: *mut Ctx, wide: Option<u16>) -> gravity_dr
     }
     let oom = |n: usize| {
         let pool = &gravity_driver::POOL;
-        Error::OutOfMemory { bytes: n as u64, held: pool.held(), capacity: pool.capacity(), why: None }
+        Error::OutOfMemory {
+            bytes: n as u64,
+            held: pool.held(),
+            capacity: pool.capacity(),
+            why: None,
+        }
     };
     let mut merged = match bytes {
         0 => None,
         // SAFETY: the leader's bound ctx (the caller's), as any grow's; past the pool's refusal a temp file (D3236, `Road`)
         n => Some(match unsafe { (o.draw)(ctx, n) } {
             Some(r) => Buf::Pool(r),
-            None => Buf::File(unsafe { gravity_driver::hostimpl::arena::object_map(ctx, n) }?.ok_or_else(|| oom(n))?),
+            None => Buf::File(
+                unsafe { gravity_driver::hostimpl::arena::object_map(ctx, n) }?
+                    .ok_or_else(|| oom(n))?,
+            ),
         }),
     };
     let (mut at, mut pooled) = (0usize, false);
@@ -280,12 +366,18 @@ pub(crate) fn seal(o: &OwnedObj, ctx: *mut Ctx, wide: Option<u16>) -> gravity_dr
         if slot.n == 0 {
             continue;
         }
-        let Ok(mut rt) = owner.rt.try_borrow_mut() else { return Err(Error::Host("gravity: nest.spool: an owned spool sealed inside its own call".into())) };
+        let Ok(mut rt) = owner.rt.try_borrow_mut() else {
+            return Err(Error::Host(
+                "gravity: nest.spool: an owned spool sealed inside its own call".into(),
+            ));
+        };
         let n = (slot.n * rec) as usize;
         if let Some(m) = merged.as_mut() {
             // SAFETY: the owner's region holds `cap >= n` records from `base` (checked above); the merged region `total * rec`
             // bytes, `at + n` at most `total * rec`
-            let (src, dst) = (owner.cell.base as *const u8, unsafe { m.as_mut_ptr().add(at) });
+            let (src, dst) = (owner.cell.base as *const u8, unsafe {
+                m.as_mut_ptr().add(at)
+            });
             // D4628: by the pool's threads under the road, past the floor
             let wide = match wide {
                 Some(width) => unsafe { copy_wide(src, dst, n, width) }?,
@@ -316,20 +408,40 @@ pub(crate) fn seal(o: &OwnedObj, ctx: *mut Ctx, wide: Option<u16>) -> gravity_dr
 /// (under `SEAL_FLOOR` chunks, width 1, or no pool): the caller copies.
 /// # Safety
 /// `src` holds `len` readable bytes and `dst` `len` writable ones, disjoint, and nothing else writes either while it runs.
-unsafe fn copy_wide(src: *const u8, dst: *mut u8, len: usize, width: u16) -> gravity_driver::Result<bool> {
+unsafe fn copy_wide(
+    src: *const u8,
+    dst: *mut u8,
+    len: usize,
+    width: u16,
+) -> gravity_driver::Result<bool> {
     let chunks = len.div_ceil(SEAL_CHUNK);
-    let Some(pool) = gravity_parallel::installed_pool().filter(|_| width >= 2 && chunks >= SEAL_FLOOR) else { return Ok(false) };
+    let Some(pool) =
+        gravity_parallel::installed_pool().filter(|_| width >= 2 && chunks >= SEAL_FLOOR)
+    else {
+        return Ok(false);
+    };
     let (src, dst) = (src as usize, dst as usize);
     let job = |_: u16, claim: gravity_abi::MorselRange| -> gravity_driver::Result<()> {
         for k in claim.lo as usize..(claim.hi as usize).min(chunks) {
             let (lo, hi) = (k * SEAL_CHUNK, ((k + 1) * SEAL_CHUNK).min(len));
             // SAFETY: bytes `lo..hi` of both ranges (the caller's); every byte is in one chunk, every chunk in one claim, so
             // no two threads write one byte
-            unsafe { core::ptr::copy_nonoverlapping((src + lo) as *const u8, (dst + lo) as *mut u8, hi - lo) };
+            unsafe {
+                core::ptr::copy_nonoverlapping(
+                    (src + lo) as *const u8,
+                    (dst + lo) as *mut u8,
+                    hi - lo,
+                )
+            };
         }
         Ok(())
     };
-    pool.run(width, &gravity_parallel::PartitionRange::new(chunks as u64, 1), &job).map_err(|f| f.error)?;
+    pool.run(
+        width,
+        &gravity_parallel::PartitionRange::new(chunks as u64, 1),
+        &job,
+    )
+    .map_err(|f| f.error)?;
     Ok(true)
 }
 
@@ -351,9 +463,13 @@ unsafe fn op(h: *mut abi::Head, ctx: *mut Ctx, code: u64, a: u64, b: u64) -> i64
     // SAFETY: `h` is the first field of a live `SpoolObj` (`call` checked its magic), laid for this execution.
     let obj = &mut *h.cast::<SpoolObj>();
     if !obj.owned && !ctx.is_null() && (*ctx).width != 1 {
-        return fail("nest.spool: a spool filled by more than one worker (its producer is serial by name)");
+        return fail(
+            "nest.spool: a spool filled by more than one worker (its producer is serial by name)",
+        );
     }
-    let Ok(mut rt) = obj.rt.try_borrow_mut() else { return fail("nest.spool: a spool entered inside its own call") };
+    let Ok(mut rt) = obj.rt.try_borrow_mut() else {
+        return fail("nest.spool: a spool entered inside its own call");
+    };
     let r = match code {
         abi::OP_SPOOL_GROW => rt.grow(ctx, &mut obj.cell),
         abi::OP_SPOOL_COPY => rt.copy(ctx, a as *const u8, b as usize),
@@ -368,8 +484,18 @@ unsafe fn op(h: *mut abi::Head, ctx: *mut Ctx, code: u64, a: u64, b: u64) -> i64
 impl SpoolRt {
     /// The region doubled (the first: `FIRST_RECORDS`), its `cap` records copied over; the cell names the new one.
     unsafe fn grow(&mut self, ctx: *mut Ctx, cell: &mut abi::SpoolCell) -> PgResult<i64> {
-        let cap = if cell.cap == 0 { FIRST_RECORDS } else { cell.cap.checked_mul(2).ok_or_else(|| bad("nest.spool: a spool past 2^64 records"))? };
-        let bytes = cap.checked_mul(cell.rec).filter(|&n| n <= isize::MAX as u64).ok_or_else(|| bad("nest.spool: a spool region past the address space"))? as usize;
+        let cap = if cell.cap == 0 {
+            FIRST_RECORDS
+        } else {
+            cell.cap
+                .checked_mul(2)
+                .ok_or_else(|| bad("nest.spool: a spool past 2^64 records"))?
+        };
+        let bytes = cap
+            .checked_mul(cell.rec)
+            .filter(|&n| n <= isize::MAX as u64)
+            .ok_or_else(|| bad("nest.spool: a spool region past the address space"))?
+            as usize;
         let mut next = self.take(ctx, bytes)?;
         if let Some(old) = self.region.as_ref() {
             let n = (cell.cap * cell.rec) as usize;
@@ -414,7 +540,9 @@ impl SpoolRt {
             self.copies.push(c); // alloc: Exec
             self.used = 0;
         }
-        let Some(c) = self.copies.last_mut() else { return Err(bad("m8_spool_copy: no open chunk")) };
+        let Some(c) = self.copies.last_mut() else {
+            return Err(bad("m8_spool_copy: no open chunk"));
+        };
         let at = c.as_mut_ptr().add(self.used);
         if len > 0 {
             core::ptr::copy_nonoverlapping(ptr, at, len);
@@ -429,7 +557,9 @@ impl SpoolRt {
         if let Some(r) = (self.draw)(ctx, bytes) {
             return Ok(Buf::Pool(r));
         }
-        Road::map(ctx, bytes)?.map(Buf::File).ok_or_else(|| oom(bytes))
+        Road::map(ctx, bytes)?
+            .map(Buf::File)
+            .ok_or_else(|| oom(bytes))
     }
 
     /// A copies chunk or a large copy of `bytes`: the rest of the road's newest mapping when it holds them, else from
@@ -441,14 +571,22 @@ impl SpoolRt {
         if let Some(r) = (self.draw)(ctx, bytes) {
             return Ok(Buf::Pool(r));
         }
-        self.road.carve(ctx, bytes)?.map(|p| Buf::Carved(p, bytes)).ok_or_else(|| oom(bytes))
+        self.road
+            .carve(ctx, bytes)?
+            .map(|p| Buf::Carved(p, bytes))
+            .ok_or_else(|| oom(bytes))
     }
 }
 
 /// The pool's out of memory for a spool region of `bytes` (no file road took it).
 fn oom(bytes: usize) -> Box<types_error::PgError> {
     let pool = &gravity_driver::POOL;
-    glue::pg_error(gravity_driver::Error::OutOfMemory { bytes: bytes as u64, held: pool.held(), capacity: pool.capacity(), why: None })
+    glue::pg_error(gravity_driver::Error::OutOfMemory {
+        bytes: bytes as u64,
+        held: pool.held(),
+        capacity: pool.capacity(),
+        why: None,
+    })
 }
 
 #[cold]
@@ -483,7 +621,9 @@ mod tests {
     }
 
     fn message() -> String {
-        gravity_fn::take_error().map(|e| e.message().to_owned()).unwrap_or_default()
+        gravity_fn::take_error()
+            .map(|e| e.message().to_owned())
+            .unwrap_or_default()
     }
 
     /// The IR's append of record `n` (two words: a by-reference datum's address, its length): grow at `n == cap`, then
@@ -491,7 +631,11 @@ mod tests {
     unsafe fn append(o: &SpoolObj, n: u64, datum: &[u8]) {
         let ctx: *mut Ctx = core::ptr::null_mut();
         if n == o.cell.cap {
-            assert!(abi::m8_spool_grow(ctx as u64, h(o)) > n as i64, "{}", message());
+            assert!(
+                abi::m8_spool_grow(ctx as u64, h(o)) > n as i64,
+                "{}",
+                message()
+            );
         }
         let at = abi::m8_spool_copy(ctx, h(o), datum.as_ptr(), datum.len() as u64);
         assert!(at > 0, "{}", message());
@@ -503,7 +647,8 @@ mod tests {
     /// Record `n` read by index, its base read now: the datum it points at.
     unsafe fn read(o: &SpoolObj, n: u64) -> Vec<u8> {
         let rec = (o.cell.base as *const u64).add((n * o.cell.rec / 8) as usize);
-        std::slice::from_raw_parts(rec.read() as *const u8, rec.add(1).read() as usize).to_vec() // alloc: Cold
+        std::slice::from_raw_parts(rec.read() as *const u8, rec.add(1).read() as usize).to_vec()
+        // alloc: Cold
     }
 
     fn datum(i: u64) -> Vec<u8> {
@@ -513,9 +658,13 @@ mod tests {
     #[test]
     fn a_reader_mid_scan_reads_every_record_by_index_across_grows_and_its_datums_never_move() {
         let o = new_obj(16, pool).expect("a spool");
-        assert_eq!((o.cell.base, o.cell.cap), (0, 0), "an execution's spool starts empty");
+        assert_eq!(
+            (o.cell.base, o.cell.cap),
+            (0, 0),
+            "an execution's spool starts empty"
+        );
         let mut seen = Vec::new(); // (record, the datum's address) the reader took before later grows // alloc: Cold
-        // the lazy fill: the reader reads record k right after it is appended, so every grow happens mid-scan
+                                   // the lazy fill: the reader reads record k right after it is appended, so every grow happens mid-scan
         unsafe {
             for n in 0..1000u64 {
                 append(&o, n, &datum(n));
@@ -538,7 +687,13 @@ mod tests {
     /// unit test: the leader's copy); off (`None`) the leader copies as before. Every record reads back by index.
     #[test]
     fn a_wide_seal_lends_one_owners_region_and_keeps_the_ordinal_order() {
-        let cases: [(&[u64], Option<u16>); 5] = [(&[0, 300, 0], Some(8)), (&[300], Some(1)), (&[5, 0, 200, 1], Some(8)), (&[5, 0, 200, 1], None), (&[300], None)];
+        let cases: [(&[u64], Option<u16>); 5] = [
+            (&[0, 300, 0], Some(8)),
+            (&[300], Some(1)),
+            (&[5, 0, 200, 1], Some(8)),
+            (&[5, 0, 200, 1], None),
+            (&[300], None),
+        ];
         for (counts, wide) in cases {
             let o = new_owned(16, pool).expect("an owned spool");
             let mut want = Vec::new(); // alloc: Cold
@@ -551,18 +706,38 @@ mod tests {
             }
             let held: Vec<usize> = (0..counts.len()).filter(|&i| counts[i] > 0).collect(); // alloc: Cold
             let lent = (wide.is_some() && held.len() == 1).then(|| o.owners[held[0]].cell.base);
-            seal(&o, core::ptr::null_mut(), wide).unwrap_or_else(|e| panic!("{counts:?} {wide:?}: {e:?}"));
+            seal(&o, core::ptr::null_mut(), wide)
+                .unwrap_or_else(|e| panic!("{counts:?} {wide:?}: {e:?}"));
             let sp = unsafe { &*o.spools.get() };
-            assert_eq!((sp.total, sp.cell.cap), (want.len() as u64, want.len() as u64), "{counts:?} {wide:?}: the sealed count");
-            assert!(sp.slots.iter().all(|s| s.n == 0), "{counts:?} {wide:?}: every owner's count taken");
+            assert_eq!(
+                (sp.total, sp.cell.cap),
+                (want.len() as u64, want.len() as u64),
+                "{counts:?} {wide:?}: the sealed count"
+            );
+            assert!(
+                sp.slots.iter().all(|s| s.n == 0),
+                "{counts:?} {wide:?}: every owner's count taken"
+            );
             match lent {
-                Some(b) => assert_eq!(sp.cell.base, b, "{counts:?} {wide:?}: the one owner's region lent, no copy"),
-                None => assert!(o.owners.iter().all(|w| w.cell.base != sp.cell.base), "{counts:?} {wide:?}: a merged region of its own"),
+                Some(b) => assert_eq!(
+                    sp.cell.base, b,
+                    "{counts:?} {wide:?}: the one owner's region lent, no copy"
+                ),
+                None => assert!(
+                    o.owners.iter().all(|w| w.cell.base != sp.cell.base),
+                    "{counts:?} {wide:?}: a merged region of its own"
+                ),
             }
             for (k, w) in want.iter().enumerate() {
                 let rec = unsafe { (sp.cell.base as *const u64).add(k * 2) };
-                let got = unsafe { std::slice::from_raw_parts(rec.read() as *const u8, rec.add(1).read() as usize) };
-                assert_eq!(got, &w[..], "{counts:?} {wide:?}: record {k} in owner ordinal order");
+                let got = unsafe {
+                    std::slice::from_raw_parts(rec.read() as *const u8, rec.add(1).read() as usize)
+                };
+                assert_eq!(
+                    got,
+                    &w[..],
+                    "{counts:?} {wide:?}: record {k} in owner ordinal order"
+                );
             }
         }
     }
@@ -575,9 +750,19 @@ mod tests {
             append(&o, 0, &small);
             append(&o, 1, &big);
             append(&o, 2, &small);
-            let (a, c) = ((o.cell.base as *const u64).read(), (o.cell.base as *const u64).add(4).read());
-            assert_eq!(c, a + 16, "the small copies share the open chunk, 8-aligned");
-            assert_eq!((read(&o, 0), read(&o, 1), read(&o, 2)), (small.clone(), big.clone(), small.clone()));
+            let (a, c) = (
+                (o.cell.base as *const u64).read(),
+                (o.cell.base as *const u64).add(4).read(),
+            );
+            assert_eq!(
+                c,
+                a + 16,
+                "the small copies share the open chunk, 8-aligned"
+            );
+            assert_eq!(
+                (read(&o, 0), read(&o, 1), read(&o, 2)),
+                (small.clone(), big.clone(), small.clone())
+            );
         }
     }
 
@@ -592,12 +777,23 @@ mod tests {
         }
         let first = unsafe { (o.cell.base as *const u64).read() };
         let chunks = |o: &SpoolObj| (o.rt.borrow().copies.len(), o.rt.borrow().large.len());
-        assert!(chunks(&o).0 > 1 && chunks(&o).1 == 1, "6000 datums (about 190 KiB of copies) fill more than one chunk, one large copy");
+        assert!(
+            chunks(&o).0 > 1 && chunks(&o).1 == 1,
+            "6000 datums (about 190 KiB of copies) fill more than one chunk, one large copy"
+        );
         restart(&o).expect("outside its calls");
-        assert_eq!(chunks(&o), (1, 0), "the first chunk kept, the large copy dropped");
+        assert_eq!(
+            chunks(&o),
+            (1, 0),
+            "the first chunk kept, the large copy dropped"
+        );
         unsafe {
             append(&o, 0, &datum(7));
-            assert_eq!((o.cell.base as *const u64).read(), first, "the next fill's first copy is the first chunk's start");
+            assert_eq!(
+                (o.cell.base as *const u64).read(),
+                first,
+                "the next fill's first copy is the first chunk's start"
+            );
             assert_eq!(read(&o, 0), datum(7));
         }
     }
@@ -606,13 +802,26 @@ mod tests {
     fn a_malformed_spool_or_copy_errors_by_name() {
         for rec in [0, 12, MAX_RECORD + 8] {
             let e = new_obj(rec, pool).err().expect("refused");
-            assert!(e.message().starts_with("gravity: nest.spool's record of"), "{}", e.message());
+            assert!(
+                e.message().starts_with("gravity: nest.spool's record of"),
+                "{}",
+                e.message()
+            );
         }
         let o = new_obj(8, pool).expect("a spool");
         let ctx: *mut Ctx = core::ptr::null_mut();
-        assert_eq!(unsafe { abi::m8_spool_copy(ctx, h(&o), core::ptr::null(), 4) }, ERROR);
-        assert_eq!(message(), "gravity: m8_spool_copy: a null datum of nonzero length");
-        assert!(unsafe { abi::m8_spool_copy(ctx, h(&o), core::ptr::null(), 0) } > 0, "an empty datum has an address");
+        assert_eq!(
+            unsafe { abi::m8_spool_copy(ctx, h(&o), core::ptr::null(), 4) },
+            ERROR
+        );
+        assert_eq!(
+            message(),
+            "gravity: m8_spool_copy: a null datum of nonzero length"
+        );
+        assert!(
+            unsafe { abi::m8_spool_copy(ctx, h(&o), core::ptr::null(), 0) } > 0,
+            "an empty datum has an address"
+        );
     }
 
     #[test]
@@ -623,7 +832,14 @@ mod tests {
         let o = new_obj(8, none).expect("a spool");
         assert_eq!(unsafe { abi::m8_spool_grow(0, h(&o)) }, ERROR);
         let e = gravity_fn::take_error().expect("stashed");
-        assert_eq!((e.message(), e.sqlstate()), ("out of memory", types_error::ERRCODE_OUT_OF_MEMORY));
-        assert_eq!((o.cell.base, o.cell.cap), (0, 0), "a failed grow leaves the spool as it was");
+        assert_eq!(
+            (e.message(), e.sqlstate()),
+            ("out of memory", types_error::ERRCODE_OUT_OF_MEMORY)
+        );
+        assert_eq!(
+            (o.cell.base, o.cell.cap),
+            (0, 0),
+            "a failed grow leaves the spool as it was"
+        );
     }
 }

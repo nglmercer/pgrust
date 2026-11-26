@@ -9,12 +9,32 @@ static TEST_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Call {
-    Create { nevents: i32 },
-    CreateCurrentOwner { nevents: i32 },
-    Add { set: usize, events: u32, fd: pgsocket, latch: Option<LatchHandle> },
-    Modify { set: usize, pos: i32, events: u32, latch: Option<LatchHandle> },
-    Wait { set: usize, timeout: i64, wait_event_info: u32 },
-    Free { set: usize },
+    Create {
+        nevents: i32,
+    },
+    CreateCurrentOwner {
+        nevents: i32,
+    },
+    Add {
+        set: usize,
+        events: u32,
+        fd: pgsocket,
+        latch: Option<LatchHandle>,
+    },
+    Modify {
+        set: usize,
+        pos: i32,
+        events: u32,
+        latch: Option<LatchHandle>,
+    },
+    Wait {
+        set: usize,
+        timeout: i64,
+        wait_event_info: u32,
+    },
+    Free {
+        set: usize,
+    },
 }
 
 struct MockState {
@@ -59,7 +79,12 @@ fn install_mock() {
         });
         wes::add_wait_event_to_set::set(|set, events, fd, latch, _user_data| {
             with_mock(|m| {
-                m.calls.push(Call::Add { set: set.as_usize(), events, fd, latch });
+                m.calls.push(Call::Add {
+                    set: set.as_usize(),
+                    events,
+                    fd,
+                    latch,
+                });
                 let pos = m.add_pos;
                 m.add_pos += 1;
                 Ok(pos)
@@ -67,20 +92,33 @@ fn install_mock() {
         });
         wes::modify_wait_event::set(|set, pos, events, latch| {
             with_mock(|m| {
-                m.calls.push(Call::Modify { set: set.as_usize(), pos, events, latch });
+                m.calls.push(Call::Modify {
+                    set: set.as_usize(),
+                    pos,
+                    events,
+                    latch,
+                });
                 Ok(())
             })
         });
         wes::wait_event_set_wait_one::set(|set, timeout, wait_event_info| {
             with_mock(|m| {
-                m.calls.push(Call::Wait { set: set.as_usize(), timeout, wait_event_info });
+                m.calls.push(Call::Wait {
+                    set: set.as_usize(),
+                    timeout,
+                    wait_event_info,
+                });
                 m.wait_result
                     .clone()
                     .map_err(|msg| Box::new(PgError::error(msg)))
             })
         });
         wes::free_wait_event_set::set(|set| {
-            with_mock(|m| m.calls.push(Call::Free { set: set.as_usize() }));
+            with_mock(|m| {
+                m.calls.push(Call::Free {
+                    set: set.as_usize(),
+                })
+            });
         });
         init_seams();
     });
@@ -330,8 +368,18 @@ fn initialize_latch_wait_set_and_wait_latch() {
         calls(),
         vec![
             Call::Create { nevents: 2 },
-            Call::Add { set: 1, events: WL_LATCH_SET, fd: PGINVALID_SOCKET, latch: Some(h) },
-            Call::Add { set: 1, events: WL_EXIT_ON_PM_DEATH, fd: PGINVALID_SOCKET, latch: None },
+            Call::Add {
+                set: 1,
+                events: WL_LATCH_SET,
+                fd: PGINVALID_SOCKET,
+                latch: Some(h)
+            },
+            Call::Add {
+                set: 1,
+                events: WL_EXIT_ON_PM_DEATH,
+                fd: PGINVALID_SOCKET,
+                latch: None
+            },
         ]
     );
 
@@ -389,7 +437,12 @@ fn wait_latch_or_socket_builds_frees_throwaway_set() {
     };
     assert_eq!(
         recorded[1],
-        Call::Add { set, events: WL_LATCH_SET, fd: PGINVALID_SOCKET, latch: Some(h) }
+        Call::Add {
+            set,
+            events: WL_LATCH_SET,
+            fd: PGINVALID_SOCKET,
+            latch: Some(h)
+        }
     );
     assert_eq!(
         recorded[2],
@@ -414,8 +467,8 @@ fn wait_latch_or_socket_frees_set_on_error() {
     InitLatch(h);
     with_mock(|m| m.wait_result = Err(String::from("epoll_wait() failed")));
 
-    let err = WaitLatchOrSocket(Some(h), WL_LATCH_SET | WL_TIMEOUT, PGINVALID_SOCKET, 1, 77)
-        .unwrap_err();
+    let err =
+        WaitLatchOrSocket(Some(h), WL_LATCH_SET | WL_TIMEOUT, PGINVALID_SOCKET, 1, 77).unwrap_err();
     assert_eq!(err.message, "epoll_wait() failed");
     assert!(matches!(calls().last().unwrap(), Call::Free { .. }));
 }
@@ -443,7 +496,7 @@ fn set_latch_my_latch_panics_when_null() {
     install_mock();
     SetMyLatch(None);
 
-    let result = catch_unwind(AssertUnwindSafe( latch_seams::set_latch_my_latch::call));
+    let result = catch_unwind(AssertUnwindSafe(latch_seams::set_latch_my_latch::call));
     assert!(result.is_err());
 }
 
@@ -532,7 +585,10 @@ fn wait_latch_runs_thread_signal_drain() {
     // then the exit drain runs.
     latch_ref(h).is_set.store(1, SeqCst);
     let before = DRAINS.load(SeqCst);
-    assert_eq!(WaitLatch(Some(h), WL_LATCH_SET, 0, 0).unwrap(), WL_LATCH_SET);
+    assert_eq!(
+        WaitLatch(Some(h), WL_LATCH_SET, 0, 0).unwrap(),
+        WL_LATCH_SET
+    );
     assert_eq!(DRAINS.load(SeqCst), before + 2);
 
     DRAIN_FAIL_NEXT.store(true, SeqCst);
@@ -601,7 +657,10 @@ fn local_latch_slab_scales_with_configured_backends() {
         free_local_latch(h);
     }
     assert!(outcome.is_ok(), "allocating {want} local latches panicked");
-    assert!(high > LOCAL_LATCH_CAP, "high water {high} never left the boot slab");
+    assert!(
+        high > LOCAL_LATCH_CAP,
+        "high water {high} never left the boot slab"
+    );
 }
 
 // -- mailbox_send_on_my_latch (fp-libpq-b2#1) ----------------------------------
@@ -626,10 +685,7 @@ mod mailbox_send {
         parked: Arc<AtomicBool>,
     }
 
-    fn spawn_worker(
-        tx: pgsync::MailboxSender<u32>,
-        cancel: Arc<AtomicBool>,
-    ) -> Worker {
+    fn spawn_worker(tx: pgsync::MailboxSender<u32>, cancel: Arc<AtomicBool>) -> Worker {
         let (latch_tx, latch_rx) = mpsc::channel();
         let (done_tx, done_rx) = mpsc::channel();
         let parked = Arc::new(AtomicBool::new(false));
@@ -656,7 +712,11 @@ mod mailbox_send {
             SetMyLatch(None);
             done_tx.send(r).unwrap();
         });
-        Worker { latch: latch_rx.recv().unwrap(), done: done_rx, parked }
+        Worker {
+            latch: latch_rx.recv().unwrap(),
+            done: done_rx,
+            parked,
+        }
     }
 
     #[test]
@@ -668,18 +728,27 @@ mod mailbox_send {
         let cancel = Arc::new(AtomicBool::new(false));
         let w = spawn_worker(tx, Arc::clone(&cancel));
         std::thread::sleep(Duration::from_millis(30));
-        assert!(w.done.try_recv().is_err(), "sender must be parked on the full queue");
+        assert!(
+            w.done.try_recv().is_err(),
+            "sender must be parked on the full queue"
+        );
 
         // Signal delivery (procsignal's deliver_thread_signal shape):
         // pending bit, then SetLatch on the target's latch.
         cancel.store(true, SeqCst);
         SetLatch(w.latch);
-        let r = w.done.recv_timeout(Duration::from_secs(2)).expect("sender never unparked");
+        let r = w
+            .done
+            .recv_timeout(Duration::from_secs(2))
+            .expect("sender never unparked");
         let e = r.expect_err("the pending cancel must be raised");
         assert_eq!(e.sqlstate, ERRCODE_QUERY_CANCELED);
         assert!(w.parked.load(SeqCst));
         assert_eq!(rx.recv(), Some(1));
-        assert!(matches!(rx.try_recv(), pgsync::TryRecv::Disconnected), "abandoned send must not enqueue");
+        assert!(
+            matches!(rx.try_recv(), pgsync::TryRecv::Disconnected),
+            "abandoned send must not enqueue"
+        );
     }
 
     #[test]
@@ -694,11 +763,17 @@ mod mailbox_send {
 
         let start = std::time::Instant::now();
         assert_eq!(rx.recv(), Some(1)); // pop -> sender_wake -> SetLatch(worker)
-        let r = w.done.recv_timeout(Duration::from_secs(2)).expect("sender never unparked");
+        let r = w
+            .done
+            .recv_timeout(Duration::from_secs(2))
+            .expect("sender never unparked");
         assert!(matches!(r, Ok(Ok(()))), "send must complete after the pop");
         // Well inside the 1s waiter recheck cadence: the latch wake, not the
         // backstop, ended the park.
-        assert!(start.elapsed() < Duration::from_millis(500), "woken only by the cadence");
+        assert!(
+            start.elapsed() < Duration::from_millis(500),
+            "woken only by the cadence"
+        );
         assert_eq!(rx.recv(), Some(2));
     }
 
@@ -711,7 +786,13 @@ mod mailbox_send {
         let w = spawn_worker(tx, Arc::new(AtomicBool::new(false)));
         std::thread::sleep(Duration::from_millis(30));
         drop(rx);
-        let r = w.done.recv_timeout(Duration::from_secs(2)).expect("sender never unparked");
-        assert!(matches!(r, Ok(Err(2))), "detached receiver must hand the value back");
+        let r = w
+            .done
+            .recv_timeout(Duration::from_secs(2))
+            .expect("sender never unparked");
+        assert!(
+            matches!(r, Ok(Err(2))),
+            "detached receiver must hand the value back"
+        );
     }
 }

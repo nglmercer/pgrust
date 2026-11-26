@@ -40,7 +40,10 @@ pub(crate) fn RelationInvalidateRelation(rel: &RelationData<'static>) {
 // no in-transaction subids.
 pub(crate) fn RelationClearRelation(relid: Oid, rel: &RelationData<'static>) -> PgResult<()> {
     debug_assert_eq!(rel.rd_createSubid.get(), InvalidSubTransactionId);
-    debug_assert_eq!(rel.rd_firstRelfilelocatorSubid.get(), InvalidSubTransactionId);
+    debug_assert_eq!(
+        rel.rd_firstRelfilelocatorSubid.get(),
+        InvalidSubTransactionId
+    );
     debug_assert_eq!(rel.rd_droppedSubid.get(), InvalidSubTransactionId);
     RelationInvalidateRelation(rel);
     store::delete(relid)
@@ -48,8 +51,10 @@ pub(crate) fn RelationClearRelation(relid: Oid, rel: &RelationData<'static>) -> 
 
 fn copy_preserved(from: &RelationData<'static>, to: &RelationData<'static>) {
     to.rd_createSubid.set(from.rd_createSubid.get());
-    to.rd_newRelfilelocatorSubid.set(from.rd_newRelfilelocatorSubid.get());
-    to.rd_firstRelfilelocatorSubid.set(from.rd_firstRelfilelocatorSubid.get());
+    to.rd_newRelfilelocatorSubid
+        .set(from.rd_newRelfilelocatorSubid.get());
+    to.rd_firstRelfilelocatorSubid
+        .set(from.rd_firstRelfilelocatorSubid.get());
     to.rd_droppedSubid.set(from.rd_droppedSubid.get());
     to.pgstat_enabled.set(from.pgstat_enabled.get());
 }
@@ -61,8 +66,14 @@ fn replace_entry(relid: Oid, newrel: &Rc<RelationData<'static>>) {
             None => {
                 st.lru_clock += 1;
                 let last_used = core::cell::Cell::new(st.lru_clock);
-                st.id_cache
-                    .insert(relid, RelCacheEnt { rel: Rc::clone(newrel), nailed: false, last_used });
+                st.id_cache.insert(
+                    relid,
+                    RelCacheEnt {
+                        rel: Rc::clone(newrel),
+                        nailed: false,
+                        last_used,
+                    },
+                );
                 None
             }
         };
@@ -98,8 +109,10 @@ pub(crate) fn RelationRebuildRelation(
 
     RelationInvalidateRelation(held);
 
-    if matches!(held.rd_rel.relkind, RELKIND_INDEX | RELKIND_PARTITIONED_INDEX)
-        && held.rd_index.is_some()
+    if matches!(
+        held.rd_rel.relkind,
+        RELKIND_INDEX | RELKIND_PARTITIONED_INDEX
+    ) && held.rd_index.is_some()
     {
         return RelationReloadIndexInfo(relid, held);
     }
@@ -148,7 +161,8 @@ fn RelationReloadIndexInfo(
 
     let index_ok = relid != CLASS_OID_INDEX_ID && critical;
     let scan_cx = mcx::MemoryContext::new("ScanPgRelation");
-    let Some(scanned) = relcache_build_seams::scan_pg_relation::call(scan_cx.mcx(), relid, index_ok, false)?
+    let Some(scanned) =
+        relcache_build_seams::scan_pg_relation::call(scan_cx.mcx(), relid, index_ok, false)?
     else {
         return Err(Box::new(
             PgError::error(format!("could not find pg_class tuple for index {relid}"))
@@ -184,10 +198,19 @@ fn RelationReloadIndexInfo(
             &scanned.form,
             scanned.relnatts,
         )?;
-        (ii.index, ii.opcintype, ii.opfamily, ii.indoption, ii.indcollation, ii.support)
+        (
+            ii.index,
+            ii.opcintype,
+            ii.opfamily,
+            ii.indoption,
+            ii.indcollation,
+            ii.support,
+        )
     };
 
-    let newrel = Rc::new(RelationData { rd_locator: Default::default(), rd_smgr: Default::default(),
+    let newrel = Rc::new(RelationData {
+        rd_locator: Default::default(),
+        rd_smgr: Default::default(),
         rd_id: relid,
         rd_backend: held.rd_backend,
         rd_islocaltemp: held.rd_islocaltemp,
@@ -208,7 +231,10 @@ fn RelationReloadIndexInfo(
         pgstat_enabled: Cell::new(false),
         pgstat_link: core::cell::Cell::new((0, core::ptr::null_mut())),
         rd_amcache: Default::default(),
-        rd_amcache_hash: Default::default(), rd_amcache_gin: Default::default(), rd_amcache_spgist: Default::default(), rd_amcache_bloom: Default::default(),
+        rd_amcache_hash: Default::default(),
+        rd_amcache_gin: Default::default(),
+        rd_amcache_spgist: Default::default(),
+        rd_amcache_bloom: Default::default(),
         rd_support: support,
         // Preserved like rd_support: resolving a support proc scans
         // pg_amproc, which needs these very indexes searchable.
@@ -217,8 +243,9 @@ fn RelationReloadIndexInfo(
         // entry, and holders keep their Rc.
         rd_opcoptions: core::cell::RefCell::new(held.rd_opcoptions.borrow().clone()),
         rd_indexlist: Default::default(),
-            rd_trigdesc: Default::default(),
-            rd_hastriggers: false, rd_hasrules: false,
+        rd_trigdesc: Default::default(),
+        rd_hastriggers: false,
+        rd_hasrules: false,
     });
     build::RelationInitPhysicalAddr(&newrel)?;
     copy_preserved(held, &newrel);
@@ -230,7 +257,10 @@ fn RelationReloadIndexInfo(
 /// (index.c index_create): swaps in a copy with the pg_index/opclass fields.
 pub fn RelationInitIndexAccessInfoBootstrap(relid: Oid) -> PgResult<()> {
     debug_assert!(miscinit_seams::is_bootstrap_processing_mode::call());
-    let _ = elog::elog(types_error::DEBUG4, format!("relcache: bootstrap index access info {relid}"));
+    let _ = elog::elog(
+        types_error::DEBUG4,
+        format!("relcache: bootstrap index access info {relid}"),
+    );
     let Some((held, _nailed)) = store::lookup_ent(relid) else {
         return Err(Box::new(
             PgError::error(format!("relcache entry for new index {relid} not found"))
@@ -244,7 +274,9 @@ pub fn RelationInitIndexAccessInfoBootstrap(relid: Oid) -> PgResult<()> {
         &held.rd_rel,
         held.rd_att.natts as i16,
     )?;
-    let newrel = Rc::new(RelationData { rd_locator: Default::default(), rd_smgr: Default::default(),
+    let newrel = Rc::new(RelationData {
+        rd_locator: Default::default(),
+        rd_smgr: Default::default(),
         rd_id: relid,
         rd_backend: held.rd_backend,
         rd_islocaltemp: held.rd_islocaltemp,
@@ -265,13 +297,17 @@ pub fn RelationInitIndexAccessInfoBootstrap(relid: Oid) -> PgResult<()> {
         pgstat_enabled: Cell::new(false),
         pgstat_link: core::cell::Cell::new((0, core::ptr::null_mut())),
         rd_amcache: Default::default(),
-        rd_amcache_hash: Default::default(), rd_amcache_gin: Default::default(), rd_amcache_spgist: Default::default(), rd_amcache_bloom: Default::default(),
+        rd_amcache_hash: Default::default(),
+        rd_amcache_gin: Default::default(),
+        rd_amcache_spgist: Default::default(),
+        rd_amcache_bloom: Default::default(),
         rd_support: ii.support,
         rd_supportinfo: core::cell::RefCell::new(Vec::new()),
         rd_opcoptions: Default::default(),
         rd_indexlist: Default::default(),
-            rd_trigdesc: Default::default(),
-            rd_hastriggers: false, rd_hasrules: false,
+        rd_trigdesc: Default::default(),
+        rd_hastriggers: false,
+        rd_hasrules: false,
     });
     build::RelationInitPhysicalAddr(&newrel)?;
     replace_entry(relid, &newrel);
@@ -344,7 +380,9 @@ fn RelationReloadNailed(
     let scanned = relcache_build_seams::scan_pg_relation::call(scan_cx.mcx(), relid, true, false)?
         .ok_or_else(|| deleted_while_in_use(relid))?;
 
-    let newrel = Rc::new(RelationData { rd_locator: Default::default(), rd_smgr: Default::default(),
+    let newrel = Rc::new(RelationData {
+        rd_locator: Default::default(),
+        rd_smgr: Default::default(),
         rd_id: relid,
         rd_backend: held.rd_backend,
         rd_islocaltemp: held.rd_islocaltemp,
@@ -365,13 +403,17 @@ fn RelationReloadNailed(
         pgstat_enabled: Cell::new(false),
         pgstat_link: core::cell::Cell::new((0, core::ptr::null_mut())),
         rd_amcache: Default::default(),
-        rd_amcache_hash: Default::default(), rd_amcache_gin: Default::default(), rd_amcache_spgist: Default::default(), rd_amcache_bloom: Default::default(),
+        rd_amcache_hash: Default::default(),
+        rd_amcache_gin: Default::default(),
+        rd_amcache_spgist: Default::default(),
+        rd_amcache_bloom: Default::default(),
         rd_support: mcx::PgVec::new_in(cache_mcx()),
         rd_supportinfo: Default::default(),
         rd_opcoptions: Default::default(),
         rd_indexlist: Default::default(),
-            rd_trigdesc: Default::default(),
-            rd_hastriggers: false, rd_hasrules: false,
+        rd_trigdesc: Default::default(),
+        rd_hastriggers: false,
+        rd_hasrules: false,
     });
     build::RelationInitPhysicalAddr(&newrel)?;
     copy_preserved(held, &newrel);
@@ -430,7 +472,8 @@ pub fn RelationForgetRelation(rid: Oid) -> PgResult<()> {
         || rel.rd_firstRelfilelocatorSubid.get() != InvalidSubTransactionId
     {
         // Preserve rd_*Subid for subxact rollback: mark dropped, keep entry.
-        rel.rd_droppedSubid.set(xact_seams::get_current_sub_transaction_id::call());
+        rel.rd_droppedSubid
+            .set(xact_seams::get_current_sub_transaction_id::call());
         RelationInvalidateRelation(&rel);
         Ok(())
     } else {
@@ -479,7 +522,10 @@ pub fn RelationCacheInvalidate(debug_discard: bool) -> PgResult<()> {
     });
 
     let snapshot: Vec<(Oid, Rc<RelationData<'static>>, bool)> = with_state(|st| {
-        st.id_cache.iter().map(|(k, e)| (*k, Rc::clone(&e.rel), e.nailed)).collect()
+        st.id_cache
+            .iter()
+            .map(|(k, e)| (*k, Rc::clone(&e.rel), e.nailed))
+            .collect()
     });
 
     // Oids, not entry clones: see the re-resolve note on the phase-2 loop.
@@ -631,7 +677,10 @@ fn AtEOXact_cleanup(relid: Oid, isCommit: bool) -> PgResult<()> {
         // living in the flag here. All lineages: the leak shape this cache
         // makes possible is a handle taken before a rebuild and never dropped,
         // which no count on the current entry can see.
-        debug_assert!(store::user_refcount_zero(relid, 1), "relcache reference leak at EOXact");
+        debug_assert!(
+            store::user_refcount_zero(relid, 1),
+            "relcache reference leak at EOXact"
+        );
     }
 
     let clear_relcache = if isCommit {
@@ -720,7 +769,11 @@ fn AtEOSubXact_cleanup(
 
     let transfer = |cell: &Cell<SubTransactionId>| {
         if cell.get() == mySubid {
-            cell.set(if isCommit { parentSubid } else { InvalidSubTransactionId });
+            cell.set(if isCommit {
+                parentSubid
+            } else {
+                InvalidSubTransactionId
+            });
         }
     };
     transfer(&rel.rd_newRelfilelocatorSubid);

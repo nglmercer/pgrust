@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use common::*;
 use gravity_driver::Entry;
-use gravity_program::hand as programs;
 use gravity_parallel::FixturePool;
+use gravity_program::hand as programs;
 
 #[test]
 fn hashagg_groups_are_identical_at_every_width() {
@@ -22,13 +22,27 @@ fn hashagg_groups_are_identical_at_every_width() {
         g.0 += v;
         g.1 += 1;
     }
-    let mut expect: Vec<Vec<u64>> = groups.iter().map(|(k, (s, c))| vec![*k as u64, *s as u64, *c as u64]).collect();
+    let mut expect: Vec<Vec<u64>> = groups
+        .iter()
+        .map(|(k, (s, c))| vec![*k as u64, *s as u64, *c as u64])
+        .collect();
     expect.sort();
     for w in WIDTHS {
         for claim in [2u64, 33] {
             table.fresh();
             let mut sink = LegSink::new(true);
-            let rows = run_once(&mut entry, &program, &mut derive, &pool, w, claim, &gravity_kernels::table::params::DEFAULT_PARAMS, &NO_ABORT, &mut sink).unwrap();
+            let rows = run_once(
+                &mut entry,
+                &program,
+                &mut derive,
+                &pool,
+                w,
+                claim,
+                &gravity_kernels::table::params::DEFAULT_PARAMS,
+                &NO_ABORT,
+                &mut sink,
+            )
+            .unwrap();
             assert_eq!(rows, 97, "width {w}");
             assert_eq!(sink.sorted(), expect, "width {w} claim {claim}");
             assert!(table.ledger.consumed_once(), "width {w} claim {claim}");
@@ -45,7 +59,10 @@ fn a_serial_source_into_a_hashagg_is_folded_on_the_leader_at_every_width() {
     let table = FixtureTable::new(T_KV, 160, 60, gen_kv);
     let mut derive = FixtureDerive::new(&[&table]);
     let mut program = programs::par_hashagg_with(T_KV, 16, 9600);
-    program.pipelines[0].parallel = gravity_program::Parallel::Ineligible { site: 0, reason: gravity_program::Reason::SortedSource };
+    program.pipelines[0].parallel = gravity_program::Parallel::Ineligible {
+        site: 0,
+        reason: gravity_program::Reason::SortedSource,
+    };
     let program = Arc::new(program);
     let pool = FixturePool::new(8);
     let mut entry = Entry::new(2);
@@ -55,15 +72,32 @@ fn a_serial_source_into_a_hashagg_is_folded_on_the_leader_at_every_width() {
         g.0 += v;
         g.1 += 1;
     }
-    let mut expect: Vec<Vec<u64>> = groups.iter().map(|(k, (s, c))| vec![*k as u64, *s as u64, *c as u64]).collect();
+    let mut expect: Vec<Vec<u64>> = groups
+        .iter()
+        .map(|(k, (s, c))| vec![*k as u64, *s as u64, *c as u64])
+        .collect();
     expect.sort();
     for w in WIDTHS {
         table.fresh();
         let mut sink = LegSink::new(true);
-        let rows = run_once(&mut entry, &program, &mut derive, &pool, w, 33, &gravity_kernels::table::params::DEFAULT_PARAMS, &NO_ABORT, &mut sink).unwrap();
+        let rows = run_once(
+            &mut entry,
+            &program,
+            &mut derive,
+            &pool,
+            w,
+            33,
+            &gravity_kernels::table::params::DEFAULT_PARAMS,
+            &NO_ABORT,
+            &mut sink,
+        )
+        .unwrap();
         assert_eq!(rows, 97, "width {w}");
         assert_eq!(sink.sorted(), expect, "width {w}");
-        assert!(table.ledger.consumed_once(), "width {w}: one whole-relation read");
+        assert!(
+            table.ledger.consumed_once(),
+            "width {w}: one whole-relation read"
+        );
         assert_eq!(table.pins.load(Ordering::Relaxed), 0);
     }
 }
@@ -77,7 +111,13 @@ struct KeyedPlan {
 
 impl KeyedPlan {
     fn new(inner: FixturePlan, params: &[u64], n: u32) -> KeyedPlan {
-        KeyedPlan { inner, merge: gravity_parallel::HashAggPartial::new(n, Some(gravity_kernels::table::params::owner_fns(params))) }
+        KeyedPlan {
+            inner,
+            merge: gravity_parallel::HashAggPartial::new(
+                n,
+                Some(gravity_kernels::table::params::owner_fns(params)),
+            ),
+        }
     }
 }
 
@@ -113,7 +153,11 @@ fn the_bounded_export_keeps_the_n_smallest_groups_complete_without_spilling_at_e
         g.0 += v;
         g.1 += 1;
     }
-    let expect: Vec<Vec<u64>> = groups.iter().take(n as usize).map(|(k, (s, c))| vec![*k as u64, *s as u64, *c as u64]).collect();
+    let expect: Vec<Vec<u64>> = groups
+        .iter()
+        .take(n as usize)
+        .map(|(k, (s, c))| vec![*k as u64, *s as u64, *c as u64])
+        .collect();
     let mut params = DEFAULT_PARAMS;
     params[PARAM_TOPK_N] = n as u64;
     for w in WIDTHS {
@@ -122,13 +166,28 @@ fn the_bounded_export_keeps_the_n_smallest_groups_complete_without_spilling_at_e
         let mut sink = LegSink::new(true);
         let nulls = [0u8; 16];
         let mut b = gravity_driver::Binding::new(parts(&params, &nulls, &NO_ABORT), &mut sink);
-        let mut exec = entry.start(None, &program, &mut derive, &mut b, std::rc::Rc::new(gravity_driver::Reservation::unadmitted(gravity_driver::Grant::of(1)))).unwrap();
-        let r = gravity_parallel::run_program(&mut entry, &mut exec, &mut b, &mut derive, &pool, &plan);
+        let mut exec = entry
+            .start(
+                None,
+                &program,
+                &mut derive,
+                &mut b,
+                std::rc::Rc::new(gravity_driver::Reservation::unadmitted(
+                    gravity_driver::Grant::of(1),
+                )),
+            )
+            .unwrap();
+        let r =
+            gravity_parallel::run_program(&mut entry, &mut exec, &mut b, &mut derive, &pool, &plan);
         let spilled = exec.node().spilled();
         entry.end(exec, r.is_ok());
         assert_eq!(r.unwrap(), n as u64, "width {w}");
         assert!(!spilled, "width {w}: the bounded export never spills");
-        assert_eq!(sink.sorted(), expect, "width {w}: the {n} smallest groups, complete");
+        assert_eq!(
+            sink.sorted(),
+            expect,
+            "width {w}: the {n} smallest groups, complete"
+        );
     }
 }
 
@@ -146,7 +205,10 @@ fn the_dense_front_gives_the_same_groups_at_every_width() {
         g.0 += v;
         g.1 += 1;
     }
-    let mut expect: Vec<Vec<u64>> = groups.iter().map(|(k, (s, c))| vec![*k as u64, *s as u64, *c as u64]).collect();
+    let mut expect: Vec<Vec<u64>> = groups
+        .iter()
+        .map(|(k, (s, c))| vec![*k as u64, *s as u64, *c as u64])
+        .collect();
     expect.sort();
     // gen_kv's keys span [-3, 93]: the exact domain and a wider one
     for (lo, hi) in [(-3i64, 93i64), (-1000, 1000)] {
@@ -156,7 +218,18 @@ fn the_dense_front_gives_the_same_groups_at_every_width() {
         for w in WIDTHS {
             table.fresh();
             let mut sink = LegSink::new(true);
-            let rows = run_once(&mut entry, &program, &mut derive, &pool, w, 33, &params, &NO_ABORT, &mut sink).unwrap();
+            let rows = run_once(
+                &mut entry,
+                &program,
+                &mut derive,
+                &pool,
+                w,
+                33,
+                &params,
+                &NO_ABORT,
+                &mut sink,
+            )
+            .unwrap();
             assert_eq!(rows, 97, "width {w} domain [{lo}, {hi}]");
             assert_eq!(sink.sorted(), expect, "width {w} domain [{lo}, {hi}]");
         }
@@ -180,7 +253,10 @@ fn a_spilled_aggregate_emits_in_key_order_through_sorted_runs_at_every_width() {
         g.0 += v;
         g.1 += 1;
     }
-    let expect: Vec<Vec<u64>> = groups.iter().map(|(k, (s, c))| vec![*k as u64, *s as u64, *c as u64]).collect();
+    let expect: Vec<Vec<u64>> = groups
+        .iter()
+        .map(|(k, (s, c))| vec![*k as u64, *s as u64, *c as u64])
+        .collect();
     let mut params = DEFAULT_PARAMS;
     params[PARAM_ORDER] = 1;
     for (grant, want_spill) in [(64u64 << 20, false), (1, true)] {
@@ -189,11 +265,33 @@ fn a_spilled_aggregate_emits_in_key_order_through_sorted_runs_at_every_width() {
             let plan = KeyedPlan::new(FixturePlan::new(&program, &derive, w, 16), &params, 0);
             let mut sink = LegSink::new(true);
             let sets = common::SPILL_SETS_CREATED.load(std::sync::atomic::Ordering::Relaxed);
-            let (rows, spilled, parts, _) = run_spilling(&mut entry, &program, &mut derive, &pool, &plan, gravity_driver::Grant::of(grant), &params, &NO_ABORT, &mut sink).unwrap();
-            assert_eq!((rows as usize, spilled, parts > 0), (expect.len(), want_spill, want_spill), "grant {grant} width {w}");
+            let (rows, spilled, parts, _) = run_spilling(
+                &mut entry,
+                &program,
+                &mut derive,
+                &pool,
+                &plan,
+                gravity_driver::Grant::of(grant),
+                &params,
+                &NO_ABORT,
+                &mut sink,
+            )
+            .unwrap();
+            assert_eq!(
+                (rows as usize, spilled, parts > 0),
+                (expect.len(), want_spill, want_spill),
+                "grant {grant} width {w}"
+            );
             // every worker's first claim overflows at once under grant 1: one set is made, under its lock
-            assert!(common::SPILL_SETS_CREATED.load(std::sync::atomic::Ordering::Relaxed) - sets <= 1, "grant {grant} width {w}: one spill set per Node");
-            assert_eq!(sink.rows(), expect, "grant {grant} width {w}: the groups in key order as pushed");
+            assert!(
+                common::SPILL_SETS_CREATED.load(std::sync::atomic::Ordering::Relaxed) - sets <= 1,
+                "grant {grant} width {w}: one spill set per Node"
+            );
+            assert_eq!(
+                sink.rows(),
+                expect,
+                "grant {grant} width {w}: the groups in key order as pushed"
+            );
         }
     }
 }

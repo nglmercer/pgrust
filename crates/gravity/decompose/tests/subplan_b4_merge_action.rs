@@ -18,7 +18,9 @@ use gravity_program::Arena;
 use mcx::MemoryContext;
 
 fn manifest_dir() -> PathBuf {
-    std::env::var_os("CARGO_MANIFEST_DIR").map(Into::into).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+    std::env::var_os("CARGO_MANIFEST_DIR")
+        .map(Into::into)
+        .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
 }
 
 /// Every pipeline, embedded inners included (facts_m8.rs `all_pipes`).
@@ -39,12 +41,15 @@ fn all_pipes<'a, 'p>(p: &'a PipelineNode<'p>, out: &mut Vec<&'a PipelineNode<'p>
 
 /// Fixture `name`'s SubPlan ops: plan id -> conditional.
 fn conditional(name: &str) -> BTreeMap<i32, bool> {
-    let path = manifest_dir().join("tests/subplan_b4").join(format!("{name}.plan"));
+    let path = manifest_dir()
+        .join("tests/subplan_b4")
+        .join(format!("{name}.plan"));
     let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     let ctx = MemoryContext::new("subplan_b4");
     let fx = corpus::load(ctx.mcx(), &text).unwrap_or_else(|e| panic!("{name}: {e}"));
     let arena = Arena::new(1 << 20);
-    let g = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx).unwrap_or_else(|r| panic!("{name}: refused {r}"));
+    let g = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx)
+        .unwrap_or_else(|r| panic!("{name}: refused {r}"));
     let mut pipes = Vec::new();
     for p in g.pipelines.iter() {
         all_pipes(p, &mut pipes);
@@ -74,7 +79,9 @@ fn a_merge_actions_subplan_is_conditional() {
         let got: Vec<(i32, bool)> = conditional(name).into_iter().collect();
         println!("subplan_b4 conditional\t{name}\t{got:?}");
         if got != want {
-            bad.push(format!("{name}: SubPlans (plan id, conditional) {got:?}, want {want:?}"));
+            bad.push(format!(
+                "{name}: SubPlans (plan id, conditional) {got:?}, want {want:?}"
+            ));
         }
     }
     assert!(bad.is_empty(), "{}", bad.join("\n"));

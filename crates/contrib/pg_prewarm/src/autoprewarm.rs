@@ -29,8 +29,8 @@ use init_small::globals as g;
 use pgsync::Mutex;
 use procsignal::ThreadSignalHandler::Simple;
 use types_core::{
-    BlockNumber, ForkNumber, InvalidBlockNumber, InvalidOid, Oid, OidIsValid, RelFileNumber,
-    InvalidForkNumber,
+    BlockNumber, ForkNumber, InvalidBlockNumber, InvalidForkNumber, InvalidOid, Oid, OidIsValid,
+    RelFileNumber,
 };
 use types_error::{
     ErrorLocation, PgError, PgResult, DEBUG1, ERRCODE_INSUFFICIENT_RESOURCES,
@@ -170,9 +170,17 @@ enum StdioFailure {
 // st_blksize itself (BUFSIZ 1024 when the stat gives none).
 fn stdio_buffer_size(f: &impl std::os::fd::AsRawFd) -> usize {
     let mut st = fd::FileInfo::zeroed();
-    let blksize = if fd::pg_fstat(f.as_raw_fd(), &mut st) == 0 { st.blksize } else { 0 };
+    let blksize = if fd::pg_fstat(f.as_raw_fd(), &mut st) == 0 {
+        st.blksize
+    } else {
+        0
+    };
     if cfg!(target_os = "linux") {
-        if blksize > 0 && blksize < 8192 { blksize as usize } else { 8192 }
+        if blksize > 0 && blksize < 8192 {
+            blksize as usize
+        } else {
+            8192
+        }
     } else if blksize > 0 {
         blksize as usize
     } else {
@@ -191,7 +199,11 @@ fn write_stdio_image(
     mut write: impl FnMut(&[u8]) -> std::io::Result<()>,
 ) -> Result<(), StdioFailure> {
     let bufsize = bufsize.max(1);
-    let flushed = if image.is_empty() { 0 } else { (image.len() - 1) / bufsize * bufsize };
+    let flushed = if image.is_empty() {
+        0
+    } else {
+        (image.len() - 1) / bufsize * bufsize
+    };
     for chunk in image[..flushed].chunks(bufsize) {
         write(chunk).map_err(|e| StdioFailure::Write(io_errno(&e)))?;
     }
@@ -258,7 +270,10 @@ pub(crate) fn autoprewarm_main(_main_arg: u64) -> PgResult<()> {
         }
     });
     if let Some(pid) = other {
-        let _ = elog(LOG, format!("autoprewarm worker is already running under PID {pid}"));
+        let _ = elog(
+            LOG,
+            format!("autoprewarm worker is already running under PID {pid}"),
+        );
         return Ok(());
     }
 
@@ -363,7 +378,9 @@ impl Scanner<'_> {
         let start = self.pos;
         let mut v: u32 = 0;
         while self.pos < self.buf.len() && self.buf[self.pos].is_ascii_digit() {
-            v = v.wrapping_mul(10).wrapping_add(u32::from(self.buf[self.pos] - b'0'));
+            v = v
+                .wrapping_mul(10)
+                .wrapping_add(u32::from(self.buf[self.pos] - b'0'));
             self.pos += 1;
         }
         if self.pos == start {
@@ -438,19 +455,27 @@ fn apw_load_buffers() -> PgResult<()> {
     };
 
     // First line of the file is a record count.
-    let mut sc = Scanner { buf: &contents, pos: 0 };
+    let mut sc = Scanner {
+        buf: &contents,
+        pos: 0,
+    };
     let header = (sc.literal(b"<<"), sc.number(), sc.literal(b">>"));
     let num_elements = match (read_errno, header) {
         (None, (true, Some(n), true)) => n as i32,
         (errno, _) => {
-            return Err(file_error("read from", AUTOPREWARM_FILE, errno.unwrap_or(0)));
+            return Err(file_error(
+                "read from",
+                AUTOPREWARM_FILE,
+                errno.unwrap_or(0),
+            ));
         }
     };
     sc.skip_ws();
 
     // Read records, one per line.
     let num_elements = num_elements.max(0) as usize;
-    let mut blkinfo: Vec<BlockInfoRecord> = ::mcx::std_vec_with_capacity("pg_prewarm", num_elements)?;
+    let mut blkinfo: Vec<BlockInfoRecord> =
+        ::mcx::std_vec_with_capacity("pg_prewarm", num_elements)?;
     for i in 0..num_elements {
         match sc.record() {
             Some(r) => blkinfo.push(r),
@@ -571,7 +596,12 @@ pub(crate) fn autoprewarm_database_main(_main_arg: u64) -> PgResult<()> {
     // Connect to correct database and get block information.
     apw_init_shmem();
     let (block_info, database, start_idx, stop_idx) = with_state(|s| {
-        (s.block_info.clone(), s.database, s.prewarm_start_idx, s.prewarm_stop_idx)
+        (
+            s.block_info.clone(),
+            s.database,
+            s.prewarm_start_idx,
+            s.prewarm_stop_idx,
+        )
     });
     let Some(block_info) = block_info else {
         return Err(Box::new(
@@ -630,7 +660,10 @@ pub(crate) fn autoprewarm_database_main(_main_arg: u64) -> PgResult<()> {
             // smgrexists is not safe for illegal forknum, hence check whether
             // the passed forknum is valid before using it in smgrexists.
             let fork = match ForkNumber::from_i32(forknum) {
-                Some(f) if f != InvalidForkNumber && smgr::smgrexists(crate::rel_smgr_key(&rel)?, f)? => {
+                Some(f)
+                    if f != InvalidForkNumber
+                        && smgr::smgrexists(crate::rel_smgr_key(&rel)?, f)? =>
+                {
                     Some(f)
                 }
                 _ => None,
@@ -639,7 +672,9 @@ pub(crate) fn autoprewarm_database_main(_main_arg: u64) -> PgResult<()> {
                 // Fast-forward to the next fork.
                 while i < stop_idx {
                     let b = block_info[i];
-                    if b.tablespace != tablespace || b.filenumber != filenumber || b.forknum != forknum
+                    if b.tablespace != tablespace
+                        || b.filenumber != filenumber
+                        || b.forknum != forknum
                     {
                         break;
                     }
@@ -730,7 +765,8 @@ fn apw_dump_now(is_bgworker: bool, dump_unlogged: bool) -> PgResult<i32> {
     }
 
     let nbuffers = bufmgr::NBuffersInited();
-    let mut block_info_array: Vec<BlockInfoRecord> = ::mcx::std_vec_with_capacity("pg_prewarm", nbuffers.max(0) as usize)?;
+    let mut block_info_array: Vec<BlockInfoRecord> =
+        ::mcx::std_vec_with_capacity("pg_prewarm", nbuffers.max(0) as usize)?;
 
     for i in 0..nbuffers {
         postgres_seams::check_for_interrupts::call()?;
@@ -761,7 +797,11 @@ fn apw_dump_now(is_bgworker: bool, dump_unlogged: bool) -> PgResult<i32> {
     let transient_dump_file_path = format!("{AUTOPREWARM_FILE}.tmp");
     let file = fd::AllocateFile(&transient_dump_file_path, "w")?;
     if file < 0 {
-        return Err(file_error("open", &transient_dump_file_path, fd::get_errno()));
+        return Err(file_error(
+            "open",
+            &transient_dump_file_path,
+            fd::get_errno(),
+        ));
     }
 
     // The record count, then one record per line (stdio-buffered in C; the
@@ -781,7 +821,9 @@ fn apw_dump_now(is_bgworker: bool, dump_unlogged: bool) -> PgResult<i32> {
     drop(block_info_array);
 
     let written = fd::with_allocated_stdio(file, |f| {
-        write_stdio_image(image.as_bytes(), stdio_buffer_size(f), |chunk| f.write_all(chunk))
+        write_stdio_image(image.as_bytes(), stdio_buffer_size(f), |chunk| {
+            f.write_all(chunk)
+        })
     });
     drop(image);
     let failure = match written {
@@ -834,8 +876,10 @@ pub(crate) fn fc_autoprewarm_start_worker(
 
     if pid != INVALID_PID {
         return Err(Box::new(
-            PgError::error(format!("autoprewarm worker is already running under PID {pid}"))
-                .with_sqlstate(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+            PgError::error(format!(
+                "autoprewarm worker is already running under PID {pid}"
+            ))
+            .with_sqlstate(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
         ));
     }
 
@@ -989,20 +1033,38 @@ mod tests {
         assert!(sc.literal(b">>"));
         sc.skip_ws();
         let a = sc.record().unwrap();
-        assert_eq!((a.database, a.tablespace, a.filenumber, a.forknum, a.blocknum), (0, 1664, 1262, 0, 0));
+        assert_eq!(
+            (
+                a.database,
+                a.tablespace,
+                a.filenumber,
+                a.forknum,
+                a.blocknum
+            ),
+            (0, 1664, 1262, 0, 0)
+        );
         let b = sc.record().unwrap();
         assert_eq!(b.blocknum, 3);
         let c = sc.record().unwrap();
         assert_eq!(c.forknum, 1);
-        assert!(sc.record().is_none(), "a short file is corrupt at the next line");
+        assert!(
+            sc.record().is_none(),
+            "a short file is corrupt at the next line"
+        );
 
-        let mut bad = Scanner { buf: b"<<x>>\n", pos: 0 };
+        let mut bad = Scanner {
+            buf: b"<<x>>\n",
+            pos: 0,
+        };
         assert!(bad.literal(b"<<"));
         assert_eq!(bad.number(), None);
 
         // %u wraps a negative the way strtoul does; the load path rejects
         // the out-of-range fork before any smgr call.
-        let mut neg = Scanner { buf: b"1,2,3,-1,4\n", pos: 0 };
+        let mut neg = Scanner {
+            buf: b"1,2,3,-1,4\n",
+            pos: 0,
+        };
         assert_eq!(neg.record().unwrap().forknum, -1);
     }
 
@@ -1018,7 +1080,9 @@ mod tests {
             let result = write_stdio_image(image, bufsize, |chunk| {
                 calls.push(chunk.len());
                 match fail_at {
-                    Some(n) if calls.len() == n => Err(std::io::Error::from_raw_os_error(libc_enospc())),
+                    Some(n) if calls.len() == n => {
+                        Err(std::io::Error::from_raw_os_error(libc_enospc()))
+                    }
                     _ => Ok(()),
                 }
             });
@@ -1026,14 +1090,41 @@ mod tests {
         };
 
         assert_eq!(run(&record(285), 4096, None), (vec![285], Ok(())));
-        assert_eq!(run(&record(285), 4096, Some(1)), (vec![285], Err(StdioFailure::Close(libc_enospc()))));
-        assert_eq!(run(&record(4096), 4096, Some(1)), (vec![4096], Err(StdioFailure::Close(libc_enospc()))));
-        assert_eq!(run(&record(4097), 4096, Some(1)), (vec![4096], Err(StdioFailure::Write(libc_enospc()))));
-        assert_eq!(run(&record(4097), 4096, Some(2)), (vec![4096, 1], Err(StdioFailure::Close(libc_enospc()))));
-        assert_eq!(run(&record(10000), 4096, None), (vec![4096, 4096, 1808], Ok(())));
-        assert_eq!(run(&record(10000), 4096, Some(2)), (vec![4096, 4096], Err(StdioFailure::Write(libc_enospc()))));
-        assert_eq!(run(&record(10000), 4096, Some(3)), (vec![4096, 4096, 1808], Err(StdioFailure::Close(libc_enospc()))));
-        assert_eq!(run(b"", 4096, Some(1)), (vec![0], Err(StdioFailure::Close(libc_enospc()))));
+        assert_eq!(
+            run(&record(285), 4096, Some(1)),
+            (vec![285], Err(StdioFailure::Close(libc_enospc())))
+        );
+        assert_eq!(
+            run(&record(4096), 4096, Some(1)),
+            (vec![4096], Err(StdioFailure::Close(libc_enospc())))
+        );
+        assert_eq!(
+            run(&record(4097), 4096, Some(1)),
+            (vec![4096], Err(StdioFailure::Write(libc_enospc())))
+        );
+        assert_eq!(
+            run(&record(4097), 4096, Some(2)),
+            (vec![4096, 1], Err(StdioFailure::Close(libc_enospc())))
+        );
+        assert_eq!(
+            run(&record(10000), 4096, None),
+            (vec![4096, 4096, 1808], Ok(()))
+        );
+        assert_eq!(
+            run(&record(10000), 4096, Some(2)),
+            (vec![4096, 4096], Err(StdioFailure::Write(libc_enospc())))
+        );
+        assert_eq!(
+            run(&record(10000), 4096, Some(3)),
+            (
+                vec![4096, 4096, 1808],
+                Err(StdioFailure::Close(libc_enospc()))
+            )
+        );
+        assert_eq!(
+            run(b"", 4096, Some(1)),
+            (vec![0], Err(StdioFailure::Close(libc_enospc())))
+        );
     }
 
     fn libc_enospc() -> i32 {
@@ -1047,7 +1138,10 @@ mod tests {
     fn init_shmem_reports_found() {
         apw_init_callback(core::ptr::null_mut());
         assert!(!apw_attach_state(false));
-        assert_eq!(with_state(|s| (s.bgworker_pid, s.pid_using_dumpfile)), (INVALID_PID, INVALID_PID));
+        assert_eq!(
+            with_state(|s| (s.bgworker_pid, s.pid_using_dumpfile)),
+            (INVALID_PID, INVALID_PID)
+        );
         with_state(|s| s.bgworker_pid = 4242);
         assert!(apw_attach_state(true), "an existing segment attaches");
         assert_eq!(with_state(|s| s.bgworker_pid), 4242);
@@ -1057,6 +1151,9 @@ mod tests {
         assert!(!apw_attach_state(false));
         assert_eq!(with_state(|s| s.pid_using_dumpfile), 77);
         apw_init_callback(core::ptr::null_mut());
-        assert_eq!(with_state(|s| (s.bgworker_pid, s.pid_using_dumpfile)), (INVALID_PID, INVALID_PID));
+        assert_eq!(
+            with_state(|s| (s.bgworker_pid, s.pid_using_dumpfile)),
+            (INVALID_PID, INVALID_PID)
+        );
     }
 }

@@ -4,8 +4,8 @@ use elog::{elog, ereport};
 use logical::{filter_by_origin_cb_wrapper, LogicalDecodingContext};
 use mcx::{Mcx, MemoryContext, PgVec};
 use pgrc_format::wal::{
-    BulkRowsRec, DirLoc, RowRec, TupleImage, BULK_ROWS_HEADER_LEN, XLOG_PGRC_BULK_ROWS, XLOG_PGRC_OPMASK,
-    XLOG_PGRC_ROW_DELETE, XLOG_PGRC_ROW_UPDATE,
+    BulkRowsRec, DirLoc, RowRec, TupleImage, BULK_ROWS_HEADER_LEN, XLOG_PGRC_BULK_ROWS,
+    XLOG_PGRC_OPMASK, XLOG_PGRC_ROW_DELETE, XLOG_PGRC_ROW_UPDATE,
 };
 use reorderbuffer::{ReorderBufferChange, ReorderBufferChangeData, ReorderBufferChangeType};
 use snapbuild::SnapBuildState;
@@ -351,8 +351,10 @@ fn xact_decode(ctx: &mut LogicalDecodingContext, buf: XLogRecordBuffer) -> PgRes
             }
         }
         XLOG_XACT_PREPARE => {
-            let parsed =
-                xact::parse_prepare_record(ctx.reader.XLogRecGetInfo(), ctx.reader.XLogRecGetData())?;
+            let parsed = xact::parse_prepare_record(
+                ctx.reader.XLogRecGetInfo(),
+                ctx.reader.XLogRecGetData(),
+            )?;
             forget_undecoded_spec(&[parsed.twophase_xid]);
             forget_undecoded_spec(&parsed.subxacts);
 
@@ -473,7 +475,8 @@ fn validate_running_xacts_header(data_len: usize) -> PgResult<usize> {
                 "XLOG_RUNNING_XACTS record with main data length {data_len} is too short"
             ))
             .finish(here("standby_decode"))
-            .err().unwrap());
+            .err()
+            .unwrap());
     }
     Ok((data_len - MIN_SIZE_OF_XL_RUNNING_XACTS) / 4)
 }
@@ -495,7 +498,8 @@ fn validate_running_xacts_total(
                  but main data length {data_len} holds at most {max_xids} xids"
             ))
             .finish(here("standby_decode"))
-            .err().unwrap()),
+            .err()
+            .unwrap()),
     }
 }
 
@@ -1208,11 +1212,18 @@ fn DecodeInsert(ctx: &mut LogicalDecodingContext, buf: XLogRecordBuffer) -> PgRe
     // xl_heap_insert.flags is at offset 2; validate the record body holds the
     // fixed struct before the fixed-offset read.
     let data = ctx.reader.XLogRecGetData();
-    validate_heap_main_data_len(data.len(), SizeOfHeapInsert, "XLOG_HEAP_INSERT", "DecodeInsert")?;
+    validate_heap_main_data_len(
+        data.len(),
+        SizeOfHeapInsert,
+        "XLOG_HEAP_INSERT",
+        "DecodeInsert",
+    )?;
     let flags = data[2];
 
     if flags & XLH_INSERT_CONTAINS_NEW_TUPLE == 0 {
-        if let Some(key) = spec_key(ctx, u16_at(data, 0)).filter(|_| flags & XLH_INSERT_IS_SPECULATIVE != 0 && spec_memo_on()) {
+        if let Some(key) = spec_key(ctx, u16_at(data, 0))
+            .filter(|_| flags & XLH_INSERT_IS_SPECULATIVE != 0 && spec_memo_on())
+        {
             remember_undecoded_spec(key);
         }
         return Ok(());
@@ -1271,7 +1282,12 @@ fn DecodeUpdate(ctx: &mut LogicalDecodingContext, buf: XLogRecordBuffer) -> PgRe
     // xl_heap_update.flags is at offset 7; validate the record body holds the
     // fixed struct before the fixed-offset read.
     let data = ctx.reader.XLogRecGetData();
-    validate_heap_main_data_len(data.len(), SizeOfHeapUpdate, "XLOG_HEAP_UPDATE", "DecodeUpdate")?;
+    validate_heap_main_data_len(
+        data.len(),
+        SizeOfHeapUpdate,
+        "XLOG_HEAP_UPDATE",
+        "DecodeUpdate",
+    )?;
     let flags = data[7];
 
     let target_locator = block0_locator(ctx, "DecodeUpdate")?;
@@ -1334,11 +1350,18 @@ fn DecodeDelete(ctx: &mut LogicalDecodingContext, buf: XLogRecordBuffer) -> PgRe
     // xl_heap_delete.flags is at offset 7; validate the record body holds the
     // fixed struct before the fixed-offset read.
     let data = ctx.reader.XLogRecGetData();
-    validate_heap_main_data_len(data.len(), SizeOfHeapDelete, "XLOG_HEAP_DELETE", "DecodeDelete")?;
+    validate_heap_main_data_len(
+        data.len(),
+        SizeOfHeapDelete,
+        "XLOG_HEAP_DELETE",
+        "DecodeDelete",
+    )?;
     let flags = data[7];
 
     // The super-delete of an undecoded speculative insert (see UNDECODED_SPEC).
-    if flags & XLH_DELETE_IS_SUPER != 0 && spec_key(ctx, u16_at(data, 4)).is_some_and(take_undecoded_spec) {
+    if flags & XLH_DELETE_IS_SUPER != 0
+        && spec_key(ctx, u16_at(data, 4)).is_some_and(take_undecoded_spec)
+    {
         return Ok(());
     }
 
@@ -1578,13 +1601,12 @@ fn pgrc_decode(ctx: &mut LogicalDecodingContext, buf: XLogRecordBuffer) -> PgRes
             if ctx
                 .snapshot_builder
                 .process_change(&mut ctx.reorder, xid, buf.origptr)
-                && !ctx.fast_forward
-            =>
-            {
-                if info == XLOG_PGRC_BULK_ROWS {
-                    decode_pgrc_bulk_rows(ctx, buf)?;
-                } else {
-                    decode_pgrc_row(ctx, buf, info)?;
+                && !ctx.fast_forward =>
+        {
+            if info == XLOG_PGRC_BULK_ROWS {
+                decode_pgrc_bulk_rows(ctx, buf)?;
+            } else {
+                decode_pgrc_row(ctx, buf, info)?;
             }
         }
         _ => {}
@@ -1597,7 +1619,11 @@ fn pgrc_corrupted(function: &'static str, e: pgrc_format::FormatError) -> Box<Pg
 }
 
 fn parent_locator(parent: DirLoc) -> RelFileLocator {
-    RelFileLocator { spcOid: parent.spc, dbOid: parent.db, relNumber: parent.relnumber }
+    RelFileLocator {
+        spcOid: parent.spc,
+        dbOid: parent.db,
+        relNumber: parent.relnumber,
+    }
 }
 
 // DecodeXLogTuple over a pgrc tuple image (the same xl_heap_header rule).
@@ -1618,7 +1644,11 @@ fn pgrc_tuple(
 
 // ROW_DELETE / ROW_UPDATE: one change on the parent, the old row when the parent's identity is FULL (DecodeDelete /
 // DecodeUpdate's shape).
-fn decode_pgrc_row(ctx: &mut LogicalDecodingContext, buf: XLogRecordBuffer, info: u8) -> PgResult<()> {
+fn decode_pgrc_row(
+    ctx: &mut LogicalDecodingContext,
+    buf: XLogRecordBuffer,
+    info: u8,
+) -> PgResult<()> {
     let parent = RowRec::decode(info, ctx.reader.XLogRecGetData())
         .map_err(|e| pgrc_corrupted("decode_pgrc_row", e))?
         .parent;
@@ -1661,7 +1691,8 @@ fn decode_pgrc_row(ctx: &mut LogicalDecodingContext, buf: XLogRecordBuffer, info
 fn decode_pgrc_bulk_rows(ctx: &mut LogicalDecodingContext, buf: XLogRecordBuffer) -> PgResult<()> {
     const F: &str = "decode_pgrc_bulk_rows";
     let (parent, ntuples) = {
-        let r = BulkRowsRec::decode(ctx.reader.XLogRecGetData()).map_err(|e| pgrc_corrupted(F, e))?;
+        let r =
+            BulkRowsRec::decode(ctx.reader.XLogRecGetData()).map_err(|e| pgrc_corrupted(F, e))?;
         (r.parent, r.ntuples as usize)
     };
     let rlocator = parent_locator(parent);
@@ -1679,7 +1710,11 @@ fn decode_pgrc_bulk_rows(ctx: &mut LogicalDecodingContext, buf: XLogRecordBuffer
     for i in 0..ntuples {
         let (tuple, next) = {
             let tuples = &ctx.reader.XLogRecGetData()[BULK_ROWS_HEADER_LEN..];
-            let rec = BulkRowsRec { parent, ntuples: ntuples as u32, tuples };
+            let rec = BulkRowsRec {
+                parent,
+                ntuples: ntuples as u32,
+                tuples,
+            };
             let (image, next) = rec.image_at(off).map_err(|e| pgrc_corrupted(F, e))?;
             (pgrc_tuple(ctx, image)?, next)
         };
@@ -1807,17 +1842,38 @@ mod tests {
     // xid holds one entry (its newest insertion), and a transaction's end forgets its entries and its subxacts'.
     #[test]
     fn undecoded_speculative_inserts_match_their_confirm_once() {
-        use super::{forget_undecoded_spec as forget, remember_undecoded_spec as remember, take_undecoded_spec as take};
-        let loc = types_storage::RelFileLocator { spcOid: 1663, dbOid: 5, relNumber: 16390 };
-        let other = types_storage::RelFileLocator { relNumber: 16391, ..loc };
+        use super::{
+            forget_undecoded_spec as forget, remember_undecoded_spec as remember,
+            take_undecoded_spec as take,
+        };
+        let loc = types_storage::RelFileLocator {
+            spcOid: 1663,
+            dbOid: 5,
+            relNumber: 16390,
+        };
+        let other = types_storage::RelFileLocator {
+            relNumber: 16391,
+            ..loc
+        };
         let len = || super::UNDECODED_SPEC.with(|s| s.borrow().len());
         remember((700, loc, 3, 12));
-        assert!(!take((700, loc, 3, 13)) && !take((700, other, 3, 12)) && !take((701, loc, 3, 12)) && !take((700, loc, 4, 12)));
-        assert!(take((700, loc, 3, 12)), "the confirm of the remembered insert");
+        assert!(
+            !take((700, loc, 3, 13))
+                && !take((700, other, 3, 12))
+                && !take((701, loc, 3, 12))
+                && !take((700, loc, 4, 12))
+        );
+        assert!(
+            take((700, loc, 3, 12)),
+            "the confirm of the remembered insert"
+        );
         assert!(!take((700, loc, 3, 12)), "matched once");
         remember((700, loc, 3, 14));
         remember((700, loc, 5, 1));
-        assert!(!take((700, loc, 3, 14)), "an xid's newer insertion replaces an older one");
+        assert!(
+            !take((700, loc, 3, 14)),
+            "an xid's newer insertion replaces an older one"
+        );
         assert!(take((700, loc, 5, 1)));
         // A top-level transaction 800 with subtransactions 801, 802, each with an insertion whose CONFIRM never came
         // (an error between them); 900 is another transaction's, in flight.
@@ -1828,7 +1884,11 @@ mod tests {
         assert_eq!(len(), 3, "a subtransaction's abort forgets its entry");
         forget(&[800]);
         forget(&[802]);
-        assert_eq!(len(), 1, "the commit forgets the top xid's and its subxacts'");
+        assert_eq!(
+            len(),
+            1,
+            "the commit forgets the top xid's and its subxacts'"
+        );
         assert!(take((900, loc, 1, 900)) && len() == 0);
         forget(&[]);
     }
@@ -1865,7 +1925,10 @@ mod tests {
         tuple.t_self = super::ItemPointerData::new(0, 0);
         super::DecodeXLogTuple(&data, &mut tuple);
         assert_eq!(tuple.t_self, super::ItemPointerData::invalid());
-        assert_eq!(types_tuple::ItemPointerGetBlockNumberNoCheck(&tuple.t_self), 0xFFFF_FFFF);
+        assert_eq!(
+            types_tuple::ItemPointerGetBlockNumberNoCheck(&tuple.t_self),
+            0xFFFF_FFFF
+        );
         assert_eq!(tuple.t_data().t_hoff, 24);
     }
 
@@ -1974,7 +2037,10 @@ mod tests {
         let data_len = super::SIZE_OF_LOGICAL_MESSAGE + 5 + 3;
         assert!(super::validate_logical_message_payload(data_len, 5, 3).is_ok());
         // Exactly filling the body is fine.
-        assert!(super::validate_logical_message_payload(super::SIZE_OF_LOGICAL_MESSAGE + 1, 1, 0).is_ok());
+        assert!(
+            super::validate_logical_message_payload(super::SIZE_OF_LOGICAL_MESSAGE + 1, 1, 0)
+                .is_ok()
+        );
     }
 
     #[test]
@@ -2012,8 +2078,13 @@ mod tests {
     fn parameter_change_full_body_accepted() {
         // A body holding the fixed struct through wal_level (offset 20 + 4) is
         // large enough for the fixed-offset read to be in bounds.
-        assert!(super::validate_parameter_change_len(super::MIN_SIZE_OF_XL_PARAMETER_CHANGE).is_ok());
-        assert!(super::validate_parameter_change_len(super::MIN_SIZE_OF_XL_PARAMETER_CHANGE + 8).is_ok());
+        assert!(
+            super::validate_parameter_change_len(super::MIN_SIZE_OF_XL_PARAMETER_CHANGE).is_ok()
+        );
+        assert!(
+            super::validate_parameter_change_len(super::MIN_SIZE_OF_XL_PARAMETER_CHANGE + 8)
+                .is_ok()
+        );
     }
 
     // The heap decode arms read per-opcode fixed structs at fixed offsets. A
@@ -2046,7 +2117,9 @@ mod tests {
             "fn"
         )
         .is_ok());
-        assert!(super::validate_heap_main_data_len(64, super::SizeOfHeapUpdate, "REC", "fn").is_ok());
+        assert!(
+            super::validate_heap_main_data_len(64, super::SizeOfHeapUpdate, "REC", "fn").is_ok()
+        );
     }
 
     // Block-0 tuple data must hold at least a xl_heap_header before the
@@ -2063,8 +2136,12 @@ mod tests {
 
     #[test]
     fn heap_block_header_full_accepted() {
-        assert!(super::validate_heap_block_header_len(super::SizeOfHeapHeader, "REC", "fn").is_ok());
-        assert!(super::validate_heap_block_header_len(super::SizeOfHeapHeader + 9, "REC", "fn").is_ok());
+        assert!(
+            super::validate_heap_block_header_len(super::SizeOfHeapHeader, "REC", "fn").is_ok()
+        );
+        assert!(
+            super::validate_heap_block_header_len(super::SizeOfHeapHeader + 9, "REC", "fn").is_ok()
+        );
     }
 
     // xl_heap_truncate declares nrelids; the fixed header + nrelids*4 Oids must
@@ -2079,7 +2156,9 @@ mod tests {
     #[test]
     fn truncate_relids_exceeding_body_rejected() {
         let data_len = super::SizeOfHeapTruncate + 3 * 4;
-        let e = super::validate_truncate_relids(data_len, 4, "fn").err().unwrap();
+        let e = super::validate_truncate_relids(data_len, 4, "fn")
+            .err()
+            .unwrap();
         assert_eq!(e.sqlstate(), types_error::ERRCODE_DATA_CORRUPTED);
     }
 
@@ -2113,9 +2192,10 @@ mod tests {
     #[test]
     fn multi_insert_header_exceeding_block_rejected() {
         // Header would run past the block data.
-        let e = super::validate_multi_insert_header_in_bounds(4, super::SizeOfMultiInsertTuple, "fn")
-            .err()
-            .unwrap();
+        let e =
+            super::validate_multi_insert_header_in_bounds(4, super::SizeOfMultiInsertTuple, "fn")
+                .err()
+                .unwrap();
         assert_eq!(e.sqlstate(), types_error::ERRCODE_DATA_CORRUPTED);
         // Near-max offset must not wrap.
         let e = super::validate_multi_insert_header_in_bounds(usize::MAX, 64, "fn")

@@ -34,7 +34,10 @@ pub(crate) fn lay(cell: &mut [u64], rt: &NestPruneRt) -> u64 {
     let c = cell.as_mut_ptr();
     // SAFETY: `cell` holds at least WORDS 8-aligned words: the head (two words), then the state's address.
     unsafe {
-        c.cast::<PruneHead>().write(PruneHead { magic: PRUNE_MAGIC, op });
+        c.cast::<PruneHead>().write(PruneHead {
+            magic: PRUNE_MAGIC,
+            op,
+        });
         c.add(WORDS - 1).write(rt as *const NestPruneRt as u64);
     }
     c as u64
@@ -62,10 +65,16 @@ unsafe fn op(h: *mut PruneHead, ctx: *mut Ctx) -> i64 {
 /// # Safety
 /// `ctx` is null or the caller's context, bound for this call.
 unsafe fn params(rt: &NestPruneRt, ctx: *mut Ctx) -> PgResult<([ExecWord; EXEC_WORDS], usize)> {
-    let mut words = [ExecWord { param: -1, value: 0, null: 1 }; EXEC_WORDS];
+    let mut words = [ExecWord {
+        param: -1,
+        value: 0,
+        null: 1,
+    }; EXEC_WORDS];
     let ids = rt.ids();
     if ids.len() > EXEC_WORDS {
-        return Err(crate::glue::internal("gravity: m8_prune over more params than prune::EXEC_WORDS"));
+        return Err(crate::glue::internal(
+            "gravity: m8_prune over more params than prune::EXEC_WORDS",
+        ));
     }
     if ids.is_empty() {
         return Ok((words, 0));
@@ -74,7 +83,9 @@ unsafe fn params(rt: &NestPruneRt, ctx: *mut Ctx) -> PgResult<([ExecWord; EXEC_W
     let mut keys: *const u64 = core::ptr::null();
     for (k, &id) in ids.iter().enumerate() {
         if id < 0 {
-            return Err(crate::glue::internal("gravity: m8_prune over a negative param id (D2013)"));
+            return Err(crate::glue::internal(
+                "gravity: m8_prune over a negative param id (D2013)",
+            ));
         }
         // D3612: an InitPlan's param, read (its Init run) at this decision
         if let Some(w) = rt.init_word(id)? {
@@ -83,18 +94,28 @@ unsafe fn params(rt: &NestPruneRt, ctx: *mut Ctx) -> PgResult<([ExecWord; EXEC_W
         }
         if keys.is_null() {
             if ctx.is_null() || ws == usize::MAX {
-                return Err(crate::glue::internal("gravity: m8_prune with no frame words (D2013)"));
+                return Err(crate::glue::internal(
+                    "gravity: m8_prune with no frame words (D2013)",
+                ));
             }
             // SAFETY: the caller's bound context; site `ws` is the program's words site, whose keys array holds the frame
             // words, one pair per param id up to the largest a producer sets (lowerv4 params.rs `reserve`), as exec
             // rerun's `frame_param`.
-            keys = *(ctx as *const u8).add(gravity_abi::ctx::site_off(ws) + gravity_abi::site::site::KEYS).cast::<*const u64>();
+            keys = *(ctx as *const u8)
+                .add(gravity_abi::ctx::site_off(ws) + gravity_abi::site::site::KEYS)
+                .cast::<*const u64>();
         }
         let (v, f) = (*keys.add(2 * id as usize), *keys.add(2 * id as usize + 1));
         if f & 1 == 0 {
-            return Err(crate::glue::internal(&format!("gravity: m8_prune reads exec param {id} before the nest set it (D2013)"))); // alloc: Cold
+            return Err(crate::glue::internal(&format!(
+                "gravity: m8_prune reads exec param {id} before the nest set it (D2013)"
+            ))); // alloc: Cold
         }
-        words[k] = ExecWord { param: id, value: v, null: (f & 2 != 0) as u8 };
+        words[k] = ExecWord {
+            param: id,
+            value: v,
+            null: (f & 2 != 0) as u8,
+        };
     }
     Ok((words, ids.len()))
 }

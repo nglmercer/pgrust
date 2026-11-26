@@ -5,9 +5,8 @@ use mcx::PgHashMap;
 use types_core::{InvalidOid, Oid};
 
 use crate::{
-    compute_ready, with_state, TypCacheState, TypeCacheEntry,
-    TCFLAGS_CHECKED_DOMAIN_CONSTRAINTS, TCFLAGS_DOMAIN_BASE_IS_COMPOSITE,
-    TCFLAGS_HAVE_PG_TYPE_DATA, TCFLAGS_OPERATOR_FLAGS,
+    compute_ready, with_state, TypCacheState, TypeCacheEntry, TCFLAGS_CHECKED_DOMAIN_CONSTRAINTS,
+    TCFLAGS_DOMAIN_BASE_IS_COMPOSITE, TCFLAGS_HAVE_PG_TYPE_DATA, TCFLAGS_OPERATOR_FLAGS,
 };
 use lsyscache::{TYPTYPE_COMPOSITE, TYPTYPE_DOMAIN};
 
@@ -26,10 +25,7 @@ pub(crate) fn insert_rel_type_cache_if_needed(
     }
 }
 
-fn delete_rel_type_cache_if_needed(
-    rel_map: &mut PgHashMap<'static, Oid, Oid>,
-    e: &TypeCacheEntry,
-) {
+fn delete_rel_type_cache_if_needed(rel_map: &mut PgHashMap<'static, Oid, Oid>, e: &TypeCacheEntry) {
     if e.typtype() != TYPTYPE_COMPOSITE {
         return;
     }
@@ -44,13 +40,9 @@ fn delete_rel_type_cache_if_needed(
 // C's InvalidateCompositeTypeCacheEntry: drop the cached tupdesc (our Rc pin
 // is the tdrefcount; outstanding caller clones keep the old descriptor
 // alive), mark tupDesc_identifier stale, and reset the operator flags.
-fn invalidate_composite_entry(
-    rel_map: &mut PgHashMap<'static, Oid, Oid>,
-    e: &Rc<TypeCacheEntry>,
-) {
+fn invalidate_composite_entry(rel_map: &mut PgHashMap<'static, Oid, Oid>, e: &Rc<TypeCacheEntry>) {
     debug_assert!(e.typtype() == TYPTYPE_COMPOSITE && e.typrelid() != InvalidOid);
-    let had_tupdesc_or_opclass =
-        e.tupdesc_is_some() || e.flags_raw() & TCFLAGS_OPERATOR_FLAGS != 0;
+    let had_tupdesc_or_opclass = e.tupdesc_is_some() || e.flags_raw() & TCFLAGS_OPERATOR_FLAGS != 0;
     e.clear_tupdesc();
     // Reset equality/comparison/hashing validity information.
     e.clear_flags(TCFLAGS_OPERATOR_FLAGS);
@@ -65,8 +57,12 @@ fn invalidate_composite_entry(
 pub(crate) fn TypeCacheRelCallback(_arg: Datum, relid: Oid) {
     with_state(|st| {
         st.rel_invals = st.rel_invals.wrapping_add(1);
-        let TypCacheState { type_cache, rel_id_to_type_id, first_domain_type_entry, .. } =
-            st;
+        let TypCacheState {
+            type_cache,
+            rel_id_to_type_id,
+            first_domain_type_entry,
+            ..
+        } = st;
         if relid != InvalidOid {
             if let Some(typid) = rel_id_to_type_id.get(&relid).copied() {
                 if let Some(e) = type_cache.get(&typid) {
@@ -102,7 +98,11 @@ pub(crate) fn TypeCacheRelCallback(_arg: Datum, relid: Oid) {
 
 pub(crate) fn TypeCacheTypCallback(_arg: Datum, _cacheid: i32, hashvalue: u32) {
     with_state(|st| {
-        let TypCacheState { type_cache, rel_id_to_type_id, .. } = st;
+        let TypCacheState {
+            type_cache,
+            rel_id_to_type_id,
+            ..
+        } = st;
         // C scans by hashvalue bucket (hash_seq_init_with_hash_value); the
         // full-map compare is equivalent and typcache stays small (DDL-rare).
         for e in type_cache.values() {
@@ -121,7 +121,11 @@ pub(crate) fn TypeCacheTypCallback(_arg: Datum, _cacheid: i32, hashvalue: u32) {
 
 pub(crate) fn TypeCacheOpcCallback(_arg: Datum, _cacheid: i32, _hashvalue: u32) {
     with_state(|st| {
-        let TypCacheState { type_cache, rel_id_to_type_id, .. } = st;
+        let TypCacheState {
+            type_cache,
+            rel_id_to_type_id,
+            ..
+        } = st;
         for e in type_cache.values() {
             let had_opclass = e.flags_raw() & TCFLAGS_OPERATOR_FLAGS != 0;
             e.clear_flags(TCFLAGS_OPERATOR_FLAGS);
@@ -135,7 +139,11 @@ pub(crate) fn TypeCacheOpcCallback(_arg: Datum, _cacheid: i32, _hashvalue: u32) 
 
 pub(crate) fn TypeCacheConstrCallback(_arg: Datum, _cacheid: i32, _hashvalue: u32) {
     with_state(|st| {
-        let TypCacheState { type_cache, first_domain_type_entry, .. } = st;
+        let TypCacheState {
+            type_cache,
+            first_domain_type_entry,
+            ..
+        } = st;
         let mut t = *first_domain_type_entry;
         while t != InvalidOid {
             let e = type_cache.get(&t).expect("domain chain entry present");
@@ -148,7 +156,12 @@ pub(crate) fn TypeCacheConstrCallback(_arg: Datum, _cacheid: i32, _hashvalue: u3
 
 fn finalize_in_progress_typentries() {
     with_state(|st| {
-        let TypCacheState { type_cache, rel_id_to_type_id, in_progress, .. } = st;
+        let TypCacheState {
+            type_cache,
+            rel_id_to_type_id,
+            in_progress,
+            ..
+        } = st;
         for &t in in_progress.iter() {
             if let Some(e) = type_cache.get(&t) {
                 insert_rel_type_cache_if_needed(rel_id_to_type_id, e);

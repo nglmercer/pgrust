@@ -25,8 +25,15 @@ pub fn unreachable(f: &mut Function) -> bool {
     }
     let mut gone = m.vec_filled(false, f.values.len());
     #[allow(clippy::nonminimal_bool)]
-    for (bb, _) in f.blocks.iter_mut().zip(seen.iter()).filter(|(bb, s)| !**s && !(bb.params.is_empty() && bb.insts.is_empty() && matches!(bb.term, Terminator::Unreachable))) {
-        bb.params.iter().chain(bb.insts.iter().filter_map(|x| x.result.as_ref())).for_each(|v| gone[v.index()] = true);
+    for (bb, _) in f.blocks.iter_mut().zip(seen.iter()).filter(|(bb, s)| {
+        !**s && !(bb.params.is_empty()
+            && bb.insts.is_empty()
+            && matches!(bb.term, Terminator::Unreachable))
+    }) {
+        bb.params
+            .iter()
+            .chain(bb.insts.iter().filter_map(|x| x.result.as_ref()))
+            .for_each(|v| gone[v.index()] = true);
         (bb.params, bb.insts, bb.term) = (m.slice_from(&[]), m.vec(), Terminator::Unreachable);
     }
     let h = &mut f.hints;
@@ -66,7 +73,9 @@ mod tests {
         assert!(super::unreachable(func));
         assert_eq!(func.blocks.len(), 3);
         let d = &func.blocks[1];
-        assert!(d.params.is_empty() && d.insts.is_empty() && matches!(d.term, Terminator::Unreachable));
+        assert!(
+            d.params.is_empty() && d.insts.is_empty() && matches!(d.term, Terminator::Unreachable)
+        );
         assert!(matches!(&func.blocks[0].term, Terminator::Br(e) if e.target == Block(2)));
         assert_eq!(func.hints.loop_headers, [Block(2)]);
         crate::verify::verify(&p).expect("verifies");

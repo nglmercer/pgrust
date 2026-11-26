@@ -44,9 +44,18 @@ pub(crate) fn fills(gx: &Gx<'_, '_>, k: usize) -> bool {
 /// The fill's record columns: its last projection (decompose projects the run's columns right before the Materialize).
 fn cols<'p>(gx: &Gx<'_, 'p>, k: usize) -> &'p NodeList<'p> {
     let p = &gx.pipelines()[k];
-    match p.ops.iter().rev().find_map(|op| if let Op::Project(l) = op { Some(*l) } else { None }) {
+    match p.ops.iter().rev().find_map(|op| {
+        if let Op::Project(l) = op {
+            Some(*l)
+        } else {
+            None
+        }
+    }) {
         Some(l) => l,
-        None => shape(p.node_id, "a grouping-set spool's fill without its columns' projection"),
+        None => shape(
+            p.node_id,
+            "a grouping-set spool's fill without its columns' projection",
+        ),
     }
 }
 
@@ -54,12 +63,19 @@ fn cols<'p>(gx: &Gx<'_, 'p>, k: usize) -> &'p NodeList<'p> {
 /// writes nor locks (a recheck would run the fill again) and asks no recheck.
 fn owned(gx: &Gx<'_, '_>, k: usize) -> bool {
     let ps = gx.pipelines();
-    let acts = ps.iter().any(|p| p.ops.iter().any(|op| matches!(op, Op::Write(_) | Op::Lock(_))));
+    let acts = ps.iter().any(|p| {
+        p.ops
+            .iter()
+            .any(|op| matches!(op, Op::Write(_) | Op::Lock(_)))
+    });
     !acts && !gx.graph.recheck && !in_rerun(gx, k)
 }
 
 fn in_rerun(gx: &Gx<'_, '_>, k: usize) -> bool {
-    gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(k as u16)))
+    gx.graph
+        .reruns
+        .iter()
+        .any(|r| r.pipelines.contains(&(k as u16)))
 }
 
 /// The fill's end: each row appended to the record.
@@ -83,7 +99,13 @@ impl EndMech for Fill<'_> {
     fn pipeline_desc(&self, _px: &Px<'_, '_>, _k: usize, d: Pipeline) -> Pipeline {
         match self.owned {
             true => d,
-            false => Pipeline { parallel: Parallel::Ineligible { site: d.driving_site, reason: Why::Sink }, ..d },
+            false => Pipeline {
+                parallel: Parallel::Ineligible {
+                    site: d.driving_site,
+                    reason: Why::Sink,
+                },
+                ..d
+            },
         }
     }
 
@@ -93,7 +115,13 @@ impl EndMech for Fill<'_> {
         }
     }
 
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, _x: &Exits) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        _x: &Exits,
+    ) -> Carry<'e> {
         self.rec.append(b, env, row);
         row.carry.copy_in(env.mcx)
     }
@@ -111,9 +139,15 @@ struct Reader<'g> {
 /// projections only (no streamed group, window, join, set or SubPlan).
 fn claimable(gx: &Gx<'_, '_>, k: usize) -> bool {
     use gravity_abi::breaker::BreakerKind;
-    let folds = matches!(crate::frame::iface::end_breaker(gx, k), Some(BreakerKind::HashAgg | BreakerKind::PlainAgg));
+    let folds = matches!(
+        crate::frame::iface::end_breaker(gx, k),
+        Some(BreakerKind::HashAgg | BreakerKind::PlainAgg)
+    );
     folds
-        && gx.pipelines()[k].ops.iter().all(|op| matches!(op, Op::Filter(_) | Op::Gate(_) | Op::Project(_)))
+        && gx.pipelines()[k]
+            .ops
+            .iter()
+            .all(|op| matches!(op, Op::Filter(_) | Op::Gate(_) | Op::Project(_)))
         && crate::effects::visible::order_visible(gx, k).is_none()
 }
 
@@ -125,14 +159,22 @@ pub(crate) fn make_source<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn So
     let gx = px.gx;
     let p = &gx.pipelines()[k];
     let node = p.node_id;
-    let Source::Breaker { slot } = p.source else { shape(node, "a grouping-set spool's reader over another source") };
-    let Some(f) = gx.life_of(k, slot).map(|l| l.0 as usize) else { shape(node, "a grouping-set spool's reader with no fill") };
+    let Source::Breaker { slot } = p.source else {
+        shape(node, "a grouping-set spool's reader over another source")
+    };
+    let Some(f) = gx.life_of(k, slot).map(|l| l.0 as usize) else {
+        shape(node, "a grouping-set spool's reader with no fill")
+    };
     let rec = Rec::find(px, f, node, cols(gx, f));
     let site = px.pipeline_site(f);
     let chunks = site.filter(|_| rec.is_owned() && k < gx.pipelines().len() && claimable(gx, k));
     if chunks.is_some() {
         let (h, _) = rec.words();
-        px.declare_proto(Proto::new(ProtoKind::SpoolChunks, k as u16).peer(f as u16).words(h, 1));
+        px.declare_proto(
+            Proto::new(ProtoKind::SpoolChunks, k as u16)
+                .peer(f as u16)
+                .words(h, 1),
+        );
     }
     mcx::pg_box_dyn!(px.mcx(), Reader { rec, chunks, rows: gx.pipelines()[f].desc.predicted_rows } => dyn SourceMech + 'g)
 }
@@ -171,10 +213,22 @@ impl SourceMech for Reader<'_> {
         let far = b.int_bin(IntBinOp::Add, cur, w);
         let lt = b.icmp(IntCond::Slt, far, hi);
         let end = b.select(lt, far, hi);
-        Win { cursor: cur, end, facts: WinConds::default() }
+        Win {
+            cursor: cur,
+            end,
+            facts: WinConds::default(),
+        }
     }
 
-    fn row<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e> {
+    fn row<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+        j: Value,
+        carry: Carry<'e>,
+        next: Value,
+    ) -> RowVals<'e> {
         self.rec.read(b, env, j, carry, next)
     }
 
@@ -196,8 +250,19 @@ impl SourceMech for Reader<'_> {
     fn pipeline_desc(&self, px: &Px<'_, '_>, k: usize) -> Pipeline {
         let d = px.gx.pipelines()[k].desc;
         match self.chunks {
-            Some(s) => Pipeline { parallel: Parallel::Eligible, driving_site: s as i16, predicted_rows: self.rows, ..d },
-            None => Pipeline { parallel: Parallel::Ineligible { site: d.driving_site, reason: Why::NoDrivingSite }, ..d },
+            Some(s) => Pipeline {
+                parallel: Parallel::Eligible,
+                driving_site: s as i16,
+                predicted_rows: self.rows,
+                ..d
+            },
+            None => Pipeline {
+                parallel: Parallel::Ineligible {
+                    site: d.driving_site,
+                    reason: Why::NoDrivingSite,
+                },
+                ..d
+            },
         }
     }
 }

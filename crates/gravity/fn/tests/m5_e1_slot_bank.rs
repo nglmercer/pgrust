@@ -32,16 +32,42 @@ impl Open {
         ctx.arena_cur = arena.as_mut_ptr();
         // SAFETY: one past the end of the arena.
         ctx.arena_end = unsafe { arena.as_mut_ptr().add(arena.len()) };
-        let args = vec![common::image(text.as_bytes()), common::image(delim.as_bytes())];
-        let av: Vec<i64> = args.iter().map(|a| common::image_datum(a).as_i64()).collect();
+        let args = vec![
+            common::image(text.as_bytes()),
+            common::image(delim.as_bytes()),
+        ];
+        let av: Vec<i64> = args
+            .iter()
+            .map(|a| common::image_datum(a).as_i64())
+            .collect();
         let an = vec![0u8; av.len()];
         let mut state = vec![0u8; STATE_BYTES];
         state[STATE_SLOT..STATE_SLOT + 8].copy_from_slice(&0u64.to_ne_bytes());
         let mut err = ErrSlot::NONE;
         // SAFETY: the library's contract: a bound ctx, the state cell and argument buffers alive for the call.
-        let st = unsafe { (e.open)(&mut err, &mut *ctx, state.as_mut_ptr(), av.as_ptr(), an.as_ptr(), av.len() as i64, DEFAULT_COLLATION) };
-        assert!(st >= 0, "open: {:?}", err.take().map(|e| e.message().to_owned()));
-        Open { e, state, ctx, _arena: arena, _args: args }
+        let st = unsafe {
+            (e.open)(
+                &mut err,
+                &mut *ctx,
+                state.as_mut_ptr(),
+                av.as_ptr(),
+                an.as_ptr(),
+                av.len() as i64,
+                DEFAULT_COLLATION,
+            )
+        };
+        assert!(
+            st >= 0,
+            "open: {:?}",
+            err.take().map(|e| e.message().to_owned())
+        );
+        Open {
+            e,
+            state,
+            ctx,
+            _arena: arena,
+            _args: args,
+        }
     }
 
     /// The next row's text, `None` when the set is done.
@@ -49,14 +75,28 @@ impl Open {
         let mut out = [0i64; OUT_WORDS];
         let mut err = ErrSlot::NONE;
         // SAFETY: as `new`; the state is this open's.
-        let r = unsafe { (self.e.step)(&mut err, &mut *self.ctx, self.state.as_mut_ptr(), out.as_mut_ptr()) };
-        assert!(r >= 0, "step: {:?}", err.take().map(|e| e.message().to_owned()));
+        let r = unsafe {
+            (self.e.step)(
+                &mut err,
+                &mut *self.ctx,
+                self.state.as_mut_ptr(),
+                out.as_mut_ptr(),
+            )
+        };
+        assert!(
+            r >= 0,
+            "step: {:?}",
+            err.take().map(|e| e.message().to_owned())
+        );
         if r == 0 {
             return None;
         }
         assert_eq!(out[1], 0, "a non-null row");
         // SAFETY: a varlena datum of the row, in the ctx arena.
-        Some(String::from_utf8(unsafe { payload(Datum::from_i64(out[0]).as_usize() as *const u8) }).expect("utf8"))
+        Some(
+            String::from_utf8(unsafe { payload(Datum::from_i64(out[0]).as_usize() as *const u8) })
+                .expect("utf8"),
+        )
     }
 }
 
@@ -90,7 +130,11 @@ fn a_nested_levels_open_leaves_the_outer_slot_intact() {
         });
         assert_eq!(inner, ["XXXX", "YYYYY", "ZZZZZZ", "WWWWWWW", "VVVVVVVV"]);
         let rest: Vec<String> = core::iter::from_fn(|| outer.step()).collect();
-        assert_eq!(rest, ["beta", "gamma", "delta"], "level 0's rows after level 1's open");
+        assert_eq!(
+            rest,
+            ["beta", "gamma", "delta"],
+            "level 0's rows after level 1's open"
+        );
     });
 }
 

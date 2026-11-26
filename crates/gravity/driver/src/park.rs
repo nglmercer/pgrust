@@ -1,6 +1,6 @@
+use pgsync::Mutex;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use pgsync::Mutex;
 
 use gravity_program::cost::runtime::REGION_MIN_SHIFT;
 use gravity_program::{ContentKey, Handle, PlanKey};
@@ -9,8 +9,8 @@ use crate::node::{Node, RegionBuf};
 
 mod index;
 
-use index::{index_check, index_mismatch, Index, NIL};
 pub(crate) use index::RelsRead;
+use index::{index_check, index_mismatch, Index, NIL};
 pub use index::{index_mismatches, park_index, set_park_index};
 
 struct Entry {
@@ -84,7 +84,9 @@ pub fn trim_idle_holds() -> usize {
     }
     let keep = mempolicy::keep::idle_keep(cap);
     let slots = crate::slots::DEPOT.stats().bytes;
-    let Some(to) = mempolicy::keep::end_regions_to(keep, REGIONS.stats().bytes, slots) else { return 0 };
+    let Some(to) = mempolicy::keep::end_regions_to(keep, REGIONS.stats().bytes, slots) else {
+        return 0;
+    };
     let mut freed = REGIONS.trim_to(to);
     match mempolicy::keep::end_slots_over(keep, REGIONS.stats().bytes + slots) {
         0 => {}
@@ -109,11 +111,30 @@ impl Park {
     }
 
     pub fn with_bytes(capacity: usize, cap_bytes: usize) -> Park {
-        Park { slots: Vec::new(), cap: capacity.max(1), clock: 0, evictions: 0, cap_bytes, total: 0, live: 0, hint: 0, ix: Index::new(), visits: 0 } // alloc: Exec
+        Park {
+            slots: Vec::new(),
+            cap: capacity.max(1),
+            clock: 0,
+            evictions: 0,
+            cap_bytes,
+            total: 0,
+            live: 0,
+            hint: 0,
+            ix: Index::new(),
+            visits: 0,
+        } // alloc: Exec
     }
 
     pub fn bytes(&self) -> usize {
-        debug_assert_eq!(self.total, self.slots.iter().flatten().map(|e| e.node.bytes()).sum::<usize>(), "the park's running byte total");
+        debug_assert_eq!(
+            self.total,
+            self.slots
+                .iter()
+                .flatten()
+                .map(|e| e.node.bytes())
+                .sum::<usize>(),
+            "the park's running byte total"
+        );
         self.total
     }
 
@@ -157,14 +178,21 @@ impl Park {
 
     pub fn take(&mut self, key: PlanKey, content: ContentKey) -> Option<Box<Node>> {
         self.sync_index();
-        let best = if self.slots.get(self.hint).and_then(Option::as_ref).is_some_and(|e| e.key == key && e.stamp == self.clock) {
+        let best = if self
+            .slots
+            .get(self.hint)
+            .and_then(Option::as_ref)
+            .is_some_and(|e| e.key == key && e.stamp == self.clock)
+        {
             Some(self.hint)
         } else if self.ix.on {
             let got = self.ix_newest(key);
             if index_check() {
                 let want = self.newest_walked(key);
                 if got != want {
-                    index_mismatch(format_args!("take {key:?}: index slot {got:?}, walk slot {want:?}"));
+                    index_mismatch(format_args!(
+                        "take {key:?}: index slot {got:?}, walk slot {want:?}"
+                    ));
                     return self.take_at(want, key, content);
                 }
             }
@@ -180,7 +208,9 @@ impl Park {
         let mut best: Option<usize> = None;
         for (i, e) in self.slots.iter().enumerate() {
             if let Some(e) = e {
-                if e.key == key && best.is_none_or(|b| e.stamp > self.slots[b].as_ref().map_or(0, |x| x.stamp)) {
+                if e.key == key
+                    && best.is_none_or(|b| e.stamp > self.slots[b].as_ref().map_or(0, |x| x.stamp))
+                {
                     best = Some(i);
                 }
             }
@@ -189,7 +219,12 @@ impl Park {
     }
 
     /// `take`'s entry at slot `best` out, its content checked.
-    fn take_at(&mut self, best: Option<usize>, key: PlanKey, content: ContentKey) -> Option<Box<Node>> {
+    fn take_at(
+        &mut self,
+        best: Option<usize>,
+        key: PlanKey,
+        content: ContentKey,
+    ) -> Option<Box<Node>> {
         let e = self.remove(best?)?;
         if e.node.program().key != content {
             self.drop_for(key.handle);
@@ -240,8 +275,23 @@ impl Park {
         };
         let bytes = node.bytes();
         // a Node holding worker slots (a parallel statement's, kept with it) is reached by every record, as before
-        let rels = if node.workers.is_empty() { node.rels } else { RelsRead::ANY };
-        self.slots[idx] = Some(Entry { key, node, stamp: self.clock, bytes, shed: false, older: NIL, newer: NIL, kolder: NIL, knewer: NIL, rels });
+        let rels = if node.workers.is_empty() {
+            node.rels
+        } else {
+            RelsRead::ANY
+        };
+        self.slots[idx] = Some(Entry {
+            key,
+            node,
+            stamp: self.clock,
+            bytes,
+            shed: false,
+            older: NIL,
+            newer: NIL,
+            kolder: NIL,
+            knewer: NIL,
+            rels,
+        });
         if self.ix.on {
             self.ix_link(idx);
         }
@@ -249,7 +299,10 @@ impl Park {
         self.live += 1;
         self.hint = idx;
         while self.live > 1 && self.total > self.cap_bytes {
-            let victim = (0..self.slots.len()).filter(|&i| i != idx && self.slots[i].is_some()).max_by_key(|&i| self.slots[i].as_ref().map_or(0, |e| e.bytes)).expect("an older entry");
+            let victim = (0..self.slots.len())
+                .filter(|&i| i != idx && self.slots[i].is_some())
+                .max_by_key(|&i| self.slots[i].as_ref().map_or(0, |e| e.bytes))
+                .expect("an older entry");
             self.remove(victim);
             self.evictions += 1;
         }
@@ -265,8 +318,12 @@ impl Park {
         }
         if crate::mem::grant::POOL.over_park_budget() {
             let once = shed_once();
-            let mut order: Vec<usize> = (0..self.slots.len()).filter(|&i| self.slots[i].as_ref().is_some_and(|e| !(once && e.shed))).collect(); // alloc: Cold
-            order.sort_by_key(|&i| core::cmp::Reverse(self.slots[i].as_ref().map_or(0, |e| e.bytes)));
+            let mut order: Vec<usize> = (0..self.slots.len())
+                .filter(|&i| self.slots[i].as_ref().is_some_and(|e| !(once && e.shed)))
+                .collect(); // alloc: Cold
+            order.sort_by_key(|&i| {
+                core::cmp::Reverse(self.slots[i].as_ref().map_or(0, |e| e.bytes))
+            });
             for i in order {
                 if !crate::mem::grant::POOL.over_park_budget() {
                     break;
@@ -288,7 +345,11 @@ impl Park {
     /// the bytes stay (a cursor is no Node byte). W1: with the switch on, a Node whose sources read none of the record's relations
     /// (`Entry::rels`) is passed: `Source::release_rel` would release nothing from it. The check releases it anyway and
     /// counts a mismatch if that released anything.
-    pub(crate) fn release_recorded(&mut self, record: &crate::slots::Released, doomed: &mut Vec<Box<dyn core::any::Any>>) {
+    pub(crate) fn release_recorded(
+        &mut self,
+        record: &crate::slots::Released,
+        doomed: &mut Vec<Box<dyn core::any::Any>>,
+    ) {
         if !park_index() {
             for e in self.slots.iter_mut().flatten() {
                 e.node.release_recorded(record, doomed);
@@ -306,7 +367,11 @@ impl Park {
                 let before = doomed.len();
                 e.node.release_recorded(record, doomed);
                 if doomed.len() != before {
-                    index_mismatch(format_args!("release passed slot {i} (reads {:?}), which kept {} released item(s)", e.rels, doomed.len() - before));
+                    index_mismatch(format_args!(
+                        "release passed slot {i} (reads {:?}), which kept {} released item(s)",
+                        e.rels,
+                        doomed.len() - before
+                    ));
                 }
             }
         }
@@ -316,7 +381,10 @@ impl Park {
         self.sync_index();
         let mut dropped = 0;
         for i in 0..self.slots.len() {
-            if self.slots[i].as_ref().is_some_and(|e| e.key.handle == handle) {
+            if self.slots[i]
+                .as_ref()
+                .is_some_and(|e| e.key.handle == handle)
+            {
                 self.remove(i);
                 dropped += 1;
             }
@@ -328,7 +396,11 @@ impl Park {
     }
 
     pub fn len(&self) -> usize {
-        debug_assert_eq!(self.live, self.slots.iter().filter(|s| s.is_some()).count(), "the park's entry count");
+        debug_assert_eq!(
+            self.live,
+            self.slots.iter().filter(|s| s.is_some()).count(),
+            "the park's entry count"
+        );
         self.live
     }
 
@@ -365,9 +437,10 @@ impl Park {
 
     /// D3881: the bytes of the slots grown so far and of the boxed Nodes the occupied ones hold, and (W1) the index's.
     pub fn slot_bytes(&self) -> usize {
-        self.slots.capacity() * core::mem::size_of::<Option<Entry>>() + self.live * core::mem::size_of::<Node>() + self.ix.bytes()
+        self.slots.capacity() * core::mem::size_of::<Option<Entry>>()
+            + self.live * core::mem::size_of::<Node>()
+            + self.ix.bytes()
     }
-
 }
 
 /// The process-wide region depot (partitioned-record.md §4.5 as landed): breaker regions parked by size class (a power of
@@ -402,7 +475,10 @@ struct Classes {
 impl Classes {
     /// The class whose front (its oldest) region was put least recently, if any region is parked.
     fn oldest(&self) -> Option<usize> {
-        (0..REGION_CLASSES).filter_map(|k| self.q[k].front().map(|e| (e.0, k))).min().map(|(_, k)| k)
+        (0..REGION_CLASSES)
+            .filter_map(|k| self.q[k].front().map(|e| (e.0, k)))
+            .min()
+            .map(|(_, k)| k)
     }
 
     fn entries(&self) -> usize {
@@ -415,7 +491,18 @@ impl Classes {
     }
 }
 
-pub static REGIONS: RegionDepot = RegionDepot { classes: Mutex::new(Classes { q: [const { VecDeque::new() }; REGION_CLASSES], clock: 0 }), bytes: AtomicUsize::new(0), takes: AtomicU64::new(0), puts: AtomicU64::new(0), allocs: AtomicU64::new(0), evictions: AtomicU64::new(0), beside: AtomicU64::new(0) }; // alloc: Cold
+pub static REGIONS: RegionDepot = RegionDepot {
+    classes: Mutex::new(Classes {
+        q: [const { VecDeque::new() }; REGION_CLASSES],
+        clock: 0,
+    }),
+    bytes: AtomicUsize::new(0),
+    takes: AtomicU64::new(0),
+    puts: AtomicU64::new(0),
+    allocs: AtomicU64::new(0),
+    evictions: AtomicU64::new(0),
+    beside: AtomicU64::new(0),
+}; // alloc: Cold
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct RegionDepotStats {
@@ -429,12 +516,14 @@ pub struct RegionDepotStats {
 
 /// The class a take of `bytes` looks in first: every region parked there is at least `bytes` long.
 fn class_of(bytes: usize) -> usize {
-    (bytes.max(REGION_MIN).next_power_of_two().trailing_zeros() as usize - REGION_MIN_SHIFT).min(REGION_CLASSES - 1)
+    (bytes.max(REGION_MIN).next_power_of_two().trailing_zeros() as usize - REGION_MIN_SHIFT)
+        .min(REGION_CLASSES - 1)
 }
 
 /// The class a region of `len` parks in: the power of two at or under it (a region is its asked bytes, page-rounded, never its class).
 fn park_class_of(len: usize) -> usize {
-    ((usize::BITS - 1 - len.max(REGION_MIN).leading_zeros()) as usize - REGION_MIN_SHIFT).min(REGION_CLASSES - 1)
+    ((usize::BITS - 1 - len.max(REGION_MIN).leading_zeros()) as usize - REGION_MIN_SHIFT)
+        .min(REGION_CLASSES - 1)
 }
 
 /// The bytes a fresh region maps for a take of `bytes`: page-rounded (D157: the power-of-two class drew up to twice the share).
@@ -444,12 +533,21 @@ pub fn region_bytes(bytes: usize) -> usize {
 
 impl RegionDepot {
     /// A region of at least `bytes`: a parked one that fits, else a fresh page-rounded allocation (alloc: Node).
-    pub fn take(&self, bytes: usize, stmt: Option<&crate::mem::grant::Reservation>) -> crate::Result<RegionBuf> {
+    pub fn take(
+        &self,
+        bytes: usize,
+        stmt: Option<&crate::mem::grant::Reservation>,
+    ) -> crate::Result<RegionBuf> {
         self.take_for(bytes, stmt, None)
     }
 
     /// `take` charged to `life` (else `stmt`'s G).
-    pub fn take_for(&self, bytes: usize, stmt: Option<&crate::mem::grant::Reservation>, life: Option<&std::rc::Rc<crate::mem::grant::StmtCtx>>) -> crate::Result<RegionBuf> {
+    pub fn take_for(
+        &self,
+        bytes: usize,
+        stmt: Option<&crate::mem::grant::Reservation>,
+        life: Option<&std::rc::Rc<crate::mem::grant::StmtCtx>>,
+    ) -> crate::Result<RegionBuf> {
         // a slot's or a program constant's region: never under a strict reservation (H16 (a); arena chunks take `take_parked`)
         if let Some(s) = stmt {
             s.region_draw()?;
@@ -471,18 +569,33 @@ impl RegionDepot {
     /// region's size, and the rest of the allocation is an uncharged tail with its pages given back. Before R2, a slot that
     /// took a 512 MiB worker region for 227 MiB mapped 227 MiB fresh beside it; an arena chunk took 32 MiB for 8 MiB and
     /// charged W or G all 32.
-    pub fn take_parked(&self, bytes: usize, stmt: Option<&crate::mem::grant::Reservation>, life: Option<&std::rc::Rc<crate::mem::grant::StmtCtx>>) -> Option<RegionBuf> {
+    pub fn take_parked(
+        &self,
+        bytes: usize,
+        stmt: Option<&crate::mem::grant::Reservation>,
+        life: Option<&std::rc::Rc<crate::mem::grant::StmtCtx>>,
+    ) -> Option<RegionBuf> {
         let c = class_of(bytes);
         // D369: the ask is the page-rounded region a fresh take maps; against the raw ask a sub-page one never fit its own
         // parked page, so every take mapped and parked another (+1 entry a take, the scan under the lock growing with them)
         let want = region_bytes(bytes);
         // option c': a parked reservation serves only a reservation ask (`take_reserved`), never a plain share
-        let fits = |b: &RegionBuf| !b.is_reserved() && b.whole() >= bytes && b.whole().saturating_sub(want) <= want / 8;
-        let covers = |b: &RegionBuf| !b.is_reserved() && b.whole() >= bytes && b.whole() <= want.saturating_mul(4);
+        let fits = |b: &RegionBuf| {
+            !b.is_reserved() && b.whole() >= bytes && b.whole().saturating_sub(want) <= want / 8
+        };
+        let covers = |b: &RegionBuf| {
+            !b.is_reserved() && b.whole() >= bytes && b.whole() <= want.saturating_mul(4)
+        };
         let parked = {
             let mut classes = self.classes.lock().unwrap_or_else(|p| p.into_inner());
             let (lo, hi) = (c.saturating_sub(1), (c + 1).min(REGION_CLASSES - 1));
-            let near = (lo..=hi).find_map(|k| classes.q[k].iter().rposition(|e| fits(&e.1)).and_then(|i| classes.q[k].remove(i)).map(|e| e.1));
+            let near = (lo..=hi).find_map(|k| {
+                classes.q[k]
+                    .iter()
+                    .rposition(|e| fits(&e.1))
+                    .and_then(|i| classes.q[k].remove(i))
+                    .map(|e| e.1)
+            });
             let taken = near.or_else(|| {
                 let mut best: Option<(usize, usize, usize)> = None;
                 for k in lo..=hi {
@@ -492,7 +605,8 @@ impl RegionDepot {
                         }
                     }
                 }
-                best.and_then(|(_, k, i)| classes.q[k].remove(i)).map(|e| e.1)
+                best.and_then(|(_, k, i)| classes.q[k].remove(i))
+                    .map(|e| e.1)
             });
             // D4587: out of the count under the lock that took it out (a count changed only under the lock is the parked
             // regions' bytes whenever the lock is free: subtracted after it, a `clear` between took the count below zero)
@@ -504,10 +618,22 @@ impl RegionDepot {
         // take-back: past the depot, a queued whole give of the ask's shape (its pages still resident) before a fresh one
         let (parked, back) = match parked {
             Some(b) => (Some(b), 0),
-            None => crate::mem::giveback::take_back_give(want).map_or((None, 0), |(b, n)| (Some(b), n)),
+            None => {
+                crate::mem::giveback::take_back_give(want).map_or((None, 0), |(b, n)| (Some(b), n))
+            }
         };
         if crate::node::region_debug() & crate::node::TRACE != 0 {
-            eprintln!("gravity: region: depot take {bytes} class {c} {} (parked entries {}, bytes {})", parked.as_ref().map_or("alloc".to_string(), |b| format!("parked {}", b.whole())), self.classes.lock().unwrap_or_else(|p| p.into_inner()).entries(), self.bytes.load(Ordering::Relaxed)); // alloc: Cold
+            eprintln!(
+                "gravity: region: depot take {bytes} class {c} {} (parked entries {}, bytes {})",
+                parked
+                    .as_ref()
+                    .map_or("alloc".to_string(), |b| format!("parked {}", b.whole())),
+                self.classes
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .entries(),
+                self.bytes.load(Ordering::Relaxed)
+            ); // alloc: Cold
         }
         match parked {
             Some(mut buf) => {
@@ -542,10 +668,21 @@ impl RegionDepot {
     pub(crate) fn take_reserved(&self, bytes: usize, reserve: usize) -> Option<RegionBuf> {
         let c = class_of(bytes);
         let want = region_bytes(bytes);
-        let fits = |b: &RegionBuf| b.is_reserved() && b.len() >= bytes && b.len().saturating_sub(want) <= want / 8 && b.reserve() >= reserve;
+        let fits = |b: &RegionBuf| {
+            b.is_reserved()
+                && b.len() >= bytes
+                && b.len().saturating_sub(want) <= want / 8
+                && b.reserve() >= reserve
+        };
         let buf = {
             let mut classes = self.classes.lock().unwrap_or_else(|p| p.into_inner());
-            let taken = (c.saturating_sub(1)..=(c + 1).min(REGION_CLASSES - 1)).find_map(|k| classes.q[k].iter().rposition(|e| fits(&e.1)).and_then(|i| classes.q[k].remove(i)).map(|e| e.1));
+            let taken = (c.saturating_sub(1)..=(c + 1).min(REGION_CLASSES - 1)).find_map(|k| {
+                classes.q[k]
+                    .iter()
+                    .rposition(|e| fits(&e.1))
+                    .and_then(|i| classes.q[k].remove(i))
+                    .map(|e| e.1)
+            });
             // D4587: out of the count under the lock that took it out (`take_parked`)
             if let Some(b) = &taken {
                 self.bytes.fetch_sub(b.len(), Ordering::Relaxed);
@@ -571,7 +708,9 @@ impl RegionDepot {
     /// again (each first write of a huge page zeroed by the kernel). One longer than the reservation is not taken: its
     /// taker could commit nothing past it.
     pub(crate) fn take_laid(&self, bytes: usize, reserve: usize) -> Option<RegionBuf> {
-        let fits = |b: &RegionBuf| b.is_laid() && b.len() >= bytes && b.len() <= reserve && b.reserve() >= reserve;
+        let fits = |b: &RegionBuf| {
+            b.is_laid() && b.len() >= bytes && b.len() <= reserve && b.reserve() >= reserve
+        };
         let mut buf = {
             let mut classes = self.classes.lock().unwrap_or_else(|p| p.into_inner());
             let mut best: Option<(usize, usize, usize)> = None;
@@ -600,7 +739,9 @@ impl RegionDepot {
     /// whole, a reservation past half the pool dropped a slot freed mid-statement (CB9 W8's 3.3 GiB slot-0 share every run).
     pub fn put_from_life(&self, mut buf: RegionBuf, stmt: Option<&crate::mem::grant::Reservation>) {
         if buf.to_pool() {
-            self.parking_beside(stmt.map_or(0, crate::mem::grant::Reservation::left), || self.put(buf));
+            self.parking_beside(stmt.map_or(0, crate::mem::grant::Reservation::left), || {
+                self.put(buf)
+            });
         } else {
             self.evictions.fetch_add(1, Ordering::Relaxed);
         }
@@ -609,7 +750,9 @@ impl RegionDepot {
     /// D3063 (b): the least recently put regions dropped until at most `keep` bytes stay parked; the bytes freed.
     /// D4398: in the ladder thread's pass, nothing while another thread holds the depot (`memledger::ladder_pass`).
     pub fn trim_to(&self, keep: usize) -> usize {
-        let Some(mut classes) = memledger::ladder_pass::lock_or_skip(&self.classes) else { return 0 };
+        let Some(mut classes) = memledger::ladder_pass::lock_or_skip(&self.classes) else {
+            return 0;
+        };
         let mut freed = 0;
         let mut doomed = Vec::new(); // alloc: Cold
         while self.bytes.load(Ordering::Relaxed) > keep {
@@ -630,9 +773,17 @@ impl RegionDepot {
     /// takes it first). Never their lengths: a mapping's unwritten or purged pages and a heap region's given-back ones are on
     /// no account and free nothing. 0 in the ladder thread's pass while another thread holds the depot (D4398).
     pub fn trimmable_account_bytes(&self) -> usize {
-        let Some(classes) = memledger::ladder_pass::lock_or_skip(&self.classes) else { return 0 };
+        let Some(classes) = memledger::ladder_pass::lock_or_skip(&self.classes) else {
+            return 0;
+        };
         let newest = classes.newest();
-        classes.q.iter().flat_map(|q| q.iter()).filter(|e| Some(e.0) != newest).map(|e| e.1.account_bytes()).sum()
+        classes
+            .q
+            .iter()
+            .flat_map(|q| q.iter())
+            .filter(|e| Some(e.0) != newest)
+            .map(|e| e.1.account_bytes())
+            .sum()
     }
 
     /// P3, R2p's trim: the least recently put regions dropped, the newest kept, until `want` of their account bytes are
@@ -644,7 +795,9 @@ impl RegionDepot {
         // reaper), so the trim keeps no list of its own
         while freed < want {
             let victim = {
-                let Some(mut classes) = memledger::ladder_pass::lock_or_skip(&self.classes) else { break };
+                let Some(mut classes) = memledger::ladder_pass::lock_or_skip(&self.classes) else {
+                    break;
+                };
                 if classes.entries() <= 1 {
                     break;
                 }
@@ -663,7 +816,18 @@ impl RegionDepot {
     /// An empty depot of its own (the tests that read one depot's numbers while other tests park in `REGIONS`).
     #[cfg(test)]
     pub(crate) fn fresh() -> RegionDepot {
-        RegionDepot { classes: Mutex::new(Classes { q: [const { VecDeque::new() }; REGION_CLASSES], clock: 0 }), bytes: AtomicUsize::new(0), takes: AtomicU64::new(0), puts: AtomicU64::new(0), allocs: AtomicU64::new(0), evictions: AtomicU64::new(0), beside: AtomicU64::new(0) }
+        RegionDepot {
+            classes: Mutex::new(Classes {
+                q: [const { VecDeque::new() }; REGION_CLASSES],
+                clock: 0,
+            }),
+            bytes: AtomicUsize::new(0),
+            takes: AtomicU64::new(0),
+            puts: AtomicU64::new(0),
+            allocs: AtomicU64::new(0),
+            evictions: AtomicU64::new(0),
+            beside: AtomicU64::new(0),
+        }
     }
 
     /// The tests' read of the parked regions' charges: each one's committed bytes, as its move to PARKED's account booked
@@ -671,7 +835,12 @@ impl RegionDepot {
     #[cfg(test)]
     pub(crate) fn charged_bytes(&self) -> u64 {
         let classes = self.classes.lock().unwrap_or_else(|p| p.into_inner());
-        classes.q.iter().flat_map(|q| q.iter()).map(|e| e.1.charge_committed()).sum()
+        classes
+            .q
+            .iter()
+            .flat_map(|q| q.iter())
+            .map(|e| e.1.charge_committed())
+            .sum()
     }
 
     /// Every parked region dropped (the grant pool under pressure, `GrantPool::admit`; an idle backend's release), their
@@ -754,9 +923,14 @@ impl RegionDepot {
         let pool = &crate::mem::grant::POOL;
         // the park budget (`GrantPool::over_park_budget`) without the parking statement's unspent reservation (`parking_beside`)
         let beside = self.beside.load(Ordering::Relaxed);
-        let over = || pool.capacity() != 0 && pool.held().saturating_sub(beside) > pool.capacity() / 2;
+        let over =
+            || pool.capacity() != 0 && pool.held().saturating_sub(beside) > pool.capacity() / 2;
         if crate::node::region_debug() & crate::node::TRACE != 0 {
-            eprintln!("gravity: region: depot put {} (over park budget {})", buf.len(), over());
+            eprintln!(
+                "gravity: region: depot put {} (over park budget {})",
+                buf.len(),
+                over()
+            );
         }
         let c = park_class_of(buf.len());
         let len = buf.len();
@@ -806,7 +980,14 @@ impl RegionDepot {
 
     pub fn stats(&self) -> RegionDepotStats {
         let classes = self.classes.lock().unwrap_or_else(|p| p.into_inner());
-        RegionDepotStats { entries: classes.entries(), bytes: self.bytes.load(Ordering::Relaxed), takes: self.takes.load(Ordering::Relaxed), puts: self.puts.load(Ordering::Relaxed), allocs: self.allocs.load(Ordering::Relaxed), evictions: self.evictions.load(Ordering::Relaxed) }
+        RegionDepotStats {
+            entries: classes.entries(),
+            bytes: self.bytes.load(Ordering::Relaxed),
+            takes: self.takes.load(Ordering::Relaxed),
+            puts: self.puts.load(Ordering::Relaxed),
+            allocs: self.allocs.load(Ordering::Relaxed),
+            evictions: self.evictions.load(Ordering::Relaxed),
+        }
     }
 
     /// The parked regions' bytes (each pool-held), without the lock `stats` takes.

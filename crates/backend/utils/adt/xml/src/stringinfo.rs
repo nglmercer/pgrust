@@ -22,7 +22,10 @@ impl Default for StringInfoGrowth {
 
 impl StringInfoGrowth {
     pub fn with_limit(limit: usize) -> Self {
-        StringInfoGrowth { maxlen: STRINGINFO_DEFAULT_SIZE.min(limit), limit }
+        StringInfoGrowth {
+            maxlen: STRINGINFO_DEFAULT_SIZE.min(limit),
+            limit,
+        }
     }
 
     pub fn maxlen(&self) -> usize {
@@ -72,7 +75,9 @@ impl StringInfoGrowth {
                 return Ok(());
             }
             if nprinted > self.limit - 1 {
-                return Err(Box::new(PgError::error("out of memory").with_sqlstate(ERRCODE_OUT_OF_MEMORY)));
+                return Err(Box::new(
+                    PgError::error("out of memory").with_sqlstate(ERRCODE_OUT_OF_MEMORY),
+                ));
             }
             self.enlarge(len, nprinted + 1)?;
         }
@@ -101,7 +106,10 @@ impl StringInfo {
     }
 
     pub fn with_limit(limit: usize) -> Self {
-        StringInfo { data: String::new(), growth: StringInfoGrowth::with_limit(limit) }
+        StringInfo {
+            data: String::new(),
+            growth: StringInfoGrowth::with_limit(limit),
+        }
     }
 
     pub fn len(&self) -> usize {

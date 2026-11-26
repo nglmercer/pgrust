@@ -34,7 +34,11 @@ pub(crate) fn probe(relation_id: Oid) -> Probe {
 
 // RelationIdCacheLookup.
 pub(crate) fn lookup_ent(relation_id: Oid) -> Option<(Rc<RelationData<'static>>, bool)> {
-    with_state(|st| st.id_cache.get(&relation_id).map(|e| (Rc::clone(&e.rel), e.nailed)))
+    with_state(|st| {
+        st.id_cache
+            .get(&relation_id)
+            .map(|e| (Rc::clone(&e.rel), e.nailed))
+    })
 }
 
 pub(crate) fn is_nailed(relation_id: Oid) -> bool {
@@ -140,23 +144,22 @@ pub(crate) fn enforce_cap_at(cap: usize) -> PgResult<()> {
         // in_progress non-empty = we are inside somebody's RelationBuildDesc;
         // defer to the top-level miss that triggered it. Pre-critical phases
         // (bootstrap, init file load) never evict.
-        if st.id_cache.len() <= cap
-            || !st.in_progress.is_empty()
-            || !st.critical_relcaches_built
-        {
+        if st.id_cache.len() <= cap || !st.in_progress.is_empty() || !st.critical_relcaches_built {
             return Vec::new();
         }
         let excess = st.id_cache.len() - cap;
         let mut eligible: Vec<(u64, Oid)> = st
             .id_cache
             .iter()
-            .filter(|&(_oid, ent)|!ent.nailed
+            .filter(|&(_oid, ent)| {
+                !ent.nailed
                     && Rc::strong_count(&ent.rel) == 1
                     && ent.rel.rd_createSubid.get() == InvalidSubTransactionId
                     && ent.rel.rd_newRelfilelocatorSubid.get() == InvalidSubTransactionId
                     && ent.rel.rd_firstRelfilelocatorSubid.get() == InvalidSubTransactionId
-                    && ent.rel.rd_droppedSubid.get() == InvalidSubTransactionId)
-                    .map(|(oid, ent)| (ent.last_used.get(), *oid))
+                    && ent.rel.rd_droppedSubid.get() == InvalidSubTransactionId
+            })
+            .map(|(oid, ent)| (ent.last_used.get(), *oid))
             .collect();
         if excess < eligible.len() {
             eligible.select_nth_unstable(excess);
@@ -168,7 +171,9 @@ pub(crate) fn enforce_cap_at(cap: usize) -> PgResult<()> {
         // Re-verify per victim: clearing entry N can run side-cache forgets
         // but never takes new references; still, stay in lockstep with the
         // live state exactly like RelationCacheInvalidate's phase-2 loop.
-        let Some((rel, nailed)) = lookup_ent(oid) else { continue };
+        let Some((rel, nailed)) = lookup_ent(oid) else {
+            continue;
+        };
         if nailed
             || !refcount_zero(&rel, 1)
             || rel.rd_createSubid.get() != InvalidSubTransactionId
@@ -213,7 +218,9 @@ pub(crate) fn passivate_all() -> PgResult<usize> {
     let mut cleared = 0usize;
     for oid in victims {
         // Re-verify per victim, exactly as enforce_cap_at does.
-        let Some((rel, nailed)) = lookup_ent(oid) else { continue };
+        let Some((rel, nailed)) = lookup_ent(oid) else {
+            continue;
+        };
         if nailed
             || !refcount_zero(&rel, 1)
             || rel.rd_createSubid.get() != InvalidSubTransactionId
@@ -239,13 +246,20 @@ pub(crate) fn insert(
     let leaked = with_state(|st| {
         st.lru_clock += 1;
         let last_used = core::cell::Cell::new(st.lru_clock);
-        match st.id_cache.insert(relid, RelCacheEnt { rel, nailed, last_used }) {
-        Some(old) => {
-            debug_assert!(replace_allowed);
-            crate::note_stale(st, &old.rel);
-            (!refcount_zero(&old.rel, 0)).then(|| String::from(old.rel.name()))
-        }
-        None => None,
+        match st.id_cache.insert(
+            relid,
+            RelCacheEnt {
+                rel,
+                nailed,
+                last_used,
+            },
+        ) {
+            Some(old) => {
+                debug_assert!(replace_allowed);
+                crate::note_stale(st, &old.rel);
+                (!refcount_zero(&old.rel, 0)).then(|| String::from(old.rel.name()))
+            }
+            None => None,
         }
     });
     if let Some(name) = leaked {

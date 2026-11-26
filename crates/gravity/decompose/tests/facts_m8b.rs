@@ -25,8 +25,8 @@ use std::path::PathBuf;
 
 use gravity_abi::breaker::BreakerKind;
 use gravity_decompose::effects::{builtin_func, builtin_oper, Volatility};
-use gravity_decompose::graph::{Op, ParamOwner, PipelineGraph, PipelineNode, Source};
 use gravity_decompose::facts::nest::NestFacts;
+use gravity_decompose::graph::{Op, ParamOwner, PipelineGraph, PipelineNode, Source};
 use gravity_decompose::join::JoinDesc;
 use gravity_decompose::ops::shared::agg::GroupForm;
 use gravity_decompose::ops::shared::subplan::{SubForm, SubLink};
@@ -45,10 +45,23 @@ fn fixture(sql: &str) -> PathBuf {
     let hits: Vec<PathBuf> = harness::fixtures_in(&harness::plans_root())
         .into_iter()
         // a nested plan (`cte-<n>.<k>`, a function body PostgreSQL planned under the statement) carries its outer's sql
-        .filter(|p| p.file_name().and_then(|f| f.to_str()).is_some_and(|f| f.starts_with("cte-") && f.matches('.').count() == 1))
-        .filter(|p| fs::read_to_string(p).unwrap().lines().any(|l| l.strip_prefix("-- sql: ").is_some_and(|q| q.trim().trim_end_matches(';') == sql)))
+        .filter(|p| {
+            p.file_name()
+                .and_then(|f| f.to_str())
+                .is_some_and(|f| f.starts_with("cte-") && f.matches('.').count() == 1)
+        })
+        .filter(|p| {
+            fs::read_to_string(p).unwrap().lines().any(|l| {
+                l.strip_prefix("-- sql: ")
+                    .is_some_and(|q| q.trim().trim_end_matches(';') == sql)
+            })
+        })
         .collect();
-    assert_eq!(hits.len(), 1, "cte fixtures of {sql}: {hits:?} (re-capture: scripts/gravity-capture-plans.sh cte)");
+    assert_eq!(
+        hits.len(),
+        1,
+        "cte fixtures of {sql}: {hits:?} (re-capture: scripts/gravity-capture-plans.sh cte)"
+    );
     hits.into_iter().next().unwrap()
 }
 
@@ -57,7 +70,8 @@ fn with_graph<R>(sql: &str, f: impl FnOnce(&PipelineGraph<'_>) -> R) -> R {
     let ctx = MemoryContext::new("facts_m8b");
     let fx = corpus::load(ctx.mcx(), &text).unwrap_or_else(|e| panic!("{sql}: {e}"));
     let arena = Arena::new(1 << 20);
-    let g = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx).unwrap_or_else(|r| panic!("{sql}: refused {r}"));
+    let g = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx)
+        .unwrap_or_else(|r| panic!("{sql}: refused {r}"));
     f(&g)
 }
 
@@ -112,13 +126,49 @@ fn form(sql: &str) -> Form {
         for p in pipes(g) {
             for op in p.ops.iter() {
                 match op {
-                    Op::Join(JoinDesc::Nest { facts: NestFacts { invariant, volatility, raise_free, eq, .. }, qual, params, .. }) => {
-                        let eq = eq.map(|e| (e.pos, e.opno, e.opfamily, e.types, e.coll, e.outer_left, e.outer_raise_free));
-                        nests.push(Nest { invariant: *invariant, volatility: *volatility, raise_free: *raise_free, eq, qual: qual.len(), params: params.len() });
+                    Op::Join(JoinDesc::Nest {
+                        facts:
+                            NestFacts {
+                                invariant,
+                                volatility,
+                                raise_free,
+                                eq,
+                                ..
+                            },
+                        qual,
+                        params,
+                        ..
+                    }) => {
+                        let eq = eq.map(|e| {
+                            (
+                                e.pos,
+                                e.opno,
+                                e.opfamily,
+                                e.types,
+                                e.coll,
+                                e.outer_left,
+                                e.outer_raise_free,
+                            )
+                        });
+                        nests.push(Nest {
+                            invariant: *invariant,
+                            volatility: *volatility,
+                            raise_free: *raise_free,
+                            eq,
+                            qual: qual.len(),
+                            params: params.len(),
+                        });
                     }
-                    Op::Join(JoinDesc::Probe { catalog: true, clauses, .. }) => {
+                    Op::Join(JoinDesc::Probe {
+                        catalog: true,
+                        clauses,
+                        ..
+                    }) => {
                         let o = clauses.iter().next().and_then(|c| c.as_op_expr());
-                        keyed.push(Form::Keyed { opno: o.map_or(0, |o| o.opno), coll: o.map_or(0, |o| o.inputcollid) });
+                        keyed.push(Form::Keyed {
+                            opno: o.map_or(0, |o| o.opno),
+                            coll: o.map_or(0, |o| o.inputcollid),
+                        });
                     }
                     _ => {}
                 }
@@ -176,10 +226,15 @@ fn f1_rescan_invariance_holds_and_does_not() {
             Form::Nest(n) => {
                 println!("facts_m8b F1\t{sql}\t{n:?}");
                 if n.invariant != want {
-                    bad.push(format!("{sql}: invariant {}, want {want} ({n:?})", n.invariant));
+                    bad.push(format!(
+                        "{sql}: invariant {}, want {want} ({n:?})",
+                        n.invariant
+                    ));
                 }
                 if n.invariant && (n.params > 0 || n.volatility == Volatility::Volatile) {
-                    bad.push(format!("{sql}: an invariant inner with params or a volatile call ({n:?})"));
+                    bad.push(format!(
+                        "{sql}: an invariant inner with params or a volatile call ({n:?})"
+                    ));
                 }
             }
             // D3014 build-once: only an inner that holds (reads nothing of the outer row, nothing volatile or
@@ -188,7 +243,9 @@ fn f1_rescan_invariance_holds_and_does_not() {
                 println!("facts_m8b F1\t{sql}\t{k:?}");
                 keyed += 1;
                 if !want {
-                    bad.push(format!("{sql}: built once ({k:?}), but its inner does not hold"));
+                    bad.push(format!(
+                        "{sql}: built once ({k:?}), but its inner does not hold"
+                    ));
                 }
             }
         }
@@ -202,7 +259,10 @@ fn f1_rescan_invariance_holds_and_does_not() {
             bad.push("now() in the index qual: the inner is not stable".into());
         }
     }
-    if nest("SELECT t.a, u.x FROM t JOIN u ON u.z = t.c WHERE t.a < 3 AND u.y < random() * 1000").volatility != Volatility::Volatile {
+    if nest("SELECT t.a, u.x FROM t JOIN u ON u.z = t.c WHERE t.a < 3 AND u.y < random() * 1000")
+        .volatility
+        != Volatility::Volatile
+    {
         bad.push("random() in the inner's qual: the inner is not volatile".into());
     }
     // a nested SubPlan's plan: uncorrelated and immutable holds; volatile or correlated does not
@@ -230,20 +290,33 @@ fn f2_the_equality_conjunct_holds_and_does_not() {
     let mut bad = Vec::new();
     // (sql, want eq: pos, opno, opfamily, (outer type, inner type), coll, outer_left)
     let holds: [(&str, (u16, u32, u32, (u32, u32), u32, bool)); 4] = [
-        ("SELECT t.a, u.x FROM t JOIN u ON u.z = t.c WHERE t.a < 3", (0, TEXT_EQ, TEXT_HASH_OPS, (25, 25), 100, true)),
+        (
+            "SELECT t.a, u.x FROM t JOIN u ON u.z = t.c WHERE t.a < 3",
+            (0, TEXT_EQ, TEXT_HASH_OPS, (25, 25), 100, true),
+        ),
         // cross-type: int4 = int8 in integer_ops (the planner puts the outer int4 on the left)
-        ("SELECT t.a, w FROM t JOIN w ON w.k = t.b WHERE t.a < 3", (0, INT48_EQ, INTEGER_HASH_OPS, (23, 20), 0, true)),
+        (
+            "SELECT t.a, w FROM t JOIN w ON w.k = t.b WHERE t.a < 3",
+            (0, INT48_EQ, INTEGER_HASH_OPS, (23, 20), 0, true),
+        ),
         // the operator's collation (COLLATE "C"), not the outer column's (the database default)
-        ("SELECT t.a, w.k FROM t JOIN w ON w.s = t.c COLLATE \"C\" WHERE t.a < 3", (0, TEXT_EQ, TEXT_HASH_OPS, (25, 25), 950, true)),
+        (
+            "SELECT t.a, w.k FROM t JOIN w ON w.s = t.c COLLATE \"C\" WHERE t.a < 3",
+            (0, TEXT_EQ, TEXT_HASH_OPS, (25, 25), 950, true),
+        ),
         // a volatile filter on the inner's scan leaves the join qual's equality as it is (F1 is false: what a road reads)
-        ("SELECT t.a, u.x FROM t JOIN u ON u.z = t.c WHERE t.a < 3 AND u.y < random() * 1000", (0, TEXT_EQ, TEXT_HASH_OPS, (25, 25), 100, true)),
+        (
+            "SELECT t.a, u.x FROM t JOIN u ON u.z = t.c WHERE t.a < 3 AND u.y < random() * 1000",
+            (0, TEXT_EQ, TEXT_HASH_OPS, (25, 25), 100, true),
+        ),
     ];
     for (sql, want) in holds {
         match form(sql) {
             Form::Nest(n) => {
                 println!("facts_m8b F2\t{sql}\t{n:?}");
                 match n.eq {
-                    Some((pos, op, fam, types, coll, left, _)) if (pos, op, fam, types, coll, left) == want => {}
+                    Some((pos, op, fam, types, coll, left, _))
+                        if (pos, op, fam, types, coll, left) == want => {}
                     other => bad.push(format!("{sql}: eq {other:?}, want {want:?}")),
                 }
             }
@@ -251,22 +324,39 @@ fn f2_the_equality_conjunct_holds_and_does_not() {
             Form::Keyed { opno, coll } => {
                 println!("facts_m8b F2\t{sql}\tkeyed op {opno} coll {coll}");
                 if (opno, coll) != (want.1, want.4) {
-                    bad.push(format!("{sql}: keyed by op {opno} coll {coll}, want {want:?}"));
+                    bad.push(format!(
+                        "{sql}: keyed by op {opno} coll {coll}, want {want:?}"
+                    ));
                 }
             }
         }
     }
     for (sql, why) in [
-        ("SELECT t.a, u.x FROM t JOIN u ON u.y / t.b > 0 AND u.z = t.c || '' WHERE t.a < 3", "a raising conjunct (int4div) before the equality"),
-        ("SELECT t.a, u.x FROM t JOIN u ON u.z || '' = t.c WHERE t.a < 3", "the inner side is an expression"),
-        ("SELECT t.a, u.x FROM t JOIN u ON u.z < t.c WHERE t.a < 3 AND u.x < 3", "no equality"),
-        ("SELECT t.a, u.z FROM t JOIN u ON u.x = t.a WHERE t.a < 3", "a parameterised inner: no join qual"),
+        (
+            "SELECT t.a, u.x FROM t JOIN u ON u.y / t.b > 0 AND u.z = t.c || '' WHERE t.a < 3",
+            "a raising conjunct (int4div) before the equality",
+        ),
+        (
+            "SELECT t.a, u.x FROM t JOIN u ON u.z || '' = t.c WHERE t.a < 3",
+            "the inner side is an expression",
+        ),
+        (
+            "SELECT t.a, u.x FROM t JOIN u ON u.z < t.c WHERE t.a < 3 AND u.x < 3",
+            "no equality",
+        ),
+        (
+            "SELECT t.a, u.z FROM t JOIN u ON u.x = t.a WHERE t.a < 3",
+            "a parameterised inner: no join qual",
+        ),
     ] {
         match form(sql) {
             Form::Nest(n) => {
                 println!("facts_m8b F2\t{sql}\t{n:?}");
                 if n.eq.is_some() || (why.starts_with("a raising") && n.qual != 2) {
-                    bad.push(format!("{sql}: {why}: eq {:?}, join qual of {}", n.eq, n.qual));
+                    bad.push(format!(
+                        "{sql}: {why}: eq {:?}, join qual of {}",
+                        n.eq, n.qual
+                    ));
                 }
             }
             // D3014 build-once (facts/nest.rs `eq_keyed`): a raise-free inner expression keys the build; the Nest's F2
@@ -287,11 +377,22 @@ fn f5_volatility_and_raise_free() {
     let mut bad = Vec::new();
     for (sql, want) in [
         // EXISTS over a leakproof index qual: stable to run at open
-        ("SELECT a FROM t WHERE EXISTS (SELECT 1 FROM u WHERE x = 42) AND a < 3", (Volatility::Immutable, true)),
+        (
+            "SELECT a FROM t WHERE EXISTS (SELECT 1 FROM u WHERE x = 42) AND a < 3",
+            (Volatility::Immutable, true),
+        ),
         // a scalar sublink over an index scan may see a second row: `more than one row returned by a subquery`
-        ("SELECT a FROM t WHERE b = (SELECT y FROM u WHERE x = 7)", (Volatility::Immutable, false)),
+        (
+            "SELECT a FROM t WHERE b = (SELECT y FROM u WHERE x = 7)",
+            (Volatility::Immutable, false),
+        ),
     ] {
-        let got = with_graph(sql, |g| g.init_plans.iter().map(|i| (i.volatility, i.raise_free)).collect::<Vec<_>>());
+        let got = with_graph(sql, |g| {
+            g.init_plans
+                .iter()
+                .map(|i| (i.volatility, i.raise_free))
+                .collect::<Vec<_>>()
+        });
         println!("facts_m8b F5 init\t{sql}\t{got:?}");
         if got != [want] {
             bad.push(format!("{sql}: InitPlans {got:?}, want [{want:?}]"));
@@ -337,24 +438,53 @@ fn f6_every_bound_param_has_its_owners_rep() {
     // (sql, the owner is a nest, typid, typmod, coll, rep is a word). The collation is the value's own (`exprCollation` of
     // the paramval: u.z's default), not the one the inner's index qual compares it under (COLLATE "C": the qual's own).
     for (sql, nest_owner, typid, typmod, coll, word) in [
-        ("SELECT t.a, u.z FROM t JOIN u ON u.x = t.a WHERE t.a < 3", true, 23, -1, 0, true),
-        ("SELECT u.x, w.k FROM u JOIN w ON w.s = u.z COLLATE \"C\" WHERE u.x < 3", true, 25, -1, 100, false),
+        (
+            "SELECT t.a, u.z FROM t JOIN u ON u.x = t.a WHERE t.a < 3",
+            true,
+            23,
+            -1,
+            0,
+            true,
+        ),
+        (
+            "SELECT u.x, w.k FROM u JOIN w ON w.s = u.z COLLATE \"C\" WHERE u.x < 3",
+            true,
+            25,
+            -1,
+            100,
+            false,
+        ),
         // numeric(12,2): ((12 << 16) | 2) + 4
-        ("SELECT a, (SELECT count(*) FROM u WHERE u.y = t.d) FROM t WHERE a < 3", false, 1700, (12 << 16 | 2) + 4, 0, false),
+        (
+            "SELECT a, (SELECT count(*) FROM u WHERE u.y = t.d) FROM t WHERE a < 3",
+            false,
+            1700,
+            (12 << 16 | 2) + 4,
+            0,
+            false,
+        ),
     ] {
-        let got = with_graph(sql, |g| g.params.iter().map(|(id, p)| (*id, *p)).collect::<Vec<_>>());
+        let got = with_graph(sql, |g| {
+            g.params.iter().map(|(id, p)| (*id, *p)).collect::<Vec<_>>()
+        });
         println!("facts_m8b F6\t{sql}\t{got:?}");
         let ok = got.len() == 1 && {
             let p = got[0].1;
-            matches!(p.owner, ParamOwner::Nest { .. }) == nest_owner && (p.typid, p.typmod, p.coll) == (typid, typmod, coll)
-                && p.out.is_some_and(|o| matches!(o.rep, Rep::Word { .. }) == word)
+            matches!(p.owner, ParamOwner::Nest { .. }) == nest_owner
+                && (p.typid, p.typmod, p.coll) == (typid, typmod, coll)
+                && p.out
+                    .is_some_and(|o| matches!(o.rep, Rep::Word { .. }) == word)
         };
         if !ok {
             bad.push(format!("{sql}: params {got:?}"));
         }
     }
     // a statement without a nest or SubPlan param binds none
-    if with_graph("SELECT t.a, u.x FROM t JOIN u ON u.z = t.c WHERE t.a < 3", |g| g.params.len()) != 0 {
+    if with_graph(
+        "SELECT t.a, u.x FROM t JOIN u ON u.z = t.c WHERE t.a < 3",
+        |g| g.params.len(),
+    ) != 0
+    {
         bad.push("an unparameterised nest lists params".into());
     }
     assert!(bad.is_empty(), "{}", bad.join("\n"));
@@ -364,11 +494,21 @@ fn f6_every_bound_param_has_its_owners_rep() {
 /// a plain aggregate, a group not hashed (a sorted Agg, Group or Unique; the last pipeline feeding the slot declares it),
 /// or the partition buffer of the window `inner` runs. A hash build, a sort, a top-k or a hashed group PG keeps.
 fn reexecuted(g: &PipelineGraph<'_>, inner: &PipelineNode<'_>, q: u16) -> bool {
-    let End::Breaker(b) = g.pipelines[q as usize].desc.ends_in else { return false };
+    let End::Breaker(b) = g.pipelines[q as usize].desc.ends_in else {
+        return false;
+    };
     match b.kind {
         BreakerKind::PlainAgg => true,
-        BreakerKind::Materialize => matches!(inner.source, Source::Breaker { slot } if slot == b.slot) && inner.ops.iter().any(|op| matches!(op, Op::Window(_))),
-        BreakerKind::HashAgg | BreakerKind::Distinct => g.groups.iter().filter(|d| d.slot == b.slot && d.producer.0 >= q).min_by_key(|d| d.producer.0).is_some_and(|d| !matches!(d.form, GroupForm::Hashed | GroupForm::Pass1)),
+        BreakerKind::Materialize => {
+            matches!(inner.source, Source::Breaker { slot } if slot == b.slot)
+                && inner.ops.iter().any(|op| matches!(op, Op::Window(_)))
+        }
+        BreakerKind::HashAgg | BreakerKind::Distinct => g
+            .groups
+            .iter()
+            .filter(|d| d.slot == b.slot && d.producer.0 >= q)
+            .min_by_key(|d| d.producer.0)
+            .is_some_and(|d| !matches!(d.form, GroupForm::Hashed | GroupForm::Pass1)),
         _ => false,
     }
 }
@@ -379,13 +519,19 @@ fn reexecuted(g: &PipelineGraph<'_>, inner: &PipelineNode<'_>, q: u16) -> bool {
 #[test]
 fn the_facts_hold_their_invariants_over_every_fixture() {
     let mut files = harness::fixtures_in(&harness::plans_root());
-    files.extend(harness::fixtures_in(&harness::plans_root().join("regress-full")));
+    files.extend(harness::fixtures_in(
+        &harness::plans_root().join("regress-full"),
+    ));
     let rows = harness::par_map(&files, |path| {
         let text = fs::read_to_string(path).unwrap();
         let ctx = MemoryContext::new("facts_m8b");
-        let Ok(fx) = corpus::load(ctx.mcx(), &text) else { return (BTreeMap::new(), Vec::new()) };
+        let Ok(fx) = corpus::load(ctx.mcx(), &text) else {
+            return (BTreeMap::new(), Vec::new());
+        };
         let arena = Arena::new(1 << 20);
-        let Ok(g) = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx) else { return (BTreeMap::new(), Vec::new()) };
+        let Ok(g) = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx) else {
+            return (BTreeMap::new(), Vec::new());
+        };
         let (mut n, mut bad) = (BTreeMap::new(), Vec::new());
         let mut copies: BTreeMap<i32, usize> = BTreeMap::new();
         for p in pipes(&g) {
@@ -397,27 +543,64 @@ fn the_facts_hold_their_invariants_over_every_fixture() {
         }
         for p in pipes(&g) {
             for op in p.ops.iter() {
-                let Op::Join(JoinDesc::Nest { facts, qual, params, inner, .. }) = op else { continue };
+                let Op::Join(JoinDesc::Nest {
+                    facts,
+                    qual,
+                    params,
+                    inner,
+                    ..
+                }) = op
+                else {
+                    continue;
+                };
                 *n.entry("nests").or_insert(0) += 1;
                 *n.entry("invariant").or_insert(0) += facts.invariant as usize;
                 *n.entry("eq").or_insert(0) += facts.eq.is_some() as usize;
                 // main's ruling (i) on D1018: an invariant nest has no parameter-driven rerun set (it has no params); a set
                 // re-running what PG re-executes at a rescan (a plain or sorted Agg, Unique, Group, WindowAgg) is allowed, and
                 // so is item 9 (b)'s kept set (`g.kept`: it runs at the first re-open only, as PG fills a kept node once)
-                let kept = g.reruns.iter().filter(|r| r.node_id == facts.node && r.plan_id == 0).any(|r| !r.pipelines.iter().all(|&q| reexecuted(&g, inner, q) || g.kept.contains(&q)));
-                if facts.invariant && (!params.is_nil() || facts.volatility == Volatility::Volatile || kept) {
+                let kept = g
+                    .reruns
+                    .iter()
+                    .filter(|r| r.node_id == facts.node && r.plan_id == 0)
+                    .any(|r| {
+                        !r.pipelines
+                            .iter()
+                            .all(|&q| reexecuted(&g, inner, q) || g.kept.contains(&q))
+                    });
+                if facts.invariant
+                    && (!params.is_nil() || facts.volatility == Volatility::Volatile || kept)
+                {
                     bad.push(format!("{}: nest n{} invariant with params / a volatile call / a rerun set PG would not re-execute", path.display(), facts.node));
                 }
                 if let Some(e) = facts.eq {
                     let c = qual.iter().nth(e.pos as usize).and_then(|c| c.as_op_expr());
                     if c.is_none_or(|c| c.opno != e.opno) {
-                        bad.push(format!("{}: nest n{} eq #{} is no conjunct with op{}", path.display(), facts.node, e.pos, e.opno));
+                        bad.push(format!(
+                            "{}: nest n{} eq #{} is no conjunct with op{}",
+                            path.display(),
+                            facts.node,
+                            e.pos,
+                            e.opno
+                        ));
                     }
                 }
                 for np in params.iter().filter_map(|x| x.as_nest_loop_param()) {
-                    let owned = g.params.iter().filter(|(id, r)| *id == np.paramno && r.owner == ParamOwner::Nest { node: facts.node }).count();
+                    let owned = g
+                        .params
+                        .iter()
+                        .filter(|(id, r)| {
+                            *id == np.paramno && r.owner == ParamOwner::Nest { node: facts.node }
+                        })
+                        .count();
                     if owned != copies[&facts.node] {
-                        bad.push(format!("{}: nest n{} param $exec{} listed {owned} times for {} ops", path.display(), facts.node, np.paramno, copies[&facts.node]));
+                        bad.push(format!(
+                            "{}: nest n{} param $exec{} listed {owned} times for {} ops",
+                            path.display(),
+                            facts.node,
+                            np.paramno,
+                            copies[&facts.node]
+                        ));
                     }
                 }
             }
@@ -439,11 +622,22 @@ fn the_facts_hold_their_invariants_over_every_fixture() {
 /// reference catalog on its own and must print what every golden says.
 #[test]
 fn the_census_mirror_agrees_with_every_golden() {
-    let out = std::process::Command::new("python3").arg(root().join("crates/gravity/decompose/testdata/gravity/lowerv4/tools/graphprops_facts.py")).arg("--check").output().expect("python3 runs graphprops_facts.py");
+    let out =
+        std::process::Command::new("python3")
+            .arg(root().join(
+                "crates/gravity/decompose/testdata/gravity/lowerv4/tools/graphprops_facts.py",
+            ))
+            .arg("--check")
+            .output()
+            .expect("python3 runs graphprops_facts.py");
     let err = String::from_utf8_lossy(&out.stderr);
     let text = String::from_utf8_lossy(&out.stdout);
     println!("{text}");
-    assert!(out.status.success(), "graphprops_facts.py --check: {}", err.lines().take(40).collect::<Vec<_>>().join("\n"));
+    assert!(
+        out.status.success(),
+        "graphprops_facts.py --check: {}",
+        err.lines().take(40).collect::<Vec<_>>().join("\n")
+    );
 }
 
 /// src/procfacts.rs is what gen/procfacts.py writes today (a hand edit or a stale table fails), and the generator's selftest
@@ -452,16 +646,30 @@ fn the_census_mirror_agrees_with_every_golden() {
 fn procfacts_is_the_generators_output() {
     let gen = root().join("crates/gravity/decompose/gen/procfacts.py");
     for arg in ["--check", "--selftest"] {
-        let out = std::process::Command::new("python3").arg(&gen).arg(arg).output().expect("python3 runs the generator");
-        assert!(out.status.success(), "procfacts.py {arg}: {}", String::from_utf8_lossy(&out.stderr));
+        let out = std::process::Command::new("python3")
+            .arg(&gen)
+            .arg(arg)
+            .output()
+            .expect("python3 runs the generator");
+        assert!(
+            out.status.success(),
+            "procfacts.py {arg}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
     }
 }
 
 /// One .dat file's rows as (key, value) lists (quoted values with backslash escapes; `#` comment lines skipped).
 fn dat(name: &str) -> Vec<Vec<(String, String)>> {
-    let text = fs::read_to_string(root().join("crates/postgres-18.6-reference/src/include/catalog").join(name)).unwrap();
+    let text = fs::read_to_string(
+        root()
+            .join("crates/postgres-18.6-reference/src/include/catalog")
+            .join(name),
+    )
+    .unwrap();
     let b: Vec<char> = text.chars().collect();
-    let (mut rows, mut cur, mut key, mut i) = (Vec::new(), None::<Vec<(String, String)>>, String::new(), 0);
+    let (mut rows, mut cur, mut key, mut i) =
+        (Vec::new(), None::<Vec<(String, String)>>, String::new(), 0);
     while i < b.len() {
         let c = b[i];
         match &mut cur {
@@ -497,7 +705,9 @@ fn dat(name: &str) -> Vec<Vec<(String, String)>> {
 }
 
 fn get<'a>(row: &'a [(String, String)], k: &str) -> Option<&'a str> {
-    row.iter().find(|(key, _)| key == k).map(|(_, v)| v.as_str())
+    row.iter()
+        .find(|(key, _)| key == k)
+        .map(|(_, v)| v.as_str())
 }
 
 /// Main 07:21Z: a .dat row that omits provolatile / proisstrict / proleakproof / oprcanhash / oprcanmerge takes pg_proc.h's /
@@ -506,7 +716,9 @@ fn get<'a>(row: &'a [(String, String)], k: &str) -> Option<&'a str> {
 fn procfacts_takes_the_bki_default_of_an_omitted_field() {
     let (mut omitted, mut bad) = (BTreeMap::<&str, usize>::new(), Vec::new());
     for row in dat("pg_proc.dat") {
-        let Some(oid) = get(&row, "oid").and_then(|o| o.parse::<u32>().ok()) else { continue };
+        let Some(oid) = get(&row, "oid").and_then(|o| o.parse::<u32>().ok()) else {
+            continue;
+        };
         for k in ["provolatile", "proisstrict", "proleakproof"] {
             *omitted.entry(k).or_insert(0) += get(&row, k).is_none() as usize;
         }
@@ -515,27 +727,46 @@ fn procfacts_takes_the_bki_default_of_an_omitted_field() {
             "s" => Volatility::Stable,
             _ => Volatility::Volatile,
         };
-        let want = (vol, get(&row, "proisstrict").unwrap_or("t") == "t", get(&row, "proleakproof").unwrap_or("f") == "t");
+        let want = (
+            vol,
+            get(&row, "proisstrict").unwrap_or("t") == "t",
+            get(&row, "proleakproof").unwrap_or("f") == "t",
+        );
         match builtin_func(oid) {
             Some(f) if (f.volatility, f.strict, f.leakproof) == want => {}
             other => bad.push(format!("pg_proc {oid}: {other:?}, want {want:?}")),
         }
     }
     for row in dat("pg_operator.dat") {
-        let Some(oid) = get(&row, "oid").and_then(|o| o.parse::<u32>().ok()) else { continue };
+        let Some(oid) = get(&row, "oid").and_then(|o| o.parse::<u32>().ok()) else {
+            continue;
+        };
         for k in ["oprcanhash", "oprcanmerge"] {
             *omitted.entry(k).or_insert(0) += get(&row, k).is_none() as usize;
         }
-        let want = (get(&row, "oprcanhash").unwrap_or("f") == "t", get(&row, "oprcanmerge").unwrap_or("f") == "t");
+        let want = (
+            get(&row, "oprcanhash").unwrap_or("f") == "t",
+            get(&row, "oprcanmerge").unwrap_or("f") == "t",
+        );
         match builtin_oper(oid) {
-            Some(o) if (o.canhash, o.canmerge) == want && (!o.canhash || o.poly || o.hash_family != 0 || oid == 1070) => {}
+            Some(o)
+                if (o.canhash, o.canmerge) == want
+                    && (!o.canhash || o.poly || o.hash_family != 0 || oid == 1070) => {}
             other => bad.push(format!("pg_operator {oid}: {other:?}, want {want:?}")),
         }
     }
     eprintln!("facts_m8b omitted fields: {omitted:?}");
-    for k in ["provolatile", "proisstrict", "proleakproof", "oprcanhash", "oprcanmerge"] {
+    for k in [
+        "provolatile",
+        "proisstrict",
+        "proleakproof",
+        "oprcanhash",
+        "oprcanmerge",
+    ] {
         if omitted.get(k).copied().unwrap_or(0) == 0 {
-            bad.push(format!("no .dat row omits {k}: the default path is untested"));
+            bad.push(format!(
+                "no .dat row omits {k}: the default path is untested"
+            ));
         }
     }
     // an oid outside the builtin catalog has no properties: every fact that reads it is false
@@ -548,19 +779,28 @@ fn with_path<R>(path: &std::path::Path, f: impl FnOnce(&PipelineGraph<'_>) -> R)
 }
 
 /// `with_path` with the on-by-default roads `off` named off (`FixtureFacts::roads_off`).
-fn with_path_roads_off<R>(path: &std::path::Path, off: &[&'static str], f: impl FnOnce(&PipelineGraph<'_>) -> R) -> R {
+fn with_path_roads_off<R>(
+    path: &std::path::Path,
+    off: &[&'static str],
+    f: impl FnOnce(&PipelineGraph<'_>) -> R,
+) -> R {
     let text = fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     let ctx = MemoryContext::new("facts_m8b");
-    let mut fx = corpus::load(ctx.mcx(), &text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let mut fx =
+        corpus::load(ctx.mcx(), &text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     fx.facts.roads_off = off.to_vec();
     let arena = Arena::new(1 << 20);
-    let g = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx).unwrap_or_else(|r| panic!("{}: refused {r}", path.display()));
+    let g = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx)
+        .unwrap_or_else(|r| panic!("{}: refused {r}", path.display()));
     f(&g)
 }
 
 /// (slots, lives) a descriptor reads.
 fn reads(p: &PipelineNode<'_>) -> (Vec<u8>, Vec<u16>) {
-    (p.desc.consumes.to_vec(), p.desc.consumes_from.iter().map(|l| l.0).collect())
+    (
+        p.desc.consumes.to_vec(),
+        p.desc.consumes_from.iter().map(|l| l.0).collect(),
+    )
 }
 
 /// Each pipeline carrying an embedded inner (the pipeline index, then every inner's reads in embedding order).
@@ -585,16 +825,47 @@ fn carriers(g: &PipelineGraph<'_>) -> Vec<(usize, (Vec<u8>, Vec<u16>), Vec<(Vec<
 #[test]
 fn an_outer_pipeline_reads_the_slots_its_embedded_inners_read() {
     let plans = harness::plans_root();
-    let keep = ["nest.keep.initplan", "nest.keep.subquery", "nest.keep.semi", "nest.keep.material"];
+    let keep = [
+        "nest.keep.initplan",
+        "nest.keep.subquery",
+        "nest.keep.semi",
+        "nest.keep.material",
+    ];
     let q13 = with_path_roads_off(&plans.join("bench-013.plan"), &keep, carriers);
-    assert_eq!(q13, vec![(1, (vec![0], vec![0]), vec![(vec![0], vec![0])])], "bench-013: p1 reads slot0@p0 beside its inner");
-    assert!(with_path(&plans.join("bench-013.plan"), carriers).is_empty(), "bench-013 at the nest.keep defaults: the nest is kept keyed");
+    assert_eq!(
+        q13,
+        vec![(1, (vec![0], vec![0]), vec![(vec![0], vec![0])])],
+        "bench-013: p1 reads slot0@p0 beside its inner"
+    );
+    assert!(
+        with_path(&plans.join("bench-013.plan"), carriers).is_empty(),
+        "bench-013 at the nest.keep defaults: the nest is kept keyed"
+    );
     let j9 = with_path(&plans.join("regress-full/join-009.plan"), carriers);
-    assert_eq!(j9, vec![(2, (vec![0, 1], vec![0, 1]), vec![(vec![0], vec![0]), (vec![1], vec![1])])], "join-009: the sink reads both Material slots, in embedding order");
+    assert_eq!(
+        j9,
+        vec![(
+            2,
+            (vec![0, 1], vec![0, 1]),
+            vec![(vec![0], vec![0]), (vec![1], vec![1])]
+        )],
+        "join-009: the sink reads both Material slots, in embedding order"
+    );
     let sub = with_graph("SELECT a, (SELECT count(*) FROM u WHERE u.y = t.b AND u.z < now()::text) FROM t WHERE a < 3", carriers);
-    assert_eq!(sub, vec![(1, (vec![0], vec![0]), vec![(vec![0], vec![0])])], "a nested SubPlan's aggregate slot");
-    let none = with_graph("SELECT t.a, u.z FROM t JOIN u ON u.x = t.a WHERE t.a < 3", carriers);
-    assert_eq!(none, vec![(0, (vec![], vec![]), vec![(vec![], vec![])])], "an index-scan inner reads no slot");
+    assert_eq!(
+        sub,
+        vec![(1, (vec![0], vec![0]), vec![(vec![0], vec![0])])],
+        "a nested SubPlan's aggregate slot"
+    );
+    let none = with_graph(
+        "SELECT t.a, u.z FROM t JOIN u ON u.x = t.a WHERE t.a < 3",
+        carriers,
+    );
+    assert_eq!(
+        none,
+        vec![(0, (vec![], vec![]), vec![(vec![], vec![])])],
+        "an index-scan inner reads no slot"
+    );
 }
 
 /// Over every fixture: a pipeline reads every slot each inner embedded in it (at any depth) reads, from the same life,
@@ -602,28 +873,49 @@ fn an_outer_pipeline_reads_the_slots_its_embedded_inners_read() {
 #[test]
 fn every_embedding_pipeline_reads_its_inners_slots() {
     let mut files = harness::fixtures_in(&harness::plans_root());
-    files.extend(harness::fixtures_in(&harness::plans_root().join("regress-full")));
+    files.extend(harness::fixtures_in(
+        &harness::plans_root().join("regress-full"),
+    ));
     let rows = harness::par_map(&files, |path| {
         let text = fs::read_to_string(path).unwrap();
         let ctx = MemoryContext::new("facts_m8b");
-        let Ok(fx) = corpus::load(ctx.mcx(), &text) else { return (0, Vec::new()) };
+        let Ok(fx) = corpus::load(ctx.mcx(), &text) else {
+            return (0, Vec::new());
+        };
         let arena = Arena::new(1 << 20);
-        let Ok(g) = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx) else { return (0, Vec::new()) };
+        let Ok(g) = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx) else {
+            return (0, Vec::new());
+        };
         let (mut n, mut bad) = (0, Vec::new());
         for (i, (slots, lives), inners) in carriers(&g) {
             let mut seen = slots.clone();
             seen.sort_unstable();
             seen.dedup();
             if seen.len() != slots.len() {
-                bad.push(format!("{}: p{i} reads a slot twice: {slots:?}", path.display()));
+                bad.push(format!(
+                    "{}: p{i} reads a slot twice: {slots:?}",
+                    path.display()
+                ));
             }
             for (s, l) in inners {
                 for (j, slot) in s.iter().enumerate() {
                     n += 1;
                     match slots.iter().position(|x| x == slot) {
-                        None => bad.push(format!("{}: p{i} does not read slot{slot}, which an inner reads", path.display())),
-                        Some(k) if lives.len() == slots.len() && l.len() == s.len() && lives[k] != l[j] => {
-                            bad.push(format!("{}: p{i} reads slot{slot} from p{}, its inner from p{}", path.display(), lives[k], l[j]))
+                        None => bad.push(format!(
+                            "{}: p{i} does not read slot{slot}, which an inner reads",
+                            path.display()
+                        )),
+                        Some(k)
+                            if lives.len() == slots.len()
+                                && l.len() == s.len()
+                                && lives[k] != l[j] =>
+                        {
+                            bad.push(format!(
+                                "{}: p{i} reads slot{slot} from p{}, its inner from p{}",
+                                path.display(),
+                                lives[k],
+                                l[j]
+                            ))
                         }
                         Some(_) => {}
                     }
@@ -634,14 +926,20 @@ fn every_embedding_pipeline_reads_its_inners_slots() {
     });
     let n: usize = rows.iter().map(|r| r.0).sum();
     eprintln!("inner slot reads checked: {n}");
-    assert!(n > 400, "the corpus's embedded inners read {n} slots (443 in the 09-27 corpus)");
+    assert!(
+        n > 400,
+        "the corpus's embedded inners read {n} slots (443 in the 09-27 corpus)"
+    );
     let bad: Vec<&String> = rows.iter().flat_map(|r| r.1.iter()).collect();
     assert!(bad.is_empty(), "{bad:#?}");
 }
 
 /// PARAM_EXEC ids an expression reads (not below a nested SubPlan's own test).
 fn exec_params(n: types_nodes::Node<'_>, out: &mut Vec<i32>) {
-    if let Some(p) = n.as_param().filter(|p| p.paramkind == types_nodes::primnodes::ParamKind::PARAM_EXEC) {
+    if let Some(p) = n
+        .as_param()
+        .filter(|p| p.paramkind == types_nodes::primnodes::ParamKind::PARAM_EXEC)
+    {
         out.push(p.paramid);
     }
     gravity_decompose::expr::kids(n, &mut |c| exec_params(c, out));
@@ -652,18 +950,33 @@ fn exec_params(n: types_nodes::Node<'_>, out: &mut Vec<i32>) {
 /// ALL / ROWCOMPARE SubPlan's test reads every id and has at least one, and an EXISTS / EXPR / ARRAY one has none.
 #[test]
 fn a_subplans_ids_are_the_output_params_its_test_reads() {
-    let ids = with_graph("SELECT a, b = ANY (SELECT y FROM u WHERE u.x = t.a) FROM t WHERE a < 3", |g| {
-        pipes(g).iter().flat_map(|p| p.ops.iter()).find_map(|op| if let Op::SubPlan(d) = op { Some(d.ids.iter().collect::<Vec<i32>>()) } else { None })
-    });
+    let ids = with_graph(
+        "SELECT a, b = ANY (SELECT y FROM u WHERE u.x = t.a) FROM t WHERE a < 3",
+        |g| {
+            pipes(g).iter().flat_map(|p| p.ops.iter()).find_map(|op| {
+                if let Op::SubPlan(d) = op {
+                    Some(d.ids.iter().collect::<Vec<i32>>())
+                } else {
+                    None
+                }
+            })
+        },
+    );
     assert_eq!(ids, Some(vec![1]));
     let mut files = harness::fixtures_in(&harness::plans_root());
-    files.extend(harness::fixtures_in(&harness::plans_root().join("regress-full")));
+    files.extend(harness::fixtures_in(
+        &harness::plans_root().join("regress-full"),
+    ));
     let rows = harness::par_map(&files, |path| {
         let text = fs::read_to_string(path).unwrap();
         let ctx = MemoryContext::new("facts_m8b");
-        let Ok(fx) = corpus::load(ctx.mcx(), &text) else { return (0, Vec::new()) };
+        let Ok(fx) = corpus::load(ctx.mcx(), &text) else {
+            return (0, Vec::new());
+        };
         let arena = Arena::new(1 << 20);
-        let Ok(g) = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx) else { return (0, Vec::new()) };
+        let Ok(g) = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx) else {
+            return (0, Vec::new());
+        };
         let (mut n, mut bad) = (0, Vec::new());
         for op in pipes(&g).iter().flat_map(|p| p.ops.iter()) {
             let Op::SubPlan(d) = op else { continue };
@@ -675,16 +988,30 @@ fn a_subplans_ids_are_the_output_params_its_test_reads() {
             let compares = matches!(d.link, SubLink::Any | SubLink::All | SubLink::RowCompare);
             n += compares as usize;
             if compares && (ids.is_empty() || ids.iter().any(|i| !read.contains(i))) {
-                bad.push(format!("{}: subplan {} {:?} ids {ids:?}, its test reads {read:?}", path.display(), d.plan_id, d.link));
+                bad.push(format!(
+                    "{}: subplan {} {:?} ids {ids:?}, its test reads {read:?}",
+                    path.display(),
+                    d.plan_id,
+                    d.link
+                ));
             }
-            if matches!(d.link, SubLink::Exists | SubLink::Expr | SubLink::Array) && !ids.is_empty() {
-                bad.push(format!("{}: subplan {} {:?} has ids {ids:?}", path.display(), d.plan_id, d.link));
+            if matches!(d.link, SubLink::Exists | SubLink::Expr | SubLink::Array) && !ids.is_empty()
+            {
+                bad.push(format!(
+                    "{}: subplan {} {:?} has ids {ids:?}",
+                    path.display(),
+                    d.plan_id,
+                    d.link
+                ));
             }
         }
         (n, bad)
     });
     let n: usize = rows.iter().map(|r| r.0).sum();
-    assert!(n > 20, "ANY / ALL / ROWCOMPARE SubPlans over the corpus: {n}");
+    assert!(
+        n > 20,
+        "ANY / ALL / ROWCOMPARE SubPlans over the corpus: {n}"
+    );
     let bad: Vec<&String> = rows.iter().flat_map(|r| r.1.iter()).collect();
     assert!(bad.is_empty(), "{bad:#?}");
 }

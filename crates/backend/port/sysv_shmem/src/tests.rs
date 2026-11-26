@@ -38,7 +38,11 @@ impl Segment {
     fn attach(&mut self) -> *mut libc::c_void {
         // SAFETY: our own segment, kernel-chosen address.
         let addr = unsafe { libc::shmat(self.id, std::ptr::null(), 0) };
-        assert!(addr as isize != -1, "shmat failed: {}", std::io::Error::last_os_error());
+        assert!(
+            addr as isize != -1,
+            "shmat failed: {}",
+            std::io::Error::last_os_error()
+        );
         self.attached = Some(addr);
         addr
     }
@@ -226,7 +230,10 @@ fn check_huge_page_size_platform_gate() {
         check_huge_page_size_value(2048, false),
         Err("\"huge_page_size\" must be 0 on this platform.")
     );
-    assert_eq!(HUGE_PAGE_SIZE_SELECTABLE, cfg!(any(target_os = "linux", target_os = "android")));
+    assert_eq!(
+        HUGE_PAGE_SIZE_SELECTABLE,
+        cfg!(any(target_os = "linux", target_os = "android"))
+    );
 }
 
 // GetHugePageSize (sysv_shmem.c:479-571), audit row
@@ -238,12 +245,20 @@ fn meminfo_hugepagesize_scan_matches_sscanf() {
     use crate::meminfo_default_hugepagesize;
     // The real line shape: the first "Hugepagesize: N kB" wins.
     assert_eq!(
-        meminfo_default_hugepagesize("MemTotal:       16384 kB\nHugepagesize:       2048 kB\nHugetlb:   0 kB\n"),
+        meminfo_default_hugepagesize(
+            "MemTotal:       16384 kB\nHugepagesize:       2048 kB\nHugetlb:   0 kB\n"
+        ),
         2048 * 1024
     );
-    assert_eq!(meminfo_default_hugepagesize("Hugepagesize:1048576 kB"), 1024 * 1024 * 1024);
+    assert_eq!(
+        meminfo_default_hugepagesize("Hugepagesize:1048576 kB"),
+        1024 * 1024 * 1024
+    );
     // sscanf's %u: leading sign accepted, value wraps like the C conversion.
-    assert_eq!(meminfo_default_hugepagesize("Hugepagesize: +2048 kB"), 2048 * 1024);
+    assert_eq!(
+        meminfo_default_hugepagesize("Hugepagesize: +2048 kB"),
+        2048 * 1024
+    );
     assert_eq!(
         meminfo_default_hugepagesize("Hugepagesize: -1 kB"),
         u32::MAX as usize * 1024
@@ -270,37 +285,58 @@ fn huge_page_size_resolution_matches_c() {
     // Without MAP_HUGETLB (sysv_shmem.c:564-569): both results are 0.
     assert_eq!(
         resolve_huge_page_size(0, 2 * MB, false, false),
-        HugePageSize { hugepagesize: 0, mmap_flags: 0 }
+        HugePageSize {
+            hugepagesize: 0,
+            mmap_flags: 0
+        }
     );
     assert_eq!(
         resolve_huge_page_size(1048576, 2 * MB, false, false),
-        HugePageSize { hugepagesize: 0, mmap_flags: 0 }
+        HugePageSize {
+            hugepagesize: 0,
+            mmap_flags: 0
+        }
     );
     if cfg!(any(target_os = "linux", target_os = "android")) {
         // System default, no explicit size: MAP_HUGETLB alone (:525-529, :543).
         assert_eq!(
             resolve_huge_page_size(0, 2 * MB, true, true),
-            HugePageSize { hugepagesize: 2 * MB, mmap_flags: HUGETLB }
+            HugePageSize {
+                hugepagesize: 2 * MB,
+                mmap_flags: HUGETLB
+            }
         );
         // Unknown default: the 2MB fallback, encoded since it differs from
         // the (zero) default (:530-541, :549-556): shift 21.
         assert_eq!(
             resolve_huge_page_size(0, 0, true, true),
-            HugePageSize { hugepagesize: 2 * MB, mmap_flags: HUGETLB | (21 << 26) }
+            HugePageSize {
+                hugepagesize: 2 * MB,
+                mmap_flags: HUGETLB | (21 << 26)
+            }
         );
         assert_eq!(
             resolve_huge_page_size(0, 0, true, false),
-            HugePageSize { hugepagesize: 2 * MB, mmap_flags: HUGETLB }
+            HugePageSize {
+                hugepagesize: 2 * MB,
+                mmap_flags: HUGETLB
+            }
         );
         // Explicit huge_page_size (kB) wins and is encoded: 1GB = shift 30.
         assert_eq!(
             resolve_huge_page_size(1048576, 2 * MB, true, true),
-            HugePageSize { hugepagesize: 1024 * MB, mmap_flags: HUGETLB | (30 << 26) }
+            HugePageSize {
+                hugepagesize: 1024 * MB,
+                mmap_flags: HUGETLB | (30 << 26)
+            }
         );
         // Explicit size equal to the default: no encoding needed.
         assert_eq!(
             resolve_huge_page_size(2048, 2 * MB, true, true),
-            HugePageSize { hugepagesize: 2 * MB, mmap_flags: HUGETLB }
+            HugePageSize {
+                hugepagesize: 2 * MB,
+                mmap_flags: HUGETLB
+            }
         );
     }
     // The real reader (/proc/meminfo through AllocateFile + the huge_page_size
@@ -358,7 +394,10 @@ static EMITTED: std::sync::Mutex<Vec<(types_error::SqlState, String, Option<Stri
     std::sync::Mutex::new(Vec::new());
 
 fn record_emitted(error: &types_error::PgError, _output_to_server: &mut bool) {
-    EMITTED.lock().unwrap().push((error.sqlstate, error.message.clone(), error.hint.clone()));
+    EMITTED
+        .lock()
+        .unwrap()
+        .push((error.sqlstate, error.message.clone(), error.hint.clone()));
 }
 
 /// The FATAL path (elog stack.rs) reports, then proc_exit(1)s through the
@@ -395,7 +434,12 @@ fn refuses(
             Err(_) => "<non-string panic payload>".to_owned(),
         },
     };
-    let reported = EMITTED.lock().unwrap().last().cloned().expect("the FATAL was reported before exiting");
+    let reported = EMITTED
+        .lock()
+        .unwrap()
+        .last()
+        .cloned()
+        .expect("the FATAL was reported before exiting");
     (exit, reported)
 }
 
@@ -416,27 +460,36 @@ fn create_walk_refuses_a_datadir_segment_still_in_use_then_recycles_it() {
     // SAFETY: write_postgres_header left our own mapping attached.
     unsafe { (*(seg.attached.unwrap() as *mut PGShmemHeader)).dsm_control = 0x2a };
 
-    let (exit, (sqlstate, message, hint)) = refuses(|| probe_key_space(&dir, ino, record_dsm_cleanup));
+    let (exit, (sqlstate, message, hint)) =
+        refuses(|| probe_key_space(&dir, ino, record_dsm_cleanup));
     assert_eq!(exit, "proc_exit(1)");
     assert_eq!(sqlstate, types_error::ERRCODE_LOCK_FILE_EXISTS, "{message}");
     assert_eq!(
         message,
         format!(
             "pre-existing shared memory block (key {}, ID {}) is still in use",
-            key as i64 as u64,
-            seg.id
+            key as i64 as u64, seg.id
         )
     );
     assert_eq!(
         hint.as_deref(),
-        Some(format!("Terminate any old server processes associated with data directory \"{dir}\".").as_str())
+        Some(
+            format!("Terminate any old server processes associated with data directory \"{dir}\".")
+                .as_str()
+        )
     );
     assert!(seg.exists(), "a refused segment must be left alone");
 
     seg.detach();
     probe_key_space(&dir, ino, record_dsm_cleanup).unwrap();
-    assert_eq!(DSM_CLEANUP_SEEN.load(std::sync::atomic::Ordering::Relaxed), 0x2a);
-    assert!(!seg.exists(), "an unattached segment of this data directory is recycled");
+    assert_eq!(
+        DSM_CLEANUP_SEEN.load(std::sync::atomic::Ordering::Relaxed),
+        0x2a
+    );
+    assert!(
+        !seg.exists(),
+        "an unattached segment of this data directory is recycled"
+    );
     seg.id = -1;
 }
 
@@ -460,10 +513,13 @@ fn create_walk_steps_past_a_foreign_segment_at_the_seed_key() {
 #[test]
 fn huge_pages_on_is_refused_like_c() {
     use crate::{huge_pages_startup_gate, MAP_HUGETLB_AVAILABLE};
-    use guc_tables::consts::{HUGE_PAGES_OFF, HUGE_PAGES_ON, HUGE_PAGES_TRY, SHMEM_TYPE_MMAP, SHMEM_TYPE_SYSV};
+    use guc_tables::consts::{
+        HUGE_PAGES_OFF, HUGE_PAGES_ON, HUGE_PAGES_TRY, SHMEM_TYPE_MMAP, SHMEM_TYPE_SYSV,
+    };
 
     const PLATFORM: &str = "huge pages not supported on this platform";
-    const SHMTYPE: &str = "huge pages not supported with the current \"shared_memory_type\" setting";
+    const SHMTYPE: &str =
+        "huge pages not supported with the current \"shared_memory_type\" setting";
 
     for hp in [HUGE_PAGES_OFF, HUGE_PAGES_TRY] {
         for smt in [SHMEM_TYPE_MMAP, SHMEM_TYPE_SYSV] {
@@ -473,21 +529,42 @@ fn huge_pages_on_is_refused_like_c() {
         }
     }
     // Without MAP_HUGETLB the platform check comes first, whatever the type.
-    assert_eq!(huge_pages_startup_gate(HUGE_PAGES_ON, SHMEM_TYPE_MMAP, false), Err(PLATFORM));
-    assert_eq!(huge_pages_startup_gate(HUGE_PAGES_ON, SHMEM_TYPE_SYSV, false), Err(PLATFORM));
+    assert_eq!(
+        huge_pages_startup_gate(HUGE_PAGES_ON, SHMEM_TYPE_MMAP, false),
+        Err(PLATFORM)
+    );
+    assert_eq!(
+        huge_pages_startup_gate(HUGE_PAGES_ON, SHMEM_TYPE_SYSV, false),
+        Err(PLATFORM)
+    );
     // With it, a non-mmap type is C's second refusal ...
-    assert_eq!(huge_pages_startup_gate(HUGE_PAGES_ON, SHMEM_TYPE_SYSV, true), Err(SHMTYPE));
+    assert_eq!(
+        huge_pages_startup_gate(HUGE_PAGES_ON, SHMEM_TYPE_SYSV, true),
+        Err(SHMTYPE)
+    );
     // ... and mmap + on, which C honours with MAP_HUGETLB, is pgrust's typed
     // refusal: no region exists to map.
-    assert_eq!(huge_pages_startup_gate(HUGE_PAGES_ON, SHMEM_TYPE_MMAP, true), Err(PLATFORM));
-    assert_eq!(MAP_HUGETLB_AVAILABLE, cfg!(any(target_os = "linux", target_os = "android")));
+    assert_eq!(
+        huge_pages_startup_gate(HUGE_PAGES_ON, SHMEM_TYPE_MMAP, true),
+        Err(PLATFORM)
+    );
+    assert_eq!(
+        MAP_HUGETLB_AVAILABLE,
+        cfg!(any(target_os = "linux", target_os = "android"))
+    );
 }
 
 #[cfg(not(target_family = "wasm"))]
 #[test]
 fn undersized_foreign_segment_advances_the_walk() {
-    assert_eq!(super::probe_failure_state(libc::EINVAL), Some(super::IpcMemoryState::Foreign));
-    assert_eq!(super::probe_failure_state(libc::EACCES), Some(super::IpcMemoryState::Foreign));
+    assert_eq!(
+        super::probe_failure_state(libc::EINVAL),
+        Some(super::IpcMemoryState::Foreign)
+    );
+    assert_eq!(
+        super::probe_failure_state(libc::EACCES),
+        Some(super::IpcMemoryState::Foreign)
+    );
     assert_eq!(super::probe_failure_state(libc::ENOENT), None);
     assert_eq!(super::probe_failure_state(libc::ENOSYS), None);
 }

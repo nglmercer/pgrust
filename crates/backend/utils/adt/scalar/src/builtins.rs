@@ -1,7 +1,9 @@
 use ::datum::Datum;
 use ::types_core::Oid;
 use ::types_error::PgResult;
-use ::types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, OutInto, OUT_CHARS_INT};
+use ::types_fmgr::{
+    FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, OutInto, OUT_CHARS_INT,
+};
 
 macro_rules! fc_oid2 {
     ($($fc:ident: $core:ident;)*) => {$(
@@ -141,7 +143,9 @@ pub fn fc_xidsend(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResu
 
 pub fn fc_hash_uint32(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let [a] = fcinfo.args_n::<1>();
-    Ok(Datum::from_u32(::hashfn::hash_bytes_uint32(a.value.as_u32())))
+    Ok(Datum::from_u32(::hashfn::hash_bytes_uint32(
+        a.value.as_u32(),
+    )))
 }
 
 pub fn fc_hash_uint32_extended(
@@ -169,7 +173,11 @@ pub fn fc_xid8out(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResul
     let v = a.value.as_u64();
     let mut buf = [0u8; 20];
     let len = ::numutils::pg_ulltoa_n(v, &mut buf);
-    Ok(::types_fmgr::cstring_scratch(flinfo, "xid8out", &buf[..len]))
+    Ok(::types_fmgr::cstring_scratch(
+        flinfo,
+        "xid8out",
+        &buf[..len],
+    ))
 }
 
 pub fn fc_xid8recv(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -206,7 +214,10 @@ fc_xid8_cmp! {
 
 pub fn fc_xid8cmp(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let [a, b] = fcinfo.args_n::<2>();
-    Ok(Datum::from_i32(crate::xid8cmp(a.value.as_u64(), b.value.as_u64())))
+    Ok(Datum::from_i32(crate::xid8cmp(
+        a.value.as_u64(),
+        b.value.as_u64(),
+    )))
 }
 
 pub fn fc_xid8toxid(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -233,10 +244,7 @@ pub fn fc_hashxid8(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRes
     Ok(Datum::from_u32(::hashfn::hash_bytes_uint32(lohalf)))
 }
 
-pub fn fc_hashxid8extended(
-    _flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut Fcinfo,
-) -> PgResult<Datum> {
+pub fn fc_hashxid8extended(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let [a, b] = fcinfo.args_n::<2>();
     let val = a.value.as_i64();
     let lohalf = val as u32;
@@ -278,7 +286,9 @@ fn tid_result(fcinfo: &mut Fcinfo, tid: Tid) -> PgResult<Datum> {
 pub(crate) fn tid_syntax(s: &[u8]) -> ::types_error::PgError {
     // tid.c:72 "%s": the input bytes verbatim (SQL_ASCII high bytes).
     let err = match core::str::from_utf8(s) {
-        Ok(s) => ::types_error::PgError::error(format!("invalid input syntax for type tid: \"{s}\"")),
+        Ok(s) => {
+            ::types_error::PgError::error(format!("invalid input syntax for type tid: \"{s}\""))
+        }
         Err(_) => {
             let mut msg = Vec::new();
             msg.extend_from_slice(b"invalid input syntax for type tid: \"");
@@ -374,7 +384,6 @@ pub fn fc_hashtidextended(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -
     Ok(Datum::from_u64(::hashfn::hash_bytes_extended(b, seed)))
 }
 
-
 pub fn fc_oidvectoreq(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     // C oidvectoreq goes through btoidvectorcmp (nbtcompare.c), which calls
     // check_valid_oidvector on BOTH arguments and ereports on a value that is
@@ -420,10 +429,7 @@ unsafe fn oidvector_bytes(fcinfo: &Fcinfo, i: usize) -> PgResult<&[u8]> {
 // cast has already taken the existing "array is not a valid oidvector" path. A
 // valid dim1==0 vector fits and passes. Routes to the SAME error (text and
 // SQLSTATE) as the structural check, not a new "corrupt ..." message.
-fn oidvector_dim1_in_bounds(
-    p: *const ::array::oidvector,
-    v: &::array::oidvector,
-) -> PgResult<()> {
+fn oidvector_dim1_in_bounds(p: *const ::array::oidvector, v: &::array::oidvector) -> PgResult<()> {
     // SAFETY: 4B-U plain-storage oidvector datum; header readable for VARSIZE.
     let varsize = unsafe { ::datum::varlena::VarlenaRef::from_ptr(p as *const u8) }.varsize();
     if !::array::vector_dim1_fits(varsize, v.dim1, core::mem::size_of::<Oid>()) {
@@ -459,7 +465,13 @@ pub fn fc_currtid_byrelname(
     let mcx = fcinfo.result_mcx();
     let ip = ::types_tuple::ItemPointerData::new(tid.block, tid.offset);
     let result = crate::currtid_byrelname(mcx, &relname, ip)?;
-    tid_result(fcinfo, Tid { block: ::types_tuple::ItemPointerGetBlockNumberNoCheck(&result), offset: result.ip_posid })
+    tid_result(
+        fcinfo,
+        Tid {
+            block: ::types_tuple::ItemPointerGetBlockNumberNoCheck(&result),
+            offset: result.ip_posid,
+        },
+    )
 }
 
 // SAFETY: as fc_oidvectoreq, but layout-checked (SQL-boundary contract).
@@ -638,7 +650,14 @@ fn oid_bound(_: Datum) -> Option<usize> {
 }
 unsafe fn oid_render(v: Datum, dst: *mut u8) -> PgResult<usize> {
     // SAFETY: the caller's 10 writable bytes (oid_bound).
-    Ok(::numutils::pg_ultoa_n(v.as_oid(), unsafe { core::slice::from_raw_parts_mut(dst, 10) }))
+    Ok(::numutils::pg_ultoa_n(v.as_oid(), unsafe {
+        core::slice::from_raw_parts_mut(dst, 10)
+    }))
 }
 
-pub static OID_OUT_INTO: &[OutInto] = &[OutInto { foid: 1799, bound: oid_bound, render: oid_render, chars: Some(OUT_CHARS_INT) }];
+pub static OID_OUT_INTO: &[OutInto] = &[OutInto {
+    foid: 1799,
+    bound: oid_bound,
+    render: oid_render,
+    chars: Some(OUT_CHARS_INT),
+}];

@@ -7,16 +7,14 @@
 
 #![allow(non_snake_case)]
 
-use bufmgr_seams::{
-    ReadBuffersOperation, READ_BUFFERS_ISSUE_ADVICE, READ_BUFFERS_SYNCHRONOUSLY,
-};
+use bufmgr_seams::{ReadBuffersOperation, READ_BUFFERS_ISSUE_ADVICE, READ_BUFFERS_SYNCHRONOUSLY};
+use core::ops::Deref;
 use mcx::Mcx;
 use types_core::{
     BlockNumber, Buffer, ForkNumber, InvalidBlockNumber, InvalidBuffer, OidIsValid,
     RELPERSISTENCE_TEMP,
 };
 use types_error::PgResult;
-use core::ops::Deref;
 use types_rel::{Relation, RelationData};
 use types_storage::buf::BufferAccessStrategy;
 use types_storage::RelFileLocatorBackend;
@@ -37,7 +35,10 @@ pub struct BlockRangeReadStreamPrivate {
 
 impl BlockRangeReadStreamPrivate {
     pub fn new(current_blocknum: BlockNumber, last_exclusive: BlockNumber) -> Self {
-        BlockRangeReadStreamPrivate { current_blocknum, last_exclusive }
+        BlockRangeReadStreamPrivate {
+            current_blocknum,
+            last_exclusive,
+        }
     }
 
     #[inline]
@@ -58,7 +59,11 @@ struct InProgressIO {
 
 // R holds the relation for per-relation stats: an owned alias, or a borrow
 // for callers that only have the RelationData.
-pub struct ReadStream<'mcx, D: Copy + Default = (), R: Deref<Target = RelationData<'mcx>> = Relation<'mcx>> {
+pub struct ReadStream<
+    'mcx,
+    D: Copy + Default = (),
+    R: Deref<Target = RelationData<'mcx>> = Relation<'mcx>,
+> {
     max_ios: i32,
     io_combine_limit: i32,
     ios_in_progress: i32,
@@ -121,7 +126,15 @@ pub fn read_stream_begin_relation<'mcx, D: Copy + Default>(
 ) -> PgResult<ReadStream<'mcx, D>> {
     let smgr = bufmgr_seams::relation_smgr_locator::call(rel);
     let persistence = rel.rd_rel.relpersistence;
-    read_stream_begin_impl(mcx, flags, strategy, Some(rel.alias()), smgr, persistence, forknum)
+    read_stream_begin_impl(
+        mcx,
+        flags,
+        strategy,
+        Some(rel.alias()),
+        smgr,
+        persistence,
+        forknum,
+    )
 }
 
 pub fn read_stream_begin_relation_data<'r, 'mcx, D: Copy + Default>(
@@ -167,7 +180,9 @@ fn read_stream_begin_impl<'mcx, D: Copy + Default, R: Deref<Target = RelationDat
 
     let tablespace_id = smgr.locator.spcOid;
     let mut max_ios = if !OidIsValid(init_small::globals::MyDatabaseId())
-        || rel.as_deref().is_some_and(|r| catalog_seams::is_catalog_relation_oid::call(r.rd_id))
+        || rel
+            .as_deref()
+            .is_some_and(|r| catalog_seams::is_catalog_relation_oid::call(r.rd_id))
         || catalog_seams::is_catalog_relation_oid::call(smgr.locator.relNumber)
     {
         guc_tables::vars::effective_io_concurrency.read()
@@ -695,7 +710,13 @@ impl<'mcx, D: Copy + Default, R: Deref<Target = RelationData<'mcx>>> ReadStream<
 
     #[cfg(test)]
     fn state(&self) -> (i32, i32, i32, i32, bool) {
-        (self.distance, self.pinned_buffers, self.ios_in_progress, self.forwarded_buffers, self.fast_path)
+        (
+            self.distance,
+            self.pinned_buffers,
+            self.ios_in_progress,
+            self.forwarded_buffers,
+            self.fast_path,
+        )
     }
 
     #[cfg(test)]
@@ -707,7 +728,9 @@ impl<'mcx, D: Copy + Default, R: Deref<Target = RelationData<'mcx>>> ReadStream<
 // Abort path (docs/no-drop.md): an in-flight IO holds a raw pointer to its
 // op's io_return, so wait it out before the ops are freed, then release the
 // pins the stream still owns (queued and forwarded).
-impl<'mcx, D: Copy + Default, R: Deref<Target = RelationData<'mcx>>> Drop for ReadStream<'mcx, D, R> {
+impl<'mcx, D: Copy + Default, R: Deref<Target = RelationData<'mcx>>> Drop
+    for ReadStream<'mcx, D, R>
+{
     fn drop(&mut self) {
         let mut index = self.oldest_io_index;
         for _ in 0..self.ios_in_progress {
@@ -760,9 +783,15 @@ pub mod testing {
         if !catalog_seams::is_catalog_relation_oid::is_installed() {
             catalog_seams::is_catalog_relation_oid::set(|_| true);
         }
-        let get = guc_tables::GucVarAccessors { get: || 16, set: |_| {} };
+        let get = guc_tables::GucVarAccessors {
+            get: || 16,
+            set: |_| {},
+        };
         guc_tables::vars::effective_io_concurrency.install_if_absent(get);
-        let get = guc_tables::GucVarAccessors { get: || 16, set: |_| {} };
+        let get = guc_tables::GucVarAccessors {
+            get: || 16,
+            set: |_| {},
+        };
         guc_tables::vars::maintenance_io_concurrency.install_if_absent(get);
         if !b::relation_smgr_locator::is_installed() {
             b::relation_smgr_locator::set(|rel| types_storage::RelFileLocatorBackend {

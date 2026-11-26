@@ -26,7 +26,9 @@ pub struct Life {
 /// Whether pipeline `k` reads `life` (its declared `consumes_from`; a pipeline without it reads the nearest earlier producer of the slot).
 pub fn reads(ps: &[Pipeline], k: usize, life: LifeId) -> bool {
     let producer = life.0 as usize;
-    let Some(slot) = ps.get(producer).and_then(|p| p.produces()) else { return false };
+    let Some(slot) = ps.get(producer).and_then(|p| p.produces()) else {
+        return false;
+    };
     let p = &ps[k];
     match p.consumes.iter().position(|&s| s == slot) {
         Some(j) if !p.consumes_from.is_empty() => p.consumes_from[j] == life,
@@ -46,12 +48,20 @@ impl Program {
                 Budget::Share | Budget::Pool => LifeBytes::Share,
                 Budget::Fixed(n) => LifeBytes::Fixed(n),
             };
-            Some(Life { id, slot: b.slot, producer: i, last_consumer, parallel: p.is_eligible(), bytes })
+            Some(Life {
+                id,
+                slot: b.slot,
+                producer: i,
+                last_consumer,
+                parallel: p.is_eligible(),
+                bytes,
+            })
         })
     }
 
     pub fn consumers_of(&self, life: LifeId) -> impl Iterator<Item = usize> + '_ {
-        (life.0 as usize + 1..self.pipelines.len()).filter(move |&k| reads(&self.pipelines, k, life))
+        (life.0 as usize + 1..self.pipelines.len())
+            .filter(move |&k| reads(&self.pipelines, k, life))
     }
 
     /// The life pipeline `k` reads through slot `slot`.

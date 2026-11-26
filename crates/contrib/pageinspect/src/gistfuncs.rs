@@ -2,9 +2,12 @@
 
 use crate::*;
 use nbtree::itup::{index_info_find_data_offset, INDEX_NULL_MASK, INDEX_TUPLE_HEADER_SIZE};
-use types_core::{GIST_AM_OID, InvalidOid};
+use types_core::{InvalidOid, GIST_AM_OID};
 use types_error::{ERRCODE_DATA_CORRUPTED, ERRCODE_WRONG_OBJECT_TYPE};
-use types_gist::{GistPageIsDeleted, GIST_PAGE_ID, F_DELETED, F_FOLLOW_RIGHT, F_HAS_GARBAGE, F_LEAF, F_TUPLES_DELETED};
+use types_gist::{
+    GistPageIsDeleted, F_DELETED, F_FOLLOW_RIGHT, F_HAS_GARBAGE, F_LEAF, F_TUPLES_DELETED,
+    GIST_PAGE_ID,
+};
 use types_rel::pg_class::{RELKIND_INDEX, RELKIND_PARTITIONED_INDEX};
 use types_tuple::tupmacs::{att_isnull, att_nominal_alignby, att_pointer_alignby};
 use types_tuple::varatt::{varatt_is_1b, varatt_is_1b_e, varsize_any, VARHDRSZ};
@@ -144,7 +147,7 @@ fn output_fn_text(finfo: &mut FmgrInfo, mcx: Mcx<'_>, val: Datum) -> PgResult<Ve
     let d = types_fmgr::function_call1_coll_in(finfo, InvalidOid, mcx, val)?;
     // SAFETY: type output functions return a NUL-terminated cstring datum.
     let cs = unsafe { core::ffi::CStr::from_ptr(d.as_usize() as *const core::ffi::c_char) };
-    ::mcx::std_vec_from_slice("contrib",cs.to_bytes())
+    ::mcx::std_vec_from_slice("contrib", cs.to_bytes())
 }
 
 fn record_out_needs_quotes(ch: u8) -> bool {
@@ -224,7 +227,11 @@ fn verify_index_tuple_attrs(tuple: &[u8], tupdesc: &TupleDescData<'_>) -> PgResu
             if off > data.len() {
                 return Err(corrupt());
             }
-            len = data[off..].iter().position(|&c| c == 0).ok_or_else(corrupt)? + 1;
+            len = data[off..]
+                .iter()
+                .position(|&c| c == 0)
+                .ok_or_else(corrupt)?
+                + 1;
         } else {
             off = att_nominal_alignby(off, att.attalignby);
             len = att.attlen as usize;
@@ -261,8 +268,12 @@ pub(crate) fn fc_gist_page_items(
     }
     if index_rel.rd_rel.relam != GIST_AM_OID {
         return Err(Box::new(
-            PgError::error(format!("\"{}\" is not a {} index", index_rel.name(), "GiST"))
-                .with_sqlstate(ERRCODE_WRONG_OBJECT_TYPE),
+            PgError::error(format!(
+                "\"{}\" is not a {} index",
+                index_rel.name(),
+                "GiST"
+            ))
+            .with_sqlstate(ERRCODE_WRONG_OBJECT_TYPE),
         ));
     }
 
@@ -280,7 +291,10 @@ pub(crate) fn fc_gist_page_items(
     // Leaf pages carry included attributes; non-leaf pages only key ones.
     let nkeyatts = index_rel.indnkeyatts();
     let (tupdesc, keys_only) = if flagbits & F_LEAF != 0 {
-        (tupdesc::CreateTupleDescCopy(mcx, index_rel.rd_att.as_ref())?, false)
+        (
+            tupdesc::CreateTupleDescCopy(mcx, index_rel.rd_att.as_ref())?,
+            false,
+        )
     } else {
         (
             tupdesc::CreateTupleDescTruncatedCopy(mcx, index_rel.rd_att.as_ref(), nkeyatts)?,
@@ -346,8 +360,9 @@ pub(crate) fn fc_gist_page_items(
                 // SAFETY: itup points into the page image and every
                 // per-attribute offset was bounds-checked against the page
                 // tail by verify_index_tuple_attrs above.
-                let val_datum =
-                    unsafe { nbtree::itup::index_getattr(itup, (i + 1) as i16, &tupdesc, &mut isnull) };
+                let val_datum = unsafe {
+                    nbtree::itup::index_getattr(itup, (i + 1) as i16, &tupdesc, &mut isnull)
+                };
                 let value = if isnull {
                     vec![b'n', b'u', b'l', b'l']
                 } else {
@@ -405,14 +420,27 @@ mod tests {
     fn varlena_key_under_its_4_byte_header_is_refused() {
         let ctx = MemoryContext::new("gist-key");
         let mcx = ctx.mcx();
-        let a = FormData_pg_attribute { attnum: 1, atttypid: 25, attlen: -1, attbyval: false, attalign: b'i' as i8,
-            attstorage: b'x' as i8, ..Default::default() };
+        let a = FormData_pg_attribute {
+            attnum: 1,
+            atttypid: 25,
+            attlen: -1,
+            attbyval: false,
+            attalign: b'i' as i8,
+            attstorage: b'x' as i8,
+            ..Default::default()
+        };
         let mut compact = PgVec::new_in(mcx);
         compact.push(CompactAttribute::populate_from(&a));
         let mut attrs = PgVec::new_in(mcx);
         attrs.push(a);
         let desc = TupleDescData {
-            natts: 1, tdtypeid: 0, tdtypmod: -1, tdrefcount: -1, constr: None, compact_attrs: compact, attrs,
+            natts: 1,
+            tdtypeid: 0,
+            tdtypmod: -1,
+            tdrefcount: -1,
+            constr: None,
+            compact_attrs: compact,
+            attrs,
         };
         // IndexTupleData: 6-byte t_tid, then t_info = the tuple size (no nulls, no varwidth flag needed here).
         let tuple = |key: &[u8]| {
@@ -423,7 +451,11 @@ mod tests {
         };
         for n in 0u32..4 {
             let err = verify_index_tuple_attrs(&tuple(&(n << 2).to_ne_bytes()), &desc).unwrap_err();
-            assert_eq!(err.sqlstate(), types_error::ERRCODE_DATA_CORRUPTED, "VARSIZE {n}");
+            assert_eq!(
+                err.sqlstate(),
+                types_error::ERRCODE_DATA_CORRUPTED,
+                "VARSIZE {n}"
+            );
         }
         assert!(verify_index_tuple_attrs(&tuple(&(4u32 << 2).to_ne_bytes()), &desc).is_ok());
         assert!(verify_index_tuple_attrs(&tuple(&[0x05, b'a', 0, 0]), &desc).is_ok());

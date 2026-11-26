@@ -37,7 +37,7 @@ fn string_literal(out: &mut String, val: &str) {
     out.push('\'');
 }
 
-fn col(row: & [Option<Vec<u8>>], i: usize) -> PgResult<Option<& str>> {
+fn col(row: &[Option<Vec<u8>>], i: usize) -> PgResult<Option<&str>> {
     // Remote text-format values are supposed to arrive in the local (database)
     // encoding, but the bytes come straight off the wire from a foreign server
     // that may be hostile, compromised, or MITM'd (the transport has no TLS),
@@ -126,7 +126,8 @@ fn import_columns_query(
     buf.push_str("WHERE c.relkind IN ('r','v','f','m','p')   AND n.nspname = ");
     string_literal(&mut buf, remote_schema);
     // Partitions are supported since Postgres 10 (postgres_fdw.c:5602).
-    if server_version >= 100000 && list_type != ImportForeignSchemaType::FDW_IMPORT_SCHEMA_LIMIT_TO {
+    if server_version >= 100000 && list_type != ImportForeignSchemaType::FDW_IMPORT_SCHEMA_LIMIT_TO
+    {
         buf.push_str(" AND NOT c.relispartition ");
     }
     if matches!(
@@ -253,7 +254,9 @@ pub fn postgresImportForeignSchema<'mcx>(
         foreigncmds::foreign::GetUserMapping(mcx, miscinit::GetUserId(), server.serverid)?;
     let conn_key = connection::get_connection(mcx, &mapping, false)?;
 
-    let remote_schema = stmt.remote_schema.expect("ImportForeignSchemaStmt.remote_schema");
+    let remote_schema = stmt
+        .remote_schema
+        .expect("ImportForeignSchemaStmt.remote_schema");
 
     // The remote schema must exist.
     let mut buf = String::from("SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname = ");
@@ -280,7 +283,9 @@ pub fn postgresImportForeignSchema<'mcx>(
             | ImportForeignSchemaType::FDW_IMPORT_SCHEMA_EXCEPT
     ) {
         for n in stmt.table_list.iter() {
-            let rv = n.as_variant::<types_nodes::primnodes::RangeVar>().expect("RangeVar");
+            let rv = n
+                .as_variant::<types_nodes::primnodes::RangeVar>()
+                .expect("RangeVar");
             table_names.push(rv.relname.expect("RangeVar.relname"));
         }
     }
@@ -424,7 +429,10 @@ mod tests {
             &[],
         );
         assert!(!q11.contains("attgenerated"), "{q11}");
-        assert!(q11.contains("pg_get_expr(adbin, adrelid),   NULL, "), "{q11}");
+        assert!(
+            q11.contains("pg_get_expr(adbin, adrelid),   NULL, "),
+            "{q11}"
+        );
         assert!(q11.contains(" AND NOT c.relispartition "), "{q11}");
 
         let q96 = import_columns_query(
@@ -466,9 +474,18 @@ mod tests {
             column_def_tail(&opts, "t", Some("(a * 2)"), Some("s")),
             " GENERATED ALWAYS AS ((a * 2)) STORED NOT NULL"
         );
-        let with_default = ImportOptions { import_default: true, ..ImportOptions::default() };
-        assert_eq!(column_def_tail(&with_default, "f", Some("7"), None), " DEFAULT 7");
-        assert_eq!(column_def_tail(&with_default, "f", Some("7"), Some("")), " DEFAULT 7");
+        let with_default = ImportOptions {
+            import_default: true,
+            ..ImportOptions::default()
+        };
+        assert_eq!(
+            column_def_tail(&with_default, "f", Some("7"), None),
+            " DEFAULT 7"
+        );
+        assert_eq!(
+            column_def_tail(&with_default, "f", Some("7"), Some("")),
+            " DEFAULT 7"
+        );
         assert_eq!(
             column_def_tail(&with_default, "f", Some("(a * 2)"), Some("s")),
             " GENERATED ALWAYS AS ((a * 2)) STORED"
@@ -486,7 +503,10 @@ mod tests {
         // &str from ever being built out of invalid bytes.
 
         // Valid values pass through unchanged.
-        let ok_row = vec![Some(b"orders".to_vec()), Some("caf\u{00e9}".as_bytes().to_vec())];
+        let ok_row = vec![
+            Some(b"orders".to_vec()),
+            Some("caf\u{00e9}".as_bytes().to_vec()),
+        ];
         assert_eq!(col(&ok_row, 0).unwrap(), Some("orders"));
         assert_eq!(col(&ok_row, 1).unwrap(), Some("caf\u{00e9}"));
 

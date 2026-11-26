@@ -13,7 +13,9 @@ use mcx::{Mcx, PgVec};
 use types_error::{PgError, PgResult};
 
 fn unrecognized_strategy_number(strategy: u16) -> Box<PgError> {
-    Box::new(PgError::error(format!("unrecognized strategy number: {strategy}")))
+    Box::new(PgError::error(format!(
+        "unrecognized strategy number: {strategy}"
+    )))
 }
 
 #[allow(non_upper_case_globals)] // C-parity name
@@ -67,7 +69,10 @@ fn make_text_key<'m>(mcx: Mcx<'m>, mut flag: u8, s: &[u8]) -> PgResult<Datum> {
     let len = str_.len();
     let total = 4 + len + 1;
     let mut item: PgVec<'m, u8> = mcx::vec_with_capacity_in(mcx, total)?;
-    mcx::vec_append_bytes(&mut item, &::types_tuple::varatt::set_varsize_4b_word(total as u32).to_ne_bytes())?;
+    mcx::vec_append_bytes(
+        &mut item,
+        &::types_tuple::varatt::set_varsize_4b_word(total as u32).to_ne_bytes(),
+    )?;
     mcx::vec_append_bytes(&mut item, &[flag])?;
     mcx::vec_append_bytes(&mut item, str_)?;
     let p = item.as_ptr();

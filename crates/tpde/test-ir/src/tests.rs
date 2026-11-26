@@ -5,8 +5,8 @@ use super::*;
 use mcx::MemoryContext;
 use std::{format, string::String};
 use tpde_core::{
-    Analyzer,
     ir_adaptor::{HighestValueIndexProvider, IrAdaptor, PhiRef},
+    Analyzer,
 };
 #[path = "../tests/cases.rs"]
 mod cases;

@@ -57,7 +57,10 @@ fn io_time_index(op: IOOp) -> Option<usize> {
 }
 
 fn numeric_i64_datum(fcinfo: &Fcinfo, v: i64) -> PgResult<Datum> {
-    byref_result(fcinfo.result_mcx(), adt_numeric::int64_to_numeric(v).as_bytes())
+    byref_result(
+        fcinfo.result_mcx(),
+        adt_numeric::int64_to_numeric(v).as_bytes(),
+    )
 }
 
 fn numeric_u64_datum(fcinfo: &Fcinfo, v: u64) -> PgResult<Datum> {
@@ -182,13 +185,22 @@ pub fn fc_pg_stat_get_io(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> 
     for (i, bktype) in BackendType::ALL.into_iter().enumerate() {
         let bktype_stats = &io.stats[i];
 
-        debug_assert!(pgstat::io::pgstat_bktype_io_stats_valid(bktype_stats, bktype));
+        debug_assert!(pgstat::io::pgstat_bktype_io_stats_valid(
+            bktype_stats,
+            bktype
+        ));
 
         if !pgstat_tracks_io_bktype(bktype) || bktype == BackendType::InstanceAux {
             continue;
         }
 
-        io_build_tuples(fcinfo, &mut srf, bktype_stats, bktype, io.stat_reset_timestamp)?;
+        io_build_tuples(
+            fcinfo,
+            &mut srf,
+            bktype_stats,
+            bktype,
+            io.stat_reset_timestamp,
+        )?;
     }
 
     Ok(srf.finish(fcinfo))
@@ -208,7 +220,10 @@ pub fn fc_pg_stat_get_backend_io(
         return Ok(srf.finish(fcinfo));
     };
 
-    debug_assert!(pgstat::io::pgstat_bktype_io_stats_valid(&backend_stats.io_stats, bktype));
+    debug_assert!(pgstat::io::pgstat_bktype_io_stats_valid(
+        &backend_stats.io_stats,
+        bktype
+    ));
 
     io_build_tuples(
         fcinfo,
@@ -351,7 +366,11 @@ fn wal_build_tuple(
 
 pub fn fc_pg_stat_get_wal(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let wal_stats = pgstat::wal::pgstat_fetch_stat_wal();
-    wal_build_tuple(fcinfo, wal_stats.wal_counters, wal_stats.stat_reset_timestamp)
+    wal_build_tuple(
+        fcinfo,
+        wal_stats.wal_counters,
+        wal_stats.stat_reset_timestamp,
+    )
 }
 
 pub fn fc_pg_stat_get_backend_wal(
@@ -663,7 +682,11 @@ pub fn fc_pg_stat_get_wal_senders(
                 if priority == 0 {
                     "async"
                 } else if row.is_sync_standby {
-                    if row.syncrep_method_is_priority { "sync" } else { "quorum" }
+                    if row.syncrep_method_is_priority {
+                        "sync"
+                    } else {
+                        "quorum"
+                    }
                 } else {
                     "potential"
                 },

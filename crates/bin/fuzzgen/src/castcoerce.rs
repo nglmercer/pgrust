@@ -76,23 +76,46 @@ use crate::stmt::{Gen, StmtKind};
 /// literals. Each entry pairs a source SQL fragment with a set of target
 /// types that the explicit-cast matrix will draw from.
 const NUM_LITS: &[&str] = &[
-    "0", "1", "-1", "127", "-128", "32767", "-32768", "2147483647",
-    "-2147483648", "9223372036854775807", "-9223372036854775808",
-    "42", "255", "65536", "100000",
+    "0",
+    "1",
+    "-1",
+    "127",
+    "-128",
+    "32767",
+    "-32768",
+    "2147483647",
+    "-2147483648",
+    "9223372036854775807",
+    "-9223372036854775808",
+    "42",
+    "255",
+    "65536",
+    "100000",
 ];
 
 /// Numeric literals with a fractional part (rounding / truncation fuel).
 const FRAC_LITS: &[&str] = &[
-    "0.5", "-0.5", "1.5", "2.5", "-2.5", "123.456", "0.001", "9999.999",
-    "1.0000005", "-0.0000005", "3.14159265358979", "0.15", "2.675",
+    "0.5",
+    "-0.5",
+    "1.5",
+    "2.5",
+    "-2.5",
+    "123.456",
+    "0.001",
+    "9999.999",
+    "1.0000005",
+    "-0.0000005",
+    "3.14159265358979",
+    "0.15",
+    "2.675",
 ];
 
 /// String-shaped bare literals (unknown-typed) that are valid input for
 /// several target types, plus deliberately-invalid ones (used only by the
 /// `failed` production).
 const STR_OK: &[&str] = &[
-    "'123'", "'-45'", "'0'", "'  17  '", "'3.5'", "'1e3'", "'t'", "'f'",
-    "'true'", "'yes'", "'on'", "'0'", "'1'",
+    "'123'", "'-45'", "'0'", "'  17  '", "'3.5'", "'1e3'", "'t'", "'f'", "'true'", "'yes'", "'on'",
+    "'0'", "'1'",
 ];
 
 /// Built-in scalar target types for the explicit-cast matrix. Kept to
@@ -100,15 +123,16 @@ const STR_OK: &[&str] = &[
 /// the runner's session pin (no money/lc_monetary; float uses shortest
 /// round-trip which is bit-deterministic for an exact cast value).
 const SCALAR_TYPES: &[&str] = &[
-    "int2", "int4", "int8", "float4", "float8", "numeric", "bool", "text",
-    "varchar", "bpchar", "oid",
+    "int2", "int4", "int8", "float4", "float8", "numeric", "bool", "text", "varchar", "bpchar",
+    "oid",
 ];
 
 /// Types reachable from a numeric source (excludes string-only spellings so
 /// the matrix stays mostly-legal; the illegal corners are the `failed`
 /// production's job).
-const NUM_TARGETS: &[&str] =
-    &["int2", "int4", "int8", "float4", "float8", "numeric", "bool", "oid", "text", "money"];
+const NUM_TARGETS: &[&str] = &[
+    "int2", "int4", "int8", "float4", "float8", "numeric", "bool", "oid", "text", "money",
+];
 
 /// Registry entry point (stmt::STMT_MODULES).
 pub fn gen_castcoerce_module(g: &mut Gen) -> Vec<StmtKind> {
@@ -186,7 +210,9 @@ fn gen_typmod(g: &mut Gen) -> String {
     match g.rng.below(8) {
         // varchar(n): explicit cast truncates silently (isExplicit=true).
         0 => {
-            let s = *g.rng.pick(&["'abcdef'", "'ab'", "'  x  '", "'héllo'", "''", "'ABCDE'"]);
+            let s = *g
+                .rng
+                .pick(&["'abcdef'", "'ab'", "'  x  '", "'héllo'", "''", "'ABCDE'"]);
             let n = 1 + g.rng.below(6);
             format!("({}) :: varchar({})", s, n)
         }
@@ -200,8 +226,17 @@ fn gen_typmod(g: &mut Gen) -> String {
         // numeric(p,s): rounding at the scale boundary + field overflow fuel.
         2 => {
             let v = *g.rng.pick(&[
-                "123.456", "0.5", "2.5", "-2.5", "9.995", "0.001", "999.9",
-                "12345.678", "0.15", "2.675", "-0.005",
+                "123.456",
+                "0.5",
+                "2.5",
+                "-2.5",
+                "9.995",
+                "0.001",
+                "999.9",
+                "12345.678",
+                "0.15",
+                "2.675",
+                "-0.005",
             ]);
             let p = 1 + g.rng.below(6);
             let s = g.rng.below(p + 1);
@@ -215,7 +250,9 @@ fn gen_typmod(g: &mut Gen) -> String {
         }
         // bit(n)/varbit(n): pad/truncate + length-mismatch fuel.
         4 => {
-            let s = *g.rng.pick(&["'1'", "'101'", "'0000'", "'11110000'", "'1010101'"]);
+            let s = *g
+                .rng
+                .pick(&["'1'", "'101'", "'0000'", "'11110000'", "'1010101'"]);
             let n = 1 + g.rng.below(8);
             let ty = if g.rng.chance(1, 2) { "bit" } else { "varbit" };
             format!("({}) :: {}({})", s, ty, n)
@@ -239,9 +276,20 @@ fn gen_typmod(g: &mut Gen) -> String {
                 "'100 months'",
             ]);
             let q = *g.rng.pick(&[
-                "year", "month", "day", "hour", "minute", "second",
-                "year to month", "day to hour", "day to second", "hour to minute",
-                "hour to second", "minute to second", "second(2)", "day to second(3)",
+                "year",
+                "month",
+                "day",
+                "hour",
+                "minute",
+                "second",
+                "year to month",
+                "day to hour",
+                "day to second",
+                "hour to minute",
+                "hour to second",
+                "minute to second",
+                "second(2)",
+                "day to second(3)",
             ]);
             format!("(interval {} {}) :: text", v, q)
         }
@@ -338,7 +386,10 @@ fn gen_array(g: &mut Gen) -> String {
         // Fractional elements rounded per element by the element cast.
         1 => "ARRAY[1.4, 2.5, 3.6]::int4[]".to_string(),
         // String-literal array input then element cast.
-        2 => format!("('{{1,2,3}}')::int4[]::{}", g.rng.pick(&["text[]", "numeric[]", "float8[]"])),
+        2 => format!(
+            "('{{1,2,3}}')::int4[]::{}",
+            g.rng.pick(&["text[]", "numeric[]", "float8[]"])
+        ),
         // text[] <-> varchar[] (binary-coercible element).
         3 => "ARRAY['a','b','c']::varchar[]::text[]".to_string(),
         // Mixed unknown + typed element unification.
@@ -361,12 +412,21 @@ fn gen_bincoerce(g: &mut Gen) -> String {
         0 => "('abc'::varchar)::text".to_string(),
         1 => "('abc'::text)::varchar".to_string(),
         // cidr -> inet (binary coercible), inet -> cidr (with function).
-        2 => format!("('{}'::cidr)::inet", g.rng.pick(&["10.0.0.0/8", "192.168.1.0/24", "::/0"])),
-        3 => format!("('{}'::inet)::cidr", g.rng.pick(&["10.1.2.3/8", "192.168.1.5/24"])),
+        2 => format!(
+            "('{}'::cidr)::inet",
+            g.rng.pick(&["10.0.0.0/8", "192.168.1.0/24", "::/0"])
+        ),
+        3 => format!(
+            "('{}'::inet)::cidr",
+            g.rng.pick(&["10.1.2.3/8", "192.168.1.5/24"])
+        ),
         // int4 <-> oid (binary coercible), oid -> regtype (io).
         4 => format!("({}::int4)::oid::int4", g.rng.pick(&["16", "2200", "0"])),
         // xml <-> text (with function); pg_lsn text round-trip.
-        _ => format!("('{}'::pg_lsn)::text", g.rng.pick(&["0/0", "16/B374D848", "FFFFFFFF/FFFFFFFF"])),
+        _ => format!(
+            "('{}'::pg_lsn)::text",
+            g.rng.pick(&["0/0", "16/B374D848", "FFFFFFFF/FFFFFFFF"])
+        ),
     };
     s
 }
@@ -379,13 +439,22 @@ fn gen_failed(g: &mut Gen) -> String {
     g.fire("castcoerce:failed");
     match g.rng.below(8) {
         // 22P02 invalid input syntax for integer.
-        0 => format!("({})::int4", g.rng.pick(&["'abc'", "''", "'1.5'", "'true'", "'0x10'"])),
+        0 => format!(
+            "({})::int4",
+            g.rng.pick(&["'abc'", "''", "'1.5'", "'true'", "'0x10'"])
+        ),
         // 22P02 invalid input for numeric.
-        1 => format!("({})::numeric", g.rng.pick(&["'abc'", "'1,000'", "''", "'NaNx'"])),
+        1 => format!(
+            "({})::numeric",
+            g.rng.pick(&["'abc'", "'1,000'", "''", "'NaNx'"])
+        ),
         // 22003 out of range (integer overflow on narrowing cast).
         2 => format!("({})::int2", g.rng.pick(&["100000", "-40000", "32768"])),
         // 22003 numeric field overflow (typmod).
-        3 => format!("({})::numeric(3,1)", g.rng.pick(&["12345.6", "999.99", "-1000"])),
+        3 => format!(
+            "({})::numeric(3,1)",
+            g.rng.pick(&["12345.6", "999.99", "-1000"])
+        ),
         // 42846 cannot cast type A to type B (no pathway).
         4 => {
             let (a, b) = *g.rng.pick(&[
@@ -398,9 +467,16 @@ fn gen_failed(g: &mut Gen) -> String {
             format!("({})::{}", a, b)
         }
         // 22P02 invalid input syntax for type boolean.
-        5 => format!("({})::bool", g.rng.pick(&["'maybe'", "'2'", "''", "'yesno'"])),
+        5 => format!(
+            "({})::bool",
+            g.rng.pick(&["'maybe'", "'2'", "''", "'yesno'"])
+        ),
         // 22007 invalid datetime input.
-        6 => format!("({})::date", g.rng.pick(&["'2001-13-01'", "'not-a-date'", "'2001-02-30'"])),
+        6 => format!(
+            "({})::date",
+            g.rng
+                .pick(&["'2001-13-01'", "'not-a-date'", "'2001-02-30'"])
+        ),
         // 22001 value too long is assignment-only; here a bit-length mismatch
         // (22026 string data length mismatch) via exact bit typmod.
         _ => format!("('{}')::bit(4)", g.rng.pick(&["101", "1010101"])),
@@ -423,9 +499,7 @@ fn gen_assign_group(g: &mut Gen) -> Vec<StmtKind> {
     );
     // Row 1: all assignments legal (trailing-space truncation for v/c, scale
     // rounding for n, numeric->int rounding for i).
-    push(
-        "INSERT INTO cc_asg VALUES (1, 'ab   ', 'x  ', 123.456, 2.7);".to_string(),
-    );
+    push("INSERT INTO cc_asg VALUES (1, 'ab   ', 'x  ', 123.456, 2.7);".to_string());
     // Row 2: over-length varchar with non-space excess -> 22001 (assignment
     // truncation is an ERROR, unlike the explicit-cast silent truncation).
     // The row is rejected identically on both sides.
@@ -440,9 +514,7 @@ fn gen_assign_group(g: &mut Gen) -> Vec<StmtKind> {
     push("UPDATE cc_asg SET i = i + 0.6 WHERE id = 1;".to_string());
     // State probe: pk-ordered, all columns ::text — the surviving rows must
     // match byte-for-byte and the SAME rows must survive on both engines.
-    push(
-        "SELECT id, v::text, c::text, n::text, i::text FROM cc_asg ORDER BY id;".to_string(),
-    );
+    push("SELECT id, v::text, c::text, n::text, i::text FROM cc_asg ORDER BY id;".to_string());
     push("DROP TABLE IF EXISTS cc_asg;".to_string());
     out
 }
@@ -474,9 +546,7 @@ fn gen_domain_group(g: &mut Gen) -> Vec<StmtKind> {
         }
         // varchar(n) domain: base typmod + CHECK.
         1 => {
-            push(
-                "CREATE DOMAIN cc_dom AS varchar(4) CHECK (VALUE <> '');".to_string(),
-            );
+            push("CREATE DOMAIN cc_dom AS varchar(4) CHECK (VALUE <> '');".to_string());
             push("SELECT ('abc'::cc_dom)::text;".to_string());
             // Base-type over-length assignment via cast (explicit truncates? domain
             // applies the base typmod as assignment -> 22001 on non-space excess).
@@ -487,10 +557,7 @@ fn gen_domain_group(g: &mut Gen) -> Vec<StmtKind> {
         _ => {
             push("CREATE DOMAIN cc_dom AS numeric(6,2);".to_string());
             push("SELECT (12.345::cc_dom)::text;".to_string());
-            push(
-                "ALTER DOMAIN cc_dom ADD CONSTRAINT cc_dom_pos CHECK (VALUE >= 0);"
-                    .to_string(),
-            );
+            push("ALTER DOMAIN cc_dom ADD CONSTRAINT cc_dom_pos CHECK (VALUE >= 0);".to_string());
             push("SELECT (7.5::cc_dom)::text;".to_string());
             push("SELECT ((-1)::cc_dom)::text;".to_string());
         }
@@ -557,9 +624,7 @@ fn gen_createcast_group(g: &mut Gen) -> Vec<StmtKind> {
             push("DROP CAST IF EXISTS (int4 AS cc_oiddom);".to_string());
             push("DROP DOMAIN IF EXISTS cc_oiddom CASCADE;".to_string());
             push("CREATE DOMAIN cc_oiddom AS oid;".to_string());
-            push(
-                "CREATE CAST (int4 AS cc_oiddom) WITHOUT FUNCTION AS ASSIGNMENT;".to_string(),
-            );
+            push("CREATE CAST (int4 AS cc_oiddom) WITHOUT FUNCTION AS ASSIGNMENT;".to_string());
             push("SELECT (2200::int4::cc_oiddom)::text;".to_string());
             push("DROP CAST IF EXISTS (int4 AS cc_oiddom);".to_string());
             push("DROP DOMAIN IF EXISTS cc_oiddom CASCADE;".to_string());
@@ -571,9 +636,7 @@ fn gen_createcast_group(g: &mut Gen) -> Vec<StmtKind> {
             push("DROP DOMAIN IF EXISTS cc_dstdom CASCADE;".to_string());
             push("CREATE DOMAIN cc_srcdom AS int4;".to_string());
             push("CREATE DOMAIN cc_dstdom AS text;".to_string());
-            push(
-                "CREATE CAST (cc_srcdom AS cc_dstdom) WITH INOUT AS IMPLICIT;".to_string(),
-            );
+            push("CREATE CAST (cc_srcdom AS cc_dstdom) WITH INOUT AS IMPLICIT;".to_string());
             push("SELECT (42::cc_srcdom::cc_dstdom)::text;".to_string());
             push("DROP CAST IF EXISTS (cc_srcdom AS cc_dstdom);".to_string());
             push("DROP DOMAIN IF EXISTS cc_srcdom CASCADE;".to_string());
@@ -642,17 +705,28 @@ mod tests {
                 assert!(!low.contains("now("), "nondeterministic now(): {sql}");
                 assert!(!low.contains("random("), "nondeterministic random(): {sql}");
                 assert!(!low.contains("nextval"), "nondeterministic nextval: {sql}");
-                assert!(!low.contains("current_"), "nondeterministic current_*: {sql}");
+                assert!(
+                    !low.contains("current_"),
+                    "nondeterministic current_*: {sql}"
+                );
             }
             for p in &prods {
                 seen.insert(p.clone());
             }
         }
         for p in [
-            "castcoerce:explicit", "castcoerce:typmod", "castcoerce:unify",
-            "castcoerce:unknown", "castcoerce:array", "castcoerce:bincoerce",
-            "castcoerce:failed", "castcoerce:assign", "castcoerce:domain",
-            "castcoerce:enum", "castcoerce:createcast", "castcoerce:composite",
+            "castcoerce:explicit",
+            "castcoerce:typmod",
+            "castcoerce:unify",
+            "castcoerce:unknown",
+            "castcoerce:array",
+            "castcoerce:bincoerce",
+            "castcoerce:failed",
+            "castcoerce:assign",
+            "castcoerce:domain",
+            "castcoerce:enum",
+            "castcoerce:createcast",
+            "castcoerce:composite",
         ] {
             assert!(seen.contains(p), "production {p} never fired");
         }
@@ -671,8 +745,10 @@ mod tests {
             let mut prods = Vec::new();
             let mut g = Gen::new(&mut rng, &cat, &w, &mut prods, 4);
             let stmts = gen_castcoerce_module(&mut g);
-            let sqls: Vec<String> =
-                stmts.iter().map(|s| s.to_sql().to_ascii_lowercase()).collect();
+            let sqls: Vec<String> = stmts
+                .iter()
+                .map(|s| s.to_sql().to_ascii_lowercase())
+                .collect();
             let creates = sqls.iter().filter(|s| s.starts_with("create ")).count();
             if creates == 0 {
                 continue; // scalar single-SELECT production

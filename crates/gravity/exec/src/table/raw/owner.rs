@@ -6,21 +6,31 @@
 //! byte (the count form's is t3's: `[OwnerTop][n records][table]`), so its emit reads a generic owner's result.
 #![allow(unsafe_code)]
 
-use gravity_abi::PtrWord;
-use gravity_abi::breaker::{num_add, FloatOverflow, HashAgg, KeyKind, OwnerFns, OwnerTop, Rec, RecordLayout, SlotKind, DENSE_TABLE_FLOOR, HASHAGG_HDR, KEY_CHECK_KEYS, LAYOUT_IMPLICIT_COUNT, MOVING, ORDER_KEY, ORDER_NONE, OWNERTOP_HDR, OWNER_PARAMS, REDUCE_FLUSH, T1, T1_MAX_PARTS};
+use gravity_abi::breaker::{
+    num_add, FloatOverflow, HashAgg, KeyKind, OwnerFns, OwnerTop, Rec, RecordLayout, SlotKind,
+    DENSE_TABLE_FLOOR, HASHAGG_HDR, KEY_CHECK_KEYS, LAYOUT_IMPLICIT_COUNT, MOVING, ORDER_KEY,
+    ORDER_NONE, OWNERTOP_HDR, OWNER_PARAMS, REDUCE_FLUSH, T1, T1_MAX_PARTS,
+};
 use gravity_abi::hash::KeyHash;
 use gravity_abi::status::{raise, raised, unsupported, UNSUPPORTED_DOMAIN, UNSUPPORTED_SCRATCH};
+use gravity_abi::PtrWord;
 use gravity_abi::Site;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use gravity_kernels::dict::reps::{
+    count_better, keys_better, pack_slot, unpack_slot, Reps, REP_WORDS,
+};
+use gravity_kernels::host_abi::slot_order;
 use gravity_kernels::ops::sort::topn::t3_dense;
 use gravity_kernels::ops::sort::topn::t3_dense::{Area, AREA_PAIRS, AREA_SENTINEL, AREA_SHIFT};
 use gravity_kernels::table::owner_fold::{area_fold, dense_folds, owner_fold, Fold};
-use gravity_kernels::dict::reps::{count_better, keys_better, pack_slot, unpack_slot, Reps, REP_WORDS};
-use gravity_kernels::host_abi::slot_order;
 use gravity_kernels::table::route::owner_share;
 use gravity_program::cost::owner::{dense_pays, ROUND2_T1_MAX, RUNS_FLOOR_MAX};
 use gravity_program::cost::runtime::GRANT_FLOOR;
-use gravity_program::{OwnerDesc, WordsDesc, RUNS_TOP_HEAP, ACC_PAIRS, ACC_SLOT_BASE, CHECK_ADD, CHECK_CAST, CHECK_KEY_NULLABLE, CHECK_NEG, CHECK_NONE, CHECK_RSUB, CHECK_SUB, NULL_ARG_NONE, OBSERVE_KEY_FLAGGED, OBSERVE_NONE, TIE_FLAGS_NONE};
+use gravity_program::{
+    OwnerDesc, WordsDesc, ACC_PAIRS, ACC_SLOT_BASE, CHECK_ADD, CHECK_CAST, CHECK_KEY_NULLABLE,
+    CHECK_NEG, CHECK_NONE, CHECK_RSUB, CHECK_SUB, NULL_ARG_NONE, OBSERVE_KEY_FLAGGED, OBSERVE_NONE,
+    RUNS_TOP_HEAP, TIE_FLAGS_NONE,
+};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 const P_TOPK: usize = 0;
 const P_ORDER: usize = 1;
@@ -88,20 +98,40 @@ pub fn bind(d: &OwnerDesc, words: &mut [u64], spill_bits: u8, records: Option<u6
 /// `WordsDesc.dense_lo / dense_hi` (`lo > hi`: none) chooses the distinct form's dense round 1 — only for a
 /// descriptor that names the key (`dense_attno`): the runner's default extrema (the site's first attribute) are
 /// a guess this form must never refuse on.
-pub fn bind_dense(d: &OwnerDesc, words: &mut [u64], spill_bits: u8, records: Option<u64>, declared: Option<WordsDesc>) -> OwnerFns {
+pub fn bind_dense(
+    d: &OwnerDesc,
+    words: &mut [u64],
+    spill_bits: u8,
+    records: Option<u64>,
+    declared: Option<WordsDesc>,
+) -> OwnerFns {
     bind_dense_plain(d, words, spill_bits, records, declared).0
 }
 
 /// `bind_dense`, and with a dense domain the same form bound without it (D597: `HashAggPartial::with_plain`, the round-1 rerun
 /// after a key outside the domain).
-pub fn bind_dense_plain(d: &OwnerDesc, words: &mut [u64], spill_bits: u8, records: Option<u64>, declared: Option<WordsDesc>) -> (OwnerFns, Option<OwnerFns>) {
+pub fn bind_dense_plain(
+    d: &OwnerDesc,
+    words: &mut [u64],
+    spill_bits: u8,
+    records: Option<u64>,
+    declared: Option<WordsDesc>,
+) -> (OwnerFns, Option<OwnerFns>) {
     bind_dense_plain_at(d, words, spill_bits, records, declared, true, None)
 }
 
 /// `bind_dense_plain` for a producer that can (`parallel`) or cannot run parallel owners (`owner_fns_at`), over the `rows` its
 /// census keeps (`None`: unknown). B04 / EX-05: a domain whose area does not pay for those rows (program cost `dense_pays`'s
 /// folds term) is not bound, so the owner takes the pair path as it does with no domain.
-pub fn bind_dense_plain_at(d: &OwnerDesc, words: &mut [u64], spill_bits: u8, records: Option<u64>, declared: Option<WordsDesc>, parallel: bool, rows: Option<u64>) -> (OwnerFns, Option<OwnerFns>) {
+pub fn bind_dense_plain_at(
+    d: &OwnerDesc,
+    words: &mut [u64],
+    spill_bits: u8,
+    records: Option<u64>,
+    declared: Option<WordsDesc>,
+    parallel: bool,
+    rows: Option<u64>,
+) -> (OwnerFns, Option<OwnerFns>) {
     let bits = match records {
         Some(r) => gravity_kernels::table::params::spill_bits(r, d.layout.size()),
         None => spill_bits,
@@ -110,29 +140,55 @@ pub fn bind_dense_plain_at(d: &OwnerDesc, words: &mut [u64], spill_bits: u8, rec
         let w = w as usize;
         words[w] = (words[w] & !(0xffu64 << sh)) | (bits as u64) << sh;
     }
-    let dense = declared.filter(|_| d.dense_attno > 0).and_then(|w| (w.dense_lo != WordsDesc::NONE && w.dense_hi != WordsDesc::NONE).then_some(w)).and_then(|w| Some((*words.get(w.dense_lo as usize)? as i64, *words.get(w.dense_hi as usize)? as i64)));
-    let dense = dense.filter(|&(lo, hi)| rows.is_none_or(|r| dense_pays(span_of(lo, hi), d.acc.size() as u64, r, u64::MAX)));
+    let dense = declared
+        .filter(|_| d.dense_attno > 0)
+        .and_then(|w| (w.dense_lo != WordsDesc::NONE && w.dense_hi != WordsDesc::NONE).then_some(w))
+        .and_then(|w| {
+            Some((
+                *words.get(w.dense_lo as usize)? as i64,
+                *words.get(w.dense_hi as usize)? as i64,
+            ))
+        });
+    let dense = dense.filter(|&(lo, hi)| {
+        rows.is_none_or(|r| dense_pays(span_of(lo, hi), d.acc.size() as u64, r, u64::MAX))
+    });
     match (d.ctor_desc, d.ctor) {
         (Some(ctor), _) => (ctor(d, words), None),
         (None, Some(ctor)) => (ctor(words), None),
         (None, None) => {
             let check = check_range(d, words);
             let floor = floor_bound(d, words);
-            let top = d.runs_top_of().filter(|&(n, _, slot)| ( 1..= RUNS_TOP_HEAP).contains(&n) && (slot as usize) < d.layout.nslots() && d.check.width == 0 && d.layout.slot_kind(slot as usize) == SlotKind::Count);
+            let top = d.runs_top_of().filter(|&(n, _, slot)| {
+                (1..=RUNS_TOP_HEAP).contains(&n)
+                    && (slot as usize) < d.layout.nslots()
+                    && d.check.width == 0
+                    && d.layout.slot_kind(slot as usize) == SlotKind::Count
+            });
             let bound = |dense: Option<(i64, i64)>| {
                 let mut f = owner_fns_at(d, bits, dense, parallel);
                 if let Some((off, lo, hi)) = floor {
-                    (f.params[P_FLOOR], f.params[P_FLOOR + 1], f.params[P_FLOOR + 2]) = (off as u64 + 1, lo as u64, hi as u64);
+                    (
+                        f.params[P_FLOOR],
+                        f.params[P_FLOOR + 1],
+                        f.params[P_FLOOR + 2],
+                    ) = (off as u64 + 1, lo as u64, hi as u64);
                 }
                 if let Some((n, below, slot)) = top {
-                    f.params[P_FLOOR] = ( d.layout.slot_off(slot as usize) as u64 + 1) | ((n as u64) << 32) | (below as u64) << 63;
+                    f.params[P_FLOOR] = (d.layout.slot_off(slot as usize) as u64 + 1)
+                        | ((n as u64) << 32)
+                        | (below as u64) << 63;
                 }
                 if let Some(c) = &check {
                     f.params[P_CHECK] |= c.n as u64 | (c.code as u64) << 8;
                     for (i, &(k, lo, hi)) in c.keys[..c.n].iter().enumerate() {
-                        let null = if c.nulls >> i & 1 != 0 { CHECK_KEY_NULLABLE as u64 } else { 0 };
+                        let null = if c.nulls >> i & 1 != 0 {
+                            CHECK_KEY_NULLABLE as u64
+                        } else {
+                            0
+                        };
                         f.params[P_CHECK_KEYS] |= (k as u64 | null) << (8 * i as u32);
-                        (f.params[P_CHECK + 2 + 2 * i], f.params[P_CHECK + 3 + 2 * i]) = (lo as u64, hi as u64);
+                        (f.params[P_CHECK + 2 + 2 * i], f.params[P_CHECK + 3 + 2 * i]) =
+                            (lo as u64, hi as u64);
                     }
                 }
                 f
@@ -151,7 +207,12 @@ fn floor_bound(d: &OwnerDesc, words: &[u64]) -> Option<(usize, i64, i64)> {
     let (w, gt, int4, below, slot) = d.runs_floor_of()?;
     let x = *words.get(w as usize)?;
     let k = if int4 { x as i32 as i64 } else { x as i64 };
-    let whole = (slot as usize) < d.layout.nslots() && d.check.width == 0 && matches!(d.layout.slot_kind(slot as usize), SlotKind::Count | SlotKind::MinI64 | SlotKind::MaxI64 | SlotKind::SumI64);
+    let whole = (slot as usize) < d.layout.nslots()
+        && d.check.width == 0
+        && matches!(
+            d.layout.slot_kind(slot as usize),
+            SlotKind::Count | SlotKind::MinI64 | SlotKind::MaxI64 | SlotKind::SumI64
+        );
     let (lo, hi) = match (below, gt) {
         (false, true) => (k.saturating_add(1), i64::MAX),
         (false, false) => (k, i64::MAX),
@@ -175,7 +236,12 @@ struct Best {
 
 impl Best {
     fn new(k: usize, below: bool) -> Best {
-        Best { heap: [0; RUNS_TOP_HEAP as usize], m: 0, k: k.clamp(1, RUNS_TOP_HEAP as usize), below }
+        Best {
+            heap: [0; RUNS_TOP_HEAP as usize],
+            m: 0,
+            k: k.clamp(1, RUNS_TOP_HEAP as usize),
+            below,
+        }
     }
 
     #[inline(always)]
@@ -254,14 +320,29 @@ fn check_range(d: &OwnerDesc, words: &[u64]) -> Option<KeyRanges> {
             CHECK_RSUB => (k - hi, k - lo),
             CHECK_NEG => (-hi, -lo),
             CHECK_CAST => (lo, hi),
-            _ if k == 0 => if lo <= 0 && 0 <= hi { ALL } else { (1, 0) },
+            _ if k == 0 => {
+                if lo <= 0 && 0 <= hi {
+                    ALL
+                } else {
+                    (1, 0)
+                }
+            }
             _ if k > 0 => (ceil(lo, k), floor(hi, k)),
             _ => (ceil(hi, k), floor(lo, k)),
         };
         (l.max(ALL.0), h.min(ALL.1))
     };
-    let steps = &c.steps[..c.steps.iter().position(|s| s.op == CHECK_NONE).unwrap_or(c.steps.len())];
-    let mut r = KeyRanges { code, n: 0, keys: [(0, i64::MIN, i64::MAX); KEY_CHECK_KEYS], nulls: 0 };
+    let steps = &c.steps[..c
+        .steps
+        .iter()
+        .position(|s| s.op == CHECK_NONE)
+        .unwrap_or(c.steps.len())];
+    let mut r = KeyRanges {
+        code,
+        n: 0,
+        keys: [(0, i64::MIN, i64::MAX); KEY_CHECK_KEYS],
+        nulls: 0,
+    };
     let mut start = 0;
     for i in 0..steps.len() {
         if steps[i].key != 0 {
@@ -273,7 +354,11 @@ fn check_range(d: &OwnerDesc, words: &[u64]) -> Option<KeyRanges> {
                 0
             } else {
                 let x = *words.get(s.word as usize)?;
-                match s.cwidth { 2 => x as i16 as i128, 4 => x as i32 as i128, _ => x as i64 as i128 }
+                match s.cwidth {
+                    2 => x as i16 as i128,
+                    4 => x as i32 as i128,
+                    _ => x as i64 as i128,
+                }
             };
             iv = pull(s.op, k, iv);
         }
@@ -289,7 +374,11 @@ fn check_range(d: &OwnerDesc, words: &[u64]) -> Option<KeyRanges> {
         if steps[start].key & CHECK_KEY_NULLABLE != 0 {
             r.nulls |= 1 << j;
         }
-        let (lo, hi) = if iv.0 > iv.1 { (i64::MAX, i64::MIN) } else { (iv.0 as i64, iv.1 as i64) };
+        let (lo, hi) = if iv.0 > iv.1 {
+            (i64::MAX, i64::MIN)
+        } else {
+            (iv.0 as i64, iv.1 as i64)
+        };
         let e = &mut r.keys[j];
         (e.1, e.2) = (e.1.max(lo), e.2.min(hi));
     }
@@ -310,23 +399,51 @@ pub fn distinct_fns(d: &OwnerDesc, spill_bits: u8) -> OwnerFns {
 /// validity absent): `key - lo` indexes the group's accumulator. A date or timestamp key is a signed integer word too
 /// (its datum: days / microseconds), ordered and compared as one, with the same lane extrema.
 fn dense_form(d: &OwnerDesc) -> bool {
-    d.acc.nkeys() == 1 && matches!(d.acc.key_kinds()[0], KeyKind::I32 | KeyKind::I64 | KeyKind::Date | KeyKind::Timestamp) && !d.acc.has_validity() && !d.layout.has_validity() && !float_riders(&d.layout)
+    d.acc.nkeys() == 1
+        && matches!(
+            d.acc.key_kinds()[0],
+            KeyKind::I32 | KeyKind::I64 | KeyKind::Date | KeyKind::Timestamp
+        )
+        && !d.acc.has_validity()
+        && !d.layout.has_validity()
+        && !float_riders(&d.layout)
 }
 
 /// A float rider (`sum` / `avg` over float4 / float8): its merge can raise PG's overflow (D244), which the dense walk has no
 /// channel for; such a pair takes `fold_pair`. So does a wide numeric rider (V4R-38: the fold table's 4-bit kinds are full).
 fn float_riders(pair: &RecordLayout) -> bool {
-    pair.slot_kinds().iter().any(|k| matches!(k, SlotKind::SumF64 | SlotKind::SumF32 | SlotKind::F64Accum | SlotKind::SumNumWide | SlotKind::AvgNumWide | SlotKind::AggState | SlotKind::IntervalMin | SlotKind::IntervalMax | SlotKind::IntervalSum | SlotKind::NumSideMin | SlotKind::NumSideMax))
+    pair.slot_kinds().iter().any(|k| {
+        matches!(
+            k,
+            SlotKind::SumF64
+                | SlotKind::SumF32
+                | SlotKind::F64Accum
+                | SlotKind::SumNumWide
+                | SlotKind::AvgNumWide
+                | SlotKind::AggState
+                | SlotKind::IntervalMin
+                | SlotKind::IntervalMax
+                | SlotKind::IntervalSum
+                | SlotKind::NumSideMin
+                | SlotKind::NumSideMax
+        )
+    })
 }
 
 /// `distinct_fns` with the group key's domain `(lo, hi)` when the runner has it: the dense round 1 (`DenseArea`).
 /// The domain is `t3_dense::word`'s, split over the high halves of `P_TOPK` and `P_BITS`; a domain the form does
 /// not take (a text or nullable key, a span past the word's `t3_dense::SPAN_MAX`) leaves the pair path.
 pub fn distinct_fns_dense(d: &OwnerDesc, spill_bits: u8, dense: Option<(i64, i64)>) -> OwnerFns {
-    assert!(d.ctor.is_none() && d.ctor_desc.is_none() && d.pair != 0, "the distinct owner form");
+    assert!(
+        d.ctor.is_none() && d.ctor_desc.is_none() && d.pair != 0,
+        "the distinct owner form"
+    );
     let acc = d.accumulator();
     let count = d.order_slot < ORDER_KEY;
-    assert!(count || d.topk == 0, "the distinct form's key-ordered top-k is not an owner form");
+    assert!(
+        count || d.topk == 0,
+        "the distinct form's key-ordered top-k is not an owner form"
+    );
     if count {
         assert!(d.topk > 0 && (d.order_slot as usize) < acc.nslots() && (d.order != 0 || acc.slot_kind(d.order_slot as usize) == SlotKind::Count), "the distinct form's count order: an accumulator Count slot or an order word over a slot, and a bound");
     }
@@ -336,9 +453,21 @@ pub fn distinct_fns_dense(d: &OwnerDesc, spill_bits: u8, dense: Option<(i64, i64
     };
     let mut p = [0u64; OWNER_PARAMS];
     p[P_TOPK] = d.topk as u64 | (dw & 0xffff_ffff) << 32;
-    let order = if count { ORDER_BY_COUNT } else if d.order_slot == ORDER_KEY { ORDER_BY_KEY } else { 0 };
+    let order = if count {
+        ORDER_BY_COUNT
+    } else if d.order_slot == ORDER_KEY {
+        ORDER_BY_KEY
+    } else {
+        0
+    };
     p[P_ORDER] = order | (d.pair as u64) << 8 | (d.groups as u64) << 16 | null_arg_word(d);
-    p[P_BITS] = if spill_bits == 0 { DEFAULT_BITS } else { spill_bits } as u64 | (dw >> 32) << 32 | arg_fold_word(d);
+    p[P_BITS] = if spill_bits == 0 {
+        DEFAULT_BITS
+    } else {
+        spill_bits
+    } as u64
+        | (dw >> 32) << 32
+        | arg_fold_word(d);
     put_slot(&mut p, d);
     let words: [u64; LAYOUT_WORDS] = d.layout.words();
     p[P_LAYOUT..P_ACC].copy_from_slice(&words);
@@ -352,8 +481,23 @@ pub fn distinct_fns_dense(d: &OwnerDesc, spill_bits: u8, dense: Option<(i64, i64
     }
     // the order word as the count form's; round 2 gates candidates by a count reaching the threshold for the count descending alone
     p[P_CHECK] = (d.order as u64) << ORDER_WORD_SHIFT;
-    let order_slot2 = if count && d.order == 0 { d.order_slot } else { ORDER_NONE };
-    OwnerFns { params: p, rounds: 2, order_slot: ORDER_NONE, order_slot2, min_bytes: distinct_min, open: distinct_open, reduce: distinct_reduce, end_round: distinct_end, reduce2: distinct_reduce2, fold: Some(if dw != 0 { distinct_fold } else { owner_fold }) }
+    let order_slot2 = if count && d.order == 0 {
+        d.order_slot
+    } else {
+        ORDER_NONE
+    };
+    OwnerFns {
+        params: p,
+        rounds: 2,
+        order_slot: ORDER_NONE,
+        order_slot2,
+        min_bytes: distinct_min,
+        open: distinct_open,
+        reduce: distinct_reduce,
+        end_round: distinct_end,
+        reduce2: distinct_reduce2,
+        fold: Some(if dw != 0 { distinct_fold } else { owner_fold }),
+    }
 }
 
 /// The round-2 hot table's floor (two slots per estimated group, clamped to [floor, ROUND2_T1_MAX]). SWEPT FLAT
@@ -388,11 +532,23 @@ const fn dense_bytes(span: u32, entries: usize, acc: usize) -> usize {
 }
 
 fn null_arg_word(d: &OwnerDesc) -> u64 {
-    if d.null_arg.0 == NULL_ARG_NONE { 0 } else { (d.null_arg.0 as u64 + 1) << NULL_ARG_SHIFT | (d.null_arg.1 as u64) << (NULL_ARG_SHIFT + 8) | (d.group_flags as u64) << GROUP_FLAGS_BIT }
+    if d.null_arg.0 == NULL_ARG_NONE {
+        0
+    } else {
+        (d.null_arg.0 as u64 + 1) << NULL_ARG_SHIFT
+            | (d.null_arg.1 as u64) << (NULL_ARG_SHIFT + 8)
+            | (d.group_flags as u64) << GROUP_FLAGS_BIT
+    }
 }
 
 fn arg_fold_word(d: &OwnerDesc) -> u64 {
-    d.arg_fold.iter().enumerate().filter(|(_, s)| **s != NULL_ARG_NONE).fold(0, |w, (i, s)| w | (*s as u64 + 1) << (ARG_FOLD_SHIFT + 8 * i as u32))
+    d.arg_fold
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| **s != NULL_ARG_NONE)
+        .fold(0, |w, (i, s)| {
+            w | (*s as u64 + 1) << (ARG_FOLD_SHIFT + 8 * i as u32)
+        })
 }
 
 /// The pair's NULL-argument flag is set: it adds nothing to the pair count and folds no argument.
@@ -424,13 +580,22 @@ const ACC_KEYS_MAX: usize = u8::MAX as usize;
 /// words the accumulator carries (CAP-28: one per 64 group keys, `Params::flag_words`), the argument's bit cleared where
 /// it falls in one of them (a NULL group key's bit kept: it never meets a 0 key's group), built in `buf`.
 #[inline(always)]
-unsafe fn acc_keys<'a>(p: &Params, q: *const u8, nk: usize, buf: &'a mut [u64; ACC_KEYS_MAX]) -> &'a [u64] {
+unsafe fn acc_keys<'a>(
+    p: &Params,
+    q: *const u8,
+    nk: usize,
+    buf: &'a mut [u64; ACC_KEYS_MAX],
+) -> &'a [u64] {
     match p.null_arg.filter(|_| p.group_flags) {
         Some((w, b)) => {
             let (first, carried) = p.flag_words;
             let g = nk - carried;
             core::ptr::copy_nonoverlapping(q as *const u64, buf.as_mut_ptr(), g);
-            core::ptr::copy_nonoverlapping((q as *const u64).add(first), buf.as_mut_ptr().add(g), carried);
+            core::ptr::copy_nonoverlapping(
+                (q as *const u64).add(first),
+                buf.as_mut_ptr().add(g),
+                carried,
+            );
             if w - first < carried {
                 buf[g + (w - first)] &= !(1u64 << b);
             }
@@ -504,7 +669,17 @@ fn fold_entry(acc: &RecordLayout, pair: &RecordLayout, j: usize) -> u32 {
         SlotKind::AvgNum => PF_AVGNUM,
         SlotKind::MinI64 => PF_MIN_I64,
         SlotKind::MaxI64 => PF_MAX_I64,
-        SlotKind::SumF64 | SlotKind::SumF32 | SlotKind::F64Accum | SlotKind::SumNumWide | SlotKind::AvgNumWide | SlotKind::AggState | SlotKind::IntervalMin | SlotKind::IntervalMax | SlotKind::IntervalSum | SlotKind::NumSideMin | SlotKind::NumSideMax => {
+        SlotKind::SumF64
+        | SlotKind::SumF32
+        | SlotKind::F64Accum
+        | SlotKind::SumNumWide
+        | SlotKind::AvgNumWide
+        | SlotKind::AggState
+        | SlotKind::IntervalMin
+        | SlotKind::IntervalMax
+        | SlotKind::IntervalSum
+        | SlotKind::NumSideMin
+        | SlotKind::NumSideMax => {
             unreachable!("a float, wide numeric, hosted, interval or order-key side rider leaves the dense form (float_riders)")
         }
         SlotKind::BitAnd => PF_BIT_AND,
@@ -515,8 +690,14 @@ fn fold_entry(acc: &RecordLayout, pair: &RecordLayout, j: usize) -> u32 {
         SlotKind::MinVar => PF_MIN_VAR,
         SlotKind::MaxVar => PF_MAX_VAR,
     };
-    let (d, s) = (acc.slot_off(j + ACC_SLOT_BASE as usize) / 8, pair.slot_off(j) / 8);
-    assert!(d < 1 << PF_WORD_BITS && s < 1 << PF_WORD_BITS, "a record word past the fold table's field");
+    let (d, s) = (
+        acc.slot_off(j + ACC_SLOT_BASE as usize) / 8,
+        pair.slot_off(j) / 8,
+    );
+    assert!(
+        d < 1 << PF_WORD_BITS && s < 1 << PF_WORD_BITS,
+        "a record word past the fold table's field"
+    );
     kind | d << 4 | s << (4 + PF_WORD_BITS)
 }
 
@@ -534,21 +715,38 @@ struct Geometry {
 /// round-2 region is a quarter of the rest (round 1 only appends to it) and the dense area sits between it and
 /// the table space, when the table space keeps its floor — else the pair path's split.
 fn distinct_geometry(p: &Params, bytes: usize) -> Option<Geometry> {
-    let res_end = if p.count.is_some() { count_table_off(p.n, p.acc.size() as usize) } else { RUN_OFF + ((bytes.saturating_sub(RUN_OFF) / 4) & !7) };
+    let res_end = if p.count.is_some() {
+        count_table_off(p.n, p.acc.size() as usize)
+    } else {
+        RUN_OFF + ((bytes.saturating_sub(RUN_OFF) / 4) & !7)
+    };
     let r2_off = (res_end + 7) & !7;
     let rest = bytes.saturating_sub(r2_off);
     if let Some((_, span)) = p.dense {
         let r2_bytes = (rest / 4) & !7;
         let dense_off = r2_off + r2_bytes;
-        let table_off = dense_off + dense_bytes(span, pair_slots(&p.layout), p.acc.size() as usize) + MARKER;
+        let table_off =
+            dense_off + dense_bytes(span, pair_slots(&p.layout), p.acc.size() as usize) + MARKER;
         if r2_bytes >= 4096 && table_off + DENSE_TABLE_FLOOR <= bytes {
-            return Some(Geometry { r2_off, r2_end: dense_off, dense_off, table_off });
+            return Some(Geometry {
+                r2_off,
+                r2_end: dense_off,
+                dense_off,
+                table_off,
+            });
         }
     }
     let marker = if p.dense.is_some() { MARKER } else { 0 };
     let r2_bytes = (rest / 2) & !7;
     let table_off = r2_off + r2_bytes;
-    (r2_bytes >= 4096 + marker && table_off + HASHAGG_HDR + 2 * p.rec <= bytes).then_some(Geometry { r2_off, r2_end: table_off - marker, dense_off: table_off, table_off })
+    (r2_bytes >= 4096 + marker && table_off + HASHAGG_HDR + 2 * p.rec <= bytes).then_some(
+        Geometry {
+            r2_off,
+            r2_end: table_off - marker,
+            dense_off: table_off,
+            table_off,
+        },
+    )
 }
 
 /// The dense round 1's area (lower.md §6.12.4): the group's accumulator at `key - lo`, opened on first sight,
@@ -583,14 +781,32 @@ impl DenseArea {
 
     unsafe fn new(base: *mut u8, lo: i64, span: u32, p: &Params) -> DenseArea {
         let n = pair_slots(&p.layout);
-        DenseArea { base, lo, span, entries: base.add(DENSE_HDR) as *const u32, n, idx: dense_idx_bytes(span, n), acc_size: p.acc.size() as usize, pairs_word: p.acc.slot_off(ACC_PAIRS as usize) as usize / 8, acc: p.acc, null_arg: p.null_arg, arg_fold: p.arg_fold, tags: p.tags }
+        DenseArea {
+            base,
+            lo,
+            span,
+            entries: base.add(DENSE_HDR) as *const u32,
+            n,
+            idx: dense_idx_bytes(span, n),
+            acc_size: p.acc.size() as usize,
+            pairs_word: p.acc.slot_off(ACC_PAIRS as usize) as usize / 8,
+            acc: p.acc,
+            null_arg: p.null_arg,
+            arg_fold: p.arg_fold,
+            tags: p.tags,
+        }
     }
 
     /// The header, the fold table and the index written once per region (a NULL or folded argument leaves the count to `note`: no shaped fold).
     unsafe fn open(&self, pair: &RecordLayout) {
         core::ptr::write_bytes(self.base, 0, self.idx);
         *self.hdr().add(2) = self.n as u32;
-        *self.hdr().add(H_SHAPE) = if self.null_arg.is_some() || self.arg_fold[0].is_some() || self.tags.is_some() { 0 } else { area_shape(&self.acc, pair) };
+        *self.hdr().add(H_SHAPE) =
+            if self.null_arg.is_some() || self.arg_fold[0].is_some() || self.tags.is_some() {
+                0
+            } else {
+                area_shape(&self.acc, pair)
+            };
         let e = self.entries as *mut u32;
         for j in 0..self.n {
             *e.add(j) = fold_entry(&self.acc, pair, j);
@@ -644,13 +860,23 @@ impl DenseArea {
         let src = q as *const u64;
         for e in 0..self.n {
             let w = *self.entries.add(e);
-            let (d, s) = (dst.add((w >> 4 & ((1 << PF_WORD_BITS) - 1)) as usize), src.add((w >> (4 + PF_WORD_BITS)) as usize));
+            let (d, s) = (
+                dst.add((w >> 4 & ((1 << PF_WORD_BITS) - 1)) as usize),
+                src.add((w >> (4 + PF_WORD_BITS)) as usize),
+            );
             match w & 15 {
                 PF_COUNT => *d = (*d).wrapping_add(*s & !MOVING),
                 PF_ADD => *d = (*d).wrapping_add(*s),
                 PF_ADD128 | PF_AVG | PF_ADDNUM | PF_AVGNUM => {
-                    let (x, y) = (((*d as u128) | (*d.add(1) as u128) << 64) as i128, ((*s as u128) | (*s.add(1) as u128) << 64) as i128);
-                    let v = (if w & 15 >= PF_ADDNUM { num_add(x, y) } else { x.wrapping_add(y) }) as u128;
+                    let (x, y) = (
+                        ((*d as u128) | (*d.add(1) as u128) << 64) as i128,
+                        ((*s as u128) | (*s.add(1) as u128) << 64) as i128,
+                    );
+                    let v = (if w & 15 >= PF_ADDNUM {
+                        num_add(x, y)
+                    } else {
+                        x.wrapping_add(y)
+                    }) as u128;
                     *d = v as u64;
                     *d.add(1) = (v >> 64) as u64;
                     if w & 15 == PF_AVG || w & 15 == PF_AVGNUM {
@@ -679,8 +905,13 @@ impl DenseArea {
                 PF_MIN_VAR | PF_MAX_VAR => {
                     if *s != 0 {
                         let take = *d == 0 || {
-                            let c = gravity_abi::breaker::varlena_cmp(*s as *const u8, *d as *const u8);
-                            if w & 15 == PF_MIN_VAR { c == core::cmp::Ordering::Less } else { c == core::cmp::Ordering::Greater }
+                            let c =
+                                gravity_abi::breaker::varlena_cmp(*s as *const u8, *d as *const u8);
+                            if w & 15 == PF_MIN_VAR {
+                                c == core::cmp::Ordering::Less
+                            } else {
+                                c == core::cmp::Ordering::Greater
+                            }
                         };
                         if take {
                             *d = *s;
@@ -705,7 +936,8 @@ impl DenseArea {
         let mut i = *self.hdr().add(1);
         while i < n {
             let src = self.rec(i);
-            let part = (KeyHash::of(core::slice::from_raw_parts(src as *const u64, 1))).part(pbits as u32);
+            let part =
+                (KeyHash::of(core::slice::from_raw_parts(src as *const u64, 1))).part(pbits as u32);
             if !ap.append(part, src) {
                 ap.finish();
                 *self.hdr().add(1) = i;
@@ -724,8 +956,16 @@ fn area_shape(acc: &RecordLayout, pair: &RecordLayout) -> u32 {
     if !dense_folds(pair) {
         return 0;
     }
-    let fixed = acc.flags & LAYOUT_IMPLICIT_COUNT == 0 && acc.wide.ptr().is_none() && pair.wide.ptr().is_none() && acc.slot_off(0) as usize == 8 * AREA_SENTINEL && acc.slot_off(ACC_PAIRS as usize) as usize == 8 * AREA_PAIRS;
-    let riding = (0..pair_slots(pair)).all(|j| acc.slot_kind(j + ACC_SLOT_BASE as usize) == pair.slot_kind(j) && acc.slot_off(j + ACC_SLOT_BASE as usize) as usize == pair.slot_off(j) as usize + AREA_SHIFT);
+    let fixed = acc.flags & LAYOUT_IMPLICIT_COUNT == 0
+        && acc.wide.ptr().is_none()
+        && pair.wide.ptr().is_none()
+        && acc.slot_off(0) as usize == 8 * AREA_SENTINEL
+        && acc.slot_off(ACC_PAIRS as usize) as usize == 8 * AREA_PAIRS;
+    let riding = (0..pair_slots(pair)).all(|j| {
+        acc.slot_kind(j + ACC_SLOT_BASE as usize) == pair.slot_kind(j)
+            && acc.slot_off(j + ACC_SLOT_BASE as usize) as usize
+                == pair.slot_off(j) as usize + AREA_SHIFT
+    });
     (fixed && riding) as u32
 }
 
@@ -737,7 +977,14 @@ fn area_shape(acc: &RecordLayout, pair: &RecordLayout) -> u32 {
 /// and the run's leading ones up to it are quiet.
 /// # Safety
 /// `FoldFn`'s contract over a table laid at the region's `table_off`.
-unsafe fn distinct_fold(params: *const u64, t: *mut HashAgg, recs: *const u8, nrecs: usize, split: gravity_abi::breaker::SubSplit, cand: *mut gravity_abi::breaker::Candidates) -> i64 {
+unsafe fn distinct_fold(
+    params: *const u64,
+    t: *mut HashAgg,
+    recs: *const u8,
+    nrecs: usize,
+    split: gravity_abi::breaker::SubSplit,
+    cand: *mut gravity_abi::breaker::Candidates,
+) -> i64 {
     let back = *(t as *const u32).sub(1) as usize;
     if back != 0 {
         let base = (t as *mut u8).sub(back);
@@ -751,7 +998,17 @@ unsafe fn distinct_fold(params: *const u64, t: *mut HashAgg, recs: *const u8, nr
             let fills = (base as *mut u64).add(H_POS);
             let mut fill = 0u64;
             *hdr.add(H_IDENT) = 1;
-            let area = Area::over(hdr, hdr.add(H_BAD), base.add(idx - 4 * span as usize) as *mut u32, base.add(idx), acc, lo, span, t3_dense::Fills::quiet(fills, split), &mut fill);
+            let area = Area::over(
+                hdr,
+                hdr.add(H_BAD),
+                base.add(idx - 4 * span as usize) as *mut u32,
+                base.add(idx),
+                acc,
+                lo,
+                span,
+                t3_dense::Fills::quiet(fills, split),
+                &mut fill,
+            );
             let v = area_fold(t, recs, nrecs, split, &area, &f, pair_slots(&(*t).layout));
             t3_dense::Fills::advance(fills, split, nrecs, v, fill);
             return v;
@@ -780,7 +1037,11 @@ fn distinct_floor(p: &Params, groups: u64) -> u64 {
     // floored like the runs form's (own_all takes a two-round shape's least fitting floor; a count-kept floor alone left
     // a W0 table of a few KiB, fold_sub re-reading the spill at every split level)
     let runs = RUN_OFF as u64 + 4 * (groups.max(64) * acc).min(RUNS_FLOOR_MAX);
-    let res = if p.count.is_some() { runs.max(count_table_off(p.n, acc as usize) as u64) } else { runs };
+    let res = if p.count.is_some() {
+        runs.max(count_table_off(p.n, acc as usize) as u64)
+    } else {
+        runs
+    };
     dense_floor(p, res + 2 * 4096 + (HASHAGG_HDR + 64 * p.rec) as u64)
 }
 
@@ -795,9 +1056,19 @@ fn span_of(lo: i64, hi: i64) -> u64 {
 /// floor without the area left W0's one owner on the pair path (W0: area=false over a 131071-key domain, the W8 owners'
 /// larger regions laid it).
 fn dense_floor(p: &Params, floor: u64) -> u64 {
-    let Some((_, span)) = p.dense.filter(|&(_, span)| dense_pays(span as u64, p.acc.size() as u64, u64::MAX, GRANT_FLOOR)) else { return floor };
-    let laid = |b: u64| distinct_geometry(p, b as usize).is_some_and(|g| g.dense_off != g.table_off);
-    let mut b = floor.max((dense_bytes(span, pair_slots(&p.layout), p.acc.size() as usize) + MARKER + DENSE_TABLE_FLOOR) as u64);
+    let Some((_, span)) = p
+        .dense
+        .filter(|&(_, span)| dense_pays(span as u64, p.acc.size() as u64, u64::MAX, GRANT_FLOOR))
+    else {
+        return floor;
+    };
+    let laid =
+        |b: u64| distinct_geometry(p, b as usize).is_some_and(|g| g.dense_off != g.table_off);
+    let mut b = floor.max(
+        (dense_bytes(span, pair_slots(&p.layout), p.acc.size() as usize)
+            + MARKER
+            + DENSE_TABLE_FLOOR) as u64,
+    );
     for _ in 0..64 {
         if laid(b) {
             return b.next_multiple_of(8);
@@ -809,7 +1080,15 @@ fn dense_floor(p: &Params, floor: u64) -> u64 {
 
 unsafe fn distinct_open(params: *const u64, owner: *mut u8, bytes: usize) -> i64 {
     let p = params_of(params);
-    let Some(Geometry { r2_off, r2_end, dense_off, table_off }) = distinct_geometry(&p, bytes) else { return unsupported(UNSUPPORTED_SCRATCH) };
+    let Some(Geometry {
+        r2_off,
+        r2_end,
+        dense_off,
+        table_off,
+    }) = distinct_geometry(&p, bytes)
+    else {
+        return unsupported(UNSUPPORTED_SCRATCH);
+    };
     let acc = p.acc;
     let groups = p.groups.max(1) as u64;
     let pbits2 = gravity_kernels::table::params::spill_bits(groups, acc.size()).max(3);
@@ -817,7 +1096,13 @@ unsafe fn distinct_open(params: *const u64, owner: *mut u8, bytes: usize) -> i64
     core::ptr::write_bytes(r2, 0, 64);
     let r2_bytes = (r2_end - r2_off) as u32;
     // the hot table: two slots per estimated group, at most a quarter of its region; the dense round only appends
-    let want = if dense_off != table_off { 4096 } else { (2 * groups * acc.size() as u64).clamp(ROUND2_T1_BYTES, ROUND2_T1_MAX).next_power_of_two() as u32 };
+    let want = if dense_off != table_off {
+        4096
+    } else {
+        (2 * groups * acc.size() as u64)
+            .clamp(ROUND2_T1_BYTES, ROUND2_T1_MAX)
+            .next_power_of_two() as u32
+    };
     T1::at(r2, &acc, pbits2, want.min(r2_bytes / 4), r2_bytes);
     let area = p.dense.filter(|_| dense_off != table_off);
     if let Some((lo, span)) = area {
@@ -825,14 +1110,37 @@ unsafe fn distinct_open(params: *const u64, owner: *mut u8, bytes: usize) -> i64
     }
     if p.dense.is_some() {
         *(owner.add(table_off - MARKER) as *mut u32) = 0;
-        *(owner.add(table_off - 4) as *mut u32) = if area.is_some() { (table_off - dense_off) as u32 } else { 0 };
+        *(owner.add(table_off - 4) as *mut u32) = if area.is_some() {
+            (table_off - dense_off) as u32
+        } else {
+            0
+        };
     }
-    *(owner as *mut OwnerTop) = OwnerTop { len: 0, n: p.n as u32, table_off: table_off as u32, worst: 0, round2_off: r2_off as u32, resume: 0, total: 0, groups: 0, records: 0, thr: 0, key_lo: gravity_abi::breaker::KEY_LO_NONE, key_hi: gravity_abi::breaker::KEY_HI_NONE, cell: core::cell::UnsafeCell::new([]) };
+    *(owner as *mut OwnerTop) = OwnerTop {
+        len: 0,
+        n: p.n as u32,
+        table_off: table_off as u32,
+        worst: 0,
+        round2_off: r2_off as u32,
+        resume: 0,
+        total: 0,
+        groups: 0,
+        records: 0,
+        thr: 0,
+        key_lo: gravity_abi::breaker::KEY_LO_NONE,
+        key_hi: gravity_abi::breaker::KEY_HI_NONE,
+        cell: core::cell::UnsafeCell::new([]),
+    };
     table_off as i64
 }
 
 /// The pair's slots into its group's accumulator (`Rec::fold`'s vocabulary, the slots offset by `ACC_SLOT_BASE`).
-unsafe fn fold_pair(a: &Rec<'_>, pair: &RecordLayout, s: &Rec<'_>, ns: usize) -> Result<(), FloatOverflow> {
+unsafe fn fold_pair(
+    a: &Rec<'_>,
+    pair: &RecordLayout,
+    s: &Rec<'_>,
+    ns: usize,
+) -> Result<(), FloatOverflow> {
     if s.null_seen() {
         a.set_null_seen();
     }
@@ -880,7 +1188,9 @@ unsafe fn fold_pair(a: &Rec<'_>, pair: &RecordLayout, s: &Rec<'_>, ns: usize) ->
             SlotKind::IntervalSum => a.fold_interval_sum(d, &s.interval_sum(j))?,
             SlotKind::AggState => a.move_state(d, s, j)?,
             // N13: an order-key layout (LAYOUT_KEY_TIES) keeps no DISTINCT sibling (decompose settle_keyed: a pair fold is hosted)
-            SlotKind::NumSideMin | SlotKind::NumSideMax => unreachable!("an order-key side slot in a DISTINCT pair's riders"),
+            SlotKind::NumSideMin | SlotKind::NumSideMax => {
+                unreachable!("an order-key side slot in a DISTINCT pair's riders")
+            }
         }
     }
     Ok(())
@@ -888,7 +1198,14 @@ unsafe fn fold_pair(a: &Rec<'_>, pair: &RecordLayout, s: &Rec<'_>, ns: usize) ->
 
 /// Round 1: every deduped pair of the partition probed into the round-2 table by its group words and folded
 /// (a fresh accumulator takes the owner-record sentinel); a full pool returns `REDUCE_FLUSH` and resumes.
-unsafe fn distinct_reduce(params: *const u64, owner: *mut u8, table: *const HashAgg, _site: *mut Site, _cand: *const u32, _ncand: i64) -> i64 {
+unsafe fn distinct_reduce(
+    params: *const u64,
+    owner: *mut u8,
+    table: *const HashAgg,
+    _site: *mut Site,
+    _cand: *const u32,
+    _ncand: i64,
+) -> i64 {
     let p = params_of(params);
     let h = &mut *(owner as *mut OwnerTop);
     let t = &*table;
@@ -901,7 +1218,11 @@ unsafe fn distinct_reduce(params: *const u64, owner: *mut u8, table: *const Hash
     let pair = t.layout;
     let ns = pair.nslots() - (pair.flags & LAYOUT_IMPLICIT_COUNT != 0) as usize;
     let r2 = owner.add(h.round2_off as usize) as *mut T1;
-    let (rec, sent, base) = (pair.size() as usize, pair.sentinel_off() as usize, t.base_ptr());
+    let (rec, sent, base) = (
+        pair.size() as usize,
+        pair.sentinel_off() as usize,
+        t.base_ptr(),
+    );
     if let Some(d) = dense {
         // D597: a key outside the domain (a stale one) ends round 1: the driver reruns it through the plain form
         if *d.hdr().add(H_BAD) != 0 {
@@ -994,7 +1315,14 @@ unsafe fn distinct_end(params: *const u64, owner: *mut u8) -> i64 {
 
 /// Round 2: a partition's accumulators folded across the owners — the count-ordered `n` best, or a run (sorted
 /// by the first key under `ORDER_KEY`) in the runs area before the round-2 buffers.
-unsafe fn distinct_reduce2(params: *const u64, owner: *mut u8, table: *const HashAgg, site: *mut Site, cand: *const u32, ncand: i64) -> i64 {
+unsafe fn distinct_reduce2(
+    params: *const u64,
+    owner: *mut u8,
+    table: *const HashAgg,
+    site: *mut Site,
+    cand: *const u32,
+    ncand: i64,
+) -> i64 {
     let p = params_of(params);
     let h = &mut *(owner as *mut OwnerTop);
     let t = &mut *(table as *mut HashAgg);
@@ -1002,7 +1330,20 @@ unsafe fn distinct_reduce2(params: *const u64, owner: *mut u8, table: *const Has
     let rec = acc.size() as usize;
     h.groups += t.len as u64;
     if let Some(slot) = p.count {
-        let mut top = CountTop { base: owner.add(OWNERTOP_HDR), rec, n: p.n, len: h.len as usize, worst: h.worst as usize, off_count: acc.slot_off(slot) as usize, layout: acc, reps: p.reps, flags: p.tie_flags, text: p.tie_text, site, order: p.order };
+        let mut top = CountTop {
+            base: owner.add(OWNERTOP_HDR),
+            rec,
+            n: p.n,
+            len: h.len as usize,
+            worst: h.worst as usize,
+            off_count: acc.slot_off(slot) as usize,
+            layout: acc,
+            reps: p.reps,
+            flags: p.tie_flags,
+            text: p.tie_text,
+            site,
+            order: p.order,
+        };
         top.offer_folded(t, cand, ncand);
         h.len = top.len as u32;
         h.worst = top.worst as u32;
@@ -1054,31 +1395,73 @@ pub fn owner_fns_dense(d: &OwnerDesc, spill_bits: u8, dense: Option<(i64, i64)>)
 /// whose round 1 then sees each group in one partition and round 2 re-sinks one accumulator per group; the one-round fold
 /// stays the parallel producers' (measured on the dev table tpd, topn STATUS "STEP-19 ABAB2": the two-round owner over the
 /// group route is never slower than the pair route at W0 or W8, the one-round fold up to 1.47x slower than it at W0).
-fn owner_fns_at(d: &OwnerDesc, spill_bits: u8, dense: Option<(i64, i64)>, parallel: bool) -> OwnerFns {
-    assert!(d.ctor.is_none() && d.ctor_desc.is_none(), "the generic owner phase serves a descriptor without a constructor");
+fn owner_fns_at(
+    d: &OwnerDesc,
+    spill_bits: u8,
+    dense: Option<(i64, i64)>,
+    parallel: bool,
+) -> OwnerFns {
+    assert!(
+        d.ctor.is_none() && d.ctor_desc.is_none(),
+        "the generic owner phase serves a descriptor without a constructor"
+    );
     if d.pair != 0 {
         // one round where the form is declared (lower.md §15.9): the plain set without riding slots, the pair set partitioned by its group words
         let gw = d.layout.nkeys() - d.pair as usize;
-        let declared = if gw == 0 { d.acc.nslots() == ACC_SLOT_BASE as usize } else { d.layout.pkeys as usize == gw && parallel };
-        if declared && !d.group_flags && d.tags == NULL_ARG_NONE && d.order_slot != ORDER_KEY && (d.topk == 0 || d.order_slot == ACC_PAIRS) {
+        let declared = if gw == 0 {
+            d.acc.nslots() == ACC_SLOT_BASE as usize
+        } else {
+            d.layout.pkeys as usize == gw && parallel
+        };
+        if declared
+            && !d.group_flags
+            && d.tags == NULL_ARG_NONE
+            && d.order_slot != ORDER_KEY
+            && (d.topk == 0 || d.order_slot == ACC_PAIRS)
+        {
             return gravity_hosts::ops::group::distinct_fold::distinct_fold_fns_desc(d, spill_bits);
         }
         return distinct_fns_dense(d, spill_bits, dense);
     }
     let count = d.order_slot < ORDER_KEY;
     if count {
-        assert!(d.topk > 0 && (d.order_slot as usize) < d.layout.nslots() && (d.order != 0 || d.layout.slot_kind(d.order_slot as usize) == SlotKind::Count), "the count-ordered owner form: a Count slot or an order word over a slot, and a bound");
+        assert!(
+            d.topk > 0
+                && (d.order_slot as usize) < d.layout.nslots()
+                && (d.order != 0 || d.layout.slot_kind(d.order_slot as usize) == SlotKind::Count),
+            "the count-ordered owner form: a Count slot or an order word over a slot, and a bound"
+        );
     }
     let mut p = [0u64; OWNER_PARAMS];
     p[P_TOPK] = d.topk as u64;
-    let tie = if d.tie_flags == TIE_FLAGS_NONE { 0 } else { (d.tie_flags as u64 + 1) << TIE_FLAGS_SHIFT };
-    p[P_ORDER] = (if count { ORDER_BY_COUNT } else if d.order_slot == ORDER_KEY { ORDER_BY_KEY } else { 0 }) | (d.groups as u64) << 16 | tie;
+    let tie = if d.tie_flags == TIE_FLAGS_NONE {
+        0
+    } else {
+        (d.tie_flags as u64 + 1) << TIE_FLAGS_SHIFT
+    };
+    p[P_ORDER] = (if count {
+        ORDER_BY_COUNT
+    } else if d.order_slot == ORDER_KEY {
+        ORDER_BY_KEY
+    } else {
+        0
+    }) | (d.groups as u64) << 16
+        | tie;
     let flagged = d.observe_key == OBSERVE_KEY_FLAGGED;
     if d.observe_key != OBSERVE_NONE && observable_key(&d.layout, flagged).is_some() {
         p[P_ORDER] |= 1 << OBSERVE_KEY_BIT | (flagged as u64) << OBSERVE_FLAGGED_BIT;
     }
     // D3080: the count form's int-text tie keys in the bytes the distinct form keeps its argument folds in (`pair` names which)
-    p[P_BITS] = if spill_bits == 0 { DEFAULT_BITS } else { spill_bits } as u64 | if count { (d.tie_text as u64 & 0xff_ffff) << ARG_FOLD_SHIFT } else { 0 };
+    p[P_BITS] = if spill_bits == 0 {
+        DEFAULT_BITS
+    } else {
+        spill_bits
+    } as u64
+        | if count {
+            (d.tie_text as u64 & 0xff_ffff) << ARG_FOLD_SHIFT
+        } else {
+            0
+        };
     put_slot(&mut p, d);
     let words: [u64; LAYOUT_WORDS] = d.layout.words();
     p[P_LAYOUT..P_ACC].copy_from_slice(&words);
@@ -1087,9 +1470,28 @@ fn owner_fns_at(d: &OwnerDesc, spill_bits: u8, dense: Option<(i64, i64)>, parall
     p[P_CHECK] = (d.order as u64) << ORDER_WORD_SHIFT;
     // the fold lists candidates by a count reaching the threshold: the count descending alone; any other order offers every
     // record of a folded partition (`ORDER_NONE`), its final settled only there
-    let order_slot = if count && d.order == 0 { d.order_slot } else { ORDER_NONE };
-    let reduce = if p[P_ORDER] >> OBSERVE_KEY_BIT & 1 != 0 { owner_reduce_observe } else { owner_reduce };
-    OwnerFns { params: p, rounds: 1, order_slot, order_slot2: order_slot, min_bytes: owner_min, open: owner_open, reduce, end_round: owner_end, reduce2: reduce, fold: Some(gravity_kernels::table::owner_fold::owner_fold) }
+    let order_slot = if count && d.order == 0 {
+        d.order_slot
+    } else {
+        ORDER_NONE
+    };
+    let reduce = if p[P_ORDER] >> OBSERVE_KEY_BIT & 1 != 0 {
+        owner_reduce_observe
+    } else {
+        owner_reduce
+    };
+    OwnerFns {
+        params: p,
+        rounds: 1,
+        order_slot,
+        order_slot2: order_slot,
+        min_bytes: owner_min,
+        open: owner_open,
+        reduce,
+        end_round: owner_end,
+        reduce2: reduce,
+        fold: Some(gravity_kernels::table::owner_fold::owner_fold),
+    }
 }
 
 struct Params {
@@ -1161,28 +1563,93 @@ unsafe fn params_of(p: *const u64) -> Params {
     let count = (order == ORDER_BY_COUNT).then_some(w[P_SLOT] as u8 as usize);
     let dense = t3_dense::domain((w[P_TOPK] >> 32) | (w[P_BITS] >> 32) << 32);
     let na = (w[P_ORDER] >> NULL_ARG_SHIFT) as u8;
-    let null_arg = (na != 0 && pair != 0).then(|| (na as usize - 1, (w[P_ORDER] >> (NULL_ARG_SHIFT + 8)) as u8 & 63));
+    let null_arg = (na != 0 && pair != 0).then(|| {
+        (
+            na as usize - 1,
+            (w[P_ORDER] >> (NULL_ARG_SHIFT + 8)) as u8 & 63,
+        )
+    });
     let tie = (w[P_ORDER] >> TIE_FLAGS_SHIFT) as u8;
     let tie_flags = (tie != 0 && pair == 0 && order == ORDER_BY_COUNT).then(|| tie as usize - 1);
-    let fold = |i: u32| { let s = (w[P_BITS] >> (ARG_FOLD_SHIFT + 8 * i)) as u8; (s != 0 && pair != 0).then(|| s as usize - 1) };
-    let tie_text = if pair == 0 && order == ORDER_BY_COUNT { (w[P_BITS] >> ARG_FOLD_SHIFT) as u32 & 0xff_ffff } else { 0 };
+    let fold = |i: u32| {
+        let s = (w[P_BITS] >> (ARG_FOLD_SHIFT + 8 * i)) as u8;
+        (s != 0 && pair != 0).then(|| s as usize - 1)
+    };
+    let tie_text = if pair == 0 && order == ORDER_BY_COUNT {
+        (w[P_BITS] >> ARG_FOLD_SHIFT) as u32 & 0xff_ffff
+    } else {
+        0
+    };
     let nk = (w[P_CHECK] as u8 as usize).min(KEY_CHECK_KEYS);
     let check = (nk != 0).then(|| {
-        let mut c = KeyRanges { code: (w[P_CHECK] >> 8) as u8, n: nk, keys: [(0, 0, 0); KEY_CHECK_KEYS], nulls: 0 };
+        let mut c = KeyRanges {
+            code: (w[P_CHECK] >> 8) as u8,
+            n: nk,
+            keys: [(0, 0, 0); KEY_CHECK_KEYS],
+            nulls: 0,
+        };
         for (i, e) in c.keys[..nk].iter_mut().enumerate() {
             let b = (w[P_CHECK_KEYS] >> (8 * i as u32)) as u8;
-            *e = ((b & !CHECK_KEY_NULLABLE) as usize, w[P_CHECK + 2 + 2 * i] as i64, w[P_CHECK + 3 + 2 * i] as i64);
+            *e = (
+                (b & !CHECK_KEY_NULLABLE) as usize,
+                w[P_CHECK + 2 + 2 * i] as i64,
+                w[P_CHECK + 3 + 2 * i] as i64,
+            );
             c.nulls |= u8::from(b & CHECK_KEY_NULLABLE != 0) << i;
         }
         c
     });
     let group_flags = pair != 0 && w[P_ORDER] >> GROUP_FLAGS_BIT != 0;
-    let flag_words = if group_flags { (w[P_FLAG_WORDS] as u8 as usize, (w[P_FLAG_WORDS] >> 8) as u8 as usize) } else { (0, 0) };
+    let flag_words = if group_flags {
+        (
+            w[P_FLAG_WORDS] as u8 as usize,
+            (w[P_FLAG_WORDS] >> 8) as u8 as usize,
+        )
+    } else {
+        (0, 0)
+    };
     let tags = (pair != 0 && w[P_TAGS] != 0).then(|| w[P_TAGS] as usize - 1);
     let order_word = w[P_CHECK] >> ORDER_WORD_SHIFT & 0xffff;
-    let floor = (pair == 0 && order != ORDER_BY_COUNT && w[P_TOPK] as u32 == 0 && w[P_FLOOR] != 0).then(|| ((w[P_FLOOR] as u32 - 1) as usize, w[P_FLOOR + 1] as i64, w[P_FLOOR + 2] as i64));
-    let top = floor.and_then(|_| (w[P_FLOOR] >> 32 & 0x7fff_ffff != 0).then(|| ((w[P_FLOOR] >> 32 & 0x7fff_ffff) as usize, w[P_FLOOR] >> 63 != 0)));
-    Params { n: w[P_TOPK] as u32 as usize, ordered: order == ORDER_BY_KEY, count, bits: w[P_BITS] as u8, rec: layout.size() as usize, layout, reps: slot_reps(w), pair, groups, acc, dense, null_arg, arg_fold: [fold(0), fold(1), fold(2)], tags, group_flags, flag_words, tie_flags, tie_text, check, order: order_word, floor, top }
+    let floor = (pair == 0 && order != ORDER_BY_COUNT && w[P_TOPK] as u32 == 0 && w[P_FLOOR] != 0)
+        .then(|| {
+            (
+                (w[P_FLOOR] as u32 - 1) as usize,
+                w[P_FLOOR + 1] as i64,
+                w[P_FLOOR + 2] as i64,
+            )
+        });
+    let top = floor.and_then(|_| {
+        (w[P_FLOOR] >> 32 & 0x7fff_ffff != 0).then(|| {
+            (
+                (w[P_FLOOR] >> 32 & 0x7fff_ffff) as usize,
+                w[P_FLOOR] >> 63 != 0,
+            )
+        })
+    });
+    Params {
+        n: w[P_TOPK] as u32 as usize,
+        ordered: order == ORDER_BY_KEY,
+        count,
+        bits: w[P_BITS] as u8,
+        rec: layout.size() as usize,
+        layout,
+        reps: slot_reps(w),
+        pair,
+        groups,
+        acc,
+        dense,
+        null_arg,
+        arg_fold: [fold(0), fold(1), fold(2)],
+        tags,
+        group_flags,
+        flag_words,
+        tie_flags,
+        tie_text,
+        check,
+        order: order_word,
+        floor,
+        top,
+    }
 }
 
 const fn count_table_off(n: usize, rec: usize) -> usize {
@@ -1224,12 +1691,22 @@ unsafe fn shape_of(p: *const u64) -> Shape {
     let mut words = [0u64; LAYOUT_WORDS];
     words.copy_from_slice(&w[P_LAYOUT..P_ACC]);
     let layout: RecordLayout = RecordLayout::from_words(words);
-    Shape { n: w[P_TOPK] as u32 as usize, rec: layout.size() as usize, count: w[P_ORDER] & 0xff == ORDER_BY_COUNT, groups: (w[P_ORDER] >> 16) as u32, bits: w[P_BITS] as u8 }
+    Shape {
+        n: w[P_TOPK] as u32 as usize,
+        rec: layout.size() as usize,
+        count: w[P_ORDER] & 0xff == ORDER_BY_COUNT,
+        groups: (w[P_ORDER] >> 16) as u32,
+        bits: w[P_BITS] as u8,
+    }
 }
 
 /// The runs form's result over every owner: `OwnerDesc.groups` records, else `bits` partitions of 512 KiB (`spill_bits`); a page up.
 fn runs_floor(p: &Shape) -> u64 {
-    let bytes = if p.groups > 0 { p.groups as u64 * p.rec as u64 } else { (1u64 << p.bits) * (512 << 10) };
+    let bytes = if p.groups > 0 {
+        p.groups as u64 * p.rec as u64
+    } else {
+        (1u64 << p.bits) * (512 << 10)
+    };
     (bytes + 4095) & !4095
 }
 
@@ -1251,7 +1728,21 @@ unsafe fn owner_open(params: *const u64, owner: *mut u8, bytes: usize) -> i64 {
     if table_off + HASHAGG_HDR + 2 * p.rec > bytes {
         return unsupported(UNSUPPORTED_SCRATCH);
     }
-    *(owner as *mut OwnerTop) = OwnerTop { len: 0, n: p.n as u32, table_off: table_off as u32, worst: 0, round2_off: 0, resume: 0, total: 0, groups: 0, records: 0, thr: 0, key_lo: gravity_abi::breaker::KEY_LO_NONE, key_hi: gravity_abi::breaker::KEY_HI_NONE, cell: core::cell::UnsafeCell::new([]) };
+    *(owner as *mut OwnerTop) = OwnerTop {
+        len: 0,
+        n: p.n as u32,
+        table_off: table_off as u32,
+        worst: 0,
+        round2_off: 0,
+        resume: 0,
+        total: 0,
+        groups: 0,
+        records: 0,
+        thr: 0,
+        key_lo: gravity_abi::breaker::KEY_LO_NONE,
+        key_hi: gravity_abi::breaker::KEY_HI_NONE,
+        cell: core::cell::UnsafeCell::new([]),
+    };
     table_off as i64
 }
 
@@ -1262,7 +1753,12 @@ unsafe fn owner_open(params: *const u64, owner: *mut u8, bytes: usize) -> i64 {
 /// Perf (D4456): the scans below read the table's memory with every offset hoisted and no call inside, so their code does
 /// not depend on what else shares the codegen unit (an unrelated edit to this crate made this loop 2 % of a statement slower).
 #[inline(never)]
-unsafe fn key_check(t: &HashAgg, layout: &RecordLayout, c: &KeyRanges, flags: Option<usize>) -> Result<(), u8> {
+unsafe fn key_check(
+    t: &HashAgg,
+    layout: &RecordLayout,
+    c: &KeyRanges,
+    flags: Option<usize>,
+) -> Result<(), u8> {
     let keys = &c.keys[..c.n];
     let mut ks = [(0usize, 0i64, 0i64, false, None::<(usize, u32)>); KEY_CHECK_KEYS];
     for (j, (e, &(k, lo, hi))) in ks.iter_mut().zip(keys).enumerate() {
@@ -1270,15 +1766,30 @@ unsafe fn key_check(t: &HashAgg, layout: &RecordLayout, c: &KeyRanges, flags: Op
             let (fw, bit) = gravity_abi::breaker::flag_at(k);
             (t.layout.key_off(f + fw), bit)
         });
-        *e = (t.layout.key_off(k), lo, hi, layout.key_kind(k) == KeyKind::I32, null);
+        *e = (
+            t.layout.key_off(k),
+            lo,
+            hi,
+            layout.key_kind(k) == KeyKind::I32,
+            null,
+        );
     }
-    let scan = Scan { base: t.base_ptr(), cap: t.cap as usize, size: t.layout.size() as usize, used: t.layout.sentinel_off() as usize };
+    let scan = Scan {
+        base: t.base_ptr(),
+        cap: t.cap as usize,
+        size: t.layout.size() as usize,
+        used: t.layout.sentinel_off() as usize,
+    };
     let ok = match &ks[..keys.len()] {
         &[(off, lo, hi, true, None)] => scan.one_key::<true>(off, lo, hi),
         &[(off, lo, hi, false, None)] => scan.one_key::<false>(off, lo, hi),
         rest => scan.keys(rest),
     };
-    if ok { Ok(()) } else { Err(c.code) }
+    if ok {
+        Ok(())
+    } else {
+        Err(c.code)
+    }
 }
 
 struct Scan {
@@ -1335,11 +1846,13 @@ impl Scan {
 /// is read sign-extended from 32 bits (an int4 or date kind; lowerv4 images an int4 as the unified `I64` word): `Some(narrow)`.
 fn observable_key(layout: &RecordLayout, flagged: bool) -> Option<bool> {
     let words = if flagged { 2 } else { 1 };
-    (layout.nkeys() == words && (!flagged || layout.key_kind(1) == KeyKind::I64)).then(|| layout.key_kind(0)).and_then(|k| match k {
-        KeyKind::I32 | KeyKind::Date => Some(true),
-        KeyKind::I64 | KeyKind::Timestamp => Some(false),
-        _ => None,
-    })
+    (layout.nkeys() == words && (!flagged || layout.key_kind(1) == KeyKind::I64))
+        .then(|| layout.key_kind(0))
+        .and_then(|k| match k {
+            KeyKind::I32 | KeyKind::Date => Some(true),
+            KeyKind::I64 | KeyKind::Timestamp => Some(false),
+            _ => None,
+        })
 }
 
 /// SRC-38 slice 2: key 0's running least and greatest datum over every group a partition folded, before any form prunes
@@ -1360,7 +1873,13 @@ impl KeySeen {
     fn new(word: u64, h: &OwnerTop, layout: &RecordLayout) -> Option<KeySeen> {
         let flagged = word >> OBSERVE_FLAGGED_BIT & 1 != 0;
         let narrow = observable_key(layout, flagged)?;
-        Some(KeySeen { lo: h.key_lo, hi: h.key_hi, key: layout.key_off(0), flags: flagged.then(|| layout.key_off(1)), narrow })
+        Some(KeySeen {
+            lo: h.key_lo,
+            hi: h.key_hi,
+            key: layout.key_off(0),
+            flags: flagged.then(|| layout.key_off(1)),
+            narrow,
+        })
     }
 
     /// # Safety
@@ -1373,7 +1892,11 @@ impl KeySeen {
             }
         }
         let w = core::ptr::read_unaligned(rec.add(self.key) as *const u64);
-        let v = if self.narrow { w as i32 as i64 } else { w as i64 };
+        let v = if self.narrow {
+            w as i32 as i64
+        } else {
+            w as i64
+        };
         (self.lo, self.hi) = (self.lo.min(v), self.hi.max(v));
     }
 
@@ -1382,24 +1905,49 @@ impl KeySeen {
     }
 }
 
-unsafe fn owner_reduce(params: *const u64, owner: *mut u8, table: *const HashAgg, site: *mut Site, cand: *const u32, ncand: i64) -> i64 {
+unsafe fn owner_reduce(
+    params: *const u64,
+    owner: *mut u8,
+    table: *const HashAgg,
+    site: *mut Site,
+    cand: *const u32,
+    ncand: i64,
+) -> i64 {
     owner_reduce_at::<false>(params, owner, table, site, cand, ncand)
 }
 
 #[cold]
 #[inline(never)]
-unsafe fn owner_reduce_observe(params: *const u64, owner: *mut u8, table: *const HashAgg, site: *mut Site, cand: *const u32, ncand: i64) -> i64 {
+unsafe fn owner_reduce_observe(
+    params: *const u64,
+    owner: *mut u8,
+    table: *const HashAgg,
+    site: *mut Site,
+    cand: *const u32,
+    ncand: i64,
+) -> i64 {
     owner_reduce_at::<true>(params, owner, table, site, cand, ncand)
 }
 
 #[inline(always)]
-unsafe fn owner_reduce_at<const OBS: bool>(params: *const u64, owner: *mut u8, table: *const HashAgg, site: *mut Site, cand: *const u32, ncand: i64) -> i64 {
+unsafe fn owner_reduce_at<const OBS: bool>(
+    params: *const u64,
+    owner: *mut u8,
+    table: *const HashAgg,
+    site: *mut Site,
+    cand: *const u32,
+    ncand: i64,
+) -> i64 {
     let p = params_of(params);
     let h = &mut *(owner as *mut OwnerTop);
     let t = &mut *(table as *mut HashAgg);
     h.groups += t.len as u64;
     h.records += t.len as u64;
-    let mut obs = if OBS { KeySeen::new(*params.add(P_ORDER), h, &p.layout) } else { None };
+    let mut obs = if OBS {
+        KeySeen::new(*params.add(P_ORDER), h, &p.layout)
+    } else {
+        None
+    };
     if let Some(slot) = p.count {
         if let Some(o) = obs.as_mut() {
             for r in t.records() {
@@ -1412,7 +1960,20 @@ unsafe fn owner_reduce_at<const OBS: bool>(params: *const u64, owner: *mut u8, t
                 return raised(raise::bit(code));
             }
         }
-        let mut top = CountTop { base: owner.add(OWNERTOP_HDR), rec: p.rec, n: p.n, len: h.len as usize, worst: h.worst as usize, off_count: p.layout.slot_off(slot) as usize, layout: p.layout, reps: p.reps, flags: p.tie_flags, text: p.tie_text, site, order: p.order };
+        let mut top = CountTop {
+            base: owner.add(OWNERTOP_HDR),
+            rec: p.rec,
+            n: p.n,
+            len: h.len as usize,
+            worst: h.worst as usize,
+            off_count: p.layout.slot_off(slot) as usize,
+            layout: p.layout,
+            reps: p.reps,
+            flags: p.tie_flags,
+            text: p.tie_text,
+            site,
+            order: p.order,
+        };
         top.offer_folded(t, cand, ncand);
         h.len = top.len as u32;
         h.worst = top.worst as u32;
@@ -1420,7 +1981,13 @@ unsafe fn owner_reduce_at<const OBS: bool>(params: *const u64, owner: *mut u8, t
         return 0;
     }
     if p.n > 0 {
-        let mut top = Top { base: owner.add(OWNERTOP_HDR), heap: owner.add(OWNERTOP_HDR + p.n * p.rec) as *mut u32, n: p.n, len: h.len as usize, rec: p.rec };
+        let mut top = Top {
+            base: owner.add(OWNERTOP_HDR),
+            heap: owner.add(OWNERTOP_HDR + p.n * p.rec) as *mut u32,
+            n: p.n,
+            len: h.len as usize,
+            rec: p.rec,
+        };
         let mut seen = 0usize;
         for i in 0..t.cap as usize {
             if seen == t.len as usize {
@@ -1458,8 +2025,15 @@ unsafe fn owner_reduce_at<const OBS: bool>(params: *const u64, owner: *mut u8, t
         // D3153: only the records within the bound are laid (every group still counted and observed)
         Some((at, lo, hi)) => {
             // D-06: a top keeps by its running bound (`Best`), every record of a partition no larger than its n
-            let (lo, hi) = if p.top.is_some() { (i64::MIN, i64::MAX) } else { (lo, hi) };
-            let mut best = p.top.filter(|&(k, _)| n > k).map(|(k, below)| Best::new(k, below));
+            let (lo, hi) = if p.top.is_some() {
+                (i64::MIN, i64::MAX)
+            } else {
+                (lo, hi)
+            };
+            let mut best = p
+                .top
+                .filter(|&(k, _)| n > k)
+                .map(|(k, below)| Best::new(k, below));
             let mut seen = 0usize;
             for i in 0..t.cap as usize {
                 if seen == n {
@@ -1473,7 +2047,11 @@ unsafe fn owner_reduce_at<const OBS: bool>(params: *const u64, owner: *mut u8, t
                     }
                     let v = core::ptr::read_unaligned(r.as_ptr().add(at) as *const i64);
                     if best.as_mut().map_or(v >= lo && v <= hi, |b| b.keeps(v)) {
-                        core::ptr::copy_nonoverlapping(r.as_ptr(), owner.add(off + m * p.rec), p.rec);
+                        core::ptr::copy_nonoverlapping(
+                            r.as_ptr(),
+                            owner.add(off + m * p.rec),
+                            p.rec,
+                        );
                         m += 1;
                     }
                 }
@@ -1519,7 +2097,14 @@ unsafe fn owner_end(params: *const u64, owner: *mut u8) -> i64 {
         return 0;
     }
     let h = &*(owner as *const OwnerTop);
-    Top { base: owner.add(OWNERTOP_HDR), heap: owner.add(OWNERTOP_HDR + p.n * p.rec) as *mut u32, n: p.n, len: h.len as usize, rec: p.rec }.sort();
+    Top {
+        base: owner.add(OWNERTOP_HDR),
+        heap: owner.add(OWNERTOP_HDR + p.n * p.rec) as *mut u32,
+        n: p.n,
+        len: h.len as usize,
+        rec: p.rec,
+    }
+    .sort();
     0
 }
 
@@ -1641,7 +2226,16 @@ impl CountTop {
     #[inline(always)]
     unsafe fn better(&self, a: *const u8, b: *const u8) -> bool {
         if self.order == 0 {
-            return count_better(&self.layout, self.off_count, &self.reps, self.flags, self.text, self.site, a, b);
+            return count_better(
+                &self.layout,
+                self.off_count,
+                &self.reps,
+                self.flags,
+                self.text,
+                self.site,
+                a,
+                b,
+            );
         }
         self.word_better(a, b)
     }
@@ -1650,11 +2244,22 @@ impl CountTop {
     /// order as `count_better` refines the count's.
     #[inline(never)]
     unsafe fn word_better(&self, a: *const u8, b: *const u8) -> bool {
-        let (ra, rb) = (Rec::at(a as *mut u8, &self.layout), Rec::at(b as *mut u8, &self.layout));
+        let (ra, rb) = (
+            Rec::at(a as *mut u8, &self.layout),
+            Rec::at(b as *mut u8, &self.layout),
+        );
         match slot_order(&ra, &rb, &self.layout, self.order) {
             core::cmp::Ordering::Less => true,
             core::cmp::Ordering::Greater => false,
-            core::cmp::Ordering::Equal => keys_better(&self.layout, &self.reps, self.flags, self.text, self.site, a, b),
+            core::cmp::Ordering::Equal => keys_better(
+                &self.layout,
+                &self.reps,
+                self.flags,
+                self.text,
+                self.site,
+                a,
+                b,
+            ),
         }
     }
 
@@ -1673,7 +2278,11 @@ impl CountTop {
             if m == i {
                 return;
             }
-            core::ptr::swap_nonoverlapping(self.base.add(i * self.rec), self.base.add(m * self.rec), self.rec);
+            core::ptr::swap_nonoverlapping(
+                self.base.add(i * self.rec),
+                self.base.add(m * self.rec),
+                self.rec,
+            );
             i = m;
         }
     }
@@ -1712,7 +2321,10 @@ impl CountTop {
     unsafe fn offer_folded(&mut self, t: &HashAgg, cand: *const u32, ncand: i64) {
         let base = t.base_ptr();
         let mut thr = self.threshold();
-        debug_assert!(self.order == 0 || ncand < 0, "an order word's top lists no candidates");
+        debug_assert!(
+            self.order == 0 || ncand < 0,
+            "an order word's top lists no candidates"
+        );
         if ncand >= 0 {
             for k in 0..ncand as usize {
                 let p = base.add(*cand.add(k) as usize * self.rec);
@@ -1760,21 +2372,54 @@ mod tie_flags_tests {
     #[test]
     fn the_count_form_carries_its_tie_flags_word_and_no_null_argument() {
         let d = OwnerDesc::count_topk(L, 0, 10);
-        let (plain, flagged) = (owner_fns(&d, 0).params, owner_fns(&d.tie_flags(1), 0).params);
+        let (plain, flagged) = (
+            owner_fns(&d, 0).params,
+            owner_fns(&d.tie_flags(1), 0).params,
+        );
         // SAFETY: owner_fns packed both images
         let (p, q) = unsafe { (params_of(plain.as_ptr()), params_of(flagged.as_ptr())) };
-        assert_eq!((p.tie_flags, p.null_arg, p.group_flags), (None, None, false));
-        assert_eq!((q.tie_flags, q.null_arg, q.group_flags, q.pair, q.groups, q.n), (Some(1), None, false, 0, 0, 10));
+        assert_eq!(
+            (p.tie_flags, p.null_arg, p.group_flags),
+            (None, None, false)
+        );
+        assert_eq!(
+            (
+                q.tie_flags,
+                q.null_arg,
+                q.group_flags,
+                q.pair,
+                q.groups,
+                q.n
+            ),
+            (Some(1), None, false, 0, 0, 10)
+        );
     }
 
     #[test]
     fn the_distinct_count_form_carries_its_null_argument_and_no_tie_flags() {
-        let pair = RecordLayout::new_nn(&[KeyKind::I64, KeyKind::I64, KeyKind::I64], &[SlotKind::Count]);
-        let acc = RecordLayout::new(&[KeyKind::I64, KeyKind::I64], &[SlotKind::Count, SlotKind::Count, SlotKind::Count, SlotKind::SumI64]);
-        let d = OwnerDesc::distinct(pair, acc, 1, 16, ACC_PAIRS, 10, [(REP_NONE, 0); MAX_REPS]).null_arg(2, 1).arg_fold(3).group_flags();
+        let pair = RecordLayout::new_nn(
+            &[KeyKind::I64, KeyKind::I64, KeyKind::I64],
+            &[SlotKind::Count],
+        );
+        let acc = RecordLayout::new(
+            &[KeyKind::I64, KeyKind::I64],
+            &[
+                SlotKind::Count,
+                SlotKind::Count,
+                SlotKind::Count,
+                SlotKind::SumI64,
+            ],
+        );
+        let d = OwnerDesc::distinct(pair, acc, 1, 16, ACC_PAIRS, 10, [(REP_NONE, 0); MAX_REPS])
+            .null_arg(2, 1)
+            .arg_fold(3)
+            .group_flags();
         let w = owner_fns(&d, 3).params;
         // SAFETY: owner_fns packed the image
         let p = unsafe { params_of(w.as_ptr()) };
-        assert_eq!((p.null_arg, p.group_flags, p.tie_flags, p.pair), (Some((2, 1)), true, None, 1));
+        assert_eq!(
+            (p.null_arg, p.group_flags, p.tie_flags, p.pair),
+            (Some((2, 1)), true, None, 1)
+        );
     }
 }

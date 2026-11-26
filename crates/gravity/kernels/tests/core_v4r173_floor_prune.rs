@@ -6,12 +6,19 @@
 //! with no record at the bound at all (the table empties at once).
 use std::collections::BTreeMap;
 
-use gravity_abi::breaker::{HashAgg, KeyKind, OwnerTop, Rec, RecordLayout, SlotKind, WideLayout, GROUPS_UNCOUNTED, MAX_RECORD_KEYS, OWNERTOP_HDR};
-use gravity_kernels::ops::sort::topn::parthaving::{owner_fns, PartHavingSpec};
+use gravity_abi::breaker::{
+    HashAgg, KeyKind, OwnerTop, Rec, RecordLayout, SlotKind, WideLayout, GROUPS_UNCOUNTED,
+    MAX_RECORD_KEYS, OWNERTOP_HDR,
+};
 use gravity_kernels::dict::reps::{MAX_REPS, REP_NONE};
+use gravity_kernels::ops::sort::topn::parthaving::{owner_fns, PartHavingSpec};
 
 /// One (group words, part, count) arrival; returns the groups kept (group words -> summed count) and `OwnerTop.groups`.
-fn reduce(g: usize, floor: i64, arrivals: &[(Vec<u64>, u64, i64)]) -> (BTreeMap<Vec<u64>, i64>, u64) {
+fn reduce(
+    g: usize,
+    floor: i64,
+    arrivals: &[(Vec<u64>, u64, i64)],
+) -> (BTreeMap<Vec<u64>, i64>, u64) {
     let mut keys = vec![KeyKind::I64; g];
     keys.push(KeyKind::I64);
     // past eight keys a record is wide (breaker.rs `MAX_RECORD_KEYS`)
@@ -19,7 +26,12 @@ fn reduce(g: usize, floor: i64, arrivals: &[(Vec<u64>, u64, i64)]) -> (BTreeMap<
         RecordLayout::new(&keys, &[SlotKind::Count])
     } else {
         let off: &'static mut [u32] = Box::leak(Box::new([0u32; 1]));
-        let w: &'static WideLayout = Box::leak(Box::new(WideLayout::compute(keys.leak(), &[SlotKind::Count], off, false)));
+        let w: &'static WideLayout = Box::leak(Box::new(WideLayout::compute(
+            keys.leak(),
+            &[SlotKind::Count],
+            off,
+            false,
+        )));
         RecordLayout::wide(w, false, false)
     }
     .partitioned_by(g as u8);
@@ -32,24 +44,52 @@ fn reduce(g: usize, floor: i64, arrivals: &[(Vec<u64>, u64, i64)]) -> (BTreeMap<
         k.push(*part);
         t.find_or_insert(&k).expect("room").add_count(0, *n);
     }
-    let spec = PartHavingSpec { layout, mins: [(REP_NONE, 0); MAX_REPS], count_slot: 0, bits: 0, floor };
+    let spec = PartHavingSpec {
+        layout,
+        mins: [(REP_NONE, 0); MAX_REPS],
+        count_slot: 0,
+        bits: 0,
+        floor,
+    };
     let fns = owner_fns(&spec);
     let bytes = (fns.min_bytes)(fns.params.as_ptr(), 1) as usize + 2 * limit as usize;
     let mut obuf = vec![0u64; bytes.div_ceil(8)];
     let owner = obuf.as_mut_ptr() as *mut u8;
     unsafe {
-        assert!((fns.open)(fns.params.as_ptr(), owner, bytes) > 0, "the owner opens");
-        assert_eq!((fns.reduce)(fns.params.as_ptr(), owner, t as *const HashAgg, core::ptr::null_mut(), core::ptr::null(), -1), 0, "the reduce");
+        assert!(
+            (fns.open)(fns.params.as_ptr(), owner, bytes) > 0,
+            "the owner opens"
+        );
+        assert_eq!(
+            (fns.reduce)(
+                fns.params.as_ptr(),
+                owner,
+                t as *const HashAgg,
+                core::ptr::null_mut(),
+                core::ptr::null(),
+                -1
+            ),
+            0,
+            "the reduce"
+        );
     }
     let h = unsafe { &*(owner as *const OwnerTop) };
     let rec = layout.size() as usize;
     let mut kept = BTreeMap::new();
     for run in 0..h.worst as usize {
-        let (off, m) = unsafe { (*(owner.add(OWNERTOP_HDR) as *const u32).add(2 * run), *(owner.add(OWNERTOP_HDR) as *const u32).add(2 * run + 1)) };
+        let (off, m) = unsafe {
+            (
+                *(owner.add(OWNERTOP_HDR) as *const u32).add(2 * run),
+                *(owner.add(OWNERTOP_HDR) as *const u32).add(2 * run + 1),
+            )
+        };
         for i in 0..m as usize {
             let r = unsafe { Rec::at(owner.add(off as usize + i * rec), &layout) };
             assert_eq!(r.key(g), 0, "the part word zeroed");
-            assert!(kept.insert(r.keys()[..g].to_vec(), r.count(0)).is_none(), "a group kept once");
+            assert!(
+                kept.insert(r.keys()[..g].to_vec(), r.count(0)).is_none(),
+                "a group kept once"
+            );
         }
     }
     (kept, h.groups)
@@ -61,19 +101,33 @@ fn want(floor: i64, arrivals: &[(Vec<u64>, u64, i64)]) -> (BTreeMap<Vec<u64>, i6
         *sums.entry(w.clone()).or_default() += n;
     }
     let groups = sums.len() as u64;
-    (sums.into_iter().filter(|&(_, s)| s >= floor).collect(), groups)
+    (
+        sums.into_iter().filter(|&(_, s)| s >= floor).collect(),
+        groups,
+    )
 }
 
 fn check(g: usize, floor: i64, arrivals: &[(Vec<u64>, u64, i64)], pruned: bool) {
     let (got, groups) = reduce(g, floor, arrivals);
     let (w, all) = want(floor, arrivals);
-    assert_eq!(got, w, "g {g} floor {floor}: the groups kept and their counts");
-    assert_eq!(groups, if pruned { GROUPS_UNCOUNTED } else { all }, "g {g} floor {floor}: the memo's count");
+    assert_eq!(
+        got, w,
+        "g {g} floor {floor}: the groups kept and their counts"
+    );
+    assert_eq!(
+        groups,
+        if pruned { GROUPS_UNCOUNTED } else { all },
+        "g {g} floor {floor}: the memo's count"
+    );
 }
 
 /// Parts 0..4 (P = 4) and F = 100: the bound is 25.
 fn edges(g: usize) -> Vec<(Vec<u64>, u64, i64)> {
-    let key = |i: u64| (0..g as u64).map(|k| i.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ k).collect::<Vec<u64>>();
+    let key = |i: u64| {
+        (0..g as u64)
+            .map(|k| i.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ k)
+            .collect::<Vec<u64>>()
+    };
     let mut a = Vec::new();
     let mut add = |i: u64, parts: &[i64]| {
         for (p, &n) in parts.iter().enumerate() {
@@ -138,10 +192,13 @@ fn any_number_of_groups_at_the_bound_is_pruned() {
 fn a_wide_group_key_is_pruned() {
     // nine and twelve group words (past the old eight-word set), the leading word the same for every group
     for g in [9usize, 12] {
-        let a: Vec<_> = edges(g).into_iter().map(|(mut w, p, n)| {
-            w[0] = 7;
-            (w, p, n)
-        }).collect();
+        let a: Vec<_> = edges(g)
+            .into_iter()
+            .map(|(mut w, p, n)| {
+                w[0] = 7;
+                (w, p, n)
+            })
+            .collect();
         check(g, 100, &a, true);
     }
 }
@@ -149,10 +206,19 @@ fn a_wide_group_key_is_pruned() {
 #[test]
 fn a_sparse_part_word_bounds_the_parts_from_above() {
     // parts 0 and 1000 alone: P = 1001, the bound ceil(100 / 1001) = 1 prunes nothing and loses nothing
-    let a = vec![(vec![5u64], 0u64, 60i64), (vec![5], 1000, 40), (vec![6], 1000, 99)];
+    let a = vec![
+        (vec![5u64], 0u64, 60i64),
+        (vec![5], 1000, 40),
+        (vec![6], 1000, 99),
+    ];
     check(1, 100, &a, false);
     // parts 0 and 3, F = 100: P = 4, the bound 25; group 7's 50 + 50 kept, group 8's 24 + 24 dropped
-    let a = vec![(vec![7u64], 0u64, 50i64), (vec![7], 3, 50), (vec![8], 0, 24), (vec![8], 3, 24)];
+    let a = vec![
+        (vec![7u64], 0u64, 50i64),
+        (vec![7], 3, 50),
+        (vec![8], 0, 24),
+        (vec![8], 3, 24),
+    ];
     check(1, 100, &a, true);
 }
 
@@ -162,8 +228,14 @@ fn a_table_with_no_record_at_the_bound_keeps_nothing() {
     // record under the bound, so no group reaches the floor and the table empties at once; then the same with one record
     // at the bound, which keeps its group whole, and a key of nine words
     for g in [1usize, 3, 9] {
-        let key = |i: u64| (0..g as u64).map(|k| i.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ k).collect::<Vec<u64>>();
-        let mut a: Vec<_> = (0..2000u64).map(|i| (key(i % 700), i % 511, 195i64)).collect();
+        let key = |i: u64| {
+            (0..g as u64)
+                .map(|k| i.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ k)
+                .collect::<Vec<u64>>()
+        };
+        let mut a: Vec<_> = (0..2000u64)
+            .map(|i| (key(i % 700), i % 511, 195i64))
+            .collect();
         a.push((key(5000), 510, 1));
         check(g, 100_001, &a, true);
         a.push((key(6000), 0, 196));

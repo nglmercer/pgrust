@@ -14,21 +14,28 @@ use gravity_ir::{ConvOp, IntBinOp, IntCond, Type, Value};
 use gravity_lower::rerun::words::has_exec;
 use mcx::{CollectIn, GrowIn, PgBox, PgVec};
 
-use crate::frame::iface::{limit_check_bound, limit_stopping};
+use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::effects::visible::result::qual_calls;
-use crate::ops::shared::limit::{bind, soft, Above, Lim};
 use crate::face::kinds::{Face, KindId};
 use crate::face::step::StepMech;
 use crate::frame::env::Env;
 use crate::frame::frame::{Next, StepMaker};
+use crate::frame::iface::{limit_check_bound, limit_stopping};
 use crate::frame::mechs::FeederMaker;
 use crate::frame::px::{ExId, Px, WordKey};
 use crate::frame::row::{Carry, RowVals};
 use crate::frame::stop::Exits;
+use crate::ops::shared::limit::{bind, soft, Above, Lim};
 use crate::rerun::union_arms::feeds_alone;
-use crate::admit::refusal::{Reason, ShapeWhy};
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { kinds: &[(KindId::StepGate, &StepMaker(make)), (KindId::StepGate, &FeederMaker(feeder_gate)), (KindId::StepLimit, &FeederMaker(limit_feeder))], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    kinds: &[
+        (KindId::StepGate, &StepMaker(make)),
+        (KindId::StepGate, &FeederMaker(feeder_gate)),
+        (KindId::StepLimit, &FeederMaker(limit_feeder)),
+    ],
+    ..crate::ops::NONE
+};
 
 pub(crate) struct Gate<'g> {
     quals: PgVec<'g, ExId>,
@@ -56,24 +63,46 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMech +
 }
 
 fn verdict_word(px: &mut Px<'_, '_>, q: usize, j: usize) -> i32 {
-    px.frame_word(WordKey::Open { face: Face::Step, k: q, j: crate::frame::px::key_j(j), i: 0 }) as i32 * 8
+    px.frame_word(WordKey::Open {
+        face: Face::Step,
+        k: q,
+        j: crate::frame::px::key_j(j),
+        i: 0,
+    }) as i32
+        * 8
 }
 
 /// The fed verdict's word of pipeline `q`'s gate at op `j`. A remade pipeline keys its words apart, so its gate would not
 /// read the word the feeder writes: refused.
 fn fed_word(px: &mut Px<'_, '_>, node: i32, q: usize, j: usize, writes: bool) -> (i32, bool) {
     if px.making.0 != px.making.1 {
-        crate::refuse!(node, Reason::Shape { why: ShapeWhy(CALLING_GATE) });
+        crate::refuse!(
+            node,
+            Reason::Shape {
+                why: ShapeWhy(CALLING_GATE)
+            }
+        );
     }
-    (px.frame_word(WordKey::Open { face: Face::Step, k: q, j: crate::frame::px::key_j(j), i: 1 }) as i32 * 8, writes)
+    (
+        px.frame_word(WordKey::Open {
+            face: Face::Step,
+            k: q,
+            j: crate::frame::px::key_j(j),
+            i: 1,
+        }) as i32
+            * 8,
+        writes,
+    )
 }
 
 /// Whether a pipeline that is not quiet feeds pipeline `q`'s calling gate at op `j` alone and makes its check
 /// (`limit_feeder`): its feeder then evaluates the quals.
 fn fed_by(gx: &crate::graph::Gx<'_, '_>, q: usize, j: usize) -> bool {
-    (0..q).any(|k| feeds_alone(gx, k, q, j, false) && {
-        let r = Reach::of(gx, k);
-        !r.quiet && r.holds(q, j)
+    (0..q).any(|k| {
+        feeds_alone(gx, k, q, j, false) && {
+            let r = Reach::of(gx, k);
+            !r.quiet && r.holds(q, j)
+        }
     })
 }
 
@@ -81,13 +110,35 @@ fn fed_by(gx: &crate::graph::Gx<'_, '_>, q: usize, j: usize) -> bool {
 fn gate<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> Gate<'g> {
     let mcx = px.mcx();
     let p = &px.gx.pipelines()[k];
-    let node = p.node_ops.iter().rev().find(|n| n.first_op as usize <= j).map_or(p.node_id, |n| n.node_id);
-    let Op::Gate(n) = p.ops[j] else { crate::refuse!(node, Reason::Bug { payload: "a gate entry over another op" }) };
+    let node = p
+        .node_ops
+        .iter()
+        .rev()
+        .find(|n| n.first_op as usize <= j)
+        .map_or(p.node_id, |n| n.node_id);
+    let Op::Gate(n) = p.ops[j] else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a gate entry over another op"
+            }
+        )
+    };
     let quals = match n.as_list() {
-        Some(l) => l.iter().map(|q| crate::step::expr::compile(px, q, None, node)).collect_in(mcx),
+        Some(l) => l
+            .iter()
+            .map(|q| crate::step::expr::compile(px, q, None, node))
+            .collect_in(mcx),
         None => mcx::pg_vec![in mcx; crate::step::expr::compile(px, n, None, node)],
     };
-    Gate { quals, above: Above::none(mcx), node, pass: Cell::new(None), verdict: None, fed: None }
+    Gate {
+        quals,
+        above: Above::none(mcx),
+        node,
+        pass: Cell::new(None),
+        verdict: None,
+        fed: None,
+    }
 }
 
 impl<'g> StepMech for Gate<'g> {
@@ -95,7 +146,14 @@ impl<'g> StepMech for Gate<'g> {
     /// one was true.
     fn prologue(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, _x: &Exits) {
         let stop = self.above.stop(b, env);
-        let none = RowVals { row: crate::cell::Row::new_in(env.mcx), vals: PgVec::new_in(env.mcx), cols: PgVec::new_in(env.mcx), carry: Carry::new(env.zero, env.mcx), next: env.zero, at: env.zero };
+        let none = RowVals {
+            row: crate::cell::Row::new_in(env.mcx),
+            vals: PgVec::new_in(env.mcx),
+            cols: PgVec::new_in(env.mcx),
+            carry: Carry::new(env.zero, env.mcx),
+            next: env.zero,
+            at: env.zero,
+        };
         let l_done = b.create_block(&[Type::Bool]);
         // D2056 / D1914 / D1755: under an outer check that stopped (the feeder's, a node's above in this pipeline), the
         // quals are never evaluated
@@ -105,8 +163,18 @@ impl<'g> StepMech for Gate<'g> {
             b.switch_to(l_eval);
         }
         let words = self.verdict.map(|off| {
-            let Some(w) = env.words else { crate::refuse!(self.node, Reason::Bug { payload: "a gate verdict without the frame words" }) };
-            let (r, none_w) = (b.load(Type::I64, env.ctx, hdr::RESUME as i32), b.iconst(Type::I64, RESUME_NONE));
+            let Some(w) = env.words else {
+                crate::refuse!(
+                    self.node,
+                    Reason::Bug {
+                        payload: "a gate verdict without the frame words"
+                    }
+                )
+            };
+            let (r, none_w) = (
+                b.load(Type::I64, env.ctx, hdr::RESUME as i32),
+                b.iconst(Type::I64, RESUME_NONE),
+            );
             let fresh = b.icmp(IntCond::Eq, r, none_w);
             let (l_eval, l_kept) = (b.create_block(&[]), b.create_block(&[]));
             b.cond_br(fresh, (l_eval, &[]), (l_kept, &[]));
@@ -118,7 +186,14 @@ impl<'g> StepMech for Gate<'g> {
             (w, off)
         });
         let fed = self.fed.map(|(off, writes)| {
-            let Some(w) = env.words else { crate::refuse!(self.node, Reason::Bug { payload: "a fed gate without the frame words" }) };
+            let Some(w) = env.words else {
+                crate::refuse!(
+                    self.node,
+                    Reason::Bug {
+                        payload: "a fed gate without the frame words"
+                    }
+                )
+            };
             let v = b.load(Type::I64, w, off);
             let (set, one) = (b.icmp(IntCond::Ne, v, env.zero), b.iconst(Type::I64, 1));
             let (l_read, l_eval) = (b.create_block(&[]), b.create_block(&[]));
@@ -129,7 +204,11 @@ impl<'g> StepMech for Gate<'g> {
             b.switch_to(l_eval);
             (w, off, writes)
         });
-        let l_q = if fed.is_some_and(|f| f.2) { b.create_block(&[Type::Bool]) } else { l_done };
+        let l_q = if fed.is_some_and(|f| f.2) {
+            b.create_block(&[Type::Bool])
+        } else {
+            l_done
+        };
         for &q in self.quals.iter() {
             let p = crate::step::expr::pred(b, env, self.node, &none, q);
             let l_more = b.create_block(&[]);
@@ -161,7 +240,14 @@ impl<'g> StepMech for Gate<'g> {
     /// A false or NULL gate's window is done at once: its source is never pulled, as PG's Result never pulls its outer
     /// (a raising filter below it is not evaluated, a volatile call below it not made: D760).
     fn window(&self, b: &mut FunctionBuilder<'_>, _env: &mut Env, x: &Exits) {
-        let Some(pass) = self.pass.get() else { crate::refuse!(self.node, Reason::Bug { payload: "a gate's window before its prologue" }) };
+        let Some(pass) = self.pass.get() else {
+            crate::refuse!(
+                self.node,
+                Reason::Bug {
+                    payload: "a gate's window before its prologue"
+                }
+            )
+        };
         let l_go = b.create_block(&[]);
         b.cond_br(pass, (l_go, &[]), (x.l_done, &[]));
         b.switch_to(l_go);
@@ -178,8 +264,21 @@ impl<'g> StepMech for Gate<'g> {
         true
     }
 
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, next: Next<'_, 'e>) -> Carry<'e> {
-        let Some(pass) = self.pass.get() else { crate::refuse!(self.node, Reason::Bug { payload: "a gate lowered before its prologue" }) };
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        next: Next<'_, 'e>,
+    ) -> Carry<'e> {
+        let Some(pass) = self.pass.get() else {
+            crate::refuse!(
+                self.node,
+                Reason::Bug {
+                    payload: "a gate lowered before its prologue"
+                }
+            )
+        };
         crate::step::filter::when(b, env, row, pass, next)
     }
 }
@@ -207,7 +306,12 @@ enum Check<'g> {
     Gate(Gate<'g>),
     /// D1753 / D1752 (`full_check`): a streamed union's LIMIT whose rows are already read, from the union's words: the byte
     /// offsets of the union's flag and of the LIMIT's skipped and emitted counts, and the rows it reads (count plus offset).
-    Full { flag: i32, skipped: i32, emitted: i32, rows: i64 },
+    Full {
+        flag: i32,
+        skipped: i32,
+        emitted: i32,
+        rows: i64,
+    },
 }
 
 /// D2054: a check in a pipeline a mask may skip, made by a `k` that is not quiet, must not raise (PG may never reach it).
@@ -236,13 +340,32 @@ fn feeder_gate<'g>(_px: &mut Px<'g, '_>, _k: usize) -> Option<PgBox<'g, dyn Step
 fn drained<'g>(gx: &crate::graph::Gx<'g, '_>, k: usize) -> PgVec<'g, PgVec<'g, usize>> {
     let ps = gx.pipelines();
     let into = |p: usize| {
-        let src = if let Source::Breaker { slot } = ps[p].source { Some(slot) } else { None };
-        ps[p].desc.consumes.iter().copied().chain(src).filter_map(move |s| gx.life_of(p, s)).map(|l| l.0 as usize).filter(|&l| l < ps.len())
+        let src = if let Source::Breaker { slot } = ps[p].source {
+            Some(slot)
+        } else {
+            None
+        };
+        ps[p]
+            .desc
+            .consumes
+            .iter()
+            .copied()
+            .chain(src)
+            .filter_map(move |s| gx.life_of(p, s))
+            .map(|l| l.0 as usize)
+            .filter(|&l| l < ps.len())
     };
     let writes = |p: usize| p < ps.len() && ps[p].ops.iter().any(|op| matches!(op, Op::Write(_)));
-    let ctes = gx.graph.init_plans.iter().filter(|i| matches!(i.link, SubLink::Cte) && writes(i.pipeline as usize));
+    let ctes = gx
+        .graph
+        .init_plans
+        .iter()
+        .filter(|i| matches!(i.link, SubLink::Cte) && writes(i.pipeline as usize));
     let sets = ctes.map(|i| {
-        let (mut set, mut todo): (PgVec<'_, usize>, PgVec<'_, usize>) = (PgVec::new_in(gx.mcx), mcx::pg_vec![in gx.mcx; i.pipeline as usize]);
+        let (mut set, mut todo): (PgVec<'_, usize>, PgVec<'_, usize>) = (
+            PgVec::new_in(gx.mcx),
+            mcx::pg_vec![in gx.mcx; i.pipeline as usize],
+        );
         while let Some(p) = todo.pop() {
             if !set.contains(&p) {
                 set.push_in(p);
@@ -279,27 +402,50 @@ fn masks<'g>(gx: &crate::graph::Gx<'g, '_>) -> PgVec<'g, Mask> {
     let walk = || {
         let life = |q: usize, s: u8| gx.life_of(q, s).map(|l| l.0 as usize);
         let of = |q: usize, j: usize, op: &Op<'_>| match op {
-            Op::Join(JoinDesc::Probe { slot, .. }) => life(q, *slot).map_or(0, |b| crate::frame::iface::probe_skips(gx, b, q, j)),
-            Op::SetOp(SetDesc::Set { left, right, .. }) => life(q, *left).zip(life(q, *right)).map_or(0, |(l, r)| (l + 1..=r.min(63)).fold(0, |m, x| m | 1u64 << x)),
+            Op::Join(JoinDesc::Probe { slot, .. }) => {
+                life(q, *slot).map_or(0, |b| crate::frame::iface::probe_skips(gx, b, q, j))
+            }
+            Op::SetOp(SetDesc::Set { left, right, .. }) => {
+                life(q, *left).zip(life(q, *right)).map_or(0, |(l, r)| {
+                    (l + 1..=r.min(63)).fold(0, |m, x| m | 1u64 << x)
+                })
+            }
             _ => 0,
         };
-        let all = gx.pipelines().iter().enumerate().flat_map(|(q, p)| p.ops.iter().enumerate().map(move |(j, op)| Mask { bits: of(q, j, op), q, j }));
+        let all = gx.pipelines().iter().enumerate().flat_map(|(q, p)| {
+            p.ops.iter().enumerate().map(move |(j, op)| Mask {
+                bits: of(q, j, op),
+                q,
+                j,
+            })
+        });
         all.filter(|m| m.bits != 0).collect_in(gx.mcx)
     };
     // D3585: in the graph's lowering the masks are found once (memo.rs `masks`), not by a walk of every op for each
     // feeder (an Append's every arm under a LIMIT asked: quadratic in the arms)
     let key = crate::memo::key_of(&gx.graph.pipelines);
     let over = gx.over.map_or(0, |o| o as *const _ as usize);
-    let Some(kept) = crate::memo::read(key, |m| m.masks.clone()) else { return walk() };
+    let Some(kept) = crate::memo::read(key, |m| m.masks.clone()) else {
+        return walk();
+    };
     let kept = match kept {
         Some((o, v)) if o == over => v,
         _ => {
-            let v: std::rc::Rc<[(u64, u32, u32)]> = walk().iter().map(|m| (m.bits, m.q as u32, m.j as u32)).collect(); // alloc: Program
+            let v: std::rc::Rc<[(u64, u32, u32)]> = walk()
+                .iter()
+                .map(|m| (m.bits, m.q as u32, m.j as u32))
+                .collect(); // alloc: Program
             crate::memo::write(key, |m| m.masks = Some((over, v.clone())));
             v
         }
     };
-    kept.iter().map(|&(bits, q, j)| Mask { bits, q: q as usize, j: j as usize }).collect_in(gx.mcx)
+    kept.iter()
+        .map(|&(bits, q, j)| Mask {
+            bits,
+            q: q as usize,
+            j: j as usize,
+        })
+        .collect_in(gx.mcx)
 }
 
 /// D2115 x D1911 (semantics): a grouping-sets phase's spool walk computes every input row's aggregate arguments, a
@@ -332,7 +478,12 @@ fn limit_feeder<'g, 'p>(px: &mut Px<'g, 'p>, k: usize) -> Option<PgBox<'g, dyn S
         for q in 0..ps.len() {
             for j in 0..ps[q].ops.len() {
                 if limit_stopping(&ps[q].ops[j]).is_some() && !checks_limit(px, k, q, j) {
-                    crate::refuse!(ps[k].node_id, Reason::Shape { why: ShapeWhy(SPOOL_ZERO) });
+                    crate::refuse!(
+                        ps[k].node_id,
+                        Reason::Shape {
+                            why: ShapeWhy(SPOOL_ZERO)
+                        }
+                    );
                 }
             }
         }
@@ -340,11 +491,23 @@ fn limit_feeder<'g, 'p>(px: &mut Px<'g, 'p>, k: usize) -> Option<PgBox<'g, dyn S
     // D2907: no Limit and no gate after `k`, no check: `Reach`'s readings (`quiet` reads every source cell, a long VALUES
     // list's too) are not taken
     let ps = gx.pipelines();
-    let checked = |op: &Op<'_>| limit_stopping(op).is_some() || crate::graph::step_kind(op) == KindId::StepLimit || matches!(op, Op::Gate(_));
+    let checked = |op: &Op<'_>| {
+        limit_stopping(op).is_some()
+            || crate::graph::step_kind(op) == KindId::StepLimit
+            || matches!(op, Op::Gate(_))
+    };
     // D3585: the ops that may make a check (only those can: the match below takes nothing else), in the graph's lowering
     // found once (memo.rs `check_ops`), not by a walk of every later pipeline's ops for each feeder (an Append's every arm
     // under a LIMIT: quadratic in the arms)
-    let walk = || (0..ps.len()).flat_map(|q| (0..ps[q].ops.len()).filter(move |&j| checked(&ps[q].ops[j])).map(move |j| (q as u32, j as u32))).collect::<std::rc::Rc<[(u32, u32)]>>(); // alloc: Program
+    let walk = || {
+        (0..ps.len())
+            .flat_map(|q| {
+                (0..ps[q].ops.len())
+                    .filter(move |&j| checked(&ps[q].ops[j]))
+                    .map(move |j| (q as u32, j as u32))
+            })
+            .collect::<std::rc::Rc<[(u32, u32)]>>()
+    }; // alloc: Program
     let key = crate::memo::key_of(&gx.graph.pipelines);
     let ops = match crate::memo::read(key, |m| m.check_ops.clone()) {
         Some(Some(ops)) => ops,
@@ -372,13 +535,20 @@ fn limit_feeder<'g, 'p>(px: &mut Px<'g, 'p>, k: usize) -> Option<PgBox<'g, dyn S
                 // D2571: a qual that calls is evaluated once per call: by the gate's own step over a quiet `k`, else by this
                 // check, whose verdict the gate's step reads (`Gate::fed`)
                 Op::Gate(n) if feeds_alone(gx, k, q, j, false) && qual_calls(gx, *n) => {
-                    let exec = n.as_list().map_or_else(|| has_exec(*n), |l| l.iter().any(has_exec));
+                    let exec = n
+                        .as_list()
+                        .map_or_else(|| has_exec(*n), |l| l.iter().any(has_exec));
                     match r.quiet {
                         true => None,
                         false => {
                             let mut g = gate(px, q, j);
                             if masked || exec {
-                                crate::refuse!(g.node, Reason::Shape { why: ShapeWhy(CALLING_GATE) });
+                                crate::refuse!(
+                                    g.node,
+                                    Reason::Shape {
+                                        why: ShapeWhy(CALLING_GATE)
+                                    }
+                                );
                             }
                             g.verdict = Some(verdict_word(px, q, j));
                             g.fed = Some(fed_word(px, g.node, q, j, true));
@@ -388,12 +558,26 @@ fn limit_feeder<'g, 'p>(px: &mut Px<'g, 'p>, k: usize) -> Option<PgBox<'g, dyn S
                 }
                 // D1755: a qual over a per-execution parameter (an InitPlan's) too, but not where a mask may skip `q`
                 Op::Gate(n) if feeds_alone(gx, k, q, j, false) => {
-                    let (exec, rf) = n.as_list().map_or_else(|| (has_exec(*n), crate::effects::raise_free(gx, *n)), |l| (l.iter().any(has_exec), l.iter().all(|c| crate::effects::raise_free(gx, c))));
+                    let (exec, rf) = n.as_list().map_or_else(
+                        || (has_exec(*n), crate::effects::raise_free(gx, *n)),
+                        |l| {
+                            (
+                                l.iter().any(has_exec),
+                                l.iter().all(|c| crate::effects::raise_free(gx, c)),
+                            )
+                        },
+                    );
                     let g = (!exec).then(|| gate(px, q, j));
                     if let Some(g) = g.as_ref().filter(|_| masked && !rf) {
-                        crate::refuse!(g.node, Reason::Shape { why: ShapeWhy(SKIPPED_GATE_RAISES) });
+                        crate::refuse!(
+                            g.node,
+                            Reason::Shape {
+                                why: ShapeWhy(SKIPPED_GATE_RAISES)
+                            }
+                        );
                     }
-                    g.or_else(|| (!masked).then(|| gate(px, q, j))).map(Check::Gate)
+                    g.or_else(|| (!masked).then(|| gate(px, q, j)))
+                        .map(Check::Gate)
                 }
                 _ => None,
             };
@@ -415,12 +599,24 @@ struct Reach<'g> {
 
 impl<'g> Reach<'g> {
     fn of(gx: &crate::graph::Gx<'g, '_>, k: usize) -> Reach<'g> {
-        let (runs, quiet) = (gx.pipelines()[k].desc.driving_site < 0, crate::effects::visible::result::quiet(gx, k, crate::frame::iface::end_breaker(gx, k)));
+        let (runs, quiet) = (
+            gx.pipelines()[k].desc.driving_site < 0,
+            crate::effects::visible::result::quiet(gx, k, crate::frame::iface::end_breaker(gx, k)),
+        );
         let (mut skips, mut kept) = (PgVec::new_in(gx.mcx), PgVec::new_in(gx.mcx));
         for m in masks(gx).into_iter().filter(|m| runs || !bit(m.bits, k)) {
-            if quiet { skips.push_in(m) } else { kept.push_in(m) }
+            if quiet {
+                skips.push_in(m)
+            } else {
+                kept.push_in(m)
+            }
         }
-        Reach { sets: drained(gx, k), skips, kept, quiet }
+        Reach {
+            sets: drained(gx, k),
+            skips,
+            kept,
+            quiet,
+        }
     }
 
     /// Whether `k`'s feeder makes op `j` of pipeline `q`'s check at all.
@@ -441,10 +637,19 @@ fn bit(m: u64, x: usize) -> bool {
 
 /// The check `k`'s feeder makes for op `j` of pipeline `q` when it is a Limit whose count may be zero or a bound negative
 /// (`limit_stopping`) and `k` feeds its input alone, both bounds bound before the feeders run; `masked`: a kept mask may skip `q`.
-fn limit_check<'g, 'p>(px: &mut Px<'g, 'p>, k: usize, q: usize, j: usize, masked: bool) -> Option<Check<'g>> {
+fn limit_check<'g, 'p>(
+    px: &mut Px<'g, 'p>,
+    k: usize,
+    q: usize,
+    j: usize,
+    masked: bool,
+) -> Option<Check<'g>> {
     let gx = px.gx;
-    let (c, o) = limit_stopping(&gx.pipelines()[q].ops[j]).filter(|_| feeds_alone(gx, k, q, j, true))?;
-    bind(px, q, c).zip(bind(px, q, o)).map(|(c, o)| Check::Limit(c, o, masked))
+    let (c, o) =
+        limit_stopping(&gx.pipelines()[q].ops[j]).filter(|_| feeds_alone(gx, k, q, j, true))?;
+    bind(px, q, c)
+        .zip(bind(px, q, o))
+        .map(|(c, o)| Check::Limit(c, o, masked))
 }
 
 /// D1753 / D1752 (main's go 2026-10-04): PG's Append starts an arm only when its reader pulls past the previous one, so
@@ -458,10 +663,25 @@ fn limit_check<'g, 'p>(px: &mut Px<'g, 'p>, k: usize, q: usize, j: usize, masked
 /// arm's copies then pull nothing either (their `window`).
 fn full_check<'g>(px: &mut Px<'g, '_>, k: usize, q: usize, j: usize) -> Option<Check<'g>> {
     let f = crate::rerun::union_arms::full_feed(px, k, q, j)?;
-    let mut word = |i: u8| px.frame_word(WordKey::Union { union: f.union as u32, after: f.after, i }) as i32 * 8;
+    let mut word = |i: u8| {
+        px.frame_word(WordKey::Union {
+            union: f.union as u32,
+            after: f.after,
+            i,
+        }) as i32
+            * 8
+    };
     let (skipped, emitted) = (word(0), word(1));
-    let flag = px.frame_word(WordKey::UnionFlag { union: f.union as u32 }) as i32 * 8;
-    Some(Check::Full { flag, skipped, emitted, rows: f.rows })
+    let flag = px.frame_word(WordKey::UnionFlag {
+        union: f.union as u32,
+    }) as i32
+        * 8;
+    Some(Check::Full {
+        flag,
+        skipped,
+        emitted,
+        rows: f.rows,
+    })
 }
 
 /// Whether the feeder of graph pipeline `k` makes op `j` of pipeline `q`'s check at all (`Reach::holds`: inside every
@@ -484,10 +704,19 @@ pub(crate) fn checks_limit(px: &mut Px<'_, '_>, k: usize, q: usize, j: usize) ->
 /// before it pulls a row, as PG's Result evaluates its one-time qual before it pulls its outer.
 pub(crate) fn checks_gate(px: &mut Px<'_, '_>, k: usize, q: usize, j: usize) -> bool {
     let gx = px.gx;
-    let Op::Gate(n) = gx.pipelines()[q].ops[j] else { return false };
-    let exec = n.as_list().map_or_else(|| has_exec(n), |l| l.iter().any(has_exec));
+    let Op::Gate(n) = gx.pipelines()[q].ops[j] else {
+        return false;
+    };
+    let exec = n
+        .as_list()
+        .map_or_else(|| has_exec(n), |l| l.iter().any(has_exec));
     let r = Reach::of(gx, k);
-    q > k && !exec && !qual_calls(gx, n) && r.holds(q, j) && !r.masked(q, j) && feeds_alone(gx, k, q, j, false)
+    q > k
+        && !exec
+        && !qual_calls(gx, n)
+        && r.holds(q, j)
+        && !r.masked(q, j)
+        && feeds_alone(gx, k, q, j, false)
 }
 
 /// Construct C2 (b), the run-ahead tracer's stamp only (frame/program.rs `checks_results`): whether the feeder of graph
@@ -497,12 +726,16 @@ pub(crate) fn checks_gate(px: &mut Px<'_, '_>, k: usize, q: usize, j: usize) -> 
 /// pipeline a mask may skip (D1755: over an InitPlan's parameter, the InitPlan runs at that read).
 pub(crate) fn feeder_checks_gate(px: &mut Px<'_, '_>, k: usize, q: usize, j: usize) -> bool {
     let gx = px.gx;
-    let Op::Gate(n) = gx.pipelines()[q].ops[j] else { return false };
+    let Op::Gate(n) = gx.pipelines()[q].ops[j] else {
+        return false;
+    };
     let r = Reach::of(gx, k);
     if q <= k || !r.holds(q, j) || !feeds_alone(gx, k, q, j, false) {
         return false;
     }
-    let exec = n.as_list().map_or_else(|| has_exec(n), |l| l.iter().any(has_exec));
+    let exec = n
+        .as_list()
+        .map_or_else(|| has_exec(n), |l| l.iter().any(has_exec));
     if qual_calls(gx, n) {
         !r.quiet && !r.masked(q, j) && !exec
     } else {
@@ -518,11 +751,16 @@ impl<'g> StepMech for Feeder<'g> {
             let (v, on) = match c {
                 Check::Limit(count, offset, false) => {
                     let _ = limit_check_bound(b, env, *offset, 0);
-                    let Some(n) = limit_check_bound(b, env, *count, 1) else { continue };
+                    let Some(n) = limit_check_bound(b, env, *count, 1) else {
+                        continue;
+                    };
                     (b.icmp(IntCond::Eq, n, env.zero), true)
                 }
                 Check::Limit(count, offset, true) => {
-                    let (o, n) = (soft(b, env, *offset, IntCond::Slt), soft(b, env, *count, IntCond::Sle));
+                    let (o, n) = (
+                        soft(b, env, *offset, IntCond::Slt),
+                        soft(b, env, *count, IntCond::Sle),
+                    );
                     (b.int_bin(IntBinOp::Or, o, n), true)
                 }
                 Check::Gate(g) => {
@@ -530,11 +768,19 @@ impl<'g> StepMech for Feeder<'g> {
                     let Some(pass) = g.pass.get() else { continue };
                     (pass, false)
                 }
-                Check::Full { flag, skipped, emitted, rows } => {
+                Check::Full {
+                    flag,
+                    skipped,
+                    emitted,
+                    rows,
+                } => {
                     let Some(w) = env.words else { continue };
                     let f = b.load(Type::I64, w, *flag);
                     let set = b.icmp(IntCond::Ne, f, env.zero);
-                    let (sk, em) = (b.load(Type::I64, w, *skipped), b.load(Type::I64, w, *emitted));
+                    let (sk, em) = (
+                        b.load(Type::I64, w, *skipped),
+                        b.load(Type::I64, w, *emitted),
+                    );
                     let read = b.int_bin(IntBinOp::Add, sk, em);
                     let n = b.iconst(Type::I64, *rows);
                     let met = b.icmp(IntCond::Sge, read, n);
@@ -572,7 +818,13 @@ impl<'g> StepMech for Feeder<'g> {
         b.switch_to(l_go);
     }
 
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, next: Next<'_, 'e>) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        next: Next<'_, 'e>,
+    ) -> Carry<'e> {
         next(b, env, row)
     }
 

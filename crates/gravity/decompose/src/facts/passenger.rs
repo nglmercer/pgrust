@@ -22,11 +22,26 @@ use crate::walk::Builder;
 /// NULL-extended row's too: all NULL), so the column joins the group's keys: the same groups, a sorted input's runs the
 /// same, its word the value PostgreSQL emits from the group's representative row.
 pub fn pk_determined<'p>(b: &Builder<'p, '_>, keys: &[Node<'p>], e: Node<'p>) -> bool {
-    let base = |n: Node<'p>| n.as_var().filter(|v| v.varlevelsup == 0 && v.varnosyn > 0 && v.varattnosyn > 0).map(|v| (v.varnosyn, v.varattnosyn));
-    let Some((rti, _)) = base(e) else { return false };
-    let Some(rte) = b.rte(rti).filter(|r| r.rtekind == RTEKind::RTE_RELATION && r.relid != 0) else { return false };
-    let Some((pk, n)) = b.facts.primary_key(rte.relid) else { return false };
-    pk[..n as usize].iter().all(|&att| keys.iter().any(|&k| base(k) == Some((rti, att))))
+    let base = |n: Node<'p>| {
+        n.as_var()
+            .filter(|v| v.varlevelsup == 0 && v.varnosyn > 0 && v.varattnosyn > 0)
+            .map(|v| (v.varnosyn, v.varattnosyn))
+    };
+    let Some((rti, _)) = base(e) else {
+        return false;
+    };
+    let Some(rte) = b
+        .rte(rti)
+        .filter(|r| r.rtekind == RTEKind::RTE_RELATION && r.relid != 0)
+    else {
+        return false;
+    };
+    let Some((pk, n)) = b.facts.primary_key(rte.relid) else {
+        return false;
+    };
+    pk[..n as usize]
+        .iter()
+        .all(|&att| keys.iter().any(|&k| base(k) == Some((rti, att))))
 }
 
 /// D3375 (m7_passenger_fd): PostgreSQL 18.6's remove_useless_groupby_columns (initsplan.c) drops the GROUP BY columns a
@@ -40,11 +55,27 @@ pub fn pk_determined<'p>(b: &Builder<'p, '_>, keys: &[Node<'p>], e: Node<'p>) ->
 /// (`AttFact::notnull`; a NULL-extended row holds NULL in every column of the relation, one group of its own). Group-equal
 /// keys are then index-equal, so a group's rows carry one row of the relation and `e` one value: the column joins the
 /// keys as a primary key's does. A source without the catalog (a fixture) answers no index.
-pub fn unique_determined<'p>(b: &Builder<'p, '_>, keys: &[(Node<'p>, u32, u32)], e: Node<'p>) -> bool {
+pub fn unique_determined<'p>(
+    b: &Builder<'p, '_>,
+    keys: &[(Node<'p>, u32, u32)],
+    e: Node<'p>,
+) -> bool {
     use crate::catalog::KeyBind;
-    let base = |n: Node<'p>| n.as_var().filter(|v| v.varlevelsup == 0 && v.varnosyn > 0 && v.varattnosyn > 0).map(|v| (v.varnosyn, v.varattnosyn));
-    let Some((rti, _)) = base(e) else { return false };
-    let Some(rte) = b.rte(rti).filter(|r| r.rtekind == RTEKind::RTE_RELATION && r.relid != 0 && !(r.inh && r.relkind != RELKIND_PARTITIONED_TABLE)) else { return false };
+    let base = |n: Node<'p>| {
+        n.as_var()
+            .filter(|v| v.varlevelsup == 0 && v.varnosyn > 0 && v.varattnosyn > 0)
+            .map(|v| (v.varnosyn, v.varattnosyn))
+    };
+    let Some((rti, _)) = base(e) else {
+        return false;
+    };
+    let Some(rte) = b.rte(rti).filter(|r| {
+        r.rtekind == RTEKind::RTE_RELATION
+            && r.relid != 0
+            && !(r.inh && r.relkind != RELKIND_PARTITIONED_TABLE)
+    }) else {
+        return false;
+    };
     let relid = rte.relid;
     let mut hit = false;
     b.facts.indexes_of(relid, &mut |i| {
@@ -52,14 +83,31 @@ pub fn unique_determined<'p>(b: &Builder<'p, '_>, keys: &[(Node<'p>, u32, u32)],
             return;
         }
         let ext = b.facts.index_ext(i.indexid);
-        let n = usize::from(if ext.known && ext.nkeyatts > 0 { ext.nkeyatts.min(i.nkeys) } else { i.nkeys });
-        let mut binds = [KeyBind { col: 0, opno: 0, collid: 0, nullable: false }; gravity_program::limits::KEYS];
+        let n = usize::from(if ext.known && ext.nkeyatts > 0 {
+            ext.nkeyatts.min(i.nkeys)
+        } else {
+            i.nkeys
+        });
+        let mut binds = [KeyBind {
+            col: 0,
+            opno: 0,
+            collid: 0,
+            nullable: false,
+        }; gravity_program::limits::KEYS];
         for (col, &att) in i.keys[..n].iter().enumerate() {
             if att <= 0 || !b.facts.att(relid, att).is_some_and(|a| a.notnull) {
                 return;
             }
-            let Some(&(_, opno, collid)) = keys.iter().find(|(k, ..)| base(*k) == Some((rti, att))) else { return };
-            binds[col] = KeyBind { col: col as u8, opno, collid, nullable: false };
+            let Some(&(_, opno, collid)) = keys.iter().find(|(k, ..)| base(*k) == Some((rti, att)))
+            else {
+                return;
+            };
+            binds[col] = KeyBind {
+                col: col as u8,
+                opno,
+                collid,
+                nullable: false,
+            };
         }
         hit = n > 0 && b.facts.unique_bound(i.indexid, &binds[..n], false);
     });
@@ -73,14 +121,22 @@ const RELKIND_PARTITIONED_TABLE: u8 = b'p';
 /// `pk_determined` reads: PG keeps it on every copy of the Var up the plan (setrefs' OUTER_VAR / INNER_VAR copies, a
 /// NestLoopParam's value).
 pub fn syn_col(n: Node<'_>) -> Option<(u32, i16)> {
-    crate::facts::pinned::relabels(n).as_var().filter(|v| v.varlevelsup == 0 && v.varnosyn > 0 && v.varattnosyn > 0).map(|v| (v.varnosyn, v.varattnosyn))
+    crate::facts::pinned::relabels(n)
+        .as_var()
+        .filter(|v| v.varlevelsup == 0 && v.varnosyn > 0 && v.varattnosyn > 0)
+        .map(|v| (v.varnosyn, v.varattnosyn))
 }
 
 /// aggtrans C1b: whether pipeline ops `ops` hold columns `x` and `y` (`syn_col`) equal on every row they emit under an
 /// identity equality (`catalog::keysem::image_eq`): an inner hash or merge join's clause or qual conjunct, an inner nested loop's
 /// qual conjunct or its inner index key on one column bound to the other by a NestLoopParam. `None` at an Append op: an
 /// arm's rows need not pass the join, so the caller takes nothing upstream either. `f` answers the image equalities.
-pub fn equal_cols(f: &dyn crate::catalog::Facts, ops: &[Op<'_>], x: (u32, i16), y: (u32, i16)) -> Option<bool> {
+pub fn equal_cols(
+    f: &dyn crate::catalog::Facts,
+    ops: &[Op<'_>],
+    x: (u32, i16),
+    y: (u32, i16),
+) -> Option<bool> {
     use crate::catalog::keysem::image_eq;
     use crate::facts::pinned::relabels;
     use crate::join::JoinDesc;
@@ -89,20 +145,60 @@ pub fn equal_cols(f: &dyn crate::catalog::Facts, ops: &[Op<'_>], x: (u32, i16), 
         (a == x && b == y) || (a == y && b == x)
     }
     let eq = |l: &NodeList<'_>, x: (u32, i16), y: (u32, i16)| -> bool {
-        l.iter().filter_map(|c| c.as_op_expr()).any(|o| o.args.len() == 2 && image_eq(f, o.opno).is_some() && syn_col(o.args.nth(0)).zip(syn_col(o.args.nth(1))).is_some_and(|(a, b)| pair(a, b, x, y)))
+        l.iter().filter_map(|c| c.as_op_expr()).any(|o| {
+            o.args.len() == 2
+                && image_eq(f, o.opno).is_some()
+                && syn_col(o.args.nth(0))
+                    .zip(syn_col(o.args.nth(1)))
+                    .is_some_and(|(a, b)| pair(a, b, x, y))
+        })
     };
     let mut hit = false;
     for op in ops {
         hit |= match op {
             Op::Append(_) => return None,
-            Op::Join(JoinDesc::Probe { jointype: J::JOIN_INNER, clauses, qual, .. } | JoinDesc::Merge { jointype: J::JOIN_INNER, clauses, qual, .. }) => eq(clauses, x, y) || eq(qual, x, y),
-            Op::Join(JoinDesc::Nest { jointype: J::JOIN_INNER, params, inner, qual, .. }) => {
-                let bound = |p: &Param| params.iter().filter_map(|n| n.as_nest_loop_param()).find(|n| n.paramno == p.paramid).and_then(|n| syn_col(n.paramval));
-                let key = |k: &crate::graph::IndexKey<'_>, rti: u16| {
-                    matches!(k.form, crate::graph::KeyForm::Op | crate::graph::KeyForm::AmOp) && k.attno > 0 && image_eq(f, k.opno).is_some()
-                        && relabels(k.value).as_param().filter(|p| p.paramkind == ParamKind::PARAM_EXEC).and_then(& bound).is_some_and(|o| pair((u32::from(rti), k.attno), o, x, y))
+            Op::Join(
+                JoinDesc::Probe {
+                    jointype: J::JOIN_INNER,
+                    clauses,
+                    qual,
+                    ..
+                }
+                | JoinDesc::Merge {
+                    jointype: J::JOIN_INNER,
+                    clauses,
+                    qual,
+                    ..
+                },
+            ) => eq(clauses, x, y) || eq(qual, x, y),
+            Op::Join(JoinDesc::Nest {
+                jointype: J::JOIN_INNER,
+                params,
+                inner,
+                qual,
+                ..
+            }) => {
+                let bound = |p: &Param| {
+                    params
+                        .iter()
+                        .filter_map(|n| n.as_nest_loop_param())
+                        .find(|n| n.paramno == p.paramid)
+                        .and_then(|n| syn_col(n.paramval))
                 };
-                eq(qual, x, y) || matches!(&inner.source, Source::Index { scanrelid, keys, .. } if keys.iter().any(|k| key(k, *scanrelid)))
+                let key = |k: &crate::graph::IndexKey<'_>, rti: u16| {
+                    matches!(
+                        k.form,
+                        crate::graph::KeyForm::Op | crate::graph::KeyForm::AmOp
+                    ) && k.attno > 0
+                        && image_eq(f, k.opno).is_some()
+                        && relabels(k.value)
+                            .as_param()
+                            .filter(|p| p.paramkind == ParamKind::PARAM_EXEC)
+                            .and_then(&bound)
+                            .is_some_and(|o| pair((u32::from(rti), k.attno), o, x, y))
+                };
+                eq(qual, x, y)
+                    || matches!(&inner.source, Source::Index { scanrelid, keys, .. } if keys.iter().any(|k| key(k, *scanrelid)))
             }
             _ => false,
         };

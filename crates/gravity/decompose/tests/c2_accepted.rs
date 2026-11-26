@@ -5,18 +5,29 @@
 use std::fs;
 
 use gravity_decompose::corpus;
-use gravity_decompose::effects::{call_local, deny_all, volatile_free, Cx, Denied, Departure, Licence};
+use gravity_decompose::effects::{
+    call_local, deny_all, volatile_free, Cx, Denied, Departure, Licence,
+};
 use gravity_program::Arena;
 use mcx::MemoryContext;
 use types_nodes::Node;
 
 fn text(name: &str) -> String {
-    fs::read_to_string(manifest_dir().join("tests/plans/regress-full").join(format!("{name}.plan"))).unwrap()
+    fs::read_to_string(
+        manifest_dir()
+            .join("tests/plans/regress-full")
+            .join(format!("{name}.plan")),
+    )
+    .unwrap()
 }
 
 fn manifest_dir() -> &'static std::path::Path {
     static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| std::env::var_os("CARGO_MANIFEST_DIR").map(Into::into).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)"))
+    DIR.get_or_init(|| {
+        std::env::var_os("CARGO_MANIFEST_DIR")
+            .map(Into::into)
+            .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+    })
 }
 
 /// The plan node with id `id` in the statement's tree (its plan children only).
@@ -41,7 +52,11 @@ fn read(text: &str, unit: Option<i32>) -> (Result<Licence, Denied>, bool) {
         None => fx.stmt.planTree.expect("a plan"),
     };
     let r = volatile_free(&cx, [u]);
-    assert_eq!(deny_all(|| volatile_free(&cx, [u])), r, "the plan-order run reads it as outside");
+    assert_eq!(
+        deny_all(|| volatile_free(&cx, [u])),
+        r,
+        "the plan-order run reads it as outside"
+    );
     (r, call_local(&cx, [u]).is_some())
 }
 
@@ -61,8 +76,14 @@ fn a_lone_nextval_run_ahead_is_free() {
     let (r, _) = read(&text("limit-012"), None);
     let l = r.expect("nextval alone (it may raise at the sequence end: the accepted class)");
     assert!(l.accepted() && l.departure() == Departure::Ahead);
-    assert!(!l.recheck() && !l.tagged() && !l.held_error() && !l.whole_read() && l.exact().is_none(), "held for the tracer only");
-    assert!(read(&text("limit-012"), Some(3)).0.is_ok(), "a unit that does not act minds the nextval elsewhere");
+    assert!(
+        !l.recheck() && !l.tagged() && !l.held_error() && !l.whole_read() && l.exact().is_none(),
+        "held for the tracer only"
+    );
+    assert!(
+        read(&text("limit-012"), Some(3)).0.is_ok(),
+        "a unit that does not act minds the nextval elsewhere"
+    );
 }
 
 #[test]
@@ -74,21 +95,40 @@ fn another_nextval_sees_only_a_gap() {
     let call = "{FUNCEXPR :funcid 1574 :funcresulttype 20 :funcretset false :funcvariadic false :funcformat 0 :funccollid 0 :inputcollid 0 :args ({CONST :consttype 2205 :consttypmod -1 :constcollid 0 :constlen 4 :constbyval true :constisnull false :location 33 :constvalue 4 [ 155 154 0 0 0 0 0 0 ]}) :location 7}";
     let two = t.replacen(var, call, 1);
     assert_eq!(two.matches(NEXTVAL).count(), 2);
-    assert!(read(&two, None).0.is_ok_and(|l| l.accepted()), "two nextval calls: each sees at most a gap");
+    assert!(
+        read(&two, None).0.is_ok_and(|l| l.accepted()),
+        "two nextval calls: each sees at most a gap"
+    );
 }
 
 #[test]
 fn a_raising_acting_call_is_granted() {
     // random(int4, int4) raises at min > max
     assert!(read(&swapped(6339), None).0.is_ok_and(|l| l.accepted()));
-    assert!(read(&swapped(1598), None).0.is_ok_and(|l| l.accepted()), "random()");
+    assert!(
+        read(&swapped(1598), None).0.is_ok_and(|l| l.accepted()),
+        "random()"
+    );
 }
 
 #[test]
 fn a_call_that_reads_or_sets_the_moved_state_denies() {
-    for (funcid, what) in [(1575, "currval"), (2559, "lastval"), (1576, "setval"), (1599, "setseed")] {
-        assert_eq!(read(&swapped(funcid), None).0, Err(Denied), "{what} in the unit");
-        assert_eq!(read(&swapped(funcid), Some(3)).0, Err(Denied), "{what} elsewhere in the statement");
+    for (funcid, what) in [
+        (1575, "currval"),
+        (2559, "lastval"),
+        (1576, "setval"),
+        (1599, "setseed"),
+    ] {
+        assert_eq!(
+            read(&swapped(funcid), None).0,
+            Err(Denied),
+            "{what} in the unit"
+        );
+        assert_eq!(
+            read(&swapped(funcid), Some(3)).0,
+            Err(Denied),
+            "{what} elsewhere in the statement"
+        );
     }
 }
 
@@ -96,14 +136,20 @@ fn a_call_that_reads_or_sets_the_moved_state_denies() {
 fn a_user_function_anywhere_denies() {
     // a function past FIRST_NORMAL_OID the facts cannot name: user code, unknown, fail closed
     assert_eq!(read(&swapped(16999), None).0, Err(Denied), "in the unit");
-    assert_eq!(read(&swapped(16999), Some(3)).0, Err(Denied), "elsewhere in the statement");
+    assert_eq!(
+        read(&swapped(16999), Some(3)).0,
+        Err(Denied),
+        "elsewhere in the statement"
+    );
 }
 
 /// subselect-088 (`select * from (select distinct ten from tenk1) ss where ten < 10 + nextval('ts1') order by 1`): the
 /// VOLATILE value decides which rows pass the filter; PostgreSQL's own plans may call it on other rows (D4146).
 #[test]
 fn a_volatile_value_in_a_filter_is_granted() {
-    assert!(read(&text("subselect-088"), None).0.is_ok_and(|l| l.accepted()));
+    assert!(read(&text("subselect-088"), None)
+        .0
+        .is_ok_and(|l| l.accepted()));
 }
 
 /// sequence-005 (`SELECT last_value, .. FROM foo_seq_new`): a scan of a sequence relation reads what nextval moves.
@@ -125,6 +171,14 @@ fn a_data_modifying_cte_denies() {
 fn a_row_lock_anywhere_denies() {
     let (r, local) = read(&text("copyselect-001"), Some(1));
     assert!(local, "call_local grants the scan");
-    assert_eq!(r, Err(Denied), "a row lock in the statement is no call's act");
-    assert_eq!(read(&text("copyselect-001"), None).0, Err(Denied), "the LockRows in the unit");
+    assert_eq!(
+        r,
+        Err(Denied),
+        "a row lock in the statement is no call's act"
+    );
+    assert_eq!(
+        read(&text("copyselect-001"), None).0,
+        Err(Denied),
+        "the LockRows in the unit"
+    );
 }

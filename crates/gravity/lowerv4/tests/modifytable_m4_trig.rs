@@ -11,7 +11,11 @@ const NONE: &str = "before=- after=- instead=- stmt=- trans=- internal=- defer=-
 fn fixture() -> String {
     let p = common::plans_dir().join("oltp-029.plan");
     let text = std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
-    assert_eq!(text.matches(NONE).count(), 1, "oltp-029's target carries one known-empty trigext line");
+    assert_eq!(
+        text.matches(NONE).count(),
+        1,
+        "oltp-029's target carries one known-empty trigext line"
+    );
     text
 }
 
@@ -21,10 +25,19 @@ fn transition(set: Option<&str>) -> Result<bool, String> {
     let text = fixture();
     let text = match set {
         Some(s) => text.replace(NONE, s),
-        None => text.lines().filter(|l| !l.starts_with("-- trigext ")).collect::<Vec<_>>().join("\n"),
+        None => text
+            .lines()
+            .filter(|l| !l.starts_with("-- trigext "))
+            .collect::<Vec<_>>()
+            .join("\n"),
     };
     match common::lower_fixture(&text) {
-        Some(Ok(l)) => Ok(l.descs.v4.protos.iter().any(|p| p.kind == ProtoKind::Transition)),
+        Some(Ok(l)) => Ok(l
+            .descs
+            .v4
+            .protos
+            .iter()
+            .any(|p| p.kind == ProtoKind::Transition)),
         Some(Err(e)) => Err(format!("{e}")),
         None => Err("decompose refused the fixture".into()),
     }

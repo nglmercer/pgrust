@@ -10,7 +10,9 @@
 use crate::cfg::{Cfg, CfgError};
 use crate::{frame_layout, host_sig, irreduce, val_type, Helper, Refusal, Types};
 use gravity_ir::*;
-use wasm_encoder::{BlockType, Function as WasmFunction, Ieee32, Ieee64, Instruction as I, MemArg, ValType};
+use wasm_encoder::{
+    BlockType, Function as WasmFunction, Ieee32, Ieee64, Instruction as I, MemArg, ValType,
+};
 
 enum Label {
     Block(Block),
@@ -40,13 +42,24 @@ struct Fx<'a> {
     link: &'a crate::Link,
 }
 
-pub(crate) fn emit<'a>(program: &'a Program, func: Func, f: &'a Function, types: &'a mut Types, helpers: &'a mut Vec<Helper>, nfuncs: u32, guard: Option<crate::StackGuard>, link: &'a crate::Link) -> Result<WasmFunction, Refusal> {
+pub(crate) fn emit<'a>(
+    program: &'a Program,
+    func: Func,
+    f: &'a Function,
+    types: &'a mut Types,
+    helpers: &'a mut Vec<Helper>,
+    nfuncs: u32,
+    guard: Option<crate::StackGuard>,
+    link: &'a crate::Link,
+) -> Result<WasmFunction, Refusal> {
     let fixed;
     let (f, cfg) = match Cfg::build(f) {
         Ok(cfg) => (f, cfg),
         Err(CfgError::Irreducible { from, to }) => {
             let refusal = Refusal::Irreducible { func, from, to };
-            fixed = irreduce::make_reducible(f).map_err(|_| refusal.clone())?.ok_or_else(|| refusal.clone())?;
+            fixed = irreduce::make_reducible(f)
+                .map_err(|_| refusal.clone())?
+                .ok_or_else(|| refusal.clone())?;
             let cfg = Cfg::build(&fixed.funcs[0]).map_err(|_| refusal)?;
             (&fixed.funcs[0], cfg)
         }
@@ -64,7 +77,27 @@ pub(crate) fn emit<'a>(program: &'a Program, func: Func, f: &'a Function, types:
     let t64 = [scratch(ValType::I64), scratch(ValType::I64)];
     let tv = [scratch(ValType::V128), scratch(ValType::V128)];
     let (offsets, frame) = frame_layout(f);
-    let mut fx = Fx { program, func, f, cfg, loc, out: WasmFunction::new_with_locals_types(locals), labels: Vec::new(), types, helpers, nfuncs, fp, sp_save, t32, t64, tv, offsets, frame, guard, link };
+    let mut fx = Fx {
+        program,
+        func,
+        f,
+        cfg,
+        loc,
+        out: WasmFunction::new_with_locals_types(locals),
+        labels: Vec::new(),
+        types,
+        helpers,
+        nfuncs,
+        fp,
+        sp_save,
+        t32,
+        t64,
+        tv,
+        offsets,
+        frame,
+        guard,
+        link,
+    };
     if fx.frame > 0 {
         fx.i(I::GlobalGet(0));
         fx.i(I::LocalTee(fx.sp_save));
@@ -88,7 +121,10 @@ pub(crate) fn emit<'a>(program: &'a Program, func: Func, f: &'a Function, types:
                 None => {
                     fx.i(I::I32Const(g.overflow as i32));
                     let type_index = fx.types.index(&[], &[]);
-                    fx.i(I::CallIndirect { type_index, table_index: 0 });
+                    fx.i(I::CallIndirect {
+                        type_index,
+                        table_index: 0,
+                    });
                 }
             }
             fx.i(I::End);
@@ -129,14 +165,22 @@ impl<'a> Fx<'a> {
     }
 
     fn label_depth(&self, want: impl Fn(&Label) -> bool) -> u32 {
-        let pos = self.labels.iter().rposition(want).expect("stackifier: label in scope");
+        let pos = self
+            .labels
+            .iter()
+            .rposition(want)
+            .expect("stackifier: label in scope");
         (self.labels.len() - 1 - pos) as u32
     }
 
     // ---------------------------------------------------------------- control flow
 
     fn do_tree(&mut self, x: Block) -> Result<(), Refusal> {
-        let mut children: Vec<Block> = self.cfg.children[x.index()].iter().copied().filter(|&y| self.cfg.merge[y.index()]).collect();
+        let mut children: Vec<Block> = self.cfg.children[x.index()]
+            .iter()
+            .copied()
+            .filter(|&y| self.cfg.merge[y.index()])
+            .collect();
         children.sort_by_key(|&y| core::cmp::Reverse(self.cfg.rpo_num[y.index()]));
         let is_loop = self.cfg.loop_header[x.index()];
         if is_loop {
@@ -168,7 +212,11 @@ impl<'a> Fx<'a> {
         }
         match &b.term {
             Terminator::Br(e) => self.do_branch(x, e)?,
-            Terminator::CondBr { cond, then_edge, else_edge } => {
+            Terminator::CondBr {
+                cond,
+                then_edge,
+                else_edge,
+            } => {
                 self.get(*cond);
                 self.i(I::If(BlockType::Empty));
                 self.labels.push(Label::If);
@@ -179,12 +227,20 @@ impl<'a> Fx<'a> {
                 self.i(I::End);
                 self.i(I::Unreachable);
             }
-            Terminator::Switch { value, cases, default } => {
+            Terminator::Switch {
+                value,
+                cases,
+                default,
+            } => {
                 let ty = self.ty(*value);
                 for c in cases {
                     self.get(*value);
                     self.konst(ty, c.value);
-                    self.i(if val_type(ty) == ValType::I64 { I::I64Eq } else { I::I32Eq });
+                    self.i(if val_type(ty) == ValType::I64 {
+                        I::I64Eq
+                    } else {
+                        I::I32Eq
+                    });
                     self.i(I::If(BlockType::Empty));
                     self.labels.push(Label::If);
                     self.do_branch(x, &c.edge)?;
@@ -294,7 +350,11 @@ impl<'a> Fx<'a> {
         } else {
             offset as u64
         };
-        MemArg { offset: off, align: if unaligned { 0 } else { bytes.trailing_zeros() }, memory_index: 0 }
+        MemArg {
+            offset: off,
+            align: if unaligned { 0 } else { bytes.trailing_zeros() },
+            memory_index: 0,
+        }
     }
 
     fn helper_index(&mut self, h: Helper) -> u32 {
@@ -313,7 +373,14 @@ impl<'a> Fx<'a> {
         let narrow = matches!(ty, Type::I8 | Type::I16);
         let w = ty.bytes() * 8;
         match op {
-            IntBinOp::Add | IntBinOp::Sub | IntBinOp::Mul | IntBinOp::And | IntBinOp::Or | IntBinOp::Xor | IntBinOp::Sdiv | IntBinOp::Srem => {
+            IntBinOp::Add
+            | IntBinOp::Sub
+            | IntBinOp::Mul
+            | IntBinOp::And
+            | IntBinOp::Or
+            | IntBinOp::Xor
+            | IntBinOp::Sdiv
+            | IntBinOp::Srem => {
                 self.get(a);
                 self.get(b);
                 let (i32f, i64f) = match op {
@@ -327,7 +394,12 @@ impl<'a> Fx<'a> {
                     _ => (I::I32RemS, I::I64RemS),
                 };
                 self.wide(ty, i32f, i64f);
-                if narrow && !matches!(op, IntBinOp::And | IntBinOp::Or | IntBinOp::Xor | IntBinOp::Srem) {
+                if narrow
+                    && !matches!(
+                        op,
+                        IntBinOp::And | IntBinOp::Or | IntBinOp::Xor | IntBinOp::Srem
+                    )
+                {
                     self.canon(ty);
                 }
             }
@@ -336,7 +408,19 @@ impl<'a> Fx<'a> {
                 self.zext(ty);
                 self.get(b);
                 self.zext(ty);
-                self.wide(ty, if op == IntBinOp::Udiv { I::I32DivU } else { I::I32RemU }, if op == IntBinOp::Udiv { I::I64DivU } else { I::I64RemU });
+                self.wide(
+                    ty,
+                    if op == IntBinOp::Udiv {
+                        I::I32DivU
+                    } else {
+                        I::I32RemU
+                    },
+                    if op == IntBinOp::Udiv {
+                        I::I64DivU
+                    } else {
+                        I::I64RemU
+                    },
+                );
                 self.canon(ty);
             }
             IntBinOp::Shl | IntBinOp::Ushr | IntBinOp::Sshr => {
@@ -367,7 +451,11 @@ impl<'a> Fx<'a> {
             IntBinOp::Smulh | IntBinOp::Umulh => {
                 self.get(a);
                 self.get(b);
-                let h = self.helper_index(if op == IntBinOp::Smulh { Helper::Smulh64 } else { Helper::Umulh64 });
+                let h = self.helper_index(if op == IntBinOp::Smulh {
+                    Helper::Smulh64
+                } else {
+                    Helper::Umulh64
+                });
                 self.i(I::Call(h));
             }
             IntBinOp::Smin | IntBinOp::Smax | IntBinOp::Umin | IntBinOp::Umax => {
@@ -438,7 +526,11 @@ impl<'a> Fx<'a> {
     }
 
     fn sign_ovf(&mut self, ty: Type, a: Value, b: Value, add: bool) {
-        let t = if Self::is64(ty) { self.t64[0] } else { self.t32[0] };
+        let t = if Self::is64(ty) {
+            self.t64[0]
+        } else {
+            self.t32[0]
+        };
         self.i(I::LocalSet(t));
         self.get(a);
         if add {
@@ -520,7 +612,11 @@ impl<'a> Fx<'a> {
                 self.get(a);
                 self.zext(ty);
                 if Self::is64(ty) {
-                    for (m, s) in [(0x5555_5555_5555_5555u64, 1), (0x3333_3333_3333_3333, 2), (0x0f0f_0f0f_0f0f_0f0f, 4)] {
+                    for (m, s) in [
+                        (0x5555_5555_5555_5555u64, 1),
+                        (0x3333_3333_3333_3333, 2),
+                        (0x0f0f_0f0f_0f0f_0f0f, 4),
+                    ] {
                         self.i(I::LocalTee(self.t64[0]));
                         self.i(I::I64Const(m as i64));
                         self.i(I::I64And);
@@ -587,7 +683,10 @@ impl<'a> Fx<'a> {
                 self.i(I::I32Rotl);
             }
             _ => {
-                for (m1, m2, s) in [(0xff00_ff00_ff00_ff00u64, 0x00ff_00ff_00ff_00ffu64, 8), (0xffff_0000_ffff_0000, 0x0000_ffff_0000_ffff, 16)] {
+                for (m1, m2, s) in [
+                    (0xff00_ff00_ff00_ff00u64, 0x00ff_00ff_00ff_00ffu64, 8),
+                    (0xffff_0000_ffff_0000, 0x0000_ffff_0000_ffff, 16),
+                ] {
                     self.i(I::LocalTee(self.t64[0]));
                     self.i(I::I64Const(m1 as i64));
                     self.i(I::I64And);
@@ -864,12 +963,32 @@ impl<'a> Fx<'a> {
             VecBinOp::Add => {
                 self.get(a);
                 self.get(b);
-                self.i(Self::lanes_op(ty, [I::I8x16Add, I::I16x8Add, I::I32x4Add, I::I64x2Add, I::F32x4Add, I::F64x2Add]));
+                self.i(Self::lanes_op(
+                    ty,
+                    [
+                        I::I8x16Add,
+                        I::I16x8Add,
+                        I::I32x4Add,
+                        I::I64x2Add,
+                        I::F32x4Add,
+                        I::F64x2Add,
+                    ],
+                ));
             }
             VecBinOp::Sub => {
                 self.get(a);
                 self.get(b);
-                self.i(Self::lanes_op(ty, [I::I8x16Sub, I::I16x8Sub, I::I32x4Sub, I::I64x2Sub, I::F32x4Sub, I::F64x2Sub]));
+                self.i(Self::lanes_op(
+                    ty,
+                    [
+                        I::I8x16Sub,
+                        I::I16x8Sub,
+                        I::I32x4Sub,
+                        I::I64x2Sub,
+                        I::F32x4Sub,
+                        I::F64x2Sub,
+                    ],
+                ));
             }
             VecBinOp::Mul if ty == Type::V16I8 => {
                 self.get(a);
@@ -887,7 +1006,17 @@ impl<'a> Fx<'a> {
             VecBinOp::Mul => {
                 self.get(a);
                 self.get(b);
-                self.i(Self::lanes_op(ty, [I::Nop, I::I16x8Mul, I::I32x4Mul, I::I64x2Mul, I::F32x4Mul, I::F64x2Mul]));
+                self.i(Self::lanes_op(
+                    ty,
+                    [
+                        I::Nop,
+                        I::I16x8Mul,
+                        I::I32x4Mul,
+                        I::I64x2Mul,
+                        I::F32x4Mul,
+                        I::F64x2Mul,
+                    ],
+                ));
             }
             VecBinOp::Smin | VecBinOp::Smax | VecBinOp::Umin | VecBinOp::Umax => {
                 if !ty.is_int_vector() {
@@ -907,16 +1036,60 @@ impl<'a> Fx<'a> {
                         self.vsplat_const(ty, 1 << 63);
                         self.i(I::V128Xor);
                     }
-                    self.i(if matches!(op, VecBinOp::Smin | VecBinOp::Umin) { I::I64x2LtS } else { I::I64x2GtS });
+                    self.i(if matches!(op, VecBinOp::Smin | VecBinOp::Umin) {
+                        I::I64x2LtS
+                    } else {
+                        I::I64x2GtS
+                    });
                     self.i(I::V128Bitselect);
                 } else {
                     self.get(a);
                     self.get(b);
                     self.i(match op {
-                        VecBinOp::Smin => Self::lanes_op(ty, [I::I8x16MinS, I::I16x8MinS, I::I32x4MinS, I::Nop, I::Nop, I::Nop]),
-                        VecBinOp::Smax => Self::lanes_op(ty, [I::I8x16MaxS, I::I16x8MaxS, I::I32x4MaxS, I::Nop, I::Nop, I::Nop]),
-                        VecBinOp::Umin => Self::lanes_op(ty, [I::I8x16MinU, I::I16x8MinU, I::I32x4MinU, I::Nop, I::Nop, I::Nop]),
-                        _ => Self::lanes_op(ty, [I::I8x16MaxU, I::I16x8MaxU, I::I32x4MaxU, I::Nop, I::Nop, I::Nop]),
+                        VecBinOp::Smin => Self::lanes_op(
+                            ty,
+                            [
+                                I::I8x16MinS,
+                                I::I16x8MinS,
+                                I::I32x4MinS,
+                                I::Nop,
+                                I::Nop,
+                                I::Nop,
+                            ],
+                        ),
+                        VecBinOp::Smax => Self::lanes_op(
+                            ty,
+                            [
+                                I::I8x16MaxS,
+                                I::I16x8MaxS,
+                                I::I32x4MaxS,
+                                I::Nop,
+                                I::Nop,
+                                I::Nop,
+                            ],
+                        ),
+                        VecBinOp::Umin => Self::lanes_op(
+                            ty,
+                            [
+                                I::I8x16MinU,
+                                I::I16x8MinU,
+                                I::I32x4MinU,
+                                I::Nop,
+                                I::Nop,
+                                I::Nop,
+                            ],
+                        ),
+                        _ => Self::lanes_op(
+                            ty,
+                            [
+                                I::I8x16MaxU,
+                                I::I16x8MaxU,
+                                I::I32x4MaxU,
+                                I::Nop,
+                                I::Nop,
+                                I::Nop,
+                            ],
+                        ),
                     });
                 }
             }
@@ -926,7 +1099,11 @@ impl<'a> Fx<'a> {
 
     fn vec_cmp(&mut self, cond: IntCond, a: Value, b: Value) {
         let ty = self.ty(a);
-        let flip = ty == Type::V2I64 && matches!(cond, IntCond::Ult | IntCond::Ule | IntCond::Ugt | IntCond::Uge);
+        let flip = ty == Type::V2I64
+            && matches!(
+                cond,
+                IntCond::Ult | IntCond::Ule | IntCond::Ugt | IntCond::Uge
+            );
         self.get(a);
         if flip {
             self.vsplat_const(ty, 1 << 63);
@@ -948,16 +1125,116 @@ impl<'a> Fx<'a> {
             cond
         };
         self.i(match cond {
-            IntCond::Eq => Self::lanes_op(ty, [I::I8x16Eq, I::I16x8Eq, I::I32x4Eq, I::I64x2Eq, I::Nop, I::Nop]),
-            IntCond::Ne => Self::lanes_op(ty, [I::I8x16Ne, I::I16x8Ne, I::I32x4Ne, I::I64x2Ne, I::Nop, I::Nop]),
-            IntCond::Slt => Self::lanes_op(ty, [I::I8x16LtS, I::I16x8LtS, I::I32x4LtS, I::I64x2LtS, I::Nop, I::Nop]),
-            IntCond::Sle => Self::lanes_op(ty, [I::I8x16LeS, I::I16x8LeS, I::I32x4LeS, I::I64x2LeS, I::Nop, I::Nop]),
-            IntCond::Sgt => Self::lanes_op(ty, [I::I8x16GtS, I::I16x8GtS, I::I32x4GtS, I::I64x2GtS, I::Nop, I::Nop]),
-            IntCond::Sge => Self::lanes_op(ty, [I::I8x16GeS, I::I16x8GeS, I::I32x4GeS, I::I64x2GeS, I::Nop, I::Nop]),
-            IntCond::Ult => Self::lanes_op(ty, [I::I8x16LtU, I::I16x8LtU, I::I32x4LtU, I::Nop, I::Nop, I::Nop]),
-            IntCond::Ule => Self::lanes_op(ty, [I::I8x16LeU, I::I16x8LeU, I::I32x4LeU, I::Nop, I::Nop, I::Nop]),
-            IntCond::Ugt => Self::lanes_op(ty, [I::I8x16GtU, I::I16x8GtU, I::I32x4GtU, I::Nop, I::Nop, I::Nop]),
-            IntCond::Uge => Self::lanes_op(ty, [I::I8x16GeU, I::I16x8GeU, I::I32x4GeU, I::Nop, I::Nop, I::Nop]),
+            IntCond::Eq => Self::lanes_op(
+                ty,
+                [
+                    I::I8x16Eq,
+                    I::I16x8Eq,
+                    I::I32x4Eq,
+                    I::I64x2Eq,
+                    I::Nop,
+                    I::Nop,
+                ],
+            ),
+            IntCond::Ne => Self::lanes_op(
+                ty,
+                [
+                    I::I8x16Ne,
+                    I::I16x8Ne,
+                    I::I32x4Ne,
+                    I::I64x2Ne,
+                    I::Nop,
+                    I::Nop,
+                ],
+            ),
+            IntCond::Slt => Self::lanes_op(
+                ty,
+                [
+                    I::I8x16LtS,
+                    I::I16x8LtS,
+                    I::I32x4LtS,
+                    I::I64x2LtS,
+                    I::Nop,
+                    I::Nop,
+                ],
+            ),
+            IntCond::Sle => Self::lanes_op(
+                ty,
+                [
+                    I::I8x16LeS,
+                    I::I16x8LeS,
+                    I::I32x4LeS,
+                    I::I64x2LeS,
+                    I::Nop,
+                    I::Nop,
+                ],
+            ),
+            IntCond::Sgt => Self::lanes_op(
+                ty,
+                [
+                    I::I8x16GtS,
+                    I::I16x8GtS,
+                    I::I32x4GtS,
+                    I::I64x2GtS,
+                    I::Nop,
+                    I::Nop,
+                ],
+            ),
+            IntCond::Sge => Self::lanes_op(
+                ty,
+                [
+                    I::I8x16GeS,
+                    I::I16x8GeS,
+                    I::I32x4GeS,
+                    I::I64x2GeS,
+                    I::Nop,
+                    I::Nop,
+                ],
+            ),
+            IntCond::Ult => Self::lanes_op(
+                ty,
+                [
+                    I::I8x16LtU,
+                    I::I16x8LtU,
+                    I::I32x4LtU,
+                    I::Nop,
+                    I::Nop,
+                    I::Nop,
+                ],
+            ),
+            IntCond::Ule => Self::lanes_op(
+                ty,
+                [
+                    I::I8x16LeU,
+                    I::I16x8LeU,
+                    I::I32x4LeU,
+                    I::Nop,
+                    I::Nop,
+                    I::Nop,
+                ],
+            ),
+            IntCond::Ugt => Self::lanes_op(
+                ty,
+                [
+                    I::I8x16GtU,
+                    I::I16x8GtU,
+                    I::I32x4GtU,
+                    I::Nop,
+                    I::Nop,
+                    I::Nop,
+                ],
+            ),
+            IntCond::Uge => Self::lanes_op(
+                ty,
+                [
+                    I::I8x16GeU,
+                    I::I16x8GeU,
+                    I::I32x4GeU,
+                    I::Nop,
+                    I::Nop,
+                    I::Nop,
+                ],
+            ),
         });
     }
 
@@ -1017,7 +1294,9 @@ impl<'a> Fx<'a> {
             Type::V2I64 => {
                 self.get(a);
                 self.get(b);
-                self.i(I::I8x16Shuffle([0, 1, 2, 3, 8, 9, 10, 11, 16, 17, 18, 19, 24, 25, 26, 27]));
+                self.i(I::I8x16Shuffle([
+                    0, 1, 2, 3, 8, 9, 10, 11, 16, 17, 18, 19, 24, 25, 26, 27,
+                ]));
             }
             _ => {
                 let mask = if ty == Type::V8I16 { 0xff } else { 0xffff };
@@ -1027,7 +1306,11 @@ impl<'a> Fx<'a> {
                 self.get(b);
                 self.vsplat_const(ty, mask);
                 self.i(I::V128And);
-                self.i(if ty == Type::V8I16 { I::I8x16NarrowI16x8U } else { I::I16x8NarrowI32x4U });
+                self.i(if ty == Type::V8I16 {
+                    I::I8x16NarrowI16x8U
+                } else {
+                    I::I16x8NarrowI32x4U
+                });
             }
         }
     }
@@ -1051,16 +1334,36 @@ impl<'a> Fx<'a> {
                 self.get(*cond);
                 self.i(I::Select);
             }
-            Op::Load { ty, ptr, offset, unaligned } => self.load(*ty, *ptr, *offset, *unaligned, false),
-            Op::LoadZext { ty, ptr, offset, unaligned } => self.load(*ty, *ptr, *offset, *unaligned, true),
-            Op::Store { ptr, offset, value, unaligned } => self.store(*ptr, *offset, *value, *unaligned),
+            Op::Load {
+                ty,
+                ptr,
+                offset,
+                unaligned,
+            } => self.load(*ty, *ptr, *offset, *unaligned, false),
+            Op::LoadZext {
+                ty,
+                ptr,
+                offset,
+                unaligned,
+            } => self.load(*ty, *ptr, *offset, *unaligned, true),
+            Op::Store {
+                ptr,
+                offset,
+                value,
+                unaligned,
+            } => self.store(*ptr, *offset, *value, *unaligned),
             Op::StackAddr { slot } => {
                 self.i(I::LocalGet(self.fp));
                 self.i(I::I32Const(self.offsets[slot.index()] as i32));
                 self.i(I::I32Add);
                 self.i(I::I64ExtendI32U);
             }
-            Op::PtrAdd { base, index, scale, offset } => {
+            Op::PtrAdd {
+                base,
+                index,
+                scale,
+                offset,
+            } => {
                 self.get(*base);
                 if *scale != 0 {
                     self.get(*index);
@@ -1098,7 +1401,10 @@ impl<'a> Fx<'a> {
                         let (p, r) = host_sig(decl);
                         let type_index = self.types.index(&p, &r);
                         self.i(I::I32Const(decl.addr as u32 as i32));
-                        self.i(I::CallIndirect { type_index, table_index: 0 });
+                        self.i(I::CallIndirect {
+                            type_index,
+                            table_index: 0,
+                        });
                     }
                 }
                 if let Some(t) = decl.ret {
@@ -1125,17 +1431,57 @@ impl<'a> Fx<'a> {
                 self.i(I::I64ExtendI32U);
                 self.i(I::I64Add);
             }
-            Op::VecLoad { ty, ptr, offset, unaligned } => self.load(*ty, *ptr, *offset, *unaligned, false),
-            Op::VecStore { ptr, offset, value, unaligned } => self.store(*ptr, *offset, *value, *unaligned),
+            Op::VecLoad {
+                ty,
+                ptr,
+                offset,
+                unaligned,
+            } => self.load(*ty, *ptr, *offset, *unaligned, false),
+            Op::VecStore {
+                ptr,
+                offset,
+                value,
+                unaligned,
+            } => self.store(*ptr, *offset, *value, *unaligned),
             Op::VecBin { op, a, b } => self.vec_bin(block, *op, *a, *b)?,
             Op::VecShift { op, a, count } => {
                 let ty = self.ty(*a);
                 self.get(*a);
                 self.i(I::I32Const(*count as i32));
                 self.i(match op {
-                    VecShiftOp::Shl => Self::lanes_op(ty, [I::I8x16Shl, I::I16x8Shl, I::I32x4Shl, I::I64x2Shl, I::Nop, I::Nop]),
-                    VecShiftOp::Ushr => Self::lanes_op(ty, [I::I8x16ShrU, I::I16x8ShrU, I::I32x4ShrU, I::I64x2ShrU, I::Nop, I::Nop]),
-                    VecShiftOp::Sshr => Self::lanes_op(ty, [I::I8x16ShrS, I::I16x8ShrS, I::I32x4ShrS, I::I64x2ShrS, I::Nop, I::Nop]),
+                    VecShiftOp::Shl => Self::lanes_op(
+                        ty,
+                        [
+                            I::I8x16Shl,
+                            I::I16x8Shl,
+                            I::I32x4Shl,
+                            I::I64x2Shl,
+                            I::Nop,
+                            I::Nop,
+                        ],
+                    ),
+                    VecShiftOp::Ushr => Self::lanes_op(
+                        ty,
+                        [
+                            I::I8x16ShrU,
+                            I::I16x8ShrU,
+                            I::I32x4ShrU,
+                            I::I64x2ShrU,
+                            I::Nop,
+                            I::Nop,
+                        ],
+                    ),
+                    VecShiftOp::Sshr => Self::lanes_op(
+                        ty,
+                        [
+                            I::I8x16ShrS,
+                            I::I16x8ShrS,
+                            I::I32x4ShrS,
+                            I::I64x2ShrS,
+                            I::Nop,
+                            I::Nop,
+                        ],
+                    ),
                 });
             }
             Op::VecCmp { cond, a, b } => self.vec_cmp(*cond, *a, *b),
@@ -1149,23 +1495,63 @@ impl<'a> Fx<'a> {
             Op::VecMovmask { a } => {
                 let ty = self.ty(*a);
                 self.get(*a);
-                self.i(Self::lanes_op(ty, [I::I8x16Bitmask, I::I16x8Bitmask, I::I32x4Bitmask, I::I64x2Bitmask, I::I32x4Bitmask, I::I64x2Bitmask]));
+                self.i(Self::lanes_op(
+                    ty,
+                    [
+                        I::I8x16Bitmask,
+                        I::I16x8Bitmask,
+                        I::I32x4Bitmask,
+                        I::I64x2Bitmask,
+                        I::I32x4Bitmask,
+                        I::I64x2Bitmask,
+                    ],
+                ));
                 self.i(I::I64ExtendI32U);
             }
             Op::VecSplat { ty, a } => {
                 self.get(*a);
-                self.i(Self::lanes_op(*ty, [I::I8x16Splat, I::I16x8Splat, I::I32x4Splat, I::I64x2Splat, I::F32x4Splat, I::F64x2Splat]));
+                self.i(Self::lanes_op(
+                    *ty,
+                    [
+                        I::I8x16Splat,
+                        I::I16x8Splat,
+                        I::I32x4Splat,
+                        I::I64x2Splat,
+                        I::F32x4Splat,
+                        I::F64x2Splat,
+                    ],
+                ));
             }
             Op::VecExtract { a, lane } => {
                 let ty = self.ty(*a);
                 self.get(*a);
-                self.i(Self::lanes_op(ty, [I::I8x16ExtractLaneS(*lane), I::I16x8ExtractLaneS(*lane), I::I32x4ExtractLane(*lane), I::I64x2ExtractLane(*lane), I::F32x4ExtractLane(*lane), I::F64x2ExtractLane(*lane)]));
+                self.i(Self::lanes_op(
+                    ty,
+                    [
+                        I::I8x16ExtractLaneS(*lane),
+                        I::I16x8ExtractLaneS(*lane),
+                        I::I32x4ExtractLane(*lane),
+                        I::I64x2ExtractLane(*lane),
+                        I::F32x4ExtractLane(*lane),
+                        I::F64x2ExtractLane(*lane),
+                    ],
+                ));
             }
             Op::VecInsert { a, lane, value } => {
                 let ty = self.ty(*a);
                 self.get(*a);
                 self.get(*value);
-                self.i(Self::lanes_op(ty, [I::I8x16ReplaceLane(*lane), I::I16x8ReplaceLane(*lane), I::I32x4ReplaceLane(*lane), I::I64x2ReplaceLane(*lane), I::F32x4ReplaceLane(*lane), I::F64x2ReplaceLane(*lane)]));
+                self.i(Self::lanes_op(
+                    ty,
+                    [
+                        I::I8x16ReplaceLane(*lane),
+                        I::I16x8ReplaceLane(*lane),
+                        I::I32x4ReplaceLane(*lane),
+                        I::I64x2ReplaceLane(*lane),
+                        I::F32x4ReplaceLane(*lane),
+                        I::F64x2ReplaceLane(*lane),
+                    ],
+                ));
             }
             Op::VecWiden { a, signed, high } => {
                 let ty = self.ty(*a);

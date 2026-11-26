@@ -69,7 +69,11 @@ pub struct RunMember {
 
 impl RunMember {
     pub const fn lazy_probe(&self) -> Option<u16> {
-        if self.lazy_probe == NO_PROBE { None } else { Some(self.lazy_probe) }
+        if self.lazy_probe == NO_PROBE {
+            None
+        } else {
+            Some(self.lazy_probe)
+        }
     }
 }
 
@@ -128,7 +132,16 @@ pub struct Lifetimes<A: Allocator + Clone = Global> {
 
 impl Default for SetRearms {
     fn default() -> SetRearms {
-        SetRearms { inits: AVec::new(), subhash: AVec::new(), ctes: AVec::new(), spools: AVec::new(), windows: AVec::new(), prunes: AVec::new(), nested: AVec::new(), refills: AVec::new() }
+        SetRearms {
+            inits: AVec::new(),
+            subhash: AVec::new(),
+            ctes: AVec::new(),
+            spools: AVec::new(),
+            windows: AVec::new(),
+            prunes: AVec::new(),
+            nested: AVec::new(),
+            refills: AVec::new(),
+        }
     }
 }
 
@@ -136,7 +149,16 @@ impl Default for SetRearms {
 /// copy and its builder fold alike and the content key is unchanged.
 impl<A: Allocator + Clone> core::hash::Hash for SetRearms<A> {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        let SetRearms { inits, subhash, ctes, spools, windows, prunes, nested, refills } = self;
+        let SetRearms {
+            inits,
+            subhash,
+            ctes,
+            spools,
+            windows,
+            prunes,
+            nested,
+            refills,
+        } = self;
         inits[..].hash(state);
         subhash[..].hash(state);
         ctes[..].hash(state);
@@ -166,10 +188,19 @@ impl<A: Allocator + Clone> Eq for SetRearms<A> {}
 impl<A: Allocator + Clone> SetRearms<A> {
     /// The bytes `copy_in` takes from an arena: each list rounded up to the arena's 8-byte step.
     pub(crate) fn arena_bytes(&self) -> usize {
-        [size_of_val(&self.inits[..]), size_of_val(&self.subhash[..]), size_of_val(&self.ctes[..]), size_of_val(&self.spools[..]), size_of_val(&self.windows[..]), size_of_val(&self.prunes[..]), size_of_val(&self.nested[..]), size_of_val(&self.refills[..])]
-            .into_iter()
-            .map(round8)
-            .sum()
+        [
+            size_of_val(&self.inits[..]),
+            size_of_val(&self.subhash[..]),
+            size_of_val(&self.ctes[..]),
+            size_of_val(&self.spools[..]),
+            size_of_val(&self.windows[..]),
+            size_of_val(&self.prunes[..]),
+            size_of_val(&self.nested[..]),
+            size_of_val(&self.refills[..]),
+        ]
+        .into_iter()
+        .map(round8)
+        .sum()
     }
 
     /// The same re-arms with every list copied into allocator `b`: an arena (`arena_bytes` of it), or the global heap.
@@ -221,12 +252,19 @@ impl Lifetimes {
         for (i, m) in members.iter().enumerate() {
             at[m.pipeline as usize] = i as u16;
         }
-        Some(Lifetimes { members: heap_vec(members), at: heap_vec(at), rearms: AVec::new() })
+        Some(Lifetimes {
+            members: heap_vec(members),
+            at: heap_vec(at),
+            rearms: AVec::new(),
+        })
     }
 
     /// The rerun sets' re-arms, by set index: one entry for every set up to the program's last.
     pub fn with_rearms(self, rearms: Vec<SetRearms>) -> Lifetimes {
-        Lifetimes { rearms: heap_vec(rearms), ..self }
+        Lifetimes {
+            rearms: heap_vec(rearms),
+            ..self
+        }
     }
 }
 
@@ -241,14 +279,22 @@ pub(crate) fn heap_vec<T>(v: Vec<T>) -> AVec<T> {
 
 impl Default for Lifetimes {
     fn default() -> Lifetimes {
-        Lifetimes { members: AVec::new(), at: AVec::new(), rearms: AVec::new() }
+        Lifetimes {
+            members: AVec::new(),
+            at: AVec::new(),
+            rearms: AVec::new(),
+        }
     }
 }
 
 /// As `SetRearms`' fold: each list as its slice, so the content key is the boxed slices' (planprod P1-b).
 impl<A: Allocator + Clone> core::hash::Hash for Lifetimes<A> {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        let Lifetimes { members, at, rearms } = self;
+        let Lifetimes {
+            members,
+            at,
+            rearms,
+        } = self;
         members[..].hash(state);
         at[..].hash(state);
         rearms[..].hash(state);
@@ -257,7 +303,10 @@ impl<A: Allocator + Clone> core::hash::Hash for Lifetimes<A> {
 
 impl<A: Allocator + Clone, B: Allocator + Clone> PartialEq<Lifetimes<B>> for Lifetimes<A> {
     fn eq(&self, o: &Lifetimes<B>) -> bool {
-        self.members[..] == o.members[..] && self.at[..] == o.at[..] && self.rearms.len() == o.rearms.len() && self.rearms.iter().zip(o.rearms.iter()).all(|(x, y)| x == y)
+        self.members[..] == o.members[..]
+            && self.at[..] == o.at[..]
+            && self.rearms.len() == o.rearms.len()
+            && self.rearms.iter().zip(o.rearms.iter()).all(|(x, y)| x == y)
     }
 }
 
@@ -266,7 +315,10 @@ impl<A: Allocator + Clone> Eq for Lifetimes<A> {}
 impl<A: Allocator + Clone> Lifetimes<A> {
     /// The bytes `copy_in` takes from an arena (the re-arms list at its frozen element's size).
     pub(crate) fn arena_bytes(&self) -> usize {
-        round8(size_of_val(&self.members[..])) + round8(size_of_val(&self.at[..])) + round8(self.rearms.len() * size_of::<SetRearms<ArenaRef>>()) + self.rearms.iter().map(|r| r.arena_bytes()).sum::<usize>()
+        round8(size_of_val(&self.members[..]))
+            + round8(size_of_val(&self.at[..]))
+            + round8(self.rearms.len() * size_of::<SetRearms<ArenaRef>>())
+            + self.rearms.iter().map(|r| r.arena_bytes()).sum::<usize>()
     }
 
     /// The same declarations with every list copied into allocator `b`: an arena (`arena_bytes` of it), the program's
@@ -276,7 +328,11 @@ impl<A: Allocator + Clone> Lifetimes<A> {
         for r in self.rearms.iter() {
             rearms.push(r.copy_in(b));
         }
-        Lifetimes { members: copy(&self.members, b), at: copy(&self.at, b), rearms }
+        Lifetimes {
+            members: copy(&self.members, b),
+            at: copy(&self.at, b),
+            rearms,
+        }
     }
 
     pub fn members(&self) -> &[RunMember] {
@@ -289,7 +345,10 @@ impl<A: Allocator + Clone> Lifetimes<A> {
 
     /// Pipeline `p`'s declaration.
     pub fn member(&self, p: u16) -> Option<RunMember> {
-        self.at.get(p as usize).and_then(|&i| self.members.get(i as usize)).copied()
+        self.at
+            .get(p as usize)
+            .and_then(|&i| self.members.get(i as usize))
+            .copied()
     }
 
     /// The members rerun set `set`'s run runs: its first run's (a later run's: those with `RunLife::EveryRun`). Its own
@@ -297,8 +356,16 @@ impl<A: Allocator + Clone> Lifetimes<A> {
     /// with its life across the set's runs.
     pub fn set_run(&self, set: u16) -> impl Iterator<Item = RunMember> + '_ {
         let nested = self.rearms(set).map_or(&[][..], |r| &r.nested[..]);
-        let own = self.members.iter().copied().filter(move |m| m.runner == Runner::Set(set));
-        own.chain(nested.iter().filter_map(move |&(p, life)| self.member(p).map(|m| RunMember { life, ..m })))
+        let own = self
+            .members
+            .iter()
+            .copied()
+            .filter(move |m| m.runner == Runner::Set(set));
+        own.chain(
+            nested
+                .iter()
+                .filter_map(move |&(p, life)| self.member(p).map(|m| RunMember { life, ..m })),
+        )
     }
 
     /// What rerun set `set`'s run re-arms; `None`: the program has no set `set`.
@@ -325,49 +392,130 @@ mod tests {
     use super::*;
 
     const fn m(pipeline: u16, runner: Runner) -> RunMember {
-        RunMember { pipeline, runner, life: RunLife::EveryRun, lazy_probe: NO_PROBE }
+        RunMember {
+            pipeline,
+            runner,
+            life: RunLife::EveryRun,
+            lazy_probe: NO_PROBE,
+        }
     }
 
     #[test]
     fn one_runner_per_pipeline_found_by_pipeline() {
-        let l = Lifetimes::new(vec![m(4, Runner::Set(1)), m(1, Runner::Set(0)), m(2, Runner::Init(9))]).unwrap();
-        assert_eq!(l.members().iter().map(|x| x.pipeline).collect::<Vec<_>>(), [1, 2, 4]);
+        let l = Lifetimes::new(vec![
+            m(4, Runner::Set(1)),
+            m(1, Runner::Set(0)),
+            m(2, Runner::Init(9)),
+        ])
+        .unwrap();
+        assert_eq!(
+            l.members().iter().map(|x| x.pipeline).collect::<Vec<_>>(),
+            [1, 2, 4]
+        );
         assert_eq!(l.member(2).map(|x| x.runner), Some(Runner::Init(9)));
         assert_eq!(l.member(3), None);
-        assert!(Lifetimes::new(vec![m(1, Runner::Set(0)), m(1, Runner::Init(3))]).is_none(), "two runners of one pipeline");
+        assert!(
+            Lifetimes::new(vec![m(1, Runner::Set(0)), m(1, Runner::Init(3))]).is_none(),
+            "two runners of one pipeline"
+        );
         assert!(Lifetimes::default().is_empty());
     }
 
     /// A run is of one runner's declared members only; it says whether one is kept or a member probe's lazy build.
     #[test]
     fn a_run_names_one_runners_declared_members() {
-        let kept = RunMember { life: RunLife::FirstRun, ..m(5, Runner::Set(2)) };
-        let lazy = RunMember { lazy_probe: 7, ..m(6, Runner::Set(2)) };
-        let l = Lifetimes::new(vec![m(0, Runner::Set(0)), m(1, Runner::Set(0)), m(2, Runner::SubHash(5)), m(3, Runner::Set(1)), kept, lazy, m(7, Runner::Set(2))]).unwrap();
+        let kept = RunMember {
+            life: RunLife::FirstRun,
+            ..m(5, Runner::Set(2))
+        };
+        let lazy = RunMember {
+            lazy_probe: 7,
+            ..m(6, Runner::Set(2))
+        };
+        let l = Lifetimes::new(vec![
+            m(0, Runner::Set(0)),
+            m(1, Runner::Set(0)),
+            m(2, Runner::SubHash(5)),
+            m(3, Runner::Set(1)),
+            kept,
+            lazy,
+            m(7, Runner::Set(2)),
+        ])
+        .unwrap();
         let none = RunNeeds::default();
         assert_eq!(l.run_of(&[0, 1]), Some(none));
         assert_eq!(l.run_of(&[2]), Some(none));
         assert_eq!(l.run_of(&[0, 3]), None, "two sets' members in one run");
         assert_eq!(l.run_of(&[0, 9]), None, "an undeclared member");
-        assert_eq!(l.run_of(&[4]), None, "an undeclared member below the last declared");
+        assert_eq!(
+            l.run_of(&[4]),
+            None,
+            "an undeclared member below the last declared"
+        );
         assert_eq!(l.run_of(&[]), None);
-        assert_eq!(l.run_of(&[5, 6, 7]), Some(RunNeeds { kept: true, lazy: true }));
-        assert_eq!(l.run_of(&[6]), Some(none), "a lazy build whose probe is not in the run");
-        assert_eq!(RunMember { lazy_probe: 4, ..m(0, Runner::Set(0)) }.lazy_probe(), Some(4));
+        assert_eq!(
+            l.run_of(&[5, 6, 7]),
+            Some(RunNeeds {
+                kept: true,
+                lazy: true
+            })
+        );
+        assert_eq!(
+            l.run_of(&[6]),
+            Some(none),
+            "a lazy build whose probe is not in the run"
+        );
+        assert_eq!(
+            RunMember {
+                lazy_probe: 4,
+                ..m(0, Runner::Set(0))
+            }
+            .lazy_probe(),
+            Some(4)
+        );
         assert_eq!(m(0, Runner::Set(0)).lazy_probe(), None);
     }
 
     /// A set's run is its own members, in program order; what it re-arms is found by set index, none past the last set.
     #[test]
     fn a_sets_run_and_rearms_by_set_index() {
-        let kept = RunMember { life: RunLife::FirstRun, ..m(3, Runner::Set(1)) };
-        let l = Lifetimes::new(vec![m(5, Runner::Set(1)), m(0, Runner::Init(4)), kept, m(1, Runner::Set(1)), m(2, Runner::Cte(6)), m(4, Runner::Set(0)), m(6, Runner::Window(11))]).unwrap();
-        assert_eq!(l.set_run(1).map(|x| x.pipeline).collect::<Vec<_>>(), [1, 3, 5], "a re-armed window's fill is its pull's");
-        assert_eq!(l.set_run(1).filter(|x| x.life == RunLife::EveryRun).map(|x| x.pipeline).collect::<Vec<_>>(), [1, 5]);
+        let kept = RunMember {
+            life: RunLife::FirstRun,
+            ..m(3, Runner::Set(1))
+        };
+        let l = Lifetimes::new(vec![
+            m(5, Runner::Set(1)),
+            m(0, Runner::Init(4)),
+            kept,
+            m(1, Runner::Set(1)),
+            m(2, Runner::Cte(6)),
+            m(4, Runner::Set(0)),
+            m(6, Runner::Window(11)),
+        ])
+        .unwrap();
+        assert_eq!(
+            l.set_run(1).map(|x| x.pipeline).collect::<Vec<_>>(),
+            [1, 3, 5],
+            "a re-armed window's fill is its pull's"
+        );
+        assert_eq!(
+            l.set_run(1)
+                .filter(|x| x.life == RunLife::EveryRun)
+                .map(|x| x.pipeline)
+                .collect::<Vec<_>>(),
+            [1, 5]
+        );
         assert_eq!(l.set_run(0).map(|x| x.pipeline).collect::<Vec<_>>(), [4]);
         assert_eq!(l.set_run(2).count(), 0);
         assert_eq!(l.rearms(0), None, "no re-arms declared");
-        let r = SetRearms { inits: [(4, 7)].into(), ctes: [6].into(), spools: [8, 9].into(), windows: [11].into(), refills: [10].into(), ..SetRearms::default() };
+        let r = SetRearms {
+            inits: [(4, 7)].into(),
+            ctes: [6].into(),
+            spools: [8, 9].into(),
+            windows: [11].into(),
+            refills: [10].into(),
+            ..SetRearms::default()
+        };
         let l = l.with_rearms(vec![SetRearms::default(), r.clone()]);
         assert_eq!(l.rearms(0), Some(&SetRearms::default()));
         assert_eq!(l.rearms(1), Some(&r));
@@ -380,11 +528,39 @@ mod tests {
     /// them; a nested pipeline with no declaration is no member of the run.
     #[test]
     fn a_nested_sets_run_takes_its_members_declared_for_the_runner_around_it() {
-        let l = Lifetimes::new(vec![m(0, Runner::Init(4)), m(1, Runner::Init(4)), m(2, Runner::Init(4)), m(3, Runner::Set(0))]).unwrap();
-        let r = SetRearms { nested: [(1, RunLife::EveryRun), (2, RunLife::FirstRun), (9, RunLife::EveryRun)].into(), ..SetRearms::default() };
+        let l = Lifetimes::new(vec![
+            m(0, Runner::Init(4)),
+            m(1, Runner::Init(4)),
+            m(2, Runner::Init(4)),
+            m(3, Runner::Set(0)),
+        ])
+        .unwrap();
+        let r = SetRearms {
+            nested: [
+                (1, RunLife::EveryRun),
+                (2, RunLife::FirstRun),
+                (9, RunLife::EveryRun),
+            ]
+            .into(),
+            ..SetRearms::default()
+        };
         let l = l.with_rearms(vec![r]);
-        assert_eq!(l.set_run(0).map(|x| (x.pipeline, x.life)).collect::<Vec<_>>(), [(3, RunLife::EveryRun), (1, RunLife::EveryRun), (2, RunLife::FirstRun)]);
-        assert!(l.set_run(0).filter(|x| x.pipeline != 3).all(|x| x.runner == Runner::Init(4)), "their declaration stays the cell's");
+        assert_eq!(
+            l.set_run(0)
+                .map(|x| (x.pipeline, x.life))
+                .collect::<Vec<_>>(),
+            [
+                (3, RunLife::EveryRun),
+                (1, RunLife::EveryRun),
+                (2, RunLife::FirstRun)
+            ]
+        );
+        assert!(
+            l.set_run(0)
+                .filter(|x| x.pipeline != 3)
+                .all(|x| x.runner == Runner::Init(4)),
+            "their declaration stays the cell's"
+        );
         assert_eq!(l.set_run(1).count(), 0);
     }
 
@@ -394,7 +570,10 @@ mod tests {
             assert_eq!(rerun_set_of(rerun_arg(set, true)), set as u64);
             assert_eq!(rerun_set_of(rerun_arg(set, false)), set as u64);
             assert_ne!(rerun_arg(set, true), rerun_arg(set, false));
-            assert_eq!(rerun_arg(set, true) & crate::protos::RERUN_KEPT, crate::protos::RERUN_KEPT);
+            assert_eq!(
+                rerun_arg(set, true) & crate::protos::RERUN_KEPT,
+                crate::protos::RERUN_KEPT
+            );
         }
     }
 }

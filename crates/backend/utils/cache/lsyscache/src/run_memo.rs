@@ -43,9 +43,7 @@ struct MemoBlock<'mcx> {
     aclmask: core::cell::RefCell<PgMemoMap<'mcx, (Oid, Oid, u64, bool), u64>>,
     amop_by_op: core::cell::RefCell<PgMemoMap<'mcx, (Oid, u8, Oid), Option<PgAmopShape>>>,
     amop_member: core::cell::RefCell<PgMemoMap<'mcx, (Oid, Oid, Oid, i16), Oid>>,
-    amop_members: core::cell::RefCell<
-        PgMemoMap<'mcx, Oid, &'mcx PgVec<'mcx, PgAmopMemberShape>>,
-    >,
+    amop_members: core::cell::RefCell<PgMemoMap<'mcx, Oid, &'mcx PgVec<'mcx, PgAmopMemberShape>>>,
     mergejoin_opfamilies: core::cell::RefCell<PgMemoMap<'mcx, Oid, &'mcx [Oid]>>,
 }
 
@@ -80,11 +78,7 @@ fn memos<'mcx>(run: &PlannerRun<'mcx>) -> PgResult<&'mcx MemoBlock<'mcx>> {
 
 fn operator_shape(run: &PlannerRun<'_>, opno: Oid) -> PgResult<Option<PgOperatorShape>> {
     let block = memos(run)?;
-    let hit = block
-        .op_shape
-        .borrow()
-        .get(&opno)
-        .copied();
+    let hit = block.op_shape.borrow().get(&opno).copied();
     if let Some(v) = hit {
         return Ok(v);
     }
@@ -125,15 +119,8 @@ pub fn get_commutator(run: &PlannerRun<'_>, opno: Oid) -> PgResult<Oid> {
 
 /// The record/array-eq arms are typcache-keyed (by inputtype, not opno) —
 /// those delegate to the incumbent untouched.
-pub fn op_mergejoinable(
-    run: &PlannerRun<'_>,
-    opno: Oid,
-    inputtype: Oid,
-) -> PgResult<bool> {
-    if opshape_memo_disabled()
-        || opno == crate::RECORD_EQ_OP
-        || opno == crate::ARRAY_EQ_OP
-    {
+pub fn op_mergejoinable(run: &PlannerRun<'_>, opno: Oid, inputtype: Oid) -> PgResult<bool> {
+    if opshape_memo_disabled() || opno == crate::RECORD_EQ_OP || opno == crate::ARRAY_EQ_OP {
         return crate::op_mergejoinable(opno, inputtype);
     }
     Ok(match operator_shape(run, opno)? {
@@ -155,11 +142,7 @@ pub fn class_aclmask(
     }
     let block = memos(run)?;
     let key = (table_oid, roleid, mask, how_all);
-    let hit = block
-        .aclmask
-        .borrow()
-        .get(&key)
-        .copied();
+    let hit = block.aclmask.borrow().get(&key).copied();
     if let Some(v) = hit {
         return Ok(v);
     }
@@ -176,11 +159,7 @@ fn amop_by_operator(
 ) -> PgResult<Option<PgAmopShape>> {
     let block = memos(run)?;
     let key = (opno, purpose, opfamily);
-    let hit = block
-        .amop_by_op
-        .borrow()
-        .get(&key)
-        .copied();
+    let hit = block.amop_by_op.borrow().get(&key).copied();
     if let Some(v) = hit {
         return Ok(v);
     }
@@ -189,11 +168,7 @@ fn amop_by_operator(
     Ok(fetched)
 }
 
-pub fn get_op_opfamily_strategy(
-    run: &PlannerRun<'_>,
-    opno: Oid,
-    opfamily: Oid,
-) -> PgResult<i32> {
+pub fn get_op_opfamily_strategy(run: &PlannerRun<'_>, opno: Oid, opfamily: Oid) -> PgResult<i32> {
     if amop_memo_disabled() {
         return crate::get_op_opfamily_strategy(opno, opfamily);
     }
@@ -217,11 +192,7 @@ pub fn get_opfamily_member(
     }
     let block = memos(run)?;
     let key = (opfamily, lefttype, righttype, strategy);
-    let hit = block
-        .amop_member
-        .borrow()
-        .get(&key)
-        .copied();
+    let hit = block.amop_member.borrow().get(&key).copied();
     if let Some(v) = hit {
         return Ok(v);
     }
@@ -253,14 +224,14 @@ pub fn get_op_opfamily_properties(
             "operator {opno} is not a member of opfamily {opfamily}"
         ))
     })?;
-    Ok((amop.amopstrategy as i32, amop.amoplefttype, amop.amoprighttype))
+    Ok((
+        amop.amopstrategy as i32,
+        amop.amoplefttype,
+        amop.amoprighttype,
+    ))
 }
 
-pub fn get_op_opfamily_sortfamily(
-    run: &PlannerRun<'_>,
-    opno: Oid,
-    opfamily: Oid,
-) -> PgResult<Oid> {
+pub fn get_op_opfamily_sortfamily(run: &PlannerRun<'_>, opno: Oid, opfamily: Oid) -> PgResult<Oid> {
     if amop_memo_disabled() {
         return crate::get_op_opfamily_sortfamily(opno, opfamily);
     }
@@ -275,17 +246,12 @@ fn amop_members<'mcx>(
     opno: Oid,
 ) -> PgResult<&'mcx PgVec<'mcx, PgAmopMemberShape>> {
     let block = memos(run)?;
-    let hit = block
-        .amop_members
-        .borrow()
-        .get(&opno)
-        .copied();
+    let hit = block.amop_members.borrow().get(&opno).copied();
     if let Some(v) = hit {
         return Ok(v);
     }
     let fetched = syscache_seams::lookup_pg_amop_members_by_operator::call(run.mcx, opno)?;
-    let leaked: &'mcx PgVec<'mcx, PgAmopMemberShape> =
-        &*mcx::forget_box_in(run.mcx, fetched)?;
+    let leaked: &'mcx PgVec<'mcx, PgAmopMemberShape> = &*mcx::forget_box_in(run.mcx, fetched)?;
     block.amop_members.borrow_mut().insert(opno, leaked);
     Ok(leaked)
 }
@@ -296,7 +262,9 @@ fn amop_members<'mcx>(
 /// EquivalenceClass.ec_opfamilies made from it, join-search tours' included, is a pointer copy.
 pub fn get_mergejoin_opfamilies<'mcx>(run: &PlannerRun<'mcx>, opno: Oid) -> PgResult<&'mcx [Oid]> {
     if amoplist_memo_disabled() {
-        return Ok(mcx::freeze_fit(crate::amop::get_mergejoin_opfamilies(run.mcx, opno)?));
+        return Ok(mcx::freeze_fit(crate::amop::get_mergejoin_opfamilies(
+            run.mcx, opno,
+        )?));
     }
     let block = memos(run)?;
     if let Some(fams) = block.mergejoin_opfamilies.borrow().get(&opno).copied() {
@@ -327,7 +295,11 @@ fn ops_are_compatible_run(
         if op_in_opfamily(run, opno2, op_form.amopfamily)? {
             let (consistent_eq, consistent_ord) =
                 crate::amop::index_am_consistent_flags(op_form.amopmethod);
-            if if check_ordering { consistent_ord } else { consistent_eq } {
+            if if check_ordering {
+                consistent_ord
+            } else {
+                consistent_eq
+            } {
                 return Ok(true);
             }
         }
@@ -346,11 +318,7 @@ pub fn comparison_ops_are_compatible(
     ops_are_compatible_run(run, opno1, opno2, true)
 }
 
-pub fn equality_ops_are_compatible(
-    run: &PlannerRun<'_>,
-    opno1: Oid,
-    opno2: Oid,
-) -> PgResult<bool> {
+pub fn equality_ops_are_compatible(run: &PlannerRun<'_>, opno1: Oid, opno2: Oid) -> PgResult<bool> {
     if amoplist_memo_disabled() {
         return crate::equality_ops_are_compatible(opno1, opno2);
     }
@@ -377,7 +345,10 @@ mod tests {
         const N: u32 = 20_000;
         for round in 0..2 {
             for oid in 16384..16384 + N {
-                assert_eq!(class_aclmask(&run, oid, 10, 2, false).unwrap(), 2 ^ u64::from(oid));
+                assert_eq!(
+                    class_aclmask(&run, oid, 10, 2, false).unwrap(),
+                    2 ^ u64::from(oid)
+                );
             }
             assert_eq!(CALLS.load(Ordering::Relaxed), N as usize, "round {round}");
         }

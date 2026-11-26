@@ -8,9 +8,11 @@ use gravity_ir::builder::{FunctionBuilder, ProgramBuilder};
 use gravity_ir::Type;
 use gravity_lowerv4::cell::{At, Cell, CellHome, CellLife, LaneId, Nullable};
 use gravity_lowerv4::face::kinds::{Face, KindId, KINDS};
-use gravity_lowerv4::rep::{self, arm_kind, Accessor, BlockRef, CellRef, Lx, RetainHome, Scope, StoredRef};
+use gravity_lowerv4::rep::{
+    self, arm_kind, Accessor, BlockRef, CellRef, Lx, RetainHome, Scope, StoredRef,
+};
 use gravity_lowerv4::{catch, ops as registry, Reason, Refusal, Variant};
-use gravity_program::{DictRef, LifeId, NumTypmod, NumForm, Rep, Until};
+use gravity_program::{DictRef, LifeId, NumForm, NumTypmod, Rep, Until};
 
 /// Every Rep with a type it carries: int8, text, uuid, cstring, a code lane of text, numeric(15,2), and int4[] (a varlena
 /// with no native image: the hosted arms).
@@ -22,19 +24,47 @@ fn reps() -> [(Rep, u32); 8] {
         // macaddr: a fixed by-reference key with no native image orders through rep.hosted.order.fixed (M6-REPS HO)
         (Rep::FixedPtr { len: 6 }, 829),
         (Rep::CstrPtr, 2275),
-        (Rep::Code { dict: DictRef::lane(3) }, 25),
-        (Rep::PackedNum { facts: NumTypmod::of(15, 2), form: NumForm::Window }, 1700),
+        (
+            Rep::Code {
+                dict: DictRef::lane(3),
+            },
+            25,
+        ),
+        (
+            Rep::PackedNum {
+                facts: NumTypmod::of(15, 2),
+                form: NumForm::Window,
+            },
+            1700,
+        ),
         (Rep::VarlenaPtr, 1007),
     ]
 }
 
 fn tf(typid: u32) -> TypeFacts {
-    row_of(typid).copied().or_else(|| row_of(25).copied()).expect("type facts rows")
+    row_of(typid)
+        .copied()
+        .or_else(|| row_of(25).copied())
+        .expect("type facts rows")
 }
 
 fn cell(rep: Rep, typid: u32, until: Until) -> Cell {
-    let at = if matches!(rep, Rep::Code { .. }) { At::Lane(LaneId::col(3)) } else { At::Value(1) };
-    Cell { rep, typid, num: rep::num_of(rep), life: CellLife { until, home: CellHome::RowCx }, at, null: Nullable::Maybe }
+    let at = if matches!(rep, Rep::Code { .. }) {
+        At::Lane(LaneId::col(3))
+    } else {
+        At::Value(1)
+    };
+    Cell {
+        rep,
+        typid,
+        num: rep::num_of(rep),
+        life: CellLife {
+            until,
+            home: CellHome::RowCx,
+        },
+        at,
+        null: Nullable::Maybe,
+    }
 }
 
 /// The calls one accessor makes (datum: datum, retain, block; hash: image, eq; order: image), each in a fresh function:
@@ -56,14 +86,37 @@ fn run(acc: Accessor, c: Cell, retain_until: Until) -> Vec<(Option<Refusal>, usi
             let t = tf(c.typid);
             let r = {
                 let mut cx = Lx::new(&mut b, 11, rig.mcx());
-                let cr = CellRef { cell: &c, val: p, null: None };
+                let cr = CellRef {
+                    cell: &c,
+                    val: p,
+                    null: None,
+                };
                 catch(11, || match (acc, call) {
                     (Accessor::Datum, 0) => drop(rep::datum(&mut cx, cr, &t)),
-                    (Accessor::Datum, 1) => drop(rep::retain(&mut cx, cr, &t, retain_until, RetainHome::Record(LifeId(0)))),
-                    (Accessor::Datum, _) => drop(rep::block(&mut cx, cr, &t, BlockRef { elem: p, rows: p })),
+                    (Accessor::Datum, 1) => drop(rep::retain(
+                        &mut cx,
+                        cr,
+                        &t,
+                        retain_until,
+                        RetainHome::Record(LifeId(0)),
+                    )),
+                    (Accessor::Datum, _) => {
+                        drop(rep::block(&mut cx, cr, &t, BlockRef { elem: p, rows: p }))
+                    }
                     (Accessor::Hash, 0) => drop(rep::hash_image(&mut cx, cr, &t, Scope::Program)),
-                    (Accessor::Hash, _) => drop(rep::eq(&mut cx, cr, StoredRef { rep: c.rep, ptr: p, off: 0 }, &t)),
-                    (Accessor::Order, _) => drop(rep::order_words(&mut cx, cr, &t, KeyColl::of(100))),
+                    (Accessor::Hash, _) => drop(rep::eq(
+                        &mut cx,
+                        cr,
+                        StoredRef {
+                            rep: c.rep,
+                            ptr: p,
+                            off: 0,
+                        },
+                        &t,
+                    )),
+                    (Accessor::Order, _) => {
+                        drop(rep::order_words(&mut cx, cr, &t, KeyColl::of(100)))
+                    }
                 })
             };
             (r.err(), insts(&b) - before)
@@ -80,20 +133,39 @@ fn matrix() -> usize {
     for (rep, typid) in reps() {
         for acc in Accessor::ALL {
             let k = arm_kind(rep, acc, &tf(typid));
-            assert_eq!(k.decl().face, Face::Rep, "{rep:?} {} names {}, not a Rep arm", acc.name(), k.name());
+            assert_eq!(
+                k.decl().face,
+                Face::Rep,
+                "{rep:?} {} names {}, not a Rep arm",
+                acc.name(),
+                k.name()
+            );
             if registry::kind(k).is_some() {
                 continue; // D243: a built arm serves; only the unbuilt ones must refuse by name
             }
             for (r, _) in run(acc, cell(rep, typid, Until::Row), Until::Life) {
                 let r = r.unwrap_or_else(|| panic!("{rep:?} {} served at M0", acc.name()));
-                assert_eq!(r.reason, Variant::Kind(k).not_built(), "{rep:?} {}", acc.name());
+                assert_eq!(
+                    r.reason,
+                    Variant::Kind(k).not_built(),
+                    "{rep:?} {}",
+                    acc.name()
+                );
                 assert!(matches!(r.reason, Reason::NotBuilt { hook: "rep", .. }));
                 assert_eq!(r.node, 11);
                 refused += 1;
             }
         }
-        let out = run(Accessor::Datum, cell(rep, typid, Until::Statement), Until::Life);
-        assert_eq!((out[1].0, out[1].1), (None, 0), "{rep:?}: a cell that lives past `until` is retained as is");
+        let out = run(
+            Accessor::Datum,
+            cell(rep, typid, Until::Statement),
+            Until::Life,
+        );
+        assert_eq!(
+            (out[1].0, out[1].1),
+            (None, 0),
+            "{rep:?}: a cell that lives past `until` is retained as is"
+        );
     }
     refused
 }
@@ -109,13 +181,28 @@ fn every_arm_refuses_by_name() {
 /// `arm_kind` reaches every Rep kind `face/kinds.rs` declares, and only those: no arm is decided anywhere else.
 #[test]
 fn arm_kind_covers_the_rep_kinds() {
-    let mut seen: Vec<KindId> = reps().iter().flat_map(|&(rep, typid)| Accessor::ALL.map(|acc| arm_kind(rep, acc, &tf(typid)))).collect();
+    let mut seen: Vec<KindId> = reps()
+        .iter()
+        .flat_map(|&(rep, typid)| Accessor::ALL.map(|acc| arm_kind(rep, acc, &tf(typid))))
+        .collect();
     seen.sort();
     seen.dedup();
-    let declared: Vec<KindId> = KINDS.iter().filter(|d| d.face == Face::Rep).map(|d| d.id).collect();
+    let declared: Vec<KindId> = KINDS
+        .iter()
+        .filter(|d| d.face == Face::Rep)
+        .map(|d| d.id)
+        .collect();
     assert_eq!(seen, declared);
-    assert_eq!(arm_kind(Rep::VarlenaPtr, Accessor::Hash, &tf(1007)), KindId::RepHostedHash, "int4[] keys through the hosted arm");
-    assert_eq!(arm_kind(Rep::CstrPtr, Accessor::Datum, &tf(2275)), KindId::RepVarlenaDatum, "a cstring's datum is its pointer");
+    assert_eq!(
+        arm_kind(Rep::VarlenaPtr, Accessor::Hash, &tf(1007)),
+        KindId::RepHostedHash,
+        "int4[] keys through the hosted arm"
+    );
+    assert_eq!(
+        arm_kind(Rep::CstrPtr, Accessor::Datum, &tf(2275)),
+        KindId::RepVarlenaDatum,
+        "a cstring's datum is its pointer"
+    );
 }
 
 #[test]
@@ -128,10 +215,26 @@ fn datum_memo_answers_the_second_read() {
     let c = cell(Rep::VarlenaPtr, 25, Until::Row);
     let other = b.iconst(Type::I64, 15);
     let mut cx = Lx::new(&mut b, 2, rig.mcx());
-    let at_p = CellRef { cell: &c, val: p, null: None };
+    let at_p = CellRef {
+        cell: &c,
+        val: p,
+        null: None,
+    };
     cx.memo.put(at_p, (p, p));
-    assert_eq!(catch(2, || rep::datum(&mut cx, at_p, &tf(25))).expect("memoised"), (p, p));
-    assert!(cx.memo.get(CellRef { cell: &c, val: other, null: None }).is_none(), "another backing value is not answered");
+    assert_eq!(
+        catch(2, || rep::datum(&mut cx, at_p, &tf(25))).expect("memoised"),
+        (p, p)
+    );
+    assert!(
+        cx.memo
+            .get(CellRef {
+                cell: &c,
+                val: other,
+                null: None
+            })
+            .is_none(),
+        "another backing value is not answered"
+    );
     cx.memo.clear();
     assert!(cx.memo.is_empty());
 }
@@ -143,14 +246,38 @@ fn datum_memo_answers_the_second_read() {
 #[test]
 fn bytes_order_is_the_comparators() {
     for typid in [17, 19, 25, 1042, 1043] {
-        assert!(rep::bytes_order(row_of(typid).unwrap()), "{typid}: a bytes comparator");
+        assert!(
+            rep::bytes_order(row_of(typid).unwrap()),
+            "{typid}: a bytes comparator"
+        );
     }
     for typid in [650, 869, 1700, 23, 2950] {
-        assert!(!rep::bytes_order(row_of(typid).unwrap()), "{typid}: not a bytes order");
+        assert!(
+            !rep::bytes_order(row_of(typid).unwrap()),
+            "{typid}: not a bytes order"
+        );
     }
     let net = row_of(869).unwrap();
-    assert!(matches!(net.image, WordImage::Bytes { .. }) && net.image.equality(), "inet still hashes and compares equal by its bytes");
-    assert!(!rep::bytes_order(&TypeFacts { typid: 90001, ..*net }), "a domain over inet orders as inet");
-    assert!(rep::bytes_order(&TypeFacts { typid: 90002, ..*row_of(25).unwrap() }), "a domain over text orders as text");
-    assert!(!rep::bytes_order(&opaque(90003, 90003, -1, false, false)), "a type the table does not list has no bytes order");
+    assert!(
+        matches!(net.image, WordImage::Bytes { .. }) && net.image.equality(),
+        "inet still hashes and compares equal by its bytes"
+    );
+    assert!(
+        !rep::bytes_order(&TypeFacts {
+            typid: 90001,
+            ..*net
+        }),
+        "a domain over inet orders as inet"
+    );
+    assert!(
+        rep::bytes_order(&TypeFacts {
+            typid: 90002,
+            ..*row_of(25).unwrap()
+        }),
+        "a domain over text orders as text"
+    );
+    assert!(
+        !rep::bytes_order(&opaque(90003, 90003, -1, false, false)),
+        "a type the table does not list has no bytes order"
+    );
 }

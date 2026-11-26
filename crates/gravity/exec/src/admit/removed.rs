@@ -42,10 +42,16 @@ pub fn check<'p>(pstmt: &'p PlannedStmt<'p>) -> PgResult<()> {
 /// other refusal, and for an EXPLAIN without ANALYZE, which prints the plan from the plan alone (the leaf is no result
 /// relation of the plan, so it has no provider lines).
 pub fn leaf_refusal(why: &str) -> Option<Box<PgError>> {
-    if crate::admit::is_explain_only() || !why.contains(gravity_decompose::ops::modifytable::route_leaves::FOREIGN_LEAF) {
+    if crate::admit::is_explain_only()
+        || !why.contains(gravity_decompose::ops::modifytable::route_leaves::FOREIGN_LEAF)
+    {
         return None;
     }
-    Some(raise(FOREIGN, Some("A partition the statement routes its rows through is a foreign table.".into()), FOREIGN_HINT)) // alloc: Cold
+    Some(raise(
+        FOREIGN,
+        Some("A partition the statement routes its rows through is a foreign table.".into()),
+        FOREIGN_HINT,
+    )) // alloc: Cold
 }
 
 /// `r` as PostgreSQL words a feature it does not support: the message, and a detail naming the table.
@@ -53,10 +59,24 @@ fn error(r: Removed) -> Box<PgError> {
     let detail = match r {
         Removed::ForeignScan { relid, writes } => {
             let verb = if writes { "writes" } else { "reads" };
-            (relid != 0).then(|| format!("The plan {verb} foreign table {} through a Foreign Scan.", name(relid))) // alloc: Cold
+            (relid != 0).then(|| {
+                format!(
+                    "The plan {verb} foreign table {} through a Foreign Scan.",
+                    name(relid)
+                )
+            }) // alloc: Cold
         }
-        Removed::ForeignTarget { relid } => Some(format!("The statement writes foreign table {}.", name(relid))), // alloc: Cold
-        Removed::CustomScan => return raise(CUSTOM, Some("The plan holds a Custom Scan node.".into()), CUSTOM_HINT), // alloc: Cold
+        Removed::ForeignTarget { relid } => Some(format!(
+            "The statement writes foreign table {}.",
+            name(relid)
+        )), // alloc: Cold
+        Removed::CustomScan => {
+            return raise(
+                CUSTOM,
+                Some("The plan holds a Custom Scan node.".into()),
+                CUSTOM_HINT,
+            )
+        } // alloc: Cold
     };
     raise(FOREIGN, detail, FOREIGN_HINT)
 }
@@ -64,13 +84,19 @@ fn error(r: Removed) -> Box<PgError> {
 /// The relation's name, quoted as PostgreSQL's messages quote it, or its OID when the catalog has no row.
 fn name(relid: u32) -> String {
     let ctx = gravity_driver::mem::root::Root::new("GravityRemovedName"); // alloc: Cold
-    let quoted = lsyscache::relation::get_rel_name(ctx.mcx(), relid as Oid).ok().flatten().map(|n| format!("\"{n}\"")); // alloc: Cold
+    let quoted = lsyscache::relation::get_rel_name(ctx.mcx(), relid as Oid)
+        .ok()
+        .flatten()
+        .map(|n| format!("\"{n}\"")); // alloc: Cold
     quoted.unwrap_or_else(|| format!("with OID {relid}")) // alloc: Cold
 }
 
 fn raise(msg: &str, detail: Option<String>, hint: &str) -> Box<PgError> {
-    let e = PgError::error(msg).with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED).with_hint(hint); // alloc: Cold
-    Box::new(match detail { // alloc: Cold
+    let e = PgError::error(msg)
+        .with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED)
+        .with_hint(hint); // alloc: Cold
+    Box::new(match detail {
+        // alloc: Cold
         Some(d) => e.with_detail(d),
         None => e,
     })
@@ -83,12 +109,32 @@ mod tests {
     /// Every removed family is 0A000; a Custom Scan has its own message.
     #[test]
     fn removed_families_raise_0a000() {
-        for r in [Removed::ForeignScan { relid: 0, writes: false }, Removed::CustomScan] {
+        for r in [
+            Removed::ForeignScan {
+                relid: 0,
+                writes: false,
+            },
+            Removed::CustomScan,
+        ] {
             assert_eq!(error(r).sqlstate(), ERRCODE_FEATURE_NOT_SUPPORTED, "{r:?}");
         }
-        assert_eq!(error(Removed::ForeignScan { relid: 0, writes: true }).message(), FOREIGN);
+        assert_eq!(
+            error(Removed::ForeignScan {
+                relid: 0,
+                writes: true
+            })
+            .message(),
+            FOREIGN
+        );
         assert_eq!(error(Removed::CustomScan).message(), CUSTOM);
-        assert_eq!(error(Removed::ForeignScan { relid: 0, writes: false }).hint(), Some(FOREIGN_HINT));
+        assert_eq!(
+            error(Removed::ForeignScan {
+                relid: 0,
+                writes: false
+            })
+            .hint(),
+            Some(FOREIGN_HINT)
+        );
         assert_eq!(error(Removed::CustomScan).hint(), Some(CUSTOM_HINT));
     }
 }

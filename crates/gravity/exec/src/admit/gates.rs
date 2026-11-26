@@ -15,7 +15,6 @@ use types_core::Oid;
 use types_error::PgResult;
 use types_nodes::{Node, NodeTag};
 
-
 /// Where C runs an expression node's own gate.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum At {
@@ -42,7 +41,16 @@ fn addr(n: Node<'_>) -> usize {
 /// D2915: the expression nodes whose own gate the gate list files (`program_funcs`): an operator's, a function's, an
 /// aggregate's or a window function's call; no other node is asked where its gate runs.
 pub(super) fn gated(tag: NodeTag) -> bool {
-    matches!(tag, NodeTag::T_OpExpr | NodeTag::T_DistinctExpr | NodeTag::T_NullIfExpr | NodeTag::T_FuncExpr | NodeTag::T_ScalarArrayOpExpr | NodeTag::T_Aggref | NodeTag::T_WindowFunc)
+    matches!(
+        tag,
+        NodeTag::T_OpExpr
+            | NodeTag::T_DistinctExpr
+            | NodeTag::T_NullIfExpr
+            | NodeTag::T_FuncExpr
+            | NodeTag::T_ScalarArrayOpExpr
+            | NodeTag::T_Aggref
+            | NodeTag::T_WindowFunc
+    )
 }
 
 impl Sites {
@@ -73,7 +81,12 @@ impl Sites {
         match &p.source {
             // TidExprListCreate / MakeTidOpExprState compile only the TID value's side of each clause
             Source::Tid { quals, .. } => {
-                let ops = quals.iter().filter(|q| matches!(q.node_tag(), NodeTag::T_OpExpr | NodeTag::T_ScalarArrayOpExpr));
+                let ops = quals.iter().filter(|q| {
+                    matches!(
+                        q.node_tag(),
+                        NodeTag::T_OpExpr | NodeTag::T_ScalarArrayOpExpr
+                    )
+                });
                 self.never.extend(ops.map(addr)); // alloc: Program
             }
             // ExecInitValuesScan compiles a row at the start only when it holds a SubPlan; ValuesNext compiles the rest
@@ -83,9 +96,15 @@ impl Sites {
             // ops/modifytable/raw.rs `Stream::row`): its calls are never the program's gates. Only gate-carrying nodes are
             // marked (the gate list asks of no other node) and a Const cell is not walked. D4449: a list of Consts alone
             // (`consts_only`) has no cell to walk and never streams.
-            Source::Values { lists, .. } if !gravity_lowerv4::ops::shared::values::consts_only(graph, lists) => {
+            Source::Values { lists, .. }
+                if !gravity_lowerv4::ops::shared::values::consts_only(graph, lists) =>
+            {
                 let streamed = gravity_lowerv4::ops::shared::values::streams_past_cut(lists);
-                let set = if streamed { &mut self.never } else { &mut self.visit };
+                let set = if streamed {
+                    &mut self.never
+                } else {
+                    &mut self.visit
+                };
                 for row in lists.iter().filter_map(|l| l.as_list()) {
                     if !streamed && row.iter().any(gravity_decompose::expr::has_subplan) {
                         continue;
@@ -105,8 +124,14 @@ impl Sites {
         for op in p.ops.iter() {
             match op {
                 // MJExamineQuals compiles a merge clause's two arguments, never the clause
-                Op::Join(JoinDesc::Merge { clauses, .. }) => self.never.extend(clauses.iter().map(addr)), // alloc: Program
-                Op::Join(JoinDesc::Nest { inner, .. }) | Op::SubPlan(SubPlanDesc { form: SubForm::Nested { inner }, .. }) => self.pipeline(graph, inner),
+                Op::Join(JoinDesc::Merge { clauses, .. }) => {
+                    self.never.extend(clauses.iter().map(addr))
+                } // alloc: Program
+                Op::Join(JoinDesc::Nest { inner, .. })
+                | Op::SubPlan(SubPlanDesc {
+                    form: SubForm::Nested { inner },
+                    ..
+                }) => self.pipeline(graph, inner),
                 _ => {}
             }
         }

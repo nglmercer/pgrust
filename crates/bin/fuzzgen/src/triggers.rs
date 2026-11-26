@@ -361,7 +361,15 @@ mod tests {
         // Each section that creates an event trigger must drop it; each
         // section that sets session_replication_role must reset it.
         for pool in [
-            SETCONSTR, ENABLEDISABLE, REPLROLE, RENAME, PARTED, EVENTDDL, EVENTDROP, RULES, VIEWUPD,
+            SETCONSTR,
+            ENABLEDISABLE,
+            REPLROLE,
+            RENAME,
+            PARTED,
+            EVENTDDL,
+            EVENTDROP,
+            RULES,
+            VIEWUPD,
         ] {
             let joined = pool.join(" ");
             if joined.contains("CREATE EVENT TRIGGER") {

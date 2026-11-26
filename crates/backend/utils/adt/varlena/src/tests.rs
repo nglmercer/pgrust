@@ -70,7 +70,10 @@ fn bpchar_fastcmp_trims_trailing_blanks_only() {
 #[test]
 fn text_cmp_family_c_collation() {
     assert_eq!(text_cmp(b"a", b"b", C).unwrap(), -1);
-    assert_eq!(varstr_cmp(b"same", b"same", POSIX_COLLATION_OID).unwrap(), 0);
+    assert_eq!(
+        varstr_cmp(b"same", b"same", POSIX_COLLATION_OID).unwrap(),
+        0
+    );
     assert!(texteq(b"x", b"x", C).unwrap());
     assert!(!texteq(b"x", b"xx", C).unwrap());
     assert!(textne(b"x", b"y", C).unwrap());
@@ -107,7 +110,9 @@ fn replace_text_cases() {
     let ctx = MemoryContext::new("t");
     let mcx = ctx.mcx();
     assert_eq!(
-        replace_text(mcx, b"foobarbaz", b"bar", b"XX", C).unwrap().data(),
+        replace_text(mcx, b"foobarbaz", b"bar", b"XX", C)
+            .unwrap()
+            .data(),
         b"fooXXbaz"
     );
     assert_eq!(
@@ -116,9 +121,15 @@ fn replace_text_cases() {
     );
     // empty source or empty pattern: unmodified copy.
     assert_eq!(replace_text(mcx, b"", b"a", b"b", C).unwrap().data(), b"");
-    assert_eq!(replace_text(mcx, b"abc", b"", b"x", C).unwrap().data(), b"abc");
+    assert_eq!(
+        replace_text(mcx, b"abc", b"", b"x", C).unwrap().data(),
+        b"abc"
+    );
     // pattern not found: unmodified copy.
-    assert_eq!(replace_text(mcx, b"abc", b"z", b"x", C).unwrap().data(), b"abc");
+    assert_eq!(
+        replace_text(mcx, b"abc", b"z", b"x", C).unwrap().data(),
+        b"abc"
+    );
 }
 
 // text/bytea_overlay substring their first argument through the
@@ -138,18 +149,25 @@ fn text_overlay_cases() {
     let mcx = ctx.mcx();
     // overlay('Txxxxas' placing 'hom' from 2 for 4) = 'Thomas'.
     assert_eq!(
-        text_overlay(mcx, &image_4b(b"Txxxxas"), b"hom", 2, 4).unwrap().data(),
+        text_overlay(mcx, &image_4b(b"Txxxxas"), b"hom", 2, 4)
+            .unwrap()
+            .data(),
         b"Thomas"
     );
     // no_len defaults sl to length(t2); C caller path exercised via fc_textoverlay_no_len.
     assert_eq!(
-        text_overlay(mcx, &image_4b(b"Txxxas"), b"hom", 2, 3).unwrap().data(),
+        text_overlay(mcx, &image_4b(b"Txxxas"), b"hom", 2, 3)
+            .unwrap()
+            .data(),
         b"Thomas"
     );
     let err = text_overlay(mcx, &image_4b(b"abc"), b"x", 0, 1).unwrap_err();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_SUBSTRING_ERROR);
     let err = text_overlay(mcx, &image_4b(b"abc"), b"x", i32::MAX, 1).unwrap_err();
-    assert_eq!(err.sqlstate(), types_error::ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE);
+    assert_eq!(
+        err.sqlstate(),
+        types_error::ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE
+    );
 }
 
 #[test]
@@ -158,7 +176,9 @@ fn bytea_overlay_and_bit_count() {
     let ctx = MemoryContext::new("t");
     let mcx = ctx.mcx();
     assert_eq!(
-        bytea::bytea_overlay(mcx, &image_4b(b"Txxxxas"), b"hom", 2, 4).unwrap().data(),
+        bytea::bytea_overlay(mcx, &image_4b(b"Txxxxas"), b"hom", 2, 4)
+            .unwrap()
+            .data(),
         b"Thomas"
     );
     let err = bytea::bytea_overlay(mcx, &image_4b(b"abc"), b"x", 0, 1).unwrap_err();
@@ -179,7 +199,9 @@ fn convert_to_base_cases() {
     assert_eq!(convert_to_base(mcx, 255, 16).unwrap().data(), b"ff");
     // negative ints print as their unsigned bit pattern (C casts before conversion).
     assert_eq!(
-        convert_to_base(mcx, (-1i32 as u32) as u64, 16).unwrap().data(),
+        convert_to_base(mcx, (-1i32 as u32) as u64, 16)
+            .unwrap()
+            .data(),
         b"ffffffff"
     );
     assert_eq!(
@@ -276,7 +298,10 @@ fn byteaout_hex_over_max_alloc_is_palloc_error() {
     let v = vec![0u8; 536870911];
     let mut buf = Vec::new();
     let err = bytea::byteaout_into(&v, guc_tables::consts::BYTEA_OUTPUT_HEX, &mut buf).unwrap_err();
-    assert_eq!(err.message(), "invalid memory alloc request size 1073741825");
+    assert_eq!(
+        err.message(),
+        "invalid memory alloc request size 1073741825"
+    );
     assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
     bytea::byteaout_into(&v, guc_tables::consts::BYTEA_OUTPUT_ESCAPE, &mut buf).unwrap_err();
 }
@@ -290,7 +315,10 @@ fn byteain_hex_digit_message_is_c_exact() {
     assert_eq!(err.message, "invalid hexadecimal digit: \"z\"");
     assert_eq!(err.sqlstate(), types_error::ERRCODE_INVALID_PARAMETER_VALUE);
     let err = bytea::byteain(mcx, b"\\xa", None).unwrap_err();
-    assert_eq!(err.message, "invalid hexadecimal data: odd number of digits");
+    assert_eq!(
+        err.message,
+        "invalid hexadecimal data: odd number of digits"
+    );
 }
 
 #[test]
@@ -312,15 +340,30 @@ fn bytea_substring_and_pos() {
     img[..4].copy_from_slice(&hdr);
     let s: &[u8] = &img;
     // 1-based; substring(s from 2 for 3) = bytes at index 1..4.
-    assert_eq!(bytea::bytea_substring(mcx, s, 2, 3, false).unwrap().data(), &[1, 2, 3]);
+    assert_eq!(
+        bytea::bytea_substring(mcx, s, 2, 3, false).unwrap().data(),
+        &[1, 2, 3]
+    );
     // no length -> to end.
-    assert_eq!(bytea::bytea_substring(mcx, s, 3, -1, true).unwrap().data(), &[2, 3, 4, 5]);
+    assert_eq!(
+        bytea::bytea_substring(mcx, s, 3, -1, true).unwrap().data(),
+        &[2, 3, 4, 5]
+    );
     // start <= 0 shifts window; length trims per SQL end position.
-    assert_eq!(bytea::bytea_substring(mcx, s, -1, 3, false).unwrap().data(), &[0]);
+    assert_eq!(
+        bytea::bytea_substring(mcx, s, -1, 3, false).unwrap().data(),
+        &[0]
+    );
     // start past end -> empty.
-    assert_eq!(bytea::bytea_substring(mcx, s, 10, 2, false).unwrap().data(), b"");
+    assert_eq!(
+        bytea::bytea_substring(mcx, s, 10, 2, false).unwrap().data(),
+        b""
+    );
     // E < 1 -> empty.
-    assert_eq!(bytea::bytea_substring(mcx, s, 0, 0, false).unwrap().data(), b"");
+    assert_eq!(
+        bytea::bytea_substring(mcx, s, 0, 0, false).unwrap().data(),
+        b""
+    );
     // negative length -> error 22011.
     let err = bytea::bytea_substring(mcx, s, 1, -2, false).unwrap_err();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_SUBSTRING_ERROR);
@@ -392,10 +435,16 @@ fn fc_wrappers_dispatch() {
     fcinfo.set_arg(0, Datum::from_usize(a.as_bytes().as_ptr() as usize));
     fcinfo.set_arg(1, Datum::from_usize(b.as_bytes().as_ptr() as usize));
 
-    assert!(!crate::builtins::fc_texteq(None, &mut fcinfo).unwrap().as_bool());
-    assert!(crate::builtins::fc_text_lt(None, &mut fcinfo).unwrap().as_bool());
+    assert!(!crate::builtins::fc_texteq(None, &mut fcinfo)
+        .unwrap()
+        .as_bool());
+    assert!(crate::builtins::fc_text_lt(None, &mut fcinfo)
+        .unwrap()
+        .as_bool());
     assert_eq!(
-        crate::builtins::fc_bttextcmp(None, &mut fcinfo).unwrap().as_i32(),
+        crate::builtins::fc_bttextcmp(None, &mut fcinfo)
+            .unwrap()
+            .as_i32(),
         -1
     );
     // larger returns arg1's pointer word (C pointer identity).
@@ -521,13 +570,15 @@ fn install_text_type_shape() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
         syscache_seams::lookup_pg_type_shape::set(|typid| {
-            Ok((typid == types_core::TEXTOID).then_some(types_tuple::tupdesc::PgTypeShape {
-                typlen: -1,
-                typbyval: false,
-                typalign: b'i' as i8,
-                typstorage: b'x' as i8,
-                typcollation: 100,
-            }))
+            Ok(
+                (typid == types_core::TEXTOID).then_some(types_tuple::tupdesc::PgTypeShape {
+                    typlen: -1,
+                    typbyval: false,
+                    typalign: b'i' as i8,
+                    typstorage: b'x' as i8,
+                    typcollation: 100,
+                }),
+            )
         });
     });
 }
@@ -548,8 +599,7 @@ fn levenshtein_matches_c_values() {
     assert_eq!(ln("ctid", "cttid"), 1);
     // Pinned against live PG 18.3 fuzzystrmatch: levenshtein('extensive','exhaustive',2,1,5).
     assert_eq!(
-        levenshtein::varstr_levenshtein(mcx, b"extensive", b"exhaustive", 2, 1, 5, false)
-            .unwrap(),
+        levenshtein::varstr_levenshtein(mcx, b"extensive", b"exhaustive", 2, 1, 5, false).unwrap(),
         11
     );
 }
@@ -590,16 +640,14 @@ fn levenshtein_untrusted_length_cap_is_22023() {
     let ctx = MemoryContext::new("t");
     let mcx = ctx.mcx();
     let long = "x".repeat(256);
-    let err = levenshtein::varstr_levenshtein(mcx, long.as_bytes(), b"y", 1, 1, 1, false)
-        .unwrap_err();
+    let err =
+        levenshtein::varstr_levenshtein(mcx, long.as_bytes(), b"y", 1, 1, 1, false).unwrap_err();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_INVALID_PARAMETER_VALUE);
     assert_eq!(
         err.message,
         "levenshtein argument exceeds maximum length of 255 characters"
     );
-    assert!(
-        levenshtein::varstr_levenshtein(mcx, long.as_bytes(), b"y", 1, 1, 1, true).is_ok()
-    );
+    assert!(levenshtein::varstr_levenshtein(mcx, long.as_bytes(), b"y", 1, 1, 1, true).is_ok());
 }
 
 // upstream e88eb4e76638 (18.6): costs are summed in i64 and the int4 result
@@ -629,18 +677,30 @@ fn levenshtein_costs_use_64bit_arithmetic_and_range_check() {
     };
     fn out_of_range(r: types_error::PgResult<i32>) {
         let err = r.expect_err("distance must not fit int4");
-        assert_eq!(err.sqlstate(), types_error::ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE);
+        assert_eq!(
+            err.sqlstate(),
+            types_error::ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE
+        );
         assert_eq!(err.message, "levenshtein distance out of range");
     }
     assert_eq!(lev("GUMBO", "GAMBOL", 1, 1, 2000000000).unwrap(), 3);
     out_of_range(lev("GUMBO", "GAMBOL", 2000000000, 2000000000, 2000000000));
-    assert_eq!(lle("aaa", "aaaaa", 1073741824, 0, 1073741824, 10).unwrap(), 11);
+    assert_eq!(
+        lle("aaa", "aaaaa", 1073741824, 0, 1073741824, 10).unwrap(),
+        11
+    );
     out_of_range(lev("", "abc", 1000000000, 1, 1));
     out_of_range(lev("abc", "", 1, 1000000000, 1));
     assert_eq!(lev("", "ab", 1000000000, 1, 1).unwrap(), 2000000000);
     out_of_range(lle("abc", "abcdef", i32::MAX, 1, 1, i32::MAX));
-    assert_eq!(lle("abc", "abcdef", 1000000000, 1, 1, 2000000000).unwrap(), 2000000001);
-    assert_eq!(lev("kitten", "sitting", 100000000, 100000000, 100000000).unwrap(), 300000000);
+    assert_eq!(
+        lle("abc", "abcdef", 1000000000, 1, 1, 2000000000).unwrap(),
+        2000000001
+    );
+    assert_eq!(
+        lev("kitten", "sitting", 100000000, 100000000, 100000000).unwrap(),
+        300000000
+    );
 }
 
 mod fc_results {
@@ -798,14 +858,14 @@ mod fc_results {
     #[test]
     fn convert_to_base_wrappers() {
         let ctx = MemoryContext::new_bump("t");
-        let d = direct_function_call1_coll_in(fc_to_hex32, 0, ctx.mcx(), Datum::from_i32(255))
-            .unwrap();
+        let d =
+            direct_function_call1_coll_in(fc_to_hex32, 0, ctx.mcx(), Datum::from_i32(255)).unwrap();
         assert_eq!(text_of(d), b"ff");
-        let d = direct_function_call1_coll_in(fc_to_bin64, 0, ctx.mcx(), Datum::from_i64(5))
-            .unwrap();
+        let d =
+            direct_function_call1_coll_in(fc_to_bin64, 0, ctx.mcx(), Datum::from_i64(5)).unwrap();
         assert_eq!(text_of(d), b"101");
-        let d = direct_function_call1_coll_in(fc_to_oct32, 0, ctx.mcx(), Datum::from_i32(8))
-            .unwrap();
+        let d =
+            direct_function_call1_coll_in(fc_to_oct32, 0, ctx.mcx(), Datum::from_i32(8)).unwrap();
         assert_eq!(text_of(d), b"10");
     }
 
@@ -842,7 +902,10 @@ mod fc_results {
             out.push(text_of(d).to_vec());
         }
         assert_eq!(out, vec![b"a".to_vec(), b"".to_vec(), b"b".to_vec()]);
-        assert!(!flinfo.has_fn_extra(), "SRF_RETURN_DONE tears down the multi-call frame");
+        assert!(
+            !flinfo.has_fn_extra(),
+            "SRF_RETURN_DONE tears down the multi-call frame"
+        );
 
         // NULL input string: split_text's early-false return, zero rows.
         let mut flinfo2 = FmgrInfo::new(crate::split_text::fc_text_to_table, 6160, 2, false, true);
@@ -868,8 +931,7 @@ mod fc_results {
         let sep = text_image(b",");
         let nullstr = text_image(b"N");
 
-        let mut flinfo =
-            FmgrInfo::new(crate::split_text::fc_text_to_table, 6161, 3, false, true);
+        let mut flinfo = FmgrInfo::new(crate::split_text::fc_text_to_table, 6161, 3, false, true);
         let mut rsinfo = ReturnSetInfo::new(SFRM_ValuePerCall);
         let mut fci = LocalFcinfo::<3>::new(types_core::C_COLLATION_OID);
         // SAFETY: ctx outlives the call loop.
@@ -889,7 +951,11 @@ mod fc_results {
             if rsinfo.isDone == ExprDoneCond::ExprEndResult {
                 break;
             }
-            out.push(if fci.isnull { None } else { Some(text_of(d).to_vec()) });
+            out.push(if fci.isnull {
+                None
+            } else {
+                Some(text_of(d).to_vec())
+            });
         }
         assert_eq!(out, vec![Some(b"a".to_vec()), None, Some(b"b".to_vec())]);
     }
@@ -916,16 +982,26 @@ mod text_surface {
         crate::tests::install_mb_for_levenshtein();
         crate::tests::install_detoast_seams();
         let img = text_image(t);
-        String::from_utf8(text_substring(mcx, &img, s, l, false).unwrap().data().to_vec())
-            .unwrap()
+        String::from_utf8(
+            text_substring(mcx, &img, s, l, false)
+                .unwrap()
+                .data()
+                .to_vec(),
+        )
+        .unwrap()
     }
 
     fn substr_no_len(mcx: Mcx<'_>, t: &str, s: i32) -> String {
         crate::tests::install_mb_for_levenshtein();
         crate::tests::install_detoast_seams();
         let img = text_image(t);
-        String::from_utf8(text_substring(mcx, &img, s, -1, true).unwrap().data().to_vec())
-            .unwrap()
+        String::from_utf8(
+            text_substring(mcx, &img, s, -1, true)
+                .unwrap()
+                .data()
+                .to_vec(),
+        )
+        .unwrap()
     }
 
     #[test]
@@ -1006,7 +1082,10 @@ mod text_surface {
         let mcx = ctx.mcx();
         let sp = |s: &str, sep: &str, n: i32| {
             String::from_utf8(
-                split_part(mcx, s.as_bytes(), sep.as_bytes(), n, C).unwrap().data().to_vec(),
+                split_part(mcx, s.as_bytes(), sep.as_bytes(), n, C)
+                    .unwrap()
+                    .data()
+                    .to_vec(),
             )
             .unwrap()
         };
@@ -1108,25 +1187,39 @@ mod string_agg_fns {
             return None;
         }
         // SAFETY: the finalfn result is a live 4B-header varlena in result_ctx.
-        let bytes = unsafe { VarlenaRef::from_ptr(d.as_usize() as *const u8) }.data().to_vec();
+        let bytes = unsafe { VarlenaRef::from_ptr(d.as_usize() as *const u8) }
+            .data()
+            .to_vec();
         Some(String::from_utf8(bytes).unwrap())
     }
 
     #[test]
     fn string_agg_basic_and_null_handling() {
-        assert_eq!(run_string_agg(&[Some("a"), Some("b"), Some("c")], Some(",")).unwrap(), "a,b,c");
-        assert_eq!(run_string_agg(&[Some("a"), None, Some("c")], Some("+")).unwrap(), "a+c");
+        assert_eq!(
+            run_string_agg(&[Some("a"), Some("b"), Some("c")], Some(",")).unwrap(),
+            "a,b,c"
+        );
+        assert_eq!(
+            run_string_agg(&[Some("a"), None, Some("c")], Some("+")).unwrap(),
+            "a+c"
+        );
         assert_eq!(run_string_agg(&[Some("solo")], Some(",")).unwrap(), "solo");
         assert_eq!(run_string_agg(&[Some("a"), Some("b")], None).unwrap(), "ab");
         assert_eq!(run_string_agg(&[None, None], Some(",")), None);
         assert_eq!(run_string_agg(&[], Some(",")), None);
-        assert_eq!(run_string_agg(&[Some(""), Some("")], Some(",")).unwrap(), ",");
+        assert_eq!(
+            run_string_agg(&[Some(""), Some("")], Some(",")).unwrap(),
+            ","
+        );
         assert_eq!(
             run_string_agg(&[Some("日本"), Some("語")], Some("、")).unwrap(),
             "日本、語"
         );
         let big: Vec<Option<&str>> = vec![Some("0123456789abcdef"); 200];
-        assert_eq!(run_string_agg(&big, Some("|")).unwrap().len(), 200 * 16 + 199);
+        assert_eq!(
+            run_string_agg(&big, Some("|")).unwrap().len(),
+            200 * 16 + 199
+        );
     }
 
     #[test]
@@ -1137,7 +1230,10 @@ mod string_agg_fns {
         fcinfo.set_arg_null(0);
         fcinfo.set_arg_null(2);
         let err = fc_string_agg_transfn(None, &mut fcinfo).unwrap_err();
-        assert_eq!(err.message, "string_agg_transfn called in non-aggregate context");
+        assert_eq!(
+            err.message,
+            "string_agg_transfn called in non-aggregate context"
+        );
     }
 
     #[test]
@@ -1167,7 +1263,9 @@ mod string_agg_fns {
         fcinfo.set_arg(0, state);
         let d = fc_bytea_string_agg_finalfn(None, &mut fcinfo).unwrap();
         // SAFETY: live 4B-header varlena in result_ctx.
-        let out = unsafe { VarlenaRef::from_ptr(d.as_usize() as *const u8) }.data().to_vec();
+        let out = unsafe { VarlenaRef::from_ptr(d.as_usize() as *const u8) }
+            .data()
+            .to_vec();
         assert_eq!(out, vec![0xde, 0xad, 0x00, 0xbe, 0xef]);
     }
 
@@ -1182,7 +1280,9 @@ mod string_agg_fns {
     fn string_agg_combine_rejects_non_aggregate_context() {
         let mut fcinfo = LocalFcinfo::<2>::new(0);
         let err = fc_string_agg_combine(None, &mut fcinfo).unwrap_err();
-        assert!(err.message().contains("aggregate function called in non-aggregate context"));
+        assert!(err
+            .message()
+            .contains("aggregate function called in non-aggregate context"));
     }
 }
 
@@ -1195,16 +1295,37 @@ fn unistr_rows() {
     let u = |s: &str| {
         crate::unistr(mcx, s.as_bytes()).map(|v| String::from_utf8_lossy(v.data()).into_owned())
     };
-    assert_eq!(u(r"d\0061t\+000061 \\ A \U0001F603").unwrap(), "data \\ A \u{1F603}");
+    assert_eq!(
+        u(r"d\0061t\+000061 \\ A \U0001F603").unwrap(),
+        "data \\ A \u{1F603}"
+    );
     assert_eq!(u(r"perl \0441\043B\043E\043D").unwrap(), "perl слон");
     assert_eq!(u(r"\D83D\DE03").unwrap(), "\u{1F603}");
     assert_eq!(u("plain").unwrap(), "plain");
-    assert_eq!(u(r"\D83D").unwrap_err().to_string(), "invalid Unicode surrogate pair");
-    assert_eq!(u(r"\DE03\D83D").unwrap_err().to_string(), "invalid Unicode surrogate pair");
-    assert_eq!(u(r"\D83Dx").unwrap_err().to_string(), "invalid Unicode surrogate pair");
-    assert_eq!(u(r"\xyz").unwrap_err().to_string(), "invalid Unicode escape");
-    assert_eq!(u(r"\+00D800").unwrap_err().to_string(), "invalid Unicode surrogate pair");
-    assert_eq!(u(r"\0000").unwrap_err().to_string(), "invalid Unicode code point: 0000");
+    assert_eq!(
+        u(r"\D83D").unwrap_err().to_string(),
+        "invalid Unicode surrogate pair"
+    );
+    assert_eq!(
+        u(r"\DE03\D83D").unwrap_err().to_string(),
+        "invalid Unicode surrogate pair"
+    );
+    assert_eq!(
+        u(r"\D83Dx").unwrap_err().to_string(),
+        "invalid Unicode surrogate pair"
+    );
+    assert_eq!(
+        u(r"\xyz").unwrap_err().to_string(),
+        "invalid Unicode escape"
+    );
+    assert_eq!(
+        u(r"\+00D800").unwrap_err().to_string(),
+        "invalid Unicode surrogate pair"
+    );
+    assert_eq!(
+        u(r"\0000").unwrap_err().to_string(),
+        "invalid Unicode code point: 0000"
+    );
 }
 
 #[test]
@@ -1243,9 +1364,7 @@ fn text_to_array_arms() {
             return None;
         }
         let p = d.as_usize() as *const u8;
-        let img = unsafe {
-            core::slice::from_raw_parts(p, arrayfuncs::foundation::varsize_any(p))
-        };
+        let img = unsafe { core::slice::from_raw_parts(p, arrayfuncs::foundation::varsize_any(p)) };
         let (elems, nulls) =
             arrayfuncs::deconstruct_array_builtin(mcx, img, types_core::TEXTOID, true).unwrap();
         Some(
@@ -1258,8 +1377,7 @@ fn text_to_array_arms() {
                     } else {
                         let ep = e.as_usize() as *const u8;
                         let n = arrayfuncs::foundation::varsize_any(ep);
-                        let payload =
-                            unsafe { core::slice::from_raw_parts(ep.add(4), n - 4) };
+                        let payload = unsafe { core::slice::from_raw_parts(ep.add(4), n - 4) };
                         Some(std::string::String::from_utf8(payload.to_vec()).unwrap())
                     }
                 })
@@ -1273,7 +1391,10 @@ fn text_to_array_arms() {
         Some(vec![s("1"), s("2"), s("3")])
     );
     assert_eq!(run(mcx, Some(b""), Some(b"|"), None), Some(vec![]));
-    assert_eq!(run(mcx, Some(b"abc"), Some(b""), None), Some(vec![s("abc")]));
+    assert_eq!(
+        run(mcx, Some(b"abc"), Some(b""), None),
+        Some(vec![s("abc")])
+    );
     assert_eq!(
         run(mcx, Some(b"abc"), None, None),
         Some(vec![s("a"), s("b"), s("c")])
@@ -1304,10 +1425,16 @@ fn bytea_int_conversions() {
     assert_eq!(bytea::bytea_int2(&[0x80, 0x00]).unwrap(), i16::MIN);
     assert_eq!(bytea::bytea_int2(&[0xff, 0xff]).unwrap(), -1);
     let err = bytea::bytea_int2(&[1, 2, 3]).unwrap_err();
-    assert_eq!(err.sqlstate(), types_error::ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE);
+    assert_eq!(
+        err.sqlstate(),
+        types_error::ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE
+    );
     assert_eq!(err.message(), "smallint out of range");
 
-    assert_eq!(bytea::bytea_int4(&[0xde, 0xad, 0xbe, 0xef]).unwrap(), -559038737);
+    assert_eq!(
+        bytea::bytea_int4(&[0xde, 0xad, 0xbe, 0xef]).unwrap(),
+        -559038737
+    );
     let err = bytea::bytea_int4(&[0; 5]).unwrap_err();
     assert_eq!(err.message(), "integer out of range");
 
@@ -1367,7 +1494,13 @@ mod format_variadic {
             });
             fmgr_seams::fmgr_info::set(|oid| {
                 assert_eq!(oid, TEXTOUT);
-                Ok(FmgrInfo::new(crate::builtins::fc_textout, TEXTOUT, 1, true, false))
+                Ok(FmgrInfo::new(
+                    crate::builtins::fc_textout,
+                    TEXTOUT,
+                    1,
+                    true,
+                    false,
+                ))
             });
             fmgr_seams::get_fn_expr_variadic::set(|_flinfo| true);
             fmgr_seams::get_fn_expr_argtype::set(|_flinfo, _argnum| TEXTOID);
@@ -1387,8 +1520,7 @@ mod format_variadic {
             .iter()
             .map(|t| Datum::from_usize(t.as_bytes().as_ptr() as usize))
             .collect();
-        let array =
-            arrayfuncs::construct_array(mcx, &datums, TEXTOID, -1, false, b'i').unwrap();
+        let array = arrayfuncs::construct_array(mcx, &datums, TEXTOID, -1, false, b'i').unwrap();
         let fmt = cstring_to_text(mcx, b"%s+%s+%s").unwrap();
 
         let mut fcinfo = LocalFcinfo::<2>::new(C);
@@ -1406,7 +1538,10 @@ mod format_variadic {
             (n, core::slice::from_raw_parts(p.add(4), n - 4))
         };
         assert_eq!(len - 4, 8);
-        assert_eq!(data, b"a+bb+ccc", "element datums read after the detoast temporary's scope");
+        assert_eq!(
+            data, b"a+bb+ccc",
+            "element datums read after the detoast temporary's scope"
+        );
     }
 
     #[test]
@@ -1425,13 +1560,15 @@ mod format_variadic {
         install();
         let ctx = MemoryContext::new("format args");
         let mcx = ctx.mcx();
-        let texts: Vec<_> = elems.iter().map(|e| cstring_to_text(mcx, e).unwrap()).collect();
+        let texts: Vec<_> = elems
+            .iter()
+            .map(|e| cstring_to_text(mcx, e).unwrap())
+            .collect();
         let datums: Vec<Datum> = texts
             .iter()
             .map(|t| Datum::from_usize(t.as_bytes().as_ptr() as usize))
             .collect();
-        let array =
-            arrayfuncs::construct_array(mcx, &datums, TEXTOID, -1, false, b'i').unwrap();
+        let array = arrayfuncs::construct_array(mcx, &datums, TEXTOID, -1, false, b'i').unwrap();
         let fmt = cstring_to_text(mcx, fmt).unwrap();
 
         let mut fcinfo = LocalFcinfo::<2>::new(C);
@@ -1480,7 +1617,10 @@ mod format_variadic {
             Some("Cannot enlarge string buffer containing 1 bytes by 2147483646 more bytes.")
         );
 
-        assert_eq!(call(&armed, b"%5s|%-4s|", &[b"ab", b"c"]).unwrap(), b"   ab|c   |");
+        assert_eq!(
+            call(&armed, b"%5s|%-4s|", &[b"ab", b"c"]).unwrap(),
+            b"   ab|c   |"
+        );
     }
 
     // %L sizes its buffer like C quote_literal_cstr's palloc (2*len + 3 + NUL):
@@ -1496,8 +1636,14 @@ mod format_variadic {
             Ok(out) => panic!("536870910-byte %L succeeded with {} bytes", out.len()),
         };
         assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
-        assert_eq!(err.message(), "invalid memory alloc request size 1073741824");
-        assert_eq!(call(&armed, b"%L", &[&a[..536870909]]).unwrap().len(), 536870911);
+        assert_eq!(
+            err.message(),
+            "invalid memory alloc request size 1073741824"
+        );
+        assert_eq!(
+            call(&armed, b"%L", &[&a[..536870909]]).unwrap().len(),
+            536870911
+        );
     }
 
     #[test]
@@ -1518,9 +1664,18 @@ mod format_variadic {
         assert_eq!(call(&armed, b"%I", &[b"abc"]).unwrap(), b"abc");
 
         let err = call(&armed, b"%*s", &[b"\xE9", b"a"]).unwrap_err();
-        assert_eq!(err.sqlstate(), types_error::ERRCODE_INVALID_TEXT_REPRESENTATION);
-        assert_eq!(err.message(), "invalid input syntax for type integer: \"\u{FFFD}\"");
-        assert_eq!(err.message_raw.as_deref(), Some(b"invalid input syntax for type integer: \"\xE9\"".as_slice()));
+        assert_eq!(
+            err.sqlstate(),
+            types_error::ERRCODE_INVALID_TEXT_REPRESENTATION
+        );
+        assert_eq!(
+            err.message(),
+            "invalid input syntax for type integer: \"\u{FFFD}\""
+        );
+        assert_eq!(
+            err.message_raw.as_deref(),
+            Some(b"invalid input syntax for type integer: \"\xE9\"".as_slice())
+        );
     }
 }
 
@@ -1592,8 +1747,8 @@ mod pg_column_funcs {
         image[0] = 0x01; // 1B external header
         image[1] = 18; // VARTAG_ONDISK
         image[2..6].copy_from_slice(&100i32.to_le_bytes()); // va_rawsize
-        // va_extinfo: extsize 50 (< rawsize - VARHDRSZ => "compressed"),
-        // compress-method bits = 2 = TOAST_INVALID_COMPRESSION_ID.
+                                                            // va_extinfo: extsize 50 (< rawsize - VARHDRSZ => "compressed"),
+                                                            // compress-method bits = 2 = TOAST_INVALID_COMPRESSION_ID.
         image[6..10].copy_from_slice(&(50u32 | (2u32 << 30)).to_le_bytes());
         let (_, isnull) = call(fc_pg_column_compression, &image);
         assert!(isnull, "cmid bits==2 must be NULL (C parity), not an error");
@@ -1653,16 +1808,20 @@ fn split_guc_list_trailing_separator_is_reject_not_panic() {
 #[test]
 fn split_identifier_bytes_keeps_raw_bytes() {
     let cx = MemoryContext::new("t");
-    let names = split_identifier_bytes(cx.mcx(), b"\xE9Abc . \"Q\"\"x\"", b'.', wchar::PG_SQL_ASCII)
-        .unwrap()
-        .unwrap();
+    let names =
+        split_identifier_bytes(cx.mcx(), b"\xE9Abc . \"Q\"\"x\"", b'.', wchar::PG_SQL_ASCII)
+            .unwrap()
+            .unwrap();
     let names: Vec<&[u8]> = names.iter().map(|n| n.as_slice()).collect();
     assert_eq!(names, [&b"\xE9abc"[..], b"Q\"x"]);
 
     let names = textToQualifiedNameList(cx.mcx(), b"\xE9abc").unwrap();
     assert_eq!(names.len(), 1);
     assert_eq!(names[0].as_slice(), b"\xE9abc");
-    assert_eq!(split_identifier_bytes(cx.mcx(), b"a,", b',', wchar::PG_SQL_ASCII).unwrap(), None);
+    assert_eq!(
+        split_identifier_bytes(cx.mcx(), b"a,", b',', wchar::PG_SQL_ASCII).unwrap(),
+        None
+    );
 }
 
 #[test]
@@ -1743,7 +1902,10 @@ mod interrupts {
     fn assert_canceled(err: Box<PgError>) {
         assert_eq!(err.sqlstate(), ERRCODE_QUERY_CANCELED);
         assert_eq!(err.message, "canceling statement due to user request");
-        assert!(cancel_consumed(), "the cancel was answered by the seam, not left pending");
+        assert!(
+            cancel_consumed(),
+            "the cancel was answered by the seam, not left pending"
+        );
     }
 
     #[test]
@@ -1758,12 +1920,18 @@ mod interrupts {
         assert_canceled(replace_text(mcx, b"aaaa", b"a", b"b", C).unwrap_err());
 
         // Consumed: the same call now completes.
-        assert_eq!(replace_text(mcx, b"aaaa", b"a", b"b", C).unwrap().data(), b"bbbb");
+        assert_eq!(
+            replace_text(mcx, b"aaaa", b"a", b"b", C).unwrap().data(),
+            b"bbbb"
+        );
 
         // No match: the loop is never entered, so a pending cancel is NOT
         // consumed here (C returns src_text before the loop).
         arm_cancel();
-        assert_eq!(replace_text(mcx, b"abc", b"z", b"x", C).unwrap().data(), b"abc");
+        assert_eq!(
+            replace_text(mcx, b"abc", b"z", b"x", C).unwrap().data(),
+            b"abc"
+        );
         assert!(!cancel_consumed());
         disarm_cancel();
     }
@@ -1837,9 +2005,17 @@ mod interrupts {
         fcinfo.set_arg(2, Datum::from_usize(ns.as_ptr() as usize));
         let fields = split_fields(&fcinfo).unwrap();
         assert_eq!(fields.len(), 3);
-        let rows: Vec<(Vec<u8>, bool)> =
-            (0..3).map(|i| fields.get(i).map(|(b, n)| (b.to_vec(), n)).unwrap()).collect();
-        assert_eq!(rows, vec![(b"a".to_vec(), false), (b"".to_vec(), true), (b"c".to_vec(), false)]);
+        let rows: Vec<(Vec<u8>, bool)> = (0..3)
+            .map(|i| fields.get(i).map(|(b, n)| (b.to_vec(), n)).unwrap())
+            .collect();
+        assert_eq!(
+            rows,
+            vec![
+                (b"a".to_vec(), false),
+                (b"".to_vec(), true),
+                (b"c".to_vec(), false)
+            ]
+        );
         assert!(fields.get(3).is_none());
         let big = text_image(&vec![b'x'; 1 << 20]);
         let mut fcinfo = LocalFcinfo::<2>::new(C);
@@ -1860,11 +2036,17 @@ fn hex_decode_soft_error_without_details_skips_mblen() {
     let mcx = ctx.mcx();
     let mut out: mcx::PgVec<'_, u8> = mcx::vec_with_capacity_in(mcx, 8).unwrap();
     let mut esc = types_error::SoftErrorContext::new(false);
-    assert_eq!(bytea::hex_decode_into(b"\xe2", Some(&mut esc), &mut out).unwrap(), None);
+    assert_eq!(
+        bytea::hex_decode_into(b"\xe2", Some(&mut esc), &mut out).unwrap(),
+        None
+    );
     assert!(esc.error_occurred());
     assert!(esc.error().is_none());
     let mut esc = types_error::SoftErrorContext::new(false);
-    assert_eq!(bytea::hex_decode_into(b"1\xe2", Some(&mut esc), &mut out).unwrap(), None);
+    assert_eq!(
+        bytea::hex_decode_into(b"1\xe2", Some(&mut esc), &mut out).unwrap(),
+        None
+    );
     assert!(esc.error_occurred());
 }
 
@@ -1912,7 +2094,10 @@ fn unicode_is_normalized_reserves_c_terminator() {
     let ctx = MemoryContext::new("t");
     let input = std::vec![b'a'; 268_435_455];
     let err = crate::unicode::unicode_is_normalized(ctx.mcx(), &input, b"NFC").unwrap_err();
-    assert_eq!(err.message(), "invalid memory alloc request size 1073741824");
+    assert_eq!(
+        err.message(),
+        "invalid memory alloc request size 1073741824"
+    );
 }
 
 #[test]
@@ -1922,7 +2107,10 @@ fn octet_length_reads_the_raw_size_without_detoasting() {
     img.extend_from_slice(&5000u32.to_ne_bytes());
     img.extend_from_slice(&[0u8; 4]);
     assert_eq!(crate::builtins::raw_octet_length(&img), 5000);
-    assert_eq!(crate::builtins::raw_octet_length(&[(3 << 1) | 1, b'a', b'b']), 2);
+    assert_eq!(
+        crate::builtins::raw_octet_length(&[(3 << 1) | 1, b'a', b'b']),
+        2
+    );
 }
 
 #[test]
@@ -1936,17 +2124,30 @@ fn equality_on_a_compressed_arg_decides_by_raw_size_without_detoasting() {
     img[4..8].copy_from_slice(&5000u32.to_ne_bytes());
     let short = [(3u8 << 1) | 1, b'a', b'b'];
 
-    for (a, b) in [(img.as_ptr(), short.as_ptr()), (short.as_ptr(), img.as_ptr())] {
+    for (a, b) in [
+        (img.as_ptr(), short.as_ptr()),
+        (short.as_ptr(), img.as_ptr()),
+    ] {
         let mut fcinfo = LocalFcinfo::<2>::new(C);
         fcinfo.set_arg(0, Datum::from_usize(a as usize));
         fcinfo.set_arg(1, Datum::from_usize(b as usize));
-        assert!(!crate::builtins::fc_texteq(None, &mut fcinfo).unwrap().as_bool());
-        assert!(crate::builtins::fc_textne(None, &mut fcinfo).unwrap().as_bool());
-        assert!(!crate::builtins::fc_byteaeq(None, &mut fcinfo).unwrap().as_bool());
-        assert!(crate::builtins::fc_byteane(None, &mut fcinfo).unwrap().as_bool());
+        assert!(!crate::builtins::fc_texteq(None, &mut fcinfo)
+            .unwrap()
+            .as_bool());
+        assert!(crate::builtins::fc_textne(None, &mut fcinfo)
+            .unwrap()
+            .as_bool());
+        assert!(!crate::builtins::fc_byteaeq(None, &mut fcinfo)
+            .unwrap()
+            .as_bool());
+        assert!(crate::builtins::fc_byteane(None, &mut fcinfo)
+            .unwrap()
+            .as_bool());
     }
     let mut fcinfo = LocalFcinfo::<2>::new(C);
     fcinfo.set_arg(0, Datum::from_usize(short.as_ptr() as usize));
     fcinfo.set_arg(1, Datum::from_usize(img.as_ptr() as usize));
-    assert!(!crate::builtins::fc_text_starts_with(None, &mut fcinfo).unwrap().as_bool());
+    assert!(!crate::builtins::fc_text_starts_with(None, &mut fcinfo)
+        .unwrap()
+        .as_bool());
 }

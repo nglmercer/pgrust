@@ -95,7 +95,12 @@ fn piece(b: &mut FunctionBuilder<'_>, m: Value, q: Value, r: Value, w: i64) -> V
         2 => Type::I16,
         _ => Type::I8,
     };
-    let (zero, wk, above, three) = (b.iconst(Type::I64, 0), b.iconst(Type::I64, w), b.iconst(Type::I64, 7 & !(2 * w - 1)), b.iconst(Type::I64, 3));
+    let (zero, wk, above, three) = (
+        b.iconst(Type::I64, 0),
+        b.iconst(Type::I64, w),
+        b.iconst(Type::I64, 7 & !(2 * w - 1)),
+        b.iconst(Type::I64, 3),
+    );
     let has = b.int_bin(IntBinOp::And, r, wk);
     let has = b.icmp(IntCond::Ne, has, zero);
     let l_load = b.create_block(&[]);
@@ -126,7 +131,13 @@ fn word(b: &mut FunctionBuilder<'_>, v: [Value; 4], m: Value) -> [Value; 4] {
 /// only (its header marked when the function marks its loops: a backend then knows no other loops; a pair halves the
 /// loop edge's cost per byte), the last word's 0-7 bytes as a 4-, a 2- and a 1-byte piece, the rounds straight-line.
 /// Emitted from the current block; on return the builder is in a fresh block the callers continue in.
-pub fn siphash128(b: &mut FunctionBuilder<'_>, ptr: Value, len: Value, k0: Value, k1: Value) -> (Value, Value) {
+pub fn siphash128(
+    b: &mut FunctionBuilder<'_>,
+    ptr: Value,
+    len: Value,
+    k0: Value,
+    k1: Value,
+) -> (Value, Value) {
     let c = |b: &mut FunctionBuilder<'_>, v: u64| b.iconst(Type::I64, v as i64);
     let x0 = c(b, 0x736f_6d65_7073_6575);
     let x1 = c(b, 0x646f_7261_6e64_6f6d ^ 0xee);
@@ -200,7 +211,12 @@ pub fn siphash128(b: &mut FunctionBuilder<'_>, ptr: Value, len: Value, k0: Value
 }
 
 /// The text key of the by-reference datum at `datum`: `(lo, hi, bad)` — its `Fp128` words and `varlena`'s verdict.
-pub fn text_key(b: &mut FunctionBuilder<'_>, datum: Value, k0: Value, k1: Value) -> (Value, Value, Value) {
+pub fn text_key(
+    b: &mut FunctionBuilder<'_>,
+    datum: Value,
+    k0: Value,
+    k1: Value,
+) -> (Value, Value, Value) {
     let v = varlena(b, datum);
     let (lo, hi) = siphash128(b, v.ptr, v.len, k0, k1);
     (lo, hi, v.bad)

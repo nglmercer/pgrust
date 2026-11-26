@@ -16,7 +16,9 @@ pub(crate) fn copy_cell(bytes: &mut Vec<u8>, p: *const u8, attlen: i16) -> u64 {
 unsafe fn copy_image(bytes: &mut Vec<u8>, p: *const u8, attlen: i16) -> u64 {
     let len = match attlen {
         -1 => types_tuple::varatt::varsize_any(p),
-        -2 => core::ffi::CStr::from_ptr(p as *const core::ffi::c_char).to_bytes_with_nul().len(),
+        -2 => core::ffi::CStr::from_ptr(p as *const core::ffi::c_char)
+            .to_bytes_with_nul()
+            .len(),
         n => n as usize,
     };
     let off = bytes.len().next_multiple_of(8);
@@ -32,7 +34,7 @@ mod tests {
     #[test]
     fn a_by_reference_cell_is_copied_whole_and_aligned() {
         let mut bytes = vec![0xaa]; // alloc: Exec
-        // a 1-byte-header varlena of 4 bytes ("abc"), a cstring, an 8-byte fixed image
+                                    // a 1-byte-header varlena of 4 bytes ("abc"), a cstring, an 8-byte fixed image
         let short = [(4u8 << 1) | 1, b'a', b'b', b'c'];
         let off = unsafe { copy_image(&mut bytes, short.as_ptr(), -1) } as usize;
         assert_eq!((off, &bytes[off..]), (8, &short[..]));

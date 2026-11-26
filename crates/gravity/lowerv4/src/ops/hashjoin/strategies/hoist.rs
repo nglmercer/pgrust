@@ -14,8 +14,8 @@
 use std::any::Any;
 use std::rc::Rc;
 
-use gravity_decompose::ops::shared::agg::{GroupDecl, GroupForm};
 use gravity_decompose::join::JoinDesc;
+use gravity_decompose::ops::shared::agg::{GroupDecl, GroupForm};
 use gravity_decompose::Op;
 use gravity_expr::nodes::var::Var;
 use gravity_expr::{Compiled, ExprNode, Program, Source};
@@ -54,40 +54,89 @@ fn plan(px: &mut Px<'_, '_>, sh: &Shape) -> Option<Hoist> {
     let gx = px.gx;
     let mcx = px.mcx();
     // the probe pipeline, where the consumers compile, is made after the build that publishes (index order; CORE's note)
-    let q = sh.probe.filter(|&q| q > sh.build && !sh.swapped && PerValue::Table.on())?;
+    let q = sh
+        .probe
+        .filter(|&q| q > sh.build && !sh.swapped && PerValue::Table.on())?;
     let p = &gx.pipelines()[q];
-    let at = 1 + p.ops.iter().position(|op| matches!(op, Op::Join(JoinDesc::Probe { slot, .. }) if *slot == sh.slot))?;
-    let (Op::Join(JoinDesc::Probe { jointype, keys, qual, .. }), Some(Op::Project(l))) = (&p.ops[at - 1], p.ops.get(at)) else { return None };
+    let at = 1 + p
+        .ops
+        .iter()
+        .position(|op| matches!(op, Op::Join(JoinDesc::Probe { slot, .. }) if *slot == sh.slot))?;
+    let (
+        Op::Join(JoinDesc::Probe {
+            jointype,
+            keys,
+            qual,
+            ..
+        }),
+        Some(Op::Project(l)),
+    ) = (&p.ops[at - 1], p.ops.get(at))
+    else {
+        return None;
+    };
     let g = group(gx, q)?;
     if !joins(*jointype) || p.ops.len() != at + 1 {
         return None;
     }
-    let codes = crate::step::project::code_cols(px, sh.build, gx.pipelines()[sh.build].ops.len() - 1);
-    for &col in sh.payload.iter().filter(|a| codes.iter().any(|c| c.0 == **a)) {
+    let codes =
+        crate::step::project::code_cols(px, sh.build, gx.pipelines()[sh.build].ops.len() - 1);
+    for &col in sh
+        .payload
+        .iter()
+        .filter(|a| codes.iter().any(|c| c.0 == **a))
+    {
         let n = |e: Node<'_>| reads(e, INNER_VAR, col);
-        let bare = |e: Node<'_>| e.as_target_entry().map_or(e, |t| t.expr).as_var().is_some_and(|v| v.varno == INNER_VAR && v.varattno == col);
+        let bare = |e: Node<'_>| {
+            e.as_target_entry()
+                .map_or(e, |t| t.expr)
+                .as_var()
+                .is_some_and(|v| v.varno == INNER_VAR && v.varattno == col)
+        };
         let mut at_r = l.iter().enumerate().filter(|(_, e)| n(*e) != Some(0));
-        let (Some((i, e)), None) = (at_r.next(), at_r.next()) else { continue };
+        let (Some((i, e)), None) = (at_r.next(), at_r.next()) else {
+            continue;
+        };
         let r = i as i16 + 1;
-        if !bare(e) || keys.iter().chain(qual.iter()).any(|x| n(x) != Some(0)) || g.keys.iter().any(|k| k.resno == r) || g.pinned.contains(&r) {
+        if !bare(e)
+            || keys.iter().chain(qual.iter()).any(|x| n(x) != Some(0))
+            || g.keys.iter().any(|k| k.resno == r)
+            || g.pinned.contains(&r)
+        {
             continue;
         }
-        let Some(c) = the_call(g, r, mcx) else { continue };
-        let Some((func, coll, _, pat)) = call(c) else { continue };
+        let Some(c) = the_call(g, r, mcx) else {
+            continue;
+        };
+        let Some((func, coll, _, pat)) = call(c) else {
+            continue;
+        };
         let quiet = match like_form(func) {
             Some(ilike) => {
-                let lit = pat.and_then(|p| p.as_const()).filter(|k| !k.constisnull).and_then(gravity_decompose::expr::const_bytes);
+                let lit = pat
+                    .and_then(|p| p.as_const())
+                    .filter(|k| !k.constisnull)
+                    .and_then(gravity_decompose::expr::const_bytes);
                 // D3019: a generic plan's `$n` pattern, by this execution's value (the admission keys a loud one apart)
                 let even = match pat.and_then(|p| p.as_param()) {
                     Some(prm) => gravity_decompose::effects::pattern_quiet(prm) == Some(true),
-                    None => lit.is_some_and(|b| b.iter().rev().take_while(|&&x| x == b'\\').count() % 2 == 0),
+                    None => lit.is_some_and(|b| {
+                        b.iter().rev().take_while(|&&x| x == b'\\').count() % 2 == 0
+                    }),
                 };
-                even && gx.catalog.text(coll).is_ok_and(|t| t.deterministic && (!ilike || t.ctype_is_c))
+                even && gx
+                    .catalog
+                    .text(coll)
+                    .is_ok_and(|t| t.deterministic && (!ilike || t.ctype_is_c))
             }
             None => crate::effects::raise_free(gx, c),
         };
         if quiet && crate::effects::immutable_call(gx, func) {
-            return Some(Hoist { col, r, func, call: c.as_raw().as_ptr() as usize });
+            return Some(Hoist {
+                col,
+                r,
+                func,
+                call: c.as_raw().as_ptr() as usize,
+            });
         }
     }
     None
@@ -97,14 +146,19 @@ fn plan(px: &mut Px<'_, '_>, sh: &Shape) -> Option<Hoist> {
 /// compile through `compile_at` as a plain fold's do, table/args.rs), with no grouping sets or two passes.
 fn group<'g, 'p>(gx: &Gx<'g, 'p>, q: usize) -> Option<&'g GroupDecl<'p>> {
     let fold = |f: GroupForm| matches!(f, GroupForm::Plain | GroupForm::Hashed | GroupForm::Sorted);
-    gx.graph.groups.iter().find(|g| g.producer == LifeId(q as u16) && fold(g.form) && g.two_pass.is_none() && g.set.is_none())
+    gx.graph.groups.iter().find(|g| {
+        g.producer == LifeId(q as u16) && fold(g.form) && g.two_pass.is_none() && g.set.is_none()
+    })
 }
 
 /// The one hoistable call over bare `outer.r` in `g`'s aggregates, when they read `outer.r` nowhere else (guard 6).
 fn the_call<'p>(g: &GroupDecl<'p>, r: i16, mcx: Mcx<'_>) -> Option<Node<'p>> {
     let mut out = PgVec::new_in(mcx);
     #[allow(clippy::unnecessary_fold)]
-    let ok = g.aggs.iter().fold(true, |ok, a| hoistable_reads(a.node, r, &mut out) && ok);
+    let ok = g
+        .aggs
+        .iter()
+        .fold(true, |ok, a| hoistable_reads(a.node, r, &mut out) && ok);
     (ok && out.len() == 1).then(|| out[0])
 }
 
@@ -135,7 +189,11 @@ fn call(n: Node<'_>) -> Option<(u32, u32, Node<'_>, Option<Node<'_>>)> {
     };
     let (a, p) = (args.iter().next()?, args.iter().nth(1));
     // D3019: an extern parameter is a constant of the execution (bound before the build runs)
-    let bound = |x: Node<'_>| x.as_const().is_some() || x.as_param().is_some_and(|p| p.paramkind == types_nodes::primnodes::ParamKind::PARAM_EXTERN);
+    let bound = |x: Node<'_>| {
+        x.as_const().is_some()
+            || x.as_param()
+                .is_some_and(|p| p.paramkind == types_nodes::primnodes::ParamKind::PARAM_EXTERN)
+    };
     (rt == BOOLOID && args.iter().skip(1).all(bound)).then_some((f, coll, a, p))
 }
 
@@ -145,7 +203,11 @@ fn call(n: Node<'_>) -> Option<(u32, u32, Node<'_>, Option<Node<'_>>)> {
 /// keyed by the builtin's oid). name's LIKE (namelike) is none: its argument is no coded text column.
 fn like_form(func: u32) -> Option<bool> {
     let t = fmgr_core::CANONICAL;
-    match t.binary_search_by_key(&func, |e| e.0).ok().map(|i| t[i].1)? {
+    match t
+        .binary_search_by_key(&func, |e| e.0)
+        .ok()
+        .map(|i| t[i].1)?
+    {
         "textlike" | "textnlike" => Some(false),
         "texticlike" | "texticnlike" => Some(true),
         _ => None,
@@ -156,7 +218,10 @@ fn outer_col(n: Node<'_>) -> Option<i16> {
     crate::stack_check();
     match n.as_relabel_type() {
         Some(r) => outer_col(r.arg),
-        None => n.as_var().filter(|v| v.varno == OUTER_VAR && v.varattno > 0).map(|v| v.varattno),
+        None => n
+            .as_var()
+            .filter(|v| v.varno == OUTER_VAR && v.varattno > 0)
+            .map(|v| v.varattno),
     }
 }
 
@@ -164,10 +229,14 @@ fn outer_col(n: Node<'_>) -> Option<i16> {
 fn reads(n: Node<'_>, varno: i32, a: i16) -> Option<usize> {
     crate::stack_check();
     if let Some(v) = n.as_var() {
-        return Some(usize::from(v.varno == varno && (v.varattno == a || v.varattno == 0)));
+        return Some(usize::from(
+            v.varno == varno && (v.varattno == a || v.varattno == 0),
+        ));
     }
     let mut c = Some(0);
-    let known = gravity_decompose::expr::kids(n, &mut |k| c = c.zip(reads(k, varno, a)).map(|(x, y)| x + y));
+    let known = gravity_decompose::expr::kids(n, &mut |k| {
+        c = c.zip(reads(k, varno, a)).map(|(x, y)| x + y)
+    });
     c.filter(|_| known)
 }
 
@@ -178,7 +247,13 @@ pub(crate) fn build(px: &mut Px<'_, '_>, sh: &Shape, node: i32) -> Option<(i16, 
     let gx = px.gx;
     let mcx = px.mcx();
     let (k, jb) = (sh.build, gx.pipelines()[sh.build].ops.len() - 1);
-    let Some(n) = sh.probe.and_then(|q| group(gx, q)).and_then(|g| the_call(g, h.r, mcx)) else { px.bug("a join hoist without its call") };
+    let Some(n) = sh
+        .probe
+        .and_then(|q| group(gx, q))
+        .and_then(|g| the_call(g, h.r, mcx))
+    else {
+        px.bug("a join hoist without its call")
+    };
     let ex = crate::step::expr::compile_ext(px, n, None, node, |px, c, ex| {
         for x in c.prog.nodes.iter_mut() {
             if let ExprNode::Var(v) = x {
@@ -196,17 +271,35 @@ pub(crate) fn build(px: &mut Px<'_, '_>, sh: &Shape, node: i32) -> Option<(i16, 
 
 /// A program compiled over `node` that holds a hoisted call reads the forwarded verdict there: the call's node becomes the
 /// column, its argument nodes left unreached. The calls rewritten (raw node pointers): their literals are not `c`'s needs.
-pub(crate) fn rewrite<'g>(px: &Px<'g, '_>, node: Node<'_>, c: &mut Compiled<'_>) -> PgVec<'g, usize> {
-    let Some(e) = px.ext::<JoinExt>(Face::Join) else { return PgVec::new_in(px.mcx()) };
+pub(crate) fn rewrite<'g>(
+    px: &Px<'g, '_>,
+    node: Node<'_>,
+    c: &mut Compiled<'_>,
+) -> PgVec<'g, usize> {
+    let Some(e) = px.ext::<JoinExt>(Face::Join) else {
+        return PgVec::new_in(px.mcx());
+    };
     let mut out = PgVec::new_in(px.mcx());
-    for h in e.shapes.iter().filter_map(|s| s.hoist.get()).filter(|h| holds(node, h.call)) {
-        let hits: PgVec<'_, usize> = (0..c.prog.nodes.len()).filter(|&i| over(&c.prog, i, &h)).collect_in(px.mcx());
+    for h in e
+        .shapes
+        .iter()
+        .filter_map(|s| s.hoist.get())
+        .filter(|h| holds(node, h.call))
+    {
+        let hits: PgVec<'_, usize> = (0..c.prog.nodes.len())
+            .filter(|&i| over(&c.prog, i, &h))
+            .collect_in(px.mcx());
         // only a call actually replaced drops its literals (a program evaluating it still places them: CORE's review)
         if !hits.is_empty() {
             out.push_in(h.call);
         }
         for i in hits {
-            c.prog.nodes[i] = ExprNode::Var(Var { src: Source::Outer, attno: h.r, typ: BOOLOID, desc: 0 });
+            c.prog.nodes[i] = ExprNode::Var(Var {
+                src: Source::Outer,
+                attno: h.r,
+                typ: BOOLOID,
+                desc: 0,
+            });
         }
     }
     out
@@ -224,9 +317,18 @@ fn holds(n: Node<'_>, call: usize) -> bool {
 /// Node `i` of `p` is the hoisted call over the forwarded column. It matches the function and its first argument, not the
 /// pattern: sound only because `the_call` admits one call over `outer.r` (guard 6); relaxing that needs the pattern here.
 fn over(p: &Program<'_>, i: usize, h: &Hoist) -> bool {
-    let (ExprNode::Op(f) | ExprNode::Func(f)) = &p.nodes[i] else { return false };
+    let (ExprNode::Op(f) | ExprNode::Func(f)) = &p.nodes[i] else {
+        return false;
+    };
     let s = &p.sites[f.site.0 as usize];
-    let Some(mut a) = p.kids.get(s.args.start as usize).filter(|_| s.funcid == h.func && s.args.len > 0).map(|a| a.0 as usize) else { return false };
+    let Some(mut a) = p
+        .kids
+        .get(s.args.start as usize)
+        .filter(|_| s.funcid == h.func && s.args.len > 0)
+        .map(|a| a.0 as usize)
+    else {
+        return false;
+    };
     while let ExprNode::Relabel(r) = &p.nodes[a] {
         if !r.transparent() {
             return false;
@@ -242,16 +344,42 @@ mod tests {
 
     #[test]
     fn only_an_inner_probe_hoists_its_call() {
-        let all = [JoinType::JOIN_INNER, JoinType::JOIN_LEFT, JoinType::JOIN_FULL, JoinType::JOIN_RIGHT, JoinType::JOIN_SEMI, JoinType::JOIN_ANTI, JoinType::JOIN_RIGHT_SEMI, JoinType::JOIN_RIGHT_ANTI, JoinType::JOIN_UNIQUE_OUTER, JoinType::JOIN_UNIQUE_INNER];
-        assert_eq!(all.iter().filter(|&&jt| super::joins(jt)).collect::<Vec<_>>(), [&JoinType::JOIN_INNER]);
+        let all = [
+            JoinType::JOIN_INNER,
+            JoinType::JOIN_LEFT,
+            JoinType::JOIN_FULL,
+            JoinType::JOIN_RIGHT,
+            JoinType::JOIN_SEMI,
+            JoinType::JOIN_ANTI,
+            JoinType::JOIN_RIGHT_SEMI,
+            JoinType::JOIN_RIGHT_ANTI,
+            JoinType::JOIN_UNIQUE_OUTER,
+            JoinType::JOIN_UNIQUE_INNER,
+        ];
+        assert_eq!(
+            all.iter()
+                .filter(|&&jt| super::joins(jt))
+                .collect::<Vec<_>>(),
+            [&JoinType::JOIN_INNER]
+        );
     }
 
     /// OIDW-31 / OIDW-32: the catalog's names pick the same builtins the oid lists named (text and bpchar LIKE / NOT LIKE,
     /// ILIKE / NOT ILIKE), and nothing else up to the first user oid.
     #[test]
     fn the_like_family_is_named_by_the_catalog() {
-        let like: Vec<u32> = (1..16384).filter(|&f| super::like_form(f) == Some(false)).collect();
-        let ilike: Vec<u32> = (1..16384).filter(|&f| super::like_form(f) == Some(true)).collect();
-        assert_eq!((like, ilike), (vec![850, 851, 1569, 1570, 1631, 1632], vec![1633, 1634, 1660, 1661]));
+        let like: Vec<u32> = (1..16384)
+            .filter(|&f| super::like_form(f) == Some(false))
+            .collect();
+        let ilike: Vec<u32> = (1..16384)
+            .filter(|&f| super::like_form(f) == Some(true))
+            .collect();
+        assert_eq!(
+            (like, ilike),
+            (
+                vec![850, 851, 1569, 1570, 1631, 1632],
+                vec![1633, 1634, 1660, 1661]
+            )
+        );
     }
 }

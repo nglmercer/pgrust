@@ -16,7 +16,11 @@ fn take() -> Option<Box<dyn std::any::Any + Send + Sync>> {
 }
 
 fn restash(p: &(dyn std::any::Any + Send + Sync)) {
-    assert_eq!(p.downcast_ref::<String>().map(String::as_str), Some("division by zero"), "the payload held");
+    assert_eq!(
+        p.downcast_ref::<String>().map(String::as_str),
+        Some("division by zero"),
+        "the payload held"
+    );
     RESTASHED.fetch_add(1, Ordering::Relaxed);
 }
 
@@ -24,12 +28,26 @@ fn restash(p: &(dyn std::any::Any + Send + Sync)) {
 fn the_first_held_error_is_raised_by_every_participant_and_dropped_unraised_at_the_clear() {
     assert!(HELD_HOOKS.set(HeldHooks { take, restash }).is_ok());
     let mut t = SpillTable::with_slots(2);
-    assert_eq!((t.held(), t.raise_held()), (None, None), "nothing held: a raise answers None");
+    assert_eq!(
+        (t.held(), t.raise_held()),
+        (None, None),
+        "nothing held: a raise answers None"
+    );
 
     let payload = (HELD_HOOKS.get().unwrap().take)();
-    t.hold(HeldError { err: Error::host("pg"), payload });
-    t.hold(HeldError { err: Error::Raised(1), payload: None });
-    assert_eq!(t.held(), Some(Error::host("pg")), "the statement's first held error stays");
+    t.hold(HeldError {
+        err: Error::host("pg"),
+        payload,
+    });
+    t.hold(HeldError {
+        err: Error::Raised(1),
+        payload: None,
+    });
+    assert_eq!(
+        t.held(),
+        Some(Error::host("pg")),
+        "the statement's first held error stays"
+    );
 
     let t_ref = &t;
     let raised: Vec<Option<Error>> = std::thread::scope(|s| {
@@ -37,12 +55,31 @@ fn the_first_held_error_is_raised_by_every_participant_and_dropped_unraised_at_t
         let b = s.spawn(|| t_ref.raise_held());
         vec![a.join().unwrap(), b.join().unwrap()]
     });
-    assert_eq!(raised, vec![Some(Error::host("pg")), Some(Error::host("pg"))], "each participant raises the same error");
-    assert_eq!((TAKEN.load(Ordering::Relaxed), RESTASHED.load(Ordering::Relaxed)), (1, 2), "the payload taken once, stashed again per raise");
-    assert_eq!(t.held(), Some(Error::host("pg")), "a raise leaves it for the next raiser");
+    assert_eq!(
+        raised,
+        vec![Some(Error::host("pg")), Some(Error::host("pg"))],
+        "each participant raises the same error"
+    );
+    assert_eq!(
+        (
+            TAKEN.load(Ordering::Relaxed),
+            RESTASHED.load(Ordering::Relaxed)
+        ),
+        (1, 2),
+        "the payload taken once, stashed again per raise"
+    );
+    assert_eq!(
+        t.held(),
+        Some(Error::host("pg")),
+        "a raise leaves it for the next raiser"
+    );
 
     t.clear();
-    assert_eq!((t.held(), t.raise_held()), (None, None), "the clear drops it unraised");
+    assert_eq!(
+        (t.held(), t.raise_held()),
+        (None, None),
+        "the clear drops it unraised"
+    );
     assert_eq!(RESTASHED.load(Ordering::Relaxed), 2);
 }
 
@@ -54,39 +91,124 @@ fn a_rerun_call_raises_its_own_held_error_and_drops_an_earlier_calls() {
     let t = SpillTable::with_slots(2);
     let member = |b: usize| b == 3;
     t.call_begin(&member);
-    t.hold_for(HeldError { err: Error::host("call 1"), payload: None }, 3);
-    assert_eq!(t.raise_held(), Some(Error::host("call 1")), "a call's member probe raises its build's error");
+    t.hold_for(
+        HeldError {
+            err: Error::host("call 1"),
+            payload: None,
+        },
+        3,
+    );
+    assert_eq!(
+        t.raise_held(),
+        Some(Error::host("call 1")),
+        "a call's member probe raises its build's error"
+    );
     t.call_end();
-    assert_eq!(t.held(), Some(Error::host("call 1")), "kept past the call (nothing held around it), finished");
+    assert_eq!(
+        t.held(),
+        Some(Error::host("call 1")),
+        "kept past the call (nothing held around it), finished"
+    );
     t.call_begin(&member);
-    assert_eq!(t.held(), None, "the set's next call drops it: the member's region is reset");
-    t.hold_for(HeldError { err: Error::host("call 2"), payload: None }, 3);
-    assert_eq!(t.raise_held(), Some(Error::host("call 2")), "the call's own error, not call 1's");
+    assert_eq!(
+        t.held(),
+        None,
+        "the set's next call drops it: the member's region is reset"
+    );
+    t.hold_for(
+        HeldError {
+            err: Error::host("call 2"),
+            payload: None,
+        },
+        3,
+    );
+    assert_eq!(
+        t.raise_held(),
+        Some(Error::host("call 2")),
+        "the call's own error, not call 1's"
+    );
     t.call_end();
 
     // an error held outside the set (pipeline 1's region) stays the statement's first
     let t = SpillTable::with_slots(2);
-    t.hold_for(HeldError { err: Error::host("outside"), payload: None }, 1);
+    t.hold_for(
+        HeldError {
+            err: Error::host("outside"),
+            payload: None,
+        },
+        1,
+    );
     t.call_begin(&member);
-    assert_eq!(t.raise_held(), Some(Error::host("outside")), "a call that held nothing reads the layer around it");
-    t.hold_for(HeldError { err: Error::host("member"), payload: None }, 3);
-    t.hold_for(HeldError { err: Error::host("member again"), payload: None }, 3);
-    assert_eq!(t.raise_held(), Some(Error::host("member")), "the call's first error, in its own layer");
+    assert_eq!(
+        t.raise_held(),
+        Some(Error::host("outside")),
+        "a call that held nothing reads the layer around it"
+    );
+    t.hold_for(
+        HeldError {
+            err: Error::host("member"),
+            payload: None,
+        },
+        3,
+    );
+    t.hold_for(
+        HeldError {
+            err: Error::host("member again"),
+            payload: None,
+        },
+        3,
+    );
+    assert_eq!(
+        t.raise_held(),
+        Some(Error::host("member")),
+        "the call's first error, in its own layer"
+    );
     t.call_end();
-    assert_eq!(t.held(), Some(Error::host("outside")), "the call's error dropped: the statement's first stays");
+    assert_eq!(
+        t.held(),
+        Some(Error::host("outside")),
+        "the call's error dropped: the statement's first stays"
+    );
     t.call_begin(&member);
-    assert_eq!(t.held(), Some(Error::host("outside")), "not a member's region: kept at the next call");
+    assert_eq!(
+        t.held(),
+        Some(Error::host("outside")),
+        "not a member's region: kept at the next call"
+    );
     t.call_end();
 
     // a finished call's error gives way to a later hold outside the set; a clear drops every layer
     let t = SpillTable::with_slots(2);
     t.call_begin(&member);
-    t.hold_for(HeldError { err: Error::host("call"), payload: None }, 3);
+    t.hold_for(
+        HeldError {
+            err: Error::host("call"),
+            payload: None,
+        },
+        3,
+    );
     t.call_end();
-    t.hold_for(HeldError { err: Error::host("later"), payload: None }, 1);
-    assert_eq!(t.held(), Some(Error::host("later")), "a finished call's error gives way");
-    t.hold(HeldError { err: Error::host("third"), payload: None });
-    assert_eq!(t.held(), Some(Error::host("later")), "the statement's first again");
+    t.hold_for(
+        HeldError {
+            err: Error::host("later"),
+            payload: None,
+        },
+        1,
+    );
+    assert_eq!(
+        t.held(),
+        Some(Error::host("later")),
+        "a finished call's error gives way"
+    );
+    t.hold(HeldError {
+        err: Error::host("third"),
+        payload: None,
+    });
+    assert_eq!(
+        t.held(),
+        Some(Error::host("later")),
+        "the statement's first again"
+    );
     let mut t = t;
     t.clear();
     assert_eq!(t.held(), None);

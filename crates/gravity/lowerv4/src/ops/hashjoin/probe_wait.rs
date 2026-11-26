@@ -7,21 +7,32 @@ use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{HostFlags, IntBinOp, IntCond, Type, Value};
 use mcx::{GrowIn, PgVec};
 
-use crate::ops::shared::lazy::{LazyImpl, LazyMech};
 use crate::face::kinds::KindId;
 use crate::frame::env::Env;
 use crate::frame::px::Px;
 use crate::frame::row::RowVals;
+use crate::ops::shared::lazy::{LazyImpl, LazyMech};
 
 use crate::ops::hashjoin::build::FAILED;
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { kinds: &[(KindId::JoinInner, &LazyImpl(&Lazy))], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    kinds: &[(KindId::JoinInner, &LazyImpl(&Lazy))],
+    ..crate::ops::NONE
+};
 
 /// D824's lazy build for another kind (merge.join's lazy inner, MERGE R3 (ii)): build_class.rs's group, this file's wait.
 struct Lazy;
 
 impl LazyMech for Lazy {
-    fn group<'g>(&self, px: &Px<'g, '_>, b: usize, q: usize, consumed: usize, slot: u8, first: &[u8]) -> Option<PgVec<'g, usize>> {
+    fn group<'g>(
+        &self,
+        px: &Px<'g, '_>,
+        b: usize,
+        q: usize,
+        consumed: usize,
+        slot: u8,
+        first: &[u8],
+    ) -> Option<PgVec<'g, usize>> {
         let before = crate::ops::hashjoin::build_class::feed(px.gx, q, first.iter().copied());
         // D2026: a UNION ALL's arms all fill the merge's inner run (PG's Sort reads its Append whole at its first fetch), so
         // every arm waits with its producers: each arm's group is taken with the other arms beside the outer's feeders
@@ -31,14 +42,28 @@ impl LazyMech for Lazy {
         for &x in arms.iter().chain([&b]) {
             let mut by = mcx::to_vec_in(&before[..], px.mcx());
             by.extend_in(arms.iter().chain([&b]).copied().filter(|&y| y != x));
-            group.extend_in(crate::ops::hashjoin::build_class::lazy_group(px, x, q, consumed, slot, &by[..])?);
+            group.extend_in(crate::ops::hashjoin::build_class::lazy_group(
+                px,
+                x,
+                q,
+                consumed,
+                slot,
+                &by[..],
+            )?);
         }
         group.sort_unstable();
         group.dedup();
         Some(group)
     }
 
-    fn wait(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals, offset: i32, consumed: usize) {
+    fn wait(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        row: &RowVals,
+        offset: i32,
+        consumed: usize,
+    ) {
         wait(b, env, row, offset, consumed)
     }
 }
@@ -55,7 +80,10 @@ pub(crate) fn raise_failed(b: &mut FunctionBuilder<'_>, env: &Env, form: Value) 
     b.cond_br(failed, (l_fail, &[]), (l_go, &[]));
     b.switch_to(l_fail);
     b.mark_cold(l_fail);
-    let flags = HostFlags { may_error: true, ..HostFlags::default() };
+    let flags = HostFlags {
+        may_error: true,
+        ..HostFlags::default()
+    };
     let f = gravity_abi::host_words!(gravity_kernels::host_abi::raise_held(ctx));
     let h = b.declare_host_once("raise_held", &[Type::Ptr], Some(Type::I64), f, flags);
     b.call_host(h, &[env.ctx], Some(Type::I64));
@@ -67,7 +95,13 @@ pub(crate) fn raise_failed(b: &mut FunctionBuilder<'_>, env: &Env, form: Value) 
 /// D824 (V4R-298): the lazy build still pending, the row stops the call inside itself (`BUILD_WAIT`, the offset word
 /// tagged `WAIT` so its held volatile values are read back, never re-run); the runner runs the build and resumes here,
 /// where the tag is cleared and the row probes the built table (an empty one ends the pipeline: `prefix_safe` is off).
-pub(crate) fn wait(b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals, offset: i32, consumed: usize) {
+pub(crate) fn wait(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    row: &RowVals,
+    offset: i32,
+    consumed: usize,
+) {
     let fl = b.load_zext(Type::I32, env.ctx, hdr::FLAGS as i32);
     let bit = b.iconst(Type::I64, 1i64 << (FLAG_PENDING_SHIFT as usize + consumed));
     let m = b.int_bin(IntBinOp::And, fl, bit);

@@ -16,21 +16,32 @@ use gravity_lowerv4::face::strategy::PREFETCH_FP;
 fn code_keyed_and_takes(text: &str) -> Option<(bool, bool)> {
     let (kinds, props) = common::props_fixture(text)?;
     let (mut k, mut p) = (KindSet::EMPTY, PropSet::default());
-    kinds.iter().for_each(|n| k.add(KindId::from_name(n).unwrap_or_else(|| panic!("unknown kind {n}"))));
-    props.iter().for_each(|n| p.add(Prop::from_name(n).unwrap_or_else(|| panic!("unknown prop {n}"))));
-    Some((k.has(KindId::RepCodeHash), applies::strategies_for(k, p).has(PREFETCH_FP)))
+    kinds
+        .iter()
+        .for_each(|n| k.add(KindId::from_name(n).unwrap_or_else(|| panic!("unknown kind {n}"))));
+    props
+        .iter()
+        .for_each(|n| p.add(Prop::from_name(n).unwrap_or_else(|| panic!("unknown prop {n}"))));
+    Some((
+        k.has(KindId::RepCodeHash),
+        applies::strategies_for(k, p).has(PREFETCH_FP),
+    ))
 }
 
 /// The targeted corpora (the catalog's bench side: fieldobs, TPC-H, the bench corpus) by fixture name.
 fn bench(name: &str) -> bool {
-    ["fieldobs-", "tpch-", "bench-"].iter().any(|p| name.starts_with(p))
+    ["fieldobs-", "tpch-", "bench-"]
+        .iter()
+        .any(|p| name.starts_with(p))
 }
 
 #[test]
 fn prefetch_fp_takes_every_code_keyed_group_and_no_other() {
     let (mut taken, mut nonbench, mut heap_twins, mut bad) = (0, BTreeSet::new(), 0, Vec::new());
     for (name, text) in common::files(&common::plans_dir(), "plan") {
-        let Some((code, got)) = code_keyed_and_takes(&text) else { continue };
+        let Some((code, got)) = code_keyed_and_takes(&text) else {
+            continue;
+        };
         if got != code {
             bad.push(format!("{name}: code-keyed {code}, prefetch.fp {got}"));
             continue;
@@ -46,12 +57,21 @@ fn prefetch_fp_takes_every_code_keyed_group_and_no_other() {
         let heap: String = text.lines().map(|l| if l.starts_with("-- rel ") { l.replace(" am=pgrcolumnar", " am=heap") } else { l.to_owned() } + "\n").collect();
         match code_keyed_and_takes(&heap) {
             Some((false, false)) => heap_twins += 1,
-            Some(x) => bad.push(format!("{name}: its heap twin is (code-keyed, prefetch.fp) {x:?}")),
+            Some(x) => bad.push(format!(
+                "{name}: its heap twin is (code-keyed, prefetch.fp) {x:?}"
+            )),
             None => {}
         }
     }
     eprintln!("prefetch.fp: {taken} code-keyed fixtures take it ({} outside the benchmarks: {nonbench:?}); {heap_twins} heap twins do not", nonbench.len());
     assert!(bad.is_empty(), "{}", bad.join("\n"));
-    assert!(nonbench.iter().any(|n| n.starts_with("aggs-")), "no aggs- fixture took prefetch.fp: {nonbench:?}");
-    assert!(heap_twins >= nonbench.len(), "{heap_twins} heap twins checked for {} non-benchmark fixtures", nonbench.len());
+    assert!(
+        nonbench.iter().any(|n| n.starts_with("aggs-")),
+        "no aggs- fixture took prefetch.fp: {nonbench:?}"
+    );
+    assert!(
+        heap_twins >= nonbench.len(),
+        "{heap_twins} heap twins checked for {} non-benchmark fixtures",
+        nonbench.len()
+    );
 }

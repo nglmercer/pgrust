@@ -9,7 +9,10 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::Arc;
 
 use memledger::arena::{cache_took, in_cache_scope};
-use memledger::{account_row, bind_backend, door_heap, fold, statement_begin, statement_end, unbind_backend, Acct};
+use memledger::{
+    account_row, bind_backend, door_heap, fold, statement_begin, statement_end, unbind_backend,
+    Acct,
+};
 
 struct Door1;
 
@@ -58,7 +61,9 @@ use granule_fixtures::*;
 use gravity_abi::ctx::lane;
 use gravity_abi::Lane;
 use gravity_driver::{blank_site, Source, Window};
-use gravity_hosts::ops::scan::pgrc::granule_source::{let_warm_go, GranuleRangeSource, GranuleRecipe, PartIoSpec, PartList, PartSpec, Resolved};
+use gravity_hosts::ops::scan::pgrc::granule_source::{
+    let_warm_go, GranuleRangeSource, GranuleRecipe, PartIoSpec, PartList, PartSpec, Resolved,
+};
 use pgrc_format::dirlayout::part_file_name;
 use pgrc_read::{PartExpect, PartRegistry};
 
@@ -76,7 +81,14 @@ fn file_parts(bf: &pgrc_qa::corpus::BuiltFixture, tag: u64) -> Arc<PartList> {
             std::fs::write(&path, bf.files.get(&name).expect("part file")).unwrap();
             let mut expect = PartExpect::none();
             expect.part_no = Some(rec.part_no);
-            PartSpec { io: PartIoSpec::Path(std::ffi::CString::new(path.to_str().unwrap()).unwrap()), expect, rows: rec.rows, granules: rec.granule_count, deletes: None, part: None }
+            PartSpec {
+                io: PartIoSpec::Path(std::ffi::CString::new(path.to_str().unwrap()).unwrap()),
+                expect,
+                rows: rec.rows,
+                granules: rec.granule_count,
+                deletes: None,
+                part: None,
+            }
         })
         .collect();
     Arc::new(PartList::new(parts))
@@ -102,7 +114,10 @@ fn code_rows(src: &mut GranuleRangeSource, lo: u64, hi: u64, render: bool) -> u6
         let l = w.lanes()[0];
         assert_eq!(l.kind, lane::KIND_CODES);
         let part = w.base().part_id;
-        let codes: Vec<u32> = (0..n as usize).step_by(64).map(|i| unsafe { *(l.ptr as *const u32).add(i) }).collect();
+        let codes: Vec<u32> = (0..n as usize)
+            .step_by(64)
+            .map(|i| unsafe { *(l.ptr as *const u32).add(i) })
+            .collect();
         if render {
             for c in codes {
                 src.dict_value(part, 0, c).unwrap();
@@ -114,7 +129,13 @@ fn code_rows(src: &mut GranuleRangeSource, lo: u64, hi: u64, render: bool) -> u6
 
 /// One statement on backend `procno` reading every row of `list`'s code lane (`render`: rendering some), its
 /// dictionaries kept warm in the list's cells or taken from them. Returns the account's change over the statement.
-fn statement(procno: u32, list: &Arc<PartList>, reg: &Arc<PartRegistry>, uses_release: bool, render: bool) -> i64 {
+fn statement(
+    procno: u32,
+    list: &Arc<PartList>,
+    reg: &Arc<PartRegistry>,
+    uses_release: bool,
+    render: bool,
+) -> i64 {
     let a = Acct::backend(procno);
     bind_backend(procno, 90_000 + procno);
     statement_begin();
@@ -149,16 +170,34 @@ fn statement(procno: u32, list: &Arc<PartList>, reg: &Arc<PartRegistry>, uses_re
 /// `y`) reads them from the cells (`adopt_warm`); then backend `z` runs the part cache's evicted hook, which lets the
 /// cells go: z's thread holds the last `Arc` of each entry and frees it. Every byte of an entry must leave z's account as
 /// it came, so z's account ends where it began.
-fn last_holder_on_another_backend(bf: pgrc_qa::corpus::BuiltFixture, ino: u64, (x, y, z): (u32, u32, u32), uses_release: bool, evicted: bool) -> i64 {
+fn last_holder_on_another_backend(
+    bf: pgrc_qa::corpus::BuiltFixture,
+    ino: u64,
+    (x, y, z): (u32, u32, u32),
+    uses_release: bool,
+    evicted: bool,
+) -> i64 {
     let list = file_parts(&bf, ino);
     let reg = Arc::new(PartRegistry::new(256 << 20));
     let nparts = list.len();
     let (l, r) = (Arc::clone(&list), Arc::clone(&reg));
-    let opener = std::thread::spawn(move || statement(x, &l, &r, uses_release, true)).join().unwrap();
-    assert_eq!(list.shared_dicts(), nparts, "the list's cells keep every part's dictionary warm");
+    let opener = std::thread::spawn(move || statement(x, &l, &r, uses_release, true))
+        .join()
+        .unwrap();
+    assert_eq!(
+        list.shared_dicts(),
+        nparts,
+        "the list's cells keep every part's dictionary warm"
+    );
     let (l, r) = (Arc::clone(&list), Arc::clone(&reg));
-    let adopter = std::thread::spawn(move || statement(y, &l, &r, uses_release, true)).join().unwrap();
-    assert_eq!(list.shared_dicts(), nparts, "the adopter left the cells as it found them");
+    let adopter = std::thread::spawn(move || statement(y, &l, &r, uses_release, true))
+        .join()
+        .unwrap();
+    assert_eq!(
+        list.shared_dicts(),
+        nparts,
+        "the adopter left the cells as it found them"
+    );
     let r = Arc::clone(&reg);
     let dropper = std::thread::spawn(move || {
         let a = Acct::backend(z);
@@ -178,7 +217,11 @@ fn last_holder_on_another_backend(bf: pgrc_qa::corpus::BuiltFixture, ino: u64, (
     })
     .join()
     .unwrap();
-    assert_eq!(list.shared_dicts(), 0, "the evicted hook emptied the list's cells");
+    assert_eq!(
+        list.shared_dicts(),
+        0,
+        "the evicted hook emptied the list's cells"
+    );
     eprintln!("{}: opener {opener:+} B, adopter {adopter:+} B, last holder {dropper:+} B ({nparts} parts, uses_release {uses_release}, parts evicted {evicted})", bf.fx.name);
     dropper
 }
@@ -198,11 +241,35 @@ fn a_warm_dictionary_leaves_the_account_of_the_statement_that_drops_it_as_it_cam
     let mut ino = 45_520;
     let mut ends = Vec::new();
     for evicted in [false, true] {
-        ends.push(("two small parts", evicted, last_holder_on_another_backend(text_fixture(), ino, (3945, 3946, 3947), false, evicted)));
+        ends.push((
+            "two small parts",
+            evicted,
+            last_holder_on_another_backend(text_fixture(), ino, (3945, 3946, 3947), false, evicted),
+        ));
         // a wide one (50,000 entries, a wrapped block-grain payload) in the statement's own cells too (StmtDicts)
-        ends.push(("wide", evicted, last_holder_on_another_backend(wide_text_fixture("gravity_d4552_wide", 7552), ino + 10, (3948, 3949, 3950), true, evicted)));
+        ends.push((
+            "wide",
+            evicted,
+            last_holder_on_another_backend(
+                wide_text_fixture("gravity_d4552_wide", 7552),
+                ino + 10,
+                (3948, 3949, 3950),
+                true,
+                evicted,
+            ),
+        ));
         // an unwrapped multi-frame payload (frame-lazy / frame-direct)
-        ends.push(("multi-frame", evicted, last_holder_on_another_backend(text_fixture_of("gravity_d4552_seq", 7553, 300_000, 400_000, seq_value), ino + 20, (3951, 3952, 3953), true, evicted)));
+        ends.push((
+            "multi-frame",
+            evicted,
+            last_holder_on_another_backend(
+                text_fixture_of("gravity_d4552_seq", 7553, 300_000, 400_000, seq_value),
+                ino + 20,
+                (3951, 3952, 3953),
+                true,
+                evicted,
+            ),
+        ));
         ino += 100;
     }
     let below: Vec<_> = ends.iter().filter(|e| e.2 < -SLACK).collect();

@@ -35,12 +35,39 @@ fn trim_to(to: u64) -> u64 {
 #[test]
 fn the_backstop_reclaims_an_unmanaged_cache_down_to_its_floor() {
     HELD.store(1000 * MIB, Ordering::Relaxed);
-    assert!(budget::register(Consumer::CondCache, Hooks { current: held, floor, cap, reclaim: Some(trim_to) }));
-    assert!(!reclaim::applies() && !budget::managed(Consumer::CondCache), "the default: no reclaimer, no managed cache");
-    assert_eq!(reclaim::reclaim_fast(4096 * MIB), 0, "the fast rungs never reach it");
-    assert_eq!(reclaim::backstop_bytes(), 936 * MIB, "what the backstop could free: down to the floor");
-    assert_eq!(reclaim::reclaim_backstop(300 * MIB), 300 * MIB, "what it wants and no more");
+    assert!(budget::register(
+        Consumer::CondCache,
+        Hooks {
+            current: held,
+            floor,
+            cap,
+            reclaim: Some(trim_to)
+        }
+    ));
+    assert!(
+        !reclaim::applies() && !budget::managed(Consumer::CondCache),
+        "the default: no reclaimer, no managed cache"
+    );
+    assert_eq!(
+        reclaim::reclaim_fast(4096 * MIB),
+        0,
+        "the fast rungs never reach it"
+    );
+    assert_eq!(
+        reclaim::backstop_bytes(),
+        936 * MIB,
+        "what the backstop could free: down to the floor"
+    );
+    assert_eq!(
+        reclaim::reclaim_backstop(300 * MIB),
+        300 * MIB,
+        "what it wants and no more"
+    );
     assert_eq!(held(), 700 * MIB);
-    assert_eq!(reclaim::reclaim_backstop(4096 * MIB), 636 * MIB, "never under the floor");
+    assert_eq!(
+        reclaim::reclaim_backstop(4096 * MIB),
+        636 * MIB,
+        "never under the floor"
+    );
     assert_eq!((held(), reclaim::backstop_bytes()), (floor(), 0));
 }

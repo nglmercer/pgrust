@@ -40,11 +40,14 @@ pub(super) fn codes_of(e: &Arc<Entry>, entries: &[Func]) -> Vec<Code> {
         .map(|&f| {
             // SAFETY: `crate::check_entry` fixed every entry's signature to `(ptr) -> (i64)` before the lookup, which under the
             // backend's value convention (64-bit integers and pointers) is `extern "C" fn(*mut Ctx) -> i64`.
-            let entry = unsafe { core::mem::transmute::<usize, gravity_program::Entry>(e.compiled.entry(f)) };
+            let entry = unsafe {
+                core::mem::transmute::<usize, gravity_program::Entry>(e.compiled.entry(f))
+            };
             // the program key's view of this code is the IR's content key and the entry, as a tier-0 code's (D303): one
             // lowering keys one program whether its IR was compiled at the install or is promoted later
-            Code::mapped(entry, e.bytes, Box::new(e.clone())).with_identity(e.key.0 ^ f.0 as u128).of_mapping(Arc::as_ptr(e) as usize) // alloc: Program
+            Code::mapped(entry, e.bytes, Box::new(e.clone()))
+                .with_identity(e.key.0 ^ f.0 as u128)
+                .of_mapping(Arc::as_ptr(e) as usize) // alloc: Program
         })
         .collect() // alloc: Program
 }
-

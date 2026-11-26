@@ -16,7 +16,11 @@ pub const BLOCK_C0: u64 = 64;
 /// `BLOCK_C0` blocks up to the grant, and the leader alone (0) when that gives fewer than two.
 pub const fn heap_width(blocks: u64, claimed: u16) -> u16 {
     let w = blocks / BLOCK_C0;
-    let w = if w < claimed as u64 { w } else { claimed as u64 };
+    let w = if w < claimed as u64 {
+        w
+    } else {
+        claimed as u64
+    };
     if w < 2 {
         0
     } else {
@@ -108,7 +112,11 @@ pub enum StepShape {
     /// A hash probe: `lazy`, its build waits for the first row of the whole outer (D824, D1005); `clears_marks`, it clears a
     /// kept table's marks in one call (D2592); `ordered`, a RIGHT SEMI probe whose join qual may raise reads the outer in
     /// PostgreSQL's order (D2696).
-    HashProbe { lazy: bool, clears_marks: bool, ordered: bool },
+    HashProbe {
+        lazy: bool,
+        clears_marks: bool,
+        ordered: bool,
+    },
     /// A SubPlan evaluated per row: `scan`, an inner that scans a relation (its site is the step's); otherwise a once
     /// inner that reads only frame words, each worker's own.
     SubPlan { scan: bool },
@@ -134,7 +142,14 @@ pub const fn step_serial(s: &StepShape) -> Option<Reason> {
                 Some(p) => p.btree && p.heap && p.plain_cols && p.bare_keys,
                 None => false,
             };
-            if (probe || n.spool) && n.inner_plain && !n.inner_volatile && !n.end_order_visible && !n.lazy_material && !n.regroup && !n.keeps_owner {
+            if (probe || n.spool)
+                && n.inner_plain
+                && !n.inner_volatile
+                && !n.end_order_visible
+                && !n.lazy_material
+                && !n.regroup
+                && !n.keeps_owner
+            {
                 None
             } else {
                 Some(Reason::Host)
@@ -142,7 +157,11 @@ pub const fn step_serial(s: &StepShape) -> Option<Reason> {
         }
         StepShape::Merge => Some(Reason::Host),
         StepShape::MergeCoSplit => None,
-        StepShape::HashProbe { lazy, clears_marks, ordered } => {
+        StepShape::HashProbe {
+            lazy,
+            clears_marks,
+            ordered,
+        } => {
             if *lazy || *clears_marks || *ordered {
                 Some(Reason::Host)
             } else {
@@ -175,7 +194,11 @@ mod tests {
     #[test]
     fn the_heap_rule_gives_one_worker_per_block_c0_blocks_and_the_leader_under_two() {
         assert_eq!(heap_width(0, 16), 0);
-        assert_eq!(heap_width(2 * BLOCK_C0 - 1, 16), 0, "fewer blocks than two startup claims: the leader");
+        assert_eq!(
+            heap_width(2 * BLOCK_C0 - 1, 16),
+            0,
+            "fewer blocks than two startup claims: the leader"
+        );
         assert_eq!(heap_width(2 * BLOCK_C0, 16), 2);
         assert_eq!(heap_width(5 * BLOCK_C0 + 7, 16), 5);
         assert_eq!(heap_width(1 << 30, 16), 16, "never past the grant");
@@ -188,30 +211,96 @@ mod tests {
         assert_eq!(source_serial(SourceShape::Range), None);
         assert_eq!(source_serial(SourceShape::Morsel), None);
         assert_eq!(source_serial(SourceShape::Index), Some(Reason::IndexSource));
-        assert_eq!(source_serial(SourceShape::Sorted), Some(Reason::SortedSource));
+        assert_eq!(
+            source_serial(SourceShape::Sorted),
+            Some(Reason::SortedSource)
+        );
         assert_eq!(source_serial(SourceShape::Temp), Some(Reason::TempSource));
-        assert_eq!(source_serial(SourceShape::NoSite), Some(Reason::NoDrivingSite));
+        assert_eq!(
+            source_serial(SourceShape::NoSite),
+            Some(Reason::NoDrivingSite)
+        );
     }
 
     fn wide() -> NestShape {
-        let p = NestProbe { btree: true, heap: true, plain_cols: true, bare_keys: true };
-        NestShape { probe: Some(p), inner_plain: true, inner_volatile: false, end_order_visible: false, lazy_material: false, regroup: false, keeps_owner: false, spool: false }
+        let p = NestProbe {
+            btree: true,
+            heap: true,
+            plain_cols: true,
+            bare_keys: true,
+        };
+        NestShape {
+            probe: Some(p),
+            inner_plain: true,
+            inner_volatile: false,
+            end_order_visible: false,
+            lazy_material: false,
+            regroup: false,
+            keeps_owner: false,
+            spool: false,
+        }
     }
 
     /// D4532: a nest over an eager spool (no probe) widens under the same facts as a probe's; each other fact alone keeps
     /// it on the leader, and with neither a probe nor a spool it stays there.
     #[test]
     fn a_nest_over_a_filled_spool_widens_under_the_same_facts() {
-        let spool = NestShape { probe: None, spool: true, ..wide() };
+        let spool = NestShape {
+            probe: None,
+            spool: true,
+            ..wide()
+        };
         assert_eq!(step_serial(&StepShape::Nest(spool)), None);
         let host = Some(Reason::Host);
-        assert_eq!(step_serial(&StepShape::Nest(NestShape { spool: false, ..spool })), host);
-        assert_eq!(step_serial(&StepShape::Nest(NestShape { inner_plain: false, ..spool })), host);
-        assert_eq!(step_serial(&StepShape::Nest(NestShape { inner_volatile: true, ..spool })), host);
-        assert_eq!(step_serial(&StepShape::Nest(NestShape { end_order_visible: true, ..spool })), host);
-        assert_eq!(step_serial(&StepShape::Nest(NestShape { lazy_material: true, ..spool })), host);
-        assert_eq!(step_serial(&StepShape::Nest(NestShape { regroup: true, ..spool })), host);
-        assert_eq!(step_serial(&StepShape::Nest(NestShape { keeps_owner: true, ..spool })), host);
+        assert_eq!(
+            step_serial(&StepShape::Nest(NestShape {
+                spool: false,
+                ..spool
+            })),
+            host
+        );
+        assert_eq!(
+            step_serial(&StepShape::Nest(NestShape {
+                inner_plain: false,
+                ..spool
+            })),
+            host
+        );
+        assert_eq!(
+            step_serial(&StepShape::Nest(NestShape {
+                inner_volatile: true,
+                ..spool
+            })),
+            host
+        );
+        assert_eq!(
+            step_serial(&StepShape::Nest(NestShape {
+                end_order_visible: true,
+                ..spool
+            })),
+            host
+        );
+        assert_eq!(
+            step_serial(&StepShape::Nest(NestShape {
+                lazy_material: true,
+                ..spool
+            })),
+            host
+        );
+        assert_eq!(
+            step_serial(&StepShape::Nest(NestShape {
+                regroup: true,
+                ..spool
+            })),
+            host
+        );
+        assert_eq!(
+            step_serial(&StepShape::Nest(NestShape {
+                keeps_owner: true,
+                ..spool
+            })),
+            host
+        );
     }
 
     /// D3014O: a nest widens only over a bare btree probe of a heap with plain columns and bare keys, a plain inner with no
@@ -220,32 +309,134 @@ mod tests {
     fn a_nest_widens_only_when_every_fact_holds() {
         assert_eq!(step_serial(&StepShape::Nest(wide())), None);
         let host = Some(Reason::Host);
-        assert_eq!(step_serial(&StepShape::Nest(NestShape { probe: None, ..wide() })), host);
-        for p in [NestProbe { btree: false, ..wide().probe.unwrap() }, NestProbe { heap: false, ..wide().probe.unwrap() }, NestProbe { plain_cols: false, ..wide().probe.unwrap() }, NestProbe { bare_keys: false, ..wide().probe.unwrap() }] {
-            assert_eq!(step_serial(&StepShape::Nest(NestShape { probe: Some(p), ..wide() })), host);
+        assert_eq!(
+            step_serial(&StepShape::Nest(NestShape {
+                probe: None,
+                ..wide()
+            })),
+            host
+        );
+        for p in [
+            NestProbe {
+                btree: false,
+                ..wide().probe.unwrap()
+            },
+            NestProbe {
+                heap: false,
+                ..wide().probe.unwrap()
+            },
+            NestProbe {
+                plain_cols: false,
+                ..wide().probe.unwrap()
+            },
+            NestProbe {
+                bare_keys: false,
+                ..wide().probe.unwrap()
+            },
+        ] {
+            assert_eq!(
+                step_serial(&StepShape::Nest(NestShape {
+                    probe: Some(p),
+                    ..wide()
+                })),
+                host
+            );
         }
-        assert_eq!(step_serial(&StepShape::Nest(NestShape { inner_plain: false, ..wide() })), host);
-        assert_eq!(step_serial(&StepShape::Nest(NestShape { inner_volatile: true, ..wide() })), host);
-        assert_eq!(step_serial(&StepShape::Nest(NestShape { end_order_visible: true, ..wide() })), host);
-        assert_eq!(step_serial(&StepShape::Nest(NestShape { lazy_material: true, ..wide() })), host);
-        assert_eq!(step_serial(&StepShape::Nest(NestShape { regroup: true, ..wide() })), host);
-        assert_eq!(step_serial(&StepShape::Nest(NestShape { keeps_owner: true, ..wide() })), host);
+        assert_eq!(
+            step_serial(&StepShape::Nest(NestShape {
+                inner_plain: false,
+                ..wide()
+            })),
+            host
+        );
+        assert_eq!(
+            step_serial(&StepShape::Nest(NestShape {
+                inner_volatile: true,
+                ..wide()
+            })),
+            host
+        );
+        assert_eq!(
+            step_serial(&StepShape::Nest(NestShape {
+                end_order_visible: true,
+                ..wide()
+            })),
+            host
+        );
+        assert_eq!(
+            step_serial(&StepShape::Nest(NestShape {
+                lazy_material: true,
+                ..wide()
+            })),
+            host
+        );
+        assert_eq!(
+            step_serial(&StepShape::Nest(NestShape {
+                regroup: true,
+                ..wide()
+            })),
+            host
+        );
+        assert_eq!(
+            step_serial(&StepShape::Nest(NestShape {
+                keeps_owner: true,
+                ..wide()
+            })),
+            host
+        );
     }
 
     #[test]
     fn merge_lazy_probes_scan_subplans_and_fills_keep_the_leader() {
         assert_eq!(step_serial(&StepShape::Merge), Some(Reason::Host));
         assert_eq!(step_serial(&StepShape::MergeCoSplit), None);
-        assert_eq!(step_serial(&StepShape::HashProbe { lazy: false, clears_marks: false, ordered: false }), None);
-        assert_eq!(step_serial(&StepShape::HashProbe { lazy: true, clears_marks: false, ordered: false }), Some(Reason::Host));
-        assert_eq!(step_serial(&StepShape::HashProbe { lazy: false, clears_marks: true, ordered: false }), Some(Reason::Host));
-        assert_eq!(step_serial(&StepShape::HashProbe { lazy: false, clears_marks: false, ordered: true }), Some(Reason::Host));
-        assert_eq!(step_serial(&StepShape::SubPlan { scan: true }), Some(Reason::Host));
+        assert_eq!(
+            step_serial(&StepShape::HashProbe {
+                lazy: false,
+                clears_marks: false,
+                ordered: false
+            }),
+            None
+        );
+        assert_eq!(
+            step_serial(&StepShape::HashProbe {
+                lazy: true,
+                clears_marks: false,
+                ordered: false
+            }),
+            Some(Reason::Host)
+        );
+        assert_eq!(
+            step_serial(&StepShape::HashProbe {
+                lazy: false,
+                clears_marks: true,
+                ordered: false
+            }),
+            Some(Reason::Host)
+        );
+        assert_eq!(
+            step_serial(&StepShape::HashProbe {
+                lazy: false,
+                clears_marks: false,
+                ordered: true
+            }),
+            Some(Reason::Host)
+        );
+        assert_eq!(
+            step_serial(&StepShape::SubPlan { scan: true }),
+            Some(Reason::Host)
+        );
         assert_eq!(step_serial(&StepShape::SubPlan { scan: false }), None);
         assert_eq!(step_serial(&StepShape::MaterialFill), Some(Reason::Sink));
         assert_eq!(step_serial(&StepShape::MergeInnerRun), Some(Reason::Sink));
         assert_eq!(step_serial(&StepShape::MergeInnerWide), None);
-        assert_eq!(step_serial(&StepShape::HostedCall { pool_safe: true }), None);
-        assert_eq!(step_serial(&StepShape::HostedCall { pool_safe: false }), Some(Reason::Host));
+        assert_eq!(
+            step_serial(&StepShape::HostedCall { pool_safe: true }),
+            None
+        );
+        assert_eq!(
+            step_serial(&StepShape::HostedCall { pool_safe: false }),
+            Some(Reason::Host)
+        );
     }
 }

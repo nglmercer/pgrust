@@ -35,7 +35,14 @@ fn decode_ts(input: &str) -> PgResult<i32> {
     let mut field: [&[u8]; MAXDATEFIELDS] = [b""; MAXDATEFIELDS];
     let mut ftype = [0i32; MAXDATEFIELDS];
     let mut nf = 0usize;
-    let rc = ParseDateTime(input.as_bytes(), &mut workbuf, &mut field, &mut ftype, MAXDATEFIELDS, &mut nf);
+    let rc = ParseDateTime(
+        input.as_bytes(),
+        &mut workbuf,
+        &mut field,
+        &mut ftype,
+        MAXDATEFIELDS,
+        &mut nf,
+    );
     assert_eq!(rc, 0, "ParseDateTime({input})");
     let mut dtype = 0;
     let mut tm = pg_tm::default();
@@ -59,7 +66,14 @@ fn decode_time(input: &str) -> PgResult<i32> {
     let mut field: [&[u8]; MAXDATEFIELDS] = [b""; MAXDATEFIELDS];
     let mut ftype = [0i32; MAXDATEFIELDS];
     let mut nf = 0usize;
-    let rc = ParseDateTime(input.as_bytes(), &mut workbuf, &mut field, &mut ftype, MAXDATEFIELDS, &mut nf);
+    let rc = ParseDateTime(
+        input.as_bytes(),
+        &mut workbuf,
+        &mut field,
+        &mut ftype,
+        MAXDATEFIELDS,
+        &mut nf,
+    );
     assert_eq!(rc, 0, "ParseDateTime({input})");
     let mut dtype = 0;
     let mut tm = pg_tm::default();
@@ -79,8 +93,14 @@ fn decode_time(input: &str) -> PgResult<i32> {
 }
 
 fn assert_timestamp_out_of_range(r: PgResult<i32>, what: &str) {
-    let err = r.err().unwrap_or_else(|| panic!("{what}: expected the 22008 error, got a dterr/success"));
-    assert_eq!(err.sqlstate(), ERRCODE_DATETIME_VALUE_OUT_OF_RANGE, "{what}");
+    let err = r
+        .err()
+        .unwrap_or_else(|| panic!("{what}: expected the 22008 error, got a dterr/success"));
+    assert_eq!(
+        err.sqlstate(),
+        ERRCODE_DATETIME_VALUE_OUT_OF_RANGE,
+        "{what}"
+    );
     assert_eq!(err.message(), "timestamp out of range", "{what}");
 }
 

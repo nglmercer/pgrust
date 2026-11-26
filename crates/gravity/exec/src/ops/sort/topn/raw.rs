@@ -8,7 +8,13 @@ use gravity_program::protos::RegionFn;
 
 /// Reader `read` over `region`, a producer's finished breaker region the caller found at least `MIN_REGION` bytes long
 /// (proto.rs `Reader::after`, `BuildSideLive::after_pipeline`), with `words` and its slot's ledger `owner`, its rows to `emit`.
-pub(super) fn region_read(read: RegionFn, region: &[u8], words: &[u64], owner: Option<memledger::Owner>, emit: &mut dyn FnMut(u64, u64, u64)) -> Option<usize> {
+pub(super) fn region_read(
+    read: RegionFn,
+    region: &[u8],
+    words: &[u64],
+    owner: Option<memledger::Owner>,
+    emit: &mut dyn FnMut(u64, u64, u64),
+) -> Option<usize> {
     // SAFETY: the producer's finished region of at least `MIN_REGION` bytes; the reader checks its header first.
     unsafe { read(region.as_ptr(), words, owner, emit) }
 }
@@ -17,7 +23,9 @@ pub(super) fn region_read(read: RegionFn, region: &[u8], words: &[u64], owner: O
 /// the owner phase's result over every partition, the spilled epochs included (proto.rs `Reader::spilled`, D3158).
 pub(super) fn owned(region: &[u8]) -> bool {
     // SAFETY: a region at least an `Owned` header long; its kind byte is read before any view of the layout.
-    region.len() >= gravity_abi::breaker::OWNED_HDR && unsafe { gravity_abi::breaker::table_kind(region.as_ptr()) } == gravity_abi::breaker::TABLE_OWNED
+    region.len() >= gravity_abi::breaker::OWNED_HDR
+        && unsafe { gravity_abi::breaker::table_kind(region.as_ptr()) }
+            == gravity_abi::breaker::TABLE_OWNED
 }
 
 /// A header pass 2's IR reads through its address (keyed.twopass's `AdmitHdr`, behind its protocol word), written by the
@@ -44,16 +52,30 @@ impl<T> IrCell<T> {
 /// A test build's region read as `join.buildside`'s reading (proto.rs's after-build tests): word 0 is its rows, emitted
 /// as the one `(0, rows, 0)`.
 #[cfg(test)]
-pub(super) unsafe fn test_rows(region: *const u8, _words: &[u64], _owner: Option<memledger::Owner>, emit: &mut dyn FnMut(u64, u64, u64)) -> Option<usize> {
+pub(super) unsafe fn test_rows(
+    region: *const u8,
+    _words: &[u64],
+    _owner: Option<memledger::Owner>,
+    emit: &mut dyn FnMut(u64, u64, u64),
+) -> Option<usize> {
     // SAFETY: a test region of at least `MIN_REGION` bytes; word 0 is its row count.
-    emit(0, unsafe { core::ptr::read_unaligned(region as *const u64) }, 0);
+    emit(
+        0,
+        unsafe { core::ptr::read_unaligned(region as *const u64) },
+        0,
+    );
     Some(1)
 }
 
 /// A test build's region read as `join.rtfilter`'s export: word 0 is its rows, each next word a row's key; `(0, lo, hi)`
 /// the keys' range, then `(1, key, 0)` per row. No item at all is an empty build.
 #[cfg(test)]
-pub(super) unsafe fn test_keys(region: *const u8, _words: &[u64], _owner: Option<memledger::Owner>, emit: &mut dyn FnMut(u64, u64, u64)) -> Option<usize> {
+pub(super) unsafe fn test_keys(
+    region: *const u8,
+    _words: &[u64],
+    _owner: Option<memledger::Owner>,
+    emit: &mut dyn FnMut(u64, u64, u64),
+) -> Option<usize> {
     // SAFETY: a test region: word 0 its row count `n`, then `n` key words, all within the region.
     let key = |i: usize| unsafe { core::ptr::read_unaligned((region as *const u64).add(i)) } as i64;
     let n = key(0) as usize;

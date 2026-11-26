@@ -35,7 +35,15 @@ crate::strategies! {
     NUM_CTE = 162, "agg.num_cte", NumAny;
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(NUM_WINDOW, &Road), (NUM_SCALE, &Road), (NUM_DIV, &Road), (NUM_CTE, &Road)], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[
+        (NUM_WINDOW, &Road),
+        (NUM_SCALE, &Road),
+        (NUM_DIV, &Road),
+        (NUM_CTE, &Road),
+    ],
+    ..crate::ops::NONE
+};
 
 /// The road's registration value (plain.rs folds through `term`).
 struct Road;
@@ -62,12 +70,23 @@ pub(crate) fn sext(b: &mut FunctionBuilder<'_>, v: Value) -> Value {
 /// `hi:lo × t` signed, 128 × 64 → 128, with whether the true product fits: the 192-bit sum of `lo × t` (`lo`
 /// unsigned: the signed high word plus `t` where `lo`'s top bit is set) and `hi × t` one word up; it fits when its top
 /// word is the sign of the middle one (V4R-38: and that top word, the exact 192-bit product's).
-pub(crate) fn mul128x64(b: &mut FunctionBuilder<'_>, lo: Value, hi: Value, t: Value) -> (Value, Value, Value, Value) {
-    let (l0, sh) = (b.int_bin(IntBinOp::Mul, lo, t), b.int_bin(IntBinOp::Smulh, lo, t));
+pub(crate) fn mul128x64(
+    b: &mut FunctionBuilder<'_>,
+    lo: Value,
+    hi: Value,
+    t: Value,
+) -> (Value, Value, Value, Value) {
+    let (l0, sh) = (
+        b.int_bin(IntBinOp::Mul, lo, t),
+        b.int_bin(IntBinOp::Smulh, lo, t),
+    );
     let sl = sext(b, lo);
     let corr = b.int_bin(IntBinOp::And, sl, t);
     let a = b.int_bin(IntBinOp::Add, sh, corr);
-    let (h0, h1) = (b.int_bin(IntBinOp::Mul, hi, t), b.int_bin(IntBinOp::Smulh, hi, t));
+    let (h0, h1) = (
+        b.int_bin(IntBinOp::Mul, hi, t),
+        b.int_bin(IntBinOp::Smulh, hi, t),
+    );
     let w1 = b.int_bin(IntBinOp::Add, a, h0);
     let cy = b.icmp(IntCond::Ult, w1, a);
     let cy = b.conv(gravity_ir::ConvOp::Zext, Type::I64, cy);
@@ -79,7 +98,14 @@ pub(crate) fn mul128x64(b: &mut FunctionBuilder<'_>, lo: Value, hi: Value, t: Va
 }
 
 /// `mul128x64` whose lost bits raise by name where `ok` (D297: a product never wraps into a value).
-fn mul_wide(b: &mut FunctionBuilder<'_>, env: &Env, lo: Value, hi: Value, t: Value, ok: Value) -> (Value, Value) {
+fn mul_wide(
+    b: &mut FunctionBuilder<'_>,
+    env: &Env,
+    lo: Value,
+    hi: Value,
+    t: Value,
+    ok: Value,
+) -> (Value, Value) {
     let (lo, hi, fits, _) = mul128x64(b, lo, hi, t);
     let yes = b.bconst(true);
     let lost = b.int_bin(IntBinOp::Xor, fits, yes);
@@ -89,14 +115,24 @@ fn mul_wide(b: &mut FunctionBuilder<'_>, env: &Env, lo: Value, hi: Value, t: Val
 }
 
 /// `v` × 10^k as a node of `digits` (one word when it stays under 18 digits); a lost bit raises where `ok`.
-pub(crate) fn rescale(b: &mut FunctionBuilder<'_>, env: &Env, v: &Val, k: i16, narrow: bool, ok: Value) -> (Value, Option<Value>) {
+pub(crate) fn rescale(
+    b: &mut FunctionBuilder<'_>,
+    env: &Env,
+    v: &Val,
+    k: i16,
+    narrow: bool,
+    ok: Value,
+) -> (Value, Option<Value>) {
     if k == 0 {
         return (v.lo, v.hi);
     }
     let f = b.iconst(Type::I64, 10i64.pow(k as u32));
     match (v.hi, narrow) {
         (None, true) => (b.int_bin(IntBinOp::Mul, v.lo, f), None),
-        (None, false) => (b.int_bin(IntBinOp::Mul, v.lo, f), Some(b.int_bin(IntBinOp::Smulh, v.lo, f))),
+        (None, false) => (
+            b.int_bin(IntBinOp::Mul, v.lo, f),
+            Some(b.int_bin(IntBinOp::Smulh, v.lo, f)),
+        ),
         (Some(hi), _) => {
             let (lo, hi) = mul_wide(b, env, v.lo, hi, f, ok);
             (lo, Some(hi))
@@ -106,42 +142,100 @@ pub(crate) fn rescale(b: &mut FunctionBuilder<'_>, env: &Env, v: &Val, k: i16, n
 
 /// Tree `t`'s finite value for the row (`memo`: this row's subtrees already emitted, num.memo; `live`: under a CASE
 /// arm, where it is taken, its raises masked by it).
-pub(crate) fn finite<'t>(b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals, t: &'t Tree, memo: &mut crate::ops::agg::numeric::strategies::memo_num::Memo<'t>, live: Option<Value>) -> Val<'t> {
+pub(crate) fn finite<'t>(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    row: &RowVals,
+    t: &'t Tree,
+    memo: &mut crate::ops::agg::numeric::strategies::memo_num::Memo<'t>,
+    live: Option<Value>,
+) -> Val<'t> {
     crate::stack_check();
     if let Some(v) = memo.get(t) {
         return v;
     }
     let (yes, mcx) = (b.bconst(true), memo.mcx);
-    let leaf = |lo, sp, ok| Val { lo, hi: None, sp, ok, kids: PgVec::new_in(mcx), sel: PgVec::new_in(mcx), ds: None, raw: None };
+    let leaf = |lo, sp, ok| Val {
+        lo,
+        hi: None,
+        sp,
+        ok,
+        kids: PgVec::new_in(mcx),
+        sel: PgVec::new_in(mcx),
+        ds: None,
+        raw: None,
+    };
     let lv = |b: &mut FunctionBuilder<'_>, ok| live.map_or(ok, |l| b.int_bin(IntBinOp::And, ok, l));
     let v = match t {
-        Tree::Case(c) => crate::ops::agg::numeric::strategies::num_case::finite(b, env, row, c, memo, live),
+        Tree::Case(c) => {
+            crate::ops::agg::numeric::strategies::num_case::finite(b, env, row, c, memo, live)
+        }
         Tree::Const { m, .. } => leaf(b.iconst(Type::I64, *m), None, yes),
         // D2356: a constant past one word is a 128-bit leaf (its low and high words)
         Tree::PastWord { m: Some(m), .. } => {
             fires::fire("num.window.leaf128"); // shapecheck fire signal (REGISTRY FOLD-08: a constant past one word as a 128-bit leaf, D2356)
-            Val { hi: Some(b.iconst(Type::I64, (*m >> 64) as i64)), ..leaf(b.iconst(Type::I64, *m as i64), None, yes) }
+            Val {
+                hi: Some(b.iconst(Type::I64, (*m >> 64) as i64)),
+                ..leaf(b.iconst(Type::I64, *m as i64), None, yes)
+            }
         }
-        Tree::PastWord { m: None, .. } => crate::refuse!(env.node, crate::admit::refusal::Reason::Bug { payload: "a numeric constant past an i128 in a strict tree" }),
+        Tree::PastWord { m: None, .. } => crate::refuse!(
+            env.node,
+            crate::admit::refusal::Reason::Bug {
+                payload: "a numeric constant past an i128 in a strict tree"
+            }
+        ),
         Tree::Col { c, scale, .. } => {
-            let Some(cell) = row.col(*c) else { crate::refuse!(env.node, crate::admit::refusal::Reason::Bug { payload: "a numeric leaf the row does not carry" }) };
-            let (m, null, _) = crate::ops::agg::numeric::num_word::word(b, env, cell, *scale, false);
+            let Some(cell) = row.col(*c) else {
+                crate::refuse!(
+                    env.node,
+                    crate::admit::refusal::Reason::Bug {
+                        payload: "a numeric leaf the row does not carry"
+                    }
+                )
+            };
+            let (m, null, _) =
+                crate::ops::agg::numeric::num_word::word(b, env, cell, *scale, false);
             let ok = b.int_bin(IntBinOp::Xor, null, yes);
             let (fin, special) = crate::ops::agg::numeric::num_word::sentinel(b, env, m, ok);
-            Val { raw: Some((m, lv(b, ok))), ..leaf(fin, Some(special), ok) }
+            Val {
+                raw: Some((m, lv(b, ok))),
+                ..leaf(fin, Some(special), ok)
+            }
         }
         Tree::Int { c, typid, .. } => {
-            let Some(cell) = row.col(*c) else { crate::refuse!(env.node, crate::admit::refusal::Reason::Bug { payload: "a numeric leaf the row does not carry" }) };
+            let Some(cell) = row.col(*c) else {
+                crate::refuse!(
+                    env.node,
+                    crate::admit::refusal::Reason::Bug {
+                        payload: "a numeric leaf the row does not carry"
+                    }
+                )
+            };
             let mut cx = env.lx(b, env.node);
             let (v, null) = crate::rep::datum(&mut cx, cell, &crate::step::expr::tf_datum(*typid));
             env.memo = cx.memo;
             leaf(v, None, b.int_bin(IntBinOp::Xor, null, yes))
         }
-        Tree::Cast { x, scale, digits, typmod } => {
+        Tree::Cast {
+            x,
+            scale,
+            digits,
+            typmod,
+        } => {
             let vx = finite(b, env, row, x, memo, live);
             let on = lv(b, vx.ok);
             let lo = cast(b, env, &vx, *scale - scale_of(x), *digits, *typmod, on);
-            Val { lo, hi: None, sp: None, ok: vx.ok, kids: mcx::pg_vec![in mcx; vx], sel: PgVec::new_in(mcx), ds: None, raw: None }
+            Val {
+                lo,
+                hi: None,
+                sp: None,
+                ok: vx.ok,
+                kids: mcx::pg_vec![in mcx; vx],
+                sel: PgVec::new_in(mcx),
+                ds: None,
+                raw: None,
+            }
         }
         // D4567 (a): x x c, exact in one word (decompose's bound); the display scale by |x|'s mantissa against the steps
         // (select_div_scale's, falling as |x| grows: one compare and select a step)
@@ -154,27 +248,54 @@ pub(crate) fn finite<'t>(b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVa
             let a = b.select(neg, flip, vx.lo);
             let mut ds = b.iconst(Type::I64, scales.zero as i64);
             for &(from, sc) in scales.steps() {
-                let (f, s) = (b.iconst(Type::I64, from as i64), b.iconst(Type::I64, sc as i64));
+                let (f, s) = (
+                    b.iconst(Type::I64, from as i64),
+                    b.iconst(Type::I64, sc as i64),
+                );
                 let past = b.icmp(IntCond::Uge, a, f);
                 ds = b.select(past, s, ds);
             }
-            Val { lo, hi: None, sp: None, ok: vx.ok, kids: mcx::pg_vec![in mcx; vx], sel: PgVec::new_in(mcx), ds: Some(ds), raw: None }
+            Val {
+                lo,
+                hi: None,
+                sp: None,
+                ok: vx.ok,
+                kids: mcx::pg_vec![in mcx; vx],
+                sel: PgVec::new_in(mcx),
+                ds: Some(ds),
+                raw: None,
+            }
         }
         Tree::Mul(x, y) | Tree::Add(x, y) | Tree::Sub(x, y) => {
-            let (vx, vy) = (finite(b, env, row, x, memo, live), finite(b, env, row, y, memo, live));
+            let (vx, vy) = (
+                finite(b, env, row, x, memo, live),
+                finite(b, env, row, y, memo, live),
+            );
             let ok = b.int_bin(IntBinOp::And, vx.ok, vy.ok);
             let on = lv(b, ok);
             let narrow = digits_of(t) <= NARROW;
             let (lo, hi) = match t {
                 Tree::Mul(..) if narrow => (b.int_bin(IntBinOp::Mul, vx.lo, vy.lo), None),
                 Tree::Mul(..) => match (vx.hi, vy.hi) {
-                    (None, None) => (b.int_bin(IntBinOp::Mul, vx.lo, vy.lo), Some(b.int_bin(IntBinOp::Smulh, vx.lo, vy.lo))),
+                    (None, None) => (
+                        b.int_bin(IntBinOp::Mul, vx.lo, vy.lo),
+                        Some(b.int_bin(IntBinOp::Smulh, vx.lo, vy.lo)),
+                    ),
                     (Some(h), None) | (None, Some(h)) => {
-                        let (w, s) = if vx.hi.is_some() { (vx.lo, vy.lo) } else { (vy.lo, vx.lo) };
+                        let (w, s) = if vx.hi.is_some() {
+                            (vx.lo, vy.lo)
+                        } else {
+                            (vy.lo, vx.lo)
+                        };
                         let (lo, hi) = mul_wide(b, env, w, h, s, on);
                         (lo, Some(hi))
                     }
-                    (Some(_), Some(_)) => crate::refuse!(env.node, crate::admit::refusal::Reason::Bug { payload: "a numeric product of two wide nodes" }),
+                    (Some(_), Some(_)) => crate::refuse!(
+                        env.node,
+                        crate::admit::refusal::Reason::Bug {
+                            payload: "a numeric product of two wide nodes"
+                        }
+                    ),
                 },
                 _ => {
                     let s = scale_of(t);
@@ -182,17 +303,37 @@ pub(crate) fn finite<'t>(b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVa
                     let (yl, yh) = rescale(b, env, &vy, s - scale_of(y), narrow, on);
                     let sub = matches!(t, Tree::Sub(..));
                     match narrow {
-                        true => (b.int_bin(if sub { IntBinOp::Sub } else { IntBinOp::Add }, xl, yl), None),
+                        true => (
+                            b.int_bin(if sub { IntBinOp::Sub } else { IntBinOp::Add }, xl, yl),
+                            None,
+                        ),
                         false => {
-                            let (xh, yh) = (xh.unwrap_or_else(|| sext(b, xl)), yh.unwrap_or_else(|| sext(b, yl)));
-                            let (yl, yh) = if sub { neg128(b, env, yl, yh) } else { (yl, yh) };
-                            let (lo, hi) = crate::ops::agg::trans::class_word::add128(b, xl, xh, yl, yh);
+                            let (xh, yh) = (
+                                xh.unwrap_or_else(|| sext(b, xl)),
+                                yh.unwrap_or_else(|| sext(b, yl)),
+                            );
+                            let (yl, yh) = if sub {
+                                neg128(b, env, yl, yh)
+                            } else {
+                                (yl, yh)
+                            };
+                            let (lo, hi) =
+                                crate::ops::agg::trans::class_word::add128(b, xl, xh, yl, yh);
                             (lo, Some(hi))
                         }
                     }
                 }
             };
-            Val { lo, hi, sp: None, ok, kids: mcx::pg_vec![in mcx; vx, vy], sel: PgVec::new_in(mcx), ds: None, raw: None }
+            Val {
+                lo,
+                hi,
+                sp: None,
+                ok,
+                kids: mcx::pg_vec![in mcx; vx, vy],
+                sel: PgVec::new_in(mcx),
+                ds: None,
+                raw: None,
+            }
         }
     };
     memo.put(t, v.clone());
@@ -201,7 +342,15 @@ pub(crate) fn finite<'t>(b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVa
 
 /// PS4-21: a one-word node `v` as numeric(p, s) holds it (`cast_word`, `k` = s less its scale); where `on` and no leaf
 /// below is special (NaN passes a typmod), a value past p digits raises apply_typmod's numeric field overflow for `typmod`.
-fn cast(b: &mut FunctionBuilder<'_>, env: &Env, v: &Val, k: i16, p: u32, typmod: i32, on: Value) -> Value {
+fn cast(
+    b: &mut FunctionBuilder<'_>,
+    env: &Env,
+    v: &Val,
+    k: i16,
+    p: u32,
+    typmod: i32,
+    on: Value,
+) -> Value {
     fires::fire("num.cast"); // shapecheck fire signal (REGISTRY PS4-21: a typmod cast as a num.window node)
     let (q, over) = cast_word(b, v.lo, k, p);
     let mut flags = mcx::PgVec::new_in(env.mcx);
@@ -226,9 +375,15 @@ fn cast_word(b: &mut FunctionBuilder<'_>, lo: Value, k: i16, p: u32) -> (Value, 
     let m = b.int_bin(IntBinOp::Sub, zero, lo);
     let a = b.select(neg, m, lo);
     if k >= 0 {
-        let lim = b.iconst(Type::I64, p.checked_sub(k as u32).map_or(1, |d| 10i64.pow(d)));
+        let lim = b.iconst(
+            Type::I64,
+            p.checked_sub(k as u32).map_or(1, |d| 10i64.pow(d)),
+        );
         let f = b.iconst(Type::I64, 10i64.pow(k as u32));
-        return (b.int_bin(IntBinOp::Mul, lo, f), b.icmp(IntCond::Uge, a, lim));
+        return (
+            b.int_bin(IntBinOp::Mul, lo, f),
+            b.icmp(IntCond::Uge, a, lim),
+        );
     }
     let d = 10i64.pow(k.unsigned_abs() as u32);
     let (dv, half) = (b.iconst(Type::I64, d), b.iconst(Type::I64, d / 2));
@@ -248,7 +403,13 @@ fn neg128(b: &mut FunctionBuilder<'_>, env: &Env, lo: Value, hi: Value) -> (Valu
 }
 
 /// Tree `t`'s term for the row: its finite value and, when a leaf is special, the tree's specials code (the cold block).
-pub(crate) fn term<'t>(b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals, t: &'t Tree, memo: &mut crate::ops::agg::numeric::strategies::memo_num::Memo<'t>) -> crate::ops::agg::numeric::num_word::Term {
+pub(crate) fn term<'t>(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    row: &RowVals,
+    t: &'t Tree,
+    memo: &mut crate::ops::agg::numeric::strategies::memo_num::Memo<'t>,
+) -> crate::ops::agg::numeric::num_word::Term {
     let v = finite(b, env, row, t, memo, None);
     let mut flags = mcx::PgVec::new_in(env.mcx);
     leaf_codes(&v, &mut flags);
@@ -265,7 +426,13 @@ pub(crate) fn term<'t>(b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals
             Some(b.block_params(l_join)[0])
         }
     };
-    crate::ops::agg::numeric::num_word::Term { lo: v.lo, hi: v.hi, sp, ok: v.ok, ds: v.ds }
+    crate::ops::agg::numeric::num_word::Term {
+        lo: v.lo,
+        hi: v.hi,
+        sp,
+        ok: v.ok,
+        ds: v.ds,
+    }
 }
 
 pub(crate) fn leaf_codes(v: &Val, out: &mut PgVec<'_, Value>) {
@@ -281,14 +448,34 @@ impl<'v> Val<'v> {
         (self.lo, self.hi, self.sp, &self.kids)
     }
 
-    pub(crate) fn case(lo: Value, hi: Option<Value>, ok: Value, kids: PgVec<'v, Val<'v>>, sel: PgVec<'v, Value>, ds: Option<Value>) -> Val<'v> {
-        Val { lo, hi, sp: None, ok, kids, sel, ds, raw: None }
+    pub(crate) fn case(
+        lo: Value,
+        hi: Option<Value>,
+        ok: Value,
+        kids: PgVec<'v, Val<'v>>,
+        sel: PgVec<'v, Value>,
+        ds: Option<Value>,
+    ) -> Val<'v> {
+        Val {
+            lo,
+            hi,
+            sp: None,
+            ok,
+            kids,
+            sel,
+            ds,
+            raw: None,
+        }
     }
 }
 
 impl Clone for Val<'_> {
     fn clone(&self) -> Self {
-        Val { kids: mcx::to_vec_in(&self.kids[..], *self.kids.allocator()), sel: mcx::to_vec_in(&self.sel[..], *self.sel.allocator()), ..*self }
+        Val {
+            kids: mcx::to_vec_in(&self.kids[..], *self.kids.allocator()),
+            sel: mcx::to_vec_in(&self.sel[..], *self.sel.allocator()),
+            ..*self
+        }
     }
 }
 
@@ -302,20 +489,57 @@ mod tests {
     fn a_constant_past_one_word_folds_as_a_128_bit_leaf() {
         let c: i128 = 136_193_145_968_274_513_351; // 13619314596827451335.1 at scale 1
         let cx = mcx::MemoryContext::new("d2356");
-        let wide = |m| mcx::box_in(Tree::PastWord { m: Some(m), scale: 1, digits: 21 }, cx.mcx());
-        let k = |m, scale| mcx::box_in(Tree::Const { m, scale, digits: 3 }, cx.mcx());
+        let wide = |m| {
+            mcx::box_in(
+                Tree::PastWord {
+                    m: Some(m),
+                    scale: 1,
+                    digits: 21,
+                },
+                cx.mcx(),
+            )
+        };
+        let k = |m, scale| {
+            mcx::box_in(
+                Tree::Const {
+                    m,
+                    scale,
+                    digits: 3,
+                },
+                cx.mcx(),
+            )
+        };
         let run = |t: &Tree| -> i128 {
             let half = |hi: bool| {
                 crate::frame::stop::tests::run1(&[], &mut |b, env| {
-                    let row = RowVals { row: crate::cell::Row::new_in(env.mcx), vals: mcx::PgVec::new_in(env.mcx), cols: mcx::PgVec::new_in(env.mcx), carry: crate::frame::row::Carry::new(env.zero, env.mcx), next: env.zero, at: env.zero };
-                    let mut memo = crate::ops::agg::numeric::strategies::memo_num::Memo::new(false, env.mcx);
+                    let row = RowVals {
+                        row: crate::cell::Row::new_in(env.mcx),
+                        vals: mcx::PgVec::new_in(env.mcx),
+                        cols: mcx::PgVec::new_in(env.mcx),
+                        carry: crate::frame::row::Carry::new(env.zero, env.mcx),
+                        next: env.zero,
+                        at: env.zero,
+                    };
+                    let mut memo =
+                        crate::ops::agg::numeric::strategies::memo_num::Memo::new(false, env.mcx);
                     let v = finite(b, env, &row, t, &mut memo, None);
-                    if hi { v.hi.unwrap_or_else(|| sext(b, v.lo)) } else { v.lo }
+                    if hi {
+                        v.hi.unwrap_or_else(|| sext(b, v.lo))
+                    } else {
+                        v.lo
+                    }
                 })
             };
             ((half(true) as i128) << 64) | (half(false) as u64 as i128)
         };
-        assert_eq!(run(&Tree::PastWord { m: Some(-c), scale: 1, digits: 21 }), -c);
+        assert_eq!(
+            run(&Tree::PastWord {
+                m: Some(-c),
+                scale: 1,
+                digits: 21
+            }),
+            -c
+        );
         assert_eq!(run(&Tree::Add(wide(c), k(125, 2))), c * 10 + 125);
         assert_eq!(run(&Tree::Sub(k(125, 2), wide(c))), 125 - c * 10);
         assert_eq!(run(&Tree::Mul(wide(-c), k(-7, 0))), c * 7);
@@ -329,10 +553,40 @@ mod tests {
         let text = |m: i64, s: u32| {
             let a = format!("{:0>w$}", m.unsigned_abs(), w = s as usize + 1);
             let (i, f) = a.split_at(a.len() - s as usize);
-            format!("{}{i}{}{f}", if m < 0 { "-" } else { "" }, if s > 0 { "." } else { "" })
+            format!(
+                "{}{i}{}{f}",
+                if m < 0 { "-" } else { "" },
+                if s > 0 { "." } else { "" }
+            )
         };
-        let ms: [i64; 16] = [0, 1, -1, 49, 50, -50, 51, 99, 123_449, 123_450, -123_450, 999_999, -1_000_000, 99_999_999_995, 999_999_999_999_950, -999_999_999_999_999_999];
-        for (sx, p, s) in [(4u32, 12u32, 2u32), (4, 6, 2), (4, 10, 0), (2, 8, 4), (0, 3, 4), (2, 12, 2), (0, 18, 0), (18, 18, 17)] {
+        let ms: [i64; 16] = [
+            0,
+            1,
+            -1,
+            49,
+            50,
+            -50,
+            51,
+            99,
+            123_449,
+            123_450,
+            -123_450,
+            999_999,
+            -1_000_000,
+            99_999_999_995,
+            999_999_999_999_950,
+            -999_999_999_999_999_999,
+        ];
+        for (sx, p, s) in [
+            (4u32, 12u32, 2u32),
+            (4, 6, 2),
+            (4, 10, 0),
+            (2, 8, 4),
+            (0, 3, 4),
+            (2, 12, 2),
+            (0, 18, 0),
+            (18, 18, 17),
+        ] {
             let typmod = ((p << 16) | s) as i32 + 4;
             let mut pb = gravity_ir::builder::ProgramBuilder::new();
             let f = pb.declare_func("t", &[Type::I64], &[Type::I64; 2]);
@@ -343,12 +597,23 @@ mod tests {
             b.ret(&[q, over]);
             let prog = pb.finish();
             for m in ms {
-                let got = gravity_interp::Interp::new(&prog).run(f, &[m as u64]).expect("runs");
-                let want = adt_numeric::numeric_in(&text(m, sx), typmod, None).map(|n| n.and_then(|n| gravity_fn::typesem::numeric::mantissa(&n.as_bytes()[4..])));
+                let got = gravity_interp::Interp::new(&prog)
+                    .run(f, &[m as u64])
+                    .expect("runs");
+                let want = adt_numeric::numeric_in(&text(m, sx), typmod, None).map(|n| {
+                    n.and_then(|n| gravity_fn::typesem::numeric::mantissa(&n.as_bytes()[4..]))
+                });
                 match want {
-                    Ok(Some(n)) => assert_eq!((got[0] as i64 as i128, got[1], n.dscale), (n.value.expect("a word"), 0, s as i32), "{} as numeric({p}, {s})", text(m, sx)),
+                    Ok(Some(n)) => assert_eq!(
+                        (got[0] as i64 as i128, got[1], n.dscale),
+                        (n.value.expect("a word"), 0, s as i32),
+                        "{} as numeric({p}, {s})",
+                        text(m, sx)
+                    ),
                     Ok(None) => panic!("{}: no value", text(m, sx)),
-                    Err(_) => assert_eq!(got[1], 1, "{} as numeric({p}, {s}) overflows", text(m, sx)),
+                    Err(_) => {
+                        assert_eq!(got[1], 1, "{} as numeric({p}, {s}) overflows", text(m, sx))
+                    }
                 }
             }
         }
@@ -357,7 +622,15 @@ mod tests {
     /// The 128 × 64 product is the exact i128 product's low 128 bits, `fits` exactly when nothing is lost.
     #[test]
     fn mul128x64_is_exact() {
-        let xs: [i128; 7] = [0, 1, -1, 12_345_678_901_234_567_890_123, -98_765_432_109_876_543_210, i64::MAX as i128 + 7, i128::MAX / 3];
+        let xs: [i128; 7] = [
+            0,
+            1,
+            -1,
+            12_345_678_901_234_567_890_123,
+            -98_765_432_109_876_543_210,
+            i64::MAX as i128 + 7,
+            i128::MAX / 3,
+        ];
         let ts: [i64; 6] = [0, 1, -1, 10_000, -1_000_000_007, i64::MAX];
         for x in xs {
             for t in ts {
@@ -369,7 +642,9 @@ mod tests {
                 let fits = b.conv(gravity_ir::ConvOp::Zext, Type::I64, fits);
                 b.ret(&[lo, hi, fits]);
                 let prog = pb.finish();
-                let got = gravity_interp::Interp::new(&prog).run(f, &[x as u64, (x >> 64) as u64, t as u64]).expect("runs");
+                let got = gravity_interp::Interp::new(&prog)
+                    .run(f, &[x as u64, (x >> 64) as u64, t as u64])
+                    .expect("runs");
                 let want = x.checked_mul(t as i128);
                 let w = x.wrapping_mul(t as i128);
                 assert_eq!((got[0], got[1]), (w as u64, (w >> 64) as u64), "{x} * {t}");

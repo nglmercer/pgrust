@@ -13,7 +13,7 @@ use gravity_ir::{Block, Value};
 use gravity_program::{LaneDesc, Pipeline};
 use mcx::PgBox;
 
-use crate::ops::scan::index_only::{key_words, shape};
+use crate::admit::refusal::Reason;
 use crate::face::kinds::KindId;
 use crate::face::source::{Locator, SourceMech, WinConds};
 use crate::frame::env::Env;
@@ -21,10 +21,13 @@ use crate::frame::frame::{SourceMaker, Win, WordWin};
 use crate::frame::px::Px;
 use crate::frame::row::{Carry, RowVals};
 use crate::frame::site::{index_site, Reader, CTID_AT};
-use crate::admit::refusal::Reason;
+use crate::ops::scan::index_only::{key_words, shape};
 use crate::ops::Table;
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::SrcIndexArray, &SourceMaker(make))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::SrcIndexArray, &SourceMaker(make))],
+    ..crate::ops::NONE
+};
 
 struct IndexArray<'g> {
     rd: Reader<'g>,
@@ -34,9 +37,28 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
     let gx = px.gx;
     let p = &gx.pipelines()[k];
     let node = p.node_id;
-    let Source::Index { site, am, relid, indexid, keys, only: false, .. } = &p.source else { crate::refuse!(node, Reason::Bug { payload: "an array-key index entry over another source" }) };
+    let Source::Index {
+        site,
+        am,
+        relid,
+        indexid,
+        keys,
+        only: false,
+        ..
+    } = &p.source
+    else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "an array-key index entry over another source"
+            }
+        )
+    };
     if !crate::ops::scan::index::index_fetch(gx, *am, *relid) {
-        shape(node, "an index scan over a relation that is not a heap table");
+        shape(
+            node,
+            "an index scan over a relation that is not a heap table",
+        );
     }
     let (slots, attnos) = key_words(px, node, *indexid, keys);
     let (mut s, ctid) = index_site(px, site, *relid, &slots, &attnos, node);
@@ -67,18 +89,44 @@ impl SourceMech for IndexArray<'_> {
     fn next_window(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, l_eof: Block) -> Win {
         let (cursor, end) = self.rd.window(b, env, l_eof);
         let w = self.rd.vals();
-        Win { cursor, end, facts: WinConds { nonulls: self.rd.nonulls(b), nosel: Some(w.sel_null), ..WinConds::default() } }
+        Win {
+            cursor,
+            end,
+            facts: WinConds {
+                nonulls: self.rd.nonulls(b),
+                nosel: Some(w.sel_null),
+                ..WinConds::default()
+            },
+        }
     }
 
-    fn word_win<'e>(&self, _b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win) -> Option<WordWin<'e>> {
+    fn word_win<'e>(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+    ) -> Option<WordWin<'e>> {
         self.rd.word_win(env.mcx)
     }
 
-    fn row<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e> {
+    fn row<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+        j: Value,
+        carry: Carry<'e>,
+        next: Value,
+    ) -> RowVals<'e> {
         self.rd.row(b, env, j, carry, next)
     }
 
-    fn locator(&self, b: &mut FunctionBuilder<'_>, _env: &mut Env, _row: &RowVals) -> Option<Locator> {
+    fn locator(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        _env: &mut Env,
+        _row: &RowVals,
+    ) -> Option<Locator> {
         self.rd.locator(b)
     }
 }

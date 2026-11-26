@@ -1,9 +1,9 @@
 use ::datum::Datum;
+use ::lsyscache::COMPARE_GT;
 use ::mcx::Mcx;
 use ::types_core::Oid;
 use ::types_error::{PgError, PgResult};
 use ::types_fmgr::PGFunction;
-use ::lsyscache::COMPARE_GT;
 use ::types_nbtree::{BTORDER_PROC, BTSORTSUPPORT_PROC};
 
 // pg_proc.dat oids for the sortsupport routines with a live comparator arm.
@@ -379,7 +379,10 @@ pub(crate) fn varstrfastcmp_locale(
         return 0;
     }
     let (a1, a2) = if bpchar {
-        (nul_truncate(bpchartruelen(a1)), nul_truncate(bpchartruelen(a2)))
+        (
+            nul_truncate(bpchartruelen(a1)),
+            nul_truncate(bpchartruelen(a2)),
+        )
     } else {
         (a1, a2)
     };
@@ -626,8 +629,7 @@ pub fn prepare_sort_support_abbrev(
     ssup: &SortSupportInit,
     abbreviate: bool,
 ) -> PgResult<(SortSupport, Option<AbbrevArm>)> {
-    let Some((opfamily, opcintype, cmptype)) =
-        lsyscache::get_ordering_op_properties(ordering_op)?
+    let Some((opfamily, opcintype, cmptype)) = lsyscache::get_ordering_op_properties(ordering_op)?
     else {
         // C: elog(ERROR, ...) (sortsupport.c:145) — a backend error, not a
         // process-level failure.
@@ -636,8 +638,7 @@ pub fn prepare_sort_support_abbrev(
         ))));
     };
     let ssup_reverse = cmptype == COMPARE_GT;
-    let comparator =
-        comparator_for_opfamily(opfamily, opcintype, opcintype, ssup.ssup_collation)?;
+    let comparator = comparator_for_opfamily(opfamily, opcintype, opcintype, ssup.ssup_collation)?;
     let abbrev = if abbreviate {
         abbrev_arm_for(comparator)
     } else {
@@ -664,10 +665,16 @@ pub(crate) fn abbrev_arm_for(comparator: SortComparator) -> Option<AbbrevArm> {
         SortComparator::TextC => AbbrevKind::VarStrC,
         SortComparator::BpcharC => AbbrevKind::BpcharC,
         SortComparator::TextLocale(locale) if locale.pg_strxfrm_enabled() => {
-            AbbrevKind::VarStrXfrm { locale, bpchar: false }
+            AbbrevKind::VarStrXfrm {
+                locale,
+                bpchar: false,
+            }
         }
         SortComparator::BpcharLocale(locale) if locale.pg_strxfrm_enabled() => {
-            AbbrevKind::VarStrXfrm { locale, bpchar: true }
+            AbbrevKind::VarStrXfrm {
+                locale,
+                bpchar: true,
+            }
         }
         SortComparator::Uuid => AbbrevKind::Uuid,
         SortComparator::Network => AbbrevKind::Network,
@@ -675,7 +682,10 @@ pub(crate) fn abbrev_arm_for(comparator: SortComparator) -> Option<AbbrevArm> {
         SortComparator::GistPointZorder => AbbrevKind::GistPointZorder,
         _ => return None,
     };
-    Some(AbbrevArm { kind, full_comparator: comparator })
+    Some(AbbrevArm {
+        kind,
+        full_comparator: comparator,
+    })
 }
 
 fn is_builtin_sortsupport(oid: Oid) -> bool {
@@ -798,7 +808,11 @@ pub fn comparator_for_opfamily(
                 let fn_addr = flinfo.fn_addr();
                 // Fresh per-setup resolution, as C fmgr_info_cxt's per shim.
                 let slot = install_shim_flinfo(sort_function, flinfo);
-                SortComparator::Shim(ShimCmp { fn_addr, fn_oid: sort_function, slot })
+                SortComparator::Shim(ShimCmp {
+                    fn_addr,
+                    fn_oid: sort_function,
+                    slot,
+                })
             }
         }
         // Invariant tripwire: the constant set at ssup.rs:10-33 is complete
@@ -825,12 +839,8 @@ const F_GIST_POINT_SORTSUPPORT: Oid = 3435;
 /// is skipped like every index-build abbrev; gist_bbox_zorder_cmp is the
 /// abbrev arm's full tie-breaker, so the order is identical.
 pub fn comparator_for_gist_index_col(opfamily: Oid, opcintype: Oid) -> PgResult<SortComparator> {
-    let ssup_proc = lsyscache::get_opfamily_proc(
-        opfamily,
-        opcintype,
-        opcintype,
-        GIST_SORTSUPPORT_PROC_NUM,
-    )?;
+    let ssup_proc =
+        lsyscache::get_opfamily_proc(opfamily, opcintype, opcintype, GIST_SORTSUPPORT_PROC_NUM)?;
     let ssup_proc = match ::fmgr_seams::internal_builtin_oid::is_installed() {
         true => ::fmgr_seams::internal_builtin_oid::call(ssup_proc)?.unwrap_or(ssup_proc),
         false => ssup_proc,
@@ -842,7 +852,11 @@ pub fn comparator_for_gist_index_col(opfamily: Oid, opcintype: Oid) -> PgResult<
             let fn_addr = flinfo.fn_addr();
             // Fresh per-setup resolution, as C fmgr_info_cxt's per shim.
             let slot = install_shim_flinfo(F_RANGE_CMP, flinfo);
-            Ok(SortComparator::Shim(ShimCmp { fn_addr, fn_oid: F_RANGE_CMP, slot }))
+            Ok(SortComparator::Shim(ShimCmp {
+                fn_addr,
+                fn_oid: F_RANGE_CMP,
+                slot,
+            }))
         }
         // C: PrepareSortSupportFromGistIndexRel's elog(ERROR) (sortsupport.c).
         0 => Err(Box::new(PgError::error(format!(
@@ -868,7 +882,9 @@ pub fn comparator_for_gist_index_col(opfamily: Oid, opcintype: Oid) -> PgResult<
             );
             flinfo.invoke(&mut frame)?;
             if frame.isnull {
-                return Err(Box::new(PgError::error(format!("function {other} returned NULL"))));
+                return Err(Box::new(PgError::error(format!(
+                    "function {other} returned NULL"
+                ))));
             }
             match shim.comparator {
                 Some(cmp) => Ok(SortComparator::GistOpclass(cmp)),
@@ -961,7 +977,11 @@ pub fn comparator_for_index_col(
                 let fn_addr = flinfo.fn_addr();
                 // Fresh per-setup resolution, as C fmgr_info_cxt's per shim.
                 let slot = install_shim_flinfo(sort_function, flinfo);
-                SortComparator::Shim(ShimCmp { fn_addr, fn_oid: sort_function, slot })
+                SortComparator::Shim(ShimCmp {
+                    fn_addr,
+                    fn_oid: sort_function,
+                    slot,
+                })
             }
         }
         // Invariant tripwire: the constant set at ssup.rs:10-33 is complete
@@ -1037,7 +1057,10 @@ mod name_ssup_tests {
             );
             assert_ne!(base, libc::MAP_FAILED);
             let base = base.cast::<u8>();
-            assert_eq!(libc::mprotect(base.add(page).cast(), page, libc::PROT_NONE), 0);
+            assert_eq!(
+                libc::mprotect(base.add(page).cast(), page, libc::PROT_NONE),
+                0
+            );
             let key = b"abs_27457\0";
             let at = base.add(page - key.len());
             core::ptr::copy_nonoverlapping(key.as_ptr(), at, key.len());
@@ -1080,7 +1103,13 @@ mod invert_tests {
         };
         let m = ::mcx::MemoryContext::new("invert-test");
         let (a, b) = (Datum::from_i32(1), Datum::from_i32(2));
-        assert_eq!(apply_sort_comparator_as_in(ssup.comparator, m.mcx(), a, false, b, false, &ssup), 1);
-        assert_eq!(apply_sort_comparator_in(m.mcx(), a, false, b, false, &ssup), 1);
+        assert_eq!(
+            apply_sort_comparator_as_in(ssup.comparator, m.mcx(), a, false, b, false, &ssup),
+            1
+        );
+        assert_eq!(
+            apply_sort_comparator_in(m.mcx(), a, false, b, false, &ssup),
+            1
+        );
     }
 }

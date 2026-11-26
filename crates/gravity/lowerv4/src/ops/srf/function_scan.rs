@@ -18,6 +18,7 @@ use gravity_ir::{IntBinOp, IntCond, Type, Value};
 use gravity_program::{ExprLife, ExprOut, Rep};
 use mcx::{CollectIn, GrowIn, PgBox, PgVec};
 
+use crate::admit::refusal::Reason;
 use crate::cell::{Cell, Nullable, Row};
 use crate::face::kinds::{Face, KindId};
 use crate::face::step::{Expand, ExpandKind, ExprMech, StepMech};
@@ -28,15 +29,17 @@ use crate::frame::open::{Base, OpenWord, OpenWords};
 use crate::frame::px::{ExId, Px, WordKey};
 use crate::frame::row::{Carry, RowVals};
 use crate::frame::stop::{self, ResumeWord};
-use crate::admit::refusal::Reason;
 use crate::ops::Table;
 
 use crate::ops::srf::face::Form;
-use crate::ops::srf::iter as iter;
-use crate::ops::srf::iter::{Iter, Opened};
 use crate::ops::srf::function_store::store_step;
+use crate::ops::srf::iter;
+use crate::ops::srf::iter::{Iter, Opened};
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::SrfFunction, &StepMaker(make))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::SrfFunction, &StepMaker(make))],
+    ..crate::ops::NONE
+};
 
 /// The rows the set loop hands on between two cancel polls.
 const BLOCK: i64 = 64;
@@ -69,28 +72,71 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMech +
     let mcx = px.mcx();
     let gx = px.gx;
     let p = &gx.pipelines()[k];
-    let node = p.node_ops.iter().rev().find(|n| n.first_op as usize <= j).map_or(p.node_id, |n| n.node_id);
-    let Op::Srf(d) = &p.ops[j] else { crate::refuse!(node, Reason::Bug { payload: "a srf.function step over another op" }) };
-    let SrfPlace::From { scanrelid, ordinality } = d.place else { crate::refuse!(node, Reason::Bug { payload: "a target-list set as srf.function" }) };
+    let node = p
+        .node_ops
+        .iter()
+        .rev()
+        .find(|n| n.first_op as usize <= j)
+        .map_or(p.node_id, |n| n.node_id);
+    let Op::Srf(d) = &p.ops[j] else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a srf.function step over another op"
+            }
+        )
+    };
+    let SrfPlace::From {
+        scanrelid,
+        ordinality,
+    } = d.place
+    else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a target-list set as srf.function"
+            }
+        )
+    };
     let ex = crate::frame::iface::expr_face(&node).0;
     let ncols = d.functions.iter().map(|f| f.cols as usize).sum::<usize>() + ordinality as usize;
     // D1657: an inline entry `reopen_once` names would run at every re-open where PG's FunctionScan fills once and
     // rewinds; the store form fills once (function_store.rs: the once rule's Volatile protocol)
-    if !d.functions.iter().all(|f| inline(px, ex, f, node)) || crate::ops::srf::reopen_once::reopen_once(gx, px.arena, k, d) {
-        return store_step(px, ex, (k, j), d, (scanrelid as i32, ordinality, ncols), node);
+    if !d.functions.iter().all(|f| inline(px, ex, f, node))
+        || crate::ops::srf::reopen_once::reopen_once(gx, px.arena, k, d)
+    {
+        return store_step(
+            px,
+            ex,
+            (k, j),
+            d,
+            (scanrelid as i32, ordinality, ncols),
+            node,
+        );
     }
     let mut members: PgVec<'_, Member<'_>> = mcx::reserved_in(d.functions.len(), mcx);
     for (m, f) in d.functions.iter().enumerate() {
         members.push_in(member(px, ex, (k, j), m, f, node));
     }
     let ordinality = ordinality.then_some(ncols as i16);
-    let offset = stop::resume_word(px, ResumeWord::StepOffset { k, j: crate::frame::px::key_j(j) });
+    let offset = stop::resume_word(
+        px,
+        ResumeWord::StepOffset {
+            k,
+            j: crate::frame::px::key_j(j),
+        },
+    );
     mcx::pg_box_dyn!(px.mcx(), FromStep { node, ex, members, ordinality, ncols, offset } => dyn StepMech + 'g)
 }
 
 /// Function `f`'s one column's type when its value is that column: not a composite, a record or a pseudo-type (a
 /// one-attribute composite, or a record under a column list, is one column too, and PG spreads its attribute).
-pub(crate) fn plain_type<'p>(px: &Px<'_, 'p>, ex: &dyn ExprMech, f: &SrfFn<'p>, node: i32) -> Option<u32> {
+pub(crate) fn plain_type<'p>(
+    px: &Px<'_, 'p>,
+    ex: &dyn ExprMech,
+    f: &SrfFn<'p>,
+    node: i32,
+) -> Option<u32> {
     let (t, facts) = (ex.out_type(px.gx, f.node, node), px.gx.facts);
     // through a domain to its base, from the plan's type facts (the catalog is never asked at lowering)
     let mut b = t;
@@ -109,39 +155,106 @@ pub(crate) fn plain_type<'p>(px: &Px<'_, 'p>, ex: &dyn ExprMech, f: &SrfFn<'p>, 
 /// Whether `f` runs inline: the iterator, or one row of a scalar call's or an inlined body's value; any other member takes
 /// the FROM entry to form (c).
 fn inline<'p>(px: &mut Px<'_, 'p>, ex: &dyn ExprMech, f: &SrfFn<'p>, node: i32) -> bool {
-    f.cols == 1 && (iter::plan(px, f, node).is_some() || matches!(f.kind, SrfKind::Scalar | SrfKind::Expr) && plain_type(px, ex, f, node).is_some())
+    f.cols == 1
+        && (iter::plan(px, f, node).is_some()
+            || matches!(f.kind, SrfKind::Scalar | SrfKind::Expr)
+                && plain_type(px, ex, f, node).is_some())
 }
 
-fn member<'g, 'p>(px: &mut Px<'g, 'p>, ex: &dyn ExprMech, (k, j): (usize, usize), m: usize, f: &SrfFn<'p>, node: i32) -> Member<'g> {
+fn member<'g, 'p>(
+    px: &mut Px<'g, 'p>,
+    ex: &dyn ExprMech,
+    (k, j): (usize, usize),
+    m: usize,
+    f: &SrfFn<'p>,
+    node: i32,
+) -> Member<'g> {
     let mcx = px.mcx();
     let (form, iter, out, args) = match (iter::plan(px, f, node), plain_type(px, ex, f, node)) {
         (Some(it), _) => {
             let iter::IterKind::Series { width, .. } = it.kind;
-            let t = if width == 8 { types_core::INT8OID } else { types_core::catalog::INT4OID };
-            let args = f.args.iter().map(|a| ex.compile_at(px, (k, j), a, None, node)).collect_in(mcx);
-            (Form::Iter, Some(it), ExprOut { rep: Rep::Word { bytes: width }, typid: t, life: ExprLife::Row }, args)
+            let t = if width == 8 {
+                types_core::INT8OID
+            } else {
+                types_core::catalog::INT4OID
+            };
+            let args = f
+                .args
+                .iter()
+                .map(|a| ex.compile_at(px, (k, j), a, None, node))
+                .collect_in(mcx);
+            (
+                Form::Iter,
+                Some(it),
+                ExprOut {
+                    rep: Rep::Word { bytes: width },
+                    typid: t,
+                    life: ExprLife::Row,
+                },
+                args,
+            )
         }
         (None, Some(t)) => {
             let e = ex.compile_at(px, (k, j), f.node, None, node);
             let tf = ex.tf_of(px.gx, t);
-            (Form::Expr, None, ExprOut { rep: Rep::of_storage(tf.typlen, tf.byval), typid: t, life: ExprLife::Row }, mcx::pg_vec![in mcx; e])
+            (
+                Form::Expr,
+                None,
+                ExprOut {
+                    rep: Rep::of_storage(tf.typlen, tf.byval),
+                    typid: t,
+                    life: ExprLife::Row,
+                },
+                mcx::pg_vec![in mcx; e],
+            )
         }
-        (None, None) => crate::refuse!(node, Reason::Bug { payload: "a srf.function member that does not run inline" }),
+        (None, None) => crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a srf.function member that does not run inline"
+            }
+        ),
     };
     let n = iter.map_or(0, |it| it.nwords());
-    let words = (0..n).map(|i| px.frame_word(WordKey::Open { face: Face::Step, k, j: crate::frame::px::key_j(j), i: (4 * m + i) as u8 }) as i32 * 8).collect_in(mcx);
-    Member { form, iter, args, col: f.resno, out, words }
+    let words = (0..n)
+        .map(|i| {
+            px.frame_word(WordKey::Open {
+                face: Face::Step,
+                k,
+                j: crate::frame::px::key_j(j),
+                i: (4 * m + i) as u8,
+            }) as i32
+                * 8
+        })
+        .collect_in(mcx);
+    Member {
+        form,
+        iter,
+        args,
+        col: f.resno,
+        out,
+        words,
+    }
 }
 
 impl<'g> FromStep<'g> {
     /// Every member opened on the row, in call order (an error leaves before any row is handed on, as PG's
     /// materialization raises before the first fetch returns), each opened set stored in its words.
-    fn open<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals) -> PgVec<'e, Value> {
+    fn open<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+    ) -> PgVec<'e, Value> {
         let mcx = env.mcx;
         let mut out: PgVec<'_, Value> = PgVec::new_in(mcx);
         for m in self.members.iter() {
             let Some(it) = m.iter else { continue };
-            let args: PgVec<'_, (Value, Option<Value>)> = m.args.iter().map(|&a| arg(b, env, self.ex, self.node, row, a)).collect_in(mcx);
+            let args: PgVec<'_, (Value, Option<Value>)> = m
+                .args
+                .iter()
+                .map(|&a| arg(b, env, self.ex, self.node, row, a))
+                .collect_in(mcx);
             let (o, err) = it.open(b, env, &args[..], true);
             raise(b, env, row, err);
             for (w, &at) in o.words(mcx).into_iter().zip(m.words.iter()) {
@@ -156,7 +269,12 @@ impl<'g> FromStep<'g> {
     /// value and NULL flag: evaluated at the open only (row 0 is handed on in the call that opens; a resumed row is past
     /// it, so a volatile or side-effecting expression runs once, as PG's materialization calls it once).
     #[allow(clippy::type_complexity)]
-    fn opened<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals) -> (PgVec<'e, Option<Opened>>, PgVec<'e, Option<(Value, Value)>>) {
+    fn opened<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+    ) -> (PgVec<'e, Option<Opened>>, PgVec<'e, Option<(Value, Value)>>) {
         let mcx = env.mcx;
         let words: usize = self.members.iter().map(|m| m.words.len()).sum();
         let k0 = env.load_word(b, self.offset);
@@ -173,7 +291,12 @@ impl<'g> FromStep<'g> {
         let l_go = b.create_block(&go_t[..]);
         b.br(l_go, &w[..]);
         b.switch_to(l_held);
-        let mut w: PgVec<'_, Value> = self.members.iter().flat_map(|m| m.words.iter()).map(|&at| env.load_word(b, at)).collect_in(mcx);
+        let mut w: PgVec<'_, Value> = self
+            .members
+            .iter()
+            .flat_map(|m| m.words.iter())
+            .map(|&at| env.load_word(b, at))
+            .collect_in(mcx);
         for &t in go_t[words..].iter().step_by(2) {
             let z = match t {
                 Type::F64 => b.f64const(0.0),
@@ -188,8 +311,23 @@ impl<'g> FromStep<'g> {
         b.switch_to(l_go);
         let p = b.block_params(l_go);
         let (mut ws, mut es) = (p[..words].iter().copied(), p[words..].chunks(2));
-        let sets = self.members.iter().map(|m| m.iter.map(|it| it.from_words(&ws.by_ref().take(m.words.len()).collect_in(mcx)[..]))).collect_in(mcx);
-        let exprs = self.members.iter().map(|m| (m.form == Form::Expr).then(|| es.next().map(|e| (e[0], e[1]))).flatten()).collect_in(mcx);
+        let sets = self
+            .members
+            .iter()
+            .map(|m| {
+                m.iter
+                    .map(|it| it.from_words(&ws.by_ref().take(m.words.len()).collect_in(mcx)[..]))
+            })
+            .collect_in(mcx);
+        let exprs = self
+            .members
+            .iter()
+            .map(|m| {
+                (m.form == Form::Expr)
+                    .then(|| es.next().map(|e| (e[0], e[1])))
+                    .flatten()
+            })
+            .collect_in(mcx);
         (sets, exprs)
     }
 
@@ -203,7 +341,14 @@ impl<'g> FromStep<'g> {
 }
 
 /// Argument `a`'s word and NULL flag (an error raises through the row's raise block).
-fn arg(b: &mut FunctionBuilder<'_>, env: &mut Env, ex: &dyn ExprMech, node: i32, row: &RowVals, a: ExId) -> (Value, Option<Value>) {
+fn arg(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    ex: &dyn ExprMech,
+    node: i32,
+    row: &RowVals,
+    a: ExId,
+) -> (Value, Option<Value>) {
     let (v, valid) = ex.emit(b, env, node, row, a);
     let t = b.bconst(true);
     (v, Some(b.int_bin(IntBinOp::Xor, valid, t)))
@@ -225,29 +370,60 @@ fn raise(b: &mut FunctionBuilder<'_>, env: &Env, row: &RowVals, err: Value) {
 
 impl<'g> StepMech for FromStep<'g> {
     fn open_words(&self, w: &mut OpenWords) {
-        w.declare(OpenWord::open("srf.function offset", Base::Words, self.offset, Type::I64, 0));
+        w.declare(OpenWord::open(
+            "srf.function offset",
+            Base::Words,
+            self.offset,
+            Type::I64,
+            0,
+        ));
         for &at in self.members.iter().flat_map(|m| m.words.iter()) {
-            w.declare(OpenWord::open("srf.function opened set", Base::Words, at, Type::I64, 0));
+            w.declare(OpenWord::open(
+                "srf.function opened set",
+                Base::Words,
+                at,
+                Type::I64,
+                0,
+            ));
         }
     }
 
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, next: Next<'_, 'e>) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        next: Next<'_, 'e>,
+    ) -> Carry<'e> {
         let mcx = env.mcx;
         let (sets, exprs) = self.opened(b, env, row);
         let n = self.count(b, env, &sets[..]);
         let k0 = env.load_word(b, self.offset);
         let k0 = resume_at(b, env, k0);
-        let ctypes: PgVec<'_, Type> = row.carry.params().iter().map(|&v| b.value_type(v)).collect_in(mcx);
+        let ctypes: PgVec<'_, Type> = row
+            .carry
+            .params()
+            .iter()
+            .map(|&v| b.value_type(v))
+            .collect_in(mcx);
         // l_elem(k, lim, cursors…, carry…): the rows of one block; l_chunk(k, cursors…, carry…): the cancel poll between
         // blocks; l_end(carry…): the set is through
         let ncur = sets.iter().flatten().count();
         let mut elem_t: PgVec<'_, Type> = mcx::pg_vec![in mcx; Type::I64; 2 + ncur];
         elem_t.extend_from_slice_in(&ctypes[..]);
         let l_elem = b.create_block(&elem_t[..]);
-        let chunk_t: PgVec<'_, Type> = [Type::I64].into_iter().chain(elem_t[2..].iter().copied()).collect_in(mcx);
+        let chunk_t: PgVec<'_, Type> = [Type::I64]
+            .into_iter()
+            .chain(elem_t[2..].iter().copied())
+            .collect_in(mcx);
         let (l_chunk, l_body) = cancel::header(b, env.ctx, env.l_cancel, &chunk_t[..], env.mcx);
         let l_end = b.create_block(&ctypes[..]);
-        let cur0: PgVec<'_, Value> = self.members.iter().zip(sets.iter()).filter_map(|(m, s)| Some(m.iter?.at(b, s.as_ref()?, k0, mcx)[0])).collect_in(mcx);
+        let cur0: PgVec<'_, Value> = self
+            .members
+            .iter()
+            .zip(sets.iter())
+            .filter_map(|(m, s)| Some(m.iter?.at(b, s.as_ref()?, k0, mcx)[0]))
+            .collect_in(mcx);
         let lim = block_end(b, env, k0, n);
         // D2967: the region's top once the set is open; each row's by-reference bytes go back to it once the row is
         // through (PG's per-tuple reset per FunctionScan row; what a later step or the end keeps it copies, as across
@@ -265,13 +441,22 @@ impl<'g> StepMech for FromStep<'g> {
         b.mark_loop_header(l_elem);
         env.bounded.push_in(l_elem);
         let p = mcx::to_vec_in(b.block_params(l_elem), mcx);
-        let (k, lim, cur, carry) = (p[0], p[1], &p[2..2 + ncur], Carry::from_params(&p[2 + ncur..], env.mcx));
+        let (k, lim, cur, carry) = (
+            p[0],
+            p[1],
+            &p[2..2 + ncur],
+            Carry::from_params(&p[2 + ncur..], env.mcx),
+        );
         let (l_row, l_past) = (b.create_block(&[]), b.create_block(&[]));
         let in_block = b.icmp(IntCond::Ult, k, lim);
         b.cond_br(in_block, (l_row, &[]), (l_past, &[]));
         b.switch_to(l_past);
         let done = b.icmp(IntCond::Uge, k, n);
-        let back: PgVec<'_, Value> = [k].into_iter().chain(cur.iter().copied()).chain(carry.params()).collect_in(mcx);
+        let back: PgVec<'_, Value> = [k]
+            .into_iter()
+            .chain(cur.iter().copied())
+            .chain(carry.params())
+            .collect_in(mcx);
         b.cond_br(done, (l_end, &carry.params()), (l_chunk, &back[..]));
         b.switch_to(l_row);
         let out = self.row_at(b, env, row, (&sets[..], &exprs[..]), k, cur, &carry);
@@ -301,7 +486,11 @@ impl<'g> StepMech for FromStep<'g> {
     }
 
     fn expand(&self) -> Option<Expand> {
-        Some(Expand { kind: ExpandKind::Srf, offset: self.offset, held: self.members.iter().map(|m| m.words.len() as u8).sum() })
+        Some(Expand {
+            kind: ExpandKind::Srf,
+            offset: self.offset,
+            held: self.members.iter().map(|m| m.words.len() as u8).sum(),
+        })
     }
 }
 
@@ -311,7 +500,11 @@ impl<'g> StepMech for FromStep<'g> {
 /// same rule (D688). D824 found it missing here: a FROM function's row that a lazy build's wait stopped was skipped.
 pub(crate) fn resume_at(b: &mut FunctionBuilder<'_>, env: &Env, off: Value) -> Value {
     let mut set = None;
-    for &(_, o) in env.expands.iter().filter(|e| env.step.is_some_and(|j| e.0 > j)) {
+    for &(_, o) in env
+        .expands
+        .iter()
+        .filter(|e| env.step.is_some_and(|j| e.0 > j))
+    {
         let w = env.load_word(b, o);
         set = Some(set.map_or(w, |a| b.int_bin(IntBinOp::Or, a, w)));
     }
@@ -327,7 +520,16 @@ impl<'g> FromStep<'g> {
     /// Row `k` of the set: each member's element `k` (NULL past its end), the ordinality `k + 1`; a stop after it resumes
     /// at this input row (`next` = `at`), where the offset word says how far the set got.
     #[allow(clippy::type_complexity)]
-    fn row_at<'e>(&self, b: &mut FunctionBuilder<'_>, env: &Env<'e, '_>, row: &RowVals, (sets, exprs): (&[Option<Opened>], &[Option<(Value, Value)>]), k: Value, cur: &[Value], carry: &Carry) -> RowVals<'e> {
+    fn row_at<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &Env<'e, '_>,
+        row: &RowVals,
+        (sets, exprs): (&[Option<Opened>], &[Option<(Value, Value)>]),
+        k: Value,
+        cur: &[Value],
+        carry: &Carry,
+    ) -> RowVals<'e> {
         let mut cells = mcx::reserved_in(self.ncols, env.mcx);
         let mut vals = mcx::reserved_in(self.ncols, env.mcx);
         let mut cols = mcx::pg_vec![in env.mcx; None; self.ncols];
@@ -344,20 +546,46 @@ impl<'g> FromStep<'g> {
                     let past = b.icmp(IntCond::Ne, k, env.zero);
                     (*v, b.int_bin(IntBinOp::Or, *nl, past))
                 }
-                _ => crate::refuse!(self.node, Reason::Bug { payload: "a srf.function member without its form's values" }),
+                _ => crate::refuse!(
+                    self.node,
+                    Reason::Bug {
+                        payload: "a srf.function member without its form's values"
+                    }
+                ),
             };
             cols[m.col as usize - 1] = Some(cells.len() as u16);
-            cells.push_in(Cell::of_expr(m.out, cells.len() as u16, cells.len() as u16, Nullable::Maybe));
+            cells.push_in(Cell::of_expr(
+                m.out,
+                cells.len() as u16,
+                cells.len() as u16,
+                Nullable::Maybe,
+            ));
             vals.push_in((v, Some(null)));
         }
         if let Some(a) = self.ordinality {
-            let ord = ExprOut { rep: Rep::Word { bytes: 8 }, typid: types_core::INT8OID, life: ExprLife::Row };
+            let ord = ExprOut {
+                rep: Rep::Word { bytes: 8 },
+                typid: types_core::INT8OID,
+                life: ExprLife::Row,
+            };
             cols[a as usize - 1] = Some(cells.len() as u16);
-            cells.push_in(Cell::of_expr(ord, cells.len() as u16, cells.len() as u16, Nullable::Never));
+            cells.push_in(Cell::of_expr(
+                ord,
+                cells.len() as u16,
+                cells.len() as u16,
+                Nullable::Never,
+            ));
             let k1 = b.int_bin(IntBinOp::Add, k, env.one);
             vals.push_in((k1, None));
         }
-        RowVals { row: Row { cells }, vals, cols, carry: carry.copy_in(env.mcx), next: row.at, at: row.at }
+        RowVals {
+            row: Row { cells },
+            vals,
+            cols,
+            carry: carry.copy_in(env.mcx),
+            next: row.at,
+            at: row.at,
+        }
     }
 }
 

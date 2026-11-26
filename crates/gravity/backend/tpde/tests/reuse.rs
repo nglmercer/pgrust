@@ -30,7 +30,10 @@ fn a_stack_store_read_back_and_a_duplicate_load_are_renamed() {
     let f = &p.funcs[0];
     let ctx = mcx::MemoryContext::new("reuse-view");
     let view = FnView::build(ctx.mcx(), f, &gravity_tpde::frontend::A64_IMM);
-    let renamed: Vec<(u32, u32)> = (0..f.values.len() as u32).filter(|v| view.rename[*v as usize] != *v).map(|v| (v, view.rename[v as usize])).collect();
+    let renamed: Vec<(u32, u32)> = (0..f.values.len() as u32)
+        .filter(|v| view.rename[*v as usize] != *v)
+        .map(|v| (v, view.rename[v as usize]))
+        .collect();
     eprintln!("values {} renamed {renamed:?}", f.values.len());
     let ntype = |v: u32| f.values[v as usize];
     let _ = ntype;
@@ -70,11 +73,13 @@ fn the_group_image_staged_on_the_frame_is_read_back_from_registers() {
     let f = &p.funcs[0];
     let ctx = mcx::MemoryContext::new("reuse-view");
     let view = FnView::build(ctx.mcx(), f, &gravity_tpde::frontend::A64_IMM);
-    let renamed: Vec<(u32, u32)> = (0..f.values.len() as u32).filter(|v| view.rename[*v as usize] != *v).map(|v| (v, view.rename[v as usize])).collect();
+    let renamed: Vec<(u32, u32)> = (0..f.values.len() as u32)
+        .filter(|v| view.rename[*v as usize] != *v)
+        .map(|v| (v, view.rename[v as usize]))
+        .collect();
     eprintln!("values {} renamed {renamed:?}", f.values.len());
     assert!(renamed.len() >= 2, "x -> a, y -> b: {renamed:?}");
     let cell = [0u64; 4];
     let out = common::both(&p, Func(0), &[3, 5, cell.as_ptr() as u64]).unwrap();
     assert_eq!(out, vec![9]);
 }
-

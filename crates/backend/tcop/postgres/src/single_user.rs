@@ -22,16 +22,16 @@ pub fn PostgresSingleUserMain(argv: &[String], username: &str) -> ! {
     // unwind-ok: log-then-die
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
         || -> core::convert::Infallible {
-        let err = match single_user_main_inner(argv, username) {
-            Ok(never) => match never {},
-            Err(err) => err,
-        };
-        // A FATAL that unwound as Err (rather than ereport-finish): report
-        // it, then take C's proc_exit(1). Nothing here has a handler yet, so
-        // an ERROR is FATAL (elog.c:375-380).
-        report_startup_error(&err);
-        ipc_seams::proc_exit::call(1, init_small::globals::MyProcPid())
-    },
+            let err = match single_user_main_inner(argv, username) {
+                Ok(never) => match never {},
+                Err(err) => err,
+            };
+            // A FATAL that unwound as Err (rather than ereport-finish): report
+            // it, then take C's proc_exit(1). Nothing here has a handler yet, so
+            // an ERROR is FATAL (elog.c:375-380).
+            report_startup_error(&err);
+            ipc_seams::proc_exit::call(1, init_small::globals::MyProcPid())
+        },
     ));
     let payload = match outcome {
         Ok(never) => match never {},

@@ -9,7 +9,9 @@ use types_error::{PgError, PgResult};
 use types_nodes::list::NodeList;
 use types_nodes::node_tree::Node;
 use types_nodes::nodes_enums::CmdType;
-use types_nodes::parsenodes::{Query, QuerySource, RTEKind, RangeTblEntry, RangeTblFunction, WindowClause};
+use types_nodes::parsenodes::{
+    Query, QuerySource, RTEKind, RangeTblEntry, RangeTblFunction, WindowClause,
+};
 use types_nodes::primnodes::{CoercionForm, FuncExpr, Var};
 use types_rel::{
     AccessShareLock, FormData_pg_class, LockInfoData, LockRelId, NoLock, Relation, RelationData,
@@ -87,7 +89,9 @@ fn fake_scan_pg_rewrite<'mcx>(
 fn make<'mcx>(mcx: Mcx<'mcx>, oid: Oid, name: &str, relkind: u8, rls: bool) -> Relation<'mcx> {
     let mut relname = NameData::default();
     relname.namestrcpy(name);
-    let data = RelationData { rd_locator: Default::default(), rd_smgr: Default::default(),
+    let data = RelationData {
+        rd_locator: Default::default(),
+        rd_smgr: Default::default(),
         rd_id: oid,
         rd_backend: INVALID_PROC_NUMBER,
         rd_islocaltemp: false,
@@ -97,7 +101,10 @@ fn make<'mcx>(mcx: Mcx<'mcx>, oid: Oid, name: &str, relkind: u8, rls: bool) -> R
         rd_firstRelfilelocatorSubid: std::cell::Cell::new(0),
         rd_droppedSubid: std::cell::Cell::new(0),
         rd_lockInfo: LockInfoData {
-            lockRelId: LockRelId { relId: oid, dbId: 5 },
+            lockRelId: LockRelId {
+                relId: oid,
+                dbId: 5,
+            },
         },
         rd_rel: FormData_pg_class {
             relname,
@@ -141,14 +148,17 @@ fn make<'mcx>(mcx: Mcx<'mcx>, oid: Oid, name: &str, relkind: u8, rls: bool) -> R
         pgstat_enabled: std::cell::Cell::new(false),
         pgstat_link: core::cell::Cell::new((0, core::ptr::null_mut())),
         rd_amcache: Default::default(),
-        rd_amcache_hash: Default::default(), rd_amcache_gin: Default::default(), rd_amcache_spgist: Default::default(), rd_amcache_bloom: Default::default(),
+        rd_amcache_hash: Default::default(),
+        rd_amcache_gin: Default::default(),
+        rd_amcache_spgist: Default::default(),
+        rd_amcache_bloom: Default::default(),
         rd_support: PgVec::new_in(mcx),
         rd_supportinfo: Default::default(),
         rd_opcoptions: Default::default(),
         rd_indexlist: Default::default(),
-            rd_trigdesc: Default::default(),
-            rd_hastriggers: false,
-            rd_hasrules: relkind == RELKIND_VIEW,
+        rd_trigdesc: Default::default(),
+        rd_hastriggers: false,
+        rd_hasrules: relkind == RELKIND_VIEW,
     };
     Relation::open(data, None)
 }
@@ -239,7 +249,12 @@ fn rte_node<'mcx>(mcx: Mcx<'mcx>, rte: RangeTblEntry<'mcx>) -> Node<'mcx> {
     Node::mk(mcx, rte).unwrap()
 }
 
-fn relation_rte<'mcx>(mcx: Mcx<'mcx>, relid: Oid, relkind: u8, rellockmode: LOCKMODE) -> Node<'mcx> {
+fn relation_rte<'mcx>(
+    mcx: Mcx<'mcx>,
+    relid: Oid,
+    relkind: u8,
+    rellockmode: LOCKMODE,
+) -> Node<'mcx> {
     rte_node(
         mcx,
         RangeTblEntry {
@@ -296,14 +311,21 @@ fn no_rules_table_query_passes_through() {
     let ctx = MemoryContext::new("t");
     let mcx = ctx.mcx();
     let mut query = select1(mcx);
-    query.rtable = NodeList::make1(mcx, relation_rte(mcx, TBL, RELKIND_RELATION, AccessShareLock))
-        .unwrap();
-    query.jointree = Some(
-        leak_in(alloc_in(mcx, types_nodes::primnodes::FromExpr {
-            fromlist: NodeList::make1(mcx, Node::mk_range_tbl_ref(mcx, 1).unwrap()).unwrap(),
-            quals: None,
-        }).unwrap()),
-    );
+    query.rtable = NodeList::make1(
+        mcx,
+        relation_rte(mcx, TBL, RELKIND_RELATION, AccessShareLock),
+    )
+    .unwrap();
+    query.jointree = Some(leak_in(
+        alloc_in(
+            mcx,
+            types_nodes::primnodes::FromExpr {
+                fromlist: NodeList::make1(mcx, Node::mk_range_tbl_ref(mcx, 1).unwrap()).unwrap(),
+                quals: None,
+            },
+        )
+        .unwrap(),
+    ));
     let rt_ptr = query.rtable.as_slice().as_ptr();
 
     reset_opens();
@@ -320,8 +342,11 @@ fn unreferenced_rte_skips_rules_probe() {
     let ctx = MemoryContext::new("t");
     let mcx = ctx.mcx();
     let mut query = select1(mcx);
-    query.rtable = NodeList::make1(mcx, relation_rte(mcx, TBL, RELKIND_RELATION, AccessShareLock))
-        .unwrap();
+    query.rtable = NodeList::make1(
+        mcx,
+        relation_rte(mcx, TBL, RELKIND_RELATION, AccessShareLock),
+    )
+    .unwrap();
 
     reset_opens();
     let results = QueryRewrite(mcx, query).unwrap();
@@ -336,8 +361,11 @@ fn matview_rte_is_skipped_by_rir_probe() {
     let ctx = MemoryContext::new("t");
     let mcx = ctx.mcx();
     let mut query = select1(mcx);
-    query.rtable =
-        NodeList::make1(mcx, relation_rte(mcx, MATVIEW, RELKIND_MATVIEW, AccessShareLock)).unwrap();
+    query.rtable = NodeList::make1(
+        mcx,
+        relation_rte(mcx, MATVIEW, RELKIND_MATVIEW, AccessShareLock),
+    )
+    .unwrap();
 
     reset_opens();
     let results = QueryRewrite(mcx, query).unwrap();
@@ -351,8 +379,7 @@ fn acquire_locks_not_for_execute_uses_access_share() {
     let ctx = MemoryContext::new("t");
     let mcx = ctx.mcx();
     let mut query = select1(mcx);
-    query.rtable =
-        NodeList::make1(mcx, relation_rte(mcx, TBL, 0, RowExclusiveLock)).unwrap();
+    query.rtable = NodeList::make1(mcx, relation_rte(mcx, TBL, 0, RowExclusiveLock)).unwrap();
 
     reset_opens();
     AcquireRewriteLocks(mcx, &query, false, false).unwrap();
@@ -368,8 +395,7 @@ fn acquire_locks_for_execute_uses_rellockmode() {
     let ctx = MemoryContext::new("t");
     let mcx = ctx.mcx();
     let mut query = select1(mcx);
-    query.rtable =
-        NodeList::make1(mcx, relation_rte(mcx, TBL, 0, RowExclusiveLock)).unwrap();
+    query.rtable = NodeList::make1(mcx, relation_rte(mcx, TBL, 0, RowExclusiveLock)).unwrap();
 
     reset_opens();
     AcquireRewriteLocks(mcx, &query, true, false).unwrap();
@@ -382,8 +408,7 @@ fn acquire_locks_pushed_down_upgrades_access_share_to_row_share() {
     let ctx = MemoryContext::new("t");
     let mcx = ctx.mcx();
     let mut query = select1(mcx);
-    query.rtable =
-        NodeList::make1(mcx, relation_rte(mcx, TBL, 0, AccessShareLock)).unwrap();
+    query.rtable = NodeList::make1(mcx, relation_rte(mcx, TBL, 0, AccessShareLock)).unwrap();
 
     reset_opens();
     AcquireRewriteLocks(mcx, &query, true, true).unwrap();
@@ -393,8 +418,7 @@ fn acquire_locks_pushed_down_upgrades_access_share_to_row_share() {
 
     // A stronger pre-existing mode is kept as-is.
     let mut query2 = select1(mcx);
-    query2.rtable =
-        NodeList::make1(mcx, relation_rte(mcx, TBL, 0, RowExclusiveLock)).unwrap();
+    query2.rtable = NodeList::make1(mcx, relation_rte(mcx, TBL, 0, RowExclusiveLock)).unwrap();
     reset_opens();
     AcquireRewriteLocks(mcx, &query2, true, true).unwrap();
     assert_eq!(opens(), vec![(TBL, RowExclusiveLock)]);
@@ -439,9 +463,11 @@ fn merge_rewrite_plain_table_passes() {
     let mut query = select1(mcx);
     query.commandType = CmdType::CMD_MERGE;
     query.resultRelation = 1;
-    query.rtable =
-        NodeList::make1(mcx, relation_rte(mcx, TBL, RELKIND_RELATION, RowExclusiveLock))
-            .unwrap();
+    query.rtable = NodeList::make1(
+        mcx,
+        relation_rte(mcx, TBL, RELKIND_RELATION, RowExclusiveLock),
+    )
+    .unwrap();
     let out = QueryRewrite(mcx, query).unwrap();
     assert_eq!(out.len(), 1);
 }
@@ -487,14 +513,28 @@ fn sublink_subselect_gets_rir_descent() {
 fn view_query<'mcx>(mcx: Mcx<'mcx>, view_oid: Oid) -> Query<'mcx> {
     let var = Node::mk(
         mcx,
-        types_nodes::primnodes::Var { varno: 1, varattno: 1, vartype: 23, ..Default::default() },
+        types_nodes::primnodes::Var {
+            varno: 1,
+            varattno: 1,
+            vartype: 23,
+            ..Default::default()
+        },
     )
     .unwrap();
     let te = Node::mk_target_entry(mcx, var, 1, Some("a"), false).unwrap();
     let mut colnames = NodeList::nil();
-    colnames.lappend(mcx, Node::mk_string(mcx, "a").unwrap()).unwrap();
+    colnames
+        .lappend(mcx, Node::mk_string(mcx, "a").unwrap())
+        .unwrap();
     let eref = leak_in(
-        alloc_in(mcx, types_nodes::primnodes::Alias { aliasname: Some("v"), colnames }).unwrap(),
+        alloc_in(
+            mcx,
+            types_nodes::primnodes::Alias {
+                aliasname: Some("v"),
+                colnames,
+            },
+        )
+        .unwrap(),
     );
     let rte = rte_node(
         mcx,
@@ -609,8 +649,18 @@ fn view_select_expands_to_subquery_rte() {
     assert_eq!(base.relid, TBL);
     assert_eq!(base.relkind, RELKIND_RELATION);
     assert_eq!(sub.targetList.len(), 1);
-    let sub_var = sub.targetList.nth(0).as_target_entry().unwrap().expr.as_var().unwrap();
-    assert_eq!((sub_var.varno, sub_var.varattno, sub_var.vartype), (1, 1, 23));
+    let sub_var = sub
+        .targetList
+        .nth(0)
+        .as_target_entry()
+        .unwrap()
+        .expr
+        .as_var()
+        .unwrap();
+    assert_eq!(
+        (sub_var.varno, sub_var.varattno, sub_var.vartype),
+        (1, 1, 23)
+    );
 
     // setRuleCheckAsUser: view owner (fake relowner = 10) on all perminfos.
     let p = sub.rteperminfos.nth(0).as_rte_permission_info().unwrap();
@@ -620,7 +670,12 @@ fn view_select_expands_to_subquery_rte() {
     // the recursion's rules + RLS probes on the base table.
     assert_eq!(
         opens(),
-        vec![(VIEW, NoLock), (TBL, AccessShareLock), (TBL, NoLock), (TBL, NoLock)]
+        vec![
+            (VIEW, NoLock),
+            (TBL, AccessShareLock),
+            (TBL, NoLock),
+            (TBL, NoLock)
+        ]
     );
 }
 
@@ -699,7 +754,10 @@ fn row_security_applies_policy_quals() {
     assert!(!q.hasSubLinks);
     let rte = rte_of(q.rtable.nth(0));
     assert_eq!(rte.securityQuals.len(), 1);
-    assert_eq!(rte.securityQuals.nth(0).node_tag(), types_nodes::NodeTag::T_OpExpr);
+    assert_eq!(
+        rte.securityQuals.nth(0).node_tag(),
+        types_nodes::NodeTag::T_OpExpr
+    );
     assert!(q.withCheckOptions.is_nil());
 }
 
@@ -721,7 +779,11 @@ fn self_referential_policy_reports_infinite_recursion() {
 fn join_query<'mcx>(mcx: Mcx<'mcx>, aliasvars: NodeList<'mcx>) -> Query<'mcx> {
     let values = rte_node(
         mcx,
-        RangeTblEntry { rtekind: RTEKind::RTE_VALUES, inFromCl: true, ..Default::default() },
+        RangeTblEntry {
+            rtekind: RTEKind::RTE_VALUES,
+            inFromCl: true,
+            ..Default::default()
+        },
     );
     let join = rte_node(
         mcx,
@@ -737,8 +799,17 @@ fn join_query<'mcx>(mcx: Mcx<'mcx>, aliasvars: NodeList<'mcx>) -> Query<'mcx> {
 }
 
 fn alias_var<'mcx>(mcx: Mcx<'mcx>, varno: i32, varattno: i16) -> Node<'mcx> {
-    Node::mk(mcx, Var { varno, varattno, vartype: 23, vartypmod: -1, ..Default::default() })
-        .unwrap()
+    Node::mk(
+        mcx,
+        Var {
+            varno,
+            varattno,
+            vartype: 23,
+            vartypmod: -1,
+            ..Default::default()
+        },
+    )
+    .unwrap()
 }
 
 #[test]
@@ -856,7 +927,15 @@ fn junk_entries_renumbered_past_real_columns() {
     // Values ride along unchanged (flat copy shares the expr).
     let vals: Vec<i32> = out
         .iter()
-        .map(|n| n.as_target_entry().unwrap().expr.as_const().unwrap().constvalue.as_i32())
+        .map(|n| {
+            n.as_target_entry()
+                .unwrap()
+                .expr
+                .as_const()
+                .unwrap()
+                .constvalue
+                .as_i32()
+        })
         .collect();
     assert_eq!(vals, vec![1, 2]);
 }
@@ -891,7 +970,12 @@ fn fire_rir_expands_from_list_view_before_cte_view() {
     assert_eq!(cte_rte.rtekind, RTEKind::RTE_SUBQUERY);
 
     let opened = opens();
-    let first = |oid: Oid| opened.iter().position(|(o, _)| *o == oid).expect("relation opened");
+    let first = |oid: Oid| {
+        opened
+            .iter()
+            .position(|(o, _)| *o == oid)
+            .expect("relation opened")
+    };
     assert!(
         first(VIEW2) < first(VIEW),
         "FROM-list view must be probed before the CTE view (C order); opens = {opened:?}"
@@ -915,11 +999,13 @@ fn unrecognized_command_type_is_internal_error_not_panic() {
     let err = crate::view_has_instead_trigger(&view, CmdType::CMD_MERGE, &actions).unwrap_err();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
     assert_eq!(err.message(), "unrecognized commandType: 1");
-    let err = crate::view_has_instead_trigger(&view, CmdType::CMD_SELECT, &NodeList::nil()).unwrap_err();
+    let err =
+        crate::view_has_instead_trigger(&view, CmdType::CMD_SELECT, &NodeList::nil()).unwrap_err();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
     assert_eq!(err.message(), "unrecognized CmdType: 1");
 
-    let err = crate::error_view_not_updatable(&view, CmdType::CMD_MERGE, &actions, None).unwrap_err();
+    let err =
+        crate::error_view_not_updatable(&view, CmdType::CMD_MERGE, &actions, None).unwrap_err();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
     assert_eq!(err.message(), "unrecognized commandType: 1");
     let err = crate::error_view_not_updatable(&view, CmdType::CMD_SELECT, &NodeList::nil(), None)
@@ -939,22 +1025,38 @@ fn insert_with_two_values_rtes_is_internal_error() {
     fn values_rte<'mcx>(mcx: Mcx<'mcx>) -> Node<'mcx> {
         rte_node(
             mcx,
-            RangeTblEntry { rtekind: RTEKind::RTE_VALUES, inFromCl: true, ..Default::default() },
+            RangeTblEntry {
+                rtekind: RTEKind::RTE_VALUES,
+                inFromCl: true,
+                ..Default::default()
+            },
         )
     }
-    let mut rtable =
-        NodeList::make1(mcx, relation_rte(mcx, TBL, RELKIND_RELATION, RowExclusiveLock)).unwrap();
+    let mut rtable = NodeList::make1(
+        mcx,
+        relation_rte(mcx, TBL, RELKIND_RELATION, RowExclusiveLock),
+    )
+    .unwrap();
     rtable.lappend(mcx, values_rte(mcx)).unwrap();
     rtable.lappend(mcx, values_rte(mcx)).unwrap();
     let mut fromlist = NodeList::make1(mcx, Node::mk_range_tbl_ref(mcx, 2).unwrap()).unwrap();
-    fromlist.lappend(mcx, Node::mk_range_tbl_ref(mcx, 3).unwrap()).unwrap();
+    fromlist
+        .lappend(mcx, Node::mk_range_tbl_ref(mcx, 3).unwrap())
+        .unwrap();
     let mut query = select1(mcx);
     query.commandType = CmdType::CMD_INSERT;
     query.resultRelation = 1;
     query.targetList = NodeList::nil();
     query.rtable = rtable;
     query.jointree = Some(leak_in(
-        alloc_in(mcx, types_nodes::primnodes::FromExpr { fromlist, quals: None }).unwrap(),
+        alloc_in(
+            mcx,
+            types_nodes::primnodes::FromExpr {
+                fromlist,
+                quals: None,
+            },
+        )
+        .unwrap(),
     ));
 
     let Err(err) = QueryRewrite(mcx, query) else {

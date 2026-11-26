@@ -12,10 +12,21 @@ use crate::graph::Gx;
 /// plain or hashed aggregate. The owner emits groups in partition order, so the emit (emit_group.rs) sorts them by key.
 pub fn order_read(gx: &Gx<'_, '_>, g: &GroupDecl<'_>) -> bool {
     let end = g.producer.0 as usize;
-    if g.form != GroupForm::Distinct || !crate::graph::grouped(g) || !gx.graph.breakers.iter().any(|d| d.producer as usize == end && d.breaker.slot == g.slot && d.order.is_known()) {
+    if g.form != GroupForm::Distinct
+        || !crate::graph::grouped(g)
+        || !gx
+            .graph
+            .breakers
+            .iter()
+            .any(|d| d.producer as usize == end && d.breaker.slot == g.slot && d.order.is_known())
+    {
         return false;
     }
-    let Some(q) = (end + 1..gx.pipelines().len()).find(|&q| matches!(gx.pipelines()[q].source, Source::Breaker { slot } if slot == g.slot)) else { return true };
+    let Some(q) = (end + 1..gx.pipelines().len())
+        .find(|&q| matches!(gx.pipelines()[q].source, Source::Breaker { slot } if slot == g.slot))
+    else {
+        return true;
+    };
     for op in gx.pipelines()[q].ops.iter() {
         match op {
             Op::Filter(_) | Op::Gate(_) | Op::Project(_) => {}
@@ -32,12 +43,18 @@ pub fn order_read(gx: &Gx<'_, '_>, g: &GroupDecl<'_>) -> bool {
 /// reader above reads them in order), so its emit hands the groups unsorted (table/emit_group.rs).
 pub fn key_ordered(gx: &Gx<'_, '_>, g: &GroupDecl<'_>) -> bool {
     let end = g.producer.0 as usize;
-    gx.graph.breakers.iter().any(|d| d.producer as usize == end && d.breaker.slot == g.slot && d.order.n > 0)
+    gx.graph
+        .breakers
+        .iter()
+        .any(|d| d.producer as usize == end && d.breaker.slot == g.slot && d.order.n > 0)
 }
 
 /// D1596 (D3375): whether full Sort pipeline `k` feeds a plain group whose aggpresorted DISTINCT the group family admits only
 /// in PostgreSQL's arrival order and tie order (group/regroup.rs `exact_feed`): sort/exact_feed.rs then orders its run by
 /// PG's qsort over its rows in arrival order, serially.
 pub(crate) fn presorted_exact(gx: &Gx<'_, '_>, arena: gravity_program::ArenaRef, k: usize) -> bool {
-    gx.graph.groups.iter().any(|g| crate::ops::group::regroup::exact_feed(arena, gx.graph, gx.facts, g) == Some(k))
+    gx.graph
+        .groups
+        .iter()
+        .any(|g| crate::ops::group::regroup::exact_feed(arena, gx.graph, gx.facts, g) == Some(k))
 }

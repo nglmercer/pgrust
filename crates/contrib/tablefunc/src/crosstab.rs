@@ -9,8 +9,7 @@ use mcx::Mcx;
 use rustc_hash::FxHashMap;
 use types_error::{
     PgError, PgResult, ERRCODE_CARDINALITY_VIOLATION, ERRCODE_DATATYPE_MISMATCH,
-    ERRCODE_FEATURE_NOT_SUPPORTED, ERRCODE_INVALID_PARAMETER_VALUE,
-    ERRCODE_NULL_VALUE_NOT_ALLOWED,
+    ERRCODE_FEATURE_NOT_SUPPORTED, ERRCODE_INVALID_PARAMETER_VALUE, ERRCODE_NULL_VALUE_NOT_ALLOWED,
 };
 use types_fmgr::{FmgrInfo, FunctionCallInfoBaseData as Fcinfo, SFRM_Materialize};
 use types_tuple::TupleDescData;
@@ -46,10 +45,7 @@ fn arg_sql(fcinfo: &Fcinfo, i: usize) -> PgResult<String> {
 }
 
 // compatCrosstabTupleDescs: ret[0] must match sql[0]; ret[1..] must match sql[2].
-fn compat_crosstab_tupdescs(
-    ret: &TupleDescData<'_>,
-    sql: &TupleDescData<'_>,
-) -> PgResult<()> {
+fn compat_crosstab_tupdescs(ret: &TupleDescData<'_>, sql: &TupleDescData<'_>) -> PgResult<()> {
     if ret.natts < 2 {
         return Err(err(
             "invalid crosstab return type",
@@ -150,10 +146,13 @@ pub(crate) fn fc_crosstab(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) ->
 
     // C get_call_result_type switch: RECORD is 0A000, other non-row is 42804.
     // InitMaterializedSRF elogs XX000 for both.
-    let expected = fcinfo.rsinfo_mut().and_then(|rsi| rsi.expectedDesc).map(|p| {
-        // SAFETY: executor-armed expectedDesc, live for this call (same as InitMaterializedSRF).
-        unsafe { p.cast::<TupleDescData<'_>>().as_ref() }
-    });
+    let expected = fcinfo
+        .rsinfo_mut()
+        .and_then(|rsi| rsi.expectedDesc)
+        .map(|p| {
+            // SAFETY: executor-armed expectedDesc, live for this call (same as InitMaterializedSRF).
+            unsafe { p.cast::<TupleDescData<'_>>().as_ref() }
+        });
     match get_call_result_type(mcx, flinfo, expected)?.class {
         TypeFuncClass::Composite => {}
         TypeFuncClass::Record => {
@@ -188,7 +187,8 @@ pub(crate) fn fc_crosstab(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) ->
         while call_cntr < max_calls {
             let mut skip_tuple = false;
             // values[0] = rowid, values[1..] = one per category (None = NULL).
-            let mut values: Vec<Option<Vec<u8>>> = ::mcx::std_vec_from_elem("tablefunc", None, 1 + num_categories)?;
+            let mut values: Vec<Option<Vec<u8>>> =
+                ::mcx::std_vec_from_elem("tablefunc", None, 1 + num_categories)?;
 
             let mut i = 0;
             while i < num_categories {
@@ -220,8 +220,7 @@ pub(crate) fn fc_crosstab(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) ->
             }
 
             if !skip_tuple {
-                let val_refs: Vec<Option<&[u8]>> =
-                    values.iter().map(|v| v.as_deref()).collect();
+                let val_refs: Vec<Option<&[u8]>> = values.iter().map(|v| v.as_deref()).collect();
                 let (d, n) = attinmeta.build(mcx, &val_refs)?;
                 srf.putvalues(&d, &n)?;
             }
@@ -292,7 +291,11 @@ fn load_categories_hash(
                 };
                 let key = cat_key(catname);
                 if hash.insert(key, i).is_some() {
-                    return Err(err("duplicate category name", "", types_error::ERRCODE_DUPLICATE_OBJECT));
+                    return Err(err(
+                        "duplicate category name",
+                        "",
+                        types_error::ERRCODE_DUPLICATE_OBJECT,
+                    ));
                 }
             }
             Ok(())
@@ -370,21 +373,19 @@ fn get_crosstab_tuplestore(
             if tupdesc_natts != result_ncols {
                 return Err(err(
                     "invalid crosstab return type",
-                    &format!(
-                        "Return row must have {result_ncols} columns, not {tupdesc_natts}."
-                    ),
+                    &format!("Return row must have {result_ncols} columns, not {tupdesc_natts}."),
                     ERRCODE_DATATYPE_MISMATCH,
                 ));
             }
 
-            let mut values: Vec<Option<Vec<u8>>> = ::mcx::std_vec_from_elem("tablefunc", None, result_ncols)?;
+            let mut values: Vec<Option<Vec<u8>>> =
+                ::mcx::std_vec_from_elem("tablefunc", None, result_ncols)?;
             let mut lastrowid: Option<Vec<u8>> = None;
             let mut firstpass = true;
 
             for i in 0..proc as usize {
                 let spi_tuple = &t.vals[i];
-                let rowid =
-                    opt_bytes_to_vec(spi::SPI_getvalue(mcx, spi_tuple, &t.tupdesc, 1)?)?;
+                let rowid = opt_bytes_to_vec(spi::SPI_getvalue(mcx, spi_tuple, &t.tupdesc, 1)?)?;
 
                 if firstpass || !xstreq(lastrowid.as_deref(), rowid.as_deref()) {
                     if !firstpass {
@@ -396,9 +397,12 @@ fn get_crosstab_tuplestore(
                     values[0] = rowid.clone();
                     #[allow(clippy::needless_range_loop)]
                     for j in 1..ncols - 2 {
-                        values[j] = opt_bytes_to_vec(
-                            spi::SPI_getvalue(mcx, spi_tuple, &t.tupdesc, (j + 1) as i32)?,
-                        )?;
+                        values[j] = opt_bytes_to_vec(spi::SPI_getvalue(
+                            mcx,
+                            spi_tuple,
+                            &t.tupdesc,
+                            (j + 1) as i32,
+                        )?)?;
                     }
                     firstpass = false;
                 }
@@ -406,9 +410,12 @@ fn get_crosstab_tuplestore(
                 let catname = spi::SPI_getvalue(mcx, spi_tuple, &t.tupdesc, (ncols - 1) as i32)?;
                 if let Some(catname) = catname {
                     if let Some(&attidx) = crosstab_hash.get(&cat_key(catname)) {
-                        values[attidx + ncols - 2] = opt_bytes_to_vec(
-                            spi::SPI_getvalue(mcx, spi_tuple, &t.tupdesc, ncols as i32)?,
-                        )?;
+                        values[attidx + ncols - 2] = opt_bytes_to_vec(spi::SPI_getvalue(
+                            mcx,
+                            spi_tuple,
+                            &t.tupdesc,
+                            ncols as i32,
+                        )?)?;
                     }
                 }
 

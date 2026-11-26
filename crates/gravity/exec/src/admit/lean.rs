@@ -56,7 +56,10 @@ pub struct KeyFold {
 
 impl KeyFold {
     pub fn new() -> KeyFold {
-        KeyFold { lean: on(), sip: RandomState::new() }
+        KeyFold {
+            lean: on(),
+            sip: RandomState::new(),
+        }
     }
 }
 
@@ -71,7 +74,11 @@ impl BuildHasher for KeyFold {
 
     #[inline]
     fn build_hasher(&self) -> KeyFolder {
-        if self.lean { KeyFolder::Fold(0) } else { KeyFolder::Sip(self.sip.build_hasher()) }
+        if self.lean {
+            KeyFolder::Fold(0)
+        } else {
+            KeyFolder::Sip(self.sip.build_hasher())
+        }
     }
 }
 
@@ -108,7 +115,10 @@ impl Hasher for KeyFolder {
     fn write_u128(&mut self, x: u128) {
         match self {
             // the high half through the word hash first, so keys alike but for which half holds a value differ
-            KeyFolder::Fold(h) => Self::fold(h, x as u64 ^ gravity_abi::hash::KeyHash::word((x >> 64) as u64).to_abi()),
+            KeyFolder::Fold(h) => Self::fold(
+                h,
+                x as u64 ^ gravity_abi::hash::KeyHash::word((x >> 64) as u64).to_abi(),
+            ),
             KeyFolder::Sip(s) => s.write_u128(x),
         }
     }
@@ -141,7 +151,10 @@ mod tests {
     #[test]
     fn key_fold_files_and_finds_on_both_roads() {
         for lean in [true, false] {
-            let mut m: HashMap<ContentKey, u32, KeyFold> = HashMap::with_hasher(KeyFold { lean, sip: RandomState::new() });
+            let mut m: HashMap<ContentKey, u32, KeyFold> = HashMap::with_hasher(KeyFold {
+                lean,
+                sip: RandomState::new(),
+            });
             for i in 0..4096u32 {
                 m.insert(ContentKey(i as u128), i);
                 m.insert(ContentKey((i as u128) << 64), i + 4096);
@@ -153,8 +166,13 @@ mod tests {
             }
             assert_eq!(m.get(&ContentKey(u128::MAX)), None);
         }
-        let b = KeyFold { lean: true, sip: RandomState::new() };
-        let hs: std::collections::HashSet<u64> = (0..4096u128).flat_map(|i| [b.hash_one(ContentKey(i)), b.hash_one(ContentKey(i << 64))]).collect();
+        let b = KeyFold {
+            lean: true,
+            sip: RandomState::new(),
+        };
+        let hs: std::collections::HashSet<u64> = (0..4096u128)
+            .flat_map(|i| [b.hash_one(ContentKey(i)), b.hash_one(ContentKey(i << 64))])
+            .collect();
         assert_eq!(hs.len(), 8191);
     }
 }

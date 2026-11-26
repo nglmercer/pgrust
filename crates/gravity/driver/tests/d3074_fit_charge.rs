@@ -23,16 +23,28 @@ fn a_larger_parked_region_serves_the_ask_and_a_growth_is_charged_first() {
     assert_eq!(REGIONS.stats().allocs, allocs, "no fresh draw");
     assert_eq!((a.len(), a.whole()), (40 * MIB, 64 * MIB));
     assert_eq!(a.pool_bytes(), 40 * MIB as u64, "the region holds its ask");
-    assert_eq!(POOL.held(), 40 * MIB as u64, "the pool holds the ask, not the allocation");
+    assert_eq!(
+        POOL.held(),
+        40 * MIB as u64,
+        "the pool holds the ask, not the allocation"
+    );
     let base = a.as_ptr() as usize;
     REGIONS.put(a);
-    assert_eq!(REGIONS.stats().bytes, 40 * MIB, "parked at the bytes it holds");
+    assert_eq!(
+        REGIONS.stats().bytes,
+        40 * MIB,
+        "parked at the bytes it holds"
+    );
 
     // R1: 60 MiB fits the 64 MiB allocation within an eighth; its length grows into the tail, charged before it is used
     let b = REGIONS.take(60 * MIB, None).expect("the parked region");
     assert_eq!(b.as_ptr() as usize, base);
     assert_eq!((b.len(), b.whole()), (60 * MIB, 64 * MIB));
-    assert_eq!(b.pool_bytes(), 60 * MIB as u64, "the growth is held before the region is handed out");
+    assert_eq!(
+        b.pool_bytes(),
+        60 * MIB as u64,
+        "the growth is held before the region is handed out"
+    );
     assert_eq!(POOL.held(), 60 * MIB as u64);
     drop(b);
     assert_eq!(POOL.held(), 0);

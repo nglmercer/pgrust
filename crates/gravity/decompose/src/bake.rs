@@ -51,8 +51,17 @@ pub fn derived_note(new: usize, how: Derived) {
 
 /// How constant `n` was built when decompose noted it in the innermost open scope; `None` for any other node.
 pub fn derived(n: types_nodes::Node<'_>) -> Option<Derived> {
-    let (a, depth) = (n.as_raw().as_ptr() as usize, SCOPES.with(|s| s.borrow().len()));
-    DERIVED.with(|d| d.borrow().iter().rev().find(|e| e.0 == depth && e.1 == a).map(|e| e.2))
+    let (a, depth) = (
+        n.as_raw().as_ptr() as usize,
+        SCOPES.with(|s| s.borrow().len()),
+    );
+    DERIVED.with(|d| {
+        d.borrow()
+            .iter()
+            .rev()
+            .find(|e| e.0 == depth && e.1 == a)
+            .map(|e| e.2)
+    })
 }
 
 /// A bake scope (`open`) over the reads that follow, closed when it drops (`close`), on any exit, an unwind too.
@@ -88,7 +97,11 @@ fn open() -> usize {
 /// The reads of scope `depth` so far, sorted and deduplicated (none once it closed).
 fn reads(depth: usize) -> Vec<usize> {
     SCOPES.with(|s| {
-        let mut v = s.borrow().get(depth.wrapping_sub(1)).cloned().unwrap_or_default();
+        let mut v = s
+            .borrow()
+            .get(depth.wrapping_sub(1))
+            .cloned()
+            .unwrap_or_default();
         v.sort_unstable();
         v.dedup();
         v

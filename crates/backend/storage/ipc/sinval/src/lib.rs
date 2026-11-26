@@ -27,8 +27,7 @@ use types_error::{PgError, PgResult, DEBUG4, PANIC};
 use types_storage::sinval::{SharedInvalCatcacheMsg, SHARED_INVALIDATION_MESSAGE_SIZE};
 use types_storage::storage::Spinlock;
 use types_storage::{
-    ProcSignalReason, SharedInvalidationMessage, SINVAL_READ_LOCK,
-    SINVAL_WRITE_LOCK,
+    ProcSignalReason, SharedInvalidationMessage, SINVAL_READ_LOCK, SINVAL_WRITE_LOCK,
 };
 
 pub const MAXNUMMESSAGES: i32 = 4096;
@@ -384,8 +383,7 @@ pub fn RetainedSlotIsCurrent() -> bool {
         return false;
     }
     let seg = current_seg();
-    (my as usize) < seg.slots
-        && seg.proc_states()[my as usize].procPid.load(Relaxed) == MyProcPid()
+    (my as usize) < seg.slots && seg.proc_states()[my as usize].procPid.load(Relaxed) == MyProcPid()
 }
 
 pub fn CleanupInvalidationState() -> PgResult<()> {
@@ -566,7 +564,9 @@ pub fn ReceiveSharedInvalidMessages(
 #[inline(never)]
 fn not_attached() -> Box<PgError> {
     catcache_seams::note_pool_miss(-1); // B2: a pool thread reaching for the catalog: counted with the catcache misses
-    Box::new(PgError::error("shared invalidation memory is not attached to this thread"))
+    Box::new(PgError::error(
+        "shared invalidation memory is not attached to this thread",
+    ))
 }
 
 #[inline(never)]

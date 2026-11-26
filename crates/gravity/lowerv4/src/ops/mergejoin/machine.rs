@@ -9,23 +9,43 @@ use gravity_kernels::ops::mergejoin::entries as h11;
 use mcx::GrowIn;
 use types_nodes::jointype::JoinType;
 
-use crate::ops::mergejoin::lower::*;
 use crate::frame::env::Env;
 use crate::frame::row::{Carry, RowVals};
+use crate::ops::mergejoin::lower::*;
 
 impl Merge<'_> {
     /// PG's "mergejoin input data is out of order" (elog ERROR, XX000), raised at the row.
     fn out_of_order(&self, b: &mut FunctionBuilder<'_>, env: &Env) {
-        let h = b.declare_host_once("m11_raise", &[Type::Ptr, Type::I64], Some(Type::I64), h11::m11_raise as *const () as usize, gravity_ir::HostFlags { may_error: true, ..Default::default() });
+        let h = b.declare_host_once(
+            "m11_raise",
+            &[Type::Ptr, Type::I64],
+            Some(Type::I64),
+            h11::m11_raise as *const () as usize,
+            gravity_ir::HostFlags {
+                may_error: true,
+                ..Default::default()
+            },
+        );
         let code = b.iconst(Type::I64, h11::RAISE_OUT_OF_ORDER as i64);
-        let st = b.call_host(h, &[env.ctx, code], Some(Type::I64)).expect("m11_raise returns its status");
+        let st = b
+            .call_host(h, &[env.ctx, code], Some(Type::I64))
+            .expect("m11_raise returns its status");
         b.br(env.x.l_exit, &[st]);
     }
 
     /// The inner tuple `ip` tested as the machine's current one (INITIALIZE_INNER / SKIPINNER_ADVANCE after their fetch,
     /// TESTOUTER past the mark): past the run's end or ENDOFJOIN `l_ieoj`, MATCHABLE state `on_m`, NONMATCHABLE `on_nm`.
     #[allow(clippy::too_many_arguments)]
-    fn test_inner(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals, c: &Carry, (ip, n): (Value, Value), (on_m, on_nm): (u64, u64), (l_mach, l_ieoj): (Block, Block)) {
+    fn test_inner(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        row: &RowVals,
+        c: &Carry,
+        (ip, n): (Value, Value),
+        (on_m, on_nm): (u64, u64),
+        (l_mach, l_ieoj): (Block, Block),
+    ) {
         let cp = c.params();
         let (ended, l_go) = (self.ended(b, env, ip, n), b.create_block(&[]));
         b.cond_br(ended, (l_ieoj, &cp), (l_go, &[]));
@@ -55,7 +75,13 @@ impl Merge<'_> {
     }
 
     /// RIGHT / FULL: before a fetch, the current inner tuple filled when nothing matched it (`l_ifill`, back to the machine).
-    fn fill_first(&self, b: &mut FunctionBuilder<'_>, env: &Env, c: &Carry, l_ifill: Option<Block>) {
+    fn fill_first(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &Env,
+        c: &Carry,
+        l_ifill: Option<Block>,
+    ) {
         let Some(l) = l_ifill else { return };
         let mi = self.word(b, env, W_MI);
         let (none, l_go) = (b.icmp(IntCond::Eq, mi, env.zero), b.create_block(&[]));
@@ -66,15 +92,34 @@ impl Merge<'_> {
 
     /// The states that run inside a row (`l_mach` dispatches on `W_ST`); an outer-fetching state ends the row (`l_odone`).
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn machine(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals, n: Value, [l_mach, l_emit, l_odone, l_ieoj]: [Block; 4], l_ifill: Option<Block>, ctypes: &[Type]) {
+    pub(crate) fn machine(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        row: &RowVals,
+        n: Value,
+        [l_mach, l_emit, l_odone, l_ieoj]: [Block; 4],
+        l_ifill: Option<Block>,
+        ctypes: &[Type],
+    ) {
         b.switch_to(l_mach);
         b.mark_loop_header(l_mach);
         env.bounded.push_in(l_mach);
         let cp = mcx::to_vec_in(b.block_params(l_mach), env.mcx);
         let st = self.word(b, env, W_ST);
-        let own = [INIT_INNER, SKIP_TEST, SKIPINNER_ADVANCE, JOINTUPLES, NEXTINNER, TESTOUTER];
+        let own = [
+            INIT_INNER,
+            SKIP_TEST,
+            SKIPINNER_ADVANCE,
+            JOINTUPLES,
+            NEXTINNER,
+            TESTOUTER,
+        ];
         let ls = own.map(|_| b.create_block(ctypes));
-        let cases = own.into_iter().zip(ls).chain([NEXTOUTER, SKIPOUTER_ADVANCE, ENDINNER].map(|v| (v, l_odone)));
+        let cases = own
+            .into_iter()
+            .zip(ls)
+            .chain([NEXTOUTER, SKIPOUTER_ADVANCE, ENDINNER].map(|v| (v, l_odone)));
         b.switch(st, cases.map(|(v, t)| (v, t, &cp[..])), (l_odone, &cp));
         let [l_init, l_skip, l_skipin, l_join, l_next, l_test] = ls;
         let mcx = env.mcx;
@@ -90,12 +135,27 @@ impl Merge<'_> {
             }
             if let Some((consumed, lz)) = self.lazy.filter(|_| on_nm == INIT_INNER) {
                 // MERGE R3 (ii): the lazy inner still pending, the row stops here and resumes built (D824's wait)
-                let r = RowVals { row: row.row.clone(), vals: row.vals.clone(), cols: row.cols.clone(), carry: c.copy_in(env.mcx), next: row.next, at: row.at };
+                let r = RowVals {
+                    row: row.row.clone(),
+                    vals: row.vals.clone(),
+                    cols: row.cols.clone(),
+                    carry: c.copy_in(env.mcx),
+                    next: row.next,
+                    at: row.at,
+                };
                 lz.wait(b, env, &r, self.offset, consumed);
             }
             self.fill_first(b, env, &c, l_ifill);
             let ip = self.fetch_inner(b, env);
-            self.test_inner(b, env, row, &c, (ip, n), (SKIP_TEST, on_nm), (l_mach, l_ieoj));
+            self.test_inner(
+                b,
+                env,
+                row,
+                &c,
+                (ip, n),
+                (SKIP_TEST, on_nm),
+                (l_mach, l_ieoj),
+            );
         }
         // SKIP_TEST: the outer against the current inner
         let c = carry(b, l_skip);
@@ -150,7 +210,9 @@ impl Merge<'_> {
             self.set(b, env, W_MI, 1);
         }
         match (self.jt, self.single) {
-            (JoinType::JOIN_ANTI, _) | (JoinType::JOIN_RIGHT_ANTI, true) => self.to(b, env, NEXTOUTER, l_mach, &c.params()),
+            (JoinType::JOIN_ANTI, _) | (JoinType::JOIN_RIGHT_ANTI, true) => {
+                self.to(b, env, NEXTOUTER, l_mach, &c.params())
+            }
             (JoinType::JOIN_RIGHT_ANTI, false) => b.br(l_mach, &c.params()), // stays on the outer, the state NEXTINNER
             (_, true) => {
                 self.st(b, env, NEXTOUTER);
@@ -162,7 +224,11 @@ impl Merge<'_> {
         let c = carry(b, l_next);
         self.fill_first(b, env, &c, l_ifill);
         let ip = self.fetch_inner(b, env);
-        let (ended, l_go, l_to_next) = (self.ended(b, env, ip, n), b.create_block(&[]), b.create_block(&[]));
+        let (ended, l_go, l_to_next) = (
+            self.ended(b, env, ip, n),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         b.cond_br(ended, (l_to_next, &[]), (l_go, &[]));
         b.switch_to(l_go);
         let (r2, map) = self.joined(b, env, row, &c, ip);
@@ -195,6 +261,14 @@ impl Merge<'_> {
         self.out_of_order(b, env);
         b.switch_to(l_gt);
         let ip = self.word(b, env, W_IP);
-        self.test_inner(b, env, row, &c, (ip, n), (SKIP_TEST, SKIPINNER_ADVANCE), (l_mach, l_ieoj));
+        self.test_inner(
+            b,
+            env,
+            row,
+            &c,
+            (ip, n),
+            (SKIP_TEST, SKIPINNER_ADVANCE),
+            (l_mach, l_ieoj),
+        );
     }
 }

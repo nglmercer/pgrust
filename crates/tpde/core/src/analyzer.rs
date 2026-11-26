@@ -580,7 +580,10 @@ where
             let loop_idx = self.block_loops[idx];
             // D3651: a cold detour inside a loop (never a header) takes its place after every other block: the end of
             // its innermost loop's range, so the hot path around it is straight-line again.
-            if loop_idx != 0 && !self.loop_heads.is_set(idx as u32)? && self.may_sink(adaptor, self.block_rpo[idx]) {
+            if loop_idx != 0
+                && !self.loop_heads.is_set(idx as u32)?
+                && self.may_sink(adaptor, self.block_rpo[idx])
+            {
                 self.sunk.push(idx as u32)?;
                 continue;
             }
@@ -632,9 +635,15 @@ where
                     if adaptor.val_ignore_in_liveness_analysis(result) {
                         continue;
                     }
-                    let Some(info) = self.liveness.get(adaptor.val_local_idx(result).get() as usize) else { continue };
+                    let Some(info) = self
+                        .liveness
+                        .get(adaptor.val_local_idx(result).get() as usize)
+                    else {
+                        continue;
+                    };
                     ensure(
-                        info.epoch != self.liveness_epoch || (info.first.0 == c && info.last.0 == c),
+                        info.epoch != self.liveness_epoch
+                            || (info.first.0 == c && info.last.0 == c),
                         "a sunk block's value is read outside it",
                     )?;
                 }
@@ -663,7 +672,11 @@ where
         while 2 * width <= k {
             for i in 0..k {
                 let a = self.sunk_reach[row * k + i];
-                let b = if i + width < k { self.sunk_reach[row * k + i + width] } else { a };
+                let b = if i + width < k {
+                    self.sunk_reach[row * k + i + width]
+                } else {
+                    a
+                };
                 self.sunk_reach.push(a.max(b))?;
             }
             row += 1;

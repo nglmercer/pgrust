@@ -30,8 +30,8 @@ use mcx::{CollectIn, GrowIn, Mcx, PgVec};
 use types_nodes::Node;
 
 use crate::dict::face::PathKey;
-use crate::face::strategy;
 use crate::face::source::SiteDraft;
+use crate::face::strategy;
 use crate::frame::px::Px;
 use crate::graph::Gx;
 use crate::ops::Table;
@@ -48,7 +48,10 @@ crate::strategies! {
     JSONB_LANES = 86, "jsonb.lanes", JsonbPgrc;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(JSONB_LANES, &SiteDraft(engage)), (JSONB_LANES, &KEYS)], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(JSONB_LANES, &SiteDraft(engage)), (JSONB_LANES, &KEYS)],
+    ..crate::ops::NONE
+};
 
 /// The most path lanes one site declares (the cost home's choice).
 const MAX_PATHS: usize = gravity_program::cost::pgrc::JSONB_PATH_LANES_MAX;
@@ -73,7 +76,12 @@ pub(crate) fn paths<'g>(gx: &Gx<'g, '_>, k: usize) -> PgVec<'g, (i16, PgVec<'g, 
     use crate::dict::face::{CodeRep, PerValue};
     let mcx = gx.mcx;
     let p = &gx.pipelines()[k];
-    let Source::Range { scanrelid, relid, .. } = &p.source else { return PgVec::new_in(mcx) };
+    let Source::Range {
+        scanrelid, relid, ..
+    } = &p.source
+    else {
+        return PgVec::new_in(mcx);
+    };
     if strategy::off().has(JSONB_LANES) || !CodeRep::Jsonb.on() || !PerValue::Table.on() {
         return PgVec::new_in(mcx);
     }
@@ -83,15 +91,33 @@ pub(crate) fn paths<'g>(gx: &Gx<'g, '_>, k: usize) -> PgVec<'g, (i16, PgVec<'g, 
             found.push_in(f);
         }
     };
-    for q in p.ops.iter().map_while(|op| if let Op::Filter(q) = op { Some(*q) } else { None }) {
+    for q in p.ops.iter().map_while(|op| {
+        if let Op::Filter(q) = op {
+            Some(*q)
+        } else {
+            None
+        }
+    }) {
         walk(q, &mut |n: Node<'_>| {
             // jsonops (1): a chain's compare (a path of two keys or more) only where the rows past the filters read no
             // document: there each survivor's document is decoded anyway, its in-place walk costs less than the lanes.
             // sortpath: or over a path the relation is sorted by (`shred_sorted`), whose lane's zones skip granules, where no
             // aggregate reads the document (`agg_read`: there the lane costs each window more than its skips save: a grouped count of a distinct path beside two compares)
-            let sorted = |f: &(i16, PgVec<'g, u8>)| segments(&f.1, mcx).is_some_and(|keys| gx.facts.shred_sorted(*relid, f.0, &keys)) && !agg_read(gx, k, *scanrelid as i32, f.0);
-            let gate = |f: &(i16, PgVec<'g, u8>)| !f.1.contains(&0) || !read_after(gx, k, *scanrelid as i32, *relid, f.0, true) || sorted(f);
-            add(compared(gx, n).and_then(|(a, eq)| field_in(a, *scanrelid as i32, mcx).filter(|(attno, path)| eq || dict_sealed(gx, *relid, *attno, path))).filter(gate));
+            let sorted = |f: &(i16, PgVec<'g, u8>)| {
+                segments(&f.1, mcx).is_some_and(|keys| gx.facts.shred_sorted(*relid, f.0, &keys))
+                    && !agg_read(gx, k, *scanrelid as i32, f.0)
+            };
+            let gate = |f: &(i16, PgVec<'g, u8>)| {
+                !f.1.contains(&0)
+                    || !read_after(gx, k, *scanrelid as i32, *relid, f.0, true)
+                    || sorted(f)
+            };
+            add(compared(gx, n)
+                .and_then(|(a, eq)| {
+                    field_in(a, *scanrelid as i32, mcx)
+                        .filter(|(attno, path)| eq || dict_sealed(gx, *relid, *attno, path))
+                })
+                .filter(gate));
             // jsonops (2): each string leaf of a `col @> '{..}'` template, an `=` over its path (jsonb_codes `contained`)
             for leaf in contained(n, *scanrelid as i32, mcx).into_iter().flatten() {
                 add(Some(leaf).filter(gate));
@@ -99,10 +125,19 @@ pub(crate) fn paths<'g>(gx: &Gx<'g, '_>, k: usize) -> PgVec<'g, (i16, PgVec<'g, 
             true
         });
     }
-    for key in gx.group_at(k).iter().flat_map(|g| g.keys.iter()).filter(|x| x.kind == KeyKind::Fp128 && x.resno > 0) {
+    for key in gx
+        .group_at(k)
+        .iter()
+        .flat_map(|g| g.keys.iter())
+        .filter(|x| x.kind == KeyKind::Fp128 && x.resno > 0)
+    {
         add(field_in(key.expr.node(), *scanrelid as i32, mcx));
     }
-    found.retain(|(attno, path)| segments(path, mcx).is_some_and(|keys| gx.facts.shred_election(*relid, *attno, &keys) == Some((shred_kind::TEXT, 0))));
+    found.retain(|(attno, path)| {
+        segments(path, mcx).is_some_and(|keys| {
+            gx.facts.shred_election(*relid, *attno, &keys) == Some((shred_kind::TEXT, 0))
+        })
+    });
     found
 }
 
@@ -111,7 +146,14 @@ pub(crate) fn paths<'g>(gx: &Gx<'g, '_>, k: usize) -> PgVec<'g, (i16, PgVec<'g, 
 /// parts elected as a Text lane: `paths` reads that from its lane), an aggregate's argument or FILTER; any other op
 /// counts as a read. Then each survivor's document is decoded anyway, and a lane of a filter compare (or a presence
 /// lane) saves no document read but costs its own decode. Speed only: either way every compare is PostgreSQL's.
-fn read_after(gx: &Gx<'_, '_>, k: usize, scanrelid: i32, relid: u32, attno: i16, lane_keys: bool) -> bool {
+fn read_after(
+    gx: &Gx<'_, '_>,
+    k: usize,
+    scanrelid: i32,
+    relid: u32,
+    attno: i16,
+    lane_keys: bool,
+) -> bool {
     reads_doc(gx, k, scanrelid, relid, attno, lane_keys, false)
 }
 
@@ -122,14 +164,32 @@ fn agg_read(gx: &Gx<'_, '_>, k: usize, scanrelid: i32, attno: i16) -> bool {
 }
 
 /// `read_after`'s walk; `aggs_only`: the aggregates' reads alone (the group's, or an ungrouped aggregate's projection).
-fn reads_doc(gx: &Gx<'_, '_>, k: usize, scanrelid: i32, relid: u32, attno: i16, lane_keys: bool, aggs_only: bool) -> bool {
+fn reads_doc(
+    gx: &Gx<'_, '_>,
+    k: usize,
+    scanrelid: i32,
+    relid: u32,
+    attno: i16,
+    lane_keys: bool,
+    aggs_only: bool,
+) -> bool {
     let (p, group) = (&gx.pipelines()[k], gx.group_at(k));
     // the projection feeding a group: an aggregate's argument names its entries (OUTER_VAR), not the scan's columns
-    let fed = group.and(p.ops.iter().rev().find_map(|op| if let Op::Project(l) = op { Some(*l) } else { None }));
+    let fed = group.and(p.ops.iter().rev().find_map(|op| {
+        if let Op::Project(l) = op {
+            Some(*l)
+        } else {
+            None
+        }
+    }));
     let scan_read = |n: Node<'_>| {
         let mut hit = false;
         walk(n, &mut |x: Node<'_>| {
-            hit |= x.as_var().is_some_and(|v| v.varno == scanrelid && v.varlevelsup == 0 && (v.varattno == attno || v.varattno == 0));
+            hit |= x.as_var().is_some_and(|v| {
+                v.varno == scanrelid
+                    && v.varlevelsup == 0
+                    && (v.varattno == attno || v.varattno == 0)
+            });
             !hit
         });
         hit
@@ -140,14 +200,29 @@ fn reads_doc(gx: &Gx<'_, '_>, k: usize, scanrelid: i32, relid: u32, attno: i16, 
             hit |= x.as_var().is_some_and(|v| {
                 v.varlevelsup == 0
                     && (v.varno == scanrelid && (v.varattno == attno || v.varattno == 0)
-                        || v.varno == types_nodes::primnodes::OUTER_VAR && fed.is_none_or( |l| l.iter().nth(v.varattno.max(1) as usize - 1).is_none_or( |e| v.varattno <= 0 || scan_read(e) && !super::jsonb_fwd::lane_only(gx, k, v.varattno))))
+                        || v.varno == types_nodes::primnodes::OUTER_VAR
+                            && fed.is_none_or(|l| {
+                                l.iter()
+                                    .nth(v.varattno.max(1) as usize - 1)
+                                    .is_none_or(|e| {
+                                        v.varattno <= 0
+                                            || scan_read(e)
+                                                && !super::jsonb_fwd::lane_only(gx, k, v.varattno)
+                                    })
+                            }))
             });
             !hit
         });
     };
     // an ungrouped aggregate's input is the projection under it (no group names its reads)
-    let plain = group.is_none() && matches!(p.end(), gravity_program::End::Breaker(b) if matches!(b.kind, gravity_abi::breaker::BreakerKind::PlainAgg | gravity_abi::breaker::BreakerKind::HashAgg));
-    for op in p.ops.iter().skip_while(|op| matches!(op, Op::Filter(_))).filter(|op| !aggs_only || plain && matches!(op, Op::Project(_))) {
+    let plain = group.is_none()
+        && matches!(p.end(), gravity_program::End::Breaker(b) if matches!(b.kind, gravity_abi::breaker::BreakerKind::PlainAgg | gravity_abi::breaker::BreakerKind::HashAgg));
+    for op in p
+        .ops
+        .iter()
+        .skip_while(|op| matches!(op, Op::Filter(_)))
+        .filter(|op| !aggs_only || plain && matches!(op, Op::Project(_)))
+    {
         match op {
             Op::Filter(q) | Op::Gate(q) => see(*q),
             // a projection feeding a group is its input row (PostgreSQL's physical tlist names every column): the group's
@@ -158,9 +233,21 @@ fn reads_doc(gx: &Gx<'_, '_>, k: usize, scanrelid: i32, relid: u32, attno: i16, 
         }
     }
     if let Some(g) = group {
-        let lane = |n: Node<'_>| field_in(n, scanrelid, gx.mcx).is_some_and(|(a, path)| a == attno && segments(&path, gx.mcx).is_some_and(|keys| gx.facts.shred_election(relid, a, &keys) == Some((shred_kind::TEXT, 0))));
+        let lane = |n: Node<'_>| {
+            field_in(n, scanrelid, gx.mcx).is_some_and(|(a, path)| {
+                a == attno
+                    && segments(&path, gx.mcx).is_some_and(|keys| {
+                        gx.facts.shred_election(relid, a, &keys) == Some((shred_kind::TEXT, 0))
+                    })
+            })
+        };
         #[allow(clippy::nonminimal_bool)]
-        g.keys.iter().filter(|x| !aggs_only && !(lane_keys && x.kind == KeyKind::Fp128 && lane(x.expr.node()))).for_each(|x| see(x.expr.node()));
+        g.keys
+            .iter()
+            .filter(|x| {
+                !aggs_only && !(lane_keys && x.kind == KeyKind::Fp128 && lane(x.expr.node()))
+            })
+            .for_each(|x| see(x.expr.node()));
         g.aggs.iter().for_each(|a| {
             see(a.node);
             a.filter.into_iter().for_each(&mut see);
@@ -174,15 +261,30 @@ fn reads_doc(gx: &Gx<'_, '_>, k: usize, scanrelid: i32, relid: u32, attno: i16, 
 pub(crate) fn tested<'g>(gx: &Gx<'g, '_>, k: usize) -> PgVec<'g, (i16, PgVec<'g, u8>)> {
     let mcx = gx.mcx;
     let p = &gx.pipelines()[k];
-    let Source::Range { scanrelid, relid, .. } = &p.source else { return PgVec::new_in(mcx) };
+    let Source::Range {
+        scanrelid, relid, ..
+    } = &p.source
+    else {
+        return PgVec::new_in(mcx);
+    };
     if strategy::off().has(JSONB_LANES) {
         return PgVec::new_in(mcx);
     }
     let budget = MAX_PATHS.saturating_sub(paths(gx, k).len());
     let mut found: PgVec<'g, (i16, PgVec<'g, u8>)> = PgVec::new_in(mcx);
-    for q in p.ops.iter().map_while(|op| if let Op::Filter(q) = op { Some(*q) } else { None }) {
+    for q in p.ops.iter().map_while(|op| {
+        if let Op::Filter(q) = op {
+            Some(*q)
+        } else {
+            None
+        }
+    }) {
         walk(q, &mut |n: Node<'_>| {
-            for f in key_test(n, *scanrelid as i32, mcx).map(|(_, f)| f).into_iter().flatten() {
+            for f in key_test(n, *scanrelid as i32, mcx)
+                .map(|(_, f)| f)
+                .into_iter()
+                .flatten()
+            {
                 if !found.contains(&f) && found.len() < budget {
                     found.push_in(f);
                 }
@@ -190,13 +292,22 @@ pub(crate) fn tested<'g>(gx: &Gx<'g, '_>, k: usize) -> PgVec<'g, (i16, PgVec<'g,
             true
         });
     }
-    found.retain(|(attno, key)| segments(key, mcx).is_some_and(|keys| gx.facts.shred_election(*relid, *attno, &keys) == Some((shred_kind::TEXT, 0)) && gx.facts.shred_object_roots(*relid, *attno, &keys)) && !read_after(gx, k, *scanrelid as i32, *relid, *attno, false));
+    found.retain(|(attno, key)| {
+        segments(key, mcx).is_some_and(|keys| {
+            gx.facts.shred_election(*relid, *attno, &keys) == Some((shred_kind::TEXT, 0))
+                && gx.facts.shred_object_roots(*relid, *attno, &keys)
+        }) && !read_after(gx, k, *scanrelid as i32, *relid, *attno, false)
+    });
     found
 }
 
 /// `n` as a key test of scan `scanrelid`'s jsonb column (typesem `jsonb_key_test`) of a constant key or a constant text[]
 /// with no NULL element: the form (`None` for `?`, `Some(any)` for `?|` / `?&`) and each key's column and site path.
-pub(crate) fn key_test<'m>(n: Node<'_>, scanrelid: i32, mcx: Mcx<'m>) -> Option<(Option<bool>, PgVec<'m, (i16, PgVec<'m, u8>)>)> {
+pub(crate) fn key_test<'m>(
+    n: Node<'_>,
+    scanrelid: i32,
+    mcx: Mcx<'m>,
+) -> Option<(Option<bool>, PgVec<'m, (i16, PgVec<'m, u8>)>)> {
     let (f, args) = match (n.as_op_expr(), n.as_func_expr()) {
         (Some(o), _) => (o.opfuncid, &o.args),
         (_, Some(f)) => (f.funcid, &f.args),
@@ -204,7 +315,12 @@ pub(crate) fn key_test<'m>(n: Node<'_>, scanrelid: i32, mcx: Mcx<'m>) -> Option<
     };
     let form = gravity_fn::typesem::pgrc::jsonb_key_test(f)?;
     let [a, b] = args.as_slice() else { return None };
-    let v = a.as_var().filter(|v| v.varno == scanrelid && v.varlevelsup == 0 && v.varattno > 0 && v.vartype == types_core::JSONBOID)?;
+    let v = a.as_var().filter(|v| {
+        v.varno == scanrelid
+            && v.varlevelsup == 0
+            && v.varattno > 0
+            && v.vartype == types_core::JSONBOID
+    })?;
     let keys: PgVec<'_, PgVec<'m, u8>> = match form {
         None => mcx::pg_vec![in mcx; mcx::to_vec_in(const_bytes(b.as_const()?)?, mcx)],
         Some(_) => text_elems(b.as_const()?, mcx).filter(|e| !e.is_empty())?,
@@ -223,9 +339,14 @@ fn compared<'p>(gx: &Gx<'_, 'p>, n: Node<'p>) -> Option<(Node<'p>, bool)> {
     use crate::ops::scan::pgrc::strategies::jsonb_codes::code_verdict;
     let pure = |f: u32| f != 0 && gx.catalog.func(f).is_ok_and(|x| x.immutable());
     if let Some(s) = n.as_scalar_array_op_expr() {
-        let [a, b] = s.args.as_slice() else { return None };
-        let list = b.as_const().is_some_and(|c| c.consttype == types_core::TEXTARRAYOID);
-        return (list && pure(s.opfuncid) && code_verdict(s.opfuncid, s.inputcollid)).then_some((*a, eq_form(s.opfuncid, Some(s.useOr))));
+        let [a, b] = s.args.as_slice() else {
+            return None;
+        };
+        let list = b
+            .as_const()
+            .is_some_and(|c| c.consttype == types_core::TEXTARRAYOID);
+        return (list && pure(s.opfuncid) && code_verdict(s.opfuncid, s.inputcollid))
+            .then_some((*a, eq_form(s.opfuncid, Some(s.useOr))));
     }
     let (f, rtype, coll, args) = match (n.as_op_expr(), n.as_func_expr()) {
         (Some(o), _) => (o.opfuncid, o.opresulttype, o.inputcollid, &o.args),
@@ -274,7 +395,10 @@ pub(crate) fn site_path<'m, K: AsRef<[u8]>>(keys: &[K], mcx: Mcx<'m>) -> Option<
         return None;
     }
     // the keys joined by a NUL byte
-    let mut out: PgVec<'m, u8> = mcx::reserved_in(keys.iter().map(|k| k.as_ref().len() + 1).sum::<usize>() - 1, mcx);
+    let mut out: PgVec<'m, u8> = mcx::reserved_in(
+        keys.iter().map(|k| k.as_ref().len() + 1).sum::<usize>() - 1,
+        mcx,
+    );
     for (i, k) in keys.iter().enumerate() {
         if i > 0 {
             out.push_in(0u8);
@@ -289,12 +413,20 @@ pub(crate) fn site_path<'m, K: AsRef<[u8]>>(keys: &[K], mcx: Mcx<'m>) -> Option<
 /// (jsonb_object_field) of constant keys over it (1..=JSONB_PATH_MAX keys): its attno and the site path (`site_path`). A
 /// path lane holds a string reached through objects only (the writer never descends an array), so a `#>>` element an
 /// array level would read as an index reaches no lane row: such a row's lane is invalid and its compare walks the column.
-pub(crate) fn field_in<'m>(n: Node<'_>, scanrelid: i32, mcx: Mcx<'m>) -> Option<(i16, PgVec<'m, u8>)> {
+pub(crate) fn field_in<'m>(
+    n: Node<'_>,
+    scanrelid: i32,
+    mcx: Mcx<'m>,
+) -> Option<(i16, PgVec<'m, u8>)> {
     const PATH_MAX: usize = gravity_program::cost::pgrc::JSONB_PATH_MAX;
     fn call(n: Node<'_>) -> Option<(u32, [Node<'_>; 2])> {
         let (f, args) = match (n.as_op_expr(), n.as_func_expr()) {
             (Some(o), _) => (o.opfuncid, &o.args),
-            (_, Some(f)) if !f.funcvariadic || gravity_fn::typesem::pgrc::jsonb_path_text(f.funcid) => (f.funcid, &f.args),
+            (_, Some(f))
+                if !f.funcvariadic || gravity_fn::typesem::pgrc::jsonb_path_text(f.funcid) =>
+            {
+                (f.funcid, &f.args)
+            }
             _ => return None,
         };
         let [a, b] = args.as_slice() else { return None };
@@ -310,11 +442,17 @@ pub(crate) fn field_in<'m>(n: Node<'_>, scanrelid: i32, mcx: Mcx<'m>) -> Option<
         if let Some(v) = at.as_var() {
             break v;
         }
-        let (_, [a, k]) = call(at).filter(|(g, _)| gravity_fn::typesem::pgrc::jsonb_field(*g) && chain.len() < PATH_MAX)?;
+        let (_, [a, k]) = call(at).filter(|(g, _)| {
+            gravity_fn::typesem::pgrc::jsonb_field(*g) && chain.len() < PATH_MAX
+        })?;
         chain.push_in(mcx::to_vec_in(const_bytes(k.as_const()?)?, mcx));
         at = a;
     };
-    if v.varno != scanrelid || v.varlevelsup != 0 || v.varattno <= 0 || v.vartype != types_core::JSONBOID {
+    if v.varno != scanrelid
+        || v.varlevelsup != 0
+        || v.varattno <= 0
+        || v.vartype != types_core::JSONBOID
+    {
         return None;
     }
     chain.reverse();
@@ -335,7 +473,11 @@ pub(crate) fn field_in<'m>(n: Node<'_>, scanrelid: i32, mcx: Mcx<'m>) -> Option<
 
 /// `n` as `col @> '<template>'` over scan `scanrelid`'s jsonb column whose template is an object of string leaves
 /// (typesem `contains_string_leaves`): each leaf's column and site path.
-pub(crate) fn contained<'m>(n: Node<'_>, scanrelid: i32, mcx: Mcx<'m>) -> Option<PgVec<'m, (i16, PgVec<'m, u8>)>> {
+pub(crate) fn contained<'m>(
+    n: Node<'_>,
+    scanrelid: i32,
+    mcx: Mcx<'m>,
+) -> Option<PgVec<'m, (i16, PgVec<'m, u8>)>> {
     let (f, args) = match (n.as_op_expr(), n.as_func_expr()) {
         (Some(o), _) => (o.opfuncid, &o.args),
         (_, Some(f)) => (f.funcid, &f.args),
@@ -345,9 +487,19 @@ pub(crate) fn contained<'m>(n: Node<'_>, scanrelid: i32, mcx: Mcx<'m>) -> Option
     if !gravity_fn::typesem::pgrc::jsonb_contains(f) {
         return None;
     }
-    let v = a.as_var().filter(|v| v.varno == scanrelid && v.varlevelsup == 0 && v.varattno > 0 && v.vartype == types_core::JSONBOID)?;
-    let k = b.as_const().filter(|k| k.consttype == types_core::JSONBOID)?;
-    let leaves = gravity_fn::typesem::pgrc::contains_string_leaves(const_bytes(k)?, gravity_program::cost::pgrc::JSONB_PATH_MAX)?;
+    let v = a.as_var().filter(|v| {
+        v.varno == scanrelid
+            && v.varlevelsup == 0
+            && v.varattno > 0
+            && v.vartype == types_core::JSONBOID
+    })?;
+    let k = b
+        .as_const()
+        .filter(|k| k.consttype == types_core::JSONBOID)?;
+    let leaves = gravity_fn::typesem::pgrc::contains_string_leaves(
+        const_bytes(k)?,
+        gravity_program::cost::pgrc::JSONB_PATH_MAX,
+    )?;
     let mut out = mcx::reserved_in(leaves.len(), mcx);
     for (keys, _) in leaves.iter() {
         out.push_in((v.varattno, site_path(keys, mcx)?));
@@ -357,11 +509,24 @@ pub(crate) fn contained<'m>(n: Node<'_>, scanrelid: i32, mcx: Mcx<'m>) -> Option
 
 /// A text[] constant's elements (`raw::const_text_elems`, its image read as a bake); `None` for NULL, a NULL element or
 /// an image not plain.
-fn text_elems<'m>(c: &types_nodes::primnodes::Const, mcx: Mcx<'m>) -> Option<PgVec<'m, PgVec<'m, u8>>> {
+fn text_elems<'m>(
+    c: &types_nodes::primnodes::Const,
+    mcx: Mcx<'m>,
+) -> Option<PgVec<'m, PgVec<'m, u8>>> {
     if c.consttype != types_core::TEXTARRAYOID || c.constisnull || c.constbyval {
         return None;
     }
     let img = gravity_decompose::bake::read(c);
-    let k = gravity_expr::nodes::konst::ConstNode::new(gravity_expr::NullableDatum::value(img), c.consttype, -1, false);
-    Some(crate::ops::scan::pgrc::raw::const_text_elems(&k)?.into_iter().map(|e| mcx::to_vec_in(e, mcx)).collect_in(mcx))
+    let k = gravity_expr::nodes::konst::ConstNode::new(
+        gravity_expr::NullableDatum::value(img),
+        c.consttype,
+        -1,
+        false,
+    );
+    Some(
+        crate::ops::scan::pgrc::raw::const_text_elems(&k)?
+            .into_iter()
+            .map(|e| mcx::to_vec_in(e, mcx))
+            .collect_in(mcx),
+    )
 }

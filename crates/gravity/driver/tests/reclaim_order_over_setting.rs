@@ -42,13 +42,43 @@ fn cond_trim(to: u64) -> u64 {
 }
 
 #[test]
-fn a_cache_past_its_setting_goes_before_a_full_one() {PART.store(7400 * MIB, Ordering::Relaxed); COND.store(1024 * MIB, Ordering::Relaxed);
-    assert!(budget::register(Consumer::PartCache, Hooks { current: part, floor: part_floor, cap: part_cap, reclaim: Some(part_trim) }));
-    assert!(budget::register(Consumer::CondCache, Hooks { current: cond, floor: cond_floor, cap: cond_cap, reclaim: Some(cond_trim) }));
+fn a_cache_past_its_setting_goes_before_a_full_one() {
+    PART.store(7400 * MIB, Ordering::Relaxed);
+    COND.store(1024 * MIB, Ordering::Relaxed);
+    assert!(budget::register(
+        Consumer::PartCache,
+        Hooks {
+            current: part,
+            floor: part_floor,
+            cap: part_cap,
+            reclaim: Some(part_trim)
+        }
+    ));
+    assert!(budget::register(
+        Consumer::CondCache,
+        Hooks {
+            current: cond,
+            floor: cond_floor,
+            cap: cond_cap,
+            reclaim: Some(cond_trim)
+        }
+    ));
     assert_eq!(reclaim::reclaim_backstop(3000 * MIB), 3000 * MIB);
-    assert_eq!((part(), cond()), (4400 * MIB, 1024 * MIB), "the part cache's excess first, the condition cache untouched");
+    assert_eq!(
+        (part(), cond()),
+        (4400 * MIB, 1024 * MIB),
+        "the part cache's excess first, the condition cache untouched"
+    );
     assert_eq!(reclaim::reclaim_backstop(4300 * MIB), 4300 * MIB);
-    assert_eq!((part(), cond()), (100 * MIB, 1024 * MIB), "past its excess the part cache still goes ahead, to its floor");
-    assert_eq!(reclaim::reclaim_backstop(MIB), MIB, "then the condition cache");
+    assert_eq!(
+        (part(), cond()),
+        (100 * MIB, 1024 * MIB),
+        "past its excess the part cache still goes ahead, to its floor"
+    );
+    assert_eq!(
+        reclaim::reclaim_backstop(MIB),
+        MIB,
+        "then the condition cache"
+    );
     assert_eq!(cond(), 1023 * MIB);
 }

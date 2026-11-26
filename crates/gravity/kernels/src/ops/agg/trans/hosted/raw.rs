@@ -16,25 +16,57 @@ pub struct AggHead {
     pub magic: u64,
     /// One transition of aggregate `aggno` over the state at `state` in worker `ordinal`'s slot: `args[i]` / `nulls[i]`
     /// (1 = NULL) its inputs.
-    pub trans: unsafe fn(h: *mut AggHead, ordinal: u16, aggno: u32, state: *mut u8, args: *const u64, nulls: *const u8) -> Result<(), ()>,
+    pub trans: unsafe fn(
+        h: *mut AggHead,
+        ordinal: u16,
+        aggno: u32,
+        state: *mut u8,
+        args: *const u64,
+        nulls: *const u8,
+    ) -> Result<(), ()>,
     /// The final value of aggregate `aggno` at `out[0..3]`: the datum, 1 when NULL, and the bytes of a by-reference image
     /// (0 for a by-value one); the image lives until the slot's next final call.
-    pub final_: unsafe fn(h: *mut AggHead, ordinal: u16, aggno: u32, state: *mut u8, out: *mut u64) -> Result<(), ()>,
+    pub final_: unsafe fn(
+        h: *mut AggHead,
+        ordinal: u16,
+        aggno: u32,
+        state: *mut u8,
+        out: *mut u64,
+    ) -> Result<(), ()>,
     /// D1371: host-sorted aggregate `aggno`'s sort and transitions over its group's run at `state`, ahead of the group's
     /// finals (PG's finalize_aggregates runs every sorted transition before any final); the state is left folded, so the
     /// final reads it without folding again. Nothing for an aggregate that keeps no run.
-    pub fold: unsafe fn(h: *mut AggHead, ordinal: u16, aggno: u32, state: *mut u8) -> Result<(), ()>,
+    pub fold:
+        unsafe fn(h: *mut AggHead, ordinal: u16, aggno: u32, state: *mut u8) -> Result<(), ()>,
     /// Aggregate `aggno`'s state at `from` combined into the one at `into` by its combinefn in worker `ordinal`'s slot
     /// (PG's `advance_combine_function`, the result in that slot's aggcontext); `from` is left zeroed (holds no state).
     /// Two partials of one group (a keyed record fold, D798).
-    pub combine: unsafe fn(h: *mut AggHead, ordinal: u16, aggno: u32, into: *mut u8, from: *mut u8) -> Result<(), ()>,
+    pub combine: unsafe fn(
+        h: *mut AggHead,
+        ordinal: u16,
+        aggno: u32,
+        into: *mut u8,
+        from: *mut u8,
+    ) -> Result<(), ()>,
     /// `combine` leaving `from` as it was (a keyed owner fold's source partial is read-only: a re-read folds it again);
     /// an empty `into` takes PG's copy of `from`'s state.
-    pub combine_keep: unsafe fn(h: *mut AggHead, ordinal: u16, aggno: u32, into: *mut u8, from: *const u8) -> Result<(), ()>,
+    pub combine_keep: unsafe fn(
+        h: *mut AggHead,
+        ordinal: u16,
+        aggno: u32,
+        into: *mut u8,
+        from: *const u8,
+    ) -> Result<(), ()>,
     /// The one home of the keyed group whose record identity words are `keys[..nkeys]`: `n * wide` zeroed state slots
     /// made at its first record (by any worker), the same address at every later one; null with the error stashed.
     /// `ctx`: the folding worker's (its pipeline's breaker slot owner holds the homes' bytes).
-    pub home: unsafe fn(h: *mut AggHead, ctx: *mut Ctx, keys: *const u64, nkeys: usize, n: usize) -> *mut u8,
+    pub home: unsafe fn(
+        h: *mut AggHead,
+        ctx: *mut Ctx,
+        keys: *const u64,
+        nkeys: usize,
+        n: usize,
+    ) -> *mut u8,
     /// Every home forgotten (a table laid out afresh: a new run of the keyed table); their states stay allocated to the
     /// arena's end, so an older record's tag never dangles.
     pub homes_clear: unsafe fn(h: *mut AggHead),
@@ -59,7 +91,11 @@ pub struct AggHead {
 /// # Safety — `s` is an `AGG_STATE_BYTES` state slot.
 #[allow(clippy::missing_safety_doc)]
 pub unsafe fn at_home(s: *mut u8) -> *mut u8 {
-    if s.add(STATE_HOME).read() == 1 { (s as *const u64).read_unaligned() as *mut u8 } else { s }
+    if s.add(STATE_HOME).read() == 1 {
+        (s as *const u64).read_unaligned() as *mut u8
+    } else {
+        s
+    }
 }
 
 /// `at_home` for worker `ordinal`'s transition: a wide home's own state of that worker (a nested lane's ordinal, past
@@ -227,14 +263,18 @@ crate::contract::host! {
 // Kept safe on purpose: a hosted aggregate's combine hook, called with the two state pointers the executor owns.
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn owner_combine(src: &Rec<'_>, _slot: usize, into: *mut u8, from: *const u8) -> bool {
-    let Some(head) = handle_slot(src.layout).and_then(|h| unsafe { live(src.i64(h) as u64) }) else {
+    let Some(head) = handle_slot(src.layout).and_then(|h| unsafe { live(src.i64(h) as u64) })
+    else {
         stale();
         return false;
     };
     // SAFETY: `into` / `from` are two `AGG_STATE_BYTES` slots of one aggregate (`StateCombine`'s contract), the head live.
     unsafe {
         if from.add(STATE_HOME).read() == 1 {
-            let (to, at) = ((into as *const u64).read_unaligned(), (from as *const u64).read_unaligned());
+            let (to, at) = (
+                (into as *const u64).read_unaligned(),
+                (from as *const u64).read_unaligned(),
+            );
             let empty = to == 0 && (into.add(8) as *const u64).read_unaligned() == 0;
             if empty {
                 core::ptr::copy_nonoverlapping(from, into, AGG_STATE_BYTES as usize);
@@ -243,11 +283,20 @@ pub fn owner_combine(src: &Rec<'_>, _slot: usize, into: *mut u8, from: *const u8
             if into.add(STATE_HOME).read() == 1 && to == at {
                 return true;
             }
-            crate::ops::agg::trans::entries::failed(Box::new(PgError::error("gravity: a keyed group's partial on a home beside another state"))); // alloc: Cold
+            crate::ops::agg::trans::entries::failed(Box::new(PgError::error(
+                "gravity: a keyed group's partial on a home beside another state",
+            ))); // alloc: Cold
             return false;
         }
         debug_assert!(false, "V4R-427: a keyed hosted record's source partial off its home (hashagg open_rec homes every record)");
-        ((*head).combine_keep)(head, 0, (from.add(STATE_AGGNO) as *const u32).read_unaligned(), into, from).is_ok()
+        ((*head).combine_keep)(
+            head,
+            0,
+            (from.add(STATE_AGGNO) as *const u32).read_unaligned(),
+            into,
+            from,
+        )
+        .is_ok()
     }
 }
 

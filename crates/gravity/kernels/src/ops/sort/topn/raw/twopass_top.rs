@@ -1,7 +1,9 @@
 //! keyed.twopass's top-rule export owner (ops/sort/topn/twopass_top.rs, V4R-192): its owner phase, the spec read back
 //! from the owner words and the singles' heap, moved here unchanged (rule R6: the family's unsafe code lives in raw.rs).
 //! twopass_top.rs keeps the spec, its word layout and `owner_fns`, which hands these out.
-use gravity_abi::breaker::{HashAgg, OwnerTop, RecordLayout, HASHAGG_HDR, MOVING, OWNERTOP_HDR, OWNER_PARAMS, OWNER_RUN_OFF};
+use gravity_abi::breaker::{
+    HashAgg, OwnerTop, RecordLayout, HASHAGG_HDR, MOVING, OWNERTOP_HDR, OWNER_PARAMS, OWNER_RUN_OFF,
+};
 use gravity_abi::status::{unsupported, UNSUPPORTED_SCRATCH};
 use gravity_abi::Site;
 
@@ -14,7 +16,18 @@ unsafe fn spec_of(params: *const u64) -> TopExportSpec {
     // SAFETY: the words `owner_fns` packed.
     let layout: RecordLayout = RecordLayout::from_words(words);
     let (h, f) = (w[P_HEAD], w[P_HEAD] >> 16);
-    TopExportSpec { layout, count_slot: h as u8, img_words: (h >> 8) as u8, n: w[P_N] as u32, desc: f & 1 != 0, nulls_first: f & 2 != 0, nullable: f & 4 != 0, ext: f & 8 != 0, ext_nn: f & 16 != 0, spread: f & 32 != 0 }
+    TopExportSpec {
+        layout,
+        count_slot: h as u8,
+        img_words: (h >> 8) as u8,
+        n: w[P_N] as u32,
+        desc: f & 1 != 0,
+        nulls_first: f & 2 != 0,
+        nullable: f & 4 != 0,
+        ext: f & 8 != 0,
+        ext_nn: f & 16 != 0,
+        spread: f & 32 != 0,
+    }
 }
 
 /// The singles' heap bytes, then the kept run's first byte.
@@ -28,14 +41,32 @@ pub(in crate::ops::sort::topn) fn owner_min(params: *const u64, _owners: u32) ->
     (runs_off(&sp) + 2 * (HASHAGG_HDR + 64 * sp.layout.size() as usize)) as u64
 }
 
-pub(in crate::ops::sort::topn) unsafe fn owner_open(params: *const u64, owner: *mut u8, bytes: usize) -> i64 {
+pub(in crate::ops::sort::topn) unsafe fn owner_open(
+    params: *const u64,
+    owner: *mut u8,
+    bytes: usize,
+) -> i64 {
     let sp = spec_of(params);
     let (rec, base) = (sp.layout.size() as usize, runs_off(&sp));
     let off = base + ((bytes.saturating_sub(base) / 2) & !7);
     if rec % 8 != 0 || off + HASHAGG_HDR + 2 * rec > bytes {
         return unsupported(UNSUPPORTED_SCRATCH);
     }
-    *(owner as *mut OwnerTop) = OwnerTop { len: 0, n: 0, table_off: off as u32, worst: 0, round2_off: 0, resume: 0, total: 0, groups: 0, records: 0, thr: 0, key_lo: gravity_abi::breaker::KEY_LO_NONE, key_hi: gravity_abi::breaker::KEY_HI_NONE, cell: core::cell::UnsafeCell::new([]) };
+    *(owner as *mut OwnerTop) = OwnerTop {
+        len: 0,
+        n: 0,
+        table_off: off as u32,
+        worst: 0,
+        round2_off: 0,
+        resume: 0,
+        total: 0,
+        groups: 0,
+        records: 0,
+        thr: 0,
+        key_lo: gravity_abi::breaker::KEY_LO_NONE,
+        key_hi: gravity_abi::breaker::KEY_HI_NONE,
+        cell: core::cell::UnsafeCell::new([]),
+    };
     off as i64
 }
 
@@ -66,8 +97,15 @@ unsafe fn ext_ranks(sp: &TopExportSpec, r: *const u8) -> ((u8, i64), (u8, i64)) 
     };
     let witness = (nn > 0).then_some(e);
     // gtopn GT-1: a spread key's best is its column's other extreme, the word after the witness (and count(v))
-    let top = if sp.spread { (nn > 0).then(|| word(cs + 2 + sp.ext_nn as usize)) } else { witness };
-    (at(witness), at(if sp.nulls_first && nn < c { None } else { top }))
+    let top = if sp.spread {
+        (nn > 0).then(|| word(cs + 2 + sp.ext_nn as usize))
+    } else {
+        witness
+    };
+    (
+        at(witness),
+        at(if sp.nulls_first && nn < c { None } else { top }),
+    )
 }
 
 /// The owner's `n` best singles: a heap in the region with the worst at the root.
@@ -144,13 +182,29 @@ unsafe fn keep(sp: &TopExportSpec, h: &mut OwnerTop, owner: *mut u8, r: *const u
     true
 }
 
-pub(in crate::ops::sort::topn) unsafe fn owner_reduce(params: *const u64, owner: *mut u8, table: *const HashAgg, _site: *mut Site, _cand: *const u32, _ncand: i64) -> i64 {
+pub(in crate::ops::sort::topn) unsafe fn owner_reduce(
+    params: *const u64,
+    owner: *mut u8,
+    table: *const HashAgg,
+    _site: *mut Site,
+    _cand: *const u32,
+    _ncand: i64,
+) -> i64 {
     let sp = spec_of(params);
     let h = &mut *(owner as *mut OwnerTop);
     let t = &mut *(table as *mut HashAgg);
     h.records += t.len as u64;
-    let (g, cs, rec) = (sp.layout.partition_keys(), sp.count_slot as usize, sp.layout.size() as usize);
-    let mut singles = Singles { sp: &sp, base: owner.add(OWNER_RUN_OFF), rec, len: h.resume as usize };
+    let (g, cs, rec) = (
+        sp.layout.partition_keys(),
+        sp.count_slot as usize,
+        sp.layout.size() as usize,
+    );
+    let mut singles = Singles {
+        sp: &sp,
+        base: owner.add(OWNER_RUN_OFF),
+        rec,
+        len: h.resume as usize,
+    };
     if sp.ext {
         // one record per key (never marked): its extreme offered to the heap, the record kept while its best ranks at the
         // owner's n-th best extreme so far or before (the bound only tightens, so a key left out stays out; every heap
@@ -163,9 +217,10 @@ pub(in crate::ops::sort::topn) unsafe fn owner_reduce(params: *const u64, owner:
             h.groups += 1;
             singles.offer(r.as_ptr());
             let full = sp.n > 0 && singles.len == sp.n as usize;
-            if ( !full || ext_ranks(&sp, r.as_ptr()).1 <= rank(&sp, singles.at(0)))
-                && !keep(&sp, h, owner, r.as_ptr()) {
-                    return unsupported(UNSUPPORTED_SCRATCH);
+            if (!full || ext_ranks(&sp, r.as_ptr()).1 <= rank(&sp, singles.at(0)))
+                && !keep(&sp, h, owner, r.as_ptr())
+            {
+                return unsupported(UNSUPPORTED_SCRATCH);
             }
         }
         h.resume = singles.len as u32;

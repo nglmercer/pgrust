@@ -9,17 +9,15 @@ use ::mcx::{Mcx, PgVec};
 use ::types_core::Oid;
 use ::types_error::{PgError, PgResult, SoftErrorContext, ERRCODE_DATETIME_VALUE_OUT_OF_RANGE};
 
-use ::adt_datetime::{
-    date2j, isleap, j2date, pg_tm, DateTimeParseError, ValidateDate, DTK_M, DAY, DTERR_FIELD_OVERFLOW,
-    DTERR_TZDISP_OVERFLOW, HOURS_PER_DAY, MAX_TZDISP_HOUR, MINS_PER_HOUR, MONTH, MONTHS_PER_YEAR,
-    POSTGRES_EPOCH_JDATE, SECS_PER_HOUR, SECS_PER_MINUTE, Timestamp, USECS_PER_SEC, YEAR,
-    IS_VALID_JULIAN,
-};
-use ::adt_datetime::fsec_t;
-use ::adt_timestamp::{
-    tm2timestamp, timestamp2tm, AdjustTimestampForTypmod, TIMESTAMP_NOT_FINITE,
-};
 use ::adt_date::{DateADT, IS_VALID_DATE};
+use ::adt_datetime::fsec_t;
+use ::adt_datetime::{
+    date2j, isleap, j2date, pg_tm, DateTimeParseError, Timestamp, ValidateDate, DAY,
+    DTERR_FIELD_OVERFLOW, DTERR_TZDISP_OVERFLOW, DTK_M, HOURS_PER_DAY, IS_VALID_JULIAN,
+    MAX_TZDISP_HOUR, MINS_PER_HOUR, MONTH, MONTHS_PER_YEAR, POSTGRES_EPOCH_JDATE, SECS_PER_HOUR,
+    SECS_PER_MINUTE, USECS_PER_SEC, YEAR,
+};
+use ::adt_timestamp::{timestamp2tm, tm2timestamp, AdjustTimestampForTypmod, TIMESTAMP_NOT_FINITE};
 
 use crate::cache::dch_cache_fetch;
 use crate::dch::{dch_to_char, FmtTm, FmtTz, TmToChar};
@@ -113,8 +111,12 @@ fn datetime_to_char_body<'mcx>(
     dch_to_char(mcx, &format, is_interval, tmtc, collid)
 }
 
-pub fn timestamp_to_char<'mcx>(mcx: Mcx<'mcx>,
-    collid: Oid, ts: i64, fmt: &[u8]) -> PgResult<Varlena<'mcx>> {
+pub fn timestamp_to_char<'mcx>(
+    mcx: Mcx<'mcx>,
+    collid: Oid,
+    ts: i64,
+    fmt: &[u8],
+) -> PgResult<Varlena<'mcx>> {
     if fmt.is_empty() || TIMESTAMP_NOT_FINITE(ts) {
         return text_result(mcx, b"");
     }
@@ -137,8 +139,12 @@ pub fn timestamp_to_char<'mcx>(mcx: Mcx<'mcx>,
     text_result(mcx, &out)
 }
 
-pub fn timestamptz_to_char<'mcx>(mcx: Mcx<'mcx>,
-    collid: Oid, ts: i64, fmt: &[u8]) -> PgResult<Varlena<'mcx>> {
+pub fn timestamptz_to_char<'mcx>(
+    mcx: Mcx<'mcx>,
+    collid: Oid,
+    ts: i64,
+    fmt: &[u8],
+) -> PgResult<Varlena<'mcx>> {
     if fmt.is_empty() || TIMESTAMP_NOT_FINITE(ts) {
         return text_result(mcx, b"");
     }
@@ -203,8 +209,7 @@ pub fn interval_to_char<'mcx>(
     text_result(mcx, &out)
 }
 
-pub fn to_timestamp<'mcx>(mcx: Mcx<'mcx>,
-    collid: Oid, text: &[u8], fmt: &[u8]) -> PgResult<i64> {
+pub fn to_timestamp<'mcx>(mcx: Mcx<'mcx>, collid: Oid, text: &[u8], fmt: &[u8]) -> PgResult<i64> {
     let mut tm = zero_tm();
     let mut ftz = FmtTz::default();
     let mut fsec: fsec_t = 0;
@@ -227,9 +232,10 @@ pub fn to_timestamp<'mcx>(mcx: Mcx<'mcx>,
     let tz = if ftz.has_tz {
         ftz.gmtoffset
     } else {
-        ::adt_datetime::tz::with_required_session_timezone("to_timestamp: session_timezone not initialized", |z| {
-            ::adt_datetime::tz::DetermineTimeZoneOffset(&mut tm, z)
-        })
+        ::adt_datetime::tz::with_required_session_timezone(
+            "to_timestamp: session_timezone not initialized",
+            |z| ::adt_datetime::tz::DetermineTimeZoneOffset(&mut tm, z),
+        )
     };
 
     let mut result: Timestamp = 0;
@@ -244,8 +250,7 @@ pub fn to_timestamp<'mcx>(mcx: Mcx<'mcx>,
     Ok(result)
 }
 
-pub fn to_date<'mcx>(mcx: Mcx<'mcx>,
-    collid: Oid, text: &[u8], fmt: &[u8]) -> PgResult<DateADT> {
+pub fn to_date<'mcx>(mcx: Mcx<'mcx>, collid: Oid, text: &[u8], fmt: &[u8]) -> PgResult<DateADT> {
     let mut tm = zero_tm();
     let mut ftz = FmtTz::default();
     let mut fsec: fsec_t = 0;
@@ -304,8 +309,15 @@ pub fn do_to_timestamp<'mcx>(
 
     if !fmt.is_empty() {
         let format = fetch_format(fmt, std)?;
-        if !dch_from_char(mcx, &format, date_txt, &mut tmfc, collid, std, escontext.as_deref_mut())?
-        {
+        if !dch_from_char(
+            mcx,
+            &format,
+            date_txt,
+            &mut tmfc,
+            collid,
+            std,
+            escontext.as_deref_mut(),
+        )? {
             return Ok(false);
         }
         if let Some(f) = flags {
@@ -360,7 +372,10 @@ pub fn do_to_timestamp<'mcx>(
             tm.tm_year = tmfc.year % 100;
             if tm.tm_year != 0 {
                 if tmfc.cc >= 0 {
-                    match (tmfc.cc - 1).checked_mul(100).and_then(|t| tm.tm_year.checked_add(t)) {
+                    match (tmfc.cc - 1)
+                        .checked_mul(100)
+                        .and_then(|t| tm.tm_year.checked_add(t))
+                    {
                         Some(v) => tm.tm_year = v,
                         None => {
                             dterr(DTERR_FIELD_OVERFLOW, date_txt, escontext.as_deref_mut())?;
@@ -387,10 +402,10 @@ pub fn do_to_timestamp<'mcx>(
                 // 0001-01-01 in real PG 18.3, ground-truthed via docker).
                 // wrapping_* keeps that exact behavior; a plain `*` panics
                 // in debug builds (found by fmt_dch_diff fuzz 2026-07-30).
-                tm.tm_year = tmfc
-                    .cc
-                    .wrapping_mul(100)
-                    .wrapping_add(if tmfc.cc >= 0 { 0 } else { 1 });
+                tm.tm_year =
+                    tmfc.cc
+                        .wrapping_mul(100)
+                        .wrapping_add(if tmfc.cc >= 0 { 0 } else { 1 });
             }
         } else {
             tm.tm_year = tmfc.year;
@@ -407,7 +422,10 @@ pub fn do_to_timestamp<'mcx>(
             tmfc.cc = -tmfc.cc;
         }
         if tmfc.cc >= 0 {
-            match (tmfc.cc - 1).checked_mul(100).and_then(|t| t.checked_add(1)) {
+            match (tmfc.cc - 1)
+                .checked_mul(100)
+                .and_then(|t| t.checked_add(1))
+            {
                 Some(v) => tm.tm_year = v,
                 None => {
                     dterr(DTERR_FIELD_OVERFLOW, date_txt, escontext.as_deref_mut())?;
@@ -491,10 +509,8 @@ pub fn do_to_timestamp<'mcx>(
             ::types_error::ereturn(
                 escontext.as_deref_mut(),
                 false,
-                PgError::error(
-                    "cannot calculate day of year without year information".to_string(),
-                )
-                .with_sqlstate(::types_error::ERRCODE_INVALID_DATETIME_FORMAT),
+                PgError::error("cannot calculate day of year without year information".to_string())
+                    .with_sqlstate(::types_error::ERRCODE_INVALID_DATETIME_FORMAT),
             )?;
             return Ok(false);
         }
@@ -531,7 +547,11 @@ pub fn do_to_timestamp<'mcx>(
     }
 
     if tmfc.ms != 0 {
-        match tmfc.ms.checked_mul(1000).and_then(|t| (*fsec).checked_add(t)) {
+        match tmfc
+            .ms
+            .checked_mul(1000)
+            .and_then(|t| (*fsec).checked_add(t))
+        {
             Some(v) => *fsec = v,
             None => {
                 dterr(DTERR_FIELD_OVERFLOW, date_txt, escontext.as_deref_mut())?;
@@ -657,10 +677,8 @@ pub fn parse_datetime<'mcx>(
                     ::types_error::ereturn(
                         escontext.as_deref_mut(),
                         (),
-                        PgError::error(
-                            "missing time zone in input string for type timestamptz",
-                        )
-                        .with_sqlstate(::types_error::ERRCODE_INVALID_DATETIME_FORMAT),
+                        PgError::error("missing time zone in input string for type timestamptz")
+                            .with_sqlstate(::types_error::ERRCODE_INVALID_DATETIME_FORMAT),
                     )?;
                     return Ok(None);
                 }
@@ -702,20 +720,12 @@ pub fn parse_datetime<'mcx>(
             Ok(None)
         } else {
             if !IS_VALID_JULIAN(tm.tm_year, tm.tm_mon, tm.tm_mday) {
-                ::types_error::ereturn(
-                    escontext.as_deref_mut(),
-                    (),
-                    *date_out_of_range(date_txt),
-                )?;
+                ::types_error::ereturn(escontext.as_deref_mut(), (), *date_out_of_range(date_txt))?;
                 return Ok(None);
             }
             let result = date2j(tm.tm_year, tm.tm_mon, tm.tm_mday) - POSTGRES_EPOCH_JDATE;
             if !IS_VALID_DATE(result) {
-                ::types_error::ereturn(
-                    escontext.as_deref_mut(),
-                    (),
-                    *date_out_of_range(date_txt),
-                )?;
+                ::types_error::ereturn(escontext.as_deref_mut(), (), *date_out_of_range(date_txt))?;
                 return Ok(None);
             }
             Ok(Some(ParsedDatetime::Date(result)))
@@ -818,10 +828,13 @@ mod tests {
     #[test]
     fn to_char_interval_huge_months_wraps_like_c() {
         let ctx = MemoryContext::new("dch-test");
-        let it = ::adt_datetime::Interval { time: 0, day: 0, month: i32::MAX };
+        let it = ::adt_datetime::Interval {
+            time: 0,
+            day: 0,
+            month: i32::MAX,
+        };
         let fmt = |f: &[u8]| {
-            let v =
-                interval_to_char(ctx.mcx(), ::types_core::InvalidOid, &it, f).unwrap();
+            let v = interval_to_char(ctx.mcx(), ::types_core::InvalidOid, &it, f).unwrap();
             String::from_utf8_lossy(v.data()).into_owned()
         };
         assert_eq!(fmt(b"IYYY"), "178956970");
@@ -829,7 +842,10 @@ mod tests {
         assert_eq!(fmt(b"YYYY"), "178956970");
         // Wrapped-arithmetic pins (values from C's -fwrapv evaluation).
         assert_eq!(::adt_datetime::calendar::date2j(178956970, 7, 0), 939902916);
-        assert_eq!(::adt_datetime::calendar::date2isoyear(178956970, 7, 0), 178956970);
+        assert_eq!(
+            ::adt_datetime::calendar::date2isoyear(178956970, 7, 0),
+            178956970
+        );
     }
 
     fn interval_to_char_str(month: i32, day: i32, time: i64, fmt: &[u8]) -> String {
@@ -849,9 +865,18 @@ mod tests {
     #[test]
     fn to_char_interval_yday_family_matches_c() {
         // the campaign-2 minimized repro interval: -1121 mons -1605 days -84436.746699 s
-        assert_eq!(interval_to_char_str(-1121, -1605, -84436746699, b"WW"), "-5032");
-        assert_eq!(interval_to_char_str(-1121, -1605, -84436746699, b"DDD"), "-35235");
-        assert_eq!(interval_to_char_str(-1121, -1605, -84436746699, b"W"), "-228");
+        assert_eq!(
+            interval_to_char_str(-1121, -1605, -84436746699, b"WW"),
+            "-5032"
+        );
+        assert_eq!(
+            interval_to_char_str(-1121, -1605, -84436746699, b"DDD"),
+            "-35235"
+        );
+        assert_eq!(
+            interval_to_char_str(-1121, -1605, -84436746699, b"W"),
+            "-228"
+        );
         // ... and its exact harness format string.
         assert_eq!(
             interval_to_char_str(-1121, -1605, -84436746699, b"wwsqFUKCcPapl6ba3"),
@@ -877,7 +902,13 @@ mod tests {
     #[test]
     fn to_date_ymd() {
         let ctx = MemoryContext::new("dch-test");
-        let d = to_date(ctx.mcx(), ::types_core::InvalidOid, b"2011-12-18", b"YYYY-MM-DD").unwrap();
+        let d = to_date(
+            ctx.mcx(),
+            ::types_core::InvalidOid,
+            b"2011-12-18",
+            b"YYYY-MM-DD",
+        )
+        .unwrap();
         let mut y = 0;
         let mut m = 0;
         let mut day = 0;
@@ -909,8 +940,13 @@ mod tests {
         assert_eq!(ymd(b"20 00 BC", b"CC YY BC"), (-1999, 1, 1));
         assert_eq!(ymd(b"21 BC", b"CC BC"), (-2099, 1, 1));
         assert_eq!(ymd(b"4714-11-24 BC", b"YYYY-MM-DD BC"), (-4713, 11, 24));
-        let err = to_date(ctx.mcx(), ::types_core::InvalidOid, b"4714-11-23 BC", b"YYYY-MM-DD BC")
-            .unwrap_err();
+        let err = to_date(
+            ctx.mcx(),
+            ::types_core::InvalidOid,
+            b"4714-11-23 BC",
+            b"YYYY-MM-DD BC",
+        )
+        .unwrap_err();
         assert_eq!(err.message, "date out of range: \"4714-11-23 BC\"");
     }
 
@@ -937,9 +973,17 @@ mod tests {
     #[test]
     fn to_date_partial_field_quotes_raw_bytes() {
         let ctx = MemoryContext::new("dch-test");
-        let e = to_date(ctx.mcx(), ::types_core::InvalidOid, "1\u{e9}2020".as_bytes(), b"MMYYYY")
-            .unwrap_err();
-        assert_eq!(e.message_raw.as_deref(), Some(&b"invalid value \"1\xc3\" for \"MM\""[..]));
+        let e = to_date(
+            ctx.mcx(),
+            ::types_core::InvalidOid,
+            "1\u{e9}2020".as_bytes(),
+            b"MMYYYY",
+        )
+        .unwrap_err();
+        assert_eq!(
+            e.message_raw.as_deref(),
+            Some(&b"invalid value \"1\xc3\" for \"MM\""[..])
+        );
     }
 
     #[test]
@@ -980,11 +1024,23 @@ mod tests {
         assert_eq!(err(b"-2147484,000", b"Y,YYY"), OUT_OF_RANGE);
         // Product fits int but the date does not: the later date range check
         // owns these, not the Y,YYY guard (C-parity).
-        assert_eq!(err(b"2147483,647", b"Y,YYY"), "date out of range: \"2147483,647\"");
-        assert_eq!(err(b"-2147483,647", b"Y,YYY"), "date out of range: \"-2147483,647\"");
+        assert_eq!(
+            err(b"2147483,647", b"Y,YYY"),
+            "date out of range: \"2147483,647\""
+        );
+        assert_eq!(
+            err(b"-2147483,647", b"Y,YYY"),
+            "date out of range: \"-2147483,647\""
+        );
         // matched < 2 stays the invalid-value error, not out-of-range.
-        assert_eq!(err(b"2024", b"Y,YYY"), "invalid value \"2024\" for \"Y,YYY\"");
-        assert_eq!(err(b"-,024", b"Y,YYY"), "invalid value \"-,024\" for \"Y,YYY\"");
+        assert_eq!(
+            err(b"2024", b"Y,YYY"),
+            "invalid value \"2024\" for \"Y,YYY\""
+        );
+        assert_eq!(
+            err(b"-,024", b"Y,YYY"),
+            "invalid value \"-,024\" for \"Y,YYY\""
+        );
     }
 
     // In-range Y,YYY behavior is untouched by the out-of-range carve above.
@@ -1032,6 +1088,9 @@ mod tests {
         let fmt = vec![b'x'; 90_000_000];
         let err =
             timestamp_to_char(ctx.mcx(), ::types_core::InvalidOid, ts_1997(), &fmt).unwrap_err();
-        assert_eq!(err.message(), "invalid memory alloc request size 1080000001");
+        assert_eq!(
+            err.message(),
+            "invalid memory alloc request size 1080000001"
+        );
     }
 }

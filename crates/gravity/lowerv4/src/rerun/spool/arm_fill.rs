@@ -8,7 +8,13 @@ use crate::rerun::spool::lazy::Lazy;
 
 /// A later arm's nest at graph pipeline `k` over fill `kf` in `slot`: its wait when the fill went lazy for the first arm
 /// (`loud`: a deferred fill, read whole), else `None` (the fill ran in pipeline order before every arm).
-pub(crate) fn later(px: &mut Px<'_, '_>, k: usize, kf: usize, slot: u8, loud: bool) -> Option<Lazy> {
+pub(crate) fn later(
+    px: &mut Px<'_, '_>,
+    k: usize,
+    kf: usize,
+    slot: u8,
+    loud: bool,
+) -> Option<Lazy> {
     if !px.lazy.iter().any(|&(x, _)| x == kf) {
         return None;
     }
@@ -28,5 +34,8 @@ pub(crate) fn later(px: &mut Px<'_, '_>, k: usize, kf: usize, slot: u8, loud: bo
 /// ops after the nest are calm, `whole_first_arms`). union_arms.rs `admit` serves such a union to its reader (one call line).
 pub(crate) fn whole_union(gx: &crate::graph::Gx<'_, '_>, e: usize) -> bool {
     let ps = gx.pipelines();
-    e < ps.len() && crate::rerun::union_arms::union_of(&ps[e]).is_some() && crate::rerun::spool::readers::copies(gx, e).is_some() && crate::rerun::spool::form::deferred(gx, e)
+    e < ps.len()
+        && crate::rerun::union_arms::union_of(&ps[e]).is_some()
+        && crate::rerun::spool::readers::copies(gx, e).is_some()
+        && crate::rerun::spool::form::deferred(gx, e)
 }

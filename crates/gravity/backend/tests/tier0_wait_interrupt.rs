@@ -32,7 +32,9 @@ fn check() -> PgResult<()> {
     let mut g = PENDING.lock().unwrap();
     if *g == Some(std::thread::current().id()) {
         *g = None;
-        return Err(PgError::error("canceling statement due to user request").with_sqlstate(types_error::error::ERRCODE_QUERY_CANCELED).into());
+        return Err(PgError::error("canceling statement due to user request")
+            .with_sqlstate(types_error::error::ERRCODE_QUERY_CANCELED)
+            .into());
     }
     Ok(())
 }
@@ -49,7 +51,9 @@ fn install() {
 }
 
 fn konst(k: i64) -> (gravity_ir::Program, Func) {
-    let src = format!("(program (fn e ((c ptr)) (i64) (block entry ((c ptr)) (k (const i64 {k})) (return k))))");
+    let src = format!(
+        "(program (fn e ((c ptr)) (i64) (block entry ((c ptr)) (k (const i64 {k})) (return k))))"
+    );
     let p = parse_program(&src, &|_| None).unwrap_or_else(|e| panic!("{e}"));
     let f = Func(p.funcs.iter().position(|f| f.name == "e").unwrap() as u32);
     (p, f)
@@ -62,7 +66,12 @@ fn call(code: &gravity_program::Code) -> i64 {
 
 /// A compile of `p` held open on another thread until `go` fires; returns once that thread holds the key's flight (its
 /// compile closure runs only after its claim).
-fn held_compile<'s>(s: &'s std::thread::Scope<'s, '_>, p: &'s gravity_ir::Program, f: Func, go: mpsc::Receiver<()>) -> std::thread::ScopedJoinHandle<'s, Lookup> {
+fn held_compile<'s>(
+    s: &'s std::thread::Scope<'s, '_>,
+    p: &'s gravity_ir::Program,
+    f: Func,
+    go: mpsc::Receiver<()>,
+) -> std::thread::ScopedJoinHandle<'s, Lookup> {
     let (claimed, is_claimed) = mpsc::channel();
     let h = s.spawn(move || {
         let (codes, o) = cache::get_or_compile_all(p, &[f], |ctx| {
@@ -74,7 +83,9 @@ fn held_compile<'s>(s: &'s std::thread::Scope<'s, '_>, p: &'s gravity_ir::Progra
         assert!(call(&codes[0]) > 0);
         o.lookup
     });
-    is_claimed.recv_timeout(Duration::from_secs(30)).expect("the holder claimed the key");
+    is_claimed
+        .recv_timeout(Duration::from_secs(30))
+        .expect("the holder claimed the key");
     h
 }
 
@@ -91,18 +102,37 @@ fn a_waiter_with_a_pending_interrupt_leaves_and_the_held_compile_files_its_modul
         let waited = cache::stats().waited;
         *PENDING.lock().unwrap() = Some(std::thread::current().id());
         let t0 = Instant::now();
-        let e = cache::get_or_compile_all(&p, &[f], |_| panic!("the waiter compiles nothing")).expect_err("the wait ends at the pending interrupt");
+        let e = cache::get_or_compile_all(&p, &[f], |_| panic!("the waiter compiles nothing"))
+            .expect_err("the wait ends at the pending interrupt");
         let el = t0.elapsed();
         *PENDING.lock().unwrap() = None;
         assert_eq!(e.message(), cache::INTERRUPTED);
-        assert_eq!(cache::stats().waited, waited + 1, "it waited on the holder's flight (it compiled nothing of its own)");
-        assert!(el < Duration::from_secs(1), "the waiter left within a slice, not after the compile: {el:?}");
-        assert!(cache::lookup_all(&p, &[f]).is_none(), "nothing filed yet: the holder still compiles");
+        assert_eq!(
+            cache::stats().waited,
+            waited + 1,
+            "it waited on the holder's flight (it compiled nothing of its own)"
+        );
+        assert!(
+            el < Duration::from_secs(1),
+            "the waiter left within a slice, not after the compile: {el:?}"
+        );
+        assert!(
+            cache::lookup_all(&p, &[f]).is_none(),
+            "nothing filed yet: the holder still compiles"
+        );
         go.send(()).unwrap();
-        assert_eq!(holder.join().unwrap(), Lookup::Miss, "the holder compiled and filed the module");
+        assert_eq!(
+            holder.join().unwrap(),
+            Lookup::Miss,
+            "the holder compiled and filed the module"
+        );
     });
     let (codes, o) = cache::lookup_all(&p, &[f]).expect("filed by the holder");
-    assert_eq!((o.lookup, call(&codes[0])), (Lookup::Hit, 38111), "the waiter's next look hits the holder's module: no poisoned key");
+    assert_eq!(
+        (o.lookup, call(&codes[0])),
+        (Lookup::Hit, 38111),
+        "the waiter's next look hits the holder's module: no poisoned key"
+    );
 }
 
 #[test]
@@ -116,22 +146,44 @@ fn a_promotion_stopped_in_its_wait_raises_the_interrupt_and_stays_promotable() {
         // the holder claims the key first: the pool's job for the tier-0 miss then waits on its flight too
         let holder = held_compile(s, &p, f, rx);
         let (codes, o) = mapped_cached_all(&p, &[f]).unwrap();
-        assert_eq!((codes[0].kind(), o.lookup), ("tier0", Lookup::Miss), "a forced miss interprets");
+        assert_eq!(
+            (codes[0].kind(), o.lookup),
+            ("tier0", Lookup::Miss),
+            "a forced miss interprets"
+        );
         assert_eq!(call(&codes[0]), 38112);
         let t = codes[0].tier0().expect("tier-0 code");
         *PENDING.lock().unwrap() = Some(std::thread::current().id());
         let t0 = Instant::now();
-        let raised = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| t.promote())).expect_err("the promotion raises the interrupt");
+        let raised = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| t.promote()))
+            .expect_err("the promotion raises the interrupt");
         let el = t0.elapsed();
-        assert_eq!(*PENDING.lock().unwrap(), None, "the host's check took the interrupt");
-        let e = raised.downcast_ref::<Box<PgError>>().expect("PostgreSQL's error, thrown as an ereport is");
+        assert_eq!(
+            *PENDING.lock().unwrap(),
+            None,
+            "the host's check took the interrupt"
+        );
+        let e = raised
+            .downcast_ref::<Box<PgError>>()
+            .expect("PostgreSQL's error, thrown as an ereport is");
         assert_eq!(e.sqlstate(), types_error::error::ERRCODE_QUERY_CANCELED);
-        assert!(el < Duration::from_secs(1), "the promotion's wait ended within a slice: {el:?}");
-        assert!(t.failure().is_none() && !t.promoted(), "a cancel fails nothing: {:?}", t.failure());
+        assert!(
+            el < Duration::from_secs(1),
+            "the promotion's wait ended within a slice: {el:?}"
+        );
+        assert!(
+            t.failure().is_none() && !t.promoted(),
+            "a cancel fails nothing: {:?}",
+            t.failure()
+        );
         go.send(()).unwrap();
         assert_eq!(holder.join().unwrap(), Lookup::Miss);
         promote::quiesce();
-        assert!(t.promote(), "the next promotion takes the module: {:?}", t.failure());
+        assert!(
+            t.promote(),
+            "the next promotion takes the module: {:?}",
+            t.failure()
+        );
         assert_eq!((codes[0].kind(), call(&codes[0])), ("mapped", 38112));
     });
 }

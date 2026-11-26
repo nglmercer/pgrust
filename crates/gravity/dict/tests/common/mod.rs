@@ -1,4 +1,4 @@
-#![allow(clippy::duplicate_mod,dead_code)]
+#![allow(clippy::duplicate_mod, dead_code)]
 use gravity_dict::{Dict, Region, View};
 
 /// A synthetic dictionary: entries in code order, an optional code standing for NULL.
@@ -9,11 +9,17 @@ pub struct VecDict {
 
 impl VecDict {
     pub fn of(strs: &[&str]) -> VecDict {
-        VecDict { entries: strs.iter().map(|s| s.as_bytes().to_vec()).collect(), null: None }
+        VecDict {
+            entries: strs.iter().map(|s| s.as_bytes().to_vec()).collect(),
+            null: None,
+        }
     }
 
     pub fn code_of(&self, s: &str) -> u32 {
-        self.entries.iter().position(|e| e == s.as_bytes()).expect("entry") as u32
+        self.entries
+            .iter()
+            .position(|e| e == s.as_bytes())
+            .expect("entry") as u32
     }
 }
 
@@ -48,8 +54,28 @@ impl Buf {
 /// A synthetic URL-like corpus: `n` distinct strings from a fixed generator, byte-rank sorted
 /// like a part dictionary.
 pub fn url_corpus(n: usize, seed: u64) -> Vec<Vec<u8>> {
-    let hosts = ["example.com", "shop.example.org", "news.site.ru", "m.video.net", "images.host.io", "a.b.c.d.e.f.example", "пример.рф", "日本.jp"];
-    let paths = ["", "/", "/index.html", "/search?q=", "/item/", "/user/profile", "/cat/sub/leaf", "/img/", "/api/v2/items", "/blog/2024/03/post-"];
+    let hosts = [
+        "example.com",
+        "shop.example.org",
+        "news.site.ru",
+        "m.video.net",
+        "images.host.io",
+        "a.b.c.d.e.f.example",
+        "пример.рф",
+        "日本.jp",
+    ];
+    let paths = [
+        "",
+        "/",
+        "/index.html",
+        "/search?q=",
+        "/item/",
+        "/user/profile",
+        "/cat/sub/leaf",
+        "/img/",
+        "/api/v2/items",
+        "/blog/2024/03/post-",
+    ];
     let mut x = seed | 1;
     let mut out: Vec<Vec<u8>> = Vec::with_capacity(n);
     let mut i = 0usize;
@@ -59,7 +85,17 @@ pub fn url_corpus(n: usize, seed: u64) -> Vec<Vec<u8>> {
         x ^= x << 17;
         let h = hosts[(x % hosts.len() as u64) as usize];
         let p = paths[((x >> 8) % paths.len() as u64) as usize];
-        let s = format!("http://{h}{p}{}{}", i, if x & 0x100 != 0 { "&utm_source=Garden" } else if x & 0x200 != 0 { "?ref=search" } else { "" });
+        let s = format!(
+            "http://{h}{p}{}{}",
+            i,
+            if x & 0x100 != 0 {
+                "&utm_source=Garden"
+            } else if x & 0x200 != 0 {
+                "?ref=search"
+            } else {
+                ""
+            }
+        );
         out.push(s.into_bytes());
         i += 1;
     }

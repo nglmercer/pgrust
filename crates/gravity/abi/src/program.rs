@@ -1,6 +1,6 @@
-use crate::layout::{unword, word, Word};
 use crate::breaker::RecOpenFn;
 use crate::ctx::{Ctx, Partials};
+use crate::layout::{unword, word, Word};
 
 pub type PushFn = Option<unsafe extern "C" fn(*mut Ctx) -> i64>;
 pub type SpillFn = Option<unsafe extern "C" fn(*mut Ctx, u32, u64) -> i64>;
@@ -227,7 +227,20 @@ pub const COSPLIT_PART_WORDS: usize = 4;
 pub const COSPLIT_WHOLE: u64 = i64::MAX as u64;
 
 impl ProgramBlock {
-    pub const NONE: ProgramBlock = ProgramBlock { push: word(None), spill: word(None), arena_grow: word(None), write: word(None), lock: word(None), partial: word(core::ptr::null_mut()), env: word(core::ptr::null_mut()), sink: word(core::ptr::null_mut()), rec_open: word(None), owner: word(core::ptr::null_mut()), pin: word(None), instr: word(core::ptr::null_mut()) };
+    pub const NONE: ProgramBlock = ProgramBlock {
+        push: word(None),
+        spill: word(None),
+        arena_grow: word(None),
+        write: word(None),
+        lock: word(None),
+        partial: word(core::ptr::null_mut()),
+        env: word(core::ptr::null_mut()),
+        sink: word(core::ptr::null_mut()),
+        rec_open: word(None),
+        owner: word(core::ptr::null_mut()),
+        pin: word(None),
+        instr: word(core::ptr::null_mut()),
+    };
 }
 
 /// # Safety — `ctx` is bound.
@@ -274,7 +287,11 @@ pub unsafe fn region_grow_debt(ctx: *mut Ctx, need: u64, head: u64, tail: u64, w
 #[allow(clippy::missing_safety_doc)]
 pub unsafe fn owned_next(ctx: *mut Ctx, rec: u64, rewind: bool) -> i64 {
     match unword((*unword((*ctx).program)).spill) {
-        Some(f) => f(ctx, SPILL_OWNED_NEXT, (rec & 0xffff_ffff) | if rewind { OWNED_REWIND } else { 0 }),
+        Some(f) => f(
+            ctx,
+            SPILL_OWNED_NEXT,
+            (rec & 0xffff_ffff) | if rewind { OWNED_REWIND } else { 0 },
+        ),
         None => 0,
     }
 }
@@ -323,13 +340,22 @@ pub const RESERVE_SHARE_MAX: u64 = (1 << 29) - 1;
 /// D3809: `share` placed in a `need` 0 answer's share bits (`RESERVE_SHARE_SHIFT`), saturating at `RESERVE_SHARE_MAX`.
 pub const fn reserve_share_word(share: u64) -> u64 {
     let units = share >> 3;
-    (if units > RESERVE_SHARE_MAX { RESERVE_SHARE_MAX } else { units }) << RESERVE_SHARE_SHIFT
+    (if units > RESERVE_SHARE_MAX {
+        RESERVE_SHARE_MAX
+    } else {
+        units
+    }) << RESERVE_SHARE_SHIFT
 }
 
 /// A `need` 0 answer read back: the reservation's bytes, whether it is a floor (`RESERVE_FLOOR`), whether the region
 /// started small (`RESERVE_LAYOUT`), and the share it is cut by (`RESERVE_SHARE_SHIFT`; 0 when the answer carries none).
 pub const fn reserve_answer(a: u64) -> (u64, bool, bool, u64) {
-    (a & (u32::MAX as u64), a & RESERVE_FLOOR != 0, a & RESERVE_LAYOUT != 0, ((a >> RESERVE_SHARE_SHIFT) & RESERVE_SHARE_MAX) << 3)
+    (
+        a & (u32::MAX as u64),
+        a & RESERVE_FLOOR != 0,
+        a & RESERVE_LAYOUT != 0,
+        ((a >> RESERVE_SHARE_SHIFT) & RESERVE_SHARE_MAX) << 3,
+    )
 }
 
 /// `SPILL_REGION_PLACE`: the calling owner's started-small region grown in place to hold at least `head + need` bytes; its
@@ -351,7 +377,10 @@ pub unsafe fn region_grow_place(ctx: *mut Ctx, need: u64, head: u64) -> u64 {
 #[inline(never)]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe fn work_take(ctx: *mut Ctx, bytes: u64) -> Option<*mut u8> {
-    let f = ctx.as_ref().and_then(|c| unword(c.program).as_ref()).and_then(|b| unword(b.spill))?;
+    let f = ctx
+        .as_ref()
+        .and_then(|c| unword(c.program).as_ref())
+        .and_then(|b| unword(b.spill))?;
     match f(ctx, SPILL_WORK_TAKE, bytes) {
         1 => None,
         p => Some(p.max(0) as usize as *mut u8),
@@ -364,7 +393,10 @@ pub unsafe fn work_take(ctx: *mut Ctx, bytes: u64) -> Option<*mut u8> {
 #[inline(never)]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe fn work_try(ctx: *mut Ctx, bytes: u64) -> Option<*mut u8> {
-    let f = ctx.as_ref().and_then(|c| unword(c.program).as_ref()).and_then(|b| unword(b.spill))?;
+    let f = ctx
+        .as_ref()
+        .and_then(|c| unword(c.program).as_ref())
+        .and_then(|b| unword(b.spill))?;
     match f(ctx, SPILL_WORK_TRY, bytes) {
         1 => None,
         p => Some(p.max(0) as usize as *mut u8),
@@ -377,8 +409,15 @@ pub unsafe fn work_try(ctx: *mut Ctx, bytes: u64) -> Option<*mut u8> {
 #[inline(never)]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe fn work_within(ctx: *mut Ctx, bytes: u64, seal: bool) -> Option<*mut u8> {
-    let f = ctx.as_ref().and_then(|c| unword(c.program).as_ref()).and_then(|b| unword(b.spill))?;
-    match f(ctx, SPILL_WORK_WITHIN, bytes | if seal { WORK_SEAL } else { 0 }) {
+    let f = ctx
+        .as_ref()
+        .and_then(|c| unword(c.program).as_ref())
+        .and_then(|b| unword(b.spill))?;
+    match f(
+        ctx,
+        SPILL_WORK_WITHIN,
+        bytes | if seal { WORK_SEAL } else { 0 },
+    ) {
         1 => None,
         p => Some(p.max(0) as usize as *mut u8),
     }
@@ -388,7 +427,11 @@ pub unsafe fn work_within(ctx: *mut Ctx, bytes: u64, seal: bool) -> Option<*mut 
 #[inline(never)]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe fn work_give(ctx: *mut Ctx, p: *mut u8) {
-    if let Some(f) = ctx.as_ref().and_then(|c| unword(c.program).as_ref()).and_then(|b| unword(b.spill)) {
+    if let Some(f) = ctx
+        .as_ref()
+        .and_then(|c| unword(c.program).as_ref())
+        .and_then(|b| unword(b.spill))
+    {
         f(ctx, SPILL_WORK_GIVE, p as usize as u64);
     }
 }
@@ -399,7 +442,10 @@ pub unsafe fn work_give(ctx: *mut Ctx, p: *mut u8) {
 #[inline(never)]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe fn arena_chunk(ctx: *mut Ctx, bytes: u64, owner: [u64; 2]) -> Option<*mut u8> {
-    let f = ctx.as_ref().and_then(|c| unword(c.program).as_ref()).and_then(|b| unword(b.spill))?;
+    let f = ctx
+        .as_ref()
+        .and_then(|c| unword(c.program).as_ref())
+        .and_then(|b| unword(b.spill))?;
     let args = [bytes, owner[0], owner[1]];
     Some(f(ctx, SPILL_ARENA_CHUNK, args.as_ptr() as u64).max(0) as usize as *mut u8)
 }
@@ -421,9 +467,13 @@ pub unsafe fn arena_slot_owner(ctx: *mut Ctx) -> Option<[u64; 2]> {
 #[inline(never)]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe fn arena_slot_owner_kind(ctx: *mut Ctx) -> Option<([u64; 2], u64)> {
-    let f = ctx.as_ref().and_then(|c| unword(c.program).as_ref()).and_then(|b| unword(b.spill))?;
+    let f = ctx
+        .as_ref()
+        .and_then(|c| unword(c.program).as_ref())
+        .and_then(|b| unword(b.spill))?;
     let mut args = [0u64; 3];
-    (f(ctx, SPILL_ARENA_CHUNK, args.as_mut_ptr() as u64) == 1).then(|| ([args[1], args[2]], args[0]))
+    (f(ctx, SPILL_ARENA_CHUNK, args.as_mut_ptr() as u64) == 1)
+        .then(|| ([args[1], args[2]], args[0]))
 }
 
 /// CONVERT wave 2 (wave2-base commit 7): the `SPILL_ARENA_CHUNK` 0-byte ask's word 1 (the owner words' first, unread
@@ -439,9 +489,13 @@ pub const ARENA_ASK_OWN: u64 = 1;
 #[inline(never)]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe fn arena_own_owner_kind(ctx: *mut Ctx) -> Option<([u64; 2], u64)> {
-    let f = ctx.as_ref().and_then(|c| unword(c.program).as_ref()).and_then(|b| unword(b.spill))?;
+    let f = ctx
+        .as_ref()
+        .and_then(|c| unword(c.program).as_ref())
+        .and_then(|b| unword(b.spill))?;
     let mut args = [0u64, ARENA_ASK_OWN, 0];
-    (f(ctx, SPILL_ARENA_CHUNK, args.as_mut_ptr() as u64) == 1).then(|| ([args[1], args[2]], args[0]))
+    (f(ctx, SPILL_ARENA_CHUNK, args.as_mut_ptr() as u64) == 1)
+        .then(|| ([args[1], args[2]], args[0]))
 }
 
 /// LEDGER2 step 3 (`SPILL_ARENA_GIVE`): an `arena_chunk` chunk back to the host.
@@ -449,7 +503,11 @@ pub unsafe fn arena_own_owner_kind(ctx: *mut Ctx) -> Option<([u64; 2], u64)> {
 #[inline(never)]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe fn arena_give(ctx: *mut Ctx, p: *mut u8) {
-    if let Some(f) = ctx.as_ref().and_then(|c| unword(c.program).as_ref()).and_then(|b| unword(b.spill)) {
+    if let Some(f) = ctx
+        .as_ref()
+        .and_then(|c| unword(c.program).as_ref())
+        .and_then(|b| unword(b.spill))
+    {
         f(ctx, SPILL_ARENA_GIVE, p as usize as u64);
     }
 }
@@ -543,7 +601,11 @@ pub unsafe fn partial(ctx: *mut Ctx) -> *mut u8 {
 #[allow(clippy::missing_safety_doc)]
 pub unsafe fn consumed(ctx: *mut Ctx, k: usize) -> *mut u8 {
     let p = &*unword((*unword((*ctx).program)).partial);
-    if k < 2 { unword(p.consumed[k]) } else { unword(*unword(p.more).add(k)) }
+    if k < 2 {
+        unword(p.consumed[k])
+    } else {
+        unword(*unword(p.more).add(k))
+    }
 }
 
 #[cfg(test)]
@@ -558,12 +620,27 @@ mod reserve_answer_tests {
         for share in [13_500_416u64, 64 << 20, 4 << 30] {
             let a = reserve | RESERVE_FLOOR | RESERVE_LAYOUT | reserve_share_word(share);
             let want = share.min(RESERVE_SHARE_MAX << 3) & !7;
-            assert_eq!(reserve_answer(a), (reserve, true, true, want), "share {share}");
+            assert_eq!(
+                reserve_answer(a),
+                (reserve, true, true, want),
+                "share {share}"
+            );
         }
-        assert_eq!(reserve_answer(reserve_share_word(6 << 30)).3, RESERVE_SHARE_MAX << 3, "saturates");
-        assert_eq!(reserve_answer(reserve_share_word(1 << 40)).3, RESERVE_SHARE_MAX << 3, "saturates");
+        assert_eq!(
+            reserve_answer(reserve_share_word(6 << 30)).3,
+            RESERVE_SHARE_MAX << 3,
+            "saturates"
+        );
+        assert_eq!(
+            reserve_answer(reserve_share_word(1 << 40)).3,
+            RESERVE_SHARE_MAX << 3,
+            "saturates"
+        );
         // an answer without the share (a set operation side's reservation, an older driver) reads 0
-        assert_eq!(reserve_answer(1 << 20 | RESERVE_LAYOUT), (1 << 20, false, true, 0));
+        assert_eq!(
+            reserve_answer(1 << 20 | RESERVE_LAYOUT),
+            (1 << 20, false, true, 0)
+        );
         assert_eq!(reserve_answer(0), (0, false, false, 0));
     }
 }

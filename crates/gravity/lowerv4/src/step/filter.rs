@@ -22,15 +22,18 @@ use mcx::{CollectIn, GrowIn, Mcx, PgBox, PgVec};
 use crate::cell::LaneId as CellLane;
 use crate::dict::face::{PerValue, PerValueImpl};
 use crate::face::kinds::KindId;
-use crate::frame::mask_rows::MASK_ROWS;
 use crate::face::step::{BlockForm, BlockImpl, ExtPlan, Hoist, HoistAt, StepMech};
 use crate::frame::env::Env;
 use crate::frame::frame::{Mask, Next, StepMaker, WordWin};
 use crate::frame::instr::{self, Ctr};
+use crate::frame::mask_rows::MASK_ROWS;
 use crate::frame::px::{ExId, Px};
 use crate::frame::row::{Carry, RowVals};
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { kinds: &[(KindId::StepFilter, &StepMaker(make))], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    kinds: &[(KindId::StepFilter, &StepMaker(make))],
+    ..crate::ops::NONE
+};
 
 pub(crate) struct Filter {
     quals: Rc<[ExId]>,
@@ -59,32 +62,62 @@ pub(crate) struct Filter {
 
 /// The by-value lanes `(attno, width)` of pipeline `k`'s site draft (none without one).
 fn word_lanes<'g>(px: &mut Px<'_, '_>, k: usize, mcx: Mcx<'g>) -> PgVec<'g, (i16, u8)> {
-    let Some(s) = px.site_mut(k) else { return PgVec::new_in(mcx) };
-    s.lanes.iter().filter_map(|l| if let LaneId::Attr(a) = l.id { (l.kind == KIND_BYVAL).then_some((a, l.width)) } else { None }).collect_in(mcx)
+    let Some(s) = px.site_mut(k) else {
+        return PgVec::new_in(mcx);
+    };
+    s.lanes
+        .iter()
+        .filter_map(|l| {
+            if let LaneId::Attr(a) = l.id {
+                (l.kind == KIND_BYVAL).then_some((a, l.width))
+            } else {
+                None
+            }
+        })
+        .collect_in(mcx)
 }
 
 /// Qual `q` reads by code (a per-code plan).
 fn coded(px: &Px<'_, '_>, q: ExId) -> bool {
-    px.placed(q).ext.as_deref().is_some_and(|x| x.is::<crate::dict::percode::Plan>())
+    px.placed(q)
+        .ext
+        .as_deref()
+        .is_some_and(|x| x.is::<crate::dict::percode::Plan>())
 }
 
 /// D2997: qual `q`'s per-code plan carries num.cmp's residual claim (step/expr_ext.rs `residual`): its placeholders are the
 /// row path's spliced sites, which the per-code word road does not read, so the filter takes no block form.
 fn residual(px: &Px<'_, '_>, q: ExId) -> bool {
-    px.placed(q).ext.as_deref().and_then(|x| x.downcast_ref::<crate::dict::percode::Plan>()).is_some_and(|p| p.ext.get().is_some())
+    px.placed(q)
+        .ext
+        .as_deref()
+        .and_then(|x| x.downcast_ref::<crate::dict::percode::Plan>())
+        .is_some_and(|p| p.ext.get().is_some())
 }
 
 /// Qual `q` has a text frame or an extension plan.
 fn framed(px: &Px<'_, '_>, q: ExId) -> bool {
-    crate::dict::strategies::text_frame::frame_of(px.placed(q)).is_some() || ExtPlan::of(px.placed(q)).is_some()
+    crate::dict::strategies::text_frame::frame_of(px.placed(q)).is_some()
+        || ExtPlan::of(px.placed(q)).is_some()
 }
 
 fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMech + 'g> {
     let p = &px.gx.pipelines()[k];
-    let node = p.node_ops.iter().rev().find(|n| n.first_op as usize <= j).map_or(p.node_id, |n| n.node_id);
+    let node = p
+        .node_ops
+        .iter()
+        .rev()
+        .find(|n| n.first_op as usize <= j)
+        .map_or(p.node_id, |n| n.node_id);
     let quals = crate::step::expr::quals(px, k, j);
     if !quals.iter().all(|&q| crate::dict::percode::owns(px, k, q)) {
-        crate::refuse!(node, crate::admit::refusal::Reason::Bug { payload: "a filter qual whose per-code reads are another making's tables (D3913 class)" });
+        crate::refuse!(
+            node,
+            crate::admit::refusal::Reason::Bug {
+                payload:
+                    "a filter qual whose per-code reads are another making's tables (D3913 class)"
+            }
+        );
     }
     let mcx = px.mcx();
     let lanes = word_lanes(px, k, mcx);
@@ -94,15 +127,35 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMech +
         (_, true) => true,
         _ => crate::frame::block::has_form(px, q, &lanes[..]),
     });
-    let tabs = quals.iter().any(|&q| coded(px, q)).then(|| crate::dict::percode::tables(px, k));
+    let tabs = quals
+        .iter()
+        .any(|&q| coded(px, q))
+        .then(|| crate::dict::percode::tables(px, k));
     let plain = quals.iter().all(|&q| !coded(px, q) && !framed(px, q));
-    let lead = px.gx.pipelines()[k].ops.iter().take_while(|op| matches!(op, Op::Filter(_))).count();
-    let ops = if j < lead { lead_ops(px, k, lead) } else { Rc::from([]) }; // alloc: Program
+    let lead = px.gx.pipelines()[k]
+        .ops
+        .iter()
+        .take_while(|op| matches!(op, Op::Filter(_)))
+        .count();
+    let ops = if j < lead {
+        lead_ops(px, k, lead)
+    } else {
+        Rc::from([])
+    }; // alloc: Program
     let guard = matches!(&px.gx.pipelines()[k].source, gravity_decompose::Source::Bitmap { morsel: true, recheck, .. } if j < recheck.len());
     let rows = j < lead && !guard && row_quals(px, k, j, &quals);
-    let road = px.strategies.has(MASK_ROWS) && crate::face::source::on(crate::admit::refusal::Variant::Strategy(MASK_ROWS));
+    let road = px.strategies.has(MASK_ROWS)
+        && crate::face::source::on(crate::admit::refusal::Variant::Strategy(MASK_ROWS));
     let counters = (rows && j == 0 && road).then(|| {
-        [0u8, 1, 2, 3].map(|i| px.frame_word(crate::frame::px::WordKey::Open { face: crate::face::kinds::Face::Step, k, j: crate::frame::px::key_j(j), i }) as i32 * 8)
+        [0u8, 1, 2, 3].map(|i| {
+            px.frame_word(crate::frame::px::WordKey::Open {
+                face: crate::face::kinds::Face::Step,
+                k,
+                j: crate::frame::px::key_j(j),
+                i,
+            }) as i32
+                * 8
+        })
     });
     mcx::pg_box_dyn!(px.mcx(), Filter { quals, node, words: words && !guard, tabs, form: Cell::new(None), op: j, ops, plain: plain && !guard, guard, rows, counters, stats: Cell::new(None) } => dyn StepMech + 'g)
 }
@@ -118,7 +171,9 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMech +
 /// every row only when it is cheap).
 fn row_quals(px: &Px<'_, '_>, k: usize, j: usize, qs: &[ExId]) -> bool {
     const ROW_QUAL_NODES: usize = 6;
-    let Op::Filter(n) = px.gx.pipelines()[k].ops[j] else { return false };
+    let Op::Filter(n) = px.gx.pipelines()[k].ops[j] else {
+        return false;
+    };
     if crate::effects::volatile(px.gx, n) || gravity_decompose::expr::has_subplan(n) {
         return false;
     }
@@ -146,16 +201,33 @@ fn lead_ops(px: &mut Px<'_, '_>, k: usize, lead: usize) -> Rc<[Option<ExId>]> {
     let mut ops: PgVec<'_, Option<ExId>> = mcx::reserved_in(lead, mcx);
     for i in 0..lead {
         let q = crate::step::expr::quals(px, k, i);
-        ops.push_in(q.first().copied().filter(|&q0| q.len() == 1 && !coded(px, q0) && !framed(px, q0)));
+        ops.push_in(
+            q.first()
+                .copied()
+                .filter(|&q0| q.len() == 1 && !coded(px, q0) && !framed(px, q0)),
+        );
     }
     let ops: Rc<[Option<ExId>]> = (&ops[..]).into(); // alloc: Program
-    crate::step::expr::ext(px).leads.insert(key, Rc::clone(&ops)); // alloc: Program
+    crate::step::expr::ext(px)
+        .leads
+        .insert(key, Rc::clone(&ops)); // alloc: Program
     ops
 }
 
 /// `pass` true: the row goes on through `next`; else the carry is unchanged. The carry after the join.
-pub(crate) fn when<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, pass: Value, next: Next<'_, 'e>) -> Carry<'e> {
-    let types: PgVec<'_, Type> = row.carry.params().iter().map(|&v| b.value_type(v)).collect_in(env.mcx);
+pub(crate) fn when<'e>(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env<'e, '_>,
+    row: &RowVals,
+    pass: Value,
+    next: Next<'_, 'e>,
+) -> Carry<'e> {
+    let types: PgVec<'_, Type> = row
+        .carry
+        .params()
+        .iter()
+        .map(|&v| b.value_type(v))
+        .collect_in(env.mcx);
     let l_join = b.create_block(&types[..]);
     let l_yes = b.create_block(&[]);
     b.cond_br(pass, (l_yes, &[]), (l_join, &row.carry.params()));
@@ -168,8 +240,20 @@ pub(crate) fn when<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: 
 
 /// Quals `qs` over the row, each tested before the next is evaluated (a false or NULL qual skips the rest and the row);
 /// the rows that pass go on through `next`. The carry after the join.
-pub(crate) fn quals_then<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, node: i32, row: &RowVals, qs: &[ExId], next: Next<'_, 'e>) -> Carry<'e> {
-    let types: PgVec<'_, Type> = row.carry.params().iter().map(|&v| b.value_type(v)).collect_in(env.mcx);
+pub(crate) fn quals_then<'e>(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env<'e, '_>,
+    node: i32,
+    row: &RowVals,
+    qs: &[ExId],
+    next: Next<'_, 'e>,
+) -> Carry<'e> {
+    let types: PgVec<'_, Type> = row
+        .carry
+        .params()
+        .iter()
+        .map(|&v| b.value_type(v))
+        .collect_in(env.mcx);
     let l_join = b.create_block(&types[..]);
     // EXPLAIN ANALYZE's rows the node's quals removed (D349), counted where the row fails, for the node whose rows the frame
     // counts, in a frame without node boundaries only (a bounded frame counts rows where they leave a node, frame.rs)
@@ -200,7 +284,9 @@ pub(crate) fn quals_then<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>,
 
 /// The block road a filter takes: the vector form where it is on, else the scalar word; `None` when neither is.
 fn block_road() -> Option<BlockForm> {
-    [BlockForm::Vec, BlockForm::Word].into_iter().find(|f| f.on())
+    [BlockForm::Vec, BlockForm::Word]
+        .into_iter()
+        .find(|f| f.on())
 }
 
 impl StepMech for Filter {
@@ -211,12 +297,17 @@ impl StepMech for Filter {
             return None;
         }
         let form = block_road()?;
-        let clean = self.tabs.as_ref().map(|t| crate::dict::percode_bind::clean(b, env, t));
+        let clean = self
+            .tabs
+            .as_ref()
+            .map(|t| crate::dict::percode_bind::clean(b, env, t));
         let mut ok = None;
         for &q in self.quals.iter() {
             let g = match (crate::step::expr::plan_of(env, q).is_some(), clean) {
                 (true, Some(c)) => crate::dict::percode_len::word_open(b, env, w, q, c)?.0,
-                _ if crate::dict::strategies::text_frame::frame_of(env.placed(q)).is_some() => crate::dict::strategies::text_frame::open(b, env, q)?.0,
+                _ if crate::dict::strategies::text_frame::frame_of(env.placed(q)).is_some() => {
+                    crate::dict::strategies::text_frame::open(b, env, q)?.0
+                }
                 _ => match ExtPlan::of(env.placed(q)) {
                     Some(x) => x.mech.mask_open(b, env, w, q)?.0,
                     None => crate::frame::block::open(b, env, w, q)?.0,
@@ -240,7 +331,14 @@ impl StepMech for Filter {
 
     /// The rows of `[base, base + 64)` within `m` that pass every qual, by the chosen mask road; a fused pair's range at
     /// its first op, and `m` at its second.
-    fn block(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, w: &WordWin, base: Value, m: Mask) -> Mask {
+    fn block(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        w: &WordWin,
+        base: Value,
+        m: Mask,
+    ) -> Mask {
         let out = self.block_mask(b, env, w, base, m);
         // EXPLAIN ANALYZE: the block's rows these quals dropped (a scan's Rows Removed by Filter)
         instr::count_mask_dropped(b, env.ctx, self.node, env.node, m.0, out.0);
@@ -249,8 +347,17 @@ impl StepMech for Filter {
 
     /// The count form under mask.vec (`EndMech::counts`) of the whole block through the span: a span of this step alone
     /// with one packed compare, or of two ops this step fuses as a range, over a NOT NULL lane (mask_vec.rs `packed_count`).
-    fn block_count(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, w: &WordWin, _base: Value) -> Option<Value> {
-        let form = self.form.get().filter(|f| matches!(f, BlockForm::Vec) && self.plain)?;
+    fn block_count(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        w: &WordWin,
+        _base: Value,
+    ) -> Option<Value> {
+        let form = self
+            .form
+            .get()
+            .filter(|f| matches!(f, BlockForm::Vec) && self.plain)?;
         let range = match (env.span.1, self.pairs(env, w, form).first()) {
             (1, _) => None,
             (2, Some(&p)) if p.0 == self.op => Some(self.pair(env, w, p)),
@@ -272,30 +379,67 @@ impl StepMech for Filter {
     fn block_reads(&self, env: &Env, w: &WordWin) -> u64 {
         let reads = |q: ExId| match crate::frame::mask_vec::packed_leaf(env, w, q) {
             Some(_) => 0,
-            None => env.placed(q).c.prog.nodes.iter().fold(0u64, |r, n| match n {
-                ExprNode::Var(v) if v.src != VarSource::Scan || v.attno <= 0 => u64::MAX,
-                ExprNode::Var(v) if v.attno <= 64 => r | 1 << (v.attno - 1),
-                _ => r,
-            }),
+            None => env
+                .placed(q)
+                .c
+                .prog
+                .nodes
+                .iter()
+                .fold(0u64, |r, n| match n {
+                    ExprNode::Var(v) if v.src != VarSource::Scan || v.attno <= 0 => u64::MAX,
+                    ExprNode::Var(v) if v.attno <= 64 => r | 1 << (v.attno - 1),
+                    _ => r,
+                }),
         };
         match self.form.get() {
             Some(f) if self.pairs(env, w, f).iter().any(|p| p.1 == self.op) => 0,
-            Some(_) => self.quals.iter().fold(0, |r, &q| r | reads(q)) & !self.ops.first().copied().flatten().map(reads).filter(|&r| r != u64::MAX).unwrap_or(0),
+            Some(_) => {
+                self.quals.iter().fold(0, |r, &q| r | reads(q))
+                    & !self
+                        .ops
+                        .first()
+                        .copied()
+                        .flatten()
+                        .map(reads)
+                        .filter(|&r| r != u64::MAX)
+                        .unwrap_or(0)
+            }
             None => u64::MAX,
         }
     }
 
     /// Road `mask.rows`: the counters' words, zeroed at the run's open.
     fn open_words(&self, w: &mut crate::frame::open::OpenWords) {
-        for (&off, what) in self.counters.iter().flatten().zip(["mask.rows passes", "mask.rows flips", "mask.rows windows", "mask.rows rows"]) {
-            w.declare(crate::frame::open::OpenWord::open(what, crate::frame::open::Base::Words, off, Type::I64, 0));
+        for (&off, what) in self.counters.iter().flatten().zip([
+            "mask.rows passes",
+            "mask.rows flips",
+            "mask.rows windows",
+            "mask.rows rows",
+        ]) {
+            w.declare(crate::frame::open::OpenWord::open(
+                what,
+                crate::frame::open::Base::Words,
+                off,
+                Type::I64,
+                0,
+            ));
         }
     }
 
     /// Road `mask.rows`: the counters' view where the road applies (the lowering not instrumented).
-    fn prologue(&self, _b: &mut FunctionBuilder<'_>, env: &mut Env, _x: &crate::frame::stop::Exits) {
+    fn prologue(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        _x: &crate::frame::stop::Exits,
+    ) {
         let on = self.op == 0 && self.rows && env.applies(MASK_ROWS) && !instr::on();
-        self.stats.set(self.counters.filter(|_| on).zip(env.words).map(|(off, at)| crate::frame::mask_rows::Stats { at, off }));
+        self.stats.set(
+            self.counters
+                .filter(|_| on)
+                .zip(env.words)
+                .map(|(off, at)| crate::frame::mask_rows::Stats { at, off }),
+        );
     }
 
     fn row_stats(&self) -> Option<crate::frame::mask_rows::Stats> {
@@ -307,7 +451,12 @@ impl StepMech for Filter {
     }
 
     /// Every qual's `pred` without its raise, the passes ANDed and the raise words ORed (`env.zero` when none can raise).
-    fn row_pass(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals) -> Option<(Value, Value)> {
+    fn row_pass(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        row: &RowVals,
+    ) -> Option<(Value, Value)> {
         if !self.rows {
             return None;
         }
@@ -328,14 +477,24 @@ impl StepMech for Filter {
         pass.map(|p| (p, err.unwrap_or(env.zero)))
     }
 
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, next: Next<'_, 'e>) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        next: Next<'_, 'e>,
+    ) -> Carry<'e> {
         if env.masked {
             return next(b, env, row);
         }
         if let (true, Some(k)) = (self.guard, env.site) {
             // the window's page asks for the recheck: the quals decide the row; else it passes (one `next`, `when`)
             let s = gravity_abi::ctx::site_off(k) as i32;
-            let flags = b.load_zext(Type::I16, env.ctx, s + gravity_abi::site::site::PAGE_FLAGS as i32);
+            let flags = b.load_zext(
+                Type::I16,
+                env.ctx,
+                s + gravity_abi::site::site::PAGE_FLAGS as i32,
+            );
             let bit = b.iconst(Type::I64, gravity_abi::site::site::PAGE_RECHECK as i64);
             let on = b.int_bin(IntBinOp::And, flags, bit);
             let zero = b.iconst(Type::I64, 0);
@@ -376,8 +535,22 @@ impl StepMech for Filter {
 
 impl Filter {
     /// `StepMech::block`'s mask: the rows of `[base, base + 64)` within `m` that pass every qual.
-    fn block_mask(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, w: &WordWin, base: Value, m: Mask) -> Mask {
-        let Some(form) = self.form.get() else { crate::refuse!(self.node, crate::admit::refusal::Reason::Bug { payload: "a filter block before its block_open" }) };
+    fn block_mask(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        w: &WordWin,
+        base: Value,
+        m: Mask,
+    ) -> Mask {
+        let Some(form) = self.form.get() else {
+            crate::refuse!(
+                self.node,
+                crate::admit::refusal::Reason::Bug {
+                    payload: "a filter block before its block_open"
+                }
+            )
+        };
         let road = form.need::<BlockImpl>(&self.node).0;
         let pairs = self.pairs(env, w, form);
         match pairs.iter().find(|p| p.0 == self.op || p.1 == self.op) {
@@ -388,23 +561,59 @@ impl Filter {
             Some(_) => return m,
             None => {}
         }
-        self.quals.iter().fold(m, |m, &q| match crate::step::expr::plan_of(env, q) {
-            Some(pl) => PerValue::Table.need::<PerValueImpl>(&self.node).0.mask(b, env, w, base, CellLane::col(pl.cols[0].0 as u16), q, m),
-            None if crate::dict::strategies::text_frame::frame_of(env.placed(q)).is_some() => {
-                PerValue::Frame.need::<PerValueImpl>(&self.node).0.mask(b, env, w, base, CellLane::col(0), q, m)
-            }
-            None => match ExtPlan::of(env.placed(q)) {
-                Some(x) => x.mech.mask(b, env, w, base, q, m).unwrap_or_else(|| crate::refuse!(self.node, crate::admit::refusal::Reason::Bug { payload: "an extension qual's block without its mask" })),
-                None => road.mask(b, env, w, base, q, m),
-            },
-        })
+        self.quals
+            .iter()
+            .fold(m, |m, &q| match crate::step::expr::plan_of(env, q) {
+                Some(pl) => PerValue::Table.need::<PerValueImpl>(&self.node).0.mask(
+                    b,
+                    env,
+                    w,
+                    base,
+                    CellLane::col(pl.cols[0].0 as u16),
+                    q,
+                    m,
+                ),
+                None if crate::dict::strategies::text_frame::frame_of(env.placed(q)).is_some() => {
+                    PerValue::Frame.need::<PerValueImpl>(&self.node).0.mask(
+                        b,
+                        env,
+                        w,
+                        base,
+                        CellLane::col(0),
+                        q,
+                        m,
+                    )
+                }
+                None => match ExtPlan::of(env.placed(q)) {
+                    Some(x) => x.mech.mask(b, env, w, base, q, m).unwrap_or_else(|| {
+                        crate::refuse!(
+                            self.node,
+                            crate::admit::refusal::Reason::Bug {
+                                payload: "an extension qual's block without its mask"
+                            }
+                        )
+                    }),
+                    None => road.mask(b, env, w, base, q, m),
+                },
+            })
     }
 
     /// The span's fused ops (`Env::span`: this step's place and the span's length): left to right, two adjacent ops whose
     /// lone plain quals `pair` as a packed range, each op in one pair at most. None outside mask.vec's packed body.
-    fn pairs<'e>(&self, env: &Env<'e, '_>, w: &WordWin, form: BlockForm) -> PgVec<'e, (usize, usize)> {
+    fn pairs<'e>(
+        &self,
+        env: &Env<'e, '_>,
+        w: &WordWin,
+        form: BlockForm,
+    ) -> PgVec<'e, (usize, usize)> {
         let (mut out, (i, n)) = (PgVec::new_in(env.mcx), env.span);
-        let Some(start) = self.op.checked_sub(i).filter(|_| matches!(form, BlockForm::Vec) && env.body.packed) else { return out };
+        let Some(start) = self
+            .op
+            .checked_sub(i)
+            .filter(|_| matches!(form, BlockForm::Vec) && env.body.packed)
+        else {
+            return out;
+        };
         let q = |a: usize| self.ops.get(a).copied().flatten();
         let mut a = start;
         while a + 1 < start + n {
@@ -426,7 +635,14 @@ impl Filter {
             (Some(x), Some(y)) => crate::frame::mask_vec::pair(env, w, x, y),
             _ => None,
         }
-        .unwrap_or_else(|| crate::refuse!(self.node, crate::admit::refusal::Reason::Bug { payload: "a fused pair that is not a packed range" }))
+        .unwrap_or_else(|| {
+            crate::refuse!(
+                self.node,
+                crate::admit::refusal::Reason::Bug {
+                    payload: "a fused pair that is not a packed range"
+                }
+            )
+        })
     }
 }
 
@@ -451,9 +667,26 @@ mod tests {
         let block = |ext: &'static dyn ExprExtMech| {
             let (exs, q) = claimed(&[ext]);
             calls();
-            let f = Filter { quals: Rc::from([q]), node: 7, words: true, tabs: None, form: Cell::new(None), op: 0, ops: Rc::from([]), plain: false, guard: false, rows: false, counters: None, stats: Cell::new(None) };
+            let f = Filter {
+                quals: Rc::from([q]),
+                node: 7,
+                words: true,
+                tabs: None,
+                form: Cell::new(None),
+                op: 0,
+                ops: Rc::from([]),
+                plain: false,
+                guard: false,
+                rows: false,
+                counters: None,
+                stats: Cell::new(None),
+            };
             let v = run1(&exs, &mut |b, env| {
-                let w = WordWin { lanes: mcx::PgVec::new_in(env.mcx), valid: mcx::PgVec::new_in(env.mcx), plain: env.one };
+                let w = WordWin {
+                    lanes: mcx::PgVec::new_in(env.mcx),
+                    valid: mcx::PgVec::new_in(env.mcx),
+                    plain: env.one,
+                };
                 match f.block_open(b, env, &w) {
                     Some(_) => {
                         let all = b.iconst(Type::I64, -1);
@@ -464,7 +697,10 @@ mod tests {
             });
             (v as u64, calls())
         };
-        assert_eq!(block(&CLAIM), (0x5555_5555_5555_5555, vec!["claim.mask_open", "claim.mask"])); // alloc: Cold
+        assert_eq!(
+            block(&CLAIM),
+            (0x5555_5555_5555_5555, vec!["claim.mask_open", "claim.mask"])
+        ); // alloc: Cold
         assert_eq!(block(&CLAIM_ROWS), (0, vec!["claim.mask_open"])); // alloc: Cold
     }
 }

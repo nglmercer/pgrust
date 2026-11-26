@@ -15,7 +15,9 @@ use gravity_abi::MorselRange;
 #[allow(unused_imports)]
 use gravity_driver::{Claimed, Entry, Grant, Step, SHARE_FLOOR};
 use gravity_program::spill::{Holds, NoSpill, Proof};
-use gravity_program::{Arena, Code, End, Layout, OutCol, Pipeline, Program, Reason, SiteDesc, WritePlan};
+use gravity_program::{
+    Arena, Code, End, Layout, OutCol, Pipeline, Program, Reason, SiteDesc, WritePlan,
+};
 
 const MIB: u64 = 1 << 20;
 const SPILLS: Holds = Holds::Spills(Spill::Partitioned { bits: 3 });
@@ -24,7 +26,9 @@ const DEBT: Holds = Holds::Bounded(Proof::Estimate(NoSpill::BuildNestInner));
 const AT: Grant = Grant::of(64 * MIB).with_ceilings(4 * MIB, 4 * MIB);
 /// A 64 MiB hash floor over a 1000-row model charges the floor's first 8 MiB (d2894_floor_grow) inside a 32 MiB ceiling's
 /// reservation: the region grows in place past its share, under its ceiling.
-const ROOM: Grant = Grant::of(SHARE_FLOOR as u64).with_floors(64 * MIB, 64 * MIB).with_ceilings(32 * MIB, 32 * MIB);
+const ROOM: Grant = Grant::of(SHARE_FLOOR as u64)
+    .with_floors(64 * MIB, 64 * MIB)
+    .with_ceilings(32 * MIB, 32 * MIB);
 
 /// The build's claim: its region laid out as a kind-7 build (the kind byte its lowered end writes at its open).
 unsafe extern "C-unwind" fn k_lay(ctx: *mut gravity_abi::Ctx) -> i64 {
@@ -76,12 +80,44 @@ enum Lay {
 fn program(holds: Holds, lay: Lay) -> Program {
     let st = Arena::new(1 << 14);
     let sites = [SiteDesc::range_source(st.handle(), 2001, &[1, 2])];
-    let b = End::Breaker(Breaker { kind: BreakerKind::HashBuild, slot: 0, bytes: 0, budget: Budget::Share, spill: Spill::Partitioned { bits: 3 } });
+    let b = End::Breaker(Breaker {
+        kind: BreakerKind::HashBuild,
+        slot: 0,
+        bytes: 0,
+        budget: Budget::Share,
+        spill: Spill::Partitioned { bits: 3 },
+    });
     let pipes = [
-        (Pipeline { holds: Some(holds), ..Pipeline::eligible(0, b, 1000) }, Code::hand(match lay { Lay::No => k_noop, Lay::Laid => k_lay, Lay::Grown => k_lay_grow })),
-        (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming_one(0), Code::hand(k_noop)),
+        (
+            Pipeline {
+                holds: Some(holds),
+                ..Pipeline::eligible(0, b, 1000)
+            },
+            Code::hand(match lay {
+                Lay::No => k_noop,
+                Lay::Laid => k_lay,
+                Lay::Grown => k_lay_grow,
+            }),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming_one(0),
+            Code::hand(k_noop),
+        ),
     ];
-    Program::with_pipelines(Layout { nsites: 1, out_natts: 1, out_rows: 64, scratch_bytes: 0, exec_bytes: 0 }, &sites, &[OutCol::new("c0", 20, -1, 8, true)], WritePlan::SELECT, pipes).with_used(1)
+    Program::with_pipelines(
+        Layout {
+            nsites: 1,
+            out_natts: 1,
+            out_rows: 64,
+            scratch_bytes: 0,
+            exec_bytes: 0,
+        },
+        &sites,
+        &[OutCol::new("c0", 20, -1, 8, true)],
+        WritePlan::SELECT,
+        pipes,
+    )
+    .with_used(1)
 }
 
 fn spillable() -> u64 {
@@ -99,7 +135,9 @@ fn noted(holds: Holds, lay: Lay, width: u16, grant: Grant) -> u64 {
     let flag = AtomicU8::new(0);
     let mut sink = LegSink::new();
     let mut b = binding(&[0], &[0], &mut sink, &flag);
-    let mut exec = entry.start(None, &program, &mut derive, &mut b, lease(grant)).unwrap();
+    let mut exec = entry
+        .start(None, &program, &mut derive, &mut b, lease(grant))
+        .unwrap();
     let noted = if width == 0 {
         for r in [MorselRange::new(0, 2), MorselRange::new(2, 4)] {
             entry.run_claim(&mut exec, &mut b, r).unwrap();
@@ -108,11 +146,16 @@ fn noted(holds: Holds, lay: Lay, width: u16, grant: Grant) -> u64 {
         entry.end_claims(&mut exec).unwrap();
         n
     } else {
-        let open = entry.open_section(&mut exec, &b, &mut derive, 0, width).unwrap();
+        let open = entry
+            .open_section(&mut exec, &b, &mut derive, 0, width)
+            .unwrap();
         for o in 0..width {
             for k in 0..2u64 {
                 let at = 2 * o as u64 + k;
-                assert_eq!(open.run_claim(o, MorselRange::new(at, at + 1)).unwrap(), Claimed::Done);
+                assert_eq!(
+                    open.run_claim(o, MorselRange::new(at, at + 1)).unwrap(),
+                    Claimed::Done
+                );
             }
         }
         let n = spillable();
@@ -135,12 +178,34 @@ fn a_debt_home_notes_no_spillable_bytes_and_a_spilling_home_does() {
         MOVED.store(0, Ordering::Relaxed);
         let n = noted(SPILLS, Lay::Grown, width, ROOM);
         let (grown, moved) = (GROWN.load(Ordering::Relaxed), MOVED.load(Ordering::Relaxed));
-        assert!(grown > 0 && moved == 0, "W{width}: the build grew in place ({grown} bytes, {moved} moves)");
-        assert_eq!(n, grown, "W{width}: a spilling build that grew in place notes exactly its committed growth");
-        assert_eq!(noted(SPILLS, Lay::Laid, width, ROOM), 0, "W{width}: the same build at its share offers nothing to give back");
-        assert_eq!(noted(SPILLS, Lay::Laid, width, AT), 0, "W{width}: a build whose share is its ceiling offers nothing");
-        assert_eq!(noted(DEBT, Lay::Laid, width, AT), 0, "W{width}: a resident build's region (a ceiling, no spill road) is none");
+        assert!(
+            grown > 0 && moved == 0,
+            "W{width}: the build grew in place ({grown} bytes, {moved} moves)"
+        );
+        assert_eq!(
+            n, grown,
+            "W{width}: a spilling build that grew in place notes exactly its committed growth"
+        );
+        assert_eq!(
+            noted(SPILLS, Lay::Laid, width, ROOM),
+            0,
+            "W{width}: the same build at its share offers nothing to give back"
+        );
+        assert_eq!(
+            noted(SPILLS, Lay::Laid, width, AT),
+            0,
+            "W{width}: a build whose share is its ceiling offers nothing"
+        );
+        assert_eq!(
+            noted(DEBT, Lay::Laid, width, AT),
+            0,
+            "W{width}: a resident build's region (a ceiling, no spill road) is none"
+        );
         // D4314 (b) narrowed: a region whose table was never laid out (its kind byte names no giving kind) offers nothing
-        assert_eq!(noted(SPILLS, Lay::No, width, AT), 0, "W{width}: a region with no table laid out (Other) is no revoke target");
+        assert_eq!(
+            noted(SPILLS, Lay::No, width, AT),
+            0,
+            "W{width}: a region with no table laid out (Other) is no revoke target"
+        );
     }
 }

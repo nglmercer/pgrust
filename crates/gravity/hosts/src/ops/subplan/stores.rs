@@ -43,11 +43,23 @@ pub struct ElemShape {
 /// `oid`'s shape. Oid 0 is an error by name: the lowering refuses it first (M8-SUB), so reaching here is a bug.
 pub fn elem_shape(oid: Oid) -> PgResult<ElemShape> {
     if oid == 0 {
-        return Err(Box::new(PgError::error("gravity: nest.subplan: an ARRAY sublink without its element type".to_string()))); // alloc: Cold
+        return Err(Box::new(PgError::error(
+            "gravity: nest.subplan: an ARRAY sublink without its element type".to_string(),
+        ))); // alloc: Cold
     }
-    let sub = if lsyscache::get_array_type(oid)? == 0 { Some(lsyscache::get_element_type(oid)?) } else { None };
+    let sub = if lsyscache::get_array_type(oid)? == 0 {
+        Some(lsyscache::get_element_type(oid)?)
+    } else {
+        None
+    };
     let (typlen, byval, align) = gravity_fn::typesem::storage::len_byval_align(oid)?;
-    Ok(ElemShape { oid, typlen, byval, align: align as u8, sub })
+    Ok(ElemShape {
+        oid,
+        typlen,
+        byval,
+        align: align as u8,
+        sub,
+    })
 }
 
 /// One lane's accumulator. Its context is unobserved (the m6_agg `Slot` rule): made on the calling lane's thread at its
@@ -66,7 +78,12 @@ impl Default for ArrayAcc {
     fn default() -> ArrayAcc {
         let root = Box::new(MemoryContext::new_unobserved("gravity ARRAY sublink")); // alloc: Exec
         let cx = Box::new(root.new_child_wholesale("gravity ARRAY sublink build")); // alloc: Exec
-        ArrayAcc { state: None, result: None, cx, _root: root }
+        ArrayAcc {
+            state: None,
+            result: None,
+            cx,
+            _root: root,
+        }
     }
 }
 
@@ -77,13 +94,23 @@ impl ArrayAcc {
         self.result = None;
         self.cx.reset();
         let st = match e.sub {
-            Some(sub) => ArrayBuildStateAny { scalarstate: None, arraystate: Some(arrayfuncs::init_array_result_arr(super::raw::acc_mcx(&self.cx), e.oid, sub)?) },
+            Some(sub) => ArrayBuildStateAny {
+                scalarstate: None,
+                arraystate: Some(arrayfuncs::init_array_result_arr(
+                    super::raw::acc_mcx(&self.cx),
+                    e.oid,
+                    sub,
+                )?),
+            },
             None => {
                 let mut st = ArrayBuildState::new(super::raw::acc_mcx(&self.cx), e.oid, true)?;
                 st.typlen = e.typlen;
                 st.typbyval = e.byval;
                 st.typalign = e.align;
-                ArrayBuildStateAny { scalarstate: Some(st), arraystate: None }
+                ArrayBuildStateAny {
+                    scalarstate: Some(st),
+                    arraystate: None,
+                }
             }
         };
         self.state = Some(st);
@@ -95,8 +122,16 @@ impl ArrayAcc {
     /// whole datum word (D3209: a by-value int8 / float8 / timestamp past 2^32 kept only its low half on wasm32, where `usize`
     /// is 32 bits and the Datum word 64).
     pub fn push(&mut self, value: u64, null: bool, e: &ElemShape) -> PgResult<()> {
-        let Some(st) = self.state.take() else { return Err(not_begun()) };
-        self.state = Some(arrayfuncs::accum_array_result_any(super::raw::acc_mcx(&self.cx), Some(st), Datum::from_u64(value), null, e.oid)?);
+        let Some(st) = self.state.take() else {
+            return Err(not_begun());
+        };
+        self.state = Some(arrayfuncs::accum_array_result_any(
+            super::raw::acc_mcx(&self.cx),
+            Some(st),
+            Datum::from_u64(value),
+            null,
+            e.oid,
+        )?);
         Ok(())
     }
 
@@ -108,7 +143,9 @@ impl ArrayAcc {
     /// PG `makeArrayResultAny`: the 1-D array, or N+1-D over array elements (lower bound 1; no elements = the empty array),
     /// valid until the next `begin`.
     pub fn end(&mut self) -> PgResult<*const u8> {
-        let Some(st) = self.state.as_ref() else { return Err(not_begun()) };
+        let Some(st) = self.state.as_ref() else {
+            return Err(not_begun());
+        };
         let arr = arrayfuncs::make_array_result_any(super::raw::acc_mcx(&self.cx), st)?;
         let at = arr.as_ptr();
         self.result = Some(arr);
@@ -118,5 +155,7 @@ impl ArrayAcc {
 
 #[cold]
 fn not_begun() -> Box<PgError> {
-    Box::new(PgError::error("gravity: nest.subplan: an ARRAY sublink element or end before its begin".to_string())) // alloc: Cold
+    Box::new(PgError::error(
+        "gravity: nest.subplan: an ARRAY sublink element or end before its begin".to_string(),
+    )) // alloc: Cold
 }

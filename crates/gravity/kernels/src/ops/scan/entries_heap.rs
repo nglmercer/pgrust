@@ -46,8 +46,22 @@ mod tests {
 
     #[test]
     fn page_win_layout() {
-        assert_eq!((core::mem::size_of::<PageWin>(), core::mem::align_of::<PageWin>()), (24, 8));
-        assert_eq!((core::mem::offset_of!(PageWin, nlp), core::mem::offset_of!(PageWin, flags), core::mem::offset_of!(PageWin, block), core::mem::offset_of!(PageWin, buf)), (8, 12, 16, 20));
+        assert_eq!(
+            (
+                core::mem::size_of::<PageWin>(),
+                core::mem::align_of::<PageWin>()
+            ),
+            (24, 8)
+        );
+        assert_eq!(
+            (
+                core::mem::offset_of!(PageWin, nlp),
+                core::mem::offset_of!(PageWin, flags),
+                core::mem::offset_of!(PageWin, block),
+                core::mem::offset_of!(PageWin, buf)
+            ),
+            (8, 12, 16, 20)
+        );
     }
 
     #[test]
@@ -61,7 +75,16 @@ mod tests {
         s.pos.block = 9;
         s.granule = 3;
         let w = unsafe { page_win(&s) };
-        assert_eq!(w, PageWin { page: page.as_ptr() as u64, nlp: 7, flags: (PAGE_FULL | PAGE_ALL_VISIBLE) as u32, block: 9, buf: 3 });
+        assert_eq!(
+            w,
+            PageWin {
+                page: page.as_ptr() as u64,
+                nlp: 7,
+                flags: (PAGE_FULL | PAGE_ALL_VISIBLE) as u32,
+                block: 9,
+                buf: 3
+            }
+        );
         s.page = core::ptr::null();
         assert_eq!(unsafe { page_win(&s) }.nlp, 0, "no page, no line pointers");
     }
@@ -99,11 +122,23 @@ mod tests {
             (*s).next = Some(next_page);
             (*s).rows = 5;
             (*s).cursor = 2;
-            assert_eq!(heap_page_next(ctx as u64, 0, &mut w), 3, "the page's rows left");
-            assert_eq!(NEXTS.load(std::sync::atomic::Ordering::Relaxed), 0, "no page staged over a live one");
+            assert_eq!(
+                heap_page_next(ctx as u64, 0, &mut w),
+                3,
+                "the page's rows left"
+            );
+            assert_eq!(
+                NEXTS.load(std::sync::atomic::Ordering::Relaxed),
+                0,
+                "no page staged over a live one"
+            );
             (*s).cursor = 5;
             assert_eq!(heap_page_next(ctx as u64, 0, &mut w), 4);
-            assert_eq!((NEXTS.load(std::sync::atomic::Ordering::Relaxed), w.block), (1, 11), "the next page, once");
+            assert_eq!(
+                (NEXTS.load(std::sync::atomic::Ordering::Relaxed), w.block),
+                (1, 11),
+                "the next page, once"
+            );
         }
     }
 
@@ -114,6 +149,9 @@ mod tests {
             v[std::hint::black_box(1)]
         });
         assert_eq!(r, ERROR as u64);
-        assert!(std::panic::catch_unwind(gravity_abi::status::unwind::resume).is_err(), "the parked payload resumes at the caller");
+        assert!(
+            std::panic::catch_unwind(gravity_abi::status::unwind::resume).is_err(),
+            "the parked payload resumes at the caller"
+        );
     }
 }

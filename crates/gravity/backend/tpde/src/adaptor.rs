@@ -8,7 +8,9 @@ use core::{iter::FusedIterator, ops::Range};
 use gravity_ir::{Function, Program};
 use mcx::{reserved_in, GrowIn, Mcx, PgVec};
 use tpde_base::ValLocalIdx;
-use tpde_core::ir_adaptor::{BlockCalls, HighestValueIndexProvider, IrAdaptor, PhiRef, ProvidesHighestValue};
+use tpde_core::ir_adaptor::{
+    BlockCalls, HighestValueIndexProvider, IrAdaptor, PhiRef, ProvidesHighestValue,
+};
 
 macro_rules! refs {
     ($($name:ident),+) => {$(
@@ -28,7 +30,10 @@ pub struct RefRange<R> {
 }
 impl<R> RefRange<R> {
     pub fn new(begin: u32, end: u32) -> Self {
-        Self { indices: begin..end, marker: core::marker::PhantomData }
+        Self {
+            indices: begin..end,
+            marker: core::marker::PhantomData,
+        }
     }
 }
 impl<R: From<u32>> Iterator for RefRange<R> {
@@ -50,7 +55,10 @@ pub struct RefSlice<'a, R> {
 }
 impl<'a, R> RefSlice<'a, R> {
     pub fn new(s: &'a [u32]) -> Self {
-        Self { indices: s.iter(), marker: core::marker::PhantomData }
+        Self {
+            indices: s.iter(),
+            marker: core::marker::PhantomData,
+        }
     }
 }
 impl<R: From<u32>> Iterator for RefSlice<'_, R> {
@@ -194,8 +202,18 @@ pub struct JitRec<'p> {
 
 impl<'p> JitRec<'p> {
     pub fn new_in(tags: &'p gravity_ir::JitTags, mcx: Mcx<'p>) -> Self {
-        let (cur, done) = (core::cell::RefCell::new(PgVec::new_in(mcx)), core::cell::RefCell::new(PgVec::new_in(mcx)));
-        Self { tags, mcx, runs: PgVec::new_in(mcx), cur, last: core::cell::Cell::new(u32::MAX), done }
+        let (cur, done) = (
+            core::cell::RefCell::new(PgVec::new_in(mcx)),
+            core::cell::RefCell::new(PgVec::new_in(mcx)),
+        );
+        Self {
+            tags,
+            mcx,
+            runs: PgVec::new_in(mcx),
+            cur,
+            last: core::cell::Cell::new(u32::MAX),
+            done,
+        }
     }
 
     /// Every finished function's ranges `(function, raw text offset less the function's skew, tag)`, taken.
@@ -207,13 +225,16 @@ impl<'p> JitRec<'p> {
     fn load(&mut self, func: u32) {
         let tags = self.tags;
         self.runs.clear();
-        self.runs.extend_in(tags.runs().iter().copied().filter(|r| r.func == func));
+        self.runs
+            .extend_in(tags.runs().iter().copied().filter(|r| r.func == func));
         self.runs.sort_unstable_by_key(|r| (r.block, r.idx));
     }
 
     /// The tag of instruction `idx` of IR block `block` (its terminator: `insts.len()`); 0 (`frame`) when untagged.
     pub fn tag_at(&self, block: u32, idx: u32) -> u32 {
-        let p = self.runs.partition_point(|r| (r.block, r.idx) <= (block, idx));
+        let p = self
+            .runs
+            .partition_point(|r| (r.block, r.idx) <= (block, idx));
         match p.checked_sub(1).map(|i| self.runs[i]) {
             Some(r) if r.block == block => r.tag,
             _ => 0,
@@ -235,8 +256,21 @@ impl<'p> GravityAdaptor<'p> {
     /// (`crate::Scratch`).
     pub fn with_view(program: &'p Program, rules: &'static dyn ImmRules, view: FnView<'p>) -> Self {
         let link_names = LinkNames::new(program.funcs.len(), program.host_fns.len(), view.mcx());
-        let poll = program.host_fns.iter().position(|h| h.name == gravity_ir::KERNEL_POLL).map(|i| gravity_ir::HostFn(i as u32));
-        Self { program, cur: u32::MAX, view, link_names, rules, view_ns: 0, poll, jit: None }
+        let poll = program
+            .host_fns
+            .iter()
+            .position(|h| h.name == gravity_ir::KERNEL_POLL)
+            .map(|i| gravity_ir::HostFn(i as u32));
+        Self {
+            program,
+            cur: u32::MAX,
+            view,
+            link_names,
+            rules,
+            view_ns: 0,
+            poll,
+            jit: None,
+        }
     }
 
     /// The JIT map's tag of `inst` (an edge split's: its target block's first), `None` when not recording.
@@ -245,7 +279,9 @@ impl<'p> GravityAdaptor<'p> {
         let j = self.jit.as_ref()?;
         Some(match self.inst(inst) {
             VInst::Op { block, idx } => j.tag_at(block, idx),
-            VInst::Term { block } => j.tag_at(block, self.func().blocks[block as usize].insts.len() as u32),
+            VInst::Term { block } => {
+                j.tag_at(block, self.func().blocks[block as usize].insts.len() as u32)
+            }
             VInst::SplitBr { split } => {
                 let target = self.view.splits[split as usize].target;
                 match self.view.blocks.get(target as usize).and_then(|b| b.orig) {
@@ -327,7 +363,8 @@ impl IrAdaptor for GravityAdaptor<'_> {
     where
         Self: 'a;
     type Phis<'a>
-        = core::iter::Map<core::slice::Iter<'a, gravity_ir::Value>, fn(&gravity_ir::Value) -> GValue>
+        =
+        core::iter::Map<core::slice::Iter<'a, gravity_ir::Value>, fn(&gravity_ir::Value) -> GValue>
     where
         Self: 'a;
     type Operands<'a>
@@ -401,7 +438,10 @@ impl IrAdaptor for GravityAdaptor<'_> {
         false
     }
     fn cur_static_allocas(&self) -> Self::StaticAllocas<'_> {
-        RefRange::new(self.view.num_values, self.view.num_values + self.view.num_slots)
+        RefRange::new(
+            self.view.num_values,
+            self.view.num_values + self.view.num_slots,
+        )
     }
     fn cur_has_dynamic_alloca(&self) -> bool {
         false
@@ -424,7 +464,10 @@ impl IrAdaptor for GravityAdaptor<'_> {
         RefRange::new(b.inst_begin, b.inst_end)
     }
     fn block_phis(&self, block: GBlock) -> Self::Phis<'_> {
-        self.view.blocks[block.0 as usize].phis.iter().map(|v| GValue(v.0))
+        self.view.blocks[block.0 as usize]
+            .phis
+            .iter()
+            .map(|v| GValue(v.0))
     }
     fn block_info(&self, block: GBlock) -> u32 {
         self.view.blocks[block.0 as usize].info.get()
@@ -443,7 +486,13 @@ impl IrAdaptor for GravityAdaptor<'_> {
     }
     fn val_local_idx(&self, value: GValue) -> ValLocalIdx {
         // Copy propagation: a renamed block parameter is its source value.
-        ValLocalIdx::new(self.view.rename.get(value.0 as usize).copied().unwrap_or(value.0))
+        ValLocalIdx::new(
+            self.view
+                .rename
+                .get(value.0 as usize)
+                .copied()
+                .unwrap_or(value.0),
+        )
     }
     fn val_ignore_in_liveness_analysis(&self, value: GValue) -> bool {
         value.0 >= self.view.num_values
@@ -452,13 +501,19 @@ impl IrAdaptor for GravityAdaptor<'_> {
         (value.0 as usize) < self.view.phis.len() && self.view.phis[value.0 as usize].is_some()
     }
     fn val_as_phi(&self, value: GValue) -> GPhi<'_> {
-        GPhi { incoming: &self.view.phis[value.0 as usize].as_ref().unwrap().incoming }
+        GPhi {
+            incoming: &self.view.phis[value.0 as usize].as_ref().unwrap().incoming,
+        }
     }
     fn val_alloca_size(&self, value: GValue) -> u32 {
-        self.func().stack_slots[(value.0 - self.view.num_values) as usize].bytes.max(1)
+        self.func().stack_slots[(value.0 - self.view.num_values) as usize]
+            .bytes
+            .max(1)
     }
     fn val_alloca_align(&self, value: GValue) -> u32 {
-        self.func().stack_slots[(value.0 - self.view.num_values) as usize].align.max(1)
+        self.func().stack_slots[(value.0 - self.view.num_values) as usize]
+            .align
+            .max(1)
     }
     fn value_fmt_ref(&self, value: GValue) -> u32 {
         value.0
@@ -485,15 +540,28 @@ impl IrAdaptor for GravityAdaptor<'_> {
         for &(off, tag) in j.cur.borrow().iter() {
             done.push_in((self.cur, off.saturating_sub(skew), tag));
         }
-        done.push_in((self.cur, (body_end as u32).saturating_sub(skew), JIT_EPILOGUE));
+        done.push_in((
+            self.cur,
+            (body_end as u32).saturating_sub(skew),
+            JIT_EPILOGUE,
+        ));
         j.cur.borrow_mut().clear();
         j.last.set(u32::MAX);
     }
     fn block_sink(&self, block: GBlock) -> bool {
-        self.view.sink.get(block.0 as usize).copied().unwrap_or(false)
+        self.view
+            .sink
+            .get(block.0 as usize)
+            .copied()
+            .unwrap_or(false)
     }
     fn val_const(&self, value: GValue) -> Option<u64> {
-        let v = self.view.rename.get(value.0 as usize).copied().unwrap_or(value.0) as usize;
+        let v = self
+            .view
+            .rename
+            .get(value.0 as usize)
+            .copied()
+            .unwrap_or(value.0) as usize;
         if !self.view.const_fused.get(v).copied().unwrap_or(false) {
             return None;
         }
@@ -502,7 +570,9 @@ impl IrAdaptor for GravityAdaptor<'_> {
     fn local_const(&self, local: ValLocalIdx) -> Option<u64> {
         let v = local.get() as usize;
         match self.view.const_of.get(v).copied().flatten() {
-            Some((t, b)) if !t.is_float() && !t.is_vector() => Some(crate::view::const_canon(t, b) as u64),
+            Some((t, b)) if !t.is_float() && !t.is_vector() => {
+                Some(crate::view::const_canon(t, b) as u64)
+            }
             _ => None,
         }
     }

@@ -2,7 +2,9 @@ use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::sync::Once;
 
 use init_small::globals;
-use types_core::{ForkNumber, InvalidBuffer, BLCKSZ, INVALID_PROC_NUMBER, RELPERSISTENCE_PERMANENT};
+use types_core::{
+    ForkNumber, InvalidBuffer, BLCKSZ, INVALID_PROC_NUMBER, RELPERSISTENCE_PERMANENT,
+};
 use types_error::PgError;
 use types_storage::buf::{
     BufferAccessStrategyType, BM_DIRTY, BM_LOCKED, BM_VALID, BUF_REFCOUNT_MASK,
@@ -57,7 +59,8 @@ fn test_max_backends() -> i32 {
 
 fn valid_page_into(buffer: &mut [u8], blkno: u32) {
     buffer.fill(0);
-    let set_u16 = |b: &mut [u8], off: usize, v: u16| b[off..off + 2].copy_from_slice(&v.to_ne_bytes());
+    let set_u16 =
+        |b: &mut [u8], off: usize, v: u16| b[off..off + 2].copy_from_slice(&v.to_ne_bytes());
     set_u16(buffer, 12, 24);
     set_u16(buffer, 14, BLCKSZ as u16);
     set_u16(buffer, 16, BLCKSZ as u16);
@@ -130,13 +133,19 @@ const FAKE_REL_PREFIX: &str = "bufmgr-aio-test-";
 
 /// The fake relations' open files, by relation number. Its lock is held across
 /// a file's create and unlink, so no name is ever visible to a reader holding it.
-static FAKE_REL_FILES: std::sync::Mutex<Vec<(u32, std::fs::File)>> = std::sync::Mutex::new(Vec::new());
+static FAKE_REL_FILES: std::sync::Mutex<Vec<(u32, std::fs::File)>> =
+    std::sync::Mutex::new(Vec::new());
 
 /// The temp-dir entries this process's fake relations left named.
 fn fake_rel_names_left() -> Vec<String> {
     let mine = format!("{FAKE_REL_PREFIX}{}-", std::process::id());
     std::fs::read_dir(std::env::temp_dir())
-        .map(|d| d.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.starts_with(&mine)).collect())
+        .map(|d| {
+            d.filter_map(|e| e.ok())
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .filter(|n| n.starts_with(&mine))
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -163,7 +172,10 @@ fn fake_rel_fd(rel: u32, blocknum: u32, nblocks: u32) -> i32 {
     let f = &mut files.iter_mut().find(|(r, _)| *r == rel).unwrap().1;
     // One short read: the file ends a block early, so the preadv comes back
     // partial and the operation retries for the rest.
-    let nblocks = if rel == PARTIAL_READ_REL && nblocks > 1 && PARTIAL_READ_ONCE.swap(false, Ordering::Relaxed) {
+    let nblocks = if rel == PARTIAL_READ_REL
+        && nblocks > 1
+        && PARTIAL_READ_ONCE.swap(false, Ordering::Relaxed)
+    {
         nblocks - 1
     } else {
         nblocks
@@ -177,7 +189,8 @@ fn fake_rel_fd(rel: u32, blocknum: u32, nblocks: u32) -> i32 {
         // than materializing a gigabyte of pages nobody reads.
         let first = ((cur / BLCKSZ as u64) as u32).max(blocknum.saturating_sub(256));
         let last = blocknum + nblocks;
-        f.seek(SeekFrom::Start(first as u64 * BLCKSZ as u64)).unwrap();
+        f.seek(SeekFrom::Start(first as u64 * BLCKSZ as u64))
+            .unwrap();
         let mut page = vec![0u8; BLCKSZ];
         for b in first..last {
             valid_page_into(&mut page, b);
@@ -197,7 +210,9 @@ fn fake_rel_files_leave_no_name_behind() {
     for rel in [9990u32, 9991] {
         let fd = fake_rel_fd(rel, 0, 4);
         // SAFETY: the descriptor stays open in FAKE_REL_FILES for the process's life; ManuallyDrop never closes it.
-        let f = std::mem::ManuallyDrop::new(unsafe { <std::fs::File as std::os::fd::FromRawFd>::from_raw_fd(fd) });
+        let f = std::mem::ManuallyDrop::new(unsafe {
+            <std::fs::File as std::os::fd::FromRawFd>::from_raw_fd(fd)
+        });
         let mut page = vec![0u8; BLCKSZ];
         f.read_exact_at(&mut page, 3 * BLCKSZ as u64).unwrap();
         let mut want = vec![0u8; BLCKSZ];
@@ -206,7 +221,11 @@ fn fake_rel_files_leave_no_name_behind() {
     }
     let _held = FAKE_REL_FILES.lock().unwrap_or_else(|e| e.into_inner());
     let left = fake_rel_names_left();
-    assert!(left.is_empty(), "fake relation files left named in {}: {left:?}", std::env::temp_dir().display());
+    assert!(
+        left.is_empty(),
+        "fake relation files left named in {}: {left:?}",
+        std::env::temp_dir().display()
+    );
 }
 
 fn setup_once() {
@@ -266,8 +285,7 @@ fn setup_once() {
             if rlb.locator.relNumber == SLOW_READ_REL {
                 std::thread::sleep(std::time::Duration::from_millis(200));
             }
-            if rlb.locator.relNumber == ERROR_READ_REL
-                && READ_ERROR_INJECT.load(Ordering::Relaxed)
+            if rlb.locator.relNumber == ERROR_READ_REL && READ_ERROR_INJECT.load(Ordering::Relaxed)
             {
                 // Pre-stage failure: BM_IO_IN_PROGRESS is already set and an
                 // AIO handle is acquired, but nothing was handed to pgaio.
@@ -288,11 +306,7 @@ fn setup_once() {
                 false,
                 false,
             );
-            aio_core::pgaio_io_register_callbacks(
-                ioh,
-                types_storage::aio::PGAIO_HCB_MD_READV,
-                0,
-            );
+            aio_core::pgaio_io_register_callbacks(ioh, types_storage::aio::PGAIO_HCB_MD_READV, 0);
             let r =
                 aio_core::pgaio_io_start_readv_current(fd, iovcnt, blocknum as i64 * BLCKSZ as i64);
             if r.is_ok() {
@@ -318,8 +332,7 @@ fn setup_once() {
                 r.status = types_storage::aio::PgAioResultStatus::Error;
                 r.id = types_storage::aio::PGAIO_HCB_MD_READV;
                 r.error_data = 0;
-            } else if r.status != types_storage::aio::PgAioResultStatus::Error
-                && r.result < nblocks
+            } else if r.status != types_storage::aio::PgAioResultStatus::Error && r.result < nblocks
             {
                 r.status = types_storage::aio::PgAioResultStatus::Partial;
                 r.id = types_storage::aio::PGAIO_HCB_MD_READV;
@@ -329,7 +342,11 @@ fn setup_once() {
         smgr_seams::aio_md_readv_report::set(|result, _td, elevel| {
             elog::ereport(elevel)
                 .errmsg(format!("fake md readv failed: {:?}", result.status))
-                .finish(types_error::ErrorLocation::new("tests", 0, "md_readv_report"))
+                .finish(types_error::ErrorLocation::new(
+                    "tests",
+                    0,
+                    "md_readv_report",
+                ))
         });
 
         setup_write_seams();
@@ -389,24 +406,29 @@ fn setup_once() {
             },
         );
         if !transam_xlog_seams::recovery_in_progress::is_installed() {
-            transam_xlog_seams::recovery_in_progress::set(|| TEST_IN_RECOVERY.load(Ordering::Relaxed));
+            transam_xlog_seams::recovery_in_progress::set(|| {
+                TEST_IN_RECOVERY.load(Ordering::Relaxed)
+            });
         }
         BufferManagerShmemInit().unwrap();
         init_seams();
         aio_core::init_seams();
-        guc_tables::vars::io_max_combine_limit.install_if_absent(
-            guc_tables::GucVarAccessors {
-                get: || TEST_IO_MAX_COMBINE_LIMIT.load(Ordering::Relaxed),
-                set: |v| TEST_IO_MAX_COMBINE_LIMIT.store(v, Ordering::Relaxed),
-            },
-        );
+        guc_tables::vars::io_max_combine_limit.install_if_absent(guc_tables::GucVarAccessors {
+            get: || TEST_IO_MAX_COMBINE_LIMIT.load(Ordering::Relaxed),
+            set: |v| TEST_IO_MAX_COMBINE_LIMIT.store(v, Ordering::Relaxed),
+        });
         aio_core::AioShmemSize().unwrap();
         aio_core::AioShmemInit().unwrap();
     });
 }
 
 fn rel_reads(rel: u32) -> usize {
-    REL_READS.lock().unwrap().iter().filter(|&&r| r == rel).count()
+    REL_READS
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|&&r| r == rel)
+        .count()
 }
 
 fn rloc(rel: u32) -> RelFileLocator {
@@ -462,7 +484,11 @@ fn batched_read_lands_run_and_stops_at_resident() {
         1,
         "one vectored read for the whole run"
     );
-    assert_eq!(*READV_SIZES.lock().unwrap().last().unwrap(), 6, "run 0..=5 stops at resident 6");
+    assert_eq!(
+        *READV_SIZES.lock().unwrap().last().unwrap(),
+        6,
+        "run 0..=5 stops at resident 6"
+    );
 
     // Extras are valid, resident, and unpinned; re-reading them is a pure hit.
     for blk in 1..6u32 {
@@ -472,7 +498,11 @@ fn batched_read_lands_run_and_stops_at_resident() {
             1,
             "block {blk} must hit"
         );
-        assert_eq!(GetPrivateRefCount(b), 1, "our fresh pin is the only local ref");
+        assert_eq!(
+            GetPrivateRefCount(b),
+            1,
+            "our fresh pin is the only local ref"
+        );
         let page = buffer_page_ref(b);
         assert!(!page.is_new());
         ReleaseBuffer(b).unwrap();
@@ -521,12 +551,19 @@ fn io_combine_limit_clamped_to_io_max_combine_limit() {
     // The batch must clamp to io_max (4), not the raw 32.
     TEST_IO_MAX_COMBINE_LIMIT.store(4, Ordering::Relaxed);
     crate::gucs::set_io_combine_limit_guc(32);
-    assert_eq!(crate::gucs::io_combine_limit(), 4, "effective limit = min(32, 4)");
+    assert_eq!(
+        crate::gucs::io_combine_limit(),
+        4,
+        "effective limit = min(32, 4)"
+    );
     let (b, _) = read_run(smgr, 0, 10_000, None).unwrap();
     let sz = *READV_SIZES.lock().unwrap().last().unwrap();
     assert!(sz <= 4, "batch {sz} must not exceed io_max_combine_limit 4");
     let page = buffer_page_ref(b);
-    assert!(!page.is_new(), "clamped batched read still returns a valid page");
+    assert!(
+        !page.is_new(),
+        "clamped batched read still returns a valid page"
+    );
     ReleaseBuffer(b).unwrap();
 
     // Trigger W5-CFGENC-F1 / startup case: io_max_combine_limit = 1 with the
@@ -534,7 +571,11 @@ fn io_combine_limit_clamped_to_io_max_combine_limit() {
     // The batch must degrade to single-block reads, not overrun a 1-block region.
     TEST_IO_MAX_COMBINE_LIMIT.store(1, Ordering::Relaxed);
     crate::gucs::set_io_combine_limit_guc(16);
-    assert_eq!(crate::gucs::io_combine_limit(), 1, "effective limit = min(16, 1)");
+    assert_eq!(
+        crate::gucs::io_combine_limit(),
+        1,
+        "effective limit = min(16, 1)"
+    );
     let (b, _) = read_run(smgr, 100, 10_000, None).unwrap();
     let sz = *READV_SIZES.lock().unwrap().last().unwrap();
     assert_eq!(sz, 1, "io_max_combine_limit 1 forces single-block reads");
@@ -544,10 +585,17 @@ fn io_combine_limit_clamped_to_io_max_combine_limit() {
     // raw 17 exceeds both io_max and the region; clamp to 16.
     TEST_IO_MAX_COMBINE_LIMIT.store(16, Ordering::Relaxed);
     crate::gucs::set_io_combine_limit_guc(17);
-    assert_eq!(crate::gucs::io_combine_limit(), 16, "effective limit = min(17, 16)");
+    assert_eq!(
+        crate::gucs::io_combine_limit(),
+        16,
+        "effective limit = min(17, 16)"
+    );
     let (b, _) = read_run(smgr, 200, 10_000, None).unwrap();
     let sz = *READV_SIZES.lock().unwrap().last().unwrap();
-    assert!(sz <= 16, "batch {sz} must not exceed io_max_combine_limit 16");
+    assert!(
+        sz <= 16,
+        "batch {sz} must not exceed io_max_combine_limit 16"
+    );
     ReleaseBuffer(b).unwrap();
 
     // Restore harness defaults for subsequent serialized tests.
@@ -596,7 +644,11 @@ fn privref_new_pin_entry_is_independently_droppable() {
     // debug assertion, so this bar is live in BOTH the dev and the shipped
     // profiles.
     const B: Buffer = 31337;
-    assert_eq!(GetPrivateRefCount(B), 0, "stale private entry from another test");
+    assert_eq!(
+        GetPrivateRefCount(B),
+        0,
+        "stale private entry from another test"
+    );
 
     // Pin #1 — PinBuffer's path; its caller added one shared refcount.
     privref::ReservePrivateRefCountEntry();
@@ -611,8 +663,7 @@ fn privref_new_pin_entry_is_independently_droppable() {
     // track_unpin returns true exactly when the caller must release one shared
     // refcount. Two shared bumps therefore have to produce two of them; the
     // merged-counter shape produced only one and leaked the other forever.
-    let drops =
-        i32::from(privref::track_unpin(B)) + i32::from(privref::track_unpin(B));
+    let drops = i32::from(privref::track_unpin(B)) + i32::from(privref::track_unpin(B));
     assert_eq!(
         drops, 2,
         "two shared bumps produced {drops} shared drop(s): the buffer keeps a \
@@ -654,7 +705,11 @@ fn pin_buffer_locked_pairs_each_shared_bump_with_its_own_drop() {
     pin::resowner_enlarge_for_pin().unwrap();
     LockBufHdr(desc);
     pin::PinBuffer_Locked(desc);
-    assert_eq!(shared(desc), 2, "PinBuffer_Locked bumps the shared refcount");
+    assert_eq!(
+        shared(desc),
+        2,
+        "PinBuffer_Locked bumps the shared refcount"
+    );
 
     // Both pins released => the shared refcount must be back to zero. Pre-fix
     // the merged private entry only reaches zero once, so only one of the two
@@ -881,7 +936,9 @@ fn setup_write_seams() {
     ONCE.call_once(|| {
         smgr_seams::smgr_write::set(|rlocator, forknum, blocknum, buffer, _skip_fsync| {
             assert_eq!(buffer.len(), BLCKSZ);
-            if WRITE_PANIC_INJECT.load(Ordering::Relaxed) && rlocator.locator.relNumber == WRITE_PANIC_REL {
+            if WRITE_PANIC_INJECT.load(Ordering::Relaxed)
+                && rlocator.locator.relNumber == WRITE_PANIC_REL
+            {
                 std::panic::panic_any(types_error::PanicExitThread);
             }
             if WRITE_ERROR_INJECT.load(Ordering::Relaxed)
@@ -996,7 +1053,11 @@ fn checkpoint_balances_across_tablespaces() {
         dirty_block(rel_a, blk);
     }
     let b = ReadBufferWithoutRelcache(
-        RelFileLocator { spcOid: 1664, dbOid: 0, relNumber: rel_b },
+        RelFileLocator {
+            spcOid: 1664,
+            dbOid: 0,
+            relNumber: rel_b,
+        },
         ForkNumber::MAIN_FORKNUM,
         0,
         ReadBufferMode::Normal,
@@ -1020,8 +1081,15 @@ fn checkpoint_balances_across_tablespaces() {
     // Balancing interleaves tablespaces: the single-buffer 1664 space
     // finishes before the 4-buffer 1663 space does.
     let pos_b = writes.iter().position(|w| w.2 == rel_b).unwrap();
-    assert!(pos_b < writes.len() - 1, "small tablespace not starved to the end");
-    let a_blocks: Vec<u32> = writes.iter().filter(|w| w.2 == rel_a).map(|w| w.4).collect();
+    assert!(
+        pos_b < writes.len() - 1,
+        "small tablespace not starved to the end"
+    );
+    let a_blocks: Vec<u32> = writes
+        .iter()
+        .filter(|w| w.2 == rel_a)
+        .map(|w| w.4)
+        .collect();
     assert_eq!(a_blocks, vec![0, 1, 2, 3]);
     AtEOXact_Buffers(true);
 }
@@ -1036,7 +1104,11 @@ fn checksum_copy_leaves_shared_page_untouched() {
     page[14..16].copy_from_slice(&100u16.to_ne_bytes()); // not PageIsNew
     let orig = *page;
     crate::write::with_checksummed_page(page.as_ptr(), 7, |out| {
-        assert_ne!(out.as_ptr(), page.as_ptr(), "checksummed image must be a private copy");
+        assert_ne!(
+            out.as_ptr(),
+            page.as_ptr(),
+            "checksummed image must be a private copy"
+        );
         assert_eq!(out.len(), BLCKSZ);
         // SAFETY: single-threaded unit test; the image is this test's Box.
         let out = unsafe { out.as_slice_unchecked() };
@@ -1096,7 +1168,10 @@ fn shared_page_write_admits_a_concurrent_hint_bit_writer() {
         }
         let (ptr, len) =
             crate::write::with_checksummed_page(base, 0, |chunk| (chunk.as_ptr(), chunk.len()));
-        assert_eq!(ptr, base as *const u8, "the no-copy arm must write the live image");
+        assert_eq!(
+            ptr, base as *const u8,
+            "the no-copy arm must write the live image"
+        );
         assert_eq!(len, BLCKSZ);
     });
 }
@@ -1110,8 +1185,7 @@ fn checksum_matches_c_reference() {
         *b = (i.wrapping_mul(37).wrapping_add(11) & 0xff) as u8;
     }
     page[8..10].copy_from_slice(&0u16.to_ne_bytes());
-    let expected: [(u32, u16); 5] =
-        [(0, 24367), (1, 24366), (2, 24369), (3, 24368), (4, 24363)];
+    let expected: [(u32, u16); 5] = [(0, 24367), (1, 24366), (2, 24369), (3, 24368), (4, 24363)];
     for (blkno, want) in expected {
         assert_eq!(crate::write::page_checksum_for_tests(&page, blkno), want);
     }
@@ -1249,7 +1323,11 @@ fn abort_resowner_release_aborts_leaked_io_and_wakes_waiter() {
     let state = desc.state.load(Ordering::Acquire);
     assert!(state & BM_VALID != 0, "waiter must redo the IO after abort");
     assert!(state & types_storage::buf::BM_IO_ERROR == 0);
-    assert_eq!(rel_reads(rel), 2, "abort forces the waiter to reissue the read");
+    assert_eq!(
+        rel_reads(rel),
+        2,
+        "abort forces the waiter to reissue the read"
+    );
     assert_eq!(GetPrivateRefCount(b), 0);
 
     AtEOXact_Buffers(false);
@@ -1284,7 +1362,11 @@ fn setup_extend_seams() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
         smgr_seams::smgr_nblocks::set(|rlb, _| {
-            Ok(*NBLOCKS.lock().unwrap().entry(rlb.locator.relNumber).or_insert(0))
+            Ok(*NBLOCKS
+                .lock()
+                .unwrap()
+                .entry(rlb.locator.relNumber)
+                .or_insert(0))
         });
         smgr_seams::smgr_zeroextend::set(|rlb, _, blocknum, nblocks, _| {
             let mut map = NBLOCKS.lock().unwrap();
@@ -1354,7 +1436,11 @@ fn local_mark_dirty_and_flush_on_drop_path() {
     DropRelationAllLocalBuffers(rloc(rel)).unwrap();
     let before = rel_reads(rel);
     let b2 = read_local_blk(rel, 0);
-    assert_eq!(rel_reads(rel), before + 1, "dropped block re-reads from smgr");
+    assert_eq!(
+        rel_reads(rel),
+        before + 1,
+        "dropped block re-reads from smgr"
+    );
     ReleaseBuffer(b2).unwrap();
 }
 
@@ -1374,7 +1460,11 @@ fn local_eviction_writes_dirty_page() {
         ReleaseBuffer(b).unwrap();
     }
     assert!(
-        WRITES.lock().unwrap().iter().any(|w| w.2 == rel && w.4 == 0),
+        WRITES
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|w| w.2 == rel && w.4 == 0),
         "clock sweep flushed the dirty victim"
     );
     DropRelationAllLocalBuffers(rloc(rel)).unwrap();
@@ -1406,7 +1496,10 @@ fn extend_to_fallback_read_counts_against_the_relation() {
         rd_firstRelfilelocatorSubid: std::cell::Cell::new(0),
         rd_droppedSubid: std::cell::Cell::new(0),
         rd_lockInfo: types_rel::LockInfoData {
-            lockRelId: types_rel::LockRelId { relId: rel, dbId: 5 },
+            lockRelId: types_rel::LockRelId {
+                relId: rel,
+                dbId: 5,
+            },
         },
         rd_rel: types_rel::FormData_pg_class {
             relname,
@@ -1474,9 +1567,17 @@ fn extend_to_fallback_read_counts_against_the_relation() {
     .unwrap();
     assert!(b < 0);
     assert_eq!(BufferGetBlockNumber(b), 1);
-    assert_eq!(*NBLOCKS.lock().unwrap().get(&rel).unwrap(), 4, "nothing extended");
+    assert_eq!(
+        *NBLOCKS.lock().unwrap().get(&rel).unwrap(),
+        4,
+        "nothing extended"
+    );
     let after = pgstat::relation::find_tabstat_entry(rel).map_or(0, |c| c.blocks_fetched);
-    assert_eq!(after, before + 1, "the fallback read counts one buffer fetch for the relation");
+    assert_eq!(
+        after,
+        before + 1,
+        "the fallback read counts one buffer fetch for the relation"
+    );
     ReleaseBuffer(b).unwrap();
     DropRelationAllLocalBuffers(rloc(rel)).unwrap();
     AtEOXact_Buffers(true);
@@ -1527,7 +1628,10 @@ fn local_release_and_read_buffer_fastpath() {
     let _g = setup();
     let rel = 9504;
     let b = read_local_blk(rel, 7);
-    assert!(!crate::localbuf::StartLocalBufferIO(b, false), "clean page: no write IO");
+    assert!(
+        !crate::localbuf::StartLocalBufferIO(b, false),
+        "clean page: no write IO"
+    );
     assert_eq!(crate::localbuf::local_ref_count(b), 1);
     assert!(ConditionalLockBuffer(b).unwrap());
     assert!(crate::ops::ConditionalLockBufferForCleanup(b).unwrap());
@@ -1584,22 +1688,42 @@ fn buf_table_dense_grow_delete_reinsert() {
     let rel = 9700;
     let n: u32 = 600;
     for i in 0..n {
-        assert_eq!(bt_insert(&synth_tag(rel, i), 1000 + i as i32), -1, "insert {i}");
+        assert_eq!(
+            bt_insert(&synth_tag(rel, i), 1000 + i as i32),
+            -1,
+            "insert {i}"
+        );
     }
     for i in 0..n {
         assert_eq!(bt_lookup(&synth_tag(rel, i)), 1000 + i as i32, "lookup {i}");
     }
-    assert_eq!(bt_insert(&synth_tag(rel, 7), 4242), 1007, "duplicate insert returns existing id");
+    assert_eq!(
+        bt_insert(&synth_tag(rel, 7), 4242),
+        1007,
+        "duplicate insert returns existing id"
+    );
     for i in (0..n).step_by(3) {
         bt_delete(&synth_tag(rel, i)).unwrap();
     }
     for i in 0..n {
         let expect = if i % 3 == 0 { -1 } else { 1000 + i as i32 };
-        assert_eq!(bt_lookup(&synth_tag(rel, i)), expect, "post-delete lookup {i}");
+        assert_eq!(
+            bt_lookup(&synth_tag(rel, i)),
+            expect,
+            "post-delete lookup {i}"
+        );
     }
     for i in (0..n).step_by(3) {
-        assert_eq!(bt_insert(&synth_tag(rel, i), 2000 + i as i32), -1, "reinsert {i}");
-        assert_eq!(bt_lookup(&synth_tag(rel, i)), 2000 + i as i32, "swap remap {i}");
+        assert_eq!(
+            bt_insert(&synth_tag(rel, i), 2000 + i as i32),
+            -1,
+            "reinsert {i}"
+        );
+        assert_eq!(
+            bt_lookup(&synth_tag(rel, i)),
+            2000 + i as i32,
+            "swap remap {i}"
+        );
     }
     for i in 0..n {
         bt_delete(&synth_tag(rel, i)).unwrap();
@@ -1610,7 +1734,6 @@ fn buf_table_dense_grow_delete_reinsert() {
     let err = bt_delete(&synth_tag(rel, 0)).unwrap_err();
     assert!(format!("{err:?}").contains("shared buffer hash table corrupted"));
 }
-
 
 // ---- cleanup lock / pin-count waiter ----
 
@@ -1646,7 +1769,11 @@ fn cleanup_lock_waits_for_concurrent_pin_and_is_woken_by_unpin() {
     holder.join().unwrap();
 
     let state = GetBufferDescriptor(b - 1).state.load(Ordering::Acquire);
-    assert_eq!(state & BUF_REFCOUNT_MASK, 1, "cleanup lock implies pincount 1");
+    assert_eq!(
+        state & BUF_REFCOUNT_MASK,
+        1,
+        "cleanup lock implies pincount 1"
+    );
     assert_eq!(state & types_storage::buf::BM_PIN_COUNT_WAITER, 0);
     assert_eq!(crate::pin::pin_count_wait_buf(), -1);
     assert!(crate::ops::IsBufferCleanupOK(b));
@@ -1694,8 +1821,12 @@ fn unpin_with_mismatched_owner_warns_instead_of_panicking() {
     assert_eq!(GetPrivateRefCount(b), 0);
 
     resowner::SetCurrentResourceOwner(save);
-    resowner::ResourceOwnerForget(save, datum::Datum::from_i32(b), crate::pin::buffer_pin_desc())
-        .unwrap();
+    resowner::ResourceOwnerForget(
+        save,
+        datum::Datum::from_i32(b),
+        crate::pin::buffer_pin_desc(),
+    )
+    .unwrap();
     resowner::ResourceOwnerDelete(other);
     let state = GetBufferDescriptor(b - 1).state.load(Ordering::Acquire);
     assert_eq!(state & BUF_REFCOUNT_MASK, 0);
@@ -1765,7 +1896,10 @@ fn buffer_sync_scratch_oom_is_error_not_panic() {
     assert_eq!(err.sqlstate, types_error::ERRCODE_OUT_OF_MEMORY);
     assert_eq!(err.message, "out of memory");
     assert!(
-        err.detail.as_deref().unwrap_or_default().contains("checkpoint scratch"),
+        err.detail
+            .as_deref()
+            .unwrap_or_default()
+            .contains("checkpoint scratch"),
         "mcx OOM detail names the failing context: {:?}",
         err.detail
     );
@@ -1791,7 +1925,10 @@ fn buffer_sync_scratch_oom_is_error_not_panic() {
     .join()
     .expect("no panic")
     .expect("BufferSync succeeds once memory is available");
-    assert_eq!(GetBufferDescriptor(dirty - 1).state.load(Ordering::Relaxed) & BM_DIRTY, 0);
+    assert_eq!(
+        GetBufferDescriptor(dirty - 1).state.load(Ordering::Relaxed) & BM_DIRTY,
+        0
+    );
 }
 
 // Shared fixture for the uring-prefetch policy/fence tests: an
@@ -1815,8 +1952,9 @@ fn setup_uring_prefetch_seams() {
 }
 
 // Every advisory smgr_prefetch the fixture above served (the H03a read-ahead seam tests read it; the uring tests ignore it).
-static PREFETCH_CALLS: std::sync::Mutex<Vec<(types_storage::RelFileLocatorBackend, ForkNumber, u32, i32)>> =
-    std::sync::Mutex::new(Vec::new());
+static PREFETCH_CALLS: std::sync::Mutex<
+    Vec<(types_storage::RelFileLocatorBackend, ForkNumber, u32, i32)>,
+> = std::sync::Mutex::new(Vec::new());
 
 // The io_method contract (archil-neon incident, first defect): with
 // io_method=sync — the wedged cluster's setting, and the boot default —
@@ -1841,7 +1979,10 @@ fn prefetch_with_io_method_sync_never_takes_the_uring_route() {
         !types_core::BufferIsValid(res.recent_buffer),
         "block was never read; nothing may be resident"
     );
-    assert!(res.initiated_io, "the advisory smgr_prefetch fallback must be taken");
+    assert!(
+        res.initiated_io,
+        "the advisory smgr_prefetch fallback must be taken"
+    );
 }
 
 // The archil-neon cluster deadlock (2026-08): an smgr start_buffer_read arm
@@ -1870,7 +2011,10 @@ fn uring_prefetch_seam_panic_leaves_no_orphaned_buffer_io() {
     }));
     guc_tables::vars::io_method.write(guc_tables::consts::IOMETHOD_SYNC);
     URING_ON.store(false, Ordering::Relaxed);
-    assert!(res.is_err(), "the seam panic must still propagate (crash semantics)");
+    assert!(
+        res.is_err(),
+        "the seam panic must still propagate (crash semantics)"
+    );
     // Regression heart: without the fence this read parks forever in
     // WaitIO on the orphaned BM_IO_IN_PROGRESS (the deadlock); with it the
     // IO was terminated and the block reads normally.
@@ -1889,7 +2033,11 @@ fn uring_prefetch_seam_panic_leaves_no_orphaned_buffer_io() {
             0,
             "panic across StartBufferIO leaked BM_IO_IN_PROGRESS — the archil-neon wedge"
         );
-        assert_eq!(state & BUF_REFCOUNT_MASK, 0, "victim pin leaked across the panic");
+        assert_eq!(
+            state & BUF_REFCOUNT_MASK,
+            0,
+            "victim pin leaked across the panic"
+        );
     }
     let b = read_blk(rel, 0);
     ReleaseBuffer(b).unwrap();
@@ -1968,7 +2116,11 @@ fn setup_b039_seams() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
         smgr_seams::smgr_nblocks_cached::set(|rlb, fork| {
-            if let Some(n) = NBLOCKS_CACHED_FORK.lock().unwrap().get(&(rlb.locator.relNumber, fork)) {
+            if let Some(n) = NBLOCKS_CACHED_FORK
+                .lock()
+                .unwrap()
+                .get(&(rlb.locator.relNumber, fork))
+            {
                 return *n;
             }
             NBLOCKS_CACHED
@@ -1991,7 +2143,7 @@ fn setup_b039_seams() {
         }
         // C relpath() (relpath.h): tablespace- and fork-aware rendering.
         if !relpath_seams::relpathbackend::is_installed() {
-            relpath_seams::relpathbackend::set( relpath::GetRelationPath);
+            relpath_seams::relpathbackend::set(relpath::GetRelationPath);
         }
     });
 }
@@ -2018,7 +2170,8 @@ fn invalidate_buffer_foreign_pin_wait_is_cancellable() {
     let desc = GetBufferDescriptor(b - 1);
     // Fabricate the foreign pin: one shared refcount with no private entry
     // behind it (what another thread's, or a dead thread's, pin looks like).
-    desc.state.fetch_add(types_storage::buf::BUF_REFCOUNT_ONE, Ordering::AcqRel);
+    desc.state
+        .fetch_add(types_storage::buf::BUF_REFCOUNT_ONE, Ordering::AcqRel);
     ReleaseBuffer(b).unwrap();
     assert_eq!(GetPrivateRefCount(b), 0);
     assert_eq!(desc.state.load(Ordering::Acquire) & BUF_REFCOUNT_MASK, 1);
@@ -2036,9 +2189,14 @@ fn invalidate_buffer_foreign_pin_wait_is_cancellable() {
 
     // The foreign side releases its pin; with no cancel pending the same
     // drop now completes (C semantics: wait, never time out).
-    desc.state.fetch_sub(types_storage::buf::BUF_REFCOUNT_ONE, Ordering::AcqRel);
+    desc.state
+        .fetch_sub(types_storage::buf::BUF_REFCOUNT_ONE, Ordering::AcqRel);
     crate::drop_buffers::DropRelationBuffers(rlb, &[ForkNumber::MAIN_FORKNUM], &[0]).unwrap();
-    assert_eq!(desc.state.load(Ordering::Acquire) & BM_VALID, 0, "buffer invalidated");
+    assert_eq!(
+        desc.state.load(Ordering::Acquire) & BM_VALID,
+        0,
+        "buffer invalidated"
+    );
     AtEOXact_Buffers(true);
 }
 
@@ -2105,7 +2263,11 @@ fn b039_drop_relation_buffers_cached_size_below_first_del_falls_back_to_full_sca
     // The full scan dropped block 7 (>= firstDelBlock 5) even though the
     // cached size said the fork had only 2 blocks.
     let state = GetBufferDescriptor(b - 1).state.load(Ordering::Acquire);
-    assert_eq!(state & types_storage::buf::BM_TAG_VALID, 0, "block 7 must be invalidated");
+    assert_eq!(
+        state & types_storage::buf::BM_TAG_VALID,
+        0,
+        "block 7 must be invalidated"
+    );
 }
 
 // bufmgr.c:5579 MarkBufferDirtyHint: dirtying a clean buffer through a hint
@@ -2143,8 +2305,11 @@ fn b039_mark_buffer_dirty_hint_charges_vacuum_cost_page_dirty() {
     // Leave the pool clean: a dirty buffer would be picked up by another
     // test's checkpoint pass on a thread without a resource owner.
     LockBuffer(b, BUFFER_LOCK_SHARE).unwrap();
-    crate::write::FlushBuffer(GetBufferDescriptor(b - 1), types_storage::buf::IOContext::IOCONTEXT_NORMAL)
-        .unwrap();
+    crate::write::FlushBuffer(
+        GetBufferDescriptor(b - 1),
+        types_storage::buf::IOContext::IOCONTEXT_NORMAL,
+    )
+    .unwrap();
     LockBuffer(b, BUFFER_LOCK_UNLOCK).unwrap();
     ReleaseBuffer(b).unwrap();
 }
@@ -2176,7 +2341,10 @@ fn b039_extend_beyond_max_block_number_reports_relpath() {
     setup_b039_seams();
     use types_resowner::{ResourceOwner, RESOURCE_RELEASE_BEFORE_LOCKS};
     let rel = 9904u32;
-    NBLOCKS.lock().unwrap().insert(rel, types_core::MaxBlockNumber - 1);
+    NBLOCKS
+        .lock()
+        .unwrap()
+        .insert(rel, types_core::MaxBlockNumber - 1);
     let smgr = RelFileLocatorBackend {
         locator: RelFileLocator {
             spcOid: 16385,
@@ -2289,10 +2457,25 @@ fn b039_streamed_scan_counts_each_block_once_as_a_read() {
     let hit0 = counters::shared_blks_hit();
     let read0 = counters::shared_blks_read();
     let reads0 = SMGR_READS.load(Ordering::Relaxed);
-    assert_eq!(stream_blocks(smgr, 0, nblocks, None), (0..nblocks).collect::<Vec<_>>());
-    assert_eq!(SMGR_READS.load(Ordering::Relaxed) - reads0, 1, "one vectored read");
-    assert_eq!(counters::shared_blks_read() - read0, nblocks as u64, "read once per block");
-    assert_eq!(counters::shared_blks_hit() - hit0, 0, "no hit for a block this scan read");
+    assert_eq!(
+        stream_blocks(smgr, 0, nblocks, None),
+        (0..nblocks).collect::<Vec<_>>()
+    );
+    assert_eq!(
+        SMGR_READS.load(Ordering::Relaxed) - reads0,
+        1,
+        "one vectored read"
+    );
+    assert_eq!(
+        counters::shared_blks_read() - read0,
+        nblocks as u64,
+        "read once per block"
+    );
+    assert_eq!(
+        counters::shared_blks_hit() - hit0,
+        0,
+        "no hit for a block this scan read"
+    );
 
     // A second pass is pure hits, as in C.
     stream_blocks(smgr, 0, nblocks, None);
@@ -2331,7 +2514,10 @@ fn b039_segment_boundary_clamp_emits_debug2() {
             .iter()
             .any(|e| e.level() == types_error::DEBUG2 && e.message() == expected),
         "expected DEBUG2 {expected:?}, got {:?}",
-        captured.iter().map(|e| (e.level(), e.message().to_string())).collect::<Vec<_>>()
+        captured
+            .iter()
+            .map(|e| (e.level(), e.message().to_string()))
+            .collect::<Vec<_>>()
     );
     ReleaseBuffer(b).unwrap();
 }
@@ -2386,9 +2572,19 @@ fn d2940_abort_buffer_io_after_unwind_out_of_flush() {
     resowner::SetCurrentResourceOwner(save);
 
     let state = desc.state.load(Ordering::Acquire);
-    assert_eq!(state & types_storage::buf::BM_IO_IN_PROGRESS, 0, "the IO was terminated");
-    assert!(state & types_storage::buf::BM_IO_ERROR != 0, "terminated as failed (BM_IO_ERROR)");
-    assert!(state & BM_DIRTY != 0, "the page was never written: it stays dirty");
+    assert_eq!(
+        state & types_storage::buf::BM_IO_IN_PROGRESS,
+        0,
+        "the IO was terminated"
+    );
+    assert!(
+        state & types_storage::buf::BM_IO_ERROR != 0,
+        "terminated as failed (BM_IO_ERROR)"
+    );
+    assert!(
+        state & BM_DIRTY != 0,
+        "the page was never written: it stays dirty"
+    );
 
     // With the write back, the same flush succeeds and cleans the buffer.
     crate::write::FlushBuffer(desc, types_storage::buf::IOContext::IOCONTEXT_NORMAL).unwrap();
@@ -2419,7 +2615,10 @@ fn b229_partial_read_emits_debug3_and_retries() {
     elog::config::set_log_min_messages(prev_level);
     let (b, _) = res.unwrap();
     let captured = B039_CAPTURED.with(|c| c.borrow().clone());
-    let seen: Vec<_> = captured.iter().map(|e| (e.level(), e.message().to_string())).collect();
+    let seen: Vec<_> = captured
+        .iter()
+        .map(|e| (e.level(), e.message().to_string()))
+        .collect();
     assert!(
         captured.iter().any(|e| e.level() == types_error::DEBUG1),
         "the partial result is reported at DEBUG1: {seen:?}"
@@ -2465,8 +2664,7 @@ fn b039_flush_buffer_error_carries_write_context() {
             state & types_storage::buf::BM_IO_IN_PROGRESS != 0,
             "the IO is left for the resowner's AbortBufferIO"
         );
-        resowner::ResourceOwnerRelease(owner, RESOURCE_RELEASE_BEFORE_LOCKS, false, true)
-            .unwrap();
+        resowner::ResourceOwnerRelease(owner, RESOURCE_RELEASE_BEFORE_LOCKS, false, true).unwrap();
         resowner::SetCurrentResourceOwner(ResourceOwner::NULL);
         resowner::ResourceOwnerDelete(owner);
         resowner::SetCurrentResourceOwner(save);
@@ -2487,8 +2685,15 @@ fn b039_flush_buffer_error_carries_write_context() {
         "CONTEXT line of shared_buffer_write_error_callback (bufmgr.c:6222)"
     );
     let state = desc.state.load(Ordering::Acquire);
-    assert!(state & BM_DIRTY != 0, "a failed write leaves the buffer dirty");
-    assert_eq!(state & types_storage::buf::BM_IO_IN_PROGRESS, 0, "the IO was terminated");
+    assert!(
+        state & BM_DIRTY != 0,
+        "a failed write leaves the buffer dirty"
+    );
+    assert_eq!(
+        state & types_storage::buf::BM_IO_IN_PROGRESS,
+        0,
+        "the IO was terminated"
+    );
     assert!(state & types_storage::buf::BM_IO_ERROR != 0);
     assert!(
         B039_CAPTURED.with(|c| c.borrow().iter().all(|e| e.level() != types_error::WARNING)),
@@ -2502,9 +2707,23 @@ fn b039_flush_buffer_error_carries_write_context() {
     let warning = captured
         .iter()
         .find(|e| e.level() == types_error::WARNING)
-        .unwrap_or_else(|| panic!("no WARNING captured: {:?}", captured.iter().map(|e| e.message().to_string()).collect::<Vec<_>>()));
-    assert_eq!(warning.message(), format!("could not write block 3 of base/5/{rel}"));
-    assert_eq!(warning.detail(), Some("Multiple failures --- write error might be permanent."));
+        .unwrap_or_else(|| {
+            panic!(
+                "no WARNING captured: {:?}",
+                captured
+                    .iter()
+                    .map(|e| e.message().to_string())
+                    .collect::<Vec<_>>()
+            )
+        });
+    assert_eq!(
+        warning.message(),
+        format!("could not write block 3 of base/5/{rel}")
+    );
+    assert_eq!(
+        warning.detail(),
+        Some("Multiple failures --- write error might be permanent.")
+    );
     assert_eq!(warning.sqlstate(), types_error::ERRCODE_IO_ERROR);
     let state = desc.state.load(Ordering::Acquire);
     assert!(state & BM_DIRTY != 0);
@@ -2535,7 +2754,11 @@ fn b039_flush_relation_local_buffers_error_carries_write_context() {
     let res = crate::localbuf::FlushRelationLocalBuffers(rloc(rel));
     WRITE_ERROR_INJECT.store(false, Ordering::Relaxed);
     let err = res.expect_err("injected local write failure must surface as an ERROR");
-    assert!(err.message().contains("injected write failure"), "{}", err.message());
+    assert!(
+        err.message().contains("injected write failure"),
+        "{}",
+        err.message()
+    );
     assert_eq!(
         err.context(),
         Some(
@@ -2569,7 +2792,11 @@ fn b039_stream_read_caps_at_the_strategy_pin_limit() {
     let before = READV_SIZES.lock().unwrap().len();
     stream_blocks(smgr, 0, 8, strategy);
     let sizes = READV_SIZES.lock().unwrap()[before..].to_vec();
-    assert_eq!(sizes, vec![1; 8], "a 2-buffer vacuum ring pins nbuffers / 2 = 1 block per read");
+    assert_eq!(
+        sizes,
+        vec![1; 8],
+        "a 2-buffer vacuum ring pins nbuffers / 2 = 1 block per read"
+    );
     // Without a strategy the whole range is one read.
     stream_blocks(smgr, 100, 108, None);
     assert_eq!(*READV_SIZES.lock().unwrap().last().unwrap(), 8);
@@ -2598,7 +2825,10 @@ fn b244_extend_local_beyond_max_block_number_reports_relpath() {
     setup_b039_seams();
     use types_resowner::{ResourceOwner, RESOURCE_RELEASE_BEFORE_LOCKS};
     let rel = 9950u32;
-    NBLOCKS.lock().unwrap().insert(rel, types_core::MaxBlockNumber - 1);
+    NBLOCKS
+        .lock()
+        .unwrap()
+        .insert(rel, types_core::MaxBlockNumber - 1);
     let smgr = b244_tblspc_smgr(rel);
 
     let save = resowner::CurrentResourceOwner();
@@ -2675,7 +2905,9 @@ fn b244_invalidate_local_buffer_message_is_relpathbackend() {
 #[test]
 fn b244_resowner_print_buffer_pin_is_debug_print_buffer_refcount() {
     let _g = setup();
-    let print = crate::pin::buffer_pin_desc().DebugPrint.expect("buffer pins print");
+    let print = crate::pin::buffer_pin_desc()
+        .DebugPrint
+        .expect("buffer pins print");
     let cx = ::mcx::MemoryContext::new("b244-print");
 
     let rel = 9952u32;
@@ -2683,7 +2915,9 @@ fn b244_resowner_print_buffer_pin_is_debug_print_buffer_refcount() {
     let lb2 = read_local_blk(rel, 3);
     assert_eq!(lb2, lb);
     assert_eq!(crate::localbuf::local_ref_count(lb), 2);
-    let state = crate::localbuf::local_desc(lb).state.load(Ordering::Relaxed);
+    let state = crate::localbuf::local_desc(lb)
+        .state
+        .load(Ordering::Relaxed);
     let s = print(cx.mcx(), datum::Datum::from_i32(lb)).unwrap();
     assert_eq!(
         s.as_str(),
@@ -2810,7 +3044,10 @@ fn b244_log_recovery_conflict(
 }
 
 fn b244_set_ps_display_suffix(suffix: &str) {
-    B244_PS_EVENTS.lock().unwrap().push(format!("suffix:{suffix}"));
+    B244_PS_EVENTS
+        .lock()
+        .unwrap()
+        .push(format!("suffix:{suffix}"));
 }
 
 fn b244_set_ps_display_remove_suffix() {
@@ -2892,21 +3129,39 @@ fn b244_cleanup_lock_in_hot_standby_logs_conflict_and_marks_ps_waiting() {
     res.unwrap();
 
     let state = GetBufferDescriptor(b - 1).state.load(Ordering::Acquire);
-    assert_eq!(state & BUF_REFCOUNT_MASK, 1, "cleanup lock implies pincount 1");
+    assert_eq!(
+        state & BUF_REFCOUNT_MASK,
+        1,
+        "cleanup lock implies pincount 1"
+    );
     assert_eq!(crate::pin::pin_count_wait_buf(), -1);
     UnlockReleaseBuffer(b).unwrap();
 
-    assert_eq!(B244_RESOLVE_CALLS.load(Ordering::Relaxed), 2, "two waits before pincount 1");
+    assert_eq!(
+        B244_RESOLVE_CALLS.load(Ordering::Relaxed),
+        2,
+        "two waits before pincount 1"
+    );
     let log = B244_CONFLICT_LOG.lock().unwrap().clone();
-    let bufferpin = types_storage::storage::ProcSignalReason::PROCSIG_RECOVERY_CONFLICT_BUFFERPIN
-        as i32;
-    assert_eq!(log.len(), 2, "logged once while waiting, once when resolved: {log:?}");
+    let bufferpin =
+        types_storage::storage::ProcSignalReason::PROCSIG_RECOVERY_CONFLICT_BUFFERPIN as i32;
+    assert_eq!(
+        log.len(),
+        2,
+        "logged once while waiting, once when resolved: {log:?}"
+    );
     let (reason, start, now, has_list, still) = log[0];
     assert_eq!((reason, has_list, still), (bufferpin, false, true));
-    assert!(start >= before && now - start >= 10_000, "waited past deadlock_timeout: {log:?}");
+    assert!(
+        start >= before && now - start >= 10_000,
+        "waited past deadlock_timeout: {log:?}"
+    );
     let (reason, start2, now2, has_list, still) = log[1];
     assert_eq!((reason, has_list, still), (bufferpin, false, false));
-    assert_eq!(start2, start, "the resolved report carries the same wait start");
+    assert_eq!(
+        start2, start,
+        "the resolved report carries the same wait start"
+    );
     assert!(now2 >= now);
     assert_eq!(
         *B244_PS_EVENTS.lock().unwrap(),
@@ -2933,8 +3188,7 @@ fn panic_payload_str(payload: &(dyn std::any::Any + Send)) -> String {
 fn w2_036_buf_table_grow_alloc_failure_is_error_not_panic() {
     let _g = setup();
     use crate::buf_table::{
-        BufMappingPartitionLock, BufTableDelete, BufTableHashCode, BufTableInsert,
-        BufTableLookup,
+        BufMappingPartitionLock, BufTableDelete, BufTableHashCode, BufTableInsert, BufTableLookup,
     };
     use lwlock::{LWLockAcquire, LWLockRelease, LW_EXCLUSIVE};
     let nparts = lwlock::NUM_BUFFER_PARTITIONS as u32;
@@ -2998,7 +3252,10 @@ fn w2_036_buf_table_grow_alloc_failure_is_error_not_panic() {
     }
     // With memory available again the same insert grows the partition.
     assert_eq!(BufTableInsert(&t_grow, h_grow, 4242).unwrap(), -1);
-    assert!(crate::buf_table::partition_fill(h_grow).1 > grow_at, "partition grew");
+    assert!(
+        crate::buf_table::partition_fill(h_grow).1 > grow_at,
+        "partition grew"
+    );
     assert_eq!(BufTableLookup(&t_grow, h_grow).unwrap(), 4242);
     for (t, h, id) in &inserted {
         assert_eq!(BufTableLookup(t, *h).unwrap(), *id);
@@ -3083,7 +3340,8 @@ fn w2_036_init_local_buffers_alloc_failure_is_fatal_out_of_memory() {
         let res = std::panic::catch_unwind(crate::localbuf::ensure_local_buffers);
         crate::localbuf::LOCAL_INIT_TEST_NBUFS.store(0, Ordering::Relaxed);
         let n_after_failure = crate::localbuf::n_loc_buffer();
-        let retry = crate::localbuf::ensure_local_buffers().map(|_| crate::localbuf::n_loc_buffer());
+        let retry =
+            crate::localbuf::ensure_local_buffers().map(|_| crate::localbuf::n_loc_buffer());
         (res, n_after_failure, retry)
     })
     .join()
@@ -3153,10 +3411,19 @@ fn prefetch_range_past_eof_is_clipped_or_nothing() {
     NBLOCKS.lock().unwrap().insert(rel, 40);
     assert!(bufmgr_seams::prefetch_range_without_relcache::call(rloc(rel), 32, 16).unwrap());
     assert!(!bufmgr_seams::prefetch_range_without_relcache::call(rloc(rel), 40, 16).unwrap());
-    assert!(!bufmgr_seams::prefetch_range_without_relcache::call(rloc(rel), u32::MAX - 1, 16).unwrap());
-    assert!(!bufmgr_seams::prefetch_range_without_relcache::call(rloc(9603), 0, 16).unwrap(), "empty relation");
+    assert!(
+        !bufmgr_seams::prefetch_range_without_relcache::call(rloc(rel), u32::MAX - 1, 16).unwrap()
+    );
+    assert!(
+        !bufmgr_seams::prefetch_range_without_relcache::call(rloc(9603), 0, 16).unwrap(),
+        "empty relation"
+    );
     let calls = prefetch_calls();
-    assert_eq!(calls.iter().map(|c| (c.2, c.3)).collect::<Vec<_>>(), vec![(32, 8)], "clipped to [32, 40)");
+    assert_eq!(
+        calls.iter().map(|c| (c.2, c.3)).collect::<Vec<_>>(),
+        vec![(32, 8)],
+        "clipped to [32, 40)"
+    );
 }
 
 // PostgreSQL's rule (read_stream.c): advice only under io_method=sync, effective_io_concurrency > 0 and buffered I/O.
@@ -3167,9 +3434,17 @@ fn prefetch_range_gate_follows_read_stream_rule() {
     assert!(crate::read::prefetch_range_advises(IOMETHOD_SYNC, 16, 0));
     assert!(crate::read::prefetch_range_advises(IOMETHOD_SYNC, 1, 0));
     assert!(!crate::read::prefetch_range_advises(IOMETHOD_WORKER, 16, 0));
-    assert!(!crate::read::prefetch_range_advises(IOMETHOD_IO_URING, 16, 0));
+    assert!(!crate::read::prefetch_range_advises(
+        IOMETHOD_IO_URING,
+        16,
+        0
+    ));
     assert!(!crate::read::prefetch_range_advises(IOMETHOD_SYNC, 0, 0));
-    assert!(!crate::read::prefetch_range_advises(IOMETHOD_SYNC, 16, IO_DIRECT_DATA));
+    assert!(!crate::read::prefetch_range_advises(
+        IOMETHOD_SYNC,
+        16,
+        IO_DIRECT_DATA
+    ));
 
     // The registered seam reads the live settings: direct data I/O is a no-op.
     let _g = setup();
@@ -3186,7 +3461,10 @@ fn prefetch_range_gate_follows_read_stream_rule() {
     guc_tables::vars::io_method.write(IOMETHOD_SYNC);
     assert!(!r.unwrap(), "io_method=worker: nothing issued");
     assert!(prefetch_calls().is_empty());
-    assert!(bufmgr_seams::prefetch_range_without_relcache::call(rloc(rel), 0, 16).unwrap(), "sync again: issued");
+    assert!(
+        bufmgr_seams::prefetch_range_without_relcache::call(rloc(rel), 0, 16).unwrap(),
+        "sync again: issued"
+    );
     assert_eq!(prefetch_calls().len(), 1);
 }
 
@@ -3209,17 +3487,28 @@ fn prefetch_range_missing_file_is_a_safe_no_op() {
     };
     let never = |_: u32, _: u32| -> PgResult<bool> { panic!("no advice for a missing fork") };
     assert!(!prefetch_range_clipped(0, 16, missing, never).unwrap());
-    let eio = || -> PgResult<u32> { Err(err_with("could not seek", types_error::ERRCODE_IO_ERROR)) };
-    assert_eq!(prefetch_range_clipped(0, 16, eio, never).unwrap_err().sqlstate, types_error::ERRCODE_IO_ERROR);
+    let eio =
+        || -> PgResult<u32> { Err(err_with("could not seek", types_error::ERRCODE_IO_ERROR)) };
+    assert_eq!(
+        prefetch_range_clipped(0, 16, eio, never)
+            .unwrap_err()
+            .sqlstate,
+        types_error::ERRCODE_IO_ERROR
+    );
     // nblocks == 0 probes nothing.
     let no_probe = || -> PgResult<u32> { panic!("no size probe for an empty run") };
     assert!(!prefetch_range_clipped(0, 0, no_probe, never).unwrap());
     // In range: exactly the run, once.
     let seen = core::cell::Cell::new(None);
-    assert!(prefetch_range_clipped(8, 16, || Ok(100), |b, n| {
-        seen.set(Some((b, n)));
-        Ok(true)
-    })
+    assert!(prefetch_range_clipped(
+        8,
+        16,
+        || Ok(100),
+        |b, n| {
+            seen.set(Some((b, n)));
+            Ok(true)
+        }
+    )
     .unwrap());
     assert_eq!(seen.get(), Some((8, 16)));
 }
@@ -3235,12 +3524,18 @@ fn prefetch_range_leaves_local_buffers_alone() {
     NBLOCKS.lock().unwrap().insert(rel, 8);
     let b = read_local_blk(rel, 3);
     assert!(b < 0);
-    let (nloc, refs) = (crate::localbuf::n_loc_buffer(), crate::localbuf::local_ref_count(b));
+    let (nloc, refs) = (
+        crate::localbuf::n_loc_buffer(),
+        crate::localbuf::local_ref_count(b),
+    );
     let reads = rel_reads(rel);
     assert!(bufmgr_seams::prefetch_range_without_relcache::call(rloc(rel), 0, 8).unwrap());
     let calls = prefetch_calls();
     assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0].0.backend, INVALID_PROC_NUMBER, "never the temp (backend-local) path");
+    assert_eq!(
+        calls[0].0.backend, INVALID_PROC_NUMBER,
+        "never the temp (backend-local) path"
+    );
     assert_eq!(crate::localbuf::n_loc_buffer(), nloc);
     assert_eq!(crate::localbuf::local_ref_count(b), refs);
     assert_eq!(rel_reads(rel), reads);
@@ -3286,7 +3581,11 @@ fn b95_drop_relation_buffers_multi_fork_total_is_uint64() {
     }
     res.unwrap();
     let state = GetBufferDescriptor(b - 1).state.load(Ordering::Acquire);
-    assert_eq!(state & types_storage::buf::BM_TAG_VALID, 0, "block 7 must be invalidated");
+    assert_eq!(
+        state & types_storage::buf::BM_TAG_VALID,
+        0,
+        "block 7 must be invalidated"
+    );
 }
 
 // freelist.c:155-171 ClockSweepTick: a wraparound caller whose CAS loses to
@@ -3304,7 +3603,11 @@ fn b95_clock_sweep_wrap_loser_still_counts_its_pass() {
     crate::freelist::fold_clock_hand(2 * nbuffers + 1);
     let (hand, passes, _) = StrategySyncStart();
     assert_eq!(hand, 1);
-    assert_eq!(passes, passes_before + 1, "the losing wraparound caller counts its pass");
+    assert_eq!(
+        passes,
+        passes_before + 1,
+        "the losing wraparound caller counts its pass"
+    );
     crate::freelist::set_clock_hand_for_test(hand_before as u32);
 }
 
@@ -3403,7 +3706,10 @@ fn single_worker_read_completed_at_io_check_counts_one_hit() {
     globals::SetVacuumCostBalance(balance);
     ReleaseBuffer(buffer).unwrap();
     assert!(result.unwrap());
-    assert_eq!(COMPLETE_BEFORE_IO_CHECK.load(Ordering::Relaxed), InvalidBuffer);
+    assert_eq!(
+        COMPLETE_BEFORE_IO_CHECK.load(Ordering::Relaxed),
+        InvalidBuffer
+    );
     assert_eq!(counters::shared_blks_hit() - hits, 1);
     assert_eq!(cost, globals::VacuumCostPageHit());
     assert_eq!(io_hits() - io_before, 1);
@@ -3421,7 +3727,11 @@ fn failed_shared_flush_retains_pin_until_owner_cleanup() {
         let b = dirty_block(WRITE_ERROR_REL, 3);
         let desc = GetBufferDescriptor(b - 1);
         let locator = RelFileLocatorBackend {
-            locator: RelFileLocator { spcOid: 1663, dbOid: 5, relNumber: WRITE_ERROR_REL },
+            locator: RelFileLocator {
+                spcOid: 1663,
+                dbOid: 5,
+                relNumber: WRITE_ERROR_REL,
+            },
             backend: INVALID_PROC_NUMBER,
         };
         let saved = resowner::CurrentResourceOwner();
@@ -3436,9 +3746,16 @@ fn failed_shared_flush_retains_pin_until_owner_cleanup() {
         WRITE_ERROR_INJECT.store(true, Ordering::Relaxed);
         let result = flush();
         WRITE_ERROR_INJECT.store(false, Ordering::Relaxed);
-        assert!(result.unwrap_err().message().contains("injected write failure"));
+        assert!(result
+            .unwrap_err()
+            .message()
+            .contains("injected write failure"));
         assert!(desc.state.load(Ordering::Acquire) & BM_IO_IN_PROGRESS != 0);
-        assert_eq!(crate::privref::GetPrivateRefCount(b), 1, "flush path {path}");
+        assert_eq!(
+            crate::privref::GetPrivateRefCount(b),
+            1,
+            "flush path {path}"
+        );
         resowner::ResourceOwnerRelease(owner, RESOURCE_RELEASE_BEFORE_LOCKS, false, true).unwrap();
         resowner::SetCurrentResourceOwner(saved);
         resowner::ResourceOwnerDelete(owner);
@@ -3447,14 +3764,20 @@ fn failed_shared_flush_retains_pin_until_owner_cleanup() {
         assert_eq!(state & (BM_IO_ERROR | BM_DIRTY), BM_IO_ERROR | BM_DIRTY);
         assert_eq!(crate::privref::GetPrivateRefCount(b), 0);
         flush().unwrap();
-        assert_eq!(desc.state.load(Ordering::Acquire) & (BM_DIRTY | BM_IO_IN_PROGRESS | BUF_REFCOUNT_MASK), 0);
+        assert_eq!(
+            desc.state.load(Ordering::Acquire) & (BM_DIRTY | BM_IO_IN_PROGRESS | BUF_REFCOUNT_MASK),
+            0
+        );
     }
 }
 
 use bufmgr_seams::ReadBuffersOperation;
 
 fn shared_smgr(rel: u32) -> RelFileLocatorBackend {
-    RelFileLocatorBackend { locator: rloc(rel), backend: INVALID_PROC_NUMBER }
+    RelFileLocatorBackend {
+        locator: rloc(rel),
+        backend: INVALID_PROC_NUMBER,
+    }
 }
 
 // One StartReadBuffers run of up to `hint` blocks (capped as read_stream caps
@@ -3468,8 +3791,13 @@ fn read_run(
     let mut nblocks = (hint.max(1) as i32)
         .min(crate::gucs::io_combine_limit())
         .min(crate::freelist::GetAccessStrategyPinLimit(&strategy).max(1));
-    let mut op =
-        ReadBuffersOperation::new(smgr, RELPERSISTENCE_PERMANENT, ForkNumber::MAIN_FORKNUM, strategy, 0);
+    let mut op = ReadBuffersOperation::new(
+        smgr,
+        RELPERSISTENCE_PERMANENT,
+        ForkNumber::MAIN_FORKNUM,
+        strategy,
+        0,
+    );
     let mut buffers = [InvalidBuffer; bufmgr_seams::MAX_IO_COMBINE_LIMIT];
     let n = nblocks as usize;
     let io = StartReadBuffers(&mut op, None, &mut buffers[..n], blkno, &mut nblocks, 0)?;
@@ -3504,7 +3832,9 @@ fn stream_blocks(
     let mut range = read_stream::BlockRangeReadStreamPrivate::new(first, end);
     let mut got = Vec::new();
     loop {
-        let b = stream.next_buffer(&mut |_: &mut ()| Ok(range.next_block())).unwrap();
+        let b = stream
+            .next_buffer(&mut |_: &mut ()| Ok(range.next_block()))
+            .unwrap();
         if b == InvalidBuffer {
             break;
         }
@@ -3556,7 +3886,11 @@ fn start_read_buffers_splits_at_hit_and_forwards_it() {
     assert!(!StartReadBuffers(&mut op2, None, &mut buffers[3..8], 3, &mut n, 0).unwrap());
     assert_eq!(n, 1);
     assert_eq!(buffers[3], forwarded);
-    assert_eq!(GetPrivateRefCount(forwarded), 1, "forwarded pin is not re-pinned");
+    assert_eq!(
+        GetPrivateRefCount(forwarded),
+        1,
+        "forwarded pin is not re-pinned"
+    );
     let mut n = 4;
     assert!(StartReadBuffers(&mut op2, None, &mut buffers[4..8], 4, &mut n, 0).unwrap());
     assert_eq!(n, 4);
@@ -3586,7 +3920,10 @@ fn start_read_buffer_single_block_hit_and_miss() {
     WaitReadBuffers(&mut op, None).unwrap();
     assert_eq!(BufferGetBlockNumber(b), 7);
     let mut b2 = 12345;
-    assert!(!StartReadBuffer(&mut op, None, &mut b2, 7, 0).unwrap(), "resident: no IO");
+    assert!(
+        !StartReadBuffer(&mut op, None, &mut b2, 7, 0).unwrap(),
+        "resident: no IO"
+    );
     assert_eq!(b2, b);
     assert_eq!(GetPrivateRefCount(b), 2);
     ReleaseBuffer(b).unwrap();
@@ -3630,13 +3967,24 @@ fn read_stream_over_the_pool_combines_and_releases() {
     stream.end().unwrap();
     assert_eq!(got, (0..64).collect::<Vec<u32>>());
     let sizes: Vec<usize> = READV_SIZES.lock().unwrap()[reads_before..].to_vec();
-    assert_eq!(sizes.iter().sum::<usize>(), 61, "every miss read once: {sizes:?}");
+    assert_eq!(
+        sizes.iter().sum::<usize>(),
+        61,
+        "every miss read once: {sizes:?}"
+    );
     let limit = crate::gucs::io_combine_limit() as usize;
     assert!(sizes.iter().all(|&n| n <= limit));
-    assert!(sizes.iter().filter(|&&n| n == limit).count() >= 2, "{sizes:?}");
+    assert!(
+        sizes.iter().filter(|&&n| n == limit).count() >= 2,
+        "{sizes:?}"
+    );
     for blk in 0..64 {
         let b = read_blk(rel, blk);
-        assert_eq!(GetPrivateRefCount(b), 1, "stream left no pin on block {blk}");
+        assert_eq!(
+            GetPrivateRefCount(b),
+            1,
+            "stream left no pin on block {blk}"
+        );
         ReleaseBuffer(b).unwrap();
     }
 }
@@ -3665,7 +4013,11 @@ fn read_stream_end_mid_scan_releases_lookahead() {
     stream.end().unwrap();
     for blk in 0..40 {
         let b = read_blk(rel, blk);
-        assert_eq!(GetPrivateRefCount(b), 1, "block {blk} still pinned by the stream");
+        assert_eq!(
+            GetPrivateRefCount(b),
+            1,
+            "block {blk} still pinned by the stream"
+        );
         ReleaseBuffer(b).unwrap();
     }
 }

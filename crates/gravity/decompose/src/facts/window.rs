@@ -2,7 +2,9 @@
 //! and order key counts and window functions), for a family that must know how far PostgreSQL's WindowAgg reads its input
 //! (the reader rule of decompose ops/setop.rs `readers`).
 use types_nodes::plannodes::WindowAgg;
-use types_nodes::rawnodes::{FRAMEOPTION_END_CURRENT_ROW, FRAMEOPTION_END_UNBOUNDED_FOLLOWING, FRAMEOPTION_ROWS};
+use types_nodes::rawnodes::{
+    FRAMEOPTION_END_CURRENT_ROW, FRAMEOPTION_END_UNBOUNDED_FOLLOWING, FRAMEOPTION_ROWS,
+};
 use types_nodes::Node;
 
 use crate::ops::window::{fn_kind, window_funcs_in, FuncList, WinFnKind};
@@ -45,19 +47,40 @@ pub fn reads_whole_in<'p>(w: &'p WindowAgg<'p>, one_part: bool, peers: bool) -> 
             let Some(f) = n.as_window_func() else { return };
             let kind = fn_kind(f.winfnoid, f.winagg);
             let quiet = match kind {
-                WinFnKind::Aggregate => crate::effects::agg_oid_quiet(f.winfnoid, || f.args.iter().next().is_some_and(crate::effects::num_bounded)),
+                WinFnKind::Aggregate => crate::effects::agg_oid_quiet(f.winfnoid, || {
+                    f.args
+                        .iter()
+                        .next()
+                        .is_some_and(crate::effects::num_bounded)
+                }),
                 // ntile: its `nbuckets <= 0` error is raised after WinGetPartitionRowCount read the partition whole
-                k => matches!(k, WinFnKind::RowNumber | WinFnKind::Rank | WinFnKind::DenseRank | WinFnKind::PercentRank | WinFnKind::CumeDist | WinFnKind::Ntile),
+                k => matches!(
+                    k,
+                    WinFnKind::RowNumber
+                        | WinFnKind::Rank
+                        | WinFnKind::DenseRank
+                        | WinFnKind::PercentRank
+                        | WinFnKind::CumeDist
+                        | WinFnKind::Ntile
+                ),
             };
             self.agg |= f.winagg;
-            self.count |= matches!(kind, WinFnKind::PercentRank | WinFnKind::CumeDist | WinFnKind::Ntile);
+            self.count |= matches!(
+                kind,
+                WinFnKind::PercentRank | WinFnKind::CumeDist | WinFnKind::Ntile
+            );
             self.quiet &= f.winref == self.winref && quiet;
         }
     }
     let o = w.frameOptions;
     let peers = o & FRAMEOPTION_ROWS == 0 && o & FRAMEOPTION_END_CURRENT_ROW != 0 && peers;
     let to_end = o & FRAMEOPTION_END_UNBOUNDED_FOLLOWING != 0 || peers;
-    let mut fs = Funcs { winref: w.winref, agg: false, count: false, quiet: true };
+    let mut fs = Funcs {
+        winref: w.winref,
+        agg: false,
+        count: false,
+        quiet: true,
+    };
     window_funcs_in(w, &mut fs, &|_| true);
     one_part && (to_end && fs.agg || fs.count) && fs.quiet
 }

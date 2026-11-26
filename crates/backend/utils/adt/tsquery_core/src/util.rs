@@ -70,7 +70,11 @@ pub fn qtnode_compare(a: &QtNode<'_>, b: &QtNode<'_>) -> PgResult<i32> {
                 return Ok(if ao.oper > bo.oper { -1 } else { 1 });
             }
             if a.children.len() != b.children.len() {
-                return Ok(if a.children.len() > b.children.len() { -1 } else { 1 });
+                return Ok(if a.children.len() > b.children.len() {
+                    -1
+                } else {
+                    1
+                });
             }
             for (ca, cb) in a.children.iter().zip(b.children.iter()) {
                 let res = qtnode_compare(ca, cb)?;
@@ -112,7 +116,9 @@ fn item_type(i: &Item) -> i8 {
 pub fn qtn_sort(n: &mut QtNode<'_>) -> PgResult<()> {
     // C tsquery_util.c QTNSort(): check_stack_depth() (one frame per tree level).
     ::stack_depth::check_stack_depth()?;
-    let Item::Opr(opr) = n.item else { return Ok(()) };
+    let Item::Opr(opr) = n.item else {
+        return Ok(());
+    };
     for c in n.children.iter_mut() {
         qtn_sort(c)?;
     }
@@ -141,7 +147,8 @@ pub fn qtn_sort(n: &mut QtNode<'_>) -> PgResult<()> {
         // cycle-swap walk below can scatter in place with slice::swap
         // (no Copy/clone of QtNode, no second node buffer).
         let mut inv = Vec::new();
-        inv.try_reserve_exact(idx.len()).map_err(|_| ::mcx::oom_named("tsquery", idx.len() * 4))?;
+        inv.try_reserve_exact(idx.len())
+            .map_err(|_| ::mcx::oom_named("tsquery", idx.len() * 4))?;
         inv.resize(idx.len(), 0);
         for (k, &v) in idx.iter().enumerate() {
             inv[v as usize] = k as u32;
@@ -170,7 +177,9 @@ pub fn qtn_eq(a: &QtNode<'_>, b: &QtNode<'_>) -> PgResult<bool> {
 pub fn qtn_ternary(n: &mut QtNode<'_>) -> PgResult<()> {
     // C tsquery_util.c QTNTernary(): check_stack_depth() (one frame per tree level).
     ::stack_depth::check_stack_depth()?;
-    let Item::Opr(opr) = n.item else { return Ok(()) };
+    let Item::Opr(opr) = n.item else {
+        return Ok(());
+    };
     for c in n.children.iter_mut() {
         qtn_ternary(c)?;
     }
@@ -181,7 +190,11 @@ pub fn qtn_ternary(n: &mut QtNode<'_>) -> PgResult<()> {
     if !n.children.iter().any(same) {
         return Ok(());
     }
-    let len: usize = n.children.iter().map(|c| if same(c) { c.children.len() } else { 1 }).sum();
+    let len: usize = n
+        .children
+        .iter()
+        .map(|c| if same(c) { c.children.len() } else { 1 })
+        .sum();
     let mcx = *n.children.allocator();
     let mut out: PgVec<QtNode> = PgVec::new_in(mcx);
     out.try_reserve_exact(len).map_err(|_| mcx.oom(len))?;
@@ -199,7 +212,9 @@ pub fn qtn_ternary(n: &mut QtNode<'_>) -> PgResult<()> {
 pub fn qtn_binary<'mcx>(mcx: Mcx<'mcx>, n: &mut QtNode<'mcx>) -> PgResult<()> {
     // C tsquery_util.c QTNBinary(): check_stack_depth() (one frame per tree level).
     ::stack_depth::check_stack_depth()?;
-    let Item::Opr(opr) = n.item else { return Ok(()) };
+    let Item::Opr(opr) = n.item else {
+        return Ok(());
+    };
     for c in n.children.iter_mut() {
         qtn_binary(mcx, c)?;
     }
@@ -222,7 +237,11 @@ pub fn qtn_binary<'mcx>(mcx: Mcx<'mcx>, n: &mut QtNode<'mcx>) -> PgResult<()> {
         sub.push(c0);
         sub.push(c1);
         let nn = QtNode {
-            item: Item::Opr(Operator { oper: opr.oper, distance: 0, left: 0 }),
+            item: Item::Opr(Operator {
+                oper: opr.oper,
+                distance: 0,
+                left: 0,
+            }),
             word: PgVec::new_in(mcx),
             sign,
             flags: 0,
@@ -242,11 +261,19 @@ pub fn qtn_copy<'mcx>(mcx: Mcx<'mcx>, n: &QtNode<'_>) -> PgResult<QtNode<'mcx>> 
     let mut word = vec_with_capacity_in(mcx, n.word.len())?;
     word.extend_from_slice(&n.word);
     let mut children: PgVec<'mcx, QtNode<'mcx>> = PgVec::new_in(mcx);
-    children.try_reserve_exact(n.children.len()).map_err(|_| mcx.oom(n.children.len()))?;
+    children
+        .try_reserve_exact(n.children.len())
+        .map_err(|_| mcx.oom(n.children.len()))?;
     for c in n.children.iter() {
         children.push(qtn_copy(mcx, c)?);
     }
-    Ok(QtNode { item: n.item, word, sign: n.sign, flags: n.flags, children })
+    Ok(QtNode {
+        item: n.item,
+        word,
+        sign: n.sign,
+        flags: n.flags,
+        children,
+    })
 }
 
 // QTNClearFlags.

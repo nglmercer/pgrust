@@ -17,8 +17,8 @@ use gravity_kernels::ops::agg::trans::hosted::{AGG_STATE_BYTES, STATE_INIT};
 use types_error::PgResult;
 use types_fmgr::LocalFcinfo;
 
-use crate::ops::agg::trans::hosted_kept::image_len;
 use crate::ops::agg::trans::hosted::{AggArena, Slot, FOLDED};
+use crate::ops::agg::trans::hosted_kept::image_len;
 use crate::ops::group::hosted_distinct::{shape, Sorted};
 
 /// The last row a fed DISTINCT advanced (PG's `lastdatum` / `uniqslot`): whether there is one, the state slot it belongs
@@ -57,28 +57,54 @@ impl AggArena {
 
     /// Whether aggregate `i` is a presorted DISTINCT (or, T6k, ORDER BY) fed per row.
     pub(crate) fn fed(&self, i: usize) -> bool {
-        self.specs[i].distinct.as_ref().is_some_and(|d| d.fed.is_some())
+        self.specs[i]
+            .distinct
+            .as_ref()
+            .is_some_and(|d| d.fed.is_some())
     }
 
     /// One input row of fed DISTINCT aggregate `i` in slot `k` into its group's state `s`: the strict check, the presorted
     /// DISTINCT check against the last row, then the transition at once (`advance`).
     /// # Safety — as `collect`: `s` is the aggregate's state slot, `args` / `nulls` its inputs.
-    pub(crate) unsafe fn fed_row(&mut self, k: usize, i: usize, aggno: u32, s: *mut u8, args: *const u64, nulls: *const u8) -> PgResult<()> {
+    pub(crate) unsafe fn fed_row(
+        &mut self,
+        k: usize,
+        i: usize,
+        aggno: u32,
+        s: *mut u8,
+        args: *const u64,
+        nulls: *const u8,
+    ) -> PgResult<()> {
         if self.specs[i].distinct.as_ref().is_some_and(|d| !d.dedup()) {
             // T6k: an ORDER BY's row, no DISTINCT check: the transition at once (its strict input check, `advance`)
             if s.add(STATE_INIT).read() == FOLDED {
-                return Err(shape("a row into an ORDER BY aggregate's group after its final (T6k)"));
+                return Err(shape(
+                    "a row into an ORDER BY aggregate's group after its final (T6k)",
+                ));
             }
             return self.advance(k, i, aggno, s, args, nulls);
         }
         let (spec, Slot { aggs, tmp, .. }) = (&mut self.specs[i], &mut self.slots[k]);
         let coll1 = spec.a.inputcollid;
-        let Some(Sorted { cols, keys, ninputs, fed: Some(last), .. }) = spec.distinct.as_mut() else { return Err(shape("a presorted DISTINCT row without its spec (D1596)")) };
+        let Some(Sorted {
+            cols,
+            keys,
+            ninputs,
+            fed: Some(last),
+            ..
+        }) = spec.distinct.as_mut()
+        else {
+            return Err(shape("a presorted DISTINCT row without its spec (D1596)"));
+        };
         if aggs[i].transfn.fn_strict && (0..*ninputs).any(|c| nulls.add(c).read() != 0) {
             return Ok(()); // EEOP_AGG_STRICT_INPUT_CHECK_ARGS runs first: the row never reaches the DISTINCT check
         }
         match s.add(STATE_INIT).read() {
-            FOLDED => return Err(shape("a row into a DISTINCT aggregate's group after its final folded it (D1323)")),
+            FOLDED => {
+                return Err(shape(
+                    "a row into a DISTINCT aggregate's group after its final folded it (D1323)",
+                ))
+            }
             0 => last.has = false,
             _ if last.state != s as usize => last.has = false,
             _ => {}
@@ -91,16 +117,25 @@ impl AggArena {
                 break;
             }
             let j = if single { 0 } else { att as usize - 1 };
-            let ((ov, on), (nv, nn)) = (last.vals[j], (args.add(j).read(), nulls.add(j).read() != 0));
+            let ((ov, on), (nv, nn)) =
+                (last.vals[j], (args.add(j).read(), nulls.add(j).read() != 0));
             same = match (on, nn) {
                 (true, true) => true,
                 (false, false) => {
-                    let Some(eq) = aggs[i].eq.get_mut(c) else { return Err(shape("a DISTINCT aggregate without its equality function")) };
+                    let Some(eq) = aggs[i].eq.get_mut(c) else {
+                        return Err(shape("a DISTINCT aggregate without its equality function"));
+                    };
                     let mut fc = LocalFcinfo::<2>::fresh(if single { coll1 } else { coll });
                     fc.set_result_mcx(tmp.mcx());
                     let (a, b) = if single { (ov, nv) } else { (nv, ov) };
-                    fc.args[0] = NullableDatum { value: Datum::from_u64(a), isnull: false };
-                    fc.args[1] = NullableDatum { value: Datum::from_u64(b), isnull: false };
+                    fc.args[0] = NullableDatum {
+                        value: Datum::from_u64(a),
+                        isnull: false,
+                    };
+                    fc.args[1] = NullableDatum {
+                        value: Datum::from_u64(b),
+                        isnull: false,
+                    };
                     let r = eq.invoke(&mut fc);
                     tmp.reset();
                     r?.as_bool()
@@ -123,7 +158,11 @@ impl AggArena {
                     let (len, buf) = (image_len(v as *const u8, typlen), &mut last.bufs[c]);
                     buf.clear();
                     buf.resize(len.div_ceil(8), 0);
-                    core::ptr::copy_nonoverlapping(v as *const u8, buf.as_mut_ptr() as *mut u8, len);
+                    core::ptr::copy_nonoverlapping(
+                        v as *const u8,
+                        buf.as_mut_ptr() as *mut u8,
+                        len,
+                    );
                     buf.as_ptr() as u64
                 }
             };
@@ -148,9 +187,12 @@ pub(crate) unsafe fn hand_on(s: *const u8, out: *mut u8) {
 pub(crate) unsafe fn rehome(into: *mut u8, from: *const u8) -> PgResult<()> {
     match (into.add(STATE_INIT).read(), from.add(STATE_INIT).read()) {
         (_, 0) => Ok(()),
-        (0, _) => {core::ptr::copy_nonoverlapping(from, into, AGG_STATE_BYTES as usize);
+        (0, _) => {
+            core::ptr::copy_nonoverlapping(from, into, AGG_STATE_BYTES as usize);
             Ok(())
-        },
-        _ => Err(shape("two partial states of a presorted DISTINCT aggregate (D1596: its arena is serial)")),
+        }
+        _ => Err(shape(
+            "two partial states of a presorted DISTINCT aggregate (D1596: its arena is serial)",
+        )),
     }
 }

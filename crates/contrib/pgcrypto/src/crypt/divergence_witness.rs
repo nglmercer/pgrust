@@ -30,10 +30,10 @@ fn crypt_ok(pw: &str, salt: &str) -> Result<String, String> {
     crypt(pw.as_bytes(), salt.as_bytes())
         .map(|v| String::from_utf8(v).expect("this witness row's hash is ASCII"))
         .map_err(|e| match e {
-        CryptError::Unsupported(w) => format!("unsupported:{w}"),
-        CryptError::Message(m) => m,
-        CryptError::Pg(e) => e.message.clone(),
-    })
+            CryptError::Unsupported(w) => format!("unsupported:{w}"),
+            CryptError::Message(m) => m,
+            CryptError::Pg(e) => e.message.clone(),
+        })
 }
 
 /// Like `crypt_ok` but returns (message, sqlstate) for the error rows whose
@@ -121,8 +121,7 @@ fn div_d2_dollar2b_is_des_in_c() {
 // ---------------------------------------------------------------------------
 #[test]
 fn div_d3_xdes_default_rounds_is_725() {
-    const ITOA64: &[u8; 64] =
-        b"./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    const ITOA64: &[u8; 64] = b"./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
     fn decode_count(salt: &str) -> u32 {
         let b = salt.as_bytes();
         let idx = |c: u8| ITOA64.iter().position(|&x| x == c).unwrap() as u32;
@@ -179,7 +178,10 @@ fn div_d5_xdes_rounds_range_checked() {
         );
     }
     let s = gen_salt_ok("xdes", 16_777_215).expect("xdes rounds=0xFFFFFF is valid in C");
-    assert!(s.starts_with("_zzzz"), "C 18.3 encodes 0xFFFFFF as \"zzzz\": {s:?}");
+    assert!(
+        s.starts_with("_zzzz"),
+        "C 18.3 encodes 0xFFFFFF as \"zzzz\": {s:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -419,7 +421,10 @@ fn div_d18_shacrypt_sub_space_salt_byte() {
     mbutils::SetDatabaseEncoding(saved).unwrap();
     assert_eq!(msg, "invalid character in salt string: \"\u{e9}\"");
     assert_eq!(state, types_error::ERRCODE_INVALID_PARAMETER_VALUE);
-    assert_eq!(ascii.message_raw.as_deref(), Some(b"invalid character in salt string: \"\xc3\"".as_slice()));
+    assert_eq!(
+        ascii.message_raw.as_deref(),
+        Some(b"invalid character in salt string: \"\xc3\"".as_slice())
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -483,7 +488,10 @@ fn par_bcrypt_sign_extension_is_2x_only() {
 fn par_shacrypt_salt_truncation() {
     arm();
     const H16A: &str = "$5$aaaaaaaaaaaaaaaa$B11QZDRhoWyM20Hwh7.Zl49rcSWmzw7UJhWuikpQAJ9";
-    assert_eq!(crypt_ok("foox", "$5$aaaaaaaaaaaaaaaaaaaaaaaaaaaa"), Ok(H16A.to_string()));
+    assert_eq!(
+        crypt_ok("foox", "$5$aaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        Ok(H16A.to_string())
+    );
     assert_eq!(
         crypt_ok("foox", "$5$abcdefghijklmnopqrstuvwx$zz"),
         Ok("$5$abcdefghijklmnop$JAyZH0bk8ZKHDs.vwAmgvGdfpibPWWZ4w8WAGOn5Hw.".to_string())
@@ -525,7 +533,10 @@ fn par_shacrypt_sha512_custom_rounds() {
 fn par_shacrypt_rounds_agreed_spellings() {
     arm();
     const CANON: &str = "$5$rounds=5000$Szzz0yzz$7hI0rUWkO2QdBkzamh.vP.MIPlbZiwSvu2smhSi6064";
-    assert_eq!(crypt_ok("foox", "$5$rounds=5000$Szzz0yzz"), Ok(CANON.to_string()));
+    assert_eq!(
+        crypt_ok("foox", "$5$rounds=5000$Szzz0yzz"),
+        Ok(CANON.to_string())
+    );
     assert_eq!(
         crypt_ok("foox", "$5$rounds=0005000$Szzz0yzz"),
         Ok(CANON.to_string()),
@@ -547,7 +558,10 @@ fn par_shacrypt_rounds_agreed_spellings() {
 fn par_des_fallthrough_and_short_salt() {
     arm();
     assert_eq!(crypt_ok("foox", "$7$abc"), Ok("$7i/EW2zc2O3M".to_string()));
-    assert_eq!(crypt_ok("foox", "$1$"), Ok("$1$$yS/p28w2q0fzatmSApPDM0".to_string()));
+    assert_eq!(
+        crypt_ok("foox", "$1$"),
+        Ok("$1$$yS/p28w2q0fzatmSApPDM0".to_string())
+    );
     for bad in ["", "x", "_"] {
         assert_eq!(
             crypt_ok("foox", bad),
@@ -605,7 +619,10 @@ fn par_gen_salt_bounds_and_unknown_algo() {
 #[test]
 fn div_d20_des_md5_gen_salt_rounds_are_checked() {
     for (ty, ok_count) in [("des", 25), ("md5", 1000)] {
-        assert!(gen_salt_ok(ty, 0).is_ok(), "{ty}: rounds=0 takes the default path");
+        assert!(
+            gen_salt_ok(ty, 0).is_ok(),
+            "{ty}: rounds=0 takes the default path"
+        );
         assert!(
             gen_salt_ok(ty, ok_count).is_ok(),
             "{ty}: the algorithm's own fixed count is accepted"

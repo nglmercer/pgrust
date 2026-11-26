@@ -42,9 +42,9 @@
 
 use gram_core::tables as gt;
 use gram_core::tables::names::YYTNAME;
-use pgsync::OnceLock;
 #[cfg(any(test, feature = "antithesis"))]
 use pgsync::Mutex;
+use pgsync::OnceLock;
 
 /// Reported kind name for the empty `stmt` alternative (`stmt: /*EMPTY*/`).
 pub const EMPTY_KIND: &str = "<empty>";
@@ -91,7 +91,10 @@ fn stmt_rules() -> &'static StmtRules {
             kind_of_rule[r] = Some(id);
         }
         assert!(!kinds.is_empty(), "no stmt productions found");
-        StmtRules { kind_of_rule, kinds }
+        StmtRules {
+            kind_of_rule,
+            kinds,
+        }
     })
 }
 
@@ -136,35 +139,59 @@ pub fn family_of(kind: &str) -> &'static str {
         "ViewStmt" | "CreateMatViewStmt" | "RefreshMatViewStmt" => "view",
         "CreateSeqStmt" | "AlterSeqStmt" => "sequence",
         "CreateSchemaStmt" => "schema",
-        "DropStmt" | "DropOwnedStmt" | "RemoveAggrStmt" | "RemoveFuncStmt"
-        | "RemoveOperStmt" | "DropCastStmt" | "DropTransformStmt" | "DropOpClassStmt"
-        | "DropOpFamilyStmt" => "drop",
-        "RenameStmt" | "AlterObjectSchemaStmt" | "AlterObjectDependsStmt"
-        | "AlterOwnerStmt" => "alter-object",
-        "AlterOperatorStmt" | "AlterTypeStmt" | "AlterCompositeTypeStmt" | "AlterEnumStmt"
-        | "AlterDomainStmt" | "AlterCollationStmt" => "alter-type",
-        "CreateDomainStmt" | "DefineStmt" | "CreateCastStmt" | "CreateTransformStmt"
+        "DropStmt" | "DropOwnedStmt" | "RemoveAggrStmt" | "RemoveFuncStmt" | "RemoveOperStmt"
+        | "DropCastStmt" | "DropTransformStmt" | "DropOpClassStmt" | "DropOpFamilyStmt" => "drop",
+        "RenameStmt" | "AlterObjectSchemaStmt" | "AlterObjectDependsStmt" | "AlterOwnerStmt" => {
+            "alter-object"
+        }
+        "AlterOperatorStmt"
+        | "AlterTypeStmt"
+        | "AlterCompositeTypeStmt"
+        | "AlterEnumStmt"
+        | "AlterDomainStmt"
+        | "AlterCollationStmt" => "alter-type",
+        "CreateDomainStmt"
+        | "DefineStmt"
+        | "CreateCastStmt"
+        | "CreateTransformStmt"
         | "CreateConversionStmt" => "type-ddl",
-        "CreateFunctionStmt" | "AlterFunctionStmt" | "DoStmt" | "CallStmt"
-        | "CreatePLangStmt" => "function",
-        "CreateTrigStmt" | "CreateEventTrigStmt" | "AlterEventTrigStmt" | "RuleStmt"
+        "CreateFunctionStmt" | "AlterFunctionStmt" | "DoStmt" | "CallStmt" | "CreatePLangStmt" => {
+            "function"
+        }
+        "CreateTrigStmt"
+        | "CreateEventTrigStmt"
+        | "AlterEventTrigStmt"
+        | "RuleStmt"
         | "CreateAssertionStmt" => "trigger-rule",
         "CreateRoleStmt" | "CreateUserStmt" | "CreateGroupStmt" | "AlterRoleStmt"
         | "AlterRoleSetStmt" | "AlterGroupStmt" | "DropRoleStmt" | "ReassignOwnedStmt" => "role",
-        "GrantStmt" | "GrantRoleStmt" | "RevokeStmt" | "RevokeRoleStmt"
-        | "AlterDefaultPrivilegesStmt" | "CreatePolicyStmt" | "AlterPolicyStmt"
+        "GrantStmt"
+        | "GrantRoleStmt"
+        | "RevokeStmt"
+        | "RevokeRoleStmt"
+        | "AlterDefaultPrivilegesStmt"
+        | "CreatePolicyStmt"
+        | "AlterPolicyStmt"
         | "SecLabelStmt" => "privilege",
-        "CreatedbStmt" | "DropdbStmt" | "AlterDatabaseStmt" | "AlterDatabaseSetStmt" => {
-            "database"
-        }
+        "CreatedbStmt" | "DropdbStmt" | "AlterDatabaseStmt" | "AlterDatabaseSetStmt" => "database",
         "CreateTableSpaceStmt" | "DropTableSpaceStmt" | "AlterTblSpcStmt" => "tablespace",
-        "CreateFdwStmt" | "AlterFdwStmt" | "CreateForeignServerStmt"
-        | "AlterForeignServerStmt" | "CreateUserMappingStmt" | "AlterUserMappingStmt"
-        | "DropUserMappingStmt" | "ImportForeignSchemaStmt" => "foreign",
-        "CreateExtensionStmt" | "AlterExtensionStmt" | "AlterExtensionContentsStmt"
+        "CreateFdwStmt"
+        | "AlterFdwStmt"
+        | "CreateForeignServerStmt"
+        | "AlterForeignServerStmt"
+        | "CreateUserMappingStmt"
+        | "AlterUserMappingStmt"
+        | "DropUserMappingStmt"
+        | "ImportForeignSchemaStmt" => "foreign",
+        "CreateExtensionStmt"
+        | "AlterExtensionStmt"
+        | "AlterExtensionContentsStmt"
         | "CreateAmStmt" => "extension",
-        "CreatePublicationStmt" | "AlterPublicationStmt" | "CreateSubscriptionStmt"
-        | "AlterSubscriptionStmt" | "DropSubscriptionStmt" => "pubsub",
+        "CreatePublicationStmt"
+        | "AlterPublicationStmt"
+        | "CreateSubscriptionStmt"
+        | "AlterSubscriptionStmt"
+        | "DropSubscriptionStmt" => "pubsub",
         "AlterTSConfigurationStmt" | "AlterTSDictionaryStmt" => "text-search",
         "CreateOpClassStmt" | "CreateOpFamilyStmt" | "AlterOpFamilyStmt" => "opclass",
         "CreateStatsStmt" | "AlterStatsStmt" => "statistics",
@@ -236,7 +263,11 @@ struct Seen {
 fn seen() -> &'static Mutex<Seen> {
     static SEEN: OnceLock<Mutex<Seen>> = OnceLock::new();
     SEEN.get_or_init(|| {
-        Mutex::new(Seen { seen: vec![false; total_stmt_kinds()], n_seen: 0, calls: 0 })
+        Mutex::new(Seen {
+            seen: vec![false; total_stmt_kinds()],
+            n_seen: 0,
+            calls: 0,
+        })
     })
 }
 
@@ -267,7 +298,9 @@ const AGG_EVERY: u64 = 512;
 /// the aggregate log line — is compiled only under the `antithesis`
 /// feature; without it this is a no-op.
 pub fn record_stmt_rule(rule: usize) {
-    let Some(kind) = stmt_kind_of_rule(rule) else { return };
+    let Some(kind) = stmt_kind_of_rule(rule) else {
+        return;
+    };
     #[cfg(feature = "antithesis")]
     {
         let sr = stmt_rules();
@@ -281,7 +314,11 @@ pub fn record_stmt_rule(rule: usize) {
         // through the fire_family details payloads.
         let milestone = newly && (n_seen % 25 == 0 || n_seen == total_stmt_kinds());
         if milestone || calls % AGG_EVERY == 0 {
-            eprintln!("gramwalk-reach: seen={}/{} stmt kinds", n_seen, total_stmt_kinds());
+            eprintln!(
+                "gramwalk-reach: seen={}/{} stmt kinds",
+                n_seen,
+                total_stmt_kinds()
+            );
         }
     }
     #[cfg(not(feature = "antithesis"))]
@@ -357,7 +394,10 @@ mod tests {
     #[test]
     fn stmt_kind_census() {
         let total = total_stmt_kinds();
-        assert_eq!(total, 125, "stmt kind count moved — grammar bump? update the doc");
+        assert_eq!(
+            total, 125,
+            "stmt kind count moved — grammar bump? update the doc"
+        );
         let sr = stmt_rules();
         assert!(sr.kinds.contains(&EMPTY_KIND));
         assert!(sr.kinds.contains(&"SelectStmt"));
@@ -399,7 +439,11 @@ mod tests {
         assert_eq!(pinned.len(), FAMILIES.len(), "FAMILIES has a duplicate");
         assert_eq!(seen_families, pinned, "family roster drifted from FAMILIES");
         // Cardinality sanity: curated granularity, not per-production.
-        assert!(FAMILIES.len() >= 30 && FAMILIES.len() <= 60, "{}", FAMILIES.len());
+        assert!(
+            FAMILIES.len() >= 30 && FAMILIES.len() <= 60,
+            "{}",
+            FAMILIES.len()
+        );
         // Unknown future kinds fall into the drift bucket instead of
         // panicking.
         assert_eq!(family_of("SomeFutureStmt"), "other");

@@ -9,7 +9,10 @@
 use crate::adaptor::{GBlock, GFunc, GInst, GValue, GravityAdaptor};
 use crate::view::VInst;
 use alloc::vec::Vec;
-use gravity_ir::{ConvOp, FloatBinOp, FloatCond, FloatUnOp, IntBinOp, IntCond, IntOvfOp, IntUnOp, Op, Terminator, Type, VecBinOp, VecShiftOp};
+use gravity_ir::{
+    ConvOp, FloatBinOp, FloatCond, FloatUnOp, IntBinOp, IntCond, IntOvfOp, IntUnOp, Op, Terminator,
+    Type, VecBinOp, VecShiftOp,
+};
 use tpde_assembler::SymRef;
 use tpde_compiler::{
     branches,
@@ -17,10 +20,12 @@ use tpde_compiler::{
     target::{CompilerOutput, CompilerTarget, TargetMachine},
     RegallocEvent, ScratchReg, ValuePartRef,
 };
-use tpde_compiler_a64::{calls, raw, A64CompilerState, A64Frontend, Jump, JumpKind, FP_BANK, GP_BANK};
+use tpde_compiler_a64::{
+    calls, raw, A64CompilerState, A64Frontend, Jump, JumpKind, FP_BANK, GP_BANK,
+};
 use tpde_core::{
     compiler::{ValRefSpecial, ValueParts},
-    RegBank, Reg,
+    Reg, RegBank,
 };
 use tpde_disarm::*;
 use types_error::{PgError, PgResult, ERRCODE_INVALID_PARAMETER_VALUE};
@@ -46,11 +51,23 @@ impl ValueParts for Parts {
 
 fn parts_of(ty: Type) -> Parts {
     match ty {
-        Type::F32 => Parts { size: 4, bank: FP_BANK },
-        Type::F64 => Parts { size: 8, bank: FP_BANK },
+        Type::F32 => Parts {
+            size: 4,
+            bank: FP_BANK,
+        },
+        Type::F64 => Parts {
+            size: 8,
+            bank: FP_BANK,
+        },
         // A 128-bit vector is one `q` register (16-byte spill slot).
-        t if t.is_vector() => Parts { size: 16, bank: FP_BANK },
-        _ => Parts { size: 8, bank: GP_BANK },
+        t if t.is_vector() => Parts {
+            size: 16,
+            bank: FP_BANK,
+        },
+        _ => Parts {
+            size: 8,
+            bank: GP_BANK,
+        },
     }
 }
 
@@ -71,7 +88,10 @@ pub struct GravityFrontend {
 impl GravityFrontend {
     /// A frontend that records the register-allocation events when `record` (`Scratch::recording`).
     pub fn with_record(record: bool) -> Self {
-        GravityFrontend { record, ..Default::default() }
+        GravityFrontend {
+            record,
+            ..Default::default()
+        }
     }
 }
 
@@ -146,7 +166,9 @@ fn nzcv_true(kind: JumpKind) -> u32 {
         JumpKind::Lt => 8,
         JumpKind::Gt => 0,
         JumpKind::Le => 4,
-        JumpKind::Always | JumpKind::Cbz | JumpKind::Cbnz | JumpKind::Tbz | JumpKind::Tbnz => unreachable!("not a flags condition"),
+        JumpKind::Always | JumpKind::Cbz | JumpKind::Cbnz | JumpKind::Tbz | JumpKind::Tbnz => {
+            unreachable!("not a flags condition")
+        }
     }
 }
 
@@ -164,7 +186,8 @@ impl<'p> A64Frontend<A<'p>> for GravityFrontend {
         self.analysis_t0.set(crate::now_ns());
     }
     fn analysis_end(&mut self, _: &A<'p>) {
-        self.analysis_ns.set(self.analysis_ns.get() + (crate::now_ns() - self.analysis_t0.get()));
+        self.analysis_ns
+            .set(self.analysis_ns.get() + (crate::now_ns() - self.analysis_t0.get()));
     }
     fn cur_func_may_emit_calls(&self, adaptor: &A<'p>) -> bool {
         adaptor.view.has_calls
@@ -176,7 +199,12 @@ impl<'p> A64Frontend<A<'p>> for GravityFrontend {
         assert_eq!(function.0, index);
     }
     fn try_force_fixed_assignment(&self, adaptor: &A<'p>, value: GValue) -> bool {
-        adaptor.view.force_fixed.get(value.0 as usize).copied().unwrap_or(false)
+        adaptor
+            .view
+            .force_fixed
+            .get(value.0 as usize)
+            .copied()
+            .unwrap_or(false)
     }
     const PHI_COALESCING: bool = true;
     const WEIGHTED_REGALLOC: bool = true;
@@ -194,7 +222,9 @@ impl<'p> A64Frontend<A<'p>> for GravityFrontend {
     }
     fn regalloc_event(&self, adaptor: &A<'p>, event: RegallocEvent, block: GBlock) {
         if self.record {
-            self.events.borrow_mut().push(crate::RegEvent::new(adaptor, event, block));
+            self.events
+                .borrow_mut()
+                .push(crate::RegEvent::new(adaptor, event, block));
         }
     }
     fn allow_fixed_assignment(&self, adaptor: &A<'p>, value: GValue) -> bool {
@@ -203,16 +233,30 @@ impl<'p> A64Frontend<A<'p>> for GravityFrontend {
         // one value, so only multi-return functions opt out. A value the
         // view vetoed (`FnView::no_fixed`: never read in a loop) keeps no
         // register through the loops.
-        adaptor.func().returns.len() <= 1 && !adaptor.view.no_fixed.get(value.0 as usize).copied().unwrap_or(false)
+        adaptor.func().returns.len() <= 1
+            && !adaptor
+                .view
+                .no_fixed
+                .get(value.0 as usize)
+                .copied()
+                .unwrap_or(false)
     }
-    fn special_part<'s, 'm, M: TargetMachine<'m, A<'p>, 2>>(_: &'s M, _: &'s Self::Special, _: u32) -> ValuePartRef<'s, M, 2>
+    fn special_part<'s, 'm, M: TargetMachine<'m, A<'p>, 2>>(
+        _: &'s M,
+        _: &'s Self::Special,
+        _: u32,
+    ) -> ValuePartRef<'s, M, 2>
     where
         A<'p>: 's,
         M::Target: CompilerTarget<A<'p>, 2, Special = Self::Special> + A64CompilerState,
     {
         unreachable!("gravity has no special values")
     }
-    fn compile_inst<'m, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, inst: GInst, _: impl Iterator<Item = GInst> + Clone) -> PgResult<bool>
+    fn compile_inst<'m, M: TargetMachine<'m, A<'p>, 2>>(
+        machine: &M,
+        inst: GInst,
+        _: impl Iterator<Item = GInst> + Clone,
+    ) -> PgResult<bool>
     where
         M::Target: CompilerTarget<A<'p>, 2, Jump = Jump> + A64CompilerState<Frontend = Self>,
     {
@@ -241,15 +285,25 @@ impl<'p> A64Frontend<A<'p>> for GravityFrontend {
 
 #[cold]
 fn invalid(message: &'static str) -> alloc::boxed::Box<PgError> {
-    PgError::error(message).with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE).into()
+    PgError::error(message)
+        .with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE)
+        .into()
 }
 
 /// The operand `imm_operand` folds, its reference consumed when the
 /// constant is materialized for other uses (the fold never reads the
 /// register, and the value must still die where the analyzer says).
-fn fold_operand<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, op: &Op) -> PgResult<Option<gravity_ir::Value>> {
+fn fold_operand<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    op: &Op,
+) -> PgResult<Option<gravity_ir::Value>> {
     let view = &machine.adaptor().view;
-    let Some(cv) = crate::view::imm_operand(machine.adaptor().func(), &view.const_of, op, machine.adaptor().rules) else {
+    let Some(cv) = crate::view::imm_operand(
+        machine.adaptor().func(),
+        &view.const_of,
+        op,
+        machine.adaptor().rules,
+    ) else {
         return Ok(None);
     };
     if !view.const_fused[cv.index()] {
@@ -283,7 +337,12 @@ where
 }
 
 /// Zero-extend `src` (canonical `ty`) into `dst`.
-fn zext_into<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, dst: Reg, src: Reg, ty: Type) -> PgResult<()>
+fn zext_into<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    dst: Reg,
+    src: Reg,
+    ty: Type,
+) -> PgResult<()>
 where
     M::Target: A64CompilerState,
 {
@@ -343,7 +402,11 @@ fn neon_minmax(op: VecBinOp, lane: Type, rd: Reg, rn: Reg, rm: Reg) -> PgResult<
     };
     let unsigned = matches!(op, VecBinOp::Umin | VecBinOp::Umax) as u32;
     let min = matches!(op, VecBinOp::Smin | VecBinOp::Umin) as u32;
-    let (rd, rn, rm) = ((rd.id() - 32) as u32, (rn.id() - 32) as u32, (rm.id() - 32) as u32);
+    let (rd, rn, rm) = (
+        (rd.id() - 32) as u32,
+        (rn.id() - 32) as u32,
+        (rm.id() - 32) as u32,
+    );
     Ok(0x4E20_6400 | unsigned << 29 | size << 22 | rm << 16 | min << 11 | rn << 5 | rd)
 }
 
@@ -351,7 +414,11 @@ fn cond_of(kind: JumpKind) -> PgResult<Cond> {
     raw::jump_to_cond(Jump::new(kind))
 }
 
-fn materialize_gp<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, reg: Reg, value: u64) -> PgResult<()>
+fn materialize_gp<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    reg: Reg,
+    value: u64,
+) -> PgResult<()>
 where
     M::Target: A64CompilerState,
 {
@@ -359,7 +426,12 @@ where
 }
 
 /// Unary op on one operand producing a result in a fresh (or reused) register.
-fn unary<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, a: GValue, result: GValue, emit: impl FnOnce(&M, Reg, Reg) -> PgResult<()>) -> PgResult<()>
+fn unary<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    a: GValue,
+    result: GValue,
+    emit: impl FnOnce(&M, Reg, Reg) -> PgResult<()>,
+) -> PgResult<()>
 where
     M::Target: A64CompilerState,
 {
@@ -374,7 +446,13 @@ where
     Ok(())
 }
 
-fn binary<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, a: GValue, b: GValue, result: GValue, emit: impl FnOnce(&M, Reg, Reg, Reg) -> PgResult<()>) -> PgResult<()>
+fn binary<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    a: GValue,
+    b: GValue,
+    result: GValue,
+    emit: impl FnOnce(&M, Reg, Reg, Reg) -> PgResult<()>,
+) -> PgResult<()>
 where
     M::Target: A64CompilerState,
 {
@@ -395,7 +473,12 @@ where
 /// Unary op whose result lives in another register bank than its operand
 /// (a vector lane to a GP register, a GP scalar splat into a vector): a
 /// fresh result register, never the operand's.
-fn unary_fresh<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, a: GValue, result: GValue, emit: impl FnOnce(&M, Reg, Reg) -> PgResult<()>) -> PgResult<()>
+fn unary_fresh<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    a: GValue,
+    result: GValue,
+    emit: impl FnOnce(&M, Reg, Reg) -> PgResult<()>,
+) -> PgResult<()>
 where
     M::Target: A64CompilerState,
 {
@@ -412,7 +495,13 @@ where
 
 /// Binary op whose result must not alias an operand (needs both live after
 /// the first emitted instruction).
-fn binary_fresh<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, a: GValue, b: GValue, result: GValue, emit: impl FnOnce(&M, Reg, Reg, Reg) -> PgResult<()>) -> PgResult<()>
+fn binary_fresh<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    a: GValue,
+    b: GValue,
+    result: GValue,
+    emit: impl FnOnce(&M, Reg, Reg, Reg) -> PgResult<()>,
+) -> PgResult<()>
 where
     M::Target: A64CompilerState,
 {
@@ -430,7 +519,12 @@ where
     Ok(())
 }
 
-fn compile_op<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, inst: GInst, op: &Op, result: Option<GValue>) -> PgResult<bool>
+fn compile_op<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    inst: GInst,
+    op: &Op,
+    result: Option<GValue>,
+) -> PgResult<bool>
 where
     M::Target: CompilerTarget<A<'p>, 2, Jump = Jump> + A64CompilerState<Frontend = GravityFrontend>,
 {
@@ -446,7 +540,14 @@ where
                     let mut tmp = ScratchReg::new(machine);
                     let t = tmp.alloc_gp()?;
                     materialize_gp(machine, t, bits)?;
-                    raw::emit(machine, if ty == Type::F64 { de64_FMOVdx(raw::vector(reg)?, raw::zr(t)?) } else { de64_FMOVsw(raw::vector(reg)?, raw::zr(t)?) })?;
+                    raw::emit(
+                        machine,
+                        if ty == Type::F64 {
+                            de64_FMOVdx(raw::vector(reg)?, raw::zr(t)?)
+                        } else {
+                            de64_FMOVsw(raw::vector(reg)?, raw::zr(t)?)
+                        },
+                    )?;
                 }
                 _ => {
                     let v = gravity_interp_canon(ty, bits);
@@ -461,24 +562,40 @@ where
             // A no-wrap result already fits its type: canonicalizing as I64
             // is a no-op, so pass that as the canon type.
             let view = &machine.adaptor().view;
-            let cty = if view.nowrap.get(result.unwrap().0 as usize).copied().unwrap_or(false) || view.no_canon.get(inst.0 as usize).copied().unwrap_or(false) { Type::I64 } else { ty };
+            let cty = if view
+                .nowrap
+                .get(result.unwrap().0 as usize)
+                .copied()
+                .unwrap_or(false)
+                || view.no_canon.get(inst.0 as usize).copied().unwrap_or(false)
+            {
+                Type::I64
+            } else {
+                ty
+            };
             if let Some(&(other, x, k)) = view.shifted.get(&inst.0) {
                 // `op other, (shl x k)` as the shifted-register form
                 // (`FnView::fuse_narrow_ops`; 64-bit only, no canon).
-                binary(machine, GValue(other), GValue(x), result.unwrap(), |m, rd, rn, rm| {
-                    let (d, n, r) = (raw::zr(rd)?, raw::zr(rn)?, raw::zr(rm)?);
-                    raw::emit(
-                        m,
-                        match bop {
-                            IntBinOp::Or => de64_ORRx_lsl(d, n, r, k),
-                            IntBinOp::And => de64_ANDx_lsl(d, n, r, k),
-                            IntBinOp::Xor => de64_EORx_lsl(d, n, r, k),
-                            IntBinOp::Add => de64_ADDx_lsl(d, n, r, k),
-                            IntBinOp::Sub => de64_SUBx_lsl(d, n, r, k),
-                            _ => unreachable!(),
-                        },
-                    )
-                })?;
+                binary(
+                    machine,
+                    GValue(other),
+                    GValue(x),
+                    result.unwrap(),
+                    |m, rd, rn, rm| {
+                        let (d, n, r) = (raw::zr(rd)?, raw::zr(rn)?, raw::zr(rm)?);
+                        raw::emit(
+                            m,
+                            match bop {
+                                IntBinOp::Or => de64_ORRx_lsl(d, n, r, k),
+                                IntBinOp::And => de64_ANDx_lsl(d, n, r, k),
+                                IntBinOp::Xor => de64_EORx_lsl(d, n, r, k),
+                                IntBinOp::Add => de64_ADDx_lsl(d, n, r, k),
+                                IntBinOp::Sub => de64_SUBx_lsl(d, n, r, k),
+                                _ => unreachable!(),
+                            },
+                        )
+                    },
+                )?;
                 return Ok(true);
             }
             if let Some(cv) = fold_operand(machine, op)? {
@@ -491,9 +608,13 @@ where
                     let (d, n) = (raw::zr(rd)?, raw::zr(rn)?);
                     let w = bits(ty);
                     match bop {
-                        IntBinOp::Add if k >= 0 => raw::emit(m, de64_ADDxi(raw::sp(rd)?, raw::sp(rn)?, k))?,
+                        IntBinOp::Add if k >= 0 => {
+                            raw::emit(m, de64_ADDxi(raw::sp(rd)?, raw::sp(rn)?, k))?
+                        }
                         IntBinOp::Add => raw::emit(m, de64_SUBxi(raw::sp(rd)?, raw::sp(rn)?, -k))?,
-                        IntBinOp::Sub if k >= 0 => raw::emit(m, de64_SUBxi(raw::sp(rd)?, raw::sp(rn)?, k))?,
+                        IntBinOp::Sub if k >= 0 => {
+                            raw::emit(m, de64_SUBxi(raw::sp(rd)?, raw::sp(rn)?, k))?
+                        }
                         IntBinOp::Sub => raw::emit(m, de64_ADDxi(raw::sp(rd)?, raw::sp(rn)?, -k))?,
                         IntBinOp::And => raw::emit(m, de64_ANDxi(raw::sp(rd)?, n, k as u64))?,
                         IntBinOp::Or => raw::emit(m, de64_ORRxi(raw::sp(rd)?, n, k as u64))?,
@@ -531,7 +652,12 @@ where
         }
         Op::Icmp { cond, a, b } => {
             let view = &machine.adaptor().view;
-            if view.icmp_flags.get(inst.0 as usize).copied().unwrap_or(false) {
+            if view
+                .icmp_flags
+                .get(inst.0 as usize)
+                .copied()
+                .unwrap_or(false)
+            {
                 // The flags are the previous instruction's (`FnView::fuse_flags`).
                 let r_ref = machine.result_ref(result.unwrap())?;
                 let mut rp = r_ref.part(0);
@@ -617,9 +743,19 @@ where
             let mut bp = b_ref.part(0);
             let r_ref = machine.result_ref(result.unwrap())?;
             let mut rp = r_ref.part(0);
-            let (ra, rb) = (raw::vector(ap.load_to_reg()?)?, raw::vector(bp.load_to_reg()?)?);
+            let (ra, rb) = (
+                raw::vector(ap.load_to_reg()?)?,
+                raw::vector(bp.load_to_reg()?)?,
+            );
             let rd = rp.alloc_reg()?;
-            raw::emit(machine, if d { de64_FCMP_d(ra, rb) } else { de64_FCMP_s(ra, rb) })?;
+            raw::emit(
+                machine,
+                if d {
+                    de64_FCMP_d(ra, rb)
+                } else {
+                    de64_FCMP_s(ra, rb)
+                },
+            )?;
             raw::emit(machine, de64_CSETx(raw::zr(rd)?, cond_of(fcond(cond))?))?;
             rp.set_modified();
             Ok(true)
@@ -629,12 +765,18 @@ where
                 // `trunc (ushr x k)` (`FnView::fuse_narrow_ops`): the field
                 // sign-extended in one instruction.
                 let w = to.bytes() * 8;
-                unary(machine, GValue(x), result.unwrap(), |m, rd, rn| raw::emit(m, de64_SBFXx(raw::zr(rd)?, raw::zr(rn)?, k, w)))?;
+                unary(machine, GValue(x), result.unwrap(), |m, rd, rn| {
+                    raw::emit(m, de64_SBFXx(raw::zr(rd)?, raw::zr(rn)?, k, w))
+                })?;
                 return Ok(true);
             }
             let from = ty_of(machine, g(a));
-            if (from.is_vector() || to.is_vector()) && !(op == ConvOp::Bitcast && from.is_vector() && to.is_vector()) {
-                return Err(invalid("gravity_tpde: a vector conversion other than a vector bitcast is not encoded"));
+            if (from.is_vector() || to.is_vector())
+                && !(op == ConvOp::Bitcast && from.is_vector() && to.is_vector())
+            {
+                return Err(invalid(
+                    "gravity_tpde: a vector conversion other than a vector bitcast is not encoded",
+                ));
             }
             compile_conv(machine, op, from, to, g(a), result.unwrap())?;
             Ok(true)
@@ -652,24 +794,42 @@ where
             if let Some(zv) = fold_operand(machine, op)? {
                 // One operand is the constant 0: use xzr.
                 let (other, c) = if zv == a { (g(b), eq) } else { (g(a), ne) };
-                unary(machine, other, result.unwrap(), |m, rd, rn| raw::emit(m, de64_CSELx(raw::zr(rd)?, raw::zr(rn)?, DA_ZR, c)))?;
+                unary(machine, other, result.unwrap(), |m, rd, rn| {
+                    raw::emit(m, de64_CSELx(raw::zr(rd)?, raw::zr(rn)?, DA_ZR, c))
+                })?;
                 return Ok(true);
             }
             binary(machine, g(a), g(b), result.unwrap(), |m, rd, rn, rm| {
                 raw::emit(
                     m,
                     match ty {
-                        Type::F64 => de64_FCSELd(raw::vector(rd)?, raw::vector(rn)?, raw::vector(rm)?, ne),
-                        Type::F32 => de64_FCSELs(raw::vector(rd)?, raw::vector(rn)?, raw::vector(rm)?, ne),
+                        Type::F64 => {
+                            de64_FCSELd(raw::vector(rd)?, raw::vector(rn)?, raw::vector(rm)?, ne)
+                        }
+                        Type::F32 => {
+                            de64_FCSELs(raw::vector(rd)?, raw::vector(rn)?, raw::vector(rm)?, ne)
+                        }
                         _ => de64_CSELx(raw::zr(rd)?, raw::zr(rn)?, raw::zr(rm)?, ne),
                     },
                 )
             })?;
             Ok(true)
         }
-        Op::Load { ty, ptr, offset, .. } | Op::LoadZext { ty, ptr, offset, .. } => {
+        Op::Load {
+            ty, ptr, offset, ..
+        }
+        | Op::LoadZext {
+            ty, ptr, offset, ..
+        } => {
             let size = ty.bytes();
-            let zext = matches!(op, Op::LoadZext { .. }) || machine.adaptor().view.load_zext.get(inst.0 as usize).copied().unwrap_or(false);
+            let zext = matches!(op, Op::LoadZext { .. })
+                || machine
+                    .adaptor()
+                    .view
+                    .load_zext
+                    .get(inst.0 as usize)
+                    .copied()
+                    .unwrap_or(false);
             let sext = ty.is_int() && size < 8 && !zext;
             let (ptr, offset) = match machine.adaptor().view.load_override.get(&inst.0) {
                 Some(&(base, Some((index, shift)), _)) => {
@@ -718,13 +878,21 @@ where
             // TPDE's helper sign-extends 1/2-byte loads to 32 bits only; the
             // canonical form is 64-bit, so use the x-form encoders directly.
             let direct = if sext && size < 4 && off % size == 0 && off / size < 4096 {
-                let w = if size == 1 { de64_LDRSBxu(raw::zr(dst)?, raw::sp(base)?, off as u64) } else { de64_LDRSHxu(raw::zr(dst)?, raw::sp(base)?, off as u64) };
+                let w = if size == 1 {
+                    de64_LDRSBxu(raw::zr(dst)?, raw::sp(base)?, off as u64)
+                } else {
+                    de64_LDRSHxu(raw::zr(dst)?, raw::sp(base)?, off as u64)
+                };
                 w != 0
             } else {
                 false
             };
             if direct {
-                let w = if size == 1 { de64_LDRSBxu(raw::zr(dst)?, raw::sp(base)?, off as u64) } else { de64_LDRSHxu(raw::zr(dst)?, raw::sp(base)?, off as u64) };
+                let w = if size == 1 {
+                    de64_LDRSBxu(raw::zr(dst)?, raw::sp(base)?, off as u64)
+                } else {
+                    de64_LDRSHxu(raw::zr(dst)?, raw::sp(base)?, off as u64)
+                };
                 raw::emit(machine, w)?;
             } else {
                 raw::load_off(machine, dst, base, off, size, sext)?;
@@ -735,18 +903,28 @@ where
             rp.set_modified();
             Ok(true)
         }
-        Op::Store { ptr, offset, value, .. } => {
+        Op::Store {
+            ptr, offset, value, ..
+        } => {
             let view = &machine.adaptor().view;
             if let Some(&(base, index, shift)) = view.store_override.get(&inst.0) {
                 // Register-offset form (`FnView::fuse_addresses`): a fused
                 // zero constant is the zero register.
-                let ty = view.store_zero_wide.get(&inst.0).copied().unwrap_or_else(|| ty_of(machine, g(value)));
+                let ty = view
+                    .store_zero_wide
+                    .get(&inst.0)
+                    .copied()
+                    .unwrap_or_else(|| ty_of(machine, g(value)));
                 let zero = fold_operand(machine, op)?.is_some();
                 let b_ref = machine.value_ref(GValue(base))?;
                 let mut bp = b_ref.part(0);
                 let i_ref = machine.value_ref(GValue(index))?;
                 let mut ip = i_ref.part(0);
-                let v_ref = if zero { None } else { Some(machine.value_ref(g(value))?) };
+                let v_ref = if zero {
+                    None
+                } else {
+                    Some(machine.value_ref(g(value))?)
+                };
                 let mut vp = v_ref.as_ref().map(|r| r.part(0));
                 let n = raw::sp(bp.load_to_reg()?)?;
                 let m = raw::zr(ip.load_to_reg()?)?;
@@ -767,43 +945,66 @@ where
             // Two 8-byte stores to consecutive cells (`FnView::fuse_stores`):
             // one `stp`; a fused zero constant on either side is `xzr`.
             if let Some(&v2) = view.store_pair.get(&inst.0) {
-                let is_zero = |v: u32| view.const_fused.get(v as usize).copied().unwrap_or(false) && view.const_of[v as usize].is_some_and(|(t, b)| crate::view::const_canon(t, b) == 0);
+                let is_zero = |v: u32| {
+                    view.const_fused.get(v as usize).copied().unwrap_or(false)
+                        && view.const_of[v as usize]
+                            .is_some_and(|(t, b)| crate::view::const_canon(t, b) == 0)
+                };
                 let p_ref = machine.value_ref(g(ptr))?;
                 let mut pp = p_ref.part(0);
                 let base = pp.load_to_reg()?;
-                let v1_ref = if is_zero(value.0) { None } else { Some(machine.value_ref(g(value))?) };
+                let v1_ref = if is_zero(value.0) {
+                    None
+                } else {
+                    Some(machine.value_ref(g(value))?)
+                };
                 let mut v1p = v1_ref.as_ref().map(|r| r.part(0));
                 let r1 = match v1p.as_mut() {
                     Some(p) => raw::zr(p.load_to_reg()?)?,
                     None => DA_ZR,
                 };
-                let v2_ref = if is_zero(v2) { None } else { Some(machine.value_ref(GValue(v2))?) };
+                let v2_ref = if is_zero(v2) {
+                    None
+                } else {
+                    Some(machine.value_ref(GValue(v2))?)
+                };
                 let mut v2p = v2_ref.as_ref().map(|r| r.part(0));
                 let r2 = match v2p.as_mut() {
                     Some(p) => raw::zr(p.load_to_reg()?)?,
                     None => DA_ZR,
                 };
-                tpde_util::tpde_assert!(offset % 8 == 0 && (-512..=504).contains(&offset), "stp offset");
+                tpde_util::tpde_assert!(
+                    offset % 8 == 0 && (-512..=504).contains(&offset),
+                    "stp offset"
+                );
                 raw::emit(machine, de64_STPx(r1, r2, raw::sp(base)?, offset as i64))?;
                 return Ok(true);
             }
-            let ty = view.store_zero_wide.get(&inst.0).copied().unwrap_or_else(|| ty_of(machine, g(value)));
+            let ty = view
+                .store_zero_wide
+                .get(&inst.0)
+                .copied()
+                .unwrap_or_else(|| ty_of(machine, g(value)));
             let p_ref = machine.value_ref(g(ptr))?;
             let mut pp = p_ref.part(0);
             let zero = fold_operand(machine, op)?.is_some();
-            tpde_util::tpde_assert!(zero || !view.store_zero_wide.contains_key(&inst.0), "widened zero store of a non-zero value");
+            tpde_util::tpde_assert!(
+                zero || !view.store_zero_wide.contains_key(&inst.0),
+                "widened zero store of a non-zero value"
+            );
             if zero {
                 // The value is a fused constant zero: store the zero register.
                 let base = pp.load_to_reg()?;
                 let size = ty.bytes();
-                let (base, off) = if offset >= 0 && offset as u32 % size == 0 && (offset as u32 / size) < 4096 {
-                    (base, offset as u32)
-                } else {
-                    let mut tmp = ScratchReg::new(machine);
-                    let t = tmp.alloc_gp()?;
-                    add_imm(machine, t, base, offset as i64)?;
-                    (t, 0)
-                };
+                let (base, off) =
+                    if offset >= 0 && offset as u32 % size == 0 && (offset as u32 / size) < 4096 {
+                        (base, offset as u32)
+                    } else {
+                        let mut tmp = ScratchReg::new(machine);
+                        let t = tmp.alloc_gp()?;
+                        add_imm(machine, t, base, offset as i64)?;
+                        (t, 0)
+                    };
                 let a = raw::sp(base)?;
                 let w = match size {
                     1 => de64_STRBu(DA_ZR, a, off as u64),
@@ -832,7 +1033,11 @@ where
             let p_ref = machine.value_ref(g(ptr))?;
             let mut pp = p_ref.part(0);
             let base = pp.load_to_reg()?;
-            let w = if offset >= 0 { de64_PRFMu(DA_PRF_PLDL1KEEP, raw::sp(base)?, offset as u64) } else { 0 };
+            let w = if offset >= 0 {
+                de64_PRFMu(DA_PRF_PLDL1KEEP, raw::sp(base)?, offset as u64)
+            } else {
+                0
+            };
             if w != 0 {
                 raw::emit(machine, w)?;
             } else {
@@ -844,7 +1049,15 @@ where
             Ok(true)
         }
         Op::Crc32c { acc, data } => {
-            binary(machine, g(acc), g(data), result.unwrap(), |m, rd, rn, rm| raw::emit(m, de64_CRC32CX(raw::zr(rd)?, raw::zr(rn)?, raw::zr(rm)?)))?;
+            binary(
+                machine,
+                g(acc),
+                g(data),
+                result.unwrap(),
+                |m, rd, rn, rm| {
+                    raw::emit(m, de64_CRC32CX(raw::zr(rd)?, raw::zr(rn)?, raw::zr(rm)?))
+                },
+            )?;
             Ok(true)
         }
         Op::AddHi { alo, blo, ahi, bhi } => {
@@ -862,16 +1075,26 @@ where
         }
         Op::StackAddr { slot } => {
             let nv = machine.adaptor().view.num_values;
-            unary(machine, GValue(nv + slot.0), result.unwrap(), |m, rd, rn| {
-                if rd != rn {
-                    raw::emit(m, de64_MOVx(raw::zr(rd)?, raw::zr(rn)?))
-                } else {
-                    Ok(())
-                }
-            })?;
+            unary(
+                machine,
+                GValue(nv + slot.0),
+                result.unwrap(),
+                |m, rd, rn| {
+                    if rd != rn {
+                        raw::emit(m, de64_MOVx(raw::zr(rd)?, raw::zr(rn)?))
+                    } else {
+                        Ok(())
+                    }
+                },
+            )?;
             Ok(true)
         }
-        Op::PtrAdd { base, index, scale, offset } => {
+        Op::PtrAdd {
+            base,
+            index,
+            scale,
+            offset,
+        } => {
             let view = &machine.adaptor().view;
             if view.ptr_add_override.get(&inst.0).is_none() {
                 if let Some(cv) = fold_operand(machine, op)? {
@@ -914,7 +1137,10 @@ where
         }
         Op::Call { callee, ref args } => {
             let sym = machine.function_symbol(callee.0);
-            let ret_ty = machine.adaptor().program.funcs[callee.index()].returns.first().copied();
+            let ret_ty = machine.adaptor().program.funcs[callee.index()]
+                .returns
+                .first()
+                .copied();
             compile_call(machine, sym, args, result, ret_ty)?;
             Ok(true)
         }
@@ -928,7 +1154,19 @@ where
         // simd.md item 2: NEON selection for these is the next commit of
         // the SIMD lane; until then a program with vector ops is refused
         // (the lowerer emits none: its vector paths are gated off).
-        Op::VecLoad { .. } | Op::VecStore { .. } | Op::VecBin { .. } | Op::VecShift { .. } | Op::VecCmp { .. } | Op::VecSelect { .. } | Op::VecReduceAdd { .. } | Op::VecMovmask { .. } | Op::VecSplat { .. } | Op::VecExtract { .. } | Op::VecInsert { .. } | Op::VecWiden { .. } | Op::VecNarrow { .. } => compile_vec_op(machine, op, result),
+        Op::VecLoad { .. }
+        | Op::VecStore { .. }
+        | Op::VecBin { .. }
+        | Op::VecShift { .. }
+        | Op::VecCmp { .. }
+        | Op::VecSelect { .. }
+        | Op::VecReduceAdd { .. }
+        | Op::VecMovmask { .. }
+        | Op::VecSplat { .. }
+        | Op::VecExtract { .. }
+        | Op::VecInsert { .. }
+        | Op::VecWiden { .. }
+        | Op::VecNarrow { .. } => compile_vec_op(machine, op, result),
     }
 }
 
@@ -943,7 +1181,12 @@ fn gravity_interp_canon(ty: Type, bits: u64) -> u64 {
     }
 }
 
-fn add_imm<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, dst: Reg, src: Reg, imm: i64) -> PgResult<()>
+fn add_imm<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    dst: Reg,
+    src: Reg,
+    imm: i64,
+) -> PgResult<()>
 where
     M::Target: A64CompilerState,
 {
@@ -963,10 +1206,19 @@ where
     let mut tmp = ScratchReg::new(machine);
     let t = tmp.alloc_gp()?;
     materialize_gp(machine, t, imm as u64)?;
-    raw::emit(machine, de64_ADDx(raw::zr(dst)?, raw::zr(src)?, raw::zr(t)?))
+    raw::emit(
+        machine,
+        de64_ADDx(raw::zr(dst)?, raw::zr(src)?, raw::zr(t)?),
+    )
 }
 
-fn compile_call<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, sym: SymRef, args: &[gravity_ir::Value], result: Option<GValue>, ret_ty: Option<Type>) -> PgResult<()>
+fn compile_call<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    sym: SymRef,
+    args: &[gravity_ir::Value],
+    result: Option<GValue>,
+    ret_ty: Option<Type>,
+) -> PgResult<()>
 where
     M::Target: CompilerTarget<A<'p>, 2, Jump = Jump> + A64CompilerState<Frontend = GravityFrontend>,
 {
@@ -974,7 +1226,13 @@ where
     match result {
         Some(r) => {
             let mut r_ref = machine.result_ref(r)?;
-            calls::generate_call_iter(machine, CallTarget::Symbol(sym), arguments, Some(&mut r_ref), false)?;
+            calls::generate_call_iter(
+                machine,
+                CallTarget::Symbol(sym),
+                arguments,
+                Some(&mut r_ref),
+                false,
+            )?;
             // The callee does not promise canonical upper bits for narrow results.
             if let Some(ty) = ret_ty {
                 if matches!(ty, Type::Bool | Type::I8 | Type::I16 | Type::I32) {
@@ -992,13 +1250,27 @@ where
     Ok(())
 }
 
-fn compile_int_bin<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, op: IntBinOp, ty: Type, cty: Type, a: GValue, b: GValue, result: GValue) -> PgResult<()>
+fn compile_int_bin<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    op: IntBinOp,
+    ty: Type,
+    cty: Type,
+    a: GValue,
+    b: GValue,
+    result: GValue,
+) -> PgResult<()>
 where
     M::Target: A64CompilerState,
 {
     let w = bits(ty);
     match op {
-        IntBinOp::Add | IntBinOp::Sub | IntBinOp::Mul | IntBinOp::And | IntBinOp::Or | IntBinOp::Xor | IntBinOp::Sdiv => binary(machine, a, b, result, |m, rd, rn, rm| {
+        IntBinOp::Add
+        | IntBinOp::Sub
+        | IntBinOp::Mul
+        | IntBinOp::And
+        | IntBinOp::Or
+        | IntBinOp::Xor
+        | IntBinOp::Sdiv => binary(machine, a, b, result, |m, rd, rn, rm| {
             let (d, n, r) = (raw::zr(rd)?, raw::zr(rn)?, raw::zr(rm)?);
             raw::emit(
                 m,
@@ -1013,23 +1285,33 @@ where
                 },
             )?;
             // Bool operands are 0/1, so and/or/xor results already are.
-            if ty == Type::Bool { Ok(()) } else { canon(m, rd, cty) }
+            if ty == Type::Bool {
+                Ok(())
+            } else {
+                canon(m, rd, cty)
+            }
         }),
         // canonical (sign-extended) operands order the same way at 64 bits, signed and unsigned
-        IntBinOp::Smin | IntBinOp::Smax | IntBinOp::Umin | IntBinOp::Umax => binary(machine, a, b, result, |m, rd, rn, rm| {
-            let (d, n, r) = (raw::zr(rd)?, raw::zr(rn)?, raw::zr(rm)?);
-            raw::emit(m, de64_CMPx(n, r))?;
-            let take_n = match op {
-                IntBinOp::Smin => JumpKind::Lt,
-                IntBinOp::Smax => JumpKind::Gt,
-                IntBinOp::Umin => JumpKind::Cc,
-                _ => JumpKind::Hi,
-            };
-            raw::emit(m, de64_CSELx(d, n, r, cond_of(take_n)?))
-        }),
+        IntBinOp::Smin | IntBinOp::Smax | IntBinOp::Umin | IntBinOp::Umax => {
+            binary(machine, a, b, result, |m, rd, rn, rm| {
+                let (d, n, r) = (raw::zr(rd)?, raw::zr(rn)?, raw::zr(rm)?);
+                raw::emit(m, de64_CMPx(n, r))?;
+                let take_n = match op {
+                    IntBinOp::Smin => JumpKind::Lt,
+                    IntBinOp::Smax => JumpKind::Gt,
+                    IntBinOp::Umin => JumpKind::Cc,
+                    _ => JumpKind::Hi,
+                };
+                raw::emit(m, de64_CSELx(d, n, r, cond_of(take_n)?))
+            })
+        }
         // I64 only (verify): the high word needs no canon
-        IntBinOp::Smulh => binary(machine, a, b, result, |m, rd, rn, rm| raw::emit(m, de64_SMULH(raw::zr(rd)?, raw::zr(rn)?, raw::zr(rm)?))),
-        IntBinOp::Umulh => binary(machine, a, b, result, |m, rd, rn, rm| raw::emit(m, de64_UMULH(raw::zr(rd)?, raw::zr(rn)?, raw::zr(rm)?))),
+        IntBinOp::Smulh => binary(machine, a, b, result, |m, rd, rn, rm| {
+            raw::emit(m, de64_SMULH(raw::zr(rd)?, raw::zr(rn)?, raw::zr(rm)?))
+        }),
+        IntBinOp::Umulh => binary(machine, a, b, result, |m, rd, rn, rm| {
+            raw::emit(m, de64_UMULH(raw::zr(rd)?, raw::zr(rn)?, raw::zr(rm)?))
+        }),
         // I64 only (verify): a left rotate by `r` is a right rotate by `-r` (RORV takes the count modulo 64)
         IntBinOp::Rotl => binary_fresh(machine, a, b, result, |m, rd, rn, rm| {
             let (d, n, r) = (raw::zr(rd)?, raw::zr(rn)?, raw::zr(rm)?);
@@ -1061,49 +1343,58 @@ where
             }
             canon(m, rd, cty)
         }),
-        IntBinOp::Shl | IntBinOp::Ushr | IntBinOp::Sshr => binary_fresh(machine, a, b, result, |m, rd, rn, rm| {
-            let (d, n, r) = (raw::zr(rd)?, raw::zr(rn)?, raw::zr(rm)?);
-            match w {
-                64 => raw::emit(
-                    m,
-                    match op {
-                        IntBinOp::Shl => de64_LSLVx(d, n, r),
-                        IntBinOp::Ushr => de64_LSRVx(d, n, r),
-                        _ => de64_ASRVx(d, n, r),
-                    },
-                ),
-                32 => {
-                    raw::emit(
+        IntBinOp::Shl | IntBinOp::Ushr | IntBinOp::Sshr => {
+            binary_fresh(machine, a, b, result, |m, rd, rn, rm| {
+                let (d, n, r) = (raw::zr(rd)?, raw::zr(rn)?, raw::zr(rm)?);
+                match w {
+                    64 => raw::emit(
                         m,
                         match op {
-                            IntBinOp::Shl => de64_LSLVw(d, n, r),
-                            IntBinOp::Ushr => de64_LSRVw(d, n, r),
-                            _ => de64_ASRVw(d, n, r),
+                            IntBinOp::Shl => de64_LSLVx(d, n, r),
+                            IntBinOp::Ushr => de64_LSRVx(d, n, r),
+                            _ => de64_ASRVx(d, n, r),
                         },
-                    )?;
-                    canon(m, rd, cty)
-                }
-                _ => {
-                    let mut tc = ScratchReg::new(m);
-                    let c = tc.alloc_gp()?;
-                    raw::emit(m, de64_ANDxi(raw::sp(c)?, r, (w - 1) as u64))?;
-                    let c = raw::zr(c)?;
-                    match op {
-                        IntBinOp::Shl => raw::emit(m, de64_LSLVx(d, n, c))?,
-                        IntBinOp::Ushr => {
-                            zext_into(m, rd, rn, ty)?;
-                            raw::emit(m, de64_LSRVx(d, d, c))?
-                        }
-                        _ => raw::emit(m, de64_ASRVx(d, n, c))?,
+                    ),
+                    32 => {
+                        raw::emit(
+                            m,
+                            match op {
+                                IntBinOp::Shl => de64_LSLVw(d, n, r),
+                                IntBinOp::Ushr => de64_LSRVw(d, n, r),
+                                _ => de64_ASRVw(d, n, r),
+                            },
+                        )?;
+                        canon(m, rd, cty)
                     }
-                    canon(m, rd, cty)
+                    _ => {
+                        let mut tc = ScratchReg::new(m);
+                        let c = tc.alloc_gp()?;
+                        raw::emit(m, de64_ANDxi(raw::sp(c)?, r, (w - 1) as u64))?;
+                        let c = raw::zr(c)?;
+                        match op {
+                            IntBinOp::Shl => raw::emit(m, de64_LSLVx(d, n, c))?,
+                            IntBinOp::Ushr => {
+                                zext_into(m, rd, rn, ty)?;
+                                raw::emit(m, de64_LSRVx(d, d, c))?
+                            }
+                            _ => raw::emit(m, de64_ASRVx(d, n, c))?,
+                        }
+                        canon(m, rd, cty)
+                    }
                 }
-            }
-        }),
+            })
+        }
     }
 }
 
-fn compile_int_ovf<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, op: IntOvfOp, ty: Type, a: GValue, b: GValue, result: GValue) -> PgResult<()>
+fn compile_int_ovf<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    op: IntOvfOp,
+    ty: Type,
+    a: GValue,
+    b: GValue,
+    result: GValue,
+) -> PgResult<()>
 where
     M::Target: A64CompilerState,
 {
@@ -1158,7 +1449,13 @@ where
     })
 }
 
-fn compile_int_un<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, op: IntUnOp, ty: Type, a: GValue, result: GValue) -> PgResult<()>
+fn compile_int_un<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    op: IntUnOp,
+    ty: Type,
+    a: GValue,
+    result: GValue,
+) -> PgResult<()>
 where
     M::Target: A64CompilerState,
 {
@@ -1239,7 +1536,14 @@ where
     })
 }
 
-fn compile_float_bin<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, op: FloatBinOp, ty: Type, a: GValue, b: GValue, result: GValue) -> PgResult<()>
+fn compile_float_bin<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    op: FloatBinOp,
+    ty: Type,
+    a: GValue,
+    b: GValue,
+    result: GValue,
+) -> PgResult<()>
 where
     M::Target: A64CompilerState,
 {
@@ -1294,7 +1598,14 @@ where
     })
 }
 
-fn compile_conv<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, op: ConvOp, from: Type, to: Type, a: GValue, result: GValue) -> PgResult<()>
+fn compile_conv<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    op: ConvOp,
+    from: Type,
+    to: Type,
+    a: GValue,
+    result: GValue,
+) -> PgResult<()>
 where
     M::Target: A64CompilerState,
 {
@@ -1302,7 +1613,14 @@ where
     let emit_mov = |m: &M, rd: Reg, rn: Reg| -> PgResult<()> {
         if rd != rn {
             if to.is_float() {
-                raw::emit(m, if to == Type::F64 { de64_FMOVd(raw::vector(rd)?, raw::vector(rn)?) } else { de64_FMOVs(raw::vector(rd)?, raw::vector(rn)?) })
+                raw::emit(
+                    m,
+                    if to == Type::F64 {
+                        de64_FMOVd(raw::vector(rd)?, raw::vector(rn)?)
+                    } else {
+                        de64_FMOVs(raw::vector(rd)?, raw::vector(rn)?)
+                    },
+                )
             } else {
                 raw::emit(m, de64_MOVx(raw::zr(rd)?, raw::zr(rn)?))
             }
@@ -1335,14 +1653,28 @@ where
         }),
         ConvOp::SintToFloat => go(&|m, rd, rn| {
             let (v, x) = (raw::vector(rd)?, raw::zr(rn)?);
-            raw::emit(m, if to == Type::F64 { de64_SCVTFdx(v, x) } else { de64_SCVTFsx(v, x) })
+            raw::emit(
+                m,
+                if to == Type::F64 {
+                    de64_SCVTFdx(v, x)
+                } else {
+                    de64_SCVTFsx(v, x)
+                },
+            )
         }),
         ConvOp::UintToFloat => go(&|m, rd, rn| {
             let mut tmp = ScratchReg::new(m);
             let t = tmp.alloc_gp()?;
             zext_into(m, t, rn, from)?;
             let (v, x) = (raw::vector(rd)?, raw::zr(t)?);
-            raw::emit(m, if to == Type::F64 { de64_UCVTFdx(v, x) } else { de64_UCVTFsx(v, x) })
+            raw::emit(
+                m,
+                if to == Type::F64 {
+                    de64_UCVTFdx(v, x)
+                } else {
+                    de64_UCVTFsx(v, x)
+                },
+            )
         }),
         ConvOp::FloatToSint | ConvOp::FloatToUint => go(&|m, rd, rn| {
             let (x, v) = (raw::zr(rd)?, raw::vector(rn)?);
@@ -1357,12 +1689,19 @@ where
             )?;
             canon(m, rd, to)
         }),
-        ConvOp::Fpromote => go(&|m, rd, rn| raw::emit(m, de64_FCVTds(raw::vector(rd)?, raw::vector(rn)?))),
-        ConvOp::Fdemote => go(&|m, rd, rn| raw::emit(m, de64_FCVTsd(raw::vector(rd)?, raw::vector(rn)?))),
+        ConvOp::Fpromote => {
+            go(&|m, rd, rn| raw::emit(m, de64_FCVTds(raw::vector(rd)?, raw::vector(rn)?)))
+        }
+        ConvOp::Fdemote => {
+            go(&|m, rd, rn| raw::emit(m, de64_FCVTsd(raw::vector(rd)?, raw::vector(rn)?)))
+        }
         ConvOp::Bitcast => go(&|m, rd, rn| match (from, to) {
             (f, t) if f.is_vector() && t.is_vector() => {
                 if rd != rn {
-                    raw::emit(m, de64_ORR16b(raw::vector(rd)?, raw::vector(rn)?, raw::vector(rn)?))?;
+                    raw::emit(
+                        m,
+                        de64_ORR16b(raw::vector(rd)?, raw::vector(rn)?, raw::vector(rn)?),
+                    )?;
                 }
                 Ok(())
             }
@@ -1384,7 +1723,10 @@ where
 {
     let adaptor = machine.adaptor();
     let func = adaptor.func();
-    let succs = mcx::to_vec_in(&adaptor.view.blocks[block as usize].succs, adaptor.view.mcx());
+    let succs = mcx::to_vec_in(
+        &adaptor.view.blocks[block as usize].succs,
+        adaptor.view.mcx(),
+    );
     match &func.blocks[block as usize].term {
         Terminator::Br(_) => {
             branches::generate_uncond_branch(machine, GBlock(succs[0]))?;
@@ -1429,9 +1771,20 @@ where
                         )?;
                         Jump::new(JumpKind::Vs)
                     }
-                    (Some(c @ (IntCond::Eq | IntCond::Ne)), None) if f.imm == 0 && f.second.is_none() => {
-                        let kind = if c == IntCond::Eq { JumpKind::Cbz } else { JumpKind::Cbnz };
-                        Jump { kind, cmp_reg: ra, cmp_is_32: false, test_bit: 0 }
+                    (Some(c @ (IntCond::Eq | IntCond::Ne)), None)
+                        if f.imm == 0 && f.second.is_none() =>
+                    {
+                        let kind = if c == IntCond::Eq {
+                            JumpKind::Cbz
+                        } else {
+                            JumpKind::Cbnz
+                        };
+                        Jump {
+                            kind,
+                            cmp_reg: ra,
+                            cmp_is_32: false,
+                            test_bit: 0,
+                        }
                     }
                     (Some(c), None) => {
                         raw::emit(machine, de64_CMPxi(raw::sp(ra)?, f.imm as i64))?;
@@ -1448,7 +1801,14 @@ where
                         let b_ref = machine.value_ref(GValue(b.0))?;
                         let mut bp = b_ref.part(0);
                         let rb = bp.load_to_reg()?;
-                        raw::emit(machine, if f.is_f64 { de64_FCMP_d(raw::vector(ra)?, raw::vector(rb)?) } else { de64_FCMP_s(raw::vector(ra)?, raw::vector(rb)?) })?;
+                        raw::emit(
+                            machine,
+                            if f.is_f64 {
+                                de64_FCMP_d(raw::vector(ra)?, raw::vector(rb)?)
+                            } else {
+                                de64_FCMP_s(raw::vector(ra)?, raw::vector(rb)?)
+                            },
+                        )?;
                         Jump::new(fcond(f.fcond.unwrap()))
                     }
                     (None, None) => unreachable!(),
@@ -1463,7 +1823,10 @@ where
                     let cond_a = raw::jump_to_cond(jump)?;
                     let cond_b = icond(s.icond);
                     let (under, nzcv) = if s.or {
-                        (raw::jump_to_cond(raw::invert_jump(jump))?, nzcv_true(cond_b))
+                        (
+                            raw::jump_to_cond(raw::invert_jump(jump))?,
+                            nzcv_true(cond_b),
+                        )
                     } else {
                         (cond_a, nzcv_true(raw::invert_jump(Jump::new(cond_b)).kind))
                     };
@@ -1476,7 +1839,10 @@ where
                             let b_ref = machine.value_ref(GValue(b.0))?;
                             let mut bp = b_ref.part(0);
                             let rb = bp.load_to_reg()?;
-                            raw::emit(machine, de64_CCMPx(raw::zr(rs)?, raw::zr(rb)?, nzcv, under))?;
+                            raw::emit(
+                                machine,
+                                de64_CCMPx(raw::zr(rs)?, raw::zr(rb)?, nzcv, under),
+                            )?;
                         }
                         None => {
                             tpde_util::tpde_assert!(s.imm < 32, "ccmp imm5");
@@ -1488,13 +1854,26 @@ where
                 // A flag-based jump no longer needs the compare operand:
                 // release it before the phi moves so an edge can coalesce
                 // it (a `cbz`/`tbz` reads the register at the jump).
-                if !matches!(jump.kind, JumpKind::Cbz | JumpKind::Cbnz | JumpKind::Tbz | JumpKind::Tbnz) {
+                if !matches!(
+                    jump.kind,
+                    JumpKind::Cbz | JumpKind::Cbnz | JumpKind::Tbz | JumpKind::Tbnz
+                ) {
                     drop(ap);
                     drop(a_ref);
-                    branches::generate_cond_branch(machine, jump, GBlock(succs[0]), GBlock(succs[1]))?;
+                    branches::generate_cond_branch(
+                        machine,
+                        jump,
+                        GBlock(succs[0]),
+                        GBlock(succs[1]),
+                    )?;
                 } else {
                     // the jump reads the register: held across the branch, then released as the branch would have (D117)
-                    branches::generate_cond_branch(machine, jump, GBlock(succs[0]), GBlock(succs[1]))?;
+                    branches::generate_cond_branch(
+                        machine,
+                        jump,
+                        GBlock(succs[0]),
+                        GBlock(succs[1]),
+                    )?;
                     drop(ap);
                     drop(a_ref);
                     branches::release_jump_operand(machine, ra);
@@ -1503,7 +1882,12 @@ where
                 let c_ref = machine.value_ref(GValue(cond.0))?;
                 let mut cp = c_ref.part(0);
                 let reg = cp.load_to_reg()?;
-                let jump = Jump { kind: JumpKind::Cbnz, cmp_reg: reg, cmp_is_32: false, test_bit: 0 };
+                let jump = Jump {
+                    kind: JumpKind::Cbnz,
+                    cmp_reg: reg,
+                    cmp_is_32: false,
+                    test_bit: 0,
+                };
                 branches::generate_cond_branch(machine, jump, GBlock(succs[0]), GBlock(succs[1]))?;
                 drop(cp);
                 drop(c_ref);
@@ -1520,8 +1904,20 @@ where
                 let reg = vp.load_to_reg()?;
                 raw::emit(machine, de64_MOVx(raw::zr(sreg)?, raw::zr(reg)?))?;
             }
-            let table: mcx::PgVec<(u64, GBlock)> = mcx::CollectIn::collect_in(cases.iter().enumerate().map(|(i, c)| (c.value, GBlock(succs[i]))), adaptor.view.mcx());
-            branches::generate_switch(machine, scratch, bits(ty), GBlock(succs[cases.len()]), &table)?;
+            let table: mcx::PgVec<(u64, GBlock)> = mcx::CollectIn::collect_in(
+                cases
+                    .iter()
+                    .enumerate()
+                    .map(|(i, c)| (c.value, GBlock(succs[i]))),
+                adaptor.view.mcx(),
+            );
+            branches::generate_switch(
+                machine,
+                scratch,
+                bits(ty),
+                GBlock(succs[cases.len()]),
+                &table,
+            )?;
         }
         Terminator::Return(values) => {
             if values.len() > 8 {
@@ -1560,7 +1956,11 @@ fn lane_bytes(lane: Type) -> u32 {
     }
 }
 
-fn compile_vec_op<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(machine: &M, op: &Op, result: Option<GValue>) -> PgResult<bool>
+fn compile_vec_op<'m, 'p, M: TargetMachine<'m, A<'p>, 2>>(
+    machine: &M,
+    op: &Op,
+    result: Option<GValue>,
+) -> PgResult<bool>
 where
     M::Target: CompilerTarget<A<'p>, 2, Jump = Jump> + A64CompilerState<Frontend = GravityFrontend>,
 {
@@ -1587,7 +1987,9 @@ where
             rp.set_modified();
             Ok(true)
         }
-        Op::VecStore { ptr, offset, value, .. } => {
+        Op::VecStore {
+            ptr, offset, value, ..
+        } => {
             let p_ref = machine.value_ref(g(ptr))?;
             let mut pp = p_ref.part(0);
             let v_ref = machine.value_ref(g(value))?;
@@ -1606,7 +2008,11 @@ where
             }
             Ok(true)
         }
-        Op::VecBin { op: bop @ (VecBinOp::Smin | VecBinOp::Smax | VecBinOp::Umin | VecBinOp::Umax), a, b } if ty_of(machine, g(a)).lane() == Type::I64 => {
+        Op::VecBin {
+            op: bop @ (VecBinOp::Smin | VecBinOp::Smax | VecBinOp::Umin | VecBinOp::Umax),
+            a,
+            b,
+        } if ty_of(machine, g(a)).lane() == Type::I64 => {
             // no NEON min/max over 64-bit lanes: `cmgt` into the fresh result, then `bsl`
             binary_fresh(machine, g(a), g(b), result.unwrap(), |m, rd, rn, rm| {
                 let (d, n, r) = (v(rd)?, v(rn)?, v(rm)?);
@@ -1617,7 +2023,14 @@ where
                     _ => (false, true),
                 };
                 let (x, y) = if take_n_when_greater { (n, r) } else { (r, n) };
-                raw::emit(m, if signed { de64_CMGT2d(d, x, y) } else { de64_CMHI2d(d, x, y) })?;
+                raw::emit(
+                    m,
+                    if signed {
+                        de64_CMGT2d(d, x, y)
+                    } else {
+                        de64_CMHI2d(d, x, y)
+                    },
+                )?;
                 raw::emit(m, de64_BSL16b(d, n, r))
             })?;
             Ok(true)
@@ -1648,8 +2061,15 @@ where
                     (VecBinOp::Mul, Type::I8) => de64_MUL16b(d, n, r),
                     (VecBinOp::Mul, Type::F64) => de64_FMUL2d(d, n, r),
                     (VecBinOp::Mul, Type::F32) => de64_FMUL4s(d, n, r),
-                    (VecBinOp::Smin | VecBinOp::Smax | VecBinOp::Umin | VecBinOp::Umax, Type::I8 | Type::I16 | Type::I32) => neon_minmax(bop, lane, rd, rn, rm)?,
-                    _ => return Err(invalid("gravity_tpde: vector op has no NEON form for this lane type")),
+                    (
+                        VecBinOp::Smin | VecBinOp::Smax | VecBinOp::Umin | VecBinOp::Umax,
+                        Type::I8 | Type::I16 | Type::I32,
+                    ) => neon_minmax(bop, lane, rd, rn, rm)?,
+                    _ => {
+                        return Err(invalid(
+                            "gravity_tpde: vector op has no NEON form for this lane type",
+                        ))
+                    }
                 };
                 raw::emit(m, w)
             })?;
@@ -1662,7 +2082,11 @@ where
                 let k = count as u32;
                 if k == 0 {
                     // `ushr` / `sshr` take 1..width: a shift by 0 is the value
-                    return if rd != rn { raw::emit(m, de64_ORR16b(d, n, n)) } else { Ok(()) };
+                    return if rd != rn {
+                        raw::emit(m, de64_ORR16b(d, n, n))
+                    } else {
+                        Ok(())
+                    };
                 }
                 let w = match (sop, lane) {
                     (VecShiftOp::Shl, Type::I64) => de64_SHL2di(d, n, k),
@@ -1925,7 +2349,11 @@ where
                 Type::I32 => de64_INSsw(v(rd)?, i, raw::zr(xr)?),
                 Type::I16 => de64_INShw(v(rd)?, i, raw::zr(xr)?),
                 Type::I8 => de64_INSbw(v(rd)?, i, raw::zr(xr)?),
-                _ => return Err(invalid("gravity_tpde: vinsert of a float lane is not encoded")),
+                _ => {
+                    return Err(invalid(
+                        "gravity_tpde: vinsert of a float lane is not encoded",
+                    ))
+                }
             };
             raw::emit(machine, w)?;
             rp.set_modified();
@@ -1986,9 +2414,17 @@ mod tests {
         let fixed = <GravityFrontend as A64Frontend<A<'static>>>::FIXED_ASSIGNMENTS;
         let pinned = <GravityFrontend as A64Frontend<A<'static>>>::PINNED_ASSIGNMENTS;
         let regs = AAPCS_INFO.allocatable_regs();
-        let banks = [(regs as u32).count_ones(), ((regs >> u32::BITS) as u32).count_ones()];
+        let banks = [
+            (regs as u32).count_ones(),
+            ((regs >> u32::BITS) as u32).count_ones(),
+        ];
         for (bank, allocatable) in banks.into_iter().enumerate() {
-            assert!(fixed[bank] + pinned[bank] < allocatable, "bank {bank}: {} fixed + {} pinned >= {allocatable}", fixed[bank], pinned[bank]);
+            assert!(
+                fixed[bank] + pinned[bank] < allocatable,
+                "bank {bank}: {} fixed + {} pinned >= {allocatable}",
+                fixed[bank],
+                pinned[bank]
+            );
         }
     }
 }

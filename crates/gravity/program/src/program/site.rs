@@ -15,21 +15,37 @@ pub enum SiteKind {
     /// closure.rs `index_ranges`): each claim is a run of ranges cut at the index's own separator keys, read in index
     /// order, and the emit hands the claims on in claim order (hosts index_ranges.rs). Its last `RANGE_KEYS` key cells
     /// hold the claim, past the key words.
-    IndexSource { nkeys: u16, natts: u16, worker: bool, leaves: bool, ranges: bool },
+    IndexSource {
+        nkeys: u16,
+        natts: u16,
+        worker: bool,
+        leaves: bool,
+        ranges: bool,
+    },
     /// `nkeys`: the site's key cells (`RANGE_KEYS` unless a TABLESAMPLE's computed argument reads more executor parameters).
     /// `zkeys`: the last `zkeys` of them hold open-time zone comparands (PS1-05, road `nest.eagersafe`: an eager-safe
     /// InitPlan's value the source's open stores, src.verdicts' key-cell slots `word_zone_key_arg`), so the host counts its
     /// own cells (the tid range's, the sample's) without them.
-    RangeSource { natts: u16, nkeys: u16, zkeys: u16 },
-    Write { natts: u16 },
+    RangeSource {
+        natts: u16,
+        nkeys: u16,
+        zkeys: u16,
+    },
+    Write {
+        natts: u16,
+    },
     /// A program's frame words (lowerv3 design §3.6, D229): `n` key cells kept across calls and arms, zeroed per execution.
-    Words { n: u16 },
+    Words {
+        n: u16,
+    },
     /// D732: a COPY row mark's row (a VALUES / function scan's whole row): no host source; its position (the row's datum,
     /// stored by the write or lock) is kept like a source's and handed to an EvalPlanQual recheck's node.
     Copy,
     /// D776: the row a write's or lock's REFERENCE mark names in source site `of`'s own scan (its position is the window's
     /// base): stored here per row, and the settle keeps it as site `of`'s position for an EvalPlanQual recheck.
-    RowOf { of: u16 },
+    RowOf {
+        of: u16,
+    },
     None,
 }
 
@@ -104,7 +120,12 @@ pub mod table_fn {
     }
 
     /// The cells `put_cells` wrote; `None` for an argument it did not write.
-    pub fn cells(arg: &[u8]) -> Option<Vec<u16>> {arg.len().is_multiple_of( 2).then(|| arg.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect()) // alloc: Program
+    pub fn cells(arg: &[u8]) -> Option<Vec<u16>> {
+        arg.len().is_multiple_of(2).then(|| {
+            arg.chunks_exact(2)
+                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .collect()
+        }) // alloc: Program
     }
 
     /// `EQ`'s and `RANGE`'s argument: each value as its 4-byte little-endian length, then its bytes, handed to `out` in pieces
@@ -131,7 +152,7 @@ pub mod table_fn {
     /// `put_values`' argument `arg` holds at least one value, each of byte length 0: an equality with them is a function
     /// of the byte length alone (exec sites.rs `lens_only`).
     pub fn values_all_empty(arg: &[u8]) -> bool {
-        !arg.is_empty() && arg.len().is_multiple_of( 4) && arg.iter().all(|&b| b == 0)
+        !arg.is_empty() && arg.len().is_multiple_of(4) && arg.iter().all(|&b| b == 0)
     }
 
     /// `DERIVED_CALL`'s call, evaluated once per entry: builtin `funcid` over `args`, where `None` is the entry and
@@ -147,11 +168,21 @@ pub mod table_fn {
 
         /// The table-argument image: `funcid`, the argument count, then per argument its length (`ENTRY` for the entry) and bytes.
         pub fn encode(&self) -> Vec<u8> {
-            let mut out = Vec::with_capacity(5 + self.args.iter().map(|a| 4 + a.as_ref().map_or(0, Vec::len)).sum::<usize>()); // alloc: Program
+            let mut out = Vec::with_capacity(
+                5 + self
+                    .args
+                    .iter()
+                    .map(|a| 4 + a.as_ref().map_or(0, Vec::len))
+                    .sum::<usize>(),
+            ); // alloc: Program
             out.extend_from_slice(&self.funcid.to_le_bytes());
             out.push(self.args.len() as u8);
             for a in &self.args {
-                out.extend_from_slice(&a.as_ref().map_or(Self::ENTRY, |b| b.len() as u32).to_le_bytes());
+                out.extend_from_slice(
+                    &a.as_ref()
+                        .map_or(Self::ENTRY, |b| b.len() as u32)
+                        .to_le_bytes(),
+                );
                 out.extend_from_slice(a.as_deref().unwrap_or(&[]));
             }
             out
@@ -165,7 +196,11 @@ pub mod table_fn {
             for _ in 0..n {
                 let len = u32::from_le_bytes(b.get(at..at + 4)?.try_into().ok()?);
                 at += 4;
-                args.push(if len == Self::ENTRY { None } else { Some(b.get(at..at + len as usize)?.to_vec()) }); // alloc: Program
+                args.push(if len == Self::ENTRY {
+                    None
+                } else {
+                    Some(b.get(at..at + len as usize)?.to_vec())
+                }); // alloc: Program
                 at += if len == Self::ENTRY { 0 } else { len as usize };
             }
             (at == b.len() && args.iter().any(Option::is_none)).then_some(Call { funcid, args })
@@ -180,14 +215,34 @@ pub mod table_fn {
         /// its last argument is no call.
         #[test]
         fn a_call_image_round_trips() {
-            let c = Call { funcid: 2087, args: vec![None, Some(b"http://".to_vec()), Some(Vec::new())] };
+            let c = Call {
+                funcid: 2087,
+                args: vec![None, Some(b"http://".to_vec()), Some(Vec::new())],
+            };
             assert_eq!(Call::decode(&c.encode()), Some(c.clone()));
-            let lone = Call { funcid: 870, args: vec![None] };
+            let lone = Call {
+                funcid: 870,
+                args: vec![None],
+            };
             assert_eq!(Call::decode(&lone.encode()), Some(lone));
-            assert_eq!(Call::decode(&Call { funcid: 1, args: vec![Some(b"x".to_vec())] }.encode()), None, "no entry argument");
+            assert_eq!(
+                Call::decode(
+                    &Call {
+                        funcid: 1,
+                        args: vec![Some(b"x".to_vec())]
+                    }
+                    .encode()
+                ),
+                None,
+                "no entry argument"
+            );
             let img = c.encode();
             assert_eq!(Call::decode(&img[..img.len() - 1]), None, "short");
-            assert_eq!(Call::decode(&[img.as_slice(), &[0]].concat()), None, "trailing bytes");
+            assert_eq!(
+                Call::decode(&[img.as_slice(), &[0]].concat()),
+                None,
+                "trailing bytes"
+            );
         }
     }
 }
@@ -204,30 +259,59 @@ pub struct TableDecl {
 
 impl TableDecl {
     pub const fn fingerprint(over: u8) -> TableDecl {
-        TableDecl { over, func: table_fn::FINGERPRINT, flags: 0, collation: 0, encoding: 0, args: [(0, 0); 2] }
+        TableDecl {
+            over,
+            func: table_fn::FINGERPRINT,
+            flags: 0,
+            collation: 0,
+            encoding: 0,
+            args: [(0, 0); 2],
+        }
     }
 
     /// A bpchar code lane's `Fp128` table: `fingerprint`'s over the trimmed renders (hashbpchar's image; D767, V4R-266).
     pub const fn fingerprint_bpchar(over: u8) -> TableDecl {
-        TableDecl { flags: table_fn::FLAG_BPCHAR, ..TableDecl::fingerprint(over) }
+        TableDecl {
+            flags: table_fn::FLAG_BPCHAR,
+            ..TableDecl::fingerprint(over)
+        }
     }
 
     /// textkeys step 3: a code lane's canonical image table (`table_fn::FLAG_CANON`), the trimmed renders' for a bpchar lane.
     pub const fn fingerprint_canon(over: u8, bpchar: bool) -> TableDecl {
-        let base = if bpchar { TableDecl::fingerprint_bpchar(over) } else { TableDecl::fingerprint(over) };
-        TableDecl { flags: base.flags | table_fn::FLAG_CANON, ..base }
+        let base = if bpchar {
+            TableDecl::fingerprint_bpchar(over)
+        } else {
+            TableDecl::fingerprint(over)
+        };
+        TableDecl {
+            flags: base.flags | table_fn::FLAG_CANON,
+            ..base
+        }
     }
 
     /// Whether this is a code lane's key image table: `fingerprint`, `fingerprint_bpchar` or a `fingerprint_canon` (the
     /// lane's `DictRef::fp_table`).
     pub fn is_lane_fingerprint(&self) -> bool {
         let canon = self.flags & table_fn::FLAG_CANON != 0;
-        [false, true].into_iter().any(|bp| *self == if canon { TableDecl::fingerprint_canon(self.over, bp) } else if bp { TableDecl::fingerprint_bpchar(self.over) } else { TableDecl::fingerprint(self.over) })
+        [false, true].into_iter().any(|bp| {
+            *self
+                == if canon {
+                    TableDecl::fingerprint_canon(self.over, bp)
+                } else if bp {
+                    TableDecl::fingerprint_bpchar(self.over)
+                } else {
+                    TableDecl::fingerprint(self.over)
+                }
+        })
     }
 
     /// A bpchar code lane's trimmed rank table (OID-19): the order `bpcharcmp` gives a byte-ordered collation.
     pub const fn rank_bpchar(over: u8) -> TableDecl {
-        TableDecl { func: table_fn::RANK, ..TableDecl::fingerprint_bpchar(over) }
+        TableDecl {
+            func: table_fn::RANK,
+            ..TableDecl::fingerprint_bpchar(over)
+        }
     }
 }
 
@@ -365,7 +449,10 @@ pub struct MergeAttnos {
 
 impl MergeAttnos {
     /// No key: an unordered site.
-    pub const NONE: MergeAttnos = MergeAttnos { n: 0, keys: [0; crate::limits::KEYS] };
+    pub const NONE: MergeAttnos = MergeAttnos {
+        n: 0,
+        keys: [0; crate::limits::KEYS],
+    };
 
     /// The key `keys`; `None` past `limits::KEYS` attnos.
     pub fn of(keys: &[i16]) -> Option<MergeAttnos> {
@@ -406,7 +493,37 @@ impl core::fmt::Debug for MergeAttnos {
 /// The derived form's clone, by hand: each list clones (in its own arena), every other field is a copy.
 impl Clone for SiteDesc {
     fn clone(&self) -> SiteDesc {
-        let SiteDesc { kind, relation, index, key_attnos, param_slots, out_attnos, lanes, driving_lanes, zone, zone_any, zone_any_ends, filter_lanes, answer_lanes, sparse_dicts, dict_renders, head_prefault, raw_pages, rows_via_am, entries, entries_filtered, entries_nulls, entries_desc, tables, table_bytes, shreds, walk, set, set_prune, merge } = self;
+        let SiteDesc {
+            kind,
+            relation,
+            index,
+            key_attnos,
+            param_slots,
+            out_attnos,
+            lanes,
+            driving_lanes,
+            zone,
+            zone_any,
+            zone_any_ends,
+            filter_lanes,
+            answer_lanes,
+            sparse_dicts,
+            dict_renders,
+            head_prefault,
+            raw_pages,
+            rows_via_am,
+            entries,
+            entries_filtered,
+            entries_nulls,
+            entries_desc,
+            tables,
+            table_bytes,
+            shreds,
+            walk,
+            set,
+            set_prune,
+            merge,
+        } = self;
         SiteDesc {
             kind: *kind,
             relation: *relation,
@@ -447,10 +564,39 @@ impl Clone for SiteDesc {
 /// field added to the descriptor is a compile error here until it is printed and hashed; `rows_via_am` only when set).
 impl core::fmt::Debug for SiteDesc {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let SiteDesc { kind, relation, index, key_attnos, param_slots, out_attnos, lanes, driving_lanes, zone, zone_any, zone_any_ends, filter_lanes, answer_lanes, sparse_dicts, dict_renders, head_prefault, raw_pages, rows_via_am, entries, entries_filtered, entries_nulls, entries_desc, tables, table_bytes, shreds, walk, set, set_prune, merge } = self;
+        let SiteDesc {
+            kind,
+            relation,
+            index,
+            key_attnos,
+            param_slots,
+            out_attnos,
+            lanes,
+            driving_lanes,
+            zone,
+            zone_any,
+            zone_any_ends,
+            filter_lanes,
+            answer_lanes,
+            sparse_dicts,
+            dict_renders,
+            head_prefault,
+            raw_pages,
+            rows_via_am,
+            entries,
+            entries_filtered,
+            entries_nulls,
+            entries_desc,
+            tables,
+            table_bytes,
+            shreds,
+            walk,
+            set,
+            set_prune,
+            merge,
+        } = self;
         let mut d = f.debug_struct("SiteDesc");
-        d
-            .field("kind", kind)
+        d.field("kind", kind)
             .field("relation", relation)
             .field("index", index)
             .field("key_attnos", key_attnos)
@@ -493,7 +639,37 @@ impl core::fmt::Debug for SiteDesc {
 
 impl core::hash::Hash for SiteDesc {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        let SiteDesc { kind, relation, index, key_attnos, param_slots, out_attnos, lanes, driving_lanes, zone, zone_any, zone_any_ends, filter_lanes, answer_lanes, sparse_dicts, dict_renders, head_prefault, raw_pages, rows_via_am, entries, entries_filtered, entries_nulls, entries_desc, tables, table_bytes, shreds, walk, set, set_prune, merge } = self;
+        let SiteDesc {
+            kind,
+            relation,
+            index,
+            key_attnos,
+            param_slots,
+            out_attnos,
+            lanes,
+            driving_lanes,
+            zone,
+            zone_any,
+            zone_any_ends,
+            filter_lanes,
+            answer_lanes,
+            sparse_dicts,
+            dict_renders,
+            head_prefault,
+            raw_pages,
+            rows_via_am,
+            entries,
+            entries_filtered,
+            entries_nulls,
+            entries_desc,
+            tables,
+            table_bytes,
+            shreds,
+            walk,
+            set,
+            set_prune,
+            merge,
+        } = self;
         kind.hash(state);
         relation.hash(state);
         index.hash(state);
@@ -550,16 +726,90 @@ impl SiteDesc {
     pub const ENTRIES_EVERY: u8 = u8::MAX;
 
     pub const fn none_in(a: ArenaRef) -> SiteDesc {
-        SiteDesc { kind: SiteKind::None, relation: 0, index: 0, key_attnos: ArenaVec::new_in(a), param_slots: ArenaVec::new_in(a), out_attnos: ArenaVec::new_in(a), lanes: ArenaVec::new_in(a), driving_lanes: LaneSet::new_in(a), zone: ArenaVec::new_in(a), zone_any: ArenaVec::new_in(a), zone_any_ends: ArenaVec::new_in(a), filter_lanes: LaneSet::new_in(a), answer_lanes: LaneSet::new_in(a), sparse_dicts: false, dict_renders: 0, head_prefault: false, raw_pages: false, rows_via_am: false, entries: None, entries_filtered: false, entries_nulls: false, entries_desc: false, tables: ArenaVec::new_in(a), table_bytes: ArenaVec::new_in(a), shreds: ArenaVec::new_in(a), walk: None, set: ArenaVec::new_in(a), set_prune: None, merge: MergeAttnos::NONE }
+        SiteDesc {
+            kind: SiteKind::None,
+            relation: 0,
+            index: 0,
+            key_attnos: ArenaVec::new_in(a),
+            param_slots: ArenaVec::new_in(a),
+            out_attnos: ArenaVec::new_in(a),
+            lanes: ArenaVec::new_in(a),
+            driving_lanes: LaneSet::new_in(a),
+            zone: ArenaVec::new_in(a),
+            zone_any: ArenaVec::new_in(a),
+            zone_any_ends: ArenaVec::new_in(a),
+            filter_lanes: LaneSet::new_in(a),
+            answer_lanes: LaneSet::new_in(a),
+            sparse_dicts: false,
+            dict_renders: 0,
+            head_prefault: false,
+            raw_pages: false,
+            rows_via_am: false,
+            entries: None,
+            entries_filtered: false,
+            entries_nulls: false,
+            entries_desc: false,
+            tables: ArenaVec::new_in(a),
+            table_bytes: ArenaVec::new_in(a),
+            shreds: ArenaVec::new_in(a),
+            walk: None,
+            set: ArenaVec::new_in(a),
+            set_prune: None,
+            merge: MergeAttnos::NONE,
+        }
     }
 
     /// The descriptor with its lists in arena `a` (the program's, at build).
     pub fn copy_in(&self, a: ArenaRef) -> SiteDesc {
-        SiteDesc { kind: self.kind, relation: self.relation, index: self.index, key_attnos: copy_vec(&self.key_attnos, a), param_slots: copy_vec(&self.param_slots, a), out_attnos: copy_vec(&self.out_attnos, a), lanes: copy_vec(&self.lanes, a), driving_lanes: self.driving_lanes.copy_in(a), zone: copy_vec(&self.zone, a), zone_any: copy_vec(&self.zone_any, a), zone_any_ends: copy_vec(&self.zone_any_ends, a), filter_lanes: self.filter_lanes.copy_in(a), answer_lanes: self.answer_lanes.copy_in(a), sparse_dicts: self.sparse_dicts, dict_renders: self.dict_renders, head_prefault: self.head_prefault, raw_pages: self.raw_pages, rows_via_am: self.rows_via_am, entries: self.entries, entries_filtered: self.entries_filtered, entries_nulls: self.entries_nulls, entries_desc: self.entries_desc, tables: copy_vec(&self.tables, a), table_bytes: copy_vec(&self.table_bytes, a), shreds: copy_vec(&self.shreds, a), walk: self.walk, set: copy_vec(&self.set, a), set_prune: self.set_prune, merge: self.merge }
+        SiteDesc {
+            kind: self.kind,
+            relation: self.relation,
+            index: self.index,
+            key_attnos: copy_vec(&self.key_attnos, a),
+            param_slots: copy_vec(&self.param_slots, a),
+            out_attnos: copy_vec(&self.out_attnos, a),
+            lanes: copy_vec(&self.lanes, a),
+            driving_lanes: self.driving_lanes.copy_in(a),
+            zone: copy_vec(&self.zone, a),
+            zone_any: copy_vec(&self.zone_any, a),
+            zone_any_ends: copy_vec(&self.zone_any_ends, a),
+            filter_lanes: self.filter_lanes.copy_in(a),
+            answer_lanes: self.answer_lanes.copy_in(a),
+            sparse_dicts: self.sparse_dicts,
+            dict_renders: self.dict_renders,
+            head_prefault: self.head_prefault,
+            raw_pages: self.raw_pages,
+            rows_via_am: self.rows_via_am,
+            entries: self.entries,
+            entries_filtered: self.entries_filtered,
+            entries_nulls: self.entries_nulls,
+            entries_desc: self.entries_desc,
+            tables: copy_vec(&self.tables, a),
+            table_bytes: copy_vec(&self.table_bytes, a),
+            shreds: copy_vec(&self.shreds, a),
+            walk: self.walk,
+            set: copy_vec(&self.set, a),
+            set_prune: self.set_prune,
+            merge: self.merge,
+        }
     }
 
     pub fn arena_bytes(&self) -> usize {
-        round8(self.key_attnos.len() * 2) + round8(self.param_slots.len() * 2) + round8(self.out_attnos.len() * 2) + round8(self.lanes.len() * core::mem::size_of::<LaneDesc>()) + round8(self.zone.len() * core::mem::size_of::<ZonePred>()) + round8(self.zone_any.len() * core::mem::size_of::<ZonePred>()) + round8(self.zone_any_ends.len() * 2) + (self.driving_lanes.words().len() + self.filter_lanes.words().len() + self.answer_lanes.words().len()) * 8 + round8(self.tables.len() * core::mem::size_of::<TableDecl>()) + round8(self.table_bytes.len()) + round8(self.shreds.len() * core::mem::size_of::<ShredDecl>()) + round8(self.set.len() * 4)
+        round8(self.key_attnos.len() * 2)
+            + round8(self.param_slots.len() * 2)
+            + round8(self.out_attnos.len() * 2)
+            + round8(self.lanes.len() * core::mem::size_of::<LaneDesc>())
+            + round8(self.zone.len() * core::mem::size_of::<ZonePred>())
+            + round8(self.zone_any.len() * core::mem::size_of::<ZonePred>())
+            + round8(self.zone_any_ends.len() * 2)
+            + (self.driving_lanes.words().len()
+                + self.filter_lanes.words().len()
+                + self.answer_lanes.words().len())
+                * 8
+            + round8(self.tables.len() * core::mem::size_of::<TableDecl>())
+            + round8(self.table_bytes.len())
+            + round8(self.shreds.len() * core::mem::size_of::<ShredDecl>())
+            + round8(self.set.len() * 4)
     }
 
     /// The attributes-only lane list: one width-8 by-value lane per out attno, every one driving.
@@ -596,7 +846,10 @@ impl SiteDesc {
 
     /// D3009: add a disjunction (`zone_any`), one predicate per arm; a group already there is not added again.
     pub fn add_zone_any(&mut self, arms: &[ZonePred]) {
-        assert!(arms.len() >= 2 && arms.iter().all(|z| (z.lane as usize) < self.lanes.len()), "zone disjunction");
+        assert!(
+            arms.len() >= 2 && arms.iter().all(|z| (z.lane as usize) < self.lanes.len()),
+            "zone disjunction"
+        );
         if self.zone_any_groups().any(|g| g == arms) {
             return;
         }
@@ -642,7 +895,9 @@ impl SiteDesc {
         self.tables.push(decl);
         self.add_lane(LaneDesc::table(i as u16), false);
         if decl.is_lane_fingerprint() {
-            if let Some(Rep::Code { dict }) = self.lanes.get_mut(decl.over as usize).map(|l| &mut l.rep) {
+            if let Some(Rep::Code { dict }) =
+                self.lanes.get_mut(decl.over as usize).map(|l| &mut l.rep)
+            {
                 dict.fp_table = i as u8;
             }
         }
@@ -653,15 +908,36 @@ impl SiteDesc {
     /// this range site (the same declaration once): inserted after the attribute lanes, before the offset lane, so it is
     /// declared before any table or derived lane. `None` for any other site or once a later lane is declared.
     pub fn add_shred(&mut self, attno: i16, path: &[u8], kind: u8, scale: i16) -> Option<usize> {
-        let SiteKind::RangeSource { natts, nkeys, zkeys } = self.kind else { return None };
+        let SiteKind::RangeSource {
+            natts,
+            nkeys,
+            zkeys,
+        } = self.kind
+        else {
+            return None;
+        };
         let n = natts as usize;
-        if let Some(d) = self.shreds.iter().find(|d| d.kind == kind && d.scale == scale && self.out_attnos[d.lane as usize] == attno && self.table_arg_at(d.path) == path) {
+        if let Some(d) = self.shreds.iter().find(|d| {
+            d.kind == kind
+                && d.scale == scale
+                && self.out_attnos[d.lane as usize] == attno
+                && self.table_arg_at(d.path) == path
+        }) {
             return Some(d.lane as usize);
         }
-        if self.lanes.len() != n + 1 || self.lanes[n].id != LaneId::Offset || !self.tables.is_empty() || n >= u8::MAX as usize {
+        if self.lanes.len() != n + 1
+            || self.lanes[n].id != LaneId::Offset
+            || !self.tables.is_empty()
+            || n >= u8::MAX as usize
+        {
             return None;
         }
-        let mut l = LaneDesc::value(LaneId::JsonbPath(self.shreds.len() as u16), lane::KIND_BYREF, 8, lane::REGION_ARENA);
+        let mut l = LaneDesc::value(
+            LaneId::JsonbPath(self.shreds.len() as u16),
+            lane::KIND_BYREF,
+            8,
+            lane::REGION_ARENA,
+        );
         match kind {
             shred_kind::TEXT => {
                 l.rep = Rep::VarlenaPtr;
@@ -673,16 +949,40 @@ impl SiteDesc {
                 l.kind = lane::KIND_BYVAL;
                 l.rep = Rep::Word { bytes: 8 };
             }
-            shred_kind::PRESENCE => l = LaneDesc::value(LaneId::JsonbPath(self.shreds.len() as u16), lane::KIND_BYVAL, 8, lane::REGION_ARENA),
-            shred_kind::OCTET_LENGTH | shred_kind::NONEMPTY | shred_kind::CHAR_LENGTH => l = LaneDesc::value(LaneId::JsonbPath(self.shreds.len() as u16), lane::KIND_BYVAL, 8, lane::REGION_ARENA),
+            shred_kind::PRESENCE => {
+                l = LaneDesc::value(
+                    LaneId::JsonbPath(self.shreds.len() as u16),
+                    lane::KIND_BYVAL,
+                    8,
+                    lane::REGION_ARENA,
+                )
+            }
+            shred_kind::OCTET_LENGTH | shred_kind::NONEMPTY | shred_kind::CHAR_LENGTH => {
+                l = LaneDesc::value(
+                    LaneId::JsonbPath(self.shreds.len() as u16),
+                    lane::KIND_BYVAL,
+                    8,
+                    lane::REGION_ARENA,
+                )
+            }
             _ => return None,
         }
         let path = self.table_bytes_of(path);
-        self.shreds.push(ShredDecl { lane: n as u8, kind, scale, path, claims: 0 });
+        self.shreds.push(ShredDecl {
+            lane: n as u8,
+            kind,
+            scale,
+            path,
+            claims: 0,
+        });
         self.lanes.insert(n, l);
         self.out_attnos.push(attno);
         self.driving_lanes.insert(n);
-        self.kind = SiteKind::RangeSource { natts: natts + 1, nkeys, zkeys };
+        self.kind = SiteKind::RangeSource {
+            natts: natts + 1,
+            nkeys,
+            zkeys,
+        };
         if kind == shred_kind::TEXT_CODES {
             self.set_codes_lane(n);
         }
@@ -694,14 +994,36 @@ impl SiteDesc {
     /// lane; the column itself is no longer read (no code, no dictionary). `None` for any other site, lane or kind, or once
     /// a table is declared.
     pub fn shred_in_place(&mut self, at: usize, kind: u8) -> Option<usize> {
-        let SiteKind::RangeSource { natts, .. } = self.kind else { return None };
+        let SiteKind::RangeSource { natts, .. } = self.kind else {
+            return None;
+        };
         let column = matches!(self.lanes.get(at).map(|l| l.id), Some(LaneId::Attr(a)) if a > 0);
-        if at >= natts as usize || at > u8::MAX as usize || !column || !matches!(kind, shred_kind::OCTET_LENGTH | shred_kind::NONEMPTY | shred_kind::CHAR_LENGTH) || !self.tables.is_empty() || self.entries.is_some() {
+        if at >= natts as usize
+            || at > u8::MAX as usize
+            || !column
+            || !matches!(
+                kind,
+                shred_kind::OCTET_LENGTH | shred_kind::NONEMPTY | shred_kind::CHAR_LENGTH
+            )
+            || !self.tables.is_empty()
+            || self.entries.is_some()
+        {
             return None;
         }
         let path = self.table_bytes_of(&[]);
-        self.lanes[at] = LaneDesc::value(LaneId::JsonbPath(self.shreds.len() as u16), lane::KIND_BYVAL, 8, lane::REGION_ARENA);
-        self.shreds.push(ShredDecl { lane: at as u8, kind, scale: 0, path, claims: 0 });
+        self.lanes[at] = LaneDesc::value(
+            LaneId::JsonbPath(self.shreds.len() as u16),
+            lane::KIND_BYVAL,
+            8,
+            lane::REGION_ARENA,
+        );
+        self.shreds.push(ShredDecl {
+            lane: at as u8,
+            kind,
+            scale: 0,
+            path,
+            claims: 0,
+        });
         self.driving_lanes.insert(at);
         self.filter_lanes.remove(at);
         self.answer_lanes.remove(at);
@@ -719,8 +1041,15 @@ impl SiteDesc {
     pub fn path_only(&self, reads: &[u32]) -> u64 {
         let mut m = 0u64;
         for (l, &r) in reads.iter().enumerate().take(64) {
-            let LaneId::Attr(a) = self.lanes[l].id else { continue };
-            let claims: u32 = self.shreds.iter().filter(|d| self.out_attnos.get(d.lane as usize) == Some(&a)).map(|d| d.claims as u32).sum();
+            let LaneId::Attr(a) = self.lanes[l].id else {
+                continue;
+            };
+            let claims: u32 = self
+                .shreds
+                .iter()
+                .filter(|d| self.out_attnos.get(d.lane as usize) == Some(&a))
+                .map(|d| d.claims as u32)
+                .sum();
             if claims > 0 && claims == r {
                 m |= 1 << l;
             }
@@ -750,7 +1079,9 @@ impl SiteDesc {
         l.kind = lane::KIND_CODES;
         l.width = 4;
         l.region = lane::REGION_DICTIONARY;
-        l.rep = Rep::Code { dict: DictRef::lane(k as u8) };
+        l.rep = Rep::Code {
+            dict: DictRef::lane(k as u8),
+        };
         l.life = LaneLife::DICTIONARY;
     }
 
@@ -796,7 +1127,10 @@ impl SiteDesc {
 
     /// Code lane `k` is published as its parts' dictionary entries (`entries`): the site's only attribute lane.
     pub fn entries_lane(mut self, k: usize) -> SiteDesc {
-        assert!(self.natts() == 1 && k == 0 && self.lanes[k].kind == lane::KIND_CODES, "the entries lane is the site's one attribute, a code lane");
+        assert!(
+            self.natts() == 1 && k == 0 && self.lanes[k].kind == lane::KIND_CODES,
+            "the entries lane is the site's one attribute, a code lane"
+        );
         self.entries = Some(k as u8);
         self
     }
@@ -834,39 +1168,113 @@ impl SiteDesc {
         MergeAttnos::of(keys).map(|m| self.merge = m).is_some()
     }
 
-    pub fn index_source(a: ArenaRef, relation: u32, index: u32, key_attnos: &[i16], param_slots: &[i16], out_attnos: &[i16]) -> SiteDesc {
+    pub fn index_source(
+        a: ArenaRef,
+        relation: u32,
+        index: u32,
+        key_attnos: &[i16],
+        param_slots: &[i16],
+        out_attnos: &[i16],
+    ) -> SiteDesc {
         assert!(param_slots.len() == key_attnos.len(), "site shape");
-        let d = SiteDesc { kind: SiteKind::IndexSource { nkeys: key_attnos.len() as u16, natts: out_attnos.len() as u16, worker: false, leaves: false, ranges: false }, relation, index, key_attnos: copy_vec(key_attnos, a), param_slots: copy_vec(param_slots, a), out_attnos: copy_vec(out_attnos, a), ..SiteDesc::none_in(a) };
+        let d = SiteDesc {
+            kind: SiteKind::IndexSource {
+                nkeys: key_attnos.len() as u16,
+                natts: out_attnos.len() as u16,
+                worker: false,
+                leaves: false,
+                ranges: false,
+            },
+            relation,
+            index,
+            key_attnos: copy_vec(key_attnos, a),
+            param_slots: copy_vec(param_slots, a),
+            out_attnos: copy_vec(out_attnos, a),
+            ..SiteDesc::none_in(a)
+        };
         d.attribute_lanes(out_attnos)
     }
 
     pub const fn write(relation: u32, natts: u16) -> SiteDesc {
         let a = ArenaRef::EMPTY;
-        SiteDesc { kind: SiteKind::Write { natts }, relation, index: 0, key_attnos: ArenaVec::new_in(a), param_slots: ArenaVec::new_in(a), out_attnos: ArenaVec::new_in(a), lanes: ArenaVec::new_in(a), driving_lanes: LaneSet::new_in(a), zone: ArenaVec::new_in(a), zone_any: ArenaVec::new_in(a), zone_any_ends: ArenaVec::new_in(a), filter_lanes: LaneSet::new_in(a), answer_lanes: LaneSet::new_in(a), sparse_dicts: false, dict_renders: 0, head_prefault: false, raw_pages: false, rows_via_am: false, entries: None, entries_filtered: false, entries_nulls: false, entries_desc: false, tables: ArenaVec::new_in(a), table_bytes: ArenaVec::new_in(a), shreds: ArenaVec::new_in(a), walk: None, set: ArenaVec::new_in(a), set_prune: None, merge: MergeAttnos::NONE }
+        SiteDesc {
+            kind: SiteKind::Write { natts },
+            relation,
+            index: 0,
+            key_attnos: ArenaVec::new_in(a),
+            param_slots: ArenaVec::new_in(a),
+            out_attnos: ArenaVec::new_in(a),
+            lanes: ArenaVec::new_in(a),
+            driving_lanes: LaneSet::new_in(a),
+            zone: ArenaVec::new_in(a),
+            zone_any: ArenaVec::new_in(a),
+            zone_any_ends: ArenaVec::new_in(a),
+            filter_lanes: LaneSet::new_in(a),
+            answer_lanes: LaneSet::new_in(a),
+            sparse_dicts: false,
+            dict_renders: 0,
+            head_prefault: false,
+            raw_pages: false,
+            rows_via_am: false,
+            entries: None,
+            entries_filtered: false,
+            entries_nulls: false,
+            entries_desc: false,
+            tables: ArenaVec::new_in(a),
+            table_bytes: ArenaVec::new_in(a),
+            shreds: ArenaVec::new_in(a),
+            walk: None,
+            set: ArenaVec::new_in(a),
+            set_prune: None,
+            merge: MergeAttnos::NONE,
+        }
     }
 
     pub fn words(a: ArenaRef, n: u16) -> SiteDesc {
-        SiteDesc { kind: SiteKind::Words { n }, ..SiteDesc::none_in(a) }
+        SiteDesc {
+            kind: SiteKind::Words { n },
+            ..SiteDesc::none_in(a)
+        }
     }
 
     /// D732: the COPY mark site of the scan of range table index `scanrelid` (kept in `index`).
     pub fn copy(a: ArenaRef, scanrelid: u32) -> SiteDesc {
-        SiteDesc { kind: SiteKind::Copy, index: scanrelid, ..SiteDesc::none_in(a) }
+        SiteDesc {
+            kind: SiteKind::Copy,
+            index: scanrelid,
+            ..SiteDesc::none_in(a)
+        }
     }
 
     /// D776: the marked-row site of source site `of` (relation `relation`).
     pub fn row_of(a: ArenaRef, of: u16, relation: u32) -> SiteDesc {
-        SiteDesc { kind: SiteKind::RowOf { of }, relation, ..SiteDesc::none_in(a) }
+        SiteDesc {
+            kind: SiteKind::RowOf { of },
+            relation,
+            ..SiteDesc::none_in(a)
+        }
     }
 
     pub fn range_source(a: ArenaRef, relation: u32, out_attnos: &[i16]) -> SiteDesc {
-        let d = SiteDesc { kind: SiteKind::RangeSource { natts: out_attnos.len() as u16, nkeys: RANGE_KEYS as u16, zkeys: 0 }, relation, out_attnos: copy_vec(out_attnos, a), ..SiteDesc::none_in(a) };
-        d.attribute_lanes(out_attnos).with_lane(LaneDesc::offset(), false)
+        let d = SiteDesc {
+            kind: SiteKind::RangeSource {
+                natts: out_attnos.len() as u16,
+                nkeys: RANGE_KEYS as u16,
+                zkeys: 0,
+            },
+            relation,
+            out_attnos: copy_vec(out_attnos, a),
+            ..SiteDesc::none_in(a)
+        };
+        d.attribute_lanes(out_attnos)
+            .with_lane(LaneDesc::offset(), false)
     }
 
     pub const fn natts(&self) -> usize {
         match self.kind {
-            SiteKind::IndexSource { natts, .. } | SiteKind::RangeSource { natts, .. } | SiteKind::Write { natts } => natts as usize,
+            SiteKind::IndexSource { natts, .. }
+            | SiteKind::RangeSource { natts, .. }
+            | SiteKind::Write { natts } => natts as usize,
             SiteKind::Words { .. } | SiteKind::Copy | SiteKind::RowOf { .. } | SiteKind::None => 0,
         }
     }
@@ -881,7 +1289,10 @@ impl SiteDesc {
     }
 
     pub const fn is_source(&self) -> bool {
-        matches!(self.kind, SiteKind::IndexSource { .. } | SiteKind::RangeSource { .. })
+        matches!(
+            self.kind,
+            SiteKind::IndexSource { .. } | SiteKind::RangeSource { .. }
+        )
     }
 
     /// A site whose position a node keeps (`Node::positions`) for a recheck: a source's, or a COPY mark's row (D732).
@@ -915,7 +1326,11 @@ impl SiteDesc {
     /// The key words of an index site, without a ranges site's claim cells (`ranges`).
     pub const fn key_words(&self) -> usize {
         match self.kind {
-            SiteKind::IndexSource { nkeys, ranges: true, .. } => nkeys as usize - RANGE_KEYS,
+            SiteKind::IndexSource {
+                nkeys,
+                ranges: true,
+                ..
+            } => nkeys as usize - RANGE_KEYS,
             _ => self.nkeys(),
         }
     }
@@ -943,7 +1358,18 @@ impl OutCol {
         assert!(name.len() < NAME_LEN, "column name too long");
         let mut n = [0u8; NAME_LEN];
         n[..name.len()].copy_from_slice(name.as_bytes());
-        OutCol { name: n, typid, typmod, typlen, typbyval, format: 0, origtbl: 0, origcol: 0, collation: 0, rep: Rep::of_storage(typlen, typbyval) }
+        OutCol {
+            name: n,
+            typid,
+            typmod,
+            typlen,
+            typbyval,
+            format: 0,
+            origtbl: 0,
+            origcol: 0,
+            collation: 0,
+            rep: Rep::of_storage(typlen, typbyval),
+        }
     }
 
     pub const fn origin(mut self, origtbl: u32, origcol: i16) -> OutCol {

@@ -293,7 +293,11 @@ pub struct ArmedConversion {
 
 impl core::fmt::Debug for ArmedConversion {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("ArmedConversion").field("src", &self.src).field("dest", &self.dest).field("proc", &self.proc).finish()
+        f.debug_struct("ArmedConversion")
+            .field("src", &self.src)
+            .field("dest", &self.dest)
+            .field("proc", &self.proc)
+            .finish()
     }
 }
 
@@ -302,12 +306,25 @@ pub fn armed_conversion(src: pg_enc, dest: pg_enc) -> PgResult<Option<ArmedConve
         return Ok(None);
     }
     let proc = namespace_seams::find_default_conversion_proc::call(src, dest)?;
-    let fn_addr = if proc == InvalidOid { None } else { Some(resolve_conv_proc(proc)?.fn_addr) };
-    Ok(Some(ArmedConversion { src, dest, proc, fn_addr }))
+    let fn_addr = if proc == InvalidOid {
+        None
+    } else {
+        Some(resolve_conv_proc(proc)?.fn_addr)
+    };
+    Ok(Some(ArmedConversion {
+        src,
+        dest,
+        proc,
+        fn_addr,
+    }))
 }
 
-pub fn arm_statement_conversions(armed: Option<&'static [ArmedConversion]>) -> Option<&'static [ArmedConversion]> {
-    STATEMENT_CONVERSIONS.try_with(|c| c.replace(armed)).unwrap_or(None)
+pub fn arm_statement_conversions(
+    armed: Option<&'static [ArmedConversion]>,
+) -> Option<&'static [ArmedConversion]> {
+    STATEMENT_CONVERSIONS
+        .try_with(|c| c.replace(armed))
+        .unwrap_or(None)
 }
 
 #[inline]
@@ -548,7 +565,14 @@ pub(crate) fn pg_do_encoding_conversion_at<'mcx>(
     if src.len() >= MAX_ALLOC_HUGE_SIZE / MAX_CONVERSION_GROWTH {
         return Err(too_long_error(src.len()));
     }
-    let (_, mut result) = convert_with_proc(mcx, ResolvedConvProc { fn_addr }, src_encoding, dest_encoding, src, false)?;
+    let (_, mut result) = convert_with_proc(
+        mcx,
+        ResolvedConvProc { fn_addr },
+        src_encoding,
+        dest_encoding,
+        src,
+        false,
+    )?;
     if src.len() > 1_000_000 {
         if result.len() >= MAX_ALLOC_SIZE {
             return Err(too_long_error(src.len()));
@@ -562,11 +586,19 @@ pub(crate) fn pg_do_encoding_conversion_at<'mcx>(
 /// not resolve is a counted miss that takes the catalog path), else the site's memo for this statement, else the
 /// search path's default conversion resolved now (`armed_conversion`, the leader's resolution for a claim too), kept
 /// in the memo.
-fn conversion_entry(src: pg_enc, dest: pg_enc, memo: Option<&mut ConvertMemo>) -> PgResult<PGFunction> {
+fn conversion_entry(
+    src: pg_enc,
+    dest: pg_enc,
+    memo: Option<&mut ConvertMemo>,
+) -> PgResult<PGFunction> {
     if let Some(armed) = STATEMENT_CONVERSIONS.with(Cell::get) {
         match armed.iter().find(|a| a.src == src && a.dest == dest) {
-            Some(&ArmedConversion { fn_addr: Some(f), .. }) => return Ok(f),
-            Some(ArmedConversion { fn_addr: None, .. }) => return Err(no_default_conversion_error(src, dest)),
+            Some(&ArmedConversion {
+                fn_addr: Some(f), ..
+            }) => return Ok(f),
+            Some(ArmedConversion { fn_addr: None, .. }) => {
+                return Err(no_default_conversion_error(src, dest))
+            }
             None => catcache_seams::note_pool_miss(-2),
         }
     }
@@ -574,7 +606,9 @@ fn conversion_entry(src: pg_enc, dest: pg_enc, memo: Option<&mut ConvertMemo>) -
     if let (Some(m), Some(k)) = (memo.as_deref(), key) {
         if let Some((mk, a)) = m.pair {
             if mk == k && a.src == src && a.dest == dest {
-                return a.fn_addr.ok_or_else(|| no_default_conversion_error(src, dest));
+                return a
+                    .fn_addr
+                    .ok_or_else(|| no_default_conversion_error(src, dest));
             }
         }
     }
@@ -586,12 +620,15 @@ fn conversion_entry(src: pg_enc, dest: pg_enc, memo: Option<&mut ConvertMemo>) -
     // C's OidFunctionCall6 re-resolves per call (only the client<->server default pair is cached); a site's memo keeps
     // it for the statement
     let Some(a) = armed_conversion(src, dest)? else {
-        return Err(internal_error("encoding conversion between equal or SQL_ASCII encodings reached its lookup"));
+        return Err(internal_error(
+            "encoding conversion between equal or SQL_ASCII encodings reached its lookup",
+        ));
     };
     if let (Some(m), Some(k)) = (memo, key) {
         m.pair = Some((k, a));
     }
-    a.fn_addr.ok_or_else(|| no_default_conversion_error(src, dest))
+    a.fn_addr
+        .ok_or_else(|| no_default_conversion_error(src, dest))
 }
 
 /// C `pg_do_encoding_conversion_buf`: `proc` was already looked up; the input
@@ -831,10 +868,7 @@ pub fn pg_encoding_mb2wchar_with_len<'mcx>(
     Ok(to)
 }
 
-pub fn pg_wchar2mb_with_len<'mcx>(
-    mcx: Mcx<'mcx>,
-    from: &[pg_wchar],
-) -> PgResult<PgVec<'mcx, u8>> {
+pub fn pg_wchar2mb_with_len<'mcx>(mcx: Mcx<'mcx>, from: &[pg_wchar]) -> PgResult<PgVec<'mcx, u8>> {
     pg_encoding_wchar2mb_with_len(mcx, database_encoding(), from)
 }
 
@@ -860,7 +894,11 @@ pub fn pg_mblen_range(mbstr: &[u8]) -> PgResult<i32> {
     debug_assert!(!mbstr.is_empty());
     let length = pg_encoding_mblen(database_encoding(), mbstr);
     if length as usize > mbstr.len() {
-        return Err(report_invalid_encoding_db(mbstr, length, mbstr.len() as i32));
+        return Err(report_invalid_encoding_db(
+            mbstr,
+            length,
+            mbstr.len() as i32,
+        ));
     }
     Ok(length)
 }

@@ -10,9 +10,8 @@ use ::types_error::{
 };
 
 use crate::{
-    check_for_interrupts, extended_query, loc, set_doing_command_read,
+    check_for_interrupts, extended_query, ignore_till_sync, loc, set_doing_command_read,
     set_doing_extended_query_message, set_ignore_till_sync, set_xact_started, simple_query,
-    ignore_till_sync,
 };
 
 pub(crate) mod pqmsg {
@@ -191,7 +190,7 @@ fn InteractiveBackend(in_buf: &mut StringInfo<'_>) -> PgResult<i32> {
                  * In plain mode, newline ends the command unless preceded by
                  * backslash.
                  */
-                if ! in_buf.is_empty() && in_buf.as_bytes()[in_buf.len() - 1] == b'\\' {
+                if !in_buf.is_empty() && in_buf.as_bytes()[in_buf.len() - 1] == b'\\' {
                     /* discard backslash from inBuf */
                     in_buf.truncate(in_buf.len() - 1);
                     /* discard newline too */
@@ -315,7 +314,6 @@ pub(crate) fn error_recovery(
 
     // (the report emission moved to the top of this function — GL-ERRFIX-1 E-4/E-5.)
 
-
     xact::AbortCurrentTransaction()?;
 
     if walsender_seams::am_walsender() {
@@ -334,7 +332,6 @@ pub(crate) fn error_recovery(
         slot::ReplicationSlotRelease()?;
     }
     slot::ReplicationSlotCleanup(false)?;
-
 
     elog::FlushErrorState();
 
@@ -482,8 +479,7 @@ fn log_connection_ready_durations() -> PgResult<()> {
     let timing = backend_startup::conn_timing::get();
     // TIMESTAMP_MINUS_INFINITY (types_startup) is i64::MIN.
     if timing.ready_for_use != i64::MIN
-        || backend_startup::log_connections::get()
-            & backend_startup::LOG_CONNECTION_SETUP_DURATIONS
+        || backend_startup::log_connections::get() & backend_startup::LOG_CONNECTION_SETUP_DURATIONS
             == 0
         || !matches!(
             miscinit::GetMyBackendType(),
@@ -497,7 +493,11 @@ fn log_connection_ready_durations() -> PgResult<()> {
     backend_startup::conn_timing::set_ready_for_use(now);
 
     let diff_us = |start: i64, stop: i64| -> u64 {
-        if start >= stop { 0 } else { (stop - start) as u64 }
+        if start >= stop {
+            0
+        } else {
+            (stop - start) as u64
+        }
     };
     let total = diff_us(timing.socket_create, now);
     let fork = diff_us(timing.fork_start, timing.fork_end);
@@ -541,9 +541,15 @@ fn forbidden_in_wal_sender(firstchar: i32) -> PgResult<()> {
 #[inline(never)]
 pub(crate) fn forbidden_in_wal_sender_error(firstchar: i32) -> PgResult<()> {
     let (msg, line) = if firstchar == pqmsg::FUNCTION_CALL {
-        ("fastpath function calls not supported in a replication connection", 5043)
+        (
+            "fastpath function calls not supported in a replication connection",
+            5043,
+        )
     } else {
-        ("extended query protocol not supported in a replication connection", 5047)
+        (
+            "extended query protocol not supported in a replication connection",
+            5047,
+        )
     };
     ereport(ERROR)
         .errcode(ERRCODE_PROTOCOL_VIOLATION)
@@ -570,8 +576,8 @@ fn dispatch_message<'mcx>(
 
             let query_string: &'mcx str = {
                 let s = pqformat::pq_getmsgstring(mcx, input_message)?;
-                let verified =
-                    matches!(s, pqformat::PqString::Borrowed(_)) && mbutils::client_to_server_verifies_utf8();
+                let verified = matches!(s, pqformat::PqString::Borrowed(_))
+                    && mbutils::client_to_server_verifies_utf8();
                 leak_str_in(mcx, s.as_bytes(), verified)?
             };
             pqformat::pq_getmsgend(input_message)?;
@@ -643,16 +649,10 @@ fn dispatch_message<'mcx>(
 
             match describe_type as u8 {
                 b'S' => {
-                    extended_query::exec_describe_statement_message(
-                        mcx,
-                        describe_target.as_str(),
-                    )?;
+                    extended_query::exec_describe_statement_message(mcx, describe_target.as_str())?;
                 }
                 b'P' => {
-                    extended_query::exec_describe_portal_message(
-                        mcx,
-                        describe_target.as_str(),
-                    )?;
+                    extended_query::exec_describe_portal_message(mcx, describe_target.as_str())?;
                 }
                 other => {
                     return Err(ereport(ERROR)
@@ -684,7 +684,11 @@ fn dispatch_message<'mcx>(
                     ereport(LOG)
                         .errmsg(format!("duration: {msec_str} ms"))
                         .errhidestmt(true)
-                        .finish(ErrorLocation::new("fastpath.c", 312, "HandleFunctionRequest"))?;
+                        .finish(ErrorLocation::new(
+                            "fastpath.c",
+                            312,
+                            "HandleFunctionRequest",
+                        ))?;
                 }
                 (2, msec_str) => {
                     // fastpath.c:316
@@ -694,7 +698,11 @@ fn dispatch_message<'mcx>(
                             call.fname, call.fid
                         ))
                         .errhidestmt(true)
-                        .finish(ErrorLocation::new("fastpath.c", 316, "HandleFunctionRequest"))?;
+                        .finish(ErrorLocation::new(
+                            "fastpath.c",
+                            316,
+                            "HandleFunctionRequest",
+                        ))?;
                 }
                 _ => {}
             }
@@ -771,8 +779,7 @@ fn dispatch_message<'mcx>(
             ipc_seams::proc_exit::call(0, init_small::globals::MyProcPid());
         }
 
-        x if x == pqmsg::COPY_DATA || x == pqmsg::COPY_DONE || x == pqmsg::COPY_FAIL => {
-        }
+        x if x == pqmsg::COPY_DATA || x == pqmsg::COPY_DONE || x == pqmsg::COPY_FAIL => {}
 
         other => {
             return Err(ereport(FATAL)
@@ -829,11 +836,17 @@ fn log_disconnections(_code: i32, _arg: usize) {
             port.user_name.as_deref().unwrap_or(""),
             port.database_name.as_deref().unwrap_or(""),
             port.remote_host,
-            if port.remote_port.is_empty() { "" } else { " port=" },
+            if port.remote_port.is_empty() {
+                ""
+            } else {
+                " port="
+            },
             port.remote_port,
         )
     });
-    let _ = ereport(LOG).errmsg(msg).finish(loc(5168, "log_disconnections"));
+    let _ = ereport(LOG)
+        .errmsg(msg)
+        .finish(loc(5168, "log_disconnections"));
 }
 
 /// One LOG line for a statement whose backend account's unattributed bytes (its bytes less what its owners
@@ -843,8 +856,14 @@ fn log_disconnections(_code: i32, _arg: usize) {
 #[inline(never)]
 fn log_unattributed(r: &memledger::unattr::Report) {
     fires::fire_shared("ledger.unattributed_over");
-    let end = r.end.map_or_else(|| "skipped".to_string(), |(u, b)| format!("{u} end_bound={b}")); // alloc: Cold
-    let peak = r.peak.map_or_else(|| "-".to_string(), |(u, b, l)| format!("{u} peak_bound={b} peak_level={l}")); // alloc: Cold
+    let end = r.end.map_or_else(
+        || "skipped".to_string(),
+        |(u, b)| format!("{u} end_bound={b}"),
+    ); // alloc: Cold
+    let peak = r.peak.map_or_else(
+        || "-".to_string(),
+        |(u, b, l)| format!("{u} peak_bound={b} peak_level={l}"),
+    ); // alloc: Cold
     let pid = memledger::account_row(memledger::current()).pid;
     let msg = format!("pgrust memory: unattributed over its bound: pid={pid} end={end} peak={peak} checks={} skipped={}", r.checks, r.skips); // alloc: Cold
     let _ = ereport(LOG).errmsg(msg).finish(loc(0, "log_unattributed"));
@@ -932,7 +951,6 @@ fn postgres_main_inner(dbname: &str, username: &str) -> PgResult<()> {
     // C5: the spill-request registry reaches this backend's Gravity interrupt byte (REVOKE_BIT) by its slot
     mcx::revoke::register_byte(init_small::globals::abort_pending_flag());
     drop(top);
-
 
     miscinit::SetProcessingMode(types_core::ProcessingMode::NormalProcessing);
 
@@ -1034,8 +1052,7 @@ fn postgres_main_inner(dbname: &str, username: &str) -> PgResult<()> {
                             pending = next;
                         }
                         Err(payload) => {
-                            *
-                            pending =pg_error_from_panic(payload);
+                            *pending = pg_error_from_panic(payload);
                         }
                     }
                 }
@@ -1154,7 +1171,10 @@ fn run_one_iteration_inner<'mcx>(mcx: Mcx<'mcx>, state: &mut LoopState) -> PgRes
     // memfree Part 2: the statement ledger (pgrust.statement_mem_limit, pgrust.memory_cancel_threshold), per message; C5:
     // pgrust.memory_revoke too (a revoke's registry entry is the ledger's)
     let limit_kb = guc_tables::backing::pgrust_statement_mem_limit().max(0) as usize;
-    mcx::governor::statement_start(limit_kb << 10, guc_tables::backing::pgrust_memory_cancel_threshold() > 0 || mcx::revoke::enabled());
+    mcx::governor::statement_start(
+        limit_kb << 10,
+        guc_tables::backing::pgrust_memory_cancel_threshold() > 0 || mcx::revoke::enabled(),
+    );
     mcx::governor::arm(true);
     let r = dispatch_message(mcx, firstchar, &mut input_message, state);
     mcx::governor::arm(false);
@@ -1181,12 +1201,15 @@ fn pg_strong_random(buf: &mut [u8]) -> PgResult<()> {
 /// interrupts held off. Every LWLock holder has them held off (LWLockAcquire holds them, as in C), so the gate never
 /// waits under an LWLock; buffer pins alone hold none (a bounded wait under a pin is allowed).
 pub(crate) fn block_gate_may_sleep() -> bool {
-    init_small::globals::CritSectionCount() == 0 && init_small::globals::InterruptHoldoffCount() == 0
+    init_small::globals::CritSectionCount() == 0
+        && init_small::globals::InterruptHoldoffCount() == 0
 }
 
 /// D4812 (2): whether an interrupt is pending on this thread (a query cancel, a statement_timeout, a die: InterruptPending,
 /// which every sender raises, or the pending flags themselves): mcx's block gate stops waiting and takes its block, so the
 /// next CHECK_FOR_INTERRUPTS answers it at once.
 pub(crate) fn block_gate_interrupted() -> bool {
-    init_small::globals::InterruptPending() || init_small::globals::QueryCancelPending() || init_small::globals::ProcDiePending()
+    init_small::globals::InterruptPending()
+        || init_small::globals::QueryCancelPending()
+        || init_small::globals::ProcDiePending()
 }

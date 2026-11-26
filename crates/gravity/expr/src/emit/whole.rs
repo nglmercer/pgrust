@@ -47,13 +47,36 @@ gravity_abi::host! {
 
 impl Em<'_, '_, '_> {
     pub(super) fn whole_row(&mut self, src: Source) -> Result<Lowered, EmitError> {
-        let (Some(w), Source::Scan) = (self.row.whole, src) else { return Err(EmitError::NoColumn(0)) };
-        let Some(region) = self.row.region else { return Err(EmitError::NoCells) };
-        let flags = HostFlags { may_error: true, pure: false, touches_memory: true, worker: false, state: StateMask::NONE };
-        let h = self.b.declare_host_once("gravity_expr::form_row", &[Type::Ptr, Type::Ptr, Type::Ptr, Type::I64], Some(Type::I64), form_row as *const () as usize, flags);
-        let p = self.b.call_host(h, &[region, w.values, w.nulls, w.desc], Some(Type::I64)).unwrap();
+        let (Some(w), Source::Scan) = (self.row.whole, src) else {
+            return Err(EmitError::NoColumn(0));
+        };
+        let Some(region) = self.row.region else {
+            return Err(EmitError::NoCells);
+        };
+        let flags = HostFlags {
+            may_error: true,
+            pure: false,
+            touches_memory: true,
+            worker: false,
+            state: StateMask::NONE,
+        };
+        let h = self.b.declare_host_once(
+            "gravity_expr::form_row",
+            &[Type::Ptr, Type::Ptr, Type::Ptr, Type::I64],
+            Some(Type::I64),
+            form_row as *const () as usize,
+            flags,
+        );
+        let p = self
+            .b
+            .call_host(h, &[region, w.values, w.nulls, w.desc], Some(Type::I64))
+            .unwrap();
         let failed = self.b.icmp(IntCond::Eq, p, self.zero);
         let err = super::prim::raise(self.b, failed, gravity_abi::status::raise::HOST);
-        Ok(Lowered { value: p, valid: self.t, err })
+        Ok(Lowered {
+            value: p,
+            valid: self.t,
+            err,
+        })
     }
 }

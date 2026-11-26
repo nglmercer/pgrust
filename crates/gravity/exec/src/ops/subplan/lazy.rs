@@ -13,8 +13,8 @@ use core::cell::Cell;
 use gravity_program::Program;
 use types_error::PgResult;
 
-use crate::ops::Frame;
 use crate::glue;
+use crate::ops::Frame;
 
 pub(super) const NOT_RUN: u8 = 0;
 pub(super) const RUNNING: u8 = 1;
@@ -33,17 +33,27 @@ pub(crate) struct Lazy {
 
 impl Lazy {
     pub(crate) fn new(members: Box<[u16]>) -> Lazy {
-        Lazy { members, frame: Cell::new(None), run: Cell::new(NOT_RUN) }
+        Lazy {
+            members,
+            frame: Cell::new(None),
+            run: Cell::new(NOT_RUN),
+        }
     }
 
     /// Build pipeline `pipeline`'s LAZY road in `program`: the members and the exclusive-slot wall (m8_init.rs). Every
     /// probe pipeline of a LAZY set runs on the leader (D1035: the lowering pins it, as D1005 pins a lazy build's probe).
     pub(crate) fn of(program: &Program, pipeline: usize) -> PgResult<Lazy> {
         if pipeline >= program.pipelines.len() {
-            return Err(bad("a LAZY nest.subplan's build pipeline is not the program's"));
+            return Err(bad(
+                "a LAZY nest.subplan's build pipeline is not the program's",
+            ));
         }
         let members = program.members(pipeline).members.into_boxed_slice();
-        crate::ops::subplan::initplan::init::exclusive_slots(program, &members, "nest.subplan (LAZY)")?;
+        crate::ops::subplan::initplan::init::exclusive_slots(
+            program,
+            &members,
+            "nest.subplan (LAZY)",
+        )?;
         Ok(Lazy::new(members))
     }
 
@@ -61,7 +71,11 @@ impl Lazy {
     pub(crate) fn rearm(&self) -> PgResult<()> {
         match self.run.get() {
             DONE => self.run.set(STALE),
-            RUNNING => return Err(bad("m8_rerun: a LAZY hashed set re-armed inside its own build")),
+            RUNNING => {
+                return Err(bad(
+                    "m8_rerun: a LAZY hashed set re-armed inside its own build",
+                ))
+            }
             _ => {}
         }
         Ok(())
@@ -77,14 +91,20 @@ impl Lazy {
         if self.run.get() != NOT_RUN || table.get() != 0 || self.members.is_empty() {
             return Ok(());
         }
-        let Some(mut f) = self.frame.get() else { return Ok(()) };
+        let Some(mut f) = self.frame.get() else {
+            return Ok(());
+        };
         self.run.set(RUNNING);
-        match crate::ops::subplan::initplan::raw::on_demand(&mut f).prerun_members(pipeline, &self.members) {
+        match crate::ops::subplan::initplan::raw::on_demand(&mut f)
+            .prerun_members(pipeline, &self.members)
+        {
             Ok(false) => self.run.set(NOT_RUN),
             Ok(true) if table.get() != 0 => self.run.set(DONE),
             Ok(true) => {
                 self.run.set(FAILED);
-                return Err(bad("m8_subhash_run: the AHEAD set's build ran without sealing it"));
+                return Err(bad(
+                    "m8_subhash_run: the AHEAD set's build ran without sealing it",
+                ));
             }
             Err(e) => {
                 self.run.set(FAILED);

@@ -120,7 +120,17 @@ pub fn shared_blks_dirtied() -> u64 {
 pub type Blocks = [u64; 9];
 
 fn cells() -> [&'static std::thread::LocalKey<Cell<u64>>; 9] {
-    [&SHARED_BLKS_HIT, &SHARED_BLKS_READ, &SHARED_BLKS_DIRTIED, &SHARED_BLKS_EVICTED, &SHARED_BLKS_WRITTEN, &LOCAL_BLKS_HIT, &LOCAL_BLKS_READ, &LOCAL_BLKS_DIRTIED, &LOCAL_BLKS_WRITTEN]
+    [
+        &SHARED_BLKS_HIT,
+        &SHARED_BLKS_READ,
+        &SHARED_BLKS_DIRTIED,
+        &SHARED_BLKS_EVICTED,
+        &SHARED_BLKS_WRITTEN,
+        &LOCAL_BLKS_HIT,
+        &LOCAL_BLKS_READ,
+        &LOCAL_BLKS_DIRTIED,
+        &LOCAL_BLKS_WRITTEN,
+    ]
 }
 
 /// This thread's block counters now.

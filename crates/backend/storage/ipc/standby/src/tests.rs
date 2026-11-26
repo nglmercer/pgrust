@@ -36,8 +36,16 @@ fn running_xacts_header_matches_c_layout() {
 #[test]
 fn standby_lock_body_matches_c_layout() {
     let locks = [
-        xl_standby_lock { xid: 700, dbOid: 5, relOid: 16384 },
-        xl_standby_lock { xid: 701, dbOid: 5, relOid: 16385 },
+        xl_standby_lock {
+            xid: 700,
+            dbOid: 5,
+            relOid: 16384,
+        },
+        xl_standby_lock {
+            xid: 701,
+            dbOid: 5,
+            relOid: 16385,
+        },
     ];
     let body = standby_locks_body(&locks).unwrap();
     assert_eq!(body.len(), 2 * SIZE_OF_XL_STANDBY_LOCK);
@@ -65,7 +73,10 @@ fn recovery_lock_table_bookkeeping_dedupes_and_chains() {
     assert_eq!(ts::chain(702), vec![]);
     // standby.c:1021 prepends, :1040 walks from the head: newest lock first
     // (batch-232 fp-ipc-standby#2).
-    assert_eq!(ts::release_sequence(&ts::chain(700)), vec![(5, 16385), (5, 16384)]);
+    assert_eq!(
+        ts::release_sequence(&ts::chain(700)),
+        vec![(5, 16385), (5, 16384)]
+    );
 }
 
 // A hostile primary/archive can set arbitrary counts in a RM_STANDBY_ID
@@ -77,17 +88,31 @@ fn validate_count_rejects_hostile_counts() {
     use types_error::ERRCODE_DATA_CORRUPTED;
 
     // Well-formed: 2 * 12-byte locks backed by a 4-byte header.
-    let ok = validate_count(4 + 2 * SIZE_OF_XL_STANDBY_LOCK, 4, 2, SIZE_OF_XL_STANDBY_LOCK, "t");
+    let ok = validate_count(
+        4 + 2 * SIZE_OF_XL_STANDBY_LOCK,
+        4,
+        2,
+        SIZE_OF_XL_STANDBY_LOCK,
+        "t",
+    );
     assert_eq!(ok.unwrap(), 2);
 
     // Negative count (sign-extends to a huge usize in the buggy path).
-    let e = validate_count(4, 4, -1, SIZE_OF_XL_STANDBY_LOCK, "t").err().unwrap();
+    let e = validate_count(4, 4, -1, SIZE_OF_XL_STANDBY_LOCK, "t")
+        .err()
+        .unwrap();
     assert_eq!(e.sqlstate(), ERRCODE_DATA_CORRUPTED);
 
     // Positive but unbacked by the record (would OOB-index).
-    let e = validate_count(4 + SIZE_OF_XL_STANDBY_LOCK, 4, 2, SIZE_OF_XL_STANDBY_LOCK, "t")
-        .err()
-        .unwrap();
+    let e = validate_count(
+        4 + SIZE_OF_XL_STANDBY_LOCK,
+        4,
+        2,
+        SIZE_OF_XL_STANDBY_LOCK,
+        "t",
+    )
+    .err()
+    .unwrap();
     assert_eq!(e.sqlstate(), ERRCODE_DATA_CORRUPTED);
 
     // count * elem_size overflows usize (would wrap/allocate absurdly).
@@ -97,14 +122,19 @@ fn validate_count_rejects_hostile_counts() {
     assert_eq!(e.sqlstate(), ERRCODE_DATA_CORRUPTED);
 
     // Zero-count records are valid (header only).
-    assert_eq!(validate_count(16, 16, 0, SHARED_INVALIDATION_MESSAGE_SIZE, "t").unwrap(), 0);
+    assert_eq!(
+        validate_count(16, 16, 0, SHARED_INVALIDATION_MESSAGE_SIZE, "t").unwrap(),
+        0
+    );
 }
 
 #[test]
 fn require_len_rejects_truncated_header() {
     use types_error::ERRCODE_DATA_CORRUPTED;
     assert!(require_len(&[0u8; 24], MIN_SIZE_OF_XACT_RUNNING_XACTS, "t").is_ok());
-    let e = require_len(&[0u8; 8], MIN_SIZE_OF_XACT_RUNNING_XACTS, "t").err().unwrap();
+    let e = require_len(&[0u8; 8], MIN_SIZE_OF_XACT_RUNNING_XACTS, "t")
+        .err()
+        .unwrap();
     assert_eq!(e.sqlstate(), ERRCODE_DATA_CORRUPTED);
 }
 
@@ -144,7 +174,10 @@ fn redo_lock() -> std::sync::MutexGuard<'static, ()> {
 }
 
 fn redo_capture(err: &types_error::PgError, _output_to_server: &mut bool) {
-    REDO_LOG.lock().unwrap().push((err.level.0, err.message.clone()));
+    REDO_LOG
+        .lock()
+        .unwrap()
+        .push((err.level.0, err.message.clone()));
 }
 
 // The startup-process slice of shared state standby_redo's RUNNING_XACTS arm
@@ -188,11 +221,18 @@ fn redo_record(info: u8, main_data: &[u8]) -> xlogreader_seams::XLogReaderState 
     let rec = xlogreader_seams::DecodedXLogRecord {
         xl_info: info,
         max_block_id: -1,
-        main_data: if main_data.is_empty() { std::ptr::null() } else { main_data.as_ptr() },
+        main_data: if main_data.is_empty() {
+            std::ptr::null()
+        } else {
+            main_data.as_ptr()
+        },
         main_data_len: main_data.len() as u32,
         ..Default::default()
     };
-    xlogreader_seams::XLogReaderState { record: Some(rec), ..Default::default() }
+    xlogreader_seams::XLogReaderState {
+        record: Some(rec),
+        ..Default::default()
+    }
 }
 
 // standby.c:1206: replaying XLOG_RUNNING_XACTS flushes the startup process's
@@ -255,7 +295,9 @@ fn unknown_op_code_is_a_logged_panic() {
     xlogutils::set_standby_state(xlogutils::STANDBY_DISABLED);
     let payload = outcome.expect_err("unknown op code must PANIC");
     assert!(
-        payload.downcast_ref::<types_error::PanicExitThread>().is_some(),
+        payload
+            .downcast_ref::<types_error::PanicExitThread>()
+            .is_some(),
         "C's elog(PANIC) unwinds the thread as PanicExitThread; got a Rust panic: {:?}",
         payload
             .downcast_ref::<&str>()
@@ -264,7 +306,10 @@ fn unknown_op_code_is_a_logged_panic() {
     );
     let log = std::mem::take(&mut *REDO_LOG.lock().unwrap());
     assert!(
-        log.contains(&(types_error::PANIC.0, "standby_redo: unknown op code 48".to_string())),
+        log.contains(&(
+            types_error::PANIC.0,
+            "standby_redo: unknown op code 48".to_string()
+        )),
         "captured log: {log:?}"
     );
 }
@@ -307,7 +352,10 @@ fn child_delay_bind_preserves_startup_reload() {
     crate::recovery::install_guc_backings();
     max_standby_archive_delay.write(30_000);
     max_standby_streaming_delay.write(30_000);
-    let captured = (max_standby_archive_delay.read(), max_standby_streaming_delay.read());
+    let captured = (
+        max_standby_archive_delay.read(),
+        max_standby_streaming_delay.read(),
+    );
     max_standby_archive_delay.write(60_000);
     max_standby_streaming_delay.write(-1);
     std::thread::spawn(move || {

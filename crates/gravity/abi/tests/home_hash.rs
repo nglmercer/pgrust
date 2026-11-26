@@ -107,7 +107,13 @@ fn measure(f: HashFn, distinct: &[u64], stream: &[u64]) -> Outcome {
     }
     let ns_lookup = t0.elapsed().as_nanos() as f64 / stream.len() as f64;
     assert_eq!(found, stream.len());
-    Outcome { probes_insert, probes_lookup: probes as f64 / stream.len() as f64, max_probe, ns_insert, ns_lookup }
+    Outcome {
+        probes_insert,
+        probes_lookup: probes as f64 / stream.len() as f64,
+        max_probe,
+        ns_insert,
+        ns_lookup,
+    }
 }
 
 fn distinct_in_order(stream: &[u64]) -> Vec<u64> {
@@ -117,12 +123,35 @@ fn distinct_in_order(stream: &[u64]) -> Vec<u64> {
 
 fn report(name: &str, stream: &[u64], width: u32) {
     let distinct = distinct_in_order(stream);
-    println!("\n{name}: {} rows, {} distinct, table 2^{} ({} % load)", stream.len(), distinct.len(), (distinct.len() as f64 / 0.75).log2().ceil() as u32, (100.0 * distinct.len() as f64 / (1u64 << (distinct.len() as f64 / 0.75).log2().ceil() as u32) as f64).round());
-    println!("{:<22} {:>10} {:>10} {:>9} {:>10} {:>10}", "home hash", "probes/ins", "probes/get", "max probe", "ns/insert", "ns/lookup");
+    println!(
+        "\n{name}: {} rows, {} distinct, table 2^{} ({} % load)",
+        stream.len(),
+        distinct.len(),
+        (distinct.len() as f64 / 0.75).log2().ceil() as u32,
+        (100.0 * distinct.len() as f64
+            / (1u64 << (distinct.len() as f64 / 0.75).log2().ceil() as u32) as f64)
+            .round()
+    );
+    println!(
+        "{:<22} {:>10} {:>10} {:>9} {:>10} {:>10}",
+        "home hash", "probes/ins", "probes/get", "max probe", "ns/insert", "ns/lookup"
+    );
     let cands: Vec<(&str, HashFn)> = if width == 32 {
-        vec![("identity low (ctl)", identity_low), ("mul low32 (join now)", mul_low32), ("fib top32", fib_top32), ("fmix32", fmix32_low), ("KeyHash (records)", record_hash)]
+        vec![
+            ("identity low (ctl)", identity_low),
+            ("mul low32 (join now)", mul_low32),
+            ("fib top32", fib_top32),
+            ("fmix32", fmix32_low),
+            ("KeyHash (records)", record_hash),
+        ]
     } else {
-        vec![("identity low (ctl)", identity_low), ("mul low64", mul_low64), ("fib top64", fib_top64), ("fmix64", fmix64_low), ("KeyHash (records)", record_hash)]
+        vec![
+            ("identity low (ctl)", identity_low),
+            ("mul low64", mul_low64),
+            ("fib top64", fib_top64),
+            ("fmix64", fmix64_low),
+            ("KeyHash (records)", record_hash),
+        ]
     };
     for (label, f) in cands {
         // the identity control can degenerate on clustered keys: cap its work
@@ -130,19 +159,28 @@ fn report(name: &str, stream: &[u64], width: u32) {
             continue;
         }
         let o = measure(f, &distinct, stream);
-        println!("{label:<22} {:>10.3} {:>10.3} {:>9} {:>10.1} {:>10.1}", o.probes_insert, o.probes_lookup, o.max_probe, o.ns_insert, o.ns_lookup);
+        println!(
+            "{label:<22} {:>10.3} {:>10.3} {:>9} {:>10.1} {:>10.1}",
+            o.probes_insert, o.probes_lookup, o.max_probe, o.ns_insert, o.ns_lookup
+        );
     }
 }
 
 fn load(path: &str) -> Vec<u64> {
     let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{path}: {e}"));
-    text.lines().filter_map(|l| l.trim().parse::<i64>().ok()).map(|v| v as u64).collect()
+    text.lines()
+        .filter_map(|l| l.trim().parse::<i64>().ok())
+        .map(|v| v as u64)
+        .collect()
 }
 
 #[test]
 #[ignore = "a measurement: HOME_HASH_KEYS=<file> [HOME_HASH_WIDTH=32] cargo test -p gravity_abi --test home_hash -- --ignored --nocapture"]
 fn home_hash_probe_lengths_and_ns_per_key() {
-    let width: u32 = std::env::var("HOME_HASH_WIDTH").ok().and_then(|v| v.parse().ok()).unwrap_or(64);
+    let width: u32 = std::env::var("HOME_HASH_WIDTH")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(64);
     if let Ok(path) = std::env::var("HOME_HASH_KEYS") {
         for p in path.split(',') {
             let keys = load(p);
@@ -152,9 +190,24 @@ fn home_hash_probe_lengths_and_ns_per_key() {
     }
     let n = 2_000_000u64;
     report("sequential 0..n", &(0..n).collect::<Vec<_>>(), width);
-    report("stride 8", &(0..n).map(|i| i * 8).collect::<Vec<_>>(), width);
-    report("stride 4096", &(0..n).map(|i| i * 4096).collect::<Vec<_>>(), width);
+    report(
+        "stride 8",
+        &(0..n).map(|i| i * 8).collect::<Vec<_>>(),
+        width,
+    );
+    report(
+        "stride 4096",
+        &(0..n).map(|i| i * 4096).collect::<Vec<_>>(),
+        width,
+    );
     let mut x = 0x2545_F491_4F6C_DD1Du64;
-    let random: Vec<u64> = (0..n).map(|_| { x ^= x << 13; x ^= x >> 7; x ^= x << 17; x }).collect();
+    let random: Vec<u64> = (0..n)
+        .map(|_| {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            x
+        })
+        .collect();
     report("xorshift random", &random, width);
 }

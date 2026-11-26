@@ -21,8 +21,7 @@ const fn maxalign(len: usize) -> usize {
 const fn maxalign_down(len: usize) -> usize {
     len & !7usize
 }
-const GIST_MAX_INDEX_TUPLE_SIZE: usize =
-    maxalign_down((8192 - 24 - 16) / 4 - 4);
+const GIST_MAX_INDEX_TUPLE_SIZE: usize = maxalign_down((8192 - 24 - 16) / 4 - 4);
 pub const SIGLEN_MAX: i32 = (GIST_MAX_INDEX_TUPLE_SIZE - maxalign(8)) as i32;
 
 pub const SIMILARITY_STRATEGY: u16 = 1;
@@ -55,16 +54,18 @@ pub fn decode_key(image: &[u8]) -> PgResult<TrgmKey> {
     let flag = image[4];
     let data = &image[TRGMHDRSIZE..end];
     if flag & ARRKEY != 0 {
-        if ! data.len().is_multiple_of( 3) {
+        if !data.len().is_multiple_of(3) {
             return Err(
                 PgError::error("corrupt gtrgm GiST ARRKEY (length not a multiple of 3)").into(),
             );
         }
-        Ok(TrgmKey::Arr(data.chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect()))
+        Ok(TrgmKey::Arr(
+            data.chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect(),
+        ))
     } else if flag & ALLISTRUE != 0 {
         Ok(TrgmKey::AllTrue)
     } else {
-        Ok(TrgmKey::Sign(::mcx::std_vec_from_slice("pg_trgm",data)?))
+        Ok(TrgmKey::Sign(::mcx::std_vec_from_slice("pg_trgm", data)?))
     }
 }
 
@@ -146,14 +147,17 @@ fn cnt_sml_sign_common(qtrg: &[Trgm], sign: &[u8], siglen: usize) -> i32 {
 #[track_caller]
 #[cold]
 fn unrecognized_strategy(strategy: u16) -> Box<PgError> {
-    Box::new(PgError::error(format!("unrecognized strategy number: {strategy}")))
+    Box::new(PgError::error(format!(
+        "unrecognized strategy number: {strategy}"
+    )))
 }
 
 fn expect_arr(key: &TrgmKey) -> PgResult<&[Trgm]> {
     match key {
         TrgmKey::Arr(a) => Ok(a),
-        _ => Err(PgError::error("gtrgm GiST: expected a leaf ARRKEY but found a signature key")
-            .into()),
+        _ => Err(
+            PgError::error("gtrgm GiST: expected a leaf ARRKEY but found a signature key").into(),
+        ),
     }
 }
 
@@ -222,9 +226,7 @@ pub fn consistent_regexp(
         return Ok(true);
     };
     Ok(match key {
-        TrgmKey::Arr(arr) if is_leaf => {
-            graph.matches(&crate::trgm::trgm_presence_map(qtrg, arr))
-        }
+        TrgmKey::Arr(arr) if is_leaf => graph.matches(&crate::trgm::trgm_presence_map(qtrg, arr)),
         TrgmKey::AllTrue => true,
         TrgmKey::Sign(sign) => {
             // Signature bits give false positives only; the graph is
@@ -340,7 +342,11 @@ fn hemdist_keys(a: &TrgmKey, b: &TrgmKey, siglen: usize) -> i32 {
     } else if b_all {
         siglenbit(siglen) as i32 - sizebitvec(sign_of(a, siglen).as_ref())
     } else {
-        hemdistsign(sign_of(a, siglen).as_ref(), sign_of(b, siglen).as_ref(), siglen)
+        hemdistsign(
+            sign_of(a, siglen).as_ref(),
+            sign_of(b, siglen).as_ref(),
+            siglen,
+        )
     }
 }
 
@@ -375,9 +381,18 @@ struct CacheSign {
 
 fn fillcache(key: &TrgmKey, siglen: usize) -> CacheSign {
     match key {
-        TrgmKey::Arr(arr) => CacheSign { allistrue: false, sign: makesign(arr, siglen) },
-        TrgmKey::AllTrue => CacheSign { allistrue: true, sign: vec![0u8; siglen] },
-        TrgmKey::Sign(s) => CacheSign { allistrue: false, sign: s.clone() },
+        TrgmKey::Arr(arr) => CacheSign {
+            allistrue: false,
+            sign: makesign(arr, siglen),
+        },
+        TrgmKey::AllTrue => CacheSign {
+            allistrue: true,
+            sign: vec![0u8; siglen],
+        },
+        TrgmKey::Sign(s) => CacheSign {
+            allistrue: false,
+            sign: s.clone(),
+        },
     }
 }
 
@@ -426,7 +441,11 @@ pub fn picksplit(
     let mut seed_2 = 0usize;
     for k in 1..maxoff {
         for j in (k + 1)..=maxoff {
-            let sw = hemdistcache(cache[j].as_ref().unwrap(), cache[k].as_ref().unwrap(), siglen);
+            let sw = hemdistcache(
+                cache[j].as_ref().unwrap(),
+                cache[k].as_ref().unwrap(),
+                siglen,
+            );
             if sw > waste {
                 waste = sw;
                 seed_1 = k;
@@ -451,10 +470,16 @@ pub fn picksplit(
 
     let mut costvector: Vec<(usize, i32)> = ::mcx::std_vec_with_capacity("pg_trgm", maxoff)?;
     for j in 1..=maxoff {
-        let size_alpha =
-            hemdistcache(cache[seed_1].as_ref().unwrap(), cache[j].as_ref().unwrap(), siglen);
-        let size_beta =
-            hemdistcache(cache[seed_2].as_ref().unwrap(), cache[j].as_ref().unwrap(), siglen);
+        let size_alpha = hemdistcache(
+            cache[seed_1].as_ref().unwrap(),
+            cache[j].as_ref().unwrap(),
+            siglen,
+        );
+        let size_beta = hemdistcache(
+            cache[seed_2].as_ref().unwrap(),
+            cache[j].as_ref().unwrap(),
+            siglen,
+        );
         costvector.push((j, (size_alpha - size_beta).abs()));
     }
     // qsort(costvector, maxoff, sizeof(SPLITCOST), comparecost): pg_qsort's

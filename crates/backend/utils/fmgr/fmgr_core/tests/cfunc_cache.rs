@@ -18,7 +18,11 @@ fn tfn(_flinfo: Option<&mut FmgrInfo>, _fcinfo: &mut FunctionCallInfoBaseData) -
 
 fn resolve() -> usize {
     let mut flinfo = fmgr_core::fmgr_info(C_FUNC_OID).unwrap();
-    assert_eq!(flinfo.fn_kind, fmgr::FnKind::Language, "a C-language row's record");
+    assert_eq!(
+        flinfo.fn_kind,
+        fmgr::FnKind::Language,
+        "a C-language row's record"
+    );
     let mut fcinfo = fmgr::LocalFcinfo::<0>::fresh(0);
     assert_eq!(flinfo.invoke(&mut fcinfo).unwrap().as_i32(), 7);
 

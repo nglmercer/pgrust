@@ -3,17 +3,17 @@
 //! from the graph's descriptors and expressions; the census (`v4plan.py classify()`) reads the same graph lines for each
 //! fixture, and the two agree exactly (M0 reconciliation). `UNSEEN` tokens no graph fact decides are taken to hold. A
 //! function the catalog cannot describe is hosted and VOLATILE (it names no builtin shim). CORE: open until M1 exits.
+use gravity_decompose::join::JoinDesc;
+use gravity_decompose::ops::modifytable::trig_facts::cmd_bits;
 use gravity_decompose::ops::shared::agg::{AggDecl, GroupDecl, KeyDecl, Register};
 use gravity_decompose::ops::shared::agg_class::Class;
 use gravity_decompose::ops::shared::append::AppendDesc;
-use gravity_decompose::join::JoinDesc;
 use gravity_decompose::ops::shared::subplan::{SubForm, SubPlanDesc};
-use gravity_decompose::ops::modifytable::trig_facts::cmd_bits;
 #[allow(unused_imports)]
 use gravity_decompose::{Op, PipelineNode, Source};
+use mcx::{GrowIn, PgVec};
 #[allow(unused_imports)]
 use types_nodes::jointype::JoinType;
-use mcx::{GrowIn, PgVec};
 use types_nodes::list::NodeList;
 
 use crate::admit::refusal::check_interrupts;
@@ -22,13 +22,14 @@ use crate::face::kinds::{KindId, KindSet};
 use crate::graph::{kind_set, EndKind, Gx};
 use crate::rep::datum_kind;
 
-pub(crate) use crate::ops::sort::topn::count_cut::{count_cut, key_check, pair_partition, pair_routed, tie_key};
+pub(crate) use crate::ops::sort::topn::count_cut::{
+    count_cut, key_check, pair_partition, pair_routed, tie_key,
+};
 
 /// V4R-118: the sort roads' shapes and form G, read by the run files (runs/sort.rs, keylane.rs) and keyed/emit_group.rs.
 pub(crate) use crate::effects::visible::sort::finals_once;
 /// V4R-126: road topk.fetch's shape (props/topk.rs), which runs/fetch.rs reads too.
 pub(crate) use crate::ops::sort::strategies::fetch_shape::topk_wide;
-
 
 /// The tokens no graph fact decides yet: taken to hold. None since V4R-126 (`select_star` became `topk_wide`, props/topk.rs).
 pub const UNSEEN: &[Prop] = &[];
@@ -47,7 +48,13 @@ pub struct Props<'g> {
 
 impl<'g> Props<'g> {
     pub fn of(gx: &Gx<'g, '_>) -> Props<'g> {
-        let mut w = Walk { gx, need: PgVec::new_in(gx.mcx), p: PropSet::default(), node: gx.root_node(), nests: (0, 0) };
+        let mut w = Walk {
+            gx,
+            need: PgVec::new_in(gx.mcx),
+            p: PropSet::default(),
+            node: gx.root_node(),
+            nests: (0, 0),
+        };
         w.add(KindId::ExprCore);
         let mut max_rows = 0u64;
         // D3610: each pipeline's (and group's) kinds are a cancel point, as each pipeline's resolve and emit are (D231): a
@@ -58,7 +65,8 @@ impl<'g> Props<'g> {
             max_rows = max_rows.max(gx.pipelines()[k].desc.predicted_rows);
             w.pipeline(k);
         }
-        for g in gx.groups() { // D1210: the overlay's re-declared groups
+        for g in gx.groups() {
+            // D1210: the overlay's re-declared groups
             check_interrupts(gx.root_node());
             w.group(g);
         }
@@ -66,20 +74,36 @@ impl<'g> Props<'g> {
         if !gx.graph.init_plans.is_empty() {
             w.add(KindId::NestInitplan);
         }
-        if gx.graph.init_plans.iter().any(|i| matches!(i.link, gravity_decompose::ops::shared::subplan::SubLink::Cte)) {
+        if gx.graph.init_plans.iter().any(|i| {
+            matches!(
+                i.link,
+                gravity_decompose::ops::shared::subplan::SubLink::Cte
+            )
+        }) {
             w.add(KindId::NestCte);
         }
         // a recursive union's term set (W8-RECURSE: `plan_id` RECURSIVE_SET) is setop.recursive's, which names it
-        if gx.graph.reruns.iter().any(|r| r.plan_id != gravity_decompose::ops::shared::setop::RECURSIVE_SET) {
+        if gx
+            .graph
+            .reruns
+            .iter()
+            .any(|r| r.plan_id != gravity_decompose::ops::shared::setop::RECURSIVE_SET)
+        {
             w.add(KindId::NestRerun);
         }
-        let Walk { need, mut p, nests, .. } = w;
+        let Walk {
+            need, mut p, nests, ..
+        } = w;
         if nests == (1, 1) {
             p.add(Prop::CatalogNest);
         }
         UNSEEN.iter().for_each(|&t| p.add(t));
         let kinds = kind_set(&need);
-        if kinds.any(KindSet::of(&[KindId::ClassNumPacked, KindId::ClassNumVarlena, KindId::ClassNumWide])) {
+        if kinds.any(KindSet::of(&[
+            KindId::ClassNumPacked,
+            KindId::ClassNumVarlena,
+            KindId::ClassNumWide,
+        ])) {
             p.add(Prop::Numeric);
         }
         let rows = KindSet::of(&[
@@ -98,7 +122,13 @@ impl<'g> Props<'g> {
         if kinds.any(KindSet::of(&[KindId::SrcResult, KindId::SrcValues])) && !kinds.any(rows) {
             p.add(Prop::ValuesOnly);
         }
-        Props { need, kinds, props: p, max_rows, pipelines: gx.pipelines().len() as u16 }
+        Props {
+            need,
+            kinds,
+            props: p,
+            max_rows,
+            pipelines: gx.pipelines().len() as u16,
+        }
     }
 }
 
@@ -133,7 +163,14 @@ impl<'p> Walk<'_, '_, 'p> {
         self.node = p.node_id;
         // D455: a settled union's feed / collect (not a MergeAppend's runs) fills the arms' spool, nest.spool's (M8):
         // source/append.rs refuses by that name, so the statement needs it beside src.append
-        if !gx.merged(k) && p.ops.iter().any(|op| matches!(op, Op::Append(AppendDesc::Feed { .. } | AppendDesc::Union { .. }))) {
+        if !gx.merged(k)
+            && p.ops.iter().any(|op| {
+                matches!(
+                    op,
+                    Op::Append(AppendDesc::Feed { .. } | AppendDesc::Union { .. })
+                )
+            })
+        {
             self.add(KindId::NestSpool);
         }
         self.source(p);
@@ -153,7 +190,21 @@ impl<'p> Walk<'_, '_, 'p> {
     /// A pipeline's ops, and a nest inner's; two or more join steps on one pipeline are a chain (`join.chain`).
     pub(super) fn ops(&mut self, p: &PipelineNode<'p>, group: Option<&GroupDecl<'p>>) {
         crate::stack_check(); // D3832
-        let joins = p.ops.iter().filter(|op| matches!(op, Op::Join(JoinDesc::Probe { .. } | JoinDesc::Nest { .. } | JoinDesc::Memo { .. } | JoinDesc::Merge { .. }))).count();
+        let joins = p
+            .ops
+            .iter()
+            .filter(|op| {
+                matches!(
+                    op,
+                    Op::Join(
+                        JoinDesc::Probe { .. }
+                            | JoinDesc::Nest { .. }
+                            | JoinDesc::Memo { .. }
+                            | JoinDesc::Merge { .. }
+                    )
+                )
+            })
+            .count();
         if joins >= 2 {
             self.add(KindId::JoinChain);
         }
@@ -167,9 +218,15 @@ impl<'p> Walk<'_, '_, 'p> {
             // V4R-142; its name order keys stay rep.varlena.order until O3's census half)
             if let Op::Join(JoinDesc::Nest { .. } | JoinDesc::Probe { catalog: true, .. }) = op {
                 self.nests.0 += 1;
-                self.nests.1 += matches!(op, Op::Join(JoinDesc::Probe { catalog: true, .. })) as u16;
+                self.nests.1 +=
+                    matches!(op, Op::Join(JoinDesc::Probe { catalog: true, .. })) as u16;
             }
-            if let Op::Join(JoinDesc::Nest { inner, .. }) | Op::SubPlan(SubPlanDesc { form: SubForm::Nested { inner }, .. }) = op {
+            if let Op::Join(JoinDesc::Nest { inner, .. })
+            | Op::SubPlan(SubPlanDesc {
+                form: SubForm::Nested { inner },
+                ..
+            }) = op
+            {
                 self.source(inner);
                 self.ops(inner, None);
             }
@@ -178,7 +235,15 @@ impl<'p> Walk<'_, '_, 'p> {
 
     /// The cells a sink or a write emits (its last projection's outputs) are read through their Reps' datum arms.
     pub(super) fn emits(&mut self, p: &PipelineNode<'p>) {
-        let Some(l) = p.ops.iter().rev().find_map(|op| if let Op::Project(l) = op { Some(*l) } else { None }) else { return };
+        let Some(l) = p.ops.iter().rev().find_map(|op| {
+            if let Op::Project(l) = op {
+                Some(*l)
+            } else {
+                None
+            }
+        }) else {
+            return;
+        };
         for e in l.iter() {
             if let Some(o) = self.gx.out_of(e) {
                 self.add(datum_kind(o.rep));
@@ -205,28 +270,51 @@ pub(crate) fn hosted_group_key(_g: &GroupDecl<'_>, key: &KeyDecl<'_>) -> bool {
 /// class cannot disagree (D256).
 pub fn class_kind(a: &AggDecl<'_>) -> KindId {
     use gravity_decompose::ops::shared::agg_class::Ext;
-    let scaled = matches!(a.reg, Register::SumNum | Register::AvgNum | Register::MinNum | Register::MaxNum | Register::MinNumDyn | Register::MaxNumDyn);
+    let scaled = matches!(
+        a.reg,
+        Register::SumNum
+            | Register::AvgNum
+            | Register::MinNum
+            | Register::MaxNum
+            | Register::MinNumDyn
+            | Register::MaxNumDyn
+    );
     match a.class {
         Class::CountStar | Class::CountAny | Class::CountPair => KindId::ClassWord,
-        Class::SumI64 | Class::SumI128 | Class::AvgI128 | Class::BoolAnd | Class::BoolOr | Class::BitI64(_) => KindId::ClassWord,
+        Class::SumI64
+        | Class::SumI128
+        | Class::AvgI128
+        | Class::BoolAnd
+        | Class::BoolOr
+        | Class::BitI64(_) => KindId::ClassWord,
         Class::SumF32 | Class::SumF64 | Class::AvgF64 => KindId::ClassFloat,
         Class::SumNum | Class::AvgNum if scaled => KindId::ClassNumPacked,
-        Class::SumNum | Class::AvgNum if matches!(a.reg, Register::SumNumWide | Register::AvgNumWide) => KindId::ClassNumWide,
+        Class::SumNum | Class::AvgNum
+            if matches!(a.reg, Register::SumNumWide | Register::AvgNumWide) =>
+        {
+            KindId::ClassNumWide
+        }
         Class::SumNum | Class::AvgNum => KindId::ClassNumVarlena,
         Class::Min(x) | Class::Max(x) => match x {
             Ext::Int | Ext::U64 => KindId::ClassWord,
             Ext::F64 => KindId::ClassFloat,
             Ext::Num if scaled => KindId::ClassNumPacked,
             Ext::Num => KindId::ClassNumVarlena,
-            Ext::Text | Ext::Bytes if matches!(a.reg, Register::MinCode | Register::MaxCode) => KindId::ClassMinmaxCode,
+            Ext::Text | Ext::Bytes if matches!(a.reg, Register::MinCode | Register::MaxCode) => {
+                KindId::ClassMinmaxCode
+            }
             Ext::Text | Ext::Bytes => KindId::ClassText,
             Ext::Tid | Ext::Opaque => KindId::ClassOther,
         },
         Class::Collect(_) => KindId::ClassCollect,
         Class::User => KindId::ClassUser,
-        Class::Stat3F64(_) | Class::Stat3I128(_) | Class::Stat3Num(_) | Class::Stat6F64(_) => KindId::ClassStats,
+        Class::Stat3F64(_) | Class::Stat3I128(_) | Class::Stat3Num(_) | Class::Stat6F64(_) => {
+            KindId::ClassStats
+        }
         Class::OrderedSet(_) | Class::Hypothetical(_) => KindId::ClassOrdered,
-        Class::SumMoney | Class::SumInterval | Class::AvgInterval | Class::BitVar(_) => KindId::ClassOther,
+        Class::SumMoney | Class::SumInterval | Class::AvgInterval | Class::BitVar(_) => {
+            KindId::ClassOther
+        }
     }
 }
 
@@ -248,16 +336,39 @@ mod tests {
         let a = arena.handle();
         let mut g = PipelineGraph::new(a);
         for k in 0..3 {
-            g.pipelines.push(PipelineNode::new(a, k + 1, Source::Const, Pipeline::serial(-1, End::Sink, Why::NoDrivingSite))); // alloc: Cold
+            g.pipelines.push(PipelineNode::new(
+                a,
+                k + 1,
+                Source::Const,
+                Pipeline::serial(-1, End::Sink, Why::NoDrivingSite),
+            )); // alloc: Cold
         }
-        let gx = Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
-        assert!(crate::catch(0, || drop(super::Props::of(&gx))).is_ok(), "nothing pending: the pass walks every pipeline");
+        let gx = Gx {
+            graph: &g,
+            facts: &NoFacts,
+            catalog: &gravity_expr::PgCatalog,
+            over: None,
+            mcx: rig.mcx(),
+        };
+        assert!(
+            crate::catch(0, || drop(super::Props::of(&gx))).is_ok(),
+            "nothing pending: the pass walks every pipeline"
+        );
         // the backend's seam (the server's is tcop's init_seams): the facade's `pending` reads the interrupt globals through it
         static BACKEND: std::sync::Once = std::sync::Once::new();
-        BACKEND.call_once(|| postgres_seams::interrupts_pending::set(|| init_small::globals::InterruptPending() && init_small::globals::InterruptsCanBeProcessed()));
+        BACKEND.call_once(|| {
+            postgres_seams::interrupts_pending::set(|| {
+                init_small::globals::InterruptPending()
+                    && init_small::globals::InterruptsCanBeProcessed()
+            })
+        });
         init_small::globals::SetInterruptPending(true);
         let r = crate::catch(0, || drop(super::Props::of(&gx)));
         init_small::globals::SetInterruptPending(false);
-        assert_eq!(r.map_err(|r| (r.reason, r.node)), Err((Reason::Interrupted, 1)), "stopped at the first pipeline's check");
+        assert_eq!(
+            r.map_err(|r| (r.reason, r.node)),
+            Err((Reason::Interrupted, 1)),
+            "stopped at the first pipeline's check"
+        );
     }
 }

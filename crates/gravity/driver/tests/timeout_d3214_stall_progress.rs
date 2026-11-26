@@ -20,7 +20,10 @@ static LOCK: Mutex<()> = Mutex::new(());
 const MIB: u64 = 1 << 20;
 const BAR: usize = 1 << 30;
 const NEED: u64 = 768 * MIB;
-const BOUNDS: StallBounds = StallBounds { stall: Duration::from_millis(600), cap: Duration::from_millis(1800) };
+const BOUNDS: StallBounds = StallBounds {
+    stall: Duration::from_millis(600),
+    cap: Duration::from_millis(1800),
+};
 const WAIT: Duration = Duration::from_secs(5);
 
 /// The pool armed at 1 GiB, ungated; the governor's sample at `resident` bytes of a 1 GiB bar.
@@ -47,12 +50,17 @@ fn disarm() {
 /// for) and one admitted, held `every` and ended, over and over: each end moves the pool's `ended` count, and the next
 /// statement takes the bytes back. Returns the stop flag, the ends counted and the threads.
 fn others(every: Duration) -> (Arc<AtomicBool>, Arc<AtomicUsize>, Vec<JoinHandle<()>>) {
-    let (stop, ends) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicUsize::new(0)));
+    let (stop, ends) = (
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(AtomicUsize::new(0)),
+    );
     let held = Arc::new(AtomicBool::new(false));
     let mut threads = Vec::new();
     let (s, h) = (stop.clone(), held.clone());
     threads.push(std::thread::spawn(move || {
-        let a = POOL.admit_need_until(Grant::of(32 * MIB), &|g| g.bytes, WAIT, &|| false).expect("the anchor statement");
+        let a = POOL
+            .admit_need_until(Grant::of(32 * MIB), &|g| g.bytes, WAIT, &|| false)
+            .expect("the anchor statement");
         h.store(true, Relaxed);
         while !s.load(Relaxed) {
             std::thread::sleep(Duration::from_millis(5));
@@ -61,14 +69,23 @@ fn others(every: Duration) -> (Arc<AtomicBool>, Arc<AtomicUsize>, Vec<JoinHandle
     }));
     let t0 = Instant::now();
     while !held.load(Relaxed) {
-        assert!(!threads[0].is_finished() && t0.elapsed() < WAIT * 2, "the anchor statement was not admitted");
+        assert!(
+            !threads[0].is_finished() && t0.elapsed() < WAIT * 2,
+            "the anchor statement was not admitted"
+        );
         std::thread::sleep(Duration::from_millis(1));
     }
     let (s, e) = (stop.clone(), ends.clone());
     threads.push(std::thread::spawn(move || {
         while !s.load(Relaxed) {
-            let a = POOL.admit_need_until(Grant::of(32 * MIB), &|g| g.bytes, WAIT, &|| false).expect("a short statement");
-            assert_eq!(a.grant.bytes, 32 * MIB, "the short statements fit beside the turn's need");
+            let a = POOL
+                .admit_need_until(Grant::of(32 * MIB), &|g| g.bytes, WAIT, &|| false)
+                .expect("a short statement");
+            assert_eq!(
+                a.grant.bytes,
+                32 * MIB,
+                "the short statements fit beside the turn's need"
+            );
             std::thread::sleep(every);
             drop(a);
             e.fetch_add(1, Relaxed);
@@ -103,7 +120,9 @@ fn release(from: usize, step: usize, every: Duration) -> (Arc<AtomicBool>, JoinH
 
 fn admit_768() -> (gravity_driver::Reservation, Duration) {
     let t0 = Instant::now();
-    let a = POOL.admit_need_within(Grant::of(NEED), &|g| g.bytes, WAIT, &|| false, BOUNDS).expect("admitted");
+    let a = POOL
+        .admit_need_within(Grant::of(NEED), &|g| g.bytes, WAIT, &|| false, BOUNDS)
+        .expect("admitted");
     (a, t0.elapsed())
 }
 
@@ -116,9 +135,20 @@ fn a_turn_beside_ends_that_never_free_its_need_halves_at_the_stall() {
     let (a, took) = admit_768();
     let n = ends.load(Relaxed);
     join(stop, threads);
-    assert_eq!(a.how, Admitted::Stall, "halved at the stall, not at the wait's bound ({took:?}, {n} ends)");
-    assert_eq!(a.grant.bytes, NEED / 2, "the ladder's first step: 384 MiB fits under the bar");
-    assert!(took >= BOUNDS.stall && took < BOUNDS.stall * 2, "halved at about the stall: {took:?}");
+    assert_eq!(
+        a.how,
+        Admitted::Stall,
+        "halved at the stall, not at the wait's bound ({took:?}, {n} ends)"
+    );
+    assert_eq!(
+        a.grant.bytes,
+        NEED / 2,
+        "the ladder's first step: 384 MiB fits under the bar"
+    );
+    assert!(
+        took >= BOUNDS.stall && took < BOUNDS.stall * 2,
+        "halved at about the stall: {took:?}"
+    );
     assert!(n >= 5, "statements ended while it waited: {n}");
     drop(a);
     disarm();
@@ -135,8 +165,15 @@ fn a_room_that_keeps_growing_keeps_the_turn_waiting_for_the_whole_need() {
     falling.store(false, Relaxed);
     rel.join().expect("the release");
     join(stop, threads);
-    assert_eq!((a.grant.bytes, a.how), (NEED, Admitted::Whole), "the whole need after {took:?}");
-    assert!(took > BOUNDS.stall, "it waited past the stall: each step was a new high ({took:?})");
+    assert_eq!(
+        (a.grant.bytes, a.how),
+        (NEED, Admitted::Whole),
+        "the whole need after {took:?}"
+    );
+    assert!(
+        took > BOUNDS.stall,
+        "it waited past the stall: each step was a new high ({took:?})"
+    );
     drop(a);
     disarm();
 }
@@ -153,8 +190,15 @@ fn a_ticket_held_past_the_cap_halves_whatever_the_progress() {
     falling.store(false, Relaxed);
     rel.join().expect("the release");
     join(stop, threads);
-    assert_eq!((a.grant.bytes, a.how), (NEED / 2, Admitted::Capped), "halved at the cap after {took:?}");
-    assert!(took >= BOUNDS.cap && took < BOUNDS.cap + BOUNDS.stall, "at about the cap: {took:?}");
+    assert_eq!(
+        (a.grant.bytes, a.how),
+        (NEED / 2, Admitted::Capped),
+        "halved at the cap after {took:?}"
+    );
+    assert!(
+        took >= BOUNDS.cap && took < BOUNDS.cap + BOUNDS.stall,
+        "at about the cap: {took:?}"
+    );
     drop(a);
     disarm();
 }

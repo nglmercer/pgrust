@@ -18,7 +18,8 @@ use crate::frame::px::ExId;
 use crate::frame::row::{Carry, RowVals};
 
 /// A passing row's action (`chain`'s end): the carry it returns is the row's out (non-zero: it passed).
-pub(crate) type Pass<'a, 'e> = &'a mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env<'e, '_>, &RowVals) -> Carry<'e>;
+pub(crate) type Pass<'a, 'e> =
+    &'a mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env<'e, '_>, &RowVals) -> Carry<'e>;
 
 /// The pull form's child: its scan and ops over its own site, and its per-open words (written once, at its first read).
 pub(crate) struct Child<'g> {
@@ -36,7 +37,13 @@ pub(crate) struct Child<'g> {
 }
 
 /// The child's ops over `row`, `fin` at their end.
-pub(crate) fn chain<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, steps: &[PgBox<'_, dyn StepMech + '_>], row: &RowVals, fin: Pass<'_, 'e>) -> Carry<'e> {
+pub(crate) fn chain<'e>(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env<'e, '_>,
+    steps: &[PgBox<'_, dyn StepMech + '_>],
+    row: &RowVals,
+    fin: Pass<'_, 'e>,
+) -> Carry<'e> {
     crate::stack_check(); // D3832
     match steps.split_first() {
         None => fin(b, env, row),
@@ -48,15 +55,41 @@ impl Child<'_> {
     /// The child read on until one row passes its ops, `pass` run on that row, then `l_ready`; at the child's end its end
     /// word (`st`) set and `l_eof(0)`; a status below zero `l_eof(status)`. The child opens at its first read (its per-open
     /// words then; its open word `st + 1`), `node` the reader's.
-    pub(crate) fn fill<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, st: u16, node: i32, l_eof: Block, l_ready: Block, pass: Pass<'_, 'e>) {
-        fill_in(b, env, (&*self.src, &self.steps, &self.words), (self.at, &self.gates), (st, node), (l_eof, l_ready), self.rest, pass);
+    pub(crate) fn fill<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        st: u16,
+        node: i32,
+        l_eof: Block,
+        l_ready: Block,
+        pass: Pass<'_, 'e>,
+    ) {
+        fill_in(
+            b,
+            env,
+            (&*self.src, &self.steps, &self.words),
+            (self.at, &self.gates),
+            (st, node),
+            (l_eof, l_ready),
+            self.rest,
+            pass,
+        );
     }
 }
 
 /// `Child::fill` over a source, its ops and per-open words: `Err(site)` a site's cursor, `Ok(pos)` a site-less source
 /// (join.drain's drain under nest/spool_drain.rs) that keeps its position in its own word `pos` (`Env::pos`), writes it
 /// back itself and may send an empty window (the cursor moved past records it does not want).
-pub(crate) fn fill<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, child: (&dyn SourceMech, &[PgBox<'_, dyn StepMech + '_>], &OpenWords), at: Result<i32, usize>, st: (u16, i32), ends: (Block, Block), pass: Pass<'_, 'e>) {
+pub(crate) fn fill<'e>(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env<'e, '_>,
+    child: (&dyn SourceMech, &[PgBox<'_, dyn StepMech + '_>], &OpenWords),
+    at: Result<i32, usize>,
+    st: (u16, i32),
+    ends: (Block, Block),
+    pass: Pass<'_, 'e>,
+) {
     fill_in(b, env, child, (at, &[]), st, ends, false, pass);
 }
 
@@ -64,7 +97,16 @@ pub(crate) fn fill<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, child
 /// window: each row's cursor stored as it is read, every passing row `pass`ed, `l_ready` when one passed, else the next
 /// window.
 #[allow(clippy::too_many_arguments)]
-fn fill_in<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, child: (&dyn SourceMech, &[PgBox<'_, dyn StepMech + '_>], &OpenWords), (at, gates): (Result<i32, usize>, &[(i32, ExId)]), (st, node): (u16, i32), (l_eof, l_ready): (Block, Block), rest: bool, pass: Pass<'_, 'e>) {
+fn fill_in<'e>(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env<'e, '_>,
+    child: (&dyn SourceMech, &[PgBox<'_, dyn StepMech + '_>], &OpenWords),
+    (at, gates): (Result<i32, usize>, &[(i32, ExId)]),
+    (st, node): (u16, i32),
+    (l_eof, l_ready): (Block, Block),
+    rest: bool,
+    pass: Pass<'_, 'e>,
+) {
     let (src, steps, words) = child;
     let rest = rest && at.is_err();
     let saved = (env.site, env.win, env.pos);
@@ -114,7 +156,11 @@ fn fill_in<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, child: (&dyn 
     src.fill_late(b, env, &win, None);
     if rest {
         // D2780: every row of the window read here, the site's cursor past each as it is read
-        let (l_rows, l_row, l_done) = (b.create_block(&[Type::I64, Type::I64]), b.create_block(&[]), b.create_block(&[Type::I64]));
+        let (l_rows, l_row, l_done) = (
+            b.create_block(&[Type::I64, Type::I64]),
+            b.create_block(&[]),
+            b.create_block(&[Type::I64]),
+        );
         b.br(l_rows, &[win.cursor, env.zero]);
         // bounded by the window, inside the read loop's checked back edge (rerun/inner.rs's row loop does the same)
         b.mark_loop_header(l_rows);
@@ -149,7 +195,10 @@ fn fill_in<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, child: (&dyn 
     b.switch_to(l_ended);
     b.store(env.params, st as i32 * 8, env.one);
     // D4204: a step that ends a state at its input's end (a lock's EvalPlanQual: ExecLockRows' EvalPlanQualEnd)
-    steps.iter().filter(|s| s.ends()).for_each(|s| s.ended(b, env));
+    steps
+        .iter()
+        .filter(|s| s.ends())
+        .for_each(|s| s.ended(b, env));
     b.br(l_eof, &[env.zero]);
     env.memo.restore(memo);
     (env.site, env.win, env.pos) = saved;
@@ -157,8 +206,23 @@ fn fill_in<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, child: (&dyn 
 
 /// `fill`'s one row: the window's first, consumed at once (the site's cursor, or a site-less source's own position, past
 /// it), its ops run; `l_ready` when it passed, else `l_loop` (the next read).
-fn fill_one<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, (src, steps): (&dyn SourceMech, &[PgBox<'_, dyn StepMech + '_>]), at: Result<i32, usize>, win: &crate::frame::frame::Win, (l_loop, l_ready): (Block, Block), pass: Pass<'_, 'e>) {
-    let row = src.row(b, env, win, win.cursor, Carry::new(env.zero, env.mcx), env.zero);
+fn fill_one<'e>(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env<'e, '_>,
+    (src, steps): (&dyn SourceMech, &[PgBox<'_, dyn StepMech + '_>]),
+    at: Result<i32, usize>,
+    win: &crate::frame::frame::Win,
+    (l_loop, l_ready): (Block, Block),
+    pass: Pass<'_, 'e>,
+) {
+    let row = src.row(
+        b,
+        env,
+        win,
+        win.cursor,
+        Carry::new(env.zero, env.mcx),
+        env.zero,
+    );
     let cur1 = b.int_bin(IntBinOp::Add, win.cursor, env.one);
     match at {
         Err(site) => {
@@ -169,7 +233,11 @@ fn fill_one<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, (src, steps)
     }
     // D4204: a step that positions its site at the row (a pulled LOCK-FILL child's lock) reads its locator, as the frame's
     let saved = env.loc;
-    env.loc = if steps.iter().any(|s| s.wants_locator()) { src.locator(b, env, &row) } else { None };
+    env.loc = if steps.iter().any(|s| s.wants_locator()) {
+        src.locator(b, env, &row)
+    } else {
+        None
+    };
     let out = chain(b, env, steps, &row, pass);
     env.loc = saved;
     let found = b.icmp(IntCond::Ne, out.out, env.zero);

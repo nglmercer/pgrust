@@ -16,9 +16,14 @@ impl Wake {
     }
 
     pub(super) fn current(&self) -> Option<u64> {
-        let (c, p) = (self.current.load(Ordering::Acquire), self.park_ms.load(Ordering::Acquire));
+        let (c, p) = (
+            self.current.load(Ordering::Acquire),
+            self.park_ms.load(Ordering::Acquire),
+        );
         // SAFETY: `c` was stored from a `fn() -> u64` by `arm_park`.
-        (c != 0 && p != 0).then(|| unsafe { core::mem::transmute::<usize, fn() -> u64>(c)() }).filter(|&w| w != 0)
+        (c != 0 && p != 0)
+            .then(|| unsafe { core::mem::transmute::<usize, fn() -> u64>(c)() })
+            .filter(|&w| w != 0)
     }
 
     pub(super) fn park(&self, ms: u64) {

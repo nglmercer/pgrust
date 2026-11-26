@@ -40,8 +40,14 @@ pub enum Deck {
 }
 
 impl Deck {
-    pub const ALL: &'static [Deck] =
-        &[Deck::Catalog, Deck::Invariants, Deck::Locks, Deck::Conname, Deck::Stats, Deck::Physical];
+    pub const ALL: &'static [Deck] = &[
+        Deck::Catalog,
+        Deck::Invariants,
+        Deck::Locks,
+        Deck::Conname,
+        Deck::Stats,
+        Deck::Physical,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -102,7 +108,12 @@ pub fn split_deck(src: &str) -> Vec<DeckStmt> {
             if let Some(c) = cur.take() {
                 out.push(finish_stmt(c));
             }
-            cur = Some(DeckStmt { key: name.trim().to_string(), when: None, each: None, sql: String::new() });
+            cur = Some(DeckStmt {
+                key: name.trim().to_string(),
+                when: None,
+                each: None,
+                sql: String::new(),
+            });
             continue;
         }
         let Some(c) = cur.as_mut() else { continue };
@@ -166,7 +177,10 @@ fn subst(sql: &str, ctx: &RenderCtx, elem: Option<(&str, &str)>) -> String {
     if let Some(pk) = &ctx.pk {
         out = out.replace("{{pk}}", pk);
     }
-    out = out.replace("{{class_oid_col}}", if ctx.raw_oids { "c.oid, " } else { "" });
+    out = out.replace(
+        "{{class_oid_col}}",
+        if ctx.raw_oids { "c.oid, " } else { "" },
+    );
     if let Some((list, value)) = elem {
         let ph = match list {
             "seq" => "{{seq}}",
@@ -175,7 +189,11 @@ fn subst(sql: &str, ctx: &RenderCtx, elem: Option<(&str, &str)>) -> String {
             _ => "",
         };
         if !ph.is_empty() {
-            let v = if list == "column" { value.to_string() } else { quote_lit(value) };
+            let v = if list == "column" {
+                value.to_string()
+            } else {
+                quote_lit(value)
+            };
             out = out.replace(ph, &v);
         }
     }
@@ -203,7 +221,10 @@ pub fn render(deck: Deck, ctx: &RenderCtx) -> Vec<ProbeStmt> {
             }
         }
         match s.each.as_deref() {
-            None => out.push(ProbeStmt { key: s.key.clone(), sql: subst(&s.sql, ctx, None) }),
+            None => out.push(ProbeStmt {
+                key: s.key.clone(),
+                sql: subst(&s.sql, ctx, None),
+            }),
             Some(list) => {
                 let items: &[String] = match list {
                     "seq" => &ctx.sequences,
@@ -275,9 +296,17 @@ fn leading_words(sql: &str, n: usize) -> Vec<String> {
     // Skip leading comments.
     loop {
         if let Some(rest) = s.strip_prefix("--") {
-            s = rest.split_once('\n').map(|x| x.1).unwrap_or("").trim_start();
+            s = rest
+                .split_once('\n')
+                .map(|x| x.1)
+                .unwrap_or("")
+                .trim_start();
         } else if let Some(rest) = s.strip_prefix("/*") {
-            s = rest.split_once("*/").map(|x| x.1).unwrap_or("").trim_start();
+            s = rest
+                .split_once("*/")
+                .map(|x| x.1)
+                .unwrap_or("")
+                .trim_start();
         } else {
             break;
         }
@@ -295,14 +324,30 @@ pub fn is_ddl(sql: &str) -> bool {
     let w = leading_words(sql, 2);
     matches!(
         w.first().map(String::as_str),
-        Some("CREATE" | "ALTER" | "DROP" | "TRUNCATE" | "COMMENT" | "GRANT" | "REVOKE" | "REINDEX" | "CLUSTER" | "REFRESH" | "SECURITY" | "IMPORT")
+        Some(
+            "CREATE"
+                | "ALTER"
+                | "DROP"
+                | "TRUNCATE"
+                | "COMMENT"
+                | "GRANT"
+                | "REVOKE"
+                | "REINDEX"
+                | "CLUSTER"
+                | "REFRESH"
+                | "SECURITY"
+                | "IMPORT"
+        )
     )
 }
 
 /// DML: INSERT / UPDATE / DELETE / MERGE / COPY ... FROM / (WITH ... DML).
 pub fn is_dml(sql: &str) -> bool {
     let w = leading_words(sql, 1);
-    matches!(w.first().map(String::as_str), Some("INSERT" | "UPDATE" | "DELETE" | "MERGE" | "COPY"))
+    matches!(
+        w.first().map(String::as_str),
+        Some("INSERT" | "UPDATE" | "DELETE" | "MERGE" | "COPY")
+    )
 }
 
 /// Transaction control.
@@ -326,8 +371,16 @@ pub fn takes_relation_lock(sql: &str) -> bool {
     match (w.first().map(String::as_str), w.get(1).map(String::as_str)) {
         (Some("ALTER"), Some("TABLE" | "INDEX" | "MATERIALIZED" | "VIEW" | "SEQUENCE")) => true,
         (Some("CREATE"), Some("INDEX" | "UNIQUE" | "TRIGGER" | "RULE" | "POLICY")) => true,
-        (Some("DROP"), Some("TABLE" | "INDEX" | "VIEW" | "MATERIALIZED" | "SEQUENCE" | "TRIGGER" | "RULE" | "POLICY")) => true,
-        (Some("TRUNCATE"), _) | (Some("REINDEX"), _) | (Some("CLUSTER"), _) | (Some("LOCK"), _) => true,
+        (
+            Some("DROP"),
+            Some(
+                "TABLE" | "INDEX" | "VIEW" | "MATERIALIZED" | "SEQUENCE" | "TRIGGER" | "RULE"
+                | "POLICY",
+            ),
+        ) => true,
+        (Some("TRUNCATE"), _) | (Some("REINDEX"), _) | (Some("CLUSTER"), _) | (Some("LOCK"), _) => {
+            true
+        }
         (Some("CREATE"), Some("TABLE")) => true,
         (Some("REFRESH"), _) => true,
         _ => false,
@@ -393,7 +446,11 @@ pub fn target_table(sql: &str) -> Option<String> {
             ident_at(i)
         }
         Some("COPY") => {
-            if ws.get(1) == Some(&"BINARY") { ident_at(2) } else { ident_at(1) }
+            if ws.get(1) == Some(&"BINARY") {
+                ident_at(2)
+            } else {
+                ident_at(1)
+            }
         }
         _ => None,
     }
@@ -405,9 +462,17 @@ fn raw_word_at(sql: &str, i: usize) -> Option<&str> {
     let mut s = sql.trim_start();
     loop {
         if let Some(rest) = s.strip_prefix("--") {
-            s = rest.split_once('\n').map(|x| x.1).unwrap_or("").trim_start();
+            s = rest
+                .split_once('\n')
+                .map(|x| x.1)
+                .unwrap_or("")
+                .trim_start();
         } else if let Some(rest) = s.strip_prefix("/*") {
-            s = rest.split_once("*/").map(|x| x.1).unwrap_or("").trim_start();
+            s = rest
+                .split_once("*/")
+                .map(|x| x.1)
+                .unwrap_or("")
+                .trim_start();
         } else {
             break;
         }
@@ -418,7 +483,9 @@ fn raw_word_at(sql: &str, i: usize) -> Option<&str> {
         .nth(i)?;
     // A bare "(" split can leave a word like `t(a` handled above; also
     // reject keywords that mean "no identifier here".
-    const NOT_IDENT: &[&str] = &["SELECT", "VALUES", "AS", "WITH", "ON", "FROM", "INTO", "SET", "USING", "TABLE"];
+    const NOT_IDENT: &[&str] = &[
+        "SELECT", "VALUES", "AS", "WITH", "ON", "FROM", "INTO", "SET", "USING", "TABLE",
+    ];
     if NOT_IDENT.iter().any(|k| w.eq_ignore_ascii_case(k)) || w.starts_with('(') {
         return None;
     }
@@ -462,12 +529,22 @@ pub fn stmt_result(wire: &[WireMsg]) -> Value {
     if columns.is_empty() && rows.is_empty() {
         return Value::obj().with("tag", tag.map(|t| t.to_json()).unwrap_or(Value::Null));
     }
-    rows.sort_by_key(|r| r.iter().map(|c| c.as_ref().map(|b| b.0.clone())).collect::<Vec<_>>());
+    rows.sort_by_key(|r| {
+        r.iter()
+            .map(|c| c.as_ref().map(|b| b.0.clone()))
+            .collect::<Vec<_>>()
+    });
     Value::obj().with("columns", Value::Arr(columns)).with(
         "rows",
         Value::Arr(
             rows.into_iter()
-                .map(|r| Value::Arr(r.into_iter().map(|c| c.map(|b| b.to_json()).unwrap_or(Value::Null)).collect()))
+                .map(|r| {
+                    Value::Arr(
+                        r.into_iter()
+                            .map(|c| c.map(|b| b.to_json()).unwrap_or(Value::Null))
+                            .collect(),
+                    )
+                })
                 .collect(),
         ),
     )
@@ -516,7 +593,9 @@ fn cell_i64(v: &Value) -> Option<i64> {
 /// statement (a function call) is dropped.
 pub fn stats_delta(prev: &Value, cur: &Value) -> Value {
     let mut out: Vec<(String, Value)> = Vec::new();
-    let Some(cur_obj) = cur.as_obj() else { return Value::obj() };
+    let Some(cur_obj) = cur.as_obj() else {
+        return Value::obj();
+    };
     for (k, cv) in cur_obj {
         if k == "flush" {
             continue;
@@ -542,7 +621,8 @@ pub fn stats_delta(prev: &Value, cur: &Value) -> Value {
             }
             (keys, nums)
         };
-        let mut table: BTreeMap<Vec<String>, (Vec<Option<i64>>, Vec<Option<i64>>)> = BTreeMap::new();
+        let mut table: BTreeMap<Vec<String>, (Vec<Option<i64>>, Vec<Option<i64>>)> =
+            BTreeMap::new();
         if let Some(rows) = pv.and_then(|p| p.get("rows")).and_then(|r| r.as_arr()) {
             for r in rows {
                 let (k, n) = key_of(r);
@@ -568,7 +648,12 @@ pub fn stats_delta(prev: &Value, cur: &Value) -> Value {
                 Value::Arr(cells)
             })
             .collect();
-        out.push((k.clone(), Value::obj().with("columns", columns).with("rows", Value::Arr(rows))));
+        out.push((
+            k.clone(),
+            Value::obj()
+                .with("columns", columns)
+                .with("rows", Value::Arr(rows)),
+        ));
     }
     Value::Obj(out)
 }
@@ -585,7 +670,12 @@ mod tests {
             assert!(!stmts.is_empty(), "{}", d.name());
             for s in &stmts {
                 assert!(!s.key.is_empty());
-                assert!(s.sql.ends_with(';'), "{}:{} must end with ';'", d.name(), s.key);
+                assert!(
+                    s.sql.ends_with(';'),
+                    "{}:{} must end with ';'",
+                    d.name(),
+                    s.key
+                );
                 assert!(!s.sql.contains("-- name:"));
             }
             let mut keys: Vec<&str> = stmts.iter().map(|s| s.key.as_str()).collect();
@@ -599,13 +689,30 @@ mod tests {
 
     #[test]
     fn catalog_deck_snapshot() {
-        let keys: Vec<String> = render(Deck::Catalog, &RenderCtx::default()).into_iter().map(|s| s.key).collect();
+        let keys: Vec<String> = render(Deck::Catalog, &RenderCtx::default())
+            .into_iter()
+            .map(|s| s.key)
+            .collect();
         assert_eq!(
             keys,
             [
-                "depend", "init_privs", "description_builtin", "description_user", "constraint", "class", "type",
-                "proc", "subscription", "replication_origin_status", "event_trigger", "extension",
-                "extension_members", "db_role_setting", "largeobject_metadata", "loaded_modules", "matviews",
+                "depend",
+                "init_privs",
+                "description_builtin",
+                "description_user",
+                "constraint",
+                "class",
+                "type",
+                "proc",
+                "subscription",
+                "replication_origin_status",
+                "event_trigger",
+                "extension",
+                "extension_members",
+                "db_role_setting",
+                "largeobject_metadata",
+                "loaded_modules",
+                "matviews",
             ]
         );
         // Every catalog statement is sorted or a single-row digest.
@@ -617,35 +724,69 @@ mod tests {
             );
         }
         // No raw OIDs by default; the binupgrade cell adds c.oid to class.
-        let class = render(Deck::Catalog, &RenderCtx::default()).into_iter().find(|s| s.key == "class").unwrap();
-        assert!(class.sql.starts_with("SELECT n.nspname, c.relname"), "{}", class.sql);
-        let raw = render(Deck::Catalog, &RenderCtx { raw_oids: true, ..Default::default() })
+        let class = render(Deck::Catalog, &RenderCtx::default())
             .into_iter()
             .find(|s| s.key == "class")
             .unwrap();
-        assert!(raw.sql.starts_with("SELECT c.oid, n.nspname"), "{}", raw.sql);
+        assert!(
+            class.sql.starts_with("SELECT n.nspname, c.relname"),
+            "{}",
+            class.sql
+        );
+        let raw = render(
+            Deck::Catalog,
+            &RenderCtx {
+                raw_oids: true,
+                ..Default::default()
+            },
+        )
+        .into_iter()
+        .find(|s| s.key == "class")
+        .unwrap();
+        assert!(
+            raw.sql.starts_with("SELECT c.oid, n.nspname"),
+            "{}",
+            raw.sql
+        );
         // GUCs the recipe SET: one SHOW per GUC plus the file/settings decks.
-        let ctx = RenderCtx { gucs: vec!["work_mem".into(), "search_path".into()], ..Default::default() };
+        let ctx = RenderCtx {
+            gucs: vec!["work_mem".into(), "search_path".into()],
+            ..Default::default()
+        };
         let r = render(Deck::Catalog, &ctx);
-        let show: Vec<&ProbeStmt> = r.iter().filter(|s| s.key.starts_with("show_guc:")).collect();
+        let show: Vec<&ProbeStmt> = r
+            .iter()
+            .filter(|s| s.key.starts_with("show_guc:"))
+            .collect();
         assert_eq!(show.len(), 2);
-        assert_eq!(show[0].sql, "SELECT 'work_mem' AS name, current_setting('work_mem', true) AS value;");
+        assert_eq!(
+            show[0].sql,
+            "SELECT 'work_mem' AS name, current_setting('work_mem', true) AS value;"
+        );
         assert!(r.iter().any(|s| s.key == "file_settings"));
         assert!(r.iter().any(|s| s.key == "settings_source"));
     }
 
     #[test]
     fn invariants_render_per_sequence() {
-        let ctx = RenderCtx { sequences: vec!["s1".into(), "public.s2".into()], ..Default::default() };
+        let ctx = RenderCtx {
+            sequences: vec!["s1".into(), "public.s2".into()],
+            ..Default::default()
+        };
         let r = render(Deck::Invariants, &ctx);
-        let seqs: Vec<&ProbeStmt> = r.iter().filter(|s| s.key.starts_with("sequence_monotone:")).collect();
+        let seqs: Vec<&ProbeStmt> = r
+            .iter()
+            .filter(|s| s.key.starts_with("sequence_monotone:"))
+            .collect();
         assert_eq!(seqs.len(), 2);
         assert_eq!(
             seqs[1].sql,
             "SELECT 'public.s2' AS seq\n WHERE NOT (nextval('public.s2') < nextval('public.s2'));"
         );
         assert_eq!(r.len(), 15 + 2);
-        assert!(render(Deck::Invariants, &RenderCtx::default()).iter().all(|s| !s.key.starts_with("sequence_monotone")));
+        assert!(render(Deck::Invariants, &RenderCtx::default())
+            .iter()
+            .all(|s| !s.key.starts_with("sequence_monotone")));
     }
 
     #[test]
@@ -655,7 +796,9 @@ mod tests {
         for s in &r {
             assert!(s.sql.contains("l.pid = pg_backend_pid()"), "{}", s.key);
         }
-        assert!(r[0].sql.contains("n.nspname NOT IN ('pg_catalog', 'information_schema')"));
+        assert!(r[0]
+            .sql
+            .contains("n.nspname NOT IN ('pg_catalog', 'information_schema')"));
         assert!(Deck::Locks.session_bound());
     }
 
@@ -669,7 +812,10 @@ mod tests {
             ..Default::default()
         };
         let c = render(Deck::Conname, &ctx);
-        assert_eq!(c.iter().map(|s| s.key.as_str()).collect::<Vec<_>>(), ["conname", "indexname", "attname"]);
+        assert_eq!(
+            c.iter().map(|s| s.key.as_str()).collect::<Vec<_>>(),
+            ["conname", "indexname", "attname"]
+        );
         assert!(c[0].sql.contains("c.conrelid = 'fz_hp_3'::regclass"));
         let p = render(Deck::Physical, &ctx);
         assert_eq!(
@@ -681,7 +827,10 @@ mod tests {
             "SELECT pk AS pk, 'b' AS col,\n       pg_column_size(b) AS size,\n       pg_column_compression(b) AS compression,\n       (pg_column_toast_chunk_id(b) IS NOT NULL) AS toasted\n  FROM fz_hp_3\n ORDER BY pk;"
         );
         // Without a pk there is no total order: column shapes are skipped.
-        let nopk = RenderCtx { pk: None, ..ctx.clone() };
+        let nopk = RenderCtx {
+            pk: None,
+            ..ctx.clone()
+        };
         assert_eq!(render(Deck::Physical, &nopk).len(), 1);
     }
 
@@ -689,18 +838,46 @@ mod tests {
     fn stats_deck_has_no_timings() {
         for s in render(Deck::Stats, &RenderCtx::default()) {
             let up = s.sql.to_ascii_uppercase();
-            assert!(!up.contains("_TIME") && !up.contains("BLK_READ") && !up.contains("LAST_"), "{}", s.key);
+            assert!(
+                !up.contains("_TIME") && !up.contains("BLK_READ") && !up.contains("LAST_"),
+                "{}",
+                s.key
+            );
         }
     }
 
     #[test]
     fn schedule_matches_the_plan() {
-        assert_eq!(schedule(&Trigger::DdlBracketEnd), vec![Deck::Catalog, Deck::Invariants]);
-        assert_eq!(schedule(&Trigger::Restart), vec![Deck::Catalog, Deck::Invariants, Deck::Stats]);
-        assert_eq!(schedule(&Trigger::StreamEnd), vec![Deck::Catalog, Deck::Invariants, Deck::Stats, Deck::Physical]);
-        assert_eq!(schedule(&Trigger::DdlStatement { in_txn: true, takes_lock: true }), vec![Deck::Conname, Deck::Locks]);
-        assert_eq!(schedule(&Trigger::DdlStatement { in_txn: false, takes_lock: true }), vec![Deck::Conname]);
-        assert_eq!(schedule(&Trigger::DmlBracketEnd), vec![Deck::Stats, Deck::Physical]);
+        assert_eq!(
+            schedule(&Trigger::DdlBracketEnd),
+            vec![Deck::Catalog, Deck::Invariants]
+        );
+        assert_eq!(
+            schedule(&Trigger::Restart),
+            vec![Deck::Catalog, Deck::Invariants, Deck::Stats]
+        );
+        assert_eq!(
+            schedule(&Trigger::StreamEnd),
+            vec![Deck::Catalog, Deck::Invariants, Deck::Stats, Deck::Physical]
+        );
+        assert_eq!(
+            schedule(&Trigger::DdlStatement {
+                in_txn: true,
+                takes_lock: true
+            }),
+            vec![Deck::Conname, Deck::Locks]
+        );
+        assert_eq!(
+            schedule(&Trigger::DdlStatement {
+                in_txn: false,
+                takes_lock: true
+            }),
+            vec![Deck::Conname]
+        );
+        assert_eq!(
+            schedule(&Trigger::DmlBracketEnd),
+            vec![Deck::Stats, Deck::Physical]
+        );
         assert_eq!(schedule(&Trigger::Explicit(Deck::Locks)), vec![Deck::Locks]);
     }
 
@@ -712,30 +889,60 @@ mod tests {
         assert!(is_dml("INSERT INTO t VALUES (1)"));
         assert!(!is_dml("CREATE TABLE t (a int)"));
         assert_eq!(txn_control("BEGIN;"), Some("begin"));
-        assert_eq!(txn_control("START TRANSACTION ISOLATION LEVEL SERIALIZABLE"), Some("begin"));
+        assert_eq!(
+            txn_control("START TRANSACTION ISOLATION LEVEL SERIALIZABLE"),
+            Some("begin")
+        );
         assert_eq!(txn_control("COMMIT"), Some("end"));
         assert_eq!(txn_control("ROLLBACK TO SAVEPOINT s"), None);
         assert_eq!(txn_control("ROLLBACK"), Some("end"));
         assert_eq!(txn_control("SELECT 1"), None);
-        assert!(takes_relation_lock("ALTER TABLE t ADD CONSTRAINT c CHECK (a > 0)"));
+        assert!(takes_relation_lock(
+            "ALTER TABLE t ADD CONSTRAINT c CHECK (a > 0)"
+        ));
         assert!(takes_relation_lock("CREATE INDEX i ON t (a)"));
-        assert!(!takes_relation_lock("CREATE FUNCTION f() RETURNS int LANGUAGE sql AS 'SELECT 1'"));
-        assert_eq!(target_table("ALTER TABLE IF EXISTS ONLY fz_hp_3 ADD COLUMN x int"), Some("fz_hp_3".into()));
-        assert_eq!(target_table("CREATE TEMP TABLE IF NOT EXISTS \"Weird\"(a int)"), Some("\"Weird\"".into()));
-        assert_eq!(target_table("CREATE UNIQUE INDEX CONCURRENTLY i ON ONLY public.t (a)"), Some("public.t".into()));
-        assert_eq!(target_table("INSERT INTO t (a) VALUES (1)"), Some("t".into()));
+        assert!(!takes_relation_lock(
+            "CREATE FUNCTION f() RETURNS int LANGUAGE sql AS 'SELECT 1'"
+        ));
+        assert_eq!(
+            target_table("ALTER TABLE IF EXISTS ONLY fz_hp_3 ADD COLUMN x int"),
+            Some("fz_hp_3".into())
+        );
+        assert_eq!(
+            target_table("CREATE TEMP TABLE IF NOT EXISTS \"Weird\"(a int)"),
+            Some("\"Weird\"".into())
+        );
+        assert_eq!(
+            target_table("CREATE UNIQUE INDEX CONCURRENTLY i ON ONLY public.t (a)"),
+            Some("public.t".into())
+        );
+        assert_eq!(
+            target_table("INSERT INTO t (a) VALUES (1)"),
+            Some("t".into())
+        );
         assert_eq!(target_table("UPDATE ONLY t SET a = 1"), Some("t".into()));
         assert_eq!(target_table("DELETE FROM t WHERE a = 1"), Some("t".into()));
         assert_eq!(target_table("TRUNCATE TABLE t, u"), Some("t".into()));
         assert_eq!(target_table("COPY t FROM STDIN"), Some("t".into()));
-        assert_eq!(target_table("MERGE INTO t USING u ON true WHEN MATCHED THEN DELETE"), Some("t".into()));
+        assert_eq!(
+            target_table("MERGE INTO t USING u ON true WHEN MATCHED THEN DELETE"),
+            Some("t".into())
+        );
         assert_eq!(target_table("DROP TABLE t"), None);
         assert_eq!(target_table("CREATE TABLE AS SELECT 1"), None);
         assert_eq!(target_table("SELECT * FROM t"), None);
     }
 
     fn col(name: &str) -> ColDesc {
-        ColDesc { name: Bytes::text(name), tableoid: 0, attnum: 0, typoid: 25, typlen: -1, typmod: -1, fmt: 0 }
+        ColDesc {
+            name: Bytes::text(name),
+            tableoid: 0,
+            attnum: 0,
+            typoid: 25,
+            typlen: -1,
+            typmod: -1,
+            fmt: 0,
+        }
     }
 
     fn row(cells: &[Option<&str>]) -> WireMsg {
@@ -754,9 +961,19 @@ mod tests {
         let mut ef = ErrFields::new();
         ef.insert('C', Bytes::text("42P01"));
         ef.insert('M', Bytes::text("relation \"x\" does not exist"));
-        let err = vec![WireMsg::ErrorResponse(ef), WireMsg::ReadyForQuery { status: 'I' }];
-        let cmd = vec![WireMsg::CommandComplete(Bytes::text("SELECT 1")), WireMsg::ReadyForQuery { status: 'I' }];
-        let v = deck_result(&[("class".into(), ok), ("bad".into(), err), ("flush".into(), cmd)]);
+        let err = vec![
+            WireMsg::ErrorResponse(ef),
+            WireMsg::ReadyForQuery { status: 'I' },
+        ];
+        let cmd = vec![
+            WireMsg::CommandComplete(Bytes::text("SELECT 1")),
+            WireMsg::ReadyForQuery { status: 'I' },
+        ];
+        let v = deck_result(&[
+            ("class".into(), ok),
+            ("bad".into(), err),
+            ("flush".into(), cmd),
+        ]);
         let s = crate::contracts::json::to_canonical(&v).unwrap();
         assert_eq!(
             s,
@@ -769,20 +986,42 @@ mod tests {
     #[test]
     fn stats_delta_subtracts_integers_per_key() {
         let prev = deck_result(&[
-            ("user_tables".into(), vec![
-                WireMsg::RowDescription(vec![col("schemaname"), col("relname"), col("n_tup_ins"), col("n_tup_del")]),
-                row(&[Some("public"), Some("t"), Some("10"), Some("1")]),
-                row(&[Some("public"), Some("gone"), Some("5"), Some("0")]),
-            ]),
-            ("flush".into(), vec![WireMsg::CommandComplete(Bytes::text("SELECT 1"))]),
+            (
+                "user_tables".into(),
+                vec![
+                    WireMsg::RowDescription(vec![
+                        col("schemaname"),
+                        col("relname"),
+                        col("n_tup_ins"),
+                        col("n_tup_del"),
+                    ]),
+                    row(&[Some("public"), Some("t"), Some("10"), Some("1")]),
+                    row(&[Some("public"), Some("gone"), Some("5"), Some("0")]),
+                ],
+            ),
+            (
+                "flush".into(),
+                vec![WireMsg::CommandComplete(Bytes::text("SELECT 1"))],
+            ),
         ]);
         let cur = deck_result(&[
-            ("user_tables".into(), vec![
-                WireMsg::RowDescription(vec![col("schemaname"), col("relname"), col("n_tup_ins"), col("n_tup_del")]),
-                row(&[Some("public"), Some("t"), Some("13"), Some("1")]),
-                row(&[Some("public"), Some("new"), Some("2"), Some("0")]),
-            ]),
-            ("flush".into(), vec![WireMsg::CommandComplete(Bytes::text("SELECT 1"))]),
+            (
+                "user_tables".into(),
+                vec![
+                    WireMsg::RowDescription(vec![
+                        col("schemaname"),
+                        col("relname"),
+                        col("n_tup_ins"),
+                        col("n_tup_del"),
+                    ]),
+                    row(&[Some("public"), Some("t"), Some("13"), Some("1")]),
+                    row(&[Some("public"), Some("new"), Some("2"), Some("0")]),
+                ],
+            ),
+            (
+                "flush".into(),
+                vec![WireMsg::CommandComplete(Bytes::text("SELECT 1"))],
+            ),
         ]);
         let d = stats_delta(&prev, &cur);
         let s = crate::contracts::json::to_canonical(&d).unwrap();
@@ -790,6 +1029,10 @@ mod tests {
             s,
             r#"{"user_tables":{"columns":["schemaname","relname","n_tup_ins","n_tup_del"],"rows":[["public","gone",-5,0],["public","new",2,0],["public","t",3,0]]}}"#
         );
-        assert_eq!(crate::contracts::json::to_canonical(&stats_delta(&Value::obj(), &Value::obj())).unwrap(), "{}");
+        assert_eq!(
+            crate::contracts::json::to_canonical(&stats_delta(&Value::obj(), &Value::obj()))
+                .unwrap(),
+            "{}"
+        );
     }
 }

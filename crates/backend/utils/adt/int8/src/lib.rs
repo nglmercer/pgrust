@@ -10,9 +10,8 @@ use alloc::boxed::Box;
 
 use ::numutils::{pg_lltoa, pg_strtoint64_safe_bytes};
 use ::types_error::{
-    PgError, PgResult, SoftErrorContext, ERRCODE_DIVISION_BY_ZERO,
-    ERRCODE_INVALID_PARAMETER_VALUE, ERRCODE_INVALID_PRECEDING_OR_FOLLOWING_SIZE,
-    ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE,
+    PgError, PgResult, SoftErrorContext, ERRCODE_DIVISION_BY_ZERO, ERRCODE_INVALID_PARAMETER_VALUE,
+    ERRCODE_INVALID_PRECEDING_OR_FOLLOWING_SIZE, ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE,
 };
 
 pub use ::numutils::MAXINT8LEN as MAX_INT8_LEN;
@@ -47,7 +46,12 @@ macro_rules! overflow_fns {
     };
 }
 
-overflow_fns!(pg_add_s64_overflow, pg_sub_s64_overflow, pg_mul_s64_overflow, i64);
+overflow_fns!(
+    pg_add_s64_overflow,
+    pg_sub_s64_overflow,
+    pg_mul_s64_overflow,
+    i64
+);
 
 // C repeats the ereport per function; each caller threads its C routine
 // name (wire R field) and that ereport's closing line in int8.c (18.6), so
@@ -355,12 +359,20 @@ pub fn int8dec_any(arg: i64) -> PgResult<i64> {
 
 #[inline]
 pub fn int8larger(arg1: i64, arg2: i64) -> i64 {
-    if arg1 > arg2 { arg1 } else { arg2 }
+    if arg1 > arg2 {
+        arg1
+    } else {
+        arg2
+    }
 }
 
 #[inline]
 pub fn int8smaller(arg1: i64, arg2: i64) -> i64 {
-    if arg1 < arg2 { arg1 } else { arg2 }
+    if arg1 < arg2 {
+        arg1
+    } else {
+        arg2
+    }
 }
 
 #[inline]
@@ -555,7 +567,7 @@ pub fn int48(arg: i32) -> i64 {
 
 #[inline]
 pub fn int84(arg: i64) -> PgResult<i32> {
-    if !( PG_INT32_MIN..= PG_INT32_MAX).contains(&arg) {
+    if !(PG_INT32_MIN..=PG_INT32_MAX).contains(&arg) {
         return Err(integer_out_of_range(1286, "int84"));
     }
     Ok(arg as i32)
@@ -568,7 +580,7 @@ pub fn int28(arg: i16) -> i64 {
 
 #[inline]
 pub fn int82(arg: i64) -> PgResult<i16> {
-    if !( PG_INT16_MIN..= PG_INT16_MAX).contains(&arg) {
+    if !(PG_INT16_MIN..=PG_INT16_MAX).contains(&arg) {
         return Err(smallint_out_of_range(1307, "int82"));
     }
     Ok(arg as i16)
@@ -605,7 +617,7 @@ pub fn ftoi8(num: f32) -> PgResult<i64> {
 
 #[inline]
 pub fn i8tooid(arg: i64) -> PgResult<::types_core::Oid> {
-    if !( 0..= PG_UINT32_MAX).contains(&arg) {
+    if !(0..=PG_UINT32_MAX).contains(&arg) {
         return Err(oid_out_of_range(1390, "i8tooid"));
     }
     Ok(arg as ::types_core::Oid)

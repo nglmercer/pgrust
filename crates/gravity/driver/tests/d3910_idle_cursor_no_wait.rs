@@ -26,28 +26,48 @@ fn a_draw_past_g_never_waits_on_an_idle_cursor() {
     REGIONS.trim();
     gravity_driver::DEPOT.trim();
     POOL.arm(2 * need + spare);
-    let res = std::rc::Rc::new(POOL.admit_need(want, &|g| footprint(g, &program, 1), Duration::from_millis(10)).unwrap());
+    let res = std::rc::Rc::new(
+        POOL.admit_need(
+            want,
+            &|g| footprint(g, &program, 1),
+            Duration::from_millis(10),
+        )
+        .unwrap(),
+    );
     res.set_pool_fraction(gravity_driver::POOL_FRACTION_WHOLE);
     let mut derive = FakeDerive::ranges(RangeTable::new(24, 10));
     let mut entry = Entry::new(2);
     let flag = AtomicU8::new(0);
     let mut sink = LegSink::new();
     let mut b = binding(&[8], &NULLS, &mut sink, &flag);
-    let exec = entry.start(None, &program, &mut derive, &mut b, res.clone()).unwrap();
+    let exec = entry
+        .start(None, &program, &mut derive, &mut b, res.clone())
+        .unwrap();
     let ctx = exec.node().ctx();
     let fill = res.left().saturating_sub(MIB);
     if fill > 0 {
-        assert_eq!(unsafe { gravity_abi::program::arena_grow(ctx, fill) }, fill as i64, "a chunk inside G");
+        assert_eq!(
+            unsafe { gravity_abi::program::arena_grow(ctx, fill) },
+            fill as i64,
+            "a chunk inside G"
+        );
     }
     let idle0 = mcx::governor::idle_holders();
 
     // another session's statement holds the rest of the pool but `spare`, draws half of it, and its portal suspends (a
     // cursor between fetches)
-    let (parked, release) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
+    let (parked, release) = (
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(AtomicBool::new(false)),
+    );
     let (p, rel) = (parked.clone(), release.clone());
     let other = std::thread::spawn(move || {
-        let r = POOL.admit_need(Grant::of(need), &|g| g.bytes, Duration::from_millis(10)).expect("the cursor's statement");
-        let drawn = REGIONS.take((need / 2) as usize, Some(&r)).expect("the cursor's rows");
+        let r = POOL
+            .admit_need(Grant::of(need), &|g| g.bytes, Duration::from_millis(10))
+            .expect("the cursor's statement");
+        let drawn = REGIONS
+            .take((need / 2) as usize, Some(&r))
+            .expect("the cursor's rows");
         r.park_slot();
         p.store(true, Relaxed);
         while !rel.load(Relaxed) {
@@ -58,28 +78,54 @@ fn a_draw_past_g_never_waits_on_an_idle_cursor() {
     });
     let t0 = Instant::now();
     while !parked.load(Relaxed) {
-        assert!(t0.elapsed() < Duration::from_secs(5), "the cursor's statement was not admitted");
+        assert!(
+            t0.elapsed() < Duration::from_secs(5),
+            "the cursor's statement was not admitted"
+        );
         std::thread::sleep(Duration::from_millis(1));
     }
-    assert_eq!(mcx::governor::idle_holders(), idle0 + 1, "the suspended portal is an idle holder");
+    assert_eq!(
+        mcx::governor::idle_holders(),
+        idle0 + 1,
+        "the suspended portal is an idle holder"
+    );
 
     // a chunk only the cursor's drawn bytes could serve: refused at once, not after the pool's 2 s wait
     let past = res.left() + spare + need / 2 + MIB;
     let (refusals, held) = (POOL.stats().refusals, POOL.held());
     let t0 = Instant::now();
-    assert_eq!(unsafe { gravity_abi::program::arena_grow(ctx, past) }, 0, "refused: no room, and an idle cursor gives none back");
+    assert_eq!(
+        unsafe { gravity_abi::program::arena_grow(ctx, past) },
+        0,
+        "refused: no room, and an idle cursor gives none back"
+    );
     let took = t0.elapsed();
-    assert!(took < Duration::from_millis(100), "no wait on the idle cursor ({took:?})");
-    assert_eq!((POOL.held(), POOL.stats().refusals), (held, refusals + 1), "the refusal took nothing and is counted");
+    assert!(
+        took < Duration::from_millis(100),
+        "no wait on the idle cursor ({took:?})"
+    );
+    assert_eq!(
+        (POOL.held(), POOL.stats().refusals),
+        (held, refusals + 1),
+        "the refusal took nothing and is counted"
+    );
 
     release.store(true, Relaxed);
     other.join().expect("the cursor's statement");
-    assert_eq!(mcx::governor::idle_holders(), idle0, "the cursor's close ends its idle hold");
+    assert_eq!(
+        mcx::governor::idle_holders(),
+        idle0,
+        "the cursor's close ends its idle hold"
+    );
     entry.end(exec, false);
     drop(res);
     drop(entry);
     REGIONS.trim();
     gravity_driver::DEPOT.trim();
-    assert_eq!(POOL.held(), 0, "every chunk and reservation back at the statement's end");
+    assert_eq!(
+        POOL.held(),
+        0,
+        "every chunk and reservation back at the statement's end"
+    );
     POOL.arm(0);
 }

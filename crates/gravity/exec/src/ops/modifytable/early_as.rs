@@ -24,6 +24,15 @@ pub fn prepare(p: &Proto, cx: &crate::ops::Prepare<'_>) {
     let root = |w: &WritePlan| w.route.as_ref().map_or(w.target_rel, |r| r.root) as Oid;
     let own = root(&program.write);
     let mut rels: memledger::ChargedVec<Oid> = cx.charged_vec();
-    rels.with_vec(|v| v.extend(program.writes.iter().filter(|w| w.plan.cte).map(|w| root(&w.plan)).filter(|&r| r != own))); // alloc: Exec charged cx.owner
+    rels.with_vec(|v| {
+        v.extend(
+            program
+                .writes
+                .iter()
+                .filter(|w| w.plan.cte)
+                .map(|w| root(&w.plan))
+                .filter(|&r| r != own),
+        )
+    }); // alloc: Exec charged cx.owner
     gravity_hosts::ops::modifytable::trigger_stmt::early(&rels);
 }

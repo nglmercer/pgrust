@@ -32,7 +32,10 @@ impl RdDefaults {
         if let Some((rel, _)) = crate::store::lookup_ent(relid) {
             cxt.set_ident(Some(rel.name()));
         }
-        Rc::new(RdDefaults { trees: RefCell::new(None), cxt })
+        Rc::new(RdDefaults {
+            trees: RefCell::new(None),
+            cxt,
+        })
     }
 
     fn mcx(&self) -> Mcx<'static> {
@@ -66,7 +69,12 @@ impl RdDefaults {
 }
 
 /// The parsed default of column `adnum` of `relid` whose pg_attrdef.adbin is `adbin`, copied into `mcx`.
-pub fn RelationGetDefaultExpr<'mcx>(mcx: Mcx<'mcx>, relid: Oid, adnum: i16, adbin: &str) -> PgResult<Node<'mcx>> {
+pub fn RelationGetDefaultExpr<'mcx>(
+    mcx: Mcx<'mcx>,
+    relid: Oid,
+    adnum: i16,
+    adbin: &str,
+) -> PgResult<Node<'mcx>> {
     let cached = with_state(|st| st.defaults_cache.get(&relid).cloned());
     let set = match cached {
         Some(s) => match s.lookup(adnum, adbin) {
@@ -82,10 +90,18 @@ pub fn RelationGetDefaultExpr<'mcx>(mcx: Mcx<'mcx>, relid: Oid, adnum: i16, adbi
     let text: &'static [u8] = mcx::slice_in(dmcx, adbin.as_bytes())?.leak();
     let mut trees = set.trees.borrow_mut();
     match trees.as_mut() {
-        Some(v) => v.push(DefTree { adnum, adbin: text, tree }),
+        Some(v) => v.push(DefTree {
+            adnum,
+            adbin: text,
+            tree,
+        }),
         None => {
             let mut v = mcx::vec_with_capacity_in(dmcx, 2)?;
-            v.push(DefTree { adnum, adbin: text, tree });
+            v.push(DefTree {
+                adnum,
+                adbin: text,
+                tree,
+            });
             *trees = Some(v);
         }
     }
@@ -106,14 +122,20 @@ mod tests {
         :funccollid 0 :inputcollid 0 :args ({FUNCEXPR :funcid 1574 :funcresulttype 20 :funcretset false :funcvariadic false \
         :funcformat 0 :funccollid 0 :inputcollid 0 :args ({CONST :consttype 2205 :consttypmod -1 :constcollid 0 :constlen 4 \
         :constbyval true :constisnull false :location -1 :constvalue 4 [ 0 64 0 0 0 0 0 0 ]}) :location -1}) :location -1}";
-    const SEVEN: &str = "{CONST :consttype 23 :consttypmod -1 :constcollid 0 :constlen 4 :constbyval true \
+    const SEVEN: &str =
+        "{CONST :consttype 23 :consttypmod -1 :constcollid 0 :constlen 4 :constbyval true \
         :constisnull false :location -1 :constvalue 4 [ 7 0 0 0 0 0 0 0 ]}";
-    const EIGHT: &str = "{CONST :consttype 23 :consttypmod -1 :constcollid 0 :constlen 4 :constbyval true \
+    const EIGHT: &str =
+        "{CONST :consttype 23 :consttypmod -1 :constcollid 0 :constlen 4 :constbyval true \
         :constisnull false :location -1 :constvalue 4 [ 8 0 0 0 0 0 0 0 ]}";
 
     fn trees(relid: types_core::Oid) -> usize {
-        crate::with_state(|st| st.defaults_cache.get(&relid).map(|s| s.trees.borrow().as_ref().map_or(0, |v| v.len())))
-            .unwrap_or(0)
+        crate::with_state(|st| {
+            st.defaults_cache
+                .get(&relid)
+                .map(|s| s.trees.borrow().as_ref().map_or(0, |v| v.len()))
+        })
+        .unwrap_or(0)
     }
 
     #[test]
@@ -136,19 +158,34 @@ mod tests {
         assert_eq!(text(a), fresh(SERIAL));
         assert_eq!(text(b), fresh(SERIAL));
 
-        assert_eq!(text(super::RelationGetDefaultExpr(mcx, 41000, 2, SEVEN).unwrap()), fresh(SEVEN));
+        assert_eq!(
+            text(super::RelationGetDefaultExpr(mcx, 41000, 2, SEVEN).unwrap()),
+            fresh(SEVEN)
+        );
         assert_eq!(trees(41000), 2);
-        assert!(std::rc::Rc::ptr_eq(&set, &crate::with_state(|st| st.defaults_cache.get(&41000).cloned()).unwrap()));
+        assert!(std::rc::Rc::ptr_eq(
+            &set,
+            &crate::with_state(|st| st.defaults_cache.get(&41000).cloned()).unwrap()
+        ));
 
         // a column whose adbin changed under a set that was not dropped: never the old tree, a new set
-        assert_eq!(text(super::RelationGetDefaultExpr(mcx, 41000, 2, EIGHT).unwrap()), fresh(EIGHT));
+        assert_eq!(
+            text(super::RelationGetDefaultExpr(mcx, 41000, 2, EIGHT).unwrap()),
+            fresh(EIGHT)
+        );
         assert_eq!(trees(41000), 1);
         assert!(matches!(set.lookup(2, SEVEN), super::Lookup::Hit(_)));
         drop(set);
 
         super::forget(41000);
-        assert!(crate::with_state(|st| st.defaults_cache.get(&41000).is_none()));
-        assert_eq!(text(super::RelationGetDefaultExpr(mcx, 41000, 1, SERIAL).unwrap()), fresh(SERIAL));
+        assert!(crate::with_state(|st| st
+            .defaults_cache
+            .get(&41000)
+            .is_none()));
+        assert_eq!(
+            text(super::RelationGetDefaultExpr(mcx, 41000, 1, SERIAL).unwrap()),
+            fresh(SERIAL)
+        );
         assert_eq!(trees(41000), 1);
 
         assert!(super::RelationGetDefaultExpr(mcx, 41001, 1, "{NOSUCHNODE}").is_err());
@@ -173,7 +210,12 @@ mod tests {
         for round in 0..2 {
             for (i, c) in consts.iter().enumerate() {
                 let got = super::RelationGetDefaultExpr(mcx, 41002, i as i16 + 1, c).unwrap();
-                assert_eq!(text(got), text(readfuncs::stringToNode(mcx, c).unwrap()), "round {round} column {}", i + 1);
+                assert_eq!(
+                    text(got),
+                    text(readfuncs::stringToNode(mcx, c).unwrap()),
+                    "round {round} column {}",
+                    i + 1
+                );
             }
         }
         assert_eq!(trees(41002), 9);

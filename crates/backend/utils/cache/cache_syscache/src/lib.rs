@@ -8,7 +8,7 @@ mod tests;
 
 use core::cell::RefCell;
 
-use catcache::{CatCTuple};
+use catcache::CatCTuple;
 use datum::Datum;
 use mcx::Mcx;
 use types_core::{uint16, uint32, Oid};
@@ -385,7 +385,10 @@ pub fn SearchSysCacheList(
     catcache::SearchCatCacheList(cache_id, nkeys, key1, key2, key3)
 }
 
-pub fn SearchSysCacheList1(cache_id: i32, key1: SysCacheKey<'_>) -> PgResult<catcache::CatCListRef> {
+pub fn SearchSysCacheList1(
+    cache_id: i32,
+    key1: SysCacheKey<'_>,
+) -> PgResult<catcache::CatCListRef> {
     SearchSysCacheList(cache_id, 1, key1, SysCacheKey::UNUSED, SysCacheKey::UNUSED)
 }
 
@@ -413,7 +416,9 @@ pub fn RelationHasSysCache(relid: Oid) -> bool {
     ARRAYS.with(|cell| {
         let a = cell.borrow();
         debug_assert!(a.initialized);
-        a.relation_oids[..a.n_relation].binary_search(&relid).is_ok()
+        a.relation_oids[..a.n_relation]
+            .binary_search(&relid)
+            .is_ok()
     })
 }
 
@@ -421,7 +426,9 @@ pub fn RelationSupportsSysCache(relid: Oid) -> bool {
     ARRAYS.with(|cell| {
         let a = cell.borrow();
         debug_assert!(a.initialized);
-        a.supporting_oids[..a.n_supporting].binary_search(&relid).is_ok()
+        a.supporting_oids[..a.n_supporting]
+            .binary_search(&relid)
+            .is_ok()
     })
 }
 

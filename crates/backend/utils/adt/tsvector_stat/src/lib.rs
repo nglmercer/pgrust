@@ -39,7 +39,10 @@ pub(crate) fn detoasted_image<'m>(mcx: Mcx<'m>, d: Datum) -> PgResult<&'m [u8]> 
             );
             let total = 4 + src.len();
             let mut buf = ::mcx::vec_with_capacity_in(mcx, total)?;
-            ::mcx::vec_append_bytes(&mut buf, &varatt::set_varsize_4b_word(total as u32).to_ne_bytes())?;
+            ::mcx::vec_append_bytes(
+                &mut buf,
+                &varatt::set_varsize_4b_word(total as u32).to_ne_bytes(),
+            )?;
             ::mcx::vec_append_bytes(&mut buf, src)?;
             let out = core::slice::from_raw_parts(buf.as_ptr(), buf.len());
             core::mem::forget(buf);
@@ -197,7 +200,11 @@ fn stat_collect(fcinfo: &Fcinfo, ws_arg: bool) -> PgResult<StatRows> {
     ::spi::SPI_connect()?;
     let result = (|| {
         let txt = text_data(fcinfo, 0)?;
-        let ws = if ws_arg { Some(text_data(fcinfo, 1)?) } else { None };
+        let ws = if ws_arg {
+            Some(text_data(fcinfo, 1)?)
+        } else {
+            None
+        };
         ts_stat_sql(mcx, txt, ws)
     })();
     ::spi::SPI_finish()?;
@@ -226,7 +233,7 @@ fn stat_rows(fcinfo: &Fcinfo, stats: StatRows) -> PgResult<Vec<Vec<u8>>> {
             &[w, Datum::from_i32(ndoc), Datum::from_i32(nentry)],
             &[false, false, false],
         )?;
-        rows.push(::mcx::std_vec_from_slice("adt",tuple.image())?);
+        rows.push(::mcx::std_vec_from_slice("adt", tuple.image())?);
     }
     Ok(rows)
 }

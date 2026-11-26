@@ -7,7 +7,10 @@
 use gravity_fn::{Datum, NullableDatum};
 use types_core::Oid;
 use types_error::PgResult;
-use types_nodes::primnodes::{CurrentOfExpr, NextValueExpr, ReturningExpr, SQLValueFunction as SqlValueFunctionTree, SQLValueFunctionOp, XmlExpr, XmlExprOp, XmlOptionType};
+use types_nodes::primnodes::{
+    CurrentOfExpr, NextValueExpr, ReturningExpr, SQLValueFunction as SqlValueFunctionTree,
+    SQLValueFunctionOp, XmlExpr, XmlExprOp, XmlOptionType,
+};
 use types_nodes::Node;
 
 use crate::eval::Cx;
@@ -73,14 +76,24 @@ const INT4OID: Oid = 23;
 
 /// The calls PostgreSQL's `ExecEvalSQLValueFunction` amounts to: `now()` (the transaction start) cast to the
 /// type and scaled to the typmod, or the session's role / database / schema function — each the same body.
-pub fn compile_sql_value_function(b: &mut Builder<'_, '_>, s: &SqlValueFunctionTree) -> CompileResult<NodeId> {
+pub fn compile_sql_value_function(
+    b: &mut Builder<'_, '_>,
+    s: &SqlValueFunctionTree,
+) -> CompileResult<NodeId> {
     use SQLValueFunctionOp as Op;
     let (cast, scale) = match s.op {
         // the role ops stay the node: `current_user()`'s body reads the identity TLS directly, the node the seam
         // (`get_user_id`), and the differential rig has only the seam — the emitter serves it as an interpreter island
         // (nodes/mod.rs `covered`), which reads the role at execution, so SECURITY DEFINER's switch is seen
-        Op::SVFOP_CURRENT_ROLE | Op::SVFOP_CURRENT_USER | Op::SVFOP_USER | Op::SVFOP_SESSION_USER => {
-            return Ok(b.push(ExprNode::SqlValueFunction(SqlValueFunction { op: s.op, typ: s.r#type, typmod: s.typmod })));
+        Op::SVFOP_CURRENT_ROLE
+        | Op::SVFOP_CURRENT_USER
+        | Op::SVFOP_USER
+        | Op::SVFOP_SESSION_USER => {
+            return Ok(b.push(ExprNode::SqlValueFunction(SqlValueFunction {
+                op: s.op,
+                typ: s.r#type,
+                typmod: s.typmod,
+            })));
         }
         Op::SVFOP_CURRENT_CATALOG => return call(b, 861, &[], &[], s.r#type),
         Op::SVFOP_CURRENT_SCHEMA => return call(b, 1402, &[], &[], s.r#type),
@@ -98,14 +111,23 @@ pub fn compile_sql_value_function(b: &mut Builder<'_, '_>, s: &SqlValueFunctionT
     }
     match scale {
         Some(oid) if s.typmod >= 0 => {
-            let m = b.push(ExprNode::Imm(Imm { value: s.typmod as i64, typ: INT4OID }));
+            let m = b.push(ExprNode::Imm(Imm {
+                value: s.typmod as i64,
+                typ: INT4OID,
+            }));
             call(b, oid, &[v, m], &[typ, INT4OID], s.r#type)
         }
         _ => Ok(v),
     }
 }
 
-fn call(b: &mut Builder<'_, '_>, funcid: Oid, args: &[NodeId], types: &[Oid], rettype: Oid) -> CompileResult<NodeId> {
+fn call(
+    b: &mut Builder<'_, '_>,
+    funcid: Oid,
+    args: &[NodeId],
+    types: &[Oid],
+    rettype: Oid,
+) -> CompileResult<NodeId> {
     let kids = b.kids_of(args);
     let mut c = bind_typed(b, funcid, kids, types, 0)?;
     c.rettype = rettype;
@@ -120,7 +142,11 @@ pub fn compile_xml<'mcx>(b: &mut Builder<'_, 'mcx>, x: &XmlExpr<'mcx>) -> Compil
     crate::nodes::xml::compile(b, x)
 }
 
-pub fn compile_json<'mcx>(b: &mut Builder<'_, 'mcx>, n: Node<'mcx>, kind: Kind) -> CompileResult<NodeId> {
+pub fn compile_json<'mcx>(
+    b: &mut Builder<'_, 'mcx>,
+    n: Node<'mcx>,
+    kind: Kind,
+) -> CompileResult<NodeId> {
     crate::nodes::json::compile(b, n, kind)
 }
 
@@ -129,11 +155,21 @@ pub fn compile_next_value(b: &mut Builder<'_, '_>, n: &NextValueExpr) -> Compile
         return unsupported(Kind::NextValueExpr);
     }
     let site = crate::emit::store::next_value_site(b, n.typeId);
-    Ok(b.push(ExprNode::NextValue(NextValue { seqid: n.seqid, typ: n.typeId, site })))
+    Ok(b.push(ExprNode::NextValue(NextValue {
+        seqid: n.seqid,
+        typ: n.typeId,
+        site,
+    })))
 }
 
-pub fn compile_current_of<'mcx>(b: &mut Builder<'_, 'mcx>, c: &CurrentOfExpr<'mcx>) -> CompileResult<NodeId> {
-    Ok(b.push(ExprNode::CurrentOf(CurrentOf { cvarno: c.cvarno, cursor_param: c.cursor_param })))
+pub fn compile_current_of<'mcx>(
+    b: &mut Builder<'_, 'mcx>,
+    c: &CurrentOfExpr<'mcx>,
+) -> CompileResult<NodeId> {
+    Ok(b.push(ExprNode::CurrentOf(CurrentOf {
+        cvarno: c.cvarno,
+        cursor_param: c.cursor_param,
+    })))
 }
 
 /// C `EEOP_RETURNINGEXPR` (PG 18: the rewriter's wrapper of a view's or a virtual generated column's OLD / NEW
@@ -143,27 +179,52 @@ pub fn compile_current_of<'mcx>(b: &mut Builder<'_, 'mcx>, c: &CurrentOfExpr<'mc
 /// on the row (MERGE's action), `CASE WHEN <the image's flag cell> THEN <the expression> END` (`Returning::old_flag` /
 /// `new_flag`: EEOP_RETURNINGEXPR's test of EEO_FLAG_OLD_IS_NULL / NEW_IS_NULL, per row); with no flag (ON CONFLICT DO
 /// UPDATE), or outside a RETURNING list, unsupported.
-pub fn compile_returning<'mcx>(b: &mut Builder<'_, 'mcx>, r: &ReturningExpr<'mcx>) -> CompileResult<NodeId> {
-    let Some(ret) = b.returning.filter(|_| r.retlevelsup == 0) else { return unsupported(Kind::ReturningExpr) };
-    match if r.retold { ret.old_exists } else { ret.new_exists } {
+pub fn compile_returning<'mcx>(
+    b: &mut Builder<'_, 'mcx>,
+    r: &ReturningExpr<'mcx>,
+) -> CompileResult<NodeId> {
+    let Some(ret) = b.returning.filter(|_| r.retlevelsup == 0) else {
+        return unsupported(Kind::ReturningExpr);
+    };
+    match if r.retold {
+        ret.old_exists
+    } else {
+        ret.new_exists
+    } {
         Some(true) => b.compile(r.retexpr),
         Some(false) => {
             let arg = b.compile(r.retexpr)?;
             Ok(b.push(ExprNode::Returning(Returning { arg, old: r.retold })))
         }
         None => {
-            let Some((src, attno)) = (if r.retold { ret.old_flag } else { ret.new_flag }) else { return unsupported(Kind::ReturningExpr) };
-            let cond = b.push(ExprNode::Var(crate::nodes::var::Var { src, attno, typ: BOOLOID, desc: 0 }));
+            let Some((src, attno)) = (if r.retold { ret.old_flag } else { ret.new_flag }) else {
+                return unsupported(Kind::ReturningExpr);
+            };
+            let cond = b.push(ExprNode::Var(crate::nodes::var::Var {
+                src,
+                attno,
+                typ: BOOLOID,
+                desc: 0,
+            }));
             let then = b.compile(r.retexpr)?;
             let whens = b.kids_of(&[cond, then]);
-            Ok(b.push(ExprNode::Case(crate::nodes::case::Case { arg: None, whens, default: None })))
+            Ok(b.push(ExprNode::Case(crate::nodes::case::Case {
+                arg: None,
+                whens,
+                default: None,
+            })))
         }
     }
 }
 
 const BOOLOID: Oid = 16;
 
-pub fn eval_sql_value_function(_p: &Prog<'_, '_>, _st: &mut St<'_>, n: &SqlValueFunction, cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
+pub fn eval_sql_value_function(
+    _p: &Prog<'_, '_>,
+    _st: &mut St<'_>,
+    n: &SqlValueFunction,
+    cx: &mut Cx<'_, '_>,
+) -> PgResult<NullableDatum> {
     use SQLValueFunctionOp as Op;
     let value = match n.op {
         Op::SVFOP_CURRENT_DATE => Datum::from_i32(adt_date::GetSQLCurrentDate()?),
@@ -174,16 +235,32 @@ pub fn eval_sql_value_function(_p: &Prog<'_, '_>, _st: &mut St<'_>, n: &SqlValue
             img[8..].copy_from_slice(&t.zone.to_ne_bytes());
             into_region(cx, &img)?
         }
-        Op::SVFOP_CURRENT_TIMESTAMP | Op::SVFOP_CURRENT_TIMESTAMP_N => Datum::from_i64(adt_timestamp::GetSQLCurrentTimestamp(n.typmod)),
-        Op::SVFOP_LOCALTIME | Op::SVFOP_LOCALTIME_N => Datum::from_i64(adt_date::GetSQLLocalTime(n.typmod)?),
-        Op::SVFOP_LOCALTIMESTAMP | Op::SVFOP_LOCALTIMESTAMP_N => Datum::from_i64(adt_timestamp::GetSQLLocalTimestamp(n.typmod)?),
-        Op::SVFOP_CURRENT_ROLE | Op::SVFOP_CURRENT_USER | Op::SVFOP_USER | Op::SVFOP_SESSION_USER => {
-            let roleid = if n.op == Op::SVFOP_SESSION_USER { miscinit_seams::get_session_user_id::call() } else { miscinit_seams::get_user_id::call() };
-            let shape = syscache_seams::lookup_authid_session_by_oid::call(roleid)?.ok_or_else(|| invalid_role_oid(roleid))?;
+        Op::SVFOP_CURRENT_TIMESTAMP | Op::SVFOP_CURRENT_TIMESTAMP_N => {
+            Datum::from_i64(adt_timestamp::GetSQLCurrentTimestamp(n.typmod))
+        }
+        Op::SVFOP_LOCALTIME | Op::SVFOP_LOCALTIME_N => {
+            Datum::from_i64(adt_date::GetSQLLocalTime(n.typmod)?)
+        }
+        Op::SVFOP_LOCALTIMESTAMP | Op::SVFOP_LOCALTIMESTAMP_N => {
+            Datum::from_i64(adt_timestamp::GetSQLLocalTimestamp(n.typmod)?)
+        }
+        Op::SVFOP_CURRENT_ROLE
+        | Op::SVFOP_CURRENT_USER
+        | Op::SVFOP_USER
+        | Op::SVFOP_SESSION_USER => {
+            let roleid = if n.op == Op::SVFOP_SESSION_USER {
+                miscinit_seams::get_session_user_id::call()
+            } else {
+                miscinit_seams::get_user_id::call()
+            };
+            let shape = syscache_seams::lookup_authid_session_by_oid::call(roleid)?
+                .ok_or_else(|| invalid_role_oid(roleid))?;
             into_region(cx, &shape.rolname.data)?
         }
         Op::SVFOP_CURRENT_CATALOG => {
-            let dbname = dbcommands_seams::get_database_name::call(init_small::globals::MyDatabaseId())?.expect("the current database has a pg_database row");
+            let dbname =
+                dbcommands_seams::get_database_name::call(init_small::globals::MyDatabaseId())?
+                    .expect("the current database has a pg_database row");
             let mut name = types_tuple::NameData::default();
             name.namestrcpy(&dbname);
             into_region(cx, &name.data)?
@@ -191,8 +268,12 @@ pub fn eval_sql_value_function(_p: &Prog<'_, '_>, _st: &mut St<'_>, n: &SqlValue
         Op::SVFOP_CURRENT_SCHEMA => {
             let cx_ = gravity_fn::session::root_context("gravity_expr current_schema"); // alloc: Exec
             let path = namespace_seams::fetch_search_path::call(cx_.mcx(), false)?;
-            let Some(&first) = path.first() else { return Ok(NullableDatum::null()) };
-            let Some(nspname) = lsyscache::get_namespace_name(cx_.mcx(), first)? else { return Ok(NullableDatum::null()) };
+            let Some(&first) = path.first() else {
+                return Ok(NullableDatum::null());
+            };
+            let Some(nspname) = lsyscache::get_namespace_name(cx_.mcx(), first)? else {
+                return Ok(NullableDatum::null());
+            };
             let mut name = types_tuple::NameData::default();
             name.namestrcpy(&nspname);
             drop(nspname);
@@ -216,19 +297,37 @@ fn into_region(cx: &mut Cx<'_, '_>, img: &[u8]) -> PgResult<Datum> {
 #[cold]
 #[inline(never)]
 fn invalid_role_oid(roleid: Oid) -> Box<types_error::PgError> {
-    Box::new(types_error::PgError::error(format!("invalid role OID: {roleid}")).with_sqlstate(types_error::ERRCODE_UNDEFINED_OBJECT)) // alloc: Cold
+    Box::new(
+        types_error::PgError::error(format!("invalid role OID: {roleid}"))
+            .with_sqlstate(types_error::ERRCODE_UNDEFINED_OBJECT),
+    ) // alloc: Cold
 }
 
-pub fn eval_xml(p: &Prog<'_, '_>, st: &mut St<'_>, n: &Xml, cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
+pub fn eval_xml(
+    p: &Prog<'_, '_>,
+    st: &mut St<'_>,
+    n: &Xml,
+    cx: &mut Cx<'_, '_>,
+) -> PgResult<NullableDatum> {
     crate::nodes::xml::eval_xml(p, st, n, cx)
 }
 
-pub fn eval_json(p: &Prog<'_, '_>, st: &mut St<'_>, n: &Json, cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
+pub fn eval_json(
+    p: &Prog<'_, '_>,
+    st: &mut St<'_>,
+    n: &Json,
+    cx: &mut Cx<'_, '_>,
+) -> PgResult<NullableDatum> {
     crate::nodes::json::eval_json(p, st, n, cx)
 }
 
 /// C `ExecEvalNextValueExpr`: `nextval_internal` without the permission check.
-pub fn eval_next_value(_p: &Prog<'_, '_>, _st: &mut St<'_>, n: &NextValue, _cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
+pub fn eval_next_value(
+    _p: &Prog<'_, '_>,
+    _st: &mut St<'_>,
+    n: &NextValue,
+    _cx: &mut Cx<'_, '_>,
+) -> PgResult<NullableDatum> {
     let v = sequence_seams::nextval_internal::call(n.seqid, false)?;
     Ok(NullableDatum::value(match n.typ {
         21 => Datum::from_i16(v as i16),
@@ -238,11 +337,24 @@ pub fn eval_next_value(_p: &Prog<'_, '_>, _st: &mut St<'_>, n: &NextValue, _cx: 
 }
 
 /// C `ExecEvalCurrentOfExpr`: only a table AM's scan answers it; anywhere else is this error.
-pub fn eval_current_of(_p: &Prog<'_, '_>, _st: &mut St<'_>, _n: &CurrentOf, _cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
-    Err(Box::new(types_error::PgError::error("WHERE CURRENT OF is not supported for this table type").with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED))) // alloc: Cold
+pub fn eval_current_of(
+    _p: &Prog<'_, '_>,
+    _st: &mut St<'_>,
+    _n: &CurrentOf,
+    _cx: &mut Cx<'_, '_>,
+) -> PgResult<NullableDatum> {
+    Err(Box::new(
+        types_error::PgError::error("WHERE CURRENT OF is not supported for this table type")
+            .with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED),
+    )) // alloc: Cold
 }
 
 /// EEOP_RETURNINGEXPR (ExecEvalWholeRowVar / ExecEvalSysVar) under EEO_FLAG_OLD_IS_NULL / NEW_IS_NULL: NULL.
-pub fn eval_returning(_p: &Prog<'_, '_>, _st: &mut St<'_>, _n: &Returning, _cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
+pub fn eval_returning(
+    _p: &Prog<'_, '_>,
+    _st: &mut St<'_>,
+    _n: &Returning,
+    _cx: &mut Cx<'_, '_>,
+) -> PgResult<NullableDatum> {
     Ok(NullableDatum::null())
 }

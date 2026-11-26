@@ -86,9 +86,19 @@ fn run_pad(func: PGFunction, oid: u32, args: &[Datum], mode: Mode, pad: usize) -
     for i in 0..ROWS {
         fc.rearm(0);
         // SAFETY: the context outlives the call; reset below after the result is consumed.
-        unsafe { fc.set_result_mcx(if mode == Mode::Site { site.mcx() } else { cx.mcx() }) };
+        unsafe {
+            fc.set_result_mcx(if mode == Mode::Site {
+                site.mcx()
+            } else {
+                cx.mcx()
+            })
+        };
         if mode != Mode::Clean {
-            black_box(cx.mcx().allocate(Layout::from_size_align(8, 8).unwrap()).unwrap());
+            black_box(
+                cx.mcx()
+                    .allocate(Layout::from_size_align(8, 8).unwrap())
+                    .unwrap(),
+            );
         }
         if pad > 0 {
             let rcx = if mode == Mode::Site { &site } else { &cx };
@@ -97,7 +107,9 @@ fn run_pad(func: PGFunction, oid: u32, args: &[Datum], mode: Mode, pad: usize) -
         fc.set_arg(0, args[i % args.len()]);
         let r = flinfo.invoke(&mut fc).unwrap();
         // SAFETY: a NUL-terminated cstring result.
-        acc += unsafe { std::ffi::CStr::from_ptr(r.as_usize() as *const core::ffi::c_char) }.to_bytes().len();
+        acc += unsafe { std::ffi::CStr::from_ptr(r.as_usize() as *const core::ffi::c_char) }
+            .to_bytes()
+            .len();
         black_box(acc);
         if mode == Mode::Site {
             site.reset();
@@ -131,58 +143,108 @@ fn run_into(e: &fmgr::OutInto, args: &[Datum]) -> f64 {
 
 fn numeric_images() -> Vec<Vec<u8>> {
     let mut call = gravity_fn::FmgrCall::bind(1701, 3, 0).unwrap();
-    ["1234567.89", "-0.000123", "98765432109876543210.5", "42", "3.14159265358979"]
-        .iter()
-        .map(|s| {
-            let c = CString::new(*s).unwrap();
-            let r = call.call_site(&[Datum::from_usize(c.as_ptr() as usize), Datum::from_u32(1700), Datum::from_i32(-1)], &[false; 3]).unwrap();
-            let p = r.value.as_usize() as *const u8;
-            // SAFETY: a live numeric varlena.
-            unsafe { std::slice::from_raw_parts(p, types_tuple::varatt::varsize_any(p)) }.to_vec()
-        })
-        .collect()
+    [
+        "1234567.89",
+        "-0.000123",
+        "98765432109876543210.5",
+        "42",
+        "3.14159265358979",
+    ]
+    .iter()
+    .map(|s| {
+        let c = CString::new(*s).unwrap();
+        let r = call
+            .call_site(
+                &[
+                    Datum::from_usize(c.as_ptr() as usize),
+                    Datum::from_u32(1700),
+                    Datum::from_i32(-1),
+                ],
+                &[false; 3],
+            )
+            .unwrap();
+        let p = r.value.as_usize() as *const u8;
+        // SAFETY: a live numeric varlena.
+        unsafe { std::slice::from_raw_parts(p, types_tuple::varatt::varsize_any(p)) }.to_vec()
+    })
+    .collect()
 }
 
 #[test]
 #[ignore = "bench: cargo test --release --test fresh_vs_scratch -- --ignored --nocapture"]
 fn fresh_vs_scratch() {
     common::install_seams();
-    let ints: Vec<Datum> = (0..1024).map(|i| Datum::from_i32(i * 7919 - 4_000_000)).collect();
-    let int8s: Vec<Datum> = (0..1024).map(|i| Datum::from_i64(i as i64 * 1_000_000_007 - 9_000_000_000)).collect();
+    let ints: Vec<Datum> = (0..1024)
+        .map(|i| Datum::from_i32(i * 7919 - 4_000_000))
+        .collect();
+    let int8s: Vec<Datum> = (0..1024)
+        .map(|i| Datum::from_i64(i as i64 * 1_000_000_007 - 9_000_000_000))
+        .collect();
     let nums = numeric_images();
-    let numd: Vec<Datum> = nums.iter().map(|v| Datum::from_usize(v.as_ptr() as usize)).collect();
+    let numd: Vec<Datum> = nums
+        .iter()
+        .map(|v| Datum::from_usize(v.as_ptr() as usize))
+        .collect();
     let builtin = |oid: u32| fmgr_core::fmgr_isbuiltin(oid).unwrap().func;
     // (name, trunk's scratch body, the real builtin (fresh in the result context), oid, args)
     let arms: [(&str, PGFunction, PGFunction, u32, &[Datum]); 3] = [
         ("int4out", scratch_int4out, builtin(43), 43, &ints),
         ("int8out", scratch_int8out, builtin(461), 461, &int8s),
-        ("numeric_out", scratch_numeric_out, builtin(1702), 1702, &numd),
+        (
+            "numeric_out",
+            scratch_numeric_out,
+            builtin(1702),
+            1702,
+            &numd,
+        ),
     ];
     let med = |mut v: Vec<f64>| {
         v.sort_by(|a, b| a.partial_cmp(b).unwrap());
         (v[v.len() / 2], v[0], v[v.len() - 1])
     };
     let into_of = |oid: u32| {
-        [adt_int::builtins::INT_OUT_INTO, adt_int8::builtins::INT8_OUT_INTO, adt_numeric::builtins::NUMERIC_OUT_INTO]
-            .into_iter()
-            .flatten()
-            .find(|e| e.foid == oid)
-            .unwrap()
+        [
+            adt_int::builtins::INT_OUT_INTO,
+            adt_int8::builtins::INT8_OUT_INTO,
+            adt_numeric::builtins::NUMERIC_OUT_INTO,
+        ]
+        .into_iter()
+        .flatten()
+        .find(|e| e.foid == oid)
+        .unwrap()
     };
     for (name, _, _, oid, args) in arms {
         let (mut s, mut n) = (Vec::new(), Vec::new());
         for _ in 0..7 {
-            s.push(run(arms.iter().find(|a| a.3 == oid).unwrap().1, oid, args, Mode::Dirty));
+            s.push(run(
+                arms.iter().find(|a| a.3 == oid).unwrap().1,
+                oid,
+                args,
+                Mode::Dirty,
+            ));
             n.push(run_into(into_of(oid), args));
         }
         let ((sm, s0, s1), (nm, n0, n1)) = (med(s), med(n));
         println!("{name} [into, caller's buffer]: scratch {sm:.2} ns/row [{s0:.2}..{s1:.2}]  into {nm:.2} [{n0:.2}..{n1:.2}]  delta {:+.2} ns ({:+.1}%)", nm - sm, 100.0 * (nm - sm) / sm);
     }
     for (name, scratch, fresh, oid, args) in arms {
-        for (label, fmode) in [("fresh, row ctx clean", Mode::Clean), ("fresh, row ctx dirty", Mode::Dirty), ("fresh, per-site ctx reset per call", Mode::Site)] {
+        for (label, fmode) in [
+            ("fresh, row ctx clean", Mode::Clean),
+            ("fresh, row ctx dirty", Mode::Dirty),
+            ("fresh, per-site ctx reset per call", Mode::Site),
+        ] {
             let (mut s, mut f) = (Vec::new(), Vec::new());
             for _ in 0..7 {
-                s.push(run(scratch, oid, args, if fmode == Mode::Clean { Mode::Clean } else { Mode::Dirty }));
+                s.push(run(
+                    scratch,
+                    oid,
+                    args,
+                    if fmode == Mode::Clean {
+                        Mode::Clean
+                    } else {
+                        Mode::Dirty
+                    },
+                ));
                 f.push(run(fresh, oid, args, fmode));
             }
             let ((sm, s0, s1), (fm, f0, f1)) = (med(s), med(f));
@@ -196,23 +258,35 @@ fn fresh_vs_scratch() {
 #[ignore = "perf target: FMGR_ARM/FMGR_MODE/FMGR_FN select one arm"]
 fn one_arm() {
     common::install_seams();
-    let ints: Vec<Datum> = (0..1024).map(|i| Datum::from_i32(i * 7919 - 4_000_000)).collect();
-    let int8s: Vec<Datum> = (0..1024).map(|i| Datum::from_i64(i as i64 * 1_000_000_007 - 9_000_000_000)).collect();
+    let ints: Vec<Datum> = (0..1024)
+        .map(|i| Datum::from_i32(i * 7919 - 4_000_000))
+        .collect();
+    let int8s: Vec<Datum> = (0..1024)
+        .map(|i| Datum::from_i64(i as i64 * 1_000_000_007 - 9_000_000_000))
+        .collect();
     let nums = numeric_images();
-    let numd: Vec<Datum> = nums.iter().map(|v| Datum::from_usize(v.as_ptr() as usize)).collect();
+    let numd: Vec<Datum> = nums
+        .iter()
+        .map(|v| Datum::from_usize(v.as_ptr() as usize))
+        .collect();
     let builtin = |oid: u32| fmgr_core::fmgr_isbuiltin(oid).unwrap().func;
     let env = |k: &str| std::env::var(k).unwrap_or_default();
-    let (scratch, fresh, oid, args): (PGFunction, PGFunction, u32, &[Datum]) = match env("FMGR_ARM").as_str() {
-        "int8out" => (scratch_int8out, builtin(461), 461, &int8s),
-        "numeric_out" => (scratch_numeric_out, builtin(1702), 1702, &numd),
-        _ => (scratch_int4out, builtin(43), 43, &ints),
-    };
+    let (scratch, fresh, oid, args): (PGFunction, PGFunction, u32, &[Datum]) =
+        match env("FMGR_ARM").as_str() {
+            "int8out" => (scratch_int8out, builtin(461), 461, &int8s),
+            "numeric_out" => (scratch_numeric_out, builtin(1702), 1702, &numd),
+            _ => (scratch_int4out, builtin(43), 43, &ints),
+        };
     let mode = match env("FMGR_MODE").as_str() {
         "clean" => Mode::Clean,
         "site" => Mode::Site,
         _ => Mode::Dirty,
     };
-    let f = if env("FMGR_FN") == "scratch" { scratch } else { fresh };
+    let f = if env("FMGR_FN") == "scratch" {
+        scratch
+    } else {
+        fresh
+    };
     let pad = env("FMGR_PAD").parse().unwrap_or(0);
     for _ in 0..5 {
         println!("{:.2} ns/row", run_pad(f, oid, args, mode, pad));

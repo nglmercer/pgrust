@@ -51,8 +51,12 @@ fn a_tiny_draw_with_no_statement_is_served_beside_a_full_big_lane() {
     let _g = armed(GIB, 128 * MIB);
     // the big lane (896 MiB) held whole by a draw past the buffer's per-draw cap: it takes the big lane, as before
     let big = try_region((896 * MIB) as usize).expect("the big lane's whole room");
-    assert!(try_region((2 * MIB) as usize).is_err(), "a draw past the buffer's cap still reads the big lane alone");
-    let set = try_region(TINY).expect("the sampler's set: served from the small buffer, not refused");
+    assert!(
+        try_region((2 * MIB) as usize).is_err(),
+        "a draw past the buffer's cap still reads the big lane alone"
+    );
+    let set =
+        try_region(TINY).expect("the sampler's set: served from the small buffer, not refused");
     assert_eq!(POOL.small_held(), TINY as u64, "held in the buffer");
     drop(set);
     assert_eq!(POOL.small_held(), 0, "given back to the buffer");
@@ -76,14 +80,31 @@ fn a_tiny_draw_is_served_when_b_has_no_free_bytes_and_the_pool_is_mostly_free() 
     // a 1536M stress cell: budget on with the reclaimer, B full (here a cache nothing can trim holding all of it),
     // the pool 19 % held: B's make_room came up short at every draw
     budget::set_fallback_limit(2 * GIB);
-    budget::configure(Cfg { mode: Mode::On, actuators: actuator::ALL, ..Cfg::DEFAULT });
+    budget::configure(Cfg {
+        mode: Mode::On,
+        actuators: actuator::ALL,
+        ..Cfg::DEFAULT
+    });
     static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(|| assert!(budget::register(Consumer::CondCache, Hooks { current: fill, floor: fill, cap: fill, reclaim: Some(no_trim) })));
+    ONCE.call_once(|| {
+        assert!(budget::register(
+            Consumer::CondCache,
+            Hooks {
+                current: fill,
+                floor: fill,
+                cap: fill,
+                reclaim: Some(no_trim)
+            }
+        ))
+    });
     FILL.store(4 * GIB, Relaxed);
     let s = budget::snapshot().expect("mode on");
     assert_eq!(s.free_b, 0, "B has no free bytes");
     let held = try_region((192 * MIB) as usize);
-    assert!(held.is_err(), "a big-lane draw needs B's free bytes (make_room), as before");
+    assert!(
+        held.is_err(),
+        "a big-lane draw needs B's free bytes (make_room), as before"
+    );
     let set = try_region(TINY).expect("the sampler's set: the buffer's take skips make_room");
     assert_eq!(POOL.small_held(), TINY as u64);
     drop(set);
@@ -94,8 +115,15 @@ fn a_tiny_draw_is_served_when_b_has_no_free_bytes_and_the_pool_is_mostly_free() 
 fn a_tiny_draw_is_served_past_the_governors_bar() {
     let _g = armed(GIB, 128 * MIB);
     // the resident bytes past the governor's bar: the big lane's take refuses every draw
-    mcx::governor::publish(MIB as usize, (2 * MIB) as usize, mcx::global_footprint::bytes());
-    assert!(try_region((2 * MIB) as usize).is_err(), "past the bar the big lane refuses, as before");
+    mcx::governor::publish(
+        MIB as usize,
+        (2 * MIB) as usize,
+        mcx::global_footprint::bytes(),
+    );
+    assert!(
+        try_region((2 * MIB) as usize).is_err(),
+        "past the bar the big lane refuses, as before"
+    );
     let set = try_region(TINY).expect("the buffer's take skips the bar");
     assert_eq!(POOL.small_held(), TINY as u64);
     drop(set);
@@ -110,7 +138,9 @@ fn a_solo_floor_is_seated_beside_a_small_statement_in_the_buffer() {
     let (seated_tx, seated_rx) = seated;
     let (end_tx, end_rx) = held;
     let small = std::thread::spawn(move || {
-        let a = POOL.admit_small_need(Grant::of(MIB), 4 * MIB).expect("the buffer is empty");
+        let a = POOL
+            .admit_small_need(Grant::of(MIB), 4 * MIB)
+            .expect("the buffer is empty");
         seated_tx.send(()).unwrap();
         let _ = end_rx.recv_timeout(Duration::from_secs(30));
         drop(a);
@@ -120,13 +150,20 @@ fn a_solo_floor_is_seated_beside_a_small_statement_in_the_buffer() {
     // a floor need past the 48 MiB big lane: it runs alone once no statement holds big-lane bytes; the small one never
     // will (its bytes are the buffer's), so it is seated at once instead of waiting out its bound
     let t0 = Instant::now();
-    let a = POOL.admit_need(Grant::of(GRANT_FLOOR), &|_: Grant| 96 * MIB, Duration::from_secs(3));
+    let a = POOL.admit_need(
+        Grant::of(GRANT_FLOOR),
+        &|_: Grant| 96 * MIB,
+        Duration::from_secs(3),
+    );
     let took = t0.elapsed();
     end_tx.send(()).unwrap();
     small.join().unwrap();
     let a = a.expect("alone past the pool beside the small statement");
     assert_eq!(a.how, gravity_driver::Admitted::Solo, "{a:?}");
-    assert!(took < Duration::from_secs(1), "at once, not after its 3 s bound: {took:?}");
+    assert!(
+        took < Duration::from_secs(1),
+        "at once, not after its 3 s bound: {took:?}"
+    );
     drop(a);
     assert_eq!(POOL.held(), 0);
 }

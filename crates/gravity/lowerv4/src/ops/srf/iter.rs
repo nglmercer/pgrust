@@ -46,7 +46,10 @@ pub(crate) struct Opened {
 
 impl Opened {
     pub(crate) fn words<'m>(&self, mcx: Mcx<'m>) -> PgVec<'m, Value> {
-        [self.n, self.start].into_iter().chain(self.step).collect_in(mcx)
+        [self.n, self.start]
+            .into_iter()
+            .chain(self.step)
+            .collect_in(mcx)
     }
 }
 
@@ -57,7 +60,9 @@ pub(crate) fn plan(_px: &mut Px<'_, '_>, f: &SrfFn<'_>, node: i32) -> Option<Ite
 
 fn form_of(k: SrfKind, nargs: usize) -> Option<IterKind> {
     match k {
-        SrfKind::SeriesInt { width, step } if nargs == 2 + step as usize => Some(IterKind::Series { width, step }),
+        SrfKind::SeriesInt { width, step } if nargs == 2 + step as usize => {
+            Some(IterKind::Series { width, step })
+        }
         _ => None,
     }
 }
@@ -69,12 +74,26 @@ impl Iter {
     /// set when the next value overflows, which only happens past `stop`. The arguments are the call's words (`I64`,
     /// integers sign-extended) and NULL flags, in call order. `from`: the set is a FROM entry (every form here raises only
     /// at open, so it reads the same in both places).
-    pub(crate) fn open(&self, b: &mut FunctionBuilder<'_>, env: &Env, args: &[(Value, Option<Value>)], _from: bool) -> (Opened, Value) {
+    pub(crate) fn open(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &Env,
+        args: &[(Value, Option<Value>)],
+        _from: bool,
+    ) -> (Opened, Value) {
         let IterKind::Series { width, step } = self.kind;
         if args.len() != 2 + step as usize {
-            crate::refuse!(self.node, crate::admit::refusal::Reason::Bug { payload: "a series opened with another argument count" });
+            crate::refuse!(
+                self.node,
+                crate::admit::refusal::Reason::Bug {
+                    payload: "a series opened with another argument count"
+                }
+            );
         }
-        let null = args.iter().filter_map(|a| a.1).reduce(|x, y| b.int_bin(IntBinOp::Or, x, y));
+        let null = args
+            .iter()
+            .filter_map(|a| a.1)
+            .reduce(|x, y| b.int_bin(IntBinOp::Or, x, y));
         let (start, stop, step) = (args[0].0, args[1].0, step.then(|| args[2].0));
         let mut err = env.zero;
         let n = match step {
@@ -129,12 +148,22 @@ impl Iter {
     #[allow(clippy::wrong_self_convention)]
     pub(crate) fn from_words(&self, w: &[Value]) -> Opened {
         let IterKind::Series { step, .. } = self.kind;
-        Opened { n: w[0], start: w[1], step: step.then(|| w[2]) }
+        Opened {
+            n: w[0],
+            start: w[1],
+            step: step.then(|| w[2]),
+        }
     }
 
     /// The cursor of element `k` (`I64`, `k < n`): `start + k * step`, exact in wrapping arithmetic because the element
     /// is representable.
-    pub(crate) fn at<'m>(&self, b: &mut FunctionBuilder<'_>, o: &Opened, k: Value, mcx: Mcx<'m>) -> PgVec<'m, Value> {
+    pub(crate) fn at<'m>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        o: &Opened,
+        k: Value,
+        mcx: Mcx<'m>,
+    ) -> PgVec<'m, Value> {
         let off = match o.step {
             Some(s) => b.int_bin(IntBinOp::Mul, k, s),
             None => k,
@@ -143,12 +172,24 @@ impl Iter {
     }
 
     /// The element at `cur`: its word, NULL flag and raise word (a series element is never NULL and never raises).
-    pub(crate) fn value(&self, b: &mut FunctionBuilder<'_>, env: &Env, _o: &Opened, cur: &[Value]) -> (Value, Value, Value) {
+    pub(crate) fn value(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &Env,
+        _o: &Opened,
+        cur: &[Value],
+    ) -> (Value, Value, Value) {
         (cur[0], b.bconst(false), env.zero)
     }
 
     /// The cursor after `cur`.
-    pub(crate) fn advance<'e>(&self, b: &mut FunctionBuilder<'_>, env: &Env<'e, '_>, o: &Opened, cur: &[Value]) -> PgVec<'e, Value> {
+    pub(crate) fn advance<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &Env<'e, '_>,
+        o: &Opened,
+        cur: &[Value],
+    ) -> PgVec<'e, Value> {
         mcx::pg_vec![in env.mcx; b.int_bin(IntBinOp::Add, cur[0], o.step.unwrap_or(env.one))]
     }
 }
@@ -175,12 +216,30 @@ mod tests {
     /// `k < n` unsigned), folded as `acc * 31 + element`, and `n`: `(fold, n)`; a raise returns its raise word and 0.
     /// `None` arguments are NULL.
     fn walk(width: u8, args: &[Option<i64>]) -> (i64, i64) {
-        let it = Iter { kind: form_of(SrfKind::SeriesInt { width, step: args.len() == 3 }, args.len()).expect("an iterator form"), node: 0 };
+        let it = Iter {
+            kind: form_of(
+                SrfKind::SeriesInt {
+                    width,
+                    step: args.len() == 3,
+                },
+                args.len(),
+            )
+            .expect("an iterator form"),
+            node: 0,
+        };
         let mut n_seen = 0;
         let fold = |want_n: bool| {
             run1(&[], &mut |b, env| {
                 let (l_raised, l_go) = (b.create_block(&[]), b.create_block(&[]));
-                let a: Vec<(Value, Option<Value>)> = args.iter().map(|v| (b.iconst(Type::I64, v.unwrap_or(0)), Some(b.bconst(v.is_none())))).collect(); // alloc: Program
+                let a: Vec<(Value, Option<Value>)> = args
+                    .iter()
+                    .map(|v| {
+                        (
+                            b.iconst(Type::I64, v.unwrap_or(0)),
+                            Some(b.bconst(v.is_none())),
+                        )
+                    })
+                    .collect(); // alloc: Program
                 let (o, err) = it.open(b, env, &a, false);
                 let raised = b.icmp(IntCond::Ne, err, env.zero);
                 b.cond_br(raised, (l_raised, &[]), (l_go, &[]));
@@ -192,7 +251,11 @@ mod tests {
                 b.br(l, &[env.zero, c0, env.zero]);
                 b.switch_to(l);
                 b.mark_loop_header(l);
-                let (k, cur, acc) = (b.block_params(l)[0], b.block_params(l)[1], b.block_params(l)[2]);
+                let (k, cur, acc) = (
+                    b.block_params(l)[0],
+                    b.block_params(l)[1],
+                    b.block_params(l)[2],
+                );
                 let more = b.icmp(IntCond::Ult, k, o.n);
                 b.cond_br(more, (l_body, &[]), (l_out, &[acc]));
                 b.switch_to(l_body);
@@ -200,10 +263,17 @@ mod tests {
                 let m = b.iconst(Type::I64, 31);
                 let acc = b.int_bin(IntBinOp::Mul, acc, m);
                 let acc = b.int_bin(IntBinOp::Add, acc, v);
-                let (k1, next) = (b.int_bin(IntBinOp::Add, k, env.one), it.advance(b, env, &o, &[cur])[0]);
+                let (k1, next) = (
+                    b.int_bin(IntBinOp::Add, k, env.one),
+                    it.advance(b, env, &o, &[cur])[0],
+                );
                 b.br(l, &[k1, next, acc]);
                 b.switch_to(l_out);
-                let out = if want_n { o.n } else { b.block_params(l_out)[0] };
+                let out = if want_n {
+                    o.n
+                } else {
+                    b.block_params(l_out)[0]
+                };
                 b.ret(&[out]);
                 b.switch_to(l_raised);
                 err
@@ -221,14 +291,22 @@ mod tests {
         if args.iter().any(|a| a.is_none()) {
             return (0, 0);
         }
-        let (mut cur, stop, mut step) = (args[0].unwrap(), args[1].unwrap(), args.get(2).map_or(1, |s| s.unwrap()));
+        let (mut cur, stop, mut step) = (
+            args[0].unwrap(),
+            args[1].unwrap(),
+            args.get(2).map_or(1, |s| s.unwrap()),
+        );
         if step == 0 {
             return (RAISED, 0);
         }
         let (mut acc, mut n) = (0i64, 0i64);
         while (step > 0 && cur <= stop) || (step < 0 && cur >= stop) {
             (acc, n) = (acc.wrapping_mul(31).wrapping_add(cur), n + 1);
-            let next = if width == 4 { (cur as i32).checked_add(step as i32).map(i64::from) } else { cur.checked_add(step) };
+            let next = if width == 4 {
+                (cur as i32).checked_add(step as i32).map(i64::from)
+            } else {
+                cur.checked_add(step)
+            };
             match next {
                 Some(v) => cur = v,
                 None => step = 0,
@@ -272,9 +350,18 @@ mod tests {
     /// `generate_series(-2^63, 2^63 - 1)` has 2^64 elements: the count saturates instead of reading as an empty set.
     #[test]
     fn a_full_int8_range_saturates() {
-        let it = Iter { kind: IterKind::Series { width: 8, step: false }, node: 0 };
+        let it = Iter {
+            kind: IterKind::Series {
+                width: 8,
+                step: false,
+            },
+            node: 0,
+        };
         let n = run1(&[], &mut |b, env| {
-            let a = [(b.iconst(Type::I64, i64::MIN), None), (b.iconst(Type::I64, i64::MAX), None)];
+            let a = [
+                (b.iconst(Type::I64, i64::MIN), None),
+                (b.iconst(Type::I64, i64::MAX), None),
+            ];
             it.open(b, env, &a, true).0.n
         });
         assert_eq!(n as u64, u64::MAX);
@@ -284,9 +371,25 @@ mod tests {
     /// call has another argument count.
     #[test]
     fn other_sets_are_not_iterator_forms() {
-        for k in [SrfKind::SeriesNumeric { step: false }, SrfKind::SeriesTime { tz: true }, SrfKind::Unnest, SrfKind::Other, SrfKind::Scalar, SrfKind::Expr] {
+        for k in [
+            SrfKind::SeriesNumeric { step: false },
+            SrfKind::SeriesTime { tz: true },
+            SrfKind::Unnest,
+            SrfKind::Other,
+            SrfKind::Scalar,
+            SrfKind::Expr,
+        ] {
             assert_eq!(form_of(k, 2), None, "{k:?}");
         }
-        assert_eq!(form_of(SrfKind::SeriesInt { width: 4, step: false }, 3), None);
+        assert_eq!(
+            form_of(
+                SrfKind::SeriesInt {
+                    width: 4,
+                    step: false
+                },
+                3
+            ),
+            None
+        );
     }
 }

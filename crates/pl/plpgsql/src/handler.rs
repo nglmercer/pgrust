@@ -107,7 +107,8 @@ fn cache_epoch() -> u64 {
 }
 
 fn move_cache_epoch() {
-    FUNC_CACHE_EPOCH.with(|e| e.set(NEXT_CACHE_EPOCH.fetch_add(1, core::sync::atomic::Ordering::Relaxed)));
+    FUNC_CACHE_EPOCH
+        .with(|e| e.set(NEXT_CACHE_EPOCH.fetch_add(1, core::sync::atomic::Ordering::Relaxed)));
 }
 
 // C cached_function_compile's fn_extra arm (funccache.c:493-537): the function compiled for this call site, kept in
@@ -133,7 +134,11 @@ fn kind_key(kind: CallKind) -> (bool, Oid, bool) {
 
 // The memo's entry when it is current and its pg_proc row is unchanged (xmin / tid of the syscache tuple, read per
 // call as C does); None sends the call to plpgsql_compile.
-fn memo_entry(flinfo: &FmgrInfo, fn_collation: Oid, kind: CallKind) -> PgResult<Option<FuncCacheEntry>> {
+fn memo_entry(
+    flinfo: &FmgrInfo,
+    fn_collation: Oid,
+    kind: CallKind,
+) -> PgResult<Option<FuncCacheEntry>> {
     let Some(m) = flinfo.fn_extra_ref::<CompiledMemo>() else {
         return Ok(None);
     };
@@ -180,7 +185,10 @@ fn proc_stamp(fn_oid: Oid) -> PgResult<(u32, (u32, u16))> {
     let t = tup.tuple();
     let stamp = (
         t.t_data().xmin_raw(),
-        (((t.t_self.ip_blkid.bi_hi as u32) << 16) | t.t_self.ip_blkid.bi_lo as u32, t.t_self.ip_posid),
+        (
+            ((t.t_self.ip_blkid.bi_hi as u32) << 16) | t.t_self.ip_blkid.bi_lo as u32,
+            t.t_self.ip_posid,
+        ),
     );
     #[allow(clippy::drop_non_drop)]
     drop(t);
@@ -263,8 +271,7 @@ fn plpgsql_compile(
     kind: CallKind,
     call_expr: Option<types_core::fmgr::FnExprErased>,
 ) -> PgResult<FuncCacheEntry> {
-    let (cur_xmin, cur_tid, key_argtypes) =
-        proc_call_stamp(fn_oid, call_expr, for_validator)?;
+    let (cur_xmin, cur_tid, key_argtypes) = proc_call_stamp(fn_oid, call_expr, for_validator)?;
     // C hashkey carries isTrigger AND isEventTrigger (funccache.c) — the same
     // OID called in different contexts compiles separately.
     let (is_trigger, trig_oid, is_event_trigger) = match kind {
@@ -272,7 +279,14 @@ fn plpgsql_compile(
         CallKind::Trigger(oid) => (true, oid, false),
         CallKind::EventTrigger => (false, types_core::InvalidOid, true),
     };
-    let key = (fn_oid, fn_collation, is_trigger, trig_oid, is_event_trigger, key_argtypes);
+    let key = (
+        fn_oid,
+        fn_collation,
+        is_trigger,
+        trig_oid,
+        is_event_trigger,
+        key_argtypes,
+    );
     // The cache's lifetime is the process's (funccache.c:59-75): on this
     // thread model that is the on_proc_exit chain, and a retained pool
     // thread runs it at every park — register the teardown before the first
@@ -356,17 +370,17 @@ fn proc_call_stamp(
             let p = argv.as_usize() as *const array::oidvector;
             core::slice::from_raw_parts(p.add(1) as *const Oid, (*p).dim1 as usize)
         };
-        if !args.iter().any(|&t| {
-            is_polymorphic(t) || t == RECORDOID || t == types_core::RECORDARRAYOID
-        }) {
+        if !args
+            .iter()
+            .any(|&t| is_polymorphic(t) || t == RECORDOID || t == types_core::RECORDARRAYOID)
+        {
             return Ok(Vec::new());
         }
-        let mut argtypes = ::mcx::std_vec_from_slice("plpgsql",args)?;
+        let mut argtypes = ::mcx::std_vec_from_slice("plpgsql", args)?;
         let (proname_d, _) = SysCacheGetAttr(PROCOID, &tup, ANUM_PG_PROC_PRONAME)?;
         // SAFETY: NameData attr from the live pinned syscache tuple — 64
         // NUL-padded bytes.
-        let nbytes =
-            unsafe { core::slice::from_raw_parts(proname_d.as_usize() as *const u8, 64) };
+        let nbytes = unsafe { core::slice::from_raw_parts(proname_d.as_usize() as *const u8, 64) };
         let nlen = nbytes.iter().position(|&b| b == 0).unwrap_or(64);
         let proname =
             core::str::from_utf8(&nbytes[..nlen]).expect("proname is server-encoding text");
@@ -417,7 +431,10 @@ fn check_pronargs(nargs: usize) -> PgResult<()> {
     if nargs > pg_proc::FUNC_MAX_ARGS {
         return Err(crate::exec::exec_err(
             types_error::ERRCODE_TOO_MANY_ARGUMENTS,
-            format!("cannot pass more than {} arguments to a function", pg_proc::FUNC_MAX_ARGS),
+            format!(
+                "cannot pass more than {} arguments to a function",
+                pg_proc::FUNC_MAX_ARGS
+            ),
         ));
     }
     Ok(())
@@ -448,11 +465,18 @@ fn read_proc_row(fn_oid: Oid) -> PgResult<ProcInfo> {
         let img = varlena_bytes(mcx, allarg_d)?;
         let elems = datum::array_build::deconstruct_array_image(mcx, &img, 4, true, b'i')?;
         let types: Vec<Oid> = elems.iter().map(|d| d.as_oid()).collect();
-        assert!(!modes_null, "proallargtypes without proargmodes (function {fn_oid})");
+        assert!(
+            !modes_null,
+            "proallargtypes without proargmodes (function {fn_oid})"
+        );
         let mimg = varlena_bytes(mcx, modes_d)?;
         let melems = datum::array_build::deconstruct_array_image(mcx, &mimg, 1, true, b'c')?;
         let modes: Vec<i8> = melems.iter().map(|d| d.as_i8()).collect();
-        assert_eq!(types.len(), modes.len(), "proargmodes length mismatch (function {fn_oid})");
+        assert_eq!(
+            types.len(),
+            modes.len(),
+            "proargmodes length mismatch (function {fn_oid})"
+        );
         (types, modes)
     } else {
         let (argv, _) = SysCacheGetAttr(PROCOID, &tup, ANUM_PG_PROC_PROARGTYPES)?;
@@ -652,9 +676,24 @@ fn do_compile(
             ("tg_op", TEXTOID, fn_collation, PROMISE_TG_OP),
             ("tg_relid", OIDOID, types_core::InvalidOid, PROMISE_TG_RELID),
             ("tg_relname", NAMEOID, fn_collation, PROMISE_TG_TABLE_NAME),
-            ("tg_table_name", NAMEOID, fn_collation, PROMISE_TG_TABLE_NAME),
-            ("tg_table_schema", NAMEOID, fn_collation, PROMISE_TG_TABLE_SCHEMA),
-            ("tg_nargs", INT4OID, types_core::InvalidOid, PROMISE_TG_NARGS),
+            (
+                "tg_table_name",
+                NAMEOID,
+                fn_collation,
+                PROMISE_TG_TABLE_NAME,
+            ),
+            (
+                "tg_table_schema",
+                NAMEOID,
+                fn_collation,
+                PROMISE_TG_TABLE_SCHEMA,
+            ),
+            (
+                "tg_nargs",
+                INT4OID,
+                types_core::InvalidOid,
+                PROMISE_TG_NARGS,
+            ),
             ("tg_argv", TEXTARRAYOID, fn_collation, PROMISE_TG_ARGV),
         ];
         for &(name, typoid, coll, promise) in tg_vars {
@@ -695,12 +734,18 @@ fn do_compile(
             CompState::build_datatype(TEXTOID, -1, fn_collation, None)?,
             true,
         )?;
-        for (varno, promise) in [(tg_event_varno, PROMISE_TG_EVENT), (tg_tag_varno, PROMISE_TG_TAG)] {
+        for (varno, promise) in [
+            (tg_event_varno, PROMISE_TG_EVENT),
+            (tg_tag_varno, PROMISE_TG_TAG),
+        ] {
             if let PlDatum::Var(v) = &mut comp.datums[varno as usize] {
                 v.promise = promise;
             }
         }
-        fn_is_trigger = FnTrigger::EventTrigger { tg_event_varno, tg_tag_varno };
+        fn_is_trigger = FnTrigger::EventTrigger {
+            tg_event_varno,
+            tg_tag_varno,
+        };
     } else {
         const PROARGMODE_IN: i8 = b'i' as i8;
         const PROARGMODE_OUT: i8 = b'o' as i8;
@@ -715,7 +760,7 @@ fn do_compile(
             for_validator,
             &proc.proname,
         )
-        .map_err(& hdr_ctx)?;
+        .map_err(&hdr_ctx)?;
 
         let mut out_arg_variables: Vec<Dno> = Vec::new();
         for (i, &argtypeid) in proc.argtypes.iter().enumerate() {
@@ -735,19 +780,26 @@ fn do_compile(
                 )));
             }
             let argname = &proc.argnames[i];
-            let refname = if !argname.is_empty() { argname.as_str() } else { buf.as_str() };
+            let refname = if !argname.is_empty() {
+                argname.as_str()
+            } else {
+                buf.as_str()
+            };
             let dno = comp.build_variable(refname, 0, argdtype, false)?;
             fn_argvarnos.push(dno);
             fn_arg_is_input.push(matches!(
                 argmode,
                 PROARGMODE_IN | PROARGMODE_INOUT | PROARGMODE_VARIADIC
             ));
-            if matches!(argmode, PROARGMODE_OUT | PROARGMODE_INOUT | PROARGMODE_TABLE) {
+            if matches!(
+                argmode,
+                PROARGMODE_OUT | PROARGMODE_INOUT | PROARGMODE_TABLE
+            ) {
                 out_arg_variables.push(dno);
             }
-            add_parameter_name(&mut comp, dno, &buf).map_err(& hdr_ctx)?;
+            add_parameter_name(&mut comp, dno, &buf).map_err(&hdr_ctx)?;
             if !argname.is_empty() {
-                add_parameter_name(&mut comp, dno, argname).map_err(& hdr_ctx)?;
+                add_parameter_name(&mut comp, dno, argname).map_err(&hdr_ctx)?;
             }
         }
 
@@ -954,7 +1006,11 @@ fn add_dummy_return(action: &mut PlBlock, out_param_varno: Dno, nstatements: &mu
     }
     if !matches!(action.body.last(), Some(PlStmt::Return { .. })) {
         *nstatements += 1;
-        action.body.push(PlStmt::Return { lineno: 0, expr: None, retvarno: out_param_varno });
+        action.body.push(PlStmt::Return {
+            lineno: 0,
+            expr: None,
+            retvarno: out_param_varno,
+        });
     }
 }
 
@@ -964,7 +1020,12 @@ pub(crate) mod gucs {
         (print_strict_params_cell, bool, print_strict_params, set_print_strict_params, false),
         (check_asserts_cell, bool, check_asserts, set_check_asserts, true),
     );
-    guc_tables::session_guc_string!(EXTRA_WARNINGS, extra_warnings, set_extra_warnings, Some("none"));
+    guc_tables::session_guc_string!(
+        EXTRA_WARNINGS,
+        extra_warnings,
+        set_extra_warnings,
+        Some("none")
+    );
     guc_tables::session_guc_string!(EXTRA_ERRORS, extra_errors, set_extra_errors, Some("none"));
 }
 
@@ -992,12 +1053,8 @@ fn parse_extra_checks(value: &str) -> PgResult<Result<u32, String>> {
         return Ok(Ok(0));
     }
     let ctx = mcx::MemoryContext::new("plpgsql extra checks");
-    let Some(elemlist) = varlena::split_identifier_string(
-        ctx.mcx(),
-        value,
-        b',',
-        mbutils::GetDatabaseEncoding(),
-    )?
+    let Some(elemlist) =
+        varlena::split_identifier_string(ctx.mcx(), value, b',', mbutils::GetDatabaseEncoding())?
     else {
         return Ok(Err("List syntax is invalid.".to_string()));
     };
@@ -1053,7 +1110,10 @@ thread_local! {
 fn guc_snapshot_disabled() -> bool {
     static DISABLED: pgsync::OnceLock<bool> = pgsync::OnceLock::new();
     *DISABLED.get_or_init(|| {
-        matches!(std::env::var("PGRUST_PLPGSQL_GUC_SNAPSHOT").as_deref(), Ok("0") | Ok("off"))
+        matches!(
+            std::env::var("PGRUST_PLPGSQL_GUC_SNAPSHOT").as_deref(),
+            Ok("0") | Ok("off")
+        )
     })
 }
 
@@ -1109,7 +1169,9 @@ fn ensure_library_loaded() -> PgResult<()> {
         if guc::store::with_store(|reg| {
             reg.find_option("plpgsql.variable_conflict")
                 .is_some_and(|v| v.gen().flags & types_guc::GUC_CUSTOM_PLACEHOLDER == 0)
-        }).unwrap_or(false) {
+        })
+        .unwrap_or(false)
+        {
             mark_loaded();
             return Ok(());
         }
@@ -1153,7 +1215,10 @@ fn attach_compile_context(
 // add_parameter_name (pl_comp.c); itemtype NSTYPE_VAR for scalar params,
 // NSTYPE_REC for composite/record params (pl_comp.c:341-349).
 fn add_parameter_name(comp: &mut CompState, dno: Dno, name: &str) -> PgResult<()> {
-    if comp.ns_lookup(comp.ns_top, true, name, None, None).is_some() {
+    if comp
+        .ns_lookup(comp.ns_top, true, name, None, None)
+        .is_some()
+    {
         return Err(crate::exec::exec_err(
             types_error::ERRCODE_INVALID_FUNCTION_DEFINITION,
             format!("parameter name \"{name}\" used more than once"),
@@ -1174,7 +1239,10 @@ fn plpgsql_call_handler(
     fcinfo: &mut FunctionCallInfoBaseData,
 ) -> PgResult<Datum> {
     ensure_library_loaded()?;
-    let fn_oid = flinfo.as_ref().map(|f| f.fn_oid).expect("plpgsql_call_handler needs flinfo");
+    let fn_oid = flinfo
+        .as_ref()
+        .map(|f| f.fn_oid)
+        .expect("plpgsql_call_handler needs flinfo");
 
     // CALLED_AS_TRIGGER / CALLED_AS_EVENT_TRIGGER demux on the context tag.
     let ctx_tag = fcinfo.context.map(|p| {
@@ -1188,7 +1256,11 @@ fn plpgsql_call_handler(
             // EventTriggerData whose first field is this FmNode; it outlives
             // the call.
             Some(unsafe {
-                fcinfo.context.unwrap().cast::<event_trigger::EventTriggerData>().as_ref()
+                fcinfo
+                    .context
+                    .unwrap()
+                    .cast::<event_trigger::EventTriggerData>()
+                    .as_ref()
             })
         } else {
             None
@@ -1328,8 +1400,8 @@ fn compile_inline(src: &str) -> PgResult<PlFunction> {
     let latest_line = parser.sc.latest_lineno();
     // C's inline callback always tries the position transpose (cbarg
     // .proc_source is set unconditionally for inline blocks).
-    let mut action = parse_result
-        .map_err(|e| attach_compile_context(e, func_name, latest_line, true, src))?;
+    let mut action =
+        parse_result.map_err(|e| attach_compile_context(e, func_name, latest_line, true, src))?;
     add_dummy_return(&mut action, -1, &mut comp.nstatements);
 
     let mut function = PlFunction {
@@ -1384,7 +1456,9 @@ fn plpgsql_validator(
     // validator reached through CREATE FUNCTION always carries it
     // (ProcedureCreate → fmgr_info(languageValidator) → FmgrInfo::invoke passes
     // Some(flinfo)). Returns false only for future expansion, matching C's bool.
-    let validator_oid = flinfo.as_deref().map_or(types_core::InvalidOid, |f| f.fn_oid);
+    let validator_oid = flinfo
+        .as_deref()
+        .map_or(types_core::InvalidOid, |f| f.fn_oid);
     if !pg_proc::check_function_validator_access(validator_oid, funcoid)? {
         return Ok(Datum::null());
     }
@@ -1412,9 +1486,7 @@ fn plpgsql_validator(
         }
     }
     for &t in &info.argtypes {
-        if lsyscache::typ::get_typtype(t)? == TYPTYPE_PSEUDO
-            && t != RECORDOID
-            && !is_polymorphic(t)
+        if lsyscache::typ::get_typtype(t)? == TYPTYPE_PSEUDO && t != RECORDOID && !is_polymorphic(t)
         {
             return Err(crate::exec::exec_err(
                 types_error::ERRCODE_FEATURE_NOT_SUPPORTED,
@@ -1472,7 +1544,10 @@ fn plpgsql_exec_function(
 
     // Store call arguments into the argument variables; OUT-only args have
     // no fcinfo slot and stay NULL.
-    estate.frame.text.set(Some("while storing call arguments into local variables"));
+    estate
+        .frame
+        .text
+        .set(Some("while storing call arguments into local variables"));
     let mut argi = 0usize;
     for (i, &dno) in func.fn_argvarnos.iter().enumerate() {
         if !func.fn_arg_is_input.get(i).copied().unwrap_or(true) {
@@ -1547,7 +1622,10 @@ fn plpgsql_exec_function(
         ));
     }
 
-    estate.frame.text.set(Some("while casting return value to function's return type"));
+    estate
+        .frame
+        .text
+        .set(Some("while casting return value to function's return type"));
 
     if func.fn_retset {
         // pl_exec.c:651-680: hand the tuplestore to the caller's rsinfo.
@@ -1557,8 +1635,7 @@ fn plpgsql_exec_function(
             let Some(rsi) = fcinfo.rsinfo_mut() else {
                 return Err(crate::exec::exec_err(
                     types_error::ERRCODE_FEATURE_NOT_SUPPORTED,
-                    "set-valued function called in context that cannot accept a set"
-                        .to_string(),
+                    "set-valued function called in context that cannot accept a set".to_string(),
                 ));
             };
             rsi.returnMode = fmgr::SetFunctionReturnMode::Materialize;
@@ -1610,7 +1687,11 @@ fn plpgsql_exec_function(
             Err(e) => return Err(attach_exec_context(e, &estate)),
         };
     } else if !isnull {
-        let rt = if OidIsValid(estate.rettype) { estate.rettype } else { func.fn_rettype };
+        let rt = if OidIsValid(estate.rettype) {
+            estate.rettype
+        } else {
+            func.fn_rettype
+        };
         retval = match estate.exec_cast_value(retval, &mut isnull, rt, -1, func.fn_rettype, -1) {
             Ok(v) => v,
             Err(e) => return Err(attach_exec_context(e, &estate)),
@@ -1622,9 +1703,7 @@ fn plpgsql_exec_function(
     }
     // SAFETY: retval is a live by-ref datum of the return type's typlen
     // discipline; copied into the caller-armed result context.
-    let out = unsafe {
-        execexpr::agg_datum_copy(fcinfo.result_mcx(), retval, func.fn_rettyplen)?
-    };
+    let out = unsafe { execexpr::agg_datum_copy(fcinfo.result_mcx(), retval, func.fn_rettyplen)? };
     Ok(out)
 }
 
@@ -1633,14 +1712,21 @@ fn plpgsql_exec_event_trigger(
     func: &PlFunction,
     trigdata: &event_trigger::EventTriggerData,
 ) -> PgResult<()> {
-    let FnTrigger::EventTrigger { tg_event_varno, tg_tag_varno } = func.fn_is_trigger else {
+    let FnTrigger::EventTrigger {
+        tg_event_varno,
+        tg_tag_varno,
+    } = func.fn_is_trigger
+    else {
         panic!("plpgsql_exec_event_trigger: function is not an event trigger");
     };
     let mut estate = Estate::new(func, func.fn_readonly, true)?;
 
     crate::exec::pl_frame!(estate);
     // Divergence from C: tg_event/tg_tag are eager, not PROMISE-lazy.
-    estate.frame.text.set(Some("during initialization of execution state"));
+    estate
+        .frame
+        .text
+        .set(Some("during initialization of execution state"));
     if let Err(e) = estate.assign_text_var(tg_event_varno, trigdata.event) {
         return Err(attach_exec_context(e, &estate));
     }
@@ -1718,9 +1804,11 @@ fn coerce_function_result_tuple(
     let cx = mcx::MemoryContext::new("plpgsql result-type resolution");
     // SAFETY: expectedDesc contract — armed by the executor with the scan
     // tupdesc, live for the duration of this call.
-    let expected = estate.rsi.as_ref().and_then(|r| r.expected_desc).map(|p| unsafe {
-        p.cast::<types_tuple::TupleDescData<'_>>().as_ref()
-    });
+    let expected = estate
+        .rsi
+        .as_ref()
+        .and_then(|r| r.expected_desc)
+        .map(|p| unsafe { p.cast::<types_tuple::TupleDescData<'_>>().as_ref() });
     let resolved = match flinfo {
         Some(fl) => funcapi::get_call_result_type(cx.mcx(), fl, expected)?,
         None => funcapi::ResolvedResultType {
@@ -1780,7 +1868,10 @@ fn coerce_function_result_tuple(
         }
         _ => {
             // Generic RECORD caller: pass the row back with a blessed typmod.
-            let src = rv.src_desc.clone().expect("RecValue carries its source tupdesc");
+            let src = rv
+                .src_desc
+                .clone()
+                .expect("RecValue carries its source tupdesc");
             let mut td = tupdesc::CreateTupleDescCopy(out_mcx, &src)?;
             if !OidIsValid(td.tdtypeid) {
                 td.tdtypeid = RECORDOID;
@@ -1808,7 +1899,9 @@ const TYPALIGN_INT: u8 = b'i';
 // resolved by ER_lookup_fieldnum/namestrcmp case-sensitively
 // (expandedrecord.c:1032), so downcasing here made every quoted mixed-case
 // column of the trigger table unreachable through NEW/OLD.
-fn recdesc_from_tupdesc(td: &types_tuple::TupleDescData<'_>) -> PgResult<(crate::exec::RecDesc, Vec<bool>)> {
+fn recdesc_from_tupdesc(
+    td: &types_tuple::TupleDescData<'_>,
+) -> PgResult<(crate::exec::RecDesc, Vec<bool>)> {
     let d = crate::exec::RecDesc::from_tupdesc(td)?;
     let mut generated = ::mcx::std_vec_with_capacity("plpgsql", td.attrs.len())?;
     for a in td.attrs.iter() {
@@ -1880,7 +1973,11 @@ pub(crate) fn compute_trigger_promise(
             (text_datum(mcx, s.as_bytes())?, false)
         }
         PROMISE_TG_LEVEL => {
-            let s = if TRIGGER_FIRED_FOR_ROW(ev) { "ROW" } else { "STATEMENT" };
+            let s = if TRIGGER_FIRED_FOR_ROW(ev) {
+                "ROW"
+            } else {
+                "STATEMENT"
+            };
             (text_datum(mcx, s.as_bytes())?, false)
         }
         PROMISE_TG_OP => {
@@ -1900,8 +1997,8 @@ pub(crate) fn compute_trigger_promise(
         PROMISE_TG_RELID => (Datum::from_oid(src.relid), false),
         PROMISE_TG_TABLE_NAME => (name_datum(mcx, &src.relname)?, false),
         PROMISE_TG_TABLE_SCHEMA => {
-            let nsp = lsyscache::misc::get_namespace_name(mcx, src.relnamespace)?
-                .unwrap_or_else(|| {
+            let nsp =
+                lsyscache::misc::get_namespace_name(mcx, src.relnamespace)?.unwrap_or_else(|| {
                     panic!("cache lookup failed for namespace {}", src.relnamespace)
                 });
             (name_datum(mcx, nsp.as_str())?, false)
@@ -2019,7 +2116,11 @@ fn map_returned_row(
             break;
         }
     }
-    let extra = rv.desc.types[j..].iter().enumerate().filter(|&(k, _)| !rv.desc.dropped[j + k]).count();
+    let extra = rv.desc.types[j..]
+        .iter()
+        .enumerate()
+        .filter(|&(k, _)| !rv.desc.dropped[j + k])
+        .count();
     if extra > 0 || nincols != noutcols {
         return Err(mismatch(format!(
             "Number of returned columns ({}) does not match expected column count ({}).",
@@ -2043,14 +2144,16 @@ fn plpgsql_exec_trigger(
     );
     let mut estate = Estate::new(func, func.fn_readonly, true)?;
     crate::exec::pl_frame!(estate);
-    estate.frame.text.set(Some("during initialization of execution state"));
+    estate
+        .frame
+        .text
+        .set(Some("during initialization of execution state"));
 
     let rel = trigdata.tg_relation;
     let tupdesc = rel.rd_att.clone();
     let (desc, generated) = recdesc_from_tupdesc(&tupdesc)?;
     let natts = desc.types.len();
-    let src_desc =
-        Rc::new(tupdesc::CreateTupleDescCopy(estate.datum_mcx(), &tupdesc)?);
+    let src_desc = Rc::new(tupdesc::CreateTupleDescCopy(estate.datum_mcx(), &tupdesc)?);
     // C makes empty expanded records for BOTH variables (pl_exec.c:966-984):
     // unsupplied tuples read as NULL, whole-record use is SQL NULL.
     let empty_rv = crate::exec::RecValue {
@@ -2099,7 +2202,11 @@ fn plpgsql_exec_trigger(
 
     if trigdata.tg_trigger.tgoldtable.is_some() || trigdata.tg_trigger.tgnewtable.is_some() {
         let rc = spi::SPI_register_trigger_data(trigdata)?;
-        assert_eq!(rc, spi::SPI_OK_TD_REGISTER, "SPI_register_trigger_data failed");
+        assert_eq!(
+            rc,
+            spi::SPI_OK_TD_REGISTER,
+            "SPI_register_trigger_data failed"
+        );
     }
 
     arm_trigger_promises(&mut estate, trigdata);
@@ -2144,9 +2251,9 @@ fn plpgsql_exec_trigger(
             let retval = estate.retval;
             let (d, s, values, nulls, _) =
                 match estate.deconstruct_composite(retval, estate.datum_mcx()) {
-                Ok(x) => x,
-                Err(e) => return Err(attach_exec_context(e, &estate)),
-            };
+                    Ok(x) => x,
+                    Err(e) => return Err(attach_exec_context(e, &estate)),
+                };
             crate::exec::RecValue {
                 owned: ::mcx::std_vec_from_elem("plpgsql", false, values.len())?,
                 desc: d,
@@ -2228,7 +2335,11 @@ mod tests {
         let mut pkglib = [0u8; types_core::MAXPGPATH];
         pkglib[..b"/nonexistent-pkglib".len()].copy_from_slice(b"/nonexistent-pkglib");
         init_small::globals::set_pkglib_path(pkglib);
-        for symbol in ["plpgsql_call_handler", "plpgsql_inline_handler", "plpgsql_validator"] {
+        for symbol in [
+            "plpgsql_call_handler",
+            "plpgsql_inline_handler",
+            "plpgsql_validator",
+        ] {
             let f = dfmgr::load_external_function("$libdir/plpgsql", symbol, true)
                 .unwrap_or_else(|e| panic!("{symbol}: {}", e.message()))
                 .expect("signal_not_found=true returned no function");
@@ -2237,7 +2348,10 @@ mod tests {
                 "plpgsql_inline_handler" => plpgsql_inline_handler,
                 _ => plpgsql_validator,
             };
-            assert!(std::ptr::fn_addr_eq(f, expected), "{symbol} resolved to wrong entry point");
+            assert!(
+                std::ptr::fn_addr_eq(f, expected),
+                "{symbol} resolved to wrong entry point"
+            );
         }
         // Unknown symbols in the registered library keep C's lookup-miss error.
         let err =
@@ -2250,7 +2364,9 @@ mod tests {
         let err =
             dfmgr::load_external_function("$libdir/no_such_lib", "plpgsql_call_handler", true)
                 .unwrap_err();
-        assert!(err.message().contains("could not access file \"no_such_lib\""));
+        assert!(err
+            .message()
+            .contains("could not access file \"no_such_lib\""));
     }
 
     std::thread_local! {
@@ -2281,7 +2397,10 @@ mod tests {
         )
         .unwrap();
         CHECKED.with(|c| {
-            assert!(c.borrow().is_empty(), "plain composite must not be domain-checked")
+            assert!(
+                c.borrow().is_empty(),
+                "plain composite must not be domain-checked"
+            )
         });
         check_composite_domain_result(
             funcapi::TypeFuncClass::CompositeDomain,
@@ -2377,7 +2496,10 @@ mod tests {
         let three = int4_row(desc_mcx, 3);
         let err = run(&three).expect_err("a 2-column row cannot satisfy a 3-column list");
         assert_eq!(err.sqlstate(), types_error::ERRCODE_DATATYPE_MISMATCH);
-        assert_eq!(err.message(), "returned record type does not match expected record type");
+        assert_eq!(
+            err.message(),
+            "returned record type does not match expected record type"
+        );
         assert_eq!(
             err.detail(),
             Some("Number of returned columns (2) does not match expected column count (3).")
@@ -2464,7 +2586,9 @@ mod tests {
     // three GUC_check_errdetail refusals.
     #[test]
     fn extra_checks_parse_matches_the_c_check_hook() {
-        use crate::comp::{XCHECK_ALL, XCHECK_SHADOWVAR, XCHECK_STRICTMULTIASSIGNMENT, XCHECK_TOOMANYROWS};
+        use crate::comp::{
+            XCHECK_ALL, XCHECK_SHADOWVAR, XCHECK_STRICTMULTIASSIGNMENT, XCHECK_TOOMANYROWS,
+        };
         let parse = |v: &str| parse_extra_checks(v).unwrap();
         assert_eq!(parse("all"), Ok(XCHECK_ALL));
         assert_eq!(parse("ALL"), Ok(XCHECK_ALL));
@@ -2474,7 +2598,10 @@ mod tests {
             parse("Shadowed_Variables , too_many_rows"),
             Ok(XCHECK_SHADOWVAR | XCHECK_TOOMANYROWS)
         );
-        assert_eq!(parse("strict_multi_assignment"), Ok(XCHECK_STRICTMULTIASSIGNMENT));
+        assert_eq!(
+            parse("strict_multi_assignment"),
+            Ok(XCHECK_STRICTMULTIASSIGNMENT)
+        );
         // pg_strcasecmp against the raw value: a padded "all" is a list item.
         assert_eq!(
             parse(" all"),
@@ -2484,14 +2611,23 @@ mod tests {
             parse("all, too_many_rows"),
             Err("Key word \"all\" cannot be combined with other key words.".to_string())
         );
-        assert_eq!(parse("bogus_check"), Err("Unrecognized key word: \"bogus_check\".".to_string()));
-        assert_eq!(parse("too_many_rows,"), Err("List syntax is invalid.".to_string()));
+        assert_eq!(
+            parse("bogus_check"),
+            Err("Unrecognized key word: \"bogus_check\".".to_string())
+        );
+        assert_eq!(
+            parse("too_many_rows,"),
+            Err("List syntax is invalid.".to_string())
+        );
 
         let mut v = Some("too_many_rows".to_string());
         assert!(plpgsql_extra_checks_check_hook(&mut v).unwrap());
         let mut v = Some("nope".to_string());
         assert!(!plpgsql_extra_checks_check_hook(&mut v).unwrap());
         assert_eq!(extra_checks_mask(None).unwrap(), 0);
-        assert_eq!(extra_checks_mask(Some("all".to_string())).unwrap(), XCHECK_ALL);
+        assert_eq!(
+            extra_checks_mask(Some("all".to_string())).unwrap(),
+            XCHECK_ALL
+        );
     }
 }

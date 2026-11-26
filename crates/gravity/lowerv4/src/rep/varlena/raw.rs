@@ -58,9 +58,9 @@ pub(crate) mod cmp_num {
 
 /// `cmp_text.rs`'s entries.
 pub(crate) mod cmp_text {
-    use gravity_expr::nodes::array::{ElemFacts, Walk};
     use super::super::cmp_text::trim;
     use super::value;
+    use gravity_expr::nodes::array::{ElemFacts, Walk};
 
     gravity_kernels::contract::host! {
         /// Whether the (detoasted) payloads of `datum` and the constant `needle` are equal (bpchar: without trailing blanks):
@@ -121,28 +121,58 @@ pub(crate) mod cmp_text {
 
 /// `text_view.rs`'s entries (D3151).
 pub(crate) mod text_view {
-    use gravity_expr::nodes::array::{ElemFacts, Walk};
     use super::super::cmp_text::trim;
     use super::value;
+    use gravity_expr::nodes::array::{ElemFacts, Walk};
 
     /// `array`'s text elements (aligned `align`) walked against `eq`: 1 at the first match, 2 when none matched and an
     /// element is NULL, 0 otherwise. An array image that is not plain is copied out plain first (a bound literal is plain),
     /// the copy charged to `ctx`'s owner (`value`).
-    fn any_of(ctx: u64, array: u64, align: u64, eq: &mut dyn FnMut(&[u8]) -> bool) -> Result<i64, Box<types_error::PgError>> {
-        let (arr, elem) = (array as usize as *const u8, ElemFacts { typ: 25, len: -1, byval: false, align: align as i8 });
+    fn any_of(
+        ctx: u64,
+        array: u64,
+        align: u64,
+        eq: &mut dyn FnMut(&[u8]) -> bool,
+    ) -> Result<i64, Box<types_error::PgError>> {
+        let (arr, elem) = (
+            array as usize as *const u8,
+            ElemFacts {
+                typ: 25,
+                len: -1,
+                byval: false,
+                align: align as i8,
+            },
+        );
         // SAFETY: `array` is a live varlena (the caller's contract).
         let copy = match unsafe { *arr } & 3 {
             0 => None,
-            _ => Some(unsafe { gravity_fn::with_payload(arr, |img| value::copy_of(ctx, &[&((img.len() as u32 + 4) << 2).to_le_bytes()[..], img])) }?),
+            _ => Some(unsafe {
+                gravity_fn::with_payload(arr, |img| {
+                    value::copy_of(
+                        ctx,
+                        &[&((img.len() as u32 + 4) << 2).to_le_bytes()[..], img],
+                    )
+                })
+            }?),
         };
         let img = copy.as_ref().map_or(arr, |v| v.as_ptr());
-        let mut w = Walk::over(gravity_fn::Datum::from_usize(img as usize), elem, &mut gravity_fn::Region::over(&mut []))?;
+        let mut w = Walk::over(
+            gravity_fn::Datum::from_usize(img as usize),
+            elem,
+            &mut gravity_fn::Region::over(&mut []),
+        )?;
         let mut null = false;
         while let Some(e) = w.next() {
             match e.isnull {
                 true => null = true,
                 // SAFETY: a non-NULL element of a live array is a live varlena.
-                false if unsafe { gravity_fn::with_payload(e.value.as_usize() as *const u8, |n| eq(n)) }? => return Ok(1),
+                false
+                    if unsafe {
+                        gravity_fn::with_payload(e.value.as_usize() as *const u8, |n| eq(n))
+                    }? =>
+                {
+                    return Ok(1)
+                }
                 false => {}
             }
         }

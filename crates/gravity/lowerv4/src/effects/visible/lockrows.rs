@@ -21,7 +21,9 @@ pub(crate) fn calm_call(gx: &Gx<'_, '_>, n: Node<'_>) -> bool {
 pub(crate) fn quiet_ref_build(gx: &Gx<'_, '_>, pb: &PipelineNode<'_>, below: &[Op<'_>]) -> bool {
     let plain = |o: &Op<'_>| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_));
     let recheck_free = match &pb.source {
-        Source::Index { recheck, .. } | Source::Bitmap { recheck, .. } => recheck.iter().all(|n| gx.fx(n).quiet()),
+        Source::Index { recheck, .. } | Source::Bitmap { recheck, .. } => {
+            recheck.iter().all(|n| gx.fx(n).quiet())
+        }
         _ => true,
     };
     // REFMERGE: the merge inner's ops rerun over its refetched row, the very version the merge read (SnapshotAny at the junk
@@ -47,5 +49,6 @@ pub(crate) fn quiet_ref_build(gx: &Gx<'_, '_>, pb: &PipelineNode<'_>, below: &[O
         Op::Project(l) => l.iter().all(rf),
         _ => false,
     };
-    below.iter().all(plain) && (below.iter().all(op_rf) && recheck_free || below.iter().all(same) && recheck_calm)
+    below.iter().all(plain)
+        && (below.iter().all(op_rf) && recheck_free || below.iter().all(same) && recheck_calm)
 }

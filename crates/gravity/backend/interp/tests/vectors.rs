@@ -37,22 +37,56 @@ fn lane_wise_arithmetic_and_compare_v2i64() {
     let ys: [i64; 2] = [1, 3];
     let mut out = [0i64; 2];
     for (op, want) in [
-        ("vadd", [xs[0].wrapping_add(ys[0]), xs[1].wrapping_add(ys[1])]),
-        ("vsub", [xs[0].wrapping_sub(ys[0]), xs[1].wrapping_sub(ys[1])]),
+        (
+            "vadd",
+            [xs[0].wrapping_add(ys[0]), xs[1].wrapping_add(ys[1])],
+        ),
+        (
+            "vsub",
+            [xs[0].wrapping_sub(ys[0]), xs[1].wrapping_sub(ys[1])],
+        ),
         ("vand", [xs[0] & ys[0], xs[1] & ys[1]]),
         ("vor", [xs[0] | ys[0], xs[1] | ys[1]]),
         ("vxor", [xs[0] ^ ys[0], xs[1] ^ ys[1]]),
-        ("vcmp sgt", [-((xs[0] > ys[0]) as i64), -((xs[1] > ys[1]) as i64)]),
-        ("vcmp ugt", [-(((xs[0] as u64) > (ys[0] as u64)) as i64), -(((xs[1] as u64) > (ys[1] as u64)) as i64)]),
+        (
+            "vcmp sgt",
+            [-((xs[0] > ys[0]) as i64), -((xs[1] > ys[1]) as i64)],
+        ),
+        (
+            "vcmp ugt",
+            [
+                -(((xs[0] as u64) > (ys[0] as u64)) as i64),
+                -(((xs[1] as u64) > (ys[1] as u64)) as i64),
+            ],
+        ),
         ("vcmp eq", [0, 0]),
         ("vcmp ne", [-1, -1]),
         ("vsmin", [xs[0].min(ys[0]), xs[1].min(ys[1])]),
         ("vsmax", [xs[0].max(ys[0]), xs[1].max(ys[1])]),
-        ("vumin", [(xs[0] as u64).min(ys[0] as u64) as i64, (xs[1] as u64).min(ys[1] as u64) as i64]),
-        ("vumax", [(xs[0] as u64).max(ys[0] as u64) as i64, (xs[1] as u64).max(ys[1] as u64) as i64]),
+        (
+            "vumin",
+            [
+                (xs[0] as u64).min(ys[0] as u64) as i64,
+                (xs[1] as u64).min(ys[1] as u64) as i64,
+            ],
+        ),
+        (
+            "vumax",
+            [
+                (xs[0] as u64).max(ys[0] as u64) as i64,
+                (xs[1] as u64).max(ys[1] as u64) as i64,
+            ],
+        ),
     ] {
         let p = v2i64_bin(op);
-        run(&p, &[xs.as_ptr() as u64, ys.as_ptr() as u64, out.as_mut_ptr() as u64]);
+        run(
+            &p,
+            &[
+                xs.as_ptr() as u64,
+                ys.as_ptr() as u64,
+                out.as_mut_ptr() as u64,
+            ],
+        );
         assert_eq!(out, want, "{op}");
     }
 }
@@ -85,12 +119,21 @@ fn v4i32_mul_shift_select_reduce_movmask() {
     let xs: [i32; 4] = [-5, 100_000, 7, i32::MIN];
     let ys: [i32; 4] = [3, 70_000, -2, 1];
     let mut out = [0i32; 12];
-    let r = run(&p, &[xs.as_ptr() as u64, ys.as_ptr() as u64, out.as_mut_ptr() as u64]);
+    let r = run(
+        &p,
+        &[
+            xs.as_ptr() as u64,
+            ys.as_ptr() as u64,
+            out.as_mut_ptr() as u64,
+        ],
+    );
     let m: Vec<i32> = (0..4).map(|k| xs[k].wrapping_mul(ys[k])).collect();
     let s: Vec<i32> = m.iter().map(|v| v.wrapping_shl(1)).collect();
     let u: Vec<i32> = s.iter().map(|v| ((*v as u32) >> 3) as i32).collect();
     let t: Vec<i32> = s.iter().map(|v| v >> 3).collect();
-    let sel: Vec<i32> = (0..4).map(|k| if xs[k] < ys[k] { xs[k] } else { ys[k] }).collect();
+    let sel: Vec<i32> = (0..4)
+        .map(|k| if xs[k] < ys[k] { xs[k] } else { ys[k] })
+        .collect();
     assert_eq!(&out[0..4], &u[..]);
     assert_eq!(&out[4..8], &t[..]);
     assert_eq!(&out[8..12], &sel[..]);
@@ -142,8 +185,14 @@ fn splat_insert_widen_narrow_bitcast() {
     // halfwords.
     for k in 0..4 {
         let want = lo[4 + k] as u16;
-        assert_eq!(u16::from_le_bytes(out[48 + 2 * k..50 + 2 * k].try_into().unwrap()), want);
-        assert_eq!(u16::from_le_bytes(out[56 + 2 * k..58 + 2 * k].try_into().unwrap()), want);
+        assert_eq!(
+            u16::from_le_bytes(out[48 + 2 * k..50 + 2 * k].try_into().unwrap()),
+            want
+        );
+        assert_eq!(
+            u16::from_le_bytes(out[56 + 2 * k..58 + 2 * k].try_into().unwrap()),
+            want
+        );
     }
     // vreduce_add of 16 signed bytes: x's bytes plus the byte 1 and seven 0s.
     let c: i64 = lo.iter().map(|&b| b as i8 as i64).sum::<i64>() + 1;
@@ -206,16 +255,24 @@ fn lane_wise_min_max_at_every_width() {
         let mut xs = vec![0u8; 16];
         let mut ys = vec![0u8; 16];
         for i in 0..n {
-            xs[i * (w as usize / 8)..(i + 1) * (w as usize / 8)].copy_from_slice(&pats[i % 8].to_le_bytes()[..w as usize / 8]);
-            ys[i * (w as usize / 8)..(i + 1) * (w as usize / 8)].copy_from_slice(&pats[(i + 3) % 8].to_le_bytes()[..w as usize / 8]);
+            xs[i * (w as usize / 8)..(i + 1) * (w as usize / 8)]
+                .copy_from_slice(&pats[i % 8].to_le_bytes()[..w as usize / 8]);
+            ys[i * (w as usize / 8)..(i + 1) * (w as usize / 8)]
+                .copy_from_slice(&pats[(i + 3) % 8].to_le_bytes()[..w as usize / 8]);
         }
         let lane = |v: &[u8], i: usize| -> u64 {
             let mut b = [0u8; 8];
-            b[..w as usize / 8].copy_from_slice(&v[i * (w as usize / 8)..(i + 1) * (w as usize / 8)]);
+            b[..w as usize / 8]
+                .copy_from_slice(&v[i * (w as usize / 8)..(i + 1) * (w as usize / 8)]);
             u64::from_le_bytes(b) & m
         };
         let sext = |u: u64| ((u << (64 - w)) as i64) >> (64 - w);
-        for (op, signed, is_min) in [("vsmin", true, true), ("vsmax", true, false), ("vumin", false, true), ("vumax", false, false)] {
+        for (op, signed, is_min) in [
+            ("vsmin", true, true),
+            ("vsmax", true, false),
+            ("vumin", false, true),
+            ("vumax", false, false),
+        ] {
             let p = load(&format!(
                 r#"
 (program
@@ -229,11 +286,23 @@ fn lane_wise_min_max_at_every_width() {
 "#
             ));
             let mut out = [0u8; 16];
-            run(&p, &[xs.as_ptr() as u64, ys.as_ptr() as u64, out.as_mut_ptr() as u64]);
+            run(
+                &p,
+                &[
+                    xs.as_ptr() as u64,
+                    ys.as_ptr() as u64,
+                    out.as_mut_ptr() as u64,
+                ],
+            );
             for i in 0..n {
                 let (x, y) = (lane(&xs, i), lane(&ys, i));
                 let want = if signed {
-                    (if is_min { sext(x).min(sext(y)) } else { sext(x).max(sext(y)) }) as u64 & m
+                    (if is_min {
+                        sext(x).min(sext(y))
+                    } else {
+                        sext(x).max(sext(y))
+                    }) as u64
+                        & m
                 } else if is_min {
                     x.min(y)
                 } else {

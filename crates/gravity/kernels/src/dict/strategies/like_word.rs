@@ -27,11 +27,22 @@ pub const WORD_LIT_BYTES: usize = 64;
 pub fn class_word(pattern: &[u8], out: &mut [u8]) -> u64 {
     let mut scratch = [0u64; WORD_LIT_BYTES / 8];
     // an unescaped literal past the slot needs a region as long as the pattern (once per call)
-    let mut long = if pattern.len() > WORD_LIT_BYTES { vec![0u64; pattern.len().div_ceil(8)] } else { Vec::new() }; // alloc: Cold
-    let words: &mut [u64] = if long.is_empty() { &mut scratch } else { &mut long };
+    let mut long = if pattern.len() > WORD_LIT_BYTES {
+        vec![0u64; pattern.len().div_ceil(8)]
+    } else {
+        Vec::new()
+    }; // alloc: Cold
+    let words: &mut [u64] = if long.is_empty() {
+        &mut scratch
+    } else {
+        &mut long
+    };
     // SAFETY: the region is `words`' own 8-aligned words, which outlive the matcher
-    let mut region = unsafe { gravity_dict::Region::new(words.as_mut_ptr().cast(), words.len() * 8) };
-    let Ok(m) = Matcher::new(pattern, Mode::Like, &mut region) else { return WORD_COLD };
+    let mut region =
+        unsafe { gravity_dict::Region::new(words.as_mut_ptr().cast(), words.len() * 8) };
+    let Ok(m) = Matcher::new(pattern, Mode::Like, &mut region) else {
+        return WORD_COLD;
+    };
     let cls = match m.class() {
         Class::Any => return WORD_ANY,
         Class::General | Class::Segments => return WORD_COLD,
@@ -47,7 +58,11 @@ pub fn class_word(pattern: &[u8], out: &mut [u8]) -> u64 {
         (true, _) => &lit[..out.len()],
     };
     out[..window.len()].copy_from_slice(window);
-    let flag = if window.len() < lit.len() { WORD_WINDOW } else { 0 };
+    let flag = if window.len() < lit.len() {
+        WORD_WINDOW
+    } else {
+        0
+    };
     cls | flag | (lit.len() as u64) << 8
 }
 
@@ -55,8 +70,13 @@ pub fn class_word(pattern: &[u8], out: &mut [u8]) -> u64 {
 /// # Safety — `p` is a live varlena.
 unsafe fn inline<'a>(p: *const u8) -> Option<&'a [u8]> {
     match *p {
-        h if h & 1 == 1 && h != 1 => Some(core::slice::from_raw_parts(p.add(1), (h >> 1) as usize - 1)),
-        h if h & 3 == 0 => Some(core::slice::from_raw_parts(p.add(4), (u32::from_le_bytes(*(p as *const [u8; 4])) >> 2) as usize - 4)),
+        h if h & 1 == 1 && h != 1 => {
+            Some(core::slice::from_raw_parts(p.add(1), (h >> 1) as usize - 1))
+        }
+        h if h & 3 == 0 => Some(core::slice::from_raw_parts(
+            p.add(4),
+            (u32::from_le_bytes(*(p as *const [u8; 4])) >> 2) as usize - 4,
+        )),
         _ => None,
     }
 }
@@ -91,7 +111,10 @@ mod tests {
     fn word(p: &str) -> (u64, String) {
         let mut out = [0u8; WORD_LIT_BYTES];
         let w = class_word(p.as_bytes(), &mut out);
-        (w & 0xff, String::from_utf8(out[..(w >> 8) as usize].to_vec()).unwrap())
+        (
+            w & 0xff,
+            String::from_utf8(out[..(w >> 8) as usize].to_vec()).unwrap(),
+        )
     }
 
     /// PG's LIKE classes with `\` unescaped into the literal; `_`, an inner `%` and a trailing escape are cold.
@@ -123,20 +146,61 @@ mod tests {
         let window = |p: &str| {
             let mut out = [0u8; WORD_LIT_BYTES];
             let w = class_word(p.as_bytes(), &mut out);
-            (w & 0x7f, w & WORD_WINDOW, w >> 8, String::from_utf8(out.to_vec()).unwrap())
+            (
+                w & 0x7f,
+                w & WORD_WINDOW,
+                w >> 8,
+                String::from_utf8(out.to_vec()).unwrap(),
+            )
         };
         let lit = format!("{}{}", "h".repeat(WORD_LIT_BYTES), "t".repeat(7)); // alloc: Cold
-        let (head, tail) = ("h".repeat(WORD_LIT_BYTES), format!("{}{}", "h".repeat(WORD_LIT_BYTES - 7), "t".repeat(7))); // alloc: Cold
+        let (head, tail) = (
+            "h".repeat(WORD_LIT_BYTES),
+            format!("{}{}", "h".repeat(WORD_LIT_BYTES - 7), "t".repeat(7)),
+        ); // alloc: Cold
         let n = lit.len() as u64;
-        assert_eq!(window(&format!("{lit}%")), (WORD_PREFIX, WORD_WINDOW, n, head.clone()), "prefix"); // alloc: Cold
-        assert_eq!(window(&format!("%{lit}")), (WORD_SUFFIX, WORD_WINDOW, n, tail), "suffix: the last bytes"); // alloc: Cold
-        assert_eq!(window(&format!("%{lit}%")), (WORD_CONTAINS, WORD_WINDOW, n, head.clone()), "infix"); // alloc: Cold
-        assert_eq!(window(&lit), (WORD_EXACT, WORD_WINDOW, n, head.clone()), "exact");
-        assert_eq!(window(&head), (WORD_EXACT, 0, WORD_LIT_BYTES as u64, head.clone()), "exactly the slot: no window");
+        assert_eq!(
+            window(&format!("{lit}%")),
+            (WORD_PREFIX, WORD_WINDOW, n, head.clone()),
+            "prefix"
+        ); // alloc: Cold
+        assert_eq!(
+            window(&format!("%{lit}")),
+            (WORD_SUFFIX, WORD_WINDOW, n, tail),
+            "suffix: the last bytes"
+        ); // alloc: Cold
+        assert_eq!(
+            window(&format!("%{lit}%")),
+            (WORD_CONTAINS, WORD_WINDOW, n, head.clone()),
+            "infix"
+        ); // alloc: Cold
+        assert_eq!(
+            window(&lit),
+            (WORD_EXACT, WORD_WINDOW, n, head.clone()),
+            "exact"
+        );
+        assert_eq!(
+            window(&head),
+            (WORD_EXACT, 0, WORD_LIT_BYTES as u64, head.clone()),
+            "exactly the slot: no window"
+        );
         let one_more = "h".repeat(WORD_LIT_BYTES + 1); // alloc: Cold
-        assert_eq!(window(&format!("{one_more}%")), (WORD_PREFIX, WORD_WINDOW, WORD_LIT_BYTES as u64 + 1, head.clone()), "the slot + 1"); // alloc: Cold
+        assert_eq!(
+            window(&format!("{one_more}%")),
+            (
+                WORD_PREFIX,
+                WORD_WINDOW,
+                WORD_LIT_BYTES as u64 + 1,
+                head.clone()
+            ),
+            "the slot + 1"
+        ); // alloc: Cold
         let escaped = format!("{}\\%x%", "h".repeat(WORD_LIT_BYTES)); // alloc: Cold
-        assert_eq!(window(&escaped), (WORD_PREFIX, WORD_WINDOW, WORD_LIT_BYTES as u64 + 2, head), "escaped past the scratch");
+        assert_eq!(
+            window(&escaped),
+            (WORD_PREFIX, WORD_WINDOW, WORD_LIT_BYTES as u64 + 2, head),
+            "escaped past the scratch"
+        );
     }
 
     /// Through the entry: both header forms, a NULL pattern, and a compressed image (cold).
@@ -147,12 +211,17 @@ mod tests {
         let compressed = [&((40u32 << 2) | 2).to_le_bytes()[..], &[0; 36]].concat();
         let mut out = [0u8; WORD_LIT_BYTES];
         // SAFETY: `img` is a live varlena the test owns, `out` the slot
-        let at = |img: &[u8], out: &mut [u8]| unsafe { entry2::<LikeWord>(0, img.as_ptr() as u64, out.as_mut_ptr() as u64) };
+        let at = |img: &[u8], out: &mut [u8]| unsafe {
+            entry2::<LikeWord>(0, img.as_ptr() as u64, out.as_mut_ptr() as u64)
+        };
         assert_eq!(at(&short, &mut out), WORD_COLD, "an inner %");
         assert_eq!(at(&long, &mut out), WORD_PREFIX | 5 << 8);
         assert_eq!(&out[..5], b"PROMO");
         assert_eq!(at(&compressed, &mut out), WORD_COLD);
         // SAFETY: a NULL pattern reads nothing; `out` is the slot
-        assert_eq!(unsafe { entry2::<LikeWord>(0, 0, out.as_mut_ptr() as u64) }, WORD_COLD);
+        assert_eq!(
+            unsafe { entry2::<LikeWord>(0, 0, out.as_mut_ptr() as u64) },
+            WORD_COLD
+        );
     }
 }

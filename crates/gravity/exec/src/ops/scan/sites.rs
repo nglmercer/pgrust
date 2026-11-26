@@ -11,19 +11,27 @@ use types_core::Oid;
 use types_nodes::{Node, NodeList};
 use types_storage::lock::NoLock;
 
-use crate::admit::{refuse, Admit, AdmitCx, AdmitResult, Bind, BindCx, BindResult, RecipeTpl, Refused};
+use crate::admit::{
+    refuse, Admit, AdmitCx, AdmitResult, Bind, BindCx, BindResult, RecipeTpl, Refused,
+};
 use crate::shapes;
 
 pub const ADMIT: &[Admit] = &[granule, index];
 pub const BIND: &[Bind] = &[bind];
 
-
 fn granule(cx: &AdmitCx<'_>) -> AdmitResult {
     let (mcx, site, attnos) = (cx.mcx, cx.site, cx.attnos);
     // TABLESAMPLE over pgrc (BERNOULLI / SYSTEM): the granule recipe with the sampler on it (hosts `with_sample`)
     let sample = match cx.source {
-        Source::Range { am: Am::Pgrcolumnar, .. } => None,
-        Source::Sample { am: Am::Pgrcolumnar, sample, .. } => Some(sample),
+        Source::Range {
+            am: Am::Pgrcolumnar,
+            ..
+        } => None,
+        Source::Sample {
+            am: Am::Pgrcolumnar,
+            sample,
+            ..
+        } => Some(sample),
         _ => return Ok(Ok(None)),
     };
     if site.lanes().iter().any(|l| l.id == LaneId::RowId) {
@@ -34,10 +42,17 @@ fn granule(cx: &AdmitCx<'_>) -> AdmitResult {
         Err(r) => return Ok(Err(r)),
     };
     let rel = table::table_open(mcx, site.relation as Oid, NoLock)?;
-    let recipe = GranuleRecipe::from_plan_lanes(&rel, attnos, &lane_words(site, gravity_abi::ctx::lane::KIND_CODES), &packed_words(site));
+    let recipe = GranuleRecipe::from_plan_lanes(
+        &rel,
+        attnos,
+        &lane_words(site, gravity_abi::ctx::lane::KIND_CODES),
+        &packed_words(site),
+    );
     rel.close(NoLock)?;
     let recipe = match sample {
-        Some(smp) => recipe.and_then(|r| r.with_sample(smp.handler as Oid, smp.repeatable.is_some())),
+        Some(smp) => {
+            recipe.and_then(|r| r.with_sample(smp.handler as Oid, smp.repeatable.is_some()))
+        }
         None => recipe,
     };
     let mut r = match recipe {
@@ -58,7 +73,12 @@ fn granule(cx: &AdmitCx<'_>) -> AdmitResult {
         // D3038: a varlena column's octet_length lane reads the column's own streams (with_octet_lane): no path; its
         // emptiness lane (R2) the same streams, a boolean word (with_nonempty_lane); its character length lane (R3) too
         // (with_char_lane)
-        if matches!(d.kind, gravity_program::shred_kind::OCTET_LENGTH | gravity_program::shred_kind::NONEMPTY | gravity_program::shred_kind::CHAR_LENGTH) {
+        if matches!(
+            d.kind,
+            gravity_program::shred_kind::OCTET_LENGTH
+                | gravity_program::shred_kind::NONEMPTY
+                | gravity_program::shred_kind::CHAR_LENGTH
+        ) {
             if (d.lane as usize) >= r.natts {
                 return Ok(refuse("hosts", "a shred lane outside the recipe"));
             }
@@ -69,7 +89,13 @@ fn granule(cx: &AdmitCx<'_>) -> AdmitResult {
             };
             continue;
         }
-        let kind = gravity_hosts::ops::scan::pgrc::granule_source::ShredLane::kind_of(if codes || presence { gravity_program::shred_kind::TEXT } else { d.kind });
+        let kind = gravity_hosts::ops::scan::pgrc::granule_source::ShredLane::kind_of(
+            if codes || presence {
+                gravity_program::shred_kind::TEXT
+            } else {
+                d.kind
+            },
+        );
         // the site path is the keys, outermost first, joined by a NUL byte (lowerv4 jsonb_lanes `site_path`)
         let mut keys = mcx::PgVec::new_in(mcx);
         let mut utf8 = true;
@@ -104,15 +130,28 @@ fn granule(cx: &AdmitCx<'_>) -> AdmitResult {
         Some(k) => r.with_verdict_lane(k),
         None => r,
     };
-    let r = if site.sparse_dicts { r.with_tables(tables).with_sparse_dicts().with_dict_renders(site.dict_renders) } else { r.with_tables(tables) };
-    let mut r = if site.head_prefault { r.with_head_prefault() } else { r };
+    let r = if site.sparse_dicts {
+        r.with_tables(tables)
+            .with_sparse_dicts()
+            .with_dict_renders(site.dict_renders)
+    } else {
+        r.with_tables(tables)
+    };
+    let mut r = if site.head_prefault {
+        r.with_head_prefault()
+    } else {
+        r
+    };
     for k in lens_only(site, r.natts) {
         r = r.with_lens_only(k);
     }
     // a late jsonb column is filled where one of its path lanes is invalid (the rows its compares walk)
     for d in site.shreds.iter() {
         let attno = site.out_attnos[d.lane as usize];
-        if let Some(col) = site.lanes()[..r.natts].iter().position(|l| l.id == LaneId::Attr(attno)) {
+        if let Some(col) = site.lanes()[..r.natts]
+            .iter()
+            .position(|l| l.id == LaneId::Attr(attno))
+        {
             r = r.with_late_guard(col, d.lane as usize);
         }
     }
@@ -121,11 +160,23 @@ fn granule(cx: &AdmitCx<'_>) -> AdmitResult {
         Some(SiteDesc::ENTRIES_EVERY) => r.with_entries_every(),
         Some(k) => {
             let r = r.with_entries(k as usize);
-            let r = if site.entries_filtered { r.with_entries_filtered() } else { r };
+            let r = if site.entries_filtered {
+                r.with_entries_filtered()
+            } else {
+                r
+            };
             // RD-dict.entries: a declarer that keeps NULL as a value takes one NULL row per part that holds one
-            let r = if site.entries_nulls { r.with_entries_nulls() } else { r };
+            let r = if site.entries_nulls {
+                r.with_entries_nulls()
+            } else {
+                r
+            };
             // D2981: a descending top's entries walk each part's codes from its highest
-            if site.entries_desc { r.with_entries_desc() } else { r }
+            if site.entries_desc {
+                r.with_entries_desc()
+            } else {
+                r
+            }
         }
         None => r,
     }))))
@@ -137,7 +188,8 @@ fn granule(cx: &AdmitCx<'_>) -> AdmitResult {
 fn code_lanes(site: &SiteDesc, tables: &[TableSpec], kinds: &[u8]) -> Result<(), Refused> {
     let code = |k: usize| kinds.get(k) == Some(&gravity_abi::ctx::lane::KIND_CODES);
     if let Some(t) = tables.iter().find(|t| !code(t.over as usize)) {
-        return refuse("hosts", format!("a table lane of site relation {} is over lane {}, not one of the site's code lanes", site.relation, t.over)); // alloc: Cold
+        return refuse("hosts", format!("a table lane of site relation {} is over lane {}, not one of the site's code lanes", site.relation, t.over));
+        // alloc: Cold
     }
     match site.entries {
         // PS1-19: every attribute lane is published as entries, so every one is a code lane
@@ -153,17 +205,36 @@ fn code_lanes(site: &SiteDesc, tables: &[TableSpec], kinds: &[u8]) -> Result<(),
 
 fn index(cx: &AdmitCx<'_>) -> AdmitResult {
     let (pstmt, mcx, site, node_id, attnos) = (cx.pstmt, cx.mcx, cx.site, cx.node_id, cx.attnos);
-    let Source::Index { scanrelid, indexid, backward, only, keys, iam, .. } = cx.source else { return Ok(Ok(None)) };
-    if !m1_index(*iam, keys) || gravity_lowerv4::rerun::params_key::hosts_bound(keys, &site.param_slots) {
+    let Source::Index {
+        scanrelid,
+        indexid,
+        backward,
+        only,
+        keys,
+        iam,
+        ..
+    } = cx.source
+    else {
+        return Ok(Ok(None));
+    };
+    if !m1_index(*iam, keys)
+        || gravity_lowerv4::rerun::params_key::hosts_bound(keys, &site.param_slots)
+    {
         return Ok(Ok(None));
     }
     let Some(r) = shapes::rte(pstmt, *scanrelid as u32) else {
         return Ok(refuse("hosts", "the index scan's range table entry"));
     };
-    let Some(pn) = plan_node(pstmt.planTree, node_id).or_else(|| pstmt.subplans.iter().find_map(|s| plan_node(s, node_id))) else {
+    let Some(pn) = plan_node(pstmt.planTree, node_id)
+        .or_else(|| pstmt.subplans.iter().find_map(|s| plan_node(s, node_id)))
+    else {
         return Ok(refuse("hosts", "the index scan's plan node"));
     };
-    let Some(indexqual) = pn.as_index_scan().map(|s| &s.indexqual).or_else(|| pn.as_index_only_scan().map(|s| &s.indexqual)) else {
+    let Some(indexqual) = pn
+        .as_index_scan()
+        .map(|s| &s.indexqual)
+        .or_else(|| pn.as_index_only_scan().map(|s| &s.indexqual))
+    else {
         return Ok(refuse("hosts", "the index scan's clauses"));
     };
     let heap = table::table_open(mcx, site.relation as Oid, NoLock)?;
@@ -175,15 +246,44 @@ fn index(cx: &AdmitCx<'_>) -> AdmitResult {
         }
     };
     // V4R-108: a constant `= ANY` array is a key word (lowerv4 `key_words`), bound at the seek, never the recipe's image
-    let recipe = SiteRecipe::from_plan_words(&heap, &index, indexqual, r.rellockmode, attnos).map(|r| r.with_backward(*backward).with_only(*only).with_row_budget(gravity_hosts::ops::scan::index_window::limit_budget(pstmt, node_id)).with_run_bound(gravity_hosts::ops::scan::index_window::run_bound(pstmt, node_id)).with_plan_node(node_id));
+    let recipe =
+        SiteRecipe::from_plan_words(&heap, &index, indexqual, r.rellockmode, attnos).map(|r| {
+            r.with_backward(*backward)
+                .with_only(*only)
+                .with_row_budget(gravity_hosts::ops::scan::index_window::limit_budget(
+                    pstmt, node_id,
+                ))
+                .with_run_bound(gravity_hosts::ops::scan::index_window::run_bound(
+                    pstmt, node_id,
+                ))
+                .with_plan_node(node_id)
+        });
     // D3014O: a site a worker probes keeps the recipe's worker form (hosts index_probe.rs)
-    let recipe = recipe.map(|r| if site.worker_probe() { r.with_worker(&heap) } else { r });
+    let recipe = recipe.map(|r| {
+        if site.worker_probe() {
+            r.with_worker(&heap)
+        } else {
+            r
+        }
+    });
     // an index-only site the pool reads keeps the recipe's leaf form (hosts index_leaves.rs); none: exec runs its pipeline
     // on the leader
-    let recipe = recipe.and_then(|r| if site.leaves() { r.with_leaves(&heap, &index) } else { Ok(r) });
+    let recipe = recipe.and_then(|r| {
+        if site.leaves() {
+            r.with_leaves(&heap, &index)
+        } else {
+            Ok(r)
+        }
+    });
     // an ordered site the pool reads in key ranges keeps the recipe's ranges form (hosts index_ranges.rs); none: exec runs
     // its pipeline on the leader
-    let recipe = recipe.and_then(|r| if site.ranges() { r.with_ranges(&heap, &index) } else { Ok(r) });
+    let recipe = recipe.and_then(|r| {
+        if site.ranges() {
+            r.with_ranges(&heap, &index)
+        } else {
+            Ok(r)
+        }
+    });
     index.close(NoLock)?;
     heap.close(NoLock)?;
     match recipe {
@@ -202,18 +302,31 @@ fn m1_index(iam: IndexAm, keys: &[IndexKey<'_>]) -> bool {
             KeyForm::Any => k.value.as_const().is_some(),
             // D1016: a key computed from executor parameters is M8's (v4/m8_param_key.rs, evaluated at every seek)
             KeyForm::Op => !gravity_lowerv4::rerun::params_key::computed(k.value),
-            KeyForm::Row => !k.value.as_row_compare_expr().is_some_and(|rc| rc.rargs.iter().any(gravity_lowerv4::rerun::params_key::computed)),
+            KeyForm::Row => !k.value.as_row_compare_expr().is_some_and(|rc| {
+                rc.rargs
+                    .iter()
+                    .any(gravity_lowerv4::rerun::params_key::computed)
+            }),
             KeyForm::NotNull | KeyForm::Null => true,
         })
 }
 
 /// Recipe `t` into this execution's registry.
-fn bind(t: &RecipeTpl, reg: &mut HostRegistry, cx: &BindCx<'_>, exprs: &mut shapes::KeyExprs) -> BindResult {
+fn bind(
+    t: &RecipeTpl,
+    reg: &mut HostRegistry,
+    cx: &BindCx<'_>,
+    exprs: &mut shapes::KeyExprs,
+) -> BindResult {
     // the first bind of every recipe: copy only the kinds this one binds
     match t {
         // D1536: an EXPLAIN ANALYZE execution's recipe counts the rows its zone verdicts skip (Rows Removed by Filter)
         // planprod P6-c2: the walk's recipe out of its set's root (`GranuleTpl::bind_copy`, `SiteTpl::bind_copy`)
-        RecipeTpl::Granule(r) => reg.push_granule(r.bind_copy().with_verdict_cell().with_skipped_rows(crate::admit::is_instrumented())),
+        RecipeTpl::Granule(r) => reg.push_granule(
+            r.bind_copy()
+                .with_verdict_cell()
+                .with_skipped_rows(crate::admit::is_instrumented()),
+        ),
         RecipeTpl::Index(r) => reg.push(prefilter(r.bind_copy(), cx, exprs)?),
         _ => return Ok(Ok(false)),
     }
@@ -231,14 +344,24 @@ fn bind(t: &RecipeTpl, reg: &mut HostRegistry, cx: &BindCx<'_>, exprs: &mut shap
 /// armed for a qual compiled to one fused compare (execexpr `Kernel::QualScanVarCmpConst`) or a walk whose copy of a row is dear (hosts
 /// `SiteRecipe::copy_dear`); an interpreted qual program costs a checked row more than a few by-value cells' copy saves,
 /// at any drop rate.
-fn prefilter(r: SiteRecipe, cx: &BindCx<'_>, exprs: &mut shapes::KeyExprs) -> types_error::PgResult<SiteRecipe> {
+fn prefilter(
+    r: SiteRecipe,
+    cx: &BindCx<'_>,
+    exprs: &mut shapes::KeyExprs,
+) -> types_error::PgResult<SiteRecipe> {
     // oltpfix G1d (D3065): a point walk (hosts `SiteRecipe::point`) yields at most one row, which the pre-check could only
     // drop early once: compiling it costs every statement more, and a recipe with a filter never parks
     if r.only || r.filter.is_some() || r.point() {
         return Ok(r);
     }
-    let scan = cx.plan.zip(r.plan_node()).and_then(|(p, id)| plan_node(p.planTree, id).or_else(|| p.subplans.iter().find_map(|s| plan_node(s, id))));
-    let Some(qual) = scan.and_then(|n| n.as_index_scan().filter(|s| s.indexid == r.index).map(|s| &s.scan.plan.qual)) else {
+    let scan = cx.plan.zip(r.plan_node()).and_then(|(p, id)| {
+        plan_node(p.planTree, id).or_else(|| p.subplans.iter().find_map(|s| plan_node(s, id)))
+    });
+    let Some(qual) = scan.and_then(|n| {
+        n.as_index_scan()
+            .filter(|s| s.indexid == r.index)
+            .map(|s| &s.scan.plan.qual)
+    }) else {
         return Ok(r);
     };
     armed(r, qual, cx, exprs)
@@ -248,11 +371,19 @@ fn prefilter(r: SiteRecipe, cx: &BindCx<'_>, exprs: &mut shapes::KeyExprs) -> ty
 /// execution's BitmapHeapScan whose `bitmapqualorig` is the source's recheck `recheck` (by identity, as sites_heap.rs
 /// `plan_recheck`), checked on each heap row the recheck keeps, before the window copies its cells, under `prefilter`'s
 /// rules. A recheck decompose rebuilt, or no statement (an InitPlan's or an Append arm's registry), checks nothing early.
-pub(crate) fn bitmap_prefilter(r: SiteRecipe, recheck: &NodeList<'_>, cx: &BindCx<'_>, exprs: &mut shapes::KeyExprs) -> types_error::PgResult<SiteRecipe> {
+pub(crate) fn bitmap_prefilter(
+    r: SiteRecipe,
+    recheck: &NodeList<'_>,
+    cx: &BindCx<'_>,
+    exprs: &mut shapes::KeyExprs,
+) -> types_error::PgResult<SiteRecipe> {
     if r.filter.is_some() {
         return Ok(r);
     }
-    let Some(qual) = cx.plan.and_then(|p| crate::ops::scan::sites_heap::heap_qual(p, recheck)) else {
+    let Some(qual) = cx
+        .plan
+        .and_then(|p| crate::ops::scan::sites_heap::heap_qual(p, recheck))
+    else {
         return Ok(r);
     };
     let r = armed(r, qual, cx, exprs)?;
@@ -263,7 +394,12 @@ pub(crate) fn bitmap_prefilter(r: SiteRecipe, recheck: &NodeList<'_>, cx: &BindC
 }
 
 /// `prefilter`'s compile of scan qual `qual` into `r`'s pre-check, when it qualifies.
-fn armed(r: SiteRecipe, qual: &NodeList<'static>, cx: &BindCx<'_>, exprs: &mut shapes::KeyExprs) -> types_error::PgResult<SiteRecipe> {
+fn armed(
+    r: SiteRecipe,
+    qual: &NodeList<'static>,
+    cx: &BindCx<'_>,
+    exprs: &mut shapes::KeyExprs,
+) -> types_error::PgResult<SiteRecipe> {
     if qual.is_nil() || (qual.len() > 1 && !r.copy_dear()) || !qual.iter().all(builtin_row_qual) {
         return Ok(r);
     }
@@ -284,13 +420,27 @@ fn builtin_row_qual(n: Node<'_>) -> bool {
     let own = match n.node_tag() {
         T::T_Var => n.as_var().is_some_and(|v| v.varattno > 0),
         // D2834: never a parameter left to evaluation time (the pre-check's list holds no fetch for it)
-        T::T_Param => n.as_param().is_some_and(|p| p.paramkind == types_nodes::primnodes::ParamKind::PARAM_EXTERN && !gravity_program::externs::deferred(p.paramid)),
-        T::T_Const | T::T_RelabelType | T::T_BoolExpr | T::T_NullTest | T::T_BooleanTest | T::T_CoalesceExpr | T::T_ArrayExpr => true,
+        T::T_Param => n.as_param().is_some_and(|p| {
+            p.paramkind == types_nodes::primnodes::ParamKind::PARAM_EXTERN
+                && !gravity_program::externs::deferred(p.paramid)
+        }),
+        T::T_Const
+        | T::T_RelabelType
+        | T::T_BoolExpr
+        | T::T_NullTest
+        | T::T_BooleanTest
+        | T::T_CoalesceExpr
+        | T::T_ArrayExpr => true,
         T::T_FuncExpr => n.as_func_expr().is_some_and(|f| builtin(f.funcid)),
         T::T_OpExpr => n.as_op_expr().is_some_and(|o| builtin(o.opfuncid)),
         T::T_DistinctExpr => n.as_distinct_expr().is_some_and(|o| builtin(o.opfuncid)),
         T::T_NullIfExpr => n.as_null_if_expr().is_some_and(|o| builtin(o.opfuncid)),
-        T::T_ScalarArrayOpExpr => n.as_scalar_array_op_expr().is_some_and(|o| builtin(o.opfuncid) && [o.hashfuncid, o.negfuncid].iter().all(|&f| f == 0 || builtin(f))),
+        T::T_ScalarArrayOpExpr => n.as_scalar_array_op_expr().is_some_and(|o| {
+            builtin(o.opfuncid)
+                && [o.hashfuncid, o.negfuncid]
+                    .iter()
+                    .all(|&f| f == 0 || builtin(f))
+        }),
         _ => false,
     };
     let mut kids = own;
@@ -308,7 +458,10 @@ fn plan_node<'p>(root: Option<Node<'p>>, id: i32) -> Option<Node<'p>> {
     if let Some(f) = plan_node(p.lefttree, id).or_else(|| plan_node(p.righttree, id)) {
         return Some(f);
     }
-    let lists: [Option<&NodeList<'p>>; 2] = [n.as_append().map(|a| &a.appendplans), n.as_merge_append().map(|m| &m.mergeplans)];
+    let lists: [Option<&NodeList<'p>>; 2] = [
+        n.as_append().map(|a| &a.appendplans),
+        n.as_merge_append().map(|m| &m.mergeplans),
+    ];
     for l in lists.into_iter().flatten() {
         if let Some(f) = l.iter().find_map(|c| plan_node(Some(c), id)) {
             return Some(f);
@@ -349,13 +502,22 @@ fn packed_words(site: &SiteDesc) -> [u64; 64] {
 /// equal bytes (under a nondeterministic one, ignorable characters equal '').
 fn lens_only(site: &SiteDesc, natts: usize) -> impl Iterator<Item = usize> + '_ {
     use gravity_program::table_fn;
-    let sole = |d: &gravity_program::TableDecl| d.func == table_fn::OCTET_LENGTH && d.flags & table_fn::FLAG_SOLE != 0;
+    let sole = |d: &gravity_program::TableDecl| {
+        d.func == table_fn::OCTET_LENGTH && d.flags & table_fn::FLAG_SOLE != 0
+    };
     let by_length = move |d: &gravity_program::TableDecl| {
-        sole(d) || d.func == table_fn::EQ && d.flags & table_fn::FLAG_BOUND == 0 && table_fn::values_all_empty(site.table_arg(d, 0)) && gravity_fn::typesem::expr::built_coll_bytes(d.collation)
+        sole(d)
+            || d.func == table_fn::EQ
+                && d.flags & table_fn::FLAG_BOUND == 0
+                && table_fn::values_all_empty(site.table_arg(d, 0))
+                && gravity_fn::typesem::expr::built_coll_bytes(d.collation)
     };
     (0..natts.min(site.lanes().len())).filter(move |&k| {
         let over = || site.tables.iter().filter(move |d| d.over as usize == k);
-        over().any(sole) && over().all(by_length) && site.lanes()[k].kind == gravity_abi::ctx::lane::KIND_CODES && site.entries.is_none()
+        over().any(sole)
+            && over().all(by_length)
+            && site.lanes()[k].kind == gravity_abi::ctx::lane::KIND_CODES
+            && site.entries.is_none()
     })
 }
 
@@ -365,24 +527,50 @@ fn lens_only(site: &SiteDesc, natts: usize) -> impl Iterator<Item = usize> + '_ 
 fn table_specs(site: &SiteDesc) -> Result<Vec<TableSpec>, Refused> {
     let natts = site.natts();
     let declared = site.tables.len();
-    let lanes = site.lanes().iter().filter(|l| matches!(l.id, LaneId::Table(_))).count();
+    let lanes = site
+        .lanes()
+        .iter()
+        .filter(|l| matches!(l.id, LaneId::Table(_)))
+        .count();
     if lanes != declared {
-        return refuse("hosts", format!("site relation {} binds {lanes} table lanes and declares {declared}", site.relation)); // alloc: Cold
+        return refuse(
+            "hosts",
+            format!(
+                "site relation {} binds {lanes} table lanes and declares {declared}",
+                site.relation
+            ),
+        ); // alloc: Cold
     }
     let mut out = Vec::with_capacity(declared); // alloc: Program
     for (i, d) in site.tables.iter().enumerate() {
         let over = d.over as usize;
-        let code = site.lanes().get(over).is_some_and(|l| l.kind == gravity_abi::ctx::lane::KIND_CODES);
+        let code = site
+            .lanes()
+            .get(over)
+            .is_some_and(|l| l.kind == gravity_abi::ctx::lane::KIND_CODES);
         if over >= natts || !code {
-            return refuse("hosts", format!("table lane {i} of site relation {} (function {}) is over lane {over}, not a code lane", site.relation, d.func)); // alloc: Cold
+            return refuse("hosts", format!("table lane {i} of site relation {} (function {}) is over lane {over}, not a code lane", site.relation, d.func));
+            // alloc: Cold
         }
         // F3: spec_of slices its arguments out of the site's table bytes (SiteDesc::table_arg); one past them is refused
-        if d.args.iter().any(|&(o, n)| u64::from(o) + u64::from(n) > site.table_bytes.len() as u64) {
-            return refuse("hosts", format!("table lane {i} of site relation {}: an argument outside the site's table bytes", site.relation)); // alloc: Cold
+        if d.args
+            .iter()
+            .any(|&(o, n)| u64::from(o) + u64::from(n) > site.table_bytes.len() as u64)
+        {
+            return refuse("hosts", format!("table lane {i} of site relation {}: an argument outside the site's table bytes", site.relation));
+            // alloc: Cold
         }
         match gravity_hosts::dict::text_hosts::spec_of(site, i) {
             Some(s) => out.push(s),
-            None => return refuse("hosts", format!("table lane {i} of site relation {}: table function {} has no host spec", site.relation, d.func)), // alloc: Cold
+            None => {
+                return refuse(
+                    "hosts",
+                    format!(
+                        "table lane {i} of site relation {}: table function {} has no host spec",
+                        site.relation, d.func
+                    ),
+                )
+            } // alloc: Cold
         }
     }
     Ok(out)
@@ -400,18 +588,59 @@ mod tests {
     fn a_non_btree_or_knn_or_param_array_index_site_falls_through() {
         let ctx = mcx::MemoryContext::new("v4r-36");
         let mcx = ctx.mcx();
-        let c = types_nodes::Node::mk_const(mcx, types_core::INT4OID, -1, 0, 4, datum::Datum::from_i32(1), false, true).unwrap();
+        let c = types_nodes::Node::mk_const(
+            mcx,
+            types_core::INT4OID,
+            -1,
+            0,
+            4,
+            datum::Datum::from_i32(1),
+            false,
+            true,
+        )
+        .unwrap();
         let v = types_nodes::Node::mk_var(mcx, 1, 1, types_core::INT4OID, -1, 0, 0).unwrap();
-        let key = |form, value| IndexKey { attno: 1, col: 1, opno: 96, value, form };
-        let btree = [key(KeyForm::Op, v), key(KeyForm::Any, c), key(KeyForm::NotNull, c), key(KeyForm::Row, c)];
-        assert!(m1_index(IndexAm::Btree, &btree), "M1's btree forms stay M1's");
-        assert!(m1_index(IndexAm::Btree, &[]), "the key-less ordered walk stays M1's");
-        for am in [IndexAm::Hash, IndexAm::Gist, IndexAm::Spgist, IndexAm::Other] {
+        let key = |form, value| IndexKey {
+            attno: 1,
+            col: 1,
+            opno: 96,
+            value,
+            form,
+        };
+        let btree = [
+            key(KeyForm::Op, v),
+            key(KeyForm::Any, c),
+            key(KeyForm::NotNull, c),
+            key(KeyForm::Row, c),
+        ];
+        assert!(
+            m1_index(IndexAm::Btree, &btree),
+            "M1's btree forms stay M1's"
+        );
+        assert!(
+            m1_index(IndexAm::Btree, &[]),
+            "the key-less ordered walk stays M1's"
+        );
+        for am in [
+            IndexAm::Hash,
+            IndexAm::Gist,
+            IndexAm::Spgist,
+            IndexAm::Other,
+        ] {
             assert!(!m1_index(am, &[key(KeyForm::AmOp, c)]), "{am:?}");
             assert!(!m1_index(am, &[]), "{am:?} without keys");
         }
-        assert!(!m1_index(IndexAm::Btree, &[key(KeyForm::Op, c), key(KeyForm::OrderBy, c)]), "KNN reorder");
-        assert!(!m1_index(IndexAm::Btree, &[key(KeyForm::Any, v)]), "an array key over an expression");
+        assert!(
+            !m1_index(
+                IndexAm::Btree,
+                &[key(KeyForm::Op, c), key(KeyForm::OrderBy, c)]
+            ),
+            "KNN reorder"
+        );
+        assert!(
+            !m1_index(IndexAm::Btree, &[key(KeyForm::Any, v)]),
+            "an array key over an expression"
+        );
     }
 
     /// F3: a table lane's argument past the site's table bytes, a table lane or an entries window over a lane that is
@@ -422,23 +651,43 @@ mod tests {
         let like = |past: u32| {
             let mut site = SiteDesc::range_source(arena.handle(), 7, &[1, 2]).codes_lane(0);
             let (o, n) = site.table_bytes_of(b"%ab%");
-            site.declare_table(TableDecl { over: 0, func: table_fn::LIKE, flags: 0, collation: 0, encoding: 0, args: [(o, n + past), (0, 0)] }).expect("table lane");
+            site.declare_table(TableDecl {
+                over: 0,
+                func: table_fn::LIKE,
+                flags: 0,
+                collation: 0,
+                encoding: 0,
+                args: [(o, n + past), (0, 0)],
+            })
+            .expect("table lane");
             site
         };
-        assert!(table_specs(&like(1)).is_err_and(|r| r.what.contains("outside the site's table bytes")));
+        assert!(
+            table_specs(&like(1)).is_err_and(|r| r.what.contains("outside the site's table bytes"))
+        );
         let mut site = like(0);
         let specs = table_specs(&site).expect("in bounds");
-        let codes = [gravity_abi::ctx::lane::KIND_CODES, gravity_abi::ctx::lane::KIND_BYVAL];
+        let codes = [
+            gravity_abi::ctx::lane::KIND_CODES,
+            gravity_abi::ctx::lane::KIND_BYVAL,
+        ];
         assert!(code_lanes(&site, &specs, &codes).is_ok());
-        let over1 = [TableSpec { over: 1, func: TableFn::Fingerprint }];
+        let over1 = [TableSpec {
+            over: 1,
+            func: TableFn::Fingerprint,
+        }];
         assert!(code_lanes(&site, &over1, &codes).is_err_and(|r| r.what.contains("over lane 1")));
         for k in [1u8, 2] {
             site.entries = Some(k);
-            assert!(code_lanes(&site, &specs, &codes).is_err_and(|r| r.what.contains("entries lane")), "entries over lane {k}");
+            assert!(
+                code_lanes(&site, &specs, &codes).is_err_and(|r| r.what.contains("entries lane")),
+                "entries over lane {k}"
+            );
         }
         // PS1-19: every lane at once needs every attribute lane a code lane (lane 1 is byval here)
         site.entries = Some(SiteDesc::ENTRIES_EVERY);
-        assert!(code_lanes(&site, &specs, &codes).is_err_and(|r| r.what.contains("entries lane 1 (every lane)")));
+        assert!(code_lanes(&site, &specs, &codes)
+            .is_err_and(|r| r.what.contains("entries lane 1 (every lane)")));
         assert!(code_lanes(&site, &specs, &[gravity_abi::ctx::lane::KIND_CODES; 2]).is_ok());
     }
 }

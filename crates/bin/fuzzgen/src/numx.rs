@@ -88,7 +88,11 @@ const N_BIG: &[&str] = &[
     "9.99999e130",
 ];
 const N_TINY: &[&str] = &["1e-100", "-2.5e-90", "0.00000000000000000001", "-1e-130"];
-const N_SPECIAL: &[&str] = &["'NaN'::numeric", "'Infinity'::numeric", "'-Infinity'::numeric"];
+const N_SPECIAL: &[&str] = &[
+    "'NaN'::numeric",
+    "'Infinity'::numeric",
+    "'-Infinity'::numeric",
+];
 
 /// One operand drawn across regimes (never the special pool — callers add
 /// specials deliberately).
@@ -115,7 +119,15 @@ fn num_or_special(g: &mut Gen) -> String {
 /// signs and specials, plus the divide-by-zero arms (matched 22012).
 fn gen_div(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("numx:div");
-    let shape = g.weights.pick(g.rng, &["numx:div:op", "numx:div:fn", "numx:div:zero", "numx:div:special"]);
+    let shape = g.weights.pick(
+        g.rng,
+        &[
+            "numx:div:op",
+            "numx:div:fn",
+            "numx:div:zero",
+            "numx:div:special",
+        ],
+    );
     g.fire(shape);
     let a = num_or_special(g);
     let b = format!("'{}'::numeric", num_operand(g));
@@ -155,32 +167,88 @@ fn gen_pow(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("numx:pow");
     let shape = g.weights.pick(
         g.rng,
-        &["numx:pow:pow", "numx:pow:int", "numx:pow:explog", "numx:pow:sqrt", "numx:pow:err", "numx:pow:fac"],
+        &[
+            "numx:pow:pow",
+            "numx:pow:int",
+            "numx:pow:explog",
+            "numx:pow:sqrt",
+            "numx:pow:err",
+            "numx:pow:fac",
+        ],
     );
     g.fire(shape);
     let sql = match shape {
         "numx:pow:pow" => {
-            let b = pick_str(g, &[
-                "0", "1", "-1", "2", "0.5", "-2.5", "10", "0.0001", "9999999999",
-                "'NaN'", "'Infinity'", "'-Infinity'",
-            ]);
-            let e = pick_str(g, &[
-                "0", "1", "-1", "2", "3", "0.5", "-0.5", "12.345", "-77", "400",
-                "'NaN'", "'Infinity'", "'-Infinity'", "0.000001",
-            ]);
+            let b = pick_str(
+                g,
+                &[
+                    "0",
+                    "1",
+                    "-1",
+                    "2",
+                    "0.5",
+                    "-2.5",
+                    "10",
+                    "0.0001",
+                    "9999999999",
+                    "'NaN'",
+                    "'Infinity'",
+                    "'-Infinity'",
+                ],
+            );
+            let e = pick_str(
+                g,
+                &[
+                    "0",
+                    "1",
+                    "-1",
+                    "2",
+                    "3",
+                    "0.5",
+                    "-0.5",
+                    "12.345",
+                    "-77",
+                    "400",
+                    "'NaN'",
+                    "'Infinity'",
+                    "'-Infinity'",
+                    "0.000001",
+                ],
+            );
             format!("SELECT power({b}::numeric, {e}::numeric)::text;")
         }
         // power_var_int: integral exponents across magnitude regimes.
         "numx:pow:int" => {
-            let b = pick_str(g, &["2", "-3", "1.0001", "0.99", "123456.789", "1e-10", "10"]);
-            let e = pick_str(g, &["0", "1", "2", "3", "-1", "-2", "17", "-30", "1000", "131072"]);
+            let b = pick_str(
+                g,
+                &["2", "-3", "1.0001", "0.99", "123456.789", "1e-10", "10"],
+            );
+            let e = pick_str(
+                g,
+                &[
+                    "0", "1", "2", "3", "-1", "-2", "17", "-30", "1000", "131072",
+                ],
+            );
             format!("SELECT power({b}::numeric, {e}::numeric)::text;")
         }
         "numx:pow:explog" => {
-            let x = pick_str(g, &[
-                "0", "1", "-1", "0.00001", "-0.00001", "1.00000000001", "0.99999999",
-                "42", "-40", "5999.999", "1e-90", "123456.789",
-            ]);
+            let x = pick_str(
+                g,
+                &[
+                    "0",
+                    "1",
+                    "-1",
+                    "0.00001",
+                    "-0.00001",
+                    "1.00000000001",
+                    "0.99999999",
+                    "42",
+                    "-40",
+                    "5999.999",
+                    "1e-90",
+                    "123456.789",
+                ],
+            );
             format!(
                 "SELECT exp({x}::numeric)::text, ln(abs({x}::numeric) + 1e-120)::text, \
                  log(abs({x}::numeric) + 1e-120)::text, \
@@ -189,25 +257,37 @@ fn gen_pow(g: &mut Gen) -> Vec<StmtKind> {
             )
         }
         "numx:pow:sqrt" => {
-            let x = pick_str(g, &[
-                "0", "2", "9", "1e-130", "1e100", "0.000000000000000000000001",
-                "99999999999999999999999999999999999999", "2.25",
-            ]);
+            let x = pick_str(
+                g,
+                &[
+                    "0",
+                    "2",
+                    "9",
+                    "1e-130",
+                    "1e100",
+                    "0.000000000000000000000001",
+                    "99999999999999999999999999999999999999",
+                    "2.25",
+                ],
+            );
             format!("SELECT sqrt({x}::numeric)::text;")
         }
         "numx:pow:err" => {
-            let e = pick_str(g, &[
-                "SELECT power(0::numeric, -2.5::numeric)::text;",       // 2201F
-                "SELECT power(-8::numeric, 0.5::numeric)::text;",       // 2201F
-                "SELECT ln(0::numeric)::text;",                          // 2201E
-                "SELECT ln(-4::numeric)::text;",                         // 2201E
-                "SELECT log(-1::numeric)::text;",                        // 2201E
-                "SELECT log(0::numeric, 10::numeric)::text;",            // 2201E/22012
-                "SELECT log(1::numeric, 7::numeric)::text;",             // 22012? div by ln(1)
-                "SELECT sqrt(-1::numeric)::text;",                       // 2201F
-                "SELECT exp(90000::numeric)::text;",                     // 22003 overflow
-                "SELECT power(10::numeric, 200000::numeric)::text;",     // 22003
-            ]);
+            let e = pick_str(
+                g,
+                &[
+                    "SELECT power(0::numeric, -2.5::numeric)::text;", // 2201F
+                    "SELECT power(-8::numeric, 0.5::numeric)::text;", // 2201F
+                    "SELECT ln(0::numeric)::text;",                   // 2201E
+                    "SELECT ln(-4::numeric)::text;",                  // 2201E
+                    "SELECT log(-1::numeric)::text;",                 // 2201E
+                    "SELECT log(0::numeric, 10::numeric)::text;",     // 2201E/22012
+                    "SELECT log(1::numeric, 7::numeric)::text;",      // 22012? div by ln(1)
+                    "SELECT sqrt(-1::numeric)::text;",                // 2201F
+                    "SELECT exp(90000::numeric)::text;",              // 22003 overflow
+                    "SELECT power(10::numeric, 200000::numeric)::text;", // 22003
+                ],
+            );
             e.to_string()
         }
         _ => {
@@ -224,31 +304,84 @@ fn gen_pow(g: &mut Gen) -> Vec<StmtKind> {
 /// underscore separators, specials, and matched malformed-input errors.
 fn gen_instr(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("numx:instr");
-    let shape = g.weights.pick(g.rng, &["numx:in:ok", "numx:in:nondec", "numx:in:err"]);
+    let shape = g
+        .weights
+        .pick(g.rng, &["numx:in:ok", "numx:in:nondec", "numx:in:err"]);
     g.fire(shape);
     let sql = match shape {
         "numx:in:ok" => {
-            let s = pick_str(g, &[
-                "  1234  ", "+0.5", "-.75", "1.", "1e10", "1E-10", "1.5e+300",
-                "0.0000e5", "inf", "+inf", "-INFINITY", "nan", "NaN", "-0.0",
-                "1_000_000", "1_2_3.4", "9_99e1_0",
-            ]);
+            let s = pick_str(
+                g,
+                &[
+                    "  1234  ",
+                    "+0.5",
+                    "-.75",
+                    "1.",
+                    "1e10",
+                    "1E-10",
+                    "1.5e+300",
+                    "0.0000e5",
+                    "inf",
+                    "+inf",
+                    "-INFINITY",
+                    "nan",
+                    "NaN",
+                    "-0.0",
+                    "1_000_000",
+                    "1_2_3.4",
+                    "9_99e1_0",
+                ],
+            );
             format!("SELECT '{s}'::numeric::text;")
         }
         "numx:in:nondec" => {
-            let s = pick_str(g, &[
-                "0x2A", "-0xff", "0XdeadBEEF", "0o777", "-0O17", "0b101101", "-0B11",
-                "0xffffffffffffffffffffffffffffffff", "0x1_00", "0o7_7", "0b1_0_1",
-                "0x0", "-0b0",
-            ]);
+            let s = pick_str(
+                g,
+                &[
+                    "0x2A",
+                    "-0xff",
+                    "0XdeadBEEF",
+                    "0o777",
+                    "-0O17",
+                    "0b101101",
+                    "-0B11",
+                    "0xffffffffffffffffffffffffffffffff",
+                    "0x1_00",
+                    "0o7_7",
+                    "0b1_0_1",
+                    "0x0",
+                    "-0b0",
+                ],
+            );
             format!("SELECT '{s}'::numeric::text, '{s}'::numeric % 7;")
         }
         _ => {
-            let s = pick_str(g, &[
-                "", "  ", "abc", "1..2", "1e", "e5", "1e+", "0x", "0xg", "0o8", "0b2",
-                "1__0", "_1", "1_", "1.5_", "0x1.5", "12-3", "++1", "NaNx", "in",
-                "1e1000000000",
-            ]);
+            let s = pick_str(
+                g,
+                &[
+                    "",
+                    "  ",
+                    "abc",
+                    "1..2",
+                    "1e",
+                    "e5",
+                    "1e+",
+                    "0x",
+                    "0xg",
+                    "0o8",
+                    "0b2",
+                    "1__0",
+                    "_1",
+                    "1_",
+                    "1.5_",
+                    "0x1.5",
+                    "12-3",
+                    "++1",
+                    "NaNx",
+                    "in",
+                    "1e1000000000",
+                ],
+            );
             format!("SELECT '{s}'::numeric::text;") // ERROR 22P02/22003 (matched)
         }
     };
@@ -261,21 +394,60 @@ fn gen_instr(g: &mut Gen) -> Vec<StmtKind> {
 /// pictures; C locale on both sides pins L/G/D).
 fn gen_fmt(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("numx:fmt");
-    let shape = g.weights.pick(g.rng, &["numx:fmt:tochar", "numx:fmt:tonum", "numx:fmt:err"]);
+    let shape = g.weights.pick(
+        g.rng,
+        &["numx:fmt:tochar", "numx:fmt:tonum", "numx:fmt:err"],
+    );
     g.fire(shape);
     let sql = match shape {
         "numx:fmt:tochar" => {
-            let v = pick_str(g, &[
-                "0", "1", "-1", "0.5", "-0.5", "4.85", "-125.8", "1234567.897",
-                "-9999999.99", "0.001", "148", "3999", "12345678901234567890",
-                "'NaN'", "'Infinity'", "'-Infinity'",
-            ]);
-            let f = pick_str(g, &[
-                "9G999G999D999", "FM9999999D99", "S9999D99", "MI9999D99", "9999D99PR",
-                "L99G999D99", "RN", "FMRN", "EEEE9.999", "9.99EEEE", "099999", "9999TH",
-                "9999th", "FM9999.00", "B9999.99", "99V999", "SG9999", "PL9999",
-                "\"lit\"9999\"tail\"", "9 9 9 9", "FM99999999999999999999",
-            ]);
+            let v = pick_str(
+                g,
+                &[
+                    "0",
+                    "1",
+                    "-1",
+                    "0.5",
+                    "-0.5",
+                    "4.85",
+                    "-125.8",
+                    "1234567.897",
+                    "-9999999.99",
+                    "0.001",
+                    "148",
+                    "3999",
+                    "12345678901234567890",
+                    "'NaN'",
+                    "'Infinity'",
+                    "'-Infinity'",
+                ],
+            );
+            let f = pick_str(
+                g,
+                &[
+                    "9G999G999D999",
+                    "FM9999999D99",
+                    "S9999D99",
+                    "MI9999D99",
+                    "9999D99PR",
+                    "L99G999D99",
+                    "RN",
+                    "FMRN",
+                    "EEEE9.999",
+                    "9.99EEEE",
+                    "099999",
+                    "9999TH",
+                    "9999th",
+                    "FM9999.00",
+                    "B9999.99",
+                    "99V999",
+                    "SG9999",
+                    "PL9999",
+                    "\"lit\"9999\"tail\"",
+                    "9 9 9 9",
+                    "FM99999999999999999999",
+                ],
+            );
             format!("SELECT to_char({v}::numeric, '{f}');")
         }
         "numx:fmt:tonum" => {
@@ -294,17 +466,20 @@ fn gen_fmt(g: &mut Gen) -> Vec<StmtKind> {
             format!("SELECT to_number('{s}', '{f}')::text;")
         }
         _ => {
-            let e = pick_str(g, &[
-                "SELECT to_char(4000::numeric, 'RN');",   // overflow -> ### fill
-                "SELECT to_char(-5::numeric, 'RN');",
-                "SELECT to_char(123::numeric, '99');",    // ## overflow fill
-                "SELECT to_number('abc', '999');",         // ERROR
-                "SELECT to_number('', '999');",            // ERROR
-                "SELECT to_number('123', 'RN');",          // ERROR: RN unsupported
-                "SELECT to_char(1.5::numeric, 'EEEE');",   // ERROR: bad EEEE combo
-                "SELECT to_char(12::numeric, '9V9V9');",   // ERROR: double V
-                "SELECT to_number('1.5e2', '9.9EEEE');",   // EEEE to_number arm
-            ]);
+            let e = pick_str(
+                g,
+                &[
+                    "SELECT to_char(4000::numeric, 'RN');", // overflow -> ### fill
+                    "SELECT to_char(-5::numeric, 'RN');",
+                    "SELECT to_char(123::numeric, '99');", // ## overflow fill
+                    "SELECT to_number('abc', '999');",     // ERROR
+                    "SELECT to_number('', '999');",        // ERROR
+                    "SELECT to_number('123', 'RN');",      // ERROR: RN unsupported
+                    "SELECT to_char(1.5::numeric, 'EEEE');", // ERROR: bad EEEE combo
+                    "SELECT to_char(12::numeric, '9V9V9');", // ERROR: double V
+                    "SELECT to_number('1.5e2', '9.9EEEE');", // EEEE to_number arm
+                ],
+            );
             e.to_string()
         }
     };
@@ -318,12 +493,25 @@ fn gen_fmt(g: &mut Gen) -> Vec<StmtKind> {
 /// scale typmods and matched 22003 overflow arms.
 fn gen_round(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("numx:round");
-    let shape = g.weights.pick(g.rng, &["numx:rd:round", "numx:rd:typmod", "numx:rd:scale", "numx:rd:err"]);
+    let shape = g.weights.pick(
+        g.rng,
+        &[
+            "numx:rd:round",
+            "numx:rd:typmod",
+            "numx:rd:scale",
+            "numx:rd:err",
+        ],
+    );
     g.fire(shape);
     let v = num_operand(g);
     let sql = match shape {
         "numx:rd:round" => {
-            let s = pick_str(g, &["-2000", "-40", "-5", "-1", "0", "1", "3", "17", "600", "2000"]);
+            let s = pick_str(
+                g,
+                &[
+                    "-2000", "-40", "-5", "-1", "0", "1", "3", "17", "600", "2000",
+                ],
+            );
             format!(
                 "SELECT round('{v}'::numeric, {s})::text, trunc('{v}'::numeric, {s})::text, \
                  ceil('{v}'::numeric)::text, floor('{v}'::numeric)::text, \
@@ -331,11 +519,32 @@ fn gen_round(g: &mut Gen) -> Vec<StmtKind> {
             )
         }
         "numx:rd:typmod" => {
-            let tm = pick_str(g, &[
-                "numeric(1,0)", "numeric(5,2)", "numeric(38,20)", "numeric(10,10)",
-                "numeric(5,-2)", "numeric(3,-8)", "numeric(20,25)", "numeric(1000,500)",
-            ]);
-            let sv = pick_str(g, &["0", "0.44445", "12345.6789", "-0.5", "99.995", "449", "-451", "0.0000049"]);
+            let tm = pick_str(
+                g,
+                &[
+                    "numeric(1,0)",
+                    "numeric(5,2)",
+                    "numeric(38,20)",
+                    "numeric(10,10)",
+                    "numeric(5,-2)",
+                    "numeric(3,-8)",
+                    "numeric(20,25)",
+                    "numeric(1000,500)",
+                ],
+            );
+            let sv = pick_str(
+                g,
+                &[
+                    "0",
+                    "0.44445",
+                    "12345.6789",
+                    "-0.5",
+                    "99.995",
+                    "449",
+                    "-451",
+                    "0.0000049",
+                ],
+            );
             format!("SELECT ({sv}::{tm})::text, pg_typeof({sv}::{tm});")
         }
         "numx:rd:scale" => format!(
@@ -343,16 +552,19 @@ fn gen_round(g: &mut Gen) -> Vec<StmtKind> {
              scale('{v}'::numeric), width_bucket('{v}'::numeric, -1e10, 1e10, 7);"
         ),
         _ => {
-            let e = pick_str(g, &[
-                "SELECT (123.45::numeric(4,2))::text;",     // 22003
-                "SELECT (1e10::numeric(5,-2))::text;",      // 22003
-                "SELECT ('NaN'::numeric)::numeric(5,2)::text;",   // NaN passes typmod
-                "SELECT ('Infinity'::numeric)::numeric(5,2)::text;", // 22003
-                "SELECT (0.5::numeric(1,0))::text;",        // rounds to 1, fits
-                "SELECT (0.5::numeric(1,1))::text;",
-                "SELECT 1::numeric(1500,600);",             // ERROR: precision limit
-                "SELECT 1::numeric(0,0);",                  // ERROR: precision 0
-            ]);
+            let e = pick_str(
+                g,
+                &[
+                    "SELECT (123.45::numeric(4,2))::text;",              // 22003
+                    "SELECT (1e10::numeric(5,-2))::text;",               // 22003
+                    "SELECT ('NaN'::numeric)::numeric(5,2)::text;",      // NaN passes typmod
+                    "SELECT ('Infinity'::numeric)::numeric(5,2)::text;", // 22003
+                    "SELECT (0.5::numeric(1,0))::text;",                 // rounds to 1, fits
+                    "SELECT (0.5::numeric(1,1))::text;",
+                    "SELECT 1::numeric(1500,600);", // ERROR: precision limit
+                    "SELECT 1::numeric(0,0);",      // ERROR: precision 0
+                ],
+            );
             e.to_string()
         }
     };
@@ -366,42 +578,83 @@ fn gen_round(g: &mut Gen) -> Vec<StmtKind> {
 /// arithmetic with numeric, int8 gcd/lcm boundaries.
 fn gen_cast(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("numx:cast");
-    let shape = g.weights.pick(g.rng, &["numx:ca:int", "numx:ca:float", "numx:ca:err", "numx:ca:lsn", "numx:ca:gcd"]);
+    let shape = g.weights.pick(
+        g.rng,
+        &[
+            "numx:ca:int",
+            "numx:ca:float",
+            "numx:ca:err",
+            "numx:ca:lsn",
+            "numx:ca:gcd",
+        ],
+    );
     g.fire(shape);
     let sql = match shape {
         "numx:ca:int" => {
-            let v = pick_str(g, &[
-                "0.5", "-0.5", "1.5", "2.5", "-2.5", "32766.6", "-32767.5",
-                "2147483646.5", "-2147483647.5", "9223372036854775806.5",
-                "-9223372036854775807.5", "0.49999999999",
-            ]);
+            let v = pick_str(
+                g,
+                &[
+                    "0.5",
+                    "-0.5",
+                    "1.5",
+                    "2.5",
+                    "-2.5",
+                    "32766.6",
+                    "-32767.5",
+                    "2147483646.5",
+                    "-2147483647.5",
+                    "9223372036854775806.5",
+                    "-9223372036854775807.5",
+                    "0.49999999999",
+                ],
+            );
             let ty = pick_str(g, &["int2", "int4", "int8"]);
             format!("SELECT ({v}::numeric)::{ty};")
         }
         "numx:ca:float" => {
-            let v = pick_str(g, &[
-                "'NaN'::numeric", "'Infinity'::numeric", "'-Infinity'::numeric",
-                "1.5::numeric", "-0.000001::numeric", "1e300::numeric", "1e-300::numeric",
-                "3.4028235e38::numeric", "1.7976931348623157e308::numeric",
-            ]);
-            let back = pick_str(g, &[
-                "'NaN'::float8", "'Infinity'::float8", "'-Infinity'::float8",
-                "0.1::float8", "-2.5::float4", "'NaN'::float4", "1e-40::float4",
-            ]);
+            let v = pick_str(
+                g,
+                &[
+                    "'NaN'::numeric",
+                    "'Infinity'::numeric",
+                    "'-Infinity'::numeric",
+                    "1.5::numeric",
+                    "-0.000001::numeric",
+                    "1e300::numeric",
+                    "1e-300::numeric",
+                    "3.4028235e38::numeric",
+                    "1.7976931348623157e308::numeric",
+                ],
+            );
+            let back = pick_str(
+                g,
+                &[
+                    "'NaN'::float8",
+                    "'Infinity'::float8",
+                    "'-Infinity'::float8",
+                    "0.1::float8",
+                    "-2.5::float4",
+                    "'NaN'::float4",
+                    "1e-40::float4",
+                ],
+            );
             format!("SELECT ({v}::float8)::text, ({v}::float4)::text, ({back}::numeric)::text;")
         }
         "numx:ca:err" => {
-            let e = pick_str(g, &[
-                "SELECT (1e40::numeric)::float4::text;",           // 22003
-                "SELECT (1e310::numeric)::float8::text;",          // 22003
-                "SELECT (40000::numeric)::int2;",                  // 22003
-                "SELECT (3000000000::numeric)::int4;",             // 22003
-                "SELECT (1e19::numeric)::int8;",                   // 22003
-                "SELECT ('NaN'::numeric)::int4;",                  // 22P05/0A000-class (matched)
-                "SELECT ('Infinity'::numeric)::int8;",             // 22003
-                "SELECT ('NaN'::float8)::numeric::text;",          // NaN ok
-                "SELECT ('Infinity'::float4)::numeric::text;",     // Infinity ok
-            ]);
+            let e = pick_str(
+                g,
+                &[
+                    "SELECT (1e40::numeric)::float4::text;",       // 22003
+                    "SELECT (1e310::numeric)::float8::text;",      // 22003
+                    "SELECT (40000::numeric)::int2;",              // 22003
+                    "SELECT (3000000000::numeric)::int4;",         // 22003
+                    "SELECT (1e19::numeric)::int8;",               // 22003
+                    "SELECT ('NaN'::numeric)::int4;",              // 22P05/0A000-class (matched)
+                    "SELECT ('Infinity'::numeric)::int8;",         // 22003
+                    "SELECT ('NaN'::float8)::numeric::text;",      // NaN ok
+                    "SELECT ('Infinity'::float4)::numeric::text;", // Infinity ok
+                ],
+            );
             e.to_string()
         }
         "numx:ca:lsn" => {
@@ -412,7 +665,17 @@ fn gen_cast(g: &mut Gen) -> Vec<StmtKind> {
             )
         }
         _ => {
-            let a = pick_str(g, &["0", "12", "-9223372036854775808", "9223372036854775807", "270", "-192"]);
+            let a = pick_str(
+                g,
+                &[
+                    "0",
+                    "12",
+                    "-9223372036854775808",
+                    "9223372036854775807",
+                    "270",
+                    "-192",
+                ],
+            );
             let b = pick_str(g, &["0", "-1", "18", "-9223372036854775808", "64"]);
             format!("SELECT gcd({a}::int8, {b}::int8), lcm({a}::int8, {b}::int8);")
         }
@@ -427,7 +690,15 @@ fn gen_cast(g: &mut Gen) -> Vec<StmtKind> {
 /// entering AND leaving frames, and plain grouped accumulators.
 fn gen_agg(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("numx:agg");
-    let shape = g.weights.pick(g.rng, &["numx:ag:win", "numx:ag:special", "numx:ag:int", "numx:ag:stat"]);
+    let shape = g.weights.pick(
+        g.rng,
+        &[
+            "numx:ag:win",
+            "numx:ag:special",
+            "numx:ag:int",
+            "numx:ag:stat",
+        ],
+    );
     g.fire(shape);
     let t = "fz_nxa";
     let rows = 400 + g.rng.below(300);
@@ -496,30 +767,70 @@ fn gen_agg(g: &mut Gen) -> Vec<StmtKind> {
 /// width_bucket numeric + float8 arms.
 fn gen_wb(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("numx:wb");
-    let shape = g.weights.pick(g.rng, &["numx:wb:num", "numx:wb:f8", "numx:wb:err"]);
+    let shape = g
+        .weights
+        .pick(g.rng, &["numx:wb:num", "numx:wb:f8", "numx:wb:err"]);
     g.fire(shape);
     let sql = match shape {
         "numx:wb:num" => {
-            let op = pick_str(g, &["-5.5", "0", "5", "9.999", "10", "15", "'NaN'", "'-Infinity'", "'Infinity'"]);
-            let (lo, hi) = if g.rng.chance(1, 2) { ("0", "10") } else { ("10", "0") };
+            let op = pick_str(
+                g,
+                &[
+                    "-5.5",
+                    "0",
+                    "5",
+                    "9.999",
+                    "10",
+                    "15",
+                    "'NaN'",
+                    "'-Infinity'",
+                    "'Infinity'",
+                ],
+            );
+            let (lo, hi) = if g.rng.chance(1, 2) {
+                ("0", "10")
+            } else {
+                ("10", "0")
+            };
             let cnt = pick_str(g, &["1", "5", "1073741823"]);
             format!("SELECT width_bucket({op}::numeric, {lo}, {hi}, {cnt});")
         }
         "numx:wb:f8" => {
-            let op = pick_str(g, &["-2.5", "0", "3.75", "100", "'NaN'", "'Infinity'", "'-Infinity'"]);
-            let (lo, hi) = if g.rng.chance(1, 2) { ("-10", "10") } else { ("10", "-10") };
-            format!("SELECT width_bucket({op}::float8, {lo}::float8, {hi}::float8, {});", 1 + g.rng.below(50))
+            let op = pick_str(
+                g,
+                &[
+                    "-2.5",
+                    "0",
+                    "3.75",
+                    "100",
+                    "'NaN'",
+                    "'Infinity'",
+                    "'-Infinity'",
+                ],
+            );
+            let (lo, hi) = if g.rng.chance(1, 2) {
+                ("-10", "10")
+            } else {
+                ("10", "-10")
+            };
+            format!(
+                "SELECT width_bucket({op}::float8, {lo}::float8, {hi}::float8, {});",
+                1 + g.rng.below(50)
+            )
         }
         _ => {
-            let e = pick_str(g, &[
-                "SELECT width_bucket(5::numeric, 0, 10, 0);",             // 2201G
-                "SELECT width_bucket(5::numeric, 0, 10, -3);",            // 2201G
-                "SELECT width_bucket(5::numeric, 3, 3, 5);",              // 2201G
-                "SELECT width_bucket(5::numeric, 'NaN', 10, 5);",         // 2201G
-                "SELECT width_bucket(5::float8, 'NaN'::float8, 10, 5);",  // 2201G
-                "SELECT width_bucket(1::float8, 'Infinity'::float8, 2, 5);", // 2201G
-                "SELECT width_bucket(5::float8, 0, 10, 2147483647);",
-            ]);
+            let e = pick_str(
+                g,
+                &[
+                    "SELECT width_bucket(5::numeric, 0, 10, 0);",  // 2201G
+                    "SELECT width_bucket(5::numeric, 0, 10, -3);", // 2201G
+                    "SELECT width_bucket(5::numeric, 3, 3, 5);",   // 2201G
+                    "SELECT width_bucket(5::numeric, 'NaN', 10, 5);", // 2201G
+                    "SELECT width_bucket(5::float8, 'NaN'::float8, 10, 5);", // 2201G
+                    "SELECT width_bucket(1::float8, 'Infinity'::float8, 2, 5);", // 2201G
+                    "SELECT width_bucket(5::float8, 0, 10, 2147483647);",
+                ],
+            );
             e.to_string()
         }
     };
@@ -532,7 +843,15 @@ fn gen_wb(g: &mut Gen) -> Vec<StmtKind> {
 /// regimes, random(numeric) range wrapper, numeric hash arms.
 fn gen_misc(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("numx:misc");
-    let shape = g.weights.pick(g.rng, &["numx:mi:unary", "numx:mi:cmp", "numx:mi:rand", "numx:mi:hash"]);
+    let shape = g.weights.pick(
+        g.rng,
+        &[
+            "numx:mi:unary",
+            "numx:mi:cmp",
+            "numx:mi:rand",
+            "numx:mi:hash",
+        ],
+    );
     g.fire(shape);
     let a = num_or_special(g);
     let b = num_or_special(g);
@@ -576,9 +895,11 @@ fn gen_sort(g: &mut Gen) -> Vec<StmtKind> {
         // ~8 distinct values over 12-18k rows: abbrev abort territory
         "numx:st:lowcard" => "(((i % 8)::numeric) / 4) + 1000000",
         // full-range keys with specials: abbreviation stays productive
-        _ => "CASE WHEN i % 501 = 7 THEN 'NaN'::numeric \
+        _ => {
+            "CASE WHEN i % 501 = 7 THEN 'NaN'::numeric \
               WHEN i % 503 = 11 THEN 'Infinity'::numeric \
-              ELSE ((i * 37 % 100000)::numeric) / 1000 END",
+              ELSE ((i * 37 % 100000)::numeric) / 1000 END"
+        }
     };
     vec![
         raw(format!(
@@ -606,7 +927,9 @@ fn gen_sort(g: &mut Gen) -> Vec<StmtKind> {
 /// the matched error arms (zero/NaN/Inf step or bounds).
 fn gen_series(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("numx:series");
-    let shape = g.weights.pick(g.rng, &["numx:se:ok", "numx:se:err", "numx:se:plan"]);
+    let shape = g
+        .weights
+        .pick(g.rng, &["numx:se:ok", "numx:se:err", "numx:se:plan"]);
     g.fire(shape);
     match shape {
         "numx:se:ok" => {
@@ -645,43 +968,71 @@ fn gen_series(g: &mut Gen) -> Vec<StmtKind> {
 /// exp/overflow arms — scalar text compares (byte-identical law).
 fn gen_float(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("numx:float");
-    let shape = g.weights.pick(g.rng, &["numx:fl:in", "numx:fl:inerr", "numx:fl:pow", "numx:fl:regr"]);
+    let shape = g.weights.pick(
+        g.rng,
+        &["numx:fl:in", "numx:fl:inerr", "numx:fl:pow", "numx:fl:regr"],
+    );
     g.fire(shape);
     match shape {
         "numx:fl:in" => {
-            let s = pick_str(g, &[
-                "0", "-0", "  1.5  ", "inf", "+Inf", "-infinity", "nan", "-NaN", "NAN",
-                "1e-45", "1.4e-45", "3.4028235e38", "1e-323", "2.2250738585072014e-308",
-                "1.7976931348623157e308", ".5", "5.", "1e0", "1E+2",
-            ]);
+            let s = pick_str(
+                g,
+                &[
+                    "0",
+                    "-0",
+                    "  1.5  ",
+                    "inf",
+                    "+Inf",
+                    "-infinity",
+                    "nan",
+                    "-NaN",
+                    "NAN",
+                    "1e-45",
+                    "1.4e-45",
+                    "3.4028235e38",
+                    "1e-323",
+                    "2.2250738585072014e-308",
+                    "1.7976931348623157e308",
+                    ".5",
+                    "5.",
+                    "1e0",
+                    "1E+2",
+                ],
+            );
             let ty = pick_str(g, &["float4", "float8"]);
             vec![raw(format!("SELECT '{s}'::{ty}::text;"))]
         }
         "numx:fl:inerr" => {
-            let s = pick_str(g, &[
-                "", " ", "abc", "1e", "e1", "1.5x", "in", "infin", "n", "1e400",
-                "-1e400", "1e-400x", "0x", "++1",
-            ]);
+            let s = pick_str(
+                g,
+                &[
+                    "", " ", "abc", "1e", "e1", "1.5x", "in", "infin", "n", "1e400", "-1e400",
+                    "1e-400x", "0x", "++1",
+                ],
+            );
             let ty = pick_str(g, &["float4", "float8"]);
             vec![raw(format!("SELECT '{s}'::{ty}::text;"))] // ERROR 22P02/22003 (matched)
         }
         "numx:fl:pow" => {
-            let e = pick_str(g, &[
-                "SELECT power(0::float8, -2::float8)::text;",             // 2201F
-                "SELECT power(-8::float8, 0.5::float8)::text;",           // 2201F
-                "SELECT power(0::float8, 0::float8)::text;",
-                "SELECT power(1::float8, 'Infinity'::float8)::text;",
-                "SELECT power(-1::float8, 'Infinity'::float8)::text;",
-                "SELECT power('Infinity'::float8, -2::float8)::text;",
-                "SELECT power('-Infinity'::float8, 3::float8)::text;",
-                "SELECT power('-Infinity'::float8, 2.5::float8)::text;",
-                "SELECT power('NaN'::float8, 0::float8)::text;",
-                "SELECT power(1e300::float8, 10::float8)::text;",          // 22003
-                "SELECT exp(1000::float8)::text;",                         // 22003
-                "SELECT exp(-1000::float8)::text;",
-                "SELECT sqrt(-1::float8)::text;",                          // 2201F
-                "SELECT ln(0::float8)::text;",                             // 2201E
-            ]);
+            let e = pick_str(
+                g,
+                &[
+                    "SELECT power(0::float8, -2::float8)::text;",   // 2201F
+                    "SELECT power(-8::float8, 0.5::float8)::text;", // 2201F
+                    "SELECT power(0::float8, 0::float8)::text;",
+                    "SELECT power(1::float8, 'Infinity'::float8)::text;",
+                    "SELECT power(-1::float8, 'Infinity'::float8)::text;",
+                    "SELECT power('Infinity'::float8, -2::float8)::text;",
+                    "SELECT power('-Infinity'::float8, 3::float8)::text;",
+                    "SELECT power('-Infinity'::float8, 2.5::float8)::text;",
+                    "SELECT power('NaN'::float8, 0::float8)::text;",
+                    "SELECT power(1e300::float8, 10::float8)::text;", // 22003
+                    "SELECT exp(1000::float8)::text;",                // 22003
+                    "SELECT exp(-1000::float8)::text;",
+                    "SELECT sqrt(-1::float8)::text;", // 2201F
+                    "SELECT ln(0::float8)::text;",    // 2201E
+                ],
+            );
             vec![raw(e.to_string())]
         }
         _ => {

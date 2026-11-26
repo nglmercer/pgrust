@@ -15,10 +15,21 @@ use crate::rep::Lx;
 /// the relation of the cell's site (`Lx::site_of`; PGRCSERVE M0 D2: its rows road serves the key).
 pub(crate) fn code_untrimmed(lx: &Lx<'_, '_, '_>, node: i32, cells: &KeyVals<'_>) {
     let trims = |t: Option<&TypeFacts>| sk_bpchar_of(t) != 0;
-    if let Some((c, ..)) = cells.iter().find(|(c, _, _, tf)| matches!(c.rep, Rep::Code { .. }) && trims(Some(tf)) && !trims(row_of(c.typid))) {
+    if let Some((c, ..)) = cells.iter().find(|(c, _, _, tf)| {
+        matches!(c.rep, Rep::Code { .. }) && trims(Some(tf)) && !trims(row_of(c.typid))
+    }) {
         match crate::frame::env::site_relation(lx.site_of(c)) {
-            0 => crate::refuse!(node, Reason::Shape { why: ShapeWhy(BPCHAR_KEY_OVER_OTHER_TYPE) }),
-            relid => crate::admit::refusal::refuse_native(node, relid, ShapeWhy(BPCHAR_KEY_OVER_OTHER_TYPE)),
+            0 => crate::refuse!(
+                node,
+                Reason::Shape {
+                    why: ShapeWhy(BPCHAR_KEY_OVER_OTHER_TYPE)
+                }
+            ),
+            relid => crate::admit::refusal::refuse_native(
+                node,
+                relid,
+                ShapeWhy(BPCHAR_KEY_OVER_OTHER_TYPE),
+            ),
         }
     }
 }
@@ -29,6 +40,9 @@ mod tests {
     fn only_bpchar_trims() {
         let trims = |t: u32| super::sk_bpchar_of(super::row_of(t)) != 0;
         assert!(trims(1042), "bpchar trims");
-        assert!(!trims(1043) && !trims(25), "varchar and text keep their blanks");
+        assert!(
+            !trims(1043) && !trims(25),
+            "varchar and text keep their blanks"
+        );
     }
 }

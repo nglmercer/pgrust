@@ -42,13 +42,22 @@ fn resident_now() -> Option<usize> {
 
 /// The pool armed at 1 GiB; the governor's last sample at `sampled` resident bytes of a 1 GiB bar; the probe at `now`,
 /// falling `fall` bytes at each of its next `falls` reads.
-fn armed(sampled: usize, now: usize, fall: usize, falls: u32) -> std::sync::MutexGuard<'static, ()> {
+fn armed(
+    sampled: usize,
+    now: usize,
+    fall: usize,
+    falls: u32,
+) -> std::sync::MutexGuard<'static, ()> {
     let g = LOCK.lock().unwrap_or_else(|p| p.into_inner());
     POOL.gate(0);
     REGIONS.trim();
     assert_eq!(POOL.held(), 0, "a previous test left bytes held");
     POOL.arm(1 << 30);
-    NOW.store(now, Relaxed); FALL.store(fall, Relaxed); FALLS.store(falls, Relaxed); READS.store(0, Relaxed); ANSWERS.store(1, Relaxed);
+    NOW.store(now, Relaxed);
+    FALL.store(fall, Relaxed);
+    FALLS.store(falls, Relaxed);
+    READS.store(0, Relaxed);
+    ANSWERS.store(1, Relaxed);
     set_settle_clock_for_test(Some(0));
     mcx::governor::set_resident_probe(resident_now);
     mcx::governor::publish(BAR, sampled, mcx::global_footprint::bytes());
@@ -62,7 +71,13 @@ fn disarm() {
 }
 
 fn admit_256() -> gravity_driver::Reservation {
-    POOL.admit_need_until(Grant::of(256 * MIB), &|g| g.bytes, Duration::from_secs(5), &|| false).expect("admitted")
+    POOL.admit_need_until(
+        Grant::of(256 * MIB),
+        &|g| g.bytes,
+        Duration::from_secs(5),
+        &|| false,
+    )
+    .expect("admitted")
 }
 
 fn reads() -> u32 {
@@ -72,9 +87,16 @@ fn reads() -> u32 {
 #[test]
 fn a_fresh_sample_admits_the_whole_need_at_once() {
     let _g = armed(STALE, SETTLED, 0, 0);
-    assert!(!mcx::governor::fits_raw((256 * MIB) as usize), "the stale sample refuses 256 MiB");
+    assert!(
+        !mcx::governor::fits_raw((256 * MIB) as usize),
+        "the stale sample refuses 256 MiB"
+    );
     let a = admit_256();
-    assert_eq!((a.grant.bytes, a.how), (256 * MIB, Admitted::Whole), "the fresh sample seats the whole need, no halving");
+    assert_eq!(
+        (a.grant.bytes, a.how),
+        (256 * MIB, Admitted::Whole),
+        "the fresh sample seats the whole need, no halving"
+    );
     assert_eq!(reads(), 1, "one fresh sample, no wait");
     drop(a);
     disarm();
@@ -85,8 +107,16 @@ fn a_release_in_progress_is_waited_out_and_the_whole_need_admitted() {
     // 900 MiB resident falling 32 MiB a read: 256 MiB fits under the 1 GiB bar from 768 MiB, the fifth read on
     let _g = armed(STALE, STALE, 32 << 20, 1000);
     let a = admit_256();
-    assert_eq!((a.grant.bytes, a.how), (256 * MIB, Admitted::Whole), "waited for the release, no halving");
-    assert_eq!(reads(), 5, "fresh samples while it fell, the fifth seats it");
+    assert_eq!(
+        (a.grant.bytes, a.how),
+        (256 * MIB, Admitted::Whole),
+        "waited for the release, no halving"
+    );
+    assert_eq!(
+        reads(),
+        5,
+        "fresh samples while it fell, the fifth seats it"
+    );
     assert!(Duration::from_nanos(u64::from(reads()) * POLL_NS) < GOVERNOR_SETTLE);
     drop(a);
     disarm();
@@ -97,8 +127,16 @@ fn a_refusal_that_holds_halves_after_the_flat_samples_not_the_settle_bound() {
     let _g = armed(STALE, STALE, 0, 0);
     let a = admit_256();
     // 900 MiB resident of a 1 GiB bar: 128 MiB more is refused, the 64 MiB floor fits
-    assert_eq!((a.grant.bytes, a.how), (GRANT_FLOOR, Admitted::Idle), "halved with nothing held to wait for");
-    assert!(reads() <= 1 + SETTLE_FLAT_POLLS, "about two poll pauses, not the settle's bound: {} samples", reads());
+    assert_eq!(
+        (a.grant.bytes, a.how),
+        (GRANT_FLOOR, Admitted::Idle),
+        "halved with nothing held to wait for"
+    );
+    assert!(
+        reads() <= 1 + SETTLE_FLAT_POLLS,
+        "about two poll pauses, not the settle's bound: {} samples",
+        reads()
+    );
     drop(a);
     disarm();
 }
@@ -110,7 +148,11 @@ fn a_release_that_stops_short_of_the_need_halves_once_it_holds() {
     let a = admit_256();
     assert_eq!((a.grant.bytes, a.how), (128 * MIB, Admitted::Idle));
     assert!(reads() >= 4, "waited while it fell: {}", reads());
-    assert!(reads() <= 3 + SETTLE_FLAT_POLLS, "then the flat samples, not the settle's bound: {}", reads());
+    assert!(
+        reads() <= 3 + SETTLE_FLAT_POLLS,
+        "then the flat samples, not the settle's bound: {}",
+        reads()
+    );
     drop(a);
     disarm();
 }
@@ -132,7 +174,14 @@ fn an_admission_the_pool_cannot_seat_halves_without_a_fresh_sample() {
     let _g = armed(STALE, SETTLED, 0, 0);
     // 2 GiB of a 1 GiB pool: the pool refuses it whatever the governor says, so no fresh sample is taken and the stale one
     // halves the grant to the floor
-    let a = POOL.admit_need_until(Grant::of(2048 * MIB), &|g| g.bytes, Duration::from_secs(5), &|| false).expect("admitted");
+    let a = POOL
+        .admit_need_until(
+            Grant::of(2048 * MIB),
+            &|g| g.bytes,
+            Duration::from_secs(5),
+            &|| false,
+        )
+        .expect("admitted");
     assert_eq!((a.grant.bytes, a.how), (GRANT_FLOOR, Admitted::Idle));
     assert_eq!(reads(), 0, "no fresh sample");
     drop(a);
@@ -147,15 +196,34 @@ fn a_release_too_slow_to_cover_the_deficit_halves_at_once() {
     POOL.gate(0);
     REGIONS.trim();
     POOL.arm(64 << 30);
-    let resident =63usize << 30;
-    NOW.store(resident, Relaxed); FALL.store(17 << 20, Relaxed); FALLS.store(1000, Relaxed); READS.store(0, Relaxed); ANSWERS.store(1, Relaxed);
+    let resident = 63usize << 30;
+    NOW.store(resident, Relaxed);
+    FALL.store(17 << 20, Relaxed);
+    FALLS.store(1000, Relaxed);
+    READS.store(0, Relaxed);
+    ANSWERS.store(1, Relaxed);
     set_settle_clock_for_test(Some(0));
     mcx::governor::set_resident_probe(resident_now);
     mcx::governor::publish(64 << 30, resident, mcx::global_footprint::bytes());
-    let a = POOL.admit_need_until(Grant::of(41 << 30), &|g| g.bytes, Duration::from_secs(5), &|| false).expect("admitted");
+    let a = POOL
+        .admit_need_until(
+            Grant::of(41 << 30),
+            &|g| g.bytes,
+            Duration::from_secs(5),
+            &|| false,
+        )
+        .expect("admitted");
     assert_eq!(a.how, Admitted::Idle);
-    assert!(a.grant.bytes < 1 << 30, "halved into the room: {} MiB", a.grant.bytes >> 20);
-    assert_eq!(reads(), 2, "the first fresh sample and one more, no wait past it");
+    assert!(
+        a.grant.bytes < 1 << 30,
+        "halved into the room: {} MiB",
+        a.grant.bytes >> 20
+    );
+    assert_eq!(
+        reads(),
+        2,
+        "the first fresh sample and one more, no wait past it"
+    );
     drop(a);
     disarm();
 }

@@ -249,10 +249,18 @@ fn gen_obj(g: &mut Gen) -> String {
     }
     let mut s = entries.join(", ");
     if n > 0 && g.rng.chance(1, 3) {
-        s.push_str(if g.rng.chance(1, 2) { " NULL ON NULL" } else { " ABSENT ON NULL" });
+        s.push_str(if g.rng.chance(1, 2) {
+            " NULL ON NULL"
+        } else {
+            " ABSENT ON NULL"
+        });
     }
     if n > 0 && g.rng.chance(1, 4) {
-        s.push_str(if g.rng.chance(1, 3) { " WITH UNIQUE KEYS" } else { " WITHOUT UNIQUE KEYS" });
+        s.push_str(if g.rng.chance(1, 3) {
+            " WITH UNIQUE KEYS"
+        } else {
+            " WITHOUT UNIQUE KEYS"
+        });
     }
     if g.rng.chance(1, 3) {
         if !s.is_empty() {
@@ -284,7 +292,11 @@ fn gen_arr(g: &mut Gen) -> String {
         }
         let mut s = items.join(", ");
         if n > 0 && g.rng.chance(1, 3) {
-            s.push_str(if g.rng.chance(1, 2) { " NULL ON NULL" } else { " ABSENT ON NULL" });
+            s.push_str(if g.rng.chance(1, 2) {
+                " NULL ON NULL"
+            } else {
+                " ABSENT ON NULL"
+            });
         }
         s
     };
@@ -366,7 +378,11 @@ fn gen_ctor(g: &mut Gen) -> String {
         // JSON(text [FORMAT JSON] [WITH/WITHOUT UNIQUE KEYS])
         0 | 1 => {
             let d = *g.rng.pick(DOCS);
-            let fmt = if g.rng.chance(1, 3) { " FORMAT JSON" } else { "" };
+            let fmt = if g.rng.chance(1, 3) {
+                " FORMAT JSON"
+            } else {
+                ""
+            };
             let uniq = match g.rng.below(4) {
                 0 => " WITH UNIQUE KEYS",
                 1 => " WITHOUT UNIQUE KEYS",
@@ -375,7 +391,10 @@ fn gen_ctor(g: &mut Gen) -> String {
             format!("SELECT JSON('{}'{}{});", d, fmt, uniq)
         }
         // JSON over bytea (UTF8 document bytes)
-        2 => format!("SELECT JSON('{}'::bytea FORMAT JSON);", g.rng.pick(&["123", "[1,2]", "{\"a\":1}"])),
+        2 => format!(
+            "SELECT JSON('{}'::bytea FORMAT JSON);",
+            g.rng.pick(&["123", "[1,2]", "{\"a\":1}"])
+        ),
         // JSON_SCALAR over the typed-literal pool
         3 | 4 => format!("SELECT JSON_SCALAR({});", g.rng.pick(VALS)),
         // JSON_SERIALIZE with RETURNING text/bytea/varchar
@@ -386,7 +405,10 @@ fn gen_ctor(g: &mut Gen) -> String {
                 format!("'{}'", g.rng.pick(DOCS))
             };
             let ret = if g.rng.chance(1, 2) {
-                format!(" RETURNING {}", *g.rng.pick(&["text", "bytea", "varchar(32)"]))
+                format!(
+                    " RETURNING {}",
+                    *g.rng.pick(&["text", "bytea", "varchar(32)"])
+                )
             } else {
                 String::new()
             };
@@ -398,7 +420,9 @@ fn gen_ctor(g: &mut Gen) -> String {
 /// PASSING clause: typed literal variables usable from paths ($x, $y).
 fn passing(g: &mut Gen) -> String {
     if g.rng.chance(1, 3) {
-        let v = *g.rng.pick(&["0", "1", "2", "'x'", "true", "jsonb '{\"a\": 1}'"]);
+        let v = *g
+            .rng
+            .pick(&["0", "1", "2", "'x'", "true", "jsonb '{\"a\": 1}'"]);
         format!(" PASSING {} AS x", v)
     } else {
         String::new()
@@ -417,7 +441,11 @@ fn gen_exists(g: &mut Gen) -> String {
         );
     }
     let d = doc(g);
-    let p = if g.rng.chance(1, 4) { "strict $.missing.deeper".to_string() } else { path(g) };
+    let p = if g.rng.chance(1, 4) {
+        "strict $.missing.deeper".to_string()
+    } else {
+        path(g)
+    };
     let pass = passing(g);
     let onerr = on_clause(g, &["TRUE", "FALSE", "UNKNOWN", "ERROR"], "ERROR");
     format!("SELECT JSON_EXISTS({}, '{}'{}{});", d, p, pass, onerr)
@@ -428,25 +456,48 @@ fn gen_value(g: &mut Gen) -> String {
     let d = doc(g);
     let p = if g.rng.chance(1, 3) {
         // Scalar-yielding paths (JSON_VALUE wants a scalar).
-        (*g.rng.pick(&["$.a", "$.num", "$.d", "$.ts", "$[0]", "$.k", "strict $.a.b"])).to_string()
+        (*g.rng
+            .pick(&["$.a", "$.num", "$.d", "$.ts", "$[0]", "$.k", "strict $.a.b"]))
+        .to_string()
     } else {
         path(g)
     };
     let ret = if g.rng.chance(1, 2) {
         format!(
             " RETURNING {}",
-            *g.rng.pick(&["int", "bigint", "numeric", "numeric(6,2)", "text", "date", "timestamp", "boolean", "jsonb"])
+            *g.rng.pick(&[
+                "int",
+                "bigint",
+                "numeric",
+                "numeric(6,2)",
+                "text",
+                "date",
+                "timestamp",
+                "boolean",
+                "jsonb"
+            ])
         )
     } else {
         String::new()
     };
     let onempty = if g.rng.chance(1, 3) {
-        format!(" {} ON EMPTY", *g.rng.pick(&["NULL", "ERROR", "DEFAULT 42", "DEFAULT 'd'"]))
+        format!(
+            " {} ON EMPTY",
+            *g.rng.pick(&["NULL", "ERROR", "DEFAULT 42", "DEFAULT 'd'"])
+        )
     } else {
         String::new()
     };
     let onerr = on_clause(g, &["NULL", "ERROR", "DEFAULT 0", "DEFAULT 'e'"], "ERROR");
-    format!("SELECT JSON_VALUE({}, '{}'{}{}{}{});", d, p, passing(g), ret, onempty, onerr)
+    format!(
+        "SELECT JSON_VALUE({}, '{}'{}{}{}{});",
+        d,
+        p,
+        passing(g),
+        ret,
+        onempty,
+        onerr
+    )
 }
 
 fn gen_query(g: &mut Gen) -> String {
@@ -463,7 +514,11 @@ fn gen_query(g: &mut Gen) -> String {
     };
     // QUOTES only combines with non-wrapping forms.
     let quotes = if wrapper.is_empty() && g.rng.chance(1, 3) {
-        *g.rng.pick(&[" KEEP QUOTES", " OMIT QUOTES", " OMIT QUOTES ON SCALAR STRING"])
+        *g.rng.pick(&[
+            " KEEP QUOTES",
+            " OMIT QUOTES",
+            " OMIT QUOTES ON SCALAR STRING",
+        ])
     } else {
         ""
     };
@@ -475,7 +530,13 @@ fn gen_query(g: &mut Gen) -> String {
     let onempty = if g.rng.chance(1, 3) {
         format!(
             " {} ON EMPTY",
-            *g.rng.pick(&["NULL", "ERROR", "EMPTY ARRAY", "EMPTY OBJECT", "DEFAULT jsonb '{\"d\": 1}'"])
+            *g.rng.pick(&[
+                "NULL",
+                "ERROR",
+                "EMPTY ARRAY",
+                "EMPTY OBJECT",
+                "DEFAULT jsonb '{\"d\": 1}'"
+            ])
         )
     } else {
         String::new()
@@ -483,14 +544,27 @@ fn gen_query(g: &mut Gen) -> String {
     let onerr = if g.rng.chance(1, 2) {
         format!(
             " {} ON ERROR",
-            *g.rng.pick(&["NULL", "ERROR", "EMPTY ARRAY", "EMPTY OBJECT", "DEFAULT jsonb '[]'"])
+            *g.rng.pick(&[
+                "NULL",
+                "ERROR",
+                "EMPTY ARRAY",
+                "EMPTY OBJECT",
+                "DEFAULT jsonb '[]'"
+            ])
         )
     } else {
         String::new()
     };
     format!(
         "SELECT JSON_QUERY({}, '{}'{}{}{}{}{}{});",
-        d, p, passing(g), ret, wrapper, quotes, onempty, onerr
+        d,
+        p,
+        passing(g),
+        ret,
+        wrapper,
+        quotes,
+        onempty,
+        onerr
     )
 }
 
@@ -648,7 +722,11 @@ fn gen_pathdt(g: &mut Gen) -> String {
         // Datetime filter comparison (the comparison arm of
         // executeDateTimeMethod; _tz variant exercises the UTC pin).
         3 => {
-            let f = if g.rng.chance(1, 2) { "jsonb_path_query_array" } else { "jsonb_path_query_array_tz" };
+            let f = if g.rng.chance(1, 2) {
+                "jsonb_path_query_array"
+            } else {
+                "jsonb_path_query_array_tz"
+            };
             let bound = *g.rng.pick(&["2023-12-31", "2020-01-01", "2024-06-15"]);
             format!(
                 "SELECT {}(jsonb '[\"2020-01-01\", \"2024-06-15\", \"1999-12-31\"]', '$[*] ? (@.datetime() >= \"{}\".datetime())');",
@@ -659,9 +737,17 @@ fn gen_pathdt(g: &mut Gen) -> String {
         // JsonExpr executor route into executeDateTimeMethod).
         4 => {
             let s = *g.rng.pick(DT_STRINGS);
-            let ret = *g.rng.pick(&["", " RETURNING text", " RETURNING date", " RETURNING timestamp"]);
+            let ret = *g.rng.pick(&[
+                "",
+                " RETURNING text",
+                " RETURNING date",
+                " RETURNING timestamp",
+            ]);
             let onerr = *g.rng.pick(&["", " NULL ON ERROR", " ERROR ON ERROR"]);
-            format!("SELECT JSON_VALUE(jsonb '\"{}\"', '${}.string()'{}{});", s, method, ret, onerr)
+            format!(
+                "SELECT JSON_VALUE(jsonb '\"{}\"', '${}.string()'{}{});",
+                s, method, ret, onerr
+            )
         }
         _ => {
             let s = *g.rng.pick(DT_STRINGS);
@@ -690,7 +776,10 @@ fn gen_pathm(g: &mut Gen) -> String {
     let f = *g.rng.pick(&["jsonb_path_query", "jsonb_path_query_array"]);
     if g.rng.chance(1, 6) {
         // .size() over structures.
-        return format!("SELECT jsonb_path_query(jsonb '{}', '$.size()');", *g.rng.pick(&["[1, 2, 3]", "{}", "\"s\"", "[]"]));
+        return format!(
+            "SELECT jsonb_path_query(jsonb '{}', '$.size()');",
+            *g.rng.pick(&["[1, 2, 3]", "{}", "\"s\"", "[]"])
+        );
     }
     format!("SELECT {}(jsonb '{}', '${}');", f, d, m)
 }
@@ -898,7 +987,9 @@ fn gen_mut(g: &mut Gen) -> String {
         "[\"x\", \"y\", \"z\"]",
         "{\"a\": {\"b\": [1, 2, 3]}}",
     ]);
-    let path = *g.rng.pick(&["{a}", "{a,1}", "{a,b}", "{b,c}", "{a,-1}", "{0}"]);
+    let path = *g
+        .rng
+        .pick(&["{a}", "{a,1}", "{a,b}", "{b,c}", "{a,-1}", "{0}"]);
     let newval = *g.rng.pick(&["9", "\"nv\"", "null", "[7]", "{\"z\": 1}"]);
     match g.rng.below(6) {
         0 => format!(
@@ -912,7 +1003,8 @@ fn gen_mut(g: &mut Gen) -> String {
             "SELECT jsonb_set_lax('{}', '{}', NULL, true, '{}')::text;",
             base,
             path,
-            *g.rng.pick(&["use_json_null", "delete_key", "return_target"])
+            *g.rng
+                .pick(&["use_json_null", "delete_key", "return_target"])
         ),
         2 => format!(
             "SELECT jsonb_insert('{}', '{}', '{}'{})::text;",
@@ -974,7 +1066,12 @@ fn gen_jts(g: &mut Gen) -> String {
         0 => format!("SELECT to_tsvector('{}'::{})::text;", doc, jb),
         1 => format!("SELECT to_tsvector('english', '{}'::{})::text;", doc, jb),
         2 => {
-            let filter = *g.rng.pick(&["[\"string\"]", "[\"string\", \"numeric\"]", "[\"all\"]", "[\"key\", \"boolean\"]"]);
+            let filter = *g.rng.pick(&[
+                "[\"string\"]",
+                "[\"string\", \"numeric\"]",
+                "[\"all\"]",
+                "[\"key\", \"boolean\"]",
+            ]);
             format!(
                 "SELECT {}_to_tsvector('english', '{}'::{}, '{}')::text;",
                 jb, doc, jb, filter
@@ -982,15 +1079,32 @@ fn gen_jts(g: &mut Gen) -> String {
         }
         3 => {
             let filter = *g.rng.pick(&["[\"string\"]", "[\"all\"]"]);
-            format!("SELECT {}_to_tsvector('{}'::{}, '{}')::text;", jb, doc, jb, filter)
+            format!(
+                "SELECT {}_to_tsvector('{}'::{}, '{}')::text;",
+                jb, doc, jb, filter
+            )
         }
         _ => {
-            let q = *g.rng.pick(&["'fox'::tsquery", "to_tsquery('english', 'fox')", "'dog'::tsquery"]);
-            let opts = *g.rng.pick(&["", ", 'StartSel=<<, StopSel=>>'", ", 'MaxWords=5, MinWords=2'"]);
+            let q = *g.rng.pick(&[
+                "'fox'::tsquery",
+                "to_tsquery('english', 'fox')",
+                "'dog'::tsquery",
+            ]);
+            let opts = *g.rng.pick(&[
+                "",
+                ", 'StartSel=<<, StopSel=>>'",
+                ", 'MaxWords=5, MinWords=2'",
+            ]);
             if g.rng.chance(1, 2) {
-                format!("SELECT ts_headline('{}'::{}, {}{})::text;", doc, jb, q, opts)
+                format!(
+                    "SELECT ts_headline('{}'::{}, {}{})::text;",
+                    doc, jb, q, opts
+                )
             } else {
-                format!("SELECT ts_headline('english', '{}'::{}, {}{})::text;", doc, jb, q, opts)
+                format!(
+                    "SELECT ts_headline('english', '{}'::{}, {}{})::text;",
+                    doc, jb, q, opts
+                )
             }
         }
     }
@@ -1089,7 +1203,10 @@ mod tests {
                 );
                 let low = sql.to_ascii_lowercase();
                 assert!(!low.contains("now("), "nondeterministic now(): {sql}");
-                assert!(!low.contains("current_"), "nondeterministic current_*: {sql}");
+                assert!(
+                    !low.contains("current_"),
+                    "nondeterministic current_*: {sql}"
+                );
                 // Every FROM over fz_rich (multi-row) must be ordered; the
                 // pk-pinned scalar subquery form is single-row and exempt.
                 if low.contains("from fz_rich") && !low.contains("where pk =") {
@@ -1101,12 +1218,25 @@ mod tests {
             }
         }
         for p in [
-            "sqljson:obj", "sqljson:arr", "sqljson:agg", "sqljson:ctor",
-            "sqljson:exists", "sqljson:value", "sqljson:query",
-            "sqljson:isjson", "sqljson:table", "sqljson:pathdt",
-            "sqljson:pathm", "sqljson:err",
-            "sqljson:pop", "sqljson:jops", "sqljson:mut", "sqljson:cast",
-            "sqljson:jts", "sqljson:windup", "sqljson:viewdef",
+            "sqljson:obj",
+            "sqljson:arr",
+            "sqljson:agg",
+            "sqljson:ctor",
+            "sqljson:exists",
+            "sqljson:value",
+            "sqljson:query",
+            "sqljson:isjson",
+            "sqljson:table",
+            "sqljson:pathdt",
+            "sqljson:pathm",
+            "sqljson:err",
+            "sqljson:pop",
+            "sqljson:jops",
+            "sqljson:mut",
+            "sqljson:cast",
+            "sqljson:jts",
+            "sqljson:windup",
+            "sqljson:viewdef",
         ] {
             assert!(seen.contains(p), "production {p} never fired");
         }

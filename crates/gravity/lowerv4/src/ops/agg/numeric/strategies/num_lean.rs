@@ -35,14 +35,26 @@ pub(crate) struct Lean<'e> {
 /// The lean branch of a bare class.num_packed sum / avg over `c` into `acc`; `None` (nothing emitted) where it does not
 /// apply: min / max, a dscale companion (D256), join.mult, a spilled sum (D830), a register state, a cell not a packed
 /// `Window` lane at the scale.
-pub(crate) fn bare<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, a: &AggDecl<'_>, acc: &Acc<'_>, c: CellRef<'_>) -> Option<Lean<'e>> {
+pub(crate) fn bare<'e>(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env<'e, '_>,
+    a: &AggDecl<'_>,
+    acc: &Acc<'_>,
+    c: CellRef<'_>,
+) -> Option<Lean<'e>> {
     let avg = match a.reg {
         R::SumNum => false,
         R::AvgNum => true,
         _ => return None,
     };
-    let &Acc::Slot { base, off, valid } = acc else { return None };
-    if a.dscale_slot != NONE || env.mult.is_some() || crate::ops::agg::numeric::num_carry::spilled(a) || crate::rep::num_of(c.cell.rep).scale != a.scale {
+    let &Acc::Slot { base, off, valid } = acc else {
+        return None;
+    };
+    if a.dscale_slot != NONE
+        || env.mult.is_some()
+        || crate::ops::agg::numeric::num_carry::spilled(a)
+        || crate::rep::num_of(c.cell.rep).scale != a.scale
+    {
         return None;
     }
     let (verbatim, w) = window(b, env, c)?;
@@ -64,7 +76,15 @@ pub(crate) fn bare<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, a: &A
         b.switch_to(l_win);
         fires::fire("num.lean.window"); // fire signal (D3224 A2: a code front record's sum without the range test)
         let narrow = narrow_fits(crate::rep::num_of(c.cell.rep).precision);
-        window_add(b, env, (base, off, valid), &[w], narrow, avg.then_some(16), 2);
+        window_add(
+            b,
+            env,
+            (base, off, valid),
+            &[w],
+            narrow,
+            avg.then_some(16),
+            2,
+        );
         b.br(l_join, &[]);
         b.switch_to(l_any);
     }
@@ -78,7 +98,13 @@ pub(crate) fn bare<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, a: &A
     // A1 (D3224): the cold fold reads the word again, so the hot path keeps no copy of it across the range test
     let w = window(b, env, c).map_or(w, |(_, w)| w);
     let yes = b.bconst(true);
-    let t = crate::ops::agg::numeric::num_word::Term { lo: w, hi: None, sp: None, ok: yes, ds: None };
+    let t = crate::ops::agg::numeric::num_word::Term {
+        lo: w,
+        hi: None,
+        sp: None,
+        ok: yes,
+        ds: None,
+    };
     crate::ops::agg::numeric::class_num::fold(b, env, a, Acc::Slot { base, off, valid }, &t, None);
     Some(open(b, env, l_join, l_gen))
 }
@@ -88,22 +114,42 @@ pub(crate) fn bare<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, a: &A
 /// sentinel: `word`'s decode proved it exact at the aggregate's scale) adds exactly into the slot's i128 with D299's
 /// range test, a sum leaving the range recomputed by the generic fold from the untouched slot (cold); a NULL or a
 /// special (NaN, +/-Inf, a word the decode could not take) runs the caller's generic step, which the builder is left in.
-pub(crate) fn word<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, a: &AggDecl<'_>, acc: &Acc<'_>, m: Value, null: Value) -> Option<Lean<'e>> {
+pub(crate) fn word<'e>(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env<'e, '_>,
+    a: &AggDecl<'_>,
+    acc: &Acc<'_>,
+    m: Value,
+    null: Value,
+) -> Option<Lean<'e>> {
     let avg = match a.reg {
         R::SumNum => false,
         R::AvgNum => true,
         _ => return None,
     };
-    let &Acc::Slot { base, off, valid } = acc else { return None };
-    if !env.applies(crate::face::strategy::NUM_LEAN) || a.dscale_slot != NONE || env.mult.is_some() || crate::ops::agg::numeric::num_carry::spilled(a) {
+    let &Acc::Slot { base, off, valid } = acc else {
+        return None;
+    };
+    if !env.applies(crate::face::strategy::NUM_LEAN)
+        || a.dscale_slot != NONE
+        || env.mult.is_some()
+        || crate::ops::agg::numeric::num_carry::spilled(a)
+    {
         return None;
     }
     fires::fire("num.lean"); // shapecheck fire signal (REGISTRY TH-5, BN-119/120/126)
     let yes = b.bconst(true);
-    let (fin, special) = (b.int_bin(IntBinOp::Xor, null, yes), crate::ops::agg::numeric::num_word::sentinel(b, env, m, yes).1);
+    let (fin, special) = (
+        b.int_bin(IntBinOp::Xor, null, yes),
+        crate::ops::agg::numeric::num_word::sentinel(b, env, m, yes).1,
+    );
     let finite = b.int_bin(IntBinOp::Xor, special, yes);
     let go = b.int_bin(IntBinOp::And, fin, finite);
-    let (l_lean, l_gen, l_join) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));
+    let (l_lean, l_gen, l_join) = (
+        b.create_block(&[]),
+        b.create_block(&[]),
+        b.create_block(&[]),
+    );
     b.cond_br(go, (l_lean, &[]), (l_gen, &[]));
     b.switch_to(l_lean);
     let s63 = b.iconst(Type::I64, 63);
@@ -113,7 +159,13 @@ pub(crate) fn word<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, a: &A
     store(b, env, (base, off, valid), &s[..], avg.then_some(16), ok);
     b.br(l_join, &[]);
     b.switch_to(l_slow);
-    let t = crate::ops::agg::numeric::num_word::Term { lo: m, hi: None, sp: None, ok: yes, ds: None };
+    let t = crate::ops::agg::numeric::num_word::Term {
+        lo: m,
+        hi: None,
+        sp: None,
+        ok: yes,
+        ds: None,
+    };
     crate::ops::agg::numeric::class_num::fold(b, env, a, Acc::Slot { base, off, valid }, &t, None);
     Some(open(b, env, l_join, l_gen))
 }
@@ -123,22 +175,40 @@ pub(crate) fn word<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, a: &A
 /// a non-NULL finite word (the decode proved it exact at the aggregate's scale) adds exactly into a Slot `acc`,
 /// sign-extended, with D299's range test (past it the class's wide fold, cold); a NULL, a special or a value past one
 /// word runs the caller's generic step (the datum's host term), which the builder is left in.
-pub(crate) fn spilled<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, a: &AggDecl<'_>, class: &dyn FoldClass, acc: &Acc<'_>, m: Value, null: Value) -> Option<Lean<'e>> {
+pub(crate) fn spilled<'e>(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env<'e, '_>,
+    a: &AggDecl<'_>,
+    class: &dyn FoldClass,
+    acc: &Acc<'_>,
+    m: Value,
+    null: Value,
+) -> Option<Lean<'e>> {
     let avg = match a.reg {
         R::SumNumWide => false,
         R::AvgNumWide => true,
         _ => return None,
     };
-    let &Acc::Slot { base, off, valid } = acc else { return None };
-    if !env.applies(crate::face::strategy::NUM_LEAN) || a.dscale_slot != NONE || env.mult.is_some() {
+    let &Acc::Slot { base, off, valid } = acc else {
+        return None;
+    };
+    if !env.applies(crate::face::strategy::NUM_LEAN) || a.dscale_slot != NONE || env.mult.is_some()
+    {
         return None;
     }
     fires::fire("num.lean.spill"); // shapecheck fire signal (A-24c (d): a column past one word adds its word)
     let yes = b.bconst(true);
-    let (fin, special) = (b.int_bin(IntBinOp::Xor, null, yes), crate::ops::agg::numeric::num_word::sentinel(b, env, m, yes).1);
+    let (fin, special) = (
+        b.int_bin(IntBinOp::Xor, null, yes),
+        crate::ops::agg::numeric::num_word::sentinel(b, env, m, yes).1,
+    );
     let finite = b.int_bin(IntBinOp::Xor, special, yes);
     let go = b.int_bin(IntBinOp::And, fin, finite);
-    let (l_lean, l_gen, l_join) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));
+    let (l_lean, l_gen, l_join) = (
+        b.create_block(&[]),
+        b.create_block(&[]),
+        b.create_block(&[]),
+    );
     b.cond_br(go, (l_lean, &[]), (l_gen, &[]));
     b.switch_to(l_lean);
     let s63 = b.iconst(Type::I64, 63);
@@ -148,47 +218,88 @@ pub(crate) fn spilled<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, a:
     store(b, env, (base, off, valid), &w[..], avg.then_some(32), ok);
     b.br(l_join, &[]);
     b.switch_to(l_slow);
-    class.fold_wide(b, env, a, Acc::Slot { base, off, valid }, &crate::face::fold::WideTerm { w: [m, s, s, s], sp: None, ok: yes });
+    class.fold_wide(
+        b,
+        env,
+        a,
+        Acc::Slot { base, off, valid },
+        &crate::face::fold::WideTerm {
+            w: [m, s, s, s],
+            sp: None,
+            ok: yes,
+        },
+    );
     Some(open(b, env, l_join, l_gen))
 }
 
 /// The lean branch of a class.num_wide product `t` (every leaf a NOT NULL packed column, a constant or an int column)
 /// into `acc`: its exact i256 term from the words (`wide_term` over a memo seeded with them: no leaf is special).
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn wide< 'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, a: &AggDecl<'_>, class: &dyn FoldClass, t: & Tree, acc: &Acc<'_>) -> Option<Lean<'e>> {
+pub(crate) fn wide<'e>(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env<'e, '_>,
+    row: &RowVals,
+    a: &AggDecl<'_>,
+    class: &dyn FoldClass,
+    t: &Tree,
+    acc: &Acc<'_>,
+) -> Option<Lean<'e>> {
     let avg = match a.reg {
         R::SumNumWide => false,
         R::AvgNumWide => true,
         _ => return None,
     };
-    let &Acc::Slot { base, off, valid } = acc else { return None };
+    let &Acc::Slot { base, off, valid } = acc else {
+        return None;
+    };
     let mut cols = PgVec::new_in(env.mcx);
     if env.mult.is_some() || !leaves(t, &mut cols) {
         return None;
     }
     let (mut seeds, mut any, mut all_bounded) = (PgVec::new_in(env.mcx), b.bconst(false), true);
     for leaf in cols {
-        let Tree::Col { c, scale, .. } = leaf else { unreachable!("leaves keeps columns") };
-        let cell = row.col(*c).filter(|x| x.null.is_none() && crate::rep::num_of(x.cell.rep).scale == *scale)?;
+        let Tree::Col { c, scale, .. } = leaf else {
+            unreachable!("leaves keeps columns")
+        };
+        let cell = row
+            .col(*c)
+            .filter(|x| x.null.is_none() && crate::rep::num_of(x.cell.rep).scale == *scale)?;
         let (verbatim, w) = window(b, env, cell)?;
         all_bounded &= bounded(b, env, cell);
         any = b.int_bin(IntBinOp::Or, any, verbatim);
         seeds.push_in((leaf, w));
     }
-    let word = env.rec_window.filter(|_| env.rec_zeroed && all_bounded && word_form(t));
-    let (l_lean, l_gen, l_join) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));
+    let word = env
+        .rec_window
+        .filter(|_| env.rec_zeroed && all_bounded && word_form(t));
+    let (l_lean, l_gen, l_join) = (
+        b.create_block(&[]),
+        b.create_block(&[]),
+        b.create_block(&[]),
+    );
     b.cond_br(any, (l_gen, &[]), (l_lean, &[]));
     b.switch_to(l_lean);
     if let Some(f) = word {
         // D3224 A2: in a code front's record (this window's rows alone) the row's term as one word (num.share's checked
         // evaluator: a node past 18 digits tested), added with no range test; a term past the word takes the i256 form
-        let (l_word, l_add, l_wide) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));
+        let (l_word, l_add, l_wide) = (
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         b.cond_br(f, (l_word, &[]), (l_wide, &[]));
         b.switch_to(l_word);
         fires::fire("num.lean.word"); // fire signal (D3224 A2: a code front record's wide sum one word per row)
         let mut bad = b.bconst(false);
-        let mut leaf = |_: &mut FunctionBuilder<'_>, c: i16, s: i16, _: &mut Value| seed(&seeds[..], c, s);
-        let w = crate::ops::agg::numeric::strategies::num_share::eval(b, t, &mut bad, &mut leaf, &mut Some(PgVec::new_in(env.mcx)));
+        let mut leaf =
+            |_: &mut FunctionBuilder<'_>, c: i16, s: i16, _: &mut Value| seed(&seeds[..], c, s);
+        let w = crate::ops::agg::numeric::strategies::num_share::eval(
+            b,
+            t,
+            &mut bad,
+            &mut leaf,
+            &mut Some(PgVec::new_in(env.mcx)),
+        );
         b.cond_br(bad, (l_wide, &[]), (l_add, &[]));
         b.switch_to(l_add);
         word_add(b, env, (base, off, valid), w, avg.then_some(32));
@@ -203,7 +314,10 @@ pub(crate) fn wide< 'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row:
     b.switch_to(l_slow);
     // A1 (D3224): the cold fold reads the leaves and makes the term again, so the hot path keeps none of it across the test
     let mcx = env.mcx;
-    let seeds = seeds.iter().map(|&(leaf, w)| (leaf, leaf_word(b, env, row, leaf).unwrap_or(w))).collect_in(mcx);
+    let seeds = seeds
+        .iter()
+        .map(|&(leaf, w)| (leaf, leaf_word(b, env, row, leaf).unwrap_or(w)))
+        .collect_in(mcx);
     let term = lean_term(b, env, row, t, &seeds[..]);
     class.fold_wide(b, env, a, Acc::Slot { base, off, valid }, &term);
     Some(open(b, env, l_join, l_gen))
@@ -213,43 +327,93 @@ pub(crate) fn wide< 'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row:
 /// NOT NULL packed `Window` column at its scale or a constant, a window with no verbatim leaf folds the finite term of
 /// the words (pgrc packs only finite values: no leaf's sentinel test, specials code or select), through class.num_packed's
 /// fold under the same guard `g`; a verbatim window runs the caller's generic step.
-pub(crate) fn tree< 'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, a: &AggDecl<'_>, t: & Tree, acc: &Acc<'_>, g: Option<Value>) -> Option<Lean<'e>> {
-    let &Acc::Slot { base, off, valid } = acc else { return None };
+pub(crate) fn tree<'e>(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env<'e, '_>,
+    row: &RowVals,
+    a: &AggDecl<'_>,
+    t: &Tree,
+    acc: &Acc<'_>,
+    g: Option<Value>,
+) -> Option<Lean<'e>> {
+    let &Acc::Slot { base, off, valid } = acc else {
+        return None;
+    };
     let mut cols = PgVec::new_in(env.mcx);
     if env.mult.is_some() || !leaves(t, &mut cols) || cols.is_empty() || int_leaf(t) {
         return None;
     }
     let (mut seeds, mut any, mut all_bounded) = (PgVec::new_in(env.mcx), b.bconst(false), true);
     for leaf in cols {
-        let Tree::Col { c, scale, .. } = leaf else { unreachable!("leaves keeps columns") };
-        let cell = row.col(*c).filter(|x| x.null.is_none() && crate::rep::num_of(x.cell.rep).scale == *scale)?;
+        let Tree::Col { c, scale, .. } = leaf else {
+            unreachable!("leaves keeps columns")
+        };
+        let cell = row
+            .col(*c)
+            .filter(|x| x.null.is_none() && crate::rep::num_of(x.cell.rep).scale == *scale)?;
         let (verbatim, w) = window(b, env, cell)?;
         all_bounded &= bounded(b, env, cell);
         any = b.int_bin(IntBinOp::Or, any, verbatim);
         seeds.push_in((leaf, w));
     }
     fires::fire("num.lean.tree"); // fire signal (D3224 A1: R-KEEP's fire count of the lean tree branch)
-    let (l_lean, l_gen, l_join) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));
+    let (l_lean, l_gen, l_join) = (
+        b.create_block(&[]),
+        b.create_block(&[]),
+        b.create_block(&[]),
+    );
     b.cond_br(any, (l_gen, &[]), (l_lean, &[]));
     b.switch_to(l_lean);
     let (yes, mcx) = (b.bconst(true), env.mcx);
     let mut memo = crate::ops::agg::numeric::strategies::memo_num::Memo::new(true, mcx);
     for &(leaf, w) in &seeds {
-        memo.put(leaf, Val { lo: w, hi: None, sp: None, ok: yes, kids: PgVec::new_in(mcx), sel: PgVec::new_in(mcx), ds: None, raw: None });
+        memo.put(
+            leaf,
+            Val {
+                lo: w,
+                hi: None,
+                sp: None,
+                ok: yes,
+                kids: PgVec::new_in(mcx),
+                sel: PgVec::new_in(mcx),
+                ds: None,
+                raw: None,
+            },
+        );
     }
     let term = crate::ops::agg::numeric::strategies::num_window::term(b, env, row, t, &mut memo);
     // D3224 A2: in a code front's record (this window's rows alone) a term under 10^33 at the slot's scale adds with no
     // range or overflow test: WINDOW_ROWS terms stay under 2^126 (D299's range, the i128)
-    let fits = a.dscale_slot == NONE && matches!(a.reg, R::SumNum | R::AvgNum) && scale_of(t) == a.scale && digits_of(t) <= 33;
-    if let Some(f) = env.rec_window.filter(|_| fits && all_bounded && env.rec_zeroed) {
+    let fits = a.dscale_slot == NONE
+        && matches!(a.reg, R::SumNum | R::AvgNum)
+        && scale_of(t) == a.scale
+        && digits_of(t) <= 33;
+    if let Some(f) = env
+        .rec_window
+        .filter(|_| fits && all_bounded && env.rec_zeroed)
+    {
         let (l_win, l_any) = (b.create_block(&[]), b.create_block(&[]));
         b.cond_br(f, (l_win, &[]), (l_any, &[]));
         b.switch_to(l_win);
         fires::fire("num.lean.window"); // fire signal (D3224 A2: a code front record's sum without the range test)
         let s63 = b.iconst(Type::I64, 63);
-        let hi = term.hi.unwrap_or_else(|| b.int_bin(IntBinOp::Sshr, term.lo, s63));
-        let (words, n_at) = if crate::ops::agg::numeric::num_carry::spilled(a) { (4, 32) } else { (2, 16) };
-        window_add(b, env, (base, off, valid), &[term.lo, hi], false, matches!(a.reg, R::AvgNum).then_some(n_at), words);
+        let hi = term
+            .hi
+            .unwrap_or_else(|| b.int_bin(IntBinOp::Sshr, term.lo, s63));
+        let (words, n_at) = if crate::ops::agg::numeric::num_carry::spilled(a) {
+            (4, 32)
+        } else {
+            (2, 16)
+        };
+        window_add(
+            b,
+            env,
+            (base, off, valid),
+            &[term.lo, hi],
+            false,
+            matches!(a.reg, R::AvgNum).then_some(n_at),
+            words,
+        );
         b.br(l_join, &[]);
         b.switch_to(l_any);
     }
@@ -269,15 +433,29 @@ fn narrow_fits(precision: u16) -> bool {
 /// i128 `[lo, hi]`, or the i256 one sign-extended), `n` + 1 at `n_at` (avg), marked valid. Untested: the record holds one
 /// window's rows (`Env::rec_window`) and its caller bounded their sum; `narrow`: the sum is one i64 (`narrow_fits`),
 /// its high word the sign.
-fn window_add(b: &mut FunctionBuilder<'_>, env: &Env, (base, off, valid): (Value, i32, gravity_expr::emit::CellValid), t: &[Value], narrow: bool, n_at: Option<i32>, words: usize) {
+fn window_add(
+    b: &mut FunctionBuilder<'_>,
+    env: &Env,
+    (base, off, valid): (Value, i32, gravity_expr::emit::CellValid),
+    t: &[Value],
+    narrow: bool,
+    n_at: Option<i32>,
+    words: usize,
+) {
     let s63 = b.iconst(Type::I64, 63);
     let (lo, hi) = if narrow {
         let lo = b.load(Type::I64, base, off);
         let s = b.int_bin(IntBinOp::Add, lo, t[0]);
         (s, b.int_bin(IntBinOp::Sshr, s, s63))
     } else {
-        let (l, h) = (b.load(Type::I64, base, off), b.load(Type::I64, base, off + 8));
-        let th = t.get(1).copied().unwrap_or_else(|| b.int_bin(IntBinOp::Sshr, t[0], s63));
+        let (l, h) = (
+            b.load(Type::I64, base, off),
+            b.load(Type::I64, base, off + 8),
+        );
+        let th = t
+            .get(1)
+            .copied()
+            .unwrap_or_else(|| b.int_bin(IntBinOp::Sshr, t[0], s63));
         crate::ops::agg::trans::class_word::add128(b, l, h, t[0], th)
     };
     let top = (words > 2).then(|| b.int_bin(IntBinOp::Sshr, hi, s63));
@@ -293,15 +471,24 @@ fn word_form(t: &Tree) -> bool {
     match t {
         Tree::Col { .. } | Tree::Const { .. } => true,
         Tree::Mul(x, y) => word_form(x) && word_form(y),
-        Tree::Add(x, y) | Tree::Sub(x, y) => [x, y].iter().all(|z| scale_of(t) - scale_of(z) <= 18 && word_form(z)),
-        Tree::Int { .. } | Tree::PastWord { .. } | Tree::Case(_) | Tree::Cast { .. } | Tree::Div { .. } => false,
+        Tree::Add(x, y) | Tree::Sub(x, y) => [x, y]
+            .iter()
+            .all(|z| scale_of(t) - scale_of(z) <= 18 && word_form(z)),
+        Tree::Int { .. }
+        | Tree::PastWord { .. }
+        | Tree::Case(_)
+        | Tree::Cast { .. }
+        | Tree::Div { .. } => false,
     }
 }
 
 /// D3224 A2: the packed word of leaf column `(c, scale)` among `wide`'s `seeds` (every column leaf is one).
 fn seed(seeds: &[(&Tree, Value)], c: i16, scale: i16) -> Value {
-    let hit = seeds.iter().find(|(l, _)| matches!(l, Tree::Col { c: lc, scale: ls, .. } if *lc == c && *ls == scale));
-    hit.map(|x| x.1).unwrap_or_else(|| unreachable!("wide's seeds hold every column leaf"))
+    let hit = seeds
+        .iter()
+        .find(|(l, _)| matches!(l, Tree::Col { c: lc, scale: ls, .. } if *lc == c && *ls == scale));
+    hit.map(|x| x.1)
+        .unwrap_or_else(|| unreachable!("wide's seeds hold every column leaf"))
 }
 
 /// D3224 A2: word `t` added into a code front record's i256 sum / avg slot (`n` + 1 at `n_at`), marked valid: the low
@@ -309,15 +496,28 @@ fn seed(seeds: &[(&Tree, Value)], c: i16, scale: i16) -> Value {
 /// -1) only when the two differ, which a sum crossing zero or 2^128 does: a cold block that reads nothing the hot path
 /// keeps. Exact with no range test: the record holds one window's rows (`Env::rec_window`, at most a granule's), from
 /// zero (`Env::rec_zeroed`).
-fn word_add(b: &mut FunctionBuilder<'_>, env: &Env, (base, off, valid): (Value, i32, gravity_expr::emit::CellValid), t: Value, n_at: Option<i32>) {
+fn word_add(
+    b: &mut FunctionBuilder<'_>,
+    env: &Env,
+    (base, off, valid): (Value, i32, gravity_expr::emit::CellValid),
+    t: Value,
+    n_at: Option<i32>,
+) {
     let s63 = b.iconst(Type::I64, 63);
     let st = b.int_bin(IntBinOp::Sshr, t, s63);
-    let (w0, w1) = (b.load(Type::I64, base, off), b.load(Type::I64, base, off + 8));
+    let (w0, w1) = (
+        b.load(Type::I64, base, off),
+        b.load(Type::I64, base, off + 8),
+    );
     let (s0, s1) = crate::ops::agg::trans::class_word::add128(b, w0, w1, t, st);
     store(b, env, (base, off, valid), &[s0, s1], n_at, None);
     // the carry out of the high words' top bit (w1 + st + carry in = s1): (w1 & st) | ((w1 | st) & !s1); its xor with
     // st's top bit is set exactly when the high pair moves
-    let (a, o, ns) = (b.int_bin(IntBinOp::And, w1, st), b.int_bin(IntBinOp::Or, w1, st), b.int_un(gravity_ir::IntUnOp::Not, s1));
+    let (a, o, ns) = (
+        b.int_bin(IntBinOp::And, w1, st),
+        b.int_bin(IntBinOp::Or, w1, st),
+        b.int_un(gravity_ir::IntUnOp::Not, s1),
+    );
     let k = b.int_bin(IntBinOp::And, o, ns);
     let c = b.int_bin(IntBinOp::Or, a, k);
     let x = b.int_bin(IntBinOp::Xor, c, st);
@@ -326,7 +526,10 @@ fn word_add(b: &mut FunctionBuilder<'_>, env: &Env, (base, off, valid): (Value, 
     b.mark_cold(l_hi);
     b.cond_br(moves, (l_hi, &[]), (l_done, &[]));
     b.switch_to(l_hi);
-    let (w2, w3) = (b.load(Type::I64, base, off + 16), b.load(Type::I64, base, off + 24));
+    let (w2, w3) = (
+        b.load(Type::I64, base, off + 16),
+        b.load(Type::I64, base, off + 24),
+    );
     let d = b.int_bin(IntBinOp::Or, st, env.one); // +1 (a carry, t >= 0) or -1 (a borrow, t < 0)
     let (h2, h3) = crate::ops::agg::trans::class_word::add128(b, w2, w3, d, st);
     b.store(base, off + 16, h2);
@@ -355,18 +558,43 @@ fn int_leaf(t: &Tree) -> bool {
 
 /// The exact i256 term of `t` over its column leaves' packed words `seeds` (no leaf is special: `wide_term` over a memo
 /// seeded with them).
-fn lean_term<'t>(b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals, t: &'t Tree, seeds: &[(&'t Tree<'t>, Value)]) -> crate::face::fold::WideTerm {
+fn lean_term<'t>(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    row: &RowVals,
+    t: &'t Tree,
+    seeds: &[(&'t Tree<'t>, Value)],
+) -> crate::face::fold::WideTerm {
     let (yes, mcx) = (b.bconst(true), env.mcx);
     let mut memo = crate::ops::agg::numeric::strategies::memo_num::Memo::new(true, mcx);
     for &(leaf, w) in seeds {
-        memo.put(leaf, Val { lo: w, hi: None, sp: None, ok: yes, kids: PgVec::new_in(mcx), sel: PgVec::new_in(mcx), ds: None, raw: None });
+        memo.put(
+            leaf,
+            Val {
+                lo: w,
+                hi: None,
+                sp: None,
+                ok: yes,
+                kids: PgVec::new_in(mcx),
+                sel: PgVec::new_in(mcx),
+                ds: None,
+                raw: None,
+            },
+        );
     }
     crate::ops::agg::numeric::strategies::num_keyed::wide_term(b, env, row, t, &mut memo)
 }
 
 /// A column leaf's packed word read again (`wide`'s cold path); `None` for a leaf whose cell is gone.
-fn leaf_word(b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals, leaf: &Tree) -> Option<Value> {
-    let Tree::Col { c, .. } = leaf else { return None };
+fn leaf_word(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    row: &RowVals,
+    leaf: &Tree,
+) -> Option<Value> {
+    let Tree::Col { c, .. } = leaf else {
+        return None;
+    };
     window(b, env, row.col(*c)?).map(|(_, w)| w)
 }
 
@@ -379,10 +607,18 @@ pub(crate) fn join<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, lean:
     }
 }
 
-fn open<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, l_join: Block, l_gen: Block) -> Lean<'e> {
+fn open<'e>(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env<'e, '_>,
+    l_join: Block,
+    l_gen: Block,
+) -> Lean<'e> {
     b.br(l_join, &[]);
     b.switch_to(l_gen);
-    Lean { l_join, memo: env.memo.set_aside() }
+    Lean {
+        l_join,
+        memo: env.memo.set_aside(),
+    }
 }
 
 /// The column leaves of a tree the lean form reads (false: a CASE, which keeps the generic step).
@@ -409,7 +645,12 @@ fn window(b: &mut FunctionBuilder<'_>, env: &mut Env, c: CellRef<'_>) -> Option<
 /// The slot's words `[w..]` (an invalid slot the identity, as the classes' `load` reads it) plus term `t`, sign-extended:
 /// the validity and the exact sum (the carry out of each word pair added into the next). A1 (D3224): in a zeroed record
 /// (`Env::rec_zeroed`) an invalid slot's words are the identity already: no test (`None`).
-fn add<'e>(b: &mut FunctionBuilder<'_>, env: &Env<'e, '_>, (base, off, valid): (Value, i32, gravity_expr::emit::CellValid), t: &[Value]) -> (Option<Value>, PgVec<'e, Value>) {
+fn add<'e>(
+    b: &mut FunctionBuilder<'_>,
+    env: &Env<'e, '_>,
+    (base, off, valid): (Value, i32, gravity_expr::emit::CellValid),
+    t: &[Value],
+) -> (Option<Value>, PgVec<'e, Value>) {
     let ok = (!env.rec_zeroed).then(|| crate::ops::shared::slots::slot_ok(b, env, base, valid));
     if ok.is_none() {
         fires::fire("num.lean.zeroed"); // fire signal (D3224 A1: a zeroed record's slot added untested)
@@ -424,7 +665,11 @@ fn add<'e>(b: &mut FunctionBuilder<'_>, env: &Env<'e, '_>, (base, off, valid): (
         return (ok, mcx::pg_vec![in env.mcx; s0, s1]);
     }
     // the carry out of the low pair: s1 below w1, or equal with t1 nonzero (then t1 + carry wrapped)
-    let (lt, eq, nz) = (b.icmp(IntCond::Ult, s1, w[1]), b.icmp(IntCond::Eq, s1, w[1]), b.icmp(IntCond::Ne, t[1], env.zero));
+    let (lt, eq, nz) = (
+        b.icmp(IntCond::Ult, s1, w[1]),
+        b.icmp(IntCond::Eq, s1, w[1]),
+        b.icmp(IntCond::Ne, t[1], env.zero),
+    );
     let wrap = b.int_bin(IntBinOp::And, eq, nz);
     let c = b.int_bin(IntBinOp::Or, lt, wrap);
     let c = b.conv(gravity_ir::ConvOp::Zext, Type::I64, c);
@@ -438,7 +683,11 @@ fn add<'e>(b: &mut FunctionBuilder<'_>, env: &Env<'e, '_>, (base, off, valid): (
 /// immediates (no 64-bit constants per row and aggregate).
 fn past(b: &mut FunctionBuilder<'_>, hi: Value) -> Block {
     const _: () = assert!(SUM_HI_LIMIT == 1 << 62, "past()'s shift is D299's limit");
-    let (s62, one, two) = (b.iconst(Type::I64, 62), b.iconst(Type::I64, 1), b.iconst(Type::I64, 2));
+    let (s62, one, two) = (
+        b.iconst(Type::I64, 62),
+        b.iconst(Type::I64, 1),
+        b.iconst(Type::I64, 2),
+    );
     let top = b.int_bin(IntBinOp::Sshr, hi, s62);
     let h = b.int_bin(IntBinOp::Add, top, one);
     let out = b.icmp(IntCond::Uge, h, two);
@@ -450,7 +699,14 @@ fn past(b: &mut FunctionBuilder<'_>, hi: Value) -> Block {
 }
 
 /// Stores the sum words, `n` + 1 at `n_at` (avg), and marks the slot valid.
-fn store(b: &mut FunctionBuilder<'_>, env: &Env, (base, off, valid): (Value, i32, gravity_expr::emit::CellValid), s: &[Value], n_at: Option<i32>, ok: Option<Value>) {
+fn store(
+    b: &mut FunctionBuilder<'_>,
+    env: &Env,
+    (base, off, valid): (Value, i32, gravity_expr::emit::CellValid),
+    s: &[Value],
+    n_at: Option<i32>,
+    ok: Option<Value>,
+) {
     for (i, &v) in s.iter().enumerate() {
         b.store(base, off + 8 * i as i32, v);
     }
@@ -478,7 +734,11 @@ mod tests {
         let rig = mcx::MemoryContext::new("GravityPlanRig");
         let mut pb = ProgramBuilder::new();
         let core = crate::frame::env::declare(&mut pb);
-        let f = pb.declare_func("t", &[Type::Ptr, Type::Ptr, Type::I64], &[Type::I64, Type::I64, Type::I64]);
+        let f = pb.declare_func(
+            "t",
+            &[Type::Ptr, Type::Ptr, Type::I64],
+            &[Type::I64, Type::I64, Type::I64],
+        );
         let mut b = pb.define(f);
         let p = b.params().to_vec();
         let x = crate::frame::stop::exits(&mut b);
@@ -492,7 +752,16 @@ mod tests {
         b.switch_to(l_slow);
         let one = b.iconst(Type::I64, 1);
         b.ret(&[s[0], s[1], one]);
-        for blk in [x.l_finish, x.l_stop_in, x.l_full, x.l_status, x.l_done, x.l_raise, x.l_cancel, x.l_exit] {
+        for blk in [
+            x.l_finish,
+            x.l_stop_in,
+            x.l_full,
+            x.l_status,
+            x.l_done,
+            x.l_raise,
+            x.l_cancel,
+            x.l_exit,
+        ] {
             b.switch_to(blk);
             let z = b.iconst(Type::I64, 0);
             b.ret(&[z, z, z]);
@@ -501,7 +770,9 @@ mod tests {
         let mut ctx = vec![0u64; gravity_abi::ctx::ctx_size(1) / 8];
         let mut slot = [lo as u64, hi as u64];
         let args = [ctx.as_mut_ptr() as u64, slot.as_mut_ptr() as u64, w as u64];
-        let got = gravity_interp::Interp::new(&prog).run(f, &args).expect("runs");
+        let got = gravity_interp::Interp::new(&prog)
+            .run(f, &args)
+            .expect("runs");
         (got[0] as i64, got[1] as i64, got[2] == 1)
     }
 
@@ -510,18 +781,44 @@ mod tests {
     #[test]
     fn a_lean_add_is_exact_in_range_and_cold_for_a_sentinel_or_past_the_cap() {
         let m = (1i64 << 55) - 1;
-        for (lo, hi, w) in [(0, 0, 5), (-3, -1, 2), (u64::MAX as i64, 7, 1), (5, 0, -m), (0, 0, m), (0, (1 << 62) - 2, m)] {
+        for (lo, hi, w) in [
+            (0, 0, 5),
+            (-3, -1, 2),
+            (u64::MAX as i64, 7, 1),
+            (5, 0, -m),
+            (0, 0, m),
+            (0, (1 << 62) - 2, m),
+        ] {
             let exact = (((hi as i128) << 64) | lo as u64 as i128) + w as i128;
-            assert_eq!(run(lo, hi, w), (exact as i64, (exact >> 64) as i64, false), "{lo} {hi} {w}");
+            assert_eq!(
+                run(lo, hi, w),
+                (exact as i64, (exact >> 64) as i64, false),
+                "{lo} {hi} {w}"
+            );
         }
         assert!(run(SP_NAN, SENT_HI, 7).2, "a NaN state takes the cold fold");
-        assert!(run(SP_NAN, SENT_HI, -7).2, "a NaN state takes the cold fold (a borrow)");
-        assert!(run(u64::MAX as i64, (1 << 62) - 1, 1).2, "past the cap: cold (the generic fold's OVERFLOW)");
+        assert!(
+            run(SP_NAN, SENT_HI, -7).2,
+            "a NaN state takes the cold fold (a borrow)"
+        );
+        assert!(
+            run(u64::MAX as i64, (1 << 62) - 1, 1).2,
+            "past the cap: cold (the generic fold's OVERFLOW)"
+        );
         assert!(run(0, -(1 << 62), -1).2, "below the cap: cold");
         // D3224 A1: `past`'s shift form at each end of [-2^62, 2^62): the last word in, the first out
-        assert!(!run(u64::MAX as i64 - 1, (1 << 62) - 1, 1).2, "the top of the range stays lean");
-        assert!(!run(1, -(1 << 62), -1).2, "the bottom of the range stays lean");
-        assert!(run(-1, -(1 << 62) - 1, 0).2 && run(0, i64::MAX, 0).2 && run(0, 1 << 62, 0).2, "each side out goes cold");
+        assert!(
+            !run(u64::MAX as i64 - 1, (1 << 62) - 1, 1).2,
+            "the top of the range stays lean"
+        );
+        assert!(
+            !run(1, -(1 << 62), -1).2,
+            "the bottom of the range stays lean"
+        );
+        assert!(
+            run(-1, -(1 << 62) - 1, 0).2 && run(0, i64::MAX, 0).2 && run(0, 1 << 62, 0).2,
+            "each side out goes cold"
+        );
     }
 
     /// D3224 A2: `word_add` of word `t` into an avg's i256 slot `w` (its count `n` after it): the five words after it,
@@ -538,7 +835,16 @@ mod tests {
         word_add(&mut b, &env, (p[1], 0, CellValid::Always), p[2], Some(32));
         let zero = b.iconst(Type::I64, 0);
         b.ret(&[zero]);
-        for blk in [x.l_finish, x.l_stop_in, x.l_full, x.l_status, x.l_done, x.l_raise, x.l_cancel, x.l_exit] {
+        for blk in [
+            x.l_finish,
+            x.l_stop_in,
+            x.l_full,
+            x.l_status,
+            x.l_done,
+            x.l_raise,
+            x.l_cancel,
+            x.l_exit,
+        ] {
             b.switch_to(blk);
             let z = b.iconst(Type::I64, 0);
             b.ret(&[z]);
@@ -547,7 +853,9 @@ mod tests {
         let mut ctx = vec![0u64; gravity_abi::ctx::ctx_size(1) / 8];
         let mut slot = [w[0], w[1], w[2], w[3], 41];
         let args = [ctx.as_mut_ptr() as u64, slot.as_mut_ptr() as u64, t as u64];
-        gravity_interp::Interp::new(&prog).run(f, &args).expect("runs");
+        gravity_interp::Interp::new(&prog)
+            .run(f, &args)
+            .expect("runs");
         slot
     }
 
@@ -568,7 +876,21 @@ mod tests {
             out
         };
         let m = u64::MAX;
-        let slots = [[0, 0, 0, 0], [5, 0, 0, 0], [3, 0, 0, 0], [m, m, m, m], [m - 4, m, m, m], [m, m, 0, 0], [0, 0, 1, 0], [m, 0, 0, 0], [0, 1, 0, 0], [1, 2, 3, 4], [0, 0, m, m], [7, m, m - 1, m], [m, i64::MAX as u64, 0, 0]];
+        let slots = [
+            [0, 0, 0, 0],
+            [5, 0, 0, 0],
+            [3, 0, 0, 0],
+            [m, m, m, m],
+            [m - 4, m, m, m],
+            [m, m, 0, 0],
+            [0, 0, 1, 0],
+            [m, 0, 0, 0],
+            [0, 1, 0, 0],
+            [1, 2, 3, 4],
+            [0, 0, m, m],
+            [7, m, m - 1, m],
+            [m, i64::MAX as u64, 0, 0],
+        ];
         let ts = [0, 1, -1, 5, -5, 1 << 55, -(1 << 55), i64::MAX, i64::MIN];
         for w in slots {
             for t in ts {

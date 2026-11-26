@@ -83,7 +83,9 @@ pub const REL_STRIPES: usize = 1024;
 pub fn enabled() -> bool {
     static ENV: std::sync::OnceLock<Option<bool>> = std::sync::OnceLock::new();
     if let Some(v) = *ENV.get_or_init(|| {
-        std::env::var("PGRUST_L2_CACHE").ok().map(|v| v.trim() != "0")
+        std::env::var("PGRUST_L2_CACHE")
+            .ok()
+            .map(|v| v.trim() != "0")
     }) {
         return v;
     }
@@ -111,7 +113,8 @@ pub fn set_historic_snapshot_probe(f: fn() -> bool) {
 }
 
 // Installed by inval::init_seams: inval `PendingInvalidationsTouch`.
-static TOUCH_PROBE: std::sync::atomic::AtomicPtr<()> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+static TOUCH_PROBE: std::sync::atomic::AtomicPtr<()> =
+    std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 
 pub fn set_pending_touch_probe(f: fn(&[Oid], &[Oid], &[i32], bool) -> bool) {
     TOUCH_PROBE.store(f as *mut (), Ordering::Release);
@@ -150,8 +153,7 @@ pub fn private_build_mode() -> bool {
     if probe(&PENDING_PROBE) || probe(&HISTORIC_PROBE) {
         return true;
     }
-    parallel_seams::is_parallel_worker::is_installed()
-        && parallel_seams::is_parallel_worker::call()
+    parallel_seams::is_parallel_worker::is_installed() && parallel_seams::is_parallel_worker::call()
 }
 
 /// D3866 (step 2): `private_build_mode` holds for one reason only, this thread's own unbroadcast invalidation messages
@@ -161,7 +163,8 @@ pub fn private_build_mode() -> bool {
 pub fn private_by_own_ddl_only() -> bool {
     probe(&PENDING_PROBE)
         && !probe(&HISTORIC_PROBE)
-        && !(parallel_seams::is_parallel_worker::is_installed() && parallel_seams::is_parallel_worker::call())
+        && !(parallel_seams::is_parallel_worker::is_installed()
+            && parallel_seams::is_parallel_worker::call())
 }
 
 // ---------------------------------------------------------------------------
@@ -564,11 +567,17 @@ const ZERO_SLOTS: [AtomicU32; KEYED_SLOTS] = [ZERO32; KEYED_SLOTS];
 const ZERO_STRIPES: [AtomicU32; ALL_DB_STRIPES] = [ZERO32; ALL_DB_STRIPES];
 
 /// D4028: the two tables' mixes (odd multipliers; the database mixed in by its own constant per table).
-const KEYED_MIX: [(u64, u64); 2] = [(0x9E37_79B9_7F4A_7C15, 0xD6E8_FEB8_6659_FD93), (0xC2B2_AE3D_27D4_EB4F, 0xFF51_AFD7_ED55_8CCD)];
+const KEYED_MIX: [(u64, u64); 2] = [
+    (0x9E37_79B9_7F4A_7C15, 0xD6E8_FEB8_6659_FD93),
+    (0xC2B2_AE3D_27D4_EB4F, 0xFF51_AFD7_ED55_8CCD),
+];
 
 impl KeyedGens {
     const fn new() -> Self {
-        Self { flat: [ZERO_SLOTS; 2], all_db: [ZERO_STRIPES; 2] }
+        Self {
+            flat: [ZERO_SLOTS; 2],
+            all_db: [ZERO_STRIPES; 2],
+        }
     }
 
     /// The slot of `key` in database `db` in table `t`, and the stripe of `key` every database reads there.
@@ -576,7 +585,13 @@ impl KeyedGens {
     fn slots_in(t: usize, key: u64, db: Oid) -> (usize, usize) {
         let (m, dm) = KEYED_MIX[t];
         let mix = |k: u64, bits: u32| (k.wrapping_mul(m) >> (64 - bits)) as usize;
-        (mix(key ^ u64::from(db).wrapping_mul(dm), KEYED_SLOTS.trailing_zeros()), mix(key, ALL_DB_STRIPES.trailing_zeros()))
+        (
+            mix(
+                key ^ u64::from(db).wrapping_mul(dm),
+                KEYED_SLOTS.trailing_zeros(),
+            ),
+            mix(key, ALL_DB_STRIPES.trailing_zeros()),
+        )
     }
 
     /// The first table's slot and stripe of `key` in `db` (tests and reports; `slots_in` for either table).
@@ -598,7 +613,9 @@ impl KeyedGens {
     #[inline]
     fn half(&self, t: usize, key: u64, db: Oid) -> u32 {
         let (slot, stripe) = Self::slots_in(t, key, db);
-        self.flat[t][slot].load(Ordering::Acquire).wrapping_add(self.all_db[t][stripe].load(Ordering::Acquire))
+        self.flat[t][slot]
+            .load(Ordering::Acquire)
+            .wrapping_add(self.all_db[t][stripe].load(Ordering::Acquire))
     }
 
     #[inline]
@@ -610,7 +627,11 @@ impl KeyedGens {
     fn bump(&self, key: u64, db: Oid) {
         for t in 0..2 {
             let (slot, stripe) = Self::slots_in(t, key, db);
-            let g = if db == InvalidOid { &self.all_db[t][stripe] } else { &self.flat[t][slot] };
+            let g = if db == InvalidOid {
+                &self.all_db[t][stripe]
+            } else {
+                &self.flat[t][slot]
+            };
             g.fetch_add(1, Ordering::SeqCst);
         }
         committed_moved();
@@ -640,7 +661,8 @@ pub fn keyed_older(a: u64, b: u64) -> u64 {
 
 #[inline]
 fn db_bucket(db: Oid) -> usize {
-    ((u64::from(db)).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> (64 - PROG_DB_BUCKETS.trailing_zeros())) as usize
+    ((u64::from(db)).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> (64 - PROG_DB_BUCKETS.trailing_zeros()))
+        as usize
 }
 
 fn bump_buckets(g: &[AtomicU64; PROG_DB_BUCKETS], db: Oid) {
@@ -654,7 +676,6 @@ fn bump_buckets(g: &[AtomicU64; PROG_DB_BUCKETS], db: Oid) {
     committed_moved();
 }
 
-
 /// C3: `domain`'s program generation in database `db`: what a Gravity program's recorded dependency holds (gravity_deps
 /// `Deps`). It moves with the domain's generation (`invalidate_key`, after it: a reader that sees it moved sees the domain
 /// moved, and lags until it processes the message) but only for a message of `db` or of a shared catalog / relation
@@ -662,7 +683,10 @@ fn bump_buckets(g: &[AtomicU64; PROG_DB_BUCKETS], db: Oid) {
 #[inline]
 pub fn prog_gen(domain: Domain, db: Oid) -> u64 {
     match domain {
-        Domain::Cat(id) => usize::try_from(id).ok().and_then(|i| PROG_CAT_GENS.get(i)).map_or(0, |g| g[db_bucket(db)].load(Ordering::Acquire)),
+        Domain::Cat(id) => usize::try_from(id)
+            .ok()
+            .and_then(|i| PROG_CAT_GENS.get(i))
+            .map_or(0, |g| g[db_bucket(db)].load(Ordering::Acquire)),
         Domain::Rel(relid) => PROG_REL_GENS.gen(u64::from(relid), db),
     }
 }
@@ -752,9 +776,9 @@ pub fn oid_wraps() -> u64 {
 /// (catcache compares stored keys; relcache keys are exact by relid).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct L2Key {
-    pub kind: u8, // 0 = catcache, 1 = relcache
-    pub id: u32,  // catcache: cache id; relcache: relid
-    pub db: Oid,  // InvalidOid for shared catalogs
+    pub kind: u8,  // 0 = catcache, 1 = relcache
+    pub id: u32,   // catcache: cache id; relcache: relid
+    pub db: Oid,   // InvalidOid for shared catalogs
     pub hash: u32, // catcache hashValue; relcache: 0
 }
 
@@ -879,7 +903,10 @@ struct ShardBudget {
 
 impl ShardBudget {
     fn current() -> Self {
-        ShardBudget { entries: shard_budget(), bytes: shard_byte_budget() }
+        ShardBudget {
+            entries: shard_budget(),
+            bytes: shard_byte_budget(),
+        }
     }
 
     fn exceeded(self, count: &AtomicUsize, bytes: &AtomicUsize) -> bool {
@@ -964,8 +991,16 @@ fn count_in(bytes: usize) {
     BYTES.fetch_add(bytes, Ordering::Relaxed);
     let owner = memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::CatalogL2));
     let mut held = HELD.lock().unwrap_or_else(|e| e.into_inner());
-    held.get_or_insert_with(|| memledger::Charge::open(owner, memledger::Release::Evict, memledger::Kind::Region, memledger::charge::Door::Heap, 0))
-        .commit(bytes as u64);
+    held.get_or_insert_with(|| {
+        memledger::Charge::open(
+            owner,
+            memledger::Release::Evict,
+            memledger::Kind::Region,
+            memledger::charge::Door::Heap,
+            0,
+        )
+    })
+    .commit(bytes as u64);
 }
 
 /// `bytes` of entries unlinked: off the census and back to the calling thread's account (`unlink`: the entry's home).
@@ -1048,7 +1083,9 @@ pub fn lookup(
 /// The word a miss's timer is keyed by (`memledger::value`): the key at its generation.
 #[inline]
 fn value_key(key: &L2Key, gen: u64) -> u64 {
-    ((u64::from(key.id) << 32) | u64::from(key.hash)) ^ ((u64::from(key.db) << 8) | u64::from(key.kind)).rotate_left(17) ^ gen.rotate_left(41)
+    ((u64::from(key.id) << 32) | u64::from(key.hash))
+        ^ ((u64::from(key.db) << 8) | u64::from(key.kind)).rotate_left(17)
+        ^ gen.rotate_left(41)
 }
 
 /// Publish an entry at (key, gen). `matches` identifies entries with the same
@@ -1071,7 +1108,9 @@ pub fn insert(
     let home = memledger::Home::here();
     let _l2 = structure();
     let mut map = shard.map.lock().unwrap();
-    let bucket = map.entry(key).or_insert_with(|| Bucket { entries: Vec::new() });
+    let bucket = map.entry(key).or_insert_with(|| Bucket {
+        entries: Vec::new(),
+    });
 
     if let Some((_, existing, _, _)) = bucket
         .entries
@@ -1088,7 +1127,11 @@ pub fn insert(
         let _home = home.enter();
         count_in(bytes);
     }
-    memledger::value::fill(memledger::Consumer::CatalogL2, value_key(&key, gen), bytes as u64);
+    memledger::value::fill(
+        memledger::Consumer::CatalogL2,
+        value_key(&key, gen),
+        bytes as u64,
+    );
     INSERTS.fetch_add(1, Ordering::Relaxed);
     shard.count.fetch_add(1, Ordering::Relaxed);
     shard.bytes.fetch_add(bytes, Ordering::Relaxed);
@@ -1108,7 +1151,9 @@ pub fn insert(
                 }
             }
         }
-        for (_, e, sz, home) in bucket.entries.extract_if(.., |(g, e, _, _)| matches(e.as_ref()) && *g != newest && *g != second) {
+        for (_, e, sz, home) in bucket.entries.extract_if(.., |(g, e, _, _)| {
+            matches(e.as_ref()) && *g != newest && *g != second
+        }) {
             ENTRIES.fetch_sub(1, Ordering::Relaxed);
             shard.count.fetch_sub(1, Ordering::Relaxed);
             shard.bytes.fetch_sub(sz, Ordering::Relaxed);
@@ -1153,7 +1198,9 @@ fn evict_superseded(key: L2Key, gen: u64) {
     let shard = shard_of(&key);
     let _l2 = structure();
     let mut map = shard.map.lock().unwrap();
-    let Some(bucket) = map.get_mut(&key) else { return };
+    let Some(bucket) = map.get_mut(&key) else {
+        return;
+    };
     for (_, e, sz, home) in bucket.entries.extract_if(.., |(g, _, _, _)| *g < gen) {
         ENTRIES.fetch_sub(1, Ordering::Relaxed);
         shard.count.fetch_sub(1, Ordering::Relaxed);
@@ -1167,7 +1214,8 @@ fn evict_superseded(key: L2Key, gen: u64) {
 
 // D4579: installed by Gravity's executor: the process-wide program tier lets go the programs lowered in a dropped
 // database (`forget_database`; no relcache message names a dropped database's relations).
-static FORGET_DB_HOOK: std::sync::atomic::AtomicPtr<()> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+static FORGET_DB_HOOK: std::sync::atomic::AtomicPtr<()> =
+    std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 
 pub fn set_forget_database_hook(f: fn(Oid)) {
     FORGET_DB_HOOK.store(f as *mut (), Ordering::Release);
@@ -1207,12 +1255,22 @@ fn forget_database_entries(db: Oid) {
 
 /// The L2 key a catcache invalidation message names.
 pub fn cat_key(cache_id: i32, db: Oid, hash: u32) -> L2Key {
-    L2Key { kind: KIND_CAT, id: cache_id as u32, db, hash }
+    L2Key {
+        kind: KIND_CAT,
+        id: cache_id as u32,
+        db,
+        hash,
+    }
 }
 
 /// The L2 key a relcache invalidation message names.
 pub fn rel_key(relid: Oid, db: Oid) -> L2Key {
-    L2Key { kind: KIND_REL, id: relid, db, hash: 0 }
+    L2Key {
+        kind: KIND_REL,
+        id: relid,
+        db,
+        hash: 0,
+    }
 }
 
 /// D4298 (T4, the memory ladder's R2a tail): unlink live entries until the L2's bytes are at most `target`, shard by shard
@@ -1227,7 +1285,9 @@ pub fn trim_to(target: usize) -> usize {
         if over == 0 {
             break;
         }
-        let Ok(mut map) = s.map.try_lock() else { continue };
+        let Ok(mut map) = s.map.try_lock() else {
+            continue;
+        };
         let (n, b) = trim_shard(&mut map, &s.count, &s.bytes, over, unlink);
         drop(map);
         ENTRIES.fetch_sub(n, Ordering::Relaxed);
@@ -1246,7 +1306,16 @@ fn trim_shard(
 ) -> (usize, usize) {
     let keep = bytes.load(Ordering::Relaxed).saturating_sub(over);
     // a byte budget of 0 means no cap: keep 1 byte at most instead (every entry holds at least one)
-    evict_shard(map, count, bytes, ShardBudget { entries: 0, bytes: keep.max(1) }, unlink)
+    evict_shard(
+        map,
+        count,
+        bytes,
+        ShardBudget {
+            entries: 0,
+            bytes: keep.max(1),
+        },
+        unlink,
+    )
 }
 
 /// Test/debug: drop every entry (does not touch generations or views).
@@ -1372,13 +1441,26 @@ mod tests {
         assert!(committed_moves() > c, "a relation's storage");
         let c = committed_moves();
         bump_prog(Domain::Cat(47), db);
-        assert!(committed_moves() > c, "a catalog cache's program generation");
+        assert!(
+            committed_moves() > c,
+            "a catalog cache's program generation"
+        );
         let c = committed_moves();
         bump_prog(Domain::Rel(r), InvalidOid);
-        assert!(committed_moves() > c, "a relation's program generation, every database's");
+        assert!(
+            committed_moves() > c,
+            "a relation's program generation, every database's"
+        );
         let c = committed_moves();
-        let _ = (stor_gen(r, db), prog_gen(Domain::Rel(r), db), row_gen(47, 0xD457_9001, db));
-        assert!(committed_moves() >= c, "a read moves nothing (another test's move may)");
+        let _ = (
+            stor_gen(r, db),
+            prog_gen(Domain::Rel(r), db),
+            row_gen(47, 0xD457_9001, db),
+        );
+        assert!(
+            committed_moves() >= c,
+            "a read moves nothing (another test's move may)"
+        );
     }
 
     #[test]
@@ -1408,7 +1490,12 @@ mod tests {
     }
 
     fn key(id: u32) -> L2Key {
-        L2Key { kind: KIND_CAT, id, db: 5, hash: id }
+        L2Key {
+            kind: KIND_CAT,
+            id,
+            db: 5,
+            hash: id,
+        }
     }
 
     #[test]
@@ -1416,8 +1503,14 @@ mod tests {
         let k = key(1001);
         insert(k, 3, Arc::new(E(1)), 8, is_e(1));
         assert!(lookup(k, 3, is_e(1)).is_some());
-        assert!(lookup(k, 2, is_e(1)).is_none(), "older view must not see newer gen");
-        assert!(lookup(k, 4, is_e(1)).is_none(), "newer view must not see older gen");
+        assert!(
+            lookup(k, 2, is_e(1)).is_none(),
+            "older view must not see newer gen"
+        );
+        assert!(
+            lookup(k, 4, is_e(1)).is_none(),
+            "newer view must not see older gen"
+        );
     }
 
     #[test]
@@ -1431,8 +1524,14 @@ mod tests {
         insert(k, 3, Arc::new(E(4)), 24, is_e(4));
         assert!(lookup(k, 3, is_e(4)).is_some());
         let after = stats();
-        assert!(after.misses > before.misses && after.hits > before.hits, "a miss, then a hit");
-        assert!(v().miss_bytes >= before.miss_bytes + 24, "the publish's bytes");
+        assert!(
+            after.misses > before.misses && after.hits > before.hits,
+            "a miss, then a hit"
+        );
+        assert!(
+            v().miss_bytes >= before.miss_bytes + 24,
+            "the publish's bytes"
+        );
     }
 
     #[test]
@@ -1454,15 +1553,34 @@ mod tests {
         let other = rel_key(1_000_124, 5);
         let g = current_gen(dom);
         insert(k, g, Arc::new(E(1)), 8, is_e(1));
-        insert(other, current_gen(Domain::Rel(1_000_124)), Arc::new(E(2)), 8, is_e(2));
+        insert(
+            other,
+            current_gen(Domain::Rel(1_000_124)),
+            Arc::new(E(2)),
+            8,
+            is_e(2),
+        );
         let bucket_len = |key: L2Key| {
-            shard_of(&key).map.lock().unwrap().get(&key).map_or(0, |b| b.entries.len())
+            shard_of(&key)
+                .map
+                .lock()
+                .unwrap()
+                .get(&key)
+                .map_or(0, |b| b.entries.len())
         };
         assert_eq!(bucket_len(k), 1);
         invalidate_key(dom, k);
         assert!(current_gen(dom) > g);
-        assert_eq!(bucket_len(k), 0, "a dropped relation's entry must not outlive its invalidation");
-        assert_eq!(bucket_len(other), 1, "keys the message does not name are untouched");
+        assert_eq!(
+            bucket_len(k),
+            0,
+            "a dropped relation's entry must not outlive its invalidation"
+        );
+        assert_eq!(
+            bucket_len(other),
+            1,
+            "keys the message does not name are untouched"
+        );
     }
 
     /// C2: a published entry's bytes move from the publishing thread's memory account onto the L2's, and back to the
@@ -1483,9 +1601,19 @@ mod tests {
         let dom = Domain::Rel(1_000_200);
         let k = rel_key(1_000_200, 5);
         insert(k, current_gen(dom), Arc::new(E(3)), N as usize, is_e(3));
-        assert!(near(mine() - m0, -N) && near(l2() - l0, N), "published: {} / {}", mine() - m0, l2() - l0);
+        assert!(
+            near(mine() - m0, -N) && near(l2() - l0, N),
+            "published: {} / {}",
+            mine() - m0,
+            l2() - l0
+        );
         invalidate_key(dom, k);
-        assert!(near(mine() - m0, 0) && near(l2() - l0, 0), "unlinked: {} / {}", mine() - m0, l2() - l0);
+        assert!(
+            near(mine() - m0, 0) && near(l2() - l0, 0),
+            "unlinked: {} / {}",
+            mine() - m0,
+            l2() - l0
+        );
     }
 
     #[test]
@@ -1533,20 +1661,29 @@ mod tests {
         let a: Oid = 16_384;
         let r: Oid = 0x7FFF_0123;
         let b: Oid = (a + 1..a + 1000)
-            .find(|&b| db_bucket(b) != db_bucket(a) && KeyedGens::apart(u64::from(r), b, u64::from(r), a))
+            .find(|&b| {
+                db_bucket(b) != db_bucket(a) && KeyedGens::apart(u64::from(r), b, u64::from(r), a)
+            })
             .unwrap();
         let d = Domain::Rel(r);
         let (g, ga, gb) = (current_gen(d), prog_gen(d, a), prog_gen(d, b));
         invalidate_key(d, rel_key(r, a));
         assert!(current_gen(d) > g, "the domain moves for every database");
         assert!(prog_gen(d, a) > ga);
-        assert_eq!(prog_gen(d, b), gb, "another database's change moves nothing it read");
+        assert_eq!(
+            prog_gen(d, b),
+            gb,
+            "another database's change moves nothing it read"
+        );
         invalidate_key(d, rel_key(r, InvalidOid));
         assert!(prog_gen(d, b) > gb, "a shared relation's: every database's");
         let (sa, sb) = (row_gen(47, 0x5A5A_0001, a), row_gen(47, 0x5A5A_0001, b));
         bump_stamp(47, 0x5A5A_0001, b);
         assert!(row_gen(47, 0x5A5A_0001, b) > sb);
-        assert!(row_gen(47, 0x5A5A_0001, a) >= sa, "another database's row (only bump_all_cat moves it here)");
+        assert!(
+            row_gen(47, 0x5A5A_0001, a) >= sa,
+            "another database's row (only bump_all_cat moves it here)"
+        );
         assert_eq!(prog_gen(Domain::Cat(-1), a), 0);
     }
 
@@ -1557,16 +1694,26 @@ mod tests {
         let _serial = serial();
         let db: Oid = 16_384;
         let a = row_key(60, 0x0D40_2800);
-        let (s0, s1) = (KeyedGens::slots_in(0, a, db).0, KeyedGens::slots_in(1, a, db).0);
+        let (s0, s1) = (
+            KeyedGens::slots_in(0, a, db).0,
+            KeyedGens::slots_in(1, a, db).0,
+        );
         let b = (1..u32::MAX)
             .map(|h| row_key(60, h))
-            .find(|&b| b != a && KeyedGens::slots_in(0, b, db).0 == s0 && KeyedGens::slots_in(1, b, db).0 != s1)
+            .find(|&b| {
+                b != a
+                    && KeyedGens::slots_in(0, b, db).0 == s0
+                    && KeyedGens::slots_in(1, b, db).0 != s1
+            })
             .unwrap();
         let (ga, gb) = (ROW_GENS.gen(a, db), ROW_GENS.gen(b, db));
         ROW_GENS.bump(b, db);
         let (ga2, gb2) = (ROW_GENS.gen(a, db), ROW_GENS.gen(b, db));
         assert_ne!(ga2, ga, "the shared slot moved a's first half");
-        assert!(keyed_stands(ga, ga2), "a moved in one table only: it stands");
+        assert!(
+            keyed_stands(ga, ga2),
+            "a moved in one table only: it stands"
+        );
         assert!(!keyed_stands(gb, gb2), "b's own move moves both halves");
         ROW_GENS.bump(a, db);
         assert!(!keyed_stands(ga, ROW_GENS.gen(a, db)), "a's own move");
@@ -1585,12 +1732,23 @@ mod tests {
             .find(|&s| KeyedGens::apart(u64::from(s), db, u64::from(r), db))
             .unwrap();
         assert_eq!(rel_stripe(r), rel_stripe(s));
-        let (gr, gs, go) = (prog_gen(Domain::Rel(r), db), prog_gen(Domain::Rel(s), db), prog_gen(Domain::Rel(r), other));
+        let (gr, gs, go) = (
+            prog_gen(Domain::Rel(r), db),
+            prog_gen(Domain::Rel(s), db),
+            prog_gen(Domain::Rel(r), other),
+        );
         invalidate_key(Domain::Rel(s), rel_key(s, db));
-        assert_eq!(prog_gen(Domain::Rel(r), db), gr, "another relation's message");
+        assert_eq!(
+            prog_gen(Domain::Rel(r), db),
+            gr,
+            "another relation's message"
+        );
         assert!(prog_gen(Domain::Rel(s), db) > gs);
         invalidate_key(Domain::Rel(r), rel_key(r, InvalidOid));
-        assert!(prog_gen(Domain::Rel(r), db) > gr && prog_gen(Domain::Rel(r), other) > go, "every database's");
+        assert!(
+            prog_gen(Domain::Rel(r), db) > gr && prog_gen(Domain::Rel(r), other) > go,
+            "every database's"
+        );
     }
 
     /// C3 S5 (D3890, D3889): a relcache message scoped to a part no program holds (the triggers' enabled states) moves
@@ -1604,10 +1762,17 @@ mod tests {
         let (g, p, st) = (current_gen(d), prog_gen(d, db), stor_gen(r, db));
         invalidate_rel_part(r, db, false);
         assert!(current_gen(d) > g, "the L2 relcache moves");
-        assert_eq!((prog_gen(d, db), stor_gen(r, db)), (p, st), "what a lowering read did not change");
+        assert_eq!(
+            (prog_gen(d, db), stor_gen(r, db)),
+            (p, st),
+            "what a lowering read did not change"
+        );
         let g = current_gen(d);
         invalidate_rel_part(r, db, true);
-        assert!(current_gen(d) > g && stor_gen(r, db) > st, "D3889: a storage-scoped message moves the storage generation");
+        assert!(
+            current_gen(d) > g && stor_gen(r, db) > st,
+            "D3889: a storage-scoped message moves the storage generation"
+        );
         assert_eq!(prog_gen(d, db), p, "and not the entry's program generation");
         let st = stor_gen(r, db);
         invalidate_key(d, rel_key(r, db));
@@ -1624,18 +1789,35 @@ mod tests {
         let db: Oid = 16_384;
         let h1 = 0x00C0_FFEE;
         let (s1, d1) = row_slots_of(40, h1, db);
-        let h2 = (h1 + 1..).find(|&h| row_slots_of(40, h, db).0 != s1 && row_slots_of(40, h, db).1 != d1).unwrap();
-        let (r1, r2, l) = (row_gen(40, h1, db), row_gen(40, h2, db), prog_gen(Domain::Cat(40), db));
+        let h2 = (h1 + 1..)
+            .find(|&h| row_slots_of(40, h, db).0 != s1 && row_slots_of(40, h, db).1 != d1)
+            .unwrap();
+        let (r1, r2, l) = (
+            row_gen(40, h1, db),
+            row_gen(40, h2, db),
+            prog_gen(Domain::Cat(40), db),
+        );
         invalidate_key(Domain::Cat(40), cat_key(40, db, h1));
         assert!(row_gen(40, h1, db) > r1);
-        assert_eq!(row_gen(40, h2, db), r2, "another row of the cache did not move");
+        assert_eq!(
+            row_gen(40, h2, db),
+            r2,
+            "another row of the cache did not move"
+        );
         assert!(prog_gen(Domain::Cat(40), db) > l, "the cache's lists move");
         invalidate_key(Domain::Cat(40), cat_key(40, InvalidOid, h2));
-        assert!(row_gen(40, h2, db) > r2, "a shared catalog's row: every database's");
+        assert!(
+            row_gen(40, h2, db) > r2,
+            "a shared catalog's row: every database's"
+        );
         assert!(row_stamped(47) && row_stamped(82) && !row_stamped(40));
         let s0 = row_gen(82, 7, 1);
         invalidate_key(Domain::Cat(82), cat_key(82, 1, 7));
-        assert_eq!(row_gen(82, 7, 1), s0, "the generation moved, the row stamp did not");
+        assert_eq!(
+            row_gen(82, 7, 1),
+            s0,
+            "the generation moved, the row stamp did not"
+        );
         bump_stamp(82, 7, 1);
         assert!(row_gen(82, 7, 1) > s0);
         // C3 S5 (D3889): a storage-scoped pg_class row message leaves the row's generation, and moves the cache's lists
@@ -1681,16 +1863,47 @@ mod tests {
         let mut map: FxMap<L2Key, Bucket> = FxMap::default();
         let (count, bytes) = (AtomicUsize::new(0), AtomicUsize::new(0));
         for i in 0..100u32 {
-            let k = L2Key { kind: KIND_CAT, id: 9, db: 1, hash: i };
-            map.entry(k).or_insert_with(|| Bucket { entries: Vec::new() }).entries.push((1, Arc::new(E(i)) as L2Value, 100, memledger::Home::here()));
+            let k = L2Key {
+                kind: KIND_CAT,
+                id: 9,
+                db: 1,
+                hash: i,
+            };
+            map.entry(k)
+                .or_insert_with(|| Bucket {
+                    entries: Vec::new(),
+                })
+                .entries
+                .push((1, Arc::new(E(i)) as L2Value, 100, memledger::Home::here()));
             count.fetch_add(1, Ordering::Relaxed);
             bytes.fetch_add(100, Ordering::Relaxed);
         }
-        assert_eq!(trim_shard(&mut map, &count, &bytes, 2_550, drop_only), (26, 2_600), "whole entries until 2 550 bytes are gone");
-        assert_eq!((count.load(Ordering::Relaxed), bytes.load(Ordering::Relaxed)), (74, 7_400));
-        assert_eq!(trim_shard(&mut map, &count, &bytes, 1 << 20, drop_only), (74, 7_400), "asked past its bytes: all of them");
-        assert_eq!((count.load(Ordering::Relaxed), map.values().map(|b| b.entries.len()).sum::<usize>()), (0, 0));
-        assert_eq!(trim_shard(&mut map, &count, &bytes, 100, drop_only), (0, 0), "an empty shard: nothing");
+        assert_eq!(
+            trim_shard(&mut map, &count, &bytes, 2_550, drop_only),
+            (26, 2_600),
+            "whole entries until 2 550 bytes are gone"
+        );
+        assert_eq!(
+            (count.load(Ordering::Relaxed), bytes.load(Ordering::Relaxed)),
+            (74, 7_400)
+        );
+        assert_eq!(
+            trim_shard(&mut map, &count, &bytes, 1 << 20, drop_only),
+            (74, 7_400),
+            "asked past its bytes: all of them"
+        );
+        assert_eq!(
+            (
+                count.load(Ordering::Relaxed),
+                map.values().map(|b| b.entries.len()).sum::<usize>()
+            ),
+            (0, 0)
+        );
+        assert_eq!(
+            trim_shard(&mut map, &count, &bytes, 100, drop_only),
+            (0, 0),
+            "an empty shard: nothing"
+        );
     }
 
     #[test]
@@ -1706,18 +1919,33 @@ mod tests {
         for i in 0..N as u32 {
             // Distinct logical keys -> distinct buckets (no same-key pruning),
             // exactly the unbounded-growth vector.
-            let k = L2Key { kind: KIND_CAT, id: 7, db: 1, hash: i };
+            let k = L2Key {
+                kind: KIND_CAT,
+                id: 7,
+                db: 1,
+                hash: i,
+            };
             map.entry(k)
-                .or_insert_with(|| Bucket { entries: Vec::new() })
+                .or_insert_with(|| Bucket {
+                    entries: Vec::new(),
+                })
                 .entries
-                .push((1, Arc::new(E(i)) as L2Value, BYTES_EACH, memledger::Home::here()));
+                .push((
+                    1,
+                    Arc::new(E(i)) as L2Value,
+                    BYTES_EACH,
+                    memledger::Home::here(),
+                ));
             count.fetch_add(1, Ordering::Relaxed);
             bytes.fetch_add(BYTES_EACH, Ordering::Relaxed);
         }
         assert_eq!(count.load(Ordering::Relaxed), N);
 
         let budget = 64;
-        let caps = ShardBudget { entries: budget, bytes: 0 };
+        let caps = ShardBudget {
+            entries: budget,
+            bytes: 0,
+        };
         let (n_removed, bytes_removed) = evict_shard(&mut map, &count, &bytes, caps, drop_only);
         assert_eq!(n_removed, N - budget, "must evict down to exactly budget");
         assert_eq!(bytes_removed, (N - budget) * BYTES_EACH);
@@ -1732,7 +1960,10 @@ mod tests {
         assert_eq!(bytes.load(Ordering::Relaxed), budget * BYTES_EACH);
 
         // The byte cap binds even when the entry count is within budget.
-        let byte_caps = ShardBudget { entries: budget, bytes: 10 * BYTES_EACH };
+        let byte_caps = ShardBudget {
+            entries: budget,
+            bytes: 10 * BYTES_EACH,
+        };
         let (n3, b3) = evict_shard(&mut map, &count, &bytes, byte_caps, drop_only);
         assert_eq!(n3, budget - 10);
         assert_eq!(b3, (budget - 10) * BYTES_EACH);
@@ -1743,9 +1974,24 @@ mod tests {
 
     #[test]
     fn forget_database_drops_only_that_databases_entries() {
-        let dropped = L2Key { kind: KIND_REL, id: 9001, db: 31_337, hash: 0 };
-        let kept = L2Key { kind: KIND_REL, id: 9001, db: 31_338, hash: 0 };
-        let shared = L2Key { kind: KIND_CAT, id: 9, db: InvalidOid, hash: 9001 };
+        let dropped = L2Key {
+            kind: KIND_REL,
+            id: 9001,
+            db: 31_337,
+            hash: 0,
+        };
+        let kept = L2Key {
+            kind: KIND_REL,
+            id: 9001,
+            db: 31_338,
+            hash: 0,
+        };
+        let shared = L2Key {
+            kind: KIND_CAT,
+            id: 9,
+            db: InvalidOid,
+            hash: 9001,
+        };
         insert(dropped, 1, Arc::new(E(1)), 100, is_e(1));
         insert(kept, 1, Arc::new(E(2)), 100, is_e(2));
         insert(shared, 1, Arc::new(E(3)), 100, is_e(3));
@@ -1798,6 +2044,9 @@ mod tests {
         }
         let before = rel_gen_snapshot();
         bump_all_cat();
-        assert!(before.iter().zip(&rel_gen_snapshot()).all(|(b, a)| a > b), "a catalog-wide message moves them all");
+        assert!(
+            before.iter().zip(&rel_gen_snapshot()).all(|(b, a)| a > b),
+            "a catalog-wide message moves them all"
+        );
     }
 }

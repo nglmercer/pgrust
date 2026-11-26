@@ -28,7 +28,9 @@ pub const fn saturation(cap: u64) -> u64 {
 /// The product of `sizes`, saturated at `saturation(cap)`.
 pub fn product(sizes: &[u64], cap: u64) -> u64 {
     let lim = saturation(cap);
-    sizes.iter().fold(1u64, |p, &n| p.saturating_mul(n).min(lim))
+    sizes
+        .iter()
+        .fold(1u64, |p, &n| p.saturating_mul(n).min(lim))
 }
 
 /// A window of dictionaries `sizes` keeps every row of a non-NULL key in a front of `cap` records.
@@ -67,16 +69,26 @@ mod tests {
 
     #[test]
     fn a_product_that_fits_indexes_every_tuple_once() {
-        for sizes in [&[3u64, 2][..], &[100, 3], &[7, 5, 4], &[2, 2, 2, 2, 2, 2], &[1, 9, 1, 13]] {
+        for sizes in [
+            &[3u64, 2][..],
+            &[100, 3],
+            &[7, 5, 4],
+            &[2, 2, 2, 2, 2, 2],
+            &[1, 9, 1, 13],
+        ] {
             let cap = product(sizes, u64::MAX - 1);
             assert!(fits(sizes, cap) && !fits(sizes, cap - 1), "{sizes:?}");
             let mut seen = vec![false; cap as usize];
             let mut codes = vec![0u64; sizes.len()];
             loop {
-                let i = index(&codes, sizes, cap).expect("a tuple of in-size codes under the product") as usize;
+                let i = index(&codes, sizes, cap)
+                    .expect("a tuple of in-size codes under the product")
+                    as usize;
                 assert!(!seen[i], "{sizes:?} {codes:?}");
                 seen[i] = true;
-                let Some(k) = (0..codes.len()).find(|&k| codes[k] + 1 < sizes[k]) else { break };
+                let Some(k) = (0..codes.len()).find(|&k| codes[k] + 1 < sizes[k]) else {
+                    break;
+                };
                 codes[k] += 1;
                 codes[..k].iter_mut().for_each(|c| *c = 0);
             }
@@ -88,8 +100,16 @@ mod tests {
     fn a_code_past_its_size_or_an_index_past_the_front_takes_the_table() {
         assert_eq!(index(&[3, 0], &[3, 2], 6), None, "a code at its size");
         assert_eq!(index(&[u64::MAX, 1], &[3, 2], 6), None, "a NULL's all ones");
-        assert_eq!(index(&[2, 1], &[3, 2], 5), None, "the last tuple past a front of 5");
-        assert_eq!(index(&[1, 1], &[3, 2], 5), Some(4), "a low tuple of a window past the front stays in it");
+        assert_eq!(
+            index(&[2, 1], &[3, 2], 5),
+            None,
+            "the last tuple past a front of 5"
+        );
+        assert_eq!(
+            index(&[1, 1], &[3, 2], 5),
+            Some(4),
+            "a low tuple of a window past the front stays in it"
+        );
         // dictionary sizes whose product wraps u64 never wrap into the front
         let big = [u32::MAX as u64; 4];
         assert_eq!(index(&[0, 0, 0, 1], &big, 1 << 15), None);
@@ -106,6 +126,9 @@ mod tests {
 
     #[test]
     fn the_capacity_counts_the_list_word() {
-        assert_eq!((capacity(256 << 10, 40), capacity(256 << 10, 120)), (5461, 2048));
+        assert_eq!(
+            (capacity(256 << 10, 40), capacity(256 << 10, 120)),
+            (5461, 2048)
+        );
     }
 }

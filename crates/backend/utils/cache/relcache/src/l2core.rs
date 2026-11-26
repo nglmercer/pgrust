@@ -88,9 +88,7 @@ fn mirror_mcx() -> Mcx<'static> {
 /// grown or mutated.
 unsafe fn mirror_vec<T: Copy>(src: &[T]) -> PgVec<'static, T> {
     // SAFETY: caller contract; deallocate on drop is a no-op (mirror_mcx).
-    unsafe {
-        PgVec::from_raw_parts_in(src.as_ptr() as *mut T, src.len(), src.len(), mirror_mcx())
-    }
+    unsafe { PgVec::from_raw_parts_in(src.as_ptr() as *mut T, src.len(), src.len(), mirror_mcx()) }
 }
 
 /// A read-only `PgString` view over a core-owned string. Same contract as
@@ -219,7 +217,9 @@ impl RelCoreShared {
             .as_ref()
             .map(|ix| {
                 (ix.indkey.len() + ix.indoption.len()) * 2
-                    + (ix.opcintype.len() + ix.opfamily.len() + ix.indcollation.len()
+                    + (ix.opcintype.len()
+                        + ix.opfamily.len()
+                        + ix.indcollation.len()
                         + ix.support.len())
                         * 4
                     + ix.indexprs_src.as_deref().map_or(0, str::len)
@@ -442,83 +442,90 @@ fn tupdesc_mirror(core: &Arc<RelCoreShared>) -> PgResult<Rc<TupleDescData<'stati
 /// change, an older backend keeps its copy and a newer one loads the new rows, so the core's arrays are the
 /// publisher's copy, which another backend may not take. The init file's load (critical indexes, before catalog
 /// access) takes the core's arrays, as C's init file carries rd_support.
-pub(crate) fn shell_from_core(core: &Arc<RelCoreShared>, own_support: bool) -> PgResult<RelationData<'static>> {
+pub(crate) fn shell_from_core(
+    core: &Arc<RelCoreShared>,
+    own_support: bool,
+) -> PgResult<RelationData<'static>> {
     let mcx = cache_mcx();
     let rd_att = tupdesc_mirror(core)?;
 
-    let (rd_index, opcintype, opfamily, indoption, indcollation, support, supportinfo) =
-        match &core.index {
-            Some(ix) => {
-                let index = FormData_pg_index {
-                    indexrelid: ix.indexrelid,
-                    indrelid: ix.indrelid,
-                    indnatts: ix.indnatts,
-                    indnkeyatts: ix.indnkeyatts,
-                    indisunique: ix.indisunique,
-                    indnullsnotdistinct: ix.indnullsnotdistinct,
-                    indisprimary: ix.indisprimary,
-                    indisexclusion: ix.indisexclusion,
-                    indimmediate: ix.indimmediate,
-                    indisvalid: ix.indisvalid,
-                    indisready: ix.indisready,
-                    indcheckxmin: ix.indcheckxmin,
-                    indxmin: ix.indxmin,
-                    // SAFETY (all mirrors below): core-owned Copy arrays /
-                    // strings; the shell's rd_att clone pins the core through
-                    // the tupdesc registry for the shell's whole life.
-                    indkey: unsafe { mirror_vec(&ix.indkey) },
-                    has_indpred: ix.has_indpred,
-                    indexprs_src: ix.indexprs_src.as_deref().map(|s| unsafe { mirror_string(s) }),
-                    indpred_src: ix.indpred_src.as_deref().map(|s| unsafe { mirror_string(s) }),
-                };
-                if own_support {
-                    // relnatts: the pg_attribute rows the core holds, as the build's scan counted them.
-                    let relnatts = i16::try_from(core.attrs.len()).unwrap_or(i16::MAX);
-                    let ii = relcache_build_seams::relation_init_index_access_info::call(
-                        mcx,
-                        core.relid,
-                        &core.form,
-                        relnatts,
-                    )?;
-                    (
-                        Some(index),
-                        ii.opcintype,
-                        ii.opfamily,
-                        unsafe { mirror_vec(&ix.indoption) },
-                        unsafe { mirror_vec(&ix.indcollation) },
-                        ii.support,
-                        ii.supportinfo,
-                    )
-                } else {
-                    let mut si: Vec<Option<types_fmgr::FmgrInfo>> =
-                        ::mcx::std_vec_with_capacity("CacheMemoryContext", ix.supportinfo_oids.len())?;
-                    for slot in ix.supportinfo_oids.iter() {
-                        si.push(match slot {
-                            Some(oid) => Some(fmgr_seams::fmgr_info::call(*oid)?),
-                            None => None,
-                        });
-                    }
-                    (
-                        Some(index),
-                        unsafe { mirror_vec(&ix.opcintype) },
-                        unsafe { mirror_vec(&ix.opfamily) },
-                        unsafe { mirror_vec(&ix.indoption) },
-                        unsafe { mirror_vec(&ix.indcollation) },
-                        unsafe { mirror_vec(&ix.support) },
-                        si,
-                    )
+    let (rd_index, opcintype, opfamily, indoption, indcollation, support, supportinfo) = match &core
+        .index
+    {
+        Some(ix) => {
+            let index = FormData_pg_index {
+                indexrelid: ix.indexrelid,
+                indrelid: ix.indrelid,
+                indnatts: ix.indnatts,
+                indnkeyatts: ix.indnkeyatts,
+                indisunique: ix.indisunique,
+                indnullsnotdistinct: ix.indnullsnotdistinct,
+                indisprimary: ix.indisprimary,
+                indisexclusion: ix.indisexclusion,
+                indimmediate: ix.indimmediate,
+                indisvalid: ix.indisvalid,
+                indisready: ix.indisready,
+                indcheckxmin: ix.indcheckxmin,
+                indxmin: ix.indxmin,
+                // SAFETY (all mirrors below): core-owned Copy arrays /
+                // strings; the shell's rd_att clone pins the core through
+                // the tupdesc registry for the shell's whole life.
+                indkey: unsafe { mirror_vec(&ix.indkey) },
+                has_indpred: ix.has_indpred,
+                indexprs_src: ix
+                    .indexprs_src
+                    .as_deref()
+                    .map(|s| unsafe { mirror_string(s) }),
+                indpred_src: ix
+                    .indpred_src
+                    .as_deref()
+                    .map(|s| unsafe { mirror_string(s) }),
+            };
+            if own_support {
+                // relnatts: the pg_attribute rows the core holds, as the build's scan counted them.
+                let relnatts = i16::try_from(core.attrs.len()).unwrap_or(i16::MAX);
+                let ii = relcache_build_seams::relation_init_index_access_info::call(
+                    mcx, core.relid, &core.form, relnatts,
+                )?;
+                (
+                    Some(index),
+                    ii.opcintype,
+                    ii.opfamily,
+                    unsafe { mirror_vec(&ix.indoption) },
+                    unsafe { mirror_vec(&ix.indcollation) },
+                    ii.support,
+                    ii.supportinfo,
+                )
+            } else {
+                let mut si: Vec<Option<types_fmgr::FmgrInfo>> =
+                    ::mcx::std_vec_with_capacity("CacheMemoryContext", ix.supportinfo_oids.len())?;
+                for slot in ix.supportinfo_oids.iter() {
+                    si.push(match slot {
+                        Some(oid) => Some(fmgr_seams::fmgr_info::call(*oid)?),
+                        None => None,
+                    });
                 }
+                (
+                    Some(index),
+                    unsafe { mirror_vec(&ix.opcintype) },
+                    unsafe { mirror_vec(&ix.opfamily) },
+                    unsafe { mirror_vec(&ix.indoption) },
+                    unsafe { mirror_vec(&ix.indcollation) },
+                    unsafe { mirror_vec(&ix.support) },
+                    si,
+                )
             }
-            None => (
-                None,
-                PgVec::new_in(mcx),
-                PgVec::new_in(mcx),
-                PgVec::new_in(mcx),
-                PgVec::new_in(mcx),
-                PgVec::new_in(mcx),
-                Vec::new(),
-            ),
-        };
+        }
+        None => (
+            None,
+            PgVec::new_in(mcx),
+            PgVec::new_in(mcx),
+            PgVec::new_in(mcx),
+            PgVec::new_in(mcx),
+            PgVec::new_in(mcx),
+            Vec::new(),
+        ),
+    };
 
     RelationInitTableAccessMethod(core.relid, core.form.relkind, core.form.relam)?;
 
@@ -584,7 +591,12 @@ pub(crate) fn l2_active() -> bool {
 /// per-relid gate and publish the shareable core.
 pub(crate) fn miss_via_l2(relid: Oid) -> PgResult<Option<Rc<RelationData<'static>>>> {
     let db = init_small::globals::MyDatabaseId();
-    let key = l2cache::L2Key { kind: l2cache::KIND_REL, id: relid, db, hash: 0 };
+    let key = l2cache::L2Key {
+        kind: l2cache::KIND_REL,
+        id: relid,
+        db,
+        hash: 0,
+    };
     let domain = l2cache::Domain::Rel(relid);
     // RelationBuildDesc's pg_class scan opens the catalog with AccessShareLock
     // (relcache.c:371), which absorbs queued invalidations (lmgr.c:136); the
@@ -593,7 +605,9 @@ pub(crate) fn miss_via_l2(relid: Oid) -> PgResult<Option<Rc<RelationData<'static
     loop {
         let gen = l2cache::view_gen(domain);
         if let Some(v) = l2cache::lookup(key, gen, |a| a.is::<RelCoreShared>()) {
-            let core = v.downcast::<RelCoreShared>().expect("KIND_REL entries are RelCoreShared");
+            let core = v
+                .downcast::<RelCoreShared>()
+                .expect("KIND_REL entries are RelCoreShared");
             if l2_debug() {
                 eprintln!(
                     "L2DBG hit rel={} gen={} cur={} natts={} dropped={} thr={:?}",
@@ -633,7 +647,10 @@ pub(crate) fn miss_via_l2(relid: Oid) -> PgResult<Option<Rc<RelationData<'static
                             if l2_debug() {
                                 eprintln!(
                                     "L2DBG publish rel={} gen={} natts={} thr={:?}",
-                                    relid, gen, core.attrs.len(), std::thread::current().id()
+                                    relid,
+                                    gen,
+                                    core.attrs.len(),
+                                    std::thread::current().id()
                                 );
                             }
                             let bytes = core.approx_bytes();
@@ -643,7 +660,10 @@ pub(crate) fn miss_via_l2(relid: Oid) -> PgResult<Option<Rc<RelationData<'static
                     } else if l2_debug() {
                         eprintln!(
                             "L2DBG skip-publish rel={} gen={} cur={} thr={:?}",
-                            relid, gen, l2cache::current_gen(domain), std::thread::current().id()
+                            relid,
+                            gen,
+                            l2cache::current_gen(domain),
+                            std::thread::current().id()
                         );
                     }
                 }
@@ -671,13 +691,17 @@ pub(crate) fn statext_probe(relid: Oid) -> PgResult<StatExtProbe> {
     inval_seams::accept_invalidation_messages::call()?;
     let key = l2cache::rel_key(relid, init_small::globals::MyDatabaseId());
     let gen = l2cache::view_gen(l2cache::Domain::Rel(relid));
-    Ok(match l2cache::lookup(key, gen, |a| a.is::<StatExtShared>()) {
-        Some(v) => {
-            let list = v.downcast_ref::<StatExtShared>().expect("matched StatExtShared");
-            StatExtProbe::Hit(Rc::from(&list.0[..]))
-        }
-        None => StatExtProbe::Miss(Some(gen)),
-    })
+    Ok(
+        match l2cache::lookup(key, gen, |a| a.is::<StatExtShared>()) {
+            Some(v) => {
+                let list = v
+                    .downcast_ref::<StatExtShared>()
+                    .expect("matched StatExtShared");
+                StatExtProbe::Hit(Rc::from(&list.0[..]))
+            }
+            None => StatExtProbe::Miss(Some(gen)),
+        },
+    )
 }
 
 /// Publish a list scanned after `statext_probe` returned `Miss(Some(gen))`,
@@ -704,7 +728,10 @@ pub(crate) fn prune_mirrors() {
 pub fn MirrorCensus() -> (usize, usize) {
     TD_MIRRORS.with(|m| {
         let m = m.borrow();
-        let live = m.values().filter(|(rc, _)| Rc::strong_count(rc) > 1).count();
+        let live = m
+            .values()
+            .filter(|(rc, _)| Rc::strong_count(rc) > 1)
+            .count();
         (m.len(), live)
     })
 }

@@ -127,7 +127,11 @@ impl Proof {
     pub fn first_fetch(stmt: &PlannedStmt<'_>, plan_id: i32) -> Option<Proof> {
         let scan = crate::ops::first_fetched_outer(stmt.planTree)?;
         let c = scan.as_cte_scan().filter(|c| c.ctePlanId == plan_id)?;
-        Some(Proof { kind: ProofKind::FirstFetch, node: c.scan.plan.plan_node_id, orders_acts: false })
+        Some(Proof {
+            kind: ProofKind::FirstFetch,
+            node: c.scan.plan.plan_node_id,
+            orders_acts: false,
+        })
     }
 
     /// `PgReadsWhole`: plan node `id` reads its whole input at its first fetch: a Sort (ExecSort's tuplesort_performsort),
@@ -138,10 +142,16 @@ impl Proof {
         let (n, _) = crate::lifetime::node_of(stmt, id)?;
         let whole = match n.node_tag() {
             NodeTag::T_Sort | NodeTag::T_Hash => true,
-            NodeTag::T_Agg => n.as_agg().is_some_and(|a| a.aggstrategy == AGG_PLAIN || a.aggstrategy == AGG_HASHED),
+            NodeTag::T_Agg => n
+                .as_agg()
+                .is_some_and(|a| a.aggstrategy == AGG_PLAIN || a.aggstrategy == AGG_HASHED),
             _ => false,
         };
-        whole.then_some(Proof { kind: ProofKind::PgReadsWhole, node: id, orders_acts: false })
+        whole.then_some(Proof {
+            kind: ProofKind::PgReadsWhole,
+            node: id,
+            orders_acts: false,
+        })
     }
 
     /// `PgFailsToo`: plan node `id` is the join whose PostgreSQL run makes the code's raises too (D2212's cover): a Hash
@@ -149,8 +159,14 @@ impl Proof {
     /// Join (run to its end it reads both sides whole: ExecMergeJoin's ENDOUTER / ENDINNER fill).
     pub fn pg_fails_too<'a>(stmt: &'a PlannedStmt<'a>, id: i32) -> Option<Proof> {
         let (n, _) = crate::lifetime::node_of(stmt, id)?;
-        let join = n.as_hash_join().is_some() || n.as_merge_join().is_some_and(|m| m.join.jointype == JoinType::JOIN_FULL);
-        join.then_some(Proof { kind: ProofKind::PgFailsToo, node: id, orders_acts: false })
+        let join = n.as_hash_join().is_some()
+            || n.as_merge_join()
+                .is_some_and(|m| m.join.jointype == JoinType::JOIN_FULL);
+        join.then_some(Proof {
+            kind: ProofKind::PgFailsToo,
+            node: id,
+            orders_acts: false,
+        })
     }
 
     /// `PgFailsToo` for a shared CTE's eager build (D1 site 5): Hash Join `id` builds from CTE `plan_id` (a CteScan of it
@@ -161,23 +177,46 @@ impl Proof {
     /// the CTE's first error is PostgreSQL's too in either order (CteScanNext computes each row once, for whichever reader
     /// pulls it first). A CTE on the build side alone is no such proof: under an empty outer PostgreSQL never runs it.
     /// `m` is the planning context the one-shot `never_run` list is built in.
-    pub fn pg_fails_too_shared<'a>(stmt: &'a PlannedStmt<'a>, id: i32, plan_id: i32, m: mcx::Mcx<'_>) -> Option<Proof> {
+    pub fn pg_fails_too_shared<'a>(
+        stmt: &'a PlannedStmt<'a>,
+        id: i32,
+        plan_id: i32,
+        m: mcx::Mcx<'_>,
+    ) -> Option<Proof> {
         let (n, _) = crate::lifetime::node_of(stmt, id)?;
         n.as_hash_join()?;
         let p = n.as_plan()?;
-        let outer = crate::ops::first_fetched_outer(p.lefttree).and_then(|o| o.as_cte_scan()).is_some_and(|c| c.ctePlanId == plan_id);
+        let outer = crate::ops::first_fetched_outer(p.lefttree)
+            .and_then(|o| o.as_cte_scan())
+            .is_some_and(|c| c.ctePlanId == plan_id);
         let build = p.righttree.is_some_and(|h| reads_cte(h, plan_id));
-        let runs = || crate::pg_demand::never_run(stmt, m).binary_search(&id).is_err();
-        (outer && build && runs()).then_some(Proof { kind: ProofKind::PgFailsToo, node: id, orders_acts: false })
+        let runs = || {
+            crate::pg_demand::never_run(stmt, m)
+                .binary_search(&id)
+                .is_err()
+        };
+        (outer && build && runs()).then_some(Proof {
+            kind: ProofKind::PgFailsToo,
+            node: id,
+            orders_acts: false,
+        })
     }
 
     /// `PgRunsFirst`: plan node `id` is on the statement's first-fetch chain: from it, `ops::first_fetched_outer` reaches
     /// the node the walk from the plan's root reaches (the walk is the same from every node on the chain).
     pub fn pg_runs_first<'a>(stmt: &'a PlannedStmt<'a>, id: i32) -> Option<Proof> {
-        let end = |n: Option<Node<'_>>| crate::ops::first_fetched_outer(n).and_then(|e| e.as_plan()).map(|p| p.plan_node_id);
+        let end = |n: Option<Node<'_>>| {
+            crate::ops::first_fetched_outer(n)
+                .and_then(|e| e.as_plan())
+                .map(|p| p.plan_node_id)
+        };
         let (n, _) = crate::lifetime::node_of(stmt, id)?;
         let first = end(stmt.planTree)?;
-        (end(Some(n)) == Some(first) && in_tree(stmt.planTree?, id)).then_some(Proof { kind: ProofKind::PgRunsFirst, node: id, orders_acts: false })
+        (end(Some(n)) == Some(first) && in_tree(stmt.planTree?, id)).then_some(Proof {
+            kind: ProofKind::PgRunsFirst,
+            node: id,
+            orders_acts: false,
+        })
     }
 
     /// `PgRunsFirst` for SubPlan `plan_id` (lowerv4 subplan/per_row.rs `certain_first`, D2117 (b)): PostgreSQL 18.6's first
@@ -189,18 +228,33 @@ impl Proof {
     /// its rescans keep runs once: each of graph pipelines `held` must be outside every rerun set of `g` (decompose's
     /// rerun model, where a kept pipeline is one PostgreSQL's rescan does not run again), else the acts would interleave
     /// with the rows. Cites the SubPlan's plan root. The one proof that orders acts (`exact_first`).
-    pub fn subplan_first<'a>(cx: &super::Cx<'_, 'a>, g: &crate::graph::PipelineGraph<'_>, plan_id: i32, held: &[usize]) -> Option<Proof> {
+    pub fn subplan_first<'a>(
+        cx: &super::Cx<'_, 'a>,
+        g: &crate::graph::PipelineGraph<'_>,
+        plan_id: i32,
+        held: &[usize],
+    ) -> Option<Proof> {
         let stmt = cx.stmt?;
         let n = crate::ops::first_fetched_outer(stmt.planTree)?;
         let v = n.as_values_scan()?;
         let p = &v.scan.plan;
-        let konst = |l: Node<'_>| l.as_list().is_some_and(|l| l.iter().all(|c| c.as_const().is_some()));
-        if p.qual.iter().next().is_some() || p.initPlan.iter().next().is_some() || v.values_lists.iter().next().is_none() || !v.values_lists.iter().all(konst) {
+        let konst = |l: Node<'_>| {
+            l.as_list()
+                .is_some_and(|l| l.iter().all(|c| c.as_const().is_some()))
+        };
+        if p.qual.iter().next().is_some()
+            || p.initPlan.iter().next().is_some()
+            || v.values_lists.iter().next().is_none()
+            || !v.values_lists.iter().all(konst)
+        {
             return None;
         }
         let quiet = |e: Node<'a>| {
             let f = super::of_expr(cx, e, &super::PLAIN);
-            let exec = |x: Node<'_>| x.as_param().is_some_and(|q| q.paramkind == types_nodes::primnodes::ParamKind::PARAM_EXEC);
+            let exec = |x: Node<'_>| {
+                x.as_param()
+                    .is_some_and(|q| q.paramkind == types_nodes::primnodes::ParamKind::PARAM_EXEC)
+            };
             !f.acts && !f.may_raise && crate::expr::walk(e, &mut |x| !exec(x))
         };
         let mut sub = None;
@@ -219,11 +273,24 @@ impl Proof {
             return None;
         }
         let correlated = s.parParam.iter().next().is_some() || s.args.iter().next().is_some();
-        if correlated && v.values_lists.len() > 1 && !held.iter().all(|&q| g.reruns.iter().all(|r| !r.pipelines.contains(&(q as u16)))) {
+        if correlated
+            && v.values_lists.len() > 1
+            && !held
+                .iter()
+                .all(|&q| g.reruns.iter().all(|r| !r.pipelines.contains(&(q as u16))))
+        {
             return None;
         }
-        let root = stmt.subplans.iter().nth(usize::try_from(plan_id).ok()?.checked_sub(1)?)?.and_then(|r| r.as_plan())?;
-        Some(Proof { kind: ProofKind::PgRunsFirst, node: root.plan_node_id, orders_acts: true })
+        let root = stmt
+            .subplans
+            .iter()
+            .nth(usize::try_from(plan_id).ok()?.checked_sub(1)?)?
+            .and_then(|r| r.as_plan())?;
+        Some(Proof {
+            kind: ProofKind::PgRunsFirst,
+            node: root.plan_node_id,
+            orders_acts: true,
+        })
     }
 }
 
@@ -234,7 +301,10 @@ fn in_tree(n: Node<'_>, id: i32) -> bool {
         return true;
     }
     let p = n.as_plan();
-    let kids = p.into_iter().flat_map(|p| [p.lefttree, p.righttree]).flatten();
+    let kids = p
+        .into_iter()
+        .flat_map(|p| [p.lefttree, p.righttree])
+        .flatten();
     let arms = n.as_append().into_iter().flat_map(|a| a.appendplans.iter());
     kids.chain(arms).any(|k| in_tree(k, id))
 }
@@ -242,7 +312,8 @@ fn in_tree(n: Node<'_>, id: i32) -> bool {
 /// A CteScan of CTE `plan_id` is in the tree under `n` (its plan nodes, EXPLAIN's children: not a subplan's).
 fn reads_cte(n: Node<'_>, plan_id: i32) -> bool {
     crate::walk::stack_check();
-    n.as_cte_scan().is_some_and(|c| c.ctePlanId == plan_id) || crate::explain::children(n).any(|(k, _)| reads_cte(k, plan_id))
+    n.as_cte_scan().is_some_and(|c| c.ctePlanId == plan_id)
+        || crate::explain::children(n).any(|(k, _)| reads_cte(k, plan_id))
 }
 
 /// Not a refusal: the family emits its PostgreSQL form and the statement is served.
@@ -279,7 +350,16 @@ pub fn licence(e: Effects, d: Departure) -> Result<Licence, Denied> {
         return Err(Denied);
     }
     GRANTS.with(|g| g.set(g.get().wrapping_add(1)));
-    Ok(Licence { departure: d, recheck: e.may_raise && matches!(d, Departure::Ahead | Departure::More), tagged: false, held: false, whole: false, exact: None, accepted: false, _only_effects: () })
+    Ok(Licence {
+        departure: d,
+        recheck: e.may_raise && matches!(d, Departure::Ahead | Departure::More),
+        tagged: false,
+        held: false,
+        whole: false,
+        exact: None,
+        accepted: false,
+        _only_effects: (),
+    })
 }
 
 /// The licences `licence` has granted on this thread (wrapping; `licence_unchecked`'s are not counted, as `deny_all` grants
@@ -317,7 +397,16 @@ pub fn licence_unchecked(e: Effects, user_code: bool) -> Result<Licence, Denied>
     if e.acts || user_code {
         return Err(Denied);
     }
-    Ok(Licence { departure: Departure::Ahead, recheck: false, tagged: e.may_raise, held: false, whole: false, exact: None, accepted: false, _only_effects: () })
+    Ok(Licence {
+        departure: Departure::Ahead,
+        recheck: false,
+        tagged: e.may_raise,
+        held: false,
+        whole: false,
+        exact: None,
+        accepted: false,
+        _only_effects: (),
+    })
 }
 
 /// Construct C2: a run ahead whose error is held for PostgreSQL's point (op 14's held sort / held rows / recheck hold:
@@ -336,11 +425,24 @@ pub fn licence_unchecked(e: Effects, user_code: bool) -> Result<Licence, Denied>
 ///   keep that write; `licence_unchecked` keeps every user function exact;
 /// - inside `deny_all` / `deny_all_bounded`: granted as outside (the held forms are the plan-order run's own).
 ///   No departure but `Ahead`, no recheck, no tag: the error is PostgreSQL's, at PostgreSQL's point.
-pub fn held_error(e: Effects, user_code: bool, local: Option<super::CallLocal>) -> Result<Licence, Denied> {
+pub fn held_error(
+    e: Effects,
+    user_code: bool,
+    local: Option<super::CallLocal>,
+) -> Result<Licence, Denied> {
     if e.acts && local.is_none() || user_code {
         return Err(Denied);
     }
-    Ok(Licence { departure: Departure::Ahead, recheck: false, tagged: false, held: true, whole: false, exact: None, accepted: false, _only_effects: () })
+    Ok(Licence {
+        departure: Departure::Ahead,
+        recheck: false,
+        tagged: false,
+        held: true,
+        whole: false,
+        exact: None,
+        accepted: false,
+        _only_effects: (),
+    })
 }
 
 /// Construct C2: code run ahead of PostgreSQL's demand only for a reader that reads the statement whole (lowerv4
@@ -365,7 +467,16 @@ pub fn whole_read_local(e: Effects, local: Option<super::CallLocal>) -> Result<L
     if e.acts && local.is_none() {
         return Err(Denied);
     }
-    Ok(Licence { departure: Departure::Ahead, recheck: false, tagged: false, held: false, whole: true, exact: None, accepted: false, _only_effects: () })
+    Ok(Licence {
+        departure: Departure::Ahead,
+        recheck: false,
+        tagged: false,
+        held: false,
+        whole: true,
+        exact: None,
+        accepted: false,
+        _only_effects: (),
+    })
 }
 
 /// Construct C2 (licence-typed departures): the licence of code with no effects (it neither raises nor acts), granted
@@ -374,7 +485,16 @@ pub fn whole_read_local(e: Effects, local: Option<super::CallLocal>) -> Result<L
 /// runs such code ahead hold a `Licence` as every other run ahead does (lint RH, crates/gravity/lint/AHEAD-DEBT). `None`
 /// for code with any effect: ask `licence` or `licence_unchecked`.
 pub fn unobservable(e: Effects) -> Option<Licence> {
-    (e == Effects::NONE).then_some(Licence { departure: Departure::Ahead, recheck: false, tagged: false, held: false, whole: false, exact: None, accepted: false, _only_effects: () })
+    (e == Effects::NONE).then_some(Licence {
+        departure: Departure::Ahead,
+        recheck: false,
+        tagged: false,
+        held: false,
+        whole: false,
+        exact: None,
+        accepted: false,
+        _only_effects: (),
+    })
 }
 
 /// Construct C2: the licence of reading ahead code that neither acts nor may raise, whatever its `same_rows`: an
@@ -387,7 +507,16 @@ pub fn unobservable(e: Effects) -> Option<Licence> {
 /// acting code stays with `held_error` (no user code that may write) and `whole_read_local` (call-local builtins only,
 /// with `call_local`'s proof).
 pub fn quiet_ahead(e: Effects) -> Option<Licence> {
-    (!e.acts && !e.may_raise).then_some(Licence { departure: Departure::Ahead, recheck: false, tagged: false, held: false, whole: false, exact: None, accepted: false, _only_effects: () })
+    (!e.acts && !e.may_raise).then_some(Licence {
+        departure: Departure::Ahead,
+        recheck: false,
+        tagged: false,
+        held: false,
+        whole: false,
+        exact: None,
+        accepted: false,
+        _only_effects: (),
+    })
 }
 
 /// Construct C2 (D1): the licence of code run ahead where a structural proof (`Proof`, built only here from its checked
@@ -413,7 +542,16 @@ pub fn exact(e: Effects, p: Proof) -> Result<Licence, Denied> {
     if e.acts {
         return Err(Denied);
     }
-    Ok(Licence { departure: Departure::Ahead, recheck: false, tagged: false, held: false, whole: false, exact: Some(p), accepted: false, _only_effects: () })
+    Ok(Licence {
+        departure: Departure::Ahead,
+        recheck: false,
+        tagged: false,
+        held: false,
+        whole: false,
+        exact: Some(p),
+        accepted: false,
+        _only_effects: (),
+    })
 }
 
 /// `exact` for a proof that orders the code's acts as well (`Proof::subplan_first`): PostgreSQL runs the cited code
@@ -426,7 +564,16 @@ pub fn exact_first(e: Effects, p: Proof) -> Result<Licence, Denied> {
     if !p.orders_acts {
         return exact(e, p);
     }
-    Ok(Licence { departure: Departure::Ahead, recheck: false, tagged: false, held: false, whole: false, exact: Some(p), accepted: false, _only_effects: () })
+    Ok(Licence {
+        departure: Departure::Ahead,
+        recheck: false,
+        tagged: false,
+        held: false,
+        whole: false,
+        exact: Some(p),
+        accepted: false,
+        _only_effects: (),
+    })
 }
 
 /// Construct C2, the accepted class: early work (code run ahead of PostgreSQL's demand) that can only raise an error
@@ -445,7 +592,16 @@ pub fn accepted(e: Effects, user_code: bool) -> Result<Licence, Denied> {
     if e.acts || user_code {
         return Err(Denied);
     }
-    Ok(Licence { departure: Departure::Ahead, recheck: false, tagged: false, held: false, whole: false, exact: None, accepted: true, _only_effects: () })
+    Ok(Licence {
+        departure: Departure::Ahead,
+        recheck: false,
+        tagged: false,
+        held: false,
+        whole: false,
+        exact: None,
+        accepted: true,
+        _only_effects: (),
+    })
 }
 
 /// Construct C2, the accepted class on its acting side: code run ahead of PostgreSQL's demand whose acts are extra
@@ -465,12 +621,24 @@ pub fn accepted(e: Effects, user_code: bool) -> Result<Licence, Denied> {
 /// which is free too. Inside `deny_all` / `deny_all_bounded`: granted as outside. Code that does not act
 /// asks `accepted`. No recheck, no tag: the licence is held for the tracer (`Licence::accepted`, program
 /// `LicenceStamp::Accepted`), counted apart and never a key, and codegen reads nothing of it.
-pub fn volatile_free<'p>(cx: &super::Cx<'_, 'p>, unit: impl IntoIterator<Item = Node<'p>>) -> Result<Licence, Denied> {
+pub fn volatile_free<'p>(
+    cx: &super::Cx<'_, 'p>,
+    unit: impl IntoIterator<Item = Node<'p>>,
+) -> Result<Licence, Denied> {
     let s = cx.stmt.ok_or(Denied)?;
     if super::call_local(cx, unit).is_none() || locks(s) {
         return Err(Denied);
     }
-    Ok(Licence { departure: Departure::Ahead, recheck: false, tagged: false, held: false, whole: false, exact: None, accepted: true, _only_effects: () })
+    Ok(Licence {
+        departure: Departure::Ahead,
+        recheck: false,
+        tagged: false,
+        held: false,
+        whole: false,
+        exact: None,
+        accepted: true,
+        _only_effects: (),
+    })
 }
 
 /// A row lock anywhere in statement `s`: a planned row mark (FOR UPDATE / SHARE / KEY SHARE) or a LockRows node in its
@@ -548,58 +716,158 @@ pub fn deny_all_bounded<T>(f: impl FnOnce() -> T) -> T {
 mod tests {
     use super::*;
 
-    const ALL: [Departure; 4] = [Departure::Ahead, Departure::Fewer, Departure::More, Departure::Skip];
+    const ALL: [Departure; 4] = [
+        Departure::Ahead,
+        Departure::Fewer,
+        Departure::More,
+        Departure::Skip,
+    ];
 
     #[test]
     fn unobservable_code_holds_a_licence_everywhere() {
-        assert!(unobservable(Effects::NONE).is_some_and(|l| !l.recheck() && !l.tagged() && l.departure() == Departure::Ahead));
-        assert!(deny_all(|| unobservable(Effects::NONE)).is_some(), "the plan-order run grants it too");
-        assert!(unobservable(Effects::RAISES).is_none(), "code that may raise asks licence or licence_unchecked");
+        assert!(unobservable(Effects::NONE)
+            .is_some_and(|l| !l.recheck() && !l.tagged() && l.departure() == Departure::Ahead));
+        assert!(
+            deny_all(|| unobservable(Effects::NONE)).is_some(),
+            "the plan-order run grants it too"
+        );
+        assert!(
+            unobservable(Effects::RAISES).is_none(),
+            "code that may raise asks licence or licence_unchecked"
+        );
     }
 
     /// Construct C2: the Ahead-only quiet licence grants code that neither acts nor raises whatever its rows; the
     /// licence of every other departure keeps `Effects::NONE`.
     #[test]
     fn quiet_ahead_frees_same_rows_for_an_ahead_departure_only() {
-        let rows_differ = Effects { acts: false, may_raise: false, same_rows: false };
-        let l = quiet_ahead(rows_differ).expect("neither acts nor raises, other rows run to run: granted");
-        assert!(l.departure() == Departure::Ahead && !l.recheck() && !l.tagged() && !l.held_error() && !l.whole_read());
-        assert_eq!(quiet_ahead(rows_differ), unobservable(Effects::NONE), "unobservable's fields");
-        assert!(deny_all(|| quiet_ahead(rows_differ)).is_some(), "the plan-order run grants it too");
+        let rows_differ = Effects {
+            acts: false,
+            may_raise: false,
+            same_rows: false,
+        };
+        let l = quiet_ahead(rows_differ)
+            .expect("neither acts nor raises, other rows run to run: granted");
+        assert!(
+            l.departure() == Departure::Ahead
+                && !l.recheck()
+                && !l.tagged()
+                && !l.held_error()
+                && !l.whole_read()
+        );
+        assert_eq!(
+            quiet_ahead(rows_differ),
+            unobservable(Effects::NONE),
+            "unobservable's fields"
+        );
+        assert!(
+            deny_all(|| quiet_ahead(rows_differ)).is_some(),
+            "the plan-order run grants it too"
+        );
         assert!(quiet_ahead(Effects::NONE).is_some());
-        assert!(quiet_ahead(Effects { may_raise: true, ..rows_differ }).is_none(), "the same code, if it may raise");
-        assert!(quiet_ahead(Effects::RAISES).is_none(), "code that may raise asks licence, held_error or whole_read");
+        assert!(
+            quiet_ahead(Effects {
+                may_raise: true,
+                ..rows_differ
+            })
+            .is_none(),
+            "the same code, if it may raise"
+        );
+        assert!(
+            quiet_ahead(Effects::RAISES).is_none(),
+            "code that may raise asks licence, held_error or whole_read"
+        );
         assert!(quiet_ahead(Effects::ACTS).is_none(), "code that acts");
         assert!(quiet_ahead(Effects::UNKNOWN).is_none(), "unknown code acts");
-        let volatile = Effects::of_found(super::super::found::Found { volatility: super::super::Volatility::Volatile, ..super::super::found::Found::CLEAN });
-        assert!(volatile.acts && quiet_ahead(volatile).is_none(), "a VOLATILE call acts (random(), clock_timestamp()): denied");
-        assert!(unobservable(rows_differ).is_none(), "the licence a re-run or a cache holds keeps same_rows");
+        let volatile = Effects::of_found(super::super::found::Found {
+            volatility: super::super::Volatility::Volatile,
+            ..super::super::found::Found::CLEAN
+        });
+        assert!(
+            volatile.acts && quiet_ahead(volatile).is_none(),
+            "a VOLATILE call acts (random(), clock_timestamp()): denied"
+        );
+        assert!(
+            unobservable(rows_differ).is_none(),
+            "the licence a re-run or a cache holds keeps same_rows"
+        );
     }
 
     #[test]
     fn the_held_error_rule() {
-        let l = held_error(Effects::RAISES, false, None).expect("code that may raise and does nothing else");
+        let l = held_error(Effects::RAISES, false, None)
+            .expect("code that may raise and does nothing else");
         assert!(l.held_error() && !l.recheck() && !l.tagged() && l.departure() == Departure::Ahead);
-        assert_eq!(held_error(Effects::ACTS, false, None), Err(Denied), "code that acts");
-        assert_eq!(held_error(Effects::UNKNOWN, false, None), Err(Denied), "unknown code acts");
-        assert_eq!(held_error(Effects::RAISES, true, None), Err(Denied), "user code may RAISE NOTICE");
-        assert!(deny_all(|| held_error(Effects::RAISES, false, None)).is_ok_and(|l| l.held_error()), "the plan-order run's own held forms");
-        assert!(lowering(true, false, || held_error(Effects::RAISES, false, None)).is_ok(), "the error is raised at PostgreSQL's point");
-        for l in [licence(Effects::RAISES, Departure::Ahead), licence_unchecked(Effects::RAISES, false), unobservable(Effects::NONE).ok_or(Denied)] {
-            assert!(!l.expect("granted").held_error(), "no other licence is a held error's");
+        assert_eq!(
+            held_error(Effects::ACTS, false, None),
+            Err(Denied),
+            "code that acts"
+        );
+        assert_eq!(
+            held_error(Effects::UNKNOWN, false, None),
+            Err(Denied),
+            "unknown code acts"
+        );
+        assert_eq!(
+            held_error(Effects::RAISES, true, None),
+            Err(Denied),
+            "user code may RAISE NOTICE"
+        );
+        assert!(
+            deny_all(|| held_error(Effects::RAISES, false, None)).is_ok_and(|l| l.held_error()),
+            "the plan-order run's own held forms"
+        );
+        assert!(
+            lowering(true, false, || held_error(Effects::RAISES, false, None)).is_ok(),
+            "the error is raised at PostgreSQL's point"
+        );
+        for l in [
+            licence(Effects::RAISES, Departure::Ahead),
+            licence_unchecked(Effects::RAISES, false),
+            unobservable(Effects::NONE).ok_or(Denied),
+        ] {
+            assert!(
+                !l.expect("granted").held_error(),
+                "no other licence is a held error's"
+            );
         }
     }
 
     #[test]
     fn the_whole_read_rule() {
         let l = whole_read(Effects::RAISES).expect("code that may raise and does not act");
-        assert!(l.whole_read() && !l.recheck() && !l.tagged() && !l.held_error() && l.departure() == Departure::Ahead);
+        assert!(
+            l.whole_read()
+                && !l.recheck()
+                && !l.tagged()
+                && !l.held_error()
+                && l.departure() == Departure::Ahead
+        );
         assert!(whole_read(Effects::NONE).is_ok_and(|l| l.whole_read()));
-        assert_eq!(whole_read(Effects::ACTS), Err(Denied), "code that acts shows its order");
-        assert_eq!(whole_read(Effects::UNKNOWN), Err(Denied), "unknown code acts");
-        assert!(deny_all(|| whole_read(Effects::RAISES)).is_ok(), "the plan-order run reads whole too");
-        for l in [licence(Effects::RAISES, Departure::Ahead), licence_unchecked(Effects::RAISES, false), held_error(Effects::RAISES, false, None), unobservable(Effects::NONE).ok_or(Denied)] {
-            assert!(!l.expect("granted").whole_read(), "no other licence records the whole-read guard");
+        assert_eq!(
+            whole_read(Effects::ACTS),
+            Err(Denied),
+            "code that acts shows its order"
+        );
+        assert_eq!(
+            whole_read(Effects::UNKNOWN),
+            Err(Denied),
+            "unknown code acts"
+        );
+        assert!(
+            deny_all(|| whole_read(Effects::RAISES)).is_ok(),
+            "the plan-order run reads whole too"
+        );
+        for l in [
+            licence(Effects::RAISES, Departure::Ahead),
+            licence_unchecked(Effects::RAISES, false),
+            held_error(Effects::RAISES, false, None),
+            unobservable(Effects::NONE).ok_or(Denied),
+        ] {
+            assert!(
+                !l.expect("granted").whole_read(),
+                "no other licence records the whole-read guard"
+            );
         }
     }
 
@@ -607,21 +875,85 @@ mod tests {
     fn a_held_error_covers_acts_only_with_the_call_local_proof() {
         use super::super::found::Found;
         use super::super::read::local_in;
-        let acts = Effects { acts: true, may_raise: true, same_rows: false };
-        let nextval = Found { volatility: super::super::Volatility::Volatile, ..Found::CLEAN };
+        let acts = Effects {
+            acts: true,
+            may_raise: true,
+            same_rows: false,
+        };
+        let nextval = Found {
+            volatility: super::super::Volatility::Volatile,
+            ..Found::CLEAN
+        };
         let local = local_in(nextval, Some(nextval)).expect("nextval alone is granted");
-        assert!(held_error(acts, false, Some(local)).is_ok_and(|l| l.held_error() && !l.recheck() && !l.tagged()));
-        assert_eq!(held_error(acts, false, None), Err(Denied), "acts with no proof");
-        assert_eq!(held_error(acts, true, Some(local)), Err(Denied), "user code stays denied");
-        assert_eq!(local_in(nextval, None), None, "no statement (or one that writes): fail closed");
+        assert!(held_error(acts, false, Some(local))
+            .is_ok_and(|l| l.held_error() && !l.recheck() && !l.tagged()));
+        assert_eq!(
+            held_error(acts, false, None),
+            Err(Denied),
+            "acts with no proof"
+        );
+        assert_eq!(
+            held_error(acts, true, Some(local)),
+            Err(Denied),
+            "user code stays denied"
+        );
+        assert_eq!(
+            local_in(nextval, None),
+            None,
+            "no statement (or one that writes): fail closed"
+        );
         assert!(local_in(nextval, Some(nextval)).is_some(), "another nextval in the statement, of any sequence: its place against the unit's is free");
-        assert_eq!(local_in(nextval, Some(Found { local_state: true, ..nextval })), None, "currval, lastval, setval or setseed in the statement");
-        assert_eq!(local_in(nextval, Some(Found { user_call: true, ..nextval })), None, "a user call in the statement");
-        let past = Found { acts_past_call: true, ..Found::CLEAN };
-        assert_eq!(local_in(past, Some(past)), None, "setval / setseed / pg_advisory_lock in the unit act past their call");
-        assert_eq!(local_in(Found { user_call: true, ..Found::CLEAN }, Some(Found::CLEAN)), None, "a user call in the unit");
-        assert!(local_in(Found::CLEAN, Some(nextval)).is_some(), "a unit that does not act minds no nextval");
-        assert_eq!(local_in(Found::UNKNOWN, Some(Found::CLEAN)), None, "an unknown node acts past its call");
+        assert_eq!(
+            local_in(
+                nextval,
+                Some(Found {
+                    local_state: true,
+                    ..nextval
+                })
+            ),
+            None,
+            "currval, lastval, setval or setseed in the statement"
+        );
+        assert_eq!(
+            local_in(
+                nextval,
+                Some(Found {
+                    user_call: true,
+                    ..nextval
+                })
+            ),
+            None,
+            "a user call in the statement"
+        );
+        let past = Found {
+            acts_past_call: true,
+            ..Found::CLEAN
+        };
+        assert_eq!(
+            local_in(past, Some(past)),
+            None,
+            "setval / setseed / pg_advisory_lock in the unit act past their call"
+        );
+        assert_eq!(
+            local_in(
+                Found {
+                    user_call: true,
+                    ..Found::CLEAN
+                },
+                Some(Found::CLEAN)
+            ),
+            None,
+            "a user call in the unit"
+        );
+        assert!(
+            local_in(Found::CLEAN, Some(nextval)).is_some(),
+            "a unit that does not act minds no nextval"
+        );
+        assert_eq!(
+            local_in(Found::UNKNOWN, Some(Found::CLEAN)),
+            None,
+            "an unknown node acts past its call"
+        );
     }
 
     /// Construct C2: the whole-read licence grants code that acts only through call-local builtins, with the proof.
@@ -629,29 +961,84 @@ mod tests {
     fn a_whole_read_covers_acts_only_with_the_call_local_proof() {
         use super::super::found::Found;
         use super::super::read::local_in;
-        let acts = Effects { acts: true, may_raise: true, same_rows: false };
-        let nextval = Found { volatility: super::super::Volatility::Volatile, ..Found::CLEAN };
+        let acts = Effects {
+            acts: true,
+            may_raise: true,
+            same_rows: false,
+        };
+        let nextval = Found {
+            volatility: super::super::Volatility::Volatile,
+            ..Found::CLEAN
+        };
         let local = local_in(nextval, Some(nextval)).expect("nextval alone is granted");
-        assert!(whole_read_local(acts, Some(local)).is_ok_and(|l| l.whole_read() && !l.recheck() && !l.tagged()));
-        assert_eq!(whole_read_local(acts, None), Err(Denied), "acts with no proof");
-        assert_eq!(whole_read(acts), Err(Denied), "whole_read is the form with no proof");
-        assert!(deny_all(|| whole_read_local(acts, Some(local))).is_ok(), "the plan-order run grants it as outside");
+        assert!(whole_read_local(acts, Some(local))
+            .is_ok_and(|l| l.whole_read() && !l.recheck() && !l.tagged()));
+        assert_eq!(
+            whole_read_local(acts, None),
+            Err(Denied),
+            "acts with no proof"
+        );
+        assert_eq!(
+            whole_read(acts),
+            Err(Denied),
+            "whole_read is the form with no proof"
+        );
+        assert!(
+            deny_all(|| whole_read_local(acts, Some(local))).is_ok(),
+            "the plan-order run grants it as outside"
+        );
     }
 
     /// Construct C2 (D1): the exact licence grants code that does not act, raising or not, inside the plan-order run too,
     /// with no recheck and no tag, and records its proof; code that acts is denied whatever the proof.
     #[test]
     fn the_exact_rule() {
-        let p = Proof { kind: ProofKind::FirstFetch, node: 7, orders_acts: false };
-        for e in [Effects::NONE, Effects::RAISES, Effects { acts: false, may_raise: true, same_rows: false }] {
+        let p = Proof {
+            kind: ProofKind::FirstFetch,
+            node: 7,
+            orders_acts: false,
+        };
+        for e in [
+            Effects::NONE,
+            Effects::RAISES,
+            Effects {
+                acts: false,
+                may_raise: true,
+                same_rows: false,
+            },
+        ] {
             let l = exact(e, p).expect("does not act: granted");
-            assert!(l.exact() == Some(p) && !l.recheck() && !l.tagged() && !l.held_error() && !l.whole_read() && l.departure() == Departure::Ahead);
-            assert!(deny_all(|| exact(e, p)).is_ok_and(|l| l.exact() == Some(p)), "the plan-order run grants it too");
+            assert!(
+                l.exact() == Some(p)
+                    && !l.recheck()
+                    && !l.tagged()
+                    && !l.held_error()
+                    && !l.whole_read()
+                    && l.departure() == Departure::Ahead
+            );
+            assert!(
+                deny_all(|| exact(e, p)).is_ok_and(|l| l.exact() == Some(p)),
+                "the plan-order run grants it too"
+            );
         }
-        assert_eq!(exact(Effects::ACTS, p), Err(Denied), "code that acts shows the order of its acts");
+        assert_eq!(
+            exact(Effects::ACTS, p),
+            Err(Denied),
+            "code that acts shows the order of its acts"
+        );
         assert_eq!(exact(Effects::UNKNOWN, p), Err(Denied), "unknown code acts");
-        for l in [licence(Effects::RAISES, Departure::Ahead), licence_unchecked(Effects::RAISES, false), held_error(Effects::RAISES, false, None), whole_read(Effects::RAISES), unobservable(Effects::NONE).ok_or(Denied)] {
-            assert_eq!(l.expect("granted").exact(), None, "no other licence carries a proof");
+        for l in [
+            licence(Effects::RAISES, Departure::Ahead),
+            licence_unchecked(Effects::RAISES, false),
+            held_error(Effects::RAISES, false, None),
+            whole_read(Effects::RAISES),
+            unobservable(Effects::NONE).ok_or(Denied),
+        ] {
+            assert_eq!(
+                l.expect("granted").exact(),
+                None,
+                "no other licence carries a proof"
+            );
         }
         assert_eq!((p.kind(), p.node()), (ProofKind::FirstFetch, 7));
     }
@@ -661,21 +1048,81 @@ mod tests {
     /// acts and user code that may write are denied; no other licence is accepted.
     #[test]
     fn the_accepted_rule() {
-        for e in [Effects::NONE, Effects::RAISES, Effects { acts: false, may_raise: true, same_rows: false }] {
+        for e in [
+            Effects::NONE,
+            Effects::RAISES,
+            Effects {
+                acts: false,
+                may_raise: true,
+                same_rows: false,
+            },
+        ] {
             let l = accepted(e, false).expect("does not act: granted");
             assert!(l.accepted() && l.departure() == Departure::Ahead);
-            assert!(!l.recheck() && !l.tagged() && !l.held_error() && !l.whole_read() && l.exact().is_none(), "held for the tracer only");
-            assert!(deny_all(|| accepted(e, false)).is_ok_and(|l| l.accepted()), "the plan-order run grants it too");
-            assert!(lowering(true, false, || accepted(e, false)).is_ok(), "an acting statement: the code itself does not act");
+            assert!(
+                !l.recheck()
+                    && !l.tagged()
+                    && !l.held_error()
+                    && !l.whole_read()
+                    && l.exact().is_none(),
+                "held for the tracer only"
+            );
+            assert!(
+                deny_all(|| accepted(e, false)).is_ok_and(|l| l.accepted()),
+                "the plan-order run grants it too"
+            );
+            assert!(
+                lowering(true, false, || accepted(e, false)).is_ok(),
+                "an acting statement: the code itself does not act"
+            );
         }
-        assert_eq!(accepted(Effects::ACTS, false), Err(Denied), "code that acts asks volatile_free");
-        assert_eq!(accepted(Effects::UNKNOWN, false), Err(Denied), "unknown code acts");
-        assert_eq!(accepted(Effects { acts: true, may_raise: false, same_rows: true }, false), Err(Denied), "an act with no error");
-        assert_eq!(accepted(Effects::RAISES, true), Err(Denied), "user code that may write");
-        let p = Proof { kind: ProofKind::PgRunsFirst, node: 3, orders_acts: true };
-        let others = [licence(Effects::RAISES, Departure::Ahead), licence_unchecked(Effects::RAISES, false), held_error(Effects::RAISES, false, None), whole_read(Effects::RAISES), unobservable(Effects::NONE).ok_or(Denied), quiet_ahead(Effects::NONE).ok_or(Denied), exact(Effects::RAISES, p), exact_first(Effects::ACTS, p)];
+        assert_eq!(
+            accepted(Effects::ACTS, false),
+            Err(Denied),
+            "code that acts asks volatile_free"
+        );
+        assert_eq!(
+            accepted(Effects::UNKNOWN, false),
+            Err(Denied),
+            "unknown code acts"
+        );
+        assert_eq!(
+            accepted(
+                Effects {
+                    acts: true,
+                    may_raise: false,
+                    same_rows: true
+                },
+                false
+            ),
+            Err(Denied),
+            "an act with no error"
+        );
+        assert_eq!(
+            accepted(Effects::RAISES, true),
+            Err(Denied),
+            "user code that may write"
+        );
+        let p = Proof {
+            kind: ProofKind::PgRunsFirst,
+            node: 3,
+            orders_acts: true,
+        };
+        let others = [
+            licence(Effects::RAISES, Departure::Ahead),
+            licence_unchecked(Effects::RAISES, false),
+            held_error(Effects::RAISES, false, None),
+            whole_read(Effects::RAISES),
+            unobservable(Effects::NONE).ok_or(Denied),
+            quiet_ahead(Effects::NONE).ok_or(Denied),
+            exact(Effects::RAISES, p),
+            exact_first(Effects::ACTS, p),
+        ];
         for l in others {
-            assert!(!l.expect("granted").accepted(), "no other licence is the accepted class");
+            assert!(
+                !l.expect("granted").accepted(),
+                "no other licence is the accepted class"
+            );
         }
     }
 
@@ -684,13 +1131,25 @@ mod tests {
         for d in ALL {
             let l = licence(Effects::NONE, d).expect("no effects: granted");
             assert!(!l.recheck() && l.departure() == d);
-            assert_eq!(licence(Effects::ACTS, d), Err(Denied), "{d:?}: code that acts is denied");
-            assert_eq!(licence(Effects::UNKNOWN, d), Err(Denied), "{d:?}: unknown code acts");
+            assert_eq!(
+                licence(Effects::ACTS, d),
+                Err(Denied),
+                "{d:?}: code that acts is denied"
+            );
+            assert_eq!(
+                licence(Effects::UNKNOWN, d),
+                Err(Denied),
+                "{d:?}: unknown code acts"
+            );
         }
         assert!(licence(Effects::RAISES, Departure::Ahead).is_ok_and(|l| l.recheck()));
         assert!(licence(Effects::RAISES, Departure::More).is_ok_and(|l| l.recheck()));
         assert!(licence(Effects::RAISES, Departure::Fewer).is_ok_and(|l| !l.recheck()));
-        assert_eq!(licence(Effects::RAISES, Departure::Skip), Err(Denied), "a skipped evaluation would lose its error");
+        assert_eq!(
+            licence(Effects::RAISES, Departure::Skip),
+            Err(Denied),
+            "a skipped evaluation would lose its error"
+        );
     }
 
     #[test]
@@ -709,20 +1168,60 @@ mod tests {
     /// that acts and user code are denied, an acting statement's read side granted; the plan-order run grants it as outside.
     #[test]
     fn the_unchecked_ahead_rule() {
-        let l = licence_unchecked(Effects::RAISES, false).expect("may raise, does not act: granted");
+        let l =
+            licence_unchecked(Effects::RAISES, false).expect("may raise, does not act: granted");
         assert!(l.tagged() && !l.recheck() && l.departure() == Departure::Ahead);
         assert!(licence_unchecked(Effects::NONE, false).is_ok_and(|l| !l.tagged() && !l.recheck()));
-        assert_eq!(licence_unchecked(Effects::ACTS, false), Err(Denied), "code that acts");
-        assert_eq!(licence_unchecked(Effects::UNKNOWN, false), Err(Denied), "unknown code acts");
-        assert_eq!(licence_unchecked(Effects::RAISES, true), Err(Denied), "user code stays exact");
-        assert!(lowering(true, false, || licence_unchecked(Effects::RAISES, false)).is_ok_and(|l| l.tagged()), "an acting statement's read side");
-        assert!(lowering(false, false, || licence_unchecked(Effects::RAISES, false)).is_ok_and(|l| l.tagged()));
-        assert!(deny_all(|| licence_unchecked(Effects::RAISES, false)).is_ok_and(|l| l.tagged()), "the plan-order run");
-        assert!(deny_all_bounded(|| licence_unchecked(Effects::NONE, false)).is_ok_and(|l| !l.tagged()));
-        assert_eq!(deny_all(|| licence_unchecked(Effects::ACTS, false)), Err(Denied), "acting code, in the plan-order run");
-        assert_eq!(deny_all(|| licence_unchecked(Effects::RAISES, true)), Err(Denied), "user code, in the plan-order run");
-        assert_eq!(deny_all(|| licence(Effects::RAISES, Departure::Ahead)), Err(Denied), "the recheck licence stays denied there");
-        assert!(licence(Effects::RAISES, Departure::Ahead).is_ok_and(|l| l.recheck() && !l.tagged()), "a recheck stays a recheck");
+        assert_eq!(
+            licence_unchecked(Effects::ACTS, false),
+            Err(Denied),
+            "code that acts"
+        );
+        assert_eq!(
+            licence_unchecked(Effects::UNKNOWN, false),
+            Err(Denied),
+            "unknown code acts"
+        );
+        assert_eq!(
+            licence_unchecked(Effects::RAISES, true),
+            Err(Denied),
+            "user code stays exact"
+        );
+        assert!(
+            lowering(true, false, || licence_unchecked(Effects::RAISES, false))
+                .is_ok_and(|l| l.tagged()),
+            "an acting statement's read side"
+        );
+        assert!(
+            lowering(false, false, || licence_unchecked(Effects::RAISES, false))
+                .is_ok_and(|l| l.tagged())
+        );
+        assert!(
+            deny_all(|| licence_unchecked(Effects::RAISES, false)).is_ok_and(|l| l.tagged()),
+            "the plan-order run"
+        );
+        assert!(
+            deny_all_bounded(|| licence_unchecked(Effects::NONE, false)).is_ok_and(|l| !l.tagged())
+        );
+        assert_eq!(
+            deny_all(|| licence_unchecked(Effects::ACTS, false)),
+            Err(Denied),
+            "acting code, in the plan-order run"
+        );
+        assert_eq!(
+            deny_all(|| licence_unchecked(Effects::RAISES, true)),
+            Err(Denied),
+            "user code, in the plan-order run"
+        );
+        assert_eq!(
+            deny_all(|| licence(Effects::RAISES, Departure::Ahead)),
+            Err(Denied),
+            "the recheck licence stays denied there"
+        );
+        assert!(
+            licence(Effects::RAISES, Departure::Ahead).is_ok_and(|l| l.recheck() && !l.tagged()),
+            "a recheck stays a recheck"
+        );
     }
 
     /// `grants` counts each licence `licence` grants, never a denial nor `licence_unchecked`'s (the plan-order run grants
@@ -732,9 +1231,16 @@ mod tests {
         let g0 = grants();
         assert!(licence(Effects::RAISES, Departure::Ahead).is_ok());
         assert_eq!(grants(), g0.wrapping_add(1), "a grant");
-        assert!(licence(Effects::ACTS, Departure::Ahead).is_err() && deny_all(|| licence(Effects::RAISES, Departure::Ahead)).is_err());
+        assert!(
+            licence(Effects::ACTS, Departure::Ahead).is_err()
+                && deny_all(|| licence(Effects::RAISES, Departure::Ahead)).is_err()
+        );
         assert!(licence_unchecked(Effects::RAISES, false).is_ok());
-        assert_eq!(grants(), g0.wrapping_add(1), "denials and unchecked licences are not counted");
+        assert_eq!(
+            grants(),
+            g0.wrapping_add(1),
+            "denials and unchecked licences are not counted"
+        );
     }
 
     /// D2316: a bounded plan-order run denies every licence as `deny_all` does and reads as bounded; a full one nested in
@@ -742,8 +1248,14 @@ mod tests {
     #[test]
     fn deny_all_bounded_is_a_plan_order_run_that_stops() {
         assert!(!denying_bounded());
-        assert_eq!(deny_all_bounded(|| licence(Effects::NONE, Departure::Ahead)), Err(Denied));
-        assert!(deny_all_bounded(|| denying() && denying_bounded() && deny_all(|| denying() && !denying_bounded()) && denying_bounded()));
+        assert_eq!(
+            deny_all_bounded(|| licence(Effects::NONE, Departure::Ahead)),
+            Err(Denied)
+        );
+        assert!(deny_all_bounded(|| denying()
+            && denying_bounded()
+            && deny_all(|| denying() && !denying_bounded())
+            && denying_bounded()));
         assert!(deny_all(|| !denying_bounded()));
         assert!(!denying() && !denying_bounded(), "restored");
     }

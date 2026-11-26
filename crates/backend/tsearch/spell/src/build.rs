@@ -1,19 +1,18 @@
 use ::mcx::{Mcx, PgVec};
 use ::regex::{RegcompResult, REG_ADVANCED, REG_NOSUB};
-use ::types_core::catalog::DEFAULT_COLLATION_OID;
 use ::ts_locale::{TsearchReadline, BUFSIZ};
+use ::types_core::catalog::DEFAULT_COLLATION_OID;
 use ::types_error::{PgError, PgResult, ERRCODE_INVALID_REGULAR_EXPRESSION};
 
 use crate::{
     atoi, bcmp, bstrchr, bytes_lossy, check_stack_depth, config_file_error, elog_internal,
-    findchar, findchar2,
-    isdigit, isprint, isspace, new_bytes, pg_mblen_clamped, reserve_one, rs_compile, rs_is_regis,
-    str_tolower, strbcmp, strbncmp, strtol, t_isalpha, t_iseq, Affix, AffixNode, AffixNodeData,
-    AffixReg, CmpdAffix, CompoundAffixFlag, FlagKey, FlagMode, IspellDict, SpNode, SpNodeData,
+    findchar, findchar2, isdigit, isprint, isspace, new_bytes, pg_mblen_clamped, reserve_one,
+    rs_compile, rs_is_regis, str_tolower, strbcmp, strbncmp, strtol, t_isalpha, t_iseq, Affix,
+    AffixNode, AffixNodeData, AffixReg, CmpdAffix, CompoundAffixFlag, FlagKey, FlagMode,
+    IspellDict, SpNode, SpNodeData, Spell, FF_COMPOUNDBEGIN, FF_COMPOUNDFLAG, FF_COMPOUNDFLAGMASK,
+    FF_COMPOUNDFORBIDFLAG, FF_COMPOUNDLAST, FF_COMPOUNDMIDDLE, FF_COMPOUNDONLY,
+    FF_COMPOUNDPERMITFLAG, FF_CROSSPRODUCT, FF_PREFIX, FF_SUFFIX, FLAGNUM_MAXSIZE,
     SPNODE_AFFIX_MASK,
-    Spell, FF_COMPOUNDBEGIN, FF_COMPOUNDFLAG, FF_COMPOUNDFLAGMASK, FF_COMPOUNDFORBIDFLAG,
-    FF_COMPOUNDLAST, FF_COMPOUNDMIDDLE, FF_COMPOUNDONLY, FF_COMPOUNDPERMITFLAG, FF_CROSSPRODUCT,
-    FF_PREFIX, FF_SUFFIX, FLAGNUM_MAXSIZE,
 };
 
 #[inline]
@@ -83,7 +82,11 @@ impl<'mcx> IspellDict<'mcx> {
         out: &mut Vec<u8>,
     ) -> PgResult<()> {
         let sbuf_start = *pos;
-        let mut maxstep: i32 = if self.flag_mode == FlagMode::Long { 2 } else { 1 };
+        let mut maxstep: i32 = if self.flag_mode == FlagMode::Long {
+            2
+        } else {
+            1
+        };
         let mut met_comma = false;
 
         while *pos < sflagset.len() {
@@ -187,7 +190,11 @@ impl<'mcx> IspellDict<'mcx> {
         let mcx = self.mcx;
         let sp = Spell {
             word: new_bytes(mcx, word)?,
-            flag: if !flag.is_empty() { new_bytes(mcx, flag)? } else { PgVec::new_in(mcx) },
+            flag: if !flag.is_empty() {
+                new_bytes(mcx, flag)?
+            } else {
+                PgVec::new_in(mcx)
+            },
             affix: 0,
             len: 0,
         };
@@ -288,16 +295,25 @@ impl<'mcx> IspellDict<'mcx> {
 
         let mut flagflags = flagflags;
         if ((flagflags & FF_COMPOUNDONLY) != 0 || (flagflags & FF_COMPOUNDPERMITFLAG) != 0)
-            && (flagflags & FF_COMPOUNDFLAG) == 0 {
-                flagflags |= FF_COMPOUNDFLAG;
-            }
+            && (flagflags & FF_COMPOUNDFLAG) == 0
+        {
+            flagflags |= FF_COMPOUNDFLAG;
+        }
 
         let affix = Affix {
             flag: new_bytes(mcx, flag)?,
             type_,
             flagflags,
-            find: if !find.is_empty() { new_bytes(mcx, find)? } else { PgVec::new_in(mcx) },
-            repl: if !repl.is_empty() { new_bytes(mcx, repl)? } else { PgVec::new_in(mcx) },
+            find: if !find.is_empty() {
+                new_bytes(mcx, find)?
+            } else {
+                PgVec::new_in(mcx)
+            },
+            repl: if !repl.is_empty() {
+                new_bytes(mcx, repl)?
+            } else {
+                PgVec::new_in(mcx)
+            },
             reg,
         };
         reserve_one(mcx, &mut self.affixes)?;
@@ -628,9 +644,9 @@ impl<'mcx> IspellDict<'mcx> {
             };
             self.set_compound_affix_flag_value(&mut key, &sflag, 0)?;
 
-            if let Some(idx) =
-                c_bsearch(&self.compound_affix_flags, |probe| Self::cmpcmdflag(probe, &key))
-            {
+            if let Some(idx) = c_bsearch(&self.compound_affix_flags, |probe| {
+                Self::cmpcmdflag(probe, &key)
+            }) {
                 flag |= self.compound_affix_flags[idx].value;
             }
         }
@@ -693,11 +709,12 @@ impl<'mcx> IspellDict<'mcx> {
         drop(rd);
 
         if self.compound_affix_flags.len() > 1 {
-            let tmp: Vec<CompoundAffixFlag> =
-                self.compound_affix_flags.iter().cloned().collect();
+            let tmp: Vec<CompoundAffixFlag> = self.compound_affix_flags.iter().cloned().collect();
             let order = pg_qsort_order(&tmp, Self::cmpcmdflag);
             let mut rebuilt: PgVec<CompoundAffixFlag> = PgVec::new_in(mcx);
-            rebuilt.try_reserve(tmp.len()).map_err(|_| mcx.oom(tmp.len()))?;
+            rebuilt
+                .try_reserve(tmp.len())
+                .map_err(|_| mcx.oom(tmp.len()))?;
             for &i in &order {
                 rebuilt.push(tmp[i].clone());
             }
@@ -792,7 +809,12 @@ impl<'mcx> IspellDict<'mcx> {
         }
 
         let fields_read = Self::parse_ooaffentry(
-            line, &mut st.type_, &mut st.sflag, &mut st.find, &mut st.repl, &mut st.mask,
+            line,
+            &mut st.type_,
+            &mut st.sflag,
+            &mut st.find,
+            &mut st.repl,
+            &mut st.mask,
         )?;
 
         let ptype = str_tolower(mcx, &st.type_)?;
@@ -802,10 +824,9 @@ impl<'mcx> IspellDict<'mcx> {
                 self.use_flag_aliases = true;
                 st.naffix = atoi(&st.sflag);
                 if st.naffix <= 0 {
-                    return Err(config_file_error(
-                        "invalid number of flag vector aliases".into(),
-                    )
-                    .into());
+                    return Err(
+                        config_file_error("invalid number of flag vector aliases".into()).into(),
+                    );
                 }
                 st.naffix = st.naffix.wrapping_add(1);
                 // C: Conf->AffixData = palloc0(naffix * sizeof(char *)).
@@ -1130,7 +1151,7 @@ impl<'mcx> IspellDict<'mcx> {
                 if is_new {
                     curaffix += 1;
                     debug_assert!(curaffix < naffix);
-                    let dup = new_bytes(mcx,self.spell[i].flag.as_slice())?;
+                    let dup = new_bytes(mcx, self.spell[i].flag.as_slice())?;
                     affix_data.push(dup);
                 }
                 let wordlen = self.spell[i].word.len() as i32;
@@ -1213,13 +1234,22 @@ impl<'mcx> IspellDict<'mcx> {
     }
 
     #[inline(never)]
-    fn sp_node_step(&mut self, b: &mut SpBuild, high: i32, level: i32) -> PgResult<Option<(i32, i32)>> {
+    fn sp_node_step(
+        &mut self,
+        b: &mut SpBuild,
+        high: i32,
+        level: i32,
+    ) -> PgResult<Option<(i32, i32)>> {
         while b.i < high {
             let (splen, ch, sp_affix) = {
                 let sp = &self.spell[b.i as usize];
                 (
                     sp.len,
-                    if sp.len > level { sp.word[level as usize] } else { 0 },
+                    if sp.len > level {
+                        sp.word[level as usize]
+                    } else {
+                        0
+                    },
                     sp.affix,
                 )
             };
@@ -1287,7 +1317,8 @@ impl<'mcx> IspellDict<'mcx> {
     fn sp_node_finish(&mut self, b: SpBuild) -> PgResult<Option<usize>> {
         let mcx = self.mcx;
         let mut pv: PgVec<SpNodeData> = PgVec::new_in(mcx);
-        pv.try_reserve(b.data.len()).map_err(|_| mcx.oom(b.data.len()))?;
+        pv.try_reserve(b.data.len())
+            .map_err(|_| mcx.oom(b.data.len()))?;
         for d in b.data {
             pv.push(d);
         }
@@ -1297,7 +1328,9 @@ impl<'mcx> IspellDict<'mcx> {
 
     fn alloc_sp_node(&mut self, mcx: Mcx<'mcx>) -> PgResult<usize> {
         reserve_one(mcx, &mut self.sp_arena)?;
-        self.sp_arena.push(SpNode { data: PgVec::new_in(mcx) });
+        self.sp_arena.push(SpNode {
+            data: PgVec::new_in(mcx),
+        });
         Ok(self.sp_arena.len() - 1)
     }
 
@@ -1363,13 +1396,23 @@ impl<'mcx> IspellDict<'mcx> {
     }
 
     #[inline(never)]
-    fn a_node_step(&self, b: &mut ABuild<'mcx>, high: i32, level: i32, type_: i32) -> Option<(i32, i32)> {
+    fn a_node_step(
+        &self,
+        b: &mut ABuild<'mcx>,
+        high: i32,
+        level: i32,
+        type_: i32,
+    ) -> Option<(i32, i32)> {
         while b.i < high {
             let (replen, ch) = {
                 let a = &self.affixes[b.i as usize];
                 (
                     a.replen(),
-                    if a.replen() > level { getchar(a, level, type_) } else { 0 },
+                    if a.replen() > level {
+                        getchar(a, level, type_)
+                    } else {
+                        0
+                    },
                 )
             };
             if replen > level {
@@ -1407,7 +1450,8 @@ impl<'mcx> IspellDict<'mcx> {
         cur.node = child;
         if !b.naff.is_empty() {
             let mut aff: PgVec<usize> = PgVec::new_in(mcx);
-            aff.try_reserve(b.naff.len()).map_err(|_| mcx.oom(b.naff.len()))?;
+            aff.try_reserve(b.naff.len())
+                .map_err(|_| mcx.oom(b.naff.len()))?;
             for &x in &b.naff {
                 aff.push(x);
             }
@@ -1426,7 +1470,8 @@ impl<'mcx> IspellDict<'mcx> {
     fn a_node_finish(&mut self, b: ABuild<'mcx>) -> PgResult<Option<usize>> {
         let mcx = self.mcx;
         let mut pv: PgVec<AffixNodeData> = PgVec::new_in(mcx);
-        pv.try_reserve(b.data.len()).map_err(|_| mcx.oom(b.data.len()))?;
+        pv.try_reserve(b.data.len())
+            .map_err(|_| mcx.oom(b.data.len()))?;
         for d in b.data {
             pv.push(d);
         }
@@ -1436,14 +1481,21 @@ impl<'mcx> IspellDict<'mcx> {
 
     fn alloc_a_node(&mut self, mcx: Mcx<'mcx>, isvoid: bool) -> PgResult<usize> {
         reserve_one(mcx, &mut self.af_arena)?;
-        self.af_arena.push(AffixNode { isvoid, data: PgVec::new_in(mcx) });
+        self.af_arena.push(AffixNode {
+            isvoid,
+            data: PgVec::new_in(mcx),
+        });
         Ok(self.af_arena.len() - 1)
     }
 
     fn mk_void_affix(&mut self, issuffix: bool, startsuffix: i32) -> PgResult<()> {
         let mcx = self.mcx;
         let start = if issuffix { startsuffix } else { 0 };
-        let end = if issuffix { self.affixes.len() as i32 } else { startsuffix };
+        let end = if issuffix {
+            self.affixes.len() as i32
+        } else {
+            startsuffix
+        };
 
         let void_idx = self.alloc_a_node(mcx, true)?;
         let mut slot = AffixNodeData::empty(mcx);
@@ -1542,7 +1594,9 @@ impl<'mcx> IspellDict<'mcx> {
         }
         // C's { affix=NULL } terminator is the Vec length.
         let mut compound: PgVec<CmpdAffix> = PgVec::new_in(mcx);
-        compound.try_reserve(cmpd.len()).map_err(|_| mcx.oom(cmpd.len()))?;
+        compound
+            .try_reserve(cmpd.len())
+            .map_err(|_| mcx.oom(cmpd.len()))?;
         for c in cmpd {
             compound.push(c);
         }

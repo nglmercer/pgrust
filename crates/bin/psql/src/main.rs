@@ -64,7 +64,10 @@ impl PsqlState {
 }
 
 fn env_or(name: &str, def: &str) -> String {
-    std::env::var(name).ok().filter(|v| !v.is_empty()).unwrap_or_else(|| def.to_string())
+    std::env::var(name)
+        .ok()
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| def.to_string())
 }
 
 fn os_user() -> String {
@@ -72,7 +75,9 @@ fn os_user() -> String {
     unsafe {
         let pw = libc::getpwuid(libc::geteuid());
         if !pw.is_null() && !(*pw).pw_name.is_null() {
-            return std::ffi::CStr::from_ptr((*pw).pw_name).to_string_lossy().into_owned();
+            return std::ffi::CStr::from_ptr((*pw).pw_name)
+                .to_string_lossy()
+                .into_owned();
         }
     }
     env_or("USER", "postgres")
@@ -120,25 +125,34 @@ pub fn do_connect(st: &PsqlState, p: &ConnParams) -> Result<Conn, String> {
         eprint!("{msg}");
         let _ = std::io::stderr().flush();
     });
-    let mut params: Vec<(&str, &str)> =
-        vec![("user", &p.user), ("database", &p.dbname), ("application_name", &p.progname)];
-    let enc = std::env::var("PGCLIENTENCODING").ok().filter(|v| !v.is_empty());
+    let mut params: Vec<(&str, &str)> = vec![
+        ("user", &p.user),
+        ("database", &p.dbname),
+        ("application_name", &p.progname),
+    ];
+    let enc = std::env::var("PGCLIENTENCODING")
+        .ok()
+        .filter(|v| !v.is_empty());
     if let Some(e) = enc.as_deref() {
         params.push(("client_encoding", e));
     }
-    conn.startup(&params, &p.user, p.password.as_deref()).map_err(|e| {
-        let prefix = if p.host.starts_with('/') {
-            format!(
-                "connection to server on socket \"{}/.s.PGSQL.{}\" failed: ",
-                p.host, p.port
-            )
-        } else {
-            format!("connection to server at \"{}\", port {} failed: ", p.host, p.port)
-        };
-        // Server-sent errors already carry "FATAL:" etc.; put them on the
-        // libpq shape.
-        format!("{prefix}{e}")
-    })?;
+    conn.startup(&params, &p.user, p.password.as_deref())
+        .map_err(|e| {
+            let prefix = if p.host.starts_with('/') {
+                format!(
+                    "connection to server on socket \"{}/.s.PGSQL.{}\" failed: ",
+                    p.host, p.port
+                )
+            } else {
+                format!(
+                    "connection to server at \"{}\", port {} failed: ",
+                    p.host, p.port
+                )
+            };
+            // Server-sent errors already carry "FATAL:" etc.; put them on the
+            // libpq shape.
+            format!("{prefix}{e}")
+        })?;
     Ok(conn)
 }
 
@@ -162,9 +176,7 @@ pub fn result_to_table(r: &QueryResult) -> print::Table {
             .iter()
             .map(|row| {
                 row.iter()
-                    .map(|c| {
-                        c.as_ref().map(|b| String::from_utf8_lossy(b).into_owned())
-                    })
+                    .map(|c| c.as_ref().map(|b| String::from_utf8_lossy(b).into_owned()))
                     .collect()
             })
             .collect(),
@@ -181,7 +193,11 @@ fn print_timing(elapsed_ms: f64) {
     let seconds = elapsed_ms / 1000.0;
     if seconds < 60.0 {
         let minutes = (seconds / 60.0) as i64;
-        println!("Time: {elapsed_ms:.3} ms ({:02}:{:06.3})", minutes, seconds - (minutes as f64) * 60.0);
+        println!(
+            "Time: {elapsed_ms:.3} ms ({:02}:{:06.3})",
+            minutes,
+            seconds - (minutes as f64) * 60.0
+        );
         return;
     }
     let minutes = (seconds / 60.0) as i64;
@@ -197,9 +213,7 @@ fn print_timing(elapsed_ms: f64) {
     } else {
         let days = hours / 24;
         let hours = hours % 24;
-        println!(
-            "Time: {elapsed_ms:.3} ms ({days:.0} d {hours:02}:{minutes:02}:{seconds:06.3})"
-        );
+        println!("Time: {elapsed_ms:.3} ms ({days:.0} d {hours:02}:{minutes:02}:{seconds:06.3})");
     }
 }
 
@@ -235,8 +249,10 @@ pub fn send_query(
     };
     // upstream 29921259e83b (18.6): Teach psql to skip in-line COPY ... FROM STDIN data after a failure.
     let mut num_copy_from_stdin = if num_copy_from_stdin < 0 {
-        let standard_strings =
-            conn.parameter_status("standard_conforming_strings").map(|v| v == "on").unwrap_or(true);
+        let standard_strings = conn
+            .parameter_status("standard_conforming_strings")
+            .map(|v| v == "on")
+            .unwrap_or(true);
         ScanState::count_copy_from_stdin_in_string(query, standard_strings)
     } else {
         num_copy_from_stdin
@@ -261,7 +277,9 @@ pub fn send_query(
                         st.quit = true;
                         st.exit_code = 2;
                     } else {
-                        eprintln!("The connection to the server was lost. Attempting reset: Failed.");
+                        eprintln!(
+                            "The connection to the server was lost. Attempting reset: Failed."
+                        );
                     }
                 }
                 ok = false;
@@ -286,7 +304,11 @@ pub fn send_query(
                     }
                 }
                 ExecStatus::CommandOk => {
-                    if !st.quiet && !st.popt.tuples_only && !r.cmd_tag.is_empty() && !suppress_next_tag {
+                    if !st.quiet
+                        && !st.popt.tuples_only
+                        && !r.cmd_tag.is_empty()
+                        && !suppress_next_tag
+                    {
                         println!("{}", r.cmd_tag);
                         let _ = std::io::stdout().flush();
                     }
@@ -627,11 +649,18 @@ fn main() {
 }
 
 fn server_major(v: &str) -> i32 {
-    v.split(|c: char| !c.is_ascii_digit()).next().and_then(|s| s.parse().ok()).unwrap_or(0)
+    v.split(|c: char| !c.is_ascii_digit())
+        .next()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0)
 }
 
 fn client_major() -> i32 {
-    PSQL_VERSION.split('.').next().and_then(|s| s.parse().ok()).unwrap_or(0)
+    PSQL_VERSION
+        .split('.')
+        .next()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0)
 }
 
 fn main_loop(st: &mut PsqlState, input: &mut input::InputStack) {
@@ -642,8 +671,10 @@ fn main_loop(st: &mut PsqlState, input: &mut input::InputStack) {
         }
         // Track standard_conforming_strings from the server.
         if let Some(c) = st.conn.as_ref() {
-            scan.standard_strings =
-                c.parameter_status("standard_conforming_strings").map(|v| v == "on").unwrap_or(true);
+            scan.standard_strings = c
+                .parameter_status("standard_conforming_strings")
+                .map(|v| v == "on")
+                .unwrap_or(true);
         }
         let line = if st.interactive {
             let p = prompt(st, &scan, scan.buffer_empty() && scan.buf.is_empty());

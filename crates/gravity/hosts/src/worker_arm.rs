@@ -177,7 +177,9 @@ impl ClaimState for MemoryAccount {
         memledger::current()
     }
     fn arm(acct: &memledger::Acct) -> PgResult<memledger::Entered> {
-        Ok(memledger::charge::enter_as(memledger::charge::context_of(*acct).0))
+        Ok(memledger::charge::enter_as(
+            memledger::charge::context_of(*acct).0,
+        ))
     }
 }
 
@@ -186,7 +188,11 @@ struct StandingOwner;
 
 impl ClaimState for StandingOwner {
     const NAME: &'static str = "standing_owner";
-    const STATICS: &'static [&'static str] = &["gravity/hosts/src/worker_arm.rs\tOWNER", "gravity/hosts/src/worker_arm.rs\tDISPLACED", "backend/utils/resowner/resowner/src/lib.rs\tCURRENT_OWNER"];
+    const STATICS: &'static [&'static str] = &[
+        "gravity/hosts/src/worker_arm.rs\tOWNER",
+        "gravity/hosts/src/worker_arm.rs\tDISPLACED",
+        "backend/utils/resowner/resowner/src/lib.rs\tCURRENT_OWNER",
+    ];
     type Lead = ();
     type Armed = Restore;
     fn capture() {}
@@ -201,7 +207,10 @@ struct StatementMemory;
 
 impl ClaimState for StatementMemory {
     const NAME: &'static str = "statement_memory";
-    const STATICS: &'static [&'static str] = &["_support/mcx/src/governor.rs\tLEDGER", "_support/mcx/src/governor.rs\tARMED"];
+    const STATICS: &'static [&'static str] = &[
+        "_support/mcx/src/governor.rs\tLEDGER",
+        "_support/mcx/src/governor.rs\tARMED",
+    ];
     type Lead = Option<std::sync::Arc<mcx::governor::StmtMem>>;
     type Armed = mcx::governor::Entered;
     fn capture() -> Self::Lead {
@@ -257,7 +266,9 @@ impl ClaimState for Catalog {
         gravity_fn::pool_catalog::leader_statement()
     }
     fn arm(catalog: &Self::Lead) -> PgResult<Self::Armed> {
-        Ok(catalog.as_ref().map(gravity_fn::pool_catalog::StatementCatalog::arm))
+        Ok(catalog
+            .as_ref()
+            .map(gravity_fn::pool_catalog::StatementCatalog::arm))
     }
 }
 
@@ -433,8 +444,14 @@ impl ClaimState for StartTimestamps {
     type Lead = Option<(i64, i64)>;
     type Armed = TsBack;
     fn capture() -> Self::Lead {
-        (xact_seams::get_current_transaction_start_timestamp::is_installed() && xact_seams::get_current_statement_start_timestamp::is_installed())
-            .then(|| (xact_seams::get_current_transaction_start_timestamp::call(), xact_seams::get_current_statement_start_timestamp::call()))
+        (xact_seams::get_current_transaction_start_timestamp::is_installed()
+            && xact_seams::get_current_statement_start_timestamp::is_installed())
+        .then(|| {
+            (
+                xact_seams::get_current_transaction_start_timestamp::call(),
+                xact_seams::get_current_statement_start_timestamp::call(),
+            )
+        })
     }
     fn arm(ts: &Self::Lead) -> PgResult<TsBack> {
         Ok(TsBack(match *ts {
@@ -473,10 +490,16 @@ impl ClaimState for Database {
     type Lead = (types_core::Oid, types_core::Oid);
     type Armed = DatabaseBack;
     fn capture() -> Self::Lead {
-        (init_small::globals::MyDatabaseId(), init_small::globals::MyDatabaseTableSpace())
+        (
+            init_small::globals::MyDatabaseId(),
+            init_small::globals::MyDatabaseTableSpace(),
+        )
     }
     fn arm(&(db, ts): &Self::Lead) -> PgResult<DatabaseBack> {
-        let had = (init_small::globals::MyDatabaseId(), init_small::globals::MyDatabaseTableSpace());
+        let had = (
+            init_small::globals::MyDatabaseId(),
+            init_small::globals::MyDatabaseTableSpace(),
+        );
         if had == (db, ts) {
             return Ok(DatabaseBack(None));
         }
@@ -517,7 +540,10 @@ struct Toast;
 
 impl ClaimState for Toast {
     const NAME: &'static str = "toast";
-    const STATICS: &'static [&'static str] = &["backend/access/heap/heaptoast/src/worker.rs\tPUBLISHED", "backend/access/heap/heaptoast/src/worker.rs\tENTERED"];
+    const STATICS: &'static [&'static str] = &[
+        "backend/access/heap/heaptoast/src/worker.rs\tPUBLISHED",
+        "backend/access/heap/heaptoast/src/worker.rs\tENTERED",
+    ];
     type Lead = std::sync::Arc<heaptoast::worker::ToastMap>;
     type Armed = heaptoast::worker::Entered;
     fn capture() -> Self::Lead {
@@ -543,7 +569,8 @@ impl Drop for XminBack {
 
 impl ClaimState for TransactionXmin {
     const NAME: &'static str = "transaction_xmin";
-    const STATICS: &'static [&'static str] = &["backend/storage/ipc/procarray/src/lib.rs\tTRANSACTION_XMIN"];
+    const STATICS: &'static [&'static str] =
+        &["backend/storage/ipc/procarray/src/lib.rs\tTRANSACTION_XMIN"];
     type Lead = types_core::TransactionId;
     type Armed = XminBack;
     fn capture() -> Self::Lead {
@@ -596,7 +623,12 @@ pub fn arm_once(arm: ArmFn) -> PgResult<()> {
         #[cfg(debug_assertions)]
         leader_tls::install_pool_probe(in_claim);
         // the process's first arming (a worker's PGPROC bring-up rides the pool gate before it)
-        let _ = FIRST_ARM_MICROS.compare_exchange(0, start.elapsed().as_micros().max(1) as u64, std::sync::atomic::Ordering::AcqRel, std::sync::atomic::Ordering::Relaxed);
+        let _ = FIRST_ARM_MICROS.compare_exchange(
+            0,
+            start.elapsed().as_micros().max(1) as u64,
+            std::sync::atomic::Ordering::AcqRel,
+            std::sync::atomic::Ordering::Relaxed,
+        );
     }
     let now = resowner::CurrentResourceOwner();
     DISPLACED.with(|d| d.set((now != before).then_some(before)));
@@ -660,15 +692,36 @@ mod tests {
                 let mapped = {
                     let _carried = carry.arm().unwrap();
                     assert_eq!(current(), leader);
-                    assert_eq!(account_row(leader).threads, 2, "the claim's thread is on the leader's account");
-                    assert_eq!(memledger::kind(), memledger::Kind::HashAgg, "and its regions take the submit's kind");
+                    assert_eq!(
+                        account_row(leader).threads,
+                        2,
+                        "the claim's thread is on the leader's account"
+                    );
+                    assert_eq!(
+                        memledger::kind(),
+                        memledger::Kind::HashAgg,
+                        "and its regions take the submit's kind"
+                    );
                     let (o, rel) = context();
                     Charge::open(o, rel, memledger::Kind::Mapped, Door::Mapped, 1 << 20)
                 };
-                assert_eq!((current(), memledger::kind()), (own, memledger::Kind::Region));
-                assert_eq!((account_row(leader).account_bytes, account_row(own).account_bytes), (1 << 20, 0));
+                assert_eq!(
+                    (current(), memledger::kind()),
+                    (own, memledger::Kind::Region)
+                );
+                assert_eq!(
+                    (
+                        account_row(leader).account_bytes,
+                        account_row(own).account_bytes
+                    ),
+                    (1 << 20, 0)
+                );
                 drop(mapped);
-                assert_eq!(account_row(leader).account_bytes, 0, "its owner's account takes it back, off the claim");
+                assert_eq!(
+                    account_row(leader).account_bytes,
+                    0,
+                    "its owner's account takes it back, off the claim"
+                );
                 unbind_backend();
             })
             .join()
@@ -700,11 +753,21 @@ mod tests {
                     drop(c);
                     g
                 };
-                assert_eq!(again, g1, "the same carry arms the same generation (nested claim)");
-                assert_ne!(claim_gen(), g1, "the nested claim's end put the outer generation back");
+                assert_eq!(
+                    again, g1,
+                    "the same carry arms the same generation (nested claim)"
+                );
+                assert_ne!(
+                    claim_gen(),
+                    g1,
+                    "the nested claim's end put the outer generation back"
+                );
                 claim_gen()
             };
-            assert!(g1 != 0 && g2 != 0 && g1 != g2, "two statements, two generations: {g1} {g2}");
+            assert!(
+                g1 != 0 && g2 != 0 && g1 != g2,
+                "two statements, two generations: {g1} {g2}"
+            );
             assert_eq!(claim_gen(), 0);
         })
         .join()
@@ -716,7 +779,9 @@ mod tests {
     /// under the database. The pool thread's own (InvalidOid here) is back after the claim.
     #[test]
     fn a_claim_reads_its_leaders_database_identity() {
-        use init_small::globals::{MyDatabaseId, MyDatabaseTableSpace, SetMyDatabaseId, SetMyDatabaseTableSpace};
+        use init_small::globals::{
+            MyDatabaseId, MyDatabaseTableSpace, SetMyDatabaseId, SetMyDatabaseTableSpace,
+        };
         std::thread::spawn(|| {
             SetMyDatabaseId(16384);
             SetMyDatabaseTableSpace(16390);
@@ -725,9 +790,17 @@ mod tests {
                 let own = (MyDatabaseId(), MyDatabaseTableSpace());
                 {
                     let _carried = carry.arm().unwrap();
-                    assert_eq!((MyDatabaseId(), MyDatabaseTableSpace()), (16384, 16390), "the claim reads its leader's database");
+                    assert_eq!(
+                        (MyDatabaseId(), MyDatabaseTableSpace()),
+                        (16384, 16390),
+                        "the claim reads its leader's database"
+                    );
                 }
-                assert_eq!((MyDatabaseId(), MyDatabaseTableSpace()), own, "the claim's end put the thread's own back");
+                assert_eq!(
+                    (MyDatabaseId(), MyDatabaseTableSpace()),
+                    own,
+                    "the claim's end put the thread's own back"
+                );
             })
             .join()
             .unwrap();
@@ -764,10 +837,21 @@ mod tests {
                 let owner = OWNER.with(Cell::get);
                 {
                     let _carried = carry.arm().unwrap();
-                    assert_eq!(resowner::CurrentResourceOwner(), owner, "claim {claim} runs under the standing owner");
+                    assert_eq!(
+                        resowner::CurrentResourceOwner(),
+                        owner,
+                        "claim {claim} runs under the standing owner"
+                    );
                 }
-                assert!(resowner::CurrentResourceOwner().is_null(), "claim {claim}'s end left the standing owner current");
-                assert_eq!(resowner::ResourceOwnerStateIssue(), None, "claim {claim}'s end: a bound serve refuses at bind");
+                assert!(
+                    resowner::CurrentResourceOwner().is_null(),
+                    "claim {claim}'s end left the standing owner current"
+                );
+                assert_eq!(
+                    resowner::ResourceOwnerStateIssue(),
+                    None,
+                    "claim {claim}'s end: a bound serve refuses at bind"
+                );
             }
         })
         .join()
@@ -787,9 +871,17 @@ mod tests {
             let outer = carry.arm().unwrap();
             arm_once(arm_owner).unwrap();
             drop(carry.arm().unwrap());
-            assert_eq!(resowner::CurrentResourceOwner(), owner, "a nested claim's end keeps the outer claim's owner");
+            assert_eq!(
+                resowner::CurrentResourceOwner(),
+                owner,
+                "a nested claim's end keeps the outer claim's owner"
+            );
             drop(outer);
-            assert_eq!(resowner::CurrentResourceOwner(), txn, "the claim's end did not put back the serve's owner");
+            assert_eq!(
+                resowner::CurrentResourceOwner(),
+                txn,
+                "the claim's end did not put back the serve's owner"
+            );
             resowner::SetCurrentResourceOwner(ResourceOwner::NULL);
             resowner::ResourceOwnerDelete(txn);
         })
@@ -805,20 +897,50 @@ mod tests {
     #[test]
     fn claim_census_is_pinned() {
         use std::collections::{BTreeMap, BTreeSet};
-        let dir = std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)"));
+        let dir = std::path::PathBuf::from(
+            std::env::var_os("CARGO_MANIFEST_DIR")
+                .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)"),
+        );
         let crates = dir.ancestors().nth(2).unwrap();
-        let read = |path: std::path::PathBuf| std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-        let rows = |text: &str| -> Vec<Vec<String>> { text.lines().filter(|l| !l.is_empty() && !l.starts_with('#')).map(|l| l.split('\t').map(str::to_string).collect()).collect() };
+        let read = |path: std::path::PathBuf| {
+            std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+        };
+        let rows = |text: &str| -> Vec<Vec<String>> {
+            text.lines()
+                .filter(|l| !l.is_empty() && !l.starts_with('#'))
+                .map(|l| l.split('\t').map(str::to_string).collect())
+                .collect()
+        };
         // a registry or TLS-DEBT directory's rows, README / OWNERS / dot files out (lint/rules/rt_thread_state.py read_dir)
         let ledger = |name: &str| -> Vec<Vec<String>> {
             let at = crates.join("gravity/lint").join(name);
-            let mut files: Vec<_> = std::fs::read_dir(&at).unwrap_or_else(|e| panic!("{}: {e}", at.display())).map(|e| e.unwrap().path()).collect(); // alloc: Cold
+            let mut files: Vec<_> = std::fs::read_dir(&at)
+                .unwrap_or_else(|e| panic!("{}: {e}", at.display()))
+                .map(|e| e.unwrap().path())
+                .collect(); // alloc: Cold
             files.sort();
-            files.into_iter().filter(|p| p.is_file() && p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n != "README" && n != "OWNERS" && !n.starts_with('.'))).flat_map(|p| rows(&read(p))).collect()
+            files
+                .into_iter()
+                .filter(|p| {
+                    p.is_file()
+                        && p.file_name()
+                            .and_then(|n| n.to_str())
+                            .is_some_and(|n| n != "README" && n != "OWNERS" && !n.starts_with('.'))
+                })
+                .flat_map(|p| rows(&read(p)))
+                .collect()
         };
-        let tls: BTreeSet<(String, String)> = rows(&read(crates.join("backend/access/session/tls-census.tsv"))).into_iter().map(|f| (f[0].clone(), f[1].clone())).collect();
-        let carried = |member: &str, path: &str, name: &str| CLAIM_REGISTRY.iter().any(|(m, statics)| *m == member && statics.contains(&format!("{path}\t{name}").as_str())); // alloc: Cold
-        // <path> <static> <owner> <reset> <carry> [<member | note>]; TLS-DEBT: <path> <static> <owner lane> <carry today> <what is missing>
+        let tls: BTreeSet<(String, String)> =
+            rows(&read(crates.join("backend/access/session/tls-census.tsv")))
+                .into_iter()
+                .map(|f| (f[0].clone(), f[1].clone()))
+                .collect();
+        let carried = |member: &str, path: &str, name: &str| {
+            CLAIM_REGISTRY.iter().any(|(m, statics)| {
+                *m == member && statics.contains(&format!("{path}\t{name}").as_str())
+            })
+        }; // alloc: Cold
+           // <path> <static> <owner> <reset> <carry> [<member | note>]; TLS-DEBT: <path> <static> <owner lane> <carry today> <what is missing>
         let mut carry = BTreeMap::new();
         for f in ledger("THREAD-STATE") {
             assert!(f.len() >= 5, "lint/THREAD-STATE row {f:?}: <path>\\t<static>\\t<owner>\\t<reset>\\t<carry>\\t[<member | note>]");
@@ -830,20 +952,29 @@ mod tests {
         }
         for f in ledger("TLS-DEBT") {
             assert!(f.len() >= 5, "lint/TLS-DEBT row {f:?}: <path>\\t<static>\\t<owner lane>\\t<carry today>\\t<what is missing>");
-            carry.entry((f[0].clone(), f[1].clone())).or_insert_with(|| f[3].clone());
+            carry
+                .entry((f[0].clone(), f[1].clone()))
+                .or_insert_with(|| f[3].clone());
         }
-        let templated: BTreeSet<&str> = tls.iter().filter(|(_, n)| n.starts_with('$')).map(|(p, _)| p.as_str()).collect(); // alloc: Cold
+        let templated: BTreeSet<&str> = tls
+            .iter()
+            .filter(|(_, n)| n.starts_with('$'))
+            .map(|(p, _)| p.as_str())
+            .collect(); // alloc: Cold
         let defs = std::cell::OnceCell::new();
         for (member, statics) in CLAIM_REGISTRY {
             for s in *statics {
                 let (path, name) = s.split_once('\t').unwrap();
                 let key = (path.to_string(), name.to_string()); // alloc: Cold
-                // a macro instance (RT reads the invocation) stands in the census as its template (`$cell`, `$tls`): of its own
-                // file, or of the file defining a macro invoked around its name (guc_tables session_guc_*!) or invoked by
-                // that macro's body (vacuum_guc_int!); its row carries it claim
+                                                                // a macro instance (RT reads the invocation) stands in the census as its template (`$cell`, `$tls`): of its own
+                                                                // file, or of the file defining a macro invoked around its name (guc_tables session_guc_*!) or invoked by
+                                                                // that macro's body (vacuum_guc_int!); its row carries it claim
                 let instance = || {
                     let defs = defs.get_or_init(|| macro_defs(crates));
-                    templated.contains(path) || invoked(&read(crates.join(path)), Some(name)).iter().any(|m| templated_macro(m, defs, &templated, 1))
+                    templated.contains(path)
+                        || invoked(&read(crates.join(path)), Some(name))
+                            .iter()
+                            .any(|m| templated_macro(m, defs, &templated, 1))
                 };
                 let claimed = carry.get(&key).is_some_and(|c| c == "claim");
                 assert!(tls.contains(&key) || claimed && instance(), "registry member {member}: {path} {name} is no thread-local (session tls-census.tsv)");
@@ -855,23 +986,43 @@ mod tests {
     }
 
     /// Every `macro_rules!` under `crates`, by name: its file (path under crates/) and body.
-    fn macro_defs(crates: &std::path::Path) -> std::collections::BTreeMap<String, Vec<(String, String)>> {
-        let mut defs: std::collections::BTreeMap<String, Vec<(String, String)>> = std::collections::BTreeMap::new();
+    fn macro_defs(
+        crates: &std::path::Path,
+    ) -> std::collections::BTreeMap<String, Vec<(String, String)>> {
+        let mut defs: std::collections::BTreeMap<String, Vec<(String, String)>> =
+            std::collections::BTreeMap::new();
         let mut dirs = vec![crates.to_path_buf()]; // alloc: Cold
         while let Some(dir) = dirs.pop() {
-            for entry in std::fs::read_dir(&dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display())) {
+            for entry in
+                std::fs::read_dir(&dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
+            {
                 let path = entry.unwrap().path();
                 if path.is_dir() {
                     dirs.push(path);
                     continue;
                 }
-                let Some(text) = path.extension().filter(|x| *x == "rs").and_then(|_| std::fs::read_to_string(&path).ok()) else { continue };
-                let rel = path.strip_prefix(crates).unwrap().to_string_lossy().replace('\\', "/");
+                let Some(text) = path
+                    .extension()
+                    .filter(|x| *x == "rs")
+                    .and_then(|_| std::fs::read_to_string(&path).ok())
+                else {
+                    continue;
+                };
+                let rel = path
+                    .strip_prefix(crates)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/");
                 for (i, _) in text.match_indices("macro_rules!") {
                     let rest = text[i + "macro_rules!".len()..].trim_start();
-                    let name: String = rest.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+                    let name: String = rest
+                        .chars()
+                        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                        .collect();
                     let body = rest.find('{').map_or("", |o| bracketed(&rest[o..]));
-                    defs.entry(name).or_default().push((rel.clone(), body.to_string())); // alloc: Cold
+                    defs.entry(name)
+                        .or_default()
+                        .push((rel.clone(), body.to_string())); // alloc: Cold
                 }
             }
         }
@@ -906,11 +1057,14 @@ mod tests {
                 s -= 1;
             }
             let rest = text[i + 1..].trim_start();
-            if s == i || &text[s..i] == "macro_rules" || !rest.starts_with([ '(', '[', '{']) {
+            if s == i || &text[s..i] == "macro_rules" || !rest.starts_with(['(', '[', '{']) {
                 continue;
             }
             let args = bracketed(rest);
-            if word.is_none_or(|w| args.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).any(|t| t == w)) {
+            if word.is_none_or(|w| {
+                args.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                    .any(|t| t == w)
+            }) {
                 out.push(text[s..i].to_string()); // alloc: Cold
             }
         }
@@ -919,7 +1073,20 @@ mod tests {
 
     /// Macro `m` declares through a census template: a file defining it has a `$` line, or (`depth` levels down) a
     /// macro its body invokes does.
-    fn templated_macro(m: &str, defs: &std::collections::BTreeMap<String, Vec<(String, String)>>, templated: &std::collections::BTreeSet<&str>, depth: u8) -> bool {
-        defs.get(m).is_some_and(|ds| ds.iter().any(|(file, body)| templated.contains(file.as_str()) || depth > 0 && invoked(body, None).iter().any(|m2| templated_macro(m2, defs, templated, depth - 1))))
+    fn templated_macro(
+        m: &str,
+        defs: &std::collections::BTreeMap<String, Vec<(String, String)>>,
+        templated: &std::collections::BTreeSet<&str>,
+        depth: u8,
+    ) -> bool {
+        defs.get(m).is_some_and(|ds| {
+            ds.iter().any(|(file, body)| {
+                templated.contains(file.as_str())
+                    || depth > 0
+                        && invoked(body, None)
+                            .iter()
+                            .any(|m2| templated_macro(m2, defs, templated, depth - 1))
+            })
+        })
     }
 }

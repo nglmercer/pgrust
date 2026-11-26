@@ -72,8 +72,24 @@ impl SlotLives {
         live.resize(words, 0);
         let mut opener: ArenaVec<u32> = ArenaVec::with_capacity_in(nslots, a);
         opener.resize(nslots, u32::MAX);
-        let (pending, kept, unrun, reset) = (SlotSet::EMPTY, SlotSet::EMPTY, SlotSet::EMPTY, SlotSet::EMPTY);
-        SlotLives { live, opener, pending, kept, unrun, reset, owners: Vec::new(), readers_left: Vec::new(), deferred: 0, laid: SlotSet::EMPTY } // alloc: Node
+        let (pending, kept, unrun, reset) = (
+            SlotSet::EMPTY,
+            SlotSet::EMPTY,
+            SlotSet::EMPTY,
+            SlotSet::EMPTY,
+        );
+        SlotLives {
+            live,
+            opener,
+            pending,
+            kept,
+            unrun,
+            reset,
+            owners: Vec::new(),
+            readers_left: Vec::new(),
+            deferred: 0,
+            laid: SlotSet::EMPTY,
+        } // alloc: Node
     }
 
     pub(super) fn is_live(&self, slot: u8) -> bool {
@@ -135,7 +151,10 @@ impl SlotLives {
 
     /// D824: lazy build slot `slot` opened zeroed before its producer runs.
     pub(super) fn pend(&mut self, slot: u8) {
-        debug_assert!(self.is_live(slot), "lazy build slot {slot} pending while not live");
+        debug_assert!(
+            self.is_live(slot),
+            "lazy build slot {slot} pending while not live"
+        );
         self.pending.set(slot);
     }
 
@@ -175,7 +194,8 @@ impl SlotLives {
     /// never run, and `owners` may open over it before it runs. A pulled set's store (`every` false, not kept yet or already
     /// a store) is kept only for its readers, `owners`, until the last of them is done (D2498, `reader_done`).
     pub(super) fn keep_unrun(&mut self, slot: u8, owners: &[usize], every: bool) {
-        let pulled = !every && (!self.kept.has(slot) || self.readers_left.iter().any(|&(x, _)| x == slot));
+        let pulled =
+            !every && (!self.kept.has(slot) || self.readers_left.iter().any(|&(x, _)| x == slot));
         if !pulled {
             self.readers_left.retain(|&(x, _)| x != slot);
         }
@@ -193,7 +213,10 @@ impl SlotLives {
 
     /// M8 (RT-2e): kept slot `slot` reset in place for a rerun (its region, life and grant kept): the member's open adopts it.
     pub(super) fn reset_kept(&mut self, slot: u8) {
-        debug_assert!(self.kept.has(slot) && self.is_live(slot), "slot {slot} reset in place while not kept and live");
+        debug_assert!(
+            self.kept.has(slot) && self.is_live(slot),
+            "slot {slot} reset in place while not kept and live"
+        );
         self.reset.set(slot);
     }
 
@@ -219,14 +242,23 @@ impl SlotLives {
         if !self.unrun.has(slot) || may(p) || pass.is_some_and(may) {
             return None;
         }
-        Some(self.owners.iter().find(|&&(s, _)| s == slot).map_or(u16::MAX, |&(_, o)| o))
+        Some(
+            self.owners
+                .iter()
+                .find(|&&(s, _)| s == slot)
+                .map_or(u16::MAX, |&(_, o)| o),
+        )
     }
 
     /// D2498: reader `p` of a pulled set's store is done: the next store slot it was the last reader of, its entry gone
     /// (the caller frees it when its producer ran to its end, `unkeep`). D3271: a store the program holds past `p` (`held`:
     /// its last consumer past `p`, a lock's recheck re-running an InitPlan that reads it, lowerv4 `hold_epq_reads`) waits for
     /// that pipeline instead.
-    pub(super) fn reader_done(&mut self, p: usize, held: impl Fn(u8) -> Option<usize>) -> Option<u8> {
+    pub(super) fn reader_done(
+        &mut self,
+        p: usize,
+        held: impl Fn(u8) -> Option<usize>,
+    ) -> Option<u8> {
         let mut i = 0;
         while i < self.readers_left.len() {
             let (slot, o) = self.readers_left[i];
@@ -273,7 +305,13 @@ impl SlotLives {
     /// stay (each open sets its own, `begin_stream`).
     pub(super) fn clear(&mut self) {
         self.live.fill(0);
-        (self.pending, self.kept, self.unrun, self.reset, self.laid) = (SlotSet::EMPTY, SlotSet::EMPTY, SlotSet::EMPTY, SlotSet::EMPTY, SlotSet::EMPTY);
+        (self.pending, self.kept, self.unrun, self.reset, self.laid) = (
+            SlotSet::EMPTY,
+            SlotSet::EMPTY,
+            SlotSet::EMPTY,
+            SlotSet::EMPTY,
+            SlotSet::EMPTY,
+        );
         self.owners.clear();
         self.readers_left.clear();
         self.deferred = 0;
@@ -292,12 +330,36 @@ mod tests {
         l.open(2);
         l.keep_unrun(2, &[5, 7], false);
         assert!(l.is_kept(2) && l.is_unrun(2));
-        assert_eq!(l.unrun_reader(2, 5, None), None, "an owner reads a never-run kept slot");
-        assert_eq!(l.unrun_reader(2, 6, None), Some(5), "any other reader is named with the slot's owner");
-        assert_eq!(l.unrun_reader(2, 6, Some(5)), None, "a pass of an owner opens where the owner does (D3914)");
-        assert_eq!(l.unrun_reader(2, 6, Some(4)), Some(5), "a pass of another pipeline is still named");
-        assert_eq!(l.reader_done(5, |_| None), None, "reader 7 still reads the store");
-        assert_eq!(l.reader_done(7, |_| Some(9)), None, "the program holds the store past 7, to pipeline 9");
+        assert_eq!(
+            l.unrun_reader(2, 5, None),
+            None,
+            "an owner reads a never-run kept slot"
+        );
+        assert_eq!(
+            l.unrun_reader(2, 6, None),
+            Some(5),
+            "any other reader is named with the slot's owner"
+        );
+        assert_eq!(
+            l.unrun_reader(2, 6, Some(5)),
+            None,
+            "a pass of an owner opens where the owner does (D3914)"
+        );
+        assert_eq!(
+            l.unrun_reader(2, 6, Some(4)),
+            Some(5),
+            "a pass of another pipeline is still named"
+        );
+        assert_eq!(
+            l.reader_done(5, |_| None),
+            None,
+            "reader 7 still reads the store"
+        );
+        assert_eq!(
+            l.reader_done(7, |_| Some(9)),
+            None,
+            "the program holds the store past 7, to pipeline 9"
+        );
         assert_eq!(l.reader_done(9, |_| None), Some(2));
         l.unkeep(2);
         assert!(!l.is_kept(2) && !l.is_unrun(2) && l.unrun_reader(2, 6, None).is_none());
@@ -312,12 +374,19 @@ mod tests {
         l.keep(1);
         l.reset_kept(1);
         assert!(l.adopt(1, false), "the member's open adopts its reset slot");
-        assert!(!l.adopt(1, false), "a second open of the live slot is not an adoption (L3 is the caller's)");
+        assert!(
+            !l.adopt(1, false),
+            "a second open of the live slot is not an adoption (L3 is the caller's)"
+        );
         assert_eq!(l.opener(1), 3);
         l.free(1);
         l.clear();
         assert!(!l.is_live(1) && !l.is_kept(1));
-        assert_eq!(l.opener(1), 3, "a stream's opener stays until the slot's next open");
+        assert_eq!(
+            l.opener(1),
+            3,
+            "a stream's opener stays until the slot's next open"
+        );
     }
 
     #[test]
@@ -326,7 +395,10 @@ mod tests {
         let mut l = SlotLives::new_in(70, arena.handle());
         l.open(0);
         l.pend(0);
-        assert!(!l.adopt(0, false), "only the lazy build adopts a pending slot");
+        assert!(
+            !l.adopt(0, false),
+            "only the lazy build adopts a pending slot"
+        );
         assert!(l.adopt(0, true));
         l.built(0);
         assert!(!l.any_pending());
@@ -348,13 +420,24 @@ mod tests {
             l.open(s);
             l.hold_as_laid(s);
         }
-        assert!(l.is_held_as_laid(1) && l.is_held_as_laid(2) && l.is_held_as_laid(66) && !l.is_held_as_laid(3));
+        assert!(
+            l.is_held_as_laid(1)
+                && l.is_held_as_laid(2)
+                && l.is_held_as_laid(66)
+                && !l.is_held_as_laid(3)
+        );
         l.free(1);
         assert!(!l.is_held_as_laid(1), "a freed slot's run is gone");
         l.free(2);
         l.open(2);
-        assert!(!l.is_held_as_laid(2), "a reopened slot holds a new run no cut was laid over");
+        assert!(
+            !l.is_held_as_laid(2),
+            "a reopened slot holds a new run no cut was laid over"
+        );
         l.clear();
-        assert!(!l.is_held_as_laid(66), "the statement's end clears every hold");
+        assert!(
+            !l.is_held_as_laid(66),
+            "the statement's end clears every hold"
+        );
     }
 }

@@ -73,19 +73,42 @@ pub fn gen_intops_module(g: &mut Gen) -> Vec<StmtKind> {
 // the cast binds the negated literal (32768 / 2147483648 / 9223372036854775808
 // don't fit their own signed type, but the unary-minus form casts cleanly).
 const I2: &[&str] = &[
-    "(0)::int2", "(1)::int2", "(-1)::int2", "(2)::int2", "(-2)::int2",
-    "(181)::int2", "(-181)::int2", "(32766)::int2", "(32767)::int2",
-    "(-32767)::int2", "(-32768)::int2",
+    "(0)::int2",
+    "(1)::int2",
+    "(-1)::int2",
+    "(2)::int2",
+    "(-2)::int2",
+    "(181)::int2",
+    "(-181)::int2",
+    "(32766)::int2",
+    "(32767)::int2",
+    "(-32767)::int2",
+    "(-32768)::int2",
 ];
 const I4: &[&str] = &[
-    "(0)::int4", "(1)::int4", "(-1)::int4", "(2)::int4", "(-2)::int4",
-    "(46341)::int4", "(-46341)::int4", "(2147483646)::int4", "(2147483647)::int4",
-    "(-2147483647)::int4", "(-2147483648)::int4",
+    "(0)::int4",
+    "(1)::int4",
+    "(-1)::int4",
+    "(2)::int4",
+    "(-2)::int4",
+    "(46341)::int4",
+    "(-46341)::int4",
+    "(2147483646)::int4",
+    "(2147483647)::int4",
+    "(-2147483647)::int4",
+    "(-2147483648)::int4",
 ];
 const I8: &[&str] = &[
-    "(0)::int8", "(1)::int8", "(-1)::int8", "(2)::int8", "(-2)::int8",
-    "(3037000500)::int8", "(-3037000500)::int8", "(9223372036854775806)::int8",
-    "(9223372036854775807)::int8", "(-9223372036854775807)::int8",
+    "(0)::int8",
+    "(1)::int8",
+    "(-1)::int8",
+    "(2)::int8",
+    "(-2)::int8",
+    "(3037000500)::int8",
+    "(-3037000500)::int8",
+    "(9223372036854775806)::int8",
+    "(9223372036854775807)::int8",
+    "(-9223372036854775807)::int8",
     "(-9223372036854775808)::int8",
 ];
 
@@ -123,9 +146,7 @@ fn gen_arith(g: &mut Gen) -> Vec<StmtKind> {
             let w = width(g);
             let a = op(g, w);
             let b = op(g, w);
-            format!(
-                "SELECT ({a} + {b})::text, ({a} - {b})::text, ({a} * {b})::text;"
-            )
+            format!("SELECT ({a} + {b})::text, ({a} - {b})::text, ({a} * {b})::text;")
         }
         "intops:ar:cross" => {
             // int24/int42/int28/int82/int48/int84 pl/mi/mul arms.
@@ -139,23 +160,27 @@ fn gen_arith(g: &mut Gen) -> Vec<StmtKind> {
             )
         }
         // Deterministic overflow arms: each matched on 22003.
-        _ => pick_str(g, &[
-            "SELECT ((2147483647)::int4 + (1)::int4)::text;",
-            "SELECT ((-2147483648)::int4 - (1)::int4)::text;",
-            "SELECT ((2147483647)::int4 * (2)::int4)::text;",
-            "SELECT ((-2147483648)::int4 * (-1)::int4)::text;",
-            "SELECT ((32767)::int2 + (1)::int2)::text;",
-            "SELECT ((-32768)::int2 - (1)::int2)::text;",
-            "SELECT ((32767)::int2 * (2)::int2)::text;",
-            "SELECT ((9223372036854775807)::int8 + (1)::int8)::text;",
-            "SELECT ((-9223372036854775808)::int8 - (1)::int8)::text;",
-            "SELECT ((9223372036854775807)::int8 * (2)::int8)::text;",
-            "SELECT ((-9223372036854775808)::int8 * (-1)::int8)::text;",
-            "SELECT ((32767)::int2 * (2147483647)::int4)::text;",
-            "SELECT ((32767)::int2 * (9223372036854775807)::int8)::text;",
-            "SELECT ((2147483647)::int4 * (9223372036854775807)::int8)::text;",
-            "SELECT ((-32768)::int2 * (-9223372036854775808)::int8)::text;",
-        ]).to_string(),
+        _ => pick_str(
+            g,
+            &[
+                "SELECT ((2147483647)::int4 + (1)::int4)::text;",
+                "SELECT ((-2147483648)::int4 - (1)::int4)::text;",
+                "SELECT ((2147483647)::int4 * (2)::int4)::text;",
+                "SELECT ((-2147483648)::int4 * (-1)::int4)::text;",
+                "SELECT ((32767)::int2 + (1)::int2)::text;",
+                "SELECT ((-32768)::int2 - (1)::int2)::text;",
+                "SELECT ((32767)::int2 * (2)::int2)::text;",
+                "SELECT ((9223372036854775807)::int8 + (1)::int8)::text;",
+                "SELECT ((-9223372036854775808)::int8 - (1)::int8)::text;",
+                "SELECT ((9223372036854775807)::int8 * (2)::int8)::text;",
+                "SELECT ((-9223372036854775808)::int8 * (-1)::int8)::text;",
+                "SELECT ((32767)::int2 * (2147483647)::int4)::text;",
+                "SELECT ((32767)::int2 * (9223372036854775807)::int8)::text;",
+                "SELECT ((2147483647)::int4 * (9223372036854775807)::int8)::text;",
+                "SELECT ((-32768)::int2 * (-9223372036854775808)::int8)::text;",
+            ],
+        )
+        .to_string(),
     };
     vec![raw(sql)]
 }
@@ -169,7 +194,12 @@ fn gen_div(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("intops:div");
     let shape = g.weights.pick(
         g.rng,
-        &["intops:dv:op", "intops:dv:cross", "intops:dv:zero", "intops:dv:over"],
+        &[
+            "intops:dv:op",
+            "intops:dv:cross",
+            "intops:dv:zero",
+            "intops:dv:over",
+        ],
     );
     g.fire(shape);
     let sql = match shape {
@@ -177,11 +207,35 @@ fn gen_div(g: &mut Gen) -> Vec<StmtKind> {
             let w = width(g);
             let a = op(g, w);
             // divisor never zero here (zero/over arms cover those).
-            let b = pick_str(g, match w {
-                2 => &["(1)::int2", "(-1)::int2", "(2)::int2", "(-3)::int2", "(181)::int2", "(32767)::int2"],
-                4 => &["(1)::int4", "(-1)::int4", "(2)::int4", "(-3)::int4", "(46341)::int4", "(2147483647)::int4"],
-                _ => &["(1)::int8", "(-1)::int8", "(2)::int8", "(-3)::int8", "(3037000500)::int8", "(9223372036854775807)::int8"],
-            });
+            let b = pick_str(
+                g,
+                match w {
+                    2 => &[
+                        "(1)::int2",
+                        "(-1)::int2",
+                        "(2)::int2",
+                        "(-3)::int2",
+                        "(181)::int2",
+                        "(32767)::int2",
+                    ],
+                    4 => &[
+                        "(1)::int4",
+                        "(-1)::int4",
+                        "(2)::int4",
+                        "(-3)::int4",
+                        "(46341)::int4",
+                        "(2147483647)::int4",
+                    ],
+                    _ => &[
+                        "(1)::int8",
+                        "(-1)::int8",
+                        "(2)::int8",
+                        "(-3)::int8",
+                        "(3037000500)::int8",
+                        "(9223372036854775807)::int8",
+                    ],
+                },
+            );
             format!(
                 "SELECT ({a} / {b})::text, ({a} % {b})::text, \
                  div({a}, {b})::text, mod({a}, {b})::text;"
@@ -193,8 +247,14 @@ fn gen_div(g: &mut Gen) -> Vec<StmtKind> {
             let a4 = op(g, 4);
             let a8 = op(g, 8);
             let d2 = pick_str(g, &["(1)::int2", "(-1)::int2", "(3)::int2", "(181)::int2"]);
-            let d4 = pick_str(g, &["(1)::int4", "(-1)::int4", "(3)::int4", "(46341)::int4"]);
-            let d8 = pick_str(g, &["(1)::int8", "(-1)::int8", "(3)::int8", "(3037000500)::int8"]);
+            let d4 = pick_str(
+                g,
+                &["(1)::int4", "(-1)::int4", "(3)::int4", "(46341)::int4"],
+            );
+            let d8 = pick_str(
+                g,
+                &["(1)::int8", "(-1)::int8", "(3)::int8", "(3037000500)::int8"],
+            );
             format!(
                 "SELECT ({a2} / {d4})::text, ({a4} / {d2})::text, \
                  ({a2} / {d8})::text, ({a8} / {d2})::text, \
@@ -202,30 +262,38 @@ fn gen_div(g: &mut Gen) -> Vec<StmtKind> {
             )
         }
         // divide / modulo by zero: 22012.
-        "intops:dv:zero" => pick_str(g, &[
-            "SELECT ((1)::int2 / (0)::int2)::text;",
-            "SELECT ((1)::int2 % (0)::int2)::text;",
-            "SELECT ((2147483647)::int4 / (0)::int4)::text;",
-            "SELECT ((-2147483648)::int4 % (0)::int4)::text;",
-            "SELECT ((9223372036854775807)::int8 / (0)::int8)::text;",
-            "SELECT ((1)::int8 % (0)::int8)::text;",
-            "SELECT div((5)::int4, (0)::int4)::text;",
-            "SELECT mod((5)::int8, (0)::int8)::text;",
-            "SELECT ((5)::int4 / (0)::int2)::text;",
-            "SELECT ((5)::int8 / (0)::int4)::text;",
-        ]).to_string(),
+        "intops:dv:zero" => pick_str(
+            g,
+            &[
+                "SELECT ((1)::int2 / (0)::int2)::text;",
+                "SELECT ((1)::int2 % (0)::int2)::text;",
+                "SELECT ((2147483647)::int4 / (0)::int4)::text;",
+                "SELECT ((-2147483648)::int4 % (0)::int4)::text;",
+                "SELECT ((9223372036854775807)::int8 / (0)::int8)::text;",
+                "SELECT ((1)::int8 % (0)::int8)::text;",
+                "SELECT div((5)::int4, (0)::int4)::text;",
+                "SELECT mod((5)::int8, (0)::int8)::text;",
+                "SELECT ((5)::int4 / (0)::int2)::text;",
+                "SELECT ((5)::int8 / (0)::int4)::text;",
+            ],
+        )
+        .to_string(),
         // INT_MIN / -1 overflow (22003); INT_MIN % -1 hits the =-1 fast arm
         // returning 0 (exact-value probe).
-        _ => pick_str(g, &[
-            "SELECT ((-32768)::int2 / (-1)::int2)::text;",
-            "SELECT ((-32768)::int2 % (-1)::int2)::text;",
-            "SELECT ((-2147483648)::int4 / (-1)::int4)::text;",
-            "SELECT ((-2147483648)::int4 % (-1)::int4)::text;",
-            "SELECT ((-9223372036854775808)::int8 / (-1)::int8)::text;",
-            "SELECT ((-9223372036854775808)::int8 % (-1)::int8)::text;",
-            "SELECT div((-2147483648)::int4, (-1)::int4)::text;",
-            "SELECT div((-9223372036854775808)::int8, (-1)::int8)::text;",
-        ]).to_string(),
+        _ => pick_str(
+            g,
+            &[
+                "SELECT ((-32768)::int2 / (-1)::int2)::text;",
+                "SELECT ((-32768)::int2 % (-1)::int2)::text;",
+                "SELECT ((-2147483648)::int4 / (-1)::int4)::text;",
+                "SELECT ((-2147483648)::int4 % (-1)::int4)::text;",
+                "SELECT ((-9223372036854775808)::int8 / (-1)::int8)::text;",
+                "SELECT ((-9223372036854775808)::int8 % (-1)::int8)::text;",
+                "SELECT div((-2147483648)::int4, (-1)::int4)::text;",
+                "SELECT div((-9223372036854775808)::int8, (-1)::int8)::text;",
+            ],
+        )
+        .to_string(),
     };
     vec![raw(sql)]
 }
@@ -245,17 +313,21 @@ fn gen_unary(g: &mut Gen) -> Vec<StmtKind> {
             format!("SELECT (- {a})::text, abs({a})::text, (@ {a})::text, (+ {a})::text;")
         }
         // negate / abs at INT_MIN overflows (22003).
-        _ => pick_str(g, &[
-            "SELECT (- (-32768)::int2)::text;",
-            "SELECT abs((-32768)::int2)::text;",
-            "SELECT (@ (-32768)::int2)::text;",
-            "SELECT (- (-2147483648)::int4)::text;",
-            "SELECT abs((-2147483648)::int4)::text;",
-            "SELECT (@ (-2147483648)::int4)::text;",
-            "SELECT (- (-9223372036854775808)::int8)::text;",
-            "SELECT abs((-9223372036854775808)::int8)::text;",
-            "SELECT (@ (-9223372036854775808)::int8)::text;",
-        ]).to_string(),
+        _ => pick_str(
+            g,
+            &[
+                "SELECT (- (-32768)::int2)::text;",
+                "SELECT abs((-32768)::int2)::text;",
+                "SELECT (@ (-32768)::int2)::text;",
+                "SELECT (- (-2147483648)::int4)::text;",
+                "SELECT abs((-2147483648)::int4)::text;",
+                "SELECT (@ (-2147483648)::int4)::text;",
+                "SELECT (- (-9223372036854775808)::int8)::text;",
+                "SELECT abs((-9223372036854775808)::int8)::text;",
+                "SELECT (@ (-9223372036854775808)::int8)::text;",
+            ],
+        )
+        .to_string(),
     };
     vec![raw(sql)]
 }
@@ -266,21 +338,28 @@ fn gen_unary(g: &mut Gen) -> Vec<StmtKind> {
 /// width and negative shifts (the C shift arms are defined per-width).
 fn gen_bit(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("intops:bit");
-    let shape = g.weights.pick(g.rng, &["intops:bt:logic", "intops:bt:shift"]);
+    let shape = g
+        .weights
+        .pick(g.rng, &["intops:bt:logic", "intops:bt:shift"]);
     g.fire(shape);
     let w = width(g);
     let a = op(g, w);
     let b = op(g, w);
     let sql = match shape {
         "intops:bt:logic" => {
-            format!("SELECT ({a} & {b})::text, ({a} | {b})::text, ({a} # {b})::text, (~ {a})::text;")
+            format!(
+                "SELECT ({a} & {b})::text, ({a} | {b})::text, ({a} # {b})::text, (~ {a})::text;"
+            )
         }
         // shift amounts spanning below/at/above the type width and negative.
         _ => {
-            let s = pick_str(g, &[
-                "0", "1", "7", "15", "16", "17", "31", "32", "33", "62", "63", "64", "65",
-                "-1", "-16", "-64",
-            ]);
+            let s = pick_str(
+                g,
+                &[
+                    "0", "1", "7", "15", "16", "17", "31", "32", "33", "62", "63", "64", "65",
+                    "-1", "-16", "-64",
+                ],
+            );
             format!("SELECT ({a} << {s})::text, ({a} >> {s})::text;")
         }
     };
@@ -304,19 +383,23 @@ fn gen_gcdlcm(g: &mut Gen) -> Vec<StmtKind> {
             format!("SELECT gcd({a}, {b})::text, lcm({a}, {b})::text;")
         }
         // gcd(INT_MIN,0)/gcd(INT_MIN,-1) overflow (abs INT_MIN) + lcm overflow.
-        _ => pick_str(g, &[
-            "SELECT gcd((-2147483648)::int4, (0)::int4)::text;",
-            "SELECT gcd((0)::int4, (-2147483648)::int4)::text;",
-            "SELECT gcd((-2147483648)::int4, (-2147483648)::int4)::text;",
-            "SELECT gcd((-9223372036854775808)::int8, (0)::int8)::text;",
-            "SELECT gcd((0)::int8, (-9223372036854775808)::int8)::text;",
-            "SELECT gcd((-9223372036854775808)::int8, (-9223372036854775808)::int8)::text;",
-            "SELECT lcm((2147483647)::int4, (2147483646)::int4)::text;",
-            "SELECT lcm((-2147483648)::int4, (1)::int4)::text;",
-            "SELECT lcm((9223372036854775807)::int8, (9223372036854775806)::int8)::text;",
-            "SELECT lcm((-9223372036854775808)::int8, (1)::int8)::text;",
-            "SELECT lcm((0)::int4, (-2147483648)::int4)::text;",
-        ]).to_string(),
+        _ => pick_str(
+            g,
+            &[
+                "SELECT gcd((-2147483648)::int4, (0)::int4)::text;",
+                "SELECT gcd((0)::int4, (-2147483648)::int4)::text;",
+                "SELECT gcd((-2147483648)::int4, (-2147483648)::int4)::text;",
+                "SELECT gcd((-9223372036854775808)::int8, (0)::int8)::text;",
+                "SELECT gcd((0)::int8, (-9223372036854775808)::int8)::text;",
+                "SELECT gcd((-9223372036854775808)::int8, (-9223372036854775808)::int8)::text;",
+                "SELECT lcm((2147483647)::int4, (2147483646)::int4)::text;",
+                "SELECT lcm((-2147483648)::int4, (1)::int4)::text;",
+                "SELECT lcm((9223372036854775807)::int8, (9223372036854775806)::int8)::text;",
+                "SELECT lcm((-9223372036854775808)::int8, (1)::int8)::text;",
+                "SELECT lcm((0)::int4, (-2147483648)::int4)::text;",
+            ],
+        )
+        .to_string(),
     };
     vec![raw(sql)]
 }
@@ -329,7 +412,12 @@ fn gen_cast(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("intops:cast");
     let shape = g.weights.pick(
         g.rng,
-        &["intops:ca:widen", "intops:ca:narrow", "intops:ca:bool", "intops:ca:err"],
+        &[
+            "intops:ca:widen",
+            "intops:ca:narrow",
+            "intops:ca:bool",
+            "intops:ca:err",
+        ],
     );
     g.fire(shape);
     let sql = match shape {
@@ -344,8 +432,18 @@ fn gen_cast(g: &mut Gen) -> Vec<StmtKind> {
         }
         "intops:ca:narrow" => {
             // values chosen to sit inside the target range (no overflow).
-            let v = pick_str(g, &["(0)::int8", "(1)::int8", "(-1)::int8", "(181)::int8",
-                                  "(-32768)::int8", "(32767)::int8", "(46341)::int8"]);
+            let v = pick_str(
+                g,
+                &[
+                    "(0)::int8",
+                    "(1)::int8",
+                    "(-1)::int8",
+                    "(181)::int8",
+                    "(-32768)::int8",
+                    "(32767)::int8",
+                    "(46341)::int8",
+                ],
+            );
             format!("SELECT ({v})::int4::text, ({v})::int2::text;")
         }
         "intops:ca:bool" => {
@@ -353,17 +451,21 @@ fn gen_cast(g: &mut Gen) -> Vec<StmtKind> {
             format!("SELECT ({a}::bool)::text, (true::int4)::text, (false::int4)::text;")
         }
         // narrowing / oid overflow (22003).
-        _ => pick_str(g, &[
-            "SELECT ((2147483647)::int4)::int2::text;",
-            "SELECT ((-2147483648)::int4)::int2::text;",
-            "SELECT ((40000)::int4)::int2::text;",
-            "SELECT ((9223372036854775807)::int8)::int2::text;",
-            "SELECT ((9223372036854775807)::int8)::int4::text;",
-            "SELECT ((-9223372036854775808)::int8)::int4::text;",
-            "SELECT ((3000000000)::int8)::int4::text;",
-            "SELECT ((-1)::int8)::oid::text;",
-            "SELECT ((9223372036854775807)::int8)::oid::text;",
-        ]).to_string(),
+        _ => pick_str(
+            g,
+            &[
+                "SELECT ((2147483647)::int4)::int2::text;",
+                "SELECT ((-2147483648)::int4)::int2::text;",
+                "SELECT ((40000)::int4)::int2::text;",
+                "SELECT ((9223372036854775807)::int8)::int2::text;",
+                "SELECT ((9223372036854775807)::int8)::int4::text;",
+                "SELECT ((-9223372036854775808)::int8)::int4::text;",
+                "SELECT ((3000000000)::int8)::int4::text;",
+                "SELECT ((-1)::int8)::oid::text;",
+                "SELECT ((9223372036854775807)::int8)::oid::text;",
+            ],
+        )
+        .to_string(),
     };
     vec![raw(sql)]
 }
@@ -375,14 +477,29 @@ fn gen_cast(g: &mut Gen) -> Vec<StmtKind> {
 /// (22P02) and out-of-range (22003).
 fn gen_parse(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("intops:parse");
-    let shape = g.weights.pick(g.rng, &["intops:pa:ok", "intops:pa:err", "intops:pa:out"]);
+    let shape = g
+        .weights
+        .pick(g.rng, &["intops:pa:ok", "intops:pa:err", "intops:pa:out"]);
     g.fire(shape);
     let sql = match shape {
         "intops:pa:ok" => {
-            let s = pick_str(g, &[
-                "  42  ", "+7", "-7", "0", "+0", "-0", " 000123 ", "2147483647",
-                "-2147483648", "9223372036854775807", "-9223372036854775808", "32767",
-            ]);
+            let s = pick_str(
+                g,
+                &[
+                    "  42  ",
+                    "+7",
+                    "-7",
+                    "0",
+                    "+0",
+                    "-0",
+                    " 000123 ",
+                    "2147483647",
+                    "-2147483648",
+                    "9223372036854775807",
+                    "-9223372036854775808",
+                    "32767",
+                ],
+            );
             let ty = pick_str(g, &["int2", "int4", "int8"]);
             format!("SELECT '{s}'::{ty}::text;")
         }
@@ -393,22 +510,26 @@ fn gen_parse(g: &mut Gen) -> Vec<StmtKind> {
             format!("SELECT ({a})::text, ({a})::text::int8::text;")
         }
         // malformed (22P02) or out-of-range (22003), matched on SQLSTATE.
-        _ => pick_str(g, &[
-            "SELECT ''::int4;",
-            "SELECT '   '::int4;",
-            "SELECT 'abc'::int4;",
-            "SELECT '1 2'::int4;",
-            "SELECT '1.5'::int4;",
-            "SELECT '+'::int4;",
-            "SELECT '-'::int4;",
-            "SELECT '0x1F'::int4;",
-            "SELECT '99999'::int2;",
-            "SELECT '-99999'::int2;",
-            "SELECT '3000000000'::int4;",
-            "SELECT '99999999999999999999'::int8;",
-            "SELECT '12abc'::int8;",
-            "SELECT '  '::int2;",
-        ]).to_string(),
+        _ => pick_str(
+            g,
+            &[
+                "SELECT ''::int4;",
+                "SELECT '   '::int4;",
+                "SELECT 'abc'::int4;",
+                "SELECT '1 2'::int4;",
+                "SELECT '1.5'::int4;",
+                "SELECT '+'::int4;",
+                "SELECT '-'::int4;",
+                "SELECT '0x1F'::int4;",
+                "SELECT '99999'::int2;",
+                "SELECT '-99999'::int2;",
+                "SELECT '3000000000'::int4;",
+                "SELECT '99999999999999999999'::int8;",
+                "SELECT '12abc'::int8;",
+                "SELECT '  '::int2;",
+            ],
+        )
+        .to_string(),
     };
     vec![raw(sql)]
 }
@@ -419,16 +540,16 @@ fn gen_parse(g: &mut Gen) -> Vec<StmtKind> {
 /// the operator forms), returning the full six-way comparison as booleans.
 fn gen_cmp(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("intops:cmp");
-    let shape = g.weights.pick(g.rng, &["intops:cm:same", "intops:cm:cross"]);
+    let shape = g
+        .weights
+        .pick(g.rng, &["intops:cm:same", "intops:cm:cross"]);
     g.fire(shape);
     let sql = match shape {
         "intops:cm:same" => {
             let w = width(g);
             let a = op(g, w);
             let b = op(g, w);
-            format!(
-                "SELECT {a} < {b}, {a} <= {b}, {a} = {b}, {a} >= {b}, {a} > {b}, {a} <> {b};"
-            )
+            format!("SELECT {a} < {b}, {a} <= {b}, {a} = {b}, {a} >= {b}, {a} > {b}, {a} <> {b};")
         }
         _ => {
             // every cross-width pair: 2v4, 2v8, 4v8.
@@ -453,7 +574,9 @@ fn gen_cmp(g: &mut Gen) -> Vec<StmtKind> {
 /// ranges, and INT_MAX/INT_MIN bounds (loop-termination overflow guard).
 fn gen_series(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("intops:series");
-    let shape = g.weights.pick(g.rng, &["intops:se:ok", "intops:se:edge", "intops:se:err"]);
+    let shape = g
+        .weights
+        .pick(g.rng, &["intops:se:ok", "intops:se:edge", "intops:se:err"]);
     g.fire(shape);
     match shape {
         "intops:se:ok" => {
@@ -528,9 +651,7 @@ fn gen_inrange(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("intops:inrange");
     // order-column width x offset-width -> in_range_int{order}_int{offset}.
     let ordty = pick_str(g, &["int2", "int4", "int8"]);
-    let off = pick_str(g, &[
-        "1", "2", "100", "2147483647", "9223372036854775807",
-    ]);
+    let off = pick_str(g, &["1", "2", "100", "2147483647", "9223372036854775807"]);
     // offset type: use int8 for the large offsets, else small int4.
     let offty = if off.len() > 10 { "int8" } else { "int4" };
     let base = pick_str(g, &["0", "-10", "2147483640"]);
@@ -551,7 +672,10 @@ fn gen_inrange(g: &mut Gen) -> Vec<StmtKind> {
 /// hash functions hashint2/hashint4/hashint8 (self-consistency probes).
 fn gen_misc(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("intops:misc");
-    let shape = g.weights.pick(g.rng, &["intops:mi:incdec", "intops:mi:fac", "intops:mi:hash"]);
+    let shape = g.weights.pick(
+        g.rng,
+        &["intops:mi:incdec", "intops:mi:fac", "intops:mi:hash"],
+    );
     g.fire(shape);
     let sql = match shape {
         // int4inc/int8inc/int8dec via the exposed int4pl/int8pl increment

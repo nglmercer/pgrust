@@ -88,24 +88,51 @@ fn install_coll_stub() {
 fn an_armed_thread_resolves_the_leaders_collations_without_a_catalog() {
     install_coll_stub();
     const OID: Oid = 16390;
-    TEST_COLL_ROW.with(|r| r.set(Some(TestCollRow { provider: COLLPROVIDER_LIBC, collate: Some("C"), ctype: Some("C"), locale: None, version: None })));
+    TEST_COLL_ROW.with(|r| {
+        r.set(Some(TestCollRow {
+            provider: COLLPROVIDER_LIBC,
+            collate: Some("C"),
+            ctype: Some("C"),
+            locale: None,
+            version: None,
+        }))
+    });
     let leader = pg_newlocale_from_collation(OID).unwrap() as *const PgLocale as usize;
     TEST_COLL_ROW.with(|r| r.set(None));
     let snap = resolved_collations().unwrap();
-    assert!(snap.iter().any(|&(o, l)| o == OID && l as *const PgLocale as usize == leader), "the leader's snapshot holds {OID}");
-    assert!(core::ptr::eq(resolved_collations().unwrap(), snap), "an unchanged cache keeps its snapshot");
+    assert!(
+        snap.iter()
+            .any(|&(o, l)| o == OID && l as *const PgLocale as usize == leader),
+        "the leader's snapshot holds {OID}"
+    );
+    assert!(
+        core::ptr::eq(resolved_collations().unwrap(), snap),
+        "an unchanged cache keeps its snapshot"
+    );
     let (bare, armed, disarmed) = std::thread::spawn(move || {
-        let bare = pg_newlocale_from_collation(OID).map(|_| ()).map_err(|e| e.message().to_owned());
+        let bare = pg_newlocale_from_collation(OID)
+            .map(|_| ())
+            .map_err(|e| e.message().to_owned());
         arm_collations(snap);
-        let armed = pg_newlocale_from_collation(OID).map(|l| l as *const PgLocale as usize).map_err(|e| e.message().to_owned());
+        let armed = pg_newlocale_from_collation(OID)
+            .map(|l| l as *const PgLocale as usize)
+            .map_err(|e| e.message().to_owned());
         arm_collations(&[]);
         let disarmed = pg_newlocale_from_collation(OID).is_err();
         (bare, armed, disarmed)
     })
     .join()
     .unwrap();
-    assert_eq!(bare, Err(format!("cache lookup failed for collation {OID}")), "a bare worker thread cannot build the locale");
-    assert_eq!(armed, Ok(leader), "an armed worker resolves the leader's locale");
+    assert_eq!(
+        bare,
+        Err(format!("cache lookup failed for collation {OID}")),
+        "a bare worker thread cannot build the locale"
+    );
+    assert_eq!(
+        armed,
+        Ok(leader),
+        "an armed worker resolves the leader's locale"
+    );
     assert!(disarmed);
 }
 
@@ -154,7 +181,10 @@ fn init_database_collation_libc_c() {
     let l = pg_newlocale_from_collation(DEFAULT_COLLATION_OID).unwrap();
     assert_eq!(l.provider, COLLPROVIDER_LIBC);
     assert!(l.is_default && l.collate_is_c && l.ctype_is_c && l.deterministic);
-    assert_eq!(varstr_cmp_locale(DEFAULT_COLLATION_OID, b"a", b"ab").unwrap(), -1);
+    assert_eq!(
+        varstr_cmp_locale(DEFAULT_COLLATION_OID, b"a", b"ab").unwrap(),
+        -1
+    );
     assert!(collation_is_deterministic(DEFAULT_COLLATION_OID).unwrap());
 }
 
@@ -237,13 +267,24 @@ fn collation_actual_versions_match_c() {
     let err = get_collation_actual_version(COLLPROVIDER_BUILTIN, "en_US").unwrap_err();
     assert_eq!(err.sqlstate(), ERRCODE_WRONG_OBJECT_TYPE);
 
-    assert_eq!(get_collation_actual_version(COLLPROVIDER_LIBC, "C").unwrap(), None);
-    assert_eq!(get_collation_actual_version(COLLPROVIDER_LIBC, "posix").unwrap(), None);
-    assert_eq!(get_collation_actual_version(COLLPROVIDER_LIBC, "C.UTF-8").unwrap(), None);
+    assert_eq!(
+        get_collation_actual_version(COLLPROVIDER_LIBC, "C").unwrap(),
+        None
+    );
+    assert_eq!(
+        get_collation_actual_version(COLLPROVIDER_LIBC, "posix").unwrap(),
+        None
+    );
+    assert_eq!(
+        get_collation_actual_version(COLLPROVIDER_LIBC, "C.UTF-8").unwrap(),
+        None
+    );
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
-    assert!(get_collation_actual_version(COLLPROVIDER_LIBC, "en_US.utf8")
-        .unwrap()
-        .is_some());
+    assert!(
+        get_collation_actual_version(COLLPROVIDER_LIBC, "en_US.utf8")
+            .unwrap()
+            .is_some()
+    );
     #[cfg(not(all(target_os = "linux", target_env = "gnu")))]
     assert_eq!(
         get_collation_actual_version(COLLPROVIDER_LIBC, "en_US.UTF-8").unwrap(),
@@ -267,7 +308,9 @@ fn icu_unicode_version_str_has_c_constant_shape() {
         let parts: Vec<&str> = v.split('.').collect();
         assert!(parts.len() >= 2, "U_UNICODE_VERSION is dotted: {v:?}");
         assert!(
-            parts.iter().all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit())),
+            parts
+                .iter()
+                .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit())),
             "numeric fields: {v:?}"
         );
         // Stable across calls (OnceLock) — the fmgr result must not move.
@@ -285,15 +328,22 @@ fn builtin_validators_match_c() {
         ERRCODE_WRONG_OBJECT_TYPE
     );
 
-    assert_eq!(builtin_validate_locale(PG_UTF8, "C.UTF8").unwrap(), "C.UTF-8");
+    assert_eq!(
+        builtin_validate_locale(PG_UTF8, "C.UTF8").unwrap(),
+        "C.UTF-8"
+    );
     assert_eq!(builtin_validate_locale(-1, "C").unwrap(), "C");
     assert_eq!(builtin_validate_locale(0, "C").unwrap(), "C");
     assert_eq!(
-        builtin_validate_locale(0, "C.UTF-8").unwrap_err().sqlstate(),
+        builtin_validate_locale(0, "C.UTF-8")
+            .unwrap_err()
+            .sqlstate(),
         ERRCODE_WRONG_OBJECT_TYPE
     );
     assert_eq!(
-        builtin_validate_locale(PG_UTF8, "bogus").unwrap_err().sqlstate(),
+        builtin_validate_locale(PG_UTF8, "bogus")
+            .unwrap_err()
+            .sqlstate(),
         ERRCODE_WRONG_OBJECT_TYPE
     );
 }
@@ -350,7 +400,10 @@ fn concurrent_locale_checks_are_threadsafe() {
                     assert!(!check_locale_numeric("bogus_locale.nope").unwrap());
                     let (ok, canon) = check_locale(libc::LC_MONETARY, "POSIX").unwrap();
                     assert!(ok);
-                    assert_eq!(canon.as_deref(), Some(setup::canonical_locale_name("POSIX")));
+                    assert_eq!(
+                        canon.as_deref(),
+                        Some(setup::canonical_locale_name("POSIX"))
+                    );
                 }
             })
         })
@@ -365,7 +418,11 @@ fn concurrent_locale_checks_are_threadsafe() {
 // musl, so the template comparison passes; macOS setlocale keeps "POSIX".
 #[test]
 fn posix_canonicalises_like_setlocale() {
-    let expect = if cfg!(target_os = "linux") { "C" } else { "POSIX" };
+    let expect = if cfg!(target_os = "linux") {
+        "C"
+    } else {
+        "POSIX"
+    };
     assert_eq!(setup::canonical_locale_name("POSIX"), expect);
     assert_eq!(setup::canonical_locale_name("C"), "C");
     assert_eq!(setup::canonical_locale_name("en_US.UTF-8"), "en_US.UTF-8");
@@ -455,10 +512,30 @@ fn live_pg_differential() {
             let f: Vec<&str> = line.split('\t').collect();
             assert_eq!(f.len(), 5, "{file}: {line}");
             let s = f[0].as_bytes();
-            assert_eq!(run(pg_strlower, s, &loc), f[1], "lower({}) full={full}", f[0]);
-            assert_eq!(run(pg_strupper, s, &loc), f[2], "upper({}) full={full}", f[0]);
-            assert_eq!(run(pg_strtitle, s, &loc), f[3], "initcap({}) full={full}", f[0]);
-            assert_eq!(run(pg_strfold, s, &loc), f[4], "casefold({}) full={full}", f[0]);
+            assert_eq!(
+                run(pg_strlower, s, &loc),
+                f[1],
+                "lower({}) full={full}",
+                f[0]
+            );
+            assert_eq!(
+                run(pg_strupper, s, &loc),
+                f[2],
+                "upper({}) full={full}",
+                f[0]
+            );
+            assert_eq!(
+                run(pg_strtitle, s, &loc),
+                f[3],
+                "initcap({}) full={full}",
+                f[0]
+            );
+            assert_eq!(
+                run(pg_strfold, s, &loc),
+                f[4],
+                "casefold({}) full={full}",
+                f[0]
+            );
             checked += 4;
         }
     }
@@ -474,9 +551,7 @@ fn live_pg_differential() {
         let data = std::fs::read_to_string(format!("{dir}/{file}")).unwrap();
         let expected: Vec<&str> = data.lines().collect();
         let mut ours: Vec<&str> = expected.clone();
-        ours.sort_by(|a, b| {
-            varstr_cmp_locale_with(&loc, a.as_bytes(), b.as_bytes()).cmp(&0)
-        });
+        ours.sort_by(|a, b| varstr_cmp_locale_with(&loc, a.as_bytes(), b.as_bytes()).cmp(&0));
         assert_eq!(ours, expected, "{locname} strcoll order");
         checked += expected.len();
     }
@@ -566,17 +641,16 @@ fn c_locale_case_mapping_is_ascii_without_libc() {
     mbutils::SetDatabaseEncoding(6).unwrap();
     let ctx = MemoryContext::new("c-case");
     let mcx = ctx.mcx();
-    let run = |f: fn(Mcx<'_>, &mut [u8], &[u8], &PgLocale) -> PgResult<usize>,
-               src: &[u8]|
-     -> Vec<u8> {
-        let mut dst = vec![0xAAu8; src.len() + 2];
-        let n = f(mcx, &mut dst, src, &C_LOCALE).unwrap();
-        assert_eq!(n, src.len());
-        assert_eq!(dst[n], 0, "NUL-terminated when it fits");
-        assert_eq!(dst[n + 1], 0xAA, "nothing written past the terminator");
-        dst.truncate(n);
-        dst
-    };
+    let run =
+        |f: fn(Mcx<'_>, &mut [u8], &[u8], &PgLocale) -> PgResult<usize>, src: &[u8]| -> Vec<u8> {
+            let mut dst = vec![0xAAu8; src.len() + 2];
+            let n = f(mcx, &mut dst, src, &C_LOCALE).unwrap();
+            assert_eq!(n, src.len());
+            assert_eq!(dst[n], 0, "NUL-terminated when it fits");
+            assert_eq!(dst[n + 1], 0xAA, "nothing written past the terminator");
+            dst.truncate(n);
+            dst
+        };
     assert_eq!(
         run(pg_strlower, "FeBrUaRy \u{c9}T\u{c9} 1\0X".as_bytes()),
         "february \u{c9}t\u{c9} 1\0x".as_bytes()
@@ -585,16 +659,25 @@ fn c_locale_case_mapping_is_ascii_without_libc() {
         run(pg_strupper, "hello, w\u{f6}rld 42".as_bytes()),
         "HELLO, W\u{f6}RLD 42".as_bytes()
     );
-    assert_eq!(run(pg_strtitle, b"hello wORLD 4x b-c \xc3\xa9a"), b"Hello World 4x B-C \xc3\xa9A");
+    assert_eq!(
+        run(pg_strtitle, b"hello wORLD 4x b-c \xc3\xa9a"),
+        b"Hello World 4x B-C \xc3\xa9A"
+    );
     assert_eq!(run(pg_strfold, b"MiXeD"), b"mixed");
 
     // a short destination gets the prefix, no terminator, and the full length
     let mut short = [0xAAu8; 3];
-    assert_eq!(pg_strupper(mcx, &mut short, b"abcde", &C_LOCALE).unwrap(), 5);
+    assert_eq!(
+        pg_strupper(mcx, &mut short, b"abcde", &C_LOCALE).unwrap(),
+        5
+    );
     assert_eq!(short, *b"ABC");
     // exactly srclen bytes of room: no terminator either
     let mut exact = [0xAAu8; 5];
-    assert_eq!(pg_strlower(mcx, &mut exact, b"ABCDE", &C_LOCALE).unwrap(), 5);
+    assert_eq!(
+        pg_strlower(mcx, &mut exact, b"ABCDE", &C_LOCALE).unwrap(),
+        5
+    );
     assert_eq!(exact, *b"abcde");
 }
 
@@ -657,7 +740,10 @@ fn icu_converter_failure_does_not_panic() {
         let _ = locale.pg_strnxfrm_prefix(&mut dest, b"a");
     }));
     mbutils::SetDatabaseEncoding(6).unwrap();
-    assert!(r.is_ok(), "an ICU converter failure panicked instead of being reported");
+    assert!(
+        r.is_ok(),
+        "an ICU converter failure panicked instead of being reported"
+    );
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -726,27 +812,50 @@ fn nondeterministic_hash_sort_key_has_palloc_admission() {
     assert!(nondeterministic_hash_buf_admission(mcx::MAX_ALLOC_SIZE - 1).is_ok());
     let err = nondeterministic_hash_buf_admission(mcx::MAX_ALLOC_SIZE).unwrap_err();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
-    assert_eq!(err.message(), "invalid memory alloc request size 1073741824");
+    assert_eq!(
+        err.message(),
+        "invalid memory alloc request size 1073741824"
+    );
 }
 
 // pg_locale.c:1141 builds the REFRESH VERSION hint with
 // quote_qualified_identifier: reserved words quote, plain names do not.
 #[test]
 fn version_mismatch_hint_quotes_like_ruleutils() {
-    assert_eq!(version_mismatch_target(Some("public"), "select"), "public.\"select\"");
-    assert_eq!(version_mismatch_target(Some("public"), "b226coll"), "public.b226coll");
-    assert_eq!(version_mismatch_target(Some("My Schema"), "x"), "\"My Schema\".x");
+    assert_eq!(
+        version_mismatch_target(Some("public"), "select"),
+        "public.\"select\""
+    );
+    assert_eq!(
+        version_mismatch_target(Some("public"), "b226coll"),
+        "public.b226coll"
+    );
+    assert_eq!(
+        version_mismatch_target(Some("My Schema"), "x"),
+        "\"My Schema\".x"
+    );
     assert_eq!(version_mismatch_target(None, "user"), "\"user\"");
 }
 
 #[test]
 fn terminated_collation_preserves_length_aware_allocation_limit() {
     let err = libc_locale::strncoll_buf_admission(536_870_912, 536_870_912).unwrap_err();
-    assert_eq!(err.message(), "invalid memory alloc request size 1073741826");
+    assert_eq!(
+        err.message(),
+        "invalid memory alloc request size 1073741826"
+    );
     let locale = create_pg_locale_libc("en_US.UTF-8", "en_US.UTF-8").unwrap();
-    for (a, b) in [(b"a\0".as_slice(), b"b\0".as_slice()), (b"same\0", b"same\0")] {
-        assert_eq!(locale.pg_strcoll(a, b).unwrap().signum(),
-            locale.pg_strncoll(&a[..a.len() - 1], &b[..b.len() - 1]).unwrap().signum());
+    for (a, b) in [
+        (b"a\0".as_slice(), b"b\0".as_slice()),
+        (b"same\0", b"same\0"),
+    ] {
+        assert_eq!(
+            locale.pg_strcoll(a, b).unwrap().signum(),
+            locale
+                .pg_strncoll(&a[..a.len() - 1], &b[..b.len() - 1])
+                .unwrap()
+                .signum()
+        );
     }
 }
 
@@ -779,10 +888,18 @@ fn a_claim_carries_the_database_ctype_and_puts_the_threads_back() {
         let leader = capture_database_ctype();
         std::thread::spawn(move || {
             set_database_ctype_is_c(true);
-            let own = arm_database_ctype(&leader).unwrap().expect("the pool thread's ctype differs");
+            let own = arm_database_ctype(&leader)
+                .unwrap()
+                .expect("the pool thread's ctype differs");
             assert!(!database_ctype_is_c());
-            assert_eq!(crate::setup::thread_locale(crate::lc::LC_CTYPE).as_deref(), Some("en_US.utf8"));
-            assert!(arm_database_ctype(&leader).unwrap().is_none(), "already armed: nothing to put back");
+            assert_eq!(
+                crate::setup::thread_locale(crate::lc::LC_CTYPE).as_deref(),
+                Some("en_US.utf8")
+            );
+            assert!(
+                arm_database_ctype(&leader).unwrap().is_none(),
+                "already armed: nothing to put back"
+            );
             restore_database_ctype(own);
             assert!(database_ctype_is_c());
             assert_eq!(crate::setup::thread_locale(crate::lc::LC_CTYPE), None);

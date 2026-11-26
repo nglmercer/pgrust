@@ -3,17 +3,53 @@ use types_nodes::plannodes::{Agg, GravityRewrite, Sort};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Hint {
     DistinctHashed,
-    ZoneTopK { attno: i16, desc: bool, nulls_first: bool },
-    ZoneWalk { attno: i16, desc: bool, nulls_first: bool },
-    TwoPass { attno: i16, floor_desc: bool, floor_nulls_first: bool },
+    ZoneTopK {
+        attno: i16,
+        desc: bool,
+        nulls_first: bool,
+    },
+    ZoneWalk {
+        attno: i16,
+        desc: bool,
+        nulls_first: bool,
+    },
+    TwoPass {
+        attno: i16,
+        floor_desc: bool,
+        floor_nulls_first: bool,
+    },
 }
 
 impl Hint {
     pub const fn of_rewrite(r: GravityRewrite) -> Hint {
         match r {
-            GravityRewrite::ZoneTopK { attno, desc, nulls_first } => Hint::ZoneTopK { attno, desc, nulls_first },
-            GravityRewrite::ZoneWalk { attno, desc, nulls_first } => Hint::ZoneWalk { attno, desc, nulls_first },
-            GravityRewrite::TwoPass { attno, floor_desc, floor_nulls_first } => Hint::TwoPass { attno, floor_desc, floor_nulls_first },
+            GravityRewrite::ZoneTopK {
+                attno,
+                desc,
+                nulls_first,
+            } => Hint::ZoneTopK {
+                attno,
+                desc,
+                nulls_first,
+            },
+            GravityRewrite::ZoneWalk {
+                attno,
+                desc,
+                nulls_first,
+            } => Hint::ZoneWalk {
+                attno,
+                desc,
+                nulls_first,
+            },
+            GravityRewrite::TwoPass {
+                attno,
+                floor_desc,
+                floor_nulls_first,
+            } => Hint::TwoPass {
+                attno,
+                floor_desc,
+                floor_nulls_first,
+            },
         }
     }
 

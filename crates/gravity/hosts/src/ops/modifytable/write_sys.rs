@@ -42,12 +42,27 @@ pub(crate) struct SysCols {
 
 impl SysCols {
     pub(crate) fn new(plan: &WritePlan) -> SysCols {
-        SysCols { on: plan.sys, header: plan.sys_header, tid: Box::default(), words: [0; 4], rel: 0, filled: false, header_ok: false, old_on: plan.sys_old, old_tid: Box::default(), ins: false } // alloc: Node
+        SysCols {
+            on: plan.sys,
+            header: plan.sys_header,
+            tid: Box::default(),
+            words: [0; 4],
+            rel: 0,
+            filled: false,
+            header_ok: false,
+            old_on: plan.sys_old,
+            old_tid: Box::default(),
+            ins: false,
+        } // alloc: Node
     }
 
     /// A routed leaf's host takes its route host's flags (write_route.rs).
     pub(crate) fn with(on: bool, header: bool) -> SysCols {
-        SysCols { on, header, ..SysCols::new(&WritePlan::SELECT) }
+        SysCols {
+            on,
+            header,
+            ..SysCols::new(&WritePlan::SELECT)
+        }
     }
 
     #[allow(dead_code)]
@@ -105,12 +120,20 @@ impl SysCols {
 
     /// The six cells (ctid, xmin, cmin, xmax, cmax, tableoid) of the last row op; `virtual_row`: PostgreSQL returned that
     /// row from a virtual slot (its header fields raise).
-    pub(crate) fn fill(&self, values: &mut [Word], isnull: &mut [u8], virtual_row: bool) -> PgResult<bool> {
+    pub(crate) fn fill(
+        &self,
+        values: &mut [Word],
+        isnull: &mut [u8],
+        virtual_row: bool,
+    ) -> PgResult<bool> {
         if !self.on || !self.filled || values.len() < 6 || isnull.len() < 6 {
             return Ok(false);
         }
         if self.header && (virtual_row || !self.header_ok) {
-            return Err(Box::new(PgError::error("cannot retrieve a system column in this context").with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED))); // alloc: Cold
+            return Err(Box::new(
+                PgError::error("cannot retrieve a system column in this context")
+                    .with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED),
+            )); // alloc: Cold
         }
         values[0] = &*self.tid as *const ItemPointerData as usize as Word;
         values[1..5].copy_from_slice(&self.words);
@@ -140,13 +163,20 @@ impl SysCols {
 
     /// V4R-501: the replaced version in `slot` (of relation `rel`) as the old site's last six cells: ctid, xmin, cmin,
     /// xmax, cmax, tableoid.
-    pub(crate) fn fill_old(&mut self, slot: &SlotData<'_>, rel: Oid, values: &mut [Word], isnull: &mut [u8]) -> PgResult<()> {
+    pub(crate) fn fill_old(
+        &mut self,
+        slot: &SlotData<'_>,
+        rel: Oid,
+        values: &mut [Word],
+        isnull: &mut [u8],
+    ) -> PgResult<()> {
         if !self.old_on {
             return Ok(());
         }
         if values.len() < 6 || isnull.len() != values.len() {
             // the lowerer lays the row's cells then these six (write/rowop_step.rs): never the previous row's left in them
-            return Err(Box::new(PgError::error("gravity: Reason::Bug: V4R-501: an old site without its six system-column cells").with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR))); // alloc: Cold
+            return Err(Box::new(PgError::error("gravity: Reason::Bug: V4R-501: an old site without its six system-column cells").with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR)));
+            // alloc: Cold
         }
         let k = values.len() - 6;
         *self.old_tid = slot.base().tts_tid;

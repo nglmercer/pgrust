@@ -21,7 +21,10 @@ crate::strategies! {
     MASK_FOLD = 3, "mask.fold", FoldScan;
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(MASK_FOLD, &BlockFoldImpl(&BLOCK))], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(MASK_FOLD, &BlockFoldImpl(&BLOCK))],
+    ..crate::ops::NONE
+};
 
 struct Block;
 static BLOCK: Block = Block;
@@ -47,22 +50,54 @@ pub(crate) fn scan_attno(px: &Px<'_, '_>, k: usize, c: i16) -> Option<i16> {
 impl BlockFoldMech for Block {
     /// Lane `lane` (an attno − 1 of `w`; `usize::MAX` for `count(*)`) of block `[base, base + 64)` under `m` into the carry
     /// words `acc` (`[value…, n]`): the lane's validity ANDed in, the set bits walked by count-trailing-zeros.
-    fn fold(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, form: BlockFold, w: &WordWin, lane: usize, base: Value, m: Mask, acc: Acc<'_>) {
-        let Acc::Regs(acc) = acc else { crate::refuse!(env.node, crate::admit::refusal::Reason::Bug { payload: "a block fold into a slot" }) };
-        let m = if lane == usize::MAX { m.0 } else { crate::frame::block::valid_and(b, env, w, &[lane as i16 + 1], base, m.0) };
+    fn fold(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        form: BlockFold,
+        w: &WordWin,
+        lane: usize,
+        base: Value,
+        m: Mask,
+        acc: Acc<'_>,
+    ) {
+        let Acc::Regs(acc) = acc else {
+            crate::refuse!(
+                env.node,
+                crate::admit::refusal::Reason::Bug {
+                    payload: "a block fold into a slot"
+                }
+            )
+        };
+        let m = if lane == usize::MAX {
+            m.0
+        } else {
+            crate::frame::block::valid_and(b, env, w, &[lane as i16 + 1], base, m.0)
+        };
         let n = b.int_un(IntUnOp::Popcnt, m);
         let k = acc.len() - 1;
         acc[k] = b.int_bin(IntBinOp::Add, acc[k], n);
         if form == BlockFold::Count {
             return;
         }
-        let Some(l) = w.lanes.get(lane).copied().flatten() else { crate::refuse!(env.node, crate::admit::refusal::Reason::Bug { payload: "a block fold over a lane the window lacks" }) };
+        let Some(l) = w.lanes.get(lane).copied().flatten() else {
+            crate::refuse!(
+                env.node,
+                crate::admit::refusal::Reason::Bug {
+                    payload: "a block fold over a lane the window lacks"
+                }
+            )
+        };
         let op = match form {
             BlockFold::Min | BlockFold::MinImage => IntBinOp::Smin,
             BlockFold::Max | BlockFold::MaxImage => IntBinOp::Smax,
             _ => IntBinOp::Add,
         };
-        let (l_loop, l_body, l_out) = (b.create_block(&[Type::I64, Type::I64]), b.create_block(&[]), b.create_block(&[Type::I64]));
+        let (l_loop, l_body, l_out) = (
+            b.create_block(&[Type::I64, Type::I64]),
+            b.create_block(&[]),
+            b.create_block(&[Type::I64]),
+        );
         b.br(l_loop, &[m, acc[0]]);
         b.mark_loop_header(l_loop);
         env.bounded.push_in(l_loop);
@@ -75,7 +110,11 @@ impl BlockFoldMech for Block {
         let i = b.int_bin(IntBinOp::Add, base, t);
         let x = lane_word(b, env, &l, i);
         // FOLD-13: an unsigned word order folds its sign-flipped image, as the row path does (class_word `row_words`)
-        let x = if matches!(form, BlockFold::MinImage | BlockFold::MaxImage) { flip(b, x) } else { x };
+        let x = if matches!(form, BlockFold::MinImage | BlockFold::MaxImage) {
+            flip(b, x)
+        } else {
+            x
+        };
         let v2 = b.int_bin(op, v, x);
         let one = b.int_bin(IntBinOp::Sub, bits, env.one);
         let rest = b.int_bin(IntBinOp::And, bits, one);
@@ -93,7 +132,12 @@ fn flip(b: &mut FunctionBuilder<'_>, x: Value) -> Value {
 
 /// Lane `l`'s word at row `i` as the row path reads a by-value cell (expr scalar `lane_cell`): 8 bytes as they are, 4 / 2
 /// sign-extended, 1 zero-extended (bool).
-fn lane_word(b: &mut FunctionBuilder<'_>, env: &Env, l: &gravity_expr::emit::LaneRef, i: Value) -> Value {
+fn lane_word(
+    b: &mut FunctionBuilder<'_>,
+    env: &Env,
+    l: &gravity_expr::emit::LaneRef,
+    i: Value,
+) -> Value {
     let p = b.ptr_add(l.ptr, i, l.width, 0);
     match l.width {
         8 => b.load(Type::I64, p, 0),
@@ -102,14 +146,28 @@ fn lane_word(b: &mut FunctionBuilder<'_>, env: &Env, l: &gravity_expr::emit::Lan
             b.conv(gravity_ir::ConvOp::Sext, Type::I64, x)
         }
         1 => b.load_zext(Type::I8, p, 0),
-        _ => crate::refuse!(env.node, crate::admit::refusal::Reason::Bug { payload: "a block fold over a lane of another width" }),
+        _ => crate::refuse!(
+            env.node,
+            crate::admit::refusal::Reason::Bug {
+                payload: "a block fold over a lane of another width"
+            }
+        ),
     }
 }
 
 /// `EndMech::block` for a fold end: every aggregate folds by block form (no FILTER, `count(*)` or a column the window's
 /// lanes hold) and the end carries its states, else `None` (the rows are walked).
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn end_block<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, folds: &[crate::ops::agg::trans::plain::Fold<'_, '_>], carry: bool, w: &WordWin, base: Value, m: Mask, c: &Carry) -> Option<Carry<'e>> {
+pub(crate) fn end_block<'e>(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env<'e, '_>,
+    folds: &[crate::ops::agg::trans::plain::Fold<'_, '_>],
+    carry: bool,
+    w: &WordWin,
+    base: Value,
+    m: Mask,
+    c: &Carry,
+) -> Option<Carry<'e>> {
     if !carry || !env.applies(MASK_FOLD) {
         return None;
     }
@@ -119,7 +177,17 @@ pub(crate) fn end_block<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, 
         let lane = match (f.args.as_slice(), f.scan) {
             ([], _) => usize::MAX,
             // a count reads only the lane's validity; another form its word (`lane_word`'s widths)
-            ([_], Some(a)) if w.lanes.get(a as usize - 1).copied().flatten().is_some_and(|l| form == BlockFold::Count || matches!(l.width, 1 | 2 | 4 | 8)) => a as usize - 1,
+            ([_], Some(a))
+                if w.lanes
+                    .get(a as usize - 1)
+                    .copied()
+                    .flatten()
+                    .is_some_and(|l| {
+                        form == BlockFold::Count || matches!(l.width, 1 | 2 | 4 | 8)
+                    }) =>
+            {
+                a as usize - 1
+            }
             _ => return None,
         };
         plan.push_in((form, lane));
@@ -127,8 +195,20 @@ pub(crate) fn end_block<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, 
     fires::fire("agg.vec_plain"); // shapecheck fire signal (REGISTRY DC-11): a plain aggregate folds whole masks by its classes' block forms
     let mut accs = mcx::to_vec_in(&c.accs[..], env.mcx);
     for (f, (form, lane)) in folds.iter().zip(plan) {
-        BLOCK.fold(b, env, form, w, lane, base, m, Acc::Regs(&mut accs[f.at..f.at + f.words]));
+        BLOCK.fold(
+            b,
+            env,
+            form,
+            w,
+            lane,
+            base,
+            m,
+            Acc::Regs(&mut accs[f.at..f.at + f.words]),
+        );
     }
     let n = b.int_un(IntUnOp::Popcnt, m.0);
-    Some(Carry { out: b.int_bin(IntBinOp::Add, c.out, n), accs })
+    Some(Carry {
+        out: b.int_bin(IntBinOp::Add, c.out, n),
+        accs,
+    })
 }

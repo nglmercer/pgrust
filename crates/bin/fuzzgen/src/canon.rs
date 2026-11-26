@@ -51,7 +51,9 @@ pub fn host_dlsuffix() -> &'static str {
 
 /// E/N field codes in classification order: `C` first (wrong-sqlstate),
 /// then the wrong-message group, then the position pair.
-pub const ERR_FIELD_ORDER: &[char] = &['C', 'S', 'V', 'M', 'D', 'H', 'W', 'q', 's', 't', 'c', 'd', 'n', 'R', 'P', 'p'];
+pub const ERR_FIELD_ORDER: &[char] = &[
+    'C', 'S', 'V', 'M', 'D', 'H', 'W', 'q', 's', 't', 'c', 'd', 'n', 'R', 'P', 'p',
+];
 
 /// Fields dropped before comparison.
 pub const DROPPED_FIELDS: &[char] = &['F', 'L'];
@@ -68,7 +70,12 @@ pub struct CanonCtx {
 
 impl Default for CanonCtx {
     fn default() -> CanonCtx {
-        CanonCtx { libdir: None, pgdata: None, dlsuffix: host_dlsuffix().to_string(), type_names: BTreeMap::new() }
+        CanonCtx {
+            libdir: None,
+            pgdata: None,
+            dlsuffix: host_dlsuffix().to_string(),
+            type_names: BTreeMap::new(),
+        }
     }
 }
 
@@ -179,7 +186,9 @@ fn duration_len(b: &[u8], i: usize) -> Option<usize> {
         return None;
     }
     let rest = &b[j + 1..];
-    let unit_ok = |u: &[u8]| rest.starts_with(u) && !rest.get(u.len()).is_some_and(|c| c.is_ascii_alphanumeric());
+    let unit_ok = |u: &[u8]| {
+        rest.starts_with(u) && !rest.get(u.len()).is_some_and(|c| c.is_ascii_alphanumeric())
+    };
     if unit_ok(b"ms") {
         return Some(j + 1 + 2 - i);
     }
@@ -221,7 +230,10 @@ fn mask_root(s: &str, root: &str, token: &str) -> String {
     let mut rest = s;
     while let Some(pos) = rest.find(root) {
         let after = &rest[pos + root.len()..];
-        let boundary = after.is_empty() || after.starts_with('/') || after.starts_with('"') || after.starts_with('\'');
+        let boundary = after.is_empty()
+            || after.starts_with('/')
+            || after.starts_with('"')
+            || after.starts_with('\'');
         out.push_str(&rest[..pos]);
         if boundary {
             out.push_str(token);
@@ -316,7 +328,10 @@ pub fn oid_pair(a: &str, b: &str) -> (String, String) {
     if ta != tb || da.len() != db.len() {
         return (a.to_string(), b.to_string());
     }
-    let user = |d: &str| d.parse::<u64>().is_ok_and(|v| v >= u64::from(FIRST_NORMAL_OBJECT_ID));
+    let user = |d: &str| {
+        d.parse::<u64>()
+            .is_ok_and(|v| v >= u64::from(FIRST_NORMAL_OBJECT_ID))
+    };
     let mut oa = String::with_capacity(a.len());
     let mut ob = String::with_capacity(b.len());
     for i in 0..da.len() {
@@ -374,7 +389,10 @@ pub fn message_template(m: &str) -> String {
 /// True when `s` names a shared object with a suffix other than the host's.
 pub fn foreign_dlsuffix(s: &str, ctx: &CanonCtx) -> Option<&'static str> {
     let trimmed = s.trim_end_matches(['"', '\'', '.', ':', ')']);
-    DLSUFFIXES.iter().copied().find(|suf| trimmed.ends_with(suf) && *suf != ctx.dlsuffix)
+    DLSUFFIXES
+        .iter()
+        .copied()
+        .find(|suf| trimmed.ends_with(suf) && *suf != ctx.dlsuffix)
 }
 
 /// Mask a raw log line: `%m`/`%t` timestamp -> `<ts>` keeping the zone
@@ -390,7 +408,11 @@ pub fn mask_log_raw(raw: &str, ctx: &CanonCtx) -> String {
             out.push_str("<ts>");
             i += n;
             if let Some(z) = raw[i..].strip_prefix(' ') {
-                let ze = z.find(|c: char| !(c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == ':')).unwrap_or(z.len());
+                let ze = z
+                    .find(|c: char| {
+                        !(c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == ':')
+                    })
+                    .unwrap_or(z.len());
                 if ze > 0 {
                     out.push(' ');
                     out.push_str(&z[..ze]);
@@ -458,7 +480,9 @@ pub fn zone_of(ts: &str) -> Option<String> {
     let b = ts.as_bytes();
     let n = timestamp_len(b, 0)?;
     let rest = ts[n..].trim_start();
-    let end = rest.find(|c: char| !(c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == ':')).unwrap_or(rest.len());
+    let end = rest
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == ':'))
+        .unwrap_or(rest.len());
     let z = &rest[..end];
     (!z.is_empty()).then(|| z.to_string())
 }
@@ -496,7 +520,11 @@ impl ErrTuple {
 
     /// `<C>: <M>` — the composite the ledger's build-config rulings test.
     pub fn cm(&self) -> String {
-        format!("{}: {}", self.get('C').unwrap_or(""), self.get('M').unwrap_or(""))
+        format!(
+            "{}: {}",
+            self.get('C').unwrap_or(""),
+            self.get('M').unwrap_or("")
+        )
     }
 
     /// Ledger field accessor: a single field code or `CM`.
@@ -560,7 +588,10 @@ impl ColMeta {
     }
 
     pub fn render(&self) -> String {
-        format!("{} {} len={} mod={} fmt={}", self.name, self.typ, self.typlen, self.typmod, self.fmt)
+        format!(
+            "{} {} len={} mod={} fmt={}",
+            self.name, self.typ, self.typlen, self.typmod, self.fmt
+        )
     }
 }
 
@@ -575,12 +606,22 @@ pub struct ResultGroup {
 
 impl ResultGroup {
     pub fn col_oids(&self) -> Vec<u32> {
-        self.columns.as_ref().map(|c| c.iter().map(|x| x.typoid).collect()).unwrap_or_default()
+        self.columns
+            .as_ref()
+            .map(|c| c.iter().map(|x| x.typoid).collect())
+            .unwrap_or_default()
     }
 
     /// Rows as text cells (lossless rendering) for the text-shaped masks.
     pub fn text_rows(&self) -> Vec<Vec<Option<String>>> {
-        self.rows.iter().map(|r| r.iter().map(|c| c.as_ref().map(|b| bytes_text(b))).collect()).collect()
+        self.rows
+            .iter()
+            .map(|r| {
+                r.iter()
+                    .map(|c| c.as_ref().map(|b| bytes_text(b)))
+                    .collect()
+            })
+            .collect()
     }
 
     /// EXPLAIN output lines when this group is one text column.
@@ -621,7 +662,10 @@ impl LogCanon {
             zone: l.ts.as_deref().and_then(zone_of),
             backend_type: l.backend_type.clone(),
             app: l.app.clone(),
-            message: l.message.as_ref().map(|m| mask_text(&bytes_text(&m.0), ctx)),
+            message: l
+                .message
+                .as_ref()
+                .map(|m| mask_text(&bytes_text(&m.0), ctx)),
             raw: mask_log_raw(&bytes_text(&l.raw.0), ctx),
         }
     }
@@ -715,7 +759,12 @@ pub fn canonicalize(rec: &ObservationRecord, ctx: &CanonCtx) -> CanonSide {
             }
             WireMsg::DataRow(cells) => {
                 let g = open.get_or_insert_with(ResultGroup::default);
-                g.rows.push(cells.iter().map(|c| c.as_ref().map(|b| b.0.clone())).collect());
+                g.rows.push(
+                    cells
+                        .iter()
+                        .map(|c| c.as_ref().map(|b| b.0.clone()))
+                        .collect(),
+                );
             }
             WireMsg::CommandComplete(tag) => {
                 let mut g = open.take().unwrap_or_default();
@@ -725,14 +774,23 @@ pub fn canonicalize(rec: &ObservationRecord, ctx: &CanonCtx) -> CanonSide {
             WireMsg::ParameterStatus { name, value } => {
                 out.params.insert(bytes_text(&name.0), bytes_text(&value.0));
             }
-            WireMsg::NotificationResponse { channel, payload, .. } => {
-                *out.notify.entry((bytes_text(&channel.0), bytes_text(&payload.0))).or_insert(0) += 1;
+            WireMsg::NotificationResponse {
+                channel, payload, ..
+            } => {
+                *out.notify
+                    .entry((bytes_text(&channel.0), bytes_text(&payload.0)))
+                    .or_insert(0) += 1;
             }
             WireMsg::ParameterDescription(oids) => {
-                out.param_types.push(oids.iter().map(|&o| canon_typ(o, ctx)).collect());
+                out.param_types
+                    .push(oids.iter().map(|&o| canon_typ(o, ctx)).collect());
             }
-            WireMsg::CopyInResponse { fmt, col_fmts } => out.copy_in_fmt = Some((*fmt, col_fmts.clone())),
-            WireMsg::CopyOutResponse { fmt, col_fmts } => out.copy_out_fmt = Some((*fmt, col_fmts.clone())),
+            WireMsg::CopyInResponse { fmt, col_fmts } => {
+                out.copy_in_fmt = Some((*fmt, col_fmts.clone()))
+            }
+            WireMsg::CopyOutResponse { fmt, col_fmts } => {
+                out.copy_out_fmt = Some((*fmt, col_fmts.clone()))
+            }
             WireMsg::CopyData(d) => out.copy_out.extend_from_slice(&d.0),
             WireMsg::ReadyForQuery { status } => out.ready.push(*status),
             WireMsg::BackendKeyData { .. }
@@ -759,7 +817,10 @@ pub fn canonicalize(rec: &ObservationRecord, ctx: &CanonCtx) -> CanonSide {
         out.log.push(LogCanon::from_line(l, ctx));
     }
     for (deck, v) in &rec.probes {
-        out.probes.insert(deck.clone(), json::to_canonical(v).unwrap_or_else(|e| format!("<unrenderable: {}>", e)));
+        out.probes.insert(
+            deck.clone(),
+            json::to_canonical(v).unwrap_or_else(|e| format!("<unrenderable: {}>", e)),
+        );
     }
     out
 }
@@ -789,11 +850,20 @@ mod tests {
             mask_text(m, &ctx()),
             "could not find function \"no_such_symbol\" in file \"<LIBDIR>/pg_trgm.dylib\""
         );
-        assert_eq!(mask_text("in \"/tmp/u186-audit/dfmgr-verify/data/base/5\"", &ctx()), "in \"<PGDATA>/base/5\"");
+        assert_eq!(
+            mask_text("in \"/tmp/u186-audit/dfmgr-verify/data/base/5\"", &ctx()),
+            "in \"<PGDATA>/base/5\""
+        );
         // A prefix that is not at a path boundary is left alone.
-        assert_eq!(mask_text("/tmp/u186-audit/dfmgr-verify/data2/x", &ctx()), "/tmp/u186-audit/dfmgr-verify/data2/x");
+        assert_eq!(
+            mask_text("/tmp/u186-audit/dfmgr-verify/data2/x", &ctx()),
+            "/tmp/u186-audit/dfmgr-verify/data2/x"
+        );
         // $libdir is the user's spelling, not a path: untouched.
-        assert_eq!(mask_text("in file \"$libdir/pg_trgm\"", &ctx()), "in file \"$libdir/pg_trgm\"");
+        assert_eq!(
+            mask_text("in file \"$libdir/pg_trgm\"", &ctx()),
+            "in file \"$libdir/pg_trgm\""
+        );
         assert_eq!(foreign_dlsuffix("pg_trgm.so", &ctx()), Some(".so"));
         assert_eq!(foreign_dlsuffix("pg_trgm.dylib", &ctx()), None);
     }
@@ -801,16 +871,38 @@ mod tests {
     #[test]
     fn pids_lsns_durations_tokenized() {
         let c = CanonCtx::default();
-        assert_eq!(mask_text("terminating connection due to administrator command (PID 41233)", &c),
-            "terminating connection due to administrator command (PID <pid>)");
-        assert_eq!(mask_text("process 4121 acquired ShareLock on transaction 733", &c),
-            "process <pid> acquired ShareLock on transaction 733");
-        assert_eq!(mask_text("pg_backup_start returned 0/16000028", &c), "pg_backup_start returned <lsn>");
-        assert_eq!(mask_text("session time: 0:00:00.001 user=postgres", &c), "session time: <dur> user=postgres");
-        assert_eq!(mask_text("duration: 12.345 ms  statement: SELECT 1", &c), "duration: <dur>  statement: SELECT 1");
-        assert_eq!(mask_text("avg read rate: 0.000 MB/s, elapsed: 0.00 s", &c), "avg read rate: <dur>, elapsed: <dur>");
+        assert_eq!(
+            mask_text(
+                "terminating connection due to administrator command (PID 41233)",
+                &c
+            ),
+            "terminating connection due to administrator command (PID <pid>)"
+        );
+        assert_eq!(
+            mask_text("process 4121 acquired ShareLock on transaction 733", &c),
+            "process <pid> acquired ShareLock on transaction 733"
+        );
+        assert_eq!(
+            mask_text("pg_backup_start returned 0/16000028", &c),
+            "pg_backup_start returned <lsn>"
+        );
+        assert_eq!(
+            mask_text("session time: 0:00:00.001 user=postgres", &c),
+            "session time: <dur> user=postgres"
+        );
+        assert_eq!(
+            mask_text("duration: 12.345 ms  statement: SELECT 1", &c),
+            "duration: <dur>  statement: SELECT 1"
+        );
+        assert_eq!(
+            mask_text("avg read rate: 0.000 MB/s, elapsed: 0.00 s", &c),
+            "avg read rate: <dur>, elapsed: <dur>"
+        );
         // Row counts are not durations and not pids.
-        assert_eq!(mask_text("scanned 1 of 1 pages, containing 10 live rows", &c), "scanned 1 of 1 pages, containing 10 live rows");
+        assert_eq!(
+            mask_text("scanned 1 of 1 pages, containing 10 live rows", &c),
+            "scanned 1 of 1 pages, containing 10 live rows"
+        );
         // A fraction is not an LSN (second half must be 8 hex digits).
         assert_eq!(mask_text("ratio 1/2", &c), "ratio 1/2");
     }
@@ -819,16 +911,34 @@ mod tests {
     fn oid_pair_masks_only_same_template_user_range() {
         // Same template, both user range: masked.
         assert_eq!(
-            oid_pair("type with OID 16401 does not exist", "type with OID 16455 does not exist"),
-            ("type with OID <oid> does not exist".to_string(), "type with OID <oid> does not exist".to_string())
+            oid_pair(
+                "type with OID 16401 does not exist",
+                "type with OID 16455 does not exist"
+            ),
+            (
+                "type with OID <oid> does not exist".to_string(),
+                "type with OID <oid> does not exist".to_string()
+            )
         );
         // Builtin oid on one side: kept (a real divergence).
-        let (a, b) = oid_pair("type with OID 23 does not exist", "type with OID 16455 does not exist");
+        let (a, b) = oid_pair(
+            "type with OID 23 does not exist",
+            "type with OID 16455 does not exist",
+        );
         assert_ne!(a, b);
         // Different templates: nothing masked (catalog_namespace-2 shape).
-        let (a, b) = oid_pair("improper qualified name (too many dotted names): a.b.c.d.+", "improper qualified name (too many dotted names): a.b.c.d");
-        assert_eq!(a, "improper qualified name (too many dotted names): a.b.c.d.+");
-        assert_eq!(b, "improper qualified name (too many dotted names): a.b.c.d");
+        let (a, b) = oid_pair(
+            "improper qualified name (too many dotted names): a.b.c.d.+",
+            "improper qualified name (too many dotted names): a.b.c.d",
+        );
+        assert_eq!(
+            a,
+            "improper qualified name (too many dotted names): a.b.c.d.+"
+        );
+        assert_eq!(
+            b,
+            "improper qualified name (too many dotted names): a.b.c.d"
+        );
         // Small counts at the same position stay compared.
         let (a, b) = oid_pair("10 live rows", "9 live rows");
         assert_eq!((a.as_str(), b.as_str()), ("10 live rows", "9 live rows"));
@@ -844,15 +954,24 @@ mod tests {
         assert_eq!(ma, "<ts> PDT [<pid>] LOG:  disconnection: session time: <dur> user=postgres database=postgres host=[local]");
         assert_eq!(mb, "<ts> GMT [<pid>] LOG:  disconnection: session time: <dur> user=postgres database=postgres host=[local]");
         assert_ne!(ma, mb, "the zone token survives the mask");
-        assert_eq!(zone_of("2026-09-02 08:25:09.562 PDT").as_deref(), Some("PDT"));
+        assert_eq!(
+            zone_of("2026-09-02 08:25:09.562 PDT").as_deref(),
+            Some("PDT")
+        );
         assert_eq!(zone_of("2026-09-02 08:25:09 +02"), Some("+02".to_string()));
         assert_eq!(zone_of("nope"), None);
     }
 
     #[test]
     fn message_templates() {
-        assert_eq!(message_template("analyzing \"public.t\""), "analyzing \"%s\"");
-        assert_eq!(message_template("relation \"t\" does not exist at character 15"), "relation \"%s\" does not exist at character %d");
+        assert_eq!(
+            message_template("analyzing \"public.t\""),
+            "analyzing \"%s\""
+        );
+        assert_eq!(
+            message_template("relation \"t\" does not exist at character 15"),
+            "relation \"%s\" does not exist at character %d"
+        );
         assert_eq!(message_template("no digits"), "no digits");
     }
 
@@ -868,8 +987,14 @@ mod tests {
         let t = ErrTuple::from_fields(&f, &ctx());
         assert!(t.get('F').is_none() && t.get('L').is_none());
         assert_eq!(t.get('R'), Some("lookup_external_function"));
-        assert_eq!(t.get('M'), Some("could not find function \"x\" in file \"<LIBDIR>/pg_trgm.dylib\""));
-        assert_eq!(t.value("CM").unwrap(), format!("42883: {}", t.get('M').unwrap()));
+        assert_eq!(
+            t.get('M'),
+            Some("could not find function \"x\" in file \"<LIBDIR>/pg_trgm.dylib\"")
+        );
+        assert_eq!(
+            t.value("CM").unwrap(),
+            format!("42883: {}", t.get('M').unwrap())
+        );
         assert_eq!(t.value("MM"), None);
     }
 
@@ -885,13 +1010,29 @@ mod tests {
             session: "s1".into(),
             side: Side::A,
             wire: vec![
-                WireMsg::RowDescription(vec![ColDesc { name: b("a"), tableoid: 0, attnum: 0, typoid: 23, typlen: 4, typmod: -1, fmt: 0 }]),
+                WireMsg::RowDescription(vec![ColDesc {
+                    name: b("a"),
+                    tableoid: 0,
+                    attnum: 0,
+                    typoid: 23,
+                    typlen: 4,
+                    typmod: -1,
+                    fmt: 0,
+                }]),
                 WireMsg::DataRow(vec![Some(b("1"))]),
                 WireMsg::DataRow(vec![None]),
                 WireMsg::CommandComplete(b("SELECT 2")),
                 WireMsg::CommandComplete(b("BEGIN")),
-                WireMsg::NotificationResponse { pid: 5, channel: b("ch"), payload: b("p") },
-                WireMsg::NotificationResponse { pid: 6, channel: b("ch"), payload: b("p") },
+                WireMsg::NotificationResponse {
+                    pid: 5,
+                    channel: b("ch"),
+                    payload: b("p"),
+                },
+                WireMsg::NotificationResponse {
+                    pid: 6,
+                    channel: b("ch"),
+                    payload: b("p"),
+                },
                 WireMsg::ReadyForQuery { status: 'I' },
             ],
             log: vec![],
@@ -910,8 +1051,15 @@ mod tests {
         assert_eq!(cs.groups[0].tag.as_deref(), Some("SELECT 2"));
         assert_eq!(cs.groups[1].tag.as_deref(), Some("BEGIN"));
         assert!(cs.groups[1].columns.is_none());
-        assert_eq!(cs.notify.get(&("ch".to_string(), "p".to_string())), Some(&2));
+        assert_eq!(
+            cs.notify.get(&("ch".to_string(), "p".to_string())),
+            Some(&2)
+        );
         assert_eq!(cs.shape, "TDDCCAAZ");
-        assert_eq!(cs.groups[0].explain_lines(), None, "a NULL cell is not an EXPLAIN line");
+        assert_eq!(
+            cs.groups[0].explain_lines(),
+            None,
+            "a NULL cell is not an EXPLAIN line"
+        );
     }
 }

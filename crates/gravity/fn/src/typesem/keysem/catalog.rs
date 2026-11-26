@@ -10,7 +10,11 @@ type Oid = u32;
 /// for the default's).
 pub fn index_family(opfamily: Oid, opcintype: Oid, atttypid: Option<Oid>) -> u32 {
     let default = |t: Oid| default_family(t) == Some(opfamily);
-    if default(opcintype) || atttypid.is_some_and(default) { 0 } else { opfamily }
+    if default(opcintype) || atttypid.is_some_and(default) {
+        0
+    } else {
+        opfamily
+    }
 }
 
 /// OID-07: whether operator `opno` is a btree equality of any family (`get_mergejoin_opfamilies`: strategy 3 in some btree
@@ -22,7 +26,9 @@ pub fn op_eq(mcx: mcx::Mcx<'_>, opno: Oid) -> bool {
 /// Record-image order: type `typid`'s default btree family (the type cache's `btree_opf`, GetDefaultOpClass's family);
 /// `None` when it has none or the read fails.
 pub fn default_family(typid: Oid) -> Option<Oid> {
-    let f = typcache::lookup_type_cache(typid, typcache::TYPECACHE_BTREE_OPFAMILY).ok()?.btree_opf();
+    let f = typcache::lookup_type_cache(typid, typcache::TYPECACHE_BTREE_OPFAMILY)
+        .ok()?
+        .btree_opf();
     (f != 0).then_some(f)
 }
 
@@ -30,5 +36,10 @@ pub fn default_family(typid: Oid) -> Option<Oid> {
 /// its base type, any other type's itself); none when a read fails.
 pub fn type_row(typid: Oid) -> Option<(i16, bool, u8, Oid)> {
     let (typlen, byval) = lsyscache::typ::get_typlenbyval(typid).ok()?;
-    Some((typlen, byval, lsyscache::typ::get_typtype(typid).ok()? as u8, lsyscache::typ::getBaseType(typid).ok()?))
+    Some((
+        typlen,
+        byval,
+        lsyscache::typ::get_typtype(typid).ok()? as u8,
+        lsyscache::typ::getBaseType(typid).ok()?,
+    ))
 }

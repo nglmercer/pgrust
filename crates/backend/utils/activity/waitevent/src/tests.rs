@@ -35,14 +35,29 @@ fn report_wait_start_writes_registered_slot_and_end_clears() {
 fn wait_event_type_decodes_classes() {
     use super::*;
     assert_eq!(pgstat_get_wait_event_type(0), None);
-    assert_eq!(pgstat_get_wait_event_type(PG_WAIT_LWLOCK | 4), Some("LWLock"));
+    assert_eq!(
+        pgstat_get_wait_event_type(PG_WAIT_LWLOCK | 4),
+        Some("LWLock")
+    );
     assert_eq!(pgstat_get_wait_event_type(PG_WAIT_LOCK), Some("Lock"));
-    assert_eq!(pgstat_get_wait_event_type(PG_WAIT_BUFFERPIN), Some("BufferPin"));
-    assert_eq!(pgstat_get_wait_event_type(PG_WAIT_ACTIVITY + 17), Some("Activity"));
+    assert_eq!(
+        pgstat_get_wait_event_type(PG_WAIT_BUFFERPIN),
+        Some("BufferPin")
+    );
+    assert_eq!(
+        pgstat_get_wait_event_type(PG_WAIT_ACTIVITY + 17),
+        Some("Activity")
+    );
     assert_eq!(pgstat_get_wait_event_type(PG_WAIT_CLIENT), Some("Client"));
-    assert_eq!(pgstat_get_wait_event_type(PG_WAIT_EXTENSION), Some("Extension"));
+    assert_eq!(
+        pgstat_get_wait_event_type(PG_WAIT_EXTENSION),
+        Some("Extension")
+    );
     assert_eq!(pgstat_get_wait_event_type(PG_WAIT_IPC + 8), Some("IPC"));
-    assert_eq!(pgstat_get_wait_event_type(PG_WAIT_TIMEOUT + 1), Some("Timeout"));
+    assert_eq!(
+        pgstat_get_wait_event_type(PG_WAIT_TIMEOUT + 1),
+        Some("Timeout")
+    );
     assert_eq!(pgstat_get_wait_event_type(PG_WAIT_IO + 50), Some("IO"));
     assert_eq!(
         pgstat_get_wait_event_type(PG_WAIT_INJECTIONPOINT),
@@ -54,47 +69,149 @@ fn wait_event_type_decodes_classes() {
 fn wait_event_decodes_known_constants() {
     use super::*;
     assert_eq!(pgstat_get_wait_event(0).unwrap(), None);
-    assert_eq!(pgstat_get_wait_event(PG_WAIT_ACTIVITY).unwrap(), Some("ArchiverMain"));
-    assert_eq!(pgstat_get_wait_event(PG_WAIT_ACTIVITY + 1).unwrap(), Some("AutovacuumMain"));
-    assert_eq!(pgstat_get_wait_event(PG_WAIT_ACTIVITY + 2).unwrap(), Some("BgwriterHibernate"));
-    assert_eq!(pgstat_get_wait_event(PG_WAIT_ACTIVITY + 3).unwrap(), Some("BgwriterMain"));
-    assert_eq!(pgstat_get_wait_event(PG_WAIT_ACTIVITY + 4).unwrap(), Some("CheckpointerMain"));
-    assert_eq!(pgstat_get_wait_event(PG_WAIT_ACTIVITY + 5).unwrap(), Some("CheckpointerShutdown"));
-    assert_eq!(pgstat_get_wait_event(PG_WAIT_ACTIVITY + 17).unwrap(), Some("WalWriterMain"));
-    assert_eq!(pgstat_get_wait_event(PG_WAIT_CLIENT).unwrap(), Some("ClientRead"));
-    assert_eq!(pgstat_get_wait_event(PG_WAIT_CLIENT + 1).unwrap(), Some("ClientWrite"));
-    assert_eq!(pgstat_get_wait_event(PG_WAIT_IPC + 8).unwrap(), Some("BufferIo"));
-    assert_eq!(pgstat_get_wait_event(PG_WAIT_IPC + 11).unwrap(), Some("CheckpointDone"));
-    assert_eq!(pgstat_get_wait_event(PG_WAIT_IPC + 12).unwrap(), Some("CheckpointStart"));
-    assert_eq!(pgstat_get_wait_event(PG_WAIT_IPC + 56).unwrap(), Some("XactGroupUpdate"));
+    assert_eq!(
+        pgstat_get_wait_event(PG_WAIT_ACTIVITY).unwrap(),
+        Some("ArchiverMain")
+    );
+    assert_eq!(
+        pgstat_get_wait_event(PG_WAIT_ACTIVITY + 1).unwrap(),
+        Some("AutovacuumMain")
+    );
+    assert_eq!(
+        pgstat_get_wait_event(PG_WAIT_ACTIVITY + 2).unwrap(),
+        Some("BgwriterHibernate")
+    );
+    assert_eq!(
+        pgstat_get_wait_event(PG_WAIT_ACTIVITY + 3).unwrap(),
+        Some("BgwriterMain")
+    );
+    assert_eq!(
+        pgstat_get_wait_event(PG_WAIT_ACTIVITY + 4).unwrap(),
+        Some("CheckpointerMain")
+    );
+    assert_eq!(
+        pgstat_get_wait_event(PG_WAIT_ACTIVITY + 5).unwrap(),
+        Some("CheckpointerShutdown")
+    );
+    assert_eq!(
+        pgstat_get_wait_event(PG_WAIT_ACTIVITY + 17).unwrap(),
+        Some("WalWriterMain")
+    );
+    assert_eq!(
+        pgstat_get_wait_event(PG_WAIT_CLIENT).unwrap(),
+        Some("ClientRead")
+    );
+    assert_eq!(
+        pgstat_get_wait_event(PG_WAIT_CLIENT + 1).unwrap(),
+        Some("ClientWrite")
+    );
+    assert_eq!(
+        pgstat_get_wait_event(PG_WAIT_IPC + 8).unwrap(),
+        Some("BufferIo")
+    );
+    assert_eq!(
+        pgstat_get_wait_event(PG_WAIT_IPC + 11).unwrap(),
+        Some("CheckpointDone")
+    );
+    assert_eq!(
+        pgstat_get_wait_event(PG_WAIT_IPC + 12).unwrap(),
+        Some("CheckpointStart")
+    );
+    assert_eq!(
+        pgstat_get_wait_event(PG_WAIT_IPC + 56).unwrap(),
+        Some("XactGroupUpdate")
+    );
     // upstream 33101632235a (18.6): the ABI_compatibility row.
-    assert_eq!(pgstat_get_wait_event(PG_WAIT_IPC + 57).unwrap(), Some("WalReceiverUpstreamCatchup"));
-    assert_eq!(pgstat_get_wait_event(PG_WAIT_IPC + 58).unwrap(), Some("FlushPipeline"));
-    assert_eq!(pgstat_get_wait_event(PG_WAIT_TIMEOUT + 1).unwrap(), Some("CheckpointWriteDelay"));
-    assert_eq!(pgstat_get_wait_event(PG_WAIT_TIMEOUT + 9).unwrap(), Some("WalSummarizerError"));
-    assert_eq!(pgstat_get_wait_event(PG_WAIT_IO + 1).unwrap(), Some("AioIoUringExecution"));
-    assert_eq!(pgstat_get_wait_event(PG_WAIT_IO + 2).unwrap(), Some("AioIoUringSubmit"));
-    assert_eq!(pgstat_get_wait_event(PG_WAIT_IO + 7).unwrap(), Some("BuffileTruncate"));
-    assert_eq!(pgstat_get_wait_event(PG_WAIT_IO + 8).unwrap(), Some("BuffileWrite"));
-    assert_eq!(pgstat_get_wait_event(PG_WAIT_IO + 40).unwrap(), Some("RelationMapRead"));
-    assert_eq!(pgstat_get_wait_event(PG_WAIT_IO + 42).unwrap(), Some("RelationMapWrite"));
-    assert_eq!(pgstat_get_wait_event(PG_WAIT_IO + 50).unwrap(), Some("SlruFlushSync"));
-    assert_eq!(pgstat_get_wait_event(PG_WAIT_IO + 53).unwrap(), Some("SlruWrite"));
-    assert_eq!(pgstat_get_wait_event(PG_WAIT_IO + 80).unwrap(), Some("WalWrite"));
-    assert_eq!(pgstat_get_wait_event(PG_WAIT_BUFFERPIN).unwrap(), Some("BufferPin"));
-    assert_eq!(pgstat_get_wait_event(PG_WAIT_EXTENSION).unwrap(), Some("Extension"));
+    assert_eq!(
+        pgstat_get_wait_event(PG_WAIT_IPC + 57).unwrap(),
+        Some("WalReceiverUpstreamCatchup")
+    );
+    assert_eq!(
+        pgstat_get_wait_event(PG_WAIT_IPC + 58).unwrap(),
+        Some("FlushPipeline")
+    );
+    assert_eq!(
+        pgstat_get_wait_event(PG_WAIT_TIMEOUT + 1).unwrap(),
+        Some("CheckpointWriteDelay")
+    );
+    assert_eq!(
+        pgstat_get_wait_event(PG_WAIT_TIMEOUT + 9).unwrap(),
+        Some("WalSummarizerError")
+    );
+    assert_eq!(
+        pgstat_get_wait_event(PG_WAIT_IO + 1).unwrap(),
+        Some("AioIoUringExecution")
+    );
+    assert_eq!(
+        pgstat_get_wait_event(PG_WAIT_IO + 2).unwrap(),
+        Some("AioIoUringSubmit")
+    );
+    assert_eq!(
+        pgstat_get_wait_event(PG_WAIT_IO + 7).unwrap(),
+        Some("BuffileTruncate")
+    );
+    assert_eq!(
+        pgstat_get_wait_event(PG_WAIT_IO + 8).unwrap(),
+        Some("BuffileWrite")
+    );
+    assert_eq!(
+        pgstat_get_wait_event(PG_WAIT_IO + 40).unwrap(),
+        Some("RelationMapRead")
+    );
+    assert_eq!(
+        pgstat_get_wait_event(PG_WAIT_IO + 42).unwrap(),
+        Some("RelationMapWrite")
+    );
+    assert_eq!(
+        pgstat_get_wait_event(PG_WAIT_IO + 50).unwrap(),
+        Some("SlruFlushSync")
+    );
+    assert_eq!(
+        pgstat_get_wait_event(PG_WAIT_IO + 53).unwrap(),
+        Some("SlruWrite")
+    );
+    assert_eq!(
+        pgstat_get_wait_event(PG_WAIT_IO + 80).unwrap(),
+        Some("WalWrite")
+    );
+    assert_eq!(
+        pgstat_get_wait_event(PG_WAIT_BUFFERPIN).unwrap(),
+        Some("BufferPin")
+    );
+    assert_eq!(
+        pgstat_get_wait_event(PG_WAIT_EXTENSION).unwrap(),
+        Some("Extension")
+    );
 }
 
 #[test]
 fn fd_wait_event_codes_decode_to_their_names() {
     use super::pgstat_get_wait_event;
     use fd::wait_event as w;
-    assert_eq!(pgstat_get_wait_event(w::WAIT_EVENT_BUFFILE_READ).unwrap(), Some("BuffileRead"));
-    assert_eq!(pgstat_get_wait_event(w::WAIT_EVENT_BUFFILE_TRUNCATE).unwrap(), Some("BuffileTruncate"));
-    assert_eq!(pgstat_get_wait_event(w::WAIT_EVENT_BUFFILE_WRITE).unwrap(), Some("BuffileWrite"));
-    assert_eq!(pgstat_get_wait_event(w::WAIT_EVENT_COPY_FILE_COPY).unwrap(), Some("CopyFileCopy"));
-    assert_eq!(pgstat_get_wait_event(w::WAIT_EVENT_COPY_FILE_READ).unwrap(), Some("CopyFileRead"));
-    assert_eq!(pgstat_get_wait_event(w::WAIT_EVENT_COPY_FILE_WRITE).unwrap(), Some("CopyFileWrite"));
+    assert_eq!(
+        pgstat_get_wait_event(w::WAIT_EVENT_BUFFILE_READ).unwrap(),
+        Some("BuffileRead")
+    );
+    assert_eq!(
+        pgstat_get_wait_event(w::WAIT_EVENT_BUFFILE_TRUNCATE).unwrap(),
+        Some("BuffileTruncate")
+    );
+    assert_eq!(
+        pgstat_get_wait_event(w::WAIT_EVENT_BUFFILE_WRITE).unwrap(),
+        Some("BuffileWrite")
+    );
+    assert_eq!(
+        pgstat_get_wait_event(w::WAIT_EVENT_COPY_FILE_COPY).unwrap(),
+        Some("CopyFileCopy")
+    );
+    assert_eq!(
+        pgstat_get_wait_event(w::WAIT_EVENT_COPY_FILE_READ).unwrap(),
+        Some("CopyFileRead")
+    );
+    assert_eq!(
+        pgstat_get_wait_event(w::WAIT_EVENT_COPY_FILE_WRITE).unwrap(),
+        Some("CopyFileWrite")
+    );
 }
 
 // C-parity fallbacks (wait_event.c + generated pgstat_wait_event.c): C never
@@ -114,7 +231,10 @@ fn wait_event_unknown_inputs_take_c_defaults() {
         Some("unknown wait event")
     );
     // Unknown class.
-    assert_eq!(super::pgstat_get_wait_event(0x0C00_0000).unwrap(), Some("unknown wait event"));
+    assert_eq!(
+        super::pgstat_get_wait_event(0x0C00_0000).unwrap(),
+        Some("unknown wait event")
+    );
     assert_eq!(super::pgstat_get_wait_event_type(0x0C00_0000), Some("???"));
     // Lock arm ignores bits 16-23 (C masks eventId before the lmgr lookup)
     // and returns "???" past LOCKTAG_LAST_TYPE.
@@ -122,7 +242,10 @@ fn wait_event_unknown_inputs_take_c_defaults() {
         super::pgstat_get_wait_event(super::PG_WAIT_LOCK | 0x0001_0004).unwrap(),
         Some("tuple")
     );
-    assert_eq!(super::pgstat_get_wait_event(super::PG_WAIT_LOCK + 12).unwrap(), Some("???"));
+    assert_eq!(
+        super::pgstat_get_wait_event(super::PG_WAIT_LOCK + 12).unwrap(),
+        Some("???")
+    );
 }
 
 // A single test: WAIT_EVENT_CUSTOM_LOCK is a real process-global LWLock
@@ -148,28 +271,48 @@ fn custom_wait_events_register_resolve_and_collide() {
         info.max_dsize = info.dsize;
         let size = hash_get_shared_size(&info, HASH_DIRSIZE);
         let (_, found) =
-            shmem::ShmemInitStruct("WaitEventCustom hash by wait event information", size)
-                .unwrap();
-        assert!(found, "the by-info table is not registered in the ShmemIndex");
+            shmem::ShmemInitStruct("WaitEventCustom hash by wait event information", size).unwrap();
+        assert!(
+            found,
+            "the by-info table is not registered in the ShmemIndex"
+        );
         let (_, found) = shmem::ShmemInitStruct("WaitEventCustom hash by name", size).unwrap();
-        assert!(found, "the by-name table is not registered in the ShmemIndex");
+        assert!(
+            found,
+            "the by-name table is not registered in the ShmemIndex"
+        );
         // wait_event.c:125-127: the allocation counter is a named struct too.
         let (_, found) = shmem::ShmemInitStruct("WaitEventCustomCounterData", 8).unwrap();
-        assert!(found, "WaitEventCustomCounterData is not registered in the ShmemIndex");
+        assert!(
+            found,
+            "WaitEventCustomCounterData is not registered in the ShmemIndex"
+        );
     }
 
     let ext = super::custom::WaitEventExtensionNew("my_ext_wait").unwrap();
     assert_eq!(ext & super::WAIT_EVENT_CLASS_MASK, super::PG_WAIT_EXTENSION);
-    assert_eq!(super::custom::GetWaitEventCustomIdentifier(ext).unwrap(), "my_ext_wait");
-    assert_eq!(super::pgstat_get_wait_event(ext).unwrap(), Some("my_ext_wait"));
+    assert_eq!(
+        super::custom::GetWaitEventCustomIdentifier(ext).unwrap(),
+        "my_ext_wait"
+    );
+    assert_eq!(
+        super::pgstat_get_wait_event(ext).unwrap(),
+        Some("my_ext_wait")
+    );
 
     // Re-registering the same name returns the same info, not a new id.
     let ext2 = super::custom::WaitEventExtensionNew("my_ext_wait").unwrap();
     assert_eq!(ext, ext2);
 
     let inj = super::custom::WaitEventInjectionPointNew("my_inj_point").unwrap();
-    assert_eq!(inj & super::WAIT_EVENT_CLASS_MASK, super::PG_WAIT_INJECTIONPOINT);
-    assert_eq!(super::custom::GetWaitEventCustomIdentifier(inj).unwrap(), "my_inj_point");
+    assert_eq!(
+        inj & super::WAIT_EVENT_CLASS_MASK,
+        super::PG_WAIT_INJECTIONPOINT
+    );
+    assert_eq!(
+        super::custom::GetWaitEventCustomIdentifier(inj).unwrap(),
+        "my_inj_point"
+    );
 
     let ext_names = super::custom::GetWaitEventCustomNames(super::PG_WAIT_EXTENSION);
     assert!(ext_names.iter().any(|n| n == "my_ext_wait"));
@@ -179,7 +322,10 @@ fn custom_wait_events_register_resolve_and_collide() {
     // audit-18.6 b091: an unregistered custom id is C's elog(ERROR)
     // "could not find custom name for wait event information %u"
     // (wait_event.c:293), a recoverable error — never a panic.
-    for bogus in [super::PG_WAIT_EXTENSION | 0x7f, super::PG_WAIT_INJECTIONPOINT | 0x7f] {
+    for bogus in [
+        super::PG_WAIT_EXTENSION | 0x7f,
+        super::PG_WAIT_INJECTIONPOINT | 0x7f,
+    ] {
         let r = std::panic::catch_unwind(|| super::pgstat_get_wait_event(bogus));
         let err = r
             .unwrap_or_else(|_| panic!("unregistered custom wait event {bogus:#x} panicked"))
@@ -201,11 +347,15 @@ fn custom_wait_events_register_resolve_and_collide() {
     for name in ["DblinkConnect", "DblinkGetResult", "DblinkGetConnect"] {
         super::custom::WaitEventExtensionNew(name).unwrap();
     }
-    let dblink_order: Vec<String> = super::custom::GetWaitEventCustomNames(super::PG_WAIT_EXTENSION)
-        .into_iter()
-        .filter(|n| n.starts_with("Dblink"))
-        .collect();
-    assert_eq!(dblink_order, ["DblinkConnect", "DblinkGetResult", "DblinkGetConnect"]);
+    let dblink_order: Vec<String> =
+        super::custom::GetWaitEventCustomNames(super::PG_WAIT_EXTENSION)
+            .into_iter()
+            .filter(|n| n.starts_with("Dblink"))
+            .collect();
+    assert_eq!(
+        dblink_order,
+        ["DblinkConnect", "DblinkGetResult", "DblinkGetConnect"]
+    );
 
     // Registration must work past C's init size of 16 (grows to 128 in C).
     for i in 0..30 {

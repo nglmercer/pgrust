@@ -108,7 +108,10 @@ static WAIT_TRACE: std::sync::Mutex<Vec<(std::thread::ThreadId, u32)>> =
 static WAIT_SEAMS: std::sync::Once = std::sync::Once::new();
 
 fn record_wait_start(info: u32) {
-    WAIT_TRACE.lock().unwrap().push((std::thread::current().id(), info));
+    WAIT_TRACE
+        .lock()
+        .unwrap()
+        .push((std::thread::current().id(), info));
 }
 
 fn record_wait_end() {
@@ -124,7 +127,13 @@ fn install_wait_recorder() {
 
 fn my_wait_trace() -> Vec<u32> {
     let me = std::thread::current().id();
-    WAIT_TRACE.lock().unwrap().iter().filter(|(t, _)| *t == me).map(|(_, e)| *e).collect()
+    WAIT_TRACE
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(t, _)| *t == me)
+        .map(|(_, e)| *e)
+        .collect()
 }
 
 #[test]
@@ -139,12 +148,23 @@ fn update_controlfile_reports_control_file_wait_events() {
     update_controlfile(datadir, &mut cf, true).unwrap();
     assert_eq!(
         my_wait_trace(),
-        vec![WAIT_EVENT_CONTROL_FILE_WRITE_UPDATE, 0, WAIT_EVENT_CONTROL_FILE_SYNC_UPDATE, 0]
+        vec![
+            WAIT_EVENT_CONTROL_FILE_WRITE_UPDATE,
+            0,
+            WAIT_EVENT_CONTROL_FILE_SYNC_UPDATE,
+            0
+        ]
     );
 
-    WAIT_TRACE.lock().unwrap().retain(|(t, _)| *t != std::thread::current().id());
+    WAIT_TRACE
+        .lock()
+        .unwrap()
+        .retain(|(t, _)| *t != std::thread::current().id());
     update_controlfile(datadir, &mut cf, false).unwrap();
-    assert_eq!(my_wait_trace(), vec![WAIT_EVENT_CONTROL_FILE_WRITE_UPDATE, 0]);
+    assert_eq!(
+        my_wait_trace(),
+        vec![WAIT_EVENT_CONTROL_FILE_WRITE_UPDATE, 0]
+    );
 
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -154,7 +174,10 @@ static FILE_TRACE: std::sync::Mutex<Vec<(std::thread::ThreadId, &'static str)>> 
 static FILE_SEAMS: std::sync::Once = std::sync::Once::new();
 
 fn record_file(what: &'static str) {
-    FILE_TRACE.lock().unwrap().push((std::thread::current().id(), what));
+    FILE_TRACE
+        .lock()
+        .unwrap()
+        .push((std::thread::current().id(), what));
 }
 
 fn raw_open(name: &str, flags: i32) -> i32 {
@@ -179,7 +202,13 @@ fn install_file_recorder() {
 
 fn my_file_trace() -> Vec<&'static str> {
     let me = std::thread::current().id();
-    FILE_TRACE.lock().unwrap().iter().filter(|(t, _)| *t == me).map(|(_, w)| *w).collect()
+    FILE_TRACE
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(t, _)| *t == me)
+        .map(|(_, w)| *w)
+        .collect()
 }
 
 #[test]
@@ -195,12 +224,20 @@ fn backend_arm_opens_and_syncs_through_fd_seams() {
     assert_eq!(my_file_trace(), vec!["basic_open_file"]);
 
     update_controlfile(datadir, &mut cf, true).unwrap();
-    assert_eq!(my_file_trace(), vec!["basic_open_file", "basic_open_file", "pg_fsync"]);
+    assert_eq!(
+        my_file_trace(),
+        vec!["basic_open_file", "basic_open_file", "pg_fsync"]
+    );
 
     update_controlfile(datadir, &mut cf, false).unwrap();
     assert_eq!(
         my_file_trace(),
-        vec!["basic_open_file", "basic_open_file", "pg_fsync", "basic_open_file"]
+        vec![
+            "basic_open_file",
+            "basic_open_file",
+            "pg_fsync",
+            "basic_open_file"
+        ]
     );
     std::fs::remove_dir_all(&dir).unwrap();
 }

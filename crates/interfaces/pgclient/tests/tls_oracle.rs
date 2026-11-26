@@ -24,7 +24,7 @@ const QUERY: &str = "select ssl::text from pg_stat_ssl where pid = pg_backend_pi
 fn oracle_bin() -> Option<PathBuf> {
     let mut cands: Vec<PathBuf> = ["PGRUST_C_ORACLE", "PGINSTALL", "PG_BINDIR"]
         .iter()
-        .filter_map( std::env::var_os)
+        .filter_map(std::env::var_os)
         .map(PathBuf::from)
         .collect();
     if let Some(h) = std::env::var_os("HOME") {
@@ -32,7 +32,9 @@ fn oracle_bin() -> Option<PathBuf> {
     }
     cands.push("/usr/lib/postgresql/18/bin".into());
     cands.push("/opt/homebrew/opt/postgresql@18/bin".into());
-    cands.into_iter().find(|d| d.join("initdb").is_file() && d.join("psql").is_file())
+    cands
+        .into_iter()
+        .find(|d| d.join("initdb").is_file() && d.join("psql").is_file())
 }
 
 fn keypair() -> PKey<Private> {
@@ -62,7 +64,8 @@ fn cert(
     let mut b = X509::builder().unwrap();
     b.set_version(2).unwrap();
     let serial = BigNum::from_u32(rand_u32()).unwrap();
-    b.set_serial_number(&serial.to_asn1_integer().unwrap()).unwrap();
+    b.set_serial_number(&serial.to_asn1_integer().unwrap())
+        .unwrap();
     let subject = name(cn);
     b.set_subject_name(&subject).unwrap();
     match issuer {
@@ -74,9 +77,15 @@ fn cert(
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_secs() as i64;
-    b.set_not_before(&Asn1Time::from_unix(now - 3600).unwrap()).unwrap();
-    b.set_not_after(&Asn1Time::days_from_now(2).unwrap()).unwrap();
-    let bc = if ca { BasicConstraints::new().critical().ca().build().unwrap() } else { BasicConstraints::new().build().unwrap() };
+    b.set_not_before(&Asn1Time::from_unix(now - 3600).unwrap())
+        .unwrap();
+    b.set_not_after(&Asn1Time::days_from_now(2).unwrap())
+        .unwrap();
+    let bc = if ca {
+        BasicConstraints::new().critical().ca().build().unwrap()
+    } else {
+        BasicConstraints::new().build().unwrap()
+    };
     b.append_extension(bc).unwrap();
     if let Some(s) = sans {
         let mut san = SubjectAlternativeName::new();
@@ -91,7 +100,8 @@ fn cert(
         b.append_extension(ext).unwrap();
     }
     if client {
-        b.append_extension(ExtendedKeyUsage::new().client_auth().build().unwrap()).unwrap();
+        b.append_extension(ExtendedKeyUsage::new().client_auth().build().unwrap())
+            .unwrap();
     }
     let signer = issuer.map_or(key, |(_, k)| k);
     b.sign(signer, MessageDigest::sha256()).unwrap();
@@ -131,11 +141,21 @@ fn gen_certs(dir: &Path) -> Certs {
         &srv_key,
         Some((&ca, &ca_key)),
         false,
-        Some(Sans { dns: &["localhost"], ip: &["127.0.0.1"] }),
+        Some(Sans {
+            dns: &["localhost"],
+            ip: &["127.0.0.1"],
+        }),
         false,
     );
     let cli_key = keypair();
-    let cli = cert("certuser", &cli_key, Some((&ca, &ca_key)), false, None, true);
+    let cli = cert(
+        "certuser",
+        &cli_key,
+        Some((&ca, &ca_key)),
+        false,
+        None,
+        true,
+    );
     let c = Certs {
         ca: dir.join("ca.crt"),
         wrong_ca: dir.join("wrong-ca.crt"),
@@ -148,10 +168,22 @@ fn gen_certs(dir: &Path) -> Certs {
     write_mode(&c.ca, &ca.to_pem().unwrap(), 0o644);
     write_mode(&c.wrong_ca, &wrong.to_pem().unwrap(), 0o644);
     write_mode(&c.server_crt, &srv.to_pem().unwrap(), 0o644);
-    write_mode(&c.server_key, &srv_key.private_key_to_pem_pkcs8().unwrap(), 0o600);
+    write_mode(
+        &c.server_key,
+        &srv_key.private_key_to_pem_pkcs8().unwrap(),
+        0o600,
+    );
     write_mode(&c.client_crt, &cli.to_pem().unwrap(), 0o644);
-    write_mode(&c.client_key, &cli_key.private_key_to_pem_pkcs8().unwrap(), 0o600);
-    write_mode(&c.client_key_open, &cli_key.private_key_to_pem_pkcs8().unwrap(), 0o644);
+    write_mode(
+        &c.client_key,
+        &cli_key.private_key_to_pem_pkcs8().unwrap(),
+        0o600,
+    );
+    write_mode(
+        &c.client_key_open,
+        &cli_key.private_key_to_pem_pkcs8().unwrap(),
+        0o644,
+    );
     c
 }
 
@@ -172,7 +204,9 @@ fn server_user() -> Option<Option<u32>> {
         }
         (*pw).pw_uid
     };
-    let gosu = ["/usr/sbin/gosu", "/usr/local/bin/gosu", "/usr/bin/gosu"].iter().any(|g| Path::new(g).exists());
+    let gosu = ["/usr/sbin/gosu", "/usr/local/bin/gosu", "/usr/bin/gosu"]
+        .iter()
+        .any(|g| Path::new(g).exists());
     gosu.then_some(Some(uid))
 }
 
@@ -191,7 +225,12 @@ fn give_to(path: &Path, uid: Option<u32>) {
     if let Some(uid) = uid {
         let c = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
         // SAFETY: chown on a path this test created.
-        assert_eq!(unsafe { libc::chown(c.as_ptr(), uid, u32::MAX) }, 0, "chown {}", path.display());
+        assert_eq!(
+            unsafe { libc::chown(c.as_ptr(), uid, u32::MAX) },
+            0,
+            "chown {}",
+            path.display()
+        );
     }
 }
 
@@ -215,10 +254,20 @@ impl Drop for Server {
 }
 
 fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port()
 }
 
-fn start_server(bin: &Path, work: &Path, tag: &str, ssl: Option<&Certs>, uid: Option<u32>) -> (Server, u16) {
+fn start_server(
+    bin: &Path,
+    work: &Path,
+    tag: &str,
+    ssl: Option<&Certs>,
+    uid: Option<u32>,
+) -> (Server, u16) {
     let dd = work.join(format!("dd-{tag}"));
     let sock = work.join("sock");
     std::fs::create_dir_all(&sock).unwrap();
@@ -233,10 +282,23 @@ fn start_server(bin: &Path, work: &Path, tag: &str, ssl: Option<&Certs>, uid: Op
     let out = server_command(bin, "initdb", uid)
         .args(["-D"])
         .arg(&dd)
-        .args(["--no-locale", "-E", "UTF8", "-U", "postgres", "-A", "trust", "--no-sync"])
+        .args([
+            "--no-locale",
+            "-E",
+            "UTF8",
+            "-U",
+            "postgres",
+            "-A",
+            "trust",
+            "--no-sync",
+        ])
         .output()
         .unwrap();
-    assert!(out.status.success(), "initdb: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "initdb: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let hba = if ssl.is_some() {
         "local all all trust\n\
          hostssl all certuser 127.0.0.1/32 cert\n\
@@ -254,7 +316,14 @@ fn start_server(bin: &Path, work: &Path, tag: &str, ssl: Option<&Certs>, uid: Op
         .arg(&dd)
         .arg("-k")
         .arg(&sock)
-        .args(["-p", &port.to_string(), "-c", "listen_addresses=127.0.0.1", "-c", "fsync=off"])
+        .args([
+            "-p",
+            &port.to_string(),
+            "-c",
+            "listen_addresses=127.0.0.1",
+            "-c",
+            "fsync=off",
+        ])
         .args(["-c", "autovacuum=off", "-c", "log_min_messages=warning"]);
     match ssl {
         Some(c) => {
@@ -279,7 +348,15 @@ fn start_server(bin: &Path, work: &Path, tag: &str, ssl: Option<&Certs>, uid: Op
         let st = Command::new(bin.join("psql"))
             .arg("-h")
             .arg(&sock)
-            .args(["-p", &port.to_string(), "-U", "postgres", "-X", "-c", "select 1"])
+            .args([
+                "-p",
+                &port.to_string(),
+                "-U",
+                "postgres",
+                "-X",
+                "-c",
+                "select 1",
+            ])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
@@ -299,13 +376,25 @@ fn start_server(bin: &Path, work: &Path, tag: &str, ssl: Option<&Certs>, uid: Op
         let out = Command::new(bin.join("psql"))
             .arg("-h")
             .arg(&sock)
-            .args(["-p", &port.to_string(), "-U", "postgres", "-X", "-v", "ON_ERROR_STOP=1"])
+            .args([
+                "-p",
+                &port.to_string(),
+                "-U",
+                "postgres",
+                "-X",
+                "-v",
+                "ON_ERROR_STOP=1",
+            ])
             .args(["-c", "set password_encryption = 'scram-sha-256'"])
             .args(["-c", "create role scramuser login password 'secret'"])
             .args(["-c", "create role certuser login"])
             .output()
             .unwrap();
-        assert!(out.status.success(), "setup: {}", String::from_utf8_lossy(&out.stderr));
+        assert!(
+            out.status.success(),
+            "setup: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
     }
     (server, port)
 }
@@ -327,7 +416,10 @@ fn psql_cell(bin: &Path, home: &Path, conninfo: &str) -> Result<String, String> 
         Ok(String::from_utf8_lossy(&out.stdout).trim_end().to_string())
     } else {
         let err = String::from_utf8_lossy(&out.stderr).trim_end().to_string();
-        Err(err.strip_prefix("psql: error: ").unwrap_or(&err).to_string())
+        Err(err
+            .strip_prefix("psql: error: ")
+            .unwrap_or(&err)
+            .to_string())
     }
 }
 
@@ -349,10 +441,18 @@ fn setup_backend() {
 }
 
 fn pgclient_cell(conninfo: &str) -> Result<String, String> {
-    let we = pgclient::WaitEvents { connect: 0, receive: 0 };
+    let we = pgclient::WaitEvents {
+        connect: 0,
+        receive: 0,
+    };
     let mut conn = pgclient::connect_db(conninfo, None, we).unwrap()?;
     let r = conn.exec(QUERY).unwrap();
-    assert_eq!(r.status, pgclient::ExecStatus::TuplesOk, "{conninfo}: {}", r.err);
+    assert_eq!(
+        r.status,
+        pgclient::ExecStatus::TuplesOk,
+        "{conninfo}: {}",
+        r.err
+    );
     Ok(String::from_utf8(r.rows[0][0].clone().unwrap()).unwrap())
 }
 
@@ -379,10 +479,28 @@ fn tls_matrix_matches_libpq() {
     let home = work.join("home");
     std::fs::create_dir_all(&home).unwrap();
     for k in [
-        "PGSSLMODE", "PGSSLCERT", "PGSSLKEY", "PGSSLROOTCERT", "PGSSLCRL", "PGSSLCRLDIR", "PGSSLSNI",
-        "PGSSLNEGOTIATION", "PGSSLCERTMODE", "PGCHANNELBINDING", "PGREQUIRESSL", "PGPASSFILE",
-        "PGPASSWORD", "PGSERVICE", "PGSERVICEFILE", "PGHOST", "PGPORT", "PGUSER", "PGDATABASE",
-        "PGSSLMINPROTOCOLVERSION", "PGSSLMAXPROTOCOLVERSION", "PGGSSENCMODE",
+        "PGSSLMODE",
+        "PGSSLCERT",
+        "PGSSLKEY",
+        "PGSSLROOTCERT",
+        "PGSSLCRL",
+        "PGSSLCRLDIR",
+        "PGSSLSNI",
+        "PGSSLNEGOTIATION",
+        "PGSSLCERTMODE",
+        "PGCHANNELBINDING",
+        "PGREQUIRESSL",
+        "PGPASSFILE",
+        "PGPASSWORD",
+        "PGSERVICE",
+        "PGSERVICEFILE",
+        "PGHOST",
+        "PGPORT",
+        "PGUSER",
+        "PGDATABASE",
+        "PGSSLMINPROTOCOLVERSION",
+        "PGSSLMAXPROTOCOLVERSION",
+        "PGGSSENCMODE",
     ] {
         std::env::remove_var(k);
     }
@@ -440,17 +558,31 @@ fn tls_matrix_matches_libpq() {
         };
         transcript.push_str(&format!("[{name}] {}\n", shown(&oracle)));
         if ours != oracle {
-            failures.push(format!("[{name}] {conninfo}\n  libpq:    {}\n  pgclient: {}", shown(&oracle), shown(&ours)));
+            failures.push(format!(
+                "[{name}] {conninfo}\n  libpq:    {}\n  pgclient: {}",
+                shown(&oracle),
+                shown(&ours)
+            ));
         }
     }
     drop(ssl_server);
     drop(plain_server);
     eprintln!("{transcript}");
-    assert!(failures.is_empty(), "pgclient diverges from libpq:\n{}", failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "pgclient diverges from libpq:\n{}",
+        failures.join("\n")
+    );
     // The oracle must have exercised both arms, or the comparison is vacuous.
     assert!(transcript.contains("[require] OK t"), "{transcript}");
     assert!(transcript.contains("[scram plus] OK t"), "{transcript}");
-    assert!(transcript.contains("[verify-ca wrong CA] ERR"), "{transcript}");
-    assert!(transcript.contains("[plain server require] ERR"), "{transcript}");
+    assert!(
+        transcript.contains("[verify-ca wrong CA] ERR"),
+        "{transcript}"
+    );
+    assert!(
+        transcript.contains("[plain server require] ERR"),
+        "{transcript}"
+    );
     let _ = std::fs::remove_dir_all(&work);
 }

@@ -209,7 +209,10 @@ impl RuleKind {
     /// An unconditional DO INSTEAD on INSERT: no RETURNING may be used on
     /// the table afterwards, and INSERTs stop adding rows.
     fn insert_instead(self) -> bool {
-        matches!(self, RuleKind::InsertInsteadRedirect | RuleKind::InsertInsteadNothing)
+        matches!(
+            self,
+            RuleKind::InsertInsteadRedirect | RuleKind::InsertInsteadNothing
+        )
     }
 }
 
@@ -390,7 +393,10 @@ fn gen_fieldsel(g: &mut Gen) -> Vec<StmtKind> {
                  FROM {src} s0) s;",
                 n = name
             ),
-            format!("SELECT * FROM {} ORDER BY a NULLS LAST, b NULLS LAST;", name),
+            format!(
+                "SELECT * FROM {} ORDER BY a NULLS LAST, b NULLS LAST;",
+                name
+            ),
         ),
         // RECORD-returning function with AS (a, b) column definitions.
         "views:fs:recfn" => (
@@ -466,9 +472,15 @@ fn safe_source_tables(g: &Gen) -> Vec<String> {
         .filter(|t| {
             !t.name.starts_with("fz_ddl_")
                 && !t.name.starts_with("fz_part_")
-                && !g.views.views.iter().any(|v| v.temp && v.table.name == t.name)
+                && !g
+                    .views
+                    .views
+                    .iter()
+                    .any(|v| v.temp && v.table.name == t.name)
                 && t.pk.as_ref().is_some_and(|p| p.column == "pk")
-                && ["k_int", "k_text"].iter().all(|k| t.columns.iter().any(|c| &c.name == k))
+                && ["k_int", "k_text"]
+                    .iter()
+                    .all(|k| t.columns.iter().any(|c| &c.name == k))
         })
         .map(|t| t.name.clone())
         .collect()
@@ -505,9 +517,24 @@ fn gen_create_view(g: &mut Gen) -> Vec<StmtKind> {
     // Column set: the protected trio plus 1-3 palette columns. Everything
     // but pk is nullable (column-subset INSERTs must never 23502).
     let mut cols = vec![
-        Column { name: "pk".to_string(), ty: SqlType::Int4, nullable: false, ddl_type: None },
-        Column { name: "k_int".to_string(), ty: SqlType::Int4, nullable: true, ddl_type: None },
-        Column { name: "k_text".to_string(), ty: SqlType::Text, nullable: true, ddl_type: None },
+        Column {
+            name: "pk".to_string(),
+            ty: SqlType::Int4,
+            nullable: false,
+            ddl_type: None,
+        },
+        Column {
+            name: "k_int".to_string(),
+            ty: SqlType::Int4,
+            nullable: true,
+            ddl_type: None,
+        },
+        Column {
+            name: "k_text".to_string(),
+            ty: SqlType::Text,
+            nullable: true,
+            ddl_type: None,
+        },
     ];
     let mut defs = vec![
         "pk int4 PRIMARY KEY".to_string(),
@@ -520,11 +547,19 @@ fn gen_create_view(g: &mut Gen) -> Vec<StmtKind> {
         g.views.next_col += 1;
         let ty = ALL_TYPES[g.rng.below_usize(ALL_TYPES.len())];
         defs.push(format!("{} {}", cname, ty.name()));
-        cols.push(Column { name: cname, ty, nullable: true, ddl_type: None });
+        cols.push(Column {
+            name: cname,
+            ty,
+            nullable: true,
+            ddl_type: None,
+        });
     }
 
-    let mut stmts =
-        vec![StmtKind::Raw(format!("CREATE TABLE {} ({});", base, defs.join(", ")))];
+    let mut stmts = vec![StmtKind::Raw(format!(
+        "CREATE TABLE {} ({});",
+        base,
+        defs.join(", ")
+    ))];
 
     // Seed rows: pks dense from 1, so the DmlState allocator (seeded_max+1)
     // starts exactly above them.
@@ -569,9 +604,15 @@ fn gen_create_view(g: &mut Gen) -> Vec<StmtKind> {
     let wco = if qual.wco_safe()
         && g.weights.pick(g.rng, &["views:wco:on", "views:wco:none"]) == "views:wco:on"
     {
-        let form = g.weights.pick(g.rng, &["views:wco:local", "views:wco:cascaded"]);
+        let form = g
+            .weights
+            .pick(g.rng, &["views:wco:local", "views:wco:cascaded"]);
         g.fire(form);
-        Some(if form == "views:wco:local" { "LOCAL" } else { "CASCADED" })
+        Some(if form == "views:wco:local" {
+            "LOCAL"
+        } else {
+            "CASCADED"
+        })
     } else {
         None
     };
@@ -580,20 +621,17 @@ fn gen_create_view(g: &mut Gen) -> Vec<StmtKind> {
         g.fire("views:temp");
     }
     stmts.push(StmtKind::Raw(create_view_sql(
-        &name,
-        &cols,
-        &base,
-        qual,
-        wco,
-        temp,
-        false,
+        &name, &cols, &base, qual, wco, temp, false,
     )));
 
     let table = Table {
         name: name.clone(),
         columns: cols.clone(),
         at_most_one_row: false,
-        pk: Some(Pk { column: "pk".to_string(), seeded_max: nrows as i64 }),
+        pk: Some(Pk {
+            column: "pk".to_string(),
+            seeded_max: nrows as i64,
+        }),
         unique_key: Some("pk".to_string()),
         // The base pk is a real PRIMARY KEY and the view is a plain
         // projection of it, so ON CONFLICT (pk) and deliberate collisions
@@ -674,9 +712,15 @@ fn gen_replace_view(g: &mut Gen) -> Vec<StmtKind> {
     let wco = if qual.wco_safe()
         && g.weights.pick(g.rng, &["views:wco:on", "views:wco:none"]) == "views:wco:on"
     {
-        let form = g.weights.pick(g.rng, &["views:wco:local", "views:wco:cascaded"]);
+        let form = g
+            .weights
+            .pick(g.rng, &["views:wco:local", "views:wco:cascaded"]);
         g.fire(form);
-        Some(if form == "views:wco:local" { "LOCAL" } else { "CASCADED" })
+        Some(if form == "views:wco:local" {
+            "LOCAL"
+        } else {
+            "CASCADED"
+        })
     } else {
         None
     };
@@ -758,9 +802,15 @@ fn gen_nested_view(g: &mut Gen) -> Vec<StmtKind> {
     let cols = g.views.views[vi].cols.clone();
     let nested = format!("{}_n{}", parent, g.views.views[vi].next_nested);
     g.views.views[vi].next_nested += 1;
-    let form = g.weights.pick(g.rng, &["views:wco:local", "views:wco:cascaded"]);
+    let form = g
+        .weights
+        .pick(g.rng, &["views:wco:local", "views:wco:cascaded"]);
     g.fire(form);
-    let wco = if form == "views:wco:local" { "LOCAL" } else { "CASCADED" };
+    let wco = if form == "views:wco:local" {
+        "LOCAL"
+    } else {
+        "CASCADED"
+    };
 
     let names: Vec<&str> = cols.iter().map(|c| c.name.as_str()).collect();
     let mut stmts = vec![StmtKind::Raw(format!(
@@ -845,7 +895,9 @@ fn gen_readonly_view(g: &mut Gen) -> Vec<StmtKind> {
     let src = if !live.is_empty() && g.rng.chance(1, 2) {
         // This module's own base table (group-local view, so nothing can
         // drop it in between).
-        g.views.views[live[g.rng.below_usize(live.len())]].base.clone()
+        g.views.views[live[g.rng.below_usize(live.len())]]
+            .base
+            .clone()
     } else {
         let cands = safe_source_tables(g);
         cands[g.rng.below_usize(cands.len())].clone()
@@ -875,7 +927,10 @@ fn gen_readonly_view(g: &mut Gen) -> Vec<StmtKind> {
             format!("UPDATE {} SET kt = 'x' WHERE pk >= 0;", name),
         ),
         "views:ro:distinct" => (
-            format!("CREATE VIEW {} (k) AS SELECT DISTINCT k_int FROM {};", name, src),
+            format!(
+                "CREATE VIEW {} (k) AS SELECT DISTINCT k_int FROM {};",
+                name, src
+            ),
             format!("SELECT * FROM {} ORDER BY k NULLS LAST;", name),
             format!("INSERT INTO {} (k) VALUES (1);", name),
         ),
@@ -898,7 +953,10 @@ fn gen_readonly_view(g: &mut Gen) -> Vec<StmtKind> {
         ),
     };
     let mut stmts = vec![StmtKind::Raw(create), StmtKind::Raw(read)];
-    if g.weights.pick(g.rng, &["views:ro:write", "views:ro:read_only"]) == "views:ro:write" {
+    if g.weights
+        .pick(g.rng, &["views:ro:write", "views:ro:read_only"])
+        == "views:ro:write"
+    {
         g.fire("views:ro:write");
         stmts.push(StmtKind::Raw(write));
     }
@@ -925,9 +983,10 @@ fn gen_matview(g: &mut Gen) -> Vec<StmtKind> {
     }
     g.fire("views:matview");
     let live = g.views.live_matviews();
-    let mut action = g
-        .weights
-        .pick(g.rng, &["views:mv:create", "views:mv:refresh", "views:mv:drop"]);
+    let mut action = g.weights.pick(
+        g.rng,
+        &["views:mv:create", "views:mv:refresh", "views:mv:drop"],
+    );
     if live.is_empty() {
         action = "views:mv:create";
     } else if action == "views:mv:create" && live.len() >= MAX_LIVE_MATVIEWS {
@@ -944,13 +1003,18 @@ fn gen_matview(g: &mut Gen) -> Vec<StmtKind> {
             let vlive = permanent_views(g);
             let source = if !vlive.is_empty() && g.rng.chance(1, 2) {
                 g.fire("views:mv:src:view");
-                g.views.views[vlive[g.rng.below_usize(vlive.len())]].table.name.clone()
+                g.views.views[vlive[g.rng.below_usize(vlive.len())]]
+                    .table
+                    .name
+                    .clone()
             } else {
                 g.fire("views:mv:src:table");
                 let cands = safe_source_tables(g);
                 cands[g.rng.below_usize(cands.len())].clone()
             };
-            let no_data = g.weights.pick(g.rng, &["views:mv:nodata", "views:mv:withdata"])
+            let no_data = g
+                .weights
+                .pick(g.rng, &["views:mv:nodata", "views:mv:withdata"])
                 == "views:mv:nodata";
             if no_data {
                 g.fire("views:mv:nodata");
@@ -968,9 +1032,15 @@ fn gen_matview(g: &mut Gen) -> Vec<StmtKind> {
             if no_data {
                 // Unpopulated matviews cannot be read or refreshed
                 // concurrently; a plain REFRESH fixes both.
-                stmts.push(StmtKind::Raw(format!("REFRESH MATERIALIZED VIEW {};", name)));
+                stmts.push(StmtKind::Raw(format!(
+                    "REFRESH MATERIALIZED VIEW {};",
+                    name
+                )));
             }
-            stmts.push(StmtKind::Raw(format!("SELECT * FROM {} ORDER BY pk;", name)));
+            stmts.push(StmtKind::Raw(format!(
+                "SELECT * FROM {} ORDER BY pk;",
+                name
+            )));
             g.views.matviews.push(MatViewObj {
                 name: name.clone(),
                 source,
@@ -1004,7 +1074,8 @@ fn gen_matview(g: &mut Gen) -> Vec<StmtKind> {
             let ok_concurrent =
                 g.views.matviews[mi].has_unique_index && g.views.matviews[mi].populated;
             let concurrent = ok_concurrent
-                && g.weights.pick(g.rng, &["views:mv:concurrent", "views:mv:plain"])
+                && g.weights
+                    .pick(g.rng, &["views:mv:concurrent", "views:mv:plain"])
                     == "views:mv:concurrent";
             if concurrent {
                 g.fire("views:mv:concurrent");
@@ -1050,7 +1121,10 @@ fn rule_sql(g: &mut Gen, name: &str, tab: &str, log: &str, kind: RuleKind) -> St
             name, tab, log
         ),
         RuleKind::InsertInsteadNothing => {
-            format!("CREATE RULE {} AS ON INSERT TO {} DO INSTEAD NOTHING;", name, tab)
+            format!(
+                "CREATE RULE {} AS ON INSERT TO {} DO INSTEAD NOTHING;",
+                name, tab
+            )
         }
         RuleKind::UpdateCondAlso => format!(
             "CREATE RULE {} AS ON UPDATE TO {} WHERE NEW.k_int > OLD.k_int DO ALSO INSERT INTO \
@@ -1064,10 +1138,16 @@ fn rule_sql(g: &mut Gen, name: &str, tab: &str, log: &str, kind: RuleKind) -> St
             g.rng.range_i64(1, 4)
         ),
         RuleKind::DeleteInsteadNothing => {
-            format!("CREATE RULE {} AS ON DELETE TO {} DO INSTEAD NOTHING;", name, tab)
+            format!(
+                "CREATE RULE {} AS ON DELETE TO {} DO INSTEAD NOTHING;",
+                name, tab
+            )
         }
         RuleKind::DeleteAlsoNothing => {
-            format!("CREATE RULE {} AS ON DELETE TO {} DO ALSO NOTHING;", name, tab)
+            format!(
+                "CREATE RULE {} AS ON DELETE TO {} DO ALSO NOTHING;",
+                name, tab
+            )
         }
     }
 }
@@ -1109,7 +1189,11 @@ fn rule_dml(g: &mut Gen, ti: usize) -> Vec<StmtKind> {
     for _ in 0..n {
         match g.weights.pick(
             g.rng,
-            &["views:rule:dml:insert", "views:rule:dml:update", "views:rule:dml:delete"],
+            &[
+                "views:rule:dml:insert",
+                "views:rule:dml:update",
+                "views:rule:dml:delete",
+            ],
         ) {
             "views:rule:dml:update" => {
                 g.fire("views:rule:dml:update");
@@ -1125,7 +1209,10 @@ fn rule_dml(g: &mut Gen, ti: usize) -> Vec<StmtKind> {
             "views:rule:dml:delete" => {
                 g.fire("views:rule:dml:delete");
                 let pk = g.rng.range_i64(1, g.views.ruletabs[ti].next_pk.max(2) - 1);
-                out.push(StmtKind::Raw(format!("DELETE FROM {} WHERE pk = {};", tab, pk)));
+                out.push(StmtKind::Raw(format!(
+                    "DELETE FROM {} WHERE pk = {};",
+                    tab, pk
+                )));
             }
             _ => {
                 g.fire("views:rule:dml:insert");
@@ -1157,9 +1244,10 @@ fn rule_dml(g: &mut Gen, ti: usize) -> Vec<StmtKind> {
 fn gen_rule_group(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("views:rule");
     let live = g.views.live_ruletabs();
-    let mut action = g
-        .weights
-        .pick(g.rng, &["views:rule:create", "views:rule:add", "views:rule:drop"]);
+    let mut action = g.weights.pick(
+        g.rng,
+        &["views:rule:create", "views:rule:add", "views:rule:drop"],
+    );
     if live.is_empty() {
         action = "views:rule:create";
     } else if action == "views:rule:create" && live.len() >= MAX_LIVE_RULETABS {
@@ -1202,10 +1290,16 @@ fn gen_rule_group(g: &mut Gen) -> Vec<StmtKind> {
             g.fire(kind.prod());
             let rname = format!("fz_rule_{}", g.views.next_rule);
             g.views.next_rule += 1;
-            let (tab, log) =
-                (g.views.ruletabs[ti].table.clone(), g.views.ruletabs[ti].log.clone());
+            let (tab, log) = (
+                g.views.ruletabs[ti].table.clone(),
+                g.views.ruletabs[ti].log.clone(),
+            );
             stmts.push(StmtKind::Raw(rule_sql(g, &rname, &tab, &log, kind)));
-            g.views.ruletabs[ti].rules.push(RuleObj { name: rname, kind, live: true });
+            g.views.ruletabs[ti].rules.push(RuleObj {
+                name: rname,
+                kind,
+                live: true,
+            });
         }
         stmts.extend(rule_dml(g, ti));
         stmts.extend(rule_reads(g, ti));
@@ -1240,7 +1334,11 @@ fn gen_rule_group(g: &mut Gen) -> Vec<StmtKind> {
         let rname = format!("fz_rule_{}", g.views.next_rule);
         g.views.next_rule += 1;
         stmts.push(StmtKind::Raw(rule_sql(g, &rname, &tab, &log, kind)));
-        g.views.ruletabs[ti].rules.push(RuleObj { name: rname, kind, live: true });
+        g.views.ruletabs[ti].rules.push(RuleObj {
+            name: rname,
+            kind,
+            live: true,
+        });
     }
     g.views.events.push(DdlEvent {
         table: tab,
@@ -1338,7 +1436,11 @@ fn gen_deparse(g: &mut Gen) -> Vec<StmtKind> {
             // and the wrap-column integer.
             let form = g.weights.pick(
                 g.rng,
-                &["views:deparse:plain", "views:deparse:pretty", "views:deparse:wrap"],
+                &[
+                    "views:deparse:plain",
+                    "views:deparse:pretty",
+                    "views:deparse:wrap",
+                ],
             );
             g.fire(form);
             let call = match form {
@@ -1535,8 +1637,18 @@ mod tests {
         for sql in &sqls {
             if let Some(rest) = sql.strip_prefix("CREATE UNIQUE INDEX ") {
                 let name = rest.split(' ').next().unwrap().to_string();
-                let target = rest.split(" ON ").nth(1).unwrap().split(' ').next().unwrap();
-                assert_eq!(live.get(target), Some(&true), "index over dead relation: {sql}");
+                let target = rest
+                    .split(" ON ")
+                    .nth(1)
+                    .unwrap()
+                    .split(' ')
+                    .next()
+                    .unwrap();
+                assert_eq!(
+                    live.get(target),
+                    Some(&true),
+                    "index over dead relation: {sql}"
+                );
                 live.insert(name, true);
                 continue;
             }
@@ -1552,10 +1664,15 @@ mod tests {
                 continue;
             }
             // Creations next: a CREATE may reference its own new name.
-            let created: Option<String> = ["CREATE TABLE ", "CREATE VIEW ", "CREATE TEMP VIEW ", "CREATE MATERIALIZED VIEW "]
-                .iter()
-                .find_map(|p| sql.strip_prefix(p))
-                .map(|rest| rest.split([' ', '(']).next().unwrap().to_string());
+            let created: Option<String> = [
+                "CREATE TABLE ",
+                "CREATE VIEW ",
+                "CREATE TEMP VIEW ",
+                "CREATE MATERIALIZED VIEW ",
+            ]
+            .iter()
+            .find_map(|p| sql.strip_prefix(p))
+            .map(|rest| rest.split([' ', '(']).next().unwrap().to_string());
             if let Some(name) = &created {
                 assert_ne!(live.get(name), Some(&true), "relation name reused: {sql}");
                 // Everything it reads must be live.
@@ -1563,7 +1680,11 @@ mod tests {
                     if &r == name || r.starts_with("fz_rule_") {
                         continue;
                     }
-                    assert_eq!(live.get(&r), Some(&true), "create over dead relation: {sql}");
+                    assert_eq!(
+                        live.get(&r),
+                        Some(&true),
+                        "create over dead relation: {sql}"
+                    );
                 }
                 live.insert(name.clone(), true);
                 continue;
@@ -1598,7 +1719,11 @@ mod tests {
                 if r.starts_with("fz_rule_") {
                     continue;
                 }
-                assert_eq!(live.get(&r), Some(&true), "reference to dead relation: {sql}");
+                assert_eq!(
+                    live.get(&r),
+                    Some(&true),
+                    "reference to dead relation: {sql}"
+                );
             }
         }
         // Group-local objects are all closed out at the end of the stream.
@@ -1632,7 +1757,10 @@ mod tests {
         // Every nested view carries a check option.
         for sql in &sqls {
             if sql.starts_with("CREATE VIEW fz_vw_") && sql.contains("_n") {
-                assert!(sql.contains("CHECK OPTION"), "nested view without a check option: {sql}");
+                assert!(
+                    sql.contains("CHECK OPTION"),
+                    "nested view without a check option: {sql}"
+                );
             }
         }
     }
@@ -1655,7 +1783,11 @@ mod tests {
             // DML-eligible: pk-carrying, multi-row, unique pk.
             let pk = t.pk.as_ref().expect("registered view carries pk metadata");
             assert_eq!(pk.column, "pk");
-            assert!(pk.seeded_max >= 2, "{}: seed rows must be dense from 1", t.name);
+            assert!(
+                pk.seeded_max >= 2,
+                "{}: seed rows must be dense from 1",
+                t.name
+            );
             assert!(!t.at_most_one_row);
             assert!(t.pk_unique);
             assert_eq!(t.unique_key.as_deref(), Some("pk"));
@@ -1666,7 +1798,11 @@ mod tests {
                 assert!(c.nullable, "{}.{} must be nullable", t.name, c.name);
             }
             for key in ["pk", "k_int", "k_text"] {
-                assert!(t.columns.iter().any(|c| c.name == key), "{} missing {key}", t.name);
+                assert!(
+                    t.columns.iter().any(|c| c.name == key),
+                    "{} missing {key}",
+                    t.name
+                );
             }
             // The base is NOT registered.
             assert!(
@@ -1733,7 +1869,9 @@ mod tests {
         for sql in &sqls {
             // Nested-view writes are the only module-local writes into a
             // registered view's key space.
-            let Some(rest) = sql.strip_prefix("INSERT INTO fz_vw_") else { continue };
+            let Some(rest) = sql.strip_prefix("INSERT INTO fz_vw_") else {
+                continue;
+            };
             if !rest.contains("_n") {
                 continue;
             }
@@ -1747,7 +1885,10 @@ mod tests {
                 .trim()
                 .parse()
                 .unwrap();
-            assert!(pk > LOCAL_PK_BASE, "module-local pk inside the DmlState range: {sql}");
+            assert!(
+                pk > LOCAL_PK_BASE,
+                "module-local pk inside the DmlState range: {sql}"
+            );
             saw = true;
         }
         assert!(saw, "no nested-view write in 800 groups");
@@ -1832,7 +1973,9 @@ mod tests {
                 temp.remove(rest.trim_end_matches(';'));
                 continue;
             }
-            let Some(rest) = sql.strip_prefix("CREATE MATERIALIZED VIEW ") else { continue };
+            let Some(rest) = sql.strip_prefix("CREATE MATERIALIZED VIEW ") else {
+                continue;
+            };
             saw_matview = true;
             let src = rest.rsplit(" FROM ").next().unwrap();
             for t in &temp {
@@ -1859,15 +2002,21 @@ mod tests {
                 let name = rest.split(' ').next().unwrap().to_string();
                 mv.insert(name, (false, !sql.contains("WITH NO DATA")));
             } else if let Some(rest) = sql.strip_prefix("CREATE UNIQUE INDEX ") {
-                let name = rest.split(" ON ").nth(1).unwrap().split(' ').next().unwrap();
+                let name = rest
+                    .split(" ON ")
+                    .nth(1)
+                    .unwrap()
+                    .split(' ')
+                    .next()
+                    .unwrap();
                 if let Some(e) = mv.get_mut(name) {
                     e.0 = true;
                 }
-            } else if let Some(rest) =
-                sql.strip_prefix("REFRESH MATERIALIZED VIEW CONCURRENTLY ")
-            {
+            } else if let Some(rest) = sql.strip_prefix("REFRESH MATERIALIZED VIEW CONCURRENTLY ") {
                 let name = rest.trim_end_matches(';');
-                let e = mv.get(name).unwrap_or_else(|| panic!("refresh of unknown {name}"));
+                let e = mv
+                    .get(name)
+                    .unwrap_or_else(|| panic!("refresh of unknown {name}"));
                 assert!(e.0, "CONCURRENTLY without a unique index: {sql}");
                 assert!(e.1, "CONCURRENTLY on an unpopulated matview: {sql}");
             } else if let Some(rest) = sql.strip_prefix("REFRESH MATERIALIZED VIEW ") {

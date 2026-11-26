@@ -43,7 +43,10 @@ impl<'m> JsonSem<'m> for Events {
         fname: &'m [u8],
         isnull: bool,
     ) -> PgResult<bool> {
-        self.0.push(format!("ofstart {:?} null={isnull}", String::from_utf8_lossy(fname)));
+        self.0.push(format!(
+            "ofstart {:?} null={isnull}",
+            String::from_utf8_lossy(fname)
+        ));
         Ok(true)
     }
     fn object_field_end(
@@ -52,7 +55,10 @@ impl<'m> JsonSem<'m> for Events {
         fname: &'m [u8],
         isnull: bool,
     ) -> PgResult<bool> {
-        self.0.push(format!("ofend {:?} null={isnull}", String::from_utf8_lossy(fname)));
+        self.0.push(format!(
+            "ofend {:?} null={isnull}",
+            String::from_utf8_lossy(fname)
+        ));
         Ok(true)
     }
     fn array_element_start(&mut self, _lex: &JsonLex<'_>, isnull: bool) -> PgResult<bool> {
@@ -83,7 +89,11 @@ fn whole(doc: &[u8]) -> (JsonError, String, Vec<String>) {
     let mut lex = JsonLexDe::new(cx.mcx(), doc, PG_UTF8);
     let mut ev = Events::default();
     let r = parse_sem(&mut lex, &mut ev).unwrap();
-    let detail = if r == JsonError::Success { String::new() } else { lex.lex.errdetail(r) };
+    let detail = if r == JsonError::Success {
+        String::new()
+    } else {
+        lex.lex.errdetail(r)
+    };
     (r, detail, ev.0)
 }
 
@@ -107,7 +117,11 @@ fn chunked(doc: &[u8], splits: &[usize]) -> (JsonError, String, Vec<String>) {
         let mut ch = st.chunk(cx.mcx(), piece, is_last);
         let r = ch.parse(&mut ev).unwrap();
         if is_last {
-            let detail = if r == JsonError::Success { String::new() } else { ch.errdetail(r) };
+            let detail = if r == JsonError::Success {
+                String::new()
+            } else {
+                ch.errdetail(r)
+            };
             return (r, detail, ev.0);
         }
         if r != JsonError::Incomplete {
@@ -127,12 +141,22 @@ fn assert_all_splits_match(doc: &[u8]) {
     }
     // byte-at-a-time
     let all: Vec<usize> = (1..doc.len()).collect();
-    assert_eq!(chunked(doc, &all), w, "byte-at-a-time {:?}", String::from_utf8_lossy(doc));
+    assert_eq!(
+        chunked(doc, &all),
+        w,
+        "byte-at-a-time {:?}",
+        String::from_utf8_lossy(doc)
+    );
     // three-way
     if doc.len() > 5 {
         let a = doc.len() / 3;
         let b = 2 * doc.len() / 3;
-        assert_eq!(chunked(doc, &[a, b]), w, "3-way {:?}", String::from_utf8_lossy(doc));
+        assert_eq!(
+            chunked(doc, &[a, b]),
+            w,
+            "3-way {:?}",
+            String::from_utf8_lossy(doc)
+        );
     }
 }
 
@@ -239,12 +263,30 @@ fn partial_tokens_complete_across_chunks() {
     // Number continued by a fraction and an exponent sign.
     let (r, _, ev) = chunked(b"[12.5e-3]", &[3, 6, 7]);
     assert_eq!(r, JsonError::Success);
-    assert_eq!(ev, vec!["astart@0", "aestart null=false", "num 12.5e-3", "aeend null=false", "aend@0"]);
+    assert_eq!(
+        ev,
+        vec![
+            "astart@0",
+            "aestart null=false",
+            "num 12.5e-3",
+            "aeend null=false",
+            "aend@0"
+        ]
+    );
 
     // Literal split anywhere.
     let (r, _, ev) = chunked(b"[null]", &[2, 4]);
     assert_eq!(r, JsonError::Success);
-    assert_eq!(ev, vec!["astart@0", "aestart null=true", "null", "aeend null=true", "aend@0"]);
+    assert_eq!(
+        ev,
+        vec![
+            "astart@0",
+            "aestart null=true",
+            "null",
+            "aeend null=true",
+            "aend@0"
+        ]
+    );
 
     // A field name split across chunks reaches the field hooks intact.
     let (r, _, ev) = chunked(b"{\"long-field-name\": null}", &[7]);
@@ -304,13 +346,25 @@ fn non_last_chunks_are_incomplete_and_last_chunk_completes() {
     let mut ev = Events::default();
     let cx = MemoryContext::new("t");
     assert!(!st.started());
-    assert_eq!(pg_parse_json_incremental(&mut st, cx.mcx(), &mut ev, b"{\"a\":", false).unwrap(), JsonError::Incomplete);
+    assert_eq!(
+        pg_parse_json_incremental(&mut st, cx.mcx(), &mut ev, b"{\"a\":", false).unwrap(),
+        JsonError::Incomplete
+    );
     assert!(st.started());
     assert_eq!(st.lex_level(), 1);
     // An empty chunk in the middle is fine.
-    assert_eq!(pg_parse_json_incremental(&mut st, cx.mcx(), &mut ev, b"", false).unwrap(), JsonError::Incomplete);
-    assert_eq!(pg_parse_json_incremental(&mut st, cx.mcx(), &mut ev, b" [1", false).unwrap(), JsonError::Incomplete);
-    assert_eq!(pg_parse_json_incremental(&mut st, cx.mcx(), &mut ev, b"]}", true).unwrap(), JsonError::Success);
+    assert_eq!(
+        pg_parse_json_incremental(&mut st, cx.mcx(), &mut ev, b"", false).unwrap(),
+        JsonError::Incomplete
+    );
+    assert_eq!(
+        pg_parse_json_incremental(&mut st, cx.mcx(), &mut ev, b" [1", false).unwrap(),
+        JsonError::Incomplete
+    );
+    assert_eq!(
+        pg_parse_json_incremental(&mut st, cx.mcx(), &mut ev, b"]}", true).unwrap(),
+        JsonError::Success
+    );
     assert_eq!(st.lex_level(), 0);
     assert_eq!(
         ev.0,
@@ -335,19 +389,25 @@ fn nesting_limit_is_json_td_max_stack() {
     let depth = JSON_TD_MAX_STACK as usize;
 
     let mut ok = vec![b'['; depth];
-    ok.extend(std::iter::repeat_n(b']',depth));
+    ok.extend(std::iter::repeat_n(b']', depth));
     let mut st = JsonLexIncremental::new(PG_UTF8, true);
     let mut ev = Events::default();
-    assert_eq!(pg_parse_json_incremental(&mut st, cx.mcx(), &mut ev, &ok, true).unwrap(), JsonError::Success);
+    assert_eq!(
+        pg_parse_json_incremental(&mut st, cx.mcx(), &mut ev, &ok, true).unwrap(),
+        JsonError::Success
+    );
 
     let mut too_deep = vec![b'['; depth + 1];
-    too_deep.extend(std::iter::repeat_n(b']',depth + 1));
+    too_deep.extend(std::iter::repeat_n(b']', depth + 1));
     let mut st = JsonLexIncremental::new(PG_UTF8, true);
     let mut ev = Events::default();
     let mut ch = st.chunk(cx.mcx(), &too_deep, true);
     let r = ch.parse(&mut ev).unwrap();
     assert_eq!(r, JsonError::NestingTooDeep);
-    assert_eq!(ch.errdetail(r), "JSON nested too deep, maximum permitted depth is 6400.");
+    assert_eq!(
+        ch.errdetail(r),
+        "JSON nested too deep, maximum permitted depth is 6400."
+    );
 }
 
 #[test]
@@ -356,7 +416,10 @@ fn line_numbers_carry_across_chunks() {
     let cx = MemoryContext::new("t");
     let mut st = JsonLexIncremental::new(PG_UTF8, true);
     let mut ev = Events::default();
-    assert_eq!(pg_parse_json_incremental(&mut st, cx.mcx(), &mut ev, b"[\n1,\n", false).unwrap(), JsonError::Incomplete);
+    assert_eq!(
+        pg_parse_json_incremental(&mut st, cx.mcx(), &mut ev, b"[\n1,\n", false).unwrap(),
+        JsonError::Incomplete
+    );
     let mut ch = st.chunk(cx.mcx(), b"\n2 3]", true);
     let r = ch.parse(&mut ev).unwrap();
     assert_eq!(r, JsonError::ExpectedArrayNext);
@@ -375,8 +438,14 @@ fn sem_action_failure_propagates() {
     setup();
     let cx = MemoryContext::new("t");
     let mut st = JsonLexIncremental::new(PG_UTF8, true);
-    assert_eq!(pg_parse_json_incremental(&mut st, cx.mcx(), &mut Refuse, b"[1", false).unwrap(), JsonError::Incomplete);
-    assert_eq!(pg_parse_json_incremental(&mut st, cx.mcx(), &mut Refuse, b"]", true).unwrap(), JsonError::SemActionFailed);
+    assert_eq!(
+        pg_parse_json_incremental(&mut st, cx.mcx(), &mut Refuse, b"[1", false).unwrap(),
+        JsonError::Incomplete
+    );
+    assert_eq!(
+        pg_parse_json_incremental(&mut st, cx.mcx(), &mut Refuse, b"]", true).unwrap(),
+        JsonError::SemActionFailed
+    );
 }
 
 #[test]
@@ -385,10 +454,29 @@ fn need_escapes_false_hands_empty_strings() {
     let cx = MemoryContext::new("t");
     let mut st = JsonLexIncremental::new(PG_UTF8, false);
     let mut ev = Events::default();
-    assert_eq!(pg_parse_json_incremental(&mut st, cx.mcx(), &mut ev, b"{\"k\": \"v\", \"n\": 7}", true).unwrap(), JsonError::Success);
+    assert_eq!(
+        pg_parse_json_incremental(
+            &mut st,
+            cx.mcx(),
+            &mut ev,
+            b"{\"k\": \"v\", \"n\": 7}",
+            true
+        )
+        .unwrap(),
+        JsonError::Success
+    );
     assert_eq!(
         ev.0,
-        vec!["ostart@0", "ofstart \"\" null=false", "str \"\"", "ofend \"\" null=false", "ofstart \"\" null=false", "num 7", "ofend \"\" null=false", "oend@0"]
+        vec![
+            "ostart@0",
+            "ofstart \"\" null=false",
+            "str \"\"",
+            "ofend \"\" null=false",
+            "ofstart \"\" null=false",
+            "num 7",
+            "ofend \"\" null=false",
+            "oend@0"
+        ]
     );
 }
 
@@ -427,7 +515,10 @@ fn partial_token_admission_reserves_the_terminating_nul() {
     assert!(super::partial_admit(max - 2, 1).is_ok());
     assert!(super::partial_admit(max - 1, 1).is_err());
     let err = super::partial_admit(1, max - 1).unwrap_err();
-    assert_eq!(err.message(), "string buffer exceeds maximum allowed length (1073741823 bytes)");
+    assert_eq!(
+        err.message(),
+        "string buffer exceeds maximum allowed length (1073741823 bytes)"
+    );
     assert_eq!(
         err.detail(),
         Some("Cannot enlarge string buffer containing 1 bytes by 1073741822 more bytes.")

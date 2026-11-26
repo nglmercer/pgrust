@@ -93,7 +93,11 @@ fn norm_outcome(o: &StmtOutcome, needles: &[&str]) -> StmtOutcome {
             col_oids: col_oids.clone(),
             rows: rows
                 .iter()
-                .map(|r| r.iter().map(|c| c.as_ref().map(|v| norm_str(v, needles))).collect())
+                .map(|r| {
+                    r.iter()
+                        .map(|c| c.as_ref().map(|v| norm_str(v, needles)))
+                        .collect()
+                })
                 .collect(),
         },
         other => other.clone(),
@@ -107,8 +111,20 @@ fn norm_outcome(o: &StmtOutcome, needles: &[&str]) -> StmtOutcome {
 /// by the caller's needle list.
 fn connect_outcome(spec: &ConnSpec, db: &str) -> (Option<ClientExecutor>, StmtOutcome) {
     match ClientExecutor::connect(&spec.host, spec.port, db, &spec.user) {
-        Ok(ex) => (Some(ex), StmtOutcome::Command { tag: "CONNECT".to_string(), affected: None }),
-        Err(e) => (None, StmtOutcome::Error { sqlstate: "XXCON".to_string(), message: e }),
+        Ok(ex) => (
+            Some(ex),
+            StmtOutcome::Command {
+                tag: "CONNECT".to_string(),
+                affected: None,
+            },
+        ),
+        Err(e) => (
+            None,
+            StmtOutcome::Error {
+                sqlstate: "XXCON".to_string(),
+                message: e,
+            },
+        ),
     }
 }
 
@@ -136,8 +152,14 @@ impl DbDdlSuite {
         let mb = ClientExecutor::connect(&b.host, b.port, &b.db, &b.user)
             .map_err(|e| format!("B: {e}"))?;
         Ok(DbDdlSuite {
-            a: Side { spec: a.clone(), main: ma },
-            b: Side { spec: b.clone(), main: mb },
+            a: Side {
+                spec: a.clone(),
+                main: ma,
+            },
+            b: Side {
+                spec: b.clone(),
+                main: mb,
+            },
             tag: format!("q8t{tag}"),
             needles_a: vec![a.tsdir.clone()],
             needles_b: vec![b.tsdir.clone()],
@@ -201,7 +223,10 @@ fn deck(n: &Names) -> Vec<Step> {
     // -- 1. CREATE DATABASE basics + catalog probe + comment + drop. -----
     v.push(SqlOwned(format!("CREATE DATABASE {};", n.db1)));
     v.push(SqlOwned(stable_dbrow(&n.db1)));
-    v.push(SqlOwned(format!("COMMENT ON DATABASE {} IS 'q8 dbddl deck';", n.db1)));
+    v.push(SqlOwned(format!(
+        "COMMENT ON DATABASE {} IS 'q8 dbddl deck';",
+        n.db1
+    )));
     v.push(SqlOwned(stable_dbrow(&n.db1)));
     v.push(SqlOwned(format!("CREATE DATABASE {};", n.db1))); // duplicate -> error
     v.push(SqlOwned(format!("DROP DATABASE {};", n.db1)));
@@ -232,10 +257,22 @@ fn deck(n: &Names) -> Vec<Step> {
     v.push(SqlOwned(stable_dbrow(&n.dbfc)));
     v.push(SqlOwned(format!("DROP DATABASE {};", n.dbfc)));
     // Option-error fuel (matched rejects; nothing created).
-    v.push(SqlOwned(format!("CREATE DATABASE {} ENCODING 'no_such_enc';", n.db2)));
-    v.push(SqlOwned(format!("CREATE DATABASE {} STRATEGY = teleport;", n.db2)));
-    v.push(SqlOwned(format!("CREATE DATABASE {} TEMPLATE no_such_template_fz;", n.db2)));
-    v.push(SqlOwned(format!("CREATE DATABASE {} CONNECTION LIMIT -2;", n.db2)));
+    v.push(SqlOwned(format!(
+        "CREATE DATABASE {} ENCODING 'no_such_enc';",
+        n.db2
+    )));
+    v.push(SqlOwned(format!(
+        "CREATE DATABASE {} STRATEGY = teleport;",
+        n.db2
+    )));
+    v.push(SqlOwned(format!(
+        "CREATE DATABASE {} TEMPLATE no_such_template_fz;",
+        n.db2
+    )));
+    v.push(SqlOwned(format!(
+        "CREATE DATABASE {} CONNECTION LIMIT -2;",
+        n.db2
+    )));
     v.push(SqlOwned(format!("CREATE DATABASE {} OID 799999;", n.db2)));
     v.push(SqlOwned(format!(
         "CREATE DATABASE {} ENCODING 'LATIN1' LOCALE 'en_US.UTF-8';",
@@ -247,22 +284,49 @@ fn deck(n: &Names) -> Vec<Step> {
 
     // -- 3. ALTER DATABASE family. --------------------------------------
     v.push(SqlOwned(format!("CREATE DATABASE {};", n.db2)));
-    v.push(SqlOwned(format!("ALTER DATABASE {} CONNECTION LIMIT 1;", n.db2)));
-    v.push(SqlOwned(format!("ALTER DATABASE {} IS_TEMPLATE true;", n.db2)));
+    v.push(SqlOwned(format!(
+        "ALTER DATABASE {} CONNECTION LIMIT 1;",
+        n.db2
+    )));
+    v.push(SqlOwned(format!(
+        "ALTER DATABASE {} IS_TEMPLATE true;",
+        n.db2
+    )));
     v.push(SqlOwned(stable_dbrow(&n.db2)));
     v.push(SqlOwned(format!("DROP DATABASE {};", n.db2))); // template -> error
-    v.push(SqlOwned(format!("ALTER DATABASE {} IS_TEMPLATE false;", n.db2)));
-    v.push(SqlOwned(format!("ALTER DATABASE {} ALLOW_CONNECTIONS false;", n.db2)));
+    v.push(SqlOwned(format!(
+        "ALTER DATABASE {} IS_TEMPLATE false;",
+        n.db2
+    )));
+    v.push(SqlOwned(format!(
+        "ALTER DATABASE {} ALLOW_CONNECTIONS false;",
+        n.db2
+    )));
     // Connect while ALLOW_CONNECTIONS false -> matched FATAL.
     v.push(ProbeDb(n.db2.clone(), "SELECT 1;".to_string()));
-    v.push(SqlOwned(format!("ALTER DATABASE {} ALLOW_CONNECTIONS true;", n.db2)));
-    v.push(SqlOwned(format!("ALTER DATABASE {} WITH CONNECTION LIMIT 0;", n.db2)));
+    v.push(SqlOwned(format!(
+        "ALTER DATABASE {} ALLOW_CONNECTIONS true;",
+        n.db2
+    )));
+    v.push(SqlOwned(format!(
+        "ALTER DATABASE {} WITH CONNECTION LIMIT 0;",
+        n.db2
+    )));
     // Connect while CONNECTION LIMIT 0 (superuser: allowed, warningless
     // in 18; the probe compares whatever both sides do).
-    v.push(ProbeDb(n.db2.clone(), "SELECT current_database() <> '';".to_string()));
-    v.push(SqlOwned(format!("ALTER DATABASE {} CONNECTION LIMIT -1;", n.db2)));
+    v.push(ProbeDb(
+        n.db2.clone(),
+        "SELECT current_database() <> '';".to_string(),
+    ));
+    v.push(SqlOwned(format!(
+        "ALTER DATABASE {} CONNECTION LIMIT -1;",
+        n.db2
+    )));
     // Per-database GUC: set, observe on a fresh connection, reset.
-    v.push(SqlOwned(format!("ALTER DATABASE {} SET work_mem = '7701kB';", n.db2)));
+    v.push(SqlOwned(format!(
+        "ALTER DATABASE {} SET work_mem = '7701kB';",
+        n.db2
+    )));
     v.push(SqlOwned(format!(
         "ALTER DATABASE {} SET search_path = fz_a, public;",
         n.db2
@@ -274,24 +338,45 @@ fn deck(n: &Names) -> Vec<Step> {
          ON d.oid = s.setdatabase WHERE d.datname = '{}' ORDER BY 1;",
         n.db2
     )));
-    v.push(SqlOwned(format!("ALTER DATABASE {} RESET work_mem;", n.db2)));
+    v.push(SqlOwned(format!(
+        "ALTER DATABASE {} RESET work_mem;",
+        n.db2
+    )));
     v.push(ProbeDb(n.db2.clone(), "SHOW work_mem;".to_string()));
     v.push(SqlOwned(format!("ALTER DATABASE {} RESET ALL;", n.db2)));
-    v.push(SqlOwned(format!("ALTER DATABASE {} SET no_such_guc_fz = 1;", n.db2)));
+    v.push(SqlOwned(format!(
+        "ALTER DATABASE {} SET no_such_guc_fz = 1;",
+        n.db2
+    )));
     // Owner + rename + refresh collation version.
     v.push(SqlOwned(format!("CREATE ROLE {} LOGIN;", n.role)));
-    v.push(SqlOwned(format!("ALTER DATABASE {} OWNER TO {};", n.db2, n.role)));
+    v.push(SqlOwned(format!(
+        "ALTER DATABASE {} OWNER TO {};",
+        n.db2, n.role
+    )));
     v.push(SqlOwned(format!(
         "SELECT r.rolname FROM pg_database d JOIN pg_roles r ON r.oid = d.datdba \
          WHERE d.datname = '{}';",
         n.db2
     )));
-    v.push(SqlOwned(format!("ALTER DATABASE {} REFRESH COLLATION VERSION;", n.db2)));
-    v.push(SqlOwned(format!("ALTER DATABASE {} RENAME TO {};", n.db2, n.dbren)));
+    v.push(SqlOwned(format!(
+        "ALTER DATABASE {} REFRESH COLLATION VERSION;",
+        n.db2
+    )));
+    v.push(SqlOwned(format!(
+        "ALTER DATABASE {} RENAME TO {};",
+        n.db2, n.dbren
+    )));
     v.push(SqlOwned(stable_dbrow(&n.dbren)));
-    v.push(SqlOwned(format!("ALTER DATABASE {} RENAME TO {};", n.dbren, n.db2)));
+    v.push(SqlOwned(format!(
+        "ALTER DATABASE {} RENAME TO {};",
+        n.dbren, n.db2
+    )));
     // Renaming/altering missing databases -> matched errors.
-    v.push(SqlOwned(format!("ALTER DATABASE no_such_db_fz RENAME TO {};", n.dbren)));
+    v.push(SqlOwned(format!(
+        "ALTER DATABASE no_such_db_fz RENAME TO {};",
+        n.dbren
+    )));
     v.push(Sql("ALTER DATABASE no_such_db_fz CONNECTION LIMIT 3;"));
     // NOTE: no template0/template1/postgres statements of ANY kind here.
     // ALTER DATABASE template1 RENAME actually SUCCEEDS in PostgreSQL
@@ -301,14 +386,26 @@ fn deck(n: &Names) -> Vec<Step> {
     // both rig clusters).
 
     // -- 4. Busy-db + WITH (FORCE). -------------------------------------
-    v.push(WithHeldConn(n.db2.clone(), format!("DROP DATABASE {};", n.db2)));
-    v.push(WithHeldConn(n.db2.clone(), format!("DROP DATABASE {} WITH (FORCE);", n.db2)));
+    v.push(WithHeldConn(
+        n.db2.clone(),
+        format!("DROP DATABASE {};", n.db2),
+    ));
+    v.push(WithHeldConn(
+        n.db2.clone(),
+        format!("DROP DATABASE {} WITH (FORCE);", n.db2),
+    ));
     v.push(SqlOwned(format!("DROP DATABASE IF EXISTS {};", n.db2)));
     v.push(SqlOwned(format!("DROP ROLE {};", n.role)));
 
     // -- 5. Tablespaces. -------------------------------------------------
-    v.push(SqlOwned(format!("CREATE TABLESPACE {} LOCATION '{TSDIR}/t1';", n.ts1)));
-    v.push(SqlOwned(format!("CREATE TABLESPACE {} LOCATION '{TSDIR}/t1';", n.ts1))); // dup -> error
+    v.push(SqlOwned(format!(
+        "CREATE TABLESPACE {} LOCATION '{TSDIR}/t1';",
+        n.ts1
+    )));
+    v.push(SqlOwned(format!(
+        "CREATE TABLESPACE {} LOCATION '{TSDIR}/t1';",
+        n.ts1
+    ))); // dup -> error
     v.push(SqlOwned(format!(
         "SELECT spcname, spcoptions FROM pg_tablespace WHERE spcname = '{}';",
         n.ts1
@@ -335,17 +432,31 @@ fn deck(n: &Names) -> Vec<Step> {
         "ALTER TABLESPACE {} SET (effective_io_concurrency = 4);",
         n.ts1
     )));
-    v.push(SqlOwned(format!("ALTER TABLESPACE {} RESET (random_page_cost);", n.ts1)));
-    v.push(SqlOwned(format!("ALTER TABLESPACE {} SET (no_such_option = 1);", n.ts1)));
-    v.push(SqlOwned(format!("ALTER TABLESPACE {} RENAME TO {};", n.ts1, n.ts2)));
-    v.push(SqlOwned(format!("COMMENT ON TABLESPACE {} IS 'q8 ts';", n.ts2)));
+    v.push(SqlOwned(format!(
+        "ALTER TABLESPACE {} RESET (random_page_cost);",
+        n.ts1
+    )));
+    v.push(SqlOwned(format!(
+        "ALTER TABLESPACE {} SET (no_such_option = 1);",
+        n.ts1
+    )));
+    v.push(SqlOwned(format!(
+        "ALTER TABLESPACE {} RENAME TO {};",
+        n.ts1, n.ts2
+    )));
+    v.push(SqlOwned(format!(
+        "COMMENT ON TABLESPACE {} IS 'q8 ts';",
+        n.ts2
+    )));
     // Error fuel: bad locations (per-side path normalized), in-txn reject.
     v.push(Sql("CREATE TABLESPACE fz_ts_bad LOCATION 'relative/path';"));
     v.push(SqlOwned(format!(
         "CREATE TABLESPACE fz_ts_bad LOCATION '{TSDIR}/no_such_subdir_fz/deeper';"
     )));
     v.push(Sql("BEGIN;"));
-    v.push(SqlOwned(format!("CREATE TABLESPACE fz_ts_txn LOCATION '{TSDIR}/t9';")));
+    v.push(SqlOwned(format!(
+        "CREATE TABLESPACE fz_ts_txn LOCATION '{TSDIR}/t9';"
+    )));
     v.push(Sql("ROLLBACK;"));
     v.push(Sql("DROP TABLESPACE no_such_ts_fz;"));
 
@@ -354,8 +465,13 @@ fn deck(n: &Names) -> Vec<Step> {
         "CREATE TABLE fz_ts_tab (pk int4 PRIMARY KEY, v text) TABLESPACE {};",
         n.ts2
     )));
-    v.push(Sql("INSERT INTO fz_ts_tab SELECT g, 'r' || g FROM generate_series(1, 500) g;"));
-    v.push(SqlOwned(format!("CREATE INDEX fz_ts_idx ON fz_ts_tab (v) TABLESPACE {};", n.ts2)));
+    v.push(Sql(
+        "INSERT INTO fz_ts_tab SELECT g, 'r' || g FROM generate_series(1, 500) g;",
+    ));
+    v.push(SqlOwned(format!(
+        "CREATE INDEX fz_ts_idx ON fz_ts_tab (v) TABLESPACE {};",
+        n.ts2
+    )));
     v.push(SqlOwned(format!(
         "SELECT count(*) FROM pg_class c JOIN pg_tablespace t ON t.oid = c.reltablespace \
          WHERE t.spcname = '{}';",
@@ -363,9 +479,15 @@ fn deck(n: &Names) -> Vec<Step> {
     )));
     v.push(SqlOwned(format!("DROP TABLESPACE {};", n.ts2))); // not empty -> error
     v.push(Sql("ALTER TABLE fz_ts_tab SET TABLESPACE pg_default;"));
-    v.push(SqlOwned(format!("ALTER INDEX fz_ts_idx SET TABLESPACE {};", n.ts2)));
+    v.push(SqlOwned(format!(
+        "ALTER INDEX fz_ts_idx SET TABLESPACE {};",
+        n.ts2
+    )));
     v.push(Sql("ALTER INDEX fz_ts_idx SET TABLESPACE pg_default;"));
-    v.push(SqlOwned(format!("ALTER TABLE fz_ts_tab SET TABLESPACE {};", n.ts2)));
+    v.push(SqlOwned(format!(
+        "ALTER TABLE fz_ts_tab SET TABLESPACE {};",
+        n.ts2
+    )));
     v.push(Sql("SELECT count(*), min(pk), max(pk) FROM fz_ts_tab;"));
     v.push(SqlOwned(format!(
         "ALTER TABLE ALL IN TABLESPACE {} SET TABLESPACE pg_default;",
@@ -375,21 +497,31 @@ fn deck(n: &Names) -> Vec<Step> {
         "ALTER TABLE ALL IN TABLESPACE {} SET TABLESPACE pg_default;",
         n.ts2
     ))); // now-empty -> notice/no-op
-    // Partitioned parent: SET TABLESPACE takes the no-storage path.
-    v.push(Sql("CREATE TABLE fz_ts_part (pk int4) PARTITION BY RANGE (pk);"));
-    v.push(SqlOwned(format!("ALTER TABLE fz_ts_part SET TABLESPACE {};", n.ts2)));
+         // Partitioned parent: SET TABLESPACE takes the no-storage path.
+    v.push(Sql(
+        "CREATE TABLE fz_ts_part (pk int4) PARTITION BY RANGE (pk);",
+    ));
+    v.push(SqlOwned(format!(
+        "ALTER TABLE fz_ts_part SET TABLESPACE {};",
+        n.ts2
+    )));
     v.push(Sql("DROP TABLE fz_ts_part;"));
     // temp_tablespaces + a spilling sort through it.
     v.push(SqlOwned(format!("SET temp_tablespaces = {};", n.ts2)));
     v.push(Sql("SET work_mem = '64kB';"));
     v.push(Sql("CREATE TEMP TABLE fz_ts_tmp AS SELECT g AS a, (g * 7919) % 10007 AS b FROM generate_series(1, 20000) g;"));
-    v.push(Sql("SELECT count(*), min(b), max(b) FROM (SELECT b FROM fz_ts_tmp ORDER BY b) s;"));
+    v.push(Sql(
+        "SELECT count(*), min(b), max(b) FROM (SELECT b FROM fz_ts_tmp ORDER BY b) s;",
+    ));
     v.push(Sql("DROP TABLE fz_ts_tmp;"));
     v.push(Sql("RESET temp_tablespaces;"));
     v.push(Sql("RESET work_mem;"));
 
     // -- 6. Database in a tablespace + movedb (SET TABLESPACE). ----------
-    v.push(SqlOwned(format!("CREATE DATABASE {} TABLESPACE {};", n.dbmov, n.ts2)));
+    v.push(SqlOwned(format!(
+        "CREATE DATABASE {} TABLESPACE {};",
+        n.dbmov, n.ts2
+    )));
     v.push(SqlOwned(format!(
         "SELECT t.spcname FROM pg_database d JOIN pg_tablespace t ON t.oid = d.dattablespace \
          WHERE d.datname = '{}';",
@@ -399,10 +531,22 @@ fn deck(n: &Names) -> Vec<Step> {
         n.dbmov.clone(),
         "CREATE TABLE fz_mv_t AS SELECT g FROM generate_series(1, 100) g;".to_string(),
     ));
-    v.push(SqlOwned(format!("ALTER DATABASE {} SET TABLESPACE pg_default;", n.dbmov)));
-    v.push(SqlOwned(format!("ALTER DATABASE {} SET TABLESPACE {};", n.dbmov, n.ts2)));
-    v.push(SqlOwned(format!("ALTER DATABASE {} SET TABLESPACE {};", n.dbmov, n.ts2))); // same -> notice
-    v.push(ProbeDb(n.dbmov.clone(), "SELECT count(*) FROM fz_mv_t;".to_string()));
+    v.push(SqlOwned(format!(
+        "ALTER DATABASE {} SET TABLESPACE pg_default;",
+        n.dbmov
+    )));
+    v.push(SqlOwned(format!(
+        "ALTER DATABASE {} SET TABLESPACE {};",
+        n.dbmov, n.ts2
+    )));
+    v.push(SqlOwned(format!(
+        "ALTER DATABASE {} SET TABLESPACE {};",
+        n.dbmov, n.ts2
+    ))); // same -> notice
+    v.push(ProbeDb(
+        n.dbmov.clone(),
+        "SELECT count(*) FROM fz_mv_t;".to_string(),
+    ));
     // movedb with a live connection into the db -> matched busy error.
     v.push(WithHeldConn(
         n.dbmov.clone(),
@@ -429,18 +573,17 @@ fn observation_deck(n: &Names) -> Vec<String> {
         format!("DROP DATABASE {};", n.db1),
         format!("CREATE TABLESPACE {} LOCATION '{TSDIR}/tobs';", n.ts1),
         format!("ALTER TABLESPACE {} SET (random_page_cost = 2.5);", n.ts1),
-        format!("ALTER TABLE ALL IN TABLESPACE {} SET TABLESPACE pg_default;", n.ts1),
+        format!(
+            "ALTER TABLE ALL IN TABLESPACE {} SET TABLESPACE pg_default;",
+            n.ts1
+        ),
         format!("DROP TABLESPACE {};", n.ts1),
     ]
 }
 
 impl DbDdlSuite {
     /// Run the differential deck. Consumes the suite (connections close).
-    pub fn run_suite(
-        mut self,
-        table: &[RuledEntry],
-        ulp_tol: u64,
-    ) -> (Vec<Record>, DbDdlStats) {
+    pub fn run_suite(mut self, table: &[RuledEntry], ulp_tol: u64) -> (Vec<Record>, DbDdlStats) {
         let mut records = Vec::new();
         let mut stats = DbDdlStats::default();
         let mut idx = 0u32;
@@ -641,8 +784,7 @@ fn cleanup_sql(n: &Names) -> Vec<String> {
 /// one server; fresh-connection probes and held-session brackets included.
 pub fn run_single(spec: &ConnSpec, tag: u32) -> Result<(u32, u32), String> {
     make_ts_dirs(&spec.tsdir)?;
-    let mut main =
-        ClientExecutor::connect(&spec.host, spec.port, &spec.db, &spec.user)?;
+    let mut main = ClientExecutor::connect(&spec.host, spec.port, &spec.db, &spec.user)?;
     let tag = format!("q8t{tag}");
     let n = names(&tag);
     let (mut applied, mut errors) = (0u32, 0u32);
@@ -761,10 +903,7 @@ mod tests {
                 }
             };
             for protected in ["template1", "postgres"] {
-                assert!(
-                    !sql.contains(protected),
-                    "deck touches {protected}: {sql}"
-                );
+                assert!(!sql.contains(protected), "deck touches {protected}: {sql}");
             }
             // template0 may appear ONLY as a read-only TEMPLATE source.
             if sql.contains("template0") {

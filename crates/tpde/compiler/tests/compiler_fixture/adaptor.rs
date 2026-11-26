@@ -320,9 +320,7 @@ impl CCAssignmentPolicy for Policy {
         if assignment.sret() {
             assignment.reg = Reg::new(3);
             self.next[0] = 4;
-        } else if !assignment.byval()
-            && self.next[bank] + u32::from(assignment.consecutive) < 4
-        {
+        } else if !assignment.byval() && self.next[bank] + u32::from(assignment.consecutive) < 4 {
             assignment.reg = Reg::new(bank as u64 * 32 + u64::from(self.next[bank]));
             self.next[bank] += 1;
         } else {

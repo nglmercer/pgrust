@@ -12,7 +12,7 @@ use types_core::{
     BackendType, FirstNormalTransactionId, InvalidOid, MultiXactId, Oid, OidIsValid,
     ProcessingMode, TimestampTz, TransactionId,
 };
-use types_error::{DEBUG1, DEBUG2, PgError, PgResult, WARNING};
+use types_error::{PgError, PgResult, DEBUG1, DEBUG2, WARNING};
 use types_guc::{GucContext, GucSource};
 use types_startup::StartupData;
 use types_storage::waiteventset::{WL_EXIT_ON_PM_DEATH, WL_LATCH_SET, WL_TIMEOUT};
@@ -21,7 +21,9 @@ use multixact::{FirstMultiXactId, MultiXactMemberFreezeThreshold, ReadNextMultiX
 
 use crate::cost::autovac_recalculate_workers_for_balance;
 use crate::shmem::{self, AV_FORK_FAILED, AV_REBALANCE};
-use crate::{autovacuum_max_workers, autovacuum_naptime, check_av_worker_gucs, AutoVacuumingActive};
+use crate::{
+    autovacuum_max_workers, autovacuum_naptime, check_av_worker_gucs, AutoVacuumingActive,
+};
 
 const PG_WAIT_ACTIVITY: u32 = 0x0500_0000;
 const WAIT_EVENT_AUTOVACUUM_MAIN: u32 = PG_WAIT_ACTIVITY + 1;
@@ -77,8 +79,14 @@ pub fn AutoVacLauncherMain(startup_data: &StartupData) -> ! {
 
     {
         use procsignal::ThreadSignalHandler::{Fallible, Ignore, Simple};
-        procsignal::pqsignal_thread(procsignal::signums::SIGHUP, Simple(interrupt::SignalHandlerForConfigReload));
-        procsignal::pqsignal_thread(procsignal::signums::SIGINT, Simple(postgres::StatementCancelHandler));
+        procsignal::pqsignal_thread(
+            procsignal::signums::SIGHUP,
+            Simple(interrupt::SignalHandlerForConfigReload),
+        );
+        procsignal::pqsignal_thread(
+            procsignal::signums::SIGINT,
+            Simple(postgres::StatementCancelHandler),
+        );
         procsignal::pqsignal_thread(
             procsignal::signums::SIGTERM,
             Simple(interrupt::SignalHandlerForShutdownRequest),
@@ -90,7 +98,10 @@ pub fn AutoVacLauncherMain(startup_data: &StartupData) -> ! {
             Simple(procsignal::procsignal_sigusr1_handler),
         );
         procsignal::pqsignal_thread(procsignal::signums::SIGUSR2, Simple(avl_sigusr2_handler));
-        procsignal::pqsignal_thread(procsignal::signums::SIGFPE, Fallible(postgres::FloatExceptionHandler));
+        procsignal::pqsignal_thread(
+            procsignal::signums::SIGFPE,
+            Fallible(postgres::FloatExceptionHandler),
+        );
         procsignal::pqsignal_thread(procsignal::signums::SIGCHLD, Ignore);
     }
 
@@ -123,9 +134,8 @@ pub fn AutoVacLauncherMain(startup_data: &StartupData) -> ! {
         first = false;
         // unwind-ok: stmt-boundary
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(launcher_body))
-            .unwrap_or_else(|payload| {
-                Err(Box::new(crate::worker::pg_error_from_panic(payload)))
-            }) {
+            .unwrap_or_else(|payload| Err(Box::new(crate::worker::pg_error_from_panic(payload))))
+        {
             Ok(never) => match never {},
             Err(err) => abort_cleanup(&err),
         }
@@ -179,7 +189,12 @@ fn abort_cleanup(err: &PgError) {
 fn launcher_body() -> PgResult<Never> {
     libpq_pqsignal::unblock_signals();
 
-    guc::SetConfigOption("search_path", Some(""), GucContext::PGC_SUSET, GucSource::PGC_S_OVERRIDE)?;
+    guc::SetConfigOption(
+        "search_path",
+        Some(""),
+        GucContext::PGC_SUSET,
+        GucSource::PGC_S_OVERRIDE,
+    )?;
     guc::SetConfigOption(
         "zero_damaged_pages",
         Some("false"),
@@ -422,7 +437,11 @@ fn rebuild_database_list(newdb: Oid) -> PgResult<()> {
     fn enter(dbary: &mut Vec<AvlDbase>, datid: Oid) {
         if !dbary.iter().any(|d| d.adl_datid == datid) {
             let score = dbary.len() as i32;
-            dbary.push(AvlDbase { adl_datid: datid, adl_next_worker: 0, adl_score: score });
+            dbary.push(AvlDbase {
+                adl_datid: datid,
+                adl_next_worker: 0,
+                adl_score: score,
+            });
         }
     }
     let mut dbary: Vec<AvlDbase> = Vec::new();
@@ -431,8 +450,7 @@ fn rebuild_database_list(newdb: Oid) -> PgResult<()> {
         enter(&mut dbary, newdb);
     }
 
-    let existing: Vec<Oid> =
-        DATABASE_LIST.with_borrow(|l| l.iter().map(|d| d.adl_datid).collect());
+    let existing: Vec<Oid> = DATABASE_LIST.with_borrow(|l| l.iter().map(|d| d.adl_datid).collect());
     for datid in existing {
         if pgstat::pgstat_fetch_stat_dbentry(datid).is_none() {
             continue;
@@ -454,8 +472,7 @@ fn rebuild_database_list(newdb: Oid) -> PgResult<()> {
         dbary.sort_by(db_comparator);
 
         // C stores the float quotient into an int before the min-compare.
-        let mut millis_increment =
-            (1000.0 * autovacuum_naptime() as f64 / nelems as f64) as i64;
+        let mut millis_increment = (1000.0 * autovacuum_naptime() as f64 / nelems as f64) as i64;
         if millis_increment <= MIN_AUTOVAC_SLEEPTIME_MS {
             millis_increment = (MIN_AUTOVAC_SLEEPTIME_MS as f64 * 1.1) as i64;
         }
@@ -555,8 +572,7 @@ fn do_start_worker() -> PgResult<Oid> {
     }
 
     let recent_multi = ReadNextMultiXactId()?;
-    let mut multi_force_limit =
-        recent_multi.wrapping_sub(MultiXactMemberFreezeThreshold()? as u32);
+    let mut multi_force_limit = recent_multi.wrapping_sub(MultiXactMemberFreezeThreshold()? as u32);
     if multi_force_limit < FirstMultiXactId {
         multi_force_limit = multi_force_limit.wrapping_sub(FirstMultiXactId);
     }
@@ -580,9 +596,7 @@ fn do_start_worker() -> PgResult<Oid> {
         } else if for_xid_wrap {
             continue;
         } else if MultiXactIdPrecedes(tmp.adw_minmulti, multi_force_limit) {
-            if avdb.is_none()
-                || MultiXactIdPrecedes(tmp.adw_minmulti, avdb.unwrap().adw_minmulti)
-            {
+            if avdb.is_none() || MultiXactIdPrecedes(tmp.adw_minmulti, avdb.unwrap().adw_minmulti) {
                 avdb = Some(tmp);
             }
             for_multi_wrap = true;
@@ -706,9 +720,21 @@ mod tests {
     #[test]
     fn db_comparator_sorts_scores_descending() {
         let mut dbary = vec![
-            AvlDbase { adl_datid: 10, adl_next_worker: 0, adl_score: 0 },
-            AvlDbase { adl_datid: 12, adl_next_worker: 0, adl_score: 2 },
-            AvlDbase { adl_datid: 11, adl_next_worker: 0, adl_score: 1 },
+            AvlDbase {
+                adl_datid: 10,
+                adl_next_worker: 0,
+                adl_score: 0,
+            },
+            AvlDbase {
+                adl_datid: 12,
+                adl_next_worker: 0,
+                adl_score: 2,
+            },
+            AvlDbase {
+                adl_datid: 11,
+                adl_next_worker: 0,
+                adl_score: 1,
+            },
         ];
         dbary.sort_by(db_comparator);
         let order: Vec<i32> = dbary.iter().map(|d| d.adl_score).collect();
@@ -720,7 +746,11 @@ mod tests {
         for db in &dbary {
             list.insert(0, *db);
         }
-        assert_eq!(list.last().unwrap().adl_score, 2, "the launcher pops the tail: highest score");
+        assert_eq!(
+            list.last().unwrap().adl_score,
+            2,
+            "the launcher pops the tail: highest score"
+        );
         assert_eq!(list.first().unwrap().adl_score, 0);
     }
 }

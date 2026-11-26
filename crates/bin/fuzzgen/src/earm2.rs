@@ -1323,13 +1323,28 @@ mod tests {
             ("CREATE TYPE ea2_shell;", "DROP TYPE ea2_shell;"),
             ("CREATE TYPE ea2_comp AS ", "DROP TYPE ea2_comp;"),
             ("CREATE FUNCTION ea2_f1(", "DROP FUNCTION ea2_f1(int);"),
-            ("CREATE FUNCTION ea2_opf(", "DROP FUNCTION ea2_opf(int, int);"),
-            ("CREATE FUNCTION ea2_amb(x int)", "DROP FUNCTION ea2_amb(int);"),
-            ("CREATE FUNCTION ea2_amb(x real)", "DROP FUNCTION ea2_amb(real);"),
+            (
+                "CREATE FUNCTION ea2_opf(",
+                "DROP FUNCTION ea2_opf(int, int);",
+            ),
+            (
+                "CREATE FUNCTION ea2_amb(x int)",
+                "DROP FUNCTION ea2_amb(int);",
+            ),
+            (
+                "CREATE FUNCTION ea2_amb(x real)",
+                "DROP FUNCTION ea2_amb(real);",
+            ),
             ("CREATE PROCEDURE ea2_pr1(", "DROP PROCEDURE ea2_pr1();"),
             ("CREATE PROCEDURE ea2_pr2(", "DROP PROCEDURE ea2_pr2();"),
-            ("CREATE TEXT SEARCH DICTIONARY ea2_d (template = simple);", "DROP TEXT SEARCH DICTIONARY ea2_d;"),
-            ("CREATE TEXT SEARCH CONFIGURATION ea2_c (copy = english);", "DROP TEXT SEARCH CONFIGURATION ea2_c;"),
+            (
+                "CREATE TEXT SEARCH DICTIONARY ea2_d (template = simple);",
+                "DROP TEXT SEARCH DICTIONARY ea2_d;",
+            ),
+            (
+                "CREATE TEXT SEARCH CONFIGURATION ea2_c (copy = english);",
+                "DROP TEXT SEARCH CONFIGURATION ea2_c;",
+            ),
             ("CREATE TABLE ea2_totoast ", "DROP TABLE ea2_totoast;"),
             ("CREATE ROLE ea2_owner;", "DROP ROLE ea2_owner;"),
             ("CREATE ROLE ea2_grantee;", "DROP ROLE ea2_grantee;"),
@@ -1342,12 +1357,24 @@ mod tests {
             ("CREATE FUNCTION ea2_tgf(", "DROP FUNCTION ea2_tgf();"),
             ("CREATE FUNCTION ea2_plain(", "DROP FUNCTION ea2_plain();"),
             ("CREATE VIEW ea2_v ", "DROP VIEW ea2_v;"),
-            ("CREATE FUNCTION ea2_mr(", "DROP FUNCTION ea2_mr(anymultirange);"),
-            ("CREATE FUNCTION ea2_mr2(", "DROP FUNCTION ea2_mr2(anyrange, anymultirange);"),
-            ("CREATE FUNCTION ea2_cr(", "DROP FUNCTION ea2_cr(anycompatiblerange, anycompatible);"),
+            (
+                "CREATE FUNCTION ea2_mr(",
+                "DROP FUNCTION ea2_mr(anymultirange);",
+            ),
+            (
+                "CREATE FUNCTION ea2_mr2(",
+                "DROP FUNCTION ea2_mr2(anyrange, anymultirange);",
+            ),
+            (
+                "CREATE FUNCTION ea2_cr(",
+                "DROP FUNCTION ea2_cr(anycompatiblerange, anycompatible);",
+            ),
             ("CREATE TYPE ea2_ren AS ", "DROP TYPE ea2_ren;"),
             ("CREATE OPERATOR =>= ", "DROP OPERATOR =>= (int, int);"),
-            ("CREATE DEFAULT CONVERSION ea2_conv2 ", "DROP CONVERSION ea2_conv2;"),
+            (
+                "CREATE DEFAULT CONVERSION ea2_conv2 ",
+                "DROP CONVERSION ea2_conv2;",
+            ),
             ("SELECT * INTO ea2_into ", "DROP TABLE ea2_into;"),
             ("CREATE INDEX ea2_ffi ", "DROP INDEX ea2_ffi;"),
             // wave-2 (earm2b) fixtures
@@ -1358,9 +1385,18 @@ mod tests {
             ("CREATE ROLE ea2b_r4 ", "DROP ROLE ea2b_r4;"),
             ("CREATE USER ea2b_r6;", "DROP ROLE ea2b_r6b;"),
             ("CREATE TABLE ea2b_at ", "DROP TABLE ea2b_at;"),
-            ("CREATE FOREIGN DATA WRAPPER ea2b_fdw;", "DROP FOREIGN DATA WRAPPER ea2b_fdw;"),
-            ("CREATE PUBLICATION ea2b_cpub;", "DROP PUBLICATION ea2b_cpub;"),
-            ("CREATE EVENT TRIGGER ea2b_evt ", "DROP EVENT TRIGGER ea2b_evt;"),
+            (
+                "CREATE FOREIGN DATA WRAPPER ea2b_fdw;",
+                "DROP FOREIGN DATA WRAPPER ea2b_fdw;",
+            ),
+            (
+                "CREATE PUBLICATION ea2b_cpub;",
+                "DROP PUBLICATION ea2b_cpub;",
+            ),
+            (
+                "CREATE EVENT TRIGGER ea2b_evt ",
+                "DROP EVENT TRIGGER ea2b_evt;",
+            ),
             ("SELECT lo_create(424242);", "SELECT lo_unlink(424242);"),
             ("CREATE TYPE ea2b_bt;", "DROP TYPE ea2b_bt CASCADE;"),
             ("CREATE TABLE ea2b_p1 ", "DROP TABLE ea2b_p1;"),
@@ -1370,9 +1406,18 @@ mod tests {
             ("CREATE TABLE ea2b_it ", "DROP TABLE ea2b_it;"),
             ("CREATE TABLE ea2b_other ", "DROP TABLE ea2b_other;"),
             ("CREATE TABLE ea2b_pt ", "DROP TABLE ea2b_pt;"),
-            ("CREATE AGGREGATE ea2b_ag1(", "DROP AGGREGATE ea2b_ag1(int);"),
-            ("CREATE AGGREGATE ea2b_ag2(", "DROP AGGREGATE ea2b_ag2(numeric);"),
-            ("CREATE FUNCTION ea2b_pe(", "DROP FUNCTION ea2b_pe(anyelement, anyelement);"),
+            (
+                "CREATE AGGREGATE ea2b_ag1(",
+                "DROP AGGREGATE ea2b_ag1(int);",
+            ),
+            (
+                "CREATE AGGREGATE ea2b_ag2(",
+                "DROP AGGREGATE ea2b_ag2(numeric);",
+            ),
+            (
+                "CREATE FUNCTION ea2b_pe(",
+                "DROP FUNCTION ea2b_pe(anyelement, anyelement);",
+            ),
         ];
         for group in gen_groups(0xf18, 200) {
             let joined = group.join("\n");
@@ -1405,10 +1450,16 @@ mod tests {
                 );
             }
             if group.iter().any(|s| s.starts_with("SET search_path")) {
-                assert!(joined.contains("RESET search_path;"), "search_path not reset");
+                assert!(
+                    joined.contains("RESET search_path;"),
+                    "search_path not reset"
+                );
             }
             if group.iter().any(|s| s.starts_with("SET client_encoding")) {
-                assert!(joined.contains("RESET client_encoding;"), "client_encoding not reset");
+                assert!(
+                    joined.contains("RESET client_encoding;"),
+                    "client_encoding not reset"
+                );
             }
         }
     }

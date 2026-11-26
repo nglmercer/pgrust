@@ -2,8 +2,8 @@
 //! result region per lane and the raise stash; the programs and cells outlive the IR with the `Program` (`Descs::owner`).
 #![allow(unsafe_code)]
 
-use gravity_abi::{word, PtrWord, Word};
 use core::any::Any;
+use gravity_abi::{word, PtrWord, Word};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -13,15 +13,14 @@ use gravity_expr::nodes::func::How;
 use gravity_expr::nodes::hostcall::{self, HostCall};
 use gravity_expr::percode::CodeCol;
 use gravity_expr::Compiled;
+use gravity_ir::builder::{FunctionBuilder, ProgramBuilder};
 use types_core::fmgr::AggFnArgTypes;
 use types_core::Oid;
-use gravity_ir::builder::{FunctionBuilder, ProgramBuilder};
 
 use gravity_abi::ctx::hdr;
 use gravity_abi::program::prog;
 use gravity_ir::{ConvOp, HostFlags, HostFn, IntCond, Type, Value};
 use mcx::{reserved_in, GrowIn, Mcx, PgVec, PinnedContext};
-
 
 /// A compiled expression and its parameter words: `places[i]` is where need `needs[i]` reads (`WordPlan`).
 pub struct Ex<'p> {
@@ -39,7 +38,10 @@ pub struct Ex<'p> {
     /// D3033: its operands over literals and nest parameters alone (`frame/hoist.rs` `late_roots`, decided where it is
     /// placed): computed once at its hoist scope, not per row, under the held-error licence (construct C2: a raise is
     /// held until a row reaches the operand).
-    pub late: Option<(gravity_decompose::effects::Licence, Vec<gravity_expr::NodeId>)>,
+    pub late: Option<(
+        gravity_decompose::effects::Licence,
+        Vec<gravity_expr::NodeId>,
+    )>,
 }
 
 const BASE_BYTES: usize = 64 << 10; // D848: a lane's result region's base, uninitialized (was 8 MiB zeroed); spills from 16 x
@@ -52,11 +54,16 @@ const _: () = assert!(SPILL_MAX == (1 << 30) + (1 << 20));
 use crate::rep::INTERNALOID;
 
 pub fn refused(c: &Compiled<'_>) -> Option<(&'static str, HostCall)> {
-    for s in c.prog.sites.iter().filter(|s| !gravity_expr::emit::prim::is_prim(&c.prog, s, false)) {
+    for s in c
+        .prog
+        .sites
+        .iter()
+        .filter(|s| !gravity_expr::emit::prim::is_prim(&c.prog, s, false))
+    {
         let h = hostcall::of(s);
         if let How::Fmgr(ix) = s.how {
             let f = &c.state.call_facts[ix as usize];
-            if f.node_arg && f.argtypes.contains(& INTERNALOID) {
+            if f.node_arg && f.argtypes.contains(&INTERNALOID) {
                 return Some(("an internal-typed argument to a polymorphic call", h));
             }
         }
@@ -116,7 +123,8 @@ pub fn adopt(owner: &dyn Any, o: memledger::Owner) {
 }
 
 /// The program caches' memory account (gravity_backend `cache::PROGRAM_CACHES`).
-const PROGRAM_CACHES: memledger::Owner = memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::ProgramCaches));
+const PROGRAM_CACHES: memledger::Owner =
+    memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::ProgramCaches));
 
 /// planprod P6: the process-wide tier holds a program filed without its owner (exec admit, beside the program's own
 /// `file_on_ledger`): its template's root (`template`) is the program caches' from now until its last drop, on whichever
@@ -147,8 +155,15 @@ struct Hold {
 /// (`make_template`), whose root `adopt` re-owns; a rebuilt owner (`rebuild`) shares one another owner made.
 enum Progs {
     /// The programs, and why no template stands for them (`shared_descs`).
-    Own(#[allow(dead_code)] PgVec<'static, gravity_expr::HostedCompiled>, &'static str),
-    Tpl(std::sync::Arc<dyn Any + Send + Sync>, #[allow(dead_code)] Vec<gravity_expr::State>, bool),
+    Own(
+        #[allow(dead_code)] PgVec<'static, gravity_expr::HostedCompiled>,
+        &'static str,
+    ),
+    Tpl(
+        std::sync::Arc<dyn Any + Send + Sync>,
+        #[allow(dead_code)] Vec<gravity_expr::State>,
+        bool,
+    ),
 }
 
 // the template's `Send + Sync` claim (lint R6)
@@ -200,7 +215,22 @@ impl Lane {
     /// A lane no worker has entered: `h_enter` arms it at its first entry (`arm_lane`).
     #[allow(dead_code)]
     fn idle() -> Lane {
-        Lane { cells: word(core::ptr::null_mut()), region: word(core::ptr::null_mut()), region_end: word(core::ptr::null_mut()), states: word(core::ptr::null_mut()), n: 0, hold: None, ctx: word(core::ptr::null_mut()), spills: NO_SPILLS, gen: 0, cat: gravity_deps::Opaque::NONE, track: NO_TRACK, big_slot: 0, big_cur: 0, big_end: 0 }
+        Lane {
+            cells: word(core::ptr::null_mut()),
+            region: word(core::ptr::null_mut()),
+            region_end: word(core::ptr::null_mut()),
+            states: word(core::ptr::null_mut()),
+            n: 0,
+            hold: None,
+            ctx: word(core::ptr::null_mut()),
+            spills: NO_SPILLS,
+            gen: 0,
+            cat: gravity_deps::Opaque::NONE,
+            track: NO_TRACK,
+            big_slot: 0,
+            big_cur: 0,
+            big_end: 0,
+        }
     }
 }
 
@@ -223,7 +253,11 @@ struct Chunk {
     owner: usize,
 }
 
-const NO_SPILLS: Spills = Spills { epoch: 0, last: 0, chunks: Vec::new() };
+const NO_SPILLS: Spills = Spills {
+    epoch: 0,
+    last: 0,
+    chunks: Vec::new(),
+};
 
 /// A lane past 0's own state (`arm_lane`): its twin states, their cells and its result region in the lane's root
 /// ('GravityHostedLane', `raw::owned_root`), owned at birth by its owner's holder (`Owner::holder`). The function-manager
@@ -242,7 +276,10 @@ struct LaneHold {
 /// One lane per worker ordinal the driver hands out: the workers' (below `MAX_WIDTH` + 1) and, on top, the nested lanes
 /// (M8, D1036); the table follows the driver's ordinal space, not a count of its own (CAP-18).
 const LANES: usize = gravity_driver::NESTED_LANE_TOP as usize + 1;
-const _: () = assert!(gravity_driver::MAX_WIDTH < gravity_driver::NESTED_LANE_FIRST && gravity_driver::NESTED_LANES < gravity_driver::NESTED_LANE_TOP);
+const _: () = assert!(
+    gravity_driver::MAX_WIDTH < gravity_driver::NESTED_LANE_FIRST
+        && gravity_driver::NESTED_LANES < gravity_driver::NESTED_LANE_TOP
+);
 const L_CELLS: i32 = core::mem::offset_of!(Lane, cells) as i32;
 const L_REGION: i32 = core::mem::offset_of!(Lane, region) as i32;
 const L_REGION_END: i32 = core::mem::offset_of!(Lane, region_end) as i32;
@@ -282,9 +319,17 @@ impl<'m> Hosted<'m> {
 
     /// `new_over` whose last `nbodies` expressions are per-code bodies the program sweeps itself (lowerv2 text/codes.rs): a
     /// hosted site in one of them is called once per dictionary entry from the program, so it needs the cells too.
-    pub fn new_over_bodies(exs: &mut [&mut Ex<'_>], codes: &[CodeCol], nbodies: usize, scratch: Mcx<'m>) -> Hosted<'m> {
+    pub fn new_over_bodies(
+        exs: &mut [&mut Ex<'_>],
+        codes: &[CodeCol],
+        nbodies: usize,
+        scratch: Mcx<'m>,
+    ) -> Hosted<'m> {
         let n = exs.len() - nbodies;
-        let any = exs[..n].iter().any(|e| e.c.host_calls() > 0 && !e.c.percode_whole(codes, scratch)) || exs[n..].iter().any(|e| e.c.host_calls() > 0);
+        let any = exs[..n]
+            .iter()
+            .any(|e| e.c.host_calls() > 0 && !e.c.percode_whole(codes, scratch))
+            || exs[n..].iter().any(|e| e.c.host_calls() > 0);
         Self::build(exs, any, scratch)
     }
 
@@ -299,11 +344,24 @@ impl<'m> Hosted<'m> {
         if any {
             for (i, e) in exs.iter_mut().enumerate() {
                 map.push((e.c.prog.sites.as_ptr() as usize, i));
-                sig.extend(e.c.prog.sites.iter().flat_map(|s| [s.funcid, s.collation, s.nargs as u32]));
+                sig.extend(
+                    e.c.prog
+                        .sites
+                        .iter()
+                        .flat_map(|s| [s.funcid, s.collation, s.nargs as u32]),
+                );
                 sig.push(u32::MAX);
-                for s in e.c.prog.sites.iter().filter(|s| gravity_decompose::effects::user_code(s.funcid)) {
+                for s in
+                    e.c.prog
+                        .sites
+                        .iter()
+                        .filter(|s| gravity_decompose::effects::user_code(s.funcid))
+                {
                     if let Ok(Some((xmin, tid))) = fmgr_core::proc_stamp(s.funcid) {
-                        let st = stamp_words(xmin, (tid.ip_blkid.bi_hi, tid.ip_blkid.bi_lo, tid.ip_posid));
+                        let st = stamp_words(
+                            xmin,
+                            (tid.ip_blkid.bi_hi, tid.ip_blkid.bi_lo, tid.ip_posid),
+                        );
                         sig.extend(st.into_iter().chain([u32::MAX - 4]));
                         stamps.push((s.funcid, st));
                     }
@@ -329,7 +387,9 @@ impl<'m> Hosted<'m> {
                                 // types are: the IR binds the encoding name as a word, so `convert_to(t, 'WIN1252')`
                                 // after `convert_to(t, 'LATIN1')` is the same IR and must be another program
                                 if gravity_fn::pool_catalog::converts(s.funcid) {
-                                    r.convs().iter().for_each(|&(a, b)| sig.extend([a as u32, b as u32]));
+                                    r.convs()
+                                        .iter()
+                                        .for_each(|&(a, b)| sig.extend([a as u32, b as u32]));
                                     sig.push(u32::MAX - 5);
                                 }
                                 catalog.add(&r);
@@ -353,9 +413,24 @@ impl<'m> Hosted<'m> {
         }
         let lazy = any && !exs.is_empty() && exs.iter().all(|e| byval_only(&e.c));
         let base = any && !lazy;
-        let fmgr: Rc<[bool]> = states.iter().map(|s: &EmitState<'_>| s.heads().any(|c| !c.fmgr.ptr().is_null())).collect(); // alloc: Program
+        let fmgr: Rc<[bool]> = states
+            .iter()
+            .map(|s: &EmitState<'_>| s.heads().any(|c| !c.fmgr.ptr().is_null()))
+            .collect(); // alloc: Program
         let windows = fmgr.iter().any(|&f| f); // a function-manager window somewhere: the per-row / per-push reset is emitted only then (lane F1F3)
-        Hosted { states, base, argtypes, map, sig, stamps, any, lazy, windows, fmgr, catalog }
+        Hosted {
+            states,
+            base,
+            argtypes,
+            map,
+            sig,
+            stamps,
+            any,
+            lazy,
+            windows,
+            fmgr,
+            catalog,
+        }
     }
 
     pub fn any(&self) -> bool {
@@ -363,15 +438,58 @@ impl<'m> Hosted<'m> {
     }
 
     pub fn declare(&self, pb: &mut ProgramBuilder) -> Ir {
-        let flags = HostFlags { touches_memory: true, ..HostFlags::default() };
+        let flags = HostFlags {
+            touches_memory: true,
+            ..HostFlags::default()
+        };
         let (raise_h, enter_h, reset_h) = if self.any {
-            (Some(pb.declare_host("hosted_raise", &[Type::Ptr], Some(Type::I64), h_raise as *const () as usize, flags)), Some(pb.declare_host("hosted_enter", &[Type::Ptr, Type::I64, Type::Ptr, Type::Ptr], Some(Type::Ptr), h_enter as *const () as usize, flags)), if self.windows { Some(pb.declare_host("hosted_reset", &[Type::Ptr], Some(Type::I64), h_reset as *const () as usize, flags)) } else { None })
+            (
+                Some(pb.declare_host(
+                    "hosted_raise",
+                    &[Type::Ptr],
+                    Some(Type::I64),
+                    h_raise as *const () as usize,
+                    flags,
+                )),
+                Some(pb.declare_host(
+                    "hosted_enter",
+                    &[Type::Ptr, Type::I64, Type::Ptr, Type::Ptr],
+                    Some(Type::Ptr),
+                    h_enter as *const () as usize,
+                    flags,
+                )),
+                if self.windows {
+                    Some(pb.declare_host(
+                        "hosted_reset",
+                        &[Type::Ptr],
+                        Some(Type::I64),
+                        h_reset as *const () as usize,
+                        flags,
+                    ))
+                } else {
+                    None
+                },
+            )
         } else {
             (None, None, None)
         };
         // without windows every entry is false: `get(i).unwrap_or(false)` reads the same
         let fmgr = self.fmgr.clone(); // alloc: Program
-        Ir { raise_h, enter_h, reset_h, map: self.map.clone(), fmgr, seen: RefCell::new(Vec::new()), owner: None, slot: None, base: None, end: None, lane: None, cells: None, refd: core::cell::Cell::new(0) } // alloc: Program
+        Ir {
+            raise_h,
+            enter_h,
+            reset_h,
+            map: self.map.clone(),
+            fmgr,
+            seen: RefCell::new(Vec::new()),
+            owner: None,
+            slot: None,
+            base: None,
+            end: None,
+            lane: None,
+            cells: None,
+            refd: core::cell::Cell::new(0),
+        } // alloc: Program
     }
 
     /// After the IR: the programs move out of their `Ex` and the state is boxed for the `Program`; the owner also holds
@@ -380,7 +498,13 @@ impl<'m> Hosted<'m> {
     /// are its children), else a new one (`hosted_root`). memsig E-prog: `lists` is the root the programs' lists were
     /// built in (`Px::lists_root`, the statement's): the filing compacts each list into the holder's root (a template's
     /// or the owner's product root, `Program::into_hosted`), and `lists` drops after, with none of the growth's slack.
-    pub fn finish_keeping<'p>(self, exs: impl IntoIterator<Item = Ex<'p>>, keep: Option<Box<dyn Any>>, root: Option<PinnedContext>, lists: Option<mcx::SendRoot>) -> Option<(Rc<dyn Any>, Vec<u32>)> {
+    pub fn finish_keeping<'p>(
+        self,
+        exs: impl IntoIterator<Item = Ex<'p>>,
+        keep: Option<Box<dyn Any>>,
+        root: Option<PinnedContext>,
+        lists: Option<mcx::SendRoot>,
+    ) -> Option<(Rc<dyn Any>, Vec<u32>)> {
         // an owner that keeps anything is always an `Owner`, so `kept` reads it whatever sites the program has (V4R-101)
         if !self.any && keep.is_none() {
             // the programs (their lists in `lists`) drop first
@@ -394,7 +518,18 @@ impl<'m> Hosted<'m> {
         }
         let mut states = self.states;
         let (programs, root) = match shared_descs(&programs, keep.as_deref(), self.any) {
-            Ok(descs) => (make_template(raw::for_template(programs), &mut states, descs, self.stamps, self.any, self.lazy, &self.catalog), root),
+            Ok(descs) => (
+                make_template(
+                    raw::for_template(programs),
+                    &mut states,
+                    descs,
+                    self.stamps,
+                    self.any,
+                    self.lazy,
+                    &self.catalog,
+                ),
+                root,
+            ),
             // Each program's lists move into the owner's product root, the cells re-pointed at them
             Err(why) => {
                 let root = root.unwrap_or_else(hosted_root);
@@ -409,7 +544,19 @@ impl<'m> Hosted<'m> {
         };
         // memsig E-prog: every list is compacted out of the lowering's lists root: it drops now
         drop(lists);
-        Some((owner_of(states, programs, self.base, self.argtypes, keep, &self.catalog, self.lazy, root), self.sig))
+        Some((
+            owner_of(
+                states,
+                programs,
+                self.base,
+                self.argtypes,
+                keep,
+                &self.catalog,
+                self.lazy,
+                root,
+            ),
+            self.sig,
+        ))
     }
 }
 
@@ -420,14 +567,20 @@ impl<'m> Hosted<'m> {
 fn byval_only(c: &Compiled<'_>) -> bool {
     c.prog.sites.iter().all(|s| match s.how {
         How::Shim { byref, .. } => !byref,
-        How::Fmgr(_) => gravity_fn::typesem::storage::len_byval(s.rettype).is_ok_and(|(_, byval)| byval),
+        How::Fmgr(_) => {
+            gravity_fn::typesem::storage::len_byval(s.rettype).is_ok_and(|(_, byval)| byval)
+        }
         How::Island { .. } => false,
     })
 }
 
 /// A function-manager call's carrier (C `fmgr_info_set_expr` over the calling node): its argument and result types, kept in
 /// `argtypes` with the owner.
-fn carrier(call: &mut gravity_fn::FmgrCall, f: &gravity_expr::catalog::CallFacts, argtypes: &mut Vec<Box<[Oid]>>) {
+fn carrier(
+    call: &mut gravity_fn::FmgrCall,
+    f: &gravity_expr::catalog::CallFacts,
+    argtypes: &mut Vec<Box<[Oid]>>,
+) {
     let types: Box<[Oid]> = f.argtypes.clone().into_boxed_slice();
     // SAFETY: the box lives in the owner, with the program, longer than the call that reads it.
     let slice = unsafe { core::mem::transmute::<&[Oid], &'static [Oid]>(&types[..]) };
@@ -435,11 +588,20 @@ fn carrier(call: &mut gravity_fn::FmgrCall, f: &gravity_expr::catalog::CallFacts
     // the call's collation is its input collation (C ExecInitFunc hands `inputcollid` to the call), what
     // `exprInputCollation` gives funcapi's polymorphic OUT columns
     let inputcollid = call.collation();
-    call.set_fn_expr(AggFnArgTypes { rettype: f.rettype, argtypes: slice, variadic: f.variadic, stable: f.stable, inputcollid });
+    call.set_fn_expr(AggFnArgTypes {
+        rettype: f.rettype,
+        argtypes: slice,
+        variadic: f.variadic,
+        stable: f.stable,
+        inputcollid,
+    });
 }
 
 /// A user function's pg_proc row stamp as the sig keys it.
-fn stamp_words(xmin: types_core::TransactionId, (bi_hi, bi_lo, posid): (u16, u16, u16)) -> [u32; 3] {
+fn stamp_words(
+    xmin: types_core::TransactionId,
+    (bi_hi, bi_lo, posid): (u16, u16, u16),
+) -> [u32; 3] {
     [xmin, (bi_hi as u32) << 16 | bi_lo as u32, posid as u32]
 }
 
@@ -448,9 +610,18 @@ fn stamp_words(xmin: types_core::TransactionId, (bi_hi, bi_lo, posid): (u16, u16
 /// descriptor (`descs`) (their state is the backend's or points into the plan), byte images (`data`, `Px::data`), or an
 /// owned object other than an IN-list descriptor (`owned*`: `owned_why`, `keep`) keeps the program its backend's; so does a call
 /// `Hosted::build` gave no carrier (`calls`: no hosted site of the owner reaches it, `any` false).
-fn shared_descs(programs: &[Compiled<'_>], keep: Option<&dyn Any>, any: bool) -> Result<Vec<std::sync::Arc<crate::step::raw::saop_host::Desc>>, &'static str> {
+fn shared_descs(
+    programs: &[Compiled<'_>],
+    keep: Option<&dyn Any>,
+    any: bool,
+) -> Result<Vec<std::sync::Arc<crate::step::raw::saop_host::Desc>>, &'static str> {
     let why = |c: &Compiled<'_>| {
-        if !c.prog.islands.is_empty() || c.prog.sites.iter().any(|s| matches!(s.how, How::Island { .. })) {
+        if !c.prog.islands.is_empty()
+            || c.prog
+                .sites
+                .iter()
+                .any(|s| matches!(s.how, How::Island { .. }))
+        {
             Some("island")
         } else if !c.prog.json_vars.is_empty() || !c.state.json.is_empty() {
             Some("json")
@@ -466,18 +637,30 @@ fn shared_descs(programs: &[Compiled<'_>], keep: Option<&dyn Any>, any: bool) ->
         return Err(w);
     }
     let Some(k) = keep else { return Ok(Vec::new()) };
-    let (data, owned) = k.downcast_ref::<(Vec<Box<[u8]>>, Vec<Box<dyn Any>>)>().ok_or("keep")?;
+    let (data, owned) = k
+        .downcast_ref::<(Vec<Box<[u8]>>, Vec<Box<dyn Any>>)>()
+        .ok_or("keep")?;
     if !data.is_empty() {
         return Err("data");
     }
-    owned.iter().map(|o| o.downcast_ref::<std::sync::Arc<crate::step::raw::saop_host::Desc>>().cloned()).collect::<Option<_>>().ok_or_else(|| owned_why(owned))
+    owned
+        .iter()
+        .map(|o| {
+            o.downcast_ref::<std::sync::Arc<crate::step::raw::saop_host::Desc>>()
+                .cloned()
+        })
+        .collect::<Option<_>>()
+        .ok_or_else(|| owned_why(owned))
 }
 
 /// Which owned object keeps an owner its backend's (`shared_descs`): a program context (`Px::program_cx`) by its name,
 /// whose nodes point into the statement's plan (`owned.mergejoin`: the markable merge join's compare calls over the
 /// clauses' plan arguments; `owned.wholerow`: a whole-row record's), else `owned`.
 fn owned_why(owned: &[Box<dyn Any>]) -> &'static str {
-    let cx = owned.iter().filter(|o| !o.is::<std::sync::Arc<crate::step::raw::saop_host::Desc>>()).find_map(|o| o.downcast_ref::<mcx::MemoryContext>());
+    let cx = owned
+        .iter()
+        .filter(|o| !o.is::<std::sync::Arc<crate::step::raw::saop_host::Desc>>())
+        .find_map(|o| o.downcast_ref::<mcx::MemoryContext>());
     match cx.map(mcx::MemoryContext::name) {
         Some("merge.join compares") => "owned.mergejoin",
         Some("expr.wholerow record") => "owned.wholerow",
@@ -489,7 +672,7 @@ fn owned_why(owned: &[Box<dyn Any>]) -> &'static str {
 /// does, `kind` for an owner of another kind.
 pub fn private_why(owner: &dyn Any) -> &'static str {
     match owner.downcast_ref::<Owner>().map(|o| &o.hold.programs) {
-        Some(Progs::Own(_, why)) =>why,
+        Some(Progs::Own(_, why)) => why,
         Some(Progs::Tpl(..)) => "",
         None => "kind",
     }
@@ -498,18 +681,47 @@ pub fn private_why(owner: &dyn Any) -> &'static str {
 /// D3438: the owner's programs as a template's (`HostTpl`), with each one's state this backend's. planprod P6: the
 /// programs' lists move into the template's root, and the owner's `cells` (built over them where they were) are re-pointed
 /// there; no template program has an island (`shared_descs`).
-fn make_template(programs: Vec<Compiled<'static>>, cells: &mut [EmitState<'_>], descs: Vec<std::sync::Arc<crate::step::raw::saop_host::Desc>>, stamps: Vec<(Oid, [u32; 3])>, any: bool, lazy: bool, catalog: &gravity_fn::pool_catalog::Reach<'_>) -> Progs {
-    let (mut progs, mut states, mut calls) = (Vec::with_capacity(programs.len()), Vec::with_capacity(programs.len()), Vec::with_capacity(programs.len())); // alloc: Program
+fn make_template(
+    programs: Vec<Compiled<'static>>,
+    cells: &mut [EmitState<'_>],
+    descs: Vec<std::sync::Arc<crate::step::raw::saop_host::Desc>>,
+    stamps: Vec<(Oid, [u32; 3])>,
+    any: bool,
+    lazy: bool,
+    catalog: &gravity_fn::pool_catalog::Reach<'_>,
+) -> Progs {
+    let (mut progs, mut states, mut calls) = (
+        Vec::with_capacity(programs.len()),
+        Vec::with_capacity(programs.len()),
+        Vec::with_capacity(programs.len()),
+    ); // alloc: Program
     let mut bytes = core::mem::size_of::<HostTpl>();
     for c in programs {
         let Compiled { prog, state, .. } = c;
         bytes += prog_bytes(&prog) + state.calls.len() * core::mem::size_of::<TplCall>();
-        calls.push(state.calls.iter().zip(state.call_facts.iter()).map(|(k, f)| TplCall { funcid: k.oid(), nargs: k.nargs(), collation: k.collation(), facts: f.clone(), tracked: k.tracked() }).collect()); // alloc: Program
+        calls.push(
+            state
+                .calls
+                .iter()
+                .zip(state.call_facts.iter())
+                .map(|(k, f)| TplCall {
+                    funcid: k.oid(),
+                    nargs: k.nargs(),
+                    collation: k.collation(),
+                    facts: f.clone(),
+                    tracked: k.tracked(),
+                })
+                .collect(),
+        ); // alloc: Program
         progs.push(prog);
         states.push(state);
     }
     let tpl = HostTpl::new(progs, calls, stamps, any, lazy, catalog, descs, bytes);
-    for ((s, p), st) in cells.iter_mut().zip(tpl.progs.iter()).zip(states.iter_mut()) {
+    for ((s, p), st) in cells
+        .iter_mut()
+        .zip(tpl.progs.iter())
+        .zip(states.iter_mut())
+    {
         s.rebind_to(p, st);
     }
     Progs::Tpl(std::sync::Arc::new(tpl), states, true) // alloc: Program
@@ -518,7 +730,13 @@ fn make_template(programs: Vec<Compiled<'static>>, cells: &mut [EmitState<'_>], 
 /// A compiled program's heap bytes (a template's share of the process-wide tier's bound).
 fn prog_bytes(p: &gravity_expr::Program<'_>) -> usize {
     use core::mem::size_of;
-    p.nodes.capacity() * size_of::<gravity_expr::ExprNode<'_>>() + p.kids.capacity() * size_of::<gravity_expr::NodeId>() + p.sites.capacity() * size_of::<gravity_expr::nodes::func::Call>() + p.convs.capacity() * size_of::<gravity_expr::nodes::func::ArgConv>() + p.names.iter().map(|n| n.len() + 16).sum::<usize>() + p.oids.capacity() * 4 + p.owned.iter().map(|o| o.capacity() + 24).sum::<usize>()
+    p.nodes.capacity() * size_of::<gravity_expr::ExprNode<'_>>()
+        + p.kids.capacity() * size_of::<gravity_expr::NodeId>()
+        + p.sites.capacity() * size_of::<gravity_expr::nodes::func::Call>()
+        + p.convs.capacity() * size_of::<gravity_expr::nodes::func::ArgConv>()
+        + p.names.iter().map(|n| n.len() + 16).sum::<usize>()
+        + p.oids.capacity() * 4
+        + p.owned.iter().map(|o| o.capacity() + 24).sum::<usize>()
 }
 
 /// The owner over `states` (their cells), lane 0 armed on `region`. D3620: `lazy` (no site writes into the region, and
@@ -526,7 +744,16 @@ fn prog_bytes(p: &gravity_expr::Program<'_>) -> usize {
 /// that does reach it (a misjudged site) spills into a chunk drawn from the statement's grant (`spill`, starting at
 /// `BASE_BYTES`), and the owner holds no 64 KiB base (one resident page each; every level of a deep SQL-function
 /// recursion holds its owner).
-fn owner_of(states: Vec<EmitState<'_>>, programs: Progs, base: bool, argtypes: Vec<Box<[Oid]>>, keep: Option<Box<dyn Any>>, catalog: &gravity_fn::pool_catalog::Reach<'_>, lazy: bool, root: Option<PinnedContext>) -> Rc<dyn Any> {
+fn owner_of(
+    states: Vec<EmitState<'_>>,
+    programs: Progs,
+    base: bool,
+    argtypes: Vec<Box<[Oid]>>,
+    keep: Option<Box<dyn Any>>,
+    catalog: &gravity_fn::pool_catalog::Reach<'_>,
+    lazy: bool,
+    root: Option<PinnedContext>,
+) -> Rc<dyn Any> {
     let root = root.unwrap_or_else(hosted_root);
     let m = raw::product_mcx(&root);
     let mut st = reserved_in(states.len(), m);
@@ -537,12 +764,48 @@ fn owner_of(states: Vec<EmitState<'_>>, programs: Progs, base: bool, argtypes: V
     types.extend_in(argtypes);
     let catalog = catalog.clone_in(m);
     let region = raw::region_in(if base { BASE_BYTES } else { 0 }, m);
-    let mut hold = Hold { states: st, programs, region, argtypes: types, cells, keep, catalog };
-    let (rb, re) = (hold.region.as_mut_ptr().cast::<u8>(), hold.region.as_mut_ptr_range().end.cast::<u8>());
-    let first = Lane { cells: word(hold.cells.as_ptr() as *mut Word<*mut Cell>), region: word(rb), region_end: word(re), states: word(hold.states.as_mut_ptr()), n: hold.states.len() as u64, hold: None, ctx: word(core::ptr::null_mut()), spills: NO_SPILLS, gen: 0, cat: gravity_deps::Opaque::NONE, track: NO_TRACK, big_slot: 0, big_cur: 0, big_end: 0 };
+    let mut hold = Hold {
+        states: st,
+        programs,
+        region,
+        argtypes: types,
+        cells,
+        keep,
+        catalog,
+    };
+    let (rb, re) = (
+        hold.region.as_mut_ptr().cast::<u8>(),
+        hold.region.as_mut_ptr_range().end.cast::<u8>(),
+    );
+    let first = Lane {
+        cells: word(hold.cells.as_ptr() as *mut Word<*mut Cell>),
+        region: word(rb),
+        region_end: word(re),
+        states: word(hold.states.as_mut_ptr()),
+        n: hold.states.len() as u64,
+        hold: None,
+        ctx: word(core::ptr::null_mut()),
+        spills: NO_SPILLS,
+        gen: 0,
+        cat: gravity_deps::Opaque::NONE,
+        track: NO_TRACK,
+        big_slot: 0,
+        big_cur: 0,
+        big_end: 0,
+    };
     // the owner `hosted_root` gave the root: the running statement's, on this (the lowering's) thread
     let holder = core::cell::Cell::new(memledger::charge::statement_owner());
-    let mut owner = Owner { cells: word(hold.cells.as_ptr() as *mut Word<*mut Cell>), region: word(rb), region_end: word(re), states: word(hold.states.as_mut_ptr()), n: hold.states.len() as u64, hold, lanes: Lanes::new(first, m), holder, root };
+    let mut owner = Owner {
+        cells: word(hold.cells.as_ptr() as *mut Word<*mut Cell>),
+        region: word(rb),
+        region_end: word(re),
+        states: word(hold.states.as_mut_ptr()),
+        n: hold.states.len() as u64,
+        hold,
+        lanes: Lanes::new(first, m),
+        holder,
+        root,
+    };
     if lazy && rb == re {
         // the lane is boxed: its address holds for the owner's life
         let lane = &mut *owner.lanes.first;
@@ -573,7 +836,9 @@ pub fn template_bytes(t: &(dyn Any + Send + Sync)) -> usize {
 }
 
 /// `catalog_reach` of a program filed without its owner, from its template (D3438).
-pub fn template_reach(t: &(dyn Any + Send + Sync)) -> Option<&gravity_fn::pool_catalog::Reach<'static>> {
+pub fn template_reach(
+    t: &(dyn Any + Send + Sync),
+) -> Option<&gravity_fn::pool_catalog::Reach<'static>> {
     t.downcast_ref::<HostTpl>().map(|t| &t.catalog)
 }
 
@@ -585,13 +850,19 @@ pub fn rebuild(tpl: &std::sync::Arc<dyn Any + Send + Sync>) -> Option<Rc<dyn Any
     let t = tpl.downcast_ref::<HostTpl>()?;
     for &(f, st) in t.stamps.iter() {
         match fmgr_core::proc_stamp(f) {
-            Ok(Some((xmin, tid))) if stamp_words(xmin, (tid.ip_blkid.bi_hi, tid.ip_blkid.bi_lo, tid.ip_posid)) == st => {}
+            Ok(Some((xmin, tid)))
+                if stamp_words(xmin, (tid.ip_blkid.bi_hi, tid.ip_blkid.bi_lo, tid.ip_posid))
+                    == st => {}
             _ => return None,
         }
     }
     let scratch = mcx::MemoryContext::new_bump("GravityRebuild"); // the cells' first home: `owner_of` moves them into the owner's root
-    let (mut states, mut cstates, mut argtypes) = (Vec::with_capacity(t.progs.len()), Vec::with_capacity(t.progs.len()), Vec::new()); // alloc: Program
-    // as `Hosted::build`: cells only for a program with a hosted site (an owner of IN-list descriptors alone has none)
+    let (mut states, mut cstates, mut argtypes) = (
+        Vec::with_capacity(t.progs.len()),
+        Vec::with_capacity(t.progs.len()),
+        Vec::new(),
+    ); // alloc: Program
+       // as `Hosted::build`: cells only for a program with a hosted site (an owner of IN-list descriptors alone has none)
     for (prog, calls) in t.progs.iter().zip(t.calls.iter()).filter(|_| t.any) {
         let mut state = gravity_expr::State::empty();
         for c in calls.iter() {
@@ -606,8 +877,25 @@ pub fn rebuild(tpl: &std::sync::Arc<dyn Any + Send + Sync>) -> Option<Rc<dyn Any
         states.push(EmitState::of_hosted(prog, &mut state, scratch.mcx())); // alloc: Program
         cstates.push(state); // alloc: Program
     }
-    let keep = (!t.descs.is_empty()).then(|| Box::new((Vec::<Box<[u8]>>::new(), t.descs.iter().map(|d| Box::new(d.clone()) as Box<dyn Any>).collect::<Vec<_>>())) as Box<dyn Any>); // alloc: Program
-    Some(owner_of(states, Progs::Tpl(tpl.clone(), cstates, false), t.any && !t.lazy, argtypes, keep, &t.catalog, t.any && t.lazy, None))
+    let keep = (!t.descs.is_empty()).then(|| {
+        Box::new((
+            Vec::<Box<[u8]>>::new(),
+            t.descs
+                .iter()
+                .map(|d| Box::new(d.clone()) as Box<dyn Any>)
+                .collect::<Vec<_>>(),
+        )) as Box<dyn Any>
+    }); // alloc: Program
+    Some(owner_of(
+        states,
+        Progs::Tpl(tpl.clone(), cstates, false),
+        t.any && !t.lazy,
+        argtypes,
+        keep,
+        &t.catalog,
+        t.any && t.lazy,
+        None,
+    ))
 }
 
 /// The first hosted site a pool thread cannot run (MH-plan §9.3 as corrected): an island, a function-manager site `pool_runs` does not
@@ -616,12 +904,36 @@ pub fn rebuild(tpl: &std::sync::Arc<dyn Any + Send + Sync>) -> Option<Rc<dyn Any
 /// A row-valued IS [NOT] NULL is one too, though its site is a synthetic shim (gravity_expr nodes/field.rs `ROW_NULL_SITE` reads the rowtype from the backend's typcache).
 /// So is a ConvertRowtypeExpr (D3542: nodes/tuple.rs `refreshed` re-reads both rowtypes there; on a pool thread the lookup
 /// raised "type with OID .. does not exist").
-pub fn pool_unsafe_site(c: &Compiled<'_>, parallel: &mut dyn FnMut(Oid) -> Option<u8>) -> Option<HostCall> {
-    c.prog.sites.iter().filter(|s| !gravity_expr::emit::prim::is_prim(&c.prog, s, false)).find(|s| !pool_runs(c, s) || gravity_decompose::effects::user_code(s.funcid) || (s.funcid != 0 && parallel(s.funcid) != Some(b's'))).map(hostcall::of).or_else(|| {
-        (gravity_expr::emit::scalar::row_tests(&c.prog) > 0).then_some(HostCall { oid: 0, name: "row null test", tier: gravity_fn::Tier::C, reason: "a row-valued IS [NOT] NULL (the rowtype from the backend's typcache)" })
-    }).or_else(|| {
-        (gravity_expr::emit::scalar::row_converts(&c.prog) > 0).then_some(HostCall { oid: 0, name: "row convert", tier: gravity_fn::Tier::C, reason: "a ConvertRowtypeExpr (both rowtypes re-read from the backend's typcache)" })
-    })
+pub fn pool_unsafe_site(
+    c: &Compiled<'_>,
+    parallel: &mut dyn FnMut(Oid) -> Option<u8>,
+) -> Option<HostCall> {
+    c.prog
+        .sites
+        .iter()
+        .filter(|s| !gravity_expr::emit::prim::is_prim(&c.prog, s, false))
+        .find(|s| {
+            !pool_runs(c, s)
+                || gravity_decompose::effects::user_code(s.funcid)
+                || (s.funcid != 0 && parallel(s.funcid) != Some(b's'))
+        })
+        .map(hostcall::of)
+        .or_else(|| {
+            (gravity_expr::emit::scalar::row_tests(&c.prog) > 0).then_some(HostCall {
+                oid: 0,
+                name: "row null test",
+                tier: gravity_fn::Tier::C,
+                reason: "a row-valued IS [NOT] NULL (the rowtype from the backend's typcache)",
+            })
+        })
+        .or_else(|| {
+            (gravity_expr::emit::scalar::row_converts(&c.prog) > 0).then_some(HostCall {
+                oid: 0,
+                name: "row convert",
+                tier: gravity_fn::Tier::C,
+                reason: "a ConvertRowtypeExpr (both rowtypes re-read from the backend's typcache)",
+            })
+        })
 }
 
 /// A site a pool thread can run: a shim (pure over its arguments and the claim's arm), or a function-manager site whose
@@ -634,7 +946,9 @@ pub fn pool_unsafe_site(c: &Compiled<'_>, parallel: &mut dyn FnMut(Oid) -> Optio
 fn pool_runs(c: &Compiled<'_>, s: &gravity_expr::nodes::func::Call) -> bool {
     match s.how {
         How::Shim { .. } => true,
-        How::Fmgr(ix) => gravity_fn::session::pool_hosted(s.funcid) || catalog_site(c, s, ix as usize).is_some(),
+        How::Fmgr(ix) => {
+            gravity_fn::session::pool_hosted(s.funcid) || catalog_site(c, s, ix as usize).is_some()
+        }
         How::Island { .. } => false,
     }
 }
@@ -642,14 +956,23 @@ fn pool_runs(c: &Compiled<'_>, s: &gravity_expr::nodes::func::Call) -> bool {
 /// B2: what an audited site reaches when its whole reach resolves on the leader (else None: the site stays serial): its
 /// argument and result types and, for a conversion body, the encoding pair its constant encoding name(s) select (a name
 /// that is not a constant keeps it serial; the value is read as a program decision, so it keys the program).
-fn catalog_site(c: &Compiled<'_>, s: &gravity_expr::nodes::func::Call, ix: usize) -> Option<gravity_fn::pool_catalog::SiteReach> {
+fn catalog_site(
+    c: &Compiled<'_>,
+    s: &gravity_expr::nodes::func::Call,
+    ix: usize,
+) -> Option<gravity_fn::pool_catalog::SiteReach> {
     if !gravity_fn::pool_catalog::audited(s.funcid) {
         return None;
     }
     let f = c.state.call_facts.get(ix)?;
-    let mut reach = gravity_fn::pool_catalog::SiteReach::of_types(f.argtypes.iter().copied().chain([f.rettype]))?;
+    let mut reach = gravity_fn::pool_catalog::SiteReach::of_types(
+        f.argtypes.iter().copied().chain([f.rettype]),
+    )?;
     if gravity_fn::pool_catalog::converts(s.funcid) {
-        let kids = c.prog.kids.get(s.args.start as usize..(s.args.start + s.args.len) as usize)?;
+        let kids = c
+            .prog
+            .kids
+            .get(s.args.start as usize..(s.args.start + s.args.len) as usize)?;
         let mut encs = [0i32; 2];
         let names = kids.get(1..)?;
         if names.is_empty() || names.len() > encs.len() {
@@ -657,7 +980,9 @@ fn catalog_site(c: &Compiled<'_>, s: &gravity_expr::nodes::func::Call, ix: usize
         }
         for (k, e) in names.iter().zip(encs.iter_mut()) {
             match c.prog.nodes.get(k.0 as usize)? {
-                gravity_expr::nodes::ExprNode::Const(k) if !k.is_null() && k.typ == NAMEOID => *e = gravity_fn::pool_catalog::name_encoding(k.read().value.as_usize()),
+                gravity_expr::nodes::ExprNode::Const(k) if !k.is_null() && k.typ == NAMEOID => {
+                    *e = gravity_fn::pool_catalog::name_encoding(k.read().value.as_usize())
+                }
                 _ => return None,
             }
         }
@@ -665,7 +990,11 @@ fn catalog_site(c: &Compiled<'_>, s: &gravity_expr::nodes::func::Call, ix: usize
             reach.push_conv(p);
         }
     }
-    matches!(gravity_fn::pool_catalog::StatementCatalog::build_site(&reach), Ok(Some(_))).then_some(reach)
+    matches!(
+        gravity_fn::pool_catalog::StatementCatalog::build_site(&reach),
+        Ok(Some(_))
+    )
+    .then_some(reach)
 }
 
 const NAMEOID: Oid = 19;
@@ -681,25 +1010,49 @@ pub fn catalog_reach(owner: &dyn Any) -> Option<&gravity_fn::pool_catalog::Reach
 /// walk's per-open context is the leader's slot bank), parallel safe and not volatile; any other set or the road off keeps
 /// the pipeline on the leader (source/heap.rs and source/pgrc.rs ask it beside `pool_unsafe_site`).
 pub fn srf_serial(px: &crate::frame::px::Px<'_, '_>, k: usize) -> bool {
-    let road = px.strategies.has(crate::face::strategy::SRF_PARALLEL) && crate::face::source::on(crate::admit::refusal::Variant::Strategy(crate::face::strategy::SRF_PARALLEL));
+    let road = px.strategies.has(crate::face::strategy::SRF_PARALLEL)
+        && crate::face::source::on(crate::admit::refusal::Variant::Strategy(
+            crate::face::strategy::SRF_PARALLEL,
+        ));
     let facts = px.gx.facts;
-    let pool_safe = |f: &gravity_decompose::ops::shared::srf::SrfFn<'_>| matches!(f.kind, gravity_decompose::ops::shared::srf::SrfKind::SeriesInt { .. }) && crate::effects::visible::core_face::pool_safe(facts, f.funcid);
+    let pool_safe = |f: &gravity_decompose::ops::shared::srf::SrfFn<'_>| {
+        matches!(
+            f.kind,
+            gravity_decompose::ops::shared::srf::SrfKind::SeriesInt { .. }
+        ) && crate::effects::visible::core_face::pool_safe(facts, f.funcid)
+    };
     px.gx.pipelines()[k].ops.iter().any(|op| matches!(op, gravity_decompose::Op::Srf(d) if !road || !d.functions.iter().all(pool_safe)))
 }
 
 /// Pipeline `k`'s serial reason from its hosted calls and set functions: a call a pool thread cannot run (the shared
 /// predicate's `StepShape::HostedCall`, which the planner's width model reads from a step's quals and targets) or a serial
 /// SRF keeps it on the leader (source/heap.rs, source/pgrc.rs and a spill pair's kept source ask it).
-pub fn hosted_serial(px: &crate::frame::px::Px<'_, '_>, k: usize) -> Option<gravity_program::Reason> {
+pub fn hosted_serial(
+    px: &crate::frame::px::Px<'_, '_>,
+    k: usize,
+) -> Option<gravity_program::Reason> {
     let catalog = px.gx.catalog;
     // D3585: read once per expression over the program's lowering (`Px::hosted_unsafe`), not again for each source
-    let pool_safe = !px.hosted_unsafe(&|c| c.host_calls() > 0 && pool_unsafe_site(c, &mut |f| catalog.func(f).ok().and_then(|x| x.parallel)).is_some());
-    gravity_program::step_serial(&gravity_program::StepShape::HostedCall { pool_safe }).or_else(|| srf_serial(px, k).then_some(gravity_program::Reason::Host))
+    let pool_safe = !px.hosted_unsafe(&|c| {
+        c.host_calls() > 0
+            && pool_unsafe_site(c, &mut |f| catalog.func(f).ok().and_then(|x| x.parallel)).is_some()
+    });
+    gravity_program::step_serial(&gravity_program::StepShape::HostedCall { pool_safe })
+        .or_else(|| srf_serial(px, k).then_some(gravity_program::Reason::Host))
 }
 
 /// The composer's serial word: a hosted expression of `exs` (not one the per-code road answers whole) has a site the pool cannot run.
-pub fn pool_serial(exs: &[&mut Ex<'_>], codes: &[CodeCol], parallel: &mut dyn FnMut(Oid) -> Option<u8>, scratch: Mcx<'_>) -> bool {
-    exs.iter().any(|e| e.c.host_calls() > 0 && !e.c.percode_whole(codes, scratch) && pool_unsafe_site(&e.c, parallel).is_some())
+pub fn pool_serial(
+    exs: &[&mut Ex<'_>],
+    codes: &[CodeCol],
+    parallel: &mut dyn FnMut(Oid) -> Option<u8>,
+    scratch: Mcx<'_>,
+) -> bool {
+    exs.iter().any(|e| {
+        e.c.host_calls() > 0
+            && !e.c.percode_whole(codes, scratch)
+            && pool_unsafe_site(&e.c, parallel).is_some()
+    })
 }
 
 pub struct Ir {
@@ -733,12 +1086,40 @@ pub struct RowMark {
 impl Ir {
     /// A function of a program with no hosted state.
     pub fn none() -> Ir {
-        Ir { raise_h: None, enter_h: None, reset_h: None, map: Vec::new(), fmgr: Rc::from([]), seen: RefCell::new(Vec::new()), owner: None, slot: None, base: None, end: None, lane: None, cells: None, refd: core::cell::Cell::new(0) } // alloc: Program
+        Ir {
+            raise_h: None,
+            enter_h: None,
+            reset_h: None,
+            map: Vec::new(),
+            fmgr: Rc::from([]),
+            seen: RefCell::new(Vec::new()),
+            owner: None,
+            slot: None,
+            base: None,
+            end: None,
+            lane: None,
+            cells: None,
+            refd: core::cell::Cell::new(0),
+        } // alloc: Program
     }
 
     /// The same program's hosts for another of its functions (`enter` gives it the function's own values).
     pub fn per_func(&self) -> Ir {
-        Ir { raise_h: self.raise_h, enter_h: self.enter_h, reset_h: self.reset_h, map: self.map.clone(), fmgr: self.fmgr.clone(), seen: RefCell::new(Vec::new()), owner: None, slot: None, base: None, end: None, lane: None, cells: None, refd: core::cell::Cell::new(0) } // alloc: Program
+        Ir {
+            raise_h: self.raise_h,
+            enter_h: self.enter_h,
+            reset_h: self.reset_h,
+            map: self.map.clone(),
+            fmgr: self.fmgr.clone(),
+            seen: RefCell::new(Vec::new()),
+            owner: None,
+            slot: None,
+            base: None,
+            end: None,
+            lane: None,
+            cells: None,
+            refd: core::cell::Cell::new(0),
+        } // alloc: Program
     }
 
     /// The function's entry: the worker ordinal's lane armed and its windows reset, the region slot (`[cur, end]`) rewound to the lane's region.
@@ -751,7 +1132,9 @@ impl Ir {
         let slot = b.declare_stack_slot(16, 8);
         let r = b.stack_addr(slot);
         // every function-manager window reset: the previous call's rows left the out block (the block holds datum pointers into them)
-        let Some(lane) = b.call_host(h, &[owner, ordinal, ctx, r], Some(Type::Ptr)) else { return };
+        let Some(lane) = b.call_host(h, &[owner, ordinal, ctx, r], Some(Type::Ptr)) else {
+            return;
+        };
         let base = b.load(Type::Ptr, lane, L_REGION);
         let end = b.load(Type::Ptr, lane, L_REGION_END);
         b.store(r, 0, base);
@@ -766,7 +1149,11 @@ impl Ir {
 
     /// The region rewound to the function's lane's base and every function-manager window reset: after a push consumed the out block (the sink), or per row when no tail holds a reference past the row (the fold); nothing for a program without host sites.
     pub fn rewind(&self, b: &mut FunctionBuilder<'_>) {
-        let (Some(r), Some(base), Some(end), Some(lane)) = (self.slot, self.base, self.end, self.lane) else { return };
+        let (Some(r), Some(base), Some(end), Some(lane)) =
+            (self.slot, self.base, self.end, self.lane)
+        else {
+            return;
+        };
         b.store(r, 0, base);
         b.store(r, 8, end);
         if let Some(h) = self.reset_h {
@@ -782,11 +1169,14 @@ impl Ir {
     /// The region's top before a row whose renders a tail may hold: `release` gives the row's bytes back when the row is dropped instead (a filter's reject), the rows before it kept.
     /// The slot's `[cur, end]`: a row that spilled (D641) moved both, so `release` restores both.
     pub fn mark(&self, b: &mut FunctionBuilder<'_>) -> Option<(Value, Value)> {
-        self.slot.map(|r| (b.load(Type::Ptr, r, 0), b.load(Type::Ptr, r, 8)))
+        self.slot
+            .map(|r| (b.load(Type::Ptr, r, 0), b.load(Type::Ptr, r, 8)))
     }
 
     pub fn release(&self, b: &mut FunctionBuilder<'_>, mark: (Value, Value)) {
-        let (Some(r), Some(lane)) = (self.slot, self.lane) else { return };
+        let (Some(r), Some(lane)) = (self.slot, self.lane) else {
+            return;
+        };
         b.store(r, 0, mark.0);
         b.store(r, 8, mark.1);
         if let Some(h) = self.reset_h {
@@ -804,7 +1194,10 @@ impl Ir {
     pub fn give_back(&self, b: &mut FunctionBuilder<'_>, mark: (Value, Value)) {
         let Some(r) = self.slot else { return };
         let (cur, end) = (b.load(Type::Ptr, r, 0), b.load(Type::Ptr, r, 8));
-        let (e0, e1) = (b.conv(ConvOp::PtrToInt, Type::I64, mark.1), b.conv(ConvOp::PtrToInt, Type::I64, end));
+        let (e0, e1) = (
+            b.conv(ConvOp::PtrToInt, Type::I64, mark.1),
+            b.conv(ConvOp::PtrToInt, Type::I64, end),
+        );
         let same = b.icmp(IntCond::Eq, e0, e1);
         let mut back = b.select(same, mark.0, cur);
         let mut back_end = end;
@@ -822,7 +1215,11 @@ impl Ir {
     pub fn end_mark(&self, b: &FunctionBuilder<'_>) -> Option<RowMark> {
         self.lane?;
         self.slot?;
-        Some(RowMark { at: b.cursor(), refd: self.refd.get(), cleared: false })
+        Some(RowMark {
+            at: b.cursor(),
+            refd: self.refd.get(),
+            cleared: false,
+        })
     }
 
     /// D3990: after that row's end. The row's start clears the lane's mark (`store_zero_at` there); the spill hook sets it at
@@ -834,7 +1231,9 @@ impl Ir {
     /// every byte of the row it reads and the row reaches it once (no step expands a row or holds rows back): nothing
     /// after the end reads the row's region bytes past the mark. A nested function's slot sets it for its own rows only.
     pub fn give_back_big(&self, b: &mut FunctionBuilder<'_>, m: &mut RowMark) {
-        let (Some(r), Some(lane)) = (self.slot, self.lane) else { return };
+        let (Some(r), Some(lane)) = (self.slot, self.lane) else {
+            return;
+        };
         if self.refd.get() == m.refd {
             return;
         }
@@ -845,7 +1244,11 @@ impl Ir {
         let zero = b.iconst(Type::I64, 0);
         let slot = b.load(Type::I64, lane, L_BIG_SLOT);
         let set = b.icmp(IntCond::Ne, slot, zero);
-        let (l_set, l_back, l_on) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));
+        let (l_set, l_back, l_on) = (
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         b.mark_cold(l_set);
         b.mark_cold(l_back);
         b.cond_br(set, (l_set, &[]), (l_on, &[]));
@@ -855,7 +1258,10 @@ impl Ir {
         let mine = b.icmp(IntCond::Eq, slot, mine);
         b.cond_br(mine, (l_back, &[]), (l_on, &[]));
         b.switch_to(l_back);
-        let mark = (b.load(Type::Ptr, lane, L_BIG_CUR), b.load(Type::Ptr, lane, L_BIG_END));
+        let mark = (
+            b.load(Type::Ptr, lane, L_BIG_CUR),
+            b.load(Type::Ptr, lane, L_BIG_END),
+        );
         self.give_back(b, mark);
         b.br(l_on, &[]);
         b.switch_to(l_on);
@@ -867,14 +1273,21 @@ impl Ir {
     }
 
     pub fn refs(&self, b: &mut FunctionBuilder<'_>, i: usize) -> (Option<Value>, Option<Value>) {
-        let (Some(r), Some(arr)) = (self.slot, self.cells) else { return (None, None) };
+        let (Some(r), Some(arr)) = (self.slot, self.cells) else {
+            return (None, None);
+        };
         self.refd.set(self.refd.get() + 1);
         let c = b.load(Type::Ptr, arr, (i * 8) as i32);
         (Some(c), Some(r))
     }
 
     /// `row` with `ex`'s cells and region (`ex` found by its program's site buffer; none: a program without sites).
-    pub fn with_ex<'a>(&self, b: &mut FunctionBuilder<'_>, ex: &Ex<'_>, row: RowRefs<'a>) -> RowRefs<'a> {
+    pub fn with_ex<'a>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        ex: &Ex<'_>,
+        row: RowRefs<'a>,
+    ) -> RowRefs<'a> {
         let key = ex.c.prog.sites.as_ptr() as usize;
         match self.map.iter().find(|(k, _)| *k == key) {
             Some(&(_, i)) if !ex.c.prog.sites.is_empty() => self.with(b, i, row),
@@ -888,7 +1301,11 @@ impl Ir {
         if self.fmgr.get(i).copied().unwrap_or(false) {
             self.seen.borrow_mut().push(i); // alloc: Program
         }
-        RowRefs { cells, region, ..row }
+        RowRefs {
+            cells,
+            region,
+            ..row
+        }
     }
 
     /// D3583: the mark `reset_seen` resets the windows of the expressions lowered after.
@@ -912,8 +1329,17 @@ impl Ir {
         if xs.is_empty() {
             return;
         }
-        let flags = HostFlags { touches_memory: true, ..HostFlags::default() };
-        let h = b.declare_host_once("hosted_reset_ex", &[Type::Ptr, Type::I64], Some(Type::I64), raw::h_reset_ex as *const () as usize, flags);
+        let flags = HostFlags {
+            touches_memory: true,
+            ..HostFlags::default()
+        };
+        let h = b.declare_host_once(
+            "hosted_reset_ex",
+            &[Type::Ptr, Type::I64],
+            Some(Type::I64),
+            raw::h_reset_ex as *const () as usize,
+            flags,
+        );
         for i in xs {
             let iv = b.iconst(Type::I64, i as i64);
             b.call_host(h, &[lane, iv], Some(Type::I64));
@@ -922,13 +1348,17 @@ impl Ir {
 
     /// On a raise: the first site error of the row stashed for the entry (`gravity_fn::take_error`; the pool re-stashes a worker's on the leader).
     pub fn raised(&self, b: &mut FunctionBuilder<'_>) {
-        let (Some(h), Some(lane)) = (self.raise_h, self.lane) else { return };
+        let (Some(h), Some(lane)) = (self.raise_h, self.lane) else {
+            return;
+        };
         b.call_host(h, &[lane], Some(Type::I64));
     }
 }
 
 unsafe fn lane_cells<'a>(l: &Lane) -> impl Iterator<Item = &'a mut Cell> {
-    core::slice::from_raw_parts_mut(l.states.ptr(), l.n as usize).iter_mut().flat_map(|s| s.heads_mut())
+    core::slice::from_raw_parts_mut(l.states.ptr(), l.n as usize)
+        .iter_mut()
+        .flat_map(|s| s.heads_mut())
 }
 
 /// Every lane past 0 gives each function-manager site a twin call and the lane a region of its own. M8 (D1036): a `nested`
@@ -946,9 +1376,33 @@ unsafe fn arm_lane(o: &Owner, l: &mut Lane, nested: bool) {
     let mut cells = reserved_in(states.len(), m);
     cells.extend_in(states.iter_mut().map(|s| word(s.ptr())));
     let mut region = raw::region_in(BASE_BYTES, m);
-    let (rb, re) = (region.as_mut_ptr().cast::<u8>(), region.as_mut_ptr_range().end.cast::<u8>());
-    let mut hold = Box::new(LaneHold { states, cells, region, calls, root }); // alloc: Program
-    *l = Lane { cells: word(hold.cells.as_ptr() as *mut Word<*mut Cell>), region: word(rb), region_end: word(re), states: word(hold.states.as_mut_ptr()), n: hold.states.len() as u64, hold: Some(hold), ctx: word(core::ptr::null_mut()), spills: NO_SPILLS, gen: 0, cat: gravity_deps::Opaque::NONE, track: NO_TRACK, big_slot: 0, big_cur: 0, big_end: 0 };
+    let (rb, re) = (
+        region.as_mut_ptr().cast::<u8>(),
+        region.as_mut_ptr_range().end.cast::<u8>(),
+    );
+    let mut hold = Box::new(LaneHold {
+        states,
+        cells,
+        region,
+        calls,
+        root,
+    }); // alloc: Program
+    *l = Lane {
+        cells: word(hold.cells.as_ptr() as *mut Word<*mut Cell>),
+        region: word(rb),
+        region_end: word(re),
+        states: word(hold.states.as_mut_ptr()),
+        n: hold.states.len() as u64,
+        hold: Some(hold),
+        ctx: word(core::ptr::null_mut()),
+        spills: NO_SPILLS,
+        gen: 0,
+        cat: gravity_deps::Opaque::NONE,
+        track: NO_TRACK,
+        big_slot: 0,
+        big_cur: 0,
+        big_end: 0,
+    };
     spillable(re, l);
 }
 
@@ -984,7 +1438,9 @@ fn spillable_lane(end: usize) -> Option<*mut Lane> {
 /// the file refused) leaves the region full (the named error).
 unsafe fn spill(r: &mut gravity_fn::Region, n: usize) -> bool {
     let key = r.end.ptr() as usize;
-    let Some(lane) = spillable_lane(key) else { return false };
+    let Some(lane) = spillable_lane(key) else {
+        return false;
+    };
     let l = &mut *lane;
     if l.ctx.ptr().is_null() {
         return false;
@@ -999,16 +1455,27 @@ unsafe fn spill(r: &mut gravity_fn::Region, n: usize) -> bool {
         p
     };
     // D3620: a lane with no base (`owner_of`'s `lazy`) draws its first chunk at the base's size, not 16 bases
-    let floor = if l.region.ptr() == l.region_end.ptr() { BASE_BYTES } else { BASE_BYTES << 4 };
+    let floor = if l.region.ptr() == l.region_end.ptr() {
+        BASE_BYTES
+    } else {
+        BASE_BYTES << 4
+    };
     let (cur0, end0) = (r.cur.ptr() as u64, r.end.ptr() as u64);
-    match l.spills.take(r as *mut gravity_fn::Region as usize, r.end.ptr() == l.region_end.ptr(), n, floor, drawn) {
+    match l.spills.take(
+        r as *mut gravity_fn::Region as usize,
+        r.end.ptr() == l.region_end.ptr(),
+        n,
+        floor,
+        drawn,
+    ) {
         Some((at, bytes)) => {
             fires::fire("hosted.spill"); // shapecheck fire signal (REGISTRY STEP-35, NEW-lowerv4-11, NEW-lowerv4-a2-126/127)
             r.cur = word(at as *mut u8);
             r.end = word((at + bytes) as *mut u8);
             // D3990: the row's first big result: an end that copies its row gives the bytes from here back (`Ir::give_back_big`)
             if n >= BIG_RESULT && l.big_slot == 0 {
-                (l.big_slot, l.big_cur, l.big_end) = (r as *mut gravity_fn::Region as u64, cur0, end0);
+                (l.big_slot, l.big_cur, l.big_end) =
+                    (r as *mut gravity_fn::Region as u64, cur0, end0);
             }
             true
         }
@@ -1019,7 +1486,14 @@ unsafe fn spill(r: &mut gravity_fn::Region, n: usize) -> bool {
 impl Spills {
     /// A chunk for `slot` with room for `n` more bytes (its chunks free first when it is back in the base), reused or
     /// `draw`n (doubling the last draw from `floor` up to `SPILL_MAX`); `None` past `SPILL_MAX` or refused.
-    fn take(&mut self, slot: usize, in_base: bool, n: usize, floor: usize, mut draw: impl FnMut(usize) -> *mut u8) -> Option<(usize, usize)> {
+    fn take(
+        &mut self,
+        slot: usize,
+        in_base: bool,
+        n: usize,
+        floor: usize,
+        mut draw: impl FnMut(usize) -> *mut u8,
+    ) -> Option<(usize, usize)> {
         if in_base {
             self.entered(slot);
         }
@@ -1027,7 +1501,11 @@ impl Spills {
         if need > SPILL_MAX {
             return None;
         }
-        let i = match self.chunks.iter().position(|c| c.owner == 0 && c.bytes >= need) {
+        let i = match self
+            .chunks
+            .iter()
+            .position(|c| c.owner == 0 && c.bytes >= need)
+        {
             Some(i) => i,
             None => {
                 let bytes = need.max(floor.max(self.last.saturating_mul(2)).min(SPILL_MAX));
@@ -1036,7 +1514,11 @@ impl Spills {
                     return None;
                 }
                 self.last = bytes;
-                self.chunks.push(Chunk { at: p as usize, bytes, owner: 0 }); // alloc: Cold
+                self.chunks.push(Chunk {
+                    at: p as usize,
+                    bytes,
+                    owner: 0,
+                }); // alloc: Cold
                 self.chunks.len() - 1
             }
         };
@@ -1047,7 +1529,10 @@ impl Spills {
 
     /// `slot` back at the base (its function entered, or its region rewound): the chunks it wrote are free again.
     fn entered(&mut self, slot: usize) {
-        self.chunks.iter_mut().filter(|c| c.owner == slot).for_each(|c| c.owner = 0);
+        self.chunks
+            .iter_mut()
+            .filter(|c| c.owner == slot)
+            .for_each(|c| c.owner = 0);
     }
 }
 
@@ -1061,7 +1546,9 @@ unsafe fn current(l: &mut Lane) {
         l.spills.epoch = e;
         let cat = gravity_deps::Opaque::now();
         if cat != l.cat {
-            lane_cells(l).filter(|c| !c.fmgr.ptr().is_null()).for_each(|c| (*c.fmgr.ptr()).reset_extra());
+            lane_cells(l)
+                .filter(|c| !c.fmgr.ptr().is_null())
+                .for_each(|c| (*c.fmgr.ptr()).reset_extra());
             l.cat = cat;
         }
     }
@@ -1069,7 +1556,10 @@ unsafe fn current(l: &mut Lane) {
 
 fn forget(l: &mut Lane) {
     let at = l as *mut Lane as usize;
-    l.spills.chunks.drain(..).for_each(|c| unspillable(c.at + c.bytes, at));
+    l.spills
+        .chunks
+        .drain(..)
+        .for_each(|c| unspillable(c.at + c.bytes, at));
     l.spills.last = 0;
 }
 
@@ -1173,13 +1663,31 @@ mod tests {
         let mut lanes = super::Lanes::new(super::Lane::idle(), unsafe { root.handle() });
         assert_eq!(lanes.each().count(), 1, "a new owner holds lane 0 alone");
         let first = lanes.lane(0);
-        assert!(lanes.rest.load(core::sync::atomic::Ordering::Acquire).is_null(), "lane 0's entries build no other lane");
+        assert!(
+            lanes
+                .rest
+                .load(core::sync::atomic::Ordering::Acquire)
+                .is_null(),
+            "lane 0's entries build no other lane"
+        );
         let three = lanes.lane(3);
-        assert_eq!(lanes.each().count(), super::LANES, "the first entry past lane 0 builds the rest's table");
-        assert_eq!((lanes.lane(0), lanes.lane(3)), (first, three), "a lane never moves");
+        assert_eq!(
+            lanes.each().count(),
+            super::LANES,
+            "the first entry past lane 0 builds the rest's table"
+        );
+        assert_eq!(
+            (lanes.lane(0), lanes.lane(3)),
+            (first, three),
+            "a lane never moves"
+        );
         let top = lanes.lane(super::LANES - 1);
         // SAFETY: both lanes are in the rest's one table.
-        assert_eq!(unsafe { top.offset_from(lanes.lane(1)) }, (super::LANES - 2) as isize, "one table of LANES - 1 lanes past lane 0");
+        assert_eq!(
+            unsafe { top.offset_from(lanes.lane(1)) },
+            (super::LANES - 2) as isize,
+            "one table of LANES - 1 lanes past lane 0"
+        );
     }
 
     /// D3620 race witness: workers entering fresh ordinals past 0 of one owner at once all take ONE table, the one the
@@ -1197,22 +1705,38 @@ mod tests {
             let shared = Shared(&lanes);
             let barrier = std::sync::Barrier::new(N);
             let bases: Vec<usize> = std::thread::scope(|s| {
-                let hs: Vec<_> = (0..N).map(|i| {
-                    let (shared, barrier) = (&shared, &barrier);
-                    s.spawn(move || {
-                        barrier.wait();
-                        // SAFETY: see `Shared`
-                        let l = unsafe { &*shared.0 };
-                        let lane = l.rest_lane(1 + i % 7) as usize;
-                        lane - (i % 7) * core::mem::size_of::<super::Lane>()
+                let hs: Vec<_> = (0..N)
+                    .map(|i| {
+                        let (shared, barrier) = (&shared, &barrier);
+                        s.spawn(move || {
+                            barrier.wait();
+                            // SAFETY: see `Shared`
+                            let l = unsafe { &*shared.0 };
+                            let lane = l.rest_lane(1 + i % 7) as usize;
+                            lane - (i % 7) * core::mem::size_of::<super::Lane>()
+                        })
                     })
-                }).collect();
+                    .collect();
                 hs.into_iter().map(|h| h.join().unwrap()).collect()
             });
-            assert!(bases.iter().all(|&b| b == bases[0]), "every racer took the same table");
-            let (built, freed) = (lanes.tables.0.load(core::sync::atomic::Ordering::Relaxed), lanes.tables.1.load(core::sync::atomic::Ordering::Relaxed));
-            assert_eq!(built, freed + 1, "one table kept, every loser's copy freed ({built} built)");
-            assert_eq!(lanes.rest.load(core::sync::atomic::Ordering::Relaxed) as usize, bases[0], "the published table");
+            assert!(
+                bases.iter().all(|&b| b == bases[0]),
+                "every racer took the same table"
+            );
+            let (built, freed) = (
+                lanes.tables.0.load(core::sync::atomic::Ordering::Relaxed),
+                lanes.tables.1.load(core::sync::atomic::Ordering::Relaxed),
+            );
+            assert_eq!(
+                built,
+                freed + 1,
+                "one table kept, every loser's copy freed ({built} built)"
+            );
+            assert_eq!(
+                lanes.rest.load(core::sync::atomic::Ordering::Relaxed) as usize,
+                bases[0],
+                "the published table"
+            );
             assert_eq!(lanes.each().count(), super::LANES);
         }
     }
@@ -1225,9 +1749,17 @@ mod tests {
         let (a, b, end) = (0x10 as *mut Lane, 0x20 as *mut Lane, 0x30usize);
         spillable(end as *mut u8, a);
         spillable(end as *mut u8, b);
-        assert_eq!(spillable_lane(end), Some(b), "the later registration holds the end");
+        assert_eq!(
+            spillable_lane(end),
+            Some(b),
+            "the later registration holds the end"
+        );
         unspillable(end, a as usize);
-        assert_eq!(spillable_lane(end), Some(b), "a lane drops only its own entry");
+        assert_eq!(
+            spillable_lane(end),
+            Some(b),
+            "a lane drops only its own entry"
+        );
         unspillable(end, b as usize);
         assert_eq!(spillable_lane(end), None);
         let at = |i: usize| 0x1000 + i * 0x40;
@@ -1249,23 +1781,40 @@ mod tests {
         };
         let mut s: Spills = NO_SPILLS;
         let (a, b) = (0x1000usize, 0x2000usize);
-        let (xa, xn) = s.take(a, true, 1 << 19, BASE_BYTES << 4, &mut draw).unwrap();
+        let (xa, xn) = s
+            .take(a, true, 1 << 19, BASE_BYTES << 4, &mut draw)
+            .unwrap();
         assert_eq!(xn, 1 << 20, "a first chunk of 16 bases");
         unsafe { core::ptr::write_bytes(xa as *mut u8, b'A', 1 << 19) };
         s.entered(b);
-        let (ya, yn) = s.take(b, true, 1 << 19, BASE_BYTES << 4, &mut draw).unwrap();
+        let (ya, yn) = s
+            .take(b, true, 1 << 19, BASE_BYTES << 4, &mut draw)
+            .unwrap();
         assert_ne!(ya, xa, "B took A's live chunk");
         assert_eq!(yn, 2 << 20, "the second draw doubles");
         unsafe { core::ptr::write_bytes(ya as *mut u8, b'B', 1 << 19) };
-        assert!(unsafe { core::slice::from_raw_parts(xa as *const u8, 1 << 19) }.iter().all(|&c| c == b'A'), "A's datum was overwritten");
+        assert!(
+            unsafe { core::slice::from_raw_parts(xa as *const u8, 1 << 19) }
+                .iter()
+                .all(|&c| c == b'A'),
+            "A's datum was overwritten"
+        );
         // A's slot rewound to the base, then spills again: its own chunk is reused, B's stays B's
-        let (za, _) = s.take(a, true, 1 << 19, BASE_BYTES << 4, &mut draw).unwrap();
+        let (za, _) = s
+            .take(a, true, 1 << 19, BASE_BYTES << 4, &mut draw)
+            .unwrap();
         assert_eq!(za, xa);
         // A still in its chunk and needing more: a third chunk, the first two kept
-        let (wa, _) = s.take(a, false, 1 << 19, BASE_BYTES << 4, &mut draw).unwrap();
+        let (wa, _) = s
+            .take(a, false, 1 << 19, BASE_BYTES << 4, &mut draw)
+            .unwrap();
         assert!(wa != xa && wa != ya);
         assert_eq!(s.chunks.len(), 3);
-        assert!(s.take(a, false, 2 << 30, BASE_BYTES << 4, &mut draw).is_none(), "past MaxAllocSize");
+        assert!(
+            s.take(a, false, 2 << 30, BASE_BYTES << 4, &mut draw)
+                .is_none(),
+            "past MaxAllocSize"
+        );
     }
 
     /// STEP-35 (a capacity that grows): the base region is where a lane starts, not a bound: a result of any size up to
@@ -1279,12 +1828,28 @@ mod tests {
             0x1000 as *mut u8
         };
         let mut s: Spills = NO_SPILLS;
-        for n in [1, BASE_BYTES, BASE_BYTES << 4, (BASE_BYTES << 4) + 1, 100 << 20, mcx::MAX_ALLOC_SIZE] {
-            let (_, bytes) = s.take(0x2000, false, n, BASE_BYTES << 4, &mut draw).expect("a result up to MaxAllocSize is taken");
+        for n in [
+            1,
+            BASE_BYTES,
+            BASE_BYTES << 4,
+            (BASE_BYTES << 4) + 1,
+            100 << 20,
+            mcx::MAX_ALLOC_SIZE,
+        ] {
+            let (_, bytes) = s
+                .take(0x2000, false, n, BASE_BYTES << 4, &mut draw)
+                .expect("a result up to MaxAllocSize is taken");
             assert!(bytes > n, "{n}: a chunk of {bytes}");
         }
-        assert!(s.take(0x2000, false, SPILL_MAX, BASE_BYTES << 4, &mut draw).is_none(), "past MaxAllocSize and the slack");
-        assert!(drawn.windows(2).all(|w| w[1] >= w[0]), "a draw never shrinks: {drawn:?}");
+        assert!(
+            s.take(0x2000, false, SPILL_MAX, BASE_BYTES << 4, &mut draw)
+                .is_none(),
+            "past MaxAllocSize and the slack"
+        );
+        assert!(
+            drawn.windows(2).all(|w| w[1] >= w[0]),
+            "a draw never shrinks: {drawn:?}"
+        );
     }
 
     /// D848: a hosted function's result region starts at 64 KiB, uninitialized (was 8 MiB zeroed per hosted function per
@@ -1294,8 +1859,14 @@ mod tests {
         // planprod P4: the region is made in the owner's root (`owner_of`), `BASE_BYTES` when the lowering asks for a base
         const { assert!(BASE_BYTES <= 256 << 10) };
         let cx = mcx::MemoryContext::new("hir test");
-        assert!(Hosted::build(&mut [], true, cx.mcx()).base, "a hosted lowering's lane 0 gets a base region");
-        assert!(!Hosted::build(&mut [], false, cx.mcx()).base, "no hosted site: no region");
+        assert!(
+            Hosted::build(&mut [], true, cx.mcx()).base,
+            "a hosted lowering's lane 0 gets a base region"
+        );
+        assert!(
+            !Hosted::build(&mut [], false, cx.mcx()).base,
+            "no hosted site: no region"
+        );
     }
 
     /// D3620: a lane with no base (a by-value-only owner's, `owner_of`'s `lazy`) draws its first chunk at the base's size,
@@ -1308,12 +1879,25 @@ mod tests {
             0x1000 as *mut u8
         };
         let mut s: Spills = NO_SPILLS;
-        let (_, first) = s.take(0x2000, true, 16, BASE_BYTES, &mut draw).expect("a chunk");
-        assert_eq!(first, BASE_BYTES, "the first chunk of a lane without a base");
-        let (_, second) = s.take(0x3000, false, 16, BASE_BYTES, &mut draw).expect("a chunk");
+        let (_, first) = s
+            .take(0x2000, true, 16, BASE_BYTES, &mut draw)
+            .expect("a chunk");
+        assert_eq!(
+            first, BASE_BYTES,
+            "the first chunk of a lane without a base"
+        );
+        let (_, second) = s
+            .take(0x3000, false, 16, BASE_BYTES, &mut draw)
+            .expect("a chunk");
         assert_eq!(second, BASE_BYTES << 1, "then doubling");
         let mut t: Spills = NO_SPILLS;
-        assert_eq!(t.take(0x2000, true, 16, BASE_BYTES << 4, &mut draw).expect("a chunk").1, BASE_BYTES << 4, "a based lane's first spill");
+        assert_eq!(
+            t.take(0x2000, true, 16, BASE_BYTES << 4, &mut draw)
+                .expect("a chunk")
+                .1,
+            BASE_BYTES << 4,
+            "a based lane's first spill"
+        );
     }
 
     /// D3620: a by-value-only owner's lane 0 holds no base: an empty range at the lane's own address, registered as
@@ -1323,14 +1907,42 @@ mod tests {
         use gravity_abi::PtrWord;
         let root = super::hosted_root();
         let own = mcx::PgVec::new_in(super::raw::product_mcx(&root));
-        let owner = super::owner_of(Vec::new(), super::Progs::Own(own, "test"), false, Vec::new(), None, &gravity_fn::pool_catalog::Reach::new_in(super::raw::product_mcx(&root)), true, Some(root));
+        let owner = super::owner_of(
+            Vec::new(),
+            super::Progs::Own(own, "test"),
+            false,
+            Vec::new(),
+            None,
+            &gravity_fn::pool_catalog::Reach::new_in(super::raw::product_mcx(&root)),
+            true,
+            Some(root),
+        );
         let o = owner.downcast_ref::<super::Owner>().expect("an owner");
         let at = &*o.lanes.first as *const super::Lane as usize;
-        assert_eq!((o.lanes.first.region.ptr() as usize, o.lanes.first.region_end.ptr() as usize), (at, at), "an empty base at the lane");
-        assert_eq!((o.region.ptr() as usize, o.region_end.ptr() as usize), (at, at), "the owner's lane 0 words as the lane's");
-        assert_eq!(super::spillable_lane(at), Some(at as *mut super::Lane), "registered as spillable");
+        assert_eq!(
+            (
+                o.lanes.first.region.ptr() as usize,
+                o.lanes.first.region_end.ptr() as usize
+            ),
+            (at, at),
+            "an empty base at the lane"
+        );
+        assert_eq!(
+            (o.region.ptr() as usize, o.region_end.ptr() as usize),
+            (at, at),
+            "the owner's lane 0 words as the lane's"
+        );
+        assert_eq!(
+            super::spillable_lane(at),
+            Some(at as *mut super::Lane),
+            "registered as spillable"
+        );
         drop(owner);
-        assert_ne!(super::spillable_lane(at), Some(at as *mut super::Lane), "gone with the owner");
+        assert_ne!(
+            super::spillable_lane(at),
+            Some(at as *mut super::Lane),
+            "gone with the owner"
+        );
     }
 
     /// planprod P4: a hosted owner's product root (its base, its lists, and a program context under it, as `program_cx`
@@ -1344,7 +1956,10 @@ mod tests {
             assert!(a.is_backend(), "a backend slot");
             memledger::bind_backend(4076, 9000 + 4076);
             memledger::statement_begin();
-            let stmt = memledger::Owner::Statement { acct: a, stmt: memledger::running_statement(a) };
+            let stmt = memledger::Owner::Statement {
+                acct: a,
+                stmt: memledger::running_statement(a),
+            };
             let session = memledger::Owner::Session(a);
             let s0 = memledger::charge::owner_ctx(session).0;
             let root = super::hosted_root();
@@ -1353,14 +1968,37 @@ mod tests {
             core::mem::forget(mcx::reserved_in::<u8>(16 << 10, child.mcx()));
             let keep = Some(Box::new(vec![child]) as Box<dyn core::any::Any>);
             let own = mcx::PgVec::new_in(super::raw::product_mcx(&root));
-            let owner = super::owner_of(Vec::new(), super::Progs::Own(own, "test"), true, Vec::new(), keep, &gravity_fn::pool_catalog::Reach::new_in(super::raw::product_mcx(&root)), false, Some(root));
+            let owner = super::owner_of(
+                Vec::new(),
+                super::Progs::Own(own, "test"),
+                true,
+                Vec::new(),
+                keep,
+                &gravity_fn::pool_catalog::Reach::new_in(super::raw::product_mcx(&root)),
+                false,
+                Some(root),
+            );
             let built = memledger::charge::owner_ctx(stmt).0;
-            assert!(built >= (super::BASE_BYTES + (16 << 10)) as i64, "the base and the child's list are the statement's: {built}");
+            assert!(
+                built >= (super::BASE_BYTES + (16 << 10)) as i64,
+                "the base and the child's list are the statement's: {built}"
+            );
             super::adopt(&*owner, session);
-            assert_eq!(memledger::charge::owner_ctx(stmt).0, 0, "adopted whole: nothing left on the statement");
-            assert!(memledger::charge::owner_ctx(session).0 - s0 >= built, "the session holds the tree");
+            assert_eq!(
+                memledger::charge::owner_ctx(stmt).0,
+                0,
+                "adopted whole: nothing left on the statement"
+            );
+            assert!(
+                memledger::charge::owner_ctx(session).0 - s0 >= built,
+                "the session holds the tree"
+            );
             drop(owner);
-            assert_eq!(memledger::charge::owner_ctx(session).0, s0, "and the owner's drop takes it off");
+            assert_eq!(
+                memledger::charge::owner_ctx(session).0,
+                s0,
+                "and the owner's drop takes it off"
+            );
             memledger::statement_end();
             memledger::unbind_backend();
         })
@@ -1463,14 +2101,36 @@ mod tests {
             assert!(a.is_backend(), "a backend slot");
             memledger::bind_backend(4073, 9000 + 4073);
             memledger::statement_begin();
-            let stmt = memledger::Owner::Statement { acct: a, stmt: memledger::running_statement(a) };
+            let stmt = memledger::Owner::Statement {
+                acct: a,
+                stmt: memledger::running_statement(a),
+            };
             let root = super::hosted_root();
             let own = mcx::PgVec::new_in(super::raw::product_mcx(&root));
-            let owner = super::owner_of(Vec::new(), super::Progs::Own(own, "test"), false, Vec::new(), None, &gravity_fn::pool_catalog::Reach::new_in(super::raw::product_mcx(&root)), true, Some(root));
-            arm_on_worker(owner.downcast_ref::<super::Owner>().unwrap() as *const super::Owner as usize, 2);
-            assert!(memledger::charge::owner_ctx(stmt).0 >= super::BASE_BYTES as i64, "the lane is the statement's");
+            let owner = super::owner_of(
+                Vec::new(),
+                super::Progs::Own(own, "test"),
+                false,
+                Vec::new(),
+                None,
+                &gravity_fn::pool_catalog::Reach::new_in(super::raw::product_mcx(&root)),
+                true,
+                Some(root),
+            );
+            arm_on_worker(
+                owner.downcast_ref::<super::Owner>().unwrap() as *const super::Owner as usize,
+                2,
+            );
+            assert!(
+                memledger::charge::owner_ctx(stmt).0 >= super::BASE_BYTES as i64,
+                "the lane is the statement's"
+            );
             drop(owner);
-            assert_eq!(memledger::charge::owner_ctx(stmt).0, 0, "gone with the program");
+            assert_eq!(
+                memledger::charge::owner_ctx(stmt).0,
+                0,
+                "gone with the program"
+            );
             memledger::statement_end();
             memledger::unbind_backend();
         })
@@ -1482,11 +2142,29 @@ mod tests {
     /// lists are built in place in a lowering's lists root (frame `Px::lists_mcx`), compacted into the template's root at
     /// the filing, and the lists root drops after (`finish_keeping`).
     fn tpl_of(oids: usize) -> super::Progs {
-        let mut lists = mcx::SendRoot::new_owned_small("GravityHostedLists", memledger::charge::statement_owner());
+        let mut lists = mcx::SendRoot::new_owned_small(
+            "GravityHostedLists",
+            memledger::charge::statement_owner(),
+        );
         let mut prog = gravity_expr::Program::empty_in(super::raw::root_mcx(&mut lists));
         mcx::GrowIn::resize_in(&mut prog.oids, oids, 7);
-        let c = gravity_expr::Compiled { prog, state: gravity_expr::State::empty(), root: gravity_expr::NodeId(0), params: types_portal::params::ParamBind::NONE, callback_arg: core::ptr::null_mut(), result_type: 0 };
-        let t = super::make_template(vec![c], &mut [], Vec::new(), Vec::new(), true, true, &gravity_fn::pool_catalog::Reach::new_in(mcx::MemoryContext::new("reach test").mcx()));
+        let c = gravity_expr::Compiled {
+            prog,
+            state: gravity_expr::State::empty(),
+            root: gravity_expr::NodeId(0),
+            params: types_portal::params::ParamBind::NONE,
+            callback_arg: core::ptr::null_mut(),
+            result_type: 0,
+        };
+        let t = super::make_template(
+            vec![c],
+            &mut [],
+            Vec::new(),
+            Vec::new(),
+            true,
+            true,
+            &gravity_fn::pool_catalog::Reach::new_in(mcx::MemoryContext::new("reach test").mcx()),
+        );
         drop(lists);
         t
     }
@@ -1551,25 +2229,61 @@ mod tests {
             memledger::statement_begin();
             let session = memledger::Owner::Session(a);
             let s0 = memledger::charge::owner_ctx(session).0;
-            let owner = super::owner_of(Vec::new(), tpl_of(16 << 10), false, Vec::new(), None, &gravity_fn::pool_catalog::Reach::new_in(mcx::MemoryContext::new("reach test").mcx()), true, None);
+            let owner = super::owner_of(
+                Vec::new(),
+                tpl_of(16 << 10),
+                false,
+                Vec::new(),
+                None,
+                &gravity_fn::pool_catalog::Reach::new_in(
+                    mcx::MemoryContext::new("reach test").mcx(),
+                ),
+                true,
+                None,
+            );
             let t = super::template(&*owner).expect("a template owner");
-            let bytes = t.downcast_ref::<super::raw::HostTpl>().unwrap().root_bytes() as i64;
+            let bytes = t
+                .downcast_ref::<super::raw::HostTpl>()
+                .unwrap()
+                .root_bytes() as i64;
             super::adopt(&*owner, session);
             let filed = memledger::charge::owner_ctx(session).0;
-            assert!(filed - s0 >= bytes, "the session holds the template: {s0} -> {filed}");
+            assert!(
+                filed - s0 >= bytes,
+                "the session holds the template: {s0} -> {filed}"
+            );
             let rebuilt = super::rebuild(&t).expect("no stamp, no call: it rebuilds");
-            let other = memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::ZoneStore));
+            let other =
+                memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::ZoneStore));
             let o0 = memledger::charge::owner_ctx(other).0;
             super::adopt(&*rebuilt, other);
             let o1 = memledger::charge::owner_ctx(other).0;
-            assert_eq!(memledger::charge::owner_ctx(session).0, filed, "a rebuilt owner's adoption moves none of the template");
-            assert!(o1 - o0 < bytes, "only the rebuilt owner's own root: {o0} -> {o1}");
+            assert_eq!(
+                memledger::charge::owner_ctx(session).0,
+                filed,
+                "a rebuilt owner's adoption moves none of the template"
+            );
+            assert!(
+                o1 - o0 < bytes,
+                "only the rebuilt owner's own root: {o0} -> {o1}"
+            );
             drop(rebuilt);
             drop(t);
             drop(owner);
-            eprintln!("P6 witness: a refused template of {bytes} bytes: session {s0} -> {filed} -> {}", memledger::charge::owner_ctx(session).0);
-            assert_eq!(memledger::charge::owner_ctx(session).0, s0, "gone with the owner");
-            assert_eq!(memledger::charge::owner_ctx(other).0, o0, "and the rebuilt one's root with it");
+            eprintln!(
+                "P6 witness: a refused template of {bytes} bytes: session {s0} -> {filed} -> {}",
+                memledger::charge::owner_ctx(session).0
+            );
+            assert_eq!(
+                memledger::charge::owner_ctx(session).0,
+                s0,
+                "gone with the owner"
+            );
+            assert_eq!(
+                memledger::charge::owner_ctx(other).0,
+                o0,
+                "and the rebuilt one's root with it"
+            );
             memledger::statement_end();
             memledger::unbind_backend();
         })

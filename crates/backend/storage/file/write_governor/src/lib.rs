@@ -191,7 +191,12 @@ fn meminfo_total() -> Option<u64> {
 #[cfg(any(target_os = "linux", test))]
 fn meminfo_total_of(meminfo: &str) -> Option<u64> {
     let kb: u64 = meminfo.lines().find_map(|l| {
-        l.strip_prefix("MemTotal:")?.trim().strip_suffix("kB")?.trim().parse().ok()
+        l.strip_prefix("MemTotal:")?
+            .trim()
+            .strip_suffix("kB")?
+            .trim()
+            .parse()
+            .ok()
     })?;
     Some(kb * 1024)
 }
@@ -230,7 +235,11 @@ fn limit_with(root: &std::path::Path, self_cgroup: &str) -> Option<u64> {
         return None;
     };
 
-    let leaf = if rel.is_empty() { base.clone() } else { base.join(&rel) };
+    let leaf = if rel.is_empty() {
+        base.clone()
+    } else {
+        base.join(&rel)
+    };
     let mut best: Option<u64> = None;
     let mut p = leaf;
     loop {
@@ -411,7 +420,10 @@ pub fn note_write(fd: i32, off: u64, len: u64) {
             return;
         }
         let out = (w.lo, w.hi, w.pending);
-        *w = Win { kicked: true, ..Win::default() };
+        *w = Win {
+            kicked: true,
+            ..Win::default()
+        };
         out
     };
     kick_and_maybe_wait(g, fd, lo, hi, pend, true);
@@ -540,7 +552,11 @@ mod tests {
         let f = Fixture::new("v2-nested");
         let leaf = "kubepods.slice/pod.slice/c.scope";
         f.write(leaf, "memory.max", &(100 * GIB).to_string());
-        f.write("kubepods.slice/pod.slice", "memory.max", &(27 * GIB).to_string());
+        f.write(
+            "kubepods.slice/pod.slice",
+            "memory.max",
+            &(27 * GIB).to_string(),
+        );
         assert_eq!(
             limit_with(&f.root, &format!("0::/{leaf}\n")),
             Some(27 * GIB)
@@ -561,8 +577,16 @@ mod tests {
     #[test]
     fn v1_limit() {
         let f = Fixture::new("v1");
-        f.write("memory/docker/abc", "memory.limit_in_bytes", "9223372036854771712\n");
-        f.write("memory/docker", "memory.limit_in_bytes", &(27 * GIB).to_string());
+        f.write(
+            "memory/docker/abc",
+            "memory.limit_in_bytes",
+            "9223372036854771712\n",
+        );
+        f.write(
+            "memory/docker",
+            "memory.limit_in_bytes",
+            &(27 * GIB).to_string(),
+        );
         let cg = "12:cpu,cpuacct:/docker/abc\n4:memory:/docker/abc\n0::/docker/abc\n";
         assert_eq!(limit_with(&f.root, cg), Some(27 * GIB));
     }
@@ -619,11 +643,27 @@ mod tests {
             note_close(fd);
             kicks() - k
         };
-        assert_eq!(closed("small", &[(0, 100)]), 0, "a 100-byte file was kicked at close");
-        assert_eq!(closed("manifest", &[(0, 64 << 10), (64 << 10, 4 << 10)]), 0, "a 68 KiB file was kicked at close");
-        assert_eq!(closed("mib", &[(0, MIB)]), 1, "a 1 MiB window was not kicked at close");
+        assert_eq!(
+            closed("small", &[(0, 100)]),
+            0,
+            "a 100-byte file was kicked at close"
+        );
+        assert_eq!(
+            closed("manifest", &[(0, 64 << 10), (64 << 10, 4 << 10)]),
+            0,
+            "a 68 KiB file was kicked at close"
+        );
+        assert_eq!(
+            closed("mib", &[(0, MIB)]),
+            1,
+            "a 1 MiB window was not kicked at close"
+        );
         let before = kicks();
-        assert_eq!(closed("bulk", &[(0, 4 * MIB), (4 * MIB, 100)]), 1, "a bulk write's 100-byte tail was not kicked at close");
+        assert_eq!(
+            closed("bulk", &[(0, 4 * MIB), (4 * MIB, 100)]),
+            1,
+            "a bulk write's 100-byte tail was not kicked at close"
+        );
         assert_eq!(kicks() - before, 2, "the bulk write's kick at 4 MiB");
         let _ = fs::remove_dir_all(&dir);
     }

@@ -21,7 +21,7 @@ use mcx::{bind, Mcx, McxOwned, MemoryContext, PgString, PgVec};
 use types_core::Oid;
 use types_tuple::{ItemPointerData, TupleDescData};
 
-pub use compute::{CatCKey, CCFastKind, CATCACHE_MAXKEYS};
+pub use compute::{CCFastKind, CatCKey, CATCACHE_MAXKEYS};
 pub use graph::{
     inval_epoch, CatCacheInvalidate, CatalogCacheFlushCatalog, InitCatCache, ResetCatalogCaches,
     ResetCatalogCachesExt, SetCatCacheTrimAtIdle, TrimCatCacheAtIdle,
@@ -135,7 +135,9 @@ pub(crate) fn catcache_cap() -> i32 {
     }
     static ENV: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
     if let Some(v) = *ENV.get_or_init(|| {
-        std::env::var("PGRUST_CATCACHE_CAP").ok().and_then(|v| v.trim().parse().ok())
+        std::env::var("PGRUST_CATCACHE_CAP")
+            .ok()
+            .and_then(|v| v.trim().parse().ok())
     }) {
         return v;
     }
@@ -189,21 +191,18 @@ impl Drop for BorrowGuard {
 fn state_init(slot: &mut Option<ManuallyDrop<McxOwned<CatCacheStateTy>>>) {
     let cache_context = MemoryContext::new("CacheMemoryContext");
     cache_context.set_owner_session();
-    let owned = McxOwned::<CatCacheStateTy>::try_new(
-        cache_context,
-        |mcx| {
-            Ok(CatCacheState {
-                mcx,
-                caches: PgVec::new_in(mcx),
-                ch_ntup: 0,
-                ch_nlisted: 0,
-                cap_retry_at: 0,
-                in_progress: PgVec::new_in(mcx),
-                clock_cache: 0,
-                clock_slot: 0,
-            })
-        },
-    )
+    let owned = McxOwned::<CatCacheStateTy>::try_new(cache_context, |mcx| {
+        Ok(CatCacheState {
+            mcx,
+            caches: PgVec::new_in(mcx),
+            ch_ntup: 0,
+            ch_nlisted: 0,
+            cap_retry_at: 0,
+            in_progress: PgVec::new_in(mcx),
+            clock_cache: 0,
+            clock_slot: 0,
+        })
+    })
     .expect("CacheMemoryContext allocation");
     *slot = Some(ManuallyDrop::new(owned));
     // C frees the whole catcache with the backend process; the thread model
@@ -222,7 +221,8 @@ fn state_init(slot: &mut Option<ManuallyDrop<McxOwned<CatCacheStateTy>>>) {
                             // cache after this cleanup on this thread.
                             unsafe {
                                 drop(Box::from_raw(
-                                    td as *const TupleDescData<'static> as *mut TupleDescData<'static>,
+                                    td as *const TupleDescData<'static>
+                                        as *mut TupleDescData<'static>,
                                 ));
                             }
                         }
@@ -237,7 +237,9 @@ fn state_init(slot: &mut Option<ManuallyDrop<McxOwned<CatCacheStateTy>>>) {
 /// A pin dropping after session teardown has nothing left to release.
 pub(crate) fn with_live_state(f: impl for<'mcx> FnOnce(&mut CatCacheState<'mcx>)) {
     // SAFETY: a plain liveness read of this thread's slot, outside any borrow.
-    let live = STATE.try_with(|cell| unsafe { (*cell.get()).is_some() }).unwrap_or(false);
+    let live = STATE
+        .try_with(|cell| unsafe { (*cell.get()).is_some() })
+        .unwrap_or(false);
     if live {
         with_state(f);
     }
@@ -253,11 +255,16 @@ pub(crate) fn with_live_state(f: impl for<'mcx> FnOnce(&mut CatCacheState<'mcx>)
 #[inline(always)]
 pub(crate) fn with_state<R>(f: impl for<'mcx> FnOnce(&mut CatCacheState<'mcx>) -> R) -> R {
     // Tiny closure: LocalKey::with outlines big ones (an extra call frame).
-    let cell = STATE.with(|cell| cell as *const UnsafeCell<Option<ManuallyDrop<McxOwned<CatCacheStateTy>>>>);
+    let cell = STATE
+        .with(|cell| cell as *const UnsafeCell<Option<ManuallyDrop<McxOwned<CatCacheStateTy>>>>);
     #[cfg(debug_assertions)]
     let _guard = {
         BORROW_DEPTH.with(|d| {
-            assert_eq!(d.get(), 0, "catcache state re-entered while a borrow is live");
+            assert_eq!(
+                d.get(),
+                0,
+                "catcache state re-entered while a borrow is live"
+            );
             d.set(1);
         });
         BorrowGuard
@@ -335,7 +342,12 @@ pub(crate) unsafe fn stored_bytes<'a>(payload: *const u8, key: Datum) -> &'a [u8
 }
 
 #[inline(always)]
-pub(crate) fn eq_stored(kind: CCFastKind, stored: Datum, payload: *const u8, probe: &CatCKey<'_>) -> bool {
+pub(crate) fn eq_stored(
+    kind: CCFastKind,
+    stored: Datum,
+    payload: *const u8,
+    probe: &CatCKey<'_>,
+) -> bool {
     match kind {
         CCFastKind::Char | CCFastKind::Int2 | CCFastKind::Int4 => {
             stored.as_i32() == probe.word().as_i32()
@@ -353,7 +365,9 @@ fn eq_stored_bytes_outlined(
 ) -> bool {
     match kind {
         // SAFETY: stored by-ref keys always pack a live in-payload slice.
-        CCFastKind::Name => compute::name_eq(unsafe { stored_bytes(payload, stored) }, probe.bytes()),
+        CCFastKind::Name => {
+            compute::name_eq(unsafe { stored_bytes(payload, stored) }, probe.bytes())
+        }
         CCFastKind::Text | CCFastKind::OidVector => {
             // SAFETY: as above.
             let s = unsafe { stored_bytes(payload, stored) };
@@ -382,7 +396,10 @@ pub(crate) fn compare_tuple(
 pub(crate) fn payload_alloc(mcx: Mcx<'_>, len: usize) -> types_error::PgResult<NonNull<u8>> {
     use mcx::Allocator;
     let layout = core::alloc::Layout::from_size_align(len.max(1), 8).unwrap();
-    Ok(mcx.allocate(layout).map_err(|_| Box::new(mcx.oom(len)))?.cast())
+    Ok(mcx
+        .allocate(layout)
+        .map_err(|_| Box::new(mcx.oom(len)))?
+        .cast())
 }
 
 pub(crate) fn payload_free(mcx: Mcx<'_>, ptr: *mut u8, len: u32) {

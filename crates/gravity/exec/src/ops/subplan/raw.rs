@@ -32,15 +32,24 @@ pub(crate) fn rearm_sets(ctx: *mut Ctx, sets: &[usize]) -> PgResult<()> {
         return Ok(());
     }
     if ctx.is_null() {
-        return Err(glue::internal("gravity: m8_rerun: a LAZY hashed set to re-arm with no context"));
+        return Err(glue::internal(
+            "gravity: m8_rerun: a LAZY hashed set to re-arm with no context",
+        ));
     }
     for &h in sets {
         // SAFETY: the caller's bound context (above); its params hold the handle words, a nonzero one the object's head,
         // its magic checked before any other read
-        let o = unsafe { *(*(ctx as *const u8).add(gravity_abi::ctx::hdr::PARAMS).cast::<*const u64>()).add(h) } as *const abi::Head;
+        let o = unsafe {
+            *(*(ctx as *const u8)
+                .add(gravity_abi::ctx::hdr::PARAMS)
+                .cast::<*const u64>())
+            .add(h)
+        } as *const abi::Head;
         // SAFETY: as above: a nonzero handle word is a laid object's head
         if o.is_null() || unsafe { (*o).magic } != abi::SUBHASH_MAGIC {
-            return Err(glue::internal("gravity: m8_rerun: a LAZY hashed set's handle word is not its set"));
+            return Err(glue::internal(
+                "gravity: m8_rerun: a LAZY hashed set's handle word is not its set",
+            ));
         }
         // SAFETY: the head is a SubHash object's (magic checked), the first field of a live `SetObj`
         unsafe { &*o.cast::<SetObj>() }.rearm()?;
@@ -54,7 +63,12 @@ pub(super) unsafe fn set_op(h: *mut abi::Head, ctx: *mut Ctx, code: u64, a: u64,
     let o = &*h.cast::<SetObj>();
     // D3506 SETLOCK: a twin's build runs this set's members, whose end fills the twin (`twin_run`)
     let to = o.redirect.get();
-    if to != 0 && matches!(code, abi::OP_SUBHASH_INSERT | abi::OP_SUBHASH_SEAL | abi::OP_SUBHASH_RESET) {
+    if to != 0
+        && matches!(
+            code,
+            abi::OP_SUBHASH_INSERT | abi::OP_SUBHASH_SEAL | abi::OP_SUBHASH_RESET
+        )
+    {
         return set_op(to as *mut abi::Head, ctx, code, a, _b);
     }
     if code == abi::OP_SUBHASH_RUN && o.twin_of.get() != 0 {
@@ -79,9 +93,13 @@ pub(super) unsafe fn set_op(h: *mut abi::Head, ctx: *mut Ctx, code: u64, a: u64,
     if !ctx.is_null() && (*ctx).width > 1 {
         return fail("nest.subplan: a hashed SubPlan's set filled by more than one worker (its build is serial)");
     }
-    let Ok(mut set) = o.set.try_borrow_mut() else { return fail("nest.subplan: a hashed set entered inside its own call") };
+    let Ok(mut set) = o.set.try_borrow_mut() else {
+        return fail("nest.subplan: a hashed set entered inside its own call");
+    };
     match code {
-        abi::OP_SUBHASH_INSERT if o.sealed.get() => fail("m8_subhash_insert: a row into a sealed set (a rebuild resets it first)"),
+        abi::OP_SUBHASH_INSERT if o.sealed.get() => {
+            fail("m8_subhash_insert: a row into a sealed set (a rebuild resets it first)")
+        }
         abi::OP_SUBHASH_INSERT if a == 0 => fail("m8_subhash_insert: a null row"),
         abi::OP_SUBHASH_INSERT => {
             // SAFETY: `a` is the build end's row: one key word, then one null word (the layout `new_set` admitted).
@@ -123,7 +141,9 @@ pub(super) unsafe fn set_op(h: *mut abi::Head, ctx: *mut Ctx, code: u64, a: u64,
             o.table.set(set.word());
             o.table.get() as i64
         }
-        abi::OP_SUBHASH_RESET if o.lazy.ran() => fail("m8_subhash_reset: a LAZY set's rebuild its rerun set did not re-arm"),
+        abi::OP_SUBHASH_RESET if o.lazy.ran() => {
+            fail("m8_subhash_reset: a LAZY set's rebuild its rerun set did not re-arm")
+        }
         abi::OP_SUBHASH_RESET => {
             o.table.set(0);
             o.mseal.set(0);
@@ -156,7 +176,9 @@ unsafe fn twin_run(o: &SetObj) -> types_error::PgResult<i64> {
     // SAFETY: `twin_of` is the statement set's head (`lay_twin`), laid for this execution before this one
     let main = &*(o.twin_of.get() as *const SetObj);
     if main.lazy.run.get() == RUNNING || main.redirect.get() != 0 {
-        return Err(glue::internal("gravity: nest.subplan.epq: a recheck's set built inside the statement set's build"));
+        return Err(glue::internal(
+            "gravity: nest.subplan.epq: a recheck's set built inside the statement set's build",
+        ));
     }
     main.redirect.set(&o.head as *const abi::Head as u64);
     let r = o.lazy.ensure(o.seal_word());
@@ -171,13 +193,21 @@ unsafe fn twin_run(o: &SetObj) -> types_error::PgResult<i64> {
 pub(super) unsafe fn result_op(h: *mut abi::Head, ctx: *mut Ctx, code: u64, a: u64, b: u64) -> i64 {
     // SAFETY: `h` is the first field of a live `ResultObj` (`call` checked its magic), laid for this execution.
     let o = &*h.cast::<ResultObj>();
-    let lane = if ctx.is_null() { 0 } else { (*ctx).worker_ordinal as usize };
-    let Some(slot) = o.slots.get(lane) else { return fail("nest.subplan: a SubPlan result read on a lane past the table") };
+    let lane = if ctx.is_null() {
+        0
+    } else {
+        (*ctx).worker_ordinal as usize
+    };
+    let Some(slot) = o.slots.get(lane) else {
+        return fail("nest.subplan: a SubPlan result read on a lane past the table");
+    };
     match code {
         // SAFETY: the slot is the calling lane's alone (one thread per worker ordinal; a nested lane is its own ordinal).
         abi::OP_SUB_COPY => copy(&mut *slot.get(), a as *const u8, b as usize),
         // SAFETY: as the copy: the lane's accumulator is its own thread's.
-        abi::OP_ARRAY_BEGIN | abi::OP_ARRAY_PUSH | abi::OP_ARRAY_END => o.arrays.op(lane, code, a, b),
+        abi::OP_ARRAY_BEGIN | abi::OP_ARRAY_PUSH | abi::OP_ARRAY_END => {
+            o.arrays.op(lane, code, a, b)
+        }
         _ => fail(&format!("nest.subplan: no result operation {code}")), // alloc: Cold
     }
 }
@@ -204,9 +234,16 @@ unsafe fn copy(buf: &mut Vec<u64>, src: *const u8, len: usize) -> i64 {
 
 impl Arrays {
     /// D1421 (leader, after a pipeline: no lane runs): every lane's accumulator growth charged to the grant; no step.
-    pub(crate) fn charge(&self, exec: &mut gravity_driver::Exec) -> Option<gravity_driver::Result<()>> {
+    pub(crate) fn charge(
+        &self,
+        exec: &mut gravity_driver::Exec,
+    ) -> Option<gravity_driver::Result<()>> {
         // SAFETY: each lane is touched only by its own thread while a pipeline runs; none runs here.
-        let now = self.lanes.iter().map(|l| unsafe { (*l.get()).as_ref().map_or(0, |a| a.bytes() as u64) }).sum();
+        let now = self
+            .lanes
+            .iter()
+            .map(|l| unsafe { (*l.get()).as_ref().map_or(0, |a| a.bytes() as u64) })
+            .sum();
         exec.reservation().charge_growth(&self.charged, now);
         None
     }
@@ -216,8 +253,12 @@ impl Arrays {
     /// # Safety
     /// Called only from `lane`'s own thread (one thread per worker ordinal; a nested lane is its own ordinal).
     pub unsafe fn op(&self, lane: usize, code: u64, a: u64, b: u64) -> i64 {
-        let Some(e) = self.elem.as_ref() else { return fail("nest.subplan: an ARRAY entry on a copy-only SubPlan result") };
-        let Some(cell) = self.lanes.get(lane) else { return fail("nest.subplan: an ARRAY sublink on a lane past the table") };
+        let Some(e) = self.elem.as_ref() else {
+            return fail("nest.subplan: an ARRAY entry on a copy-only SubPlan result");
+        };
+        let Some(cell) = self.lanes.get(lane) else {
+            return fail("nest.subplan: an ARRAY sublink on a lane past the table");
+        };
         let acc = (*cell.get()).get_or_insert_with(ArrayAcc::default);
         let r = match code {
             abi::OP_ARRAY_BEGIN => acc.begin(e).map(|()| 0),
@@ -237,10 +278,24 @@ impl Lazy {
     pub(crate) unsafe fn ensure(&self, table: &Cell<u64>) -> PgResult<i64> {
         match (table.get(), self.run.get()) {
             (t, _) if t != 0 => return Ok(t as i64),
-            _ if self.members.is_empty() => return Err(bad("m8_subhash_run: a set built in program order (not LAZY) probed before its seal")),
-            (_, RUNNING) => return Err(bad("m8_subhash_run: a LAZY set probed inside its own build")),
-            (_, FAILED) => return Err(bad("m8_subhash_run: the set's build failed earlier in this execution")),
-            (_, DONE) => return Err(bad("m8_subhash_run: a LAZY set reset after its build but not re-armed")),
+            _ if self.members.is_empty() => return Err(bad(
+                "m8_subhash_run: a set built in program order (not LAZY) probed before its seal",
+            )),
+            (_, RUNNING) => {
+                return Err(bad(
+                    "m8_subhash_run: a LAZY set probed inside its own build",
+                ))
+            }
+            (_, FAILED) => {
+                return Err(bad(
+                    "m8_subhash_run: the set's build failed earlier in this execution",
+                ))
+            }
+            (_, DONE) => {
+                return Err(bad(
+                    "m8_subhash_run: a LAZY set reset after its build but not re-armed",
+                ))
+            }
             _ => {}
         }
         let again = self.run.get() == STALE;
@@ -250,12 +305,19 @@ impl Lazy {
         self.run.set(RUNNING);
         // SAFETY: the frame is the runner's, published on this thread while it runs the program (gravity_parallel
         // `publish`); this probe is inside one of that runner's calls, and nothing else uses the frame while the members run.
-        let r = if again { f.as_mut().rerun_members(&self.members) } else { f.as_mut().run_members(&self.members) };
+        let r = if again {
+            f.as_mut().rerun_members(&self.members)
+        } else {
+            f.as_mut().run_members(&self.members)
+        };
         let t = table.get();
-        self.run.set(if r.is_ok() && t != 0 { DONE } else { FAILED });
+        self.run
+            .set(if r.is_ok() && t != 0 { DONE } else { FAILED });
         match r {
             Ok(()) if t != 0 => Ok(t as i64),
-            Ok(()) => Err(bad("m8_subhash_run: the LAZY set's build ran without sealing it")),
+            Ok(()) => Err(bad(
+                "m8_subhash_run: the LAZY set's build ran without sealing it",
+            )),
             Err(e) => Err(glue::pg_error(e)),
         }
     }
@@ -268,16 +330,28 @@ impl Multi {
     /// # Safety
     /// `row` holds the key words (one per column, two per byte-key column) then one null word per column; a byte key's
     /// pointer, when its length is not 0, addresses that many readable bytes.
-    unsafe fn encode(&self, row: *const u64, op: &str, most: u64) -> Result<(Vec<u8>, [u64; super::multi::MAX_COLS]), String> {
+    unsafe fn encode(
+        &self,
+        row: *const u64,
+        op: &str,
+        most: u64,
+    ) -> Result<(Vec<u8>, [u64; super::multi::MAX_COLS]), String> {
         let n = self.masks.len();
         let nw = n + self.bytes.count_ones() as usize;
-        let (mut enc, mut null, mut at) = (Vec::with_capacity(8 * nw), [0u64; super::multi::MAX_COLS], 0); // alloc: Exec
+        let (mut enc, mut null, mut at) = (
+            Vec::with_capacity(8 * nw),
+            [0u64; super::multi::MAX_COLS],
+            0,
+        ); // alloc: Exec
         for (c, nc) in null.iter_mut().enumerate().take(n) {
             let by = self.bytes >> c & 1 != 0;
             // SAFETY: the caller's.
             let (k, w) = unsafe { (*row.add(at), *row.add(nw + c)) };
             if w > most {
-                return Err(format!("{op}: null word {w} in column {c} ({})", if most == 1 { "0 or 1" } else { "0, 1 or 2" })); // alloc: Cold
+                return Err(format!(
+                    "{op}: null word {w} in column {c} ({})",
+                    if most == 1 { "0 or 1" } else { "0, 1 or 2" }
+                )); // alloc: Cold
             }
             *nc = w;
             match (by, w) {
@@ -286,11 +360,17 @@ impl Multi {
                     // SAFETY: the caller's.
                     let len = unsafe { *row.add(at + 1) };
                     if len != 0 && k == 0 {
-                        return Err(format!("{op}: a null pointer for the {len} bytes of column {c}")); // alloc: Cold
+                        return Err(format!(
+                            "{op}: a null pointer for the {len} bytes of column {c}"
+                        )); // alloc: Cold
                     }
                     enc.extend_from_slice(&len.to_le_bytes());
                     // SAFETY: the caller's: `len` readable bytes at `k`.
-                    enc.extend_from_slice(if len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(k as *const u8, len as usize) } });
+                    enc.extend_from_slice(if len == 0 {
+                        &[]
+                    } else {
+                        unsafe { core::slice::from_raw_parts(k as *const u8, len as usize) }
+                    });
                 }
                 _ => enc.extend_from_slice(&[0; 8]),
             }
@@ -308,20 +388,31 @@ impl Multi {
     /// CONVERT wave 2 (site 7): the table grows fallibly (`try_reserve`: a refusal is `Refused::Memory`), a new key's box
     /// counts in `key_bytes`, and the charge re-syncs once it lags by `SYNC_SLACK`.
     pub(crate) unsafe fn insert(&mut self, row: *const u64, no_nulls: bool) -> Result<(), Refused> {
-        let (enc, null) = unsafe { self.encode(row, "m8_subhash_insert", 1).map_err(Refused::Row)? };
-        let nullmask = null.iter().enumerate().fold(0u64, |m, (c, &w)| m | (w & 1) << c);
+        let (enc, null) = unsafe {
+            self.encode(row, "m8_subhash_insert", 1)
+                .map_err(Refused::Row)?
+        };
+        let nullmask = null
+            .iter()
+            .enumerate()
+            .fold(0u64, |m, (c, &w)| m | (w & 1) << c);
         let len = enc.len() as u64;
-        let grow = |cap: usize, entry: usize| Refused::Memory(len + (cap.max(4) * 2 * (entry + 1)) as u64);
+        let grow =
+            |cap: usize, entry: usize| Refused::Memory(len + (cap.max(4) * 2 * (entry + 1)) as u64);
         let new = match nullmask {
             0 => {
                 let cap = self.exact.capacity();
-                self.exact.try_reserve(1).map_err(|_| grow(cap, core::mem::size_of::<Box<[u8]>>()))?; // alloc: Exec charged self.charge
+                self.exact
+                    .try_reserve(1)
+                    .map_err(|_| grow(cap, core::mem::size_of::<Box<[u8]>>()))?; // alloc: Exec charged self.charge
                 self.exact.insert(enc.into_boxed_slice()) // alloc: Exec charged self.charge
             }
             _ if no_nulls => false,
             m => {
                 let cap = self.nulls.capacity();
-                self.nulls.try_reserve(1).map_err(|_| grow(cap, core::mem::size_of::<(Box<[u8]>, u64)>()))?; // alloc: Exec charged self.charge
+                self.nulls
+                    .try_reserve(1)
+                    .map_err(|_| grow(cap, core::mem::size_of::<(Box<[u8]>, u64)>()))?; // alloc: Exec charged self.charge
                 self.nulls.insert((enc.into_boxed_slice(), m)) // alloc: Exec charged self.charge
             }
         };
@@ -347,12 +438,26 @@ impl Multi {
             if null[..n].iter().all(|&w| w == 0) && self.exact.contains(enc.as_slice()) {
                 return Ok(TRUE);
             }
-            return Ok(if self.nulls.iter().any(|(k, m)| self.partial(&enc, &null, k, *m)) { NULL } else { FALSE });
+            return Ok(
+                if self
+                    .nulls
+                    .iter()
+                    .any(|(k, m)| self.partial(&enc, &null, k, *m))
+                {
+                    NULL
+                } else {
+                    FALSE
+                },
+            );
         }
         if nulls == n {
             return Ok(NULL);
         }
-        let hit = self.nulls.iter().any(|(k, m)| self.partial(&enc, &null, k, *m)) || self.exact.iter().any(|k| self.partial(&enc, &null, k, 0));
+        let hit = self
+            .nulls
+            .iter()
+            .any(|(k, m)| self.partial(&enc, &null, k, *m))
+            || self.exact.iter().any(|k| self.partial(&enc, &null, k, 0));
         Ok(if hit { NULL } else { FALSE })
     }
 }
@@ -360,7 +465,11 @@ impl Multi {
 impl SetObj {
     /// `m8_subhash_probe` of the several-column set (any width: the sealed set is read, never written).
     pub(crate) unsafe fn probe(&self, row: u64) -> i64 {
-        let Some(m) = &self.multi else { return fail("m8_subhash_probe: a one-column set (its probe is the IR's, over its KeyTable)") };
+        let Some(m) = &self.multi else {
+            return fail(
+                "m8_subhash_probe: a one-column set (its probe is the IR's, over its KeyTable)",
+            );
+        };
         if self.mseal.get() == 0 {
             if let Err(e) = self.lazy.ensure(&self.mseal) {
                 gravity_fn::stash_error(e);
@@ -371,13 +480,17 @@ impl SetObj {
             return fail("m8_subhash_probe: a null row");
         }
         // SAFETY: sealed: no insert or reset runs until the statement's next rebuild; `row` is the probe's (the layout `new_set` admitted).
-        (*m.as_ptr()).probe(row as *const u64).unwrap_or_else(|e| fail(&e))
+        (*m.as_ptr())
+            .probe(row as *const u64)
+            .unwrap_or_else(|e| fail(&e))
     }
 
     /// D2849: `m8_subhash_exact` of the several-column set: 1 when it holds a row with no NULL key (PG's `havehashrows`:
     /// `ExecHashSubPlan` hashes a probe with no NULL column only then), else 0; a LAZY set is built first.
     pub(crate) unsafe fn exact(&self) -> i64 {
-        let Some(m) = &self.multi else { return fail("m8_subhash_exact: a one-column set (its KeyTable is the IR's)") };
+        let Some(m) = &self.multi else {
+            return fail("m8_subhash_exact: a one-column set (its KeyTable is the IR's)");
+        };
         if self.mseal.get() == 0 {
             if let Err(e) = self.lazy.ensure(&self.mseal) {
                 gravity_fn::stash_error(e);

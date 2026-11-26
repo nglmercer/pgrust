@@ -63,14 +63,20 @@ impl TableState {
                 next_pk: pk.seeded_max + 1,
                 known: (1..=pk.seeded_max).collect(),
             },
-            None => TableState { name: t.name.clone(), next_pk: 1, known: Vec::new() },
+            None => TableState {
+                name: t.name.clone(),
+                next_pk: 1,
+                known: Vec::new(),
+            },
         }
     }
 }
 
 impl DmlState {
     pub fn new(catalog: &Catalog) -> DmlState {
-        DmlState { tables: catalog.tables.iter().map(TableState::fresh).collect() }
+        DmlState {
+            tables: catalog.tables.iter().map(TableState::fresh).collect(),
+        }
     }
 
     /// Re-align to a reshaped catalog (the session loop calls this after
@@ -83,11 +89,9 @@ impl DmlState {
         self.tables = catalog
             .tables
             .iter()
-            .map(|t| {
-                match self.tables.iter().find(|ts| ts.name == t.name) {
-                    Some(ts) => ts.clone(),
-                    None => TableState::fresh(t),
-                }
+            .map(|t| match self.tables.iter().find(|ts| ts.name == t.name) {
+                Some(ts) => ts.clone(),
+                None => TableState::fresh(t),
             })
             .collect();
     }
@@ -168,7 +172,10 @@ pub fn gen_dml_sql(g: &mut Gen) -> Option<String> {
         return None;
     }
     let ti = eligible[g.rng.below_usize(eligible.len())];
-    let sql = match g.weights.pick(g.rng, &["dml:insert", "dml:update", "dml:delete"]) {
+    let sql = match g
+        .weights
+        .pick(g.rng, &["dml:insert", "dml:update", "dml:delete"])
+    {
         "dml:insert" => gen_insert(g, ti),
         "dml:update" => gen_update(g, ti),
         _ => gen_delete(g, ti),
@@ -187,8 +194,14 @@ pub(crate) fn value_expr(g: &mut Gen, scope: &Scope, c: &Column) -> String {
     if c.nullable {
         e.to_sql()
     } else {
-        let fallback = Expr::Lit { sql: g.gen_literal(c.ty) };
-        Expr::Func { name: "coalesce", args: vec![e, fallback] }.to_sql()
+        let fallback = Expr::Lit {
+            sql: g.gen_literal(c.ty),
+        };
+        Expr::Func {
+            name: "coalesce",
+            args: vec![e, fallback],
+        }
+        .to_sql()
     }
 }
 
@@ -203,15 +216,17 @@ pub(crate) fn value_expr(g: &mut Gen, scope: &Scope, c: &Column) -> String {
 /// and short-source slice assigns are matched errors on both sides.
 pub(crate) fn render_set_assign(g: &mut Gen, scope: &Scope, c: &Column) -> String {
     let sub_ok = matches!(c.ty, SqlType::Jsonb | SqlType::Int4Arr | SqlType::TextArr);
-    if !sub_ok
-        || g.weights.pick(g.rng, &["dml:set:plain", "dml:set:sub"]) == "dml:set:plain"
-    {
+    if !sub_ok || g.weights.pick(g.rng, &["dml:set:plain", "dml:set:sub"]) == "dml:set:plain" {
         return format!("{} = {}", c.name, value_expr(g, scope, c));
     }
     match c.ty {
         SqlType::Jsonb => {
             let chain = g.rng.chance(1, 4);
-            g.fire(if chain { "dml:set:jsonb_chain" } else { "dml:set:jsonb_sub" });
+            g.fire(if chain {
+                "dml:set:jsonb_chain"
+            } else {
+                "dml:set:jsonb_sub"
+            });
             let mut target = format!("{}[{}]", c.name, g.gen_jsonb_subscript());
             if chain {
                 target.push_str(&format!("[{}]", g.gen_jsonb_subscript()));
@@ -222,7 +237,11 @@ pub(crate) fn render_set_assign(g: &mut Gen, scope: &Scope, c: &Column) -> Strin
             format!("{} = {}", target, v.to_sql())
         }
         arr_ty => {
-            let el_ty = if arr_ty == SqlType::Int4Arr { SqlType::Int4 } else { SqlType::Text };
+            let el_ty = if arr_ty == SqlType::Int4Arr {
+                SqlType::Int4
+            } else {
+                SqlType::Text
+            };
             if g.rng.chance(1, 2) {
                 g.fire("dml:set:arr_elem");
                 // Indexes past the end auto-extend (NULL-padded) — the
@@ -299,7 +318,10 @@ fn insert_pk(g: &mut Gen, ti: usize, conflicty: bool, used: &mut Vec<i64>) -> i6
 }
 
 fn render_returning(g: &mut Gen, scope: &Scope, out: &mut String) {
-    if g.weights.pick(g.rng, &["dml:returning", "dml:returning:none"]) != "dml:returning" {
+    if g.weights
+        .pick(g.rng, &["dml:returning", "dml:returning:none"])
+        != "dml:returning"
+    {
         return;
     }
     g.fire("dml:returning");
@@ -318,9 +340,14 @@ fn gen_insert(g: &mut Gen, ti: usize) -> String {
     let table = table_of(g, ti);
     let pk_col = &table.pk.as_ref().expect("eligible table has pk").column;
     g.fire("dml:insert");
-    let shape = g
-        .weights
-        .pick(g.rng, &["dml:insert:single", "dml:insert:multirow", "dml:insert:select"]);
+    let shape = g.weights.pick(
+        g.rng,
+        &[
+            "dml:insert:single",
+            "dml:insert:multirow",
+            "dml:insert:select",
+        ],
+    );
     g.fire(shape);
     if shape == "dml:insert:select" {
         return gen_insert_select(g, ti);
@@ -342,14 +369,25 @@ fn gen_insert(g: &mut Gen, ti: usize) -> String {
     let conflict = if table.pk_unique {
         g.weights.pick(
             g.rng,
-            &["dml:onconflict:none", "dml:onconflict:nothing", "dml:onconflict:update"],
+            &[
+                "dml:onconflict:none",
+                "dml:onconflict:nothing",
+                "dml:onconflict:update",
+            ],
         )
     } else {
         "dml:onconflict:none"
     };
     let conflicty = conflict != "dml:onconflict:none";
-    let nrows = if shape == "dml:insert:multirow" { 2 + g.rng.below_usize(3) } else { 1 };
-    let empty = Scope { rels: &[], outer: None };
+    let nrows = if shape == "dml:insert:multirow" {
+        2 + g.rng.below_usize(3)
+    } else {
+        1
+    };
+    let empty = Scope {
+        rels: &[],
+        outer: None,
+    };
     let mut used: Vec<i64> = Vec::new();
     for r in 0..nrows {
         if r > 0 {
@@ -364,7 +402,8 @@ fn gen_insert(g: &mut Gen, ti: usize) -> String {
             if table.is_pk_column(&c.name) {
                 out.push_str(&pk.to_string());
             } else if c.nullable
-                && g.weights.pick(g.rng, &["dml:insert:value", "dml:insert:default"])
+                && g.weights
+                    .pick(g.rng, &["dml:insert:value", "dml:insert:default"])
                     == "dml:insert:default"
             {
                 g.fire("dml:insert:default");
@@ -388,7 +427,10 @@ fn gen_insert(g: &mut Gen, ti: usize) -> String {
                 ScopeRel::from_table(table, alias.clone()),
                 ScopeRel::from_table(table, "excluded".to_string()),
             ];
-            let scope = Scope { rels: &rels, outer: None };
+            let scope = Scope {
+                rels: &rels,
+                outer: None,
+            };
             let set_cols = pick_set_columns(g, table, 2);
             for (i, c) in set_cols.iter().enumerate() {
                 if i > 0 {
@@ -400,7 +442,10 @@ fn gen_insert(g: &mut Gen, ti: usize) -> String {
     }
 
     let rels = vec![ScopeRel::from_table(table, alias)];
-    let scope = Scope { rels: &rels, outer: None };
+    let scope = Scope {
+        rels: &rels,
+        outer: None,
+    };
     render_returning(g, &scope, &mut out);
     out.push(';');
     out
@@ -423,7 +468,10 @@ fn gen_insert_select(g: &mut Gen, ti: usize) -> String {
     let cols = insert_columns(g, table);
     let src_alias = g.next_alias();
     let rels = vec![ScopeRel::from_table(src, src_alias.clone())];
-    let scope = Scope { rels: &rels, outer: None };
+    let scope = Scope {
+        rels: &rels,
+        outer: None,
+    };
 
     let mut out = format!("INSERT INTO {} (", table.name);
     for (i, c) in cols.iter().enumerate() {
@@ -462,7 +510,9 @@ pub(crate) fn pick_set_columns<'a>(g: &mut Gen, table: &'a Table, max_n: usize) 
         .iter()
         .filter(|c| !table.is_pk_column(&c.name))
         .collect();
-    let picked = g.weights.pick(g.rng, &["dml:set:1", "dml:set:2", "dml:set:3"]);
+    let picked = g
+        .weights
+        .pick(g.rng, &["dml:set:1", "dml:set:2", "dml:set:3"]);
     g.fire(picked);
     let n = match picked {
         "dml:set:1" => 1,
@@ -500,7 +550,12 @@ fn render_where_plain(
         "dml:where:pk" => {
             g.fire("dml:where:pk");
             let table = table_of(g, ti);
-            let pk_col = table.pk.as_ref().expect("eligible table has pk").column.clone();
+            let pk_col = table
+                .pk
+                .as_ref()
+                .expect("eligible table has pk")
+                .column
+                .clone();
             let k = g.pk_known(ti).unwrap_or(1);
             let op = if g.rng.chance(1, 3) { "<=" } else { "=" };
             out.push_str(&format!(" WHERE {}.{} {} {}", alias, pk_col, op, k));
@@ -519,7 +574,13 @@ fn render_where_plain(
 /// The unique-pin join for UPDATE..FROM / DELETE..USING: `t1.<pk> = t0.<int4
 /// col>` guarantees at most one joined row per target row (pk is unique),
 /// so which source row supplies SET values is never ambiguous.
-fn joined_pin(g: &mut Gen, target: &Table, target_alias: &str, other_ti: usize, other_alias: &str) -> String {
+fn joined_pin(
+    g: &mut Gen,
+    target: &Table,
+    target_alias: &str,
+    other_ti: usize,
+    other_alias: &str,
+) -> String {
     let other = table_of(g, other_ti);
     let other_pk = &other.pk.as_ref().expect("eligible table has pk").column;
     let int_cols: Vec<&Column> = target
@@ -535,7 +596,9 @@ fn gen_update(g: &mut Gen, ti: usize) -> String {
     let table = table_of(g, ti);
     g.fire("dml:update");
     let alias = g.next_alias();
-    let form = g.weights.pick(g.rng, &["dml:update:plain", "dml:update:from"]);
+    let form = g
+        .weights
+        .pick(g.rng, &["dml:update:plain", "dml:update:from"]);
 
     let mut out = format!("UPDATE {} AS {} SET ", table.name, alias);
     if form == "dml:update:from" {
@@ -556,7 +619,10 @@ fn gen_update(g: &mut Gen, ti: usize) -> String {
             ScopeRel::from_table(table, alias.clone()),
             ScopeRel::from_table(other, other_alias.clone()),
         ];
-        let scope = Scope { rels: &rels, outer: None };
+        let scope = Scope {
+            rels: &rels,
+            outer: None,
+        };
         let set_cols = pick_set_columns(g, table, 3);
         for (i, c) in set_cols.iter().enumerate() {
             if i > 0 {
@@ -574,7 +640,10 @@ fn gen_update(g: &mut Gen, ti: usize) -> String {
         render_returning(g, &scope, &mut out);
     } else {
         let rels = vec![ScopeRel::from_table(table, alias.clone())];
-        let scope = Scope { rels: &rels, outer: None };
+        let scope = Scope {
+            rels: &rels,
+            outer: None,
+        };
         let set_cols = pick_set_columns(g, table, 3);
         for (i, c) in set_cols.iter().enumerate() {
             if i > 0 {
@@ -593,7 +662,9 @@ fn gen_delete(g: &mut Gen, ti: usize) -> String {
     let table = table_of(g, ti);
     g.fire("dml:delete");
     let alias = g.next_alias();
-    let form = g.weights.pick(g.rng, &["dml:delete:plain", "dml:delete:using"]);
+    let form = g
+        .weights
+        .pick(g.rng, &["dml:delete:plain", "dml:delete:using"]);
     let mut out = format!("DELETE FROM {} AS {}", table.name, alias);
     if form == "dml:delete:using" {
         g.fire("dml:delete:using");
@@ -612,7 +683,10 @@ fn gen_delete(g: &mut Gen, ti: usize) -> String {
             ScopeRel::from_table(table, alias.clone()),
             ScopeRel::from_table(other, other_alias.clone()),
         ];
-        let scope = Scope { rels: &rels, outer: None };
+        let scope = Scope {
+            rels: &rels,
+            outer: None,
+        };
         out.push_str(&format!(" USING {} AS {}", other.name, other_alias));
         out.push_str(" WHERE ");
         out.push_str(&joined_pin(g, table, &alias, other_ti, &other_alias));
@@ -623,7 +697,10 @@ fn gen_delete(g: &mut Gen, ti: usize) -> String {
         render_returning(g, &scope, &mut out);
     } else {
         let rels = vec![ScopeRel::from_table(table, alias.clone())];
-        let scope = Scope { rels: &rels, outer: None };
+        let scope = Scope {
+            rels: &rels,
+            outer: None,
+        };
         // DELETE always carries a WHERE (an unconditioned DELETE nukes the
         // table and starves the rest of the stream).
         render_where_plain(g, ti, &alias, &scope, false, &mut out);
@@ -744,10 +821,7 @@ mod tests {
                 for assign in set.split(", ") {
                     if let Some((col, _)) = assign.split_once(" = ") {
                         if !col.contains('(') {
-                            assert!(
-                                col != "pk" && col != "id",
-                                "UPDATE sets pk column: {sql}"
-                            );
+                            assert!(col != "pk" && col != "id", "UPDATE sets pk column: {sql}");
                         }
                     }
                 }
@@ -760,7 +834,9 @@ mod tests {
         let cat = FixtureCatalog.load_catalog().unwrap();
         let (sqls, _) = gen_many(77, 400, "dml:insert=1,dml:update=0,dml:delete=0");
         for sql in &sqls {
-            let Some(rest) = sql.strip_prefix("INSERT INTO ") else { continue };
+            let Some(rest) = sql.strip_prefix("INSERT INTO ") else {
+                continue;
+            };
             let table_name = rest.split([' ', '(']).next().unwrap();
             let table = cat.tables.iter().find(|t| t.name == table_name).unwrap();
             let cols_txt = rest.split_once('(').unwrap().1.split_once(')').unwrap().0;
@@ -791,7 +867,9 @@ mod tests {
         );
         let mut saw_multi = false;
         for sql in &sqls {
-            let Some(vals) = sql.split_once(" VALUES ") else { continue };
+            let Some(vals) = sql.split_once(" VALUES ") else {
+                continue;
+            };
             // Scan the VALUES section only (ON CONFLICT/RETURNING tails
             // carry their own parenthesized groups).
             let vals = vals.1.split(" ON CONFLICT ").next().unwrap();

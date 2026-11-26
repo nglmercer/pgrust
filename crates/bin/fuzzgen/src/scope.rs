@@ -18,7 +18,10 @@ pub struct ScopeRel {
 
 impl ScopeRel {
     pub fn from_table(table: &Table, alias: String) -> ScopeRel {
-        ScopeRel { alias, columns: table.columns.clone() }
+        ScopeRel {
+            alias,
+            columns: table.columns.clone(),
+        }
     }
 }
 
@@ -56,7 +59,9 @@ impl<'a> Scope<'a> {
 
     /// Types with at least one column at this level.
     pub fn has_type(&self, ty: SqlType) -> bool {
-        self.rels.iter().any(|r| r.columns.iter().any(|c| c.ty == ty))
+        self.rels
+            .iter()
+            .any(|r| r.columns.iter().any(|c| c.ty == ty))
     }
 }
 
@@ -72,7 +77,10 @@ mod tests {
             ScopeRel::from_table(&cat.tables[0], "t0".to_string()),
             ScopeRel::from_table(&cat.tables[0], "t1".to_string()),
         ];
-        let scope = Scope { rels: &rels, outer: None };
+        let scope = Scope {
+            rels: &rels,
+            outer: None,
+        };
         let cols = scope.columns_of_type(SqlType::Int4);
         // Self-join: the same table's int4 columns appear once per alias.
         assert!(cols.iter().any(|(a, _)| *a == "t0"));
@@ -86,9 +94,15 @@ mod tests {
     fn outer_chain_is_walked() {
         let cat = FixtureCatalog.load_catalog().unwrap();
         let outer_rels = vec![ScopeRel::from_table(&cat.tables[0], "t0".to_string())];
-        let outer = Scope { rels: &outer_rels, outer: None };
+        let outer = Scope {
+            rels: &outer_rels,
+            outer: None,
+        };
         let inner_rels = vec![ScopeRel::from_table(&cat.tables[1], "t1".to_string())];
-        let inner = Scope { rels: &inner_rels, outer: Some(&outer) };
+        let inner = Scope {
+            rels: &inner_rels,
+            outer: Some(&outer),
+        };
         let cols = inner.outer_columns_of_type(SqlType::Int4);
         assert!(!cols.is_empty());
         assert!(cols.iter().all(|(a, _)| *a == "t0"));

@@ -9,9 +9,9 @@ use core::cell::Cell as Once;
 
 use gravity_abi::breaker::SORTRUN_HDR;
 use gravity_abi::ctx::{hdr, RESUME_NONE};
-use gravity_decompose::ops::shared::sort::{SortDesc, SortKey};
 use gravity_decompose::catalog::typefacts::TypeFacts;
 use gravity_decompose::ops::shared::append::AppendDesc;
+use gravity_decompose::ops::shared::sort::{SortDesc, SortKey};
 use gravity_decompose::{Op, Source};
 use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{Block, ConvOp, IntBinOp, IntCond, StackSlot, Type, Value};
@@ -22,46 +22,64 @@ use gravity_program::{LifeId, NumTypmod, Pipeline, Rep, Until};
 use mcx::{CollectIn, GrowIn, PgBox, PgVec};
 use types_nodes::list::NodeList;
 
+use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::cell::{At, Cell, CellHome, CellLife, Nullable, Row};
 use crate::face::end::EndMech;
 use crate::face::kinds::{Face, KindId};
 use crate::face::source::{SourceMech, WinConds};
 use crate::face::step::StepMech;
+use crate::face::strategy::{SORT_KEYLANE, SORT_NATURAL, SORT_RESIDENT};
 use crate::frame::env::Env;
 use crate::frame::frame::{EndMaker, Next, SourceMaker, StepMaker, Win};
+use crate::frame::iface::{breaker_of, kind_impl, run_holds_rows};
 use crate::frame::open::{Base, OpenWord, OpenWords};
 use crate::frame::px::{runs_word, Px, WordKey};
 use crate::frame::row::{Carry, RowVals};
 use crate::frame::stop::Exits;
-use crate::face::strategy::{SORT_KEYLANE, SORT_NATURAL, SORT_RESIDENT};
-use crate::admit::refusal::{Reason, ShapeWhy};
-use crate::frame::iface::{breaker_of, kind_impl, run_holds_rows};
 use crate::ops::Table;
 
-use crate::rep::keylane::{ivl, ivl_tail};
-use crate::rep::KeyWord;
 use crate::face::runs::{Form, Shape};
 use crate::ops::sort::strategies::resident as res;
+use crate::rep::keylane::{ivl, ivl_tail};
+use crate::rep::KeyWord;
 
 pub(crate) const ROWS: Table = Table {
-    kinds: &[(KindId::RunsSort, &StepMaker(make_step)), (KindId::RunsSort, &EndMaker(make_end)), (KindId::RunsSort, &SourceMaker(make_emit))],
+    kinds: &[
+        (KindId::RunsSort, &StepMaker(make_step)),
+        (KindId::RunsSort, &EndMaker(make_end)),
+        (KindId::RunsSort, &SourceMaker(make_emit)),
+    ],
     ..crate::ops::NONE
 };
 
 /// The rows one emit window reads (a window's end is a cancel check).
 const WINDOW: i64 = 4096;
 
-fn bug(node: i32, payload: &'static str) -> ! { crate::refuse!(node, Reason::Bug { payload }) }
-fn shape(node: i32, why: &'static str) -> ! { crate::refuse!(node, Reason::Shape { why: ShapeWhy(why) }) }
+fn bug(node: i32, payload: &'static str) -> ! {
+    crate::refuse!(node, Reason::Bug { payload })
+}
+fn shape(node: i32, why: &'static str) -> ! {
+    crate::refuse!(node, Reason::Shape { why: ShapeWhy(why) })
+}
 
 /// Pipeline `k`'s sort op and the projection before it (the run row's columns by resno), whatever its form (a top, an
 /// incremental sort reuse the run: M3-TOPS, M3-MERGE); admission decides which form reaches which maker.
 pub(crate) fn sort_of<'g, 'p>(px: &Px<'g, 'p>, k: usize) -> (&'g SortDesc<'p>, &'g NodeList<'p>) {
     let p = &px.gx.pipelines()[k];
-    let Some(j) = p.ops.iter().position(|op| matches!(op, Op::Sort(_))) else { bug(p.node_id, "a full sort's pipeline without its sort") };
-    let Op::Sort(sd) = &p.ops[j] else { unreachable!() };
+    let Some(j) = p.ops.iter().position(|op| matches!(op, Op::Sort(_))) else {
+        bug(p.node_id, "a full sort's pipeline without its sort")
+    };
+    let Op::Sort(sd) = &p.ops[j] else {
+        unreachable!()
+    };
     // D1486 (errorhold): right over a settled union that projects nothing, the row is the union record's
-    let own = p.ops[..j].iter().rev().find_map(|op| if let Op::Project(l) = op { Some(*l) } else { None });
+    let own = p.ops[..j].iter().rev().find_map(|op| {
+        if let Op::Project(l) = op {
+            Some(*l)
+        } else {
+            None
+        }
+    });
     let Some(l) = own.or_else(|| crate::rerun::union_arms::record_cols(px.gx, k)) else {
         shape(p.node_id, "a full sort over a row with no projection")
     };
@@ -72,17 +90,25 @@ pub(crate) fn sort_of<'g, 'p>(px: &Px<'g, 'p>, k: usize) -> (&'g SortDesc<'p>, &
 struct Pass;
 
 impl StepMech for Pass {
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, next: Next<'_, 'e>) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        next: Next<'_, 'e>,
+    ) -> Carry<'e> {
         next(b, env, row)
     }
 }
 
 fn make_step<'g, 'p>(px: &mut Px<'g, 'p>, k: usize, j: usize) -> PgBox<'g, dyn StepMech + 'g> {
     crate::ops::sort::sort_noproc::checked(px.gx, k); // W8-EQUIVCLASS-SORTOP: a key PG cannot begin, outside a root merge's inner
-    // form G: the sort orders the records of the group it drains, so its run holds no rows (runs.topk_groups)
+                                                      // form G: the sort orders the records of the group it drains, so its run holds no rows (runs.topk_groups)
     if !run_holds_rows(px.gx, k) {
         crate::mechs_used::declined(crate::admit::refusal::Variant::Kind(KindId::RunsSort)); // MECHCORPUS: the node is another kind's form
-        return (kind_impl::<StepMaker>(&px.gx.pipelines()[k].node_id, KindId::RunsTopkGroups).0)(px, k, j);
+        return (kind_impl::<StepMaker>(&px.gx.pipelines()[k].node_id, KindId::RunsTopkGroups).0)(
+            px, k, j,
+        );
     }
     mcx::pg_box_dyn!(px.mcx(), Pass => dyn StepMech + 'g)
 }
@@ -114,9 +140,11 @@ pub(crate) struct RunEnd {
 
 fn make_end<'g, 'p>(px: &mut Px<'g, 'p>, k: usize) -> PgBox<'g, dyn EndMech + 'g> {
     let (p, node) = crate::ops::sort::sort_raise::checked(px.gx, k); // D1292: a raising Sort outside the served scope refuses
-    // USEROP: a SQL / PL comparator over a hash join PostgreSQL may run in batches (any form: a sorted group's, an
-    // incremental sort's, a full sort's), unless PostgreSQL certainly holds it in one (ops/shared/one_batch.rs)
-    if crate::effects::visible::rep::user_batches(px.gx, k) && !crate::ops::shared::one_batch::served(px, k) {
+                                                                     // USEROP: a SQL / PL comparator over a hash join PostgreSQL may run in batches (any form: a sorted group's, an
+                                                                     // incremental sort's, a full sort's), unless PostgreSQL certainly holds it in one (ops/shared/one_batch.rs)
+    if crate::effects::visible::rep::user_batches(px.gx, k)
+        && !crate::ops::shared::one_batch::served(px, k)
+    {
         shape(node, crate::rep::keylane::USER_BATCHES);
     }
     if !run_holds_rows(px.gx, k) {
@@ -126,13 +154,19 @@ fn make_end<'g, 'p>(px: &mut Px<'g, 'p>, k: usize) -> PgBox<'g, dyn EndMech + 'g
     let (sd, cols) = sort_of(px, k);
     if sd.presorted > 0 {
         crate::mechs_used::declined(crate::admit::refusal::Variant::Kind(KindId::RunsSort)); // MECHCORPUS: the node is another kind's form
-        return (kind_impl::<EndMaker>(&node, KindId::RunsIncremental).0)(px, k); // I-C (D479): runs/incremental.rs
+        return (kind_impl::<EndMaker>(&node, KindId::RunsIncremental).0)(px, k);
+        // I-C (D479): runs/incremental.rs
     }
     // USEROP (K10.y1 .h0): a CompareFn key over another breaker's rows (decompose's full-sort lift) under a SQL / PL
     // comparator: the rows arrive in that breaker's order, not PostgreSQL's (a hashed group's, ties of a sort's)
     // unless they arrive from a feeding sort that keeps PostgreSQL's order (exact_feed.rs)
     // D3374 (e): and a per-row record key, whose record_cmp raises on the pairs of two layouts it meets
-    if matches!(p.source, Source::Breaker { .. }) && sd.keys.iter().any(|key| key.per_row || key.compare_fn() && !crate::rep::keylane::c_level_cmp(px.gx, key.opno)) && !crate::ops::sort::exact_feed::fed_exact(px.gx, k) {
+    if matches!(p.source, Source::Breaker { .. })
+        && sd.keys.iter().any(|key| {
+            key.per_row || key.compare_fn() && !crate::rep::keylane::c_level_cmp(px.gx, key.opno)
+        })
+        && !crate::ops::sort::exact_feed::fed_exact(px.gx, k)
+    {
         shape(node, crate::rep::keylane::USER_ARRIVAL);
     }
     let union_arm = union_arm(p);
@@ -146,18 +180,39 @@ fn make_end<'g, 'p>(px: &mut Px<'g, 'p>, k: usize) -> PgBox<'g, dyn EndMech + 'g
     // claim-driven source's (`wide_row_end`)
     // D3336: so does a reader of a window by claims (face/partruns.rs `reads_wide`)
     let wide = px.wide.contains(&k) || crate::face::partruns::reads_wide(px, k);
-    let (keylane, resident) = (crate::ops::sort::shapes::lane_key(sd, None), p.desc.finish || wide);
-    let arm = Arm { keylane: keylane && res::on(px, SORT_KEYLANE), natural: res::on(px, SORT_NATURAL), resident: union_arm.is_some() || resident && res::on(px, SORT_RESIDENT), finish: wide };
+    let (keylane, resident) = (
+        crate::ops::sort::shapes::lane_key(sd, None),
+        p.desc.finish || wide,
+    );
+    let arm = Arm {
+        keylane: keylane && res::on(px, SORT_KEYLANE),
+        natural: res::on(px, SORT_NATURAL),
+        resident: union_arm.is_some() || resident && res::on(px, SORT_RESIDENT),
+        finish: wide,
+    };
     let mut end = RunEnd::over(px, k, &sd.keys, Some(sd.tlist), cols, arm);
     // ... but a wide emit the leader keeps (table/emit_group.rs `kept_on_leader`, read now that this end's expressions are
     // made, as the emit's descriptor reads it) runs site-less in one call: this end seals the run, as a serial producer's
     if wide && crate::table::emit_group::kept_on_leader(px, k) {
         end.kept_serial(px, k, union_arm.is_some());
     }
-    if let (true, Some(br), true) = (end.resident, breaker_of(&p.desc), union_arm.is_none_or(|i| i == 0)) {
-        res::declare(px, k, br.slot, (!end.shape.var()).then_some((end.shape.spec, 2 * end.shape.keys.len() as u16)));
+    if let (true, Some(br), true) = (
+        end.resident,
+        breaker_of(&p.desc),
+        union_arm.is_none_or(|i| i == 0),
+    ) {
+        res::declare(
+            px,
+            k,
+            br.slot,
+            (!end.shape.var()).then_some((end.shape.spec, 2 * end.shape.keys.len() as u16)),
+        );
     }
-    crate::ops::sort::sort_raise::wrap(px.gx, k, mcx::pg_box_dyn!(px.mcx(), end => dyn EndMech + 'g)) // D1292: PG's 42P22 at the Sort's start
+    crate::ops::sort::sort_raise::wrap(
+        px.gx,
+        k,
+        mcx::pg_box_dyn!(px.mcx(), end => dyn EndMech + 'g),
+    ) // D1292: PG's 42P22 at the Sort's start
 }
 
 /// D3024 (b): whether pipeline `k` ends in a row sort or a row top that takes section ends when its source is a wide keyed
@@ -167,18 +222,38 @@ fn make_end<'g, 'p>(px: &mut Px<'g, 'p>, k: usize) -> PgBox<'g, dyn EndMech + 'g
 /// at its section end, and the reader merges the runs, as for a claim-driven scan's sort.
 pub(crate) fn wide_row_end(gx: &crate::graph::Gx<'_, '_>, k: usize) -> bool {
     let p = &gx.pipelines()[k];
-    let Some(d) = p.ops.iter().find_map(|op| if let Op::Sort(d) = op { Some(d) } else { None }) else { return false };
-    matches!(gx.end_need(k), KindId::RunsSort | KindId::RunsTopkRows) && d.presorted == 0 && union_arm(p).is_none()
+    let Some(d) = p
+        .ops
+        .iter()
+        .find_map(|op| if let Op::Sort(d) = op { Some(d) } else { None })
+    else {
+        return false;
+    };
+    matches!(gx.end_need(k), KindId::RunsSort | KindId::RunsTopkRows)
+        && d.presorted == 0
+        && union_arm(p).is_none()
 }
 
 /// The arm a sort's pipeline is of a union of two arms or more (each arm's run is resident: append.arms' `ArmSort`
 /// merges the arms' runs, a var run's shape read from its table copy).
 pub(crate) fn union_arm(p: &gravity_decompose::PipelineNode<'_>) -> Option<u16> {
-    p.ops.iter().filter_map(|o| match o { Op::Append(AppendDesc::Arm { i, n, .. }) if *n > 1 => Some(*i), _ => None }).max()
+    p.ops
+        .iter()
+        .filter_map(|o| match o {
+            Op::Append(AppendDesc::Arm { i, n, .. }) if *n > 1 => Some(*i),
+            _ => None,
+        })
+        .max()
 }
 
 /// `make_end` over explicit keys (M3-MERGE's arms): the caller declares any protocol (`resident::declare`).
-pub(crate) fn make_end_over<'g>(px: &mut Px<'g, '_>, k: usize, keys: &[SortKey], cols: &NodeList<'_>, arm: Arm) -> PgBox<'g, dyn EndMech + 'g> {
+pub(crate) fn make_end_over<'g>(
+    px: &mut Px<'g, '_>,
+    k: usize,
+    keys: &[SortKey],
+    cols: &NodeList<'_>,
+    arm: Arm,
+) -> PgBox<'g, dyn EndMech + 'g> {
     mcx::pg_box_dyn!(px.mcx(), RunEnd::over(px, k, keys, None, cols, arm) => dyn EndMech + 'g)
 }
 
@@ -198,7 +273,14 @@ impl RunEnd {
     }
 
     /// Pipeline `k`'s producer over `keys` (through `tlist` when a Sort's) and the child projection `cols`.
-    pub(crate) fn over(px: &mut Px<'_, '_>, k: usize, keys: &[SortKey], tlist: Option<&NodeList<'_>>, cols: &NodeList<'_>, arm: Arm) -> RunEnd {
+    pub(crate) fn over(
+        px: &mut Px<'_, '_>,
+        k: usize,
+        keys: &[SortKey],
+        tlist: Option<&NodeList<'_>>,
+        cols: &NodeList<'_>,
+        arm: Arm,
+    ) -> RunEnd {
         let p = &px.gx.pipelines()[k];
         let (node, finishing) = (p.node_id, p.desc.finish || arm.finish);
         // a feeding sort's run orders by PostgreSQL's qsort in arrival order, its rows taken serially in heap order
@@ -206,10 +288,30 @@ impl RunEnd {
         if exact {
             px.serial.push(k); // alloc: Program
         }
-        let Arm { keylane, natural, resident, .. } = arm;
+        let Arm {
+            keylane,
+            natural,
+            resident,
+            ..
+        } = arm;
         let keylane = keylane && !exact && shape.keys.len() == keys.len(); // lane_key judged the first key, which a Const key drops
-        let w_run = px.frame_word(WordKey::Open { face: Face::Runs, k, j: u64::MAX, i: runs_word::END_RUN }) as i32 * 8; // D482
-        RunEnd { shape, node, finishing, keylane, natural, resident, w_run, key_word: KeyWord::Sort }
+        let w_run = px.frame_word(WordKey::Open {
+            face: Face::Runs,
+            k,
+            j: u64::MAX,
+            i: runs_word::END_RUN,
+        }) as i32
+            * 8; // D482
+        RunEnd {
+            shape,
+            node,
+            finishing,
+            keylane,
+            natural,
+            resident,
+            w_run,
+            key_word: KeyWord::Sort,
+        }
     }
 
     pub(crate) fn run(&self, b: &mut FunctionBuilder<'_>, env: &Env) -> Value {
@@ -221,9 +323,15 @@ impl RunEnd {
     /// zero leaves through `l_exit`.
     fn grow(&self, b: &mut FunctionBuilder<'_>, env: &Env) -> Value {
         let run = self.run(b, env);
-        let tbl = if self.shape.var() { self.shape.table(b) } else { b.conv(ConvOp::IntToPtr, Type::Ptr, env.zero) };
+        let tbl = if self.shape.var() {
+            self.shape.table(b)
+        } else {
+            b.conv(ConvOp::IntToPtr, Type::Ptr, env.zero)
+        };
         let h = res::grow(b);
-        let r = b.call_host(h, &[env.ctx, run, tbl], Some(Type::I64)).expect("sort_grow returns its answer");
+        let r = b
+            .call_host(h, &[env.ctx, run, tbl], Some(Type::I64))
+            .expect("sort_grow returns its answer");
         let (bad, l_ok) = (b.icmp(IntCond::Slt, r, env.zero), b.create_block(&[]));
         b.cond_br(bad, (env.x.l_exit, &[r]), (l_ok, &[]));
         b.switch_to(l_ok);
@@ -258,8 +366,15 @@ impl RunEnd {
 
     /// `open`; `top` (D3027 (b), a resident top's: its bound `n` and cut flags) opens through `res::open_top`, whose section
     /// end cuts the run to `n` rows before it seals or puts.
-    pub(crate) fn open_bounded(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, top: Option<(Value, i64)>) {
-        let top = top.filter(|_| self.resident).map(|(n, flags)| (n, b.iconst(Type::I64, flags)));
+    pub(crate) fn open_bounded(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        top: Option<(Value, i64)>,
+    ) {
+        let top = top
+            .filter(|_| self.resident)
+            .map(|(n, flags)| (n, b.iconst(Type::I64, flags)));
         let h = match top {
             Some(_) => res::open_top(b, self.shape.var()),
             None => res::open(b, self.shape.var(), self.resident),
@@ -273,13 +388,19 @@ impl RunEnd {
         } else {
             let [rb, nkey, spec] = self.shape.args(b);
             match top {
-                Some((n, flags)) => b.call_host(h, &[env.ctx, rb, nkey, spec, n, flags], Some(Type::Ptr)),
+                Some((n, flags)) => {
+                    b.call_host(h, &[env.ctx, rb, nkey, spec, n, flags], Some(Type::Ptr))
+                }
                 None => b.call_host(h, &[env.ctx, rb, nkey, spec], Some(Type::Ptr)),
             }
         }
         .expect("the sort open returns the run");
         let ri = b.conv(ConvOp::PtrToInt, Type::I64, run);
-        let (l_end, l_go, l_bad) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));
+        let (l_end, l_go, l_bad) = (
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         let live = b.icmp(IntCond::Sgt, ri, env.zero);
         b.cond_br(live, (l_go, &[]), (l_end, &[]));
         b.switch_to(l_end);
@@ -294,7 +415,13 @@ impl RunEnd {
 
 impl EndMech for RunEnd {
     fn open_words(&self, w: &mut OpenWords) {
-        w.declare(OpenWord::open("sort run", Base::Words, self.w_run, Type::I64, 0));
+        w.declare(OpenWord::open(
+            "sort run",
+            Base::Words,
+            self.w_run,
+            Type::I64,
+            0,
+        ));
     }
 
     /// The claim's run; at the section end the host sealed or put the last run and returned null (done) or a status below
@@ -303,7 +430,13 @@ impl EndMech for RunEnd {
         self.open_bounded(b, env, None);
     }
 
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, _x: &Exits) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        _x: &Exits,
+    ) -> Carry<'e> {
         self.append(b, env, row, &mut |b, env, _| self.put(b, env, false))
     }
 
@@ -325,9 +458,18 @@ impl EndMech for RunEnd {
         // D3024 (b): a run finishing though the decomposer's descriptor is serial (a wide emit's) keeps its section end, which
         // its emit's driving site runs; a wide emit kept on the leader after this end chose would run none (`WIDE_KEPT_LATE`)
         if self.finishing && !d.finish && d.driving_site < 0 && px.wide.contains(&k) {
-            crate::refuse!(self.node, Reason::Shape { why: crate::admit::refusal::ShapeWhy(WIDE_KEPT_LATE) });
+            crate::refuse!(
+                self.node,
+                Reason::Shape {
+                    why: crate::admit::refusal::ShapeWhy(WIDE_KEPT_LATE)
+                }
+            );
         }
-        Pipeline { finish: d.finish || self.finishing, ..d }.storing_rows(self.shape.row_bytes)
+        Pipeline {
+            finish: d.finish || self.finishing,
+            ..d
+        }
+        .storing_rows(self.shape.row_bytes)
     }
 }
 
@@ -335,27 +477,60 @@ impl RunEnd {
     /// The row appended to the run: its datums, null bytes, images, var copies and key pairs, the `pad[2]` marks, `len`
     /// bumped. `on_full` runs when the run has no room (a put; M3-TOPS: its cut), then the row is written again; it sees the
     /// row's key pairs (D2432: whether the row continues the run's last prefix group).
-    pub(crate) fn append<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, on_full: &mut dyn FnMut(&mut FunctionBuilder<'_>, &Env, &[[Value; 2]])) -> Carry<'e> {
+    pub(crate) fn append<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        on_full: &mut dyn FnMut(&mut FunctionBuilder<'_>, &Env, &[[Value; 2]]),
+    ) -> Carry<'e> {
         let s = &self.shape;
         let mcx = env.mcx;
         let t = b.bconst(true);
         let mut cx = env.lx(b, self.node);
         cx.key_word = self.key_word;
         let tfs: PgVec<'_, TypeFacts> = s.cols.iter().map(|c| c.tf).collect_in(env.mcx);
-        let vals: PgVec<'_, (Value, Value)> = s.cols.iter().enumerate().map(|(c, col)| {
-            let Some(cr) = row.col(c as i16 + 1) else { bug(self.node, "a sorted column past the row") };
-            let Form::Code { dict, producer } = col.form else { return crate::rep::datum(&mut cx, cr, &col.tf) };
-            if !matches!(cr.cell.rep, Rep::Code { dict: d } if d.lane == dict.lane) {
-                bug(self.node, "a carried code column whose cell is not its lane's code");
-            }
-            let kept = crate::rep::retain(&mut cx, cr, &col.tf, Until::Statement, crate::rep::RetainHome::Run(LifeId(producer)));
-            (kept.val, kept.null.unwrap_or_else(|| cx.b.bconst(false)))
-        }).collect_in(env.mcx);
+        let vals: PgVec<'_, (Value, Value)> = s
+            .cols
+            .iter()
+            .enumerate()
+            .map(|(c, col)| {
+                let Some(cr) = row.col(c as i16 + 1) else {
+                    bug(self.node, "a sorted column past the row")
+                };
+                let Form::Code { dict, producer } = col.form else {
+                    return crate::rep::datum(&mut cx, cr, &col.tf);
+                };
+                if !matches!(cr.cell.rep, Rep::Code { dict: d } if d.lane == dict.lane) {
+                    bug(
+                        self.node,
+                        "a carried code column whose cell is not its lane's code",
+                    );
+                }
+                let kept = crate::rep::retain(
+                    &mut cx,
+                    cr,
+                    &col.tf,
+                    Until::Statement,
+                    crate::rep::RetainHome::Run(LifeId(producer)),
+                );
+                (kept.val, kept.null.unwrap_or_else(|| cx.b.bconst(false)))
+            })
+            .collect_in(env.mcx);
         let pairs = crate::rep::keylane::pairs(&mut cx, self.node, row, &s.keys, &tfs[..], mcx);
-        let ivt: PgVec<'_, Option<[Value; 2]>> = s.cols.iter().enumerate().map(|(c, col)| ivl(&col.tf).then(|| ivl_tail(&mut cx, self.node, row, c, &col.tf))).collect_in(env.mcx);
+        let ivt: PgVec<'_, Option<[Value; 2]>> = s
+            .cols
+            .iter()
+            .enumerate()
+            .map(|(c, col)| ivl(&col.tf).then(|| ivl_tail(&mut cx, self.node, row, c, &col.tf)))
+            .collect_in(env.mcx);
         env.memo = cx.memo;
         let rb = b.iconst(Type::I64, s.row_bytes as i64);
-        let (l_try, l_full, l_store) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));
+        let (l_try, l_full, l_store) = (
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         b.br(l_try, &[]);
         b.switch_to(l_try);
         let run = self.run(b, env);
@@ -382,33 +557,62 @@ impl RunEnd {
         let off = b.int_bin(IntBinOp::Mul, len, rb);
         let at = b.ptr_add(run, off, 1, SORTRUN_HDR as i32);
         if s.var() {
-            res::store_vars(b, env, run, at, &vals[..], &s.vars(), &s.payloads(mcx), s.row_bytes, s.rec_off, l_full);
+            res::store_vars(
+                b,
+                env,
+                run,
+                at,
+                &vals[..],
+                &s.vars(),
+                &s.payloads(mcx),
+                s.row_bytes,
+                s.rec_off,
+                l_full,
+            );
         }
         let (dv, dn) = (s.datums(), s.nulls());
         for (c, col) in s.cols.iter().enumerate() {
             let (v, null) = vals[c];
             let nb = b.conv(ConvOp::Zext, Type::I8, null);
             b.store(at, dn + c as i32, nb);
-            let word = if matches!(col.form, Form::Word | Form::Code { .. }) { b.select(null, env.zero, v) } else { env.zero };
+            let word = if matches!(col.form, Form::Word | Form::Code { .. }) {
+                b.select(null, env.zero, v)
+            } else {
+                env.zero
+            };
             b.store(at, dv + 8 * c as i32, word);
             if let Form::Image { off } = col.form {
                 let valid = b.int_bin(IntBinOp::Xor, null, t);
                 res::store_image(b, env, at, off as i32, col.tf.typlen, v, valid);
-                ivt[c].iter().flatten().enumerate().for_each(|(i, &w)| b.store(at, off as i32 + 16 + 8 * i as i32, w));
+                ivt[c]
+                    .iter()
+                    .flatten()
+                    .enumerate()
+                    .for_each(|(i, &w)| b.store(at, off as i32 + 16 + 8 * i as i32, w));
             }
         }
         for (i, [flags, word]) in pairs.iter().enumerate() {
             b.store(at, 16 * i as i32, *flags);
             b.store(at, 16 * i as i32 + 8, *word);
         }
-        crate::ops::sort::strategies::natural::mark(b, env, run, at, len, rb, &pairs, &s.tailed(mcx), self.keylane, self.natural);
+        crate::ops::sort::strategies::natural::mark(
+            b,
+            env,
+            run,
+            at,
+            len,
+            rb,
+            &pairs,
+            &s.tailed(mcx),
+            self.keylane,
+            self.natural,
+        );
         let len1 = b.int_bin(IntBinOp::Add, len, env.one);
         let len32 = b.conv(ConvOp::Trunc, Type::I32, len1);
         b.store(run, 4, len32);
         let out = b.int_bin(IntBinOp::Add, row.carry.out, env.one);
         Carry::new(out, env.mcx)
     }
-
 }
 
 /// The window's reader: the table and the mode.
@@ -455,8 +659,16 @@ fn cosplit_table(b: &mut FunctionBuilder<'_>, env: &Env, c: crate::face::cosplit
 /// cut run (the range table's mode not `COSPLIT_MODE_WHOLE`) takes object `i`'s handle (word `WINDOW_PARTS_AT + i` of the
 /// object table in param word `table`); any other claim 0, the window dealing the partitions in turn (uncut, claim 0 reads
 /// every row; the others read none).
-fn cut_object(b: &mut FunctionBuilder<'_>, env: &mut Env, c: crate::face::cosplit::At, obj: i32, table: u16) {
-    use gravity_program::protos::{COSPLIT_MODE, COSPLIT_MODE_WHOLE, WINDOW_PARTS_AT, WINDOW_PARTS_COUNT};
+fn cut_object(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    c: crate::face::cosplit::At,
+    obj: i32,
+    table: u16,
+) {
+    use gravity_program::protos::{
+        COSPLIT_MODE, COSPLIT_MODE_WHOLE, WINDOW_PARTS_AT, WINDOW_PARTS_COUNT,
+    };
     let lo = b.load(Type::I64, env.ctx, hdr::CLAIM_LO as i32);
     let hi = b.load(Type::I64, env.ctx, hdr::CLAIM_HI as i32);
     let ctab = cosplit_table(b, env, c);
@@ -480,36 +692,66 @@ fn cut_object(b: &mut FunctionBuilder<'_>, env: &mut Env, c: crate::face::cospli
 fn make_emit<'g, 'p>(px: &mut Px<'g, 'p>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
     let p = &px.gx.pipelines()[k];
     let node = p.node_id;
-    let Source::Breaker { slot } = p.source else { bug(node, "a sort's emit over a source that is not its breaker") };
-    let Some(life) = px.gx.life_of(k, slot) else { bug(node, "a sort's emit with no producer") };
+    let Source::Breaker { slot } = p.source else {
+        bug(node, "a sort's emit over a source that is not its breaker")
+    };
+    let Some(life) = px.gx.life_of(k, slot) else {
+        bug(node, "a sort's emit with no producer")
+    };
     let producer = life.0 as usize;
     if !run_holds_rows(px.gx, producer) {
         crate::mechs_used::declined(crate::admit::refusal::Variant::Kind(KindId::RunsSort)); // MECHCORPUS: the node is another kind's form
         return (kind_impl::<SourceMaker>(&node, KindId::RunsTopkGroups).0)(px, k);
     }
     let (sd, cols) = sort_of(px, producer);
-    let (shape, _) = crate::ops::sort::exact_feed::shape(px, producer, &sd.keys, Some(sd.tlist), cols); // its producer's shape
-    // INCSTREAM: an unbounded incremental sort under a LockRows a LIMIT stops, or a cursor's root, is read as it fills (inc_stream.rs)
-    let pre = if sd.presorted > 0 && shape.keys.len() == sd.keys.len() { (sd.presorted as usize).min(sd.keys.len()) } else { 0 };
+    let (shape, _) =
+        crate::ops::sort::exact_feed::shape(px, producer, &sd.keys, Some(sd.tlist), cols); // its producer's shape
+                                                                                           // INCSTREAM: an unbounded incremental sort under a LockRows a LIMIT stops, or a cursor's root, is read as it fills (inc_stream.rs)
+    let pre = if sd.presorted > 0 && shape.keys.len() == sd.keys.len() {
+        (sd.presorted as usize).min(sd.keys.len())
+    } else {
+        0
+    };
     let shape = match crate::ops::sort::inc_stream::reader(px, k, producer, shape, pre) {
         Ok(src) => return crate::ops::sort::sort_raise::wrap_emit(px.gx, k, src),
         Err(shape) => shape,
     };
     // D2316: a held Incremental Sort's reader reads on the leader, never co-split
     let held = crate::ops::sort::inc_held::reader(px.gx, producer) == Some(k);
-    let cosplit = if held { None } else { crate::face::cosplit::declare(px, k, producer, &shape) }; // D3190: a co-split merge join's outer
-    // D3336 (A1a): a parted window's fill reads its claim's K-cut part of the run as a co-split outer reads its range
-    let rows = if held || cosplit.is_some() { None } else { crate::face::partfill::rows_form(px, k, producer, &shape) };
+    let cosplit = if held {
+        None
+    } else {
+        crate::face::cosplit::declare(px, k, producer, &shape)
+    }; // D3190: a co-split merge join's outer
+       // D3336 (A1a): a parted window's fill reads its claim's K-cut part of the run as a co-split outer reads its range
+    let rows = if held || cosplit.is_some() {
+        None
+    } else {
+        crate::face::partfill::rows_form(px, k, producer, &shape)
+    };
     let cut = rows.map(|(_, table)| (crate::face::partfill::object_word(px, k), table));
-    let mut emit = RunEmit { cosplit: cosplit.or(rows.map(|(at, _)| at)), cut, ..RunEmit::over(px, k, shape) };
+    let mut emit = RunEmit {
+        cosplit: cosplit.or(rows.map(|(at, _)| at)),
+        cut,
+        ..RunEmit::over(px, k, shape)
+    };
     if held {
         emit.held = crate::ops::sort::inc_held::read(px, k, producer, emit.at.map(|(i, ..)| i));
     }
-    crate::ops::sort::sort_raise::wrap_emit(px.gx, k, mcx::pg_box_dyn!(px.mcx(), emit => dyn SourceMech + 'g)) // D1292: an empty producer's raise
+    crate::ops::sort::sort_raise::wrap_emit(
+        px.gx,
+        k,
+        mcx::pg_box_dyn!(px.mcx(), emit => dyn SourceMech + 'g),
+    ) // D1292: an empty producer's raise
 }
 
 /// `make_emit` over explicit keys (M3-MERGE): pipeline `k` reads the run of `keys` over `cols`.
-pub(crate) fn make_emit_over<'g>(px: &mut Px<'g, '_>, k: usize, keys: &[SortKey], cols: &NodeList<'_>) -> PgBox<'g, dyn SourceMech + 'g> {
+pub(crate) fn make_emit_over<'g>(
+    px: &mut Px<'g, '_>,
+    k: usize,
+    keys: &[SortKey],
+    cols: &NodeList<'_>,
+) -> PgBox<'g, dyn SourceMech + 'g> {
     let node = px.gx.pipelines()[k].node_id;
     let shape = Shape::plan(px, node, keys, None, cols);
     mcx::pg_box_dyn!(px.mcx(), RunEmit::over(px, k, shape) => dyn SourceMech + 'g)
@@ -518,27 +760,63 @@ pub(crate) fn make_emit_over<'g>(px: &mut Px<'g, '_>, k: usize, keys: &[SortKey]
 impl RunEmit {
     /// Pipeline `k`'s reader of a run of `shape` (M3-TOPS wraps it with its window).
     pub(crate) fn over(px: &mut Px<'_, '_>, k: usize, shape: Shape) -> RunEmit {
-        let word = |px: &mut Px<'_, '_>, i: u8| px.frame_word(WordKey::Open { face: Face::Runs, k, j: u64::MAX, i }) as i32 * 8;
-        let (w_mode, w_cursor, w_total) = (word(px, runs_word::READER_MODE), word(px, runs_word::READER_CURSOR), word(px, runs_word::READER_TOTAL));
+        let word = |px: &mut Px<'_, '_>, i: u8| {
+            px.frame_word(WordKey::Open {
+                face: Face::Runs,
+                k,
+                j: u64::MAX,
+                i,
+            }) as i32
+                * 8
+        };
+        let (w_mode, w_cursor, w_total) = (
+            word(px, runs_word::READER_MODE),
+            word(px, runs_word::READER_CURSOR),
+            word(px, runs_word::READER_TOTAL),
+        );
         let p = &px.gx.pipelines()[k];
         // a breaker end makes the pipeline's own region its slot's (driver open_pipeline): read the run where it is consumed;
         // an embedded inner where its running call declares it (D2331: a join drain's own list, rerun/sets.rs `run_region`)
         let inner = k >= px.gx.pipelines().len();
         let at = match (breaker_of(&p.desc), &p.source) {
-            (e, &Source::Breaker { slot }) if inner || e.is_some() => match if inner { crate::rerun::sets::run_region(px, k, slot) } else { px.gx.pipelines().consumed_at(k, slot) } {
+            (e, &Source::Breaker { slot }) if inner || e.is_some() => match if inner {
+                crate::rerun::sets::run_region(px, k, slot)
+            } else {
+                px.gx.pipelines().consumed_at(k, slot)
+            } {
                 Some(i) => Some((i as u64, slot as u64, k >= px.gx.pipelines().len())),
                 None => bug(p.node_id, "a sort's reader that does not consume its slot"),
             },
             _ => None,
         };
         let shared = match (&at, &p.source) {
-            (Some((.., inner)), &Source::Breaker { slot }) => *inner || {
-                let (n, life) = (px.gx.pipelines().len(), px.gx.life_of(k, slot));
-                (0..n).filter(|&j| px.gx.pipelines()[j].desc.consumes.contains(&slot) && px.gx.life_of(j, slot) == life).count() > 1
-            },
+            (Some((.., inner)), &Source::Breaker { slot }) => {
+                *inner || {
+                    let (n, life) = (px.gx.pipelines().len(), px.gx.life_of(k, slot));
+                    (0..n)
+                        .filter(|&j| {
+                            px.gx.pipelines()[j].desc.consumes.contains(&slot)
+                                && px.gx.life_of(j, slot) == life
+                        })
+                        .count()
+                        > 1
+                }
+            }
             _ => false,
         };
-        RunEmit { shape, at, w_mode, w_cursor, w_total, reader: Once::new(None), open_tbl: Once::new(None), shared, cosplit: None, cut: None, held: None }
+        RunEmit {
+            shape,
+            at,
+            w_mode,
+            w_cursor,
+            w_total,
+            reader: Once::new(None),
+            open_tbl: Once::new(None),
+            shared,
+            cosplit: None,
+            cut: None,
+            held: None,
+        }
     }
 
     /// A pull-form merge's Sort arm (ops/append/merge_pull.rs through frame/iface/sort.rs `sort_cursor`): the run full sort
@@ -551,22 +829,56 @@ impl RunEmit {
     /// `shared: false` (no D2004 `SortFinish` past the last window): the merge reader is the run's one reader, and no
     /// rerun set re-opens that reader over a run its producer did not remake (merge_admit.rs `merge_pull` refuses a reader
     /// in an owner set, `rerun::sets::in_owner_set`); lifting that bar must revisit D2004's finish.
-    pub(crate) fn over_at(px: &mut Px<'_, '_>, words_k: usize, producer: usize, slot: u8, i: usize) -> RunEmit {
+    pub(crate) fn over_at(
+        px: &mut Px<'_, '_>,
+        words_k: usize,
+        producer: usize,
+        slot: u8,
+        i: usize,
+    ) -> RunEmit {
         let node = px.gx.pipelines()[producer].node_id;
         if words_k >= px.gx.pipelines().len() {
             bug(node, "a Sort arm's run cursor keyed by an embedded inner");
         }
         if !run_holds_rows(px.gx, producer) {
-            bug(node, "a Sort arm's run cursor over a run that holds no rows (form G)");
+            bug(
+                node,
+                "a Sort arm's run cursor over a run that holds no rows (form G)",
+            );
         }
         let (sd, cols) = sort_of(px, producer);
         if sd.presorted > 0 {
             bug(node, "a Sort arm's run cursor over an incremental sort");
         }
-        let (shape, _) = crate::ops::sort::exact_feed::shape(px, producer, &sd.keys, Some(sd.tlist), cols);
-        let word = |px: &mut Px<'_, '_>, x: u8| px.frame_word(WordKey::Open { face: Face::Runs, k: words_k, j: u64::MAX, i: x }) as i32 * 8;
-        let (w_mode, w_cursor, w_total) = (word(px, runs_word::READER_MODE), word(px, runs_word::READER_CURSOR), word(px, runs_word::READER_TOTAL));
-        RunEmit { shape, at: Some((i as u64, slot as u64, false)), w_mode, w_cursor, w_total, reader: Once::new(None), open_tbl: Once::new(None), shared: false, cosplit: None, cut: None, held: None }
+        let (shape, _) =
+            crate::ops::sort::exact_feed::shape(px, producer, &sd.keys, Some(sd.tlist), cols);
+        let word = |px: &mut Px<'_, '_>, x: u8| {
+            px.frame_word(WordKey::Open {
+                face: Face::Runs,
+                k: words_k,
+                j: u64::MAX,
+                i: x,
+            }) as i32
+                * 8
+        };
+        let (w_mode, w_cursor, w_total) = (
+            word(px, runs_word::READER_MODE),
+            word(px, runs_word::READER_CURSOR),
+            word(px, runs_word::READER_TOTAL),
+        );
+        RunEmit {
+            shape,
+            at: Some((i as u64, slot as u64, false)),
+            w_mode,
+            w_cursor,
+            w_total,
+            reader: Once::new(None),
+            open_tbl: Once::new(None),
+            shared: false,
+            cosplit: None,
+            cut: None,
+            held: None,
+        }
     }
 
     /// INCSTREAM (inc_stream.rs): the reader's mode, cursor and total words.
@@ -580,15 +892,53 @@ impl RunEmit {
         let (tbl, slot) = self.shape.table_slot(b);
         self.open_tbl.set(Some(slot));
         let (h, at) = match (self.at, self.cosplit) {
-            (None, _) => (res::host(b, "sort_begin", &[Type::Ptr, Type::Ptr], Type::I64, gravity_abi::host_words!(k::sort_begin(ctx, tbl))), mcx::pg_vec![in env.mcx]),
+            (None, _) => (
+                res::host(
+                    b,
+                    "sort_begin",
+                    &[Type::Ptr, Type::Ptr],
+                    Type::I64,
+                    gravity_abi::host_words!(k::sort_begin(ctx, tbl)),
+                ),
+                mcx::pg_vec![in env.mcx],
+            ),
             // D3190: a co-split claim's open (its part's merge of the put runs' slices, or `sort_begin_at`'s)
-            (Some((i, ..)), Some(c)) => (res::host(b, "sort_cosplit_begin", &[Type::Ptr, Type::Ptr, Type::I64, Type::Ptr], Type::I64, gravity_abi::host_words!(se::sort_cosplit_begin(ctx, tbl, k, ctab))), mcx::pg_vec![in env.mcx; b.iconst(Type::I64, i as i64), cosplit_table(b, env, c)]),
-            (Some((i, s, _)), None) => (res::host(b, "sort_begin_at", &[Type::Ptr, Type::Ptr, Type::I64, Type::I64], Type::I64, gravity_abi::host_words!(k::sort_begin_at(ctx, tbl, k, slot))), mcx::pg_vec![in env.mcx; b.iconst(Type::I64, i as i64), b.iconst(Type::I64, s as i64)]),
+            (Some((i, ..)), Some(c)) => (
+                res::host(
+                    b,
+                    "sort_cosplit_begin",
+                    &[Type::Ptr, Type::Ptr, Type::I64, Type::Ptr],
+                    Type::I64,
+                    gravity_abi::host_words!(se::sort_cosplit_begin(ctx, tbl, k, ctab)),
+                ),
+                mcx::pg_vec![in env.mcx; b.iconst(Type::I64, i as i64), cosplit_table(b, env, c)],
+            ),
+            (Some((i, s, _)), None) => (
+                res::host(
+                    b,
+                    "sort_begin_at",
+                    &[Type::Ptr, Type::Ptr, Type::I64, Type::I64],
+                    Type::I64,
+                    gravity_abi::host_words!(k::sort_begin_at(ctx, tbl, k, slot)),
+                ),
+                mcx::pg_vec![in env.mcx; b.iconst(Type::I64, i as i64), b.iconst(Type::I64, s as i64)],
+            ),
         };
-        let saved = keep.then(|| b.load(Type::I64, env.ctx, hdr::RESUME as i32)).or_else(|| matches!(self.at, Some((.., true))).then(|| b.load(Type::I64, env.ctx, hdr::RESUME as i32))); // D1339 row B: the owner's resume word kept
+        let saved = keep
+            .then(|| b.load(Type::I64, env.ctx, hdr::RESUME as i32))
+            .or_else(|| {
+                matches!(self.at, Some((.., true)))
+                    .then(|| b.load(Type::I64, env.ctx, hdr::RESUME as i32))
+            }); // D1339 row B: the owner's resume word kept
         let none = b.iconst(Type::I64, RESUME_NONE);
         b.store(env.ctx, hdr::RESUME as i32, none);
-        let mode = b.call_host(h, &mcx::concat_in(&[&[env.ctx, tbl][..], &at[..]], env.mcx), Some(Type::I64)).expect("sort_begin returns the mode");
+        let mode = b
+            .call_host(
+                h,
+                &mcx::concat_in(&[&[env.ctx, tbl][..], &at[..]], env.mcx),
+                Some(Type::I64),
+            )
+            .expect("sort_begin returns the mode");
         let open = saved.unwrap_or_else(|| b.iconst(Type::I64, RESUME_OPEN));
         b.store(env.ctx, hdr::RESUME as i32, open);
         let bad = b.icmp(IntCond::Slt, mode, env.zero);
@@ -596,19 +946,42 @@ impl RunEmit {
         env.store_word(b, self.w_mode, kept);
         let total = match self.cosplit {
             Some(_) => {
-                let h = res::host(b, "sort_cosplit_total", &[Type::Ptr, Type::Ptr, Type::I64, Type::I64, Type::Ptr], Type::I64, gravity_abi::host_words!(se::sort_cosplit_total(ctx, tbl, mode, k, ctab)));
-                b.call_host(h, &mcx::concat_in(&[&[env.ctx, tbl, kept][..], &at[..]], env.mcx), Some(Type::I64)).expect("sort_cosplit_total returns the rows")
+                let h = res::host(
+                    b,
+                    "sort_cosplit_total",
+                    &[Type::Ptr, Type::Ptr, Type::I64, Type::I64, Type::Ptr],
+                    Type::I64,
+                    gravity_abi::host_words!(se::sort_cosplit_total(ctx, tbl, mode, k, ctab)),
+                );
+                b.call_host(
+                    h,
+                    &mcx::concat_in(&[&[env.ctx, tbl, kept][..], &at[..]], env.mcx),
+                    Some(Type::I64),
+                )
+                .expect("sort_cosplit_total returns the rows")
             }
-            None => res::total(b, &mcx::concat_in(&[&[env.ctx, tbl, kept][..], &at[..]], env.mcx)),
+            None => res::total(
+                b,
+                &mcx::concat_in(&[&[env.ctx, tbl, kept][..], &at[..]], env.mcx),
+            ),
         };
         env.store_word(b, self.w_total, total);
-        let st = { let short = b.icmp(IntCond::Slt, total, env.zero); b.select(short, total, env.zero) };
+        let st = {
+            let short = b.icmp(IntCond::Slt, total, env.zero);
+            b.select(short, total, env.zero)
+        };
         b.select(bad, mode, st)
     }
 
     /// NEW-43: the merge opened mid-read (`begin` with the call's resume word kept), then its first `n` rows read past
     /// (`l_eof(status)` on a status below zero, or on a merge shorter than `n`: UNSUPPORTED).
-    pub(crate) fn begin_past(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, n: Value, l_eof: Block) {
+    pub(crate) fn begin_past(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        n: Value,
+        l_eof: Block,
+    ) {
         let st = self.begin(b, env, true);
         let (l_bad, l_go) = (b.create_block(&[]), b.create_block(&[]));
         let bad = b.icmp(IntCond::Slt, st, env.zero);
@@ -629,11 +1002,30 @@ impl RunEmit {
         crate::frame::cancel::check(b, env.ctx, env.l_cancel);
         let p = match self.at {
             None => {
-                let h = res::host(b, "sort_next", &[Type::Ptr, Type::Ptr, Type::I64, Type::I64], Type::Ptr, gravity_abi::host_words!(k::sort_next(ctx, tbl, mode, i)));
+                let h = res::host(
+                    b,
+                    "sort_next",
+                    &[Type::Ptr, Type::Ptr, Type::I64, Type::I64],
+                    Type::Ptr,
+                    gravity_abi::host_words!(k::sort_next(ctx, tbl, mode, i)),
+                );
                 b.call_host(h, &[env.ctx, tbl, mode, j], Some(Type::Ptr))
             }
             Some((i, s, _)) => {
-                let h = res::host(b, "sort_next_at", &[Type::Ptr, Type::Ptr, Type::I64, Type::I64, Type::I64, Type::I64], Type::Ptr, gravity_abi::host_words!(k::sort_next_at(ctx, tbl, mode, i, k, slot)));
+                let h = res::host(
+                    b,
+                    "sort_next_at",
+                    &[
+                        Type::Ptr,
+                        Type::Ptr,
+                        Type::I64,
+                        Type::I64,
+                        Type::I64,
+                        Type::I64,
+                    ],
+                    Type::Ptr,
+                    gravity_abi::host_words!(k::sort_next_at(ctx, tbl, mode, i, k, slot)),
+                );
                 let (i, s) = (b.iconst(Type::I64, i as i64), b.iconst(Type::I64, s as i64));
                 b.call_host(h, &[env.ctx, tbl, mode, j, i, s], Some(Type::Ptr))
             }
@@ -645,7 +1037,10 @@ impl RunEmit {
         b.cond_br(has, (l_head, &[j1]), (l_short, &[]));
         b.switch_to(l_short);
         let err = b.icmp(IntCond::Slt, pi, env.zero);
-        let uns = b.iconst(Type::I64, gravity_abi::status::unsupported(gravity_abi::status::UNSUPPORTED_SHAPE));
+        let uns = b.iconst(
+            Type::I64,
+            gravity_abi::status::unsupported(gravity_abi::status::UNSUPPORTED_SHAPE),
+        );
         let st = b.select(err, pi, uns);
         b.br(l_eof, &[st]);
         b.switch_to(l_done);
@@ -655,9 +1050,18 @@ impl RunEmit {
     /// the runs dropped and the region armed again as an empty run (kernels `SortStreamRearm`); `l_eof(status)` below zero.
     pub(crate) fn rearm(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, l_eof: Block) {
         let tbl = self.shape.table(b);
-        let h = res::host(b, "sort_stream_rearm", &[Type::Ptr, Type::I64, Type::Ptr], Type::I64, gravity_kernels::contract::entry2::<gravity_kernels::ops::sort::entries::SortStreamRearm> as *const () as usize);
+        let h = res::host(
+            b,
+            "sort_stream_rearm",
+            &[Type::Ptr, Type::I64, Type::Ptr],
+            Type::I64,
+            gravity_kernels::contract::entry2::<gravity_kernels::ops::sort::entries::SortStreamRearm>
+                as *const () as usize,
+        );
         let at = b.iconst(Type::I64, self.at.map_or(-1, |(i, ..)| i as i64));
-        let r = b.call_host(h, &[env.ctx, at, tbl], Some(Type::I64)).expect("sort_stream_rearm returns its status");
+        let r = b
+            .call_host(h, &[env.ctx, at, tbl], Some(Type::I64))
+            .expect("sort_stream_rearm returns its status");
         let (bad, l_ok) = (b.icmp(IntCond::Slt, r, env.zero), b.create_block(&[]));
         b.cond_br(bad, (l_eof, &[r]), (l_ok, &[]));
         b.switch_to(l_ok);
@@ -666,11 +1070,27 @@ impl RunEmit {
     /// C1 part 2: an INCSTREAM cursor reader that handed on every closed row (`closed` of them) before it pulls again: the
     /// run emptied when it holds no other row (kernels sort raw.rs `SortStreamRecycle`); twice the run's room in rows, plus
     /// one when emptied (`l_eof(status)` below zero).
-    pub(crate) fn recycle(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, closed: Value, l_eof: Block) -> Value {
+    pub(crate) fn recycle(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        closed: Value,
+        l_eof: Block,
+    ) -> Value {
         let tbl = self.shape.table(b);
-        let h = res::host(b, "sort_stream_recycle", &[Type::Ptr, Type::I64, Type::Ptr, Type::I64], Type::I64, gravity_kernels::contract::entry3::<gravity_kernels::ops::sort::entries::SortStreamRecycle> as *const () as usize);
+        let h = res::host(
+            b,
+            "sort_stream_recycle",
+            &[Type::Ptr, Type::I64, Type::Ptr, Type::I64],
+            Type::I64,
+            gravity_kernels::contract::entry3::<
+                gravity_kernels::ops::sort::entries::SortStreamRecycle,
+            > as *const () as usize,
+        );
         let at = b.iconst(Type::I64, self.at.map_or(-1, |(i, ..)| i as i64));
-        let r = b.call_host(h, &[env.ctx, at, tbl, closed], Some(Type::I64)).expect("sort_stream_recycle returns its answer");
+        let r = b
+            .call_host(h, &[env.ctx, at, tbl, closed], Some(Type::I64))
+            .expect("sort_stream_recycle returns its answer");
         let (bad, l_ok) = (b.icmp(IntCond::Slt, r, env.zero), b.create_block(&[]));
         b.cond_br(bad, (l_eof, &[r]), (l_ok, &[]));
         b.switch_to(l_ok);
@@ -678,55 +1098,148 @@ impl RunEmit {
     }
 
     /// The window at `l_win` (entered with rows left): the reader filed, rows `cursor` to at most `WINDOW` on.
-    pub(crate) fn window(&self, b: &mut FunctionBuilder<'_>, mode: Value, cursor: Value, total: Value, l_win: Block) -> Win {
+    pub(crate) fn window(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        mode: Value,
+        cursor: Value,
+        total: Value,
+        l_win: Block,
+    ) -> Win {
         b.switch_to(l_win);
         let tbl = self.shape.table(b);
         self.reader.set(Some(Reader { tbl, mode }));
-        let far = { let w = b.iconst(Type::I64, WINDOW); b.int_bin(IntBinOp::Add, cursor, w) };
-        let end = { let past = b.icmp(IntCond::Sgt, far, total); b.select(past, total, far) }; // D463: exactly its rows
-        Win { cursor, end, facts: WinConds::default() }
+        let far = {
+            let w = b.iconst(Type::I64, WINDOW);
+            b.int_bin(IntBinOp::Add, cursor, w)
+        };
+        let end = {
+            let past = b.icmp(IntCond::Sgt, far, total);
+            b.select(past, total, far)
+        }; // D463: exactly its rows
+        Win {
+            cursor,
+            end,
+            facts: WinConds::default(),
+        }
     }
 }
 
 impl crate::face::runs::RunReader for RunEmit {
     fn fetch(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, j: Value) -> Value {
-        let r = self.reader.get().unwrap_or_else(|| bug(env.node, "a sort emit row before its window"));
+        let r = self
+            .reader
+            .get()
+            .unwrap_or_else(|| bug(env.node, "a sort emit row before its window"));
         if let (Some((i, ..)), Some(c)) = (self.at, self.cosplit) {
-            let h = res::host(b, "sort_cosplit_next", &[Type::Ptr, Type::Ptr, Type::I64, Type::I64, Type::I64, Type::Ptr], Type::Ptr, gravity_abi::host_words!(se::sort_cosplit_next(ctx, tbl, mode, i, k, ctab)));
+            let h = res::host(
+                b,
+                "sort_cosplit_next",
+                &[
+                    Type::Ptr,
+                    Type::Ptr,
+                    Type::I64,
+                    Type::I64,
+                    Type::I64,
+                    Type::Ptr,
+                ],
+                Type::Ptr,
+                gravity_abi::host_words!(se::sort_cosplit_next(ctx, tbl, mode, i, k, ctab)),
+            );
             let (i, ctab) = (b.iconst(Type::I64, i as i64), cosplit_table(b, env, c));
-            return b.call_host(h, &[env.ctx, r.tbl, r.mode, j, i, ctab], Some(Type::Ptr)).expect("sort_cosplit_next returns the row");
+            return b
+                .call_host(h, &[env.ctx, r.tbl, r.mode, j, i, ctab], Some(Type::Ptr))
+                .expect("sort_cosplit_next returns the row");
         }
         match self.at {
             None => {
-                let h = res::host(b, "sort_next", &[Type::Ptr, Type::Ptr, Type::I64, Type::I64], Type::Ptr, gravity_abi::host_words!(k::sort_next(ctx, tbl, mode, i)));
+                let h = res::host(
+                    b,
+                    "sort_next",
+                    &[Type::Ptr, Type::Ptr, Type::I64, Type::I64],
+                    Type::Ptr,
+                    gravity_abi::host_words!(k::sort_next(ctx, tbl, mode, i)),
+                );
                 b.call_host(h, &[env.ctx, r.tbl, r.mode, j], Some(Type::Ptr))
             }
             Some((i, s, _)) => {
-                let h = res::host(b, "sort_next_at", &[Type::Ptr, Type::Ptr, Type::I64, Type::I64, Type::I64, Type::I64], Type::Ptr, gravity_abi::host_words!(k::sort_next_at(ctx, tbl, mode, i, k, slot)));
+                let h = res::host(
+                    b,
+                    "sort_next_at",
+                    &[
+                        Type::Ptr,
+                        Type::Ptr,
+                        Type::I64,
+                        Type::I64,
+                        Type::I64,
+                        Type::I64,
+                    ],
+                    Type::Ptr,
+                    gravity_abi::host_words!(k::sort_next_at(ctx, tbl, mode, i, k, slot)),
+                );
                 let (i, s) = (b.iconst(Type::I64, i as i64), b.iconst(Type::I64, s as i64));
                 b.call_host(h, &[env.ctx, r.tbl, r.mode, j, i, s], Some(Type::Ptr))
             }
-        }.expect("sort_next returns the row")
+        }
+        .expect("sort_next returns the row")
     }
 
-    fn vals<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, p: Value, carry: Carry<'e>, next: Value, j: Value) -> RowVals<'e> {
+    fn vals<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        p: Value,
+        carry: Carry<'e>,
+        next: Value,
+        j: Value,
+    ) -> RowVals<'e> {
         let s = &self.shape;
         let n = s.cols.len();
-        let mut row = RowVals { row: Row { cells: mcx::reserved_in(n, env.mcx) }, vals: mcx::reserved_in(n, env.mcx), cols: (0..n as u16).map(Some).collect_in(env.mcx), carry, next, at: j };
+        let mut row = RowVals {
+            row: Row {
+                cells: mcx::reserved_in(n, env.mcx),
+            },
+            vals: mcx::reserved_in(n, env.mcx),
+            cols: (0..n as u16).map(Some).collect_in(env.mcx),
+            carry,
+            next,
+            at: j,
+        };
         for (c, col) in s.cols.iter().enumerate() {
             let rep = match col.form {
                 // a NULL cstring constant (face/runs.rs `plan_with`): its null byte only
                 Form::Word if col.tf.typlen == -2 => Rep::CstrPtr,
-                Form::Word => Rep::Word { bytes: col.tf.typlen as u8 },
-                Form::Image { .. } => Rep::FixedPtr { len: col.tf.typlen as u16 },
+                Form::Word => Rep::Word {
+                    bytes: col.tf.typlen as u8,
+                },
+                Form::Image { .. } => Rep::FixedPtr {
+                    len: col.tf.typlen as u16,
+                },
                 Form::Var { .. } => Rep::VarlenaPtr,
                 Form::Code { dict, .. } => Rep::Code { dict },
             };
             // valid until the next row: the merge's stash holds one; a code word renders through its producer's site
-            let life = CellLife { until: Until::Row, home: CellHome::FrameSlot };
+            let life = CellLife {
+                until: Until::Row,
+                home: CellHome::FrameSlot,
+            };
             let cell = match col.form {
-                Form::Code { producer, .. } => Cell::of_record(rep, col.tf.typid, NumTypmod::NONE, LifeId(producer), c as u16, Nullable::Maybe),
-                _ => Cell { rep, typid: col.tf.typid, num: NumTypmod::NONE, life, at: At::Slot(c as u16), null: Nullable::Maybe },
+                Form::Code { producer, .. } => Cell::of_record(
+                    rep,
+                    col.tf.typid,
+                    NumTypmod::NONE,
+                    LifeId(producer),
+                    c as u16,
+                    Nullable::Maybe,
+                ),
+                _ => Cell {
+                    rep,
+                    typid: col.tf.typid,
+                    num: NumTypmod::NONE,
+                    life,
+                    at: At::Slot(c as u16),
+                    null: Nullable::Maybe,
+                },
             };
             row.row.cells.push_in(cell);
             let v = b.load(Type::I64, p, s.datums() + 8 * c as i32);
@@ -740,9 +1253,27 @@ impl crate::face::runs::RunReader for RunEmit {
 
 impl SourceMech for RunEmit {
     fn open_words(&self, w: &mut OpenWords) {
-        w.declare(OpenWord::open("sort mode", Base::Words, self.w_mode, Type::I64, 0));
-        w.declare(OpenWord::open("sort cursor", Base::Words, self.w_cursor, Type::I64, 0));
-        w.declare(OpenWord::open("sort total", Base::Words, self.w_total, Type::I64, 0));
+        w.declare(OpenWord::open(
+            "sort mode",
+            Base::Words,
+            self.w_mode,
+            Type::I64,
+            0,
+        ));
+        w.declare(OpenWord::open(
+            "sort cursor",
+            Base::Words,
+            self.w_cursor,
+            Type::I64,
+            0,
+        ));
+        w.declare(OpenWord::open(
+            "sort total",
+            Base::Words,
+            self.w_total,
+            Type::I64,
+            0,
+        ));
     }
 
     /// The fresh call: `sort_begin` (it reads `RESUME_NONE` as the fresh call, so the open mark is undone around it) files
@@ -780,19 +1311,39 @@ impl SourceMech for RunEmit {
             // run keeps it on the leader, its one claim reading every row, dealt
             Some(c) if self.cut.is_some() => {
                 let parallel = match crate::hir::hosted_serial(px, k) {
-                    Some(reason) => gravity_program::Parallel::Ineligible { site: c.site as i16, reason },
+                    Some(reason) => gravity_program::Parallel::Ineligible {
+                        site: c.site as i16,
+                        reason,
+                    },
                     None => gravity_program::Parallel::Eligible,
                 };
-                Pipeline { parallel, driving_site: c.site as i16, predicted_rows: c.rows, ..d }
+                Pipeline {
+                    parallel,
+                    driving_site: c.site as i16,
+                    predicted_rows: c.rows,
+                    ..d
+                }
             }
-            Some(c) => Pipeline { parallel: gravity_program::Parallel::Eligible, driving_site: c.site as i16, predicted_rows: c.rows, ..d },
+            Some(c) => Pipeline {
+                parallel: gravity_program::Parallel::Eligible,
+                driving_site: c.site as i16,
+                predicted_rows: c.rows,
+                ..d
+            },
             None => d,
         }
     }
 
     fn next_window(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, l_eof: Block) -> Win {
-        let (mode, cursor, total) = (env.load_word(b, self.w_mode), env.load_word(b, self.w_cursor), env.load_word(b, self.w_total));
-        let (on, left) = (b.icmp(IntCond::Sgt, mode, env.zero), b.icmp(IntCond::Slt, cursor, total));
+        let (mode, cursor, total) = (
+            env.load_word(b, self.w_mode),
+            env.load_word(b, self.w_cursor),
+            env.load_word(b, self.w_total),
+        );
+        let (on, left) = (
+            b.icmp(IntCond::Sgt, mode, env.zero),
+            b.icmp(IntCond::Slt, cursor, total),
+        );
         let (go, l_win) = (b.int_bin(IntBinOp::And, on, left), b.create_block(&[]));
         if !self.shared {
             match &self.held {
@@ -813,7 +1364,10 @@ impl SourceMech for RunEmit {
         let (l_out, l_fin) = (b.create_block(&[]), b.create_block(&[]));
         b.cond_br(go, (l_win, &[]), (l_out, &[]));
         b.switch_to(l_out);
-        let merging = { let m = b.iconst(Type::I64, k::SORT_MODE_MERGE); b.icmp(IntCond::Eq, mode, m) };
+        let merging = {
+            let m = b.iconst(Type::I64, k::SORT_MODE_MERGE);
+            b.icmp(IntCond::Eq, mode, m)
+        };
         b.cond_br(merging, (l_fin, &[]), (l_eof, &[env.zero]));
         b.switch_to(l_fin);
         // the open's table address: the merge's reader is told by it (an emit lowered without its open makes no call)
@@ -821,21 +1375,44 @@ impl SourceMech for RunEmit {
             Some(slot) => b.stack_addr(slot),
             None => b.const_raw(Type::Ptr, 0),
         };
-        let h = res::host(b, "sort_finish", &[Type::Ptr, Type::I64, Type::Ptr], Type::I64, gravity_kernels::contract::entry2::<gravity_kernels::ops::sort::entries::SortFinish> as *const () as usize);
+        let h = res::host(
+            b,
+            "sort_finish",
+            &[Type::Ptr, Type::I64, Type::Ptr],
+            Type::I64,
+            gravity_kernels::contract::entry2::<gravity_kernels::ops::sort::entries::SortFinish>
+                as *const () as usize,
+        );
         let at = b.iconst(Type::I64, self.at.map_or(-1, |(i, ..)| i as i64));
-        let r = b.call_host(h, &[env.ctx, at, tbl], Some(Type::I64)).expect("sort_finish returns its status");
-        let st = { let bad = b.icmp(IntCond::Slt, r, env.zero); b.select(bad, r, env.zero) };
+        let r = b
+            .call_host(h, &[env.ctx, at, tbl], Some(Type::I64))
+            .expect("sort_finish returns its status");
+        let st = {
+            let bad = b.icmp(IntCond::Slt, r, env.zero);
+            b.select(bad, r, env.zero)
+        };
         b.br(l_eof, &[st]);
         self.window(b, mode, cursor, total, l_win)
     }
 
     /// Row `j`: `sort_next`'s row (null at the end, below zero a status), each column's datum word and null byte.
-    fn row<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e> {
+    fn row<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+        j: Value,
+        carry: Carry<'e>,
+        next: Value,
+    ) -> RowVals<'e> {
         let p = crate::face::runs::RunReader::fetch(self, b, env, j);
         // D463: the end leaves through the carry exits (the end's accumulators stored), never `l_eof` (past the window's end)
         let pi = b.conv(ConvOp::PtrToInt, Type::I64, p);
         let [l_row, l_end, l_bad, l_eod] = [(); 4].map(|_| b.create_block(&[]));
-        let (has, bad) = (b.icmp(IntCond::Sgt, pi, env.zero), b.icmp(IntCond::Slt, pi, env.zero));
+        let (has, bad) = (
+            b.icmp(IntCond::Sgt, pi, env.zero),
+            b.icmp(IntCond::Slt, pi, env.zero),
+        );
         b.cond_br(has, (l_row, &[]), (l_end, &[]));
         b.switch_to(l_end);
         b.cond_br(bad, (l_bad, &[]), (l_eod, &[]));

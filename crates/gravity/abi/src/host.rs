@@ -148,10 +148,18 @@ pub unsafe fn call(addr: usize, args: &[u64]) -> u64 {
         2 => t::<usize, extern "C" fn(u64, u64) -> u64>(addr)(a[0], a[1]),
         3 => t::<usize, extern "C" fn(u64, u64, u64) -> u64>(addr)(a[0], a[1], a[2]),
         4 => t::<usize, extern "C" fn(u64, u64, u64, u64) -> u64>(addr)(a[0], a[1], a[2], a[3]),
-        5 => t::<usize, extern "C" fn(u64, u64, u64, u64, u64) -> u64>(addr)(a[0], a[1], a[2], a[3], a[4]),
-        6 => t::<usize, extern "C" fn(u64, u64, u64, u64, u64, u64) -> u64>(addr)(a[0], a[1], a[2], a[3], a[4], a[5]),
-        7 => t::<usize, extern "C" fn(u64, u64, u64, u64, u64, u64, u64) -> u64>(addr)(a[0], a[1], a[2], a[3], a[4], a[5], a[6]),
-        _ => t::<usize, extern "C" fn(u64, u64, u64, u64, u64, u64, u64, u64) -> u64>(addr)(a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7]),
+        5 => t::<usize, extern "C" fn(u64, u64, u64, u64, u64) -> u64>(addr)(
+            a[0], a[1], a[2], a[3], a[4],
+        ),
+        6 => t::<usize, extern "C" fn(u64, u64, u64, u64, u64, u64) -> u64>(addr)(
+            a[0], a[1], a[2], a[3], a[4], a[5],
+        ),
+        7 => t::<usize, extern "C" fn(u64, u64, u64, u64, u64, u64, u64) -> u64>(addr)(
+            a[0], a[1], a[2], a[3], a[4], a[5], a[6],
+        ),
+        _ => t::<usize, extern "C" fn(u64, u64, u64, u64, u64, u64, u64, u64) -> u64>(addr)(
+            a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7],
+        ),
     }
 }
 
@@ -238,31 +246,44 @@ pub mod words {
     ints!(u64, i64, usize, isize, u32, i32, u16, i16, u8, i8);
     impl<T> FromWord for *mut T {
         #[inline(always)]
-        fn from_word(w: u64) -> Self { w as usize as *mut T }
+        fn from_word(w: u64) -> Self {
+            w as usize as *mut T
+        }
     }
     impl<T> FromWord for *const T {
         #[inline(always)]
-        fn from_word(w: u64) -> Self { w as usize as *const T }
+        fn from_word(w: u64) -> Self {
+            w as usize as *const T
+        }
     }
     impl<T> IntoWord for *mut T {
         #[inline(always)]
-        fn into_word(self) -> u64 { ptr_word(self as usize) }
+        fn into_word(self) -> u64 {
+            ptr_word(self as usize)
+        }
     }
     impl<T> IntoWord for *const T {
         #[inline(always)]
-        fn into_word(self) -> u64 { ptr_word(self as usize) }
+        fn into_word(self) -> u64 {
+            ptr_word(self as usize)
+        }
     }
     impl IntoWord for () {
         #[inline(always)]
-        fn into_word(self) -> u64 { 0 }
+        fn into_word(self) -> u64 {
+            0
+        }
     }
     impl FromWord for bool {
         #[inline(always)]
-        fn from_word(w: u64) -> Self { w != 0 }
+        fn from_word(w: u64) -> Self {
+            w != 0
+        }
     }
     impl IntoWord for bool {
         #[inline(always)]
-        fn into_word(self) -> u64 { self as u64 }
+        fn into_word(self) -> u64 {
+            self as u64
+        }
     }
-
 }

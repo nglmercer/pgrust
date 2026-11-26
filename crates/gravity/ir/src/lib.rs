@@ -134,7 +134,10 @@ impl Type {
         matches!(self, Type::F32 | Type::F64)
     }
     pub const fn is_vector(self) -> bool {
-        matches!(self, Type::V16I8 | Type::V8I16 | Type::V4I32 | Type::V2I64 | Type::V4F32 | Type::V2F64)
+        matches!(
+            self,
+            Type::V16I8 | Type::V8I16 | Type::V4I32 | Type::V2I64 | Type::V4F32 | Type::V2F64
+        )
     }
     pub const fn is_int_vector(self) -> bool {
         matches!(self, Type::V16I8 | Type::V8I16 | Type::V4I32 | Type::V2I64)
@@ -416,63 +419,139 @@ pub enum Op {
     /// low bits of `bits` and sign-/zero-extension is irrelevant because the
     /// type fixes the width. Floats are stored as their IEEE bit pattern.
     /// `Bool` is 0 or 1.
-    Const { ty: Type, bits: u64 },
+    Const {
+        ty: Type,
+        bits: u64,
+    },
 
-    IntBin { op: IntBinOp, a: Value, b: Value },
-    IntOvf { op: IntOvfOp, a: Value, b: Value },
-    IntUn { op: IntUnOp, a: Value },
-    Icmp { cond: IntCond, a: Value, b: Value },
+    IntBin {
+        op: IntBinOp,
+        a: Value,
+        b: Value,
+    },
+    IntOvf {
+        op: IntOvfOp,
+        a: Value,
+        b: Value,
+    },
+    IntUn {
+        op: IntUnOp,
+        a: Value,
+    },
+    Icmp {
+        cond: IntCond,
+        a: Value,
+        b: Value,
+    },
 
-    FloatBin { op: FloatBinOp, a: Value, b: Value },
-    FloatUn { op: FloatUnOp, a: Value },
-    Fcmp { cond: FloatCond, a: Value, b: Value },
+    FloatBin {
+        op: FloatBinOp,
+        a: Value,
+        b: Value,
+    },
+    FloatUn {
+        op: FloatUnOp,
+        a: Value,
+    },
+    Fcmp {
+        cond: FloatCond,
+        a: Value,
+        b: Value,
+    },
 
-    Conv { op: ConvOp, to: Type, a: Value },
+    Conv {
+        op: ConvOp,
+        to: Type,
+        a: Value,
+    },
 
     /// `cond ? a : b`, both operands already evaluated. Same type.
-    Select { cond: Value, a: Value, b: Value },
+    Select {
+        cond: Value,
+        a: Value,
+        b: Value,
+    },
 
     /// Load a `ty` from `ptr + offset`. The address must be aligned to
     /// `ty.bytes()` unless `unaligned` is set.
-    Load { ty: Type, ptr: Value, offset: i32, unaligned: bool },
+    Load {
+        ty: Type,
+        ptr: Value,
+        offset: i32,
+        unaligned: bool,
+    },
     /// Load a narrow integer (`I8`/`I16`/`I32`) from `ptr + offset` and
     /// zero-extend it to `I64`. Same alignment rule as `Load`. Exists because
     /// every heap layout field (line pointers, header words, varlena
     /// headers) is unsigned; backends emit one zero-extending load.
-    LoadZext { ty: Type, ptr: Value, offset: i32, unaligned: bool },
+    LoadZext {
+        ty: Type,
+        ptr: Value,
+        offset: i32,
+        unaligned: bool,
+    },
     /// Store `value` to `ptr + offset`. Same alignment rule as `Load`.
-    Store { ptr: Value, offset: i32, value: Value, unaligned: bool },
+    Store {
+        ptr: Value,
+        offset: i32,
+        value: Value,
+        unaligned: bool,
+    },
 
     /// Address of a stack slot declared by the enclosing function. Slots are
     /// live for the whole function invocation.
-    StackAddr { slot: StackSlot },
+    StackAddr {
+        slot: StackSlot,
+    },
 
     /// Pointer arithmetic: `base + index * scale + offset`. `index` is `I64`.
     /// Exists so backends can use scaled addressing; equivalent to
     /// `IntToPtr(PtrToInt(base) + index*scale + offset)`.
-    PtrAdd { base: Value, index: Value, scale: u8, offset: i32 },
+    PtrAdd {
+        base: Value,
+        index: Value,
+        scale: u8,
+        offset: i32,
+    },
 
     /// Call a function in this program. Arguments match the callee's
     /// parameter types; the result, if any, matches its return type.
-    Call { callee: Func, args: IrSlice<Value> },
+    Call {
+        callee: Func,
+        args: IrSlice<Value>,
+    },
 
     /// Call a host (Rust `extern "C"`) function. See `HostFnDecl`.
-    CallHost { callee: HostFn, args: IrSlice<Value> },
+    CallHost {
+        callee: HostFn,
+        args: IrSlice<Value>,
+    },
 
     /// Prefetch the cache line at `ptr + offset` for a read into L1
     /// (AArch64 `prfm pldl1keep`, x86-64 `prefetcht0`). A hint with no
     /// result and no semantics: it never faults, the interpreter ignores
     /// it, and a backend may drop it. The address need not be valid.
-    Prefetch { ptr: Value, offset: i32 },
+    Prefetch {
+        ptr: Value,
+        offset: i32,
+    },
     /// CRC-32C (Castagnoli, reflected polynomial 0x82F63B78) of the eight
     /// bytes of `data` (`I64`, little-endian) folded into the 32-bit
     /// accumulator `acc` (`I64`; only its low 32 bits are read): the
     /// result is the new 32-bit CRC zero-extended to `I64`. One
     /// instruction on AArch64 (`crc32cx`) and x86-64 (`crc32 r64`).
-    Crc32c { acc: Value, data: Value },
+    Crc32c {
+        acc: Value,
+        data: Value,
+    },
     /// The high word of the 128-bit sum `ahi:alo + bhi:blo` (all `I64`): `ahi + bhi + carry(alo + blo)`, the low word being a
     /// plain `iadd`. `cmn` + `adc` on AArch64, `add` + `adc` on x86-64.
-    AddHi { alo: Value, blo: Value, ahi: Value, bhi: Value },
+    AddHi {
+        alo: Value,
+        blo: Value,
+        ahi: Value,
+        bhi: Value,
+    },
 
     // -- fixed 128-bit vectors (docs/design/gravity-simple/simd.md) ------
     // The op set is what the columnar lowerer's vector loops use (a
@@ -482,44 +561,91 @@ pub enum Op {
     // instruction or a short fixed sequence.
     /// Load a 128-bit vector of type `ty` from `ptr + offset`; aligned to
     /// 16 unless `unaligned`.
-    VecLoad { ty: Type, ptr: Value, offset: i32, unaligned: bool },
+    VecLoad {
+        ty: Type,
+        ptr: Value,
+        offset: i32,
+        unaligned: bool,
+    },
     /// Store a vector to `ptr + offset`. Same alignment rule.
-    VecStore { ptr: Value, offset: i32, value: Value, unaligned: bool },
+    VecStore {
+        ptr: Value,
+        offset: i32,
+        value: Value,
+        unaligned: bool,
+    },
     /// Lane-wise binary op; see `VecBinOp`.
-    VecBin { op: VecBinOp, a: Value, b: Value },
+    VecBin {
+        op: VecBinOp,
+        a: Value,
+        b: Value,
+    },
     /// Lane-wise shift by an immediate; see `VecShiftOp`.
-    VecShift { op: VecShiftOp, a: Value, count: u8 },
+    VecShift {
+        op: VecShiftOp,
+        a: Value,
+        count: u8,
+    },
     /// Lane-wise integer compare producing a mask vector of the operands'
     /// type: a lane is all ones where the predicate holds, else zero.
-    VecCmp { cond: IntCond, a: Value, b: Value },
+    VecCmp {
+        cond: IntCond,
+        a: Value,
+        b: Value,
+    },
     /// Bitwise select: `(mask & a) | (!mask & b)`, all three of one vector
     /// type. With a `VecCmp` mask this is the lane-wise `mask ? a : b`.
-    VecSelect { mask: Value, a: Value, b: Value },
+    VecSelect {
+        mask: Value,
+        a: Value,
+        b: Value,
+    },
     /// Horizontal add of the lanes. Integer lanes are sign-extended and
     /// summed as `I64` (wrapping): `V2I64 -> I64` is the exact sum, the
     /// narrower vectors widen so a count or sum of narrow lanes needs no
     /// per-lane widening first. `V2F64 -> F64` is `lane0 + lane1`;
     /// `V4F32 -> F32` is `(lane0 + lane1) + (lane2 + lane3)` (the pairwise
     /// order of `faddp`, which the backends emit).
-    VecReduceAdd { a: Value },
+    VecReduceAdd {
+        a: Value,
+    },
     /// The sign bits of the lanes as an `I64` bitmask, bit `i` = lane `i`'s
     /// most significant bit (a `VecCmp` mask becomes one bit per lane).
-    VecMovmask { a: Value },
+    VecMovmask {
+        a: Value,
+    },
     /// Every lane of `ty` set to the scalar `a` (whose type is `ty.lane()`).
-    VecSplat { ty: Type, a: Value },
+    VecSplat {
+        ty: Type,
+        a: Value,
+    },
     /// Lane `lane` of `a` as a scalar of the lane type (canonical: narrow
     /// integers sign-extended).
-    VecExtract { a: Value, lane: u8 },
+    VecExtract {
+        a: Value,
+        lane: u8,
+    },
     /// `a` with lane `lane` replaced by the scalar `value`.
-    VecInsert { a: Value, lane: u8, value: Value },
+    VecInsert {
+        a: Value,
+        lane: u8,
+        value: Value,
+    },
     /// The low (`high == false`) or high half of `a`'s integer lanes, each
     /// extended (`signed` or zero) to twice its width: `V16I8 -> V8I16`,
     /// `V8I16 -> V4I32`, `V4I32 -> V2I64`.
-    VecWiden { a: Value, signed: bool, high: bool },
+    VecWiden {
+        a: Value,
+        signed: bool,
+        high: bool,
+    },
     /// Both operands' integer lanes truncated to half their width, `a`'s
     /// in the low half of the result and `b`'s in the high half:
     /// `V2I64 x2 -> V4I32`, `V4I32 x2 -> V8I16`, `V8I16 x2 -> V16I8`.
-    VecNarrow { a: Value, b: Value },
+    VecNarrow {
+        a: Value,
+        b: Value,
+    },
 }
 
 /// An instruction: an operation plus the value it defines, if any.
@@ -563,17 +689,77 @@ impl Op {
             Op::Fcmp { cond, a, b } => Op::Fcmp { cond, a, b },
             Op::Conv { op, to, a } => Op::Conv { op, to, a },
             Op::Select { cond, a, b } => Op::Select { cond, a, b },
-            Op::Load { ty, ptr, offset, unaligned } => Op::Load { ty, ptr, offset, unaligned },
-            Op::LoadZext { ty, ptr, offset, unaligned } => Op::LoadZext { ty, ptr, offset, unaligned },
-            Op::Store { ptr, offset, value, unaligned } => Op::Store { ptr, offset, value, unaligned },
+            Op::Load {
+                ty,
+                ptr,
+                offset,
+                unaligned,
+            } => Op::Load {
+                ty,
+                ptr,
+                offset,
+                unaligned,
+            },
+            Op::LoadZext {
+                ty,
+                ptr,
+                offset,
+                unaligned,
+            } => Op::LoadZext {
+                ty,
+                ptr,
+                offset,
+                unaligned,
+            },
+            Op::Store {
+                ptr,
+                offset,
+                value,
+                unaligned,
+            } => Op::Store {
+                ptr,
+                offset,
+                value,
+                unaligned,
+            },
             Op::StackAddr { slot } => Op::StackAddr { slot },
-            Op::PtrAdd { base, index, scale, offset } => Op::PtrAdd { base, index, scale, offset },
+            Op::PtrAdd {
+                base,
+                index,
+                scale,
+                offset,
+            } => Op::PtrAdd {
+                base,
+                index,
+                scale,
+                offset,
+            },
             Op::Call { .. } | Op::CallHost { .. } => return None,
             Op::Prefetch { ptr, offset } => Op::Prefetch { ptr, offset },
             Op::Crc32c { acc, data } => Op::Crc32c { acc, data },
             Op::AddHi { alo, blo, ahi, bhi } => Op::AddHi { alo, blo, ahi, bhi },
-            Op::VecLoad { ty, ptr, offset, unaligned } => Op::VecLoad { ty, ptr, offset, unaligned },
-            Op::VecStore { ptr, offset, value, unaligned } => Op::VecStore { ptr, offset, value, unaligned },
+            Op::VecLoad {
+                ty,
+                ptr,
+                offset,
+                unaligned,
+            } => Op::VecLoad {
+                ty,
+                ptr,
+                offset,
+                unaligned,
+            },
+            Op::VecStore {
+                ptr,
+                offset,
+                value,
+                unaligned,
+            } => Op::VecStore {
+                ptr,
+                offset,
+                value,
+                unaligned,
+            },
             Op::VecBin { op, a, b } => Op::VecBin { op, a, b },
             Op::VecShift { op, a, count } => Op::VecShift { op, a, count },
             Op::VecCmp { cond, a, b } => Op::VecCmp { cond, a, b },
@@ -609,7 +795,11 @@ impl Op {
         };
         let n = match self {
             Op::Const { .. } | Op::StackAddr { .. } => 0,
-            Op::IntBin { a, b, .. } | Op::IntOvf { a, b, .. } | Op::Icmp { a, b, .. } | Op::FloatBin { a, b, .. } | Op::Fcmp { a, b, .. } => put(&[*a, *b]),
+            Op::IntBin { a, b, .. }
+            | Op::IntOvf { a, b, .. }
+            | Op::Icmp { a, b, .. }
+            | Op::FloatBin { a, b, .. }
+            | Op::Fcmp { a, b, .. } => put(&[*a, *b]),
             Op::IntUn { a, .. } | Op::FloatUn { a, .. } | Op::Conv { a, .. } => put(&[*a]),
             Op::Select { cond, a, b } => put(&[*cond, *a, *b]),
             Op::Load { ptr, .. } | Op::LoadZext { ptr, .. } => put(&[*ptr]),
@@ -621,8 +811,15 @@ impl Op {
             Op::Call { args, .. } | Op::CallHost { args, .. } => return args,
             Op::VecLoad { ptr, .. } => put(&[*ptr]),
             Op::VecStore { ptr, value, .. } => put(&[*ptr, *value]),
-            Op::VecBin { a, b, .. } | Op::VecCmp { a, b, .. } | Op::VecNarrow { a, b } => put(&[*a, *b]),
-            Op::VecShift { a, .. } | Op::VecReduceAdd { a } | Op::VecMovmask { a } | Op::VecSplat { a, .. } | Op::VecExtract { a, .. } | Op::VecWiden { a, .. } => put(&[*a]),
+            Op::VecBin { a, b, .. } | Op::VecCmp { a, b, .. } | Op::VecNarrow { a, b } => {
+                put(&[*a, *b])
+            }
+            Op::VecShift { a, .. }
+            | Op::VecReduceAdd { a }
+            | Op::VecMovmask { a }
+            | Op::VecSplat { a, .. }
+            | Op::VecExtract { a, .. }
+            | Op::VecWiden { a, .. } => put(&[*a]),
             Op::VecSelect { mask, a, b } => put(&[*mask, *a, *b]),
             Op::VecInsert { a, value, .. } => put(&[*a, *value]),
         };
@@ -647,15 +844,22 @@ impl Terminator {
     }
 }
 
-
 /// Block terminators. Every block has exactly one.
 #[derive(Debug, Eq, PartialEq, Hash)]
 pub enum Terminator {
     Br(Edge),
     /// `cond` is `Bool`. Both edges may target the same block.
-    CondBr { cond: Value, then_edge: Edge, else_edge: Edge },
+    CondBr {
+        cond: Value,
+        then_edge: Edge,
+        else_edge: Edge,
+    },
     /// Integer multi-way branch. Cases are distinct; `default` is mandatory.
-    Switch { value: Value, cases: IrSlice<SwitchCase>, default: Edge },
+    Switch {
+        value: Value,
+        cases: IrSlice<SwitchCase>,
+        default: Edge,
+    },
     /// Return from the function. `values` matches the function's return types.
     Return(IrSlice<Value>),
     /// Control must never reach here. Backends may emit a trap.
@@ -665,13 +869,23 @@ pub enum Terminator {
 impl Terminator {
     /// All outgoing edges, in a fixed order.
     pub fn edges(&self) -> impl Iterator<Item = &Edge> {
-        let (a, b, rest, d): (Option<&Edge>, Option<&Edge>, &[SwitchCase], Option<&Edge>) = match self {
-            Terminator::Br(e) => (Some(e), None, &[], None),
-            Terminator::CondBr { then_edge, else_edge, .. } => (Some(then_edge), Some(else_edge), &[], None),
-            Terminator::Switch { cases, default, .. } => (None, None, &cases[..], Some(default)),
-            Terminator::Return(_) | Terminator::Unreachable => (None, None, &[], None),
-        };
-        a.into_iter().chain(b).chain(rest.iter().map(|c| &c.edge)).chain(d)
+        let (a, b, rest, d): (Option<&Edge>, Option<&Edge>, &[SwitchCase], Option<&Edge>) =
+            match self {
+                Terminator::Br(e) => (Some(e), None, &[], None),
+                Terminator::CondBr {
+                    then_edge,
+                    else_edge,
+                    ..
+                } => (Some(then_edge), Some(else_edge), &[], None),
+                Terminator::Switch { cases, default, .. } => {
+                    (None, None, &cases[..], Some(default))
+                }
+                Terminator::Return(_) | Terminator::Unreachable => (None, None, &[], None),
+            };
+        a.into_iter()
+            .chain(b)
+            .chain(rest.iter().map(|c| &c.edge))
+            .chain(d)
     }
 }
 
@@ -744,7 +958,12 @@ impl Eq for Hints {}
 impl Hints {
     /// No hint at all (what a function declared and never hinted has).
     pub fn is_empty(&self) -> bool {
-        self.cold_blocks.is_empty() && self.block_freq.is_empty() && self.loop_headers.is_empty() && self.likely.is_empty() && self.remat.is_empty() && self.nowrap.is_empty()
+        self.cold_blocks.is_empty()
+            && self.block_freq.is_empty()
+            && self.loop_headers.is_empty()
+            && self.likely.is_empty()
+            && self.remat.is_empty()
+            && self.nowrap.is_empty()
     }
 }
 
@@ -882,8 +1101,16 @@ impl Program {
     }
 
     fn in_root(mut root: SendRoot, owner: Option<memledger::Owner>) -> Program {
-        let (funcs, host_fns) = (IrVec::new_in(raw::handle(&mut root)), IrVec::new_in(raw::handle(&mut root)));
-        Program { funcs, host_fns, root, owner }
+        let (funcs, host_fns) = (
+            IrVec::new_in(raw::handle(&mut root)),
+            IrVec::new_in(raw::handle(&mut root)),
+        );
+        Program {
+            funcs,
+            host_fns,
+            root,
+            owner,
+        }
     }
 
     /// Its bytes on `owner` from now (a holder adopting it); they move in one step.
@@ -930,7 +1157,11 @@ impl Program {
     /// named `owner`'s at its birth; `None` when `f` calls a function of this program (that callee's index would not hold).
     pub fn leaf(&self, f: Func, owner: Option<memledger::Owner>) -> Option<Program> {
         let src = &self.funcs[f.index()];
-        if src.blocks.iter().any(|b| b.insts.iter().any(|i| matches!(i.op, Op::Call { .. }))) {
+        if src
+            .blocks
+            .iter()
+            .any(|b| b.insts.iter().any(|i| matches!(i.op, Op::Call { .. })))
+        {
             return None;
         }
         let mut p = match owner {
@@ -986,7 +1217,10 @@ impl core::hash::Hash for Program {
 
 impl core::fmt::Debug for Program {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("Program").field("funcs", &self.funcs).field("host_fns", &self.host_fns).finish()
+        f.debug_struct("Program")
+            .field("funcs", &self.funcs)
+            .field("host_fns", &self.host_fns)
+            .finish()
     }
 }
 
@@ -1050,17 +1284,36 @@ impl Mint {
     }
 
     pub fn edge(&self, target: Block, args: &[Value]) -> Edge {
-        Edge { target, args: self.slice_from(args) }
+        Edge {
+            target,
+            args: self.slice_from(args),
+        }
     }
 
     /// A function with no body yet.
     pub fn function(&self, name: &str, params: &[Type], returns: &[Type]) -> Function {
         let (values, stack_slots, blocks) = (self.vec(), self.vec(), self.vec());
-        Function { name: self.str(name), params: self.vec_from(params), returns: self.vec_from(returns), values, stack_slots, blocks, entry: Block(0), hints: self.hints() }
+        Function {
+            name: self.str(name),
+            params: self.vec_from(params),
+            returns: self.vec_from(returns),
+            values,
+            stack_slots,
+            blocks,
+            entry: Block(0),
+            hints: self.hints(),
+        }
     }
 
     pub fn hints(&self) -> Hints {
-        Hints { cold_blocks: self.vec(), block_freq: self.vec(), loop_headers: self.vec(), likely: self.vec(), remat: self.vec(), nowrap: self.vec() }
+        Hints {
+            cold_blocks: self.vec(),
+            block_freq: self.vec(),
+            loop_headers: self.vec(),
+            likely: self.vec(),
+            remat: self.vec(),
+            nowrap: self.vec(),
+        }
     }
 }
 
@@ -1094,21 +1347,34 @@ impl CloneIn for Function {
 
 impl CloneIn for BasicBlock {
     fn clone_in(&self, m: &Mint) -> BasicBlock {
-        BasicBlock { params: m.slice_from(&self.params), insts: clone_vec(&self.insts, m), term: self.term.clone_in(m) }
+        BasicBlock {
+            params: m.slice_from(&self.params),
+            insts: clone_vec(&self.insts, m),
+            term: self.term.clone_in(m),
+        }
     }
 }
 
 impl CloneIn for Instruction {
     fn clone_in(&self, m: &Mint) -> Instruction {
-        Instruction { result: self.result, op: self.op.clone_in(m) }
+        Instruction {
+            result: self.result,
+            op: self.op.clone_in(m),
+        }
     }
 }
 
 impl CloneIn for Op {
     fn clone_in(&self, m: &Mint) -> Op {
         match self {
-            Op::Call { callee, args } => Op::Call { callee: *callee, args: m.slice_from(args) },
-            Op::CallHost { callee, args } => Op::CallHost { callee: *callee, args: m.slice_from(args) },
+            Op::Call { callee, args } => Op::Call {
+                callee: *callee,
+                args: m.slice_from(args),
+            },
+            Op::CallHost { callee, args } => Op::CallHost {
+                callee: *callee,
+                args: m.slice_from(args),
+            },
             op => op.copy_flat().expect("an op with no list"),
         }
     }
@@ -1122,7 +1388,10 @@ impl CloneIn for Edge {
 
 impl CloneIn for SwitchCase {
     fn clone_in(&self, m: &Mint) -> SwitchCase {
-        SwitchCase { value: self.value, edge: self.edge.clone_in(m) }
+        SwitchCase {
+            value: self.value,
+            edge: self.edge.clone_in(m),
+        }
     }
 }
 
@@ -1130,8 +1399,24 @@ impl CloneIn for Terminator {
     fn clone_in(&self, m: &Mint) -> Terminator {
         match self {
             Terminator::Br(e) => Terminator::Br(e.clone_in(m)),
-            Terminator::CondBr { cond, then_edge, else_edge } => Terminator::CondBr { cond: *cond, then_edge: then_edge.clone_in(m), else_edge: else_edge.clone_in(m) },
-            Terminator::Switch { value, cases, default } => Terminator::Switch { value: *value, cases: m.slice_collect(cases.iter().map(|c| c.clone_in(m))), default: default.clone_in(m) },
+            Terminator::CondBr {
+                cond,
+                then_edge,
+                else_edge,
+            } => Terminator::CondBr {
+                cond: *cond,
+                then_edge: then_edge.clone_in(m),
+                else_edge: else_edge.clone_in(m),
+            },
+            Terminator::Switch {
+                value,
+                cases,
+                default,
+            } => Terminator::Switch {
+                value: *value,
+                cases: m.slice_collect(cases.iter().map(|c| c.clone_in(m))),
+                default: default.clone_in(m),
+            },
             Terminator::Return(vs) => Terminator::Return(m.slice_from(vs)),
             Terminator::Unreachable => Terminator::Unreachable,
         }
@@ -1153,7 +1438,13 @@ impl CloneIn for Hints {
 
 impl CloneIn for HostFnDecl {
     fn clone_in(&self, m: &Mint) -> HostFnDecl {
-        HostFnDecl { name: self.name.clone_in(m), params: m.vec_from(&self.params), ret: self.ret, addr: self.addr, flags: self.flags }
+        HostFnDecl {
+            name: self.name.clone_in(m),
+            params: m.vec_from(&self.params),
+            ret: self.ret,
+            addr: self.addr,
+            flags: self.flags,
+        }
     }
 }
 

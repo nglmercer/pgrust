@@ -55,7 +55,9 @@ fn fc_insert_username(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> Pg
     let tupdesc = rel.descr();
     let attnum = spi::SPI_fnumber(tupdesc, colname);
     if attnum <= 0 {
-        return Err(action_err(format!("\"{relname}\" has no attribute \"{colname}\"")));
+        return Err(action_err(format!(
+            "\"{relname}\" has no attribute \"{colname}\""
+        )));
     }
     if spi::SPI_gettypeid(tupdesc, attnum) != TEXTOID {
         return Err(action_err(format!(
@@ -69,8 +71,14 @@ fn fc_insert_username(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> Pg
         .expect("noerr=false raises on a missing role");
     let newval = varlena_result(varlena::cstring_to_text(mcx, username.as_bytes())?);
 
-    let newtuple =
-        heaptuple::heap_modify_tuple_by_cols(mcx, rettuple, tupdesc, &[attnum], &[newval], &[false])?;
+    let newtuple = heaptuple::heap_modify_tuple_by_cols(
+        mcx,
+        rettuple,
+        tupdesc,
+        &[attnum],
+        &[newval],
+        &[false],
+    )?;
     let ht = newtuple.as_tuple();
     // SAFETY: the image is mcx-owned and leaked below; the descriptor copy
     // rides in the same mcx so it outlives the trigger driver's copy-out.

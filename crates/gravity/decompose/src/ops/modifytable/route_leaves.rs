@@ -4,12 +4,16 @@
 use gravity_program::{ArenaVec, Cmd};
 
 use crate::catalog::LeafFact;
-use crate::walk::Builder;
 use crate::ops::shared::modifytable::RouteDesc;
+use crate::walk::Builder;
 
 /// The tree's leaves for an INSERT / UPDATE / DELETE, `known` = the source answered (fixtures: no). A cross-partition
 /// UPDATE's are its moved rows' destinations (H-e (c)); a MERGE's none (its move is M4-MERGE's).
-pub fn leaves<'p>(b: &Builder<'p, '_>, route: Option<&RouteDesc>, cmd: Cmd) -> (ArenaVec<LeafFact>, bool) {
+pub fn leaves<'p>(
+    b: &Builder<'p, '_>,
+    route: Option<&RouteDesc>,
+    cmd: Cmd,
+) -> (ArenaVec<LeafFact>, bool) {
     let mut out = ArenaVec::new_in(b.arena);
     let Some(r) = route else { return (out, false) };
     // V4R-498: a MERGE's routed NOT MATCHED INSERTs read the leaves as an INSERT's (lowerv4 write.route's MERGE form);
@@ -17,13 +21,16 @@ pub fn leaves<'p>(b: &Builder<'p, '_>, route: Option<&RouteDesc>, cmd: Cmd) -> (
     if r.cross_partition && !matches!(cmd, Cmd::Update | Cmd::Merge) {
         return (out, false);
     }
-    let known = b.facts.partition_leaves(r.root_relid, &mut |leaf| out.push(leaf));
+    let known = b
+        .facts
+        .partition_leaves(r.root_relid, &mut |leaf| out.push(leaf));
     (out, known)
 }
 
 /// A leaf that is a foreign table (foreign tables are not supported: no Foreign Scan, no foreign write): exec's admission
 /// raises 0A000 for a write this reason refuses (exec admit/removed.rs `leaf_refusal`), never a fallback.
-pub const FOREIGN_LEAF: &str = "a partition that is a foreign table (foreign tables are not supported)";
+pub const FOREIGN_LEAF: &str =
+    "a partition that is a foreign table (foreign tables are not supported)";
 
 pub fn unservable(l: &LeafFact) -> Option<&'static str> {
     if l.foreign {

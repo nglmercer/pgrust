@@ -6,7 +6,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier};
 use std::time::Duration;
 
-use gravity_driver::{install_spill_factory, Result, RunReader, SpillFactory, SpillFile, SpillSet, SpillTable};
+use gravity_driver::{
+    install_spill_factory, Result, RunReader, SpillFactory, SpillFile, SpillSet, SpillTable,
+};
 
 static CREATED: AtomicUsize = AtomicUsize::new(0);
 static LIVE: AtomicUsize = AtomicUsize::new(0);
@@ -36,7 +38,13 @@ impl Drop for SlowSet {
 }
 
 impl SpillSet for SlowSet {
-    fn open(&mut self, _purpose: &str, _generation: u64, _worker: usize, _nparts: u32) -> Result<Box<dyn SpillFile>> {
+    fn open(
+        &mut self,
+        _purpose: &str,
+        _generation: u64,
+        _worker: usize,
+        _nparts: u32,
+    ) -> Result<Box<dyn SpillFile>> {
         // an open that overlaps another owner's create is an open the other's store will orphan
         if CREATING.load(Ordering::SeqCst) > 0 {
             OPENS_DURING_CREATE.fetch_add(1, Ordering::SeqCst);
@@ -74,7 +82,10 @@ impl Shared {
 
 #[test]
 fn w_first_spills_at_once_make_one_set_under_its_lock() {
-    assert!(install_spill_factory(&FACTORY), "this binary owns the process's spill factory");
+    assert!(
+        install_spill_factory(&FACTORY),
+        "this binary owns the process's spill factory"
+    );
     const W: usize = 8;
     for round in 0..3 {
         let mut table = Box::new(SpillTable::with_slots(2));
@@ -100,11 +111,30 @@ fn w_first_spills_at_once_make_one_set_under_its_lock() {
             t.join().unwrap();
         }
         let created = CREATED.load(Ordering::SeqCst) - created0;
-        assert_eq!(created, 1, "round {round}: {W} first spills at once made {created} sets");
-        assert_eq!(LIVE.load(Ordering::SeqCst), 1, "round {round}: the one set is the table's");
-        assert_eq!(OPENS_DURING_CREATE.load(Ordering::SeqCst), 0, "round {round}: no open overlapped a create");
-        assert!(table.spilled() && table.stream(0).gen0_parts() == 8 && table.stream(1).gen0_parts() == 8);
+        assert_eq!(
+            created, 1,
+            "round {round}: {W} first spills at once made {created} sets"
+        );
+        assert_eq!(
+            LIVE.load(Ordering::SeqCst),
+            1,
+            "round {round}: the one set is the table's"
+        );
+        assert_eq!(
+            OPENS_DURING_CREATE.load(Ordering::SeqCst),
+            0,
+            "round {round}: no open overlapped a create"
+        );
+        assert!(
+            table.spilled()
+                && table.stream(0).gen0_parts() == 8
+                && table.stream(1).gen0_parts() == 8
+        );
         table.clear();
-        assert_eq!(LIVE.load(Ordering::SeqCst), 0, "round {round}: clear drops the set");
+        assert_eq!(
+            LIVE.load(Ordering::SeqCst),
+            0,
+            "round {round}: clear drops the set"
+        );
     }
 }

@@ -8,12 +8,12 @@
 
 use std::cell::Cell;
 
+use adt_uuid::PgUuid;
 use datum::Datum;
 use types_error::{PgError, PgResult, ERRCODE_EXTERNAL_ROUTINE_EXCEPTION};
 use types_fmgr::{
     byref_result, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction, UUID_LEN,
 };
-use adt_uuid::PgUuid;
 
 const LIBRARY: &str = "uuid-ossp";
 
@@ -120,7 +120,12 @@ fn v1_state() -> PgResult<V1State> {
         node[0] |= 0x01;
         node
     });
-    let s = V1State { last_us: 0, adjustment: 0, clock_seq, node };
+    let s = V1State {
+        last_us: 0,
+        adjustment: 0,
+        clock_seq,
+        node,
+    };
     V1_STATE.with(|c| c.set(Some(s)));
     Ok(s)
 }
@@ -154,7 +159,13 @@ fn get_node_id() -> Option<[u8; 6]> {
     found
 }
 
-#[cfg(any(target_os = "macos", target_os = "ios", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))]
+#[cfg(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd"
+))]
 unsafe fn link_addr(sa: *const libc::sockaddr) -> Option<[u8; 6]> {
     if (*sa).sa_family as i32 != libc::AF_LINK {
         return None;
@@ -163,7 +174,11 @@ unsafe fn link_addr(sa: *const libc::sockaddr) -> Option<[u8; 6]> {
     if (*sdl).sdl_alen != 6 {
         return None;
     }
-    let base = (*sdl).sdl_data.as_ptr().cast::<u8>().add((*sdl).sdl_nlen as usize);
+    let base = (*sdl)
+        .sdl_data
+        .as_ptr()
+        .cast::<u8>()
+        .add((*sdl).sdl_nlen as usize);
     let mut node = [0u8; 6];
     std::ptr::copy_nonoverlapping(base, node.as_mut_ptr(), 6);
     Some(node)
@@ -184,7 +199,16 @@ unsafe fn link_addr(sa: *const libc::sockaddr) -> Option<[u8; 6]> {
     Some(node)
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd", target_os = "linux", target_os = "android", target_family = "wasm")))]
+#[cfg(not(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_os = "linux",
+    target_os = "android",
+    target_family = "wasm"
+)))]
 unsafe fn link_addr(_sa: *const libc::sockaddr) -> Option<[u8; 6]> {
     None
 }
@@ -345,7 +369,12 @@ mod tests {
 
     #[test]
     fn v1_clock_regression_bumps_clock_seq_and_keeps_wall_time() {
-        let mut s = V1State { last_us: 0, adjustment: 0, clock_seq: 0x3FFF, node: [0; 6] };
+        let mut s = V1State {
+            last_us: 0,
+            adjustment: 0,
+            clock_seq: 0x3FFF,
+            node: [0; 6],
+        };
         let mut clock = [5_000_000u64, 5_000_000, 1_000_000].into_iter();
         let t1 = v1_advance(&mut s, || clock.next().unwrap());
         assert_eq!(t1, 50_000_000 + GREGORIAN_TO_UNIX_100NS);

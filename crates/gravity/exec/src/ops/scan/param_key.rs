@@ -66,7 +66,12 @@ pub(crate) fn plan_keyed(t: &RecipeTpl) -> bool {
 /// The index clause lists of plan node `n` a computed key may sit in: the index quals, the ORDER BY operands, and the
 /// original quals (an IndexScan's `indexqualorig`, an IndexOnlyScan's `recheckqual`).
 fn clause_lists(n: Node<'static>) -> Option<[&'static types_nodes::NodeList<'static>; 3]> {
-    n.as_index_scan().map(|s| [&s.indexqual, &s.indexorderby, &s.indexqualorig]).or_else(|| n.as_index_only_scan().map(|s| [&s.indexqual, &s.indexorderby, &s.recheckqual]))
+    n.as_index_scan()
+        .map(|s| [&s.indexqual, &s.indexorderby, &s.indexqualorig])
+        .or_else(|| {
+            n.as_index_only_scan()
+                .map(|s| [&s.indexqual, &s.indexorderby, &s.recheckqual])
+        })
 }
 
 /// Each node of `l`, clause by clause, in `expr::walk`'s pre-order.
@@ -83,8 +88,18 @@ fn preorder(l: &types_nodes::NodeList<'static>, f: &mut dyn FnMut(Node<'static>)
 /// count), or `None` (the template stays graph-bound): its pipeline found in the admitting graph as `bind` finds it, and
 /// each key found by identity among its plan node's clause lists. memsig E-prog (C): `at` is built in place in the
 /// recipe set's root.
-fn plan_keys(cx: &AdmitCx<'_>, keys: &[gravity_decompose::IndexKey<'_>], host: &dyn Fn(u16) -> bool, n: usize) -> Option<PlanKeys> {
-    let parallel = cx.graph.pipelines.iter().find_map(|p| walk_of(p, cx.node_id)).map(|p| matches!(p.desc.parallel, Parallel::Eligible))?;
+fn plan_keys(
+    cx: &AdmitCx<'_>,
+    keys: &[gravity_decompose::IndexKey<'_>],
+    host: &dyn Fn(u16) -> bool,
+    n: usize,
+) -> Option<PlanKeys> {
+    let parallel = cx
+        .graph
+        .pipelines
+        .iter()
+        .find_map(|p| walk_of(p, cx.node_id))
+        .map(|p| matches!(p.desc.parallel, Parallel::Eligible))?;
     let lists = clause_lists(plan_node(cx.pstmt, cx.node_id)?)?;
     let find = |v: Node<'_>| {
         lists.iter().enumerate().find_map(|(li, l)| {
@@ -99,18 +114,31 @@ fn plan_keys(cx: &AdmitCx<'_>, keys: &[gravity_decompose::IndexKey<'_>], host: &
         })
     };
     let (mut at, mut all) = (cx.lists.list_with(n), true);
-    computed_keys(keys, host, &mut |_, v| match find(v) {
-        Some(x) if all => cx.lists.push(&mut at, x),
-        _ => all = false,
-    }, &mut |_| {})?;
+    computed_keys(
+        keys,
+        host,
+        &mut |_, v| match find(v) {
+            Some(x) if all => cx.lists.push(&mut at, x),
+            _ => all = false,
+        },
+        &mut |_| {},
+    )?;
     (all && at.len() == n).then_some(PlanKeys { parallel, at })
 }
 
 /// D2754: the computed keys a front-key hit binds, read from this execution's plan node at `k`'s positions, each to
 /// `out` with the parameters it reads to `id` (as `computed_keys` answers from the graph); `false` when a position is
 /// missing or holds another tag.
-fn plan_found(pstmt: &'static types_nodes::plannodes::PlannedStmt<'static>, t: &Tpl, k: &PlanKeys, out: &mut dyn FnMut(u16, Node<'static>), id: &mut dyn FnMut(i32)) -> bool {
-    let Some(lists) = plan_node(pstmt, t.node_id).and_then(clause_lists) else { return false };
+fn plan_found(
+    pstmt: &'static types_nodes::plannodes::PlannedStmt<'static>,
+    t: &Tpl,
+    k: &PlanKeys,
+    out: &mut dyn FnMut(u16, Node<'static>),
+    id: &mut dyn FnMut(i32),
+) -> bool {
+    let Some(lists) = plan_node(pstmt, t.node_id).and_then(clause_lists) else {
+        return false;
+    };
     let mut n = 0usize;
     for (&w, &(li, at, tag)) in t.words.iter().zip(k.at.iter()) {
         let (mut i, mut got) = (0usize, None);
@@ -120,7 +148,9 @@ fn plan_found(pstmt: &'static types_nodes::plannodes::PlannedStmt<'static>, t: &
             }
             i += 1;
         });
-        let Some(v) = got.filter(|v| v.node_tag() == tag) else { return false };
+        let Some(v) = got.filter(|v| v.node_tag() == tag) else {
+            return false;
+        };
         if !gravity_lowerv4::rerun::params_key::key_ids_by(v, id) {
             return false;
         }
@@ -132,7 +162,18 @@ fn plan_found(pstmt: &'static types_nodes::plannodes::PlannedStmt<'static>, t: &
 
 /// An index walk with a key computed from executor parameters: its recipe and keys, or `None` (another arm's).
 pub(crate) fn admit(cx: &AdmitCx<'_>) -> AdmitResult {
-    let Source::Index { scanrelid, indexid, backward, only, keys, iam, .. } = cx.source else { return Ok(Ok(None)) };
+    let Source::Index {
+        scanrelid,
+        indexid,
+        backward,
+        only,
+        keys,
+        iam,
+        ..
+    } = cx.source
+    else {
+        return Ok(Ok(None));
+    };
     // the key words in the host's order (hosts `SiteRecipe::words`, lowerv4 source/index.rs): a comparison's value, a row
     // comparison's members' values, a null test none
     // D1630: a key bound at bind is the host's on an inner walk, whose site slot for it is negative (lowerv4 params_key.rs
@@ -141,14 +182,21 @@ pub(crate) fn admit(cx: &AdmitCx<'_>) -> AdmitResult {
     // memsig E-prog (C): a first walk only counts the computed keys and the parameters met (repeats included): most index
     // walks have none and stay another arm's, so the template's lists are made, in place and to size, only for ours
     let (mut n, mut m) = (0usize, 0usize);
-    let Some(w) = computed_keys(keys, &host, &mut |_, _| n += 1, &mut |_| m += 1) else { return Ok(Ok(None)) };
+    let Some(w) = computed_keys(keys, &host, &mut |_, _| n += 1, &mut |_| m += 1) else {
+        return Ok(Ok(None));
+    };
     if n == 0 {
         return Ok(Ok(None));
     }
     if *iam != IndexAm::Btree {
         let leaf = match crate::ops::scan::sites_index_am::am_recipe(cx)? {
             Ok(r) if r.words.len() == w as usize => r,
-            Ok(_) => return Ok(refuse("hosts", "a computed-key index recipe whose key words are not the graph's")),
+            Ok(_) => {
+                return Ok(refuse(
+                    "hosts",
+                    "a computed-key index recipe whose key words are not the graph's",
+                ))
+            }
             Err(why) => return Ok(refuse("hosts", why)),
         };
         return Ok(Ok(Some(template(cx, keys, &host, (n, m), leaf))));
@@ -156,7 +204,11 @@ pub(crate) fn admit(cx: &AdmitCx<'_>) -> AdmitResult {
     let Some(r) = shapes::rte(cx.pstmt, *scanrelid as u32) else {
         return Ok(refuse("hosts", "the index scan's range table entry"));
     };
-    let Some(indexqual) = plan_node(cx.pstmt, cx.node_id).and_then(|n| n.as_index_scan().map(|s| &s.indexqual).or_else(|| n.as_index_only_scan().map(|s| &s.indexqual))) else {
+    let Some(indexqual) = plan_node(cx.pstmt, cx.node_id).and_then(|n| {
+        n.as_index_scan()
+            .map(|s| &s.indexqual)
+            .or_else(|| n.as_index_only_scan().map(|s| &s.indexqual))
+    }) else {
         return Ok(refuse("hosts", "the index scan's clauses"));
     };
     let heap = table::table_open(cx.mcx, cx.site.relation as Oid, NoLock)?;
@@ -167,7 +219,17 @@ pub(crate) fn admit(cx: &AdmitCx<'_>) -> AdmitResult {
             return Err(e);
         }
     };
-    let recipe = SiteRecipe::from_plan_words(&heap, &index, indexqual, r.rellockmode, cx.attnos).map(|r| r.with_backward(*backward).with_only(*only).with_row_budget(gravity_hosts::ops::scan::index_window::limit_budget(cx.pstmt, cx.node_id)).with_run_bound(gravity_hosts::ops::scan::index_window::run_bound(cx.pstmt, cx.node_id)));
+    let recipe = SiteRecipe::from_plan_words(&heap, &index, indexqual, r.rellockmode, cx.attnos)
+        .map(|r| {
+            r.with_backward(*backward)
+                .with_only(*only)
+                .with_row_budget(gravity_hosts::ops::scan::index_window::limit_budget(
+                    cx.pstmt, cx.node_id,
+                ))
+                .with_run_bound(gravity_hosts::ops::scan::index_window::run_bound(
+                    cx.pstmt, cx.node_id,
+                ))
+        });
     index.close(NoLock)?;
     heap.close(NoLock)?;
     let leaf = match recipe {
@@ -175,7 +237,10 @@ pub(crate) fn admit(cx: &AdmitCx<'_>) -> AdmitResult {
         Err(e) => return Ok(refuse("hosts", e.message())),
     };
     if leaf.words.len() != w as usize {
-        return Ok(refuse("hosts", "a computed-key index recipe whose key words are not the graph's"));
+        return Ok(refuse(
+            "hosts",
+            "a computed-key index recipe whose key words are not the graph's",
+        ));
     }
     Ok(Ok(Some(template(cx, keys, &host, (n, m), leaf))))
 }
@@ -183,24 +248,59 @@ pub(crate) fn admit(cx: &AdmitCx<'_>) -> AdmitResult {
 /// memsig E-prog (C): walk `cx`'s template over recipe `leaf`, its lists built in place in the recipe set's root
 /// (`AdmitCx::lists`): the computed keys' words (`n` of them, `admit`'s first walk), their parameters (each once; `m`
 /// met, repeats included, bounds them) and `plan_keys`.
-fn template(cx: &AdmitCx<'_>, keys: &[gravity_decompose::IndexKey<'_>], host: &dyn Fn(u16) -> bool, (n, m): (usize, usize), leaf: SiteRecipe) -> AdmitTpl {
+fn template(
+    cx: &AdmitCx<'_>,
+    keys: &[gravity_decompose::IndexKey<'_>],
+    host: &dyn Fn(u16) -> bool,
+    (n, m): (usize, usize),
+    leaf: SiteRecipe,
+) -> AdmitTpl {
     let (mut words, mut ids) = (cx.lists.list_with(n), cx.lists.list_with(m));
     // the keys `admit` counted, walked again: the same answer
-    let _ = computed_keys(keys, host, &mut |w, _| cx.lists.push(&mut words, w), &mut |id| if !ids.contains(&id) { cx.lists.push(&mut ids, id) });
+    let _ = computed_keys(
+        keys,
+        host,
+        &mut |w, _| cx.lists.push(&mut words, w),
+        &mut |id| {
+            if !ids.contains(&id) {
+                cx.lists.push(&mut ids, id)
+            }
+        },
+    );
     let plan = plan_keys(cx, keys, host, n);
-    RecipeTpl::Rung(Arc::new(Tpl { leaf, words, ids, node_id: cx.node_id, plan, leader: cx.leader })) // alloc: Program
+    RecipeTpl::Rung(Arc::new(Tpl {
+        leaf,
+        words,
+        ids,
+        node_id: cx.node_id,
+        plan,
+        leader: cx.leader,
+    })) // alloc: Program
 }
 
 /// A computed-key template into this execution's registry: each key compiled once over this execution's parameters.
-pub(crate) fn bind(t: &RecipeTpl, reg: &mut HostRegistry, cx: &BindCx<'_>, exprs: &mut shapes::KeyExprs) -> BindResult {
-    let RecipeTpl::Rung(any) = t else { return Ok(Ok(false)) };
-    let Some(t) = any.downcast_ref::<Tpl>() else { return Ok(Ok(false)) };
+pub(crate) fn bind(
+    t: &RecipeTpl,
+    reg: &mut HostRegistry,
+    cx: &BindCx<'_>,
+    exprs: &mut shapes::KeyExprs,
+) -> BindResult {
+    let RecipeTpl::Rung(any) = t else {
+        return Ok(Ok(false));
+    };
+    let Some(t) = any.downcast_ref::<Tpl>() else {
+        return Ok(Ok(false));
+    };
     // leader only (the host's `ExecVals` and compiled keys are thread-confined): a nest inner's or an index walk's pipeline
     // is serial; a parallel-eligible one runs on the leader when the program made it so (D3295), else is refused by name
     // D2754: the main registry on a front-key hit (no graph) reads what the admission recorded from the graph and the
     // plan (`Tpl::plan`); an InitPlan's or arm's registry (neither) is refused as before
     let parallel = match cx.graph {
-        Some(g) => g.pipelines.iter().find_map(|p| walk_of(p, t.node_id)).map(|p| matches!(p.desc.parallel, Parallel::Eligible)),
+        Some(g) => g
+            .pipelines
+            .iter()
+            .find_map(|p| walk_of(p, t.node_id))
+            .map(|p| matches!(p.desc.parallel, Parallel::Eligible)),
         None => cx.front.and(t.plan.as_ref()).map(|k| k.parallel),
     };
     match parallel {
@@ -215,29 +315,68 @@ pub(crate) fn bind(t: &RecipeTpl, reg: &mut HostRegistry, cx: &BindCx<'_>, exprs
     // memsig E-prog (A): the keys in a list on this bind's owner, their parameters checked as walked (`SameIds`)
     let (mut computed, mut ids) = (cx.charged_vec(), SameIds::new(&t.ids));
     let found = match cx.graph {
-        Some(g) => g.pipelines.iter().find_map(|p| walk_of(p, t.node_id)).and_then(|p| match &p.source {
-            Source::Index { keys, .. } => computed_keys(keys, &|w| t.words.contains(&w), &mut |w, v| computed.with_vec(|l| l.push((w, v))), &mut |id| ids.meet(id)), // alloc: Exec charged cx.owner
-            _ => None,
-        }).is_some(),
-        None => cx.front.zip(t.plan.as_ref()).is_some_and(|(pstmt, k)| plan_found(pstmt, t, k, &mut |w, v| computed.with_vec(|l| l.push((w, v))), &mut |id| ids.meet(id))), // alloc: Exec charged cx.owner
+        Some(g) => g
+            .pipelines
+            .iter()
+            .find_map(|p| walk_of(p, t.node_id))
+            .and_then(|p| match &p.source {
+                Source::Index { keys, .. } => computed_keys(
+                    keys,
+                    &|w| t.words.contains(&w),
+                    &mut |w, v| computed.with_vec(|l| l.push((w, v))),
+                    &mut |id| ids.meet(id),
+                ), // alloc: Exec charged cx.owner
+                _ => None,
+            })
+            .is_some(),
+        None => cx.front.zip(t.plan.as_ref()).is_some_and(|(pstmt, k)| {
+            plan_found(
+                pstmt,
+                t,
+                k,
+                &mut |w, v| computed.with_vec(|l| l.push((w, v))),
+                &mut |id| ids.meet(id),
+            )
+        }), // alloc: Exec charged cx.owner
     };
     if !(found && ids.all() && computed.iter().map(|&(w, _)| w).eq(t.words.iter().copied())) {
-        return Ok(refuse("hosts", "an index walk whose computed keys are not the admission's"));
+        return Ok(refuse(
+            "hosts",
+            "an index walk whose computed keys are not the admission's",
+        ));
     }
     let mut keys: Vec<(u16, KeyFn)> = Vec::with_capacity(computed.len()); // alloc: Program
     for &(w, v) in computed.iter() {
-        let bind = ParamBind { exec_vals: Some(ptr), n_exec: n, ..shapes::param_bind(exprs) };
+        let bind = ParamBind {
+            exec_vals: Some(ptr),
+            n_exec: n,
+            ..shapes::param_bind(exprs)
+        };
         let Some(st) = execexpr::exec_init_expr(cx.mcx, Some(v), bind)? else {
-            return Ok(refuse("hosts", "an index key computed from executor parameters the executor did not initialize"));
+            return Ok(refuse(
+                "hosts",
+                "an index key computed from executor parameters the executor did not initialize",
+            ));
         };
         let cell = core::cell::RefCell::new(st);
         let owner = std::thread::current().id();
         let f: KeyFn = Rc::new(move |mcx| {
             // D1356's rule for a compiled expression: thread-confined (the walk runs on the leader)
-            debug_assert_eq!(std::thread::current().id(), owner, "gravity: a computed index key evaluated off its creating thread (D1016)");
+            debug_assert_eq!(
+                std::thread::current().id(),
+                owner,
+                "gravity: a computed index key evaluated off its creating thread (D1016)"
+            );
             let mut st = cell.borrow_mut();
             st.arm_result_mcx(mcx);
-            let nd = execexpr::exec_eval_expr(&mut st, &mut execexpr::EvalSlots { scan: None, inner: None, outer: None })?;
+            let nd = execexpr::exec_eval_expr(
+                &mut st,
+                &mut execexpr::EvalSlots {
+                    scan: None,
+                    inner: None,
+                    outer: None,
+                },
+            )?;
             Ok((nd.value.as_u64(), nd.isnull))
         }); // alloc: Program
         keys.push((w, f)); // alloc: Program
@@ -245,13 +384,26 @@ pub(crate) fn bind(t: &RecipeTpl, reg: &mut HostRegistry, cx: &BindCx<'_>, exprs
     // keys.rs rebinds the extern parameters of an Admitted that compiled an expression over them
     exprs.filters += 1;
     let base = t.leaf.words.len() as u16;
-    let inputs: Vec<(u16, u16)> = t.ids.iter().enumerate().map(|(i, &id)| (base + i as u16, id as u16)).collect(); // alloc: Program
-    reg.push_rung(Box::new(ParamKeyRecipe { leaf: t.leaf.clone(), keys: keys.into(), vals, inputs: inputs.into() })); // alloc: Program
+    let inputs: Vec<(u16, u16)> = t
+        .ids
+        .iter()
+        .enumerate()
+        .map(|(i, &id)| (base + i as u16, id as u16))
+        .collect(); // alloc: Program
+    reg.push_rung(Box::new(ParamKeyRecipe {
+        leaf: t.leaf.clone(),
+        keys: keys.into(),
+        vals,
+        inputs: inputs.into(),
+    })); // alloc: Program
     Ok(Ok(true))
 }
 
 /// The plan node numbered `id` in the statement (the main tree or a subplan), as m2_admit.rs `plan_node`.
-fn plan_node(pstmt: &'static types_nodes::plannodes::PlannedStmt<'static>, id: i32) -> Option<Node<'static>> {
+fn plan_node(
+    pstmt: &'static types_nodes::plannodes::PlannedStmt<'static>,
+    id: i32,
+) -> Option<Node<'static>> {
     fn under(n: Option<Node<'static>>, id: i32) -> Option<Node<'static>> {
         stack_depth_core::check_stack_depth_or_panic();
         let n = n?;
@@ -259,8 +411,20 @@ fn plan_node(pstmt: &'static types_nodes::plannodes::PlannedStmt<'static>, id: i
         if p.plan_node_id == id {
             return Some(n);
         }
-        let kids = [n.as_bitmap_and().map(|a| &a.bitmapplans), n.as_bitmap_or().map(|o| &o.bitmapplans), n.as_append().map(|a| &a.appendplans), n.as_merge_append().map(|m| &m.mergeplans)];
-        under(p.lefttree, id).or_else(|| under(p.righttree, id)).or_else(|| kids.into_iter().flatten().find_map(|l| l.iter().find_map(|c| under(Some(c), id)))).or_else(|| n.as_subquery_scan().and_then(|s| under(s.subplan, id)))
+        let kids = [
+            n.as_bitmap_and().map(|a| &a.bitmapplans),
+            n.as_bitmap_or().map(|o| &o.bitmapplans),
+            n.as_append().map(|a| &a.appendplans),
+            n.as_merge_append().map(|m| &m.mergeplans),
+        ];
+        under(p.lefttree, id)
+            .or_else(|| under(p.righttree, id))
+            .or_else(|| {
+                kids.into_iter()
+                    .flatten()
+                    .find_map(|l| l.iter().find_map(|c| under(Some(c), id)))
+            })
+            .or_else(|| n.as_subquery_scan().and_then(|s| under(s.subplan, id)))
     }
     under(pstmt.planTree, id).or_else(|| pstmt.subplans.iter().find_map(|s| under(s, id)))
 }
@@ -272,7 +436,12 @@ fn plan_node(pstmt: &'static types_nodes::plannodes::PlannedStmt<'static>, id: i
 /// D1630: a key bound at bind (params_key.rs `bound`) counts when `host` says its word is the host's (an inner walk's).
 /// memsig E-prog: no list of its own; the template's are built in place in its set's root (`admit`), a bind's check is a
 /// walk (`SameIds`).
-fn computed_keys<'p>(keys: &[gravity_decompose::IndexKey<'p>], host: &dyn Fn(u16) -> bool, out: &mut dyn FnMut(u16, Node<'p>), id: &mut dyn FnMut(i32)) -> Option<u16> {
+fn computed_keys<'p>(
+    keys: &[gravity_decompose::IndexKey<'p>],
+    host: &dyn Fn(u16) -> bool,
+    out: &mut dyn FnMut(u16, Node<'p>),
+    id: &mut dyn FnMut(i32),
+) -> Option<u16> {
     let mut w = 0u16;
     for (i, k) in keys.iter().enumerate() {
         if k.form != KeyForm::OrderBy && keys[..i].iter().any(|o| o.form == KeyForm::OrderBy) {
@@ -284,7 +453,10 @@ fn computed_keys<'p>(keys: &[gravity_decompose::IndexKey<'p>], host: &dyn Fn(u16
             KeyForm::Null | KeyForm::NotNull => (None, None),
             KeyForm::AmAny => return None,
         };
-        for v in one.into_iter().chain(row.into_iter().flat_map(|rc| rc.rargs.iter())) {
+        for v in one
+            .into_iter()
+            .chain(row.into_iter().flat_map(|rc| rc.rargs.iter()))
+        {
             if gravity_lowerv4::lifetime::bound::host_at(v, host(w)) {
                 if !gravity_lowerv4::rerun::params_key::key_ids_by(v, id) {
                     return None;
@@ -308,7 +480,11 @@ pub(crate) struct SameIds<'t> {
 
 impl<'t> SameIds<'t> {
     pub(crate) fn new(ids: &'t [i32]) -> SameIds<'t> {
-        SameIds { ids, seen: 0, same: true }
+        SameIds {
+            ids,
+            seen: 0,
+            same: true,
+        }
     }
 
     /// The walk met `id`: while every parameter so far was the template's, those met are its first `seen`, so a new one
@@ -340,21 +516,80 @@ mod tests {
     fn am_and_order_by_keys_are_words_in_the_hosts_order() {
         let ctx = mcx::MemoryContext::new("d1016-row4");
         let mcx = ctx.mcx();
-        let e = Node::mk(mcx, Param { paramkind: ParamKind::PARAM_EXEC, paramid: 3, paramtype: 600, paramtypmod: -1, paramcollid: 0, location: -1 }).unwrap();
-        let c = Node::mk_const(mcx, 600, -1, 0, 16, datum::Datum::from_u64(0), true, false).unwrap();
-        let add = Node::mk(mcx, OpExpr { opno: 731, opfuncid: 0, opresulttype: 600, opretset: false, opcollid: 0, inputcollid: 0, args: NodeList::make2(mcx, e, c).unwrap(), location: -1 }).unwrap();
-        let key = |form, value| IndexKey { attno: 1, col: 1, opno: 517, value, form };
+        let e = Node::mk(
+            mcx,
+            Param {
+                paramkind: ParamKind::PARAM_EXEC,
+                paramid: 3,
+                paramtype: 600,
+                paramtypmod: -1,
+                paramcollid: 0,
+                location: -1,
+            },
+        )
+        .unwrap();
+        let c =
+            Node::mk_const(mcx, 600, -1, 0, 16, datum::Datum::from_u64(0), true, false).unwrap();
+        let add = Node::mk(
+            mcx,
+            OpExpr {
+                opno: 731,
+                opfuncid: 0,
+                opresulttype: 600,
+                opretset: false,
+                opcollid: 0,
+                inputcollid: 0,
+                args: NodeList::make2(mcx, e, c).unwrap(),
+                location: -1,
+            },
+        )
+        .unwrap();
+        let key = |form, value| IndexKey {
+            attno: 1,
+            col: 1,
+            opno: 517,
+            value,
+            form,
+        };
         let words = |keys: &[IndexKey<'_>]| {
             let (mut o, mut ids) = (Vec::new(), Vec::new()); // alloc: Cold
-            let w = computed_keys(keys, &|_| false, &mut |w, _| o.push(w), &mut |id| if !ids.contains(&id) { ids.push(id) }); // alloc: Cold
+            let w = computed_keys(keys, &|_| false, &mut |w, _| o.push(w), &mut |id| {
+                if !ids.contains(&id) {
+                    ids.push(id)
+                }
+            }); // alloc: Cold
             w.map(|w| (o, ids, w))
         };
-        assert_eq!(words(&[key(KeyForm::AmOp, c), key(KeyForm::OrderBy, add)]), Some((vec![1], vec![3], 2)), "a computed ORDER BY argument after a Const qual"); // alloc: Cold
-        assert_eq!(words(&[key(KeyForm::AmOp, add), key(KeyForm::NotNull, c), key(KeyForm::OrderBy, c)]), Some((vec![0], vec![3], 2)), "a computed qual operand; a null test has no word"); // alloc: Cold
-        assert_eq!(words(&[key(KeyForm::OrderBy, add), key(KeyForm::OrderBy, add)]), Some((vec![0, 1], vec![3], 2)), "two ORDER BY keys, one parameter"); // alloc: Cold
-        assert_eq!(words(&[key(KeyForm::OrderBy, add), key(KeyForm::AmOp, c)]), None, "a clause key after an ORDER BY key");
+        assert_eq!(
+            words(&[key(KeyForm::AmOp, c), key(KeyForm::OrderBy, add)]),
+            Some((vec![1], vec![3], 2)),
+            "a computed ORDER BY argument after a Const qual"
+        ); // alloc: Cold
+        assert_eq!(
+            words(&[
+                key(KeyForm::AmOp, add),
+                key(KeyForm::NotNull, c),
+                key(KeyForm::OrderBy, c)
+            ]),
+            Some((vec![0], vec![3], 2)),
+            "a computed qual operand; a null test has no word"
+        ); // alloc: Cold
+        assert_eq!(
+            words(&[key(KeyForm::OrderBy, add), key(KeyForm::OrderBy, add)]),
+            Some((vec![0, 1], vec![3], 2)),
+            "two ORDER BY keys, one parameter"
+        ); // alloc: Cold
+        assert_eq!(
+            words(&[key(KeyForm::OrderBy, add), key(KeyForm::AmOp, c)]),
+            None,
+            "a clause key after an ORDER BY key"
+        );
         assert_eq!(words(&[key(KeyForm::AmAny, add)]), None, "an AM = ANY key");
-        assert_eq!(words(&[key(KeyForm::AmOp, e), key(KeyForm::OrderBy, c)]), Some((vec![], vec![], 2)), "no computed key: M2's walk"); // alloc: Cold
+        assert_eq!(
+            words(&[key(KeyForm::AmOp, e), key(KeyForm::OrderBy, c)]),
+            Some((vec![], vec![], 2)),
+            "no computed key: M2's walk"
+        ); // alloc: Cold
     }
 
     /// The streaming check answers as `key_ids`' list compared with the template's: each parameter once, in order.

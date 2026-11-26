@@ -36,7 +36,10 @@ unsafe impl GlobalAlloc for Counting {
 static GLOBAL: Counting = Counting;
 
 fn key(handle: u64, stmt: u32) -> PlanKey {
-    PlanKey { handle: Handle(handle), generation: Generation(7 | stmt << 24) }
+    PlanKey {
+        handle: Handle(handle),
+        generation: Generation(7 | stmt << 24),
+    }
 }
 
 #[test]
@@ -52,7 +55,14 @@ fn hits_and_refusals_allocate_nothing() {
     for i in 1..CAPACITY as u64 {
         let k = key(0xabc0 + i * 0x38, (i % 3) as u32);
         memo.probe(k);
-        memo.insert(k, if i % 7 == 0 { Verdict::Served(i as u16) } else { Verdict::Refused });
+        memo.insert(
+            k,
+            if i % 7 == 0 {
+                Verdict::Served(i as u16)
+            } else {
+                Verdict::Refused
+            },
+        );
         assert!(memo.probe(k).is_some());
     }
     memo.drop_for(Handle(0xabc0));

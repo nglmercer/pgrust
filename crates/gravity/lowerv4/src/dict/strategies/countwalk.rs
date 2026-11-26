@@ -17,24 +17,24 @@
 //! aggregate reads a length table (the dictionary index, R4). A window the host declines and a join multiplicity take the rows. Budget 250 lines
 //! (files-extra.tsv, +25 % gate). Owner M2-COUNTWALK.
 use gravity_decompose::{Op, Source};
+use gravity_expr::percode::{CodeCol, Form};
 use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{Block, ConvOp, IntBinOp, IntCond, Type};
-use gravity_expr::percode::{CodeCol, Form};
-use gravity_kernels::dict::strategies::CW_VERDICT;
 use gravity_kernels::dict::strategies::countwalk::CW_LEN;
+use gravity_kernels::dict::strategies::CW_VERDICT;
 use gravity_kernels::host_abi::BIND_OUT_WORDS;
 use gravity_program::LaneId;
 use mcx::CollectIn;
 use types_nodes::Node;
 
-use crate::table::bypass::{fail_on, host, state, HASHED};
 use crate::dict::strategies::codefront_percode::Percode;
-use crate::ops::agg::hashagg::{Arg, GroupRec};
-use crate::table::face::{TableDecl as KeyedTable, TableMech};
 use crate::frame::env::Env;
 use crate::frame::frame::Win;
 use crate::frame::px::{ExId, Px};
 use crate::frame::row::Carry;
+use crate::ops::agg::hashagg::{Arg, GroupRec};
+use crate::table::bypass::{fail_on, host, state, HASHED};
+use crate::table::face::{TableDecl as KeyedTable, TableMech};
 
 /// A front the host counts whole: the key's source column `(attno, site lane)`, the site table of the key's derived
 /// Fp128 form, the site tables of the pipeline's per-code verdicts, and whether a qual
@@ -57,7 +57,11 @@ fn bytes_ordered(gx: &crate::graph::Gx<'_, '_>, n: Node<'_>) -> bool {
             T::T_FuncExpr => x.as_func_expr().map(|f| f.inputcollid),
             T::T_ScalarArrayOpExpr => x.as_scalar_array_op_expr().map(|s| s.inputcollid),
             // the other comparisons that carry an input collation: refused rather than read
-            T::T_DistinctExpr | T::T_NullIfExpr | T::T_MinMaxExpr | T::T_RowCompareExpr | T::T_SubPlan => None,
+            T::T_DistinctExpr
+            | T::T_NullIfExpr
+            | T::T_MinMaxExpr
+            | T::T_RowCompareExpr
+            | T::T_SubPlan => None,
             _ => Some(0),
         };
         c.is_some_and(|c| c == 0 || gx.facts.coll(c).bytes_order)
@@ -100,13 +104,19 @@ impl Verdicts {
 
     /// The host's verdict list `[n, d_1 .. d_n]` (kernels `Verdicts`): each table's slot relative to `base`'s, in a stack
     /// slot of the window's code; a null pointer when there is none.
-    pub(crate) fn list(&self, b: &mut FunctionBuilder<'_>, env: &Env, base: u16) -> gravity_ir::Value {
+    pub(crate) fn list(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &Env,
+        base: u16,
+    ) -> gravity_ir::Value {
         if self.n() == 0 {
             return b.conv(ConvOp::IntToPtr, Type::Ptr, env.zero);
         }
         let slot = b.declare_stack_slot((8 * (1 + self.n())) as u32, 8);
         let at = b.stack_addr(slot);
-        let words = std::iter::once(self.n() as i64).chain(self.tables().map(|t| i64::from(t) - i64::from(base)));
+        let words = std::iter::once(self.n() as i64)
+            .chain(self.tables().map(|t| i64::from(t) - i64::from(base)));
         for (i, w) in words.enumerate() {
             let v = b.iconst(Type::I64, w);
             b.store(at, (8 * i) as i32, v);
@@ -119,15 +129,23 @@ impl Verdicts {
 /// alone, its one root the qual's own root, a `Bits` table (the site table).
 pub(crate) fn code_verdict(px: &Px<'_, '_>, q: ExId, attno: i16) -> Option<Verdict> {
     let ex = px.placed(q);
-    let plan = ex.ext.as_deref()?.downcast_ref::<crate::dict::percode::Plan>()?;
-    let &[(a, _, _)] = &plan.cols[..] else { return None };
+    let plan = ex
+        .ext
+        .as_deref()?
+        .downcast_ref::<crate::dict::percode::Plan>()?;
+    let &[(a, _, _)] = &plan.cols[..] else {
+        return None;
+    };
     let pc = ex.c.percode(&[CodeCol { attno }], px.mcx()).ok()?;
     let [r] = &pc.roots[..] else { return None };
     if a != attno || r.attno != attno || r.node != ex.c.root {
         return None;
     }
     match (r.form, &plan.tables[..]) {
-        (Form::Bits, &[(t, crate::dict::percode::Class::Bits | crate::dict::percode::Class::Set)]) if r.table == Some(0) && r.null.is_none() => Some(Verdict::Bits(t)),
+        (
+            Form::Bits,
+            &[(t, crate::dict::percode::Class::Bits | crate::dict::percode::Class::Set)],
+        ) if r.table == Some(0) && r.null.is_none() => Some(Verdict::Bits(t)),
         _ => None,
     }
 }
@@ -136,19 +154,36 @@ pub(crate) fn code_verdict(px: &Px<'_, '_>, q: ExId, attno: i16) -> Option<Verdi
 /// takes the rows. The key is the last projection's column, a derived fingerprint (step_percode_key `derived`) whose
 /// table the projection's key form declares; declared here too, one table (step_percode `declare_table` dedupes); any
 /// other key of the column, its projection's swept Fp128 table (HITS9-E1, percode_key `swept_table`).
-pub(crate) fn plan(px: &mut Px<'_, '_>, k: usize, lane: u8, rec: &GroupRec<'_, '_>) -> Option<Walk> {
+pub(crate) fn plan(
+    px: &mut Px<'_, '_>,
+    k: usize,
+    lane: u8,
+    rec: &GroupRec<'_, '_>,
+) -> Option<Walk> {
     let gx = px.gx;
     let p = &gx.pipelines()[k];
-    let Source::Range { .. } = &p.source else { return None };
-    let LaneId::Attr(attno) = px.site_mut(k)?.lanes().get(lane as usize)?.id else { return None };
-    let (Some(Some(Arg::Col(resno))), Some(Op::Project(list))) = (rec.ksrc.first(), p.ops.last()) else { return None };
-    let te = list.iter().nth((*resno as usize).checked_sub(1)?)?.as_target_entry()?;
+    let Source::Range { .. } = &p.source else {
+        return None;
+    };
+    let LaneId::Attr(attno) = px.site_mut(k)?.lanes().get(lane as usize)?.id else {
+        return None;
+    };
+    let (Some(Some(Arg::Col(resno))), Some(Op::Project(list))) = (rec.ksrc.first(), p.ops.last())
+    else {
+        return None;
+    };
+    let te = list
+        .iter()
+        .nth((*resno as usize).checked_sub(1)?)?
+        .as_target_entry()?;
     let derived = crate::dict::strategies::percode_key::derived(te.expr, px.mcx());
     // HITS9-E1: any other key of the column, its entries' Fp128 swept once per part (percode_key's PROGRAM table); none
     // takes the rows before a qual is read
     let swept = match derived {
         Some(_) => None,
-        None => Some(crate::dict::strategies::percode_key::swept_table(px, k, lane, attno)?),
+        None => Some(crate::dict::strategies::percode_key::swept_table(
+            px, k, lane, attno,
+        )?),
     };
     let (mut verdicts, mut covered) = (Verdicts::default(), false);
     // KEYED-14: the leading filter ops the source covers (a covered window's selection passes every qual of them)
@@ -158,7 +193,12 @@ pub(crate) fn plan(px: &mut Px<'_, '_>, k: usize, lane: u8, rec: &GroupRec<'_, '
             Op::Project(_) => {}
             Op::Filter(q) => {
                 let mcx = px.mcx();
-                for (i, q) in q.as_list().map_or_else(|| mcx::pg_vec![in mcx; *q], |l| l.iter().collect_in(mcx)).into_iter().enumerate() {
+                for (i, q) in q
+                    .as_list()
+                    .map_or_else(|| mcx::pg_vec![in mcx; *q], |l| l.iter().collect_in(mcx))
+                    .into_iter()
+                    .enumerate()
+                {
                     // a leading filter, its quals compiled over the drafted site (pgrc/lower.rs): nothing compiles here
                     if !p.ops.iter().take(j).all(|op| matches!(op, Op::Filter(_))) {
                         return None;
@@ -204,15 +244,31 @@ pub(crate) fn plan(px: &mut Px<'_, '_>, k: usize, lane: u8, rec: &GroupRec<'_, '
     if covered {
         fires::fire("dict.countwalk.covered"); // shapecheck fire signal (REGISTRY KEYED-14)
     }
-    Some(Walk { col: (attno, lane), key, verdicts, covered })
+    Some(Walk {
+        col: (attno, lane),
+        key,
+        verdicts,
+        covered,
+    })
 }
 
 /// `EndMech::whole` of the keyed end over table `t` (record `rec`) for its per-code front `pc`: the window counted by the
 /// host, then the row loop's exit with the start carry `c` and the rows counted; the rows when the host declines. False
 /// when this window's code emits no branch (no walk, a multiplicity, no key or length table).
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn whole(pc: &Percode, b: &mut FunctionBuilder<'_>, env: &mut Env, rec: &GroupRec<'_, '_>, t: &KeyedTable, win: &Win, c: &Carry, l_wend: Block) -> bool {
-    let (Some(w), Some(tables), None) = (pc.cw, env.tables, env.mult) else { return false };
+pub(crate) fn whole(
+    pc: &Percode,
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    rec: &GroupRec<'_, '_>,
+    t: &KeyedTable,
+    win: &Win,
+    c: &Carry,
+    l_wend: Block,
+) -> bool {
+    let (Some(w), Some(tables), None) = (pc.cw, env.tables, env.mult) else {
+        return false;
+    };
     if !env.codes.iter().any(|x| (x.attno, x.ordinal) == w.col) {
         return false;
     }
@@ -225,10 +281,12 @@ pub(crate) fn whole(pc: &Percode, b: &mut FunctionBuilder<'_>, env: &mut Env, re
     let kt = w.key;
     let lt = match pc.f.map(|i| rec.aggs[i].args.first()) {
         None => None,
-        Some(Some(Arg::Ex { id, .. })) => match crate::step::expr::plan_of(env, *id).and_then(|p| p.tables.first().copied()) {
-            Some((t, crate::dict::percode::Class::Len)) => Some(t),
-            _ => return false,
-        },
+        Some(Some(Arg::Ex { id, .. })) => {
+            match crate::step::expr::plan_of(env, *id).and_then(|p| p.tables.first().copied()) {
+                Some((t, crate::dict::percode::Class::Len)) => Some(t),
+                _ => return false,
+            }
+        }
         Some(_) => return false,
     };
     // a covered walk's other windows take the rows (a walk over the window's own quals keeps its IR: no early block)
@@ -239,7 +297,14 @@ pub(crate) fn whole(pc: &Percode, b: &mut FunctionBuilder<'_>, env: &mut Env, re
         b.switch_to(l_call);
         l_rows
     });
-    let at_table = |b: &mut FunctionBuilder<'_>, t: u16| b.ptr_add(tables, env.zero, 1, (BIND_OUT_WORDS * t as usize * 8) as i32);
+    let at_table = |b: &mut FunctionBuilder<'_>, t: u16| {
+        b.ptr_add(
+            tables,
+            env.zero,
+            1,
+            (BIND_OUT_WORDS * t as usize * 8) as i32,
+        )
+    };
     let key = at_table(b, kt);
     let len = match lt {
         Some(t) => at_table(b, t),
@@ -253,14 +318,48 @@ pub(crate) fn whole(pc: &Percode, b: &mut FunctionBuilder<'_>, env: &mut Env, re
     let v = &w.verdicts;
     let vs = v.list(b, env, kt);
     let verdict = if v.n() > 0 { CW_VERDICT } else { 0 };
-    let flags = b.iconst(Type::I64, ((if lt.is_some() { CW_LEN } else { 0 }) | verdict) as i64);
+    let flags = b.iconst(
+        Type::I64,
+        ((if lt.is_some() { CW_LEN } else { 0 }) | verdict) as i64,
+    );
     let slot = b.declare_stack_slot(8, 8);
     let rows = b.stack_addr(slot);
-    let f = host(b, "agg_cw_window", &[Type::Ptr, Type::Ptr, Type::Ptr, Type::I64, Type::I64, Type::I64, Type::Ptr, Type::Ptr, Type::I64, Type::Ptr, Type::I64, Type::Ptr], gravity_abi::host_words!(gravity_kernels::dict::strategies::countwalk::agg_cw_window(ctx, st, front, at, cursor, end, key, len, flags, vs, ops, rows)));
-    let r = b.call_host(f, &[env.ctx, st, front, at, win.cursor, win.end, key, len, flags, vs, ops, rows], Some(Type::I64)).expect("agg_cw_window returns a status");
+    let f = host(
+        b,
+        "agg_cw_window",
+        &[
+            Type::Ptr,
+            Type::Ptr,
+            Type::Ptr,
+            Type::I64,
+            Type::I64,
+            Type::I64,
+            Type::Ptr,
+            Type::Ptr,
+            Type::I64,
+            Type::Ptr,
+            Type::I64,
+            Type::Ptr,
+        ],
+        gravity_abi::host_words!(gravity_kernels::dict::strategies::countwalk::agg_cw_window(
+            ctx, st, front, at, cursor, end, key, len, flags, vs, ops, rows
+        )),
+    );
+    let r = b
+        .call_host(
+            f,
+            &[
+                env.ctx, st, front, at, win.cursor, win.end, key, len, flags, vs, ops, rows,
+            ],
+            Some(Type::I64),
+        )
+        .expect("agg_cw_window returns a status");
     let x = env.x;
     fail_on(b, env, &x, r);
-    let (l_took, l_rows) = (b.create_block(&[]), l_cov_rows.unwrap_or_else(|| b.create_block(&[])));
+    let (l_took, l_rows) = (
+        b.create_block(&[]),
+        l_cov_rows.unwrap_or_else(|| b.create_block(&[])),
+    );
     let took = b.icmp(IntCond::Eq, r, env.zero);
     b.cond_br(took, (l_took, &[]), (l_rows, &[]));
     b.switch_to(l_took);

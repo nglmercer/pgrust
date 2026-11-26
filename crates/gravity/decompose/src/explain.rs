@@ -1,6 +1,9 @@
 //! The plan facts Gravity's EXPLAIN ANALYZE reads at print time (exec admit/entry instrument.rs, docs/gravity/entry.md §4).
 use types_nodes::jointype::JoinType;
-use types_nodes::plannodes::{Append, BitmapAnd, BitmapHeapScan, BitmapIndexScan, BitmapOr, IndexOnlyScan, MergeAppend, PlannedStmt, SubqueryScan};
+use types_nodes::plannodes::{
+    Append, BitmapAnd, BitmapHeapScan, BitmapIndexScan, BitmapOr, IndexOnlyScan, MergeAppend,
+    PlannedStmt, SubqueryScan,
+};
 use types_nodes::{Node, NodeTag};
 
 /// One hash join above a node: the side the node is on and the nodes whose counts tell how PostgreSQL read that side.
@@ -20,10 +23,19 @@ pub struct HashSide {
 
 /// Node `id` in the statement's plan tree or its subplans: the plan nodes above it (each with the side taken, its inner
 /// or not) and the node.
-fn located<'m, 'a>(m: mcx::Mcx<'m>, stmt: &PlannedStmt<'a>, id: i32) -> Option<(mcx::PgVec<'m, (Node<'a>, bool)>, Node<'a>)> {
+fn located<'m, 'a>(
+    m: mcx::Mcx<'m>,
+    stmt: &PlannedStmt<'a>,
+    id: i32,
+) -> Option<(mcx::PgVec<'m, (Node<'a>, bool)>, Node<'a>)> {
     let (mut path, mut found) = (mcx::PgVec::new_in(m), None);
-    let mut roots = stmt.planTree.into_iter().chain(stmt.subplans.iter().flatten());
-    roots.any(|r| find(r, id, &mut path, &mut found)).then_some(())?;
+    let mut roots = stmt
+        .planTree
+        .into_iter()
+        .chain(stmt.subplans.iter().flatten());
+    roots
+        .any(|r| find(r, id, &mut path, &mut found))
+        .then_some(())?;
     found.map(|n| (path, n))
 }
 
@@ -33,25 +45,49 @@ fn located<'m, 'a>(m: mcx::Mcx<'m>, stmt: &PlannedStmt<'a>, id: i32) -> Option<(
 /// run sorts and reads both whole).
 pub fn uncountable(stmt: &PlannedStmt<'_>, id: i32) -> bool {
     let cx = mcx::MemoryContext::new_bump("GravityExplainScan"); // the walk's path: gone with the call
-    let Some((path, n)) = located(cx.mcx(), stmt, id) else { return false };
-    matches!(n.node_tag(), NodeTag::T_BitmapIndexScan | NodeTag::T_BitmapAnd | NodeTag::T_BitmapOr)
-        || path.iter().any(|(a, _)| a.node_tag() == NodeTag::T_MergeJoin)
+    let Some((path, n)) = located(cx.mcx(), stmt, id) else {
+        return false;
+    };
+    matches!(
+        n.node_tag(),
+        NodeTag::T_BitmapIndexScan | NodeTag::T_BitmapAnd | NodeTag::T_BitmapOr
+    ) || path
+        .iter()
+        .any(|(a, _)| a.node_tag() == NodeTag::T_MergeJoin)
 }
 
 /// The hash joins above node `id` in the statement's plan tree or its subplans, the nearest last (empty when `id` is
 /// under none or is not found).
-pub fn hash_sides<'m>(m: mcx::Mcx<'m>, stmt: &PlannedStmt<'_>, id: i32) -> mcx::PgVec<'m, HashSide> {
-    let Some((path, _)) = located(m, stmt, id) else { return mcx::PgVec::new_in(m) };
+pub fn hash_sides<'m>(
+    m: mcx::Mcx<'m>,
+    stmt: &PlannedStmt<'_>,
+    id: i32,
+) -> mcx::PgVec<'m, HashSide> {
+    let Some((path, _)) = located(m, stmt, id) else {
+        return mcx::PgVec::new_in(m);
+    };
     let id_of = |n: Option<Node<'_>>| n.and_then(|n| n.as_plan()).map(|p| p.plan_node_id);
     mcx::CollectIn::collect_in(
         path.iter().filter_map(|&(h, inner)| {
             let (p, j) = (h.as_plan()?, h.as_hash_join()?);
             let jt = j.join.jointype;
             let keeps = match inner {
-                false => matches!(jt, JoinType::JOIN_LEFT | JoinType::JOIN_ANTI | JoinType::JOIN_FULL),
-                true => matches!(jt, JoinType::JOIN_RIGHT | JoinType::JOIN_RIGHT_ANTI | JoinType::JOIN_FULL),
+                false => matches!(
+                    jt,
+                    JoinType::JOIN_LEFT | JoinType::JOIN_ANTI | JoinType::JOIN_FULL
+                ),
+                true => matches!(
+                    jt,
+                    JoinType::JOIN_RIGHT | JoinType::JOIN_RIGHT_ANTI | JoinType::JOIN_FULL
+                ),
             };
-            Some(HashSide { inner, keeps, join: p.plan_node_id, outer: id_of(p.lefttree), build: id_of(p.righttree) })
+            Some(HashSide {
+                inner,
+                keeps,
+                join: p.plan_node_id,
+                outer: id_of(p.lefttree),
+                build: id_of(p.righttree),
+            })
         }),
         m,
     )
@@ -62,11 +98,25 @@ pub fn hash_sides<'m>(m: mcx::Mcx<'m>, stmt: &PlannedStmt<'_>, id: i32) -> mcx::
 pub fn sole_index_only(stmt: &PlannedStmt<'_>, id: i32) -> Option<(u32, u32)> {
     let cx = mcx::MemoryContext::new_bump("GravityExplainScan"); // the walk's rows: gone with the call
     let mut scans = mcx::PgVec::new_in(cx.mcx());
-    stmt.planTree.into_iter().chain(stmt.subplans.iter().flatten()).for_each(|r| index_only(r, &mut scans));
-    let rel = |rti: u32| (rti as usize).checked_sub(1).filter(|&i| i < stmt.rtable.len()).and_then(|i| stmt.rtable.nth(i).as_range_tbl_entry()).map(|r| r.relid);
+    stmt.planTree
+        .into_iter()
+        .chain(stmt.subplans.iter().flatten())
+        .for_each(|r| index_only(r, &mut scans));
+    let rel = |rti: u32| {
+        (rti as usize)
+            .checked_sub(1)
+            .filter(|&i| i < stmt.rtable.len())
+            .and_then(|i| stmt.rtable.nth(i).as_range_tbl_entry())
+            .map(|r| r.relid)
+    };
     let &(_, rti, index) = scans.iter().find(|s| s.0 == id)?;
     let heap = rel(rti)?;
-    (scans.iter().filter(|s| s.2 == index && rel(s.1) == Some(heap)).count() == 1).then_some((heap, index))
+    (scans
+        .iter()
+        .filter(|s| s.2 == index && rel(s.1) == Some(heap))
+        .count()
+        == 1)
+        .then_some((heap, index))
 }
 
 /// Node `id`'s Bitmap Heap Scan and its heap and index (heap scan node, heap relid, index), when `id` is a Bitmap Heap
@@ -74,7 +124,9 @@ pub fn sole_index_only(stmt: &PlannedStmt<'_>, id: i32) -> Option<(u32, u32)> {
 /// index in the statement's plan tree and its subplans (a site that builds that index's bitmap for its heap's rows is
 /// then this pair's); `None` otherwise (a BitmapAnd / BitmapOr input).
 pub fn sole_bitmap_leaf(stmt: &PlannedStmt<'_>, id: i32) -> Option<(i32, u32, u32)> {
-    bitmap_leaf(stmt, id).filter(|b| b.3).map(|b| (b.0, b.1, b.2))
+    bitmap_leaf(stmt, id)
+        .filter(|b| b.3)
+        .map(|b| (b.0, b.1, b.2))
 }
 
 /// Node `id`'s Bitmap Heap Scan and its heap and index as `sole_bitmap_leaf` reads them, with whether the pair is the only
@@ -86,18 +138,39 @@ pub fn bitmap_leaf(stmt: &PlannedStmt<'_>, id: i32) -> Option<(i32, u32, u32, bo
         let Some(p) = n.as_plan() else { return };
         if let (Some(h), Some(leaf)) = (n.as_variant::<BitmapHeapScan>(), p.lefttree) {
             if let (Some(l), Some(lp)) = (leaf.as_variant::<BitmapIndexScan>(), leaf.as_plan()) {
-                mcx::GrowIn::push_in(out, (p.plan_node_id, lp.plan_node_id, h.scan.scanrelid, l.indexid));
+                mcx::GrowIn::push_in(
+                    out,
+                    (p.plan_node_id, lp.plan_node_id, h.scan.scanrelid, l.indexid),
+                );
             }
         }
         children(n).for_each(|(c, _)| walk(c, out));
     }
     let cx = mcx::MemoryContext::new_bump("GravityExplainScan");
     let mut pairs = mcx::PgVec::new_in(cx.mcx());
-    stmt.planTree.into_iter().chain(stmt.subplans.iter().flatten()).for_each(|r| walk(r, &mut pairs));
-    let rel = |rti: u32| (rti as usize).checked_sub(1).filter(|&i| i < stmt.rtable.len()).and_then(|i| stmt.rtable.nth(i).as_range_tbl_entry()).map(|r| r.relid);
+    stmt.planTree
+        .into_iter()
+        .chain(stmt.subplans.iter().flatten())
+        .for_each(|r| walk(r, &mut pairs));
+    let rel = |rti: u32| {
+        (rti as usize)
+            .checked_sub(1)
+            .filter(|&i| i < stmt.rtable.len())
+            .and_then(|i| stmt.rtable.nth(i).as_range_tbl_entry())
+            .map(|r| r.relid)
+    };
     let &(heap_node, _, rti, index) = pairs.iter().find(|s| s.0 == id || s.1 == id)?;
     let heap = rel(rti)?;
-    Some((heap_node, heap, index, pairs.iter().filter(|s| s.3 == index && rel(s.2) == Some(heap)).count() == 1))
+    Some((
+        heap_node,
+        heap,
+        index,
+        pairs
+            .iter()
+            .filter(|s| s.3 == index && rel(s.2) == Some(heap))
+            .count()
+            == 1,
+    ))
 }
 
 /// Bitmap Heap Scan `id` reads, under a Materialize, a relation the statement writes (one of its result relations):
@@ -106,20 +179,38 @@ pub fn bitmap_leaf(stmt: &PlannedStmt<'_>, id: i32) -> Option<(i32, u32, u32, bo
 /// run's to print (exec instrument.rs `bitmap_counts`, partition_prune #420's source under the Materialize).
 pub fn written_under_material(stmt: &PlannedStmt<'_>, id: i32) -> bool {
     let cx = mcx::MemoryContext::new_bump("GravityExplainScan"); // the walk's path: gone with the call
-    let Some((path, n)) = located(cx.mcx(), stmt, id) else { return false };
-    let Some(h) = n.as_variant::<BitmapHeapScan>() else { return false };
-    if !path.iter().any(|(a, _)| a.as_variant::<types_nodes::plannodes::Material>().is_some()) {
+    let Some((path, n)) = located(cx.mcx(), stmt, id) else {
+        return false;
+    };
+    let Some(h) = n.as_variant::<BitmapHeapScan>() else {
+        return false;
+    };
+    if !path
+        .iter()
+        .any(|(a, _)| a.as_variant::<types_nodes::plannodes::Material>().is_some())
+    {
         return false;
     }
-    let rel = |rti: u32| (rti as usize).checked_sub(1).filter(|&i| i < stmt.rtable.len()).and_then(|i| stmt.rtable.nth(i).as_range_tbl_entry()).map(|r| r.relid);
-    let Some(heap) = rel(h.scan.scanrelid) else { return false };
-    stmt.resultRelations.iter().any(|r| rel(r as u32) == Some(heap))
+    let rel = |rti: u32| {
+        (rti as usize)
+            .checked_sub(1)
+            .filter(|&i| i < stmt.rtable.len())
+            .and_then(|i| stmt.rtable.nth(i).as_range_tbl_entry())
+            .map(|r| r.relid)
+    };
+    let Some(heap) = rel(h.scan.scanrelid) else {
+        return false;
+    };
+    stmt.resultRelations
+        .iter()
+        .any(|r| rel(r as u32) == Some(heap))
 }
 
 /// Node `id` is a Materialize (its tuplestore: exec instrument.rs `material_store`).
 pub fn is_material(stmt: &PlannedStmt<'_>, id: i32) -> bool {
     let cx = mcx::MemoryContext::new_bump("GravityExplainScan"); // the walk's path: gone with the call
-    located(cx.mcx(), stmt, id).is_some_and(|(_, n)| n.as_variant::<types_nodes::plannodes::Material>().is_some())
+    located(cx.mcx(), stmt, id)
+        .is_some_and(|(_, n)| n.as_variant::<types_nodes::plannodes::Material>().is_some())
 }
 
 /// Node `id`'s heap and index when it is an Index Scan and the only one over them in the statement's plan tree and its
@@ -135,11 +226,25 @@ pub fn sole_index_scan(stmt: &PlannedStmt<'_>, id: i32) -> Option<(u32, u32)> {
     }
     let cx = mcx::MemoryContext::new_bump("GravityExplainScan"); // the walk's rows: gone with the call
     let mut scans = mcx::PgVec::new_in(cx.mcx());
-    stmt.planTree.into_iter().chain(stmt.subplans.iter().flatten()).for_each(|r| walk(r, &mut scans));
-    let rel = |rti: u32| (rti as usize).checked_sub(1).filter(|&i| i < stmt.rtable.len()).and_then(|i| stmt.rtable.nth(i).as_range_tbl_entry()).map(|r| r.relid);
+    stmt.planTree
+        .into_iter()
+        .chain(stmt.subplans.iter().flatten())
+        .for_each(|r| walk(r, &mut scans));
+    let rel = |rti: u32| {
+        (rti as usize)
+            .checked_sub(1)
+            .filter(|&i| i < stmt.rtable.len())
+            .and_then(|i| stmt.rtable.nth(i).as_range_tbl_entry())
+            .map(|r| r.relid)
+    };
     let &(_, rti, index) = scans.iter().find(|s| s.0 == id)?;
     let heap = rel(rti)?;
-    (scans.iter().filter(|s| s.2 == index && rel(s.1) == Some(heap)).count() == 1).then_some((heap, index))
+    (scans
+        .iter()
+        .filter(|s| s.2 == index && rel(s.1) == Some(heap))
+        .count()
+        == 1)
+        .then_some((heap, index))
 }
 
 /// Whether plan node `id` is an Index Only Scan.
@@ -166,8 +271,17 @@ pub fn sole_seq_scan(stmt: &PlannedStmt<'_>, id: i32) -> Option<u32> {
     }
     let cx = mcx::MemoryContext::new_bump("GravityExplainScan"); // the walk's rows: gone with the call
     let mut scans = mcx::PgVec::new_in(cx.mcx());
-    stmt.planTree.into_iter().chain(stmt.subplans.iter().flatten()).for_each(|r| walk(r, &mut scans));
-    let rel = |rti: u32| (rti as usize).checked_sub(1).filter(|&i| i < stmt.rtable.len()).and_then(|i| stmt.rtable.nth(i).as_range_tbl_entry()).map(|r| r.relid);
+    stmt.planTree
+        .into_iter()
+        .chain(stmt.subplans.iter().flatten())
+        .for_each(|r| walk(r, &mut scans));
+    let rel = |rti: u32| {
+        (rti as usize)
+            .checked_sub(1)
+            .filter(|&i| i < stmt.rtable.len())
+            .and_then(|i| stmt.rtable.nth(i).as_range_tbl_entry())
+            .map(|r| r.relid)
+    };
     let &(_, rti, _) = scans.iter().find(|s| s.0 == id && s.2)?;
     let heap = rel(rti)?;
     (scans.iter().filter(|s| rel(s.1) == Some(heap)).count() == 1).then_some(heap)
@@ -178,29 +292,52 @@ pub fn merge_outer_of(stmt: &PlannedStmt<'_>, id: i32) -> Option<i32> {
     let cx = mcx::MemoryContext::new_bump("GravityExplainScan"); // the walk's path: gone with the call
     let (path, _) = located(cx.mcx(), stmt, id)?;
     let (parent, _) = path.last()?;
-    let mt = parent.as_modify_table().filter(|m| m.operation == types_nodes::nodes_enums::CmdType::CMD_MERGE)?;
-    mt.plan.lefttree.and_then(|l| l.as_plan()).filter(|p| p.plan_node_id == id).map(|_| mt.plan.plan_node_id)
+    let mt = parent
+        .as_modify_table()
+        .filter(|m| m.operation == types_nodes::nodes_enums::CmdType::CMD_MERGE)?;
+    mt.plan
+        .lefttree
+        .and_then(|l| l.as_plan())
+        .filter(|p| p.plan_node_id == id)
+        .map(|_| mt.plan.plan_node_id)
 }
 
 /// Seq Scan node `id`'s relation (its range-table entry's relid).
 pub fn seq_scan_rel(stmt: &PlannedStmt<'_>, id: i32) -> Option<u32> {
     let cx = mcx::MemoryContext::new_bump("GravityExplainScan"); // the walk's path: gone with the call
-    let s = located(cx.mcx(), stmt, id)?.1.as_variant::<types_nodes::plannodes::SeqScan>()?;
-    let i = (s.scan.scanrelid as usize).checked_sub(1).filter(|&i| i < stmt.rtable.len())?;
+    let s = located(cx.mcx(), stmt, id)?
+        .1
+        .as_variant::<types_nodes::plannodes::SeqScan>()?;
+    let i = (s.scan.scanrelid as usize)
+        .checked_sub(1)
+        .filter(|&i| i < stmt.rtable.len())?;
     stmt.rtable.nth(i).as_range_tbl_entry().map(|r| r.relid)
 }
 
 /// Node `id`'s arms, the plan node above it and its `part_prune_index` (-1: none), when `id` is an Append or MergeAppend:
 /// the nodes whose starts are its own (PostgreSQL starts an Append with its parent and each arm it runs under it).
-pub fn append_family<'m>(m: mcx::Mcx<'m>, stmt: &PlannedStmt<'_>, id: i32) -> Option<(mcx::PgVec<'m, i32>, Option<i32>, i32)> {
+pub fn append_family<'m>(
+    m: mcx::Mcx<'m>,
+    stmt: &PlannedStmt<'_>,
+    id: i32,
+) -> Option<(mcx::PgVec<'m, i32>, Option<i32>, i32)> {
     let (path, n) = located(m, stmt, id)?;
     let prune = match n.node_tag() {
         NodeTag::T_Append => n.as_variant::<Append>()?.part_prune_index,
         NodeTag::T_MergeAppend => n.as_variant::<MergeAppend>()?.part_prune_index,
         _ => return None,
     };
-    let arms = mcx::CollectIn::collect_in(children(n).filter_map(|(c, _)| c.as_plan().map(|p| p.plan_node_id)), m);
-    Some((arms, path.last().and_then(|(a, _)| a.as_plan()).map(|p| p.plan_node_id), prune))
+    let arms = mcx::CollectIn::collect_in(
+        children(n).filter_map(|(c, _)| c.as_plan().map(|p| p.plan_node_id)),
+        m,
+    );
+    Some((
+        arms,
+        path.last()
+            .and_then(|(a, _)| a.as_plan())
+            .map(|p| p.plan_node_id),
+        prune,
+    ))
 }
 
 /// Node `id` and every plan node under it (its children, an Append's arms, a SubqueryScan's plan, a bitmap's inputs),
@@ -218,10 +355,18 @@ pub fn subtree<'m>(m: mcx::Mcx<'m>, stmt: &PlannedStmt<'_>, id: i32) -> mcx::PgV
 pub fn gather_workers(stmt: &PlannedStmt<'_>) -> i64 {
     fn walk(n: Node<'_>) -> i64 {
         crate::walk::stack_check(); // D3748
-        let own = n.as_gather().map(|g| g.num_workers).or_else(|| n.as_gather_merge().map(|g| g.num_workers)).unwrap_or(0) as i64;
+        let own = n
+            .as_gather()
+            .map(|g| g.num_workers)
+            .or_else(|| n.as_gather_merge().map(|g| g.num_workers))
+            .unwrap_or(0) as i64;
         own + children(n).map(|(c, _)| walk(c)).sum::<i64>()
     }
-    stmt.planTree.into_iter().chain(stmt.subplans.iter().flatten()).map(walk).sum()
+    stmt.planTree
+        .into_iter()
+        .chain(stmt.subplans.iter().flatten())
+        .map(walk)
+        .sum()
 }
 
 fn under(n: Node<'_>, out: &mut mcx::PgVec<'_, i32>) {
@@ -234,17 +379,29 @@ fn under(n: Node<'_>, out: &mut mcx::PgVec<'_, i32>) {
 /// Index scan node `id`'s (plain, index-only or bitmap) index quals as btree keys: per qual its index column and its
 /// operator (`None`: an IS [NOT] NULL test, an equality to the btree); `None` when a qual is another form (a row
 /// comparison, an array) or the node is no index scan.
-pub fn index_keys<'m>(m: mcx::Mcx<'m>, stmt: &PlannedStmt<'_>, id: i32) -> Option<mcx::PgVec<'m, (i16, Option<u32>)>> {
+pub fn index_keys<'m>(
+    m: mcx::Mcx<'m>,
+    stmt: &PlannedStmt<'_>,
+    id: i32,
+) -> Option<mcx::PgVec<'m, (i16, Option<u32>)>> {
     let (_, n) = located(m, stmt, id)?;
     let quals = match n.node_tag() {
-        NodeTag::T_IndexScan => &n.as_variant::<types_nodes::plannodes::IndexScan>()?.indexqual,
+        NodeTag::T_IndexScan => {
+            &n.as_variant::<types_nodes::plannodes::IndexScan>()?
+                .indexqual
+        }
         NodeTag::T_IndexOnlyScan => &n.as_variant::<IndexOnlyScan>()?.indexqual,
-        NodeTag::T_BitmapIndexScan => &n.as_variant::<types_nodes::plannodes::BitmapIndexScan>()?.indexqual,
+        NodeTag::T_BitmapIndexScan => {
+            &n.as_variant::<types_nodes::plannodes::BitmapIndexScan>()?
+                .indexqual
+        }
         _ => return None,
     };
     let column = |e: Node<'_>| {
         let e = e.as_relabel_type().map_or(e, |r| r.arg);
-        e.as_var().filter(|v| v.varno == types_nodes::primnodes::INDEX_VAR).map(|v| v.varattno)
+        e.as_var()
+            .filter(|v| v.varno == types_nodes::primnodes::INDEX_VAR)
+            .map(|v| v.varattno)
     };
     let mut keys = mcx::PgVec::new_in(m);
     for e in quals.iter() {
@@ -267,14 +424,22 @@ pub fn index_keys<'m>(m: mcx::Mcx<'m>, stmt: &PlannedStmt<'_>, id: i32) -> Optio
 /// or NULL count, WITH TIES); `None`: not known here (a count or offset that is neither a constant nor an extern
 /// parameter `ext` reads: `ext(paramid)`, the parameter's integer value as this execution bound it, `None` when NULL or
 /// unknown). D3433: a generic plan's `LIMIT $1` is such a parameter.
-pub fn sort_bound(stmt: &PlannedStmt<'_>, id: i32, ext: &dyn Fn(i32) -> Option<i64>) -> Option<Option<i64>> {
+pub fn sort_bound(
+    stmt: &PlannedStmt<'_>,
+    id: i32,
+    ext: &dyn Fn(i32) -> Option<i64>,
+) -> Option<Option<i64>> {
     let cx = mcx::MemoryContext::new_bump("GravityExplainScan"); // the walk's path: gone with the call
     let (path, _) = located(cx.mcx(), stmt, id)?;
     for &(a, _) in path.iter().rev() {
         match a.node_tag() {
             // ExecSetTupleBound's pass-through nodes: a projecting Result (its constant qual affects nothing it passes),
             // every arm of an Append or a MergeAppend, a Gather's or a Gather Merge's child, a SubqueryScan without a qual
-            NodeTag::T_Result | NodeTag::T_Append | NodeTag::T_MergeAppend | NodeTag::T_Gather | NodeTag::T_GatherMerge => {}
+            NodeTag::T_Result
+            | NodeTag::T_Append
+            | NodeTag::T_MergeAppend
+            | NodeTag::T_Gather
+            | NodeTag::T_GatherMerge => {}
             NodeTag::T_SubqueryScan if a.as_plan()?.qual.is_nil() => {}
             NodeTag::T_Limit => {
                 let l = a.as_limit()?;
@@ -285,7 +450,11 @@ pub fn sort_bound(stmt: &PlannedStmt<'_>, id: i32, ext: &dyn Fn(i32) -> Option<i
                 let value = |b: crate::graph::Bound<'_>| match b {
                     crate::graph::Bound::All => Some(None),
                     crate::graph::Bound::Const(v) => Some(Some(v)),
-                    crate::graph::Bound::Expr(n) => n.as_param().filter(|p| p.paramkind == types_nodes::primnodes::ParamKind::PARAM_EXTERN).and_then(|p| ext(p.paramid)).map(Some),
+                    crate::graph::Bound::Expr(n) => n
+                        .as_param()
+                        .filter(|p| p.paramkind == types_nodes::primnodes::ParamKind::PARAM_EXTERN)
+                        .and_then(|p| ext(p.paramid))
+                        .map(Some),
                 };
                 let (count, offset) = crate::ops::limit_bounds(l);
                 let off = value(offset)?.unwrap_or(0).max(0);
@@ -303,20 +472,45 @@ pub fn sort_bound(stmt: &PlannedStmt<'_>, id: i32, ext: &dyn Fn(i32) -> Option<i
 
 /// Plan node `id`'s input row (its lefttree's target list, junk entries too): the column types of the tuple a Sort, a Hash
 /// or a WindowAgg keeps per row, and that row's planned width.
-pub fn input_row<'m>(m: mcx::Mcx<'m>, stmt: &PlannedStmt<'_>, id: i32) -> Option<(mcx::PgVec<'m, u32>, i32)> {
+pub fn input_row<'m>(
+    m: mcx::Mcx<'m>,
+    stmt: &PlannedStmt<'_>,
+    id: i32,
+) -> Option<(mcx::PgVec<'m, u32>, i32)> {
     let (_, n) = located(m, stmt, id)?;
     let child = n.as_plan()?.lefttree?.as_plan()?;
-    let types = mcx::CollectIn::collect_in(child.targetlist.iter().filter_map(|t| t.as_target_entry()).map(|te| nodes_core::expr_type(te.expr)), m);
+    let types = mcx::CollectIn::collect_in(
+        child
+            .targetlist
+            .iter()
+            .filter_map(|t| t.as_target_entry())
+            .map(|te| nodes_core::expr_type(te.expr)),
+        m,
+    );
     Some((types, child.plan_width))
 }
 
 /// CTE Scan node `id`'s source: its CTE's subplan root (the node whose rows fill the CTE's tuplestore, which every CTE
 /// Scan of the CTE reads), with that root's column types and width (the tuple the tuplestore holds).
-pub fn cte_source<'m>(m: mcx::Mcx<'m>, stmt: &PlannedStmt<'_>, id: i32) -> Option<(i32, mcx::PgVec<'m, u32>, i32)> {
-    let c = located(m, stmt, id)?.1.as_variant::<types_nodes::plannodes::CteScan>()?;
-    let i = (c.ctePlanId as usize).checked_sub(1).filter(|&i| i < stmt.subplans.len())?;
+pub fn cte_source<'m>(
+    m: mcx::Mcx<'m>,
+    stmt: &PlannedStmt<'_>,
+    id: i32,
+) -> Option<(i32, mcx::PgVec<'m, u32>, i32)> {
+    let c = located(m, stmt, id)?
+        .1
+        .as_variant::<types_nodes::plannodes::CteScan>()?;
+    let i = (c.ctePlanId as usize)
+        .checked_sub(1)
+        .filter(|&i| i < stmt.subplans.len())?;
     let root = stmt.subplans.nth(i)?.as_plan()?;
-    let types = mcx::CollectIn::collect_in(root.targetlist.iter().filter_map(|t| t.as_target_entry()).map(|te| nodes_core::expr_type(te.expr)), m);
+    let types = mcx::CollectIn::collect_in(
+        root.targetlist
+            .iter()
+            .filter_map(|t| t.as_target_entry())
+            .map(|te| nodes_core::expr_type(te.expr)),
+        m,
+    );
     Some((root.plan_node_id, types, root.plan_width))
 }
 
@@ -324,8 +518,13 @@ pub fn cte_source<'m>(m: mcx::Mcx<'m>, stmt: &PlannedStmt<'_>, id: i32) -> Optio
 /// starts at the partition's first row (UNBOUNDED PRECEDING: its buffer keeps the partition whole).
 pub fn window_frame(stmt: &PlannedStmt<'_>, id: i32) -> Option<(bool, bool)> {
     let cx = mcx::MemoryContext::new_bump("GravityExplainScan"); // the walk's path: gone with the call
-    let w = located(cx.mcx(), stmt, id)?.1.as_variant::<types_nodes::plannodes::WindowAgg>()?;
-    Some((w.partNumCols > 0, w.frameOptions & types_nodes::rawnodes::FRAMEOPTION_START_UNBOUNDED_PRECEDING != 0))
+    let w = located(cx.mcx(), stmt, id)?
+        .1
+        .as_variant::<types_nodes::plannodes::WindowAgg>()?;
+    Some((
+        w.partNumCols > 0,
+        w.frameOptions & types_nodes::rawnodes::FRAMEOPTION_START_UNBOUNDED_PRECEDING != 0,
+    ))
 }
 
 /// Plan node `id`'s width (its `plan_width`).
@@ -342,7 +541,11 @@ pub fn hash_estimate(stmt: &PlannedStmt<'_>, id: i32) -> Option<(f64, i32, bool)
     let (_, n) = located(cx.mcx(), stmt, id)?;
     let h = n.as_variant::<types_nodes::plannodes::Hash>()?;
     let outer = h.plan.lefttree?.as_plan()?;
-    let rows = if h.plan.parallel_aware && h.rows_total > 0.0 { h.rows_total } else { outer.plan_rows };
+    let rows = if h.plan.parallel_aware && h.rows_total > 0.0 {
+        h.rows_total
+    } else {
+        outer.plan_rows
+    };
     Some((rows, outer.plan_width, h.skewTable != 0))
 }
 
@@ -369,8 +572,16 @@ pub struct ParamReads {
 /// plan id and its plan's root node, and each plan node of the statement (its tree and its subplans) whose own expressions
 /// read one of its parameters, with how. `None` when `id` is in no InitPlan's plan. A node whose `extParam` holds a
 /// parameter that no field read here and no child accounts for reads it `other` (fail closed).
-pub fn init_readers<'m>(m: mcx::Mcx<'m>, stmt: &PlannedStmt<'_>, id: i32) -> Option<(i32, i32, mcx::PgVec<'m, (i32, ParamReads)>)> {
-    let roots = || stmt.planTree.into_iter().chain(stmt.subplans.iter().flatten());
+pub fn init_readers<'m>(
+    m: mcx::Mcx<'m>,
+    stmt: &PlannedStmt<'_>,
+    id: i32,
+) -> Option<(i32, i32, mcx::PgVec<'m, (i32, ParamReads)>)> {
+    let roots = || {
+        stmt.planTree
+            .into_iter()
+            .chain(stmt.subplans.iter().flatten())
+    };
     let mut inits: mcx::PgVec<'_, (i32, mcx::PgVec<'_, i32>)> = mcx::PgVec::new_in(m);
     roots().for_each(|r| init_plans(m, r, &mut inits));
     let holds = |plan_id: i32| {
@@ -389,18 +600,37 @@ pub fn init_readers<'m>(m: mcx::Mcx<'m>, stmt: &PlannedStmt<'_>, id: i32) -> Opt
 
 /// Every InitPlan attached at or under `n` with output parameters: (its plan id, its `setParam`). A CTE's subplan is no
 /// such InitPlan (its parameter only holds the CTE's shared state; its CTE Scans run it).
-fn init_plans<'m>(m: mcx::Mcx<'m>, n: Node<'_>, out: &mut mcx::PgVec<'m, (i32, mcx::PgVec<'m, i32>)>) {
+fn init_plans<'m>(
+    m: mcx::Mcx<'m>,
+    n: Node<'_>,
+    out: &mut mcx::PgVec<'m, (i32, mcx::PgVec<'m, i32>)>,
+) {
     crate::walk::stack_check(); // D3748
     let Some(p) = n.as_plan() else { return };
-    let init = |s: &&types_nodes::primnodes::SubPlan<'_>| !s.setParam.is_nil() && s.subLinkType != types_nodes::primnodes::SubLinkType::CTE_SUBLINK;
-    for s in p.initPlan.iter().filter_map(|s| s.as_sub_plan()).filter(init) {
-        mcx::GrowIn::push_in(out, (s.plan_id, mcx::CollectIn::collect_in(s.setParam.iter(), m)));
+    let init = |s: &&types_nodes::primnodes::SubPlan<'_>| {
+        !s.setParam.is_nil() && s.subLinkType != types_nodes::primnodes::SubLinkType::CTE_SUBLINK
+    };
+    for s in p
+        .initPlan
+        .iter()
+        .filter_map(|s| s.as_sub_plan())
+        .filter(init)
+    {
+        mcx::GrowIn::push_in(
+            out,
+            (s.plan_id, mcx::CollectIn::collect_in(s.setParam.iter(), m)),
+        );
     }
     children(n).for_each(|(c, _)| init_plans(m, c, out));
 }
 
 /// The nodes at or under `n` that read one of `params` (`init_readers`).
-fn readers(stmt: &PlannedStmt<'_>, n: Node<'_>, params: &[i32], out: &mut mcx::PgVec<'_, (i32, ParamReads)>) {
+fn readers(
+    stmt: &PlannedStmt<'_>,
+    n: Node<'_>,
+    params: &[i32],
+    out: &mut mcx::PgVec<'_, (i32, ParamReads)>,
+) {
     crate::walk::stack_check(); // D3748
     let Some(p) = n.as_plan() else { return };
     let r = own_reads(stmt, n, params);
@@ -412,10 +642,17 @@ fn readers(stmt: &PlannedStmt<'_>, n: Node<'_>, params: &[i32], out: &mut mcx::P
 
 /// How plan node `n`'s own expressions read one of `params`.
 fn own_reads(stmt: &PlannedStmt<'_>, n: Node<'_>, params: &[i32]) -> ParamReads {
-    let Some(p) = n.as_plan() else { return ParamReads::default() };
+    let Some(p) = n.as_plan() else {
+        return ParamReads::default();
+    };
     let mut r = ParamReads::default();
-    let list = |l: &types_nodes::NodeList<'_>, r: &mut ParamReads| l.iter().for_each(|e| r.other |= reads(stmt, e, params).is_some());
-    let start = |e: Option<Node<'_>>, r: &mut ParamReads| r.start |= e.is_some_and(|e| reads(stmt, e, params).is_some());
+    let list = |l: &types_nodes::NodeList<'_>, r: &mut ParamReads| {
+        l.iter()
+            .for_each(|e| r.other |= reads(stmt, e, params).is_some())
+    };
+    let start = |e: Option<Node<'_>>, r: &mut ParamReads| {
+        r.start |= e.is_some_and(|e| reads(stmt, e, params).is_some())
+    };
     for (i, e) in p.qual.iter().enumerate() {
         match reads(stmt, e, params) {
             Some(true) => {
@@ -435,22 +672,40 @@ fn own_reads(stmt: &PlannedStmt<'_>, n: Node<'_>, params: &[i32]) -> ParamReads 
     }
     let set = |b: &types_nodes::bitmapset::Bitmapset<'_>| params.iter().any(|&x| b.is_member(x));
     let known = match n.node_tag() {
-        NodeTag::T_SeqScan | NodeTag::T_Material | NodeTag::T_Sort | NodeTag::T_IncrementalSort | NodeTag::T_Unique | NodeTag::T_Agg | NodeTag::T_SubqueryScan | NodeTag::T_CteScan => true,
+        NodeTag::T_SeqScan
+        | NodeTag::T_Material
+        | NodeTag::T_Sort
+        | NodeTag::T_IncrementalSort
+        | NodeTag::T_Unique
+        | NodeTag::T_Agg
+        | NodeTag::T_SubqueryScan
+        | NodeTag::T_CteScan => true,
         NodeTag::T_Result => {
             start(n.as_result().and_then(|x| x.resconstantqual), &mut r);
             true
         }
         NodeTag::T_IndexScan => n.as_index_scan().is_some_and(|x| {
-            x.indexqual.iter().chain(x.indexqualorig.iter()).chain(x.indexorderby.iter()).chain(x.indexorderbyorig.iter()).for_each(|e| start(Some(e), &mut r));
+            x.indexqual
+                .iter()
+                .chain(x.indexqualorig.iter())
+                .chain(x.indexorderby.iter())
+                .chain(x.indexorderbyorig.iter())
+                .for_each(|e| start(Some(e), &mut r));
             true
         }),
         NodeTag::T_IndexOnlyScan => n.as_index_only_scan().is_some_and(|x| {
-            x.indexqual.iter().chain(x.indexorderby.iter()).for_each(|e| start(Some(e), &mut r));
+            x.indexqual
+                .iter()
+                .chain(x.indexorderby.iter())
+                .for_each(|e| start(Some(e), &mut r));
             list(&x.recheckqual, &mut r);
             true
         }),
         NodeTag::T_BitmapIndexScan => n.as_bitmap_index_scan().is_some_and(|x| {
-            x.indexqual.iter().chain(x.indexqualorig.iter()).for_each(|e| start(Some(e), &mut r));
+            x.indexqual
+                .iter()
+                .chain(x.indexqualorig.iter())
+                .for_each(|e| start(Some(e), &mut r));
             true
         }),
         NodeTag::T_BitmapHeapScan => n.as_bitmap_heap_scan().is_some_and(|x| {
@@ -463,9 +718,25 @@ fn own_reads(stmt: &PlannedStmt<'_>, n: Node<'_>, params: &[i32]) -> ParamReads 
             true
         }),
         NodeTag::T_Append | NodeTag::T_MergeAppend => {
-            let index = n.as_append().map(|a| a.part_prune_index).or_else(|| n.as_merge_append().map(|a| a.part_prune_index)).unwrap_or(-1);
-            let info = usize::try_from(index).ok().and_then(|i| stmt.partPruneInfos.as_slice().get(i).copied()).and_then(|i| i.as_partition_prune_info());
-            r.start |= info.is_some_and(|i| i.prune_infos.iter().filter_map(|l| l.as_list()).flat_map(|l| l.iter()).any(|x| x.as_partitioned_rel_prune_info().is_none_or(|x| set(&x.execparamids))));
+            let index = n
+                .as_append()
+                .map(|a| a.part_prune_index)
+                .or_else(|| n.as_merge_append().map(|a| a.part_prune_index))
+                .unwrap_or(-1);
+            let info = usize::try_from(index)
+                .ok()
+                .and_then(|i| stmt.partPruneInfos.as_slice().get(i).copied())
+                .and_then(|i| i.as_partition_prune_info());
+            r.start |= info.is_some_and(|i| {
+                i.prune_infos
+                    .iter()
+                    .filter_map(|l| l.as_list())
+                    .flat_map(|l| l.iter())
+                    .any(|x| {
+                        x.as_partitioned_rel_prune_info()
+                            .is_none_or(|x| set(&x.execparamids))
+                    })
+            });
             true
         }
         NodeTag::T_Gather => n.as_gather().is_some_and(|x| {
@@ -486,9 +757,16 @@ fn own_reads(stmt: &PlannedStmt<'_>, n: Node<'_>, params: &[i32]) -> ParamReads 
     // do not account for: read somewhere this module does not look
     let below = |x: i32| {
         children(n).any(|(c, _)| c.as_plan().is_some_and(|c| c.extParam.is_member(x)))
-            || p.initPlan.iter().filter_map(|s| s.as_sub_plan()).any(|s| sub_reads(stmt, s, x))
+            || p.initPlan
+                .iter()
+                .filter_map(|s| s.as_sub_plan())
+                .any(|s| sub_reads(stmt, s, x))
     };
-    if r == ParamReads::default() && params.iter().any(|&x| p.extParam.is_member(x) && (!known || !below(x))) {
+    if r == ParamReads::default()
+        && params
+            .iter()
+            .any(|&x| p.extParam.is_member(x) && (!known || !below(x)))
+    {
         r.other = true;
     }
     r
@@ -496,7 +774,10 @@ fn own_reads(stmt: &PlannedStmt<'_>, n: Node<'_>, params: &[i32]) -> ParamReads 
 
 /// The statement's subplan `plan_id` (1-based, as a SubPlan names it).
 fn subplan<'a>(stmt: &PlannedStmt<'a>, plan_id: i32) -> Option<Node<'a>> {
-    usize::try_from(plan_id).ok()?.checked_sub(1).and_then(|i| stmt.subplans.as_slice().get(i).copied().flatten())
+    usize::try_from(plan_id)
+        .ok()?
+        .checked_sub(1)
+        .and_then(|i| stmt.subplans.as_slice().get(i).copied().flatten())
 }
 
 /// Whether SubPlan `s`'s plan reads parameter `x` from outside it (its plan's `extParam`, less the ones it is passed).
@@ -518,7 +799,10 @@ fn reads(stmt: &PlannedStmt<'_>, e: Node<'_>, params: &[i32]) -> Option<bool> {
     }
     impl<'m> nodes_core::NodeWalker<'m> for Find<'_, '_, '_> {
         fn visit(&mut self, n: Node<'m>) -> types_error::PgResult<bool> {
-            if n.as_param().is_some_and(|p| p.paramkind == types_nodes::primnodes::ParamKind::PARAM_EXEC && self.params.contains(&p.paramid)) {
+            if n.as_param().is_some_and(|p| {
+                p.paramkind == types_nodes::primnodes::ParamKind::PARAM_EXEC
+                    && self.params.contains(&p.paramid)
+            }) {
                 return Ok(true);
             }
             if let Some(s) = n.as_sub_plan() {
@@ -529,7 +813,9 @@ fn reads(stmt: &PlannedStmt<'_>, e: Node<'_>, params: &[i32]) -> Option<bool> {
             nodes_core::expression_tree_walker(n, self)
         }
     }
-    nodes_core::NodeWalker::visit(&mut Find { stmt, params }, e).unwrap_or(true).then_some(false)
+    nodes_core::NodeWalker::visit(&mut Find { stmt, params }, e)
+        .unwrap_or(true)
+        .then_some(false)
 }
 
 /// `reads`' sure path: `e` is one of `params`, or an operator, function, cast or test whose argument is.
@@ -537,7 +823,8 @@ fn certain(e: Node<'_>, params: &[i32]) -> bool {
     crate::walk::stack_check(); // D3748
     let any = |l: &types_nodes::NodeList<'_>| l.iter().any(|a| certain(a, params));
     if let Some(p) = e.as_param() {
-        return p.paramkind == types_nodes::primnodes::ParamKind::PARAM_EXEC && params.contains(&p.paramid);
+        return p.paramkind == types_nodes::primnodes::ParamKind::PARAM_EXEC
+            && params.contains(&p.paramid);
     }
     match e.node_tag() {
         NodeTag::T_OpExpr => e.as_op_expr().is_some_and(|o| any(&o.args)),
@@ -547,8 +834,14 @@ fn certain(e: Node<'_>, params: &[i32]) -> bool {
         NodeTag::T_FuncExpr => e.as_func_expr().is_some_and(|f| any(&f.args)),
         NodeTag::T_RelabelType => e.as_relabel_type().is_some_and(|r| certain(r.arg, params)),
         NodeTag::T_CoerceViaIO => e.as_coerce_via_io().is_some_and(|c| certain(c.arg, params)),
-        NodeTag::T_NullTest => e.as_null_test().and_then(|t| t.arg).is_some_and(|a| certain(a, params)),
-        NodeTag::T_BooleanTest => e.as_boolean_test().and_then(|t| t.arg).is_some_and(|a| certain(a, params)),
+        NodeTag::T_NullTest => e
+            .as_null_test()
+            .and_then(|t| t.arg)
+            .is_some_and(|a| certain(a, params)),
+        NodeTag::T_BooleanTest => e
+            .as_boolean_test()
+            .and_then(|t| t.arg)
+            .is_some_and(|a| certain(a, params)),
         _ => false,
     }
 }
@@ -565,7 +858,12 @@ fn index_only(n: Node<'_>, out: &mut mcx::PgVec<'_, (i32, u32, u32)>) {
 
 /// Whether `id` is `n` or under it; `path` gets every plan node on the way down (the node, its inner side taken) and
 /// `found` the node itself.
-fn find<'a>(n: Node<'a>, id: i32, path: &mut mcx::PgVec<'_, (Node<'a>, bool)>, found: &mut Option<Node<'a>>) -> bool {
+fn find<'a>(
+    n: Node<'a>,
+    id: i32,
+    path: &mut mcx::PgVec<'_, (Node<'a>, bool)>,
+    found: &mut Option<Node<'a>>,
+) -> bool {
     crate::walk::stack_check(); // D3748
     let Some(p) = n.as_plan() else { return false };
     if p.plan_node_id == id {
@@ -593,9 +891,17 @@ pub(crate) fn children<'a>(n: Node<'a>) -> impl Iterator<Item = (Node<'a>, bool)
         NodeTag::T_BitmapOr => n.as_variant::<BitmapOr>().map(|a| &a.bitmapplans),
         _ => None,
     };
-    let sub = if n.node_tag() == NodeTag::T_SubqueryScan { n.as_variant::<SubqueryScan>().and_then(|q| q.subplan) } else { None };
-    let tree = p.into_iter().flat_map(|p| [(p.lefttree, false), (p.righttree, true)]).filter_map(|(c, inner)| c.map(|c| (c, inner)));
-    tree.chain(list.into_iter().flat_map(|l| l.iter()).map(|c| (c, false))).chain(sub.map(|c| (c, false)))
+    let sub = if n.node_tag() == NodeTag::T_SubqueryScan {
+        n.as_variant::<SubqueryScan>().and_then(|q| q.subplan)
+    } else {
+        None
+    };
+    let tree = p
+        .into_iter()
+        .flat_map(|p| [(p.lefttree, false), (p.righttree, true)])
+        .filter_map(|(c, inner)| c.map(|c| (c, inner)));
+    tree.chain(list.into_iter().flat_map(|l| l.iter()).map(|c| (c, false)))
+        .chain(sub.map(|c| (c, false)))
 }
 
 /// `DECISIONS.md` 4 (D) b (the run-ahead tag, program `AheadTag`): plan node `id`'s index in EXPLAIN's node order (0: the
@@ -610,7 +916,13 @@ pub fn explain_position(stmt: &PlannedStmt<'_>, id: i32) -> Option<(u32, &'stati
     if top.as_gather().is_some_and(|g| g.invisible) {
         top = top.as_plan()?.lefttree?;
     }
-    ExplainOrder { stmt, id, at: 0, printed: Vec::new() }.node(top) // alloc: Cold
+    ExplainOrder {
+        stmt,
+        id,
+        at: 0,
+        printed: Vec::new(),
+    }
+    .node(top) // alloc: Cold
 }
 
 /// `explain_position`'s walk: `at` counts the nodes printed before the one met, `printed` the subplans walked.
@@ -634,8 +946,18 @@ impl<'a> ExplainOrder<'_, 'a> {
                 return Some(f);
             }
         }
-        let members = [n.as_append().map(|a| &a.appendplans), n.as_merge_append().map(|a| &a.mergeplans), n.as_bitmap_and().map(|a| &a.bitmapplans), n.as_bitmap_or().map(|a| &a.bitmapplans)];
-        let kids = p.lefttree.into_iter().chain(p.righttree).chain(members.into_iter().flatten().flat_map(|l| l.iter())).chain(n.as_subquery_scan().and_then(|s| s.subplan));
+        let members = [
+            n.as_append().map(|a| &a.appendplans),
+            n.as_merge_append().map(|a| &a.mergeplans),
+            n.as_bitmap_and().map(|a| &a.bitmapplans),
+            n.as_bitmap_or().map(|a| &a.bitmapplans),
+        ];
+        let kids = p
+            .lefttree
+            .into_iter()
+            .chain(p.righttree)
+            .chain(members.into_iter().flatten().flat_map(|l| l.iter()))
+            .chain(n.as_subquery_scan().and_then(|s| s.subplan));
         for c in kids {
             if let Some(f) = self.node(c) {
                 return Some(f);
@@ -716,31 +1038,91 @@ fn node_type(n: Node<'_>) -> &'static str {
 /// qual's runtime keys (plain EXPLAIN stops before ExecIndexBuildScanKeys) or a pruning step.
 fn expr_subplans(n: Node<'_>) -> Vec<i32> {
     use types_nodes::NodeList;
-    let Some(p) = n.as_plan() else { return Vec::new() }; // alloc: Cold
-    let mut w = SubPlanOrder { ids: Vec::new(), aggrefs: Vec::new() }; // alloc: Cold
+    let Some(p) = n.as_plan() else {
+        return Vec::new();
+    }; // alloc: Cold
+    let mut w = SubPlanOrder {
+        ids: Vec::new(),
+        aggrefs: Vec::new(),
+    }; // alloc: Cold
     let (tl, q) = (Some(&p.targetlist), Some(&p.qual));
     let lists: [Option<&NodeList<'_>>; 5] = match n.node_tag() {
-        NodeTag::T_NestLoop => [q, n.as_nest_loop().map(|j| &j.join.joinqual), tl, None, None],
-        NodeTag::T_MergeJoin => [q, n.as_merge_join().map(|j| &j.join.joinqual), tl, None, None],
-        NodeTag::T_HashJoin => n.as_hash_join().map_or([None; 5], |j| [tl, Some(&j.hashkeys), q, Some(&j.join.joinqual), Some(&j.hashclauses)]),
+        NodeTag::T_NestLoop => [
+            q,
+            n.as_nest_loop().map(|j| &j.join.joinqual),
+            tl,
+            None,
+            None,
+        ],
+        NodeTag::T_MergeJoin => [
+            q,
+            n.as_merge_join().map(|j| &j.join.joinqual),
+            tl,
+            None,
+            None,
+        ],
+        NodeTag::T_HashJoin => n.as_hash_join().map_or([None; 5], |j| {
+            [
+                tl,
+                Some(&j.hashkeys),
+                q,
+                Some(&j.join.joinqual),
+                Some(&j.hashclauses),
+            ]
+        }),
         NodeTag::T_Hash => [n.as_hash().map(|h| &h.hashkeys), None, None, None, None],
-        NodeTag::T_IndexScan => n.as_index_scan().map_or([None; 5], |s| [tl, q, Some(&s.indexqualorig), Some(&s.indexorderbyorig), None]),
-        NodeTag::T_IndexOnlyScan => [tl, q, n.as_index_only_scan().map(|s| &s.recheckqual), None, None],
-        NodeTag::T_BitmapHeapScan => [tl, q, n.as_bitmap_heap_scan().map(|s| &s.bitmapqualorig), None, None],
+        NodeTag::T_IndexScan => n.as_index_scan().map_or([None; 5], |s| {
+            [
+                tl,
+                q,
+                Some(&s.indexqualorig),
+                Some(&s.indexorderbyorig),
+                None,
+            ]
+        }),
+        NodeTag::T_IndexOnlyScan => [
+            tl,
+            q,
+            n.as_index_only_scan().map(|s| &s.recheckqual),
+            None,
+            None,
+        ],
+        NodeTag::T_BitmapHeapScan => [
+            tl,
+            q,
+            n.as_bitmap_heap_scan().map(|s| &s.bitmapqualorig),
+            None,
+            None,
+        ],
         NodeTag::T_TidScan => [tl, q, n.as_tid_scan().map(|s| &s.tidquals), None, None],
-        NodeTag::T_TidRangeScan => [tl, q, n.as_tid_range_scan().map(|s| &s.tidrangequals), None, None],
+        NodeTag::T_TidRangeScan => [
+            tl,
+            q,
+            n.as_tid_range_scan().map(|s| &s.tidrangequals),
+            None,
+            None,
+        ],
         NodeTag::T_BitmapIndexScan | NodeTag::T_Append | NodeTag::T_MergeAppend => [None; 5],
         _ => [tl, q, None, None, None],
     };
     // ExecInitFunctionScan builds each function's call before the projection and the qual
-    for f in n.as_function_scan().into_iter().flat_map(|s| s.functions.iter()).filter_map(|f| f.as_range_tbl_function()) {
+    for f in n
+        .as_function_scan()
+        .into_iter()
+        .flat_map(|s| s.functions.iter())
+        .filter_map(|f| f.as_range_tbl_function())
+    {
         w.opt(f.funcexpr);
     }
     lists.into_iter().flatten().for_each(|l| w.list(l));
     if let Some(r) = n.as_result() {
         w.opt(r.resconstantqual);
     }
-    for row in n.as_values_scan().into_iter().flat_map(|v| v.values_lists.iter()) {
+    for row in n
+        .as_values_scan()
+        .into_iter()
+        .flat_map(|v| v.values_lists.iter())
+    {
         w.opt(Some(row));
     }
     let aggs = core::mem::take(&mut w.aggrefs);

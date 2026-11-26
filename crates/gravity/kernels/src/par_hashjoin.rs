@@ -21,9 +21,15 @@ pub const SLOT_OUTER: u8 = 1;
 
 pub const SLOT_PART: u8 = 2;
 
-pub const TOUCH_BUILD: Touch = Touch { hdr: &[hdr::RESUME], sites: &[(INNER, SITE_EXEC_CELLS)] };
+pub const TOUCH_BUILD: Touch = Touch {
+    hdr: &[hdr::RESUME],
+    sites: &[(INNER, SITE_EXEC_CELLS)],
+};
 
-pub const TOUCH_PROBE: Touch = Touch { hdr: &[hdr::RESUME], sites: &[(OUTER, SITE_EXEC_CELLS)] };
+pub const TOUCH_PROBE: Touch = Touch {
+    hdr: &[hdr::RESUME],
+    sites: &[(OUTER, SITE_EXEC_CELLS)],
+};
 
 /// One parameter word: the spill's partition bits (0: `DEFAULT_BITS`), the same for both streams.
 pub const PARAM_SPILL_BITS: usize = 0;
@@ -53,9 +59,27 @@ pub const fn breakers(build_rows: u64) -> [Breaker; 3] {
 
 pub const fn breakers_bits(bits: u8) -> [Breaker; 3] {
     [
-        Breaker { kind: BreakerKind::HashBuild, slot: SLOT_BUILD, bytes: 0, budget: Budget::Share, spill: Spill::Partitioned { bits } },
-        Breaker { kind: BreakerKind::Materialize, slot: SLOT_OUTER, bytes: 0, budget: Budget::Share, spill: Spill::Partitioned { bits } },
-        Breaker { kind: BreakerKind::Materialize, slot: SLOT_PART, bytes: 0, budget: Budget::Share, spill: Spill::None },
+        Breaker {
+            kind: BreakerKind::HashBuild,
+            slot: SLOT_BUILD,
+            bytes: 0,
+            budget: Budget::Share,
+            spill: Spill::Partitioned { bits },
+        },
+        Breaker {
+            kind: BreakerKind::Materialize,
+            slot: SLOT_OUTER,
+            bytes: 0,
+            budget: Budget::Share,
+            spill: Spill::Partitioned { bits },
+        },
+        Breaker {
+            kind: BreakerKind::Materialize,
+            slot: SLOT_PART,
+            bytes: 0,
+            budget: Budget::Share,
+            spill: Spill::None,
+        },
     ]
 }
 
@@ -72,7 +96,13 @@ pub(crate) const MEMO: usize = 1024;
 
 /// Outer token `token` (and the sub-tokens a split queues) against the refilled build table;
 #[allow(dead_code)]
-pub(crate) unsafe fn outer_split(ctx: *mut Ctx, outer_off: i64, t: u32, memo: &mut [(u32, u32, u32); MEMO], ostream: i64) -> core::result::Result<(u32, u32), i64> {
+pub(crate) unsafe fn outer_split(
+    ctx: *mut Ctx,
+    outer_off: i64,
+    t: u32,
+    memo: &mut [(u32, u32, u32); MEMO],
+    ostream: i64,
+) -> core::result::Result<(u32, u32), i64> {
     if let Some(&(_, lo, hi)) = memo.iter().find(|m| m.0 == t) {
         return Ok((lo, hi));
     }

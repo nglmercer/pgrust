@@ -24,8 +24,8 @@
 
 #![allow(non_snake_case)]
 
-use types_error::PgResult;
 use elog::PCT_M;
+use types_error::PgResult;
 
 /// C `IpcMemoryState` (sysv_shmem.c): how a given segment id relates to this
 /// process. Variant order and meaning are C's.
@@ -255,17 +255,28 @@ pub fn PGSharedMemoryCreate(dsm_cleanup: fn(u32) -> PgResult<()>) -> PgResult<()
         return elog::ereport(types_error::FATAL)
             .with_saved_errno(errnum)
             .errcode_for_file_access()
-            .errmsg(format!("could not stat data directory \"{datadir}\": {PCT_M}"))
-            .finish(types_error::ErrorLocation::new("sysv_shmem.c", 716, "PGSharedMemoryCreate"));
+            .errmsg(format!(
+                "could not stat data directory \"{datadir}\": {PCT_M}"
+            ))
+            .finish(types_error::ErrorLocation::new(
+                "sysv_shmem.c",
+                716,
+                "PGSharedMemoryCreate",
+            ));
     }
 
     let huge_pages = guc_tables::vars::huge_pages.read();
     let shared_memory_type = guc_tables::vars::shared_memory_type.read();
-    if let Err(msg) = huge_pages_startup_gate(huge_pages, shared_memory_type, MAP_HUGETLB_AVAILABLE) {
+    if let Err(msg) = huge_pages_startup_gate(huge_pages, shared_memory_type, MAP_HUGETLB_AVAILABLE)
+    {
         return elog::ereport(types_error::ERROR)
             .errcode(types_error::ERRCODE_FEATURE_NOT_SUPPORTED)
             .errmsg(msg)
-            .finish(types_error::ErrorLocation::new("sysv_shmem.c", 723, "PGSharedMemoryCreate"));
+            .finish(types_error::ErrorLocation::new(
+                "sysv_shmem.c",
+                723,
+                "PGSharedMemoryCreate",
+            ));
     }
 
     probe_key_space(datadir, statbuf.ino, dsm_cleanup)
@@ -288,7 +299,11 @@ fn probe_failure_state(errnum: i32) -> Option<IpcMemoryState> {
 /// The key-space walk of C `PGSharedMemoryCreate` (sysv_shmem.c:764-855),
 /// seeded with DataDir's inode. See [`PGSharedMemoryCreate`].
 #[cfg(not(target_family = "wasm"))]
-pub fn probe_key_space(datadir: &str, ino: u64, dsm_cleanup: fn(u32) -> PgResult<()>) -> PgResult<()> {
+pub fn probe_key_space(
+    datadir: &str,
+    ino: u64,
+    dsm_cleanup: fn(u32) -> PgResult<()>,
+) -> PgResult<()> {
     use types_storage::PGShmemHeader;
 
     // C: `IpcMemoryKey NextShmemSegID = statbuf.st_ino` — key_t is int, the
@@ -349,7 +364,8 @@ pub fn probe_key_space(datadir: &str, ino: u64, dsm_cleanup: fn(u32) -> PgResult
                     dsm_cleanup(dsm_control)?;
                 }
                 // SAFETY: our own data directory's abandoned segment.
-                let removed = unsafe { libc::shmctl(shmid, libc::IPC_RMID, std::ptr::null_mut()) } == 0;
+                let removed =
+                    unsafe { libc::shmctl(shmid, libc::IPC_RMID, std::ptr::null_mut()) } == 0;
                 detach_at(oldaddr, 846, "PGSharedMemoryCreate")?;
                 if !removed {
                     next_key += 1;
@@ -370,7 +386,11 @@ pub fn probe_key_space(datadir: &str, ino: u64, dsm_cleanup: fn(u32) -> PgResult
 // wasm32: no System V IPC and no other process, so the key space is empty —
 // the walk ends at its first key without a syscall.
 #[cfg(target_family = "wasm")]
-pub fn probe_key_space(_datadir: &str, _ino: u64, _dsm_cleanup: fn(u32) -> PgResult<()>) -> PgResult<()> {
+pub fn probe_key_space(
+    _datadir: &str,
+    _ino: u64,
+    _dsm_cleanup: fn(u32) -> PgResult<()>,
+) -> PgResult<()> {
     Ok(())
 }
 
@@ -402,7 +422,9 @@ const MAP_HUGE_MASK: i32 = 0x3f;
 /// a file with no such line gives 0, the "unknown" the fallback arm reads.
 pub fn meminfo_default_hugepagesize(meminfo: &str) -> usize {
     for line in meminfo.lines() {
-        let Some(rest) = line.strip_prefix("Hugepagesize:") else { continue };
+        let Some(rest) = line.strip_prefix("Hugepagesize:") else {
+            continue;
+        };
         // %u: skip whitespace, an optional sign, then a decimal run.
         let rest = rest.trim_start_matches(|c: char| c.is_ascii_whitespace());
         let (neg, rest) = match rest.strip_prefix('-') {
@@ -413,11 +435,15 @@ pub fn meminfo_default_hugepagesize(meminfo: &str) -> usize {
         if digits == 0 {
             continue;
         }
-        let Ok(sz) = rest[..digits].parse::<u32>() else { continue };
+        let Ok(sz) = rest[..digits].parse::<u32>() else {
+            continue;
+        };
         // " %c": skip whitespace, then any one character (none = only one
         // conversion, the line does not match).
         let rest = rest[digits..].trim_start_matches(|c: char| c.is_ascii_whitespace());
-        let Some(ch) = rest.chars().next() else { continue };
+        let Some(ch) = rest.chars().next() else {
+            continue;
+        };
         if ch == 'k' {
             // C's `sz * (Size) 1024` on the unsigned conversion: a negative
             // "-N" is %u's two's-complement wrap.
@@ -440,7 +466,10 @@ pub fn resolve_huge_page_size(
     huge_shift: bool,
 ) -> HugePageSize {
     if !map_hugetlb {
-        return HugePageSize { hugepagesize: 0, mmap_flags: 0 };
+        return HugePageSize {
+            hugepagesize: 0,
+            mmap_flags: 0,
+        };
     }
     let hugepagesize_local = if huge_page_size_kb != 0 {
         // If huge page size is requested explicitly, use that.
@@ -459,7 +488,10 @@ pub fn resolve_huge_page_size(
         let shift = pg_bitutils::pg_ceil_log2_64(hugepagesize_local as u64) as i32;
         mmap_flags_local |= (shift & MAP_HUGE_MASK) << MAP_HUGE_SHIFT;
     }
-    HugePageSize { hugepagesize: hugepagesize_local, mmap_flags: mmap_flags_local }
+    HugePageSize {
+        hugepagesize: hugepagesize_local,
+        mmap_flags: mmap_flags_local,
+    }
 }
 
 /// C `GetHugePageSize(&hugepagesize, &mmap_flags)` (sysv_shmem.c:479-571).

@@ -51,19 +51,37 @@ crate::hook_variants! {
 /// A block form's mechanism (registered as `BlockImpl` for the mask roads): the rows of `[base, base + 64)` that pass
 /// `qual` within `m`.
 pub trait BlockMech: Sync {
-    fn mask(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, w: &WordWin, base: Value, qual: ExId, m: Mask) -> Mask;
+    fn mask(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        w: &WordWin,
+        base: Value,
+        qual: ExId,
+        m: Mask,
+    ) -> Mask;
 }
 
 pub struct BlockImpl(pub &'static dyn BlockMech);
 
 /// Row `i` of a block through the chain with the carry before it: the carry after.
-pub type RowWalk<'a, 'e> = &'a mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env<'e, '_>, Value, Carry<'e>) -> Carry<'e>;
+pub type RowWalk<'a, 'e> =
+    &'a mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env<'e, '_>, Value, Carry<'e>) -> Carry<'e>;
 
 /// Road `mask.run`'s mechanism (`MaskRunImpl`, H01 b): block `[base, base + 64)`'s passing rows `m` walked through `row` in
 /// ascending order with the carry threaded, then `l_next(next, carry…)`. An all-ones block runs as a straight count, in the
 /// same row order as the ctz walk.
 pub trait MaskRunMech: Sync {
-    fn walk<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, base: Value, m: Mask, carry: &Carry, next: (Block, Value), row: RowWalk<'_, 'e>);
+    fn walk<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        base: Value,
+        m: Mask,
+        carry: &Carry,
+        next: (Block, Value),
+        row: RowWalk<'_, 'e>,
+    );
 }
 
 pub struct MaskRunImpl(pub &'static dyn MaskRunMech);
@@ -85,7 +103,14 @@ pub struct CarryExits {
 /// the hash build's record shape).
 pub trait CarryMech: Sync {
     fn exits(&self, b: &mut FunctionBuilder<'_>, accs: &[Type], mcx: mcx::Mcx<'_>) -> CarryExits;
-    fn seal(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, end: &dyn EndMech, e: CarryExits, x: &Exits);
+    fn seal(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        end: &dyn EndMech,
+        e: CarryExits,
+        x: &Exits,
+    );
 }
 
 pub struct CarryImpl(pub &'static dyn CarryMech);
@@ -131,9 +156,9 @@ crate::hook_variants! {
     }
 }
 
-pub use crate::face::ext::{expr_exts, Claim, ExprExtImpl, ExprExtMech, ExtPlan, SubEmit, EXT_AT};
 #[allow(unused_imports)]
 pub(crate) use crate::face::ext::exts_in;
+pub use crate::face::ext::{expr_exts, Claim, ExprExtImpl, ExprExtMech, ExtPlan, SubEmit, EXT_AT};
 
 /// Kind `expr.volatile`'s mechanism (`VolatileImpl`): whether expression `ex`'s volatile calls are held, and in how many
 /// words, on a row a stopped call re-enters.
@@ -211,7 +236,9 @@ pub struct Hoist<'m> {
 
 impl<'m> Hoist<'m> {
     pub fn new_in(mcx: mcx::Mcx<'m>) -> Hoist<'m> {
-        Hoist { words: mcx::PgVec::new_in(mcx) }
+        Hoist {
+            words: mcx::PgVec::new_in(mcx),
+        }
     }
 
     pub fn add(&mut self, at: HoistAt, e: ExId) {
@@ -270,17 +297,35 @@ pub trait StepMech {
     /// At every window's start.
     fn window(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env, _x: &Exits) {}
     /// H01 a / b / e: the first step's block form over the window's lanes, as the guard under which whole blocks run by mask.
-    fn block_open(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env, _w: &WordWin) -> Option<Mask> {
+    fn block_open(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        _env: &mut Env,
+        _w: &WordWin,
+    ) -> Option<Mask> {
         None
     }
     /// The rows of block `[base, base + 64)` that pass, within `m`. The chain then runs with `env.masked` set (a masked row
     /// skips this step's per-row test).
-    fn block(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env, _w: &WordWin, _base: Value, m: Mask) -> Mask {
+    fn block(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        _env: &mut Env,
+        _w: &WordWin,
+        _base: Value,
+        m: Mask,
+    ) -> Mask {
         m
     }
     /// H01 c (count form): how many rows of the whole block `[base, base + 64)` pass (`I64`), counted without the mask;
     /// asked of the first step only when the end counts (`EndMech::counts`). `None`: the step has no count form.
-    fn block_count(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env, _w: &WordWin, _base: Value) -> Option<Value> {
+    fn block_count(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        _env: &mut Env,
+        _w: &WordWin,
+        _base: Value,
+    ) -> Option<Value> {
         None
     }
     /// H01 (the block span): the window lanes (bit `a - 1`, `a <= 64`) this step's block form reads from their buffers that
@@ -303,10 +348,21 @@ pub trait StepMech {
     /// Road `mask.rows`: the step's test of `row` as one value, every qual evaluated and ANDed with no branch on a qual's
     /// outcome: `(pass, err)`, `err` the raise word the row path would raise (not raised here: the frame walks that row
     /// again on the row path). Asked of the first step when its `row_stats` is `Some`, and of each `row_maskable` step after.
-    fn row_pass(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env, _row: &RowVals) -> Option<(Value, Value)> {
+    fn row_pass(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        _env: &mut Env,
+        _row: &RowVals,
+    ) -> Option<(Value, Value)> {
         None
     }
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, next: Next<'_, 'e>) -> Carry<'e>;
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        next: Next<'_, 'e>,
+    ) -> Carry<'e>;
     fn epilogue(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env, _x: &Exits) {}
     /// H32 and its offset word (H17 c).
     fn expand(&self) -> Option<Expand> {
@@ -341,7 +397,15 @@ pub trait StepMech {
     /// source's row `j`) before the late lanes decode; `fill` decodes the key columns' late lanes first (false: it cannot,
     /// so no test). `None`: no block test (each row tests on its own).
     #[allow(clippy::type_complexity)]
-    fn block_rowfilter(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env, _row: &RowVals, _j: Value, _mask: Mask, _fill: &mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env, &[i16]) -> bool) -> Option<Value> {
+    fn block_rowfilter(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        _env: &mut Env,
+        _row: &RowVals,
+        _j: Value,
+        _mask: Mask,
+        _fill: &mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env, &[i16]) -> bool,
+    ) -> Option<Value> {
         None
     }
     /// D3168 (join.probe.staged): after `window`, the `Bool` under which this probe runs its rows in stages over a block
@@ -364,7 +428,14 @@ pub trait StepMech {
     /// `j`; `row.1` maps a column of the probe's row to the source row's through the plain projections between,
     /// `forwards`), `fill` decoding the key columns' late lanes first. `None`: no stages (each row runs on its own).
     #[allow(clippy::type_complexity)]
-    fn block_batch(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env, _row: (&RowVals, &dyn Fn(i16) -> Option<i16>), _rows: crate::frame::env::BatchRows, _fill: &mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env, &[i16]) -> bool) -> Option<crate::frame::env::Batched> {
+    fn block_batch(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        _env: &mut Env,
+        _row: (&RowVals, &dyn Fn(i16) -> Option<i16>),
+        _rows: crate::frame::env::BatchRows,
+        _fill: &mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env, &[i16]) -> bool,
+    ) -> Option<crate::frame::env::Batched> {
         None
     }
     /// D3168: a step that hands on every row it takes and computes nothing a row could raise on or act through (a plain
@@ -418,7 +489,13 @@ pub trait StepMech {
     /// D1071: at the input's end, what the step holds back handed on through `next` from the end's fresh `carry`; the carry
     /// after it. A stop inside leaves by the frame's flush exits, which keep the source's position: the resumed call reaches
     /// the end again and the step's own words say what it still holds.
-    fn flush<'e>(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env<'e, '_>, carry: Carry<'e>, _next: Next<'_, 'e>) -> Carry<'e> {
+    fn flush<'e>(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        _env: &mut Env<'e, '_>,
+        carry: Carry<'e>,
+        _next: Next<'_, 'e>,
+    ) -> Carry<'e> {
         carry
     }
     /// H28 (M4-plan §1.3 L0-f): the step reads the row's locator (`Env::loc`), a lock step (`LocatorUse::Lock`) whose
@@ -439,12 +516,39 @@ pub trait StepMech {
 /// pipeline's Filter / Project ops (ON CONFLICT DO UPDATE's SET / WHERE, MERGE's actions): `need_kind::<ExprFace>(px,
 /// KindId::ExprCore)`. `outer`: every `Var(varno, n)` is entry `n` of the list; `at` = `(k, j)`, op `j` of pipeline `k`.
 pub trait ExprMech: Sync {
-    fn compile<'p>(&self, px: &mut Px<'_, 'p>, node: Node<'p>, outer: Option<(i32, &NodeList<'p>)>, id: i32) -> ExId;
-    fn compile_at<'p>(&self, px: &mut Px<'_, 'p>, at: (usize, usize), node: Node<'p>, outer: Option<(i32, &NodeList<'p>)>, id: i32) -> ExId;
+    fn compile<'p>(
+        &self,
+        px: &mut Px<'_, 'p>,
+        node: Node<'p>,
+        outer: Option<(i32, &NodeList<'p>)>,
+        id: i32,
+    ) -> ExId;
+    fn compile_at<'p>(
+        &self,
+        px: &mut Px<'_, 'p>,
+        at: (usize, usize),
+        node: Node<'p>,
+        outer: Option<(i32, &NodeList<'p>)>,
+        id: i32,
+    ) -> ExId;
     /// `(value, valid)`, raising at the row on an error.
-    fn emit(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, id: i32, row: &RowVals, ex: ExId) -> (Value, Value);
+    fn emit(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        id: i32,
+        row: &RowVals,
+        ex: ExId,
+    ) -> (Value, Value);
     /// true and not NULL.
-    fn pred(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, id: i32, row: &RowVals, ex: ExId) -> Value;
+    fn pred(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        id: i32,
+        row: &RowVals,
+        ex: ExId,
+    ) -> Value;
     fn out_type<'p>(&self, gx: &Gx<'_, 'p>, node: Node<'p>, id: i32) -> Oid;
     fn tf_of(&self, gx: &Gx<'_, '_>, typid: u32) -> TypeFacts;
 }

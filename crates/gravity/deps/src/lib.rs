@@ -39,10 +39,12 @@ pub const SUPPORT_LISTS: [i16; 6] = [3, 4, 5, 14, 40, 42];
 
 /// `cacheinfo[id].reloid` for every syscache id (PostgreSQL 18.6 genbki order); cache_syscache's tests hold it equal.
 pub const SYSCACHE_RELOIDS: [Oid; 85] = [
-    2600, 2601, 2601, 2602, 2602, 2603, 1249, 1249, 1261, 1261, 1260, 1260, 2605, 2616, 2616, 3456, 3456, 2607, 2607, 2606, 2607, 1262, 826, 3501,
-    3501, 3466, 3466, 3079, 3079, 2328, 2328, 1417, 1417, 3118, 2610, 2612, 2612, 2615, 2615, 2617, 2617, 2753, 2753, 6243, 6243, 3350, 1255, 1255,
-    6104, 6237, 6237, 6104, 6106, 6106, 3541, 3541, 1259, 1259, 6000, 6000, 2618, 2224, 3429, 3381, 3381, 2619, 6100, 6100, 6102, 1213, 3576, 3576,
-    3603, 3602, 3602, 3600, 3600, 3601, 3601, 3764, 3764, 1247, 1247, 1418, 1418,
+    2600, 2601, 2601, 2602, 2602, 2603, 1249, 1249, 1261, 1261, 1260, 1260, 2605, 2616, 2616, 3456,
+    3456, 2607, 2607, 2606, 2607, 1262, 826, 3501, 3501, 3466, 3466, 3079, 3079, 2328, 2328, 1417,
+    1417, 3118, 2610, 2612, 2612, 2615, 2615, 2617, 2617, 2753, 2753, 6243, 6243, 3350, 1255, 1255,
+    6104, 6237, 6237, 6104, 6106, 6106, 3541, 3541, 1259, 1259, 6000, 6000, 2618, 2224, 3429, 3381,
+    3381, 2619, 6100, 6100, 6102, 1213, 3576, 3576, 3603, 3602, 3602, 3600, 3600, 3601, 3601, 3764,
+    3764, 1247, 1247, 1418, 1418,
 ];
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -78,7 +80,8 @@ impl Deps {
 
     /// `d` is held, or a read of it is (a row of a syscache whose whole cache is held).
     pub fn covers(&self, d: Dep) -> bool {
-        self.contains(d) || matches!(d, Dep::Cat { cache, .. } if self.contains(Dep::CatList(cache)))
+        self.contains(d)
+            || matches!(d, Dep::Cat { cache, .. } if self.contains(Dep::CatList(cache)))
     }
 
     /// A view lagged its generation at a read: what was read may straddle a commit this backend has not processed.
@@ -89,7 +92,9 @@ impl Deps {
     /// `d` as if read now (an admission's seed: the plan's own dependency lists).
     pub fn add(&mut self, d: Dep) {
         if let Err(i) = self.items.binary_search_by(|e| e.0.cmp(&d)) {
-            if self.wraps.is_none() && matches!(d, Dep::Cat { cache, .. } if l2cache::row_stamped(i32::from(cache))) {
+            if self.wraps.is_none()
+                && matches!(d, Dep::Cat { cache, .. } if l2cache::row_stamped(i32::from(cache)))
+            {
                 self.wraps = Some(l2cache::oid_wraps());
             }
             let (g, lag) = capture(d);
@@ -146,7 +151,9 @@ impl Deps {
             if self.own != l2cache::own_seq() {
                 return false;
             }
-        } else if l2cache::private_build_mode() && (!l2cache::private_by_own_ddl_only() || self.touched_by_own_ddl()) {
+        } else if l2cache::private_build_mode()
+            && (!l2cache::private_by_own_ddl_only() || self.touched_by_own_ddl())
+        {
             return false;
         }
         // C3 S5b: every dependency is read; two rows of one cache read at equal generations are not one read (each row
@@ -165,7 +172,9 @@ impl Deps {
         if self.wraps.is_some_and(|w| w != l2cache::oid_wraps()) {
             return true;
         }
-        self.items.iter().any(|&(d, g)| !matches!(d, Dep::Setting(_)) && !stands(d, g, committed(d, db)))
+        self.items
+            .iter()
+            .any(|&(d, g)| !matches!(d, Dep::Setting(_)) && !stands(d, g, committed(d, db)))
     }
 
     /// Why `current` answers false, for a report (cold: a retired entry's next lowering costs far more): the first
@@ -183,12 +192,16 @@ impl Deps {
             if self.own != l2cache::own_seq() {
                 return Some("this backend's own DDL moved".to_string()); // alloc: Cold
             }
-        } else if l2cache::private_build_mode() && (!l2cache::private_by_own_ddl_only() || self.touched_by_own_ddl()) {
+        } else if l2cache::private_build_mode()
+            && (!l2cache::private_by_own_ddl_only() || self.touched_by_own_ddl())
+        {
             return Some("a private build".to_string()); // alloc: Cold
         }
         self.items.iter().find_map(|&(d, g)| {
             let (now, lag) = capture(d);
-            (lag || !stands(d, g, now)).then(|| format!("{d:?}@{g}->{now}{}", if lag { " (lagging)" } else { "" })) // alloc: Cold
+            (lag || !stands(d, g, now))
+                .then(|| format!("{d:?}@{g}->{now}{}", if lag { " (lagging)" } else { "" }))
+            // alloc: Cold
         })
     }
 
@@ -211,7 +224,10 @@ impl Deps {
 
     /// D4010: every setting read holds its value now (a setting moves no view, so `current_since` asks at every ask).
     fn settings_hold(&self) -> bool {
-        self.items.iter().take_while(|e| matches!(e.0, Dep::Setting(_))).all(|&(d, g)| capture(d) == (g, false))
+        self.items
+            .iter()
+            .take_while(|e| matches!(e.0, Dep::Setting(_)))
+            .all(|&(d, g)| capture(d) == (g, false))
     }
 
     /// `other`'s dependencies too, at the older generation where both hold one (the plan's own lists beside what the
@@ -222,7 +238,13 @@ impl Deps {
 
     /// The relations depended on.
     pub fn rels(&self) -> impl Iterator<Item = Oid> + '_ {
-        self.items.iter().filter_map(|e| if let Dep::Rel(r) | Dep::Stats(r) = e.0 { Some(r) } else { None })
+        self.items.iter().filter_map(|e| {
+            if let Dep::Rel(r) | Dep::Stats(r) = e.0 {
+                Some(r)
+            } else {
+                None
+            }
+        })
     }
 
     /// What is depended on, without the generations: two plans' lists name the same objects iff their identities agree
@@ -240,7 +262,9 @@ impl Deps {
             return None;
         }
         let ws = self.items.iter().flat_map(|&(d, g)| [encode(d), g]);
-        Some(identity_of_words(core::iter::once(self.wraps.map_or(0, |w| w.wrapping_add(1))).chain(ws)))
+        Some(identity_of_words(
+            core::iter::once(self.wraps.map_or(0, |w| w.wrapping_add(1))).chain(ws),
+        ))
     }
 
     /// This thread's own uncommitted DDL registered an invalidation of a dependency (a superset: inval's summary).
@@ -255,7 +279,13 @@ impl Deps {
         for &(d, g) in &other.items {
             match self.items.binary_search_by(|e| e.0.cmp(&d)) {
                 Ok(i) if matches!(d, Dep::Setting(_)) => self.lagged |= self.items[i].1 != g,
-                Ok(i) => self.items[i].1 = if keyed(d) { l2cache::keyed_older(self.items[i].1, g) } else { self.items[i].1.min(g) },
+                Ok(i) => {
+                    self.items[i].1 = if keyed(d) {
+                        l2cache::keyed_older(self.items[i].1, g)
+                    } else {
+                        self.items[i].1.min(g)
+                    }
+                }
                 Err(i) => self.items.insert(i, (d, g)), // alloc: Cold
             }
         }
@@ -279,7 +309,9 @@ impl Deps {
 /// message of its cache (`prog_gen`), which a created row sends too.
 fn domain(d: Dep) -> l2cache::Domain {
     match d {
-        Dep::Setting(_) => unreachable!("gravity_deps: a setting has no catalog domain (capture reads its probe)"),
+        Dep::Setting(_) => {
+            unreachable!("gravity_deps: a setting has no catalog domain (capture reads its probe)")
+        }
         Dep::Rel(r) | Dep::Stats(r) => l2cache::Domain::Rel(r),
         Dep::Cat { cache, .. } | Dep::CatList(cache) => l2cache::Domain::Cat(i32::from(cache)),
     }
@@ -297,12 +329,19 @@ fn keyed(d: Dep) -> bool {
 /// `d` read at generation `then` stands at `now` (D4028: a keyed read unless both halves moved).
 #[inline]
 fn stands(d: Dep, then: u64, now: u64) -> bool {
-    if keyed(d) { l2cache::keyed_stands(then, now) } else { then == now }
+    if keyed(d) {
+        l2cache::keyed_stands(then, now)
+    } else {
+        then == now
+    }
 }
 
 fn capture(d: Dep) -> (u64, bool) {
     if let Dep::Setting(key) = d {
-        return SETTING_PROBE.get().and_then(|f| f(key)).map_or((u64::MAX, true), |v| (v, false));
+        return SETTING_PROBE
+            .get()
+            .and_then(|f| f(key))
+            .map_or((u64::MAX, true), |v| (v, false));
     }
     let dom = domain(d);
     let g = committed(d, init_small::globals::MyDatabaseId());
@@ -344,7 +383,9 @@ fn identity_of_words(ws: impl Iterator<Item = u64>) -> u128 {
     let (mut lo, mut hi) = (0xcbf2_9ce4_8422_2325u64, 0x6c62_272e_07bb_0142u64);
     for w in ws {
         lo = (lo ^ w).wrapping_mul(0x0000_0100_0000_01b3);
-        hi = (hi ^ w.rotate_left(29)).wrapping_mul(0x0000_0100_0000_01b3).rotate_left(17);
+        hi = (hi ^ w.rotate_left(29))
+            .wrapping_mul(0x0000_0100_0000_01b3)
+            .rotate_left(17);
     }
     (u128::from(hi) << 64) | u128::from(lo)
 }
@@ -397,7 +438,8 @@ static FREE_READS: AtomicU64 = AtomicU64::new(0);
 static FREE_FIRST: AtomicU64 = AtomicU64::new(0);
 
 fn rearm() {
-    let open = STACK.with(|s| s.try_borrow().map_or(true, |s| !s.is_empty())) || FREE.with(Cell::get) > 0;
+    let open =
+        STACK.with(|s| s.try_borrow().map_or(true, |s| !s.is_empty())) || FREE.with(Cell::get) > 0;
     ARMED.with(|a| a.set(open && SUPPRESS.with(Cell::get) == 0));
 }
 
@@ -441,7 +483,11 @@ impl Drop for Recording {
 fn pop(depth: usize) -> Deps {
     let mine = STACK.with(|s| {
         let mut s = s.borrow_mut();
-        debug_assert_eq!(s.len(), depth, "gravity_deps: recordings end innermost first");
+        debug_assert_eq!(
+            s.len(),
+            depth,
+            "gravity_deps: recordings end innermost first"
+        );
         let mine = s.pop().unwrap_or_default();
         if let Some(outer) = s.last_mut() {
             outer.merge(&mine);
@@ -468,12 +514,21 @@ impl Held {
     pub fn fill<T>(f: impl FnOnce() -> T) -> (T, Held) {
         let at = l2cache::view_moves();
         let (t, deps) = recording(f);
-        (t, Held { deps, mark: Cell::new(at) })
+        (
+            t,
+            Held {
+                deps,
+                mark: Cell::new(at),
+            },
+        )
     }
 
     /// Reads recorded elsewhere (an admission's), held: checked at its first ask.
     pub fn of(deps: Deps) -> Held {
-        Held { deps, mark: Cell::new(UNCHECKED) }
+        Held {
+            deps,
+            mark: Cell::new(UNCHECKED),
+        }
     }
 
     /// The reads stand (`Deps::current_since`); replayed into the asker's recording when they do.
@@ -518,11 +573,20 @@ impl Held {
     #[inline(never)]
     pub fn check(&self, holder: &'static str, same_again: impl FnOnce() -> bool) {
         let (same, again) = Held::fill(same_again);
-        let missed: Vec<Dep> = again.deps.iter().filter(|&d| !self.deps.covers(d)).take(6).collect(); // alloc: Cold
+        let missed: Vec<Dep> = again
+            .deps
+            .iter()
+            .filter(|&d| !self.deps.covers(d))
+            .take(6)
+            .collect(); // alloc: Cold
         let why = if !missed.is_empty() {
-            Some(format!("{holder}: its fill here read {missed:?}, which the entry's recorded reads miss ({} here, {} held)", again.deps.len(), self.deps.len())) // alloc: Cold
+            Some(format!("{holder}: its fill here read {missed:?}, which the entry's recorded reads miss ({} here, {} held)", again.deps.len(), self.deps.len()))
+        // alloc: Cold
         } else if !same {
-            Some(format!("{holder}: its fill here answers otherwise while the entry's reads stand ({} held)", self.deps.len())) // alloc: Cold
+            Some(format!(
+                "{holder}: its fill here answers otherwise while the entry's reads stand ({} held)",
+                self.deps.len()
+            )) // alloc: Cold
         } else {
             None
         };
@@ -622,7 +686,10 @@ fn encode(d: Dep) -> u64 {
 
 fn decode(e: u64) -> Dep {
     match e >> 62 {
-        2 => Dep::Cat { cache: (e >> 32) as u16 as i16, hash: e as u32 },
+        2 => Dep::Cat {
+            cache: (e >> 32) as u16 as i16,
+            hash: e as u32,
+        },
         3 => Dep::CatList((e >> 32) as u16 as i16),
         0 => Dep::Setting(e as u32),
         1 if e & (2 << 32) != 0 => Dep::Stats(e as u32),
@@ -749,7 +816,10 @@ pub fn note_stats(relid: Oid) {
 #[inline]
 pub fn note_cat(cache: i32, hash: u32) {
     if armed() {
-        note(Dep::Cat { cache: cache as i16, hash });
+        note(Dep::Cat {
+            cache: cache as i16,
+            hash,
+        });
     }
 }
 
@@ -771,7 +841,11 @@ pub fn note_support() {
 /// with the relcache invalidations of the objects its rows describe, as PostgreSQL's plancache takes it).
 pub fn note_catalog_scan(catalog: Oid) {
     if armed() {
-        SYSCACHE_RELOIDS.iter().enumerate().filter(|e| *e.1 == catalog).for_each(|(i, _)| note(Dep::CatList(i as i16)));
+        SYSCACHE_RELOIDS
+            .iter()
+            .enumerate()
+            .filter(|e| *e.1 == catalog)
+            .for_each(|(i, _)| note(Dep::CatList(i as i16)));
     }
 }
 
@@ -783,7 +857,9 @@ mod tests {
     static PATH_NOW: AtomicU64 = AtomicU64::new(7);
 
     fn path_now(key: u32) -> Option<u64> {
-        (key == SETTING_SEARCH_PATH).then(|| PATH_NOW.load(Relaxed)).filter(|&v| v != u64::MAX)
+        (key == SETTING_SEARCH_PATH)
+            .then(|| PATH_NOW.load(Relaxed))
+            .filter(|&v| v != u64::MAX)
     }
 
     /// D4010: a read under the search path holds while the path resolves as it did, with no view move in between (a SET
@@ -795,11 +871,17 @@ mod tests {
             note_setting(SETTING_SEARCH_PATH, 7);
             note_rel(30);
         });
-        assert_eq!(d.iter().collect::<Vec<_>>(), vec![Dep::Setting(SETTING_SEARCH_PATH), Dep::Rel(30)]);
+        assert_eq!(
+            d.iter().collect::<Vec<_>>(),
+            vec![Dep::Setting(SETTING_SEARCH_PATH), Dep::Rel(30)]
+        );
         let mark = Cell::new(UNCHECKED);
         assert!(d.current_since(&mark) && mark.get() != UNCHECKED);
         PATH_NOW.store(8, Relaxed);
-        assert!(!d.current_since(&mark), "the views did not move, the path did");
+        assert!(
+            !d.current_since(&mark),
+            "the views did not move, the path did"
+        );
         assert!(!d.current());
         PATH_NOW.store(u64::MAX, Relaxed);
         assert!(!d.current(), "a path the probe cannot read holds nothing");
@@ -814,7 +896,10 @@ mod tests {
         let mut m = d.clone();
         m.absorb(&e);
         assert!(m.lagged());
-        assert_eq!(decode(encode(Dep::Setting(SETTING_SEARCH_PATH))), Dep::Setting(SETTING_SEARCH_PATH));
+        assert_eq!(
+            decode(encode(Dep::Setting(SETTING_SEARCH_PATH))),
+            Dep::Setting(SETTING_SEARCH_PATH)
+        );
     }
 
     #[test]
@@ -836,8 +921,20 @@ mod tests {
             note_cat_list(82);
         });
         assert!(!armed());
-        assert_eq!(d.iter().collect::<Vec<_>>(), vec![Dep::Rel(11), Dep::Cat { cache: 47, hash: 0xabc }, Dep::CatList(82)]);
-        assert!(!d.contains(Dep::Rel(10)) && !d.contains(Dep::Rel(12)) && !d.contains(Dep::Rel(13)));
+        assert_eq!(
+            d.iter().collect::<Vec<_>>(),
+            vec![
+                Dep::Rel(11),
+                Dep::Cat {
+                    cache: 47,
+                    hash: 0xabc
+                },
+                Dep::CatList(82)
+            ]
+        );
+        assert!(
+            !d.contains(Dep::Rel(10)) && !d.contains(Dep::Rel(12)) && !d.contains(Dep::Rel(13))
+        );
     }
 
     #[test]
@@ -852,7 +949,10 @@ mod tests {
             }
             assert!(armed());
         });
-        assert_eq!(outer.iter().collect::<Vec<_>>(), vec![Dep::Rel(20), Dep::Rel(21), Dep::Rel(22)]);
+        assert_eq!(
+            outer.iter().collect::<Vec<_>>(),
+            vec![Dep::Rel(20), Dep::Rel(21), Dep::Rel(22)]
+        );
     }
 
     #[test]
@@ -877,19 +977,38 @@ mod tests {
                 assert!(armed());
                 note_cat(47, 0x41);
                 suppressed(|| note_rel(42));
-                std::thread::spawn(|| catalog_free(|| note_cat_list(19))).join().unwrap();
+                std::thread::spawn(|| catalog_free(|| note_cat_list(19)))
+                    .join()
+                    .unwrap();
             });
             note_rel(43);
         });
-        assert_eq!(d.iter().collect::<Vec<_>>(), vec![Dep::Rel(40), Dep::Rel(43)]);
+        assert_eq!(
+            d.iter().collect::<Vec<_>>(),
+            vec![Dep::Rel(40), Dep::Rel(43)]
+        );
         assert!(!armed());
         let (first, n) = take_free_read().expect("the reads in the regions");
         assert_eq!(n, 2);
-        assert!(first == Dep::Cat { cache: 47, hash: 0x41 } || first == Dep::CatList(19));
+        assert!(
+            first
+                == Dep::Cat {
+                    cache: 47,
+                    hash: 0x41
+                }
+                || first == Dep::CatList(19)
+        );
         assert_eq!(take_free_read(), None);
         catalog_free(|| ());
         assert!(!armed());
-        for d in [Dep::Rel(u32::MAX), Dep::Cat { cache: 84, hash: u32::MAX }, Dep::CatList(-1)] {
+        for d in [
+            Dep::Rel(u32::MAX),
+            Dep::Cat {
+                cache: 84,
+                hash: u32::MAX,
+            },
+            Dep::CatList(-1),
+        ] {
             assert_eq!(decode(encode(d)), d);
         }
     }
@@ -906,14 +1025,20 @@ mod tests {
             replay(&fill);
             suppressed(|| replay(&fill));
         });
-        assert_eq!(d.iter().collect::<Vec<_>>(), vec![Dep::Rel(50), Dep::Rel(51), Dep::CatList(19)]);
+        assert_eq!(
+            d.iter().collect::<Vec<_>>(),
+            vec![Dep::Rel(50), Dep::Rel(51), Dep::CatList(19)]
+        );
         let mut older = fill.clone();
         older.items.iter_mut().for_each(|e| e.1 = 0);
         let ((), m) = recording(|| {
             note_rel(50);
             replay(&older);
         });
-        assert!(m.items.iter().all(|e| e.1 == 0), "the older generation wins: {m:?}");
+        assert!(
+            m.items.iter().all(|e| e.1 == 0),
+            "the older generation wins: {m:?}"
+        );
     }
 
     #[test]
@@ -934,7 +1059,10 @@ mod tests {
     #[test]
     fn a_catalog_scan_notes_every_syscache_over_it() {
         let ((), d) = recording(|| note_catalog_scan(2602));
-        assert_eq!(d.iter().collect::<Vec<_>>(), vec![Dep::CatList(3), Dep::CatList(4)]);
+        assert_eq!(
+            d.iter().collect::<Vec<_>>(),
+            vec![Dep::CatList(3), Dep::CatList(4)]
+        );
         let ((), s) = recording(note_support);
         assert_eq!(s.len(), SUPPORT_LISTS.len());
     }
@@ -950,9 +1078,15 @@ mod tests {
         assert!(held.deps().contains(Dep::Rel(r)));
         let (ok, replayed) = recording(|| held.holds());
         assert!(ok, "nothing moved");
-        assert!(replayed.contains(Dep::Rel(r)), "a hit's recording holds what the fill read");
+        assert!(
+            replayed.contains(Dep::Rel(r)),
+            "a hit's recording holds what the fill read"
+        );
         l2cache::invalidate_key(l2cache::Domain::Rel(other), l2cache::rel_key(other, 0));
-        assert!(held.holds() || other & 1023 == r & 1023, "another relation moved");
+        assert!(
+            held.holds() || other & 1023 == r & 1023,
+            "another relation moved"
+        );
         l2cache::invalidate_key(l2cache::Domain::Rel(r), l2cache::rel_key(r, 0));
         let (ok, replayed) = recording(|| held.holds());
         assert!(!ok, "its read moved");
@@ -991,7 +1125,11 @@ mod tests {
         let db = init_small::globals::MyDatabaseId();
         let h1 = 0x0BAD_0001u32;
         let (s1, d1) = l2cache::row_slots_of(60, h1, db);
-        let h2 = (h1 + 1..).find(|&h| l2cache::row_slots_of(60, h, db).0 != s1 && l2cache::row_slots_of(60, h, db).1 != d1).unwrap();
+        let h2 = (h1 + 1..)
+            .find(|&h| {
+                l2cache::row_slots_of(60, h, db).0 != s1 && l2cache::row_slots_of(60, h, db).1 != d1
+            })
+            .unwrap();
         let ((), row) = recording(|| note_cat(60, h1));
         let ((), list) = recording(|| note_cat_list(60));
         assert!(row.current() && list.current());
@@ -1013,11 +1151,23 @@ mod tests {
         assert!(rel_only.current() && stats.current());
         l2cache::invalidate_rel_part(r, db, false);
         l2cache::sync_view(l2cache::Domain::Rel(r));
-        assert!(rel_only.current() && stats.current(), "D3890: the triggers' scope moves nothing a lowering read");
+        assert!(
+            rel_only.current() && stats.current(),
+            "D3890: the triggers' scope moves nothing a lowering read"
+        );
         l2cache::invalidate_rel_part(r, db, true);
         l2cache::sync_view(l2cache::Domain::Rel(r));
-        assert!(rel_only.current() && !stats.current(), "D3889: a storage-scoped message moves the storage only");
-        for d in [Dep::Rel(r), Dep::Stats(r), Dep::Stats(0), Dep::Rel(u32::MAX), Dep::Stats(u32::MAX)] {
+        assert!(
+            rel_only.current() && !stats.current(),
+            "D3889: a storage-scoped message moves the storage only"
+        );
+        for d in [
+            Dep::Rel(r),
+            Dep::Stats(r),
+            Dep::Stats(0),
+            Dep::Rel(u32::MAX),
+            Dep::Stats(u32::MAX),
+        ] {
             assert_eq!(decode(encode(d)), d);
         }
     }
@@ -1031,21 +1181,33 @@ mod tests {
             note_rel(r);
             true
         });
-        assert_eq!(take_miss(), None, "the fill read what the entry holds and answers alike");
+        assert_eq!(
+            take_miss(),
+            None,
+            "the fill read what the entry holds and answers alike"
+        );
         held.check("test memo", || {
             note_rel(r);
             note_rel(s);
             true
         });
         let m = take_miss().expect("a read the entry misses");
-        assert!(m.starts_with("test memo: its fill here read [Rel(") && m.contains(&format!("{s}")), "{m}");
+        assert!(
+            m.starts_with("test memo: its fill here read [Rel(") && m.contains(&format!("{s}")),
+            "{m}"
+        );
         held.check("test memo", || false);
         assert!(take_miss().is_some_and(|m| m.contains("answers otherwise")));
-        let ((), seen) = recording(|| held.check("test memo", || {
-            note_rel(r);
-            true
-        }));
-        assert!(seen.contains(Dep::Rel(r)), "the check's fill joins the asker's recording");
+        let ((), seen) = recording(|| {
+            held.check("test memo", || {
+                note_rel(r);
+                true
+            })
+        });
+        assert!(
+            seen.contains(Dep::Rel(r)),
+            "the check's fill joins the asker's recording"
+        );
         assert!(!checking());
         let on = Checking::set(true);
         assert!(checking());
@@ -1062,13 +1224,25 @@ mod tests {
             return;
         };
         let ((), again) = recording(|| note_rel(r));
-        assert_eq!(again.committed_stamp(), Some(s), "the same reads at the same generations: one stamp");
+        assert_eq!(
+            again.committed_stamp(),
+            Some(s),
+            "the same reads at the same generations: one stamp"
+        );
         let ((), other) = recording(|| note_rel(r + 1));
-        assert_ne!(other.committed_stamp(), Some(s), "another object: another stamp");
+        assert_ne!(
+            other.committed_stamp(),
+            Some(s),
+            "another object: another stamp"
+        );
         assert_ne!(Deps::default().committed_stamp(), Some(s));
         l2cache::invalidate_key(l2cache::Domain::Rel(r), l2cache::rel_key(r, 0));
         let ((), moved) = recording(|| note_rel(r));
-        assert_ne!(moved.committed_stamp(), Some(s), "a moved generation (or a view lagging it): never the old stamp");
+        assert_ne!(
+            moved.committed_stamp(),
+            Some(s),
+            "a moved generation (or a view lagging it): never the old stamp"
+        );
         let mut lag = again.clone();
         lag.lagged = true;
         assert_eq!(lag.committed_stamp(), None);
@@ -1084,14 +1258,28 @@ mod tests {
         let ((), rel_only) = recording(|| note_rel(r));
         let ((), stats) = recording(|| note_stats(r));
         let ((), setting) = recording(|| note_setting(SETTING_SEARCH_PATH, 5));
-        assert!(!rel_only.superseded_in(db) && !stats.superseded_in(db) && !setting.superseded_in(db));
+        assert!(
+            !rel_only.superseded_in(db) && !stats.superseded_in(db) && !setting.superseded_in(db)
+        );
         l2cache::invalidate_rel_part(r, db, true);
-        assert!(!rel_only.superseded_in(db) && stats.superseded_in(db), "a storage-scoped message supersedes the storage read only");
+        assert!(
+            !rel_only.superseded_in(db) && stats.superseded_in(db),
+            "a storage-scoped message supersedes the storage read only"
+        );
         l2cache::invalidate_key(l2cache::Domain::Rel(r), l2cache::rel_key(r, db));
-        assert!(rel_only.superseded_in(db) && stats.superseded_in(db), "a whole message supersedes the relation read too");
+        assert!(
+            rel_only.superseded_in(db) && stats.superseded_in(db),
+            "a whole message supersedes the relation read too"
+        );
         l2cache::sync_view(l2cache::Domain::Rel(r));
-        assert!(rel_only.superseded_in(db) && !rel_only.current(), "and it never stands again");
-        assert!(!setting.superseded_in(db), "a setting's value can come back: never superseded");
+        assert!(
+            rel_only.superseded_in(db) && !rel_only.current(),
+            "and it never stands again"
+        );
+        assert!(
+            !setting.superseded_in(db),
+            "a setting's value can come back: never superseded"
+        );
     }
 
     #[test]

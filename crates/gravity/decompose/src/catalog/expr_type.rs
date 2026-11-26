@@ -11,7 +11,9 @@ pub fn type_of(node: Node<'_>) -> Option<u32> {
     crate::walk::stack_check(); // D3748
     match node.node_tag() {
         NodeTag::T_TargetEntry => type_of(node.as_target_entry()?.expr),
-        NodeTag::T_AlternativeSubPlan => type_of(node.as_alternative_sub_plan()?.subplans.iter().next()?),
+        NodeTag::T_AlternativeSubPlan => {
+            type_of(node.as_alternative_sub_plan()?.subplans.iter().next()?)
+        }
         NodeTag::T_SubPlan if node.as_sub_plan()?.subLinkType == SubLinkType::ARRAY_SUBLINK => {
             crate::effects::builtin_promoted_array(node.as_sub_plan()?.firstColType)
         }
@@ -48,7 +50,10 @@ pub fn type_of_listed(e: Node<'_>) -> Option<u32> {
 pub fn collation_of(node: Node<'_>) -> u32 {
     crate::walk::stack_check(); // D3748
     match node.node_tag() {
-        NodeTag::T_TargetEntry => node.as_target_entry().map(|t| collation_of(t.expr)).unwrap_or(0),
+        NodeTag::T_TargetEntry => node
+            .as_target_entry()
+            .map(|t| collation_of(t.expr))
+            .unwrap_or(0),
         t if is_expr(t) => nodes_core::expr_collation(node),
         _ => 0,
     }
@@ -70,14 +75,54 @@ fn is_expr(t: NodeTag) -> bool {
     use NodeTag::*;
     matches!(
         t,
-        T_Var | T_Const | T_Param | T_Aggref | T_GroupingFunc | T_WindowFunc | T_MergeSupportFunc | T_SubscriptingRef
-            | T_FuncExpr | T_NamedArgExpr | T_OpExpr | T_DistinctExpr | T_NullIfExpr | T_ScalarArrayOpExpr | T_BoolExpr
-            | T_SubPlan | T_AlternativeSubPlan | T_FieldSelect | T_FieldStore | T_RelabelType | T_CoerceViaIO
-            | T_ArrayCoerceExpr | T_ConvertRowtypeExpr | T_CollateExpr | T_CaseExpr | T_CaseTestExpr | T_ArrayExpr
-            | T_RowExpr | T_RowCompareExpr | T_CoalesceExpr | T_MinMaxExpr | T_SQLValueFunction | T_XmlExpr
-            | T_JsonValueExpr | T_JsonConstructorExpr | T_JsonIsPredicate | T_JsonExpr | T_JsonBehavior | T_NullTest
-            | T_BooleanTest | T_CoerceToDomain | T_CoerceToDomainValue | T_SetToDefault | T_CurrentOfExpr
-            | T_NextValueExpr | T_InferenceElem | T_ReturningExpr | T_PlaceHolderVar
+        T_Var
+            | T_Const
+            | T_Param
+            | T_Aggref
+            | T_GroupingFunc
+            | T_WindowFunc
+            | T_MergeSupportFunc
+            | T_SubscriptingRef
+            | T_FuncExpr
+            | T_NamedArgExpr
+            | T_OpExpr
+            | T_DistinctExpr
+            | T_NullIfExpr
+            | T_ScalarArrayOpExpr
+            | T_BoolExpr
+            | T_SubPlan
+            | T_AlternativeSubPlan
+            | T_FieldSelect
+            | T_FieldStore
+            | T_RelabelType
+            | T_CoerceViaIO
+            | T_ArrayCoerceExpr
+            | T_ConvertRowtypeExpr
+            | T_CollateExpr
+            | T_CaseExpr
+            | T_CaseTestExpr
+            | T_ArrayExpr
+            | T_RowExpr
+            | T_RowCompareExpr
+            | T_CoalesceExpr
+            | T_MinMaxExpr
+            | T_SQLValueFunction
+            | T_XmlExpr
+            | T_JsonValueExpr
+            | T_JsonConstructorExpr
+            | T_JsonIsPredicate
+            | T_JsonExpr
+            | T_JsonBehavior
+            | T_NullTest
+            | T_BooleanTest
+            | T_CoerceToDomain
+            | T_CoerceToDomainValue
+            | T_SetToDefault
+            | T_CurrentOfExpr
+            | T_NextValueExpr
+            | T_InferenceElem
+            | T_ReturningExpr
+            | T_PlaceHolderVar
     )
 }
 

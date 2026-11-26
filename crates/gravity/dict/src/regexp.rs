@@ -18,7 +18,9 @@ pub fn compile(pattern: &[u8]) -> Option<Program> {
 /// locale such as tr_TR, where `i`'s upper case is `İ`, is not).
 pub fn compile_under(pattern: &[u8], ascii_cases: impl FnOnce() -> bool) -> Option<Program> {
     match pattern.strip_prefix(b"(?i)") {
-        Some(rest) if ascii_cases() => Program::compile_folded(rest).filter(Program::longest_is_first),
+        Some(rest) if ascii_cases() => {
+            Program::compile_folded(rest).filter(Program::longest_is_first)
+        }
         Some(_) => None,
         None => compile(pattern),
     }
@@ -44,7 +46,14 @@ pub struct FlagsForm {
 /// - expanded (`'x'`) drops white space and `#` comments: an ASCII pattern with no white space and no `#` means the same
 ///   (a non-ASCII character may be the collation's white space).
 pub fn flags_form(flags: &[u8], pattern: &[u8]) -> Option<FlagsForm> {
-    let (mut form, mut nl, mut expanded) = (FlagsForm { global: false, icase: false }, false, false);
+    let (mut form, mut nl, mut expanded) = (
+        FlagsForm {
+            global: false,
+            icase: false,
+        },
+        false,
+        false,
+    );
     for &c in flags {
         match c {
             b'g' => form.global = true,
@@ -69,7 +78,11 @@ pub fn flags_form(flags: &[u8], pattern: &[u8]) -> Option<FlagsForm> {
         }
         true
     };
-    let plain = || pattern.iter().all(|&b| b.is_ascii() && !b.is_ascii_whitespace() && b != 0x0B && b != b'#');
+    let plain = || {
+        pattern
+            .iter()
+            .all(|&b| b.is_ascii() && !b.is_ascii_whitespace() && b != 0x0B && b != b'#')
+    };
     ((!nl || newline_free()) && (!expanded || plain())).then_some(form)
 }
 
@@ -98,7 +111,14 @@ pub const MEMO_BYTES: usize = 256;
 
 impl Memo {
     pub const fn new() -> Memo {
-        Memo { prefix: [0; MEMO_BYTES], plen: usize::MAX, cap: (0, 0), hits: 0, runs: 0, sets: 0 }
+        Memo {
+            prefix: [0; MEMO_BYTES],
+            plen: usize::MAX,
+            cap: (0, 0),
+            hits: 0,
+            runs: 0,
+            sets: 0,
+        }
     }
 }
 
@@ -114,7 +134,14 @@ impl Default for Memo {
 /// table's one loop), and out of line the call's argument and result traffic per entry cost a GROUP BY over
 /// `regexp_replace` of a dictionary text column 7 % more instructions (D3424).
 #[inline(always)]
-pub fn replace_first_memo(prog: &Program, tmpl: &Template, rep: &[u8], hay: &[u8], region: &mut Region, memo: &mut Memo) -> Result<Option<View>, BuildError> {
+pub fn replace_first_memo(
+    prog: &Program,
+    tmpl: &Template,
+    rep: &[u8],
+    hay: &[u8],
+    region: &mut Region,
+    memo: &mut Memo,
+) -> Result<Option<View>, BuildError> {
     if memo.plen <= hay.len() && hay[..memo.plen] == memo.prefix[..memo.plen] {
         memo.hits += 1;
         return Ok(Some(View::of(&hay[memo.cap.0..memo.cap.1])));
@@ -135,7 +162,12 @@ pub fn replace_first_memo(prog: &Program, tmpl: &Template, rep: &[u8], hay: &[u8
     };
     let group = f.group;
     // remembered when the decision and the group lie inside the compared prefix
-    if !f.saw_end && f.read <= MEMO_BYTES && f.read <= hay.len() && group.1 <= f.read && matches!(tmpl.pieces[0], Piece::Group(_)) {
+    if !f.saw_end
+        && f.read <= MEMO_BYTES
+        && f.read <= hay.len()
+        && group.1 <= f.read
+        && matches!(tmpl.pieces[0], Piece::Group(_))
+    {
         memo.prefix[..f.read].copy_from_slice(&hay[..f.read]);
         memo.plen = f.read;
         memo.cap = group;
@@ -164,7 +196,10 @@ impl Template {
         if rep.len() > u16::MAX as usize {
             return None;
         }
-        let mut t = Template { pieces: [Piece::Whole; MAX_PIECES], n: 0 };
+        let mut t = Template {
+            pieces: [Piece::Whole; MAX_PIECES],
+            n: 0,
+        };
         let (mut i, mut start) = (0usize, 0usize);
         while i < rep.len() {
             if rep[i] != b'\\' {
@@ -235,7 +270,13 @@ impl Template {
 /// `regexp_replace(hay, pattern, replacement)` (the first match): the subject itself when the pattern does not match; a
 /// subslice of `hay` for a single-group template over a match of the whole subject; otherwise the result copied into
 /// `region`. `None`: the program refused the subject (its budget); the caller's engine answers it.
-pub fn replace_first(prog: &Program, tmpl: &Template, rep: &[u8], hay: &[u8], region: &mut Region) -> Result<Option<View>, BuildError> {
+pub fn replace_first(
+    prog: &Program,
+    tmpl: &Template,
+    rep: &[u8],
+    hay: &[u8],
+    region: &mut Region,
+) -> Result<Option<View>, BuildError> {
     let f = match prog.find(hay, 0) {
         Outcome::Match(f) => f,
         Outcome::NoMatch => return Ok(Some(View::of(hay))),
@@ -247,7 +288,13 @@ pub fn replace_first(prog: &Program, tmpl: &Template, rep: &[u8], hay: &[u8], re
 /// `hay` with match `f` replaced: a subslice of `hay` for a single-group template over a match of the whole subject,
 /// otherwise the result copied into `region` in one piece.
 #[inline(always)]
-fn replace_one(tmpl: &Template, rep: &[u8], f: &Found, hay: &[u8], region: &mut Region) -> Result<View, BuildError> {
+fn replace_one(
+    tmpl: &Template,
+    rep: &[u8],
+    f: &Found,
+    hay: &[u8],
+    region: &mut Region,
+) -> Result<View, BuildError> {
     let whole = &hay[f.start..f.end];
     if tmpl.single_group() && f.start == 0 && f.end == hay.len() {
         return Ok(View::of(match tmpl.pieces[0] {
@@ -266,7 +313,10 @@ fn replace_one(tmpl: &Template, rep: &[u8], f: &Found, hay: &[u8], region: &mut 
     put(&hay[..f.start]);
     tmpl.emit(rep, f, hay, &mut put);
     put(&hay[f.end..]);
-    Ok(View { ptr: dst, len: total as u32 })
+    Ok(View {
+        ptr: dst,
+        len: total as u32,
+    })
 }
 
 /// `regexp_replace(hay, pattern, replacement, 'g')`: every match replaced, in PostgreSQL's order (varlena.c
@@ -276,7 +326,13 @@ fn replace_one(tmpl: &Template, rep: &[u8], f: &Found, hay: &[u8], region: &mut 
 /// turn (nothing else allocates in the region meanwhile, so the pieces lie end to end from the first). An anchored
 /// program matches at the subject's start only (`^` never holds past it: no newline-sensitive flag in the subset), so
 /// it answers as `replace_first`. `None`: the program refused a search (its budget); the caller's engine answers.
-pub fn replace_all(prog: &Program, tmpl: &Template, rep: &[u8], hay: &[u8], region: &mut Region) -> Result<Option<View>, BuildError> {
+pub fn replace_all(
+    prog: &Program,
+    tmpl: &Template,
+    rep: &[u8],
+    hay: &[u8],
+    region: &mut Region,
+) -> Result<Option<View>, BuildError> {
     let mut f = match prog.find(hay, 0) {
         Outcome::Match(f) => f,
         Outcome::NoMatch => return Ok(Some(View::of(hay))),
@@ -288,7 +344,11 @@ pub fn replace_all(prog: &Program, tmpl: &Template, rep: &[u8], hay: &[u8], regi
         Outcome::NoMatch => return replace_one(tmpl, rep, &f, hay, region).map(Some),
         Outcome::Refused => return Ok(None),
     };
-    let mut out = Append { first: core::ptr::null_mut(), len: 0, err: None };
+    let mut out = Append {
+        first: core::ptr::null_mut(),
+        len: 0,
+        err: None,
+    };
     let mut copied = 0usize;
     // bounded("other: each turn consumes at least one character of the subject, or a match ends the loop at its end")
     loop {
@@ -309,7 +369,14 @@ pub fn replace_all(prog: &Program, tmpl: &Template, rep: &[u8], hay: &[u8], regi
     if let Some(e) = out.err {
         return Err(e);
     }
-    Ok(Some(View { ptr: if out.first.is_null() { hay.as_ptr() } else { out.first }, len: out.len as u32 }))
+    Ok(Some(View {
+        ptr: if out.first.is_null() {
+            hay.as_ptr()
+        } else {
+            out.first
+        },
+        len: out.len as u32,
+    }))
 }
 
 /// PostgreSQL's next search after match `f` (`replace_text_regexp`): from its end, one character further after an empty
@@ -420,7 +487,9 @@ pub fn required_literal(pattern: &[u8]) -> Option<(usize, usize)> {
                         // D3570: an escape inside the bracket (`[-_\]]`): the escaped byte is a member, never its end
                         Some(b'\\') => i += 2,
                         Some(b'[') => {
-                            let end = pattern[i..].windows(2).position(|w| w[1] == b']' && matches!(w[0], b':' | b'.' | b'='))?;
+                            let end = pattern[i..]
+                                .windows(2)
+                                .position(|w| w[1] == b']' && matches!(w[0], b':' | b'.' | b'='))?;
                             i += end + 2;
                         }
                         Some(_) => i += 1,
@@ -429,9 +498,20 @@ pub fn required_literal(pattern: &[u8]) -> Option<(usize, usize)> {
                 i += 1;
             }
             b'*' | b'+' | b'?' | b'{' => {
-                let at_least_once = b == b'+' || (b == b'{' && pattern.get(i + 1).is_some_and(|&d| (b'1'..=b'9').contains(&d)));
+                let at_least_once = b == b'+'
+                    || (b == b'{'
+                        && pattern
+                            .get(i + 1)
+                            .is_some_and(|&d| (b'1'..=b'9').contains(&d)));
                 if let Some(s) = run_start {
-                    let last = if at_least_once { i } else { pattern[s..i].iter().rposition(|&c| !continuation(c)).map_or(i, |p| s + p) };
+                    let last = if at_least_once {
+                        i
+                    } else {
+                        pattern[s..i]
+                            .iter()
+                            .rposition(|&c| !continuation(c))
+                            .map_or(i, |p| s + p)
+                    };
                     close(&mut run_start, last, &mut best);
                 }
                 if b == b'{' {

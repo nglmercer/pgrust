@@ -24,7 +24,16 @@ pub(super) struct PullCell {
 
 impl PullCell {
     pub(super) fn new(pull: Box<dyn Fn() -> types_error::PgResult<bool>>) -> Box<PullCell> {
-        Box::new(PullCell { head: PullHead { magic: PULL_MAGIC, op, hold }, pull, held: RefCell::new(None), raised: Cell::new(false) }) // alloc: Exec
+        Box::new(PullCell {
+            head: PullHead {
+                magic: PULL_MAGIC,
+                op,
+                hold,
+            },
+            pull,
+            held: RefCell::new(None),
+            raised: Cell::new(false),
+        }) // alloc: Exec
     }
 
     /// The handle word's value: the head's address (the cell is boxed: it stays put while the box lives).
@@ -43,7 +52,11 @@ impl Drop for PullCell {
 unsafe fn op(h: *mut PullHead, _ctx: *mut Ctx) -> i64 {
     // SAFETY: `h` is the head of a live `PullCell` (`MergePull` checked its magic), laid for this execution.
     let cell = &*h.cast::<PullCell>();
-    let Ok(mut held) = cell.held.try_borrow_mut() else { return fail(glue::internal("gravity: merge.join's pulled inner entered inside its own call")) };
+    let Ok(mut held) = cell.held.try_borrow_mut() else {
+        return fail(glue::internal(
+            "gravity: merge.join's pulled inner entered inside its own call",
+        ));
+    };
     if let Some(e) = held.take() {
         cell.raised.set(true);
         return fail(e);
@@ -64,7 +77,11 @@ unsafe fn op(h: *mut PullHead, _ctx: *mut Ctx) -> i64 {
 unsafe fn hold(h: *mut PullHead, _ctx: *mut Ctx) -> i64 {
     // SAFETY: `h` is the head of a live `PullCell` (`MergeHold` checked its magic), laid for this execution.
     let cell = &*h.cast::<PullCell>();
-    let Ok(mut held) = cell.held.try_borrow_mut() else { return fail(glue::internal("gravity: merge.join's pulled inner held inside its own call")) };
+    let Ok(mut held) = cell.held.try_borrow_mut() else {
+        return fail(glue::internal(
+            "gravity: merge.join's pulled inner held inside its own call",
+        ));
+    };
     match gravity_fn::take_error() {
         None => ERROR,
         Some(e) if held.is_none() && !cell.raised.get() && super::proto::holdable(&e) => {

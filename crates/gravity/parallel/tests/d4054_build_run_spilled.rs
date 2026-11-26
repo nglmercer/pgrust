@@ -51,7 +51,18 @@ impl Merge for Build {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn own_partition(&self, _owner: Region, _part: u32, _pbits: u8, _partials: &[Partial<'_>], _files: &[&dyn SpillFile], _site: *mut gravity_abi::Site, _cancel: *const u8, _round: u8, _flush: Flush<'_>) -> Result<()> {
+    fn own_partition(
+        &self,
+        _owner: Region,
+        _part: u32,
+        _pbits: u8,
+        _partials: &[Partial<'_>],
+        _files: &[&dyn SpillFile],
+        _site: *mut gravity_abi::Site,
+        _cancel: *const u8,
+        _round: u8,
+        _flush: Flush<'_>,
+    ) -> Result<()> {
         Err(Error::host("an owner fold over a build's partition files"))
     }
 }
@@ -92,7 +103,9 @@ unsafe extern "C-unwind" fn k_arm(ctx: *mut Ctx) -> i64 {
 
 /// The finish's mark read back from the consumed slot.
 unsafe extern "C-unwind" fn k_emit_mark(ctx: *mut Ctx) -> i64 {
-    let v = [core::ptr::read_unaligned(consumed(ctx, 0).add(MARK_AT) as *const u64)];
+    let v = [core::ptr::read_unaligned(
+        consumed(ctx, 0).add(MARK_AT) as *const u64
+    )];
     let n = [0u8; 1];
     if emit(ctx, 1, &[(v.as_ptr(), n.as_ptr(), 1)]) < 0 || flush(ctx) < 0 {
         return ERROR;
@@ -105,14 +118,37 @@ fn p_build_run(rel: u32, rows: u64) -> Program {
     let st = gravity_program::Arena::new(1 << 12);
     let sites = [SiteDesc::range_source(st.handle(), rel, &[1, 2])];
     let out = [OutCol::new("mark", 20, -1, 8, true)];
-    let b = End::Breaker(Breaker { kind: BreakerKind::HashBuild, slot: 0, bytes: 0, budget: Budget::Share, spill: Spill::Partitioned { bits: BITS } });
+    let b = End::Breaker(Breaker {
+        kind: BreakerKind::HashBuild,
+        slot: 0,
+        bytes: 0,
+        budget: Budget::Share,
+        spill: Spill::Partitioned { bits: BITS },
+    });
     let pipes = [
         (Pipeline::eligible(0, b, rows), Code::hand(k_arm_spills)),
         (Pipeline::eligible(0, b, rows), Code::hand(k_arm)),
-        (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming(&[0]), Code::hand(k_emit_mark)),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming(&[0]),
+            Code::hand(k_emit_mark),
+        ),
     ];
-    let mut p = Program::with_pipelines(Layout { nsites: 1, out_natts: 1, out_rows: 64, scratch_bytes: 0, exec_bytes: 0 }, &sites, &out, WritePlan::SELECT, pipes);
-    p.set_v4(&V4Descs::new(vec![Proto::new(ProtoKind::Arms, 0).slot(0).arg(2)]));
+    let mut p = Program::with_pipelines(
+        Layout {
+            nsites: 1,
+            out_natts: 1,
+            out_rows: 64,
+            scratch_bytes: 0,
+            exec_bytes: 0,
+        },
+        &sites,
+        &out,
+        WritePlan::SELECT,
+        pipes,
+    );
+    p.set_v4(&V4Descs::new(vec![Proto::new(ProtoKind::Arms, 0)
+        .slot(0)
+        .arg(2)]));
     p
 }
 
@@ -126,7 +162,11 @@ impl Plan for Building {
         self.0.claims_for(p)
     }
     fn merge_for(&self, p: usize) -> &dyn Merge {
-        if p < 2 { &self.1 } else { self.0.merge_for(p) }
+        if p < 2 {
+            &self.1
+        } else {
+            self.0.merge_for(p)
+        }
     }
     fn after_pipeline(&self, p: usize, exec: &mut gravity_driver::Exec) -> Result<()> {
         self.0.after_pipeline(p, exec)
@@ -144,14 +184,40 @@ fn served_at(w: u16) {
     let mut entry = gravity_driver::Entry::new(2);
     let plan = Building(FixturePlan::new(&program, &derive, w, 3), Build::default());
     let mut sink = LegSink::new(true);
-    let r = run_spilling(&mut entry, &program, &mut derive, &pool, &plan, Grant::of(64 << 20), &[0u64], &NO_ABORT, &mut sink);
-    let (rows, spilled, parts, _) = r.unwrap_or_else(|e| panic!("width {w}: the run's last arm finishes with no owner fold and no refusal: {e:?}"));
-    assert!(spilled && parts == 1 << BITS, "width {w}: the first arm's partition file is the slot's stream ({parts} partitions)");
+    let r = run_spilling(
+        &mut entry,
+        &program,
+        &mut derive,
+        &pool,
+        &plan,
+        Grant::of(64 << 20),
+        &[0u64],
+        &NO_ABORT,
+        &mut sink,
+    );
+    let (rows, spilled, parts, _) = r.unwrap_or_else(|e| {
+        panic!("width {w}: the run's last arm finishes with no owner fold and no refusal: {e:?}")
+    });
+    assert!(
+        spilled && parts == 1 << BITS,
+        "width {w}: the first arm's partition file is the slot's stream ({parts} partitions)"
+    );
     assert_eq!(rows, 1, "width {w}: served");
-    assert_eq!(sink.sorted(), vec![vec![MARK]], "width {w}: the finish's mark in the region the consumer reads");
-    assert_eq!(plan.1.finished.load(Ordering::Relaxed), 1, "width {w}: one finish, the last arm's");
+    assert_eq!(
+        sink.sorted(),
+        vec![vec![MARK]],
+        "width {w}: the finish's mark in the region the consumer reads"
+    );
+    assert_eq!(
+        plan.1.finished.load(Ordering::Relaxed),
+        1,
+        "width {w}: one finish, the last arm's"
+    );
     if w > 1 {
-        assert!(plan.1.merged.load(Ordering::Relaxed) > 0, "width {w}: the arms ran as sections (their partials folded)");
+        assert!(
+            plan.1.merged.load(Ordering::Relaxed) > 0,
+            "width {w}: the arms ran as sections (their partials folded)"
+        );
     }
 }
 

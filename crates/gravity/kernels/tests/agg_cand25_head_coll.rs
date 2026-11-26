@@ -7,7 +7,10 @@
 use core::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 use gravity_abi::breaker::{KeyKind, RecordLayout, SlotKind, LAYOUT_WORDS};
 use gravity_abi::{Ctx, Site};
-use gravity_kernels::host_abi::{agg_sort, EmitState, DESC_BYTES, DESC_FORM, DESC_LAYOUT, DESC_NSORT, DESC_SORT, FORM_BOUND_SHIFT, SK_DESC, SK_HEAP, SK_TEXT, SK_TEXT_COLL_SHIFT};
+use gravity_kernels::host_abi::{
+    agg_sort, EmitState, DESC_BYTES, DESC_FORM, DESC_LAYOUT, DESC_NSORT, DESC_SORT,
+    FORM_BOUND_SHIFT, SK_DESC, SK_HEAP, SK_TEXT, SK_TEXT_COLL_SHIFT,
+};
 
 /// Not 0: a collation the lowering leaves on the word (ICU, libc, a non-C database default).
 const COLL: u64 = 12345;
@@ -37,7 +40,9 @@ static CALLS: AtomicUsize = AtomicUsize::new(0);
 fn icu_like(a: &[u8], b: &[u8]) -> i32 {
     let primary = |s: &[u8]| s.iter().map(|c| c.to_ascii_lowercase()).collect::<Vec<_>>();
     let tertiary = |s: &[u8]| s.iter().map(|c| c.is_ascii_uppercase()).collect::<Vec<_>>();
-    primary(a).cmp(&primary(b)).then_with(|| tertiary(a).cmp(&tertiary(b))) as i32
+    primary(a)
+        .cmp(&primary(b))
+        .then_with(|| tertiary(a).cmp(&tertiary(b))) as i32
 }
 
 fn arm_seam() {
@@ -71,21 +76,36 @@ fn sorted(coll: u64, desc: bool, bound: Option<usize>) -> Vec<&'static str> {
         })
         .collect();
     let mut ptrs: Vec<*const u8> = recs.iter_mut().map(|r| r.as_ptr() as *const u8).collect();
-    let mut st = EmitState { ptrs: ptrs.as_mut_ptr(), len: KEYS.len() as u64, kept: KEYS.len() as u64 };
+    let mut st = EmitState {
+        ptrs: ptrs.as_mut_ptr(),
+        len: KEYS.len() as u64,
+        kept: KEYS.len() as u64,
+    };
     let mut desc_words = vec![0u64; DESC_BYTES as usize / 8];
     let lw: [u64; LAYOUT_WORDS] = LAYOUT.words();
     desc_words[DESC_LAYOUT / 8..DESC_LAYOUT / 8 + LAYOUT_WORDS].copy_from_slice(&lw);
     desc_words[DESC_FORM / 8] = bound.map_or(0, |n| (n as u64 + 1) << FORM_BOUND_SHIFT);
     desc_words[DESC_NSORT / 8] = 1;
-    desc_words[DESC_SORT / 8] = SK_TEXT | coll << SK_TEXT_COLL_SHIFT | if desc { SK_DESC } else { 0 };
-    assert_eq!(desc_words[DESC_SORT / 8] & SK_HEAP, 0, "a dictionary-coded key: the road takes its images in code order");
+    desc_words[DESC_SORT / 8] =
+        SK_TEXT | coll << SK_TEXT_COLL_SHIFT | if desc { SK_DESC } else { 0 };
+    assert_eq!(
+        desc_words[DESC_SORT / 8] & SK_HEAP,
+        0,
+        "a dictionary-coded key: the road takes its images in code order"
+    );
     // SAFETY: a site and a ctx are plain words; zero is their closed state.
     let mut site: Site = unsafe { core::mem::zeroed() };
     site.dict = Some(dict);
     let mut ctx: Ctx = unsafe { core::mem::zeroed() };
     ctx.sites = &mut site;
     // SAFETY: `st` holds live records of `LAYOUT`, `desc_words` a descriptor of it; site 0 renders through `dict`.
-    let r = unsafe { agg_sort(&mut ctx as *mut _ as u64, (&mut st as *mut EmitState as *mut u8) as u64, (desc_words.as_ptr() as *const u8) as u64) };
+    let r = unsafe {
+        agg_sort(
+            &mut ctx as *mut _ as u64,
+            (&mut st as *mut EmitState as *mut u8) as u64,
+            (desc_words.as_ptr() as *const u8) as u64,
+        )
+    };
     assert_eq!(r, 0);
     let n = bound.unwrap_or(KEYS.len());
     ptrs[..n]
@@ -103,12 +123,23 @@ fn a_collation_left_on_the_word_orders_every_compare_and_takes_no_head() {
     arm_seam();
     let icu = ["a", "A", "ab", "aB", "Ab", "b", "B", "BA"];
     let before = CALLS.load(Relaxed);
-    assert_eq!(sorted(COLL, false, None), icu, "the collation's order, not the bytes' (a head would give A Ab B BA a aB ab b)");
-    assert!(CALLS.load(Relaxed) > before, "the collation's compare ordered the records");
+    assert_eq!(
+        sorted(COLL, false, None),
+        icu,
+        "the collation's order, not the bytes' (a head would give A Ab B BA a aB ab b)"
+    );
+    assert!(
+        CALLS.load(Relaxed) > before,
+        "the collation's compare ordered the records"
+    );
     let mut rev = icu;
     rev.reverse();
     assert_eq!(sorted(COLL, true, None), rev, "DESC");
-    assert_eq!(sorted(COLL, false, Some(3)), icu[..3], "a top's cut: the bounded select under the same comparator");
+    assert_eq!(
+        sorted(COLL, false, Some(3)),
+        icu[..3],
+        "a top's cut: the bounded select under the same comparator"
+    );
     assert_eq!(sorted(COLL, true, Some(2)), rev[..2], "DESC cut");
 }
 
@@ -116,7 +147,11 @@ fn a_collation_left_on_the_word_orders_every_compare_and_takes_no_head() {
 fn collation_zero_orders_by_bytes_with_heads() {
     arm_seam();
     let bytes = ["A", "Ab", "B", "BA", "a", "aB", "ab", "b"];
-    assert_eq!(sorted(0, false, None), bytes, "a byte-ordered collation (C / POSIX / a C default, cleared to 0): bytes, then length");
+    assert_eq!(
+        sorted(0, false, None),
+        bytes,
+        "a byte-ordered collation (C / POSIX / a C default, cleared to 0): bytes, then length"
+    );
     let mut rev = bytes;
     rev.reverse();
     assert_eq!(sorted(0, true, Some(3)), rev[..3], "DESC cut");

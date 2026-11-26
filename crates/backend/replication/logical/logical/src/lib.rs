@@ -23,9 +23,9 @@ use types_core::{
     TransactionIdIsValid, TransactionIdPrecedes, XLogRecPtr,
 };
 use types_error::{
-    ErrorLocation, PgError, PgResult, ERRCODE_ACTIVE_SQL_TRANSACTION, ERRCODE_INSUFFICIENT_PRIVILEGE,
-    ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE, ERRCODE_PROGRAM_LIMIT_EXCEEDED, ERRCODE_SYNTAX_ERROR,
-    DEBUG1, ERROR, LOG,
+    ErrorLocation, PgError, PgResult, DEBUG1, ERRCODE_ACTIVE_SQL_TRANSACTION,
+    ERRCODE_INSUFFICIENT_PRIVILEGE, ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE,
+    ERRCODE_PROGRAM_LIMIT_EXCEEDED, ERRCODE_SYNTAX_ERROR, ERROR, LOG,
 };
 use types_rel::RelationData;
 use types_storage::storage::{PROC_ARRAY_LOCK, REPLICATION_SLOT_CONTROL_LOCK};
@@ -100,11 +100,10 @@ pub type RollbackPreparedCB = fn(
     &mut OutputPluginContext,
     &mut ReorderBuffer,
     TxnId,
-    XLogRecPtr,   // prepare_end_lsn
-    TimestampTz,  // prepare_time
+    XLogRecPtr,  // prepare_end_lsn
+    TimestampTz, // prepare_time
 ) -> PgResult<()>;
-pub type FilterPrepareCB =
-    fn(&mut OutputPluginContext, TransactionId, &str) -> PgResult<bool>;
+pub type FilterPrepareCB = fn(&mut OutputPluginContext, TransactionId, &str) -> PgResult<bool>;
 // Streaming family (logical.h): start/stop share BeginCB's shape; abort/
 // prepare/commit share CommitCB's (opc, rb, txn, lsn); change/message/
 // truncate mirror their non-stream counterparts.
@@ -666,7 +665,10 @@ pub fn CreateDecodingContext(
     let (receive_rewrites, mark_two_phase) = {
         let opc = ctx.opc();
         opc.twophase &= unsafe { slot.data.get() }.two_phase || opc.twophase_opt_given;
-        (opc.options.receive_rewrites, opc.twophase && !unsafe { slot.data.get() }.two_phase)
+        (
+            opc.options.receive_rewrites,
+            opc.twophase && !unsafe { slot.data.get() }.two_phase,
+        )
     };
     let mut ctx = ctx;
     // Mark slot to allow two_phase decoding if not already marked
@@ -760,7 +762,9 @@ impl LogicalDecodingContext {
 // XLogReaderFree (logical.c:753): every decoding reader's segment routine
 // closes through xlogutils' wal_segment_close.
 fn free_reader(mut reader: XLogReaderState<'_>) {
-    reader.XLogReaderFree(&mut LocalPageRead { wait_for_wal: false });
+    reader.XLogReaderFree(&mut LocalPageRead {
+        wait_for_wal: false,
+    });
     drop(reader);
 }
 
@@ -922,7 +926,11 @@ impl OutputPluginFrame {
             // SAFETY: the frame is popped before the wrapper returns, while
             // the decoding context owning `opc` is live.
             let opc = unsafe { &*opc };
-            e.add_context_line(output_plugin_context_line(opc, callback_name, report_location));
+            e.add_context_line(output_plugin_context_line(
+                opc,
+                callback_name,
+                report_location,
+            ));
         })))
     }
 }
@@ -1093,7 +1101,11 @@ pub(crate) fn twophase_from_callbacks(callbacks: &OutputPluginCallbacks) -> bool
         || callbacks.filter_prepare_cb.is_some()
 }
 
-fn stream_start_cb_wrapper(rb: &mut ReorderBuffer, txn: TxnId, first_lsn: XLogRecPtr) -> PgResult<()> {
+fn stream_start_cb_wrapper(
+    rb: &mut ReorderBuffer,
+    txn: TxnId,
+    first_lsn: XLogRecPtr,
+) -> PgResult<()> {
     let opc = opc_from_rb(rb);
     debug_assert!(!opc.fast_forward);
     debug_assert!(opc.streaming);
@@ -1110,7 +1122,11 @@ fn stream_start_cb_wrapper(rb: &mut ReorderBuffer, txn: TxnId, first_lsn: XLogRe
     with_output_plugin_context(opc, "stream_start", report_location, r)
 }
 
-fn stream_stop_cb_wrapper(rb: &mut ReorderBuffer, txn: TxnId, last_lsn: XLogRecPtr) -> PgResult<()> {
+fn stream_stop_cb_wrapper(
+    rb: &mut ReorderBuffer,
+    txn: TxnId,
+    last_lsn: XLogRecPtr,
+) -> PgResult<()> {
     let opc = opc_from_rb(rb);
     debug_assert!(!opc.fast_forward);
     debug_assert!(opc.streaming);
@@ -1127,7 +1143,11 @@ fn stream_stop_cb_wrapper(rb: &mut ReorderBuffer, txn: TxnId, last_lsn: XLogRecP
     with_output_plugin_context(opc, "stream_stop", report_location, r)
 }
 
-fn stream_abort_cb_wrapper(rb: &mut ReorderBuffer, txn: TxnId, abort_lsn: XLogRecPtr) -> PgResult<()> {
+fn stream_abort_cb_wrapper(
+    rb: &mut ReorderBuffer,
+    txn: TxnId,
+    abort_lsn: XLogRecPtr,
+) -> PgResult<()> {
     let opc = opc_from_rb(rb);
     debug_assert!(!opc.fast_forward);
     debug_assert!(opc.streaming);
@@ -1144,7 +1164,11 @@ fn stream_abort_cb_wrapper(rb: &mut ReorderBuffer, txn: TxnId, abort_lsn: XLogRe
     with_output_plugin_context(opc, "stream_abort", report_location, r)
 }
 
-fn stream_prepare_cb_wrapper(rb: &mut ReorderBuffer, txn: TxnId, prepare_lsn: XLogRecPtr) -> PgResult<()> {
+fn stream_prepare_cb_wrapper(
+    rb: &mut ReorderBuffer,
+    txn: TxnId,
+    prepare_lsn: XLogRecPtr,
+) -> PgResult<()> {
     let opc = opc_from_rb(rb);
     debug_assert!(!opc.fast_forward);
     debug_assert!(opc.streaming);
@@ -1166,7 +1190,11 @@ fn stream_prepare_cb_wrapper(rb: &mut ReorderBuffer, txn: TxnId, prepare_lsn: XL
     with_output_plugin_context(opc, "stream_prepare", report_location, r)
 }
 
-fn stream_commit_cb_wrapper(rb: &mut ReorderBuffer, txn: TxnId, commit_lsn: XLogRecPtr) -> PgResult<()> {
+fn stream_commit_cb_wrapper(
+    rb: &mut ReorderBuffer,
+    txn: TxnId,
+    commit_lsn: XLogRecPtr,
+) -> PgResult<()> {
     let opc = opc_from_rb(rb);
     debug_assert!(!opc.fast_forward);
     debug_assert!(opc.streaming);
@@ -1332,7 +1360,15 @@ fn message_cb_wrapper(
     opc.end_xact = false;
     let report_location = message_lsn;
     let _frame = OutputPluginFrame::push(opc, "message", report_location);
-    let r = cb(&mut *opc, rb, txn, message_lsn, transactional, prefix, message);
+    let r = cb(
+        &mut *opc,
+        rb,
+        txn,
+        message_lsn,
+        transactional,
+        prefix,
+        message,
+    );
     with_output_plugin_context(opc, "message", report_location, r)
 }
 
@@ -1441,7 +1477,11 @@ pub fn LogicalIncreaseRestartDecodingForSlot(
     if got_new {
         let _ = elog(
             DEBUG1,
-            format!("got new restart lsn {} at {}", f(restart_lsn), f(current_lsn)),
+            format!(
+                "got new restart lsn {} at {}",
+                f(restart_lsn),
+                f(current_lsn)
+            ),
         );
     }
     if let Some((cand_lsn, cand_valid, flushed)) = failed {
@@ -1489,7 +1529,9 @@ pub fn LogicalConfirmReceivedLocation(lsn: XLogRecPtr) -> PgResult<()> {
                 && unsafe { slot.candidate_xmin_lsn.get() } <= lsn
             {
                 let candidate = unsafe { slot.candidate_catalog_xmin.get() };
-                if TransactionIdIsValid(candidate) && unsafe { slot.data.get() }.catalog_xmin != candidate {
+                if TransactionIdIsValid(candidate)
+                    && unsafe { slot.data.get() }.catalog_xmin != candidate
+                {
                     let mut d = unsafe { slot.data.get() };
                     d.catalog_xmin = candidate;
                     unsafe { slot.data.set(d) };
@@ -1520,9 +1562,7 @@ pub fn LogicalConfirmReceivedLocation(lsn: XLogRecPtr) -> PgResult<()> {
                 let seg1 = transam_xlog::XLByteToSeg(old_restart_lsn, segsz);
                 let seg2 = transam_xlog::XLByteToSeg(unsafe { slot.data.get() }.restart_lsn, segsz);
                 if seg1 != seg2 {
-                    injection_point::injection_point(
-                        "logical-replication-slot-advance-segment",
-                    )?;
+                    injection_point::injection_point("logical-replication-slot-advance-segment")?;
                 }
             }
             ReplicationSlotMarkDirty();
@@ -1538,8 +1578,10 @@ pub fn LogicalConfirmReceivedLocation(lsn: XLogRecPtr) -> PgResult<()> {
 
         if updated_xmin {
             slot.with_mutex(|| {
-                unsafe { slot.effective_catalog_xmin
-                    .set(slot.data.get().catalog_xmin) };
+                unsafe {
+                    slot.effective_catalog_xmin
+                        .set(slot.data.get().catalog_xmin)
+                };
             });
             ReplicationSlotsComputeRequiredXmin(false)?;
             ReplicationSlotsComputeRequiredLSN()?;

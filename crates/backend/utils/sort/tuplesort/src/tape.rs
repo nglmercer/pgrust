@@ -17,8 +17,8 @@ use sort_storage::{LogicalTapeSet, TapeIdx};
 #[allow(unused_imports)]
 use crate::SortComparator;
 use crate::{
-    aset_chunk_space, cfi, trace_log, trace_sort, CmpCtx, ClusterTupleHeader, SortTuple, SortVariant,
-    TupSortStatus, TuplesortData, TUPLESORT_RANDOMACCESS,
+    aset_chunk_space, cfi, trace_log, trace_sort, ClusterTupleHeader, CmpCtx, SortTuple,
+    SortVariant, TupSortStatus, TuplesortData, TUPLESORT_RANDOMACCESS,
 };
 
 pub(crate) const BLCKSZ: usize = 8192;
@@ -90,8 +90,7 @@ impl<'m> TuplesortData<'m> {
 
         let tape_space = max_tapes * TAPE_BUFFER_OVERHEAD;
         let memtuples_space =
-            aset_chunk_space(self.memtuples.capacity() * mem::size_of::<SortTuple>())
-                as i64;
+            aset_chunk_space(self.memtuples.capacity() * mem::size_of::<SortTuple>()) as i64;
         if tape_space + memtuples_space < self.allowed_mem {
             self.avail_mem -= tape_space;
         }
@@ -157,7 +156,11 @@ impl<'m> TuplesortData<'m> {
             }
             ts.current_run += 1;
         }
-        let current_run = self.tapes.as_ref().expect("BuildRuns without tapes").current_run;
+        let current_run = self
+            .tapes
+            .as_ref()
+            .expect("BuildRuns without tapes")
+            .current_run;
 
         if trace_sort() {
             trace_log(format!(
@@ -179,11 +182,16 @@ impl<'m> TuplesortData<'m> {
 
         let mut tuples = mem::replace(&mut self.memtuples, PgVec::new_in(self.mcx));
         let result = {
-            let TuplesortData { tapes, variant, sortopt, .. } = &mut *self;
+            let TuplesortData {
+                tapes,
+                variant,
+                sortopt,
+                ..
+            } = &mut *self;
             let ts = tapes.as_mut().expect("BuildRuns without tapes");
-            tuples
-                .iter()
-                .try_for_each(|stup| writetup(&mut ts.tapeset, ts.dest_tape, variant, *sortopt, stup))
+            tuples.iter().try_for_each(|stup| {
+                writetup(&mut ts.tapeset, ts.dest_tape, variant, *sortopt, stup)
+            })
         };
         tuples.clear();
         self.memtuples = tuples;
@@ -221,8 +229,7 @@ impl<'m> TuplesortData<'m> {
         self.reset_tuplecontext();
 
         self.avail_mem +=
-            aset_chunk_space(self.memtuples.capacity() * mem::size_of::<SortTuple>())
-                as i64;
+            aset_chunk_space(self.memtuples.capacity() * mem::size_of::<SortTuple>()) as i64;
         self.memtuples = PgVec::new_in(self.mcx);
 
         let has_tuples = variant_has_tuples(&self.variant);
@@ -234,8 +241,7 @@ impl<'m> TuplesortData<'m> {
         self.avail_mem -= (slab_slots * SLAB_SLOT_SIZE) as i64;
 
         ::mcx::pgvec_reserve(&mut ts.merge_heap, n_output_tapes)?;
-        self.avail_mem -=
-            aset_chunk_space(n_output_tapes * mem::size_of::<SortTuple>()) as i64;
+        self.avail_mem -= aset_chunk_space(n_output_tapes * mem::size_of::<SortTuple>()) as i64;
 
         ts.tape_buffer_mem = self.avail_mem;
         self.avail_mem = 0;
@@ -333,7 +339,10 @@ impl<'m> TuplesortData<'m> {
         let ts = self.tapes.as_mut().expect("worker result without tapes");
         let tape = ts.result_tape.expect("worker result tape chosen");
         let output = ts.tapeset.freeze_shared(tape)?;
-        let shared = self.shared.as_ref().expect("worker sort without Sharedsort");
+        let shared = self
+            .shared
+            .as_ref()
+            .expect("worker sort without Sharedsort");
         let mut st = shared.lock();
         st.tapes[self.worker as usize] = output;
         st.workers_finished += 1;
@@ -377,7 +386,8 @@ impl<'m> TuplesortData<'m> {
             self.avail_mem -= tape_space;
         }
         fd::PrepareTempTablespaces()?;
-        let (tapeset, imported) = LogicalTapeSet::create_leader(self.mcx, &shared.fileset, &shares)?;
+        let (tapeset, imported) =
+            LogicalTapeSet::create_leader(self.mcx, &shared.fileset, &shares)?;
         let mut output_tapes = PgVec::new_in(self.mcx);
         ::mcx::pgvec_reserve(&mut output_tapes, imported.len())?;
         output_tapes.extend_from_slice(&imported);
@@ -415,7 +425,15 @@ impl<'m> TuplesortData<'m> {
     /// `tuplesort_gettuple_common`, TSS_SORTEDONTAPE arm.
     pub(crate) fn gettuple_ontape(&mut self, forward: bool) -> PgResult<Option<SortTuple>> {
         debug_assert!(forward || self.sortopt & TUPLESORT_RANDOMACCESS != 0);
-        let TuplesortData { tapes, sort_keys, variant, mcx, sortopt, eof_reached, .. } = self;
+        let TuplesortData {
+            tapes,
+            sort_keys,
+            variant,
+            mcx,
+            sortopt,
+            eof_reached,
+            ..
+        } = self;
         let ts = tapes.as_mut().expect("SortedOnTape without tapes");
         let tape = ts.result_tape.expect("SortedOnTape without result tape");
 
@@ -504,8 +522,15 @@ impl<'m> TuplesortData<'m> {
                 ts.tapeset.close_tape(src_tape);
             }
             Some(stup) => {
-                let newtup = MergeTuple { stup, srctape: src_tape_index };
-                dispatch_cmp!(ctx, |cmp| merge_heap_replace_top(&mut ts.merge_heap, newtup, cmp))?;
+                let newtup = MergeTuple {
+                    stup,
+                    srctape: src_tape_index,
+                };
+                dispatch_cmp!(ctx, |cmp| merge_heap_replace_top(
+                    &mut ts.merge_heap,
+                    newtup,
+                    cmp
+                ))?;
             }
         }
         self.check_merge_unique()?;
@@ -535,7 +560,12 @@ impl<'m> TuplesortData<'m> {
             unique_violation,
             violated: unique_violated,
         };
-        (tapes.as_mut().expect("tape sort state missing"), ctx, *sortopt, *mcx)
+        (
+            tapes.as_mut().expect("tape sort state missing"),
+            ctx,
+            *sortopt,
+            *mcx,
+        )
     }
 }
 
@@ -586,8 +616,8 @@ impl<'m> TapeState<'m> {
     fn readtup_alloc(&mut self, mcx: Mcx<'m>, tuplen: usize) -> PgResult<*mut u8> {
         debug_assert!(!self.slab_free_head.is_null());
         if tuplen > SLAB_SLOT_SIZE || self.slab_free_head.is_null() {
-            let layout = core::alloc::Layout::from_size_align(tuplen + 8, 8)
-                .expect("readtup_alloc layout");
+            let layout =
+                core::alloc::Layout::from_size_align(tuplen + 8, 8).expect("readtup_alloc layout");
             let p: core::ptr::NonNull<u8> = ::mcx::Allocator::allocate(&mcx, layout)
                 .map_err(|_| mcx.oom(tuplen + 8))?
                 .cast();
@@ -664,7 +694,10 @@ fn beginmerge<'m>(
     for src_tape_index in 0..active_tapes {
         let tape = ts.input_tapes[src_tape_index];
         if let Some(stup) = mergereadnext(ts, ctx.variant, sortopt, mcx, ctx.keys, tape)? {
-            let mt = MergeTuple { stup, srctape: src_tape_index as i32 };
+            let mt = MergeTuple {
+                stup,
+                srctape: src_tape_index as i32,
+            };
             merge_heap_insert(&mut ts.merge_heap, mt, cmp)?;
         }
     }
@@ -684,13 +717,22 @@ fn merge_one_run<'m>(
     while let Some(&mt) = ts.merge_heap.first() {
         let src_tape_index = mt.srctape;
         let src_tape = ts.input_tapes[src_tape_index as usize];
-        writetup(&mut ts.tapeset, ts.dest_tape, ctx.variant, sortopt, &mt.stup)?;
+        writetup(
+            &mut ts.tapeset,
+            ts.dest_tape,
+            ctx.variant,
+            sortopt,
+            &mt.stup,
+        )?;
         if !mt.stup.tuple.is_null() {
             ts.release_slot(mcx, mt.stup.tuple.cast());
         }
         match mergereadnext(ts, ctx.variant, sortopt, mcx, ctx.keys, src_tape)? {
             Some(stup) => {
-                let newtup = MergeTuple { stup, srctape: src_tape_index };
+                let newtup = MergeTuple {
+                    stup,
+                    srctape: src_tape_index,
+                };
                 merge_heap_replace_top(&mut ts.merge_heap, newtup, cmp)?;
             }
             None => {
@@ -719,7 +761,9 @@ fn mergereadnext<'m>(
     if tuplen == 0 {
         return Ok(None);
     }
-    Ok(Some(readtup(ts, variant, sortopt, mcx, keys, src_tape, tuplen)?))
+    Ok(Some(readtup(
+        ts, variant, sortopt, mcx, keys, src_tape, tuplen,
+    )?))
 }
 
 // Merge heap: C's tuplesort_heap_* over memtuples, specialized to the
@@ -793,7 +837,11 @@ fn sift_down(
 }
 
 /// `getlen`.
-pub(crate) fn getlen(tapeset: &mut LogicalTapeSet<'_>, tape: TapeIdx, eof_ok: bool) -> PgResult<u32> {
+pub(crate) fn getlen(
+    tapeset: &mut LogicalTapeSet<'_>,
+    tape: TapeIdx,
+    eof_ok: bool,
+) -> PgResult<u32> {
     let mut buf = [0u8; LEN_WORD];
     if tapeset.read(tape, &mut buf)? != LEN_WORD {
         return Err(unexpected_tape("unexpected end of tape"));
@@ -825,7 +873,10 @@ pub(crate) fn writetup(
             // SAFETY: live tuplecontext minimal-tuple image.
             let (body, bodylen) = unsafe {
                 let t_len = (*stup.tuple).t_len as usize;
-                (stup.tuple.cast_const().cast::<u8>().add(DATA_OFF), t_len - DATA_OFF)
+                (
+                    stup.tuple.cast_const().cast::<u8>().add(DATA_OFF),
+                    t_len - DATA_OFF,
+                )
             };
             let tuplen = (bodylen + LEN_WORD) as u32;
             tapeset.write(tape, &tuplen.to_ne_bytes())?;
@@ -850,7 +901,11 @@ pub(crate) fn writetup(
             // Expression-index lane record: [t_len u32][heap image][itup]
             // after the tid; the plain lane keeps [heap image] only.
             debug_assert!((itup_len != 0) == index_desc.is_some());
-            let extra = if index_desc.is_some() { 4 + itup_len } else { 0 };
+            let extra = if index_desc.is_some() {
+                4 + itup_len
+            } else {
+                0
+            };
             let tuplen = (t_len + extra + mem::size_of::<ItemPointerData>() + LEN_WORD) as u32;
             tapeset.write(tape, &tuplen.to_ne_bytes())?;
             // SAFETY: ItemPointerData is a 6-byte repr(C) POD.
@@ -894,7 +949,10 @@ pub(crate) fn writetup(
             let (ptr, tuplen): (*const u8, usize) = if stup.isnull1 {
                 (core::ptr::null(), 0)
             } else if *byref_typlen == 0 {
-                ((&stup.datum1 as *const Datum).cast(), mem::size_of::<Datum>())
+                (
+                    (&stup.datum1 as *const Datum).cast(),
+                    mem::size_of::<Datum>(),
+                )
             } else {
                 let p = stup.tuple.cast_const().cast::<u8>();
                 let size = if *byref_typlen == -1 {
@@ -903,7 +961,9 @@ pub(crate) fn writetup(
                 } else if *byref_typlen == -2 {
                     // C datumGetSize: strlen + 1 — the NUL rides the tape.
                     // SAFETY: live NUL-terminated cstring copy.
-                    unsafe { core::ffi::CStr::from_ptr(p.cast()) }.to_bytes_with_nul().len()
+                    unsafe { core::ffi::CStr::from_ptr(p.cast()) }
+                        .to_bytes_with_nul()
+                        .len()
                 } else {
                     *byref_typlen as usize
                 };
@@ -944,7 +1004,10 @@ fn readtup<'m>(
             // SAFETY: fresh tuplen-byte allocation; t_len is the first field.
             unsafe {
                 p.cast::<u32>().write(tuplen as u32);
-                ts.tape_read_exact(tape, core::slice::from_raw_parts_mut(p.add(DATA_OFF), bodylen))?;
+                ts.tape_read_exact(
+                    tape,
+                    core::slice::from_raw_parts_mut(p.add(DATA_OFF), bodylen),
+                )?;
             }
             let tuple = p.cast::<MinimalTupleData>();
             let mut isnull1 = false;
@@ -952,18 +1015,33 @@ fn readtup<'m>(
             let datum1 = unsafe {
                 crate::minimal_getattr(tuple, keys[0].ssup_attno as i32, tup_desc, &mut isnull1)
             };
-            SortTuple { tuple, datum1, isnull1 }
+            SortTuple {
+                tuple,
+                datum1,
+                isnull1,
+            }
         }
-        SortVariant::Cluster { tup_desc, attnums, index_desc, .. } => {
+        SortVariant::Cluster {
+            tup_desc,
+            attnums,
+            index_desc,
+            ..
+        } => {
             let mut tid = [0u8; 6];
             ts.tape_read_exact(tape, &mut tid)?;
             let (t_len, itup_len) = if index_desc.is_some() {
                 let mut tl = [0u8; 4];
                 ts.tape_read_exact(tape, &mut tl)?;
                 let t_len = u32::from_ne_bytes(tl) as usize;
-                (t_len, len as usize - mem::size_of::<ItemPointerData>() - LEN_WORD - 4 - t_len)
+                (
+                    t_len,
+                    len as usize - mem::size_of::<ItemPointerData>() - LEN_WORD - 4 - t_len,
+                )
             } else {
-                (len as usize - mem::size_of::<ItemPointerData>() - LEN_WORD, 0)
+                (
+                    len as usize - mem::size_of::<ItemPointerData>() - LEN_WORD,
+                    0,
+                )
             };
             let itup_off = crate::maxalign(16 + t_len);
             let p = ts.readtup_alloc(mcx, itup_off + itup_len)?;
@@ -999,12 +1077,19 @@ fn readtup<'m>(
                         idesc,
                         &mut isnull1,
                     ),
-                    None => {
-                        ::types_tuple::heap_getattr(&stored, attnums[0] as i32, tup_desc, &mut isnull1)
-                    }
+                    None => ::types_tuple::heap_getattr(
+                        &stored,
+                        attnums[0] as i32,
+                        tup_desc,
+                        &mut isnull1,
+                    ),
                 }
             };
-            SortTuple { tuple: p.cast(), datum1, isnull1 }
+            SortTuple {
+                tuple: p.cast(),
+                datum1,
+                isnull1,
+            }
         }
         SortVariant::Index { tup_desc, .. } | SortVariant::IndexHash { tup_desc, .. } => {
             let tuplen = len as usize - LEN_WORD;
@@ -1017,12 +1102,20 @@ fn readtup<'m>(
             let mut isnull1 = false;
             // SAFETY: image just read under this descriptor.
             let datum1 = unsafe { nbtree::itup::index_getattr(itup, 1, tup_desc, &mut isnull1) };
-            SortTuple { tuple: p.cast(), datum1, isnull1 }
+            SortTuple {
+                tuple: p.cast(),
+                datum1,
+                isnull1,
+            }
         }
         SortVariant::Datum { byref_typlen } => {
             let tuplen = len as usize - LEN_WORD;
             if tuplen == 0 {
-                SortTuple { tuple: core::ptr::null_mut(), datum1: Datum::null(), isnull1: true }
+                SortTuple {
+                    tuple: core::ptr::null_mut(),
+                    datum1: Datum::null(),
+                    isnull1: true,
+                }
             } else if *byref_typlen == 0 {
                 debug_assert!(tuplen == mem::size_of::<Datum>());
                 let mut buf = [0u8; 8];

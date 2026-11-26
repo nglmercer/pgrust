@@ -6,11 +6,11 @@ use types_core::{InvalidOid, Oid};
 use types_error::{PgError, PgResult, ERRCODE_INTERNAL_ERROR, ERRCODE_INVALID_OBJECT_DEFINITION};
 use types_nodes::node_tree::Node;
 use types_nodes::nodes_enums::CmdType;
-use types_nodes::NodeList;
 use types_nodes::parsenodes::{
     Query, QuerySource, RTEKind, RTEPermissionInfo, RangeTblEntry, RowMarkClause, WCOKind,
     WithCheckOption, ACL_SELECT_FOR_UPDATE,
 };
+use types_nodes::NodeList;
 use types_nodes::{Bitmapset, LockClauseStrength, LockWaitPolicy, NodeTag};
 use types_rel::{
     AccessShareLock, NoLock, Relation, RowExclusiveLock, RowShareLock, LOCKMODE,
@@ -112,7 +112,10 @@ fn RewriteQuery<'mcx>(
             break;
         }
         let cte = cte_node.as_common_table_expr().expect("cteList cell");
-        let ctequery = cte.ctequery.and_then(|n| n.as_query()).expect("analyzed CTE query");
+        let ctequery = cte
+            .ctequery
+            .and_then(|n| n.as_query())
+            .expect("analyzed CTE query");
         if ctequery.commandType == CmdType::CMD_SELECT {
             continue;
         }
@@ -164,7 +167,8 @@ fn RewriteQuery<'mcx>(
     }
     let num_ctes_processed = cte_len;
 
-    #[allow(unused_assignments)] // Rust-structural: hoisted from C's block scope (rewriteHandler.c:3996); always assigned before the block's read
+    #[allow(unused_assignments)]
+    // Rust-structural: hoisted from C's block scope (rewriteHandler.c:3996); always assigned before the block's read
     let mut product_count = 0usize;
     let mut has_update = false;
     if event != CmdType::CMD_SELECT && event != CmdType::CMD_UTILITY {
@@ -173,7 +177,10 @@ fn RewriteQuery<'mcx>(
             CmdType::CMD_INSERT | CmdType::CMD_UPDATE | CmdType::CMD_DELETE | CmdType::CMD_MERGE
         ) {
             // rewriteHandler.c:4203 elog(ERROR, ...): an internal error, not a panic.
-            return Err(internal_error(&format!("unrecognized commandType: {}", event as i32)));
+            return Err(internal_error(&format!(
+                "unrecognized commandType: {}",
+                event as i32
+            )));
         }
         let result_relation = parsetree.resultRelation;
         debug_assert!(result_relation != 0);
@@ -238,8 +245,9 @@ fn RewriteQuery<'mcx>(
                 }
 
                 if let Some(oc_node) = parsetree.onConflict {
-                    let oc =
-                        oc_node.as_on_conflict_expr().expect("onConflict is an OnConflictExpr");
+                    let oc = oc_node
+                        .as_on_conflict_expr()
+                        .expect("onConflict is an OnConflictExpr");
                     if oc.action == types_nodes::primnodes::OnConflictAction::ONCONFLICT_UPDATE {
                         let new_set = rewriteTargetListIU(
                             mcx,
@@ -328,8 +336,14 @@ fn RewriteQuery<'mcx>(
             Some(r) => &r.rules,
             None => &empty,
         };
-        let locks =
-            fire::matchLocks(event, rules, result_relation, rel.name(), &parsetree, &mut has_update)?;
+        let locks = fire::matchLocks(
+            event,
+            rules,
+            result_relation,
+            rel.name(),
+            &parsetree,
+            &mut has_update,
+        )?;
 
         let product_orig_rt_length = parsetree.rtable.len();
         let product_queries = fire::fireRules(
@@ -386,7 +400,9 @@ fn RewriteQuery<'mcx>(
                     &rel,
                     event,
                     &parsetree.mergeActionList,
-                    Some("Views with conditional DO INSTEAD rules are not automatically updatable."),
+                    Some(
+                        "Views with conditional DO INSTEAD rules are not automatically updatable.",
+                    ),
                 )
                 .unwrap_or_else(|e| e);
                 table::table_close(rel, NoLock)?;
@@ -439,10 +455,7 @@ fn RewriteQuery<'mcx>(
             rewrite_events.pop();
         }
 
-        if (instead || qual_product.is_some())
-            && !parsetree.returningList.is_nil()
-            && !returning
-        {
+        if (instead || qual_product.is_some()) && !parsetree.returningList.is_nil() && !returning {
             let err = returning_needs_instead_rule(event, rel.name());
             table::table_close(rel, NoLock)?;
             return Err(err);
@@ -475,8 +488,10 @@ fn RewriteQuery<'mcx>(
     }
 
     if cte_len > 0 {
-        let qcount =
-            rewritten.iter().filter(|q| q.commandType != CmdType::CMD_UTILITY).count();
+        let qcount = rewritten
+            .iter()
+            .filter(|q| q.commandType != CmdType::CMD_UTILITY)
+            .count();
         if qcount > 1 {
             return Err(Box::new(
                 PgError::error(
@@ -561,7 +576,10 @@ fn rewriteTargetListIU<'mcx>(
             continue;
         }
         let attrno = tle.resno as usize;
-        assert!(attrno >= 1 && attrno <= numattrs, "bogus resno {attrno} in targetlist");
+        assert!(
+            attrno >= 1 && attrno <= numattrs,
+            "bogus resno {attrno} in targetlist"
+        );
         let att = target_relation.rd_att.attr(attrno - 1);
         if att.attisdropped {
             continue;
@@ -590,7 +608,10 @@ fn rewriteTargetListIU<'mcx>(
         let new_tle = new_tles[attrno - 1];
         let mut apply_default = (new_tle.is_none() && command_type == CmdType::CMD_INSERT)
             || new_tle.is_some_and(|t| {
-                t.as_target_entry().expect("targetlist cell").expr.node_tag()
+                t.as_target_entry()
+                    .expect("targetlist cell")
+                    .expr
+                    .node_tag()
                     == types_nodes::NodeTag::T_SetToDefault
             });
         let values_attrno: i16 = match (values_rte, new_tle) {
@@ -619,8 +640,11 @@ fn rewriteTargetListIU<'mcx>(
                     let mut cols: PgVec<'mcx, bool> = mcx::vec_with_capacity_in(mcx, width)?;
                     cols.extend((0..width).map(|_| true));
                     for row in &rte.values_lists {
-                        for (i, cell) in
-                            row.as_list().expect("VALUES row is a List").iter().enumerate()
+                        for (i, cell) in row
+                            .as_list()
+                            .expect("VALUES row is a List")
+                            .iter()
+                            .enumerate()
                         {
                             if cell.node_tag() != types_nodes::NodeTag::T_SetToDefault {
                                 cols[i] = false;
@@ -702,9 +726,7 @@ fn rewriteTargetListIU<'mcx>(
                         types_nodes::primnodes::TargetEntry {
                             expr,
                             resno: attrno as i16,
-                            resname: Some(
-                                core::str::from_utf8(buf.leak()).expect("was UTF-8"),
-                            ),
+                            resname: Some(core::str::from_utf8(buf.leak()).expect("was UTF-8")),
                             ressortgroupref: 0,
                             resorigtbl: 0,
                             resorigcol: 0,
@@ -744,9 +766,10 @@ fn process_matched_tle<'mcx>(
     let mut src_expr = src_tle.expr;
     let mut prior_expr = prior_tle.expr;
     let mut coerce_expr: Option<&types_nodes::primnodes::CoerceToDomain<'mcx>> = None;
-    if let (Some(src_cd), Some(prior_cd)) =
-        (src_expr.as_coerce_to_domain(), prior_expr.as_coerce_to_domain())
-    {
+    if let (Some(src_cd), Some(prior_cd)) = (
+        src_expr.as_coerce_to_domain(),
+        prior_expr.as_coerce_to_domain(),
+    ) {
         if src_cd.resulttype == prior_cd.resulttype {
             // C assumes without checking that resulttypmod/resultcollid match.
             coerce_expr = Some(src_cd);
@@ -857,7 +880,8 @@ fn get_assignment_input<'mcx>(node: Node<'mcx>) -> Option<Node<'mcx>> {
     if let Some(fstore) = node.as_field_store() {
         return Some(fstore.arg);
     }
-    if let Some(sbsref) = node.as_subscripting_ref() { sbsref.refassgnexpr?;
+    if let Some(sbsref) = node.as_subscripting_ref() {
+        sbsref.refassgnexpr?;
         return sbsref.refexpr;
     }
     None
@@ -868,8 +892,10 @@ fn get_assignment_input<'mcx>(node: Node<'mcx>) -> Option<Node<'mcx>> {
 #[inline(never)]
 fn multiple_assignments_error(attr_name: &str) -> Box<PgError> {
     Box::new(
-        PgError::error(format!("multiple assignments to same column \"{attr_name}\""))
-            .with_sqlstate(types_error::ERRCODE_SYNTAX_ERROR),
+        PgError::error(format!(
+            "multiple assignments to same column \"{attr_name}\""
+        ))
+        .with_sqlstate(types_error::ERRCODE_SYNTAX_ERROR),
     )
 }
 
@@ -900,7 +926,12 @@ fn rewriteValuesRTE<'mcx>(
         return Ok(true);
     }
 
-    let numattrs = rte.values_lists.nth(0).as_list().expect("VALUES row is a List").len();
+    let numattrs = rte
+        .values_lists
+        .nth(0)
+        .as_list()
+        .expect("VALUES row is a List")
+        .len();
     let mut attrnos: PgVec<'mcx, i16> = mcx::vec_with_capacity_in(mcx, numattrs)?;
     attrnos.extend((0..numattrs).map(|_| 0i16));
     for tle_node in &parsetree.targetList {
@@ -949,7 +980,12 @@ fn rewriteValuesRTE<'mcx>(
     let mut new_values = types_nodes::NodeList::nil();
     for row in &rte.values_lists {
         let mut new_list = types_nodes::NodeList::nil();
-        for (i, col) in row.as_list().expect("VALUES row is a List").iter().enumerate() {
+        for (i, col) in row
+            .as_list()
+            .expect("VALUES row is a List")
+            .iter()
+            .enumerate()
+        {
             if col.node_tag() != types_nodes::NodeTag::T_SetToDefault {
                 new_list.lappend(mcx, col)?;
                 continue;
@@ -1016,10 +1052,8 @@ fn rewriteValuesRTE<'mcx>(
     }
     // SAFETY: exclusive pre-plan Query fixup; no derived borrow of
     // values_lists is live across this write.
-    unsafe {
-        rte_node.with_mut::<types_nodes::RangeTblEntry, _>(|r| r.values_lists = new_values)
-    }
-    .expect("rtable holds RangeTblEntry");
+    unsafe { rte_node.with_mut::<types_nodes::RangeTblEntry, _>(|r| r.values_lists = new_values) }
+        .expect("rtable holds RangeTblEntry");
     Ok(all_replaced)
 }
 
@@ -1056,10 +1090,8 @@ fn rewriteValuesRTEToNulls<'mcx>(mcx: Mcx<'mcx>, rte_node: Node<'mcx>) -> PgResu
     }
     // SAFETY: exclusive pre-plan Query fixup; no derived borrow of
     // values_lists is live across this write.
-    unsafe {
-        rte_node.with_mut::<types_nodes::RangeTblEntry, _>(|r| r.values_lists = new_values)
-    }
-    .expect("rtable holds RangeTblEntry");
+    unsafe { rte_node.with_mut::<types_nodes::RangeTblEntry, _>(|r| r.values_lists = new_values) }
+        .expect("rtable holds RangeTblEntry");
     Ok(())
 }
 
@@ -1080,7 +1112,10 @@ pub fn build_column_default<'mcx>(
         let seqid = pg_depend::getIdentitySequence(mcx, rel.rd_id, attrno as i32, false)?;
         return Ok(Some(types_nodes::Node::mk(
             mcx,
-            types_nodes::primnodes::NextValueExpr { seqid, typeId: att.atttypid },
+            types_nodes::primnodes::NextValueExpr {
+                seqid,
+                typeId: att.atttypid,
+            },
         )?));
     }
     let expr = if att.atthasdef {
@@ -1092,7 +1127,12 @@ pub fn build_column_default<'mcx>(
             Some(s) => s,
             None => return Err(default_expression_not_found(attrno, rel)),
         };
-        Some(relcache::RelationGetDefaultExpr(mcx, rel.rd_id, attrno as i16, adbin.as_str())?)
+        Some(relcache::RelationGetDefaultExpr(
+            mcx,
+            rel.rd_id,
+            attrno as i16,
+            adbin.as_str(),
+        )?)
     } else {
         None
     };
@@ -1118,7 +1158,11 @@ pub fn build_column_default<'mcx>(
     )?;
     match coerced {
         Some(e) => Ok(Some(e)),
-        None => Err(default_type_mismatch(att.attname.name_str(), att.atttypid, exprtype)),
+        None => Err(default_type_mismatch(
+            att.attname.name_str(),
+            att.atttypid,
+            exprtype,
+        )),
     }
 }
 
@@ -1143,7 +1187,11 @@ pub fn build_generation_expression<'mcx>(
     if attcollid != InvalidOid && attcollid != nodes_core::node_funcs::expr_collation(defexpr) {
         return Node::mk(
             mcx,
-            types_nodes::primnodes::CollateExpr { arg: defexpr, collOid: attcollid, location: -1 },
+            types_nodes::primnodes::CollateExpr {
+                arg: defexpr,
+                collOid: attcollid,
+                location: -1,
+            },
         );
     }
     Ok(defexpr)
@@ -1181,10 +1229,8 @@ fn generated_always_update_error(
     identity: bool,
 ) -> Box<PgError> {
     let name = String::from_utf8_lossy(att.attname.name_str()).into_owned();
-    let mut e = PgError::error(format!(
-        "column \"{name}\" can only be updated to DEFAULT"
-    ))
-    .with_sqlstate(types_error::ERRCODE_GENERATED_ALWAYS);
+    let mut e = PgError::error(format!("column \"{name}\" can only be updated to DEFAULT"))
+        .with_sqlstate(types_error::ERRCODE_GENERATED_ALWAYS);
     if identity {
         e = e.with_detail(format!(
             "Column \"{name}\" is an identity column defined as GENERATED ALWAYS."
@@ -1231,11 +1277,7 @@ struct RirOut<'mcx> {
     with_check_options: PgVec<'mcx, Node<'mcx>>,
 }
 
-fn stamp_query_flags<'mcx>(
-    mcx: Mcx<'mcx>,
-    qnode: Node<'mcx>,
-    rir: &RirOut<'mcx>,
-) -> PgResult<()> {
+fn stamp_query_flags<'mcx>(mcx: Mcx<'mcx>, qnode: Node<'mcx>, rir: &RirOut<'mcx>) -> PgResult<()> {
     if rir.has_row_security || rir.has_sub_links {
         // SAFETY: the rewriter owns the just-analyzed tree single-threaded; no
         // reference derived from `qnode` is live across this write.
@@ -1318,9 +1360,7 @@ fn fireRIRrules<'mcx>(
                 let q2node = Node::mk(mcx, q2)?;
                 let q2ref = q2node.as_query().expect("Query node");
                 // SAFETY: rewriter-owned tree; no live refs derived from `node`.
-                unsafe {
-                    node.with_mut::<RangeTblEntry, _>(|r| r.subquery = Some(q2ref))
-                };
+                unsafe { node.with_mut::<RangeTblEntry, _>(|r| r.subquery = Some(q2ref)) };
                 out.has_row_security |= rir.has_row_security;
             }
             continue;
@@ -1339,9 +1379,7 @@ fn fireRIRrules<'mcx>(
         {
             continue;
         }
-        if rt_index as i32 == parsetree.resultRelation
-            && rt_index as i32 != orig_result_relation
-        {
+        if rt_index as i32 == parsetree.resultRelation && rt_index as i32 != orig_result_relation {
             continue;
         }
         let rel = table::table_open(mcx, rte.relid, NoLock)?;
@@ -1408,7 +1446,10 @@ fn fireRIRrules<'mcx>(
         impl<'mcx> nodes_core::NodeWalker<'mcx> for W<'_, 'mcx> {
             fn visit(&mut self, node: Node<'mcx>) -> PgResult<bool> {
                 if let Some(sl) = node.as_sub_link() {
-                    let sub = sl.subselect.as_query().expect("analyzed sublink sub-select");
+                    let sub = sl
+                        .subselect
+                        .as_query()
+                        .expect("analyzed sublink sub-select");
                     let rir = fireRIRrules(self.mcx, sub, self.active_rirs)?;
                     stamp_query_flags(self.mcx, sl.subselect, &rir)?;
                     self.has_row_security |= rir.has_row_security;
@@ -1416,12 +1457,12 @@ fn fireRIRrules<'mcx>(
                 nodes_core::expression_tree_walker(node, self)
             }
         }
-        let mut w = W { mcx, active_rirs, has_row_security: false };
-        nodes_core::query_tree_walker(
-            parsetree,
-            &mut w,
-            nodes_core::QTW_IGNORE_RC_SUBQUERIES,
-        )?;
+        let mut w = W {
+            mcx,
+            active_rirs,
+            has_row_security: false,
+        };
+        nodes_core::query_tree_walker(parsetree, &mut w, nodes_core::QTW_IGNORE_RC_SUBQUERIES)?;
         out.has_row_security |= w.has_row_security;
     }
 
@@ -1468,8 +1509,10 @@ fn fireRIRrules<'mcx>(
                             return Ok(false);
                         }
                         if let Some(sl) = node.as_sub_link() {
-                            let sub =
-                                sl.subselect.as_query().expect("analyzed sublink sub-select");
+                            let sub = sl
+                                .subselect
+                                .as_query()
+                                .expect("analyzed sublink sub-select");
                             AcquireRewriteLocks(self.mcx, sub, true, false)?;
                         }
                         nodes_core::expression_tree_walker(node, self)
@@ -1482,8 +1525,10 @@ fn fireRIRrules<'mcx>(
                 impl<'mcx> nodes_core::NodeWalker<'mcx> for F<'_, 'mcx> {
                     fn visit(&mut self, node: Node<'mcx>) -> PgResult<bool> {
                         if let Some(sl) = node.as_sub_link() {
-                            let sub =
-                                sl.subselect.as_query().expect("analyzed sublink sub-select");
+                            let sub = sl
+                                .subselect
+                                .as_query()
+                                .expect("analyzed sublink sub-select");
                             let rir = fireRIRrules(self.mcx, sub, self.active_rirs)?;
                             // has_row_security discard: only reachable with the
                             // RTE's own has_row_security already true (C asserts).
@@ -1500,7 +1545,10 @@ fn fireRIRrules<'mcx>(
                 for &wnode in rls.with_check_options.iter() {
                     l.visit(wnode)?;
                 }
-                let mut f = F { mcx, active_rirs: &mut *active_rirs };
+                let mut f = F {
+                    mcx,
+                    active_rirs: &mut *active_rirs,
+                };
                 for &q in rls.security_quals.iter() {
                     f.visit(q)?;
                 }
@@ -1593,7 +1641,10 @@ fn view_has_instead_trigger(
         }
         other => {
             // rewriteHandler.c:2633 elog(ERROR, ...).
-            return Err(internal_error(&format!("unrecognized CmdType: {}", other as i32)));
+            return Err(internal_error(&format!(
+                "unrecognized CmdType: {}",
+                other as i32
+            )));
         }
     })
 }
@@ -1649,7 +1700,10 @@ pub fn get_view_query<'mcx>(mcx: Mcx<'mcx>, view: &Relation<'mcx>) -> PgResult<V
                 let query = unsafe {
                     core::mem::transmute::<&'static Query<'static>, &'mcx Query<'mcx>>(query)
                 };
-                return Ok(ViewQuery { query, _hold: rules });
+                return Ok(ViewQuery {
+                    query,
+                    _hold: rules,
+                });
             }
         }
     }
@@ -1664,14 +1718,10 @@ fn view_col_is_auto_updatable(
         return Some("Junk view columns are not updatable.");
     }
     let Some(var) = tle.expr.as_var() else {
-        return Some(
-            "View columns that are not columns of their base relation are not updatable.",
-        );
+        return Some("View columns that are not columns of their base relation are not updatable.");
     };
     if var.varno != rtr_index || var.varlevelsup != 0 {
-        return Some(
-            "View columns that are not columns of their base relation are not updatable.",
-        );
+        return Some("View columns that are not columns of their base relation are not updatable.");
     }
     if var.varattno < 0 {
         return Some("View columns that refer to system columns are not updatable.");
@@ -1713,9 +1763,7 @@ pub fn view_query_is_auto_updatable(
         return Some("Views that return window functions are not automatically updatable.");
     }
     if viewquery.hasTargetSRFs {
-        return Some(
-            "Views that return set-returning functions are not automatically updatable.",
-        );
+        return Some("Views that return set-returning functions are not automatically updatable.");
     }
 
     const NOT_SINGLE_TABLE: &str =
@@ -1752,9 +1800,7 @@ pub fn view_query_is_auto_updatable(
             }
         }
         if !found {
-            return Some(
-                "Views that have no updatable columns are not automatically updatable.",
-            );
+            return Some("Views that have no updatable columns are not automatically updatable.");
         }
     }
 
@@ -1768,9 +1814,15 @@ fn view_cols_are_auto_updatable<'mcx>(
     mut updatable_cols: Option<&mut Bitmapset<'mcx>>,
     non_updatable_col: &mut Option<std::string::String>,
 ) -> PgResult<Option<&'static str>> {
-    let jt = viewquery.jointree.expect("auto-updatable view has a jointree");
+    let jt = viewquery
+        .jointree
+        .expect("auto-updatable view has a jointree");
     debug_assert_eq!(jt.fromlist.len(), 1);
-    let rtr = jt.fromlist.nth(0).as_range_tbl_ref().expect("auto-updatable view fromlist");
+    let rtr = jt
+        .fromlist
+        .nth(0)
+        .as_range_tbl_ref()
+        .expect("auto-updatable view fromlist");
 
     *non_updatable_col = None;
 
@@ -1959,9 +2011,7 @@ pub fn relation_is_updatable<'mcx>(
         return Ok(0);
     }
 
-    if rel.rd_rel.relkind == RELKIND_RELATION
-        || rel.rd_rel.relkind == RELKIND_PARTITIONED_TABLE
-    {
+    if rel.rd_rel.relkind == RELKIND_RELATION || rel.rd_rel.relkind == RELKIND_PARTITIONED_TABLE {
         rel.close(AccessShareLock)?;
         return Ok(ALL_EVENTS);
     }
@@ -2030,13 +2080,18 @@ pub fn relation_is_updatable<'mcx>(
                 ALL_EVENTS
             };
 
-            let jt = viewquery.jointree.expect("auto-updatable view has a jointree");
-            let rtr = jt.fromlist.nth(0).as_range_tbl_ref().expect("auto-updatable view fromlist");
+            let jt = viewquery
+                .jointree
+                .expect("auto-updatable view has a jointree");
+            let rtr = jt
+                .fromlist
+                .nth(0)
+                .as_range_tbl_ref()
+                .expect("auto-updatable view fromlist");
             let base_rte = rte_of(viewquery.rtable.nth(rtr.rtindex as usize - 1));
             debug_assert_eq!(base_rte.rtekind, RTEKind::RTE_RELATION);
 
-            if base_rte.relkind != RELKIND_RELATION
-                && base_rte.relkind != RELKIND_PARTITIONED_TABLE
+            if base_rte.relkind != RELKIND_RELATION && base_rte.relkind != RELKIND_PARTITIONED_TABLE
             {
                 let baseoid = base_rte.relid;
                 outer_reloids.push(rel.rd_id);
@@ -2100,15 +2155,17 @@ fn rewriteTargetView<'mcx>(
     let view_rte_node = parsetree.rtable.nth(view_result_relation as usize - 1);
     let view_perminfo_node =
         parse_relation::getRTEPermissionInfo(&parsetree.rteperminfos, rte_of(view_rte_node))?;
-    let view_perminfo =
-        view_perminfo_node.as_rte_permission_info().expect("RTEPermissionInfo");
+    let view_perminfo = view_perminfo_node
+        .as_rte_permission_info()
+        .expect("RTEPermissionInfo");
 
     let mut insert_or_update = parsetree.commandType == CmdType::CMD_INSERT
         || parsetree.commandType == CmdType::CMD_UPDATE;
     if parsetree.commandType == CmdType::CMD_MERGE {
         for action_node in &parsetree.mergeActionList {
-            let action =
-                action_node.as_merge_action().expect("mergeActionList cell is a MergeAction");
+            let action = action_node
+                .as_merge_action()
+                .expect("mergeActionList cell is a MergeAction");
             if action.commandType == CmdType::CMD_INSERT
                 || action.commandType == CmdType::CMD_UPDATE
             {
@@ -2130,8 +2187,9 @@ fn rewriteTargetView<'mcx>(
     }
 
     if insert_or_update {
-        let mut modified_cols =
-            view_perminfo.insertedCols.union(&view_perminfo.updatedCols, mcx)?;
+        let mut modified_cols = view_perminfo
+            .insertedCols
+            .union(&view_perminfo.updatedCols, mcx)?;
         for tle_node in &parsetree.targetList {
             let tle = tle_node.as_target_entry().expect("targetlist cell");
             if !tle.resjunk {
@@ -2150,8 +2208,9 @@ fn rewriteTargetView<'mcx>(
             }
         }
         for action_node in &parsetree.mergeActionList {
-            let action =
-                action_node.as_merge_action().expect("mergeActionList cell is a MergeAction");
+            let action = action_node
+                .as_merge_action()
+                .expect("mergeActionList cell is a MergeAction");
             if action.commandType == CmdType::CMD_INSERT
                 || action.commandType == CmdType::CMD_UPDATE
             {
@@ -2206,8 +2265,9 @@ fn rewriteTargetView<'mcx>(
     // MERGE must not mix auto-update and trigger-update actions.
     if parsetree.commandType == CmdType::CMD_MERGE {
         for action_node in &parsetree.mergeActionList {
-            let action =
-                action_node.as_merge_action().expect("mergeActionList cell is a MergeAction");
+            let action = action_node
+                .as_merge_action()
+                .expect("mergeActionList cell is a MergeAction");
             if action.commandType != CmdType::CMD_NOTHING
                 && view_has_instead_trigger(view, action.commandType, &NodeList::nil())?
             {
@@ -2225,16 +2285,23 @@ fn rewriteTargetView<'mcx>(
         }
     }
 
-    let jt = viewquery.jointree.expect("auto-updatable view has a jointree");
+    let jt = viewquery
+        .jointree
+        .expect("auto-updatable view has a jointree");
     debug_assert_eq!(jt.fromlist.len(), 1);
-    let rtr = jt.fromlist.nth(0).as_range_tbl_ref().expect("auto-updatable view fromlist");
+    let rtr = jt
+        .fromlist
+        .nth(0)
+        .as_range_tbl_ref()
+        .expect("auto-updatable view fromlist");
     let base_rt_index = rtr.rtindex;
     let base_rte_node = viewquery.rtable.nth(base_rt_index as usize - 1);
     debug_assert_eq!(rte_of(base_rte_node).rtekind, RTEKind::RTE_RELATION);
     let base_perminfo_node =
         parse_relation::getRTEPermissionInfo(&viewquery.rteperminfos, rte_of(base_rte_node))?;
-    let base_perminfo =
-        base_perminfo_node.as_rte_permission_info().expect("RTEPermissionInfo");
+    let base_perminfo = base_perminfo_node
+        .as_rte_permission_info()
+        .expect("RTEPermissionInfo");
 
     // The base relation becomes the query target: RowExclusiveLock, and the
     // subsequent recursive RewriteQuery relies on the lock being held.
@@ -2255,7 +2322,10 @@ fn rewriteTargetView<'mcx>(
     .expect("RangeTblEntry");
 
     if viewquery.hasSubLinks {
-        let mut w = LocksOnSubLinks { mcx, for_execute: true };
+        let mut w = LocksOnSubLinks {
+            mcx,
+            for_execute: true,
+        };
         nodes_core::query_tree_walker(viewquery, &mut w, nodes_core::QTW_IGNORE_RC_SUBQUERIES)?;
     }
 
@@ -2278,8 +2348,7 @@ fn rewriteTargetView<'mcx>(
         // check_as_user was computed above (view owner, or InvalidOid for
         // security_invoker views) and already stamped across the view query.
         let selected = base_perminfo.selectedCols.clone_in(mcx)?;
-        let inserted =
-            adjust_view_column_set(mcx, &view_perminfo.insertedCols, view_targetlist)?;
+        let inserted = adjust_view_column_set(mcx, &view_perminfo.insertedCols, view_targetlist)?;
         let updated = adjust_view_column_set(mcx, &view_perminfo.updatedCols, view_targetlist)?;
         let required_perms = view_perminfo.requiredPerms;
         // SAFETY: perminfo node created just above; no derived refs live.
@@ -2300,8 +2369,7 @@ fn rewriteTargetView<'mcx>(
     {
         // SAFETY: rewriter-owned tree; no derived refs live across the writes.
         let quals = unsafe {
-            view_rte_node
-                .with_mut::<RangeTblEntry, _>(|r| core::mem::take(&mut r.securityQuals))
+            view_rte_node.with_mut::<RangeTblEntry, _>(|r| core::mem::take(&mut r.securityQuals))
         }
         .expect("RangeTblEntry");
         unsafe { base_rte_node.with_mut::<RangeTblEntry, _>(|r| r.securityQuals = quals) }
@@ -2321,7 +2389,10 @@ fn rewriteTargetView<'mcx>(
         None,
     )?;
     rewrite_manip::ChangeVarNodes(mcx, pnode, view_result_relation, new_rt_index, 0)?;
-    debug_assert_eq!(pnode.as_query().expect("Query").resultRelation, new_rt_index);
+    debug_assert_eq!(
+        pnode.as_query().expect("Query").resultRelation,
+        new_rt_index
+    );
 
     // Re-point INSERT/UPDATE (and MERGE action) targetlist resnos at base-rel
     // columns; the recursion's rewriteTargetListIU restores resno order.
@@ -2352,8 +2423,9 @@ fn rewriteTargetView<'mcx>(
         let q = pnode.as_query().expect("Query");
         remap_resnos(&q.targetList)?;
         for action_node in &q.mergeActionList {
-            let action =
-                action_node.as_merge_action().expect("mergeActionList cell is a MergeAction");
+            let action = action_node
+                .as_merge_action()
+                .expect("mergeActionList cell is a MergeAction");
             if action.commandType == CmdType::CMD_INSERT
                 || action.commandType == CmdType::CMD_UPDATE
             {
@@ -2371,7 +2443,11 @@ fn rewriteTargetView<'mcx>(
         .and_then(|n| n.as_on_conflict_expr())
         .is_some_and(|oc| oc.action == OnConflictAction::ONCONFLICT_UPDATE);
     if oc_is_update {
-        let oc_node = pnode.as_query().expect("Query").onConflict.expect("onConflict");
+        let oc_node = pnode
+            .as_query()
+            .expect("Query")
+            .onConflict
+            .expect("onConflict");
         let oc = oc_node.as_on_conflict_expr().expect("OnConflictExpr");
         remap_resnos(&oc.onConflictSet)?;
 
@@ -2379,7 +2455,10 @@ fn rewriteTargetView<'mcx>(
 
         let excl_alias = mcx::alloc_leak_in(
             mcx,
-            types_nodes::primnodes::Alias { aliasname: Some("excluded"), colnames: NodeList::nil() },
+            types_nodes::primnodes::Alias {
+                aliasname: Some("excluded"),
+                colnames: NodeList::nil(),
+            },
         )?;
         let mut excl_pstate = parser_small1::make_parsestate(mcx, None);
         parse_relation::addRangeTableEntryForRelation(
@@ -2403,10 +2482,8 @@ fn rewriteTargetView<'mcx>(
         }
         .expect("RangeTblEntry");
         // SAFETY: rewriter-owned tree.
-        unsafe {
-            pnode.with_mut::<Query, _>(|q| q.rtable.lappend(mcx, new_excl_rte_node))
-        }
-        .expect("Query")?;
+        unsafe { pnode.with_mut::<Query, _>(|q| q.rtable.lappend(mcx, new_excl_rte_node)) }
+            .expect("Query")?;
         let new_excl_rel_index = pnode.as_query().expect("Query").rtable.len() as i32;
 
         let new_excl_tlist =
@@ -2464,8 +2541,11 @@ fn rewriteTargetView<'mcx>(
             if is_security_view {
                 // The view's quals go in front of existing barrier quals (an
                 // outer security-barrier view's quals evaluate later).
-                let new_rte_node =
-                    pnode.as_query().expect("Query").rtable.nth(new_rt_index as usize - 1);
+                let new_rte_node = pnode
+                    .as_query()
+                    .expect("Query")
+                    .rtable
+                    .nth(new_rt_index as usize - 1);
                 let mut sq = NodeList::nil();
                 sq.lappend(mcx, viewqual)?;
                 // SAFETY: rewriter-owned tree.
@@ -2481,8 +2561,7 @@ fn rewriteTargetView<'mcx>(
                     && rewrite_manip::checkExprHasSubLink(viewqual)?
                 {
                     // SAFETY: rewriter-owned tree.
-                    unsafe { pnode.with_mut::<Query, _>(|q| q.hasSubLinks = true) }
-                        .expect("Query");
+                    unsafe { pnode.with_mut::<Query, _>(|q| q.hasSubLinks = true) }.expect("Query");
                 }
             } else {
                 rewrite_manip::AddQual(mcx, pnode, Some(viewqual))?;
@@ -2493,8 +2572,8 @@ fn rewriteTargetView<'mcx>(
     // WITH CHECK OPTION: prepend a WCO_VIEW_CHECK (inner views check first).
     if insert_or_update {
         let view_opts = view.rd_options.as_ref().and_then(|o| o.view());
-        let mut has_wco = view_opts
-            .is_some_and(|v| v.check_option != VIEW_OPTION_CHECK_OPTION_NOT_SET);
+        let mut has_wco =
+            view_opts.is_some_and(|v| v.check_option != VIEW_OPTION_CHECK_OPTION_NOT_SET);
         let mut cascaded =
             view_opts.is_some_and(|v| v.check_option == VIEW_OPTION_CHECK_OPTION_CASCADED);
 
@@ -2621,7 +2700,6 @@ fn rewrite_dml_view_with_instead_trigger<'mcx>(
     Ok(())
 }
 
-
 // Restriction check shared by ApplyRetrieveRule/rewriteTargetView
 // (rewriteHandler.c): expansion of non-system views can be disabled by the
 // restrict_nonsystem_relation_kind GUC.
@@ -2633,8 +2711,10 @@ fn check_view_expansion_restricted(rel: &Relation<'_>) -> PgResult<()> {
     {
         let relname = String::from_utf8_lossy(rel.rd_rel.relname.name_str()).into_owned();
         return Err(Box::new(
-            PgError::error(format!("access to non-system view \"{relname}\" is restricted"))
-                .with_sqlstate(types_error::ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+            PgError::error(format!(
+                "access to non-system view \"{relname}\" is restricted"
+            ))
+            .with_sqlstate(types_error::ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
         ));
     }
     Ok(())
@@ -2720,7 +2800,10 @@ fn ApplyRetrieveRule<'mcx>(
         }
         let new_eref = Node::mk_mut(
             mcx,
-            types_nodes::primnodes::Alias { aliasname: old.and_then(|e| e.aliasname), colnames },
+            types_nodes::primnodes::Alias {
+                aliasname: old.and_then(|e| e.aliasname),
+                colnames,
+            },
         )?
         .seal_ref();
         // SAFETY: single-threaded rewrite; no live borrow of rte across this.
@@ -2772,10 +2855,21 @@ fn mark_jointree_for_locking<'mcx>(
     match jtnode.node_tag() {
         NodeTag::T_RangeTblRef => {
             let rti = jtnode.as_range_tbl_ref().expect("RangeTblRef").rtindex;
-            let rte_node = qry_node.as_query().expect("Query").rtable.nth(rti as usize - 1);
+            let rte_node = qry_node
+                .as_query()
+                .expect("Query")
+                .rtable
+                .nth(rti as usize - 1);
             let rtekind = rte_of(rte_node).rtekind;
             if rtekind == RTEKind::RTE_RELATION {
-                applyLockingClause(mcx, qry_node, rti as u32, strength, wait_policy, pushed_down)?;
+                applyLockingClause(
+                    mcx,
+                    qry_node,
+                    rti as u32,
+                    strength,
+                    wait_policy,
+                    pushed_down,
+                )?;
                 let q = qry_node.as_query().expect("Query");
                 let perminfo =
                     parse_relation::getRTEPermissionInfo(&q.rteperminfos, rte_of(rte_node))?;
@@ -2787,10 +2881,19 @@ fn mark_jointree_for_locking<'mcx>(
                 }
                 .expect("RTEPermissionInfo");
             } else if rtekind == RTEKind::RTE_SUBQUERY {
-                applyLockingClause(mcx, qry_node, rti as u32, strength, wait_policy, pushed_down)?;
+                applyLockingClause(
+                    mcx,
+                    qry_node,
+                    rti as u32,
+                    strength,
+                    wait_policy,
+                    pushed_down,
+                )?;
                 // No Node handle on rte.subquery: re-issue the Query header and
                 // re-point the RTE (see fireRIRrules' RTE_SUBQUERY arm).
-                let sub = rte_of(rte_node).subquery.expect("subquery RTE has a subquery");
+                let sub = rte_of(rte_node)
+                    .subquery
+                    .expect("subquery RTE has a subquery");
                 // SAFETY: Query is !Drop arena data; the source reference is
                 // dead after the re-point.
                 let subq: Query<'mcx> = unsafe { core::ptr::read(sub) };
@@ -2812,7 +2915,11 @@ fn mark_jointree_for_locking<'mcx>(
             mark_jointree_for_locking(mcx, qry_node, j.larg, strength, wait_policy, pushed_down)?;
             mark_jointree_for_locking(mcx, qry_node, j.rarg, strength, wait_policy, pushed_down)?;
         }
-        other => return Err(internal_error(&format!("unrecognized node type: {other:?}"))),
+        other => {
+            return Err(internal_error(&format!(
+                "unrecognized node type: {other:?}"
+            )))
+        }
     }
     Ok(())
 }
@@ -2848,7 +2955,12 @@ fn applyLockingClause<'mcx>(
     }
     let rc = Node::mk(
         mcx,
-        RowMarkClause { rti: rtindex, strength, waitPolicy: wait_policy, pushedDown: pushed_down },
+        RowMarkClause {
+            rti: rtindex,
+            strength,
+            waitPolicy: wait_policy,
+            pushedDown: pushed_down,
+        },
     )?;
     // SAFETY: rewriter-owned tree; no derived refs live.
     unsafe { qry_node.with_mut::<Query, _>(|q| q.rowMarks.lappend(mcx, rc)) }.expect("Query")?;
@@ -2878,7 +2990,9 @@ fn set_rule_check_as_user<'mcx>(qry: &'mcx Query<'mcx>, userid: Oid) -> PgResult
         }
     }
     for cnode in qry.cteList.iter() {
-        let cte = cnode.as_common_table_expr().expect("cteList holds CommonTableExpr");
+        let cte = cnode
+            .as_common_table_expr()
+            .expect("cteList holds CommonTableExpr");
         let ctequery = cte
             .ctequery
             .and_then(|n| n.as_query())
@@ -2936,15 +3050,17 @@ impl<'mcx> nodes_core::NodeWalker<'mcx> for RtiUsed {
 // rangeTableEntry_used (rewriteManip.c). The top Query is a stack value, so
 // its fields are walked directly (query_tree_walker wants an arena &'mcx).
 fn range_table_entry_used(parsetree: &Query<'_>, rt_index: i32) -> PgResult<bool> {
-    let mut w = RtiUsed { rt_index, sublevels_up: 0 };
+    let mut w = RtiUsed {
+        rt_index,
+        sublevels_up: 0,
+    };
     if nodes_core::walk_list(&parsetree.targetList, &mut w)?
         || nodes_core::walk_list(&parsetree.returningList, &mut w)?
     {
         return Ok(true);
     }
     if let Some(jt) = parsetree.jointree {
-        if nodes_core::walk_list(&jt.fromlist, &mut w)? || nodes_core::walk_opt(jt.quals, &mut w)?
-        {
+        if nodes_core::walk_list(&jt.fromlist, &mut w)? || nodes_core::walk_opt(jt.quals, &mut w)? {
             return Ok(true);
         }
     }
@@ -3075,14 +3191,20 @@ pub fn AcquireRewriteLocks<'mcx>(
 
     for cte_node in &parsetree.cteList {
         let cte = cte_node.as_common_table_expr().expect("cteList cell");
-        let ctequery = cte.ctequery.and_then(|n| n.as_query()).expect("analyzed CTE query");
+        let ctequery = cte
+            .ctequery
+            .and_then(|n| n.as_query())
+            .expect("analyzed CTE query");
         AcquireRewriteLocks(mcx, ctequery, forExecute, false)?;
     }
 
     // acquireLocksOnSubLinks (rewriteHandler.c); rtable/CTE subqueries were
     // recursed above (C passes QTW_IGNORE_RC_SUBQUERIES for the same reason).
     if parsetree.hasSubLinks {
-        let mut w = LocksOnSubLinks { mcx, for_execute: forExecute };
+        let mut w = LocksOnSubLinks {
+            mcx,
+            for_execute: forExecute,
+        };
         nodes_core::query_tree_walker(parsetree, &mut w, nodes_core::QTW_IGNORE_RC_SUBQUERIES)?;
     }
 
@@ -3107,7 +3229,8 @@ impl<'mcx> nodes_core::NodeWalker<'mcx> for LocksOnSubLinks<'mcx> {
 }
 
 fn rte_of<'mcx>(node: Node<'mcx>) -> &'mcx RangeTblEntry<'mcx> {
-    node.as_range_tbl_entry().expect("rtable holds RangeTblEntry nodes")
+    node.as_range_tbl_entry()
+        .expect("rtable holds RangeTblEntry nodes")
 }
 
 // get_rte_attribute_is_dropped (parse_relation.c); lives here until the
@@ -3164,7 +3287,9 @@ fn get_rte_attribute_is_dropped<'mcx>(
         RTEKind::RTE_FUNCTION => {
             let mut atts_done: i16 = 0;
             for f in &rte.functions {
-                let rtfunc = f.as_range_tbl_function().expect("functions holds RangeTblFunction");
+                let rtfunc = f
+                    .as_range_tbl_function()
+                    .expect("functions holds RangeTblFunction");
                 let colcount = rtfunc.funccolcount as i16;
                 if attnum > atts_done && attnum <= atts_done + colcount {
                     if !rtfunc.funccolnames.is_nil() {
@@ -3229,10 +3354,14 @@ fn fc_pg_column_is_updatable(
     let mut cols = Bitmapset::empty();
     cols.add_member(mcx, col)?;
     let mut outer_reloids = PgVec::new_in(mcx);
-    let events =
-        relation_is_updatable(mcx, reloid, &mut outer_reloids, include_triggers, Some(&cols))?;
-    const REQ_EVENTS: i32 =
-        (1 << CmdType::CMD_UPDATE as i32) | (1 << CmdType::CMD_DELETE as i32);
+    let events = relation_is_updatable(
+        mcx,
+        reloid,
+        &mut outer_reloids,
+        include_triggers,
+        Some(&cols),
+    )?;
+    const REQ_EVENTS: i32 = (1 << CmdType::CMD_UPDATE as i32) | (1 << CmdType::CMD_DELETE as i32);
     Ok(datum::Datum::from_bool(events & REQ_EVENTS == REQ_EVENTS))
 }
 

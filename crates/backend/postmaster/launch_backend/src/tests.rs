@@ -82,7 +82,13 @@ fn install() {
                 sigquit_in_blocksig: masks.block_sig_contains(libc::SIGQUIT),
                 sigabrt_disposition: procsignal::thread_signal_disposition_installed(libc::SIGABRT),
             };
-            SNAPSHOT_TX.lock().unwrap().as_ref().unwrap().send(snap).unwrap();
+            SNAPSHOT_TX
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .send(snap)
+                .unwrap();
             panic!("test capture complete");
         });
     });
@@ -123,7 +129,10 @@ fn shmem_attach_matches_c_table() {
             bt,
             BackendType::Invalid | BackendType::StandaloneBackend | BackendType::Logger
         );
-        assert_eq!(CHILD_PROCESS_KINDS[bt as usize].shmem_attach, expect, "{bt:?}");
+        assert_eq!(
+            CHILD_PROCESS_KINDS[bt as usize].shmem_attach, expect,
+            "{bt:?}"
+        );
     }
 }
 
@@ -151,9 +160,8 @@ fn launch_backend_thread_runs_child_init_in_order() {
 
     stack_depth::assign_max_stack_depth(60000);
     let reserved_stack = child_thread_stack_size();
-    let expected_budget = stack_depth::scaled_max_stack_depth_bytes().min(
-        (reserved_stack - (reserved_stack / 2).min(8 << 20)) as isize,
-    );
+    let expected_budget = stack_depth::scaled_max_stack_depth_bytes()
+        .min((reserved_stack - (reserved_stack / 2).min(8 << 20)) as isize);
 
     let startup = StartupData::Backend(BackendStartupData {
         can_accept_connections: CacState::Ok,
@@ -164,16 +172,24 @@ fn launch_backend_thread_runs_child_init_in_order() {
         BackendType::Backend,
         7,
         startup,
-        Some(ClientSocket { sock: 33, raddr: SockAddr::zeroed() }),
+        Some(ClientSocket {
+            sock: 33,
+            raddr: SockAddr::zeroed(),
+        }),
     );
     assert!(pid >= 1000, "synthetic pid, got {pid}");
 
-    let snap = rx.recv_timeout(Duration::from_secs(10)).expect("child snapshot");
+    let snap = rx
+        .recv_timeout(Duration::from_secs(10))
+        .expect("child snapshot");
     assert_eq!(snap.stack_budget, expected_budget);
     assert_eq!(snap.my_proc_pid, pid);
     assert!(snap.is_under_postmaster);
     assert_eq!(snap.work_mem, 4321);
-    assert_eq!(snap.max_safe_fds, 987, "max_safe_fds must inherit into child threads");
+    assert_eq!(
+        snap.max_safe_fds, 987,
+        "max_safe_fds must inherit into child threads"
+    );
     assert_eq!(snap.postmaster_pid, 42);
     assert_eq!(snap.data_dir, Some("/tmp/pg-launch-test"));
     assert!(snap.my_latch_set);
@@ -185,7 +201,10 @@ fn launch_backend_thread_runs_child_init_in_order() {
     assert_eq!(snap.client_sock, Some(33));
     assert!(snap.sigterm_blocked);
     assert!(!snap.sigquit_in_blocksig);
-    assert!(snap.sigabrt_disposition, "a SIGABRT broadcast must find a disposition, not pend forever");
+    assert!(
+        snap.sigabrt_disposition,
+        "a SIGABRT broadcast must find a disposition, not pend forever"
+    );
 }
 
 // send_abort_for_crash / send_abort_for_kill: the SIGABRT broadcast has to
@@ -238,7 +257,10 @@ fn startup_failure_reaches_the_client_and_closes_the_socket() {
     let got = &buf[..n as usize];
     assert_eq!(got[0], b'E', "message must be an error frame: {got:?}");
     let text = String::from_utf8_lossy(&got[1..]);
-    assert!(text.starts_with("waiter wake pipe creation failed: errno 24"), "{text}");
+    assert!(
+        text.starts_with("waiter wake pipe creation failed: errno 24"),
+        "{text}"
+    );
     assert_eq!(got[got.len() - 1], 0, "message must be NUL-terminated");
 
     // ...and then EOF, because the server closed the socket. Without the
@@ -270,10 +292,8 @@ fn i1_backend_crash_resolves_through_firewall_seam() {
     // (a) raw backend panic -> SIGABRT, the generic crash class the reaper
     //     treats as a crash (drives D-1 terminate-all + reinit).
     let status = std::thread::spawn(|| {
-        let payload = std::panic::catch_unwind(|| {
-            crash_primitive::pgrust_test_backend_panic()
-        })
-        .expect_err("the panic primitive must unwind, not return");
+        let payload = std::panic::catch_unwind(|| crash_primitive::pgrust_test_backend_panic())
+            .expect_err("the panic primitive must unwind, not return");
         panic_payload_to_exit_status(payload.as_ref())
     })
     .join()
@@ -287,16 +307,16 @@ fn i1_backend_crash_resolves_through_firewall_seam() {
     // (b) the SIGSEGV kill variant -> WTERMSIG(SIGSEGV): the hard-signal
     //     (crash_signals) class, still contained to the one thread.
     let status = std::thread::spawn(|| {
-        let payload = std::panic::catch_unwind(|| {
-            crash_primitive::pgrust_test_backend_kill_sigsegv()
-        })
-        .expect_err("the SIGSEGV primitive must unwind, not return");
+        let payload =
+            std::panic::catch_unwind(|| crash_primitive::pgrust_test_backend_kill_sigsegv())
+                .expect_err("the SIGSEGV primitive must unwind, not return");
         panic_payload_to_exit_status(payload.as_ref())
     })
     .join()
     .expect("the SIGSEGV crash must stay contained in its own thread");
     assert_eq!(
-        status, libc::SIGSEGV,
+        status,
+        libc::SIGSEGV,
         "the SIGSEGV crash primitive must map to WTERMSIG(SIGSEGV)"
     );
 
@@ -353,7 +373,9 @@ fn semaphore_wait_lap_is_inert_off_the_crash_path() {
 fn every_child_thread_arms_its_stack_ceiling() {
     let src = include_str!("lib.rs");
     let bases = src.matches("stack_depth::set_stack_base()").count();
-    let ceilings = src.matches("stack_depth::set_thread_stack_ceiling(").count();
+    let ceilings = src
+        .matches("stack_depth::set_thread_stack_ceiling(")
+        .count();
     assert!(bases >= 5, "{bases}");
     assert_eq!(bases, ceilings);
 }
@@ -365,10 +387,23 @@ fn every_child_thread_arms_its_stack_ceiling() {
 fn retired_standby_leaves_no_child_thread_or_reserved_pid() {
     let pid = reserve_child_pid().expect("a synthetic pid");
     let handle = std::thread::spawn(|| {});
-    CHILD_THREADS.lock().unwrap_or_else(|e| e.into_inner()).push((pid, handle));
-    assert!(RESERVED_PIDS.lock().unwrap_or_else(|e| e.into_inner()).contains(&pid));
+    CHILD_THREADS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push((pid, handle));
+    assert!(RESERVED_PIDS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .contains(&pid));
     wpool::retire_child_thread(pid);
-    assert!(!CHILD_THREADS.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|(p, _)| *p == pid));
-    assert!(!RESERVED_PIDS.lock().unwrap_or_else(|e| e.into_inner()).contains(&pid));
+    assert!(!CHILD_THREADS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .any(|(p, _)| *p == pid));
+    assert!(!RESERVED_PIDS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .contains(&pid));
     wpool::retire_child_thread(pid);
 }

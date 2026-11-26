@@ -20,7 +20,10 @@ pub struct SubPlan {
     pub typ: Oid,
 }
 
-pub fn compile_subplan<'mcx>(b: &mut Builder<'_, 'mcx>, s: &SubPlanTree<'mcx>) -> CompileResult<NodeId> {
+pub fn compile_subplan<'mcx>(
+    b: &mut Builder<'_, 'mcx>,
+    s: &SubPlanTree<'mcx>,
+) -> CompileResult<NodeId> {
     let typ = match s.subLinkType {
         SubLinkType::EXPR_SUBLINK => s.firstColType,
         // the ARRAY value's type as PG's exprType names it (the element's array type; an array element keeps its own type)
@@ -31,14 +34,23 @@ pub fn compile_subplan<'mcx>(b: &mut Builder<'_, 'mcx>, s: &SubPlanTree<'mcx>) -
     };
     let cell = b.prog.naggs as i32;
     b.prog.naggs += 1;
-    Ok(b.push(ExprNode::SubPlan(SubPlan { plan_id: s.plan_id, cell, typ })))
+    Ok(b.push(ExprNode::SubPlan(SubPlan {
+        plan_id: s.plan_id,
+        cell,
+        typ,
+    })))
 }
 
 /// D3374: the word of a NULL SubPlan cell whose SubPlan made a second row it holds (emit/mod.rs `emit_subplan_held`): the
 /// island raises PG's cardinality error where it reads the cell, never where it skips it.
 pub const HELD_ROWS: u64 = 0x4845_4c44_5f32_3130;
 
-pub fn eval_subplan(_p: &Prog<'_, '_>, _st: &mut St<'_>, n: &SubPlan, cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
+pub fn eval_subplan(
+    _p: &Prog<'_, '_>,
+    _st: &mut St<'_>,
+    n: &SubPlan,
+    cx: &mut Cx<'_, '_>,
+) -> PgResult<NullableDatum> {
     match cx.row.aggs.get(n.cell as usize) {
         Some(v) if v.isnull && v.value.as_u64() == HELD_ROWS => Err(more_rows()),
         Some(v) => Ok(*v),
@@ -50,14 +62,20 @@ pub fn eval_subplan(_p: &Prog<'_, '_>, _st: &mut St<'_>, n: &SubPlan, cx: &mut C
 #[cold]
 #[inline(never)]
 fn more_rows() -> Box<PgError> {
-    Box::new(PgError::error("more than one row returned by a subquery used as an expression".to_owned()).with_sqlstate(types_error::ERRCODE_CARDINALITY_VIOLATION)) // alloc: Cold
+    Box::new(
+        PgError::error("more than one row returned by a subquery used as an expression".to_owned())
+            .with_sqlstate(types_error::ERRCODE_CARDINALITY_VIOLATION),
+    ) // alloc: Cold
 }
 
 #[cold]
 #[inline(never)]
 fn no_cell(plan_id: i32) -> Box<PgError> {
     let _ = plan_id;
-    Box::new(PgError::error("SubPlan found with no parent plan".to_owned()).with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR)) // alloc: Cold
+    Box::new(
+        PgError::error("SubPlan found with no parent plan".to_owned())
+            .with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR),
+    ) // alloc: Cold
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -79,7 +97,12 @@ pub fn srf_cell(b: &mut Builder<'_, '_>, funcid: Oid, typ: Oid) -> NodeId {
     b.push(ExprNode::Srf(Srf { funcid, cell, typ }))
 }
 
-pub fn eval_srf(_p: &Prog<'_, '_>, _st: &mut St<'_>, n: &Srf, cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
+pub fn eval_srf(
+    _p: &Prog<'_, '_>,
+    _st: &mut St<'_>,
+    n: &Srf,
+    cx: &mut Cx<'_, '_>,
+) -> PgResult<NullableDatum> {
     match cx.row.aggs.get(n.cell as usize) {
         Some(v) => Ok(*v),
         None => Err(no_srf_cell(n.funcid)),
@@ -89,5 +112,10 @@ pub fn eval_srf(_p: &Prog<'_, '_>, _st: &mut St<'_>, n: &Srf, cx: &mut Cx<'_, '_
 #[cold]
 #[inline(never)]
 fn no_srf_cell(funcid: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!("set-valued function {funcid} called in context that cannot accept a set")).with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED)) // alloc: Cold
+    Box::new(
+        PgError::error(format!(
+            "set-valued function {funcid} called in context that cannot accept a set"
+        ))
+        .with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED),
+    ) // alloc: Cold
 }

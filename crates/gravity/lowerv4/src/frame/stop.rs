@@ -51,16 +51,32 @@ pub fn resume_word(px: &mut Px<'_, '_>, w: ResumeWord) -> i32 {
 
 /// The byte offsets of expression `ex`'s `n` held words (`Ex::held`).
 pub fn held_words(px: &mut Px<'_, '_>, ex: ExId, n: u8) -> Vec<i32> {
-    (0..n).map(|i| resume_word(px, ResumeWord::Held { ex: ex.0, i })).collect() // alloc: Program
+    (0..n)
+        .map(|i| resume_word(px, ResumeWord::Held { ex: ex.0, i }))
+        .collect() // alloc: Program
 }
 
 /// A row's held values (v1's `resumed_row`): on a fresh row `eval`'s, the first `at.len()` stored in the held words `at`;
 /// on the row a stopped call re-enters the words' values (the rest 0: I64 only), so a volatile call runs once per row, as
 /// PG's. Re-entered: an expanding step after the lowering one has its offset set (`Env::expands`), or `own` (an expanding
 /// step's offset, for its own per-row values). Where neither can be set, `eval` alone.
-pub fn held<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, at: &[i32], own: Option<i32>, eval: &mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env<'e, '_>) -> PgVec<'e, Value>) -> PgVec<'e, Value> {
-    let offs: PgVec<'_, i32> = env.expands.iter().filter(|e| env.step.is_some_and(|j| e.0 > j)).map(|e| e.1).chain(own).collect_in(env.mcx);
-    let Some(words) = env.words.filter(|_| !offs.is_empty()) else { return eval(b, env) };
+pub fn held<'e>(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env<'e, '_>,
+    at: &[i32],
+    own: Option<i32>,
+    eval: &mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env<'e, '_>) -> PgVec<'e, Value>,
+) -> PgVec<'e, Value> {
+    let offs: PgVec<'_, i32> = env
+        .expands
+        .iter()
+        .filter(|e| env.step.is_some_and(|j| e.0 > j))
+        .map(|e| e.1)
+        .chain(own)
+        .collect_in(env.mcx);
+    let Some(words) = env.words.filter(|_| !offs.is_empty()) else {
+        return eval(b, env);
+    };
     let set = offs.iter().fold(env.zero, |a, &o| {
         let w = b.load(Type::I64, words, o);
         b.int_bin(IntBinOp::Or, a, w)
@@ -70,12 +86,21 @@ pub fn held<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, at: &[i32], 
     b.cond_br(again, (l_old, &[]), (l_new, &[]));
     b.switch_to(l_new);
     let new = eval(b, env);
-    at.iter().zip(new.iter()).for_each(|(&o, &v)| b.store(words, o, v));
+    at.iter()
+        .zip(new.iter())
+        .for_each(|(&o, &v)| b.store(words, o, v));
     let types: PgVec<'_, Type> = new.iter().map(|&v| b.value_type(v)).collect_in(env.mcx);
     let l_join = b.create_block(&types[..]);
     b.br(l_join, &new[..]);
     b.switch_to(l_old);
-    let old: PgVec<'_, Value> = types.iter().enumerate().map(|(i, &t)| match at.get(i) { Some(&o) => b.load(t, words, o), None => b.iconst(t, 0) }).collect_in(env.mcx);
+    let old: PgVec<'_, Value> = types
+        .iter()
+        .enumerate()
+        .map(|(i, &t)| match at.get(i) {
+            Some(&o) => b.load(t, words, o),
+            None => b.iconst(t, 0),
+        })
+        .collect_in(env.mcx);
     b.br(l_join, &old[..]);
     b.switch_to(l_join);
     mcx::to_vec_in(b.block_params(l_join), env.mcx)
@@ -130,8 +155,16 @@ pub enum WriteBack<'a> {
 /// The bodies: the window's end continues at `l_after`; a stop or raise writes back and returns the status; the count
 /// reached writes back and continues at `l_full_then` (`done`, or D2580's flush of the steps after the one met: frame.rs
 /// `pipeline_fn`); `finish` runs the end's section close before `done`; a cancel returns `CANCELLED`.
-pub fn define_exits(b: &mut FunctionBuilder<'_>, env: &mut Env, x: &Exits, (l_after, l_full_then): (Block, Block), mut wb: WriteBack<'_>, finish: &mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env)) {
-    let (ctx, zero, stopped, done, node) = (env.ctx, env.zero, env.core.stopped, env.core.done, env.node);
+pub fn define_exits(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    x: &Exits,
+    (l_after, l_full_then): (Block, Block),
+    mut wb: WriteBack<'_>,
+    finish: &mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env),
+) {
+    let (ctx, zero, stopped, done, node) =
+        (env.ctx, env.zero, env.core.stopped, env.core.done, env.node);
     // EXPLAIN ANALYZE's rows leave wherever the position is written back: the window's end, a stop (an out block full, a
     // pull's yield) and the count reached, each the rows since the window's (or the resume's) start: `out` restarts at 0
     // on resume, so no row is counted twice (D349)
@@ -151,7 +184,19 @@ pub fn define_exits(b: &mut FunctionBuilder<'_>, env: &mut Env, x: &Exits, (l_af
     let mut done_ = [false; 8];
     loop {
         let mut any = false;
-        for (i, l) in [x.l_finish, x.l_stop_in, x.l_full, x.l_status, x.l_raise, x.l_cancel, x.l_done, x.l_exit].into_iter().enumerate() {
+        for (i, l) in [
+            x.l_finish,
+            x.l_stop_in,
+            x.l_full,
+            x.l_status,
+            x.l_raise,
+            x.l_cancel,
+            x.l_done,
+            x.l_exit,
+        ]
+        .into_iter()
+        .enumerate()
+        {
             if done_[i] || !reached(b, l) {
                 continue;
             }
@@ -243,12 +288,19 @@ pub(crate) mod tests {
 
     /// `f`'s `I64` result, emitted over a fresh function's `Env` (its exits unreachable) and run once by the interpreter
     /// (its bind words all 0).
-    pub(crate) fn run1(exs: &[Ex<'_>], f: &mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env) -> Value) -> i64 {
+    pub(crate) fn run1(
+        exs: &[Ex<'_>],
+        f: &mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env) -> Value,
+    ) -> i64 {
         run_with(exs, &[], f)
     }
 
     /// `run1` with bind words `words` (none NULL).
-    pub(crate) fn run_with(exs: &[Ex<'_>], words: &[u64], f: &mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env) -> Value) -> i64 {
+    pub(crate) fn run_with(
+        exs: &[Ex<'_>],
+        words: &[u64],
+        f: &mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env) -> Value,
+    ) -> i64 {
         let rig = mcx::MemoryContext::new("GravityPlanRig");
         let mut pb = ProgramBuilder::new();
         let core = env::declare(&mut pb);
@@ -259,15 +311,28 @@ pub(crate) mod tests {
             let mut env = Env::new(&mut b, core, Ir::none(), exs, x, rig.mcx());
             let v = f(&mut b, &mut env);
             b.ret(&[v]);
-            for l in [x.l_finish, x.l_stop_in, x.l_full, x.l_status, x.l_done, x.l_raise, x.l_cancel, x.l_exit] {
+            for l in [
+                x.l_finish,
+                x.l_stop_in,
+                x.l_full,
+                x.l_status,
+                x.l_done,
+                x.l_raise,
+                x.l_cancel,
+                x.l_exit,
+            ] {
                 b.switch_to(l);
                 b.unreachable();
             }
         }
         let p = pb.finish();
-        let (mut ctx, mut params, mut nulls) = (vec![0u64; ctx_size(1) / 8], vec![0u64; 64], vec![0u64; 8]); // alloc: Program
+        let (mut ctx, mut params, mut nulls) =
+            (vec![0u64; ctx_size(1) / 8], vec![0u64; 64], vec![0u64; 8]); // alloc: Program
         params[..words.len()].copy_from_slice(words);
-        (ctx[hdr::PARAMS / 8], ctx[hdr::PARAMS_NULL / 8]) = (params.as_mut_ptr() as u64, nulls.as_mut_ptr() as u64);
-        Interp::new(&p).run(func, &[ctx.as_mut_ptr() as u64]).expect("runs")[0] as i64
+        (ctx[hdr::PARAMS / 8], ctx[hdr::PARAMS_NULL / 8]) =
+            (params.as_mut_ptr() as u64, nulls.as_mut_ptr() as u64);
+        Interp::new(&p)
+            .run(func, &[ctx.as_mut_ptr() as u64])
+            .expect("runs")[0] as i64
     }
 }

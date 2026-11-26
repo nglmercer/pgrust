@@ -90,7 +90,9 @@ fn bringup() -> std::sync::MutexGuard<'static, ()> {
         // AsyncShmemInit scans pg_notify/ at boot; no datadir in this test.
         file_seams::with_allocated_dir::set(|dirname, cb| {
             let mut ret = false;
-            let Ok(entries) = std::fs::read_dir(dirname) else { return Ok(false) };
+            let Ok(entries) = std::fs::read_dir(dirname) else {
+                return Ok(false);
+            };
             for entry in entries {
                 ret = cb(entry.unwrap().file_name().to_str().unwrap())?;
                 if ret {
@@ -156,7 +158,11 @@ fn a_run_leaves_nothing_behind() {
         return;
     }
     let child = std::process::Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "tests::a_run_leaves_nothing_behind", "--nocapture"])
+        .args([
+            "--exact",
+            "tests::a_run_leaves_nothing_behind",
+            "--nocapture",
+        ])
         .env(CHILD, "1")
         .stdout(std::process::Stdio::piped())
         .spawn()
@@ -198,15 +204,14 @@ fn create_shared_memory_and_semaphores_end_to_end() {
     let semas = guc::GetConfigOption("num_os_semaphores", false, false)
         .unwrap()
         .unwrap();
-    assert_eq!(
-        semas.parse::<i32>().unwrap(),
-        lmgr_proc::ProcGlobalSemas()
-    );
+    assert_eq!(semas.parse::<i32>().unwrap(), lmgr_proc::ProcGlobalSemas());
 
     // Crash-cycle reset walk over the same live structures: dirty a probe per
     // reset family, replay shmem_exit(1) (LIFO — tears down the dsm control
     // segment), then assert the boot image is restored.
-    varsup::TransamVariables().nextOid.store(777, Ordering::Relaxed);
+    varsup::TransamVariables()
+        .nextOid
+        .store(777, Ordering::Relaxed);
     let lock0 = lwlock::main_lock(0);
     lock0
         .state
@@ -218,9 +223,19 @@ fn create_shared_memory_and_semaphores_end_to_end() {
 
     ResetShmemAfterCrash().unwrap();
 
-    assert_eq!(STARTUP_HOOK_RUNS.load(Ordering::Relaxed), 2, "ipci.c:248 reruns shmem_startup_hook");
-    assert_eq!(varsup::TransamVariables().nextOid.load(Ordering::Relaxed), 0);
-    assert_eq!(lock0.state.load(Ordering::Relaxed), lwlock::LW_FLAG_RELEASE_OK);
+    assert_eq!(
+        STARTUP_HOOK_RUNS.load(Ordering::Relaxed),
+        2,
+        "ipci.c:248 reruns shmem_startup_hook"
+    );
+    assert_eq!(
+        varsup::TransamVariables().nextOid.load(Ordering::Relaxed),
+        0
+    );
+    assert_eq!(
+        lock0.state.load(Ordering::Relaxed),
+        lwlock::LW_FLAG_RELEASE_OK
+    );
     assert_eq!(BE_STATUS_RESETS.load(Ordering::Relaxed), 1);
     assert_eq!(BARRIER_CV_RESETS.load(Ordering::Relaxed), 1);
     assert_eq!(CHECKPOINTER_CV_RESETS.load(Ordering::Relaxed), 1);
@@ -248,7 +263,9 @@ fn initialize_shmem_gucs_counts_huge_pages_like_c() {
         let mut hp_size: usize = 2 * 1024 * 1024;
         if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
             for line in meminfo.lines() {
-                let Some(rest) = line.strip_prefix("Hugepagesize:") else { continue };
+                let Some(rest) = line.strip_prefix("Hugepagesize:") else {
+                    continue;
+                };
                 let mut fields = rest.split_whitespace();
                 if let (Some(n), Some(unit)) = (fields.next(), fields.next()) {
                     if unit.starts_with('k') {
@@ -264,7 +281,10 @@ fn initialize_shmem_gucs_counts_huge_pages_like_c() {
     } else {
         "-1".to_string()
     };
-    assert_eq!(got, expected, "shared_memory_size_in_huge_pages for size_b={size_b}");
+    assert_eq!(
+        got, expected,
+        "shared_memory_size_in_huge_pages for size_b={size_b}"
+    );
 }
 
 #[test]
@@ -298,14 +318,20 @@ fn shmem_size_terms_match_c_18_6_census() {
     assert_eq!(g::MaxBackends(), 136);
     // hot_standby boots on (transam_xlog's GUC install): Proc Array +
     // KnownAssignedXids + KnownAssignedXidsValid.
-    assert_eq!(procarray::ProcArrayShmemSize(0).unwrap(), 580 + 35360 + 8840);
+    assert_eq!(
+        procarray::ProcArrayShmemSize(0).unwrap(),
+        580 + 35360 + 8840
+    );
     assert_eq!(xlogrecovery::XLogRecoveryShmemSize(), 104);
     assert_eq!(walsender::WalSndShmemSize(10).unwrap(), 1072);
     assert_eq!(nbtree::BTreeShmemSize().unwrap(), 1644);
     assert_eq!(pgstat::shmem::StatsShmemSize().unwrap(), 315552);
     assert_eq!(lmgr_proc::ProcGlobalSemas(), 174);
     let sizeof_pg_semaphore_data = if cfg!(target_os = "macos") { 8 } else { 128 };
-    assert_eq!(pg_sema::PGSemaphoreShmemSize(174).unwrap(), 174 * sizeof_pg_semaphore_data);
+    assert_eq!(
+        pg_sema::PGSemaphoreShmemSize(174).unwrap(),
+        174 * sizeof_pg_semaphore_data
+    );
     // BufferManagerShmemSize (buf_init.c:145) at this harness's NBuffers:
     // descriptors + cache-line pad, blocks + I/O-align pad, freelist.c's
     // estimate, I/O CVs + pad, checkpoint sort items.
@@ -313,7 +339,14 @@ fn shmem_size_terms_match_c_18_6_census() {
     let strategy = dynahash::hash_estimate_size((nbuffers + 128) as i64, 24).unwrap() + 32;
     assert_eq!(
         bufmgr::BufferManagerShmemSize().unwrap(),
-        nbuffers * 64 + 128 + 4096 + nbuffers * 8192 + strategy + nbuffers * 16 + 128 + nbuffers * 20
+        nbuffers * 64
+            + 128
+            + 4096
+            + nbuffers * 8192
+            + strategy
+            + nbuffers * 16
+            + 128
+            + nbuffers * 20
     );
 }
 

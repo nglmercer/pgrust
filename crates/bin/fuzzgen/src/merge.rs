@@ -59,11 +59,21 @@ struct Source {
 }
 
 fn int4_col(name: &str, nullable: bool) -> Column {
-    Column { name: name.to_string(), ty: SqlType::Int4, nullable, ddl_type: None }
+    Column {
+        name: name.to_string(),
+        ty: SqlType::Int4,
+        nullable,
+        ddl_type: None,
+    }
 }
 
 fn text_col(name: &str) -> Column {
-    Column { name: name.to_string(), ty: SqlType::Text, nullable: true, ddl_type: None }
+    Column {
+        name: name.to_string(),
+        ty: SqlType::Text,
+        nullable: true,
+        ddl_type: None,
+    }
 }
 
 /// One MERGE statement. None when the catalog exposes no eligible target
@@ -81,19 +91,27 @@ pub fn gen_merge_sql(g: &mut Gen) -> Option<String> {
     }
     let ti = eligible[g.rng.below_usize(eligible.len())];
     let table = table_of(g, ti);
-    let pk_col = table.pk.as_ref().expect("eligible table has pk").column.clone();
+    let pk_col = table
+        .pk
+        .as_ref()
+        .expect("eligible table has pk")
+        .column
+        .clone();
     g.fire("merge");
 
     let t_alias = g.next_alias();
 
     // Source form; the cardinality shape only exists for VALUES sources
     // (only there are duplicate join keys constructible on purpose).
-    let src_kind = g
-        .weights
-        .pick(g.rng, &["merge:src:values", "merge:src:table", "merge:src:subq"]);
+    let src_kind = g.weights.pick(
+        g.rng,
+        &["merge:src:values", "merge:src:table", "merge:src:subq"],
+    );
     g.fire(src_kind);
     let dup_key = if src_kind == "merge:src:values"
-        && g.weights.pick(g.rng, &["merge:card:dup", "merge:card:none"]) == "merge:card:dup"
+        && g.weights
+            .pick(g.rng, &["merge:card:dup", "merge:card:none"])
+            == "merge:card:dup"
     {
         g.pk_known(ti)
     } else {
@@ -122,7 +140,10 @@ pub fn gen_merge_sql(g: &mut Gen) -> Option<String> {
 
     if g.weights.pick(g.rng, &["merge:on:extra", "merge:on:plain"]) == "merge:on:extra" {
         g.fire("merge:on:extra");
-        let scope = Scope { rels: &both_rels, outer: None };
+        let scope = Scope {
+            rels: &both_rels,
+            outer: None,
+        };
         out.push_str(" AND ");
         out.push_str(&g.gen_bool(&scope, 2).to_sql());
     }
@@ -133,15 +154,16 @@ pub fn gen_merge_sql(g: &mut Gen) -> Option<String> {
     // "unreachable WHEN clause" — wasted budget).
     let n_matched = if dup_key.is_some() {
         // Burn the draw so dup/non-dup streams stay aligned per-choice.
-        let _ = g
-            .weights
-            .pick(g.rng, &["merge:matched:0", "merge:matched:1", "merge:matched:2"]);
+        let _ = g.weights.pick(
+            g.rng,
+            &["merge:matched:0", "merge:matched:1", "merge:matched:2"],
+        );
         1
     } else {
-        match g
-            .weights
-            .pick(g.rng, &["merge:matched:0", "merge:matched:1", "merge:matched:2"])
-        {
+        match g.weights.pick(
+            g.rng,
+            &["merge:matched:0", "merge:matched:1", "merge:matched:2"],
+        ) {
             "merge:matched:0" => 0,
             "merge:matched:1" => 1,
             _ => 2,
@@ -153,8 +175,10 @@ pub fn gen_merge_sql(g: &mut Gen) -> Option<String> {
         let action = if forced_hit {
             g.weights.pick(g.rng, &["merge:m:update", "merge:m:delete"])
         } else {
-            g.weights
-                .pick(g.rng, &["merge:m:update", "merge:m:delete", "merge:m:nothing"])
+            g.weights.pick(
+                g.rng,
+                &["merge:m:update", "merge:m:delete", "merge:m:nothing"],
+            )
         };
         g.fire(action);
         // Non-last arms always carry AND (otherwise the later arm is dead);
@@ -162,7 +186,10 @@ pub fn gen_merge_sql(g: &mut Gen) -> Option<String> {
         let mut arm = String::from("WHEN MATCHED");
         if !forced_hit && (i + 1 < n_matched || g.rng.chance(1, 3)) {
             g.fire("merge:m:cond");
-            let scope = Scope { rels: &both_rels, outer: None };
+            let scope = Scope {
+                rels: &both_rels,
+                outer: None,
+            };
             arm.push_str(" AND ");
             arm.push_str(&g.gen_bool(&scope, 2).to_sql());
         }
@@ -171,7 +198,10 @@ pub fn gen_merge_sql(g: &mut Gen) -> Option<String> {
             "merge:m:update" => {
                 arm.push_str("UPDATE SET ");
                 let set_cols = pick_set_columns(g, table, 2);
-                let scope = Scope { rels: &both_rels, outer: None };
+                let scope = Scope {
+                    rels: &both_rels,
+                    outer: None,
+                };
                 for (j, c) in set_cols.iter().enumerate() {
                     if j > 0 {
                         arm.push_str(", ");
@@ -188,14 +218,16 @@ pub fn gen_merge_sql(g: &mut Gen) -> Option<String> {
     }
 
     // WHEN NOT MATCHED [BY TARGET] arm.
-    let nmt_pick = g
-        .weights
-        .pick(g.rng, &["merge:nmt:insert", "merge:nmt:nothing", "merge:nmt:none"]);
+    let nmt_pick = g.weights.pick(
+        g.rng,
+        &["merge:nmt:insert", "merge:nmt:nothing", "merge:nmt:none"],
+    );
     let mut nmt_arm: Option<String> = None;
     if nmt_pick != "merge:nmt:none" {
         g.fire(nmt_pick);
         let mut arm = String::from("WHEN NOT MATCHED");
-        if g.weights.pick(g.rng, &["merge:nmt:by_target", "merge:nmt:plain"])
+        if g.weights
+            .pick(g.rng, &["merge:nmt:by_target", "merge:nmt:plain"])
             == "merge:nmt:by_target"
         {
             g.fire("merge:nmt:by_target");
@@ -203,7 +235,10 @@ pub fn gen_merge_sql(g: &mut Gen) -> Option<String> {
         }
         if g.rng.chance(1, 4) {
             g.fire("merge:nmt:cond");
-            let scope = Scope { rels: &source_rels, outer: None };
+            let scope = Scope {
+                rels: &source_rels,
+                outer: None,
+            };
             arm.push_str(" AND ");
             arm.push_str(&g.gen_bool(&scope, 2).to_sql());
         }
@@ -218,7 +253,10 @@ pub fn gen_merge_sql(g: &mut Gen) -> Option<String> {
                 arm.push_str(&c.name);
             }
             arm.push_str(") VALUES (");
-            let scope = Scope { rels: &source_rels, outer: None };
+            let scope = Scope {
+                rels: &source_rels,
+                outer: None,
+            };
             for (j, c) in cols.iter().enumerate() {
                 if j > 0 {
                     arm.push_str(", ");
@@ -243,7 +281,12 @@ pub fn gen_merge_sql(g: &mut Gen) -> Option<String> {
     // pk-bound guard (see module docs).
     let nmbs_pick = g.weights.pick(
         g.rng,
-        &["merge:nmbs:update", "merge:nmbs:delete", "merge:nmbs:nothing", "merge:nmbs:none"],
+        &[
+            "merge:nmbs:update",
+            "merge:nmbs:delete",
+            "merge:nmbs:nothing",
+            "merge:nmbs:none",
+        ],
     );
     let mut nmbs_arm: Option<String> = None;
     if nmbs_pick != "merge:nmbs:none" {
@@ -259,7 +302,10 @@ pub fn gen_merge_sql(g: &mut Gen) -> Option<String> {
             "merge:nmbs:update" => {
                 arm.push_str("UPDATE SET ");
                 let set_cols = pick_set_columns(g, table, 2);
-                let scope = Scope { rels: &target_rels, outer: None };
+                let scope = Scope {
+                    rels: &target_rels,
+                    outer: None,
+                };
                 for (j, c) in set_cols.iter().enumerate() {
                     if j > 0 {
                         arm.push_str(", ");
@@ -283,7 +329,10 @@ pub fn gen_merge_sql(g: &mut Gen) -> Option<String> {
         g.fire("merge:m:forced");
         let mut arm = String::from("WHEN MATCHED THEN UPDATE SET ");
         let set_cols = pick_set_columns(g, table, 2);
-        let scope = Scope { rels: &both_rels, outer: None };
+        let scope = Scope {
+            rels: &both_rels,
+            outer: None,
+        };
         for (j, c) in set_cols.iter().enumerate() {
             if j > 0 {
                 arm.push_str(", ");
@@ -310,16 +359,26 @@ pub fn gen_merge_sql(g: &mut Gen) -> Option<String> {
     // PG17 RETURNING, sometimes leading with merge_action(). Row order is
     // plan-dependent, but the differ compares non-ORDER BY rowsets as
     // multisets, so this is compare-safe.
-    if g.weights.pick(g.rng, &["merge:returning", "merge:returning:none"]) == "merge:returning" {
+    if g.weights
+        .pick(g.rng, &["merge:returning", "merge:returning:none"])
+        == "merge:returning"
+    {
         g.fire("merge:returning");
         out.push_str(" RETURNING ");
-        let scope = Scope { rels: &both_rels, outer: None };
+        let scope = Scope {
+            rels: &both_rels,
+            outer: None,
+        };
         let mut items: Vec<String> = Vec::new();
         if g.rng.chance(1, 2) {
             g.fire("merge:returning:action");
             items.push("merge_action()".to_string());
         }
-        let n_exprs = if items.is_empty() { 1 + g.rng.below_usize(2) } else { g.rng.below_usize(2) };
+        let n_exprs = if items.is_empty() {
+            1 + g.rng.below_usize(2)
+        } else {
+            g.rng.below_usize(2)
+        };
         for _ in 0..n_exprs {
             let ty = g.any_type(&scope);
             items.push(g.gen_typed(&scope, ty, 2).to_sql());
@@ -343,7 +402,10 @@ fn gen_values_source(g: &mut Gen, ti: usize, dup_key: Option<i64>) -> Source {
         keys.push(k);
         keys.push(k);
     }
-    let extra = match g.weights.pick(g.rng, &["merge:rows:1", "merge:rows:2", "merge:rows:3"]) {
+    let extra = match g
+        .weights
+        .pick(g.rng, &["merge:rows:1", "merge:rows:2", "merge:rows:3"])
+    {
         "merge:rows:1" => 1,
         "merge:rows:2" => 2,
         _ => 3,
@@ -352,7 +414,9 @@ fn gen_values_source(g: &mut Gen, ti: usize, dup_key: Option<i64>) -> Source {
         if keys.len() >= 4 {
             break;
         }
-        let pick = g.weights.pick(g.rng, &["merge:key:known", "merge:key:fresh"]);
+        let pick = g
+            .weights
+            .pick(g.rng, &["merge:key:known", "merge:key:fresh"]);
         let k = if pick == "merge:key:known" {
             match g.pk_known(ti) {
                 Some(k) if !keys.contains(&k) => {
@@ -385,7 +449,11 @@ fn gen_values_source(g: &mut Gen, ti: usize, dup_key: Option<i64>) -> Source {
         alias: alias.clone(),
         columns: vec![int4_col("sk", false), int4_col("sv", true), text_col("st")],
     };
-    Source { using_sql: sql, rel, key: format!("{}.sk", alias) }
+    Source {
+        using_sql: sql,
+        rel,
+        key: format!("{}.sk", alias),
+    }
 }
 
 /// A plain table source: any pk-carrying table, joined on its pk (unique
@@ -439,7 +507,11 @@ fn gen_subq_source(g: &mut Gen) -> Source {
         alias: alias.clone(),
         columns: vec![int4_col("sk", false), int4_col("sv", true)],
     };
-    Source { using_sql: sql, rel, key: format!("{}.sk", alias) }
+    Source {
+        using_sql: sql,
+        rel,
+        key: format!("{}.sk", alias),
+    }
 }
 
 #[cfg(test)]
@@ -601,7 +673,9 @@ mod tests {
         );
         let mut saw_insert = false;
         for sql in &sqls {
-            let Some(rest) = sql.split_once("THEN INSERT (") else { continue };
+            let Some(rest) = sql.split_once("THEN INSERT (") else {
+                continue;
+            };
             let target = sql.split_once("MERGE INTO ").unwrap().1;
             let tname = target.split(' ').next().unwrap();
             let table = cat.tables.iter().find(|t| t.name == tname).unwrap();

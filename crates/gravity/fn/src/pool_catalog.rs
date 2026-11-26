@@ -26,32 +26,106 @@ use types_error::PgResult;
 /// pg_type's typoutput, not imaged) and the sorts stay serial.
 pub const AUDITED: &[&str] = &[
     // arrays: the element's equality / ordering / hash (array_cmp, array_eq, hash_array's typcache entry in fn_extra)
-    "array_eq", "array_ne", "array_lt", "array_gt", "array_le", "array_ge", "btarraycmp", "array_larger", "array_smaller",
-    "hash_array", "hash_array_extended", "arrayoverlap", "arraycontains", "arraycontained", "width_bucket_array",
+    "array_eq",
+    "array_ne",
+    "array_lt",
+    "array_gt",
+    "array_le",
+    "array_ge",
+    "btarraycmp",
+    "array_larger",
+    "array_smaller",
+    "hash_array",
+    "hash_array_extended",
+    "arrayoverlap",
+    "arraycontains",
+    "arraycontained",
+    "width_bucket_array",
     // enums: the order (enum_cmp_internal's typcache enum data)
-    "enum_lt", "enum_gt", "enum_le", "enum_ge", "enum_cmp",
+    "enum_lt",
+    "enum_gt",
+    "enum_le",
+    "enum_ge",
+    "enum_cmp",
     // ranges: the range's typcache entry (subtype compare, canonical, subdiff)
-    "range_eq", "range_ne", "range_lt", "range_le", "range_ge", "range_gt", "range_cmp", "range_overlaps", "range_contains_elem",
-    "range_contains", "elem_contained_by_range", "range_contained_by", "range_adjacent", "range_before", "range_after",
-    "range_overleft", "range_overright", "range_union", "range_intersect", "range_minus", "range_merge", "hash_range",
+    "range_eq",
+    "range_ne",
+    "range_lt",
+    "range_le",
+    "range_ge",
+    "range_gt",
+    "range_cmp",
+    "range_overlaps",
+    "range_contains_elem",
+    "range_contains",
+    "elem_contained_by_range",
+    "range_contained_by",
+    "range_adjacent",
+    "range_before",
+    "range_after",
+    "range_overleft",
+    "range_overright",
+    "range_union",
+    "range_intersect",
+    "range_minus",
+    "range_merge",
+    "hash_range",
     "hash_range_extended",
     // multiranges: the multirange's entry and its range's
-    "multirange_eq", "multirange_ne", "multirange_lt", "multirange_le", "multirange_ge", "multirange_gt", "multirange_cmp",
-    "multirange_lower_inc", "multirange_upper_inc", "multirange_lower_inf", "multirange_upper_inf", "multirange_contains_elem",
-    "multirange_contains_range", "multirange_contains_multirange", "elem_contained_by_multirange", "range_contained_by_multirange",
-    "multirange_contained_by_range", "multirange_contained_by_multirange", "range_overlaps_multirange", "multirange_overlaps_range",
-    "multirange_overlaps_multirange", "range_adjacent_multirange", "multirange_adjacent_range", "multirange_adjacent_multirange",
-    "range_before_multirange", "multirange_before_range", "multirange_before_multirange", "range_after_multirange",
-    "multirange_after_range", "multirange_after_multirange", "range_overleft_multirange", "multirange_overleft_range",
-    "multirange_overleft_multirange", "range_overright_multirange", "multirange_overright_range", "multirange_overright_multirange",
-    "multirange_union", "multirange_intersect", "multirange_minus", "range_merge_from_multirange", "hash_multirange",
-    "hash_multirange_extended", "multirange_constructor0", "multirange_constructor1", "multirange_constructor2",
+    "multirange_eq",
+    "multirange_ne",
+    "multirange_lt",
+    "multirange_le",
+    "multirange_ge",
+    "multirange_gt",
+    "multirange_cmp",
+    "multirange_lower_inc",
+    "multirange_upper_inc",
+    "multirange_lower_inf",
+    "multirange_upper_inf",
+    "multirange_contains_elem",
+    "multirange_contains_range",
+    "multirange_contains_multirange",
+    "elem_contained_by_multirange",
+    "range_contained_by_multirange",
+    "multirange_contained_by_range",
+    "multirange_contained_by_multirange",
+    "range_overlaps_multirange",
+    "multirange_overlaps_range",
+    "multirange_overlaps_multirange",
+    "range_adjacent_multirange",
+    "multirange_adjacent_range",
+    "multirange_adjacent_multirange",
+    "range_before_multirange",
+    "multirange_before_range",
+    "multirange_before_multirange",
+    "range_after_multirange",
+    "multirange_after_range",
+    "multirange_after_multirange",
+    "range_overleft_multirange",
+    "multirange_overleft_range",
+    "multirange_overleft_multirange",
+    "range_overright_multirange",
+    "multirange_overright_range",
+    "multirange_overright_multirange",
+    "multirange_union",
+    "multirange_intersect",
+    "multirange_minus",
+    "range_merge_from_multirange",
+    "hash_multirange",
+    "hash_multirange_extended",
+    "multirange_constructor0",
+    "multirange_constructor1",
+    "multirange_constructor2",
     // the range constructors (tier C for their null semantics, which live in the body): the range's typcache entry and
     // its canonical function
-    "range_constructor2", "range_constructor3",
+    "range_constructor2",
+    "range_constructor3",
     // encoding conversion (the second B2 entry): the pair the site's constant encoding name(s) and the database encoding
     // reach, resolved on the leader (`CONVERT`, mbutils `armed_conversion`), besides its text / bytea / name arguments
-    "pg_convert_to", "pg_convert_from", "pg_convert",
+    "pg_convert_to",
+    "pg_convert_from",
+    "pg_convert",
 ];
 
 /// The audited conversion bodies: admitted only when each encoding-name argument is a constant (`Reach::convs`).
@@ -75,7 +149,12 @@ const SITE_TYPES: usize = 129;
 impl SiteReach {
     /// The reach of types `ts`; None when there are more than a function can have (the site stays serial).
     pub fn of_types(ts: impl IntoIterator<Item = Oid>) -> Option<SiteReach> {
-        let mut r = SiteReach { types: [0; SITE_TYPES], nt: 0, convs: [(0, 0); 2], nc: 0 };
+        let mut r = SiteReach {
+            types: [0; SITE_TYPES],
+            nt: 0,
+            convs: [(0, 0); 2],
+            nc: 0,
+        };
         for t in ts {
             *r.types.get_mut(r.nt)? = t;
             r.nt += 1;
@@ -111,7 +190,10 @@ pub struct Reach<'m> {
 
 impl<'m> Reach<'m> {
     pub fn new_in(m: Mcx<'m>) -> Reach<'m> {
-        Reach { types: PgVec::new_in(m), convs: PgVec::new_in(m) }
+        Reach {
+            types: PgVec::new_in(m),
+            convs: PgVec::new_in(m),
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -134,7 +216,10 @@ impl<'m> Reach<'m> {
 
     /// The same reach, its lists in `m` (the owner's or the template's root).
     pub fn clone_in<'b>(&self, m: Mcx<'b>) -> Reach<'b> {
-        let mut r = Reach { types: mcx::reserved_in(self.types.len(), m), convs: mcx::reserved_in(self.convs.len(), m) };
+        let mut r = Reach {
+            types: mcx::reserved_in(self.types.len(), m),
+            convs: mcx::reserved_in(self.convs.len(), m),
+        };
         r.types.extend_from_slice_in(&self.types);
         r.convs.extend_from_slice_in(&self.convs);
         r
@@ -227,7 +312,9 @@ impl StatementCatalog {
             if t == RECORDOID || t == RECORDARRAYOID {
                 return Ok(None);
             }
-            let Some(row) = syscache_seams::capture_type_row(t)? else { return Ok(None) };
+            let Some(row) = syscache_seams::capture_type_row(t)? else {
+                return Ok(None);
+            };
             match row.typtype {
                 // a polymorphic declared type (a RowCompareExpr binds its btree compare proc over the operator's
                 // declared inputs: enum_cmp(anyenum, anyenum)) names no closure to image: the body would find the
@@ -246,8 +333,13 @@ impl StatementCatalog {
             push_row(&mut rows, row);
         }
         for i in &images {
-            let Some(row) = syscache_seams::capture_type_row(i.type_id())? else { return Ok(None) };
-            if matches!(row.typtype, TYPTYPE_COMPOSITE | TYPTYPE_DOMAIN) || i.type_id() == RECORDOID || !i.procs().all(builtin) {
+            let Some(row) = syscache_seams::capture_type_row(i.type_id())? else {
+                return Ok(None);
+            };
+            if matches!(row.typtype, TYPTYPE_COMPOSITE | TYPTYPE_DOMAIN)
+                || i.type_id() == RECORDOID
+                || !i.procs().all(builtin)
+            {
                 return Ok(None);
             }
             if !crate::typesem::collation::armed_by_default(i.rng_collation()) {
@@ -259,16 +351,28 @@ impl StatementCatalog {
         let mut conversions = Vec::new(); // alloc: Exec
         for &(s, d) in convs {
             let db = mbutils::GetDatabaseEncoding() as i32;
-            let (s, d) = (if s == DATABASE_ENCODING { db } else { s }, if d == DATABASE_ENCODING { db } else { d });
-            let Some(a) = mbutils::armed_conversion(s as _, d as _)? else { continue };
+            let (s, d) = (
+                if s == DATABASE_ENCODING { db } else { s },
+                if d == DATABASE_ENCODING { db } else { d },
+            );
+            let Some(a) = mbutils::armed_conversion(s as _, d as _)? else {
+                continue;
+            };
             if a.fn_addr.is_some() && !fmgr_core::fmgr_is_native(a.proc) {
                 return Ok(None);
             }
-            if !conversions.iter().any(|c: &mbutils::ArmedConversion| c.src == a.src && c.dest == a.dest) {
+            if !conversions
+                .iter()
+                .any(|c: &mbutils::ArmedConversion| c.src == a.src && c.dest == a.dest)
+            {
                 conversions.push(a); // alloc: Exec
             }
         }
-        Ok(Some(StatementCatalog { rows: rows.into_boxed_slice(), images: images.into_boxed_slice(), conversions: conversions.into_boxed_slice() }))
+        Ok(Some(StatementCatalog {
+            rows: rows.into_boxed_slice(),
+            images: images.into_boxed_slice(),
+            conversions: conversions.into_boxed_slice(),
+        }))
     }
 
     /// The types imaged (tests, the report).
@@ -284,15 +388,24 @@ impl StatementCatalog {
         let rows: &'static [syscache_seams::ArmedTypeRow] = raw::claim_slice(&self.rows[..]);
         syscache_seams::arm_statement_type_rows(rows);
         typcache::armed::arm_statement(images);
-        let conversions = mbutils::arm_statement_conversions(Some(raw::claim_slice(&self.conversions[..])));
+        let conversions =
+            mbutils::arm_statement_conversions(Some(raw::claim_slice(&self.conversions[..])));
         let strict = catcache::set_pool_strict(true);
-        CatalogArmed { _keep: Arc::clone(self), strict, conversions }
+        CatalogArmed {
+            _keep: Arc::clone(self),
+            strict,
+            conversions,
+        }
     }
 }
 
 impl core::fmt::Debug for StatementCatalog {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("StatementCatalog").field("rows", &self.rows.len()).field("images", &self.images.len()).field("conversions", &self.conversions).finish()
+        f.debug_struct("StatementCatalog")
+            .field("rows", &self.rows.len())
+            .field("images", &self.images.len())
+            .field("conversions", &self.conversions)
+            .finish()
     }
 }
 
@@ -328,7 +441,9 @@ pub fn leader_statement() -> Option<Arc<StatementCatalog>> {
 /// For a run on the leader: `cat` is the statement's arm until the guard drops (a nested run's guard puts the outer
 /// statement's back).
 pub fn arm_leader_statement(cat: Option<Arc<StatementCatalog>>) -> LeaderArmed {
-    LeaderArmed { prev: crate::typesem::collation::LEADER_CATALOG.with(|l| l.replace(cat)) }
+    LeaderArmed {
+        prev: crate::typesem::collation::LEADER_CATALOG.with(|l| l.replace(cat)),
+    }
 }
 
 #[must_use = "the statement's arm stays the leader's only while the guard lives"]
@@ -345,16 +460,28 @@ impl Drop for LeaderArmed {
 
 #[cfg(test)]
 mod tests {
-    use super::{convert_pair, DATABASE_ENCODING, AUDITED, CONVERT};
+    use super::{convert_pair, AUDITED, CONVERT, DATABASE_ENCODING};
 
     /// A conversion site's pair: the database encoding on the side its body takes it; an unknown name (the body raises
     /// first) or a wrong arity resolves nothing; every conversion body is audited.
     #[test]
     fn conversion_pairs() {
-        assert_eq!(convert_pair(1717, &[8]), Some((DATABASE_ENCODING, 8)), "convert_to(text, 'LATIN1')");
-        assert_eq!(convert_pair(1714, &[8]), Some((8, DATABASE_ENCODING)), "convert_from(bytea, 'LATIN1')");
+        assert_eq!(
+            convert_pair(1717, &[8]),
+            Some((DATABASE_ENCODING, 8)),
+            "convert_to(text, 'LATIN1')"
+        );
+        assert_eq!(
+            convert_pair(1714, &[8]),
+            Some((8, DATABASE_ENCODING)),
+            "convert_from(bytea, 'LATIN1')"
+        );
         assert_eq!(convert_pair(1717, &[-1]), None, "an unknown name");
-        assert_eq!(convert_pair(1717, &[8, 6]), None, "convert_to takes one name");
+        assert_eq!(
+            convert_pair(1717, &[8, 6]),
+            None,
+            "convert_to takes one name"
+        );
         assert_eq!(convert_pair(1039, &[8]), None, "not a conversion body");
         assert!(CONVERT.iter().all(|n| AUDITED.contains(n)));
     }
@@ -366,8 +493,15 @@ mod tests {
         for n in AUDITED {
             let rows: Vec<_> = crate::ROWS.iter().filter(|r| r.name == *n).collect();
             assert!(!rows.is_empty(), "{n}: no tier row");
-            assert!(rows.iter().all(|r| r.status == crate::Status::Fmgr), "{n}: not function-manager bound");
-            assert_eq!(AUDITED.iter().filter(|m| *m == n).count(), 1, "{n} listed twice");
+            assert!(
+                rows.iter().all(|r| r.status == crate::Status::Fmgr),
+                "{n}: not function-manager bound"
+            );
+            assert_eq!(
+                AUDITED.iter().filter(|m| *m == n).count(),
+                1,
+                "{n} listed twice"
+            );
         }
     }
 }

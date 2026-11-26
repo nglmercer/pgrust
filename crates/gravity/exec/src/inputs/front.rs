@@ -190,7 +190,11 @@ pub type Refusal = (NodeTag, &'static str);
 type R = Option<()>;
 
 /// The statement's front key, or `None` when a node is outside the walk (today's path).
-pub fn walk<'p>(arena: ArenaRef, stmt: &'p PlannedStmt<'p>, trace: Option<Trace<'_, 'p>>) -> Option<Front<'p>> {
+pub fn walk<'p>(
+    arena: ArenaRef,
+    stmt: &'p PlannedStmt<'p>,
+    trace: Option<Trace<'_, 'p>>,
+) -> Option<Front<'p>> {
     run(arena, stmt, trace).ok()
 }
 
@@ -206,7 +210,10 @@ pub fn refusal<'p>(arena: ArenaRef, stmt: &'p PlannedStmt<'p>) -> Option<Refusal
 const ZONE: gravity_decompose::normalize::Zone = gravity_decompose::normalize::Zone {
     date_tstz: |d| {
         let mut e = gravity_fn::ErrSlot::NONE;
-        zone_ok(gravity_fn::shims::byval::date_timestamptz(&mut e, i64::from(d)))
+        zone_ok(gravity_fn::shims::byval::date_timestamptz(
+            &mut e,
+            i64::from(d),
+        ))
     },
     ts_tstz: |t| {
         let mut e = gravity_fn::ErrSlot::NONE;
@@ -219,7 +226,10 @@ const ZONE: gravity_decompose::normalize::Zone = gravity_decompose::normalize::Z
     spread: zone_spread,
     stamp: || pgtz::with_session_timezone(|z| z.map_or(0, |z| std::ptr::from_ref(z) as usize)),
     // B2-31: never for a reader whose rows come over several runs (a named cursor's portal, a counted or zone restart's start)
-    active: || !crate::admit::entry::zone_off() && pquery::ActivePortal().is_none_or(|p| p.borrow().name.is_empty()),
+    active: || {
+        !crate::admit::entry::zone_off()
+            && pquery::ActivePortal().is_none_or(|p| p.borrow().name.is_empty())
+    },
 };
 
 /// SRC-07 (normalize `implied`): the least and greatest UTC offset (microseconds) the session zone takes at any instant
@@ -241,7 +251,9 @@ fn zone_spread(t: i64) -> Option<(i64, i64)> {
         for _ in 0..64 {
             match localtime::pg_next_dst_boundary(from, tz) {
                 NextDstBoundary::Overflow => return None,
-                NextDstBoundary::NoTransition { before_gmtoff, .. } => return Some((lo.min(before_gmtoff) * USECS, hi.max(before_gmtoff) * USECS)),
+                NextDstBoundary::NoTransition { before_gmtoff, .. } => {
+                    return Some((lo.min(before_gmtoff) * USECS, hi.max(before_gmtoff) * USECS))
+                }
                 NextDstBoundary::Boundary(b) => {
                     (lo, hi) = (lo.min(b.before_gmtoff), hi.max(b.before_gmtoff));
                     if b.boundary > to {
@@ -263,15 +275,52 @@ fn zone_ok(r: gravity_fn::Ret) -> Option<i64> {
 /// The front walk's node list's first capacity: an RTT or point statement walks 6 to 30 nodes.
 const NODES_AT_START: usize = 32;
 
-fn run<'p>(arena: ArenaRef, stmt: &'p PlannedStmt<'p>, trace: Option<Trace<'_, 'p>>) -> Result<Front<'p>, Refusal> {
+fn run<'p>(
+    arena: ArenaRef,
+    stmt: &'p PlannedStmt<'p>,
+    trace: Option<Trace<'_, 'p>>,
+) -> Result<Front<'p>, Refusal> {
     gravity_decompose::normalize::set_zone(ZONE);
-    let scopes = (gravity_expr::bake::Scope::open(), gravity_decompose::bake::Scope::open());
+    let scopes = (
+        gravity_expr::bake::Scope::open(),
+        gravity_decompose::bake::Scope::open(),
+    );
     // the walk's nodes start at a short statement's count: one block in place of a growth per doubling
-    let f = Front { main: 0, tl: 0, zone: 0, nodes: ArenaVec::with_capacity_in(NODES_AT_START, arena), arena, byref: ArenaVec::new_in(arena), indexes: ArenaVec::new_in(arena), zones: ArenaVec::new_in(arena), orderby: false, scopes, scans: ArenaVec::new_in(arena), inits: ArenaVec::new_in(arena), morsel: ArenaVec::new_in(arena), tables: gravity_lower::inputs::key::Runs::NONE };
-    let site = Site { plan: NodeTag::T_Invalid, field: "", parent: NodeTag::T_Invalid };
+    let f = Front {
+        main: 0,
+        tl: 0,
+        zone: 0,
+        nodes: ArenaVec::with_capacity_in(NODES_AT_START, arena),
+        arena,
+        byref: ArenaVec::new_in(arena),
+        indexes: ArenaVec::new_in(arena),
+        zones: ArenaVec::new_in(arena),
+        orderby: false,
+        scopes,
+        scans: ArenaVec::new_in(arena),
+        inits: ArenaVec::new_in(arena),
+        morsel: ArenaVec::new_in(arena),
+        tables: gravity_lower::inputs::key::Runs::NONE,
+    };
+    let site = Site {
+        plan: NodeTag::T_Invalid,
+        field: "",
+        parent: NodeTag::T_Invalid,
+    };
     // D3047: the session's serial class (`Facts::serial`, read by decompose's grouping-sets form pick)
     let serial = gravity_hosts::inputs::serial_session();
-    let mut w = W { h: Lane::new(0), tl: Lane::new(1), zone: Lane::new(2), f, site, trace, pins: ArenaVec::new_in(arena), why: None, stmt, serial };
+    let mut w = W {
+        h: Lane::new(0),
+        tl: Lane::new(1),
+        zone: Lane::new(2),
+        f,
+        site,
+        trace,
+        pins: ArenaVec::new_in(arena),
+        why: None,
+        stmt,
+        serial,
+    };
     if w.stmt(stmt).is_none() {
         // a node of an unexpected type where the walk expects another (a cast failed): named by the site the walk was at
         return Err(w.why.unwrap_or((w.site.plan, w.site.field)));
@@ -280,7 +329,12 @@ fn run<'p>(arena: ArenaRef, stmt: &'p PlannedStmt<'p>, trace: Option<Trace<'_, '
     let width = gravity_hosts::inputs::parallel_width();
     // C3 S4d: no catalog epoch: a variant serves while what its admission read stands (`Entry::deps`); the database and
     // the road-off set (D311) are the program tiers' salt
-    (gravity_hosts::ops::scan::pgrc::residency::tier_salt(), width, serial).hash(&mut w.h);
+    (
+        gravity_hosts::ops::scan::pgrc::residency::tier_salt(),
+        width,
+        serial,
+    )
+        .hash(&mut w.h);
     gravity_hosts::ops::scan::am_rows::hash_scoped(&mut w.h);
     (w.f.main, w.f.tl, w.f.zone) = (w.h.get(), w.tl.get(), w.zone.get());
     Ok(w.f)
@@ -296,14 +350,18 @@ fn run<'p>(arena: ArenaRef, stmt: &'p PlannedStmt<'p>, trace: Option<Trace<'_, '
 fn pattern_class(funcid: u32, args: &NodeList<'_>, coll: u32) -> Option<bool> {
     use gravity_decompose::effects::{pattern_good, pattern_operand, Pattern};
     let (form, pat) = pattern_operand(funcid, args)?;
-    Some(pattern_good(form, pat, coll, true, || gravity_fn::typesem::collation::regex_compiles(pat, form == Pattern::Regex(true), coll)))
+    Some(pattern_good(form, pat, coll, true, || {
+        gravity_fn::typesem::collation::regex_compiles(pat, form == Pattern::Regex(true), coll)
+    }))
 }
 
 /// D3788 (DC-14 over a list): `x op ANY / ALL (c)`'s class, whether every element of its constant pattern list is good
 /// (decompose effects `pattern_list_good`, the answer `quiet_pattern_list` reads), with the server's own regex facts, as
 /// `pattern_class`; lower key.rs holds the same. The list's values stay words (V4R-110). None: no constant pattern list.
 fn pattern_list_class(funcid: u32, args: &NodeList<'_>, coll: u32) -> Option<bool> {
-    gravity_decompose::effects::pattern_list_good(funcid, args, coll, true, &|pat, icase| gravity_fn::typesem::collation::regex_compiles(pat, icase, coll))
+    gravity_decompose::effects::pattern_list_good(funcid, args, coll, true, &|pat, icase| {
+        gravity_fn::typesem::collation::regex_compiles(pat, icase, coll)
+    })
 }
 
 fn gate(n: Node<'_>, c: Class) -> Class {
@@ -327,7 +385,11 @@ fn gate(n: Node<'_>, c: Class) -> Class {
 /// D4600 (`admit::lean`): the walk's passes fused into one (key.rs `alias_walk_fused`, which puts what `alias_walk` puts).
 fn alias(arena: ArenaRef, nodes: &[Node<'_>], tables: &[(u32, u32)], h: &mut Lane) {
     use gravity_lower::inputs::key::AliasPut;
-    let walk = if crate::admit::lean::on() { gravity_lower::inputs::key::alias_walk_fused } else { gravity_lower::inputs::key::alias_walk };
+    let walk = if crate::admit::lean::on() {
+        gravity_lower::inputs::key::alias_walk_fused
+    } else {
+        gravity_lower::inputs::key::alias_walk
+    };
     walk(arena, nodes, tables, &mut |p| match p {
         AliasPut::Pair(i, j) => (i, j).hash(h),
         AliasPut::Count(n) => n.hash(h),
@@ -348,9 +410,16 @@ impl Positions {
     fn of(nodes: &[Node<'_>], arena: ArenaRef) -> Positions {
         let mut t = gravity_lower::inputs::key::PosTable::with_capacity(nodes.len()); // alloc: Cold
         for (i, n) in nodes.iter().enumerate() {
-            if t.put(n.as_raw().as_ptr() as usize as u64, i as u32).is_some() {
+            if t.put(n.as_raw().as_ptr() as usize as u64, i as u32)
+                .is_some()
+            {
                 let mut v = ArenaVec::with_capacity_in(nodes.len(), arena);
-                v.extend(nodes.iter().enumerate().map(|(i, n)| (n.as_raw().as_ptr() as usize, i as u32)));
+                v.extend(
+                    nodes
+                        .iter()
+                        .enumerate()
+                        .map(|(i, n)| (n.as_raw().as_ptr() as usize, i as u32)),
+                );
                 v.sort_unstable();
                 return Positions::Sorted(v);
             }
@@ -405,25 +474,69 @@ impl<'p> W<'_, 'p> {
         self.put(s.appendRelations.len());
         for n in s.appendRelations.iter() {
             let a = n.as_append_rel_info()?;
-            self.put((a.parent_relid, a.child_relid, a.parent_reltype, a.child_reltype, a.num_child_cols, a.parent_colnos, a.parent_reloid));
+            self.put((
+                a.parent_relid,
+                a.child_relid,
+                a.parent_reltype,
+                a.child_reltype,
+                a.num_child_cols,
+                a.parent_colnos,
+                a.parent_reloid,
+            ));
         }
-        self.put((s.commandType as u32, s.planId, s.hasReturning, s.hasModifyingCTE, s.canSetTag, s.transientPlan, s.dependsOnRole, s.parallelModeNeeded, s.jitFlags));
+        self.put((
+            s.commandType as u32,
+            s.planId,
+            s.hasReturning,
+            s.hasModifyingCTE,
+            s.canSetTag,
+            s.transientPlan,
+            s.dependsOnRole,
+            s.parallelModeNeeded,
+            s.jitFlags,
+        ));
         self.put(s.rtable.len());
         for n in s.rtable.iter() {
             let r = n.as_range_tbl_entry()?;
             // setrefs.c add_rte_to_flat_rtable zaps the sub-structure: decompose reads the scans' own fields
             let rte = NodeTag::T_RangeTblEntry;
-            let fields = [(r.tablesample.is_some(), "tablesample"), (r.subquery.is_some(), "subquery"), (!r.functions.is_nil(), "functions"), (r.tablefunc.is_some(), "tablefunc"), (!r.values_lists.is_nil(), "values_lists"), (!r.joinaliasvars.is_nil(), "joinaliasvars"), (!r.groupexprs.is_nil(), "groupexprs"), (!r.securityQuals.is_nil(), "securityQuals")];
+            let fields = [
+                (r.tablesample.is_some(), "tablesample"),
+                (r.subquery.is_some(), "subquery"),
+                (!r.functions.is_nil(), "functions"),
+                (r.tablefunc.is_some(), "tablefunc"),
+                (!r.values_lists.is_nil(), "values_lists"),
+                (!r.joinaliasvars.is_nil(), "joinaliasvars"),
+                (!r.groupexprs.is_nil(), "groupexprs"),
+                (!r.securityQuals.is_nil(), "securityQuals"),
+            ];
             if let Some(&(_, field)) = fields.iter().find(|f| f.0) {
                 return self.no(rte, field);
             }
-            self.put((r.rtekind as u32, r.relid, r.inh, r.relkind, r.rellockmode, r.perminfoindex, r.security_barrier, r.jointype as u32, r.joinmergedcols, r.funcordinality, r.ctelevelsup, r.self_reference));
+            self.put((
+                r.rtekind as u32,
+                r.relid,
+                r.inh,
+                r.relkind,
+                r.rellockmode,
+                r.perminfoindex,
+                r.security_barrier,
+                r.jointype as u32,
+                r.joinmergedcols,
+                r.funcordinality,
+                r.ctelevelsup,
+                r.self_reference,
+            ));
             self.put((r.lateral, r.inFromCl, r.ctename, r.enrname)); // enrtuples: an estimate nothing reads (D359)
             self.ints(&r.joinleftcols);
             self.ints(&r.joinrightcols);
             // mergecmd record-row cache: a record row's column names are the RTE's eref (C ExecTypeSetColNames: decompose
             // subplan::RecordRow; the content key hashes them, key.rs `record_rows`), a relation's are its own (relcache)
-            if !matches!(r.rtekind, types_nodes::parsenodes::RTEKind::RTE_RELATION | types_nodes::parsenodes::RTEKind::RTE_JOIN) {
+            if !matches!(
+                r.rtekind,
+                types_nodes::parsenodes::RTEKind::RTE_RELATION
+                    | types_nodes::parsenodes::RTEKind::RTE_JOIN
+            ) {
                 let names = r.eref.map(|e| &e.colnames);
                 self.put(names.map_or(0, |n| n.len()));
                 for c in names.iter().flat_map(|n| n.iter()) {
@@ -439,7 +552,9 @@ impl<'p> W<'_, 'p> {
         for n in s.permInfos.iter() {
             let p = n.as_rte_permission_info()?;
             self.put((p.relid, p.inh, p.requiredPerms, p.checkAsUser));
-            [&p.selectedCols, &p.insertedCols, &p.updatedCols].into_iter().for_each(|b| self.bms(b));
+            [&p.selectedCols, &p.insertedCols, &p.updatedCols]
+                .into_iter()
+                .for_each(|b| self.bms(b));
         }
         self.ints(&s.resultRelations);
         self.bms(&s.rewindPlanIDs);
@@ -464,7 +579,14 @@ impl<'p> W<'_, 'p> {
                 self.put(l.len());
                 for r in l.iter() {
                     let r = r.as_partitioned_rel_prune_info()?;
-                    self.put((r.rtindex, r.nparts, r.subplan_map, r.subpart_map, r.leafpart_rti_map, r.relid_map));
+                    self.put((
+                        r.rtindex,
+                        r.nparts,
+                        r.subplan_map,
+                        r.subpart_map,
+                        r.leafpart_rti_map,
+                        r.relid_map,
+                    ));
                     self.bms(&r.present_parts);
                     self.bms(&r.execparamids);
                     self.steps(&r.initial_pruning_steps)?;
@@ -486,9 +608,21 @@ impl<'p> W<'_, 'p> {
     /// PM3a: a pgrust planner rewrite annotation (decompose executes it), every field.
     fn rewrite(&mut self, r: Option<GravityRewrite>) {
         self.put(r.map(|r| match r {
-            GravityRewrite::ZoneTopK { attno, desc, nulls_first } => (0u8, attno, desc, nulls_first),
-            GravityRewrite::ZoneWalk { attno, desc, nulls_first } => (1, attno, desc, nulls_first),
-            GravityRewrite::TwoPass { attno, floor_desc, floor_nulls_first } => (2, attno, floor_desc, floor_nulls_first),
+            GravityRewrite::ZoneTopK {
+                attno,
+                desc,
+                nulls_first,
+            } => (0u8, attno, desc, nulls_first),
+            GravityRewrite::ZoneWalk {
+                attno,
+                desc,
+                nulls_first,
+            } => (1, attno, desc, nulls_first),
+            GravityRewrite::TwoPass {
+                attno,
+                floor_desc,
+                floor_nulls_first,
+            } => (2, attno, floor_desc, floor_nulls_first),
         }));
     }
 
@@ -514,7 +648,16 @@ impl<'p> W<'_, 'p> {
         self.put(l.len());
         for n in l.iter() {
             let m = n.as_plan_row_mark()?;
-            self.put((m.rti, m.prti, m.rowmarkId, m.markType as u32, m.allMarkTypes, m.strength as u32, m.waitPolicy as u32, m.isParent));
+            self.put((
+                m.rti,
+                m.prti,
+                m.rowmarkId,
+                m.markType as u32,
+                m.allMarkTypes,
+                m.strength as u32,
+                m.waitPolicy as u32,
+                m.isParent,
+            ));
         }
         Some(())
     }
@@ -524,26 +667,68 @@ impl<'p> W<'_, 'p> {
         use NodeTag::*;
         let (tag, p) = (n.node_tag(), n.as_plan()?);
         // no startup_cost / total_cost / plan_rows: the arms below key what decompose derives from them (D359)
-        self.put((tag as u16, p.disabled_nodes, p.plan_width, p.parallel_aware, p.parallel_safe, p.async_capable, p.plan_node_id));
+        self.put((
+            tag as u16,
+            p.disabled_nodes,
+            p.plan_width,
+            p.parallel_aware,
+            p.parallel_safe,
+            p.async_capable,
+            p.plan_node_id,
+        ));
         self.bms(&p.extParam);
         self.bms(&p.allParam);
         // PM3a: an initPlan is a SubPlan node (its tree is the statement's `subplans` entry)
         self.exprs(tag, "initPlan", &p.initPlan, Class::Word)?;
         // PS1-05: its planner charge, which a cost guard decides on at a hit (`Front::inits`), outside the key
         for s in p.initPlan.iter().filter_map(|n| n.as_sub_plan()) {
-            self.f.inits.push(gravity_decompose::graph::InitCharge::of(s));
+            self.f
+                .inits
+                .push(gravity_decompose::graph::InitCharge::of(s));
         }
         // a WindowAgg's projections are its window functions' program: decompose keys their constants by value (window.rs)
         // grouping sets: decompose matches the projections and quals against the grouping columns by their images (agg/mod.rs)
         let gsets = n.as_agg().is_some_and(|a| !a.groupingSets.is_nil());
-        self.exprs(tag, "targetlist", &p.targetlist, if tag == T_WindowAgg || gsets { Class::Key } else { Class::Tlist })?;
+        self.exprs(
+            tag,
+            "targetlist",
+            &p.targetlist,
+            if tag == T_WindowAgg || gsets {
+                Class::Key
+            } else {
+                Class::Tlist
+            },
+        )?;
         let zoned = matches!(tag, T_SeqScan | T_BitmapHeapScan);
         let fill = n.as_cte_scan().is_some_and(|c| c.gravity_fill);
-        let word = if !self.pins.is_empty() && self.pins.contains(&(p as *const Plan<'p> as usize)) { Class::Key } else if fill { Class::Zone } else { Class::Word };
-        self.exprs(tag, "qual", &p.qual, if zoned { Class::Zone } else if gsets { Class::Key } else { word })?;
+        let word = if !self.pins.is_empty() && self.pins.contains(&(p as *const Plan<'p> as usize))
+        {
+            Class::Key
+        } else if fill {
+            Class::Zone
+        } else {
+            Class::Word
+        };
+        self.exprs(
+            tag,
+            "qual",
+            &p.qual,
+            if zoned {
+                Class::Zone
+            } else if gsets {
+                Class::Key
+            } else {
+                word
+            },
+        )?;
         match tag {
             T_Material => {}
-            T_Result => self.opt(tag, "resconstantqual", n.as_result()?.resconstantqual, Class::Word)?,
+            T_Result => self.opt(
+                tag,
+                "resconstantqual",
+                n.as_result()?.resconstantqual,
+                Class::Word,
+            )?,
             T_SeqScan => {
                 let s = n.as_seq_scan()?;
                 // the range source's predicted rows (sources.rs `map_seq`; an Agg's TwoPass pass 1, agg.rs `pass1`), exact: a front hit
@@ -557,7 +742,9 @@ impl<'p> W<'_, 'p> {
                 s.cb_scan_cols.iter().for_each(|b| self.bms(b));
                 self.f.zones.push(s.scan.scanrelid);
                 // PS1-05: what a cost guard weighs an eager InitPlan against at a hit (`Front::scans`), outside the key
-                self.f.scans.push((p.plan_node_id, gravity_decompose::graph::scan_charge(p)));
+                self.f
+                    .scans
+                    .push((p.plan_node_id, gravity_decompose::graph::scan_charge(p)));
             }
             // PM3a: a FROM-clause function (srf.rs `map_function_scan`): each RangeTblFunction, every field
             T_FunctionScan => {
@@ -584,7 +771,11 @@ impl<'p> W<'_, 'p> {
                 // in the key, D3047). D3104: past it, the eligible pipeline's predicted rows are not keyed but kept beside
                 // the key (`Front::morsel`): a variant filed with `Sites` takes this statement's at a hit, else equal ones
                 let wide = self.serial == Some(false);
-                let min = if wide { gravity_program::cost::INDEX_MORSEL_MIN_ROWS_WIDE } else { gravity_program::cost::INDEX_MORSEL_MIN_ROWS };
+                let min = if wide {
+                    gravity_program::cost::INDEX_MORSEL_MIN_ROWS_WIDE
+                } else {
+                    gravity_program::cost::INDEX_MORSEL_MIN_ROWS
+                };
                 let morsel = p.plan_rows >= min;
                 self.put(morsel);
                 if morsel {
@@ -607,7 +798,11 @@ impl<'p> W<'_, 'p> {
                 // D3047); past it, the predicted rows are kept beside the key (`Front::morsel`, D3104): a variant is hit only
                 // by equal rows (neither form is the morsel's)
                 let wide = self.serial == Some(false);
-                let min = if wide { gravity_program::cost::INDEX_MORSEL_MIN_ROWS_WIDE } else { gravity_program::cost::INDEX_MORSEL_MIN_ROWS };
+                let min = if wide {
+                    gravity_program::cost::INDEX_MORSEL_MIN_ROWS_WIDE
+                } else {
+                    gravity_program::cost::INDEX_MORSEL_MIN_ROWS
+                };
                 let morsel = p.plan_rows >= min;
                 self.put(morsel);
                 if morsel {
@@ -652,7 +847,14 @@ impl<'p> W<'_, 'p> {
                 let m = n.as_merge_append()?;
                 self.bms(&m.apprelids);
                 self.put(m.part_prune_index);
-                self.put((m.numCols, m.sortColIdx, m.sortOperators, m.collations, m.nullsFirst, m.mergeplans.len()));
+                self.put((
+                    m.numCols,
+                    m.sortColIdx,
+                    m.sortOperators,
+                    m.collations,
+                    m.nullsFirst,
+                    m.mergeplans.len(),
+                ));
                 for c in m.mergeplans.iter() {
                     self.plan(c)?;
                 }
@@ -661,7 +863,15 @@ impl<'p> W<'_, 'p> {
             T_Append => {
                 let m = n.as_append()?;
                 self.bms(&m.apprelids);
-                self.put((m.part_prune_index, m.nasyncplans, m.first_partial_plan, m.gravity_sort_col_idx, m.gravity_sort_operators, m.gravity_nulls_first, m.appendplans.len()));
+                self.put((
+                    m.part_prune_index,
+                    m.nasyncplans,
+                    m.first_partial_plan,
+                    m.gravity_sort_col_idx,
+                    m.gravity_sort_operators,
+                    m.gravity_nulls_first,
+                    m.appendplans.len(),
+                ));
                 for c in m.appendplans.iter() {
                     self.plan(c)?;
                 }
@@ -686,14 +896,37 @@ impl<'p> W<'_, 'p> {
                 }
                 // D4449: rows of Consts alone: each cell a node of its own (`alias`)
                 if consts {
-                    self.f.tables.add(start, self.f.nodes.len() as u32, &v.values_lists as *const NodeList<'_> as usize);
+                    self.f.tables.add(
+                        start,
+                        self.f.nodes.len() as u32,
+                        &v.values_lists as *const NodeList<'_> as usize,
+                    );
                 }
             }
             // PM3a: a WindowAgg, every field (window.rs; its frame offsets, run condition and projections are values decompose reads)
             T_WindowAgg => {
                 let w = n.as_window_agg()?;
-                self.put((w.winname, w.winref, w.partNumCols, w.partColIdx, w.partOperators, w.partCollations, w.ordNumCols, w.ordColIdx, w.ordOperators, w.ordCollations));
-                self.put((w.frameOptions, w.startInRangeFunc, w.endInRangeFunc, w.inRangeColl, w.inRangeAsc, w.inRangeNullsFirst, w.topWindow));
+                self.put((
+                    w.winname,
+                    w.winref,
+                    w.partNumCols,
+                    w.partColIdx,
+                    w.partOperators,
+                    w.partCollations,
+                    w.ordNumCols,
+                    w.ordColIdx,
+                    w.ordOperators,
+                    w.ordCollations,
+                ));
+                self.put((
+                    w.frameOptions,
+                    w.startInRangeFunc,
+                    w.endInRangeFunc,
+                    w.inRangeColl,
+                    w.inRangeAsc,
+                    w.inRangeNullsFirst,
+                    w.topWindow,
+                ));
                 self.opt(tag, "startOffset", w.startOffset, Class::Key)?;
                 self.opt(tag, "endOffset", w.endOffset, Class::Key)?;
                 self.exprs(tag, "runCondition", &w.runCondition, Class::Key)?;
@@ -705,32 +938,70 @@ impl<'p> W<'_, 'p> {
             T_Unique => {
                 let u = n.as_unique()?;
                 // its rows size the distinct record (agg/mod.rs `close`)
-                self.put((u.numCols, u.uniqColIdx, u.uniqOperators, u.uniqCollations, Builder::rows(p)));
+                self.put((
+                    u.numCols,
+                    u.uniqColIdx,
+                    u.uniqOperators,
+                    u.uniqCollations,
+                    Builder::rows(p),
+                ));
             }
             // PM3a: a Memoize (every field; its est_entries sizes decompose's memo, join.rs)
             T_Memoize => {
                 let m = n.as_memoize()?;
-                self.put((m.numKeys, m.hashOperators, m.collations, m.singlerow, m.binary_mode, m.est_entries));
+                self.put((
+                    m.numKeys,
+                    m.hashOperators,
+                    m.collations,
+                    m.singlerow,
+                    m.binary_mode,
+                    m.est_entries,
+                ));
                 self.bms(&m.keyparamids);
                 self.exprs(tag, "param_exprs", &m.param_exprs, Class::Word)?;
             }
             // PM3a: a SetOp (every field; the rows decompose sizes each side by, setop.rs)
             T_SetOp => {
                 let o = n.as_set_op()?;
-                let rows = |c: Option<Node<'p>>| c.and_then(|c| c.as_plan()).map_or(0, Builder::rows);
-                self.put((o.cmd, o.strategy, o.numCols, o.cmpColIdx, o.cmpOperators, o.cmpCollations, o.cmpNullsFirst, o.numGroups, rows(p.lefttree), rows(p.righttree)));
+                let rows =
+                    |c: Option<Node<'p>>| c.and_then(|c| c.as_plan()).map_or(0, Builder::rows);
+                self.put((
+                    o.cmd,
+                    o.strategy,
+                    o.numCols,
+                    o.cmpColIdx,
+                    o.cmpOperators,
+                    o.cmpCollations,
+                    o.cmpNullsFirst,
+                    o.numGroups,
+                    rows(p.lefttree),
+                    rows(p.righttree),
+                ));
             }
             // PM3a: an IncrementalSort (a Sort's fields and its presorted count)
             T_IncrementalSort => {
                 let s = n.as_incremental_sort()?;
                 self.rewrite(s.sort.gravity_rewrite);
-                self.put((s.sort.numCols, s.sort.sortColIdx, s.sort.sortOperators, s.sort.collations, s.sort.nullsFirst, s.nPresortedCols));
+                self.put((
+                    s.sort.numCols,
+                    s.sort.sortColIdx,
+                    s.sort.sortOperators,
+                    s.sort.collations,
+                    s.sort.nullsFirst,
+                    s.nPresortedCols,
+                ));
             }
             // PM3a: a Group (every field)
             T_Group => {
                 let g = n.as_group()?;
                 // its rows size the group record (agg/mod.rs `close`)
-                self.put((g.numCols, g.grpColIdx, g.grpOperators, g.grpCollations, Builder::rows(p)));
+                self.put((
+                    g.numCols,
+                    g.grpColIdx,
+                    g.grpOperators,
+                    g.grpCollations,
+                    Builder::rows(p),
+                ));
             }
             // PM3a: a TidScan and a TidRangeScan (their quals; the range scan's rows size its pipeline, closure.rs)
             T_TidScan => {
@@ -768,7 +1039,14 @@ impl<'p> W<'_, 'p> {
             }
             T_RecursiveUnion => {
                 let r = n.as_recursive_union()?;
-                self.put((r.wtParam, r.numCols, r.dupColIdx, r.dupOperators, r.dupCollations, r.numGroups));
+                self.put((
+                    r.wtParam,
+                    r.numCols,
+                    r.dupColIdx,
+                    r.dupOperators,
+                    r.dupCollations,
+                    r.numGroups,
+                ));
             }
             T_NamedTuplestoreScan => {
                 let s = n.as_named_tuplestore_scan()?;
@@ -780,7 +1058,12 @@ impl<'p> W<'_, 'p> {
                 self.put((s.scan.scanrelid, s.tablefunc.is_some()));
                 if let Some(t) = s.tablefunc {
                     let t = t.as_table_func()?;
-                    self.put((t.functype, t.ordinalitycol, t.ns_names.len(), t.colnames.len()));
+                    self.put((
+                        t.functype,
+                        t.ordinalitycol,
+                        t.ns_names.len(),
+                        t.colnames.len(),
+                    ));
                     for a in t.ns_names.iter() {
                         self.put(a.and_then(|a| a.as_string()).map(|s| s.sval));
                     }
@@ -814,12 +1097,24 @@ impl<'p> W<'_, 'p> {
                 for v in [o, c].into_iter().flatten() {
                     (0xD3u8, v).hash(&mut self.h);
                 }
-                self.put((l.limitOption as u32, l.uniqNumCols, l.uniqColIdx, l.uniqOperators, l.uniqCollations));
+                self.put((
+                    l.limitOption as u32,
+                    l.uniqNumCols,
+                    l.uniqColIdx,
+                    l.uniqOperators,
+                    l.uniqCollations,
+                ));
             }
             T_Sort => {
                 let s = n.as_sort()?;
                 self.rewrite(s.gravity_rewrite);
-                self.put((s.numCols, s.sortColIdx, s.sortOperators, s.collations, s.nullsFirst));
+                self.put((
+                    s.numCols,
+                    s.sortColIdx,
+                    s.sortOperators,
+                    s.collations,
+                    s.nullsFirst,
+                ));
             }
             T_Agg => {
                 let a = n.as_agg()?;
@@ -829,7 +1124,17 @@ impl<'p> W<'_, 'p> {
                 for f in a.gravity_finals {
                     self.put((f.resno, f.min, f.max, f.sum, f.count));
                 }
-                self.put((a.aggstrategy, a.aggsplit, a.numCols, a.grpColIdx, a.grpOperators, a.grpCollations, a.numGroups, a.transitionSpace, a.distinctHashed));
+                self.put((
+                    a.aggstrategy,
+                    a.aggsplit,
+                    a.numCols,
+                    a.grpColIdx,
+                    a.grpOperators,
+                    a.grpCollations,
+                    a.numGroups,
+                    a.transitionSpace,
+                    a.distinctHashed,
+                ));
                 self.bms(&a.aggParams);
                 // PM3a: grouping sets: each set's columns and the chain's Aggs (agg/mod.rs walks both)
                 self.put(a.groupingSets.len());
@@ -853,8 +1158,16 @@ impl<'p> W<'_, 'p> {
             T_NestLoop => {
                 let j = n.as_nest_loop()?;
                 // a catalog lookup's build rows (join.rs `map_catalog`: its inner's, V4R-481)
-                let inner = p.righttree.and_then(|c| c.as_plan()).map_or(0, Builder::rows);
-                self.put((j.join.jointype as u32, j.join.inner_unique, j.nestParams.len(), inner));
+                let inner = p
+                    .righttree
+                    .and_then(|c| c.as_plan())
+                    .map_or(0, Builder::rows);
+                self.put((
+                    j.join.jointype as u32,
+                    j.join.inner_unique,
+                    j.nestParams.len(),
+                    inner,
+                ));
                 self.exprs(tag, "joinqual", &j.join.joinqual, Class::Word)?;
                 for x in j.nestParams.iter() {
                     let np = x.as_nest_loop_param()?;
@@ -862,7 +1175,11 @@ impl<'p> W<'_, 'p> {
                     // the NestLoopParam itself: decompose's key walk visits each Nest param node (key.rs `JoinDesc::Nest`),
                     // so `file` places it by identity (without it every parameterized nest, a Memoize's too, filed nothing)
                     self.f.nodes.push(x);
-                    self.site = Site { plan: tag, field: "nestParams", parent: tag };
+                    self.site = Site {
+                        plan: tag,
+                        field: "nestParams",
+                        parent: tag,
+                    };
                     self.expr(np.paramval, Class::Word, tag)?;
                 }
                 self.pin(j);
@@ -870,8 +1187,16 @@ impl<'p> W<'_, 'p> {
             T_HashJoin => {
                 let j = n.as_hash_join()?;
                 // JoinDesc::Probe outer_first (join.rs), from the outer's startup and the Hash's total cost
-                let cost = |c: Option<Node<'p>>, f: fn(&types_nodes::plannodes::Plan<'p>) -> f64| c.and_then(|c| c.as_plan()).map_or(0.0, f);
-                let first = outer_first(j.join.jointype, p.parallel_aware, cost(p.lefttree, |o| o.startup_cost), cost(p.righttree, |h| h.total_cost));
+                let cost =
+                    |c: Option<Node<'p>>, f: fn(&types_nodes::plannodes::Plan<'p>) -> f64| {
+                        c.and_then(|c| c.as_plan()).map_or(0.0, f)
+                    };
+                let first = outer_first(
+                    j.join.jointype,
+                    p.parallel_aware,
+                    cost(p.lefttree, |o| o.startup_cost),
+                    cost(p.righttree, |h| h.total_cost),
+                );
                 self.put((j.join.jointype as u32, j.join.inner_unique, first));
                 self.exprs(tag, "joinqual", &j.join.joinqual, Class::Word)?;
                 self.exprs(tag, "hashclauses", &j.hashclauses, word)?;
@@ -882,7 +1207,15 @@ impl<'p> W<'_, 'p> {
             // PM3a: a MergeJoin, every field (its merge clauses as a hash join's clauses)
             T_MergeJoin => {
                 let j = n.as_merge_join()?;
-                self.put((j.join.jointype as u32, j.join.inner_unique, j.skip_mark_restore, j.mergeFamilies, j.mergeCollations, j.mergeReversals, j.mergeNullsFirst));
+                self.put((
+                    j.join.jointype as u32,
+                    j.join.inner_unique,
+                    j.skip_mark_restore,
+                    j.mergeFamilies,
+                    j.mergeCollations,
+                    j.mergeReversals,
+                    j.mergeNullsFirst,
+                ));
                 self.exprs(tag, "joinqual", &j.join.joinqual, Class::Word)?;
                 self.exprs(tag, "mergeclauses", &j.mergeclauses, word)?;
             }
@@ -908,28 +1241,83 @@ impl<'p> W<'_, 'p> {
     /// column outside its keys (a superset of the loops decompose rewrites) keys by value the Consts that rewrite compares:
     /// the inner index leaf's clauses and qual, and the Agg's hash join child's clauses or its nest child's index leaf's.
     fn pin(&mut self, j: &'p NestLoop<'p>) {
-        let Some(a) = j.join.plan.lefttree.filter(|n| n.node_tag() == NodeTag::T_Agg).and_then(|n| n.as_agg()) else { return };
-        let keyed = |c: i16| a.grpColIdx.iter().take(a.numCols.max(0) as usize).any(|&k| k == c);
-        let passenger = |r: i16| a.plan.targetlist.iter().filter_map(|t| t.as_target_entry()).find(|t| t.resno == r).and_then(|t| t.expr.as_var()).is_some_and(|v| v.varno == OUTER_VAR && !keyed(v.varattno));
-        if !j.nestParams.iter().filter_map(|x| x.as_nest_loop_param()).any(|x| x.paramval.as_var().is_some_and(|v| v.varno == OUTER_VAR && passenger(v.varattno))) {
+        let Some(a) = j
+            .join
+            .plan
+            .lefttree
+            .filter(|n| n.node_tag() == NodeTag::T_Agg)
+            .and_then(|n| n.as_agg())
+        else {
+            return;
+        };
+        let keyed = |c: i16| {
+            a.grpColIdx
+                .iter()
+                .take(a.numCols.max(0) as usize)
+                .any(|&k| k == c)
+        };
+        let passenger = |r: i16| {
+            a.plan
+                .targetlist
+                .iter()
+                .filter_map(|t| t.as_target_entry())
+                .find(|t| t.resno == r)
+                .and_then(|t| t.expr.as_var())
+                .is_some_and(|v| v.varno == OUTER_VAR && !keyed(v.varattno))
+        };
+        if !j
+            .nestParams
+            .iter()
+            .filter_map(|x| x.as_nest_loop_param())
+            .any(|x| {
+                x.paramval
+                    .as_var()
+                    .is_some_and(|v| v.varno == OUTER_VAR && passenger(v.varattno))
+            })
+        {
             return;
         }
-        let leaf = |n: Option<Node<'p>>| n.filter(|n| matches!(n.node_tag(), NodeTag::T_IndexScan | NodeTag::T_IndexOnlyScan)).and_then(|n| n.as_plan()).map(|p| p as *const Plan<'p> as usize);
+        let leaf = |n: Option<Node<'p>>| {
+            n.filter(|n| {
+                matches!(
+                    n.node_tag(),
+                    NodeTag::T_IndexScan | NodeTag::T_IndexOnlyScan
+                )
+            })
+            .and_then(|n| n.as_plan())
+            .map(|p| p as *const Plan<'p> as usize)
+        };
         let child = a.plan.lefttree.and_then(|c| match c.node_tag() {
             NodeTag::T_HashJoin => c.as_plan().map(|p| p as *const Plan<'p> as usize),
             NodeTag::T_NestLoop => leaf(c.as_plan()?.righttree),
             _ => None,
         });
-        self.pins.extend(leaf(j.join.plan.righttree).into_iter().chain(child));
+        self.pins
+            .extend(leaf(j.join.plan.righttree).into_iter().chain(child));
     }
 
     fn modify(&mut self, m: &'p ModifyTable<'p>) -> R {
         let tag = NodeTag::T_ModifyTable;
         // an FDW target's private list is opaque here: only the NIL entries of local targets
-        if !m.fdwDirectModifyPlans.is_empty() || !m.fdwPrivLists.iter().all(|l| l.as_list().is_some_and(|l| l.is_nil())) {
+        if !m.fdwDirectModifyPlans.is_empty()
+            || !m
+                .fdwPrivLists
+                .iter()
+                .all(|l| l.as_list().is_some_and(|l| l.is_nil()))
+        {
             return self.no(tag, "fdwPrivLists");
         }
-        self.put((m.operation as u32, m.canSetTag, m.nominalRelation, m.rootRelation, m.partColsUpdated, m.epqParam, m.onConflictAction, m.exclRelRTI, m.fdwPrivLists.len()));
+        self.put((
+            m.operation as u32,
+            m.canSetTag,
+            m.nominalRelation,
+            m.rootRelation,
+            m.partColsUpdated,
+            m.epqParam,
+            m.onConflictAction,
+            m.exclRelRTI,
+            m.fdwPrivLists.len(),
+        ));
         self.put((m.returningOldAlias, m.returningNewAlias));
         self.ints(&m.resultRelations);
         self.put(m.updateColnosLists.len());
@@ -958,7 +1346,12 @@ impl<'p> W<'_, 'p> {
                 self.exprs(tag, "mergeActionLists", &a.targetList, Class::Tlist)?;
             }
         }
-        self.exprs(tag, "mergeJoinConditions", &m.mergeJoinConditions, Class::Word)?;
+        self.exprs(
+            tag,
+            "mergeJoinConditions",
+            &m.mergeJoinConditions,
+            Class::Word,
+        )?;
         // PM3a: each target's check options, every field
         self.put(m.withCheckOptionLists.len());
         for l in m.withCheckOptionLists.iter() {
@@ -974,13 +1367,21 @@ impl<'p> W<'_, 'p> {
     }
 
     fn exprs(&mut self, plan: NodeTag, field: &'static str, l: &NodeList<'p>, c: Class) -> R {
-        self.site = Site { plan, field, parent: plan };
+        self.site = Site {
+            plan,
+            field,
+            parent: plan,
+        };
         self.put(l.len());
         l.iter().try_for_each(|n| self.expr(n, gate(n, c), plan))
     }
 
     fn opt(&mut self, plan: NodeTag, field: &'static str, n: Option<Node<'p>>, c: Class) -> R {
-        self.site = Site { plan, field, parent: plan };
+        self.site = Site {
+            plan,
+            field,
+            parent: plan,
+        };
         self.put(n.is_some());
         n.map_or(Some(()), |n| self.expr(n, gate(n, c), plan))
     }
@@ -999,19 +1400,40 @@ impl<'p> W<'_, 'p> {
         stack_depth_core::check_stack_depth_or_panic();
         use NodeTag::*;
         // an island's constants are its program's own, never words (D337: key.rs hashes them by the same predicate)
-        let c = if gravity_expr::nodes::island_capable(n) { Class::Key } else { c };
+        let c = if gravity_expr::nodes::island_capable(n) {
+            Class::Key
+        } else {
+            c
+        };
         self.f.nodes.push(n);
         let tag = n.node_tag();
         self.put(tag as u16);
         match tag {
             T_Var => {
                 let x = n.as_var()?;
-                self.put((x.varno, x.varattno, x.vartype, x.vartypmod, x.varcollid, x.varlevelsup, x.varreturningtype as u32, x.varnosyn, x.varattnosyn));
+                self.put((
+                    x.varno,
+                    x.varattno,
+                    x.vartype,
+                    x.vartypmod,
+                    x.varcollid,
+                    x.varlevelsup,
+                    x.varreturningtype as u32,
+                    x.varnosyn,
+                    x.varattnosyn,
+                ));
                 self.bms(&x.varnullingrels);
             }
             T_Const => {
                 let k = n.as_const()?;
-                self.put((k.consttype, k.consttypmod, k.constcollid, k.constlen, k.constisnull, k.constbyval));
+                self.put((
+                    k.consttype,
+                    k.consttypmod,
+                    k.constcollid,
+                    k.constlen,
+                    k.constisnull,
+                    k.constbyval,
+                ));
                 if k.constisnull {
                 } else if !k.constbyval {
                     match super::raw::image(k) {
@@ -1038,7 +1460,10 @@ impl<'p> W<'_, 'p> {
                         Class::Tlist => v.hash(&mut self.tl),
                         Class::Zone => v.hash(&mut self.zone),
                     }
-                    let site = Site { parent, ..self.site };
+                    let site = Site {
+                        parent,
+                        ..self.site
+                    };
                     if let Some(t) = self.trace.as_mut() {
                         t(n, c, site);
                     }
@@ -1046,13 +1471,30 @@ impl<'p> W<'_, 'p> {
             }
             T_Param => {
                 let x = n.as_param()?;
-                self.put((x.paramkind as u32, x.paramid, x.paramtype, x.paramtypmod, x.paramcollid));
+                self.put((
+                    x.paramkind as u32,
+                    x.paramid,
+                    x.paramtype,
+                    x.paramtypmod,
+                    x.paramcollid,
+                ));
             }
             T_OpExpr => {
                 let o = n.as_op_expr()?;
-                self.put((o.opno, o.opfuncid, o.opresulttype, o.opretset, o.opcollid, o.inputcollid));
+                self.put((
+                    o.opno,
+                    o.opfuncid,
+                    o.opresulttype,
+                    o.opretset,
+                    o.opcollid,
+                    o.inputcollid,
+                ));
                 // D1103: an integer modulus's or division's divisor class, as the content key holds it (effects `divisor_class`)
-                if let Some(q) = gravity_decompose::effects::divisor_class(o.opfuncid, &o.args, &gravity_decompose::effects::plan_word) {
+                if let Some(q) = gravity_decompose::effects::divisor_class(
+                    o.opfuncid,
+                    &o.args,
+                    &gravity_decompose::effects::plan_word,
+                ) {
                     self.put(q);
                 }
                 // E2: a strpos / position compare's class, as the content key holds it (percode `textpos_class`)
@@ -1103,26 +1545,56 @@ impl<'p> W<'_, 'p> {
                 // `zone_constants` skips just these; an OR's arms stay its zone hull's, baked): decompose reads no such
                 // constant and lowerv4 binds it per execution, so it is a word, never the zone class's value
                 let top = parent == T_SeqScan && self.site.field == "qual";
-                let c = if c == Class::Zone && top && bound_word(n) { Class::Word } else { c };
+                let c = if c == Class::Zone && top && bound_word(n) {
+                    Class::Word
+                } else {
+                    c
+                };
                 self.args(&o.args, c, tag)?;
             }
             T_DistinctExpr => {
                 let o = n.as_distinct_expr()?;
-                self.put((o.opno, o.opfuncid, o.opresulttype, o.opretset, o.opcollid, o.inputcollid));
+                self.put((
+                    o.opno,
+                    o.opfuncid,
+                    o.opresulttype,
+                    o.opretset,
+                    o.opcollid,
+                    o.inputcollid,
+                ));
                 self.args(&o.args, c, tag)?;
             }
             T_NullIfExpr => {
                 let o = n.as_null_if_expr()?;
-                self.put((o.opno, o.opfuncid, o.opresulttype, o.opretset, o.opcollid, o.inputcollid));
+                self.put((
+                    o.opno,
+                    o.opfuncid,
+                    o.opresulttype,
+                    o.opretset,
+                    o.opcollid,
+                    o.inputcollid,
+                ));
                 self.args(&o.args, c, tag)?;
             }
             T_ScalarArrayOpExpr => {
                 let o = n.as_scalar_array_op_expr()?;
-                self.put((o.opno, o.opfuncid, o.hashfuncid, o.negfuncid, o.useOr, o.inputcollid));
+                self.put((
+                    o.opno,
+                    o.opfuncid,
+                    o.hashfuncid,
+                    o.negfuncid,
+                    o.useOr,
+                    o.inputcollid,
+                ));
                 // V4R-110: a constant list's class (gravity_expr konst.rs: its count to MAX_LIST, one class past), the
                 // shape its words take, as lower/src/key.rs keys it; an image whose count it cannot read, by its bytes.
                 // The image stays a by-reference word: a variant's only where a lowering logged it baked.
-                if let Some(k) = o.args.nth(1).as_const().filter(|k| !k.constisnull && !k.constbyval) {
+                if let Some(k) = o
+                    .args
+                    .nth(1)
+                    .as_const()
+                    .filter(|k| !k.constisnull && !k.constbyval)
+                {
                     match super::raw::list_len(k) {
                         Some(len) => self.put(gravity_expr::nodes::konst::list_class(len)),
                         None => match super::raw::image(k) {
@@ -1139,8 +1611,21 @@ impl<'p> W<'_, 'p> {
             }
             T_FuncExpr => {
                 let x = n.as_func_expr()?;
-                self.put((x.funcid, x.funcresulttype, x.funcretset, x.funcvariadic, x.funcformat as u32, x.funccollid, x.inputcollid, x.args.len()));
-                if let Some(q) = gravity_decompose::effects::divisor_class(x.funcid, &x.args, &gravity_decompose::effects::plan_word) {
+                self.put((
+                    x.funcid,
+                    x.funcresulttype,
+                    x.funcretset,
+                    x.funcvariadic,
+                    x.funcformat as u32,
+                    x.funccollid,
+                    x.inputcollid,
+                    x.args.len(),
+                ));
+                if let Some(q) = gravity_decompose::effects::divisor_class(
+                    x.funcid,
+                    &x.args,
+                    &gravity_decompose::effects::plan_word,
+                ) {
                     self.put(q); // D1103, as T_OpExpr
                 }
                 if let Some(q) = gravity_expr::percode::textpos_class(x.funcid, &x.args) {
@@ -1149,10 +1634,18 @@ impl<'p> W<'_, 'p> {
                 if let Some(q) = gravity_lower::inputs::key::series_step(x.funcid, &x.args) {
                     self.put(q); // D1108 row 1: a generate_series step's class (lowerv4 spool_quiet.rs)
                 }
-                if let Some(q) = gravity_decompose::effects::text_arg_class(x.funcid, &x.args, &gravity_decompose::effects::plan_word) {
+                if let Some(q) = gravity_decompose::effects::text_arg_class(
+                    x.funcid,
+                    &x.args,
+                    &gravity_decompose::effects::plan_word,
+                ) {
                     self.put(q); // substr's length / left, right's n class, as the content key holds it
                 }
-                if let Some(q) = gravity_decompose::effects::bit_index_class(x.funcid, &x.args, &gravity_decompose::effects::plan_word) {
+                if let Some(q) = gravity_decompose::effects::bit_index_class(
+                    x.funcid,
+                    &x.args,
+                    &gravity_decompose::effects::plan_word,
+                ) {
                     self.put(q); // D3604: get_bit's index class, as the content key holds it
                 }
                 if let Some(q) = pattern_class(x.funcid, &x.args, x.inputcollid) {
@@ -1163,7 +1656,11 @@ impl<'p> W<'_, 'p> {
                 }
                 // a cast's trailing arguments are its typmod / explicitness: part of the type, never a literal's word; so is
                 // round / trunc (numeric, int4)'s scale (PS4-13: decompose reads it as the result's dscale)
-                let cast = matches!(x.funcformat, CoercionForm::COERCE_EXPLICIT_CAST | CoercionForm::COERCE_IMPLICIT_CAST) || gravity_decompose::catalog::casts::numeric_typmod_cast(x.funcid) || gravity_decompose::catalog::numeric::numeric_scale_arg(x.funcid);
+                let cast = matches!(
+                    x.funcformat,
+                    CoercionForm::COERCE_EXPLICIT_CAST | CoercionForm::COERCE_IMPLICIT_CAST
+                ) || gravity_decompose::catalog::casts::numeric_typmod_cast(x.funcid)
+                    || gravity_decompose::catalog::numeric::numeric_scale_arg(x.funcid);
                 for (i, a) in x.args.iter().enumerate() {
                     self.expr(a, if cast && i > 0 { Class::Key } else { c }, tag)?;
                 }
@@ -1185,7 +1682,12 @@ impl<'p> W<'_, 'p> {
             }
             T_RelabelType => {
                 let x = n.as_relabel_type()?;
-                self.put((x.resulttype, x.resulttypmod, x.resultcollid, x.relabelformat as u32));
+                self.put((
+                    x.resulttype,
+                    x.resulttypmod,
+                    x.resultcollid,
+                    x.relabelformat as u32,
+                ));
                 self.expr(x.arg, c, tag)?;
             }
             T_CoerceViaIO => {
@@ -1195,7 +1697,14 @@ impl<'p> W<'_, 'p> {
             }
             T_TargetEntry => {
                 let t = n.as_target_entry()?;
-                self.put((t.resno, t.resname, t.ressortgroupref, t.resorigtbl, t.resorigcol, t.resjunk));
+                self.put((
+                    t.resno,
+                    t.resname,
+                    t.ressortgroupref,
+                    t.resorigtbl,
+                    t.resorigcol,
+                    t.resjunk,
+                ));
                 self.expr(t.expr, c, tag)?;
             }
             T_CaseExpr => {
@@ -1226,7 +1735,12 @@ impl<'p> W<'_, 'p> {
             }
             T_ArrayExpr => {
                 let x = n.as_array_expr()?;
-                self.put((x.array_typeid, x.array_collid, x.element_typeid, x.multidims));
+                self.put((
+                    x.array_typeid,
+                    x.array_collid,
+                    x.element_typeid,
+                    x.multidims,
+                ));
                 self.args(&x.elements, c, tag)?;
             }
             T_SubscriptingRef => {
@@ -1234,8 +1748,24 @@ impl<'p> W<'_, 'p> {
                 // reads, D337 / D341). key.rs binds the container's and the element's facts and which bounds are there (an
                 // open slice bound is no child); the container, the subscripts and an assigned value are the fetch site's
                 // arguments, their constants words of the class the node sits in.
-                let &types_nodes::primnodes::SubscriptingRef { refcontainertype, refelemtype, refrestype, reftypmod, refcollid, ref refupperindexpr, ref reflowerindexpr, refexpr, refassgnexpr } = n.as_subscripting_ref()?;
-                self.put((refcontainertype, refelemtype, refrestype, reftypmod, refcollid));
+                let &types_nodes::primnodes::SubscriptingRef {
+                    refcontainertype,
+                    refelemtype,
+                    refrestype,
+                    reftypmod,
+                    refcollid,
+                    ref refupperindexpr,
+                    ref reflowerindexpr,
+                    refexpr,
+                    refassgnexpr,
+                } = n.as_subscripting_ref()?;
+                self.put((
+                    refcontainertype,
+                    refelemtype,
+                    refrestype,
+                    reftypmod,
+                    refcollid,
+                ));
                 for l in [refupperindexpr, reflowerindexpr] {
                     self.put(l.len());
                     for e in l.iter() {
@@ -1251,7 +1781,20 @@ impl<'p> W<'_, 'p> {
             }
             T_Aggref => {
                 let a = n.as_aggref()?;
-                self.put((a.aggfnoid, a.aggtype, a.aggcollid, a.inputcollid, a.aggtranstype, a.aggstar, a.aggvariadic, a.aggkind, a.aggpresorted, a.agglevelsup, a.aggsplit, a.aggno));
+                self.put((
+                    a.aggfnoid,
+                    a.aggtype,
+                    a.aggcollid,
+                    a.inputcollid,
+                    a.aggtranstype,
+                    a.aggstar,
+                    a.aggvariadic,
+                    a.aggkind,
+                    a.aggpresorted,
+                    a.agglevelsup,
+                    a.aggsplit,
+                    a.aggno,
+                ));
                 self.put(a.aggtransno);
                 self.oids(&a.aggargtypes);
                 self.args(&a.aggdirectargs, c, tag)?;
@@ -1263,13 +1806,27 @@ impl<'p> W<'_, 'p> {
             // PM3a: every field but the costs (an AlternativeSubPlan's choice reads those; it stays outside the walk)
             T_SubPlan => {
                 let x = n.as_sub_plan()?;
-                self.put((x.subLinkType as u32, x.plan_id, x.plan_name, x.firstColType, x.firstColTypmod, x.firstColCollation, x.useHashTable, x.unknownEqFalse, x.parallel_safe));
+                self.put((
+                    x.subLinkType as u32,
+                    x.plan_id,
+                    x.plan_name,
+                    x.firstColType,
+                    x.firstColTypmod,
+                    x.firstColCollation,
+                    x.useHashTable,
+                    x.unknownEqFalse,
+                    x.parallel_safe,
+                ));
                 self.ints(&x.paramIds);
                 self.ints(&x.setParam);
                 self.ints(&x.parParam);
                 // a hashed SubPlan's build rows (subplan/mod.rs: its spill bits derive from them)
                 if x.useHashTable {
-                    let root = usize::try_from(x.plan_id - 1).ok().and_then(|i| (i < self.stmt.subplans.len()).then(|| self.stmt.subplans.nth(i)).flatten());
+                    let root = usize::try_from(x.plan_id - 1).ok().and_then(|i| {
+                        (i < self.stmt.subplans.len())
+                            .then(|| self.stmt.subplans.nth(i))
+                            .flatten()
+                    });
                     self.put(root.and_then(|r| r.as_plan()).map_or(0, Builder::rows));
                 }
                 self.arg(x.testexpr, c, tag)?;
@@ -1277,7 +1834,15 @@ impl<'p> W<'_, 'p> {
             }
             T_WindowFunc => {
                 let w = n.as_window_func()?;
-                self.put((w.winfnoid, w.wintype, w.wincollid, w.inputcollid, w.winref, w.winstar, w.winagg));
+                self.put((
+                    w.winfnoid,
+                    w.wintype,
+                    w.wincollid,
+                    w.inputcollid,
+                    w.winref,
+                    w.winstar,
+                    w.winagg,
+                ));
                 self.args(&w.args, c, tag)?;
                 self.arg(w.aggfilter, c, tag)?;
                 self.args(&w.runCondition, c, tag)?;
@@ -1303,7 +1868,12 @@ impl<'p> W<'_, 'p> {
             // constraints, as the content key does.
             T_CoerceToDomain => {
                 let x = n.as_coerce_to_domain()?;
-                self.put((x.resulttype, x.resulttypmod, x.resultcollid, x.coercionformat as u32));
+                self.put((
+                    x.resulttype,
+                    x.resulttypmod,
+                    x.resultcollid,
+                    x.coercionformat as u32,
+                ));
                 self.expr(x.arg, c, tag)?;
                 // D3551: the names its errors carry, as the content key keys them
                 self.put(gravity_expr::nodes::cast::domain_key_names(x.resulttype));
@@ -1353,7 +1923,12 @@ impl<'p> W<'_, 'p> {
             // PM3a: an ArrayCoerceExpr (every field but the location)
             T_ArrayCoerceExpr => {
                 let x = n.as_array_coerce_expr()?;
-                self.put((x.resulttype, x.resulttypmod, x.resultcollid, x.coerceformat as u32));
+                self.put((
+                    x.resulttype,
+                    x.resulttypmod,
+                    x.resultcollid,
+                    x.coerceformat as u32,
+                ));
                 self.expr(x.arg, c, tag)?;
                 self.arg(x.elemexpr, c, tag)?;
             }
@@ -1398,7 +1973,15 @@ impl<'p> W<'_, 'p> {
             // PM3a: an XmlExpr (every field but the location)
             T_XmlExpr => {
                 let x = n.as_xml_expr()?;
-                self.put((x.op, x.name, x.xmloption, x.indent, x.r#type, x.typmod, x.arg_names.len()));
+                self.put((
+                    x.op,
+                    x.name,
+                    x.xmloption,
+                    x.indent,
+                    x.r#type,
+                    x.typmod,
+                    x.arg_names.len(),
+                ));
                 for a in x.arg_names.iter() {
                     self.put(a.as_string().map(|s| s.sval));
                 }
@@ -1409,25 +1992,53 @@ impl<'p> W<'_, 'p> {
             T_JsonConstructorExpr => {
                 let x = n.as_json_constructor_expr()?;
                 self.put((x.r#type, x.absent_on_null, x.unique));
-                self.put(x.returning.map(|r| (r.format.map(|f| (f.format_type, f.encoding)), r.typid, r.typmod)));
+                self.put(x.returning.map(|r| {
+                    (
+                        r.format.map(|f| (f.format_type, f.encoding)),
+                        r.typid,
+                        r.typmod,
+                    )
+                }));
                 self.args(&x.args, c, tag)?;
                 self.arg(x.func, c, tag)?;
                 self.arg(x.coercion, c, tag)?;
             }
             T_JsonIsPredicate => {
                 let x = n.as_json_is_predicate()?;
-                self.put((x.format.map(|f| (f.format_type, f.encoding)), x.item_type, x.unique_keys));
+                self.put((
+                    x.format.map(|f| (f.format_type, f.encoding)),
+                    x.item_type,
+                    x.unique_keys,
+                ));
                 self.arg(x.expr, c, tag)?;
             }
             T_JsonValueExpr => {
                 let x = n.as_json_value_expr()?;
-                self.put((x.format.map(|f| (f.format_type, f.encoding)), x.raw_expr.is_some()));
+                self.put((
+                    x.format.map(|f| (f.format_type, f.encoding)),
+                    x.raw_expr.is_some(),
+                ));
                 self.arg(x.formatted_expr, c, tag)?;
             }
             T_JsonExpr => {
                 let x = n.as_json_expr()?;
-                self.put((x.op, x.column_name, x.format.map(|f| (f.format_type, f.encoding)), x.use_io_coercion, x.use_json_coercion, x.wrapper, x.omit_quotes, x.collation));
-                self.put(x.returning.map(|r| (r.format.map(|f| (f.format_type, f.encoding)), r.typid, r.typmod)));
+                self.put((
+                    x.op,
+                    x.column_name,
+                    x.format.map(|f| (f.format_type, f.encoding)),
+                    x.use_io_coercion,
+                    x.use_json_coercion,
+                    x.wrapper,
+                    x.omit_quotes,
+                    x.collation,
+                ));
+                self.put(x.returning.map(|r| {
+                    (
+                        r.format.map(|f| (f.format_type, f.encoding)),
+                        r.typid,
+                        r.typmod,
+                    )
+                }));
                 self.put(x.passing_names.len());
                 for a in x.passing_names.iter() {
                     self.put(a.as_string().map(|s| s.sval));
@@ -1467,7 +2078,14 @@ impl<'p> W<'_, 'p> {
             }
             T_SortGroupClause => {
                 let s = n.as_sort_group_clause()?;
-                self.put((s.tleSortGroupRef, s.eqop, s.sortop, s.reverse_sort, s.nulls_first, s.hashable));
+                self.put((
+                    s.tleSortGroupRef,
+                    s.eqop,
+                    s.sortop,
+                    s.reverse_sort,
+                    s.nulls_first,
+                    s.hashable,
+                ));
             }
             _ => return self.no(tag, "expression node"),
         }
@@ -1477,18 +2095,43 @@ impl<'p> W<'_, 'p> {
 
 /// NEW-72: `n` has decompose's `bound_form` shape over the column it compares (a scan Var, or one under a cast).
 fn bound_word(n: Node<'_>) -> bool {
-    let Some(o) = n.as_op_expr() else { return false };
-    let var = |a: Node<'_>| a.as_var().or_else(|| a.as_func_expr().filter(|f| f.args.len() == 1).and_then(|f| f.args.nth(0).as_var())).map(|v| v.varno);
-    o.args.iter().filter_map(var).any(|varno| gravity_decompose::ops::shared::scan::bound_form(n, varno, &|_| true).is_some())
+    let Some(o) = n.as_op_expr() else {
+        return false;
+    };
+    let var = |a: Node<'_>| {
+        a.as_var()
+            .or_else(|| {
+                a.as_func_expr()
+                    .filter(|f| f.args.len() == 1)
+                    .and_then(|f| f.args.nth(0).as_var())
+            })
+            .map(|v| v.varno)
+    };
+    o.args.iter().filter_map(var).any(|varno| {
+        gravity_decompose::ops::shared::scan::bound_form(n, varno, &|_| true).is_some()
+    })
 }
 
 /// Whether the conditional classes are read for this statement (the fill's facts): `Tlist` when a scanned index has
 /// an expression column or an ORDER BY operator (the order carries expression fingerprints), `Zone` when a zoned
 /// scan's relation is pgrc. Facts it cannot find read as yes.
 pub fn needs(f: &Front<'_>, stmt: &PlannedStmt<'_>, facts: &dyn Facts) -> (bool, bool) {
-    let tl = f.orderby || f.indexes.iter().any(|&i| facts.index(i).is_none_or(|x| x.keys().contains(&0)));
-    let relid = |rti: u32| (rti as usize).checked_sub(1).filter(|&i| i < stmt.rtable.len()).and_then(|i| stmt.rtable.nth(i).as_range_tbl_entry()).map(|r| r.relid);
-    let zone = f.zones.iter().any(|&rti| relid(rti).and_then(|r| facts.rel(r)).is_none_or(|r| r.am == Am::Pgrcolumnar));
+    let tl = f.orderby
+        || f.indexes
+            .iter()
+            .any(|&i| facts.index(i).is_none_or(|x| x.keys().contains(&0)));
+    let relid = |rti: u32| {
+        (rti as usize)
+            .checked_sub(1)
+            .filter(|&i| i < stmt.rtable.len())
+            .and_then(|i| stmt.rtable.nth(i).as_range_tbl_entry())
+            .map(|r| r.relid)
+    };
+    let zone = f.zones.iter().any(|&rti| {
+        relid(rti)
+            .and_then(|r| facts.rel(r))
+            .is_none_or(|r| r.am == Am::Pgrcolumnar)
+    });
     (tl, zone)
 }
 
@@ -1531,7 +2174,7 @@ struct Entry {
 /// pipeline, in `Front::morsel` order, and each pipeline an end-rate guard of the program decides on with the plan nodes
 /// its rate is read over (decompose ops/agg `end_rate_over`).
 pub struct Sites {
-    pipes: Box<[u16]>, // alloc: Cold charged the session (Entry::_charge)
+    pipes: Box<[u16]>,               // alloc: Cold charged the session (Entry::_charge)
     rates: Box<[(u16, Box<[i32]>)]>, // alloc: Cold charged the session (Entry::_charge)
 }
 
@@ -1548,57 +2191,115 @@ pub struct Moved {
 /// as decompose read it (its pipeline's node ops but its groups' Agg nodes; the value must come out as filed). Rows and
 /// build guards decide on estimates the key holds exactly but the sites', which `moved_hold` decides on again.
 /// Fire record (PGRUST_GRAVITY_REPORT): `front.morsel_rows.unfiled.<why>` when a shape with sites is filed without them.
-pub fn morsel_sites(f: &Front<'_>, graph: &gravity_decompose::graph::PipelineGraph<'_>, guards: &[gravity_lower::inputs::key::EstGuard], stmt: &PlannedStmt<'_>) -> Option<Sites> {
+pub fn morsel_sites(
+    f: &Front<'_>,
+    graph: &gravity_decompose::graph::PipelineGraph<'_>,
+    guards: &[gravity_lower::inputs::key::EstGuard],
+    stmt: &PlannedStmt<'_>,
+) -> Option<Sites> {
     if f.morsel.is_empty() {
         return None;
     }
     sites_of(f, graph, guards, stmt).map_err(fires::fire).ok()
 }
 
-fn sites_of(f: &Front<'_>, graph: &gravity_decompose::graph::PipelineGraph<'_>, guards: &[gravity_lower::inputs::key::EstGuard], stmt: &PlannedStmt<'_>) -> Result<Sites, &'static str> {
+fn sites_of(
+    f: &Front<'_>,
+    graph: &gravity_decompose::graph::PipelineGraph<'_>,
+    guards: &[gravity_lower::inputs::key::EstGuard],
+    stmt: &PlannedStmt<'_>,
+) -> Result<Sites, &'static str> {
     use gravity_decompose::graph::Source;
     use gravity_lower::inputs::key::{Est, NOT_LIT};
     let mut pipes = Vec::with_capacity(f.morsel.len()); // alloc: Cold charged the session (Entry::_charge)
     for &(node, rows) in f.morsel.iter() {
-        let mut of = graph.pipelines.iter().enumerate().filter(|(_, q)| q.node_id == node && matches!(q.source, Source::Bitmap { morsel: true, .. }));
+        let mut of = graph.pipelines.iter().enumerate().filter(|(_, q)| {
+            q.node_id == node && matches!(q.source, Source::Bitmap { morsel: true, .. })
+        });
         let (j, q) = of.next().ok_or("front.morsel_rows.unfiled.site")?;
         if of.next().is_some() || q.desc.predicted_rows != rows {
             return Err("front.morsel_rows.unfiled.site");
         }
-        if graph.pipelines.iter().enumerate().any(|(i, o)| i != j && (o.desc.predicted_rows == rows || o.desc.build_rows == rows)) {
+        if graph
+            .pipelines
+            .iter()
+            .enumerate()
+            .any(|(i, o)| i != j && (o.desc.predicted_rows == rows || o.desc.build_rows == rows))
+        {
             return Err("front.morsel_rows.unfiled.copy");
         }
         pipes.push(u16::try_from(j).map_err(|_| "front.morsel_rows.unfiled.site")?);
     }
     let mut rates: Vec<(u16, Box<[i32]>)> = Vec::new(); // alloc: Cold charged the session (Entry::_charge)
-    for g in guards.iter().filter(|g| g.lit == NOT_LIT && g.est == Est::EndRate) {
+    for g in guards
+        .iter()
+        .filter(|g| g.lit == NOT_LIT && g.est == Est::EndRate)
+    {
         if rates.iter().any(|(p, _)| *p == g.pipeline) {
             continue;
         }
-        let q = graph.pipelines.get(g.pipeline as usize).ok_or("front.morsel_rows.unfiled.rate")?;
-        let aggs: Vec<i32> = graph.groups.iter().filter(|d| d.producer.0 == g.pipeline).map(|d| d.node_id).collect(); // alloc: Cold
+        let q = graph
+            .pipelines
+            .get(g.pipeline as usize)
+            .ok_or("front.morsel_rows.unfiled.rate")?;
+        let aggs: Vec<i32> = graph
+            .groups
+            .iter()
+            .filter(|d| d.producer.0 == g.pipeline)
+            .map(|d| d.node_id)
+            .collect(); // alloc: Cold
         if aggs.is_empty() {
             return Err("front.morsel_rows.unfiled.agg");
         }
-        let ids: Box<[i32]> = q.node_ops.iter().map(|o| o.node_id).filter(|n| !aggs.contains(n)).collect(); // alloc: Cold charged the session (Entry::_charge)
-        if gravity_decompose::ops::agg::end_rate_over(stmt, ids.iter().copied()) != q.desc.end_rate {
+        let ids: Box<[i32]> = q
+            .node_ops
+            .iter()
+            .map(|o| o.node_id)
+            .filter(|n| !aggs.contains(n))
+            .collect(); // alloc: Cold charged the session (Entry::_charge)
+        if gravity_decompose::ops::agg::end_rate_over(stmt, ids.iter().copied()) != q.desc.end_rate
+        {
             return Err("front.morsel_rows.unfiled.rate");
         }
         rates.push((g.pipeline, ids)); // alloc: Cold charged the session (Entry::_charge)
     }
-    Ok(Sites { pipes: pipes.into_boxed_slice(), rates: rates.into_boxed_slice() })
+    Ok(Sites {
+        pipes: pipes.into_boxed_slice(),
+        rates: rates.into_boxed_slice(),
+    })
 }
 
 /// D3104: whether a program's estimate guards (`guards`) decide on a hit's moved rows (`m`, over this statement `stmt`) as
 /// they did: a rows guard of a site's pipeline on its rows, an end-rate guard on its rate read off this plan. Every other
 /// guard decides on an estimate the key holds exactly (`morsel_sites`).
-pub fn moved_hold(guards: &[gravity_lower::inputs::key::EstGuard], m: &Moved, stmt: &PlannedStmt<'_>) -> bool {
+pub fn moved_hold(
+    guards: &[gravity_lower::inputs::key::EstGuard],
+    m: &Moved,
+    stmt: &PlannedStmt<'_>,
+) -> bool {
     use gravity_lower::inputs::key::{Est, NOT_LIT};
-    guards.iter().filter(|g| g.lit == NOT_LIT).all(|g| match g.est {
-        Est::Rows => m.rows.iter().find(|(p, _)| *p == g.pipeline).is_none_or(|&(_, r)| (g.decide)(r, &g.args) == g.want),
-        Est::Build => true,
-        Est::EndRate => m.rates.iter().find(|(p, _)| *p == g.pipeline).is_some_and(|(_, ids)| (g.decide)(gravity_decompose::ops::agg::end_rate_over(stmt, ids.iter().copied()), &g.args) == g.want),
-    })
+    guards
+        .iter()
+        .filter(|g| g.lit == NOT_LIT)
+        .all(|g| match g.est {
+            Est::Rows => m
+                .rows
+                .iter()
+                .find(|(p, _)| *p == g.pipeline)
+                .is_none_or(|&(_, r)| (g.decide)(r, &g.args) == g.want),
+            Est::Build => true,
+            Est::EndRate => {
+                m.rates
+                    .iter()
+                    .find(|(p, _)| *p == g.pipeline)
+                    .is_some_and(|(_, ids)| {
+                        (g.decide)(
+                            gravity_decompose::ops::agg::end_rate_over(stmt, ids.iter().copied()),
+                            &g.args,
+                        ) == g.want
+                    })
+            }
+        })
 }
 
 /// The memo's bound: a full memo is cleared (a miss costs today's path and one fill).
@@ -1624,7 +2325,11 @@ leader_tls::leader_tls! {
 
 /// This statement's image at front position `p` (a by-reference word's; `None` for any other node).
 fn image_at<'a>(f: &Front<'a>, p: u32) -> Option<&'a [u8]> {
-    let k = f.nodes.get(p as usize)?.as_const().filter(|k| !k.constisnull && !k.constbyval)?;
+    let k = f
+        .nodes
+        .get(p as usize)?
+        .as_const()
+        .filter(|k| !k.constisnull && !k.constbyval)?;
     super::raw::image(k)
 }
 
@@ -1636,7 +2341,12 @@ pub fn hit<'p>(f: &Front<'p>, arena: ArenaRef) -> Option<(ContentKey, ArenaVec<N
 
 /// A hit's variants and estimates: the content key, this plan's key-walk nodes, the variant's estimates, and (D3104) its
 /// index morsel rows where they differ from the variant's.
-pub type Hit<'p> = (ContentKey, ArenaVec<Node<'p>>, Option<Box<[PipeEst]>>, Option<Moved>);
+pub type Hit<'p> = (
+    ContentKey,
+    ArenaVec<Node<'p>>,
+    Option<Box<[PipeEst]>>,
+    Option<Moved>,
+);
 
 /// `hit` with the variant's estimates (KEY-PREDICTED-ROWS road (b), `Entry::est`); `mcx` builds the constants decompose
 /// built (`Entry::built`; `None`: a variant with one is no hit). D3104: a variant whose index morsel rows equal this
@@ -1654,23 +2364,55 @@ pub fn hit_est<'p>(f: &Front<'p>, arena: ArenaRef, mcx: Option<mcx::Mcx<'p>>) ->
             }
         }
         let v = m.get_mut(&f.main)?;
-        let alike = |e: &Entry| e.tl.is_none_or(|t| t == f.tl) && e.zone.is_none_or(|z| z == f.zone) && e.baked.iter().all(|(p, img)| image_at(f, *p) == Some(&img[..]));
-        let sites = |e: &Entry| e.morsel.len() == f.morsel.len() && e.morsel.iter().zip(f.morsel.iter()).all(|(a, b)| a.0 == b.0);
-        let i = v.iter().position(|e| alike(e) && e.morsel[..] == f.morsel[..]).or_else(|| v.iter().position(|e| alike(e) && e.sites.is_some() && sites(e)))?;
+        let alike = |e: &Entry| {
+            e.tl.is_none_or(|t| t == f.tl)
+                && e.zone.is_none_or(|z| z == f.zone)
+                && e.baked
+                    .iter()
+                    .all(|(p, img)| image_at(f, *p) == Some(&img[..]))
+        };
+        let sites = |e: &Entry| {
+            e.morsel.len() == f.morsel.len()
+                && e.morsel
+                    .iter()
+                    .zip(f.morsel.iter())
+                    .all(|(a, b)| a.0 == b.0)
+        };
+        let i = v
+            .iter()
+            .position(|e| alike(e) && e.morsel[..] == f.morsel[..])
+            .or_else(|| {
+                v.iter()
+                    .position(|e| alike(e) && e.sites.is_some() && sites(e))
+            })?;
         v[..=i].rotate_right(1);
         let e = &v[0];
         e.held.replay();
         let moved = match &e.sites {
             Some(s) if e.morsel[..] != f.morsel[..] => {
-                let rows = e.morsel.iter().zip(f.morsel.iter()).zip(s.pipes.iter()).filter(|((a, b), _)| a.1 != b.1).map(|((_, b), &j)| (j, b.1)).collect(); // alloc: Cold
-                Some(Moved { rows, rates: s.rates.clone() }) // alloc: Cold
+                let rows = e
+                    .morsel
+                    .iter()
+                    .zip(f.morsel.iter())
+                    .zip(s.pipes.iter())
+                    .filter(|((a, b), _)| a.1 != b.1)
+                    .map(|((_, b), &j)| (j, b.1))
+                    .collect(); // alloc: Cold
+                Some(Moved {
+                    rows,
+                    rates: s.rates.clone(),
+                }) // alloc: Cold
             }
             _ => None,
         };
         let mut nodes = ArenaVec::with_capacity_in(e.pos.len(), arena);
         // D644: a synthesized node's stand-in is the walk's first node, never read (the fill's locator proof)
         for &p in e.pos.iter() {
-            nodes.push(*f.nodes.get(if p == SYNTH || p == DERIVED { 0 } else { p as usize })?);
+            nodes.push(*f.nodes.get(if p == SYNTH || p == DERIVED {
+                0
+            } else {
+                p as usize
+            })?);
         }
         for b in e.built.iter() {
             *nodes.get_mut(b.at as usize)? = b.node(f, mcx?)?;
@@ -1683,43 +2425,138 @@ pub fn hit_est<'p>(f: &Front<'p>, arena: ArenaRef, mcx: Option<mcx::Mcx<'p>>) ->
 /// classes read. Every by-reference word is taken as baked (a hit needs all their images equal: today's key). A shape with
 /// a synthesized node is not filed here (no locator proof: `fill_reading`, which also says why a shape was not filed).
 pub fn fill(f: &Front<'_>, key: ContentKey, nodes: &[Node<'_>], needs: (bool, bool)) {
-    let _ = file(f, key, nodes, needs, &f.byref, None, None, None, None, &gravity_deps::Deps::default());
+    let _ = file(
+        f,
+        key,
+        nodes,
+        needs,
+        &f.byref,
+        None,
+        None,
+        None,
+        None,
+        &gravity_deps::Deps::default(),
+    );
 }
 
 /// V4R-18: `fill` after this admission lowered the program (`ir`: its `ir_hash`): the by-reference words baked are
 /// those whose images the admission's bake scopes logged (gravity_expr's IR reads, gravity_decompose's plan-tree
 /// reads); the others bind per execution. After a content-key hit nothing lowered here, so `fill` takes them all.
-pub fn fill_lowered(f: &Front<'_>, key: ContentKey, nodes: &[Node<'_>], needs: (bool, bool), ir: u128) {
+pub fn fill_lowered(
+    f: &Front<'_>,
+    key: ContentKey,
+    nodes: &[Node<'_>],
+    needs: (bool, bool),
+    ir: u128,
+) {
     let _ = fill_lowered_reading(f, key, nodes, needs, ir, None);
 }
 
 /// D644: `fill` with `reads`, every key-walk position the program's template binds from (its word and check locators,
 /// admit.rs `template_reads`): a synthesized key-walk node (`synthesized`) at none of them is filed as `SYNTH`.
-pub fn fill_reading(f: &Front<'_>, key: ContentKey, nodes: &[Node<'_>], needs: (bool, bool), reads: &[u32]) -> Result<(), &'static str> {
-    fill_reading_est(f, key, nodes, needs, reads, None, None, &gravity_deps::Deps::default())
+pub fn fill_reading(
+    f: &Front<'_>,
+    key: ContentKey,
+    nodes: &[Node<'_>],
+    needs: (bool, bool),
+    reads: &[u32],
+) -> Result<(), &'static str> {
+    fill_reading_est(
+        f,
+        key,
+        nodes,
+        needs,
+        reads,
+        None,
+        None,
+        &gravity_deps::Deps::default(),
+    )
 }
 
 /// `fill_reading` with the statement's estimates (KEY-PREDICTED-ROWS road (b), `Entry::est`), (D3104) its index morsel
 /// sites' `Sites` (`morsel_sites`; `None`: a hit needs this statement's rows) and (C3 S4d) what the admission read from the
 /// catalog from the walk on (`Entry::deps`; the `fill*` forms without it file none: a test's memo).
 #[allow(clippy::too_many_arguments)]
-pub fn fill_reading_est(f: &Front<'_>, key: ContentKey, nodes: &[Node<'_>], needs: (bool, bool), reads: &[u32], est: Option<&[PipeEst]>, sites: Option<Sites>, deps: &gravity_deps::Deps) -> Result<(), &'static str> {
-    file(f, key, nodes, needs, &f.byref, None, Some(reads), est, sites, deps)
+pub fn fill_reading_est(
+    f: &Front<'_>,
+    key: ContentKey,
+    nodes: &[Node<'_>],
+    needs: (bool, bool),
+    reads: &[u32],
+    est: Option<&[PipeEst]>,
+    sites: Option<Sites>,
+    deps: &gravity_deps::Deps,
+) -> Result<(), &'static str> {
+    file(
+        f,
+        key,
+        nodes,
+        needs,
+        &f.byref,
+        None,
+        Some(reads),
+        est,
+        sites,
+        deps,
+    )
 }
 
 /// D644: `fill_lowered` with `reads` (`fill_reading`).
-pub fn fill_lowered_reading(f: &Front<'_>, key: ContentKey, nodes: &[Node<'_>], needs: (bool, bool), ir: u128, reads: Option<&[u32]>) -> Result<(), &'static str> {
-    fill_lowered_reading_est(f, key, nodes, needs, ir, reads, None, None, &gravity_deps::Deps::default())
+pub fn fill_lowered_reading(
+    f: &Front<'_>,
+    key: ContentKey,
+    nodes: &[Node<'_>],
+    needs: (bool, bool),
+    ir: u128,
+    reads: Option<&[u32]>,
+) -> Result<(), &'static str> {
+    fill_lowered_reading_est(
+        f,
+        key,
+        nodes,
+        needs,
+        ir,
+        reads,
+        None,
+        None,
+        &gravity_deps::Deps::default(),
+    )
 }
 
 /// `fill_lowered_reading` with the statement's estimates (KEY-PREDICTED-ROWS road (b), `Entry::est`), `Sites` (D3104) and
 /// the admission's catalog reads (C3 S4d, `fill_reading_est`).
 #[allow(clippy::too_many_arguments)]
-pub fn fill_lowered_reading_est(f: &Front<'_>, key: ContentKey, nodes: &[Node<'_>], needs: (bool, bool), ir: u128, reads: Option<&[u32]>, est: Option<&[PipeEst]>, sites: Option<Sites>, deps: &gravity_deps::Deps) -> Result<(), &'static str> {
+pub fn fill_lowered_reading_est(
+    f: &Front<'_>,
+    key: ContentKey,
+    nodes: &[Node<'_>],
+    needs: (bool, bool),
+    ir: u128,
+    reads: Option<&[u32]>,
+    est: Option<&[PipeEst]>,
+    sites: Option<Sites>,
+    deps: &gravity_deps::Deps,
+) -> Result<(), &'static str> {
     let (by_ir, by_plan) = (f.ir_reads(), f.plan_reads());
-    let read = |p: &u32| f.nodes[*p as usize].as_const().is_some_and(|k| by_ir.binary_search(&k.constvalue.as_usize()).is_ok() || by_plan.binary_search(&k.constvalue.as_usize()).is_ok());
+    let read = |p: &u32| {
+        f.nodes[*p as usize].as_const().is_some_and(|k| {
+            by_ir.binary_search(&k.constvalue.as_usize()).is_ok()
+                || by_plan.binary_search(&k.constvalue.as_usize()).is_ok()
+        })
+    };
     let baked: Vec<u32> = f.byref.iter().copied().filter(read).collect(); // alloc: Cold
-    file(f, key, nodes, needs, &baked, Some(ir), reads, est, sites, deps)
+    file(
+        f,
+        key,
+        nodes,
+        needs,
+        &baked,
+        Some(ir),
+        reads,
+        est,
+        sites,
+        deps,
+    )
 }
 
 /// The IR hash of a lowered program (`fill_lowered`, the shadow check): the IR and its functions, which bind every
@@ -1747,20 +2584,32 @@ pub fn variant_ir_ok(filed: u128, hash: impl FnOnce() -> u128) -> bool {
 /// inputs/key.rs `guards_hold`), which a hit here cannot re-run, and a variant's estimates are bound over its program's
 /// pipelines: when a program is filed under `key` (admit.rs `file_local`), the variants filed for the one before it go.
 pub fn forget(key: ContentKey) {
-    MEMO.with(|m| m.borrow_mut().retain(|_, v| {
-        v.retain(|e| e.key != key);
-        !v.is_empty()
-    }));
+    MEMO.with(|m| {
+        m.borrow_mut().retain(|_, v| {
+            v.retain(|e| e.key != key);
+            !v.is_empty()
+        })
+    });
 }
 
 /// The IR hash of the variant `hit` last answered for `f`'s shape (`None`: filed without a lowering).
 pub fn filed_ir(f: &Front<'_>) -> Option<u128> {
-    MEMO.with(|m| m.borrow().get(&f.main).and_then(|v| v.first()).and_then(|e| e.ir))
+    MEMO.with(|m| {
+        m.borrow()
+            .get(&f.main)
+            .and_then(|v| v.first())
+            .and_then(|e| e.ir)
+    })
 }
 
 /// C3 S4d: what the admission that filed the variant `hit` last answered for `f`'s shape read (the shadow check's).
 pub fn filed_deps(f: &Front<'_>) -> Option<gravity_deps::Deps> {
-    MEMO.with(|m| m.borrow().get(&f.main).and_then(|v| v.first()).map(|e| e.held.deps().clone())) // alloc: Cold
+    MEMO.with(|m| {
+        m.borrow()
+            .get(&f.main)
+            .and_then(|v| v.first())
+            .map(|e| e.held.deps().clone())
+    }) // alloc: Cold
 }
 
 /// D644: a filed position with no front node: a node decompose synthesized (`synthesized`).
@@ -1804,19 +2653,53 @@ impl Built {
     fn node<'p>(&self, f: &Front<'p>, mcx: mcx::Mcx<'p>) -> Option<Node<'p>> {
         let (ty, typmod, coll, len, byval) = self.ty;
         if let How::Fixed(v) = self.how {
-            return Node::mk_const(mcx, ty, typmod, coll, len, datum::Datum::from_u64(v), false, byval).ok();
+            return Node::mk_const(
+                mcx,
+                ty,
+                typmod,
+                coll,
+                len,
+                datum::Datum::from_u64(v),
+                false,
+                byval,
+            )
+            .ok();
         }
         let k = f.nodes.get(self.src as usize)?.as_const()?;
         // words bound per execution, as admit's bind reads one (no bake: exec tests/front_bake_lint.rs)
         match self.how {
             How::Retype(strategy) => {
-                let v = if k.constisnull { datum::Datum::from_i64(0) } else { gravity_decompose::normalize::retype_value(k.consttype, ty, strategy, k.constvalue)? };
+                let v = if k.constisnull {
+                    datum::Datum::from_i64(0)
+                } else {
+                    gravity_decompose::normalize::retype_value(
+                        k.consttype,
+                        ty,
+                        strategy,
+                        k.constvalue,
+                    )?
+                };
                 Node::mk_const(mcx, ty, typmod, coll, len, v, k.constisnull, byval).ok()
             }
-            How::Copy => Node::mk_const(mcx, ty, typmod, coll, len, k.constvalue, k.constisnull, byval).ok(),
-            How::Twin { head, tail } => gravity_decompose::normalize::twin_const(mcx, k, head, tail, coll),
+            How::Copy => Node::mk_const(
+                mcx,
+                ty,
+                typmod,
+                coll,
+                len,
+                k.constvalue,
+                k.constisnull,
+                byval,
+            )
+            .ok(),
+            How::Twin { head, tail } => {
+                gravity_decompose::normalize::twin_const(mcx, k, head, tail, coll)
+            }
             How::Detext => {
-                let v = gravity_decompose::normalize::detext_value(ty, gravity_decompose::expr::const_bytes_keyed(k)?)?;
+                let v = gravity_decompose::normalize::detext_value(
+                    ty,
+                    gravity_decompose::expr::const_bytes_keyed(k)?,
+                )?;
                 Node::mk_const(mcx, ty, typmod, coll, len, v, false, byval).ok()
             }
             How::Fixed(_) => None,
@@ -1846,13 +2729,25 @@ pub(crate) fn synthesized(n: Node<'_>) -> bool {
 
 /// The sentinel positions of the variant `hit` last answered for `f`'s shape (the shadow check compares them by kind).
 pub fn filed_synth(f: &Front<'_>) -> Vec<u32> {
-    MEMO.with(|m| m.borrow().get(&f.main).and_then(|v| v.first()).map(|e| e.synth.to_vec()).unwrap_or_default()) // alloc: Cold
+    MEMO.with(|m| {
+        m.borrow()
+            .get(&f.main)
+            .and_then(|v| v.first())
+            .map(|e| e.synth.to_vec())
+            .unwrap_or_default()
+    }) // alloc: Cold
 }
 
 /// The key-walk positions of the constants decompose built of the variant `hit` last answered for `f`'s shape (the
 /// shadow check compares them by value: `node_matches`).
 pub fn filed_derived(f: &Front<'_>) -> Vec<u32> {
-    MEMO.with(|m| m.borrow().get(&f.main).and_then(|v| v.first()).map(|e| e.built.iter().map(|b| b.at).collect()).unwrap_or_default()) // alloc: Cold
+    MEMO.with(|m| {
+        m.borrow()
+            .get(&f.main)
+            .and_then(|v| v.first())
+            .map(|e| e.built.iter().map(|b| b.at).collect())
+            .unwrap_or_default()
+    }) // alloc: Cold
 }
 
 /// The shadow check's compare of a fresh decompose's key-walk node with a hit's at one position: a synthesized one by kind
@@ -1862,9 +2757,24 @@ pub fn node_matches(fresh: Node<'_>, filed: Node<'_>, synth: bool, derived: bool
     match (synth, derived, fresh.as_const(), filed.as_const()) {
         (true, ..) => synthesized(fresh),
         (_, true, Some(a), Some(b)) => {
-            let ty = |k: &types_nodes::primnodes::Const| (k.consttype, k.consttypmod, k.constcollid, k.constlen, k.constbyval, k.constisnull);
+            let ty = |k: &types_nodes::primnodes::Const| {
+                (
+                    k.consttype,
+                    k.consttypmod,
+                    k.constcollid,
+                    k.constlen,
+                    k.constbyval,
+                    k.constisnull,
+                )
+            };
             let bytes = gravity_decompose::expr::const_bytes_keyed;
-            ty(a) == ty(b) && (a.constisnull || if a.constbyval { a.constvalue.as_u64() == b.constvalue.as_u64() } else { bytes(a).is_some() && bytes(a) == bytes(b) })
+            ty(a) == ty(b)
+                && (a.constisnull
+                    || if a.constbyval {
+                        a.constvalue.as_u64() == b.constvalue.as_u64()
+                    } else {
+                        bytes(a).is_some() && bytes(a) == bytes(b)
+                    })
         }
         (_, true, ..) => false,
         _ => fresh.ptr_eq(filed),
@@ -1876,27 +2786,62 @@ pub fn node_matches(fresh: Node<'_>, filed: Node<'_>, synth: bool, derived: bool
 /// visits it twice (a hit builds one node per position), when it is built from a plan constant (not `Fixed`) but no word
 /// or check reads it (`read`: the program would hold the filed value), when a by-reference one is no varlena or its
 /// image was baked (`baked`: its value is the variant's, which a hit cannot compare), or when its source is no front node.
-fn derived_at(n: &Node<'_>, k: u32, by: &Positions, nodes: &[Node<'_>], read: bool, baked: &dyn Fn(usize) -> bool) -> Option<Built> {
+fn derived_at(
+    n: &Node<'_>,
+    k: u32,
+    by: &Positions,
+    nodes: &[Node<'_>],
+    read: bool,
+    baked: &dyn Fn(usize) -> bool,
+) -> Option<Built> {
     use gravity_decompose::bake::Derived;
-    let c = n.as_const().filter(|c| (c.constbyval || c.constlen == -1) && nodes.iter().filter(|m| m.ptr_eq(*n)).count() == 1)?;
+    let c = n.as_const().filter(|c| {
+        (c.constbyval || c.constlen == -1) && nodes.iter().filter(|m| m.ptr_eq(*n)).count() == 1
+    })?;
     let image = (!c.constbyval && !c.constisnull).then(|| c.constvalue.as_usize());
     if image.is_some_and(baked) {
         return None;
     }
     let src = |a: usize| by.get(a);
     let (src, how) = match gravity_decompose::bake::derived(*n)? {
-        Derived::Retype { src: a, strategy } if read && c.constbyval => (src(a)?, How::Retype(strategy)),
+        Derived::Retype { src: a, strategy } if read && c.constbyval => {
+            (src(a)?, How::Retype(strategy))
+        }
         Derived::Copy { src: a } if read => (src(a)?, How::Copy),
         Derived::Twin { src: a, head, tail } if read => (src(a)?, How::Twin { head, tail }),
         Derived::Detext { src: a } if read && c.constbyval => (src(a)?, How::Detext),
-        Derived::Fixed if c.constbyval && !c.constisnull => (u32::MAX, How::Fixed(c.constvalue.as_u64())),
+        Derived::Fixed if c.constbyval && !c.constisnull => {
+            (u32::MAX, How::Fixed(c.constvalue.as_u64()))
+        }
         _ => return None,
     };
-    Some(Built { at: k, src, ty: (c.consttype, c.consttypmod, c.constcollid, c.constlen, c.constbyval), how })
+    Some(Built {
+        at: k,
+        src,
+        ty: (
+            c.consttype,
+            c.consttypmod,
+            c.constcollid,
+            c.constlen,
+            c.constbyval,
+        ),
+        how,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
-fn file(f: &Front<'_>, key: ContentKey, nodes: &[Node<'_>], needs: (bool, bool), baked: &[u32], ir: Option<u128>, reads: Option<&[u32]>, est: Option<&[PipeEst]>, sites: Option<Sites>, deps: &gravity_deps::Deps) -> Result<(), &'static str> {
+fn file(
+    f: &Front<'_>,
+    key: ContentKey,
+    nodes: &[Node<'_>],
+    needs: (bool, bool),
+    baked: &[u32],
+    ir: Option<u128>,
+    reads: Option<&[u32]>,
+    est: Option<&[PipeEst]>,
+    sites: Option<Sites>,
+    deps: &gravity_deps::Deps,
+) -> Result<(), &'static str> {
     // C3 S4d: reads that may straddle a commit this backend has not processed (or another transaction's state: a parallel
     // worker, a historic snapshot) never hold; such a variant is not filed
     if deps.lagged() {
@@ -1907,9 +2852,15 @@ fn file(f: &Front<'_>, key: ContentKey, nodes: &[Node<'_>], needs: (bool, bool),
     let mut pos = Vec::with_capacity(nodes.len()); // alloc: Cold charged the session (Entry::_charge)
     let mut synth = Vec::new(); // alloc: Cold charged the session (Entry::_charge)
     let mut built = Vec::new(); // alloc: Cold charged the session (Entry::_charge)
-    // V4R-18: the images the admission's bake scopes logged; without a lowering every image counts as baked
-    let (by_ir, by_plan) = if ir.is_some() { (f.ir_reads(), f.plan_reads()) } else { (Vec::new(), Vec::new()) }; // alloc: Cold
-    let image_baked = |a: usize| ir.is_none() || by_ir.binary_search(&a).is_ok() || by_plan.binary_search(&a).is_ok();
+                                // V4R-18: the images the admission's bake scopes logged; without a lowering every image counts as baked
+    let (by_ir, by_plan) = if ir.is_some() {
+        (f.ir_reads(), f.plan_reads())
+    } else {
+        (Vec::new(), Vec::new())
+    }; // alloc: Cold
+    let image_baked = |a: usize| {
+        ir.is_none() || by_ir.binary_search(&a).is_ok() || by_plan.binary_search(&a).is_ok()
+    };
     // D3615 (a): the read nodes sorted once (each node searched the whole list: nodes x words, 16 M steps for a 4000-arm
     // filter, on every admission that files the front, a shared-tier hit's too)
     let reads_sorted = reads.map(|r| {
@@ -1918,7 +2869,9 @@ fn file(f: &Front<'_>, key: ContentKey, nodes: &[Node<'_>], needs: (bool, bool),
         v
     });
     for (k, n) in nodes.iter().enumerate() {
-        let read = reads_sorted.as_ref().is_some_and(|r| r.binary_search(&(k as u32)).is_ok());
+        let read = reads_sorted
+            .as_ref()
+            .is_some_and(|r| r.binary_search(&(k as u32)).is_ok());
         match by.get(n.as_raw().as_ptr() as usize) {
             Some(p) => pos.push(p),
             None => match derived_at(n, k as u32, &by, nodes, read, &image_baked) {
@@ -1927,7 +2880,9 @@ fn file(f: &Front<'_>, key: ContentKey, nodes: &[Node<'_>], needs: (bool, bool),
                     built.push(b); // alloc: Cold charged the session (Entry::_charge)
                 }
                 None if !synthesized(*n) => return Err("a key-walk node outside the plan"),
-                None if reads.is_none() => return Err("a synthesized key-walk node without the template's locators"),
+                None if reads.is_none() => {
+                    return Err("a synthesized key-walk node without the template's locators")
+                }
                 None if read => return Err("a word or check at a synthesized node"),
                 None => {
                     pos.push(SYNTH);
@@ -1938,18 +2893,52 @@ fn file(f: &Front<'_>, key: ContentKey, nodes: &[Node<'_>], needs: (bool, bool),
     }
     let mut images = Vec::with_capacity(baked.len()); // alloc: Cold charged the session (Entry::_charge)
     for &p in baked {
-        let Some(img) = image_at(f, p) else { return Err("a baked by-reference word without a readable image") };
+        let Some(img) = image_at(f, p) else {
+            return Err("a baked by-reference word without a readable image");
+        };
         images.push((p, Box::from(img))); // alloc: Cold charged the session (Entry::_charge)
     }
     let heap = pos.len() * core::mem::size_of::<u32>()
         + synth.len() * core::mem::size_of::<u32>()
         + built.len() * core::mem::size_of::<Built>()
-        + images.iter().map(|(_, b): &(u32, Box<[u8]>)| core::mem::size_of::<(u32, Box<[u8]>)>() + b.len()).sum::<usize>()
+        + images
+            .iter()
+            .map(|(_, b): &(u32, Box<[u8]>)| core::mem::size_of::<(u32, Box<[u8]>)>() + b.len())
+            .sum::<usize>()
         + est.map_or(0, std::mem::size_of_val)
         + f.morsel.len() * core::mem::size_of::<(i32, u64)>()
-        + sites.as_ref().map_or(0, |t| t.pipes.len() * core::mem::size_of::<u16>() + t.rates.iter().map(|(_, r)| core::mem::size_of::<(u16, Box<[i32]>)>() + r.len() * core::mem::size_of::<i32>()).sum::<usize>());
-    let charge = memledger::Charge::open(memledger::Owner::Session(memledger::current()), memledger::Release::Session, memledger::Kind::Region, memledger::charge::Door::Heap, heap as u64);
-    let e = Entry { _charge: charge, key, pos: pos.into_boxed_slice(), tl: needs.0.then_some(f.tl), zone: needs.1.then_some(f.zone), baked: images.into_boxed_slice(), synth: synth.into_boxed_slice(), built: built.into_boxed_slice(), ir, est: est.map(Box::from), morsel: Box::from(&f.morsel[..]), sites, held: gravity_deps::Held::of(deps.clone()) }; // alloc: Cold charged the session (Entry::_charge)
+        + sites.as_ref().map_or(0, |t| {
+            t.pipes.len() * core::mem::size_of::<u16>()
+                + t.rates
+                    .iter()
+                    .map(|(_, r)| {
+                        core::mem::size_of::<(u16, Box<[i32]>)>()
+                            + r.len() * core::mem::size_of::<i32>()
+                    })
+                    .sum::<usize>()
+        });
+    let charge = memledger::Charge::open(
+        memledger::Owner::Session(memledger::current()),
+        memledger::Release::Session,
+        memledger::Kind::Region,
+        memledger::charge::Door::Heap,
+        heap as u64,
+    );
+    let e = Entry {
+        _charge: charge,
+        key,
+        pos: pos.into_boxed_slice(),
+        tl: needs.0.then_some(f.tl),
+        zone: needs.1.then_some(f.zone),
+        baked: images.into_boxed_slice(),
+        synth: synth.into_boxed_slice(),
+        built: built.into_boxed_slice(),
+        ir,
+        est: est.map(Box::from),
+        morsel: Box::from(&f.morsel[..]),
+        sites,
+        held: gravity_deps::Held::of(deps.clone()),
+    }; // alloc: Cold charged the session (Entry::_charge)
     MEMO.with(|m| {
         let mut m = m.borrow_mut();
         if m.len() >= FRONT_ENTRIES && !m.contains_key(&f.main) {
@@ -1979,7 +2968,13 @@ pub fn check_on() -> bool {
     CHECK.with(|c| match c.get() {
         Some((seen, on)) if seen == at => on,
         _ => {
-            let on = CHECK_SLOT.with(|slot| gravity_hosts::inputs::custom_guc_text_at(slot, "pgrust.gravity_front_check")).is_some_and(|v| matches!(v.to_ascii_lowercase().as_str(), "on" | "true" | "1" | "yes"));
+            let on = CHECK_SLOT
+                .with(|slot| {
+                    gravity_hosts::inputs::custom_guc_text_at(slot, "pgrust.gravity_front_check")
+                })
+                .is_some_and(|v| {
+                    matches!(v.to_ascii_lowercase().as_str(), "on" | "true" | "1" | "yes")
+                });
             c.set(Some((at, on)));
             on
         }
@@ -2006,13 +3001,41 @@ mod src07_spread {
         xact_seams::get_current_sub_transaction_id::set(|| 1);
         pgtz::set_session_timezone(None);
         assert_eq!(zone_spread(SPRING), None, "no session zone");
-        let ny: &[u8] = if system { b"America/New_York" } else { b"EST5EDT,M3.2.0,M11.1.0" };
+        let ny: &[u8] = if system {
+            b"America/New_York"
+        } else {
+            b"EST5EDT,M3.2.0,M11.1.0"
+        };
         pgtz::set_session_timezone(pgtz::pg_tzset(ny).unwrap());
-        assert_eq!(zone_spread(SPRING), Some((-5 * HOUR, -4 * HOUR)), "the spring transition");
-        assert_eq!(zone_spread(SPRING - 4 * 24 * HOUR), Some((-5 * HOUR, -5 * HOUR)), "four days before it: EST alone");
-        assert_eq!(zone_spread(SPRING + 4 * 24 * HOUR), Some((-4 * HOUR, -4 * HOUR)), "four days after it: EDT alone");
-        assert_eq!(zone_spread(SPRING + 70 * HOUR), Some((-5 * HOUR, -4 * HOUR)), "inside the window");
-        pgtz::set_session_timezone(pgtz::pg_tzset(b"UTC").unwrap().or(pgtz::pg_tzset(b"GMT").unwrap()));
-        assert_eq!(zone_spread(SPRING), Some((0, 0)), "SET TimeZone between two reads");
+        assert_eq!(
+            zone_spread(SPRING),
+            Some((-5 * HOUR, -4 * HOUR)),
+            "the spring transition"
+        );
+        assert_eq!(
+            zone_spread(SPRING - 4 * 24 * HOUR),
+            Some((-5 * HOUR, -5 * HOUR)),
+            "four days before it: EST alone"
+        );
+        assert_eq!(
+            zone_spread(SPRING + 4 * 24 * HOUR),
+            Some((-4 * HOUR, -4 * HOUR)),
+            "four days after it: EDT alone"
+        );
+        assert_eq!(
+            zone_spread(SPRING + 70 * HOUR),
+            Some((-5 * HOUR, -4 * HOUR)),
+            "inside the window"
+        );
+        pgtz::set_session_timezone(
+            pgtz::pg_tzset(b"UTC")
+                .unwrap()
+                .or(pgtz::pg_tzset(b"GMT").unwrap()),
+        );
+        assert_eq!(
+            zone_spread(SPRING),
+            Some((0, 0)),
+            "SET TimeZone between two reads"
+        );
     }
 }

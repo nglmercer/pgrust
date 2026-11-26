@@ -25,8 +25,8 @@
 
 use crate::mem::fence::{self, Fences};
 use crate::mem::spill::{HeapClaim, RunReader, SpillFile};
-use cancelpoll::Step;
 use crate::{Error, Result};
+use cancelpoll::Step;
 
 /// The raw bytes of one block: a reader holds one block decoded (PostgreSQL's tape reader holds one BLCKSZ block).
 pub const BLOCK: usize = 8 << 10;
@@ -48,13 +48,23 @@ pub fn encode_block(raw: &[u8], out: &mut memledger::ChargedVecMut<'_, u8>, comp
 }
 
 /// `encode_block`, the block marked `HEADED` when `headed` (a run's first block).
-fn encode_marked(raw: &[u8], out: &mut memledger::ChargedVecMut<'_, u8>, compress: bool, headed: bool) {
+fn encode_marked(
+    raw: &[u8],
+    out: &mut memledger::ChargedVecMut<'_, u8>,
+    compress: bool,
+    headed: bool,
+) {
     debug_assert!(raw.len() <= BLOCK);
     let mark = if headed { HEADED } else { 0 };
     let at = out.len();
     let packed = if compress {
-        out.resize(at + HDR + lz4_flex::block::get_maximum_output_size(raw.len()), 0); // alloc: Exec charged out.owner()
-        lz4_flex::block::compress_into(raw, &mut out[at + HDR..]).ok().filter(|&n| n < raw.len())
+        out.resize(
+            at + HDR + lz4_flex::block::get_maximum_output_size(raw.len()),
+            0,
+        ); // alloc: Exec charged out.owner()
+        lz4_flex::block::compress_into(raw, &mut out[at + HDR..])
+            .ok()
+            .filter(|&n| n < raw.len())
     } else {
         None
     };
@@ -81,7 +91,10 @@ pub const RAW_HEADROOM: u64 = 32;
 
 /// D2572-d: whether `bytes` more written raw after `spilled` stay under 1/`RAW_HEADROOM` of a `temp_file_limit` of `limit` bytes.
 pub fn raw_fits(spilled: u64, bytes: u64, limit: u64) -> bool {
-    spilled.checked_add(bytes).and_then(|b| b.checked_mul(RAW_HEADROOM)).is_some_and(|b| b <= limit)
+    spilled
+        .checked_add(bytes)
+        .and_then(|b| b.checked_mul(RAW_HEADROOM))
+        .is_some_and(|b| b <= limit)
 }
 
 /// `raw` written as part `part` of `file`, encoded (compressed when the file says so for a run of its size after
@@ -93,14 +106,28 @@ pub fn write_run(file: &mut dyn SpillFile, part: u32, raw: &[u8], spilled: u64) 
 
 /// `raw` written as part `part` of `file` in blocks, LZ4-compressed when `compress`, the first marked `HEADED` when
 /// `headed`, in epochs.
-fn write_blocks(file: &mut dyn SpillFile, part: u32, raw: &[u8], compress: bool, headed: bool) -> Result<()> {
+fn write_blocks(
+    file: &mut dyn SpillFile,
+    part: u32,
+    raw: &[u8],
+    compress: bool,
+    headed: bool,
+) -> Result<()> {
     write_blocks_at(file, part, raw, compress, headed, None, None).map(|_| ())
 }
 
 /// `write_blocks`, each block's offset in the part (from the bytes this call writes) pushed to `starts` (D3190: a
 /// put run's fences); the bytes written. The epoch buffer (up to `EPOCH` / `RAW_EPOCH`) is charged to `owner`, the run's
 /// slot owner when `put_run` names one, re-synced after each block's encode.
-fn write_blocks_at(file: &mut dyn SpillFile, part: u32, raw: &[u8], compress: bool, headed: bool, mut starts: Option<&mut memledger::ChargedVec<u64>>, owner: Option<memledger::Owner>) -> Result<u64> {
+fn write_blocks_at(
+    file: &mut dyn SpillFile,
+    part: u32,
+    raw: &[u8],
+    compress: bool,
+    headed: bool,
+    mut starts: Option<&mut memledger::ChargedVec<u64>>,
+    owner: Option<memledger::Owner>,
+) -> Result<u64> {
     let epoch = if compress { EPOCH } else { RAW_EPOCH };
     let mut buf = memledger::ChargedVec::<u8>::new(owner, memledger::Kind::Sort);
     let mut out = buf.vec_mut();
@@ -154,7 +181,13 @@ impl Staged {
     /// rows have a `shape` (the run's bytes begun with their header, `write_run_rows`'s, its blocks stored raw), else its
     /// blocks LZ4-compressed. E-kern R: `owner`, the merged run's stream owner, takes the buffers (made anew, empty, when
     /// it is not the one they are on).
-    pub fn begin(&mut self, token: u32, compress: bool, shape: Option<&RowShape>, owner: Option<memledger::Owner>) {
+    pub fn begin(
+        &mut self,
+        token: u32,
+        compress: bool,
+        shape: Option<&RowShape>,
+        owner: Option<memledger::Owner>,
+    ) {
         if owner != self.owner {
             self.raw = memledger::ChargedVec::<u8>::new(owner, memledger::Kind::Sort);
             self.enc = memledger::ChargedVec::<u8>::new(owner, memledger::Kind::Sort);
@@ -162,7 +195,11 @@ impl Staged {
             self.owner = owner;
         }
         self.token = Some(token);
-        self.rows = if compress { shape.cloned().map(|s| RowEncoder::owned(s, owner)) } else { None };
+        self.rows = if compress {
+            shape.cloned().map(|s| RowEncoder::owned(s, owner))
+        } else {
+            None
+        };
         (self.head, self.mark) = (self.rows.is_some(), self.rows.is_some());
         self.compress = compress && self.rows.is_none();
     }
@@ -176,7 +213,9 @@ impl Staged {
             }
             self.push_raw(&h, write)?;
         }
-        let Some(mut rows) = self.rows.take() else { return self.push_raw(bytes, write) };
+        let Some(mut rows) = self.rows.take() else {
+            return self.push_raw(bytes, write);
+        };
         let mut tmp = core::mem::take(&mut self.scratch);
         tmp.clear();
         let r = rows.push(bytes, &mut tmp.vec_mut());
@@ -186,13 +225,22 @@ impl Staged {
     }
 
     /// `bytes` appended as they are; the epoch's bytes past `EPOCH` handed to `write`.
-    fn push_raw(&mut self, mut bytes: &[u8], write: &mut dyn FnMut(&[u8]) -> Result<()>) -> Result<()> {
+    fn push_raw(
+        &mut self,
+        mut bytes: &[u8],
+        write: &mut dyn FnMut(&[u8]) -> Result<()>,
+    ) -> Result<()> {
         while !bytes.is_empty() {
             let take = (BLOCK - self.raw.len()).min(bytes.len());
             self.raw.with_vec(|v| v.extend_from_slice(&bytes[..take])); // alloc: Exec charged self.owner
             bytes = &bytes[take..];
             if self.raw.len() == BLOCK {
-                encode_marked(&self.raw, &mut self.enc.vec_mut(), self.compress, core::mem::take(&mut self.mark));
+                encode_marked(
+                    &self.raw,
+                    &mut self.enc.vec_mut(),
+                    self.compress,
+                    core::mem::take(&mut self.mark),
+                );
                 self.raw.clear();
                 if self.enc.len() >= EPOCH {
                     write(&self.enc)?;
@@ -208,10 +256,19 @@ impl Staged {
         let rows = self.rows.take().map_or(Ok(()), |mut r| r.finish());
         self.head = false;
         if !self.raw.is_empty() {
-            encode_marked(&self.raw, &mut self.enc.vec_mut(), self.compress, core::mem::take(&mut self.mark));
+            encode_marked(
+                &self.raw,
+                &mut self.enc.vec_mut(),
+                self.compress,
+                core::mem::take(&mut self.mark),
+            );
             self.raw.clear();
         }
-        let r = if self.enc.is_empty() { Ok(()) } else { write(&self.enc) };
+        let r = if self.enc.is_empty() {
+            Ok(())
+        } else {
+            write(&self.enc)
+        };
         self.enc.clear();
         self.token = None;
         rows.and(r)
@@ -230,7 +287,13 @@ pub struct Decoder {
 
 impl Decoder {
     pub fn new(inner: Box<dyn RunReader>) -> Decoder {
-        Decoder { inner, raw: Vec::new(), pos: 0, enc: Vec::new(), first: None } // alloc: Exec
+        Decoder {
+            inner,
+            raw: Vec::new(),
+            pos: 0,
+            enc: Vec::new(),
+            first: None,
+        } // alloc: Exec
     }
 
     /// D2572-c: whether the run begins with its rows' header (its first block read ahead when none was).
@@ -260,7 +323,10 @@ impl Decoder {
                 if got == 0 && may_end {
                     return Ok(false);
                 }
-                return Err(Error::host(format!("gravity: spill: a sort run's block cut short ({got} of {} bytes)", dst.len()))); // alloc: Cold
+                return Err(Error::host(format!(
+                    "gravity: spill: a sort run's block cut short ({got} of {} bytes)",
+                    dst.len()
+                ))); // alloc: Cold
             }
             got += n;
         }
@@ -278,12 +344,20 @@ impl Decoder {
         let (raw_len, stored) = ((word & !(STORED | HEADED)) as usize, word & STORED != 0);
         match self.first {
             None => self.first = Some(word & HEADED != 0),
-            Some(_) if word & HEADED != 0 => return Err(Error::host("gravity: spill: a sort run's block past its first is marked headed")),
+            Some(_) if word & HEADED != 0 => {
+                return Err(Error::host(
+                    "gravity: spill: a sort run's block past its first is marked headed",
+                ))
+            }
             Some(_) => {}
         }
         let enc_len = u32::from_le_bytes([hdr[4], hdr[5], hdr[6], hdr[7]]) as usize;
-        if raw_len > BLOCK || enc_len > lz4_flex::block::get_maximum_output_size(BLOCK) || (stored && enc_len != raw_len) {
-            return Err(Error::host(format!("gravity: spill: a sort run's block header reads {raw_len} raw / {enc_len} encoded bytes"))); // alloc: Cold
+        if raw_len > BLOCK
+            || enc_len > lz4_flex::block::get_maximum_output_size(BLOCK)
+            || (stored && enc_len != raw_len)
+        {
+            return Err(Error::host(format!("gravity: spill: a sort run's block header reads {raw_len} raw / {enc_len} encoded bytes")));
+            // alloc: Cold
         }
         if self.enc.len() < enc_len {
             self.enc.resize(enc_len, 0); // alloc: Exec
@@ -300,8 +374,13 @@ impl Decoder {
         }
         match lz4_flex::block::decompress_into(enc, dst) {
             Ok(n) if n == dst.len() => Ok(()),
-            Ok(n) => Err(Error::host(format!("gravity: spill: a sort run's block decoded to {n} of {} bytes", dst.len()))), // alloc: Cold
-            Err(e) => Err(Error::host(format!("gravity: spill: a sort run's block does not decode: {e}"))), // alloc: Cold
+            Ok(n) => Err(Error::host(format!(
+                "gravity: spill: a sort run's block decoded to {n} of {} bytes",
+                dst.len()
+            ))), // alloc: Cold
+            Err(e) => Err(Error::host(format!(
+                "gravity: spill: a sort run's block does not decode: {e}"
+            ))), // alloc: Cold
         }
     }
 }
@@ -319,7 +398,9 @@ impl RunReader for Decoder {
                 n += k;
                 continue;
             }
-            let Some((raw_len, enc_len, stored)) = self.next_block()? else { break };
+            let Some((raw_len, enc_len, stored)) = self.next_block()? else {
+                break;
+            };
             if buf.len() - n >= raw_len {
                 // the caller's room holds the whole block: decoded straight into it
                 Self::decode(&self.enc[..enc_len], &mut buf[n..n + raw_len], stored)?;
@@ -364,7 +445,7 @@ impl RowShape {
     /// The shape, or `None` when the codec cannot read it (a head not in words, a record word or a slot past the head);
     /// the run is then kept as it lies.
     pub fn new(head: u32, var: Option<VarRows>) -> Option<RowShape> {
-        if head == 0 || ! head.is_multiple_of( 8) {
+        if head == 0 || !head.is_multiple_of(8) {
             return None;
         }
         let mut masks = vec![u64::MAX; head as usize / 8]; // alloc: Exec
@@ -376,11 +457,13 @@ impl RowShape {
             return None;
         }
         // the record word's low u32 and each slot's 8 bytes, all inside the head and none over another
-        let mut spans: Vec<(u64, u64)> = v.slots.iter().map(|&s| (s as u64, s as u64 + 8)).collect(); // alloc: Exec
+        let mut spans: Vec<(u64, u64)> =
+            v.slots.iter().map(|&s| (s as u64, s as u64 + 8)).collect(); // alloc: Exec
         spans.push((v.rec_off as u64, v.rec_off as u64 + 4));
         // bounded("key-columns: one per var column of a sort run row, at most MaxTupleAttributeNumber (1664) columns; a span each, PG polls no deeper")
         spans.sort_unstable();
-        let ok = spans.iter().all(|&(a, b)| a % 4 == 0 && b <= head as u64) && spans.windows(2).all(|w| w[0].1 <= w[1].0);
+        let ok = spans.iter().all(|&(a, b)| a % 4 == 0 && b <= head as u64)
+            && spans.windows(2).all(|w| w[0].1 <= w[1].0);
         if !ok {
             return None;
         }
@@ -398,7 +481,11 @@ impl RowShape {
 #[inline(always)]
 const fn var_alloc(size: u32) -> u32 {
     let a = size.next_multiple_of(8);
-    if a < 16 { 16 } else { a }
+    if a < 16 {
+        16
+    } else {
+        a
+    }
 }
 
 #[inline(always)]
@@ -441,10 +528,19 @@ fn put_words(head: &[u8], prev: &[u8], masks: &[u64], out: &mut memledger::Charg
     // each tag byte gathered in a register and stored once (two words' tags)
     let (mut at, mut pair) = (0, 0u8);
     // bounded("key-columns: one per 8-byte head word of a sort run row, a few words per column of at most MaxTupleAttributeNumber (1664) columns; a word coded each, PG polls no deeper")
-    for (i, ((w, p), &m)) in head.chunks_exact(8).zip(prev.chunks_exact(8)).zip(masks).enumerate() {
+    for (i, ((w, p), &m)) in head
+        .chunks_exact(8)
+        .zip(prev.chunks_exact(8))
+        .zip(masks)
+        .enumerate()
+    {
         let (w, p) = (word_at(w) & m, word_at(p) & m);
         let (n, x) = (sig(w), sig(w ^ p));
-        let (t, v, k) = if x <= XOR_LONGEST && x < n { (XOR_TAG + x, w ^ p, x) } else { (n, w, n) };
+        let (t, v, k) = if x <= XOR_LONGEST && x < n {
+            (XOR_TAG + x, w ^ p, x)
+        } else {
+            (n, w, n)
+        };
         pair |= (t as u8) << (4 * (i & 1));
         if i & 1 == 1 {
             tag[i / 2] = pair;
@@ -470,14 +566,28 @@ fn get_words(enc: &[u8], dst: &mut [u8], prev: &[u8], masks: &[u64]) -> Result<O
     }
     let mut at = tags;
     // bounded("key-columns: one per 8-byte head word of a sort run row, a few words per column of at most MaxTupleAttributeNumber (1664) columns; a word decoded each, PG polls no deeper")
-    for (i, ((d, p), &m)) in dst.chunks_exact_mut(8).zip(prev.chunks_exact(8)).zip(masks).enumerate() {
+    for (i, ((d, p), &m)) in dst
+        .chunks_exact_mut(8)
+        .zip(prev.chunks_exact(8))
+        .zip(masks)
+        .enumerate()
+    {
         let t = (enc[i / 2] >> (4 * (i & 1)) & 0xf) as usize;
         let n = if t >= XOR_TAG { t - XOR_TAG } else { t };
         if n > 8 {
-            return Err(Error::host(format!("gravity: spill: a sort run's row word reads tag {t}"))); // alloc: Cold
+            return Err(Error::host(format!(
+                "gravity: spill: a sort run's row word reads tag {t}"
+            ))); // alloc: Cold
         }
         let v = match enc.get(at..at + 8) {
-            Some(b) => word_at(b) & if n == 8 { u64::MAX } else { (1u64 << (8 * n)) - 1 },
+            Some(b) => {
+                word_at(b)
+                    & if n == 8 {
+                        u64::MAX
+                    } else {
+                        (1u64 << (8 * n)) - 1
+                    }
+            }
             None if enc.len() < at + n => return Ok(None),
             None => {
                 let mut b = [0u8; 8];
@@ -485,7 +595,11 @@ fn get_words(enc: &[u8], dst: &mut [u8], prev: &[u8], masks: &[u64]) -> Result<O
                 u64::from_le_bytes(b)
             }
         };
-        let w = if t >= XOR_TAG { v ^ (word_at(p) & m) } else { v };
+        let w = if t >= XOR_TAG {
+            v ^ (word_at(p) & m)
+        } else {
+            v
+        };
         d.copy_from_slice(&w.to_le_bytes());
         at += n;
     }
@@ -525,7 +639,12 @@ pub(crate) fn record_len(shape: &RowShape, raw: &[u8]) -> Option<usize> {
 
 /// One record (`rec`, its whole bytes) appended to `out` compacted against the record before (`prev`, its whole bytes;
 /// the shape's zero head before a run's first record).
-fn encode_record(shape: &RowShape, rec: &[u8], prev: &[u8], out: &mut memledger::ChargedVecMut<'_, u8>) {
+fn encode_record(
+    shape: &RowShape,
+    rec: &[u8],
+    prev: &[u8],
+    out: &mut memledger::ChargedVecMut<'_, u8>,
+) {
     let h = shape.head as usize;
     let Some(v) = &shape.var else {
         put_words(rec, prev, &shape.masks, out);
@@ -585,7 +704,11 @@ fn encode_record(shape: &RowShape, rec: &[u8], prev: &[u8], out: &mut memledger:
         }
         at += len;
     }
-    out.push(PTRS | if pads { PADS } else { 0 } | if same { SAME } else { 0 } | if hdrs { HDRS } else { 0 }); // alloc: Exec charged out.owner()
+    out.push(
+        PTRS | if pads { PADS } else { 0 }
+            | if same { SAME } else { 0 }
+            | if hdrs { HDRS } else { 0 },
+    ); // alloc: Exec charged out.owner()
     if same {
         out.extend_from_slice(bits); // alloc: Exec charged out.owner()
     }
@@ -598,7 +721,9 @@ fn encode_record(shape: &RowShape, rec: &[u8], prev: &[u8], out: &mut memledger:
         if size != 0 {
             let len = var_alloc(size as u32) as usize;
             if bits[c / 8] & 1 << (c % 8) == 0 {
-                out.extend_from_slice(&rec[at + 4 * hdrs as usize..at + if pads { size } else { len }]); // alloc: Exec charged out.owner()
+                out.extend_from_slice(
+                    &rec[at + 4 * hdrs as usize..at + if pads { size } else { len }],
+                ); // alloc: Exec charged out.owner()
             }
             at += len;
         }
@@ -608,19 +733,32 @@ fn encode_record(shape: &RowShape, rec: &[u8], prev: &[u8], out: &mut memledger:
 /// The record at the front of `enc` decoded onto `out` against the record before (`out[prev]`, its whole bytes; the
 /// shape's zero head, `zero`, before a run's first record): the bytes consumed, `None` (with `out` as it was) when `enc`
 /// holds less than the whole record.
-fn decode_record(shape: &RowShape, enc: &[u8], out: &mut Vec<u8>, prev: Option<(usize, usize)>, zero: &[u8]) -> Result<Option<usize>> {
+fn decode_record(
+    shape: &RowShape,
+    enc: &[u8],
+    out: &mut Vec<u8>,
+    prev: Option<(usize, usize)>,
+    zero: &[u8],
+) -> Result<Option<usize>> {
     let h = shape.head as usize;
     let base = out.len();
     let Some(v) = &shape.var else {
         out.resize(base + h, 0); // alloc: Exec
         let (before, cur) = out.split_at_mut(base);
-        let r = get_words(enc, cur, prev.map_or(zero, |(a, _)| &before[a..a + h]), &shape.masks);
+        let r = get_words(
+            enc,
+            cur,
+            prev.map_or(zero, |(a, _)| &before[a..a + h]),
+            &shape.masks,
+        );
         if !matches!(r, Ok(Some(_))) {
             out.truncate(base);
         }
         return r;
     };
-    let Some(&f) = enc.first() else { return Ok(None) };
+    let Some(&f) = enc.first() else {
+        return Ok(None);
+    };
     if f == 0 {
         if enc.len() < 5 {
             return Ok(None);
@@ -633,9 +771,15 @@ fn decode_record(shape: &RowShape, enc: &[u8], out: &mut Vec<u8>, prev: Option<(
         return Ok(Some(5 + len));
     }
     if f & !(PTRS | PADS | SAME | HDRS) != 0 || f & PTRS == 0 {
-        return Err(Error::host(format!("gravity: spill: a sort run's record flags read {f:#x}"))); // alloc: Cold
+        return Err(Error::host(format!(
+            "gravity: spill: a sort run's record flags read {f:#x}"
+        ))); // alloc: Cold
     }
-    let map = if f & SAME != 0 { v.slots.len().div_ceil(8) } else { 0 };
+    let map = if f & SAME != 0 {
+        v.slots.len().div_ceil(8)
+    } else {
+        0
+    };
     if enc.len() < 1 + map {
         return Ok(None);
     }
@@ -643,7 +787,12 @@ fn decode_record(shape: &RowShape, enc: &[u8], out: &mut Vec<u8>, prev: Option<(
     out.resize(base + h, 0); // alloc: Exec
     let words = {
         let (before, cur) = out.split_at_mut(base);
-        get_words(&enc[1 + map..], cur, prev.map_or(zero, |(a, _)| &before[a..a + h]), &shape.masks)
+        get_words(
+            &enc[1 + map..],
+            cur,
+            prev.map_or(zero, |(a, _)| &before[a..a + h]),
+            &shape.masks,
+        )
     };
     let mut at_enc = match words {
         Ok(Some(n)) => 1 + map + n,
@@ -664,7 +813,9 @@ fn decode_record(shape: &RowShape, enc: &[u8], out: &mut Vec<u8>, prev: Option<(
         let n = if f & PADS != 0 { size } else { len };
         wr32(&mut out[base..], so + 4, (at - so) as u32);
         if same(c) {
-            let Some(p) = prev.and_then(|(a, b)| copy_at(&out[a..b], so, size as u32, n).map(|p| a + p)) else {
+            let Some(p) =
+                prev.and_then(|(a, b)| copy_at(&out[a..b], so, size as u32, n).map(|p| a + p))
+            else {
                 out.truncate(base);
                 return Err(Error::host("gravity: spill: a sort run's record repeats a copy the record before does not hold"));
             };
@@ -674,7 +825,9 @@ fn decode_record(shape: &RowShape, enc: &[u8], out: &mut Vec<u8>, prev: Option<(
             let hdr = if f & HDRS != 0 { 4 } else { 0 };
             if n < hdr {
                 out.truncate(base);
-                return Err(Error::host(format!("gravity: spill: a sort run's copy of {size} bytes without its header"))); // alloc: Cold
+                return Err(Error::host(format!(
+                    "gravity: spill: a sort run's copy of {size} bytes without its header"
+                ))); // alloc: Cold
             }
             if enc.len() < at_enc + n - hdr {
                 out.truncate(base);
@@ -713,8 +866,16 @@ impl RowEncoder {
     pub fn owned(shape: RowShape, owner: Option<memledger::Owner>) -> RowEncoder {
         let mut zero = memledger::ChargedVec::<u8>::new(owner, memledger::Kind::Sort);
         zero.with_vec(|v| v.resize(shape.head as usize, 0)); // alloc: Exec charged owner
-        let (carry, last) = (memledger::ChargedVec::<u8>::new(owner, memledger::Kind::Sort), memledger::ChargedVec::<u8>::new(owner, memledger::Kind::Sort));
-        RowEncoder { shape, carry, last, zero }
+        let (carry, last) = (
+            memledger::ChargedVec::<u8>::new(owner, memledger::Kind::Sort),
+            memledger::ChargedVec::<u8>::new(owner, memledger::Kind::Sort),
+        );
+        RowEncoder {
+            shape,
+            carry,
+            last,
+            zero,
+        }
     }
 
     /// E-kern R: a new encoder rebuilt on `owner` (its buffers hold nothing yet but the head's zeros).
@@ -732,13 +893,19 @@ impl RowEncoder {
                 None => self.shape.head as usize,
             };
             if need < self.shape.head as usize {
-                return Err(Error::host(format!("gravity: spill: a sort run's record reads {need} bytes"))); // alloc: Cold
+                return Err(Error::host(format!(
+                    "gravity: spill: a sort run's record reads {need} bytes"
+                ))); // alloc: Cold
             }
             let take = need.saturating_sub(self.carry.len()).min(rest.len());
             self.carry.with_vec(|v| v.extend_from_slice(&rest[..take])); // alloc: Exec charged self.carry.owner()
             rest = &rest[take..];
             if self.carry.len() == need && record_len(&self.shape, &self.carry) == Some(need) {
-                let prev = if self.last.is_empty() { &self.zero[..] } else { &self.last[..] };
+                let prev = if self.last.is_empty() {
+                    &self.zero[..]
+                } else {
+                    &self.last[..]
+                };
                 encode_record(&self.shape, &self.carry, prev, out);
                 core::mem::swap(&mut self.last, &mut self.carry);
                 self.carry.clear();
@@ -751,12 +918,18 @@ impl RowEncoder {
         while let Some(n) = record_len(&self.shape, rest) {
             step.tick()?;
             if n < self.shape.head as usize {
-                return Err(Error::host(format!("gravity: spill: a sort run's record reads {n} bytes"))); // alloc: Cold
+                return Err(Error::host(format!(
+                    "gravity: spill: a sort run's record reads {n} bytes"
+                ))); // alloc: Cold
             }
             if rest.len() < n {
                 break;
             }
-            let p = prev.unwrap_or(if self.last.is_empty() { &self.zero[..] } else { &self.last[..] });
+            let p = prev.unwrap_or(if self.last.is_empty() {
+                &self.zero[..]
+            } else {
+                &self.last[..]
+            });
             encode_record(&self.shape, &rest[..n], p, out);
             prev = Some(&rest[..n]);
             rest = &rest[n..];
@@ -776,7 +949,9 @@ impl RowEncoder {
         }
         let n = self.carry.len();
         self.carry.clear();
-        Err(Error::host(format!("gravity: spill: a sort run ends inside a record ({n} bytes held)"))) // alloc: Cold
+        Err(Error::host(format!(
+            "gravity: spill: a sort run ends inside a record ({n} bytes held)"
+        ))) // alloc: Cold
     }
 }
 
@@ -801,7 +976,19 @@ pub struct RowReader {
 impl RowReader {
     pub fn new(inner: Box<dyn RunReader>, shape: RowShape) -> RowReader {
         let zero = vec![0; shape.head as usize]; // alloc: Exec
-        RowReader { claim: None, inner, shape, zero, enc: vec![0; BLOCK], lo: 0, hi: 0, out: Vec::new(), pos: 0, prev: None, done: false } // alloc: Exec
+        RowReader {
+            claim: None,
+            inner,
+            shape,
+            zero,
+            enc: vec![0; BLOCK],
+            lo: 0,
+            hi: 0,
+            out: Vec::new(),
+            pos: 0,
+            prev: None,
+            done: false,
+        } // alloc: Exec
     }
 
     /// D3190: a compacted run read from a fence on: `inner` its coded records past the fenced record, each decoded
@@ -830,7 +1017,13 @@ impl RowReader {
             while self.out.len() - self.pos < BLOCK {
                 step.tick()?;
                 let base = self.out.len();
-                match decode_record(&self.shape, &self.enc[self.lo..self.hi], &mut self.out, self.prev, &self.zero)? {
+                match decode_record(
+                    &self.shape,
+                    &self.enc[self.lo..self.hi],
+                    &mut self.out,
+                    self.prev,
+                    &self.zero,
+                )? {
                     Some(n) => {
                         self.lo += n;
                         self.prev = Some((base, self.out.len()));
@@ -843,7 +1036,10 @@ impl RowReader {
             }
             if self.done {
                 if self.lo < self.hi {
-                    return Err(Error::host(format!("gravity: spill: a sort run's last record cut short ({} bytes)", self.hi - self.lo))); // alloc: Cold
+                    return Err(Error::host(format!(
+                        "gravity: spill: a sort run's last record cut short ({} bytes)",
+                        self.hi - self.lo
+                    ))); // alloc: Cold
                 }
                 return Ok(false);
             }
@@ -888,7 +1084,9 @@ fn put_header(s: &RowShape, out: &mut memledger::ChargedVecMut<'_, u8>) {
     if let Some(v) = &s.var {
         out.extend_from_slice(&v.rec_off.to_le_bytes()); // alloc: Exec charged out.owner()
         out.extend_from_slice(&(v.slots.len() as u16).to_le_bytes()); // alloc: Exec charged out.owner()
-        v.slots.iter().for_each(|x| out.extend_from_slice(&x.to_le_bytes())); // alloc: Exec charged out.owner()
+        v.slots
+            .iter()
+            .for_each(|x| out.extend_from_slice(&x.to_le_bytes())); // alloc: Exec charged out.owner()
     }
 }
 
@@ -902,7 +1100,10 @@ fn get_header(r: &mut dyn RunReader) -> Result<RowShape> {
     let mut b = [0u8; 4];
     read_exact(r, &mut b[..1], false)?;
     if b[0] != MODE_ROWS {
-        return Err(Error::host(format!("gravity: spill: a sort run's header reads mode {}", b[0]))); // alloc: Cold
+        return Err(Error::host(format!(
+            "gravity: spill: a sort run's header reads mode {}",
+            b[0]
+        ))); // alloc: Cold
     }
     read_exact(r, &mut b, false)?;
     let head = u32::from_le_bytes(b);
@@ -922,7 +1123,9 @@ fn get_header(r: &mut dyn RunReader) -> Result<RowShape> {
         }
         Some(VarRows { rec_off, slots })
     };
-    RowShape::new(head, var).ok_or_else(|| Error::host("gravity: spill: a sort run's header names a shape the codec cannot read"))
+    RowShape::new(head, var).ok_or_else(|| {
+        Error::host("gravity: spill: a sort run's header names a shape the codec cannot read")
+    })
 }
 
 /// D4373: a run's coded copy (`RowEncoder`'s output, about 3/4 of the run), its bytes taken from the grant pool's room now
@@ -931,7 +1134,10 @@ fn get_header(r: &mut dyn RunReader) -> Result<RowShape> {
 /// LEDGER2 step 5: its heap bytes (door 1 counts them on the account) claimed for `owner`, the run's slot owner (a door-1
 /// owned charge of its capacity, dropped with it), so they leave the account's unattributed row. CONVERSION WAVE 2: a
 /// copy the encode grew past `cap` (rows the shape compacts less than 3/4) has its claim follow it (`HeapClaim::fit`).
-fn coded_copy(raw: usize, owner: Option<memledger::Owner>) -> Option<(crate::mem::grant::Held, memledger::ChargedVec<u8>)> {
+fn coded_copy(
+    raw: usize,
+    owner: Option<memledger::Owner>,
+) -> Option<(crate::mem::grant::Held, memledger::ChargedVec<u8>)> {
     let cap = raw * 3 / 4 + 64;
     let held = crate::mem::region::scratch_take(cap as u64)?;
     // E-kern R: a ChargedVec (was a Vec and its HeapClaim): the coders grow it through its guard, refitted at the guard's drop
@@ -944,9 +1150,21 @@ fn coded_copy(raw: usize, owner: Option<memledger::Owner>) -> Option<(crate::mem
 /// compacted (`RowEncoder`) behind its header, its blocks stored raw (rows that do not follow the shape: the run as
 /// `write_run` writes it, LZ4).
 /// `owner`: the run's slot owner, whose the coded copy is (`coded_copy`; `None`: no one's).
-pub fn write_run_rows(file: &mut dyn SpillFile, part: u32, raw: &[u8], shape: Option<&RowShape>, spilled: u64, owner: Option<memledger::Owner>) -> Result<()> {
-    let Some(s) = shape.filter(|_| !raw.is_empty() && file.compress_run(spilled, raw.len() as u64)) else { return write_run(file, part, raw, spilled) };
-    let Some((_held, mut out)) = coded_copy(raw.len(), owner) else { return write_run(file, part, raw, spilled) };
+pub fn write_run_rows(
+    file: &mut dyn SpillFile,
+    part: u32,
+    raw: &[u8],
+    shape: Option<&RowShape>,
+    spilled: u64,
+    owner: Option<memledger::Owner>,
+) -> Result<()> {
+    let Some(s) = shape.filter(|_| !raw.is_empty() && file.compress_run(spilled, raw.len() as u64))
+    else {
+        return write_run(file, part, raw, spilled);
+    };
+    let Some((_held, mut out)) = coded_copy(raw.len(), owner) else {
+        return write_run(file, part, raw, spilled);
+    };
     let coded = {
         let mut o = out.vec_mut();
         put_header(s, &mut o);
@@ -955,7 +1173,8 @@ pub fn write_run_rows(file: &mut dyn SpillFile, part: u32, raw: &[u8], shape: Op
         // D3964 (C9): coded a piece a tick (a sort run's whole encode held a cancel 2.5 s); a record a piece cuts carries
         // into the next (`RowEncoder::push`)
         let mut step = cancelpoll::step("spill run encode: a run's rows coded");
-        step.pieces(raw.len(), cancelpoll::PIECE, |r| e.push(&raw[r], &mut o)).and_then(|()| e.finish())
+        step.pieces(raw.len(), cancelpoll::PIECE, |r| e.push(&raw[r], &mut o))
+            .and_then(|()| e.finish())
     };
     match coded {
         Ok(()) => write_blocks(file, part, &out, false, true),
@@ -967,7 +1186,14 @@ pub fn write_run_rows(file: &mut dyn SpillFile, part: u32, raw: &[u8], shape: Op
 /// D3190: `write_run_rows`, the run's fences built as it is written (`fence::Fences`): `None` without a shape or for
 /// rows the shape does not frame. The bytes written are `write_run_rows`'s: a compacted run's records are coded in
 /// pieces that end at each fence's record, the coder's record before carried across them.
-pub fn put_run(file: &mut dyn SpillFile, part: u32, raw: &[u8], shape: Option<&RowShape>, spilled: u64, owner: Option<memledger::Owner>) -> Result<Option<Fences>> {
+pub fn put_run(
+    file: &mut dyn SpillFile,
+    part: u32,
+    raw: &[u8],
+    shape: Option<&RowShape>,
+    spilled: u64,
+    owner: Option<memledger::Owner>,
+) -> Result<Option<Fences>> {
     let Some((s, picks)) = shape.and_then(|s| fence::pick(s, raw).map(|p| (s, p))) else {
         write_run_rows(file, part, raw, shape, spilled, owner)?;
         return Ok(None);
@@ -976,7 +1202,11 @@ pub fn put_run(file: &mut dyn SpillFile, part: u32, raw: &[u8], shape: Option<&R
     // copies them
     let mut starts = memledger::ChargedVec::<u64>::new(owner, memledger::Kind::Sort);
     starts.with_vec(|v| v.reserve_exact(raw.len() / BLOCK + 1)); // alloc: Exec charged owner
-    if let Some((_held, mut out)) = (!raw.is_empty() && file.compress_run(spilled, raw.len() as u64)).then(|| coded_copy(raw.len(), owner)).flatten() {
+    if let Some((_held, mut out)) = (!raw.is_empty()
+        && file.compress_run(spilled, raw.len() as u64))
+    .then(|| coded_copy(raw.len(), owner))
+    .flatten()
+    {
         let mut o = out.vec_mut();
         put_header(s, &mut o);
         let mut e = RowEncoder::new(s.clone());
@@ -989,7 +1219,9 @@ pub fn put_run(file: &mut dyn SpillFile, part: u32, raw: &[u8], shape: Option<&R
         let mut coded = || -> Result<()> {
             for &(_, off, len) in picks.at.iter() {
                 let fenced = &raw[from..off + len];
-                step.pieces(fenced.len(), cancelpoll::PIECE, |r| e.push(&fenced[r], &mut o))?;
+                step.pieces(fenced.len(), cancelpoll::PIECE, |r| {
+                    e.push(&fenced[r], &mut o)
+                })?;
                 let n = o.len();
                 ends.with_vec(|v| v.push(n)); // alloc: Exec charged owner
                 from = off + len;
@@ -1002,8 +1234,11 @@ pub fn put_run(file: &mut dyn SpillFile, part: u32, raw: &[u8], shape: Option<&R
         drop(o);
         match coded {
             Ok(()) => {
-                let total = write_blocks_at(file, part, &out, false, true, Some(&mut starts), owner)?;
-                return Ok(Some(Fences::new(raw, s, picks, &ends, &starts, total, true, owner)));
+                let total =
+                    write_blocks_at(file, part, &out, false, true, Some(&mut starts), owner)?;
+                return Ok(Some(Fences::new(
+                    raw, s, picks, &ends, &starts, total, true, owner,
+                )));
             }
             Err(Error::Cancelled) => return Err(Error::Cancelled),
             Err(_) => starts.clear(),
@@ -1013,19 +1248,28 @@ pub fn put_run(file: &mut dyn SpillFile, part: u32, raw: &[u8], shape: Option<&R
     ends.with_vec(|v| v.extend(picks.at.iter().map(|&(_, off, len)| off + len))); // alloc: Exec charged owner
     let compress = file.compress_run(spilled, raw.len() as u64);
     let total = write_blocks_at(file, part, raw, compress, false, Some(&mut starts), owner)?;
-    Ok(Some(Fences::new(raw, s, picks, &ends, &starts, total, false, owner)))
+    Ok(Some(Fences::new(
+        raw, s, picks, &ends, &starts, total, false, owner,
+    )))
 }
 
 /// A run's reader over its part: its blocks decoded, and a headed run's records expanded past its header. E-kern R: the
 /// header's slot list (read from the file: up to 65535 words) is claimed for `owner`, the run's stream owner.
-pub fn reader(inner: Box<dyn RunReader>, owner: Option<memledger::Owner>) -> Result<Box<dyn RunReader>> {
+pub fn reader(
+    inner: Box<dyn RunReader>,
+    owner: Option<memledger::Owner>,
+) -> Result<Box<dyn RunReader>> {
     let mut d = Decoder::new(inner);
     if !d.headed()? {
         return Ok(Box::new(d)); // alloc: Exec
     }
     let shape = get_header(&mut d)?;
     let mut r = RowReader::new(Box::new(d), shape); // alloc: Exec
-    r.claim = r.shape.var.as_ref().map(|v| HeapClaim::of(owner, memledger::Kind::Sort, &v.slots));
+    r.claim = r
+        .shape
+        .var
+        .as_ref()
+        .map(|v| HeapClaim::of(owner, memledger::Kind::Sort, &v.slots));
     Ok(Box::new(r)) // alloc: Exec
 }
 
@@ -1080,7 +1324,10 @@ mod tests {
             sink(&self.b)
         }
         fn open_part(&self, _part: u32) -> Result<Option<Box<dyn RunReader>>> {
-            Ok(Some(Box::new(Bytes { b: self.b.clone(), pos: 0 }))) // alloc: Cold
+            Ok(Some(Box::new(Bytes {
+                b: self.b.clone(),
+                pos: 0,
+            }))) // alloc: Cold
         }
         fn spilled_bytes(&self) -> u64 {
             self.b.len() as u64
@@ -1098,7 +1345,13 @@ mod tests {
                 x ^= x << 13;
                 x ^= x >> 7;
                 x ^= x << 17;
-                if noise { x as u8 } else if i % 40 < 24 { b"the quick fox dog\0\0\0\0\0\0\0"[i % 40] } else { (i / 40 + i % 40) as u8 }
+                if noise {
+                    x as u8
+                } else if i % 40 < 24 {
+                    b"the quick fox dog\0\0\0\0\0\0\0"[i % 40]
+                } else {
+                    (i / 40 + i % 40) as u8
+                }
             })
             .collect()
     }
@@ -1118,19 +1371,45 @@ mod tests {
     #[test]
     fn a_run_reads_back_its_bytes_through_any_read_size() {
         for noise in [false, true] {
-            for n in [0, 1, 17, BLOCK - 1, BLOCK, BLOCK + 1, 3 * BLOCK + 17, 40 * BLOCK + 5] {
+            for n in [
+                0,
+                1,
+                17,
+                BLOCK - 1,
+                BLOCK,
+                BLOCK + 1,
+                3 * BLOCK + 17,
+                40 * BLOCK + 5,
+            ] {
                 let raw = rows(n, noise);
                 let mut f = File::default();
                 write_run(&mut f, 0, &raw, 0).unwrap();
                 if !noise && n >= BLOCK {
-                    assert!(f.b.len() * 2 < raw.len(), "{n} B of rows: {} B encoded", f.b.len());
+                    assert!(
+                        f.b.len() * 2 < raw.len(),
+                        "{n} B of rows: {} B encoded",
+                        f.b.len()
+                    );
                 }
                 if noise {
-                    assert!(f.b.len() <= raw.len() + raw.len().div_ceil(BLOCK) * HDR, "noise kept raw: {} of {n} B", f.b.len());
+                    assert!(
+                        f.b.len() <= raw.len() + raw.len().div_ceil(BLOCK) * HDR,
+                        "noise kept raw: {} of {n} B",
+                        f.b.len()
+                    );
                 }
-                assert!(f.epochs <= f.b.len().div_ceil(EPOCH).max(1), "{} epochs for {} B", f.epochs, f.b.len());
+                assert!(
+                    f.epochs <= f.b.len().div_ceil(EPOCH).max(1),
+                    "{} epochs for {} B",
+                    f.epochs,
+                    f.b.len()
+                );
                 for chunk in [1, 7, 1000, BLOCK, 64 << 10] {
-                    assert_eq!(decode_all(f.b.clone(), chunk).unwrap(), raw, "{n} B (noise {noise}) read {chunk} B at a time");
+                    assert_eq!(
+                        decode_all(f.b.clone(), chunk).unwrap(),
+                        raw,
+                        "{n} B (noise {noise}) read {chunk} B at a time"
+                    );
                 }
             }
         }
@@ -1139,12 +1418,23 @@ mod tests {
     #[test]
     fn a_file_without_a_temp_limit_keeps_every_block_raw() {
         let raw = rows(40 * BLOCK + 5, false);
-        let mut f = File { raw: true, ..File::default() };
+        let mut f = File {
+            raw: true,
+            ..File::default()
+        };
         write_run(&mut f, 0, &raw, 0).unwrap();
-        assert_eq!(f.b.len(), raw.len() + raw.len().div_ceil(BLOCK) * HDR, "each block stored raw behind its header");
+        assert_eq!(
+            f.b.len(),
+            raw.len() + raw.len().div_ceil(BLOCK) * HDR,
+            "each block stored raw behind its header"
+        );
         assert_eq!(f.epochs, 1, "a raw run under RAW_EPOCH is one epoch");
         for chunk in [1, 1000, BLOCK, 64 << 10] {
-            assert_eq!(decode_all(f.b.clone(), chunk).unwrap(), raw, "read {chunk} B at a time");
+            assert_eq!(
+                decode_all(f.b.clone(), chunk).unwrap(),
+                raw,
+                "read {chunk} B at a time"
+            );
         }
         let mut st = Staged::default();
         let mut out = Vec::new(); // alloc: Cold
@@ -1160,14 +1450,20 @@ mod tests {
             Ok(())
         })
         .unwrap();
-        assert_eq!(out, f.b, "a merged run's staged blocks the same bytes as a put run's");
+        assert_eq!(
+            out, f.b,
+            "a merged run's staged blocks the same bytes as a put run's"
+        );
     }
 
     #[test]
     fn a_merged_runs_writes_staged_read_back_as_one_run() {
         let raw = rows(5 * BLOCK + 333, false);
         let mut out = Vec::new(); // alloc: Cold
-        let mut st = Staged { compress: true, ..Staged::default() };
+        let mut st = Staged {
+            compress: true,
+            ..Staged::default()
+        };
         for piece in raw.chunks(777) {
             st.push(piece, &mut |b| {
                 out.extend_from_slice(b);
@@ -1180,7 +1476,10 @@ mod tests {
             Ok(())
         })
         .unwrap();
-        assert!(st.token.is_none() && st.raw.is_empty() && st.enc.is_empty(), "finish empties the staging");
+        assert!(
+            st.token.is_none() && st.raw.is_empty() && st.enc.is_empty(),
+            "finish empties the staging"
+        );
         assert_eq!(decode_all(out, 4096).unwrap(), raw);
     }
 
@@ -1233,8 +1532,18 @@ mod tests {
         for i in (1..idx.len()).rev() {
             idx.swap(i, r.below(i as u64 + 1) as usize);
         }
-        let slots = idx[1..1 + r.below(5) as usize].iter().map(|&w| 8 * w).collect(); // alloc: Cold
-        RowShape::new(8 * words, Some(VarRows { rec_off: 8 * idx[0], slots })).unwrap()
+        let slots = idx[1..1 + r.below(5) as usize]
+            .iter()
+            .map(|&w| 8 * w)
+            .collect(); // alloc: Cold
+        RowShape::new(
+            8 * words,
+            Some(VarRows {
+                rec_off: 8 * idx[0],
+                slots,
+            }),
+        )
+        .unwrap()
     }
 
     /// `n` records of `s` as `RunShape::compact` lays them; `odd`: about a third of them off the layout (a byte of a slot's
@@ -1242,7 +1551,7 @@ mod tests {
     fn records(r: &mut Rng, s: &RowShape, n: usize, odd: bool) -> Vec<u8> {
         let h = s.head as usize;
         let mut out = Vec::new(); // alloc: Cold
-        // each slot's copy before (about a third of the copies repeat it: a sorted run's equal key values)
+                                  // each slot's copy before (about a third of the copies repeat it: a sorted run's equal key values)
         let mut last: Vec<Vec<u8>> = vec![Vec::new(); s.var.as_ref().map_or(0, |v| v.slots.len())]; // alloc: Cold
         for _ in 0..n {
             let at0 = out.len();
@@ -1269,7 +1578,7 @@ mod tests {
                 out[at0 + so + 4..at0 + so + 8].copy_from_slice(&((at - so) as u32).to_le_bytes());
                 if !again {
                     last[c] = (0..size).map(|_| r.next() as u8).collect(); // alloc: Cold
-                    // most copies are plain varlenas: their header their size
+                                                                           // most copies are plain varlenas: their header their size
                     if r.below(4) != 0 {
                         last[c][..4].copy_from_slice(&(size << 2).to_le_bytes());
                     }
@@ -1300,9 +1609,18 @@ mod tests {
             rest = &rest[k..];
         }
         enc.finish().unwrap();
-        let mut f = File { raw: !compress, ..File::default() };
+        let mut f = File {
+            raw: !compress,
+            ..File::default()
+        };
         write_run(&mut f, 0, &rows, 0).unwrap();
-        let mut rd = RowReader::new(Box::new(Decoder::new(Box::new(Bytes { b: f.b.clone(), pos: 0 }))), s.clone()); // alloc: Cold
+        let mut rd = RowReader::new(
+            Box::new(Decoder::new(Box::new(Bytes {
+                b: f.b.clone(),
+                pos: 0,
+            }))),
+            s.clone(),
+        ); // alloc: Cold
         let (mut out, mut buf) = (Vec::new(), vec![0u8; 1 + r.below(20_000) as usize]); // alloc: Cold
         loop {
             let n = rd.read(&mut buf).unwrap();
@@ -1325,10 +1643,19 @@ mod tests {
             };
             let raw = records(&mut r, &s, n, i % 4 == 0);
             let (back, enc) = round_trip(&mut r, &s, &raw, i % 2 == 0);
-            assert!(back == raw, "shape {s:?}, {n} records, {} raw bytes: read back {} bytes", raw.len(), back.len());
+            assert!(
+                back == raw,
+                "shape {s:?}, {n} records, {} raw bytes: read back {} bytes",
+                raw.len(),
+                back.len()
+            );
             // a compacted record costs at most its tags and a var record's flags byte (a kept one: its length) more
             let worst = raw.len() + n * ((s.head as usize / 8).div_ceil(2) + 5);
-            assert!(enc <= worst, "shape {s:?}: {enc} encoded bytes for {} raw", raw.len());
+            assert!(
+                enc <= worst,
+                "shape {s:?}: {enc} encoded bytes for {} raw",
+                raw.len()
+            );
         }
     }
 
@@ -1336,10 +1663,19 @@ mod tests {
     fn a_text_and_int_row_compacts_to_about_half() {
         // (tx text, id int4) ordered by (tx, id), as lowerv4 face/runs.rs Shape lays it: the key pairs (32 B), the
         // datum words (16), the null bytes (8), the record word at 56, the var slot at 64, the md5 copy var_alloc'd
-        let s = RowShape::new(72, Some(VarRows { rec_off: 56, slots: vec![64] })).unwrap(); // alloc: Cold
+        let s = RowShape::new(
+            72,
+            Some(VarRows {
+                rec_off: 56,
+                slots: vec![64],
+            }),
+        )
+        .unwrap(); // alloc: Cold
         let mut raw = Vec::new(); // alloc: Cold
         for id in 0..10_000u64 {
-            let md5: Vec<u8> = (0..32).map(|k| b"0123456789abcdef"[(((id * 2_654_435_761) >> (k % 28)) & 15) as usize]).collect(); // alloc: Cold
+            let md5: Vec<u8> = (0..32)
+                .map(|k| b"0123456789abcdef"[(((id * 2_654_435_761) >> (k % 28)) & 15) as usize])
+                .collect(); // alloc: Cold
             let image = u64::from_be_bytes(md5[..8].try_into().unwrap());
             for w in [1, image, 1, id ^ 1 << 63, 0, id, 0, 72 + 40, 36 | 8 << 32] {
                 raw.extend_from_slice(&u64::to_le_bytes(w));
@@ -1352,7 +1688,12 @@ mod tests {
         let mut enc = RowEncoder::new(s.clone());
         push_into(&mut enc, &raw, &mut rows).unwrap();
         enc.finish().unwrap();
-        assert!(rows.len() * 100 <= raw.len() * 60, "{} B compacted of {} B (112 B a row)", rows.len(), raw.len());
+        assert!(
+            rows.len() * 100 <= raw.len() * 60,
+            "{} B compacted of {} B (112 B a row)",
+            rows.len(),
+            raw.len()
+        );
         let (back, _) = round_trip(&mut Rng(7), &s, &raw, false);
         assert!(back == raw);
     }
@@ -1366,9 +1707,15 @@ mod tests {
         let mut rows = Vec::new(); // alloc: Cold
         push_into(&mut enc, &raw[..raw.len() - 3], &mut rows).unwrap();
         assert!(enc.finish().is_err(), "a record held at the run's end");
-        let mut f = File { raw: true, ..File::default() };
+        let mut f = File {
+            raw: true,
+            ..File::default()
+        };
         write_run(&mut f, 0, &rows[..rows.len() - 1], 0).unwrap();
-        let mut rd = RowReader::new(Box::new(Decoder::new(Box::new(Bytes { b: f.b, pos: 0 }))), s); // alloc: Cold
+        let mut rd = RowReader::new(
+            Box::new(Decoder::new(Box::new(Bytes { b: f.b, pos: 0 }))),
+            s,
+        ); // alloc: Cold
         let mut buf = vec![0u8; 1 << 20]; // alloc: Cold
         let mut res = Ok(1);
         while matches!(res, Ok(n) if n > 0) {
@@ -1381,10 +1728,47 @@ mod tests {
     fn a_shape_the_codec_cannot_read_is_refused() {
         assert!(RowShape::new(12, None).is_none(), "a head not in words");
         assert!(RowShape::new(0, None).is_none());
-        assert!(RowShape::new(16, Some(VarRows { rec_off: 16, slots: vec![] })).is_none(), "a record word past the head"); // alloc: Cold
-        assert!(RowShape::new(32, Some(VarRows { rec_off: 0, slots: vec![8, 12] })).is_none(), "two slots over one another"); // alloc: Cold
-        assert!(RowShape::new(32, Some(VarRows { rec_off: 8, slots: vec![8] })).is_none(), "a slot over the record word"); // alloc: Cold
-        assert!(RowShape::new(32, Some(VarRows { rec_off: 0, slots: vec![8, 16, 24] })).is_some()); // alloc: Cold
+        assert!(
+            RowShape::new(
+                16,
+                Some(VarRows {
+                    rec_off: 16,
+                    slots: vec![]
+                })
+            )
+            .is_none(),
+            "a record word past the head"
+        ); // alloc: Cold
+        assert!(
+            RowShape::new(
+                32,
+                Some(VarRows {
+                    rec_off: 0,
+                    slots: vec![8, 12]
+                })
+            )
+            .is_none(),
+            "two slots over one another"
+        ); // alloc: Cold
+        assert!(
+            RowShape::new(
+                32,
+                Some(VarRows {
+                    rec_off: 8,
+                    slots: vec![8]
+                })
+            )
+            .is_none(),
+            "a slot over the record word"
+        ); // alloc: Cold
+        assert!(RowShape::new(
+            32,
+            Some(VarRows {
+                rec_off: 0,
+                slots: vec![8, 16, 24]
+            })
+        )
+        .is_some()); // alloc: Cold
     }
     fn read_all(mut rd: Box<dyn RunReader>, chunk: usize) -> Vec<u8> {
         let (mut out, mut buf) = (Vec::new(), vec![0u8; chunk]); // alloc: Cold
@@ -1426,24 +1810,53 @@ mod tests {
             let s = shape(&mut r, i % 3 != 0);
             let n = r.below(300) as usize;
             // a third off the shape's layout; every eighth noise (rows the shape cannot cut: kept as they lie)
-            let raw = if i % 8 == 7 { rows(n * s.head as usize + 5, true) } else { records(&mut r, &s, n, i % 4 == 0) };
+            let raw = if i % 8 == 7 {
+                rows(n * s.head as usize + 5, true)
+            } else {
+                records(&mut r, &s, n, i % 4 == 0)
+            };
             let compress = i % 5 != 0;
             let declared = (i % 7 != 0).then_some(&s);
-            let mut f = File { raw: !compress, ..File::default() };
+            let mut f = File {
+                raw: !compress,
+                ..File::default()
+            };
             write_run_rows(&mut f, 0, &raw, declared, 0, None).unwrap();
-            let back = read_all(reader(f.open_part(0).unwrap().unwrap(), None).unwrap(), 1 + r.below(9000) as usize);
-            assert!(back == raw, "put run {i}: shape {s:?} declared {}, compress {compress}: {} of {} B", declared.is_some(), back.len(), raw.len());
+            let back = read_all(
+                reader(f.open_part(0).unwrap().unwrap(), None).unwrap(),
+                1 + r.below(9000) as usize,
+            );
+            assert!(
+                back == raw,
+                "put run {i}: shape {s:?} declared {}, compress {compress}: {} of {} B",
+                declared.is_some(),
+                back.len(),
+                raw.len()
+            );
             if !compress {
-                let mut plain = File { raw: true, ..File::default() };
+                let mut plain = File {
+                    raw: true,
+                    ..File::default()
+                };
                 write_run(&mut plain, 0, &raw, 0).unwrap();
-                assert!(plain.b == f.b, "a file without a limit keeps write_run's bytes");
+                assert!(
+                    plain.b == f.b,
+                    "a file without a limit keeps write_run's bytes"
+                );
             }
             if i % 8 == 7 {
                 continue; // a merge writes the records its runs hold: never noise
             }
             let enc = staged(&mut r, &raw, compress, declared);
-            let back = read_all(reader(Box::new(Bytes { b: enc, pos: 0 }), None).unwrap(), 1 + r.below(9000) as usize); // alloc: Cold
-            assert!(back == raw, "merged run {i}: shape {s:?} declared {}, compress {compress}", declared.is_some());
+            let back = read_all(
+                reader(Box::new(Bytes { b: enc, pos: 0 }), None).unwrap(),
+                1 + r.below(9000) as usize,
+            ); // alloc: Cold
+            assert!(
+                back == raw,
+                "merged run {i}: shape {s:?} declared {}, compress {compress}",
+                declared.is_some()
+            );
         }
     }
 
@@ -1459,10 +1872,31 @@ mod tests {
         b.push(0);
         assert!(open(&b, true).is_err(), "a head not in words");
         assert!(open(&[9], true).is_err(), "an unknown mode");
-        assert!(open(&[MODE_ROWS, 64, 0], true).is_err(), "a header cut short");
-        assert_eq!(open(&b, false).unwrap(), b, "a run not headed reads as written");
-        assert!(read_all(reader(Box::new(Bytes { b: Vec::new(), pos: 0 }), None).unwrap(), 64).is_empty(), "an empty run"); // alloc: Cold
-        // a block past the first marked headed
+        assert!(
+            open(&[MODE_ROWS, 64, 0], true).is_err(),
+            "a header cut short"
+        );
+        assert_eq!(
+            open(&b, false).unwrap(),
+            b,
+            "a run not headed reads as written"
+        );
+        assert!(
+            read_all(
+                reader(
+                    Box::new(Bytes {
+                        b: Vec::new(),
+                        pos: 0
+                    }),
+                    None
+                )
+                .unwrap(),
+                64
+            )
+            .is_empty(),
+            "an empty run"
+        ); // alloc: Cold
+           // a block past the first marked headed
         let mut f = File::default();
         write_blocks(&mut f, 0, &rows(BLOCK, false), false, false).unwrap();
         write_blocks(&mut f, 0, &rows(BLOCK, false), false, true).unwrap();
@@ -1482,7 +1916,9 @@ mod tests {
         let mut f = File::default();
         let got = cancelpoll::scoped(&byte, || write_run_rows(&mut f, 0, &raw, Some(&s), 0, None));
         assert!(matches!(got, Err(Error::Cancelled)), "{got:?}");
-        let got = cancelpoll::scoped(&byte, || put_run(&mut f, 0, &raw, Some(&s), 0, None).map(|_| ()));
+        let got = cancelpoll::scoped(&byte, || {
+            put_run(&mut f, 0, &raw, Some(&s), 0, None).map(|_| ())
+        });
         assert!(matches!(got, Err(Error::Cancelled)), "{got:?}");
         assert_eq!(f.epochs, 0, "a canceled put writes nothing");
         write_run_rows(&mut f, 0, &raw, Some(&s), 0, None).unwrap();
@@ -1497,10 +1933,16 @@ mod tests {
         let s = shape(&mut r, true);
         let raw = records(&mut r, &s, 200, false);
         for compress in [false, true] {
-            let mut f = File { raw: !compress, ..File::default() };
+            let mut f = File {
+                raw: !compress,
+                ..File::default()
+            };
             write_run_rows(&mut f, 0, &raw, Some(&s), 0, None).unwrap();
             f.raw = compress; // the session's limit set or reset after the write
-            assert!(read_all(reader(f.open_part(0).unwrap().unwrap(), None).unwrap(), 777) == raw, "written compress {compress}");
+            assert!(
+                read_all(reader(f.open_part(0).unwrap().unwrap(), None).unwrap(), 777) == raw,
+                "written compress {compress}"
+            );
         }
     }
 
@@ -1513,7 +1955,11 @@ mod tests {
             fn write_epoch(&mut self, parts: &[(u32, &[u8])]) -> Result<()> {
                 self.0.write_epoch(parts)
             }
-            fn read_part(&self, part: u32, sink: &mut dyn FnMut(&[u8]) -> Result<()>) -> Result<()> {
+            fn read_part(
+                &self,
+                part: u32,
+                sink: &mut dyn FnMut(&[u8]) -> Result<()>,
+            ) -> Result<()> {
                 self.0.read_part(part, sink)
             }
             fn open_part(&self, part: u32) -> Result<Option<Box<dyn RunReader>>> {
@@ -1534,31 +1980,76 @@ mod tests {
         let raw = records(&mut r, &s, 300, false);
         let n = raw.len() as u64;
         // (limit, statement's spilled bytes before the run, compacted?)
-        for (limit, spilled, compact) in [(32 * n, 0, false), (32 * n, 1, true), (32 * n + 32 * 7, 7, false), (1 << 30, 0, false), (n, 0, true), (0, 0, true), (u64::MAX, u64::MAX, true)] {
+        for (limit, spilled, compact) in [
+            (32 * n, 0, false),
+            (32 * n, 1, true),
+            (32 * n + 32 * 7, 7, false),
+            (1 << 30, 0, false),
+            (n, 0, true),
+            (0, 0, true),
+            (u64::MAX, u64::MAX, true),
+        ] {
             let mut f = Limited(File::default(), limit);
             write_run_rows(&mut f, 0, &raw, Some(&s), spilled, None).unwrap();
             let mut d = Decoder::new(f.open_part(0).unwrap().unwrap());
-            assert_eq!(d.headed().unwrap(), compact, "limit {limit} spilled {spilled}: compacted rows");
-            assert!(read_all(reader(f.open_part(0).unwrap().unwrap(), None).unwrap(), 333) == raw, "limit {limit} spilled {spilled}: reads back");
+            assert_eq!(
+                d.headed().unwrap(),
+                compact,
+                "limit {limit} spilled {spilled}: compacted rows"
+            );
+            assert!(
+                read_all(reader(f.open_part(0).unwrap().unwrap(), None).unwrap(), 333) == raw,
+                "limit {limit} spilled {spilled}: reads back"
+            );
             if !compact {
-                assert!(f.0.b.len() as u64 > n, "a raw run keeps every byte behind its block headers");
+                assert!(
+                    f.0.b.len() as u64 > n,
+                    "a raw run keeps every byte behind its block headers"
+                );
             }
         }
-        assert!(raw_fits(0, 1 << 20, 32 << 20) && !raw_fits(1, 1 << 20, 32 << 20) && !raw_fits(u64::MAX, 1, u64::MAX));
+        assert!(
+            raw_fits(0, 1 << 20, 32 << 20)
+                && !raw_fits(1, 1 << 20, 32 << 20)
+                && !raw_fits(u64::MAX, 1, u64::MAX)
+        );
     }
 
     /// The temp bytes of 20,000 (md5 text, int4) rows keyed (tx, id) under a limit: the compact rows' run (its blocks
     /// stored raw) against LZ4 alone (the run without a shape).
     #[test]
     fn compact_rows_take_fewer_bytes_than_lz4() {
-        let s = RowShape::new(72, Some(VarRows { rec_off: 56, slots: vec![64] })).unwrap(); // alloc: Cold
+        let s = RowShape::new(
+            72,
+            Some(VarRows {
+                rec_off: 56,
+                slots: vec![64],
+            }),
+        )
+        .unwrap(); // alloc: Cold
         let mut r = Rng(56);
-        let mut md5s: Vec<Vec<u8>> = (0..20_000).map(|_| (0..32).map(|_| b"0123456789abcdef"[r.below(16) as usize]).collect()).collect(); // alloc: Cold
+        let mut md5s: Vec<Vec<u8>> = (0..20_000)
+            .map(|_| {
+                (0..32)
+                    .map(|_| b"0123456789abcdef"[r.below(16) as usize])
+                    .collect()
+            })
+            .collect(); // alloc: Cold
         md5s.sort();
         let mut raw = Vec::new(); // alloc: Cold
         for (id, md5) in md5s.iter().enumerate() {
             let image = u64::from_be_bytes(md5[..8].try_into().unwrap());
-            for w in [1, image, 1, id as u64 ^ 1 << 63, 0, id as u64, 0, 72 + 40, 36 | 8 << 32] {
+            for w in [
+                1,
+                image,
+                1,
+                id as u64 ^ 1 << 63,
+                0,
+                id as u64,
+                0,
+                72 + 40,
+                36 | 8 << 32,
+            ] {
                 raw.extend_from_slice(&u64::to_le_bytes(w));
             }
             raw.extend_from_slice(&(36u32 << 2).to_le_bytes());
@@ -1569,9 +2060,24 @@ mod tests {
         write_run(&mut lz4, 0, &raw, 0).unwrap();
         write_run_rows(&mut rows, 0, &raw, Some(&s), 0, None).unwrap();
         let per = |b: usize| b as f64 / md5s.len() as f64;
-        println!("D2572-c bytes/row: raw {:.1}, lz4 {:.1}, compact {:.1}", per(raw.len()), per(lz4.b.len()), per(rows.b.len()));
-        assert!(rows.b.len() < lz4.b.len(), "compact {} B vs LZ4 {} B", rows.b.len(), lz4.b.len());
-        assert!(read_all(reader(rows.open_part(0).unwrap().unwrap(), None).unwrap(), 4096) == raw);
+        println!(
+            "D2572-c bytes/row: raw {:.1}, lz4 {:.1}, compact {:.1}",
+            per(raw.len()),
+            per(lz4.b.len()),
+            per(rows.b.len())
+        );
+        assert!(
+            rows.b.len() < lz4.b.len(),
+            "compact {} B vs LZ4 {} B",
+            rows.b.len(),
+            lz4.b.len()
+        );
+        assert!(
+            read_all(
+                reader(rows.open_part(0).unwrap().unwrap(), None).unwrap(),
+                4096
+            ) == raw
+        );
     }
     /// The codec's time per row (encode, decode) on three run shapes, against LZ4 alone: `cargo test --release -- --ignored
     /// codec_time --nocapture` (a measure, not a check).
@@ -1580,8 +2086,22 @@ mod tests {
     fn codec_time() {
         let mut r = Rng(3);
         // (f int, t int, label text 'edge N') by f; (md5 text, id) by (tx, id); (k int, id int) fixed
-        let gk = RowShape::new(64, Some(VarRows { rec_off: 48, slots: vec![56] })).unwrap(); // alloc: Cold
-        let m5 = RowShape::new(72, Some(VarRows { rec_off: 56, slots: vec![64] })).unwrap(); // alloc: Cold
+        let gk = RowShape::new(
+            64,
+            Some(VarRows {
+                rec_off: 48,
+                slots: vec![56],
+            }),
+        )
+        .unwrap(); // alloc: Cold
+        let m5 = RowShape::new(
+            72,
+            Some(VarRows {
+                rec_off: 56,
+                slots: vec![64],
+            }),
+        )
+        .unwrap(); // alloc: Cold
         let kk = RowShape::new(48, None).unwrap();
         let mut sets: Vec<(&str, RowShape, Vec<u8>)> = Vec::new(); // alloc: Cold
         let mut b = Vec::new(); // alloc: Cold
@@ -1589,7 +2109,16 @@ mod tests {
             let f = i / 4;
             let label = format!("edge {}", r.below(200_000)); // alloc: Cold
             let size = 4 + label.len() as u32;
-            for w in [1, f ^ 1 << 63, f, r.below(50_000), 0, 0, 64 + var_alloc(size) as u64, size as u64 | 8 << 32] {
+            for w in [
+                1,
+                f ^ 1 << 63,
+                f,
+                r.below(50_000),
+                0,
+                0,
+                64 + var_alloc(size) as u64,
+                size as u64 | 8 << 32,
+            ] {
                 b.extend_from_slice(&w.to_le_bytes());
             }
             b.extend_from_slice(&(size << 2).to_le_bytes());
@@ -1597,11 +2126,27 @@ mod tests {
             b.resize(b.len() + (var_alloc(size) - size) as usize, 0); // alloc: Cold
         }
         sets.push(("gk9 label", gk, core::mem::take(&mut b)));
-        let mut md5s: Vec<Vec<u8>> = (0..100_000).map(|_| (0..32).map(|_| b"0123456789abcdef"[r.below(16) as usize]).collect()).collect(); // alloc: Cold
+        let mut md5s: Vec<Vec<u8>> = (0..100_000)
+            .map(|_| {
+                (0..32)
+                    .map(|_| b"0123456789abcdef"[r.below(16) as usize])
+                    .collect()
+            })
+            .collect(); // alloc: Cold
         md5s.sort();
         for (id, md5) in md5s.iter().enumerate() {
             let image = u64::from_be_bytes(md5[..8].try_into().unwrap());
-            for w in [1, image, 1, id as u64 ^ 1 << 63, id as u64, 0, 0, 72 + 40, 36 | 8 << 32] {
+            for w in [
+                1,
+                image,
+                1,
+                id as u64 ^ 1 << 63,
+                id as u64,
+                0,
+                0,
+                72 + 40,
+                36 | 8 << 32,
+            ] {
                 b.extend_from_slice(&w.to_le_bytes());
             }
             b.extend_from_slice(&(36u32 << 2).to_le_bytes());
@@ -1611,13 +2156,29 @@ mod tests {
         sets.push(("m5 md5", m5, core::mem::take(&mut b)));
         for i in 0..100_000u64 {
             let k = i * 7;
-            for w in [1, k ^ 1 << 63, 1, r.below(100_000) ^ 1 << 63, k, r.below(100_000)] {
+            for w in [
+                1,
+                k ^ 1 << 63,
+                1,
+                r.below(100_000) ^ 1 << 63,
+                k,
+                r.below(100_000),
+            ] {
                 b.extend_from_slice(&w.to_le_bytes());
             }
         }
         sets.push(("kk ints", kk, b));
         for (name, s, raw) in &sets {
-            let rows = match &s.var { None => raw.len() / s.head as usize, Some(_) => if name.starts_with("gk") { 200_000 } else { 100_000 } };
+            let rows = match &s.var {
+                None => raw.len() / s.head as usize,
+                Some(_) => {
+                    if name.starts_with("gk") {
+                        200_000
+                    } else {
+                        100_000
+                    }
+                }
+            };
             let t = std::time::Instant::now();
             let mut enc = Vec::with_capacity(raw.len()); // alloc: Cold
             for _ in 0..5 {
@@ -1632,9 +2193,15 @@ mod tests {
             let t = std::time::Instant::now();
             let mut back = 0;
             for _ in 0..5 {
-                let mut f = File { raw: true, ..File::default() };
+                let mut f = File {
+                    raw: true,
+                    ..File::default()
+                };
                 write_blocks(&mut f, 0, &enc, false, false).unwrap();
-                let mut rd = RowReader::new(Box::new(Decoder::new(Box::new(Bytes { b: f.b, pos: 0 }))), s.clone()); // alloc: Cold
+                let mut rd = RowReader::new(
+                    Box::new(Decoder::new(Box::new(Bytes { b: f.b, pos: 0 }))),
+                    s.clone(),
+                ); // alloc: Cold
                 let mut buf = vec![0u8; 16 << 10]; // alloc: Cold
                 back = 0;
                 loop {
@@ -1656,7 +2223,10 @@ mod tests {
             let tl = t.elapsed().as_nanos() as f64 / 5.0 / rows as f64;
             let t = std::time::Instant::now();
             for _ in 0..5 {
-                let mut d = Decoder::new(Box::new(Bytes { b: lz.b.clone(), pos: 0 })); // alloc: Cold
+                let mut d = Decoder::new(Box::new(Bytes {
+                    b: lz.b.clone(),
+                    pos: 0,
+                })); // alloc: Cold
                 let mut buf = vec![0u8; 16 << 10]; // alloc: Cold
                 while d.read(&mut buf).unwrap() > 0 {}
             }

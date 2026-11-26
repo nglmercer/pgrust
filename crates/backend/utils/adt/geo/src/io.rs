@@ -314,7 +314,8 @@ pub fn check_points_overflow(
         return ereturn(
             escontext,
             (),
-            PgError::error("too many points requested").with_sqlstate(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+            PgError::error("too many points requested")
+                .with_sqlstate(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
         );
     }
     // C pallocs the whole path/polygon here, before decoding any point.
@@ -375,8 +376,7 @@ pub fn box_in(
 
 pub fn box_out(b: &BOX, out: &mut Vec<u8>) {
     let pts: &[Point] = &[b.high, b.low];
-    path_encode(PathDelim::None, &pts, out)
-        .expect("fixed-size geo output is below MaxAllocSize");
+    path_encode(PathDelim::None, &pts, out).expect("fixed-size geo output is below MaxAllocSize");
 }
 
 fn line_decode(
@@ -501,8 +501,7 @@ pub fn lseg_in(
 
 pub fn lseg_out(ls: &LSEG, out: &mut Vec<u8>) {
     let pts: &[Point] = &ls.p;
-    path_encode(PathDelim::Open, &pts, out)
-        .expect("fixed-size geo output is below MaxAllocSize");
+    path_encode(PathDelim::Open, &pts, out).expect("fixed-size geo output is below MaxAllocSize");
 }
 
 fn empty_path_image<'m>(mcx: Mcx<'m>) -> PgResult<Varlena<'m>> {
@@ -843,7 +842,9 @@ pub fn circle_recv(buf: &mut StringInfo<'_>) -> PgResult<CIRCLE> {
         radius: ::pqformat::pq_getmsgfloat8(buf)?,
     };
     if circle.radius < 0.0 {
-        return Err(invalid_binary("invalid radius in external \"circle\" value"));
+        return Err(invalid_binary(
+            "invalid radius in external \"circle\" value",
+        ));
     }
     Ok(circle)
 }

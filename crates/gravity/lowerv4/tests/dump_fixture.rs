@@ -20,10 +20,18 @@ use std::io::Write;
 #[test]
 fn dump_all() {
     let rig = mcx::MemoryContext::new("GravityPlanRig");
-    let Ok(path) = std::env::var("DUMP_ALL_IR") else { return };
+    let Ok(path) = std::env::var("DUMP_ALL_IR") else {
+        return;
+    };
     let mut all = common::files(&common::plans_dir(), "plan");
-    all.extend(common::files(&common::plans_dir().join("regress-full"), "plan").into_iter().map(|(n, t)| (format!("regress-full/{n}"), t)));
-    let mut out = std::io::BufWriter::new(std::fs::File::create(&path).unwrap_or_else(|e| panic!("{path}: {e}")));
+    all.extend(
+        common::files(&common::plans_dir().join("regress-full"), "plan")
+            .into_iter()
+            .map(|(n, t)| (format!("regress-full/{n}"), t)),
+    );
+    let mut out = std::io::BufWriter::new(
+        std::fs::File::create(&path).unwrap_or_else(|e| panic!("{path}: {e}")),
+    );
     writeln!(out, "{}", provenance()).unwrap();
     let (mut lowered, mut refused, mut declined, mut panicked) = (0usize, 0usize, 0usize, 0usize);
     for (name, text) in all {
@@ -65,17 +73,48 @@ fn dump_all() {
 /// the tree it was dumped from, checked by gravity-land.sh / gravity-gate.sh (ir-provenance.py) before it becomes a baseline.
 fn provenance() -> String {
     // D793-b: the checkout under test, read at run time, never env!()'s compile-time path
-    let manifest: std::path::PathBuf = std::env::var_os("CARGO_MANIFEST_DIR").map(|d| std::path::Path::new(&d).with_file_name("lowerv4")).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)");
+    let manifest: std::path::PathBuf = std::env::var_os("CARGO_MANIFEST_DIR")
+        .map(|d| std::path::Path::new(&d).with_file_name("lowerv4"))
+        .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)");
     let repo = manifest.join("../../..");
     let run = |cmd: &str, args: &[&str]| {
-        std::process::Command::new(cmd).args(args).output().ok().filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
+        std::process::Command::new(cmd)
+            .args(args)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
     };
     let r = repo.to_string_lossy().into_owned();
     let sha = run("git", &["-C", &r, "rev-parse", "HEAD"]).unwrap_or_else(|| "unknown".to_owned());
-    let dirty = run("git", &["-C", &r, "status", "--porcelain", "-uno", "--", "crates", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".cargo"]).map(|s| !s.is_empty()).unwrap_or(true);
-    let ctree_py = repo.join("scripts/gravity-gate/ctree.py").to_string_lossy().into_owned();
-    let ctree = run("python3", &[&ctree_py, "hash", &r, "HEAD"]).unwrap_or_else(|| "unknown".to_owned());
-    format!("# ir-dump sha={sha} ctree={ctree} dirty={}", u8::from(dirty))
+    let dirty = run(
+        "git",
+        &[
+            "-C",
+            &r,
+            "status",
+            "--porcelain",
+            "-uno",
+            "--",
+            "crates",
+            "Cargo.toml",
+            "Cargo.lock",
+            "rust-toolchain.toml",
+            ".cargo",
+        ],
+    )
+    .map(|s| !s.is_empty())
+    .unwrap_or(true);
+    let ctree_py = repo
+        .join("scripts/gravity-gate/ctree.py")
+        .to_string_lossy()
+        .into_owned();
+    let ctree =
+        run("python3", &[&ctree_py, "hash", &r, "HEAD"]).unwrap_or_else(|| "unknown".to_owned());
+    format!(
+        "# ir-dump sha={sha} ctree={ctree} dirty={}",
+        u8::from(dirty)
+    )
 }
 
 /// Every `0x<hex>` (a descriptor's function pointer, a raw pointer's Debug) as `0x…`: it moves per process and per binary.
@@ -84,7 +123,12 @@ fn no_addrs(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut i = 0;
     while i < b.len() {
-        if b[i] == b'0' && i + 2 < b.len() && b[i + 1] == b'x' && b[i + 2].is_ascii_hexdigit() && (i == 0 || !b[i - 1].is_ascii_alphanumeric()) {
+        if b[i] == b'0'
+            && i + 2 < b.len()
+            && b[i + 1] == b'x'
+            && b[i + 2].is_ascii_hexdigit()
+            && (i == 0 || !b[i - 1].is_ascii_alphanumeric())
+        {
             out.push_str("0x…");
             i += 2;
             while i < b.len() && b[i].is_ascii_hexdigit() {

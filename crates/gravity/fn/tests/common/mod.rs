@@ -9,12 +9,20 @@ use std::sync::Once;
 use datum::Datum;
 
 pub fn repo_root() -> PathBuf {
-    manifest_dir().to_path_buf().join("../../..").canonicalize().unwrap()
+    manifest_dir()
+        .to_path_buf()
+        .join("../../..")
+        .canonicalize()
+        .unwrap()
 }
 
 pub fn parse_dat(path: &str) -> Vec<HashMap<String, String>> {
     let text = std::fs::read_to_string(repo_root().join(path)).unwrap();
-    let text: String = text.lines().filter(|l| !l.trim_start().starts_with('#')).collect::<Vec<_>>().join("\n");
+    let text: String = text
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n");
     let mut rows = Vec::new();
     let mut rest = text.as_str();
     while let Some(s) = rest.find('{') {
@@ -40,7 +48,11 @@ pub fn parse_dat(path: &str) -> Vec<HashMap<String, String>> {
         let mut body = &rest[s + 1..s + e];
         let mut row = HashMap::new();
         while let Some(arrow) = body.find("=>") {
-            let key = body[..arrow].trim().trim_start_matches(',').trim().to_owned();
+            let key = body[..arrow]
+                .trim()
+                .trim_start_matches(',')
+                .trim()
+                .to_owned();
             let after = &body[arrow + 2..];
             let Some(q) = after.find('\'') else { break };
             #[allow(clippy::sliced_string_as_bytes)]
@@ -87,10 +99,15 @@ pub fn procs() -> HashMap<u32, Proc> {
                 oid: r["oid"].parse().unwrap(),
                 name: r["proname"].clone(),
                 prosrc: r.get("prosrc").cloned().unwrap_or_default(),
-                args: r.get("proargtypes").map(|a| a.split_whitespace().map(str::to_owned).collect()).unwrap_or_default(),
+                args: r
+                    .get("proargtypes")
+                    .map(|a| a.split_whitespace().map(str::to_owned).collect())
+                    .unwrap_or_default(),
                 ret: r["prorettype"].clone(),
-                strict: r.get("proisstrict").is_none_or( |s| s == "t"),
-                volatile: r.get("provolatile").map_or('i', |s| s.chars().next().unwrap()),
+                strict: r.get("proisstrict").is_none_or(|s| s == "t"),
+                volatile: r
+                    .get("provolatile")
+                    .map_or('i', |s| s.chars().next().unwrap()),
                 kind: r.get("prokind").map_or('f', |s| s.chars().next().unwrap()),
                 retset: r.get("proretset").is_some_and(|s| s == "t"),
                 variadic: r.contains_key("provariadic") || r.contains_key("proallargtypes"),
@@ -103,7 +120,10 @@ pub fn procs() -> HashMap<u32, Proc> {
 /// The index AM support procedures (`pg_amproc.dat`): the catalog ground for a `handler/internal`
 /// row whose types alone do not say so.
 pub fn amprocs() -> std::collections::HashSet<String> {
-    parse_dat("crates/postgres-18.6-reference/src/include/catalog/pg_amproc.dat").into_iter().filter_map(|r| r.get("amproc").cloned()).collect()
+    parse_dat("crates/postgres-18.6-reference/src/include/catalog/pg_amproc.dat")
+        .into_iter()
+        .filter_map(|r| r.get("amproc").cloned())
+        .collect()
 }
 
 pub struct Ty {
@@ -124,7 +144,10 @@ pub fn types() -> HashMap<String, Ty> {
         .map(|r| {
             let t = Ty {
                 oid: r.get("oid").and_then(|o| o.parse().ok()).unwrap_or(0),
-                byval: matches!(r.get("typbyval").map(String::as_str), Some("t") | Some("FLOAT8PASSBYVAL")),
+                byval: matches!(
+                    r.get("typbyval").map(String::as_str),
+                    Some("t") | Some("FLOAT8PASSBYVAL")
+                ),
                 len: match r.get("typlen").map(String::as_str) {
                     Some("NAMEDATALEN") => 64,
                     Some("SIZEOF_POINTER") => 8,
@@ -134,8 +157,14 @@ pub fn types() -> HashMap<String, Ty> {
                 collation: r.get("typcollation").is_some_and(|c| c != "0"),
                 input: r.get("typinput").cloned().unwrap_or_default(),
                 elem: r.get("typelem").cloned().unwrap_or_default(),
-                align: r.get("typalign").and_then(|a| a.bytes().next()).unwrap_or(b'i'),
-                array_oid: r.get("array_type_oid").and_then(|o| o.parse().ok()).unwrap_or(0),
+                align: r
+                    .get("typalign")
+                    .and_then(|a| a.bytes().next())
+                    .unwrap_or(b'i'),
+                array_oid: r
+                    .get("array_type_oid")
+                    .and_then(|o| o.parse().ok())
+                    .unwrap_or(0),
             };
             (r["typname"].clone(), t)
         })
@@ -165,13 +194,30 @@ pub fn arg_kind(t: &str, types: &HashMap<String, Ty>) -> gravity_fn::ArgKind {
     }
 }
 
-pub const POLY_ELEM: &[&str] = &["anyelement", "anynonarray", "anyenum", "anycompatible", "anycompatiblenonarray", "any"];
-pub const POLY_IMG: &[&str] = &["anyarray", "anycompatiblearray", "anyrange", "anycompatiblerange", "anymultirange", "anycompatiblemultirange", "record"];
+pub const POLY_ELEM: &[&str] = &[
+    "anyelement",
+    "anynonarray",
+    "anyenum",
+    "anycompatible",
+    "anycompatiblenonarray",
+    "any",
+];
+pub const POLY_IMG: &[&str] = &[
+    "anyarray",
+    "anycompatiblearray",
+    "anyrange",
+    "anycompatiblerange",
+    "anymultirange",
+    "anycompatiblemultirange",
+    "record",
+];
 
 /// The concrete type a polymorphic parameter takes in instantiation `k` of the differential.
 pub fn instantiate(t: &str, k: usize) -> Option<&'static str> {
     Some(match t {
-        "anyelement" | "anynonarray" | "anycompatible" | "anycompatiblenonarray" | "any" => ["int4", "text"][k],
+        "anyelement" | "anynonarray" | "anycompatible" | "anycompatiblenonarray" | "any" => {
+            ["int4", "text"][k]
+        }
         "anyarray" | "anycompatiblearray" => ["_int4", "_text"][k],
         "anyenum" => "oid",
         "anyrange" | "anycompatiblerange" => ["int4range", ""][k],
@@ -183,9 +229,34 @@ pub fn instantiate(t: &str, k: usize) -> Option<&'static str> {
 }
 
 pub const BYVAL_TYPES: &[&str] = &[
-    "bool", "char", "int2", "int4", "int8", "oid", "xid", "cid", "xid8", "float4", "float8", "money", "date", "time",
-    "timestamp", "timestamptz", "pg_lsn", "regproc", "regprocedure", "regoper", "regoperator", "regclass",
-    "regcollation", "regtype", "regrole", "regnamespace", "regconfig", "regdictionary",
+    "bool",
+    "char",
+    "int2",
+    "int4",
+    "int8",
+    "oid",
+    "xid",
+    "cid",
+    "xid8",
+    "float4",
+    "float8",
+    "money",
+    "date",
+    "time",
+    "timestamp",
+    "timestamptz",
+    "pg_lsn",
+    "regproc",
+    "regprocedure",
+    "regoper",
+    "regoperator",
+    "regclass",
+    "regcollation",
+    "regtype",
+    "regrole",
+    "regnamespace",
+    "regconfig",
+    "regdictionary",
 ];
 
 /// Whether a result of SQL type `t` comes back by value from the fmgr call and the shim.
@@ -194,8 +265,34 @@ pub fn ret_byval(t: &str, types: &HashMap<String, Ty>) -> bool {
 }
 pub const VIEW_TYPES: &[&str] = &["text", "varchar", "bpchar", "bytea", "name", "cstring"];
 pub const BYREF_TYPES: &[&str] = &["numeric", "interval"];
-pub const HANDLER_TYPES: &[&str] = &["internal", "trigger", "event_trigger", "language_handler", "fdw_handler", "index_am_handler", "tsm_handler", "table_am_handler", "pg_ddl_command", "void"];
-pub const POLY_TYPES: &[&str] = &["anyelement", "anyarray", "anynonarray", "anyenum", "anyrange", "anymultirange", "anycompatible", "anycompatiblearray", "anycompatiblenonarray", "anycompatiblerange", "anycompatiblemultirange", "any", "record", "unknown"];
+pub const HANDLER_TYPES: &[&str] = &[
+    "internal",
+    "trigger",
+    "event_trigger",
+    "language_handler",
+    "fdw_handler",
+    "index_am_handler",
+    "tsm_handler",
+    "table_am_handler",
+    "pg_ddl_command",
+    "void",
+];
+pub const POLY_TYPES: &[&str] = &[
+    "anyelement",
+    "anyarray",
+    "anynonarray",
+    "anyenum",
+    "anyrange",
+    "anymultirange",
+    "anycompatible",
+    "anycompatiblearray",
+    "anycompatiblenonarray",
+    "anycompatiblerange",
+    "anycompatiblemultirange",
+    "any",
+    "record",
+    "unknown",
+];
 
 pub fn plain(t: &str) -> bool {
     BYVAL_TYPES.contains(&t) || VIEW_TYPES.contains(&t) || BYREF_TYPES.contains(&t)
@@ -226,7 +323,10 @@ pub fn install_seams() {
         regex_core::init_seams();
         adt_regexp::init_seams();
         postgres_seams::check_for_interrupts::set(|| Ok(()));
-        guc_tables::vars::quote_all_identifiers.install(guc_tables::GucVarAccessors { get: || false, set: |_| {} });
+        guc_tables::vars::quote_all_identifiers.install(guc_tables::GucVarAccessors {
+            get: || false,
+            set: |_| {},
+        });
         adt_datetime::tz::pg_timezone_initialize().unwrap();
     });
 }
@@ -254,7 +354,9 @@ pub fn type_oid(t: &str, types: &HashMap<String, Ty>) -> u32 {
 pub unsafe fn result_len(p: *const u8, t: &str, types: &HashMap<String, Ty>) -> usize {
     match t {
         "cstring" | "unknown" => core::ffi::CStr::from_ptr(p.cast()).to_bytes().len() + 1,
-        t if t.starts_with('_') || POLY_IMG.contains(&t) => (p.cast::<u32>().read_unaligned() >> 2) as usize,
+        t if t.starts_with('_') || POLY_IMG.contains(&t) => {
+            (p.cast::<u32>().read_unaligned() >> 2) as usize
+        }
         _ => match types[t].len {
             -1 => {
                 let b = *p;
@@ -273,5 +375,9 @@ pub unsafe fn result_len(p: *const u8, t: &str, types: &HashMap<String, Ty>) -> 
 /// env!()'s path baked in at compile time: a test binary reused from another checkout would read that checkout's files.
 fn manifest_dir() -> &'static std::path::Path {
     static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| std::env::var_os("CARGO_MANIFEST_DIR").map(Into::into).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)"))
+    DIR.get_or_init(|| {
+        std::env::var_os("CARGO_MANIFEST_DIR")
+            .map(Into::into)
+            .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+    })
 }

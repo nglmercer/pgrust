@@ -57,9 +57,18 @@ pub fn emit_image(b: &mut FunctionBuilder<'_>, parts: &[KeyPart<'_>]) -> ImageVa
 }
 
 /// [`emit_image`], then `tail`'s word, if any, after the flags words (built after them: a parted record's part ordinal).
-pub fn emit_image_then(b: &mut FunctionBuilder<'_>, parts: &[KeyPart<'_>], tail: impl FnOnce(&mut FunctionBuilder<'_>) -> Option<Value>) -> ImageValues {
-    let nflags = if parts.iter().any(|p| p.null.is_some()) { flag_words(parts.len()) } else { 0 };
-    let mut words = Vec::with_capacity(parts.iter().map(|p| p.words.len()).sum::<usize>() + nflags + 1);
+pub fn emit_image_then(
+    b: &mut FunctionBuilder<'_>,
+    parts: &[KeyPart<'_>],
+    tail: impl FnOnce(&mut FunctionBuilder<'_>) -> Option<Value>,
+) -> ImageValues {
+    let nflags = if parts.iter().any(|p| p.null.is_some()) {
+        flag_words(parts.len())
+    } else {
+        0
+    };
+    let mut words =
+        Vec::with_capacity(parts.iter().map(|p| p.words.len()).sum::<usize>() + nflags + 1);
     let mut flags: Vec<Option<Value>> = vec![None; nflags]; // alloc: Program
     let zero = k(b, 0);
     for (i, p) in parts.iter().enumerate() {
@@ -129,7 +138,13 @@ fn word_hash(b: &mut FunctionBuilder<'_>, w: Value, phi: Value) -> Value {
     b.int_bin(IntBinOp::Mul, x, phi)
 }
 
-fn image_hash(b: &mut FunctionBuilder<'_>, words: &[Value], mut h: Value, phi: Value, shift: Value) -> Value {
+fn image_hash(
+    b: &mut FunctionBuilder<'_>,
+    words: &[Value],
+    mut h: Value,
+    phi: Value,
+    shift: Value,
+) -> Value {
     for &w in words {
         let x = b.int_bin(IntBinOp::Xor, h, w);
         h = b.int_bin(IntBinOp::Mul, x, phi);
@@ -141,7 +156,11 @@ fn image_hash(b: &mut FunctionBuilder<'_>, words: &[Value], mut h: Value, phi: V
 
 /// `(route, full)`: the hash of the image's first `route_words` words (the partition keys) and of the whole image, from one
 /// helper (`route_and_full`), so a row's route and home never take different keys (D154, D171).
-pub fn emit_route_and_full(b: &mut FunctionBuilder<'_>, image: &ImageValues, route_words: usize) -> (Value, Value) {
+pub fn emit_route_and_full(
+    b: &mut FunctionBuilder<'_>,
+    image: &ImageValues,
+    route_words: usize,
+) -> (Value, Value) {
     let full = hash_words(b, &image.words);
     if route_words >= image.words.len() {
         return (full, full);
@@ -245,7 +264,16 @@ pub fn emit_image_eq(b: &mut FunctionBuilder<'_>, x: &ImageValues, y: &ImageValu
 }
 
 /// Equality of `x` with the image stored at `base + off` (its words at 8-byte steps), as [`emit_image_eq`].
-pub fn emit_image_eq_at(b: &mut FunctionBuilder<'_>, x: &ImageValues, base: Value, off: i32) -> Value {
-    let stored = ImageValues { words: (0..x.words.len()).map(|i| b.load(Type::I64, base, off + 8 * i as i32)).collect() };
+pub fn emit_image_eq_at(
+    b: &mut FunctionBuilder<'_>,
+    x: &ImageValues,
+    base: Value,
+    off: i32,
+) -> Value {
+    let stored = ImageValues {
+        words: (0..x.words.len())
+            .map(|i| b.load(Type::I64, base, off + 8 * i as i32))
+            .collect(),
+    };
     emit_image_eq(b, x, &stored)
 }

@@ -69,7 +69,13 @@ fn child(cold: u64) -> Vec<u32> {
 fn run(name: &str, cold: u64) {
     if std::env::var_os(CHILD).is_some() {
         let l = child(cold);
-        eprintln!("cfi-lines: {}", l.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(" "));
+        eprintln!(
+            "cfi-lines: {}",
+            l.iter()
+                .map(|n| n.to_string())
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
         return;
     }
     let out = std::process::Command::new(std::env::current_exe().unwrap())
@@ -79,9 +85,15 @@ fn run(name: &str, cold: u64) {
         .unwrap();
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(out.status.success(), "the child failed: {err}");
-    let gaps: Vec<&str> = err.lines().filter(|l| l.starts_with("poll-gap: ")).collect();
+    let gaps: Vec<&str> = err
+        .lines()
+        .filter(|l| l.starts_with("poll-gap: "))
+        .collect();
     assert!(gaps.len() >= 5, "a gap for each check: {err}");
-    let cfi = err.lines().find_map(|l| l.strip_prefix("cfi-lines: ")).expect("the child's line numbers");
+    let cfi = err
+        .lines()
+        .find_map(|l| l.strip_prefix("cfi-lines: "))
+        .expect("the child's line numbers");
     let what = [
         "check_for_interrupts",
         "check_for_abort_interrupts",
@@ -91,7 +103,10 @@ fn run(name: &str, cold: u64) {
     ];
     for (n, what) in cfi.split(' ').zip(what) {
         let want = format!("; began after a poll at {}:{n};", file!());
-        assert!(gaps.iter().any(|l| l.contains(&want)), "a {what} stretch begins at its own call ({want}), not at mark_poll: {err}");
+        assert!(
+            gaps.iter().any(|l| l.contains(&want)),
+            "a {what} stretch begins at its own call ({want}), not at mark_poll: {err}"
+        );
     }
     for l in &gaps {
         assert!(!l.contains("tcop/postgres/src/lib.rs"), "{l}");

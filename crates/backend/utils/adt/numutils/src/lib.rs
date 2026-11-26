@@ -371,13 +371,31 @@ macro_rules! strtoint {
     };
 }
 
-strtoint!(pg_strtoint16, pg_strtoint16_safe, pg_strtoint16_safe_bytes, i16, "smallint");
-strtoint!(pg_strtoint32, pg_strtoint32_safe, pg_strtoint32_safe_bytes, i32, "integer");
+strtoint!(
+    pg_strtoint16,
+    pg_strtoint16_safe,
+    pg_strtoint16_safe_bytes,
+    i16,
+    "smallint"
+);
+strtoint!(
+    pg_strtoint32,
+    pg_strtoint32_safe,
+    pg_strtoint32_safe_bytes,
+    i32,
+    "integer"
+);
 
 pub fn pg_strtoint32_bytes(s: &[u8]) -> PgResult<i32> {
     pg_strtoint32_safe_bytes(s, None)
 }
-strtoint!(pg_strtoint64, pg_strtoint64_safe, pg_strtoint64_safe_bytes, i64, "bigint");
+strtoint!(
+    pg_strtoint64,
+    pg_strtoint64_safe,
+    pg_strtoint64_safe_bytes,
+    i64,
+    "bigint"
+);
 
 // C strtoul/strtou64 base-0 model + the uint*in_subr checks; cold (oid/xid
 // input paths). When `endloc` the unconsumed tail is returned, else only
@@ -474,16 +492,24 @@ fn uintin_report<'a>(
         Err(NumErr::OutOfRange) => ereturn(
             escontext,
             (0, &b""[..]),
-            PgError::error_bytes("value \"", s, &format!("\" is out of range for type {typname}"))
-                .with_sqlstate(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE)
-                .with_location("numutils.c", range_line, funcname),
+            PgError::error_bytes(
+                "value \"",
+                s,
+                &format!("\" is out of range for type {typname}"),
+            )
+            .with_sqlstate(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE)
+            .with_location("numutils.c", range_line, funcname),
         ),
         Err(NumErr::InvalidSyntax) => ereturn(
             escontext,
             (0, &b""[..]),
-            PgError::error_bytes(&format!("invalid input syntax for type {typname}: \""), s, "\"")
-                .with_sqlstate(ERRCODE_INVALID_TEXT_REPRESENTATION)
-                .with_location("numutils.c", syntax_line, funcname),
+            PgError::error_bytes(
+                &format!("invalid input syntax for type {typname}: \""),
+                s,
+                "\"",
+            )
+            .with_sqlstate(ERRCODE_INVALID_TEXT_REPRESENTATION)
+            .with_location("numutils.c", syntax_line, funcname),
         ),
     }
 }

@@ -215,7 +215,13 @@ fn normalize_user_oids(o: &StmtOutcome) -> StmtOutcome {
         StmtOutcome::Rows { col_oids, rows } => StmtOutcome::Rows {
             col_oids: col_oids
                 .iter()
-                .map(|&oid| if oid >= FIRST_NORMAL_OID { FIRST_NORMAL_OID } else { oid })
+                .map(|&oid| {
+                    if oid >= FIRST_NORMAL_OID {
+                        FIRST_NORMAL_OID
+                    } else {
+                        oid
+                    }
+                })
                 .collect(),
             rows: rows.clone(),
         },
@@ -236,7 +242,14 @@ fn record_case(
     stats: &mut CopyBinStats,
 ) -> DiffClass {
     let (na, nb) = (normalize_user_oids(oa), normalize_user_oids(ob));
-    let raw = classify(&DiffInput { sql, a: &na, b: &nb, ulp_tol, soft_cols: &[], mask_explain_timing: false });
+    let raw = classify(&DiffInput {
+        sql,
+        a: &na,
+        b: &nb,
+        ulp_tol,
+        soft_cols: &[],
+        mask_explain_timing: false,
+    });
     let c = apply_ruled(table, sql, raw);
     stats.cases += 1;
     match &c.class {
@@ -288,8 +301,7 @@ pub fn run_suite(
     };
 
     // Suite DDL + seed rows (divergences here are findings themselves).
-    let mut table_ok: std::collections::BTreeMap<String, bool> =
-        std::collections::BTreeMap::new();
+    let mut table_ok: std::collections::BTreeMap<String, bool> = std::collections::BTreeMap::new();
     for (name, _) in FIXTURE_TABLES {
         table_ok.insert(name.to_string(), true);
     }
@@ -297,7 +309,16 @@ pub fn run_suite(
         let oa = a.apply(&sql);
         let ob = b.apply(&sql);
         let both_ok = is_ok(&oa) && is_ok(&ob);
-        record_case(&sql, &oa, &ob, table, ulp_tol, next(), &mut records, &mut stats);
+        record_case(
+            &sql,
+            &oa,
+            &ob,
+            table,
+            ulp_tol,
+            next(),
+            &mut records,
+            &mut stats,
+        );
         // Track per-breadth-table health so a failed CREATE/INSERT skips
         // that table's cases instead of cascading spurious diffs.
         for t in BIN_TABLES {
@@ -315,7 +336,11 @@ pub fn run_suite(
     let roundtrip: Vec<(String, String)> = FIXTURE_TABLES
         .iter()
         .map(|(n, pk)| (n.to_string(), pk.to_string()))
-        .chain(BIN_TABLES.iter().map(|t| (t.name.to_string(), "pk".to_string())))
+        .chain(
+            BIN_TABLES
+                .iter()
+                .map(|t| (t.name.to_string(), "pk".to_string())),
+        )
         .collect();
     for (src, pk) in &roundtrip {
         if table_ok.get(src) != Some(&true) {
@@ -324,15 +349,35 @@ pub fn run_suite(
         let copy_to = format!("COPY {src} TO STDOUT (FORMAT binary);");
         let oa = a.apply(&copy_to);
         let ob = b.apply(&copy_to);
-        record_case(&copy_to, &oa, &ob, table, ulp_tol, next(), &mut records, &mut stats);
-        let StmtOutcome::CopyOut { bytes, .. } = &oa else { continue };
+        record_case(
+            &copy_to,
+            &oa,
+            &ob,
+            table,
+            ulp_tol,
+            next(),
+            &mut records,
+            &mut stats,
+        );
+        let StmtOutcome::CopyOut { bytes, .. } = &oa else {
+            continue;
+        };
         let spec_bytes = bytes.clone();
 
         let clone = format!("{src}_rt");
         let clone_ddl = format!("CREATE TABLE {clone} (LIKE {src});");
         let ca = a.apply(&clone_ddl);
         let cb = b.apply(&clone_ddl);
-        record_case(&clone_ddl, &ca, &cb, table, ulp_tol, next(), &mut records, &mut stats);
+        record_case(
+            &clone_ddl,
+            &ca,
+            &cb,
+            table,
+            ulp_tol,
+            next(),
+            &mut records,
+            &mut stats,
+        );
         if !(is_ok(&ca) && is_ok(&cb)) {
             continue;
         }
@@ -342,20 +387,47 @@ pub fn run_suite(
         let copy_from = format!("COPY {clone} FROM STDIN (FORMAT binary);");
         let fa = a.apply_copy_in(&copy_from, &spec_bytes);
         let fb = b.apply_copy_in(&copy_from, &spec_bytes);
-        record_case(&copy_from, &fa, &fb, table, ulp_tol, next(), &mut records, &mut stats);
+        record_case(
+            &copy_from,
+            &fa,
+            &fb,
+            table,
+            ulp_tol,
+            next(),
+            &mut records,
+            &mut stats,
+        );
 
         if is_ok(&fa) && is_ok(&fb) {
             // Semantic state probe (pk-ordered, strict compare).
             let probe = format!("SELECT * FROM {clone} ORDER BY {pk};");
             let pa = a.apply(&probe);
             let pb = b.apply(&probe);
-            record_case(&probe, &pa, &pb, table, ulp_tol, next(), &mut records, &mut stats);
+            record_case(
+                &probe,
+                &pa,
+                &pb,
+                table,
+                ulp_tol,
+                next(),
+                &mut records,
+                &mut stats,
+            );
 
             // Re-emit: the recv -> send loop must reproduce the payload.
             let re_emit = format!("COPY {clone} TO STDOUT (FORMAT binary);");
             let ra = a.apply(&re_emit);
             let rb = b.apply(&re_emit);
-            record_case(&re_emit, &ra, &rb, table, ulp_tol, next(), &mut records, &mut stats);
+            record_case(
+                &re_emit,
+                &ra,
+                &rb,
+                table,
+                ulp_tol,
+                next(),
+                &mut records,
+                &mut stats,
+            );
             // And the reference engine's re-emit must equal its original
             // emit (loop closure on the spec side; a mismatch means the
             // suite's byte capture itself is unsound).
@@ -381,7 +453,16 @@ pub fn run_suite(
         let drop = format!("DROP TABLE {clone};");
         let da = a.apply(&drop);
         let db = b.apply(&drop);
-        record_case(&drop, &da, &db, table, ulp_tol, next(), &mut records, &mut stats);
+        record_case(
+            &drop,
+            &da,
+            &db,
+            table,
+            ulp_tol,
+            next(),
+            &mut records,
+            &mut stats,
+        );
     }
 
     // Extra COPY TO shapes (column lists, query forms, one text-format
@@ -394,7 +475,16 @@ pub fn run_suite(
         }
         let oa = a.apply(&sql);
         let ob = b.apply(&sql);
-        record_case(&sql, &oa, &ob, table, ulp_tol, next(), &mut records, &mut stats);
+        record_case(
+            &sql,
+            &oa,
+            &ob,
+            table,
+            ulp_tol,
+            next(),
+            &mut records,
+            &mut stats,
+        );
     }
 
     (records, stats)
@@ -404,12 +494,7 @@ pub fn run_suite(
 /// instrumented C server through every COPY TO / COPY FROM binary arm
 /// without a peer). The engine's own COPY TO bytes feed its COPY FROM.
 pub fn run_single(engine: &mut dyn Executor) -> (u32, u32) {
-    fn run(
-        ex: &mut dyn Executor,
-        sql: &str,
-        applied: &mut u32,
-        errors: &mut u32,
-    ) -> StmtOutcome {
+    fn run(ex: &mut dyn Executor, sql: &str, applied: &mut u32, errors: &mut u32) -> StmtOutcome {
         *applied += 1;
         let o = ex.apply(sql);
         if !is_ok(&o) {
@@ -424,23 +509,48 @@ pub fn run_single(engine: &mut dyn Executor) -> (u32, u32) {
     let roundtrip: Vec<(String, String)> = FIXTURE_TABLES
         .iter()
         .map(|(n, pk)| (n.to_string(), pk.to_string()))
-        .chain(BIN_TABLES.iter().map(|t| (t.name.to_string(), "pk".to_string())))
+        .chain(
+            BIN_TABLES
+                .iter()
+                .map(|t| (t.name.to_string(), "pk".to_string())),
+        )
         .collect();
     for (src, pk) in &roundtrip {
         let copy_to = format!("COPY {src} TO STDOUT (FORMAT binary);");
         let oa = run(engine, &copy_to, &mut applied, &mut errors);
-        let StmtOutcome::CopyOut { bytes, .. } = oa else { continue };
+        let StmtOutcome::CopyOut { bytes, .. } = oa else {
+            continue;
+        };
         let clone = format!("{src}_rt");
-        run(engine, &format!("CREATE TABLE {clone} (LIKE {src});"), &mut applied, &mut errors);
+        run(
+            engine,
+            &format!("CREATE TABLE {clone} (LIKE {src});"),
+            &mut applied,
+            &mut errors,
+        );
         applied += 1;
-        let fa = engine
-            .apply_copy_in(&format!("COPY {clone} FROM STDIN (FORMAT binary);"), &bytes);
+        let fa = engine.apply_copy_in(&format!("COPY {clone} FROM STDIN (FORMAT binary);"), &bytes);
         if !is_ok(&fa) {
             errors += 1;
         }
-        run(engine, &format!("SELECT * FROM {clone} ORDER BY {pk};"), &mut applied, &mut errors);
-        run(engine, &format!("COPY {clone} TO STDOUT (FORMAT binary);"), &mut applied, &mut errors);
-        run(engine, &format!("DROP TABLE {clone};"), &mut applied, &mut errors);
+        run(
+            engine,
+            &format!("SELECT * FROM {clone} ORDER BY {pk};"),
+            &mut applied,
+            &mut errors,
+        );
+        run(
+            engine,
+            &format!("COPY {clone} TO STDOUT (FORMAT binary);"),
+            &mut applied,
+            &mut errors,
+        );
+        run(
+            engine,
+            &format!("DROP TABLE {clone};"),
+            &mut applied,
+            &mut errors,
+        );
     }
     for sql in copyto_extra_cases() {
         run(engine, &sql, &mut applied, &mut errors);
@@ -473,13 +583,19 @@ mod tests {
                     rows: vec![vec![Some("1".to_string())]],
                 }
             } else {
-                StmtOutcome::Command { tag: "OK".to_string(), affected: None }
+                StmtOutcome::Command {
+                    tag: "OK".to_string(),
+                    affected: None,
+                }
             }
         }
 
         fn apply_copy_in(&mut self, _sql: &str, data: &[u8]) -> StmtOutcome {
             self.fed.push(data.to_vec());
-            StmtOutcome::Command { tag: "COPY 1".to_string(), affected: Some(1) }
+            StmtOutcome::Command {
+                tag: "COPY 1".to_string(),
+                affected: Some(1),
+            }
         }
     }
 
@@ -488,9 +604,13 @@ mod tests {
         assert_eq!(suite_ddl(), suite_ddl());
         let ddl = suite_ddl();
         for t in BIN_TABLES {
-            assert!(ddl.iter().any(|s| s.starts_with("CREATE TABLE ") && s.contains(t.name)));
+            assert!(ddl
+                .iter()
+                .any(|s| s.starts_with("CREATE TABLE ") && s.contains(t.name)));
             assert!(
-                ddl.iter().filter(|s| s.starts_with(&format!("INSERT INTO {} ", t.name))).count()
+                ddl.iter()
+                    .filter(|s| s.starts_with(&format!("INSERT INTO {} ", t.name)))
+                    .count()
                     >= 4,
                 "{} has too few seed rows",
                 t.name
@@ -504,8 +624,14 @@ mod tests {
 
     #[test]
     fn identical_engines_produce_zero_findings() {
-        let mut a = Fake { copy_payload: b"PGCOPY-BYTES".to_vec(), fed: Vec::new() };
-        let mut b = Fake { copy_payload: b"PGCOPY-BYTES".to_vec(), fed: Vec::new() };
+        let mut a = Fake {
+            copy_payload: b"PGCOPY-BYTES".to_vec(),
+            fed: Vec::new(),
+        };
+        let mut b = Fake {
+            copy_payload: b"PGCOPY-BYTES".to_vec(),
+            fed: Vec::new(),
+        };
         let table = crate::ruled::default_table();
         let (records, stats) = run_suite(&mut a, &mut b, &table, 4);
         assert_eq!(stats.findings, 0, "records: {records:?}");
@@ -523,8 +649,14 @@ mod tests {
 
     #[test]
     fn payload_divergence_is_one_finding_per_copy_case() {
-        let mut a = Fake { copy_payload: b"PGCOPY-AAAA".to_vec(), fed: Vec::new() };
-        let mut b = Fake { copy_payload: b"PGCOPY-BBBB".to_vec(), fed: Vec::new() };
+        let mut a = Fake {
+            copy_payload: b"PGCOPY-AAAA".to_vec(),
+            fed: Vec::new(),
+        };
+        let mut b = Fake {
+            copy_payload: b"PGCOPY-BBBB".to_vec(),
+            fed: Vec::new(),
+        };
         let table = crate::ruled::default_table();
         let (records, stats) = run_suite(&mut a, &mut b, &table, 4);
         assert!(stats.findings > 0);
@@ -541,21 +673,51 @@ mod tests {
         // Same query, drifted user-type oids (engine-local counters):
         // normalized compare matches; builtin-vs-user still diffs.
         let rows = vec![vec![Some("happy".to_string())]];
-        let ua = StmtOutcome::Rows { col_oids: vec![23, 28290], rows: rows.clone() };
-        let ub = StmtOutcome::Rows { col_oids: vec![23, 28284], rows: rows.clone() };
+        let ua = StmtOutcome::Rows {
+            col_oids: vec![23, 28290],
+            rows: rows.clone(),
+        };
+        let ub = StmtOutcome::Rows {
+            col_oids: vec![23, 28284],
+            rows: rows.clone(),
+        };
         let table = crate::ruled::default_table();
         let mut records = Vec::new();
         let mut stats = CopyBinStats::default();
-        let c = record_case("SELECT ...;", &ua, &ub, &table, 4, 0, &mut records, &mut stats);
+        let c = record_case(
+            "SELECT ...;",
+            &ua,
+            &ub,
+            &table,
+            4,
+            0,
+            &mut records,
+            &mut stats,
+        );
         assert_eq!(c, DiffClass::Match);
-        let builtin = StmtOutcome::Rows { col_oids: vec![23, 25], rows };
-        let c = record_case("SELECT ...;", &ua, &builtin, &table, 4, 1, &mut records, &mut stats);
+        let builtin = StmtOutcome::Rows {
+            col_oids: vec![23, 25],
+            rows,
+        };
+        let c = record_case(
+            "SELECT ...;",
+            &ua,
+            &builtin,
+            &table,
+            4,
+            1,
+            &mut records,
+            &mut stats,
+        );
         assert_eq!(c, DiffClass::RowsetDiff);
     }
 
     #[test]
     fn single_engine_pass_applies_whole_deck() {
-        let mut e = Fake { copy_payload: b"PGCOPY-X".to_vec(), fed: Vec::new() };
+        let mut e = Fake {
+            copy_payload: b"PGCOPY-X".to_vec(),
+            fed: Vec::new(),
+        };
         let (applied, errors) = run_single(&mut e);
         assert_eq!(errors, 0);
         assert!(applied as usize > suite_ddl().len());

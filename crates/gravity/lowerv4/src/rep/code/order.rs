@@ -12,13 +12,16 @@ use gravity_decompose::catalog::typefacts::{KeyColl, TypeFacts};
 use gravity_ir::{HostFlags, Type, Value};
 use gravity_program::Rep;
 
+use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::cell::Cell;
 use crate::face::kinds::KindId;
-use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::ops::Table;
 use crate::rep::{self, CellRef, Lx, OrderArm, Words};
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::RepCodeOrder, &ARM)], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::RepCodeOrder, &ARM)],
+    ..crate::ops::NONE
+};
 
 pub(crate) const ARM: OrderArm = OrderArm { image, name: None };
 
@@ -34,27 +37,66 @@ pub(crate) fn rank(cx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, coll: KeyColl) -> Va
 /// Byte order is this collation's order, or the rank refuses (a rank has no collated form).
 fn bytes_order(cx: &Lx<'_, '_, '_>, coll: KeyColl) {
     if !coll.bytes_order {
-        crate::refuse!(cx, Reason::Shape { why: ShapeWhy("an in-part code rank under a collation that does not order by bytes") });
+        crate::refuse!(
+            cx,
+            Reason::Shape {
+                why: ShapeWhy(
+                    "an in-part code rank under a collation that does not order by bytes"
+                )
+            }
+        );
     }
 }
 
 fn image(cx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, tf: &TypeFacts, coll: KeyColl) -> Words {
-    crate::rep::code::datum::not_image_only(cx, c.cell, "an image-only key cell read as an order image");
+    crate::rep::code::datum::not_image_only(
+        cx,
+        c.cell,
+        "an image-only key cell read as an order image",
+    );
     let (p, null) = rep::datum(cx, c, tf);
     if !coll.bytes_order {
         // the render (the dictionary's resident varlena) orders under the collation as a varlena cell does
-        let cell = Cell { rep: Rep::VarlenaPtr, at: crate::rep::word::datum::off_lane(c.cell.at), ..*c.cell };
-        return (rep::arm::<OrderArm>(&*cx, KindId::RepVarlenaOrder).image)(cx, CellRef { cell: &cell, val: p, null: Some(null) }, tf, coll);
+        let cell = Cell {
+            rep: Rep::VarlenaPtr,
+            at: crate::rep::word::datum::off_lane(c.cell.at),
+            ..*c.cell
+        };
+        return (rep::arm::<OrderArm>(&*cx, KindId::RepVarlenaOrder).image)(
+            cx,
+            CellRef {
+                cell: &cell,
+                val: p,
+                null: Some(null),
+            },
+            tf,
+            coll,
+        );
     }
     let zero = cx.b.iconst(Type::I64, 0);
     let (l_img, l_out) = (cx.b.create_block(&[]), cx.b.create_block(&[Type::I64]));
     cx.b.cond_br(null, (l_out, &[zero]), (l_img, &[]));
     cx.b.switch_to(l_img);
-    let h = cx.b.declare_host_once("rep_code_prefix", &[Type::I64], Some(Type::I64), gravity_abi::host_words!(prefix8(p)), HostFlags { touches_memory: true, pure: true, ..HostFlags::default() });
-    let w = cx.b.call_host(h, &[p], Some(Type::I64)).expect("returns the prefix word");
+    let h = cx.b.declare_host_once(
+        "rep_code_prefix",
+        &[Type::I64],
+        Some(Type::I64),
+        gravity_abi::host_words!(prefix8(p)),
+        HostFlags {
+            touches_memory: true,
+            pure: true,
+            ..HostFlags::default()
+        },
+    );
+    let w =
+        cx.b.call_host(h, &[p], Some(Type::I64))
+            .expect("returns the prefix word");
     cx.b.br(l_out, &[w]);
     cx.b.switch_to(l_out);
-    Words { w: [Some(cx.b.block_params(l_out)[0]), None], exact: false }
+    Words {
+        w: [Some(cx.b.block_params(l_out)[0]), None],
+        exact: false,
+    }
 }
 
 use super::raw::order::prefix8;
@@ -71,8 +113,15 @@ mod tests {
             // SAFETY: a 4-byte-header varlena image.
             unsafe { super::prefix8(v.as_ptr() as u64) as i64 }
         };
-        let words: Vec<i64> = [&b""[..], b"a", b"ab", b"abcdefgh", b"b", b"\xff"].iter().map(|s| img(s)).collect();
+        let words: Vec<i64> = [&b""[..], b"a", b"ab", b"abcdefgh", b"b", b"\xff"]
+            .iter()
+            .map(|s| img(s))
+            .collect();
         assert!(words.windows(2).all(|w| w[0] < w[1]), "{words:x?}");
-        assert_eq!(img(b"abcdefghX"), img(b"abcdefghY"), "past 8 bytes a tie is the consumer's to break");
+        assert_eq!(
+            img(b"abcdefghX"),
+            img(b"abcdefghY"),
+            "past 8 bytes a tie is the consumer's to break"
+        );
     }
 }

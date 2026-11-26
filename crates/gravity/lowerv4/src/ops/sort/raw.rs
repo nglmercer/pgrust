@@ -3,10 +3,10 @@
 //! (`fetch_site`, the by-rowid fetch site's call) and strategies/resident.rs (`sort_image_key`, a key tail's payload
 //! copied behind its header). Their callers take each entry's address for the IR's host call.
 #![allow(unsafe_code)]
-use gravity_abi::PtrWord;
 use core::alloc::Layout;
 use core::cmp::Ordering;
 use core::mem::MaybeUninit;
+use gravity_abi::PtrWord;
 
 use gravity_abi::breaker::SortRun;
 use gravity_abi::ctx::{lane, Ctx, Lane};
@@ -76,7 +76,14 @@ pub(crate) const COUNT: u64 = 1 << 32;
 
 /// `incsort_span`'s sort of the `idx.len()` rows at `base` (`idx`: `0..n` on entry) through `tmp` (`idx.len() * rb` writable
 /// bytes); `vars`: `(col, slot offset)` per var column.
-unsafe fn span(base: *mut u8, rb: usize, idx: &mut [u32], tmp: *mut u8, cmp: &dyn Fn(*const u8, *const u8) -> Ordering, vars: &[u32]) {
+unsafe fn span(
+    base: *mut u8,
+    rb: usize,
+    idx: &mut [u32],
+    tmp: *mut u8,
+    cmp: &dyn Fn(*const u8, *const u8) -> Ordering,
+    vars: &[u32],
+) {
     let n = idx.len();
     let row = |i: u32| base.add(i as usize * rb) as *const u8;
     idx.sort_unstable_by(|&a, &b| match cmp(row(a), row(b)) {
@@ -153,7 +160,16 @@ mod tests {
         let mut buf = vec![0u8; var_at + 8 * NVAR * rows];
         let run = buf.as_mut_ptr();
         // the emit table: header, no image, the var section (`nvar, rec_off`, `(col, slot)` each), one key's `(coll, kflags)`
-        let mut tbl = vec![rb as u32, 2, (1 + NVAR) as u32 | VAR_TBL, 0, 0, 0, NVAR as u32, 0];
+        let mut tbl = vec![
+            rb as u32,
+            2,
+            (1 + NVAR) as u32 | VAR_TBL,
+            0,
+            0,
+            0,
+            NVAR as u32,
+            0,
+        ];
         (0..NVAR).for_each(|c| tbl.extend([1 + c as u32, 16 + 8 * c as u32]));
         tbl.extend([0, 0]);
         assert_eq!(tbl.len(), SORT_TBL_HDR + 2 + 2 * NVAR + 2);
@@ -167,20 +183,30 @@ mod tests {
                 for c in 0..NVAR {
                     let (so, copy) = (16 + 8 * c, var_at + 8 * (NVAR * i + c));
                     (at.add(so) as *mut u32).write_unaligned(8);
-                    (at.add(so + 4) as *mut u32).write_unaligned((copy - (SORTRUN_HDR + i * rb + so)) as u32);
+                    (at.add(so + 4) as *mut u32)
+                        .write_unaligned((copy - (SORTRUN_HDR + i * rb + so)) as u32);
                     (run.add(copy) as *mut u64).write_unaligned(100 * k + c as u64);
                 }
             }
             // rows 1..5 only: row 0 and row 5 stay
-            assert_eq!(incsort_span(core::ptr::null_mut(), run, 1, 5, 1, 0, tbl.as_ptr() as u64), 0);
-            let got: Vec<u64> = (0..rows).map(|i| (run.add(SORTRUN_HDR + i * rb + 8) as *const u64).read_unaligned()).collect();
+            assert_eq!(
+                incsort_span(core::ptr::null_mut(), run, 1, 5, 1, 0, tbl.as_ptr() as u64),
+                0
+            );
+            let got: Vec<u64> = (0..rows)
+                .map(|i| (run.add(SORTRUN_HDR + i * rb + 8) as *const u64).read_unaligned())
+                .collect();
             assert_eq!(got, vec![5, 1, 3, 3, 9, 7]);
             #[allow(clippy::needless_range_loop)]
             for i in 0..rows {
                 for c in 0..NVAR {
                     let slot = run.add(SORTRUN_HDR + i * rb + 16 + 8 * c);
                     let off = (slot.add(4) as *const u32).read_unaligned() as usize;
-                    assert_eq!((slot.add(off) as *const u64).read_unaligned(), 100 * got[i] + c as u64, "row {i}'s copy of column {c}");
+                    assert_eq!(
+                        (slot.add(off) as *const u64).read_unaligned(),
+                        100 * got[i] + c as u64,
+                        "row {i}'s copy of column {c}"
+                    );
                 }
             }
         }
@@ -202,12 +228,23 @@ mod tests {
                 (at.add(8) as *mut u64).write_unaligned(k);
             }
             // rows 0..6 hold {3, 1, 9, 3, 1, 3}: three distinct
-            assert_eq!(incsort_span(core::ptr::null_mut(), run, 0, 6, 1 | COUNT, 0, 0), 3);
-            assert_eq!(incsort_span(core::ptr::null_mut(), run, 6, 8, 1 | COUNT, 0, 0), 2);
+            assert_eq!(
+                incsort_span(core::ptr::null_mut(), run, 0, 6, 1 | COUNT, 0, 0),
+                3
+            );
+            assert_eq!(
+                incsort_span(core::ptr::null_mut(), run, 6, 8, 1 | COUNT, 0, 0),
+                2
+            );
             assert_eq!(incsort_span(core::ptr::null_mut(), run, 0, 8, 1, 0, 0), 0);
-            let got: Vec<u64> = (0..rows).map(|i| (run.add(SORTRUN_HDR + i * rb + 8) as *const u64).read_unaligned()).collect();
+            let got: Vec<u64> = (0..rows)
+                .map(|i| (run.add(SORTRUN_HDR + i * rb + 8) as *const u64).read_unaligned())
+                .collect();
             assert_eq!(got, vec![1, 1, 2, 3, 3, 3, 7, 9]);
-            assert_eq!(incsort_span(core::ptr::null_mut(), run, 0, 8, 1 | COUNT, 0, 0), 5);
+            assert_eq!(
+                incsort_span(core::ptr::null_mut(), run, 0, 8, 1 | COUNT, 0, 0),
+                5
+            );
         }
     }
 
@@ -225,8 +262,13 @@ mod tests {
                 (at as *mut u64).write_unaligned(1);
                 (at.add(8) as *mut u64).write_unaligned(((i * 7919) % 1009) as u64);
             }
-            assert_eq!(incsort_span(core::ptr::null_mut(), run, 0, rows as u64, 1, 0, 0), 0);
-            let got: Vec<u64> = (0..rows).map(|i| (run.add(SORTRUN_HDR + i * rb + 8) as *const u64).read_unaligned()).collect();
+            assert_eq!(
+                incsort_span(core::ptr::null_mut(), run, 0, rows as u64, 1, 0, 0),
+                0
+            );
+            let got: Vec<u64> = (0..rows)
+                .map(|i| (run.add(SORTRUN_HDR + i * rb + 8) as *const u64).read_unaligned())
+                .collect();
             assert!(got.windows(2).all(|w| w[0] <= w[1]), "sorted");
             let mut want: Vec<u64> = (0..rows).map(|i| ((i * 7919) % 1009) as u64).collect();
             want.sort();
@@ -244,8 +286,16 @@ mod tests {
         let short = [&[((text.len() as u8 + 1) << 1) | 1][..], text].concat();
         let plain = [&((text.len() as u32 + 4) << 2).to_le_bytes()[..], text].concat();
         // pglz: a control byte of eight literal flags (0) before each eight literal bytes; the header's size, 0b10, the raw size
-        let lz: Vec<u8> = text.chunks(8).flat_map(|c| [&[0u8][..], c].concat()).collect();
-        let comp = [&(((lz.len() as u32 + 8) << 2) | 2).to_le_bytes()[..], &(text.len() as u32).to_le_bytes(), &lz].concat();
+        let lz: Vec<u8> = text
+            .chunks(8)
+            .flat_map(|c| [&[0u8][..], c].concat())
+            .collect();
+        let comp = [
+            &(((lz.len() as u32 + 8) << 2) | 2).to_le_bytes()[..],
+            &(text.len() as u32).to_le_bytes(),
+            &lz,
+        ]
+        .concat();
         for (form, d) in [("1-byte", short), ("4-byte", plain), ("compressed", comp)] {
             let (rb, cap) = (16usize, 2usize);
             let mut buf = vec![0u64; 64];
@@ -256,11 +306,26 @@ mod tests {
                 (run.add(SORTRUN_HDR + cap * rb) as *mut u32).write_unaligned(512);
                 assert_eq!(sort_image_key(run, d.as_ptr() as u64, 0, 8), 0, "{form}");
                 let slot = run.add(SORTRUN_HDR);
-                let (size, off) = ((slot as *const u32).read_unaligned() as usize, (slot.add(4) as *const u32).read_unaligned() as usize);
+                let (size, off) = (
+                    (slot as *const u32).read_unaligned() as usize,
+                    (slot.add(4) as *const u32).read_unaligned() as usize,
+                );
                 assert_eq!(size, text.len() + 4, "{form}");
-                assert_eq!((slot.add(off) as *const u32).read_unaligned(), (size as u32) << 2, "{form}: a 4-byte header");
-                assert_eq!(core::slice::from_raw_parts(slot.add(off + 4), size - 4), &text[..], "{form}");
-                assert_eq!((slot.add(8) as *const u32).read_unaligned(), h::var_alloc(size as u32), "{form}: the record word");
+                assert_eq!(
+                    (slot.add(off) as *const u32).read_unaligned(),
+                    (size as u32) << 2,
+                    "{form}: a 4-byte header"
+                );
+                assert_eq!(
+                    core::slice::from_raw_parts(slot.add(off + 4), size - 4),
+                    &text[..],
+                    "{form}"
+                );
+                assert_eq!(
+                    (slot.add(8) as *const u32).read_unaligned(),
+                    h::var_alloc(size as u32),
+                    "{form}: the record word"
+                );
             }
         }
     }

@@ -24,7 +24,10 @@ fn serial() -> MutexGuard<'static, ()> {
     static TURN: Mutex<()> = Mutex::new(());
     ONCE.call_once(|| {
         let probe = vec![1u8; 8 * KIB];
-        assert!(pagepool::global_on() && pagepool::owns(probe.as_ptr()), "the global allocator serves from the pool's range");
+        assert!(
+            pagepool::global_on() && pagepool::owns(probe.as_ptr()),
+            "the global allocator serves from the pool's range"
+        );
         assert!(pagepool::switches().gravity, "arenas take from the pool");
     });
     TURN.lock().unwrap_or_else(|e| e.into_inner())
@@ -49,7 +52,10 @@ fn exercise(arena: &Arena, n: usize) {
     for _ in 0..3 {
         let p = a.alloc(n);
         let s = unsafe { core::slice::from_raw_parts_mut(p, n) };
-        assert!(s.iter().all(|&b| b == 0), "the arena's unused memory reads zero");
+        assert!(
+            s.iter().all(|&b| b == 0),
+            "the arena's unused memory reads zero"
+        );
         s.fill(0x5a);
         let inner = a.mark();
         let _ = a.alloc(64);
@@ -62,12 +68,20 @@ fn exercise(arena: &Arena, n: usize) {
 fn an_arena_from_the_pool_records_it_in_each_form() {
     let _t = serial();
     on(4810, || {
-        for (bytes, n) in [(64 * KIB, 32 * KIB), (4 * MIB, 3 * MIB), (KEEP_BYTES + 32 * MIB, KEEP_BYTES + 16 * MIB)] {
+        for (bytes, n) in [
+            (64 * KIB, 32 * KIB),
+            (4 * MIB, 3 * MIB),
+            (KEEP_BYTES + 32 * MIB, KEEP_BYTES + 16 * MIB),
+        ] {
             let arena = Arena::new(bytes);
             let a = arena.handle();
             let p = a.alloc(8);
             assert!(pagepool::taken(p), "{bytes}: the pool's block");
-            assert_eq!(a.recorded_pool(), Some(true), "{bytes}: recorded as the pool's");
+            assert_eq!(
+                a.recorded_pool(),
+                Some(true),
+                "{bytes}: recorded as the pool's"
+            );
             a.reset_to(a.mark());
             exercise(&arena, n);
         }
@@ -81,7 +95,10 @@ fn a_refused_pool_take_records_the_allocators_block_in_the_pools_range_and_a_map
         let arena = Arena::try_new_off_pool(64 * KIB).expect("the allocator's road");
         let a = arena.handle();
         let p = a.alloc(8);
-        assert!(pagepool::owns(p) && !pagepool::taken(p), "the global allocator's block, in the pool's range");
+        assert!(
+            pagepool::owns(p) && !pagepool::taken(p),
+            "the global allocator's block, in the pool's range"
+        );
         assert_eq!(a.recorded_pool(), Some(false), "recorded as not the pool's");
         exercise(&arena, 32 * KIB);
         drop(arena);
@@ -99,7 +116,11 @@ fn with_the_bit_off_nothing_is_recorded_or_read() {
     on(4812, || {
         let made_on = Arena::new(64 * KIB);
         set_pooled_bit(false);
-        assert_eq!(made_on.handle().recorded_pool(), None, "a record is not read while off");
+        assert_eq!(
+            made_on.handle().recorded_pool(),
+            None,
+            "a record is not read while off"
+        );
         let made_off = Arena::new(64 * KIB);
         let off_pool = Arena::try_new_off_pool(64 * KIB).expect("the allocator's road");
         for arena in [&made_on, &made_off, &off_pool] {
@@ -107,7 +128,11 @@ fn with_the_bit_off_nothing_is_recorded_or_read() {
             exercise(arena, 32 * KIB);
         }
         set_pooled_bit(true);
-        assert_eq!(made_off.handle().recorded_pool(), None, "made while off: nothing recorded");
+        assert_eq!(
+            made_off.handle().recorded_pool(),
+            None,
+            "made while off: nothing recorded"
+        );
         assert_eq!(made_on.handle().recorded_pool(), Some(true));
         exercise(&made_off, 32 * KIB);
     });

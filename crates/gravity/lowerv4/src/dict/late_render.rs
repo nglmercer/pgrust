@@ -18,4 +18,7 @@ crate::strategies! {
     CODE_RENDER = 45, "code.render", CodeKeyed;
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(CODE_RENDER, &())], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(CODE_RENDER, &())],
+    ..crate::ops::NONE
+};

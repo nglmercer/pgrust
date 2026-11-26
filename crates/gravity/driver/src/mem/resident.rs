@@ -18,7 +18,15 @@ pub static PASS_SCANNED_LAST: AtomicU64 = AtomicU64::new(0);
 
 /// `NONE` under `RESIDENCY_MIN`: its account counts it whole. LEDGER2 design A: its not-resident bytes book on its charge's
 /// owner too (`home`: `Charge::nr_home`).
-pub(crate) fn register(lo: usize, span: usize, charged: usize, acct: memledger::Acct, mapped: bool, fresh: bool, home: memledger::charge::NrHome) -> u32 {
+pub(crate) fn register(
+    lo: usize,
+    span: usize,
+    charged: usize,
+    acct: memledger::Acct,
+    mapped: bool,
+    fresh: bool,
+    home: memledger::charge::NrHome,
+) -> u32 {
     if charged < mempolicy::watchdog::RESIDENCY_MIN {
         return NONE;
     }
@@ -38,7 +46,9 @@ pub fn pass_all() -> bool {
 
 fn run(budget: usize) -> bool {
     let t0 = MonoStamp::now();
-    let Some(read) = memledger::resident::pass(pagegive::resident_bytes, budget) else { return false };
+    let Some(read) = memledger::resident::pass(pagegive::resident_bytes, budget) else {
+        return false;
+    };
     let ns = t0.elapsed_ns();
     PASSES.fetch_add(1, Ordering::Relaxed);
     PASS_NS_SUM.fetch_add(ns, Ordering::Relaxed);

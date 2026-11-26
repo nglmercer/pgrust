@@ -54,9 +54,19 @@ fn serial(program: Program, blocks: u64, param: u64, grant: Grant) -> (Vec<Vec<u
     let mut sink = LegSink::new();
     let params = [param];
     let mut b = binding(&params, &NULLS, &mut sink, &flag);
-    let mut exec = entry.start(None, &program, &mut derive, &mut b, lease(grant)).unwrap();
-    assert_eq!(entry.run_pipeline(&mut exec, &mut b, Call::batch(64)).unwrap(), Step::Done);
-    assert_eq!(entry.run(&mut exec, &mut b, Call::batch(64)).unwrap(), Step::Done);
+    let mut exec = entry
+        .start(None, &program, &mut derive, &mut b, lease(grant))
+        .unwrap();
+    assert_eq!(
+        entry
+            .run_pipeline(&mut exec, &mut b, Call::batch(64))
+            .unwrap(),
+        Step::Done
+    );
+    assert_eq!(
+        entry.run(&mut exec, &mut b, Call::batch(64)).unwrap(),
+        Step::Done
+    );
     let acc = exec.node().accounting();
     entry.end(exec, true);
     (sink.sorted(), acc)

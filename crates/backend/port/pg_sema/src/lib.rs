@@ -41,9 +41,12 @@ struct PgSemaphore {
 static SEMAS: RwLock<Vec<&'static PgSemaphore>> = RwLock::new(Vec::new());
 
 fn sema(procno: ProcNumber) -> &'static PgSemaphore {
-    SEMAS.read().unwrap().get(procno as usize).copied().unwrap_or_else(|| {
-        panic!("pg_sema: semaphore for proc {procno} was never created")
-    })
+    SEMAS
+        .read()
+        .unwrap()
+        .get(procno as usize)
+        .copied()
+        .unwrap_or_else(|| panic!("pg_sema: semaphore for proc {procno} was never created"))
 }
 
 // C sizeof(PGSemaphoreData): the unnamed-POSIX build (the Linux default)
@@ -221,7 +224,8 @@ mod tests {
         // the wake route retired, so the hook can end the owner and leave no
         // residue; an owner the hook lets live keeps waiting for its count.
         struct LapExit;
-        static DIE_AT_LAP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        static DIE_AT_LAP: std::sync::atomic::AtomicBool =
+            std::sync::atomic::AtomicBool::new(false);
         pg_sema_seams::pg_semaphore_wait_lap::set(|| {
             if DIE_AT_LAP.swap(false, SeqCst) {
                 std::panic::panic_any(LapExit);
@@ -234,10 +238,17 @@ mod tests {
             .join()
             .expect_err("the hook ends the parked owner");
         assert!(died.is::<LapExit>());
-        assert_eq!(sema(4).waiter.load(SeqCst), 0, "no wake route outlives the owner");
+        assert_eq!(
+            sema(4).waiter.load(SeqCst),
+            0,
+            "no wake route outlives the owner"
+        );
         let waiter = std::thread::spawn(|| PGSemaphoreLock(4));
         std::thread::sleep(std::time::Duration::from_millis(1500));
-        assert!(!waiter.is_finished(), "a lap without a count keeps the owner waiting");
+        assert!(
+            !waiter.is_finished(),
+            "a lap without a count keeps the owner waiting"
+        );
         PGSemaphoreUnlock(4);
         waiter.join().unwrap();
     }

@@ -34,7 +34,12 @@ pub static KNOBS: &[Knob] = &[
 
 /// `PGRUST_GRAVITY_HOST_POLL` (glue.rs reads it once per process): the host loops' polls, on unless `0` / `off`.
 pub(crate) fn host_polls() -> bool {
-    !matches!(super::env("PGRUST_GRAVITY_HOST_POLL").as_deref().and_then(|v| v.to_str()), Some("0" | "off"))
+    !matches!(
+        super::env("PGRUST_GRAVITY_HOST_POLL")
+            .as_deref()
+            .and_then(|v| v.to_str()),
+        Some("0" | "off")
+    )
 }
 
 /// `PGRUST_GRAVITY_POLL_GAP_MS` (glue.rs reads it once per process): the poll-gap probe's threshold, ms.
@@ -44,59 +49,125 @@ pub(crate) fn poll_gap_ms() -> Option<u64> {
 
 /// `PGRUST_GRAVITY_SMALL_SORT` (glue.rs reads it once per process): the kernels' small sort road, on unless `0` / `off`.
 pub(crate) fn small_sort() -> bool {
-    !matches!(super::env("PGRUST_GRAVITY_SMALL_SORT").as_deref().and_then(|v| v.to_str()).map(str::trim), Some("0" | "off"))
+    !matches!(
+        super::env("PGRUST_GRAVITY_SMALL_SORT")
+            .as_deref()
+            .and_then(|v| v.to_str())
+            .map(str::trim),
+        Some("0" | "off")
+    )
 }
 
 /// `PGRUST_GRAVITY_SHED_ONCE` (glue.rs reads it once per process): a parked Node shed at most once while parked, on unless `0` / `off`.
 pub(crate) fn shed_once() -> bool {
-    !matches!(super::env("PGRUST_GRAVITY_SHED_ONCE").as_deref().and_then(|v| v.to_str()).map(str::trim), Some("0" | "off"))
+    !matches!(
+        super::env("PGRUST_GRAVITY_SHED_ONCE")
+            .as_deref()
+            .and_then(|v| v.to_str())
+            .map(str::trim),
+        Some("0" | "off")
+    )
 }
 
 /// `PGRUST_GRAVITY_POOLED_MEMO` (glue.rs reads it once per process): a context block keeps its pooled answer, on unless `0` / `off`.
 pub(crate) fn pooled_memo() -> bool {
-    !matches!(super::env("PGRUST_GRAVITY_POOLED_MEMO").as_deref().and_then(|v| v.to_str()).map(str::trim), Some("0" | "off"))
+    !matches!(
+        super::env("PGRUST_GRAVITY_POOLED_MEMO")
+            .as_deref()
+            .and_then(|v| v.to_str())
+            .map(str::trim),
+        Some("0" | "off")
+    )
 }
 
 /// `PGRUST_GRAVITY_POOLED_BIT` (glue.rs reads it once per process): a context block carries the allocator that served it, on unless `0` / `off`.
 pub(crate) fn pooled_bit() -> bool {
-    !matches!(super::env("PGRUST_GRAVITY_POOLED_BIT").as_deref().and_then(|v| v.to_str()).map(str::trim), Some("0" | "off"))
+    !matches!(
+        super::env("PGRUST_GRAVITY_POOLED_BIT")
+            .as_deref()
+            .and_then(|v| v.to_str())
+            .map(str::trim),
+        Some("0" | "off")
+    )
 }
 
 /// `PGRUST_GRAVITY_SEND_GROW` (glue.rs reads it once per process): the send buffer grows to 64 KiB before it flushes when full, on unless `0` / `off`.
 pub(crate) fn send_grow() -> bool {
-    !matches!(super::env("PGRUST_GRAVITY_SEND_GROW").as_deref().and_then(|v| v.to_str()).map(str::trim), Some("0" | "off"))
+    !matches!(
+        super::env("PGRUST_GRAVITY_SEND_GROW")
+            .as_deref()
+            .and_then(|v| v.to_str())
+            .map(str::trim),
+        Some("0" | "off")
+    )
 }
 
 /// `PGRUST_GRAVITY_SEND_INTO` (glue.rs reads it once per process): printtup's binary text columns render into the DataRow, on unless `0` / `off`.
 pub(crate) fn send_into() -> bool {
-    !matches!(super::env("PGRUST_GRAVITY_SEND_INTO").as_deref().and_then(|v| v.to_str()).map(str::trim), Some("0" | "off"))
+    !matches!(
+        super::env("PGRUST_GRAVITY_SEND_INTO")
+            .as_deref()
+            .and_then(|v| v.to_str())
+            .map(str::trim),
+        Some("0" | "off")
+    )
 }
 
 /// `PGRUST_GRAVITY_PARK_PLANS` (exec lib.rs reads it at each static level's build): the park holds as many Nodes as the
 /// level keeps plans, on unless `0` / `off`.
 pub(crate) fn park_plans() -> bool {
-    !matches!(super::env("PGRUST_GRAVITY_PARK_PLANS").as_deref().and_then(|v| v.to_str()).map(str::trim), Some("0" | "off"))
+    !matches!(
+        super::env("PGRUST_GRAVITY_PARK_PLANS")
+            .as_deref()
+            .and_then(|v| v.to_str())
+            .map(str::trim),
+        Some("0" | "off")
+    )
 }
 
 /// `PGRUST_GRAVITY_FRONT_RUNS` (read once, at the lowerer's registration): code.front_part's run cache, on unless `0` / `off`.
 pub(crate) fn front_runs() -> bool {
-    !matches!(super::env("PGRUST_GRAVITY_FRONT_RUNS").as_deref().and_then(|v| v.to_str()).map(str::trim), Some("0" | "off"))
+    !matches!(
+        super::env("PGRUST_GRAVITY_FRONT_RUNS")
+            .as_deref()
+            .and_then(|v| v.to_str())
+            .map(str::trim),
+        Some("0" | "off")
+    )
 }
 
 /// `PGRUST_GRAVITY_SEMI_KEYS` (knobs/lowerer.rs reads it once, where it registers the lowerer): a SEMI / ANTI build keeps
 /// one record per key, on unless `0` / `off`.
 pub(crate) fn semi_keys() -> bool {
-    !matches!(super::env("PGRUST_GRAVITY_SEMI_KEYS").as_deref().and_then(|v| v.to_str()).map(str::trim), Some("0" | "off"))
+    !matches!(
+        super::env("PGRUST_GRAVITY_SEMI_KEYS")
+            .as_deref()
+            .and_then(|v| v.to_str())
+            .map(str::trim),
+        Some("0" | "off")
+    )
 }
 
 /// `PGRUST_GRAVITY_PARK_INDEX` (glue.rs reads it once per process): the park's index, on unless `0` / `off`.
 pub(crate) fn park_index() -> bool {
-    !matches!(super::env("PGRUST_GRAVITY_PARK_INDEX").as_deref().and_then(|v| v.to_str()).map(str::trim), Some("0" | "off"))
+    !matches!(
+        super::env("PGRUST_GRAVITY_PARK_INDEX")
+            .as_deref()
+            .and_then(|v| v.to_str())
+            .map(str::trim),
+        Some("0" | "off")
+    )
 }
 
 /// `PGRUST_GRAVITY_PARK_INDEX_CHECK` (glue.rs reads it once per process): the index's check, off unless `1` / `on`.
 pub(crate) fn park_index_check() -> bool {
-    matches!(super::env("PGRUST_GRAVITY_PARK_INDEX_CHECK").as_deref().and_then(|v| v.to_str()).map(str::trim), Some("1" | "on"))
+    matches!(
+        super::env("PGRUST_GRAVITY_PARK_INDEX_CHECK")
+            .as_deref()
+            .and_then(|v| v.to_str())
+            .map(str::trim),
+        Some("1" | "on")
+    )
 }
 
 /// `PGRUST_GRAVITY_POLL_STALL_MS` (glue.rs reads it once per process): the pollgap gate's injected stall, ms.
@@ -107,7 +178,9 @@ pub(crate) fn poll_stall_ms() -> Option<u64> {
 /// `PGRUST_GRAVITY_CANCEL_AT_STEP` (glue.rs reads it once per process): the start of the witness lever's step label;
 /// unset or empty: off.
 pub(crate) fn cancel_at_step() -> Option<String> {
-    super::env("PGRUST_GRAVITY_CANCEL_AT_STEP").and_then(|v| v.into_string().ok()).filter(|v| !v.is_empty())
+    super::env("PGRUST_GRAVITY_CANCEL_AT_STEP")
+        .and_then(|v| v.into_string().ok())
+        .filter(|v| !v.is_empty())
 }
 
 /// `PGRUST_GRAVITY_STEP_GAP_MS` (glue.rs reads it once per process): checker 2's threshold, ms (debug builds).
@@ -123,7 +196,12 @@ pub(crate) fn resident_cap() -> Option<u64> {
 /// `PGRUST_GRAVITY_AHEAD_TRACE` (read once, at the lowerer's registration): the run-ahead tracer is on (`report` or
 /// `abort`), so lowerv4 stamps the pipelines' demand gates it reads.
 pub(crate) fn ahead_trace() -> bool {
-    matches!(super::env("PGRUST_GRAVITY_AHEAD_TRACE").as_deref().and_then(|v| v.to_str()), Some("report" | "abort"))
+    matches!(
+        super::env("PGRUST_GRAVITY_AHEAD_TRACE")
+            .as_deref()
+            .and_then(|v| v.to_str()),
+        Some("report" | "abort")
+    )
 }
 
 /// `PGRUST_GRAVITY_DIAG` (read once, at the lowerer's registration): lowerv4's all-blockers mode.

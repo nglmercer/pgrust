@@ -70,7 +70,11 @@ pub(crate) fn values_u32(params: &[Value]) -> &[u32] {
 }
 
 /// Maps the assembled code, each host symbol (`h<i>`) resolved to `program`'s host function `i`'s address.
-pub(crate) fn map(mapper: &mut ElfMapper<'_>, assembler: &mut AssemblerElf<'_>, program: &Program) -> PgResult<bool> {
+pub(crate) fn map(
+    mapper: &mut ElfMapper<'_>,
+    assembler: &mut AssemblerElf<'_>,
+    program: &Program,
+) -> PgResult<bool> {
     let resolve = |name: &[u8]| -> usize {
         match adaptor::LinkNames::parse(name) {
             Some((true, hi)) => program.host_fns.get(hi).map_or(0, |h| h.addr),

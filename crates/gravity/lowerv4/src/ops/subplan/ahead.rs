@@ -42,15 +42,26 @@ pub(crate) fn reader(gx: &Gx<'_, '_>, plan_id: i32, kb: usize) -> Option<(usize,
         Op::SubPlan(d) if d.plan_id == plan_id && matches!(d.form, SubForm::Build) => Some(d),
         _ => None,
     });
-    Some((found, build.and_then(crate::ops::subplan::hashed::eager_build)))
+    Some((
+        found,
+        build.and_then(crate::ops::subplan::hashed::eager_build),
+    ))
 }
 
 /// Whether PG may never reach the probe at op `j` of `p` for a row its source yields: a join qual's (evaluated per
 /// candidate pair), a conditional one (`SubPlanDesc::conditional`: behind a short-circuit), or one past an op that may drop
 /// the row (a conjunct's filter, a one-time gate, a join, a limit, a run's first-row cut).
 fn may_skip(p: &PipelineNode<'_>, j: usize, d: &SubPlanDesc<'_>) -> bool {
-    let drops = |op: &Op<'_>| matches!(op, Op::Filter(_) | Op::Gate(_) | Op::Join(_) | Op::FirstOfRun(_));
-    d.conditional || d.site == SubSite::JoinQual || p.ops[..j].iter().any(drops) || crate::frame::iface::holds_limit(&p.ops[..j])
+    let drops = |op: &Op<'_>| {
+        matches!(
+            op,
+            Op::Filter(_) | Op::Gate(_) | Op::Join(_) | Op::FirstOfRun(_)
+        )
+    };
+    d.conditional
+        || d.site == SubSite::JoinQual
+        || p.ops[..j].iter().any(drops)
+        || crate::frame::iface::holds_limit(&p.ops[..j])
 }
 
 /// D1035 over the pipelines that call `m8_subhash_run` (`reads`): which of them run on the leader. All of them while any
@@ -59,11 +70,24 @@ fn may_skip(p: &PipelineNode<'_>, j: usize, d: &SubPlanDesc<'_>) -> bool {
 /// LAZY set's, a pulled set's), which may run them as a section before their own start (exec's AHEAD build needs it).
 pub(crate) fn pinned(pipelines: &[Pipeline], protos: &[Proto], reads: &[bool]) -> Vec<bool> {
     let lazy = |p: &Proto| p.kind == ProtoKind::SubHash && p.arg & SUBHASH_LAZY != 0;
-    if protos.iter().filter(|p| lazy(p)).any(|p| p.arg & SUBHASH_AHEAD == 0 || p.peer == NONE) {
+    if protos
+        .iter()
+        .filter(|p| lazy(p))
+        .any(|p| p.arg & SUBHASH_AHEAD == 0 || p.peer == NONE)
+    {
         return reads.to_vec(); // alloc: Program
     }
-    let group = |p: &Proto| matches!(p.kind, ProtoKind::Init | ProtoKind::Rerun) || lazy(p) || pulled(p);
-    let nested: Vec<u16> = protos.iter().filter(|p| group(p)).flat_map(|p| members_in(pipelines, protos, p.pipeline as usize).members).collect(); // alloc: Program
+    let group =
+        |p: &Proto| matches!(p.kind, ProtoKind::Init | ProtoKind::Rerun) || lazy(p) || pulled(p);
+    let nested: Vec<u16> = protos
+        .iter()
+        .filter(|p| group(p))
+        .flat_map(|p| members_in(pipelines, protos, p.pipeline as usize).members)
+        .collect(); // alloc: Program
     let peer = |i: usize| protos.iter().any(|p| lazy(p) && p.peer as usize == i);
-    reads.iter().enumerate().map(|(i, &r)| r && (!peer(i) || nested.contains(&(i as u16)))).collect() // alloc: Program
+    reads
+        .iter()
+        .enumerate()
+        .map(|(i, &r)| r && (!peer(i) || nested.contains(&(i as u16))))
+        .collect() // alloc: Program
 }

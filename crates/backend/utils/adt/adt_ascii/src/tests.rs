@@ -73,6 +73,12 @@ fn encname_is_cleaned_bytewise_and_echoed_raw() {
     assert_eq!(to_ascii_encname(b"latin\xe91").unwrap(), b"abc");
     assert_eq!(to_ascii_encname(b"LATIN-1").unwrap(), b"abc");
     // The error echoes the name bytes (lossy for a non-UTF-8 byte).
-    assert_eq!(to_ascii_encname(b"\xe9").unwrap_err(), "\u{FFFD} is not a valid encoding name");
-    assert_eq!(to_ascii_encname(b"bogus").unwrap_err(), "bogus is not a valid encoding name");
+    assert_eq!(
+        to_ascii_encname(b"\xe9").unwrap_err(),
+        "\u{FFFD} is not a valid encoding name"
+    );
+    assert_eq!(
+        to_ascii_encname(b"bogus").unwrap_err(),
+        "bogus is not a valid encoding name"
+    );
 }

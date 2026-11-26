@@ -188,7 +188,11 @@ fn an_edge_into_the_entry_block_is_named() {
     got.push(text(verify_structure(&pb.finish())));
     // the text loader verifies what it loads
     let src = "(program (fn h () () (block top () (br again)) (block again () (br top))))";
-    got.push(gravity_ir::text::parse_program(src, &|_| Some(0)).map(|_| ()).expect_err("an edge into the entry"));
+    got.push(
+        gravity_ir::text::parse_program(src, &|_| Some(0))
+            .map(|_| ())
+            .expect_err("an edge into the entry"),
+    );
     let want = [
         "fn f: b1 terminator: edge to b0, the entry block (its parameters are the function's arguments)",
         "fn f: b1 terminator: edge to b0, the entry block (its parameters are the function's arguments)",

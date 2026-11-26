@@ -101,10 +101,10 @@ pub fn suite_ddl() -> Vec<String> {
     }
     v.push("INSERT INTO fz_cx_main VALUES (100, NULL, NULL, NULL, NULL, NULL, NULL, NULL);".into());
     // Multi-partition COPY FROM target (bulk-insert state across parts).
+    v.push("CREATE TABLE fz_cx_part (pk int4, v text) PARTITION BY RANGE (pk);".to_string());
     v.push(
-        "CREATE TABLE fz_cx_part (pk int4, v text) PARTITION BY RANGE (pk);".to_string(),
+        "CREATE TABLE fz_cx_part_1 PARTITION OF fz_cx_part FOR VALUES FROM (0) TO (100);".into(),
     );
-    v.push("CREATE TABLE fz_cx_part_1 PARTITION OF fz_cx_part FOR VALUES FROM (0) TO (100);".into());
     v.push(
         "CREATE TABLE fz_cx_part_2 PARTITION OF fz_cx_part FOR VALUES FROM (100) TO (200);".into(),
     );
@@ -225,7 +225,10 @@ pub fn copyto_cases() -> Vec<String> {
         "COPY fz_cx_main TO 'relative_path.txt';".into(),
     ];
     // to_regtypemod / typemod-carrying render breadth rides here too.
-    v.push("COPY (SELECT to_regtypemod('varchar(17)'), to_regtypemod('numeric(10,2)')) TO STDOUT;".into());
+    v.push(
+        "COPY (SELECT to_regtypemod('varchar(17)'), to_regtypemod('numeric(10,2)')) TO STDOUT;"
+            .into(),
+    );
     v
 }
 
@@ -454,7 +457,11 @@ pub fn scalar_cases() -> Vec<String> {
     ] {
         let l = lit.replace('"', "\"\"");
         #[allow(clippy::no_effect_replace)]
-        v.push(format!("SELECT '{l}'::{ty}, '{l}'::{ty}::text;", l = l.replace('"', "\""), ty = ty));
+        v.push(format!(
+            "SELECT '{l}'::{ty}, '{l}'::{ty}::text;",
+            l = l.replace('"', "\""),
+            ty = ty
+        ));
     }
     // Qualified renders: objects outside the search path.
     v.push("SELECT 'fz_cx_s.qfun(int4,text)'::regprocedure::text;".into());
@@ -474,8 +481,15 @@ pub fn scalar_cases() -> Vec<String> {
     );
     // to_reg* breadth: hit, miss (NULL), and syntax-error fuel.
     for f in [
-        "to_regclass", "to_regproc", "to_regprocedure", "to_regoper", "to_regoperator",
-        "to_regtype", "to_regnamespace", "to_regrole", "to_regcollation",
+        "to_regclass",
+        "to_regproc",
+        "to_regprocedure",
+        "to_regoper",
+        "to_regoperator",
+        "to_regtype",
+        "to_regnamespace",
+        "to_regrole",
+        "to_regcollation",
     ] {
         let hit = match f {
             "to_regclass" => "pg_class",
@@ -497,10 +511,8 @@ pub fn scalar_cases() -> Vec<String> {
     v.push("SELECT to_regtype('varchar(10)'), to_regtypemod('varchar(10)'), to_regtypemod('numeric(12,3)'), to_regtypemod('integer');".into());
     v.push("SELECT to_regclass('one.two.three.four');".into());
     v.push("SELECT 'mytext'::text::regclass;".into()); // text_regclass error path
-    // xid / xid8 ops.
-    v.push(
-        "SELECT '123'::xid = '123'::xid, '123'::xid <> '124'::xid, '17'::xid::text;".into(),
-    );
+                                                       // xid / xid8 ops.
+    v.push("SELECT '123'::xid = '123'::xid, '123'::xid <> '124'::xid, '17'::xid::text;".into());
     v.push("SELECT hashxid('123'::xid), hashxidextended('123'::xid, 42);".into());
     v.push(
         "SELECT a = b, a <> b, a < b, a <= b, a > b, a >= b FROM \
@@ -512,7 +524,7 @@ pub fn scalar_cases() -> Vec<String> {
     v.push("SELECT '9876543210'::xid8::xid, '18446744073709551615'::xid8::text;".into());
     v.push("SELECT hashxid8('77'::xid8), hashxid8extended('77'::xid8, 7);".into());
     v.push("SELECT age('123'::xid) IS NOT NULL;".into()); // current-xid-dependent: projected
-    // cid ops.
+                                                          // cid ops.
     v.push("SELECT '7'::cid = '7'::cid, '7'::cid::text, hashcid('7'::cid), hashcidextended('7'::cid, 3);".into());
     // int2vector / oidvector io + validity.
     v.push("SELECT '1 2 3'::int2vector, '1 2 3'::int2vector::text, ''::int2vector;".into());
@@ -532,7 +544,9 @@ pub fn program_cases() -> Vec<CopyCase> {
         CopyCase::Stmt("COPY (SELECT 1) TO PROGRAM 'exit 3';".into()),
         CopyCase::Stmt("COPY fz_cx_p FROM PROGRAM 'exit 5';".into()),
         CopyCase::Stmt("COPY fz_cx_p FROM PROGRAM 'kill -TERM $$';".into()),
-        CopyCase::Stmt("COPY (SELECT generate_series(1,100000)) TO PROGRAM 'head -c 10 > /dev/null';".into()),
+        CopyCase::Stmt(
+            "COPY (SELECT generate_series(1,100000)) TO PROGRAM 'head -c 10 > /dev/null';".into(),
+        ),
     ]
 }
 
@@ -552,8 +566,7 @@ pub fn seeded_cases(seed: u64, n: u32) -> Vec<CopyCase> {
         let nullstr = null_strs[rng.below_usize(null_strs.len())];
         // Options (valid combos only; option errors live in the
         // deterministic deck where they are hand-verified).
-        let mut opts: Vec<String> =
-            vec![format!("FORMAT {}", if csv { "csv" } else { "text" })];
+        let mut opts: Vec<String> = vec![format!("FORMAT {}", if csv { "csv" } else { "text" })];
         if delim != '\t' || rng.chance(1, 4) {
             opts.push(format!("DELIMITER E'{}'", esc_ch(delim)));
         }
@@ -571,8 +584,12 @@ pub fn seeded_cases(seed: u64, n: u32) -> Vec<CopyCase> {
             }
             if rng.chance(1, 3) {
                 opts.push(
-                    if rng.chance(1, 2) { "LOG_VERBOSITY verbose" } else { "LOG_VERBOSITY silent" }
-                        .to_string(),
+                    if rng.chance(1, 2) {
+                        "LOG_VERBOSITY verbose"
+                    } else {
+                        "LOG_VERBOSITY silent"
+                    }
+                    .to_string(),
                 );
             }
         }
@@ -593,9 +610,17 @@ pub fn seeded_cases(seed: u64, n: u32) -> Vec<CopyCase> {
             let mut fields: Vec<String> = vec![pk.to_string()];
             let txt = seeded_field(&mut rng, csv, delim, nullstr);
             fields.push(txt);
-            fields.push(if rng.chance(1, 10) { "oops".into() } else { rng.below(1000).to_string() });
+            fields.push(if rng.chance(1, 10) {
+                "oops".into()
+            } else {
+                rng.below(1000).to_string()
+            });
             fields.push(format!("{}.{}", rng.below(100), rng.below(1000)));
-            fields.push(format!("2021-{:02}-{:02}", 1 + rng.below(12), 1 + rng.below(28)));
+            fields.push(format!(
+                "2021-{:02}-{:02}",
+                1 + rng.below(12),
+                1 + rng.below(28)
+            ));
             fields.push(if rng.chance(1, 2) { "t" } else { "f" }.to_string());
             fields.push(format!("\\x{:02x}", rng.below(256)));
             fields.push(rng.below(100).to_string());
@@ -605,10 +630,17 @@ pub fn seeded_cases(seed: u64, n: u32) -> Vec<CopyCase> {
             data.push_str(&fields.join(&delim.to_string()));
             data.push('\n');
         }
-        v.push(CopyCase::CopyIn { sql, data: data.into_bytes() });
+        v.push(CopyCase::CopyIn {
+            sql,
+            data: data.into_bytes(),
+        });
         // Occasionally re-emit with a random TO option set.
         if rng.chance(1, 3) {
-            let hdr = if csv && rng.chance(1, 2) { ", HEADER" } else { "" };
+            let hdr = if csv && rng.chance(1, 2) {
+                ", HEADER"
+            } else {
+                ""
+            };
             v.push(CopyCase::Stmt(format!(
                 "COPY fz_cx_scratch TO STDOUT (FORMAT {}, DELIMITER E'{}'{});",
                 if csv { "csv" } else { "text" },
@@ -671,7 +703,14 @@ fn record_case(
     records: &mut Vec<Record>,
     stats: &mut CopyTextStats,
 ) -> DiffClass {
-    let raw = classify(&DiffInput { sql, a: oa, b: ob, ulp_tol, soft_cols: &[], mask_explain_timing: false });
+    let raw = classify(&DiffInput {
+        sql,
+        a: oa,
+        b: ob,
+        ulp_tol,
+        soft_cols: &[],
+        mask_explain_timing: false,
+    });
     let c = apply_ruled(table, sql, raw);
     stats.cases += 1;
     match &c.class {
@@ -702,14 +741,16 @@ fn record_case(
 
 /// The scratch table every COPY FROM case feeds (LIKE the main deck table
 /// including its DEFAULT — the DEFAULT-marker cases need it).
-const SCRATCH_DDL: &str =
-    "CREATE TABLE fz_cx_scratch (LIKE fz_cx_main INCLUDING DEFAULTS);";
+const SCRATCH_DDL: &str = "CREATE TABLE fz_cx_scratch (LIKE fz_cx_main INCLUDING DEFAULTS);";
 
 /// Matched-option round-trips: (TO options, FROM options) pairs whose
 /// emitted payload must reload losslessly.
 const ROUNDTRIP_OPTS: &[(&str, &str)] = &[
     ("", ""),
-    ("(FORMAT text, DELIMITER '|', NULL 'NA')", "(FORMAT text, DELIMITER '|', NULL 'NA')"),
+    (
+        "(FORMAT text, DELIMITER '|', NULL 'NA')",
+        "(FORMAT text, DELIMITER '|', NULL 'NA')",
+    ),
     ("(FORMAT csv)", "(FORMAT csv)"),
     ("(FORMAT csv, HEADER)", "(FORMAT csv, HEADER match)"),
     (
@@ -738,11 +779,11 @@ pub fn run_suite(
     };
 
     let duo = |sql: &str,
-                   a: &mut dyn Executor,
-                   b: &mut dyn Executor,
-                   records: &mut Vec<Record>,
-                   stats: &mut CopyTextStats,
-                   next: &mut dyn FnMut() -> u32| {
+               a: &mut dyn Executor,
+               b: &mut dyn Executor,
+               records: &mut Vec<Record>,
+               stats: &mut CopyTextStats,
+               next: &mut dyn FnMut() -> u32| {
         let oa = a.apply(sql);
         let ob = b.apply(sql);
         record_case(sql, &oa, &ob, table, ulp_tol, next(), records, stats)
@@ -765,7 +806,16 @@ pub fn run_suite(
         duo(&trunc, a, b, &mut records, &mut stats, &mut next);
         let fa = a.apply_copy_in(&case.sql, case.data.as_bytes());
         let fb = b.apply_copy_in(&case.sql, case.data.as_bytes());
-        record_case(&case.sql, &fa, &fb, table, ulp_tol, next(), &mut records, &mut stats);
+        record_case(
+            &case.sql,
+            &fa,
+            &fb,
+            table,
+            ulp_tol,
+            next(),
+            &mut records,
+            &mut stats,
+        );
         let probe = format!("SELECT * FROM {target} ORDER BY {pk};");
         duo(&probe, a, b, &mut records, &mut stats, &mut next);
     }
@@ -776,15 +826,42 @@ pub fn run_suite(
         let copy_to = format!("COPY fz_cx_main TO STDOUT{sep_to}{to_opts};");
         let oa = a.apply(&copy_to);
         let ob = b.apply(&copy_to);
-        record_case(&copy_to, &oa, &ob, table, ulp_tol, next(), &mut records, &mut stats);
-        let StmtOutcome::CopyOut { bytes, .. } = &oa else { continue };
+        record_case(
+            &copy_to,
+            &oa,
+            &ob,
+            table,
+            ulp_tol,
+            next(),
+            &mut records,
+            &mut stats,
+        );
+        let StmtOutcome::CopyOut { bytes, .. } = &oa else {
+            continue;
+        };
         let spec = bytes.clone();
-        duo("TRUNCATE fz_cx_scratch;", a, b, &mut records, &mut stats, &mut next);
+        duo(
+            "TRUNCATE fz_cx_scratch;",
+            a,
+            b,
+            &mut records,
+            &mut stats,
+            &mut next,
+        );
         let sep_from = if from_opts.is_empty() { "" } else { " " };
         let copy_from = format!("COPY fz_cx_scratch FROM STDIN{sep_from}{from_opts};");
         let fa = a.apply_copy_in(&copy_from, &spec);
         let fb = b.apply_copy_in(&copy_from, &spec);
-        record_case(&copy_from, &fa, &fb, table, ulp_tol, next(), &mut records, &mut stats);
+        record_case(
+            &copy_from,
+            &fa,
+            &fb,
+            table,
+            ulp_tol,
+            next(),
+            &mut records,
+            &mut stats,
+        );
         if is_ok(&fa) && is_ok(&fb) {
             duo(
                 "SELECT * FROM fz_cx_scratch ORDER BY pk;",
@@ -805,7 +882,16 @@ pub fn run_suite(
         let copy_to = "COPY fz_cx_reg TO STDOUT (FORMAT binary);";
         let oa = a.apply(copy_to);
         let ob = b.apply(copy_to);
-        record_case(copy_to, &oa, &ob, table, ulp_tol, next(), &mut records, &mut stats);
+        record_case(
+            copy_to,
+            &oa,
+            &ob,
+            table,
+            ulp_tol,
+            next(),
+            &mut records,
+            &mut stats,
+        );
         if let StmtOutcome::CopyOut { bytes, .. } = &oa {
             let spec = bytes.clone();
             duo(
@@ -819,7 +905,16 @@ pub fn run_suite(
             let copy_from = "COPY fz_cx_reg_rt FROM STDIN (FORMAT binary);";
             let fa = a.apply_copy_in(copy_from, &spec);
             let fb = b.apply_copy_in(copy_from, &spec);
-            record_case(copy_from, &fa, &fb, table, ulp_tol, next(), &mut records, &mut stats);
+            record_case(
+                copy_from,
+                &fa,
+                &fb,
+                table,
+                ulp_tol,
+                next(),
+                &mut records,
+                &mut stats,
+            );
             duo(
                 "SELECT * FROM fz_cx_reg_rt ORDER BY pk;",
                 a,
@@ -836,7 +931,14 @@ pub fn run_suite(
                 &mut stats,
                 &mut next,
             );
-            duo("DROP TABLE fz_cx_reg_rt;", a, b, &mut records, &mut stats, &mut next);
+            duo(
+                "DROP TABLE fz_cx_reg_rt;",
+                a,
+                b,
+                &mut records,
+                &mut stats,
+                &mut next,
+            );
         }
     }
 
@@ -847,16 +949,27 @@ pub fn run_suite(
 
     // 6. FREEZE inside the creating transaction (positive arm).
     {
-        for sql in
-            ["BEGIN;", "CREATE TABLE fz_cx_frz (a int4, b text);"]
-        {
+        for sql in ["BEGIN;", "CREATE TABLE fz_cx_frz (a int4, b text);"] {
             duo(sql, a, b, &mut records, &mut stats, &mut next);
         }
         let sql = "COPY fz_cx_frz FROM STDIN (FREEZE);";
         let fa = a.apply_copy_in(sql, b"1\tone\n2\ttwo\n");
         let fb = b.apply_copy_in(sql, b"1\tone\n2\ttwo\n");
-        record_case(sql, &fa, &fb, table, ulp_tol, next(), &mut records, &mut stats);
-        for sql in ["COMMIT;", "SELECT * FROM fz_cx_frz ORDER BY a;", "DROP TABLE fz_cx_frz;"] {
+        record_case(
+            sql,
+            &fa,
+            &fb,
+            table,
+            ulp_tol,
+            next(),
+            &mut records,
+            &mut stats,
+        );
+        for sql in [
+            "COMMIT;",
+            "SELECT * FROM fz_cx_frz ORDER BY a;",
+            "DROP TABLE fz_cx_frz;",
+        ] {
             duo(sql, a, b, &mut records, &mut stats, &mut next);
         }
     }
@@ -871,8 +984,16 @@ pub fn run_suite(
         };
         let oa = a.apply(&sql);
         let ob = b.apply(&sql);
-        let class =
-            record_case(&sql, &oa, &ob, table, ulp_tol, next(), &mut records, &mut stats);
+        let class = record_case(
+            &sql,
+            &oa,
+            &ob,
+            table,
+            ulp_tol,
+            next(),
+            &mut records,
+            &mut stats,
+        );
         if i == 0 && class != DiffClass::Match {
             program_supported = false;
         }
@@ -892,7 +1013,16 @@ pub fn run_suite(
                 duo(trunc, a, b, &mut records, &mut stats, &mut next);
                 let fa = a.apply_copy_in(&sql, &data);
                 let fb = b.apply_copy_in(&sql, &data);
-                record_case(&sql, &fa, &fb, table, ulp_tol, next(), &mut records, &mut stats);
+                record_case(
+                    &sql,
+                    &fa,
+                    &fb,
+                    table,
+                    ulp_tol,
+                    next(),
+                    &mut records,
+                    &mut stats,
+                );
                 duo(
                     "SELECT * FROM fz_cx_scratch ORDER BY pk;",
                     a,
@@ -928,12 +1058,22 @@ pub fn run_single(engine: &mut dyn Executor, seed: u64, seeded_n: u32) -> (u32, 
     }
     for case in copyfrom_cases() {
         let (target, pk) = from_case_target(&case.sql);
-        run(engine, &format!("TRUNCATE {target};"), &mut applied, &mut errors);
+        run(
+            engine,
+            &format!("TRUNCATE {target};"),
+            &mut applied,
+            &mut errors,
+        );
         applied += 1;
         if !is_ok(&engine.apply_copy_in(&case.sql, case.data.as_bytes())) {
             errors += 1;
         }
-        run(engine, &format!("SELECT * FROM {target} ORDER BY {pk};"), &mut applied, &mut errors);
+        run(
+            engine,
+            &format!("SELECT * FROM {target} ORDER BY {pk};"),
+            &mut applied,
+            &mut errors,
+        );
     }
     for (to_opts, from_opts) in ROUNDTRIP_OPTS {
         let sep_to = if to_opts.is_empty() { "" } else { " " };
@@ -943,7 +1083,9 @@ pub fn run_single(engine: &mut dyn Executor, seed: u64, seeded_n: u32) -> (u32, 
             &mut applied,
             &mut errors,
         );
-        let StmtOutcome::CopyOut { bytes, .. } = o else { continue };
+        let StmtOutcome::CopyOut { bytes, .. } = o else {
+            continue;
+        };
         run(engine, "TRUNCATE fz_cx_scratch;", &mut applied, &mut errors);
         applied += 1;
         let sep_from = if from_opts.is_empty() { "" } else { " " };
@@ -955,16 +1097,31 @@ pub fn run_single(engine: &mut dyn Executor, seed: u64, seeded_n: u32) -> (u32, 
         }
     }
     {
-        let o = run(engine, "COPY fz_cx_reg TO STDOUT (FORMAT binary);", &mut applied, &mut errors);
+        let o = run(
+            engine,
+            "COPY fz_cx_reg TO STDOUT (FORMAT binary);",
+            &mut applied,
+            &mut errors,
+        );
         if let StmtOutcome::CopyOut { bytes, .. } = o {
-            run(engine, "CREATE TABLE fz_cx_reg_rt (LIKE fz_cx_reg);", &mut applied, &mut errors);
+            run(
+                engine,
+                "CREATE TABLE fz_cx_reg_rt (LIKE fz_cx_reg);",
+                &mut applied,
+                &mut errors,
+            );
             applied += 1;
             if !is_ok(
                 &engine.apply_copy_in("COPY fz_cx_reg_rt FROM STDIN (FORMAT binary);", &bytes),
             ) {
                 errors += 1;
             }
-            run(engine, "DROP TABLE fz_cx_reg_rt;", &mut applied, &mut errors);
+            run(
+                engine,
+                "DROP TABLE fz_cx_reg_rt;",
+                &mut applied,
+                &mut errors,
+            );
         }
     }
     for sql in scalar_cases() {

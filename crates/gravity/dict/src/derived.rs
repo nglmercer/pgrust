@@ -1,10 +1,10 @@
 //! A derived dictionary: `f` maps each entry to a new byte string (a `regexp_replace`, a
 //! `substring`, a `lower`), stored once per code with its hash, and codes whose derived values
 //! collide inside the part are mapped to one canonical index (§3 case 9).
-use gravity_abi::{word, PtrWord};
 use crate::table::{bit, keep_word, Build, CodeCell, Deferred, Halt, Header};
 use crate::{BuildError, Dict, Region, View};
 use gravity_abi::hash::hash_bytes64;
+use gravity_abi::{word, PtrWord};
 
 #[derive(Clone, Copy, Debug)]
 pub struct Derived {
@@ -22,18 +22,32 @@ impl Derived {
     /// `f(entry, region)` returns the derived bytes: a view into the region (the shim wrote them
     /// there, kept in place) or anywhere else (copied). The dedup map is region scratch popped
     /// before the build returns.
-    pub fn build(dict: &dyn Dict, region: &mut Region, f: &mut dyn FnMut(View, &mut Region) -> Result<View, Halt>) -> Result<Derived, BuildError> {
+    pub fn build(
+        dict: &dyn Dict,
+        region: &mut Region,
+        f: &mut dyn FnMut(View, &mut Region) -> Result<View, Halt>,
+    ) -> Result<Derived, BuildError> {
         Derived::build_in(dict, region, None, f)
     }
 
     /// `build` with every derived value a subslice of `over` (a part's resident payload, live as
     /// long as the table): the values are kept in place and the table holds offsets into it —
     /// nothing copied. `f` must return views inside `over`.
-    pub fn build_over(dict: &dyn Dict, region: &mut Region, over: &[u8], f: &mut dyn FnMut(View, &mut Region) -> Result<View, Halt>) -> Result<Derived, BuildError> {
+    pub fn build_over(
+        dict: &dyn Dict,
+        region: &mut Region,
+        over: &[u8],
+        f: &mut dyn FnMut(View, &mut Region) -> Result<View, Halt>,
+    ) -> Result<Derived, BuildError> {
         Derived::build_in(dict, region, Some(over), f)
     }
 
-    fn build_in(dict: &dyn Dict, region: &mut Region, over: Option<&[u8]>, f: &mut dyn FnMut(View, &mut Region) -> Result<View, Halt>) -> Result<Derived, BuildError> {
+    fn build_in(
+        dict: &dyn Dict,
+        region: &mut Region,
+        over: Option<&[u8]>,
+        f: &mut dyn FnMut(View, &mut Region) -> Result<View, Halt>,
+    ) -> Result<Derived, BuildError> {
         let mut b = Build::start(dict, region, crate::lane::ELEM_DERIVED)?;
         let n = b.ncodes() as usize;
         let ents = region.alloc_zeroed(n * 8, 8)? as *mut u32;
@@ -45,7 +59,10 @@ impl Derived {
         let mut prev: Option<(u32, View, u64)> = None;
         let base = over.map_or(region.base(), <[u8]>::as_ptr);
         let inside = |d: View, region: &Region| match over {
-            Some(o) => (o.as_ptr() as usize..=o.as_ptr() as usize + o.len()).contains(&(d.ptr as usize)) && d.ptr as usize + d.len as usize <= o.as_ptr() as usize + o.len(),
+            Some(o) => {
+                (o.as_ptr() as usize..=o.as_ptr() as usize + o.len()).contains(&(d.ptr as usize))
+                    && d.ptr as usize + d.len as usize <= o.as_ptr() as usize + o.len()
+            }
             None => region.contains(d.ptr),
         };
         crate::table::sweep(dict, region, &mut b, &mut |code, v, region| {
@@ -105,7 +122,9 @@ impl Derived {
                         break;
                     }
                     let other = slot - 1;
-                    if *hashes.add(other as usize) == h && view_at(ents, base, other).bytes() == view_at(ents, base, code).bytes() {
+                    if *hashes.add(other as usize) == h
+                        && view_at(ents, base, other).bytes() == view_at(ents, base, code).bytes()
+                    {
                         *canon.add(code as usize) = *canon.add(other as usize);
                         break;
                     }
@@ -130,7 +149,16 @@ impl Derived {
     #[allow(clippy::missing_safety_doc)]
     pub unsafe fn at(hdr: *const Header) -> Derived {
         debug_assert_eq!((*hdr).elem, crate::lane::ELEM_DERIVED);
-        Derived { hdr, ents: (*hdr).data.ptr() as *const u32, base: (*hdr).base.ptr(), canon: (*hdr).canon.ptr(), hashes: (*hdr).hashes.ptr(), faults: (*hdr).faults.ptr(), ncodes: (*hdr).ncodes, ndistinct: (*hdr).ndistinct }
+        Derived {
+            hdr,
+            ents: (*hdr).data.ptr() as *const u32,
+            base: (*hdr).base.ptr(),
+            canon: (*hdr).canon.ptr(),
+            hashes: (*hdr).hashes.ptr(),
+            faults: (*hdr).faults.ptr(),
+            ncodes: (*hdr).ncodes,
+            ndistinct: (*hdr).ndistinct,
+        }
     }
 
     pub fn header(&self) -> *const Header {
@@ -182,7 +210,13 @@ impl Derived {
     /// `out[i]` ← canonical(codes[i]) for the valid rows; the first valid faulting row is returned.
     /// # Safety — as `I64::gather`, `out` holds `rows` cells.
     #[allow(clippy::missing_safety_doc)]
-    pub unsafe fn gather_canonical<C: CodeCell>(&self, codes: *const C, valid: *const u64, rows: usize, out: *mut u32) -> Result<(), Deferred> {
+    pub unsafe fn gather_canonical<C: CodeCell>(
+        &self,
+        codes: *const C,
+        valid: *const u64,
+        rows: usize,
+        out: *mut u32,
+    ) -> Result<(), Deferred> {
         for i in 0..rows {
             if valid.is_null() || bit(valid, i as u32) {
                 *out.add(i) = *self.canon.add((*codes.add(i)).code() as usize);
@@ -198,7 +232,10 @@ impl Derived {
                 let i = w * 64 + m.trailing_zeros() as usize;
                 let c = (*codes.add(i)).code();
                 if bit(self.faults, c) {
-                    return Err(Deferred { row: i as u32, code: c });
+                    return Err(Deferred {
+                        row: i as u32,
+                        code: c,
+                    });
                 }
                 m &= m - 1;
             }
@@ -209,5 +246,8 @@ impl Derived {
 
 #[inline(always)]
 unsafe fn view_at(ents: *const u32, base: *const u8, code: u32) -> View {
-    View { ptr: base.add(*ents.add(2 * code as usize) as usize), len: *ents.add(2 * code as usize + 1) }
+    View {
+        ptr: base.add(*ents.add(2 * code as usize) as usize),
+        len: *ents.add(2 * code as usize + 1),
+    }
 }

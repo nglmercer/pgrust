@@ -9,7 +9,7 @@ use types_error::{
 };
 use types_fmgr::{FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 use types_rel::{AccessShareLock, Relation};
-use types_scan::scankey::{ScanKeyData, BTEqualStrategyNumber};
+use types_scan::scankey::{BTEqualStrategyNumber, ScanKeyData};
 
 const INDEX_INDRELID_INDEX_ID: types_core::Oid = 2678;
 const ANUM_PG_INDEX_INDRELID: i32 = 2;
@@ -139,7 +139,10 @@ fn generate_relation_name<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>) -> PgResul
     } else {
         get_namespace_name(mcx, rel.namespace())?
     };
-    Ok(ruleutils::quote_qualified_identifier(nspname.as_deref(), rel.name()))
+    Ok(ruleutils::quote_qualified_identifier(
+        nspname.as_deref(),
+        rel.name(),
+    ))
 }
 
 fn get_namespace_name(mcx: Mcx<'_>, nspid: types_core::Oid) -> PgResult<Option<String>> {
@@ -191,7 +194,7 @@ fn get_text_array_contents(
         } else {
             // SAFETY: text element datum from the array image.
             let pv = unsafe { types_fmgr::datum_varlena_packed(*d, mcx)? };
-            out.push(Some(::mcx::std_vec_from_slice("dblink",pv.data())?));
+            out.push(Some(::mcx::std_vec_from_slice("dblink", pv.data())?));
         }
     }
     Ok(out)
@@ -282,7 +285,10 @@ fn get_tuple_of_interest<'mcx>(
         if i > 0 {
             sql.push_str(" AND ");
         }
-        sql.push_str(&quote_ident_str(mcx, tupdesc.attr(pkidx).attname.name_str())?);
+        sql.push_str(&quote_ident_str(
+            mcx,
+            tupdesc.attr(pkidx).attname.name_str(),
+        )?);
         match &src_pkattvals[i] {
             Some(v) => {
                 sql.push_str(" = ");
@@ -303,7 +309,11 @@ fn get_tuple_of_interest<'mcx>(
     }
     let copied = if ret == spi::SPI_OK_SELECT && processed == 1 {
         spi::SPI_tuptable().and_then(|h| {
-            spi::tuptable_with(h, |d| d.vals.first().and_then(|t| heaptuple::heap_copytuple(mcx, t).ok()))
+            spi::tuptable_with(h, |d| {
+                d.vals
+                    .first()
+                    .and_then(|t| heaptuple::heap_copytuple(mcx, t).ok())
+            })
         })
     } else {
         None
@@ -331,8 +341,8 @@ fn get_sql_insert(
     let relname = generate_relation_name(mcx, rel)?;
     let tupdesc = rel.descr();
     let natts = tupdesc.natts as usize;
-    let tuple = get_tuple_of_interest(mcx, rel, pkattnums, src_pkattvals)?
-        .ok_or_else(source_not_found)?;
+    let tuple =
+        get_tuple_of_interest(mcx, rel, pkattnums, src_pkattvals)?.ok_or_else(source_not_found)?;
 
     let mut buf = format!("INSERT INTO {relname}(").into_bytes();
     let mut need_comma = false;
@@ -383,7 +393,9 @@ fn get_sql_delete(
         if i > 0 {
             buf.extend_from_slice(b" AND ");
         }
-        buf.extend_from_slice(quote_ident_str(mcx, tupdesc.attr(pkidx).attname.name_str())?.as_bytes());
+        buf.extend_from_slice(
+            quote_ident_str(mcx, tupdesc.attr(pkidx).attname.name_str())?.as_bytes(),
+        );
         match &tgt_pkattvals[i] {
             Some(v) => {
                 buf.extend_from_slice(b" = ");
@@ -405,8 +417,8 @@ fn get_sql_update(
     let relname = generate_relation_name(mcx, rel)?;
     let tupdesc = rel.descr();
     let natts = tupdesc.natts as usize;
-    let tuple = get_tuple_of_interest(mcx, rel, pkattnums, src_pkattvals)?
-        .ok_or_else(source_not_found)?;
+    let tuple =
+        get_tuple_of_interest(mcx, rel, pkattnums, src_pkattvals)?.ok_or_else(source_not_found)?;
 
     let mut buf = format!("UPDATE {relname} SET ").into_bytes();
     let mut need_comma = false;
@@ -418,7 +430,9 @@ fn get_sql_update(
         if need_comma {
             buf.extend_from_slice(b", ");
         }
-        buf.extend_from_slice(format!("{} = ", quote_ident_str(mcx, att.attname.name_str())?).as_bytes());
+        buf.extend_from_slice(
+            format!("{} = ", quote_ident_str(mcx, att.attname.name_str())?).as_bytes(),
+        );
         let val = match get_attnum_pk_pos(pkattnums, i) {
             Some(k) => tgt_pkattvals[k].clone(),
             None => tuple_value(mcx, &tuple, tupdesc, i as i32 + 1)?,
@@ -434,7 +448,9 @@ fn get_sql_update(
         if i > 0 {
             buf.extend_from_slice(b" AND ");
         }
-        buf.extend_from_slice(quote_ident_str(mcx, tupdesc.attr(pkidx).attname.name_str())?.as_bytes());
+        buf.extend_from_slice(
+            quote_ident_str(mcx, tupdesc.attr(pkidx).attname.name_str())?.as_bytes(),
+        );
         match &tgt_pkattvals[i] {
             Some(v) => {
                 buf.extend_from_slice(b" = ");
@@ -449,15 +465,15 @@ fn get_sql_update(
 #[track_caller]
 #[cold]
 fn source_not_found() -> Box<PgError> {
-    Box::new(
-        PgError::error("source row not found").with_sqlstate(ERRCODE_CARDINALITY_VIOLATION),
-    )
+    Box::new(PgError::error("source row not found").with_sqlstate(ERRCODE_CARDINALITY_VIOLATION))
 }
 
 fn array_len_mismatch(which: &str) -> Box<PgError> {
     Box::new(
-        PgError::error(format!("{which} key array length must match number of key attributes"))
-            .with_sqlstate(ERRCODE_ARRAY_SUBSCRIPT_ERROR),
+        PgError::error(format!(
+            "{which} key array length must match number of key attributes"
+        ))
+        .with_sqlstate(ERRCODE_ARRAY_SUBSCRIPT_ERROR),
     )
 }
 

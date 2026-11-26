@@ -4,7 +4,10 @@ use gravity_abi::Datum as Word;
 use gravity_abi::ScanPos;
 use gravity_driver::{BindingRef, Locker, Outcome, Result};
 use gravity_program::{LockKind, WaitPolicy, WritePlan};
-use tableam_vocab::{LockTupleMode, LockWaitPolicy, TM_FailureData, TM_Result, TUPLE_LOCK_FLAG_FIND_LAST_VERSION, TUPLE_LOCK_FLAG_LOCK_UPDATE_IN_PROGRESS};
+use tableam_vocab::{
+    LockTupleMode, LockWaitPolicy, TM_FailureData, TM_Result, TUPLE_LOCK_FLAG_FIND_LAST_VERSION,
+    TUPLE_LOCK_FLAG_LOCK_UPDATE_IN_PROGRESS,
+};
 use types_core::{CommandId, Oid};
 #[allow(unused_imports)]
 use types_error::{PgError, PgResult, ERRCODE_TRIGGERED_DATA_CHANGE_VIOLATION};
@@ -34,7 +37,11 @@ impl LockRecipe {
             WaitPolicy::Skip => LockWaitPolicy::LockWaitSkip,
             WaitPolicy::Error => LockWaitPolicy::LockWaitError,
         };
-        LockRecipe { heap: p.target_rel, mode, policy }
+        LockRecipe {
+            heap: p.target_rel,
+            mode,
+            policy,
+        }
     }
 }
 
@@ -67,8 +74,24 @@ pub struct LockHost {
 
 impl LockHost {
     pub fn new(plan: &WritePlan) -> LockHost {
-        let rels = vec![Rel { oid: plan.target_rel, heap: None, parked: None, slot: None, fetched: None }]; // alloc: Node
-        LockHost { recipe: LockRecipe::from_plan(plan), rels, last: 0, cid: 0, recheck_pos: ScanPos::NONE, current: ScanPos::NONE, epq: false, bound: false, scratch: NodeScratch::new("GravityLockHost") }
+        let rels = vec![Rel {
+            oid: plan.target_rel,
+            heap: None,
+            parked: None,
+            slot: None,
+            fetched: None,
+        }]; // alloc: Node
+        LockHost {
+            recipe: LockRecipe::from_plan(plan),
+            rels,
+            last: 0,
+            cid: 0,
+            recheck_pos: ScanPos::NONE,
+            current: ScanPos::NONE,
+            epq: false,
+            bound: false,
+            scratch: NodeScratch::new("GravityLockHost"),
+        }
     }
 
     fn bind_pg(&mut self, cid: CommandId) -> PgResult<()> {
@@ -103,7 +126,13 @@ impl LockHost {
         let i = match self.rels.iter().position(|r| r.oid == pos.rel) {
             Some(i) => i,
             None => {
-                self.rels.push(Rel { oid: pos.rel, heap: None, parked: None, slot: None, fetched: None }); // alloc: Node
+                self.rels.push(Rel {
+                    oid: pos.rel,
+                    heap: None,
+                    parked: None,
+                    slot: None,
+                    fetched: None,
+                }); // alloc: Node
                 self.rels.len() - 1
             }
         };
@@ -142,14 +171,35 @@ impl LockHost {
         self.recheck_pos = ScanPos::NONE;
         let i = self.rel_of(pos)?;
         self.last = i;
-        let Rel { oid, heap, slot, .. } = &mut self.rels[i];
-        let (oid, heap) = (*oid, heap.as_ref().expect("gravity: lock on an unbound locker"));
+        let Rel {
+            oid, heap, slot, ..
+        } = &mut self.rels[i];
+        let (oid, heap) = (
+            *oid,
+            heap.as_ref().expect("gravity: lock on an unbound locker"),
+        );
         let slot = slot.as_mut().expect("gravity: lock on an unbound locker");
         let tid = tid_of(pos);
         let mut tmfd = TM_FailureData::default();
         let xact_snapshot = crate::xact_snapshot();
-        let flags = TUPLE_LOCK_FLAG_LOCK_UPDATE_IN_PROGRESS | if xact_snapshot { 0 } else { TUPLE_LOCK_FLAG_FIND_LAST_VERSION };
-        let r = tableam::table_tuple_lock(self.scratch.exec_mcx(), heap, &tid, &None, slot, self.cid, self.recipe.mode, self.recipe.policy, flags, &mut tmfd);
+        let flags = TUPLE_LOCK_FLAG_LOCK_UPDATE_IN_PROGRESS
+            | if xact_snapshot {
+                0
+            } else {
+                TUPLE_LOCK_FLAG_FIND_LAST_VERSION
+            };
+        let r = tableam::table_tuple_lock(
+            self.scratch.exec_mcx(),
+            heap,
+            &tid,
+            &None,
+            slot,
+            self.cid,
+            self.recipe.mode,
+            self.recipe.policy,
+            flags,
+            &mut tmfd,
+        );
         let r = r?;
         let out = match r {
             TM_Result::TM_Ok if tmfd.traversed => {
@@ -164,12 +214,22 @@ impl LockHost {
             }
             // ExecLockRows: a row this command or a later one of the transaction updated is skipped (the Halloween rule)
             TM_Result::TM_SelfModified => Ok(Outcome::Skipped),
-            TM_Result::TM_Updated | TM_Result::TM_Deleted if xact_snapshot => Err(crate::serialization_failure()),
+            TM_Result::TM_Updated | TM_Result::TM_Deleted if xact_snapshot => {
+                Err(crate::serialization_failure())
+            }
             // ExecLockRows' elogs print the status number (%u)
-            TM_Result::TM_Updated => Err(Box::new(PgError::error(format!("unexpected table_tuple_lock status: {}", TM_Result::TM_Updated as u32)))), // alloc: Cold
+            TM_Result::TM_Updated => Err(Box::new(PgError::error(format!(
+                "unexpected table_tuple_lock status: {}",
+                TM_Result::TM_Updated as u32
+            )))), // alloc: Cold
             TM_Result::TM_Deleted | TM_Result::TM_WouldBlock => Ok(Outcome::Skipped),
-            TM_Result::TM_Invisible => Err(Box::new(PgError::error("attempted to lock invisible tuple".to_string()))), // alloc: Cold
-            other => Err(Box::new(PgError::error(format!("unrecognized table_tuple_lock status: {}", other as u32)))), // alloc: Cold
+            TM_Result::TM_Invisible => Err(Box::new(PgError::error(
+                "attempted to lock invisible tuple".to_string(),
+            ))), // alloc: Cold
+            other => Err(Box::new(PgError::error(format!(
+                "unrecognized table_tuple_lock status: {}",
+                other as u32
+            )))), // alloc: Cold
         };
         exectuples::exec_clear_tuple(slot, self.scratch.mcx());
         out
@@ -178,18 +238,33 @@ impl LockHost {
     /// lockrows REFFETCH: EvalPlanQualFetchRowMark for a REFERENCE mark of an ordinary table: the version at `pos` (the row's
     /// junk ctid in the mark's relation) under SnapshotAny (table_tuple_fetch_row_version), into the relation's fetch slot,
     /// whose buffer stays pinned until the next fetch or unbind.
-    fn fetch_pg(&mut self, pos: ScanPos, values: &mut [Word], isnull: &mut [u8]) -> PgResult<ScanPos> {
+    fn fetch_pg(
+        &mut self,
+        pos: ScanPos,
+        values: &mut [Word],
+        isnull: &mut [u8],
+    ) -> PgResult<ScanPos> {
         let i = self.rel_of(pos)?;
         let mcx = self.scratch.mcx();
-        let Rel { oid, heap, fetched, .. } = &mut self.rels[i];
+        let Rel {
+            oid, heap, fetched, ..
+        } = &mut self.rels[i];
         let heap = heap.as_ref().expect("gravity: fetch on an unbound locker");
         if fetched.is_none() {
             *fetched = Some(tableam::table_slot_create(mcx, heap)?);
         }
         let slot = fetched.as_mut().expect("gravity: the fetch slot");
         exectuples::exec_clear_tuple(slot, mcx);
-        if !tableam::table_tuple_fetch_row_version(self.scratch.exec_mcx(), heap, &tid_of(pos), &None, slot)? {
-            return Err(Box::new(PgError::error("failed to fetch tuple for EvalPlanQual recheck".to_string()))); // alloc: Cold
+        if !tableam::table_tuple_fetch_row_version(
+            self.scratch.exec_mcx(),
+            heap,
+            &tid_of(pos),
+            &None,
+            slot,
+        )? {
+            return Err(Box::new(PgError::error(
+                "failed to fetch tuple for EvalPlanQual recheck".to_string(),
+            ))); // alloc: Cold
         }
         exectuples::slot_getallattrs(slot);
         let base = slot.base();
@@ -215,7 +290,9 @@ impl Locker for LockHost {
         // D2947: a KNN walk's reordered row (its invalid TID, ctid (4294967295,0)): ExecLockRows locks that TID and
         // table_tuple_lock answers TM_Invisible
         if crate::ops::shared::rel::invalid_tid(pos) {
-            return Err(crate::stash(Box::new(PgError::error("attempted to lock invisible tuple".to_string())))); // alloc: Cold
+            return Err(crate::stash(Box::new(PgError::error(
+                "attempted to lock invisible tuple".to_string(),
+            )))); // alloc: Cold
         }
         // lockrows D2604: an inactive family child's mark (the row's tableoid names another leaf; lowering stores the empty
         // position): ExecLockRows' ermActive false, curCtid invalid, nothing locked, the next mark tried
@@ -243,10 +320,15 @@ impl Locker for LockHost {
     /// pinned buffer until the next lock or unbind.
     fn existing(&mut self, values: &mut [Word], isnull: &mut [u8]) -> Result<ScanPos> {
         if self.recheck_pos == ScanPos::NONE {
-            return Err(gravity_driver::Error::host("gravity: a lock's cells without a traversed version"));
+            return Err(gravity_driver::Error::host(
+                "gravity: a lock's cells without a traversed version",
+            ));
         }
         let r = &mut self.rels[self.last];
-        let slot = r.slot.as_mut().expect("gravity: existing on an unbound locker");
+        let slot = r
+            .slot
+            .as_mut()
+            .expect("gravity: existing on an unbound locker");
         exectuples::slot_getallattrs(slot);
         let base = slot.base();
         let n = values.len().min(base.tts_nvalid as usize);

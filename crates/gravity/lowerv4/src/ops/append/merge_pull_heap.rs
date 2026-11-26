@@ -31,14 +31,23 @@ pub(crate) struct Heap<'g> {
 
 /// The heap's depth over `n` arms: the most levels a sift_down from the root descends.
 fn depth(n: usize) -> usize {
-    if n < 2 { 0 } else { (usize::BITS - 1 - n.leading_zeros()) as usize }
+    if n < 2 {
+        0
+    } else {
+        (usize::BITS - 1 - n.leading_zeros()) as usize
+    }
 }
 
 impl Heap<'_> {
     fn words(&self, env: &Env) -> Value {
         match env.words {
             Some(w) => w,
-            None => crate::refuse!(env.node, crate::admit::refusal::Reason::Bug { payload: "a merge heap without the words site" }),
+            None => crate::refuse!(
+                env.node,
+                crate::admit::refusal::Reason::Bug {
+                    payload: "a merge heap without the words site"
+                }
+            ),
         }
     }
 
@@ -70,30 +79,76 @@ impl Heap<'_> {
     }
 
     /// Arm `arm`'s held columns: `n` datum words then `n` null words.
-    pub(crate) fn cols<'e>(&self, b: &mut FunctionBuilder<'_>, env: &Env<'e, '_>, arm: Value) -> PgVec<'e, Value> {
+    pub(crate) fn cols<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &Env<'e, '_>,
+        arm: Value,
+    ) -> PgVec<'e, Value> {
         let r = self.row(b, env, arm);
-        self.vals.iter().chain(self.nulls.iter()).map(|&o| b.load(Type::I64, r, o)).collect_in(env.mcx)
+        self.vals
+            .iter()
+            .chain(self.nulls.iter())
+            .map(|&o| b.load(Type::I64, r, o))
+            .collect_in(env.mcx)
     }
 
     /// Whether arm `x`'s held row orders strictly before arm `y`'s (merge_pull_cmp.rs `less`: the pairs, then a tail key's
     /// comparator over the held copies). `skip`: the compare is moot (its tail comparator is not called).
-    fn first(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, keys: &[Key], x: Value, y: Value, skip: Value) -> Value {
+    fn first(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        keys: &[Key],
+        x: Value,
+        y: Value,
+        skip: Value,
+    ) -> Value {
         let n = self.vals.len();
         let (rx, ry) = (self.row(b, env, x), self.row(b, env, y));
-        let px: PgVec<'_, Value> = self.pairs.iter().map(|&o| b.load(Type::I64, rx, o)).collect_in(env.mcx);
-        let py: PgVec<'_, Value> = self.pairs.iter().map(|&o| b.load(Type::I64, ry, o)).collect_in(env.mcx);
-        let (mut vx, mut nx, mut vy) = (mcx::pg_vec![in env.mcx; env.zero; n], mcx::pg_vec![in env.mcx; env.zero; n], mcx::pg_vec![in env.mcx; env.zero; n]);
+        let px: PgVec<'_, Value> = self
+            .pairs
+            .iter()
+            .map(|&o| b.load(Type::I64, rx, o))
+            .collect_in(env.mcx);
+        let py: PgVec<'_, Value> = self
+            .pairs
+            .iter()
+            .map(|&o| b.load(Type::I64, ry, o))
+            .collect_in(env.mcx);
+        let (mut vx, mut nx, mut vy) = (
+            mcx::pg_vec![in env.mcx; env.zero; n],
+            mcx::pg_vec![in env.mcx; env.zero; n],
+            mcx::pg_vec![in env.mcx; env.zero; n],
+        );
         for k in keys.iter().filter(|k| k.tail != 0) {
             let c = k.col as usize;
             vx[c] = b.load(Type::I64, rx, self.vals[c]);
             nx[c] = b.load(Type::I64, rx, self.nulls[c]);
             vy[c] = b.load(Type::I64, ry, self.vals[c]);
         }
-        crate::ops::append::merge_pull_cmp::less(b, env, keys, &px[..], &py[..], &vx[..], &nx[..], &vy[..], skip)
+        crate::ops::append::merge_pull_cmp::less(
+            b,
+            env,
+            keys,
+            &px[..],
+            &py[..],
+            &vx[..],
+            &nx[..],
+            &vy[..],
+            skip,
+        )
     }
 
     /// binaryheap.c `sift_down` from position `pos0` over a heap of `size`, unrolled to the heap's depth.
-    fn sift(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, keys: &[Key], pos0: Value, size: Value) {
+    fn sift(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        keys: &[Key],
+        pos0: Value,
+        size: Value,
+    ) {
         let node = self.at(b, env, pos0);
         let l_done = b.create_block(&[Type::I64]);
         let (two, f) = (b.iconst(Type::I64, 2), b.bconst(false));
@@ -146,7 +201,8 @@ impl Heap<'_> {
         let two = b.iconst(Type::I64, 2);
         let s2 = b.int_bin(IntBinOp::Sub, size, two);
         let first = b.int_bin(IntBinOp::Sdiv, s2, two);
-        let (l_head, l_body) = crate::frame::cancel::header(b, env.ctx, env.l_cancel, &[Type::I64], env.mcx);
+        let (l_head, l_body) =
+            crate::frame::cancel::header(b, env.ctx, env.l_cancel, &[Type::I64], env.mcx);
         let l_built = b.create_block(&[]);
         b.br(l_head, &[first]);
         b.switch_to(l_body);
@@ -166,7 +222,12 @@ impl Heap<'_> {
         let size = env.load_word(b, self.size);
         let top = self.at(b, env, env.zero);
         let live = self.alive(b, env, top);
-        let (l_live, l_gone, l_sift, l_done) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[Type::I64]), b.create_block(&[]));
+        let (l_live, l_gone, l_sift, l_done) = (
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[Type::I64]),
+            b.create_block(&[]),
+        );
         b.cond_br(live, (l_live, &[]), (l_gone, &[]));
         b.switch_to(l_live);
         b.br(l_sift, &[size]);

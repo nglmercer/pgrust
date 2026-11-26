@@ -173,13 +173,19 @@ fn cost_bracket(body: Vec<StmtKind>, index_scans: bool) -> Vec<StmtKind> {
         StmtKind::Raw("SET min_parallel_table_scan_size = 0;".to_string()),
     ];
     if index_scans {
-        stmts.push(StmtKind::Raw("SET min_parallel_index_scan_size = 0;".to_string()));
+        stmts.push(StmtKind::Raw(
+            "SET min_parallel_index_scan_size = 0;".to_string(),
+        ));
     }
     stmts.extend(body);
     if index_scans {
-        stmts.push(StmtKind::Raw("RESET min_parallel_index_scan_size;".to_string()));
+        stmts.push(StmtKind::Raw(
+            "RESET min_parallel_index_scan_size;".to_string(),
+        ));
     }
-    stmts.push(StmtKind::Raw("RESET min_parallel_table_scan_size;".to_string()));
+    stmts.push(StmtKind::Raw(
+        "RESET min_parallel_table_scan_size;".to_string(),
+    ));
     stmts.push(StmtKind::Raw("RESET parallel_tuple_cost;".to_string()));
     stmts.push(StmtKind::Raw("RESET parallel_setup_cost;".to_string()));
     stmts
@@ -208,8 +214,10 @@ fn gen_create(g: &mut Gen) -> Vec<StmtKind> {
     // Sizes stay under the 30000-row default_statistics_target sample so
     // ANALYZE is exhaustive (deterministic stats/plans); big enough that
     // parallel scans/builds move real data through the shared queues.
-    let rows = match g.weights.pick(g.rng, &["par:rows:8000", "par:rows:16000", "par:rows:24000"])
-    {
+    let rows = match g.weights.pick(
+        g.rng,
+        &["par:rows:8000", "par:rows:16000", "par:rows:24000"],
+    ) {
         "par:rows:8000" => 8000,
         "par:rows:16000" => 16000,
         _ => 24000,
@@ -243,7 +251,11 @@ fn gen_create(g: &mut Gen) -> Vec<StmtKind> {
         dead_bands: Vec::new(),
         extra_indexes: vec![i1, i2],
     });
-    g.par.events.push(DdlEvent { table: name, pk: "pk".to_string(), kind: DdlEventKind::Created });
+    g.par.events.push(DdlEvent {
+        table: name,
+        pk: "pk".to_string(),
+        kind: DdlEventKind::Created,
+    });
     stmts
 }
 
@@ -301,7 +313,10 @@ fn gen_agg(g: &mut Gen) -> Vec<StmtKind> {
     };
     g.fire("par:agg");
     let t = g.par.tables[ti].name.clone();
-    let shape = g.weights.pick(g.rng, &["par:agg:plain", "par:agg:group", "par:agg:filtered"]);
+    let shape = g.weights.pick(
+        g.rng,
+        &["par:agg:plain", "par:agg:group", "par:agg:filtered"],
+    );
     g.fire(shape);
     // cardinality(array_agg())/length(string_agg()) reduce the order-
     // nondeterministic parallel-combined aggregates to order-independent
@@ -341,7 +356,9 @@ fn gen_join(g: &mut Gen) -> Vec<StmtKind> {
     if spill {
         g.fire("par:join:spill");
     }
-    let shape = g.weights.pick(g.rng, &["par:join:count", "par:join:agg", "par:join:rows"]);
+    let shape = g
+        .weights
+        .pick(g.rng, &["par:join:count", "par:join:agg", "par:join:rows"]);
     g.fire(shape);
     let p = pred(g);
     let body = match shape {
@@ -387,7 +404,10 @@ fn gen_scan(g: &mut Gen) -> Vec<StmtKind> {
     let t = g.par.tables[ti].name.clone();
     let a = g.rng.below(KINT_M - 200);
     let b = a + 50 + g.rng.below(200);
-    let shape = g.weights.pick(g.rng, &["par:scan:idx", "par:scan:ionly", "par:scan:bitmap"]);
+    let shape = g.weights.pick(
+        g.rng,
+        &["par:scan:idx", "par:scan:ionly", "par:scan:bitmap"],
+    );
     g.fire(shape);
     let (body, extra_off) = match shape {
         // Parallel index scan: seqscan+bitmap off leaves btree amgettuple.
@@ -434,8 +454,7 @@ fn gen_gather_merge(g: &mut Gen) -> Vec<StmtKind> {
     let t = g.par.tables[ti].name.clone();
     let p = pred(g);
     let n = 50 + g.rng.below(150);
-    let body =
-        format!("SELECT pk, k_int FROM {t} WHERE {p} ORDER BY k_int, pk LIMIT {n};");
+    let body = format!("SELECT pk, k_int FROM {t} WHERE {p} ORDER BY k_int, pk LIMIT {n};");
     cost_bracket(vec![StmtKind::Raw(body)], false)
 }
 
@@ -516,9 +535,7 @@ fn gen_debug(g: &mut Gen) -> Vec<StmtKind> {
         "par:debug:distinct" => {
             format!("SELECT DISTINCT k2 FROM {t} WHERE {p} ORDER BY k2;")
         }
-        _ => format!(
-            "SELECT k2, sum(k_int) FROM {t} WHERE {p} GROUP BY k2 ORDER BY k2 LIMIT 40;"
-        ),
+        _ => format!("SELECT k2, sum(k_int) FROM {t} WHERE {p} GROUP BY k2 ORDER BY k2 LIMIT 40;"),
     };
     debug_bracket(vec![StmtKind::Raw(body)])
 }
@@ -538,7 +555,9 @@ fn gen_idxbuild(g: &mut Gen) -> Vec<StmtKind> {
     };
     g.fire("par:idxbuild");
     let t = g.par.tables[ti].name.clone();
-    let am = g.weights.pick(g.rng, &["par:ib:btree", "par:ib:brin", "par:ib:gin"]);
+    let am = g
+        .weights
+        .pick(g.rng, &["par:ib:btree", "par:ib:brin", "par:ib:gin"]);
     g.fire(am);
     let iname = format!("fz_pari_{}", g.par.next_index);
     g.par.next_index += 1;
@@ -557,7 +576,11 @@ fn gen_idxbuild(g: &mut Gen) -> Vec<StmtKind> {
     // 96MB grants the full 2 workers; 64MB grants 1 (leader + worker) —
     // two live parallel-build regimes, both engaging the parallel arms.
     let two_workers = g.weights.pick(g.rng, &["par:ib:w2", "par:ib:w1"]) == "par:ib:w2";
-    g.fire(if two_workers { "par:ib:w2" } else { "par:ib:w1" });
+    g.fire(if two_workers {
+        "par:ib:w2"
+    } else {
+        "par:ib:w1"
+    });
     let mwm = if two_workers { "96MB" } else { "64MB" };
     let stmts = vec![
         StmtKind::Raw("SET max_parallel_maintenance_workers = 2;".to_string()),
@@ -628,7 +651,10 @@ fn gen_vacuum(g: &mut Gen) -> Vec<StmtKind> {
     };
     g.fire("par:vacuum");
     let t = g.par.tables[ti].name.clone();
-    let form = g.weights.pick(g.rng, &["par:vac:parallel", "par:vac:plain", "par:vac:analyze"]);
+    let form = g.weights.pick(
+        g.rng,
+        &["par:vac:parallel", "par:vac:plain", "par:vac:analyze"],
+    );
     g.fire(form);
     match form {
         "par:vac:parallel" => {
@@ -661,16 +687,20 @@ fn gen_explain(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("par:explain");
     let t = g.par.tables[ti].name.clone();
     let p = pred(g);
-    let shape = g.weights.pick(g.rng, &["par:ex:agg", "par:ex:join", "par:ex:gm"]);
+    let shape = g
+        .weights
+        .pick(g.rng, &["par:ex:agg", "par:ex:join", "par:ex:gm"]);
     g.fire(shape);
     let body = match shape {
-        "par:ex:agg" => format!("EXPLAIN (COSTS OFF) SELECT count(*), sum(num) FROM {t} WHERE {p};"),
+        "par:ex:agg" => {
+            format!("EXPLAIN (COSTS OFF) SELECT count(*), sum(num) FROM {t} WHERE {p};")
+        }
         "par:ex:join" => format!(
             "EXPLAIN (COSTS OFF) SELECT count(*) FROM {t} a JOIN {t} b ON a.k2 = b.k2 WHERE a.{p};"
         ),
-        _ => format!(
-            "EXPLAIN (COSTS OFF) SELECT pk FROM {t} WHERE {p} ORDER BY k_int, pk LIMIT 50;"
-        ),
+        _ => {
+            format!("EXPLAIN (COSTS OFF) SELECT pk FROM {t} WHERE {p} ORDER BY k_int, pk LIMIT 50;")
+        }
     };
     cost_bracket(vec![StmtKind::Raw(body)], false)
 }
@@ -769,7 +799,10 @@ mod tests {
                     .unwrap();
                 assert!(n == 1 || n == 2, "bad parallel degree: {sql}");
                 let t = sql.rsplit(' ').next().unwrap().trim_end_matches(';');
-                assert!(created.iter().any(|c| c == t), "vacuum of unknown table: {sql}");
+                assert!(
+                    created.iter().any(|c| c == t),
+                    "vacuum of unknown table: {sql}"
+                );
             }
         }
     }
@@ -785,8 +818,13 @@ mod tests {
             if sql.starts_with("DELETE FROM fz_par_") {
                 let tail = sql.split("BETWEEN ").nth(1).unwrap();
                 let lo: i64 = tail.split(' ').next().unwrap().parse().unwrap();
-                let hi: i64 =
-                    tail.split("AND ").nth(1).unwrap().trim_end_matches(';').parse().unwrap();
+                let hi: i64 = tail
+                    .split("AND ")
+                    .nth(1)
+                    .unwrap()
+                    .trim_end_matches(';')
+                    .parse()
+                    .unwrap();
                 deleted.push((lo, hi));
             }
             if sql.starts_with("INSERT INTO fz_par_") && sql.contains("generate_series(") {
@@ -829,7 +867,10 @@ mod tests {
             "cardinality(array_agg(k2))",
             "SET enable_hashjoin TO off;",
         ] {
-            assert!(stmts.contains(needle), "family never fired in 800 groups: {needle}");
+            assert!(
+                stmts.contains(needle),
+                "family never fired in 800 groups: {needle}"
+            );
         }
     }
 
@@ -862,7 +903,10 @@ mod tests {
                 let tail = args.split(',').nth(1).unwrap().trim();
                 let digits: String = tail.chars().take_while(|c| c.is_ascii_digit()).collect();
                 let hi: i64 = digits.parse().unwrap();
-                assert!(hi <= 24000, "bulk load exceeds ANALYZE-exhaustive cap: {sql}");
+                assert!(
+                    hi <= 24000,
+                    "bulk load exceeds ANALYZE-exhaustive cap: {sql}"
+                );
             }
         }
     }

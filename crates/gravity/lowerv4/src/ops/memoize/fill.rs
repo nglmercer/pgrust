@@ -10,7 +10,7 @@ use gravity_kernels::ops::shared::object::entries as abi;
 use gravity_program::{NumForm, Rep, Until};
 use mcx::{CollectIn, GrowIn};
 
-use crate::ops::memoize::lower::{byref_len, from_word, host, image_len, raise_if_bad, row_tag, shape, to_word, Fill, Memo, Replay, BYPASS, FILLING, REPLAY};
+use crate::admit::refusal::Reason;
 use crate::cell::{At, Cell, CellHome, CellLife, Nullable};
 use crate::face::step::StepMech;
 use crate::frame::env::Env;
@@ -18,13 +18,22 @@ use crate::frame::frame::Next;
 use crate::frame::open::{Base, OpenWord, OpenWords};
 use crate::frame::row::{Carry, RowVals};
 use crate::frame::stop::Exits;
-use crate::admit::refusal::Reason;
+use crate::ops::memoize::lower::{
+    byref_len, from_word, host, image_len, raise_if_bad, row_tag, shape, to_word, Fill, Memo,
+    Replay, BYPASS, FILLING, REPLAY,
+};
 use crate::rep;
 
 impl Memo<'_> {
     /// At the walk's entry: a resume past the row handed on (`skip` 1) clears the stored-row flag, a re-entry keeps it;
     /// then a hit branches to the replay block returned (`[skip, carry..]`, lowered by `replay`), else the site's walk.
-    pub(crate) fn enter(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, htypes: &[Type], (skip, carry): (Value, &Carry)) -> Block {
+    pub(crate) fn enter(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        htypes: &[Type],
+        (skip, carry): (Value, &Carry),
+    ) -> Block {
         let c = &*self.core;
         let p = env.load_word(b, c.pend);
         let keep = b.icmp(IntCond::Eq, skip, env.zero);
@@ -34,13 +43,25 @@ impl Memo<'_> {
         let rp = b.iconst(Type::I64, REPLAY);
         let replaying = b.icmp(IntCond::Eq, s, rp);
         let (l_r, l_site) = (b.create_block(htypes), b.create_block(&[]));
-        b.cond_br(replaying, (l_r, &mcx::concat_in(&[&[skip][..], &carry.params()[..]], env.mcx)), (l_site, &[]));
+        b.cond_br(
+            replaying,
+            (
+                l_r,
+                &mcx::concat_in(&[&[skip][..], &carry.params()[..]], env.mcx),
+            ),
+            (l_site, &[]),
+        );
         b.switch_to(l_site);
         l_r
     }
 
     /// The replay's first record (the position, `skip` past it) and the entry's row count.
-    pub(crate) fn bounds(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, skip: Value) -> (Value, Value) {
+    pub(crate) fn bounds(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        skip: Value,
+    ) -> (Value, Value) {
         let c = &*self.core;
         let pos = env.load_word(b, c.pos);
         let start = b.int_bin(IntBinOp::Add, pos, skip);
@@ -55,10 +76,22 @@ impl Memo<'_> {
     }
 
     /// Record `j` of the hit as the row at the Memoize: each stored datum as an `At::Value` cell of its column.
-    pub(crate) fn row<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e> {
+    pub(crate) fn row<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        j: Value,
+        carry: Carry<'e>,
+        next: Value,
+    ) -> RowVals<'e> {
         let (c, mcx) = (&*self.core, env.mcx);
         let held = c.shape.borrow();
-        let Some((cells, types, cols)) = held.as_ref() else { shape(c.node, "a Memoize whose inner hands on no row (its replayed row's shape)") };
+        let Some((cells, types, cols)) = held.as_ref() else {
+            shape(
+                c.node,
+                "a Memoize whose inner hands on no row (its replayed row's shape)",
+            )
+        };
         let ncols = cells.len() as i64;
         let at = env.load_word(b, c.hit);
         let p = b.conv(ConvOp::IntToPtr, Type::Ptr, at);
@@ -72,15 +105,37 @@ impl Memo<'_> {
             let nw = b.load(Type::I64, rec, 16 * i as i32 + 8);
             let null = b.icmp(IntCond::Ne, nw, env.zero);
             vals.push_in((from_word(b, dw, ty), Some(null)));
-            out.push_in(Cell { life: CellLife { until: Until::Row, home: CellHome::FrameSlot }, at: At::Value(i as u16), null: Nullable::Maybe, ..*cell });
+            out.push_in(Cell {
+                life: CellLife {
+                    until: Until::Row,
+                    home: CellHome::FrameSlot,
+                },
+                at: At::Value(i as u16),
+                null: Nullable::Maybe,
+                ..*cell
+            });
         }
-        RowVals { row: crate::cell::Row { cells: out }, vals, cols: mcx::to_vec_in(&cols[..], mcx), carry, next, at: j }
+        RowVals {
+            row: crate::cell::Row { cells: out },
+            vals,
+            cols: mcx::to_vec_in(&cols[..], mcx),
+            carry,
+            next,
+            at: j,
+        }
     }
 
     /// The replay loop from `l_r` (`[skip, carry..]`, types `htypes`): record `j` from the position on through `each`
     /// (the steps past the Memoize, then the owner's continuation), the interrupt checked per row, to `l_done` at the
     /// entry's end.
-    pub(crate) fn replay<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, x: &Exits, (l_r, htypes, l_done): (Block, &[Type], Block), each: Replay<'_, 'e>) {
+    pub(crate) fn replay<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        x: &Exits,
+        (l_r, htypes, l_done): (Block, &[Type], Block),
+        each: Replay<'_, 'e>,
+    ) {
         b.switch_to(l_r);
         let p = mcx::to_vec_in(b.block_params(l_r), env.mcx);
         let (start, n) = self.bounds(b, env, p[0]);
@@ -97,12 +152,21 @@ impl Memo<'_> {
         let past = b.int_bin(IntBinOp::Add, j, env.one);
         let row = self.row(b, env, j, rc, past);
         let c = each(b, env, j, &row);
-        b.br(l_rh, &mcx::concat_in(&[&[past][..], &c.params()[..]], env.mcx));
+        b.br(
+            l_rh,
+            &mcx::concat_in(&[&[past][..], &c.params()[..]], env.mcx),
+        );
     }
 
     /// The inner's window loop at its source's status `r` (`end`: status 0): at the end the entry filled is complete
     /// (none in bypass: the table ignores it) and the walk goes to `l_done`; any other status exits with it.
-    pub(crate) fn done(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, (end, r, l_exit): (Value, Value, Block), (l_done, wc): (Block, &Carry)) {
+    pub(crate) fn done(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        (end, r, l_exit): (Value, Value, Block),
+        (l_done, wc): (Block, &Carry),
+    ) {
         let l_end = b.create_block(&[]);
         b.cond_br(end, (l_end, &[]), (l_exit, &[r]));
         b.switch_to(l_end);
@@ -115,8 +179,15 @@ impl Memo<'_> {
     pub(crate) fn complete(&self, b: &mut FunctionBuilder<'_>, env: &mut Env) {
         let c = &*self.core;
         let hv = b.load(Type::I64, env.params, c.h as i32 * 8);
-        let f = host(b, "m8_memo_done", &[Type::Ptr, Type::I64], gravity_abi::host_words!(abi::m8_memo_done(ctx, h)));
-        let r = b.call_host(f, &[env.ctx, hv], Some(Type::I64)).unwrap_or(env.zero);
+        let f = host(
+            b,
+            "m8_memo_done",
+            &[Type::Ptr, Type::I64],
+            gravity_abi::host_words!(abi::m8_memo_done(ctx, h)),
+        );
+        let r = b
+            .call_host(f, &[env.ctx, hv], Some(Type::I64))
+            .unwrap_or(env.zero);
         raise_if_bad(b, env, r);
     }
 }
@@ -124,16 +195,46 @@ impl Memo<'_> {
 impl StepMech for Fill<'_> {
     fn open_words(&self, w: &mut OpenWords) {
         let c = &*self.core;
-        w.declare(OpenWord::open("nest.memo state", Base::Words, c.state, Type::I64, 0));
-        w.declare(OpenWord::open("nest.memo stored row", Base::Words, c.pend, Type::I64, 0));
-        w.declare(OpenWord::open("nest.memo hit", Base::Words, c.hit, Type::I64, 0));
-        w.declare(OpenWord::open("nest.memo replay position", Base::Words, c.pos, Type::I64, 0));
+        w.declare(OpenWord::open(
+            "nest.memo state",
+            Base::Words,
+            c.state,
+            Type::I64,
+            0,
+        ));
+        w.declare(OpenWord::open(
+            "nest.memo stored row",
+            Base::Words,
+            c.pend,
+            Type::I64,
+            0,
+        ));
+        w.declare(OpenWord::open(
+            "nest.memo hit",
+            Base::Words,
+            c.hit,
+            Type::I64,
+            0,
+        ));
+        w.declare(OpenWord::open(
+            "nest.memo replay position",
+            Base::Words,
+            c.pos,
+            Type::I64,
+            0,
+        ));
     }
 
     /// MEMO_FILLING_CACHE: the row stored (unless in bypass, or re-entered after a stop), then handed on; a pgrc inner's
     /// dictionary and window cells both stored and handed on site-free (`site_free`), so a hit's replay hands on the forms
     /// a miss's row does.
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, next: Next<'_, 'e>) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        next: Next<'_, 'e>,
+    ) -> Carry<'e> {
         let c = &*self.core;
         let plain = site_free(b, env, c.node, row);
         let row = plain.as_ref().unwrap_or(row);
@@ -141,24 +242,54 @@ impl StepMech for Fill<'_> {
         let mut ds = mcx::reserved_in(ncols, env.mcx);
         let mut cx = env.lx(b, c.node);
         for k in 0..ncols {
-            let Some(cr) = row.cell(k) else { crate::refuse!(c.node, Reason::Bug { payload: "a memo row cell past the row" }) };
+            let Some(cr) = row.cell(k) else {
+                crate::refuse!(
+                    c.node,
+                    Reason::Bug {
+                        payload: "a memo row cell past the row"
+                    }
+                )
+            };
             let bl = byref_len(c.node, cr.cell);
             // the datum arm reads only the cell's Rep (step/expr.rs `tf_datum`'s row)
-            let tf = typefacts::row_of(cr.cell.typid).copied().unwrap_or(typefacts::opaque(cr.cell.typid, cr.cell.typid, -1, false, false));
+            let tf = typefacts::row_of(cr.cell.typid)
+                .copied()
+                .unwrap_or(typefacts::opaque(
+                    cr.cell.typid,
+                    cr.cell.typid,
+                    -1,
+                    false,
+                    false,
+                ));
             let (d, null) = match cr.cell.rep {
                 // a kept order word (`site_free`'s, a sort's) is stored as the word: its datum is an image valid for the row only
-                Rep::PackedNum { form: NumForm::Word, .. } => (cr.val, cr.null.unwrap_or_else(|| cx.b.bconst(false))),
+                Rep::PackedNum {
+                    form: NumForm::Word,
+                    ..
+                } => (cr.val, cr.null.unwrap_or_else(|| cx.b.bconst(false))),
                 _ => rep::datum(&mut cx, cr, &tf),
             };
             ds.push_in((d, null, bl));
         }
         env.memo = cx.memo;
         {
-            let types: mcx::PgVec<'_, Type> = ds.iter().map(|&(d, _, _)| b.value_type(d)).collect_in(c.mcx);
+            let types: mcx::PgVec<'_, Type> = ds
+                .iter()
+                .map(|&(d, _, _)| b.value_type(d))
+                .collect_in(c.mcx);
             let mut s = c.shape.borrow_mut();
             match s.as_ref() {
-                None => *s = Some((mcx::to_vec_in(&row.row.cells[..], c.mcx), types, mcx::to_vec_in(&row.cols[..], c.mcx))),
-                Some((cells, t, _)) if cells.len() != ncols || *t != types => shape(c.node, "a Memoize whose rows differ in form between its inner's paths"),
+                None => {
+                    *s = Some((
+                        mcx::to_vec_in(&row.row.cells[..], c.mcx),
+                        types,
+                        mcx::to_vec_in(&row.cols[..], c.mcx),
+                    ))
+                }
+                Some((cells, t, _)) if cells.len() != ncols || *t != types => shape(
+                    c.node,
+                    "a Memoize whose rows differ in form between its inner's paths",
+                ),
                 Some(_) => {}
             }
         }
@@ -167,12 +298,19 @@ impl StepMech for Fill<'_> {
         let fi = b.iconst(Type::I64, FILLING);
         let filling = b.icmp(IntCond::Eq, st, fi);
         let (pend, tag) = (env.load_word(b, c.pend), row_tag(b, env, c.node));
-        let fresh = if let Some(t) = tag { b.icmp(IntCond::Ne, pend, t) } else { b.icmp(IntCond::Eq, pend, env.zero) };
+        let fresh = if let Some(t) = tag {
+            b.icmp(IntCond::Ne, pend, t)
+        } else {
+            b.icmp(IntCond::Eq, pend, env.zero)
+        };
         let go = b.int_bin(IntBinOp::And, filling, fresh);
         let (l_store, l_on) = (b.create_block(&[]), b.create_block(&[]));
         b.cond_br(go, (l_store, &[]), (l_on, &[]));
         b.switch_to(l_store);
-        let slot = b.declare_stack_slot(((abi::MEMO_ROW_HEAD + ncols * abi::MEMO_ROW_WORDS) * 8) as u32, 8);
+        let slot = b.declare_stack_slot(
+            ((abi::MEMO_ROW_HEAD + ncols * abi::MEMO_ROW_WORDS) * 8) as u32,
+            8,
+        );
         let rb = b.stack_addr(slot);
         let nc = b.iconst(Type::I64, ncols as i64);
         b.store(rb, 0, nc);
@@ -189,8 +327,15 @@ impl StepMech for Fill<'_> {
             b.store(rb, off + 16, len);
         }
         let hv = b.load(Type::I64, env.params, c.h as i32 * 8);
-        let f = host(b, "m8_memo_store", &[Type::Ptr, Type::I64, Type::Ptr], gravity_abi::host_words!(abi::m8_memo_store(ctx, h, row)));
-        let r = b.call_host(f, &[env.ctx, hv, rb], Some(Type::I64)).unwrap_or(env.zero);
+        let f = host(
+            b,
+            "m8_memo_store",
+            &[Type::Ptr, Type::I64, Type::Ptr],
+            gravity_abi::host_words!(abi::m8_memo_store(ctx, h, row)),
+        );
+        let r = b
+            .call_host(f, &[env.ctx, hv, rb], Some(Type::I64))
+            .unwrap_or(env.zero);
         raise_if_bad(b, env, r);
         // 0: the entry is gone, bypass until the next re-open
         let kept = b.icmp(IntCond::Ne, r, env.zero);
@@ -211,8 +356,23 @@ impl StepMech for Fill<'_> {
 /// is made site-free here, in the fill under the inner's site, as nest.loop's `site_free` makes it for the owner's
 /// continuation: a code its rendered varlena (the dictionary's resident image, copied into the entry like any varlena), a
 /// window element its order word (the packed arm's retain, a by-value word). `None` when the row holds no such cell.
-fn site_free<'r>(b: &mut FunctionBuilder<'_>, env: &mut Env, node: i32, r: &RowVals<'r>) -> Option<RowVals<'r>> {
-    let sited = |c: &Cell| matches!(c.rep, Rep::Code { .. } | Rep::PackedNum { form: NumForm::Window, .. } | Rep::PackedNumDyn);
+fn site_free<'r>(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    node: i32,
+    r: &RowVals<'r>,
+) -> Option<RowVals<'r>> {
+    let sited = |c: &Cell| {
+        matches!(
+            c.rep,
+            Rep::Code { .. }
+                | Rep::PackedNum {
+                    form: NumForm::Window,
+                    ..
+                }
+                | Rep::PackedNumDyn
+        )
+    };
     if !r.row.cells.iter().any(sited) {
         return None;
     }
@@ -224,14 +384,36 @@ fn site_free<'r>(b: &mut FunctionBuilder<'_>, env: &mut Env, node: i32, r: &RowV
                 continue;
             }
             let tf = crate::step::expr::tf_datum(c.typid);
-            let cr = rep::CellRef { cell: &*c, val: v.0, null: v.1 };
+            let cr = rep::CellRef {
+                cell: &*c,
+                val: v.0,
+                null: v.1,
+            };
             let (cell, val) = if matches!(c.rep, Rep::Code { .. }) {
                 let (d, null) = rep::datum(&mut cx, cr, &tf);
-                let life = CellLife { until: Until::Row, home: CellHome::FrameSlot };
-                (Cell { rep: Rep::VarlenaPtr, life, at: rep::word::datum::off_lane(c.at), null: Nullable::Maybe, ..*c }, (d, Some(null)))
+                let life = CellLife {
+                    until: Until::Row,
+                    home: CellHome::FrameSlot,
+                };
+                (
+                    Cell {
+                        rep: Rep::VarlenaPtr,
+                        life,
+                        at: rep::word::datum::off_lane(c.at),
+                        null: Nullable::Maybe,
+                        ..*c
+                    },
+                    (d, Some(null)),
+                )
             } else {
                 // the arm itself, not `rep::retain`: a window cell's life already reaches the row, so that keeps the lane cell
-                let k = (rep::packednum::datum::ARM.retain)(&mut cx, cr, &tf, Until::Row, rep::RetainHome::Frame);
+                let k = (rep::packednum::datum::ARM.retain)(
+                    &mut cx,
+                    cr,
+                    &tf,
+                    Until::Row,
+                    rep::RetainHome::Frame,
+                );
                 (k.cell, (k.val, k.null))
             };
             *c = cell;
@@ -239,5 +421,12 @@ fn site_free<'r>(b: &mut FunctionBuilder<'_>, env: &mut Env, node: i32, r: &RowV
         }
         env.memo = cx.memo;
     }
-    Some(RowVals { row: crate::cell::Row { cells }, vals, cols: r.cols.clone(), carry: r.carry.copy_in(*r.vals.allocator()), next: r.next, at: r.at })
+    Some(RowVals {
+        row: crate::cell::Row { cells },
+        vals,
+        cols: r.cols.clone(),
+        carry: r.carry.copy_in(*r.vals.allocator()),
+        next: r.next,
+        at: r.at,
+    })
 }

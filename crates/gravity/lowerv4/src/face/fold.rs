@@ -11,18 +11,22 @@ use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::Value;
 use gravity_program::SiteDesc;
 
+use crate::admit::refusal::Site;
 use crate::face::kinds::KindId;
 use crate::frame::env::Env;
 use crate::frame::frame::{Mask, WordWin};
 use crate::frame::px::Px;
-use crate::admit::refusal::Site;
 use crate::rep::CellRef;
 
 /// Where one accumulator lives: SSA values in the carry, which a step replaces, or a slot at `base + off` in a record, a
 /// state slot or a scratch area, with its validity as the layout marks it (offsets relative to `base`, like `off`).
 pub enum Acc<'a> {
     Regs(&'a mut [Value]),
-    Slot { base: Value, off: i32, valid: gravity_expr::emit::CellValid },
+    Slot {
+        base: Value,
+        off: i32,
+        valid: gravity_expr::emit::CellValid,
+    },
 }
 
 /// An accumulator's shape. In registers it takes `words` values; in a slot it takes `bytes` at `align`.
@@ -48,20 +52,63 @@ pub trait FoldClass: Sync {
     /// The initial state (PG's initcond, or NULL / empty).
     fn init(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, agg: &AggDecl<'_>, acc: Acc<'_>);
     /// One input row: `args` are the aggregate's argument cells, read through their Rep's datum.
-    fn step(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, agg: &AggDecl<'_>, acc: Acc<'_>, args: &[CellRef<'_>]);
+    fn step(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        agg: &AggDecl<'_>,
+        acc: Acc<'_>,
+        args: &[CellRef<'_>],
+    );
     /// Combines two partial states (workers, parts, spilled partitions), as PG's combinefn does.
-    fn merge(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, agg: &AggDecl<'_>, into: Acc<'_>, from: Acc<'_>);
+    fn merge(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        agg: &AggDecl<'_>,
+        into: Acc<'_>,
+        from: Acc<'_>,
+    );
     /// The final value and its null flag.
-    fn finish(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, agg: &AggDecl<'_>, acc: Acc<'_>) -> (Value, Value);
+    fn finish(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        agg: &AggDecl<'_>,
+        acc: Acc<'_>,
+    ) -> (Value, Value);
     /// D1520: `finish` with an ordered-set aggregate's direct arguments given over the group's row (each its datum word and
     /// how it is given, kernels `DIRECT_*`); a keyed end hands them only to the hosted fold (keyed/stream.rs `finals_of`).
-    fn finish_direct(&self, _b: &mut FunctionBuilder<'_>, env: &mut Env, _agg: &AggDecl<'_>, _acc: Acc<'_>, _direct: &[(Value, Value)]) -> (Value, Value) {
-        crate::refuse!(env.node, crate::admit::refusal::Reason::Bug { payload: "direct arguments handed to a class with no hosted final" })
+    fn finish_direct(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        _agg: &AggDecl<'_>,
+        _acc: Acc<'_>,
+        _direct: &[(Value, Value)],
+    ) -> (Value, Value) {
+        crate::refuse!(
+            env.node,
+            crate::admit::refusal::Reason::Bug {
+                payload: "direct arguments handed to a class with no hosted final"
+            }
+        )
     }
     /// D1371: a host-sorted aggregate's sort and transitions over its group's run, ahead of the group's finals (effects
     /// `folds_ahead`); only the hosted fold keeps such a run.
-    fn fold_ahead(&self, _b: &mut FunctionBuilder<'_>, env: &mut Env, _agg: &AggDecl<'_>, _acc: Acc<'_>) {
-        crate::refuse!(env.node, crate::admit::refusal::Reason::Bug { payload: "a fold ahead of the finals handed to a class with no hosted run" })
+    fn fold_ahead(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        _agg: &AggDecl<'_>,
+        _acc: Acc<'_>,
+    ) {
+        crate::refuse!(
+            env.node,
+            crate::admit::refusal::Reason::Bug {
+                payload: "a fold ahead of the finals handed to a class with no hosted run"
+            }
+        )
     }
     /// How this class's final value orders (a top-k over aggregate finals, `runs.topk_groups`); `None`: not orderable here.
     fn order(&self, _agg: &AggDecl<'_>) -> Option<FinalOrder> {
@@ -82,8 +129,20 @@ pub trait FoldClass: Sync {
     }
     /// V4R-38: one row's exact numeric term, a num.window product the end folded (`WideTerm`), into `acc`: the class that
     /// takes one (class.num_wide) folds it as its step folds a datum; any other refuses (an end hands it only that class).
-    fn fold_wide(&self, _b: &mut FunctionBuilder<'_>, env: &mut Env, _agg: &AggDecl<'_>, _acc: Acc<'_>, _t: &WideTerm) {
-        crate::refuse!(env.node, crate::admit::refusal::Reason::Bug { payload: "a wide numeric term handed to a class that takes none" })
+    fn fold_wide(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        _agg: &AggDecl<'_>,
+        _acc: Acc<'_>,
+        _t: &WideTerm,
+    ) {
+        crate::refuse!(
+            env.node,
+            crate::admit::refusal::Reason::Bug {
+                payload: "a wide numeric term handed to a class that takes none"
+            }
+        )
     }
     /// V4R-215: whether `put` writes a fresh record's slot from a partial state held in registers.
     fn puts(&self, _agg: &AggDecl<'_>) -> bool {
@@ -110,8 +169,20 @@ pub trait FoldClass: Sync {
     }
     /// V4R-215: a fresh record's slot written once from the registers `from`, as `init` then `merge` from them would leave it
     /// (PG's combinefn from the identity); an end calls it only when `puts`.
-    fn put(&self, _b: &mut FunctionBuilder<'_>, env: &mut Env, _agg: &AggDecl<'_>, _into: Acc<'_>, _from: &[Value]) {
-        crate::refuse!(env.node, crate::admit::refusal::Reason::Bug { payload: "a fresh slot put to a class that puts none" })
+    fn put(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        _agg: &AggDecl<'_>,
+        _into: Acc<'_>,
+        _from: &[Value],
+    ) {
+        crate::refuse!(
+            env.node,
+            crate::admit::refusal::Reason::Bug {
+                payload: "a fresh slot put to a class that puts none"
+            }
+        )
     }
     /// D3224 A3: whether `avg`'s final may read `sum`'s slot for its sum, the two folding one transition state (table/rec.rs
     /// `GroupRec::share` asks the record's side: one argument and FILTER); the class answers its own (one scale, one form).
@@ -120,12 +191,36 @@ pub trait FoldClass: Sync {
         false
     }
     /// D3224 A3: a sharing avg's step (`shares`): its count alone, as `step` counts the row.
-    fn count(&self, _b: &mut FunctionBuilder<'_>, env: &mut Env, _agg: &AggDecl<'_>, _acc: Acc<'_>, _args: &[CellRef<'_>]) {
-        crate::refuse!(env.node, crate::admit::refusal::Reason::Bug { payload: "a count step to a class that shares no state" })
+    fn count(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        _agg: &AggDecl<'_>,
+        _acc: Acc<'_>,
+        _args: &[CellRef<'_>],
+    ) {
+        crate::refuse!(
+            env.node,
+            crate::admit::refusal::Reason::Bug {
+                payload: "a count step to a class that shares no state"
+            }
+        )
     }
     /// D3224 A3: a sharing avg's final (`shares`): its sum from the sum's slot `sum`, its count from its own `own`.
-    fn finish_shared(&self, _b: &mut FunctionBuilder<'_>, env: &mut Env, _agg: &AggDecl<'_>, _sum: Acc<'_>, _own: Acc<'_>) -> (Value, Value) {
-        crate::refuse!(env.node, crate::admit::refusal::Reason::Bug { payload: "a shared final to a class that shares no state" })
+    fn finish_shared(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        _agg: &AggDecl<'_>,
+        _sum: Acc<'_>,
+        _own: Acc<'_>,
+    ) -> (Value, Value) {
+        crate::refuse!(
+            env.node,
+            crate::admit::refusal::Reason::Bug {
+                payload: "a shared final to a class that shares no state"
+            }
+        )
     }
 }
 
@@ -172,7 +267,17 @@ crate::hook_variants! {
 /// The block-fold road's mechanism (registered as `BlockFoldImpl`): the mask's rows of lane `lane` in block
 /// `[base, base + 64)` folded into `acc`.
 pub trait BlockFoldMech: Sync {
-    fn fold(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, form: BlockFold, w: &WordWin, lane: usize, base: Value, m: Mask, acc: Acc<'_>);
+    fn fold(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        form: BlockFold,
+        w: &WordWin,
+        lane: usize,
+        base: Value,
+        m: Mask,
+        acc: Acc<'_>,
+    );
 }
 
 pub struct BlockFoldImpl(pub &'static dyn BlockFoldMech);
@@ -195,7 +300,14 @@ pub trait AnswerMech: Sync {
     /// serve `agg`.
     fn declare(&self, px: &mut Px<'_, '_>, site: &mut SiteDesc, agg: &AggDecl<'_>) -> bool;
     /// Folds an answered window's record at `rec` into `acc` instead of its rows.
-    fn fold(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, agg: &AggDecl<'_>, acc: Acc<'_>, rec: Value);
+    fn fold(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        agg: &AggDecl<'_>,
+        acc: Acc<'_>,
+        rec: Value,
+    );
 }
 
 pub struct AnswerImpl(pub &'static dyn AnswerMech);
@@ -237,7 +349,14 @@ crate::hook_variants! {
 /// its mantissa word (a sentinel for a special), whether the image fit (else the caller's host call decodes it) and, with
 /// `ds`, its dscale.
 pub trait NumShortMech: Sync {
-    fn decode(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, ptr: Value, scale: i16, ds: bool) -> (Value, Value, Option<Value>);
+    fn decode(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        ptr: Value,
+        scale: i16,
+        ds: bool,
+    ) -> (Value, Value, Option<Value>);
 }
 
 pub struct NumShortImpl(pub &'static dyn NumShortMech);

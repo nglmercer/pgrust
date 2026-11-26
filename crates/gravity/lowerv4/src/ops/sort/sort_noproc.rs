@@ -10,8 +10,8 @@
 //! Split from runs/sort.rs (its budget). Owner M11-MERGE.
 use gravity_abi::breaker::BreakerKind;
 use gravity_decompose::join::JoinDesc;
-use gravity_decompose::ops::sort;
 use gravity_decompose::ops::shared::sort::SortDesc;
+use gravity_decompose::ops::sort;
 use gravity_decompose::{Bound, Op, Source};
 use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{IntCond, Type, Value};
@@ -20,13 +20,13 @@ use gravity_program::LifeId;
 use mcx::{GrowIn, PgBox, PgVec};
 use types_nodes::jointype::JoinType;
 
+use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::face::runs::SlotRun;
 use crate::frame::env::Env;
 use crate::frame::iface::{end_breaker, holds_limit};
 use crate::frame::row::{Carry, RowVals};
 use crate::frame::stop::Exits;
 use crate::graph::{EndKind, Gx};
-use crate::admit::refusal::{Reason, ShapeWhy};
 
 /// Pipeline `k`'s full Sort's `(T, F)` when a key has no order proc; refused by NO_ORDER_PROC unless `served`. Called by
 /// runs/sort.rs `make_step`, the maker of every full Sort op whatever its end (a merge inner's, runs.sort's, a group's, a
@@ -35,9 +35,20 @@ use crate::admit::refusal::{Reason, ShapeWhy};
 /// speed only, never for their answer.
 pub(crate) fn checked(gx: &Gx<'_, '_>, k: usize) -> Option<(u32, u32)> {
     let p = &gx.pipelines()[k];
-    let (np, d) = p.ops.iter().find_map(|o| if let Op::Sort(d) = o { sort::no_proc(d).map(|np| (np, d)) } else { None })?;
+    let (np, d) = p.ops.iter().find_map(|o| {
+        if let Op::Sort(d) = o {
+            sort::no_proc(d).map(|np| (np, d))
+        } else {
+            None
+        }
+    })?;
     if !served(gx, k, d) {
-        crate::refuse!(p.node_id, Reason::Shape { why: ShapeWhy(sort::NO_ORDER_PROC) })
+        crate::refuse!(
+            p.node_id,
+            Reason::Shape {
+                why: ShapeWhy(sort::NO_ORDER_PROC)
+            }
+        )
     }
     Some(np)
 }
@@ -50,11 +61,18 @@ pub(crate) fn checked(gx: &Gx<'_, '_>, k: usize) -> Option<(u32, u32)> {
 pub(crate) fn puller(gx: &Gx<'_, '_>, k: usize) -> Option<usize> {
     let life = Some(LifeId(k as u16));
     let mut r = (0..gx.graph.pipelines.len()).filter(|&q| q != k && reads(gx, q, k));
-    let (Some(q), None) = (r.next(), r.next()) else { return None };
+    let (Some(q), None) = (r.next(), r.next()) else {
+        return None;
+    };
     let p = &gx.pipelines()[q];
     let sourced = matches!(p.source, Source::Breaker { slot } if gx.life_of(q, slot) == life);
     // a Sort of its own pulls its whole input at its first call too (a Unique's Distinct sorted again)
-    (sourced && p.union.is_none() && p.ops.iter().all(|o| sort::starts_raise(o) || matches!(o, Op::Sort(_) | Op::Join(JoinDesc::Spool)))).then_some(q)
+    (sourced
+        && p.union.is_none()
+        && p.ops
+            .iter()
+            .all(|o| sort::starts_raise(o) || matches!(o, Op::Sort(_) | Op::Join(JoinDesc::Spool))))
+    .then_some(q)
 }
 
 /// v0.4: the pipelines pulled from pipeline `k` up: `puller` of `k`, then of each puller whose end PG's node reads at its
@@ -68,7 +86,10 @@ fn pullers<'g>(gx: &Gx<'g, '_>, k: usize) -> PgVec<'g, usize> {
             break;
         }
         out.push_in(q);
-        if matches!(end_breaker(gx, q), None | Some(BreakerKind::HashBuild | BreakerKind::TopK)) {
+        if matches!(
+            end_breaker(gx, q),
+            None | Some(BreakerKind::HashBuild | BreakerKind::TopK)
+        ) {
             break;
         }
         cur = q;
@@ -90,11 +111,21 @@ fn driven(gx: &Gx<'_, '_>, r: usize, depth: usize) -> bool {
         return false;
     }
     let p = &gx.pipelines()[r];
-    if p.ops.iter().any(|o| matches!(o, Op::SubPlan(d) if matches!(d.form, SubForm::Build))) {
+    if p.ops
+        .iter()
+        .any(|o| matches!(o, Op::SubPlan(d) if matches!(d.form, SubForm::Build)))
+    {
         return true;
     }
-    matches!(end_breaker(gx, r), Some(BreakerKind::PlainAgg | BreakerKind::HashAgg | BreakerKind::Distinct | BreakerKind::Sort))
-        && puller(gx, r).is_some_and(|q| driven(gx, q, depth + 1))
+    matches!(
+        end_breaker(gx, r),
+        Some(
+            BreakerKind::PlainAgg
+                | BreakerKind::HashAgg
+                | BreakerKind::Distinct
+                | BreakerKind::Sort
+        )
+    ) && puller(gx, r).is_some_and(|q| driven(gx, q, depth + 1))
 }
 
 /// v0.4: whether pipeline `k` (a set's pipeline, or one feeding it) holds a Sort whose key has no order proc, or reads
@@ -104,7 +135,11 @@ pub(crate) fn no_proc_set(gx: &Gx<'_, '_>, k: usize) -> bool {
     let mut at = 0;
     while let Some(&q) = seen.get(at) {
         at += 1;
-        if gx.pipelines()[q].ops.iter().any(|o| matches!(o, Op::Sort(d) if sort::no_proc(d).is_some())) {
+        if gx.pipelines()[q]
+            .ops
+            .iter()
+            .any(|o| matches!(o, Op::Sort(d) if sort::no_proc(d).is_some()))
+        {
             return true;
         }
         for x in crate::effects::producers(gx, q) {
@@ -132,11 +167,18 @@ pub(crate) fn no_proc_set(gx: &Gx<'_, '_>, k: usize) -> bool {
 fn served(gx: &Gx<'_, '_>, k: usize, d: &SortDesc<'_>) -> bool {
     let root = gx.graph.root as usize;
     let readers = |k: usize| (0..gx.graph.pipelines.len()).filter(move |&q| reads(gx, q, k));
-    let materialized = |p: usize| matches!(gx.end_kind(p), EndKind::Breaker(BreakerKind::Materialize));
+    let materialized =
+        |p: usize| matches!(gx.end_kind(p), EndKind::Breaker(BreakerKind::Materialize));
     let nested = || {
         let mut r = readers(k);
-        let (Some(p), None) = (r.next(), r.next()) else { return false };
-        p != root && materialized(p) && inner_of(gx, k, p) && readers(p).eq([root]) && inner_of(gx, p, root)
+        let (Some(p), None) = (r.next(), r.next()) else {
+            return false;
+        };
+        p != root
+            && materialized(p)
+            && inner_of(gx, k, p)
+            && readers(p).eq([root])
+            && inner_of(gx, p, root)
     };
     // v0.4: or `k`'s run is pulled by one pipeline `q` (`puller`) whose run the root reads alone through one merge join
     // as its inner: a Materialize or a Unique over the Sort as a merge's inner (a small work_mem, a semi join's inner made
@@ -157,8 +199,18 @@ fn served(gx: &Gx<'_, '_>, k: usize, d: &SortDesc<'_>) -> bool {
 
 /// Whether pipeline `q` reads pipeline `k`'s run (a slot it consumes or its source, in `k`'s life).
 fn reads(gx: &Gx<'_, '_>, q: usize, k: usize) -> bool {
-    let src = if let Source::Breaker { slot } = gx.pipelines()[q].source { Some(slot) } else { None };
-    gx.pipelines()[q].desc.consumes.iter().copied().chain(src).any(|s| gx.life_of(q, s) == Some(LifeId(k as u16)))
+    let src = if let Source::Breaker { slot } = gx.pipelines()[q].source {
+        Some(slot)
+    } else {
+        None
+    };
+    gx.pipelines()[q]
+        .desc
+        .consumes
+        .iter()
+        .copied()
+        .chain(src)
+        .any(|s| gx.life_of(q, s) == Some(LifeId(k as u16)))
 }
 
 /// `served`'s rule for one reader: pipeline `r` reads `k`'s run through exactly one merge join as its inner, not as its
@@ -168,10 +220,14 @@ fn inner_of(gx: &Gx<'_, '_>, k: usize, r: usize) -> bool {
     let life = Some(LifeId(k as u16));
     let p = &gx.pipelines()[r];
     let mut merges = p.ops.iter().enumerate().filter_map(|(j, op)| match op {
-        Op::Join(JoinDesc::Merge { slot, jointype, .. }) if gx.life_of(r, *slot) == life => Some((j, *jointype)),
+        Op::Join(JoinDesc::Merge { slot, jointype, .. }) if gx.life_of(r, *slot) == life => {
+            Some((j, *jointype))
+        }
         _ => None,
     });
-    let (Some((j, jt)), None) = (merges.next(), merges.next()) else { return false };
+    let (Some((j, jt)), None) = (merges.next(), merges.next()) else {
+        return false;
+    };
     let before = match jt {
         // v0.4: a RIGHT / FULL / RIGHT ANTI merge calls its inner whatever its outer gives: at INITIALIZE_INNER after an
         // outer row, else at ENDOUTER, which the frame's flush path runs after any earlier op that ends the call (a LIMIT,
@@ -182,26 +238,59 @@ fn inner_of(gx: &Gx<'_, '_>, k: usize, r: usize) -> bool {
     // v0.4: or a Limit of constant bounds above the merge: PG's Limit calls the merge at its first call unless its count
     // is 0 (then never: no pipeline row reaches the merge either), and stops only after rows the merge returned, each
     // past its first inner call where one is made
-    let above = |ops: &[Op<'_>]| ops.iter().all(|op| matches!(op, Op::Filter(_) | Op::Project(_) | Op::Limit { count: Bound::Const(_) | Bound::All, offset: Bound::Const(_) | Bound::All, ties: None }));
+    let above = |ops: &[Op<'_>]| {
+        ops.iter().all(|op| {
+            matches!(
+                op,
+                Op::Filter(_)
+                    | Op::Project(_)
+                    | Op::Limit {
+                        count: Bound::Const(_) | Bound::All,
+                        offset: Bound::Const(_) | Bound::All,
+                        ties: None
+                    }
+            )
+        })
+    };
     let after = match p.ops[j + 1..].split_last() {
         Some((Op::Join(JoinDesc::Spool), rest)) => plain(rest),
         // a hashed SubPlan's set fed by the merge (`driven`: built LAZY at its first probe): its Build passes rows on
-        Some((Op::SubPlan(d), rest)) if matches!(d.form, gravity_decompose::ops::shared::subplan::SubForm::Build) => plain(rest),
+        Some((Op::SubPlan(d), rest))
+            if matches!(
+                d.form,
+                gravity_decompose::ops::shared::subplan::SubForm::Build
+            ) =>
+        {
+            plain(rest)
+        }
         _ => above(&p.ops[j + 1..]),
     };
-    let src = if let Source::Breaker { slot } = p.source { Some(slot) } else { None };
+    let src = if let Source::Breaker { slot } = p.source {
+        Some(slot)
+    } else {
+        None
+    };
     src.is_none_or(|s| gx.life_of(r, s) != life) && p.union.is_none() && after && before
 }
 
 /// Ops that pass or drop rows and never end the pipeline.
 fn plain(ops: &[Op<'_>]) -> bool {
-    ops.iter().all(|op| matches!(op, Op::Filter(_) | Op::Project(_)))
+    ops.iter()
+        .all(|op| matches!(op, Op::Filter(_) | Op::Project(_)))
 }
 
 /// Merge join reader `run` of producer `q`'s run (runs/slot_run.rs `reader`): its first fetch raises when `q`'s Sort does.
-pub(crate) fn wrap<'g>(gx: &Gx<'g, '_>, q: usize, run: PgBox<'g, dyn SlotRun + 'g>) -> PgBox<'g, dyn SlotRun + 'g> {
+pub(crate) fn wrap<'g>(
+    gx: &Gx<'g, '_>,
+    q: usize,
+    run: PgBox<'g, dyn SlotRun + 'g>,
+) -> PgBox<'g, dyn SlotRun + 'g> {
     // v0.4: or `q` pulls such a Sort's run (`puller`, `served`'s pulled form): the raise is the Sort's, at `q`'s first call
-    let pulled = || (0..gx.graph.pipelines.len()).find(|&k| k != q && pullers(gx, k).contains(&q)).and_then(|k| checked(gx, k));
+    let pulled = || {
+        (0..gx.graph.pipelines.len())
+            .find(|&k| k != q && pullers(gx, k).contains(&q))
+            .and_then(|k| checked(gx, k))
+    };
     match checked(gx, q).or_else(pulled) {
         Some(np) => mcx::pg_box_dyn!(gx.mcx, Raise(run, np) => dyn SlotRun + 'g),
         None => run,
@@ -218,7 +307,15 @@ impl SlotRun for Raise<'_> {
     fn fetch(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, j: Value) -> Value {
         self.0.fetch(b, env, j)
     }
-    fn vals<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, p: Value, carry: Carry<'e>, next: Value, at: Value) -> RowVals<'e> {
+    fn vals<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        p: Value,
+        carry: Carry<'e>,
+        next: Value,
+        at: Value,
+    ) -> RowVals<'e> {
         self.0.vals(b, env, p, carry, next, at)
     }
     fn mark(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, j: Value) {
@@ -226,10 +323,24 @@ impl SlotRun for Raise<'_> {
     }
     /// PG's raise: `m11_raise_no_proc` stashes it and the call leaves through `l_exit` with its status (always below zero).
     fn first_fetch(&self, b: &mut FunctionBuilder<'_>, env: &mut Env) {
-        let h = b.declare_host_once("m11_raise_no_proc", &[Type::Ptr, Type::I64, Type::I64], Some(Type::I64), m11_raise_no_proc as *const () as usize, gravity_ir::HostFlags { may_error: true, ..Default::default() });
+        let h = b.declare_host_once(
+            "m11_raise_no_proc",
+            &[Type::Ptr, Type::I64, Type::I64],
+            Some(Type::I64),
+            m11_raise_no_proc as *const () as usize,
+            gravity_ir::HostFlags {
+                may_error: true,
+                ..Default::default()
+            },
+        );
         let (typ, family) = self.1;
-        let (t, f) = (b.iconst(Type::I64, typ as i64), b.iconst(Type::I64, family as i64));
-        let st = b.call_host(h, &[env.ctx, t, f], Some(Type::I64)).expect("m11_raise_no_proc returns its status");
+        let (t, f) = (
+            b.iconst(Type::I64, typ as i64),
+            b.iconst(Type::I64, family as i64),
+        );
+        let st = b
+            .call_host(h, &[env.ctx, t, f], Some(Type::I64))
+            .expect("m11_raise_no_proc returns its status");
         let (bad, l_on) = (b.icmp(IntCond::Slt, st, env.zero), b.create_block(&[]));
         b.cond_br(bad, (env.x.l_exit, &[st]), (l_on, &[]));
         b.switch_to(l_on);

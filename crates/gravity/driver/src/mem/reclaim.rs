@@ -89,7 +89,8 @@ pub fn counters() -> Counters {
 /// The counters as the REPORT census prints them.
 pub fn line() -> String {
     let c = counters();
-    format!( // alloc: Cold
+    format!(
+        // alloc: Cold
         "reclaimer {} below_low {} background {} MiB inline {} runs {} MiB max {} us short {}",
         if applies() { "on" } else { "off" },
         c.ticks_below_low,
@@ -139,9 +140,15 @@ fn walk_noted(want: u64, burst: bool, caches: &[Option<Managed>], noted: &mut [u
         if freed >= want {
             break;
         }
-        let Some(trim) = m.hooks.reclaim else { continue };
-        let Some((cur, floor)) = unless_skipped(|| ((m.hooks.current)(), (m.hooks.floor)())) else { continue };
-        if let Some(goal) = mempolicy::reclaim::cache_goal(cur, floor, m.target, burst, want - freed) {
+        let Some(trim) = m.hooks.reclaim else {
+            continue;
+        };
+        let Some((cur, floor)) = unless_skipped(|| ((m.hooks.current)(), (m.hooks.floor)())) else {
+            continue;
+        };
+        if let Some(goal) =
+            mempolicy::reclaim::cache_goal(cur, floor, m.target, burst, want - freed)
+        {
             let got = trim(goal);
             if let Some(n) = noted.get_mut(i) {
                 *n = n.saturating_add(got);
@@ -161,8 +168,19 @@ fn walk_over(want: u64, caches: &[Option<Managed>], noted: &mut [u64; 5]) -> u64
         if freed >= want {
             break;
         }
-        let Some(trim) = m.hooks.reclaim else { continue };
-        let Some(goal) = unless_skipped(|| mempolicy::reclaim::over_goal((m.hooks.current)(), (m.hooks.floor)(), (m.hooks.cap)(), want - freed)) else { continue };
+        let Some(trim) = m.hooks.reclaim else {
+            continue;
+        };
+        let Some(goal) = unless_skipped(|| {
+            mempolicy::reclaim::over_goal(
+                (m.hooks.current)(),
+                (m.hooks.floor)(),
+                (m.hooks.cap)(),
+                want - freed,
+            )
+        }) else {
+            continue;
+        };
         if let Some(goal) = goal {
             let got = trim(goal);
             if let Some(n) = noted.get_mut(i) {
@@ -212,10 +230,24 @@ fn reclaim_noted(want: u64, burst: bool, backstop: bool, noted: &mut Noted) -> u
             Rung::Caches => {
                 reap(&mut unmapped);
                 let order = mempolicy::reclaim::by_loss(ORDER, budget::loss);
-                let caches = order.map(|c| budget::hooks(c).filter(|_| mempolicy::reclaim::cache_in_reach(budget::managed(c), backstop)).map(|hooks| Managed { hooks, target: budget::target(c) }));
+                let caches = order.map(|c| {
+                    budget::hooks(c)
+                        .filter(|_| {
+                            mempolicy::reclaim::cache_in_reach(budget::managed(c), backstop)
+                        })
+                        .map(|hooks| Managed {
+                            hooks,
+                            target: budget::target(c),
+                        })
+                });
                 let mut by = [0u64; 5];
                 let over = walk_over(left, &caches, &mut by);
-                let got = over.saturating_add(walk_noted(left.saturating_sub(over), burst, &caches, &mut by));
+                let got = over.saturating_add(walk_noted(
+                    left.saturating_sub(over),
+                    burst,
+                    &caches,
+                    &mut by,
+                ));
                 for (i, c) in order.iter().enumerate() {
                     if let Some(at) = ORDER.iter().position(|o| o == c) {
                         noted.caches[at] = noted.caches[at].saturating_add(by[i]);
@@ -252,7 +284,9 @@ pub fn fast_bytes() -> u64 {
         .iter()
         .filter(|c| budget::managed(**c))
         .filter_map(|c| budget::hooks(*c))
-        .fold(0u64, |a, h| a.saturating_add((h.current)().saturating_sub((h.floor)())));
+        .fold(0u64, |a, h| {
+            a.saturating_add((h.current)().saturating_sub((h.floor)()))
+        });
     parked.saturating_add(sets).saturating_add(caches)
 }
 
@@ -270,7 +304,9 @@ pub fn backstop_bytes() -> u64 {
         .iter()
         .filter_map(|c| budget::hooks(*c))
         .filter(|h| h.reclaim.is_some())
-        .fold(0u64, |a, h| a.saturating_add((h.current)().saturating_sub((h.floor)())));
+        .fold(0u64, |a, h| {
+            a.saturating_add((h.current)().saturating_sub((h.floor)()))
+        });
     parked.saturating_add(sets).saturating_add(caches)
 }
 
@@ -283,15 +319,33 @@ pub fn ladder_elastic() -> u64 {
     let (parked, sets) = if mcx::ladder::parked_rung_on() {
         (0, 0)
     } else {
-        (crate::park::REGIONS.parked_bytes() as u64, crate::slots::DEPOT.trimmable_bytes() as u64)
+        (
+            crate::park::REGIONS.parked_bytes() as u64,
+            crate::slots::DEPOT.trimmable_bytes() as u64,
+        )
     };
     let floors = protected_floors();
     let caches = ORDER
         .iter()
         .zip(floors)
-        .filter_map(|(&c, p)| budget::hooks(c).filter(|h| h.reclaim.is_some()).and_then(|h| unless_skipped(|| mempolicy::ladder::elastic_of((h.current)(), mempolicy::ladder::r2a_floor((h.floor)(), p), budget::trimmable(c)))))
+        .filter_map(|(&c, p)| {
+            budget::hooks(c)
+                .filter(|h| h.reclaim.is_some())
+                .and_then(|h| {
+                    unless_skipped(|| {
+                        mempolicy::ladder::elastic_of(
+                            (h.current)(),
+                            mempolicy::ladder::r2a_floor((h.floor)(), p),
+                            budget::trimmable(c),
+                        )
+                    })
+                })
+        })
         .fold(0u64, u64::saturating_add);
-    parked.saturating_add(sets).saturating_add(caches).saturating_add(tail_elastic())
+    parked
+        .saturating_add(sets)
+        .saturating_add(caches)
+        .saturating_add(tail_elastic())
 }
 
 /// D4298 (T4): the tail holders' bytes above their bytes in use (`mempolicy::ladder::TAIL`, each with a ladder-only reclaim).
@@ -299,7 +353,9 @@ fn tail_elastic() -> u64 {
     mempolicy::ladder::TAIL
         .iter()
         .filter_map(|&c| Some((budget::hooks(c)?.current, budget::ladder_reclaim_of(c)?.0)))
-        .filter_map(|(current, in_use)| unless_skipped(|| mempolicy::ladder::elastic_of(current(), in_use(), None)))
+        .filter_map(|(current, in_use)| {
+            unless_skipped(|| mempolicy::ladder::elastic_of(current(), in_use(), None))
+        })
         .fold(0u64, u64::saturating_add)
 }
 
@@ -315,13 +371,22 @@ fn unless_skipped<T>(f: impl FnOnce() -> T) -> Option<T> {
 /// D4353 (C), LADDER-DESIGN section 0b: each cache's protected floor in `ORDER`'s order: `mempolicy::ladder::PROTECTED_PCT`
 /// of B split by the caches' caps, taken once per B so the floors do not move with the caches' own targets.
 fn protected_floors() -> [u64; ORDER.len()] {
-    static FLOORS: pgsync::Mutex<(u64, [u64; ORDER.len()])> = pgsync::Mutex::new((0, [0; ORDER.len()]));
+    static FLOORS: pgsync::Mutex<(u64, [u64; ORDER.len()])> =
+        pgsync::Mutex::new((0, [0; ORDER.len()]));
     let b = budget::b_at();
     // D4398: in the ladder thread's pass, with the floors or a cap's lock held elsewhere, every cache counts as protected
     // this pass (R2a frees none of it) and nothing is stored
-    let Some(mut g) = memledger::ladder_pass::lock_or_skip(&FLOORS) else { return [u64::MAX; ORDER.len()] };
+    let Some(mut g) = memledger::ladder_pass::lock_or_skip(&FLOORS) else {
+        return [u64::MAX; ORDER.len()];
+    };
     if g.0 != b {
-        let Some(caps) = unless_skipped(|| ORDER.map(|c| budget::hooks(c).filter(|h| h.reclaim.is_some()).map_or(0, |h| (h.cap)()))) else {
+        let Some(caps) = unless_skipped(|| {
+            ORDER.map(|c| {
+                budget::hooks(c)
+                    .filter(|h| h.reclaim.is_some())
+                    .map_or(0, |h| (h.cap)())
+            })
+        }) else {
             return [u64::MAX; ORDER.len()];
         };
         let mut out = [0; ORDER.len()];
@@ -393,7 +458,10 @@ static STUCK_SKIPPED_BYTES: AtomicU64 = AtomicU64::new(0);
 
 /// C-03 diag (the view): (samples, stuck bytes) counted from a skipped trimmable read.
 pub fn stuck_skipped() -> (u64, u64) {
-    (STUCK_SKIPPED.load(Ordering::Relaxed), STUCK_SKIPPED_BYTES.load(Ordering::Relaxed))
+    (
+        STUCK_SKIPPED.load(Ordering::Relaxed),
+        STUCK_SKIPPED_BYTES.load(Ordering::Relaxed),
+    )
 }
 
 pub fn c1_caches_stuck() -> u64 {
@@ -401,7 +469,9 @@ pub fn c1_caches_stuck() -> u64 {
     let floors = protected_floors();
     let mut stuck = 0u64;
     for (i, &c) in ORDER.iter().enumerate() {
-        let Some(h) = budget::hooks(c).filter(|h| h.reclaim.is_some()) else { continue };
+        let Some(h) = budget::hooks(c).filter(|h| h.reclaim.is_some()) else {
+            continue;
+        };
         if let Some((cur, in_use)) = unless_skipped(|| ((h.current)(), (h.floor)())) {
             let pinned = unreachable(i, cur, in_use);
             // C-03 diag (D4923): `unreachable`'s trimmable read runs outside `unless_skipped`; a lock it skipped reads
@@ -422,7 +492,11 @@ pub fn c1_caches_stuck() -> u64 {
             stuck = stuck.saturating_add(pinned.saturating_sub(floors[i]));
         }
     }
-    if pool { stuck } else { 0 }
+    if pool {
+        stuck
+    } else {
+        0
+    }
 }
 
 /// D4353 (C): the memory ladder's R2a reclaim of `want` bytes: the parked regions and slot sets (parked working memory,
@@ -456,7 +530,10 @@ fn ladder_reclaim_steps(want: u64, past: &dyn Fn() -> bool) -> u64 {
             freed = crate::park::REGIONS.trim_to(parked.saturating_sub(want) as usize) as u64;
         }
         if freed < want {
-            freed = freed.saturating_add(crate::slots::DEPOT.trim_but_newest((want - freed) as usize) as u64);
+            freed =
+                freed.saturating_add(
+                    crate::slots::DEPOT.trim_but_newest((want - freed) as usize) as u64
+                );
         }
         // pagepool P3 (C.11): the ladder's take is pressure: the depots' pool bytes go back to the OS too
         crate::mem::region::pool_release(freed);
@@ -465,12 +542,18 @@ fn ladder_reclaim_steps(want: u64, past: &dyn Fn() -> bool) -> u64 {
     }
     // ladder C1 (`cache_floor`, C0's cost order): the cheap caches first, the part cache last
     let floors = protected_floors();
-    let order = if mcx::ladder::floors_on() { mempolicy::ladder::C1_ORDER } else { ORDER };
+    let order = if mcx::ladder::floors_on() {
+        mempolicy::ladder::C1_ORDER
+    } else {
+        ORDER
+    };
     for c in order {
         if freed >= want || past() {
             break;
         }
-        let Some(i) = ORDER.iter().position(|&o| o == c) else { continue };
+        let Some(i) = ORDER.iter().position(|&o| o == c) else {
+            continue;
+        };
         let Some(h) = budget::hooks(c) else { continue };
         let Some(trim) = h.reclaim else { continue };
         // C1d: under `cache_floor` a cache keeps what its trim cannot drop: the part cache's images part lists hold
@@ -480,7 +563,14 @@ fn ladder_reclaim_steps(want: u64, past: &dyn Fn() -> bool) -> u64 {
         let Some((cur, keep)) = unless_skipped(|| {
             let (cur, in_use) = ((h.current)(), (h.floor)());
             let keep = mempolicy::ladder::r2a_floor(in_use, floors[i]);
-            (cur, if c1 { keep.max(unreachable(i, cur, in_use)) } else { keep })
+            (
+                cur,
+                if c1 {
+                    keep.max(unreachable(i, cur, in_use))
+                } else {
+                    keep
+                },
+            )
         }) else {
             continue;
         };
@@ -506,8 +596,13 @@ fn ladder_reclaim_steps(want: u64, past: &dyn Fn() -> bool) -> u64 {
         if freed >= want || past() {
             break;
         }
-        let (Some(h), Some((in_use, trim))) = (budget::hooks(c), budget::ladder_reclaim_of(c)) else { continue };
-        let Some((cur, keep)) = unless_skipped(|| ((h.current)(), in_use())) else { continue };
+        let (Some(h), Some((in_use, trim))) = (budget::hooks(c), budget::ladder_reclaim_of(c))
+        else {
+            continue;
+        };
+        let Some((cur, keep)) = unless_skipped(|| ((h.current)(), in_use())) else {
+            continue;
+        };
         if cur > keep {
             freed = freed.saturating_add(trim(cur.saturating_sub(want - freed).max(keep)));
         }
@@ -521,7 +616,20 @@ pub fn ladder_protected() -> u64 {
     ORDER
         .iter()
         .zip(protected_floors())
-        .filter_map(|(&c, p)| budget::hooks(c).filter(|h| h.reclaim.is_some()).and_then(|h| unless_skipped(|| mempolicy::ladder::protected_left((h.current)(), (h.floor)(), p, budget::trimmable(c)))))
+        .filter_map(|(&c, p)| {
+            budget::hooks(c)
+                .filter(|h| h.reclaim.is_some())
+                .and_then(|h| {
+                    unless_skipped(|| {
+                        mempolicy::ladder::protected_left(
+                            (h.current)(),
+                            (h.floor)(),
+                            p,
+                            budget::trimmable(c),
+                        )
+                    })
+                })
+        })
         .fold(0u64, u64::saturating_add)
 }
 
@@ -544,10 +652,16 @@ pub fn tick() -> u64 {
         DEMAND.store(0, Ordering::Relaxed);
         return 0;
     }
-    let Some(s) = budget::snapshot() else { return 0 };
+    let Some(s) = budget::snapshot() else {
+        return 0;
+    };
     let demand = DEMAND.load(Ordering::Relaxed);
     // no limit known (B 0): no budget to keep a reserve in
-    let freed = if s.budget.b == 0 { 0 } else { tick_on(&s, demand) };
+    let freed = if s.budget.b == 0 {
+        0
+    } else {
+        tick_on(&s, demand)
+    };
     // this tick's demand is served; a draw refused meanwhile keeps its own for the next tick
     let _ = DEMAND.compare_exchange(demand, 0, Ordering::Relaxed, Ordering::Relaxed);
     freed
@@ -560,7 +674,11 @@ pub fn tick() -> u64 {
 /// (`mcx::ladder::note_b_room`), so a raise never grows a cache into the bytes B's draws claim.
 fn tick_on(s: &budget::Snapshot, demand: u64) -> u64 {
     if mcx::ladder::floors_on() {
-        mcx::ladder::note_b_room(s.free_b.saturating_sub(demand).saturating_sub(s.budget.r_low));
+        mcx::ladder::note_b_room(
+            s.free_b
+                .saturating_sub(demand)
+                .saturating_sub(s.budget.r_low),
+        );
         let mut want = 0u64;
         if mempolicy::reclaim::below_low(s.free_b, s.budget.r_low) {
             mcx::memory_short_now();
@@ -594,7 +712,10 @@ fn tick_on(s: &budget::Snapshot, demand: u64) -> u64 {
         // count, which a test waits on)
         mcx::memory_short_now();
         TICKS_BELOW_LOW.fetch_add(1, Ordering::Relaxed);
-        freed = reclaim(mempolicy::reclaim::low_want(s.free_b, s.budget.r_high), false);
+        freed = reclaim(
+            mempolicy::reclaim::low_want(s.free_b, s.budget.r_high),
+            false,
+        );
     }
     let free = s.free_b.saturating_add(freed);
     if let Some(w) = mempolicy::reclaim::burst_want(free, demand) {
@@ -652,7 +773,8 @@ fn settle_inline(freed: u64, bytes: u64) -> u64 {
 /// B's free bytes now for a draw of `bytes`, the page releaser's landing netted (`landing_toward`; knob off the landing
 /// is 0: `free_b` alone). None: no snapshot.
 fn free_toward(bytes: u64) -> Option<u64> {
-    budget::snapshot().map(|s| Relief::of(Source::ReleaserLanding, landing_toward(bytes, &s)).ask_room(s.free_b))
+    budget::snapshot()
+        .map(|s| Relief::of(Source::ReleaserLanding, landing_toward(bytes, &s)).ask_room(s.free_b))
 }
 
 /// `settle_inline` over a reader of B's free bytes (a fresh snapshot's).
@@ -678,7 +800,9 @@ pub fn make_room(bytes: u64) -> bool {
         return true;
     }
     let _one = pgsync::lock(&INLINE);
-    let Some(s) = budget::snapshot() else { return true };
+    let Some(s) = budget::snapshot() else {
+        return true;
+    };
     // no limit known (B 0): no budget to test the draw against, today's draw
     if s.free_b >= bytes || s.budget.b == 0 {
         return true;
@@ -698,7 +822,11 @@ pub fn make_room(bytes: u64) -> bool {
     // ladder's inline take), no burst road past it; B had no room for the draw: none for a raise either
     let c1 = mcx::ladder::floors_on();
     let short = on_way.ask_after(bytes - s.free_b);
-    let want = if c1 { short.min(max) } else { mempolicy::reclaim::inline_want(short, s.budget.r_low, max) };
+    let want = if c1 {
+        short.min(max)
+    } else {
+        mempolicy::reclaim::inline_want(short, s.budget.r_low, max)
+    };
     if c1 {
         mcx::ladder::note_b_room(0);
         if mempolicy::consts::get(mempolicy::consts::K::CacheInlineSkip) != 0 && r2a_has_nothing() {
@@ -713,12 +841,21 @@ pub fn make_room(bytes: u64) -> bool {
             return free >= bytes;
         }
     }
-    let mut freed = if c1 { ladder_room_evict(want) } else { settle_inline(reclaim_noted(want, false, false, &mut noted), bytes) };
+    let mut freed = if c1 {
+        ladder_room_evict(want)
+    } else {
+        settle_inline(reclaim_noted(want, false, false, &mut noted), bytes)
+    };
     let mut free = free_toward(bytes).unwrap_or(u64::MAX);
     let mut burst = 0;
-    if let Some(w) = mempolicy::reclaim::inline_burst_want(bytes, free, max.saturating_sub(freed)).filter(|_| !c1) {
+    if let Some(w) = mempolicy::reclaim::inline_burst_want(bytes, free, max.saturating_sub(freed))
+        .filter(|_| !c1)
+    {
         burst = w;
-        freed = freed.saturating_add(settle_inline(reclaim_noted(w, true, false, &mut noted), bytes));
+        freed = freed.saturating_add(settle_inline(
+            reclaim_noted(w, true, false, &mut noted),
+            bytes,
+        ));
         free = free_toward(bytes).unwrap_or(u64::MAX);
     }
     let purged1 = mcx::purged_bytes();
@@ -727,7 +864,10 @@ pub fn make_room(bytes: u64) -> bool {
     INLINE_BYTES.fetch_add(freed, Ordering::Relaxed);
     INLINE_NS_MAX.fetch_max(ns, Ordering::Relaxed);
     INLINE_NS_SUM.fetch_add(ns, Ordering::Relaxed);
-    INLINE_PURGED.fetch_add((purged1.0 + purged1.1).saturating_sub(purged0.0 + purged0.1), Ordering::Relaxed);
+    INLINE_PURGED.fetch_add(
+        (purged1.0 + purged1.1).saturating_sub(purged0.0 + purged0.1),
+        Ordering::Relaxed,
+    );
     let ok = free >= bytes;
     if !ok {
         INLINE_SHORT.fetch_add(1, Ordering::Relaxed);
@@ -745,7 +885,14 @@ pub fn make_room(bytes: u64) -> bool {
 /// back itself first (today's inline release: kill-safety over the thread). Knob off: the landing is always 0, so the
 /// draw reads `free_b` alone, as today. Never room for admission or the cancel line: only make_room's own ask nets it.
 fn landing_toward(bytes: u64, s: &budget::Snapshot) -> u64 {
-    landing_counts(bytes, allocarena::own::landing_bytes() as u64, s.free_b, s.bar, s.budget.b).unwrap_or_else(|| {
+    landing_counts(
+        bytes,
+        allocarena::own::landing_bytes() as u64,
+        s.free_b,
+        s.bar,
+        s.budget.b,
+    )
+    .unwrap_or_else(|| {
         allocarena::own::drain_landing();
         0
     })
@@ -764,12 +911,22 @@ fn landing_counts(bytes: u64, landing: u64, free_b: u64, bar: u64, b: u64) -> Op
 /// D4690 (`PGRUST_MAKE_ROOM_LOG=1`): one line per inline make_room: the draw, B and its free bytes before, the walk's ask
 /// and the burst's, the bytes each rung and each cache freed, B's free bytes after, the outcome and the time.
 #[cold]
-fn log_make_room(draw: u64, s: &budget::Snapshot, (want, burst): (u64, u64), (freed, free): (u64, u64), n: &Noted, ns: u64) {
+fn log_make_room(
+    draw: u64,
+    s: &budget::Snapshot,
+    (want, burst): (u64, u64),
+    (freed, free): (u64, u64),
+    n: &Noted,
+    ns: u64,
+) {
     // each cache's freed MiB, written straight into the line (no String built)
     struct Caches<'a>(&'a [u64; 5]);
     impl core::fmt::Display for Caches<'_> {
         fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-            ORDER.iter().zip(self.0).try_for_each(|(c, b)| write!(f, " {}={}", c.name(), b >> 20))
+            ORDER
+                .iter()
+                .zip(self.0)
+                .try_for_each(|(c, b)| write!(f, " {}={}", c.name(), b >> 20))
         }
     }
     let caches = Caches(&n.caches);
@@ -805,11 +962,17 @@ fn r2a_has_nothing() -> bool {
         return false;
     }
     let floors = protected_floors();
-    let caches = ORDER.iter().zip(floors).all(|(&c, f)| budget::hooks(c).filter(|h| h.reclaim.is_some()).is_none_or(|h| (h.current)() <= f));
+    let caches = ORDER.iter().zip(floors).all(|(&c, f)| {
+        budget::hooks(c)
+            .filter(|h| h.reclaim.is_some())
+            .is_none_or(|h| (h.current)() <= f)
+    });
     caches
-        && mempolicy::ladder::TAIL.iter().all(|&c| match (budget::hooks(c), budget::ladder_reclaim_of(c)) {
-            (Some(h), Some((in_use, _))) => (h.current)() <= in_use(),
-            _ => true,
+        && mempolicy::ladder::TAIL.iter().all(|&c| {
+            match (budget::hooks(c), budget::ladder_reclaim_of(c)) {
+                (Some(h), Some((in_use, _))) => (h.current)() <= in_use(),
+                _ => true,
+            }
         })
 }
 
@@ -926,10 +1089,34 @@ mod tests {
 
     fn caches(ta: Option<u64>, tb: Option<u64>) -> [Option<Managed>; 3] {
         [
-            Some(Managed { hooks: Hooks { current: a, floor: zero, cap: a, reclaim: Some(trim_a) }, target: ta }),
-            Some(Managed { hooks: Hooks { current: b, floor: floor_b, cap: b, reclaim: Some(trim_b) }, target: tb }),
+            Some(Managed {
+                hooks: Hooks {
+                    current: a,
+                    floor: zero,
+                    cap: a,
+                    reclaim: Some(trim_a),
+                },
+                target: ta,
+            }),
+            Some(Managed {
+                hooks: Hooks {
+                    current: b,
+                    floor: floor_b,
+                    cap: b,
+                    reclaim: Some(trim_b),
+                },
+                target: tb,
+            }),
             // no reclaim hook: never freed
-            Some(Managed { hooks: Hooks { current: c, floor: zero, cap: c, reclaim: None }, target: Some(0) }),
+            Some(Managed {
+                hooks: Hooks {
+                    current: c,
+                    floor: zero,
+                    cap: c,
+                    reclaim: None,
+                },
+                target: Some(0),
+            }),
         ]
     }
 
@@ -938,23 +1125,59 @@ mod tests {
     #[test]
     fn the_walk_frees_cheapest_first_down_to_targets_and_bursts_to_floors() {
         set(100 * MIB, 100 * MIB, 100 * MIB);
-        assert_eq!(walk(40 * MIB, false, &caches(Some(20 * MIB), Some(50 * MIB))), 40 * MIB, "the first cache covers it");
+        assert_eq!(
+            walk(40 * MIB, false, &caches(Some(20 * MIB), Some(50 * MIB))),
+            40 * MIB,
+            "the first cache covers it"
+        );
         assert_eq!((a(), b()), (60 * MIB, 100 * MIB));
         set(100 * MIB, 100 * MIB, 100 * MIB);
-        assert_eq!(walk(150 * MIB, false, &caches(Some(20 * MIB), Some(50 * MIB))), 130 * MIB, "each down to its target");
+        assert_eq!(
+            walk(150 * MIB, false, &caches(Some(20 * MIB), Some(50 * MIB))),
+            130 * MIB,
+            "each down to its target"
+        );
         assert_eq!((a(), b(), c()), (20 * MIB, 50 * MIB, 100 * MIB));
-        assert_eq!(walk(150 * MIB, true, &caches(Some(20 * MIB), Some(50 * MIB))), 40 * MIB, "a burst goes to the floors");
+        assert_eq!(
+            walk(150 * MIB, true, &caches(Some(20 * MIB), Some(50 * MIB))),
+            40 * MIB,
+            "a burst goes to the floors"
+        );
         assert_eq!((a(), b(), c()), (0, 30 * MIB, 100 * MIB));
         set(100 * MIB, 100 * MIB, 0);
-        assert_eq!(walk(150 * MIB, false, &caches(None, None)), 0, "no target yet: nothing freed off the burst road");
-        assert_eq!(walk(150 * MIB, true, &caches(None, None)), 150 * MIB, "a burst ignores targets");
+        assert_eq!(
+            walk(150 * MIB, false, &caches(None, None)),
+            0,
+            "no target yet: nothing freed off the burst road"
+        );
+        assert_eq!(
+            walk(150 * MIB, true, &caches(None, None)),
+            150 * MIB,
+            "a burst ignores targets"
+        );
         assert_eq!((a(), b()), (0, 50 * MIB));
-        assert_eq!(walk(10 * MIB, true, &[None, None]), 0, "unmanaged slots are skipped");
+        assert_eq!(
+            walk(10 * MIB, true, &[None, None]),
+            0,
+            "unmanaged slots are skipped"
+        );
         // D4690: the make_room line's bytes per cache, by the cache's index in the walk
         set(100 * MIB, 100 * MIB, 100 * MIB);
         let mut by = [0u64; 5];
-        assert_eq!(walk_noted(150 * MIB, false, &caches(Some(20 * MIB), Some(50 * MIB)), &mut by), 130 * MIB);
-        assert_eq!(by, [80 * MIB, 50 * MIB, 0, 0, 0], "each cache's freed bytes at its index");
+        assert_eq!(
+            walk_noted(
+                150 * MIB,
+                false,
+                &caches(Some(20 * MIB), Some(50 * MIB)),
+                &mut by
+            ),
+            130 * MIB
+        );
+        assert_eq!(
+            by,
+            [80 * MIB, 50 * MIB, 0, 0, 0],
+            "each cache's freed bytes at its index"
+        );
     }
 
     /// D4404 (born red): the memory ladder's thread never waits for the reaper. R2a (`ladder_reclaim`), after the parked
@@ -983,8 +1206,14 @@ mod tests {
         reap(&mut unmapped);
         let outside = t1.elapsed();
         release.join().unwrap();
-        assert!(inside < Duration::from_millis(100), "inside the ladder's pass R2a waited for the reaper: {inside:?}");
-        assert!(outside >= Duration::from_millis(500), "outside a pass R2a waits for the reaper as before: {outside:?}");
+        assert!(
+            inside < Duration::from_millis(100),
+            "inside the ladder's pass R2a waited for the reaper: {inside:?}"
+        );
+        assert!(
+            outside >= Duration::from_millis(500),
+            "outside a pass R2a waits for the reaper as before: {outside:?}"
+        );
     }
 
     static KEPT_CALLS: AtomicU64 = AtomicU64::new(0);
@@ -999,33 +1228,94 @@ mod tests {
     #[test]
     fn reuse_an_inline_reclaim_keeps_the_freed_pages_when_they_cover_the_draw() {
         let c0 = counters();
-        assert_eq!(settle_inline_with(0, 8 * MIB, || Some(u64::MAX)), 0, "nothing freed: nothing to settle");
+        assert_eq!(
+            settle_inline_with(0, 8 * MIB, || Some(u64::MAX)),
+            0,
+            "nothing freed: nothing to settle"
+        );
         mcx::set_reuse_keep(keep);
-        assert_eq!(settle_inline_with(16 * MIB, 8 * MIB, || Some(8 * MIB)), 16 * MIB);
+        assert_eq!(
+            settle_inline_with(16 * MIB, 8 * MIB, || Some(8 * MIB)),
+            16 * MIB
+        );
         let c1 = counters();
-        assert_eq!((c1.inline_reuse_kept - c0.inline_reuse_kept, c1.inline_give_backs - c0.inline_give_backs), (1, 0), "kept for the draw");
-        assert_eq!(KEPT_CALLS.load(Ordering::Relaxed), 1, "the freed pages went back to their arena (the keep hook)");
-        assert_eq!(settle_inline_with(16 * MIB, 8 * MIB, || Some(4 * MIB)), 16 * MIB);
+        assert_eq!(
+            (
+                c1.inline_reuse_kept - c0.inline_reuse_kept,
+                c1.inline_give_backs - c0.inline_give_backs
+            ),
+            (1, 0),
+            "kept for the draw"
+        );
+        assert_eq!(
+            KEPT_CALLS.load(Ordering::Relaxed),
+            1,
+            "the freed pages went back to their arena (the keep hook)"
+        );
+        assert_eq!(
+            settle_inline_with(16 * MIB, 8 * MIB, || Some(4 * MIB)),
+            16 * MIB
+        );
         let c2 = counters();
-        assert_eq!((c2.inline_reuse_kept - c1.inline_reuse_kept, c2.inline_give_backs - c1.inline_give_backs), (0, 1), "still short: the give-back");
+        assert_eq!(
+            (
+                c2.inline_reuse_kept - c1.inline_reuse_kept,
+                c2.inline_give_backs - c1.inline_give_backs
+            ),
+            (0, 1),
+            "still short: the give-back"
+        );
         // with the page releaser (`cache_release_bg`) the settle reads B's free bytes with its landing netted, as
         // make_room does after the walk: a walk whose runs are on their way back covers the draw and the freed pages are
         // kept; past the governor's bar the landing counts for nothing (the drawing thread gives it back first). Knob off
         // the landing is 0: the read is `free_b` alone.
         let (draw, free_b, landing, b) = (8 * MIB, 4 * MIB, 6 * MIB, 1024 * MIB);
-        assert_eq!(landing_counts(draw, 0, free_b, 0, b), Some(0), "knob off: no landing, free_b alone");
+        assert_eq!(
+            landing_counts(draw, 0, free_b, 0, b),
+            Some(0),
+            "knob off: no landing, free_b alone"
+        );
         assert_eq!(landing_counts(draw, 0, free_b, b + 64 * MIB, b), Some(0));
-        assert_eq!(landing_counts(draw, landing, free_b, 0, b), Some(landing), "no bar: all of it counts");
-        assert_eq!(landing_counts(draw, landing, free_b, b + 64 * MIB, b), Some(landing), "under the bar with it resident");
-        assert_eq!(landing_counts(draw, landing, free_b, b + 2 * MIB, b), None, "past the bar: given back first, none counts");
+        assert_eq!(
+            landing_counts(draw, landing, free_b, 0, b),
+            Some(landing),
+            "no bar: all of it counts"
+        );
+        assert_eq!(
+            landing_counts(draw, landing, free_b, b + 64 * MIB, b),
+            Some(landing),
+            "under the bar with it resident"
+        );
+        assert_eq!(
+            landing_counts(draw, landing, free_b, b + 2 * MIB, b),
+            None,
+            "past the bar: given back first, none counts"
+        );
         let c3 = counters();
         let netted = || landing_counts(draw, landing, free_b, b + 64 * MIB, b).map(|l| free_b + l);
         assert_eq!(settle_inline_with(16 * MIB, draw, netted), 16 * MIB);
         let c4 = counters();
-        assert_eq!((c4.inline_reuse_kept - c3.inline_reuse_kept, c4.inline_give_backs - c3.inline_give_backs), (1, 0), "the landing covers the draw: kept");
-        assert_eq!(settle_inline_with(16 * MIB, draw, || Some(free_b)), 16 * MIB);
+        assert_eq!(
+            (
+                c4.inline_reuse_kept - c3.inline_reuse_kept,
+                c4.inline_give_backs - c3.inline_give_backs
+            ),
+            (1, 0),
+            "the landing covers the draw: kept"
+        );
+        assert_eq!(
+            settle_inline_with(16 * MIB, draw, || Some(free_b)),
+            16 * MIB
+        );
         let c5 = counters();
-        assert_eq!((c5.inline_reuse_kept - c4.inline_reuse_kept, c5.inline_give_backs - c4.inline_give_backs), (0, 1), "free_b alone reads short: the give-back");
+        assert_eq!(
+            (
+                c5.inline_reuse_kept - c4.inline_reuse_kept,
+                c5.inline_give_backs - c4.inline_give_backs
+            ),
+            (0, 1),
+            "free_b alone reads short: the give-back"
+        );
     }
 
     /// Off and advise: no reclaimer, every draw is today's, no cache is declared managed.
@@ -1033,7 +1323,10 @@ mod tests {
     fn off_and_advise_never_reclaim_or_manage() {
         let _one = pgsync::lock(&budget::TEST_MODE);
         for mode in [Mode::Off, Mode::Advise] {
-            budget::configure(budget::Cfg { mode, ..budget::Cfg::DEFAULT });
+            budget::configure(budget::Cfg {
+                mode,
+                ..budget::Cfg::DEFAULT
+            });
             assert!(!applies());
             assert!(make_room(u64::MAX - 1), "{mode:?}: a draw is today's");
             assert!(!pending(), "{mode:?}: no draw waits for a reclaimer");
@@ -1041,7 +1334,11 @@ mod tests {
             assert!(CACHES.iter().all(|c| !budget::managed(*c)), "{mode:?}");
             assert_eq!(tick(), 0);
         }
-        budget::configure(budget::Cfg { mode: Mode::On, actuators: actuator::WORK_POOL, ..budget::Cfg::DEFAULT });
+        budget::configure(budget::Cfg {
+            mode: Mode::On,
+            actuators: actuator::WORK_POOL,
+            ..budget::Cfg::DEFAULT
+        });
         assert!(!applies(), "on without the reclaimer actuator");
         budget::configure(budget::Cfg::DEFAULT);
     }

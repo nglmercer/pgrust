@@ -6,8 +6,13 @@ use crate::ops::scan::pgrc::fetch_site::FetchSource;
 use crate::ops::Recipe;
 
 pub fn derive(r: &Recipe, i: usize, desc: &SiteDesc, a: ArenaRef) -> Option<SourceBox> {
-    let Recipe::Fetch(r) = r.clone() else { return None };
-    assert!(desc.is_range() && r.rel == desc.relation && r.natts == desc.natts(), "gravity: fetch recipe {i} does not match its site descriptor");
+    let Recipe::Fetch(r) = r.clone() else {
+        return None;
+    };
+    assert!(
+        desc.is_range() && r.rel == desc.relation && r.natts == desc.natts(),
+        "gravity: fetch recipe {i} does not match its site descriptor"
+    );
     Some(box_source(FetchSource::new(r), a))
 }
 

@@ -233,7 +233,12 @@ pub fn local_blk_write_time() -> i64 {
 pub type BlockTimes = [i64; 4];
 
 fn time_cells() -> [&'static std::thread::LocalKey<Cell<i64>>; 4] {
-    [&SHARED_BLK_READ_TIME, &SHARED_BLK_WRITE_TIME, &LOCAL_BLK_READ_TIME, &LOCAL_BLK_WRITE_TIME]
+    [
+        &SHARED_BLK_READ_TIME,
+        &SHARED_BLK_WRITE_TIME,
+        &LOCAL_BLK_READ_TIME,
+        &LOCAL_BLK_WRITE_TIME,
+    ]
 }
 
 /// This thread's pgBufferUsage block I/O times now.
@@ -410,13 +415,19 @@ pub(crate) struct PgStat_IO_File {
 
 impl Default for PgStat_IO_File {
     fn default() -> Self {
-        PgStat_IO_File { stat_reset_timestamp: 0, stats: [BKTYPE_IO_ZERO; FILE_BKTYPES] }
+        PgStat_IO_File {
+            stat_reset_timestamp: 0,
+            stats: [BKTYPE_IO_ZERO; FILE_BKTYPES],
+        }
     }
 }
 
 pub(crate) fn export_io_file() -> PgStat_IO_File {
     let v = export_io_stats();
-    let mut f = PgStat_IO_File { stat_reset_timestamp: v.stat_reset_timestamp, ..Default::default() };
+    let mut f = PgStat_IO_File {
+        stat_reset_timestamp: v.stat_reset_timestamp,
+        ..Default::default()
+    };
     for (j, i) in (0..BACKEND_NUM_TYPES).filter(|&i| i != SKIP).enumerate() {
         f.stats[j] = v.stats[i];
     }
@@ -508,13 +519,18 @@ pub fn pgstat_tracks_io_object(
     if no_temp_rel && io_context == C::IOCONTEXT_NORMAL && io_object == O::TempRelation {
         return false;
     }
-    if matches!(bktype, B::WalSummarizer | B::InstanceAux | B::WalReceiver | B::WalWriter)
-        && io_object != O::Wal
+    if matches!(
+        bktype,
+        B::WalSummarizer | B::InstanceAux | B::WalReceiver | B::WalWriter
+    ) && io_object != O::Wal
     {
         return false;
     }
     if matches!(bktype, B::Checkpointer | B::BgWriter)
-        && matches!(io_context, C::IOCONTEXT_BULKREAD | C::IOCONTEXT_BULKWRITE | C::IOCONTEXT_VACUUM)
+        && matches!(
+            io_context,
+            C::IOCONTEXT_BULKREAD | C::IOCONTEXT_BULKWRITE | C::IOCONTEXT_VACUUM
+        )
     {
         return false;
     }

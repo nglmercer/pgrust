@@ -269,15 +269,24 @@ mod arena {
     // SAFETY: `state` is only touched while `lock` is held (`with`).
     unsafe impl Sync for Arena {}
 
-    static ARENA: Arena = Arena { lock: AtomicBool::new(false), state: UnsafeCell::new(None) };
+    static ARENA: Arena = Arena {
+        lock: AtomicBool::new(false),
+        state: UnsafeCell::new(None),
+    };
 
     fn with<R>(f: impl FnOnce(&mut State) -> R) -> R {
-        while ARENA.lock.compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
+        while ARENA
+            .lock
+            .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
             core::hint::spin_loop();
         }
         // SAFETY: the lock is held; no other reference to the state exists.
         let state = unsafe { &mut *ARENA.state.get() };
-        let r = f(state.get_or_insert_with(|| State { chunks: alloc::vec::Vec::new() }));
+        let r = f(state.get_or_insert_with(|| State {
+            chunks: alloc::vec::Vec::new(),
+        }));
         ARENA.lock.store(false, Ordering::Release);
         r
     }
@@ -299,9 +308,24 @@ mod arena {
                     off += page;
                 }
                 // G1-A door 2: the process-wide code arena is the program caches' memory (touched whole just above)
-                let owner = memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::ProgramCaches));
-                let charge = memledger::Charge::open(owner, memledger::Release::Evict, memledger::Kind::Mapped, memledger::charge::Door::Mapped, csize as u64);
-                st.chunks.push(Chunk { base: base.as_ptr() as usize, size: csize, used: 0, high: 0, live: 0, charge });
+                let owner = memledger::Owner::Cache(memledger::Holder::Of(
+                    memledger::Consumer::ProgramCaches,
+                ));
+                let charge = memledger::Charge::open(
+                    owner,
+                    memledger::Release::Evict,
+                    memledger::Kind::Mapped,
+                    memledger::charge::Door::Mapped,
+                    csize as u64,
+                );
+                st.chunks.push(Chunk {
+                    base: base.as_ptr() as usize,
+                    size: csize,
+                    used: 0,
+                    high: 0,
+                    live: 0,
+                    charge,
+                });
                 idx = Some(st.chunks.len() - 1);
             }
             let c = &mut st.chunks[idx?];
@@ -334,7 +358,13 @@ mod arena {
     pub fn release(pointer: NonNull<u8>, _size: usize) {
         let p = pointer.as_ptr() as usize;
         with(|st| {
-            let Some(i) = st.chunks.iter().position(|c| p >= c.base && p < c.base + c.size) else { return };
+            let Some(i) = st
+                .chunks
+                .iter()
+                .position(|c| p >= c.base && p < c.base + c.size)
+            else {
+                return;
+            };
             let c = &mut st.chunks[i];
             c.live -= 1;
             if c.live == 0 {
@@ -392,7 +422,12 @@ mod platform {
             2 => Some(Unwind::Gcc),
             // SAFETY: the words were stored by `unwind_to_raw` from these types.
             #[allow(clippy::missing_transmute_annotations)]
-            _ => Some(unsafe { Unwind::Llvm { add: core::mem::transmute(state), remove: core::mem::transmute(dereg) } }),
+            _ => Some(unsafe {
+                Unwind::Llvm {
+                    add: core::mem::transmute(state),
+                    remove: core::mem::transmute(dereg),
+                }
+            }),
         }
     }
     impl Unwind {
@@ -573,7 +608,11 @@ mod platform {
     }
 }
 
-#[cfg(all(unix, target_vendor = "apple", any(target_arch = "aarch64", target_arch = "x86_64")))]
+#[cfg(all(
+    unix,
+    target_vendor = "apple",
+    any(target_arch = "aarch64", target_arch = "x86_64")
+))]
 mod platform {
     //! Darwin (arm64, and x86_64 natively or under Rosetta 2): anonymous RW
     //! mapping flipped to RX with `mprotect` (allowed outside the hardened
@@ -635,7 +674,10 @@ mod platform {
     pub fn unwind_to_raw(u: Option<Unwind>) -> (usize, usize) {
         match u {
             None | Some(Unwind::None) => (1, 0),
-            Some(Unwind::Frame { register, deregister }) => (register as usize, deregister as usize),
+            Some(Unwind::Frame {
+                register,
+                deregister,
+            }) => (register as usize, deregister as usize),
         }
     }
     pub fn unwind_from_raw(state: usize, dereg: usize) -> Option<Unwind> {
@@ -643,7 +685,12 @@ mod platform {
             return Some(Unwind::None);
         }
         // SAFETY: the words were stored by `unwind_to_raw` from these types.
-        Some(unsafe { Unwind::Frame { register: core::mem::transmute(state), deregister: core::mem::transmute(dereg) } })
+        Some(unsafe {
+            Unwind::Frame {
+                register: core::mem::transmute(state),
+                deregister: core::mem::transmute(dereg),
+            }
+        })
     }
     pub fn page_size() -> usize {
         // SAFETY: no preconditions.
@@ -673,8 +720,16 @@ mod platform {
     }
     pub fn protect(pointer: NonNull<u8>, offset: usize, size: usize, flags: u32) -> bool {
         let prot = libc::PROT_READ
-            | if flags & SHF_EXECINSTR != 0 { libc::PROT_EXEC } else { 0 }
-            | if flags & SHF_WRITE != 0 { libc::PROT_WRITE } else { 0 };
+            | if flags & SHF_EXECINSTR != 0 {
+                libc::PROT_EXEC
+            } else {
+                0
+            }
+            | if flags & SHF_WRITE != 0 {
+                libc::PROT_WRITE
+            } else {
+                0
+            };
         // SAFETY: the caller checked the live mapped subrange and page boundaries.
         unsafe { libc::mprotect(pointer.as_ptr().add(offset).cast(), size, prot) == 0 }
     }
@@ -697,8 +752,16 @@ mod platform {
 }
 
 #[cfg(not(any(
-    all(unix, not(target_vendor = "apple"), any(target_arch = "aarch64", target_arch = "x86_64")),
-    all(unix, target_vendor = "apple", any(target_arch = "aarch64", target_arch = "x86_64"))
+    all(
+        unix,
+        not(target_vendor = "apple"),
+        any(target_arch = "aarch64", target_arch = "x86_64")
+    ),
+    all(
+        unix,
+        target_vendor = "apple",
+        any(target_arch = "aarch64", target_arch = "x86_64")
+    )
 )))]
 mod platform {
     use core::ptr::NonNull;

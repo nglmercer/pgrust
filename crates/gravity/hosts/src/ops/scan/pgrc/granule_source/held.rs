@@ -18,7 +18,10 @@ pub(super) struct Warm<T> {
 
 impl<T> Warm<T> {
     pub(super) fn new() -> Warm<T> {
-        Warm { slot: Mutex::new(None), set: AtomicBool::new(false) }
+        Warm {
+            slot: Mutex::new(None),
+            set: AtomicBool::new(false),
+        }
     }
 
     pub(super) fn get(&self) -> Option<Arc<T>> {
@@ -91,13 +94,24 @@ pub(super) struct Held<T> {
 
 impl<T> Held<T> {
     pub(super) fn new(nparts: usize) -> Held<T> {
-        Held { nparts, faces: OnceLock::new(), touched: OnceLock::new() }
+        Held {
+            nparts,
+            faces: OnceLock::new(),
+            touched: OnceLock::new(),
+        }
     }
 
     #[inline]
     pub(super) fn get(&self, p: usize, face: u32) -> Option<&T> {
         let f = face as usize;
-        let c = self.faces.get()?.get(f / CHUNK)?.get()?.get(f % CHUNK)?.get()?.get(p)?;
+        let c = self
+            .faces
+            .get()?
+            .get(f / CHUNK)?
+            .get()?
+            .get(f % CHUNK)?
+            .get()?
+            .get(p)?;
         raw::arc_cell_get(c)
     }
 
@@ -105,12 +119,18 @@ impl<T> Held<T> {
     pub(super) fn publish(&self, p: usize, face: u32, e: Arc<T>) -> &T {
         let n = MAX_FACE_ATTNO + MAX_SHRED_FACES;
         let f = face as usize;
-        let chunks = self.faces.get_or_init(|| StmtSlice::collect((0..n.div_ceil(CHUNK)).map(|_| OnceLock::new()))); // alloc: Exec charged gravity_driver::stmt_context()
-        let chunk = chunks[f / CHUNK].get_or_init(|| StmtSlice::collect((0..CHUNK).map(|_| OnceLock::new()))); // alloc: Exec charged gravity_driver::stmt_context()
+        let chunks = self
+            .faces
+            .get_or_init(|| StmtSlice::collect((0..n.div_ceil(CHUNK)).map(|_| OnceLock::new()))); // alloc: Exec charged gravity_driver::stmt_context()
+        let chunk = chunks[f / CHUNK]
+            .get_or_init(|| StmtSlice::collect((0..CHUNK).map(|_| OnceLock::new()))); // alloc: Exec charged gravity_driver::stmt_context()
         let cells = chunk[f % CHUNK].get_or_init(|| {
-            let touched = self.touched.get_or_init(|| StmtSlice::collect((0..n.div_ceil(64)).map(|_| AtomicU64::new(0)))); // alloc: Exec charged gravity_driver::stmt_context()
+            let touched = self
+                .touched
+                .get_or_init(|| StmtSlice::collect((0..n.div_ceil(64)).map(|_| AtomicU64::new(0)))); // alloc: Exec charged gravity_driver::stmt_context()
             touched[face as usize / 64].fetch_or(1 << (face % 64), Ordering::Release);
-            StmtSlice::collect((0..self.nparts).map(|_| AtomicPtr::new(core::ptr::null_mut()))) // alloc: Exec charged gravity_driver::stmt_context()
+            StmtSlice::collect((0..self.nparts).map(|_| AtomicPtr::new(core::ptr::null_mut())))
+            // alloc: Exec charged gravity_driver::stmt_context()
         });
         raw::arc_cell_publish(&cells[p], e).0
     }
@@ -118,7 +138,9 @@ impl<T> Held<T> {
 
 impl<T> Drop for Held<T> {
     fn drop(&mut self) {
-        let (Some(faces), Some(touched)) = (self.faces.get(), self.touched.get()) else { return };
+        let (Some(faces), Some(touched)) = (self.faces.get(), self.touched.get()) else {
+            return;
+        };
         // bounded("other: the statement's end lets go of every dictionary it read, one release per face and part; a teardown runs to its end (a Drop cannot stop), as PG's MemoryContextDelete at the executor's end polls no deeper")
         for (w, word) in touched.iter().enumerate() {
             let mut bits = word.load(Ordering::Acquire);
@@ -126,7 +148,9 @@ impl<T> Drop for Held<T> {
             while bits != 0 {
                 let f = w * 64 + bits.trailing_zeros() as usize;
                 bits &= bits - 1;
-                let Some(cells) = faces[f / CHUNK].get().and_then(|c| c[f % CHUNK].get()) else { continue };
+                let Some(cells) = faces[f / CHUNK].get().and_then(|c| c[f % CHUNK].get()) else {
+                    continue;
+                };
                 // bounded("other: the statement's end lets go of every dictionary it read, one release per face and part")
                 for c in cells.iter() {
                     // the statement is over
@@ -168,7 +192,7 @@ pub fn let_warm_go() {
     let Some(lists) = live_lists() else { return };
     let mut gone: Vec<Arc<DictEntry>> = Vec::new(); // alloc: Cold
     let mut gone_codes: Vec<Arc<CodesEntry>> = Vec::new(); // alloc: Cold
-    // bounded("other: the live part lists, one per relation generation statements hold now")
+                                                           // bounded("other: the live part lists, one per relation generation statements hold now")
     for l in &lists {
         // D4504: with the metacache on the list stays in `LISTS` (residency.rs `part_cache_evicted`) and warms again
         if !crate::inputs::metacache_enabled() {

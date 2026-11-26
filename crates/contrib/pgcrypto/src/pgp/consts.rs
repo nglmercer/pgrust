@@ -1,4 +1,3 @@
-
 pub const PGP_S2K_SIMPLE: i32 = 0;
 pub const PGP_S2K_SALTED: i32 = 1;
 pub const PGP_S2K_ISALTED: i32 = 3;

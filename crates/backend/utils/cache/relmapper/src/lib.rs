@@ -647,7 +647,10 @@ fn write_relmap_file(
     tsid: Oid,
     dbpath: &str,
 ) -> PgResult<()> {
-    debug_assert!(lwlock::LWLockHeldByMeInMode(map_lock(), lwlock::LW_EXCLUSIVE));
+    debug_assert!(lwlock::LWLockHeldByMeInMode(
+        map_lock(),
+        lwlock::LW_EXCLUSIVE
+    ));
 
     newmap.magic = RELMAPPER_FILEMAGIC;
     if newmap.num_mappings < 0 || newmap.num_mappings > MAX_MAPPINGS as i32 {
@@ -668,7 +671,9 @@ fn write_relmap_file(
         return ereport(ERROR)
             .with_saved_errno(errno())
             .errcode_for_file_access()
-            .errmsg(format!("could not open file \"{maptempfilename}\": {PCT_M}"))
+            .errmsg(format!(
+                "could not open file \"{maptempfilename}\": {PCT_M}"
+            ))
             .finish(loc("write_relmap_file"));
     }
 
@@ -696,7 +701,9 @@ fn write_relmap_file(
         return ereport(ERROR)
             .with_saved_errno(en)
             .errcode_for_file_access()
-            .errmsg(format!("could not write file \"{maptempfilename}\": {PCT_M}"))
+            .errmsg(format!(
+                "could not write file \"{maptempfilename}\": {PCT_M}"
+            ))
             .finish(loc("write_relmap_file"));
     }
 
@@ -704,7 +711,9 @@ fn write_relmap_file(
         return ereport(ERROR)
             .with_saved_errno(errno())
             .errcode_for_file_access()
-            .errmsg(format!("could not close file \"{maptempfilename}\": {PCT_M}"))
+            .errmsg(format!(
+                "could not close file \"{maptempfilename}\": {PCT_M}"
+            ))
             .finish(loc("write_relmap_file"));
     }
 

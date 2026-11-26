@@ -15,16 +15,35 @@ crate::strategies! {
     BODY_VERSIONED = 5, "body.versioned", Scan;
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(BODY_VERSIONED, &BodyImpl(&VERSIONED))], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(BODY_VERSIONED, &BodyImpl(&VERSIONED))],
+    ..crate::ops::NONE
+};
 
 struct Versioned;
 static VERSIONED: Versioned = Versioned;
 
 impl BodyMech for Versioned {
-    fn guard(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, f: &WinConds) -> Option<(Value, Body)> {
-        let known: PgVec<'_, Value> = [f.nonulls, f.nosel, f.dense, f.page_full, f.clean].into_iter().flatten().collect_in(env.mcx);
+    fn guard(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        f: &WinConds,
+    ) -> Option<(Value, Body)> {
+        let known: PgVec<'_, Value> = [f.nonulls, f.nosel, f.dense, f.page_full, f.clean]
+            .into_iter()
+            .flatten()
+            .collect_in(env.mcx);
         let g = crate::frame::frame::all(b, env, &known[..])?;
-        let body = Body { nonulls: f.nonulls.is_some(), nosel: f.nosel.is_some(), dense: f.dense.is_some(), page_full: f.page_full.is_some(), codes: false, packed: false, clean: f.clean.is_some() };
+        let body = Body {
+            nonulls: f.nonulls.is_some(),
+            nosel: f.nosel.is_some(),
+            dense: f.dense.is_some(),
+            page_full: f.page_full.is_some(),
+            codes: false,
+            packed: false,
+            clean: f.clean.is_some(),
+        };
         Some((g, body))
     }
 }

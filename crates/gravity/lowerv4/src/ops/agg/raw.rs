@@ -68,7 +68,9 @@ gravity_abi::host! {
 /// `walk_bound`'s scratch arena, made at its first use: an arena per claim's open would cost every claim its core and
 /// its ledger charges.
 fn scratch(a: &mut Option<OpArena>, ctx: u64) -> &OpArena {
-    a.get_or_insert_with(|| OpArena::scratch_of(OpArena::slot_owner(ctx as usize as *mut Ctx), Kind::HashAgg))
+    a.get_or_insert_with(|| {
+        OpArena::scratch_of(OpArena::slot_owner(ctx as usize as *mut Ctx), Kind::HashAgg)
+    })
 }
 
 /// `n` zeroed elements in `a`, one carve.
@@ -122,9 +124,18 @@ gravity_abi::host! {
 pub(crate) fn members_of(fin: &[u8], recs: &[u64], out: &mut [u64]) -> i64 {
     let n = out.len() / 2;
     assert!(recs.len() >= WORDS * n);
-    assert!((0..n).all(|i| (0..4).all(|j| 16 * (recs[WORDS * i] >> (16 * j) & 0xffff) as usize + 9 <= fin.len())));
+    assert!((0..n)
+        .all(|i| (0..4)
+            .all(|j| 16 * (recs[WORDS * i] >> (16 * j) & 0xffff) as usize + 9 <= fin.len())));
     // SAFETY: checked above: `recs` holds `n` records, `out` `2 n` words, and `fin` every finals word they name.
-    unsafe { members(fin.as_ptr() as u64, recs.as_ptr() as u64, n as u64, out.as_mut_ptr() as u64) }
+    unsafe {
+        members(
+            fin.as_ptr() as u64,
+            recs.as_ptr() as u64,
+            n as u64,
+            out.as_mut_ptr() as u64,
+        )
+    }
 }
 
 gravity_abi::host! {

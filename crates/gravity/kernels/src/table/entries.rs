@@ -1,13 +1,18 @@
 //! M1's keyed-table host entries and layouts (kernels host_abi v4 m1, re-exported there): the hashed table's open at its
 //! sized bound and its miss (grown in place), the code front's open and flush, and `keyed.twopass`'s admitted set.
 //! Created and closed by M1 (owner M1-HOSTS).
-use gravity_abi::{PtrWord, Word};
-use gravity_abi::breaker::{FloatOverflow, Rec, RecordLayout, ADAPT_FACTOR, SHARE, T1, T1_BYPASS, T1_GROWN_MIN_SLOTS, t1_open_bytes};
+use gravity_abi::breaker::{
+    t1_open_bytes, FloatOverflow, Rec, RecordLayout, ADAPT_FACTOR, SHARE, T1, T1_BYPASS,
+    T1_GROWN_MIN_SLOTS,
+};
 use gravity_abi::hash::{Depth, KeyHash};
 use gravity_abi::program::partial;
 use gravity_abi::Ctx;
+use gravity_abi::{PtrWord, Word};
 
-use crate::host_abi::{agg_open, fold_bits, t1_bytes, table_bits, AggState, AGG_GROUPS_BYPASS, AGG_GROUPS_OBSERVE};
+use crate::host_abi::{
+    agg_open, fold_bits, t1_bytes, table_bits, AggState, AGG_GROUPS_BYPASS, AGG_GROUPS_OBSERVE,
+};
 
 crate::contract::host! {
     /// `table.sized`'s open (keyed/table_size.rs, M1-TABLES): the claim's T1 laid out with the default's slots reserved but
@@ -40,8 +45,14 @@ pub fn grown_first_bytes(groups: u64, rec: u64) -> u32 {
     if groups == 0 {
         return t1_bytes(groups, rec);
     }
-    let slots = groups.saturating_mul(ADAPT_FACTOR).checked_next_power_of_two().unwrap_or(u64::MAX).max(T1_GROWN_MIN_SLOTS);
-    slots.saturating_mul(rec).min(t1_open_bytes(groups, rec) as u64) as u32
+    let slots = groups
+        .saturating_mul(ADAPT_FACTOR)
+        .checked_next_power_of_two()
+        .unwrap_or(u64::MAX)
+        .max(T1_GROWN_MIN_SLOTS);
+    slots
+        .saturating_mul(rec)
+        .min(t1_open_bytes(groups, rec) as u64) as u32
 }
 
 /// `table.sized`'s grow (R3-L02, `T1::grow`): past the sizing's fill (`T1::can_grow`: the keys the table opened) with room
@@ -108,19 +119,32 @@ crate::contract::host! {
 
 /// `agg_front_flush`'s body, run under `guard!` (V4R-16 / V4R-40).
 #[inline(always)]
-unsafe fn agg_front_flush_in(ctx: *mut Ctx, st: *mut u8, front: *mut u8, touched: *const u64, n: u64) -> i64 {
+unsafe fn agg_front_flush_in(
+    ctx: *mut Ctx,
+    st: *mut u8,
+    front: *mut u8,
+    touched: *const u64,
+    n: u64,
+) -> i64 {
     let a = st as *mut AggState;
     let (layout, t) = (&*(*a).layout.ptr(), (*a).t.ptr());
-    let (size, codes) = (layout.size() as usize, core::slice::from_raw_parts(touched, n as usize));
+    let (size, codes) = (
+        layout.size() as usize,
+        core::slice::from_raw_parts(touched, n as usize),
+    );
     for (i, &c) in codes.iter().enumerate() {
         if let Some(&next) = codes.get(i + 1) {
-            (*t).prefetch_home(KeyHash::of(Rec::at(front.add(next as usize * size), layout).keys()));
+            (*t).prefetch_home(KeyHash::of(
+                Rec::at(front.add(next as usize * size), layout).keys(),
+            ));
         }
         let src = front.add(c as usize * size);
         // `grown`'s record is folded here: a record the probe opened is unused (its sentinel 0) until something folds into it
         // NEW-numeric-1 (P): the front holds the window's rows of its key, later than the table's (`Rec::fold_newer`)
         let r = match grown(a, Rec::at(src, layout).keys()) {
-            Some(p) => Rec::at(p, layout).fold_newer(&Rec::at(src, layout)).map_or(FloatOverflow::STATUS, |()| 0),
+            Some(p) => Rec::at(p, layout)
+                .fold_newer(&Rec::at(src, layout))
+                .map_or(FloatOverflow::STATUS, |()| 0),
             None => crate::host_abi::agg_miss(ctx, st, src),
         };
         match r {
@@ -147,7 +171,6 @@ pub struct AdmitHdr {
     pub filter: Word<*const u64>,
     pub filter_bits: u64,
 }
-
 
 pub const ADMIT_EMPTY: u64 = u64::MAX;
 pub const ADMIT_SET: i32 = 0;
@@ -182,7 +205,10 @@ const fn filter_at(used: u32) -> Depth {
 
 /// The filter's bit count (log2) for an exact set of `keys` keys: `ADMIT_FILTER_PER_KEY` bits per key, 64 ..= 2^16 bits.
 pub fn admit_filter_bits(keys: usize) -> u32 {
-    (ADMIT_FILTER_PER_KEY * keys).next_power_of_two().trailing_zeros().clamp(6, ADMIT_FILTER_BITS)
+    (ADMIT_FILTER_PER_KEY * keys)
+        .next_power_of_two()
+        .trailing_zeros()
+        .clamp(6, ADMIT_FILTER_BITS)
 }
 
 /// Sets key hash `h`'s bits in a filter of 2^`bits` bits.

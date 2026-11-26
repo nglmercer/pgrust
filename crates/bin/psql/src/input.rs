@@ -36,7 +36,10 @@ pub struct InputStack {
 
 impl InputStack {
     pub fn empty() -> Self {
-        InputStack { sources: Vec::new(), history: Vec::new() }
+        InputStack {
+            sources: Vec::new(),
+            history: Vec::new(),
+        }
     }
 
     pub fn stdin() -> Self {
@@ -54,12 +57,14 @@ impl InputStack {
                 sources.push(Source::Stdin(BufReader::new(std::io::stdin())));
             } else {
                 let p = pg_path::canonicalize_path(p);
-                let f = std::fs::File::open(&p)
-                    .map_err(|e| format!("{p}: {}", io_errmsg(&e)))?;
+                let f = std::fs::File::open(&p).map_err(|e| format!("{p}: {}", io_errmsg(&e)))?;
                 sources.push(Source::File(BufReader::new(f)));
             }
         }
-        Ok(InputStack { sources, history: Vec::new() })
+        Ok(InputStack {
+            sources,
+            history: Vec::new(),
+        })
     }
 
     /// Push an include file (\i) on top of the stack.
@@ -203,7 +208,11 @@ fn read_line_edited(prompt: &str, history: &mut Vec<String>) -> Option<EditResul
         if n <= 0 {
             restore(&orig);
             let _ = writeln!(out);
-            return if buf.is_empty() { None } else { Some(EditResult::Line(buf.iter().collect())) };
+            return if buf.is_empty() {
+                None
+            } else {
+                Some(EditResult::Line(buf.iter().collect()))
+            };
         }
         let b = byte[0];
         match b {
@@ -369,7 +378,9 @@ mod tests {
     #[test]
     fn script_paths_are_canonicalized_before_open() {
         let raw = "no_such_dir_b181/../b181_missing.sql";
-        let err = InputStack::files(&[raw.to_string()]).err().expect("open fails");
+        let err = InputStack::files(&[raw.to_string()])
+            .err()
+            .expect("open fails");
         assert!(err.starts_with("b181_missing.sql: "), "{err}");
         let mut st = InputStack::stdin();
         let err = st.push_file(raw).unwrap_err();

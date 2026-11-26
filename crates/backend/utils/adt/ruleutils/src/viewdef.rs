@@ -31,8 +31,8 @@ pub fn pg_get_viewdef_worker(
     if rule.ev_type != b'1' || !rule.is_instead || rule.ev_qual != "<>" {
         return Ok(None);
     }
-    let actions = readfuncs::stringToNodeNullable(mcx, &rule.ev_action)?
-        .and_then(|node| node.as_list());
+    let actions =
+        readfuncs::stringToNodeNullable(mcx, &rule.ev_action)?.and_then(|node| node.as_list());
     let Some(actions) = actions else {
         return Ok(None);
     };
@@ -44,7 +44,13 @@ pub fn pg_get_viewdef_worker(
         return Ok(None);
     }
 
-    Ok(Some(make_viewdef(mcx, viewoid, query, pretty_flags, wrap_column)?))
+    Ok(Some(make_viewdef(
+        mcx,
+        viewoid,
+        query,
+        pretty_flags,
+        wrap_column,
+    )?))
 }
 
 // make_viewdef (ruleutils.c:5598): table_open(ev_class, AccessShareLock) is
@@ -95,7 +101,9 @@ pub(crate) fn qualified_name_to_relid_relname<'mcx>(
     let mut names = varlena::textToQualifiedNameList(mcx, rawname)?;
     let parts: Vec<&[u8]> = names.iter().map(|n| n.as_slice()).collect();
     let relid = catalog_namespace::RangeVarGetRelidFromNameBytes(&parts, NoLock, false)?;
-    let relname = names.pop().expect("a resolved relation name has a last part");
+    let relname = names
+        .pop()
+        .expect("a resolved relation name has a last part");
     Ok((relid, relname))
 }
 

@@ -28,10 +28,28 @@ pub(crate) struct Opened {
 
 /// `m11_run_open(ctx, k, view, full, point)` over consumed region `k` (an error leaves by `x.l_exit`): the sealed run or
 /// the window. `view` the view's table (lean or the run's own, `full`); `point`: the merge reads a by-reference cell.
-pub(crate) fn open(b: &mut FunctionBuilder<'_>, env: &Env, x: &Exits, k: u64, (view, full): (Value, Value), point: bool) -> Opened {
-    let h = res::host(b, "m11_run_open", &[Type::Ptr, Type::I64, Type::Ptr, Type::Ptr, Type::I64], Type::Ptr, gravity_abi::host_words!(h11::m11_run_open(ctx, k, tbl, full, point)));
-    let (k, pt) = (b.iconst(Type::I64, k as i64), b.iconst(Type::I64, point as i64));
-    let run = b.call_host(h, &[env.ctx, k, view, full, pt], Some(Type::Ptr)).expect("m11_run_open returns the run");
+pub(crate) fn open(
+    b: &mut FunctionBuilder<'_>,
+    env: &Env,
+    x: &Exits,
+    k: u64,
+    (view, full): (Value, Value),
+    point: bool,
+) -> Opened {
+    let h = res::host(
+        b,
+        "m11_run_open",
+        &[Type::Ptr, Type::I64, Type::Ptr, Type::Ptr, Type::I64],
+        Type::Ptr,
+        gravity_abi::host_words!(h11::m11_run_open(ctx, k, tbl, full, point)),
+    );
+    let (k, pt) = (
+        b.iconst(Type::I64, k as i64),
+        b.iconst(Type::I64, point as i64),
+    );
+    let run = b
+        .call_host(h, &[env.ctx, k, view, full, pt], Some(Type::Ptr))
+        .expect("m11_run_open returns the run");
     let ri = b.conv(ConvOp::PtrToInt, Type::I64, run);
     let (bad, l_ok) = (b.icmp(IntCond::Slt, ri, env.zero), b.create_block(&[]));
     b.cond_br(bad, (x.l_exit, &[ri]), (l_ok, &[]));
@@ -46,11 +64,39 @@ pub(crate) fn open(b: &mut FunctionBuilder<'_>, env: &Env, x: &Exits, k: u64, (v
 /// (`m11_run_slice(ctx, k, view, full, point, lo, hi)`): the opened run offset by `lo` (each of `lo` and `hi` clamped to its
 /// rows), and the slice's rows. A window is only laid for a claim from the run's first row (`lo` 0), so it is not moved.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn open_slice(b: &mut FunctionBuilder<'_>, env: &Env, x: &Exits, k: u64, (view, full): (Value, Value), point: bool, (lo, hi): (Value, Value), row_bytes: u32) -> (Opened, Value) {
+pub(crate) fn open_slice(
+    b: &mut FunctionBuilder<'_>,
+    env: &Env,
+    x: &Exits,
+    k: u64,
+    (view, full): (Value, Value),
+    point: bool,
+    (lo, hi): (Value, Value),
+    row_bytes: u32,
+) -> (Opened, Value) {
     use crate::face::cosplit::clamp;
-    let h = res::host(b, "m11_run_slice", &[Type::Ptr, Type::I64, Type::Ptr, Type::Ptr, Type::I64, Type::I64, Type::I64], Type::Ptr, gravity_abi::host_words!(h11::m11_run_slice(ctx, k, tbl, full, point, lo, hi)));
-    let (k, pt) = (b.iconst(Type::I64, k as i64), b.iconst(Type::I64, point as i64));
-    let run = b.call_host(h, &[env.ctx, k, view, full, pt, lo, hi], Some(Type::Ptr)).expect("m11_run_slice returns the run");
+    let h = res::host(
+        b,
+        "m11_run_slice",
+        &[
+            Type::Ptr,
+            Type::I64,
+            Type::Ptr,
+            Type::Ptr,
+            Type::I64,
+            Type::I64,
+            Type::I64,
+        ],
+        Type::Ptr,
+        gravity_abi::host_words!(h11::m11_run_slice(ctx, k, tbl, full, point, lo, hi)),
+    );
+    let (k, pt) = (
+        b.iconst(Type::I64, k as i64),
+        b.iconst(Type::I64, point as i64),
+    );
+    let run = b
+        .call_host(h, &[env.ctx, k, view, full, pt, lo, hi], Some(Type::Ptr))
+        .expect("m11_run_slice returns the run");
     let ri = b.conv(ConvOp::PtrToInt, Type::I64, run);
     let (bad, l_ok) = (b.icmp(IntCond::Slt, ri, env.zero), b.create_block(&[]));
     b.cond_br(bad, (x.l_exit, &[ri]), (l_ok, &[]));
@@ -68,8 +114,20 @@ pub(crate) fn open_slice(b: &mut FunctionBuilder<'_>, env: &Env, x: &Exits, k: u
 
 /// Row `j`'s address: the sealed run's by index, or the window's (`idx[j - j0]`, `m11_window` when `j` is outside it; its
 /// error leaves by the row's exit).
-pub(crate) fn fetch(b: &mut FunctionBuilder<'_>, env: &Env, o: Opened, row_bytes: u32, j: Value) -> Value {
-    let (l_res, l_win, l_hit, l_miss, l_done) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]), b.create_block(&[]), b.create_block(&[Type::I64]));
+pub(crate) fn fetch(
+    b: &mut FunctionBuilder<'_>,
+    env: &Env,
+    o: Opened,
+    row_bytes: u32,
+    j: Value,
+) -> Value {
+    let (l_res, l_win, l_hit, l_miss, l_done) = (
+        b.create_block(&[]),
+        b.create_block(&[]),
+        b.create_block(&[]),
+        b.create_block(&[]),
+        b.create_block(&[Type::I64]),
+    );
     b.cond_br(o.win, (l_win, &[]), (l_res, &[]));
     b.switch_to(l_res);
     let rb = b.iconst(Type::I64, row_bytes as i64);
@@ -78,7 +136,10 @@ pub(crate) fn fetch(b: &mut FunctionBuilder<'_>, env: &Env, o: Opened, row_bytes
     let pi = b.conv(ConvOp::PtrToInt, Type::I64, p);
     b.br(l_done, &[pi]);
     b.switch_to(l_win);
-    let (j0, cnt) = (b.load(Type::I64, o.run, h11::W_J0), b.load(Type::I64, o.run, h11::W_CNT));
+    let (j0, cnt) = (
+        b.load(Type::I64, o.run, h11::W_J0),
+        b.load(Type::I64, o.run, h11::W_CNT),
+    );
     let d = b.int_bin(IntBinOp::Sub, j, j0);
     let hit = b.icmp(IntCond::Ult, d, cnt);
     b.cond_br(hit, (l_hit, &[]), (l_miss, &[]));
@@ -90,8 +151,16 @@ pub(crate) fn fetch(b: &mut FunctionBuilder<'_>, env: &Env, o: Opened, row_bytes
     b.br(l_done, &[row]);
     b.mark_cold(l_miss);
     b.switch_to(l_miss);
-    let h = res::host(b, "m11_window", &[Type::Ptr, Type::Ptr, Type::I64, Type::Ptr], Type::I64, gravity_abi::host_words!(h11::m11_window(ctx, w, j, full)));
-    let r = b.call_host(h, &[env.ctx, o.run, j, o.full], Some(Type::I64)).expect("m11_window returns the row");
+    let h = res::host(
+        b,
+        "m11_window",
+        &[Type::Ptr, Type::Ptr, Type::I64, Type::Ptr],
+        Type::I64,
+        gravity_abi::host_words!(h11::m11_window(ctx, w, j, full)),
+    );
+    let r = b
+        .call_host(h, &[env.ctx, o.run, j, o.full], Some(Type::I64))
+        .expect("m11_window returns the row");
     let (bad, l_ok) = (b.icmp(IntCond::Slt, r, env.zero), b.create_block(&[]));
     b.cond_br(bad, (env.x.l_exit, &[r]), (l_ok, &[]));
     b.switch_to(l_ok);
@@ -116,9 +185,24 @@ pub(crate) fn mark(b: &mut FunctionBuilder<'_>, o: Opened, j: Value) {
 /// raises (HOST), a status below zero leaves.
 pub(crate) fn full(b: &mut FunctionBuilder<'_>, env: &Env, end: &RunEnd, w_run: i32, tbl: Value) {
     let run = end.run(b, env);
-    let h = res::host(b, "m11_run_full", &[Type::Ptr, Type::Ptr, Type::Ptr], Type::I64, gravity_abi::host_words!(h11::m11_run_full(ctx, run, tbl)));
-    let r = b.call_host(h, &[env.ctx, run, tbl], Some(Type::I64)).expect("m11_run_full returns the base");
-    let (l_grown, l_other, l_put, l_bad, l_oom, l_on) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]), b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));
+    let h = res::host(
+        b,
+        "m11_run_full",
+        &[Type::Ptr, Type::Ptr, Type::Ptr],
+        Type::I64,
+        gravity_abi::host_words!(h11::m11_run_full(ctx, run, tbl)),
+    );
+    let r = b
+        .call_host(h, &[env.ctx, run, tbl], Some(Type::I64))
+        .expect("m11_run_full returns the base");
+    let (l_grown, l_other, l_put, l_bad, l_oom, l_on) = (
+        b.create_block(&[]),
+        b.create_block(&[]),
+        b.create_block(&[]),
+        b.create_block(&[]),
+        b.create_block(&[]),
+        b.create_block(&[]),
+    );
     let grown = b.icmp(IntCond::Sgt, r, env.one);
     b.cond_br(grown, (l_grown, &[]), (l_other, &[]));
     b.switch_to(l_grown);

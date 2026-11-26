@@ -68,12 +68,36 @@ struct Kind {
 }
 
 const KINDS: &[Kind] = &[
-    Kind { range: "int4range", multi: "int4multirange", discrete: true },
-    Kind { range: "int8range", multi: "int8multirange", discrete: true },
-    Kind { range: "numrange", multi: "nummultirange", discrete: false },
-    Kind { range: "daterange", multi: "datemultirange", discrete: true },
-    Kind { range: "tsrange", multi: "tsmultirange", discrete: false },
-    Kind { range: "tstzrange", multi: "tstzmultirange", discrete: false },
+    Kind {
+        range: "int4range",
+        multi: "int4multirange",
+        discrete: true,
+    },
+    Kind {
+        range: "int8range",
+        multi: "int8multirange",
+        discrete: true,
+    },
+    Kind {
+        range: "numrange",
+        multi: "nummultirange",
+        discrete: false,
+    },
+    Kind {
+        range: "daterange",
+        multi: "datemultirange",
+        discrete: true,
+    },
+    Kind {
+        range: "tsrange",
+        multi: "tsmultirange",
+        discrete: false,
+    },
+    Kind {
+        range: "tstzrange",
+        multi: "tstzmultirange",
+        discrete: false,
+    },
 ];
 
 fn pick_kind(g: &mut Gen) -> &'static Kind {
@@ -82,15 +106,23 @@ fn pick_kind(g: &mut Gen) -> &'static Kind {
 
 /// Boolean-returning binary operators over (anyrange, anyrange) and
 /// (anymultirange, anymultirange) — the shared pg_operator matrix.
-const BOOL_OPS: &[&str] =
-    &["=", "<>", "<", "<=", ">", ">=", "@>", "<@", "&&", "<<", ">>", "&<", "&>", "-|-"];
+const BOOL_OPS: &[&str] = &[
+    "=", "<>", "<", "<=", ">", ">=", "@>", "<@", "&&", "<<", ">>", "&<", "&>", "-|-",
+];
 
 /// Range-returning set operators (union / intersection / difference).
 const SET_OPS: &[&str] = &["+", "*", "-"];
 
 /// Bounds-accessor / predicate functions (range and multirange).
-const BOUND_FNS: &[&str] =
-    &["lower", "upper", "isempty", "lower_inc", "upper_inc", "lower_inf", "upper_inf"];
+const BOUND_FNS: &[&str] = &[
+    "lower",
+    "upper",
+    "isempty",
+    "lower_inc",
+    "upper_inc",
+    "lower_inf",
+    "upper_inf",
+];
 
 /// Paren-neutral bound flags for random operands (`'()'` contributes one of
 /// each paren; `'[]'` none).
@@ -106,8 +138,13 @@ fn sym_flag(g: &mut Gen) -> &'static str {
 
 /// Chronologically-ordered literal pools (index order == value order), so a
 /// `lo` index below a `hi` index guarantees `lo <= hi` without parsing.
-const DATE_POOL: &[&str] =
-    &["'1999-12-31'", "'2020-01-01'", "'2021-06-15'", "'2024-02-29'", "'2030-12-31'"];
+const DATE_POOL: &[&str] = &[
+    "'1999-12-31'",
+    "'2020-01-01'",
+    "'2021-06-15'",
+    "'2024-02-29'",
+    "'2030-12-31'",
+];
 const TS_POOL: &[&str] = &[
     "'2020-01-01 00:00:00'",
     "'2021-03-03 12:00:00'",
@@ -176,8 +213,16 @@ fn elem(g: &mut Gen, k: &Kind) -> String {
 /// empty `(v, v)` form. Bounds are occasionally NULL (infinite edges).
 fn range_ctor(g: &mut Gen, k: &Kind) -> String {
     let (lo, hi) = bound_pair(g, k);
-    let lo_n = if g.rng.chance(1, 9) { "NULL".to_string() } else { lo };
-    let hi_n = if g.rng.chance(1, 9) { "NULL".to_string() } else { hi };
+    let lo_n = if g.rng.chance(1, 9) {
+        "NULL".to_string()
+    } else {
+        lo
+    };
+    let hi_n = if g.rng.chance(1, 9) {
+        "NULL".to_string()
+    } else {
+        hi
+    };
     match g.rng.below(6) {
         0 => {
             let v = point_val(g, k);
@@ -253,7 +298,14 @@ fn gen_scalar(g: &mut Gen) -> Vec<StmtKind> {
     let k = pick_kind(g);
     let class = g.weights.pick(
         g.rng,
-        &["ro:cmp", "ro:setop", "ro:elem", "ro:bounds", "ro:merge", "ro:hash"],
+        &[
+            "ro:cmp",
+            "ro:setop",
+            "ro:elem",
+            "ro:bounds",
+            "ro:merge",
+            "ro:hash",
+        ],
     );
     g.fire(class);
     let sql = match class {
@@ -263,7 +315,12 @@ fn gen_scalar(g: &mut Gen) -> Vec<StmtKind> {
         }
         "ro:setop" => {
             let op = SET_OPS[g.rng.below_usize(SET_OPS.len())];
-            format!("SELECT ({} {} {})::text;", range_expr(g, k), op, range_expr(g, k))
+            format!(
+                "SELECT ({} {} {})::text;",
+                range_expr(g, k),
+                op,
+                range_expr(g, k)
+            )
         }
         "ro:elem" => {
             if g.rng.chance(1, 2) {
@@ -284,7 +341,11 @@ fn gen_scalar(g: &mut Gen) -> Vec<StmtKind> {
             }
         }
         "ro:merge" => {
-            format!("SELECT range_merge({}, {})::text;", range_expr(g, k), range_expr(g, k))
+            format!(
+                "SELECT range_merge({}, {})::text;",
+                range_expr(g, k),
+                range_expr(g, k)
+            )
         }
         _ => format!("SELECT hash_range({});", range_ctor(g, k)),
     };
@@ -297,7 +358,13 @@ fn gen_mr(g: &mut Gen) -> Vec<StmtKind> {
     let k = pick_kind(g);
     let class = g.weights.pick(
         g.rng,
-        &["ro:mr:op", "ro:mr:mixed", "ro:mr:bounds", "ro:mr:unnest", "ro:mr:ctor"],
+        &[
+            "ro:mr:op",
+            "ro:mr:mixed",
+            "ro:mr:bounds",
+            "ro:mr:unnest",
+            "ro:mr:ctor",
+        ],
     );
     g.fire(class);
     let sql = match class {
@@ -317,8 +384,17 @@ fn gen_mr(g: &mut Gen) -> Vec<StmtKind> {
         "ro:mr:bounds" => {
             let m = mr_expr(g, k);
             match g.rng.below(4) {
-                0 => format!("SELECT (lower({}))::text, (upper({}))::text;", m, mr_expr(g, k)),
-                1 => format!("SELECT isempty({}), lower_inf({}), upper_inf({});", m, mr_expr(g, k), mr_expr(g, k)),
+                0 => format!(
+                    "SELECT (lower({}))::text, (upper({}))::text;",
+                    m,
+                    mr_expr(g, k)
+                ),
+                1 => format!(
+                    "SELECT isempty({}), lower_inf({}), upper_inf({});",
+                    m,
+                    mr_expr(g, k),
+                    mr_expr(g, k)
+                ),
                 2 => format!("SELECT range_merge({})::text;", m),
                 _ => format!("SELECT hash_multirange({}) IS NOT NULL;", m),
             }
@@ -387,7 +463,11 @@ fn gen_flags(g: &mut Gen) -> Vec<StmtKind> {
 
 fn gen_agg(g: &mut Gen) -> Vec<StmtKind> {
     let k = pick_kind(g);
-    let f = if g.rng.chance(1, 2) { "range_agg" } else { "range_intersect_agg" };
+    let f = if g.rng.chance(1, 2) {
+        "range_agg"
+    } else {
+        "range_intersect_agg"
+    };
     g.fire2("rangeops:agg:", f);
     let (r1, r2, r3) = (range_ctor(g, k), range_ctor(g, k), range_ctor(g, k));
     raw(format!(
@@ -406,7 +486,9 @@ fn gen_agg(g: &mut Gen) -> Vec<StmtKind> {
 /// drop it. The multirange type is dropped by the internal dependency when
 /// the range type is dropped.
 fn gen_custom(g: &mut Gen) -> Vec<StmtKind> {
-    let variant = g.weights.pick(g.rng, &["ro:ct:int", "ro:ct:float", "ro:ct:text"]);
+    let variant = g
+        .weights
+        .pick(g.rng, &["ro:ct:int", "ro:ct:float", "ro:ct:text"]);
     g.fire(variant);
     let t = format!("fz_rng_ct{}", g.rangeops.next_type);
     g.rangeops.next_type += 1;
@@ -417,7 +499,10 @@ fn gen_custom(g: &mut Gen) -> Vec<StmtKind> {
             // functions have a shell-type chicken-and-egg that neither the
             // PG docs nor the regression suite instantiate; the built-in
             // discrete canonicalization surface is covered by gen_flags).
-            stmts.push(StmtKind::Raw(format!("CREATE TYPE {} AS RANGE (subtype = int4);", t)));
+            stmts.push(StmtKind::Raw(format!(
+                "CREATE TYPE {} AS RANGE (subtype = int4);",
+                t
+            )));
             stmts.push(StmtKind::Raw(format!(
                 "SELECT ({t}(1, 10))::text, ({t}(1, 10, '[]'))::text, isempty({t}(5, 5));",
                 t = t
@@ -436,7 +521,10 @@ fn gen_custom(g: &mut Gen) -> Vec<StmtKind> {
                 "SELECT range_agg(x)::text FROM (VALUES ({t}(1, 3)), ({t}(5, 9))) v(x);",
                 t = t
             )));
-            stmts.push(StmtKind::Raw(format!("SELECT multirange({t}(1, 4))::text;", t = t)));
+            stmts.push(StmtKind::Raw(format!(
+                "SELECT multirange({t}(1, 4))::text;",
+                t = t
+            )));
         }
         "ro:ct:float" => {
             // Continuous float8 subtype with a built-in subtype_diff.
@@ -466,7 +554,10 @@ fn gen_custom(g: &mut Gen) -> Vec<StmtKind> {
             } else {
                 "subtype = text, subtype_opclass = text_pattern_ops"
             };
-            stmts.push(StmtKind::Raw(format!("CREATE TYPE {} AS RANGE ({});", t, opts)));
+            stmts.push(StmtKind::Raw(format!(
+                "CREATE TYPE {} AS RANGE ({});",
+                t, opts
+            )));
             stmts.push(StmtKind::Raw(format!(
                 "SELECT ({t}('a', 'm'))::text, {t}('a', 'm') @> 'f'::text, isempty({t}('x', 'x'));",
                 t = t
@@ -562,29 +653,74 @@ mod tests {
         let (groups, prods) = gen_many(0x4A6, 6000, "");
         let all = flat(&groups).join("\n");
         for frag in [
-            "int4range", "int8range", "numrange", "daterange", "tsrange", "tstzrange",
-            "int4multirange", "tstzmultirange",
-            " @> ", " <@ ", " && ", " << ", " >> ", " &< ", " &> ", " -|- ",
-            "hash_range(", "hash_multirange(", "range_merge(",
-            "range_agg(", "range_intersect_agg(",
-            "lower_inf(", "upper_inf(", "isempty(",
-            "unnest(", "ORDER BY ",
-            "'[]'", "'(]'", "'[)'", "'()'", "'empty'::", "(NULL, ",
-            "CREATE TYPE fz_rng_ct", "AS RANGE (subtype = int4)",
+            "int4range",
+            "int8range",
+            "numrange",
+            "daterange",
+            "tsrange",
+            "tstzrange",
+            "int4multirange",
+            "tstzmultirange",
+            " @> ",
+            " <@ ",
+            " && ",
+            " << ",
+            " >> ",
+            " &< ",
+            " &> ",
+            " -|- ",
+            "hash_range(",
+            "hash_multirange(",
+            "range_merge(",
+            "range_agg(",
+            "range_intersect_agg(",
+            "lower_inf(",
+            "upper_inf(",
+            "isempty(",
+            "unnest(",
+            "ORDER BY ",
+            "'[]'",
+            "'(]'",
+            "'[)'",
+            "'()'",
+            "'empty'::",
+            "(NULL, ",
+            "CREATE TYPE fz_rng_ct",
+            "AS RANGE (subtype = int4)",
             "subtype = float8, subtype_diff = float8mi",
-            "collation = \"C\"", "subtype_opclass = text_pattern_ops",
+            "collation = \"C\"",
+            "subtype_opclass = text_pattern_ops",
             "DROP TYPE fz_rng_ct",
-            "SELECT int4range(5, 1);", "'[x,y]'::numrange",
+            "SELECT int4range(5, 1);",
+            "'[x,y]'::numrange",
             "multirange(",
         ] {
-            assert!(all.contains(frag), "rangeops flavor {frag:?} never generated");
+            assert!(
+                all.contains(frag),
+                "rangeops flavor {frag:?} never generated"
+            );
         }
         for p in [
-            "rangeops:scalar", "rangeops:mr", "rangeops:flags", "rangeops:agg",
-            "rangeops:custom", "rangeops:err",
-            "ro:cmp", "ro:setop", "ro:elem", "ro:bounds", "ro:merge", "ro:hash",
-            "ro:mr:op", "ro:mr:mixed", "ro:mr:bounds", "ro:mr:unnest", "ro:mr:ctor",
-            "ro:ct:int", "ro:ct:float", "ro:ct:text",
+            "rangeops:scalar",
+            "rangeops:mr",
+            "rangeops:flags",
+            "rangeops:agg",
+            "rangeops:custom",
+            "rangeops:err",
+            "ro:cmp",
+            "ro:setop",
+            "ro:elem",
+            "ro:bounds",
+            "ro:merge",
+            "ro:hash",
+            "ro:mr:op",
+            "ro:mr:mixed",
+            "ro:mr:bounds",
+            "ro:mr:unnest",
+            "ro:mr:ctor",
+            "ro:ct:int",
+            "ro:ct:float",
+            "ro:ct:text",
         ] {
             assert!(prods.iter().any(|q| q == p), "production {p} never fired");
         }
@@ -609,7 +745,10 @@ mod tests {
                     group_dropped.push(rest.trim_end_matches(';').to_string());
                 }
             }
-            assert_eq!(group_created, group_dropped, "create/drop mismatch in group: {group:?}");
+            assert_eq!(
+                group_created, group_dropped,
+                "create/drop mismatch in group: {group:?}"
+            );
         }
     }
 
@@ -620,6 +759,9 @@ mod tests {
         let saw_all_four = flat(&groups).iter().any(|s| {
             s.contains("'[]'") && s.contains("'(]'") && s.contains("'[)'") && s.contains("'()'")
         });
-        assert!(saw_all_four, "no single statement carried all four bound flags");
+        assert!(
+            saw_all_four,
+            "no single statement carried all four bound flags"
+        );
     }
 }

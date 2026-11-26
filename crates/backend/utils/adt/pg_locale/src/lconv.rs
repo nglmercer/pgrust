@@ -47,7 +47,11 @@ pub fn pglc_localeconv() -> ::types_error::PgResult<&'static PgLconv> {
     if let Some(hit) = crate::setup::current_localeconv() {
         return Ok(hit);
     }
-    let conv = if monetary_and_numeric_are_c() { &C_LOCALE_LCONV } else { localeconv_non_c()? };
+    let conv = if monetary_and_numeric_are_c() {
+        &C_LOCALE_LCONV
+    } else {
+        localeconv_non_c()?
+    };
     crate::setup::set_current_localeconv(Some(conv));
     Ok(conv)
 }
@@ -67,8 +71,8 @@ fn localeconv_non_c() -> ::types_error::PgResult<&'static PgLconv> {
 
 #[cfg(not(target_family = "wasm"))]
 fn localeconv_non_c() -> ::types_error::PgResult<&'static PgLconv> {
-    use std::collections::HashMap;
     use pgsync::{Mutex, OnceLock};
+    use std::collections::HashMap;
 
     // The strings are converted into the database encoding (pg_locale.c:593
     // db_encoding_convert), so the key carries it: backends of databases with
@@ -194,23 +198,25 @@ fn read_lconv(monetary: &str, numeric: &str) -> ::types_error::PgResult<PgLconv>
             let lc = &*lc;
             // Copies are fallible (ERROR 53200); the result is unwrapped only
             // after the locale object below is restored and freed.
-            Some((|| -> ::types_error::PgResult<_> { Ok((
-                own(lc.decimal_point)?,
-                own(lc.thousands_sep)?,
-                own(lc.mon_decimal_point)?,
-                own(lc.mon_thousands_sep)?,
-                own(lc.mon_grouping)?,
-                own(lc.currency_symbol)?,
-                own(lc.positive_sign)?,
-                own(lc.negative_sign)?,
-                lc.frac_digits as i8,
-                lc.p_cs_precedes as i8,
-                lc.n_cs_precedes as i8,
-                lc.p_sep_by_space as i8,
-                lc.n_sep_by_space as i8,
-                lc.p_sign_posn as i8,
-                lc.n_sign_posn as i8,
-            )) })())
+            Some((|| -> ::types_error::PgResult<_> {
+                Ok((
+                    own(lc.decimal_point)?,
+                    own(lc.thousands_sep)?,
+                    own(lc.mon_decimal_point)?,
+                    own(lc.mon_thousands_sep)?,
+                    own(lc.mon_grouping)?,
+                    own(lc.currency_symbol)?,
+                    own(lc.positive_sign)?,
+                    own(lc.negative_sign)?,
+                    lc.frac_digits as i8,
+                    lc.p_cs_precedes as i8,
+                    lc.n_cs_precedes as i8,
+                    lc.p_sep_by_space as i8,
+                    lc.n_sep_by_space as i8,
+                    lc.p_sign_posn as i8,
+                    lc.n_sign_posn as i8,
+                ))
+            })())
         };
         // Restore this thread's previous locale (possibly LC_GLOBAL_LOCALE)
         // before freeing ours — freeing the installed locale is undefined.
@@ -228,7 +234,8 @@ fn read_lconv(monetary: &str, numeric: &str) -> ::types_error::PgResult<PgLconv>
         // not text and are not converted.
         let cx = ::mcx::MemoryContext::new("PGLC_localeconv");
         let mcx = cx.mcx();
-        let numeric_enc = match crate::chklocale::pg_get_encoding_from_locale(Some(numeric), true)? {
+        let numeric_enc = match crate::chklocale::pg_get_encoding_from_locale(Some(numeric), true)?
+        {
             e if e < 0 => wchar::PG_SQL_ASCII,
             e => e,
         };
@@ -252,8 +259,11 @@ fn read_lconv(monetary: &str, numeric: &str) -> ::types_error::PgResult<PgLconv>
                 Box::leak(s.into_boxed_slice())
             }
         };
-        let mon_grouping: &'static str =
-            if mon_grouping.is_empty() { "" } else { Box::leak(mon_grouping.into_boxed_str()) };
+        let mon_grouping: &'static str = if mon_grouping.is_empty() {
+            ""
+        } else {
+            Box::leak(mon_grouping.into_boxed_str())
+        };
         Ok(PgLconv {
             decimal_point: leak(decimal_point),
             thousands_sep: leak(thousands_sep),

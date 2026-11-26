@@ -59,8 +59,12 @@ fn silent_server() -> (u16, std::thread::JoinHandle<()>) {
 fn drain_propagates_interrupt_while_remote_busy() {
     let latch = setup_backend();
     let (port, _srv) = silent_server();
-    let we = pgclient::WaitEvents { connect: 0, receive: 0 };
-    let conninfo = format!("hostaddr=127.0.0.1 port={port} user=u sslmode=disable gssencmode=disable");
+    let we = pgclient::WaitEvents {
+        connect: 0,
+        receive: 0,
+    };
+    let conninfo =
+        format!("hostaddr=127.0.0.1 port={port} user=u sslmode=disable gssencmode=disable");
     let mut conn = pgclient::connect_db(&conninfo, None, we).unwrap().unwrap();
     assert!(conn.send_query("select pg_sleep(2)"));
     std::thread::spawn(move || {
@@ -68,7 +72,9 @@ fn drain_propagates_interrupt_while_remote_busy() {
         CANCEL.store(true, Ordering::SeqCst);
         latch::SetLatch(latch);
     });
-    let err = conn.drain_interruptible().expect_err("drain must surface the interrupt");
+    let err = conn
+        .drain_interruptible()
+        .expect_err("drain must surface the interrupt");
     assert_eq!(err.sqlstate, types_error::ERRCODE_QUERY_CANCELED);
     assert!(conn.is_busy());
 }

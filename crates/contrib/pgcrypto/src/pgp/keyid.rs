@@ -4,8 +4,9 @@
 
 use super::consts::*;
 use super::packet::PktReader;
-use super::pubkey::{read_public_key, PGP_PUB_ELG_ENCRYPT, PGP_PUB_RSA_ENCRYPT,
-    PGP_PUB_RSA_ENCRYPT_SIGN};
+use super::pubkey::{
+    read_public_key, PGP_PUB_ELG_ENCRYPT, PGP_PUB_RSA_ENCRYPT, PGP_PUB_RSA_ENCRYPT_SIGN,
+};
 
 const HEXTBL: &[u8; 16] = b"0123456789ABCDEF";
 

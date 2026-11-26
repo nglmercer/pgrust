@@ -15,7 +15,11 @@ fn lex<'a>(sc: &mut Scanner<'a>) -> types_error::PgResult<Token<'a>> {
     let mut value = CoreYYSTYPE::None;
     let mut location = 0;
     let token = sc.core_yylex(&mut value, &mut location)?;
-    Ok(Token { token, value, location })
+    Ok(Token {
+        token,
+        value,
+        location,
+    })
 }
 
 fn lex_all_with(input: &[u8], settings: ScannerSettings) -> Vec<(i32, String, i32)> {
@@ -118,7 +122,10 @@ fn string_literals() {
         vec![(tokens::SCONST, "=hello world".into(), 0)]
     );
     assert_eq!(lex_all("'it''s'")[0].1, "=it's");
-    assert_eq!(lex_all("'foo'\n'bar'"), vec![(tokens::SCONST, "=foobar".into(), 0)]);
+    assert_eq!(
+        lex_all("'foo'\n'bar'"),
+        vec![(tokens::SCONST, "=foobar".into(), 0)]
+    );
     let sep = lex_all("'foo' 'bar'");
     assert_eq!(sep.len(), 2);
     assert_eq!(sep[1], (tokens::SCONST, "=bar".into(), 6));
@@ -126,7 +133,10 @@ fn string_literals() {
 
 #[test]
 fn extended_string_escapes() {
-    assert_eq!(lex_all(r"E'a\tb\n'")[0], (tokens::SCONST, "=a\tb\n".into(), 0));
+    assert_eq!(
+        lex_all(r"E'a\tb\n'")[0],
+        (tokens::SCONST, "=a\tb\n".into(), 0)
+    );
     assert_eq!(lex_all(r"E'\x41'")[0].1, "=A");
     assert_eq!(lex_all(r"E'\101'")[0].1, "=A");
     assert_eq!(lex_all(r"E'A'")[0].1, "=A");
@@ -193,10 +203,7 @@ fn comments_are_whitespace() {
 #[test]
 fn locations_are_byte_offsets() {
     let toks = lex_all("a + bb");
-    assert_eq!(
-        toks.iter().map(|t| t.2).collect::<Vec<_>>(),
-        vec![0, 2, 4]
-    );
+    assert_eq!(toks.iter().map(|t| t.2).collect::<Vec<_>>(), vec![0, 2, 4]);
 }
 
 #[test]
@@ -244,7 +251,9 @@ fn errors_carry_sqlstate_and_message() {
     let e = lex_err("'unterminated");
     assert!(e.message().starts_with("unterminated quoted string"));
     let e = lex_err("123abc");
-    assert!(e.message().starts_with("trailing junk after numeric literal"));
+    assert!(e
+        .message()
+        .starts_with("trailing junk after numeric literal"));
     let e = lex_err("0x");
     assert!(e.message().starts_with("invalid hexadecimal integer"));
     let e = lex_err("$1x");
@@ -297,7 +306,10 @@ fn addunicode_non_utf8_server_runs_the_conversion_lane() {
     // convert inline regardless.
     let saved = mbutils::GetDatabaseEncoding();
     mbutils::SetDatabaseEncoding(wchar::PG_LATIN1).unwrap();
-    let settings = ScannerSettings { encoding: wchar::PG_LATIN1, ..ScannerSettings::default() };
+    let settings = ScannerSettings {
+        encoding: wchar::PG_LATIN1,
+        ..ScannerSettings::default()
+    };
 
     let toks = lex_all_with(br"e'\u0041'", settings);
     assert_eq!(toks[0].1, "=A");
@@ -311,7 +323,10 @@ fn addunicode_non_utf8_server_runs_the_conversion_lane() {
             Err(e) => break e,
         }
     };
-    assert_eq!(err.message(), "conversion between UTF8 and LATIN1 is not supported");
+    assert_eq!(
+        err.message(),
+        "conversion between UTF8 and LATIN1 is not supported"
+    );
     // C addunicode wraps pg_unicode_to_server in
     // setup_scanner_errposition_callback(&scbstate, yyscanner, *(yylloc)):
     // the cursor points at the escape (byte 2, 1-based character 3).
@@ -334,10 +349,22 @@ fn lex_err_with(input: &[u8], settings: ScannerSettings) -> Box<types_error::PgE
 
 #[test]
 fn sql_ascii_escape_bytes_outside_utf8_draw_the_carve_error() {
-    let ascii = ScannerSettings { encoding: wchar::PG_SQL_ASCII, ..ScannerSettings::default() };
-    for input in [&br"e'\xc3\x28'"[..], br"e'\200'", br"E'ab\x80'", br"e'\377\376'"] {
+    let ascii = ScannerSettings {
+        encoding: wchar::PG_SQL_ASCII,
+        ..ScannerSettings::default()
+    };
+    for input in [
+        &br"e'\xc3\x28'"[..],
+        br"e'\200'",
+        br"E'ab\x80'",
+        br"e'\377\376'",
+    ] {
         let err = lex_err_with(input, ascii);
-        assert_eq!(err.sqlstate(), types_error::ERRCODE_FEATURE_NOT_SUPPORTED, "{input:?}");
+        assert_eq!(
+            err.sqlstate(),
+            types_error::ERRCODE_FEATURE_NOT_SUPPORTED,
+            "{input:?}"
+        );
         assert_eq!(
             err.message(),
             "query strings with non-ASCII characters are not supported yet in databases \
@@ -349,12 +376,27 @@ fn sql_ascii_escape_bytes_outside_utf8_draw_the_carve_error() {
     let toks = lex_all_with(br"e'\xc3\xa9\101'", ascii);
     assert_eq!(toks[0], (tokens::SCONST, "=\u{e9}A".to_string(), 0));
     let err = lex_err_with(br"e'\x00\x80'", ascii);
-    assert_eq!(err.sqlstate(), types_error::ERRCODE_CHARACTER_NOT_IN_REPERTOIRE);
-    assert_eq!(err.message(), "invalid byte sequence for encoding \"SQL_ASCII\": 0x00");
-    let utf8 = ScannerSettings { encoding: wchar::PG_UTF8, ..ScannerSettings::default() };
+    assert_eq!(
+        err.sqlstate(),
+        types_error::ERRCODE_CHARACTER_NOT_IN_REPERTOIRE
+    );
+    assert_eq!(
+        err.message(),
+        "invalid byte sequence for encoding \"SQL_ASCII\": 0x00"
+    );
+    let utf8 = ScannerSettings {
+        encoding: wchar::PG_UTF8,
+        ..ScannerSettings::default()
+    };
     let err = lex_err_with(br"e'\xc3\x28'", utf8);
-    assert_eq!(err.sqlstate(), types_error::ERRCODE_CHARACTER_NOT_IN_REPERTOIRE);
-    assert_eq!(err.message(), "invalid byte sequence for encoding \"UTF8\": 0xc3 0x28");
+    assert_eq!(
+        err.sqlstate(),
+        types_error::ERRCODE_CHARACTER_NOT_IN_REPERTOIRE
+    );
+    assert_eq!(
+        err.message(),
+        "invalid byte sequence for encoding \"UTF8\": 0xc3 0x28"
+    );
     assert_eq!(err.cursor_position(), None);
 }
 
@@ -366,17 +408,32 @@ fn gb18030_escape_string_ending_in_a_lone_lead_byte_reports_the_byte() {
         ..ScannerSettings::default()
     };
     let err = lex_err_with(br"e'\x81\x30'", gb);
-    assert_eq!(err.sqlstate(), types_error::ERRCODE_CHARACTER_NOT_IN_REPERTOIRE);
-    assert_eq!(err.message(), "invalid byte sequence for encoding \"GB18030\": 0x81 0x30");
+    assert_eq!(
+        err.sqlstate(),
+        types_error::ERRCODE_CHARACTER_NOT_IN_REPERTOIRE
+    );
+    assert_eq!(
+        err.message(),
+        "invalid byte sequence for encoding \"GB18030\": 0x81 0x30"
+    );
     let err = lex_err_with(br"e'\x81'", gb);
-    assert_eq!(err.sqlstate(), types_error::ERRCODE_CHARACTER_NOT_IN_REPERTOIRE);
-    assert_eq!(err.message(), "invalid byte sequence for encoding \"GB18030\": 0x81");
+    assert_eq!(
+        err.sqlstate(),
+        types_error::ERRCODE_CHARACTER_NOT_IN_REPERTOIRE
+    );
+    assert_eq!(
+        err.message(),
+        "invalid byte sequence for encoding \"GB18030\": 0x81"
+    );
 }
 
 #[test]
 fn yyerror_carries_scanner_yyerror_location() {
     let err = lex_err("'abc");
-    assert_eq!(err.message(), "unterminated quoted string at or near \"'abc\"");
+    assert_eq!(
+        err.message(),
+        "unterminated quoted string at or near \"'abc\""
+    );
     let loc = err.location().expect("scan.l location");
     assert_eq!(loc.filename.as_deref(), Some("scan.l"));
     assert_eq!(loc.lineno, 1240);
@@ -391,7 +448,10 @@ fn yyerror_sends_the_matched_byte_verbatim() {
     let ctx = test_ctx();
     let mut sc = Scanner::new(b"E'\\uD83D\xC3\xA9'", ctx.mcx(), ScannerSettings::default());
     let err = lex(&mut sc).expect_err("surrogate pair error");
-    assert_eq!(err.message(), "invalid Unicode surrogate pair at or near \"\u{FFFD}\"");
+    assert_eq!(
+        err.message(),
+        "invalid Unicode surrogate pair at or near \"\u{FFFD}\""
+    );
     assert_eq!(
         err.message_raw.as_deref(),
         Some(b"invalid Unicode surrogate pair at or near \"\xC3\"".as_slice())
@@ -404,18 +464,30 @@ fn literal_buffer_stops_at_max_alloc_size() {
     assert!(literal_alloc_check(536870910, 1).is_ok());
     assert!(literal_alloc_check(0, 536870911).is_ok());
     let err = literal_alloc_check(536870911, 1).unwrap_err();
-    assert_eq!(err.message(), "invalid memory alloc request size 1073741824");
+    assert_eq!(
+        err.message(),
+        "invalid memory alloc request size 1073741824"
+    );
     assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
     let err = literal_alloc_check(0, 1 << 30).unwrap_err();
-    assert_eq!(err.message(), "invalid memory alloc request size 2147483648");
+    assert_eq!(
+        err.message(),
+        "invalid memory alloc request size 2147483648"
+    );
 
     let ctx = test_ctx();
     let mut sc = Scanner::new(b"'a'", ctx.mcx(), ScannerSettings::default());
     sc.literalbuf.resize(536870911, b'a');
     assert!(sc.addlit(b"").is_ok());
     let err = sc.addlit(b"a").unwrap_err();
-    assert_eq!(err.message(), "invalid memory alloc request size 1073741824");
+    assert_eq!(
+        err.message(),
+        "invalid memory alloc request size 1073741824"
+    );
     let err = sc.addlitchar(b'a').unwrap_err();
-    assert_eq!(err.message(), "invalid memory alloc request size 1073741824");
+    assert_eq!(
+        err.message(),
+        "invalid memory alloc request size 1073741824"
+    );
     sc.literalbuf.clear();
 }

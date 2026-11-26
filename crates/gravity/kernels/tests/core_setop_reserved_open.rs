@@ -21,8 +21,14 @@ unsafe extern "C" fn reserved(_ctx: *mut Ctx, op: u32, arg: u64) -> i64 {
     if op == gravity_abi::program::SPILL_ARENA_CHUNK {
         return 0; // a kernel scratch's owner ask (0 bytes, `OpArena::own_owner_kind` / `slot_owner`): no slot owner, uncharged
     }
-    assert_eq!(op, SPILL_REGION_COMMIT, "the open's only host op is the reservation ask");
-    assert_eq!(arg, 0, "the open asks for the reservation and commits nothing");
+    assert_eq!(
+        op, SPILL_REGION_COMMIT,
+        "the open's only host op is the reservation ask"
+    );
+    assert_eq!(
+        arg, 0,
+        "the open asks for the reservation and commits nothing"
+    );
     RESERVE as i64
 }
 
@@ -31,7 +37,10 @@ unsafe extern "C" fn unreserved(_ctx: *mut Ctx, op: u32, _arg: u64) -> i64 {
     if op == gravity_abi::program::SPILL_ARENA_CHUNK {
         return 0; // a kernel scratch's owner ask (0 bytes, `OpArena::own_owner_kind` / `slot_owner`): no slot owner, uncharged
     }
-    assert_eq!(op, SPILL_REGION_COMMIT, "the open's only host op is the reservation ask");
+    assert_eq!(
+        op, SPILL_REGION_COMMIT,
+        "the open's only host op is the reservation ask"
+    );
     0
 }
 
@@ -47,13 +56,21 @@ impl Bound {
     fn new(spill: unsafe extern "C" fn(*mut Ctx, u32, u64) -> i64) -> Bound {
         let mut own = vec![0u64; RESERVE as usize / 8];
         unsafe { HashAgg::arm(own.as_mut_ptr() as *mut u8, SHARE) };
-        let mut partials = Box::new(Partials::two(own.as_mut_ptr() as *mut u8, [core::ptr::null_mut(); 2]));
+        let mut partials = Box::new(Partials::two(
+            own.as_mut_ptr() as *mut u8,
+            [core::ptr::null_mut(); 2],
+        ));
         let mut program = Box::new(ProgramBlock::NONE);
         program.partial = &mut *partials;
         program.spill = Some(spill);
         let mut ctx = vec![0u64; ctx_size(0) / 8];
         unsafe { (*(ctx.as_mut_ptr() as *mut Ctx)).program = &mut *program };
-        Bound { ctx, _program: program, _partials: partials, _own: own }
+        Bound {
+            ctx,
+            _program: program,
+            _partials: partials,
+            _own: own,
+        }
     }
 
     /// The claim's open over a fresh state slot, `agg_open_grown` (table.sized) when `sized`: the laid-out T1.
@@ -66,7 +83,13 @@ impl Bound {
         let mut st = vec![0u64; AGG_STATE_BYTES as usize / 8 + 2];
         let ctx = self.ctx.as_mut_ptr() as *mut Ctx;
         let sp = st.as_mut_ptr() as *mut u8;
-        let r = unsafe { if sized { agg_open_grown(ctx, sp, &LAYOUT, bits, 1000) } else { agg_open(ctx, sp, &LAYOUT, bits, 1000) } };
+        let r = unsafe {
+            if sized {
+                agg_open_grown(ctx, sp, &LAYOUT, bits, 1000)
+            } else {
+                agg_open(ctx, sp, &LAYOUT, bits, 1000)
+            }
+        };
         assert_eq!(r, 0, "the open succeeds");
         unsafe { partial(ctx) as *mut T1 }
     }
@@ -78,10 +101,24 @@ fn either_open_lays_a_reserved_side_out_to_grow_in_place() {
         let mut b = Bound::new(reserved);
         let t = b.open(sized);
         unsafe {
-            assert_ne!((*t).flags & T1_RESERVED, 0, "sized {sized}: the table is laid out in the reservation");
-            assert!((*t).reserved_blocks() > (*t).nblocks, "sized {sized}: its chain words cover blocks past the share's");
-            assert!((*t).pool_growth() > 0, "sized {sized}: its pool can grow in place");
-            assert_eq!((*t).limit, SHARE, "sized {sized}: laid out and charged at the share");
+            assert_ne!(
+                (*t).flags & T1_RESERVED,
+                0,
+                "sized {sized}: the table is laid out in the reservation"
+            );
+            assert!(
+                (*t).reserved_blocks() > (*t).nblocks,
+                "sized {sized}: its chain words cover blocks past the share's"
+            );
+            assert!(
+                (*t).pool_growth() > 0,
+                "sized {sized}: its pool can grow in place"
+            );
+            assert_eq!(
+                (*t).limit,
+                SHARE,
+                "sized {sized}: laid out and charged at the share"
+            );
         }
     }
 }
@@ -92,8 +129,16 @@ fn an_unreserved_region_opens_at_the_share_as_before() {
         let mut b = Bound::new(unreserved);
         let t = b.open(sized);
         unsafe {
-            assert_eq!((*t).flags & T1_RESERVED, 0, "sized {sized}: no reservation, no reserved layout");
-            assert_eq!((*t).reserved_blocks(), (*t).nblocks, "sized {sized}: the chain words are the share's blocks");
+            assert_eq!(
+                (*t).flags & T1_RESERVED,
+                0,
+                "sized {sized}: no reservation, no reserved layout"
+            );
+            assert_eq!(
+                (*t).reserved_blocks(),
+                (*t).nblocks,
+                "sized {sized}: the chain words are the share's blocks"
+            );
             assert_eq!((*t).pool_growth(), 0, "sized {sized}: nothing to grow into");
         }
     }
@@ -110,14 +155,30 @@ fn a_reopened_grown_side_keeps_its_partitions() {
         let mut b = Bound::new(reserved);
         let t = b.open_bits(sized, 8);
         unsafe {
-            assert_ne!((*t).flags & T1_RESERVED, 0, "sized {sized}: the table is laid out in the reservation");
+            assert_ne!(
+                (*t).flags & T1_RESERVED,
+                0,
+                "sized {sized}: the table is laid out in the reservation"
+            );
             let pbits = (*t).pbits;
             while T1::grow_pool(t, (*t).pool_growth()) {}
-            assert!((*t).limit > 8 * SHARE, "sized {sized}: the pool grew in place well past the share ({})", (*t).limit);
+            assert!(
+                (*t).limit > 8 * SHARE,
+                "sized {sized}: the pool grew in place well past the share ({})",
+                (*t).limit
+            );
             let again = b.open_bits(false, 8);
             assert_eq!(again, t, "sized {sized}: the arm reopens the same region");
-            assert_eq!((*t).pbits, pbits, "sized {sized}: the reopened table keeps its partitions");
-            assert_ne!((*t).flags & T1_RESERVED, 0, "sized {sized}: and its reservation");
+            assert_eq!(
+                (*t).pbits,
+                pbits,
+                "sized {sized}: the reopened table keeps its partitions"
+            );
+            assert_ne!(
+                (*t).flags & T1_RESERVED,
+                0,
+                "sized {sized}: and its reservation"
+            );
         }
     }
 }

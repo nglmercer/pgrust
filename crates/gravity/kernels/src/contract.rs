@@ -52,13 +52,24 @@ pub unsafe extern "C" fn entry2<H: Host<Args = (u64, u64)>>(ctx: u64, a: u64, b:
 /// `H` with three words past the context.
 /// # Safety
 /// As `Host::run`.
-pub unsafe extern "C" fn entry3<H: Host<Args = (u64, u64, u64)>>(ctx: u64, a: u64, b: u64, c: u64) -> u64 {
+pub unsafe extern "C" fn entry3<H: Host<Args = (u64, u64, u64)>>(
+    ctx: u64,
+    a: u64,
+    b: u64,
+    c: u64,
+) -> u64 {
     guarded::<H>(ctx, (a, b, c))
 }
 /// `H` with four words past the context.
 /// # Safety
 /// As `Host::run`.
-pub unsafe extern "C" fn entry4<H: Host<Args = (u64, u64, u64, u64)>>(ctx: u64, a: u64, b: u64, c: u64, d: u64) -> u64 {
+pub unsafe extern "C" fn entry4<H: Host<Args = (u64, u64, u64, u64)>>(
+    ctx: u64,
+    a: u64,
+    b: u64,
+    c: u64,
+    d: u64,
+) -> u64 {
     guarded::<H>(ctx, (a, b, c, d))
 }
 
@@ -118,7 +129,9 @@ mod tests {
 
     /// The parked payload's message, taken off the thread's slot (`unwind::resume` inside a catch).
     fn take_parked() -> Option<&'static str> {
-        std::panic::catch_unwind(gravity_abi::status::unwind::resume).err().and_then(|p| p.downcast_ref::<&str>().copied())
+        std::panic::catch_unwind(gravity_abi::status::unwind::resume)
+            .err()
+            .and_then(|p| p.downcast_ref::<&str>().copied())
     }
 
     /// Landing 12: a host's value goes through untouched; its panic parks and the entry answers the host's failure word.
@@ -126,9 +139,21 @@ mod tests {
     fn a_panicking_host_parks_and_answers_its_failure_word() {
         assert_eq!(unsafe { entry1::<Boom>(0, 7) }, 7);
         assert_eq!(take_parked(), None, "nothing parked on a return");
-        assert_eq!(unsafe { entry1::<Boom>(0, 0) }, 100, "the host's own failure word");
-        assert_eq!(take_parked(), Some("host bug"), "the panic is parked for the program's caller");
-        assert_eq!(unsafe { entry0::<Plain>(0) }, ERROR as u64, "ERROR by default");
+        assert_eq!(
+            unsafe { entry1::<Boom>(0, 0) },
+            100,
+            "the host's own failure word"
+        );
+        assert_eq!(
+            take_parked(),
+            Some("host bug"),
+            "the panic is parked for the program's caller"
+        );
+        assert_eq!(
+            unsafe { entry0::<Plain>(0) },
+            ERROR as u64,
+            "ERROR by default"
+        );
         assert_eq!(take_parked(), Some("host bug"));
     }
 }

@@ -52,10 +52,24 @@ fn drain(open: &Open<'_>, cursor: &AtomicU64, ordinal: u16) -> Result<u64, Error
 
 /// One parallel statement, unkeyed: its worker slots from (and back to) the depot under `SALT`; `during` runs while the
 /// statement holds them (after its claims, before its section closes). The claims it ran.
-fn statement(entry: &mut Entry, program: &Arc<Program>, derive: &mut FakeDerive, flag: &AtomicU8, during: impl FnOnce()) -> u64 {
+fn statement(
+    entry: &mut Entry,
+    program: &Arc<Program>,
+    derive: &mut FakeDerive,
+    flag: &AtomicU8,
+    during: impl FnOnce(),
+) -> u64 {
     let mut sink = LegSink::new();
     let mut b = binding(&[100], &NULLS, &mut sink, flag);
-    let mut exec = entry.start(None, program, derive, &mut b, lease(gravity_driver::Grant::of(8 << 20))).unwrap();
+    let mut exec = entry
+        .start(
+            None,
+            program,
+            derive,
+            &mut b,
+            lease(gravity_driver::Grant::of(8 << 20)),
+        )
+        .unwrap();
     exec.set_slot_salt(Some(SALT));
     let open = entry.open_section(&mut exec, &b, derive, 0, WIDTH).unwrap();
     let cursor = AtomicU64::new(0);
@@ -64,8 +78,15 @@ fn statement(entry: &mut Entry, program: &Arc<Program>, derive: &mut FakeDerive,
         claims += drain(&open, &cursor, o).unwrap();
     }
     during();
-    entry.close_section(open, &mut b, &CountMerge, true).unwrap();
-    assert_eq!(entry.run(&mut exec, &mut b, gravity_driver::Call::batch(4)).unwrap(), Step::Done);
+    entry
+        .close_section(open, &mut b, &CountMerge, true)
+        .unwrap();
+    assert_eq!(
+        entry
+            .run(&mut exec, &mut b, gravity_driver::Call::batch(4))
+            .unwrap(),
+        Step::Done
+    );
     entry.end(exec, true);
     claims
 }
@@ -91,28 +112,52 @@ fn a_removed_relations_parked_sets_go_at_the_removal_and_a_live_relations_stay_r
     assert!(held > 0, "the parked worker sources keep their handles");
 
     // another relation's removal leaves it; its own relation's removal evicts it now, here
-    assert_eq!(remove(REL + 1), 0, "another relation's removal evicts nothing");
+    assert_eq!(
+        remove(REL + 1),
+        0,
+        "another relation's removal evicts nothing"
+    );
     assert_eq!(DEPOT.stats().entries, 1);
     assert_eq!(remove(REL), 1, "its relation's removal evicts it");
     let after = DEPOT.stats();
-    assert_eq!((after.entries, after.held, after.evictions), (0, 0, parked.evictions + 1), "gone from the depot, its charge with it");
+    assert_eq!(
+        (after.entries, after.held, after.evictions),
+        (0, 0, parked.evictions + 1),
+        "gone from the depot, its charge with it"
+    );
     assert_eq!(kept(&table), 0, "and every handle its sources kept");
 
     // a statement holds its set across a removal of its relation: it runs on, and its put drops the set
     let claims = statement(&mut entry, &program, &mut derive, &flag, || {
-        assert_eq!(remove(REL), 0, "a set a statement holds is not in the depot");
+        assert_eq!(
+            remove(REL),
+            0,
+            "a set a statement holds is not in the depot"
+        );
     });
     assert!(claims > 0, "the statement ran its claims");
     let late = DEPOT.stats();
-    assert_eq!((late.entries, late.puts, late.evictions), (0, after.puts, after.evictions + 1), "taken before the removal, put after it: dropped, not parked");
+    assert_eq!(
+        (late.entries, late.puts, late.evictions),
+        (0, after.puts, after.evictions + 1),
+        "taken before the removal, put after it: dropped, not parked"
+    );
 
     // the relation's next runs (taken after the removal) park and take again: the depot's reuse stays
     statement(&mut entry, &program, &mut derive, &flag, || {});
     let again = DEPOT.stats();
-    assert_eq!((again.entries, again.puts), (1, late.puts + 1), "a set taken after the removal parks");
+    assert_eq!(
+        (again.entries, again.puts),
+        (1, late.puts + 1),
+        "a set taken after the removal parks"
+    );
     statement(&mut entry, &program, &mut derive, &flag, || {});
     let reused = DEPOT.stats();
-    assert_eq!((reused.entries, reused.takes, reused.evictions), (1, again.takes + 1, again.evictions), "and is taken again, nothing evicted");
+    assert_eq!(
+        (reused.entries, reused.takes, reused.evictions),
+        (1, again.takes + 1, again.evictions),
+        "and is taken again, nothing evicted"
+    );
 
     drop(entry);
     DEPOT.trim();

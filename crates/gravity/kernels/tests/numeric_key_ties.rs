@@ -8,12 +8,24 @@ use gravity_kernels::table::owner_fold::generated;
 
 #[test]
 fn an_order_key_layout_takes_no_generated_owner_fold() {
-    let slots = [SlotKind::MinI64, SlotKind::MaxI64, SlotKind::MaxI64, SlotKind::Count];
+    let slots = [
+        SlotKind::MinI64,
+        SlotKind::MaxI64,
+        SlotKind::MaxI64,
+        SlotKind::Count,
+    ];
     for keys in [&[KeyKind::I64][..], &[KeyKind::I64, KeyKind::I64][..]] {
         let plain = RecordLayout::new(keys, &slots);
-        assert!(generated(&plain), "the generated fold folds this layout ({} key words)", keys.len());
+        assert!(
+            generated(&plain),
+            "the generated fold folds this layout ({} key words)",
+            keys.len()
+        );
         let mut keyed = plain;
         keyed.flags |= LAYOUT_KEY_TIES;
-        assert!(!generated(&keyed), "an order-key layout folds through the generic owner fold");
+        assert!(
+            !generated(&keyed),
+            "an order-key layout folds through the generic owner fold"
+        );
     }
 }

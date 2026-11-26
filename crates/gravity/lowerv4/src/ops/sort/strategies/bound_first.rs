@@ -23,7 +23,10 @@ crate::strategies! {
     TOPK_BOUNDFIRST = 65, "topk.boundfirst", TopkRows;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(TOPK_BOUNDFIRST, &())], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(TOPK_BOUNDFIRST, &())],
+    ..crate::ops::NONE
+};
 
 /// The bound's frame words for producer `k`: its armed flag and the pair (`RtSlot`'s value is the flags word; the word
 /// follows at `word`).
@@ -34,7 +37,9 @@ pub(crate) struct Bound {
 }
 
 /// The frame words' indexes: the Runs face's one table (frame/px.rs runs_word, D482).
-use crate::frame::px::runs_word::{BOUND_ARMED as W_ARMED, BOUND_FLAGS as W_FLAGS, BOUND_WORD as W_WORD};
+use crate::frame::px::runs_word::{
+    BOUND_ARMED as W_ARMED, BOUND_FLAGS as W_FLAGS, BOUND_WORD as W_WORD,
+};
 
 impl Bound {
     /// Producer `k`'s bound when road topk.boundfirst is on.
@@ -42,16 +47,50 @@ impl Bound {
         if !crate::ops::sort::strategies::resident::on(px, TOPK_BOUNDFIRST) {
             return None;
         }
-        let mut w = |i: u8| px.frame_word(WordKey::Open { face: Face::Runs, k, j: u64::MAX, i }) as i32 * 8;
+        let mut w = |i: u8| {
+            px.frame_word(WordKey::Open {
+                face: Face::Runs,
+                k,
+                j: u64::MAX,
+                i,
+            }) as i32
+                * 8
+        };
         let (armed, value, word) = (w(W_ARMED), w(W_FLAGS), w(W_WORD));
-        Some(Bound { slot: RtSlot { what: RtConst::Bound, form: RtForm::Scalar, value, armed }, word })
+        Some(Bound {
+            slot: RtSlot {
+                what: RtConst::Bound,
+                form: RtForm::Scalar,
+                value,
+                armed,
+            },
+            word,
+        })
     }
 
     /// Unarmed at every open: `rearm` or the first cut of the open arms it again.
     pub(crate) fn open_words(&self, w: &mut OpenWords) {
-        w.declare(OpenWord::open("top bound armed", Base::Words, self.slot.armed, Type::I64, 0));
-        w.declare(OpenWord::open("top bound flags", Base::Words, self.slot.value, Type::I64, 0));
-        w.declare(OpenWord::open("top bound word", Base::Words, self.word, Type::I64, 0));
+        w.declare(OpenWord::open(
+            "top bound armed",
+            Base::Words,
+            self.slot.armed,
+            Type::I64,
+            0,
+        ));
+        w.declare(OpenWord::open(
+            "top bound flags",
+            Base::Words,
+            self.slot.value,
+            Type::I64,
+            0,
+        ));
+        w.declare(OpenWord::open(
+            "top bound word",
+            Base::Words,
+            self.word,
+            Type::I64,
+            0,
+        ));
     }
 
     /// Whether a row whose key-0 pair is `pair` may enter the top: the bound is unarmed, or the pair is not past it.
@@ -73,8 +112,19 @@ impl Bound {
     /// order (`RUN_CUT`) arms row `n - 1`'s key-0 pair, the pair that cut armed and exec merge.rs `run_bound` reads between
     /// claims; rows stored since follow it. Without it each claim stored rows up to the soft cap and cut again (a select
     /// over `max(1024, 4n)` rows and a sort of `n` per claim: a walk's cost per granule grew with its LIMIT).
-    pub(crate) fn rearm(&self, b: &mut FunctionBuilder<'_>, env: &Env, run: Value, n: Value, rb: u32) {
-        let (l_live, l_read, l_done) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));
+    pub(crate) fn rearm(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &Env,
+        run: Value,
+        n: Value,
+        rb: u32,
+    ) {
+        let (l_live, l_read, l_done) = (
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         let ri = b.conv(ConvOp::PtrToInt, Type::I64, run);
         let live = b.icmp(IntCond::Ne, ri, env.zero);
         b.cond_br(live, (l_live, &[]), (l_done, &[]));
@@ -102,7 +152,13 @@ impl Bound {
 
     /// Whether the live `run` a cut left ordered (`RUN_CUT`) holds more than `n` rows past its first `n`: a claim's finish cuts it
     /// then (topk_rows.rs `TopEnd::finish`). False for a null run (a section end's call).
-    pub(crate) fn piled(&self, b: &mut FunctionBuilder<'_>, env: &Env, run: Value, n: Value) -> Value {
+    pub(crate) fn piled(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &Env,
+        run: Value,
+        n: Value,
+    ) -> Value {
         let (l_live, l_join) = (b.create_block(&[]), b.create_block(&[Type::Bool]));
         let ri = b.conv(ConvOp::PtrToInt, Type::I64, run);
         let live = b.icmp(IntCond::Ne, ri, env.zero);
@@ -125,7 +181,11 @@ impl Bound {
     /// The cut's pair at `out` (two words) armed as the bound when `full` (the run held at least `n` rows).
     pub(crate) fn arm(&self, b: &mut FunctionBuilder<'_>, env: &Env, out: Value, full: Value) {
         let (f, w) = (b.load(Type::I64, out, 0), b.load(Type::I64, out, 8));
-        let (of, ow, oa) = (env.load_word(b, self.slot.value), env.load_word(b, self.word), env.load_word(b, self.slot.armed));
+        let (of, ow, oa) = (
+            env.load_word(b, self.slot.value),
+            env.load_word(b, self.word),
+            env.load_word(b, self.slot.armed),
+        );
         let (f, w) = (b.select(full, f, of), b.select(full, w, ow));
         let a = b.select(full, env.one, oa);
         env.store_word(b, self.slot.value, f);
@@ -142,9 +202,23 @@ mod tests {
     #[test]
     fn a_top_over_a_run_reader_has_distinct_words() {
         use crate::frame::px::runs_word::*;
-        let mut i = vec![READER_MODE, READER_CURSOR, READER_TOTAL, END_RUN, TOP_N, TOP_SOFT, BOUND_ARMED, BOUND_FLAGS, BOUND_WORD];
+        let mut i = vec![
+            READER_MODE,
+            READER_CURSOR,
+            READER_TOTAL,
+            END_RUN,
+            TOP_N,
+            TOP_SOFT,
+            BOUND_ARMED,
+            BOUND_FLAGS,
+            BOUND_WORD,
+        ];
         i.sort_unstable();
         i.dedup();
-        assert_eq!(i.len(), 9, "two of the pipeline's Runs words share an index: {i:?}");
+        assert_eq!(
+            i.len(),
+            9,
+            "two of the pipeline's Runs words share an index: {i:?}"
+        );
     }
 }

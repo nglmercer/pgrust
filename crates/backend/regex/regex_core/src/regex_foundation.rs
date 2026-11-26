@@ -1,4 +1,3 @@
-
 extern crate alloc;
 
 use ::mcx::Mcx;
@@ -9,7 +8,6 @@ use crate::regguts::{
     chr, color, ColorDesc, ColorMap, ColorMapRange, Cvec, CvecRange, Nfa, StateId, CHR_MIN,
     COLORLESS, FREECOL, MAX_COLOR, MAX_SIMPLE_CHR, NOSUB, PLAIN, PSEUDO, WHITE,
 };
-
 
 pub fn newcvec<'mcx>(_mcx: Mcx<'mcx>, nchrs: i32, nranges: i32) -> RegResult<Cvec> {
     let mut chrs: alloc::vec::Vec<chr> = alloc::vec::Vec::new();
@@ -66,9 +64,17 @@ pub fn reset_transient_cvec() {
 // regc_cvec.c getcvec over v->cv: reused while the request fits, otherwise
 // replaced by one of exactly the requested size. Returns the cvec and the
 // chrspace C's range() checks against.
-pub fn transient_getcvec<'mcx>(mcx: Mcx<'mcx>, nchrs: i32, nranges: i32) -> RegResult<(Cvec, usize)> {
+pub fn transient_getcvec<'mcx>(
+    mcx: Mcx<'mcx>,
+    nchrs: i32,
+    nranges: i32,
+) -> RegResult<(Cvec, usize)> {
     let (c, r) = crate::regex_locale::TRANSIENT_CVEC.with(|t| t.get());
-    let cap = if nchrs <= c && nranges <= r { (c, r) } else { (nchrs, nranges) };
+    let cap = if nchrs <= c && nranges <= r {
+        (c, r)
+    } else {
+        (nchrs, nranges)
+    };
     crate::regex_locale::TRANSIENT_CVEC.with(|t| t.set(cap));
     Ok((newcvec(mcx, cap.0, cap.1)?, cap.0 as usize))
 }
@@ -76,7 +82,6 @@ pub fn transient_getcvec<'mcx>(mcx: Mcx<'mcx>, nchrs: i32, nranges: i32) -> RegR
 pub fn freecvec(cv: Cvec) {
     drop(cv);
 }
-
 
 #[inline]
 fn unusedcolor(cd: &ColorDesc) -> bool {

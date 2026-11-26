@@ -62,12 +62,7 @@ impl JsonPath {
     /// True iff `self` is a strict prefix of `other` (the election
     /// prefix-freeness cap tests both directions).
     pub fn is_strict_prefix_of(&self, other: &JsonPath) -> bool {
-        self.segs.len() < other.segs.len()
-            && self
-                .segs
-                .iter()
-                .zip(&other.segs)
-                .all(|(a, b)| a == b)
+        self.segs.len() < other.segs.len() && self.segs.iter().zip(&other.segs).all(|(a, b)| a == b)
     }
 
     /// Flat byte encoding for the manifest path dictionary: nseg u16 LE +

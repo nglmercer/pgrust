@@ -80,17 +80,44 @@ fn groups<'g>(gx: &Gx<'g, '_>) -> Option<PgVec<'g, PgVec<'g, usize>>> {
     let ps = gx.pipelines();
     let n = ps.len();
     let g = gx.graph;
-    let write = |k: usize| ps[k].ops.iter().find_map(|o| if let Op::Write(w) = o { Some(w) } else { None }).filter(|w| w.cmd != Cmd::Select);
+    let write = |k: usize| {
+        ps[k]
+            .ops
+            .iter()
+            .find_map(|o| if let Op::Write(w) = o { Some(w) } else { None })
+            .filter(|w| w.cmd != Cmd::Select)
+    };
     // every InitPlan a CTE's link (`cte_write` names a CTE link's pipeline); the program serial: `mark`'s
-    if !g.init_plans.iter().all(|i| gx.cte_write(i.pipeline as usize)) {
+    if !g
+        .init_plans
+        .iter()
+        .all(|i| gx.cte_write(i.pipeline as usize))
+    {
         return None;
     }
-    let ctes: PgVec<'_, usize> = (0..n).filter(|&k| gx.cte_write(k) && write(k).is_some()).collect_in(mcx);
+    let ctes: PgVec<'_, usize> = (0..n)
+        .filter(|&k| gx.cte_write(k) && write(k).is_some())
+        .collect_in(mcx);
     if ctes.is_empty() {
         return None;
     }
-    let readers = |q: usize| ps[q].desc.produces().map_or_else(|| PgVec::<usize>::new_in(mcx), |s| (0..n).filter(|&m| m != q && ps[m].desc.consumes.contains(&s)).collect_in(mcx));
-    let rels = |w: &WriteDesc<'_>| w.targets.iter().map(|t| t.relid).chain(core::iter::once(w.plan.target_rel)).collect_in(mcx);
+    let readers = |q: usize| {
+        ps[q].desc.produces().map_or_else(
+            || PgVec::<usize>::new_in(mcx),
+            |s| {
+                (0..n)
+                    .filter(|&m| m != q && ps[m].desc.consumes.contains(&s))
+                    .collect_in(mcx)
+            },
+        )
+    };
+    let rels = |w: &WriteDesc<'_>| {
+        w.targets
+            .iter()
+            .map(|t| t.relid)
+            .chain(core::iter::once(w.plan.target_rel))
+            .collect_in(mcx)
+    };
     // each consumed slot's producer: its declared life, else the nearest earlier producer of the slot
     let producer = |q: usize, j: usize, s: u8| match ps[q].desc.consumes_from.get(j) {
         Some(l) => Some(l.0 as usize),
@@ -99,14 +126,35 @@ fn groups<'g>(gx: &Gx<'g, '_>) -> Option<PgVec<'g, PgVec<'g, usize>>> {
     // D3507: beside a claim inside a CTE that writes nothing (its lock there), a producer's readers are those of its
     // life (`producer`), a slot number another life reuses (the own write's hash build beside q's, the claim's sort
     // read past q's own unread store) no read of it
-    let claimish = (0..n).any(|x| gx.cte_write(x) && write(x).is_none() && ps[x].ops.iter().any(|o| matches!(o, Op::Lock(_))));
-    let life_readers = |q: usize| (0..n).filter(|&r| r != q && ps[r].desc.consumes.iter().enumerate().any(|(j, &s)| producer(r, j, s) == Some(q))).collect_in(mcx);
+    let claimish = (0..n).any(|x| {
+        gx.cte_write(x) && write(x).is_none() && ps[x].ops.iter().any(|o| matches!(o, Op::Lock(_)))
+    });
+    let life_readers = |q: usize| {
+        (0..n)
+            .filter(|&r| {
+                r != q
+                    && ps[r]
+                        .desc
+                        .consumes
+                        .iter()
+                        .enumerate()
+                        .any(|(j, &s)| producer(r, j, s) == Some(q))
+            })
+            .collect_in(mcx)
+    };
     // each CTE unread, no Append arm, no RETURNING list, its targets none of another CTE's (two ModifyTables of one
     // relation would share its statement triggers and the rows one wrote: fail closed)
     let mut crels: PgVec<'_, u32> = PgVec::new_in(mcx);
     for &c in &ctes {
         let cw = write(c)?;
-        if ps[c].ops.iter().any(crate::graph::is_arm) || !if claimish { life_readers(c) } else { readers(c) }.is_empty() {
+        if ps[c].ops.iter().any(crate::graph::is_arm)
+            || !if claimish {
+                life_readers(c)
+            } else {
+                readers(c)
+            }
+            .is_empty()
+        {
             return None;
         }
         // D2815: a CTE with a RETURNING list stores its rows (nest.cte's pulled set, drained at the statement's end:
@@ -122,40 +170,78 @@ fn groups<'g>(gx: &Gx<'g, '_>) -> Option<PgVec<'g, PgVec<'g, usize>>> {
         crels.extend_in(r);
     }
     // the statement's own write: every other write pipeline is one of its ModifyTable's
-    let own: PgVec<'_, &WriteDesc<'_>> = (0..n).filter(|k| !ctes.contains(k)).filter_map(write).collect_in(mcx);
+    let own: PgVec<'_, &WriteDesc<'_>> = (0..n)
+        .filter(|k| !ctes.contains(k))
+        .filter_map(write)
+        .collect_in(mcx);
     // D3379 POSTSAME: a relation both write fires no trigger (module doc); D3379 CTE-MERGE: or both only insert into it
     let quiet = |r: &u32| gx.facts.trig_ext(*r) == TrigExt::NONE;
     let inserts = |w: &WriteDesc<'_>| {
-        let only = w.cmd == Cmd::Insert && w.merge.is_none() || w.cmd == Cmd::Merge && w.merge.as_ref().is_some_and(|m| super::merge::nm::insert_only(m));
+        let only = w.cmd == Cmd::Insert && w.merge.is_none()
+            || w.cmd == Cmd::Merge
+                && w.merge
+                    .as_ref()
+                    .is_some_and(|m| super::merge::nm::insert_only(m));
         only && w.on_conflict.is_none() && w.route.is_none() && w.targets.len() <= 1
     };
     let shared = |w: &WriteDesc<'_>, r: &u32| {
         let t = gx.facts.trig_ext(*r);
         let into = |c: &usize| write(*c).is_some_and(|cw| rels(cw).contains(r));
-        inserts(w) && t.known && t.instead_row == 0 && ctes.iter().filter(|c| into(c)).all(|&c| write(c).is_some_and(inserts))
+        inserts(w)
+            && t.known
+            && t.instead_row == 0
+            && ctes
+                .iter()
+                .filter(|c| into(c))
+                .all(|&c| write(c).is_some_and(inserts))
     };
     // D3379 LOCKPOST: or no write of the statement's own but its row lock, outside every CTE (none inside one), beside
     // CTEs whose targets fire no trigger (module doc)
     let lock = |k: usize| ps[k].ops.iter().any(|o| matches!(o, Op::Lock(_)));
-    let locks = own.is_empty() && (0..n).any(|k| !gx.cte_write(k) && lock(k)) && !(0..n).any(|k| gx.cte_write(k) && lock(k)) && crels.iter().all(quiet);
+    let locks = own.is_empty()
+        && (0..n).any(|k| !gx.cte_write(k) && lock(k))
+        && !(0..n).any(|k| gx.cte_write(k) && lock(k))
+        && crels.iter().all(quiet);
     match own.first() {
         None if !locks => return None,
         None => {}
         Some(first) => {
-            let same = |w: &WriteDesc<'_>| w.cmd == first.cmd && w.targets.iter().map(|t| t.relid).eq(first.targets.iter().map(|t| t.relid));
-            if !own.iter().all(|w| same(w) && rels(w).iter().filter(|r| crels.contains(r)).all(|r| quiet(r) || shared(w, r))) {
+            let same = |w: &WriteDesc<'_>| {
+                w.cmd == first.cmd
+                    && w.targets
+                        .iter()
+                        .map(|t| t.relid)
+                        .eq(first.targets.iter().map(|t| t.relid))
+            };
+            if !own.iter().all(|w| {
+                same(w)
+                    && rels(w)
+                        .iter()
+                        .filter(|r| crels.contains(r))
+                        .all(|r| quiet(r) || shared(w, r))
+            }) {
                 return None;
             }
         }
     }
     // each CTE's write and every producer only its group reads, to a fixpoint (one read by two groups joins none)
-    let mut groups: PgVec<'_, PgVec<'_, usize>> = ctes.iter().map(|&c| mcx::pg_vec![in mcx; c]).collect_in(mcx);
+    let mut groups: PgVec<'_, PgVec<'_, usize>> = ctes
+        .iter()
+        .map(|&c| mcx::pg_vec![in mcx; c])
+        .collect_in(mcx);
     loop {
         let fed = |q: usize, gr: &[usize]| {
-            let r = if claimish { life_readers(q) } else { readers(q) };
+            let r = if claimish {
+                life_readers(q)
+            } else {
+                readers(q)
+            };
             !r.is_empty() && r.iter().all(|x| gr.contains(x))
         };
-        let more: PgVec<'_, (usize, usize)> = (0..n).filter(|q| !groups.iter().any(|gr| gr.contains(q))).filter_map(|q| groups.iter().position(|gr| fed(q, gr)).map(|i| (i, q))).collect_in(mcx);
+        let more: PgVec<'_, (usize, usize)> = (0..n)
+            .filter(|q| !groups.iter().any(|gr| gr.contains(q)))
+            .filter_map(|q| groups.iter().position(|gr| fed(q, gr)).map(|i| (i, q)))
+            .collect_in(mcx);
         if more.is_empty() {
             break;
         }
@@ -165,31 +251,78 @@ fn groups<'g>(gx: &Gx<'g, '_>) -> Option<PgVec<'g, PgVec<'g, usize>>> {
     post.sort_unstable();
     let m = post.len();
     // D3507: a read of a store of a CTE that writes nothing, outside every group (`claim_store`)
-    let claim_store = |x: usize| claimish && !post.contains(&x) && gx.cte_write(x) && write(x).is_none() && !ps[x].ops.iter().any(|o| matches!(o, Op::Write(_)));
+    let claim_store = |x: usize| {
+        claimish
+            && !post.contains(&x)
+            && gx.cte_write(x)
+            && write(x).is_none()
+            && !ps[x].ops.iter().any(|o| matches!(o, Op::Write(_)))
+    };
     let prefix = post.iter().enumerate().all(|(i, &q)| i == q);
-    if m >= n || !prefix && !post.iter().any(|&q| ps[q].desc.consumes.iter().enumerate().any(|(j, &s)| producer(q, j, s).is_some_and(claim_store))) {
+    if m >= n
+        || !prefix
+            && !post.iter().any(|&q| {
+                ps[q]
+                    .desc
+                    .consumes
+                    .iter()
+                    .enumerate()
+                    .any(|(j, &s)| producer(q, j, s).is_some_and(claim_store))
+            })
+    {
         return None;
     }
     // a post pipeline reads only its group's products (`producer`); no slot number is made both by a post pipeline and
     // by another (the driver frees by index)
-    let reads_own = groups.iter().all(|gr| gr.iter().all(|&q| ps[q].desc.consumes.iter().enumerate().all(|(j, &s)| producer(q, j, s).is_some_and(|x| gr.contains(&x) || claim_store(x)))));
+    let reads_own =
+        groups.iter().all(|gr| {
+            gr.iter().all(|&q| {
+                ps[q].desc.consumes.iter().enumerate().all(|(j, &s)| {
+                    producer(q, j, s).is_some_and(|x| gr.contains(&x) || claim_store(x))
+                })
+            })
+        });
     let made = |q: usize| ps[q].desc.produces();
     // D3507: or a slot number another pipeline makes too whose every reader is outside the set (the own write's hash
     // build beside q's: `order` runs that life to its end before the set's first pipeline makes the number again)
-    let readers_of = |x: usize| (0..n).filter(move |&r| ps[r].desc.consumes.iter().enumerate().any(|(j, &s)| Some(s) == made(x) && producer(r, j, s) == Some(x)));
+    let readers_of = |x: usize| {
+        (0..n).filter(move |&r| {
+            ps[r]
+                .desc
+                .consumes
+                .iter()
+                .enumerate()
+                .any(|(j, &s)| Some(s) == made(x) && producer(r, j, s) == Some(x))
+        })
+    };
     let ended = |x: usize| !prefix && readers_of(x).all(|r| !post.contains(&r)) && !claim_store(x);
-    let apart = post.iter().filter_map(|&q| made(q)).all(|s| (0..n).filter(|x| !post.contains(x)).all(|x| made(x) != Some(s) || ended(x)));
-    let reruns = g.reruns.iter().all(|r| r.pipelines.iter().all(|&q| !post.contains(&(q as usize))));
+    let apart = post.iter().filter_map(|&q| made(q)).all(|s| {
+        (0..n)
+            .filter(|x| !post.contains(x))
+            .all(|x| made(x) != Some(s) || ended(x))
+    });
+    let reruns = g
+        .reruns
+        .iter()
+        .all(|r| r.pipelines.iter().all(|&q| !post.contains(&(q as usize))));
     if !(reads_own && apart && reruns) {
         return None;
     }
-    if own.iter().any(|w| rels(w).iter().any(|r| crels.contains(r))) {
+    if own
+        .iter()
+        .any(|w| rels(w).iter().any(|r| crels.contains(r)))
+    {
         fires::fire("modifytable.post_same"); // shapecheck fire signal (D3379 POSTSAME): the post CTE writes the own write's relation
     }
     if locks {
         fires::fire("modifytable.post_lock"); // shapecheck fire signal (D3379 LOCKPOST): the post CTE beside the statement's row lock
     }
-    let plan_id = |c: usize| g.init_plans.iter().find(|i| i.pipeline as usize == c && matches!(i.link, SubLink::Cte)).map_or(0, |i| i.plan_id);
+    let plan_id = |c: usize| {
+        g.init_plans
+            .iter()
+            .find(|i| i.pipeline as usize == c && matches!(i.link, SubLink::Cte))
+            .map_or(0, |i| i.plan_id)
+    };
     groups.iter_mut().for_each(|gr| gr[1..].sort_unstable());
     groups.sort_by_key(|gr| core::cmp::Reverse(plan_id(gr[0])));
     Some(groups)
@@ -198,7 +331,11 @@ fn groups<'g>(gx: &Gx<'g, '_>) -> Option<PgVec<'g, PgVec<'g, usize>>> {
 /// Where the post group of CTE write pipeline `k` starts in the program (`at`: a graph pipeline's program index, as in
 /// `mark`): its writer binds at the execution's turn before that pipeline (`WriteAt::end`; driver entry/post.rs). `None`:
 /// `k` writes in no post group.
-pub(crate) fn start(gx: &Gx<'_, '_>, k: usize, at: &dyn Fn(usize) -> Option<usize>) -> Option<usize> {
+pub(crate) fn start(
+    gx: &Gx<'_, '_>,
+    k: usize,
+    at: &dyn Fn(usize) -> Option<usize>,
+) -> Option<usize> {
     let groups = groups(gx)?;
     let gr = groups.iter().find(|gr| gr[0] == k)?;
     let mut best: Option<usize> = None;
@@ -215,9 +352,14 @@ pub(crate) fn reads_product(gx: &Gx<'_, '_>, k: usize) -> bool {
     if !gx.reads_product(k) {
         return false;
     }
-    let Some(post) = set(gx).filter(|s| !s.contains(&k)) else { return true };
+    let Some(post) = set(gx).filter(|s| !s.contains(&k)) else {
+        return true;
+    };
     let arm = |x: &PipelineNode<'_>| x.ops.iter().any(crate::graph::is_arm);
-    gx.pipelines().iter().enumerate().any(|(q, x)| q != k && !post.contains(&q) && (x.desc.produces().is_some() || !arm(x)))
+    gx.pipelines()
+        .iter()
+        .enumerate()
+        .any(|(q, x)| q != k && !post.contains(&q) && (x.desc.produces().is_some() || !arm(x)))
 }
 
 /// Write pipeline `k` is the statement's own beside post pipelines (rowop.rs `two_plans_served`: its recheck reruns no
@@ -230,7 +372,13 @@ pub(crate) fn apart(gx: &Gx<'_, '_>, k: usize) -> bool {
 /// it), or trigger events the D1687 order would move (rowop.rs APART_ORDER).
 fn relied(gx: &Gx<'_, '_>) -> bool {
     let ps = gx.pipelines();
-    super::rowop::apart_order_lost(gx) || (0..ps.len()).any(|k| !gx.cte_write(k) && ps[k].ops.iter().any(|o| matches!(o, Op::Write(w) if matches!(w.cmd, Cmd::Update | Cmd::Delete))))
+    super::rowop::apart_order_lost(gx)
+        || (0..ps.len()).any(|k| {
+            !gx.cte_write(k)
+                && ps[k].ops.iter().any(
+                    |o| matches!(o, Op::Write(w) if matches!(w.cmd, Cmd::Update | Cmd::Delete)),
+                )
+        })
 }
 
 /// The post pipelines moved to the program's end (frame/program.rs `emit`, before the pipelines' functions are made;
@@ -242,7 +390,17 @@ pub(crate) fn order<T>(gx: &Gx<'_, '_>, items: &mut Vec<T>, k: impl Fn(&T) -> us
     let n = gx.pipelines().len();
     let rank = |q: usize| groups.iter().position(|gr| gr.contains(&q));
     // a pass (a virtual id) moves with the graph pipeline it follows, in its group
-    let moved: PgVec<'_, Option<usize>> = items.iter().scan(None, |post, m| Some(if k(m) < n { *post = rank(k(m)); *post } else { *post })).collect_in(gx.mcx);
+    let moved: PgVec<'_, Option<usize>> = items
+        .iter()
+        .scan(None, |post, m| {
+            Some(if k(m) < n {
+                *post = rank(k(m));
+                *post
+            } else {
+                *post
+            })
+        })
+        .collect_in(gx.mcx);
     if moved.iter().all(Option::is_some) || moved.iter().all(Option::is_none) {
         return;
     }
@@ -263,10 +421,19 @@ pub(crate) fn order<T>(gx: &Gx<'_, '_>, items: &mut Vec<T>, k: impl Fn(&T) -> us
 /// is graph pipeline `k`'s program index. `order` put the set last; when it is not (no program pipeline of a post graph
 /// pipeline, or another graph pipeline's after one), a statement that serves only through the post order refuses by name
 /// and any other keeps D1687's order (nothing flagged). True when it flagged them.
-pub(crate) fn mark(gx: &Gx<'_, '_>, at: &dyn Fn(usize) -> Option<usize>, pipelines: &mut [Pipeline], node: i32) -> bool {
+pub(crate) fn mark(
+    gx: &Gx<'_, '_>,
+    at: &dyn Fn(usize) -> Option<usize>,
+    pipelines: &mut [Pipeline],
+    node: i32,
+) -> bool {
     let Some(s) = set(gx) else { return false };
     let t = s.iter().map(|&k| at(k).unwrap_or(0)).min().unwrap_or(0);
-    let ok = t > 0 && s.iter().all(|&k| at(k).is_some()) && (0..gx.pipelines().len()).filter(|j| !s.contains(j)).all(|j| at(j).is_none_or(|i| i < t));
+    let ok = t > 0
+        && s.iter().all(|&k| at(k).is_some())
+        && (0..gx.pipelines().len())
+            .filter(|j| !s.contains(j))
+            .all(|j| at(j).is_none_or(|i| i < t));
     if !ok {
         if relied(gx) {
             crate::refuse!(node, Reason::Shape { why: ShapeWhy("a data-modifying CTE nothing reads beside the statement's own write, whose pipelines the program cannot run after the statement's own (D2772)") });

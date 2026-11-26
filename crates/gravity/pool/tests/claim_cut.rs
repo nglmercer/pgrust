@@ -17,7 +17,8 @@ fn pool(threads: usize) -> (WorkerPool, RuntimePool) {
 
 fn whole_parts(parts: u64, per: u64, split: bool) -> GranuleRange {
     let starts: Vec<u64> = (0..parts).map(|p| p * per).collect();
-    let mut c = GranuleRange::over_parts(parts * per, ClaimSize::Adaptive { startup_c0: 1 }, &starts);
+    let mut c =
+        GranuleRange::over_parts(parts * per, ClaimSize::Adaptive { startup_c0: 1 }, &starts);
     c.set_whole_boundary_claims(true);
     c.set_split_running(split);
     c
@@ -27,7 +28,16 @@ fn whole_parts(parts: u64, per: u64, split: bool) -> GranuleRange {
 /// `slow` each, every other granule `fast`. With `hold`, the heavy part's first claim waits at its first granule until a
 /// worker that ran out of parts has asked it and it has answered (at most `HOLD_MAX`).
 #[allow(clippy::too_many_arguments)]
-fn section(pool: &RuntimePool, width: u16, claims: &GranuleRange, per: u64, heavy: u64, slow: Duration, fast: Duration, hold: bool) -> Vec<(u64, u64)> {
+fn section(
+    pool: &RuntimePool,
+    width: u16,
+    claims: &GranuleRange,
+    per: u64,
+    heavy: u64,
+    slow: Duration,
+    fast: Duration,
+    hold: bool,
+) -> Vec<(u64, u64)> {
     let ran = Mutex::new(Vec::new());
     let cuts = AtomicU64::new(0);
     // D4763: the cut no longer rides the box's pace. Unheld, a loaded box's oversleeping 50 us granules let the heavy claim
@@ -47,7 +57,11 @@ fn section(pool: &RuntimePool, width: u16, claims: &GranuleRange, per: u64, heav
                     held.store(false, Ordering::Relaxed);
                     continue;
                 }
-                if g / per == heavy && cut.is_some() && held.load(Ordering::Relaxed) && Instant::now() < until {
+                if g / per == heavy
+                    && cut.is_some()
+                    && held.load(Ordering::Relaxed)
+                    && Instant::now() < until
+                {
                     std::thread::sleep(fast);
                     continue;
                 }
@@ -68,8 +82,14 @@ fn section(pool: &RuntimePool, width: u16, claims: &GranuleRange, per: u64, heav
 fn assert_tiles(ranges: &[(u64, u64)], total: u64, per: u64) {
     let mut next = 0;
     for &(lo, hi) in ranges {
-        assert_eq!(lo, next, "granules {next}..{lo} not run, or run twice ({ranges:?})");
-        assert!(lo < hi && lo / per == (hi - 1) / per, "claim {lo}..{hi} crosses a part");
+        assert_eq!(
+            lo, next,
+            "granules {next}..{lo} not run, or run twice ({ranges:?})"
+        );
+        assert!(
+            lo < hi && lo / per == (hi - 1) / per,
+            "claim {lo}..{hi} crosses a part"
+        );
         next = hi;
     }
     assert_eq!(next, total);
@@ -86,12 +106,33 @@ fn a_heavy_whole_part_is_cut_for_idle_workers_only_where_the_cursor_allows_it() 
     let (workers, pool) = pool(4);
     let (parts, per) = (12u64, 16u64);
     let (slow, fast) = (Duration::from_millis(2), Duration::from_micros(50));
-    let on = section(&pool, 4, &whole_parts(parts, per, true), per, 2, slow, fast, true);
+    let on = section(
+        &pool,
+        4,
+        &whole_parts(parts, per, true),
+        per,
+        2,
+        slow,
+        fast,
+        true,
+    );
     assert_tiles(&on, parts * per, per);
     let heavy: Vec<_> = on.iter().filter(|&&(lo, _)| lo / per == 2).collect();
     assert!(heavy.len() >= 2, "the heavy part was not cut ({on:?})");
-    let off = section(&pool, 4, &whole_parts(parts, per, false), per, 2, slow, fast, false);
+    let off = section(
+        &pool,
+        4,
+        &whole_parts(parts, per, false),
+        per,
+        2,
+        slow,
+        fast,
+        false,
+    );
     assert_tiles(&off, parts * per, per);
-    assert!(off.iter().all(|&(lo, hi)| lo % per == 0 && hi - lo == per), "a cursor with the cut off was cut ({off:?})");
+    assert!(
+        off.iter().all(|&(lo, hi)| lo % per == 0 && hi - lo == per),
+        "a cursor with the cut off was cut ({off:?})"
+    );
     workers.shutdown();
 }

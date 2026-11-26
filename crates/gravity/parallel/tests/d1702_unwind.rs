@@ -42,7 +42,9 @@ unsafe extern "C-unwind" fn k_member(ctx: *mut Ctx) -> i64 {
             (*ctx).resume = RESUME_NONE;
             return if r == 0 { DONE } else { r };
         }
-        HashAgg::at(partial(ctx), &LAYOUT, 1, BYTES).single().add_count(0, r);
+        HashAgg::at(partial(ctx), &LAYOUT, 1, BYTES)
+            .single()
+            .add_count(0, r);
         (*s).cursor += r as u32;
     }
 }
@@ -77,7 +79,9 @@ unsafe extern "C-unwind" fn k_emit(ctx: *mut Ctx) -> i64 {
     if f.as_mut().rerun_members(&[0]).is_err() {
         return ERROR;
     }
-    let v = [HashAgg::at(consumed(ctx, 0), &LAYOUT, 1, BYTES).single().count(0) as u64];
+    let v = [HashAgg::at(consumed(ctx, 0), &LAYOUT, 1, BYTES)
+        .single()
+        .count(0) as u64];
     let n = [0u8; 1];
     if emit(ctx, 1, &[(v.as_ptr(), n.as_ptr(), 1)]) < 0 || flush(ctx) < 0 {
         return ERROR;
@@ -90,13 +94,43 @@ fn program() -> Program {
     let sites = [SiteDesc::range_source(st.handle(), T_A, &[1])];
     let out = [OutCol::new("set", 20, -1, 8, true)];
     let pipes = [
-        (Pipeline::serial(0, End::Breaker(Breaker::sized(BreakerKind::PlainAgg, BYTES).in_slot(0)), Reason::Host), Code::hand(k_member)),
-        (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming(&[0]), Code::hand(k_emit)),
+        (
+            Pipeline::serial(
+                0,
+                End::Breaker(Breaker::sized(BreakerKind::PlainAgg, BYTES).in_slot(0)),
+                Reason::Host,
+            ),
+            Code::hand(k_member),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming(&[0]),
+            Code::hand(k_emit),
+        ),
     ];
-    let mut p = Program::with_pipelines(Layout { nsites: 1, out_natts: 1, out_rows: 8, scratch_bytes: 0, exec_bytes: 0 }, &sites, &out, WritePlan::SELECT, pipes);
+    let mut p = Program::with_pipelines(
+        Layout {
+            nsites: 1,
+            out_natts: 1,
+            out_rows: 8,
+            scratch_bytes: 0,
+            exec_bytes: 0,
+        },
+        &sites,
+        &out,
+        WritePlan::SELECT,
+        pipes,
+    );
     // pipeline 0 is the emit's rerun set's one member, as lowerv4's lifetime home declares it
-    let member = RunMember { pipeline: 0, runner: Runner::Set(0), life: RunLife::EveryRun, lazy_probe: NO_PROBE };
-    p.set_v4(&V4Descs { lifetimes: Lifetimes::new(vec![member]).unwrap(), ..V4Descs::new(Vec::new()) });
+    let member = RunMember {
+        pipeline: 0,
+        runner: Runner::Set(0),
+        life: RunLife::EveryRun,
+        lazy_probe: NO_PROBE,
+    };
+    p.set_v4(&V4Descs {
+        lifetimes: Lifetimes::new(vec![member]).unwrap(),
+        ..V4Descs::new(Vec::new())
+    });
     p
 }
 
@@ -137,9 +171,22 @@ fn run_on(entry: &mut gravity_driver::Entry) -> Result<Vec<Vec<u64>>> {
     let program = Arc::new(program());
     let pool = FixturePool::new(1);
     let mut sink = LegSink::new(true);
-    let plan = Nf { inner: FixturePlan::new(&program, &derive, 1, 3), frame: Cell::new(None) };
+    let plan = Nf {
+        inner: FixturePlan::new(&program, &derive, 1, 3),
+        frame: Cell::new(None),
+    };
     PLAN.store(&plan as *const Nf as *mut Nf, Relaxed);
-    let r = run_planned(entry, &program, &mut derive, &pool, &plan, gravity_driver::Grant::of(16 << 20), &[1_000_000], &NO_ABORT, &mut sink);
+    let r = run_planned(
+        entry,
+        &program,
+        &mut derive,
+        &pool,
+        &plan,
+        gravity_driver::Grant::of(16 << 20),
+        &[1_000_000],
+        &NO_ABORT,
+        &mut sink,
+    );
     PLAN.store(core::ptr::null_mut(), Relaxed);
     r.map(|_| sink.sorted())
 }
@@ -151,7 +198,17 @@ fn a_panic_inside_a_nested_call_puts_every_current_back_on_its_way_out() {
     let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run_on(&mut entry)));
     PANIC.store(false, Relaxed);
     PLAN.store(core::ptr::null_mut(), Relaxed);
-    assert_eq!(r.err().and_then(|p| p.downcast_ref::<&str>().copied()), Some(PAYLOAD), "the member's panic, out of the run");
-    assert!(!entry.has_current_slot(), "the run's slot is off the entry after the unwind");
-    assert_eq!(run_on(&mut entry).expect("the entry's next statement"), vec![vec![ROWS]]);
+    assert_eq!(
+        r.err().and_then(|p| p.downcast_ref::<&str>().copied()),
+        Some(PAYLOAD),
+        "the member's panic, out of the run"
+    );
+    assert!(
+        !entry.has_current_slot(),
+        "the run's slot is off the entry after the unwind"
+    );
+    assert_eq!(
+        run_on(&mut entry).expect("the entry's next statement"),
+        vec![vec![ROWS]]
+    );
 }

@@ -22,9 +22,16 @@ mod tests {
 
     #[test]
     fn images_are_16_byte_aligned() {
-        let a = (core::mem::align_of::<AlignedImage<2>>(), core::mem::align_of::<AlignedImage<3>>(), core::mem::align_of::<AlignedImage<9>>());
+        let a = (
+            core::mem::align_of::<AlignedImage<2>>(),
+            core::mem::align_of::<AlignedImage<3>>(),
+            core::mem::align_of::<AlignedImage<9>>(),
+        );
         assert_eq!(a, (16, 16, 16));
         let img = AlignedImage([7u64, 8, 0]);
-        assert_eq!((&img as *const AlignedImage<3> as usize % 16, img.as_ref()), (0, &[7u64, 8, 0][..]));
+        assert_eq!(
+            (&img as *const AlignedImage<3> as usize % 16, img.as_ref()),
+            (0, &[7u64, 8, 0][..])
+        );
     }
 }

@@ -279,7 +279,9 @@ fn external_cases(roster: &BTreeSet<String>, debug: bool) {
 #[test]
 fn complete_mcx_unit_and_ownership_suites() {
     if !Harness::available() {
-        eprintln!("skipped: COMPONENT_ARTIFACT_DIR / CARGO_TARGET_DIR not set (runner harness only)");
+        eprintln!(
+            "skipped: COMPONENT_ARTIFACT_DIR / CARGO_TARGET_DIR not set (runner harness only)"
+        );
         return;
     }
     let harness = Harness::new();

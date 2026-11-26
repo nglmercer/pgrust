@@ -5,7 +5,7 @@ use gravity_lowerv4_it as common;
 
 use gravity_abi::breaker::ORDER_NONE;
 use gravity_lower::Lowered;
-use gravity_lowerv4::face::strategy::{Strategy, StrategySet, OWNER_COUNT, set_off};
+use gravity_lowerv4::face::strategy::{set_off, Strategy, StrategySet, OWNER_COUNT};
 use gravity_program::{OwnerDesc, REP_NONE};
 
 fn text(rel: &str) -> String {
@@ -18,7 +18,9 @@ fn lowered_off(fx: &str, extra: &[Strategy]) -> Result<common::LoweredIn, String
     let mut off = StrategySet::EMPTY;
     extra.iter().for_each(|&r| off.add(r));
     set_off(off);
-    let l = common::lower_fixture(&text(fx)).expect("decompose takes the fixture").map_err(|e| e.to_string());
+    let l = common::lower_fixture(&text(fx))
+        .expect("decompose takes the fixture")
+        .map_err(|e| e.to_string());
     set_off(StrategySet::EMPTY);
     l
 }
@@ -36,7 +38,11 @@ fn owners(l: &Lowered) -> Vec<OwnerDesc> {
 fn count_form(fx: &str) -> OwnerDesc {
     let l = lowered(fx).unwrap_or_else(|e| panic!("{fx}: {e}"));
     let o = owners(&l);
-    let c: Vec<OwnerDesc> = o.iter().copied().filter(|d| d.order_slot != ORDER_NONE && d.topk > 0).collect();
+    let c: Vec<OwnerDesc> = o
+        .iter()
+        .copied()
+        .filter(|d| d.order_slot != ORDER_NONE && d.topk > 0)
+        .collect();
     assert_eq!(c.len(), 1, "{fx}: one count-ordered owner: {o:?}");
     c[0]
 }
@@ -46,10 +52,19 @@ fn count_form(fx: &str) -> OwnerDesc {
 /// fieldobs-032 (one int8 key), fieldobs-048 (a URL key), fieldobs-057 (`OFFSET 10000`) and regress's `ORDER BY count(*) DESC LIMIT 5` likewise.
 #[test]
 fn a_count_ordered_top_takes_the_count_form() {
-    for (fx, n) in [("fieldobs-033.plan", 10), ("fieldobs-032.plan", 10), ("fieldobs-048.plan", 10), ("regress-027.plan", 5), ("fieldobs-057.plan", 10010)] {
+    for (fx, n) in [
+        ("fieldobs-033.plan", 10),
+        ("fieldobs-032.plan", 10),
+        ("fieldobs-048.plan", 10),
+        ("regress-027.plan", 5),
+        ("fieldobs-057.plan", 10010),
+    ] {
         let o = count_form(fx);
         assert_eq!((o.order_slot, o.topk, o.pair), (0, n, 0), "{fx}: {o:?}");
-        assert!(o.reps.iter().all(|r| r.0 == REP_NONE), "{fx}: no key named after the count: {o:?}");
+        assert!(
+            o.reps.iter().all(|r| r.0 == REP_NONE),
+            "{fx}: no key named after the count: {o:?}"
+        );
     }
 }
 
@@ -69,7 +84,10 @@ fn a_named_text_key_names_its_representative() {
     for (fx, n) in [("bench-121.plan", 5), ("bench-155.plan", 10)] {
         let o = count_form(fx);
         assert_eq!(o.topk, n, "{fx}: {o:?}");
-        assert!(o.reps[0].0 != REP_NONE, "{fx}: the named key's representative: {o:?}");
+        assert!(
+            o.reps[0].0 != REP_NONE,
+            "{fx}: the named key's representative: {o:?}"
+        );
     }
 }
 
@@ -77,18 +95,34 @@ fn a_named_text_key_names_its_representative() {
 /// form: their owners are the generic phase.
 #[test]
 fn a_top_outside_the_shape_keeps_the_generic_owner() {
-    for fx in ["bench-149.plan", "bench-065.plan", "bench-145.plan", "bench-147.plan", "bench-151.plan", "bench-152.plan"] {
+    for fx in [
+        "bench-149.plan",
+        "bench-065.plan",
+        "bench-145.plan",
+        "bench-147.plan",
+        "bench-151.plan",
+        "bench-152.plan",
+    ] {
         let v = lowered(fx);
         if let Ok(l) = &v {
-            assert!(owners(l).iter().all(|d| d.topk == 0), "{fx} declared a top-k owner: {:?}", owners(l));
+            assert!(
+                owners(l).iter().all(|d| d.topk == 0),
+                "{fx} declared a top-k owner: {:?}",
+                owners(l)
+            );
         }
-        assert!(v.as_ref().err().is_none_or(|e| !e.contains("owner.count")), "{fx} refused by owner.count: {:?}", v.err());
+        assert!(
+            v.as_ref().err().is_none_or(|e| !e.contains("owner.count")),
+            "{fx} refused by owner.count: {:?}",
+            v.err()
+        );
     }
 }
 
 /// The forced-off twin: with owner.count off, fieldobs-033 lowers through runs.topk_groups (the generic owner, every record sorted).
 #[test]
 fn the_forced_off_twin_sorts_every_record() {
-    let l = lowered_off("fieldobs-033.plan", &[OWNER_COUNT]).unwrap_or_else(|e| panic!("fieldobs-033 with owner.count off: {e}"));
+    let l = lowered_off("fieldobs-033.plan", &[OWNER_COUNT])
+        .unwrap_or_else(|e| panic!("fieldobs-033 with owner.count off: {e}"));
     assert!(owners(&l).iter().all(|d| d.topk == 0), "{:?}", owners(&l));
 }

@@ -20,7 +20,10 @@ fn strncasecmp_eq(s: &[u8], lit: &[u8]) -> bool {
     if s.len() < lit.len() {
         return false;
     }
-    s[..lit.len()].iter().zip(lit).all(|(a, b)| a.eq_ignore_ascii_case(b))
+    s[..lit.len()]
+        .iter()
+        .zip(lit)
+        .all(|(a, b)| a.eq_ignore_ascii_case(b))
 }
 
 // ldexp without a libm dep: exact powers of two via exponent-field bits.
@@ -243,7 +246,11 @@ fn round_to_float(token: &[u8], mantissa_bits: u32, exp_bits: u32) -> f64 {
     let min_normal_exp = 1 - bias;
 
     if unbiased_msb > max_exp {
-        return if neg { f64::NEG_INFINITY } else { f64::INFINITY };
+        return if neg {
+            f64::NEG_INFINITY
+        } else {
+            f64::INFINITY
+        };
     }
 
     let keep_bits: i64 = if unbiased_msb >= min_normal_exp {
@@ -300,11 +307,18 @@ fn round_to_float(token: &[u8], mantissa_bits: u32, exp_bits: u32) -> f64 {
     let result_msb = lsb_weight + (kept_bits - 1);
 
     if result_msb > max_exp {
-        return if neg { f64::NEG_INFINITY } else { f64::INFINITY };
+        return if neg {
+            f64::NEG_INFINITY
+        } else {
+            f64::INFINITY
+        };
     }
 
     let mant_f = kept as f64;
-    let scaled = ldexp(mant_f, lsb_weight.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
+    let scaled = ldexp(
+        mant_f,
+        lsb_weight.clamp(i32::MIN as i64, i32::MAX as i64) as i32,
+    );
     if neg {
         -scaled
     } else {
@@ -437,7 +451,9 @@ fn subnormal_inexact(token: &[u8], kind: &NumKind, parsed: f64) -> bool {
                 }
                 let mut e: i64 = 0;
                 while i < token.len() && token[i].is_ascii_digit() {
-                    e = e.saturating_mul(10).saturating_add((token[i] - b'0') as i64);
+                    e = e
+                        .saturating_mul(10)
+                        .saturating_add((token[i] - b'0') as i64);
                     i += 1;
                 }
                 h = h.saturating_add(if neg { -e } else { e });
@@ -485,7 +501,9 @@ fn subnormal_inexact(token: &[u8], kind: &NumKind, parsed: f64) -> bool {
                 }
                 let mut e: i64 = 0;
                 while i < token.len() && token[i].is_ascii_digit() {
-                    e = e.saturating_mul(10).saturating_add((token[i] - b'0') as i64);
+                    e = e
+                        .saturating_mul(10)
+                        .saturating_add((token[i] - b'0') as i64);
                     i += 1;
                 }
                 e10 = if neg { -e } else { e };
@@ -694,7 +712,11 @@ pub(crate) fn token_true_value_below_dblmin(token: &[u8], is_hex: bool) -> bool 
         let mut carry = 0u64;
         for &l in &d {
             left.push((l << bit_shift) | carry);
-            carry = if bit_shift == 0 { 0 } else { l >> (64 - bit_shift) };
+            carry = if bit_shift == 0 {
+                0
+            } else {
+                l >> (64 - bit_shift)
+            };
         }
         if carry != 0 {
             left.push(carry);
@@ -785,11 +807,7 @@ pub fn float8in_internal(
     if let Some(slot) = endptr_consumed {
         *slot = end;
     } else if end != bytes.len() {
-        return ereturn(
-            escontext,
-            0.0,
-            invalid_input(type_name, orig_string),
-        );
+        return ereturn(escontext, 0.0, invalid_input(type_name, orig_string));
     }
 
     Ok(val)
@@ -855,11 +873,7 @@ pub fn float4in_internal(
     if let Some(slot) = endptr_consumed {
         *slot = end;
     } else if end != bytes.len() {
-        return ereturn(
-            escontext,
-            0.0,
-            invalid_input(type_name, orig_string),
-        );
+        return ereturn(escontext, 0.0, invalid_input(type_name, orig_string));
     }
 
     Ok(val)
@@ -883,14 +897,13 @@ fn nan_payload(s: &[u8]) -> (u64, usize) {
 
 // strtoull(seq, &end, 0) requiring end == seq end; ULLONG_MAX on overflow.
 fn strtoull_base0(seq: &[u8]) -> Option<u64> {
-    let (digits, radix) =
-        if seq.len() > 2 && seq[0] == b'0' && (seq[1] == b'x' || seq[1] == b'X') {
-            (&seq[2..], 16u32)
-        } else if seq.len() > 1 && seq[0] == b'0' {
-            (&seq[1..], 8)
-        } else {
-            (seq, 10)
-        };
+    let (digits, radix) = if seq.len() > 2 && seq[0] == b'0' && (seq[1] == b'x' || seq[1] == b'X') {
+        (&seq[2..], 16u32)
+    } else if seq.len() > 1 && seq[0] == b'0' {
+        (&seq[1..], 8)
+    } else {
+        (seq, 10)
+    };
     if digits.is_empty() {
         return None;
     }
@@ -918,7 +931,8 @@ pub fn special_float8(s: &[u8]) -> Option<(f64, usize)> {
     if strncasecmp_eq(s, b"NaN") {
         let (p, n) = nan_payload(s);
         Some((nan8(p), n))
-    } else if (s.first() == Some(&b'+') || s.first() == Some(&b'-')) && strncasecmp_eq(&s[1..], b"NaN")
+    } else if (s.first() == Some(&b'+') || s.first() == Some(&b'-'))
+        && strncasecmp_eq(&s[1..], b"NaN")
     {
         let (p, n) = nan_payload(&s[1..]);
         let v = if s[0] == b'-' { -nan8(p) } else { nan8(p) };
@@ -944,7 +958,8 @@ fn special_float4(s: &[u8]) -> Option<(f32, usize)> {
     if strncasecmp_eq(s, b"NaN") {
         let (p, n) = nan_payload(s);
         Some((nan4(p), n))
-    } else if (s.first() == Some(&b'+') || s.first() == Some(&b'-')) && strncasecmp_eq(&s[1..], b"NaN")
+    } else if (s.first() == Some(&b'+') || s.first() == Some(&b'-'))
+        && strncasecmp_eq(&s[1..], b"NaN")
     {
         let (p, n) = nan_payload(&s[1..]);
         let v = if s[0] == b'-' { -nan4(p) } else { nan4(p) };
@@ -1110,7 +1125,12 @@ fn format_g(val: f64, mut prec: i32, out: &mut [u8]) -> usize {
             w.buf[start..start + frac_end].copy_from_slice(&digits[1..1 + frac_end]);
             w.len += frac_end;
         }
-        let _ = write!(w, "e{}{:02}", if exp < 0 { "-" } else { "+" }, exp.unsigned_abs());
+        let _ = write!(
+            w,
+            "e{}{:02}",
+            if exp < 0 { "-" } else { "+" },
+            exp.unsigned_abs()
+        );
     } else if exp >= 0 {
         let intlen = (exp + 1) as usize;
         if intlen >= digits.len() {

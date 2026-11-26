@@ -9,10 +9,16 @@ use types_core::{
     RELPERSISTENCE_TEMP, RELPERSISTENCE_UNLOGGED,
 };
 use types_error::PgResult;
-use types_rel::{FormData_pg_class, RelationData, RELKIND_INDEX, RELKIND_MATVIEW, RELKIND_PARTITIONED_INDEX, RELKIND_PARTITIONED_TABLE, RELKIND_RELATION, RELKIND_SEQUENCE, REPLICA_IDENTITY_DEFAULT, REPLICA_IDENTITY_NOTHING};
+use types_rel::{
+    FormData_pg_class, RelationData, RELKIND_INDEX, RELKIND_MATVIEW, RELKIND_PARTITIONED_INDEX,
+    RELKIND_PARTITIONED_TABLE, RELKIND_RELATION, RELKIND_SEQUENCE, REPLICA_IDENTITY_DEFAULT,
+    REPLICA_IDENTITY_NOTHING,
+};
 use types_tuple::{NameData, TupleConstr, TupleDescData};
 
-use crate::build::{invalid_relpersistence, RelationInitPhysicalAddr, RelationInitTableAccessMethod};
+use crate::build::{
+    invalid_relpersistence, RelationInitPhysicalAddr, RelationInitTableAccessMethod,
+};
 use crate::{cache_mcx, store};
 
 // reltype is a build-time parameter (C's AddNewRelationTuple pokes it into
@@ -34,7 +40,11 @@ pub fn RelationBuildLocalRelation(
     let mcx = cache_mcx();
     let mut rd_att = tupdesc::CreateTupleDescCopy(mcx, tupDesc)?;
     rd_att.tdrefcount = 1;
-    rd_att.tdtypeid = if reltype != InvalidOid { reltype } else { types_core::RECORDOID };
+    rd_att.tdtypeid = if reltype != InvalidOid {
+        reltype
+    } else {
+        types_core::RECORDOID
+    };
     rd_att.tdtypmod = -1;
     let mut has_not_null = false;
     for i in 0..rd_att.natts as usize {
@@ -68,7 +78,9 @@ pub fn RelationBuildLocalRelation(
     let (rd_backend, rd_islocaltemp) = match relpersistence {
         RELPERSISTENCE_UNLOGGED | RELPERSISTENCE_PERMANENT => (INVALID_PROC_NUMBER, false),
         RELPERSISTENCE_TEMP => {
-            debug_assert!(namespace_seams::is_temp_or_temp_toast_namespace::call(relnamespace));
+            debug_assert!(namespace_seams::is_temp_or_temp_toast_namespace::call(
+                relnamespace
+            ));
             (init_small::globals::ProcNumberForTempRelations(), true)
         }
         // relcache.c:3667 elog(ERROR, "invalid relpersistence: %c").
@@ -87,7 +99,11 @@ pub fn RelationBuildLocalRelation(
         relam: accessmtd,
         // Mapped relations keep relfilenode 0; RelationInitPhysicalAddr
         // consults the map (relcache.c RelationBuildLocalRelation).
-        relfilenode: if mapped_relation { types_core::InvalidRelFileNumber } else { relfilenumber },
+        relfilenode: if mapped_relation {
+            types_core::InvalidRelFileNumber
+        } else {
+            relfilenumber
+        },
         reltablespace,
         // AddNewRelationTuple pokes these into C's entry in place (heap.c:
         // new_rel_reltup = rd_rel; -1 for tables, 1/1 for sequences, never for
@@ -151,13 +167,17 @@ pub fn RelationBuildLocalRelation(
         pgstat_enabled: Cell::new(false),
         pgstat_link: core::cell::Cell::new((0, core::ptr::null_mut())),
         rd_amcache: Default::default(),
-        rd_amcache_hash: Default::default(), rd_amcache_gin: Default::default(), rd_amcache_spgist: Default::default(), rd_amcache_bloom: Default::default(),
+        rd_amcache_hash: Default::default(),
+        rd_amcache_gin: Default::default(),
+        rd_amcache_spgist: Default::default(),
+        rd_amcache_bloom: Default::default(),
         rd_support: PgVec::new_in(mcx),
         rd_supportinfo: core::cell::RefCell::new(Vec::new()),
         rd_opcoptions: Default::default(),
         rd_indexlist: Default::default(),
-            rd_trigdesc: Default::default(),
-            rd_hastriggers: false, rd_hasrules: false,
+        rd_trigdesc: Default::default(),
+        rd_hastriggers: false,
+        rd_hasrules: false,
     };
     if mapped_relation {
         relmapper_seams::relation_map_update_map::call(

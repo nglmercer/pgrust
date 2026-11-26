@@ -1,20 +1,31 @@
-#![allow(clippy::duplicate_mod,dead_code)]
+#![allow(clippy::duplicate_mod, dead_code)]
 
 use std::sync::atomic::{AtomicI64, AtomicU64, AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+use gravity_abi::breaker::{
+    Breaker, BreakerKind, Budget, HashAgg, KeyKind, RecordLayout, SlotKind, Spill, SHARE,
+};
 use gravity_abi::ctx::lane;
-use gravity_abi::{Datum, Lane, ScanPos};
-use gravity_driver::{box_source, ArenaBox, ArenaRef, SourceBox, Binding, BindingParts, BindingRef, BorrowedBatch, CommandId, Cursor, Derive, Entry, Error, Flow, Identity, Locker, Merge, PerTuple, Pins, Result, LegRef, Sink, SinkLeg, Snapshot, Source, Window, WindowBase, Writer};
-use gravity_program::hand::Oids;
-use gravity_parallel::{run_program, BlockRange, ClaimLedger, ClaimSize, HashAggPartial, HashBuildPartial, MorselSource, Plan, PlainAggPartial, Pool, RowsUnordered};
-use gravity_abi::breaker::{Breaker, BreakerKind, Budget, HashAgg, KeyKind, RecordLayout, SlotKind, Spill, SHARE};
-use gravity_program::{Code, End, Layout, Pipeline, Program, Reason, SiteDesc, WritePlan};
 use gravity_abi::ctx::{site_ptr, RESUME_NONE};
 use gravity_abi::status::{unsupported, CANCELLED, DONE, ERROR, UNSUPPORTED_SCRATCH};
-use gravity_kernels::util::HOST_STOP;
 use gravity_abi::Ctx;
-use gravity_kernels::util::{advance, consumed, done, emit, end, flush, interrupted, lane, partial, range_seek, stopped};
+use gravity_abi::{Datum, Lane, ScanPos};
+use gravity_driver::{
+    box_source, ArenaBox, ArenaRef, Binding, BindingParts, BindingRef, BorrowedBatch, CommandId,
+    Cursor, Derive, Entry, Error, Flow, Identity, LegRef, Locker, Merge, PerTuple, Pins, Result,
+    Sink, SinkLeg, Snapshot, Source, SourceBox, Window, WindowBase, Writer,
+};
+use gravity_kernels::util::HOST_STOP;
+use gravity_kernels::util::{
+    advance, consumed, done, emit, end, flush, interrupted, lane, partial, range_seek, stopped,
+};
+use gravity_parallel::{
+    run_program, BlockRange, ClaimLedger, ClaimSize, HashAggPartial, HashBuildPartial,
+    MorselSource, PlainAggPartial, Plan, Pool, RowsUnordered,
+};
+use gravity_program::hand::Oids;
+use gravity_program::{Code, End, Layout, Pipeline, Program, Reason, SiteDesc, WritePlan};
 
 pub const T_A: u32 = Oids::T_A;
 pub const T_KV: u32 = Oids::T_KV;
@@ -53,7 +64,11 @@ impl FixtureTable {
         })
     }
 
-    pub fn with_abort(mut self: Arc<FixtureTable>, abort: &'static AtomicU8, after: u64) -> Arc<FixtureTable> {
+    pub fn with_abort(
+        mut self: Arc<FixtureTable>,
+        abort: &'static AtomicU8,
+        after: u64,
+    ) -> Arc<FixtureTable> {
         let t = Arc::get_mut(&mut self).unwrap();
         t.abort = Some(abort);
         t.abort_after.store(after, Ordering::Relaxed);
@@ -88,7 +103,11 @@ pub struct FixtureSource {
 impl FixtureSource {
     fn unpin(&mut self) {
         if self.pinned {
-            assert_eq!(self.pinned_by, Some(std::thread::current().id()), "a pin released on a thread other than the one that took it");
+            assert_eq!(
+                self.pinned_by,
+                Some(std::thread::current().id()),
+                "a pin released on a thread other than the one that took it"
+            );
             self.table.pins.fetch_sub(1, Ordering::Relaxed);
             self.pinned = false;
         }
@@ -105,9 +124,17 @@ impl Source for FixtureSource {
         self.cur.clear();
         let lo = keys[0].min(self.table.blocks);
         self.hi = keys[1].min(self.table.blocks);
-        self.table.ledger.record(gravity_abi::MorselRange::new(lo, self.hi));
-        if self.table.abort.is_some_and(|a| a.load(Ordering::Acquire) != 0) {
-            self.table.started_after_abort.fetch_add(1, Ordering::Relaxed);
+        self.table
+            .ledger
+            .record(gravity_abi::MorselRange::new(lo, self.hi));
+        if self
+            .table
+            .abort
+            .is_some_and(|a| a.load(Ordering::Acquire) != 0)
+        {
+            self.table
+                .started_after_abort
+                .fetch_add(1, Ordering::Relaxed);
         }
         self.lo = lo;
         self.block = lo;
@@ -147,7 +174,16 @@ impl Source for FixtureSource {
             }
         }
         for k in 0..self.natts {
-            w.set(k, Lane::byval(self.lanes[k * per..].as_ptr() as *const u8, core::ptr::null(), 8, lane::REGION_ARENA, lane::id(lane::ID_ATTR, k as u32)));
+            w.set(
+                k,
+                Lane::byval(
+                    self.lanes[k * per..].as_ptr() as *const u8,
+                    core::ptr::null(),
+                    8,
+                    lane::REGION_ARENA,
+                    lane::id(lane::ID_ATTR, k as u32),
+                ),
+            );
         }
         w.rows = n as u32;
         let mut base = WindowBase::at(ScanPos::new(self.table.rel, self.block as u32, 0));
@@ -201,11 +237,16 @@ pub struct FixtureDerive {
 
 impl FixtureDerive {
     pub fn new(tables: &[&Arc<FixtureTable>]) -> FixtureDerive {
-        FixtureDerive { tables: tables.iter().map(|t| (*t).clone()).collect() }
+        FixtureDerive {
+            tables: tables.iter().map(|t| (*t).clone()).collect(),
+        }
     }
 
     pub fn table(&self, rel: u32) -> &Arc<FixtureTable> {
-        self.tables.iter().find(|t| t.rel == rel).expect("a table for the relation")
+        self.tables
+            .iter()
+            .find(|t| t.rel == rel)
+            .expect("a table for the relation")
     }
 }
 
@@ -217,7 +258,20 @@ impl Derive for FixtureDerive {
     fn derive_source(&mut self, desc: &SiteDesc, a: ArenaRef) -> SourceBox {
         let table = self.table(desc.relation).clone();
         let lanes = vec![0u64; desc.natts() * table.per_block as usize]; // alloc: Node
-        box_source(FixtureSource { table, lo: 0, hi: 0, block: 0, pinned: false, pinned_by: None, natts: desc.natts(), cur: Cursor::new(), lanes }, a)
+        box_source(
+            FixtureSource {
+                table,
+                lo: 0,
+                hi: 0,
+                block: 0,
+                pinned: false,
+                pinned_by: None,
+                natts: desc.natts(),
+                cur: Cursor::new(),
+                lanes,
+            },
+            a,
+        )
     }
 
     fn writer_size_hint(&self) -> usize {
@@ -245,7 +299,11 @@ pub struct LegSink {
 
 impl LegSink {
     pub fn new(keep: bool) -> LegSink {
-        LegSink { rows: Mutex::new(Vec::new()), count: AtomicU64::new(0), keep }
+        LegSink {
+            rows: Mutex::new(Vec::new()),
+            count: AtomicU64::new(0),
+            keep,
+        }
     }
 
     /// The rows in the order they were pushed (the ordered emit's proof).
@@ -290,7 +348,21 @@ impl SinkLeg for LegSink {
 pub static NO_ABORT: AtomicU8 = AtomicU8::new(0);
 
 pub fn parts<'a>(params: &'a [Datum], nulls: &'a [u8], abort: &'a AtomicU8) -> BindingParts<'a> {
-    BindingParts { snapshot: Snapshot(0x5A), command_id: CommandId(3), params, param_nulls: nulls, abort_flag: abort, pins: Pins(0), per_tuple: PerTuple(0), identity: Identity { proc_number: 7, resource_owner: 0, latch: 0 }, resolved: None }
+    BindingParts {
+        snapshot: Snapshot(0x5A),
+        command_id: CommandId(3),
+        params,
+        param_nulls: nulls,
+        abort_flag: abort,
+        pins: Pins(0),
+        per_tuple: PerTuple(0),
+        identity: Identity {
+            proc_number: 7,
+            resource_owner: 0,
+            latch: 0,
+        },
+        resolved: None,
+    }
 }
 
 pub const PLAIN: PlainAggPartial = PlainAggPartial;
@@ -299,22 +371,48 @@ pub const HASHBUILD: HashBuildPartial = HashBuildPartial;
 /// The group-by merge with `par_hashagg`'s owner phase under its default words (unordered, no bound).
 pub fn hashagg_merge() -> &'static HashAggPartial {
     static M: std::sync::OnceLock<HashAggPartial> = std::sync::OnceLock::new();
-    M.get_or_init(|| HashAggPartial::new(0, Some(gravity_kernels::table::params::owner_fns(&gravity_kernels::table::params::DEFAULT_PARAMS))))
+    M.get_or_init(|| {
+        HashAggPartial::new(
+            0,
+            Some(gravity_kernels::table::params::owner_fns(
+                &gravity_kernels::table::params::DEFAULT_PARAMS,
+            )),
+        )
+    })
 }
 
 /// The distinct merge with `par_distinct`'s two-round owner phase (the distinct test's 120,000 pairs).
 pub fn distinct_merge() -> &'static HashAggPartial {
     static M: std::sync::OnceLock<HashAggPartial> = std::sync::OnceLock::new();
-    M.get_or_init(|| HashAggPartial::new(0, Some(gravity_kernels::par_distinct::owner_fns(&gravity_kernels::par_distinct::params(120_000)))))
+    M.get_or_init(|| {
+        HashAggPartial::new(
+            0,
+            Some(gravity_kernels::par_distinct::owner_fns(
+                &gravity_kernels::par_distinct::params(120_000),
+            )),
+        )
+    })
 }
 pub const ROWS: RowsUnordered = RowsUnordered;
 
 pub fn merge_for(program: &Program, p: usize) -> &'static dyn Merge {
     match program.pipelines[p].ends_in {
-        End::Breaker(Breaker { kind: BreakerKind::PlainAgg, .. }) => &PLAIN,
-        End::Breaker(Breaker { kind: BreakerKind::HashAgg, .. }) => hashagg_merge(),
-        End::Breaker(Breaker { kind: BreakerKind::Distinct, .. }) => distinct_merge(),
-        End::Breaker(Breaker { kind: BreakerKind::HashBuild, .. }) => &HASHBUILD,
+        End::Breaker(Breaker {
+            kind: BreakerKind::PlainAgg,
+            ..
+        }) => &PLAIN,
+        End::Breaker(Breaker {
+            kind: BreakerKind::HashAgg,
+            ..
+        }) => hashagg_merge(),
+        End::Breaker(Breaker {
+            kind: BreakerKind::Distinct,
+            ..
+        }) => distinct_merge(),
+        End::Breaker(Breaker {
+            kind: BreakerKind::HashBuild,
+            ..
+        }) => &HASHBUILD,
         _ => &ROWS,
     }
 }
@@ -328,11 +426,21 @@ pub struct FixturePlan {
 }
 
 impl FixturePlan {
-    pub fn new(program: &Arc<Program>, derive: &FixtureDerive, width: u16, claim: u64) -> FixturePlan {
+    pub fn new(
+        program: &Arc<Program>,
+        derive: &FixtureDerive,
+        width: u16,
+        claim: u64,
+    ) -> FixturePlan {
         FixturePlan::sized(program, derive, width, ClaimSize::Fixed(claim))
     }
 
-    pub fn sized(program: &Arc<Program>, derive: &FixtureDerive, width: u16, size: ClaimSize) -> FixturePlan {
+    pub fn sized(
+        program: &Arc<Program>,
+        derive: &FixtureDerive,
+        width: u16,
+        size: ClaimSize,
+    ) -> FixturePlan {
         let blocks = |p: usize| {
             let site = program.pipelines.get(p).map_or(-1, |q| q.driving_site);
             if site < 0 {
@@ -341,8 +449,18 @@ impl FixturePlan {
                 derive.table(program.sites[site as usize].relation).blocks
             }
         };
-        let cursors = [BlockRange::new(blocks(0), size), BlockRange::new(blocks(1), size), BlockRange::new(blocks(2), size), BlockRange::new(blocks(3), size)];
-        FixturePlan { program: program.clone(), width, cursors, parts: gravity_parallel::PartitionRange::deferred() }
+        let cursors = [
+            BlockRange::new(blocks(0), size),
+            BlockRange::new(blocks(1), size),
+            BlockRange::new(blocks(2), size),
+            BlockRange::new(blocks(3), size),
+        ];
+        FixturePlan {
+            program: program.clone(),
+            width,
+            cursors,
+            parts: gravity_parallel::PartitionRange::deferred(),
+        }
     }
 }
 
@@ -352,7 +470,10 @@ impl Plan for FixturePlan {
     }
 
     fn claims_for(&self, pipeline: usize) -> &dyn MorselSource {
-        if matches!(self.program.pipelines[pipeline].claims, gravity_program::ClaimKind::SpillPartitions { .. }) {
+        if matches!(
+            self.program.pipelines[pipeline].claims,
+            gravity_program::ClaimKind::SpillPartitions { .. }
+        ) {
             return &self.parts;
         }
         &self.cursors[pipeline]
@@ -364,35 +485,116 @@ impl Plan for FixturePlan {
 
     fn after_pipeline(&self, pipeline: usize, exec: &mut gravity_driver::Exec) -> Result<()> {
         if let Some(slot) = self.program.pipelines[pipeline].produces() {
-            if self.program.pipelines.iter().any(|q| q.claims == gravity_program::ClaimKind::SpillPartitions { slot }) {
-                self.parts.set_total(exec.node().spill_parts_of(slot) as u64);
+            if self
+                .program
+                .pipelines
+                .iter()
+                .any(|q| q.claims == gravity_program::ClaimKind::SpillPartitions { slot })
+            {
+                self.parts
+                    .set_total(exec.node().spill_parts_of(slot) as u64);
             }
         }
         Ok(())
     }
 }
 
-fn run_with(entry: &mut Entry, program: &Arc<Program>, derive: &mut FixtureDerive, pool: &dyn Pool, width: u16, claim: u64, params: &[Datum], abort: &AtomicU8, sink: &mut LegSink, key: Option<gravity_program::PlanKey>) -> Result<u64> {
-    run_sized(entry, program, derive, pool, width, ClaimSize::Fixed(claim), params, abort, sink, key)
+fn run_with(
+    entry: &mut Entry,
+    program: &Arc<Program>,
+    derive: &mut FixtureDerive,
+    pool: &dyn Pool,
+    width: u16,
+    claim: u64,
+    params: &[Datum],
+    abort: &AtomicU8,
+    sink: &mut LegSink,
+    key: Option<gravity_program::PlanKey>,
+) -> Result<u64> {
+    run_sized(
+        entry,
+        program,
+        derive,
+        pool,
+        width,
+        ClaimSize::Fixed(claim),
+        params,
+        abort,
+        sink,
+        key,
+    )
 }
 
-pub fn run_sized(entry: &mut Entry, program: &Arc<Program>, derive: &mut FixtureDerive, pool: &dyn Pool, width: u16, size: ClaimSize, params: &[Datum], abort: &AtomicU8, sink: &mut LegSink, key: Option<gravity_program::PlanKey>) -> Result<u64> {
+pub fn run_sized(
+    entry: &mut Entry,
+    program: &Arc<Program>,
+    derive: &mut FixtureDerive,
+    pool: &dyn Pool,
+    width: u16,
+    size: ClaimSize,
+    params: &[Datum],
+    abort: &AtomicU8,
+    sink: &mut LegSink,
+    key: Option<gravity_program::PlanKey>,
+) -> Result<u64> {
     let nulls = [0u8; 16];
     let plan = FixturePlan::sized(program, derive, width, size);
     let mut b = Binding::new(parts(params, &nulls[..params.len().max(1)], abort), sink);
-    let mut exec = entry.start(key, program, derive, &mut b, lease(gravity_driver::Grant::of(8 << 20)))?;
+    let mut exec = entry.start(
+        key,
+        program,
+        derive,
+        &mut b,
+        lease(gravity_driver::Grant::of(8 << 20)),
+    )?;
     let r = run_program(entry, &mut exec, &mut b, derive, pool, &plan);
     entry.end(exec, r.is_ok());
     r
 }
 
-pub fn run_once(entry: &mut Entry, program: &Arc<Program>, derive: &mut FixtureDerive, pool: &dyn Pool, width: u16, claim: u64, params: &[Datum], abort: &AtomicU8, sink: &mut LegSink) -> Result<u64> {
-    run_with(entry, program, derive, pool, width, claim, params, abort, sink, None)
+pub fn run_once(
+    entry: &mut Entry,
+    program: &Arc<Program>,
+    derive: &mut FixtureDerive,
+    pool: &dyn Pool,
+    width: u16,
+    claim: u64,
+    params: &[Datum],
+    abort: &AtomicU8,
+    sink: &mut LegSink,
+) -> Result<u64> {
+    run_with(
+        entry, program, derive, pool, width, claim, params, abort, sink, None,
+    )
 }
 
-pub fn run_keyed(entry: &mut Entry, program: &Arc<Program>, derive: &mut FixtureDerive, pool: &dyn Pool, width: u16, claim: u64, params: &[Datum], abort: &AtomicU8, sink: &mut LegSink) -> Result<u64> {
-    let key = gravity_program::PlanKey { handle: gravity_program::Handle(1), generation: gravity_program::Generation(1) };
-    run_with(entry, program, derive, pool, width, claim, params, abort, sink, Some(key))
+pub fn run_keyed(
+    entry: &mut Entry,
+    program: &Arc<Program>,
+    derive: &mut FixtureDerive,
+    pool: &dyn Pool,
+    width: u16,
+    claim: u64,
+    params: &[Datum],
+    abort: &AtomicU8,
+    sink: &mut LegSink,
+) -> Result<u64> {
+    let key = gravity_program::PlanKey {
+        handle: gravity_program::Handle(1),
+        generation: gravity_program::Generation(1),
+    };
+    run_with(
+        entry,
+        program,
+        derive,
+        pool,
+        width,
+        claim,
+        params,
+        abort,
+        sink,
+        Some(key),
+    )
 }
 
 pub const WIDTHS: [u16; 4] = [1, 2, 4, 8];
@@ -406,7 +608,7 @@ pub fn gen_kv(r: u64) -> Option<[i64; 2]> {
 }
 
 pub fn gen_inner(r: u64) -> Option<[i64; 2]> {
-    if r.is_multiple_of( 5) {
+    if r.is_multiple_of(5) {
         Some([(r % 37) as i64, (r * 10) as i64])
     } else {
         None
@@ -417,11 +619,11 @@ pub fn gen_outer(r: u64) -> Option<[i64; 2]> {
     Some([(r % 37) as i64, r as i64])
 }
 
-
 // ---- fixture kernels for §2 commits 3–4: a share-budgeted group-by and a two-slot emit
 
 /// `key → count, sum(v)` over lane 0 / lane 1 into a share-budgeted table (opens at 16 records).
-pub const GROUP: RecordLayout = RecordLayout::new(&[KeyKind::I64], &[SlotKind::Count, SlotKind::SumI64]);
+pub const GROUP: RecordLayout =
+    RecordLayout::new(&[KeyKind::I64], &[SlotKind::Count, SlotKind::SumI64]);
 
 pub unsafe extern "C-unwind" fn k_group_share(ctx: *mut Ctx) -> i64 {
     if range_seek(ctx, 0) < 0 {
@@ -454,7 +656,11 @@ pub unsafe extern "C-unwind" fn k_group_share(ctx: *mut Ctx) -> i64 {
 
 pub unsafe extern "C-unwind" fn k_emit_groups(ctx: *mut Ctx) -> i64 {
     let table = HashAgg::at(partial(ctx), &GROUP, 16, SHARE);
-    let mut i = if (*ctx).resume == RESUME_NONE { 0 } else { (*ctx).resume as usize };
+    let mut i = if (*ctx).resume == RESUME_NONE {
+        0
+    } else {
+        (*ctx).resume as usize
+    };
     while i < table.cap as usize {
         let r = table.record(i);
         i += 1;
@@ -478,8 +684,12 @@ pub unsafe extern "C-unwind" fn k_emit_groups(ctx: *mut Ctx) -> i64 {
 /// `(count0 + count1)` from the two consumed one-record tables of `par_scan_count`'s layout.
 pub unsafe extern "C-unwind" fn k_emit_two(ctx: *mut Ctx) -> i64 {
     use gravity_kernels::par_scan_count::{BYTES, LAYOUT};
-    let a = HashAgg::at(consumed(ctx, 0), &LAYOUT, 1, BYTES).single().count(0);
-    let b = HashAgg::at(consumed(ctx, 1), &LAYOUT, 1, BYTES).single().count(0);
+    let a = HashAgg::at(consumed(ctx, 0), &LAYOUT, 1, BYTES)
+        .single()
+        .count(0);
+    let b = HashAgg::at(consumed(ctx, 1), &LAYOUT, 1, BYTES)
+        .single()
+        .count(0);
     let v = [(a + b) as u64, a as u64, b as u64];
     let n = [0u8; 3];
     if emit(ctx, 3, &[(v.as_ptr(), n.as_ptr(), 3)]) < 0 {
@@ -492,7 +702,13 @@ pub unsafe extern "C-unwind" fn k_emit_two(ctx: *mut Ctx) -> i64 {
 }
 
 fn layout3(nsites: u16, out_natts: u16) -> Layout {
-    Layout { nsites, out_natts, out_rows: 64, scratch_bytes: 0, exec_bytes: 0 }
+    Layout {
+        nsites,
+        out_natts,
+        out_rows: 64,
+        scratch_bytes: 0,
+        exec_bytes: 0,
+    }
 }
 
 fn int8_col(name: &str) -> gravity_program::OutCol {
@@ -504,8 +720,23 @@ pub fn p_group_share(rel: u32, rows: u64) -> Program {
     let st = gravity_program::Arena::new(1 << 12);
     let sites = [SiteDesc::range_source(st.handle(), rel, &[1, 2])];
     let out = [int8_col("k"), int8_col("count"), int8_col("sum")];
-    let breaker = Breaker { kind: BreakerKind::HashAgg, slot: 0, bytes: 0, budget: Budget::Share, spill: Spill::None };
-    let pipes = [(Pipeline::eligible(0, End::Breaker(breaker), rows), Code::hand(k_group_share)), (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), Code::hand(k_emit_groups))];
+    let breaker = Breaker {
+        kind: BreakerKind::HashAgg,
+        slot: 0,
+        bytes: 0,
+        budget: Budget::Share,
+        spill: Spill::None,
+    };
+    let pipes = [
+        (
+            Pipeline::eligible(0, End::Breaker(breaker), rows),
+            Code::hand(k_group_share),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            Code::hand(k_emit_groups),
+        ),
+    ];
     Program::with_pipelines(layout3(1, 3), &sites, &out, WritePlan::SELECT, pipes)
 }
 
@@ -516,21 +747,68 @@ pub fn p_two_slots(rel: u32, rows: u64) -> Program {
     let sites = [SiteDesc::range_source(st.handle(), rel, &[1])];
     let out = [int8_col("both"), int8_col("a"), int8_col("b")];
     let pipes = [
-        (Pipeline::eligible(0, End::Breaker(Breaker::sized(BreakerKind::PlainAgg, BYTES).in_slot(0)), rows), Code::hand(par_scan_count)),
-        (Pipeline::eligible(0, End::Breaker(Breaker::sized(BreakerKind::PlainAgg, BYTES).in_slot(1)), rows), Code::hand(par_scan_count)),
-        (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming(&[0, 1]), Code::hand(k_emit_two)),
+        (
+            Pipeline::eligible(
+                0,
+                End::Breaker(Breaker::sized(BreakerKind::PlainAgg, BYTES).in_slot(0)),
+                rows,
+            ),
+            Code::hand(par_scan_count),
+        ),
+        (
+            Pipeline::eligible(
+                0,
+                End::Breaker(Breaker::sized(BreakerKind::PlainAgg, BYTES).in_slot(1)),
+                rows,
+            ),
+            Code::hand(par_scan_count),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming(&[0, 1]),
+            Code::hand(k_emit_two),
+        ),
     ];
     Program::with_pipelines(layout3(1, 3), &sites, &out, WritePlan::SELECT, pipes)
 }
 
 /// `run_sized` under a grant and a caller's plan (the partition tests' ledgered merge).
-pub fn run_planned(entry: &mut Entry, program: &Arc<Program>, derive: &mut FixtureDerive, pool: &dyn Pool, plan: &dyn Plan, grant: gravity_driver::Grant, params: &[Datum], abort: &AtomicU8, sink: &mut LegSink) -> Result<u64> {
-    run_planned_in(entry, program, derive, pool, plan, lease(grant), params, abort, sink)
+pub fn run_planned(
+    entry: &mut Entry,
+    program: &Arc<Program>,
+    derive: &mut FixtureDerive,
+    pool: &dyn Pool,
+    plan: &dyn Plan,
+    grant: gravity_driver::Grant,
+    params: &[Datum],
+    abort: &AtomicU8,
+    sink: &mut LegSink,
+) -> Result<u64> {
+    run_planned_in(
+        entry,
+        program,
+        derive,
+        pool,
+        plan,
+        lease(grant),
+        params,
+        abort,
+        sink,
+    )
 }
 
 /// `run_planned` under an admitted statement's lease.
 #[allow(clippy::too_many_arguments, dead_code)]
-pub fn run_planned_in(entry: &mut Entry, program: &Arc<Program>, derive: &mut FixtureDerive, pool: &dyn Pool, plan: &dyn Plan, lease: std::rc::Rc<gravity_driver::Reservation>, params: &[Datum], abort: &AtomicU8, sink: &mut LegSink) -> Result<u64> {
+pub fn run_planned_in(
+    entry: &mut Entry,
+    program: &Arc<Program>,
+    derive: &mut FixtureDerive,
+    pool: &dyn Pool,
+    plan: &dyn Plan,
+    lease: std::rc::Rc<gravity_driver::Reservation>,
+    params: &[Datum],
+    abort: &AtomicU8,
+    sink: &mut LegSink,
+) -> Result<u64> {
     let nulls = [0u8; 16];
     let mut b = Binding::new(parts(params, &nulls[..params.len().max(1)], abort), sink);
     let mut exec = entry.start(None, program, derive, &mut b, lease)?;
@@ -564,7 +842,9 @@ impl gravity_driver::SpillFile for MemSpillFile {
 
     fn open_part(&self, part: u32) -> Result<Option<Box<dyn gravity_driver::RunReader>>> {
         let bytes = self.parts[part as usize].clone();
-        Ok((!bytes.is_empty()).then(|| Box::new(MemRunReader { bytes, pos: 0 }) as Box<dyn gravity_driver::RunReader>))
+        Ok((!bytes.is_empty()).then(|| {
+            Box::new(MemRunReader { bytes, pos: 0 }) as Box<dyn gravity_driver::RunReader>
+        }))
     }
 
     fn spilled_bytes(&self) -> u64 {
@@ -590,8 +870,17 @@ impl gravity_driver::RunReader for MemRunReader {
 pub struct MemSpillSet;
 
 impl gravity_driver::SpillSet for MemSpillSet {
-    fn open(&mut self, _purpose: &str, _generation: u64, _worker: usize, nparts: u32) -> Result<Box<dyn gravity_driver::SpillFile>> {
-        Ok(Box::new(MemSpillFile { parts: (0..nparts).map(|_| Vec::new()).collect(), bytes: 0 }))
+    fn open(
+        &mut self,
+        _purpose: &str,
+        _generation: u64,
+        _worker: usize,
+        nparts: u32,
+    ) -> Result<Box<dyn gravity_driver::SpillFile>> {
+        Ok(Box::new(MemSpillFile {
+            parts: (0..nparts).map(|_| Vec::new()).collect(),
+            bytes: 0,
+        }))
     }
 }
 
@@ -611,10 +900,20 @@ impl gravity_driver::SpillFactory for MemSpillFactory {
     fn map_temp(&self, bytes: usize) -> Result<Option<gravity_driver::TempMap>> {
         use std::os::fd::AsRawFd;
         static FILES: AtomicUsize = AtomicUsize::new(0);
-        let path = std::env::temp_dir().join(format!("gravity-test-owners-{}-{}", std::process::id(), FILES.fetch_add(1, Ordering::Relaxed)));
-        let f = std::fs::OpenOptions::new().read(true).write(true).create_new(true).open(&path).map_err(|e| Error::host(format!("test owner map: {e}")))?;
+        let path = std::env::temp_dir().join(format!(
+            "gravity-test-owners-{}-{}",
+            std::process::id(),
+            FILES.fetch_add(1, Ordering::Relaxed)
+        ));
+        let f = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .map_err(|e| Error::host(format!("test owner map: {e}")))?;
         let _ = std::fs::remove_file(&path);
-        f.set_len(bytes as u64).map_err(|e| Error::host(format!("test owner map: {e}")))?;
+        f.set_len(bytes as u64)
+            .map_err(|e| Error::host(format!("test owner map: {e}")))?;
         Ok(gravity_driver::TempMap::shared(f.as_raw_fd(), bytes))
     }
 }
@@ -629,18 +928,52 @@ pub fn install_mem_spill() {
 }
 
 /// `run_planned` reporting whether the execution spilled and how many partitions / generations slot 0 reached.
-pub fn run_spilling(entry: &mut Entry, program: &Arc<Program>, derive: &mut FixtureDerive, pool: &dyn Pool, plan: &dyn Plan, grant: gravity_driver::Grant, params: &[Datum], abort: &AtomicU8, sink: &mut LegSink) -> Result<(u64, bool, u32, u8)> {
-    run_spilling_in(entry, program, derive, pool, plan, lease(grant), params, abort, sink)
+pub fn run_spilling(
+    entry: &mut Entry,
+    program: &Arc<Program>,
+    derive: &mut FixtureDerive,
+    pool: &dyn Pool,
+    plan: &dyn Plan,
+    grant: gravity_driver::Grant,
+    params: &[Datum],
+    abort: &AtomicU8,
+    sink: &mut LegSink,
+) -> Result<(u64, bool, u32, u8)> {
+    run_spilling_in(
+        entry,
+        program,
+        derive,
+        pool,
+        plan,
+        lease(grant),
+        params,
+        abort,
+        sink,
+    )
 }
 
 /// `run_spilling` under an admitted statement's lease.
 #[allow(clippy::too_many_arguments, dead_code)]
-pub fn run_spilling_in(entry: &mut Entry, program: &Arc<Program>, derive: &mut FixtureDerive, pool: &dyn Pool, plan: &dyn Plan, lease: std::rc::Rc<gravity_driver::Reservation>, params: &[Datum], abort: &AtomicU8, sink: &mut LegSink) -> Result<(u64, bool, u32, u8)> {
+pub fn run_spilling_in(
+    entry: &mut Entry,
+    program: &Arc<Program>,
+    derive: &mut FixtureDerive,
+    pool: &dyn Pool,
+    plan: &dyn Plan,
+    lease: std::rc::Rc<gravity_driver::Reservation>,
+    params: &[Datum],
+    abort: &AtomicU8,
+    sink: &mut LegSink,
+) -> Result<(u64, bool, u32, u8)> {
     let nulls = [0u8; 16];
     let mut b = Binding::new(parts(params, &nulls[..params.len().max(1)], abort), sink);
     let mut exec = entry.start(None, program, derive, &mut b, lease)?;
     let r = run_program(entry, &mut exec, &mut b, derive, pool, plan);
-    let census = (exec.node().spilled(), exec.node().spill_parts_of(0), exec.node().spill_generations());
+    let census = (
+        exec.node().spilled(),
+        exec.node().spill_parts_of(0),
+        exec.node().spill_generations(),
+    );
     entry.end(exec, r.is_ok());
     r.map(|rows| (rows, census.0, census.1, census.2))
 }

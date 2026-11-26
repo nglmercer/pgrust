@@ -32,11 +32,11 @@ use crate::PgError;
 /// hosts ops/agg/trans's run-time type-cache reads (its family's sibling file).
 pub mod aggtrans;
 pub mod collation;
+/// gravity_expr's catalog adapter reads (its family's sibling file).
+pub mod expr;
 pub mod image;
 pub mod integral;
 pub mod keysem;
-/// gravity_expr's catalog adapter reads (its family's sibling file).
-pub mod expr;
 /// exec ops/memoize's run-time key lookups (its family's sibling file).
 pub mod memoize;
 pub mod numeric;
@@ -46,7 +46,10 @@ pub mod prefix;
 pub mod srf;
 pub mod storage;
 
-pub use keysem::{available, bits_decide, eq_form, hash_procs, intern_op, resolve, By, EqForm, KeyReq, KeySem, KeyUse, Procs, TypeClass, INDETERMINATE};
+pub use keysem::{
+    available, bits_decide, eq_form, hash_procs, intern_op, resolve, By, EqForm, KeyReq, KeySem,
+    KeyUse, Procs, TypeClass, INDETERMINATE,
+};
 
 type Oid = u32;
 type R<T> = Result<T, Box<PgError>>;
@@ -68,7 +71,10 @@ enum Leaf {
     /// An anonymous record's text / varchar (or `bpchar`) column under nondeterministic collation `coll` (`record_form`):
     /// the provider's sort key of its payload (bpchar's without trailing blanks), what hashtext / hashbpchar hash under
     /// it, so the strings the collation calls equal have one image.
-    Coll { coll: Oid, bpchar: bool },
+    Coll {
+        coll: Oid,
+        bpchar: bool,
+    },
     /// D3786: oidvector, by oidvectoreq / hashoidvector (oid.c): its element count and values, never its lower bound
     /// (`oidvector`).
     OidVector,
@@ -108,10 +114,11 @@ fn leaf_of(typid: Oid) -> Option<Leaf> {
     Some(match typid {
         // by value: bool, char, int8, int2, int4, regproc, oid, xid, cid, money, date, time, timestamp, timestamptz,
         // reg* types, pg_lsn, xid8; fixed by reference: tid, macaddr8, macaddr, aclitem, timetz, uuid
-        BOOLOID | CHAROID | INT8OID | INT2OID | INT4OID | REGPROCOID | OIDOID | XIDOID | CIDOID | CASHOID | DATEOID
-        | TIMEOID | TIMESTAMPOID | TIMESTAMPTZOID | REGPROCEDUREOID | REGOPEROID | REGOPERATOROID | REGCLASSOID
-        | REGTYPEOID | LSNOID | REGCONFIGOID | REGDICTIONARYOID | REGNAMESPACEOID | REGROLEOID | REGCOLLATIONOID
-        | XID8OID | TIDOID | MACADDR8OID | MACADDROID | ACLITEMOID | TIMETZOID | UUIDOID => Leaf::Bytes,
+        BOOLOID | CHAROID | INT8OID | INT2OID | INT4OID | REGPROCOID | OIDOID | XIDOID | CIDOID
+        | CASHOID | DATEOID | TIMEOID | TIMESTAMPOID | TIMESTAMPTZOID | REGPROCEDUREOID
+        | REGOPEROID | REGOPERATOROID | REGCLASSOID | REGTYPEOID | LSNOID | REGCONFIGOID
+        | REGDICTIONARYOID | REGNAMESPACEOID | REGROLEOID | REGCOLLATIONOID | XID8OID | TIDOID
+        | MACADDR8OID | MACADDROID | ACLITEMOID | TIMETZOID | UUIDOID => Leaf::Bytes,
         FLOAT4OID => Leaf::Float4,
         FLOAT8OID => Leaf::Float8,
         NAMEOID => Leaf::Name,
@@ -130,7 +137,8 @@ fn leaf_of(typid: Oid) -> Option<Leaf> {
 /// runner/execute.rs's one-row probes of a write's scan. False when `opno` is no member of the family (a failed catalog
 /// read).
 pub fn btree_equality_member(opno: Oid, opfamily: Oid) -> bool {
-    lsyscache::get_op_opfamily_properties(opno, opfamily, false).is_ok_and(|(st, _, _)| st == lsyscache::BTEqualStrategyNumber as i32)
+    lsyscache::get_op_opfamily_properties(opno, opfamily, false)
+        .is_ok_and(|(st, _, _)| st == lsyscache::BTEqualStrategyNumber as i32)
 }
 
 /// PostgreSQL's `BTORDER_PROC` (nbtree.h): a btree family's comparison support function.
@@ -139,20 +147,33 @@ pub const BTORDER_PROC: i16 = 1;
 /// lsyscache `get_op_opfamily_properties`: operator `opno`'s (strategy, lefttype, righttype) in `opfamily`, as an
 /// ordering operator when `ordering_op` (nodeIndexscan.c ExecIndexBuildScanKeys: an index recipe's scan keys and
 /// row-compare members, an index ORDER BY key). A run-time read through lsyscache's own caches.
-pub fn op_opfamily_properties(opno: Oid, opfamily: Oid, ordering_op: bool) -> types_error::PgResult<(i32, Oid, Oid)> {
+pub fn op_opfamily_properties(
+    opno: Oid,
+    opfamily: Oid,
+    ordering_op: bool,
+) -> types_error::PgResult<(i32, Oid, Oid)> {
     lsyscache::get_op_opfamily_properties(opno, opfamily, ordering_op)
 }
 
 /// lsyscache `get_opfamily_proc`: support procedure `procnum` of `opfamily` for (lefttype, righttype) (nodeIndexscan.c
 /// ExecIndexBuildScanKeys: a row-compare member's order proc). A run-time read through lsyscache's own caches.
-pub fn opfamily_proc(opfamily: Oid, lefttype: Oid, righttype: Oid, procnum: i16) -> types_error::PgResult<Oid> {
+pub fn opfamily_proc(
+    opfamily: Oid,
+    lefttype: Oid,
+    righttype: Oid,
+    procnum: i16,
+) -> types_error::PgResult<Oid> {
     lsyscache::get_opfamily_proc(opfamily, lefttype, righttype, procnum)
 }
 
 /// lsyscache `get_opfamily_member` then `get_opcode`: the function of `opfamily`'s strategy `strategy` operator at
 /// (`intype`, `intype`), as a scan key over a column of the class's input type calls it (an ordered index walk's key
 /// range bounds, hosts index_ranges); 0 when the family has no such member. A run-time read through lsyscache's own caches.
-pub fn opfamily_member_proc(opfamily: Oid, intype: Oid, strategy: i16) -> types_error::PgResult<Oid> {
+pub fn opfamily_member_proc(
+    opfamily: Oid,
+    intype: Oid,
+    strategy: i16,
+) -> types_error::PgResult<Oid> {
     let op = lsyscache::get_opfamily_member(opfamily, intype, intype, strategy)?;
     if op == 0 {
         return Ok(0);
@@ -171,7 +192,8 @@ pub fn bytes_leaf(typid: Oid) -> bool {
 /// checks the collation), and `anyenum` (an enum's `=` is its label oid's, enum_eq: every enum type). False for numeric
 /// (1.0 / 1.00), the floats (-0 / 0), interval, bpchar, name and jsonb.
 pub fn one_image(typid: Oid) -> bool {
-    typid == types_core::catalog::ANYENUMOID || matches!(leaf_of(typid), Some(Leaf::Bytes | Leaf::Varlena))
+    typid == types_core::catalog::ANYENUMOID
+        || matches!(leaf_of(typid), Some(Leaf::Bytes | Leaf::Varlena))
 }
 
 /// OID-23: whether every one of a call's argument types has one image per equal value (`one_image`); a call with no
@@ -212,7 +234,8 @@ pub enum OrderBy {
 pub fn order_image(typid: Oid) -> Option<OrderBy> {
     use types_core::catalog::*;
     match typid {
-        INT2OID | INT4OID | INT8OID | DATEOID | TIMEOID | TIMESTAMPOID | TIMESTAMPTZOID | CASHOID => Some(OrderBy::Signed),
+        INT2OID | INT4OID | INT8OID | DATEOID | TIMEOID | TIMESTAMPOID | TIMESTAMPTZOID
+        | CASHOID => Some(OrderBy::Signed),
         BOOLOID | CHAROID | OIDOID | XID8OID | LSNOID => Some(OrderBy::Unsigned),
         BYTEAOID | TEXTOID | VARCHAROID => Some(OrderBy::Bytes),
         _ => None,
@@ -239,7 +262,14 @@ pub fn int_word(typid: Oid) -> bool {
 /// Whether key type `typid`'s form is one by-value leaf whose `=` is its bytes (an enum, a by-value built-in of
 /// `Leaf::Bytes`): its datum's bits are its value. False for a type with no form (a user equality).
 pub fn bits_form(typid: Oid) -> R<bool> {
-    Ok(matches!(build(typid, 0)?, Ok(Form { byval: true, kind: Kind::Leaf(Leaf::Bytes), .. })))
+    Ok(matches!(
+        build(typid, 0)?,
+        Ok(Form {
+            byval: true,
+            kind: Kind::Leaf(Leaf::Bytes),
+            ..
+        })
+    ))
 }
 
 /// Whether collation `coll` equates exactly the equal byte strings (the "collation bytes" property call): 0 (a type
@@ -249,16 +279,23 @@ pub fn bits_form(typid: Oid) -> R<bool> {
 /// error, as lsyscache's (a rig with no catalog or no such collation refuses).
 pub fn coll_bytes(coll: Oid) -> R<bool> {
     use crate::typesem::collation::{C_COLLATION_OID, POSIX_COLLATION_OID};
-    if matches!(coll, 0 | DEFAULT_COLLATION | C_COLLATION_OID | POSIX_COLLATION_OID) {
+    if matches!(
+        coll,
+        0 | DEFAULT_COLLATION | C_COLLATION_OID | POSIX_COLLATION_OID
+    ) {
         return Ok(true);
-    }lsyscache::get_collation_isdeterministic(coll)
+    }
+    lsyscache::get_collation_isdeterministic(coll)
 }
 
 /// `coll_bytes` for a claim that can only decline (an open-coded compare): a failed read, or a lowering with no
 /// catalog at all, declines.
 pub fn claims_coll_bytes(coll: Oid) -> bool {
     use crate::typesem::collation::{C_COLLATION_OID, POSIX_COLLATION_OID};
-    if matches!(coll, 0 | DEFAULT_COLLATION | C_COLLATION_OID | POSIX_COLLATION_OID) {
+    if matches!(
+        coll,
+        0 | DEFAULT_COLLATION | C_COLLATION_OID | POSIX_COLLATION_OID
+    ) {
         return true;
     }
     // interrupts held (D376): a cancel the catalog read meets stays pending instead of being consumed into a decline
@@ -305,7 +342,11 @@ pub fn record_form(cols: &[(Oid, Oid)]) -> R<Result<(u64, &'static Form), &'stat
         if !coll_bytes(coll)? {
             match coll_leaf(typ, coll)? {
                 Some(f) => forms.push(f),
-                None => return Ok(Err("an anonymous record key's column under a nondeterministic collation")),
+                None => {
+                    return Ok(Err(
+                        "an anonymous record key's column under a nondeterministic collation",
+                    ))
+                }
             }
             continue;
         }
@@ -331,14 +372,27 @@ fn coll_leaf(typ: Oid, coll: Oid) -> R<Option<Form>> {
         return Ok(None);
     }
     Ok(match build(typ, 1)? {
-        Ok(f @ Form { kind: Kind::Leaf(Leaf::Varlena | Leaf::Bpchar), .. }) => Some(Form { kind: Kind::Leaf(Leaf::Coll { coll, bpchar }), ..f }),
+        Ok(
+            f @ Form {
+                kind: Kind::Leaf(Leaf::Varlena | Leaf::Bpchar),
+                ..
+            },
+        ) => Some(Form {
+            kind: Kind::Leaf(Leaf::Coll { coll, bpchar }),
+            ..f
+        }),
         _ => None,
     })
 }
 
 /// A record over column forms `cols`, in `record`'s storage (typlen -1, by reference, typalign 'd').
 fn record_of(cols: Vec<Form>) -> Form {
-    Form { len: -1, byval: false, align: 8, kind: Kind::Record(cols) }
+    Form {
+        len: -1,
+        byval: false,
+        align: 8,
+        kind: Kind::Record(cols),
+    }
 }
 
 /// D1901, V4R-508's in-row refusal (decompose's hash join and group keys ask through the server's `Facts`): whether key
@@ -385,7 +439,11 @@ pub fn by_id(id: u64) -> R<&'static Form> {
         return Ok(unsafe { &*(lp as *const Form) });
     }
     let t = INTERNED.read().unwrap_or_else(|e| e.into_inner());
-    let f = t.iter().find(|e| e.0 == id).map(|e| e.1).ok_or_else(|| Box::new(PgError::error(format!("gravity: rep.hosted.hash: canonical form {id:#x} was not built in this process"))))?; // alloc: Cold
+    let f = t.iter().find(|e| e.0 == id).map(|e| e.1).ok_or_else(|| {
+        Box::new(PgError::error(format!(
+            "gravity: rep.hosted.hash: canonical form {id:#x} was not built in this process"
+        )))
+    })?; // alloc: Cold
     LAST.with(|c| c.set((id, f as *const Form as usize)));
     Ok(f)
 }
@@ -395,17 +453,30 @@ fn build(typid: Oid, depth: u32) -> R<Result<Form, &'static str>> {
         return Ok(Err("a key type nested deeper than 16 levels"));
     }
     if typid == RECORDOID {
-        return Ok(Err("an anonymous record key (its columns are known only per row)"));
+        return Ok(Err(
+            "an anonymous record key (its columns are known only per row)",
+        ));
     }
-    let Some(t) = syscache_seams::lookup_pg_type_typcache_shape::call(typid)? else { return Ok(Err("a key type the catalog does not know")) };
+    let Some(t) = syscache_seams::lookup_pg_type_typcache_shape::call(typid)? else {
+        return Ok(Err("a key type the catalog does not know"));
+    };
     if t.typtype as u8 != b'd' && user_equality(typid)? {
         return Ok(Err(USER_EQUALITY));
     }
     let (len, byval, align) = (t.typlen, t.typbyval, align_of(t.typalign));
-    let form = |kind| Ok(Ok(Form { len, byval, align, kind }));
+    let form = |kind| {
+        Ok(Ok(Form {
+            len,
+            byval,
+            align,
+            kind,
+        }))
+    };
     match t.typtype as u8 {
         b'd' => {
-            let Some(b) = syscache_seams::pg_type_base_shape::call(typid)? else { return Ok(Err("a domain the catalog does not know")) };
+            let Some(b) = syscache_seams::pg_type_base_shape::call(typid)? else {
+                return Ok(Err("a domain the catalog does not know"));
+            };
             build(b.typbasetype, depth + 1)
         }
         b'e' => form(Kind::Leaf(Leaf::Bytes)),
@@ -414,14 +485,21 @@ fn build(typid: Oid, depth: u32) -> R<Result<Form, &'static str>> {
             // recorded (C3, gravity_deps: ATTNUM rows), which ALTER TYPE .. ADD / DROP / ALTER ATTRIBUTE invalidates
             let mut cols = Vec::new(); // alloc: Cold
             for att in 1.. {
-                let Some(a) = syscache_seams::lookup_pg_attribute_shape::call(t.typrelid, att)? else { break };
+                let Some(a) = syscache_seams::lookup_pg_attribute_shape::call(t.typrelid, att)?
+                else {
+                    break;
+                };
                 if a.attisdropped {
                     return Ok(Err("a composite key with a dropped column"));
                 }
                 if !coll_bytes(a.attcollation)? {
                     match coll_leaf(a.atttypid, a.attcollation)? {
                         Some(f) => cols.push(f),
-                        None => return Ok(Err("a composite key's column under a nondeterministic collation")),
+                        None => {
+                            return Ok(Err(
+                                "a composite key's column under a nondeterministic collation",
+                            ))
+                        }
                     }
                     continue;
                 }
@@ -433,7 +511,9 @@ fn build(typid: Oid, depth: u32) -> R<Result<Form, &'static str>> {
             form(Kind::Record(cols))
         }
         b'r' => {
-            let Some(r) = syscache_seams::lookup_pg_range_shape::call(typid)? else { return Ok(Err("a range the catalog does not know")) };
+            let Some(r) = syscache_seams::lookup_pg_range_shape::call(typid)? else {
+                return Ok(Err("a range the catalog does not know"));
+            };
             if !coll_bytes(r.rngcollation)? {
                 return Ok(Err("a range key under a nondeterministic collation"));
             }
@@ -445,7 +525,9 @@ fn build(typid: Oid, depth: u32) -> R<Result<Form, &'static str>> {
                 return Ok(Err(USER_EQUALITY));
             }
             if !subtype_equality(r.rngsubtype, r.rngsubopc)? {
-                return Ok(Err("a range key whose subtype opclass is not the subtype's default"));
+                return Ok(Err(
+                    "a range key whose subtype opclass is not the subtype's default",
+                ));
             }
             match build(r.rngsubtype, depth + 1)? {
                 Ok(f) => form(Kind::Range(Box::new(f))), // alloc: Cold
@@ -454,9 +536,14 @@ fn build(typid: Oid, depth: u32) -> R<Result<Form, &'static str>> {
         }
         // hash_multirange / multirange_eq: its ranges in stored order, each by its range type's form
         b'm' => {
-            let Some(rng) = syscache_seams::lookup_pg_range_by_multirange::call(typid)? else { return Ok(Err("a multirange the catalog does not know")) };
+            let Some(rng) = syscache_seams::lookup_pg_range_by_multirange::call(typid)? else {
+                return Ok(Err("a multirange the catalog does not know"));
+            };
             match build(rng, depth + 1)? {
-                Ok(Form { kind: Kind::Range(sub), .. }) => form(Kind::Multirange(sub)),
+                Ok(Form {
+                    kind: Kind::Range(sub),
+                    ..
+                }) => form(Kind::Multirange(sub)),
                 Ok(_) => Ok(Err("a multirange whose range type is not a range")),
                 Err(why) => Ok(Err(why)),
             }
@@ -465,13 +552,17 @@ fn build(typid: Oid, depth: u32) -> R<Result<Form, &'static str>> {
         // hashoidvector read dim1 and the values), so two equal vectors may differ in lower bound: array_eq's form
         // (dims and lower bounds) would part them
         b'b' if typid == types_core::catalog::OIDVECTOROID => form(Kind::Leaf(Leaf::OidVector)),
-        b'b' if t.typsubscript == F_ARRAY_SUBSCRIPT_HANDLER && len == -1 && t.typelem != 0 => match build(t.typelem, depth + 1)? {
-            Ok(f) => form(Kind::Array(Box::new(f))), // alloc: Cold
-            Err(why) => Ok(Err(why)),
-        },
+        b'b' if t.typsubscript == F_ARRAY_SUBSCRIPT_HANDLER && len == -1 && t.typelem != 0 => {
+            match build(t.typelem, depth + 1)? {
+                Ok(f) => form(Kind::Array(Box::new(f))), // alloc: Cold
+                Err(why) => Ok(Err(why)),
+            }
+        }
         b'b' => match leaf_of(typid) {
             Some(l) => form(Kind::Leaf(l)),
-            None => Ok(Err("a key type whose equality is not its canonical bytes (a user or geometric type)")),
+            None => Ok(Err(
+                "a key type whose equality is not its canonical bytes (a user or geometric type)",
+            )),
         },
         _ => Ok(Err("a pseudo-type key")),
     }
@@ -488,7 +579,9 @@ fn build(typid: Oid, depth: u32) -> R<Result<Form, &'static str>> {
 fn subtype_default_opclass(sub: Oid, opc: Oid) -> R<bool> {
     let e = typcache::lookup_type_cache(sub, typcache::TYPECACHE_BTREE_OPFAMILY)?;
     let (opf, opcintype) = (e.btree_opf(), e.btree_opintype());
-    Ok(opf != 0 && lsyscache::get_opclass_family(opc)? == opf && lsyscache::get_opclass_input_type(opc)? == opcintype)
+    Ok(opf != 0
+        && lsyscache::get_opclass_family(opc)? == opf
+        && lsyscache::get_opclass_input_type(opc)? == opcintype)
 }
 
 /// D1889 / D1604 (K2.kgrp, main 2026-10-04: honour the range type's declared subtype opclass, no opclass list): whether
@@ -509,11 +602,21 @@ fn subtype_equality(sub: Oid, opc: Oid) -> R<bool> {
         return Ok(true);
     }
     let (_, intype, eq) = own_eq(sub)?;
-    let (opf, opcintype) = (lsyscache::get_opclass_family(opc)?, lsyscache::get_opclass_input_type(opc)?);
+    let (opf, opcintype) = (
+        lsyscache::get_opclass_family(opc)?,
+        lsyscache::get_opclass_input_type(opc)?,
+    );
     if eq == 0 || opf == 0 || opcintype != intype {
         return Ok(false);
     }
-    Ok(lsyscache::get_opfamily_member(opf, opcintype, opcintype, lsyscache::BTEqualStrategyNumber)? == eq)
+    Ok(
+        lsyscache::get_opfamily_member(
+            opf,
+            opcintype,
+            opcintype,
+            lsyscache::BTEqualStrategyNumber,
+        )? == eq,
+    )
 }
 
 /// K2 (D1889's hash join half): the form a range key buckets by where `form` refuses its subtype opclass (not the
@@ -532,18 +635,23 @@ fn bucket_build(typid: Oid, depth: u32) -> R<Option<Form>> {
     if depth > 16 {
         return Ok(None);
     }
-    let Some(t) = syscache_seams::lookup_pg_type_typcache_shape::call(typid)? else { return Ok(None) };
+    let Some(t) = syscache_seams::lookup_pg_type_typcache_shape::call(typid)? else {
+        return Ok(None);
+    };
     match t.typtype as u8 {
         b'd' => match syscache_seams::pg_type_base_shape::call(typid)? {
             Some(b) => bucket_build(b.typbasetype, depth + 1),
             None => Ok(None),
         },
         b'r' => {
-            let Some(r) = syscache_seams::lookup_pg_range_shape::call(typid)? else { return Ok(None) };
+            let Some(r) = syscache_seams::lookup_pg_range_shape::call(typid)? else {
+                return Ok(None);
+            };
             // K2.kgrp: a range whose declared subtype opclass names the subtype's `=` but is not the subtype's default one
             // (a user opclass included) keys by `form` in a group, a DISTINCT or a sort; a hash join keeps keying it by this
             // bucket form with range_eq on each candidate, as before (the probe's per-candidate calls are PG's)
-            let core_default = subtype_default_opclass(r.rngsubtype, r.rngsubopc)? && keysem::builtin(r.rngsubopc);
+            let core_default =
+                subtype_default_opclass(r.rngsubtype, r.rngsubopc)? && keysem::builtin(r.rngsubopc);
             if (core_default && build(typid, 0)?.is_ok()) || user_equality(typid)? {
                 return Ok(None);
             }
@@ -551,7 +659,12 @@ fn bucket_build(typid: Oid, depth: u32) -> R<Option<Form>> {
                 return Ok(None);
             }
             match build(r.rngsubtype, 1)? {
-                Ok(f) => Ok(Some(Form { len: t.typlen, byval: t.typbyval, align: align_of(t.typalign), kind: Kind::Range(Box::new(f)) })), // alloc: Cold
+                Ok(f) => Ok(Some(Form {
+                    len: t.typlen,
+                    byval: t.typbyval,
+                    align: align_of(t.typalign),
+                    kind: Kind::Range(Box::new(f)),
+                })), // alloc: Cold
                 Err(_) => Ok(None),
             }
         }
@@ -562,7 +675,12 @@ fn bucket_build(typid: Oid, depth: u32) -> R<Option<Form>> {
                 return Ok(None);
             }
             match bucket_build(t.typelem, depth + 1)? {
-                Some(f) => Ok(Some(Form { len: t.typlen, byval: t.typbyval, align: align_of(t.typalign), kind: Kind::Array(Box::new(f)) })), // alloc: Cold
+                Some(f) => Ok(Some(Form {
+                    len: t.typlen,
+                    byval: t.typbyval,
+                    align: align_of(t.typalign),
+                    kind: Kind::Array(Box::new(f)),
+                })), // alloc: Cold
                 None => Ok(None),
             }
         }
@@ -574,11 +692,13 @@ fn bucket_build(typid: Oid, depth: u32) -> R<Option<Form>> {
 /// type cache's eq_opr: range_eq, whose first hash family's function is hash_range) over a range `bucket_form` keys, or
 /// (D2068) array_eq over an array of such ranges.
 pub fn bucket_eq(typid: Oid, opno: Oid) -> R<bool> {
-    Ok(bucket_form(typid)?.is_some() && typcache::lookup_type_cache(typid, typcache::TYPECACHE_EQ_OPR)?.eq_opr() == opno)
+    Ok(bucket_form(typid)?.is_some()
+        && typcache::lookup_type_cache(typid, typcache::TYPECACHE_EQ_OPR)?.eq_opr() == opno)
 }
 
 /// D1604's Shape: a level whose default btree opclass, family, equality operator or comparison proc is a user object.
-const USER_EQUALITY: &str = "a key type whose default btree opclass or equality is a user one (D1604)";
+const USER_EQUALITY: &str =
+    "a key type whose default btree opclass or equality is a user one (D1604)";
 
 /// D1604: whether PostgreSQL compares `typid` by a user object: its default btree opclass (GetDefaultOpClass's pick; a
 /// user opclass declared DEFAULT FOR TYPE varchar, cidr or one array, enum, range, multirange or composite type is its
@@ -600,7 +720,11 @@ fn user_equality(typid: Oid) -> R<bool> {
     }
     let user = |o: Oid| o >= types_core::FirstNormalObjectId;
     let (opf, opcintype, eq) = own_eq(typid)?;
-    let cmp = if opf == 0 { 0 } else { lsyscache::get_opfamily_proc(opf, opcintype, opcintype, BTORDER_PROC)? };
+    let cmp = if opf == 0 {
+        0
+    } else {
+        lsyscache::get_opfamily_proc(opf, opcintype, opcintype, BTORDER_PROC)?
+    };
     if user(opf) || user(eq) || user(cmp) {
         return Ok(true);
     }
@@ -608,8 +732,11 @@ fn user_equality(typid: Oid) -> R<bool> {
         return Ok(false);
     }
     let cx = crate::session::root_context("gravity_fn canon default opclass"); // alloc: Cold
-    let rows = syscache_seams::lookup_pg_opclass_rows_by_am::call(cx.mcx(), types_core::BTREE_AM_OID)?;
-    Ok(rows.iter().any(|&(opc, family, intype, default, _)| default && family == opf && intype == opcintype && user(opc)))
+    let rows =
+        syscache_seams::lookup_pg_opclass_rows_by_am::call(cx.mcx(), types_core::BTREE_AM_OID)?;
+    Ok(rows.iter().any(|&(opc, family, intype, default, _)| {
+        default && family == opf && intype == opcintype && user(opc)
+    }))
 }
 
 /// Type `typid`'s default btree family and input type (the type cache's btree_opf / btree_opintype) and its equality
@@ -629,12 +756,22 @@ fn own_eq(typid: Oid) -> R<(Oid, Oid, Oid)> {
     let (opf, opcintype) = (e.btree_opf(), e.btree_opintype());
     let mut eq = 0;
     if opf != 0 {
-        eq = lsyscache::get_opfamily_member(opf, opcintype, opcintype, lsyscache::BTEqualStrategyNumber)?;
+        eq = lsyscache::get_opfamily_member(
+            opf,
+            opcintype,
+            opcintype,
+            lsyscache::BTEqualStrategyNumber,
+        )?;
     }
     if eq == 0 {
         let h = typcache::lookup_type_cache(typid, typcache::TYPECACHE_HASH_OPFAMILY)?;
         if h.hash_opf() != 0 {
-            eq = lsyscache::get_opfamily_member(h.hash_opf(), h.hash_opintype(), h.hash_opintype(), lsyscache::HTEqualStrategyNumber)?;
+            eq = lsyscache::get_opfamily_member(
+                h.hash_opf(),
+                h.hash_opintype(),
+                h.hash_opintype(),
+                lsyscache::HTEqualStrategyNumber,
+            )?;
         }
     }
     Ok((opf, opcintype, eq))
@@ -654,7 +791,9 @@ fn up(off: usize, a: u8) -> usize {
 }
 
 fn bad(what: &str) -> Box<PgError> {
-    Box::new(PgError::error(format!("gravity: a hosted key value that is not {what}"))) // alloc: Cold
+    Box::new(PgError::error(format!(
+        "gravity: a hosted key value that is not {what}"
+    ))) // alloc: Cold
 }
 
 /// The varlena at `v[off..]` (any uncompressed inline header): its payload's `(start, end)` within `v`. `walk` hands a
@@ -671,7 +810,12 @@ fn varlena_at(v: &[u8], off: usize) -> R<(usize, usize)> {
         if b0 & 2 != 0 {
             return Err(bad("an inline varlena (a compressed one)"));
         }
-        let w = u32::from_le_bytes(v.get(off..off + 4).ok_or_else(|| bad("a whole varlena"))?.try_into().expect("4 bytes"));
+        let w = u32::from_le_bytes(
+            v.get(off..off + 4)
+                .ok_or_else(|| bad("a whole varlena"))?
+                .try_into()
+                .expect("4 bytes"),
+        );
         (off + 4, off + (w >> 2) as usize)
     };
     if end > v.len() || start > end {
@@ -685,7 +829,12 @@ fn varlena_at(v: &[u8], off: usize) -> R<(usize, usize)> {
 fn width(f: &Form, v: &[u8], off: usize) -> R<usize> {
     match f.len {
         -1 if compressed(v, off) => {
-            let w = u32::from_le_bytes(v.get(off..off + 4).ok_or_else(|| bad("a whole varlena"))?.try_into().expect("4 bytes"));
+            let w = u32::from_le_bytes(
+                v.get(off..off + 4)
+                    .ok_or_else(|| bad("a whole varlena"))?
+                    .try_into()
+                    .expect("4 bytes"),
+            );
             let n = (w >> 2) as usize;
             if n < 8 || off + n > v.len() {
                 return Err(bad("a whole varlena"));
@@ -764,7 +913,11 @@ impl Drop for Tmp {
         TMPS.with(|p| {
             let mut p = p.borrow_mut();
             // an empty slot, else the smallest one this buffer beats
-            let slot = (0..TMP_POOL).find(|&i| p[i].capacity() == 0).or_else(|| (0..TMP_POOL).min_by_key(|&i| p[i].capacity()).filter(|&i| p[i].capacity() < v.capacity()));
+            let slot = (0..TMP_POOL).find(|&i| p[i].capacity() == 0).or_else(|| {
+                (0..TMP_POOL)
+                    .min_by_key(|&i| p[i].capacity())
+                    .filter(|&i| p[i].capacity() < v.capacity())
+            });
             if let Some(i) = slot {
                 p[i] = v;
             }
@@ -816,7 +969,10 @@ fn walk(f: &Form, v: &[u8], off: usize, out: &mut Vec<u8>) -> R<()> {
 /// dataoffset, a tuple's t_hoff, a range's bounds) count from that header, and a stored short header drops it.
 fn flat(raw: &[u8]) -> R<Tmp> {
     let (s, e) = varlena_at(raw, 0)?;
-    Ok(Tmp::of(e - s + 4, &[&(((e - s + 4) as u32) << 2).to_le_bytes(), &raw[s..e]]))
+    Ok(Tmp::of(
+        e - s + 4,
+        &[&(((e - s + 4) as u32) << 2).to_le_bytes(), &raw[s..e]],
+    ))
 }
 
 fn leaf(l: Leaf, raw: &[u8], out: &mut Vec<u8>) -> R<()> {
@@ -824,12 +980,24 @@ fn leaf(l: Leaf, raw: &[u8], out: &mut Vec<u8>) -> R<()> {
         Leaf::Bytes => out.extend_from_slice(raw),
         Leaf::Float4 => {
             let x = f32::from_le_bytes(raw.try_into().map_err(|_| bad("a float4"))?);
-            let bits = if x.is_nan() { 0x7fc0_0000 } else if x == 0.0 { 0 } else { x.to_bits() };
+            let bits = if x.is_nan() {
+                0x7fc0_0000
+            } else if x == 0.0 {
+                0
+            } else {
+                x.to_bits()
+            };
             out.extend_from_slice(&bits.to_le_bytes());
         }
         Leaf::Float8 => {
             let x = f64::from_le_bytes(raw.try_into().map_err(|_| bad("a float8"))?);
-            let bits = if x.is_nan() { 0x7ff8_0000_0000_0000 } else if x == 0.0 { 0 } else { x.to_bits() };
+            let bits = if x.is_nan() {
+                0x7ff8_0000_0000_0000
+            } else if x == 0.0 {
+                0
+            } else {
+                x.to_bits()
+            };
             out.extend_from_slice(&bits.to_le_bytes());
         }
         Leaf::Name => {
@@ -902,12 +1070,25 @@ fn jsonb(c: &[u8], at: usize, out: &mut Vec<u8>, depth: u32) -> R<()> {
     if depth > 256 {
         return Err(bad("a jsonb nested within 256 levels"));
     }
-    let word = |i: usize| -> R<u32> { Ok(u32::from_le_bytes(c.get(i..i + 4).ok_or_else(|| bad("a whole jsonb"))?.try_into().expect("4 bytes"))) };
+    let word = |i: usize| -> R<u32> {
+        Ok(u32::from_le_bytes(
+            c.get(i..i + 4)
+                .ok_or_else(|| bad("a whole jsonb"))?
+                .try_into()
+                .expect("4 bytes"),
+        ))
+    };
     let head = word(at)?;
     let count = (head & JB_CMASK) as usize;
     let object = head & JB_FOBJECT != 0;
     let n = if object { 2 * count } else { count };
-    out.push(if object { b'O' } else if head & JB_FSCALAR != 0 { b'S' } else { b'A' });
+    out.push(if object {
+        b'O'
+    } else if head & JB_FSCALAR != 0 {
+        b'S'
+    } else {
+        b'A'
+    });
     out.extend_from_slice(&(count as u32).to_le_bytes());
     let entries = at + 4;
     let base = entries + 4 * n;
@@ -915,9 +1096,21 @@ fn jsonb(c: &[u8], at: usize, out: &mut Vec<u8>, depth: u32) -> R<()> {
     for i in 0..n {
         let e = word(entries + 4 * i)?;
         let field = (e & JENTRY_OFFLENMASK) as usize;
-        let (start, len) = if e & JENTRY_HAS_OFF != 0 { (off, field.checked_sub(off).ok_or_else(|| bad("a jsonb with ordered offsets"))?) } else { (off, field) };
+        let (start, len) = if e & JENTRY_HAS_OFF != 0 {
+            (
+                off,
+                field
+                    .checked_sub(off)
+                    .ok_or_else(|| bad("a jsonb with ordered offsets"))?,
+            )
+        } else {
+            (off, field)
+        };
         off = start + len;
-        let data = |a: usize, l: usize| c.get(base + a..base + a + l).ok_or_else(|| bad("a whole jsonb"));
+        let data = |a: usize, l: usize| {
+            c.get(base + a..base + a + l)
+                .ok_or_else(|| bad("a whole jsonb"))
+        };
         match e & JENTRY_TYPEMASK {
             0x0000_0000 => {
                 out.push(b's');
@@ -966,7 +1159,12 @@ fn part(f: &Form, v: &[u8], off: usize, out: &mut Vec<u8>) -> R<()> {
 /// its sign, the weight of its first nonzero digit (4 bytes) and the digits: `m6_num_fp`'s image bytes (kernels m6.rs), so a
 /// numeric key hashes alike through either arm.
 fn numeric(p: &[u8], out: &mut Vec<u8>) -> R<()> {
-    let h = u16::from_le_bytes(p.get(0..2).ok_or_else(|| bad("a numeric"))?.try_into().expect("2 bytes"));
+    let h = u16::from_le_bytes(
+        p.get(0..2)
+            .ok_or_else(|| bad("a numeric"))?
+            .try_into()
+            .expect("2 bytes"),
+    );
     let (neg, weight, digits) = match h & 0xC000 {
         0xC000 => {
             out.push(match h & 0xF000 {
@@ -977,8 +1175,21 @@ fn numeric(p: &[u8], out: &mut Vec<u8>) -> R<()> {
             });
             return Ok(());
         }
-        0x8000 => (h & 0x2000 != 0, (h & 0x3F) as i16 | if h & 0x40 != 0 { !0x3F } else { 0 }, &p[2..]),
-        s => (s == 0x4000, i16::from_le_bytes(p.get(2..4).ok_or_else(|| bad("a numeric"))?.try_into().expect("2 bytes")), p.get(4..).unwrap_or(&[])),
+        0x8000 => (
+            h & 0x2000 != 0,
+            (h & 0x3F) as i16 | if h & 0x40 != 0 { !0x3F } else { 0 },
+            &p[2..],
+        ),
+        s => (
+            s == 0x4000,
+            i16::from_le_bytes(
+                p.get(2..4)
+                    .ok_or_else(|| bad("a numeric"))?
+                    .try_into()
+                    .expect("2 bytes"),
+            ),
+            p.get(4..).unwrap_or(&[]),
+        ),
     };
     let n = digits.len() / 2;
     let digit = |i: usize| u16::from_le_bytes([digits[2 * i], digits[2 * i + 1]]);
@@ -1002,7 +1213,12 @@ fn numeric(p: &[u8], out: &mut Vec<u8>) -> R<()> {
 /// the emit renders them back through `num_word`. Both lie outside int4, so neither meets a finite word, and their
 /// signed order is numeric's. A NaN or a fraction is no integral field's result, so it is an error.
 pub fn integral_word(p: &[u8]) -> R<i64> {
-    let h = u16::from_le_bytes(p.get(0..2).ok_or_else(|| bad("a numeric"))?.try_into().expect("2 bytes"));
+    let h = u16::from_le_bytes(
+        p.get(0..2)
+            .ok_or_else(|| bad("a numeric"))?
+            .try_into()
+            .expect("2 bytes"),
+    );
     match h & 0xF000 {
         0xD000 => return Ok(crate::agg_final::MANT_PINF),
         0xF000 => return Ok(crate::agg_final::MANT_NINF),
@@ -1023,7 +1239,10 @@ pub fn integral_word(p: &[u8]) -> R<i64> {
     if img[0] == 0 {
         return Ok(0);
     }
-    let (neg, first) = (img[1] != 0, i32::from_le_bytes(img[2..6].try_into().expect("4 bytes")));
+    let (neg, first) = (
+        img[1] != 0,
+        i32::from_le_bytes(img[2..6].try_into().expect("4 bytes")),
+    );
     let mut v: i128 = 0;
     for (k, d) in img[6..].chunks_exact(2).enumerate() {
         let d = u16::from_le_bytes([d[0], d[1]]) as i128;
@@ -1040,20 +1259,29 @@ pub fn integral_word(p: &[u8]) -> R<i64> {
         }
     }
     let v = if neg { -v } else { v };
-    i32::try_from(v).map(i64::from).map_err(|_| int4_out_of_range())
+    i32::try_from(v)
+        .map(i64::from)
+        .map_err(|_| int4_out_of_range())
 }
 
 /// PG's `numeric_int4` past int4: "integer out of range" (22003).
 #[cold]
 fn int4_out_of_range() -> Box<PgError> {
-    Box::new(PgError::error("integer out of range".to_string()).with_sqlstate(types_error::ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE)) // alloc: Cold
+    Box::new(
+        PgError::error("integer out of range".to_string())
+            .with_sqlstate(types_error::ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
+    ) // alloc: Cold
 }
 
 /// An array's form from its varlena `a` (behind a 4-byte header): ndim, dims and lower bounds, then per element its null
 /// flag and form.
 fn array(e: &Form, a: &[u8], out: &mut Vec<u8>) -> R<()> {
     let s = 4;
-    let i32_at = |o: usize| a.get(o..o + 4).map(|b| i32::from_le_bytes(b.try_into().expect("4 bytes"))).ok_or_else(|| bad("an array"));
+    let i32_at = |o: usize| {
+        a.get(o..o + 4)
+            .map(|b| i32::from_le_bytes(b.try_into().expect("4 bytes")))
+            .ok_or_else(|| bad("an array"))
+    };
     let (ndim, dataoffset) = (i32_at(s)?, i32_at(s + 4)?);
     if !(0..=6).contains(&ndim) {
         return Err(bad("an array"));
@@ -1064,12 +1292,18 @@ fn array(e: &Form, a: &[u8], out: &mut Vec<u8>) -> R<()> {
     out.extend_from_slice(&ndim.to_le_bytes());
     for d in 0..nd {
         let (dim, lb) = (i32_at(dims_at + 4 * d)?, i32_at(lbs_at + 4 * d)?);
-        count = count.checked_mul(dim.max(0) as usize).ok_or_else(|| bad("an array"))?;
+        count = count
+            .checked_mul(dim.max(0) as usize)
+            .ok_or_else(|| bad("an array"))?;
         out.extend_from_slice(&dim.to_le_bytes());
         out.extend_from_slice(&lb.to_le_bytes());
     }
     let bitmap = (dataoffset != 0).then_some(lbs_at + 4 * nd);
-    let mut off = if dataoffset != 0 { dataoffset as usize } else { up(lbs_at + 4 * nd, 8) };
+    let mut off = if dataoffset != 0 {
+        dataoffset as usize
+    } else {
+        up(lbs_at + 4 * nd, 8)
+    };
     for i in 0..count {
         let null = match bitmap {
             Some(b) => a.get(b + i / 8).ok_or_else(|| bad("an array"))? >> (i % 8) & 1 == 0,
@@ -1093,14 +1327,22 @@ fn array(e: &Form, a: &[u8], out: &mut Vec<u8>) -> R<()> {
 /// calls the two equal. A datum that is not a valid oidvector raises check_valid_oidvector's error (42804 'array is not
 /// a valid oidvector'), as PostgreSQL's hash and comparison of it do.
 fn oidvector(a: &[u8], out: &mut Vec<u8>) -> R<()> {
-    let i32_at = |o: usize| a.get(o..o + 4).map(|b| i32::from_le_bytes(b.try_into().expect("4 bytes"))).ok_or_else(|| bad("an oidvector"));
+    let i32_at = |o: usize| {
+        a.get(o..o + 4)
+            .map(|b| i32::from_le_bytes(b.try_into().expect("4 bytes")))
+            .ok_or_else(|| bad("an oidvector"))
+    };
     let (ndim, dataoffset, elemtype) = (i32_at(4)?, i32_at(8)?, i32_at(12)? as u32);
     if ndim != 1 || dataoffset != 0 || elemtype != types_core::catalog::OIDOID {
         return Err(nbt_compare::not_valid_oidvector());
     }
     let dim1 = i32_at(16)?;
     // the values follow the one dimension and lower bound (ARR_OVERHEAD_NONULLS(1) = MAXALIGN(16 + 8) = 24)
-    let values = usize::try_from(dim1).ok().and_then(|n| n.checked_mul(4)).and_then(|l| a.get(24..24 + l)).ok_or_else(nbt_compare::not_valid_oidvector)?;
+    let values = usize::try_from(dim1)
+        .ok()
+        .and_then(|n| n.checked_mul(4))
+        .and_then(|l| a.get(24..24 + l))
+        .ok_or_else(nbt_compare::not_valid_oidvector)?;
     out.extend_from_slice(&dim1.to_le_bytes());
     out.extend_from_slice(values);
     Ok(())
@@ -1108,12 +1350,16 @@ fn oidvector(a: &[u8], out: &mut Vec<u8>) -> R<()> {
 
 /// A composite datum's form from its HeapTupleHeader `t` (the length word first): per column a null flag and form.
 fn record(cols: &[Form], t: &[u8], out: &mut Vec<u8>) -> R<()> {
-    let (Some(&hoff), Some(m2), Some(m)) = (t.get(22), t.get(18..20), t.get(20..22)) else { return Err(bad("a composite datum")) };
+    let (Some(&hoff), Some(m2), Some(m)) = (t.get(22), t.get(18..20), t.get(20..22)) else {
+        return Err(bad("a composite datum"));
+    };
     let natts = (u16::from_le_bytes(m2.try_into().expect("2 bytes")) & 0x07FF) as usize;
     let hasnull = u16::from_le_bytes(m.try_into().expect("2 bytes")) & 0x0001 != 0;
     let mut off = hoff as usize;
     for (i, c) in cols.iter().enumerate() {
-        let null = i >= natts || (hasnull && t.get(23 + i / 8).ok_or_else(|| bad("a composite datum"))? >> (i % 8) & 1 == 0);
+        let null = i >= natts
+            || (hasnull
+                && t.get(23 + i / 8).ok_or_else(|| bad("a composite datum"))? >> (i % 8) & 1 == 0);
         out.push(null as u8);
         if null {
             continue;
@@ -1163,7 +1409,11 @@ const MULTIRANGE_ITEM_OFF_BIT: u32 = 0x8000_0000;
 /// `att_align_nominal` of that under the subtype's alignment (`MultirangeGetBoundariesPtr`); range `i` starts at the
 /// lengths summed back to the nearest offset (`multirange_get_bounds_offset`).
 fn multirange(sub: &Form, m: &[u8], out: &mut Vec<u8>) -> R<()> {
-    let word = |o: usize| m.get(o..o + 4).map(|b| u32::from_le_bytes(b.try_into().expect("4 bytes"))).ok_or_else(|| bad("a multirange"));
+    let word = |o: usize| {
+        m.get(o..o + 4)
+            .map(|b| u32::from_le_bytes(b.try_into().expect("4 bytes")))
+            .ok_or_else(|| bad("a multirange"))
+    };
     let n = word(8)? as usize;
     out.extend_from_slice(&(n as u32).to_le_bytes());
     if n == 0 {
@@ -1207,7 +1457,10 @@ pub unsafe fn canonical(f: &Form, datum: *const u8, out: &mut Vec<u8>) -> R<()> 
     }
     crate::with_payload(datum, |p| {
         // rebuild a 4-byte header in front of the payload so the walk reads one layout
-        let v = Tmp::of(p.len() + 4, &[&(((p.len() + 4) as u32) << 2).to_le_bytes(), p]);
+        let v = Tmp::of(
+            p.len() + 4,
+            &[&(((p.len() + 4) as u32) << 2).to_le_bytes(), p],
+        );
         walk(f, &v, 0, out)
     })?
 }
@@ -1217,7 +1470,12 @@ mod tests {
     use super::*;
 
     fn leafform(l: Leaf, len: i16) -> Form {
-        Form { len, byval: len > 0 && len <= 8, align: if len == -1 { 4 } else { len.clamp(1, 8) as u8 }, kind: Kind::Leaf(l) }
+        Form {
+            len,
+            byval: len > 0 && len <= 8,
+            align: if len == -1 { 4 } else { len.clamp(1, 8) as u8 },
+            kind: Kind::Leaf(l),
+        }
     }
 
     fn v4(p: &[u8]) -> Vec<u8> {
@@ -1234,8 +1492,15 @@ mod tests {
 
     #[test]
     fn built_in_collations_compare_bytes_without_a_catalog() {
-        use crate::typesem::collation::{C_COLLATION_OID, DEFAULT_COLLATION_OID, POSIX_COLLATION_OID};
-        for c in [0, DEFAULT_COLLATION_OID, C_COLLATION_OID, POSIX_COLLATION_OID] {
+        use crate::typesem::collation::{
+            C_COLLATION_OID, DEFAULT_COLLATION_OID, POSIX_COLLATION_OID,
+        };
+        for c in [
+            0,
+            DEFAULT_COLLATION_OID,
+            C_COLLATION_OID,
+            POSIX_COLLATION_OID,
+        ] {
             assert!(coll_bytes(c).unwrap() && claims_coll_bytes(c), "{c}");
         }
     }
@@ -1243,13 +1508,29 @@ mod tests {
     #[test]
     fn order_image_names_signed_unsigned_and_byte_orders() {
         use types_core::catalog::*;
-        for t in [INT2OID, INT4OID, INT8OID, DATEOID, TIMEOID, TIMESTAMPOID, TIMESTAMPTZOID, CASHOID] {
+        for t in [
+            INT2OID,
+            INT4OID,
+            INT8OID,
+            DATEOID,
+            TIMEOID,
+            TIMESTAMPOID,
+            TIMESTAMPTZOID,
+            CASHOID,
+        ] {
             assert_eq!(order_image(t), Some(OrderBy::Signed), "{t}");
         }
         assert_eq!(order_image(OIDOID), Some(OrderBy::Unsigned));
         assert_eq!(order_image(BYTEAOID), Some(OrderBy::Bytes));
         assert_eq!(word_order(TEXTOID), None);
-        for t in [NUMERICOID, FLOAT8OID, INTERVALOID, BPCHAROID, UUIDOID, TIMETZOID] {
+        for t in [
+            NUMERICOID,
+            FLOAT8OID,
+            INTERVALOID,
+            BPCHAROID,
+            UUIDOID,
+            TIMETZOID,
+        ] {
             assert_eq!(order_image(t), None, "{t}");
         }
     }
@@ -1277,10 +1558,19 @@ mod tests {
     #[test]
     fn one_image_answers_inet_and_enum_not_interval() {
         use types_core::catalog::*;
-        for t in [INETOID, CIDROID, ANYENUMOID, TIMETZOID, TEXTOID, BYTEAOID, INT4OID] {
+        for t in [
+            INETOID, CIDROID, ANYENUMOID, TIMETZOID, TEXTOID, BYTEAOID, INT4OID,
+        ] {
             assert!(one_image(t), "{t}");
         }
-        for t in [INTERVALOID, NUMERICOID, FLOAT8OID, BPCHAROID, ANYARRAYOID, RECORDOID] {
+        for t in [
+            INTERVALOID,
+            NUMERICOID,
+            FLOAT8OID,
+            BPCHAROID,
+            ANYARRAYOID,
+            RECORDOID,
+        ] {
             assert!(!one_image(t), "{t}");
         }
     }
@@ -1288,9 +1578,18 @@ mod tests {
     #[test]
     fn floats_fold_minus_zero_and_nan() {
         let f = leafform(Leaf::Float8, 8);
-        assert_eq!(canon(&f, &(-0.0f64).to_le_bytes()), canon(&f, &0.0f64.to_le_bytes()));
-        assert_eq!(canon(&f, &f64::NAN.to_le_bytes()), canon(&f, &(-f64::NAN).to_le_bytes()));
-        assert_ne!(canon(&f, &1.0f64.to_le_bytes()), canon(&f, &0.0f64.to_le_bytes()));
+        assert_eq!(
+            canon(&f, &(-0.0f64).to_le_bytes()),
+            canon(&f, &0.0f64.to_le_bytes())
+        );
+        assert_eq!(
+            canon(&f, &f64::NAN.to_le_bytes()),
+            canon(&f, &(-f64::NAN).to_le_bytes())
+        );
+        assert_ne!(
+            canon(&f, &1.0f64.to_le_bytes()),
+            canon(&f, &0.0f64.to_le_bytes())
+        );
     }
 
     #[test]
@@ -1308,7 +1607,9 @@ mod tests {
     /// INTALIGNed from the data's start).
     fn jb(head: u32, entries: &[u32], data: &[u8]) -> Vec<u8> {
         let mut p = head.to_le_bytes().to_vec();
-        entries.iter().for_each(|e| p.extend_from_slice(&e.to_le_bytes()));
+        entries
+            .iter()
+            .for_each(|e| p.extend_from_slice(&e.to_le_bytes()));
         p.extend_from_slice(data);
         v4(&p)
     }
@@ -1326,7 +1627,11 @@ mod tests {
             d.extend_from_slice(&nv);
             jb(0x2000_0001, &[1, 0x1000_0000 | (3 + nv.len() as u32)], &d)
         };
-        assert_eq!(canon(&f, &obj(&one)), canon(&f, &obj(&one_scaled)), "1 and 1.0 are one jsonb value");
+        assert_eq!(
+            canon(&f, &obj(&one)),
+            canon(&f, &obj(&one_scaled)),
+            "1 and 1.0 are one jsonb value"
+        );
         assert_ne!(canon(&f, &obj(&one)), canon(&f, &obj(&[0x00, 0x80, 2, 0])));
         // the raw scalar "x" and the array ["x"]
         let raw = jb(0x5000_0001, &[1], b"x");
@@ -1337,7 +1642,13 @@ mod tests {
         let n = jb(0x5000_0001, &[0x4000_0000], b"");
         assert_ne!(canon(&f, &t), canon(&f, &n));
         // a nested container: [[1]] (the inner array INTALIGNed at 0)
-        let inner = { let nv = v4(&one); let mut p = 0x4000_0001u32.to_le_bytes().to_vec(); p.extend_from_slice(&(0x1000_0000u32 | nv.len() as u32).to_le_bytes()); p.extend_from_slice(&nv); p };
+        let inner = {
+            let nv = v4(&one);
+            let mut p = 0x4000_0001u32.to_le_bytes().to_vec();
+            p.extend_from_slice(&(0x1000_0000u32 | nv.len() as u32).to_le_bytes());
+            p.extend_from_slice(&nv);
+            p
+        };
         let outer = jb(0x4000_0001, &[0x5000_0000 | inner.len() as u32], &inner);
         let got = canon(&f, &outer);
         assert_eq!(&got[..5], &[b'A', 1, 0, 0, 0]);
@@ -1349,12 +1660,26 @@ mod tests {
     /// order and count are its identity, and a NULL column images apart from a present one.
     #[test]
     fn an_anonymous_records_form_is_the_composite_form_of_its_columns() {
-        let named = Form { len: -1, byval: false, align: 8, kind: Kind::Record(vec![leafform(Leaf::Bytes, 4), leafform(Leaf::Varlena, -1)]) }; // alloc: Cold
+        let named = Form {
+            len: -1,
+            byval: false,
+            align: 8,
+            kind: Kind::Record(vec![leafform(Leaf::Bytes, 4), leafform(Leaf::Varlena, -1)]),
+        }; // alloc: Cold
         let anon = record_of(vec![leafform(Leaf::Bytes, 4), leafform(Leaf::Varlena, -1)]); // alloc: Cold
         assert_eq!(id_of(&anon), id_of(&named));
-        assert_ne!(id_of(&anon), id_of(&record_of(vec![leafform(Leaf::Varlena, -1), leafform(Leaf::Bytes, 4)]))); // alloc: Cold
-        assert_ne!(id_of(&anon), id_of(&record_of(vec![leafform(Leaf::Bytes, 4)]))); // alloc: Cold
-        // a heap tuple datum (HeapTupleHeader: t_infomask2 at 18, t_infomask at 20, t_hoff at 22, the null bitmap at 23)
+        assert_ne!(
+            id_of(&anon),
+            id_of(&record_of(vec![
+                leafform(Leaf::Varlena, -1),
+                leafform(Leaf::Bytes, 4)
+            ]))
+        ); // alloc: Cold
+        assert_ne!(
+            id_of(&anon),
+            id_of(&record_of(vec![leafform(Leaf::Bytes, 4)]))
+        ); // alloc: Cold
+           // a heap tuple datum (HeapTupleHeader: t_infomask2 at 18, t_infomask at 20, t_hoff at 22, the null bitmap at 23)
         let tuple = |a: Option<i32>, b: &[u8]| {
             let hoff = 24u8;
             let mut t = vec![0u8; hoff as usize]; // alloc: Cold
@@ -1369,25 +1694,65 @@ mod tests {
             t.extend_from_slice(b);
             v4(&t[4..])
         };
-        assert_eq!(canon(&anon, &tuple(Some(7), b"ab")), canon(&anon, &tuple(Some(7), b"ab")));
-        assert_ne!(canon(&anon, &tuple(Some(7), b"ab")), canon(&anon, &tuple(Some(7), b"ac")));
-        assert_ne!(canon(&anon, &tuple(None, b"ab")), canon(&anon, &tuple(Some(0), b"ab")));
+        assert_eq!(
+            canon(&anon, &tuple(Some(7), b"ab")),
+            canon(&anon, &tuple(Some(7), b"ab"))
+        );
+        assert_ne!(
+            canon(&anon, &tuple(Some(7), b"ab")),
+            canon(&anon, &tuple(Some(7), b"ac"))
+        );
+        assert_ne!(
+            canon(&anon, &tuple(None, b"ab")),
+            canon(&anon, &tuple(Some(0), b"ab"))
+        );
     }
 
     #[test]
     fn an_interned_form_is_one_copy_per_distinct_form_and_resolves_from_any_thread() {
-        let (ia, a) = intern(Form { len: -1, byval: false, align: 8, kind: Kind::Record(vec![leafform(Leaf::Bytes, 4)]) }); // alloc: Cold
-        let (ib, b) = intern(Form { len: -1, byval: false, align: 8, kind: Kind::Record(vec![leafform(Leaf::Bytes, 4)]) }); // alloc: Cold
-        assert!(core::ptr::eq(a, b) && ia == ib, "one copy and one id per distinct form");
+        let (ia, a) = intern(Form {
+            len: -1,
+            byval: false,
+            align: 8,
+            kind: Kind::Record(vec![leafform(Leaf::Bytes, 4)]),
+        }); // alloc: Cold
+        let (ib, b) = intern(Form {
+            len: -1,
+            byval: false,
+            align: 8,
+            kind: Kind::Record(vec![leafform(Leaf::Bytes, 4)]),
+        }); // alloc: Cold
+        assert!(
+            core::ptr::eq(a, b) && ia == ib,
+            "one copy and one id per distinct form"
+        );
         // ALTER TYPE .. ADD ATTRIBUTE: a new form is a new id; the old one stays live for the programs holding it
-        let (ic, _) = intern(Form { len: -1, byval: false, align: 8, kind: Kind::Record(vec![leafform(Leaf::Bytes, 4), leafform(Leaf::Varlena, -1)]) }); // alloc: Cold
+        let (ic, _) = intern(Form {
+            len: -1,
+            byval: false,
+            align: 8,
+            kind: Kind::Record(vec![leafform(Leaf::Bytes, 4), leafform(Leaf::Varlena, -1)]),
+        }); // alloc: Cold
         assert_ne!(ia, ic);
-        assert_eq!(by_id(ia).unwrap().kind, Kind::Record(vec![leafform(Leaf::Bytes, 4)])); // alloc: Cold
-        // a pool worker's thread resolves it with no catalog; an id no lowering built is an error, not a catalog read
-        let got = std::thread::spawn(move || (by_id(ia).map(|f| f as *const Form as usize).ok(), by_id(0x5eed).is_err())).join().unwrap();
+        assert_eq!(
+            by_id(ia).unwrap().kind,
+            Kind::Record(vec![leafform(Leaf::Bytes, 4)])
+        ); // alloc: Cold
+           // a pool worker's thread resolves it with no catalog; an id no lowering built is an error, not a catalog read
+        let got = std::thread::spawn(move || {
+            (
+                by_id(ia).map(|f| f as *const Form as usize).ok(),
+                by_id(0x5eed).is_err(),
+            )
+        })
+        .join()
+        .unwrap();
         assert_eq!(got, (Some(a as *const Form as usize), true));
         // the id is content-derived: the same form, the same constant in every process (IR pins stay exact)
-        assert_eq!(id_of(&leafform(Leaf::Numeric, -1)), id_of(&leafform(Leaf::Numeric, -1)));
+        assert_eq!(
+            id_of(&leafform(Leaf::Numeric, -1)),
+            id_of(&leafform(Leaf::Numeric, -1))
+        );
     }
 
     /// e2e m6_hosted_canon_ddl's DDL steps as forms (M6-HOSTED hh, main 09-28): each DDL that changes what `=` means is a
@@ -1396,8 +1761,13 @@ mod tests {
     /// form however the ids alternate (never the previous one's).
     #[test]
     fn each_canon_ddl_step_is_a_new_id_and_last_never_serves_another_ids_form() {
-        let rec = |a: Leaf, alen: i16| Form { len: -1, byval: false, align: 8, kind: Kind::Record(vec![leafform(a, alen), leafform(Leaf::Varlena, -1)]) }; // alloc: Cold
-        // DROP + CREATE TYPE m6cd: (a int, b text) -> (a numeric, b text)
+        let rec = |a: Leaf, alen: i16| Form {
+            len: -1,
+            byval: false,
+            align: 8,
+            kind: Kind::Record(vec![leafform(a, alen), leafform(Leaf::Varlena, -1)]),
+        }; // alloc: Cold
+           // DROP + CREATE TYPE m6cd: (a int, b text) -> (a numeric, b text)
         let (int_id, int_f) = intern(rec(Leaf::Bytes, 4));
         let (num_id, num_f) = intern(rec(Leaf::Numeric, -1));
         assert_ne!(int_id, num_id);
@@ -1409,37 +1779,92 @@ mod tests {
         // the same definition re-created (a new OID, the same content): the same id and copy, the table does not grow
         let (again, again_f) = intern(rec(Leaf::Numeric, -1));
         assert!(again == num_id && core::ptr::eq(again_f, num_f));
-        assert_eq!(INTERNED.read().unwrap().iter().filter(|e| e.0 == num_id).count(), 1, "one entry per content");
+        assert_eq!(
+            INTERNED
+                .read()
+                .unwrap()
+                .iter()
+                .filter(|e| e.0 == num_id)
+                .count(),
+            1,
+            "one entry per content"
+        );
         // LAST: alternating ids in one thread (a W8 worker's claims over two programs' keys) each resolve to their own form
-        for (id, f) in [(int_id, int_f), (num_id, num_f), (int_id, int_f), (jb_id, jb_f), (tx_id, tx_f), (jb_id, jb_f), (int_id, int_f)] {
-            assert!(core::ptr::eq(by_id(id).unwrap(), f), "{id:#x}: LAST served another id's form");
+        for (id, f) in [
+            (int_id, int_f),
+            (num_id, num_f),
+            (int_id, int_f),
+            (jb_id, jb_f),
+            (tx_id, tx_f),
+            (jb_id, jb_f),
+            (int_id, int_f),
+        ] {
+            assert!(
+                core::ptr::eq(by_id(id).unwrap(), f),
+                "{id:#x}: LAST served another id's form"
+            );
         }
     }
 
     /// The heap bytes an interned form holds (its box and its children's), for the interning table's growth debt.
     fn bytes_of(f: &Form) -> usize {
-        core::mem::size_of::<Form>() + match &f.kind {
-            Kind::Leaf(_) => 0,
-            Kind::Array(e) | Kind::Range(e) | Kind::Multirange(e) => bytes_of(e),
-            Kind::Record(cols) => cols.iter().map(bytes_of).sum::<usize>() + (cols.capacity() - cols.len()) * core::mem::size_of::<Form>(),
-        } + 8 + core::mem::size_of::<(u64, &Form)>()
+        core::mem::size_of::<Form>()
+            + match &f.kind {
+                Kind::Leaf(_) => 0,
+                Kind::Array(e) | Kind::Range(e) | Kind::Multirange(e) => bytes_of(e),
+                Kind::Record(cols) => {
+                    cols.iter().map(bytes_of).sum::<usize>()
+                        + (cols.capacity() - cols.len()) * core::mem::size_of::<Form>()
+                }
+            }
+            + 8
+            + core::mem::size_of::<(u64, &Form)>()
     }
 
     #[test]
     fn the_interning_tables_growth_under_type_churn() {
-        let rec = |n: usize| Form { len: -1, byval: false, align: 8, kind: Kind::Record((0..n).map(|i| leafform(if i % 2 == 0 { Leaf::Bytes } else { Leaf::Varlena }, if i % 2 == 0 { 4 } else { -1 })).collect()) };
+        let rec = |n: usize| Form {
+            len: -1,
+            byval: false,
+            align: 8,
+            kind: Kind::Record(
+                (0..n)
+                    .map(|i| {
+                        leafform(
+                            if i % 2 == 0 {
+                                Leaf::Bytes
+                            } else {
+                                Leaf::Varlena
+                            },
+                            if i % 2 == 0 { 4 } else { -1 },
+                        )
+                    })
+                    .collect(),
+            ),
+        };
         // INTERNED is process-wide and the crate's tests run in parallel, so the count is of THIS test's ids, never the table's
         // length (another test interning between two reads is not churn)
         let mut ids = std::collections::BTreeSet::new(); // alloc: Cold
-        // 10k ALTER TYPE .. ADD ATTRIBUTE / DROP ATTRIBUTE cycles over one type: two structures, two entries
-        for c in 0..10_000 { ids.insert(intern(rec(2 + c % 2)).0); }
+                                                         // 10k ALTER TYPE .. ADD ATTRIBUTE / DROP ATTRIBUTE cycles over one type: two structures, two entries
+        for c in 0..10_000 {
+            ids.insert(intern(rec(2 + c % 2)).0);
+        }
         // 10k CREATE TEMP TYPE of one structure: content-interned, one entry
-        for _ in 0..10_000 { ids.insert(intern(rec(5)).0); }
+        for _ in 0..10_000 {
+            ids.insert(intern(rec(5)).0);
+        }
         let churn = ids.len();
-        assert!(churn <= 3, "{churn} entries for 20k churn cycles of three structures");
+        assert!(
+            churn <= 3,
+            "{churn} entries for 20k churn cycles of three structures"
+        );
         let table = INTERNED.read().unwrap();
         for id in &ids {
-            assert_eq!(table.iter().filter(|e| e.0 == *id).count(), 1, "{id:#x}: one entry per content, whatever the churn");
+            assert_eq!(
+                table.iter().filter(|e| e.0 == *id).count(),
+                1,
+                "{id:#x}: one entry per content, whatever the churn"
+            );
         }
         drop(table);
         // the worst case: a composite widened one column per cycle up to MaxHeapAttributeNumber (1600): every width a new form
@@ -1452,21 +1877,39 @@ mod tests {
     #[test]
     fn an_integral_extract_is_its_int4_word() {
         // short form: 2024 (weight 0, digit 2024); -5; 0 (no digits); 12 0000 (weight 1, digits 12, 0)
-        assert_eq!(integral_word(&[0x00, 0x80, 0xE8, 0x07]).expect("2024"), 2024);
+        assert_eq!(
+            integral_word(&[0x00, 0x80, 0xE8, 0x07]).expect("2024"),
+            2024
+        );
         assert_eq!(integral_word(&[0x00, 0xA0, 5, 0]).expect("-5"), -5);
         assert_eq!(integral_word(&[0x00, 0x80]).expect("0"), 0);
-        assert_eq!(integral_word(&[0x01, 0x80, 12, 0, 0, 0]).expect("120000"), 120_000);
+        assert_eq!(
+            integral_word(&[0x01, 0x80, 12, 0, 0, 0]).expect("120000"),
+            120_000
+        );
         // ±Infinity: their own groups, in numeric's order, outside int4 (never a finite word)
-        assert_eq!(integral_word(&[0x00, 0xD0]).expect("+Inf"), crate::agg_final::MANT_PINF);
-        assert_eq!(integral_word(&[0x00, 0xF0]).expect("-Inf"), crate::agg_final::MANT_NINF);
+        assert_eq!(
+            integral_word(&[0x00, 0xD0]).expect("+Inf"),
+            crate::agg_final::MANT_PINF
+        );
+        assert_eq!(
+            integral_word(&[0x00, 0xF0]).expect("-Inf"),
+            crate::agg_final::MANT_NINF
+        );
         // 30 0000 0000 (weight 2): past int4, PG's error
         assert!(integral_word(&[0x02, 0x80, 30, 0, 0, 0, 0, 0]).is_err());
         // a fraction (weight -1, digit 5000: 0.5) and a NaN are no integral extract's result
         assert!(integral_word(&[0x7F, 0x80, 0x88, 0x13]).is_err());
         assert!(integral_word(&[0x00, 0xC0]).is_err());
         // int4's edges; a payload at an odd address (a short-header datum's) reads alike
-        assert_eq!(integral_word(&[0x02, 0xA0, 21, 0, 0x8C, 0x12, 0x40, 0x0E]).expect("-2147483648"), i32::MIN as i64);
-        assert!(integral_word(&[0x02, 0x80, 21, 0, 0x8C, 0x12, 0x41, 0x0E]).is_err(), "2147483649");
+        assert_eq!(
+            integral_word(&[0x02, 0xA0, 21, 0, 0x8C, 0x12, 0x40, 0x0E]).expect("-2147483648"),
+            i32::MIN as i64
+        );
+        assert!(
+            integral_word(&[0x02, 0x80, 21, 0, 0x8C, 0x12, 0x41, 0x0E]).is_err(),
+            "2147483649"
+        );
         let odd = [0u8, 0x00, 0x80, 0xE8, 0x07];
         assert_eq!(integral_word(&odd[1..]).expect("2024 unaligned"), 2024);
     }
@@ -1482,17 +1925,27 @@ mod tests {
 
     /// An oidvector's varlena (4-byte header): ndim, dataoffset, elemtype, then per dimension its length and lower bound,
     /// then the values from ARR_OVERHEAD_NONULLS(ndim).
-    fn oidv(ndim: i32, dataoffset: i32, elemtype: i32, dims: &[(i32, i32)], values: &[u32]) -> Vec<u8> {
+    fn oidv(
+        ndim: i32,
+        dataoffset: i32,
+        elemtype: i32,
+        dims: &[(i32, i32)],
+        values: &[u32],
+    ) -> Vec<u8> {
         let mut p = Vec::new(); // alloc: Cold
         for w in [ndim, dataoffset, elemtype] {
             p.extend_from_slice(&w.to_le_bytes());
         }
-        dims.iter().for_each(|d| p.extend_from_slice(&d.0.to_le_bytes()));
-        dims.iter().for_each(|d| p.extend_from_slice(&d.1.to_le_bytes()));
+        dims.iter()
+            .for_each(|d| p.extend_from_slice(&d.0.to_le_bytes()));
+        dims.iter()
+            .for_each(|d| p.extend_from_slice(&d.1.to_le_bytes()));
         while (p.len() + 4) % 8 != 0 {
             p.push(0);
         }
-        values.iter().for_each(|v| p.extend_from_slice(&v.to_le_bytes()));
+        values
+            .iter()
+            .for_each(|v| p.extend_from_slice(&v.to_le_bytes()));
         v4(&p)
     }
 
@@ -1503,11 +1956,28 @@ mod tests {
     fn an_oidvector_is_its_values_not_its_lower_bound() {
         let f = leafform(Leaf::OidVector, -1);
         let stored = oidv(1, 0, 26, &[(2, 0)], &[23, 25]);
-        assert_eq!(canon(&f, &stored), canon(&f, &oidv(1, 0, 26, &[(2, 1)], &[23, 25])));
-        assert_ne!(canon(&f, &stored), canon(&f, &oidv(1, 0, 26, &[(2, 0)], &[25, 23])));
-        assert_ne!(canon(&f, &stored), canon(&f, &oidv(1, 0, 26, &[(1, 0)], &[23])));
-        assert_eq!(canon(&f, &oidv(1, 0, 26, &[(0, 0)], &[])), canon(&f, &oidv(1, 0, 26, &[(0, 1)], &[])));
-        for bad in [oidv(2, 0, 26, &[(1, 1), (1, 1)], &[23]), oidv(1, 32, 26, &[(1, 1)], &[23]), oidv(1, 0, 23, &[(1, 1)], &[23]), oidv(1, 0, 26, &[(3, 0)], &[23])] {
+        assert_eq!(
+            canon(&f, &stored),
+            canon(&f, &oidv(1, 0, 26, &[(2, 1)], &[23, 25]))
+        );
+        assert_ne!(
+            canon(&f, &stored),
+            canon(&f, &oidv(1, 0, 26, &[(2, 0)], &[25, 23]))
+        );
+        assert_ne!(
+            canon(&f, &stored),
+            canon(&f, &oidv(1, 0, 26, &[(1, 0)], &[23]))
+        );
+        assert_eq!(
+            canon(&f, &oidv(1, 0, 26, &[(0, 0)], &[])),
+            canon(&f, &oidv(1, 0, 26, &[(0, 1)], &[]))
+        );
+        for bad in [
+            oidv(2, 0, 26, &[(1, 1), (1, 1)], &[23]),
+            oidv(1, 32, 26, &[(1, 1)], &[23]),
+            oidv(1, 0, 23, &[(1, 1)], &[23]),
+            oidv(1, 0, 26, &[(3, 0)], &[23]),
+        ] {
             let mut out = Vec::new(); // alloc: Cold
             let e = walk(&f, &bad, 0, &mut out).expect_err("not a valid oidvector");
             assert_eq!(e.message(), "array is not a valid oidvector");
@@ -1516,9 +1986,14 @@ mod tests {
 
     #[test]
     fn an_empty_null_bitmap_is_no_bitmap() {
-        let f = Form { len: -1, byval: false, align: 4, kind: Kind::Array(Box::new(leafform(Leaf::Bytes, 4))) }; // alloc: Cold
-        // int4[] {7, 8}, lower bound 1: no bitmap (dataoffset 0, data at ARR_OVERHEAD_NONULLS = MAXALIGN(16 + 8) = 24 from the
-        // varlena's start, payload byte 20)
+        let f = Form {
+            len: -1,
+            byval: false,
+            align: 4,
+            kind: Kind::Array(Box::new(leafform(Leaf::Bytes, 4))),
+        }; // alloc: Cold
+           // int4[] {7, 8}, lower bound 1: no bitmap (dataoffset 0, data at ARR_OVERHEAD_NONULLS = MAXALIGN(16 + 8) = 24 from the
+           // varlena's start, payload byte 20)
         let mut plain = Vec::new(); // alloc: Cold
         for w in [1i32, 0, 23, 2, 1] {
             plain.extend_from_slice(&w.to_le_bytes());
@@ -1549,13 +2024,20 @@ mod tests {
     /// reads alike), the flags, then each range's finite bounds from `w`-alignment of the varlena's offset.
     fn intmr(ranges: &[(u8, i64, i64)], lengths_only: bool, w: usize) -> Vec<u8> {
         let n = ranges.len();
-        let len_of = |r: &(u8, i64, i64)| w * ((r.0 & 0x08 == 0) as usize + (r.0 & 0x10 == 0) as usize);
-        let mut p = (if w == 8 { 4536u32 } else { 4451u32 }).to_le_bytes().to_vec();
+        let len_of =
+            |r: &(u8, i64, i64)| w * ((r.0 & 0x08 == 0) as usize + (r.0 & 0x10 == 0) as usize);
+        let mut p = (if w == 8 { 4536u32 } else { 4451u32 })
+            .to_le_bytes()
+            .to_vec();
         p.extend_from_slice(&(n as u32).to_le_bytes());
         let (mut at, mut prev) = (0usize, 0usize);
         for i in 1..n {
             at += len_of(&ranges[i - 1]);
-            let item = if i % 4 == 0 && !lengths_only { at as u32 | MULTIRANGE_ITEM_OFF_BIT } else { (at - prev) as u32 };
+            let item = if i % 4 == 0 && !lengths_only {
+                at as u32 | MULTIRANGE_ITEM_OFF_BIT
+            } else {
+                (at - prev) as u32
+            };
             prev = at;
             p.extend_from_slice(&item.to_le_bytes());
         }
@@ -1575,12 +2057,20 @@ mod tests {
     }
 
     fn int4mr(ranges: &[(u8, i32, i32)], lengths_only: bool) -> Vec<u8> {
-        let wide: Vec<(u8, i64, i64)> = ranges.iter().map(|r| (r.0, r.1 as i64, r.2 as i64)).collect(); // alloc: Cold
+        let wide: Vec<(u8, i64, i64)> = ranges
+            .iter()
+            .map(|r| (r.0, r.1 as i64, r.2 as i64))
+            .collect(); // alloc: Cold
         intmr(&wide, lengths_only, 4)
     }
 
     fn int4mr_form() -> Form {
-        Form { len: -1, byval: false, align: 4, kind: Kind::Multirange(Box::new(leafform(Leaf::Bytes, 4))) } // alloc: Cold
+        Form {
+            len: -1,
+            byval: false,
+            align: 4,
+            kind: Kind::Multirange(Box::new(leafform(Leaf::Bytes, 4))),
+        } // alloc: Cold
     }
 
     #[test]
@@ -1591,11 +2081,18 @@ mod tests {
         assert_eq!(a, mr(&[(0x02, 1, 3), (0x02, 5, 7)]));
         assert_ne!(a, mr(&[(0x02, 1, 3)]));
         assert_ne!(a, mr(&[(0x02, 1, 3), (0x02, 5, 8)]));
-        assert_ne!(a, mr(&[(0x06, 1, 3), (0x02, 5, 7)]), "an inclusive upper bound differs");
+        assert_ne!(
+            a,
+            mr(&[(0x06, 1, 3), (0x02, 5, 7)]),
+            "an inclusive upper bound differs"
+        );
         // the empty multirange: no items, no flags
         assert_eq!(mr(&[]), 0u32.to_le_bytes());
         // an unbounded lower bound (flags LB_INF) carries only the upper bound
-        assert_eq!(mr(&[(0x08, 0, 3)])[4..], [9, 0, 0, 0, 0x08, 4, 0, 0, 0, 3, 0, 0, 0]);
+        assert_eq!(
+            mr(&[(0x08, 0, 3)])[4..],
+            [9, 0, 0, 0, 0x08, 4, 0, 0, 0, 3, 0, 0, 0]
+        );
     }
 
     #[test]
@@ -1606,7 +2103,13 @@ mod tests {
         let bytes = int4mr(&[(0x02, 1, 3), (0x02, 5, 7)], false);
         let first = canon(&f, &bytes);
         let snap = || {
-            let mut v: Vec<(usize, usize)> = TMPS.with(|p| p.borrow().iter().filter(|b| b.capacity() > 0).map(|b| (b.as_ptr() as usize, b.capacity())).collect());
+            let mut v: Vec<(usize, usize)> = TMPS.with(|p| {
+                p.borrow()
+                    .iter()
+                    .filter(|b| b.capacity() > 0)
+                    .map(|b| (b.as_ptr() as usize, b.capacity()))
+                    .collect()
+            });
             v.sort();
             v
         };
@@ -1621,16 +2124,33 @@ mod tests {
     #[test]
     fn a_form_holds_a_multirange_at_any_level_and_no_other_does() {
         // D1901's in-row refusal reads it: the multirange, an array of one, a composite column, a range over one
-        let boxed = |k: Kind| Form { len: -1, byval: false, align: 4, kind: k };
+        let boxed = |k: Kind| Form {
+            len: -1,
+            byval: false,
+            align: 4,
+            kind: k,
+        };
         assert!(int4mr_form().holds_multirange()); // alloc: Cold
         assert!(boxed(Kind::Array(Box::new(int4mr_form()))).holds_multirange()); // alloc: Cold
-        assert!(boxed(Kind::Record(vec![leafform(Leaf::Bytes, 4), int4mr_form()])).holds_multirange()); // alloc: Cold
+        assert!(
+            boxed(Kind::Record(vec![leafform(Leaf::Bytes, 4), int4mr_form()])).holds_multirange()
+        ); // alloc: Cold
         assert!(boxed(Kind::Range(Box::new(int4mr_form()))).holds_multirange()); // alloc: Cold
-        // does not apply: a leaf, an array, a composite and a range with no multirange (trunk's keys)
+                                                                                 // does not apply: a leaf, an array, a composite and a range with no multirange (trunk's keys)
         assert!(!leafform(Leaf::Varlena, -1).holds_multirange());
         assert!(!boxed(Kind::Array(Box::new(leafform(Leaf::Bytes, 4)))).holds_multirange()); // alloc: Cold
-        assert!(!boxed(Kind::Record(vec![leafform(Leaf::Bytes, 4), leafform(Leaf::Varlena, -1)])).holds_multirange()); // alloc: Cold
-        assert!(!boxed(Kind::Range(Box::new(boxed(Kind::Record(vec![leafform(Leaf::Numeric, -1)]))))).holds_multirange()); // alloc: Cold
+        assert!(!boxed(Kind::Record(vec![
+            leafform(Leaf::Bytes, 4),
+            leafform(Leaf::Varlena, -1)
+        ]))
+        .holds_multirange()); // alloc: Cold
+        assert!(
+            !boxed(Kind::Range(Box::new(boxed(Kind::Record(vec![leafform(
+                Leaf::Numeric,
+                -1
+            )])))))
+            .holds_multirange()
+        ); // alloc: Cold
     }
 
     #[test]
@@ -1638,9 +2158,27 @@ mod tests {
         // 5 to 9 ranges: items 4 and 8 are offsets; the first range unbounded below, the last above (no bytes for either)
         let f = int4mr_form();
         for n in 5..=9usize {
-            let r: Vec<(u8, i32, i32)> = (0..n).map(|i| (if i == 0 { 0x08 } else if i == n - 1 { 0x12 } else { 0x02 }, 10 * i as i32, 10 * i as i32 + 5)).collect(); // alloc: Cold
+            let r: Vec<(u8, i32, i32)> = (0..n)
+                .map(|i| {
+                    (
+                        if i == 0 {
+                            0x08
+                        } else if i == n - 1 {
+                            0x12
+                        } else {
+                            0x02
+                        },
+                        10 * i as i32,
+                        10 * i as i32 + 5,
+                    )
+                })
+                .collect(); // alloc: Cold
             let pg = canon(&f, &int4mr(&r, false));
-            assert_eq!(pg, canon(&f, &int4mr(&r, true)), "{n} ranges: offset items and length items name the same ranges");
+            assert_eq!(
+                pg,
+                canon(&f, &int4mr(&r, true)),
+                "{n} ranges: offset items and length items name the same ranges"
+            );
             // the count, then per range its form behind its length: the flags, each finite bound behind its length
             let mut want = (n as u32).to_le_bytes().to_vec();
             for (fl, lo, hi) in &r {
@@ -1657,7 +2195,11 @@ mod tests {
             assert_eq!(pg, want, "{n} ranges");
             let mut later = r.clone();
             later[n - 2].2 += 1;
-            assert_ne!(pg, canon(&f, &int4mr(&later, false)), "{n} ranges: a range past the first offset item differs");
+            assert_ne!(
+                pg,
+                canon(&f, &int4mr(&later, false)),
+                "{n} ranges: a range past the first offset item differs"
+            );
         }
     }
 
@@ -1665,12 +2207,29 @@ mod tests {
     fn an_int8_multirange_reads_its_bounds_from_8_byte_alignment() {
         // int8 bounds (typalign d): the bounds start at DOUBLEALIGN(12 + 4 * (n - 1) + n) of the varlena, 4 bytes past
         // INTALIGN's at n = 2, 4, 5 and 7 (24 vs 20, 32 vs 28, 40 vs 36, 48 vs 44); 5 to 9 ranges read the offset items too
-        let f = Form { len: -1, byval: false, align: 4, kind: Kind::Multirange(Box::new(leafform(Leaf::Bytes, 8))) }; // alloc: Cold
+        let f = Form {
+            len: -1,
+            byval: false,
+            align: 4,
+            kind: Kind::Multirange(Box::new(leafform(Leaf::Bytes, 8))),
+        }; // alloc: Cold
         let big = 1i64 << 40;
         for n in 2..=9usize {
-            let r: Vec<(u8, i64, i64)> = (0..n).map(|i| (if i == n - 1 { 0x12 } else { 0x02 }, big + 20 * i as i64, big + 20 * i as i64 + 5)).collect(); // alloc: Cold
+            let r: Vec<(u8, i64, i64)> = (0..n)
+                .map(|i| {
+                    (
+                        if i == n - 1 { 0x12 } else { 0x02 },
+                        big + 20 * i as i64,
+                        big + 20 * i as i64 + 5,
+                    )
+                })
+                .collect(); // alloc: Cold
             let pg = canon(&f, &intmr(&r, false, 8));
-            assert_eq!(pg, canon(&f, &intmr(&r, true, 8)), "{n} ranges: offset items and length items name the same ranges");
+            assert_eq!(
+                pg,
+                canon(&f, &intmr(&r, true, 8)),
+                "{n} ranges: offset items and length items name the same ranges"
+            );
             let mut want = (n as u32).to_le_bytes().to_vec();
             for (fl, lo, hi) in &r {
                 let mut one = vec![*fl]; // alloc: Cold
@@ -1686,16 +2245,30 @@ mod tests {
             assert_eq!(pg, want, "{n} ranges");
             let mut later = r.clone();
             later[n - 1].1 += 1;
-            assert_ne!(pg, canon(&f, &intmr(&later, false, 8)), "{n} ranges: the last range's lower bound differs");
+            assert_ne!(
+                pg,
+                canon(&f, &intmr(&later, false, 8)),
+                "{n} ranges: the last range's lower bound differs"
+            );
         }
     }
 
     #[test]
     fn an_interval_is_its_span() {
         let f = leafform(Leaf::Interval, 16);
-        let iv = |time: i64, day: i32, month: i32| [time.to_le_bytes().to_vec(), day.to_le_bytes().to_vec(), month.to_le_bytes().to_vec()].concat();
+        let iv = |time: i64, day: i32, month: i32| {
+            [
+                time.to_le_bytes().to_vec(),
+                day.to_le_bytes().to_vec(),
+                month.to_le_bytes().to_vec(),
+            ]
+            .concat()
+        };
         assert_eq!(canon(&f, &iv(0, 0, 1)), canon(&f, &iv(0, 30, 0)));
-        assert_eq!(canon(&f, &iv(86_400_000_000, 0, 0)), canon(&f, &iv(0, 1, 0)));
+        assert_eq!(
+            canon(&f, &iv(86_400_000_000, 0, 0)),
+            canon(&f, &iv(0, 1, 0))
+        );
         assert_ne!(canon(&f, &iv(0, 1, 0)), canon(&f, &iv(0, 2, 0)));
     }
 
@@ -1707,7 +2280,9 @@ mod tests {
             data.push(0);
             data.extend_from_slice(c);
         }
-        let mut v = ((((8 + data.len()) as u32) << 2) | 0x02).to_le_bytes().to_vec();
+        let mut v = ((((8 + data.len()) as u32) << 2) | 0x02)
+            .to_le_bytes()
+            .to_vec();
         v.extend_from_slice(&(raw.len() as u32).to_le_bytes());
         v.extend_from_slice(&data);
         v
@@ -1719,7 +2294,7 @@ mod tests {
         t[18..20].copy_from_slice(&2u16.to_le_bytes());
         t[22] = 24;
         t.extend_from_slice(col);
-        while ! t.len().is_multiple_of( 4) {
+        while !t.len().is_multiple_of(4) {
             t.push(0);
         }
         t.extend_from_slice(&n.to_le_bytes());
@@ -1731,16 +2306,41 @@ mod tests {
     #[test]
     fn a_compressed_column_is_its_plain_value() {
         // D1607: record_eq detoasts a column heap_form_tuple kept compressed inline; the form is the plain value's
-        let f = Form { len: -1, byval: false, align: 8, kind: Kind::Record(vec![leafform(Leaf::Varlena, -1), leafform(Leaf::Bytes, 4)]) }; // alloc: Cold
-        let text: Vec<u8> = b"ab".iter().copied().cycle().take(300).chain(*b"1").collect(); // alloc: Cold
-        let (plain, packed) = (text_int4_record(&v4(&text), 7), text_int4_record(&pglz_literal(&text), 7));
+        let f = Form {
+            len: -1,
+            byval: false,
+            align: 8,
+            kind: Kind::Record(vec![leafform(Leaf::Varlena, -1), leafform(Leaf::Bytes, 4)]),
+        }; // alloc: Cold
+        let text: Vec<u8> = b"ab"
+            .iter()
+            .copied()
+            .cycle()
+            .take(300)
+            .chain(*b"1")
+            .collect(); // alloc: Cold
+        let (plain, packed) = (
+            text_int4_record(&v4(&text), 7),
+            text_int4_record(&pglz_literal(&text), 7),
+        );
         assert_eq!(canon(&f, &plain), canon(&f, &packed));
         let mut other = text.clone();
         *other.last_mut().expect("a byte") = b'2';
-        assert_ne!(canon(&f, &plain), canon(&f, &text_int4_record(&pglz_literal(&other), 7)));
-        assert_ne!(canon(&f, &plain), canon(&f, &text_int4_record(&pglz_literal(&text), 8)));
+        assert_ne!(
+            canon(&f, &plain),
+            canon(&f, &text_int4_record(&pglz_literal(&other), 7))
+        );
+        assert_ne!(
+            canon(&f, &plain),
+            canon(&f, &text_int4_record(&pglz_literal(&text), 8))
+        );
         // the same record as a range's bound: its compressed column decompressed there too
-        let r = Form { len: -1, byval: false, align: 8, kind: Kind::Range(Box::new(f)) }; // alloc: Cold
+        let r = Form {
+            len: -1,
+            byval: false,
+            align: 8,
+            kind: Kind::Range(Box::new(f)),
+        }; // alloc: Cold
         let range = |a: &[u8], b: &[u8]| {
             let mut p = 3905u32.to_le_bytes().to_vec(); // the range type's oid (not read)
             p.extend_from_slice(a);
@@ -1752,7 +2352,13 @@ mod tests {
             v4(&p)
         };
         let lo = text_int4_record(&v4(&text), 1);
-        let (hi_plain, hi_packed) = (text_int4_record(&v4(&text), 2), text_int4_record(&pglz_literal(&text), 2));
-        assert_eq!(canon(&r, &range(&lo, &hi_plain)), canon(&r, &range(&lo, &hi_packed)));
+        let (hi_plain, hi_packed) = (
+            text_int4_record(&v4(&text), 2),
+            text_int4_record(&pglz_literal(&text), 2),
+        );
+        assert_eq!(
+            canon(&r, &range(&lo, &hi_plain)),
+            canon(&r, &range(&lo, &hi_packed))
+        );
     }
 }

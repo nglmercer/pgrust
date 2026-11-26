@@ -32,12 +32,12 @@ use types_error::PgResult;
 
 pub mod call;
 pub mod catalog;
-pub mod rep;
 pub mod eq;
+pub mod hashjoin;
 pub mod image;
 pub mod of_type;
+pub mod rep;
 pub mod subplan;
-pub mod hashjoin;
 pub mod user;
 
 pub use gravity_abi::key::{KeyReq, KeyUse};
@@ -83,14 +83,19 @@ pub enum TypeClass {
 }
 
 /// D1292's name (decompose ops/sort `INDETERMINATE_COLL`, the same words): one refusal for the construct at every site.
-pub const INDETERMINATE: &str = "D1292: a key over a collatable type with no collation (PG raises 42P22 at its first compare)";
+pub const INDETERMINATE: &str =
+    "D1292: a key over a collatable type with no collation (PG raises 42P22 at its first compare)";
 
 impl TypeClass {
     pub const fn why(self) -> &'static str {
         match self {
             TypeClass::NoHash(_) => "a hashed key whose operator has no hash support (typesem)",
-            TypeClass::Unknown(_) => "a key whose operator or type the catalog does not know (typesem)",
-            TypeClass::NoOrder(_) => "a sorted key whose operator is not a btree ordering operator (typesem)",
+            TypeClass::Unknown(_) => {
+                "a key whose operator or type the catalog does not know (typesem)"
+            }
+            TypeClass::NoOrder(_) => {
+                "a sorted key whose operator is not a btree ordering operator (typesem)"
+            }
             TypeClass::Indeterminate(_) => INDETERMINATE,
         }
     }
@@ -146,7 +151,11 @@ std::thread_local! {
 
 /// `BODIES`' entry for `(f, path)` while its reads stand (replayed into the asker's recording), dropping it when they moved;
 /// in check mode (gravity_deps `checking`) with its `Held`, for the asker to check outside the memo's borrow.
-fn memo_hit(m: &mut Vec<(Oid, Option<u64>, Option<Oid>, gravity_deps::Held)>, f: Oid, path: Option<u64>) -> Option<(Option<Oid>, Option<gravity_deps::Held>)> {
+fn memo_hit(
+    m: &mut Vec<(Oid, Option<u64>, Option<Oid>, gravity_deps::Held)>,
+    f: Oid,
+    path: Option<u64>,
+) -> Option<(Option<Oid>, Option<gravity_deps::Held>)> {
     let i = m.iter().position(|e| (e.0, e.1) == (f, path))?;
     if m[i].3.holds() {
         return Some((m[i].2, gravity_deps::checking().then(|| m[i].3.clone())));
@@ -200,20 +209,31 @@ pub fn body(mcx: mcx::Mcx<'_>, f: Oid) -> PgResult<Option<Oid>> {
 
 /// `body` of user proc `f`, read from the catalog.
 fn alias_of(mcx: mcx::Mcx<'_>, f: Oid) -> PgResult<Option<Oid>> {
-    let Some(p) = syscache_seams::lookup_pg_proc_shape::call(f)? else { return Ok(None) };
+    let Some(p) = syscache_seams::lookup_pg_proc_shape::call(f)? else {
+        return Ok(None);
+    };
     if p.prolang != INTERNAL_LANGUAGE || p.prosecdef || !p.proconfig_isnull {
         return Ok(None);
     }
-    let Some(src) = syscache_seams::lookup_pg_proc_prosrc::call(mcx, f)? else { return Ok(None) };
+    let Some(src) = syscache_seams::lookup_pg_proc_prosrc::call(mcx, f)? else {
+        return Ok(None);
+    };
     let b = fmgr_core::fmgr_internal_function(src.as_str());
     if !builtin(b) {
         return Ok(None);
     }
-    let Some(q) = syscache_seams::lookup_pg_proc_shape::call(b)? else { return Ok(None) };
+    let Some(q) = syscache_seams::lookup_pg_proc_shape::call(b)? else {
+        return Ok(None);
+    };
     if (p.prokind, p.proretset, p.pronargs) != (q.prokind, q.proretset, q.pronargs) {
         return Ok(None);
     }
-    let (Some((pr, pa)), Some((qr, qa))) = (syscache_seams::lookup_pg_proc_signature::call(mcx, f)?, syscache_seams::lookup_pg_proc_signature::call(mcx, b)?) else { return Ok(None) };
+    let (Some((pr, pa)), Some((qr, qa))) = (
+        syscache_seams::lookup_pg_proc_signature::call(mcx, f)?,
+        syscache_seams::lookup_pg_proc_signature::call(mcx, b)?,
+    ) else {
+        return Ok(None);
+    };
     if pa.len() != qa.len() {
         return Ok(None);
     }
@@ -238,7 +258,11 @@ const RECORD_TYPE: Oid = 2249;
 /// body's reading is already being asked (a body calling itself). The answer is memoized per search path (a body's names
 /// resolve through it) while what its reading read stands (C3: CREATE OR REPLACE moves the pg_proc row); an error leaves
 /// no entry.
-pub fn sql_inlined(mcx: mcx::Mcx<'_>, f: Oid, judge: &mut dyn FnMut(types_nodes::Node<'_>) -> bool) -> PgResult<bool> {
+pub fn sql_inlined(
+    mcx: mcx::Mcx<'_>,
+    f: Oid,
+    judge: &mut dyn FnMut(types_nodes::Node<'_>) -> bool,
+) -> PgResult<bool> {
     let installed = syscache_seams::lookup_pg_proc_shape::is_installed()
         && syscache_seams::lookup_pg_proc_signature::is_installed()
         && clauses_seams::inline_sql_function::is_installed()
@@ -246,7 +270,11 @@ pub fn sql_inlined(mcx: mcx::Mcx<'_>, f: Oid, judge: &mut dyn FnMut(types_nodes:
     if f == 0 || builtin(f) || !installed {
         return Ok(false);
     }
-    let path = namespace_seams::fetch_search_path::call(mcx, true)?.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &o| (h ^ u64::from(o)).wrapping_mul(0x0100_0000_01b3));
+    let path = namespace_seams::fetch_search_path::call(mcx, true)?
+        .iter()
+        .fold(0xcbf2_9ce4_8422_2325u64, |h, &o| {
+            (h ^ u64::from(o)).wrapping_mul(0x0100_0000_01b3)
+        });
     let memo = BODIES.with(|m| {
         let mut m = m.borrow_mut();
         // no check of a hit here: its fill calls the asker's `judge` again (not a pure read)
@@ -258,7 +286,12 @@ pub fn sql_inlined(mcx: mcx::Mcx<'_>, f: Oid, judge: &mut dyn FnMut(types_nodes:
             return Some(false);
         }
         // in flight (nothing read: it stands): a body that reaches `f` again reads it as not inlinable
-        m.push((f, Some(path), None, gravity_deps::Held::of(gravity_deps::Deps::default()))); // alloc: Cold
+        m.push((
+            f,
+            Some(path),
+            None,
+            gravity_deps::Held::of(gravity_deps::Deps::default()),
+        )); // alloc: Cold
         None
     });
     if let Some(q) = memo {
@@ -283,7 +316,11 @@ pub fn sql_inlined(mcx: mcx::Mcx<'_>, f: Oid, judge: &mut dyn FnMut(types_nodes:
 /// `inline_function`'s SECURITY DEFINER and SET clause gates when the SET clause names no search_path (the body then
 /// parses under the caller's path, as the planner's reading does). Not memoized: only a sort's comparator asks it, and
 /// the body's own calls read through `sql_inlined`.
-pub fn sql_fmgr_body(mcx: mcx::Mcx<'_>, f: Oid, judge: &mut dyn FnMut(types_nodes::Node<'_>) -> bool) -> PgResult<bool> {
+pub fn sql_fmgr_body(
+    mcx: mcx::Mcx<'_>,
+    f: Oid,
+    judge: &mut dyn FnMut(types_nodes::Node<'_>) -> bool,
+) -> PgResult<bool> {
     let installed = syscache_seams::lookup_pg_proc_shape::is_installed()
         && syscache_seams::lookup_pg_proc_signature::is_installed()
         && syscache_seams::lookup_pg_proc_secdef::is_installed()
@@ -295,13 +332,27 @@ pub fn sql_fmgr_body(mcx: mcx::Mcx<'_>, f: Oid, judge: &mut dyn FnMut(types_node
 }
 
 /// `sql_inlined`'s read of user proc `f` from the catalog, judged; `fmgr`: `sql_fmgr_body`'s gates.
-fn inline_read(mcx: mcx::Mcx<'_>, f: Oid, judge: &mut dyn FnMut(types_nodes::Node<'_>) -> bool, fmgr: bool) -> PgResult<bool> {
-    let Some(p) = syscache_seams::lookup_pg_proc_shape::call(f)? else { return Ok(false) };
+fn inline_read(
+    mcx: mcx::Mcx<'_>,
+    f: Oid,
+    judge: &mut dyn FnMut(types_nodes::Node<'_>) -> bool,
+    fmgr: bool,
+) -> PgResult<bool> {
+    let Some(p) = syscache_seams::lookup_pg_proc_shape::call(f)? else {
+        return Ok(false);
+    };
     let wrapped = p.prosecdef || !p.proconfig_isnull;
-    if p.prolang != SQL_LANGUAGE || p.prokind != b'f' as i8 || p.proretset || p.prorettype == RECORD_TYPE || wrapped && !(fmgr && path_kept(f)?) {
+    if p.prolang != SQL_LANGUAGE
+        || p.prokind != b'f' as i8
+        || p.proretset
+        || p.prorettype == RECORD_TYPE
+        || wrapped && !(fmgr && path_kept(f)?)
+    {
         return Ok(false);
     }
-    let Some((ret, argtypes)) = syscache_seams::lookup_pg_proc_signature::call(mcx, f)? else { return Ok(false) };
+    let Some((ret, argtypes)) = syscache_seams::lookup_pg_proc_signature::call(mcx, f)? else {
+        return Ok(false);
+    };
     if argtypes.len() != usize::try_from(p.pronargs).unwrap_or(usize::MAX) {
         return Ok(false);
     }
@@ -318,14 +369,22 @@ fn inline_read(mcx: mcx::Mcx<'_>, f: Oid, judge: &mut dyn FnMut(types_nodes::Nod
         params.push(types_nodes::Node::mk(mcx, param)?); // alloc: Cold
     }
     let args = types_nodes::NodeList::from_slice(mcx, &params)?;
-    let Some(body) = clauses_seams::inline_sql_function::call(mcx, f, ret, 0, 0, &args)? else { return Ok(false) };
+    let Some(body) = clauses_seams::inline_sql_function::call(mcx, f, ret, 0, 0, &args)? else {
+        return Ok(false);
+    };
     Ok(judge(body))
 }
 
 /// D3713: function `f`'s SET clause names no search_path.
 fn path_kept(f: Oid) -> PgResult<bool> {
-    let Some(s) = syscache_seams::lookup_pg_proc_secdef::call(f)? else { return Ok(false) };
-    Ok(s.proconfig.iter().flatten().all(|e| !e.split('=').next().is_some_and(|n| n.trim().eq_ignore_ascii_case("search_path"))))
+    let Some(s) = syscache_seams::lookup_pg_proc_secdef::call(f)? else {
+        return Ok(false);
+    };
+    Ok(s.proconfig.iter().flatten().all(|e| {
+        !e.split('=')
+            .next()
+            .is_some_and(|n| n.trim().eq_ignore_ascii_case("search_path"))
+    }))
 }
 
 /// The support functions a plan node naming operator `op` alone runs (a Sort's, MergeAppend's, Group's, Unique's, SetOp's,
@@ -353,7 +412,10 @@ pub fn op_calls(op: Oid) -> PgResult<Option<OpCalls>> {
         return Ok(None);
     }
     let order = match lsyscache::get_ordering_op_properties(op)? {
-        Some((family, t, _)) => Some([lsyscache::get_opfamily_proc(family, t, t, 2)?, lsyscache::get_opfamily_proc(family, t, t, 1)?]),
+        Some((family, t, _)) => Some([
+            lsyscache::get_opfamily_proc(family, t, t, 2)?,
+            lsyscache::get_opfamily_proc(family, t, t, 1)?,
+        ]),
         None => None,
     };
     let hash = lsyscache::get_op_hash_functions(op)?.map(|(l, r)| [l, r]);
@@ -383,11 +445,20 @@ pub struct SortOrder {
 /// `SortOrder` of sort operator `op`; none for an operator that is no btree ordering operator (strategy 1 or 5 of some
 /// btree family over one type).
 pub fn sort_order(op: Oid) -> PgResult<Option<SortOrder>> {
-    let Some((family, t, cmptype)) = lsyscache::get_ordering_op_properties(op)? else { return Ok(None) };
+    let Some((family, t, cmptype)) = lsyscache::get_ordering_op_properties(op)? else {
+        return Ok(None);
+    };
     let default = typcache::lookup_type_cache(t, typcache::TYPECACHE_BTREE_OPFAMILY)?.btree_opf();
     let cmp = lsyscache::get_opfamily_proc(family, t, t, super::BTORDER_PROC)?;
     let no_proc = cmp == 0 && lsyscache::get_opfamily_proc(family, t, t, 2)? == 0;
-    Ok(Some(SortOrder { desc: cmptype == lsyscache::COMPARE_GT, family, opcintype: t, default_family: family == default, cmp, no_proc }))
+    Ok(Some(SortOrder {
+        desc: cmptype == lsyscache::COMPARE_GT,
+        family,
+        opcintype: t,
+        default_family: family == default,
+        cmp,
+        no_proc,
+    }))
 }
 
 /// A datum of type `u` is one of type `t` to a C function reading `t`: the same type, or two types that are no pseudo-types
@@ -397,10 +468,17 @@ fn stores_as(u: Oid, t: Oid) -> PgResult<bool> {
     if u == t {
         return Ok(true);
     }
-    if u == 0 || t == 0 || lsyscache::typ::get_typtype(u)? == PSEUDO || lsyscache::typ::get_typtype(t)? == PSEUDO {
+    if u == 0
+        || t == 0
+        || lsyscache::typ::get_typtype(u)? == PSEUDO
+        || lsyscache::typ::get_typtype(t)? == PSEUDO
+    {
         return Ok(false);
     }
-    Ok(lsyscache::get_typlenbyval(u)? == lsyscache::get_typlenbyval(t)? && lsyscache::type_is_collatable(u)? == lsyscache::type_is_collatable(t)?)
+    Ok(
+        lsyscache::get_typlenbyval(u)? == lsyscache::get_typlenbyval(t)?
+            && lsyscache::type_is_collatable(u)? == lsyscache::type_is_collatable(t)?,
+    )
 }
 
 /// What an equality operator over a type compares by, as fmgr resolves its procedure (`eq_form`).
@@ -430,7 +508,13 @@ fn eq_form_of(mcx: mcx::Mcx<'_>, eq: Oid, typid: Oid) -> PgResult<EqForm> {
     if !builtin(eq) {
         return Ok(EqForm::User);
     }
-    Ok(if eq == F_BYTEAEQ && lsyscache::get_typlenbyval(typid)?.0 == -1 { EqForm::Bytes } else { EqForm::Other })
+    Ok(
+        if eq == F_BYTEAEQ && lsyscache::get_typlenbyval(typid)?.0 == -1 {
+            EqForm::Bytes
+        } else {
+            EqForm::Other
+        },
+    )
 }
 
 /// D2163 / D2637: what a key of type `typid` grouped or hashed under equality operator `op` compares by: the operator's
@@ -446,7 +530,9 @@ pub fn eq_form(mcx: mcx::Mcx<'_>, op: Oid, typid: Oid) -> PgResult<EqForm> {
     let form = eq_form_of(mcx, fmgr_proc(mcx, eq)?, typid)?;
     if form == EqForm::Own && !builtin(op) {
         if let Some((l, r)) = lsyscache::get_op_hash_functions(op)? {
-            if !hash_own(mcx, fmgr_proc(mcx, l)?, typid)? || !hash_own(mcx, fmgr_proc(mcx, r)?, typid)? {
+            if !hash_own(mcx, fmgr_proc(mcx, l)?, typid)?
+                || !hash_own(mcx, fmgr_proc(mcx, r)?, typid)?
+            {
                 return Ok(EqForm::Other);
             }
         }
@@ -461,7 +547,9 @@ fn hash_own(mcx: mcx::Mcx<'_>, h: Oid, typid: Oid) -> PgResult<bool> {
     if !builtin(h) {
         return Ok(true);
     }
-    let Ok(e) = typcache::lookup_type_cache(typid, typcache::TYPECACHE_HASH_PROC) else { return Ok(true) };
+    let Ok(e) = typcache::lookup_type_cache(typid, typcache::TYPECACHE_HASH_PROC) else {
+        return Ok(true);
+    };
     let own = e.hash_proc();
     Ok(own == 0 || fmgr_proc(mcx, own)? == h)
 }
@@ -501,16 +589,29 @@ fn word_width_of(typid: Oid, typed: bool) -> PgResult<Option<u8>> {
 /// by value). PostgreSQL then compares and hashes `t`'s datum as `b`'s, so equal words are equal values and the hash procs
 /// agree with that equality (D2642), as `bits_decide` reads a keyed table's key. `None` for any other (`By::Fmgr`).
 fn alias_word(mcx: mcx::Mcx<'_>, procs: &Procs, t: Oid) -> PgResult<Option<u8>> {
-    if procs.rhs_eq != procs.eq || ![procs.eq, procs.lhs_hash, procs.rhs_hash].into_iter().all(builtin) {
+    if procs.rhs_eq != procs.eq
+        || ![procs.eq, procs.lhs_hash, procs.rhs_hash]
+            .into_iter()
+            .all(builtin)
+    {
         return Ok(None);
     }
     let (_, args) = lsyscache::get_func_signature(mcx, procs.eq)?;
-    let (Some(&b), Some(&b2)) = (args.first(), args.get(1)) else { return Ok(None) };
-    if args.len() != 2 || b != b2 || lsyscache::get_typlenbyval(b)? != lsyscache::get_typlenbyval(t)? {
+    let (Some(&b), Some(&b2)) = (args.first(), args.get(1)) else {
+        return Ok(None);
+    };
+    if args.len() != 2
+        || b != b2
+        || lsyscache::get_typlenbyval(b)? != lsyscache::get_typlenbyval(t)?
+    {
         return Ok(None);
     }
-    let Some(w) = word_width(b)? else { return Ok(None) };
-    let own = eq_form_of(mcx, procs.eq, b)? == EqForm::Own && hash_own(mcx, procs.lhs_hash, b)? && hash_own(mcx, procs.rhs_hash, b)?;
+    let Some(w) = word_width(b)? else {
+        return Ok(None);
+    };
+    let own = eq_form_of(mcx, procs.eq, b)? == EqForm::Own
+        && hash_own(mcx, procs.lhs_hash, b)?
+        && hash_own(mcx, procs.rhs_hash, b)?;
     Ok(own.then_some(w))
 }
 
@@ -550,19 +651,31 @@ fn word_eq(mcx: mcx::Mcx<'_>, eq: Oid, rhs_eq: Oid, lt: Oid, rt: Oid) -> PgResul
 /// never the catalog (rule RK). `Ok(Err)`: the coordinate a refusal names; `Err`: a catalog read failed.
 pub fn resolve(mcx: mcx::Mcx<'_>, req: &KeyReq) -> PgResult<Result<KeySem, TypeClass>> {
     let (op, coll, use_) = (req.op, req.coll, req.use_);
-    debug_assert!(matches!(use_, KeyUse::Hash | KeyUse::Sort), "typesem answers KeyUse::Hash and KeyUse::Sort");
+    debug_assert!(
+        matches!(use_, KeyUse::Hash | KeyUse::Sort),
+        "typesem answers KeyUse::Hash and KeyUse::Sort"
+    );
     if use_ == KeyUse::Sort {
         return sort_key(mcx, req);
     }
-    let Some((lhs_hash, rhs_hash)) = lsyscache::get_op_hash_functions(op)? else { return Ok(Err(TypeClass::NoHash(op))) };
+    let Some((lhs_hash, rhs_hash)) = lsyscache::get_op_hash_functions(op)? else {
+        return Ok(Err(TypeClass::NoHash(op)));
+    };
     let eq = lsyscache::get_opcode(op)?;
     if eq == 0 {
         return Ok(Err(TypeClass::Unknown(op)));
     }
-    let (eq, lhs_hash, rhs_hash) = (fmgr_proc(mcx, eq)?, fmgr_proc(mcx, lhs_hash)?, fmgr_proc(mcx, rhs_hash)?);
+    let (eq, lhs_hash, rhs_hash) = (
+        fmgr_proc(mcx, eq)?,
+        fmgr_proc(mcx, lhs_hash)?,
+        fmgr_proc(mcx, rhs_hash)?,
+    );
     let (dl, dr) = lsyscache::op_input_types(op)?;
     let (lt, rt) = (concrete(dl, req.lt), concrete(dr, req.rt));
-    let raise_hash = coll == 0 && [lhs_hash, rhs_hash].iter().any(|&f| types_core::quiet::hash_needs_collation(f));
+    let raise_hash = coll == 0
+        && [lhs_hash, rhs_hash]
+            .iter()
+            .any(|&f| types_core::quiet::hash_needs_collation(f));
     if !raise_hash && indeterminate(coll, &[lt, rt])? {
         return Ok(Err(TypeClass::Indeterminate(op)));
     }
@@ -570,15 +683,31 @@ pub fn resolve(mcx: mcx::Mcx<'_>, req: &KeyReq) -> PgResult<Result<KeySem, TypeC
         Some((_, r)) if r != 0 => fmgr_proc(mcx, lsyscache::get_opcode(r)?)?,
         _ => return Ok(Err(TypeClass::NoHash(op))),
     };
-    let procs = Procs { eq, lhs_hash, rhs_hash, rhs_eq, cmp: 0 };
+    let procs = Procs {
+        eq,
+        lhs_hash,
+        rhs_hash,
+        rhs_eq,
+        cmp: 0,
+    };
     // the procs decide, not the operator's oid: a user operator over built-in procs (CREATE OPERATOR = (i8a, i8a) with
     // int8eq in integer_ops) is those procs
     let all_builtin = [eq, lhs_hash, rhs_hash, rhs_eq].into_iter().all(builtin);
     let det = super::coll_bytes(coll)?;
     let by = if !all_builtin || !det {
         By::Fmgr
-    } else if let (Some(lw), Some(rw)) = (word_width_of(lt, lt != dl)?, word_width_of(rt, rt != dr)?) {
-        if builtin(op) || word_eq(mcx, eq, rhs_eq, lt, rt)? { By::Word { lw, rw, signed: false } } else { By::Fmgr }
+    } else if let (Some(lw), Some(rw)) =
+        (word_width_of(lt, lt != dl)?, word_width_of(rt, rt != dr)?)
+    {
+        if builtin(op) || word_eq(mcx, eq, rhs_eq, lt, rt)? {
+            By::Word {
+                lw,
+                rw,
+                signed: false,
+            }
+        } else {
+            By::Fmgr
+        }
     } else if lt == rt {
         // D2637: the type's form stands for its own `=` alone; byteaeq over a varlena (a user family of byte comparators,
         // V4R-508) keys by the payload bytes, bytea's form; any other built-in procedure by PostgreSQL's functions (a type
@@ -587,11 +716,14 @@ pub fn resolve(mcx: mcx::Mcx<'_>, req: &KeyReq) -> PgResult<Result<KeySem, TypeC
         match super::form(lt)? {
             Ok((id, _)) if builtin(op) => By::Canonical(id),
             Ok((id, _)) => match (eq_form_of(mcx, eq, lt), eq_form_of(mcx, rhs_eq, rt)) {
-                (Ok(EqForm::Bytes), Ok(EqForm::Bytes)) => match super::form(types_core::catalog::BYTEAOID)? {
-                    Ok((b, _)) => By::Canonical(b),
-                    Err(_) => By::Fmgr,
-                },
-                (Ok(EqForm::Other | EqForm::Bytes | EqForm::User), _) | (_, Ok(EqForm::Other | EqForm::Bytes | EqForm::User)) => By::Fmgr,
+                (Ok(EqForm::Bytes), Ok(EqForm::Bytes)) => {
+                    match super::form(types_core::catalog::BYTEAOID)? {
+                        Ok((b, _)) => By::Canonical(b),
+                        Err(_) => By::Fmgr,
+                    }
+                }
+                (Ok(EqForm::Other | EqForm::Bytes | EqForm::User), _)
+                | (_, Ok(EqForm::Other | EqForm::Bytes | EqForm::User)) => By::Fmgr,
                 // D2642: an image keys equal values as one; the table finds them only when the hash procs are the
                 // type's own (a hashvarlena wrapper over numeric's = hashes 1.0 and 1.00 apart)
                 _ if !hash_own(mcx, lhs_hash, lt)? || !hash_own(mcx, rhs_hash, rt)? => By::Fmgr,
@@ -600,7 +732,11 @@ pub fn resolve(mcx: mcx::Mcx<'_>, req: &KeyReq) -> PgResult<Result<KeySem, TypeC
             // equivclass#53: a type with no form of its own over one built-in type's own procs keys by its word as that
             // type does (`alias_word`)
             Err(_) => match alias_word(mcx, &procs, lt)? {
-                Some(w) => By::Word { lw: w, rw: w, signed: false },
+                Some(w) => By::Word {
+                    lw: w,
+                    rw: w,
+                    signed: false,
+                },
                 None => By::Fmgr,
             },
         }
@@ -608,7 +744,18 @@ pub fn resolve(mcx: mcx::Mcx<'_>, req: &KeyReq) -> PgResult<Result<KeySem, TypeC
         By::Fmgr
     };
     let linear = builtin(op) || !all_builtin || !matches!(by, By::Fmgr);
-    Ok(Ok(KeySem { op, lt, rt, coll, by, procs, native: all_builtin && det, desc: false, raise_hash, linear }))
+    Ok(Ok(KeySem {
+        op,
+        lt,
+        rt,
+        coll,
+        by,
+        procs,
+        native: all_builtin && det,
+        desc: false,
+        raise_hash,
+        linear,
+    }))
 }
 
 /// Operator input type `declared` as the key reads it: `given` (a `KeyReq::typed` type, non-zero) in place of a
@@ -618,10 +765,24 @@ const fn concrete(declared: Oid, given: Oid) -> Oid {
     use types_core::catalog::*;
     let poly = matches!(
         declared,
-        ANYELEMENTOID | ANYARRAYOID | ANYNONARRAYOID | ANYENUMOID | ANYRANGEOID | ANYMULTIRANGEOID | ANYCOMPATIBLEOID
-            | ANYCOMPATIBLEARRAYOID | ANYCOMPATIBLENONARRAYOID | ANYCOMPATIBLERANGEOID | ANYCOMPATIBLEMULTIRANGEOID | RECORDOID
+        ANYELEMENTOID
+            | ANYARRAYOID
+            | ANYNONARRAYOID
+            | ANYENUMOID
+            | ANYRANGEOID
+            | ANYMULTIRANGEOID
+            | ANYCOMPATIBLEOID
+            | ANYCOMPATIBLEARRAYOID
+            | ANYCOMPATIBLENONARRAYOID
+            | ANYCOMPATIBLERANGEOID
+            | ANYCOMPATIBLEMULTIRANGEOID
+            | RECORDOID
     );
-    if poly && given != 0 { given } else { declared }
+    if poly && given != 0 {
+        given
+    } else {
+        declared
+    }
 }
 
 /// D2036: the hash functions PostgreSQL's hash join calls on each input of `op` under input collation `coll`
@@ -629,11 +790,20 @@ const fn concrete(declared: Oid, given: Oid) -> Oid {
 /// `resolve`'s hashed half: no compatible right-hand equality is asked for, since a hash join never calls one
 /// (equivclass's non-commutable `=(int8, int8alias1)` in integer_ops has none). `Ok(Err)`: no hash support, or an
 /// indeterminate collation that no hash proc raises on.
-pub fn hash_procs(mcx: mcx::Mcx<'_>, op: Oid, coll: Oid) -> PgResult<Result<(Oid, Oid), TypeClass>> {
-    let Some((l, r)) = lsyscache::get_op_hash_functions(op)? else { return Ok(Err(TypeClass::NoHash(op))) };
+pub fn hash_procs(
+    mcx: mcx::Mcx<'_>,
+    op: Oid,
+    coll: Oid,
+) -> PgResult<Result<(Oid, Oid), TypeClass>> {
+    let Some((l, r)) = lsyscache::get_op_hash_functions(op)? else {
+        return Ok(Err(TypeClass::NoHash(op)));
+    };
     let (l, r) = (fmgr_proc(mcx, l)?, fmgr_proc(mcx, r)?);
     let (lt, rt) = lsyscache::op_input_types(op)?;
-    let raise_hash = coll == 0 && [l, r].iter().any(|&f| types_core::quiet::hash_needs_collation(f));
+    let raise_hash = coll == 0
+        && [l, r]
+            .iter()
+            .any(|&f| types_core::quiet::hash_needs_collation(f));
     if !raise_hash && indeterminate(coll, &[lt, rt])? {
         return Ok(Err(TypeClass::Indeterminate(op)));
     }
@@ -645,7 +815,9 @@ pub fn hash_procs(mcx: mcx::Mcx<'_>, op: Oid, coll: Oid) -> PgResult<Result<(Oid
 /// anyarray); the key's collatability, word and order read its concrete type (`KeyReq::typed`).
 fn sort_key(mcx: mcx::Mcx<'_>, req: &KeyReq) -> PgResult<Result<KeySem, TypeClass>> {
     let (op, coll) = (req.op, req.coll);
-    let Some((family, t, cmptype)) = lsyscache::get_ordering_op_properties(op)? else { return Ok(Err(TypeClass::NoOrder(op))) };
+    let Some((family, t, cmptype)) = lsyscache::get_ordering_op_properties(op)? else {
+        return Ok(Err(TypeClass::NoOrder(op)));
+    };
     let kt = concrete(t, req.lt);
     if indeterminate(coll, &[kt])? {
         return Ok(Err(TypeClass::Indeterminate(op)));
@@ -666,14 +838,35 @@ fn sort_key(mcx: mcx::Mcx<'_>, req: &KeyReq) -> PgResult<Result<KeySem, TypeClas
     let native = builtin(cmp) && builtin(eq) && super::coll_bytes(coll)?;
     let by = match (native, word_width(kt)?) {
         (true, Some(w)) => match word_order(mcx, cmp, kt)? {
-            Some(signed) => By::Word { lw: w, rw: w, signed },
+            Some(signed) => By::Word {
+                lw: w,
+                rw: w,
+                signed,
+            },
             None => By::Fmgr,
         },
         _ => By::Fmgr,
     };
-    let procs = Procs { eq, lhs_hash: 0, rhs_hash: 0, rhs_eq: eq, cmp };
+    let procs = Procs {
+        eq,
+        lhs_hash: 0,
+        rhs_hash: 0,
+        rhs_eq: eq,
+        cmp,
+    };
     let desc = cmptype == lsyscache::COMPARE_GT;
-    Ok(Ok(KeySem { op, lt: kt, rt: kt, coll, by, procs, native, desc, raise_hash: false, linear: true }))
+    Ok(Ok(KeySem {
+        op,
+        lt: kt,
+        rt: kt,
+        coll,
+        by,
+        procs,
+        native,
+        desc,
+        raise_hash: false,
+        linear: true,
+    }))
 }
 
 /// D2598: `coll` is InvalidOid and one of `types` is collatable (its pg_type `typcollation` is set: text, varchar,
@@ -695,7 +888,9 @@ fn indeterminate(coll: Oid, types: &[Oid]) -> PgResult<bool> {
 /// its order.
 fn word_order(mcx: mcx::Mcx<'_>, cmp: Oid, t: Oid) -> PgResult<Option<bool>> {
     let (_, args) = lsyscache::get_func_signature(mcx, cmp)?;
-    let Some(&a) = args.first() else { return Ok(None) };
+    let Some(&a) = args.first() else {
+        return Ok(None);
+    };
     if lsyscache::get_typlenbyval(a)? != lsyscache::get_typlenbyval(t)? {
         return Ok(None);
     }
@@ -762,7 +957,9 @@ pub fn bits_decide(mcx: mcx::Mcx<'_>, op: Oid, coll: Oid, typid: Oid) -> PgResul
         _ => return Ok(false),
     };
     let (_, args) = lsyscache::get_func_signature(mcx, sem.procs.eq)?;
-    let Some(&a) = args.first() else { return Ok(false) };
+    let Some(&a) = args.first() else {
+        return Ok(false);
+    };
     Ok(super::bytes_leaf(a) && lsyscache::get_typlenbyval(a)? == (len, byval))
 }
 
@@ -778,12 +975,16 @@ pub fn intern_op(mcx: mcx::Mcx<'_>, typid: Oid, coll: Oid) -> PgResult<Option<Oi
     if bits_decide(mcx, op, coll, typid)? {
         return Ok(None);
     }
-    Ok(resolve(mcx, &KeyReq::hash(op, coll))?.ok().filter(|s| !s.raise_hash).map(|_| op))
+    Ok(resolve(mcx, &KeyReq::hash(op, coll))?
+        .ok()
+        .filter(|s| !s.raise_hash)
+        .map(|_| op))
 }
 
 /// Whether the catalog seams `resolve` reads are installed (a crate rig over the reference .dat files has none).
 pub fn available() -> bool {
-    syscache_seams::lookup_pg_operator_shape::is_installed() && syscache_seams::lookup_pg_amop_members_by_operator::is_installed()
+    syscache_seams::lookup_pg_operator_shape::is_installed()
+        && syscache_seams::lookup_pg_amop_members_by_operator::is_installed()
 }
 
 #[cfg(test)]
@@ -799,7 +1000,10 @@ mod tests {
         // no types given: the operator's own (0), and `typed` changes the types alone
         assert_eq!((h.lt, h.rt, s.lt, s.rt), (0, 0, 0, 0));
         let t = KeyReq::hash(1070, 0).typed(1007, 1007);
-        assert_eq!((t.use_, t.op, t.coll, t.lt, t.rt), (KeyUse::Hash, 1070, 0, 1007, 1007));
+        assert_eq!(
+            (t.use_, t.op, t.coll, t.lt, t.rt),
+            (KeyUse::Hash, 1070, 0, 1007, 1007)
+        );
     }
 
     /// K3: a given type stands in for a polymorphic operator input type (and record's) only; a concrete input type and
@@ -807,12 +1011,31 @@ mod tests {
     #[test]
     fn concrete_reads_a_given_type_for_a_polymorphic_input_only() {
         use types_core::catalog::*;
-        for p in [ANYELEMENTOID, ANYARRAYOID, ANYNONARRAYOID, ANYENUMOID, ANYRANGEOID, ANYMULTIRANGEOID, ANYCOMPATIBLEOID,
-            ANYCOMPATIBLEARRAYOID, ANYCOMPATIBLENONARRAYOID, ANYCOMPATIBLERANGEOID, ANYCOMPATIBLEMULTIRANGEOID, RECORDOID] {
+        for p in [
+            ANYELEMENTOID,
+            ANYARRAYOID,
+            ANYNONARRAYOID,
+            ANYENUMOID,
+            ANYRANGEOID,
+            ANYMULTIRANGEOID,
+            ANYCOMPATIBLEOID,
+            ANYCOMPATIBLEARRAYOID,
+            ANYCOMPATIBLENONARRAYOID,
+            ANYCOMPATIBLERANGEOID,
+            ANYCOMPATIBLEMULTIRANGEOID,
+            RECORDOID,
+        ] {
             assert_eq!(super::concrete(p, 3904), 3904, "{p}");
             assert_eq!(super::concrete(p, 0), p, "{p}");
         }
-        for c in [INT4OID, INT8OID, TEXTOID, NUMERICOID, RECORDARRAYOID, ANYOID] {
+        for c in [
+            INT4OID,
+            INT8OID,
+            TEXTOID,
+            NUMERICOID,
+            RECORDARRAYOID,
+            ANYOID,
+        ] {
             assert_eq!(super::concrete(c, 3904), c, "{c}");
         }
     }
@@ -822,10 +1045,36 @@ mod tests {
     #[test]
     fn word_order_types_are_bytes_leaves() {
         use types_core::catalog::*;
-        for t in [INT2OID, INT4OID, INT8OID, DATEOID, TIMEOID, TIMESTAMPOID, TIMESTAMPTZOID, CASHOID, BOOLOID, CHAROID, OIDOID, XID8OID, LSNOID] {
-            assert!(super::super::word_order(t).is_some() && super::super::bytes_leaf(t), "{t}");
+        for t in [
+            INT2OID,
+            INT4OID,
+            INT8OID,
+            DATEOID,
+            TIMEOID,
+            TIMESTAMPOID,
+            TIMESTAMPTZOID,
+            CASHOID,
+            BOOLOID,
+            CHAROID,
+            OIDOID,
+            XID8OID,
+            LSNOID,
+        ] {
+            assert!(
+                super::super::word_order(t).is_some() && super::super::bytes_leaf(t),
+                "{t}"
+            );
         }
-        for t in [FLOAT4OID, FLOAT8OID, NUMERICOID, TEXTOID, BPCHAROID, UUIDOID, INTERVALOID, TIMETZOID] {
+        for t in [
+            FLOAT4OID,
+            FLOAT8OID,
+            NUMERICOID,
+            TEXTOID,
+            BPCHAROID,
+            UUIDOID,
+            INTERVALOID,
+            TIMETZOID,
+        ] {
             assert_eq!(super::super::word_order(t), None, "{t}");
         }
         assert_eq!(super::super::word_order(OIDOID), Some(false));
@@ -836,9 +1085,22 @@ mod tests {
     fn image_signed_is_order_image_signed() {
         use types_core::catalog::*;
         for t in 0..20000 {
-            assert_eq!(super::image_signed(t), super::super::order_image(t) == Some(super::super::OrderBy::Signed), "{t}");
+            assert_eq!(
+                super::image_signed(t),
+                super::super::order_image(t) == Some(super::super::OrderBy::Signed),
+                "{t}"
+            );
         }
-        for t in [INT2OID, INT4OID, INT8OID, DATEOID, TIMEOID, TIMESTAMPOID, TIMESTAMPTZOID, CASHOID] {
+        for t in [
+            INT2OID,
+            INT4OID,
+            INT8OID,
+            DATEOID,
+            TIMEOID,
+            TIMESTAMPOID,
+            TIMESTAMPTZOID,
+            CASHOID,
+        ] {
             assert!(super::image_signed(t), "{t}");
         }
     }

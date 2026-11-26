@@ -102,4 +102,3 @@ pub fn replace_percent_m(message: &str, errno: i32) -> String {
     }
     message.replace(SENTINEL_M, &strerror(errno))
 }
-

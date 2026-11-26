@@ -5,19 +5,30 @@ use gravity_abi::breaker::{SlotKind, ORDER_KEY, ORDER_NONE};
 use gravity_abi::ctx::lane;
 use gravity_program::{End, Parallel, SiteDesc, WordsDesc, ZoneOp};
 
-use crate::ops::shared::agg::{GroupDecl, NONE};
-use crate::graph::{Bound, Layout, Op, PipelineGraph, PipelineNode, Source};
 use crate::admit::Refusal;
+use crate::graph::{Bound, Layout, Op, PipelineGraph, PipelineNode, Source};
+use crate::ops::shared::agg::{GroupDecl, NONE};
 use crate::{expr, ledger};
 
 pub fn dump(g: &PipelineGraph<'_>, out: &mut dyn Write) -> fmt::Result {
-    writeln!(out, "graph pipelines={} breakers={} init_plans={} root=p{}", g.pipelines.len(), g.breakers.len(), g.init_plans.len(), g.root)?;
+    writeln!(
+        out,
+        "graph pipelines={} breakers={} init_plans={} root=p{}",
+        g.pipelines.len(),
+        g.breakers.len(),
+        g.init_plans.len(),
+        g.root
+    )?;
     for (i, p) in g.pipelines.iter().enumerate() {
         pipeline(i, p, out)?;
         outs(g, p, out)?;
     }
     for b in g.breakers.iter() {
-        write!(out, "breaker slot={} kind={:?} budget={:?} spill={:?} producer=p{} layout=", b.breaker.slot, b.breaker.kind, b.breaker.budget, b.breaker.spill, b.producer)?;
+        write!(
+            out,
+            "breaker slot={} kind={:?} budget={:?} spill={:?} producer=p{} layout=",
+            b.breaker.slot, b.breaker.kind, b.breaker.budget, b.breaker.spill, b.producer
+        )?;
         layout(&b.layout, out)?;
         if b.order.is_known() {
             write!(out, " order=")?;
@@ -33,7 +44,11 @@ pub fn dump(g: &PipelineGraph<'_>, out: &mut dyn Write) -> fmt::Result {
         group(gd, out)?;
     }
     for ip in g.init_plans.iter() {
-        write!(out, "init_plan id={} pipeline=p{} link={:?}", ip.plan_id, ip.pipeline, ip.link)?;
+        write!(
+            out,
+            "init_plan id={} pipeline=p{} link={:?}",
+            ip.plan_id, ip.pipeline, ip.link
+        )?;
         if ip.param >= 0 {
             write!(out, " param=$exec{}", ip.param)?;
         }
@@ -61,7 +76,10 @@ pub fn dump(g: &PipelineGraph<'_>, out: &mut dyn Write) -> fmt::Result {
             write!(out, "{}p{p}", if i > 0 { "," } else { "" })?;
         }
         write!(out, " slots=")?;
-        for (i, s) in (0..=u8::MAX).filter(|s| crate::graph::slot_has(&r.slots, *s)).enumerate() {
+        for (i, s) in (0..=u8::MAX)
+            .filter(|s| crate::graph::slot_has(&r.slots, *s))
+            .enumerate()
+        {
             write!(out, "{}{s}", if i > 0 { "," } else { "" })?;
         }
         // item 9 (b): the members PG keeps across rescans (run at the set's first run only)
@@ -84,7 +102,14 @@ pub fn dump(g: &PipelineGraph<'_>, out: &mut dyn Write) -> fmt::Result {
 }
 
 pub fn dump_refusal(r: &Refusal, out: &mut dyn Write) -> fmt::Result {
-    writeln!(out, "refused: {} node={} state={} reason={}", r.kind.name(), r.node_id, state(r), r.reason)
+    writeln!(
+        out,
+        "refused: {} node={} state={} reason={}",
+        r.kind.name(),
+        r.node_id,
+        state(r),
+        r.reason
+    )
 }
 
 fn state(r: &Refusal) -> &'static str {
@@ -109,14 +134,21 @@ fn body(p: &PipelineNode<'_>, out: &mut dyn Write) -> fmt::Result {
     write!(out, "node={} ", p.node_id)?;
     match &p.desc.parallel {
         Parallel::Eligible => write!(out, "eligible rows={}", p.desc.predicted_rows)?,
-        Parallel::Ineligible { site, reason } => write!(out, "serial site={site} reason={reason:?}")?,
+        Parallel::Ineligible { site, reason } => {
+            write!(out, "serial site={site} reason={reason:?}")?
+        }
     }
     match p.desc.ends_in {
         End::Sink => write!(out, " end=sink")?,
         End::Breaker(b) => write!(out, " end=breaker(slot={} {:?})", b.slot, b.kind)?,
     }
     writeln!(out)?;
-    if p.desc.nconsumed() > 0 || p.desc.finish || p.desc.words.is_some() || p.desc.owner.is_some() || p.desc.admit.is_some() {
+    if p.desc.nconsumed() > 0
+        || p.desc.finish
+        || p.desc.words.is_some()
+        || p.desc.owner.is_some()
+        || p.desc.admit.is_some()
+    {
         write!(out, "  desc")?;
         for (j, c) in p.desc.consumes.iter().enumerate() {
             write!(out, " consumes=slot{c}")?;
@@ -133,12 +165,23 @@ fn body(p: &PipelineNode<'_>, out: &mut dyn Write) -> fmt::Result {
                 ORDER_KEY => "key",
                 _ => "slot",
             };
-            write!(out, " owner={order}/{}{}", o.topk, if o.ctor.is_some() { "/named" } else { "" })?;
+            write!(
+                out,
+                " owner={order}/{}{}",
+                o.topk,
+                if o.ctor.is_some() { "/named" } else { "" }
+            )?;
         }
         if let Some(w) = &p.desc.words {
             write!(out, " words=")?;
             let mut first = true;
-            for (name, slot) in [("topk", w.topk), ("dense_lo", w.dense_lo), ("dense_hi", w.dense_hi), ("bits", w.bits), ("order", w.order)] {
+            for (name, slot) in [
+                ("topk", w.topk),
+                ("dense_lo", w.dense_lo),
+                ("dense_hi", w.dense_hi),
+                ("bits", w.bits),
+                ("order", w.order),
+            ] {
                 if slot != WordsDesc::NONE {
                     write!(out, "{}{name}@{slot}", if first { "" } else { "," })?;
                     first = false;
@@ -153,20 +196,52 @@ fn body(p: &PipelineNode<'_>, out: &mut dyn Write) -> fmt::Result {
     }
     write!(out, "  nodes")?;
     for n in p.node_ops.iter() {
-        write!(out, " n{}@{}{}", n.node_id, n.first_op, if n.producer_top { "^" } else { "" })?;
+        write!(
+            out,
+            " n{}@{}{}",
+            n.node_id,
+            n.first_op,
+            if n.producer_top { "^" } else { "" }
+        )?;
     }
     writeln!(out)?;
     match &p.source {
-        Source::Range { site, am, scanrelid, relid } => {
-            write!(out, "  source range rel={relid} rti={scanrelid} am={}", am.name())?;
+        Source::Range {
+            site,
+            am,
+            scanrelid,
+            relid,
+        } => {
+            write!(
+                out,
+                "  source range rel={relid} rti={scanrelid} am={}",
+                am.name()
+            )?;
             for (i, a) in site.merge.iter().enumerate() {
                 write!(out, "{}{a}", if i == 0 { " merge=" } else { "," })?;
             }
             writeln!(out)?;
             site_lines(site, out)?;
         }
-        Source::Index { site, am, scanrelid, relid, indexid, keys, only, backward, recheck, iam } => {
-            write!(out, "  source index{} rel={relid} rti={scanrelid} am={} index={indexid}{}", if *only { "-only" } else { "" }, am.name(), if *backward { " backward" } else { "" })?;
+        Source::Index {
+            site,
+            am,
+            scanrelid,
+            relid,
+            indexid,
+            keys,
+            only,
+            backward,
+            recheck,
+            iam,
+        } => {
+            write!(
+                out,
+                "  source index{} rel={relid} rti={scanrelid} am={} index={indexid}{}",
+                if *only { "-only" } else { "" },
+                am.name(),
+                if *backward { " backward" } else { "" }
+            )?;
             if *iam != crate::catalog::IndexAm::Btree {
                 write!(out, " iam={}", iam.name())?;
             }
@@ -196,9 +271,29 @@ fn body(p: &PipelineNode<'_>, out: &mut dyn Write) -> fmt::Result {
             }
         }
         Source::Breaker { slot } => writeln!(out, "  source breaker slot={slot}")?,
-        Source::Named { scanrelid, relid, name } => writeln!(out, "  source named rti={scanrelid} rel={relid} name={name}")?,
-        Source::Bitmap { site, am, scanrelid, relid, plan, recheck, morsel } => {
-            writeln!(out, "  source bitmap rel={relid} rti={scanrelid} am={}{}", am.name(), if *morsel { " morsel" } else { "" })?;
+        Source::Named {
+            scanrelid,
+            relid,
+            name,
+        } => writeln!(
+            out,
+            "  source named rti={scanrelid} rel={relid} name={name}"
+        )?,
+        Source::Bitmap {
+            site,
+            am,
+            scanrelid,
+            relid,
+            plan,
+            recheck,
+            morsel,
+        } => {
+            writeln!(
+                out,
+                "  source bitmap rel={relid} rti={scanrelid} am={}{}",
+                am.name(),
+                if *morsel { " morsel" } else { "" }
+            )?;
             plan.dump(0, out)?;
             if !recheck.is_nil() {
                 write!(out, "    recheck ")?;
@@ -207,8 +302,20 @@ fn body(p: &PipelineNode<'_>, out: &mut dyn Write) -> fmt::Result {
             }
             site_lines(site, out)?;
         }
-        Source::Tid { site, am, scanrelid, relid, form, quals } => {
-            writeln!(out, "  source tid rel={relid} rti={scanrelid} am={} form={}", am.name(), form.name())?;
+        Source::Tid {
+            site,
+            am,
+            scanrelid,
+            relid,
+            form,
+            quals,
+        } => {
+            writeln!(
+                out,
+                "  source tid rel={relid} rti={scanrelid} am={} form={}",
+                am.name(),
+                form.name()
+            )?;
             for q in quals.iter() {
                 write!(out, "    tid ")?;
                 expr::print(q, out)?;
@@ -216,8 +323,20 @@ fn body(p: &PipelineNode<'_>, out: &mut dyn Write) -> fmt::Result {
             }
             site_lines(site, out)?;
         }
-        Source::Sample { site, am, scanrelid, relid, sample } => {
-            write!(out, "  source sample rel={relid} rti={scanrelid} am={} method={} handler={} args=", am.name(), crate::ops::scan::closure::sample_name(sample.method), sample.handler)?;
+        Source::Sample {
+            site,
+            am,
+            scanrelid,
+            relid,
+            sample,
+        } => {
+            write!(
+                out,
+                "  source sample rel={relid} rti={scanrelid} am={} method={} handler={} args=",
+                am.name(),
+                crate::ops::scan::closure::sample_name(sample.method),
+                sample.handler
+            )?;
             expr::args(out, sample.args)?;
             if let Some(r) = sample.repeatable {
                 write!(out, " repeatable=")?;
@@ -229,7 +348,12 @@ fn body(p: &PipelineNode<'_>, out: &mut dyn Write) -> fmt::Result {
             writeln!(out)?;
             site_lines(site, out)?;
         }
-        Source::TableFunc { scanrelid, func, cols, ordinality } => {
+        Source::TableFunc {
+            scanrelid,
+            func,
+            cols,
+            ordinality,
+        } => {
             write!(out, "  source tablefunc rti={scanrelid} kind={} cols={cols} ordinality={ordinality} doc=", crate::ops::scan::closure::table_func_name(func.functype))?;
             expr::print(func.docexpr.unwrap(), out)?;
             if let Some(r) = func.rowexpr {
@@ -253,7 +377,11 @@ fn body(p: &PipelineNode<'_>, out: &mut dyn Write) -> fmt::Result {
                 write!(out, "  project ")?;
                 expr::args(out, l)?;
             }
-            Op::Limit { count, offset, ties } => {
+            Op::Limit {
+                count,
+                offset,
+                ties,
+            } => {
                 write!(out, "  limit count=")?;
                 bound(*count, out)?;
                 write!(out, " offset=")?;
@@ -261,17 +389,39 @@ fn body(p: &PipelineNode<'_>, out: &mut dyn Write) -> fmt::Result {
                 if let Some(t) = ties {
                     write!(out, " with-ties keys=")?;
                     for (i, key) in t.keys.iter().enumerate() {
-                        write!(out, "{}{}:{}", if i > 0 { "," } else { "" }, key.resno, key.opno)?;
+                        write!(
+                            out,
+                            "{}{}:{}",
+                            if i > 0 { "," } else { "" },
+                            key.resno,
+                            key.opno
+                        )?;
                     }
-                    write!(out, " over={}", crate::ops::TIE_SOURCES[t.over as usize].name)?;
+                    write!(
+                        out,
+                        " over={}",
+                        crate::ops::TIE_SOURCES[t.over as usize].name
+                    )?;
                 }
             }
             Op::FirstOfRun(t) => {
                 write!(out, "  first-of-run keys=")?;
                 for (i, key) in t.keys.iter().enumerate() {
-                    write!(out, "{}{}:{}:{:?}:{}", if i > 0 { "," } else { "" }, key.resno, key.opno, key.kind, key.typid)?;
+                    write!(
+                        out,
+                        "{}{}:{}:{:?}:{}",
+                        if i > 0 { "," } else { "" },
+                        key.resno,
+                        key.opno,
+                        key.kind,
+                        key.typid
+                    )?;
                 }
-                write!(out, " over={}", crate::ops::TIE_SOURCES[t.over as usize].name)?;
+                write!(
+                    out,
+                    " over={}",
+                    crate::ops::TIE_SOURCES[t.over as usize].name
+                )?;
             }
             Op::GroupRun(i) => write!(out, "  group-run stream={i}")?,
             Op::Sort(d) => d.dump(out)?,
@@ -343,8 +493,19 @@ fn site_lines(s: &SiteDesc, out: &mut dyn Write) -> fmt::Result {
         };
         match z.bound_of() {
             // NEW-72: a bound constant prints its word (the value is the execution's)
-            Some((w, len)) => writeln!(out, "    zone lane{} {op} word{w}/{len}{}", z.lane, if z.tallied { " tallied" } else { "" })?,
-            None => writeln!(out, "    zone lane{} {op} {}{}", z.lane, z.value, if z.tallied { " tallied" } else { "" })?,
+            Some((w, len)) => writeln!(
+                out,
+                "    zone lane{} {op} word{w}/{len}{}",
+                z.lane,
+                if z.tallied { " tallied" } else { "" }
+            )?,
+            None => writeln!(
+                out,
+                "    zone lane{} {op} {}{}",
+                z.lane,
+                z.value,
+                if z.tallied { " tallied" } else { "" }
+            )?,
         }
     }
     Ok(())
@@ -362,13 +523,26 @@ fn layout(l: &Layout<'_>, out: &mut dyn Write) -> fmt::Result {
         off += s.bytes() as usize;
     }
     if l.implicit_sentinel() {
-        write!(out, "{}Count@{off}", if l.slots.is_empty() { "" } else { "," })?;
+        write!(
+            out,
+            "{}Count@{off}",
+            if l.slots.is_empty() { "" } else { "," }
+        )?;
     }
-    write!(out, "]{} {}B", if l.has_validity() { "+valid" } else { "" }, l.size())
+    write!(
+        out,
+        "]{} {}B",
+        if l.has_validity() { "+valid" } else { "" },
+        l.size()
+    )
 }
 
 fn group(gd: &GroupDecl<'_>, out: &mut dyn Write) -> fmt::Result {
-    write!(out, "group slot={} producer=p{} node={} form={:?} hints=[", gd.slot, gd.producer.0, gd.node_id, gd.form)?;
+    write!(
+        out,
+        "group slot={} producer=p{} node={} form={:?} hints=[",
+        gd.slot, gd.producer.0, gd.node_id, gd.form
+    )?;
     for (i, h) in gd.hints.iter().flatten().enumerate() {
         write!(out, "{}{h:?}", if i > 0 { ", " } else { "" })?;
     }
@@ -379,7 +553,11 @@ fn group(gd: &GroupDecl<'_>, out: &mut dyn Write) -> fmt::Result {
     }
     writeln!(out)?;
     for (j, key) in gd.keys.iter().enumerate() {
-        write!(out, "  key {j} word={} resno={} kind={:?} attno={} type={}", key.word, key.resno, key.kind, key.attno, key.tf)?;
+        write!(
+            out,
+            "  key {j} word={} resno={} kind={:?} attno={} type={}",
+            key.word, key.resno, key.kind, key.attno, key.tf
+        )?;
         if key.scale != crate::ops::shared::sort::NO_SCALE {
             write!(out, " scale={}", key.scale)?;
         }
@@ -406,7 +584,11 @@ fn group(gd: &GroupDecl<'_>, out: &mut dyn Write) -> fmt::Result {
         writeln!(out)?;
     }
     for a in gd.aggs.iter() {
-        write!(out, "  agg aggno={} fn={} reg={:?} slot=", a.aggno, a.fnoid, a.reg)?;
+        write!(
+            out,
+            "  agg aggno={} fn={} reg={:?} slot=",
+            a.aggno, a.fnoid, a.reg
+        )?;
         slot(a.slot, out)?;
         write!(out, " count_slot=")?;
         slot(a.count_slot, out)?;
@@ -416,10 +598,18 @@ fn group(gd: &GroupDecl<'_>, out: &mut dyn Write) -> fmt::Result {
         }
         if a.dscale_slot != crate::ops::shared::agg::NONE {
             write!(out, " dscale_slot={} dscales=", a.dscale_slot)?;
-            let arms = a.dscales.iter().rposition(|&d| d != crate::ops::shared::agg::NULL_ARM).map_or(0, |i| i + 1);
+            let arms = a
+                .dscales
+                .iter()
+                .rposition(|&d| d != crate::ops::shared::agg::NULL_ARM)
+                .map_or(0, |i| i + 1);
             for (i, d) in a.dscales[..arms].iter().enumerate() {
                 let sep = if i == 0 { "" } else { "," };
-                if *d == crate::ops::shared::agg::NULL_ARM { write!(out, "{sep}null")? } else { write!(out, "{sep}{d}")? }
+                if *d == crate::ops::shared::agg::NULL_ARM {
+                    write!(out, "{sep}null")?
+                } else {
+                    write!(out, "{sep}{d}")?
+                }
             }
         }
         write!(out, " class={:?} trans={:?}", a.class, a.trans)?;
@@ -440,7 +630,19 @@ fn group(gd: &GroupDecl<'_>, out: &mut dyn Write) -> fmt::Result {
         writeln!(out, ")")?;
     }
     if let Some(t) = &gd.two_pass {
-        writeln!(out, "  two_pass pass1=p{} slot={} key={} floor={}{}", t.pass1, t.slot, t.key, if t.floor_desc { "desc" } else { "asc" }, if t.floor_nulls_first { " nulls_first" } else { "" })?;
+        writeln!(
+            out,
+            "  two_pass pass1=p{} slot={} key={} floor={}{}",
+            t.pass1,
+            t.slot,
+            t.key,
+            if t.floor_desc { "desc" } else { "asc" },
+            if t.floor_nulls_first {
+                " nulls_first"
+            } else {
+                ""
+            }
+        )?;
     }
     Ok(())
 }

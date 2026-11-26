@@ -13,7 +13,9 @@ fn idle_central_lists_go_home_and_age_release_returns_them() {
     });
     assert!(start(), "the pool's threads started");
     let h = Hint::new(Class::Task, Tag::OTHER);
-    let blocks: Vec<_> = (0..4096).map(|_| take(16 << 10, 16, h).expect("a block")).collect();
+    let blocks: Vec<_> = (0..4096)
+        .map(|_| take(16 << 10, 16, h).expect("a block"))
+        .collect();
     for b in &blocks {
         touch(b.as_ptr().cast::<u8>() as usize, 16 << 10);
     }
@@ -23,13 +25,22 @@ fn idle_central_lists_go_home_and_age_release_returns_them() {
         unsafe { give(b.cast(), 16 << 10) };
     }
     flush_shelf();
-    assert!(stats().central > 0, "the freed blocks wait on the central lists: {:?}", stats());
+    assert!(
+        stats().central > 0,
+        "the freed blocks wait on the central lists: {:?}",
+        stats()
+    );
     let t0 = Instant::now();
-    while (stats().central > 0 || stats().released_bytes - r0 < 32 * MIB as u64) && t0.elapsed() < Duration::from_secs(5) {
+    while (stats().central > 0 || stats().released_bytes - r0 < 32 * MIB as u64)
+        && t0.elapsed() < Duration::from_secs(5)
+    {
         std::thread::sleep(Duration::from_millis(20));
     }
     let s = stats();
     assert_eq!(s.central, 0, "idle lists went home: {s:?}");
-    assert!(s.released_bytes - r0 >= 32 * MIB as u64, "age release returned the whole free superpages: {s:?}");
+    assert!(
+        s.released_bytes - r0 >= 32 * MIB as u64,
+        "age release returned the whole free superpages: {s:?}"
+    );
     assert!(s.claimed < c0, "claimed fell: {c0} -> {}", s.claimed);
 }

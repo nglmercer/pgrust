@@ -91,7 +91,11 @@ mod tests {
     fn inside_a_pass_a_held_lock_is_skipped_and_outside_it_is_waited_for() {
         static M: Mutex<u32> = Mutex::new(7);
         let _ = take_skipped();
-        assert_eq!(lock_or_skip(&M).map(|g| *g), Some(7), "outside a pass: the plain lock");
+        assert_eq!(
+            lock_or_skip(&M).map(|g| *g),
+            Some(7),
+            "outside a pass: the plain lock"
+        );
         let held = M.lock().unwrap();
         let other = std::thread::spawn(|| {
             let pass = LadderPass::enter();
@@ -101,10 +105,18 @@ mod tests {
             drop(pass);
             (got, skipped, in_pass(), take_skipped())
         });
-        assert_eq!(other.join().unwrap(), (false, true, false, false), "held elsewhere: skipped, marked once");
+        assert_eq!(
+            other.join().unwrap(),
+            (false, true, false, false),
+            "held elsewhere: skipped, marked once"
+        );
         drop(held);
         let pass = LadderPass::enter();
-        assert_eq!(lock_or_skip(&M).map(|g| *g), Some(7), "free: taken inside a pass too");
+        assert_eq!(
+            lock_or_skip(&M).map(|g| *g),
+            Some(7),
+            "free: taken inside a pass too"
+        );
         assert!(!take_skipped());
         drop(pass);
         assert!(!in_pass());
@@ -119,14 +131,25 @@ mod tests {
             let _pass = LadderPass::enter();
             (in_pass(), on_ladder_thread())
         });
-        assert_eq!(query.join().unwrap(), (true, false), "a query thread's ladder pass (the inline R2a) is no ladder thread");
+        assert_eq!(
+            query.join().unwrap(),
+            (true, false),
+            "a query thread's ladder pass (the inline R2a) is no ladder thread"
+        );
         let marked = std::thread::spawn(|| {
             mark_ladder_thread();
             let mark = (on_ladder_thread(), in_pass());
             let _pass = LadderPass::enter();
             (mark, on_ladder_thread())
         });
-        assert_eq!(marked.join().unwrap(), ((true, false), true), "the mark alone enters no pass; a pass keeps it");
-        assert!(!on_ladder_thread(), "another thread's mark is not this one's");
+        assert_eq!(
+            marked.join().unwrap(),
+            ((true, false), true),
+            "the mark alone enters no pass; a pass keeps it"
+        );
+        assert!(
+            !on_ladder_thread(),
+            "another thread's mark is not this one's"
+        );
     }
 }

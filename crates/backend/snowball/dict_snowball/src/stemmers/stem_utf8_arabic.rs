@@ -1,11 +1,10 @@
+use crate::api::{SN_close_env, SN_create_env};
 use crate::types::{among, symbol, SN_env};
-use crate::api::{SN_create_env, SN_close_env};
 #[allow(unused_imports)]
 use crate::utilities::{
-    in_grouping, in_grouping_b, out_grouping, out_grouping_b,
-    in_grouping_U, in_grouping_b_U, out_grouping_U, out_grouping_b_U,
-    find_among, find_among_b, slice_from_s, slice_del, slice_to,
-    eq_s, eq_s_b, eq_v_b, insert_s, len_utf8, skip_utf8, skip_b_utf8,
+    eq_s, eq_s_b, eq_v_b, find_among, find_among_b, in_grouping, in_grouping_U, in_grouping_b,
+    in_grouping_b_U, insert_s, len_utf8, out_grouping, out_grouping_U, out_grouping_b,
+    out_grouping_b_U, skip_b_utf8, skip_utf8, slice_del, slice_from_s, slice_to,
 };
 
 static mut s_0_0: [symbol; 2] = [
@@ -2350,15 +2349,13 @@ static mut s_11_0: [symbol; 2] = [
     0x86 as ::core::ffi::c_int as symbol,
 ];
 static mut a_11: [among; 1] = unsafe {
-    [
-        among {
-            s_size: 2 as ::core::ffi::c_int,
-            s: &raw const s_11_0 as *const symbol,
-            substring_i: -(1 as ::core::ffi::c_int),
-            result: 1 as ::core::ffi::c_int,
-            function: None,
-        },
-    ]
+    [among {
+        s_size: 2 as ::core::ffi::c_int,
+        s: &raw const s_11_0 as *const symbol,
+        substring_i: -(1 as ::core::ffi::c_int),
+        result: 1 as ::core::ffi::c_int,
+        function: None,
+    }]
 };
 static mut s_12_0: [symbol; 2] = [
     0xd9 as ::core::ffi::c_int as symbol,
@@ -2404,60 +2401,52 @@ static mut s_13_0: [symbol; 4] = [
     0xaa as ::core::ffi::c_int as symbol,
 ];
 static mut a_13: [among; 1] = unsafe {
-    [
-        among {
-            s_size: 4 as ::core::ffi::c_int,
-            s: &raw const s_13_0 as *const symbol,
-            substring_i: -(1 as ::core::ffi::c_int),
-            result: 1 as ::core::ffi::c_int,
-            function: None,
-        },
-    ]
+    [among {
+        s_size: 4 as ::core::ffi::c_int,
+        s: &raw const s_13_0 as *const symbol,
+        substring_i: -(1 as ::core::ffi::c_int),
+        result: 1 as ::core::ffi::c_int,
+        function: None,
+    }]
 };
 static mut s_14_0: [symbol; 2] = [
     0xd8 as ::core::ffi::c_int as symbol,
     0xaa as ::core::ffi::c_int as symbol,
 ];
 static mut a_14: [among; 1] = unsafe {
-    [
-        among {
-            s_size: 2 as ::core::ffi::c_int,
-            s: &raw const s_14_0 as *const symbol,
-            substring_i: -(1 as ::core::ffi::c_int),
-            result: 1 as ::core::ffi::c_int,
-            function: None,
-        },
-    ]
+    [among {
+        s_size: 2 as ::core::ffi::c_int,
+        s: &raw const s_14_0 as *const symbol,
+        substring_i: -(1 as ::core::ffi::c_int),
+        result: 1 as ::core::ffi::c_int,
+        function: None,
+    }]
 };
 static mut s_15_0: [symbol; 2] = [
     0xd8 as ::core::ffi::c_int as symbol,
     0xa9 as ::core::ffi::c_int as symbol,
 ];
 static mut a_15: [among; 1] = unsafe {
-    [
-        among {
-            s_size: 2 as ::core::ffi::c_int,
-            s: &raw const s_15_0 as *const symbol,
-            substring_i: -(1 as ::core::ffi::c_int),
-            result: 1 as ::core::ffi::c_int,
-            function: None,
-        },
-    ]
+    [among {
+        s_size: 2 as ::core::ffi::c_int,
+        s: &raw const s_15_0 as *const symbol,
+        substring_i: -(1 as ::core::ffi::c_int),
+        result: 1 as ::core::ffi::c_int,
+        function: None,
+    }]
 };
 static mut s_16_0: [symbol; 2] = [
     0xd9 as ::core::ffi::c_int as symbol,
     0x8a as ::core::ffi::c_int as symbol,
 ];
 static mut a_16: [among; 1] = unsafe {
-    [
-        among {
-            s_size: 2 as ::core::ffi::c_int,
-            s: &raw const s_16_0 as *const symbol,
-            substring_i: -(1 as ::core::ffi::c_int),
-            result: 1 as ::core::ffi::c_int,
-            function: None,
-        },
-    ]
+    [among {
+        s_size: 2 as ::core::ffi::c_int,
+        s: &raw const s_16_0 as *const symbol,
+        substring_i: -(1 as ::core::ffi::c_int),
+        result: 1 as ::core::ffi::c_int,
+        function: None,
+    }]
 };
 static mut s_17_0: [symbol; 2] = [
     0xd9 as ::core::ffi::c_int as symbol,
@@ -2827,15 +2816,13 @@ static mut s_21_0: [symbol; 2] = [
     0x89 as ::core::ffi::c_int as symbol,
 ];
 static mut a_21: [among; 1] = unsafe {
-    [
-        among {
-            s_size: 2 as ::core::ffi::c_int,
-            s: &raw const s_21_0 as *const symbol,
-            substring_i: -(1 as ::core::ffi::c_int),
-            result: 1 as ::core::ffi::c_int,
-            function: None,
-        },
-    ]
+    [among {
+        s_size: 2 as ::core::ffi::c_int,
+        s: &raw const s_21_0 as *const symbol,
+        substring_i: -(1 as ::core::ffi::c_int),
+        result: 1 as ::core::ffi::c_int,
+        function: None,
+    }]
 };
 static mut s_0: [symbol; 1] = ['0' as i32 as symbol];
 static mut s_1: [symbol; 1] = ['1' as i32 as symbol];
@@ -3094,19 +3081,11 @@ unsafe fn r_Normalize_pre(mut z: *mut SN_env) -> ::core::ffi::c_int {
         let mut c2: ::core::ffi::c_int = (*z).c;
         let mut c3: ::core::ffi::c_int = (*z).c;
         (*z).bra = (*z).c;
-        among_var = find_among(
-            z,
-            &raw const a_0 as *const among,
-            144 as ::core::ffi::c_int,
-        );
+        among_var = find_among(z, &raw const a_0 as *const among, 144 as ::core::ffi::c_int);
         if among_var == 0 {
             (*z).c = c3;
-            let mut ret_50: ::core::ffi::c_int = skip_utf8(
-                (*z).p,
-                (*z).c,
-                (*z).l,
-                1 as ::core::ffi::c_int,
-            );
+            let mut ret_50: ::core::ffi::c_int =
+                skip_utf8((*z).p, (*z).c, (*z).l, 1 as ::core::ffi::c_int);
             if ret_50 < 0 as ::core::ffi::c_int {
                 (*z).c = c2;
                 break;
@@ -3123,501 +3102,351 @@ unsafe fn r_Normalize_pre(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     }
                 }
                 2 => {
-                    let mut ret_0: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        1 as ::core::ffi::c_int,
-                        &raw const s_0 as *const symbol,
-                    );
+                    let mut ret_0: ::core::ffi::c_int =
+                        slice_from_s(z, 1 as ::core::ffi::c_int, &raw const s_0 as *const symbol);
                     if ret_0 < 0 as ::core::ffi::c_int {
                         return ret_0;
                     }
                 }
                 3 => {
-                    let mut ret_1: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        1 as ::core::ffi::c_int,
-                        &raw const s_1 as *const symbol,
-                    );
+                    let mut ret_1: ::core::ffi::c_int =
+                        slice_from_s(z, 1 as ::core::ffi::c_int, &raw const s_1 as *const symbol);
                     if ret_1 < 0 as ::core::ffi::c_int {
                         return ret_1;
                     }
                 }
                 4 => {
-                    let mut ret_2: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        1 as ::core::ffi::c_int,
-                        &raw const s_2 as *const symbol,
-                    );
+                    let mut ret_2: ::core::ffi::c_int =
+                        slice_from_s(z, 1 as ::core::ffi::c_int, &raw const s_2 as *const symbol);
                     if ret_2 < 0 as ::core::ffi::c_int {
                         return ret_2;
                     }
                 }
                 5 => {
-                    let mut ret_3: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        1 as ::core::ffi::c_int,
-                        &raw const s_3 as *const symbol,
-                    );
+                    let mut ret_3: ::core::ffi::c_int =
+                        slice_from_s(z, 1 as ::core::ffi::c_int, &raw const s_3 as *const symbol);
                     if ret_3 < 0 as ::core::ffi::c_int {
                         return ret_3;
                     }
                 }
                 6 => {
-                    let mut ret_4: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        1 as ::core::ffi::c_int,
-                        &raw const s_4 as *const symbol,
-                    );
+                    let mut ret_4: ::core::ffi::c_int =
+                        slice_from_s(z, 1 as ::core::ffi::c_int, &raw const s_4 as *const symbol);
                     if ret_4 < 0 as ::core::ffi::c_int {
                         return ret_4;
                     }
                 }
                 7 => {
-                    let mut ret_5: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        1 as ::core::ffi::c_int,
-                        &raw const s_5 as *const symbol,
-                    );
+                    let mut ret_5: ::core::ffi::c_int =
+                        slice_from_s(z, 1 as ::core::ffi::c_int, &raw const s_5 as *const symbol);
                     if ret_5 < 0 as ::core::ffi::c_int {
                         return ret_5;
                     }
                 }
                 8 => {
-                    let mut ret_6: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        1 as ::core::ffi::c_int,
-                        &raw const s_6 as *const symbol,
-                    );
+                    let mut ret_6: ::core::ffi::c_int =
+                        slice_from_s(z, 1 as ::core::ffi::c_int, &raw const s_6 as *const symbol);
                     if ret_6 < 0 as ::core::ffi::c_int {
                         return ret_6;
                     }
                 }
                 9 => {
-                    let mut ret_7: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        1 as ::core::ffi::c_int,
-                        &raw const s_7 as *const symbol,
-                    );
+                    let mut ret_7: ::core::ffi::c_int =
+                        slice_from_s(z, 1 as ::core::ffi::c_int, &raw const s_7 as *const symbol);
                     if ret_7 < 0 as ::core::ffi::c_int {
                         return ret_7;
                     }
                 }
                 10 => {
-                    let mut ret_8: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        1 as ::core::ffi::c_int,
-                        &raw const s_8 as *const symbol,
-                    );
+                    let mut ret_8: ::core::ffi::c_int =
+                        slice_from_s(z, 1 as ::core::ffi::c_int, &raw const s_8 as *const symbol);
                     if ret_8 < 0 as ::core::ffi::c_int {
                         return ret_8;
                     }
                 }
                 11 => {
-                    let mut ret_9: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        1 as ::core::ffi::c_int,
-                        &raw const s_9 as *const symbol,
-                    );
+                    let mut ret_9: ::core::ffi::c_int =
+                        slice_from_s(z, 1 as ::core::ffi::c_int, &raw const s_9 as *const symbol);
                     if ret_9 < 0 as ::core::ffi::c_int {
                         return ret_9;
                     }
                 }
                 12 => {
-                    let mut ret_10: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_10 as *const symbol,
-                    );
+                    let mut ret_10: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_10 as *const symbol);
                     if ret_10 < 0 as ::core::ffi::c_int {
                         return ret_10;
                     }
                 }
                 13 => {
-                    let mut ret_11: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_11 as *const symbol,
-                    );
+                    let mut ret_11: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_11 as *const symbol);
                     if ret_11 < 0 as ::core::ffi::c_int {
                         return ret_11;
                     }
                 }
                 14 => {
-                    let mut ret_12: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_12 as *const symbol,
-                    );
+                    let mut ret_12: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_12 as *const symbol);
                     if ret_12 < 0 as ::core::ffi::c_int {
                         return ret_12;
                     }
                 }
                 15 => {
-                    let mut ret_13: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_13 as *const symbol,
-                    );
+                    let mut ret_13: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_13 as *const symbol);
                     if ret_13 < 0 as ::core::ffi::c_int {
                         return ret_13;
                     }
                 }
                 16 => {
-                    let mut ret_14: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_14 as *const symbol,
-                    );
+                    let mut ret_14: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_14 as *const symbol);
                     if ret_14 < 0 as ::core::ffi::c_int {
                         return ret_14;
                     }
                 }
                 17 => {
-                    let mut ret_15: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_15 as *const symbol,
-                    );
+                    let mut ret_15: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_15 as *const symbol);
                     if ret_15 < 0 as ::core::ffi::c_int {
                         return ret_15;
                     }
                 }
                 18 => {
-                    let mut ret_16: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_16 as *const symbol,
-                    );
+                    let mut ret_16: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_16 as *const symbol);
                     if ret_16 < 0 as ::core::ffi::c_int {
                         return ret_16;
                     }
                 }
                 19 => {
-                    let mut ret_17: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_17 as *const symbol,
-                    );
+                    let mut ret_17: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_17 as *const symbol);
                     if ret_17 < 0 as ::core::ffi::c_int {
                         return ret_17;
                     }
                 }
                 20 => {
-                    let mut ret_18: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_18 as *const symbol,
-                    );
+                    let mut ret_18: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_18 as *const symbol);
                     if ret_18 < 0 as ::core::ffi::c_int {
                         return ret_18;
                     }
                 }
                 21 => {
-                    let mut ret_19: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_19 as *const symbol,
-                    );
+                    let mut ret_19: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_19 as *const symbol);
                     if ret_19 < 0 as ::core::ffi::c_int {
                         return ret_19;
                     }
                 }
                 22 => {
-                    let mut ret_20: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_20 as *const symbol,
-                    );
+                    let mut ret_20: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_20 as *const symbol);
                     if ret_20 < 0 as ::core::ffi::c_int {
                         return ret_20;
                     }
                 }
                 23 => {
-                    let mut ret_21: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_21 as *const symbol,
-                    );
+                    let mut ret_21: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_21 as *const symbol);
                     if ret_21 < 0 as ::core::ffi::c_int {
                         return ret_21;
                     }
                 }
                 24 => {
-                    let mut ret_22: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_22 as *const symbol,
-                    );
+                    let mut ret_22: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_22 as *const symbol);
                     if ret_22 < 0 as ::core::ffi::c_int {
                         return ret_22;
                     }
                 }
                 25 => {
-                    let mut ret_23: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_23 as *const symbol,
-                    );
+                    let mut ret_23: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_23 as *const symbol);
                     if ret_23 < 0 as ::core::ffi::c_int {
                         return ret_23;
                     }
                 }
                 26 => {
-                    let mut ret_24: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_24 as *const symbol,
-                    );
+                    let mut ret_24: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_24 as *const symbol);
                     if ret_24 < 0 as ::core::ffi::c_int {
                         return ret_24;
                     }
                 }
                 27 => {
-                    let mut ret_25: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_25 as *const symbol,
-                    );
+                    let mut ret_25: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_25 as *const symbol);
                     if ret_25 < 0 as ::core::ffi::c_int {
                         return ret_25;
                     }
                 }
                 28 => {
-                    let mut ret_26: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_26 as *const symbol,
-                    );
+                    let mut ret_26: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_26 as *const symbol);
                     if ret_26 < 0 as ::core::ffi::c_int {
                         return ret_26;
                     }
                 }
                 29 => {
-                    let mut ret_27: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_27 as *const symbol,
-                    );
+                    let mut ret_27: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_27 as *const symbol);
                     if ret_27 < 0 as ::core::ffi::c_int {
                         return ret_27;
                     }
                 }
                 30 => {
-                    let mut ret_28: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_28 as *const symbol,
-                    );
+                    let mut ret_28: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_28 as *const symbol);
                     if ret_28 < 0 as ::core::ffi::c_int {
                         return ret_28;
                     }
                 }
                 31 => {
-                    let mut ret_29: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_29 as *const symbol,
-                    );
+                    let mut ret_29: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_29 as *const symbol);
                     if ret_29 < 0 as ::core::ffi::c_int {
                         return ret_29;
                     }
                 }
                 32 => {
-                    let mut ret_30: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_30 as *const symbol,
-                    );
+                    let mut ret_30: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_30 as *const symbol);
                     if ret_30 < 0 as ::core::ffi::c_int {
                         return ret_30;
                     }
                 }
                 33 => {
-                    let mut ret_31: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_31 as *const symbol,
-                    );
+                    let mut ret_31: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_31 as *const symbol);
                     if ret_31 < 0 as ::core::ffi::c_int {
                         return ret_31;
                     }
                 }
                 34 => {
-                    let mut ret_32: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_32 as *const symbol,
-                    );
+                    let mut ret_32: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_32 as *const symbol);
                     if ret_32 < 0 as ::core::ffi::c_int {
                         return ret_32;
                     }
                 }
                 35 => {
-                    let mut ret_33: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_33 as *const symbol,
-                    );
+                    let mut ret_33: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_33 as *const symbol);
                     if ret_33 < 0 as ::core::ffi::c_int {
                         return ret_33;
                     }
                 }
                 36 => {
-                    let mut ret_34: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_34 as *const symbol,
-                    );
+                    let mut ret_34: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_34 as *const symbol);
                     if ret_34 < 0 as ::core::ffi::c_int {
                         return ret_34;
                     }
                 }
                 37 => {
-                    let mut ret_35: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_35 as *const symbol,
-                    );
+                    let mut ret_35: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_35 as *const symbol);
                     if ret_35 < 0 as ::core::ffi::c_int {
                         return ret_35;
                     }
                 }
                 38 => {
-                    let mut ret_36: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_36 as *const symbol,
-                    );
+                    let mut ret_36: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_36 as *const symbol);
                     if ret_36 < 0 as ::core::ffi::c_int {
                         return ret_36;
                     }
                 }
                 39 => {
-                    let mut ret_37: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_37 as *const symbol,
-                    );
+                    let mut ret_37: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_37 as *const symbol);
                     if ret_37 < 0 as ::core::ffi::c_int {
                         return ret_37;
                     }
                 }
                 40 => {
-                    let mut ret_38: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_38 as *const symbol,
-                    );
+                    let mut ret_38: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_38 as *const symbol);
                     if ret_38 < 0 as ::core::ffi::c_int {
                         return ret_38;
                     }
                 }
                 41 => {
-                    let mut ret_39: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_39 as *const symbol,
-                    );
+                    let mut ret_39: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_39 as *const symbol);
                     if ret_39 < 0 as ::core::ffi::c_int {
                         return ret_39;
                     }
                 }
                 42 => {
-                    let mut ret_40: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_40 as *const symbol,
-                    );
+                    let mut ret_40: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_40 as *const symbol);
                     if ret_40 < 0 as ::core::ffi::c_int {
                         return ret_40;
                     }
                 }
                 43 => {
-                    let mut ret_41: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_41 as *const symbol,
-                    );
+                    let mut ret_41: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_41 as *const symbol);
                     if ret_41 < 0 as ::core::ffi::c_int {
                         return ret_41;
                     }
                 }
                 44 => {
-                    let mut ret_42: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_42 as *const symbol,
-                    );
+                    let mut ret_42: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_42 as *const symbol);
                     if ret_42 < 0 as ::core::ffi::c_int {
                         return ret_42;
                     }
                 }
                 45 => {
-                    let mut ret_43: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_43 as *const symbol,
-                    );
+                    let mut ret_43: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_43 as *const symbol);
                     if ret_43 < 0 as ::core::ffi::c_int {
                         return ret_43;
                     }
                 }
                 46 => {
-                    let mut ret_44: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_44 as *const symbol,
-                    );
+                    let mut ret_44: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_44 as *const symbol);
                     if ret_44 < 0 as ::core::ffi::c_int {
                         return ret_44;
                     }
                 }
                 47 => {
-                    let mut ret_45: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_45 as *const symbol,
-                    );
+                    let mut ret_45: ::core::ffi::c_int =
+                        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_45 as *const symbol);
                     if ret_45 < 0 as ::core::ffi::c_int {
                         return ret_45;
                     }
                 }
                 48 => {
-                    let mut ret_46: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        4 as ::core::ffi::c_int,
-                        &raw const s_46 as *const symbol,
-                    );
+                    let mut ret_46: ::core::ffi::c_int =
+                        slice_from_s(z, 4 as ::core::ffi::c_int, &raw const s_46 as *const symbol);
                     if ret_46 < 0 as ::core::ffi::c_int {
                         return ret_46;
                     }
                 }
                 49 => {
-                    let mut ret_47: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        4 as ::core::ffi::c_int,
-                        &raw const s_47 as *const symbol,
-                    );
+                    let mut ret_47: ::core::ffi::c_int =
+                        slice_from_s(z, 4 as ::core::ffi::c_int, &raw const s_47 as *const symbol);
                     if ret_47 < 0 as ::core::ffi::c_int {
                         return ret_47;
                     }
                 }
                 50 => {
-                    let mut ret_48: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        4 as ::core::ffi::c_int,
-                        &raw const s_48 as *const symbol,
-                    );
+                    let mut ret_48: ::core::ffi::c_int =
+                        slice_from_s(z, 4 as ::core::ffi::c_int, &raw const s_48 as *const symbol);
                     if ret_48 < 0 as ::core::ffi::c_int {
                         return ret_48;
                     }
                 }
                 51 => {
-                    let mut ret_49: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        4 as ::core::ffi::c_int,
-                        &raw const s_49 as *const symbol,
-                    );
+                    let mut ret_49: ::core::ffi::c_int =
+                        slice_from_s(z, 4 as ::core::ffi::c_int, &raw const s_49 as *const symbol);
                     if ret_49 < 0 as ::core::ffi::c_int {
                         return ret_49;
                     }
@@ -3636,22 +3465,19 @@ unsafe fn r_Normalize_post(mut z: *mut SN_env) -> ::core::ffi::c_int {
     (*z).c = (*z).l;
     (*z).ket = (*z).c;
     if !((*z).c - 1 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int >> 5 as ::core::ffi::c_int != 5 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            >> 5 as ::core::ffi::c_int
+            != 5 as ::core::ffi::c_int
         || 124 as ::core::ffi::c_int
-            >> (*(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                as ::core::ffi::c_int & 0x1f as ::core::ffi::c_int)
-            & 1 as ::core::ffi::c_int == 0)
-    {
-        if !(find_among_b(z, &raw const a_1 as *const among, 5 as ::core::ffi::c_int)
+            >> (*(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+                & 0x1f as ::core::ffi::c_int)
+            & 1 as ::core::ffi::c_int
             == 0)
-        {
+    {
+        if !(find_among_b(z, &raw const a_1 as *const among, 5 as ::core::ffi::c_int) == 0) {
             (*z).bra = (*z).c;
-            let mut ret: ::core::ffi::c_int = slice_from_s(
-                z,
-                2 as ::core::ffi::c_int,
-                &raw const s_50 as *const symbol,
-            );
+            let mut ret: ::core::ffi::c_int =
+                slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_50 as *const symbol);
             if ret < 0 as ::core::ffi::c_int {
                 return ret;
             }
@@ -3665,19 +3491,17 @@ unsafe fn r_Normalize_post(mut z: *mut SN_env) -> ::core::ffi::c_int {
         let mut c4: ::core::ffi::c_int = (*z).c;
         (*z).bra = (*z).c;
         if !((*z).c + 1 as ::core::ffi::c_int >= (*z).l
-            || *(*z).p.offset(((*z).c + 1 as ::core::ffi::c_int) as isize)
-                as ::core::ffi::c_int >> 5 as ::core::ffi::c_int
+            || *(*z).p.offset(((*z).c + 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+                >> 5 as ::core::ffi::c_int
                 != 5 as ::core::ffi::c_int
             || 124 as ::core::ffi::c_int
                 >> (*(*z).p.offset(((*z).c + 1 as ::core::ffi::c_int) as isize)
-                    as ::core::ffi::c_int & 0x1f as ::core::ffi::c_int)
-                & 1 as ::core::ffi::c_int == 0)
+                    as ::core::ffi::c_int
+                    & 0x1f as ::core::ffi::c_int)
+                & 1 as ::core::ffi::c_int
+                == 0)
         {
-            among_var = find_among(
-                z,
-                &raw const a_2 as *const among,
-                5 as ::core::ffi::c_int,
-            );
+            among_var = find_among(z, &raw const a_2 as *const among, 5 as ::core::ffi::c_int);
             if !(among_var == 0) {
                 (*z).ket = (*z).c;
                 match among_var {
@@ -3717,12 +3541,8 @@ unsafe fn r_Normalize_post(mut z: *mut SN_env) -> ::core::ffi::c_int {
             }
         }
         (*z).c = c4;
-        let mut ret_3: ::core::ffi::c_int = skip_utf8(
-            (*z).p,
-            (*z).c,
-            (*z).l,
-            1 as ::core::ffi::c_int,
-        );
+        let mut ret_3: ::core::ffi::c_int =
+            skip_utf8((*z).p, (*z).c, (*z).l, 1 as ::core::ffi::c_int);
         if ret_3 < 0 as ::core::ffi::c_int {
             (*z).c = c3;
             break;
@@ -3737,10 +3557,10 @@ unsafe fn r_Checks1(mut z: *mut SN_env) -> ::core::ffi::c_int {
     let mut among_var: ::core::ffi::c_int = 0;
     (*z).bra = (*z).c;
     if (*z).c + 3 as ::core::ffi::c_int >= (*z).l
-        || *(*z).p.offset(((*z).c + 3 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 132 as ::core::ffi::c_int
-            && *(*z).p.offset(((*z).c + 3 as ::core::ffi::c_int) as isize)
-                as ::core::ffi::c_int != 167 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c + 3 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 132 as ::core::ffi::c_int
+            && *(*z).p.offset(((*z).c + 3 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+                != 167 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -3774,12 +3594,14 @@ unsafe fn r_Prefix_Step1(mut z: *mut SN_env) -> ::core::ffi::c_int {
     let mut among_var: ::core::ffi::c_int = 0;
     (*z).bra = (*z).c;
     if (*z).c + 3 as ::core::ffi::c_int >= (*z).l
-        || *(*z).p.offset(((*z).c + 3 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int >> 5 as ::core::ffi::c_int != 5 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c + 3 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            >> 5 as ::core::ffi::c_int
+            != 5 as ::core::ffi::c_int
         || 188 as ::core::ffi::c_int
-            >> (*(*z).p.offset(((*z).c + 3 as ::core::ffi::c_int) as isize)
-                as ::core::ffi::c_int & 0x1f as ::core::ffi::c_int)
-            & 1 as ::core::ffi::c_int == 0
+            >> (*(*z).p.offset(((*z).c + 3 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+                & 0x1f as ::core::ffi::c_int)
+            & 1 as ::core::ffi::c_int
+            == 0
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -3793,11 +3615,8 @@ unsafe fn r_Prefix_Step1(mut z: *mut SN_env) -> ::core::ffi::c_int {
             if len_utf8((*z).p) <= 3 as ::core::ffi::c_int {
                 return 0 as ::core::ffi::c_int;
             }
-            let mut ret: ::core::ffi::c_int = slice_from_s(
-                z,
-                2 as ::core::ffi::c_int,
-                &raw const s_54 as *const symbol,
-            );
+            let mut ret: ::core::ffi::c_int =
+                slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_54 as *const symbol);
             if ret < 0 as ::core::ffi::c_int {
                 return ret;
             }
@@ -3806,11 +3625,8 @@ unsafe fn r_Prefix_Step1(mut z: *mut SN_env) -> ::core::ffi::c_int {
             if len_utf8((*z).p) <= 3 as ::core::ffi::c_int {
                 return 0 as ::core::ffi::c_int;
             }
-            let mut ret_0: ::core::ffi::c_int = slice_from_s(
-                z,
-                2 as ::core::ffi::c_int,
-                &raw const s_55 as *const symbol,
-            );
+            let mut ret_0: ::core::ffi::c_int =
+                slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_55 as *const symbol);
             if ret_0 < 0 as ::core::ffi::c_int {
                 return ret_0;
             }
@@ -3819,11 +3635,8 @@ unsafe fn r_Prefix_Step1(mut z: *mut SN_env) -> ::core::ffi::c_int {
             if len_utf8((*z).p) <= 3 as ::core::ffi::c_int {
                 return 0 as ::core::ffi::c_int;
             }
-            let mut ret_1: ::core::ffi::c_int = slice_from_s(
-                z,
-                2 as ::core::ffi::c_int,
-                &raw const s_56 as *const symbol,
-            );
+            let mut ret_1: ::core::ffi::c_int =
+                slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_56 as *const symbol);
             if ret_1 < 0 as ::core::ffi::c_int {
                 return ret_1;
             }
@@ -3832,11 +3645,8 @@ unsafe fn r_Prefix_Step1(mut z: *mut SN_env) -> ::core::ffi::c_int {
             if len_utf8((*z).p) <= 3 as ::core::ffi::c_int {
                 return 0 as ::core::ffi::c_int;
             }
-            let mut ret_2: ::core::ffi::c_int = slice_from_s(
-                z,
-                2 as ::core::ffi::c_int,
-                &raw const s_57 as *const symbol,
-            );
+            let mut ret_2: ::core::ffi::c_int =
+                slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_57 as *const symbol);
             if ret_2 < 0 as ::core::ffi::c_int {
                 return ret_2;
             }
@@ -3848,10 +3658,10 @@ unsafe fn r_Prefix_Step1(mut z: *mut SN_env) -> ::core::ffi::c_int {
 unsafe fn r_Prefix_Step2(mut z: *mut SN_env) -> ::core::ffi::c_int {
     (*z).bra = (*z).c;
     if (*z).c + 1 as ::core::ffi::c_int >= (*z).l
-        || *(*z).p.offset(((*z).c + 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 129 as ::core::ffi::c_int
-            && *(*z).p.offset(((*z).c + 1 as ::core::ffi::c_int) as isize)
-                as ::core::ffi::c_int != 136 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c + 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 129 as ::core::ffi::c_int
+            && *(*z).p.offset(((*z).c + 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+                != 136 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -3866,7 +3676,7 @@ unsafe fn r_Prefix_Step2(mut z: *mut SN_env) -> ::core::ffi::c_int {
     if eq_s(z, 2 as ::core::ffi::c_int, &raw const s_58 as *const symbol) == 0 {
         (*z).c = c1;
     } else {
-        return 0 as ::core::ffi::c_int
+        return 0 as ::core::ffi::c_int;
     }
     let mut ret: ::core::ffi::c_int = slice_del(z);
     if ret < 0 as ::core::ffi::c_int {
@@ -3878,10 +3688,10 @@ unsafe fn r_Prefix_Step3a_Noun(mut z: *mut SN_env) -> ::core::ffi::c_int {
     let mut among_var: ::core::ffi::c_int = 0;
     (*z).bra = (*z).c;
     if (*z).c + 3 as ::core::ffi::c_int >= (*z).l
-        || *(*z).p.offset(((*z).c + 3 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 132 as ::core::ffi::c_int
-            && *(*z).p.offset(((*z).c + 3 as ::core::ffi::c_int) as isize)
-                as ::core::ffi::c_int != 167 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c + 3 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 132 as ::core::ffi::c_int
+            && *(*z).p.offset(((*z).c + 3 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+                != 167 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -3917,10 +3727,10 @@ unsafe fn r_Prefix_Step3b_Noun(mut z: *mut SN_env) -> ::core::ffi::c_int {
     let mut among_var: ::core::ffi::c_int = 0;
     (*z).bra = (*z).c;
     if (*z).c + 1 as ::core::ffi::c_int >= (*z).l
-        || *(*z).p.offset(((*z).c + 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 168 as ::core::ffi::c_int
-            && *(*z).p.offset(((*z).c + 1 as ::core::ffi::c_int) as isize)
-                as ::core::ffi::c_int != 131 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c + 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 168 as ::core::ffi::c_int
+            && *(*z).p.offset(((*z).c + 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+                != 131 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -3943,11 +3753,8 @@ unsafe fn r_Prefix_Step3b_Noun(mut z: *mut SN_env) -> ::core::ffi::c_int {
             if len_utf8((*z).p) <= 3 as ::core::ffi::c_int {
                 return 0 as ::core::ffi::c_int;
             }
-            let mut ret_0: ::core::ffi::c_int = slice_from_s(
-                z,
-                2 as ::core::ffi::c_int,
-                &raw const s_59 as *const symbol,
-            );
+            let mut ret_0: ::core::ffi::c_int =
+                slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_59 as *const symbol);
             if ret_0 < 0 as ::core::ffi::c_int {
                 return ret_0;
             }
@@ -3956,11 +3763,8 @@ unsafe fn r_Prefix_Step3b_Noun(mut z: *mut SN_env) -> ::core::ffi::c_int {
             if len_utf8((*z).p) <= 3 as ::core::ffi::c_int {
                 return 0 as ::core::ffi::c_int;
             }
-            let mut ret_1: ::core::ffi::c_int = slice_from_s(
-                z,
-                2 as ::core::ffi::c_int,
-                &raw const s_60 as *const symbol,
-            );
+            let mut ret_1: ::core::ffi::c_int =
+                slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_60 as *const symbol);
             if ret_1 < 0 as ::core::ffi::c_int {
                 return ret_1;
             }
@@ -3982,11 +3786,8 @@ unsafe fn r_Prefix_Step3_Verb(mut z: *mut SN_env) -> ::core::ffi::c_int {
             if len_utf8((*z).p) <= 4 as ::core::ffi::c_int {
                 return 0 as ::core::ffi::c_int;
             }
-            let mut ret: ::core::ffi::c_int = slice_from_s(
-                z,
-                2 as ::core::ffi::c_int,
-                &raw const s_61 as *const symbol,
-            );
+            let mut ret: ::core::ffi::c_int =
+                slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_61 as *const symbol);
             if ret < 0 as ::core::ffi::c_int {
                 return ret;
             }
@@ -3995,11 +3796,8 @@ unsafe fn r_Prefix_Step3_Verb(mut z: *mut SN_env) -> ::core::ffi::c_int {
             if len_utf8((*z).p) <= 4 as ::core::ffi::c_int {
                 return 0 as ::core::ffi::c_int;
             }
-            let mut ret_0: ::core::ffi::c_int = slice_from_s(
-                z,
-                2 as ::core::ffi::c_int,
-                &raw const s_62 as *const symbol,
-            );
+            let mut ret_0: ::core::ffi::c_int =
+                slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_62 as *const symbol);
             if ret_0 < 0 as ::core::ffi::c_int {
                 return ret_0;
             }
@@ -4008,11 +3806,8 @@ unsafe fn r_Prefix_Step3_Verb(mut z: *mut SN_env) -> ::core::ffi::c_int {
             if len_utf8((*z).p) <= 4 as ::core::ffi::c_int {
                 return 0 as ::core::ffi::c_int;
             }
-            let mut ret_1: ::core::ffi::c_int = slice_from_s(
-                z,
-                2 as ::core::ffi::c_int,
-                &raw const s_63 as *const symbol,
-            );
+            let mut ret_1: ::core::ffi::c_int =
+                slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_63 as *const symbol);
             if ret_1 < 0 as ::core::ffi::c_int {
                 return ret_1;
             }
@@ -4021,11 +3816,8 @@ unsafe fn r_Prefix_Step3_Verb(mut z: *mut SN_env) -> ::core::ffi::c_int {
             if len_utf8((*z).p) <= 4 as ::core::ffi::c_int {
                 return 0 as ::core::ffi::c_int;
             }
-            let mut ret_2: ::core::ffi::c_int = slice_from_s(
-                z,
-                2 as ::core::ffi::c_int,
-                &raw const s_64 as *const symbol,
-            );
+            let mut ret_2: ::core::ffi::c_int =
+                slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_64 as *const symbol);
             if ret_2 < 0 as ::core::ffi::c_int {
                 return ret_2;
             }
@@ -4037,8 +3829,8 @@ unsafe fn r_Prefix_Step3_Verb(mut z: *mut SN_env) -> ::core::ffi::c_int {
 unsafe fn r_Prefix_Step4_Verb(mut z: *mut SN_env) -> ::core::ffi::c_int {
     (*z).bra = (*z).c;
     if (*z).c + 5 as ::core::ffi::c_int >= (*z).l
-        || *(*z).p.offset(((*z).c + 5 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 170 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c + 5 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 170 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -4051,11 +3843,8 @@ unsafe fn r_Prefix_Step4_Verb(mut z: *mut SN_env) -> ::core::ffi::c_int {
     }
     *(*z).I.offset(1 as ::core::ffi::c_int as isize) = 1 as ::core::ffi::c_int;
     *(*z).I.offset(2 as ::core::ffi::c_int as isize) = 0 as ::core::ffi::c_int;
-    let mut ret: ::core::ffi::c_int = slice_from_s(
-        z,
-        6 as ::core::ffi::c_int,
-        &raw const s_65 as *const symbol,
-    );
+    let mut ret: ::core::ffi::c_int =
+        slice_from_s(z, 6 as ::core::ffi::c_int, &raw const s_65 as *const symbol);
     if ret < 0 as ::core::ffi::c_int {
         return ret;
     }
@@ -4064,11 +3853,7 @@ unsafe fn r_Prefix_Step4_Verb(mut z: *mut SN_env) -> ::core::ffi::c_int {
 unsafe fn r_Suffix_Noun_Step1a(mut z: *mut SN_env) -> ::core::ffi::c_int {
     let mut among_var: ::core::ffi::c_int = 0;
     (*z).ket = (*z).c;
-    among_var = find_among_b(
-        z,
-        &raw const a_10 as *const among,
-        10 as ::core::ffi::c_int,
-    );
+    among_var = find_among_b(z, &raw const a_10 as *const among, 10 as ::core::ffi::c_int);
     if among_var == 0 {
         return 0 as ::core::ffi::c_int;
     }
@@ -4108,8 +3893,8 @@ unsafe fn r_Suffix_Noun_Step1a(mut z: *mut SN_env) -> ::core::ffi::c_int {
 unsafe fn r_Suffix_Noun_Step1b(mut z: *mut SN_env) -> ::core::ffi::c_int {
     (*z).ket = (*z).c;
     if (*z).c - 1 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 134 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 134 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -4144,8 +3929,8 @@ unsafe fn r_Suffix_Noun_Step2a(mut z: *mut SN_env) -> ::core::ffi::c_int {
 unsafe fn r_Suffix_Noun_Step2b(mut z: *mut SN_env) -> ::core::ffi::c_int {
     (*z).ket = (*z).c;
     if (*z).c - 3 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 170 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 170 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -4165,8 +3950,8 @@ unsafe fn r_Suffix_Noun_Step2b(mut z: *mut SN_env) -> ::core::ffi::c_int {
 unsafe fn r_Suffix_Noun_Step2c1(mut z: *mut SN_env) -> ::core::ffi::c_int {
     (*z).ket = (*z).c;
     if (*z).c - 1 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 170 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 170 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -4186,8 +3971,8 @@ unsafe fn r_Suffix_Noun_Step2c1(mut z: *mut SN_env) -> ::core::ffi::c_int {
 unsafe fn r_Suffix_Noun_Step2c2(mut z: *mut SN_env) -> ::core::ffi::c_int {
     (*z).ket = (*z).c;
     if (*z).c - 1 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 169 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 169 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -4207,8 +3992,8 @@ unsafe fn r_Suffix_Noun_Step2c2(mut z: *mut SN_env) -> ::core::ffi::c_int {
 unsafe fn r_Suffix_Noun_Step3(mut z: *mut SN_env) -> ::core::ffi::c_int {
     (*z).ket = (*z).c;
     if (*z).c - 1 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 138 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 138 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -4228,11 +4013,7 @@ unsafe fn r_Suffix_Noun_Step3(mut z: *mut SN_env) -> ::core::ffi::c_int {
 unsafe fn r_Suffix_Verb_Step1(mut z: *mut SN_env) -> ::core::ffi::c_int {
     let mut among_var: ::core::ffi::c_int = 0;
     (*z).ket = (*z).c;
-    among_var = find_among_b(
-        z,
-        &raw const a_17 as *const among,
-        12 as ::core::ffi::c_int,
-    );
+    among_var = find_among_b(z, &raw const a_17 as *const among, 12 as ::core::ffi::c_int);
     if among_var == 0 {
         return 0 as ::core::ffi::c_int;
     }
@@ -4272,11 +4053,7 @@ unsafe fn r_Suffix_Verb_Step1(mut z: *mut SN_env) -> ::core::ffi::c_int {
 unsafe fn r_Suffix_Verb_Step2a(mut z: *mut SN_env) -> ::core::ffi::c_int {
     let mut among_var: ::core::ffi::c_int = 0;
     (*z).ket = (*z).c;
-    among_var = find_among_b(
-        z,
-        &raw const a_18 as *const among,
-        11 as ::core::ffi::c_int,
-    );
+    among_var = find_among_b(z, &raw const a_18 as *const among, 11 as ::core::ffi::c_int);
     if among_var == 0 {
         return 0 as ::core::ffi::c_int;
     }
@@ -4325,10 +4102,10 @@ unsafe fn r_Suffix_Verb_Step2a(mut z: *mut SN_env) -> ::core::ffi::c_int {
 unsafe fn r_Suffix_Verb_Step2b(mut z: *mut SN_env) -> ::core::ffi::c_int {
     (*z).ket = (*z).c;
     if (*z).c - 3 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 133 as ::core::ffi::c_int
-            && *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                as ::core::ffi::c_int != 167 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 133 as ::core::ffi::c_int
+            && *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+                != 167 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -4349,16 +4126,12 @@ unsafe fn r_Suffix_Verb_Step2c(mut z: *mut SN_env) -> ::core::ffi::c_int {
     let mut among_var: ::core::ffi::c_int = 0;
     (*z).ket = (*z).c;
     if (*z).c - 1 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 136 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 136 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
-    among_var = find_among_b(
-        z,
-        &raw const a_20 as *const among,
-        2 as ::core::ffi::c_int,
-    );
+    among_var = find_among_b(z, &raw const a_20 as *const among, 2 as ::core::ffi::c_int);
     if among_var == 0 {
         return 0 as ::core::ffi::c_int;
     }
@@ -4386,13 +4159,11 @@ unsafe fn r_Suffix_Verb_Step2c(mut z: *mut SN_env) -> ::core::ffi::c_int {
     }
     return 1 as ::core::ffi::c_int;
 }
-unsafe fn r_Suffix_All_alef_maqsura(
-    mut z: *mut SN_env,
-) -> ::core::ffi::c_int {
+unsafe fn r_Suffix_All_alef_maqsura(mut z: *mut SN_env) -> ::core::ffi::c_int {
     (*z).ket = (*z).c;
     if (*z).c - 1 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 137 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 137 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -4400,11 +4171,8 @@ unsafe fn r_Suffix_All_alef_maqsura(
         return 0 as ::core::ffi::c_int;
     }
     (*z).bra = (*z).c;
-    let mut ret: ::core::ffi::c_int = slice_from_s(
-        z,
-        2 as ::core::ffi::c_int,
-        &raw const s_66 as *const symbol,
-    );
+    let mut ret: ::core::ffi::c_int =
+        slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_66 as *const symbol);
     if ret < 0 as ::core::ffi::c_int {
         return ret;
     }
@@ -4457,12 +4225,8 @@ pub unsafe fn arabic_UTF_8_stem(mut z: *mut SN_env) -> ::core::ffi::c_int {
                 let mut ret_3: ::core::ffi::c_int = r_Suffix_Verb_Step2c(z);
                 if ret_3 == 0 as ::core::ffi::c_int {
                     (*z).c = (*z).l - m6;
-                    let mut ret_4: ::core::ffi::c_int = skip_b_utf8(
-                        (*z).p,
-                        (*z).c,
-                        (*z).lb,
-                        1 as ::core::ffi::c_int,
-                    );
+                    let mut ret_4: ::core::ffi::c_int =
+                        skip_b_utf8((*z).p, (*z).c, (*z).lb, 1 as ::core::ffi::c_int);
                     if ret_4 < 0 as ::core::ffi::c_int {
                         current_block = 6009106721275671892;
                     } else {
@@ -4530,14 +4294,10 @@ pub unsafe fn arabic_UTF_8_stem(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             let mut ret_9: ::core::ffi::c_int = r_Suffix_Noun_Step2a(z);
                             if ret_9 == 0 as ::core::ffi::c_int {
                                 (*z).c = (*z).l - m9;
-                                let mut ret_10: ::core::ffi::c_int = r_Suffix_Noun_Step2b(
-                                    z,
-                                );
+                                let mut ret_10: ::core::ffi::c_int = r_Suffix_Noun_Step2b(z);
                                 if ret_10 == 0 as ::core::ffi::c_int {
                                     (*z).c = (*z).l - m9;
-                                    let mut ret_11: ::core::ffi::c_int = r_Suffix_Noun_Step2c1(
-                                        z,
-                                    );
+                                    let mut ret_11: ::core::ffi::c_int = r_Suffix_Noun_Step2c1(z);
                                     if ret_11 == 0 as ::core::ffi::c_int {
                                         (*z).c = (*z).l - m9;
                                         let mut ret_12: ::core::ffi::c_int = skip_b_utf8(
@@ -4586,19 +4346,14 @@ pub unsafe fn arabic_UTF_8_stem(mut z: *mut SN_env) -> ::core::ffi::c_int {
                                     return ret_13;
                                 }
                                 let mut m10: ::core::ffi::c_int = (*z).l - (*z).c;
-                                let mut ret_14: ::core::ffi::c_int = r_Suffix_Noun_Step2a(
-                                    z,
-                                );
+                                let mut ret_14: ::core::ffi::c_int = r_Suffix_Noun_Step2a(z);
                                 if ret_14 == 0 as ::core::ffi::c_int {
                                     (*z).c = (*z).l - m10;
-                                    let mut ret_15: ::core::ffi::c_int = r_Suffix_Noun_Step2b(
-                                        z,
-                                    );
+                                    let mut ret_15: ::core::ffi::c_int = r_Suffix_Noun_Step2b(z);
                                     if ret_15 == 0 as ::core::ffi::c_int {
                                         (*z).c = (*z).l - m10;
-                                        let mut ret_16: ::core::ffi::c_int = r_Suffix_Noun_Step2c1(
-                                            z,
-                                        );
+                                        let mut ret_16: ::core::ffi::c_int =
+                                            r_Suffix_Noun_Step2c1(z);
                                         if ret_16 == 0 as ::core::ffi::c_int {
                                             current_block = 12686316977422485193;
                                         } else {
@@ -4625,9 +4380,8 @@ pub unsafe fn arabic_UTF_8_stem(mut z: *mut SN_env) -> ::core::ffi::c_int {
                                 _ => {
                                     (*z).c = (*z).l - m8;
                                     if *(*z).I.offset(0 as ::core::ffi::c_int as isize) == 0 {
-                                        let mut ret_17: ::core::ffi::c_int = r_Suffix_Noun_Step2a(
-                                            z,
-                                        );
+                                        let mut ret_17: ::core::ffi::c_int =
+                                            r_Suffix_Noun_Step2a(z);
                                         if ret_17 == 0 as ::core::ffi::c_int {
                                             current_block = 10434057210388624566;
                                         } else {
@@ -4643,13 +4397,12 @@ pub unsafe fn arabic_UTF_8_stem(mut z: *mut SN_env) -> ::core::ffi::c_int {
                                         10041771570435381152 => {}
                                         _ => {
                                             (*z).c = (*z).l - m8;
-                                            let mut ret_18: ::core::ffi::c_int = r_Suffix_Noun_Step2b(
-                                                z,
-                                            );
+                                            let mut ret_18: ::core::ffi::c_int =
+                                                r_Suffix_Noun_Step2b(z);
                                             if ret_18 == 0 as ::core::ffi::c_int {
                                                 (*z).c = (*z).l - m7;
                                             } else if ret_18 < 0 as ::core::ffi::c_int {
-                                                return ret_18
+                                                return ret_18;
                                             }
                                         }
                                     }
@@ -4658,7 +4411,7 @@ pub unsafe fn arabic_UTF_8_stem(mut z: *mut SN_env) -> ::core::ffi::c_int {
                         }
                     }
                 } else if ret_7 < 0 as ::core::ffi::c_int {
-                    return ret_7
+                    return ret_7;
                 }
                 let mut ret_19: ::core::ffi::c_int = r_Suffix_Noun_Step3(z);
                 if ret_19 == 0 as ::core::ffi::c_int {
@@ -4693,14 +4446,14 @@ pub unsafe fn arabic_UTF_8_stem(mut z: *mut SN_env) -> ::core::ffi::c_int {
     if ret_21 == 0 as ::core::ffi::c_int {
         (*z).c = c12;
     } else if ret_21 < 0 as ::core::ffi::c_int {
-        return ret_21
+        return ret_21;
     }
     let mut c13: ::core::ffi::c_int = (*z).c;
     let mut ret_22: ::core::ffi::c_int = r_Prefix_Step2(z);
     if ret_22 == 0 as ::core::ffi::c_int {
         (*z).c = c13;
     } else if ret_22 < 0 as ::core::ffi::c_int {
-        return ret_22
+        return ret_22;
     }
     let mut c14: ::core::ffi::c_int = (*z).c;
     let mut ret_23: ::core::ffi::c_int = r_Prefix_Step3a_Noun(z);
@@ -4729,7 +4482,7 @@ pub unsafe fn arabic_UTF_8_stem(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     if ret_25 == 0 as ::core::ffi::c_int {
                         (*z).c = c15;
                     } else if ret_25 < 0 as ::core::ffi::c_int {
-                        return ret_25
+                        return ret_25;
                     }
                     let mut ret_26: ::core::ffi::c_int = r_Prefix_Step4_Verb(z);
                     if !(ret_26 == 0 as ::core::ffi::c_int) {
@@ -4741,7 +4494,7 @@ pub unsafe fn arabic_UTF_8_stem(mut z: *mut SN_env) -> ::core::ffi::c_int {
             }
         }
     } else if ret_23 < 0 as ::core::ffi::c_int {
-        return ret_23
+        return ret_23;
     }
     (*z).c = c11;
     let mut ret_27: ::core::ffi::c_int = r_Normalize_post(z);

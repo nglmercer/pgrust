@@ -82,8 +82,13 @@ pgsync::process_global! {
 /// provisions that many at shared-memory init. A repeat call keeps the
 /// first slab (ShmemInitStruct's `found` arm).
 pub fn LocalLatchSlabInit(owners: usize) {
-    assert!(owners > 0, "LocalLatchSlabInit: owner count not initialized");
-    let _init = LOCAL_LATCH_EXT_INIT.lock().unwrap_or_else(|e| e.into_inner());
+    assert!(
+        owners > 0,
+        "LocalLatchSlabInit: owner count not initialized"
+    );
+    let _init = LOCAL_LATCH_EXT_INIT
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     if !LOCAL_LATCH_EXT.load(Acquire).is_null() {
         return;
     }
@@ -189,8 +194,13 @@ pub fn InitializeLatchWaitSet() -> PgResult<()> {
     debug_assert_eq!(latch_pos, LatchWaitSetLatchPos);
 
     if IsUnderPostmaster() {
-        let pos =
-            wes::add_wait_event_to_set::call(set, WL_EXIT_ON_PM_DEATH, PGINVALID_SOCKET, None, None)?;
+        let pos = wes::add_wait_event_to_set::call(
+            set,
+            WL_EXIT_ON_PM_DEATH,
+            PGINVALID_SOCKET,
+            None,
+            None,
+        )?;
         debug_assert_eq!(pos, LatchWaitSetPostmasterDeathPos);
     }
 
@@ -293,9 +303,14 @@ pub fn WaitLatch(
     }
     // D3962: a wait on MyLatch with interrupts processable is no gap for Gravity's poll-gap probe: the cancel's signal sets
     // the latch and the caller polls at the wake (ProcSleep's lock waits)
-    let polled = cancelpoll::probe_on() && latch.is_some() && latch == MyLatch() && interrupts_processable();
+    let polled =
+        cancelpoll::probe_on() && latch.is_some() && latch == MyLatch() && interrupts_processable();
     // a direct call, not `polled.then(cancelpoll::waiting)`: `waiting` is #[track_caller], so the probe line names this site
-    let wait = if polled { Some(cancelpoll::waiting()) } else { None };
+    let wait = if polled {
+        Some(cancelpoll::waiting())
+    } else {
+        None
+    };
     let res = wait_latch_on_waiter(latch, timeout);
     drop(wait);
     if report {
@@ -309,7 +324,9 @@ pub fn WaitLatch(
 
 /// C's INTERRUPTS_CAN_BE_PROCESSED: a cancel that wakes the wait is processed at the caller's CHECK_FOR_INTERRUPTS.
 fn interrupts_processable() -> bool {
-    init_small::globals::InterruptHoldoffCount() == 0 && init_small::globals::QueryCancelHoldoffCount() == 0 && init_small::globals::CritSectionCount() == 0
+    init_small::globals::InterruptHoldoffCount() == 0
+        && init_small::globals::QueryCancelHoldoffCount() == 0
+        && init_small::globals::CritSectionCount() == 0
 }
 
 fn wait_latch_on_waiter(latch: Option<LatchHandle>, timeout: Option<i64>) -> u32 {
@@ -377,7 +394,9 @@ fn wait_latch_on_waiter(latch: Option<LatchHandle>, timeout: Option<i64>) -> u32
 #[cfg(target_family = "wasm")]
 fn park_until_due(remaining_ms: i64) -> waiter::ParkResult {
     const DUE_SLICE_MS: i64 = 10;
-    let parked = waiter::park_timeout(core::time::Duration::from_millis(remaining_ms.min(DUE_SLICE_MS) as u64));
+    let parked = waiter::park_timeout(core::time::Duration::from_millis(
+        remaining_ms.min(DUE_SLICE_MS) as u64,
+    ));
     if timeout_seams::fire_due::is_installed() {
         timeout_seams::fire_due::call();
     }
@@ -550,7 +569,12 @@ pub fn mailbox_send_on_my_latch<T>(
         SetLatch(LatchHandle::from_raw(raw));
     }
     tx.send_interruptible(value, (wake, my.as_usize()), || {
-        WaitLatch(Some(my), WL_LATCH_SET | WL_EXIT_ON_PM_DEATH, 0, wait_event_info)?;
+        WaitLatch(
+            Some(my),
+            WL_LATCH_SET | WL_EXIT_ON_PM_DEATH,
+            0,
+            wait_event_info,
+        )?;
         ResetLatch(my);
         interrupted()
     })

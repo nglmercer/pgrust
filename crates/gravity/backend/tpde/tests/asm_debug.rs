@@ -12,7 +12,9 @@ use mcx::MemoryContext;
 
 #[test]
 fn print_entry_disassembly() {
-    let Ok(path) = std::env::var("GRAVITY_ASM_DUMP") else { return };
+    let Ok(path) = std::env::var("GRAVITY_ASM_DUMP") else {
+        return;
+    };
     let text = std::fs::read_to_string(&path).unwrap();
     let mut depth = 0i32;
     let mut end = text.len();
@@ -35,14 +37,22 @@ fn print_entry_disassembly() {
     }
     let p = parse_program(&text[..end], &|_| Some(0x1000)).unwrap_or_else(|e| panic!("{e}"));
     let want = std::env::var("GRAVITY_ASM_FN").unwrap_or_else(|_| "pipeline".into());
-    let fi = p.funcs.iter().position(|f| f.name == *want).unwrap_or(p.funcs.len() - 1);
+    let fi = p
+        .funcs
+        .iter()
+        .position(|f| f.name == *want)
+        .unwrap_or(p.funcs.len() - 1);
     let entry = gravity_ir::Func(fi as u32);
     let ctx = MemoryContext::new("asm_debug");
     let c = gravity_tpde::compile_recording(ctx.mcx(), &p).unwrap();
     if std::env::var_os("GRAVITY_ASM_REGALLOC").is_some() {
         // The regalloc events per block (`Compiled::regalloc_report`): where
         // the spills, reloads and phi moves of this allocation sit.
-        eprintln!("--- regalloc {} ---\n{}", p.funcs[fi].name, c.regalloc_report(entry));
+        eprintln!(
+            "--- regalloc {} ---\n{}",
+            p.funcs[fi].name,
+            c.regalloc_report(entry)
+        );
     }
     let range = c.mapper().get_mapped_range().unwrap();
     // SAFETY: the mapping is live for the compiled program's lifetime.
@@ -65,10 +75,16 @@ fn print_entry_disassembly() {
         zeros = 0;
         let d = tpde_disarm::decode(w);
         let mut s = [0u8; 128];
-        let t = tpde_disarm::da64_format(&d, &mut s).map(|k| String::from_utf8_lossy(&s[..k]).into_owned()).unwrap_or("??".into());
+        let t = tpde_disarm::da64_format(&d, &mut s)
+            .map(|k| String::from_utf8_lossy(&s[..k]).into_owned())
+            .unwrap_or("??".into());
         out.push_str(&format!("{:5}: {t}\n", i - off));
         i += 4;
         n += 1;
     }
-    eprintln!("--- asm_debug {} ({} bytes mapped) ---\n{out}--- end ---", p.funcs[fi].name, bytes.len());
+    eprintln!(
+        "--- asm_debug {} ({} bytes mapped) ---\n{out}--- end ---",
+        p.funcs[fi].name,
+        bytes.len()
+    );
 }

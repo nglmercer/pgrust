@@ -19,9 +19,17 @@ impl Em<'_, '_, '_> {
         let mut args = mcx::reserved_in(3 + (n.upper.len + n.lower.len) as usize, self.row.scratch);
         for w in words(self.p, n) {
             let value = self.b.iconst(Type::I64, w);
-            args.push_in(Lowered { value, valid: self.t, err: self.zero });
+            args.push_in(Lowered {
+                value,
+                valid: self.t,
+                err: self.zero,
+            });
         }
-        args.push_in(Lowered { value: cur.value, valid: cur.valid, err: cur.err });
+        args.push_in(Lowered {
+            value: cur.value,
+            valid: cur.valid,
+            err: cur.err,
+        });
         // D775: a subscript evaluated only where nothing before it raised; the first raise kept (`call` takes `first`)
         let mut err = cur.err;
         for list in [n.upper, n.lower] {

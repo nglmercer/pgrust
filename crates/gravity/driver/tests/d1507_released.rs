@@ -24,7 +24,10 @@ const WIDTH: u16 = 3;
 /// `p_count`'s relation (its range site).
 const REL: u32 = 2001;
 const SALT: u64 = 0x0d15_0700;
-const KEY: PlanKey = PlanKey { handle: Handle(0x1507), generation: Generation(1) };
+const KEY: PlanKey = PlanKey {
+    handle: Handle(0x1507),
+    generation: Generation(1),
+};
 
 /// The handles the sources keep across unbind (parked or not).
 fn kept(table: &RangeTable) -> usize {
@@ -46,23 +49,45 @@ fn drain(open: &Open<'_>, cursor: &AtomicU64, ordinal: u16) -> Result<u64, Error
 }
 
 /// One parallel statement: its worker slots from (and back to) the depot under `SALT`; keyed, the leader Node parks.
-fn cycle(entry: &mut Entry, program: &Arc<Program>, derive: &mut FakeDerive, key: Option<PlanKey>, flag: &AtomicU8) {
+fn cycle(
+    entry: &mut Entry,
+    program: &Arc<Program>,
+    derive: &mut FakeDerive,
+    key: Option<PlanKey>,
+    flag: &AtomicU8,
+) {
     let mut sink = LegSink::new();
     let mut b = binding(&[100], &NULLS, &mut sink, flag);
-    let mut exec = entry.start(key, program, derive, &mut b, lease(gravity_driver::Grant::of(8 << 20))).unwrap();
+    let mut exec = entry
+        .start(
+            key,
+            program,
+            derive,
+            &mut b,
+            lease(gravity_driver::Grant::of(8 << 20)),
+        )
+        .unwrap();
     exec.set_slot_salt(Some(SALT));
     let open = entry.open_section(&mut exec, &b, derive, 0, WIDTH).unwrap();
     let cursor = AtomicU64::new(0);
     for o in 0..WIDTH {
         drain(&open, &cursor, o).unwrap();
     }
-    entry.close_section(open, &mut b, &CountMerge, true).unwrap();
-    assert_eq!(entry.run(&mut exec, &mut b, gravity_driver::Call::batch(4)).unwrap(), Step::Done);
+    entry
+        .close_section(open, &mut b, &CountMerge, true)
+        .unwrap();
+    assert_eq!(
+        entry
+            .run(&mut exec, &mut b, gravity_driver::Call::batch(4))
+            .unwrap(),
+        Step::Done
+    );
     entry.end(exec, true);
 }
 
 #[test]
-fn a_recorded_relation_is_released_from_the_parked_slots_at_the_next_boundary_and_the_capacity_stays() {
+fn a_recorded_relation_is_released_from_the_parked_slots_at_the_next_boundary_and_the_capacity_stays(
+) {
     let program = Arc::new(p_count(4));
     let table = RangeTable::new(BLOCKS, PER_BLOCK);
     table.keep.store(true, Ordering::Relaxed);
@@ -78,40 +103,85 @@ fn a_recorded_relation_is_released_from_the_parked_slots_at_the_next_boundary_an
     cycle(&mut entry, &program, &mut derive, None, &flag);
     let parked = DEPOT.stats();
     let held = kept(&table);
-    assert!(held > base, "the parked worker sources keep their handles ({held} over {base})");
+    assert!(
+        held > base,
+        "the parked worker sources keep their handles ({held} over {base})"
+    );
 
     // recorded only: nothing is released until a boundary drains it
     note_released(REL + 1);
-    assert_eq!(kept(&table), held, "the callback's record releases nothing by itself");
+    assert_eq!(
+        kept(&table),
+        held,
+        "the callback's record releases nothing by itself"
+    );
     drain_released();
-    assert_eq!(kept(&table), held, "another relation's record leaves the parked handles");
+    assert_eq!(
+        kept(&table),
+        held,
+        "another relation's record leaves the parked handles"
+    );
 
     note_released(REL);
     drain_released();
-    assert_eq!(kept(&table), base, "the relation's record releases every parked worker's handle");
+    assert_eq!(
+        kept(&table),
+        base,
+        "the relation's record releases every parked worker's handle"
+    );
     let after = DEPOT.stats();
-    assert_eq!((after.entries, after.bytes, after.evictions), (parked.entries, parked.bytes, parked.evictions), "capacity stays: the slots remain parked");
+    assert_eq!(
+        (after.entries, after.bytes, after.evictions),
+        (parked.entries, parked.bytes, parked.evictions),
+        "capacity stays: the slots remain parked"
+    );
 
     // the slots are taken again (a reopen is lazy) and park again; a reset (relid 0) releases every relation's
     cycle(&mut entry, &program, &mut derive, None, &flag);
-    assert_eq!(DEPOT.stats().takes, parked.takes + 1, "the released slots were taken, not rebuilt");
+    assert_eq!(
+        DEPOT.stats().takes,
+        parked.takes + 1,
+        "the released slots were taken, not rebuilt"
+    );
     assert_eq!(kept(&table), held);
     note_released(0);
     drain_released();
-    assert_eq!(kept(&table), base, "relid 0 (an invalidation reset) releases every relation's");
+    assert_eq!(
+        kept(&table),
+        base,
+        "relid 0 (an invalidation reset) releases every relation's"
+    );
 
     // keyed: the leader Node parks in this backend's park, released at the entry's next acquire (never from the callback)
     cycle(&mut entry, &program, &mut derive, Some(KEY), &flag);
     let both = kept(&table);
-    assert!(both > held, "the workers in the depot and the leader in the park ({both} over {held})");
+    assert!(
+        both > held,
+        "the workers in the depot and the leader in the park ({both} over {held})"
+    );
     note_released(REL);
     drain_released();
     let leader = kept(&table);
-    assert!(leader > base && leader < both, "the drain reaches the depot, not a backend's park ({leader})");
+    assert!(
+        leader > base && leader < both,
+        "the drain reaches the depot, not a backend's park ({leader})"
+    );
     let mut sink = LegSink::new();
     let mut b = binding(&[100], &NULLS, &mut sink, &flag);
-    let exec = entry.start(Some(KEY), &program, &mut derive, &mut b, lease(gravity_driver::Grant::of(8 << 20))).unwrap();
-    assert_eq!(kept(&table), base, "the next acquire released the parked leader's handle before the bind");
+    let exec = entry
+        .start(
+            Some(KEY),
+            &program,
+            &mut derive,
+            &mut b,
+            lease(gravity_driver::Grant::of(8 << 20)),
+        )
+        .unwrap();
+    assert_eq!(
+        kept(&table),
+        base,
+        "the next acquire released the parked leader's handle before the bind"
+    );
     entry.end(exec, false);
 
     drop(entry);

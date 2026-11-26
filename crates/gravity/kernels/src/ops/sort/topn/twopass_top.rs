@@ -38,14 +38,33 @@ pub(super) const P_HEAD: usize = 0;
 pub(super) const P_N: usize = 1;
 pub(super) const P_LAYOUT: usize = 2;
 pub(super) const LAYOUT_WORDS: usize = size_of::<RecordLayout>() / 8;
-const _: () = assert!(P_LAYOUT + LAYOUT_WORDS <= OWNER_PARAMS, "the spec fits the owner's words");
+const _: () = assert!(
+    P_LAYOUT + LAYOUT_WORDS <= OWNER_PARAMS,
+    "the spec fits the owner's words"
+);
 
 pub fn owner_fns(spec: &TopExportSpec) -> OwnerFns {
     let mut p = [0u64; OWNER_PARAMS];
-    let flags = spec.desc as u64 | (spec.nulls_first as u64) << 1 | (spec.nullable as u64) << 2 | (spec.ext as u64) << 3 | (spec.ext_nn as u64) << 4 | (spec.spread as u64) << 5;
+    let flags = spec.desc as u64
+        | (spec.nulls_first as u64) << 1
+        | (spec.nullable as u64) << 2
+        | (spec.ext as u64) << 3
+        | (spec.ext_nn as u64) << 4
+        | (spec.spread as u64) << 5;
     p[P_HEAD] = spec.count_slot as u64 | (spec.img_words as u64) << 8 | flags << 16;
     p[P_N] = spec.n as u64;
     let words: [u64; LAYOUT_WORDS] = spec.layout.words();
     p[P_LAYOUT..P_LAYOUT + LAYOUT_WORDS].copy_from_slice(&words);
-    OwnerFns { params: p, rounds: 1, order_slot: ORDER_NONE, order_slot2: ORDER_NONE, min_bytes: owner_min, open: owner_open, reduce: owner_reduce, end_round: owner_end, reduce2: owner_reduce, fold: Some(crate::table::owner_fold::owner_fold) }
+    OwnerFns {
+        params: p,
+        rounds: 1,
+        order_slot: ORDER_NONE,
+        order_slot2: ORDER_NONE,
+        min_bytes: owner_min,
+        open: owner_open,
+        reduce: owner_reduce,
+        end_round: owner_end,
+        reduce2: owner_reduce,
+        fold: Some(crate::table::owner_fold::owner_fold),
+    }
 }

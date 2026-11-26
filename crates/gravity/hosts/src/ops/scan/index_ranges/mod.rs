@@ -31,13 +31,16 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use gravity_abi::{Datum as Word, Lane, ScanPos};
+use gravity_decompose::catalog::{INDOPTION_DESC, INDOPTION_NULLS_FIRST};
 use gravity_driver::{BindingRef, Cursor, Error, Result, Source, Window};
 use pgsync::Mutex;
 use types_core::{BlockNumber, Oid};
 use types_error::PgResult;
 use types_rel::Relation;
-use gravity_decompose::catalog::{INDOPTION_DESC, INDOPTION_NULLS_FIRST};
-use types_scan::scankey::{BTGreaterEqualStrategyNumber, BTGreaterStrategyNumber, BTLessEqualStrategyNumber, BTLessStrategyNumber, ScanKeyData, StrategyNumber, SK_ISNULL, SK_SEARCHNULL};
+use types_scan::scankey::{
+    BTGreaterEqualStrategyNumber, BTGreaterStrategyNumber, BTLessEqualStrategyNumber,
+    BTLessStrategyNumber, ScanKeyData, StrategyNumber, SK_ISNULL, SK_SEARCHNULL,
+};
 use types_scan::sdir::ForwardScanDirection;
 use types_storage::bufpage::PageRef;
 use types_storage::RelFileLocator;
@@ -120,17 +123,49 @@ impl RangesRecipe {
     /// `None` when the recipe's walk is not one the pool may cut: a forward btree walk, every key a plain key a thread
     /// rebuilds (no row comparison, no ORDER BY operator; arrays and NULL tests are nbtree's own), table columns only,
     /// over relations the heap range source reads by locator (not temporary).
-    pub fn of(r: &crate::ops::scan::index_source::SiteRecipe, heap: &Relation<'_>, index: &Relation<'_>) -> PgResult<Option<RangesRecipe>> {
-        if index.rd_rel.relam != crate::ops::scan::index_source::BTREE_AM_OID || r.backward || r.am.is_some() || !r.rows.is_empty() || heap.uses_local_buffers() || index.uses_local_buffers() {
+    pub fn of(
+        r: &crate::ops::scan::index_source::SiteRecipe,
+        heap: &Relation<'_>,
+        index: &Relation<'_>,
+    ) -> PgResult<Option<RangesRecipe>> {
+        if index.rd_rel.relam != crate::ops::scan::index_source::BTREE_AM_OID
+            || r.backward
+            || r.am.is_some()
+            || !r.rows.is_empty()
+            || heap.uses_local_buffers()
+            || index.uses_local_buffers()
+        {
             return Ok(None);
         }
-        if r.attnos.iter().any(|&a| a < 1) || r.keys[..r.nkeys].iter().any(|k| SharedScanKey::of(k).is_none()) || r.words.iter().any(|w| !matches!(w, crate::ops::scan::index_source::KeyWord::Key(_))) {
+        if r.attnos.iter().any(|&a| a < 1)
+            || r.keys[..r.nkeys]
+                .iter()
+                .any(|k| SharedScanKey::of(k).is_none())
+            || r.words
+                .iter()
+                .any(|w| !matches!(w, crate::ops::scan::index_source::KeyWord::Key(_)))
+        {
             return Ok(None);
         }
-        let (index_attnums, names) = if r.only { crate::ops::scan::indexonly::index_attnums(index, heap, &r.attnos, &[])? } else { (Vec::new(), Vec::new()) }; // alloc: Program
+        let (index_attnums, names) = if r.only {
+            crate::ops::scan::indexonly::index_attnums(index, heap, &r.attnos, &[])?
+        } else {
+            (Vec::new(), Vec::new())
+        }; // alloc: Program
         let range = RangeRecipe::from_plan(heap, &r.attnos)?;
         let byref = crate::ops::scan::index_window::byref_of(heap, &r.attnos);
-        Ok(Some(RangesRecipe { range, heap: heap.rd_id, index: r.index, only: r.only, words: r.words.len(), attnos: r.attnos.clone(), index_attnums, names, byref, heap_fetches: r.heap_fetch_cell() }))
+        Ok(Some(RangesRecipe {
+            range,
+            heap: heap.rd_id,
+            index: r.index,
+            only: r.only,
+            words: r.words.len(),
+            attnos: r.attnos.clone(),
+            index_attnums,
+            names,
+            byref,
+            heap_fetches: r.heap_fetch_cell(),
+        }))
     }
 
     /// One run's ranges over `index` with `keys` (`SiteRecipe::bind_keys`: the recipe's keys bound to the run's key words;
@@ -138,23 +173,60 @@ impl RangesRecipe {
     /// does not hold: not imageable, a function it or a key calls not pool-hosted, a first key column whose stored type is
     /// not its operator class's, or a SERIALIZABLE transaction (the image takes no predicate lock). The leader's thread,
     /// when the pipeline's run starts.
-    pub fn capture(&self, index: &Relation<'_>, heap: &Relation<'_>, keys: &[ScanKeyData], in_recovery: bool, parts: usize) -> PgResult<Option<Arc<Filed>>> {
-        if xact_seams::isolation_is_serializable::is_installed() && xact_seams::isolation_is_serializable::call() {
+    pub fn capture(
+        &self,
+        index: &Relation<'_>,
+        heap: &Relation<'_>,
+        keys: &[ScanKeyData],
+        in_recovery: bool,
+        parts: usize,
+    ) -> PgResult<Option<Arc<Filed>>> {
+        if xact_seams::isolation_is_serializable::is_installed()
+            && xact_seams::isolation_is_serializable::call()
+        {
             return Ok(None);
         }
-        let Some(images) = keys.iter().map(SharedScanKey::of).collect::<Option<Vec<SharedScanKey>>>() else { return Ok(None) }; // alloc: Exec
-        if !images.iter().all(|k| k.func == 0 || gravity_fn::session::pool_hosted(k.func)) {
+        let Some(images) = keys
+            .iter()
+            .map(SharedScanKey::of)
+            .collect::<Option<Vec<SharedScanKey>>>()
+        else {
+            return Ok(None);
+        }; // alloc: Exec
+        if !images
+            .iter()
+            .all(|k| k.func == 0 || gravity_fn::session::pool_hosted(k.func))
+        {
             return Ok(None);
         }
-        let Some(img) = nbtree::IndexImage::capture(index)? else { return Ok(None) };
+        let Some(img) = nbtree::IndexImage::capture(index)? else {
+            return Ok(None);
+        };
         if !img.proc_oids().all(gravity_fn::session::pool_hosted) {
             return Ok(None);
         }
-        let Some((ranges, bounds)) = cut(index, &img, parts)? else { return Ok(None) };
+        let Some((ranges, bounds)) = cut(index, &img, parts)? else {
+            return Ok(None);
+        };
         let permanent = heap.rd_rel.relpersistence == types_core::RELPERSISTENCE_PERMANENT;
-        let vm = (heap.rd_locator.get(), permanent, visibilitymap::vm_nblocks(heap)?);
-        let stats = index.pgstat_enabled.get().then_some(index.rd_rel.relisshared);
-        Ok(Some(Arc::new(Filed { img: Arc::new(img), keys: images, ranges, _bounds: bounds, in_recovery, vm, stats }))) // alloc: Exec
+        let vm = (
+            heap.rd_locator.get(),
+            permanent,
+            visibilitymap::vm_nblocks(heap)?,
+        );
+        let stats = index
+            .pgstat_enabled
+            .get()
+            .then_some(index.rd_rel.relisshared);
+        Ok(Some(Arc::new(Filed {
+            img: Arc::new(img),
+            keys: images,
+            ranges,
+            _bounds: bounds,
+            in_recovery,
+            vm,
+            stats,
+        }))) // alloc: Exec
     }
 }
 
@@ -162,19 +234,42 @@ impl RangesRecipe {
 /// range, each as its keys past the scan's own, and the separator copies their arguments point into. `None` when the
 /// first key column's stored type is not its operator class's input type, or a bound's function is not pool-hosted.
 #[allow(clippy::type_complexity)]
-fn cut(index: &Relation<'_>, img: &nbtree::IndexImage, parts: usize) -> PgResult<Option<(Vec<Vec<SharedScanKey>>, Vec<Vec<u64>>)>> {
-    let (Some(&family), Some(&opcintype), Some(att)) = (index.rd_opfamily.first(), index.rd_opcintype.first(), index.rd_att.attrs.first()) else { return Ok(None) };
+fn cut(
+    index: &Relation<'_>,
+    img: &nbtree::IndexImage,
+    parts: usize,
+) -> PgResult<Option<(Vec<Vec<SharedScanKey>>, Vec<Vec<u64>>)>> {
+    let (Some(&family), Some(&opcintype), Some(att)) = (
+        index.rd_opfamily.first(),
+        index.rd_opcintype.first(),
+        index.rd_att.attrs.first(),
+    ) else {
+        return Ok(None);
+    };
     if att.atttypid != opcintype {
         return Ok(None);
     }
     let option = index.rd_indoption.first().copied().unwrap_or(0) as u8;
     let collation = index.rd_indcollation.first().copied().unwrap_or(0);
-    let (desc, nulls_first) = (option & INDOPTION_DESC != 0, option & INDOPTION_NULLS_FIRST != 0);
+    let (desc, nulls_first) = (
+        option & INDOPTION_DESC != 0,
+        option & INDOPTION_NULLS_FIRST != 0,
+    );
     // a range's lower bound in index order is inclusive, its upper exclusive
-    let (lo, hi) = if desc { (BTLessEqualStrategyNumber, BTGreaterStrategyNumber) } else { (BTGreaterEqualStrategyNumber, BTLessStrategyNumber) };
-    let func = |strategy: StrategyNumber| gravity_fn::typesem::opfamily_member_proc(family, opcintype, strategy as i16);
+    let (lo, hi) = if desc {
+        (BTLessEqualStrategyNumber, BTGreaterStrategyNumber)
+    } else {
+        (BTGreaterEqualStrategyNumber, BTLessStrategyNumber)
+    };
+    let func = |strategy: StrategyNumber| {
+        gravity_fn::typesem::opfamily_member_proc(family, opcintype, strategy as i16)
+    };
     let (lo_fn, hi_fn) = (func(lo)?, func(hi)?);
-    if lo_fn == 0 || hi_fn == 0 || !gravity_fn::session::pool_hosted(lo_fn) || !gravity_fn::session::pool_hosted(hi_fn) {
+    if lo_fn == 0
+        || hi_fn == 0
+        || !gravity_fn::session::pool_hosted(lo_fn)
+        || !gravity_fn::session::pool_hosted(hi_fn)
+    {
         return Ok(None);
     }
     let scratch = NodeScratch::new("GravityIndexRanges");
@@ -185,9 +280,11 @@ fn cut(index: &Relation<'_>, img: &nbtree::IndexImage, parts: usize) -> PgResult
     // each separator's first column, NULLs dropped, consecutive equal images merged (equal values whose images differ
     // only make an empty range between them)
     let mut kept: Vec<datum::Datum> = Vec::new(); // alloc: Exec
-    // bounded("other: the separators of the one btree level the cut took (nbtree::bt_pivots): the level above cuts fewer than parts ranges, so this one has fewer than parts pages of at most MaxIndexTuplesPerPage (408) separators; parts is INDEX_RANGES_PER_WORKER per participant")
+                                                  // bounded("other: the separators of the one btree level the cut took (nbtree::bt_pivots): the level above cuts fewer than parts ranges, so this one has fewer than parts pages of at most MaxIndexTuplesPerPage (408) separators; parts is INDEX_RANGES_PER_WORKER per participant")
     for k in &copies {
-        let Some(d) = raw::first_column(k, &index.rd_att, index.indnkeyatts()) else { continue };
+        let Some(d) = raw::first_column(k, &index.rd_att, index.indnkeyatts()) else {
+            continue;
+        };
         if let Some(&last) = kept.last() {
             if adt_scalar::datum_ops::datum_is_equal(last, d, byval, len)? {
                 continue;
@@ -197,20 +294,36 @@ fn cut(index: &Relation<'_>, img: &nbtree::IndexImage, parts: usize) -> PgResult
     }
     // an even sample of `parts - 1` boundaries
     let want = parts.saturating_sub(1);
-    let bounds: Vec<datum::Datum> = if kept.len() <= want { kept } else { (1..=want).map(|j| kept[j * kept.len() / (want + 1)]).collect() }; // alloc: Exec
-    let key = |strategy: StrategyNumber, f: Oid, arg: datum::Datum| SharedScanKey::bound(0, 1, strategy, opcintype, collation, f, arg);
+    let bounds: Vec<datum::Datum> = if kept.len() <= want {
+        kept
+    } else {
+        (1..=want)
+            .map(|j| kept[j * kept.len() / (want + 1)])
+            .collect()
+    }; // alloc: Exec
+    let key = |strategy: StrategyNumber, f: Oid, arg: datum::Datum| {
+        SharedScanKey::bound(0, 1, strategy, opcintype, collation, f, arg)
+    };
     let mut ranges: Vec<Vec<SharedScanKey>> = Vec::with_capacity(bounds.len() + 2); // alloc: Exec
     if bounds.is_empty() {
         // one range: the whole key space, its NULLs too
         ranges.push(Vec::new()); // alloc: Exec
         return Ok(Some((ranges, copies)));
     }
-    let null = vec![SharedScanKey::bound(SK_ISNULL | SK_SEARCHNULL, 1, 0, 0, 0, 0, datum::Datum::null())]; // alloc: Exec
+    let null = vec![SharedScanKey::bound(
+        SK_ISNULL | SK_SEARCHNULL,
+        1,
+        0,
+        0,
+        0,
+        0,
+        datum::Datum::null(),
+    )]; // alloc: Exec
     if nulls_first {
         ranges.push(null.clone()); // alloc: Exec
     }
     ranges.push(vec![key(hi, hi_fn, bounds[0])]); // alloc: Exec
-    // bounded("other: one range per pair of the sampled boundaries, at most parts - 1 of them (INDEX_RANGES_PER_WORKER per participant)")
+                                                  // bounded("other: one range per pair of the sampled boundaries, at most parts - 1 of them (INDEX_RANGES_PER_WORKER per participant)")
     for w in bounds.windows(2) {
         ranges.push(vec![key(lo, lo_fn, w[0]), key(hi, hi_fn, w[1])]); // alloc: Exec
     }
@@ -259,7 +372,12 @@ impl SampleFilter for RangeTids {
         vis.len()
     }
 
-    fn keep_page(&mut self, _blk: BlockNumber, page: PageRef<'_>, vis: &mut [u16]) -> PgResult<usize> {
+    fn keep_page(
+        &mut self,
+        _blk: BlockNumber,
+        page: PageRef<'_>,
+        vis: &mut [u16],
+    ) -> PgResult<usize> {
         self.pages.keep_page_listed(page, vis, None)
     }
 }
@@ -315,23 +433,61 @@ const HEAP_BATCH: usize = crate::ops::scan::index_window::IOS_MAX_ROWS;
 
 impl RangeSource {
     pub fn new(r: &RangesRecipe, site: usize, worker: bool) -> RangeSource {
-        let heap = HeapRangeSource::with_sample(r.range.clone(), RangeTids { pages: TidPages::new() }).serving_worker(); // alloc: Node
-        let batch = r.only.then(|| IosBatch::with_byref(r.byref.clone(), &r.attnos, None, None));
-        RangeSource { site, worker, recipe: r.clone(), cell: None, filed: None, view: None, batch, name_bufs: vec![0; r.attnos.len() * crate::ops::scan::indexonly::NAMEDATALEN], heap, phase: Phase::Index, next: 0, end: 0, open: false, pending: false, emitted: 0, fresh: false, cur: Cursor::default(), counts: (0, 0, 0, 0), stats: None, fetches: 0 } // alloc: Node
+        let heap = HeapRangeSource::with_sample(
+            r.range.clone(),
+            RangeTids {
+                pages: TidPages::new(),
+            },
+        )
+        .serving_worker(); // alloc: Node
+        let batch = r
+            .only
+            .then(|| IosBatch::with_byref(r.byref.clone(), &r.attnos, None, None));
+        RangeSource {
+            site,
+            worker,
+            recipe: r.clone(),
+            cell: None,
+            filed: None,
+            view: None,
+            batch,
+            name_bufs: vec![0; r.attnos.len() * crate::ops::scan::indexonly::NAMEDATALEN],
+            heap,
+            phase: Phase::Index,
+            next: 0,
+            end: 0,
+            open: false,
+            pending: false,
+            emitted: 0,
+            fresh: false,
+            cur: Cursor::default(),
+            counts: (0, 0, 0, 0),
+            stats: None,
+            fetches: 0,
+        } // alloc: Node
     }
 
     /// This thread's view of the bound execution's ranges, checked at each index window's start and built at the first
     /// one on the thread (a claim runs whole on one thread, the leader's on the backend's). The entry loop then reads it
     /// with `cur`: no reference count of the shared image is touched per entry (every participant's would contend on it).
     fn ensure_view(&mut self) -> PgResult<()> {
-        let filed = self.filed.as_ref().ok_or_else(|| crate::pg_err("gravity: a range walk without its execution's image"))?;
+        let filed = self
+            .filed
+            .as_ref()
+            .ok_or_else(|| crate::pg_err("gravity: a range walk without its execution's image"))?;
         let me = std::thread::current().id();
-        if self.view.as_ref().is_some_and(|v| v.thread == me && Arc::ptr_eq(&v.filed, filed)) {
+        if self
+            .view
+            .as_ref()
+            .is_some_and(|v| v.thread == me && Arc::ptr_eq(&v.filed, filed))
+        {
             return Ok(());
         }
         if self.open || self.pending {
             // the scan stands inside a range: another thread's view could not go on from its position
-            return Err(crate::pg_err("gravity: a range walk moved to another thread inside a range"));
+            return Err(crate::pg_err(
+                "gravity: a range walk moved to another thread inside a range",
+            ));
         }
         let filed = filed.clone();
         self.drop_view();
@@ -344,18 +500,29 @@ impl RangeSource {
         let mut scan = rel.begin_scan(mcx, (filed.keys.len() + most) as i32, filed.in_recovery)?;
         scan.xs_want_itup = self.recipe.only;
         self.stats = filed.stats.map(|shared| (filed.img.oid(), shared));
-        self.view = Some(View { scan, vm: visibilitymap::VmBuffer::new(), rel, filed, thread: me, _scratch: scratch });
+        self.view = Some(View {
+            scan,
+            vm: visibilitymap::VmBuffer::new(),
+            rel,
+            filed,
+            thread: me,
+            _scratch: scratch,
+        });
         Ok(())
     }
 
     /// The window's view (`ensure_view`).
     fn cur(&mut self) -> PgResult<&mut View> {
-        self.view.as_mut().ok_or_else(|| crate::pg_err("gravity: a range walk without its view"))
+        self.view
+            .as_mut()
+            .ok_or_else(|| crate::pg_err("gravity: a range walk without its view"))
     }
 
     /// The view ended: its scan closed on the thread that built it (a pin is that thread's), its counts taken.
     fn drop_view(&mut self) {
-        let Some(mut v) = self.view.take() else { return };
+        let Some(mut v) = self.view.take() else {
+            return;
+        };
         self.counts.0 += v.scan.xs_pgstat.take_detached_scans();
         self.counts.2 += v.rel.blocks_fetched();
         self.counts.3 += v.rel.blocks_hit();
@@ -385,15 +552,28 @@ impl RangeSource {
                 let i = self.next;
                 self.next += 1;
                 let v = self.cur()?;
-                let mut keys = v.filed.keys.iter().chain(v.filed.ranges.get(i).into_iter().flatten()).map(SharedScanKey::key).collect::<PgResult<Vec<ScanKeyData>>>()?; // alloc: Node
-                // D3541: nbtree's preprocessing takes the keys ordered by index column (the planner's index quals are); the
-                // range's first-column bounds go after the scan's first-column keys, before its keys on later columns
-                // (a stable sort: each column's keys keep their order)
-                // bounded("other: the scan's keys and the range's two bounds; the statement's index quals bound the scan's")
+                let mut keys = v
+                    .filed
+                    .keys
+                    .iter()
+                    .chain(v.filed.ranges.get(i).into_iter().flatten())
+                    .map(SharedScanKey::key)
+                    .collect::<PgResult<Vec<ScanKeyData>>>()?; // alloc: Node
+                                                               // D3541: nbtree's preprocessing takes the keys ordered by index column (the planner's index quals are); the
+                                                               // range's first-column bounds go after the scan's first-column keys, before its keys on later columns
+                                                               // (a stable sort: each column's keys keep their order)
+                                                               // bounded("other: the scan's keys and the range's two bounds; the statement's index quals bound the scan's")
                 keys.sort_by_key(|k| k.sk_attno);
                 v.scan.numberOfKeys = keys.len() as i32;
-                nbtree::btrescan(&mut v.scan, if keys.is_empty() { None } else { Some(&keys) })?;
-                let before = if i > 0 { v.scan.xs_pgstat.take_detached_scans() } else { 0 };
+                nbtree::btrescan(
+                    &mut v.scan,
+                    if keys.is_empty() { None } else { Some(&keys) },
+                )?;
+                let before = if i > 0 {
+                    v.scan.xs_pgstat.take_detached_scans()
+                } else {
+                    0
+                };
                 self.counts.0 += before;
                 self.fresh = i > 0;
                 self.open = true;
@@ -418,7 +598,11 @@ impl RangeSource {
     /// the heap batch. `None` at the claim's end, when the batch is full, when a heap-bound entry follows rows this window
     /// returned, or when an entry the map vouches for follows the batch's entries (kept `pending` for after them).
     fn next_visible(&mut self, vals: &mut [Word], nulls: &mut [u8]) -> PgResult<Option<ScanPos>> {
-        let (loc, permanent, vm_blocks) = self.filed.as_ref().ok_or_else(|| crate::pg_err("gravity: a range walk without its execution's image"))?.vm;
+        let (loc, permanent, vm_blocks) = self
+            .filed
+            .as_ref()
+            .ok_or_else(|| crate::pg_err("gravity: a range walk without its execution's image"))?
+            .vm;
         // bounded("small-fixed: every pass but the last files one TID into the heap batch, which is full at HEAP_BATCH (IOS_MAX_ROWS: MaxIndexTuplesPerPage, 408 at 8 K pages)")
         loop {
             if !self.pending {
@@ -428,7 +612,9 @@ impl RangeSource {
                 let v = self.cur()?;
                 let tid = v.scan.xs_heaptid;
                 let block = ItemPointerGetBlockNumber(&tid);
-                if !visibilitymap::vm_all_visible_by_locator(loc, permanent, vm_blocks, block, &mut v.vm)? {
+                if !visibilitymap::vm_all_visible_by_locator(
+                    loc, permanent, vm_blocks, block, &mut v.vm,
+                )? {
                     self.fetches += 1;
                     self.heap.sample_mut().pages.push(tid);
                     if self.emitted > 0 {
@@ -444,7 +630,9 @@ impl RangeSource {
             self.pending = false;
             let v = self.view.as_ref().expect("built");
             let tid = v.scan.xs_heaptid;
-            let Some(row) = crate::ops::scan::raw::OnlyRow::of(&v.scan) else { return Err(crate::pg_err("gravity: the index returned no tuple image")) };
+            let Some(row) = crate::ops::scan::raw::OnlyRow::of(&v.scan) else {
+                return Err(crate::pg_err("gravity: the index returned no tuple image"));
+            };
             // bounded("key-columns: one cell per output column read from the index tuple, at most INDEX_MAX_KEYS (32) columns")
             for (k, &attnum) in self.recipe.index_attnums.iter().enumerate() {
                 let mut null = false;
@@ -464,7 +652,11 @@ impl RangeSource {
                 }
             }
             self.emitted += 1;
-            return Ok(Some(ScanPos::row(self.recipe.heap, ItemPointerGetBlockNumber(&tid), ItemPointerGetOffsetNumber(&tid))));
+            return Ok(Some(ScanPos::row(
+                self.recipe.heap,
+                ItemPointerGetBlockNumber(&tid),
+                ItemPointerGetOffsetNumber(&tid),
+            )));
         }
     }
 
@@ -481,16 +673,26 @@ impl RangeSource {
 
 impl Source for RangeSource {
     fn bind(&mut self, b: &BindingRef<'_>) -> Result<()> {
-        let resolved = b.resolved.and_then(|r| r.downcast_ref::<crate::ops::scan::pgrc::granule_source::Resolved>());
+        let resolved = b
+            .resolved
+            .and_then(|r| r.downcast_ref::<crate::ops::scan::pgrc::granule_source::Resolved>());
         self.cell = resolved.and_then(|r| r.range_cell(self.site)).cloned();
         self.heap.bind(b)
     }
 
     /// A claim's start: its ranges are the claim's cells past the key words (`[lo, hi)`), read in turn from the first.
     fn seek(&mut self, keys: &[Word], _keys_null: &[u8]) -> Result<()> {
-        let filed = self.cell.as_ref().and_then(|c| c.get()).ok_or_else(|| Error::host("gravity: a range walk without its run's ranges"))?;
+        let filed = self
+            .cell
+            .as_ref()
+            .and_then(|c| c.get())
+            .ok_or_else(|| Error::host("gravity: a range walk without its run's ranges"))?;
         let n = self.recipe.words;
-        let (Some(&lo), Some(&hi)) = (keys.get(n), keys.get(n + 1)) else { return Err(Error::host("gravity: a range walk's claim without its cells")) };
+        let (Some(&lo), Some(&hi)) = (keys.get(n), keys.get(n + 1)) else {
+            return Err(Error::host(
+                "gravity: a range walk's claim without its cells",
+            ));
+        };
         let same = self.filed.as_ref().is_some_and(|f| Arc::ptr_eq(f, &filed));
         if !same {
             self.drop_view();
@@ -509,9 +711,13 @@ impl Source for RangeSource {
     fn window(&mut self, w: &mut Window<'_>) -> Result<u32> {
         // a pass is the unit: a batch of index entries walked or its heap pages read (a run of batches whose every heap
         // tuple is dead returns no row)
-        let mut step = cancelpoll::step("index_ranges window: one batch of entries or its heap pages");
+        let mut step =
+            cancelpoll::step("index_ranges window: one batch of entries or its heap pages");
         // memsig E-pub t3: the TID list on the window's owner before the walk fills it
-        self.heap.sample_mut().pages.set_owner(crate::ops::scan::heap_source::HeldCharge::owner_of(w));
+        self.heap
+            .sample_mut()
+            .pages
+            .set_owner(crate::ops::scan::heap_source::HeldCharge::owner_of(w));
         loop {
             step.tick()?;
             if self.phase == Phase::Heap {
@@ -526,7 +732,9 @@ impl Source for RangeSource {
                 self.ensure_view().map_err(crate::stash)?;
                 if self.recipe.only {
                     let heap_oid = self.recipe.heap;
-                    let Some(mut b) = self.batch.take() else { return Ok(0) };
+                    let Some(mut b) = self.batch.take() else {
+                        return Ok(0);
+                    };
                     self.emitted = 0;
                     let got = b.fill_rows(|v, n| self.next_visible(v, n), heap_oid, w);
                     self.batch = Some(b);
@@ -636,8 +844,15 @@ pub struct IndexRanges {
 }
 
 impl IndexRanges {
-    pub fn new(serial: crate::ops::scan::index_source::IndexSource, ranges: RangeSource) -> IndexRanges {
-        IndexRanges { serial, ranges, ranges_mode: false }
+    pub fn new(
+        serial: crate::ops::scan::index_source::IndexSource,
+        ranges: RangeSource,
+    ) -> IndexRanges {
+        IndexRanges {
+            serial,
+            ranges,
+            ranges_mode: false,
+        }
     }
 }
 
@@ -654,44 +869,85 @@ impl Source for IndexRanges {
         if self.ranges_mode {
             return self.ranges.seek(keys, keys_null);
         }
-        let n = self.ranges.recipe.words.min(keys.len()).min(keys_null.len());
+        let n = self
+            .ranges
+            .recipe
+            .words
+            .min(keys.len())
+            .min(keys_null.len());
         self.serial.seek(&keys[..n], &keys_null[..n])
     }
 
     fn window(&mut self, w: &mut Window<'_>) -> Result<u32> {
-        if self.ranges_mode { self.ranges.window(w) } else { self.serial.window(w) }
+        if self.ranges_mode {
+            self.ranges.window(w)
+        } else {
+            self.serial.window(w)
+        }
     }
 
     fn cursor(&self) -> &Cursor {
-        if self.ranges_mode { self.ranges.cursor() } else { self.serial.cursor() }
+        if self.ranges_mode {
+            self.ranges.cursor()
+        } else {
+            self.serial.cursor()
+        }
     }
 
     fn cursor_mut(&mut self) -> &mut Cursor {
-        if self.ranges_mode { self.ranges.cursor_mut() } else { self.serial.cursor_mut() }
+        if self.ranges_mode {
+            self.ranges.cursor_mut()
+        } else {
+            self.serial.cursor_mut()
+        }
     }
 
     fn next(&mut self, values: &mut [Word], isnull: &mut [u8]) -> Result<bool> {
-        if self.ranges_mode { self.ranges.next(values, isnull) } else { self.serial.next(values, isnull) }
+        if self.ranges_mode {
+            self.ranges.next(values, isnull)
+        } else {
+            self.serial.next(values, isnull)
+        }
     }
 
     fn position(&self) -> ScanPos {
-        if self.ranges_mode { self.ranges.position() } else { self.serial.position() }
+        if self.ranges_mode {
+            self.ranges.position()
+        } else {
+            self.serial.position()
+        }
     }
 
     fn lanes_hint(&self) -> usize {
-        if self.ranges_mode { self.ranges.lanes_hint() } else { self.serial.lanes_hint() }
+        if self.ranges_mode {
+            self.ranges.lanes_hint()
+        } else {
+            self.serial.lanes_hint()
+        }
     }
 
     fn lane(&mut self, k: u16, sel: &[u32], out: &mut Lane) -> Result<u32> {
-        if self.ranges_mode { self.ranges.lane(k, sel, out) } else { self.serial.lane(k, sel, out) }
+        if self.ranges_mode {
+            self.ranges.lane(k, sel, out)
+        } else {
+            self.serial.lane(k, sel, out)
+        }
     }
 
     fn refetch(&mut self, values: &mut [Word], isnull: &mut [u8]) -> Result<bool> {
-        if self.ranges_mode { self.ranges.refetch(values, isnull) } else { self.serial.refetch(values, isnull) }
+        if self.ranges_mode {
+            self.ranges.refetch(values, isnull)
+        } else {
+            self.serial.refetch(values, isnull)
+        }
     }
 
     fn substitute(&mut self, pos: ScanPos) {
-        if self.ranges_mode { self.ranges.substitute(pos) } else { self.serial.substitute(pos) }
+        if self.ranges_mode {
+            self.ranges.substitute(pos)
+        } else {
+            self.serial.substitute(pos)
+        }
     }
 
     fn pins(&self) -> u64 {
@@ -727,13 +983,25 @@ impl Source for IndexRanges {
 }
 
 /// A worker's source for recipe `r` at registry entry `site` (`HostRegistry::derive_worker_source`).
-pub fn derive(r: &RangesRecipe, site: usize, a: gravity_driver::ArenaRef) -> gravity_driver::SourceBox {
+pub fn derive(
+    r: &RangesRecipe,
+    site: usize,
+    a: gravity_driver::ArenaRef,
+) -> gravity_driver::SourceBox {
     gravity_driver::box_source(RangeSource::new(r, site, true), a)
 }
 
 /// The leader's source of a ranges site (`derive.rs`): the serial index source of `serial` and the ranges of `r`.
-pub fn derive_leader(serial: crate::ops::scan::index_source::IndexSource, r: &RangesRecipe, site: usize, a: gravity_driver::ArenaRef) -> gravity_driver::SourceBox {
-    gravity_driver::box_source(IndexRanges::new(serial, RangeSource::new(r, site, false)), a)
+pub fn derive_leader(
+    serial: crate::ops::scan::index_source::IndexSource,
+    r: &RangesRecipe,
+    site: usize,
+    a: gravity_driver::ArenaRef,
+) -> gravity_driver::SourceBox {
+    gravity_driver::box_source(
+        IndexRanges::new(serial, RangeSource::new(r, site, false)),
+        a,
+    )
 }
 
 pub const SIZE: usize = core::mem::size_of::<IndexRanges>();

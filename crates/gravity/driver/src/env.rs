@@ -32,7 +32,14 @@ pub fn guc_installed() -> bool {
 /// An option's value parsed after trimming blanks, read at run time through the GUC seam; `None` when the seam is not
 /// installed, the option is missing or its value does not parse.
 pub fn guc_num<T: core::str::FromStr>(name: &str) -> Option<T> {
-    guc_installed().then(|| guc_seams::get_config_option_missing_ok::call(name).ok().flatten().and_then(|v| v.trim().parse::<T>().ok())).flatten()
+    guc_installed()
+        .then(|| {
+            guc_seams::get_config_option_missing_ok::call(name)
+                .ok()
+                .flatten()
+                .and_then(|v| v.trim().parse::<T>().ok())
+        })
+        .flatten()
 }
 
 /// pglserve (D4601): the serve-path cuts' switch, `PGRUST_GRAVITY_SERVE_LEAN` (default on; exactly `0` = the old paths:

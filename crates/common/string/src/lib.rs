@@ -106,7 +106,11 @@ pub struct Strtol {
 /// garbage is the caller's business.
 pub fn strtol(s: &[u8], base: i32) -> Strtol {
     if base < 0 || base == 1 || base > 36 {
-        return Strtol { value: 0, consumed: 0, errno: Some(StrtoErrno::Einval) };
+        return Strtol {
+            value: 0,
+            consumed: 0,
+            errno: Some(StrtoErrno::Einval),
+        };
     }
     let s = c_str(s);
     let mut base = base as u64;
@@ -168,16 +172,36 @@ pub fn strtol(s: &[u8], base: i32) -> Strtol {
 
     if i == digits_start {
         // No conversion: value 0, endptr == nptr, errno untouched.
-        return Strtol { value: 0, consumed: 0, errno: None };
+        return Strtol {
+            value: 0,
+            consumed: 0,
+            errno: None,
+        };
     }
     // LONG_MIN's magnitude is LONG_MAX + 1.
-    let limit = if neg { (i64::MAX as u64) + 1 } else { i64::MAX as u64 };
+    let limit = if neg {
+        (i64::MAX as u64) + 1
+    } else {
+        i64::MAX as u64
+    };
     if overflow || acc > limit {
         let value = if neg { i64::MIN } else { i64::MAX };
-        return Strtol { value, consumed: i, errno: Some(StrtoErrno::Erange) };
+        return Strtol {
+            value,
+            consumed: i,
+            errno: Some(StrtoErrno::Erange),
+        };
     }
-    let value = if neg { (acc as i64).wrapping_neg() } else { acc as i64 };
-    Strtol { value, consumed: i, errno: None }
+    let value = if neg {
+        (acc as i64).wrapping_neg()
+    } else {
+        acc as i64
+    };
+    Strtol {
+        value,
+        consumed: i,
+        errno: None,
+    }
 }
 
 /// Result of [`strtoint`]: the C return value, `endptr - s`, and errno.
@@ -198,8 +222,16 @@ pub struct Strtoint {
 pub fn strtoint(s: &[u8], base: i32) -> Strtoint {
     let r = strtol(s, base);
     let value = r.value as i32;
-    let errno = if i64::from(value) != r.value { Some(StrtoErrno::Erange) } else { r.errno };
-    Strtoint { value, consumed: r.consumed, errno }
+    let errno = if i64::from(value) != r.value {
+        Some(StrtoErrno::Erange)
+    } else {
+        r.errno
+    };
+    Strtoint {
+        value,
+        consumed: r.consumed,
+        errno,
+    }
 }
 
 /// C: `strtoint(str, &endptr, 10)` (src/common/string.c) plus the
@@ -312,7 +344,11 @@ pub fn strtoul_base0(s: &[u8]) -> StrtoulBase0 {
 
     if i == digits_start {
         // No conversion: value 0, endptr == nptr, errno untouched.
-        return StrtoulBase0 { value: 0, consumed: 0, range_err: false };
+        return StrtoulBase0 {
+            value: 0,
+            consumed: 0,
+            range_err: false,
+        };
     }
     let value = if range_err {
         u64::MAX // ULONG_MAX regardless of sign
@@ -321,7 +357,11 @@ pub fn strtoul_base0(s: &[u8]) -> StrtoulBase0 {
     } else {
         acc
     };
-    StrtoulBase0 { value, consumed: i, range_err }
+    StrtoulBase0 {
+        value,
+        consumed: i,
+        range_err,
+    }
 }
 
 /// C: `SplitGUCList(rawstring, separator, &namelist)` (varlena.c:3829).
@@ -568,7 +608,11 @@ mod tests {
     #[test]
     #[allow(clippy::octal_escapes)]
     fn strtoul_base0_matches_glibc() {
-        let ok = |value, consumed| StrtoulBase0 { value, consumed, range_err: false };
+        let ok = |value, consumed| StrtoulBase0 {
+            value,
+            consumed,
+            range_err: false,
+        };
 
         // Plain decimal.
         assert_eq!(strtoul_base0(b"1"), ok(1, 1));
@@ -615,19 +659,35 @@ mod tests {
         assert_eq!(strtoul_base0(b"18446744073709551615"), ok(u64::MAX, 20));
         assert_eq!(
             strtoul_base0(b"18446744073709551616"),
-            StrtoulBase0 { value: u64::MAX, consumed: 20, range_err: true }
+            StrtoulBase0 {
+                value: u64::MAX,
+                consumed: 20,
+                range_err: true
+            }
         );
         assert_eq!(
             strtoul_base0(b"-18446744073709551616"),
-            StrtoulBase0 { value: u64::MAX, consumed: 21, range_err: true }
+            StrtoulBase0 {
+                value: u64::MAX,
+                consumed: 21,
+                range_err: true
+            }
         );
         assert_eq!(
             strtoul_base0(b"99999999999999999999999"),
-            StrtoulBase0 { value: u64::MAX, consumed: 23, range_err: true }
+            StrtoulBase0 {
+                value: u64::MAX,
+                consumed: 23,
+                range_err: true
+            }
         );
         assert_eq!(
             strtoul_base0(b"0xffffffffffffffffff"),
-            StrtoulBase0 { value: u64::MAX, consumed: 20, range_err: true }
+            StrtoulBase0 {
+                value: u64::MAX,
+                consumed: 20,
+                range_err: true
+            }
         );
 
         // C strings end at the first NUL.
@@ -672,7 +732,10 @@ mod tests {
         assert_eq!(split_guc_list(" data , wal ", b','), ok(&["data", "wal"]));
         assert_eq!(split_guc_list("data,wal ", b','), ok(&["data", "wal"]));
         // VT (0x0b) is scanner_isspace whitespace — trimmed like any other.
-        assert_eq!(split_guc_list("\x0bdata\x0b,\x0bwal", b','), ok(&["data", "wal"]));
+        assert_eq!(
+            split_guc_list("\x0bdata\x0b,\x0bwal", b','),
+            ok(&["data", "wal"])
+        );
 
         // Whitespace does NOT separate items: 'data wal' is a syntax error.
         assert_eq!(split_guc_list("data wal", b','), Err(()));
@@ -719,9 +782,15 @@ mod tests {
 
         // Unquoted names may contain embedded whitespace; trailing ws trimmed.
         assert_eq!(split_directories_string("a b", b','), ok(&["a b"]));
-        assert_eq!(split_directories_string(" /tmp/x y , /var/z ", b','), ok(&["/tmp/x y", "/var/z"]));
+        assert_eq!(
+            split_directories_string(" /tmp/x y , /var/z ", b','),
+            ok(&["/tmp/x y", "/var/z"])
+        );
         assert_eq!(split_directories_string("a\x0bb", b','), ok(&["a\x0bb"])); // VT embedded
-        assert_eq!(split_directories_string("a b \x0b,c", b','), ok(&["a b", "c"]));
+        assert_eq!(
+            split_directories_string("a b \x0b,c", b','),
+            ok(&["a b", "c"])
+        );
 
         // Empty items are syntax errors.
         assert_eq!(split_directories_string("foo,,bar", b','), Err(()));
@@ -755,8 +824,16 @@ mod tests {
     /// is the value / `endptr - s` / errno triple the real call produces.
     #[test]
     fn strtol_matches_glibc() {
-        let ok = |value: i64, consumed: usize| Strtol { value, consumed, errno: None };
-        let erange = |value: i64, consumed: usize| Strtol { value, consumed, errno: Some(StrtoErrno::Erange) };
+        let ok = |value: i64, consumed: usize| Strtol {
+            value,
+            consumed,
+            errno: None,
+        };
+        let erange = |value: i64, consumed: usize| Strtol {
+            value,
+            consumed,
+            errno: Some(StrtoErrno::Erange),
+        };
 
         // Base 10: C-locale whitespace, one sign, digit run, endptr at the
         // first non-digit (trailing junk is the caller's business).
@@ -804,7 +881,11 @@ mod tests {
         assert_eq!(strtol(b"z", 35), ok(0, 0));
 
         // Invalid base: EINVAL, 0, endptr never written.
-        let einval = Strtol { value: 0, consumed: 0, errno: Some(StrtoErrno::Einval) };
+        let einval = Strtol {
+            value: 0,
+            consumed: 0,
+            errno: Some(StrtoErrno::Einval),
+        };
         assert_eq!(strtol(b"1", 1), einval);
         assert_eq!(strtol(b"1", 37), einval);
         assert_eq!(strtol(b"1", -1), einval);
@@ -815,7 +896,10 @@ mod tests {
         assert_eq!(strtol(b"9223372036854775808", 10), erange(i64::MAX, 19));
         assert_eq!(strtol(b"-9223372036854775808", 10), ok(i64::MIN, 20));
         assert_eq!(strtol(b"-9223372036854775809", 10), erange(i64::MIN, 20));
-        assert_eq!(strtol(b"99999999999999999999999x", 10), erange(i64::MAX, 23));
+        assert_eq!(
+            strtol(b"99999999999999999999999x", 10),
+            erange(i64::MAX, 23)
+        );
         assert_eq!(strtol(b"-ffffffffffffffffffff", 16), erange(i64::MIN, 21));
     }
 
@@ -824,8 +908,16 @@ mod tests {
     /// return value is the TRUNCATED long, not a clamp.
     #[test]
     fn strtoint_matches_c() {
-        let ok = |value: i32, consumed: usize| Strtoint { value, consumed, errno: None };
-        let erange = |value: i32, consumed: usize| Strtoint { value, consumed, errno: Some(StrtoErrno::Erange) };
+        let ok = |value: i32, consumed: usize| Strtoint {
+            value,
+            consumed,
+            errno: None,
+        };
+        let erange = |value: i32, consumed: usize| Strtoint {
+            value,
+            consumed,
+            errno: Some(StrtoErrno::Erange),
+        };
 
         assert_eq!(strtoint(b"2147483647", 10), ok(i32::MAX, 10));
         assert_eq!(strtoint(b"-2147483648", 10), ok(i32::MIN, 11));
@@ -842,7 +934,11 @@ mod tests {
         assert_eq!(strtoint(b"abc", 10), ok(0, 0));
         assert_eq!(
             strtoint(b"1", 1),
-            Strtoint { value: 0, consumed: 0, errno: Some(StrtoErrno::Einval) }
+            Strtoint {
+                value: 0,
+                consumed: 0,
+                errno: Some(StrtoErrno::Einval)
+            }
         );
     }
 

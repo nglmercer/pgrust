@@ -48,7 +48,12 @@ impl UuidAbbrevState {
         let threshold = self.input_count as f64 / 2000.0 + 0.5;
         if card < threshold {
             if trace_sort() {
-                trace_log(aborting_line(card, threshold, self.input_count, memtupcount));
+                trace_log(aborting_line(
+                    card,
+                    threshold,
+                    self.input_count,
+                    memtupcount,
+                ));
             }
             return true;
         }
@@ -86,7 +91,11 @@ fn trace_sort() -> bool {
 fn trace_log(message: String) {
     let _ = elog::ereport(types_error::LOG)
         .errmsg_internal(message)
-        .finish(types_error::ErrorLocation::new(file!(), line!() as i32, "uuid_abbrev_abort"));
+        .finish(types_error::ErrorLocation::new(
+            file!(),
+            line!() as i32,
+            "uuid_abbrev_abort",
+        ));
 }
 
 impl Default for UuidAbbrevState {
@@ -105,7 +114,9 @@ mod tests {
         let mut x: u64 = 42;
         let mut uuids: Vec<PgUuid> = Vec::new();
         for i in 0..200u64 {
-            x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            x = x
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             let mut u = [0u8; 16];
             u[..8].copy_from_slice(&(x >> (i % 5)).to_be_bytes());
             u[8..].copy_from_slice(&x.to_le_bytes());

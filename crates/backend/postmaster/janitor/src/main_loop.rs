@@ -40,7 +40,11 @@ pub(crate) fn janitor_bgw_main(main_arg: u64) -> PgResult<()> {
     if let Err(e) = &r {
         // SIGTERM (server shutdown or pg_terminate_backend) arrives as
         // bgworker_die's FATAL 57P01; anything else is a janitor failure.
-        let level = if e.sqlstate() == ERRCODE_ADMIN_SHUTDOWN { LOG } else { WARNING };
+        let level = if e.sqlstate() == ERRCODE_ADMIN_SHUTDOWN {
+            LOG
+        } else {
+            WARNING
+        };
         let _ = log_report(
             level,
             format!(
@@ -642,7 +646,10 @@ mod restart_tests {
 
         let first = crate::registry::request_startup_sweep();
         let again = crate::registry::request_startup_sweep();
-        assert!(!again, "a restarted janitor must not re-arm the startup sweep");
+        assert!(
+            !again,
+            "a restarted janitor must not re-arm the startup sweep"
+        );
         if first {
             assert!(crate::registry::take_sweep_request());
         }

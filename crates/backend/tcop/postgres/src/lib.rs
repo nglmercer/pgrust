@@ -11,23 +11,23 @@ use ::types_error::{ErrorLocation, PgResult, ERRCODE_QUERY_CANCELED, ERROR, FATA
 use ::types_storage::storage::ProcSignalReason;
 
 pub mod admission;
+#[cfg(test)]
+mod d4812_tests;
 pub mod extended_query;
 pub mod main_loop;
 pub(crate) mod passivate;
-pub(crate) mod stack_mem;
-pub mod simple_query;
-pub mod single_user;
-pub mod stdio_wire;
+#[cfg(test)]
+mod session_tests;
 #[cfg(pgrust_sim)]
 mod sim_net;
 #[cfg(pgrust_sim)]
 mod sim_sched_demo;
+pub mod simple_query;
+pub mod single_user;
+pub(crate) mod stack_mem;
+pub mod stdio_wire;
 pub mod stmt_trace;
 pub mod switches;
-#[cfg(test)]
-mod session_tests;
-#[cfg(test)]
-mod d4812_tests;
 #[cfg(test)]
 mod tests;
 
@@ -37,14 +37,14 @@ pub use extended_query::{
     pg_analyze_and_rewrite_varparams,
 };
 pub use main_loop::PostgresMain;
-pub use single_user::PostgresSingleUserMain;
-pub use stdio_wire::PostgresStdioWireMain;
 #[cfg(pgrust_sim)]
 pub use sim_net::PostgresSimNetMain;
 pub use simple_query::{
     exec_simple_query, finish_xact_command, pg_analyze_and_rewrite_fixedparams, pg_parse_query,
     pg_plan_queries, pg_plan_query, pg_rewrite_query, start_xact_command,
 };
+pub use single_user::PostgresSingleUserMain;
+pub use stdio_wire::PostgresStdioWireMain;
 
 pub fn init_seams() {
     postgres_seams::postgres_main::set(postgres_main_seam);
@@ -154,12 +154,8 @@ fn check_restrict_nonsystem_relation_kind(
 ) -> PgResult<bool> {
     let value = newval.clone().unwrap_or_default();
     let ctx = mcx::MemoryContext::new("check_restrict_nonsystem_relation_kind");
-    let Some(elemlist) = varlena::split_identifier_string(
-        ctx.mcx(),
-        &value,
-        b',',
-        mbutils::GetDatabaseEncoding(),
-    )?
+    let Some(elemlist) =
+        varlena::split_identifier_string(ctx.mcx(), &value, b',', mbutils::GetDatabaseEncoding())?
     else {
         guc::GUC_check_errdetail("List syntax is invalid.");
         return Ok(false);
@@ -183,7 +179,10 @@ fn assign_restrict_nonsystem_relation_kind(
     _newval: Option<&str>,
     extra: Option<&guc_tables::GucHookExtra>,
 ) {
-    let flags = extra.and_then(|e| e.downcast_ref::<i32>()).copied().unwrap_or(0);
+    let flags = extra
+        .and_then(|e| e.downcast_ref::<i32>())
+        .copied()
+        .unwrap_or(0);
     guc_tables::backing::set_restrict_nonsystem_relation_kind(flags);
 }
 
@@ -320,7 +319,6 @@ pub(crate) fn get_current_timestamp() -> types_core::TimestampTz {
     // duplicate deleted; the seam is the one GetCurrentTimestamp path.
     timestamp_seams::get_current_timestamp::call()
 }
-
 
 // Per-tuple hot: TLS pointer + Relaxed load + one predictable branch (C's
 // CHECK_FOR_INTERRUPTS; the shared flag is how async senders reach us).
@@ -584,7 +582,9 @@ pub fn check_for_abort_interrupts() -> PgResult<()> {
 
 /// K11: check_for_abort_interrupts with the caller's location, the seam's tracked form (as check_for_interrupts_at).
 #[inline(always)]
-pub fn check_for_abort_interrupts_at(site: &'static core::panic::Location<'static>) -> PgResult<()> {
+pub fn check_for_abort_interrupts_at(
+    site: &'static core::panic::Location<'static>,
+) -> PgResult<()> {
     if cancelpoll::probe_on() {
         mark_poll(site); // D3962: the abort class services a query cancel, so it is a poll, as check_for_interrupts
     }
@@ -606,7 +606,10 @@ pub fn check_for_abort_interrupts_at(site: &'static core::panic::Location<'stati
 #[inline(never)]
 fn mark_poll(site: &'static core::panic::Location<'static>) {
     use init_small::globals as g;
-    if g::InterruptHoldoffCount() == 0 && g::QueryCancelHoldoffCount() == 0 && g::CritSectionCount() == 0 {
+    if g::InterruptHoldoffCount() == 0
+        && g::QueryCancelHoldoffCount() == 0
+        && g::CritSectionCount() == 0
+    {
         cancelpoll::polled_at(site);
     }
 }
@@ -703,9 +706,7 @@ fn process_interrupts(abort_only: bool) -> PgResult<()> {
         // transports) or a reset interval leaves the connection presumed
         // alive and the timeout unarmed.
         let interval = client_connection_check_interval_ms();
-        if !DoingCommandRead()
-            && interval > 0
-            && pqcomm_seams::pq_check_connection::is_installed()
+        if !DoingCommandRead() && interval > 0 && pqcomm_seams::pq_check_connection::is_installed()
         {
             if !pqcomm_seams::pq_check_connection::call()? {
                 g::SetClientConnectionLost(true);
@@ -874,7 +875,8 @@ fn process_interrupts(abort_only: bool) -> PgResult<()> {
         }
     }
 
-    if !abort_only && g::IdleStatsUpdateTimeoutPending()
+    if !abort_only
+        && g::IdleStatsUpdateTimeoutPending()
         && DoingCommandRead()
         && !xact::IsTransactionOrTransactionBlock()
     {
@@ -975,7 +977,7 @@ pub fn install_thread_signal_handlers() {
     {
         procsignal::pqsignal_thread(
             SIGUSR2,
-            Simple( walsender_seams::wal_snd_last_cycle_handler::call),
+            Simple(walsender_seams::wal_snd_last_cycle_handler::call),
         );
     } else {
         procsignal::pqsignal_thread(SIGUSR2, Ignore);
@@ -1142,7 +1144,6 @@ pub fn ProcessClientWriteInterrupt(blocked: bool) -> PgResult<()> {
     Ok(())
 }
 
-
 thread_local! {
     static SAVE_RUSAGE: Cell<Option<(libc::rusage, libc::timeval)>> = const { Cell::new(None) };
 }
@@ -1230,43 +1231,43 @@ fn usage_report() -> String {
     // equivalent section with !defined(WIN32)).
     #[cfg(not(target_family = "wasm"))]
     {
-    #[cfg(target_os = "macos")]
-    let maxrss = r.ru_maxrss / 1024;
-    #[cfg(not(target_os = "macos"))]
-    let maxrss = r.ru_maxrss;
-    str_.push_str(&format!("!\t{maxrss} kB max resident size\n"));
-    str_.push_str(&format!(
-        "!\t{}/{} [{}/{}] filesystem blocks in/out\n",
-        r.ru_inblock - save_r.ru_inblock,
-        r.ru_oublock - save_r.ru_oublock,
-        r.ru_inblock,
-        r.ru_oublock,
-    ));
-    str_.push_str(&format!(
-        "!\t{}/{} [{}/{}] page faults/reclaims, {} [{}] swaps\n",
-        r.ru_majflt - save_r.ru_majflt,
-        r.ru_minflt - save_r.ru_minflt,
-        r.ru_majflt,
-        r.ru_minflt,
-        r.ru_nswap - save_r.ru_nswap,
-        r.ru_nswap,
-    ));
-    str_.push_str(&format!(
-        "!\t{} [{}] signals rcvd, {}/{} [{}/{}] messages rcvd/sent\n",
-        r.ru_nsignals - save_r.ru_nsignals,
-        r.ru_nsignals,
-        r.ru_msgrcv - save_r.ru_msgrcv,
-        r.ru_msgsnd - save_r.ru_msgsnd,
-        r.ru_msgrcv,
-        r.ru_msgsnd,
-    ));
-    str_.push_str(&format!(
-        "!\t{}/{} [{}/{}] voluntary/involuntary context switches\n",
-        r.ru_nvcsw - save_r.ru_nvcsw,
-        r.ru_nivcsw - save_r.ru_nivcsw,
-        r.ru_nvcsw,
-        r.ru_nivcsw,
-    ));
+        #[cfg(target_os = "macos")]
+        let maxrss = r.ru_maxrss / 1024;
+        #[cfg(not(target_os = "macos"))]
+        let maxrss = r.ru_maxrss;
+        str_.push_str(&format!("!\t{maxrss} kB max resident size\n"));
+        str_.push_str(&format!(
+            "!\t{}/{} [{}/{}] filesystem blocks in/out\n",
+            r.ru_inblock - save_r.ru_inblock,
+            r.ru_oublock - save_r.ru_oublock,
+            r.ru_inblock,
+            r.ru_oublock,
+        ));
+        str_.push_str(&format!(
+            "!\t{}/{} [{}/{}] page faults/reclaims, {} [{}] swaps\n",
+            r.ru_majflt - save_r.ru_majflt,
+            r.ru_minflt - save_r.ru_minflt,
+            r.ru_majflt,
+            r.ru_minflt,
+            r.ru_nswap - save_r.ru_nswap,
+            r.ru_nswap,
+        ));
+        str_.push_str(&format!(
+            "!\t{} [{}] signals rcvd, {}/{} [{}/{}] messages rcvd/sent\n",
+            r.ru_nsignals - save_r.ru_nsignals,
+            r.ru_nsignals,
+            r.ru_msgrcv - save_r.ru_msgrcv,
+            r.ru_msgsnd - save_r.ru_msgsnd,
+            r.ru_msgrcv,
+            r.ru_msgsnd,
+        ));
+        str_.push_str(&format!(
+            "!\t{}/{} [{}/{}] voluntary/involuntary context switches\n",
+            r.ru_nvcsw - save_r.ru_nvcsw,
+            r.ru_nivcsw - save_r.ru_nivcsw,
+            r.ru_nvcsw,
+            r.ru_nivcsw,
+        ));
     }
 
     if str_.ends_with('\n') {
@@ -1274,7 +1275,6 @@ fn usage_report() -> String {
     }
     str_
 }
-
 
 fn guc_context_from_u8(gucctx: u8) -> types_guc::GucContext {
     use types_guc::GucContext::*;

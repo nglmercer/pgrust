@@ -103,7 +103,12 @@ const HL_DOCS: &[&str] = &[
 /// Headline query word sets (space-separated) fed through the config's
 /// `plainto_tsquery` / `to_tsquery`.
 const HL_QUERIES: &[&str] = &[
-    "fox dog", "search ranking", "cat mouse", "query index", "dog", "database index",
+    "fox dog",
+    "search ranking",
+    "cat mouse",
+    "query index",
+    "dog",
+    "database index",
 ];
 
 /// Headline option strings covering every documented option and the two
@@ -144,11 +149,18 @@ fn rank_probe(g: &mut Gen) -> String {
     match (with_w, with_n) {
         (true, true) => format!(
             "SELECT {}('{}'::float4[], {}, {}, {});",
-            name, pick(g, WEIGHT_ARRS), wexpr, qexpr, pick(g, NORMS)
+            name,
+            pick(g, WEIGHT_ARRS),
+            wexpr,
+            qexpr,
+            pick(g, NORMS)
         ),
         (true, false) => format!(
             "SELECT {}('{}'::float4[], {}, {});",
-            name, pick(g, WEIGHT_ARRS), wexpr, qexpr
+            name,
+            pick(g, WEIGHT_ARRS),
+            wexpr,
+            qexpr
         ),
         (false, true) => {
             format!("SELECT {}({}, {}, {});", name, wexpr, qexpr, pick(g, NORMS))
@@ -163,7 +175,11 @@ fn headline_probe(g: &mut Gen) -> String {
     let cfg = pick(g, CFGS);
     let doc = pick(g, HL_DOCS);
     let qw = pick(g, HL_QUERIES);
-    let qfn = if g.rng.chance(1, 3) { "to_tsquery" } else { "plainto_tsquery" };
+    let qfn = if g.rng.chance(1, 3) {
+        "to_tsquery"
+    } else {
+        "plainto_tsquery"
+    };
     // to_tsquery needs a boolean-joined query; plainto_tsquery takes raw words.
     let qtext = if qfn == "to_tsquery" {
         qw.split_whitespace().collect::<Vec<_>>().join(" | ")
@@ -173,7 +189,10 @@ fn headline_probe(g: &mut Gen) -> String {
     let query = format!("{}('{}', '{}')", qfn, cfg, qtext);
     if g.rng.chance(3, 4) {
         let opts = pick(g, HL_OPTS);
-        format!("SELECT ts_headline('{}', '{}', {}, '{}');", cfg, doc, query, opts)
+        format!(
+            "SELECT ts_headline('{}', '{}', {}, '{}');",
+            cfg, doc, query, opts
+        )
     } else {
         format!("SELECT ts_headline('{}', '{}', {});", cfg, doc, query)
     }
@@ -193,7 +212,10 @@ fn vecop_probe(g: &mut Gen) -> String {
         1 => {
             let w = pick(g, &["A", "B", "C", "D"]);
             let lexemes = pick(g, &["{fox,dog}", "{cat,mouse,bird}", "{a,b,c}", "{quick}"]);
-            format!("SELECT setweight({}, '{}', '{}'::text[])::text;", v, w, lexemes)
+            format!(
+                "SELECT setweight({}, '{}', '{}'::text[])::text;",
+                v, w, lexemes
+            )
         }
         2 => {
             let lex = pick(g, &["fox", "dog", "cat", "the", "a", "run"]);
@@ -289,12 +311,15 @@ fn tsqop_probe(g: &mut Gen) -> String {
 /// makes the row set engine-independent.
 fn stat_probe(g: &mut Gen) -> String {
     g.fire("tsr:stat");
-    let docs = pick(g, &[
-        "SELECT 'fox:1 quick:2 fox:3'::tsvector UNION ALL SELECT 'fox:1 dog:2'::tsvector \
+    let docs = pick(
+        g,
+        &[
+            "SELECT 'fox:1 quick:2 fox:3'::tsvector UNION ALL SELECT 'fox:1 dog:2'::tsvector \
          UNION ALL SELECT 'quick:1 brown:2 dog:3'::tsvector",
-        "SELECT 'a:1A b:2B c:3'::tsvector UNION ALL SELECT 'a:1 b:2C'::tsvector",
-        "SELECT 'cat:1 dog:2 cat:3 dog:4'::tsvector UNION ALL SELECT 'cat:1 bird:2'::tsvector",
-    ]);
+            "SELECT 'a:1A b:2B c:3'::tsvector UNION ALL SELECT 'a:1 b:2C'::tsvector",
+            "SELECT 'cat:1 dog:2 cat:3 dog:4'::tsvector UNION ALL SELECT 'cat:1 bird:2'::tsvector",
+        ],
+    );
     if g.rng.chance(1, 2) {
         let wts = pick(g, &["a", "ab", "abcd", "d"]);
         format!(
@@ -311,7 +336,13 @@ fn stat_probe(g: &mut Gen) -> String {
 
 /// One statement group for the FTS-RANK module.
 pub fn gen_tsrank_module(g: &mut Gen) -> Vec<StmtKind> {
-    let options = ["tsr:rank", "tsr:headline", "tsr:vecop", "tsr:tsqop", "tsr:stat"];
+    let options = [
+        "tsr:rank",
+        "tsr:headline",
+        "tsr:vecop",
+        "tsr:tsqop",
+        "tsr:stat",
+    ];
     let pick = g.weights.pick(g.rng, &options);
     let sql = match pick {
         "tsr:headline" => headline_probe(g),

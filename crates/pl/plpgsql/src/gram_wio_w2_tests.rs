@@ -47,7 +47,10 @@ fn parse_err(mut comp: crate::comp::CompState, src: &[u8]) -> (Box<PgError>, i32
 // DTYPE_VAR, so OPEN/FETCH/CLOSE on it is "not a simple variable".
 #[test]
 fn promise_variable_is_not_a_cursor_variable() {
-    for src in [&b"begin open tg_name for select 1; end"[..], &b"begin close tg_name; end"[..]] {
+    for src in [
+        &b"begin open tg_name for select 1; end"[..],
+        &b"begin close tg_name; end"[..],
+    ] {
         let mut comp = crate::comp::CompState::new();
         comp.ns_push_label(Some("f"), LABEL_BLOCK);
         let mut ty = int_type();
@@ -96,7 +99,10 @@ fn scalar_target_rows_keep_names_as_written() {
             _ => None,
         })
         .collect();
-    assert_eq!(names, vec![vec!["y".to_string()], vec!["blk.x".to_string()]]);
+    assert_eq!(
+        names,
+        vec![vec!["y".to_string()], vec!["blk.x".to_string()]]
+    );
 }
 
 // plpgsql_location_to_lineno moves the scanner's latest line, which the
@@ -111,18 +117,29 @@ fn statement_lines_are_computed_where_the_grammar_actions_run() {
         comp
     };
     // stmt_open: the line follows cursor_variable.
-    let (err, line) =
-        parse_err(with_x(), b"begin\n x := 1;\n\n open nosuch for select 1;\nend");
+    let (err, line) = parse_err(
+        with_x(),
+        b"begin\n x := 1;\n\n open nosuch for select 1;\nend",
+    );
     assert_eq!(err.message, "\"nosuch\" is not a known variable");
     assert_eq!(line, 2);
     // stmt_loop: the line is computed before check_labels.
-    let (err, line) =
-        parse_err(with_x(), b"begin\n loop\n  exit;\n end loop wrong;\n return;\nend");
-    assert_eq!(err.message, "end label \"wrong\" specified for unlabeled block");
+    let (err, line) = parse_err(
+        with_x(),
+        b"begin\n loop\n  exit;\n end loop wrong;\n return;\nend",
+    );
+    assert_eq!(
+        err.message,
+        "end label \"wrong\" specified for unlabeled block"
+    );
     assert_eq!(line, 2);
     // stmt_exit: the line is computed before the label lookup.
     let (err, line) = parse_err(with_x(), b"begin\n x := 1;\n exit\n  nolabel;\nend");
-    assert!(err.message.starts_with("there is no label \"nolabel\""), "{}", err.message);
+    assert!(
+        err.message.starts_with("there is no label \"nolabel\""),
+        "{}",
+        err.message
+    );
     assert_eq!(line, 3);
     // stmt_case/case_when: WHEN lines follow their branch, the CASE line
     // follows END CASE ;.
@@ -132,8 +149,7 @@ fn statement_lines_are_computed_where_the_grammar_actions_run() {
     );
     assert_eq!(line, 2);
     // stmt_commit: the line follows the chain clause.
-    let (_, line) =
-        parse_err(with_x(), b"begin\n x := 1;\n commit and\n  garbage;\nend");
+    let (_, line) = parse_err(with_x(), b"begin\n x := 1;\n commit and\n  garbage;\nend");
     assert_eq!(line, 2);
 }
 
@@ -143,10 +159,15 @@ fn dotted_word_pairs_resolve_quotes_and_skip_comments() {
         r#"x := "r".a + R/**/.b + "Rec".c + 'r.d' + lbl.r.e -- r.f"#,
     )
     .unwrap();
-    let want: Vec<(String, String)> =
-        [("r", "a"), ("r", "b"), ("Rec", "c"), ("lbl", "r"), ("r", "e")]
-            .iter()
-            .map(|(a, b)| (a.to_string(), b.to_string()))
-            .collect();
+    let want: Vec<(String, String)> = [
+        ("r", "a"),
+        ("r", "b"),
+        ("Rec", "c"),
+        ("lbl", "r"),
+        ("r", "e"),
+    ]
+    .iter()
+    .map(|(a, b)| (a.to_string(), b.to_string()))
+    .collect();
     assert_eq!(got, want);
 }

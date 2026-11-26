@@ -188,7 +188,10 @@ impl ClientExecutor {
         xproto: Option<u64>,
     ) -> Result<ClientExecutor, String> {
         match Client::connect(host, port, db, user) {
-            Ok(c) => Ok(ClientExecutor { client: Ok(c), xproto }),
+            Ok(c) => Ok(ClientExecutor {
+                client: Ok(c),
+                xproto,
+            }),
             Err(ConnLost(e)) => Err(e),
         }
     }
@@ -201,18 +204,25 @@ impl ClientExecutor {
 pub fn fold_results(results: &[RawResult]) -> StmtOutcome {
     for r in results {
         if let Some((sqlstate, message)) = &r.error {
-            return StmtOutcome::Error { sqlstate: sqlstate.clone(), message: message.clone() };
+            return StmtOutcome::Error {
+                sqlstate: sqlstate.clone(),
+                message: message.clone(),
+            };
         }
     }
     match results.last() {
-        None => StmtOutcome::Command { tag: String::new(), affected: None },
+        None => StmtOutcome::Command {
+            tag: String::new(),
+            affected: None,
+        },
         Some(r) if r.was_copy => StmtOutcome::CopyOut {
             bytes: r.copy_out.clone(),
             tag: r.cmd_tag.clone(),
         },
-        Some(r) if !r.col_oids.is_empty() => {
-            StmtOutcome::Rows { col_oids: r.col_oids.clone(), rows: r.rows.clone() }
-        }
+        Some(r) if !r.col_oids.is_empty() => StmtOutcome::Rows {
+            col_oids: r.col_oids.clone(),
+            rows: r.rows.clone(),
+        },
         Some(r) => StmtOutcome::Command {
             tag: r.cmd_tag.clone(),
             affected: tag_affected(&r.cmd_tag),
@@ -329,9 +339,16 @@ pub fn classify_probe(
     ulp_tol: u64,
 ) -> Classified {
     let sql = probe_sql(table_name, "pk"); // ORDER BY presence is what matters
-    // Probes select raw table columns: no soft-float mask (float cells
-    // still get the ruled ulp slack via the classifier itself).
-    let raw = classify(&DiffInput { sql: &sql, a, b, ulp_tol, soft_cols: &[], mask_explain_timing: false });
+                                           // Probes select raw table columns: no soft-float mask (float cells
+                                           // still get the ruled ulp slack via the classifier itself).
+    let raw = classify(&DiffInput {
+        sql: &sql,
+        a,
+        b,
+        ulp_tol,
+        soft_cols: &[],
+        mask_explain_timing: false,
+    });
     let resolved = apply_ruled(table, &sql, raw);
     match resolved.class {
         DiffClass::Match | DiffClass::Ruled(_) | DiffClass::SessionDiverged(_) => resolved,
@@ -432,8 +449,14 @@ pub fn apply_and_classify(
 ) -> Classified {
     let oa = a.apply(sql);
     let ob = b.apply(sql);
-    let raw =
-        classify(&DiffInput { sql, a: &oa, b: &ob, ulp_tol, soft_cols, mask_explain_timing: false });
+    let raw = classify(&DiffInput {
+        sql,
+        a: &oa,
+        b: &ob,
+        ulp_tol,
+        soft_cols,
+        mask_explain_timing: false,
+    });
     apply_ruled(table, sql, raw)
 }
 
@@ -443,9 +466,8 @@ pub fn apply_and_classify(
 /// died on some earlier statement). Symmetric 25P02 is None — both
 /// transactions aborted, the statements compare as matches anyway.
 fn aborted_txn_side(oa: &StmtOutcome, ob: &StmtOutcome) -> Option<Side> {
-    let aborted = |o: &StmtOutcome| {
-        matches!(o, StmtOutcome::Error { sqlstate, .. } if sqlstate == "25P02")
-    };
+    let aborted =
+        |o: &StmtOutcome| matches!(o, StmtOutcome::Error { sqlstate, .. } if sqlstate == "25P02");
     match (aborted(oa), aborted(ob)) {
         (true, false) => Some(Side::A),
         (false, true) => Some(Side::B),
@@ -458,9 +480,8 @@ fn aborted_txn_side(oa: &StmtOutcome, ob: &StmtOutcome) -> Option<Side> {
 /// later asymmetric-25P02 cascade is rooted at. Both-sides-error is None
 /// (both transactions abort together — no asymmetry follows).
 fn one_sided_error_side(oa: &StmtOutcome, ob: &StmtOutcome) -> Option<Side> {
-    let err = |o: &StmtOutcome| {
-        matches!(o, StmtOutcome::Error { sqlstate, .. } if sqlstate != "25P02")
-    };
+    let err =
+        |o: &StmtOutcome| matches!(o, StmtOutcome::Error { sqlstate, .. } if sqlstate != "25P02");
     let any_err = |o: &StmtOutcome| matches!(o, StmtOutcome::Error { .. });
     match (err(oa), err(ob)) {
         (true, false) if !any_err(ob) => Some(Side::A),
@@ -527,7 +548,13 @@ pub fn run_stream(
     // a record (ErrorDiff/CountDiff finding or a Ruled record).
     let mut last_one_sided: Option<(Side, usize)> = None;
     let mut cascade: Option<CascadeState> = None;
-    for StreamStmt { stmt_index, sql, soft_float_cols, mask_explain_timing } in stmts {
+    for StreamStmt {
+        stmt_index,
+        sql,
+        soft_float_cols,
+        mask_explain_timing,
+    } in stmts
+    {
         last_index = *stmt_index;
         let oa = a.apply(sql);
         let ob = b.apply(sql);
@@ -643,8 +670,17 @@ pub fn run_stream(
             if spec.every > 0 && since_probe >= spec.every {
                 since_probe = 0;
                 if run_probe_round(
-                    a, b, spec, table, ulp_tol, *stmt_index, &mut suppressed, &mut records,
-                    &mut stats, &mut cascade, last_one_sided,
+                    a,
+                    b,
+                    spec,
+                    table,
+                    ulp_tol,
+                    *stmt_index,
+                    &mut suppressed,
+                    &mut records,
+                    &mut stats,
+                    &mut cascade,
+                    last_one_sided,
                 ) {
                     return (records, stats);
                 }
@@ -656,8 +692,17 @@ pub fn run_stream(
     if let Some(spec) = probes {
         if !stmts.is_empty() {
             run_probe_round(
-                a, b, spec, table, ulp_tol, last_index, &mut suppressed, &mut records,
-                &mut stats, &mut cascade, last_one_sided,
+                a,
+                b,
+                spec,
+                table,
+                ulp_tol,
+                last_index,
+                &mut suppressed,
+                &mut records,
+                &mut stats,
+                &mut cascade,
+                last_one_sided,
             );
         }
     }
@@ -781,7 +826,10 @@ mod tests {
     }
 
     fn rows_of(v: &str) -> StmtOutcome {
-        StmtOutcome::Rows { col_oids: vec![23], rows: vec![vec![Some(v.to_string())]] }
+        StmtOutcome::Rows {
+            col_oids: vec![23],
+            rows: vec![vec![Some(v.to_string())]],
+        }
     }
 
     fn stmts(n: u32) -> Vec<StreamStmt> {
@@ -798,8 +846,14 @@ mod tests {
     #[test]
     fn run_stream_counts_and_records() {
         let table = crate::ruled::default_table();
-        let mut a = Scripted { outcomes: vec![rows_of("1"), rows_of("2")], next: 0 };
-        let mut b = Scripted { outcomes: vec![rows_of("1"), rows_of("9")], next: 0 };
+        let mut a = Scripted {
+            outcomes: vec![rows_of("1"), rows_of("2")],
+            next: 0,
+        };
+        let mut b = Scripted {
+            outcomes: vec![rows_of("1"), rows_of("9")],
+            next: 0,
+        };
         let (records, stats) = run_stream(&mut a, &mut b, &stmts(2), &table, 4, None);
         assert_eq!(stats.applied, 2);
         assert_eq!(stats.matches, 1);
@@ -839,8 +893,14 @@ mod tests {
             aborted(),
             rows_of("6"),
         ];
-        let mut a = Scripted { outcomes: a_seq, next: 0 };
-        let mut b = Scripted { outcomes: b_seq, next: 0 };
+        let mut a = Scripted {
+            outcomes: a_seq,
+            next: 0,
+        };
+        let mut b = Scripted {
+            outcomes: b_seq,
+            next: 0,
+        };
         let (records, stats) = run_stream(&mut a, &mut b, &stmts(6), &table, 4, None);
         // ONE finding: the aborting statement's ErrorDiff, carrying the
         // collapsed count; the three noise statements record nothing.
@@ -851,7 +911,9 @@ mod tests {
         assert_eq!(records[0].stmt_index, 1, "root is the aborting statement");
         assert_eq!(records[0].class, DiffClass::ErrorDiff);
         assert!(
-            records[0].detail.contains("25P02-cascade: 3 downstream exchange(s) on side B"),
+            records[0]
+                .detail
+                .contains("25P02-cascade: 3 downstream exchange(s) on side B"),
             "detail: {}",
             records[0].detail
         );
@@ -866,13 +928,21 @@ mod tests {
         };
         // B is already inside an aborted transaction when the window
         // starts: 3 asymmetric-25P02 statements, no root in stream.
-        let mut a = Scripted { outcomes: vec![rows_of("1"); 3], next: 0 };
-        let mut b = Scripted { outcomes: vec![aborted(), aborted(), aborted()], next: 0 };
+        let mut a = Scripted {
+            outcomes: vec![rows_of("1"); 3],
+            next: 0,
+        };
+        let mut b = Scripted {
+            outcomes: vec![aborted(), aborted(), aborted()],
+            next: 0,
+        };
         let (records, stats) = run_stream(&mut a, &mut b, &stmts(3), &table, 4, None);
         assert_eq!(stats.findings, 1, "one synthetic root, not three findings");
         assert_eq!(stats.cascade_collapsed, 2);
         assert_eq!(records.len(), 1);
-        assert!(records[0].detail.contains("transaction aborted by a statement before this window"));
+        assert!(records[0]
+            .detail
+            .contains("transaction aborted by a statement before this window"));
     }
 
     #[test]
@@ -885,8 +955,14 @@ mod tests {
         let aborted = || err("25P02", "current transaction is aborted");
         // Symmetric abort: both sides answer 25P02 — plain matches, no
         // cascade, no findings.
-        let mut a = Scripted { outcomes: vec![aborted(), aborted()], next: 0 };
-        let mut b = Scripted { outcomes: vec![aborted(), aborted()], next: 0 };
+        let mut a = Scripted {
+            outcomes: vec![aborted(), aborted()],
+            next: 0,
+        };
+        let mut b = Scripted {
+            outcomes: vec![aborted(), aborted()],
+            next: 0,
+        };
         let (records, stats) = run_stream(&mut a, &mut b, &stmts(2), &table, 4, None);
         assert_eq!(stats.matches, 2);
         assert_eq!(stats.findings, 0);
@@ -899,9 +975,20 @@ mod tests {
         // hit B's aborted transaction and collapse instead of minting
         // STATE_DIFFs — and the table is NOT suppressed.
         let a_seq = vec![rows_of("1"), rows_of("p"), rows_of("2"), rows_of("p")];
-        let b_seq = vec![err("42804", "datatype mismatch"), aborted(), aborted(), aborted()];
-        let mut a = Scripted { outcomes: a_seq, next: 0 };
-        let mut b = Scripted { outcomes: b_seq, next: 0 };
+        let b_seq = vec![
+            err("42804", "datatype mismatch"),
+            aborted(),
+            aborted(),
+            aborted(),
+        ];
+        let mut a = Scripted {
+            outcomes: a_seq,
+            next: 0,
+        };
+        let mut b = Scripted {
+            outcomes: b_seq,
+            next: 0,
+        };
         let (records, stats) =
             run_stream(&mut a, &mut b, &stmts(2), &table, 4, Some(&probe_spec(1)));
         assert_eq!(stats.findings, 1, "only the root");
@@ -909,16 +996,28 @@ mod tests {
         assert_eq!(records[0].stmt_index, 0);
         // s1 collapsed + probe rounds collapsed (cadence after s0, after
         // s1, and the end round).
-        assert!(stats.cascade_collapsed >= 3, "collapsed={}", stats.cascade_collapsed);
+        assert!(
+            stats.cascade_collapsed >= 3,
+            "collapsed={}",
+            stats.cascade_collapsed
+        );
         assert!(records[0].detail.contains("25P02-cascade:"));
     }
 
     #[test]
     fn run_stream_stops_after_session_divergence() {
         let table = crate::ruled::default_table();
-        let lost = StmtOutcome::ConnLost { detail: "gone".to_string() };
-        let mut a = Scripted { outcomes: vec![lost], next: 0 };
-        let mut b = Scripted { outcomes: vec![rows_of("1")], next: 0 };
+        let lost = StmtOutcome::ConnLost {
+            detail: "gone".to_string(),
+        };
+        let mut a = Scripted {
+            outcomes: vec![lost],
+            next: 0,
+        };
+        let mut b = Scripted {
+            outcomes: vec![rows_of("1")],
+            next: 0,
+        };
         let (records, stats) = run_stream(&mut a, &mut b, &stmts(5), &table, 4, None);
         assert_eq!(stats.applied, 1);
         assert_eq!(records.len(), 1);
@@ -932,8 +1031,14 @@ mod tests {
             sqlstate: s.to_string(),
             message: "m".to_string(),
         };
-        let mut a = Scripted { outcomes: vec![err("22012"), err("23505")], next: 0 };
-        let mut b = Scripted { outcomes: vec![err("22012"), err("23505")], next: 0 };
+        let mut a = Scripted {
+            outcomes: vec![err("22012"), err("23505")],
+            next: 0,
+        };
+        let mut b = Scripted {
+            outcomes: vec![err("22012"), err("23505")],
+            next: 0,
+        };
         let (_, stats) = run_stream(&mut a, &mut b, &stmts(2), &table, 4, None);
         assert_eq!(stats.error_states.get("22012"), Some(&1));
         assert_eq!(stats.error_states.get("23505"), Some(&1));
@@ -971,7 +1076,10 @@ mod tests {
             ("jit_optimize_above_cost", "500000"),
             ("jit_inline_above_cost", "500000"),
         ];
-        assert_eq!(C_PARITY_GUC_PIN, &expected, "pin drifted from the ruled set");
+        assert_eq!(
+            C_PARITY_GUC_PIN, &expected,
+            "pin drifted from the ruled set"
+        );
         // A2: the datetime determinism pin rides the same setup/re-pin
         // path; the full pin SQL is C-parity then datetime, in order.
         let expected_dt = [
@@ -990,7 +1098,10 @@ mod tests {
         ];
         assert_eq!(LOCALE_GUC_PIN, &expected_lc, "locale pin drifted");
         let sql = c_parity_pin_sql();
-        assert_eq!(sql.len(), expected.len() + expected_dt.len() + expected_lc.len());
+        assert_eq!(
+            sql.len(),
+            expected.len() + expected_dt.len() + expected_lc.len()
+        );
         for ((name, value), s) in expected
             .iter()
             .chain(expected_dt.iter())
@@ -1010,7 +1121,10 @@ mod tests {
         impl Executor for Recording {
             fn apply(&mut self, sql: &str) -> StmtOutcome {
                 self.0.push(sql.to_string());
-                StmtOutcome::Error { sqlstate: String::new(), message: String::new() }
+                StmtOutcome::Error {
+                    sqlstate: String::new(),
+                    message: String::new(),
+                }
             }
         }
         assert!(clobbers_session_gucs("RESET ALL;"));
@@ -1049,8 +1163,14 @@ mod tests {
         };
         // 6 statements, all matching; every probe (when taken) matches too.
         let seq = vec![rows_of("1"); 16];
-        let mut a = Scripted { outcomes: seq.clone(), next: 0 };
-        let mut b = Scripted { outcomes: seq, next: 0 };
+        let mut a = Scripted {
+            outcomes: seq.clone(),
+            next: 0,
+        };
+        let mut b = Scripted {
+            outcomes: seq,
+            next: 0,
+        };
         let (_, stats) = run_stream(&mut a, &mut b, &stmts(6), &table, 4, Some(&spec));
         // Cadence rounds after stmts 0..5 plus the end round (after 5):
         // only after_index 2 and 3 are inside the window.
@@ -1100,10 +1220,28 @@ mod tests {
         // finding (later rounds suppressed for that table), and the
         // end-round costs nothing extra.
         // Apply order per side: s0 s1 P s2 s3 P (end P suppressed).
-        let seq_a = vec![rows_of("1"), rows_of("1"), rows_of("10"), rows_of("1"), rows_of("1")];
-        let seq_b = vec![rows_of("1"), rows_of("1"), rows_of("99"), rows_of("1"), rows_of("1")];
-        let mut a = Scripted { outcomes: seq_a, next: 0 };
-        let mut b = Scripted { outcomes: seq_b, next: 0 };
+        let seq_a = vec![
+            rows_of("1"),
+            rows_of("1"),
+            rows_of("10"),
+            rows_of("1"),
+            rows_of("1"),
+        ];
+        let seq_b = vec![
+            rows_of("1"),
+            rows_of("1"),
+            rows_of("99"),
+            rows_of("1"),
+            rows_of("1"),
+        ];
+        let mut a = Scripted {
+            outcomes: seq_a,
+            next: 0,
+        };
+        let mut b = Scripted {
+            outcomes: seq_b,
+            next: 0,
+        };
         let (records, stats) =
             run_stream(&mut a, &mut b, &stmts(4), &table, 4, Some(&probe_spec(2)));
         assert_eq!(stats.probes, 1, "suppressed table is not re-probed");
@@ -1223,10 +1361,7 @@ mod tests {
     fn returning_rows_fold_and_compare_as_multisets() {
         let returning = RawResult {
             col_oids: vec![23],
-            rows: vec![
-                vec![Some("1".to_string())],
-                vec![Some("2".to_string())],
-            ],
+            rows: vec![vec![Some("1".to_string())], vec![Some("2".to_string())]],
             cmd_tag: "UPDATE 2".to_string(),
             error: None,
             copy_out: Vec::new(),
@@ -1237,10 +1372,7 @@ mod tests {
         // Reordered RETURNING rows still match (multiset semantics).
         let swapped = StmtOutcome::Rows {
             col_oids: vec![23],
-            rows: vec![
-                vec![Some("2".to_string())],
-                vec![Some("1".to_string())],
-            ],
+            rows: vec![vec![Some("2".to_string())], vec![Some("1".to_string())]],
         };
         let c = classify(&DiffInput {
             sql: "UPDATE t AS t0 SET c = c + 1 RETURNING t0.c;",
@@ -1285,17 +1417,18 @@ use std::time::Duration;
 
 use crate::canon::{self, CanonCtx, CanonSide};
 use crate::client::{
-    ConnectError, ConnectOpts, Describe, Exchange as WireExchange, ExtendedStep, Fault as WireFault, Frame, WireParam,
+    ConnectError, ConnectOpts, Describe, Exchange as WireExchange, ExtendedStep,
+    Fault as WireFault, Frame, WireParam,
 };
 use crate::contracts::json::Value;
-use crate::diff::{compare_planes_with, CompareOpts, Divergence};
-use crate::rulings::Ledger;
 use crate::contracts::{
-    self, AuditFields, Bytes, Cell, Class, Finding, ObservationRecord, Repro, Severity, Side as CSide, Status,
-    StepKind, StepRecord, Verified, WireMsg,
+    self, AuditFields, Bytes, Cell, Class, Finding, ObservationRecord, Repro, Severity,
+    Side as CSide, Status, StepKind, StepRecord, Verified, WireMsg,
 };
+use crate::diff::{compare_planes_with, CompareOpts, Divergence};
 use crate::logtail::{self, PrefixSpec, Source, Tail};
 use crate::probes::{self, Deck, RenderCtx, Trigger};
+use crate::rulings::Ledger;
 use crate::supervisor::{
     deadline_ms_for_cell, Action, Event, HangLadder, OsDriver, Rung, Supervisor, LADDER_GRACE_MS,
 };
@@ -1373,7 +1506,9 @@ impl Sink for VecSink {
         self.steps.push(rec.to_jsonl());
     }
     fn observation(&mut self, rec: &ObservationRecord) {
-        let line = rec.to_jsonl().expect("probe results carry no non-finite floats");
+        let line = rec
+            .to_jsonl()
+            .expect("probe results carry no non-finite floats");
         match rec.side {
             CSide::A => self.obs_a.push(line),
             CSide::B => self.obs_b.push(line),
@@ -1383,7 +1518,8 @@ impl Sink for VecSink {
         self.findings.push(f.to_file().expect("finding serializes"));
     }
     fn note(&mut self, v: &Value) {
-        self.findings.push(contracts::json::to_canonical(v).expect("note serializes"));
+        self.findings
+            .push(contracts::json::to_canonical(v).expect("note serializes"));
     }
 }
 
@@ -1399,7 +1535,12 @@ pub struct FileSink {
 impl FileSink {
     pub fn create(out: &Path) -> std::io::Result<FileSink> {
         std::fs::create_dir_all(out)?;
-        let open = |name: &str| std::fs::OpenOptions::new().create(true).append(true).open(out.join(name));
+        let open = |name: &str| {
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(out.join(name))
+        };
         Ok(FileSink {
             steps: open("steps.jsonl")?,
             obs_a: open("obs-a.jsonl")?,
@@ -1491,7 +1632,9 @@ impl SiteConfig {
             prefix: PrefixSpec::compile(&cell.logging_prefix),
             a_log: work.join("a.log"),
             b_log: work.join("b.log"),
-            collector: cell.logging_mode == "collector" || cell.logging_csvlog || cell.logging_jsonlog,
+            collector: cell.logging_mode == "collector"
+                || cell.logging_csvlog
+                || cell.logging_jsonlog,
             a_log_dir: work.join("dda").join("log"),
             b_log_dir: work.join("ddb").join("log"),
             raw_oids: cell.server_flags.iter().any(|f| f == "-b"),
@@ -1530,10 +1673,17 @@ impl SiteConfig {
 
     /// `from_cell_json` cross-checked against an id the rig recorded
     /// elsewhere (cell.env `CELL_ID`): a mismatch is a hard failure.
-    pub fn from_cell_json_expecting(text: &str, work: &Path, expected_id: &str) -> Result<SiteConfig, String> {
+    pub fn from_cell_json_expecting(
+        text: &str,
+        work: &Path,
+        expected_id: &str,
+    ) -> Result<SiteConfig, String> {
         let cfg = SiteConfig::from_cell_json(text, work)?;
         if cfg.cell_id != expected_id {
-            return Err(format!("cell_id mismatch: cell.json hashes to {} but the rig recorded {}", cfg.cell_id, expected_id));
+            return Err(format!(
+                "cell_id mismatch: cell.json hashes to {} but the rig recorded {}",
+                cfg.cell_id, expected_id
+            ));
         }
         Ok(cfg)
     }
@@ -1555,13 +1705,28 @@ impl SiteConfig {
 /// whitespace, no trailing newline). A carried `cell_id` must agree.
 pub fn factory_cell_id(v: &Value) -> Result<String, String> {
     let fields = v.as_obj().ok_or("cell.json must be an object")?;
-    let carried = v.get("cell_id").map(|c| c.as_str().map(str::to_string).ok_or("cell_id must be a string")).transpose()?;
-    let stripped = Value::Obj(fields.iter().filter(|(k, _)| k != "cell_id").cloned().collect());
+    let carried = v
+        .get("cell_id")
+        .map(|c| {
+            c.as_str()
+                .map(str::to_string)
+                .ok_or("cell_id must be a string")
+        })
+        .transpose()?;
+    let stripped = Value::Obj(
+        fields
+            .iter()
+            .filter(|(k, _)| k != "cell_id")
+            .cloned()
+            .collect(),
+    );
     let canonical = contracts::json::to_canonical(&stripped)?;
     let id = contracts::hex(&pg_sha2::sha256(canonical.as_bytes()));
     if let Some(c) = carried {
         if c != id {
-            return Err(format!("cell.json carries cell_id {c} but its canonical form hashes to {id}"));
+            return Err(format!(
+                "cell.json carries cell_id {c} but its canonical form hashes to {id}"
+            ));
         }
     }
     Ok(id)
@@ -1632,9 +1797,16 @@ pub fn cell_from_factory_json(v: &Value) -> Result<Cell, String> {
         }
     }
     if let Some(l) = v.get("logging") {
-        let collector = l.get("collector").and_then(|x| x.as_bool()).unwrap_or(false);
+        let collector = l
+            .get("collector")
+            .and_then(|x| x.as_bool())
+            .unwrap_or(false);
         let dest = s(l, "log_destination").unwrap_or_else(|| "stderr".into());
-        cell.logging_mode = if collector { "collector".into() } else { "stderr".into() };
+        cell.logging_mode = if collector {
+            "collector".into()
+        } else {
+            "stderr".into()
+        };
         cell.logging_csvlog = dest.contains("csvlog");
         cell.logging_jsonlog = dest.contains("jsonlog");
         if let Some(p) = s(l, "log_line_prefix") {
@@ -1645,7 +1817,10 @@ pub fn cell_from_factory_json(v: &Value) -> Result<Cell, String> {
         }
     }
     if let Some(flags) = v.get("server_flags").and_then(|x| x.as_arr()) {
-        cell.server_flags = flags.iter().filter_map(|f| f.as_str().map(str::to_string)).collect();
+        cell.server_flags = flags
+            .iter()
+            .filter_map(|f| f.as_str().map(str::to_string))
+            .collect();
     }
     Ok(cell)
 }
@@ -1688,13 +1863,21 @@ pub struct SideRig {
 }
 
 impl SideRig {
-    pub fn new(side: CSide, cfg: &SiteConfig, connector: Connector, driver: Option<OsDriver>) -> SideRig {
+    pub fn new(
+        side: CSide,
+        cfg: &SiteConfig,
+        connector: Connector,
+        driver: Option<OsDriver>,
+    ) -> SideRig {
         let (log, dir) = match side {
             CSide::A => (&cfg.a_log, &cfg.a_log_dir),
             CSide::B => (&cfg.b_log, &cfg.b_log_dir),
         };
         let collector_tails = if cfg.collector {
-            logtail::collector_files(dir).into_iter().map(|(p, src)| Tail::new(&p, src, &cfg.prefix)).collect()
+            logtail::collector_files(dir)
+                .into_iter()
+                .map(|(p, src)| Tail::new(&p, src, &cfg.prefix))
+                .collect()
         } else {
             Vec::new()
         };
@@ -1735,8 +1918,11 @@ impl SideRig {
         }
         let mut actions = Vec::new();
         let lines = self.tail.parser().lines();
-        let new: Vec<String> =
-            lines.iter().filter(|l| l.line_no > self.fed).map(|l| String::from_utf8_lossy(&l.rec.raw.0).into_owned()).collect();
+        let new: Vec<String> = lines
+            .iter()
+            .filter(|l| l.line_no > self.fed)
+            .map(|l| String::from_utf8_lossy(&l.rec.raw.0).into_owned())
+            .collect();
         self.fed = lines.len() as u64;
         for line in new {
             actions.extend(self.supervisor.observe(Event::Log(line)));
@@ -1749,7 +1935,12 @@ impl SideRig {
         actions
     }
 
-    fn connect_session(&mut self, name: &str, pins: &[String], deadline_ms: u64) -> Result<(), String> {
+    fn connect_session(
+        &mut self,
+        name: &str,
+        pins: &[String],
+        deadline_ms: u64,
+    ) -> Result<(), String> {
         let mut obs = (self.connector)(name)?;
         for sql in pins {
             let _ = obs.probe(sql, deadline_ms);
@@ -1757,7 +1948,13 @@ impl SideRig {
         if self.version.is_empty() {
             self.version = obs.version();
         }
-        let slot = SessionSlot { obs, txn_open: false, txn_had_ddl: false, txn_had_dml: false, last_target: None };
+        let slot = SessionSlot {
+            obs,
+            txn_open: false,
+            txn_had_ddl: false,
+            txn_had_dml: false,
+            last_target: None,
+        };
         match self.sessions.iter_mut().find(|(n, _)| n == name) {
             Some(s) => s.1 = slot,
             None => self.sessions.push((name.to_string(), slot)),
@@ -1854,7 +2051,8 @@ pub const STATS_FLUSH_SQL: &str = "SELECT pg_stat_force_next_flush();";
 /// The one-time user-type probe behind `CanonCtx::type_names`
 /// (`u:<typname>` canonicalization of user OIDs, plan §4.1), re-run
 /// after every DDL bracket and restart.
-pub const TYPE_NAMES_SQL: &str = "SELECT oid, typname FROM pg_type WHERE oid >= 16384 ORDER BY oid;";
+pub const TYPE_NAMES_SQL: &str =
+    "SELECT oid, typname FROM pg_type WHERE oid >= 16384 ORDER BY oid;";
 
 /// The rulings ledger the site runner resolves against: `SITEDIFF_RULINGS`
 /// when set, else the repo's `docs/fuzzing/rulings.toml`, else the copy
@@ -1862,7 +2060,9 @@ pub const TYPE_NAMES_SQL: &str = "SELECT oid, typname FROM pg_type WHERE oid >= 
 pub fn load_ledger() -> Ledger {
     let path = std::env::var_os("SITEDIFF_RULINGS")
         .map(PathBuf::from)
-        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../docs/fuzzing/rulings.toml"));
+        .unwrap_or_else(|| {
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../docs/fuzzing/rulings.toml")
+        });
     Ledger::load(&path).unwrap_or_else(|_| Ledger::embedded())
 }
 
@@ -1916,7 +2116,11 @@ impl SiteRunner {
             dlsuffix: canon::host_dlsuffix().to_string(),
             type_names: BTreeMap::new(),
         };
-        let ctx_b = CanonCtx { libdir: cfg.b_libdir.clone(), pgdata: path_text(&cfg.b_pgdata), ..ctx_a.clone() };
+        let ctx_b = CanonCtx {
+            libdir: cfg.b_libdir.clone(),
+            pgdata: path_text(&cfg.b_pgdata),
+            ..ctx_a.clone()
+        };
         SiteRunner {
             cfg,
             scenario: scenario.to_string(),
@@ -1980,7 +2184,10 @@ impl SiteRunner {
         if let Some(p) = path_answer(m.probe("SHOW data_directory;", deadline)) {
             ctx.pgdata = Some(p);
         }
-        if let Some(p) = path_answer(m.probe("SELECT setting FROM pg_config() WHERE name = 'PKGLIBDIR';", deadline)) {
+        if let Some(p) = path_answer(m.probe(
+            "SELECT setting FROM pg_config() WHERE name = 'PKGLIBDIR';",
+            deadline,
+        )) {
             ctx.libdir = Some(p);
         }
         if let Ok(ex) = m.probe(TYPE_NAMES_SQL, deadline) {
@@ -2000,7 +2207,13 @@ impl SiteRunner {
     /// under the per-side `CanonCtx`, rulings resolved (hits recorded on
     /// the ledger), each divergence a Finding through the sink, deduped
     /// per signature.
-    fn compare_step(&mut self, step: &StepRecord, a: &ObservationRecord, b: &ObservationRecord, sink: &mut dyn Sink) {
+    fn compare_step(
+        &mut self,
+        step: &StepRecord,
+        a: &ObservationRecord,
+        b: &ObservationRecord,
+        sink: &mut dyn Sink,
+    ) {
         if self.ctx_stale {
             self.refresh_ctx(CSide::A);
             self.refresh_ctx(CSide::B);
@@ -2028,7 +2241,11 @@ impl SiteRunner {
             *n += 1;
             // A probe deck is state: a persistent divergence keeps its
             // first (statement = repro) and counts the rest.
-            let keep = if d.plane.starts_with("probe:") { 1 } else { SIGNATURE_KEEP };
+            let keep = if d.plane.starts_with("probe:") {
+                1
+            } else {
+                SIGNATURE_KEEP
+            };
             if *n > keep {
                 continue;
             }
@@ -2061,7 +2278,12 @@ impl SiteRunner {
         let _ = self.b.poll_logs();
         let m0 = self.b.tail.mark();
         let sql = logtail::self_test_sql(vpid);
-        let _ = self.b.monitor.as_mut().expect("monitor").probe(&sql, deadline);
+        let _ = self
+            .b
+            .monitor
+            .as_mut()
+            .expect("monitor")
+            .probe(&sql, deadline);
         let _ = self.b.sessions[i].1.obs.probe("SELECT 1;", deadline);
         let actions = self.b.poll_logs();
         self.b.tail.parser_mut().finish();
@@ -2083,12 +2305,10 @@ impl SiteRunner {
         let mut polls = 0u32;
         while let Some(a) = queue.pop_front() {
             match a {
-                Action::BankLogTail => {
-                    match side {
-                        CSide::A => self.summary.crashes_a += 1,
-                        CSide::B => self.summary.crashes_b += 1,
-                    }
-                }
+                Action::BankLogTail => match side {
+                    CSide::A => self.summary.crashes_a += 1,
+                    CSide::B => self.summary.crashes_b += 1,
+                },
                 Action::Restart => {
                     let rig = self.rig(side);
                     if let Some(d) = rig.driver.as_mut() {
@@ -2138,7 +2358,12 @@ impl SiteRunner {
 
     /// Run the hang ladder for a session on one side. Returns the
     /// exchange if the step eventually completed, else the last fault.
-    fn escalate(&mut self, side: CSide, session: usize, first_ms: u64) -> (Result<Exchange, Fault>, Option<contracts::Hang>) {
+    fn escalate(
+        &mut self,
+        side: CSide,
+        session: usize,
+        first_ms: u64,
+    ) -> (Result<Exchange, Fault>, Option<contracts::Hang>) {
         self.ladder.reset();
         let mut elapsed = first_ms.max(self.cfg.deadline_ms);
         let mut last: Result<Exchange, Fault> = Err(Fault::Hang { ms: elapsed });
@@ -2149,13 +2374,21 @@ impl SiteRunner {
                 Rung::Cancel | Rung::Terminate => {
                     if let (Some(pid), Ok(())) = (backend_pid, rig.ensure_monitor()) {
                         if let Some(sql) = rung.sql(pid) {
-                            let _ = rig.monitor.as_mut().expect("monitor").probe(&sql, LADDER_GRACE_MS);
+                            let _ = rig
+                                .monitor
+                                .as_mut()
+                                .expect("monitor")
+                                .probe(&sql, LADDER_GRACE_MS);
                         }
                     }
                     last = rig.sessions[session].1.obs.resume(LADDER_GRACE_MS);
                 }
                 Rung::SigKill => {
-                    let target = rig.sessions[session].1.obs.os_pid().or(backend_pid.map(|p| p as i32));
+                    let target = rig.sessions[session]
+                        .1
+                        .obs
+                        .os_pid()
+                        .or(backend_pid.map(|p| p as i32));
                     if let Some(pid) = target {
                         OsDriver::sigkill(pid);
                     }
@@ -2176,29 +2409,62 @@ impl SiteRunner {
         let deadline = self.cfg.deadline_ms;
         let pins = self.pins.clone();
         let rig = self.rig(side);
-        rig.supervisor.note_statement(&step.session, step.sql.as_deref().unwrap_or(&step.kind.to_string_key()));
-        let liveness_base = if rig.supervisor.post_crash() { "post-crash" } else { "ok" };
+        rig.supervisor.note_statement(
+            &step.session,
+            step.sql.as_deref().unwrap_or(&step.kind.to_string_key()),
+        );
+        let liveness_base = if rig.supervisor.post_crash() {
+            "post-crash"
+        } else {
+            "ok"
+        };
         match &step.kind {
             StepKind::Connect => {
                 return match rig.connect_session(&step.session, &pins, deadline) {
-                    Ok(()) => StepObs { wire: Vec::new(), ms: 0, liveness: liveness_base.into(), hang: None, lost: None },
-                    Err(e) => StepObs { wire: Vec::new(), ms: 0, liveness: "dead".into(), hang: None, lost: Some(e) },
+                    Ok(()) => StepObs {
+                        wire: Vec::new(),
+                        ms: 0,
+                        liveness: liveness_base.into(),
+                        hang: None,
+                        lost: None,
+                    },
+                    Err(e) => StepObs {
+                        wire: Vec::new(),
+                        ms: 0,
+                        liveness: "dead".into(),
+                        hang: None,
+                        lost: Some(e),
+                    },
                 };
             }
             StepKind::Disconnect => {
-                let pid = rig.session_index(&step.session).and_then(|i| rig.sessions[i].1.obs.backend_pid());
+                let pid = rig
+                    .session_index(&step.session)
+                    .and_then(|i| rig.sessions[i].1.obs.backend_pid());
                 rig.sessions.retain(|(n, _)| n != &step.session);
                 rig.exited_pid = pid;
                 // Its exit-time lines land after the socket closes: the
                 // slice below and the next step's include them.
                 let _ = rig.tail.poll();
-                return StepObs { wire: Vec::new(), ms: 0, liveness: liveness_base.into(), hang: None, lost: None };
+                return StepObs {
+                    wire: Vec::new(),
+                    ms: 0,
+                    liveness: liveness_base.into(),
+                    hang: None,
+                    lost: None,
+                };
             }
             _ => {}
         }
         if rig.session_index(&step.session).is_none() {
             if let Err(e) = rig.connect_session(&step.session, &pins, deadline) {
-                return StepObs { wire: Vec::new(), ms: 0, liveness: "dead".into(), hang: None, lost: Some(e) };
+                return StepObs {
+                    wire: Vec::new(),
+                    ms: 0,
+                    liveness: "dead".into(),
+                    hang: None,
+                    lost: Some(e),
+                };
             }
         }
         let i = rig.session_index(&step.session).expect("connected above");
@@ -2227,28 +2493,59 @@ impl SiteRunner {
                 if let Some(sql) = step.sql.as_deref() {
                     track_txn(slot, sql);
                 }
-                StepObs { wire: ex.wire, ms: ex.ms, liveness, hang, lost: None }
+                StepObs {
+                    wire: ex.wire,
+                    ms: ex.ms,
+                    liveness,
+                    hang,
+                    lost: None,
+                }
             }
             Err(Fault::Lost(detail)) => {
-                let _ = rig.supervisor.observe(Event::ConnLost { session: step.session.clone(), detail: detail.clone() });
+                let _ = rig.supervisor.observe(Event::ConnLost {
+                    session: step.session.clone(),
+                    detail: detail.clone(),
+                });
                 liveness = "dead".into();
-                StepObs { wire: Vec::new(), ms: hang.as_ref().map(|h| h.ms).unwrap_or(0), liveness, hang, lost: Some(detail) }
+                StepObs {
+                    wire: Vec::new(),
+                    ms: hang.as_ref().map(|h| h.ms).unwrap_or(0),
+                    liveness,
+                    hang,
+                    lost: Some(detail),
+                }
             }
             Err(Fault::Hang { ms }) => {
                 liveness = "dead".into();
-                StepObs { wire: Vec::new(), ms, liveness, hang, lost: Some("hung past the ladder".into()) }
+                StepObs {
+                    wire: Vec::new(),
+                    ms,
+                    liveness,
+                    hang,
+                    lost: Some("hung past the ladder".into()),
+                }
             }
         }
     }
 
     /// Run a probe deck on one side and fold it. Session-bound decks run
     /// on the issuing session; the rest on the monitor.
-    fn run_deck(&mut self, side: CSide, deck: Deck, session: Option<&str>, ctx: &RenderCtx) -> Value {
+    fn run_deck(
+        &mut self,
+        side: CSide,
+        deck: Deck,
+        session: Option<&str>,
+        ctx: &RenderCtx,
+    ) -> Value {
         let deadline = self.cfg.deadline_ms;
         let rig = self.rig(side);
         let stmts = probes::render(deck, ctx);
         let mut results: Vec<(String, Vec<WireMsg>)> = Vec::new();
-        let use_session = deck.session_bound().then_some( session).flatten().and_then(|s| rig.session_index(s));
+        let use_session = deck
+            .session_bound()
+            .then_some(session)
+            .flatten()
+            .and_then(|s| rig.session_index(s));
         if use_session.is_none() && rig.ensure_monitor().is_err() {
             return Value::obj();
         }
@@ -2268,12 +2565,19 @@ impl SiteRunner {
         for s in stmts {
             let r = match use_session {
                 Some(i) => rig.sessions[i].1.obs.probe(&s.sql, deadline),
-                None => rig.monitor.as_mut().expect("monitor").probe(&s.sql, deadline),
+                None => rig
+                    .monitor
+                    .as_mut()
+                    .expect("monitor")
+                    .probe(&s.sql, deadline),
             };
             match r {
                 Ok(ex) => results.push((s.key, ex.wire)),
                 Err(Fault::Lost(d)) => {
-                    let _ = rig.supervisor.observe(Event::ConnLost { session: "@monitor".into(), detail: d });
+                    let _ = rig.supervisor.observe(Event::ConnLost {
+                        session: "@monitor".into(),
+                        detail: d,
+                    });
                     break;
                 }
                 Err(Fault::Hang { .. }) => break,
@@ -2281,14 +2585,22 @@ impl SiteRunner {
         }
         let folded = probes::deck_result(&results);
         if deck == Deck::Stats {
-            let prev = rig.last_stats.replace(folded.clone()).unwrap_or_else(Value::obj);
+            let prev = rig
+                .last_stats
+                .replace(folded.clone())
+                .unwrap_or_else(Value::obj);
             return probes::stats_delta(&prev, &folded);
         }
         folded
     }
 
     /// Run a probe round (both sides) and return per-side deck results.
-    fn probe_round(&mut self, trigger: &Trigger, session: Option<&str>, target: Option<&str>) -> (Vec<(String, Value)>, Vec<(String, Value)>) {
+    fn probe_round(
+        &mut self,
+        trigger: &Trigger,
+        session: Option<&str>,
+        target: Option<&str>,
+    ) -> (Vec<(String, Value)>, Vec<(String, Value)>) {
         self.summary.probe_rounds += 1;
         let ctx = self.render_ctx(target);
         let mut out_a = Vec::new();
@@ -2299,7 +2611,11 @@ impl SiteRunner {
             let rb = self.run_deck(CSide::B, deck, session, &ctx);
             let ms = t0.elapsed().as_millis() as u64;
             self.summary.probes_ms += ms;
-            let e = self.summary.deck_ms.entry(deck.name().to_string()).or_insert((0, 0));
+            let e = self
+                .summary
+                .deck_ms
+                .entry(deck.name().to_string())
+                .or_insert((0, 0));
             e.0 += ms;
             e.1 += 1;
             if deck.self_oracle() {
@@ -2308,7 +2624,11 @@ impl SiteRunner {
                 // key), and B's rows for that key are not B findings.
                 for (k, row) in probes::self_oracle_rows(&ra) {
                     let text = contracts::json::to_canonical(&row).unwrap_or_default();
-                    let e = self.summary.invariant_rig_errors.entry(k).or_insert((text, 0));
+                    let e = self
+                        .summary
+                        .invariant_rig_errors
+                        .entry(k)
+                        .or_insert((text, 0));
                     e.1 += 1;
                 }
                 for (k, row) in probes::self_oracle_rows(&rb) {
@@ -2340,7 +2660,17 @@ impl SiteRunner {
         }
     }
 
-    fn observation(&self, step_seq: u64, session: &str, side: CSide, obs: StepObs, log: Vec<contracts::LogLine>, panic: Option<contracts::Panic>, crash: Option<contracts::Crash>, probes: Vec<(String, Value)>) -> ObservationRecord {
+    fn observation(
+        &self,
+        step_seq: u64,
+        session: &str,
+        side: CSide,
+        obs: StepObs,
+        log: Vec<contracts::LogLine>,
+        panic: Option<contracts::Panic>,
+        crash: Option<contracts::Crash>,
+        probes: Vec<(String, Value)>,
+    ) -> ObservationRecord {
         let rig = match side {
             CSide::A => &self.a,
             CSide::B => &self.b,
@@ -2394,7 +2724,9 @@ impl SiteRunner {
             let rig = self.rig(side);
             rig.tail.parser_mut().finish();
             let m1 = rig.tail.mark();
-            let pid = rig.session_index(&step.session).and_then(|i| rig.sessions[i].1.obs.backend_pid());
+            let pid = rig
+                .session_index(&step.session)
+                .and_then(|i| rig.sessions[i].1.obs.backend_pid());
             // The pid a disconnect step just dropped rides along for that
             // step and the next one (exit-time lines arrive late).
             let exited = rig.exited_pid;
@@ -2410,16 +2742,32 @@ impl SiteRunner {
                 _ => logtail::slice_for_pids(lines, m0, m1, &pids),
             };
             for t in &rig.collector_tails {
-                log.extend(t.parser().lines().iter().filter(|l| l.rec.pid.is_none_or(|p| pids.is_empty() || pids.contains(&p))).map(|l| l.rec.clone()));
+                log.extend(
+                    t.parser()
+                        .lines()
+                        .iter()
+                        .filter(|l| {
+                            l.rec
+                                .pid
+                                .is_none_or(|p| pids.is_empty() || pids.contains(&p))
+                        })
+                        .map(|l| l.rec.clone()),
+                );
             }
-            let panic = logtail::panics_in(rig.tail.parser(), m0, m1).into_iter().next();
+            let panic = logtail::panics_in(rig.tail.parser(), m0, m1)
+                .into_iter()
+                .next();
             if panic.is_some() {
                 self.summary.panics += 1;
             }
             self.handle_actions(side, actions);
             // The crash record carries the generation the stream resumed
             // under, so it is read after the restart completed.
-            let crash = if crashed { self.rig(side).supervisor.crash_record() } else { None };
+            let crash = if crashed {
+                self.rig(side).supervisor.crash_record()
+            } else {
+                None
+            };
             let post = self.rig(side).supervisor.post_crash();
             let mut obs = obs;
             if crashed || (post && obs.liveness == "dead") {
@@ -2448,7 +2796,13 @@ impl SiteRunner {
             };
             if probes::is_ddl(sql) {
                 let target = probes::target_table(sql);
-                triggers.push((Trigger::DdlStatement { in_txn, takes_lock: probes::takes_relation_lock(sql) }, target));
+                triggers.push((
+                    Trigger::DdlStatement {
+                        in_txn,
+                        takes_lock: probes::takes_relation_lock(sql),
+                    },
+                    target,
+                ));
                 if !in_txn {
                     triggers.push((Trigger::DdlBracketEnd, None));
                 }
@@ -2459,7 +2813,10 @@ impl SiteRunner {
                 triggers.push((Trigger::DdlBracketEnd, None));
             }
             if bracket_dml_end {
-                let target = self.b.session_index(&step.session).and_then(|i| self.b.sessions[i].1.last_target.clone());
+                let target = self
+                    .b
+                    .session_index(&step.session)
+                    .and_then(|i| self.b.sessions[i].1.last_target.clone());
                 triggers.push((Trigger::DmlBracketEnd, target));
             }
             // Bracket bookkeeping closes after the triggers computed above.
@@ -2479,7 +2836,10 @@ impl SiteRunner {
                 triggers.push((Trigger::Explicit(d), None));
             }
         }
-        if triggers.iter().any(|(t, _)| matches!(t, Trigger::DdlBracketEnd | Trigger::Restart)) {
+        if triggers
+            .iter()
+            .any(|(t, _)| matches!(t, Trigger::DdlBracketEnd | Trigger::Restart))
+        {
             // User types may have appeared / oids moved: re-probe the
             // canon contexts before this step's compare.
             self.ctx_stale = true;
@@ -2495,7 +2855,16 @@ impl SiteRunner {
                 CSide::A => std::mem::take(&mut probes_a),
                 CSide::B => std::mem::take(&mut probes_b),
             };
-            let rec = self.observation(step.seq, &step.session, side, obs, log, panic, crash, probes);
+            let rec = self.observation(
+                step.seq,
+                &step.session,
+                side,
+                obs,
+                log,
+                panic,
+                crash,
+                probes,
+            );
             sink.observation(&rec);
             emitted.push(rec);
         }
@@ -2516,17 +2885,30 @@ impl SiteRunner {
         let seq = self.last_seq + 1;
         let (pa, pb) = self.probe_round(&Trigger::StreamEnd, None, None);
         for (side, probes) in [(CSide::A, pa), (CSide::B, pb)] {
-            let liveness = if self.rig(side).supervisor.post_crash() { "post-crash" } else { "ok" };
-            let obs = StepObs { wire: Vec::new(), ms: 0, liveness: liveness.into(), hang: None, lost: None };
+            let liveness = if self.rig(side).supervisor.post_crash() {
+                "post-crash"
+            } else {
+                "ok"
+            };
+            let obs = StepObs {
+                wire: Vec::new(),
+                ms: 0,
+                liveness: liveness.into(),
+                hang: None,
+                lost: None,
+            };
             let rec = self.observation(seq, "@end", side, obs, Vec::new(), None, None, probes);
             sink.observation(&rec);
         }
         let _ = self.b.poll_logs();
         self.b.tail.parser_mut().finish();
-        let violations = logtail::prefix_violations(self.b.tail.parser().prefix(), self.b.tail.parser().lines());
+        let violations =
+            logtail::prefix_violations(self.b.tail.parser().prefix(), self.b.tail.parser().lines());
         for v in violations {
             let raw = String::from_utf8_lossy(&v.raw.0).into_owned();
-            self.summary.prefix_violations.push((v.line_no, raw.clone()));
+            self.summary
+                .prefix_violations
+                .push((v.line_no, raw.clone()));
             let f = prefix_finding(&self.cfg, &self.scenario, v.line_no, &v.raw);
             sink.finding(&f);
             self.summary.findings += 1;
@@ -2553,8 +2935,13 @@ impl SiteRunner {
             }
         }
         // Ledger hits this run (the `rulings audit` input).
-        let hits: Vec<(String, Value)> =
-            self.ledger.hits().into_iter().filter(|(_, n)| *n > 0).map(|(id, n)| (id, Value::from(n))).collect();
+        let hits: Vec<(String, Value)> = self
+            .ledger
+            .hits()
+            .into_iter()
+            .filter(|(_, n)| *n > 0)
+            .map(|(id, n)| (id, Value::from(n)))
+            .collect();
         if !hits.is_empty() {
             sink.note(&Value::obj().with("rulings_hits", Value::Obj(hits)));
         }
@@ -2607,10 +2994,18 @@ fn set_guc_name(sql: &str) -> Option<String> {
     if w.eq_ignore_ascii_case("LOCAL") || w.eq_ignore_ascii_case("SESSION") {
         w = words.next()?;
     }
-    if w.eq_ignore_ascii_case("TRANSACTION") || w.eq_ignore_ascii_case("CONSTRAINTS") || w.eq_ignore_ascii_case("ROLE") {
+    if w.eq_ignore_ascii_case("TRANSACTION")
+        || w.eq_ignore_ascii_case("CONSTRAINTS")
+        || w.eq_ignore_ascii_case("ROLE")
+    {
         return None;
     }
-    let name = w.trim_end_matches(';').split('=').next().unwrap_or("").to_string();
+    let name = w
+        .trim_end_matches(';')
+        .split('=')
+        .next()
+        .unwrap_or("")
+        .to_string();
     if name.is_empty() {
         None
     } else {
@@ -2618,7 +3013,16 @@ fn set_guc_name(sql: &str) -> Option<String> {
     }
 }
 
-fn base_finding(cfg: &SiteConfig, scenario: &str, id: String, plane: &str, class: Class, severity: Severity, signature: String, b: Value) -> Finding {
+fn base_finding(
+    cfg: &SiteConfig,
+    scenario: &str,
+    id: String,
+    plane: &str,
+    class: Class,
+    severity: Severity,
+    signature: String,
+    b: Value,
+) -> Finding {
     Finding {
         id,
         plane: plane.to_string(),
@@ -2632,8 +3036,15 @@ fn base_finding(cfg: &SiteConfig, scenario: &str, id: String, plane: &str, class
         a: Value::Null,
         b,
         log_marks: vec![scenario.to_string()],
-        repro: Repro { cases_sql: "cases.sql".into(), cell_json: "cell.json".into(), spec: None },
-        verified: Verified { fresh_runs: 0, independent: None },
+        repro: Repro {
+            cases_sql: "cases.sql".into(),
+            cell_json: "cell.json".into(),
+            spec: None,
+        },
+        verified: Verified {
+            fresh_runs: 0,
+            independent: None,
+        },
         timing: None,
         rule: None,
         status: Status::New,
@@ -2651,28 +3062,48 @@ pub fn prefix_finding(cfg: &SiteConfig, scenario: &str, line_no: u64, raw: &Byte
         "log",
         Class::WrongMessage,
         Severity::Low,
-        format!("log | prefix-invariant | {} | line {line_no}", text.chars().take(80).collect::<String>()),
-        Value::obj().with("line", Value::from(line_no)).with("raw", raw.to_json()),
+        format!(
+            "log | prefix-invariant | {} | line {line_no}",
+            text.chars().take(80).collect::<String>()
+        ),
+        Value::obj()
+            .with("line", Value::from(line_no))
+            .with("raw", raw.to_json()),
     )
 }
 
 /// `seed-<n>/cell-<name>` -> n.
 pub fn scenario_seed(scenario: &str) -> Option<u64> {
-    scenario.strip_prefix("seed-")?.split('/').next()?.parse().ok()
+    scenario
+        .strip_prefix("seed-")?
+        .split('/')
+        .next()?
+        .parse()
+        .ok()
 }
 
 /// DataRow cells of a wire as text rows (lossless rendering).
 pub fn wire_text_rows(wire: &[WireMsg]) -> Vec<Vec<Option<String>>> {
     wire.iter()
         .filter_map(|m| match m {
-            WireMsg::DataRow(cells) => Some(cells.iter().map(|c| c.as_ref().map(|b| canon::bytes_text(&b.0))).collect()),
+            WireMsg::DataRow(cells) => Some(
+                cells
+                    .iter()
+                    .map(|c| c.as_ref().map(|b| canon::bytes_text(&b.0)))
+                    .collect(),
+            ),
             _ => None,
         })
         .collect()
 }
 
 fn err_tuple_json(t: &canon::ErrTuple) -> Value {
-    Value::Obj(t.fields.iter().map(|(c, v)| (c.to_string(), Value::from(v.as_str()))).collect())
+    Value::Obj(
+        t.fields
+            .iter()
+            .map(|(c, v)| (c.to_string(), Value::from(v.as_str())))
+            .collect(),
+    )
 }
 
 /// Rows kept in a finding's `a{}`/`b{}` per result group.
@@ -2681,24 +3112,40 @@ const FINDING_ROW_CAP: usize = 20;
 /// One side's canonical view of a plane, as the finding's `a{}` / `b{}`:
 /// always the differing field and its value, plus the plane's content.
 pub fn plane_json(s: &CanonSide, plane: &str, field: &str, value: Option<&str>) -> Value {
-    let mut v = Value::obj().with("field", Value::from(field)).with("value", contracts::json::opt(value));
+    let mut v = Value::obj()
+        .with("field", Value::from(field))
+        .with("value", contracts::json::opt(value));
     match plane {
-        "wire:E" => v.set("error", s.error.as_ref().map(err_tuple_json).unwrap_or(Value::Null)),
+        "wire:E" => v.set(
+            "error",
+            s.error.as_ref().map(err_tuple_json).unwrap_or(Value::Null),
+        ),
         "wire:N" => {
             v.set("count", Value::from(s.notices.len() as u64));
-            v.set("first", s.notices.first().map(err_tuple_json).unwrap_or(Value::Null));
+            v.set(
+                "first",
+                s.notices.first().map(err_tuple_json).unwrap_or(Value::Null),
+            );
         }
         "rows" | "explain" | "meta" | "tag" | "copy" => {
             let groups = s
                 .groups
                 .iter()
                 .map(|g| {
-                    let cols = g.columns.as_ref().map(|c| contracts::json::str_arr(&c.iter().map(|m| m.render()).collect::<Vec<_>>()));
+                    let cols = g.columns.as_ref().map(|c| {
+                        contracts::json::str_arr(&c.iter().map(|m| m.render()).collect::<Vec<_>>())
+                    });
                     let rows: Vec<Value> = g
                         .text_rows()
                         .iter()
                         .take(FINDING_ROW_CAP)
-                        .map(|r| Value::Arr(r.iter().map(|c| contracts::json::opt(c.as_deref())).collect()))
+                        .map(|r| {
+                            Value::Arr(
+                                r.iter()
+                                    .map(|c| contracts::json::opt(c.as_deref()))
+                                    .collect(),
+                            )
+                        })
                         .collect();
                     Value::obj()
                         .with("columns", cols.unwrap_or(Value::Null))
@@ -2712,7 +3159,15 @@ pub fn plane_json(s: &CanonSide, plane: &str, field: &str, value: Option<&str>) 
                 v.set("copy_out", Bytes(s.copy_out.clone()).to_json());
             }
             if plane == "meta" {
-                v.set("params", Value::Obj(s.params.iter().map(|(k, x)| (k.clone(), Value::from(x.as_str()))).collect()));
+                v.set(
+                    "params",
+                    Value::Obj(
+                        s.params
+                            .iter()
+                            .map(|(k, x)| (k.clone(), Value::from(x.as_str())))
+                            .collect(),
+                    ),
+                );
             }
         }
         "notify" => v.set(
@@ -2720,11 +3175,19 @@ pub fn plane_json(s: &CanonSide, plane: &str, field: &str, value: Option<&str>) 
             Value::Arr(
                 s.notify
                     .iter()
-                    .map(|((ch, p), n)| Value::obj().with("channel", Value::from(ch.as_str())).with("payload", Value::from(p.as_str())).with("count", Value::from(*n)))
+                    .map(|((ch, p), n)| {
+                        Value::obj()
+                            .with("channel", Value::from(ch.as_str()))
+                            .with("payload", Value::from(p.as_str()))
+                            .with("count", Value::from(*n))
+                    })
                     .collect(),
             ),
         ),
-        "log" => v.set("log", contracts::json::str_arr(&s.log.iter().map(|l| l.raw.clone()).collect::<Vec<_>>())),
+        "log" => v.set(
+            "log",
+            contracts::json::str_arr(&s.log.iter().map(|l| l.raw.clone()).collect::<Vec<_>>()),
+        ),
         "session" => {
             v.set("liveness", Value::from(s.liveness.as_str()));
             v.set("ready", Value::from(s.ready.iter().collect::<String>()));
@@ -2737,7 +3200,10 @@ pub fn plane_json(s: &CanonSide, plane: &str, field: &str, value: Option<&str>) 
                     Value::obj()
                         .with("site", Value::from(p.site.as_str()))
                         .with("message", p.message.to_json())
-                        .with("query", p.query.as_ref().map(Bytes::to_json).unwrap_or(Value::Null))
+                        .with(
+                            "query",
+                            p.query.as_ref().map(Bytes::to_json).unwrap_or(Value::Null),
+                        )
                 })
                 .unwrap_or(Value::Null),
         ),
@@ -2750,7 +3216,10 @@ pub fn plane_json(s: &CanonSide, plane: &str, field: &str, value: Option<&str>) 
                         .with("side", Value::from(c.side.as_str()))
                         .with("generation", Value::from(c.generation))
                         .with("signal", contracts::json::opt(c.signal.as_deref()))
-                        .with("log_tail", Value::Arr(c.log_tail.iter().map(Bytes::to_json).collect()))
+                        .with(
+                            "log_tail",
+                            Value::Arr(c.log_tail.iter().map(Bytes::to_json).collect()),
+                        )
                 })
                 .unwrap_or(Value::Null),
         ),
@@ -2758,7 +3227,11 @@ pub fn plane_json(s: &CanonSide, plane: &str, field: &str, value: Option<&str>) 
             "hang",
             s.hang
                 .as_ref()
-                .map(|h| Value::obj().with("ms", Value::from(h.ms)).with("ladder", contracts::json::opt(h.ladder.as_deref())))
+                .map(|h| {
+                    Value::obj()
+                        .with("ms", Value::from(h.ms))
+                        .with("ladder", contracts::json::opt(h.ladder.as_deref()))
+                })
                 .unwrap_or(Value::Null),
         ),
         p => {
@@ -2766,7 +3239,12 @@ pub fn plane_json(s: &CanonSide, plane: &str, field: &str, value: Option<&str>) 
                 // The divergence is per statement key: `value` is this
                 // side's result for that key (not the whole deck).
                 v.set("stmt", Value::from(field));
-                v.set("probe", value.and_then(|t| contracts::json::parse(t).ok()).unwrap_or(Value::Null));
+                v.set(
+                    "probe",
+                    value
+                        .and_then(|t| contracts::json::parse(t).ok())
+                        .unwrap_or(Value::Null),
+                );
             }
         }
     }
@@ -2776,7 +3254,13 @@ pub fn plane_json(s: &CanonSide, plane: &str, field: &str, value: Option<&str>) 
 /// A comparator `Divergence` as a Finding (plan §3.3 "Finding |
 /// Ruled(id)"): NEW, or RULED with the ledger id; `units` stay empty
 /// until the witness pass; `repro` carries the step's SQL.
-pub fn divergence_finding(cfg: &SiteConfig, step: &StepRecord, d: &Divergence, ca: &CanonSide, cb: &CanonSide) -> Finding {
+pub fn divergence_finding(
+    cfg: &SiteConfig,
+    step: &StepRecord,
+    d: &Divergence,
+    ca: &CanonSide,
+    cb: &CanonSide,
+) -> Finding {
     let sql = step.sql.clone().unwrap_or_default();
     let slug = |s: &str| s.replace(['/', ':'], "-");
     Finding {
@@ -2792,19 +3276,39 @@ pub fn divergence_finding(cfg: &SiteConfig, step: &StepRecord, d: &Divergence, c
         a: plane_json(ca, &d.plane, &d.field, d.a.as_deref()),
         b: plane_json(cb, &d.plane, &d.field, d.b.as_deref()),
         log_marks: Vec::new(),
-        repro: Repro { cases_sql: sql.clone(), cell_json: "cell.json".into(), spec: None },
-        verified: Verified { fresh_runs: 0, independent: None },
+        repro: Repro {
+            cases_sql: sql.clone(),
+            cell_json: "cell.json".into(),
+            spec: None,
+        },
+        verified: Verified {
+            fresh_runs: 0,
+            independent: None,
+        },
         timing: None,
         rule: d.rule.clone(),
-        status: if d.rule.is_some() { Status::Ruled } else { Status::New },
-        audit: AuditFields { repro: Some(sql), ..AuditFields::default() },
+        status: if d.rule.is_some() {
+            Status::Ruled
+        } else {
+            Status::New
+        },
+        audit: AuditFields {
+            repro: Some(sql),
+            ..AuditFields::default()
+        },
     }
 }
 
 /// An invariants.sql statement that returned rows on the C oracle: the
 /// rig's invariant is wrong (plane `probe:invariants`, one per key, id
 /// `invariant-rig-error-<key>`); `a` carries the first row and the count.
-pub fn invariant_rig_error_finding(cfg: &SiteConfig, scenario: &str, key: &str, row: &str, rows: u64) -> Finding {
+pub fn invariant_rig_error_finding(
+    cfg: &SiteConfig,
+    scenario: &str,
+    key: &str,
+    row: &str,
+    rows: u64,
+) -> Finding {
     let mut f = base_finding(
         cfg,
         scenario,
@@ -2819,7 +3323,10 @@ pub fn invariant_rig_error_finding(cfg: &SiteConfig, scenario: &str, key: &str, 
         .with("stmt", Value::from(key))
         .with("row", Value::from(row))
         .with("rows", Value::from(rows))
-        .with("rig_error", Value::from("invariant returned rows on the C oracle; the invariant is wrong, not B"));
+        .with(
+            "rig_error",
+            Value::from("invariant returned rows on the C oracle; the invariant is wrong, not B"),
+        );
     f
 }
 
@@ -2833,7 +3340,9 @@ pub fn invariant_finding(cfg: &SiteConfig, scenario: &str, key: &str, row: &str)
         Class::WrongResult,
         Severity::High,
         format!("probe:invariants | {key} | - | row"),
-        Value::obj().with("stmt", Value::from(key)).with("row", Value::from(row)),
+        Value::obj()
+            .with("stmt", Value::from(key))
+            .with("row", Value::from(row)),
     )
 }
 
@@ -2863,8 +3372,19 @@ pub struct ClientObserver {
 impl ClientObserver {
     pub fn connect(opts: &ConnectOpts) -> Result<ClientObserver, String> {
         let c = Client::connect_with(opts).map_err(|e: ConnectError| e.detail)?;
-        let version = c.parameter("server_version").map(canon::bytes_text).unwrap_or_default();
-        Ok(ClientObserver { opts: opts.clone(), client: Some(c), dead: None, pending: Vec::new(), pending_ms: 0, version, os_pid: None })
+        let version = c
+            .parameter("server_version")
+            .map(canon::bytes_text)
+            .unwrap_or_default();
+        Ok(ClientObserver {
+            opts: opts.clone(),
+            client: Some(c),
+            dead: None,
+            pending: Vec::new(),
+            pending_ms: 0,
+            version,
+            os_pid: None,
+        })
     }
 
     /// The OS pid the hang ladder's SIGKILL targets when it differs from
@@ -2883,7 +3403,8 @@ impl ClientObserver {
             if !o.extra.iter().any(|(k, _)| k == "application_name") {
                 o = o.param("application_name", session);
             }
-            ClientObserver::connect(&o).map(|obs| Box::new(obs.with_os_pid(os_pid)) as Box<dyn Observer>)
+            ClientObserver::connect(&o)
+                .map(|obs| Box::new(obs.with_os_pid(os_pid)) as Box<dyn Observer>)
         })
     }
 
@@ -2892,8 +3413,12 @@ impl ClientObserver {
         if let Some(d) = &self.dead {
             return Err(Fault::Lost(d.clone()));
         }
-        let c = self.client.as_mut().ok_or_else(|| Fault::Lost("not connected".to_string()))?;
-        c.set_read_timeout(Some(Duration::from_millis(deadline_ms.max(1)))).map_err(|e| Fault::Lost(format!("set_read_timeout: {e}")))?;
+        let c = self
+            .client
+            .as_mut()
+            .ok_or_else(|| Fault::Lost("not connected".to_string()))?;
+        c.set_read_timeout(Some(Duration::from_millis(deadline_ms.max(1))))
+            .map_err(|e| Fault::Lost(format!("set_read_timeout: {e}")))?;
         Ok(c)
     }
 
@@ -2924,26 +3449,63 @@ impl ClientObserver {
 /// [Describe S] / Bind / [Describe P] / Execute, no Sync — `pipeline`
 /// appends one, `extended` drives Flush + Sync itself.
 pub fn xproto_frames(sql: &str, x: &contracts::XProto) -> Vec<Frame> {
-    let params: Vec<WireParam> = x.params.iter().map(|p| WireParam { bytes: p.as_ref().map(|b| b.0.clone()), binary: false }).collect();
-    let mut out = vec![Frame::Parse { stmt: x.stmt.clone(), sql: sql.to_string(), param_oids: Vec::new() }];
+    let params: Vec<WireParam> = x
+        .params
+        .iter()
+        .map(|p| WireParam {
+            bytes: p.as_ref().map(|b| b.0.clone()),
+            binary: false,
+        })
+        .collect();
+    let mut out = vec![Frame::Parse {
+        stmt: x.stmt.clone(),
+        sql: sql.to_string(),
+        param_oids: Vec::new(),
+    }];
     if x.describe == "S" {
-        out.push(Frame::Describe { kind: Describe::Statement, name: x.stmt.clone() });
+        out.push(Frame::Describe {
+            kind: Describe::Statement,
+            name: x.stmt.clone(),
+        });
     }
     if x.mode == "describe_only" {
         return out;
     }
-    out.push(Frame::Bind { portal: x.portal.clone(), stmt: x.stmt.clone(), params: params.clone(), result_fmts: Vec::new() });
+    out.push(Frame::Bind {
+        portal: x.portal.clone(),
+        stmt: x.stmt.clone(),
+        params: params.clone(),
+        result_fmts: Vec::new(),
+    });
     if x.describe == "P" {
-        out.push(Frame::Describe { kind: Describe::Portal, name: x.portal.clone() });
+        out.push(Frame::Describe {
+            kind: Describe::Portal,
+            name: x.portal.clone(),
+        });
     }
-    out.push(Frame::Execute { portal: x.portal.clone(), limit: x.limit });
+    out.push(Frame::Execute {
+        portal: x.portal.clone(),
+        limit: x.limit,
+    });
     // `repeat`: the whole Parse/Bind/Execute group again, N-1 more times,
     // with no Sync in between (the compose `pipeline-n` shell, the
     // extended-protocol twin of the multi-statement message).
     for _ in 1..x.repeat.max(1) {
-        out.push(Frame::Parse { stmt: x.stmt.clone(), sql: sql.to_string(), param_oids: Vec::new() });
-        out.push(Frame::Bind { portal: x.portal.clone(), stmt: x.stmt.clone(), params: params.clone(), result_fmts: Vec::new() });
-        out.push(Frame::Execute { portal: x.portal.clone(), limit: x.limit });
+        out.push(Frame::Parse {
+            stmt: x.stmt.clone(),
+            sql: sql.to_string(),
+            param_oids: Vec::new(),
+        });
+        out.push(Frame::Bind {
+            portal: x.portal.clone(),
+            stmt: x.stmt.clone(),
+            params: params.clone(),
+            result_fmts: Vec::new(),
+        });
+        out.push(Frame::Execute {
+            portal: x.portal.clone(),
+            limit: x.limit,
+        });
     }
     out
 }
@@ -2955,7 +3517,14 @@ pub fn xproto_step(sql: &str, x: &contracts::XProto) -> ExtendedStep {
     let mut s = ExtendedStep::new(sql);
     s.stmt = x.stmt.clone();
     s.portal = x.portal.clone();
-    s.params = x.params.iter().map(|p| WireParam { bytes: p.as_ref().map(|b| b.0.clone()), binary: false }).collect();
+    s.params = x
+        .params
+        .iter()
+        .map(|p| WireParam {
+            bytes: p.as_ref().map(|b| b.0.clone()),
+            binary: false,
+        })
+        .collect();
     s.limit = x.limit;
     s.describe = match x.describe.as_str() {
         "S" => Some(Describe::Statement),
@@ -2974,7 +3543,8 @@ impl Observer for ClientObserver {
             StepKind::Sql => self.armed(deadline_ms)?.simple(&sql),
             StepKind::CopyIn => {
                 let data = step.slots.get("copy_data").cloned().unwrap_or_default();
-                self.armed(deadline_ms)?.simple_with_copy(&sql, Some(data.as_bytes()))
+                self.armed(deadline_ms)?
+                    .simple_with_copy(&sql, Some(data.as_bytes()))
             }
             StepKind::Xproto => {
                 let x = step.xproto.clone().unwrap_or(contracts::XProto {
@@ -2999,12 +3569,20 @@ impl Observer for ClientObserver {
             StepKind::Cancel => {
                 let c = self.armed(deadline_ms)?;
                 c.cancel().map_err(Fault::Lost)?;
-                return Ok(Exchange { wire: Vec::new(), ms: 0 });
+                return Ok(Exchange {
+                    wire: Vec::new(),
+                    ms: 0,
+                });
             }
             // connect / disconnect are the rig's (SideRig); env / storm /
             // pressure / settle / sleep_until_blocked / probe:<deck> are
             // driven by the runner outside the session exchange.
-            _ => return Ok(Exchange { wire: Vec::new(), ms: 0 }),
+            _ => {
+                return Ok(Exchange {
+                    wire: Vec::new(),
+                    ms: 0,
+                })
+            }
         };
         self.finish(ex)
     }
@@ -3022,7 +3600,10 @@ impl Observer for ClientObserver {
     }
 
     fn backend_pid(&self) -> Option<u32> {
-        self.client.as_ref().map(Client::backend_pid).filter(|p| *p != 0)
+        self.client
+            .as_ref()
+            .map(Client::backend_pid)
+            .filter(|p| *p != 0)
     }
 
     fn os_pid(&self) -> Option<i32> {
@@ -3036,7 +3617,10 @@ impl Observer for ClientObserver {
             }
         }
         let c = Client::connect_with(&self.opts).map_err(|e| e.detail)?;
-        self.version = c.parameter("server_version").map(canon::bytes_text).unwrap_or_default();
+        self.version = c
+            .parameter("server_version")
+            .map(canon::bytes_text)
+            .unwrap_or_default();
         self.client = Some(c);
         self.dead = None;
         self.pending.clear();
@@ -3070,23 +3654,45 @@ mod site_tests {
 
     impl Observer for FakeObserver {
         fn exchange(&mut self, _step: &StepRecord, _deadline_ms: u64) -> Result<Exchange, Fault> {
-            let (r, log) = self.script.borrow_mut().pop_front().unwrap_or((Ok(Exchange { wire: vec![WireMsg::ReadyForQuery { status: 'I' }], ms: 1 }), String::new()));
+            let (r, log) = self.script.borrow_mut().pop_front().unwrap_or((
+                Ok(Exchange {
+                    wire: vec![WireMsg::ReadyForQuery { status: 'I' }],
+                    ms: 1,
+                }),
+                String::new(),
+            ));
             if !log.is_empty() {
                 use std::io::Write;
-                let mut f = std::fs::OpenOptions::new().create(true).append(true).open(&self.log).unwrap();
+                let mut f = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&self.log)
+                    .unwrap();
                 f.write_all(log.as_bytes()).unwrap();
             }
             r
         }
         fn resume(&mut self, _deadline_ms: u64) -> Result<Exchange, Fault> {
-            let (r, _) = self.script.borrow_mut().pop_front().unwrap_or((Err(Fault::Hang { ms: 5_000 }), String::new()));
+            let (r, _) = self
+                .script
+                .borrow_mut()
+                .pop_front()
+                .unwrap_or((Err(Fault::Hang { ms: 5_000 }), String::new()));
             r
         }
         fn probe(&mut self, sql: &str, _deadline_ms: u64) -> Result<Exchange, Fault> {
             self.probes.borrow_mut().push(sql.to_string());
             Ok(Exchange {
                 wire: vec![
-                    WireMsg::RowDescription(vec![contracts::ColDesc { name: Bytes::text("x"), tableoid: 0, attnum: 0, typoid: 25, typlen: -1, typmod: -1, fmt: 0 }]),
+                    WireMsg::RowDescription(vec![contracts::ColDesc {
+                        name: Bytes::text("x"),
+                        tableoid: 0,
+                        attnum: 0,
+                        typoid: 25,
+                        typlen: -1,
+                        typmod: -1,
+                        fmt: 0,
+                    }]),
                     WireMsg::DataRow(vec![Some(Bytes::text("v"))]),
                     WireMsg::CommandComplete(Bytes::text("SELECT 1")),
                     WireMsg::ReadyForQuery { status: 'I' },
@@ -3124,7 +3730,8 @@ mod site_tests {
 
     impl Harness {
         fn new(name: &str, guc_pin: bool) -> Harness {
-            let dir = std::env::temp_dir().join(format!("fuzzgen-site-{}-{}", name, std::process::id()));
+            let dir =
+                std::env::temp_dir().join(format!("fuzzgen-site-{}-{}", name, std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
             std::fs::create_dir_all(&dir).unwrap();
             let mut cell = Cell::base();
@@ -3146,21 +3753,64 @@ mod site_tests {
 
         fn runner(&self) -> SiteRunner {
             let connect_log = self.connect_log.clone();
-            let mk = |script: &Rc<RefCell<VecDeque<(Result<Exchange, Fault>, String)>>>, log: &PathBuf, pid: u32, probes: &Rc<RefCell<Vec<String>>>, rec: &Rc<RefCell<u32>>| -> Connector {
-                let (s, l, p, r, cl) = (script.clone(), log.clone(), probes.clone(), rec.clone(), connect_log.clone());
+            let mk = |script: &Rc<RefCell<VecDeque<(Result<Exchange, Fault>, String)>>>,
+                      log: &PathBuf,
+                      pid: u32,
+                      probes: &Rc<RefCell<Vec<String>>>,
+                      rec: &Rc<RefCell<u32>>|
+             -> Connector {
+                let (s, l, p, r, cl) = (
+                    script.clone(),
+                    log.clone(),
+                    probes.clone(),
+                    rec.clone(),
+                    connect_log.clone(),
+                );
                 Box::new(move |name| {
                     if name == "s2" {
                         if let Some(text) = cl.borrow().as_ref() {
                             use std::io::Write;
-                            let mut f = std::fs::OpenOptions::new().create(true).append(true).open(&l).unwrap();
+                            let mut f = std::fs::OpenOptions::new()
+                                .create(true)
+                                .append(true)
+                                .open(&l)
+                                .unwrap();
                             f.write_all(text.as_bytes()).unwrap();
                         }
                     }
-                    Ok(Box::new(FakeObserver { script: s.clone(), log: l.clone(), pid, probes: p.clone(), reconnects: r.clone() }) as Box<dyn Observer>)
+                    Ok(Box::new(FakeObserver {
+                        script: s.clone(),
+                        log: l.clone(),
+                        pid,
+                        probes: p.clone(),
+                        reconnects: r.clone(),
+                    }) as Box<dyn Observer>)
                 })
             };
-            let a = SideRig::new(CSide::A, &self.cfg, mk(&self.script_a, &self.cfg.a_log, 120, &self.probes_a, &self.reconnects), None);
-            let b = SideRig::new(CSide::B, &self.cfg, mk(&self.script_b, &self.cfg.b_log, 19, &self.probes_b, &self.reconnects), None);
+            let a = SideRig::new(
+                CSide::A,
+                &self.cfg,
+                mk(
+                    &self.script_a,
+                    &self.cfg.a_log,
+                    120,
+                    &self.probes_a,
+                    &self.reconnects,
+                ),
+                None,
+            );
+            let b = SideRig::new(
+                CSide::B,
+                &self.cfg,
+                mk(
+                    &self.script_b,
+                    &self.cfg.b_log,
+                    19,
+                    &self.probes_b,
+                    &self.reconnects,
+                ),
+                None,
+            );
             SiteRunner::new(self.cfg.clone(), "seed-1/cell-base", a, b)
         }
 
@@ -3206,7 +3856,11 @@ mod site_tests {
             "crash" => include_str!("../fixtures/contracts/observation-crash.json"),
             _ => panic!("no fixture {name}"),
         };
-        ObservationRecord::from_jsonl(&contracts::json::to_canonical(&contracts::json::parse(text).unwrap()).unwrap()).unwrap().wire
+        ObservationRecord::from_jsonl(
+            &contracts::json::to_canonical(&contracts::json::parse(text).unwrap()).unwrap(),
+        )
+        .unwrap()
+        .wire
     }
 
     fn ok(wire: Vec<WireMsg>) -> Result<Exchange, Fault> {
@@ -3240,16 +3894,31 @@ mod site_tests {
         assert_eq!(oa.version, "18.6 (fake)");
         assert_eq!(oa.log.len(), 2, "pid-attributed slice: both 120 lines");
         assert_eq!(oa.log[1].level.as_deref(), Some("STATEMENT"));
-        assert_eq!(ob.log.len(), 1, "the pid-77 line belongs to another session");
+        assert_eq!(
+            ob.log.len(),
+            1,
+            "the pid-77 line belongs to another session"
+        );
         assert_eq!(ob.log[0].pid, Some(19));
         assert!(ob.panic.is_none() && ob.crash.is_none() && ob.hang.is_none());
         let end = ObservationRecord::from_jsonl(&sink.obs_b[1]).unwrap();
         assert_eq!(end.seq, 2);
         assert_eq!(end.session, "@end");
-        assert_eq!(end.probes.keys().cloned().collect::<Vec<_>>(), ["catalog", "invariants", "physical", "stats"]);
+        assert_eq!(
+            end.probes.keys().cloned().collect::<Vec<_>>(),
+            ["catalog", "invariants", "physical", "stats"]
+        );
         // Pins applied at connect on both sides (guc_pin on).
-        assert!(h.probes_a.borrow().iter().any(|s| s.starts_with("SET TimeZone")));
-        assert!(h.probes_b.borrow().iter().any(|s| s.starts_with("SET parallel_setup_cost")));
+        assert!(h
+            .probes_a
+            .borrow()
+            .iter()
+            .any(|s| s.starts_with("SET TimeZone")));
+        assert!(h
+            .probes_b
+            .borrow()
+            .iter()
+            .any(|s| s.starts_with("SET parallel_setup_cost")));
         assert_eq!(summary.prefix_violations.len(), 0);
     }
 
@@ -3259,7 +3928,11 @@ mod site_tests {
         let mut r = h.runner();
         let mut sink = VecSink::default();
         r.run_stream(&[step(1, "RESET ALL")], &mut sink);
-        assert!(h.probes_a.borrow().iter().all(|s| !s.starts_with("SET ")), "{:?}", h.probes_a.borrow());
+        assert!(
+            h.probes_a.borrow().iter().all(|s| !s.starts_with("SET ")),
+            "{:?}",
+            h.probes_a.borrow()
+        );
         assert!(h.probes_b.borrow().iter().all(|s| !s.starts_with("SET ")));
         // L0.4's cell.json shape.
         let factory = r#"{"b_build":"dev","conf":{"autovacuum":"off","log_min_messages":"debug1"},"conf_a":{},"conf_b":{"max_stack_depth":"60000"},"hba":"trust","host":"linux","initdb":{"checksums":true,"encoding":"UTF8","locale":"C"},"logging":{"collector":true,"log_destination":"stderr,csvlog,jsonlog","log_error_verbosity_a":"verbose","log_line_prefix":"%m %b[%p] %q%a ","log_timezone":"America/New_York"},"name":"elog","oracle":{"ref":"REL_18_6","server_version_num":180006,"sha":"724edf9b","variant":"plain"},"pins":{"guc_pin":"off","io_method":"sync","max_stack_depth":"60000"},"schema":"sitediff-cell/1","server_flags":["-b"],"topology":"single"}"#;
@@ -3271,13 +3944,26 @@ mod site_tests {
         assert_eq!(cfg.a_log, PathBuf::from("/w/a.log"));
         assert_eq!(cfg.b_log_dir, PathBuf::from("/w/ddb/log"));
         assert_eq!(cfg.cell.logging_min_messages, "debug1");
-        assert_eq!(cfg.cell.conf_gucs.get("b:max_stack_depth").map(String::as_str), Some("60000"));
+        assert_eq!(
+            cfg.cell
+                .conf_gucs
+                .get("b:max_stack_depth")
+                .map(String::as_str),
+            Some("60000")
+        );
         assert_eq!(cfg.cell.conf_profile.as_deref(), Some("elog"));
         assert_eq!(cfg.deadline_ms, 60_000, "dev x2, debug x1.5");
         // The contracts shape.
-        let base = SiteConfig::from_cell_json(include_str!("../fixtures/contracts/cell-base.json"), Path::new("/w")).unwrap();
+        let base = SiteConfig::from_cell_json(
+            include_str!("../fixtures/contracts/cell-base.json"),
+            Path::new("/w"),
+        )
+        .unwrap();
         assert!(base.guc_pin && !base.collector);
-        assert_eq!(base.cell_id, "570fe9f2f4618c9e5b693d955cfe040e02dded5edb2309ddb18a4d7ea2d7b96e");
+        assert_eq!(
+            base.cell_id,
+            "570fe9f2f4618c9e5b693d955cfe040e02dded5edb2309ddb18a4d7ea2d7b96e"
+        );
         assert_eq!(base.pin_sql().len(), c_parity_pin_sql().len());
     }
 
@@ -3295,11 +3981,32 @@ mod site_tests {
              {PREFIX_LINE} startup[201] LOG:  redo starts at 0/1A2B3C4\n\
              {PREFIX_LINE} postmaster[200] LOG:  database system is ready to accept connections\n"
         );
-        h.push(CSide::A, ok(vec![WireMsg::CommandComplete(Bytes::text("ANALYZE")), WireMsg::ReadyForQuery { status: 'I' }]), "");
+        h.push(
+            CSide::A,
+            ok(vec![
+                WireMsg::CommandComplete(Bytes::text("ANALYZE")),
+                WireMsg::ReadyForQuery { status: 'I' },
+            ]),
+            "",
+        );
         h.push(CSide::B, Err(Fault::Lost("EOF".into())), &b_log);
         // Second step: both sides answer.
-        h.push(CSide::A, ok(vec![WireMsg::CommandComplete(Bytes::text("SELECT 1")), WireMsg::ReadyForQuery { status: 'I' }]), "");
-        h.push(CSide::B, ok(vec![WireMsg::CommandComplete(Bytes::text("SELECT 1")), WireMsg::ReadyForQuery { status: 'I' }]), "");
+        h.push(
+            CSide::A,
+            ok(vec![
+                WireMsg::CommandComplete(Bytes::text("SELECT 1")),
+                WireMsg::ReadyForQuery { status: 'I' },
+            ]),
+            "",
+        );
+        h.push(
+            CSide::B,
+            ok(vec![
+                WireMsg::CommandComplete(Bytes::text("SELECT 1")),
+                WireMsg::ReadyForQuery { status: 'I' },
+            ]),
+            "",
+        );
         let mut r = h.runner();
         let mut sink = VecSink::default();
         let summary = r.run_stream(&[step(118, "ANALYZE t"), step(119, "SELECT 1")], &mut sink);
@@ -3312,14 +4019,29 @@ mod site_tests {
         let p = ob.panic.as_ref().expect("panic pair");
         assert_eq!(p.site, "crates/backend/commands/analyze/src/lib.rs:475:17");
         assert_eq!(p.query, Some(Bytes::text("ANALYZE t")));
-        assert_eq!(p.message, Bytes::text("index has 2 expressions but indexprs lists 1"));
+        assert_eq!(
+            p.message,
+            Bytes::text("index has 2 expressions but indexprs lists 1")
+        );
         let c = ob.crash.as_ref().expect("crash record");
         assert_eq!(c.side, CSide::B);
         assert_eq!(c.signal.as_deref(), Some("SIGABRT"));
-        assert!(c.log_tail.iter().any(|l| String::from_utf8_lossy(&l.0).contains("reinitializing")));
-        assert!(ob.probes.contains_key("catalog"), "restart deck ran: {:?}", ob.probes.keys());
+        assert!(c
+            .log_tail
+            .iter()
+            .any(|l| String::from_utf8_lossy(&l.0).contains("reinitializing")));
+        assert!(
+            ob.probes.contains_key("catalog"),
+            "restart deck ran: {:?}",
+            ob.probes.keys()
+        );
         // The log slice carries the panic block (no pid) and the death lines.
-        assert!(ob.log.iter().any(|l| String::from_utf8_lossy(&l.raw.0).starts_with("thread 'backend-19' panicked")));
+        assert!(
+            ob.log
+                .iter()
+                .any(|l| String::from_utf8_lossy(&l.raw.0)
+                    .starts_with("thread 'backend-19' panicked"))
+        );
         // Both pools reconnected symmetrically: s1 on A and B + monitors.
         assert!(*h.reconnects.borrow() >= 2, "{}", h.reconnects.borrow());
         assert_eq!(r.b.supervisor.generation(), 2);
@@ -3327,7 +4049,16 @@ mod site_tests {
         assert_eq!(r.b.supervisor.redo_witness(), Some("0/1A2B3C4"));
         // Crash fixture parity: the wire the fixture recorded is what a
         // FATAL-then-death exchange carries; the crash generation matches.
-        let fixture = ObservationRecord::from_jsonl(&contracts::json::to_canonical(&contracts::json::parse(include_str!("../fixtures/contracts/observation-crash.json")).unwrap()).unwrap()).unwrap();
+        let fixture = ObservationRecord::from_jsonl(
+            &contracts::json::to_canonical(
+                &contracts::json::parse(include_str!(
+                    "../fixtures/contracts/observation-crash.json"
+                ))
+                .unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
         assert_eq!(fixture.crash.as_ref().unwrap().generation, c.generation);
         assert_eq!(fixture.panic, ob.panic);
         assert_eq!(crash_wire.len(), 1);
@@ -3348,7 +4079,14 @@ mod site_tests {
              {PREFIX_LINE} postmaster[100] LOG:  database system is ready to accept connections\n"
         );
         h.push(CSide::A, Err(Fault::Lost("EOF".into())), &a_log);
-        h.push(CSide::B, ok(vec![WireMsg::CommandComplete(Bytes::text("SELECT 1")), WireMsg::ReadyForQuery { status: 'I' }]), "");
+        h.push(
+            CSide::B,
+            ok(vec![
+                WireMsg::CommandComplete(Bytes::text("SELECT 1")),
+                WireMsg::ReadyForQuery { status: 'I' },
+            ]),
+            "",
+        );
         let mut r = h.runner();
         let mut sink = VecSink::default();
         let summary = r.run_stream(&[step(1, "SELECT pg_sleep(100)")], &mut sink);
@@ -3356,7 +4094,10 @@ mod site_tests {
         let oa = ObservationRecord::from_jsonl(&sink.obs_a[0]).unwrap();
         assert_eq!(oa.liveness, "post-crash");
         assert_eq!(oa.crash.as_ref().unwrap().side, CSide::A);
-        assert_eq!(oa.crash.as_ref().unwrap().signal.as_deref(), Some("SIGKILL"));
+        assert_eq!(
+            oa.crash.as_ref().unwrap().signal.as_deref(),
+            Some("SIGKILL")
+        );
         assert_eq!(r.a.supervisor.generation(), 2);
         let ob = ObservationRecord::from_jsonl(&sink.obs_b[0]).unwrap();
         assert_eq!(ob.liveness, "ok");
@@ -3368,8 +4109,22 @@ mod site_tests {
         let h = Harness::new("hang", true);
         // A hangs past the deadline; cancel rung completes it.
         h.push(CSide::A, Err(Fault::Hang { ms: 40_000 }), "");
-        h.push(CSide::A, ok(vec![WireMsg::CommandComplete(Bytes::text("SELECT 1")), WireMsg::ReadyForQuery { status: 'I' }]), "");
-        h.push(CSide::B, ok(vec![WireMsg::CommandComplete(Bytes::text("SELECT 1")), WireMsg::ReadyForQuery { status: 'I' }]), "");
+        h.push(
+            CSide::A,
+            ok(vec![
+                WireMsg::CommandComplete(Bytes::text("SELECT 1")),
+                WireMsg::ReadyForQuery { status: 'I' },
+            ]),
+            "",
+        );
+        h.push(
+            CSide::B,
+            ok(vec![
+                WireMsg::CommandComplete(Bytes::text("SELECT 1")),
+                WireMsg::ReadyForQuery { status: 'I' },
+            ]),
+            "",
+        );
         let mut r = h.runner();
         let mut sink = VecSink::default();
         let summary = r.run_stream(&[step(1, "SELECT pg_sleep(100)")], &mut sink);
@@ -3379,7 +4134,14 @@ mod site_tests {
         assert_eq!(hang.ms, 40_000, "dev cell: 20 s x2");
         assert_eq!(hang.ladder.as_deref(), Some("cancel"));
         assert_eq!(oa.liveness, "ok", "the cancel completed the step");
-        assert!(h.probes_a.borrow().iter().any(|s| s == "SELECT pg_cancel_backend(120);"), "{:?}", h.probes_a.borrow());
+        assert!(
+            h.probes_a
+                .borrow()
+                .iter()
+                .any(|s| s == "SELECT pg_cancel_backend(120);"),
+            "{:?}",
+            h.probes_a.borrow()
+        );
         assert!(!oa.wire.is_empty());
 
         // A session that never comes back walks every rung and is dead.
@@ -3388,22 +4150,33 @@ mod site_tests {
         h2.push(CSide::A, Err(Fault::Hang { ms: 5_000 }), "");
         h2.push(CSide::A, Err(Fault::Hang { ms: 5_000 }), "");
         h2.push(CSide::A, Err(Fault::Hang { ms: 5_000 }), "");
-        h2.push(CSide::B, ok(vec![WireMsg::ReadyForQuery { status: 'I' }]), "");
+        h2.push(
+            CSide::B,
+            ok(vec![WireMsg::ReadyForQuery { status: 'I' }]),
+            "",
+        );
         let mut r2 = h2.runner();
         let mut sink2 = VecSink::default();
         r2.run_stream(&[step(1, "SELECT 1")], &mut sink2);
         let oa2 = ObservationRecord::from_jsonl(&sink2.obs_a[0]).unwrap();
-        assert_eq!(oa2.hang.as_ref().unwrap().ladder.as_deref(), Some("sigkill"));
+        assert_eq!(
+            oa2.hang.as_ref().unwrap().ladder.as_deref(),
+            Some("sigkill")
+        );
         assert_eq!(oa2.liveness, "dead");
         let p = h2.probes_a.borrow();
-        assert!(p.iter().any(|s| s == "SELECT pg_terminate_backend(120);"), "{p:?}");
+        assert!(
+            p.iter().any(|s| s == "SELECT pg_terminate_backend(120);"),
+            "{p:?}"
+        );
     }
 
     #[test]
     fn probe_scheduling_after_ddl_brackets_and_stream_end() {
         let h = Harness::new("probes", true);
         let mut r = h.runner();
-        r.tables.push(("t".into(), "pk".into(), vec!["pk".into(), "b".into()]));
+        r.tables
+            .push(("t".into(), "pk".into(), vec!["pk".into(), "b".into()]));
         r.sequences.push("s1".into());
         let mut sink = VecSink::default();
         let steps = vec![
@@ -3416,7 +4189,11 @@ mod site_tests {
             step(7, "SELECT 1"),
         ];
         r.run_stream(&steps, &mut sink);
-        let obs: Vec<ObservationRecord> = sink.obs_b.iter().map(|l| ObservationRecord::from_jsonl(l).unwrap()).collect();
+        let obs: Vec<ObservationRecord> = sink
+            .obs_b
+            .iter()
+            .map(|l| ObservationRecord::from_jsonl(l).unwrap())
+            .collect();
         let keys = |i: usize| obs[i].probes.keys().cloned().collect::<Vec<_>>();
         // Standalone DDL: conname (per statement) + the bracket-end decks.
         assert_eq!(keys(0), ["catalog", "conname", "invariants"]);
@@ -3436,7 +4213,9 @@ mod site_tests {
         let end = &obs[7];
         assert_eq!(end.session, "@end");
         assert!(end.probes["catalog"].get("show_guc:work_mem").is_some());
-        assert!(end.probes["invariants"].get("sequence_monotone:s1").is_some());
+        assert!(end.probes["invariants"]
+            .get("sequence_monotone:s1")
+            .is_some());
         // The stats deck reports deltas (fake rows: non-integer cells only).
         assert!(end.probes["stats"].get("user_tables").is_some());
         // Probe SQL that ran on B includes the bound locks probe.
@@ -3455,8 +4234,16 @@ mod site_tests {
         assert!(f.id.starts_with("invariant-rig-error-"), "{}", f.id);
         assert!(f.signature.ends_with("| rig-error"), "{}", f.signature);
         assert_eq!(f.status, Status::New);
-        let rig: Vec<&String> = sink.findings.iter().filter(|l| l.contains("invariant-rig-error-")).collect();
-        assert_eq!(rig.len(), r.summary.invariant_rig_errors.len(), "one finding per key");
+        let rig: Vec<&String> = sink
+            .findings
+            .iter()
+            .filter(|l| l.contains("invariant-rig-error-"))
+            .collect();
+        assert_eq!(
+            rig.len(),
+            r.summary.invariant_rig_errors.len(),
+            "one finding per key"
+        );
         // The stats deck forced a flush on the stream session before the
         // monitor read (plan §4.4), on both sides.
         assert!(h.probes_a.borrow().iter().any(|s| s == STATS_FLUSH_SQL));
@@ -3471,23 +4258,52 @@ mod site_tests {
         // A boot line before the first mark, written without the prefix.
         {
             use std::io::Write;
-            let mut f = std::fs::OpenOptions::new().append(true).open(&h.cfg.b_log).unwrap();
+            let mut f = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&h.cfg.b_log)
+                .unwrap();
             f.write_all(b"memwatchdog: armed at 512 MiB\n").unwrap();
         }
-        h.push(CSide::A, ok(vec![WireMsg::ReadyForQuery { status: 'I' }]), "");
-        h.push(CSide::B, ok(vec![WireMsg::ReadyForQuery { status: 'I' }]), &format!("{PREFIX_LINE} client backend[19] [unknown] LOG:  fine\n"));
+        h.push(
+            CSide::A,
+            ok(vec![WireMsg::ReadyForQuery { status: 'I' }]),
+            "",
+        );
+        h.push(
+            CSide::B,
+            ok(vec![WireMsg::ReadyForQuery { status: 'I' }]),
+            &format!("{PREFIX_LINE} client backend[19] [unknown] LOG:  fine\n"),
+        );
         let mut r = h.runner();
         let mut sink = VecSink::default();
         let summary = r.run_stream(&[step(1, "SELECT 1")], &mut sink);
-        assert_eq!(summary.prefix_violations, vec![(2, "memwatchdog: armed at 512 MiB".to_string())]);
-        let findings: Vec<Finding> = sink.findings.iter().filter_map(|l| Finding::from_file(l).ok()).collect();
-        let f = findings.iter().find(|f| f.signature.starts_with("log | prefix-invariant")).expect("prefix finding");
+        assert_eq!(
+            summary.prefix_violations,
+            vec![(2, "memwatchdog: armed at 512 MiB".to_string())]
+        );
+        let findings: Vec<Finding> = sink
+            .findings
+            .iter()
+            .filter_map(|l| Finding::from_file(l).ok())
+            .collect();
+        let f = findings
+            .iter()
+            .find(|f| f.signature.starts_with("log | prefix-invariant"))
+            .expect("prefix finding");
         assert_eq!(f.class, Class::WrongMessage);
-        assert!(f.signature.starts_with("log | prefix-invariant | memwatchdog"));
+        assert!(f
+            .signature
+            .starts_with("log | prefix-invariant | memwatchdog"));
         assert_eq!(f.cell_id, h.cfg.cell_id);
         // B logged a line for this step that A did not: the per-pid log
         // plane (on in every cell) reports it as a comparator finding.
-        assert!(findings.iter().any(|f| f.plane == "log" && f.b.get("log").is_some()), "{:?}", sink.findings);
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.plane == "log" && f.b.get("log").is_some()),
+            "{:?}",
+            sink.findings
+        );
     }
 
     #[test]
@@ -3501,7 +4317,9 @@ mod site_tests {
         connect.session = "s2".into();
         // The auth-phase WARNING is server-log only, no pid known yet:
         // written while the connect is in flight.
-        *h.connect_log.borrow_mut() = Some(format!("{PREFIX_LINE} client backend[33] [unknown] WARNING:  auth phase warning\n"));
+        *h.connect_log.borrow_mut() = Some(format!(
+            "{PREFIX_LINE} client backend[33] [unknown] WARNING:  auth phase warning\n"
+        ));
         let mut disconnect = step(2, "");
         disconnect.kind = StepKind::Disconnect;
         disconnect.sql = None;
@@ -3516,8 +4334,14 @@ mod site_tests {
 
     #[test]
     fn set_guc_name_shapes() {
-        assert_eq!(set_guc_name("SET LOCAL work_mem = '1MB'"), Some("work_mem".into()));
-        assert_eq!(set_guc_name("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE"), None);
+        assert_eq!(
+            set_guc_name("SET LOCAL work_mem = '1MB'"),
+            Some("work_mem".into())
+        );
+        assert_eq!(
+            set_guc_name("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE"),
+            None
+        );
         assert_eq!(set_guc_name("SELECT 1"), None);
     }
 
@@ -3530,7 +4354,11 @@ mod site_tests {
     fn comparator_emits_analyze_1_from_fixture_wire() {
         let h = Harness::new("compare", true);
         let notice = fixture_wire("notice");
-        let no_notices: Vec<WireMsg> = notice.iter().filter(|m| !matches!(m, WireMsg::NoticeResponse(_))).cloned().collect();
+        let no_notices: Vec<WireMsg> = notice
+            .iter()
+            .filter(|m| !matches!(m, WireMsg::NoticeResponse(_)))
+            .cloned()
+            .collect();
         let error = fixture_wire("error");
         h.push(CSide::A, ok(notice.clone()), "");
         h.push(CSide::B, ok(no_notices), "");
@@ -3546,14 +4374,22 @@ mod site_tests {
         // The fake answers one row to every probe, so the invariants deck
         // adds self-oracle findings at stream end; the comparator's own
         // finding is the wire:N one.
-        let wire: Vec<Finding> = sink.findings.iter().filter_map(|l| Finding::from_file(l).ok()).filter(|f| f.plane.starts_with("wire:")).collect();
+        let wire: Vec<Finding> = sink
+            .findings
+            .iter()
+            .filter_map(|l| Finding::from_file(l).ok())
+            .filter(|f| f.plane.starts_with("wire:"))
+            .collect();
         assert_eq!(wire.len(), 1);
         let f = &wire[0];
         assert_eq!(f.plane, "wire:N");
         assert_eq!(f.class, Class::WrongMessage);
         assert_eq!(f.status, Status::New);
         assert!(f.rule.is_none());
-        assert_eq!(f.signature, "wire:N | analyzing \"%s\" | 00000/- | N.presence");
+        assert_eq!(
+            f.signature,
+            "wire:N | analyzing \"%s\" | 00000/- | N.presence"
+        );
         assert_eq!(f.cell_id, h.cfg.cell_id);
         assert_eq!(f.seed, Some(42));
         assert_eq!(f.id, "seed-42-cell-base-s1-wire-N");
@@ -3561,7 +4397,12 @@ mod site_tests {
         assert_eq!(f.audit.repro.as_deref(), Some("ANALYZE VERBOSE t;"));
         assert_eq!(f.a.get("count").and_then(|v| v.as_i64()), Some(2));
         assert_eq!(f.b.get("count").and_then(|v| v.as_i64()), Some(0));
-        assert_eq!(f.a.get("first").and_then(|v| v.get("M")).and_then(|v| v.as_str()), Some("analyzing \"public.t\""));
+        assert_eq!(
+            f.a.get("first")
+                .and_then(|v| v.get("M"))
+                .and_then(|v| v.as_str()),
+            Some("analyzing \"public.t\"")
+        );
         assert!(f.b.get("first").is_some_and(|v| v.is_null()));
         // The canon contexts were probed once on both monitors (pgdata /
         // libdir / user type names): the fake answers "v" to everything,
@@ -3569,7 +4410,10 @@ mod site_tests {
         assert!(h.probes_a.borrow().iter().any(|s| s == TYPE_NAMES_SQL));
         assert!(h.probes_b.borrow().iter().any(|s| s == TYPE_NAMES_SQL));
         assert!(r.canon_ctx(CSide::A).type_names.is_empty());
-        assert_eq!(r.canon_ctx(CSide::B).pgdata.as_deref(), h.cfg.b_pgdata.to_str());
+        assert_eq!(
+            r.canon_ctx(CSide::B).pgdata.as_deref(),
+            h.cfg.b_pgdata.to_str()
+        );
     }
 
     /// Signature dedup: the first SIGNATURE_KEEP occurrences are written
@@ -3578,9 +4422,15 @@ mod site_tests {
     fn signature_dedup_keeps_five_then_counts() {
         let h = Harness::new("dedup", true);
         let notice = fixture_wire("notice");
-        let no_notices: Vec<WireMsg> = notice.iter().filter(|m| !matches!(m, WireMsg::NoticeResponse(_))).cloned().collect();
+        let no_notices: Vec<WireMsg> = notice
+            .iter()
+            .filter(|m| !matches!(m, WireMsg::NoticeResponse(_)))
+            .cloned()
+            .collect();
         let n = SIGNATURE_KEEP + 3;
-        let steps: Vec<StepRecord> = (1..=n as u64).map(|i| step(i, "ANALYZE VERBOSE t;")).collect();
+        let steps: Vec<StepRecord> = (1..=n as u64)
+            .map(|i| step(i, "ANALYZE VERBOSE t;"))
+            .collect();
         for _ in 0..n {
             h.push(CSide::A, ok(notice.clone()), "");
             h.push(CSide::B, ok(no_notices.clone()), "");
@@ -3589,13 +4439,28 @@ mod site_tests {
         let mut sink = VecSink::default();
         let summary = r.run_stream(&steps, &mut sink);
         assert_eq!(summary.divergences, n);
-        let full = sink.findings.iter().filter_map(|l| Finding::from_file(l).ok()).filter(|f| f.plane == "wire:N").count();
+        let full = sink
+            .findings
+            .iter()
+            .filter_map(|l| Finding::from_file(l).ok())
+            .filter(|f| f.plane == "wire:N")
+            .count();
         assert_eq!(full as u32, SIGNATURE_KEEP);
-        let count_line = sink.findings.iter().find(|l| l.contains("\"kept\"")).expect("count line");
+        let count_line = sink
+            .findings
+            .iter()
+            .find(|l| l.contains("\"kept\""))
+            .expect("count line");
         let v = contracts::json::parse(count_line).unwrap();
         assert_eq!(v.get("count").and_then(|c| c.as_i64()), Some(n as i64));
-        assert_eq!(v.get("kept").and_then(|c| c.as_i64()), Some(SIGNATURE_KEEP as i64));
-        assert_eq!(v.get("signature").and_then(|c| c.as_str()), Some("wire:N | analyzing \"%s\" | 00000/- | N.presence"));
+        assert_eq!(
+            v.get("kept").and_then(|c| c.as_i64()),
+            Some(SIGNATURE_KEEP as i64)
+        );
+        assert_eq!(
+            v.get("signature").and_then(|c| c.as_str()),
+            Some("wire:N | analyzing \"%s\" | 00000/- | N.presence")
+        );
     }
 
     /// Cell identity (CONTRACTS.md "Cell identity"): a `sitediff-cell/1`
@@ -3609,14 +4474,23 @@ mod site_tests {
         // PGRUST_INTERNAL_SCRIPTS overrides it.
         let scripts = std::env::var("PGRUST_INTERNAL_SCRIPTS")
             .map(std::path::PathBuf::from)
-            .unwrap_or_else(|_| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../internal/scripts"));
+            .unwrap_or_else(|_| {
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../internal/scripts")
+            });
         let script = scripts.join("sitediff-cell.sh");
         if !script.exists() {
-            eprintln!("skip: {} is absent (the public tree ships without internal/)", script.display());
+            eprintln!(
+                "skip: {} is absent (the public tree ships without internal/)",
+                script.display()
+            );
             return;
         }
         let run = |args: &[&str]| -> String {
-            let o = std::process::Command::new("bash").arg(&script).args(args).output().expect("bash sitediff-cell.sh");
+            let o = std::process::Command::new("bash")
+                .arg(&script)
+                .args(args)
+                .output()
+                .expect("bash sitediff-cell.sh");
             assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
             String::from_utf8(o.stdout).unwrap()
         };
@@ -3624,48 +4498,114 @@ mod site_tests {
         let printed_id = run(&["id", "--cell", "base"]).trim().to_string();
         assert_eq!(printed_id.len(), 64);
         let cfg = SiteConfig::from_cell_json(&rendered, Path::new("/w")).unwrap();
-        assert_eq!(cfg.cell_id, printed_id, "from_cell_json keeps the factory's own id");
-        assert_ne!(cfg.cell.cell_id(), printed_id, "the mapped contracts Cell hashes differently and is not the id");
+        assert_eq!(
+            cfg.cell_id, printed_id,
+            "from_cell_json keeps the factory's own id"
+        );
+        assert_ne!(
+            cfg.cell.cell_id(),
+            printed_id,
+            "the mapped contracts Cell hashes differently and is not the id"
+        );
         assert_eq!(cfg.cell.conf_profile.as_deref(), Some("base"));
         assert!(cfg.guc_pin);
-        assert_eq!(cfg.cell.conf_gucs.get("b:io_method").map(String::as_str), Some("sync"));
+        assert_eq!(
+            cfg.cell.conf_gucs.get("b:io_method").map(String::as_str),
+            Some("sync")
+        );
         assert_eq!(cfg.a_pgdata, PathBuf::from("/w/dda"));
         // A carried cell_id is verified against the canonical form of the
         // rest of the document (the key itself is not hashed).
         let v = contracts::json::parse(&rendered).unwrap();
-        let annotated = contracts::json::to_pretty(&v.clone().with("cell_id", Value::from(printed_id.as_str()))).unwrap();
-        assert_eq!(SiteConfig::from_cell_json(&annotated, Path::new("/w")).unwrap().cell_id, printed_id);
-        let tampered = contracts::json::to_pretty(&v.with("cell_id", Value::from("0".repeat(64).as_str()))).unwrap();
+        let annotated = contracts::json::to_pretty(
+            &v.clone().with("cell_id", Value::from(printed_id.as_str())),
+        )
+        .unwrap();
+        assert_eq!(
+            SiteConfig::from_cell_json(&annotated, Path::new("/w"))
+                .unwrap()
+                .cell_id,
+            printed_id
+        );
+        let tampered =
+            contracts::json::to_pretty(&v.with("cell_id", Value::from("0".repeat(64).as_str())))
+                .unwrap();
         let err = SiteConfig::from_cell_json(&tampered, Path::new("/w")).unwrap_err();
         assert!(err.contains("carries cell_id"), "{err}");
         // The rig's recorded id (cell.env CELL_ID) is cross-checked too.
-        assert!(SiteConfig::from_cell_json_expecting(&rendered, Path::new("/w"), &printed_id).is_ok());
-        assert!(SiteConfig::from_cell_json_expecting(&rendered, Path::new("/w"), &cfg.cell.cell_id()).unwrap_err().contains("mismatch"));
+        assert!(
+            SiteConfig::from_cell_json_expecting(&rendered, Path::new("/w"), &printed_id).is_ok()
+        );
+        assert!(SiteConfig::from_cell_json_expecting(
+            &rendered,
+            Path::new("/w"),
+            &cfg.cell.cell_id()
+        )
+        .unwrap_err()
+        .contains("mismatch"));
         // In-process construction and the contracts shape use the contracts hash.
-        assert_eq!(SiteConfig::from_cell(Cell::base(), Path::new("/w")).cell_id, Cell::base().cell_id());
-        let contracts_shape = SiteConfig::from_cell_json(&Cell::base().to_file(), Path::new("/w")).unwrap();
+        assert_eq!(
+            SiteConfig::from_cell(Cell::base(), Path::new("/w")).cell_id,
+            Cell::base().cell_id()
+        );
+        let contracts_shape =
+            SiteConfig::from_cell_json(&Cell::base().to_file(), Path::new("/w")).unwrap();
         assert_eq!(contracts_shape.cell_id, Cell::base().cell_id());
     }
 
     /// The xproto step -> client frames mapping.
     #[test]
     fn xproto_step_maps_to_frames() {
-        let x = contracts::XProto { mode: "named_portal".into(), params: vec![Some(Bytes::text("2")), None], stmt: "ps1".into(), portal: "p1".into(), limit: 5, describe: "P".into(), repeat: 1 };
+        let x = contracts::XProto {
+            mode: "named_portal".into(),
+            params: vec![Some(Bytes::text("2")), None],
+            stmt: "ps1".into(),
+            portal: "p1".into(),
+            limit: 5,
+            describe: "P".into(),
+            repeat: 1,
+        };
         let s = xproto_step("SELECT $1", &x);
-        assert_eq!((s.stmt.as_str(), s.portal.as_str(), s.limit, s.describe), ("ps1", "p1", 5, Some(Describe::Portal)));
+        assert_eq!(
+            (s.stmt.as_str(), s.portal.as_str(), s.limit, s.describe),
+            ("ps1", "p1", 5, Some(Describe::Portal))
+        );
         assert_eq!(s.params.len(), 2);
         assert_eq!(s.params[1].bytes, None);
         assert!(s.resume);
         let frames = xproto_frames("SELECT $1", &x);
         assert!(matches!(&frames[0], Frame::Parse { stmt, .. } if stmt == "ps1"));
         assert!(matches!(&frames[1], Frame::Bind { portal, .. } if portal == "p1"));
-        assert!(matches!(&frames[2], Frame::Describe { kind: Describe::Portal, .. }));
+        assert!(matches!(
+            &frames[2],
+            Frame::Describe {
+                kind: Describe::Portal,
+                ..
+            }
+        ));
         assert!(matches!(&frames[3], Frame::Execute { limit: 5, .. }));
-        let d = contracts::XProto { mode: "describe_only".into(), params: vec![], stmt: "".into(), portal: "".into(), limit: 0, describe: "S".into(), repeat: 1 };
+        let d = contracts::XProto {
+            mode: "describe_only".into(),
+            params: vec![],
+            stmt: "".into(),
+            portal: "".into(),
+            limit: 0,
+            describe: "S".into(),
+            repeat: 1,
+        };
         let frames = xproto_frames("SELECT 1", &d);
         assert_eq!(frames.len(), 2);
-        assert!(matches!(&frames[1], Frame::Describe { kind: Describe::Statement, .. }));
-        assert_eq!(scenario_seed("seed-3878502244648856050/cell-base"), Some(3878502244648856050));
+        assert!(matches!(
+            &frames[1],
+            Frame::Describe {
+                kind: Describe::Statement,
+                ..
+            }
+        ));
+        assert_eq!(
+            scenario_seed("seed-3878502244648856050/cell-base"),
+            Some(3878502244648856050)
+        );
         assert_eq!(scenario_seed("bogus"), None);
     }
 }

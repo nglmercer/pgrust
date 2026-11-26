@@ -72,15 +72,42 @@ fn pick_str<'x>(g: &mut Gen, opts: &[&'x str]) -> &'x str {
 
 /// Typed integer/float/numeric operand pools (in-range values).
 const I2: &[&str] = &["0", "1", "-1", "7", "-32767", "32767", "255", "-100"];
-const I4: &[&str] = &["0", "2", "-3", "100000", "-2147483647", "2147483647", "65536"];
-const I8: &[&str] = &["0", "5", "-7", "9223372036854775807", "-9223372036854775807", "4294967296", "-123456789012"];
+const I4: &[&str] = &[
+    "0",
+    "2",
+    "-3",
+    "100000",
+    "-2147483647",
+    "2147483647",
+    "65536",
+];
+const I8: &[&str] = &[
+    "0",
+    "5",
+    "-7",
+    "9223372036854775807",
+    "-9223372036854775807",
+    "4294967296",
+    "-123456789012",
+];
 const F4: &[&str] = &["0", "1.5", "-2.25", "3.4028e37", "-1.1755e-38", "100"];
 const F8: &[&str] = &["0", "2.5", "-0.125", "1.7976e307", "2.2250e-308", "-64"];
-const NUM: &[&str] = &["0", "1.5", "-42.42", "99999999999999999999.9999", "0.00000000001", "123456789012345678901234567890"];
+const NUM: &[&str] = &[
+    "0",
+    "1.5",
+    "-42.42",
+    "99999999999999999999.9999",
+    "0.00000000001",
+    "123456789012345678901234567890",
+];
 
 /// Overflow-fuel operands (matched 22003 when combined by the err ops).
 const I2_BIG: &[&str] = &["32767", "32000", "30000"];
-const I8_BIG: &[&str] = &["9223372036854775807", "9223372036854775806", "4611686018427387904"];
+const I8_BIG: &[&str] = &[
+    "9223372036854775807",
+    "9223372036854775806",
+    "4611686018427387904",
+];
 
 const ARITH: &[&str] = &["+", "-", "*", "/", "%"];
 const CMP: &[&str] = &["<", "<=", "=", ">=", ">", "<>"];
@@ -178,7 +205,15 @@ fn gen_bit(g: &mut Gen) -> String {
 /// (cash.c; C-locale output verified identical).
 fn gen_money(g: &mut Gen) -> String {
     g.fire("xnum:money");
-    let vals = ["'0'", "'1'", "'-2.5'", "'12.34'", "'92233720368547758.07'", "'-92233720368547758.08'", "'1234567.89'"];
+    let vals = [
+        "'0'",
+        "'1'",
+        "'-2.5'",
+        "'12.34'",
+        "'92233720368547758.07'",
+        "'-92233720368547758.08'",
+        "'1234567.89'",
+    ];
     let l = format!("{}::money", pick_str(g, &vals));
     if err_arm(g) {
         return match g.rng.below(3) {
@@ -198,12 +233,27 @@ fn gen_money(g: &mut Gen) -> String {
         }
         2 => {
             // Small operand: products stay under the money ceiling.
-            let sm = format!("{}::money", pick_str(g, &["'0'", "'1'", "'-2.5'", "'12.34'", "'1234567.89'"]));
-            let k = pick_str(g, &["2", "3::int2", "2.5::float8", "0.5::float4", "1.25::numeric"]);
+            let sm = format!(
+                "{}::money",
+                pick_str(g, &["'0'", "'1'", "'-2.5'", "'12.34'", "'1234567.89'"])
+            );
+            let k = pick_str(
+                g,
+                &[
+                    "2",
+                    "3::int2",
+                    "2.5::float8",
+                    "0.5::float4",
+                    "1.25::numeric",
+                ],
+            );
             format!("SELECT ({} * {})::text;", sm, k)
         }
         3 => {
-            let k = pick_str(g, &["2", "3::int2", "2.5::float8", "4::int8", "1.25::numeric"]);
+            let k = pick_str(
+                g,
+                &["2", "3::int2", "2.5::float8", "4::int8", "1.25::numeric"],
+            );
             format!("SELECT ({} / {})::text;", l, k)
         }
         4 => {
@@ -211,7 +261,17 @@ fn gen_money(g: &mut Gen) -> String {
             format!("SELECT ({} / '2.5'::money)::text;", l)
         }
         5 => {
-            let src = pick_str(g, &["12", "12::int2", "12::int8", "12.34::numeric", "1.5::float8", "2.5::float4"]);
+            let src = pick_str(
+                g,
+                &[
+                    "12",
+                    "12::int2",
+                    "12::int8",
+                    "12.34::numeric",
+                    "1.5::float8",
+                    "2.5::float4",
+                ],
+            );
             format!("SELECT ({}::money)::text;", src)
         }
         6 => format!("SELECT ({}::numeric)::text;", l),
@@ -274,12 +334,15 @@ fn gen_oid(g: &mut Gen) -> String {
 fn gen_snap(g: &mut Gen) -> String {
     g.fire("xnum:snap");
     if err_arm(g) {
-        return pick_str(g, &[
-            "SELECT '20:10:15'::pg_snapshot;",
-            "SELECT 'zz'::pg_snapshot;",
-            "SELECT ''::xid8;",
-            "SELECT pg_xact_status('1'::xid8);",
-        ])
+        return pick_str(
+            g,
+            &[
+                "SELECT '20:10:15'::pg_snapshot;",
+                "SELECT 'zz'::pg_snapshot;",
+                "SELECT ''::xid8;",
+                "SELECT pg_xact_status('1'::xid8);",
+            ],
+        )
         .to_string();
     }
     match g.rng.below(8) {
@@ -320,35 +383,76 @@ fn gen_snap(g: &mut Gen) -> String {
 fn gen_math(g: &mut Gen) -> String {
     g.fire("xnum:math");
     if err_arm(g) {
-        return pick_str(g, &[
-            "SELECT acosd(2)::text;",
-            "SELECT asind(-1.5)::text;",
-            "SELECT acosh(0.5)::text;",
-            "SELECT atanh(2)::text;",
-            "SELECT gcd(-9223372036854775808::int8, 0)::text;",
-            "SELECT power(-8.0::numeric, 0.5::numeric)::text;",
-            "SELECT lcm(9223372036854775807::int8, 2)::text;",
-            "SELECT factorial(-1)::text;",
-        ])
+        return pick_str(
+            g,
+            &[
+                "SELECT acosd(2)::text;",
+                "SELECT asind(-1.5)::text;",
+                "SELECT acosh(0.5)::text;",
+                "SELECT atanh(2)::text;",
+                "SELECT gcd(-9223372036854775808::int8, 0)::text;",
+                "SELECT power(-8.0::numeric, 0.5::numeric)::text;",
+                "SELECT lcm(9223372036854775807::int8, 2)::text;",
+                "SELECT factorial(-1)::text;",
+            ],
+        )
         .to_string();
     }
-    let ang = pick_str(g, &["0", "30", "45", "60", "90", "180", "270", "360", "17.3", "-30"]);
+    let ang = pick_str(
+        g,
+        &[
+            "0", "30", "45", "60", "90", "180", "270", "360", "17.3", "-30",
+        ],
+    );
     let x = pick_str(g, &["0", "0.5", "1.0", "-0.5", "2.2", "1.1"]);
     match g.rng.below(10) {
         0 => format!("SELECT cot({}::float8)::text, tan({}::float8)::text;", x, x),
-        1 => format!("SELECT exp({}::float8)::text, exp({}::numeric)::text;", x, x),
+        1 => format!(
+            "SELECT exp({}::float8)::text, exp({}::numeric)::text;",
+            x, x
+        ),
         2 => "SELECT pi()::text, degrees(pi())::text, radians(180.0)::text;".to_string(),
-        3 => format!("SELECT trunc({}::float8)::text, ceil({}::float8)::text, floor({}::float8)::text;", x, x, x),
-        4 => format!("SELECT sind({})::text, cosd({})::text, tand({})::text;", ang, ang, ang),
-        5 => format!("SELECT asind({}::float8)::text, acosd({}::float8)::text, atand({}::float8)::text;", x, x, x),
-        6 => format!("SELECT sinh({}::float8)::text, cosh({}::float8)::text, tanh({}::float8)::text;", x, x, x),
-        7 => format!("SELECT asinh({}::float8)::text, acosh(2.0::float8)::text, atanh({}::float8)::text;", x, x),
+        3 => format!(
+            "SELECT trunc({}::float8)::text, ceil({}::float8)::text, floor({}::float8)::text;",
+            x, x, x
+        ),
+        4 => format!(
+            "SELECT sind({})::text, cosd({})::text, tand({})::text;",
+            ang, ang, ang
+        ),
+        5 => format!(
+            "SELECT asind({}::float8)::text, acosd({}::float8)::text, atand({}::float8)::text;",
+            x, x, x
+        ),
+        6 => format!(
+            "SELECT sinh({}::float8)::text, cosh({}::float8)::text, tanh({}::float8)::text;",
+            x, x, x
+        ),
+        7 => format!(
+            "SELECT asinh({}::float8)::text, acosh(2.0::float8)::text, atanh({}::float8)::text;",
+            x, x
+        ),
         8 => {
             let (a, b) = (g.rng.below(100000), g.rng.below(1000));
             match g.rng.below(3) {
-                0 => format!("SELECT gcd({}, {})::text, lcm({}::int4, {}::int4)::text;", a, b, a % 1000, b),
-                1 => format!("SELECT gcd({}::int8, {}::int8)::text, lcm({}::int8, {}::int8)::text;", a, b, a, b),
-                _ => format!("SELECT gcd({}.5::numeric, {})::text, lcm({}::numeric, {})::text;", a, b, a % 100, b % 100),
+                0 => format!(
+                    "SELECT gcd({}, {})::text, lcm({}::int4, {}::int4)::text;",
+                    a,
+                    b,
+                    a % 1000,
+                    b
+                ),
+                1 => format!(
+                    "SELECT gcd({}::int8, {}::int8)::text, lcm({}::int8, {}::int8)::text;",
+                    a, b, a, b
+                ),
+                _ => format!(
+                    "SELECT gcd({}.5::numeric, {})::text, lcm({}::numeric, {})::text;",
+                    a,
+                    b,
+                    a % 100,
+                    b % 100
+                ),
             }
         }
         _ => {
@@ -365,12 +469,15 @@ fn gen_math(g: &mut Gen) -> String {
 fn gen_bucket(g: &mut Gen) -> String {
     g.fire("xnum:bucket");
     if err_arm(g) {
-        return pick_str(g, &[
-            "SELECT width_bucket(5.0, 1.0, 1.0, 10)::text;",
-            "SELECT width_bucket(5.0, 1.0, 10.0, 0)::text;",
-            "SELECT width_bucket(5.0::float8, 'NaN'::float8, 10.0, 3)::text;",
-            "SELECT round(1.5, 100000)::text;",
-        ])
+        return pick_str(
+            g,
+            &[
+                "SELECT width_bucket(5.0, 1.0, 1.0, 10)::text;",
+                "SELECT width_bucket(5.0, 1.0, 10.0, 0)::text;",
+                "SELECT width_bucket(5.0::float8, 'NaN'::float8, 10.0, 3)::text;",
+                "SELECT round(1.5, 100000)::text;",
+            ],
+        )
         .to_string();
     }
     let v = pick_str(g, &["0.024", "5.35", "9.99", "-3.2", "10.06"]);
@@ -407,17 +514,24 @@ fn gen_bucket(g: &mut Gen) -> String {
 fn gen_series(g: &mut Gen) -> String {
     g.fire("xnum:series");
     if err_arm(g) {
-        return pick_str(g, &[
-            "SELECT count(*) FROM generate_series(1.0, 2.0, 0.0);",
-            "SELECT count(*) FROM generate_series(1::bigint, 10::bigint, 0);",
-            "SELECT count(*) FROM generate_series('NaN'::numeric, 5.0);",
-        ])
+        return pick_str(
+            g,
+            &[
+                "SELECT count(*) FROM generate_series(1.0, 2.0, 0.0);",
+                "SELECT count(*) FROM generate_series(1::bigint, 10::bigint, 0);",
+                "SELECT count(*) FROM generate_series('NaN'::numeric, 5.0);",
+            ],
+        )
         .to_string();
     }
     match g.rng.below(4) {
         0 => {
             let step = pick_str(g, &["0.5", "0.25", "1.0", "-0.5"]);
-            let (a, b) = if step.starts_with('-') { ("3.0", "1.0") } else { ("1.0", "3.0") };
+            let (a, b) = if step.starts_with('-') {
+                ("3.0", "1.0")
+            } else {
+                ("1.0", "3.0")
+            };
             format!(
                 "SELECT string_agg(x::text, ',') FROM generate_series({}::numeric, {}::numeric, {}) x;",
                 a, b, step
@@ -441,15 +555,24 @@ fn gen_series(g: &mut Gen) -> String {
 /// pg_lsn: comparisons, +/- numeric, difference, hash, min/max, casts.
 fn gen_lsn(g: &mut Gen) -> String {
     g.fire("xnum:lsn");
-    let lsns = ["0/1", "0/0", "16/B374D848", "FFFFFFFF/FFFFFFFE", "1/AAAA0000"];
+    let lsns = [
+        "0/1",
+        "0/0",
+        "16/B374D848",
+        "FFFFFFFF/FFFFFFFE",
+        "1/AAAA0000",
+    ];
     let l = pick_str(g, &lsns);
     if err_arm(g) {
-        return pick_str(g, &[
-            "SELECT 'FFFFFFFF/FFFFFFFF'::pg_lsn + 1::numeric;",
-            "SELECT '0/1'::pg_lsn - 2::numeric;",
-            "SELECT 'notalsn'::pg_lsn;",
-            "SELECT '0/1'::pg_lsn + 'NaN'::numeric;",
-        ])
+        return pick_str(
+            g,
+            &[
+                "SELECT 'FFFFFFFF/FFFFFFFF'::pg_lsn + 1::numeric;",
+                "SELECT '0/1'::pg_lsn - 2::numeric;",
+                "SELECT 'notalsn'::pg_lsn;",
+                "SELECT '0/1'::pg_lsn + 'NaN'::numeric;",
+            ],
+        )
         .to_string();
     }
     match g.rng.below(7) {
@@ -481,13 +604,16 @@ fn gen_lsn(g: &mut Gen) -> String {
 fn gen_lit(g: &mut Gen) -> String {
     g.fire("xnum:lit");
     if err_arm(g) {
-        return pick_str(g, &[
-            "SELECT '0x'::numeric;",
-            "SELECT '  '::int2;",
-            "SELECT '99999999999999999999'::int8;",
-            "SELECT '12abc'::int4;",
-            "SELECT '0b2'::int4;",
-        ])
+        return pick_str(
+            g,
+            &[
+                "SELECT '0x'::numeric;",
+                "SELECT '  '::int2;",
+                "SELECT '99999999999999999999'::int8;",
+                "SELECT '12abc'::int4;",
+                "SELECT '0b2'::int4;",
+            ],
+        )
         .to_string();
     }
     match g.rng.below(6) {
@@ -524,8 +650,14 @@ fn gen_rand(g: &mut Gen) -> String {
             g.rng.below(100),
             500 + g.rng.below(400)
         ),
-        4 => "SELECT random_normal() IS NOT NULL, random_normal(10.0, 2.0) IS NOT NULL;".to_string(),
-        _ => format!("SELECT setseed({}.{:02});", if g.rng.chance(1, 2) { "0" } else { "-0" }, g.rng.below(100)),
+        4 => {
+            "SELECT random_normal() IS NOT NULL, random_normal(10.0, 2.0) IS NOT NULL;".to_string()
+        }
+        _ => format!(
+            "SELECT setseed({}.{:02});",
+            if g.rng.chance(1, 2) { "0" } else { "-0" },
+            g.rng.below(100)
+        ),
     }
 }
 

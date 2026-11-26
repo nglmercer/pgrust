@@ -74,7 +74,10 @@ fn whole(a: Acct) -> i64 {
 
 /// The slot depot's holder (the parked sets' heap) and the parked holder (their arenas' pages), committed bytes.
 fn depot_rows() -> (i64, i64) {
-    (owner_row(Owner::Cache(Holder::SlotDepot)).committed, owner_row(Owner::Cache(Holder::Parked)).committed)
+    (
+        owner_row(Owner::Cache(Holder::SlotDepot)).committed,
+        owner_row(Owner::Cache(Holder::Parked)).committed,
+    )
 }
 
 /// One parallel `p_group_share` statement on the bound backend under `SALT`: its worker slots from (and back to) the
@@ -84,15 +87,30 @@ fn statement(program: &Arc<Program>, derive: &mut FakeDerive, flag: &AtomicU8) {
     {
         let mut sink = LegSink::new();
         let mut b = binding(&[8], &NULLS, &mut sink, flag);
-        let mut exec = entry.start(None, program, derive, &mut b, lease(gravity_driver::Grant::of(64 << 20))).unwrap();
+        let mut exec = entry
+            .start(
+                None,
+                program,
+                derive,
+                &mut b,
+                lease(gravity_driver::Grant::of(64 << 20)),
+            )
+            .unwrap();
         exec.set_slot_salt(Some(SALT));
         let open = entry.open_section(&mut exec, &b, derive, 0, WIDTH).unwrap();
         let cursor = AtomicU64::new(0);
         for o in 0..WIDTH {
             drain(&open, &cursor, o).unwrap();
         }
-        entry.close_section(open, &mut b, &GroupMerge, true).unwrap();
-        assert_eq!(entry.run(&mut exec, &mut b, gravity_driver::Call::batch(4)).unwrap(), Step::Done);
+        entry
+            .close_section(open, &mut b, &GroupMerge, true)
+            .unwrap();
+        assert_eq!(
+            entry
+                .run(&mut exec, &mut b, gravity_driver::Call::batch(4))
+                .unwrap(),
+            Step::Done
+        );
         entry.end(exec, true);
     }
     drop(entry);
@@ -106,7 +124,11 @@ fn a_taken_set_settles_no_region_of_the_backend_that_parked_it() {
         let table = RangeTable::new(BLOCKS, PER_BLOCK);
         let mut derive = FakeDerive::ranges(table.clone());
         let flag = AtomicU8::new(0);
-        let (w, a, b) = (Acct::backend(4707), Acct::backend(4708), Acct::backend(4709));
+        let (w, a, b) = (
+            Acct::backend(4707),
+            Acct::backend(4708),
+            Acct::backend(4709),
+        );
 
         // warm-up on a third backend: the process-wide tables grow here, then its set is dropped
         memledger::bind_backend(4707, 94_707);
@@ -121,9 +143,16 @@ fn a_taken_set_settles_no_region_of_the_backend_that_parked_it() {
         let a0 = whole(a);
         statement(&program, &mut derive, &flag);
         assert_eq!(DEPOT.stats().entries, 1, "the set parks");
-        assert_eq!(whole(a) - a0, 0, "backend A holds nothing once its statement ended and its set parked");
+        assert_eq!(
+            whole(a) - a0,
+            0,
+            "backend A holds nothing once its statement ended and its set parked"
+        );
         let (d1, p1) = depot_rows();
-        assert!(p1 > p0, "the parked set's arenas are the parked holder's ({p0} -> {p1} B)");
+        assert!(
+            p1 > p0,
+            "the parked set's arenas are the parked holder's ({p0} -> {p1} B)"
+        );
         memledger::unbind_backend();
 
         // backend B on the same thread takes the set, runs, and parks it again: B holds nothing after, the depot the same
@@ -131,13 +160,29 @@ fn a_taken_set_settles_no_region_of_the_backend_that_parked_it() {
         let b0 = whole(b);
         let takes = DEPOT.stats().takes;
         statement(&program, &mut derive, &flag);
-        assert_eq!(DEPOT.stats().takes, takes + 1, "backend B's statement took the parked set");
-        assert_eq!(whole(b) - b0, 0, "backend B settled no region it did not draw: its account is back at its start");
-        assert_eq!(depot_rows(), (d1, p1), "the set parked again holds what A's park left the depot's holders");
+        assert_eq!(
+            DEPOT.stats().takes,
+            takes + 1,
+            "backend B's statement took the parked set"
+        );
+        assert_eq!(
+            whole(b) - b0,
+            0,
+            "backend B settled no region it did not draw: its account is back at its start"
+        );
+        assert_eq!(
+            depot_rows(),
+            (d1, p1),
+            "the set parked again holds what A's park left the depot's holders"
+        );
 
         // the depot drops the set on B's thread: the holders' rows back to their start, B charged nothing
         DEPOT.clear();
-        assert_eq!(depot_rows(), (d0, p0), "the dropped set leaves the depot's holders where they started");
+        assert_eq!(
+            depot_rows(),
+            (d0, p0),
+            "the dropped set leaves the depot's holders where they started"
+        );
         assert_eq!(whole(b) - b0, 0, "and charges the dropping backend nothing");
         memledger::unbind_backend();
     })

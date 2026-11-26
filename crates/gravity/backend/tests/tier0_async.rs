@@ -17,7 +17,9 @@ fn cache_lock() -> std::sync::MutexGuard<'static, ()> {
 }
 
 fn konst(k: i64) -> (gravity_ir::Program, Func) {
-    let src = format!("(program (fn e ((c ptr)) (i64) (block entry ((c ptr)) (k (const i64 {k})) (return k))))");
+    let src = format!(
+        "(program (fn e ((c ptr)) (i64) (block entry ((c ptr)) (k (const i64 {k})) (return k))))"
+    );
     let p = parse_program(&src, &|_| None).unwrap_or_else(|e| panic!("{e}"));
     let f = Func(p.funcs.iter().position(|f| f.name == "e").unwrap() as u32);
     (p, f)
@@ -33,19 +35,45 @@ fn a_tier_zero_miss_is_filed_by_the_pool_beside_its_interpreted_run() {
     let _cache = cache_lock();
     std::env::set_var("PGRUST_GRAVITY_TIER0", "force");
     let (p, f) = konst(5101);
-    let (filed, queued) = (promote::FILED.load(Ordering::Relaxed), promote::QUEUED.load(Ordering::Relaxed));
+    let (filed, queued) = (
+        promote::FILED.load(Ordering::Relaxed),
+        promote::QUEUED.load(Ordering::Relaxed),
+    );
     let (codes, o) = mapped_cached_all(&p, &[f]).unwrap();
-    assert_eq!((codes[0].kind(), o.lookup), ("tier0", Lookup::Miss), "a forced miss: tier 0");
+    assert_eq!(
+        (codes[0].kind(), o.lookup),
+        ("tier0", Lookup::Miss),
+        "a forced miss: tier 0"
+    );
     assert_eq!(call(&codes[0]), 5101, "interpreted");
-    assert_eq!(promote::QUEUED.load(Ordering::Relaxed), queued + 1, "the module's compile went to the pool");
+    assert_eq!(
+        promote::QUEUED.load(Ordering::Relaxed),
+        queued + 1,
+        "the module's compile went to the pool"
+    );
     promote::quiesce();
-    assert_eq!(promote::FILED.load(Ordering::Relaxed), filed + 1, "the pool filed it");
+    assert_eq!(
+        promote::FILED.load(Ordering::Relaxed),
+        filed + 1,
+        "the pool filed it"
+    );
     let misses = cache::stats().misses;
-    assert!(cache::lookup_all(&p, &[f]).is_some(), "filed with no promotion");
+    assert!(
+        cache::lookup_all(&p, &[f]).is_some(),
+        "filed with no promotion"
+    );
     let t = codes[0].tier0().expect("tier-0 code");
     assert!(t.promote(), "{:?}", t.failure());
-    assert_eq!((codes[0].kind(), call(&codes[0])), ("mapped", 5101), "promoted from the pool's module");
-    assert_eq!(cache::stats().misses, misses, "the promotion compiled nothing");
+    assert_eq!(
+        (codes[0].kind(), call(&codes[0])),
+        ("mapped", 5101),
+        "promoted from the pool's module"
+    );
+    assert_eq!(
+        cache::stats().misses,
+        misses,
+        "the promotion compiled nothing"
+    );
 }
 
 #[test]
@@ -65,7 +93,9 @@ fn callers_missing_one_key_at_once_compile_it_once() {
                         // D3392: the compile stays open until the other three callers are counted waiting (a waiter is counted
                         // before it blocks), not for a fixed time: a caller scheduled late under load hit the filed module
                         let t0 = std::time::Instant::now();
-                        while cache::stats().waited < waited + 3 && t0.elapsed() < Duration::from_secs(30) {
+                        while cache::stats().waited < waited + 3
+                            && t0.elapsed() < Duration::from_secs(30)
+                        {
                             std::thread::sleep(Duration::from_millis(1));
                         }
                         gravity_backend::gravity_tpde::compile(ctx.mcx(), p)
@@ -78,9 +108,20 @@ fn callers_missing_one_key_at_once_compile_it_once() {
             .collect();
         hs.into_iter().map(|h| h.join().unwrap()).collect()
     });
-    assert_eq!(COMPILES.load(Ordering::Relaxed), 1, "one compile for four callers: {outs:?}");
-    assert_eq!(outs.iter().filter(|l| **l == Lookup::Miss).count(), 1, "{outs:?}");
-    assert!(cache::stats().waited >= waited + 3, "the other three waited for it");
+    assert_eq!(
+        COMPILES.load(Ordering::Relaxed),
+        1,
+        "one compile for four callers: {outs:?}"
+    );
+    assert_eq!(
+        outs.iter().filter(|l| **l == Lookup::Miss).count(),
+        1,
+        "{outs:?}"
+    );
+    assert!(
+        cache::stats().waited >= waited + 3,
+        "the other three waited for it"
+    );
 }
 
 #[test]
@@ -116,15 +157,26 @@ fn a_compile_that_fails_or_panics_leaves_its_key_unfiled_and_wakes_its_waiters()
         (a.join().unwrap(), b.join().unwrap())
     });
     assert!(first.is_err(), "the failed compile is its caller's error");
-    assert_eq!(second.unwrap(), Lookup::Miss, "its waiter compiled the key itself");
+    assert_eq!(
+        second.unwrap(),
+        Lookup::Miss,
+        "its waiter compiled the key itself"
+    );
     assert_eq!(TRIES.load(Ordering::Relaxed), 2);
 
     let (q, g) = konst(5302);
     let r = cache::get_or_compile_all(&q, &[g], |_| panic!("the code generator's assert"));
     assert!(r.is_err(), "a code generator panic is the compile's error");
     assert!(cache::lookup_all(&q, &[g]).is_none(), "not filed");
-    let (codes, o) = cache::get_or_compile_all(&q, &[g], |ctx| gravity_backend::gravity_tpde::compile(ctx.mcx(), &q)).unwrap();
-    assert_eq!((o.lookup, call(&codes[0])), (Lookup::Miss, 5302), "the key was never poisoned: the next miss compiles it");
+    let (codes, o) = cache::get_or_compile_all(&q, &[g], |ctx| {
+        gravity_backend::gravity_tpde::compile(ctx.mcx(), &q)
+    })
+    .unwrap();
+    assert_eq!(
+        (o.lookup, call(&codes[0])),
+        (Lookup::Miss, 5302),
+        "the key was never poisoned: the next miss compiles it"
+    );
 }
 
 /// D4762: the module the pool filed for a tier-0 program that never promoted is named by its codes (`Code::module`; their
@@ -139,20 +191,46 @@ fn a_never_promoted_tier_zero_module_is_doomed_by_its_key_and_a_held_one_waits()
     let (q, g) = konst(5763);
     let (codes, o) = mapped_cached_all(&p, &[f]).unwrap();
     let (held, oq) = mapped_cached_all(&q, &[g]).unwrap();
-    assert_eq!((codes[0].kind(), o.lookup, held[0].kind(), oq.lookup), ("tier0", Lookup::Miss, "tier0", Lookup::Miss), "forced misses: tier 0");
+    assert_eq!(
+        (codes[0].kind(), o.lookup, held[0].kind(), oq.lookup),
+        ("tier0", Lookup::Miss, "tier0", Lookup::Miss),
+        "forced misses: tier 0"
+    );
     promote::quiesce();
-    assert!(cache::lookup_all(&p, &[f]).is_some() && cache::lookup_all(&q, &[g]).is_some(), "the pool filed both");
-    assert_eq!((codes[0].mapping(), codes[0].module()), (0, o.key.0), "never promoted: no mapping, its module's key");
+    assert!(
+        cache::lookup_all(&p, &[f]).is_some() && cache::lookup_all(&q, &[g]).is_some(),
+        "the pool filed both"
+    );
+    assert_eq!(
+        (codes[0].mapping(), codes[0].module()),
+        (0, o.key.0),
+        "never promoted: no mapping, its module's key"
+    );
     let t = held[0].tier0().expect("tier-0 code");
     assert!(t.promote(), "{:?}", t.failure());
-    assert_eq!((held[0].kind(), held[0].module()), ("mapped", oq.key.0), "promoted from the pool's module, which it holds");
+    assert_eq!(
+        (held[0].kind(), held[0].module()),
+        ("mapped", oq.key.0),
+        "promoted from the pool's module, which it holds"
+    );
     let entries = cache::stats().entries;
-    assert_eq!(cache::doom_modules([codes[0].module(), held[0].module()].into_iter()), 2, "both doomed by their keys");
+    assert_eq!(
+        cache::doom_modules([codes[0].module(), held[0].module()].into_iter()),
+        2,
+        "both doomed by their keys"
+    );
     assert!(cache::evict_doomed() > 0, "the unheld one evicted");
     assert_eq!(cache::stats().entries, entries - 1, "the held one stays");
     assert_eq!(call(&held[0]), 5763, "and runs");
     drop(held);
     assert!(cache::evict_doomed() > 0, "let go: the next pass takes it");
-    assert!(cache::lookup_all(&p, &[f]).is_none() && cache::lookup_all(&q, &[g]).is_none(), "both gone from the cache");
-    assert_eq!(call(&codes[0]), 5762, "the unpromoted code still runs interpreted");
+    assert!(
+        cache::lookup_all(&p, &[f]).is_none() && cache::lookup_all(&q, &[g]).is_none(),
+        "both gone from the cache"
+    );
+    assert_eq!(
+        call(&codes[0]),
+        5762,
+        "the unpromoted code still runs interpreted"
+    );
 }

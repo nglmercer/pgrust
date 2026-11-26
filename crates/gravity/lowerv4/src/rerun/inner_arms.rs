@@ -30,14 +30,14 @@
 //! a union the set refills is the eager form's, S2r: union_arms.rs `refilled`), a cstring column whose bytes may not
 //! outlive the next read (D2020). Registers nest.loop's source maker (the feeds' `Empty`). Owner M8-NEST.
 use gravity_abi::ctx::site_off;
-use gravity_abi::status::raise;
 use gravity_abi::site::site;
+use gravity_abi::status::raise;
 use gravity_decompose::catalog::expr_type;
+use gravity_decompose::catalog::typefacts::{facts_of, TypeFacts};
 use gravity_decompose::join::JoinDesc;
 use gravity_decompose::ops::shared::append::{AppendDesc, PruneDesc};
 use gravity_decompose::ops::shared::srf::SrfPlace;
 use gravity_decompose::ops::shared::subplan::{SubForm, SubLink};
-use gravity_decompose::catalog::typefacts::{facts_of, TypeFacts};
 use gravity_decompose::{Am, Op, Source};
 use gravity_ir::builder::{FunctionBuilder, ProgramBuilder};
 use gravity_ir::{Block, ConvOp, HostFlags, IntBinOp, IntCond, Type, Value};
@@ -48,6 +48,7 @@ use gravity_program::{NumTypmod, Rep, Until};
 use mcx::{CollectIn, GrowIn, Mcx, PgBox, PgVec};
 use types_nodes::list::NodeList;
 
+use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::cell::{At, Cell, CellHome, CellLife, Nullable, Row};
 use crate::face::end::EndMech;
 use crate::face::kinds::{Face, KindId};
@@ -60,16 +61,20 @@ use crate::frame::px::{ExId, Px, WordKey, DRAFT_SITE};
 use crate::frame::row::{Carry, RowVals};
 use crate::frame::stop::Exits;
 use crate::graph::Gx;
-use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::ops::Table;
 use crate::rerun::params::NestExt;
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::NestLoop, &SourceMaker(make_empty))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::NestLoop, &SourceMaker(make_empty))],
+    ..crate::ops::NONE
+};
 
 pub(crate) const UNION_PRUNE_LOUD: &str = "a union in a nest inner that PostgreSQL prunes at run time over an arm that can raise or calls a user or VOLATILE function, or with pruning that does (a user partition key support function) (D2013)";
-pub(crate) const UNION_ARM_BREAKER: &str = "a union in a nest inner with an arm over a breaker (D2014)";
+pub(crate) const UNION_ARM_BREAKER: &str =
+    "a union in a nest inner with an arm over a breaker (D2014)";
 pub(crate) const UNION_ARM_BEYOND_FORMS: &str = "a union in a nest inner with an arm other than filters, projections and ProjectSets over one heap scan, a Result or VALUES, an ordered arm, or an arm scan exec admit would pair with another scan (D2015)";
-const UNION_UNDER_RERUN_SET: &str = "a union in a nest inner under a rerun set beyond its arms (D2016)";
+const UNION_UNDER_RERUN_SET: &str =
+    "a union in a nest inner under a rerun set beyond its arms (D2016)";
 pub(crate) const UNION_CSTRING_ARM: &str = "a union in a nest inner with a cstring arm column whose bytes may not outlive the arm's next read (a computed or set-function value; no copy slot for a cstring) (D2020)";
 
 fn shape(node: i32, why: &'static str) -> ! {
@@ -86,18 +91,50 @@ fn make_empty<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + '
     crate::rerun::inner_arms_index::hold(px, k); // D3493: an index arm's number, where exec admit walks its feed
     let (gx, mcx) = (px.gx, px.mcx());
     let p = &gx.pipelines()[k];
-    let rep = |t: u32| facts_of(gx.facts, t).map_or(Rep::Word { bytes: 8 }, |f| Rep::of_storage(f.typlen, f.byval));
+    let rep = |t: u32| {
+        facts_of(gx.facts, t).map_or(Rep::Word { bytes: 8 }, |f| {
+            Rep::of_storage(f.typlen, f.byval)
+        })
+    };
     let cols = match &p.source {
         Source::Range { relid, .. } => {
             let natts = gx.facts.rel(*relid).map_or(0, |r| r.natts.max(0) as usize);
-            (1..=natts as i16).map(|a| gx.facts.att(*relid, a).map_or((types_core::INT8OID, Rep::Word { bytes: 8 }), |f| (f.typid, rep(f.typid)))).collect_in(mcx)
+            (1..=natts as i16)
+                .map(|a| {
+                    gx.facts
+                        .att(*relid, a)
+                        .map_or((types_core::INT8OID, Rep::Word { bytes: 8 }), |f| {
+                            (f.typid, rep(f.typid))
+                        })
+                })
+                .collect_in(mcx)
         }
-        Source::Values { lists, .. } => lists.iter().next().and_then(|l| l.as_list()).map_or_else(|| PgVec::new_in(mcx), |l| l.iter().map(|n| expr_type::type_of(n).unwrap_or_else(|| expr_type::result_type(n))).map(|t| (t, rep(t))).collect_in(mcx)),
+        Source::Values { lists, .. } => lists.iter().next().and_then(|l| l.as_list()).map_or_else(
+            || PgVec::new_in(mcx),
+            |l| {
+                l.iter()
+                    .map(|n| expr_type::type_of(n).unwrap_or_else(|| expr_type::result_type(n)))
+                    .map(|t| (t, rep(t)))
+                    .collect_in(mcx)
+            },
+        ),
         // D3789: a CteScan feed's, its CTE's projection
-        Source::Breaker { slot } => gx.life_of(k, *slot).and_then(|l| match gx.pipelines()[l.0 as usize].ops.last() {
-            Some(Op::Project(cols)) => Some(cols.iter().filter_map(|n| n.as_target_entry()).map(|te| expr_type::type_of(te.expr).unwrap_or_else(|| expr_type::result_type(te.expr))).map(|t| (t, rep(t))).collect_in(mcx)),
-            _ => None,
-        }).unwrap_or_else(|| PgVec::new_in(mcx)),
+        Source::Breaker { slot } => gx
+            .life_of(k, *slot)
+            .and_then(|l| match gx.pipelines()[l.0 as usize].ops.last() {
+                Some(Op::Project(cols)) => Some(
+                    cols.iter()
+                        .filter_map(|n| n.as_target_entry())
+                        .map(|te| {
+                            expr_type::type_of(te.expr)
+                                .unwrap_or_else(|| expr_type::result_type(te.expr))
+                        })
+                        .map(|t| (t, rep(t)))
+                        .collect_in(mcx),
+                ),
+                _ => None,
+            })
+            .unwrap_or_else(|| PgVec::new_in(mcx)),
         _ => crate::rerun::inner_arms_index::cols(gx, &p.source, &rep), // S2c: an index feed's
     };
     mcx::pg_box_dyn!(mcx, Empty { cols } => dyn SourceMech + 'g)
@@ -112,15 +149,56 @@ impl SourceMech for Empty<'_> {
         b.br(l_eof, &[env.zero]);
         let dead = b.create_block(&[]);
         b.switch_to(dead);
-        Win { cursor: env.zero, end: env.zero, facts: WinConds::default() }
+        Win {
+            cursor: env.zero,
+            end: env.zero,
+            facts: WinConds::default(),
+        }
     }
 
-    fn row<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e> {
-        let (life, mcx) = (CellLife { until: Until::Row, home: CellHome::FrameSlot }, env.mcx);
-        let cells = self.cols.iter().enumerate().map(|(c, &(typid, rep))| Cell { rep, typid, num: NumTypmod::NONE, life, at: At::Slot(c as u16), null: Nullable::Maybe }).collect_in(mcx);
+    fn row<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+        j: Value,
+        carry: Carry<'e>,
+        next: Value,
+    ) -> RowVals<'e> {
+        let (life, mcx) = (
+            CellLife {
+                until: Until::Row,
+                home: CellHome::FrameSlot,
+            },
+            env.mcx,
+        );
+        let cells = self
+            .cols
+            .iter()
+            .enumerate()
+            .map(|(c, &(typid, rep))| Cell {
+                rep,
+                typid,
+                num: NumTypmod::NONE,
+                life,
+                at: At::Slot(c as u16),
+                null: Nullable::Maybe,
+            })
+            .collect_in(mcx);
         let t = b.bconst(true);
-        let vals = self.cols.iter().map(|_| (env.zero, Some(t))).collect_in(mcx);
-        RowVals { row: Row { cells }, cols: (0..self.cols.len() as u16).map(Some).collect_in(mcx), vals, carry, next, at: j }
+        let vals = self
+            .cols
+            .iter()
+            .map(|_| (env.zero, Some(t)))
+            .collect_in(mcx);
+        RowVals {
+            row: Row { cells },
+            cols: (0..self.cols.len() as u16).map(Some).collect_in(mcx),
+            vals,
+            carry,
+            next,
+            at: j,
+        }
     }
 }
 
@@ -134,7 +212,13 @@ impl EndMech for Fused {
         b.switch_to(dead);
     }
 
-    fn lower<'e>(&self, _b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, _x: &Exits) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        _x: &Exits,
+    ) -> Carry<'e> {
         row.carry.copy_in(env.mcx)
     }
 }
@@ -180,12 +264,25 @@ struct Arms<'g> {
 /// it is declared (its members run only through the owner's m8_rerun, program.rs, which the inner never calls: the feeds
 /// never run) and none is kept. Another slot of the set is one an arm reads that no set fills (D3789: a CTE's store, a
 /// hashed SubPlan's set), the same rows at every re-open. A set beyond them refuses D2016.
-pub(crate) fn rerun<R>(px: &mut Px<'_, '_>, (k, set, slot): (usize, usize, u8), u: Option<&(usize, u8, Vec<usize>)>, node: i32) -> Option<R> {
+pub(crate) fn rerun<R>(
+    px: &mut Px<'_, '_>,
+    (k, set, slot): (usize, usize, u8),
+    u: Option<&(usize, u8, Vec<usize>)>,
+    node: i32,
+) -> Option<R> {
     let gx = px.gx;
     let feeds = u.map_or(&[][..], |u| &u.2[..]);
     let r = &gx.graph.reruns[set];
-    let read = |s: u8| feeds.iter().any(|&f| gx.pipelines()[f].desc.consumes.contains(&s) && gx.life_of(f, s).is_some_and(|l| once(gx, l.0 as usize)));
-    if !(r.pipelines.iter().all(|&q| feeds.contains(&(q as usize))) && (0..=u8::MAX).all(|s| s == slot || !gravity_decompose::graph::slot_has(&r.slots, s) || read(s))) {
+    let read = |s: u8| {
+        feeds.iter().any(|&f| {
+            gx.pipelines()[f].desc.consumes.contains(&s)
+                && gx.life_of(f, s).is_some_and(|l| once(gx, l.0 as usize))
+        })
+    };
+    if !(r.pipelines.iter().all(|&q| feeds.contains(&(q as usize)))
+        && (0..=u8::MAX)
+            .all(|s| s == slot || !gravity_decompose::graph::slot_has(&r.slots, s) || read(s)))
+    {
         shape(node, UNION_UNDER_RERUN_SET);
     }
     crate::rerun::sets::Rerun::declare(px, k, set);
@@ -198,25 +295,75 @@ pub(crate) fn source<'g>(px: &mut Px<'g, '_>, ik: usize) -> PgBox<'g, dyn Source
     let mcx = px.mcx();
     let ps = gx.pipelines();
     let node = ps[ik].node_id;
-    let Some((_, _, feeds)) = crate::pipes::inner_union(gx, ik) else { crate::refuse!(node, Reason::Bug { payload: "a nest inner's union without its feeds" }) };
+    let Some((_, _, feeds)) = crate::pipes::inner_union(gx, ik) else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a nest inner's union without its feeds"
+            }
+        )
+    };
     // A run-time pruned union whose arms and pruning calls are all quiet runs every arm unpruned (its pruned arms pass no row);
     // D2013: else its pruning runs as PostgreSQL's, at the first read after each re-open (`nest_prune`)
-    let prune = match ps[ik].ops.first() { Some(Op::Append(AppendDesc::Union { prune: Some(d), .. })) => Some(d), _ => None };
+    let prune = match ps[ik].ops.first() {
+        Some(Op::Append(AppendDesc::Union { prune: Some(d), .. })) => Some(d),
+        _ => None,
+    };
     // EXPLAIN ANALYZE prunes as PostgreSQL's too: an arm its pruning removes never starts (`(never executed)`)
-    let loud = prune.filter(|d| crate::frame::instr::on() || !crate::rerun::union_arms::quiet_prune(gx, d) || !feeds.iter().all(|&f| crate::rerun::union_arms::quiet_arm_in(gx, &ps[f], true, false)));
+    let loud = prune.filter(|d| {
+        crate::frame::instr::on()
+            || !crate::rerun::union_arms::quiet_prune(gx, d)
+            || !feeds
+                .iter()
+                .all(|&f| crate::rerun::union_arms::quiet_arm_in(gx, &ps[f], true, false))
+    });
     let handle = loud.map(|d| nest_prune(px, ik, d, feeds.len(), node));
-    let cols: PgVec<'_, &NodeList<'_>> = feeds.iter().map(|&f| admit_arm(gx, f, node, true)).collect_in(mcx);
+    let cols: PgVec<'_, &NodeList<'_>> = feeds
+        .iter()
+        .map(|&f| admit_arm(gx, f, node, true))
+        .collect_in(mcx);
     let tfs = types(gx, node, cols[0]);
-    if cols[1..].iter().any(|c| types(gx, node, c).iter().map(|t| t.typid).ne(tfs.iter().map(|t| t.typid))) {
+    if cols[1..].iter().any(|c| {
+        types(gx, node, c)
+            .iter()
+            .map(|t| t.typid)
+            .ne(tfs.iter().map(|t| t.typid))
+    }) {
         shape(node, UNION_ARM_BEYOND_FORMS);
     }
-    let mut word = |i: u8, j: usize| px.frame_word(WordKey::Open { face: Face::Nest, k: ik, j: crate::frame::px::key_j(j), i }) as i32 * 8;
-    let w = [word(4, usize::MAX), word(5, usize::MAX), word(6, usize::MAX), word(7, usize::MAX)];
-    let buf = (0..tfs.len()).map(|c| (word(1, usize::MAX - 1 - c), word(2, usize::MAX - 1 - c))).collect_in(mcx);
+    let mut word = |i: u8, j: usize| {
+        px.frame_word(WordKey::Open {
+            face: Face::Nest,
+            k: ik,
+            j: crate::frame::px::key_j(j),
+            i,
+        }) as i32
+            * 8
+    };
+    let w = [
+        word(4, usize::MAX),
+        word(5, usize::MAX),
+        word(6, usize::MAX),
+        word(7, usize::MAX),
+    ];
+    let buf = (0..tfs.len())
+        .map(|c| (word(1, usize::MAX - 1 - c), word(2, usize::MAX - 1 - c)))
+        .collect_in(mcx);
     let prune = handle.map(|h| (h, [word(8, usize::MAX), word(9, usize::MAX)]));
     // D2020: a by-reference column's copy slot (a cstring has none)
-    let keeps = tfs.iter().map(|tf| (tf.typlen == -1 || tf.typlen > 0).then(|| crate::ops::subplan::result::copy_slot(px, ik, node, tf)).flatten()).collect_in(mcx);
-    let arms = feeds.iter().enumerate().map(|(a, &f)| make_arm(px, ik, f, a)).collect_in(mcx);
+    let keeps = tfs
+        .iter()
+        .map(|tf| {
+            (tf.typlen == -1 || tf.typlen > 0)
+                .then(|| crate::ops::subplan::result::copy_slot(px, ik, node, tf))
+                .flatten()
+        })
+        .collect_in(mcx);
+    let arms = feeds
+        .iter()
+        .enumerate()
+        .map(|(a, &f)| make_arm(px, ik, f, a))
+        .collect_in(mcx);
     mcx::pg_box_dyn!(mcx, Arms { arms, tfs, w, buf, keeps, node, prune } => dyn SourceMech + 'g)
 }
 
@@ -235,12 +382,17 @@ fn nest_prune(px: &mut Px<'_, '_>, ik: usize, d: &PruneDesc<'_>, n: usize, node:
     let mcx = px.mcx();
     let ps = gx.pipelines();
     let inners = ps.inners();
-    let Some(&((k, j), _)) = ik.checked_sub(ps.len()).and_then(|i| inners.get(i)) else { shape(node, UNION_PRUNE_LOUD) };
+    let Some(&((k, j), _)) = ik.checked_sub(ps.len()).and_then(|i| inners.get(i)) else {
+        shape(node, UNION_PRUNE_LOUD)
+    };
     // the parameters the owner sets before each re-open: a nest's NestLoopParams, or a correlated SubPlan's parParams
     // (D3378: ExecScanSubPlan adds each to the plan's chgParam at every call before its ExecReScan, so ExecReScanAppend
     // clears the valid set there as at a nest's rescan)
     let set: PgVec<'_, i32> = match ps[k].ops.get(j) {
-        Some(Op::Join(JoinDesc::Nest { params, .. })) => params.iter().filter_map(|p| p.as_nest_loop_param().map(|p| p.paramno)).collect_in(mcx),
+        Some(Op::Join(JoinDesc::Nest { params, .. })) => params
+            .iter()
+            .filter_map(|p| p.as_nest_loop_param().map(|p| p.paramno))
+            .collect_in(mcx),
         Some(Op::SubPlan(s)) => s.params.iter().collect_in(mcx),
         _ => shape(node, UNION_PRUNE_LOUD),
     };
@@ -256,8 +408,14 @@ fn nest_prune(px: &mut Px<'_, '_>, ik: usize, d: &PruneDesc<'_>, n: usize, node:
         owned |= set.contains(&x);
         set.contains(&x) || init(x)
     });
-    let nests = over && (owned || crate::effects::visible::nestloop::quiet_prune_bound(gx, d, &init));
-    if !d.exec || !nests || n > 63 || d.index == gravity_decompose::facts::hoist::HOISTED || d.index > u16::MAX as u32 {
+    let nests =
+        over && (owned || crate::effects::visible::nestloop::quiet_prune_bound(gx, d, &init));
+    if !d.exec
+        || !nests
+        || n > 63
+        || d.index == gravity_decompose::facts::hoist::HOISTED
+        || d.index > u16::MAX as u32
+    {
         shape(node, UNION_PRUNE_LOUD);
     }
     let mut root = k;
@@ -279,21 +437,70 @@ fn nest_prune(px: &mut Px<'_, '_>, ik: usize, d: &PruneDesc<'_>, n: usize, node:
 /// run-time pruning over InitPlans that may raise or act (rerun/spool/form.rs `pull_late`): decided at the first pull by
 /// the nest.prune object (`decide`), which runs those InitPlans there, as PostgreSQL's Append's first call does; an arm it
 /// prunes never opens.
-pub(crate) fn pulled<'g>(px: &mut Px<'g, '_>, ik: usize, feeds: &[usize], skips: PgVec<'_, Option<(u16, u32)>>, late: Option<&PruneDesc<'_>>, node: i32) -> PgBox<'g, dyn SourceMech + 'g> {
+pub(crate) fn pulled<'g>(
+    px: &mut Px<'g, '_>,
+    ik: usize,
+    feeds: &[usize],
+    skips: PgVec<'_, Option<(u16, u32)>>,
+    late: Option<&PruneDesc<'_>>,
+    node: i32,
+) -> PgBox<'g, dyn SourceMech + 'g> {
     let gx = px.gx;
     let mcx = px.mcx();
-    let cols: PgVec<'_, &NodeList<'_>> = feeds.iter().map(|&f| admit_arm(gx, f, node, false)).collect_in(mcx);
+    let cols: PgVec<'_, &NodeList<'_>> = feeds
+        .iter()
+        .map(|&f| admit_arm(gx, f, node, false))
+        .collect_in(mcx);
     let tfs = types(gx, node, cols[0]);
-    if cols[1..].iter().any(|c| types(gx, node, c).iter().map(|t| t.typid).ne(tfs.iter().map(|t| t.typid))) {
+    if cols[1..].iter().any(|c| {
+        types(gx, node, c)
+            .iter()
+            .map(|t| t.typid)
+            .ne(tfs.iter().map(|t| t.typid))
+    }) {
         shape(node, UNION_ARM_BEYOND_FORMS);
     }
-    let mut word = |i: u8, j: usize| px.frame_word(WordKey::Open { face: Face::Nest, k: ik, j: crate::frame::px::key_j(j), i }) as i32 * 8;
-    let w = [word(4, usize::MAX), word(5, usize::MAX), word(6, usize::MAX), word(7, usize::MAX)];
-    let buf = (0..tfs.len()).map(|c| (word(1, usize::MAX - 1 - c), word(2, usize::MAX - 1 - c))).collect_in(mcx);
-    let pw = late.is_some().then(|| [word(8, usize::MAX), word(9, usize::MAX)]);
-    let keeps = tfs.iter().map(|tf| (tf.typlen == -1 || tf.typlen > 0).then(|| crate::ops::subplan::result::copy_slot(px, ik, node, tf)).flatten()).collect_in(mcx);
-    let prune = late.zip(pw).map(|(d, pw)| (pull_prune(px, ik, d, feeds.len(), node), pw));
-    let arms = feeds.iter().zip(skips).enumerate().map(|(a, (&f, skip))| Arm { skip, ..make_arm(px, ik, f, a) }).collect_in(mcx);
+    let mut word = |i: u8, j: usize| {
+        px.frame_word(WordKey::Open {
+            face: Face::Nest,
+            k: ik,
+            j: crate::frame::px::key_j(j),
+            i,
+        }) as i32
+            * 8
+    };
+    let w = [
+        word(4, usize::MAX),
+        word(5, usize::MAX),
+        word(6, usize::MAX),
+        word(7, usize::MAX),
+    ];
+    let buf = (0..tfs.len())
+        .map(|c| (word(1, usize::MAX - 1 - c), word(2, usize::MAX - 1 - c)))
+        .collect_in(mcx);
+    let pw = late
+        .is_some()
+        .then(|| [word(8, usize::MAX), word(9, usize::MAX)]);
+    let keeps = tfs
+        .iter()
+        .map(|tf| {
+            (tf.typlen == -1 || tf.typlen > 0)
+                .then(|| crate::ops::subplan::result::copy_slot(px, ik, node, tf))
+                .flatten()
+        })
+        .collect_in(mcx);
+    let prune = late
+        .zip(pw)
+        .map(|(d, pw)| (pull_prune(px, ik, d, feeds.len(), node), pw));
+    let arms = feeds
+        .iter()
+        .zip(skips)
+        .enumerate()
+        .map(|(a, (&f, skip))| Arm {
+            skip,
+            ..make_arm(px, ik, f, a)
+        })
+        .collect_in(mcx);
     mcx::pg_box_dyn!(mcx, Arms { arms, tfs, w, buf, keeps, node, prune } => dyn SourceMech + 'g)
 }
 
@@ -319,19 +526,31 @@ fn pull_prune(px: &mut Px<'_, '_>, ik: usize, d: &PruneDesc<'_>, n: usize, node:
 
 /// D3789: pipeline `q` runs in no rerun set: what it fills is filled once for the statement.
 fn once(gx: &Gx<'_, '_>, q: usize) -> bool {
-    !gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(q as u16)))
+    !gx.graph
+        .reruns
+        .iter()
+        .any(|r| r.pipelines.contains(&(q as u16)))
 }
 
 /// D3789: feed `f` reads a CTE's store that no rerun set re-runs (a CteScan arm), read again from its start at every open.
 pub(crate) fn cte_arm(gx: &Gx<'_, '_>, f: usize) -> bool {
-    let Source::Breaker { slot } = gx.pipelines()[f].source else { return false };
-    gx.life_of(f, slot).is_some_and(|l| gx.graph.init_plans.iter().any(|i| i.pipeline == l.0 && matches!(i.link, SubLink::Cte)) && once(gx, l.0 as usize))
+    let Source::Breaker { slot } = gx.pipelines()[f].source else {
+        return false;
+    };
+    gx.life_of(f, slot).is_some_and(|l| {
+        gx.graph
+            .init_plans
+            .iter()
+            .any(|i| i.pipeline == l.0 && matches!(i.link, SubLink::Cte))
+            && once(gx, l.0 as usize)
+    })
 }
 
 /// D3789 x D3782: feed `f` is a CteScan arm (`cte_arm`) whose ops S2b streams (`arm_body`, with its hashed probes).
 pub(crate) fn cte_streams(gx: &Gx<'_, '_>, f: usize) -> bool {
     let ops = &gx.pipelines()[f].ops;
-    cte_arm(gx, f) && matches!(ops.split_last(), Some((Op::Append(AppendDesc::Feed { .. }), body)) if arm_body(gx, f, body, true).is_some())
+    cte_arm(gx, f)
+        && matches!(ops.split_last(), Some((Op::Append(AppendDesc::Feed { .. }), body)) if arm_body(gx, f, body, true).is_some())
 }
 
 /// Feed `f`'s arm served here, else the refusal's name: its union columns (the projection before its Feed). `streamed`:
@@ -346,8 +565,11 @@ fn admit_arm<'p>(gx: &Gx<'_, 'p>, f: usize, node: i32, streamed: bool) -> &'p No
     }
     // PSP3-11: an ordered Append's feed (the planner's mark: the partitions in bound order, each in the keys' order) streams
     // as any other, arm 0 to its end and then the next, which is PostgreSQL's Append and its order
-    let Some((Op::Append(AppendDesc::Feed { .. }), body)) = p.ops.split_last() else { shape(node, UNION_ARM_BEYOND_FORMS) };
-    let cols = arm_body(gx, f, body, streamed).unwrap_or_else(|| shape(node, UNION_ARM_BEYOND_FORMS));
+    let Some((Op::Append(AppendDesc::Feed { .. }), body)) = p.ops.split_last() else {
+        shape(node, UNION_ARM_BEYOND_FORMS)
+    };
+    let cols =
+        arm_body(gx, f, body, streamed).unwrap_or_else(|| shape(node, UNION_ARM_BEYOND_FORMS));
     if !crate::rerun::inner_arms_index::lone_range(gx, &p.source) {
         shape(node, UNION_ARM_BEYOND_FORMS);
     }
@@ -358,12 +580,28 @@ fn admit_arm<'p>(gx: &Gx<'_, 'p>, f: usize, node: i32, streamed: bool) -> &'p No
 /// Feed `f`'s ops before its Feed (`body`) as an arm makes them: filters, projections, gates and target-list set functions,
 /// the last a projection: its union columns, else none. A top window's row cap in the arm (`arm_cap`) is no op of it.
 /// `sets`: a hashed SubPlan's probe of a set no rerun set builds (D3789) too.
-fn arm_body<'p>(gx: &Gx<'_, 'p>, f: usize, body: &[Op<'p>], sets: bool) -> Option<&'p NodeList<'p>> {
+fn arm_body<'p>(
+    gx: &Gx<'_, 'p>,
+    f: usize,
+    body: &[Op<'p>],
+    sets: bool,
+) -> Option<&'p NodeList<'p>> {
     let probe = |op: &Op<'_>| matches!(op, Op::SubPlan(d) if matches!(d.form, SubForm::Hashed { slot } if gx.life_of(f, slot).is_some_and(|l| once(gx, l.0 as usize))));
     // D4062: a correlated SubPlan (its inner made again with the arm, run per row as PostgreSQL's ExecScanSubPlan in the
     // arm's qual) over an inner the arm may make again (`remade`)
-    let nested = |j: usize, op: &Op<'_>| matches!(op, Op::SubPlan(d) if matches!(d.form, SubForm::Nested { .. })) && gx.pipelines().inner_of(f, j).is_some_and(|ik| remade(gx, ik));
-    let ok = |(j, op): (usize, &Op<'_>)| matches!(op, Op::Filter(_) | Op::Project(_) | Op::Gate(_)) || matches!(op, Op::Srf(d) if d.place == SrfPlace::TargetList) || arm_cap(gx, f, op) || sets && (probe(op) || nested(j, op));
+    let nested = |j: usize, op: &Op<'_>| {
+        matches!(op, Op::SubPlan(d) if matches!(d.form, SubForm::Nested { .. }))
+            && gx
+                .pipelines()
+                .inner_of(f, j)
+                .is_some_and(|ik| remade(gx, ik))
+    };
+    let ok = |(j, op): (usize, &Op<'_>)| {
+        matches!(op, Op::Filter(_) | Op::Project(_) | Op::Gate(_))
+            || matches!(op, Op::Srf(d) if d.place == SrfPlace::TargetList)
+            || arm_cap(gx, f, op)
+            || sets && (probe(op) || nested(j, op))
+    };
     match body.last() {
         Some(Op::Project(cols)) if body.iter().enumerate().all(ok) => Some(*cols),
         _ => None,
@@ -377,8 +615,20 @@ fn remade(gx: &Gx<'_, '_>, ik: usize) -> bool {
     crate::stack_check(); // D3832
     let ps = gx.pipelines();
     let p = &ps[ik];
-    let runs = || matches!(gx.source_kind(ik), KindId::RunsSort | KindId::RunsTopkRows | KindId::RunsTopkGroups | KindId::RunsUnique | KindId::RunsGroup | KindId::RunsIncremental | KindId::RunsGroupDistinct);
-    (!matches!(p.source, Source::Breaker { .. }) || runs()) && (0..p.ops.len()).all(|j| ps.inner_of(ik, j).is_none_or(|x| remade(gx, x)))
+    let runs = || {
+        matches!(
+            gx.source_kind(ik),
+            KindId::RunsSort
+                | KindId::RunsTopkRows
+                | KindId::RunsTopkGroups
+                | KindId::RunsUnique
+                | KindId::RunsGroup
+                | KindId::RunsIncremental
+                | KindId::RunsGroupDistinct
+        )
+    };
+    (!matches!(p.source, Source::Breaker { .. }) || runs())
+        && (0..p.ops.len()).all(|j| ps.inner_of(ik, j).is_none_or(|x| remade(gx, x)))
 }
 
 /// D3377 road (3) (b): op `op` of feed `f` is the row cap decompose put in each arm of a union a top window reads under its
@@ -397,25 +647,51 @@ pub(crate) fn arm_fits<'g>(gx: &Gx<'g, '_>, f: usize) -> Option<PgVec<'g, u32>> 
         Source::Range { am: Am::Heap, .. } | Source::Const | Source::Values { .. } => true,
         _ => crate::rerun::inner_arms_index::fits(gx, p),
     };
-    let (Op::Append(AppendDesc::Feed { .. }), body) = p.ops.split_last()? else { return None };
+    let (Op::Append(AppendDesc::Feed { .. }), body) = p.ops.split_last()? else {
+        return None;
+    };
     let cols = arm_body(gx, f, body, false)?;
-    if !src || !crate::rerun::inner_arms_index::lone_range(gx, &p.source) || gx.pipelines().iter().any(crate::rerun::inner_arms_index::writes) {
+    if !src
+        || !crate::rerun::inner_arms_index::lone_range(gx, &p.source)
+        || gx
+            .pipelines()
+            .iter()
+            .any(crate::rerun::inner_arms_index::writes)
+    {
         return None;
     }
     let mut out = PgVec::new_in(gx.mcx);
     for (i, n) in cols.iter().enumerate() {
-        let te = n.as_target_entry().filter(|te| te.resno as usize == i + 1)?;
-        out.push_in(facts_of(gx.facts, expr_type::type_of(te.expr).unwrap_or_else(|| expr_type::result_type(te.expr))).map(|tf| tf.typid)?);
+        let te = n
+            .as_target_entry()
+            .filter(|te| te.resno as usize == i + 1)?;
+        out.push_in(
+            facts_of(
+                gx.facts,
+                expr_type::type_of(te.expr).unwrap_or_else(|| expr_type::result_type(te.expr)),
+            )
+            .map(|tf| tf.typid)?,
+        );
     }
     Some(out)
 }
 
 /// The union's column types, `cols` in resno order.
 fn types<'g>(gx: &Gx<'g, '_>, node: i32, cols: &NodeList<'_>) -> PgVec<'g, TypeFacts> {
-    cols.iter().enumerate().map(|(i, n)| {
-        let te = n.as_target_entry().filter(|te| te.resno as usize == i + 1).unwrap_or_else(|| shape(node, UNION_ARM_BEYOND_FORMS));
-        facts_of(gx.facts, expr_type::type_of(te.expr).unwrap_or_else(|| expr_type::result_type(te.expr))).unwrap_or_else(|| shape(node, UNION_ARM_BEYOND_FORMS))
-    }).collect_in(gx.mcx)
+    cols.iter()
+        .enumerate()
+        .map(|(i, n)| {
+            let te = n
+                .as_target_entry()
+                .filter(|te| te.resno as usize == i + 1)
+                .unwrap_or_else(|| shape(node, UNION_ARM_BEYOND_FORMS));
+            facts_of(
+                gx.facts,
+                expr_type::type_of(te.expr).unwrap_or_else(|| expr_type::result_type(te.expr)),
+            )
+            .unwrap_or_else(|| shape(node, UNION_ARM_BEYOND_FORMS))
+        })
+        .collect_in(gx.mcx)
 }
 
 /// Arm `a`, feed `kf`: its source and ops made under the inner's identity, its site numbered next (S1's pull form).
@@ -425,7 +701,11 @@ fn make_arm<'g>(px: &mut Px<'g, '_>, ik: usize, kf: usize, a: usize) -> Arm<'g> 
     let body = &fp.ops[..fp.ops.len() - 1];
     // D3789: a CteScan arm's source is the CTE's reader (ops/ctescan/lower.rs), its read pointer reset at every open
     let cte = cte_arm(gx, kf);
-    let kind = if cte { KindId::NestCte } else { crate::graph::source_kind_of(&fp.source, fp.node_id) };
+    let kind = if cte {
+        KindId::NestCte
+    } else {
+        crate::graph::source_kind_of(&fp.source, fp.node_id)
+    };
     let ident = px.ident(ik);
     let protos = px.protos.len();
     let lent = |j: usize| crate::rerun::inner_arms_gate::gate_sub(body, j);
@@ -433,14 +713,20 @@ fn make_arm<'g>(px: &mut Px<'g, '_>, ik: usize, kf: usize, a: usize) -> Arm<'g> 
     let (mut src, steps, gates, lenders) = px.making(kf, ident, |px| {
         let src = (crate::frame::iface::kind_impl::<SourceMaker>(&fp.node_id, kind).0)(px, kf);
         let gates = crate::rerun::inner_arms_gate::compile(px, fp, kf); // S2d: checked at the arm's open, never a step
-        let lenders: PgVec<'g, PgBox<'g, dyn StepMech + 'g>> = (0..body.len()).filter(|&j| lent(j)).map(|j| {
-            let n = crate::rerun::inner::op_node(fp, j);
-            (crate::frame::iface::kind_impl::<StepMaker>(&n, gx.step_need(kf, j)).0)(px, kf, j)
-        }).collect_in(mcx);
-        let steps: PgVec<'g, PgBox<'g, dyn StepMech + 'g>> = (0..body.len()).filter(|&j| !matches!(body[j], Op::Gate(_)) && !arm_cap(gx, kf, &body[j]) && !lent(j)).map(|j| {
-            let n = crate::rerun::inner::op_node(fp, j);
-            (crate::frame::iface::kind_impl::<StepMaker>(&n, gx.step_need(kf, j)).0)(px, kf, j)
-        }).collect_in(mcx);
+        let lenders: PgVec<'g, PgBox<'g, dyn StepMech + 'g>> = (0..body.len())
+            .filter(|&j| lent(j))
+            .map(|j| {
+                let n = crate::rerun::inner::op_node(fp, j);
+                (crate::frame::iface::kind_impl::<StepMaker>(&n, gx.step_need(kf, j)).0)(px, kf, j)
+            })
+            .collect_in(mcx);
+        let steps: PgVec<'g, PgBox<'g, dyn StepMech + 'g>> = (0..body.len())
+            .filter(|&j| !matches!(body[j], Op::Gate(_)) && !arm_cap(gx, kf, &body[j]) && !lent(j))
+            .map(|j| {
+                let n = crate::rerun::inner::op_node(fp, j);
+                (crate::frame::iface::kind_impl::<StepMaker>(&n, gx.step_need(kf, j)).0)(px, kf, j)
+            })
+            .collect_in(mcx);
         (src, steps, gates, lenders)
     });
     took_inners(px, held, fp.node_id);
@@ -454,27 +740,65 @@ fn make_arm<'g>(px: &mut Px<'g, '_>, ik: usize, kf: usize, a: usize) -> Arm<'g> 
     });
     let site = draft.map(|d| crate::rerun::inner_arms_index::site(px, kf, d)); // an index arm's where exec admit pairs it
     px.set_pipeline_site(kf, site); // a row mark's recheck finds the marked relation's producer here (marks.rs)
-    for p in px.protos[protos..].iter_mut().filter(|p| p.site == DRAFT_SITE) {
+    for p in px.protos[protos..]
+        .iter_mut()
+        .filter(|p| p.site == DRAFT_SITE)
+    {
         p.site = site.map_or(-1, |s| s as i16);
     }
     // D3789: a CteScan arm reads on the leader by its own read pointer, an open word
-    if site.is_none() != (cte || matches!(fp.source, Source::Const | Source::Values { .. })) || src.covers() != 0 {
+    if site.is_none() != (cte || matches!(fp.source, Source::Const | Source::Values { .. }))
+        || src.covers() != 0
+    {
         shape(fp.node_id, UNION_ARM_BEYOND_FORMS);
     }
     // a Result's or VALUES' position: the arm's own word (`Env::pos`), written RESUME_OPEN at the arm's open
-    let pos = (site.is_none() && !cte).then(|| px.frame_word(WordKey::Open { face: Face::Nest, k: ik, j: crate::frame::px::key_j(usize::MAX - 1 - a), i: 0 }) as i32 * 8);
+    let pos = (site.is_none() && !cte).then(|| {
+        px.frame_word(WordKey::Open {
+            face: Face::Nest,
+            k: ik,
+            j: crate::frame::px::key_j(usize::MAX - 1 - a),
+            i: 0,
+        }) as i32
+            * 8
+    });
     let mut words = OpenWords::new_in(mcx);
     if let Some(o) = pos {
-        words.declare(OpenWord::open("nest inner union arm position", Base::Words, o, Type::I64, RESUME_OPEN));
+        words.declare(OpenWord::open(
+            "nest inner union arm position",
+            Base::Words,
+            o,
+            Type::I64,
+            RESUME_OPEN,
+        ));
     }
     src.open_words(&mut words);
-    steps.iter().chain(lenders.iter()).for_each(|s| s.open_words(&mut words));
+    steps
+        .iter()
+        .chain(lenders.iter())
+        .for_each(|s| s.open_words(&mut words));
     // a copied op runs once per row: an op keeping state across rows in the end's slot is not an arm's
     if words.words.iter().any(|w| w.base == Base::State) {
         shape(fp.node_id, UNION_ARM_BEYOND_FORMS);
     }
-    let expands = steps.iter().enumerate().filter_map(|(i, s)| s.expand().map(|e| (i, e.offset))).collect_in(mcx);
-    Arm { src, steps, gates, lenders, site, pos, words, expands, node: fp.node_id, k: kf, skip: None }
+    let expands = steps
+        .iter()
+        .enumerate()
+        .filter_map(|(i, s)| s.expand().map(|e| (i, e.offset)))
+        .collect_in(mcx);
+    Arm {
+        src,
+        steps,
+        gates,
+        lenders,
+        site,
+        pos,
+        words,
+        expands,
+        node: fp.node_id,
+        k: kf,
+        skip: None,
+    }
 }
 
 /// D4062: the site numbers feed `kf`'s own make (`make_empty`'s pipeline, dead code made in graph order before the union's
@@ -483,11 +807,16 @@ fn make_arm<'g>(px: &mut Px<'g, '_>, ik: usize, kf: usize, a: usize) -> Arm<'g> 
 /// (relation, index) would take the first source of its key exec admit finds, another arm's SubPlan's (D1633's class).
 /// Only the first remake takes them (a remade owner's arms number theirs anew, as any remade inner does). `(held, fresh)`:
 /// each `(inner, number)` held, and the inners numbered nothing so far.
-fn hold_inners<'g>(px: &mut Px<'g, '_>, kf: usize) -> (PgVec<'g, (usize, usize)>, PgVec<'g, usize>) {
+fn hold_inners<'g>(
+    px: &mut Px<'g, '_>,
+    kf: usize,
+) -> (PgVec<'g, (usize, usize)>, PgVec<'g, usize>) {
     let mcx = px.mcx();
     let n = px.gx.pipelines().len();
     let w = crate::rerun::inner_arms_index::entries(px.gx);
-    let Some(own) = w.iter().position(|e| e.0 == kf) else { return (PgVec::new_in(mcx), PgVec::new_in(mcx)) };
+    let Some(own) = w.iter().position(|e| e.0 == kf) else {
+        return (PgVec::new_in(mcx), PgVec::new_in(mcx));
+    };
     let (mut held, mut fresh) = (PgVec::new_in(mcx), PgVec::new_in(mcx));
     for x in w[own + 1..].iter().take_while(|e| e.0 >= n).map(|e| e.0) {
         let Some(s) = px.pipeline_site(x) else {
@@ -506,11 +835,18 @@ fn hold_inners<'g>(px: &mut Px<'g, '_>, kf: usize) -> (PgVec<'g, (usize, usize)>
 
 /// D4062: every number `hold_inners` held was taken by its own inner's remake, and no inner it found unnumbered got one
 /// (a feed made after the arm would number it again), else the arm refuses (D2015); a number left held is dropped.
-fn took_inners<'g>(px: &mut Px<'g, '_>, (held, fresh): (PgVec<'g, (usize, usize)>, PgVec<'g, usize>), node: i32) {
+fn took_inners<'g>(
+    px: &mut Px<'g, '_>,
+    (held, fresh): (PgVec<'g, (usize, usize)>, PgVec<'g, usize>),
+    node: i32,
+) {
     let ext = px.ext_mut::<NestExt>(Face::Nest);
     let left = ext.sites.iter().any(|h| held.contains(h));
     ext.sites.retain(|h| !held.contains(h));
-    if left || held.iter().any(|&(x, s)| px.pipeline_site(x) != Some(s)) || fresh.iter().any(|&x| px.pipeline_site(x).is_some()) {
+    if left
+        || held.iter().any(|&(x, s)| px.pipeline_site(x) != Some(s))
+        || fresh.iter().any(|&x| px.pipeline_site(x).is_some())
+    {
         shape(node, UNION_ARM_BEYOND_FORMS);
     }
 }
@@ -560,14 +896,34 @@ fn enter<'e>(env: &mut Env<'e, '_>, a: &Arm<'_>) -> Saved<'e> {
 }
 
 fn leave<'e>(env: &mut Env<'e, '_>, s: Saved<'e>) {
-    (env.site, env.k, env.node, env.step, env.win, env.expands, env.pos) = (s.site, s.k, s.node, s.step, s.win, s.expands, s.pos);
-    (env.single, env.inner, env.srfs, env.mult, env.tables, env.codes, env.body, env.escape, env.loc) = (s.single, s.inner, s.srfs, s.mult, s.tables, s.codes, s.body, s.escape, s.loc);
+    (
+        env.site,
+        env.k,
+        env.node,
+        env.step,
+        env.win,
+        env.expands,
+        env.pos,
+    ) = (s.site, s.k, s.node, s.step, s.win, s.expands, s.pos);
+    (
+        env.single, env.inner, env.srfs, env.mult, env.tables, env.codes, env.body, env.escape,
+        env.loc,
+    ) = (
+        s.single, s.inner, s.srfs, s.mult, s.tables, s.codes, s.body, s.escape, s.loc,
+    );
     env.memo.restore(s.memo);
 }
 
 /// The arm's ops from `j` on over `row`, the last into `last`, `Env::step` naming the lowering one (srf/project_set.rs and
 /// `stop::held` read the arm's later expanding steps by it).
-fn chain<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, steps: &[PgBox<'_, dyn StepMech + '_>], j: usize, row: &RowVals, last: Next<'_, 'e>) -> Carry<'e> {
+fn chain<'e>(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env<'e, '_>,
+    steps: &[PgBox<'_, dyn StepMech + '_>],
+    j: usize,
+    row: &RowVals,
+    last: Next<'_, 'e>,
+) -> Carry<'e> {
     crate::stack_check(); // D3832
     crate::frame::frame::bound(b, env, j); // EXPLAIN ANALYZE: the arm's node boundaries (`Arms::pull` makes them current)
     let Some((s, rest)) = steps.split_first() else {
@@ -589,15 +945,29 @@ impl Arms<'_> {
     /// choose_next_subplan_locally after ExecReScanAppend cleared the valid set); a status below zero leaves by the raise
     /// exit with the host's stashed error (the support function's raise, at PostgreSQL's point).
     fn decide(&self, b: &mut FunctionBuilder<'_>, env: &mut Env) {
-        let Some((h, [mw, dw])) = self.prune else { return };
+        let Some((h, [mw, dw])) = self.prune else {
+            return;
+        };
         let done = env.load_word(b, dw);
         let fresh = b.icmp(IntCond::Eq, done, env.zero);
         let (l_call, l_go) = (b.create_block(&[]), b.create_block(&[]));
         b.cond_br(fresh, (l_call, &[]), (l_go, &[]));
         b.switch_to(l_call);
         let hv = b.load(Type::I64, env.params, h as i32 * 8);
-        let f = b.declare_host_once("m8_prune", &[Type::Ptr, Type::I64], Some(Type::I64), gravity_kernels::contract::entry1::<NestPrune> as *const () as usize, HostFlags { touches_memory: true, may_error: true, ..HostFlags::default() });
-        let st = b.call_host(f, &[env.ctx, hv], Some(Type::I64)).unwrap_or(env.zero);
+        let f = b.declare_host_once(
+            "m8_prune",
+            &[Type::Ptr, Type::I64],
+            Some(Type::I64),
+            gravity_kernels::contract::entry1::<NestPrune> as *const () as usize,
+            HostFlags {
+                touches_memory: true,
+                may_error: true,
+                ..HostFlags::default()
+            },
+        );
+        let st = b
+            .call_host(f, &[env.ctx, hv], Some(Type::I64))
+            .unwrap_or(env.zero);
         let bad = b.icmp(IntCond::Slt, st, env.zero);
         let (l_bad, l_ok) = (b.create_block(&[]), b.create_block(&[]));
         b.mark_cold(l_bad);
@@ -628,13 +998,27 @@ impl Arms<'_> {
     fn put(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, r: &RowVals) {
         let mcx = env.mcx;
         let mut cx = env.lx(b, self.node);
-        let vals: PgVec<'_, (Value, Value, Option<(u16, i16)>)> = self.tfs.iter().enumerate().map(|(c, tf)| {
-            let Some(cr) = r.col(c as i16 + 1) else { shape(self.node, UNION_ARM_BEYOND_FORMS) };
-            let borrows = matches!(cr.cell.rep, Rep::VarlenaPtr | Rep::FixedPtr { .. } | Rep::CstrPtr) && cr.cell.life.reaches(Until::Window);
-            let keep = if tf.byval || borrows { None } else { Some(self.keeps[c].unwrap_or_else(|| shape(self.node, UNION_CSTRING_ARM))) };
-            let (v, null) = crate::rep::datum(&mut cx, cr, tf);
-            (v, null, keep)
-        }).collect_in(mcx);
+        let vals: PgVec<'_, (Value, Value, Option<(u16, i16)>)> = self
+            .tfs
+            .iter()
+            .enumerate()
+            .map(|(c, tf)| {
+                let Some(cr) = r.col(c as i16 + 1) else {
+                    shape(self.node, UNION_ARM_BEYOND_FORMS)
+                };
+                let borrows = matches!(
+                    cr.cell.rep,
+                    Rep::VarlenaPtr | Rep::FixedPtr { .. } | Rep::CstrPtr
+                ) && cr.cell.life.reaches(Until::Window);
+                let keep = if tf.byval || borrows {
+                    None
+                } else {
+                    Some(self.keeps[c].unwrap_or_else(|| shape(self.node, UNION_CSTRING_ARM)))
+                };
+                let (v, null) = crate::rep::datum(&mut cx, cr, tf);
+                (v, null, keep)
+            })
+            .collect_in(mcx);
         env.memo = cx.memo;
         for (&(d, nw), &(v, null, keep)) in self.buf.iter().zip(vals.iter()) {
             let v = keep.map_or(v, |k| crate::ops::subplan::result::keep(b, env, k, v, null));
@@ -650,12 +1034,21 @@ impl Arms<'_> {
 
     /// Arm `i` read on until one row passes its ops (into the buffer, then `l_ready`); at its end the next arm is current
     /// and unopened (`l_next`); a status below zero `l_eof(status)`. The arm opens at its first read of the re-open.
-    fn pull(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, i: usize, l_eof: Block, (l_ready, l_next): (Block, Block)) {
+    fn pull(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        i: usize,
+        l_eof: Block,
+        (l_ready, l_next): (Block, Block),
+    ) {
         let a = &self.arms[i];
         let saved = enter(env, a);
         // EXPLAIN ANALYZE: the arm's own node boundaries while its rows lower (none for an arm not counted, so the inner's
         // own never count an arm's steps), the inner's back at `leave`
-        let bounds = crate::frame::instr::replace_current(crate::frame::instr::bounds_of(crate::frame::instr::arm_key(a.k)));
+        let bounds = crate::frame::instr::replace_current(crate::frame::instr::bounds_of(
+            crate::frame::instr::arm_key(a.k),
+        ));
         let (l_open, l_read) = (b.create_block(&[]), b.create_block(&[]));
         let opened = env.load_word(b, self.w[1]);
         let fresh = b.icmp(IntCond::Eq, opened, env.zero);
@@ -687,7 +1080,7 @@ impl Arms<'_> {
         });
         a.words.write_all(b, a.node, env.ctx, env.state, env.words);
         let l_shut = crate::rerun::inner_arms_gate::check_lent(b, env, &a.lenders, &a.gates); // S2d: a false or NULL gate ends the arm unopened
-        // EXPLAIN ANALYZE: a loop of each of the arm's nodes as PG's Append starts the arm (a pruned arm never starts)
+                                                                                              // EXPLAIN ANALYZE: a loop of each of the arm's nodes as PG's Append starts the arm (a pruned arm never starts)
         crate::frame::instr::count_loops(b, env.ctx, &|_| true, env.mcx);
         let r = a.src.open(b, env);
         env.store_word(b, self.w[1], env.one);
@@ -706,7 +1099,14 @@ impl Arms<'_> {
         env.win = Some(win);
         a.src.fill_late(b, env, &win, None);
         let past = b.int_bin(IntBinOp::Add, win.cursor, env.one);
-        let row = a.src.row(b, env, &win, win.cursor, Carry::new(env.zero, env.mcx), past);
+        let row = a.src.row(
+            b,
+            env,
+            &win,
+            win.cursor,
+            Carry::new(env.zero, env.mcx),
+            past,
+        );
         // the cursor past the row, or at it while an expanding step may leave inside it (its offset word set)
         let inside = !a.expands.is_empty();
         self.cursor(b, env, a, if inside { win.cursor } else { past });
@@ -747,16 +1147,38 @@ impl SourceMech for Arms<'_> {
     fn declare(&mut self, pb: &mut ProgramBuilder) {
         for a in self.arms.iter_mut() {
             a.src.declare(pb);
-            a.steps.iter_mut().chain(a.lenders.iter_mut()).for_each(|s| s.declare(pb)); // a step's own hosts, after its source (frame.rs's order)
+            a.steps
+                .iter_mut()
+                .chain(a.lenders.iter_mut())
+                .for_each(|s| s.declare(pb)); // a step's own hosts, after its source (frame.rs's order)
         }
     }
 
     fn open_words(&self, w: &mut OpenWords) {
-        let what = ["nest inner union arm", "nest inner union arm opened", "nest inner union position", "nest inner union count"];
-        what.iter().zip(self.w.iter()).for_each(|(&s, &o)| w.declare(OpenWord::open(s, Base::Words, o, Type::I64, 0)));
+        let what = [
+            "nest inner union arm",
+            "nest inner union arm opened",
+            "nest inner union position",
+            "nest inner union count",
+        ];
+        what.iter()
+            .zip(self.w.iter())
+            .for_each(|(&s, &o)| w.declare(OpenWord::open(s, Base::Words, o, Type::I64, 0)));
         if let Some((_, [mw, dw])) = self.prune {
-            w.declare(OpenWord::open("nest inner union pruned arms", Base::Words, mw, Type::I64, 0));
-            w.declare(OpenWord::open("nest inner union pruning decided", Base::Words, dw, Type::I64, 0));
+            w.declare(OpenWord::open(
+                "nest inner union pruned arms",
+                Base::Words,
+                mw,
+                Type::I64,
+                0,
+            ));
+            w.declare(OpenWord::open(
+                "nest inner union pruning decided",
+                Base::Words,
+                dw,
+                Type::I64,
+                0,
+            ));
         }
     }
 
@@ -786,7 +1208,11 @@ impl SourceMech for Arms<'_> {
 
     /// The buffered row while the position is before the count, else the next row the arms hand on (module doc).
     fn next_window(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, l_eof: Block) -> Win {
-        let (l_pull, l_ready, l_union_end) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));
+        let (l_pull, l_ready, l_union_end) = (
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         let j = env.load_word(b, self.w[2]);
         let n = env.load_word(b, self.w[3]);
         let held = b.icmp(IntCond::Slt, j, n);
@@ -794,7 +1220,11 @@ impl SourceMech for Arms<'_> {
         b.switch_to(l_pull);
         self.decide(b, env);
         let at = env.load_word(b, self.w[0]);
-        let entry: PgVec<'_, Block> = self.arms.iter().map(|_| b.create_block(&[])).collect_in(env.mcx);
+        let entry: PgVec<'_, Block> = self
+            .arms
+            .iter()
+            .map(|_| b.create_block(&[]))
+            .collect_in(env.mcx);
         for (i, &l) in entry.iter().enumerate() {
             let (ii, l_no) = (b.iconst(Type::I64, i as i64), b.create_block(&[]));
             let is = b.icmp(IntCond::Eq, at, ii);
@@ -804,7 +1234,13 @@ impl SourceMech for Arms<'_> {
         b.br(l_union_end, &[]);
         for (i, &l) in entry.iter().enumerate() {
             b.switch_to(l);
-            self.pull(b, env, i, l_eof, (l_ready, entry.get(i + 1).copied().unwrap_or(l_union_end)));
+            self.pull(
+                b,
+                env,
+                i,
+                l_eof,
+                (l_ready, entry.get(i + 1).copied().unwrap_or(l_union_end)),
+            );
         }
         // past the last arm: the union's end for this re-open
         b.switch_to(l_union_end);
@@ -812,19 +1248,60 @@ impl SourceMech for Arms<'_> {
         b.switch_to(l_ready);
         let cursor = env.load_word(b, self.w[2]);
         let end = env.load_word(b, self.w[3]);
-        Win { cursor, end, facts: WinConds::default() }
+        Win {
+            cursor,
+            end,
+            facts: WinConds::default(),
+        }
     }
 
     /// The buffered row as datum cells (a cell lives for the row; the joined row caps it there too, nest/loop.rs).
-    fn row<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e> {
-        let (life, mcx) = (CellLife { until: Until::Row, home: CellHome::FrameSlot }, env.mcx);
-        let cells = self.tfs.iter().enumerate().map(|(c, tf)| Cell { rep: Rep::of_storage(tf.typlen, tf.byval), typid: tf.typid, num: NumTypmod::NONE, life, at: At::Slot(c as u16), null: Nullable::Maybe }).collect_in(mcx);
-        let vals = self.buf.iter().map(|&(d, nw)| {
-            let v = env.load_word(b, d);
-            let nv = env.load_word(b, nw);
-            (v, Some(b.icmp(IntCond::Ne, nv, env.zero)))
-        }).collect_in(mcx);
-        RowVals { row: Row { cells }, cols: (0..self.tfs.len() as u16).map(Some).collect_in(mcx), vals, carry, next, at: j }
+    fn row<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+        j: Value,
+        carry: Carry<'e>,
+        next: Value,
+    ) -> RowVals<'e> {
+        let (life, mcx) = (
+            CellLife {
+                until: Until::Row,
+                home: CellHome::FrameSlot,
+            },
+            env.mcx,
+        );
+        let cells = self
+            .tfs
+            .iter()
+            .enumerate()
+            .map(|(c, tf)| Cell {
+                rep: Rep::of_storage(tf.typlen, tf.byval),
+                typid: tf.typid,
+                num: NumTypmod::NONE,
+                life,
+                at: At::Slot(c as u16),
+                null: Nullable::Maybe,
+            })
+            .collect_in(mcx);
+        let vals = self
+            .buf
+            .iter()
+            .map(|&(d, nw)| {
+                let v = env.load_word(b, d);
+                let nv = env.load_word(b, nw);
+                (v, Some(b.icmp(IntCond::Ne, nv, env.zero)))
+            })
+            .collect_in(mcx);
+        RowVals {
+            row: Row { cells },
+            cols: (0..self.tfs.len() as u16).map(Some).collect_in(mcx),
+            vals,
+            carry,
+            next,
+            at: j,
+        }
     }
 
     /// The position: the row last handed on (nest/inner.rs `set_cursor`), or the window's end.

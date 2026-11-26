@@ -52,8 +52,16 @@ pub fn gen_types_module(g: &mut Gen) -> Vec<StmtKind> {
 }
 
 fn gen_unnest(g: &mut Gen, with_ordinality: bool) -> String {
-    g.fire(if with_ordinality { "types:unnest_ord" } else { "types:unnest" });
-    let ty = if g.rng.chance(1, 2) { SqlType::Int4Arr } else { SqlType::TextArr };
+    g.fire(if with_ordinality {
+        "types:unnest_ord"
+    } else {
+        "types:unnest"
+    });
+    let ty = if g.rng.chance(1, 2) {
+        SqlType::Int4Arr
+    } else {
+        SqlType::TextArr
+    };
     let arr = g.gen_literal(ty);
     let alias = g.next_alias();
     if with_ordinality {
@@ -63,7 +71,11 @@ fn gen_unnest(g: &mut Gen, with_ordinality: bool) -> String {
             arr = arr
         )
     } else {
-        format!("SELECT {a}.x FROM unnest({arr}) AS {a}(x);", a = alias, arr = arr)
+        format!(
+            "SELECT {a}.x FROM unnest({arr}) AS {a}(x);",
+            a = alias,
+            arr = arr
+        )
     }
 }
 
@@ -71,8 +83,17 @@ fn gen_jsonb_each(g: &mut Gen) -> String {
     g.fire("types:jsonb_each");
     let j = g.gen_literal(SqlType::Jsonb);
     let alias = g.next_alias();
-    let f = if g.rng.chance(1, 2) { "jsonb_each" } else { "jsonb_each_text" };
-    format!("SELECT {a}.k, {a}.v FROM {f}({j}) AS {a}(k, v);", a = alias, f = f, j = j)
+    let f = if g.rng.chance(1, 2) {
+        "jsonb_each"
+    } else {
+        "jsonb_each_text"
+    };
+    format!(
+        "SELECT {a}.k, {a}.v FROM {f}({j}) AS {a}(k, v);",
+        a = alias,
+        f = f,
+        j = j
+    )
 }
 
 fn gen_jsonb_elements(g: &mut Gen) -> String {
@@ -84,7 +105,12 @@ fn gen_jsonb_elements(g: &mut Gen) -> String {
     } else {
         "jsonb_array_elements_text"
     };
-    format!("SELECT {a}.e FROM {f}({j}) AS {a}(e);", a = alias, f = f, j = j)
+    format!(
+        "SELECT {a}.e FROM {f}({j}) AS {a}(e);",
+        a = alias,
+        f = f,
+        j = j
+    )
 }
 
 fn gen_split_table(g: &mut Gen) -> String {
@@ -136,7 +162,11 @@ fn gen_each_col(g: &mut Gen) -> String {
         return gen_jsonb_each(g);
     };
     g.fire("types:each_col");
-    let f = if g.rng.chance(1, 2) { "jsonb_each" } else { "jsonb_each_text" };
+    let f = if g.rng.chance(1, 2) {
+        "jsonb_each"
+    } else {
+        "jsonb_each_text"
+    };
     let a = g.next_alias();
     let s = g.next_alias();
     format!(
@@ -170,7 +200,11 @@ fn gen_object_keys(g: &mut Gen) -> String {
     // 1/3 of draws try the json (not jsonb) twin — shared jsonfuncs guts,
     // different iterator entry.
     let json_twin = g.rng.chance(1, 3);
-    let ty = if json_twin { SqlType::Json } else { SqlType::Jsonb };
+    let ty = if json_twin {
+        SqlType::Json
+    } else {
+        SqlType::Jsonb
+    };
     let Some((tbl, pk, col)) = pick_json_col(g, ty) else {
         return gen_jsonb_each(g);
     };
@@ -206,9 +240,7 @@ fn gen_recordset(g: &mut Gen) -> String {
         let doc = *g
             .rng
             .pick(&[r#"{"a":1,"b":"x"}"#, r#"{"a":null,"extra":true}"#, r#"{}"#]);
-        format!(
-            "SELECT {a}.a, {a}.b FROM jsonb_to_record('{doc}'::jsonb) AS {a}(a int, b text);",
-        )
+        format!("SELECT {a}.a, {a}.b FROM jsonb_to_record('{doc}'::jsonb) AS {a}(a int, b text);",)
     } else {
         let doc = *g.rng.pick(RECORDSET_DOCS);
         format!(
@@ -250,7 +282,11 @@ fn gen_populate(g: &mut Gen) -> String {
     // 1-2 distinct key columns.
     let c1 = cols[g.rng.below_usize(cols.len())].clone();
     let c2 = cols[g.rng.below_usize(cols.len())].clone();
-    let sel: Vec<&(String, bool)> = if c2.0 == c1.0 { vec![&c1] } else { vec![&c1, &c2] };
+    let sel: Vec<&(String, bool)> = if c2.0 == c1.0 {
+        vec![&c1]
+    } else {
+        vec![&c1, &c2]
+    };
     // Values are type-matched (an int-typed field never draws a text
     // value): populate's per-field cast errors would otherwise eat
     // both-side-error budget on every fourth draw.
@@ -266,8 +302,11 @@ fn gen_populate(g: &mut Gen) -> String {
         }
     };
     let a = g.next_alias();
-    let sel_list =
-        sel.iter().map(|c| format!("{a}.{c}", c = c.0)).collect::<Vec<_>>().join(", ");
+    let sel_list = sel
+        .iter()
+        .map(|c| format!("{a}.{c}", c = c.0))
+        .collect::<Vec<_>>()
+        .join(", ");
     if g.rng.chance(1, 2) {
         let mut doc = String::from("{");
         for (i, c) in sel.iter().enumerate() {
@@ -277,9 +316,7 @@ fn gen_populate(g: &mut Gen) -> String {
             doc.push_str(&field(g, c));
         }
         doc.push('}');
-        format!(
-            "SELECT {sel_list} FROM jsonb_populate_record(NULL::{tbl}, '{doc}'::jsonb) {a};",
-        )
+        format!("SELECT {sel_list} FROM jsonb_populate_record(NULL::{tbl}, '{doc}'::jsonb) {a};",)
     } else {
         // Set form: 2-element array, fully ordered output.
         let mut docs = Vec::new();
@@ -341,9 +378,19 @@ mod tests {
         let (sqls, _) = gen_many(0x71, 300, &w);
         for sql in &sqls {
             assert!(sql.starts_with("SELECT "), "{sql}");
-            assert!(!sql.contains("ORDER BY"), "SRF statement carries ORDER BY: {sql}");
+            assert!(
+                !sql.contains("ORDER BY"),
+                "SRF statement carries ORDER BY: {sql}"
+            );
             // Literal-only: no fixture table is ever referenced.
-            for t in ["fz_scalar", "fz_mixed", "fz_wide", "fz_rich", "fz_one", "fz_empty"] {
+            for t in [
+                "fz_scalar",
+                "fz_mixed",
+                "fz_wide",
+                "fz_rich",
+                "fz_one",
+                "fz_empty",
+            ] {
                 assert!(!sql.contains(t), "table ref in types module: {sql}");
             }
             assert_eq!(sql.matches('(').count(), sql.matches(')').count(), "{sql}");

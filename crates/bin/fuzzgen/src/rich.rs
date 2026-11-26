@@ -45,36 +45,389 @@ pub struct TsLang {
 }
 
 pub const TS_LANGS: &[TsLang] = &[
-    TsLang { cfg: "simple", stem: "simple", words: &["alpha", "beta", "gamma", "delta", "omega", "zero", "seven", "matrix"] },
-    TsLang { cfg: "english", stem: "english_stem", words: &["running", "jumped", "happiness", "nationalization", "cats", "studies", "beautiful", "conditional"] },
-    TsLang { cfg: "arabic", stem: "arabic_stem", words: &["الكلاب", "تجري", "بسرعة", "الحديقة", "الكبيرة", "والجميلة", "المدرسة", "يكتبون"] },
-    TsLang { cfg: "armenian", stem: "armenian_stem", words: &["երեխաները", "ուրախությամբ", "խաղում", "այգիներում", "գրքերը", "կարդում", "էին", "մեծ"] },
-    TsLang { cfg: "basque", stem: "basque_stem", words: &["etxeak", "mendietan", "handiak", "zuhaitzak", "ibaiaren", "gainean", "lorategietako", "umeak"] },
-    TsLang { cfg: "catalan", stem: "catalan_stem", words: &["els", "nens", "jugaven", "alegrement", "jardins", "cançons", "estudiants", "treballaven"] },
-    TsLang { cfg: "danish", stem: "danish_stem", words: &["børnene", "legede", "glade", "store", "haver", "løbende", "hunde", "læste"] },
-    TsLang { cfg: "dutch", stem: "dutch_stem", words: &["kinderen", "speelden", "vrolijk", "grote", "tuinen", "lopende", "honden", "gelukkig"] },
-    TsLang { cfg: "estonian", stem: "estonian_stem", words: &["lapsed", "mängisid", "rõõmsalt", "suurtes", "aedades", "õunapuude", "jooksvad", "koerad"] },
-    TsLang { cfg: "finnish", stem: "finnish_stem", words: &["lapset", "leikkivät", "iloisesti", "suurissa", "puutarhoissa", "juoksevat", "koirat", "kirjoja"] },
-    TsLang { cfg: "french", stem: "french_stem", words: &["étudiantes", "travaillaient", "sérieusement", "châteaux", "première", "nationales", "heureusement", "mangeaient"] },
-    TsLang { cfg: "german", stem: "german_stem", words: &["schönsten", "Häuser", "größer", "Straßen", "Kinder", "spielten", "fröhlich", "Gärten"] },
-    TsLang { cfg: "greek", stem: "greek_stem", words: &["παιδιά", "έπαιζαν", "χαρούμενα", "μεγάλους", "κήπους", "τρέχοντας", "σκυλιά", "βιβλία"] },
-    TsLang { cfg: "hindi", stem: "hindi_stem", words: &["बच्चे", "बगीचे", "खुशी", "खेलते", "किताबें", "पढ़ते", "लड़के", "दौड़ते"] },
-    TsLang { cfg: "hungarian", stem: "hungarian_stem", words: &["gyerekek", "boldogan", "játszottak", "kertekben", "szaladgáló", "kutyák", "könyveket", "olvastak"] },
-    TsLang { cfg: "indonesian", stem: "indonesian_stem", words: &["anak-anak", "bermain", "gembira", "taman", "besar", "berlarian", "membaca", "keindahan"] },
-    TsLang { cfg: "irish", stem: "irish_stem", words: &["leanaí", "súgradh", "sona", "gairdíní", "móra", "madraí", "leabhair", "rithim"] },
-    TsLang { cfg: "italian", stem: "italian_stem", words: &["bambini", "giocavano", "allegramente", "giardini", "grandissimi", "correvano", "cani", "leggevano"] },
-    TsLang { cfg: "lithuanian", stem: "lithuanian_stem", words: &["vaikai", "linksmai", "žaidė", "dideliuose", "soduose", "bėgiojantys", "šunys", "knygas"] },
-    TsLang { cfg: "nepali", stem: "nepali_stem", words: &["बालबालिकाहरू", "बगैंचामा", "रमाईलो", "खेलिरहेका", "किताबहरू", "पढ्दै", "ठूला", "रूखहरू"] },
-    TsLang { cfg: "norwegian", stem: "norwegian_stem", words: &["barna", "lekte", "glade", "store", "hagene", "løpende", "hunder", "leste"] },
-    TsLang { cfg: "portuguese", stem: "portuguese_stem", words: &["crianças", "brincavam", "alegremente", "jardins", "grandes", "correndo", "cães", "felizes"] },
-    TsLang { cfg: "romanian", stem: "romanian_stem", words: &["copiii", "jucau", "veseli", "grădinile", "mari", "alergând", "câini", "citeau"] },
-    TsLang { cfg: "russian", stem: "russian_stem", words: &["бегущие", "собаки", "быстро", "прыгали", "высокие", "заборы", "читали", "книги"] },
-    TsLang { cfg: "serbian", stem: "serbian_stem", words: &["деца", "играла", "великим", "баштама", "срећно", "трчали", "књиге", "читали"] },
-    TsLang { cfg: "spanish", stem: "spanish_stem", words: &["niños", "corrían", "rápidamente", "añoranza", "construcción", "jugaban", "felices", "jardines"] },
-    TsLang { cfg: "swedish", stem: "swedish_stem", words: &["barnen", "lekte", "glatt", "stora", "trädgårdarna", "springande", "hundar", "läste"] },
-    TsLang { cfg: "tamil", stem: "tamil_stem", words: &["குழந்தைகள்", "தோட்டத்தில்", "மகிழ்ச்சியாக", "விளையாடினர்", "ஓடும்", "நாய்கள்", "புத்தகங்கள்", "படித்தனர்"] },
-    TsLang { cfg: "turkish", stem: "turkish_stem", words: &["çocuklar", "bahçelerde", "mutlulukla", "oynuyorlardı", "ağaçların", "koşan", "köpekler", "kitapları"] },
-    TsLang { cfg: "yiddish", stem: "yiddish_stem", words: &["קינדער", "שפילן", "פריילעך", "גרויסע", "גערטנער", "לויפנדיקע", "הינט", "ביכער"] },
+    TsLang {
+        cfg: "simple",
+        stem: "simple",
+        words: &[
+            "alpha", "beta", "gamma", "delta", "omega", "zero", "seven", "matrix",
+        ],
+    },
+    TsLang {
+        cfg: "english",
+        stem: "english_stem",
+        words: &[
+            "running",
+            "jumped",
+            "happiness",
+            "nationalization",
+            "cats",
+            "studies",
+            "beautiful",
+            "conditional",
+        ],
+    },
+    TsLang {
+        cfg: "arabic",
+        stem: "arabic_stem",
+        words: &[
+            "الكلاب",
+            "تجري",
+            "بسرعة",
+            "الحديقة",
+            "الكبيرة",
+            "والجميلة",
+            "المدرسة",
+            "يكتبون",
+        ],
+    },
+    TsLang {
+        cfg: "armenian",
+        stem: "armenian_stem",
+        words: &[
+            "երեխաները",
+            "ուրախությամբ",
+            "խաղում",
+            "այգիներում",
+            "գրքերը",
+            "կարդում",
+            "էին",
+            "մեծ",
+        ],
+    },
+    TsLang {
+        cfg: "basque",
+        stem: "basque_stem",
+        words: &[
+            "etxeak",
+            "mendietan",
+            "handiak",
+            "zuhaitzak",
+            "ibaiaren",
+            "gainean",
+            "lorategietako",
+            "umeak",
+        ],
+    },
+    TsLang {
+        cfg: "catalan",
+        stem: "catalan_stem",
+        words: &[
+            "els",
+            "nens",
+            "jugaven",
+            "alegrement",
+            "jardins",
+            "cançons",
+            "estudiants",
+            "treballaven",
+        ],
+    },
+    TsLang {
+        cfg: "danish",
+        stem: "danish_stem",
+        words: &[
+            "børnene", "legede", "glade", "store", "haver", "løbende", "hunde", "læste",
+        ],
+    },
+    TsLang {
+        cfg: "dutch",
+        stem: "dutch_stem",
+        words: &[
+            "kinderen", "speelden", "vrolijk", "grote", "tuinen", "lopende", "honden", "gelukkig",
+        ],
+    },
+    TsLang {
+        cfg: "estonian",
+        stem: "estonian_stem",
+        words: &[
+            "lapsed",
+            "mängisid",
+            "rõõmsalt",
+            "suurtes",
+            "aedades",
+            "õunapuude",
+            "jooksvad",
+            "koerad",
+        ],
+    },
+    TsLang {
+        cfg: "finnish",
+        stem: "finnish_stem",
+        words: &[
+            "lapset",
+            "leikkivät",
+            "iloisesti",
+            "suurissa",
+            "puutarhoissa",
+            "juoksevat",
+            "koirat",
+            "kirjoja",
+        ],
+    },
+    TsLang {
+        cfg: "french",
+        stem: "french_stem",
+        words: &[
+            "étudiantes",
+            "travaillaient",
+            "sérieusement",
+            "châteaux",
+            "première",
+            "nationales",
+            "heureusement",
+            "mangeaient",
+        ],
+    },
+    TsLang {
+        cfg: "german",
+        stem: "german_stem",
+        words: &[
+            "schönsten",
+            "Häuser",
+            "größer",
+            "Straßen",
+            "Kinder",
+            "spielten",
+            "fröhlich",
+            "Gärten",
+        ],
+    },
+    TsLang {
+        cfg: "greek",
+        stem: "greek_stem",
+        words: &[
+            "παιδιά",
+            "έπαιζαν",
+            "χαρούμενα",
+            "μεγάλους",
+            "κήπους",
+            "τρέχοντας",
+            "σκυλιά",
+            "βιβλία",
+        ],
+    },
+    TsLang {
+        cfg: "hindi",
+        stem: "hindi_stem",
+        words: &["बच्चे", "बगीचे", "खुशी", "खेलते", "किताबें", "पढ़ते", "लड़के", "दौड़ते"],
+    },
+    TsLang {
+        cfg: "hungarian",
+        stem: "hungarian_stem",
+        words: &[
+            "gyerekek",
+            "boldogan",
+            "játszottak",
+            "kertekben",
+            "szaladgáló",
+            "kutyák",
+            "könyveket",
+            "olvastak",
+        ],
+    },
+    TsLang {
+        cfg: "indonesian",
+        stem: "indonesian_stem",
+        words: &[
+            "anak-anak",
+            "bermain",
+            "gembira",
+            "taman",
+            "besar",
+            "berlarian",
+            "membaca",
+            "keindahan",
+        ],
+    },
+    TsLang {
+        cfg: "irish",
+        stem: "irish_stem",
+        words: &[
+            "leanaí",
+            "súgradh",
+            "sona",
+            "gairdíní",
+            "móra",
+            "madraí",
+            "leabhair",
+            "rithim",
+        ],
+    },
+    TsLang {
+        cfg: "italian",
+        stem: "italian_stem",
+        words: &[
+            "bambini",
+            "giocavano",
+            "allegramente",
+            "giardini",
+            "grandissimi",
+            "correvano",
+            "cani",
+            "leggevano",
+        ],
+    },
+    TsLang {
+        cfg: "lithuanian",
+        stem: "lithuanian_stem",
+        words: &[
+            "vaikai",
+            "linksmai",
+            "žaidė",
+            "dideliuose",
+            "soduose",
+            "bėgiojantys",
+            "šunys",
+            "knygas",
+        ],
+    },
+    TsLang {
+        cfg: "nepali",
+        stem: "nepali_stem",
+        words: &[
+            "बालबालिकाहरू",
+            "बगैंचामा",
+            "रमाईलो",
+            "खेलिरहेका",
+            "किताबहरू",
+            "पढ्दै",
+            "ठूला",
+            "रूखहरू",
+        ],
+    },
+    TsLang {
+        cfg: "norwegian",
+        stem: "norwegian_stem",
+        words: &[
+            "barna", "lekte", "glade", "store", "hagene", "løpende", "hunder", "leste",
+        ],
+    },
+    TsLang {
+        cfg: "portuguese",
+        stem: "portuguese_stem",
+        words: &[
+            "crianças",
+            "brincavam",
+            "alegremente",
+            "jardins",
+            "grandes",
+            "correndo",
+            "cães",
+            "felizes",
+        ],
+    },
+    TsLang {
+        cfg: "romanian",
+        stem: "romanian_stem",
+        words: &[
+            "copiii",
+            "jucau",
+            "veseli",
+            "grădinile",
+            "mari",
+            "alergând",
+            "câini",
+            "citeau",
+        ],
+    },
+    TsLang {
+        cfg: "russian",
+        stem: "russian_stem",
+        words: &[
+            "бегущие",
+            "собаки",
+            "быстро",
+            "прыгали",
+            "высокие",
+            "заборы",
+            "читали",
+            "книги",
+        ],
+    },
+    TsLang {
+        cfg: "serbian",
+        stem: "serbian_stem",
+        words: &[
+            "деца",
+            "играла",
+            "великим",
+            "баштама",
+            "срећно",
+            "трчали",
+            "књиге",
+            "читали",
+        ],
+    },
+    TsLang {
+        cfg: "spanish",
+        stem: "spanish_stem",
+        words: &[
+            "niños",
+            "corrían",
+            "rápidamente",
+            "añoranza",
+            "construcción",
+            "jugaban",
+            "felices",
+            "jardines",
+        ],
+    },
+    TsLang {
+        cfg: "swedish",
+        stem: "swedish_stem",
+        words: &[
+            "barnen",
+            "lekte",
+            "glatt",
+            "stora",
+            "trädgårdarna",
+            "springande",
+            "hundar",
+            "läste",
+        ],
+    },
+    TsLang {
+        cfg: "tamil",
+        stem: "tamil_stem",
+        words: &[
+            "குழந்தைகள்",
+            "தோட்டத்தில்",
+            "மகிழ்ச்சியாக",
+            "விளையாடினர்",
+            "ஓடும்",
+            "நாய்கள்",
+            "புத்தகங்கள்",
+            "படித்தனர்",
+        ],
+    },
+    TsLang {
+        cfg: "turkish",
+        stem: "turkish_stem",
+        words: &[
+            "çocuklar",
+            "bahçelerde",
+            "mutlulukla",
+            "oynuyorlardı",
+            "ağaçların",
+            "koşan",
+            "köpekler",
+            "kitapları",
+        ],
+    },
+    TsLang {
+        cfg: "yiddish",
+        stem: "yiddish_stem",
+        words: &[
+            "קינדער",
+            "שפילן",
+            "פריילעך",
+            "גרויסע",
+            "גערטנער",
+            "לויפנדיקע",
+            "הינט",
+            "ביכער",
+        ],
+    },
 ];
 
 /// Languages with a shipped stopword file on BOTH engines (the
@@ -82,8 +435,21 @@ pub const TS_LANGS: &[TsLang] = &[
 /// the only names `STOPWORDS =` may draw (a missing file is a load
 /// error, not a both-side grammar error).
 pub const TS_STOPWORD_LANGS: &[&str] = &[
-    "danish", "dutch", "english", "finnish", "french", "german", "hungarian", "italian",
-    "nepali", "norwegian", "portuguese", "russian", "spanish", "swedish", "turkish",
+    "danish",
+    "dutch",
+    "english",
+    "finnish",
+    "french",
+    "german",
+    "hungarian",
+    "italian",
+    "nepali",
+    "norwegian",
+    "portuguese",
+    "russian",
+    "spanish",
+    "swedish",
+    "turkish",
 ];
 
 /// Non-word parser-token fuel spliced into documents at low weight:
@@ -91,9 +457,21 @@ pub const TS_STOPWORD_LANGS: &[&str] = &[
 /// numword/numhword shapes and tags — lights the non-stemmer half of the
 /// default parser's token table. All quote/backslash-free.
 pub const TS_SPECIAL_TOKENS: &[&str] = &[
-    "42", "3.14", "-7", "2e7", "v1.2.3", "http://ex.example.com/path?q=1",
-    "mot@example.fr", "example.org", "/usr/local/lib", "châteaux-forts", "abc123",
-    "12abc", "<b>", "&amp;", "pre-1990s",
+    "42",
+    "3.14",
+    "-7",
+    "2e7",
+    "v1.2.3",
+    "http://ex.example.com/path?q=1",
+    "mot@example.fr",
+    "example.org",
+    "/usr/local/lib",
+    "châteaux-forts",
+    "abc123",
+    "12abc",
+    "<b>",
+    "&amp;",
+    "pre-1990s",
 ];
 
 // ---------------------------------------------------------------------
@@ -102,11 +480,11 @@ pub const TS_SPECIAL_TOKENS: &[&str] = &[
 
 /// DCH (datetime) format tokens; separators picked independently.
 const DCH_TOKENS: &[&str] = &[
-    "YYYY", "YYY", "YY", "Y", "IYYY", "IY", "MM", "MON", "Mon", "mon", "MONTH", "Month",
-    "month", "DD", "DDD", "D", "ID", "DAY", "Day", "day", "DY", "Dy", "dy", "HH24", "HH12",
-    "HH", "MI", "SS", "MS", "US", "FF1", "FF3", "FF6", "SSSS", "AM", "PM", "am", "pm",
-    "A.M.", "P.M.", "Q", "WW", "IW", "W", "CC", "J", "RM", "rm", "TZ", "tz", "OF", "BC",
-    "AD", "b.c.", "a.d.", "TZH", "TZM", "FF2", "FF4", "FF5",
+    "YYYY", "YYY", "YY", "Y", "IYYY", "IY", "MM", "MON", "Mon", "mon", "MONTH", "Month", "month",
+    "DD", "DDD", "D", "ID", "DAY", "Day", "day", "DY", "Dy", "dy", "HH24", "HH12", "HH", "MI",
+    "SS", "MS", "US", "FF1", "FF3", "FF6", "SSSS", "AM", "PM", "am", "pm", "A.M.", "P.M.", "Q",
+    "WW", "IW", "W", "CC", "J", "RM", "rm", "TZ", "tz", "OF", "BC", "AD", "b.c.", "a.d.", "TZH",
+    "TZM", "FF2", "FF4", "FF5",
 ];
 
 const DCH_SEPS: &[&str] = &["", " ", "-", "/", ":", ".", "  "];
@@ -115,7 +493,15 @@ const DCH_SEPS: &[&str] = &["", " ", "-", "/", ":", ".", "  "];
 /// both servers by charter; the null diff catches any residue).
 const NUM_HEADS: &[&str] = &["", "FM", "S", "FMS", "L", "B"];
 const NUM_BODIES: &[&str] = &[
-    "9999", "0000", "99999999", "999G999", "0999", "9990", "999", "99V99", "9G999G999",
+    "9999",
+    "0000",
+    "99999999",
+    "999G999",
+    "0999",
+    "9990",
+    "999",
+    "99V99",
+    "9G999G999",
 ];
 const NUM_DECIMALS: &[&str] = &["", ".99", ".999", ".00", "D99", ".9999999999"];
 const NUM_TAILS: &[&str] = &["", "PR", "MI", "S", "PL", "SG", "TH", "th", "EEEE"];
@@ -311,7 +697,9 @@ impl Gen<'_> {
     fn gen_ts_doc(&mut self, scope: &Scope, lang: &TsLang, depth: u32) -> Expr {
         if self.rng.chance(4, 5) {
             let doc = self.gen_ts_words(lang, 2, 7);
-            Expr::Lit { sql: format!("'{}'", doc) }
+            Expr::Lit {
+                sql: format!("'{}'", doc),
+            }
         } else {
             self.gen_typed(scope, SqlType::Text, depth.saturating_sub(1))
         }
@@ -328,13 +716,19 @@ impl Gen<'_> {
     /// to_char(numeric-family, NUM picture) -> text.
     pub fn gen_to_char_num(&mut self, scope: &Scope, depth: u32) -> Expr {
         self.fire("fmt:to_char_num");
-        let src = *self
-            .rng
-            .pick(&[SqlType::Numeric, SqlType::Int4, SqlType::Int8, SqlType::Float8]);
+        let src = *self.rng.pick(&[
+            SqlType::Numeric,
+            SqlType::Int4,
+            SqlType::Int8,
+            SqlType::Float8,
+        ]);
         let arg = self.gen_typed(scope, src, depth.saturating_sub(1));
         let pic = self.gen_num_picture();
         let picl = self.lit(format!("'{}'", pic));
-        Expr::Func { name: "to_char", args: vec![arg, picl] }
+        Expr::Func {
+            name: "to_char",
+            args: vec![arg, picl],
+        }
     }
 
     /// to_char(date/timestamp/interval, DCH picture) -> text.
@@ -349,16 +743,27 @@ impl Gen<'_> {
         let arg = self.gen_typed(scope, src, depth.saturating_sub(1));
         let pic = self.gen_dch_picture();
         let picl = self.lit(format!("'{}'", pic));
-        Expr::Func { name: "to_char", args: vec![arg, picl] }
+        Expr::Func {
+            name: "to_char",
+            args: vec![arg, picl],
+        }
     }
 
     /// (jsonb ->> accessor) -> text; accessor is a small key or index.
     pub fn gen_jsonb_arrow_text(&mut self, scope: &Scope, depth: u32) -> Expr {
         self.fire("jsonb:arrow_text");
-        let src_ty = if self.rng.chance(1, 4) { SqlType::Json } else { SqlType::Jsonb };
+        let src_ty = if self.rng.chance(1, 4) {
+            SqlType::Json
+        } else {
+            SqlType::Jsonb
+        };
         let lhs = self.gen_typed(scope, src_ty, depth.saturating_sub(1));
         let rhs = self.gen_json_accessor();
-        Expr::Binary { op: "->>", lhs: Box::new(lhs), rhs: Box::new(rhs) }
+        Expr::Binary {
+            op: "->>",
+            lhs: Box::new(lhs),
+            rhs: Box::new(rhs),
+        }
     }
 
     fn gen_json_accessor(&mut self) -> Expr {
@@ -379,7 +784,10 @@ impl Gen<'_> {
         let arg = self.gen_typed(scope, SqlType::Bytea, depth.saturating_sub(1));
         let fmt = *self.rng.pick(&["hex", "base64", "escape"]);
         let fmtl = self.lit(format!("'{}'", fmt));
-        Expr::Func { name: "encode", args: vec![arg, fmtl] }
+        Expr::Func {
+            name: "encode",
+            args: vec![arg, fmtl],
+        }
     }
 
     /// (to_tsvector('cfg', doc))::text over the config's language pool —
@@ -391,17 +799,31 @@ impl Gen<'_> {
         let lang = self.gen_ts_lang();
         let cfgl = self.lit(format!("'{}'", lang.cfg));
         let arg = self.gen_ts_doc(scope, lang, depth);
-        let mut vec = Expr::Func { name: "to_tsvector", args: vec![cfgl, arg] };
+        let mut vec = Expr::Func {
+            name: "to_tsvector",
+            args: vec![cfgl, arg],
+        };
         if self.rng.chance(1, 5) {
             let w = *self.rng.pick(&["A", "B", "C", "D"]);
             vec = Expr::Func {
                 name: "setweight",
-                args: vec![vec, Expr::Lit { sql: format!("'{}'", w) }],
+                args: vec![
+                    vec,
+                    Expr::Lit {
+                        sql: format!("'{}'", w),
+                    },
+                ],
             };
         } else if self.rng.chance(1, 6) {
-            vec = Expr::Func { name: "strip", args: vec![vec] };
+            vec = Expr::Func {
+                name: "strip",
+                args: vec![vec],
+            };
         }
-        Expr::Cast { arg: Box::new(vec), to: SqlType::Text }
+        Expr::Cast {
+            arg: Box::new(vec),
+            to: SqlType::Text,
+        }
     }
 
     /// (Xto_tsquery('cfg', words))::text; occasionally two queries joined
@@ -411,9 +833,15 @@ impl Gen<'_> {
         let lang = self.gen_ts_lang();
         let q = self.gen_ts_query(scope, lang, depth);
         if self.rng.chance(1, 6) {
-            return Expr::Func { name: "querytree", args: vec![q] };
+            return Expr::Func {
+                name: "querytree",
+                args: vec![q],
+            };
         }
-        Expr::Cast { arg: Box::new(q), to: SqlType::Text }
+        Expr::Cast {
+            arg: Box::new(q),
+            to: SqlType::Text,
+        }
     }
 
     /// One tsquery-typed expression over a language pool; low-weight
@@ -429,28 +857,49 @@ impl Gen<'_> {
             let a = lang.words[self.rng.below_usize(lang.words.len())];
             let b = lang.words[self.rng.below_usize(lang.words.len())];
             let joiner = *self.rng.pick(&[" OR ", " -", " \"", " "]);
-            let tail = if joiner == " \"" { format!("{}\"", b) } else { b.to_string() };
+            let tail = if joiner == " \"" {
+                format!("{}\"", b)
+            } else {
+                b.to_string()
+            };
             format!("{}{}{}", a, joiner, tail)
         } else {
             self.gen_ts_words(lang, 1, 3)
         };
         let arg = if self.rng.chance(4, 5) {
-            Expr::Lit { sql: format!("'{}'", words) }
+            Expr::Lit {
+                sql: format!("'{}'", words),
+            }
         } else {
             self.gen_typed(scope, SqlType::Text, depth.saturating_sub(1))
         };
-        let q = Expr::Func { name, args: vec![cfgl.clone(), arg] };
+        let q = Expr::Func {
+            name,
+            args: vec![cfgl.clone(), arg],
+        };
         if self.rng.chance(1, 5) {
             let op = *self.rng.pick(&["&&", "||", "<->"]);
             let w2 = self.gen_ts_words(lang, 1, 2);
             let q2 = Expr::Func {
                 name: "plainto_tsquery",
-                args: vec![cfgl, Expr::Lit { sql: format!("'{}'", w2) }],
+                args: vec![
+                    cfgl,
+                    Expr::Lit {
+                        sql: format!("'{}'", w2),
+                    },
+                ],
             };
-            return Expr::Binary { op, lhs: Box::new(q), rhs: Box::new(q2) };
+            return Expr::Binary {
+                op,
+                lhs: Box::new(q),
+                rhs: Box::new(q2),
+            };
         }
         if self.rng.chance(1, 8) {
-            return Expr::Unary { op: "!!", arg: Box::new(q) };
+            return Expr::Unary {
+                op: "!!",
+                arg: Box::new(q),
+            };
         }
         q
     }
@@ -466,7 +915,12 @@ impl Gen<'_> {
         let qw = self.gen_ts_words(lang, 1, 2);
         let query = Expr::Func {
             name: "plainto_tsquery",
-            args: vec![cfgl.clone(), Expr::Lit { sql: format!("'{}'", qw) }],
+            args: vec![
+                cfgl.clone(),
+                Expr::Lit {
+                    sql: format!("'{}'", qw),
+                },
+            ],
         };
         let mut args = vec![cfgl, doc, query];
         if self.rng.chance(1, 2) {
@@ -478,9 +932,14 @@ impl Gen<'_> {
                 "MaxFragments=2, FragmentDelimiter= ... ",
                 "StartSel=**, StopSel=**, MaxWords=10, MinWords=3",
             ]);
-            args.push(Expr::Lit { sql: format!("'{}'", opts) });
+            args.push(Expr::Lit {
+                sql: format!("'{}'", opts),
+            });
         }
-        Expr::Func { name: "ts_headline", args }
+        Expr::Func {
+            name: "ts_headline",
+            args,
+        }
     }
 
     /// regexp_replace(text, pattern, replacement [, flags]) -> text.
@@ -494,9 +953,14 @@ impl Gen<'_> {
         let mut args = vec![arg, patl, repll];
         if self.rng.chance(1, 3) {
             let flags = *self.rng.pick(&["g", "i", "gi", "n"]);
-            args.push(Expr::Lit { sql: format!("'{}'", flags) });
+            args.push(Expr::Lit {
+                sql: format!("'{}'", flags),
+            });
         }
-        Expr::Func { name: "regexp_replace", args }
+        Expr::Func {
+            name: "regexp_replace",
+            args,
+        }
     }
 
     // -----------------------------------------------------------------
@@ -512,9 +976,16 @@ impl Gen<'_> {
         let lang = self.gen_ts_lang();
         let cfgl = self.lit(format!("'{}'", lang.cfg));
         let doc = self.gen_ts_doc(scope, lang, depth);
-        let vec = Expr::Func { name: "to_tsvector", args: vec![cfgl, doc] };
+        let vec = Expr::Func {
+            name: "to_tsvector",
+            args: vec![cfgl, doc],
+        };
         let query = self.gen_ts_query(scope, lang, 0);
-        Expr::Binary { op: "@@", lhs: Box::new(vec), rhs: Box::new(query) }
+        Expr::Binary {
+            op: "@@",
+            lhs: Box::new(vec),
+            rhs: Box::new(query),
+        }
     }
 
     /// jsonb containment / key-exists / path-exists -> bool.
@@ -526,7 +997,11 @@ impl Gen<'_> {
                 let op = if self.rng.chance(1, 2) { "@>" } else { "<@" };
                 let lhs = self.gen_typed(scope, SqlType::Jsonb, d);
                 let rhs = self.gen_typed(scope, SqlType::Jsonb, 0);
-                Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs) }
+                Expr::Binary {
+                    op,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                }
             }
             1 => {
                 self.fire("jsonb:exists_key");
@@ -536,9 +1011,15 @@ impl Gen<'_> {
                     let key = ["a", "b", "k", ""][self.rng.below_usize(4)];
                     self.lit(format!("'{}'", key))
                 } else {
-                    Expr::Lit { sql: "(ARRAY['a'::text])".to_string() }
+                    Expr::Lit {
+                        sql: "(ARRAY['a'::text])".to_string(),
+                    }
                 };
-                Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs) }
+                Expr::Binary {
+                    op,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                }
             }
             _ => {
                 self.fire("jsonb:path_exists");
@@ -550,7 +1031,10 @@ impl Gen<'_> {
                 } else {
                     "jsonb_path_exists"
                 };
-                Expr::Func { name, args: vec![arg, pathl] }
+                Expr::Func {
+                    name,
+                    args: vec![arg, pathl],
+                }
             }
         }
     }
@@ -576,25 +1060,41 @@ impl Gen<'_> {
                 if self.rng.chance(1, 3) {
                     post.push_str(&format!("[{}]", self.gen_jsonb_subscript()));
                 }
-                Expr::Wrap { pre: "(".to_string(), arg: Box::new(arg), post }
+                Expr::Wrap {
+                    pre: "(".to_string(),
+                    arg: Box::new(arg),
+                    post,
+                }
             }
             0 => {
                 self.fire("jsonb:arrow");
                 let lhs = self.gen_typed(scope, SqlType::Jsonb, d);
                 let rhs = self.gen_json_accessor();
-                Expr::Binary { op: "->", lhs: Box::new(lhs), rhs: Box::new(rhs) }
+                Expr::Binary {
+                    op: "->",
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                }
             }
             1 => {
                 self.fire("jsonb:concat");
                 let lhs = self.gen_typed(scope, SqlType::Jsonb, d);
                 let rhs = self.gen_typed(scope, SqlType::Jsonb, d);
-                Expr::Binary { op: "||", lhs: Box::new(lhs), rhs: Box::new(rhs) }
+                Expr::Binary {
+                    op: "||",
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                }
             }
             2 => {
                 self.fire("jsonb:minus");
                 let lhs = self.gen_typed(scope, SqlType::Jsonb, d);
                 let rhs = self.gen_json_accessor();
-                Expr::Binary { op: "-", lhs: Box::new(lhs), rhs: Box::new(rhs) }
+                Expr::Binary {
+                    op: "-",
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                }
             }
             3 => {
                 self.fire("jsonb:build");
@@ -603,18 +1103,29 @@ impl Gen<'_> {
                     let v = self.gen_to_jsonb_arg(scope);
                     Expr::Func {
                         name: "jsonb_build_object",
-                        args: vec![Expr::Lit { sql: format!("'{}'", k) }, v],
+                        args: vec![
+                            Expr::Lit {
+                                sql: format!("'{}'", k),
+                            },
+                            v,
+                        ],
                     }
                 } else {
                     let a = self.gen_to_jsonb_arg(scope);
                     let b = self.gen_to_jsonb_arg(scope);
-                    Expr::Func { name: "jsonb_build_array", args: vec![a, b] }
+                    Expr::Func {
+                        name: "jsonb_build_array",
+                        args: vec![a, b],
+                    }
                 }
             }
             4 => {
                 self.fire("jsonb:to_jsonb");
                 let v = self.gen_to_jsonb_arg(scope);
-                Expr::Func { name: "to_jsonb", args: vec![v] }
+                Expr::Func {
+                    name: "to_jsonb",
+                    args: vec![v],
+                }
             }
             _ => {
                 self.fire("jsonb:path_query");
@@ -626,7 +1137,10 @@ impl Gen<'_> {
                 } else {
                     "jsonb_path_query_array"
                 };
-                Expr::Func { name, args: vec![arg, pathl] }
+                Expr::Func {
+                    name,
+                    args: vec![arg, pathl],
+                }
             }
         }
     }
@@ -671,7 +1185,11 @@ impl Gen<'_> {
                 self.fire("bytea:concat");
                 let lhs = self.gen_typed(scope, SqlType::Bytea, d);
                 let rhs = self.gen_typed(scope, SqlType::Bytea, d);
-                Expr::Binary { op: "||", lhs: Box::new(lhs), rhs: Box::new(rhs) }
+                Expr::Binary {
+                    op: "||",
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                }
             }
             1 => {
                 self.fire("bytea:substr");
@@ -680,14 +1198,25 @@ impl Gen<'_> {
                 let len_n = self.rng_i64(0, 6);
                 let start = self.lit(format!("{}", start_n));
                 let len = self.lit(format!("{}", len_n));
-                Expr::Func { name: "substr", args: vec![arg, start, len] }
+                Expr::Func {
+                    name: "substr",
+                    args: vec![arg, start, len],
+                }
             }
             _ => {
                 self.fire("bytea:decode_rt");
                 let arg = self.gen_typed(scope, SqlType::Bytea, d);
-                let hex = Expr::Lit { sql: "'hex'".to_string() };
-                let enc = Expr::Func { name: "encode", args: vec![arg, hex.clone()] };
-                Expr::Func { name: "decode", args: vec![enc, hex] }
+                let hex = Expr::Lit {
+                    sql: "'hex'".to_string(),
+                };
+                let enc = Expr::Func {
+                    name: "encode",
+                    args: vec![arg, hex.clone()],
+                };
+                Expr::Func {
+                    name: "decode",
+                    args: vec![enc, hex],
+                }
             }
         }
     }
@@ -704,25 +1233,40 @@ impl Gen<'_> {
                 let op = if self.rng.chance(1, 2) { "+" } else { "-" };
                 let lhs = self.gen_typed(scope, SqlType::Interval, d);
                 let rhs = self.gen_typed(scope, SqlType::Interval, d);
-                Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs) }
+                Expr::Binary {
+                    op,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                }
             }
             1 => {
                 self.fire("interval:neg");
                 let arg = self.gen_typed(scope, SqlType::Interval, d);
-                Expr::Unary { op: "-", arg: Box::new(arg) }
+                Expr::Unary {
+                    op: "-",
+                    arg: Box::new(arg),
+                }
             }
             2 => {
                 self.fire("interval:ts_diff");
                 let lhs = self.gen_typed(scope, SqlType::Timestamp, d);
                 let rhs = self.gen_typed(scope, SqlType::Timestamp, d);
-                Expr::Binary { op: "-", lhs: Box::new(lhs), rhs: Box::new(rhs) }
+                Expr::Binary {
+                    op: "-",
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                }
             }
             3 => {
                 self.fire("interval:mul");
                 let arg = self.gen_typed(scope, SqlType::Interval, d);
                 let k_n = self.rng_i64(-3, 3);
                 let k = self.lit(format!("{}", k_n));
-                Expr::Binary { op: "*", lhs: Box::new(arg), rhs: Box::new(k) }
+                Expr::Binary {
+                    op: "*",
+                    lhs: Box::new(arg),
+                    rhs: Box::new(k),
+                }
             }
             _ => {
                 self.fire("interval:justify");
@@ -730,7 +1274,10 @@ impl Gen<'_> {
                     .rng
                     .pick(&["justify_hours", "justify_days", "justify_interval"]);
                 let arg = self.gen_typed(scope, SqlType::Interval, d);
-                Expr::Func { name, args: vec![arg] }
+                Expr::Func {
+                    name,
+                    args: vec![arg],
+                }
             }
         }
     }
@@ -742,7 +1289,11 @@ impl Gen<'_> {
         let op = if self.rng.chance(1, 2) { "+" } else { "-" };
         let lhs = self.gen_typed(scope, SqlType::Timestamp, d);
         let rhs = self.gen_typed(scope, SqlType::Interval, d);
-        Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs) }
+        Expr::Binary {
+            op,
+            lhs: Box::new(lhs),
+            rhs: Box::new(rhs),
+        }
     }
 
     /// time + interval -> time (wraps around midnight).
@@ -752,7 +1303,11 @@ impl Gen<'_> {
         let op = if self.rng.chance(1, 2) { "+" } else { "-" };
         let lhs = self.gen_typed(scope, SqlType::Time, d);
         let rhs = self.gen_typed(scope, SqlType::Interval, d);
-        Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs) }
+        Expr::Binary {
+            op,
+            lhs: Box::new(lhs),
+            rhs: Box::new(rhs),
+        }
     }
 
     /// to_timestamp/to_date round trip through a generated picture (same
@@ -761,15 +1316,23 @@ impl Gen<'_> {
     pub fn gen_to_timestamp_rt(&mut self, scope: &Scope, depth: u32) -> Expr {
         self.fire("fmt:to_timestamp_rt");
         let pic = self.gen_dch_picture();
-        let picl = Expr::Lit { sql: format!("'{}'", pic) };
+        let picl = Expr::Lit {
+            sql: format!("'{}'", pic),
+        };
         let text = if self.rng.chance(3, 4) {
             let src = self.gen_typed(scope, SqlType::Timestamp, depth.saturating_sub(1));
-            Expr::Func { name: "to_char", args: vec![src, picl.clone()] }
+            Expr::Func {
+                name: "to_char",
+                args: vec![src, picl.clone()],
+            }
         } else {
             self.gen_typed(scope, SqlType::Text, 0)
         };
         Expr::Cast {
-            arg: Box::new(Expr::Func { name: "to_timestamp", args: vec![text, picl] }),
+            arg: Box::new(Expr::Func {
+                name: "to_timestamp",
+                args: vec![text, picl],
+            }),
             to: SqlType::Timestamp,
         }
     }
@@ -777,14 +1340,22 @@ impl Gen<'_> {
     pub fn gen_to_date_rt(&mut self, scope: &Scope, depth: u32) -> Expr {
         self.fire("fmt:to_date_rt");
         let pic = self.gen_dch_picture_date();
-        let picl = Expr::Lit { sql: format!("'{}'", pic) };
+        let picl = Expr::Lit {
+            sql: format!("'{}'", pic),
+        };
         let text = if self.rng.chance(3, 4) {
             let src = self.gen_typed(scope, SqlType::Date, depth.saturating_sub(1));
-            Expr::Func { name: "to_char", args: vec![src, picl.clone()] }
+            Expr::Func {
+                name: "to_char",
+                args: vec![src, picl.clone()],
+            }
         } else {
             self.gen_typed(scope, SqlType::Text, 0)
         };
-        Expr::Func { name: "to_date", args: vec![text, picl] }
+        Expr::Func {
+            name: "to_date",
+            args: vec![text, picl],
+        }
     }
 
     /// to_number(to_char(n, pic), pic) -> numeric (low weight; the parse
@@ -792,19 +1363,43 @@ impl Gen<'_> {
     pub fn gen_to_number_rt(&mut self, scope: &Scope, depth: u32) -> Expr {
         self.fire("fmt:to_number_rt");
         let pic = self.gen_num_picture();
-        let picl = Expr::Lit { sql: format!("'{}'", pic) };
+        let picl = Expr::Lit {
+            sql: format!("'{}'", pic),
+        };
         let src = self.gen_typed(scope, SqlType::Numeric, depth.saturating_sub(1));
-        let text = Expr::Func { name: "to_char", args: vec![src, picl.clone()] };
-        Expr::Func { name: "to_number", args: vec![text, picl] }
+        let text = Expr::Func {
+            name: "to_char",
+            args: vec![src, picl.clone()],
+        };
+        Expr::Func {
+            name: "to_number",
+            args: vec![text, picl],
+        }
     }
 
     /// EXTRACT(field FROM datetime/interval) -> numeric.
     pub fn gen_extract(&mut self, scope: &Scope, depth: u32) -> Expr {
         self.fire("fmt:extract");
         let field = *self.rng.pick(&[
-            "epoch", "year", "month", "day", "hour", "minute", "second", "dow", "doy",
-            "quarter", "week", "century", "millennium", "microseconds", "milliseconds",
-            "decade", "isodow", "isoyear", "julian",
+            "epoch",
+            "year",
+            "month",
+            "day",
+            "hour",
+            "minute",
+            "second",
+            "dow",
+            "doy",
+            "quarter",
+            "week",
+            "century",
+            "millennium",
+            "microseconds",
+            "milliseconds",
+            "decade",
+            "isodow",
+            "isoyear",
+            "julian",
         ]);
         let src = *self.rng.pick(&[
             SqlType::Timestamp,
@@ -830,11 +1425,18 @@ impl Gen<'_> {
         let field = *self.rng.pick(&[
             "epoch", "year", "month", "day", "hour", "minute", "second", "dow", "doy",
         ]);
-        let src = *self.rng.pick(&[SqlType::Timestamp, SqlType::Date, SqlType::Interval]);
+        let src = *self
+            .rng
+            .pick(&[SqlType::Timestamp, SqlType::Date, SqlType::Interval]);
         let arg = self.gen_typed(scope, src, depth.saturating_sub(1));
         Expr::Func {
             name: "date_part",
-            args: vec![Expr::Lit { sql: format!("'{}'", field) }, arg],
+            args: vec![
+                Expr::Lit {
+                    sql: format!("'{}'", field),
+                },
+                arg,
+            ],
         }
     }
 
@@ -845,31 +1447,54 @@ impl Gen<'_> {
     pub fn gen_ts_rank(&mut self, scope: &Scope, depth: u32) -> Expr {
         self.fire("ts:rank");
         let lang = self.gen_ts_lang();
-        let cfgl = Expr::Lit { sql: format!("'{}'", lang.cfg) };
+        let cfgl = Expr::Lit {
+            sql: format!("'{}'", lang.cfg),
+        };
         let doc = self.gen_ts_doc(scope, lang, depth);
-        let mut vec = Expr::Func { name: "to_tsvector", args: vec![cfgl.clone(), doc] };
+        let mut vec = Expr::Func {
+            name: "to_tsvector",
+            args: vec![cfgl.clone(), doc],
+        };
         if self.rng.chance(1, 5) {
             let w = *self.rng.pick(&["A", "B", "C", "D"]);
             vec = Expr::Func {
                 name: "setweight",
-                args: vec![vec, Expr::Lit { sql: format!("'{}'", w) }],
+                args: vec![
+                    vec,
+                    Expr::Lit {
+                        sql: format!("'{}'", w),
+                    },
+                ],
             };
         }
         let qw = self.gen_ts_words(lang, 1, 2);
         let query = Expr::Func {
             name: "plainto_tsquery",
-            args: vec![cfgl, Expr::Lit { sql: format!("'{}'", qw) }],
+            args: vec![
+                cfgl,
+                Expr::Lit {
+                    sql: format!("'{}'", qw),
+                },
+            ],
         };
-        let name = if self.rng.chance(1, 4) { "ts_rank_cd" } else { "ts_rank" };
+        let name = if self.rng.chance(1, 4) {
+            "ts_rank_cd"
+        } else {
+            "ts_rank"
+        };
         let mut args = Vec::new();
         if self.rng.chance(1, 5) {
-            args.push(Expr::Lit { sql: "(ARRAY[0.1, 0.2, 0.4, 1.0])::float4[]".to_string() });
+            args.push(Expr::Lit {
+                sql: "(ARRAY[0.1, 0.2, 0.4, 1.0])::float4[]".to_string(),
+            });
         }
         args.push(vec);
         args.push(query);
         if self.rng.chance(1, 4) {
             let norm = *self.rng.pick(&["0", "1", "2", "4", "8", "16", "32"]);
-            args.push(Expr::Lit { sql: norm.to_string() });
+            args.push(Expr::Lit {
+                sql: norm.to_string(),
+            });
         }
         Expr::Func { name, args }
     }
@@ -881,15 +1506,27 @@ impl Gen<'_> {
     /// int4-typed draws over arrays: length/cardinality or subscript.
     pub fn gen_array_int(&mut self, scope: &Scope, depth: u32) -> Expr {
         let d = depth.saturating_sub(1);
-        let arr_ty = if self.rng.chance(1, 2) { SqlType::Int4Arr } else { SqlType::TextArr };
+        let arr_ty = if self.rng.chance(1, 2) {
+            SqlType::Int4Arr
+        } else {
+            SqlType::TextArr
+        };
         if self.rng.chance(1, 2) {
             self.fire("arr:length");
             let arg = self.gen_typed(scope, arr_ty, d);
             if self.rng.chance(1, 2) {
-                Expr::Func { name: "cardinality", args: vec![arg] }
+                Expr::Func {
+                    name: "cardinality",
+                    args: vec![arg],
+                }
             } else {
-                let dim = Expr::Lit { sql: "1".to_string() };
-                Expr::Func { name: "array_length", args: vec![arg, dim] }
+                let dim = Expr::Lit {
+                    sql: "1".to_string(),
+                };
+                Expr::Func {
+                    name: "array_length",
+                    args: vec![arg, dim],
+                }
             }
         } else {
             self.fire("arr:sub");
@@ -940,19 +1577,30 @@ impl Gen<'_> {
                     // empty (matched multi-dim semantics on both sides).
                     post.push_str(&format!("[{}]", self.gen_array_slice_spec()));
                 }
-                Expr::Wrap { pre: "(".to_string(), arg: Box::new(arr), post }
+                Expr::Wrap {
+                    pre: "(".to_string(),
+                    arg: Box::new(arr),
+                    post,
+                }
             }
             0 => {
                 self.fire("arr:concat");
                 let lhs = self.gen_typed(scope, SqlType::TextArr, d);
                 let rhs = self.gen_typed(scope, SqlType::TextArr, d);
-                Expr::Binary { op: "||", lhs: Box::new(lhs), rhs: Box::new(rhs) }
+                Expr::Binary {
+                    op: "||",
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                }
             }
             1 => {
                 self.fire("arr:append");
                 let arr = self.gen_typed(scope, SqlType::TextArr, d);
                 let el = self.gen_typed(scope, SqlType::Text, 0);
-                Expr::Func { name: "array_append", args: vec![arr, el] }
+                Expr::Func {
+                    name: "array_append",
+                    args: vec![arr, el],
+                }
             }
             2 => {
                 self.fire("func:string_to_array");
@@ -960,7 +1608,12 @@ impl Gen<'_> {
                 let delim = *self.rng.pick(&["','", "''", "' '", "NULL"]);
                 Expr::Func {
                     name: "string_to_array",
-                    args: vec![t, Expr::Lit { sql: delim.to_string() }],
+                    args: vec![
+                        t,
+                        Expr::Lit {
+                            sql: delim.to_string(),
+                        },
+                    ],
                 }
             }
             3 => {
@@ -969,7 +1622,12 @@ impl Gen<'_> {
                 let pat = self.gen_regex_pattern();
                 Expr::Func {
                     name: "regexp_split_to_array",
-                    args: vec![t, Expr::Lit { sql: format!("'{}'", pat) }],
+                    args: vec![
+                        t,
+                        Expr::Lit {
+                            sql: format!("'{}'", pat),
+                        },
+                    ],
                 }
             }
             _ => {
@@ -978,7 +1636,12 @@ impl Gen<'_> {
                 let pat = self.gen_regex_pattern();
                 Expr::Func {
                     name: "regexp_match",
-                    args: vec![t, Expr::Lit { sql: format!("'{}'", pat) }],
+                    args: vec![
+                        t,
+                        Expr::Lit {
+                            sql: format!("'{}'", pat),
+                        },
+                    ],
                 }
             }
         }
@@ -991,26 +1654,44 @@ impl Gen<'_> {
                 self.fire("arr:concat");
                 let lhs = self.gen_typed(scope, SqlType::Int4Arr, d);
                 let rhs = self.gen_typed(scope, SqlType::Int4Arr, d);
-                Expr::Binary { op: "||", lhs: Box::new(lhs), rhs: Box::new(rhs) }
+                Expr::Binary {
+                    op: "||",
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                }
             }
             1 => {
                 self.fire("arr:append");
                 let arr = self.gen_typed(scope, SqlType::Int4Arr, d);
                 let el = self.gen_typed(scope, SqlType::Int4, 0);
-                let name = if self.rng.chance(1, 2) { "array_append" } else { "array_remove" };
-                Expr::Func { name, args: vec![arr, el] }
+                let name = if self.rng.chance(1, 2) {
+                    "array_append"
+                } else {
+                    "array_remove"
+                };
+                Expr::Func {
+                    name,
+                    args: vec![arr, el],
+                }
             }
             2 => {
                 self.fire("arr:slice");
                 let arr = self.gen_typed(scope, SqlType::Int4Arr, d);
                 let post = format!(")[{}]", self.gen_array_slice_spec());
-                Expr::Wrap { pre: "(".to_string(), arg: Box::new(arr), post }
+                Expr::Wrap {
+                    pre: "(".to_string(),
+                    arg: Box::new(arr),
+                    post,
+                }
             }
             _ => {
                 self.fire("arr:prepend");
                 let el = self.gen_typed(scope, SqlType::Int4, 0);
                 let arr = self.gen_typed(scope, SqlType::Int4Arr, d);
-                Expr::Func { name: "array_prepend", args: vec![el, arr] }
+                Expr::Func {
+                    name: "array_prepend",
+                    args: vec![el, arr],
+                }
             }
         }
     }
@@ -1038,7 +1719,10 @@ impl Gen<'_> {
             lhs: Box::new(lhs),
             rhs: Box::new(Expr::Wrap {
                 pre: format!("{}(", quant),
-                arg: Box::new(Expr::Cast { arg: Box::new(arr), to: arr_ty }),
+                arg: Box::new(Expr::Cast {
+                    arg: Box::new(arr),
+                    to: arr_ty,
+                }),
                 post: ")".to_string(),
             }),
         }
@@ -1061,7 +1745,10 @@ mod tests {
         let mut rng = Rng::new(seed);
         let mut prods = Vec::new();
         let mut g = Gen::new(&mut rng, &cat, &w, &mut prods, 4);
-        let scope = Scope { rels: &rels, outer: None };
+        let scope = Scope {
+            rels: &rels,
+            outer: None,
+        };
         f(&mut g, &scope)
     }
 
@@ -1161,10 +1848,16 @@ mod tests {
             }
         }
         for t in TS_SPECIAL_TOKENS {
-            assert!(!t.contains('\'') && !t.contains('\\'), "bad special token {t}");
+            assert!(
+                !t.contains('\'') && !t.contains('\\'),
+                "bad special token {t}"
+            );
         }
         for s in TS_STOPWORD_LANGS {
-            assert!(TS_LANGS.iter().any(|l| l.cfg == *s), "stopword lang {s} not a config");
+            assert!(
+                TS_LANGS.iter().any(|l| l.cfg == *s),
+                "stopword lang {s} not a config"
+            );
         }
     }
 
@@ -1187,7 +1880,11 @@ mod tests {
         let mut distinct = langs.clone();
         distinct.sort();
         distinct.dedup();
-        assert!(distinct.len() > 15, "only {} languages drawn", distinct.len());
+        assert!(
+            distinct.len() > 15,
+            "only {} languages drawn",
+            distinct.len()
+        );
         for (_, doc) in run(23) {
             assert!(!doc.contains('\''), "quote in doc {doc}");
         }

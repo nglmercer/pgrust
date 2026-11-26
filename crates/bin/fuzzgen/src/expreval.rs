@@ -168,9 +168,7 @@ fn body(g: &mut Gen, shape: &str) -> Vec<StmtKind> {
                 raw(format!(
                     "SELECT k, (x = x), (x IS DISTINCT FROM x) FROM {x} ORDER BY k;"
                 )),
-                raw(format!(
-                    "SELECT count(*) FROM {x} WHERE x IS NOT NULL;"
-                )),
+                raw(format!("SELECT count(*) FROM {x} WHERE x IS NOT NULL;")),
             ]
         }
         // ---- IS DISTINCT / IS NOT DISTINCT across scalar type pairs and a
@@ -311,7 +309,10 @@ mod tests {
             let mut prods = Vec::new();
             let mut g = Gen::new(&mut rng, &cat, &w, &mut prods, 3);
             groups.push(
-                gen_expreval_module(&mut g).iter().map(|s| s.to_sql()).collect::<Vec<_>>(),
+                gen_expreval_module(&mut g)
+                    .iter()
+                    .map(|s| s.to_sql())
+                    .collect::<Vec<_>>(),
             );
         }
         groups
@@ -344,10 +345,7 @@ mod tests {
                 if is_select {
                     let ordered = sql.contains(" ORDER BY ");
                     let scalar_agg = sql.contains("count(*)");
-                    assert!(
-                        ordered || scalar_agg,
-                        "unordered multi-row SELECT: {sql}"
-                    );
+                    assert!(ordered || scalar_agg, "unordered multi-row SELECT: {sql}");
                 }
             }
         }

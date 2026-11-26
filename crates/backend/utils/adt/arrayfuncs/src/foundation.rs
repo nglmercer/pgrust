@@ -131,7 +131,7 @@ pub fn arr_overhead_nonulls(ndims: i32) -> usize {
 
 #[inline]
 pub fn arr_overhead_withnulls(ndims: i32, nitems: i32) -> usize {
-    maxalign(ARRAYTYPE_HDRSZ + 2 * 4 * ndims as usize + (nitems as usize).div_ceil( 8))
+    maxalign(ARRAYTYPE_HDRSZ + 2 * 4 * ndims as usize + (nitems as usize).div_ceil(8))
 }
 
 #[inline]
@@ -164,9 +164,9 @@ pub fn varsize_any(p: *const u8) -> usize {
         if b0 == 0x01 {
             // 1B_E: 2-byte header + tag-determined body (C VARSIZE_EXTERNAL).
             2 + match *p.add(1) {
-                1 => 8,          // VARTAG_INDIRECT
-                2 | 3 => 8,      // VARTAG_EXPANDED_RO/RW
-                18 => 16,        // VARTAG_ONDISK
+                1 => 8,     // VARTAG_INDIRECT
+                2 | 3 => 8, // VARTAG_EXPANDED_RO/RW
+                18 => 16,   // VARTAG_ONDISK
                 other => panic!("unrecognized TOAST vartag {other}"),
             }
         } else if b0 & 0x01 != 0 {

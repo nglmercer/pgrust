@@ -16,7 +16,8 @@ fn a_trap_in_interpreted_code_reaches_the_caller_through_the_pad() {
 
 #[test]
 fn a_returning_interpreted_entry_answers_its_value() {
-    let src = "(program (fn e ((c ptr)) (i64) (block entry ((c ptr)) (k (const i64 7)) (return k))))";
+    let src =
+        "(program (fn e ((c ptr)) (i64) (block entry ((c ptr)) (k (const i64 7)) (return k))))";
     let p = parse_program(src, &|_| None).unwrap_or_else(|e| panic!("{e}"));
     let code = gravity_backend::interp(p, Func(0)).unwrap();
     // SAFETY: the program never reads its ctx.

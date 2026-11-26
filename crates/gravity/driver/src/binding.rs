@@ -48,11 +48,27 @@ pub struct BindingParts<'a> {
 
 impl BindingParts<'_> {
     pub fn abi_identity(&self) -> gravity_abi::Identity {
-        gravity_abi::Identity { proc_number: self.identity.proc_number, command_id: self.command_id.0, resource_owner: self.identity.resource_owner, latch: self.identity.latch, snapshot: self.snapshot.0 }
+        gravity_abi::Identity {
+            proc_number: self.identity.proc_number,
+            command_id: self.command_id.0,
+            resource_owner: self.identity.resource_owner,
+            latch: self.identity.latch,
+            snapshot: self.snapshot.0,
+        }
     }
 
     pub fn as_ref(&self) -> BindingRef<'_> {
-        BindingRef { snapshot: self.snapshot, command_id: self.command_id, abort_flag: self.abort_flag, pins: self.pins, per_tuple: self.per_tuple, identity: self.identity, resolved: self.resolved, params: self.params, ordinal: None }
+        BindingRef {
+            snapshot: self.snapshot,
+            command_id: self.command_id,
+            abort_flag: self.abort_flag,
+            pins: self.pins,
+            per_tuple: self.per_tuple,
+            identity: self.identity,
+            resolved: self.resolved,
+            params: self.params,
+            ordinal: None,
+        }
     }
 }
 
@@ -101,7 +117,11 @@ impl<'a> Deref for WorkerBinding<'a> {
 
 impl<'a> Binding<'a> {
     pub fn new<S: Sink>(parts: BindingParts<'a>, sink: &'a mut S) -> Binding<'a> {
-        Binding { parts, sink: SinkRef::of(sink), rows_processed: 0 }
+        Binding {
+            parts,
+            sink: SinkRef::of(sink),
+            rows_processed: 0,
+        }
     }
 
     pub fn as_ref(&self) -> BindingRef<'_> {
@@ -109,13 +129,22 @@ impl<'a> Binding<'a> {
     }
 
     pub fn fork<'b>(&'b self, ordinal: u16, claim: MorselRange) -> WorkerBinding<'b> {
-        WorkerBinding { parts: self.parts, leg: self.sink.leg(ordinal), rows_processed: 0, ordinal, claim }
+        WorkerBinding {
+            parts: self.parts,
+            leg: self.sink.leg(ordinal),
+            rows_processed: 0,
+            ordinal,
+            claim,
+        }
     }
 }
 
 impl<'a> WorkerBinding<'a> {
     pub fn as_ref(&self) -> BindingRef<'_> {
-        BindingRef { ordinal: Some(self.ordinal), ..self.parts.as_ref() }
+        BindingRef {
+            ordinal: Some(self.ordinal),
+            ..self.parts.as_ref()
+        }
     }
 }
 

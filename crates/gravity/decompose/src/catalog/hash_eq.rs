@@ -9,5 +9,8 @@
 /// facts do not know as hashable. A built-in one's first hash family is built-in.
 pub(crate) fn builtin_hash_eq(facts: &dyn crate::catalog::Facts, opno: u32) -> bool {
     let builtin = |o: u32| o != 0 && !crate::effects::user_code(o);
-    builtin(opno) && facts.oper(opno).is_some_and(|o| o.canhash && builtin(o.hash_family))
+    builtin(opno)
+        && facts
+            .oper(opno)
+            .is_some_and(|o| o.canhash && builtin(o.hash_family))
 }

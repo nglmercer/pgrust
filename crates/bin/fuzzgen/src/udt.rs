@@ -74,7 +74,9 @@ fn lit(s: &str) -> String {
 /// UDT group entry point: pick a family and emit its self-contained group.
 pub fn gen_udt_module(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("udt");
-    let form = g.weights.pick(g.rng, &["udt:enum", "udt:composite", "udt:domain"]);
+    let form = g
+        .weights
+        .pick(g.rng, &["udt:enum", "udt:composite", "udt:domain"]);
     g.fire(form);
     match form {
         "udt:enum" => gen_enum_group(g),
@@ -184,10 +186,7 @@ fn gen_enum_group(g: &mut Gen) -> Vec<StmtKind> {
         lit(&renamed)
     )));
     // Re-probe the (now larger, reordered) range for the post-ALTER order.
-    out.push(StmtKind::Raw(format!(
-        "SELECT enum_range(NULL::{});",
-        name
-    )));
+    out.push(StmtKind::Raw(format!("SELECT enum_range(NULL::{});", name)));
 
     out.push(StmtKind::Raw(format!("DROP TABLE {};", t)));
     out.push(StmtKind::Raw(format!("DROP TYPE {} CASCADE;", name)));
@@ -220,7 +219,10 @@ fn gen_composite_group(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("udt:comp:row");
     out.push(StmtKind::Raw(format!(
         "SELECT (ROW(1, {})::{}).a, (ROW(1, {})::{}).b;",
-        lit(s1), name, lit(s1), name
+        lit(s1),
+        name,
+        lit(s1),
+        name
     )));
     // Text I/O round trip (input parser -> output formatter).
     g.fire("udt:comp:io");
@@ -233,13 +235,20 @@ fn gen_composite_group(g: &mut Gen) -> Vec<StmtKind> {
     let op = *g.rng.pick(&["<", "<=", "=", ">=", ">", "<>"]);
     out.push(StmtKind::Raw(format!(
         "SELECT ROW(1, {})::{} {} ROW(2, {})::{};",
-        lit(s1), name, op, lit(s2), name
+        lit(s1),
+        name,
+        op,
+        lit(s2),
+        name
     )));
     // Composite array.
     g.fire("udt:comp:array");
     out.push(StmtKind::Raw(format!(
         "SELECT ARRAY[ROW(1, {})::{}, ROW(2, {})::{}];",
-        lit(s1), name, lit(s2), name
+        lit(s1),
+        name,
+        lit(s2),
+        name
     )));
 
     // Composite column in a table, total-ordered probe + field projection.
@@ -275,7 +284,8 @@ fn gen_composite_group(g: &mut Gen) -> Vec<StmtKind> {
     )));
     out.push(StmtKind::Raw(format!(
         "SELECT (ROW(1, {}, 2.5)::{}).c;",
-        lit(s1), name
+        lit(s1),
+        name
     )));
     out.push(StmtKind::Raw(format!(
         "ALTER TYPE {} DROP ATTRIBUTE c;",
@@ -304,7 +314,10 @@ struct DomFuel {
 }
 
 fn domain_fuel(g: &mut Gen) -> DomFuel {
-    match g.weights.pick(g.rng, &["udt:dom:int", "udt:dom:text", "udt:dom:num"]) {
+    match g
+        .weights
+        .pick(g.rng, &["udt:dom:int", "udt:dom:text", "udt:dom:num"])
+    {
         "udt:dom:int" => DomFuel {
             base: "int4",
             check1: "VALUE > 0",
@@ -378,10 +391,7 @@ fn gen_domain_group(g: &mut Gen) -> Vec<StmtKind> {
         "ALTER DOMAIN {} VALIDATE CONSTRAINT k2;",
         d
     )));
-    out.push(StmtKind::Raw(format!(
-        "SELECT {}::{};",
-        f.reject_check2, d
-    )));
+    out.push(StmtKind::Raw(format!("SELECT {}::{};", f.reject_check2, d)));
 
     // Assignment/INSERT decision identity through a table column.
     let t = format!("fz_udt_t_{}", g.udt.next_table);
@@ -435,10 +445,7 @@ fn gen_domain_group(g: &mut Gen) -> Vec<StmtKind> {
             "SELECT {}::{};",
             f.reject_check2, d2
         )));
-        out.push(StmtKind::Raw(format!(
-            "SELECT {}::{};",
-            f.reject_check, d2
-        )));
+        out.push(StmtKind::Raw(format!("SELECT {}::{};", f.reject_check, d2)));
         out.push(StmtKind::Raw(format!("DROP DOMAIN {} CASCADE;", d2)));
     }
 
@@ -578,7 +585,11 @@ mod tests {
             assert!(prods.iter().any(|q| q == p), "production {p} never fired");
         }
         // Every base type surfaces.
-        for base in ["AS int4 NOT NULL", "AS text NOT NULL", "AS numeric NOT NULL"] {
+        for base in [
+            "AS int4 NOT NULL",
+            "AS text NOT NULL",
+            "AS numeric NOT NULL",
+        ] {
             assert!(hay.contains(base), "domain base {base:?} never generated");
         }
     }
@@ -626,12 +637,7 @@ mod tests {
             let create = group.iter().find(|s| s.contains("AS ENUM ("));
             let Some(create) = create else { continue };
             // Extract the three base labels from the CREATE.
-            let base: Vec<&str> = create
-                .split('\'')
-                .skip(1)
-                .step_by(2)
-                .take(3)
-                .collect();
+            let base: Vec<&str> = create.split('\'').skip(1).step_by(2).take(3).collect();
             for add in group.iter().filter(|s| s.contains(" ADD VALUE ")) {
                 let lbl = add.split('\'').nth(1).unwrap();
                 assert!(

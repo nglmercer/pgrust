@@ -21,9 +21,15 @@ use gravity_abi::ctx::{resume, RESUME_NONE};
 use gravity_abi::status::{suspend, DONE};
 use gravity_abi::Ctx;
 use gravity_driver::{Binding, Call, Entry, Exec, Grant, Step};
-use gravity_program::{Arena, Code, End, Generation, Handle, Layout, OutCol, Pipeline, PlanKey, Program, Reason, SiteDesc, WritePlan};
+use gravity_program::{
+    Arena, Code, End, Generation, Handle, Layout, OutCol, Pipeline, PlanKey, Program, Reason,
+    SiteDesc, WritePlan,
+};
 
-const KEY: PlanKey = PlanKey { handle: Handle(43), generation: Generation(1) };
+const KEY: PlanKey = PlanKey {
+    handle: Handle(43),
+    generation: Generation(1),
+};
 const THR: [u64; 1] = [7];
 /// A member pin (under one chunk: the pool's first free chunk takes it) and the owner's grow.
 const PIN_BYTES: usize = 40 << 10;
@@ -90,13 +96,37 @@ unsafe extern "C-unwind" fn k_owner(ctx: *mut Ctx) -> i64 {
 fn program() -> Program {
     let st = Arena::new(1 << 14);
     let sites = [SiteDesc::range_source(st.handle(), 2001, &[1, 2])];
-    let m = Pipeline::serial(0, End::Breaker(Breaker::sized(BreakerKind::PlainAgg, COUNT_SUM_BYTES).in_slot(0)), Reason::Host);
+    let m = Pipeline::serial(
+        0,
+        End::Breaker(Breaker::sized(BreakerKind::PlainAgg, COUNT_SUM_BYTES).in_slot(0)),
+        Reason::Host,
+    );
     let owner = Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming(&[0]);
     let cols: [OutCol; 1] = [OutCol::new("c0", 20, -1, 8, true)];
-    rerun_set(Program::with_pipelines(Layout { nsites: 1, out_natts: 1, out_rows: 4, scratch_bytes: 0, exec_bytes: 0 }, &sites, &cols, WritePlan::SELECT, [(m, Code::hand(k_member)), (owner, Code::hand(k_owner))]), &[0])
+    rerun_set(
+        Program::with_pipelines(
+            Layout {
+                nsites: 1,
+                out_natts: 1,
+                out_rows: 4,
+                scratch_bytes: 0,
+                exec_bytes: 0,
+            },
+            &sites,
+            &cols,
+            WritePlan::SELECT,
+            [(m, Code::hand(k_member)), (owner, Code::hand(k_owner))],
+        ),
+        &[0],
+    )
 }
 
-fn run_whole(e: &mut Entry, x: &mut Exec, b: &mut Binding<'_>, p: usize) -> gravity_driver::Result<()> {
+fn run_whole(
+    e: &mut Entry,
+    x: &mut Exec,
+    b: &mut Binding<'_>,
+    p: usize,
+) -> gravity_driver::Result<()> {
     match e.run_pipeline(x, b, Call::batch(4))? {
         Step::Done => Ok(()),
         s => panic!("member {p} stopped with {s:?}"),
@@ -111,20 +141,51 @@ fn a_rerun_members_pins_outlive_the_owners_reattach_until_the_sets_next_run() {
     let flag = AtomicU8::new(0);
     let mut sink = LegSink::new();
     let mut b = binding(&THR, &[0], &mut sink, &flag);
-    let mut exec = entry.start(Some(KEY), &program, &mut derive, &mut b, lease(Grant::of(64 << 20))).unwrap();
+    let mut exec = entry
+        .start(
+            Some(KEY),
+            &program,
+            &mut derive,
+            &mut b,
+            lease(Grant::of(64 << 20)),
+        )
+        .unwrap();
     entry.skip_rerun(&mut exec, 1).unwrap();
     // the owner's first call: its windows laid, stopped resumably (opened: each run below holds it)
-    assert!(matches!(entry.run_pipeline(&mut exec, &mut b, Call::batch(4)).unwrap(), Step::Suspended { .. }), "the owner stops resumably");
+    assert!(
+        matches!(
+            entry
+                .run_pipeline(&mut exec, &mut b, Call::batch(4))
+                .unwrap(),
+            Step::Suspended { .. }
+        ),
+        "the owner stops resumably"
+    );
     for run in 1..=RUNS {
         RUN.store(run, Relaxed);
         PINS.lock().unwrap().clear();
-        entry.rerun_nested(&mut exec, &mut b, &[0], &mut run_whole).unwrap();
-        assert_eq!(PINS.lock().unwrap().len(), 2, "run {run}: the member pinned its two chunks");
-        let s = entry.run_pipeline(&mut exec, &mut b, Call::resume(4)).unwrap();
-        assert_eq!(BAD.load(Relaxed), 0, "run {run}: the owner's grows after the reattach overwrote none of the run's pins");
+        entry
+            .rerun_nested(&mut exec, &mut b, &[0], &mut run_whole)
+            .unwrap();
+        assert_eq!(
+            PINS.lock().unwrap().len(),
+            2,
+            "run {run}: the member pinned its two chunks"
+        );
+        let s = entry
+            .run_pipeline(&mut exec, &mut b, Call::resume(4))
+            .unwrap();
+        assert_eq!(
+            BAD.load(Relaxed),
+            0,
+            "run {run}: the owner's grows after the reattach overwrote none of the run's pins"
+        );
         match run {
             RUNS => assert_eq!(s, Step::Done, "the owner ends after the last run"),
-            _ => assert!(matches!(s, Step::Suspended { .. }), "run {run}: the owner stops resumably again"),
+            _ => assert!(
+                matches!(s, Step::Suspended { .. }),
+                "run {run}: the owner stops resumably again"
+            ),
         }
     }
     assert_eq!(OWNER_CALLS.load(Relaxed), RUNS + 1);

@@ -88,14 +88,20 @@ fn shim_call_over_the_typed_body() {
     for _ in 0..ITERS / 1024 {
         #[allow(clippy::needless_range_loop)]
         for i in 0..1024 {
-            acc = acc.wrapping_add(adt_int::int4pl(black_box(xs[i] as i32), black_box(acc as i32 & 0xff)).unwrap() as i64);
+            acc = acc.wrapping_add(
+                adt_int::int4pl(black_box(xs[i] as i32), black_box(acc as i32 & 0xff)).unwrap()
+                    as i64,
+            );
         }
     }
     let t = Instant::now();
     for _ in 0..ITERS / 1024 {
         #[allow(clippy::needless_range_loop)]
         for i in 0..1024 {
-            acc = acc.wrapping_add(adt_int::int4pl(black_box(xs[i] as i32), black_box(acc as i32 & 0xff)).unwrap() as i64);
+            acc = acc.wrapping_add(
+                adt_int::int4pl(black_box(xs[i] as i32), black_box(acc as i32 & 0xff)).unwrap()
+                    as i64,
+            );
         }
     }
     let body = ns(t, ITERS);
@@ -117,7 +123,11 @@ fn shim_call_over_the_typed_body() {
     eprintln!("int4pl: typed body {body:.2} ns, shim {shim_ns:.2} ns ({:+.2} ns), allocations per 4096 by-value calls: {allocs}; acc {acc}", shim_ns - body);
     assert_eq!(allocs, 0);
     if release() {
-        assert!(shim_ns - body <= 2.0, "shim overhead {:.2} ns > 2 ns", shim_ns - body);
+        assert!(
+            shim_ns - body <= 2.0,
+            "shim overhead {:.2} ns > 2 ns",
+            shim_ns - body
+        );
     }
 }
 
@@ -150,7 +160,11 @@ fn view_shim_call_over_the_typed_body() {
     eprintln!("texteq (C collation): typed body {body:.2} ns, shim {shim_ns:.2} ns ({:+.2} ns), allocations per 4096 view calls: {allocs}; acc {acc}", shim_ns - body);
     assert_eq!(allocs, 0);
     if release() {
-        assert!(shim_ns - body <= 2.0, "shim overhead {:.2} ns > 2 ns", shim_ns - body);
+        assert!(
+            shim_ns - body <= 2.0,
+            "shim overhead {:.2} ns > 2 ns",
+            shim_ns - body
+        );
     }
 }
 
@@ -182,7 +196,10 @@ fn region_result_shim() {
         if i & 4095 == 0 {
             cx.reset();
         }
-        acc += varlena::text_catenate(cx.mcx(), black_box(va).bytes(), black_box(vb).bytes()).unwrap().data().len() as i64;
+        acc += varlena::text_catenate(cx.mcx(), black_box(va).bytes(), black_box(vb).bytes())
+            .unwrap()
+            .data()
+            .len() as i64;
     }
     let body = ns(t, ITERS);
     region.cur = base;
@@ -205,10 +222,17 @@ fn image_family_shims_over_the_typed_bodies() {
     let _serial = serial();
     common::install_seams();
     let mut slot = ErrSlot::NONE;
-    let a: [u8; 16] = [0xa0, 0xee, 0xbc, 0x99, 0x9c, 0x0b, 0x4e, 0xf8, 0xbb, 0x6d, 0x6b, 0xb9, 0xbd, 0x38, 0x0a, 0x11];
-    let b: [u8; 16] = [0xa0, 0xee, 0xbc, 0x99, 0x9c, 0x0b, 0x4e, 0xf8, 0xbb, 0x6d, 0x6b, 0xb9, 0xbd, 0x38, 0x0a, 0x12];
+    let a: [u8; 16] = [
+        0xa0, 0xee, 0xbc, 0x99, 0x9c, 0x0b, 0x4e, 0xf8, 0xbb, 0x6d, 0x6b, 0xb9, 0xbd, 0x38, 0x0a,
+        0x11,
+    ];
+    let b: [u8; 16] = [
+        0xa0, 0xee, 0xbc, 0x99, 0x9c, 0x0b, 0x4e, 0xf8, 0xbb, 0x6d, 0x6b, 0xb9, 0xbd, 0x38, 0x0a,
+        0x12,
+    ];
     let (va, vb) = (View::of(&a), View::of(&b));
-    let uuid_eq: ByRefVal2 = unsafe { std::mem::transmute(gravity_fn::shim_of(2956).unwrap().addr()) };
+    let uuid_eq: ByRefVal2 =
+        unsafe { std::mem::transmute(gravity_fn::shim_of(2956).unwrap().addr()) };
     let mut acc = 0i64;
     let (body, _) = best_of(|| {
         let t = Instant::now();
@@ -232,7 +256,11 @@ fn image_family_shims_over_the_typed_bodies() {
     eprintln!("uuid_eq (fixed by-ref args): typed body {body:.2} ns, shim {shim_ns:.2} ns ({:+.2} ns), allocations per 4096 calls: {allocs}; acc {acc}", shim_ns - body);
     assert_eq!(allocs, 0);
     if release() {
-        assert!(shim_ns - body <= 2.0, "uuid_eq shim overhead {:.2} ns > 2 ns", shim_ns - body);
+        assert!(
+            shim_ns - body <= 2.0,
+            "uuid_eq shim overhead {:.2} ns > 2 ns",
+            shim_ns - body
+        );
     }
 
     // inet: two 4-byte-header images of the same /24 address
@@ -242,7 +270,8 @@ fn image_family_shims_over_the_typed_bodies() {
     let mut img2 = img.clone();
     img2[11] = 6;
     let (ia, ib) = (View::of(&img), View::of(&img2));
-    let inet_eq: ByRefVal2 = unsafe { std::mem::transmute(gravity_fn::shim_of(920).unwrap().addr()) };
+    let inet_eq: ByRefVal2 =
+        unsafe { std::mem::transmute(gravity_fn::shim_of(920).unwrap().addr()) };
     let (body, _) = best_of(|| {
         let t = Instant::now();
         for _ in 0..ITERS {
@@ -267,14 +296,19 @@ fn image_family_shims_over_the_typed_bodies() {
     eprintln!("inet_eq (varlena image args): typed body {body:.2} ns, shim {shim_ns:.2} ns ({:+.2} ns), allocations per 4096 calls: {allocs}", shim_ns - body);
     assert_eq!(allocs, 0);
     if release() {
-        assert!(shim_ns - body <= 2.0, "inet_eq shim overhead {:.2} ns > 2 ns", shim_ns - body);
+        assert!(
+            shim_ns - body <= 2.0,
+            "inet_eq shim overhead {:.2} ns > 2 ns",
+            shim_ns - body
+        );
     }
 
     // macaddr_and: a 6-byte by-reference result written into the region
     let ma: [u8; 6] = [0x08, 0x00, 0x2b, 0x01, 0x02, 0x03];
     let mb: [u8; 6] = [0xff, 0xff, 0xff, 0x00, 0x00, 0xff];
     let (va, vb) = (View::of(&ma), View::of(&mb));
-    let macaddr_and: ByRefRef2NoColl = unsafe { std::mem::transmute(gravity_fn::shim_of(3145).unwrap().addr()) };
+    let macaddr_and: ByRefRef2NoColl =
+        unsafe { std::mem::transmute(gravity_fn::shim_of(3145).unwrap().addr()) };
     let mut buf = vec![0u8; 1 << 20];
     let base = buf.as_mut_ptr();
     let mut region = Region::over(&mut buf);
@@ -318,7 +352,11 @@ fn fmgr_call_equals_the_incumbent() {
     let t = Instant::now();
     for i in 0..ITERS {
         let a = [args[0], Datum::from_i32((i & 0xff) as i32)];
-        acc += call.call_site(black_box(&a), &nulls).unwrap().value.as_i64();
+        acc += call
+            .call_site(black_box(&a), &nulls)
+            .unwrap()
+            .value
+            .as_i64();
     }
     let ours = ns(t, ITERS);
     let mut flinfo = fmgr_core::fmgr_info(177).unwrap();
@@ -341,7 +379,10 @@ fn fmgr_call_equals_the_incumbent() {
     eprintln!("FmgrCall::call int4pl {ours:.2} ns vs the incumbent's frame + invoke {incumbent:.2} ns (thin entry registered: {thin}); allocations per 4096 calls: {allocs}; acc {acc}");
     assert_eq!(allocs, 0);
     if release() {
-        assert!(ours <= incumbent + 1.0, "FmgrCall::call {ours:.2} ns > incumbent {incumbent:.2} ns + 1");
+        assert!(
+            ours <= incumbent + 1.0,
+            "FmgrCall::call {ours:.2} ns > incumbent {incumbent:.2} ns + 1"
+        );
     }
 }
 
@@ -351,8 +392,14 @@ fn dynamic_entry_agrees_with_the_typed_entry() {
     let shim = gravity_fn::shim_of(177).unwrap();
     let f: ByVal2 = unsafe { std::mem::transmute(shim.addr()) };
     let mut slot = ErrSlot::NONE;
-    let mut r = Region { cur: core::ptr::null_mut(), end: core::ptr::null_mut() };
-    assert_eq!(f(&mut slot, 40, 2), (shim.call)(&mut slot, &mut r, 0, &[], &[Arg::V(40), Arg::V(2)]));
+    let mut r = Region {
+        cur: core::ptr::null_mut(),
+        end: core::ptr::null_mut(),
+    };
+    assert_eq!(
+        f(&mut slot, 40, 2),
+        (shim.call)(&mut slot, &mut r, 0, &[], &[Arg::V(40), Arg::V(2)])
+    );
     assert_eq!(f(&mut slot, 40, 2).val, 42);
     let r1 = f(&mut slot, i32::MAX as i64, 1);
     assert_eq!(r1.status, gravity_fn::ERROR);
@@ -364,7 +411,16 @@ fn input_image(name: &str, lit: &str, arg1: u32, len: Option<usize>) -> Vec<u8> 
     let oid = fmgr_core::fmgr_lookup_by_name(name).unwrap().foid;
     let mut call = gravity_fn::FmgrCall::bind(oid, 3, 0).unwrap();
     let c = std::ffi::CString::new(lit).unwrap();
-    let r = call.call_site(&[Datum::from_usize(c.as_ptr() as usize), Datum::from_u32(arg1), Datum::from_i32(-1)], &[false; 3]).unwrap();
+    let r = call
+        .call_site(
+            &[
+                Datum::from_usize(c.as_ptr() as usize),
+                Datum::from_u32(arg1),
+                Datum::from_i32(-1),
+            ],
+            &[false; 3],
+        )
+        .unwrap();
     let p = r.value.as_usize() as *const u8;
     let n = len.unwrap_or_else(|| unsafe { types_tuple::varatt::varsize_any(p) });
     unsafe { std::slice::from_raw_parts(p, n) }.to_vec()
@@ -387,7 +443,16 @@ fn pass3_hand_adapters() {
     let jp = input_image("jsonpath_in", "$.b[*] ? (@ > 1)", 0, None);
     let vars = input_image("jsonb_in", "{}", 0, None);
     let cx = mcx::MemoryContext::new_bump("hostcall arrays");
-    let arr = arrayfuncs::construct_array(cx.mcx(), &[Datum::from_i32(1), Datum::from_i32(2), Datum::from_i32(3)], 23, 4, true, arrayfuncs::foundation::TYPALIGN_INT).unwrap().to_vec();
+    let arr = arrayfuncs::construct_array(
+        cx.mcx(),
+        &[Datum::from_i32(1), Datum::from_i32(2), Datum::from_i32(3)],
+        23,
+        4,
+        true,
+        arrayfuncs::foundation::TYPALIGN_INT,
+    )
+    .unwrap()
+    .to_vec();
     let tz_a = input_image("timetz_in", "12:34:56+05", 0, Some(12));
     let tz_b = input_image("timetz_in", "12:34:57+05", 0, Some(12));
     let in_a = input_image("inet_in", "192.168.1.5/24", 0, None);
@@ -408,23 +473,58 @@ fn pass3_hand_adapters() {
         assert_eq!(allocs, 0, "{label}");
         per
     };
-    let (vjb, vjp, vv, va, vtz_a, vtz_b, vin_a, vin_b) = (View::of(&jb), View::of(&jp), View::of(&vars), View::of(&arr), View::of(&tz_a), View::of(&tz_b), View::of(&in_a), View::of(&in_b));
-    for (oid, label) in [(4005, "jsonb_path_exists"), (4009, "jsonb_path_match"), (1177, "jsonb_path_exists_tz"), (2030, "jsonb_path_match_tz")] {
+    let (vjb, vjp, vv, va, vtz_a, vtz_b, vin_a, vin_b) = (
+        View::of(&jb),
+        View::of(&jp),
+        View::of(&vars),
+        View::of(&arr),
+        View::of(&tz_a),
+        View::of(&tz_b),
+        View::of(&in_a),
+        View::of(&in_b),
+    );
+    for (oid, label) in [
+        (4005, "jsonb_path_exists"),
+        (4009, "jsonb_path_match"),
+        (1177, "jsonb_path_exists_tz"),
+        (2030, "jsonb_path_match_tz"),
+    ] {
         let f: Path4 = unsafe { std::mem::transmute(gravity_fn::shim_of(oid).unwrap().addr()) };
-        count(label, &mut || f(&mut slot, black_box(vjb), black_box(vjp), black_box(vv), 1).status);
+        count(label, &mut || {
+            f(&mut slot, black_box(vjb), black_box(vjp), black_box(vv), 1).status
+        });
     }
-    for (oid, label) in [(4010, "jsonb_path_exists_opr"), (4011, "jsonb_path_match_opr")] {
+    for (oid, label) in [
+        (4010, "jsonb_path_exists_opr"),
+        (4011, "jsonb_path_match_opr"),
+    ] {
         let f: ByRefVal2 = unsafe { std::mem::transmute(gravity_fn::shim_of(oid).unwrap().addr()) };
-        count(label, &mut || f(&mut slot, black_box(vjb), black_box(vjp)).status);
+        count(label, &mut || {
+            f(&mut slot, black_box(vjb), black_box(vjp)).status
+        });
     }
-    for (oid, label) in [(4007, "jsonb_path_query_array"), (4008, "jsonb_path_query_first"), (1180, "jsonb_path_query_array_tz"), (2023, "jsonb_path_query_first_tz")] {
+    for (oid, label) in [
+        (4007, "jsonb_path_query_array"),
+        (4008, "jsonb_path_query_first"),
+        (1180, "jsonb_path_query_array_tz"),
+        (2023, "jsonb_path_query_first_tz"),
+    ] {
         let f: PathImg4 = unsafe { std::mem::transmute(gravity_fn::shim_of(oid).unwrap().addr()) };
         count(label, &mut || {
             region.cur = base;
-            f(&mut slot, &mut region, black_box(vjb), black_box(vjp), black_box(vv), 1).status
+            f(
+                &mut slot,
+                &mut region,
+                black_box(vjb),
+                black_box(vjp),
+                black_box(vv),
+                1,
+            )
+            .status
         });
     }
-    let array_dims: ByRefRef1 = unsafe { std::mem::transmute(gravity_fn::shim_of(747).unwrap().addr()) };
+    let array_dims: ByRefRef1 =
+        unsafe { std::mem::transmute(gravity_fn::shim_of(747).unwrap().addr()) };
     count("array_dims", &mut || {
         region.cur = base;
         array_dims(&mut slot, &mut region, black_box(va)).status
@@ -432,11 +532,18 @@ fn pass3_hand_adapters() {
     let (vn, vp) = (View::of(&name[..8]), View::of(&pat));
     for (oid, label) in [(1635, "nameiclike"), (1636, "nameicnlike")] {
         let f: ViewVal2 = unsafe { std::mem::transmute(gravity_fn::shim_of(oid).unwrap().addr()) };
-        count(label, &mut || f(&mut slot, 950, black_box(vn), black_box(vp)).val);
+        count(label, &mut || {
+            f(&mut slot, 950, black_box(vn), black_box(vp)).val
+        });
     }
-    let timetz_larger: ByRefRef2NoColl = unsafe { std::mem::transmute(gravity_fn::shim_of(1379).unwrap().addr()) };
-    let network_larger: ByRefRef2NoColl = unsafe { std::mem::transmute(gravity_fn::shim_of(3562).unwrap().addr()) };
-    for (f, label, a, b) in [(timetz_larger, "timetz_larger", vtz_a, vtz_b), (network_larger, "network_larger", vin_a, vin_b)] {
+    let timetz_larger: ByRefRef2NoColl =
+        unsafe { std::mem::transmute(gravity_fn::shim_of(1379).unwrap().addr()) };
+    let network_larger: ByRefRef2NoColl =
+        unsafe { std::mem::transmute(gravity_fn::shim_of(3562).unwrap().addr()) };
+    for (f, label, a, b) in [
+        (timetz_larger, "timetz_larger", vtz_a, vtz_b),
+        (network_larger, "network_larger", vin_a, vin_b),
+    ] {
         count(label, &mut || {
             region.cur = base;
             f(&mut slot, &mut region, black_box(a), black_box(b)).status
@@ -452,12 +559,23 @@ fn pass3_hand_adapters() {
         }
         (ns(t, ITERS), ())
     });
-    let tt = |v: &[u8]| adt_date::TimeTzADT { time: i64::from_ne_bytes(v[..8].try_into().unwrap()), zone: i32::from_ne_bytes(v[8..12].try_into().unwrap()) };
+    let tt = |v: &[u8]| adt_date::TimeTzADT {
+        time: i64::from_ne_bytes(v[..8].try_into().unwrap()),
+        zone: i32::from_ne_bytes(v[8..12].try_into().unwrap()),
+    };
     let mut out = [0u8; 12];
     let (body, _) = best_of(|| {
         let t = Instant::now();
         for _ in 0..ITERS {
-            let pick = if adt_date::timetz_cmp_internal(&tt(black_box(&tz_a)), &tt(black_box(&tz_b))) > 0 { &tz_a } else { &tz_b };
+            let pick = if adt_date::timetz_cmp_internal(
+                &tt(black_box(&tz_a)),
+                &tt(black_box(&tz_b)),
+            ) > 0
+            {
+                &tz_a
+            } else {
+                &tz_b
+            };
             out.copy_from_slice(black_box(pick));
             acc += out[0] as i64;
         }
@@ -465,7 +583,11 @@ fn pass3_hand_adapters() {
     });
     eprintln!("timetz_larger: typed body + copy {body:.2} ns, shim into the region {shim_ns:.2} ns ({:+.2} ns); acc {acc}", shim_ns - body);
     if release() {
-        assert!(shim_ns - body <= 2.0, "timetz_larger shim overhead {:.2} ns > 2 ns", shim_ns - body);
+        assert!(
+            shim_ns - body <= 2.0,
+            "timetz_larger shim overhead {:.2} ns > 2 ns",
+            shim_ns - body
+        );
     }
     let (shim_ns, _) = best_of(|| {
         let t = Instant::now();
@@ -473,7 +595,8 @@ fn pass3_hand_adapters() {
             if i & 4095 == 0 {
                 region.cur = base;
             }
-            acc += network_larger(&mut slot, &mut region, black_box(vin_a), black_box(vin_b)).status;
+            acc +=
+                network_larger(&mut slot, &mut region, black_box(vin_a), black_box(vin_b)).status;
         }
         (ns(t, ITERS), ())
     });
@@ -483,7 +606,11 @@ fn pass3_hand_adapters() {
         for _ in 0..ITERS {
             let x = adt_network::InetRef::from_payload(black_box(&in_a[4..]));
             let y = adt_network::InetRef::from_payload(black_box(&in_b[4..]));
-            let pick = if adt_network::network_cmp_internal(x, y) > 0 { &in_a } else { &in_b };
+            let pick = if adt_network::network_cmp_internal(x, y) > 0 {
+                &in_a
+            } else {
+                &in_b
+            };
             out[..pick.len()].copy_from_slice(black_box(pick));
             acc += out[4] as i64;
         }
@@ -491,7 +618,11 @@ fn pass3_hand_adapters() {
     });
     eprintln!("network_larger: typed body + copy {body:.2} ns, shim into the region {shim_ns:.2} ns ({:+.2} ns); acc {acc}", shim_ns - body);
     if release() {
-        assert!(shim_ns - body <= 2.0, "network_larger shim overhead {:.2} ns > 2 ns", shim_ns - body);
+        assert!(
+            shim_ns - body <= 2.0,
+            "network_larger shim overhead {:.2} ns > 2 ns",
+            shim_ns - body
+        );
     }
 }
 
@@ -505,8 +636,19 @@ fn a_builtin_is_never_bracketed_by_the_function_usage_counters() {
     for track in [0, 1, 2] {
         pgstat::function::set_pgstat_track_functions(track);
         let mut call = gravity_fn::FmgrCall::bind(177, 2, 0).unwrap();
-        assert!(!call.tracked(), "track_functions = {track}: int4pl is a builtin");
-        let r = call.call_site(&[Datum::from_i32(black_box(40)), Datum::from_i32(black_box(2))], &[false, false]).unwrap();
+        assert!(
+            !call.tracked(),
+            "track_functions = {track}: int4pl is a builtin"
+        );
+        let r = call
+            .call_site(
+                &[
+                    Datum::from_i32(black_box(40)),
+                    Datum::from_i32(black_box(2)),
+                ],
+                &[false, false],
+            )
+            .unwrap();
         assert_eq!((r.value.as_i64() as i32, r.isnull), (42, false));
     }
     pgstat::function::set_pgstat_track_functions(0);

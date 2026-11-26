@@ -26,7 +26,8 @@ fn armed() -> std::sync::MutexGuard<'static, ()> {
 }
 
 fn admit(bytes: u64) -> gravity_driver::Reservation {
-    POOL.admit_need_until(Grant::of(bytes), &|g| g.bytes, WAIT, &|| false).expect("a statement")
+    POOL.admit_need_until(Grant::of(bytes), &|g| g.bytes, WAIT, &|| false)
+        .expect("a statement")
 }
 
 #[test]
@@ -37,8 +38,15 @@ fn a_nested_ask_alone_beside_its_callers_grant_halves_at_once() {
     let t0 = Instant::now();
     let nested = admit(256 * MIB);
     let took = t0.elapsed();
-    assert_eq!((nested.grant.bytes, nested.how), (64 * MIB, Admitted::Short), "{took:?}");
-    assert!(took < Duration::from_millis(100), "alone: no 2 s wait for room only its caller holds ({took:?})");
+    assert_eq!(
+        (nested.grant.bytes, nested.how),
+        (64 * MIB, Admitted::Short),
+        "{took:?}"
+    );
+    assert!(
+        took < Duration::from_millis(100),
+        "alone: no 2 s wait for room only its caller holds ({took:?})"
+    );
     drop(nested);
     drop(caller);
     assert_eq!(POOL.held(), 0);
@@ -54,7 +62,10 @@ fn a_nested_ask_alone_whose_floor_does_not_fit_is_refused_at_once() {
     let nested = POOL.admit_need_until(Grant::of(256 * MIB), &|g| g.bytes, WAIT, &|| false);
     let took = t0.elapsed();
     assert!(nested.is_err(), "the floor does not fit: refused");
-    assert!(took < Duration::from_millis(100), "alone: refused at once, not after the {WAIT:?} wait ({took:?})");
+    assert!(
+        took < Duration::from_millis(100),
+        "alone: refused at once, not after the {WAIT:?} wait ({took:?})"
+    );
     drop(caller);
     assert_eq!(POOL.held(), 0);
     POOL.arm(0);
@@ -66,7 +77,10 @@ fn a_nested_ask_waits_while_another_statement_could_give_bytes_back() {
     let caller = admit(800 * MIB);
     // another session's statement holds 150 MiB and ends 300 ms on: its end frees what the 128 MiB rung needs (74 MiB free
     // before it, 224 after; 256 never fits whole beside the caller's 800, so no turn)
-    let (admitted, done) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
+    let (admitted, done) = (
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(AtomicBool::new(false)),
+    );
     let (a, d) = (admitted.clone(), done.clone());
     let other = std::thread::spawn(move || {
         let r = admit(150 * MIB);
@@ -83,9 +97,19 @@ fn a_nested_ask_waits_while_another_statement_could_give_bytes_back() {
     let t0 = Instant::now();
     let nested = admit(256 * MIB);
     let took = t0.elapsed();
-    assert!(done.load(Relaxed), "it waited for the other statement's end ({took:?})");
-    assert_eq!((nested.grant.bytes, nested.how), (128 * MIB, Admitted::Short), "{took:?}");
-    assert!(took >= Duration::from_millis(250) && took < Duration::from_millis(1900), "waited for that end, not BYTES_WAIT: {took:?}");
+    assert!(
+        done.load(Relaxed),
+        "it waited for the other statement's end ({took:?})"
+    );
+    assert_eq!(
+        (nested.grant.bytes, nested.how),
+        (128 * MIB, Admitted::Short),
+        "{took:?}"
+    );
+    assert!(
+        took >= Duration::from_millis(250) && took < Duration::from_millis(1900),
+        "waited for that end, not BYTES_WAIT: {took:?}"
+    );
     other.join().expect("the other statement");
     drop(nested);
     drop(caller);
@@ -100,7 +124,10 @@ fn a_nested_ask_waits_for_a_sessions_second_statement_after_its_first_ended() {
     // another session runs two statements (the first holds its slot, the second is nested beside it): 50 + 150 MiB, 24 MiB
     // free. The first ends at 100 ms (the session leaves RUNNING), the second at 400 ms: only the second's end makes room
     // for the 128 MiB rung, so the nested ask must still count it as a holder that could give bytes back
-    let (admitted, done) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
+    let (admitted, done) = (
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(AtomicBool::new(false)),
+    );
     let (a, d) = (admitted.clone(), done.clone());
     let session = std::thread::spawn(move || {
         let first = admit(50 * MIB);
@@ -114,15 +141,28 @@ fn a_nested_ask_waits_for_a_sessions_second_statement_after_its_first_ended() {
     });
     let t0 = Instant::now();
     while !admitted.load(Relaxed) {
-        assert!(t0.elapsed() < WAIT, "the other session's statements were not admitted");
+        assert!(
+            t0.elapsed() < WAIT,
+            "the other session's statements were not admitted"
+        );
         std::thread::sleep(Duration::from_millis(1));
     }
     let t0 = Instant::now();
     let nested = admit(256 * MIB);
     let took = t0.elapsed();
-    assert!(done.load(Relaxed), "it waited for the session's second statement, not only its first ({took:?})");
-    assert_eq!((nested.grant.bytes, nested.how), (128 * MIB, Admitted::Short), "{took:?}");
-    assert!(took >= Duration::from_millis(350) && took < Duration::from_millis(1900), "waited for the second's end: {took:?}");
+    assert!(
+        done.load(Relaxed),
+        "it waited for the session's second statement, not only its first ({took:?})"
+    );
+    assert_eq!(
+        (nested.grant.bytes, nested.how),
+        (128 * MIB, Admitted::Short),
+        "{took:?}"
+    );
+    assert!(
+        took >= Duration::from_millis(350) && took < Duration::from_millis(1900),
+        "waited for the second's end: {took:?}"
+    );
     session.join().expect("the other session");
     drop(nested);
     drop(caller);
@@ -144,7 +184,8 @@ fn a_holder_unwound_mid_grant_leaves_the_holders_a_nested_ask_counts() {
     let session = std::thread::spawn(move || {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let res = admit(150 * MIB);
-            let region = gravity_driver::try_region_in(&res, (32 * MIB) as usize).expect("inside its grant");
+            let region =
+                gravity_driver::try_region_in(&res, (32 * MIB) as usize).expect("inside its grant");
             std::hint::black_box(&region);
             // the unwind starts here, the grant and its region live (an assert above that failed would not set this)
             r.store(true, Relaxed);
@@ -152,18 +193,35 @@ fn a_holder_unwound_mid_grant_leaves_the_holders_a_nested_ask_counts() {
         }))
         .is_err()
     });
-    assert!(session.join().expect("the session thread"), "the statement unwound");
-    assert!(reached.load(Relaxed), "it unwound with its grant and region live, not at an earlier failure");
+    assert!(
+        session.join().expect("the session thread"),
+        "the statement unwound"
+    );
+    assert!(
+        reached.load(Relaxed),
+        "it unwound with its grant and region live, not at an earlier failure"
+    );
     // a region the unwind freed may sit parked (the pool's, no statement's): trimmed, the pool holds the caller's alone
     REGIONS.trim();
     gravity_driver::DEPOT.trim();
-    assert_eq!(POOL.held(), held, "the unwound statement's grant and region are back");
+    assert_eq!(
+        POOL.held(),
+        held,
+        "the unwound statement's grant and region are back"
+    );
     // 224 MiB free: 256 cannot fit whole beside the caller's 800 (no turn); with the unwound holder gone it halves at once
     let t0 = Instant::now();
     let nested = admit(256 * MIB);
     let took = t0.elapsed();
-    assert_eq!((nested.grant.bytes, nested.how), (128 * MIB, Admitted::Short), "{took:?}");
-    assert!(took < Duration::from_millis(100), "no holder left but its caller: no wait ({took:?})");
+    assert_eq!(
+        (nested.grant.bytes, nested.how),
+        (128 * MIB, Admitted::Short),
+        "{took:?}"
+    );
+    assert!(
+        took < Duration::from_millis(100),
+        "no holder left but its caller: no wait ({took:?})"
+    );
     drop(nested);
     drop(caller);
     assert_eq!(POOL.held(), 0);

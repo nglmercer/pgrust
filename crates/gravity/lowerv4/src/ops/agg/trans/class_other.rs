@@ -18,13 +18,18 @@ use gravity_decompose::ops::shared::agg_class::Trans;
 use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::Value;
 
-use crate::face::fold::{Acc, AccShape, AnswerForm, BlockFold, ClassImpl, FinalOrder, FoldClass, WideTerm};
+use crate::face::fold::{
+    Acc, AccShape, AnswerForm, BlockFold, ClassImpl, FinalOrder, FoldClass, WideTerm,
+};
 use crate::face::kinds::KindId;
 use crate::frame::env::Env;
 use crate::ops::Table;
 use crate::rep::CellRef;
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::ClassOther, &ClassImpl(&OTHER))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::ClassOther, &ClassImpl(&OTHER))],
+    ..crate::ops::NONE
+};
 
 struct Other;
 static OTHER: Other = Other;
@@ -32,8 +37,14 @@ static OTHER: Other = Other;
 /// The class folding `a`'s register.
 fn pick(a: &AggDecl<'_>) -> &'static dyn FoldClass {
     match a.reg {
-        Register::MinInterval | Register::MaxInterval => &crate::ops::agg::trans::class_interval::INTERVAL,
-        Register::SumInterval | Register::AvgInterval if matches!(a.trans, Trans::Abi(SlotKind::IntervalSum)) => &crate::ops::agg::trans::class_interval_sum::INTERVAL_SUM,
+        Register::MinInterval | Register::MaxInterval => {
+            &crate::ops::agg::trans::class_interval::INTERVAL
+        }
+        Register::SumInterval | Register::AvgInterval
+            if matches!(a.trans, Trans::Abi(SlotKind::IntervalSum)) =>
+        {
+            &crate::ops::agg::trans::class_interval_sum::INTERVAL_SUM
+        }
         _ => &crate::ops::agg::numeric::class_num_varlena::FOLD,
     }
 }
@@ -45,16 +56,43 @@ impl FoldClass for Other {
     fn init(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, acc: Acc<'_>) {
         pick(a).init(b, env, a, acc)
     }
-    fn step(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, acc: Acc<'_>, args: &[CellRef<'_>]) {
+    fn step(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        a: &AggDecl<'_>,
+        acc: Acc<'_>,
+        args: &[CellRef<'_>],
+    ) {
         pick(a).step(b, env, a, acc, args)
     }
-    fn merge(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, into: Acc<'_>, from: Acc<'_>) {
+    fn merge(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        a: &AggDecl<'_>,
+        into: Acc<'_>,
+        from: Acc<'_>,
+    ) {
         pick(a).merge(b, env, a, into, from)
     }
-    fn finish(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, acc: Acc<'_>) -> (Value, Value) {
+    fn finish(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        a: &AggDecl<'_>,
+        acc: Acc<'_>,
+    ) -> (Value, Value) {
         pick(a).finish(b, env, a, acc)
     }
-    fn finish_direct(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, acc: Acc<'_>, direct: &[(Value, Value)]) -> (Value, Value) {
+    fn finish_direct(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        a: &AggDecl<'_>,
+        acc: Acc<'_>,
+        direct: &[(Value, Value)],
+    ) -> (Value, Value) {
         pick(a).finish_direct(b, env, a, acc, direct)
     }
     fn order(&self, a: &AggDecl<'_>) -> Option<FinalOrder> {
@@ -66,13 +104,27 @@ impl FoldClass for Other {
     fn answer(&self, a: &AggDecl<'_>) -> Option<AnswerForm> {
         pick(a).answer(a)
     }
-    fn fold_wide(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, acc: Acc<'_>, t: &WideTerm) {
+    fn fold_wide(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        a: &AggDecl<'_>,
+        acc: Acc<'_>,
+        t: &WideTerm,
+    ) {
         pick(a).fold_wide(b, env, a, acc, t)
     }
     fn puts(&self, a: &AggDecl<'_>) -> bool {
         pick(a).puts(a)
     }
-    fn put(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, into: Acc<'_>, from: &[Value]) {
+    fn put(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        a: &AggDecl<'_>,
+        into: Acc<'_>,
+        from: &[Value],
+    ) {
         pick(a).put(b, env, a, into, from)
     }
     fn record_only(&self, a: &AggDecl<'_>) -> bool {

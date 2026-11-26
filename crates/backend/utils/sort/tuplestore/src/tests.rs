@@ -345,8 +345,13 @@ fn putvalues_packs_varlena_short_form() {
     compact.push(CompactAttribute::populate_from(&att));
     attrs.push(att);
     let desc = Rc::new(TupleDescData {
-        natts: 1, tdtypeid: 2249, tdtypmod: -1, tdrefcount: -1,
-        constr: None, compact_attrs: compact, attrs,
+        natts: 1,
+        tdtypeid: 2249,
+        tdtypmod: -1,
+        tdrefcount: -1,
+        constr: None,
+        compact_attrs: compact,
+        attrs,
     });
 
     let mut image: Vec<u8> = vec![];
@@ -376,7 +381,9 @@ fn skiptuples_and_advance_window_navigation() {
     let desc = int4_desc(mcx, 1);
     let mut ts = Tuplestore::begin_heap(false, true, 64);
     ts.set_eflags(0).unwrap();
-    let rp = ts.alloc_read_pointer(::types_slot::EXEC_FLAG_BACKWARD).unwrap();
+    let rp = ts
+        .alloc_read_pointer(::types_slot::EXEC_FLAG_BACKWARD)
+        .unwrap();
     for v in 0..10 {
         put_i32(&mut ts, &desc, v);
     }
@@ -408,7 +415,8 @@ fn trim_frees_consumed_tuples() {
     let desc = int4_desc(mcx, 1);
     let mut ts = Tuplestore::begin_heap(false, false, 65_536);
     ts.set_eflags(0).unwrap();
-    let mut slot = exectuples::make_tuple_table_slot(mcx, TupleSlotKind::MinimalTuple, Some(desc.clone()));
+    let mut slot =
+        exectuples::make_tuple_table_slot(mcx, TupleSlotKind::MinimalTuple, Some(desc.clone()));
     let mut peak = 0;
     for round in 0..200 {
         for v in 0..1000 {
@@ -423,7 +431,10 @@ fn trim_frees_consumed_tuples() {
     }
     assert!(ts.in_memory());
     assert_eq!(ts.tuple_count(), 200_000);
-    assert!(peak < 1 << 20, "trimmed tuples must be released: peak {peak}");
+    assert!(
+        peak < 1 << 20,
+        "trimmed tuples must be released: peak {peak}"
+    );
     exectuples::exec_clear_tuple(&mut slot, mcx);
     ts.end();
 }
@@ -438,7 +449,8 @@ fn get_stats_tracks_chunk_space_maximum_across_clear() {
     assert_eq!(s0.space_type.name(), "Memory");
     assert_eq!(s0.max_space, 16384 + 8);
     for i in 0..10 {
-        ts.putvalues(&desc, &[Datum::from_i32(i)], &[false]).unwrap();
+        ts.putvalues(&desc, &[Datum::from_i32(i)], &[false])
+            .unwrap();
     }
     let s1 = ts.get_stats();
     assert!(s1.max_space > s0.max_space);
@@ -458,7 +470,9 @@ mod spill {
     static CWD: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     fn enter_datadir(tag: &str) -> (std::sync::MutexGuard<'static, ()>, String) {
-        let guard = CWD.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let guard = CWD
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let dir = format!(
             "{}/pgrust-tstorespill-{}-{}",
             std::env::temp_dir().display(),
@@ -524,8 +538,14 @@ mod spill {
         assert!(!ts.in_memory());
         let err = ts.try_end().unwrap_err();
         guc_tables::vars::temp_file_limit.write(saved_limit);
-        assert_eq!(err.sqlstate(), types_error::ERRCODE_CONFIGURATION_LIMIT_EXCEEDED);
-        assert_eq!(err.message(), "temporary file size exceeds \"temp_file_limit\" (0kB)");
+        assert_eq!(
+            err.sqlstate(),
+            types_error::ERRCODE_CONFIGURATION_LIMIT_EXCEEDED
+        );
+        assert_eq!(
+            err.message(),
+            "temporary file size exceeds \"temp_file_limit\" (0kB)"
+        );
         for phase in [
             types_resowner::RESOURCE_RELEASE_BEFORE_LOCKS,
             types_resowner::RESOURCE_RELEASE_LOCKS,
@@ -594,14 +614,14 @@ mod spill {
         for natts in [256, 258] {
             let desc = int4_desc(mcx, natts);
             let values = vec![Datum::from_i32(natts); natts as usize];
-            ts.putvalues(&desc, &values, &vec![false; natts as usize]).unwrap();
+            ts.putvalues(&desc, &values, &vec![false; natts as usize])
+                .unwrap();
         }
         assert!(!ts.in_memory());
         for natts in [256, 258] {
             let desc = int4_desc(mcx, natts);
-            let mut slot = exectuples::make_tuple_table_slot(
-                mcx, TupleSlotKind::MinimalTuple, Some(desc),
-            );
+            let mut slot =
+                exectuples::make_tuple_table_slot(mcx, TupleSlotKind::MinimalTuple, Some(desc));
             assert!(ts.gettupleslot(true, false, &mut slot, mcx).unwrap());
             exectuples::slot_getallattrs(&mut slot);
             for i in 0..natts as usize {
@@ -673,8 +693,11 @@ mod spill {
         let bump: &'static MemoryContext =
             Box::leak(Box::new(MemoryContext::new_bump("ExecutorState-test")));
         let bmcx = bump.mcx();
-        let mut slot =
-            exectuples::make_tuple_table_slot(bmcx, TupleSlotKind::MinimalTuple, Some(desc.clone()));
+        let mut slot = exectuples::make_tuple_table_slot(
+            bmcx,
+            TupleSlotKind::MinimalTuple,
+            Some(desc.clone()),
+        );
 
         let mut ts = Tuplestore::begin_heap(false, false, 64);
         for v in 0..N {
@@ -697,8 +720,11 @@ mod spill {
         );
 
         ts.rescan().unwrap();
-        let mut held =
-            exectuples::make_tuple_table_slot(bmcx, TupleSlotKind::MinimalTuple, Some(desc.clone()));
+        let mut held = exectuples::make_tuple_table_slot(
+            bmcx,
+            TupleSlotKind::MinimalTuple,
+            Some(desc.clone()),
+        );
         assert!(ts.gettupleslot(true, true, &mut held, bmcx).unwrap());
         assert!(ts.gettupleslot(true, false, &mut slot, bmcx).unwrap());
         assert_eq!(read_i32(&mut slot), 1);
@@ -763,7 +789,9 @@ mod spill {
             exectuples::make_tuple_table_slot(mcx, TupleSlotKind::MinimalTuple, Some(desc.clone()));
 
         let mut ts = Tuplestore::begin_heap(true, false, 64);
-        let follower = ts.alloc_read_pointer(EXEC_FLAG_REWIND | EXEC_FLAG_BACKWARD).unwrap();
+        let follower = ts
+            .alloc_read_pointer(EXEC_FLAG_REWIND | EXEC_FLAG_BACKWARD)
+            .unwrap();
         for v in 0..N {
             put_i32(&mut ts, &desc, v);
         }
@@ -961,7 +989,11 @@ mod spill {
         ] {
             resowner::ResourceOwnerRelease(owner, phase, false, false).unwrap();
         }
-        assert_eq!(temp_files(&dir), 0, "the abort release closes the spill file");
+        assert_eq!(
+            temp_files(&dir),
+            0,
+            "the abort release closes the spill file"
+        );
         ts.end();
         resowner::ResourceOwnerDelete(owner);
         // The pool hands out a sound store afterwards.
@@ -1016,7 +1048,10 @@ mod guards {
         let errno_now = ::elog::errno::current_errno();
         let err = crate::seek_failed();
         assert_eq!(err.message(), "could not seek in tuplestore temporary file");
-        assert_eq!(err.sqlstate(), ::elog::errno::sqlstate_for_file_access(errno_now));
+        assert_eq!(
+            err.sqlstate(),
+            ::elog::errno::sqlstate_for_file_access(errno_now)
+        );
         assert_eq!(err.sqlstate(), ERRCODE_UNDEFINED_FILE);
         assert_ne!(err.sqlstate(), ERRCODE_INTERNAL_ERROR);
     }
@@ -1031,5 +1066,8 @@ fn initial_memtuples_is_c_formula_for_the_pointer_width() {
         assert_eq!((16384 / ptr).max(8192 / ptr + 1), want);
     }
     assert_eq!(INITIAL_MEMTUPSIZE * PTR_SIZE, 16384);
-    assert_eq!(INITIAL_MEMTUPSIZE, (16384 / PTR_SIZE).max(ALLOCSET_SEPARATE_THRESHOLD / PTR_SIZE + 1));
+    assert_eq!(
+        INITIAL_MEMTUPSIZE,
+        (16384 / PTR_SIZE).max(ALLOCSET_SEPARATE_THRESHOLD / PTR_SIZE + 1)
+    );
 }

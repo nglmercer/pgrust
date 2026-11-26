@@ -27,8 +27,12 @@ fn action_err(msg: String) -> Box<PgError> {
 /// The "now" value of the column's type, or None for any other type.
 pub fn now_for_type(atttypid: types_core::Oid) -> PgResult<Option<Datum>> {
     Ok(match atttypid {
-        TIMESTAMPOID => Some(Datum::from_i64(adt_timestamp::timestamp_in("now", -1, None)?)),
-        TIMESTAMPTZOID => Some(Datum::from_i64(adt_timestamp::timestamptz_in("now", -1, None)?)),
+        TIMESTAMPOID => Some(Datum::from_i64(adt_timestamp::timestamp_in(
+            "now", -1, None,
+        )?)),
+        TIMESTAMPTZOID => Some(Datum::from_i64(adt_timestamp::timestamptz_in(
+            "now", -1, None,
+        )?)),
         _ => None,
     })
 }
@@ -58,13 +62,17 @@ fn fc_moddatetime(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResu
     let relname = String::from_utf8_lossy(rel.rd_rel.relname.name_str()).into_owned();
     let trigger = td.tg_trigger;
     if trigger.tgnargs != 1 {
-        return Err(internal(format!(" ({relname}): A single argument was expected")));
+        return Err(internal(format!(
+            " ({relname}): A single argument was expected"
+        )));
     }
     let colname = trigger.tgargs[0].as_str();
     let tupdesc = rel.descr();
     let attnum = spi::SPI_fnumber(tupdesc, colname);
     if attnum <= 0 {
-        return Err(action_err(format!("\"{relname}\" has no attribute \"{colname}\"")));
+        return Err(action_err(format!(
+            "\"{relname}\" has no attribute \"{colname}\""
+        )));
     }
     let Some(newdt) = now_for_type(spi::SPI_gettypeid(tupdesc, attnum))? else {
         return Err(action_err(format!(
@@ -74,8 +82,14 @@ fn fc_moddatetime(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResu
 
     // SAFETY: the armed result mcx outlives this call.
     let mcx = unsafe { fcinfo.result_mcx_detached() };
-    let newtuple =
-        heaptuple::heap_modify_tuple_by_cols(mcx, rettuple, tupdesc, &[attnum], &[newdt], &[false])?;
+    let newtuple = heaptuple::heap_modify_tuple_by_cols(
+        mcx,
+        rettuple,
+        tupdesc,
+        &[attnum],
+        &[newdt],
+        &[false],
+    )?;
     let ht = newtuple.as_tuple();
     // SAFETY: the image is mcx-owned and leaked below; the descriptor copy
     // rides in the same mcx so it outlives the trigger driver's copy-out.

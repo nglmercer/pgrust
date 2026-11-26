@@ -6,8 +6,8 @@ use dynahash::{get_hash_value, hash_search_with_hash_value};
 use types_core::{ProcNumber, Size};
 use types_error::PgResult;
 use types_hash::hsearch::{
-    HASHCTL, HASH_BLOBS, HASH_ELEM, HASH_ENTER_NULL, HASH_FIND, HASH_FUNCTION,
-    HASH_PARTITION, HASH_REMOVE, HASH_SEQ_STATUS, HTAB,
+    HASHCTL, HASH_BLOBS, HASH_ELEM, HASH_ENTER_NULL, HASH_FIND, HASH_FUNCTION, HASH_PARTITION,
+    HASH_REMOVE, HASH_SEQ_STATUS, HTAB,
 };
 use types_storage::ilist::{dlist_head, dlist_node};
 use types_storage::lock::{
@@ -339,7 +339,10 @@ pub(crate) unsafe fn SetupLockInTable(
         (*proclock).holdMask = 0;
         (*proclock).releaseMask = 0;
         dlist_push_tail(&raw mut (*lock).procLocks, &raw mut (*proclock).lockLink);
-        dlist_push_tail(proc.myProcLocks[partition].ptr(), &raw mut (*proclock).procLink);
+        dlist_push_tail(
+            proc.myProcLocks[partition].ptr(),
+            &raw mut (*proclock).procLink,
+        );
     } else {
         debug_assert!(((*proclock).holdMask & !(*lock).grantMask) == 0);
     }
@@ -405,8 +408,7 @@ pub(crate) unsafe fn UnGrantLock(
         (*lock).grantMask &= LOCKBIT_OFF(lockmode);
     }
 
-    let wakeup_needed =
-        lockMethodTable.conflictTab[lockmode as usize] & (*lock).waitMask != 0;
+    let wakeup_needed = lockMethodTable.conflictTab[lockmode as usize] & (*lock).waitMask != 0;
 
     (*proclock).holdMask &= LOCKBIT_OFF(lockmode);
     wakeup_needed
@@ -425,7 +427,10 @@ pub(crate) unsafe fn CleanUpLock(
         let partition = LockHashPartition(hashcode) as usize;
         let proc = lmgr_proc::GetPGProcByNumber((*proclock).tag.myProc);
         dlist_delete(&raw mut (*lock).procLocks, &raw mut (*proclock).lockLink);
-        dlist_delete(proc.myProcLocks[partition].ptr(), &raw mut (*proclock).procLink);
+        dlist_delete(
+            proc.myProcLocks[partition].ptr(),
+            &raw mut (*proclock).procLink,
+        );
         let tag = (*proclock).tag;
         let removed = hash_search_with_hash_value(
             shared().proclock_hash,
@@ -513,7 +518,10 @@ pub(crate) unsafe fn lock_check_conflicts_raw(
             #[allow(clippy::needless_range_loop)]
             for i in 1..=numLockModes as usize {
                 if intersect & LOCKBIT_ON(i as LOCKMODE) != 0 {
-                    assert!(conflicts_remaining[i] > 0, "proclocks held do not match lock");
+                    assert!(
+                        conflicts_remaining[i] > 0,
+                        "proclocks held do not match lock"
+                    );
                     conflicts_remaining[i] -= 1;
                     total_conflicts -= 1;
                 }
@@ -567,7 +575,10 @@ pub(crate) fn LockRefindAndRelease(
         let lock = find_lock(locktag, hashcode)?;
         assert!(!lock.is_null(), "failed to re-find shared lock object");
         let proclock = find_proclock(lock, procno, hashcode)?;
-        assert!(!proclock.is_null(), "failed to re-find shared proclock object");
+        assert!(
+            !proclock.is_null(),
+            "failed to re-find shared proclock object"
+        );
 
         if (*proclock).holdMask & LOCKBIT_ON(lockmode) == 0 {
             lwlock::LWLockRelease(partition_lock)?;
@@ -585,7 +596,8 @@ pub(crate) fn LockRefindAndRelease(
 
     lwlock::LWLockRelease(partition_lock)?;
 
-    if decrement_strong_lock_count && crate::fastpath::ConflictsWithRelationFastPath(locktag, lockmode)
+    if decrement_strong_lock_count
+        && crate::fastpath::ConflictsWithRelationFastPath(locktag, lockmode)
     {
         crate::fastpath::decrement_strong_lock_count(hashcode);
     }
@@ -601,7 +613,8 @@ pub fn GetRunningTransactionLocks() -> PgResult<Vec<xl_standby_lock>> {
 
     let els = dynahash::hash_get_num_entries(shared().proclock_hash);
     // lock.c: palloc(els * sizeof(xl_standby_lock)); failure is ERROR 53200.
-    let mut accessExclusiveLocks = ::mcx::std_vec_with_capacity("GetRunningTransactionLocks", els as usize)?;
+    let mut accessExclusiveLocks =
+        ::mcx::std_vec_with_capacity("GetRunningTransactionLocks", els as usize)?;
 
     let mut seqstat = HASH_SEQ_STATUS::new();
     dynahash::hash_seq_init(&mut seqstat, shared().proclock_hash)?;

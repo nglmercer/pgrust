@@ -30,10 +30,12 @@ use mcx::{CollectIn, GrowIn, PgVec};
 use types_nodes::jointype::JoinType;
 use types_nodes::plannodes::RowMarkType;
 
-use crate::ops::lockrows::plan::Census;
 use crate::graph::Gx;
+use crate::ops::lockrows::plan::Census;
 use crate::rerun::epq::epq_ir::HELD;
-use crate::rerun::epq::ref_nest::{exprs, heap, inner_end, memo_tail, param_values, recheck_quals, ref_side, ref_spool};
+use crate::rerun::epq::ref_nest::{
+    exprs, heap, inner_end, memo_tail, param_values, recheck_quals, ref_side, ref_spool,
+};
 
 /// `form`'s answer.
 pub(crate) struct SortChain<'g> {
@@ -51,72 +53,144 @@ pub(crate) struct SortChain<'g> {
 
 /// The lock at op `j` of pipeline `k` in SORTCHAIN's form (module doc), else none; `limit`: whether an op is a LIMIT /
 /// OFFSET, `emit`: whether it is the Sort emit's projection (lower.rs `sort_emit`).
-pub(crate) fn form<'g>(gx: &Gx<'g, '_>, k: usize, j: usize, d: &LockDesc<'_>, (limit, emit): (fn(&Op<'_>) -> bool, fn(&Op<'_>) -> bool)) -> Option<SortChain<'g>> {
+pub(crate) fn form<'g>(
+    gx: &Gx<'g, '_>,
+    k: usize,
+    j: usize,
+    d: &LockDesc<'_>,
+    (limit, emit): (fn(&Op<'_>) -> bool, fn(&Op<'_>) -> bool),
+) -> Option<SortChain<'g>> {
     use gravity_decompose::expr::has_subplan;
     let ps = gx.pipelines();
     let mcx = gx.mcx;
     let p = &ps[k];
-    let Source::Breaker { slot } = p.source else { return None };
-    if !p.ops[..j].iter().all(emit) || !p.ops[j + 1..].iter().all(|o| matches!(o, Op::Project(_)) || limit(o)) {
+    let Source::Breaker { slot } = p.source else {
+        return None;
+    };
+    if !p.ops[..j].iter().all(emit)
+        || !p.ops[j + 1..]
+            .iter()
+            .all(|o| matches!(o, Op::Project(_)) || limit(o))
+    {
         return None;
     }
-    if !gx.graph.init_plans.is_empty() || d.family().is_some() || d.family_top().is_some() || d.marks.len() < 3 || p.desc.produces().is_some() || p.desc.consumes.len() != 1 {
+    if !gx.graph.init_plans.is_empty()
+        || d.family().is_some()
+        || d.family_top().is_some()
+        || d.marks.len() < 3
+        || p.desc.produces().is_some()
+        || p.desc.consumes.len() != 1
+    {
         return None;
     }
     let mut locking = d.marks.iter().filter(|m| m.lock != LockKind::None);
-    let (Some(m), None) = (locking.next(), locking.next()) else { return None };
+    let (Some(m), None) = (locking.next(), locking.next()) else {
+        return None;
+    };
     let refs: PgVec<'_, &RowMark> = d.marks.iter().filter(|r| r.rti != m.rti).collect_in(mcx);
-    if m.parent || m.ctid_col <= 0 || m.relid != d.plan.target_rel || refs.iter().any(|r| r.parent || r.ctid_col <= 0 || r.mark != RowMarkType::ROW_MARK_REFERENCE) {
+    if m.parent
+        || m.ctid_col <= 0
+        || m.relid != d.plan.target_rel
+        || refs
+            .iter()
+            .any(|r| r.parent || r.ctid_col <= 0 || r.mark != RowMarkType::ROW_MARK_REFERENCE)
+    {
         return None;
     }
-    let q = (0..k).rev().find(|&x| ps[x].desc.produces() == Some(slot))?;
+    let q = (0..k)
+        .rev()
+        .find(|&x| ps[x].desc.produces() == Some(slot))?;
     let pq = &ps[q];
     let jq = pq.ops.iter().position(|o| matches!(o, Op::Sort(_)))?;
-    if !pq.ops[jq..].iter().all(|o| matches!(o, Op::Sort(_))) || !matches!(pq.ops[..jq].last(), Some(Op::Project(_))) {
+    if !pq.ops[jq..].iter().all(|o| matches!(o, Op::Sort(_)))
+        || !matches!(pq.ops[..jq].last(), Some(Op::Project(_)))
+    {
         return None;
     }
-    let src = refs.iter().copied().find(|r| heap(&pq.source) == Some((r.rti, r.relid)))?;
+    let src = refs
+        .iter()
+        .copied()
+        .find(|r| heap(&pq.source) == Some((r.rti, r.relid)))?;
     let mut used = mcx::pg_vec![in mcx; src.rti];
     // a REFERENCE mark not read yet over scan `s` (its own heap scan)
-    let free = |used: &[u32], s: &Source<'_>| refs.iter().copied().find(|r| heap(s) == Some((r.rti, r.relid)) && !used.contains(&r.rti));
+    let free = |used: &[u32], s: &Source<'_>| {
+        refs.iter()
+            .copied()
+            .find(|r| heap(s) == Some((r.rti, r.relid)) && !used.contains(&r.rti))
+    };
     let mut fetch: PgVec<'g, (usize, i16, u32)> = PgVec::new_in(gx.mcx);
     // the pipelines a probe's build or a Materialize's fill is, beside the producer and the lock's
     let mut extra: PgVec<'_, usize> = PgVec::new_in(mcx);
     // what the redo evaluates (no SubPlan there)
-    let mut subplan = recheck_quals(&pq.source).into_iter().any(|x| has_subplan(x));
+    let mut subplan = recheck_quals(&pq.source)
+        .into_iter()
+        .any(|x| has_subplan(x));
     let (mut held, mut runner) = (0, true);
     let plain = |o: &Op<'_>| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_));
     for (i, o) in pq.ops[..jq].iter().enumerate() {
         match o {
             o if plain(o) => subplan |= exprs(o).into_iter().any(|x| has_subplan(x)),
-            Op::Join(JoinDesc::Probe { clauses, keys, qual, .. }) => {
+            Op::Join(JoinDesc::Probe {
+                clauses,
+                keys,
+                qual,
+                ..
+            }) => {
                 let (bq, at) = ref_probe(gx, q, o)?;
                 let r = free(&used[..], &ps[bq].source).filter(|r| (r.rti, r.relid) == at)?;
                 used.push_in(r.rti);
                 extra.push_in(bq);
                 fetch.push_in((bq, r.ctid_col, r.relid));
-                subplan |= clauses.iter().chain(keys.iter()).chain(qual.iter()).chain(build_read(gx, bq)).any(|x| has_subplan(x));
+                subplan |= clauses
+                    .iter()
+                    .chain(keys.iter())
+                    .chain(qual.iter())
+                    .chain(build_read(gx, bq))
+                    .any(|x| has_subplan(x));
             }
-            Op::Join(JoinDesc::Nest { jointype: JoinType::JOIN_INNER, inner, params, qual, .. }) => {
-                subplan |= param_values(params).chain(qual.iter()).any(|x| has_subplan(x));
-                runner &= crate::rerun::epq::marks::nest_joins(o) || crate::rerun::epq::marks::nest_memo_joins(o);
+            Op::Join(JoinDesc::Nest {
+                jointype: JoinType::JOIN_INNER,
+                inner,
+                params,
+                qual,
+                ..
+            }) => {
+                subplan |= param_values(params)
+                    .chain(qual.iter())
+                    .any(|x| has_subplan(x));
+                runner &= crate::rerun::epq::marks::nest_joins(o)
+                    || crate::rerun::epq::marks::nest_memo_joins(o);
                 // the locked mark's own scan, once (LOCKCHAIN's inner)
                 if heap(&inner.source) == Some((m.rti, m.relid)) {
                     let ik = ps.inner_of(q, i)?;
                     let s = &ps[ik];
                     let end = inner_end(s);
-                    if held > 0 || !s.desc.consumes.is_empty() || !s.ops[..end].iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_))) || !memo_tail(s) {
+                    if held > 0
+                        || !s.desc.consumes.is_empty()
+                        || !s.ops[..end]
+                            .iter()
+                            .all(|o| matches!(o, Op::Filter(_) | Op::Project(_)))
+                        || !memo_tail(s)
+                    {
                         return None;
                     }
                     held += 1;
-                    subplan |= recheck_quals(&s.source).chain(s.ops[..end].iter().flat_map(exprs)).any(|x| has_subplan(x));
+                    subplan |= recheck_quals(&s.source)
+                        .chain(s.ops[..end].iter().flat_map(exprs))
+                        .any(|x| has_subplan(x));
                     fetch.push_in((ik, HELD, m.relid));
                     continue;
                 }
                 // a REFERENCE mark's own scan, embedded (a Memoize over it or none)
-                if let Some((x, r)) = refs.iter().find_map(|r| (!used.contains(&r.rti)).then(|| ref_side(gx, q, i, r).map(|x| (x, *r))).flatten()) {
+                if let Some((x, r)) = refs.iter().find_map(|r| {
+                    (!used.contains(&r.rti))
+                        .then(|| ref_side(gx, q, i, r).map(|x| (x, *r)))
+                        .flatten()
+                }) {
                     let s = &ps[x];
-                    subplan |= recheck_quals(&s.source).chain(s.ops[..inner_end(s)].iter().flat_map(exprs)).any(|x| has_subplan(x));
+                    subplan |= recheck_quals(&s.source)
+                        .chain(s.ops[..inner_end(s)].iter().flat_map(exprs))
+                        .any(|x| has_subplan(x));
                     used.push_in(r.rti);
                     fetch.push_in((x, r.ctid_col, r.relid));
                     continue;
@@ -125,7 +199,9 @@ pub(crate) fn form<'g>(gx: &Gx<'g, '_>, k: usize, j: usize, d: &LockDesc<'_>, (l
                 if let Some((f, _)) = ref_spool(gx, q, i) {
                     let r = free(&used[..], &ps[f].source)?;
                     let s = &ps[f];
-                    subplan |= recheck_quals(&s.source).chain(s.ops[..inner_end(s)].iter().flat_map(exprs)).any(|x| has_subplan(x));
+                    subplan |= recheck_quals(&s.source)
+                        .chain(s.ops[..inner_end(s)].iter().flat_map(exprs))
+                        .any(|x| has_subplan(x));
                     used.push_in(r.rti);
                     extra.push_in(f);
                     fetch.push_in((f, r.ctid_col, r.relid));
@@ -136,7 +212,10 @@ pub(crate) fn form<'g>(gx: &Gx<'g, '_>, k: usize, j: usize, d: &LockDesc<'_>, (l
                 let s = &ps[ik];
                 let r = free(&used[..], &s.source)?;
                 let end = inner_end(s);
-                if matches!(s.source, Source::Breaker { .. }) || !memo_tail(s) || !matches!(s.ops[..end].last(), Some(Op::Project(_))) {
+                if matches!(s.source, Source::Breaker { .. })
+                    || !memo_tail(s)
+                    || !matches!(s.ops[..end].last(), Some(Op::Project(_)))
+                {
                     return None;
                 }
                 used.push_in(r.rti);
@@ -146,13 +225,24 @@ pub(crate) fn form<'g>(gx: &Gx<'g, '_>, k: usize, j: usize, d: &LockDesc<'_>, (l
                 for o in s.ops[..end].iter() {
                     match o {
                         o if plain(o) => subplan |= exprs(o).into_iter().any(|x| has_subplan(x)),
-                        Op::Join(JoinDesc::Probe { clauses, keys, qual, .. }) => {
+                        Op::Join(JoinDesc::Probe {
+                            clauses,
+                            keys,
+                            qual,
+                            ..
+                        }) => {
                             let (bq, at) = ref_probe(gx, ik, o)?;
-                            let rb = free(&used[..], &ps[bq].source).filter(|rb| (rb.rti, rb.relid) == at)?;
+                            let rb = free(&used[..], &ps[bq].source)
+                                .filter(|rb| (rb.rti, rb.relid) == at)?;
                             used.push_in(rb.rti);
                             extra.push_in(bq);
                             fetch.push_in((bq, rb.ctid_col, rb.relid));
-                            subplan |= clauses.iter().chain(keys.iter()).chain(qual.iter()).chain(build_read(gx, bq)).any(|x| has_subplan(x));
+                            subplan |= clauses
+                                .iter()
+                                .chain(keys.iter())
+                                .chain(qual.iter())
+                                .chain(build_read(gx, bq))
+                                .any(|x| has_subplan(x));
                             probes += 1;
                         }
                         _ => return None,
@@ -169,7 +259,12 @@ pub(crate) fn form<'g>(gx: &Gx<'g, '_>, k: usize, j: usize, d: &LockDesc<'_>, (l
     let mut seen = mcx::to_vec_in(&extra[..], mcx);
     seen.sort_unstable();
     seen.dedup();
-    let own = seen.len() == extra.len() && Census(gx).whole(2 + extra.len()) && pq.desc.consumes.len() == extra.len() && extra.iter().all(|&x| x < q && ps[x].desc.consumes.is_empty());
+    let own = seen.len() == extra.len()
+        && Census(gx).whole(2 + extra.len())
+        && pq.desc.consumes.len() == extra.len()
+        && extra
+            .iter()
+            .all(|&x| x < q && ps[x].desc.consumes.is_empty());
     if held != 1 || used.len() != refs.len() || !own || subplan {
         return None;
     }
@@ -177,22 +272,42 @@ pub(crate) fn form<'g>(gx: &Gx<'g, '_>, k: usize, j: usize, d: &LockDesc<'_>, (l
     if runner && !p.ops[j + 1..].iter().any(limit) {
         return None;
     }
-    Some(SortChain { q, jq, ctid: m.ctid_col, from: (src.ctid_col, src.relid), fetch })
+    Some(SortChain {
+        q,
+        jq,
+        ctid: m.ctid_col,
+        from: (src.ctid_col, src.relid),
+        fetch,
+    })
 }
 
 /// An INNER hash probe op `o` of pipeline `x` whose build is a relation's own heap scan, quiet (lower.rs `ref_chain`'s
 /// build: effects/visible/lockrows.rs `quiet_ref_build`), reading nothing else: (the build's pipeline, its (rti, relid)).
 fn ref_probe(gx: &Gx<'_, '_>, x: usize, o: &Op<'_>) -> Option<(usize, (u32, u32))> {
-    let Op::Join(JoinDesc::Probe { slot, jointype: JoinType::JOIN_INNER, catalog: false, .. }) = o else { return None };
+    let Op::Join(JoinDesc::Probe {
+        slot,
+        jointype: JoinType::JOIN_INNER,
+        catalog: false,
+        ..
+    }) = o
+    else {
+        return None;
+    };
     let bq = gx.life_of(x, *slot).map(|l| l.0 as usize)?;
     let pb = &gx.pipelines()[bq];
-    let Some(Op::Join(JoinDesc::Build { .. })) = pb.ops.last() else { return None };
-    let quiet = crate::effects::visible::lockrows::quiet_ref_build(gx, pb, &pb.ops[..pb.ops.len() - 1]);
-    (quiet && pb.desc.consumes.is_empty() && !Census(gx).init_member(bq)).then_some((bq, heap(&pb.source)?))
+    let Some(Op::Join(JoinDesc::Build { .. })) = pb.ops.last() else {
+        return None;
+    };
+    let quiet =
+        crate::effects::visible::lockrows::quiet_ref_build(gx, pb, &pb.ops[..pb.ops.len() - 1]);
+    (quiet && pb.desc.consumes.is_empty() && !Census(gx).init_member(bq))
+        .then_some((bq, heap(&pb.source)?))
 }
 
 /// What a probe build's redo evaluates: its source's recheck quals and its ops before the build.
 fn build_read<'g, 'p>(gx: &Gx<'g, 'p>, bq: usize) -> PgVec<'g, types_nodes::Node<'p>> {
     let pb = &gx.pipelines()[bq];
-    recheck_quals(&pb.source).chain(pb.ops[..pb.ops.len() - 1].iter().flat_map(exprs)).collect_in(gx.mcx)
+    recheck_quals(&pb.source)
+        .chain(pb.ops[..pb.ops.len() - 1].iter().flat_map(exprs))
+        .collect_in(gx.mcx)
 }

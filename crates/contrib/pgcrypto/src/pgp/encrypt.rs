@@ -1,4 +1,3 @@
-
 use super::cfb::PgpCfb;
 use super::consts::*;
 use super::context::PgpContext;
@@ -49,8 +48,8 @@ pub fn encrypt_symmetric(
         ctx.s2k_cipher_algo = ctx.cipher_algo;
     }
 
-    let mut s2k = S2k::fill(ctx.s2k_mode, ctx.s2k_digest_algo, ctx.s2k_count)
-        .map_err(|e| e.to_string())?;
+    let mut s2k =
+        S2k::fill(ctx.s2k_mode, ctx.s2k_digest_algo, ctx.s2k_count).map_err(|e| e.to_string())?;
     s2k.process(ctx.s2k_cipher_algo, passphrase)
         .map_err(|e| e.to_string())?;
 
@@ -68,7 +67,6 @@ pub fn encrypt_symmetric(
     let mut out = Vec::new();
 
     #[allow(clippy::vec_init_then_push)]
-
     let mut esk = Vec::new();
     esk.push(4); // version
     esk.push(ctx.s2k_cipher_algo as u8);

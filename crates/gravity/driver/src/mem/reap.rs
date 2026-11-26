@@ -45,7 +45,12 @@ struct Queue {
     busy: bool,
 }
 
-static QUEUE: Mutex<Queue> = Mutex::new(Queue { jobs: Vec::new(), on: None, thread: false, busy: false }); // alloc: Cold
+static QUEUE: Mutex<Queue> = Mutex::new(Queue {
+    jobs: Vec::new(),
+    on: None,
+    thread: false,
+    busy: false,
+}); // alloc: Cold
 static WAKE: Condvar = Condvar::new();
 static IDLE: Condvar = Condvar::new();
 
@@ -65,7 +70,10 @@ fn credit_open(bytes: u64, at_ms: u64) -> u32 {
     }
     let at_ms = at_ms.max(1);
     for (i, at) in CREDIT_AT.iter().enumerate() {
-        if at.compare_exchange(0, at_ms, Ordering::AcqRel, Ordering::Relaxed).is_ok() {
+        if at
+            .compare_exchange(0, at_ms, Ordering::AcqRel, Ordering::Relaxed)
+            .is_ok()
+        {
             CREDIT_BYTES[i].store(bytes, Ordering::Release);
             CREDIT_LIVE.fetch_add(1, Ordering::AcqRel);
             return i as u32;
@@ -76,7 +84,9 @@ fn credit_open(bytes: u64, at_ms: u64) -> u32 {
 
 /// D4404: the reservation is unmapped: its credit ends.
 fn credit_close(i: u32) {
-    let Some(at) = CREDIT_AT.get(i as usize) else { return };
+    let Some(at) = CREDIT_AT.get(i as usize) else {
+        return;
+    };
     CREDIT_BYTES[i as usize].store(0, Ordering::Release);
     at.store(0, Ordering::Release);
     CREDIT_LIVE.fetch_sub(1, Ordering::AcqRel);
@@ -108,15 +118,26 @@ pub fn landing_credit() -> u64 {
     let ms = mempolicy::consts::get(mempolicy::consts::K::CancelLandingMs);
     // past the watchdog's cancel line the pool's landing holds nothing off: a slow purger pass must not keep R2b / R6
     // waiting while the read climbs
-    let pool = if mcx::ladder::past_cancel() { 0 } else { pagepool::landing(u32::try_from(ms).unwrap_or(u32::MAX)) as u64 };
-    let (reaper, own, giveback) = (landing_credit_at(credit_ms(), ms), allocarena::own::landing_bytes() as u64, crate::mem::giveback::landing_bytes() as u64);
+    let pool = if mcx::ladder::past_cancel() {
+        0
+    } else {
+        pagepool::landing(u32::try_from(ms).unwrap_or(u32::MAX)) as u64
+    };
+    let (reaper, own, giveback) = (
+        landing_credit_at(credit_ms(), ms),
+        allocarena::own::landing_bytes() as u64,
+        crate::mem::giveback::landing_bytes() as u64,
+    );
     // ladder_reconcile: each part with its own kind (resident, mapped, mapped, asked)
     use mempolicy::reconcile::Term;
     mcx::reconcile::put(Term::LandingReaper, reaper);
     mcx::reconcile::put(Term::LandingOwn, own);
     mcx::reconcile::put(Term::LandingGiveback, giveback);
     mcx::reconcile::put(Term::LandingPool, pool);
-    reaper.saturating_add(own).saturating_add(giveback).saturating_add(pool)
+    reaper
+        .saturating_add(own)
+        .saturating_add(giveback)
+        .saturating_add(pool)
 }
 
 /// The ladder pass's landing credit (`landing_credit`) as the hook's (`mcx::ladder::set_unmap_landing`) from the
@@ -148,18 +169,31 @@ pub static REAPED: AtomicU64 = AtomicU64::new(0);
 /// it may drop the statement's context) and its pages' `charge` (C8: given back, the pages then the reaper's); false = not handed,
 /// `held` as it was, the pages' charge given back here: the caller unmaps it now. A queue that filled meanwhile: unmapped
 /// here and both charges released, true all the same (nothing is left for the caller).
-pub(crate) fn defer(at: *mut u8, reserve: usize, rw: usize, held: &mut crate::mem::grant::Held, res: u32, charge: memledger::Charge) -> bool {
+pub(crate) fn defer(
+    at: *mut u8,
+    reserve: usize,
+    rw: usize,
+    held: &mut crate::mem::grant::Held,
+    res: u32,
+    charge: memledger::Charge,
+) -> bool {
     if rw < REAP_MIN {
         return false;
     }
     {
         let mut q = QUEUE.lock().unwrap_or_else(|e| e.into_inner());
-        if !*q.on.get_or_insert_with(|| crate::env::text("PGRUST_GRAVITY_REAP").is_none_or(|v| v.trim() != "off")) {
+        if !*q.on.get_or_insert_with(|| {
+            crate::env::text("PGRUST_GRAVITY_REAP").is_none_or(|v| v.trim() != "off")
+        }) {
             return false;
         }
         if !q.thread {
             q.jobs.reserve_exact(QUEUE_MAX); // alloc: Cold
-            match pgsync::thread::Builder::new().name("gravity-reap".into()).stack_size(256 << 10).spawn(pagegive::pinned(reaper)) {
+            match pgsync::thread::Builder::new()
+                .name("gravity-reap".into())
+                .stack_size(256 << 10)
+                .spawn(pagegive::pinned(reaper))
+            {
                 Ok(_) => {
                     q.thread = true;
                     start();
@@ -171,7 +205,9 @@ pub(crate) fn defer(at: *mut u8, reserve: usize, rw: usize, held: &mut crate::me
             return false;
         }
     }
-    let Some((pool, kept)) = held.take_pool() else { return false };
+    let Some((pool, kept)) = held.take_pool() else {
+        return false;
+    };
     let mut q = QUEUE.lock().unwrap_or_else(|e| e.into_inner());
     if q.jobs.len() >= QUEUE_MAX {
         drop(q);
@@ -184,13 +220,34 @@ pub(crate) fn defer(at: *mut u8, reserve: usize, rw: usize, held: &mut crate::me
     // under the queue's lock: the reaper takes the job (and gives its charge back) only after this one is made. The pages
     // leave their breaker's kind with the owner's charge and wait as the reaper's mapped bytes, as before the home.
     drop(charge);
-    let charge = memledger::Charge::open(memledger::Owner::Cache(memledger::Holder::Reaping), memledger::Release::Evict, memledger::Kind::Mapped, memledger::charge::Door::Mapped, rw as u64);
+    let charge = memledger::Charge::open(
+        memledger::Owner::Cache(memledger::Holder::Reaping),
+        memledger::Release::Evict,
+        memledger::Kind::Mapped,
+        memledger::charge::Door::Mapped,
+        rw as u64,
+    );
     // D3872: its residency entry moves to REAPING with its last numbers, so the residency pass bounds what the reaper
     // still holds by its resident pages
-    crate::mem::resident::update_at(res, at as usize, rw, rw, memledger::Acct::REAPING, charge.nr_home());
+    crate::mem::resident::update_at(
+        res,
+        at as usize,
+        rw,
+        rw,
+        memledger::Acct::REAPING,
+        charge.nr_home(),
+    );
     // D4404: its landing credit, from now
     let credit = credit_open(owed_of(res), credit_ms());
-    q.jobs.push(Job { at: at as usize, reserve, pool, kept, res, charge, credit });
+    q.jobs.push(Job {
+        at: at as usize,
+        reserve,
+        pool,
+        kept,
+        res,
+        charge,
+        credit,
+    });
     HANDED.fetch_add(1, Ordering::Relaxed);
     WAKE.notify_one();
     true
@@ -273,7 +330,10 @@ pub fn drain_until(stop: &mut dyn FnMut() -> bool) {
         if stop() {
             return;
         }
-        q = IDLE.wait_timeout(q, core::time::Duration::from_millis(2)).unwrap_or_else(|e| e.into_inner()).0;
+        q = IDLE
+            .wait_timeout(q, core::time::Duration::from_millis(2))
+            .unwrap_or_else(|e| e.into_inner())
+            .0;
     }
 }
 
@@ -293,7 +353,10 @@ fn drain_polled_jobs(step: &mut cancelpoll::Step, jobs: bool) -> Result<(), canc
     }
     let mut q = QUEUE.lock().unwrap_or_else(|e| e.into_inner());
     while q.busy || !q.jobs.is_empty() {
-        q = IDLE.wait_timeout(q, core::time::Duration::from_millis(2)).unwrap_or_else(|e| e.into_inner()).0;
+        q = IDLE
+            .wait_timeout(q, core::time::Duration::from_millis(2))
+            .unwrap_or_else(|e| e.into_inner())
+            .0;
         step.tick()?;
     }
     Ok(())
@@ -318,7 +381,10 @@ impl Drop for Busy {
 
 #[cfg(test)]
 pub(crate) fn hold_busy() -> Busy {
-    while HOLD.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_err() {
+    while HOLD
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
         std::thread::sleep(core::time::Duration::from_millis(5));
     }
     QUEUE.lock().unwrap_or_else(|e| e.into_inner()).busy = true;
@@ -341,13 +407,33 @@ mod tests {
         assert_eq!(credit_open(0, at), NO_CREDIT, "nothing resident: no credit");
         let i = credit_open(64 * MIB, at);
         assert_ne!(i, NO_CREDIT);
-        assert_eq!(landing_credit_at(at, landing), 64 * MIB, "landing from its hand-off");
-        assert_eq!(landing_credit_at(at + landing - 1, landing), 64 * MIB, "within the window");
-        assert_eq!(landing_credit_at(at + landing, landing), 0, "expired: present to the pass");
+        assert_eq!(
+            landing_credit_at(at, landing),
+            64 * MIB,
+            "landing from its hand-off"
+        );
+        assert_eq!(
+            landing_credit_at(at + landing - 1, landing),
+            64 * MIB,
+            "within the window"
+        );
+        assert_eq!(
+            landing_credit_at(at + landing, landing),
+            0,
+            "expired: present to the pass"
+        );
         let j = credit_open(16 * MIB, at + 1_000);
-        assert_eq!(landing_credit_at(at + landing, landing), 16 * MIB, "each expires on its own hand-off");
+        assert_eq!(
+            landing_credit_at(at + landing, landing),
+            16 * MIB,
+            "each expires on its own hand-off"
+        );
         credit_close(i);
-        assert_eq!(landing_credit_at(at + 1_000, landing), 16 * MIB, "unmapped: no longer owed");
+        assert_eq!(
+            landing_credit_at(at + 1_000, landing),
+            16 * MIB,
+            "unmapped: no longer owed"
+        );
         credit_close(j);
         assert_eq!(landing_credit_at(at + 1_000, landing), 0);
     }

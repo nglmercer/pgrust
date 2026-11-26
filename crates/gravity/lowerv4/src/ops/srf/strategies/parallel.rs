@@ -15,4 +15,7 @@ crate::strategies! {
     SRF_PARALLEL = 102, "srf.parallel", Srf;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(SRF_PARALLEL, &())], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(SRF_PARALLEL, &())],
+    ..crate::ops::NONE
+};

@@ -28,14 +28,20 @@ struct Ident {
 /// `None`: no build id, or no control file read (a rig): the history is not kept across restarts.
 fn ident() -> Option<Ident> {
     let (build, n) = crate::raw::build_id()?;
-    Some(Ident { build, build_len: n as u32, system: gravity_hosts::inputs::system_identifier()? })
+    Some(Ident {
+        build,
+        build_len: n as u32,
+        system: gravity_hosts::inputs::system_identifier()?,
+    })
 }
 
 /// Set at the first admission under feedback: whether this process keeps the file (an identity and a data directory).
 static KEEPS: pgsync::OnceLock<bool> = pgsync::OnceLock::new();
 
 fn log(msg: String) {
-    let _ = elog::ereport(types_error::LOG).errmsg(msg).finish(types_error::ErrorLocation::new("gravity", 0, "feedback"));
+    let _ = elog::ereport(types_error::LOG)
+        .errmsg(msg)
+        .finish(types_error::ErrorLocation::new("gravity", 0, "feedback"));
 }
 
 fn path() -> Option<String> {
@@ -77,7 +83,11 @@ fn parse<'b>(b: &'b [u8], id: &Ident) -> Result<(u32, &'b [u8]), &'static str> {
     if b.len() != HEADER + len || len != count as usize * feedback::ENTRY_BYTES {
         return Err("torn");
     }
-    if crc32c::fin_crc32c(crc32c::pg_comp_crc32c(crc32c::pg_comp_crc32c(crc32c::CRC32C_INIT, &b[..HEADER - 4]), &b[HEADER..])) != crc {
+    if crc32c::fin_crc32c(crc32c::pg_comp_crc32c(
+        crc32c::pg_comp_crc32c(crc32c::CRC32C_INIT, &b[..HEADER - 4]),
+        &b[HEADER..],
+    )) != crc
+    {
         return Err("bad CRC");
     }
     if b[12..44] != id.build || w32(44) != id.build_len {
@@ -97,7 +107,9 @@ pub fn flush() {
     if KEEPS.get() != Some(&true) {
         return;
     }
-    let Some((path, id)) = path().and_then(|p| Some((p, ident()?))) else { return };
+    let Some((path, id)) = path().and_then(|p| Some((p, ident()?))) else {
+        return;
+    };
     let mut b = Vec::with_capacity(HEADER); // alloc: Cold
     b.extend_from_slice(&MAGIC);
     b.extend_from_slice(&VERSION.to_le_bytes());
@@ -109,15 +121,23 @@ pub fn flush() {
     let len = (b.len() - HEADER) as u32;
     b[HEADER - 12..HEADER - 8].copy_from_slice(&count.to_le_bytes());
     b[HEADER - 8..HEADER - 4].copy_from_slice(&len.to_le_bytes());
-    let crc = crc32c::fin_crc32c(crc32c::pg_comp_crc32c(crc32c::pg_comp_crc32c(crc32c::CRC32C_INIT, &b[..HEADER - 4]), &b[HEADER..]));
+    let crc = crc32c::fin_crc32c(crc32c::pg_comp_crc32c(
+        crc32c::pg_comp_crc32c(crc32c::CRC32C_INIT, &b[..HEADER - 4]),
+        &b[HEADER..],
+    ));
     b[HEADER - 4..HEADER].copy_from_slice(&crc.to_le_bytes());
     let tmp = format!("{path}.tmp"); // alloc: Cold
     if let Err(e) = fd::sync::write_whole_file(&tmp, &b, true) {
-        log(format!("gravity: grant feedback: could not write {tmp}: errno {e}")); // alloc: Cold
+        log(format!(
+            "gravity: grant feedback: could not write {tmp}: errno {e}"
+        )); // alloc: Cold
         let _ = fd::sync::pg_unlink(&tmp);
         return;
     }
-    if !matches!(fd::sync::durable_rename(&tmp, &path, types_error::LOG), Ok(0)) {
+    if !matches!(
+        fd::sync::durable_rename(&tmp, &path, types_error::LOG),
+        Ok(0)
+    ) {
         let _ = fd::sync::pg_unlink(&tmp);
     }
 }
@@ -129,7 +149,11 @@ mod tests {
     /// A file is taken only whole and from this binary and cluster; each other one names why it is ignored.
     #[test]
     fn a_file_is_taken_only_whole_and_from_this_binary_and_cluster() {
-        let id = Ident { build: [7; 32], build_len: 20, system: 0x7a3c_5e11_0042_9d01 };
+        let id = Ident {
+            build: [7; 32],
+            build_len: 20,
+            system: 0x7a3c_5e11_0042_9d01,
+        };
         let body = vec![0u8; feedback::ENTRY_BYTES]; // alloc: Cold
         let file = |id: &Ident, body: &[u8], count: u32| {
             let mut b = Vec::new(); // alloc: Cold
@@ -142,19 +166,57 @@ mod tests {
             b.extend_from_slice(&(body.len() as u32).to_le_bytes());
             b.extend_from_slice(&[0; 4]);
             b.extend_from_slice(body);
-            let crc = crc32c::fin_crc32c(crc32c::pg_comp_crc32c(crc32c::pg_comp_crc32c(crc32c::CRC32C_INIT, &b[..HEADER - 4]), &b[HEADER..]));
+            let crc = crc32c::fin_crc32c(crc32c::pg_comp_crc32c(
+                crc32c::pg_comp_crc32c(crc32c::CRC32C_INIT, &b[..HEADER - 4]),
+                &b[HEADER..],
+            ));
             b[HEADER - 4..HEADER].copy_from_slice(&crc.to_le_bytes());
             b
         };
         let good = file(&id, &body, 1);
-        assert_eq!(parse(&good, &id).map(|(n, b)| (n, b.len())), Ok((1, feedback::ENTRY_BYTES)));
+        assert_eq!(
+            parse(&good, &id).map(|(n, b)| (n, b.len())),
+            Ok((1, feedback::ENTRY_BYTES))
+        );
         let mut flipped = good.clone();
         flipped[HEADER + 3] ^= 1;
         assert_eq!(parse(&flipped, &id).err(), Some("bad CRC"));
         assert_eq!(parse(&good[..good.len() - 7], &id).err(), Some("torn"));
-        assert_eq!(parse(&file(&id, &body, 2), &id).err(), Some("torn"), "a count past the body");
-        assert_eq!(parse(&file(&Ident { build: [8; 32], ..id }, &body, 1), &id).err(), Some("another binary wrote it"));
-        assert_eq!(parse(&file(&Ident { system: id.system + 1, ..id }, &body, 1), &id).err(), Some("another cluster wrote it"));
+        assert_eq!(
+            parse(&file(&id, &body, 2), &id).err(),
+            Some("torn"),
+            "a count past the body"
+        );
+        assert_eq!(
+            parse(
+                &file(
+                    &Ident {
+                        build: [8; 32],
+                        ..id
+                    },
+                    &body,
+                    1
+                ),
+                &id
+            )
+            .err(),
+            Some("another binary wrote it")
+        );
+        assert_eq!(
+            parse(
+                &file(
+                    &Ident {
+                        system: id.system + 1,
+                        ..id
+                    },
+                    &body,
+                    1
+                ),
+                &id
+            )
+            .err(),
+            Some("another cluster wrote it")
+        );
         assert_eq!(parse(b"PGRGFBK", &id).err(), Some("not a feedback file"));
         // version 1's header (the cluster named by a 16-byte fingerprint seed): ignored, and the next flush rewrites it
         let mut v1 = Vec::new(); // alloc: Cold

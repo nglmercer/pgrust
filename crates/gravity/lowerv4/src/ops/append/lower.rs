@@ -13,30 +13,34 @@
 //!   Registers kind `src.append` (step, source and end faces). Owner M2-SOURCES.
 use std::cell::Cell;
 
+use gravity_abi::breaker::{Breaker, BreakerKind, Spill};
 use gravity_decompose::ops::shared::append::AppendDesc;
 use gravity_decompose::Op;
-use gravity_abi::breaker::{Breaker, BreakerKind, Spill};
-use gravity_program::protos::NO_SLOT;
 use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{IntBinOp, IntCond, Type, Value};
+use gravity_program::protos::NO_SLOT;
 use mcx::{CollectIn, PgBox, PgVec};
 
+use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::face::end::{EndMech, Parallel};
 use crate::face::kinds::KindId;
 use crate::face::source::SourceMech;
 use crate::face::step::StepMech;
 use crate::frame::env::Env;
-use crate::frame::frame::{EndMaker, Next, SourceMaker, StepMaker};
 use crate::frame::frame::WordWin;
+use crate::frame::frame::{EndMaker, Next, SourceMaker, StepMaker};
+use crate::frame::iface::{breaker_of, kind_impl};
 use crate::frame::px::Px;
 use crate::frame::row::{Carry, Mask, RowVals};
 use crate::frame::stop::Exits;
-use crate::frame::iface::{breaker_of, kind_impl};
-use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::ops::Table;
 
 pub(crate) const ROWS: Table = Table {
-    kinds: &[(KindId::SrcAppend, &StepMaker(make_arm)), (KindId::SrcAppend, &SourceMaker(make_settled)), (KindId::SrcAppend, &EndMaker(make_feed))],
+    kinds: &[
+        (KindId::SrcAppend, &StepMaker(make_arm)),
+        (KindId::SrcAppend, &SourceMaker(make_settled)),
+        (KindId::SrcAppend, &EndMaker(make_feed)),
+    ],
     ..crate::ops::NONE
 };
 
@@ -58,7 +62,11 @@ struct Arm {
 /// Op `j` of pipeline `k`'s plan node: the Append's for its marker.
 fn node_of(px: &Px<'_, '_>, k: usize, j: usize) -> i32 {
     let p = &px.gx.pipelines()[k];
-    p.node_ops.iter().rev().find(|n| n.first_op as usize <= j).map_or(p.node_id, |n| n.node_id)
+    p.node_ops
+        .iter()
+        .rev()
+        .find(|n| n.first_op as usize <= j)
+        .map_or(p.node_id, |n| n.node_id)
 }
 
 fn make_arm<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMech + 'g> {
@@ -86,8 +94,13 @@ fn make_arm<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMe
             let top = top_arm(px, k).is_some_and(|t| t.0 == j);
             // D1753: a later arm whose feeders act, under a LIMIT or an end that may stop early (later_arms.rs); D2697:
             // one whose feeders run early for a whole reader holds the whole-read licence (`Arm.ahead`)
-            let ahead = crate::ops::append::later_arms::fenced(px, k, j, node, *i).unwrap_or_else(|why| crate::refuse!(node, Reason::Shape { why: ShapeWhy(why) }));
-            let run = if top { top_run_once(px, k, node) } else { Some((k, 1)) };
+            let ahead = crate::ops::append::later_arms::fenced(px, k, j, node, *i)
+                .unwrap_or_else(|why| crate::refuse!(node, Reason::Shape { why: ShapeWhy(why) }));
+            let run = if top {
+                top_run_once(px, k, node)
+            } else {
+                Some((k, 1))
+            };
             // arms that are not consecutive pipelines (an arm's build between two arms): the union's own count, as before
             // (a fold then refuses by name below, arms into the sink run as scheduled)
             let (first, len) = run.unwrap_or((k.saturating_sub(*i as usize), *n as usize));
@@ -100,7 +113,11 @@ fn make_arm<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMe
                     // with#170 / #171: the arms of a recursive union's UNION ALL term append in turn to its intermediate
                     // table (setop.recursive's table end, each arm a member of the term's set: graph.rs `term_arm`)
                     let term = (first..first + len).all(|a| gx.term_arm(a).is_some());
-                    if !term && (!continues(&gx.pipelines()[k].desc) || !Parallel::Arms.on() || !one_run_once(px, first, len, b)) {
+                    if !term
+                        && (!continues(&gx.pipelines()[k].desc)
+                            || !Parallel::Arms.on()
+                            || !one_run_once(px, first, len, b))
+                    {
                         crate::refuse!(node, Reason::Shape { why: ShapeWhy("a top-k / build end over a streamed union's arms (D393: only a fold's, a full sort's or an owned keyed end's arms continue one slot)") });
                     }
                     b.slot
@@ -117,11 +134,20 @@ fn make_arm<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMe
             if top && k == first && Parallel::Arms.on() && !drained && !px.tailing() {
                 crate::ops::append::strategies::arms::declare(px, k, len as u16, slot);
             }
-            let skip = prune.as_ref().map(|p| crate::ops::append::prune::declare(px, k, *i, *n, p, node));
+            let skip = prune
+                .as_ref()
+                .map(|p| crate::ops::append::prune::declare(px, k, *i, *n, p, node));
             mcx::pg_box_dyn!(px.mcx(), Arm { skip, pass: Cell::new(None), node, serial: reset, ahead } => dyn StepMech + 'g)
         }
-        Op::Append(AppendDesc::Feed { .. } | AppendDesc::Union { .. }) => (kind_impl::<StepMaker>(&node, KindId::NestSpool).0)(px, k, j),
-        _ => crate::refuse!(node, Reason::Bug { payload: "an append entry over another op" }),
+        Op::Append(AppendDesc::Feed { .. } | AppendDesc::Union { .. }) => {
+            (kind_impl::<StepMaker>(&node, KindId::NestSpool).0)(px, k, j)
+        }
+        _ => crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "an append entry over another op"
+            }
+        ),
     }
 }
 
@@ -135,7 +161,9 @@ fn continues(d: &gravity_program::Pipeline) -> bool {
             // D2077: a bounded incremental sort's top over an ordered union's arms (decompose append.rs `copies`): each arm's
             // run is cut to its own top (its stop per arm), described as a full sort's run, so exec `ArmSort` merges them
             BreakerKind::PlainAgg | BreakerKind::Sort | BreakerKind::TopK => true,
-            BreakerKind::HashAgg | BreakerKind::Distinct => d.owner.is_some() && matches!(b.spill, Spill::Partitioned { .. } | Spill::None),
+            BreakerKind::HashAgg | BreakerKind::Distinct => {
+                d.owner.is_some() && matches!(b.spill, Spill::Partitioned { .. } | Spill::None)
+            }
             _ => false,
         },
         None => false,
@@ -145,7 +173,12 @@ fn continues(d: &gravity_program::Pipeline) -> bool {
 /// The `len` pipelines from `first` (a run `top_run` found) each end in breaker `b` (its kind and slot) and continue it.
 fn one_run(px: &Px<'_, '_>, first: usize, len: usize, b: Breaker) -> bool {
     let ps = px.gx.pipelines();
-    (first..first + len).all(|q| ps.get(q).is_some_and(|p| matches!(breaker_of(&p.desc), Some(x) if x.kind == b.kind && x.slot == b.slot) && continues(&p.desc)))
+    (first..first + len).all(|q| {
+        ps.get(q).is_some_and(|p| {
+            matches!(breaker_of(&p.desc), Some(x) if x.kind == b.kind && x.slot == b.slot)
+                && continues(&p.desc)
+        })
+    })
 }
 
 /// Pipeline `q`'s outermost arm marker (its last `Arm` op: an inner union's marker comes first, after the inner child's
@@ -164,7 +197,11 @@ fn top_arm(px: &Px<'_, '_>, q: usize) -> Option<(usize, i32, u16, u16)> {
 /// to arm `n - 1`: `(first, len)`, `None` when they do not.
 fn top_run(px: &Px<'_, '_>, k: usize) -> Option<(usize, usize)> {
     let (_, node, _, n) = top_arm(px, k)?;
-    let of = |q: usize| top_arm(px, q).filter(|t| t.1 == node && t.3 == n).map(|t| t.2);
+    let of = |q: usize| {
+        top_arm(px, q)
+            .filter(|t| t.1 == node && t.3 == n)
+            .map(|t| t.2)
+    };
     // pipeline `q + 1` continues `q`'s run: the same union at the same arm or the next
     let next = |q: usize| match (of(q), of(q + 1)) {
         (Some(a), Some(b)) => b == a || b == a + 1,
@@ -185,22 +222,32 @@ fn top_run(px: &Px<'_, '_>, k: usize) -> Option<(usize, usize)> {
 /// other arms find it in the step face's state (step/expr.rs `StepExt::arm_runs`). A function of the graph alone, so the
 /// one walk answers every arm in the run; walked per arm it made lowering O(arms^2) (m4_l20's 4100 partitions).
 fn top_run_once(px: &mut Px<'_, '_>, k: usize, node: i32) -> Option<(usize, usize)> {
-    if let Some(&(_, first, len)) = crate::step::expr::ext(px).arm_runs.iter().find(|r| r.0 == node && (r.1..r.1 + r.2).contains(&k)) {
+    if let Some(&(_, first, len)) = crate::step::expr::ext(px)
+        .arm_runs
+        .iter()
+        .find(|r| r.0 == node && (r.1..r.1 + r.2).contains(&k))
+    {
         return Some((first, len));
     }
     let run = top_run(px, k)?;
-    crate::step::expr::ext(px).arm_runs.push((node, run.0, run.1)); // alloc: Program
+    crate::step::expr::ext(px)
+        .arm_runs
+        .push((node, run.0, run.1)); // alloc: Program
     Some(run)
 }
 
 /// `one_run`, checked once per run and breaker (step/expr.rs `StepExt::arm_one_runs`).
 fn one_run_once(px: &mut Px<'_, '_>, first: usize, len: usize, b: Breaker) -> bool {
-    let same = |r: &&(usize, usize, Breaker, bool)| r.0 == first && r.1 == len && r.2.kind == b.kind && r.2.slot == b.slot;
+    let same = |r: &&(usize, usize, Breaker, bool)| {
+        r.0 == first && r.1 == len && r.2.kind == b.kind && r.2.slot == b.slot
+    };
     if let Some(r) = crate::step::expr::ext(px).arm_one_runs.iter().find(same) {
         return r.3;
     }
     let holds = one_run(px, first, len, b);
-    crate::step::expr::ext(px).arm_one_runs.push((first, len, b, holds)); // alloc: Program
+    crate::step::expr::ext(px)
+        .arm_one_runs
+        .push((first, len, b, holds)); // alloc: Program
     holds
 }
 
@@ -226,7 +273,14 @@ impl StepMech for Arm {
     }
 
     /// A pruned arm's block passes no row.
-    fn block(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, _w: &WordWin, _base: Value, m: Mask) -> Mask {
+    fn block(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        _w: &WordWin,
+        _base: Value,
+        m: Mask,
+    ) -> Mask {
         match self.pass.get() {
             Some(p) => Mask(b.select(p, m.0, env.zero)),
             None => m,
@@ -241,14 +295,30 @@ impl StepMech for Arm {
         self.serial
     }
 
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, next: Next<'_, 'e>) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        next: Next<'_, 'e>,
+    ) -> Carry<'e> {
         let Some(pass) = self.pass.get() else {
             if self.skip.is_some() {
-                crate::refuse!(self.node, Reason::Bug { payload: "an arm marker lowered before its prologue" });
+                crate::refuse!(
+                    self.node,
+                    Reason::Bug {
+                        payload: "an arm marker lowered before its prologue"
+                    }
+                );
             }
             return next(b, env, row);
         };
-        let types: PgVec<'_, Type> = row.carry.params().iter().map(|&v| b.value_type(v)).collect_in(env.mcx);
+        let types: PgVec<'_, Type> = row
+            .carry
+            .params()
+            .iter()
+            .map(|&v| b.value_type(v))
+            .collect_in(env.mcx);
         let l_join = b.create_block(&types[..]);
         let l_yes = b.create_block(&[]);
         b.cond_br(pass, (l_yes, &[]), (l_join, &row.carry.params()));

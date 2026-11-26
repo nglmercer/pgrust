@@ -3,14 +3,14 @@
 //! each a kind of `face/kinds.rs` (`rep.word.datum` …) whose file a milestone lands and registers (`registry/m<k>.rs`). An
 //! arm no appended table provides refuses `NotBuilt { hook: "rep", variant, milestone }` beside the code it protects.
 use gravity_abi::breaker::KeyKind;
-use gravity_decompose::ops::shared::sort::KeyImage;
 use gravity_decompose::catalog::typefacts::{KeyColl, TypeFacts};
+use gravity_decompose::ops::shared::sort::KeyImage;
 use gravity_ir::{ConvOp, IntBinOp, Type, Value};
 use gravity_program::{Rep, Until};
 
+use crate::admit::refusal::Site;
 use crate::cell::At;
 use crate::face::kinds::KindId;
-use crate::admit::refusal::Site;
 
 pub use crate::lx::*;
 pub mod code;
@@ -72,8 +72,15 @@ pub struct OrderArm {
 /// O3: the eight-word order image of a `name` key under a collation that orders by bytes (C / POSIX), through
 /// rep.word.order: each word signed-comparable, compared in order (DESC: each word's bitwise NOT). `None` for any other key,
 /// or while rep.word.order files no name image: the caller takes its arm's order image, which refuses by name.
-pub fn name_order(cx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, tf: &TypeFacts, coll: KeyColl) -> Option<[Value; 8]> {
-    let f = (tf.typid == types_core::catalog::NAMEOID && coll.bytes_order).then(|| arm::<OrderArm>(&*cx, KindId::RepWordOrder).name).flatten()?;
+pub fn name_order(
+    cx: &mut Lx<'_, '_, '_>,
+    c: CellRef<'_>,
+    tf: &TypeFacts,
+    coll: KeyColl,
+) -> Option<[Value; 8]> {
+    let f = (tf.typid == types_core::catalog::NAMEOID && coll.bytes_order)
+        .then(|| arm::<OrderArm>(&*cx, KindId::RepWordOrder).name)
+        .flatten()?;
     Some(f(cx, c, tf, coll))
 }
 
@@ -102,7 +109,9 @@ pub const fn arm_kind(rep: Rep, acc: Accessor, tf: &TypeFacts) -> KindId {
         (Rep::PackedNumDyn, Hash) => KindId::RepHostedHash,
         (Rep::PackedNumDyn, Order) => KindId::RepHostedOrder,
         // hj-0310: a key with a user key (`TypeFacts::user`: a hashed group's under a user `=`) is its class's image, rep.hosted.hash's `user_words`
-        (Rep::VarlenaPtr | Rep::CstrPtr | Rep::FixedPtr { .. }, Hash) if tf.user != 0 => KindId::RepHostedHash,
+        (Rep::VarlenaPtr | Rep::CstrPtr | Rep::FixedPtr { .. }, Hash) if tf.user != 0 => {
+            KindId::RepHostedHash
+        }
         (Rep::VarlenaPtr, Hash) if native_varlena => KindId::RepVarlenaHash,
         // a numeric, inet or cidr does not order by its bytes: the hosted comparator's (D771, `bytes_order`)
         (Rep::VarlenaPtr, Order) if bytes_order(tf) => KindId::RepVarlenaOrder,
@@ -137,21 +146,55 @@ pub const fn datum_kind(rep: Rep) -> KindId {
 /// The arm a key of `kind` / `image` keys or orders through, as admission sees it before any cell exists: a code key is
 /// the code arm, a numeric image the packed arm over packed lanes (else the varlena one), a text / bytes fingerprint the
 /// varlena arm, uuid / interval / timetz the fixed arm, any other fingerprint (or none) the hosted arm, a word the word arm.
-pub const fn key_kind(kind: KeyKind, image: Option<KeyImage>, packed: bool, acc: Accessor) -> KindId {
+pub const fn key_kind(
+    kind: KeyKind,
+    image: Option<KeyImage>,
+    packed: bool,
+    acc: Accessor,
+) -> KindId {
     // the family is the image's (decompose keysem `arm_family`: D2426 / D771 send a wide packed or unpacked numeric's
     // order to the hosted arm)
-    let family = gravity_decompose::catalog::keysem::image::arm_family(kind, image, packed, matches!(acc, Accessor::Order));
+    let family = gravity_decompose::catalog::keysem::image::arm_family(
+        kind,
+        image,
+        packed,
+        matches!(acc, Accessor::Order),
+    );
     ARMS[family as usize][acc as usize]
 }
 
 /// Datum / hash / order kinds per arm family: word, code, packed, varlena, fixed, hosted (a hosted datum is the varlena's).
 const ARMS: [[KindId; 3]; 6] = [
-    [KindId::RepWordDatum, KindId::RepWordHash, KindId::RepWordOrder],
-    [KindId::RepCodeDatum, KindId::RepCodeHash, KindId::RepCodeOrder],
-    [KindId::RepPackedDatum, KindId::RepPackedHash, KindId::RepPackedOrder],
-    [KindId::RepVarlenaDatum, KindId::RepVarlenaHash, KindId::RepVarlenaOrder],
-    [KindId::RepFixedDatum, KindId::RepFixedHash, KindId::RepFixedOrder],
-    [KindId::RepVarlenaDatum, KindId::RepHostedHash, KindId::RepHostedOrder],
+    [
+        KindId::RepWordDatum,
+        KindId::RepWordHash,
+        KindId::RepWordOrder,
+    ],
+    [
+        KindId::RepCodeDatum,
+        KindId::RepCodeHash,
+        KindId::RepCodeOrder,
+    ],
+    [
+        KindId::RepPackedDatum,
+        KindId::RepPackedHash,
+        KindId::RepPackedOrder,
+    ],
+    [
+        KindId::RepVarlenaDatum,
+        KindId::RepVarlenaHash,
+        KindId::RepVarlenaOrder,
+    ],
+    [
+        KindId::RepFixedDatum,
+        KindId::RepFixedHash,
+        KindId::RepFixedOrder,
+    ],
+    [
+        KindId::RepVarlenaDatum,
+        KindId::RepHostedHash,
+        KindId::RepHostedOrder,
+    ],
 ];
 
 /// The registered arm of kind `k`, or `NotBuilt` for it (a registered value of the wrong type is a Bug).
@@ -189,11 +232,17 @@ pub fn datum(cx: &mut Lx, c: CellRef<'_>, tf: &TypeFacts) -> (Value, Value) {
 /// takes its bytes from `cx.space`.
 pub fn retain(cx: &mut Lx, c: CellRef<'_>, tf: &TypeFacts, until: Until, home: RetainHome) -> Kept {
     let reaches = match home {
-        RetainHome::Record(l) | RetainHome::Run(l) | RetainHome::Spool(l) => c.cell.life.reaches_into(until, l),
+        RetainHome::Record(l) | RetainHome::Run(l) | RetainHome::Spool(l) => {
+            c.cell.life.reaches_into(until, l)
+        }
         RetainHome::Frame => c.cell.life.reaches(until),
     };
     if reaches {
-        return Kept { cell: *c.cell, val: c.val, null: c.null };
+        return Kept {
+            cell: *c.cell,
+            val: c.val,
+            null: c.null,
+        };
     }
     let f = arm::<DatumArm>(cx, arm_kind(c.cell.rep, Accessor::Datum, tf)).retain;
     f(cx, c, tf, until, home)
@@ -201,7 +250,13 @@ pub fn retain(cx: &mut Lx, c: CellRef<'_>, tf: &TypeFacts, until: Until, home: R
 
 /// D2854: `retain` that copies whatever the cell's life. Every arm of a build's Arms run keeps a by-reference payload
 /// column as an image in the build's region (ops/hashjoin/build.rs), so no arm keeps one by pointer where another copies.
-pub fn retain_copy(cx: &mut Lx, c: CellRef<'_>, tf: &TypeFacts, until: Until, home: RetainHome) -> Kept {
+pub fn retain_copy(
+    cx: &mut Lx,
+    c: CellRef<'_>,
+    tf: &TypeFacts,
+    until: Until,
+    home: RetainHome,
+) -> Kept {
     let f = arm::<DatumArm>(cx, arm_kind(c.cell.rep, Accessor::Datum, tf)).retain;
     f(cx, c, tf, until, home)
 }
@@ -261,7 +316,8 @@ pub fn datum_word(cx: &mut Lx, c: CellRef<'_>, bytes: u8) -> (Value, Value) {
     let v = match (c.cell.at, bytes) {
         (At::Lane(_), 8) => cx.b.load(Type::I64, c.val, 0),
         (At::Lane(_), 4 | 2) => {
-            let w = cx.b.load(if bytes == 4 { Type::I32 } else { Type::I16 }, c.val, 0);
+            let w =
+                cx.b.load(if bytes == 4 { Type::I32 } else { Type::I16 }, c.val, 0);
             cx.b.conv(ConvOp::Sext, Type::I64, w)
         }
         (At::Lane(_), _) => cx.b.load_zext(Type::I8, c.val, 0),
@@ -279,7 +335,12 @@ pub(crate) const SORTED_BY_COMPARATOR: &str = "D1165: a sorted group key ordered
 /// once the arm is built, else by its name.
 pub(crate) fn hosted_sorted(node: i32, arm: KindId) -> ! {
     if crate::ops::built_kinds().has(arm) {
-        crate::refuse!(node, crate::admit::refusal::Reason::Shape { why: crate::admit::refusal::ShapeWhy(SORTED_BY_COMPARATOR) });
+        crate::refuse!(
+            node,
+            crate::admit::refusal::Reason::Shape {
+                why: crate::admit::refusal::ShapeWhy(SORTED_BY_COMPARATOR)
+            }
+        );
     }
     crate::not_built!(node, crate::admit::refusal::Variant::Kind(arm))
 }

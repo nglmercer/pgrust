@@ -132,7 +132,8 @@ pub(crate) fn fpinfo_opt<'mcx>(
     rel: &types_pathnodes::RelOptInfo<'mcx>,
 ) -> Option<&'mcx RefCell<PgFdwRelationInfo<'mcx>>> {
     // SAFETY: see fpinfo below.
-    rel.fdw_state.map(|p| unsafe { p.cast::<RefCell<PgFdwRelationInfo<'mcx>>>().as_ref() })
+    rel.fdw_state
+        .map(|p| unsafe { p.cast::<RefCell<PgFdwRelationInfo<'mcx>>>().as_ref() })
 }
 
 pub(crate) fn fpinfo<'mcx>(

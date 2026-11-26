@@ -66,7 +66,10 @@ pub fn gen_numeric_module(g: &mut Gen) -> Vec<StmtKind> {
 /// the parallel and moving arms byte-comparable.
 fn gen_istat(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("numeric:istat");
-    let shape = g.weights.pick(g.rng, &["numeric:is:serial", "numeric:is:par", "numeric:is:move"]);
+    let shape = g.weights.pick(
+        g.rng,
+        &["numeric:is:serial", "numeric:is:par", "numeric:is:move"],
+    );
     g.fire(shape);
     let t = "fz_num_is";
     let rows = 2000 + g.rng.below(3000);
@@ -103,8 +106,12 @@ fn gen_istat(g: &mut Gen) -> Vec<StmtKind> {
             stmts.push(raw("SET parallel_setup_cost = 0;".to_string()));
             stmts.push(raw("SET parallel_tuple_cost = 0;".to_string()));
             stmts.push(raw("SET min_parallel_table_scan_size = 0;".to_string()));
-            stmts.push(raw(format!("SET max_parallel_workers_per_gather = {workers};")));
-            stmts.push(raw(format!("SET parallel_leader_participation = {leader};")));
+            stmts.push(raw(format!(
+                "SET max_parallel_workers_per_gather = {workers};"
+            )));
+            stmts.push(raw(format!(
+                "SET parallel_leader_participation = {leader};"
+            )));
             // Partial+Finalize over a Gather: poly combine/serialize/
             // deserialize. Grouped and scalar both, exact -> byte-identical.
             stmts.push(raw(format!(
@@ -164,7 +171,10 @@ fn with_scale(digits: &str, frac: usize) -> String {
 /// sqrt_var, ln_var and high-scale round/mod.
 fn gen_xprec(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("numeric:xprec");
-    let shape = g.weights.pick(g.rng, &["numeric:xp:mul", "numeric:xp:div", "numeric:xp:trans"]);
+    let shape = g.weights.pick(
+        g.rng,
+        &["numeric:xp:mul", "numeric:xp:div", "numeric:xp:trans"],
+    );
     g.fire(shape);
     let la = 300 + g.rng.below_usize(1200);
     let lb = 300 + g.rng.below_usize(1200);

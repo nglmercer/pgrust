@@ -25,7 +25,12 @@ const CORPUS: &str = "sort fetch-late sweep (s5 / s20 / s50 / fw2 / fw10, held-o
 /// A decode or a lane's or site's fixed cost moves with the read anchor, a candidate's copy with the update anchor (a store
 /// into the run), a kept row's late fetch and locator lookup with the gather anchor (reads at the kept rows' positions).
 const fn ns(ns: f64, anchor: Anchor) -> Fitted {
-    Fitted { ns, machine: MACHINE, corpus: CORPUS, anchor }
+    Fitted {
+        ns,
+        machine: MACHINE,
+        corpus: CORPUS,
+        anchor,
+    }
 }
 
 /// One entry's unit costs beside the keys, by its scan lane: kept by value, the scan decodes it for every row it reads
@@ -38,10 +43,20 @@ struct Unit {
     lane: Fitted,
 }
 
-const WORD: Unit = Unit { decode: ns(0.277, Anchor::Read), copy: ns(20.3, Anchor::Update), fetch: ns(115.0, Anchor::Gather), lane: ns(5_660.0, Anchor::Read) };
+const WORD: Unit = Unit {
+    decode: ns(0.277, Anchor::Read),
+    copy: ns(20.3, Anchor::Update),
+    fetch: ns(115.0, Anchor::Gather),
+    lane: ns(5_660.0, Anchor::Read),
+};
 /// A by-reference entry: a code, a varlena (an earlier sweep's 1,000,000 unique texts: copy 100 - 370 ns per admitted
 /// candidate, 0.42 us per kept row fetched) or a fixed image (not swept).
-const BYREF: Unit = Unit { decode: ns(0.0, Anchor::Read), copy: ns(167.0, Anchor::Update), fetch: ns(255.0, Anchor::Gather), lane: ns(11_400.0, Anchor::Read) };
+const BYREF: Unit = Unit {
+    decode: ns(0.0, Anchor::Read),
+    copy: ns(167.0, Anchor::Update),
+    fetch: ns(255.0, Anchor::Gather),
+    lane: ns(11_400.0, Anchor::Read),
+};
 
 /// A relation kind's unit costs: its entries' (`word`, `byref`) and its fetch site's own, per statement (`site`) and per
 /// kept row (`row`: the locator's request and lookup).
@@ -52,7 +67,12 @@ struct Units {
     row: Fitted,
 }
 
-const PGRC: Units = Units { word: WORD, byref: BYREF, site: ns(76_000.0, Anchor::Read), row: ns(289.0, Anchor::Gather) };
+const PGRC: Units = Units {
+    word: WORD,
+    byref: BYREF,
+    site: ns(76_000.0, Anchor::Read),
+    row: ns(289.0, Anchor::Gather),
+};
 
 const HEAP_MACHINE: &str = "box 15: Graviton 4 (Neoverse V2), 16 vCPU";
 /// The heap dev corpus: heap tables of 200,000 and 1,000,000 rows stored in md5 order, an int8 hash key, int8 entries
@@ -61,7 +81,12 @@ const HEAP_MACHINE: &str = "box 15: Graviton 4 (Neoverse V2), 16 vCPU";
 const HEAP_CORPUS: &str = "sort heap fetch sweep (hw2 / hw10)";
 
 const fn heap_ns(ns: f64, anchor: Anchor) -> Fitted {
-    Fitted { ns, machine: HEAP_MACHINE, corpus: HEAP_CORPUS, anchor }
+    Fitted {
+        ns,
+        machine: HEAP_MACHINE,
+        corpus: HEAP_CORPUS,
+        anchor,
+    }
 }
 
 /// A heap's: by value the scan deforms each entry for every row it reads and the run copies it for every admitted
@@ -71,8 +96,18 @@ const fn heap_ns(ns: f64, anchor: Anchor) -> Fitted {
 /// shapes the time over the faster form summed is 5.0 ms (3 shapes missed, all at 200,000 rows), against the column
 /// counts' 409 and keeping every row by value's 1,370.
 const HEAP: Units = Units {
-    word: Unit { decode: heap_ns(0.923, Anchor::Read), copy: heap_ns(9.73, Anchor::Update), fetch: heap_ns(0.0, Anchor::Gather), lane: heap_ns(0.0, Anchor::Read) },
-    byref: Unit { decode: heap_ns(3.53, Anchor::Read), copy: heap_ns(83.2, Anchor::Update), fetch: heap_ns(0.0, Anchor::Gather), lane: heap_ns(0.0, Anchor::Read) },
+    word: Unit {
+        decode: heap_ns(0.923, Anchor::Read),
+        copy: heap_ns(9.73, Anchor::Update),
+        fetch: heap_ns(0.0, Anchor::Gather),
+        lane: heap_ns(0.0, Anchor::Read),
+    },
+    byref: Unit {
+        decode: heap_ns(3.53, Anchor::Read),
+        copy: heap_ns(83.2, Anchor::Update),
+        fetch: heap_ns(0.0, Anchor::Gather),
+        lane: heap_ns(0.0, Anchor::Read),
+    },
     site: heap_ns(112_000.0, Anchor::Read),
     row: heap_ns(3_260.0, Anchor::Gather),
 };
@@ -99,17 +134,64 @@ const NO_ESTIMATE: NoEstimate = NoEstimate { cols: 32, refs: 8 };
 /// counts unless the cost rule fetches over the rows past a filter). The bound is a constant count plus a constant (or no) offset (`fetchable_bound`): the top keeps `count + offset`
 /// rows, the emit fetches the `count` its Limit hands on (the offset's rows never: strategies/fetch.rs), one request of at
 /// most `MAX_FETCH_ROWS` (CAP-25); `fetch_pays` prices both.
-pub(crate) fn topk_wide(k: usize, p: &PipelineNode<'_>, d: &SortDesc<'_>, input: Option<&NodeList<'_>>, mcx: Mcx<'_>) -> bool {
-    let (SortForm::TopK { count, offset, ties: false } | SortForm::Walk { count, offset, ties: false, .. }) = d.form else { return false };
-    let Some((kept, fetched)) = fetchable_bound(count, offset) else { return false };
-    let (Source::Range { site, am, scanrelid, .. }, Some(l)) = (&p.source, input) else { return false };
-    let Some(heap) = reads(*am, &d.form, crate::ops::sort::lower::union_arm(p).is_some()) else { return false };
+pub(crate) fn topk_wide(
+    k: usize,
+    p: &PipelineNode<'_>,
+    d: &SortDesc<'_>,
+    input: Option<&NodeList<'_>>,
+    mcx: Mcx<'_>,
+) -> bool {
+    let (SortForm::TopK {
+        count,
+        offset,
+        ties: false,
+    }
+    | SortForm::Walk {
+        count,
+        offset,
+        ties: false,
+        ..
+    }) = d.form
+    else {
+        return false;
+    };
+    let Some((kept, fetched)) = fetchable_bound(count, offset) else {
+        return false;
+    };
+    let (
+        Source::Range {
+            site,
+            am,
+            scanrelid,
+            ..
+        },
+        Some(l),
+    ) = (&p.source, input)
+    else {
+        return false;
+    };
+    let Some(heap) = reads(
+        *am,
+        &d.form,
+        crate::ops::sort::lower::union_arm(p).is_some(),
+    ) else {
+        return false;
+    };
     let lane = |te: &TargetEntry<'_>| {
-        let v = te.expr.as_var().filter(|v| v.varno == *scanrelid as i32 && v.varattno >= 1)?;
+        let v = te
+            .expr
+            .as_var()
+            .filter(|v| v.varno == *scanrelid as i32 && v.varattno >= 1)?;
         // SRC-26: a fixed-length by-reference column (uuid, interval, macaddr, name: pgrc's Fixed class) the pgrc fetch site
         // publishes as a pointer to its image, as a varlena (hosts pgrc fetch_site.rs); a heap's fetch keeps such a top's
         // row by value
-        site.lanes().iter().find(|x| x.id == LaneId::Attr(v.varattno)).filter(|x| !(heap && matches!(x.rep, Rep::FixedPtr { .. })) && (x.kind != lane::KIND_BYVAL || matches!(x.width, 2 | 4 | 8)))
+        site.lanes()
+            .iter()
+            .find(|x| x.id == LaneId::Attr(v.varattno))
+            .filter(|x| {
+                !(heap && matches!(x.rep, Rep::FixedPtr { .. }))
+                    && (x.kind != lane::KIND_BYVAL || matches!(x.width, 2 | 4 | 8))
+            })
     };
     let mut lanes: PgVec<'_, _> = PgVec::new_in(mcx);
     for te in l.iter().filter_map(|n| n.as_target_entry()) {
@@ -117,7 +199,15 @@ pub(crate) fn topk_wide(k: usize, p: &PipelineNode<'_>, d: &SortDesc<'_>, input:
         lanes.push_in(x);
     }
     // each key's entry (the Sort's OUTER_VAR target) a by-value word
-    let key_entry = |resno: i16| d.tlist.iter().filter_map(|n| n.as_target_entry()).find(|te| te.resno == resno).and_then(|te| te.expr.as_var()).and_then(|v| (v.varattno as usize).checked_sub(1)).filter(|&e| e < lanes.len());
+    let key_entry = |resno: i16| {
+        d.tlist
+            .iter()
+            .filter_map(|n| n.as_target_entry())
+            .find(|te| te.resno == resno)
+            .and_then(|te| te.expr.as_var())
+            .and_then(|v| (v.varattno as usize).checked_sub(1))
+            .filter(|&e| e < lanes.len())
+    };
     let mut keyed = mcx::pg_vec![in mcx; false; lanes.len()];
     for key in d.keys.iter() {
         match key_entry(key.resno) {
@@ -127,14 +217,37 @@ pub(crate) fn topk_wide(k: usize, p: &PipelineNode<'_>, d: &SortDesc<'_>, input:
         }
     }
     let refs = lanes.iter().filter(|x| x.kind != lane::KIND_BYVAL).count() as u64;
-    let words = lanes.iter().zip(&keyed).filter(|(x, &is_key)| !is_key && x.kind == lane::KIND_BYVAL).count() as u64;
-    let beside_refs = lanes.iter().zip(&keyed).filter(|(x, &is_key)| !is_key && x.kind != lane::KIND_BYVAL).count() as u64;
+    let words = lanes
+        .iter()
+        .zip(&keyed)
+        .filter(|(x, &is_key)| !is_key && x.kind == lane::KIND_BYVAL)
+        .count() as u64;
+    let beside_refs = lanes
+        .iter()
+        .zip(&keyed)
+        .filter(|(x, &is_key)| !is_key && x.kind != lane::KIND_BYVAL)
+        .count() as u64;
     // the estimate counts the rows the scan reads only where no op before the top drops a row (a gate passes all or none)
-    let filtered = p.ops.iter().take_while(|op| !matches!(op, Op::Sort(_))).any(|op| !matches!(op, Op::Project(_) | Op::Gate(_)));
+    let filtered = p
+        .ops
+        .iter()
+        .take_while(|op| !matches!(op, Op::Sort(_)))
+        .any(|op| !matches!(op, Op::Project(_) | Op::Gate(_)));
     // KEY-PREDICTED-ROWS road (b): the form decided on the scan's estimate is a guard of the program
     // a[1] carries the fetched rows above the by-value entries, a[2] the filter above the by-reference ones (all far under 2^32)
     // a[3]'s top bit: a heap's units
-    gravity_lower::inputs::key::decide(k, false, p.desc.predicted_rows, fetch_form, [kept, fetched << 32 | words, (filtered as u64) << 32 | beside_refs, (heap as u64) << 63 | (lanes.len() as u64) << 32 | refs]) != 0
+    gravity_lower::inputs::key::decide(
+        k,
+        false,
+        p.desc.predicted_rows,
+        fetch_form,
+        [
+            kept,
+            fetched << 32 | words,
+            (filtered as u64) << 32 | beside_refs,
+            (heap as u64) << 63 | (lanes.len() as u64) << 32 | refs,
+        ],
+    ) != 0
 }
 
 /// `topk_wide`'s relation gate, `Some(heap)` where the fetch form reads the relation: a pgrc range under a top or a zone
@@ -154,12 +267,17 @@ fn reads(am: Am, form: &SortForm<'_>, arm: bool) -> Option<bool> {
 /// `a[1] >> 32` fetched, with `a[1]`'s low half by-value and `a[2]`'s by-reference entries beside the keys, and where a
 /// filter comes before the top (`a[2] >> 32`: `rows` are past it, fewer than the scan reads) the counts as well.
 fn fetch_form(rows: u64, a: &[u64; 4]) -> u64 {
-    let counts = ((a[3] >> 32) & 0x7fff_ffff) as usize > NO_ESTIMATE.cols || (a[3] & 0xffff_ffff) as usize > NO_ESTIMATE.refs;
+    let counts = ((a[3] >> 32) & 0x7fff_ffff) as usize > NO_ESTIMATE.cols
+        || (a[3] & 0xffff_ffff) as usize > NO_ESTIMATE.refs;
     if rows == 0 {
         return counts as u64;
     }
     let u = if a[3] >> 63 != 0 { &HEAP } else { &PGRC };
-    let (words, refs, filtered) = ((a[1] & 0xffff_ffff) as usize, (a[2] & 0xffff_ffff) as usize, a[2] >> 32 != 0);
+    let (words, refs, filtered) = (
+        (a[1] & 0xffff_ffff) as usize,
+        (a[2] & 0xffff_ffff) as usize,
+        a[2] >> 32 != 0,
+    );
     let pays = fetch_pays(anchor::ratios(), u, rows, a[0], a[1] >> 32, words, refs);
     (pays || filtered && counts) as u64
 }
@@ -173,7 +291,15 @@ fn fetch_form(rows: u64, a: &[u64; 4]) -> u64 {
 /// 1000: 0.4 - 2.6 ms by value against 1.5 - 6 ms fetched), and a small table's fetch costs less than its fit (20,000 rows,
 /// 56 entries, LIMIT 10: 0.80 ms by value against 0.40 fetched). The units are priced on a host of ratios `r` (the
 /// installed profile's, `fetch_form`).
-fn fetch_pays(r: &Ratios, u: &Units, rows: u64, kept: u64, fetched: u64, words: usize, refs: usize) -> bool {
+fn fetch_pays(
+    r: &Ratios,
+    u: &Units,
+    rows: u64,
+    kept: u64,
+    fetched: u64,
+    words: usize,
+    refs: usize,
+) -> bool {
     let n = rows as f64;
     let k = (kept as f64).min(n);
     let f = (fetched as f64).min(k);
@@ -182,7 +308,9 @@ fn fetch_pays(r: &Ratios, u: &Units, rows: u64, kept: u64, fetched: u64, words: 
     }
     let admitted = (k * (1.0 + (n / k).ln())).min(n);
     let beside = core::iter::repeat_n(&u.word, words).chain(core::iter::repeat_n(&u.byref, refs));
-    let gain: f64 = beside.map(|e| e.decode.on(r) * n + e.copy.on(r) * admitted - e.fetch.on(r) * f - e.lane.on(r)).sum();
+    let gain: f64 = beside
+        .map(|e| e.decode.on(r) * n + e.copy.on(r) * admitted - e.fetch.on(r) * f - e.lane.on(r))
+        .sum();
     gain > u.site.on(r) + u.row.on(r) * f
 }
 
@@ -198,7 +326,9 @@ fn fetchable_bound(count: Bound<'_>, offset: Bound<'_>) -> Option<(u64, u64)> {
         _ => return None,
     };
     match count {
-        Bound::Const(c) if c >= 0 && c <= MAX_FETCH_ROWS as i64 => Some((c.saturating_add(off) as u64, c as u64)),
+        Bound::Const(c) if c >= 0 && c <= MAX_FETCH_ROWS as i64 => {
+            Some((c.saturating_add(off) as u64, c as u64))
+        }
         _ => None,
     }
 }
@@ -209,18 +339,49 @@ mod tests {
 
     #[test]
     fn cap25_any_offset_and_one_request_of_count() {
-        assert_eq!(fetchable_bound(Bound::Const(10), Bound::All), Some((10, 10)));
-        assert_eq!(fetchable_bound(Bound::Const(1000), Bound::Const(24)), Some((1024, 1000)));
-        assert_eq!(fetchable_bound(Bound::Const(1000), Bound::Const(100)), Some((1100, 1000)), "kept past the site's request capacity");
-        assert_eq!(fetchable_bound(Bound::Const(5), Bound::Const(i64::MAX)), Some((i64::MAX as u64, 5)), "saturating");
-        assert_eq!(fetchable_bound(Bound::Const(1024), Bound::Const(7)), Some((1031, 1024)), "one request's count");
-        assert_eq!(fetchable_bound(Bound::Const(1025), Bound::All), None, "a count past one request keeps its rows by value");
+        assert_eq!(
+            fetchable_bound(Bound::Const(10), Bound::All),
+            Some((10, 10))
+        );
+        assert_eq!(
+            fetchable_bound(Bound::Const(1000), Bound::Const(24)),
+            Some((1024, 1000))
+        );
+        assert_eq!(
+            fetchable_bound(Bound::Const(1000), Bound::Const(100)),
+            Some((1100, 1000)),
+            "kept past the site's request capacity"
+        );
+        assert_eq!(
+            fetchable_bound(Bound::Const(5), Bound::Const(i64::MAX)),
+            Some((i64::MAX as u64, 5)),
+            "saturating"
+        );
+        assert_eq!(
+            fetchable_bound(Bound::Const(1024), Bound::Const(7)),
+            Some((1031, 1024)),
+            "one request's count"
+        );
+        assert_eq!(
+            fetchable_bound(Bound::Const(1025), Bound::All),
+            None,
+            "a count past one request keeps its rows by value"
+        );
         assert_eq!(fetchable_bound(Bound::All, Bound::All), None);
         assert_eq!(fetchable_bound(Bound::Const(-1), Bound::All), None);
         assert_eq!(fetchable_bound(Bound::Const(5), Bound::Const(-1)), None);
-        assert!(fetch_pays(&Ratios::ONE, &PGRC, 1_000_000, 170_000, 5, 9, 4), "LIMIT 5 OFFSET 169995: five rows fetched");
-        assert!(!pays(1_000_000, 900_000, 16, 8), "a top keeping most rows and fetching them keeps them by value");
-        assert!(fetch_pays(&Ratios::ONE, &PGRC, 1_000_000, 900_000, 5, 16, 8), "LIMIT 5 OFFSET 899995: five rows fetched");
+        assert!(
+            fetch_pays(&Ratios::ONE, &PGRC, 1_000_000, 170_000, 5, 9, 4),
+            "LIMIT 5 OFFSET 169995: five rows fetched"
+        );
+        assert!(
+            !pays(1_000_000, 900_000, 16, 8),
+            "a top keeping most rows and fetching them keeps them by value"
+        );
+        assert!(
+            fetch_pays(&Ratios::ONE, &PGRC, 1_000_000, 900_000, 5, 16, 8),
+            "LIMIT 5 OFFSET 899995: five rows fetched"
+        );
     }
 
     fn pays(rows: u64, kept: u64, words: usize, refs: usize) -> bool {
@@ -231,29 +392,76 @@ mod tests {
     /// or 8 by-reference ones) kept by value; the canonical wide top; the small tables.
     #[test]
     fn the_cheaper_form_by_cost() {
-        assert!(pays(200_000, 1000, 0, 8), "8 unique texts, 200k rows, LIMIT 1000: 40.5 / 4.8");
-        assert!(pays(1_000_000, 100, 4, 2), "4 words + 2 unique texts, 1M rows, LIMIT 100: 4.3 / 2.7");
-        assert!(pays(1_000_000, 1000, 16, 8), "16 words + 8 texts, 1M rows, LIMIT 1000: 12.6 / 8.7");
-        assert!(pays(1_000_000, 1000, 16, 2), "16 words + 2 unique texts, 1M rows, LIMIT 1000: 11.7 / 6.9");
-        assert!(!pays(200_000, 1000, 4, 0), "4 words, 200k rows, LIMIT 1000: 1.7 / 2.2");
-        assert!(pays(1_000_000, 10, 40, 16), "SELECT * of a wide 1M-row table, LIMIT 10: 3.4 / 0.9");
-        assert!(!pays(5_000, 10, 28, 6), "a 5,000-row table keeps a 36-entry row by value");
-        assert!(!pays(0, 10, 40, 16) && !pays(1_000_000, 0, 40, 16), "no rows or no kept rows: nothing to fetch");
+        assert!(
+            pays(200_000, 1000, 0, 8),
+            "8 unique texts, 200k rows, LIMIT 1000: 40.5 / 4.8"
+        );
+        assert!(
+            pays(1_000_000, 100, 4, 2),
+            "4 words + 2 unique texts, 1M rows, LIMIT 100: 4.3 / 2.7"
+        );
+        assert!(
+            pays(1_000_000, 1000, 16, 8),
+            "16 words + 8 texts, 1M rows, LIMIT 1000: 12.6 / 8.7"
+        );
+        assert!(
+            pays(1_000_000, 1000, 16, 2),
+            "16 words + 2 unique texts, 1M rows, LIMIT 1000: 11.7 / 6.9"
+        );
+        assert!(
+            !pays(200_000, 1000, 4, 0),
+            "4 words, 200k rows, LIMIT 1000: 1.7 / 2.2"
+        );
+        assert!(
+            pays(1_000_000, 10, 40, 16),
+            "SELECT * of a wide 1M-row table, LIMIT 10: 3.4 / 0.9"
+        );
+        assert!(
+            !pays(5_000, 10, 28, 6),
+            "a 5,000-row table keeps a 36-entry row by value"
+        );
+        assert!(
+            !pays(0, 10, 40, 16) && !pays(1_000_000, 0, 40, 16),
+            "no rows or no kept rows: nothing to fetch"
+        );
     }
 
     /// D519: a heap top fetches its winners by TID, a heap union arm keeps its rows by value (its scan every column: the
     /// emit's `of` and the scan's `fetch_narrow` agree through `topk_wide`), a zone walk is pgrc's; pgrc is unchanged.
     #[test]
     fn a_heap_top_fetches_by_tid_and_a_union_arm_keeps_its_rows() {
-        let top = SortForm::TopK { count: Bound::Const(10), offset: Bound::All, ties: false };
-        let walk = SortForm::Walk { attno: 1, desc: false, nulls_first: false, count: Bound::Const(10), offset: Bound::All, ties: false };
+        let top = SortForm::TopK {
+            count: Bound::Const(10),
+            offset: Bound::All,
+            ties: false,
+        };
+        let walk = SortForm::Walk {
+            attno: 1,
+            desc: false,
+            nulls_first: false,
+            count: Bound::Const(10),
+            offset: Bound::All,
+            ties: false,
+        };
         assert_eq!(reads(Am::Heap, &top, false), Some(true));
-        assert_eq!(reads(Am::Heap, &top, true), None, "a union arm's emit keeps its rows by value, so its scan is not narrowed");
+        assert_eq!(
+            reads(Am::Heap, &top, true),
+            None,
+            "a union arm's emit keeps its rows by value, so its scan is not narrowed"
+        );
         assert_eq!(reads(Am::Heap, &walk, false), None, "a zone walk is pgrc's");
         assert_eq!(reads(Am::Pgrcolumnar, &top, false), Some(false));
-        assert_eq!(reads(Am::Pgrcolumnar, &top, true), Some(false), "pgrc's arms as before (its emit's `of` keeps them by value)");
+        assert_eq!(
+            reads(Am::Pgrcolumnar, &top, true),
+            Some(false),
+            "pgrc's arms as before (its emit's `of` keeps them by value)"
+        );
         assert_eq!(reads(Am::Pgrcolumnar, &walk, false), Some(false));
-        assert_eq!(reads(Am::Pgrcolumnar, &SortForm::Runs, false), Some(false), "the form gate before it takes tops and walks only");
+        assert_eq!(
+            reads(Am::Pgrcolumnar, &SortForm::Runs, false),
+            Some(false),
+            "the form gate before it takes tops and walks only"
+        );
     }
 
     fn heap_pays(rows: u64, kept: u64, words: usize, refs: usize) -> bool {
@@ -264,16 +472,47 @@ mod tests {
     /// reads, so its top fetches texts where pgrc's units keep them by value; one of the fit's three misses.
     #[test]
     fn a_heap_top_prices_by_the_heap_units() {
-        assert!(heap_pays(1_000_000, 10, 0, 2), "2 md5 texts, 1M rows, LIMIT 10: 27.6 / 14.8");
-        assert!(!pays(1_000_000, 10, 0, 2), "pgrc's units keep the same shape by value");
-        assert!(heap_pays(1_000_000, 1000, 32, 12), "44 entries, 1M rows, LIMIT 1000: 103.0 / 18.1");
-        assert!(heap_pays(200_000, 10, 8, 0), "8 words, 200k rows, LIMIT 10: 4.7 / 3.4");
-        assert!(heap_pays(200_000, 1000, 8, 4), "8 words + 4 short texts, 200k rows, LIMIT 1000: 9.0 / 5.0");
-        assert!(!heap_pays(200_000, 1000, 8, 0), "a miss: 8 words, 200k rows, LIMIT 1000: 5.6 / 4.8");
-        assert!(!heap_pays(1_000_000, 1000, 0, 0), "nothing beside the key: 15.0 / 17.1");
-        assert!(!heap_pays(5_000, 10, 1, 1), "a 5,000-row table keeps a word and a text by value");
+        assert!(
+            heap_pays(1_000_000, 10, 0, 2),
+            "2 md5 texts, 1M rows, LIMIT 10: 27.6 / 14.8"
+        );
+        assert!(
+            !pays(1_000_000, 10, 0, 2),
+            "pgrc's units keep the same shape by value"
+        );
+        assert!(
+            heap_pays(1_000_000, 1000, 32, 12),
+            "44 entries, 1M rows, LIMIT 1000: 103.0 / 18.1"
+        );
+        assert!(
+            heap_pays(200_000, 10, 8, 0),
+            "8 words, 200k rows, LIMIT 10: 4.7 / 3.4"
+        );
+        assert!(
+            heap_pays(200_000, 1000, 8, 4),
+            "8 words + 4 short texts, 200k rows, LIMIT 1000: 9.0 / 5.0"
+        );
+        assert!(
+            !heap_pays(200_000, 1000, 8, 0),
+            "a miss: 8 words, 200k rows, LIMIT 1000: 5.6 / 4.8"
+        );
+        assert!(
+            !heap_pays(1_000_000, 1000, 0, 0),
+            "nothing beside the key: 15.0 / 17.1"
+        );
+        assert!(
+            !heap_pays(5_000, 10, 1, 1),
+            "a 5,000-row table keeps a word and a text by value"
+        );
         let args = |heap: u64| [10, 10 << 32, 2, heap << 63 | 3 << 32 | 2];
-        assert_eq!((fetch_form(1_000_000, &args(1)), fetch_form(1_000_000, &args(0))), (1, 0), "a[3]'s top bit picks the heap's units");
+        assert_eq!(
+            (
+                fetch_form(1_000_000, &args(1)),
+                fetch_form(1_000_000, &args(0))
+            ),
+            (1, 0),
+            "a[3]'s top bit picks the heap's units"
+        );
     }
 
     /// The decision census (cost_profile census.rs): the sweep's measured shapes above, each form on each host; a shape whose
@@ -297,18 +536,31 @@ mod tests {
             (&HEAP, 1_000_000, 1000, 0, 0),
             (&HEAP, 5_000, 10, 1, 1),
         ];
-        let forms = |r: &Ratios| shapes.map(|(u, rows, kept, words, refs)| fetch_pays(r, u, rows, kept, kept, words, refs));
+        let forms = |r: &Ratios| {
+            shapes
+                .map(|(u, rows, kept, words, refs)| fetch_pays(r, u, rows, kept, kept, words, refs))
+        };
         let reference = forms(&Ratios::ONE);
         for (name, r, _) in gravity_program::cost::census::HOSTS {
             let at = forms(&r);
-            let moved: Vec<usize> = (0..shapes.len()).filter(|&i| at[i] != reference[i]).collect();
+            let moved: Vec<usize> = (0..shapes.len())
+                .filter(|&i| at[i] != reference[i])
+                .collect();
             println!("census\t{name}\tfetch forms {at:?}\tmoved shapes {moved:?}");
         }
     }
 
     /// `fetch_form`'s arguments for a top of `kept` rows (all fetched) with `words` / `refs` entries beside one word key.
     fn form(rows: u64, kept: u64, words: u64, refs: u64, filtered: bool) -> u64 {
-        fetch_form(rows, &[kept, kept << 32 | words, (filtered as u64) << 32 | refs, (words + refs + 1) << 32 | refs])
+        fetch_form(
+            rows,
+            &[
+                kept,
+                kept << 32 | words,
+                (filtered as u64) << 32 | refs,
+                (words + refs + 1) << 32 | refs,
+            ],
+        )
     }
 
     /// A filter before the top: the estimate counts the rows past it, the by-value form decodes every row the scan reads.
@@ -322,7 +574,11 @@ mod tests {
         // a narrow filtered top keeps its row by value (the counts and the cost over the rows past the filter)
         assert_eq!(form(20_000, 10, 4, 2, true), 0);
         // the cost rule fetches over the rows past the filter where that pays, whatever the counts
-        assert_eq!(form(100_000, 1000, 0, 8, true), 1, "8 unique texts beside the key, LIMIT 1000");
+        assert_eq!(
+            form(100_000, 1000, 0, 8, true),
+            1,
+            "8 unique texts beside the key, LIMIT 1000"
+        );
         assert_eq!(form(100_000, 1000, 0, 8, false), 1);
     }
 }

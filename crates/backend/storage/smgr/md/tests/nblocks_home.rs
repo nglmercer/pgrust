@@ -44,7 +44,9 @@ fn account(a: Acct) -> i64 {
 
 /// The holder's account, found by its name (none before the holder existed).
 fn holder() -> Option<Acct> {
-    (1..memledger::BACKEND_SLOT_BASE).map(Acct).find(|a| a.name() == "nblocks_cache")
+    (1..memledger::BACKEND_SLOT_BASE)
+        .map(Acct)
+        .find(|a| a.name() == "nblocks_cache")
 }
 
 #[test]
@@ -59,7 +61,8 @@ fn a_dropped_databases_sizes_leave_the_cache_not_the_dropping_session() {
         let s0 = account(a);
         for rel in 1..=RELS {
             let l = RelFileLocator::new(1663, DB, rel);
-            let t = md::nblocks_cache::lookup_or_begin_walk(l, ForkNumber::MAIN_FORKNUM).expect_err("a miss");
+            let t = md::nblocks_cache::lookup_or_begin_walk(l, ForkNumber::MAIN_FORKNUM)
+                .expect_err("a miss");
             md::nblocks_cache::note_walked(l, ForkNumber::MAIN_FORKNUM, rel, t);
         }
         let d = account(a) - s0;
@@ -82,11 +85,37 @@ fn a_dropped_databases_sizes_leave_the_cache_not_the_dropping_session() {
     .join()
     .unwrap();
     let l = RelFileLocator::new(1663, DB, 1);
-    assert_eq!(md::nblocks_cache::lookup(l, ForkNumber::MAIN_FORKNUM), None, "purged");
-    assert!(dropper.abs() < SLACK, "the dropping session's account moved {dropper} B");
-    assert!(inserted.abs() < SLACK, "the inserting session's account kept {inserted} B of the cache's nodes");
-    assert!((unbound - u0).abs() < SLACK, "the inserting session's bytes on UNBOUND: {} B", unbound - u0);
-    let (h0, held, back) = (h0.expect("the cache's holder account"), held.unwrap(), holder().map(account).unwrap());
-    assert!(held - h0 > 4 * SLACK, "the cache's account held its nodes: {} B", held - h0);
-    assert!((back - h0).abs() < SLACK, "the cache's account is back at its start after the purge: {} B", back - h0);
+    assert_eq!(
+        md::nblocks_cache::lookup(l, ForkNumber::MAIN_FORKNUM),
+        None,
+        "purged"
+    );
+    assert!(
+        dropper.abs() < SLACK,
+        "the dropping session's account moved {dropper} B"
+    );
+    assert!(
+        inserted.abs() < SLACK,
+        "the inserting session's account kept {inserted} B of the cache's nodes"
+    );
+    assert!(
+        (unbound - u0).abs() < SLACK,
+        "the inserting session's bytes on UNBOUND: {} B",
+        unbound - u0
+    );
+    let (h0, held, back) = (
+        h0.expect("the cache's holder account"),
+        held.unwrap(),
+        holder().map(account).unwrap(),
+    );
+    assert!(
+        held - h0 > 4 * SLACK,
+        "the cache's account held its nodes: {} B",
+        held - h0
+    );
+    assert!(
+        (back - h0).abs() < SLACK,
+        "the cache's account is back at its start after the purge: {} B",
+        back - h0
+    );
 }

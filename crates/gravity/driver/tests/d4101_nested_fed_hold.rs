@@ -18,9 +18,15 @@ use gravity_abi::breaker::{Breaker, BreakerKind};
 use gravity_abi::status::DONE;
 use gravity_abi::Ctx;
 use gravity_driver::{Binding, Call, Entry, Error, Exec, Grant, Merge, Result, State, Step};
-use gravity_program::{Arena, Code, End, Generation, Handle, Layout, OutCol, Pipeline, PlanKey, Program, Reason, SiteDesc, WritePlan};
+use gravity_program::{
+    Arena, Code, End, Generation, Handle, Layout, OutCol, Pipeline, PlanKey, Program, Reason,
+    SiteDesc, WritePlan,
+};
 
-const KEY: PlanKey = PlanKey { handle: Handle(41), generation: Generation(1) };
+const KEY: PlanKey = PlanKey {
+    handle: Handle(41),
+    generation: Generation(1),
+};
 const THR: [u64; 1] = [7];
 
 /// The build's runs.
@@ -63,12 +69,40 @@ fn merge_for(p: usize) -> &'static dyn Merge {
 fn program() -> Program {
     let st = Arena::new(1 << 14);
     let sites = [SiteDesc::range_source(st.handle(), 2001, &[1, 2])];
-    let feeder = Pipeline::serial(0, End::Breaker(Breaker::sized(BreakerKind::PlainAgg, COUNT_SUM_BYTES).in_slot(0)), Reason::Host);
-    let build = Pipeline::serial(-1, End::Breaker(Breaker::sized(BreakerKind::PlainAgg, COUNT_SUM_BYTES).in_slot(1)), Reason::NoDrivingSite).consuming(&[0]);
+    let feeder = Pipeline::serial(
+        0,
+        End::Breaker(Breaker::sized(BreakerKind::PlainAgg, COUNT_SUM_BYTES).in_slot(0)),
+        Reason::Host,
+    );
+    let build = Pipeline::serial(
+        -1,
+        End::Breaker(Breaker::sized(BreakerKind::PlainAgg, COUNT_SUM_BYTES).in_slot(1)),
+        Reason::NoDrivingSite,
+    )
+    .consuming(&[0]);
     let owner = Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming(&[0, 1]);
-    let pipes = [(feeder, Code::hand(k_range_count)), (build, Code::hand(k_build)), (owner, Code::hand(k_noop))];
+    let pipes = [
+        (feeder, Code::hand(k_range_count)),
+        (build, Code::hand(k_build)),
+        (owner, Code::hand(k_noop)),
+    ];
     let cols: [OutCol; 1] = [OutCol::new("c0", 20, -1, 8, true)];
-    rerun_set(Program::with_pipelines(Layout { nsites: 1, out_natts: 1, out_rows: 4, scratch_bytes: 0, exec_bytes: 0 }, &sites, &cols, WritePlan::SELECT, pipes), &[0, 1])
+    rerun_set(
+        Program::with_pipelines(
+            Layout {
+                nsites: 1,
+                out_natts: 1,
+                out_rows: 4,
+                scratch_bytes: 0,
+                exec_bytes: 0,
+            },
+            &sites,
+            &cols,
+            WritePlan::SELECT,
+            pipes,
+        ),
+        &[0, 1],
+    )
 }
 
 /// A member's run, as the runner's width-1 producer arm: its error held when a merge defers it (`defer_failed`), or
@@ -77,7 +111,9 @@ fn run_member(e: &mut Entry, x: &mut Exec, b: &mut Binding<'_>, p: usize) -> Res
     match e.run_pipeline(x, b, Call::batch(4)) {
         Ok(Step::Done) => Ok(()),
         Ok(s) => panic!("member {p} stopped with {s:?}"),
-        Err(err) => e.defer_failed(x, b, merge_for(p), p, err).or_else(|err| e.defer_fed(x, b, &merge_for, p, err)),
+        Err(err) => e
+            .defer_failed(x, b, merge_for(p), p, err)
+            .or_else(|err| e.defer_fed(x, b, &merge_for, p, err)),
     }
 }
 
@@ -90,19 +126,45 @@ fn a_nested_sets_fed_build_holds_its_feeders_error_and_the_run_steps_past_it() {
     let flag = AtomicU8::new(0);
     let mut sink = LegSink::new();
     let mut b = binding(&THR, &[0], &mut sink, &flag);
-    let mut exec = entry.start(Some(KEY), &program, &mut derive, &mut b, lease(Grant::of(8 << 20))).unwrap();
+    let mut exec = entry
+        .start(
+            Some(KEY),
+            &program,
+            &mut derive,
+            &mut b,
+            lease(Grant::of(8 << 20)),
+        )
+        .unwrap();
     entry.skip_rerun(&mut exec, 2).unwrap();
     entry.skip_rerun(&mut exec, 2).unwrap();
     for (i, fails) in [true, false, true, true, false].into_iter().enumerate() {
-        table.fail_block.store(if fails { 5 } else { u64::MAX }, Relaxed);
+        table
+            .fail_block
+            .store(if fails { 5 } else { u64::MAX }, Relaxed);
         let (builds, taken) = (BUILDS.load(Relaxed), FED.0.load(Relaxed));
         let r = entry.rerun_nested(&mut exec, &mut b, &[0, 1], &mut run_member);
-        assert_eq!(r, Ok(()), "run {i}: the feeder's error is held for the build, the run goes on");
+        assert_eq!(
+            r,
+            Ok(()),
+            "run {i}: the feeder's error is held for the build, the run goes on"
+        );
         let held = exec.held_error();
         if fails {
-            assert_eq!(held, Some(Error::host("range read failed")), "run {i}: held for the probe's first row");
-            assert_eq!(FED.0.load(Relaxed) - taken, 1, "run {i}: the build's merge took it once");
-            assert_eq!(BUILDS.load(Relaxed) - builds, 0, "run {i}: the build the hold passed does not run");
+            assert_eq!(
+                held,
+                Some(Error::host("range read failed")),
+                "run {i}: held for the probe's first row"
+            );
+            assert_eq!(
+                FED.0.load(Relaxed) - taken,
+                1,
+                "run {i}: the build's merge took it once"
+            );
+            assert_eq!(
+                BUILDS.load(Relaxed) - builds,
+                0,
+                "run {i}: the build the hold passed does not run"
+            );
         } else {
             assert_eq!(held, None, "run {i}: a run that held nothing drops the error an earlier run held for its member");
             assert_eq!(FED.0.load(Relaxed) - taken, 0, "run {i}");
@@ -110,7 +172,12 @@ fn a_nested_sets_fed_build_holds_its_feeders_error_and_the_run_steps_past_it() {
         }
     }
     table.fail_block.store(u64::MAX, Relaxed);
-    assert_eq!(entry.run_pipeline(&mut exec, &mut b, Call::batch(4)).unwrap(), Step::Done);
+    assert_eq!(
+        entry
+            .run_pipeline(&mut exec, &mut b, Call::batch(4))
+            .unwrap(),
+        Step::Done
+    );
     entry.end(exec, true);
     assert_eq!(table.pins.load(Relaxed), 0);
 }

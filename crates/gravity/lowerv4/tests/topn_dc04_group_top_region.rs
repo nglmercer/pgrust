@@ -12,19 +12,42 @@ use gravity_program::End;
 #[test]
 fn a_group_top_asks_no_region_of_its_own() {
     let dir = common::plans_dir();
-    let all = [common::files(&dir, "plan"), common::files(&dir.join("regress-full"), "plan")].concat();
+    let all = [
+        common::files(&dir, "plan"),
+        common::files(&dir.join("regress-full"), "plan"),
+    ]
+    .concat();
     let (mut bad, mut seen) = (Vec::new(), 0);
-    for (name, text) in all.into_iter().filter(|(_, t)| t.contains("{LIMIT") && t.contains("{SORT") && t.contains("{AGG")) {
-        let Some(Ok(l)) = common::lower_fixture(&text) else { continue };
+    for (name, text) in all
+        .into_iter()
+        .filter(|(_, t)| t.contains("{LIMIT") && t.contains("{SORT") && t.contains("{AGG"))
+    {
+        let Some(Ok(l)) = common::lower_fixture(&text) else {
+            continue;
+        };
         for (k, p) in l.descs.pipelines.iter().enumerate() {
-            if let End::Breaker(b @ Breaker { kind: BreakerKind::TopK, .. }) = p.ends_in {
+            if let End::Breaker(
+                b @ Breaker {
+                    kind: BreakerKind::TopK,
+                    ..
+                },
+            ) = p.ends_in
+            {
                 seen += 1;
                 if b.bytes != 0 || b.budget != Budget::Fixed(0) {
-                    bad.push(format!("{name}: p{k} TopK asks {} bytes ({:?})", b.bytes, b.budget));
+                    bad.push(format!(
+                        "{name}: p{k} TopK asks {} bytes ({:?})",
+                        b.bytes, b.budget
+                    ));
                 }
             }
         }
     }
     assert!(seen > 0, "no fixture lowers a top over groups");
-    assert!(bad.is_empty(), "{} group top(s) asking a region:\n{}", bad.len(), bad.join("\n"));
+    assert!(
+        bad.is_empty(),
+        "{} group top(s) asking a region:\n{}",
+        bad.len(),
+        bad.join("\n")
+    );
 }

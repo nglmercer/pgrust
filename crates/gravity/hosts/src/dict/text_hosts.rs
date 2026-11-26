@@ -23,8 +23,14 @@ use types_rel::Relation;
 
 /// A column the face serves: codec facts `dict` (every part) or `text` (verbatim in some part).
 pub fn is_text_lane_column(rel: &Relation<'_>, attno: i16) -> PgResult<bool> {
-    let Some(codecs) = pgrc_am::footer::footer_codecs(rel)? else { return Ok(false) };
-    Ok(attno >= 1 && codecs.codec.get(attno as usize - 1).is_some_and(|&c| c == pgrc_am::footer::CODEC_DICT || c == pgrc_am::footer::CODEC_TEXT))
+    let Some(codecs) = pgrc_am::footer::footer_codecs(rel)? else {
+        return Ok(false);
+    };
+    Ok(attno >= 1
+        && codecs
+            .codec
+            .get(attno as usize - 1)
+            .is_some_and(|&c| c == pgrc_am::footer::CODEC_DICT || c == pgrc_am::footer::CODEC_TEXT))
 }
 
 /// The committed granule count (sizes a per-granule run); `None` = no committed publish.
@@ -82,7 +88,10 @@ impl FpPin {
     /// `table` referenced by the calling thread's portal or statement. A table the cache does not hold (its bytes are its
     /// builder's, in the builder's `held`) is not counted.
     pub fn of(table: &Arc<FpTable>) -> FpPin {
-        FpPin { table: table.clone(), _pin: table.pin() }
+        FpPin {
+            table: table.clone(),
+            _pin: table.pin(),
+        }
     }
 
     /// The reference, for a callee that takes the `Arc` (it does not keep it).
@@ -156,7 +165,10 @@ impl Ranks {
     /// D3156: whether granule `lg`'s rows have codes here (every granule's, but a kept-granule table's).
     #[inline]
     pub fn covers(&self, lg: u32) -> bool {
-        self.kept.as_deref().is_none_or(|k| k.get(lg as usize / 64).is_some_and(|w| w >> (lg % 64) & 1 != 0))
+        self.kept.as_deref().is_none_or(|k| {
+            k.get(lg as usize / 64)
+                .is_some_and(|w| w >> (lg % 64) & 1 != 0)
+        })
     }
 
     /// D3156: the kept-granule table's cache identity (`Kept::salt`); 0 for a whole part's.
@@ -177,13 +189,17 @@ impl Ranks {
     }
 
     fn bytes(&self) -> u64 {
-        4 * (self.codes.len() + self.starts.len() + self.reps.len()) as u64 + 8 * (self.kept.as_ref().map_or(0, |k| k.len()) + self.lens.as_ref().map_or(0, |l| l.len())) as u64
+        4 * (self.codes.len() + self.starts.len() + self.reps.len()) as u64
+            + 8 * (self.kept.as_ref().map_or(0, |k| k.len())
+                + self.lens.as_ref().map_or(0, |l| l.len())) as u64
     }
 
     /// D4529: what its lists allocate: `bytes` at their capacities (`reps` and `starts` grow by pushes, so up to half of
     /// each can be capacity past its length).
     fn alloc_bytes(&self) -> u64 {
-        4 * (self.codes.capacity() + self.starts.capacity() + self.reps.capacity()) as u64 + 8 * (self.kept.as_ref().map_or(0, |k| k.len()) + self.lens.as_ref().map_or(0, |l| l.len())) as u64
+        4 * (self.codes.capacity() + self.starts.capacity() + self.reps.capacity()) as u64
+            + 8 * (self.kept.as_ref().map_or(0, |k| k.len())
+                + self.lens.as_ref().map_or(0, |l| l.len())) as u64
     }
 }
 
@@ -211,7 +227,9 @@ impl Kept {
     }
 
     pub fn covers(&self, lg: u32) -> bool {
-        self.bits.get(lg as usize / 64).is_some_and(|w| w >> (lg % 64) & 1 != 0)
+        self.bits
+            .get(lg as usize / 64)
+            .is_some_and(|w| w >> (lg % 64) & 1 != 0)
     }
 
     pub fn count(&self) -> u32 {
@@ -228,7 +246,12 @@ const KEPT_BIT: u32 = 1 << 31;
 
 /// The fingerprint-cache key of a table over a verbatim part's `ranks` (`third`: its form): a kept-granule table's under
 /// `KEPT_BIT` and its salt, so no statement with other kept granules (or the whole part) reads it.
-fn ranks_key(part: &OpenPart, attno: u32, third: u64, ranks: Option<&Ranks>) -> ([u8; 16], u32, u64) {
+fn ranks_key(
+    part: &OpenPart,
+    attno: u32,
+    third: u64,
+    ranks: Option<&Ranks>,
+) -> ([u8; 16], u32, u64) {
     match ranks.map(Ranks::salt).filter(|&s| s != 0) {
         Some(s) => (part.uuid(), attno | KEPT_BIT, third ^ s),
         None => (part.uuid(), attno, third),
@@ -256,7 +279,14 @@ pub type BuildOwner = Option<(memledger::Owner, memledger::Kind)>;
 
 impl TextScratch {
     pub const fn new() -> TextScratch {
-        TextScratch { datums: Vec::new(), arena: Vec::new(), valid: Vec::new(), lens: Vec::new(), spans: Vec::new(), owner: None } // alloc: Node
+        TextScratch {
+            datums: Vec::new(),
+            arena: Vec::new(),
+            valid: Vec::new(),
+            lens: Vec::new(),
+            spans: Vec::new(),
+            owner: None,
+        } // alloc: Node
     }
 
     /// The owner the source's builds charge from now on (`BuildOwner`).
@@ -275,7 +305,11 @@ impl TextScratch {
     }
 
     /// Granule `lg` of `cur` decoded: the rows, and whether every row is valid (else `valid` holds the words).
-    fn decode(&mut self, cur: &mut StreamCursor<'static>, lg: u32) -> Result<(usize, bool), ReadError> {
+    fn decode(
+        &mut self,
+        cur: &mut StreamCursor<'static>,
+        lg: u32,
+    ) -> Result<(usize, bool), ReadError> {
         let rows = cur.rows_in_granule(lg) as usize;
         if self.datums.len() < rows {
             self.datums.resize(rows, 0); // alloc: Node
@@ -290,10 +324,17 @@ impl TextScratch {
         loop {
             let bytes_len = self.arena.len() * 8;
             let bytes = raw::bytes_of(&mut self.arena);
-            let mut out = DecodeOut { datums: &mut self.datums[..rows], arena: ByteArena::new(bytes) };
+            let mut out = DecodeOut {
+                datums: &mut self.datums[..rows],
+                arena: ByteArena::new(bytes),
+            };
             match cur.decode_full(lg, &mut out) {
                 Ok(n) if n as usize == rows => break,
-                Ok(_) => return Err(ReadError::Format(FormatError::Corrupt { at: "text pass: decoded count" })),
+                Ok(_) => {
+                    return Err(ReadError::Format(FormatError::Corrupt {
+                        at: "text pass: decoded count",
+                    }))
+                }
                 Err(ReadError::Format(FormatError::ArenaExhausted { needed })) => {
                     let want = (bytes_len + needed).max(bytes_len * 2);
                     self.arena.resize(want.div_ceil(8), 0); // alloc: Node
@@ -306,19 +347,34 @@ impl TextScratch {
     }
 
     /// Granule `lg`'s validity into `valid`: whether every row is valid.
-    fn validity(&mut self, cur: &mut StreamCursor<'static>, lg: u32, rows: usize) -> Result<bool, ReadError> {
+    fn validity(
+        &mut self,
+        cur: &mut StreamCursor<'static>,
+        lg: u32,
+        rows: usize,
+    ) -> Result<bool, ReadError> {
         if self.valid.len() < rows.div_ceil(64) {
             self.valid.resize(rows.div_ceil(64), 0); // alloc: Node
         }
-        Ok(!cur.has_validity_stream() || matches!(cur.validity(lg, &mut self.valid[..rows.div_ceil(64)])?, ValidityVerdict::AllValid))
+        Ok(!cur.has_validity_stream()
+            || matches!(
+                cur.validity(lg, &mut self.valid[..rows.div_ceil(64)])?,
+                ValidityVerdict::AllValid
+            ))
     }
 
     /// D3038: each code's payload byte length over a verbatim part's ranks into `out` (one zeroed word per code) — one
     /// pass over the part's rows like `DictView::Ranked`'s `entries`, but reading only each value's length
     /// (`decode_lengths`: entry headers, no payload copied or materialized); a granule the length decode refuses is decoded
     /// in full.
-    fn ranked_lengths(&mut self, cur: &mut StreamCursor<'static>, ranks: &Ranks, out: &mut [i64]) -> Result<(), ReadError> {
-        let mut step = cancelpoll::step("text_hosts ranked_lengths: a verbatim part's code lengths");
+    fn ranked_lengths(
+        &mut self,
+        cur: &mut StreamCursor<'static>,
+        ranks: &Ranks,
+        out: &mut [i64],
+    ) -> Result<(), ReadError> {
+        let mut step =
+            cancelpoll::step("text_hosts ranked_lengths: a verbatim part's code lengths");
         for lg in ranks.granules() {
             step.tick()?;
             let rows = cur.rows_in_granule(lg) as usize;
@@ -346,7 +402,11 @@ impl TextScratch {
                         }
                     }
                 }
-                Ok(_) => return Err(ReadError::Format(FormatError::Corrupt { at: "text pass: length count" })),
+                Ok(_) => {
+                    return Err(ReadError::Format(FormatError::Corrupt {
+                        at: "text pass: length count",
+                    }))
+                }
                 Err(ReadError::Unsupported { .. }) => {
                     let (rows, all) = self.decode(cur, lg)?;
                     // bounded("small-fixed: one granule's rows (at most GRANULE_ROWS, 8192), a store each; the granule loop ticks")
@@ -365,10 +425,17 @@ impl TextScratch {
     /// D3038: granule `lg`'s payload byte length of each row into `out` (`rows_in_granule(lg)` of them), a NULL row's 0;
     /// whether every row is valid (else `valid_words` holds them). A verbatim stream's from its entry headers
     /// (`decode_lengths`, no payload read); a stream the length decode refuses is decoded in full.
-    pub fn granule_lengths(&mut self, cur: &mut StreamCursor<'static>, lg: u32, out: &mut [u32]) -> Result<bool, ReadError> {
+    pub fn granule_lengths(
+        &mut self,
+        cur: &mut StreamCursor<'static>,
+        lg: u32,
+        out: &mut [u32],
+    ) -> Result<bool, ReadError> {
         let rows = cur.rows_in_granule(lg) as usize;
         if out.len() < rows {
-            return Err(ReadError::Format(FormatError::Bounds { at: "text pass: lengths out" }));
+            return Err(ReadError::Format(FormatError::Bounds {
+                at: "text pass: lengths out",
+            }));
         }
         match cur.decode_lengths(lg, &mut out[..rows]) {
             Ok(n) if n as usize == rows => {
@@ -383,12 +450,18 @@ impl TextScratch {
                 }
                 Ok(all)
             }
-            Ok(_) => Err(ReadError::Format(FormatError::Corrupt { at: "text pass: length count" })),
+            Ok(_) => Err(ReadError::Format(FormatError::Corrupt {
+                at: "text pass: length count",
+            })),
             Err(ReadError::Unsupported { .. }) => {
                 let (rows, all) = self.decode(cur, lg)?;
                 // bounded("small-fixed: one granule's rows (at most GRANULE_ROWS, 8192), a store each")
                 for (i, l) in out[..rows].iter_mut().enumerate() {
-                    *l = if self.live(all, i) { raw::payload(self.datums[i]).len() as u32 } else { 0 };
+                    *l = if self.live(all, i) {
+                        raw::payload(self.datums[i]).len() as u32
+                    } else {
+                        0
+                    };
                 }
                 Ok(all)
             }
@@ -399,14 +472,25 @@ impl TextScratch {
     /// D3038 (R3): granule `lg`'s character count of each row into `out` (`rows_in_granule(lg)` of them, UTF-8: the
     /// server encoding), a NULL row's 0; whether every row is valid (else `valid_words` holds them). The values are
     /// decoded.
-    pub fn granule_chars(&mut self, cur: &mut StreamCursor<'static>, lg: u32, out: &mut [u32]) -> Result<bool, ReadError> {
+    pub fn granule_chars(
+        &mut self,
+        cur: &mut StreamCursor<'static>,
+        lg: u32,
+        out: &mut [u32],
+    ) -> Result<bool, ReadError> {
         let (rows, all) = self.decode(cur, lg)?;
         if out.len() < rows {
-            return Err(ReadError::Format(FormatError::Bounds { at: "text pass: chars out" }));
+            return Err(ReadError::Format(FormatError::Bounds {
+                at: "text pass: chars out",
+            }));
         }
         // bounded("small-fixed: one granule's rows (at most GRANULE_ROWS, 8192), a character count over each value's bytes, as PG's length() counts them with no poll")
         for (i, l) in out[..rows].iter_mut().enumerate() {
-            *l = if self.live(all, i) { utf8_chars(raw::payload(self.datums[i])) as u32 } else { 0 };
+            *l = if self.live(all, i) {
+                utf8_chars(raw::payload(self.datums[i])) as u32
+            } else {
+                0
+            };
         }
         Ok(all)
     }
@@ -509,17 +593,23 @@ fn take_held(words: usize, h: Held) -> HeldBuf {
     match h {
         Held::By(o) => {
             let buf = reuse::take(words); // alloc: Exec charged o
-            // pagepool P3: a pool buffer's own charge on the builder (none: the calling thread's owner, as door 1's bytes)
+                                          // pagepool P3: a pool buffer's own charge on the builder (none: the calling thread's owner, as door 1's bytes)
             if buf.is_pooled() {
                 buf.own(o.map_or_else(|| memledger::charge::context().0, |(o, _)| o));
             }
-            HeldBuf { held: table_charge(o, buf.heap_bytes()), buf }
+            HeldBuf {
+                held: table_charge(o, buf.heap_bytes()),
+                buf,
+            }
         }
         Held::Resident => {
             let mut scope = memledger::arena::cache_scope_for(FP_OWNER, memledger::Kind::Region);
             let buf = reuse::take_for(words, Some(&mut scope)); // alloc: Cold charged FP_OWNER
             buf.own(FP_OWNER);
-            HeldBuf { held: scope.finish(), buf }
+            HeldBuf {
+                held: scope.finish(),
+                buf,
+            }
         }
     }
 }
@@ -539,8 +629,15 @@ fn charge_to(c: &mut Option<memledger::Charge>, to: u64) {
 /// A build's working memory refused by the allocator: the statement's out of memory (53200), never an abort.
 #[cold]
 fn refused(r: Refused) -> TableBuildError {
-    let detail = format!("Failed on request of size {} in a Gravity dictionary build.", r.bytes); // alloc: Cold
-    TableBuildError::Pg(Box::new(types_error::PgError::error("out of memory".to_string()).with_sqlstate(types_error::ERRCODE_OUT_OF_MEMORY).with_detail(detail))) // alloc: Cold
+    let detail = format!(
+        "Failed on request of size {} in a Gravity dictionary build.",
+        r.bytes
+    ); // alloc: Cold
+    TableBuildError::Pg(Box::new(
+        types_error::PgError::error("out of memory".to_string())
+            .with_sqlstate(types_error::ERRCODE_OUT_OF_MEMORY)
+            .with_detail(detail),
+    )) // alloc: Cold
 }
 
 /// A stop inside a build's polled copy: the statement's cancel, or a refused buffer.
@@ -576,7 +673,11 @@ struct Grow<T: ForgetSafe + Copy> {
 
 impl<T: ForgetSafe + Copy> Grow<T> {
     fn new(owner: BuildOwner) -> Grow<T> {
-        Grow { a: arena_of(owner), v: AVec::default(), owner }
+        Grow {
+            a: arena_of(owner),
+            v: AVec::default(),
+            owner,
+        }
     }
 
     fn len(&self) -> usize {
@@ -603,9 +704,17 @@ impl<T: ForgetSafe + Copy> Grow<T> {
             return Ok(());
         }
         let a = arena_of(self.owner);
-        let mut v = AVec::with_capacity(&a, (self.v.len() + more).max(self.v.capacity().saturating_mul(2))).map_err(Stop::Refused)?;
+        let mut v = AVec::with_capacity(
+            &a,
+            (self.v.len() + more).max(self.v.capacity().saturating_mul(2)),
+        )
+        .map_err(Stop::Refused)?;
         let old = self.v.as_slice(&self.a);
-        step.pieces(old.len(), (cancelpoll::PIECE / core::mem::size_of::<T>().max(1)).max(1), |r| v.extend_from_slice(&a, &old[r]).map_err(Stop::Refused))?;
+        step.pieces(
+            old.len(),
+            (cancelpoll::PIECE / core::mem::size_of::<T>().max(1)).max(1),
+            |r| v.extend_from_slice(&a, &old[r]).map_err(Stop::Refused),
+        )?;
         (self.a, self.v) = (a, v);
         Ok(())
     }
@@ -626,7 +735,8 @@ impl<T: ForgetSafe + Copy> Grow<T> {
         if self.v.capacity() - self.v.len() >= more {
             return;
         }
-        let grown = (self.v.len() + more).max(self.v.capacity().saturating_mul(2)) * core::mem::size_of::<T>();
+        let grown = (self.v.len() + more).max(self.v.capacity().saturating_mul(2))
+            * core::mem::size_of::<T>();
         gate.cover(live.saturating_add(grown as u64));
     }
 }
@@ -658,7 +768,10 @@ impl gravity_dict::Dict for Store<'_> {
                 self.stopped.set(true);
                 return;
             }
-            f(c as u32, gravity_dict::View::of(&self.bytes[off as usize..(off + len) as usize]));
+            f(
+                c as u32,
+                gravity_dict::View::of(&self.bytes[off as usize..(off + len) as usize]),
+            );
         }
     }
 }
@@ -666,7 +779,12 @@ impl gravity_dict::Dict for Store<'_> {
 /// A table's buffer goes back to the build pool (`reuse`) when the table goes: the next build of a like size takes it.
 impl Drop for FpTable {
     fn drop(&mut self) {
-        drop(self.cached.get_mut().unwrap_or_else(|e| e.into_inner()).take());
+        drop(
+            self.cached
+                .get_mut()
+                .unwrap_or_else(|e| e.into_inner())
+                .take(),
+        );
         // pppress (B): a build's buffer again (the build pool keeps it, or the pool takes it back)
         self.buf.tag_cached(false);
         reuse::give(core::mem::take(&mut self.buf));
@@ -675,7 +793,8 @@ impl Drop for FpTable {
 
 /// G1-A: the resident fp tables' account in the memory ledger: a table's bytes move there when the cache takes it and back
 /// at its drop (the last `Arc`), so a table evicted while a statement still holds it stays on the account while resident.
-const FP_OWNER: memledger::Owner = memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::FpTables));
+const FP_OWNER: memledger::Owner =
+    memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::FpTables));
 
 /// R1b (D405 follow-on): the buffers every table build takes (`build_owned_bytes`, and the part-resident builds, D4278),
 /// reused across builds and statements from one bounded process pool instead of a fresh zeroed buffer per build. Every
@@ -743,11 +862,18 @@ pub mod reuse {
 
     const GHOSTS: usize = 64;
 
-    static POOL: Mutex<Pool> = Mutex::new(Pool { bufs: Vec::new(), words: 0, freed: [(0, 0); GHOSTS], freed_at: 0, charge: memledger::Charge::NONE }); // alloc: Cold
+    static POOL: Mutex<Pool> = Mutex::new(Pool {
+        bufs: Vec::new(),
+        words: 0,
+        freed: [(0, 0); GHOSTS],
+        freed_at: 0,
+        charge: memledger::Charge::NONE,
+    }); // alloc: Cold
 
     /// G1-A: the build pool's owner in the memory ledger (its account `Acct::of(Consumer::BuildPool)`): each kept buffer's
     /// charge (`Kept`).
-    const OWNER: memledger::Owner = memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::BuildPool));
+    const OWNER: memledger::Owner =
+        memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::BuildPool));
 
     /// A kept buffer leaves the pool for the calling thread (a take, or a free just after): its charge's drop moves its
     /// bytes, its given-back pages included, to the calling thread's account.
@@ -759,9 +885,16 @@ pub mod reuse {
 
     fn refit(p: &mut Pool) {
         if p.charge.owner() != OWNER {
-            p.charge = memledger::Charge::open(OWNER, memledger::Release::Evict, memledger::Kind::Region, memledger::charge::Door::Heap, 0);
+            p.charge = memledger::Charge::open(
+                OWNER,
+                memledger::Release::Evict,
+                memledger::Kind::Region,
+                memledger::charge::Door::Heap,
+                0,
+            );
         }
-        p.charge.fit_committed((p.bufs.capacity() * core::mem::size_of::<Kept>()) as u64);
+        p.charge
+            .fit_committed((p.bufs.capacity() * core::mem::size_of::<Kept>()) as u64);
     }
 
     /// A buffer of at least `words` words: the smallest kept one that fits, else a fresh zeroed one.
@@ -773,12 +906,21 @@ pub mod reuse {
     /// this thread's account, where it read as unattributed until the cache's insert (D4536).
     /// pagepool P3: a pool buffer (kept or fresh) comes with its own charge, on the build pool or the calling thread's owner:
     /// the caller moves it to its holder (`BuildBuf::own`).
-    pub fn take_for(words: usize, scope: Option<&mut memledger::arena::CacheScope>) -> super::BuildBuf {
+    pub fn take_for(
+        words: usize,
+        scope: Option<&mut memledger::arena::CacheScope>,
+    ) -> super::BuildBuf {
         touch();
         if words >= MIN_WORDS {
             let mut p = POOL.lock().unwrap_or_else(|e| e.into_inner());
             let fits = |n: usize| n >= words && n / FIT <= words;
-            let best = p.bufs.iter().enumerate().filter(|(_, k)| fits(k.buf.len())).min_by_key(|(_, k)| k.buf.len()).map(|(i, _)| i);
+            let best = p
+                .bufs
+                .iter()
+                .enumerate()
+                .filter(|(_, k)| fits(k.buf.len()))
+                .min_by_key(|(_, k)| k.buf.len())
+                .map(|(i, _)| i);
             if let Some(i) = best {
                 // broker (b)'s loss signal: a take only the oldest tenth of the kept words could serve (a pool a tenth
                 // smaller, which frees the oldest first, would have missed it)
@@ -821,7 +963,12 @@ pub mod reuse {
             }
             if memledger::value::ext() {
                 // broker (b)'s gain signal: the latest freed buffer that would have served this take
-                if let Some(g) = p.freed.iter_mut().filter(|g| g.0 != 0 && fits(g.0)).max_by_key(|g| g.1) {
+                if let Some(g) = p
+                    .freed
+                    .iter_mut()
+                    .filter(|g| g.0 != 0 && fits(g.0))
+                    .max_by_key(|g| g.1)
+                {
                     let at = g.1;
                     g.0 = 0;
                     memledger::value::ghost(memledger::Consumer::BuildPool, at, 1);
@@ -833,7 +980,8 @@ pub mod reuse {
             memledger::value::missed(memledger::Consumer::BuildPool, words as u64 * 8);
         }
         // pagepool P3: the page pool's (warm pages, no fresh fault) with the switch on
-        super::BuildBuf::pool(words).unwrap_or_else(|| vec![0u64; words].into()) // alloc: Exec
+        super::BuildBuf::pool(words).unwrap_or_else(|| vec![0u64; words].into())
+        // alloc: Exec
     }
 
     /// Broker (b): a kept buffer of `words` words freed (past the cap or by the reclaimer): the pool's byte clock moves and
@@ -851,7 +999,9 @@ pub mod reuse {
     /// hit, `take`, read live: the pool's buffers turn over faster than the broker's interval).
     pub fn publish_tail() {
         // on the memory watchdog's thread: no wait (busy, the last mark stays)
-        let Some(p) = memledger::value::try_lock(&POOL) else { return };
+        let Some(p) = memledger::value::try_lock(&POOL) else {
+            return;
+        };
         let words = p.words;
         drop(p);
         memledger::value::set_tail_bytes(memledger::Consumer::BuildPool, words as u64 * 8 / 10);
@@ -872,7 +1022,13 @@ pub mod reuse {
                 buf.own(OWNER);
                 memledger::Charge::NONE
             } else {
-                memledger::Charge::open(OWNER, memledger::Release::Evict, memledger::Kind::Region, memledger::charge::Door::Heap, buf.len() as u64 * 8)
+                memledger::Charge::open(
+                    OWNER,
+                    memledger::Release::Evict,
+                    memledger::Kind::Region,
+                    memledger::charge::Door::Heap,
+                    buf.len() as u64 * 8,
+                )
             };
             p.bufs.push(Kept { buf, held }); // alloc: Cold charged OWNER (Pool::charge, refit below)
             let cap = pool_bytes();
@@ -936,7 +1092,9 @@ pub mod reuse {
     /// applies: the same thread ticks it). Starting it leaves the idle clock alone.
     pub fn start_reclaimer() {
         if !STARTED.load(Ordering::Relaxed) && !STARTED.swap(true, Ordering::AcqRel) {
-            let _ = pgsync::thread::Builder::new().name("gravity-reuse-idle".into()).spawn(pagegive::pinned(idle_release)); // alloc: Cold
+            let _ = pgsync::thread::Builder::new()
+                .name("gravity-reuse-idle".into())
+                .spawn(pagegive::pinned(idle_release)); // alloc: Cold
         }
     }
 
@@ -1017,7 +1175,10 @@ pub mod reuse {
     fn pressure_released() {
         PRESSURE_RELEASES.fetch_add(1, Ordering::Relaxed);
         if gravity_driver::env::set("PGRUST_GRAVITY_REPORT") {
-            eprintln!("LOG:  gravity: pressure release past the memory governor's bar: {}", memory_census()); // alloc: Cold
+            eprintln!(
+                "LOG:  gravity: pressure release past the memory governor's bar: {}",
+                memory_census()
+            ); // alloc: Cold
         }
     }
 
@@ -1027,7 +1188,8 @@ pub mod reuse {
         IDLE_RELEASES.fetch_add(1, Ordering::Relaxed);
         if gravity_driver::env::set("PGRUST_GRAVITY_REPORT") {
             // the server log's own line (no backend on this thread): what an idle process still holds, by holder
-            eprintln!("LOG:  gravity: idle memory census: {}", memory_census()); // alloc: Cold
+            eprintln!("LOG:  gravity: idle memory census: {}", memory_census());
+            // alloc: Cold
         }
     }
 
@@ -1042,15 +1204,30 @@ pub mod reuse {
         let rss = mcx::governor::projected() as u64;
         let (_, _, fp_n, fp_bytes, _) = super::fp_tables_resident();
         // D3243 diagnostic: the allocator's split of the same resident bytes, while its live blocks are counted
-        let alloc = mcx::governor::allocator_census(rss as usize).map_or_else(String::new, |c| format!(" {c}")); // alloc: Cold
-        // D3872: the residency passes run, the last one's and the longest one's time, and the bytes the last one read
+        let alloc = mcx::governor::allocator_census(rss as usize)
+            .map_or_else(String::new, |c| format!(" {c}")); // alloc: Cold
+                                                            // D3872: the residency passes run, the last one's and the longest one's time, and the bytes the last one read
         let residency = {
             use core::sync::atomic::Ordering::Relaxed;
-            use gravity_driver::mem::resident::{PASSES, PASS_NS_LAST, PASS_NS_MAX, PASS_SCANNED_LAST};
-            format!(" residency passes={} last_us={} max_us={} scanned_mib={}", PASSES.load(Relaxed), PASS_NS_LAST.load(Relaxed) / 1000, PASS_NS_MAX.load(Relaxed) / 1000, PASS_SCANNED_LAST.load(Relaxed) >> 20) // alloc: Cold
+            use gravity_driver::mem::resident::{
+                PASSES, PASS_NS_LAST, PASS_NS_MAX, PASS_SCANNED_LAST,
+            };
+            format!(
+                " residency passes={} last_us={} max_us={} scanned_mib={}",
+                PASSES.load(Relaxed),
+                PASS_NS_LAST.load(Relaxed) / 1000,
+                PASS_NS_MAX.load(Relaxed) / 1000,
+                PASS_SCANNED_LAST.load(Relaxed) >> 20
+            ) // alloc: Cold
         };
         // memory step 5: Gravity's one memory budget and its consumers, unless the broker is off
-        let budget = gravity_driver::mem::budget::snapshot().map_or_else(String::new, |b| format!(" memory budget: {} {}", b.line(), gravity_driver::mem::reclaim::line())); // alloc: Cold
+        let budget = gravity_driver::mem::budget::snapshot().map_or_else(String::new, |b| {
+            format!(
+                " memory budget: {} {}",
+                b.line(),
+                gravity_driver::mem::reclaim::line()
+            )
+        }); // alloc: Cold
         format!( // alloc: Cold
             "rss_anon={} pool_held={}/{} regions={} slots={} build_pool={} fp_tables={}/{} part_cache={}/{} zone_store={} mcx={} part_cache_held={}{alloc} (MiB){}{residency}",
             mib(rss),
@@ -1074,7 +1251,9 @@ pub mod reuse {
     /// The pool's kept buffers and words (tests).
     pub fn held() -> (usize, usize) {
         // D4398: on the memory ladder's pass, nothing read while another thread holds the pool (the pass leaves it out)
-        let Some(p) = memledger::ladder_pass::lock_or_skip(&POOL) else { return (0, 0) };
+        let Some(p) = memledger::ladder_pass::lock_or_skip(&POOL) else {
+            return (0, 0);
+        };
         (p.bufs.len(), p.words)
     }
 
@@ -1085,7 +1264,9 @@ pub mod reuse {
         let mut n = 0u64;
         {
             // D4398: on the memory ladder's pass, nothing freed while another thread holds the pool
-            let Some(mut p) = memledger::ladder_pass::lock_or_skip(&POOL) else { return 0 };
+            let Some(mut p) = memledger::ladder_pass::lock_or_skip(&POOL) else {
+                return 0;
+            };
             // bounded("other: the memory budget's reclaim frees the oldest kept buffers down to bytes, one a pass; the pool's cap over DICT_POOL_MIN_WORDS words bounds them")
             while p.words as u64 * 8 > bytes && !p.bufs.is_empty() {
                 let old = p.bufs.remove(0);
@@ -1121,7 +1302,12 @@ impl FpTable {
         }
         let bytes = self.bytes();
         drop(cached);
-        let set = self.pins.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(|| memledger::pins::PinSet::new(bytes)).clone();
+        let set = self
+            .pins
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get_or_insert_with(|| memledger::pins::PinSet::new(bytes))
+            .clone();
         Some(set.pin())
     }
 
@@ -1141,7 +1327,13 @@ impl FpTable {
             Some(c) if c.owner() == FP_OWNER => c.fit_committed(bytes),
             _ => {
                 drop(cached.take());
-                *cached = Some(memledger::Charge::open(FP_OWNER, memledger::Release::Evict, memledger::Kind::Region, memledger::charge::Door::Heap, bytes));
+                *cached = Some(memledger::Charge::open(
+                    FP_OWNER,
+                    memledger::Release::Evict,
+                    memledger::Kind::Region,
+                    memledger::charge::Door::Heap,
+                    bytes,
+                ));
             }
         }
         // pagepool P3: a pool buffer's own charge with it; pppress (B): and its pool tag, the cache's, so the present
@@ -1151,7 +1343,10 @@ impl FpTable {
     }
 
     pub fn table(&self) -> gravity_dict::Fp128 {
-        debug_assert!(!self.hdr.is_null(), "an entry-runs table has no Fp128 header");
+        debug_assert!(
+            !self.hdr.is_null(),
+            "an entry-runs table has no Fp128 header"
+        );
         raw::fp128_at(self.hdr)
     }
 
@@ -1169,7 +1364,9 @@ impl FpTable {
     /// D4529: what the table allocates, the charge's bytes: its buffer, its ranks' lists and its render offsets at their
     /// allocated sizes.
     fn alloc_bytes(&self) -> u64 {
-        self.buf.heap_bytes() + self.ranks.as_ref().map_or(0, Ranks::alloc_bytes) + self.off.as_ref().map_or(0, |o| o.len() as u64 * 4)
+        self.buf.heap_bytes()
+            + self.ranks.as_ref().map_or(0, Ranks::alloc_bytes)
+            + self.off.as_ref().map_or(0, |o| o.len() as u64 * 4)
     }
 
     /// A verbatim part's codes; `None` for a dictionary-coded part.
@@ -1179,7 +1376,10 @@ impl FpTable {
 
     /// An entry-runs table's run records (two words each, `[lo, hi]`) and bucket offsets (granule_source/entry_runs.rs); `None` for any other.
     pub fn runs(&self) -> Option<(&[u64], &[u32])> {
-        Some((&self.buf[..], self.off.as_deref().filter(|_| !self.renders)?))
+        Some((
+            &self.buf[..],
+            self.off.as_deref().filter(|_| !self.renders)?,
+        ))
     }
 
     /// A render table's image of `code` (`render_table`): its 4B-U varlena's address and byte length; `None` for a code
@@ -1196,12 +1396,30 @@ impl FpTable {
 
     /// A verbatim part's renders: the images in `buf`, each code's word offset in `off` (`render_table`).
     fn of_renders(buf: Vec<u64>, off: Box<[u32]>) -> FpTable {
-        FpTable { cached: Mutex::new(None), used: (buf.len() * 8 + off.len() * 4) as u64, buf: buf.into(), hdr: core::ptr::null(), ranks: None, off: Some(off), renders: true, pins: Mutex::new(None) }
+        FpTable {
+            cached: Mutex::new(None),
+            used: (buf.len() * 8 + off.len() * 4) as u64,
+            buf: buf.into(),
+            hdr: core::ptr::null(),
+            ranks: None,
+            off: Some(off),
+            renders: true,
+            pins: Mutex::new(None),
+        }
     }
 
     /// The table of entry runs `buf` / `off` (granule_source/entry_runs.rs `build`): resident like the part's `Fp128` table.
     pub(crate) fn of_runs(buf: Vec<u64>, off: Box<[u32]>) -> FpTable {
-        FpTable { cached: Mutex::new(None), used: (buf.len() * 8 + off.len() * 4) as u64, buf: buf.into(), hdr: core::ptr::null(), ranks: None, off: Some(off), renders: false, pins: Mutex::new(None) }
+        FpTable {
+            cached: Mutex::new(None),
+            used: (buf.len() * 8 + off.len() * 4) as u64,
+            buf: buf.into(),
+            hdr: core::ptr::null(),
+            ranks: None,
+            off: Some(off),
+            renders: false,
+            pins: Mutex::new(None),
+        }
     }
 
     /// The table's `Fp128` entries, 16 B per code: `None` for a table of another element, one with faulted entries, or an
@@ -1266,13 +1484,27 @@ impl FpEntry {
 
 impl FpCache {
     fn new() -> FpCache {
-        let charge = memledger::Charge::open(FP_OWNER, memledger::Release::Evict, memledger::Kind::Region, memledger::charge::Door::Heap, 0);
-        FpCache { map: HashMap::new(), bytes: 0, tick: 0, specs: 0, charge }
+        let charge = memledger::Charge::open(
+            FP_OWNER,
+            memledger::Release::Evict,
+            memledger::Kind::Region,
+            memledger::charge::Door::Heap,
+            0,
+        );
+        FpCache {
+            map: HashMap::new(),
+            bytes: 0,
+            tick: 0,
+            specs: 0,
+            charge,
+        }
     }
 
     fn refit(&mut self) {
-        const SLOT: usize = core::mem::size_of::<([u8; 16], u32, u64)>() + core::mem::size_of::<FpEntry>() + 1;
-        self.charge.fit_committed((self.map.capacity() * SLOT) as u64 + self.specs);
+        const SLOT: usize =
+            core::mem::size_of::<([u8; 16], u32, u64)>() + core::mem::size_of::<FpEntry>() + 1;
+        self.charge
+            .fit_committed((self.map.capacity() * SLOT) as u64 + self.specs);
     }
 
     fn remove(&mut self, key: &([u8; 16], u32, u64)) {
@@ -1284,7 +1516,9 @@ impl FpCache {
     }
 
     fn sweep_dead(&mut self) {
-        let FpCache { map, bytes, specs, .. } = &mut *self;
+        let FpCache {
+            map, bytes, specs, ..
+        } = &mut *self;
         let mut dead = 0u64;
         // retain's one pass over the map (no loop of ours, so no bounded marker): the entries whose part is gone, at most the
         // cache's entries (its byte cap bounds them), go with their bytes, a map removal each, as `remove` does
@@ -1304,17 +1538,27 @@ impl FpCache {
     /// Whether `key`'s entry was built for `part` itself (D1137: the uuid is `(dev, ino, len, footer_off)`, which a later part
     /// reusing a dead part's inode repeats; the entry's `Weak` keeps its part's allocation, so no later part shares the address).
     fn owned_by(&self, key: &([u8; 16], u32, u64), part: &Arc<OpenPart>) -> Option<bool> {
-        self.map.get(key).map(|e| core::ptr::eq(e.part.as_ptr(), Arc::as_ptr(part)))
+        self.map
+            .get(key)
+            .map(|e| core::ptr::eq(e.part.as_ptr(), Arc::as_ptr(part)))
     }
 
     /// The table of `key` for `part` (under `spec` when given): an entry of another part, dead or alive, is dropped and misses.
-    fn hit(&mut self, key: &([u8; 16], u32, u64), part: &Arc<OpenPart>, spec: Option<&TableSpec>) -> Option<Arc<FpTable>> {
+    fn hit(
+        &mut self,
+        key: &([u8; 16], u32, u64),
+        part: &Arc<OpenPart>,
+        spec: Option<&TableSpec>,
+    ) -> Option<Arc<FpTable>> {
         if !self.owned_by(key, part)? {
             self.remove(key);
             FP_RETIRED.fetch_add(1, Ordering::Relaxed);
             return None;
         }
-        let e = self.map.get_mut(key).filter(|e| spec.is_none_or(|s| e.spec.as_ref() == Some(s)))?;
+        let e = self
+            .map
+            .get_mut(key)
+            .filter(|e| spec.is_none_or(|s| e.spec.as_ref() == Some(s)))?;
         if memledger::value::ext() {
             let tail = FP_TAIL_TICK.load(Ordering::Relaxed);
             if tail != 0 && e.used <= tail {
@@ -1335,7 +1579,8 @@ impl FpCache {
 /// The resident tables' cap in bytes: `pgrust.gravity_fp_cache_mb`, else the machine's share (`cost::resident_tables_cap`:
 /// RAM / 8, not bounded by the grant pool).
 pub fn fp_cache_cap() -> u64 {
-    crate::inputs::custom_guc_u64(FP_CACHE_GUC).map_or_else(reuse::resident_tables_cap, |mb| mb << 20)
+    crate::inputs::custom_guc_u64(FP_CACHE_GUC)
+        .map_or_else(reuse::resident_tables_cap, |mb| mb << 20)
 }
 
 /// Memory step 5: the cap the last insert evicted to (u64::MAX: no insert yet), so the memory budget reads the cap on any
@@ -1355,8 +1600,16 @@ pub fn fp_cache_cap_seen() -> u64 {
 /// budget's floor for the fp tables (dropping such an entry frees nothing until its reader lets go).
 pub fn fp_pinned_bytes() -> u64 {
     // D4398: as fp_tables_resident
-    let Some(g) = memledger::ladder_pass::lock_or_skip(&FP_CACHE) else { return 0 };
-    g.as_ref().map_or(0, |c| c.map.values().filter(|e| Arc::strong_count(&e.table) > 1).map(|e| e.table.bytes()).sum())
+    let Some(g) = memledger::ladder_pass::lock_or_skip(&FP_CACHE) else {
+        return 0;
+    };
+    g.as_ref().map_or(0, |c| {
+        c.map
+            .values()
+            .filter(|e| Arc::strong_count(&e.table) > 1)
+            .map(|e| e.table.bytes())
+            .sum()
+    })
 }
 
 /// Memory step 5: the fp tables' reclaim for the memory budget (5b's reclaimer): the least recently used entries no reader
@@ -1366,13 +1619,20 @@ pub fn fp_cache_trim_to(bytes: u64) -> u64 {
     let mut n = 0u64;
     {
         // D4398: on the memory ladder's pass, nothing dropped while another thread holds the cache
-        let Some(mut g) = memledger::ladder_pass::lock_or_skip(&FP_CACHE) else { return 0 };
+        let Some(mut g) = memledger::ladder_pass::lock_or_skip(&FP_CACHE) else {
+            return 0;
+        };
         let Some(c) = g.as_mut() else { return 0 };
         if c.bytes <= bytes {
             return 0;
         }
-        let mut lru: Vec<(u64, ([u8; 16], u32, u64))> = c.map.iter().filter(|(_, e)| Arc::strong_count(&e.table) == 1).map(|(k, e)| (e.used, *k)).collect(); // alloc: Exec
-        // bounded("other: the memory budget's reclaim: the cache's unpinned entries (its byte cap bounds them) by last use, one sort of integer keys")
+        let mut lru: Vec<(u64, ([u8; 16], u32, u64))> = c
+            .map
+            .iter()
+            .filter(|(_, e)| Arc::strong_count(&e.table) == 1)
+            .map(|(k, e)| (e.used, *k))
+            .collect(); // alloc: Exec
+                        // bounded("other: the memory budget's reclaim: the cache's unpinned entries (its byte cap bounds them) by last use, one sort of integer keys")
         lru.sort_unstable();
         // bounded("other: the memory budget's reclaim drops the least recently used unpinned entries down to bytes, at most the cache's entries")
         for (_, k) in lru {
@@ -1419,10 +1679,18 @@ pub fn fp_reused_bytes(now: u32) -> [u64; 3] {
 /// The census: `(hits, builds, resident tables, their bytes, entries dropped with their part)`.
 pub fn fp_tables_resident() -> (u64, u64, u64, u64, u64) {
     // D4398: on the memory ladder's pass, nothing read while another thread holds the cache (the pass leaves it out)
-    let Some(g) = memledger::ladder_pass::lock_or_skip(&FP_CACHE) else { return (0, 0, 0, 0, 0) };
+    let Some(g) = memledger::ladder_pass::lock_or_skip(&FP_CACHE) else {
+        return (0, 0, 0, 0, 0);
+    };
     let (n, b) = g.as_ref().map_or((0, 0), |c| (c.map.len() as u64, c.bytes));
     memledger::value::flush();
-    (memledger::value::stats(memledger::Consumer::FpTables).hits, FP_BUILT.load(Ordering::Relaxed), n, b, FP_RETIRED.load(Ordering::Relaxed))
+    (
+        memledger::value::stats(memledger::Consumer::FpTables).hits,
+        FP_BUILT.load(Ordering::Relaxed),
+        n,
+        b,
+        FP_RETIRED.load(Ordering::Relaxed),
+    )
 }
 
 /// Drop every resident table (a rig's stand-in for a restart): the count dropped.
@@ -1440,7 +1708,9 @@ pub fn fp_cache_drop_all() -> u64 {
 fn retire_fp(uuid: [u8; 16]) -> u64 {
     let mut g = FP_CACHE.lock().unwrap_or_else(|e| e.into_inner());
     let Some(c) = g.as_mut() else { return 0 };
-    let FpCache { map, bytes, specs, .. } = &mut *c;
+    let FpCache {
+        map, bytes, specs, ..
+    } = &mut *c;
     let mut n = 0u64;
     // retain's one pass over the map (no loop of ours, so no bounded marker): one retired part's tables, a few per column
     // (its fingerprint, bpchar, renders and condition tables), go with their bytes, as `remove` does
@@ -1541,7 +1811,8 @@ impl MemoSlot {
         // the waiter is published before the last check (a publish after it unparks this source)
         let me = waiter::current_handle();
         pgsync::lock(&self.inner).waiters.push(me);
-        let mut step = cancelpoll::step("text_hosts memo: a source's wait on another source's build");
+        let mut step =
+            cancelpoll::step("text_hosts memo: a source's wait on another source's build");
         loop {
             match self.state.load(Ordering::Acquire) {
                 MEMO_DONE => return Some(true),
@@ -1586,7 +1857,13 @@ impl Default for FpMemo {
 
 impl FpMemo {
     pub fn new() -> FpMemo {
-        FpMemo { map: Mutex::new(HashMap::new()), bytes: AtomicU64::new(0), cap: AtomicU64::new(0), tick: AtomicU64::new(0), cross: core::sync::atomic::AtomicBool::new(true) } // alloc: Exec
+        FpMemo {
+            map: Mutex::new(HashMap::new()),
+            bytes: AtomicU64::new(0),
+            cap: AtomicU64::new(0),
+            tick: AtomicU64::new(0),
+            cross: core::sync::atomic::AtomicBool::new(true),
+        } // alloc: Exec
     }
 
     /// The execution's `pgrust.condition_cache`, set before any source binds (`Resolved::new`).
@@ -1607,14 +1884,24 @@ impl FpMemo {
     /// The census: `(tables held to the statement's end, their bytes)`.
     pub fn held(&self) -> (u64, u64) {
         let m = self.map.lock().unwrap_or_else(|e| e.into_inner());
-        (m.values().filter(|e| e.held.is_some()).count() as u64, self.bytes.load(Ordering::Relaxed))
+        (
+            m.values().filter(|e| e.held.is_some()).count() as u64,
+            self.bytes.load(Ordering::Relaxed),
+        )
     }
 
     /// The statement's table at `key` of `part` (under `spec` for a condition table) that `fits`, else `make`'s, kept for
     /// the statement's other sources. The first source to claim the key's slot runs `make` (holding no lock); a source that
     /// needs the same key meanwhile waits for it (`make` waits on no other key). A `make` that fails leaves the key to the
     /// next source's build.
-    fn get<E>(&self, key: ([u8; 16], u32, u64), part: &Arc<OpenPart>, spec: Option<&TableSpec>, fits: impl Fn(&FpTable) -> bool, make: impl FnOnce() -> Result<Arc<FpTable>, E>) -> Result<Arc<FpTable>, E> {
+    fn get<E>(
+        &self,
+        key: ([u8; 16], u32, u64),
+        part: &Arc<OpenPart>,
+        spec: Option<&TableSpec>,
+        fits: impl Fn(&FpTable) -> bool,
+        make: impl FnOnce() -> Result<Arc<FpTable>, E>,
+    ) -> Result<Arc<FpTable>, E> {
         let mut make = Some(make);
         // two rounds: a slot another source filled with a table that does not serve this one (gone, failed, another
         // part's) is replaced and built again; a second such round builds outside the memo
@@ -1622,15 +1909,35 @@ impl FpMemo {
             let slot = {
                 let mut m = self.map.lock().unwrap_or_else(|e| e.into_inner());
                 let tick = self.tick.fetch_add(1, Ordering::Relaxed);
-                let e = m.entry(key).or_insert_with(|| MemoEntry { slot: Arc::new(MemoSlot::default()), held: None, used: tick }); // alloc: Exec
+                let e = m.entry(key).or_insert_with(|| MemoEntry {
+                    slot: Arc::new(MemoSlot::default()),
+                    held: None,
+                    used: tick,
+                }); // alloc: Exec
                 e.used = tick;
                 Arc::clone(&e.slot)
             };
-            if slot.state.compare_exchange(MEMO_EMPTY, MEMO_BUILDING, Ordering::AcqRel, Ordering::Acquire).is_ok() {
-                let mut publish = Publish { slot: &slot, built: None };
+            if slot
+                .state
+                .compare_exchange(
+                    MEMO_EMPTY,
+                    MEMO_BUILDING,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                )
+                .is_ok()
+            {
+                let mut publish = Publish {
+                    slot: &slot,
+                    built: None,
+                };
                 let made = (make.take().expect("one build per call"))();
                 let table = made.as_ref().map_or_else(|_| Weak::new(), Arc::downgrade);
-                publish.built = Some(MemoBuilt { table, part: Arc::downgrade(part), spec: spec.cloned() }); // alloc: Exec
+                publish.built = Some(MemoBuilt {
+                    table,
+                    part: Arc::downgrade(part),
+                    spec: spec.cloned(),
+                }); // alloc: Exec
                 drop(publish);
                 return match made {
                     Ok(t) => {
@@ -1646,7 +1953,9 @@ impl FpMemo {
             match slot.wait_built() {
                 Some(true) => {
                     let got = pgsync::lock(&slot.inner);
-                    if let Some(b) = got.built.as_ref().filter(|b| core::ptr::eq(b.part.as_ptr(), Arc::as_ptr(part)) && b.spec.as_ref() == spec) {
+                    if let Some(b) = got.built.as_ref().filter(|b| {
+                        core::ptr::eq(b.part.as_ptr(), Arc::as_ptr(part)) && b.spec.as_ref() == spec
+                    }) {
                         if let Some(t) = b.table.upgrade().filter(|t| fits(t)) {
                             MEMO_SHARED.fetch_add(1, Ordering::Relaxed);
                             return Ok(t);
@@ -1682,8 +1991,18 @@ impl FpMemo {
         self.bytes.fetch_add(t.bytes(), Ordering::Relaxed);
         // bounded("other: drops the oldest holds until the statement's memo is under its cap, one hold a pass; the memo holds a few tables per part the statement reads")
         while self.bytes.load(Ordering::Relaxed) > cap {
-            let Some(oldest) = m.iter().filter(|(_, e)| e.held.is_some()).min_by_key(|(_, e)| e.used).map(|(k, _)| *k) else { break };
-            let old = m.get_mut(&oldest).and_then(|e| e.held.take()).expect("held");
+            let Some(oldest) = m
+                .iter()
+                .filter(|(_, e)| e.held.is_some())
+                .min_by_key(|(_, e)| e.used)
+                .map(|(k, _)| *k)
+            else {
+                break;
+            };
+            let old = m
+                .get_mut(&oldest)
+                .and_then(|e| e.held.take())
+                .expect("held");
             self.bytes.fetch_sub(old.bytes(), Ordering::Relaxed);
         }
     }
@@ -1691,51 +2010,121 @@ impl FpMemo {
 
 /// `fp_table_as` through the statement's memo (`None`: this source's own lookup, as before D3206): the process cache's
 /// table, else the statement's, else one source's build of it for every source.
-pub fn fp_table_in(memo: Option<&FpMemo>, part: &Arc<OpenPart>, attno: u32, dict: &DictView<'_>, over: u8, bpchar: bool) -> Result<Arc<FpTable>, TableBuildError> {
-    let Some(memo) = memo else { return fp_table_as(part, attno, dict, over, bpchar) };
+pub fn fp_table_in(
+    memo: Option<&FpMemo>,
+    part: &Arc<OpenPart>,
+    attno: u32,
+    dict: &DictView<'_>,
+    over: u8,
+    bpchar: bool,
+) -> Result<Arc<FpTable>, TableBuildError> {
+    let Some(memo) = memo else {
+        return fp_table_as(part, attno, dict, over, bpchar);
+    };
     let key = (part.uuid(), attno, if bpchar { FP_BPCHAR } else { 0 });
     let ncodes = gravity_dict::Dict::ncodes(dict) as usize;
     if let Some(t) = cached(&key, part).filter(|t| t.table().ncodes() as usize == ncodes) {
         fires::fire_shared("dict.fp_resident"); // shapecheck fire signal (REGISTRY H24, KN-04, NEW-kernels-exec-88)
         return Ok(t);
     }
-    memo.get(key, part, None, |t| t.table().ncodes() as usize == ncodes, || fp_table_as(part, attno, dict, over, bpchar))
+    memo.get(
+        key,
+        part,
+        None,
+        |t| t.table().ncodes() as usize == ncodes,
+        || fp_table_as(part, attno, dict, over, bpchar),
+    )
 }
 
 /// `cond_table` through the statement's memo (`None`: this source's own, as before D3206). With the memo's execution under
 /// `pgrust.condition_cache = off` or `granule` the table is the statement's alone: built once for its sources, never looked up in or
 /// kept in the process cache, so no other statement reads it and this one reads none another built.
-pub fn cond_table_in(memo: Option<&FpMemo>, part: &Arc<OpenPart>, attno: u32, spec: &TableSpec, dict: &DictView<'_>) -> Result<Arc<FpTable>, TableBuildError> {
-    let Some(memo) = memo else { return cond_table(part, attno, spec, dict) };
+pub fn cond_table_in(
+    memo: Option<&FpMemo>,
+    part: &Arc<OpenPart>,
+    attno: u32,
+    spec: &TableSpec,
+    dict: &DictView<'_>,
+) -> Result<Arc<FpTable>, TableBuildError> {
+    let Some(memo) = memo else {
+        return cond_table(part, attno, spec, dict);
+    };
     let key = ranks_key(part, attno, spec.fingerprint(), dict.ranks());
     if !memo.cross_statement() {
-        return memo.get(key, part, Some(spec), |_| true, || build_cond_table(spec, dict, Held::By(dict.owner())).map(Arc::new)); // alloc: Exec
+        return memo.get(
+            key,
+            part,
+            Some(spec),
+            |_| true,
+            || build_cond_table(spec, dict, Held::By(dict.owner())).map(Arc::new),
+        ); // alloc: Exec
     }
     if let Some(t) = cached_for(&key, part, spec) {
-        crate::ops::scan::pgrc::cond_cache::reuse::note(crate::ops::scan::pgrc::cond_cache::reuse::Kind::CodeTables, 1);
+        crate::ops::scan::pgrc::cond_cache::reuse::note(
+            crate::ops::scan::pgrc::cond_cache::reuse::Kind::CodeTables,
+            1,
+        );
         return Ok(t);
     }
-    memo.get(key, part, Some(spec), |_| true, || cond_table(part, attno, spec, dict))
+    memo.get(
+        key,
+        part,
+        Some(spec),
+        |_| true,
+        || cond_table(part, attno, spec, dict),
+    )
 }
 
 /// `entry_runs` through the statement's memo (`None`: this source's own, as before D3206).
-pub fn entry_runs_in(memo: Option<&FpMemo>, part: &Arc<OpenPart>, attno: u32, fp: &FpTable) -> Option<Arc<FpTable>> {
-    let Some(memo) = memo else { return entry_runs(part, attno, fp) };
-    let key = ranks_key(part, attno, crate::ops::scan::pgrc::entry_runs::RUNS_KEY, fp.ranks());
+pub fn entry_runs_in(
+    memo: Option<&FpMemo>,
+    part: &Arc<OpenPart>,
+    attno: u32,
+    fp: &FpTable,
+) -> Option<Arc<FpTable>> {
+    let Some(memo) = memo else {
+        return entry_runs(part, attno, fp);
+    };
+    let key = ranks_key(
+        part,
+        attno,
+        crate::ops::scan::pgrc::entry_runs::RUNS_KEY,
+        fp.ranks(),
+    );
     if let Some(t) = cached(&key, part).filter(|t| t.runs().is_some()) {
         return Some(t);
     }
-    memo.get(key, part, None, |t| t.runs().is_some(), || entry_runs(part, attno, fp).ok_or(())).ok()
+    memo.get(
+        key,
+        part,
+        None,
+        |t| t.runs().is_some(),
+        || entry_runs(part, attno, fp).ok_or(()),
+    )
+    .ok()
 }
 
 /// `render_table` through the statement's memo (`None`: this source's own, as before D3206).
-pub fn render_table_in(memo: Option<&FpMemo>, part: &Arc<OpenPart>, attno: u32, view: &DictView<'_>) -> Result<Arc<FpTable>, ReadError> {
-    let Some(memo) = memo else { return render_table(part, attno, view) };
+pub fn render_table_in(
+    memo: Option<&FpMemo>,
+    part: &Arc<OpenPart>,
+    attno: u32,
+    view: &DictView<'_>,
+) -> Result<Arc<FpTable>, ReadError> {
+    let Some(memo) = memo else {
+        return render_table(part, attno, view);
+    };
     let key = ranks_key(part, attno, RENDERS_KEY, view.ranks());
     if let Some(t) = cached(&key, part).filter(|t| t.renders) {
         return Ok(t);
     }
-    memo.get(key, part, None, |t| t.renders, || render_table(part, attno, view))
+    memo.get(
+        key,
+        part,
+        None,
+        |t| t.renders,
+        || render_table(part, attno, view),
+    )
 }
 
 /// The cache key's third word of a part's `Fp128` table: 0 the padded renders' (`TableFn::Fingerprint`), `FP_BPCHAR` the trimmed
@@ -1745,13 +2134,22 @@ const FP_BPCHAR: u64 = 2;
 /// The part's resident `Fp128` table, the padded (`bpchar` false) or the trimmed bpchar form (`TableFn::FingerprintBpchar`,
 /// D767); never a build.
 pub fn fp_resident_as(part: &Arc<OpenPart>, attno: u32, bpchar: bool) -> Option<Arc<FpTable>> {
-    cached(&(part.uuid(), attno, if bpchar { FP_BPCHAR } else { 0 }), part)
+    cached(
+        &(part.uuid(), attno, if bpchar { FP_BPCHAR } else { 0 }),
+        part,
+    )
 }
 
 /// The part's `Fp128` table over the dictionary of `attno`, the padded or the trimmed bpchar form (D767, each its own cache
 /// entry): the resident one, else built now into its own buffer and kept in the process cache. The caller pins the `Arc` while
 /// a lane points at the table.
-pub fn fp_table_as(part: &Arc<OpenPart>, attno: u32, dict: &DictView<'_>, over: u8, bpchar: bool) -> Result<Arc<FpTable>, TableBuildError> {
+pub fn fp_table_as(
+    part: &Arc<OpenPart>,
+    attno: u32,
+    dict: &DictView<'_>,
+    over: u8,
+    bpchar: bool,
+) -> Result<Arc<FpTable>, TableBuildError> {
     let key = (part.uuid(), attno, if bpchar { FP_BPCHAR } else { 0 });
     let ncodes = gravity_dict::Dict::ncodes(dict) as usize;
     if let Some(t) = fp_resident_as(part, attno, bpchar) {
@@ -1766,7 +2164,14 @@ pub fn fp_table_as(part: &Arc<OpenPart>, attno: u32, dict: &DictView<'_>, over: 
         }
     }
     fp_seed();
-    let spec = TableSpec { over, func: if bpchar { TableFn::FingerprintBpchar } else { TableFn::Fingerprint } };
+    let spec = TableSpec {
+        over,
+        func: if bpchar {
+            TableFn::FingerprintBpchar
+        } else {
+            TableFn::Fingerprint
+        },
+    };
     let mut words = (64 + 16 * ncodes + 64).div_ceil(8);
     let t = loop {
         // D4278: a resident table's buffer from the build pool, as a derived table's (its drop gives it back there); only
@@ -1775,8 +2180,21 @@ pub fn fp_table_as(part: &Arc<OpenPart>, attno: u32, dict: &DictView<'_>, over: 
         raw::advise_resident(&mut hb.buf);
         let mut region = raw::region(&mut hb.buf);
         match build_table(&spec, dict, &mut region, &mut None) {
-            Ok(hdr) => break FpTable { cached: Mutex::new(hb.held), used: (hb.buf.len() * 8) as u64, buf: hb.buf, hdr, ranks: None, off: None, renders: false, pins: Mutex::new(None) },
-            Err(TableBuildError::Region(gravity_dict::BuildError::RegionFull { needed })) => words = (words * 8 + needed + 64).div_ceil(8),
+            Ok(hdr) => {
+                break FpTable {
+                    cached: Mutex::new(hb.held),
+                    used: (hb.buf.len() * 8) as u64,
+                    buf: hb.buf,
+                    hdr,
+                    ranks: None,
+                    off: None,
+                    renders: false,
+                    pins: Mutex::new(None),
+                }
+            }
+            Err(TableBuildError::Region(gravity_dict::BuildError::RegionFull { needed })) => {
+                words = (words * 8 + needed + 64).div_ceil(8)
+            }
             Err(e) => return Err(e),
         }
     };
@@ -1838,7 +2256,10 @@ static FP_OVER_CAP_PINNED: AtomicU64 = AtomicU64::new(0);
 static FP_OVER_CAP_PINNED_BYTES: AtomicU64 = AtomicU64::new(0);
 
 pub fn fp_over_cap_pinned() -> (u64, u64) {
-    (FP_OVER_CAP_PINNED.load(Ordering::Relaxed), FP_OVER_CAP_PINNED_BYTES.load(Ordering::Relaxed))
+    (
+        FP_OVER_CAP_PINNED.load(Ordering::Relaxed),
+        FP_OVER_CAP_PINNED_BYTES.load(Ordering::Relaxed),
+    )
 }
 
 pub fn fp_cap_evicted_bytes() -> u64 {
@@ -1849,7 +2270,10 @@ pub fn fp_cap_evicted_bytes() -> u64 {
 #[inline]
 fn fp_evicted(key: &([u8; 16], u32, u64), bytes: u64) {
     if memledger::value::ext() {
-        FP_GHOSTS.record(fp_value_key(key), memledger::value::evicted(memledger::Consumer::FpTables, bytes));
+        FP_GHOSTS.record(
+            fp_value_key(key),
+            memledger::value::evicted(memledger::Consumer::FpTables, bytes),
+        );
     }
 }
 
@@ -1857,7 +2281,9 @@ fn fp_evicted(key: &([u8; 16], u32, u64), bytes: u64) {
 /// broker's plan on the memory watchdog's thread: no allocation and no wait (`memledger::value::coldest_tenth` over the
 /// tables under `try_lock`; busy, the last mark stays).
 pub fn fp_publish_tail() {
-    let Some(g) = memledger::value::try_lock(&FP_CACHE) else { return };
+    let Some(g) = memledger::value::try_lock(&FP_CACHE) else {
+        return;
+    };
     let Some(c) = g.as_ref() else { return };
     let tail = memledger::value::coldest_tenth(c.map.len(), |f| {
         // bounded("other: on the memory watchdog's thread under try_lock, outside every statement's kernel call; one pass over the cache's entries")
@@ -1882,10 +2308,18 @@ fn fp_value_key(key: &([u8; 16], u32, u64)) -> u64 {
 
 /// A part's condition table (a LIKE, equality or range verdict per dictionary code): resident across statements under the
 /// fingerprint cache's cap (R4), a cross-statement reuse `pgrust.condition_cache` governs (`cond_table_in`).
-pub fn cond_table(part: &Arc<OpenPart>, attno: u32, spec: &TableSpec, dict: &DictView<'_>) -> Result<Arc<FpTable>, TableBuildError> {
+pub fn cond_table(
+    part: &Arc<OpenPart>,
+    attno: u32,
+    spec: &TableSpec,
+    dict: &DictView<'_>,
+) -> Result<Arc<FpTable>, TableBuildError> {
     let key = ranks_key(part, attno, spec.fingerprint(), dict.ranks());
     if let Some(t) = cached_for(&key, part, spec) {
-        crate::ops::scan::pgrc::cond_cache::reuse::note(crate::ops::scan::pgrc::cond_cache::reuse::Kind::CodeTables, 1);
+        crate::ops::scan::pgrc::cond_cache::reuse::note(
+            crate::ops::scan::pgrc::cond_cache::reuse::Kind::CodeTables,
+            1,
+        );
         return Ok(t);
     }
     let t = build_cond_table(spec, dict, Held::Resident)?;
@@ -1895,11 +2329,21 @@ pub fn cond_table(part: &Arc<OpenPart>, attno: u32, spec: &TableSpec, dict: &Dic
 
 /// A condition table's build over `dict`, its buffer charged as `held` says (`cond_table`'s resident one, or the
 /// statement's own).
-fn build_cond_table(spec: &TableSpec, dict: &DictView<'_>, held: Held) -> Result<FpTable, TableBuildError> {
+fn build_cond_table(
+    spec: &TableSpec,
+    dict: &DictView<'_>,
+    held: Held,
+) -> Result<FpTable, TableBuildError> {
     let n = gravity_dict::Dict::ncodes(dict) as usize;
-    let per_code = if spec.elem() == gravity_dict::lane::ELEM_BITS { n.div_ceil(8) } else { 8 * n };
+    let per_code = if spec.elem() == gravity_dict::lane::ELEM_BITS {
+        n.div_ceil(8)
+    } else {
+        8 * n
+    };
     COND_BUILT.fetch_add(1, Ordering::Relaxed);
-    build_owned_held(64 + per_code + (1 << 12), held, &mut |region| build_table(spec, dict, region, &mut None))
+    build_owned_held(64 + per_code + (1 << 12), held, &mut |region| {
+        build_table(spec, dict, region, &mut None)
+    })
 }
 
 static COND_BUILT: AtomicU64 = AtomicU64::new(0);
@@ -1910,7 +2354,11 @@ pub fn cond_tables_built() -> u64 {
 }
 
 /// `cached` of a table kept under `spec` (a condition table): a key held under another spec misses.
-fn cached_for(key: &([u8; 16], u32, u64), part: &Arc<OpenPart>, spec: &TableSpec) -> Option<Arc<FpTable>> {
+fn cached_for(
+    key: &([u8; 16], u32, u64),
+    part: &Arc<OpenPart>,
+    spec: &TableSpec,
+) -> Option<Arc<FpTable>> {
     let t = {
         let mut g = FP_CACHE.lock().unwrap_or_else(|e| e.into_inner());
         let c = g.as_mut();
@@ -1933,14 +2381,28 @@ fn insert_fp(key: ([u8; 16], u32, u64), part: &Arc<OpenPart>, t: FpTable) -> (Ar
 
 /// `insert_fp` of a shared table, under `spec` for a condition one: a key `part` holds under another spec (a fingerprint
 /// collision) keeps its table, and `t` goes back to the caller unkept; another part's entry under the key is replaced.
-fn insert_arc(key: ([u8; 16], u32, u64), part: &Arc<OpenPart>, t: Arc<FpTable>, spec: Option<&TableSpec>) -> (Arc<FpTable>, bool) {
+fn insert_arc(
+    key: ([u8; 16], u32, u64),
+    part: &Arc<OpenPart>,
+    t: Arc<FpTable>,
+    spec: Option<&TableSpec>,
+) -> (Arc<FpTable>, bool) {
     let r = insert_arc_now(key, part, t, spec);
     // a table built or loaded: the fp cache's miss, the bytes it keeps (none when another builder's table stays)
-    memledger::value::fault(memledger::Consumer::FpTables, fp_value_key(&key), if r.1 { r.0.bytes() } else { 0 });
+    memledger::value::fault(
+        memledger::Consumer::FpTables,
+        fp_value_key(&key),
+        if r.1 { r.0.bytes() } else { 0 },
+    );
     r
 }
 
-fn insert_arc_now(key: ([u8; 16], u32, u64), part: &Arc<OpenPart>, t: Arc<FpTable>, spec: Option<&TableSpec>) -> (Arc<FpTable>, bool) {
+fn insert_arc_now(
+    key: ([u8; 16], u32, u64),
+    part: &Arc<OpenPart>,
+    t: Arc<FpTable>,
+    spec: Option<&TableSpec>,
+) -> (Arc<FpTable>, bool) {
     let bytes = t.bytes();
     let cap = fp_cache_cap();
     FP_CAP_SEEN.store(cap, Ordering::Relaxed);
@@ -1951,7 +2413,11 @@ fn insert_arc_now(key: ([u8; 16], u32, u64), part: &Arc<OpenPart>, t: Arc<FpTabl
     match c.owned_by(&key, part) {
         Some(true) => {
             let e = &c.map[&key];
-            return if e.spec.as_ref() == spec { (Arc::clone(&e.table), false) } else { (t, false) };
+            return if e.spec.as_ref() == spec {
+                (Arc::clone(&e.table), false)
+            } else {
+                (t, false)
+            };
         }
         Some(false) => {
             c.remove(&key);
@@ -1961,12 +2427,20 @@ fn insert_arc_now(key: ([u8; 16], u32, u64), part: &Arc<OpenPart>, t: Arc<FpTabl
     }
     c.sweep_dead();
     // L7: under the ladder's budget a held table is in use, so the cap passes over it (cache_fp_cap_pins)
-    let skip_held = mcx::ladder::floors_on() && mempolicy::consts::get(mempolicy::consts::K::CacheFpCapPins) != 0;
+    let skip_held = mcx::ladder::floors_on()
+        && mempolicy::consts::get(mempolicy::consts::K::CacheFpCapPins) != 0;
     // bounded("other: evicts the least recently used tables until the new one fits the cache's byte cap, one table a pass; the cap bounds the entries")
     while c.bytes + bytes > cap && !c.map.is_empty() {
-        let Some(oldest) = c.map.iter().filter(|(_, e)| !skip_held || Arc::strong_count(&e.table) == 1).min_by_key(|(_, e)| e.used).map(|(k, _)| *k) else {
+        let Some(oldest) = c
+            .map
+            .iter()
+            .filter(|(_, e)| !skip_held || Arc::strong_count(&e.table) == 1)
+            .min_by_key(|(_, e)| e.used)
+            .map(|(k, _)| *k)
+        else {
             FP_OVER_CAP_PINNED.fetch_add(1, Ordering::Relaxed);
-            FP_OVER_CAP_PINNED_BYTES.fetch_add((c.bytes + bytes - cap).min(bytes), Ordering::Relaxed);
+            FP_OVER_CAP_PINNED_BYTES
+                .fetch_add((c.bytes + bytes - cap).min(bytes), Ordering::Relaxed);
             break;
         };
         let gone = c.map[&oldest].table.bytes();
@@ -1982,7 +2456,14 @@ fn insert_arc_now(key: ([u8; 16], u32, u64), part: &Arc<OpenPart>, t: Arc<FpTabl
         0 => (0, 0),
         now => (pgrc_read::partcache::statement_epoch(), u64::from(now)),
     };
-    let e = FpEntry { table: Arc::clone(&t), part: Arc::downgrade(part), used: c.tick, spec: spec.cloned(), reuse_epoch, reuse_secs }; // alloc: Cold charged FP_OWNER (FpCache::charge: the spec's bytes, refit below)
+    let e = FpEntry {
+        table: Arc::clone(&t),
+        part: Arc::downgrade(part),
+        used: c.tick,
+        spec: spec.cloned(),
+        reuse_epoch,
+        reuse_secs,
+    }; // alloc: Cold charged FP_OWNER (FpCache::charge: the spec's bytes, refit below)
     c.specs += e.spec_bytes();
     c.map.insert(key, e); // alloc: Cold charged FP_OWNER (FpCache::charge: the map's slots, refit below)
     c.refit();
@@ -1994,7 +2475,12 @@ fn insert_arc_now(key: ([u8; 16], u32, u64), part: &Arc<OpenPart>, t: Arc<FpTabl
 /// same cap and LRU, the dead-part sweep, `retire_part`, `fp_cache_drop_all`), built from `fp` on a miss.
 /// `None`: `fp` holds no plain entries (faulted, or not an `Fp128` table): the part publishes its rows.
 pub fn entry_runs(part: &Arc<OpenPart>, attno: u32, fp: &FpTable) -> Option<Arc<FpTable>> {
-    let key = ranks_key(part, attno, crate::ops::scan::pgrc::entry_runs::RUNS_KEY, fp.ranks());
+    let key = ranks_key(
+        part,
+        attno,
+        crate::ops::scan::pgrc::entry_runs::RUNS_KEY,
+        fp.ranks(),
+    );
     if let Some(t) = cached(&key, part).filter(|t| t.runs().is_some()) {
         return Some(t);
     }
@@ -2028,7 +2514,13 @@ impl Default for ScratchGate {
 
 impl ScratchGate {
     pub fn new() -> ScratchGate {
-        ScratchGate { held: memledger::ChargedVec::new(Some(memledger::charge::context().0), memledger::Kind::Region), drawn: 0 } // alloc: Cold charged context() (held: a ChargedVec, empty until cover)
+        ScratchGate {
+            held: memledger::ChargedVec::new(
+                Some(memledger::charge::context().0),
+                memledger::Kind::Region,
+            ),
+            drawn: 0,
+        } // alloc: Cold charged context() (held: a ChargedVec, empty until cover)
     }
 
     /// The bytes drawn so far.
@@ -2044,7 +2536,12 @@ impl ScratchGate {
         }
         let ask = (bytes - self.drawn).max(self.drawn / 4).max(SCRATCH_STEP);
         // a refused push gives the draw back at once (its drop): the next cover asks again
-        if self.held.push(gravity_driver::mem::region::scratch_draw(ask)).is_ok() { // alloc: Cold charged context() (held's ChargedVec)
+        if self
+            .held
+            .push(gravity_driver::mem::region::scratch_draw(ask))
+            .is_ok()
+        {
+            // alloc: Cold charged context() (held's ChargedVec)
             self.drawn += ask;
         }
     }
@@ -2055,7 +2552,8 @@ impl ScratchGate {
         if v.capacity() - v.len() >= more {
             return;
         }
-        let grown = (v.len() + more).max(v.capacity().saturating_mul(2)) * core::mem::size_of::<T>();
+        let grown =
+            (v.len() + more).max(v.capacity().saturating_mul(2)) * core::mem::size_of::<T>();
         self.cover(live.saturating_add(grown as u64));
     }
 }
@@ -2073,7 +2571,11 @@ pub const RENDERS_KEY: u64 = u64::from_le_bytes(*b"RENDERS0");
 /// LRU and dead-part sweep, `retire_part`, `fp_cache_drop_all`), so every participant and statement that renders the
 /// part reads one copy. Built from `view` (the part's rows through the caller's cursor) on a miss. A read error is the
 /// view's.
-pub fn render_table(part: &Arc<OpenPart>, attno: u32, view: &DictView<'_>) -> Result<Arc<FpTable>, ReadError> {
+pub fn render_table(
+    part: &Arc<OpenPart>,
+    attno: u32,
+    view: &DictView<'_>,
+) -> Result<Arc<FpTable>, ReadError> {
     let key = ranks_key(part, attno, RENDERS_KEY, view.ranks());
     if let Some(t) = cached(&key, part).filter(|t| t.renders) {
         return Ok(t);
@@ -2107,8 +2609,14 @@ pub fn render_table(part: &Arc<OpenPart>, attno: u32, view: &DictView<'_>) -> Re
 /// and the images are charged to the grant pool (`gate`) before they grow. CACHE-CHARGE: each allocation of the offsets
 /// and the images (and nothing else: the walk's memory is its source's) is taken under the fp tables' cache scope, and
 /// the scopes' charges are one (the first of the result: it ends before the images are freed).
-fn lay_renders(d: &dyn gravity_dict::Dict, n: usize, cap: usize, gate: &mut ScratchGate) -> Result<(Option<memledger::Charge>, Vec<u64>, Box<[u32]>), ReadError> {
-    let mut step = cancelpoll::step("text_hosts render_table: a verbatim part's render images laid out");
+fn lay_renders(
+    d: &dyn gravity_dict::Dict,
+    n: usize,
+    cap: usize,
+    gate: &mut ScratchGate,
+) -> Result<(Option<memledger::Charge>, Vec<u64>, Box<[u32]>), ReadError> {
+    let mut step =
+        cancelpoll::step("text_hosts render_table: a verbatim part's render images laid out");
     let stop = |_: cancelpoll::Canceled| ReadError::Canceled;
     gate.cover((n * 4 + cap * 8) as u64);
     let mut off: Vec<u32> = Vec::new(); // alloc: Cold
@@ -2133,7 +2641,8 @@ fn lay_renders(d: &dyn gravity_dict::Dict, n: usize, cap: usize, gate: &mut Scra
         let (at, words) = (buf.len(), (4 + b.len()).div_ceil(8));
         gate.cover_growth(&buf, words, cap_bytes(&off) + cap_bytes(&buf));
         // a growth of the images (a new buffer, the old one freed) under the scope: its charge moves by the difference
-        let scope = (buf.capacity() - buf.len() < words).then(|| memledger::arena::cache_scope_for(FP_OWNER, memledger::Kind::Region));
+        let scope = (buf.capacity() - buf.len() < words)
+            .then(|| memledger::arena::cache_scope_for(FP_OWNER, memledger::Kind::Region));
         let zeroed = step.reserve(&mut buf, words).and_then(|()| {
             step.pieces(words, cancelpoll::PIECE / 8, |r| {
                 buf.resize(at + r.end, 0); // alloc: Cold charged FP_OWNER
@@ -2175,7 +2684,8 @@ const FLIGHT_SLOTS: usize = 64;
 /// statement) waits for that build (`fp_flight`) and reads the table it keeps, instead of decoding and sorting the same
 /// part's column beside it: the tail rule's cut parts had every worker of a W8 statement rank each one cold (a verbatim
 /// text column's parts built 2.6x as often, 3.4x the statement's CPU). Slots in place: no allocation.
-static FP_FLIGHT: Mutex<[Option<([u8; 16], u32, u64)>; FLIGHT_SLOTS]> = Mutex::new([None; FLIGHT_SLOTS]);
+static FP_FLIGHT: Mutex<[Option<([u8; 16], u32, u64)>; FLIGHT_SLOTS]> =
+    Mutex::new([None; FLIGHT_SLOTS]);
 static FP_FLIGHT_CV: pgsync::Condvar = pgsync::Condvar::new();
 /// The openers that waited on another's build of the same table, since start.
 static FP_FLIGHT_WAITS: AtomicU64 = AtomicU64::new(0);
@@ -2204,7 +2714,8 @@ impl Drop for Flight {
 /// a look, no LRU touch (the claims' tail rule asks it of the parts it would cut, exec runner/plan.rs `claims_of`).
 pub fn ranks_resident(part: &Arc<OpenPart>, attno: u32) -> bool {
     let g = FP_CACHE.lock().unwrap_or_else(|e| e.into_inner());
-    g.as_ref().is_some_and(|c| c.owned_by(&(part.uuid(), attno, 0), part) == Some(true))
+    g.as_ref()
+        .is_some_and(|c| c.owned_by(&(part.uuid(), attno, 0), part) == Some(true))
 }
 
 /// D4732 (a), a test's stand-in for a build in flight: part `part`'s whole table of `attno` (`row_codes`' key with no kept
@@ -2233,9 +2744,14 @@ fn fp_flight(key: ([u8; 16], u32, u64)) -> Result<Option<Option<Flight>>, cancel
     let mut g = FP_FLIGHT.lock().unwrap_or_else(|e| e.into_inner());
     if g.iter().flatten().any(|k| *k == key) {
         FP_FLIGHT_WAITS.fetch_add(1, Ordering::Relaxed);
-        let mut step = cancelpoll::step("text_hosts row_codes: a wait on another opener's build of the same part's ranks");
+        let mut step = cancelpoll::step(
+            "text_hosts row_codes: a wait on another opener's build of the same part's ranks",
+        );
         while g.iter().flatten().any(|k| *k == key) {
-            g = FP_FLIGHT_CV.wait_timeout(g, FLIGHT_SLICE).map(|(g, _)| g).unwrap_or_else(|e| e.into_inner().0);
+            g = FP_FLIGHT_CV
+                .wait_timeout(g, FLIGHT_SLICE)
+                .map(|(g, _)| g)
+                .unwrap_or_else(|e| e.into_inner().0);
             step.tick()?;
         }
         return Ok(None);
@@ -2253,10 +2769,19 @@ fn fp_flight(key: ([u8; 16], u32, u64)) -> Result<Option<Option<Flight>>, cancel
 /// a resident whole-part table serves it as it is (it covers every granule).
 /// D4732 (a): one build per table at a time (`fp_flight`): a concurrent opener of the same table waits for it and reads
 /// the table it kept.
-pub fn row_codes(part: &Arc<OpenPart>, cur: &mut StreamCursor<'static>, attno: u32, scratch: &mut TextScratch, kept: Option<&Kept>) -> Result<Arc<FpTable>, TableBuildError> {
+pub fn row_codes(
+    part: &Arc<OpenPart>,
+    cur: &mut StreamCursor<'static>,
+    attno: u32,
+    scratch: &mut TextScratch,
+    kept: Option<&Kept>,
+) -> Result<Arc<FpTable>, TableBuildError> {
     let whole = (part.uuid(), attno, 0);
     let key = kept.map_or(whole, |k| (part.uuid(), attno | KEPT_BIT, k.salt));
-    let same = |t: &Arc<FpTable>| t.ranks().is_some_and(|r| r.kept.as_deref() == kept.map(|k| &*k.bits));
+    let same = |t: &Arc<FpTable>| {
+        t.ranks()
+            .is_some_and(|r| r.kept.as_deref() == kept.map(|k| &*k.bits))
+    };
     let _flight = loop {
         {
             let mut g = FP_CACHE.lock().unwrap_or_else(|e| e.into_inner());
@@ -2264,7 +2789,10 @@ pub fn row_codes(part: &Arc<OpenPart>, cur: &mut StreamCursor<'static>, attno: u
                 if let Some(t) = c.hit(&key, part, None).filter(same) {
                     return Ok(t);
                 }
-                if let Some(t) = kept.and_then(|_| c.hit(&whole, part, None)).filter(|t| t.ranks().is_some_and(|r| r.kept.is_none())) {
+                if let Some(t) = kept
+                    .and_then(|_| c.hit(&whole, part, None))
+                    .filter(|t| t.ranks().is_some_and(|r| r.kept.is_none()))
+                {
                     return Ok(t);
                 }
             }
@@ -2293,7 +2821,8 @@ pub fn row_codes(part: &Arc<OpenPart>, cur: &mut StreamCursor<'static>, attno: u
     // (`cancelpoll::sort_by`: seconds of memcmp on a verbatim part, the D3821 stress's 3 s cancel lag), a batch of codes.
     // D4232: a tick per row's payload copied and per `PIECE` of a long one, and the copies' growth polled (a granule's
     // copies and a doubling of the column's bytes faulted in 16k pages between two granule ticks)
-    let mut step = cancelpoll::step("text_hosts row_codes: a verbatim part's rows ranked by their bytes");
+    let mut step =
+        cancelpoll::step("text_hosts row_codes: a verbatim part's rows ranked by their bytes");
     let stop = |_: cancelpoll::Canceled| TableBuildError::Read(ReadError::Canceled);
     for lg in 0..granules {
         starts.push(row); // alloc: Cold charged FP_OWNER
@@ -2314,10 +2843,16 @@ pub fn row_codes(part: &Arc<OpenPart>, cur: &mut StreamCursor<'static>, attno: u
             ents.push((store.len() as u32, b.len() as u32))?;
             live_rows += 1;
             if store.capacity() - store.len() < b.len() {
-                store.cover_growth(&mut gate, b.len(), store.cap_bytes() + ents.cap_bytes() + cap_bytes(&starts));
+                store.cover_growth(
+                    &mut gate,
+                    b.len(),
+                    store.cap_bytes() + ents.cap_bytes() + cap_bytes(&starts),
+                );
             }
             store.reserve(&mut step, b.len())?;
-            step.pieces(b.len(), cancelpoll::PIECE, |r| store.extend_from_slice(&b[r]))?;
+            step.pieces(b.len(), cancelpoll::PIECE, |r| {
+                store.extend_from_slice(&b[r])
+            })?;
         }
         row += rows as u32;
     }
@@ -2326,8 +2861,20 @@ pub fn row_codes(part: &Arc<OpenPart>, cur: &mut StreamCursor<'static>, attno: u
     let bytes_of = |e: &(u32, u32)| &store_b[e.0 as usize..(e.0 + e.1) as usize];
     // the order, its sort's scratch, the codes, and the distinct values' two arrays (at most one entry a row) beside the copy
     let n = ents_s.len() as u64;
-    let sort_scratch = if ents_s.len() > cancelpoll::SORT_RUN { 4 * n } else { 0 };
-    gate.cover(store.cap_bytes() + ents.cap_bytes() + cap_bytes(&starts) + 4 * n + sort_scratch + 4 * n + 12 * n);
+    let sort_scratch = if ents_s.len() > cancelpoll::SORT_RUN {
+        4 * n
+    } else {
+        0
+    };
+    gate.cover(
+        store.cap_bytes()
+            + ents.cap_bytes()
+            + cap_bytes(&starts)
+            + 4 * n
+            + sort_scratch
+            + 4 * n
+            + 12 * n,
+    );
     // the live rows counted in the fill: the order reserved whole, the sort's scratch on an arena dropped after the sort
     let order_arena = arena_of(owner);
     let mut order: AVec<u32> = AVec::with_capacity(&order_arena, live_rows).map_err(refused)?;
@@ -2341,10 +2888,17 @@ pub fn row_codes(part: &Arc<OpenPart>, cur: &mut StreamCursor<'static>, attno: u
         let sort_arena = arena_of(owner);
         let mut scratch_order: AVec<u32> = AVec::default();
         if order.len() > cancelpoll::SORT_RUN {
-            scratch_order.resize(&sort_arena, order.len(), 0).map_err(refused)?;
+            scratch_order
+                .resize(&sort_arena, order.len(), 0)
+                .map_err(refused)?;
         }
-        cancelpoll::sort_by(&mut step, order.as_mut_slice(&order_arena), scratch_order.as_mut_slice(&sort_arena), |&a, &b| bytes_of(&ents_s[a as usize]).cmp(bytes_of(&ents_s[b as usize])))
-            .map_err(|_| TableBuildError::Read(ReadError::Canceled))?;
+        cancelpoll::sort_by(
+            &mut step,
+            order.as_mut_slice(&order_arena),
+            scratch_order.as_mut_slice(&sort_arena),
+            |&a, &b| bytes_of(&ents_s[a as usize]).cmp(bytes_of(&ents_s[b as usize])),
+        )
+        .map_err(|_| TableBuildError::Read(ReadError::Canceled))?;
     }
     let work = store.cap_bytes() + ents.cap_bytes();
     let (order, ents) = (order.as_slice(&order_arena), ents_s);
@@ -2357,11 +2911,17 @@ pub fn row_codes(part: &Arc<OpenPart>, cur: &mut StreamCursor<'static>, attno: u
     let mut reps: Vec<u32> = Vec::new(); // alloc: Cold charged FP_OWNER
     let mut distinct: Vec<(u32, u32)> = Vec::new(); // alloc: Cold charged FP_OWNER
     for (k, &i) in order.iter().enumerate() {
-        step.batch(k).map_err(|_| TableBuildError::Read(ReadError::Canceled))?;
+        step.batch(k)
+            .map_err(|_| TableBuildError::Read(ReadError::Canceled))?;
         let e = ents[i as usize];
-        if reps.last().is_none_or(|&r| bytes_of(&ents[r as usize]) != bytes_of(&e)) {
+        if reps
+            .last()
+            .is_none_or(|&r| bytes_of(&ents[r as usize]) != bytes_of(&e))
+        {
             if reps.len() >= 1 << gravity_abi::status::FAULT_CODE_BITS {
-                return Err(TableBuildError::Region(gravity_dict::BuildError::TooManyCodes));
+                return Err(TableBuildError::Region(
+                    gravity_dict::BuildError::TooManyCodes,
+                ));
             }
             reps.push(i);
             distinct.push(e);
@@ -2369,13 +2929,27 @@ pub fn row_codes(part: &Arc<OpenPart>, cur: &mut StreamCursor<'static>, attno: u
         codes[i as usize] = reps.len() as u32 - 1;
     }
     let empty = distinct.first().is_some_and(|e| e.1 == 0);
-    let render_words = distinct.iter().map(|e| (4 + e.1 as usize).div_ceil(8)).sum();
-    let dict = Store { bytes: store_b, ents: &distinct, stopped: core::cell::Cell::new(false) };
+    let render_words = distinct
+        .iter()
+        .map(|e| (4 + e.1 as usize).div_ceil(8))
+        .sum();
+    let dict = Store {
+        bytes: store_b,
+        ents: &distinct,
+        stopped: core::cell::Cell::new(false),
+    };
     let mut words = (64 + 16 * distinct.len() + 64).div_ceil(8);
     fp_seed();
     // bounded("other: a retry only when the region was short, grown by what the build asked for; each build's walk polls (Store's stopped flag)")
     let mut t = loop {
-        gate.cover(work + cap_bytes(&starts) + 4 * n + cap_bytes(&codes) + cap_bytes(&reps) + cap_bytes(&distinct) + 8 * words as u64);
+        gate.cover(
+            work + cap_bytes(&starts)
+                + 4 * n
+                + cap_bytes(&codes)
+                + cap_bytes(&reps)
+                + cap_bytes(&distinct)
+                + 8 * words as u64,
+        );
         let mut buf = reuse::take_for(words, Some(&mut scope)); // D4278: from the build pool
         buf.own(FP_OWNER);
         raw::advise_resident(&mut buf);
@@ -2384,10 +2958,30 @@ pub fn row_codes(part: &Arc<OpenPart>, cur: &mut StreamCursor<'static>, attno: u
             // D3887: the walk stopped for the statement's cancel: the partial table is dropped
             Ok(_) if dict.stopped.get() => return Err(TableBuildError::Read(ReadError::Canceled)),
             Ok(t) => {
-                let ranks = Ranks { codes, starts, reps, empty, kept: kept.map(|k| k.bits.clone()), salt: kept.map_or(0, |k| k.salt), lens: None, render_words }; // alloc: Cold
-                break FpTable { cached: Mutex::new(None), used: (buf.len() * 8) as u64, buf, hdr: t.header(), ranks: Some(ranks), off: None, renders: false, pins: Mutex::new(None) };
+                let ranks = Ranks {
+                    codes,
+                    starts,
+                    reps,
+                    empty,
+                    kept: kept.map(|k| k.bits.clone()),
+                    salt: kept.map_or(0, |k| k.salt),
+                    lens: None,
+                    render_words,
+                }; // alloc: Cold
+                break FpTable {
+                    cached: Mutex::new(None),
+                    used: (buf.len() * 8) as u64,
+                    buf,
+                    hdr: t.header(),
+                    ranks: Some(ranks),
+                    off: None,
+                    renders: false,
+                    pins: Mutex::new(None),
+                };
             }
-            Err(gravity_dict::BuildError::RegionFull { needed }) => words = (words * 8 + needed + 64).div_ceil(8),
+            Err(gravity_dict::BuildError::RegionFull { needed }) => {
+                words = (words * 8 + needed + 64).div_ceil(8)
+            }
             Err(e) => return Err(TableBuildError::Region(e)),
         }
     };
@@ -2411,11 +3005,19 @@ const LENS_SALT: u64 = 0x4c45_4e53_434f_4445 & !1;
 /// over each length's 4-byte big-endian image only: no fingerprint, render or byte-ordered read may use a table coded so
 /// (`build_table_inner` and the entries walk refuse it). Cached under `KEPT_BIT` and `LENS_SALT`, apart from the part's
 /// byte-ranked table and its kept-granule ones.
-pub fn lane_codes(part: &Arc<OpenPart>, attno: u32, cur: &mut StreamCursor<'static>) -> Result<Arc<FpTable>, TableBuildError> {
+pub fn lane_codes(
+    part: &Arc<OpenPart>,
+    attno: u32,
+    cur: &mut StreamCursor<'static>,
+) -> Result<Arc<FpTable>, TableBuildError> {
     let key = (part.uuid(), attno | KEPT_BIT, LENS_SALT);
     {
         let mut g = FP_CACHE.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(t) = g.as_mut().and_then(|c| c.hit(&key, part, None)).filter(|t| t.ranks().is_some_and(|r| r.lens.is_some())) {
+        if let Some(t) = g
+            .as_mut()
+            .and_then(|c| c.hit(&key, part, None))
+            .filter(|t| t.ranks().is_some_and(|r| r.lens.is_some()))
+        {
             return Ok(t);
         }
     }
@@ -2427,23 +3029,45 @@ pub fn lane_codes(part: &Arc<OpenPart>, attno: u32, cur: &mut StreamCursor<'stat
     let mut lens: Vec<u32> = Vec::new(); // alloc: Cold
     let mut starts: Vec<u32> = Vec::with_capacity(granules as usize + 1); // alloc: Cold
     let (mut words, mut valid): (Vec<i32>, Vec<u64>) = (Vec::new(), Vec::new()); // alloc: Cold
-    // D3887 (C9): a tick per granule decoded
+                                                                                 // D3887 (C9): a tick per granule decoded
     let mut step = cancelpoll::step("text_hosts lane_codes: a verbatim part's lengths coded");
     for lg in 0..granules {
         starts.push(lens.len() as u32);
-        step.tick().map_err(|_| TableBuildError::Read(ReadError::Canceled))?;
+        step.tick()
+            .map_err(|_| TableBuildError::Read(ReadError::Canceled))?;
         let rows = cur.rows_in_granule(lg) as usize;
         words.resize(rows, 0); // alloc: Cold
         valid.resize(rows.div_ceil(64), 0); // alloc: Cold
-        if cur.decode_i32(lg, &mut words).map_err(TableBuildError::Read)? as usize != rows {
-            return Err(TableBuildError::Read(ReadError::Format(FormatError::Corrupt { at: "length codes: decoded count" })));
+        if cur
+            .decode_i32(lg, &mut words)
+            .map_err(TableBuildError::Read)? as usize
+            != rows
+        {
+            return Err(TableBuildError::Read(ReadError::Format(
+                FormatError::Corrupt {
+                    at: "length codes: decoded count",
+                },
+            )));
         }
-        let all = !cur.has_validity_stream() || matches!(cur.validity(lg, &mut valid).map_err(TableBuildError::Read)?, ValidityVerdict::AllValid);
+        let all = !cur.has_validity_stream()
+            || matches!(
+                cur.validity(lg, &mut valid)
+                    .map_err(TableBuildError::Read)?,
+                ValidityVerdict::AllValid
+            );
         // bounded("small-fixed: one granule's rows (at most GRANULE_ROWS, 8192), a length each; the granule loop ticks")
         for (i, &w) in words.iter().enumerate() {
             let live = all || (valid[i / 64] >> (i % 64)) & 1 != 0;
             // a NULL row's length is no code's: its code is 0, as a byte-ranked table's (its validity is the column's)
-            lens.push(if live { u32::try_from(w).map_err(|_| TableBuildError::Read(ReadError::Format(FormatError::Corrupt { at: "length codes: a negative length" })))? } else { u32::MAX });
+            lens.push(if live {
+                u32::try_from(w).map_err(|_| {
+                    TableBuildError::Read(ReadError::Format(FormatError::Corrupt {
+                        at: "length codes: a negative length",
+                    }))
+                })?
+            } else {
+                u32::MAX
+            });
         }
     }
     starts.push(lens.len() as u32);
@@ -2452,27 +3076,36 @@ pub fn lane_codes(part: &Arc<OpenPart>, attno: u32, cur: &mut StreamCursor<'stat
     let mut distinct: Vec<u32> = Vec::new(); // alloc: Cold
     let mut run: Vec<u32> = Vec::with_capacity(cancelpoll::SORT_RUN.min(lens.len())); // alloc: Cold
     for rows in lens.chunks(cancelpoll::SORT_RUN) {
-        step.tick().map_err(|_| TableBuildError::Read(ReadError::Canceled))?;
+        step.tick()
+            .map_err(|_| TableBuildError::Read(ReadError::Canceled))?;
         run.clear();
         run.extend(rows.iter().copied().filter(|&l| l != u32::MAX)); // alloc: Cold
-        // bounded("small-fixed: at most SORT_RUN (64Ki) lengths, an integer sort of about a millisecond; the run loop ticks")
+                                                                     // bounded("small-fixed: at most SORT_RUN (64Ki) lengths, an integer sort of about a millisecond; the run loop ticks")
         run.sort_unstable();
         run.dedup();
         distinct.extend_from_slice(&run); // alloc: Cold
     }
     drop(run);
-    let mut merged: Vec<u32> = if distinct.len() > cancelpoll::SORT_RUN { vec![0; distinct.len()] } else { Vec::new() }; // alloc: Cold
-    cancelpoll::sort_by(&mut step, &mut distinct, &mut merged, |a, b| a.cmp(b)).map_err(|_| TableBuildError::Read(ReadError::Canceled))?;
+    let mut merged: Vec<u32> = if distinct.len() > cancelpoll::SORT_RUN {
+        vec![0; distinct.len()]
+    } else {
+        Vec::new()
+    }; // alloc: Cold
+    cancelpoll::sort_by(&mut step, &mut distinct, &mut merged, |a, b| a.cmp(b))
+        .map_err(|_| TableBuildError::Read(ReadError::Canceled))?;
     drop(merged);
     distinct.dedup();
     if distinct.len() >= 1 << gravity_abi::status::FAULT_CODE_BITS {
-        return Err(TableBuildError::Region(gravity_dict::BuildError::TooManyCodes));
+        return Err(TableBuildError::Region(
+            gravity_dict::BuildError::TooManyCodes,
+        ));
     }
     let mut reps = vec![u32::MAX; distinct.len()]; // alloc: Cold
-    // a row a binary search over the distinct lengths: a batch of rows a tick
+                                                   // a row a binary search over the distinct lengths: a batch of rows a tick
     let mut codes: Vec<u32> = Vec::with_capacity(lens.len()); // alloc: Cold
     for (row, &l) in lens.iter().enumerate() {
-        step.batch(row).map_err(|_| TableBuildError::Read(ReadError::Canceled))?;
+        step.batch(row)
+            .map_err(|_| TableBuildError::Read(ReadError::Canceled))?;
         if l == u32::MAX {
             codes.push(0);
             continue;
@@ -2487,7 +3120,11 @@ pub fn lane_codes(part: &Arc<OpenPart>, attno: u32, cur: &mut StreamCursor<'stat
     // the Fp128 table over the lengths' images: a table coded so is never fingerprinted (only the shape needs it)
     let store: Vec<u8> = distinct.iter().flat_map(|l| l.to_be_bytes()).collect(); // alloc: Cold
     let ents: Vec<(u32, u32)> = (0..distinct.len() as u32).map(|c| (4 * c, 4)).collect(); // alloc: Cold
-    let dict = Store { bytes: &store, ents: &ents, stopped: core::cell::Cell::new(false) };
+    let dict = Store {
+        bytes: &store,
+        ents: &ents,
+        stopped: core::cell::Cell::new(false),
+    };
     let mut fpw = (64 + 16 * ents.len() + 64).div_ceil(8);
     fp_seed();
     // bounded("other: a retry only when the region was short, grown by what the build asked for; each build's walk polls (Store's stopped flag)")
@@ -2500,10 +3137,30 @@ pub fn lane_codes(part: &Arc<OpenPart>, attno: u32, cur: &mut StreamCursor<'stat
             Ok(_) if dict.stopped.get() => return Err(TableBuildError::Read(ReadError::Canceled)),
             Ok(t) => {
                 let lens = Some(distinct.iter().map(|&l| l as i64).collect()); // alloc: Cold
-                let ranks = Ranks { codes, starts, reps, empty, kept: None, salt: LENS_SALT, lens, render_words: 0 };
-                break FpTable { cached: Mutex::new(None), used: (buf.len() * 8) as u64, buf, hdr: t.header(), ranks: Some(ranks), off: None, renders: false, pins: Mutex::new(None) };
+                let ranks = Ranks {
+                    codes,
+                    starts,
+                    reps,
+                    empty,
+                    kept: None,
+                    salt: LENS_SALT,
+                    lens,
+                    render_words: 0,
+                };
+                break FpTable {
+                    cached: Mutex::new(None),
+                    used: (buf.len() * 8) as u64,
+                    buf,
+                    hdr: t.header(),
+                    ranks: Some(ranks),
+                    off: None,
+                    renders: false,
+                    pins: Mutex::new(None),
+                };
             }
-            Err(gravity_dict::BuildError::RegionFull { needed }) => fpw = (fpw * 8 + needed + 64).div_ceil(8),
+            Err(gravity_dict::BuildError::RegionFull { needed }) => {
+                fpw = (fpw * 8 + needed + 64).div_ceil(8)
+            }
             Err(e) => return Err(TableBuildError::Region(e)),
         }
     };
@@ -2519,7 +3176,11 @@ pub fn lane_codes(part: &Arc<OpenPart>, attno: u32, cur: &mut StreamCursor<'stat
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum TableFn {
     /// `LIKE` / `ILIKE` (`negated`: `NOT LIKE`) in the backslash convention; a `Bits` table.
-    Like { pattern: Vec<u8>, ilike: bool, negated: bool }, // alloc: Program
+    Like {
+        pattern: Vec<u8>,
+        ilike: bool,
+        negated: bool,
+    }, // alloc: Program
     /// `octet_length(text)`: an `I64` table of byte lengths.
     OctetLength,
     /// `length(text)` under UTF-8: an `I64` table of character counts.
@@ -2545,7 +3206,10 @@ pub enum TableFn {
     /// database encoding, armed on the building thread (the RE2 dispatch needs UTF-8).
     RegexpReplace {
         global: bool,
-        pattern: Vec<u8>, replacement: Vec<u8>, collation: u32, encoding: i32, // alloc: Program
+        pattern: Vec<u8>,
+        replacement: Vec<u8>,
+        collation: u32,
+        encoding: i32, // alloc: Program
     },
     /// The 128-bit fingerprint of `regexp_replace(text, pattern, replacement)`'s bytes per entry (the
     /// `RegexpReplace` table's values fingerprinted as `Fingerprint` does the entries): an `Fp128` table,
@@ -2554,18 +3218,30 @@ pub enum TableFn {
     /// The statement's own: a query constant keys it, so no later statement reads it. `global`: `table_fn::FLAG_GLOBAL`.
     DerivedFingerprint {
         global: bool,
-        pattern: Vec<u8>, replacement: Vec<u8>, collation: u32, encoding: i32, // alloc: Program
+        pattern: Vec<u8>,
+        replacement: Vec<u8>,
+        collation: u32,
+        encoding: i32, // alloc: Program
     },
     /// `DerivedFingerprint`'s table for any other immutable builtin of the entry and baked varlena constants (`call`,
     /// under `collation`), evaluated once per entry through the function manager: the 128-bit fingerprint of its result's
     /// bytes. An entry whose call raised or came out NULL is [0, 0] (its rows re-evaluate, percode_key). The source's own.
     /// `adaptive` (`table_fn::FLAG_ADAPTIVE`, (2')): the source may publish it unfilled instead, as a `Program` Fp128 table its
     /// rows fill (granule_source/lanes.rs `adaptive_lazy`).
-    DerivedCall { call: gravity_program::table_fn::Call, collation: u32, encoding: i32, adaptive: bool },
+    DerivedCall {
+        call: gravity_program::table_fn::Call,
+        collation: u32,
+        encoding: i32,
+        adaptive: bool,
+    },
     /// `table_fn::PROGRAM`: the source allocates an unfilled table of `elem` (a zeroed data area and fault bitmap) and the
     /// program sweeps the entries at bind; `fingerprint` is the body's, so distinct bodies over one lane are distinct tables.
     /// D3115: `swept` = `FLAG_SWEPT`: the statement's sources share one table of the part.
-    Program { elem: u8, swept: bool, fingerprint: u64 },
+    Program {
+        elem: u8,
+        swept: bool,
+        fingerprint: u64,
+    },
     /// `table_fn::EQ` (B2-20): the code set of the entries whose bytes equal one of `values` (`negated`: of the others), a
     /// `Bits` table looked up in the part's byte-ordered dictionary; resident across statements like `Like`'s.
     Eq { values: Vec<Vec<u8>>, negated: bool }, // alloc: Program
@@ -2576,16 +3252,30 @@ pub enum TableFn {
     /// the program writes per execution (lowerv4 dict/percode_bind.rs `bound`); the source resolves it before it builds
     /// (granule_source `bound_spec`): `Eq`, or `Faults` when a value is NULL or not an inline image. Never built itself.
     /// P5-02: with `list` (`FLAG_LIST`) each cell holds a whole text array, every element a value.
-    EqBound { values: Vec<Vec<u8>>, cells: Vec<u16>, negated: bool, list: bool }, // alloc: Program
+    EqBound {
+        values: Vec<Vec<u8>>,
+        cells: Vec<u16>,
+        negated: bool,
+        list: bool,
+    }, // alloc: Program
     /// PS1-15: `table_fn::LIKE` with `FLAG_BOUND`: `Like` over the pattern `parts[0]`, the text image in key cell `cells[0]`,
     /// `parts[1]`, .. (one more part than cells), which the source assembles before it builds (granule_source
     /// `bound_spec`): `Like`, or `Faults` when a value is NULL or not an inline image. Never built itself.
-    LikeBound { parts: Vec<Vec<u8>>, cells: Vec<u16>, ilike: bool, negated: bool }, // alloc: Program
+    LikeBound {
+        parts: Vec<Vec<u8>>,
+        cells: Vec<u16>,
+        ilike: bool,
+        negated: bool,
+    }, // alloc: Program
     /// NEW-72 entry C: `table_fn::RANGE` with `FLAG_BOUND`: `Range` whose one end is the text image in key cell `cells[0]`
     /// (its upper end with `below`, else its lower end; that image `|| '\0'` with `nul`), which the source reads before it
     /// builds (granule_source `bound_spec`): `Range`, or `Faults` when the value is NULL or not an inline image. Never
     /// built itself.
-    RangeBound { cells: Vec<u16>, below: bool, nul: bool }, // alloc: Program
+    RangeBound {
+        cells: Vec<u16>,
+        below: bool,
+        nul: bool,
+    }, // alloc: Program
     /// X5: no entry answered, every code a fault, so each row evaluates the body (a bound value the table cannot read); a
     /// strict root over a NULL bound value reads NULL without it (gravity_expr emit `bound_null`).
     Faults,
@@ -2601,9 +3291,22 @@ pub struct TableSpec {
 impl TableSpec {
     pub fn elem(&self) -> u8 {
         match self.func {
-            TableFn::Like { .. } | TableFn::Eq { .. } | TableFn::Range { .. } | TableFn::EqBound { .. } | TableFn::LikeBound { .. } | TableFn::RangeBound { .. } | TableFn::Faults => gravity_dict::lane::ELEM_BITS,
-            TableFn::OctetLength | TableFn::CharLength | TableFn::RankBpchar => gravity_dict::lane::ELEM_I64,
-            TableFn::Fingerprint | TableFn::FingerprintBpchar | TableFn::Canon | TableFn::CanonBpchar | TableFn::DerivedFingerprint { .. } | TableFn::DerivedCall { .. } => gravity_dict::lane::ELEM_FP128,
+            TableFn::Like { .. }
+            | TableFn::Eq { .. }
+            | TableFn::Range { .. }
+            | TableFn::EqBound { .. }
+            | TableFn::LikeBound { .. }
+            | TableFn::RangeBound { .. }
+            | TableFn::Faults => gravity_dict::lane::ELEM_BITS,
+            TableFn::OctetLength | TableFn::CharLength | TableFn::RankBpchar => {
+                gravity_dict::lane::ELEM_I64
+            }
+            TableFn::Fingerprint
+            | TableFn::FingerprintBpchar
+            | TableFn::Canon
+            | TableFn::CanonBpchar
+            | TableFn::DerivedFingerprint { .. }
+            | TableFn::DerivedCall { .. } => gravity_dict::lane::ELEM_FP128,
             TableFn::RegexpReplace { .. } => gravity_dict::lane::ELEM_DERIVED,
             TableFn::Program { elem, .. } => elem,
         }
@@ -2613,7 +3316,13 @@ impl TableSpec {
     /// textkeys step 3's canonical image table (`Canon`). A `DerivedCall` table is each source's own, built into its region
     /// chunks as the program's tables are: no buffer of its own in the reuse pool.
     pub fn shared(&self) -> bool {
-        matches!(self.func, TableFn::RegexpReplace { .. } | TableFn::DerivedFingerprint { .. } | TableFn::Canon | TableFn::CanonBpchar)
+        matches!(
+            self.func,
+            TableFn::RegexpReplace { .. }
+                | TableFn::DerivedFingerprint { .. }
+                | TableFn::Canon
+                | TableFn::CanonBpchar
+        )
     }
 
     /// The once-cell key's function fingerprint (the spec's hash; distinct specs never collide in practice).
@@ -2633,18 +3342,45 @@ impl TableFn {
     }
 
     fn heap_bytes(&self) -> usize {
-        let list = |l: &Vec<Vec<u8>>| l.capacity() * core::mem::size_of::<Vec<u8>>() + l.iter().map(Vec::capacity).sum::<usize>();
+        let list = |l: &Vec<Vec<u8>>| {
+            l.capacity() * core::mem::size_of::<Vec<u8>>()
+                + l.iter().map(Vec::capacity).sum::<usize>()
+        };
         let cells = |c: &Vec<u16>| c.capacity() * 2;
         match self {
             TableFn::Like { pattern, .. } => pattern.capacity(),
-            TableFn::RegexpReplace { pattern, replacement, .. } | TableFn::DerivedFingerprint { pattern, replacement, .. } => pattern.capacity() + replacement.capacity(),
-            TableFn::DerivedCall { call, .. } => call.args.capacity() * core::mem::size_of::<Option<Vec<u8>>>() + call.args.iter().flatten().map(Vec::capacity).sum::<usize>(),
+            TableFn::RegexpReplace {
+                pattern,
+                replacement,
+                ..
+            }
+            | TableFn::DerivedFingerprint {
+                pattern,
+                replacement,
+                ..
+            } => pattern.capacity() + replacement.capacity(),
+            TableFn::DerivedCall { call, .. } => {
+                call.args.capacity() * core::mem::size_of::<Option<Vec<u8>>>()
+                    + call.args.iter().flatten().map(Vec::capacity).sum::<usize>()
+            }
             TableFn::Eq { values, .. } => list(values),
             TableFn::Range { from, to } => from.capacity() + to.as_ref().map_or(0, Vec::capacity),
-            TableFn::EqBound { values, cells: c, .. } => list(values) + cells(c),
-            TableFn::LikeBound { parts, cells: c, .. } => list(parts) + cells(c),
+            TableFn::EqBound {
+                values, cells: c, ..
+            } => list(values) + cells(c),
+            TableFn::LikeBound {
+                parts, cells: c, ..
+            } => list(parts) + cells(c),
             TableFn::RangeBound { cells: c, .. } => cells(c),
-            TableFn::OctetLength | TableFn::CharLength | TableFn::Fingerprint | TableFn::FingerprintBpchar | TableFn::Canon | TableFn::CanonBpchar | TableFn::RankBpchar | TableFn::Program { .. } | TableFn::Faults => 0,
+            TableFn::OctetLength
+            | TableFn::CharLength
+            | TableFn::Fingerprint
+            | TableFn::FingerprintBpchar
+            | TableFn::Canon
+            | TableFn::CanonBpchar
+            | TableFn::RankBpchar
+            | TableFn::Program { .. }
+            | TableFn::Faults => 0,
         }
     }
 }
@@ -2655,32 +3391,85 @@ pub fn spec_of(site: &gravity_program::SiteDesc, i: usize) -> Option<TableSpec> 
     use gravity_program::table_fn as f;
     let d = site.tables.get(i)?;
     let func = match d.func {
-        f::FINGERPRINT if d.flags & f::FLAG_CANON != 0 && d.flags & f::FLAG_BPCHAR != 0 => TableFn::CanonBpchar,
+        f::FINGERPRINT if d.flags & f::FLAG_CANON != 0 && d.flags & f::FLAG_BPCHAR != 0 => {
+            TableFn::CanonBpchar
+        }
         f::FINGERPRINT if d.flags & f::FLAG_CANON != 0 => TableFn::Canon,
         f::FINGERPRINT if d.flags & f::FLAG_BPCHAR != 0 => TableFn::FingerprintBpchar,
         f::FINGERPRINT => TableFn::Fingerprint,
         f::OCTET_LENGTH => TableFn::OctetLength,
         f::CHAR_LENGTH => TableFn::CharLength,
         f::RANK if d.flags & f::FLAG_BPCHAR != 0 => TableFn::RankBpchar,
-        f::LIKE if d.flags & f::FLAG_BOUND != 0 => match (f::values(site.table_arg(d, 0))?, f::cells(site.table_arg(d, 1))?) {
-            (parts, cells) if parts.len() == cells.len() + 1 => TableFn::LikeBound { parts: parts.into_iter().map(<[u8]>::to_vec).collect(), cells, ilike: d.flags & f::FLAG_ILIKE != 0, negated: d.flags & f::FLAG_NEGATED != 0 }, // alloc: Program
+        f::LIKE if d.flags & f::FLAG_BOUND != 0 => match (
+            f::values(site.table_arg(d, 0))?,
+            f::cells(site.table_arg(d, 1))?,
+        ) {
+            (parts, cells) if parts.len() == cells.len() + 1 => TableFn::LikeBound {
+                parts: parts.into_iter().map(<[u8]>::to_vec).collect(),
+                cells,
+                ilike: d.flags & f::FLAG_ILIKE != 0,
+                negated: d.flags & f::FLAG_NEGATED != 0,
+            }, // alloc: Program
             _ => return None,
         },
-        f::LIKE => TableFn::Like { pattern: site.table_arg(d, 0).to_vec(), ilike: d.flags & f::FLAG_ILIKE != 0, negated: d.flags & f::FLAG_NEGATED != 0 }, // alloc: Program
-        f::DERIVED_FINGERPRINT => TableFn::DerivedFingerprint { pattern: site.table_arg(d, 0).to_vec(), replacement: site.table_arg(d, 1).to_vec(), collation: d.collation, encoding: d.encoding, global: d.flags & f::FLAG_GLOBAL != 0 }, // alloc: Program
-        f::DERIVED_CALL => TableFn::DerivedCall { call: gravity_program::table_fn::Call::decode(site.table_arg(d, 0))?, collation: d.collation, encoding: d.encoding, adaptive: d.flags & f::FLAG_ADAPTIVE != 0 },
-        f::PROGRAM => TableFn::Program { elem: d.flags & !f::FLAG_SWEPT, swept: d.flags & f::FLAG_SWEPT != 0, fingerprint: u64::from_le_bytes(site.table_arg(d, 0).try_into().ok()?) },
+        f::LIKE => TableFn::Like {
+            pattern: site.table_arg(d, 0).to_vec(),
+            ilike: d.flags & f::FLAG_ILIKE != 0,
+            negated: d.flags & f::FLAG_NEGATED != 0,
+        }, // alloc: Program
+        f::DERIVED_FINGERPRINT => TableFn::DerivedFingerprint {
+            pattern: site.table_arg(d, 0).to_vec(),
+            replacement: site.table_arg(d, 1).to_vec(),
+            collation: d.collation,
+            encoding: d.encoding,
+            global: d.flags & f::FLAG_GLOBAL != 0,
+        }, // alloc: Program
+        f::DERIVED_CALL => TableFn::DerivedCall {
+            call: gravity_program::table_fn::Call::decode(site.table_arg(d, 0))?,
+            collation: d.collation,
+            encoding: d.encoding,
+            adaptive: d.flags & f::FLAG_ADAPTIVE != 0,
+        },
+        f::PROGRAM => TableFn::Program {
+            elem: d.flags & !f::FLAG_SWEPT,
+            swept: d.flags & f::FLAG_SWEPT != 0,
+            fingerprint: u64::from_le_bytes(site.table_arg(d, 0).try_into().ok()?),
+        },
         f::RANGE if d.flags & f::FLAG_BOUND != 0 => match f::cells(site.table_arg(d, 1))? {
-            cells if cells.len() == 1 => TableFn::RangeBound { cells, below: d.flags & f::FLAG_BELOW != 0, nul: d.flags & f::FLAG_NUL != 0 },
+            cells if cells.len() == 1 => TableFn::RangeBound {
+                cells,
+                below: d.flags & f::FLAG_BELOW != 0,
+                nul: d.flags & f::FLAG_NUL != 0,
+            },
             _ => return None,
         },
         f::RANGE => match f::values(site.table_arg(d, 0))?.as_slice() {
-            [from] => TableFn::Range { from: from.to_vec(), to: None }, // alloc: Program
-            [from, to] => TableFn::Range { from: from.to_vec(), to: Some(to.to_vec()) }, // alloc: Program
+            [from] => TableFn::Range {
+                from: from.to_vec(),
+                to: None,
+            }, // alloc: Program
+            [from, to] => TableFn::Range {
+                from: from.to_vec(),
+                to: Some(to.to_vec()),
+            }, // alloc: Program
             _ => return None,
         },
-        f::EQ if d.flags & f::FLAG_BOUND != 0 => TableFn::EqBound { values: f::values(site.table_arg(d, 0))?.into_iter().map(<[u8]>::to_vec).collect(), cells: f::cells(site.table_arg(d, 1))?, negated: d.flags & f::FLAG_NEGATED != 0, list: d.flags & f::FLAG_LIST != 0 }, // alloc: Program
-        f::EQ => TableFn::Eq { values: f::values(site.table_arg(d, 0))?.into_iter().map(<[u8]>::to_vec).collect(), negated: d.flags & f::FLAG_NEGATED != 0 }, // alloc: Program
+        f::EQ if d.flags & f::FLAG_BOUND != 0 => TableFn::EqBound {
+            values: f::values(site.table_arg(d, 0))?
+                .into_iter()
+                .map(<[u8]>::to_vec)
+                .collect(),
+            cells: f::cells(site.table_arg(d, 1))?,
+            negated: d.flags & f::FLAG_NEGATED != 0,
+            list: d.flags & f::FLAG_LIST != 0,
+        }, // alloc: Program
+        f::EQ => TableFn::Eq {
+            values: f::values(site.table_arg(d, 0))?
+                .into_iter()
+                .map(<[u8]>::to_vec)
+                .collect(),
+            negated: d.flags & f::FLAG_NEGATED != 0,
+        }, // alloc: Program
         _ => return None,
     };
     Some(TableSpec { over: d.over, func })
@@ -2692,7 +3481,12 @@ pub fn spec_of(site: &gravity_program::SiteDesc, i: usize) -> Option<TableSpec> 
 /// `err` for the build to raise.
 pub enum DictView<'a> {
     Part(&'a DictHandle, &'a core::cell::Cell<Option<ReadError>>),
-    Ranked { ranks: &'a Ranks, cur: &'a core::cell::RefCell<&'a mut StreamCursor<'static>>, scratch: &'a core::cell::RefCell<&'a mut TextScratch>, err: &'a core::cell::Cell<Option<ReadError>> },
+    Ranked {
+        ranks: &'a Ranks,
+        cur: &'a core::cell::RefCell<&'a mut StreamCursor<'static>>,
+        scratch: &'a core::cell::RefCell<&'a mut TextScratch>,
+        err: &'a core::cell::Cell<Option<ReadError>>,
+    },
 }
 
 impl DictView<'_> {
@@ -2748,10 +3542,17 @@ impl gravity_dict::Dict for DictView<'_> {
                     }
                 }
             }
-            DictView::Ranked { ranks, cur, scratch, err } => {
+            DictView::Ranked {
+                ranks,
+                cur,
+                scratch,
+                err,
+            } => {
                 // D3038 (A): a table coded by length holds no entry's bytes (`lane_codes`)
                 if ranks.by_length().is_some() {
-                    return err.set(Some(ReadError::Format(FormatError::Corrupt { at: "D3038: the entries of a code lane coded by length" })));
+                    return err.set(Some(ReadError::Format(FormatError::Corrupt {
+                        at: "D3038: the entries of a code lane coded by length",
+                    })));
                 }
                 let (mut cur, mut scratch) = (cur.borrow_mut(), scratch.borrow_mut());
                 // D3288: each code at its first live row, by a bit per code; the test of the code's representative row was
@@ -2761,11 +3562,16 @@ impl gravity_dict::Dict for DictView<'_> {
                 let a = arena_of(scratch.owner);
                 let mut bits: AVec<u64> = AVec::default();
                 if let Err(r) = bits.resize(&a, (ranks.ncodes() as usize).div_ceil(64), 0) {
-                    std::alloc::handle_alloc_error(core::alloc::Layout::from_size_align(r.bytes as usize, 8).unwrap_or(core::alloc::Layout::new::<u64>()));
+                    std::alloc::handle_alloc_error(
+                        core::alloc::Layout::from_size_align(r.bytes as usize, 8)
+                            .unwrap_or(core::alloc::Layout::new::<u64>()),
+                    );
                 }
                 let seen = bits.as_mut_slice(&a);
                 // C9: a tick per granule decoded
-                let mut step = cancelpoll::step("text_hosts: a verbatim part's codes walked at their first rows");
+                let mut step = cancelpoll::step(
+                    "text_hosts: a verbatim part's codes walked at their first rows",
+                );
                 for lg in ranks.granules() {
                     if step.tick().is_err() {
                         return err.set(Some(ReadError::Canceled));
@@ -2843,7 +3649,17 @@ impl Default for RenderMemo {
 
 impl RenderMemo {
     pub const fn new() -> RenderMemo {
-        RenderMemo { key: None, renders: 0, table: None, verbatim: false, held: Vec::new(), parked: Vec::new(), charge: None, owner: None, memo: Vec::new() } // alloc: Node
+        RenderMemo {
+            key: None,
+            renders: 0,
+            table: None,
+            verbatim: false,
+            held: Vec::new(),
+            parked: Vec::new(),
+            charge: None,
+            owner: None,
+            memo: Vec::new(),
+        } // alloc: Node
     }
 
     /// The owner the memo's bytes are charged to from now on (the source's `BuildOwner`): a new owner takes the memo's
@@ -2863,7 +3679,9 @@ impl RenderMemo {
     /// The memo's charge at its capacity, opened on the owner at its first bytes.
     fn sync_charge(&mut self) {
         use core::mem::size_of;
-        let cap = (self.memo.capacity() * size_of::<(u64, u32)>() + self.parked.capacity() * size_of::<Parked>() + self.held.capacity() * size_of::<Arc<FpTable>>()) as u64;
+        let cap = (self.memo.capacity() * size_of::<(u64, u32)>()
+            + self.parked.capacity() * size_of::<Parked>()
+            + self.held.capacity() * size_of::<Arc<FpTable>>()) as u64;
         if self.charge.is_none() && cap > 0 {
             self.charge = table_charge(self.owner, 0);
         }
@@ -2872,7 +3690,9 @@ impl RenderMemo {
 
     /// D3213: the lists a parked source keeps (`Source::kept_bytes`).
     pub fn kept_bytes(&self) -> usize {
-        gravity_driver::vec_bytes(&self.held) + gravity_driver::vec_bytes(&self.parked) + gravity_driver::vec_bytes(&self.memo)
+        gravity_driver::vec_bytes(&self.held)
+            + gravity_driver::vec_bytes(&self.parked)
+            + gravity_driver::vec_bytes(&self.memo)
     }
 
     /// The memoised `(image, byte_len)` of `code` in part `p` (generation `epoch`, `ncodes` codes), `None` when the part
@@ -2881,7 +3701,15 @@ impl RenderMemo {
     /// of the part (`StmtDicts::epoch`, 0 with none): a dictionary the statement released and opened again keeps the part's
     /// `epoch` (minted once per open part) but not its image, so the memo's pointers into the released one start over.
     #[inline]
-    pub fn get(&mut self, p: usize, epoch: u64, opened: u32, ncodes: u32, code: u32, verbatim: bool) -> Option<(u64, u32)> {
+    pub fn get(
+        &mut self,
+        p: usize,
+        epoch: u64,
+        opened: u32,
+        ncodes: u32,
+        code: u32,
+        verbatim: bool,
+    ) -> Option<(u64, u32)> {
         if self.key != Some((p, epoch, opened)) {
             self.switch(p, epoch, opened, verbatim);
         }
@@ -2920,7 +3748,11 @@ impl RenderMemo {
                 if let Some(t) = slot.table.take() {
                     self.held.push(t); // alloc: Node charged self.owner
                 }
-                *slot = Parked { gen: (e, o), renders, table };
+                *slot = Parked {
+                    gen: (e, o),
+                    renders,
+                    table,
+                };
             }
             _ => {
                 if let Some(t) = table {
@@ -2971,8 +3803,13 @@ impl RenderMemo {
 /// every check the bulk cursor makes, each with its error: the 4B-U header of that length, the payload's bounds and a
 /// delta char field within the length. Counted where the cursor counts its entries. `false`: a frame-served or
 /// front-coded arm, which the bulk cursor walks.
-fn payload_walk(d: &DictHandle, f: &mut dyn FnMut(u32, gravity_dict::View)) -> Result<bool, ReadError> {
-    let Some(payload) = d.payload_bytes()? else { return Ok(false) };
+fn payload_walk(
+    d: &DictHandle,
+    f: &mut dyn FnMut(u32, gravity_dict::View),
+) -> Result<bool, ReadError> {
+    let Some(payload) = d.payload_bytes()? else {
+        return Ok(false);
+    };
     let index = d.index_bytes()?;
     let delta = matches!(d.charlen_form(), pgrc_format::dict::DictCharLenForm::Delta);
     // D3887 (C9): an entry is a checked index read and the callee's fingerprint, tens of ns: a `batch` loop
@@ -2981,20 +3818,32 @@ fn payload_walk(d: &DictHandle, f: &mut dyn FnMut(u32, gravity_dict::View)) -> R
         step.batch(code)?;
         let off = u32::from_le_bytes([rec[0], rec[1], rec[2], rec[3]]) as usize;
         let len = u32::from_le_bytes([rec[4], rec[5], rec[6], rec[7]]);
-        let header = payload.get(off..off + 4).map(|h| u32::from_le_bytes([h[0], h[1], h[2], h[3]]) as u64);
+        let header = payload
+            .get(off..off + 4)
+            .map(|h| u32::from_le_bytes([h[0], h[1], h[2], h[3]]) as u64);
         if header != Some((len as u64 + 4) << 2) {
             // the cursor's error for this entry: its header's (varlena_entry_at's), else the index's length disagrees
-            pgrc_format::wire::varlena_entry_at(payload, off, "dict payload").map_err(ReadError::Format)?;
-            return Err(ReadError::Format(FormatError::Corrupt { at: "dict entry byte_len" }));
+            pgrc_format::wire::varlena_entry_at(payload, off, "dict payload")
+                .map_err(ReadError::Format)?;
+            return Err(ReadError::Format(FormatError::Corrupt {
+                at: "dict entry byte_len",
+            }));
         }
-        let Some(bytes) = payload.get(off + 4..off + 4 + len as usize) else { return Err(ReadError::Format(FormatError::Bounds { at: "dict payload" })) };
+        let Some(bytes) = payload.get(off + 4..off + 4 + len as usize) else {
+            return Err(ReadError::Format(FormatError::Bounds {
+                at: "dict payload",
+            }));
+        };
         if delta && u32::from_le_bytes([rec[8], rec[9], rec[10], rec[11]]) > len {
-            return Err(ReadError::Format(FormatError::Corrupt { at: "dict entry char_len delta" }));
+            return Err(ReadError::Format(FormatError::Corrupt {
+                at: "dict entry char_len delta",
+            }));
         }
         f(code as u32, gravity_dict::View::of(bytes));
     }
     // the entries a walk handed on, in the census the bulk cursor counts them in (the REPORT's dictent walked)
-    pgrc_read::dicthandle::DICT_CURSOR_ENTRIES.fetch_add((index.len() / INDEX_ENTRY) as u64, Ordering::Relaxed);
+    pgrc_read::dicthandle::DICT_CURSOR_ENTRIES
+        .fetch_add((index.len() / INDEX_ENTRY) as u64, Ordering::Relaxed);
     Ok(true)
 }
 
@@ -3002,10 +3851,25 @@ fn payload_walk(d: &DictHandle, f: &mut dyn FnMut(u32, gravity_dict::View)) -> R
 /// and the regexp memo pulled by `Fp128::build_derived_seq` in one loop (no per-entry dyn call); a memo hit whose prefix
 /// was the previous subject's reuses its fingerprint unread. The same table as `build_derived_over`'s sweep. `None`: the
 /// program refused an entry (its step budget), the region given back: the caller builds through the faulting path.
-fn derived_seq(dict: &DictView<'_>, d: &DictHandle, region: &mut gravity_dict::Region, payload: &[u8], prog: &gravity_dict::regexp::Program, tmpl: &gravity_dict::regexp::Template, rep: &[u8]) -> Result<Option<gravity_dict::Fp128>, TableBuildError> {
+fn derived_seq(
+    dict: &DictView<'_>,
+    d: &DictHandle,
+    region: &mut gravity_dict::Region,
+    payload: &[u8],
+    prog: &gravity_dict::regexp::Program,
+    tmpl: &gravity_dict::regexp::Template,
+    rep: &[u8],
+) -> Result<Option<gravity_dict::Fp128>, TableBuildError> {
     let index = d.index_bytes().map_err(TableBuildError::Read)?;
     let delta = matches!(d.charlen_form(), pgrc_format::dict::DictCharLenForm::Delta);
-    let (mut memo, mut code, mut last_set, mut failed, mut stopped, mut refused) = (gravity_dict::regexp::Memo::new(), 0usize, false, None, false, false);
+    let (mut memo, mut code, mut last_set, mut failed, mut stopped, mut refused) = (
+        gravity_dict::regexp::Memo::new(),
+        0usize,
+        false,
+        None,
+        false,
+        false,
+    );
     let mark = region.mark();
     // a scratch region for the plan's non-in-place fallback (never taken by an in-place plan's single group)
     let mut scratch = vec![0u64; 1024]; // alloc: Cold
@@ -3023,16 +3887,27 @@ fn derived_seq(dict: &DictView<'_>, d: &DictHandle, region: &mut gravity_dict::R
         code += 1;
         let off = u32::from_le_bytes([rec[0], rec[1], rec[2], rec[3]]) as usize;
         let len = u32::from_le_bytes([rec[4], rec[5], rec[6], rec[7]]);
-        let header = payload.get(off..off + 4).map(|h| u32::from_le_bytes([h[0], h[1], h[2], h[3]]) as u64);
-        let bytes = match (header == Some((len as u64 + 4) << 2), payload.get(off + 4..off + 4 + len as usize)) {
-            (true, Some(b)) if !(delta && u32::from_le_bytes([rec[8], rec[9], rec[10], rec[11]]) > len) => b,
+        let header = payload
+            .get(off..off + 4)
+            .map(|h| u32::from_le_bytes([h[0], h[1], h[2], h[3]]) as u64);
+        let bytes = match (
+            header == Some((len as u64 + 4) << 2),
+            payload.get(off + 4..off + 4 + len as usize),
+        ) {
+            (true, Some(b))
+                if !(delta && u32::from_le_bytes([rec[8], rec[9], rec[10], rec[11]]) > len) =>
+            {
+                b
+            }
             _ => {
                 failed = Some(code - 1);
                 return None;
             }
         };
         let (hits, sets) = (memo.hits, memo.sets);
-        let v = match gravity_dict::regexp::replace_first_memo(prog, tmpl, rep, bytes, &mut sr, &mut memo) {
+        let v = match gravity_dict::regexp::replace_first_memo(
+            prog, tmpl, rep, bytes, &mut sr, &mut memo,
+        ) {
             Ok(Some(v)) => v,
             Ok(None) => {
                 refused = true;
@@ -3052,7 +3927,9 @@ fn derived_seq(dict: &DictView<'_>, d: &DictHandle, region: &mut gravity_dict::R
         // the checked walk's error for this entry (payload_walk's): re-walk to raise it
         return match payload_walk(d, &mut |_, _| {}) {
             Err(e) => Err(TableBuildError::Read(e)),
-            Ok(_) => Err(TableBuildError::Read(ReadError::Format(FormatError::Corrupt { at: "dict entry" }))),
+            Ok(_) => Err(TableBuildError::Read(ReadError::Format(
+                FormatError::Corrupt { at: "dict entry" },
+            ))),
         };
     }
     if refused {
@@ -3079,9 +3956,15 @@ pub fn fp_seed() -> (u64, u64) {
                     *b = u8::from_str_radix(&s.trim()[2 * i..2 * i + 2], 16).expect("hex");
                 }
             }
-            _ => assert!(pg_strong_random::pg_strong_random(&mut kb), "gravity: OS entropy unavailable for the fingerprint seed"),
+            _ => assert!(
+                pg_strong_random::pg_strong_random(&mut kb),
+                "gravity: OS entropy unavailable for the fingerprint seed"
+            ),
         }
-        gravity_dict::fp::install(u64::from_le_bytes(kb[..8].try_into().expect("8")), u64::from_le_bytes(kb[8..].try_into().expect("8")));
+        gravity_dict::fp::install(
+            u64::from_le_bytes(kb[..8].try_into().expect("8")),
+            u64::from_le_bytes(kb[8..].try_into().expect("8")),
+        );
         gravity_dict::fp::seed().expect("installed")
     })
 }
@@ -3144,20 +4027,36 @@ impl gravity_dict::EntryIndex for PgrcIndex<'_> {
 /// the engine's automaton per entry where the call would run it (`automaton`).
 #[allow(clippy::large_enum_variant)]
 pub enum RegexpPlan {
-    Program { prog: gravity_dict::regexp::Program, tmpl: gravity_dict::regexp::Template, in_place: bool },
-    Fmgr { required: Option<(usize, usize)> },
+    Program {
+        prog: gravity_dict::regexp::Program,
+        tmpl: gravity_dict::regexp::Template,
+        in_place: bool,
+    },
+    Fmgr {
+        required: Option<(usize, usize)>,
+    },
 }
 
 impl RegexpPlan {
     pub fn of(pattern: &[u8], replacement: &[u8], collation: u32, encoding: i32) -> RegexpPlan {
         if encoding == PG_UTF8 {
-            let prog = gravity_dict::regexp::compile_under(pattern, || gravity_fn::typesem::collation::regex_ascii_cases(collation));
-            if let (Some(prog), Some(tmpl)) = (prog, gravity_dict::regexp::Template::parse(replacement)) {
+            let prog = gravity_dict::regexp::compile_under(pattern, || {
+                gravity_fn::typesem::collation::regex_ascii_cases(collation)
+            });
+            if let (Some(prog), Some(tmpl)) =
+                (prog, gravity_dict::regexp::Template::parse(replacement))
+            {
                 let in_place = tmpl.single_group() && prog.anchored() && prog.anchored_to_end();
-                return RegexpPlan::Program { prog, tmpl, in_place };
+                return RegexpPlan::Program {
+                    prog,
+                    tmpl,
+                    in_place,
+                };
             }
         }
-        RegexpPlan::Fmgr { required: gravity_dict::regexp::required_literal(pattern) }
+        RegexpPlan::Fmgr {
+            required: gravity_dict::regexp::required_literal(pattern),
+        }
     }
 
     pub fn open_coded(&self) -> bool {
@@ -3169,7 +4068,11 @@ impl RegexpPlan {
 /// dispatch (RE2 under regexp_alt's fail-closed classifier, `replace_text_regexp`'s first arm), which every entry the
 /// engine routes there (`Re2Pattern::subject_ok`, the pattern's own data guard) shares; `None` keeps the call (Spencer, a capture RE2 cannot place for
 /// the replacement, another encoding, a pattern the engine refused).
-pub fn automaton(pattern: &[u8], replacement: &[u8], encoding: i32) -> Option<regexp_alt::Re2Pattern> {
+pub fn automaton(
+    pattern: &[u8],
+    replacement: &[u8],
+    encoding: i32,
+) -> Option<regexp_alt::Re2Pattern> {
     if encoding != PG_UTF8 {
         return None;
     }
@@ -3179,20 +4082,33 @@ pub fn automaton(pattern: &[u8], replacement: &[u8], encoding: i32) -> Option<re
 
 /// The statement's `regexp_replace` call under `collation`: the bound one, rebound when a spec of another collation or
 /// form bound it. `global`: the 4-argument form (oid 2285), called with the flags `'g'` (`RegexpImages`).
-fn regexp_call(fmgr: &mut Option<gravity_fn::FmgrCall>, collation: u32, global: bool) -> Result<&mut gravity_fn::FmgrCall, TableBuildError> {
+fn regexp_call(
+    fmgr: &mut Option<gravity_fn::FmgrCall>,
+    collation: u32,
+    global: bool,
+) -> Result<&mut gravity_fn::FmgrCall, TableBuildError> {
     let (oid, nargs) = regexp_fn(global);
-    if fmgr.as_ref().is_some_and(|c| c.collation() != collation || c.nargs() != nargs) {
+    if fmgr
+        .as_ref()
+        .is_some_and(|c| c.collation() != collation || c.nargs() != nargs)
+    {
         *fmgr = None;
     }
     match fmgr {
         Some(c) => Ok(c),
-        None => Ok(fmgr.insert(gravity_fn::FmgrCall::bind(oid, nargs, collation).map_err(TableBuildError::Pg)?)),
+        None => Ok(fmgr.insert(
+            gravity_fn::FmgrCall::bind(oid, nargs, collation).map_err(TableBuildError::Pg)?,
+        )),
     }
 }
 
 /// `regexp_replace`'s function and arity: the 3-argument form (the first match), or with `global` the 4-argument one.
 fn regexp_fn(global: bool) -> (types_core::Oid, usize) {
-    if global { (REGEXP_REPLACE_FLAGS_OID, 4) } else { (REGEXP_REPLACE_OID, 3) }
+    if global {
+        (REGEXP_REPLACE_FLAGS_OID, 4)
+    } else {
+        (REGEXP_REPLACE_OID, 3)
+    }
 }
 
 /// A `regexp_replace` call's constant images: the pattern, the replacement and, for the 4-argument form, the flags `'g'`.
@@ -3204,7 +4120,11 @@ struct RegexpImages {
 
 impl RegexpImages {
     fn new(pattern: &[u8], replacement: &[u8], global: bool) -> RegexpImages {
-        RegexpImages { pat: text_image(pattern), rep: text_image(replacement), flags: global.then(|| text_image(b"g")) } // alloc: Cold
+        RegexpImages {
+            pat: text_image(pattern),
+            rep: text_image(replacement),
+            flags: global.then(|| text_image(b"g")),
+        } // alloc: Cold
     }
 
     /// The call over the subject image `arg`.
@@ -3229,7 +4149,14 @@ const REGEXP_COMPILE_ERRORS: [types_error::SqlState; 4] = [
 /// bad pattern, 22023 bad flags, 0A000 a nondeterministic collation, 42P22 none) is every evaluated row's. One call over
 /// an empty subject through the rows' own function and collation: `true` when it raised one, and the build then faults
 /// every entry without trusting the prefilter or the open-coded program. Any other error (a cancel) aborts the build.
-fn regexp_compile_fails(pattern: &[u8], replacement: &[u8], collation: u32, encoding: i32, global: bool, fmgr: &mut Option<gravity_fn::FmgrCall>) -> Result<bool, TableBuildError> {
+fn regexp_compile_fails(
+    pattern: &[u8],
+    replacement: &[u8],
+    collation: u32,
+    encoding: i32,
+    global: bool,
+    fmgr: &mut Option<gravity_fn::FmgrCall>,
+) -> Result<bool, TableBuildError> {
     gravity_fn::typesem::collation::arm_database_encoding(encoding).map_err(TableBuildError::Pg)?;
     let call = regexp_call(fmgr, collation, global)?;
     let r = RegexpImages::new(pattern, replacement, global).call(call, &text_image(b"")); // alloc: Cold
@@ -3243,12 +4170,23 @@ fn regexp_compile_fails(pattern: &[u8], replacement: &[u8], collation: u32, enco
 
 /// Build the table `spec` over `dict` into `region`: the table header (published by the caller).
 /// `RegionFull` is the caller's retry after growing the region.
-pub fn build_table(spec: &TableSpec, dict: &DictView<'_>, region: &mut gravity_dict::Region, fmgr: &mut Option<gravity_fn::FmgrCall>) -> Result<*const gravity_dict::table::Header, TableBuildError> {
+pub fn build_table(
+    spec: &TableSpec,
+    dict: &DictView<'_>,
+    region: &mut gravity_dict::Region,
+    fmgr: &mut Option<gravity_fn::FmgrCall>,
+) -> Result<*const gravity_dict::table::Header, TableBuildError> {
     build_table_for(spec, dict, region, fmgr, None)
 }
 
 /// `build_table` with its working memory charged to `owner` (a verbatim part's view: its source's when `owner` is none).
-pub fn build_table_for(spec: &TableSpec, dict: &DictView<'_>, region: &mut gravity_dict::Region, fmgr: &mut Option<gravity_fn::FmgrCall>, owner: BuildOwner) -> Result<*const gravity_dict::table::Header, TableBuildError> {
+pub fn build_table_for(
+    spec: &TableSpec,
+    dict: &DictView<'_>,
+    region: &mut gravity_dict::Region,
+    fmgr: &mut Option<gravity_fn::FmgrCall>,
+    owner: BuildOwner,
+) -> Result<*const gravity_dict::table::Header, TableBuildError> {
     stack_depth_core::check_stack_depth().map_err(TableBuildError::Pg)?;
     let hdr = build_table_inner(spec, dict, region, fmgr, owner.or(dict.owner()))?;
     let err = match dict {
@@ -3263,22 +4201,40 @@ pub fn build_table_for(spec: &TableSpec, dict: &DictView<'_>, region: &mut gravi
 /// A part dictionary's index and (after the prewarm) its contiguous payload; `None` on a frame-served arm.
 fn part_view<'a>(d: &'a DictHandle) -> Result<Option<(PgrcIndex<'a>, &'a [u8])>, TableBuildError> {
     d.prewarm_payload().map_err(TableBuildError::Read)?;
-    let Some(payload) = d.payload_bytes().map_err(TableBuildError::Read)? else { return Ok(None) };
-    Ok(Some((PgrcIndex { index: d.index_bytes().map_err(TableBuildError::Read)? }, payload)))
+    let Some(payload) = d.payload_bytes().map_err(TableBuildError::Read)? else {
+        return Ok(None);
+    };
+    Ok(Some((
+        PgrcIndex {
+            index: d.index_bytes().map_err(TableBuildError::Read)?,
+        },
+        payload,
+    )))
 }
 
 /// `v` without its trailing blanks (`bcTruelen`, varchar.c:670): a bpchar entry's equality bytes.
 fn bpchar_trimmed(v: gravity_dict::View) -> gravity_dict::View {
     let b = raw::view_bytes(v);
-    gravity_dict::View { ptr: v.ptr, len: b.iter().rposition(|&c| c != b' ').map_or(0, |i| i + 1) as u32 }
+    gravity_dict::View {
+        ptr: v.ptr,
+        len: b.iter().rposition(|&c| c != b' ').map_or(0, |i| i + 1) as u32,
+    }
 }
 
 /// The codes `[lo, hi)` of the entries equal to `lit` in a byte-ordered dictionary (LIKE without a wildcard): from
 /// `lit`'s lower bound to `lit || '\0'`'s, as no byte string lies between the two.
 /// `owner`: the build's, whose the search key's copy is.
-fn exact_run<'a, E>(n: u32, lit: &[u8], entry: &mut dyn FnMut(u32) -> Result<&'a [u8], E>, owner: BuildOwner) -> Result<(u32, u32), E> {
+fn exact_run<'a, E>(
+    n: u32,
+    lit: &[u8],
+    entry: &mut dyn FnMut(u32) -> Result<&'a [u8], E>,
+    owner: BuildOwner,
+) -> Result<(u32, u32), E> {
     let lo = gravity_dict::lookup::lower_bound(n, lit, entry)?;
-    let mut past = memledger::ChargedVec::<u8>::new(owner.map(|o| o.0), owner.map_or(memledger::Kind::Region, |o| o.1));
+    let mut past = memledger::ChargedVec::<u8>::new(
+        owner.map(|o| o.0),
+        owner.map_or(memledger::Kind::Region, |o| o.1),
+    );
     past.with_vec(|v| {
         v.reserve_exact(lit.len() + 1); // alloc: Exec charged owner
         v.extend_from_slice(lit); // alloc: Exec charged owner
@@ -3287,7 +4243,13 @@ fn exact_run<'a, E>(n: u32, lit: &[u8], entry: &mut dyn FnMut(u32) -> Result<&'a
     Ok((lo, gravity_dict::lookup::lower_bound(n, &past, entry)?))
 }
 
-fn build_table_inner(spec: &TableSpec, dict: &DictView<'_>, region: &mut gravity_dict::Region, fmgr: &mut Option<gravity_fn::FmgrCall>, owner: BuildOwner) -> Result<*const gravity_dict::table::Header, TableBuildError> {
+fn build_table_inner(
+    spec: &TableSpec,
+    dict: &DictView<'_>,
+    region: &mut gravity_dict::Region,
+    fmgr: &mut Option<gravity_fn::FmgrCall>,
+    owner: BuildOwner,
+) -> Result<*const gravity_dict::table::Header, TableBuildError> {
     use gravity_dict::{Codes, Derived, Fp128, I64};
     // D3038 (A): a table coded by length (`lane_codes`) answers functions of the length alone (exec sites.rs `lens_only`):
     // its codes rank lengths ascending, so '' (the one value of length 0) is code 0 where the part holds it
@@ -3304,14 +4266,25 @@ fn build_table_inner(spec: &TableSpec, dict: &DictView<'_>, region: &mut gravity
         }
     }
     match &spec.func {
-        TableFn::Like { pattern, ilike, negated } => {
-            let mode = if *ilike { gravity_dict::like::Mode::ILike } else { gravity_dict::like::Mode::Like };
+        TableFn::Like {
+            pattern,
+            ilike,
+            negated,
+        } => {
+            let mode = if *ilike {
+                gravity_dict::like::Mode::ILike
+            } else {
+                gravity_dict::like::Mode::Like
+            };
             let mut m = gravity_dict::like::Matcher::new(pattern, mode, region)?;
             if *negated {
                 m = m.negated();
             }
             // B2-01: the contains scan's rare byte pair re-ranked from the dictionary's own bytes when its projected waste pays for the count
-            m = m.recounting(|scanned, rejected, counted, left| gravity_program::cost::scan::Scan::REFERENCE.recount_pays(scanned, rejected, counted, left));
+            m = m.recounting(|scanned, rejected, counted, left| {
+                gravity_program::cost::scan::Scan::REFERENCE
+                    .recount_pays(scanned, rejected, counted, left)
+            });
             if m.class() == gravity_dict::like::Class::Segments {
                 fires::fire_shared("like.segments"); // shapecheck fire signal (D3288): runs between %s, each by its own scan
             }
@@ -3320,8 +4293,16 @@ fn build_table_inner(spec: &TableSpec, dict: &DictView<'_>, region: &mut gravity
                 // search (a few entries read, never the payload): the entries from c to c's byte successor (`prefix_run`)
                 let n = d.ncodes();
                 let run = match (*ilike || !d.byte_rank_sorted(), m.class()) {
-                    (false, gravity_dict::like::Class::Prefix) => Some(gravity_dict::lookup::prefix_run(n, m.literal(), &mut |c| d.entry(c).map(|e| e.bytes)).map_err(TableBuildError::Read)?),
-                    (false, gravity_dict::like::Class::Exact) => Some(exact_run(n, m.literal(), &mut |c| d.entry(c).map(|e| e.bytes), owner).map_err(TableBuildError::Read)?),
+                    (false, gravity_dict::like::Class::Prefix) => Some(
+                        gravity_dict::lookup::prefix_run(n, m.literal(), &mut |c| {
+                            d.entry(c).map(|e| e.bytes)
+                        })
+                        .map_err(TableBuildError::Read)?,
+                    ),
+                    (false, gravity_dict::like::Class::Exact) => Some(
+                        exact_run(n, m.literal(), &mut |c| d.entry(c).map(|e| e.bytes), owner)
+                            .map_err(TableBuildError::Read)?,
+                    ),
                     (false, gravity_dict::like::Class::Any) => Some((0, n)),
                     _ => None,
                 };
@@ -3332,7 +4313,13 @@ fn build_table_inner(spec: &TableSpec, dict: &DictView<'_>, region: &mut gravity
                     return Ok(m.build_bits_over(&idx, payload, region)?.header());
                 }
             }
-            if let DictView::Ranked { ranks, cur, scratch, .. } = dict {
+            if let DictView::Ranked {
+                ranks,
+                cur,
+                scratch,
+                ..
+            } = dict
+            {
                 // D3288 (C): a verbatim part's streaming pattern (a contains literal, % runs) scans each decoded granule
                 // once, the hits resolved to rows and their codes, never a call per entry
                 if m.streams() {
@@ -3345,18 +4332,39 @@ fn build_table_inner(spec: &TableSpec, dict: &DictView<'_>, region: &mut gravity
             // a part's byte lengths ARE the dictionary index's `byte_len` field: the lane points into the resident index (no table, R4)
             if let DictView::Part(d, _) = dict {
                 let index = d.index_bytes().map_err(TableBuildError::Read)?;
-                return Ok(raw::index_len_header(region, index, gravity_dict::LenField::Bytes)?);
+                return Ok(raw::index_len_header(
+                    region,
+                    index,
+                    gravity_dict::LenField::Bytes,
+                )?);
             }
             // D3038: a verbatim part's lengths from its entries' headers alone (no full decode of the representative rows)
-            if let DictView::Ranked { ranks, cur, scratch, .. } = dict {
+            if let DictView::Ranked {
+                ranks,
+                cur,
+                scratch,
+                ..
+            } = dict
+            {
                 let (mut cur, mut scratch) = (cur.borrow_mut(), scratch.borrow_mut());
                 // one word per code, on an arena charged to the source's owner for the build
                 let a = arena_of(scratch.owner);
                 let mut lens: AVec<i64> = AVec::default();
-                lens.resize(&a, ranks.ncodes() as usize, 0).map_err(refused)?;
-                scratch.ranked_lengths(&mut cur, ranks, lens.as_mut_slice(&a)).map_err(TableBuildError::Read)?;
+                lens.resize(&a, ranks.ncodes() as usize, 0)
+                    .map_err(refused)?;
+                scratch
+                    .ranked_lengths(&mut cur, ranks, lens.as_mut_slice(&a))
+                    .map_err(TableBuildError::Read)?;
                 let lens = lens.as_slice(&a);
-                return Ok(I64::build_by_code(&Codes { ncodes: ranks.ncodes(), null: None }, region, &mut |c| Ok(lens[c as usize]))?.header());
+                return Ok(I64::build_by_code(
+                    &Codes {
+                        ncodes: ranks.ncodes(),
+                        null: None,
+                    },
+                    region,
+                    &mut |c| Ok(lens[c as usize]),
+                )?
+                .header());
             }
             Ok(I64::build(dict, region, &mut |v| Ok(raw::view_bytes(v).len() as i64))?.header())
         }
@@ -3376,8 +4384,14 @@ fn build_table_inner(spec: &TableSpec, dict: &DictView<'_>, region: &mut gravity
                     return Ok(raw::index_len_header(region, index, field)?);
                 }
                 if let Some((idx, payload)) = part_view(d)? {
-                    let pd = gravity_dict::PayloadDict { index: &idx, payload };
-                    return Ok(I64::build(&pd, region, &mut |v| Ok(utf8_chars(raw::view_bytes(v))))?.header());
+                    let pd = gravity_dict::PayloadDict {
+                        index: &idx,
+                        payload,
+                    };
+                    return Ok(I64::build(&pd, region, &mut |v| {
+                        Ok(utf8_chars(raw::view_bytes(v)))
+                    })?
+                    .header());
                 }
             }
             Ok(I64::build(dict, region, &mut |v| Ok(utf8_chars(raw::view_bytes(v))))?.header())
@@ -3388,7 +4402,10 @@ fn build_table_inner(spec: &TableSpec, dict: &DictView<'_>, region: &mut gravity
                 d.prewarm_payload().map_err(TableBuildError::Read)?;
             }
             let trim = spec.func == TableFn::FingerprintBpchar;
-            Ok(Fp128::build(dict, region, &mut |v| Ok(if trim { bpchar_trimmed(v) } else { v }))?.header())
+            Ok(Fp128::build(dict, region, &mut |v| {
+                Ok(if trim { bpchar_trimmed(v) } else { v })
+            })?
+            .header())
         }
         TableFn::Canon | TableFn::CanonBpchar => {
             // textkeys step 3: a source's own build (granule_source/lanes.rs shares one per statement instead): each long
@@ -3398,9 +4415,21 @@ fn build_table_inner(spec: &TableSpec, dict: &DictView<'_>, region: &mut gravity
                 d.prewarm_payload().map_err(TableBuildError::Read)?;
             }
             let trim = matches!(spec.func, TableFn::CanonBpchar);
-            Ok(Fp128::build_canon(dict, region, &mut |v| Ok(if trim { bpchar_trimmed(v) } else { v }), None)?.header())
+            Ok(Fp128::build_canon(
+                dict,
+                region,
+                &mut |v| Ok(if trim { bpchar_trimmed(v) } else { v }),
+                None,
+            )?
+            .header())
         }
-        TableFn::DerivedFingerprint { pattern, replacement, collation, encoding, global } => {
+        TableFn::DerivedFingerprint {
+            pattern,
+            replacement,
+            collation,
+            encoding,
+            global,
+        } => {
             fp_seed();
             // lowerv4's Fp128 convention (percode_bind.rs sweep): a faulted entry (an input the regexp raised 2201B on) stays
             // [0, 0], which sends its rows to the re-evaluation, and the table carries no fault bitmap (agg_bind binds no
@@ -3409,27 +4438,67 @@ fn build_table_inner(spec: &TableSpec, dict: &DictView<'_>, region: &mut gravity
             // the in-place plan over a resident payload: each derived value a subslice of the payload,
             // fingerprinted in the sweep (Fp128::build_derived_over); statement-scoped like every table here
             if let DictView::Part(d, _) = dict {
-                if !regexp_compile_fails(pattern, replacement, *collation, *encoding, *global, fmgr)? {
+                if !regexp_compile_fails(
+                    pattern,
+                    replacement,
+                    *collation,
+                    *encoding,
+                    *global,
+                    fmgr,
+                )? {
                     // in place: anchored at both ends, so `'g'`'s one match is the first
-                    if let RegexpPlan::Program { prog, tmpl, in_place: true } = RegexpPlan::of(pattern, replacement, *collation, *encoding) {
+                    if let RegexpPlan::Program {
+                        prog,
+                        tmpl,
+                        in_place: true,
+                    } = RegexpPlan::of(pattern, replacement, *collation, *encoding)
+                    {
                         if let Some(p) = d.payload_bytes().map_err(TableBuildError::Read)? {
-                            if let Some(t) = derived_seq(dict, d, region, p, &prog, &tmpl, replacement)? {
-                                return Ok(no_faults(t.header() as *mut gravity_dict::table::Header));
+                            if let Some(t) =
+                                derived_seq(dict, d, region, p, &prog, &tmpl, replacement)?
+                            {
+                                return Ok(no_faults(
+                                    t.header() as *mut gravity_dict::table::Header
+                                ));
                             }
                         }
                     }
                 }
             }
             // otherwise the derived values built once into a buffer of their own (freed here), fingerprinted by code
-            let inner = TableSpec { over: spec.over, func: TableFn::RegexpReplace { pattern: pattern.clone(), replacement: replacement.clone(), collation: *collation, encoding: *encoding, global: *global } }; // alloc: Exec
+            let inner = TableSpec {
+                over: spec.over,
+                func: TableFn::RegexpReplace {
+                    pattern: pattern.clone(),
+                    replacement: replacement.clone(),
+                    collation: *collation,
+                    encoding: *encoding,
+                    global: *global,
+                },
+            }; // alloc: Exec
             let t = build_shared_for(&inner, dict, fmgr, owner)?;
             let d = raw::derived_at(t.header());
-            let codes = Codes { ncodes: d.ncodes(), null: gravity_dict::Dict::null_code(dict) };
+            let codes = Codes {
+                ncodes: d.ncodes(),
+                null: gravity_dict::Dict::null_code(dict),
+            };
             // a faulting code's canonical is `u32::MAX` (the fault bit carries over), the rest fingerprint once per distinct value
-            let hdr = Fp128::build_by_canon(&codes, region, d.ndistinct(), &mut |c| raw::derived_canonical(&d, c), &mut |c| raw::derived_view(&d, c))?.header();
+            let hdr = Fp128::build_by_canon(
+                &codes,
+                region,
+                d.ndistinct(),
+                &mut |c| raw::derived_canonical(&d, c),
+                &mut |c| raw::derived_view(&d, c),
+            )?
+            .header();
             Ok(no_faults(hdr as *mut gravity_dict::table::Header))
         }
-        TableFn::DerivedCall { call, collation, encoding, .. } => {
+        TableFn::DerivedCall {
+            call,
+            collation,
+            encoding,
+            ..
+        } => {
             fp_seed();
             // one sweep: each entry's result fingerprinted straight into the table; a faulted code is [0, 0] with no fault
             // bitmap (DerivedFingerprint's convention)
@@ -3443,33 +4512,61 @@ fn build_table_inner(spec: &TableSpec, dict: &DictView<'_>, region: &mut gravity
             empty_table(dict, region, *elem)
         }
         TableFn::Faults => Ok(gravity_dict::Bits::all_faults(dict, region)?.header()),
-        TableFn::EqBound { .. } => Err(TableBuildError::Pg(Box::new(types_error::PgError::error("gravity: Reason::Bug: a bound code set built before its values were read").with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR)))), // alloc: Cold
-        TableFn::LikeBound { .. } => Err(TableBuildError::Pg(Box::new(types_error::PgError::error("gravity: Reason::Bug: a bound LIKE table built before its pattern was read").with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR)))), // alloc: Cold
-        TableFn::RangeBound { .. } => Err(TableBuildError::Pg(Box::new(types_error::PgError::error("gravity: Reason::Bug: a bound byte interval built before its end was read").with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR)))), // alloc: Cold
+        TableFn::EqBound { .. } => Err(TableBuildError::Pg(Box::new(
+            types_error::PgError::error(
+                "gravity: Reason::Bug: a bound code set built before its values were read",
+            )
+            .with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR),
+        ))), // alloc: Cold
+        TableFn::LikeBound { .. } => Err(TableBuildError::Pg(Box::new(
+            types_error::PgError::error(
+                "gravity: Reason::Bug: a bound LIKE table built before its pattern was read",
+            )
+            .with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR),
+        ))), // alloc: Cold
+        TableFn::RangeBound { .. } => Err(TableBuildError::Pg(Box::new(
+            types_error::PgError::error(
+                "gravity: Reason::Bug: a bound byte interval built before its end was read",
+            )
+            .with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR),
+        ))), // alloc: Cold
         TableFn::Eq { values, negated } => {
             // B2-20: a part's codes are its entries' byte order: each value's code by binary search, a few entries read
             // (their frames faulted on demand), never the payload; a verbatim part's ranks are swept by bytes
             if let DictView::Part(d, _) = dict {
                 if d.byte_rank_sorted() {
                     // one code per member of the statement's IN list (data-sized), on the build's owner
-                    let mut codes = memledger::ChargedVec::<u32>::new(owner.map(|o| o.0), owner.map_or(memledger::Kind::Region, |o| o.1));
+                    let mut codes = memledger::ChargedVec::<u32>::new(
+                        owner.map(|o| o.0),
+                        owner.map_or(memledger::Kind::Region, |o| o.1),
+                    );
                     codes.with_vec(|v| v.reserve_exact(values.len())); // alloc: Exec charged owner
-                    // bounded("other: one value per member of the statement's IN list, which the query text bounds; a binary search each over the dictionary (a few entries read), as PG's ScalarArrayOpExpr tests its members with no poll")
+                                                                       // bounded("other: one value per member of the statement's IN list, which the query text bounds; a binary search each over the dictionary (a few entries read), as PG's ScalarArrayOpExpr tests its members with no poll")
                     for v in values {
                         // the empty value sorts first: code 0 when the index's byte length says it is empty (no entry read:
                         // an entry's first read loads the payload extent whole; granule_source verdicts.rs `code_pred`)
                         let c = match v.is_empty() {
-                            true => (d.ncodes() > 0 && d.byte_len_only(0).map_err(TableBuildError::Read)? == 0).then_some(0),
-                            false => gravity_dict::lookup::code_of(d.ncodes(), v, &mut |c| d.entry(c).map(|e| e.bytes)).map_err(TableBuildError::Read)?,
+                            true => (d.ncodes() > 0
+                                && d.byte_len_only(0).map_err(TableBuildError::Read)? == 0)
+                                .then_some(0),
+                            false => gravity_dict::lookup::code_of(d.ncodes(), v, &mut |c| {
+                                d.entry(c).map(|e| e.bytes)
+                            })
+                            .map_err(TableBuildError::Read)?,
                         };
                         if let Some(c) = c {
                             codes.with_vec(|v| v.push(c)); // alloc: Exec charged owner
                         }
                     }
-                    return Ok(gravity_dict::Bits::of_codes(dict, &codes, *negated, region)?.header());
+                    return Ok(
+                        gravity_dict::Bits::of_codes(dict, &codes, *negated, region)?.header(),
+                    );
                 }
             }
-            Ok(gravity_dict::Bits::build(dict, region, &mut |v| Ok(values.iter().any(|x| x.as_slice() == raw::view_bytes(v)) != *negated))?.header())
+            Ok(gravity_dict::Bits::build(dict, region, &mut |v| {
+                Ok(values.iter().any(|x| x.as_slice() == raw::view_bytes(v)) != *negated)
+            })?
+            .header())
         }
         TableFn::Range { from, to } => {
             // P5-06 / SRC-17: a part's codes are its entries' byte order: the interval's entries are one code run, its ends
@@ -3478,9 +4575,15 @@ fn build_table_inner(spec: &TableSpec, dict: &DictView<'_>, region: &mut gravity
             if let DictView::Part(d, _) = dict {
                 if d.byte_rank_sorted() {
                     let n = d.ncodes();
-                    let lo = gravity_dict::lookup::lower_bound(n, from, &mut |c| d.entry(c).map(|e| e.bytes)).map_err(TableBuildError::Read)?;
+                    let lo = gravity_dict::lookup::lower_bound(n, from, &mut |c| {
+                        d.entry(c).map(|e| e.bytes)
+                    })
+                    .map_err(TableBuildError::Read)?;
                     let hi = match to {
-                        Some(t) => gravity_dict::lookup::lower_bound(n, t, &mut |c| d.entry(c).map(|e| e.bytes)).map_err(TableBuildError::Read)?,
+                        Some(t) => gravity_dict::lookup::lower_bound(n, t, &mut |c| {
+                            d.entry(c).map(|e| e.bytes)
+                        })
+                        .map_err(TableBuildError::Read)?,
                         None => n,
                     };
                     return Ok(gravity_dict::Bits::of_run(dict, lo, hi, false, region)?.header());
@@ -3488,20 +4591,33 @@ fn build_table_inner(spec: &TableSpec, dict: &DictView<'_>, region: &mut gravity
             }
             Ok(gravity_dict::Bits::build(dict, region, &mut |v| {
                 let b = raw::view_bytes(v);
-                Ok(b >= from.as_slice() && to.as_ref().is_none_or( |t| b < t.as_slice()))
+                Ok(b >= from.as_slice() && to.as_ref().is_none_or(|t| b < t.as_slice()))
             })?
             .header())
         }
-        TableFn::RegexpReplace { pattern, replacement, collation, encoding, global } => {
+        TableFn::RegexpReplace {
+            pattern,
+            replacement,
+            collation,
+            encoding,
+            global,
+        } => {
             if let DictView::Part(d, _) = dict {
                 d.prewarm_payload().map_err(TableBuildError::Read)?;
             }
             if regexp_compile_fails(pattern, replacement, *collation, *encoding, *global, fmgr)? {
                 // every entry faults: a row re-evaluates and raises PG's error, a row never evaluated raises nothing (D354)
-                return Ok(Derived::build(dict, region, &mut |_, _| Err(gravity_dict::table::Halt::Fault(gravity_dict::Fault(1))))?.header());
+                return Ok(Derived::build(dict, region, &mut |_, _| {
+                    Err(gravity_dict::table::Halt::Fault(gravity_dict::Fault(1)))
+                })?
+                .header());
             }
             match RegexpPlan::of(pattern, replacement, *collation, *encoding) {
-                RegexpPlan::Program { prog, tmpl, in_place } => {
+                RegexpPlan::Program {
+                    prog,
+                    tmpl,
+                    in_place,
+                } => {
                     let mut n = 0u64;
                     let mut memo = gravity_dict::regexp::Memo::new();
                     // `'g'` over an unanchored program: every match (an anchored one's only match is the first)
@@ -3510,13 +4626,28 @@ fn build_table_inner(spec: &TableSpec, dict: &DictView<'_>, region: &mut gravity
                         n += 1;
                         // a subject the program refuses (its step budget) faults: its rows re-evaluate through the engine
                         let out = match all {
-                            true => gravity_dict::regexp::replace_all(&prog, &tmpl, replacement, raw::view_bytes(v), region)?,
-                            false => gravity_dict::regexp::replace_first_memo(&prog, &tmpl, replacement, raw::view_bytes(v), region, &mut memo)?,
+                            true => gravity_dict::regexp::replace_all(
+                                &prog,
+                                &tmpl,
+                                replacement,
+                                raw::view_bytes(v),
+                                region,
+                            )?,
+                            false => gravity_dict::regexp::replace_first_memo(
+                                &prog,
+                                &tmpl,
+                                replacement,
+                                raw::view_bytes(v),
+                                region,
+                                &mut memo,
+                            )?,
                         };
                         out.ok_or(gravity_dict::table::Halt::Fault(gravity_dict::Fault(1)))
                     };
                     let payload = match dict {
-                        DictView::Part(d, _) if in_place => d.payload_bytes().map_err(TableBuildError::Read)?,
+                        DictView::Part(d, _) if in_place => {
+                            d.payload_bytes().map_err(TableBuildError::Read)?
+                        }
                         _ => None,
                     };
                     let t = match payload {
@@ -3558,17 +4689,30 @@ fn build_table_inner(spec: &TableSpec, dict: &DictView<'_>, region: &mut gravity
                             Some(re) => {
                                 by_automaton += 1;
                                 // n: 0 every match (`'g'`), 1 the first
-                                let r = regexp_alt::replace_text_regexp_re2(cx.mcx(), re, b, replacement, 0, if *global { 0 } else { 1 }).map(|out| Some(region.copy(out.as_slice())));
+                                let r = regexp_alt::replace_text_regexp_re2(
+                                    cx.mcx(),
+                                    re,
+                                    b,
+                                    replacement,
+                                    0,
+                                    if *global { 0 } else { 1 },
+                                )
+                                .map(|out| Some(region.copy(out.as_slice())));
                                 cx.reset();
                                 r
                             }
                             None => {
                                 arg.clear();
-                                arg.extend_from_slice(&varlena_header_4b_u(b.len() as u32).to_le_bytes()); // alloc: Exec
+                                arg.extend_from_slice(
+                                    &varlena_header_4b_u(b.len() as u32).to_le_bytes(),
+                                ); // alloc: Exec
                                 arg.extend_from_slice(b); // alloc: Exec
                                 images.call(call, &arg).map(|r| {
                                     // a non-null result is copied before the call's next call
-                                    (!r.isnull).then(|| region.copy(raw::result_bytes(r.value.as_u64() as *const u8)))
+                                    (!r.isnull).then(|| {
+                                        region
+                                            .copy(raw::result_bytes(r.value.as_u64() as *const u8))
+                                    })
                                 })
                             }
                         };
@@ -3577,7 +4721,12 @@ fn build_table_inner(spec: &TableSpec, dict: &DictView<'_>, region: &mut gravity
                             Ok(None) => Ok(gravity_dict::View::EMPTY),
                             // an invalid pattern (or a match the engine gives up on) is PG's error on an evaluated row only: the
                             // entry faults, and a row of its code re-evaluates and raises; nothing is raised for rows never evaluated
-                            Err(e) if e.sqlstate() == types_error::ERRCODE_INVALID_REGULAR_EXPRESSION => Err(gravity_dict::table::Halt::Fault(gravity_dict::Fault(1))),
+                            Err(e)
+                                if e.sqlstate()
+                                    == types_error::ERRCODE_INVALID_REGULAR_EXPRESSION =>
+                            {
+                                Err(gravity_dict::table::Halt::Fault(gravity_dict::Fault(1)))
+                            }
                             Err(e) => {
                                 err = Some(e);
                                 Err(gravity_dict::table::Halt::Fault(gravity_dict::Fault(1)))
@@ -3607,7 +4756,13 @@ fn build_table_inner(spec: &TableSpec, dict: &DictView<'_>, region: &mut gravity
 /// error only where it evaluates. A cancel or a resource error is the statement's and aborts the build. The call's result
 /// context rewinds before each entry's call (the previous result is fingerprinted by then), as the program's sweep rewinds
 /// its region per entry: the build holds one entry's call memory and the table, never a copy of the derived values.
-fn call_fingerprints(call: &gravity_program::table_fn::Call, collation: u32, encoding: i32, dict: &DictView<'_>, region: &mut gravity_dict::Region) -> Result<*const gravity_dict::table::Header, TableBuildError> {
+fn call_fingerprints(
+    call: &gravity_program::table_fn::Call,
+    collation: u32,
+    encoding: i32,
+    dict: &DictView<'_>,
+    region: &mut gravity_dict::Region,
+) -> Result<*const gravity_dict::table::Header, TableBuildError> {
     use gravity_dict::Fault;
     if let DictView::Part(d, _) = dict {
         d.prewarm_payload().map_err(TableBuildError::Read)?;
@@ -3617,7 +4772,11 @@ fn call_fingerprints(call: &gravity_program::table_fn::Call, collation: u32, enc
         // a call this thread cannot bind: every entry faults, so each row evaluates it where PostgreSQL does
         return Ok(gravity_dict::Fp128::build(dict, region, &mut |_| Err(Fault(1)))?.header());
     };
-    let consts: Vec<Option<Vec<u8>>> = call.args.iter().map(|a| a.as_deref().map(text_image)).collect(); // alloc: Cold
+    let consts: Vec<Option<Vec<u8>>> = call
+        .args
+        .iter()
+        .map(|a| a.as_deref().map(text_image))
+        .collect(); // alloc: Cold
     let nulls = vec![false; call.args.len()]; // alloc: Cold
     let mut datums = vec![datum::Datum::from_usize(0); call.args.len()]; // alloc: Cold
     let mut arg: Vec<u8> = Vec::with_capacity(1 << 10); // alloc: Exec
@@ -3631,7 +4790,7 @@ fn call_fingerprints(call: &gravity_program::table_fn::Call, collation: u32, enc
         arg.clear();
         arg.extend_from_slice(&varlena_header_4b_u(b.len() as u32).to_le_bytes()); // alloc: Exec
         arg.extend_from_slice(b); // alloc: Exec
-        // bounded("small-fixed: the call's arguments, at most FUNC_MAX_ARGS (100)")
+                                  // bounded("small-fixed: the call's arguments, at most FUNC_MAX_ARGS (100)")
         for (d, c) in datums.iter_mut().zip(&consts) {
             *d = datum::Datum::from_usize(c.as_ref().map_or(arg.as_ptr(), |c| c.as_ptr()) as usize);
         }
@@ -3641,10 +4800,19 @@ fn call_fingerprints(call: &gravity_program::table_fn::Call, collation: u32, enc
             // live until the next entry's rewind: the sweep fingerprints it first
             Ok(r) if !r.isnull => {
                 let out = raw::result_bytes(r.value.as_u64() as *const u8);
-                Ok(gravity_dict::View { ptr: out.as_ptr(), len: out.len() as u32 })
+                Ok(gravity_dict::View {
+                    ptr: out.as_ptr(),
+                    len: out.len() as u32,
+                })
             }
             Ok(_) => Err(Fault(1)),
-            Err(e) if [types_error::ERRCODE_OPERATOR_INTERVENTION, types_error::ERRCODE_INSUFFICIENT_RESOURCES].contains(&types_error::errcode_to_category(e.sqlstate())) => {
+            Err(e)
+                if [
+                    types_error::ERRCODE_OPERATOR_INTERVENTION,
+                    types_error::ERRCODE_INSUFFICIENT_RESOURCES,
+                ]
+                .contains(&types_error::errcode_to_category(e.sqlstate())) =>
+            {
                 err = Some(e);
                 Err(Fault(1))
             }
@@ -3665,7 +4833,10 @@ fn call_fingerprints(call: &gravity_program::table_fn::Call, collation: u32, enc
 /// The entries derived without a function call (the anchored program) and the fmgr entries the
 /// required-literal prefilter skipped, this process.
 pub fn regexp_census() -> (u64, u64) {
-    (SCANNED_ENTRIES.load(Ordering::Relaxed), SKIPPED_ENTRIES.load(Ordering::Relaxed))
+    (
+        SCANNED_ENTRIES.load(Ordering::Relaxed),
+        SKIPPED_ENTRIES.load(Ordering::Relaxed),
+    )
 }
 
 static SCANNED_ENTRIES: AtomicU64 = AtomicU64::new(0);
@@ -3687,18 +4858,28 @@ static DERIVED_ENTRIES: AtomicU64 = AtomicU64::new(0);
 
 /// An unfilled table over the dictionary's codes for the program's sweep (`TableFn::Program`): the header, the zeroed data of
 /// `elem`'s width per code and a zeroed fault bitmap (`FLAG_FAULTS`; the sweep's done host drops it when no entry faulted).
-fn empty_table(dict: &DictView<'_>, region: &mut gravity_dict::Region, elem: u8) -> Result<*const gravity_dict::table::Header, TableBuildError> {
+fn empty_table(
+    dict: &DictView<'_>,
+    region: &mut gravity_dict::Region,
+    elem: u8,
+) -> Result<*const gravity_dict::table::Header, TableBuildError> {
     use gravity_dict::lane::{ELEM_BITS, ELEM_FP128, ELEM_I64};
     use gravity_dict::table::Header;
     let n = gravity_dict::Dict::ncodes(dict) as usize;
     if n >= 1 << gravity_abi::status::FAULT_CODE_BITS {
-        return Err(TableBuildError::Region(gravity_dict::BuildError::TooManyCodes));
+        return Err(TableBuildError::Region(
+            gravity_dict::BuildError::TooManyCodes,
+        ));
     }
     let bytes = match elem {
         ELEM_BITS => n.div_ceil(64) * 8,
         ELEM_I64 => n * 8,
         ELEM_FP128 => n * 16,
-        _ => return Err(TableBuildError::Pg(crate::pg_err("gravity: a program table of an element the program cannot fill"))),
+        _ => {
+            return Err(TableBuildError::Pg(crate::pg_err(
+                "gravity: a program table of an element the program cannot fill",
+            )))
+        }
     };
     let hdr = region.alloc_zeroed(core::mem::size_of::<Header>(), 8)? as *mut Header;
     let data = region.alloc_zeroed(bytes.max(8), 8)?;
@@ -3708,13 +4889,22 @@ fn empty_table(dict: &DictView<'_>, region: &mut gravity_dict::Region, elem: u8)
 }
 
 /// `spec` over `dict` in an owned buffer sized from the dictionary's resident payload (a statement's shared table).
-pub fn build_shared(spec: &TableSpec, dict: &DictView<'_>, fmgr: &mut Option<gravity_fn::FmgrCall>) -> Result<FpTable, TableBuildError> {
+pub fn build_shared(
+    spec: &TableSpec,
+    dict: &DictView<'_>,
+    fmgr: &mut Option<gravity_fn::FmgrCall>,
+) -> Result<FpTable, TableBuildError> {
     build_shared_for(spec, dict, fmgr, None)
 }
 
 /// `build_shared` with the table's buffer and the build's working memory charged to `owner` from the build to the table's
 /// drop (a verbatim part's view: its source's when `owner` is none).
-pub fn build_shared_for(spec: &TableSpec, dict: &DictView<'_>, fmgr: &mut Option<gravity_fn::FmgrCall>, owner: BuildOwner) -> Result<FpTable, TableBuildError> {
+pub fn build_shared_for(
+    spec: &TableSpec,
+    dict: &DictView<'_>,
+    fmgr: &mut Option<gravity_fn::FmgrCall>,
+    owner: BuildOwner,
+) -> Result<FpTable, TableBuildError> {
     let owner = owner.or(dict.owner());
     // the steps label the build's stretches; the prewarm and the build poll inside (pgrc_read's ensure_all, the walks)
     let _step = cancelpoll::step("text_hosts::build_shared");
@@ -3724,7 +4914,19 @@ pub fn build_shared_for(spec: &TableSpec, dict: &DictView<'_>, fmgr: &mut Option
     }
     let n = gravity_dict::Dict::ncodes(dict) as usize;
     let in_place = match (&spec.func, dict) {
-        (TableFn::RegexpReplace { pattern, replacement, collation, encoding, .. }, DictView::Part(..)) => matches!(RegexpPlan::of(pattern, replacement, *collation, *encoding), RegexpPlan::Program { in_place: true, .. }),
+        (
+            TableFn::RegexpReplace {
+                pattern,
+                replacement,
+                collation,
+                encoding,
+                ..
+            },
+            DictView::Part(..),
+        ) => matches!(
+            RegexpPlan::of(pattern, replacement, *collation, *encoding),
+            RegexpPlan::Program { in_place: true, .. }
+        ),
         _ => false,
     };
     let payload = match dict {
@@ -3733,12 +4935,19 @@ pub fn build_shared_for(spec: &TableSpec, dict: &DictView<'_>, fmgr: &mut Option
         DictView::Ranked { .. } => n * 128,
     };
     let bytes = match spec.func {
-        TableFn::Like { .. } | TableFn::Eq { .. } | TableFn::Range { .. } | TableFn::EqBound { .. } | TableFn::LikeBound { .. } | TableFn::RangeBound { .. } => 64 + n.div_ceil(8) + (1 << 12),
+        TableFn::Like { .. }
+        | TableFn::Eq { .. }
+        | TableFn::Range { .. }
+        | TableFn::EqBound { .. }
+        | TableFn::LikeBound { .. }
+        | TableFn::RangeBound { .. } => 64 + n.div_ceil(8) + (1 << 12),
         TableFn::Faults => 64 + 2 * n.div_ceil(64) * 8 + (1 << 12),
         _ => 64 + 48 * n + payload + (1 << 16),
     };
     let _step = cancelpoll::step("text_hosts::build_shared: the table's build");
-    let t = build_owned_held(bytes, Held::By(owner), &mut |region| build_table_for(spec, dict, region, fmgr, owner))?;
+    let t = build_owned_held(bytes, Held::By(owner), &mut |region| {
+        build_table_for(spec, dict, region, fmgr, owner)
+    })?;
     if matches!(spec.func, TableFn::DerivedFingerprint { .. }) {
         DERIVED_BUILT.fetch_add(1, Ordering::Relaxed);
     }
@@ -3748,7 +4957,12 @@ pub fn build_shared_for(spec: &TableSpec, dict: &DictView<'_>, fmgr: &mut Option
 /// textkeys step 3 (`TableFn::Canon`): the canonical image table of `dict` (a statement's shared table), each long entry's
 /// image read from `raw` (the part's resident `Fp128` table over the same renders, trimmed when `bpchar`) when given, else
 /// hashed in the build; the buffer and the build charged to `owner` (a verbatim part's view: its source's when none).
-pub fn build_canon_for(dict: &DictView<'_>, raw: Option<&FpTable>, bpchar: bool, owner: BuildOwner) -> Result<FpTable, TableBuildError> {
+pub fn build_canon_for(
+    dict: &DictView<'_>,
+    raw: Option<&FpTable>,
+    bpchar: bool,
+    owner: BuildOwner,
+) -> Result<FpTable, TableBuildError> {
     let owner = owner.or(dict.owner());
     let _step = cancelpoll::step("text_hosts::build_canon_for");
     fp_seed();
@@ -3758,7 +4972,13 @@ pub fn build_canon_for(dict: &DictView<'_>, raw: Option<&FpTable>, bpchar: bool,
     let n = gravity_dict::Dict::ncodes(dict) as usize;
     let raw = raw.map(FpTable::table);
     build_owned_held(64 + 16 * n + (1 << 16), Held::By(owner), &mut |region| {
-        Ok(gravity_dict::Fp128::build_canon(dict, region, &mut |v| Ok(if bpchar { bpchar_trimmed(v) } else { v }), raw.as_ref())?.header())
+        Ok(gravity_dict::Fp128::build_canon(
+            dict,
+            region,
+            &mut |v| Ok(if bpchar { bpchar_trimmed(v) } else { v }),
+            raw.as_ref(),
+        )?
+        .header())
     })
 }
 
@@ -3771,24 +4991,54 @@ pub fn derived_tables_built() -> u64 {
 }
 
 /// `build` into an owned buffer of `64 + 48 × ncodes + payload` bytes, lazily zeroed, grown on `RegionFull` (the build repeated).
-pub fn build_owned(ncodes: usize, payload: usize, build: &mut dyn FnMut(&mut gravity_dict::Region) -> Result<*const gravity_dict::table::Header, TableBuildError>) -> Result<FpTable, TableBuildError> {
+pub fn build_owned(
+    ncodes: usize,
+    payload: usize,
+    build: &mut dyn FnMut(
+        &mut gravity_dict::Region,
+    ) -> Result<*const gravity_dict::table::Header, TableBuildError>,
+) -> Result<FpTable, TableBuildError> {
     build_owned_bytes(64 + 48 * ncodes + payload + (1 << 16), build)
 }
 
-pub fn build_owned_bytes(bytes: usize, build: &mut dyn FnMut(&mut gravity_dict::Region) -> Result<*const gravity_dict::table::Header, TableBuildError>) -> Result<FpTable, TableBuildError> {
+pub fn build_owned_bytes(
+    bytes: usize,
+    build: &mut dyn FnMut(
+        &mut gravity_dict::Region,
+    ) -> Result<*const gravity_dict::table::Header, TableBuildError>,
+) -> Result<FpTable, TableBuildError> {
     build_owned_held(bytes, Held::By(None), build)
 }
 
 /// `build_owned_bytes` with the buffer charged as `h` says from its take (`take_held`).
-fn build_owned_held(bytes: usize, h: Held, build: &mut dyn FnMut(&mut gravity_dict::Region) -> Result<*const gravity_dict::table::Header, TableBuildError>) -> Result<FpTable, TableBuildError> {
+fn build_owned_held(
+    bytes: usize,
+    h: Held,
+    build: &mut dyn FnMut(
+        &mut gravity_dict::Region,
+    ) -> Result<*const gravity_dict::table::Header, TableBuildError>,
+) -> Result<FpTable, TableBuildError> {
     let mut words = bytes.div_ceil(8);
     // bounded("other: a retry only when the region was short, grown at least twofold and by what the build asked for; each build polls its own walk")
     loop {
         let mut hb = take_held(words, h);
         let mut region = raw::region(&mut hb.buf);
         match build(&mut region) {
-            Ok(hdr) => return Ok(FpTable { cached: Mutex::new(hb.held), used: region.used() as u64, buf: hb.buf, hdr, ranks: None, off: None, renders: false, pins: Mutex::new(None) }),
-            Err(TableBuildError::Region(gravity_dict::BuildError::RegionFull { needed })) => words = (words * 8 + needed + (1 << 16)).div_ceil(8).max(words * 2),
+            Ok(hdr) => {
+                return Ok(FpTable {
+                    cached: Mutex::new(hb.held),
+                    used: region.used() as u64,
+                    buf: hb.buf,
+                    hdr,
+                    ranks: None,
+                    off: None,
+                    renders: false,
+                    pins: Mutex::new(None),
+                })
+            }
+            Err(TableBuildError::Region(gravity_dict::BuildError::RegionFull { needed })) => {
+                words = (words * 8 + needed + (1 << 16)).div_ceil(8).max(words * 2)
+            }
             Err(e) => return Err(e),
         }
     }
@@ -3804,7 +5054,14 @@ pub fn text_image(b: &[u8]) -> Vec<u8> {
 /// D3288 (C): a verbatim part's LIKE table by ONE scan of each granule's decoded value bytes (its 4B-U images back to
 /// back in the scratch arena), a hit's row resolved by the row spans and the row's verdict set on its code; rows of a
 /// code hold its bytes, so any row decides the code. A granule whose images do not lie ascending is decided row by row.
-fn ranked_scan_bits(m: &gravity_dict::like::Matcher<'_>, dict: &DictView<'_>, ranks: &Ranks, cur: &core::cell::RefCell<&mut StreamCursor<'static>>, scratch: &core::cell::RefCell<&mut TextScratch>, region: &mut gravity_dict::Region) -> Result<gravity_dict::Bits, TableBuildError> {
+fn ranked_scan_bits(
+    m: &gravity_dict::like::Matcher<'_>,
+    dict: &DictView<'_>,
+    ranks: &Ranks,
+    cur: &core::cell::RefCell<&mut StreamCursor<'static>>,
+    scratch: &core::cell::RefCell<&mut TextScratch>,
+    region: &mut gravity_dict::Region,
+) -> Result<gravity_dict::Bits, TableBuildError> {
     fires::fire_shared("like.granule_scan"); // shapecheck fire signal (D3288): a verbatim part's LIKE table by granule scans
     let (mut cur, mut scratch) = (cur.borrow_mut(), scratch.borrow_mut());
     let mut failed = None;
@@ -3823,14 +5080,19 @@ fn ranked_scan_bits(m: &gravity_dict::like::Matcher<'_>, dict: &DictView<'_>, ra
                 Some(end) => {
                     let sc = &**scratch;
                     let payload = raw::arena_bytes(&sc.arena, end);
-                    m.scan_entries(&RowSpans(&sc.spans), payload, &mut |row| set(codes[row as usize]));
+                    m.scan_entries(&RowSpans(&sc.spans), payload, &mut |row| {
+                        set(codes[row as usize])
+                    });
                 }
                 None => {
                     // `matches` answers after the negation; `of_hits` takes the verdict before it
                     // bounded("small-fixed: one granule's rows (at most GRANULE_ROWS, 8192), a LIKE test each, as PG's per-row test; the granule loop ticks")
                     #[allow(clippy::needless_range_loop)]
                     for i in 0..rows {
-                        if scratch.live(all, i) && m.matches(raw::payload(scratch.datums[i])).unwrap_or(false) != m.is_negated() {
+                        if scratch.live(all, i)
+                            && m.matches(raw::payload(scratch.datums[i])).unwrap_or(false)
+                                != m.is_negated()
+                        {
                             set(codes[i]);
                         }
                     }
@@ -3874,25 +5136,63 @@ impl From<gravity_dict::BuildError> for TableBuildError {
 /// function, serially, so PostgreSQL's own error text is raised for the row that selected it.
 pub fn reevaluate(spec: &TableSpec, bytes: &[u8]) -> PgResult<()> {
     match &spec.func {
-        TableFn::Like { pattern, ilike, negated: _ } => {
+        TableFn::Like {
+            pattern,
+            ilike,
+            negated: _,
+        } => {
             let mut region_buf = vec![0u64; 1024]; // alloc: Cold
             let mut region = raw::region(&mut region_buf);
-            let mode = if *ilike { gravity_dict::like::Mode::ILike } else { gravity_dict::like::Mode::Like };
-            let m = gravity_dict::like::Matcher::new(pattern, mode, &mut region).map_err(|_| crate::pg_err("gravity: LIKE pattern"))?;
+            let mode = if *ilike {
+                gravity_dict::like::Mode::ILike
+            } else {
+                gravity_dict::like::Mode::Like
+            };
+            let m = gravity_dict::like::Matcher::new(pattern, mode, &mut region)
+                .map_err(|_| crate::pg_err("gravity: LIKE pattern"))?;
             match m.matches(bytes) {
                 Ok(_) => Ok(()),
-                Err(_) => Err(Box::new(types_error::PgError::error("LIKE pattern must not end with escape character".to_string()).with_sqlstate(types_error::ERRCODE_INVALID_ESCAPE_SEQUENCE))), // alloc: Cold
+                Err(_) => Err(Box::new(
+                    types_error::PgError::error(
+                        "LIKE pattern must not end with escape character".to_string(),
+                    )
+                    .with_sqlstate(types_error::ERRCODE_INVALID_ESCAPE_SEQUENCE),
+                )), // alloc: Cold
             }
         }
-        TableFn::RegexpReplace { pattern, replacement, collation, global, .. } | TableFn::DerivedFingerprint { pattern, replacement, collation, global, .. } => {
+        TableFn::RegexpReplace {
+            pattern,
+            replacement,
+            collation,
+            global,
+            ..
+        }
+        | TableFn::DerivedFingerprint {
+            pattern,
+            replacement,
+            collation,
+            global,
+            ..
+        } => {
             let (oid, nargs) = regexp_fn(*global);
             let mut call = gravity_fn::FmgrCall::bind(oid, nargs, *collation)?;
-            RegexpImages::new(pattern, replacement, *global).call(&mut call, &text_image(bytes)).map(|_| ()) // alloc: Cold
+            RegexpImages::new(pattern, replacement, *global)
+                .call(&mut call, &text_image(bytes))
+                .map(|_| ()) // alloc: Cold
         }
-        TableFn::DerivedCall { call, collation, .. } => {
+        TableFn::DerivedCall {
+            call, collation, ..
+        } => {
             let mut f = gravity_fn::FmgrCall::bind(call.funcid, call.args.len(), *collation)?;
-            let args: Vec<Vec<u8>> = call.args.iter().map(|a| text_image(a.as_deref().unwrap_or(bytes))).collect(); // alloc: Cold
-            let datums: Vec<datum::Datum> = args.iter().map(|a| datum::Datum::from_usize(a.as_ptr() as usize)).collect(); // alloc: Cold
+            let args: Vec<Vec<u8>> = call
+                .args
+                .iter()
+                .map(|a| text_image(a.as_deref().unwrap_or(bytes)))
+                .collect(); // alloc: Cold
+            let datums: Vec<datum::Datum> = args
+                .iter()
+                .map(|a| datum::Datum::from_usize(a.as_ptr() as usize))
+                .collect(); // alloc: Cold
             f.call_site(&datums, &vec![false; datums.len()]).map(|_| ()) // alloc: Cold
         }
         _ => Ok(()),
@@ -3905,7 +5205,10 @@ mod d3887_tests {
 
     /// The rows' sort `row_codes` runs: `cancelpoll::sort_by` under a step; false when canceled.
     #[allow(clippy::ptr_arg)]
-    fn sorted_under_a_step(order: &mut Vec<u32>, cmp: impl Fn(&u32, &u32) -> core::cmp::Ordering) -> bool {
+    fn sorted_under_a_step(
+        order: &mut Vec<u32>,
+        cmp: impl Fn(&u32, &u32) -> core::cmp::Ordering,
+    ) -> bool {
         let mut scratch = vec![0u32; order.len()]; // alloc: Cold
         cancelpoll::sort_by(&mut cancelpoll::step("test sort"), order, &mut scratch, cmp).is_ok()
     }
@@ -3915,13 +5218,21 @@ mod d3887_tests {
     /// set after some comparisons / entries), and sort exactly as before when it is not.
     #[test]
     fn the_row_sort_and_the_fingerprint_walk_stop_mid_build_on_a_cancel() {
-        let keys: Vec<u64> = (0..300_000u64).map(|i| i.wrapping_mul(0x9e37_79b9_7f4a_7c15) >> 7).collect();
+        let keys: Vec<u64> = (0..300_000u64)
+            .map(|i| i.wrapping_mul(0x9e37_79b9_7f4a_7c15) >> 7)
+            .collect();
         let byte = AtomicU8::new(0);
         let mut order: Vec<u32> = (0..keys.len() as u32).collect();
         let mut want = order.clone();
         want.sort_by_key(|&i| keys[i as usize]);
-        assert!(cancelpoll::scoped(&byte, || sorted_under_a_step(&mut order, |&a, &b| keys[a as usize].cmp(&keys[b as usize]))));
-        assert_eq!(order.iter().map(|&i| keys[i as usize]).collect::<Vec<_>>(), want.iter().map(|&i| keys[i as usize]).collect::<Vec<_>>());
+        assert!(cancelpoll::scoped(&byte, || sorted_under_a_step(
+            &mut order,
+            |&a, &b| keys[a as usize].cmp(&keys[b as usize])
+        )));
+        assert_eq!(
+            order.iter().map(|&i| keys[i as usize]).collect::<Vec<_>>(),
+            want.iter().map(|&i| keys[i as usize]).collect::<Vec<_>>()
+        );
         // the cancel lands after 100k comparisons: the sort returns at its next run or merge
         let seen = AtomicUsize::new(0);
         let mut order: Vec<u32> = (0..keys.len() as u32).collect();
@@ -3934,12 +5245,20 @@ mod d3887_tests {
             })
         });
         assert!(!done, "canceled mid-sort");
-        assert!(seen.load(Ordering::Relaxed) < 2_000_000, "it stopped well before the whole sort ({} comparisons)", seen.load(Ordering::Relaxed));
+        assert!(
+            seen.load(Ordering::Relaxed) < 2_000_000,
+            "it stopped well before the whole sort ({} comparisons)",
+            seen.load(Ordering::Relaxed)
+        );
         // the walk stops at its next chunk of entries
         byte.store(0, Ordering::Relaxed);
         let bytes = vec![7u8; 100_000]; // alloc: Exec
         let ents: Vec<(u32, u32)> = (0..100_000u32).map(|i| (i, 1)).collect();
-        let store = Store { bytes: &bytes, ents: &ents, stopped: core::cell::Cell::new(false) };
+        let store = Store {
+            bytes: &bytes,
+            ents: &ents,
+            stopped: core::cell::Cell::new(false),
+        };
         let mut n = 0u32;
         cancelpoll::scoped(&byte, || {
             gravity_dict::Dict::entries(&store, &mut |_, _| {
@@ -3992,14 +5311,41 @@ mod d4233_tests {
     /// `PIECE` bytes a tick, its buffer's growth too); with none the images are every value's, from a buffer that grew.
     #[test]
     fn a_cancel_while_a_long_values_image_is_laid_stops_the_render_table() {
-        let vals = vec![b"a".to_vec(), vec![7u8; 3 * cancelpoll::PIECE + 5], b"bcd".to_vec()]; // alloc: Exec
+        let vals = vec![
+            b"a".to_vec(),
+            vec![7u8; 3 * cancelpoll::PIECE + 5],
+            b"bcd".to_vec(),
+        ]; // alloc: Exec
         let byte = AtomicU8::new(0);
-        let d = Vals { vals: vals.clone(), byte: &byte, cancel_at: None }; // alloc: Exec
-        let (_, buf, off) = cancelpoll::scoped(&byte, || super::lay_renders(&d, 3, 1, &mut super::ScratchGate::new())).expect("no cancel");
-        assert_eq!([image(&buf, off[0]), image(&buf, off[1]), image(&buf, off[2])], [&vals[0][..], &vals[1][..], &vals[2][..]]);
-        let d = Vals { vals, byte: &byte, cancel_at: Some(1) };
-        let r = cancelpoll::scoped(&byte, || super::lay_renders(&d, 3, 1 << 20, &mut super::ScratchGate::new()).map(|_| ()));
-        assert!(matches!(r, Err(ReadError::Canceled)), "the long value's image stopped at its first piece");
+        let d = Vals {
+            vals: vals.clone(),
+            byte: &byte,
+            cancel_at: None,
+        }; // alloc: Exec
+        let (_, buf, off) = cancelpoll::scoped(&byte, || {
+            super::lay_renders(&d, 3, 1, &mut super::ScratchGate::new())
+        })
+        .expect("no cancel");
+        assert_eq!(
+            [
+                image(&buf, off[0]),
+                image(&buf, off[1]),
+                image(&buf, off[2])
+            ],
+            [&vals[0][..], &vals[1][..], &vals[2][..]]
+        );
+        let d = Vals {
+            vals,
+            byte: &byte,
+            cancel_at: Some(1),
+        };
+        let r = cancelpoll::scoped(&byte, || {
+            super::lay_renders(&d, 3, 1 << 20, &mut super::ScratchGate::new()).map(|_| ())
+        });
+        assert!(
+            matches!(r, Err(ReadError::Canceled)),
+            "the long value's image stopped at its first piece"
+        );
     }
 }
 
@@ -4009,12 +5355,19 @@ pub(super) mod owner_tests {
     use memledger::{Acct, Kind, Owner};
 
     /// On a new thread bound to backend `procno`, inside a statement: `f(account, a slot owner of kind `kind` under it)`.
-    pub(in crate::dict) fn in_statement(procno: u32, kind: Kind, f: impl FnOnce(Acct, Owner) + Send + 'static) {
+    pub(in crate::dict) fn in_statement(
+        procno: u32,
+        kind: Kind,
+        f: impl FnOnce(Acct, Owner) + Send + 'static,
+    ) {
         std::thread::spawn(move || {
             memledger::bind_backend(procno, 9000 + procno);
             memledger::statement_begin();
             let a = Acct::backend(procno);
-            let st = Owner::Statement { acct: a, stmt: memledger::running_statement(a) };
+            let st = Owner::Statement {
+                acct: a,
+                stmt: memledger::running_statement(a),
+            };
             let slot = memledger::charge::op_begin(st, kind as u32, 0);
             f(a, slot);
             memledger::charge::op_end(slot);
@@ -4034,12 +5387,21 @@ pub(super) mod owner_tests {
             let mut step = cancelpoll::step("test: a build buffer");
             {
                 let mut g: super::Grow<u8> = super::Grow::new(Some((slot, Kind::Sort)));
-                assert!(g.reserve(&mut step, 4 << 20).is_ok() && g.extend_from_slice(&[7u8; 4 << 20]).is_ok());
+                assert!(
+                    g.reserve(&mut step, 4 << 20).is_ok()
+                        && g.extend_from_slice(&[7u8; 4 << 20]).is_ok()
+                );
                 let one = usage(slot).held - before;
-                assert!(( 4 << 20.. (4 << 20) + (64 << 10)).contains(&one), "the 4 MiB buffer on its owner: {one}");
+                assert!(
+                    (4 << 20..(4 << 20) + (64 << 10)).contains(&one),
+                    "the 4 MiB buffer on its owner: {one}"
+                );
                 assert!(g.reserve(&mut step, 1).is_ok());
                 let two = usage(slot).held - before;
-                assert!(( 8 << 20.. (8 << 20) + (64 << 10)).contains(&two), "the grown 8 MiB buffer alone, the old one freed: {two}");
+                assert!(
+                    (8 << 20..(8 << 20) + (64 << 10)).contains(&two),
+                    "the grown 8 MiB buffer alone, the old one freed: {two}"
+                );
                 assert_eq!((g.len(), g.capacity()), (4 << 20, 8 << 20));
                 assert!(g.as_slice().iter().all(|&b| b == 7), "the elements moved");
             }
@@ -4055,26 +5417,56 @@ pub(super) mod owner_tests {
     #[test]
     fn a_tables_buffer_is_its_builders_until_the_cache_takes_it() {
         in_statement(3972, Kind::HashAgg, |_, slot| {
-            let built = |o| super::build_owned_held(1 << 20, super::Held::By(o), &mut |_| Ok(core::ptr::null())).expect("built");
+            let built = |o| {
+                super::build_owned_held(1 << 20, super::Held::By(o), &mut |_| Ok(core::ptr::null()))
+                    .expect("built")
+            };
             let before = usage(slot).held;
             let t = built(Some((slot, Kind::HashAgg)));
             let held = usage(slot).held - before;
-            assert!(held >= 1 << 20 && held as usize == t.buf.capacity() * 8, "the buffer's capacity on its builder: {held}");
+            assert!(
+                held >= 1 << 20 && held as usize == t.buf.capacity() * 8,
+                "the buffer's capacity on its builder: {held}"
+            );
             drop(t);
             assert_eq!(usage(slot).held, before, "back at the table's drop");
             let t = built(Some((slot, Kind::HashAgg)));
             t.take_into_cache();
             assert_eq!(usage(slot).held, before, "the cache's now");
-            assert!(t.cached.lock().unwrap().as_ref().is_some_and(|c| c.owner() == super::FP_OWNER && c.committed() == t.alloc_bytes()));
-            let n = super::build_owned_bytes(1 << 20, &mut |_| Ok(core::ptr::null())).expect("built");
-            assert!(n.cached.lock().unwrap().is_none() && usage(slot).held == before, "no owner: no charge");
+            assert!(t
+                .cached
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_some_and(|c| c.owner() == super::FP_OWNER && c.committed() == t.alloc_bytes()));
+            let n =
+                super::build_owned_bytes(1 << 20, &mut |_| Ok(core::ptr::null())).expect("built");
+            assert!(
+                n.cached.lock().unwrap().is_none() && usage(slot).held == before,
+                "no owner: no charge"
+            );
             // CACHE-CHARGE: a resident image's buffer is the fp tables' from its take (its scope's charge), fitted to what
             // the table allocates when the cache takes it
-            let r = super::build_owned_held(1 << 20, super::Held::Resident, &mut |_| Ok(core::ptr::null())).expect("built");
-            assert!(r.cached.lock().unwrap().as_ref().is_some_and(|c| c.owner() == super::FP_OWNER), "the fp tables' from the take");
+            let r = super::build_owned_held(1 << 20, super::Held::Resident, &mut |_| {
+                Ok(core::ptr::null())
+            })
+            .expect("built");
+            assert!(
+                r.cached
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .is_some_and(|c| c.owner() == super::FP_OWNER),
+                "the fp tables' from the take"
+            );
             assert_eq!(usage(slot).held, before, "not the slot's");
             r.take_into_cache();
-            assert!(r.cached.lock().unwrap().as_ref().is_some_and(|c| c.owner() == super::FP_OWNER && c.committed() == r.alloc_bytes()), "fitted at the insert");
+            assert!(
+                r.cached.lock().unwrap().as_ref().is_some_and(
+                    |c| c.owner() == super::FP_OWNER && c.committed() == r.alloc_bytes()
+                ),
+                "fitted at the insert"
+            );
         });
     }
 
@@ -4086,11 +5478,37 @@ pub(super) mod owner_tests {
             let before = usage(slot).held;
             let mut reps: Vec<u32> = Vec::with_capacity(1 << 16); // alloc: Cold
             reps.extend(0..1000u32);
-            let ranks = super::Ranks { codes: vec![0; 1000], starts: vec![0, 1000], reps, empty: false, kept: None, salt: 0, lens: None, render_words: 0 }; // alloc: Cold
-            let t = super::FpTable { buf: vec![0; 8].into(), hdr: core::ptr::null(), ranks: Some(ranks), used: 64, off: None, renders: false, cached: pgsync::Mutex::new(None), pins: pgsync::Mutex::new(None) }; // alloc: Cold
-            assert!(t.alloc_bytes() >= t.bytes() + 4 * ((1 << 16) - 1000), "the representatives' capacity counts");
+            let ranks = super::Ranks {
+                codes: vec![0; 1000],
+                starts: vec![0, 1000],
+                reps,
+                empty: false,
+                kept: None,
+                salt: 0,
+                lens: None,
+                render_words: 0,
+            }; // alloc: Cold
+            let t = super::FpTable {
+                buf: vec![0; 8].into(),
+                hdr: core::ptr::null(),
+                ranks: Some(ranks),
+                used: 64,
+                off: None,
+                renders: false,
+                cached: pgsync::Mutex::new(None),
+                pins: pgsync::Mutex::new(None),
+            }; // alloc: Cold
+            assert!(
+                t.alloc_bytes() >= t.bytes() + 4 * ((1 << 16) - 1000),
+                "the representatives' capacity counts"
+            );
             t.take_into_cache();
-            assert!(t.cached.lock().unwrap().as_ref().is_some_and(|c| c.owner() == super::FP_OWNER && c.committed() == t.alloc_bytes()), "the cache's charge is the allocation");
+            assert!(
+                t.cached.lock().unwrap().as_ref().is_some_and(
+                    |c| c.owner() == super::FP_OWNER && c.committed() == t.alloc_bytes()
+                ),
+                "the cache's charge is the allocation"
+            );
             drop(t);
             assert_eq!(usage(slot).held, before, "not the statement's");
         });
@@ -4108,12 +5526,23 @@ pub(super) mod owner_tests {
                 let _ = m.get(0, 1, 0, 100_000, 7, false);
             }
             let held = usage(slot).held - before;
-            assert_eq!(held as usize, m.memo.capacity() * 16, "the memo's capacity on its owner");
+            assert_eq!(
+                held as usize,
+                m.memo.capacity() * 16,
+                "the memo's capacity on its owner"
+            );
             assert!(held >= 1_600_000);
-            let st = Owner::Statement { acct: a, stmt: memledger::running_statement(a) };
+            let st = Owner::Statement {
+                acct: a,
+                stmt: memledger::running_statement(a),
+            };
             let on_st = usage(st).held;
             m.set_owner(Some((st, Kind::Region)));
-            assert_eq!((usage(slot).held, usage(st).held - on_st), (before, held), "moved to the new owner");
+            assert_eq!(
+                (usage(slot).held, usage(st).held - on_st),
+                (before, held),
+                "moved to the new owner"
+            );
             drop(m);
             assert_eq!(usage(st).held, on_st, "none at its drop");
         });
@@ -4126,23 +5555,49 @@ pub(super) mod owner_tests {
     fn d3324_a_verbatim_parts_renders_survive_part_switches() {
         let mut m = super::RenderMemo::new();
         for i in 0..2 * super::RENDER_WALK_AFTER - 2 {
-            assert_eq!(m.get((i % 2) as usize, 1, 0, 10, 3, true), None, "no table before it is earned");
+            assert_eq!(
+                m.get((i % 2) as usize, 1, 0, 10, 3, true),
+                None,
+                "no table before it is earned"
+            );
             assert!(!m.walk_due(), "part {} has {} renders", i % 2, i / 2 + 1);
         }
         assert_eq!(m.get(0, 1, 0, 10, 3, true), None);
-        assert!(m.walk_due(), "part 0's own renders earned its table across the switches");
+        assert!(
+            m.walk_due(),
+            "part 0's own renders earned its table across the switches"
+        );
         let mut buf = vec![0u64; 2]; // alloc: Cold
         buf[0] = (4 + 3) << 2 | u64::from_le_bytes(*b"\0\0\0\0abc\0"); // a 4B-U varlena of 3 bytes
-        let t = std::sync::Arc::new(super::FpTable::of_renders(buf, vec![u32::MAX, u32::MAX, u32::MAX, 0].into_boxed_slice())); // alloc: Cold
+        let t = std::sync::Arc::new(super::FpTable::of_renders(
+            buf,
+            vec![u32::MAX, u32::MAX, u32::MAX, 0].into_boxed_slice(),
+        )); // alloc: Cold
         m.take_table(std::sync::Arc::clone(&t));
-        assert_eq!(m.get(0, 1, 0, 10, 3, true).map(|h| h.1), Some(3), "the table renders");
+        assert_eq!(
+            m.get(0, 1, 0, 10, 3, true).map(|h| h.1),
+            Some(3),
+            "the table renders"
+        );
         assert_eq!(m.get(1, 1, 0, 10, 3, true), None, "part 1 has no table yet");
         assert!(m.walk_due(), "part 1's count came back too");
-        assert_eq!(m.get(0, 1, 0, 10, 3, true).map(|h| h.1), Some(3), "part 0's table came back at the switch");
+        assert_eq!(
+            m.get(0, 1, 0, 10, 3, true).map(|h| h.1),
+            Some(3),
+            "part 0's table came back at the switch"
+        );
         assert_eq!(std::sync::Arc::strong_count(&t), 2, "moved, not cloned");
-        assert_eq!(m.get(0, 2, 0, 10, 3, true), None, "a new generation of the part starts over");
+        assert_eq!(
+            m.get(0, 2, 0, 10, 3, true),
+            None,
+            "a new generation of the part starts over"
+        );
         assert!(!m.walk_due());
-        assert_eq!(std::sync::Arc::strong_count(&t), 2, "the left table stays held for the statement");
+        assert_eq!(
+            std::sync::Arc::strong_count(&t),
+            2,
+            "the left table stays held for the statement"
+        );
         drop(m);
         assert_eq!(std::sync::Arc::strong_count(&t), 1);
     }
@@ -4164,9 +5619,16 @@ pub(super) mod owner_tests {
             let got = super::reuse::take_for(words, Some(&mut scope));
             assert_eq!(got.as_ptr(), at, "the kept buffer");
             let after = un();
-            assert!((after - before).abs() < 1 << 20, "not the backend's unattributed bytes: {before} -> {after}");
+            assert!(
+                (after - before).abs() < 1 << 20,
+                "not the backend's unattributed bytes: {before} -> {after}"
+            );
             let c = scope.finish().expect("a holder scope's charge");
-            assert_eq!((c.owner(), c.committed()), (super::FP_OWNER, (words * 8) as u64), "the pool's charge is the scope's");
+            assert_eq!(
+                (c.owner(), c.committed()),
+                (super::FP_OWNER, (words * 8) as u64),
+                "the pool's charge is the scope's"
+            );
             drop(c);
             drop(got);
         });

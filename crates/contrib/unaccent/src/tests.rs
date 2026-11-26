@@ -38,8 +38,14 @@ fn parse_line_forms() {
     let (_, trg) = parse_rule_line(b"y \"a\"\"b\"\n").unwrap().unwrap();
     assert_eq!(trg, b"a\"b");
     assert!(parse_rule_line(b"   \n").unwrap().is_none());
-    assert!(matches!(parse_rule_line(b"a b c\n").unwrap_err(), ParseRuleError::Syntax(-1)));
-    assert!(matches!(parse_rule_line(b"a \"bc\n").unwrap_err(), ParseRuleError::Syntax(-2)));
+    assert!(matches!(
+        parse_rule_line(b"a b c\n").unwrap_err(),
+        ParseRuleError::Syntax(-1)
+    ));
+    assert!(matches!(
+        parse_rule_line(b"a \"bc\n").unwrap_err(),
+        ParseRuleError::Syntax(-2)
+    ));
 }
 
 #[test]
@@ -49,7 +55,10 @@ fn lexize_replaces_and_filters() {
     assert_eq!(lexize(mcx, &trie, "foobar"), None);
     assert_eq!(lexize(mcx, &trie, "caf\u{00e9}").as_deref(), Some("cafe"));
     assert_eq!(lexize(mcx, &trie, "\u{0153}uf").as_deref(), Some("oeuf"));
-    assert_eq!(lexize(mcx, &trie, "25\u{2103}").as_deref(), Some("25\u{00b0}C"));
+    assert_eq!(
+        lexize(mcx, &trie, "25\u{2103}").as_deref(),
+        Some("25\u{00b0}C")
+    );
 }
 
 #[test]
@@ -80,15 +89,21 @@ fn init_trie_errors_carry_readline_context() {
     let dir = format!("{}/fixtures", env!("CARGO_MANIFEST_DIR"));
     std::env::set_var("PGRUST_PGSHAREDIR", &dir);
     let mcx = leaked_mcx();
-    let err = crate::init_trie(mcx, b"unaccent_badenc").err().expect("encoding violation");
+    let err = crate::init_trie(mcx, b"unaccent_badenc")
+        .err()
+        .expect("encoding violation");
     assert!(
-        err.message().starts_with("invalid byte sequence for encoding"),
+        err.message()
+            .starts_with("invalid byte sequence for encoding"),
         "{:?}",
         err.message()
     );
     assert_eq!(
         err.context(),
-        Some(format!("line 1 of configuration file \"{dir}/tsearch_data/unaccent_badenc.rules\"").as_str()),
+        Some(
+            format!("line 1 of configuration file \"{dir}/tsearch_data/unaccent_badenc.rules\"")
+                .as_str()
+        ),
         "an error inside tsearch_readline carries the line-only context"
     );
 }

@@ -88,7 +88,11 @@ pub(crate) fn fc_normal_rand(
             fctx.use_carry = true;
             scale_normal(fctx.mean, fctx.stddev, n1)
         };
-        Ok(funcapi::srf_return_next(flinfo, fcinfo, Datum::from_f64(result)))
+        Ok(funcapi::srf_return_next(
+            flinfo,
+            fcinfo,
+            Datum::from_f64(result),
+        ))
     } else {
         Ok(funcapi::srf_return_done(flinfo, fcinfo))
     }
@@ -100,14 +104,22 @@ mod d400_tests {
 
     #[test]
     fn polar_s_fmadd() {
-        let want = if cfg!(target_arch = "aarch64") { 0.42639999999999995 } else { 0.4264 };
+        let want = if cfg!(target_arch = "aarch64") {
+            0.42639999999999995
+        } else {
+            0.4264
+        };
         assert_eq!(polar_s(0.3, 0.58), want);
     }
 
     #[test]
     fn scale_normal_fmadd() {
         let (mean, stddev, n) = (0.3f64, 7.77f64, 0.9735451174009585f64);
-        let want = if cfg!(target_arch = "aarch64") { 7.864445562205447 } else { 7.8644455622054465 };
+        let want = if cfg!(target_arch = "aarch64") {
+            7.864445562205447
+        } else {
+            7.8644455622054465
+        };
         assert_eq!(scale_normal(mean, stddev, n), want);
     }
 }

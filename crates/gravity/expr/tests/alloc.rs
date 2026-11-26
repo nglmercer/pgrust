@@ -54,9 +54,27 @@ fn seams() {
     aclchk_seams::object_aclcheck::set(|_, _, _, _| Ok(0));
     syscache_seams::lookup_pg_type_shape::set(|typid| {
         Ok(match typid {
-            INT4OID => Some(types_tuple::PgTypeShape { typlen: 4, typbyval: true, typalign: b'i' as i8, typstorage: b'p' as i8, typcollation: 0 }),
-            TEXTOID => Some(types_tuple::PgTypeShape { typlen: -1, typbyval: false, typalign: b'i' as i8, typstorage: b'x' as i8, typcollation: 100 }),
-            BOOLOID => Some(types_tuple::PgTypeShape { typlen: 1, typbyval: true, typalign: b'c' as i8, typstorage: b'p' as i8, typcollation: 0 }),
+            INT4OID => Some(types_tuple::PgTypeShape {
+                typlen: 4,
+                typbyval: true,
+                typalign: b'i' as i8,
+                typstorage: b'p' as i8,
+                typcollation: 0,
+            }),
+            TEXTOID => Some(types_tuple::PgTypeShape {
+                typlen: -1,
+                typbyval: false,
+                typalign: b'i' as i8,
+                typstorage: b'x' as i8,
+                typcollation: 100,
+            }),
+            BOOLOID => Some(types_tuple::PgTypeShape {
+                typlen: 1,
+                typbyval: true,
+                typalign: b'c' as i8,
+                typstorage: b'p' as i8,
+                typcollation: 0,
+            }),
             _ => None,
         })
     });
@@ -73,11 +91,34 @@ fn text<'m>(mcx: Mcx<'m>, s: &str) -> Node<'m> {
     let mut img: PgVec<u8> = mcx::vec_with_capacity_in(mcx, s.len() + 4).unwrap();
     mcx::vec_append_bytes(&mut img, &datum::set_varsize_4b(s.len() + 4)).unwrap();
     mcx::vec_append_bytes(&mut img, s.as_bytes()).unwrap();
-    Node::mk_const(mcx, TEXTOID, -1, 100, -1, Datum::from_usize(img.leak().as_ptr() as usize), false, false).unwrap()
+    Node::mk_const(
+        mcx,
+        TEXTOID,
+        -1,
+        100,
+        -1,
+        Datum::from_usize(img.leak().as_ptr() as usize),
+        false,
+        false,
+    )
+    .unwrap()
 }
 
 fn op<'m>(mcx: Mcx<'m>, f: Oid, rt: Oid, coll: Oid, args: &[Node<'m>]) -> Node<'m> {
-    Node::mk(mcx, types_nodes::primnodes::OpExpr { opno: 0, opfuncid: f, opresulttype: rt, opretset: false, opcollid: 0, inputcollid: coll, args: NodeList::from_slice(mcx, args).unwrap(), location: -1 }).unwrap()
+    Node::mk(
+        mcx,
+        types_nodes::primnodes::OpExpr {
+            opno: 0,
+            opfuncid: f,
+            opresulttype: rt,
+            opretset: false,
+            opcollid: 0,
+            inputcollid: coll,
+            args: NodeList::from_slice(mcx, args).unwrap(),
+            location: -1,
+        },
+    )
+    .unwrap()
 }
 
 #[test]
@@ -86,8 +127,32 @@ fn eval_allocates_nothing_per_row() {
     let ctx = MemoryContext::new("alloc");
     let mcx = ctx.mcx();
     let var = Node::mk_var(mcx, 1, 1, INT4OID, -1, 0, 0).unwrap();
-    let byval = op(mcx, 66, BOOLOID, 0, &[op(mcx, 177, INT4OID, 0, &[var, int4(mcx, 3)]), int4(mcx, 100)]);
-    let byref = op(mcx, 1258, TEXTOID, 950, &[text(mcx, "hello "), op(mcx, 1258, TEXTOID, 950, &[text(mcx, "wor"), text(mcx, "ld")])]);
+    let byval = op(
+        mcx,
+        66,
+        BOOLOID,
+        0,
+        &[
+            op(mcx, 177, INT4OID, 0, &[var, int4(mcx, 3)]),
+            int4(mcx, 100),
+        ],
+    );
+    let byref = op(
+        mcx,
+        1258,
+        TEXTOID,
+        950,
+        &[
+            text(mcx, "hello "),
+            op(
+                mcx,
+                1258,
+                TEXTOID,
+                950,
+                &[text(mcx, "wor"), text(mcx, "ld")],
+            ),
+        ],
+    );
     let mut cv = Expr::compile(lists(), byval, &PgCatalog, ParamBind::NONE).unwrap();
     let mut cr = Expr::compile(lists(), byref, &PgCatalog, ParamBind::NONE).unwrap();
     let values: Vec<Datum> = (0..4096).map(Datum::from_i32).collect();

@@ -16,8 +16,13 @@ fn clock() -> u64 {
 
 #[test]
 fn print_view_pass_timing() {
-    let Ok(path) = std::env::var("GRAVITY_VIEW_TIMING") else { return };
-    let rounds: usize = std::env::var("GRAVITY_VIEW_ROUNDS").ok().and_then(|s| s.parse().ok()).unwrap_or(200);
+    let Ok(path) = std::env::var("GRAVITY_VIEW_TIMING") else {
+        return;
+    };
+    let rounds: usize = std::env::var("GRAVITY_VIEW_ROUNDS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(200);
     let text = std::fs::read_to_string(&path).unwrap();
     let p = parse_program(&text, &|_| Some(0x1000)).unwrap_or_else(|e| panic!("{e}"));
     gravity_tpde::set_clock(clock);
@@ -30,7 +35,12 @@ fn print_view_pass_timing() {
             samples.push(view.pass_ns);
         }
         let mut total = 0u64;
-        eprintln!("fn {} ({} blocks, {} insts): median ns per pass over {rounds} rounds", f.name, f.blocks.len(), f.blocks.iter().map(|b| b.insts.len()).sum::<usize>());
+        eprintln!(
+            "fn {} ({} blocks, {} insts): median ns per pass over {rounds} rounds",
+            f.name,
+            f.blocks.len(),
+            f.blocks.iter().map(|b| b.insts.len()).sum::<usize>()
+        );
         for (i, name) in PASS_NAMES.iter().enumerate() {
             let mut v: Vec<u64> = samples.iter().map(|s| s[i]).collect();
             v.sort_unstable();
@@ -40,6 +50,10 @@ fn print_view_pass_timing() {
         }
         let mut sums: Vec<u64> = samples.iter().map(|s| s.iter().sum()).collect();
         sums.sort_unstable();
-        eprintln!("  {:18} {total:8}   (median of the per-build sums {})", "TOTAL", sums[sums.len() / 2]);
+        eprintln!(
+            "  {:18} {total:8}   (median of the per-build sums {})",
+            "TOTAL",
+            sums[sums.len() / 2]
+        );
     }
 }

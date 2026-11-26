@@ -32,14 +32,21 @@ pub trait ExecPairFactory {
 pub enum ReduceTarget<'a> {
     /// The statement at `fail_idx` classifies as `target_key` after the
     /// kept prefix (candidates are the statements before it).
-    Stmt { fail_idx: usize, target_key: &'a str },
+    Stmt {
+        fail_idx: usize,
+        target_key: &'a str,
+    },
     /// A state probe on `table` (ORDER BY `pk`) fires STATE_DIFF after the
     /// kept stream. Candidates are the statements before the probe that
     /// fired (`upto`, exclusive) — which probe first fails is part of the
     /// divergence signature, and later statements may well re-converge the
     /// state (overwrite/delete the diverged rows), so the whole stream is
     /// NOT a reproducer.
-    Probe { table: &'a str, pk: &'a str, upto: usize },
+    Probe {
+        table: &'a str,
+        pk: &'a str,
+        upto: usize,
+    },
 }
 
 pub struct Reduction {
@@ -59,8 +66,13 @@ fn is_begin(sql: &str) -> bool {
 /// its bracket.
 fn is_txn_end(sql: &str) -> bool {
     let head = sql.trim_start();
-    let upper: String = head.chars().take(12).collect::<String>().to_ascii_uppercase();
-    upper.starts_with("COMMIT") || (upper.starts_with("ROLLBACK") && !upper.starts_with("ROLLBACK TO"))
+    let upper: String = head
+        .chars()
+        .take(12)
+        .collect::<String>()
+        .to_ascii_uppercase();
+    upper.starts_with("COMMIT")
+        || (upper.starts_with("ROLLBACK") && !upper.starts_with("ROLLBACK TO"))
 }
 
 /// Partition indices [0, upto) into atomic, order-preserving units:
@@ -125,7 +137,10 @@ impl Ctx<'_> {
         // and a hard-diff replay can only keep reproducing the target
         // class.
         match self.target {
-            ReduceTarget::Stmt { fail_idx, target_key } => {
+            ReduceTarget::Stmt {
+                fail_idx,
+                target_key,
+            } => {
                 let c = apply_and_classify(
                     a.as_mut(),
                     b.as_mut(),
@@ -166,7 +181,14 @@ pub fn reduce_stream(
             upto
         }
     };
-    let mut ctx = Ctx { factory, stmts, target, table, ulp_tol, probes: 0 };
+    let mut ctx = Ctx {
+        factory,
+        stmts,
+        target,
+        table,
+        ulp_tol,
+        probes: 0,
+    };
 
     let full = bracket_units(stmts, upto);
     if !ctx.test(&full)? {
@@ -174,7 +196,9 @@ pub fn reduce_stream(
             ReduceTarget::Stmt { target_key, .. } => target_key.to_string(),
             ReduceTarget::Probe { table, .. } => format!("STATE_DIFF on {table}"),
         };
-        return Err(format!("target class {what} does not reproduce on the full stream"));
+        return Err(format!(
+            "target class {what} does not reproduce on the full stream"
+        ));
     }
     // Cheap common case: a self-contained target.
     if !full.is_empty() && ctx.test(&[])? {
@@ -185,8 +209,7 @@ pub fn reduce_stream(
     let mut n = 2usize;
     while cand.len() >= 2 {
         let chunk_len = cand.len().div_ceil(n);
-        let chunks: Vec<Vec<Vec<usize>>> =
-            cand.chunks(chunk_len).map(|c| c.to_vec()).collect();
+        let chunks: Vec<Vec<Vec<usize>>> = cand.chunks(chunk_len).map(|c| c.to_vec()).collect();
         let mut reduced = false;
 
         for chunk in &chunks {
@@ -245,7 +268,10 @@ fn finish(ctx: &Ctx, units: &[Vec<usize>], stmts: &[String], target: ReduceTarge
         ReduceTarget::Stmt { fail_idx, .. } => out.push(stmts[fail_idx].clone()),
         ReduceTarget::Probe { table, pk, .. } => out.push(probe_sql(table, pk)),
     }
-    Reduction { stmts: out, probes: ctx.probes }
+    Reduction {
+        stmts: out,
+        probes: ctx.probes,
+    }
 }
 
 #[cfg(test)]
@@ -278,7 +304,10 @@ mod tests {
     }
 
     fn cmd(tag: &str) -> StmtOutcome {
-        StmtOutcome::Command { tag: tag.to_string(), affected: None }
+        StmtOutcome::Command {
+            tag: tag.to_string(),
+            affected: None,
+        }
     }
 
     impl Executor for FakeServer {
@@ -384,7 +413,10 @@ mod tests {
         let r = reduce_stream(
             &mut factory,
             &stmts,
-            ReduceTarget::Stmt { fail_idx: 9, target_key: "ROWSET_DIFF" },
+            ReduceTarget::Stmt {
+                fail_idx: 9,
+                target_key: "ROWSET_DIFF",
+            },
             &default_table(),
             4,
         )
@@ -402,11 +434,18 @@ mod tests {
             let err = reduce_stream(
                 &mut factory,
                 &trial,
-                ReduceTarget::Stmt { fail_idx: fail, target_key: "ROWSET_DIFF" },
+                ReduceTarget::Stmt {
+                    fail_idx: fail,
+                    target_key: "ROWSET_DIFF",
+                },
                 &default_table(),
                 4,
             );
-            assert!(err.is_err(), "dropping {:?} still reproduced", r.stmts[drop]);
+            assert!(
+                err.is_err(),
+                "dropping {:?} still reproduced",
+                r.stmts[drop]
+            );
         }
     }
 
@@ -419,7 +458,10 @@ mod tests {
         let r = reduce_stream(
             &mut factory,
             &stmts,
-            ReduceTarget::Stmt { fail_idx: 3, target_key: "ROWSET_DIFF" },
+            ReduceTarget::Stmt {
+                fail_idx: 3,
+                target_key: "ROWSET_DIFF",
+            },
             &default_table(),
             4,
         )
@@ -436,7 +478,10 @@ mod tests {
         let err = reduce_stream(
             &mut factory,
             &stmts,
-            ReduceTarget::Stmt { fail_idx: 1, target_key: "ROWSET_DIFF" },
+            ReduceTarget::Stmt {
+                fail_idx: 1,
+                target_key: "ROWSET_DIFF",
+            },
             &default_table(),
             4,
         );
@@ -450,7 +495,10 @@ mod tests {
         let err = reduce_stream(
             &mut factory,
             &stmts,
-            ReduceTarget::Stmt { fail_idx: 0, target_key: "ERROR_DIFF" },
+            ReduceTarget::Stmt {
+                fail_idx: 0,
+                target_key: "ERROR_DIFF",
+            },
             &default_table(),
             4,
         );
@@ -491,24 +539,17 @@ mod tests {
         // units; the two committed brackets must stay whole (dropping just
         // a COMMIT would change the ADDs' visibility).
         let stmts = s(&[
-            "NOP",
-            "BEGIN",
-            "ADD 3",
-            "COMMIT",
-            "BEGIN",
-            "ADD 100",
-            "ROLLBACK",
-            "NOP",
-            "BEGIN",
-            "ADD 4",
-            "COMMIT",
-            "GET",
+            "NOP", "BEGIN", "ADD 3", "COMMIT", "BEGIN", "ADD 100", "ROLLBACK", "NOP", "BEGIN",
+            "ADD 4", "COMMIT", "GET",
         ]);
         let mut factory = FakeFactory { skew_at: 7 };
         let r = reduce_stream(
             &mut factory,
             &stmts,
-            ReduceTarget::Stmt { fail_idx: 11, target_key: "ROWSET_DIFF" },
+            ReduceTarget::Stmt {
+                fail_idx: 11,
+                target_key: "ROWSET_DIFF",
+            },
             &default_table(),
             4,
         )
@@ -537,20 +578,17 @@ mod tests {
         // the whole story, surfaced only by the probe. The repro must be
         // the bracket + the probe statement, bracket-balanced.
         let stmts = s(&[
-            "NOP",
-            "BEGIN",
-            "ADD 9",
-            "ROLLBACK",
-            "BEGIN",
-            "ADD 5",
-            "COMMIT",
-            "NOP",
+            "NOP", "BEGIN", "ADD 9", "ROLLBACK", "BEGIN", "ADD 5", "COMMIT", "NOP",
         ]);
         let mut factory = FakeFactory { skew_at: 5 };
         let r = reduce_stream(
             &mut factory,
             &stmts,
-            ReduceTarget::Probe { table: "reg", pk: "pk", upto: stmts.len() },
+            ReduceTarget::Probe {
+                table: "reg",
+                pk: "pk",
+                upto: stmts.len(),
+            },
             &default_table(),
             4,
         )
@@ -573,7 +611,11 @@ mod tests {
         let err = reduce_stream(
             &mut factory,
             &stmts,
-            ReduceTarget::Probe { table: "reg", pk: "pk", upto: stmts.len() },
+            ReduceTarget::Probe {
+                table: "reg",
+                pk: "pk",
+                upto: stmts.len(),
+            },
             &default_table(),
             4,
         );
@@ -581,7 +623,11 @@ mod tests {
         let r = reduce_stream(
             &mut factory,
             &stmts,
-            ReduceTarget::Probe { table: "reg", pk: "pk", upto: 1 },
+            ReduceTarget::Probe {
+                table: "reg",
+                pk: "pk",
+                upto: 1,
+            },
             &default_table(),
             4,
         )
@@ -596,7 +642,11 @@ mod tests {
         let err = reduce_stream(
             &mut factory,
             &stmts,
-            ReduceTarget::Probe { table: "reg", pk: "pk", upto: 1 },
+            ReduceTarget::Probe {
+                table: "reg",
+                pk: "pk",
+                upto: 1,
+            },
             &default_table(),
             4,
         );

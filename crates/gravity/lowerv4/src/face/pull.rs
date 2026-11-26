@@ -57,7 +57,13 @@ impl Form {
     /// The budgeted form for an input its caller found `calm` (no act, no user code; it may raise): it holds the held
     /// error's licence (`effects::held_error`), `None` where that is denied.
     pub(crate) fn grows() -> Option<Form> {
-        gravity_decompose::effects::held_error(gravity_decompose::effects::Effects::RAISES, false, None).ok().map(Form::Grows)
+        gravity_decompose::effects::held_error(
+            gravity_decompose::effects::Effects::RAISES,
+            false,
+            None,
+        )
+        .ok()
+        .map(Form::Grows)
     }
 }
 
@@ -77,32 +83,77 @@ fn reader_of(gx: &Gx<'_, '_>, inner: usize) -> Option<(Face, usize, usize)> {
     let of = |k: usize, s: u8| gx.life_of(k, s).is_some_and(|l| l.0 as usize == inner);
     let reads = |k: usize, op: &Op<'_>| match op {
         Op::Join(JoinDesc::Merge { slot, .. }) if of(k, *slot) => Some(Face::Merge),
-        Op::SetOp(SetDesc::Set { right, form: SetForm::Stream { .. }, .. }) if of(k, *right) => Some(Face::Setop),
+        Op::SetOp(SetDesc::Set {
+            right,
+            form: SetForm::Stream { .. },
+            ..
+        }) if of(k, *right) => Some(Face::Setop),
         _ => None,
     };
-    gx.pipelines().iter().enumerate().find_map(|(k, p)| p.ops.iter().enumerate().find_map(|(j, op)| reads(k, op).map(|f| (f, k, j))))
+    gx.pipelines().iter().enumerate().find_map(|(k, p)| {
+        p.ops
+            .iter()
+            .enumerate()
+            .find_map(|(j, op)| reads(k, op).map(|f| (f, k, j)))
+    })
 }
 
 /// The frame word (byte offset) pipeline `inner`'s pulled end stops at: its reader's want.
 pub(crate) fn want_word(px: &mut Px<'_, '_>, inner: usize) -> Option<i32> {
     let (face, k, j) = reader_of(px.gx, inner)?;
-    Some(px.frame_word(WordKey::Open { face, k, j: crate::frame::px::key_j(j), i: W_WANT }) as i32 * 8)
+    Some(
+        px.frame_word(WordKey::Open {
+            face,
+            k,
+            j: crate::frame::px::key_j(j),
+            i: W_WANT,
+        }) as i32
+            * 8,
+    )
 }
 
 /// The reader `(face, k, j)`'s pull of pipeline `inner`'s run in form `form`: its proto declared (one handle word over the
 /// run's pipeline) and the reader's words of the run's stored rows, the pull's want and its budget.
-pub(crate) fn declare(px: &mut Px<'_, '_>, (face, k, j): (Face, usize, usize), inner: usize, form: Form) -> PullWords {
+pub(crate) fn declare(
+    px: &mut Px<'_, '_>,
+    (face, k, j): (Face, usize, usize),
+    inner: usize,
+    form: Form,
+) -> PullWords {
     let h = px.proto_words(1);
-    px.declare_proto(Proto::new(ProtoKind::Markable, inner as u16).words(h, 1).arg(MERGE_PULLED));
-    let mut word = |i: u8| px.frame_word(WordKey::Open { face, k, j: crate::frame::px::key_j(j), i }) as i32 * 8;
-    PullWords { h, live: word(W_LIVE), want: word(W_WANT), budget: word(W_AHEAD), form }
+    px.declare_proto(
+        Proto::new(ProtoKind::Markable, inner as u16)
+            .words(h, 1)
+            .arg(MERGE_PULLED),
+    );
+    let mut word = |i: u8| {
+        px.frame_word(WordKey::Open {
+            face,
+            k,
+            j: crate::frame::px::key_j(j),
+            i,
+        }) as i32
+            * 8
+    };
+    PullWords {
+        h,
+        live: word(W_LIVE),
+        want: word(W_WANT),
+        budget: word(W_AHEAD),
+        form,
+    }
 }
 
 /// MJ-AHEAD: reader pipeline `k` feeds no InitPlan's cell or CTE's set (sets run on demand), so the budgeted pull never
 /// nests in another deferred set (D1114's chain-default classes name no such member).
 pub(crate) fn unnested(gx: &Gx<'_, '_>, k: usize) -> bool {
     let ps = gx.pipelines();
-    let mut todo: PgVec<'_, usize> = gx.graph.init_plans.iter().map(|i| i.pipeline as usize).collect_in(gx.mcx);
+    let mut todo: PgVec<'_, usize> = gx
+        .graph
+        .init_plans
+        .iter()
+        .map(|i| i.pipeline as usize)
+        .collect_in(gx.mcx);
     let mut seen: PgVec<'_, usize> = PgVec::new_in(gx.mcx);
     while let Some(q) = todo.pop() {
         if q == k {
@@ -112,8 +163,21 @@ pub(crate) fn unnested(gx: &Gx<'_, '_>, k: usize) -> bool {
             continue;
         }
         seen.push_in(q);
-        let src = if let Source::Breaker { slot } = ps[q].source { Some(slot) } else { None };
-        todo.extend_in(ps[q].desc.consumes.iter().copied().chain(src).filter_map(|s| gx.life_of(q, s)).map(|l| l.0 as usize));
+        let src = if let Source::Breaker { slot } = ps[q].source {
+            Some(slot)
+        } else {
+            None
+        };
+        todo.extend_in(
+            ps[q]
+                .desc
+                .consumes
+                .iter()
+                .copied()
+                .chain(src)
+                .filter_map(|s| gx.life_of(q, s))
+                .map(|l| l.0 as usize),
+        );
         todo.extend_in(gx.union_feeds(q).into_iter().chain(gx.run_arms(q)));
     }
     true
@@ -121,8 +185,17 @@ pub(crate) fn unnested(gx: &Gx<'_, '_>, k: usize) -> bool {
 
 /// The budgeted pull's next budget after a pull of `budget` rows past `stored`: twice the budget, at most the larger of
 /// `AHEAD_STEP` and an eighth of the stored rows.
-fn ahead_next(b: &mut FunctionBuilder<'_>, stored: Value, budget: Value, _held: gravity_decompose::effects::Licence) -> Value {
-    let (twice, three, step) = (b.int_bin(IntBinOp::Add, budget, budget), b.iconst(Type::I64, 3), b.iconst(Type::I64, AHEAD_STEP));
+fn ahead_next(
+    b: &mut FunctionBuilder<'_>,
+    stored: Value,
+    budget: Value,
+    _held: gravity_decompose::effects::Licence,
+) -> Value {
+    let (twice, three, step) = (
+        b.int_bin(IntBinOp::Add, budget, budget),
+        b.iconst(Type::I64, 3),
+        b.iconst(Type::I64, AHEAD_STEP),
+    );
     let eighth = b.int_bin(IntBinOp::Sshr, stored, three);
     let room = b.int_bin(IntBinOp::Smax, eighth, step);
     b.int_bin(IntBinOp::Smin, twice, room)
@@ -131,9 +204,27 @@ fn ahead_next(b: &mut FunctionBuilder<'_>, stored: Value, budget: Value, _held: 
 impl PullWords {
     /// The stored rows and want words, 0 at the reader's open, and the budget, 1 row; `what` names the three.
     pub(crate) fn open_words(&self, w: &mut OpenWords, what: [&'static str; 3]) {
-        w.declare(OpenWord::open(what[0], Base::Words, self.live, Type::I64, 0));
-        w.declare(OpenWord::open(what[1], Base::Words, self.want, Type::I64, 0));
-        w.declare(OpenWord::open(what[2], Base::Words, self.budget, Type::I64, 1));
+        w.declare(OpenWord::open(
+            what[0],
+            Base::Words,
+            self.live,
+            Type::I64,
+            0,
+        ));
+        w.declare(OpenWord::open(
+            what[1],
+            Base::Words,
+            self.want,
+            Type::I64,
+            0,
+        ));
+        w.declare(OpenWord::open(
+            what[2],
+            Base::Words,
+            self.budget,
+            Type::I64,
+            1,
+        ));
     }
 
     /// At each window: the run's rows as its open counted them.
@@ -146,8 +237,20 @@ impl PullWords {
     /// opened again after each (a growth moves it, and a budgeted pull may store rows before it reaches the input's end):
     /// past them only once it ended; a pull's or an open's error leaves the row through the exit, its error stashed, except
     /// a budgeted pull's raised after it stored row `ip`: held for the next pull (`m11_hold`), the row read.
-    pub(crate) fn ended(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, run: &dyn SlotRun, ip: Value) -> Value {
-        let (l_chk, l_pull, l_bad, l_ok, l_out) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]), b.create_block(&[]), b.create_block(&[Type::Bool]));
+    pub(crate) fn ended(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        run: &dyn SlotRun,
+        ip: Value,
+    ) -> Value {
+        let (l_chk, l_pull, l_bad, l_ok, l_out) = (
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[Type::Bool]),
+        );
         b.br(l_chk, &[]);
         b.switch_to(l_chk);
         b.mark_loop_header(l_chk);
@@ -163,9 +266,21 @@ impl PullWords {
             let next = ahead_next(b, stored, budget, held);
             env.store_word(b, self.budget, next);
         }
-        let host = b.declare_host_once("m11_pull", &[Type::Ptr, Type::I64], Some(Type::I64), gravity_kernels::contract::entry1::<MergePull> as *const () as usize, HostFlags { touches_memory: true, may_error: true, ..HostFlags::default() });
+        let host = b.declare_host_once(
+            "m11_pull",
+            &[Type::Ptr, Type::I64],
+            Some(Type::I64),
+            gravity_kernels::contract::entry1::<MergePull> as *const () as usize,
+            HostFlags {
+                touches_memory: true,
+                may_error: true,
+                ..HostFlags::default()
+            },
+        );
         let hw = b.load(Type::I64, env.params, self.h as i32 * 8);
-        let st = b.call_host(host, &[env.ctx, hw], Some(Type::I64)).expect("m11_pull returns its status");
+        let st = b
+            .call_host(host, &[env.ctx, hw], Some(Type::I64))
+            .expect("m11_pull returns its status");
         let bad = b.icmp(IntCond::Slt, st, env.zero);
         b.mark_cold(l_bad);
         b.cond_br(bad, (l_bad, &[]), (l_ok, &[]));
@@ -175,8 +290,20 @@ impl PullWords {
             Form::Grows(_) => {
                 // the error held for the next pull, then the run as the pull left it: row `ip` stored is read, else the
                 // next pull (back at the check) raises the held error
-                let host = b.declare_host_once("m11_hold", &[Type::Ptr, Type::I64], Some(Type::I64), gravity_kernels::contract::entry1::<MergeHold> as *const () as usize, HostFlags { touches_memory: true, may_error: true, ..HostFlags::default() });
-                let rc = b.call_host(host, &[env.ctx, hw], Some(Type::I64)).expect("m11_hold returns its status");
+                let host = b.declare_host_once(
+                    "m11_hold",
+                    &[Type::Ptr, Type::I64],
+                    Some(Type::I64),
+                    gravity_kernels::contract::entry1::<MergeHold> as *const () as usize,
+                    HostFlags {
+                        touches_memory: true,
+                        may_error: true,
+                        ..HostFlags::default()
+                    },
+                );
+                let rc = b
+                    .call_host(host, &[env.ctx, hw], Some(Type::I64))
+                    .expect("m11_hold returns its status");
                 let (lost, l_held) = (b.icmp(IntCond::Slt, rc, env.zero), b.create_block(&[]));
                 b.cond_br(lost, (env.x.l_exit, &[rc]), (l_held, &[]));
                 b.switch_to(l_held);

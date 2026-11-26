@@ -2,8 +2,8 @@
 //! moved verbatim from source.rs (private ones pub(super)); it imports them back.
 #![allow(unsafe_code)]
 
-use gravity_abi::PtrWord;
 use super::*;
+use gravity_abi::PtrWord;
 
 gravity_abi::host! {
     /// `Site.next` over the concrete `S` behind `src`: the seek when the site is not open, then the

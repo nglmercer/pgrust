@@ -6,9 +6,9 @@
 //! the right side's pipelines as if no claim reached them (`Exec::run_empty`), as PG never reads the inner plan then.
 //! Those pipelines come from the program (`skip_mask`), never from `arg` (D1274), so a program a pass reorders keeps them.
 use gravity_driver::Exec;
-use memledger::ChargedVec;
 use gravity_program::protos::Proto;
 use gravity_program::Program;
+use memledger::ChargedVec;
 
 use super::super::Live;
 use crate::ops::setop::proto::{plain_count, MIN_REGION};
@@ -27,12 +27,24 @@ struct SkipLive {
 
 /// The skip form's live state for proto `p` (it rides the left producer, `pipeline`, and names the right producer,
 /// `peer`; the emit is the pipeline that reads the left slot from it), `None` when nothing is skippable.
-pub(crate) fn prepare(p: &Proto, program: &Program, mask: ChargedVec<u64>) -> Option<Box<dyn Live>> {
+pub(crate) fn prepare(
+    p: &Proto,
+    program: &Program,
+    mask: ChargedVec<u64>,
+) -> Option<Box<dyn Live>> {
     let (k, peer) = (p.pipeline as usize, p.peer as usize);
-    let emit = (k + 1..program.pipelines.len()).find(|&c| producer_of(program, c, p.slot) == Some(k))?;
+    let emit =
+        (k + 1..program.pipelines.len()).find(|&c| producer_of(program, c, p.slot) == Some(k))?;
     let mask = skip_mask(program, emit, k, peer, mask);
     let plain = ((p.arg >> SKIP_PLAIN_SHIFT) as usize).checked_sub(1);
-    mask.iter().any(|&w| w != 0).then(|| Box::new(SkipLive { pipeline: k, slot: p.slot, mask, plain }) as Box<dyn Live>) // alloc: Exec
+    mask.iter().any(|&w| w != 0).then(|| {
+        Box::new(SkipLive {
+            pipeline: k,
+            slot: p.slot,
+            mask,
+            plain,
+        }) as Box<dyn Live>
+    }) // alloc: Exec
 }
 
 /// The pipeline slot `slot` read by pipeline `c` comes from: its `consumes_from` life, else the nearest earlier producer.
@@ -41,21 +53,41 @@ pub(crate) fn producer_of(program: &Program, c: usize, slot: u8) -> Option<usize
     let i = p.consumes.iter().position(|&s| s == slot)?;
     match p.consumes_from.get(i) {
         Some(l) => Some(l.0 as usize),
-        None => (0..c).rev().find(|&q| program.pipelines[q].produces() == Some(slot)),
+        None => (0..c)
+            .rev()
+            .find(|&q| program.pipelines[q].produces() == Some(slot)),
     }
 }
 
 /// The right side's pipelines an empty left runs empty (D1274: from the program, in program order): every pipeline after
 /// the left producer `lp` up to the right producer `rp` that no pipeline outside the side but the emit `k` reads.
-fn skip_mask(program: &Program, k: usize, lp: usize, rp: usize, mask: ChargedVec<u64>) -> ChargedVec<u64> {
-    let reads = |c: usize, x: usize| program.pipelines[c].consumes.iter().any(|&s| producer_of(program, c, s) == Some(x));
+fn skip_mask(
+    program: &Program,
+    k: usize,
+    lp: usize,
+    rp: usize,
+    mask: ChargedVec<u64>,
+) -> ChargedVec<u64> {
+    let reads = |c: usize, x: usize| {
+        program.pipelines[c]
+            .consumes
+            .iter()
+            .any(|&s| producer_of(program, c, s) == Some(x))
+    };
     mask_of(program.pipelines.len(), &reads, k, lp, rp, mask)
 }
 
 /// `skip_mask` over `n` pipelines where `reads(c, x)` says pipeline `c` reads pipeline `x`'s product (word w bit b =
 /// pipeline 64 w + b). D4050: every pipeline of the side, past the 63rd too (a left of 70 UNION ALL arms puts the right
 /// side there), sized here at the prepare, never on the run.
-fn mask_of(n: usize, reads: &dyn Fn(usize, usize) -> bool, k: usize, lp: usize, rp: usize, mut mask: ChargedVec<u64>) -> ChargedVec<u64> {
+fn mask_of(
+    n: usize,
+    reads: &dyn Fn(usize, usize) -> bool,
+    k: usize,
+    lp: usize,
+    rp: usize,
+    mut mask: ChargedVec<u64>,
+) -> ChargedVec<u64> {
     let side = |q: usize| q > lp && q <= rp;
     mask.with_vec(|v| v.resize(rp / 64 + 1, 0)); // alloc: Exec charged mask.owner()
     for x in (lp + 1..=rp).filter(|&x| (0..n).all(|c| side(c) || c == k || !reads(c, x))) {
@@ -70,7 +102,11 @@ impl Live for SkipLive {
     }
 
     /// An empty left group (no record; never laid out; a plain left counting no row) runs the masked right side empty.
-    fn after_pipeline(&self, pipeline: usize, exec: &mut Exec) -> Option<gravity_driver::Result<()>> {
+    fn after_pipeline(
+        &self,
+        pipeline: usize,
+        exec: &mut Exec,
+    ) -> Option<gravity_driver::Result<()>> {
         if pipeline != self.pipeline {
             return None;
         }
@@ -109,8 +145,14 @@ mod tests {
     #[test]
     fn the_skip_set_reaches_past_pipeline_63() {
         let reads = |c: usize, x: usize| matches!((c, x), (71, 70) | (72, 69) | (72, 71));
-        assert_eq!(*mask_of(73, &reads, 72, 69, 71, ChargedVec::none()), [0, 1 << 6 | 1 << 7]);
+        assert_eq!(
+            *mask_of(73, &reads, 72, 69, 71, ChargedVec::none()),
+            [0, 1 << 6 | 1 << 7]
+        );
         let straddle = |c: usize, x: usize| matches!((c, x), (64, 62) | (65, 61) | (65, 64));
-        assert_eq!(*mask_of(66, &straddle, 65, 61, 64, ChargedVec::none()), [1 << 62 | 1 << 63, 1]);
+        assert_eq!(
+            *mask_of(66, &straddle, 65, 61, 64, ChargedVec::none()),
+            [1 << 62 | 1 << 63, 1]
+        );
     }
 }

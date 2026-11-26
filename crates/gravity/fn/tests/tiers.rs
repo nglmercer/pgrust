@@ -16,12 +16,19 @@ const PENDING_CEILING: usize = 3;
 
 fn tsv_rows() -> Vec<Vec<String>> {
     let text = std::fs::read_to_string(manifest_dir().join("function_tiers.tsv")).unwrap();
-    text.lines().filter(|l| !l.starts_with('#') && !l.starts_with("oid\t")).map(|l| l.split('\t').map(str::to_owned).collect()).collect()
+    text.lines()
+        .filter(|l| !l.starts_with('#') && !l.starts_with("oid\t"))
+        .map(|l| l.split('\t').map(str::to_owned).collect())
+        .collect()
 }
 
 #[test]
 fn table_matches_canonical() {
-    assert_eq!(ROWS.len(), fmgr_core::CANONICAL.len(), "regenerate: scripts/gen-gravity-function-tiers.py");
+    assert_eq!(
+        ROWS.len(),
+        fmgr_core::CANONICAL.len(),
+        "regenerate: scripts/gen-gravity-function-tiers.py"
+    );
     for (row, (oid, name, _, _, _)) in ROWS.iter().zip(fmgr_core::CANONICAL.iter()) {
         assert_eq!(row.oid, *oid, "row order is CANONICAL's");
         assert_eq!(row.name, *name, "oid {oid}");
@@ -75,7 +82,10 @@ fn stub_column_matches_fmgr_core() {
         if fmgr_core::row_is_stub(&fmgr_core::FMGR_BUILTINS[i]) {
             static_bit += 1;
             if !stub {
-                if core::ptr::eq(fmgr_core::fmgr_isbuiltin(row.oid).unwrap(), &fmgr_core::FMGR_BUILTINS[i]) {
+                if core::ptr::eq(
+                    fmgr_core::fmgr_isbuiltin(row.oid).unwrap(),
+                    &fmgr_core::FMGR_BUILTINS[i],
+                ) {
                     late += 1;
                 } else {
                     overlay += 1;
@@ -91,12 +101,35 @@ fn stub_column_matches_fmgr_core() {
 }
 
 /// The closed vocabulary (pass 3, ruling 6.5: no `volatile`; `stub` = rows the server cannot invoke).
-const C_REASONS: &[&str] = &["set-returning", "window", "procedure", "aggregate", "handler/internal", "polymorphic/record", "non-strict", "context", "stub"];
+const C_REASONS: &[&str] = &[
+    "set-returning",
+    "window",
+    "procedure",
+    "aggregate",
+    "handler/internal",
+    "polymorphic/record",
+    "non-strict",
+    "context",
+    "stub",
+];
 /// The only grounds on which a pure builtin stays on the function manager as `context` (ruling
 /// 6.1, pass 2): session / transaction state, the catalog, the soft-error context, FmgrInfo state
 /// across calls, the executor's fcinfo->context.
-const CONTEXT_GROUNDS: &[&str] = &["session/transaction state", "catalog", "soft-error context", "FmgrInfo state across calls", "fcinfo->context", "a void result"];
-const POLY_GROUNDS: &[&str] = &["OUT arguments", "VARIADIC \"any\"", "an element-type result", "record result", "unknown result"];
+const CONTEXT_GROUNDS: &[&str] = &[
+    "session/transaction state",
+    "catalog",
+    "soft-error context",
+    "FmgrInfo state across calls",
+    "fcinfo->context",
+    "a void result",
+];
+const POLY_GROUNDS: &[&str] = &[
+    "OUT arguments",
+    "VARIADIC \"any\"",
+    "an element-type result",
+    "record result",
+    "unknown result",
+];
 
 #[test]
 fn every_c_row_has_a_reason_the_catalog_confirms() {
@@ -109,7 +142,12 @@ fn every_c_row_has_a_reason_the_catalog_confirms() {
             continue;
         }
         let head = row.reason.split(':').next().unwrap();
-        assert!(C_REASONS.contains(&head), "oid {} reason {:?} is outside the closed vocabulary", row.oid, row.reason);
+        assert!(
+            C_REASONS.contains(&head),
+            "oid {} reason {:?} is outside the closed vocabulary",
+            row.oid,
+            row.reason
+        );
         *by_reason.entry(head).or_default() += 1;
         let Some(p) = procs.get(&row.oid) else {
             assert_eq!(head, "context", "oid {} without a pg_proc row", row.oid);
@@ -123,14 +161,34 @@ fn every_c_row_has_a_reason_the_catalog_confirms() {
             "aggregate" => p.kind == 'a',
             "non-strict" => !p.strict,
             "stub" => unported(row.oid),
-            "handler/internal" => all.clone().any(|t| common::HANDLER_TYPES.contains(&t.as_str())) || (row.reason.contains("(pg_amproc)") && amprocs.contains(row.name)),
-            "polymorphic/record" => all.clone().any(|t| common::POLY_TYPES.contains(&t.as_str())) || p.variadic,
-            "context" => CONTEXT_GROUNDS.iter().any(|g| row.reason["context: ".len()..].starts_with(g)),
+            "handler/internal" => {
+                all.clone()
+                    .any(|t| common::HANDLER_TYPES.contains(&t.as_str()))
+                    || (row.reason.contains("(pg_amproc)") && amprocs.contains(row.name))
+            }
+            "polymorphic/record" => {
+                all.clone()
+                    .any(|t| common::POLY_TYPES.contains(&t.as_str()))
+                    || p.variadic
+            }
+            "context" => CONTEXT_GROUNDS
+                .iter()
+                .any(|g| row.reason["context: ".len()..].starts_with(g)),
             _ => false,
         };
-        assert!(ok, "oid {} {}: reason {:?} is not what the catalog says", row.oid, row.name, row.reason);
+        assert!(
+            ok,
+            "oid {} {}: reason {:?} is not what the catalog says",
+            row.oid, row.name, row.reason
+        );
         if head == "polymorphic/record" {
-            assert!(POLY_GROUNDS.iter().any(|g| row.reason.contains(g)), "oid {} {}: {:?}", row.oid, row.name, row.reason);
+            assert!(
+                POLY_GROUNDS.iter().any(|g| row.reason.contains(g)),
+                "oid {} {}: {:?}",
+                row.oid,
+                row.name,
+                row.reason
+            );
         }
         let _ = &types;
     }
@@ -154,22 +212,37 @@ fn ruling_one_no_pure_plain_builtin_in_c() {
     let procs = common::procs();
     let mut context = Vec::new();
     for row in ROWS.iter().filter(|r| r.tier == Tier::C) {
-        let Some(p) = procs.get(&row.oid) else { continue };
+        let Some(p) = procs.get(&row.oid) else {
+            continue;
+        };
         // pass 2: "plain signature" is no type restriction; pass 3: volatility is no exemption —
         // every strict builtin whose types are not handler / polymorphic must be a shim unless it
         // is context-dependent or an index AM support procedure the catalog names
         let pure = p.kind == 'f' && !p.retset && p.strict && !p.variadic;
-        let plain = p.args.iter().chain(std::iter::once(&p.ret)).all(|t| !common::HANDLER_TYPES.contains(&t.as_str()) && !common::POLY_TYPES.contains(&t.as_str()));
+        let plain = p.args.iter().chain(std::iter::once(&p.ret)).all(|t| {
+            !common::HANDLER_TYPES.contains(&t.as_str())
+                && !common::POLY_TYPES.contains(&t.as_str())
+        });
         if pure && plain {
             let head = row.reason.split(':').next().unwrap();
             let amproc = head == "handler/internal" && row.reason.contains("(pg_amproc)");
-            assert!(head == "context" || head == "stub" || amproc, "oid {} {}: pure builtin in tier C with reason {:?}", row.oid, row.name, row.reason);
+            assert!(
+                head == "context" || head == "stub" || amproc,
+                "oid {} {}: pure builtin in tier C with reason {:?}",
+                row.oid,
+                row.name,
+                row.reason
+            );
             if head == "context" {
                 context.push(row.name);
             }
         }
     }
-    eprintln!("pure builtins kept on the function manager as context-dependent: {} ({:?}...)", context.len(), &context[..context.len().min(12)]);
+    eprintln!(
+        "pure builtins kept on the function manager as context-dependent: {} ({:?}...)",
+        context.len(),
+        &context[..context.len().min(12)]
+    );
 }
 
 #[test]
@@ -181,7 +254,14 @@ fn shim_rows_and_catalog_agree() {
     }
     for row in ROWS.iter() {
         let has = matches!(row.status, Status::Shim | Status::ShimCopy);
-        assert_eq!(has, shim_oids.contains(&row.oid), "oid {} {} status {:?} vs catalog", row.oid, row.name, row.status);
+        assert_eq!(
+            has,
+            shim_oids.contains(&row.oid),
+            "oid {} {} status {:?} vs catalog",
+            row.oid,
+            row.name,
+            row.status
+        );
         if has {
             assert_ne!(row.family, Family::None, "oid {} has no family", row.oid);
             assert_ne!(row.tier, Tier::C);
@@ -190,13 +270,21 @@ fn shim_rows_and_catalog_agree() {
             assert_eq!(row.status, Status::Fmgr);
         }
         if matches!(row.tier, Tier::A | Tier::B) {
-            assert_ne!(row.status, Status::Fmgr, "oid {} is A/B but bound to fmgr", row.oid);
+            assert_ne!(
+                row.status,
+                Status::Fmgr,
+                "oid {} is A/B but bound to fmgr",
+                row.oid
+            );
         }
     }
     for s in SHIMS.iter() {
         let row = gravity_fn::row_of(s.oid).unwrap();
         assert_eq!(row.family, s.family);
-        assert_eq!(s.region, matches!(s.family, Family::ByRefRef | Family::ValView));
+        assert_eq!(
+            s.region,
+            matches!(s.family, Family::ByRefRef | Family::ValView)
+        );
     }
 }
 
@@ -204,7 +292,10 @@ fn shim_rows_and_catalog_agree() {
 fn pending_only_falls() {
     let pending = ROWS.iter().filter(|r| r.status == Status::Pending).count();
     assert_eq!(pending, gravity_fn::PENDING);
-    assert!(pending <= PENDING_CEILING, "pending rose to {pending} (ceiling {PENDING_CEILING})");
+    assert!(
+        pending <= PENDING_CEILING,
+        "pending rose to {pending} (ceiling {PENDING_CEILING})"
+    );
     let a = ROWS.iter().filter(|r| r.tier == Tier::A).count();
     let b = ROWS.iter().filter(|r| r.tier == Tier::B).count();
     let c = ROWS.iter().filter(|r| r.tier == Tier::C).count();
@@ -218,21 +309,43 @@ fn pending_only_falls() {
 #[test]
 fn tsv_agrees_with_the_generator() {
     let root = manifest_dir().join("../../..");
-    let out = std::process::Command::new("python3").arg(root.join("scripts/gen-gravity-function-tiers.py")).arg("--check").output().expect("python3 runs the generator");
+    let out = std::process::Command::new("python3")
+        .arg(root.join("scripts/gen-gravity-function-tiers.py"))
+        .arg("--check")
+        .output()
+        .expect("python3 runs the generator");
     let err = String::from_utf8_lossy(&out.stderr);
-    assert!(out.status.success(), "{}", err.lines().filter(|l| l.starts_with("STALE")).collect::<Vec<_>>().join("\n"));
+    assert!(
+        out.status.success(),
+        "{}",
+        err.lines()
+            .filter(|l| l.starts_with("STALE"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
 }
 
 #[test]
 fn lints() {
     let dir = manifest_dir();
     let sites = gravity_lint::alloc_sites(dir);
-    assert!(sites.is_empty(), "untagged allocation sites: {:?}", sites.iter().map(|s| format!("{}:{} {}", s.path.display(), s.line_no, s.line)).collect::<Vec<_>>());
+    assert!(
+        sites.is_empty(),
+        "untagged allocation sites: {:?}",
+        sites
+            .iter()
+            .map(|s| format!("{}:{} {}", s.path.display(), s.line_no, s.line))
+            .collect::<Vec<_>>()
+    );
 }
 
 /// D793-b: the checkout under test, read at run time (cargo sets CARGO_MANIFEST_DIR for every test process), never
 /// env!()'s path baked in at compile time: a test binary reused from another checkout would read that checkout's files.
 fn manifest_dir() -> &'static std::path::Path {
     static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| std::env::var_os("CARGO_MANIFEST_DIR").map(Into::into).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)"))
+    DIR.get_or_init(|| {
+        std::env::var_os("CARGO_MANIFEST_DIR")
+            .map(Into::into)
+            .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+    })
 }

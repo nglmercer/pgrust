@@ -97,10 +97,12 @@ fn on_big_stack<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T 
 }
 
 fn compile_msg(pat: Vec<u32>) -> Option<String> {
-    on_big_stack(move || match seam_pg_regcomp(&pat, 0o3, C_COLLATION_OID).unwrap() {
-        RegcompResult::Compiled(_) => None,
-        RegcompResult::Failed(f) => Some(f.message),
-    })
+    on_big_stack(
+        move || match seam_pg_regcomp(&pat, 0o3, C_COLLATION_OID).unwrap() {
+            RegcompResult::Compiled(_) => None,
+            RegcompResult::Failed(f) => Some(f.message),
+        },
+    )
 }
 
 /// Compile, then execute against a one-chr subject: the DFA is sized (newdfa)
@@ -161,7 +163,11 @@ fn dfa_arrays_over_max_alloc_size_raise_c_alloc_error() {
 /// alternative matches (C 18.6: true).
 #[test]
 fn deleted_lacon_arcs_are_not_color_bounded() {
-    let pat: Vec<u32> = "(?:(?=ab)){0}|".repeat(32_768).chars().map(|c| c as u32).collect();
+    let pat: Vec<u32> = "(?:(?=ab)){0}|"
+        .repeat(32_768)
+        .chars()
+        .map(|c| c as u32)
+        .collect();
     assert_eq!(exec_outcome(pat, Vec::new()), "matched");
 }
 
@@ -196,7 +202,10 @@ fn lacon_color_overflow_is_too_many_colors() {
 /// One more color: the colormap overflows first (same message, other site).
 #[test]
 fn colormap_overflow_is_too_many_colors() {
-    assert_eq!(compile_msg(pattern(32762)).as_deref(), Some("too many colors"));
+    assert_eq!(
+        compile_msg(pattern(32762)).as_deref(),
+        Some("too many colors")
+    );
 }
 
 /// Well below the window the two-chr lookahead compiles.

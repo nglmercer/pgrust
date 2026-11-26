@@ -21,5 +21,6 @@ pub fn user_language(prolang: Option<Oid>) -> bool {
 /// sort calls through fmgr that may raise mid-sort (kernels table/emit.rs `bounded_sort`'s stop). Internal and C
 /// comparators are not, so their sorts keep std's.
 pub fn user_call(id: u32) -> bool {
-    crate::resolved::kind_of(id).is_some_and(|k| matches!(k, FnKind::Language | FnKind::SecurityDefiner))
+    crate::resolved::kind_of(id)
+        .is_some_and(|k| matches!(k, FnKind::Language | FnKind::SecurityDefiner))
 }

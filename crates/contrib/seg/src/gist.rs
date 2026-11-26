@@ -209,12 +209,22 @@ mod tests {
 
     #[test]
     fn picksplit_sort_keeps_signed_zero_input_order() {
-        let mut items =
-            [(0.0f32, 1u16, ()), (-0.0, 2, ()), (0.0, 3, ()), (-0.0, 4, ()), (0.0, 5, ())];
+        let mut items = [
+            (0.0f32, 1u16, ()),
+            (-0.0, 2, ()),
+            (0.0, 3, ()),
+            (-0.0, 4, ()),
+            (0.0, 5, ()),
+        ];
         sort_by_center(&mut items);
         let order: Vec<u16> = items.iter().map(|i| i.1).collect();
         assert_eq!(order, [1, 2, 3, 4, 5]);
-        let mut items = [(2.0f32, 1u16, ()), (-0.0, 2, ()), (0.0, 3, ()), (1.0, 4, ())];
+        let mut items = [
+            (2.0f32, 1u16, ()),
+            (-0.0, 2, ()),
+            (0.0, 3, ()),
+            (1.0, 4, ()),
+        ];
         sort_by_center(&mut items);
         let order: Vec<u16> = items.iter().map(|i| i.1).collect();
         assert_eq!(order, [2, 3, 4, 1]);

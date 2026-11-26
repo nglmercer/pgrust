@@ -93,8 +93,16 @@ pub fn fill(b: &mut Builder<'_, '_>) {
 impl Demand {
     /// The demand of every node of `stmt`, top-down from each tree's top.
     pub fn of<'p>(stmt: &'p PlannedStmt<'p>, arena: ArenaRef) -> Demand {
-        let mut d = Demand { at: ArenaVec::new_in(arena), reads: ArenaVec::new_in(arena), arena }; // alloc: Cold
-        for root in stmt.planTree.into_iter().chain(stmt.subplans.iter().flatten()) {
+        let mut d = Demand {
+            at: ArenaVec::new_in(arena),
+            reads: ArenaVec::new_in(arena),
+            arena,
+        }; // alloc: Cold
+        for root in stmt
+            .planTree
+            .into_iter()
+            .chain(stmt.subplans.iter().flatten())
+        {
             let Some(p) = root.as_plan() else { continue };
             let got = d.fallbacks(p);
             let mine = d.record(p, &got);
@@ -108,11 +116,17 @@ impl Demand {
     /// strongest reader reads it); a node no tree reached answers by the fail-closed rule (`fallback`).
     pub fn read<'p>(&self, plan: &'p Plan<'p>, attno: i16) -> Read {
         let key = plan as *const Plan<'p> as usize;
-        let Some(te) = entry(plan, attno) else { return Read::Value };
+        let Some(te) = entry(plan, attno) else {
+            return Read::Value;
+        };
         let i = self.at.partition_point(|e| e.0 < key);
         let mut out = None;
         for &(_, start, width) in self.at[i..].iter().take_while(|e| e.0 == key) {
-            let r = if attno >= 1 && (attno as u16) <= width { self.reads[start as usize + attno as usize - 1] } else { Read::Value };
+            let r = if attno >= 1 && (attno as u16) <= width {
+                self.reads[start as usize + attno as usize - 1]
+            } else {
+                Read::Value
+            };
             out = Some(out.map_or(r, |o: Read| o.max(r)));
         }
         out.unwrap_or_else(|| fallback(te))
@@ -122,8 +136,10 @@ impl Demand {
     fn record<'p>(&mut self, p: &'p Plan<'p>, got: &[Read]) -> (u32, u16) {
         let width = width(p);
         let start = self.reads.len();
-        self.reads.extend((1..=width as usize).map(|r| got.get(r).copied().unwrap_or(Read::Value))); // alloc: Cold
-        self.at.push((p as *const Plan<'p> as usize, start as u32, width)); // alloc: Cold
+        self.reads
+            .extend((1..=width as usize).map(|r| got.get(r).copied().unwrap_or(Read::Value))); // alloc: Cold
+        self.at
+            .push((p as *const Plan<'p> as usize, start as u32, width)); // alloc: Cold
         (start as u32, width)
     }
 
@@ -131,7 +147,12 @@ impl Demand {
     fn fallbacks<'p>(&self, p: &'p Plan<'p>) -> ArenaVec<Read> {
         let mut out = ArenaVec::new_in(self.arena); // alloc: Cold
         out.resize(width(p) as usize + 1, Read::Value); // alloc: Cold
-        for te in p.targetlist.iter().filter_map(|n| n.as_target_entry()).filter(|t| t.resno >= 1) {
+        for te in p
+            .targetlist
+            .iter()
+            .filter_map(|n| n.as_target_entry())
+            .filter(|t| t.resno >= 1)
+        {
             out[te.resno as usize] = fallback(te);
         }
         out
@@ -142,12 +163,26 @@ impl Demand {
     /// fail-closed rule (the module doc's reach).
     fn down<'p>(&mut self, n: Node<'p>, p: &'p Plan<'p>, mine: (u32, u16)) {
         crate::walk::stack_check(); // D3748
-        let members = n.as_append().map(|a| &a.appendplans).or_else(|| n.as_merge_append().map(|m| &m.mergeplans));
+        let members = n
+            .as_append()
+            .map(|a| &a.appendplans)
+            .or_else(|| n.as_merge_append().map(|m| &m.mergeplans));
         let sub = n.as_subquery_scan().and_then(|s| s.subplan);
-        let kids = [(p.lefttree, true), (p.righttree, false), (sub, false)].into_iter().filter_map(|(k, left)| k.map(|k| (k, left)));
-        for (k, left) in kids.chain(members.into_iter().flat_map(|l| l.iter()).map(|k| (k, false))) {
+        let kids = [(p.lefttree, true), (p.righttree, false), (sub, false)]
+            .into_iter()
+            .filter_map(|(k, left)| k.map(|k| (k, left)));
+        for (k, left) in kids.chain(
+            members
+                .into_iter()
+                .flat_map(|l| l.iter())
+                .map(|k| (k, false)),
+        ) {
             let Some(kp) = k.as_plan() else { continue };
-            let got = if left { self.by_parent(n, p, mine, kp) } else { self.fallbacks(kp) };
+            let got = if left {
+                self.by_parent(n, p, mine, kp)
+            } else {
+                self.fallbacks(kp)
+            };
             let theirs = self.record(kp, &got);
             self.down(k, kp, theirs);
         }
@@ -155,7 +190,13 @@ impl Demand {
 
     /// How parent `n` (its plan `p`, its own demand `mine`) reads each column of its left (outer) child `kp`, indexed by
     /// resno: one pass over the parent's key indexes, expressions and target list.
-    fn by_parent<'p>(&self, n: Node<'p>, p: &'p Plan<'p>, mine: (u32, u16), kp: &'p Plan<'p>) -> ArenaVec<Read> {
+    fn by_parent<'p>(
+        &self,
+        n: Node<'p>,
+        p: &'p Plan<'p>,
+        mine: (u32, u16),
+        kp: &'p Plan<'p>,
+    ) -> ArenaVec<Read> {
         let mut idx: [&[i16]; 2] = [&[], &[]];
         let mut exprs: [Option<Node<'p>>; 2] = [None, None];
         let mut cond: Option<&'p NodeList<'p>> = None;
@@ -167,18 +208,28 @@ impl Demand {
                     _ => self.all(kp, Read::Value),
                 };
             }
-            NodeTag::T_Sort => idx[0] = n.as_sort().map_or(&[][..], |s|s.sortColIdx),
-            NodeTag::T_IncrementalSort => idx[0] = n.as_incremental_sort().map_or(&[][..], |s|s.sort.sortColIdx),
-            NodeTag::T_Unique => idx[0] = n.as_unique().map_or(&[][..], |u|u.uniqColIdx),
-            NodeTag::T_GatherMerge => idx[0] = n.as_gather_merge().map_or(&[][..], |g|g.sortColIdx),
+            NodeTag::T_Sort => idx[0] = n.as_sort().map_or(&[][..], |s| s.sortColIdx),
+            NodeTag::T_IncrementalSort => {
+                idx[0] = n
+                    .as_incremental_sort()
+                    .map_or(&[][..], |s| s.sort.sortColIdx)
+            }
+            NodeTag::T_Unique => idx[0] = n.as_unique().map_or(&[][..], |u| u.uniqColIdx),
+            NodeTag::T_GatherMerge => {
+                idx[0] = n.as_gather_merge().map_or(&[][..], |g| g.sortColIdx)
+            }
             NodeTag::T_Limit => {
-                let Some(l) = n.as_limit() else { return self.all(kp, Read::Value) };
-                idx[0] =l.uniqColIdx;
+                let Some(l) = n.as_limit() else {
+                    return self.all(kp, Read::Value);
+                };
+                idx[0] = l.uniqColIdx;
                 exprs = [l.limitOffset, l.limitCount];
             }
             NodeTag::T_WindowAgg => {
-                let Some(w) = n.as_window_agg() else { return self.all(kp, Read::Value) };
-                idx = [w.partColIdx,w.ordColIdx];
+                let Some(w) = n.as_window_agg() else {
+                    return self.all(kp, Read::Value);
+                };
+                idx = [w.partColIdx, w.ordColIdx];
                 exprs = [w.startOffset, w.endOffset];
                 cond = Some(&w.runCondition);
             }
@@ -197,31 +248,60 @@ impl Demand {
         let mut unknown = false;
         let mut mark = |e: Node<'p>, out: &mut ArenaVec<Read>| {
             unknown |= !crate::expr::walk(e, &mut |x| {
-                if let Some(v) = x.as_var().filter(|v| v.varno == OUTER_VAR && v.varlevelsup == 0 && v.varattno >= 1 && v.varattno as usize <= width) {
+                if let Some(v) = x.as_var().filter(|v| {
+                    v.varno == OUTER_VAR
+                        && v.varlevelsup == 0
+                        && v.varattno >= 1
+                        && v.varattno as usize <= width
+                }) {
                     out[v.varattno as usize] = Read::Value;
                 }
                 true
             });
         };
-        for e in exprs.into_iter().flatten().chain(cond.into_iter().flat_map(|l| l.iter())).chain(p.qual.iter()) {
+        for e in exprs
+            .into_iter()
+            .flatten()
+            .chain(cond.into_iter().flat_map(|l| l.iter()))
+            .chain(p.qual.iter())
+        {
             mark(e, &mut out);
         }
         // D4076: a WindowAgg's own grouping or sort entry (a ressortgroupref; no window call, aggregate or sub-plan)
         let grouped = |up: &TargetEntry<'p>| {
             n.node_tag() == NodeTag::T_WindowAgg
                 && up.ressortgroupref != 0
-                && crate::expr::walk(up.expr, &mut |x| !matches!(x.node_tag(), NodeTag::T_WindowFunc | NodeTag::T_Aggref | NodeTag::T_SubPlan | NodeTag::T_AlternativeSubPlan))
+                && crate::expr::walk(up.expr, &mut |x| {
+                    !matches!(
+                        x.node_tag(),
+                        NodeTag::T_WindowFunc
+                            | NodeTag::T_Aggref
+                            | NodeTag::T_SubPlan
+                            | NodeTag::T_AlternativeSubPlan
+                    )
+                })
         };
         let mut inside: ArenaVec<usize> = ArenaVec::new_in(self.arena); // alloc: Cold
         for up in p.targetlist.iter().filter_map(|t| t.as_target_entry()) {
             match up.expr.as_var() {
                 // a bare entry hands its own demand above down to the column it copies
-                Some(v) if v.varno == OUTER_VAR && v.varlevelsup == 0 && v.varattno >= 1 && v.varattno as usize <= width => {
-                    out[v.varattno as usize] = out[v.varattno as usize].max(self.mine(mine, up.resno));
+                Some(v)
+                    if v.varno == OUTER_VAR
+                        && v.varlevelsup == 0
+                        && v.varattno >= 1
+                        && v.varattno as usize <= width =>
+                {
+                    out[v.varattno as usize] =
+                        out[v.varattno as usize].max(self.mine(mine, up.resno));
                 }
                 _ if grouped(up) => {
                     crate::expr::walk(up.expr, &mut |x| {
-                        if let Some(v) = x.as_var().filter(|v| v.varno == OUTER_VAR && v.varlevelsup == 0 && v.varattno >= 1 && v.varattno as usize <= width) {
+                        if let Some(v) = x.as_var().filter(|v| {
+                            v.varno == OUTER_VAR
+                                && v.varlevelsup == 0
+                                && v.varattno >= 1
+                                && v.varattno as usize <= width
+                        }) {
                             inside.push(v.varattno as usize); // alloc: Cold
                         }
                         true
@@ -248,23 +328,39 @@ impl Demand {
 
     /// The parent's own demand on its column `resno` (`mine`); a resno past its list is read.
     fn mine(&self, (start, width): (u32, u16), resno: i16) -> Read {
-        if resno >= 1 && (resno as u16) <= width { self.reads[start as usize + resno as usize - 1] } else { Read::Value }
+        if resno >= 1 && (resno as u16) <= width {
+            self.reads[start as usize + resno as usize - 1]
+        } else {
+            Read::Value
+        }
     }
 }
 
 /// `p`'s highest output column number.
 fn width(p: &Plan<'_>) -> u16 {
-    p.targetlist.iter().filter_map(|n| n.as_target_entry()).map(|t| t.resno.max(0) as u16).max().unwrap_or(0)
+    p.targetlist
+        .iter()
+        .filter_map(|n| n.as_target_entry())
+        .map(|t| t.resno.max(0) as u16)
+        .max()
+        .unwrap_or(0)
 }
 
 /// The fail-closed rule (module doc): a non-junk column is read, a resjunk one is not.
 fn fallback(te: &TargetEntry<'_>) -> Read {
-    if te.resjunk { Read::No } else { Read::Value }
+    if te.resjunk {
+        Read::No
+    } else {
+        Read::Value
+    }
 }
 
 /// `plan`'s target entry for output column `attno`.
 fn entry<'p>(plan: &'p Plan<'p>, attno: i16) -> Option<&'p TargetEntry<'p>> {
-    plan.targetlist.iter().filter_map(|n| n.as_target_entry()).find(|t| t.resno == attno)
+    plan.targetlist
+        .iter()
+        .filter_map(|n| n.as_target_entry())
+        .find(|t| t.resno == attno)
 }
 
 /// What plan node `plan`'s immediate parent reads of `plan`'s output: the one per-parent read table (module doc).
@@ -293,28 +389,61 @@ pub fn parent_reads<'p>(b: &mut Builder<'p, '_>, plan: &'p Plan<'p>) -> Option<P
     let mut keys = ArenaVec::new_in(b.arena); // alloc: Cold
     let mut exprs = ArenaVec::new_in(b.arena); // alloc: Cold
     if let Some(j) = parent.as_nest_loop() {
-        add(&mut exprs, &[&j.join.plan.targetlist, &j.join.plan.qual, &j.join.joinqual]);
-        j.nestParams.iter().for_each(|p| exprs.push(p.as_nest_loop_param().map_or(p, |p| p.paramval)));
+        add(
+            &mut exprs,
+            &[&j.join.plan.targetlist, &j.join.plan.qual, &j.join.joinqual],
+        );
+        j.nestParams
+            .iter()
+            .for_each(|p| exprs.push(p.as_nest_loop_param().map_or(p, |p| p.paramval)));
     } else if let Some(j) = parent.as_hash_join() {
-        add(&mut exprs, &[&j.join.plan.targetlist, &j.join.plan.qual, &j.join.joinqual, &j.hashclauses, &j.hashkeys]);
+        add(
+            &mut exprs,
+            &[
+                &j.join.plan.targetlist,
+                &j.join.plan.qual,
+                &j.join.joinqual,
+                &j.hashclauses,
+                &j.hashkeys,
+            ],
+        );
     } else if let Some(j) = parent.as_merge_join() {
-        add(&mut exprs, &[&j.join.plan.targetlist, &j.join.plan.qual, &j.join.joinqual, &j.mergeclauses]);
+        add(
+            &mut exprs,
+            &[
+                &j.join.plan.targetlist,
+                &j.join.plan.qual,
+                &j.join.joinqual,
+                &j.mergeclauses,
+            ],
+        );
     } else if let Some(a) = parent.as_agg() {
         if !a.groupingSets.is_nil() || !a.chain.is_nil() || a.gravity_rewrite.is_some() {
             return None;
         }
         add(&mut exprs, &[&a.plan.targetlist, &a.plan.qual]);
-        a.grpColIdx.iter().take(a.numCols.max(0) as usize).for_each(|&c| keys.push(c));
+        a.grpColIdx
+            .iter()
+            .take(a.numCols.max(0) as usize)
+            .for_each(|&c| keys.push(c));
     } else if let Some(g) = parent.as_group() {
         add(&mut exprs, &[&g.plan.targetlist, &g.plan.qual]);
-        g.grpColIdx.iter().take(g.numCols.max(0) as usize).for_each(|&c| keys.push(c));
+        g.grpColIdx
+            .iter()
+            .take(g.numCols.max(0) as usize)
+            .for_each(|&c| keys.push(c));
     } else if let Some(r) = parent.as_result() {
         add(&mut exprs, &[&r.plan.targetlist, &r.plan.qual]);
         r.resconstantqual.into_iter().for_each(|n| exprs.push(n));
     } else {
         return None;
     }
-    Some(ParentReads { parent, side, keys, exprs })
+    Some(ParentReads {
+        parent,
+        side,
+        keys,
+        exprs,
+    })
 }
 
 /// The output column of `plan` that the Sort right above it orders by first: the Sort's first key, through the Sort's
@@ -322,10 +451,14 @@ pub fn parent_reads<'p>(b: &mut Builder<'p, '_>, plan: &'p Plan<'p>) -> Option<P
 /// sits under an Append / MergeAppend member or is met twice (readers.rs `parent_of`). A two-pass top's extreme
 /// (ops/agg `top_extreme`) is the aggregate in that column.
 pub fn first_sort_key<'p>(b: &mut Builder<'p, '_>, plan: &'p Plan<'p>) -> Option<i16> {
-    let (parent, false) = readers::parent_of(b, plan)? else { return None };
+    let (parent, false) = readers::parent_of(b, plan)? else {
+        return None;
+    };
     let sort = parent.as_sort()?;
     let te = entry(&sort.plan, *sort.sortColIdx.first()?)?;
-    let v = crate::facts::pinned::relabels(te.expr).as_var().filter(|v| v.varno == OUTER_VAR && v.varlevelsup == 0)?;
+    let v = crate::facts::pinned::relabels(te.expr)
+        .as_var()
+        .filter(|v| v.varno == OUTER_VAR && v.varlevelsup == 0)?;
     Some(v.varattno)
 }
 
@@ -333,7 +466,11 @@ pub fn first_sort_key<'p>(b: &mut Builder<'p, '_>, plan: &'p Plan<'p>) -> Option
 /// reads: every aggregate over it is a pair count (`PairCount` counts distinct key words; only a `PairFold` folds the
 /// value), so its record needs no representative (lowerv4 table/emit_group.rs `unread_key`).
 pub fn distinct_arg_unread(g: &GroupDecl<'_>, e: Node<'_>) -> bool {
-    g.form == GroupForm::Distinct && g.keys.iter().any(|x| x.resno == 0 && x.expr.node().ptr_eq(e)) && !g.aggs.iter().any(|d| d.final_ == FinalForm::PairFold)
+    g.form == GroupForm::Distinct
+        && g.keys
+            .iter()
+            .any(|x| x.resno == 0 && x.expr.node().ptr_eq(e))
+        && !g.aggs.iter().any(|d| d.final_ == FinalForm::PairFold)
 }
 
 /// Every expression of the lists `ls`, onto `v`.
@@ -368,16 +505,25 @@ fn entries_of<'p>(b: &mut Builder<'p, '_>, plan: &'p Plan<'p>) -> Option<ArenaVe
     let pr = parent_reads(b, plan)?;
     let mut hit = ArenaVec::new_in(b.arena); // alloc: Cold
     hit.resize(plan.targetlist.len(), false);
-    (cols(&pr.keys, &mut hit) && pr.exprs.iter().all(|&n| mark(n, pr.side, &mut hit))).then_some(hit)
+    (cols(&pr.keys, &mut hit) && pr.exprs.iter().all(|&n| mark(n, pr.side, &mut hit)))
+        .then_some(hit)
 }
 
 /// The target entries of scan `plan` (range table entry `varno`) its consumers read, in order: every entry but a bare
 /// column of `varno` no consumer reads (`entries_read`); an entry that computes, or one over another relation's or a
 /// system column, stays. A scan's lanes (ops/scan `read_vars`) and a CteScan's columns (facts/demand/cte.rs `cte_read`)
 /// are the `Var`s of these and of the scan's quals.
-pub fn read_entries<'p>(b: &mut Builder<'p, '_>, plan: &'p Plan<'p>, varno: i32) -> ArenaVec<Node<'p>> {
+pub fn read_entries<'p>(
+    b: &mut Builder<'p, '_>,
+    plan: &'p Plan<'p>,
+    varno: i32,
+) -> ArenaVec<Node<'p>> {
     let read = entries_read(b, plan);
-    let bare = |t: Node<'_>| t.as_target_entry().and_then(|t| t.expr.as_var()).is_some_and(|v| v.varno == varno && v.varlevelsup == 0 && v.varattno > 0);
+    let bare = |t: Node<'_>| {
+        t.as_target_entry()
+            .and_then(|t| t.expr.as_var())
+            .is_some_and(|v| v.varno == varno && v.varlevelsup == 0 && v.varattno > 0)
+    };
     let mut out = ArenaVec::new_in(b.arena); // alloc: Cold
     for (i, t) in plan.targetlist.iter().enumerate() {
         if read.as_ref().is_none_or(|r| r.get(i).is_none_or(|&r| r)) || !bare(t) {
@@ -405,12 +551,23 @@ pub enum Junk {
 /// inside an aggregate (its arguments are the aggregate's). The one walk behind a group's kept columns (`pinned`:
 /// a keyless group keeps them from its first row, `Junk::Computing`), the columns the keys must determine (ops/agg
 /// `pinned_vars`) and a sorted DISTINCT's shown member (ops/group absorb.rs `pin_shows_member`).
-pub fn agg_reads<'p>(tlist: &NodeList<'p>, qual: &NodeList<'p>, junk: Junk, f: &mut dyn FnMut(&'p Var<'p>)) {
+pub fn agg_reads<'p>(
+    tlist: &NodeList<'p>,
+    qual: &NodeList<'p>,
+    junk: Junk,
+    f: &mut dyn FnMut(&'p Var<'p>),
+) {
     let is_junk = |n: &Node<'p>| n.as_target_entry().is_some_and(|t| t.resjunk);
-    let bare = |n: &Node<'p>| n.as_target_entry().is_some_and(|t| t.expr.as_var().is_some());
+    let bare = |n: &Node<'p>| {
+        n.as_target_entry()
+            .is_some_and(|t| t.expr.as_var().is_some())
+    };
     let mut read = |n: Node<'p>| {
         expr::walk(n, &mut |x| {
-            if let Some(v) = x.as_var().filter(|v| v.varno == OUTER_VAR && v.varlevelsup == 0) {
+            if let Some(v) = x
+                .as_var()
+                .filter(|v| v.varno == OUTER_VAR && v.varlevelsup == 0)
+            {
                 f(v);
             }
             x.as_aggref().is_none()
@@ -418,10 +575,21 @@ pub fn agg_reads<'p>(tlist: &NodeList<'p>, qual: &NodeList<'p>, junk: Junk, f: &
     };
     match junk {
         Junk::All => tlist.iter().chain(qual.iter()).for_each(&mut read),
-        Junk::Skip => tlist.iter().filter(|n| !is_junk(n)).chain(qual.iter()).for_each(&mut read),
+        Junk::Skip => tlist
+            .iter()
+            .filter(|n| !is_junk(n))
+            .chain(qual.iter())
+            .for_each(&mut read),
         Junk::Computing => {
-            tlist.iter().filter(|n| !is_junk(n)).chain(qual.iter()).for_each(&mut read);
-            tlist.iter().filter(|n| is_junk(n) && !bare(n)).for_each(&mut read);
+            tlist
+                .iter()
+                .filter(|n| !is_junk(n))
+                .chain(qual.iter())
+                .for_each(&mut read);
+            tlist
+                .iter()
+                .filter(|n| is_junk(n) && !bare(n))
+                .for_each(&mut read);
         }
     }
 }
@@ -465,13 +633,30 @@ pub fn pinned<'p>(tlist: &NodeList<'p>, qual: &NodeList<'p>, f: &mut dyn FnMut(&
 /// nodes, arguments included, then in its computed keys, `resno == 0`) only under nodes `lane` takes, one per read: the
 /// reads are as many as the nodes `lane` takes, and not none. Every node met passes `open`; a node the walk does not know
 /// answers false.
-pub fn group_reads_only_under(g: &GroupDecl<'_>, r: i16, open: &dyn Fn(Node<'_>) -> bool, lane: &dyn Fn(Node<'_>) -> bool) -> bool {
+pub fn group_reads_only_under(
+    g: &GroupDecl<'_>,
+    r: i16,
+    open: &dyn Fn(Node<'_>) -> bool,
+    lane: &dyn Fn(Node<'_>) -> bool,
+) -> bool {
     let (mut vars, mut lanes, mut ok, mut opened) = (0u32, 0u32, true, true);
-    let keys = g.keys.iter().filter(|x| x.resno == 0).map(|x| x.expr.node());
-    for n in g.aggs.iter().flat_map(|a| a.filter.iter().copied().chain([a.node])).chain(keys) {
+    let keys = g
+        .keys
+        .iter()
+        .filter(|x| x.resno == 0)
+        .map(|x| x.expr.node());
+    for n in g
+        .aggs
+        .iter()
+        .flat_map(|a| a.filter.iter().copied().chain([a.node]))
+        .chain(keys)
+    {
         ok &= expr::walk(n, &mut |x| {
             opened &= open(x);
-            vars += x.as_var().is_some_and(|v| v.varno == OUTER_VAR && v.varlevelsup == 0 && v.varattno == r) as u32;
+            vars += x
+                .as_var()
+                .is_some_and(|v| v.varno == OUTER_VAR && v.varlevelsup == 0 && v.varattno == r)
+                as u32;
             lanes += lane(x) as u32;
             true
         });
@@ -481,13 +666,15 @@ pub fn group_reads_only_under(g: &GroupDecl<'_>, r: i16, open: &dyn Fn(Node<'_>)
 
 /// Mark each input column `idx` names (1-based); false for one outside the target list.
 fn cols(idx: &[i16], read: &mut [bool]) -> bool {
-    idx.iter().all(|&c| match usize::try_from(c - 1).ok().and_then(|i| read.get_mut(i)) {
-        Some(r) => {
-            *r = true;
-            true
-        }
-        None => false,
-    })
+    idx.iter().all(
+        |&c| match usize::try_from(c - 1).ok().and_then(|i| read.get_mut(i)) {
+            Some(r) => {
+                *r = true;
+                true
+            }
+            None => false,
+        },
+    )
 }
 
 /// Mark the input columns (`varno` = the side's) expression `n` reads; false when it holds a kind `expr::kids` does not
@@ -501,7 +688,10 @@ fn mark<'p>(n: Node<'p>, varno: i32, read: &mut [bool]) -> bool {
         if v.varno != varno || v.varlevelsup != 0 {
             return true;
         }
-        return match usize::try_from(v.varattno as i32 - 1).ok().and_then(|i| read.get_mut(i)) {
+        return match usize::try_from(v.varattno as i32 - 1)
+            .ok()
+            .and_then(|i| read.get_mut(i))
+        {
             Some(r) => {
                 *r = true;
                 true
@@ -510,8 +700,17 @@ fn mark<'p>(n: Node<'p>, varno: i32, read: &mut [bool]) -> bool {
         };
     }
     if let Some(a) = n.as_aggref() {
-        let clauses = a.aggorder.iter().chain(a.aggdistinct.iter()).all(|c| c.as_sort_group_clause().is_some());
-        return clauses && a.aggdirectargs.iter().chain(a.args.iter()).chain(a.aggfilter).all(|k| mark(k, varno, read));
+        let clauses = a
+            .aggorder
+            .iter()
+            .chain(a.aggdistinct.iter())
+            .all(|c| c.as_sort_group_clause().is_some());
+        return clauses
+            && a.aggdirectargs
+                .iter()
+                .chain(a.args.iter())
+                .chain(a.aggfilter)
+                .all(|k| mark(k, varno, read));
     }
     let mut ok = true;
     let known = expr::kids(n, &mut |k| ok = ok && mark(k, varno, read));

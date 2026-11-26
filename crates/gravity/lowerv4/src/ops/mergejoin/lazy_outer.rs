@@ -23,31 +23,73 @@ use crate::graph::Gx;
 /// reads a side. Every walk of this family reads all of them (an earlier arm that raises or calls nextval counts as the
 /// last one does).
 pub(crate) fn fillers<'g>(gx: &Gx<'g, '_>, k: usize, s: u8) -> PgVec<'g, usize> {
-    let Some(l) = gx.life_of(k, s).map(|l| l.0 as usize).filter(|&l| l < gx.pipelines().len()) else { return PgVec::new_in(gx.mcx) };
+    let Some(l) = gx
+        .life_of(k, s)
+        .map(|l| l.0 as usize)
+        .filter(|&l| l < gx.pipelines().len())
+    else {
+        return PgVec::new_in(gx.mcx);
+    };
     let arms = gx.run_arms(l);
-    arms.iter().copied().chain([l]).flat_map(|x| settled(gx, x)).chain(arms.iter().copied().chain([l])).collect_in(gx.mcx) // (the life last)
+    arms.iter()
+        .copied()
+        .chain([l])
+        .flat_map(|x| settled(gx, x))
+        .chain(arms.iter().copied().chain([l]))
+        .collect_in(gx.mcx) // (the life last)
 }
 
 /// D2026: the feeds of the settled union whose emit is pipeline `p` (its Union op's slot: rerun/union_join_arms.rs `feeds`,
 /// every arm whatever the statement holds), none when `p` is no union's emit.
 pub(crate) fn settled(gx: &Gx<'_, '_>, p: usize) -> Vec<usize> {
-    crate::rerun::union_arms::union_of(&gx.pipelines()[p]).map_or_else(Vec::new, |u| crate::rerun::union_join_arms::feeds(gx, p, u.0))
+    crate::rerun::union_arms::union_of(&gx.pipelines()[p]).map_or_else(Vec::new, |u| {
+        crate::rerun::union_join_arms::feeds(gx, p, u.0)
+    })
 }
 
 /// The pipelines feeding pipeline `k` through `slots`, transitively (each slot's `fillers` and all they read, a settled
 /// union's feeds too: build_class.rs `feed`).
-pub(crate) fn lives<'g>(gx: &Gx<'g, '_>, k: usize, slots: impl Iterator<Item = u8>) -> PgVec<'g, usize> {
+pub(crate) fn lives<'g>(
+    gx: &Gx<'g, '_>,
+    k: usize,
+    slots: impl Iterator<Item = u8>,
+) -> PgVec<'g, usize> {
     lives_by(gx, k, slots, true)
 }
 
 /// `lives`; without `every`, each slot's nearest producer only (`Gx::life_of`: the walk D824's group is built by).
-pub(crate) fn lives_by<'g>(gx: &Gx<'g, '_>, k: usize, slots: impl Iterator<Item = u8>, every: bool) -> PgVec<'g, usize> {
-    let fill = |k: usize, s: u8| if every { fillers(gx, k, s) } else { gx.life_of(k, s).map(|l| l.0 as usize).filter(|&l| l < gx.pipelines().len()).into_iter().collect_in(gx.mcx) };
-    let (mut out, mut todo): (PgVec<'g, usize>, PgVec<'_, usize>) = (PgVec::new_in(gx.mcx), slots.flat_map(|s| fill(k, s)).collect_in(gx.mcx));
+pub(crate) fn lives_by<'g>(
+    gx: &Gx<'g, '_>,
+    k: usize,
+    slots: impl Iterator<Item = u8>,
+    every: bool,
+) -> PgVec<'g, usize> {
+    let fill = |k: usize, s: u8| {
+        if every {
+            fillers(gx, k, s)
+        } else {
+            gx.life_of(k, s)
+                .map(|l| l.0 as usize)
+                .filter(|&l| l < gx.pipelines().len())
+                .into_iter()
+                .collect_in(gx.mcx)
+        }
+    };
+    let (mut out, mut todo): (PgVec<'g, usize>, PgVec<'_, usize>) = (
+        PgVec::new_in(gx.mcx),
+        slots.flat_map(|s| fill(k, s)).collect_in(gx.mcx),
+    );
     while let Some(p) = todo.pop() {
         if !out.contains(&p) {
             out.push_in(p);
-            todo.extend_in(gx.pipelines()[p].desc.consumes.iter().flat_map(|&s| fill(p, s)).chain(if every { settled(gx, p) } else { Vec::new() }));
+            todo.extend_in(
+                gx.pipelines()[p]
+                    .desc
+                    .consumes
+                    .iter()
+                    .flat_map(|&s| fill(p, s))
+                    .chain(if every { settled(gx, p) } else { Vec::new() }),
+            );
         }
     }
     out
@@ -63,8 +105,15 @@ pub(crate) fn lives_by<'g>(gx: &Gx<'g, '_>, k: usize, slots: impl Iterator<Item 
 /// read the claim jobs_to_schedule, its FOR UPDATE, to the end.
 pub(crate) fn first_whole<'g>(gx: &Gx<'g, '_>, k: usize, slot: u8) -> PgVec<'g, usize> {
     let ps = gx.pipelines();
-    let src = |x: usize| if let Source::Breaker { slot } = ps[x].source { Some(slot) } else { None };
-    let (mut out, mut seen): (PgVec<'g, usize>, PgVec<'_, usize>) = (PgVec::new_in(gx.mcx), PgVec::new_in(gx.mcx));
+    let src = |x: usize| {
+        if let Source::Breaker { slot } = ps[x].source {
+            Some(slot)
+        } else {
+            None
+        }
+    };
+    let (mut out, mut seen): (PgVec<'g, usize>, PgVec<'_, usize>) =
+        (PgVec::new_in(gx.mcx), PgVec::new_in(gx.mcx));
     let mut todo = mcx::pg_vec![in gx.mcx; (k, slot)];
     while let Some((x, s)) = todo.pop() {
         for q in fillers(gx, x, s) {
@@ -72,9 +121,23 @@ pub(crate) fn first_whole<'g>(gx: &Gx<'g, '_>, k: usize, slot: u8) -> PgVec<'g, 
                 continue;
             }
             seen.push_in(q);
-            if matches!(crate::frame::iface::end_breaker(gx, q), Some(BreakerKind::Sort | BreakerKind::HashBuild | BreakerKind::HashAgg | BreakerKind::PlainAgg | BreakerKind::Distinct | BreakerKind::TopK)) {
+            if matches!(
+                crate::frame::iface::end_breaker(gx, q),
+                Some(
+                    BreakerKind::Sort
+                        | BreakerKind::HashBuild
+                        | BreakerKind::HashAgg
+                        | BreakerKind::PlainAgg
+                        | BreakerKind::Distinct
+                        | BreakerKind::TopK
+                )
+            ) {
                 out.push_in(q);
-                out.extend_in(lives(gx, q, ps[q].desc.consumes.iter().copied().chain(src(q))));
+                out.extend_in(lives(
+                    gx,
+                    q,
+                    ps[q].desc.consumes.iter().copied().chain(src(q)),
+                ));
             } else {
                 todo.extend_in(src(q).map(|s| (q, s)));
             }
@@ -84,7 +147,12 @@ pub(crate) fn first_whole<'g>(gx: &Gx<'g, '_>, k: usize, slot: u8) -> PgVec<'g, 
 }
 
 pub(crate) fn arms(gx: &Gx<'_, '_>, xs: &[usize]) -> bool {
-    xs.iter().any(|&x| gx.pipelines()[x].ops.iter().any(|op| matches!(op, Op::Append(_))))
+    xs.iter().any(|&x| {
+        gx.pipelines()[x]
+            .ops
+            .iter()
+            .any(|op| matches!(op, Op::Append(_)))
+    })
 }
 
 /// Pipeline `q`'s merge op `j` over an outer that may act (`before`: the outer's feeders; `all`: the inner's, its own
@@ -92,31 +160,58 @@ pub(crate) fn arms(gx: &Gx<'_, '_>, xs: &[usize]) -> bool {
 /// time), the ops before the merge quiet (no value held over the wait), every other pipeline below `q` quiet, PG runs it.
 /// D2026: a UNION ALL's arms on either side are not this form (D824's lazy group holds the last arm only: `leaves`); the
 /// merge then takes lower.rs's other roads (an inner that may raise runs whole first under errorhold's licence).
-pub(crate) fn acting_outer(gx: &Gx<'_, '_>, q: usize, j: usize, before: &[usize], all: &[usize]) -> bool {
+pub(crate) fn acting_outer(
+    gx: &Gx<'_, '_>,
+    q: usize,
+    j: usize,
+    before: &[usize],
+    all: &[usize],
+) -> bool {
     outer_form(gx, q, j, before, all) && reached(gx, q, j + 1)
 }
 
 /// `acting_outer` less PG's surely running the merge (`reached`; fed_first.rs `term` asks it in a recursive term).
-pub(crate) fn outer_form(gx: &Gx<'_, '_>, q: usize, j: usize, before: &[usize], all: &[usize]) -> bool {
+pub(crate) fn outer_form(
+    gx: &Gx<'_, '_>,
+    q: usize,
+    j: usize,
+    before: &[usize],
+    all: &[usize],
+) -> bool {
     if arms(gx, before) || arms(gx, all) {
         return false;
     }
     let ps = gx.pipelines();
     let outer = matches!(ps[q].source, Source::Breaker { slot } if gx.life_of(q, slot).is_some_and(|o| full(&ps[o.0 as usize])));
-    let own = ps[q].ops[..j].iter().all(|op| matches!(op, Op::Filter(_) | Op::Project(_))) && quiet(gx, q, j);
-    outer && own && (0..q).filter(|c| !before.contains(c) && !all.contains(c)).all(|c| quiet(gx, c, usize::MAX))
+    let own = ps[q].ops[..j]
+        .iter()
+        .all(|op| matches!(op, Op::Filter(_) | Op::Project(_)))
+        && quiet(gx, q, j);
+    outer
+        && own
+        && (0..q)
+            .filter(|c| !before.contains(c) && !all.contains(c))
+            .all(|c| quiet(gx, c, usize::MAX))
 }
 
 /// D2026: the pipelines of the inner's feeders `all` that only a UNION ALL's earlier arms reach (outside `near`, the
 /// nearest-producer walk D824's group is built by) and the group `group` leaves out run in program order ahead of the
 /// merge, outside the outer's feeders `before`: each must be quiet.
-pub(crate) fn group_holds(gx: &Gx<'_, '_>, group: &[usize], (before, all): (&[usize], &[usize]), near: &[usize]) -> bool {
-    all.iter().filter(|x| !near.contains(x) && !group.contains(x) && !before.contains(x)).all(|&x| quiet(gx, x, usize::MAX))
+pub(crate) fn group_holds(
+    gx: &Gx<'_, '_>,
+    group: &[usize],
+    (before, all): (&[usize], &[usize]),
+    near: &[usize],
+) -> bool {
+    all.iter()
+        .filter(|x| !near.contains(x) && !group.contains(x) && !before.contains(x))
+        .all(|&x| quiet(gx, x, usize::MAX))
 }
 
 /// Pipeline `p` ends in a full Sort's run (`Runs`, no presorted prefix).
 pub(crate) fn full(p: &PipelineNode<'_>) -> bool {
-    crate::frame::iface::breaker_of(&p.desc).is_some_and(|e| e.kind == BreakerKind::Sort) && matches!(p.ops.last(), Some(Op::Sort(d)) if d.presorted == 0 && matches!(d.form, SortForm::Runs))
+    crate::frame::iface::breaker_of(&p.desc).is_some_and(|e| e.kind == BreakerKind::Sort)
+        && matches!(p.ops.last(), Some(Op::Sort(d)) if d.presorted == 0 && matches!(d.form, SortForm::Runs))
 }
 
 /// PG surely runs pipeline `q`'s rows from op `from` on once the statement runs: they are only filtered, projected, written
@@ -128,17 +223,41 @@ pub(crate) fn full(p: &PipelineNode<'_>) -> bool {
 pub(crate) fn reached(gx: &Gx<'_, '_>, q: usize, from: usize) -> bool {
     crate::stack_check();
     use gravity_decompose::ops::shared::agg::GroupForm;
-    let (ps, plain) = (gx.pipelines(), |ops: &[Op<'_>]| ops.iter().all(|op| matches!(op, Op::Filter(_) | Op::Project(_) | Op::Write(_) | Op::Join(JoinDesc::Nest { .. }))));
+    let (ps, plain) = (gx.pipelines(), |ops: &[Op<'_>]| {
+        ops.iter().all(|op| {
+            matches!(
+                op,
+                Op::Filter(_) | Op::Project(_) | Op::Write(_) | Op::Join(JoinDesc::Nest { .. })
+            )
+        })
+    });
     let ops = ps[q].ops.get(from..).unwrap_or(&[]);
-    let hashed = || gx.group_at(q).is_some_and(|g| matches!(g.form, GroupForm::Hashed) && g.set.is_none());
+    let hashed = || {
+        gx.group_at(q)
+            .is_some_and(|g| matches!(g.form, GroupForm::Hashed) && g.set.is_none())
+    };
     let slot = match crate::frame::iface::breaker_of(&ps[q].desc) {
         None => return plain(ops) && q == gx.graph.root as usize,
-        Some(e) if e.kind == BreakerKind::PlainAgg && plain(ops) || full(&ps[q]) && ops.split_last().is_some_and(|(_, r)| plain(r)) => e.slot,
+        Some(e)
+            if e.kind == BreakerKind::PlainAgg && plain(ops)
+                || full(&ps[q]) && ops.split_last().is_some_and(|(_, r)| plain(r)) =>
+        {
+            e.slot
+        }
         Some(e) if e.kind == BreakerKind::HashAgg && plain(ops) && hashed() => e.slot,
-        Some(e) if e.kind == BreakerKind::HashBuild => return ops.split_last().is_some_and(|(b, r)| matches!(b, Op::Join(JoinDesc::Build { .. })) && plain(r)) && built(gx, q, e.slot),
+        Some(e) if e.kind == BreakerKind::HashBuild => {
+            return ops
+                .split_last()
+                .is_some_and(|(b, r)| matches!(b, Op::Join(JoinDesc::Build { .. })) && plain(r))
+                && built(gx, q, e.slot)
+        }
         _ => return false,
     };
-    let readers: PgVec<'_, usize> = (q + 1..ps.len()).filter(|&c| ps[c].desc.consumes.contains(&slot) && gx.life_of(c, slot) == Some(LifeId(q as u16))).collect_in(gx.mcx);
+    let readers: PgVec<'_, usize> = (q + 1..ps.len())
+        .filter(|&c| {
+            ps[c].desc.consumes.contains(&slot) && gx.life_of(c, slot) == Some(LifeId(q as u16))
+        })
+        .collect_in(gx.mcx);
     matches!(readers[..], [c] if matches!(ps[c].source, Source::Breaker { slot: s } if s == slot) && (q + 1..c).all(|x| quiet(gx, x, usize::MAX)) && reached(gx, c, 0))
 }
 
@@ -149,7 +268,11 @@ pub(crate) fn reached(gx: &Gx<'_, '_>, q: usize, from: usize) -> bool {
 /// (the probe's own outer runs after the build, as PG fetches it).
 fn built(gx: &Gx<'_, '_>, q: usize, slot: u8) -> bool {
     let ps = gx.pipelines();
-    let readers: PgVec<'_, usize> = (q + 1..ps.len()).filter(|&c| ps[c].desc.consumes.contains(&slot) && gx.life_of(c, slot) == Some(LifeId(q as u16))).collect_in(gx.mcx);
+    let readers: PgVec<'_, usize> = (q + 1..ps.len())
+        .filter(|&c| {
+            ps[c].desc.consumes.contains(&slot) && gx.life_of(c, slot) == Some(LifeId(q as u16))
+        })
+        .collect_in(gx.mcx);
     let at = |c: usize, f: &dyn Fn(&Op<'_>) -> bool| ps[c].ops.iter().position(f);
     let probe = |op: &Op<'_>| matches!(op, Op::Join(JoinDesc::Probe { slot: s, outer_first: false, .. }) if *s == slot);
     let between = |end: usize, c: usize| (q + 1..end).all(|x| x == c || quiet(gx, x, usize::MAX));
@@ -174,15 +297,55 @@ fn built(gx: &Gx<'_, '_>, q: usize, slot: u8) -> bool {
 /// before `q` refilling its number: the driver's `free_after`), no UNION ALL arm or hash join on either side, under an acting
 /// outer every outer feeder reading whole (PG computes a CTE only as far as its readers read: a LIMIT, probe or gate on
 /// the outer side leaves its rest to the inner's run or to none).
-pub(crate) fn leaves(gx: &Gx<'_, '_>, q: usize, group: &[usize], (before, all): (&[usize], &[usize]), acting: bool) -> bool {
+pub(crate) fn leaves(
+    gx: &Gx<'_, '_>,
+    q: usize,
+    group: &[usize],
+    (before, all): (&[usize], &[usize]),
+    acting: bool,
+) -> bool {
     let ps = gx.pipelines();
-    let out: PgVec<'_, usize> = all.iter().copied().filter(|x| before.contains(x) && !group.contains(x)).collect_in(gx.mcx);
-    let reads = |c: usize, x: usize| ps[c].desc.consumes.iter().any(|&s| gx.life_of(c, s) == Some(LifeId(x as u16)));
-    let refill = |x: usize, s: u8| (x + 1..q).any(|c| crate::frame::iface::breaker_of(&ps[c].desc).is_some_and(|f| f.slot == s));
-    let lives = |x: usize| crate::frame::iface::breaker_of(&ps[x].desc).is_some_and(|e| !refill(x, e.slot)) && (x + 1..ps.len()).filter(|&c| reads(c, x)).max().is_some_and(|c| group.contains(&c));
+    let out: PgVec<'_, usize> = all
+        .iter()
+        .copied()
+        .filter(|x| before.contains(x) && !group.contains(x))
+        .collect_in(gx.mcx);
+    let reads = |c: usize, x: usize| {
+        ps[c]
+            .desc
+            .consumes
+            .iter()
+            .any(|&s| gx.life_of(c, s) == Some(LifeId(x as u16)))
+    };
+    let refill = |x: usize, s: u8| {
+        (x + 1..q)
+            .any(|c| crate::frame::iface::breaker_of(&ps[c].desc).is_some_and(|f| f.slot == s))
+    };
+    let lives = |x: usize| {
+        crate::frame::iface::breaker_of(&ps[x].desc).is_some_and(|e| !refill(x, e.slot))
+            && (x + 1..ps.len())
+                .filter(|&c| reads(c, x))
+                .max()
+                .is_some_and(|c| group.contains(&c))
+    };
     // a hash join's sides may swap pipelines (join/build_side.rs), so graph order is program order only without one
-    let hash = |x: &usize| ps[*x].ops.iter().any(|op| matches!(op, Op::Join(JoinDesc::Build { .. } | JoinDesc::Probe { .. })));
-    out.is_empty() || out.iter().all(|&x| lives(x)) && !arms(gx, before) && !arms(gx, all) && !before.iter().chain(all).any(hash) && (!acting || before.iter().all(|&x| crate::ops::mergejoin::fed_first::whole(&ps[x])))
+    let hash = |x: &usize| {
+        ps[*x].ops.iter().any(|op| {
+            matches!(
+                op,
+                Op::Join(JoinDesc::Build { .. } | JoinDesc::Probe { .. })
+            )
+        })
+    };
+    out.is_empty()
+        || out.iter().all(|&x| lives(x))
+            && !arms(gx, before)
+            && !arms(gx, all)
+            && !before.iter().chain(all).any(hash)
+            && (!acting
+                || before
+                    .iter()
+                    .all(|&x| crate::ops::mergejoin::fed_first::whole(&ps[x])))
 }
 
 /// D1289 (rnd-3686), D3188: whether at most one outer row (pipeline `k`'s rows at the merge, op `j`) has a NULL first
@@ -193,18 +356,37 @@ pub(crate) fn leaves(gx: &Gx<'_, '_>, q: usize, group: &[usize], (before, all): 
 /// on with the column it keeps (`source_col`), and so does a store that keeps its producer's rows (a Sort, Materialize
 /// or TopK breaker: a CTE's store, a re-sorted group's emit); any other op or source breaks it.
 pub(crate) fn one_null_row<'p>(gx: &Gx<'_, 'p>, k: usize, j: usize, key: Node<'p>) -> bool {
-    let Some(v) = strip(key).as_var().filter(|v| v.varno == OUTER_VAR && v.varlevelsup == 0) else { return false };
+    let Some(v) = strip(key)
+        .as_var()
+        .filter(|v| v.varno == OUTER_VAR && v.varlevelsup == 0)
+    else {
+        return false;
+    };
     let ps = gx.pipelines();
     let (mut p, mut ops, mut col) = (k, &ps[k].ops[..j], v.varattno);
     for _ in 0..ps.len() {
-        let Some((c, outer)) = source_col(gx, p, ops, col) else { return false };
+        let Some((c, outer)) = source_col(gx, p, ops, col) else {
+            return false;
+        };
         if let Some(g) = gx.drained_group(p) {
             let mut keys = g.keys.iter().filter(|key| key.resno > 0);
-            return outer && g.set.is_none() && matches!((keys.next(), keys.next()), (Some(only), None) if only.resno == c);
+            return outer
+                && g.set.is_none()
+                && matches!((keys.next(), keys.next()), (Some(only), None) if only.resno == c);
         }
-        let Source::Breaker { slot } = ps[p].source else { return false };
-        let Some(l) = gx.life_of(p, slot).map(|l| l.0 as usize).filter(|&l| l < p) else { return false };
-        let store = crate::frame::iface::breaker_of(&ps[l].desc).is_some_and(|b| b.slot == slot && matches!(b.kind, BreakerKind::Sort | BreakerKind::Materialize | BreakerKind::TopK));
+        let Source::Breaker { slot } = ps[p].source else {
+            return false;
+        };
+        let Some(l) = gx.life_of(p, slot).map(|l| l.0 as usize).filter(|&l| l < p) else {
+            return false;
+        };
+        let store = crate::frame::iface::breaker_of(&ps[l].desc).is_some_and(|b| {
+            b.slot == slot
+                && matches!(
+                    b.kind,
+                    BreakerKind::Sort | BreakerKind::Materialize | BreakerKind::TopK
+                )
+        });
         if !store {
             return false;
         }
@@ -226,7 +408,14 @@ fn source_col<'p>(gx: &Gx<'_, 'p>, p: usize, ops: &[Op<'p>], col: i16) -> Option
             Op::Filter(_) | Op::Gate(_) => {}
             Op::Sort(_) if !crate::effects::visible::merge::user_sort(gx, &gx.pipelines()[p]) => {}
             Op::Project(l) if mapping => {
-                let v = strip(l.iter().filter_map(|n| n.as_target_entry()).find(|t| t.resno == at.0)?.expr).as_var().filter(|v| v.varlevelsup == 0)?;
+                let v = strip(
+                    l.iter()
+                        .filter_map(|n| n.as_target_entry())
+                        .find(|t| t.resno == at.0)?
+                        .expr,
+                )
+                .as_var()
+                .filter(|v| v.varlevelsup == 0)?;
                 at = (v.varattno, v.varno == OUTER_VAR);
                 mapping = v.varno != OUTER_VAR;
             }

@@ -1,9 +1,12 @@
 //! The leader merge face (lower.md §15.8): the owners' kept records (`OwnerTop`) merged into the query's `n` best under `count DESC, keys ASC`
 //! (text by rendered bytes, NULL last) as one sorted run in the arena; a stop's resume finds it through the header in owner 0's table space.
-use gravity_abi::{word, Word};
 use core::mem::size_of;
+use gravity_abi::{word, Word};
 
-use gravity_abi::breaker::{table_kind, KeyKind, Owned, OwnerTop, RecordLayout, MINCODE_NONE, MOVING, ORDER_NONE, TABLE_OWNED};
+use gravity_abi::breaker::{
+    table_kind, KeyKind, Owned, OwnerTop, RecordLayout, MINCODE_NONE, MOVING, ORDER_NONE,
+    TABLE_OWNED,
+};
 use gravity_abi::ctx::{arena_alloc, site_ptr, RESUME_NONE};
 use gravity_abi::program::partial;
 use gravity_abi::status::{unsupported, ERROR, UNSUPPORTED_SCRATCH, UNSUPPORTED_SHAPE};
@@ -75,7 +78,10 @@ unsafe fn text_before(pa: u64, pb: u64) -> Option<bool> {
         (0, _) => Some(false),
         (_, 0) => Some(true),
         _ => {
-            let (a, b) = (varlena_bytes(pa as *const u8), varlena_bytes(pb as *const u8));
+            let (a, b) = (
+                varlena_bytes(pa as *const u8),
+                varlena_bytes(pb as *const u8),
+            );
             if a == b {
                 None
             } else {
@@ -98,11 +104,24 @@ impl Merge<'_> {
 
     /// The candidate `r`'s text key `t` as a rendered datum (0: NULL), once into `tmp`; `kept`: `r` is in the run's form.
     #[inline(always)]
-    unsafe fn cand_text(&self, r: *const u8, kept: bool, t: usize, off: usize, lane: u8, tmp: &mut [u64; MAX_REPS], done: &mut u32) -> Result<u64, i64> {
+    unsafe fn cand_text(
+        &self,
+        r: *const u8,
+        kept: bool,
+        t: usize,
+        off: usize,
+        lane: u8,
+        tmp: &mut [u64; MAX_REPS],
+        done: &mut u32,
+    ) -> Result<u64, i64> {
         if *done >> t & 1 == 0 {
             let w = *(r.add(off) as *const u64);
             tmp[t] = if kept || self.spec.form == FORM_RENDERED {
-                if w == MINCODE_NONE { 0 } else { w }
+                if w == MINCODE_NONE {
+                    0
+                } else {
+                    w
+                }
             } else if w == MINCODE_NONE {
                 0
             } else {
@@ -117,7 +136,14 @@ impl Merge<'_> {
     }
 
     /// Whether the candidate `r` (an owner's copy, or a kept record when `kept`) ranks before the kept `w`.
-    unsafe fn better(&self, r: *const u8, kept: bool, w: *const u8, tmp: &mut [u64; MAX_REPS], done: &mut u32) -> Result<bool, i64> {
+    unsafe fn better(
+        &self,
+        r: *const u8,
+        kept: bool,
+        w: *const u8,
+        tmp: &mut [u64; MAX_REPS],
+        done: &mut u32,
+    ) -> Result<bool, i64> {
         let l = &self.spec.layout;
         if self.spec.order_slot != ORDER_NONE {
             let (ca, cb) = (self.count_of(r), self.count_of(w));
@@ -130,7 +156,11 @@ impl Merge<'_> {
             let (wa, wb) = (*(r as *const u64).add(k), *(w as *const u64).add(k));
             if l.key_kind(k) == KeyKind::Fp128 {
                 let (ha, hb) = (*(r as *const u64).add(k + 1), *(w as *const u64).add(k + 1));
-                let (slot, lane) = if t < MAX_REPS { self.spec.reps[t] } else { (REP_NONE, 0) };
+                let (slot, lane) = if t < MAX_REPS {
+                    self.spec.reps[t]
+                } else {
+                    (REP_NONE, 0)
+                };
                 if slot == REP_NONE || self.spec.tie_fp >> t & 1 != 0 {
                     if (wa, ha) != (wb, hb) {
                         return Ok((wa, ha) < (wb, hb));
@@ -157,7 +187,8 @@ impl Merge<'_> {
     /// `better` over two kept records (every text rendered): the sort's compare.
     unsafe fn before(&self, a: *const u8, b: *const u8) -> bool {
         let (mut tmp, mut done) = ([0u64; MAX_REPS], 0u32);
-        self.better(a, true, b, &mut tmp, &mut done).unwrap_or(false)
+        self.better(a, true, b, &mut tmp, &mut done)
+            .unwrap_or(false)
     }
 
     /// The kept records as a heap with the worst at the root (`worst` stays 0): a replaced root sifts down in
@@ -206,10 +237,15 @@ impl Merge<'_> {
         let (mut k, mut t) = (0usize, 0usize);
         while k < l.nkeys() {
             if l.key_kind(k) == KeyKind::Fp128 {
-                let (rep, lane) = if t < MAX_REPS { self.spec.reps[t] } else { (REP_NONE, 0) };
+                let (rep, lane) = if t < MAX_REPS {
+                    self.spec.reps[t]
+                } else {
+                    (REP_NONE, 0)
+                };
                 if rep != REP_NONE && self.spec.tie_fp >> t & 1 == 0 {
                     let off = l.slot_off(rep as usize) as usize;
-                    *(kept.add(off) as *mut u64) = self.cand_text(r, false, t, off, lane, &mut tmp, &mut done)?;
+                    *(kept.add(off) as *mut u64) =
+                        self.cand_text(r, false, t, off, lane, &mut tmp, &mut done)?;
                 }
                 k += 2;
                 t += 1;
@@ -248,7 +284,8 @@ impl Merge<'_> {
             for i in (self.spec.skip as usize).min(self.len)..self.len {
                 let (mut tmp, mut done) = ([0u64; MAX_REPS], 0u32);
                 let r = self.at(i);
-                *(r.add(off) as *mut u64) = self.cand_text(r, false, t, off, lane, &mut tmp, &mut done)?;
+                *(r.add(off) as *mut u64) =
+                    self.cand_text(r, false, t, off, lane, &mut tmp, &mut done)?;
             }
         }
         Ok(())

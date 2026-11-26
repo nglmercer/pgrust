@@ -79,9 +79,21 @@ struct TypeInfo {
 }
 
 const SEQ_TYPES: &[TypeInfo] = &[
-    TypeInfo { sql: "smallint", serial: "smallserial", max: "32767" },
-    TypeInfo { sql: "integer", serial: "serial", max: "2147483647" },
-    TypeInfo { sql: "bigint", serial: "bigserial", max: "9223372036854775807" },
+    TypeInfo {
+        sql: "smallint",
+        serial: "smallserial",
+        max: "32767",
+    },
+    TypeInfo {
+        sql: "integer",
+        serial: "serial",
+        max: "2147483647",
+    },
+    TypeInfo {
+        sql: "bigint",
+        serial: "bigserial",
+        max: "9223372036854775807",
+    },
 ];
 
 fn pick_type(g: &mut Gen) -> &'static TypeInfo {
@@ -141,9 +153,15 @@ fn raw(s: String) -> StmtKind {
 fn gen_create_group(g: &mut Gen) -> Vec<StmtKind> {
     let s = g.seq.seq();
     let ascending = g.weights.pick(g.rng, &["seqident:asc", "seqident:desc"]) == "seqident:asc";
-    g.fire(if ascending { "seqident:asc" } else { "seqident:desc" });
+    g.fire(if ascending {
+        "seqident:asc"
+    } else {
+        "seqident:desc"
+    });
     let inc = small_inc(g);
-    let cache = if g.weights.pick(g.rng, &["seqident:cache1", "seqident:cachehi"])
+    let cache = if g
+        .weights
+        .pick(g.rng, &["seqident:cache1", "seqident:cachehi"])
         == "seqident:cachehi"
     {
         g.fire("seqident:cachehi");
@@ -189,10 +207,7 @@ fn gen_create_group(g: &mut Gen) -> Vec<StmtKind> {
         s, n
     )));
     out.push(raw(format!("SELECT currval('{}');", s)));
-    out.push(raw(format!(
-        "SELECT last_value, is_called FROM {};",
-        s
-    )));
+    out.push(raw(format!("SELECT last_value, is_called FROM {};", s)));
     out.push(raw(format!("DROP SEQUENCE {};", s)));
     out
 }
@@ -229,14 +244,24 @@ fn gen_cycle_group(g: &mut Gen) -> Vec<StmtKind> {
     let sc = g.seq.seq();
     let sn = g.seq.seq();
     let ascending = g.weights.pick(g.rng, &["seqident:asc", "seqident:desc"]) == "seqident:asc";
-    g.fire(if ascending { "seqident:asc" } else { "seqident:desc" });
+    g.fire(if ascending {
+        "seqident:asc"
+    } else {
+        "seqident:desc"
+    });
     let hi = *g.rng.pick(&[3i64, 4, 5]);
     // CYCLE sequence: read past exhaustion; the wrap makes the multiset
     // repeat but stay deterministic under ORDER BY.
     let (create_c, create_n) = if ascending {
         (
-            format!("CREATE SEQUENCE {} INCREMENT 1 MINVALUE 1 MAXVALUE {} START 1 CYCLE;", sc, hi),
-            format!("CREATE SEQUENCE {} INCREMENT 1 MINVALUE 1 MAXVALUE {} START 1 NO CYCLE;", sn, hi),
+            format!(
+                "CREATE SEQUENCE {} INCREMENT 1 MINVALUE 1 MAXVALUE {} START 1 CYCLE;",
+                sc, hi
+            ),
+            format!(
+                "CREATE SEQUENCE {} INCREMENT 1 MINVALUE 1 MAXVALUE {} START 1 NO CYCLE;",
+                sn, hi
+            ),
         )
     } else {
         (
@@ -278,7 +303,10 @@ fn gen_setval_group(g: &mut Gen) -> Vec<StmtKind> {
     let s = g.seq.seq();
     let v1 = *g.rng.pick(&[10i64, 42, 100, 1000]);
     let v2 = *g.rng.pick(&[7i64, 50, 500]);
-    let mut out = vec![raw(format!("CREATE SEQUENCE {} INCREMENT 1 MINVALUE 1;", s))];
+    let mut out = vec![raw(format!(
+        "CREATE SEQUENCE {} INCREMENT 1 MINVALUE 1;",
+        s
+    ))];
     // 2-arg setval: is_called=true, so the NEXT nextval is v1+1.
     g.fire("seqident:setval:2arg");
     out.push(raw(format!("SELECT setval('{}', {});", s, v1)));
@@ -305,7 +333,10 @@ fn gen_currval_group(g: &mut Gen) -> Vec<StmtKind> {
     let s = g.seq.seq();
     g.fire("seqident:currval:notyet");
     vec![
-        raw(format!("CREATE SEQUENCE {} INCREMENT 2 MINVALUE 1 START 3;", s)),
+        raw(format!(
+            "CREATE SEQUENCE {} INCREMENT 2 MINVALUE 1 START 3;",
+            s
+        )),
         // 55000: currval before any nextval this session for THIS sequence.
         raw(format!("SELECT currval('{}');", s)),
         raw(format!("SELECT nextval('{}');", s)),
@@ -354,7 +385,10 @@ fn gen_alter_group(g: &mut Gen) -> Vec<StmtKind> {
         s
     )));
     g.fire("seqident:alter:astype");
-    out.push(raw(format!("ALTER SEQUENCE {} AS smallint MAXVALUE 32767;", s)));
+    out.push(raw(format!(
+        "ALTER SEQUENCE {} AS smallint MAXVALUE 32767;",
+        s
+    )));
     out.push(raw(format!("SELECT last_value, is_called FROM {};", s)));
     out.push(raw(format!("DROP SEQUENCE {};", s)));
     out
@@ -365,10 +399,20 @@ fn gen_alter_group(g: &mut Gen) -> Vec<StmtKind> {
 /// (428C9), and a total-ordered readback; plus ALTER COLUMN DROP IDENTITY.
 fn gen_identity_group(g: &mut Gen) -> Vec<StmtKind> {
     let t = g.seq.tab();
-    let always =
-        g.weights.pick(g.rng, &["seqident:id:always", "seqident:id:bydefault"]) == "seqident:id:always";
-    g.fire(if always { "seqident:id:always" } else { "seqident:id:bydefault" });
-    let clause = if always { "GENERATED ALWAYS AS IDENTITY" } else { "GENERATED BY DEFAULT AS IDENTITY" };
+    let always = g
+        .weights
+        .pick(g.rng, &["seqident:id:always", "seqident:id:bydefault"])
+        == "seqident:id:always";
+    g.fire(if always {
+        "seqident:id:always"
+    } else {
+        "seqident:id:bydefault"
+    });
+    let clause = if always {
+        "GENERATED ALWAYS AS IDENTITY"
+    } else {
+        "GENERATED BY DEFAULT AS IDENTITY"
+    };
     // Optional sequence-option payload on the identity column.
     let seqopts = if g.rng.chance(1, 2) {
         g.fire("seqident:id:seqopts");
@@ -381,13 +425,22 @@ fn gen_identity_group(g: &mut Gen) -> Vec<StmtKind> {
         t, clause, seqopts
     ))];
     // DEFAULT-driven inserts.
-    out.push(raw(format!("INSERT INTO {} (val) VALUES ('a'), ('b'), ('c');", t)));
-    out.push(raw(format!("INSERT INTO {} (id, val) VALUES (DEFAULT, 'd');", t)));
+    out.push(raw(format!(
+        "INSERT INTO {} (val) VALUES ('a'), ('b'), ('c');",
+        t
+    )));
+    out.push(raw(format!(
+        "INSERT INTO {} (id, val) VALUES (DEFAULT, 'd');",
+        t
+    )));
     if always {
         // 428C9: a non-DEFAULT value into a GENERATED ALWAYS column with no
         // OVERRIDING SYSTEM VALUE.
         g.fire("seqident:id:reject");
-        out.push(raw(format!("INSERT INTO {} (id, val) VALUES (500, 'x');", t)));
+        out.push(raw(format!(
+            "INSERT INTO {} (id, val) VALUES (500, 'x');",
+            t
+        )));
         // OVERRIDING SYSTEM VALUE forces the user value through.
         g.fire("seqident:id:overriding_system");
         out.push(raw(format!(
@@ -398,7 +451,10 @@ fn gen_identity_group(g: &mut Gen) -> Vec<StmtKind> {
         // BY DEFAULT: user value accepted directly; OVERRIDING USER VALUE
         // forces the sequence value instead.
         g.fire("seqident:id:userval");
-        out.push(raw(format!("INSERT INTO {} (id, val) VALUES (500, 'usr');", t)));
+        out.push(raw(format!(
+            "INSERT INTO {} (id, val) VALUES (500, 'usr');",
+            t
+        )));
         g.fire("seqident:id:overriding_user");
         out.push(raw(format!(
             "INSERT INTO {} (id, val) OVERRIDING USER VALUE VALUES (700, 'ovr');",
@@ -413,7 +469,10 @@ fn gen_identity_group(g: &mut Gen) -> Vec<StmtKind> {
     )));
     // Drop the identity property, then the table.
     g.fire("seqident:id:dropidentity");
-    out.push(raw(format!("ALTER TABLE {} ALTER COLUMN id DROP IDENTITY;", t)));
+    out.push(raw(format!(
+        "ALTER TABLE {} ALTER COLUMN id DROP IDENTITY;",
+        t
+    )));
     out.push(raw(format!("SELECT count(*) FROM {};", t)));
     out.push(raw(format!("DROP TABLE {};", t)));
     out
@@ -435,10 +494,16 @@ fn gen_serial_group(g: &mut Gen) -> Vec<StmtKind> {
         "CREATE TABLE {} (id {} PRIMARY KEY, val text);",
         t, ti.serial
     ))];
-    out.push(raw(format!("INSERT INTO {} (val) VALUES ('a'), ('b'), ('c'), ('d');", t)));
+    out.push(raw(format!(
+        "INSERT INTO {} (val) VALUES ('a'), ('b'), ('c'), ('d');",
+        t
+    )));
     // Explicit id insert past the sequence, then reset the sequence over
     // the max — the classic serial catch-up pattern.
-    out.push(raw(format!("INSERT INTO {} (id, val) VALUES (100, 'e');", t)));
+    out.push(raw(format!(
+        "INSERT INTO {} (id, val) VALUES (100, 'e');",
+        t
+    )));
     g.fire("seqident:serial:setvalmax");
     out.push(raw(format!(
         "SELECT setval('{}', (SELECT max(id) FROM {}));",
@@ -462,7 +527,10 @@ fn gen_serial_group(g: &mut Gen) -> Vec<StmtKind> {
 /// EXISTS.
 fn gen_altercol_group(g: &mut Gen) -> Vec<StmtKind> {
     let t = g.seq.tab();
-    let mut out = vec![raw(format!("CREATE TABLE {} (id int NOT NULL, val text);", t))];
+    let mut out = vec![raw(format!(
+        "CREATE TABLE {} (id int NOT NULL, val text);",
+        t
+    ))];
     g.fire("seqident:altercol:add");
     out.push(raw(format!(
         "ALTER TABLE {} ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (START WITH 5);",
@@ -476,7 +544,10 @@ fn gen_altercol_group(g: &mut Gen) -> Vec<StmtKind> {
     )));
     // Now ALWAYS: a non-DEFAULT insert rejects (428C9).
     g.fire("seqident:altercol:reject");
-    out.push(raw(format!("INSERT INTO {} (id, val) VALUES (99, 'x');", t)));
+    out.push(raw(format!(
+        "INSERT INTO {} (id, val) VALUES (99, 'x');",
+        t
+    )));
     out.push(raw(format!(
         "INSERT INTO {} (id, val) OVERRIDING SYSTEM VALUE VALUES (99, 'y');",
         t
@@ -625,8 +696,7 @@ mod tests {
             // SEQUENCE in-group (dropdep deliberately drops twice: a
             // RESTRICT attempt then CASCADE).
             assert!(
-                hay.matches("DROP SEQUENCE ").count()
-                    >= hay.matches("CREATE SEQUENCE ").count(),
+                hay.matches("DROP SEQUENCE ").count() >= hay.matches("CREATE SEQUENCE ").count(),
                 "CREATE SEQUENCE without in-group DROP:\n{hay}"
             );
         }
@@ -678,7 +748,10 @@ mod tests {
             "DROP SEQUENCE IF EXISTS",
             " CASCADE;",
         ] {
-            assert!(hay.contains(frag), "seqident flavor {frag:?} never generated");
+            assert!(
+                hay.contains(frag),
+                "seqident flavor {frag:?} never generated"
+            );
         }
         for p in [
             "seqident:create",

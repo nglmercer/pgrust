@@ -22,7 +22,11 @@ pub fn fc_macaddr_out(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgR
     let addr = arg_mac(fcinfo, 0);
     let mut buf = [0u8; MACADDR_OUT_LEN];
     let len = crate::macaddr_out_into(&addr, &mut buf);
-    Ok(::types_fmgr::cstring_scratch(flinfo, "macaddr_out", &buf[..len]))
+    Ok(::types_fmgr::cstring_scratch(
+        flinfo,
+        "macaddr_out",
+        &buf[..len],
+    ))
 }
 
 macro_rules! fc_mac2 {
@@ -138,5 +142,10 @@ pub const MAC_BUILTINS: &[FmgrBuiltin] = &[
     b(3144, "macaddr_not", 1, fc_macaddr_not),
     b(3145, "macaddr_and", 2, fc_macaddr_and),
     b(3146, "macaddr_or", 2, fc_macaddr_or),
-    b(3359, "macaddr_sortsupport", 1, ::types_fmgr::fc_internal_dispatch_only),
+    b(
+        3359,
+        "macaddr_sortsupport",
+        1,
+        ::types_fmgr::fc_internal_dispatch_only,
+    ),
 ];

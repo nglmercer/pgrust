@@ -10,10 +10,10 @@ mod functiondef;
 mod plan;
 mod query;
 mod ruledef;
-mod triggerdef;
-mod viewdef;
 #[cfg(test)]
 mod tests;
+mod triggerdef;
+mod viewdef;
 
 pub use builtins::RULEUTILS_BUILTINS;
 
@@ -32,19 +32,19 @@ fn deparse_partbound_const_for_seam<'mcx>(
     deparse::deparse_partbound_const(mcx, expr)
 }
 pub use deparse::deparse_expression_pretty;
-pub use plan::{
-    deparse_context_for_plan_tree, deparse_expression, select_rtable_names_for_explain,
-    set_deparse_context_plan, AncestorEntry, PlanDeparse,
-};
+pub use format_type::quote_identifier;
 pub use functiondef::{
     pg_get_function_arg_default_worker, pg_get_function_arguments_worker,
     pg_get_function_identity_arguments_worker, pg_get_function_result_worker,
     pg_get_function_sqlbody_worker, pg_get_functiondef_worker,
 };
+pub use plan::{
+    deparse_context_for_plan_tree, deparse_expression, select_rtable_names_for_explain,
+    set_deparse_context_plan, AncestorEntry, PlanDeparse,
+};
 pub use ruledef::pg_get_ruledef_worker;
 pub use triggerdef::pg_get_triggerdef_worker;
 pub use viewdef::pg_get_viewdef_worker;
-pub use format_type::quote_identifier;
 
 use cache_syscache::{
     ReleaseSysCache, SearchSysCache1, SysCacheKey, AMOID, AUTHOID, CONSTROID, INDEXRELID, OPEROID,
@@ -128,15 +128,15 @@ pub(crate) fn getattr(tuple: &HeapTupleData<'_>, cache_id: i32, attnum: i32) -> 
     unsafe { types_tuple::fastgetattr_fixed(tuple, attnum, tupdesc_for(cache_id)) }
 }
 
-pub(crate) fn getattr_null(
-    tuple: &HeapTupleData<'_>,
-    cache_id: i32,
-    attnum: i32,
-) -> Option<Datum> {
+pub(crate) fn getattr_null(tuple: &HeapTupleData<'_>, cache_id: i32, attnum: i32) -> Option<Datum> {
     let mut isnull = false;
     // SAFETY: callers pass a tuple of this catalog's row type.
     let d = unsafe { types_tuple::heap_getattr(tuple, attnum, tupdesc_for(cache_id), &mut isnull) };
-    if isnull { None } else { Some(d) }
+    if isnull {
+        None
+    } else {
+        Some(d)
+    }
 }
 
 pub(crate) fn name_at(d: Datum) -> String {
@@ -160,8 +160,7 @@ pub(crate) fn varlena_body_at(d: Datum) -> Vec<u8> {
             };
             let raw = core::slice::from_raw_parts(p, len);
             let scratch = mcx::MemoryContext::new("ruleutils detoast");
-            let image =
-                detoast::detoast_attr(scratch.mcx(), raw).expect("detoast catalog varlena");
+            let image = detoast::detoast_attr(scratch.mcx(), raw).expect("detoast catalog varlena");
             let slice = &image[datum::varlena::VARHDRSZ..];
             let mut out = Vec::new();
             let _ = out.try_reserve_exact(slice.len());
@@ -183,11 +182,17 @@ pub(crate) fn text_at(d: Datum) -> String {
 
 // One-dimensional no-null int16 array body (int2vector or int2[]).
 pub(crate) fn i16_array_at(d: Datum) -> Vec<i16> {
-    array_body(d, 2).chunks_exact(2).map(|c| i16::from_ne_bytes([c[0], c[1]])).collect()
+    array_body(d, 2)
+        .chunks_exact(2)
+        .map(|c| i16::from_ne_bytes([c[0], c[1]]))
+        .collect()
 }
 
 pub(crate) fn oid_array_at(d: Datum) -> Vec<Oid> {
-    array_body(d, 4).chunks_exact(4).map(|c| u32::from_ne_bytes([c[0], c[1], c[2], c[3]])).collect()
+    array_body(d, 4)
+        .chunks_exact(4)
+        .map(|c| u32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
+        .collect()
 }
 
 // One-dimensional no-null text array (TYPALIGN_INT elements).
@@ -198,7 +203,10 @@ pub(crate) fn text_array_at(d: Datum) -> Vec<String> {
         return Vec::new();
     }
     let dataoffset = i32::from_ne_bytes(b[4..8].try_into().unwrap());
-    assert!(ndim == 1 && dataoffset == 0, "ruleutils: unexpected catalog text[] shape");
+    assert!(
+        ndim == 1 && dataoffset == 0,
+        "ruleutils: unexpected catalog text[] shape"
+    );
     let dim1 = i32::from_ne_bytes(b[12..16].try_into().unwrap()) as usize;
     let mut out = Vec::new();
     let _ = out.try_reserve_exact(dim1);
@@ -234,7 +242,10 @@ pub(crate) fn array_body(d: Datum, elem_width: usize) -> Vec<u8> {
         return Vec::new();
     }
     let dataoffset = i32::from_ne_bytes(b[4..8].try_into().unwrap());
-    assert!(ndim == 1 && dataoffset == 0, "ruleutils: unexpected catalog array shape");
+    assert!(
+        ndim == 1 && dataoffset == 0,
+        "ruleutils: unexpected catalog array shape"
+    );
     let dim1 = i32::from_ne_bytes(b[12..16].try_into().unwrap()) as usize;
     let slice = &b[20..20 + elem_width * dim1];
     let mut out = Vec::new();
@@ -294,8 +305,13 @@ fn add_cast_to(mcx: Mcx<'_>, buf: &mut String, typid: Oid) -> PgResult<()> {
     let typname = String::from_utf8_lossy(typname.name_str()).into_owned();
     let nspname = namespace_name_or_temp(mcx, typnamespace)?
         .ok_or_else(|| cache_lookup_failed("namespace", typnamespace))?;
-    write!(buf, "::{}.{}", quote_identifier(&nspname), quote_identifier(&typname))
-        .expect("String write");
+    write!(
+        buf,
+        "::{}.{}",
+        quote_identifier(&nspname),
+        quote_identifier(&typname)
+    )
+    .expect("String write");
     Ok(())
 }
 
@@ -357,9 +373,11 @@ pub(crate) fn generate_relation_name_ns(
     namespaces: &[std::rc::Rc<query::DeparseNamespace<'_>>],
 ) -> PgResult<String> {
     let row = pg_class_row(relid)?.ok_or_else(|| cache_lookup_failed("relation", relid))?;
-    let mut need_qual = namespaces
-        .iter()
-        .any(|dpns| dpns.ctes.iter().any(|cte| cte.ctename == Some(row.relname.as_str())));
+    let mut need_qual = namespaces.iter().any(|dpns| {
+        dpns.ctes
+            .iter()
+            .any(|cte| cte.ctename == Some(row.relname.as_str()))
+    });
     if !need_qual {
         need_qual = !relation_is_visible(relid, &row.relname)?;
     }
@@ -400,7 +418,9 @@ pub(crate) fn check_pg_rewrite_select(query: &str) -> PgResult<()> {
         Err(e) => e,
         Ok(()) => unreachable!("aclcheck_error(ACLCHECK_NO_PRIV) always raises"),
     };
-    Err(Box::new((*err).add_context(format!("SQL statement \"{query}\""))))
+    Err(Box::new(
+        (*err).add_context(format!("SQL statement \"{query}\"")),
+    ))
 }
 
 pub fn generate_qualified_relation_name(mcx: Mcx<'_>, relid: Oid) -> PgResult<String> {
@@ -463,14 +483,21 @@ pub(crate) fn generate_operator_name(
             parse_oper::left_oper(&pstate, &opname, arg2, true, -1)?.map(|op| op.oid)
         }
         // ruleutils.c:13428: elog(ERROR), catchable.
-        other => return Err(Box::new(PgError::error(format!("unrecognized oprkind: {other}")))),
+        other => {
+            return Err(Box::new(PgError::error(format!(
+                "unrecognized oprkind: {other}"
+            ))))
+        }
     };
     if resolved == Some(operid) {
         return Ok(oprname);
     }
     let nspname = namespace_name_or_temp(mcx, oprnamespace)?
         .ok_or_else(|| cache_lookup_failed("namespace", oprnamespace))?;
-    Ok(format!("OPERATOR({}.{oprname})", quote_identifier(&nspname)))
+    Ok(format!(
+        "OPERATOR({}.{oprname})",
+        quote_identifier(&nspname)
+    ))
 }
 
 // CollationIsVisible (namespace.c:2407): a collation outside pg_catalog and
@@ -499,7 +526,11 @@ pub fn generate_collation_name(mcx: Mcx<'_>, collid: Oid) -> PgResult<String> {
         return Err(cache_lookup_failed("collation", collid));
     };
     let t = ht.tuple();
-    let collname = name_at(getattr(&t, cache_syscache::COLLOID, ANUM_PG_COLLATION_COLLNAME));
+    let collname = name_at(getattr(
+        &t,
+        cache_syscache::COLLOID,
+        ANUM_PG_COLLATION_COLLNAME,
+    ));
     let collnamespace =
         getattr(&t, cache_syscache::COLLOID, ANUM_PG_COLLATION_COLLNAMESPACE).as_oid();
     #[allow(clippy::drop_non_drop)]
@@ -545,7 +576,10 @@ pub(crate) fn generate_function_name(
         )?;
         // parse_func.c:1494: memcmp over nargs supplied types only, so a
         // candidate expanded with defaulted trailing args still matches.
-        best = cands.iter().find(|c| c.args.starts_with(argtypes)).map(|c| c.oid);
+        best = cands
+            .iter()
+            .find(|c| c.args.starts_with(argtypes))
+            .map(|c| c.oid);
         if best.is_none() && !cands.is_empty() {
             let matched = parse_func::func_match_argtypes(mcx, argtypes, cands.as_slice())?;
             best = match matched.len() {
@@ -627,8 +661,7 @@ fn pg_index_row(indexrelid: Oid) -> PgResult<Option<PgIndexRow>> {
         return Ok(None);
     };
     let t = ht.tuple();
-    let notnull =
-        |anum: i32| getattr_null(&t, INDEXRELID, anum).expect("NOT NULL pg_index column");
+    let notnull = |anum: i32| getattr_null(&t, INDEXRELID, anum).expect("NOT NULL pg_index column");
     let row = PgIndexRow {
         indrelid: getattr(&t, INDEXRELID, ANUM_PG_INDEX_INDRELID).as_oid(),
         indnatts: getattr(&t, INDEXRELID, ANUM_PG_INDEX_INDNATTS).as_i16(),
@@ -728,8 +761,10 @@ const ANUM_PG_OPCLASS_OPCNAME: i32 = 3;
 const ANUM_PG_OPCLASS_OPCNAMESPACE: i32 = 4;
 
 fn pg_opclass_row(opclass: Oid) -> PgResult<Option<(String, Oid, Oid)>> {
-    let Some(ht) =
-        SearchSysCache1(cache_syscache::CLAOID, SysCacheKey::Value(Datum::from_oid(opclass)))?
+    let Some(ht) = SearchSysCache1(
+        cache_syscache::CLAOID,
+        SysCacheKey::Value(Datum::from_oid(opclass)),
+    )?
     else {
         return Ok(None);
     };
@@ -878,7 +913,11 @@ fn pg_get_indexdef_worker_extended(
                 "CREATE {}INDEX {} ON {}{} USING {} (",
                 if idx.indisunique { "UNIQUE " } else { "" },
                 quote_identifier(&idxrel.relname),
-                if idxrel.relkind == RELKIND_PARTITIONED_INDEX && !inherits { "ONLY " } else { "" },
+                if idxrel.relkind == RELKIND_PARTITIONED_INDEX && !inherits {
+                    "ONLY "
+                } else {
+                    ""
+                },
                 relname,
                 quote_identifier(&amname),
             ));
@@ -888,7 +927,11 @@ fn pg_get_indexdef_worker_extended(
     }
 
     let mut sep = "";
-    let natts = if keys_only { idx.indnkeyatts as usize } else { idx.indnatts as usize };
+    let natts = if keys_only {
+        idx.indnkeyatts as usize
+    } else {
+        idx.indnatts as usize
+    };
     for keyno in 0..natts {
         let attnum = idx.indkey[keyno];
         if keys_only && keyno >= idx.indnkeyatts as usize {
@@ -921,7 +964,11 @@ fn pg_get_indexdef_worker_extended(
             keycolcollation = parse_expr::expr_collation(indexkey);
             if colno == 0 || colno == keyno as i32 + 1 {
                 let str = deparse::deparse_expression_pretty(
-                    mcx, indexkey, idx.indrelid, false, pretty_flags,
+                    mcx,
+                    indexkey,
+                    idx.indrelid,
+                    false,
+                    pretty_flags,
                 )?;
                 if query::looks_like_function(indexkey) {
                     buf.push_str(&str);
@@ -1028,8 +1075,10 @@ fn pg_get_partkeydef_columns_for_seam(mcx: Mcx<'_>, relid: Oid) -> PgResult<Opti
 }
 
 pub fn pg_get_indexdef_string(mcx: Mcx<'_>, indexrelid: Oid) -> PgResult<String> {
-    Ok(pg_get_indexdef_worker(mcx, indexrelid, 0, None, false, false, true, true, 0, false)?
-        .expect("missing_ok=false returns Some"))
+    Ok(
+        pg_get_indexdef_worker(mcx, indexrelid, 0, None, false, false, true, true, 0, false)?
+            .expect("missing_ok=false returns Some"),
+    )
 }
 
 const ANUM_PG_TABLESPACE_SPCNAME: i32 = 2;
@@ -1041,7 +1090,11 @@ fn get_tablespace_name(spc_oid: Oid) -> PgResult<Option<String>> {
     else {
         return Ok(None);
     };
-    let name = name_at(getattr(&ht.tuple(), TABLESPACEOID, ANUM_PG_TABLESPACE_SPCNAME));
+    let name = name_at(getattr(
+        &ht.tuple(),
+        TABLESPACEOID,
+        ANUM_PG_TABLESPACE_SPCNAME,
+    ));
     ReleaseSysCache(ht);
     Ok(Some(name))
 }
@@ -1291,11 +1344,24 @@ fn pg_get_constraintdef_worker_full(
         CONSTRAINT_FOREIGN => {
             buf.push_str("FOREIGN KEY (");
             // ruleutils.c:2278 SysCacheGetAttrNotNull(CONSTROID, tup, conkey).
-            let conkey = conkey.ok_or_else(|| cache_syscache::unexpected_null_in_cached_tuple(CONSTROID, ANUM_PG_CONSTRAINT_CONKEY))?;
+            let conkey = conkey.ok_or_else(|| {
+                cache_syscache::unexpected_null_in_cached_tuple(
+                    CONSTROID,
+                    ANUM_PG_CONSTRAINT_CONKEY,
+                )
+            })?;
             decompile_column_index_array(mcx, &conkey, conrelid, conperiod, &mut buf)?;
-            buf.push_str(&format!(") REFERENCES {}(", generate_relation_name(mcx, confrelid)?));
+            buf.push_str(&format!(
+                ") REFERENCES {}(",
+                generate_relation_name(mcx, confrelid)?
+            ));
             // ruleutils.c:2290 SysCacheGetAttrNotNull(CONSTROID, tup, confkey).
-            let confkey = confkey.ok_or_else(|| cache_syscache::unexpected_null_in_cached_tuple(CONSTROID, ANUM_PG_CONSTRAINT_CONFKEY))?;
+            let confkey = confkey.ok_or_else(|| {
+                cache_syscache::unexpected_null_in_cached_tuple(
+                    CONSTROID,
+                    ANUM_PG_CONSTRAINT_CONFKEY,
+                )
+            })?;
             decompile_column_index_array(mcx, &confkey, confrelid, conperiod, &mut buf)?;
             buf.push(')');
             match confmatchtype {
@@ -1337,7 +1403,11 @@ fn pg_get_constraintdef_worker_full(
             }
         }
         CONSTRAINT_PRIMARY | CONSTRAINT_UNIQUE => {
-            buf.push_str(if contype == CONSTRAINT_PRIMARY { "PRIMARY KEY " } else { "UNIQUE " });
+            buf.push_str(if contype == CONSTRAINT_PRIMARY {
+                "PRIMARY KEY "
+            } else {
+                "UNIQUE "
+            });
             let idx =
                 pg_index_row(conindid)?.ok_or_else(|| cache_lookup_failed("index", conindid))?;
             if contype == CONSTRAINT_UNIQUE && idx.indnullsnotdistinct {
@@ -1345,7 +1415,12 @@ fn pg_get_constraintdef_worker_full(
             }
             buf.push('(');
             // ruleutils.c:2411 SysCacheGetAttrNotNull(CONSTROID, tup, conkey).
-            let conkey = conkey.ok_or_else(|| cache_syscache::unexpected_null_in_cached_tuple(CONSTROID, ANUM_PG_CONSTRAINT_CONKEY))?;
+            let conkey = conkey.ok_or_else(|| {
+                cache_syscache::unexpected_null_in_cached_tuple(
+                    CONSTROID,
+                    ANUM_PG_CONSTRAINT_CONKEY,
+                )
+            })?;
             let keyatts = decompile_column_index_array(mcx, &conkey, conrelid, false, &mut buf)?;
             if conperiod {
                 buf.push_str(" WITHOUT OVERLAPS");
@@ -1384,7 +1459,12 @@ fn pg_get_constraintdef_worker_full(
         }
         CONSTRAINT_CHECK => {
             // ruleutils.c:2569 SysCacheGetAttrNotNull(CONSTROID, tup, conbin).
-            let conbin = conbin.ok_or_else(|| cache_syscache::unexpected_null_in_cached_tuple(CONSTROID, ANUM_PG_CONSTRAINT_CONBIN))?;
+            let conbin = conbin.ok_or_else(|| {
+                cache_syscache::unexpected_null_in_cached_tuple(
+                    CONSTROID,
+                    ANUM_PG_CONSTRAINT_CONBIN,
+                )
+            })?;
             let expr = readfuncs::stringToNode(mcx, &conbin)?;
             let consrc = deparse_expression_pretty(mcx, expr, conrelid, false, pretty_flags)?;
             buf.push_str(&format!(
@@ -1395,7 +1475,12 @@ fn pg_get_constraintdef_worker_full(
         CONSTRAINT_NOTNULL => {
             if conrelid != InvalidOid {
                 // ruleutils.c:2596 SysCacheGetAttrNotNull(CONSTROID, tup, conkey).
-                let conkey = conkey.ok_or_else(|| cache_syscache::unexpected_null_in_cached_tuple(CONSTROID, ANUM_PG_CONSTRAINT_CONKEY))?;
+                let conkey = conkey.ok_or_else(|| {
+                    cache_syscache::unexpected_null_in_cached_tuple(
+                        CONSTROID,
+                        ANUM_PG_CONSTRAINT_CONKEY,
+                    )
+                })?;
                 assert!(conkey.len() == 1, "NOT NULL constraint has one column");
                 let colname = lsyscache::get_attname(mcx, conrelid, conkey[0], false)?
                     .expect("get_attname missing_ok=false");
@@ -1467,12 +1552,18 @@ pub fn pg_get_expr_worker(
             break;
         }
         let list = n.as_list().expect("List tag");
-        tst = if list.is_nil() { None } else { Some(list.nth(0)) };
+        tst = if list.is_nil() {
+            None
+        } else {
+            Some(list.nth(0))
+        };
     }
     if tst.is_some_and(|n| n.node_tag() == NodeTag::T_Query) {
-        return Err(PgError::error("input is a query, not an expression".to_string())
-            .with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE)
-            .into());
+        return Err(
+            PgError::error("input is a query, not an expression".to_string())
+                .with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE)
+                .into(),
+        );
     }
 
     // C: bms_is_subset(pull_varnos(NULL, node), {1}) / bms_is_empty.
@@ -1552,7 +1643,11 @@ pub fn pg_get_partconstrdef_string<'mcx>(
     let mut ctx = deparse::DeparseContext::new(mcx, 0);
     ctx.varprefix = true;
     ctx.namespaces
-        .push(std::rc::Rc::new(query::deparse_context_for(mcx, aliasname, partition_id)?));
+        .push(std::rc::Rc::new(query::deparse_context_for(
+            mcx,
+            aliasname,
+            partition_id,
+        )?));
     deparse::get_rule_expr(constr_expr, &mut ctx, false)?;
     Ok(Some(ctx.buf.into_inner()))
 }
@@ -1568,14 +1663,14 @@ pub fn pg_get_partkeydef_worker(
         if missing_ok {
             return Ok(None);
         }
-        return Err(PgError::error(format!(
-            "cache lookup failed for partition key of {relid}"
-        ))
-        .into());
+        return Err(
+            PgError::error(format!("cache lookup failed for partition key of {relid}")).into(),
+        );
     };
     let t = ht.tuple();
-    let notnull =
-        |anum: i32| getattr_null(&t, PARTRELID, anum).expect("NOT NULL pg_partitioned_table column");
+    let notnull = |anum: i32| {
+        getattr_null(&t, PARTRELID, anum).expect("NOT NULL pg_partitioned_table column")
+    };
     let partstrat = getattr(&t, PARTRELID, ANUM_PG_PARTITIONED_TABLE_PARTSTRAT).as_i8();
     let partnatts = getattr(&t, PARTRELID, ANUM_PG_PARTITIONED_TABLE_PARTNATTS).as_i16();
     let partattrs = i16_array_at(notnull(ANUM_PG_PARTITIONED_TABLE_PARTATTRS));
@@ -1590,7 +1685,9 @@ pub fn pg_get_partkeydef_worker(
     let mut partexprs: Vec<Node<'_>> = Vec::new();
     if let Some(s) = &partexprs_text {
         let node = readfuncs::stringToNode(mcx, s)?;
-        let list = node.as_list().expect("unexpected node type found in partexprs");
+        let list = node
+            .as_list()
+            .expect("unexpected node type found in partexprs");
         partexprs = list.iter().collect();
     }
     let mut partexpr_item = 0usize;
@@ -1625,7 +1722,10 @@ pub fn pg_get_partkeydef_worker(
             keycoltype = ty;
             keycolcollation = coll;
         } else {
-            assert!(partexpr_item < partexprs.len(), "too few entries in partexprs list");
+            assert!(
+                partexpr_item < partexprs.len(),
+                "too few entries in partexprs list"
+            );
             let partkey = partexprs[partexpr_item];
             partexpr_item += 1;
             let s = deparse_expression_pretty(mcx, partkey, relid, false, pretty_flags)?;
@@ -1639,7 +1739,10 @@ pub fn pg_get_partkeydef_worker(
         }
         let partcoll = partcollation[keyno];
         if !attrs_only && partcoll != InvalidOid && partcoll != keycolcollation {
-            buf.push_str(&format!(" COLLATE {}", generate_collation_name(mcx, partcoll)?));
+            buf.push_str(&format!(
+                " COLLATE {}",
+                generate_collation_name(mcx, partcoll)?
+            ));
         }
         if !attrs_only {
             get_opclass_name(mcx, partclass[keyno], keycoltype, &mut buf)?;
@@ -1716,7 +1819,11 @@ pub fn pg_get_statisticsobj_worker(
                 gotone = true;
             }
             if dependencies_enabled {
-                buf.push_str(if gotone { ", dependencies" } else { "dependencies" });
+                buf.push_str(if gotone {
+                    ", dependencies"
+                } else {
+                    "dependencies"
+                });
                 gotone = true;
             }
             if mcv_enabled {
@@ -1778,7 +1885,13 @@ pub fn pg_get_statisticsobjdef_expressions_worker(
     let node = readfuncs::stringToNode(mcx, &src)?;
     let mut out = Vec::new();
     for expr in node.as_list().expect("stxexprs is a List").iter() {
-        out.push(deparse_expression_pretty(mcx, expr, stxrelid, false, PRETTYFLAG_INDENT)?);
+        out.push(deparse_expression_pretty(
+            mcx,
+            expr,
+            stxrelid,
+            false,
+            PRETTYFLAG_INDENT,
+        )?);
     }
     Ok(Some(out))
 }
@@ -1812,11 +1925,16 @@ pub fn pg_get_serial_sequence_worker(
 #[inline(never)]
 fn serial_sequence_missing_column(columnname: &[u8], relname: &[u8]) -> Box<PgError> {
     let message = [
-        b"column \"".as_slice(), columnname, b"\" of relation \"", relname,
+        b"column \"".as_slice(),
+        columnname,
+        b"\" of relation \"",
+        relname,
         b"\" does not exist",
-    ].concat();
-    Box::new(PgError::error_raw_message(message)
-        .with_sqlstate(types_error::ERRCODE_UNDEFINED_COLUMN))
+    ]
+    .concat();
+    Box::new(
+        PgError::error_raw_message(message).with_sqlstate(types_error::ERRCODE_UNDEFINED_COLUMN),
+    )
 }
 
 // pg_get_partition_constraintdef (ruleutils.c:2096) over
@@ -1855,7 +1973,13 @@ pub fn pg_get_partition_constraintdef_worker(
             )?
         }
     };
-    Ok(Some(deparse_expression_pretty(mcx, expr, relation_id, false, PRETTYFLAG_INDENT)?))
+    Ok(Some(deparse_expression_pretty(
+        mcx,
+        expr,
+        relation_id,
+        false,
+        PRETTYFLAG_INDENT,
+    )?))
 }
 
 // pg_get_querydef (ruleutils.c:1588) — extension-facing entry point.

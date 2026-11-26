@@ -508,7 +508,11 @@ fn int4out_results_do_not_alias_across_carriers() {
     let d1 = f1.invoke(&mut fci).unwrap();
     fci.set_arg(0, Datum::from_i32(34));
     let d2 = f2.invoke(&mut fci).unwrap();
-    let cstr = |d: Datum| unsafe { core::ffi::CStr::from_ptr(d.as_usize() as *const core::ffi::c_char) }.to_bytes().to_vec();
+    let cstr = |d: Datum| {
+        unsafe { core::ffi::CStr::from_ptr(d.as_usize() as *const core::ffi::c_char) }
+            .to_bytes()
+            .to_vec()
+    };
     assert_eq!(cstr(d1), b"12");
     assert_eq!(cstr(d2), b"34");
 }

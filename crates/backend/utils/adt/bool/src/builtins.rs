@@ -2,11 +2,11 @@
 //! the crate root. recv/send ride the binary-wire fmgr frame
 //! (types_fmgr::wire).
 
-
 use ::datum::Datum;
 use ::types_error::PgResult;
 use ::types_fmgr::{
-    varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, OutInto, OUT_CHARS_BOOL,
+    varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, OutInto,
+    OUT_CHARS_BOOL,
 };
 
 pub fn fc_boolrecv(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -22,7 +22,7 @@ pub fn fc_boolsend(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRes
 }
 
 // Raw server-encoding bytes: C quotes the cstring as-is in its message.
-fn in_arg(fcinfo: & Fcinfo) -> & [u8] {
+fn in_arg(fcinfo: &Fcinfo) -> &[u8] {
     // SAFETY: catalog arg 0 of boolin is cstring (typlen -2).
     unsafe { fcinfo.arg_cstring(0) }.to_bytes()
 }
@@ -33,7 +33,6 @@ pub fn fc_boolin(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResul
     let esc = unsafe { fcinfo.soft_error_context() };
     Ok(Datum::from_bool(crate::boolin(s, esc)?))
 }
-
 
 pub fn fc_boolout(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let b = fcinfo.args_n::<1>()[0].value.as_bool();
@@ -99,7 +98,11 @@ fn bool_non_agg_context() -> alloc::boxed::Box<::types_error::PgError> {
 fn bool_agg_common(fcinfo: &mut Fcinfo, inverse: bool) -> PgResult<Datum> {
     use crate::BoolAggState;
     let [a, b] = *fcinfo.args_n::<2>();
-    let val = if b.isnull { None } else { Some(b.value.as_bool()) };
+    let val = if b.isnull {
+        None
+    } else {
+        Some(b.value.as_bool())
+    };
     // bool.c:370: the NULL-state elog precedes any aggregate-context check.
     if inverse && a.isnull {
         return crate::bool_accum_inv(None, val).map(|_| unreachable!());
@@ -110,8 +113,8 @@ fn bool_agg_common(fcinfo: &mut Fcinfo, inverse: bool) -> PgResult<Datum> {
     };
     let stp: *mut BoolAggState = if a.isnull {
         let layout = core::alloc::Layout::new::<BoolAggState>();
-        let raw = ::mcx::Allocator::allocate(&agg_mcx, layout)
-            .map_err(|_| agg_mcx.oom(layout.size()))?;
+        let raw =
+            ::mcx::Allocator::allocate(&agg_mcx, layout).map_err(|_| agg_mcx.oom(layout.size()))?;
         let p: *mut BoolAggState = raw.cast().as_ptr();
         // SAFETY: fresh aggcontext allocation of the exact layout.
         unsafe { p.write(BoolAggState::default()) };
@@ -149,7 +152,11 @@ fn bool_agg_final(fcinfo: &mut Fcinfo, any: bool) -> PgResult<Datum> {
         // SAFETY: a non-null arg0 is the aggcontext-lived state; read-only.
         Some(unsafe { &*(a.value.as_usize() as *const BoolAggState) })
     };
-    let r = if any { crate::bool_anytrue(state) } else { crate::bool_alltrue(state) };
+    let r = if any {
+        crate::bool_anytrue(state)
+    } else {
+        crate::bool_alltrue(state)
+    };
     match r {
         Some(v) => Ok(Datum::from_bool(v)),
         None => {
@@ -186,7 +193,12 @@ pub const BOOL_BUILTINS: &[FmgrBuiltin] = &[
     b(3498, "bool_alltrue", 1, fc_bool_alltrue),
     b(3499, "bool_anytrue", 1, fc_bool_anytrue),
     // skipsupport: native resolution; fmgr-lookup parity row.
-    b(6408, "btboolskipsupport", 1, ::types_fmgr::fc_internal_dispatch_only),
+    b(
+        6408,
+        "btboolskipsupport",
+        1,
+        ::types_fmgr::fc_internal_dispatch_only,
+    ),
     b(6417, "hashbool", 1, fc_hashbool),
     b(6418, "hashboolextended", 2, fc_hashboolextended),
 ];
@@ -201,4 +213,9 @@ unsafe fn bool_render(v: Datum, dst: *mut u8) -> PgResult<usize> {
     Ok(1)
 }
 
-pub static BOOL_OUT_INTO: &[OutInto] = &[OutInto { foid: 1243, bound: bool_bound, render: bool_render, chars: Some(OUT_CHARS_BOOL) }];
+pub static BOOL_OUT_INTO: &[OutInto] = &[OutInto {
+    foid: 1243,
+    bound: bool_bound,
+    render: bool_render,
+    chars: Some(OUT_CHARS_BOOL),
+}];

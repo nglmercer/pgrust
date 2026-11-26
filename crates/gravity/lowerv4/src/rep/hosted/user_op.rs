@@ -5,8 +5,8 @@
 //! rep.word.hash a by-value key by its class representative's word (`m6_user_class`, D2640). Every
 //! other key, and every key of a group that is not hashed (a streamed group calls the `=` per run: ops/group/stream.rs),
 //! is `tf` as it is.
-use gravity_decompose::ops::shared::agg::{GroupDecl, GroupForm, KeyDecl};
 use gravity_decompose::catalog::typefacts::TypeFacts;
+use gravity_decompose::ops::shared::agg::{GroupDecl, GroupForm, KeyDecl};
 use gravity_program::Rep;
 
 use crate::admit::refusal::{Reason, ShapeWhy};
@@ -20,20 +20,44 @@ const RECORD_EQ: u32 = 2988;
 const CELL: &str = "a hashed group key under a user = whose cell is a code or packed lane (hj-0310: only a datum or word cell keys by its user key)";
 
 /// Key `k`'s facts `tf` (`record_tf`'s) in group `g` of node `node`, with the user key its hashed form keys by.
-pub(crate) fn tf(gx: &Gx<'_, '_>, node: i32, g: &GroupDecl<'_>, k: &KeyDecl<'_>, tf: TypeFacts) -> TypeFacts {
+pub(crate) fn tf(
+    gx: &Gx<'_, '_>,
+    node: i32,
+    g: &GroupDecl<'_>,
+    k: &KeyDecl<'_>,
+    tf: TypeFacts,
+) -> TypeFacts {
     if k.user_eq == 0 {
         return road_tf(gx, g, k, tf);
     }
     if g.form != GroupForm::Hashed {
         return tf;
     }
-    if crate::cell::key_cell_rep(gx, g.producer.0 as usize, k).is_some_and(|r| !matches!(r, Rep::VarlenaPtr | Rep::CstrPtr | Rep::FixedPtr { .. } | Rep::Word { .. })) {
-        crate::refuse!(node, Reason::Shape { why: ShapeWhy(CELL) });
+    if crate::cell::key_cell_rep(gx, g.producer.0 as usize, k).is_some_and(|r| {
+        !matches!(
+            r,
+            Rep::VarlenaPtr | Rep::CstrPtr | Rep::FixedPtr { .. } | Rep::Word { .. }
+        )
+    }) {
+        crate::refuse!(
+            node,
+            Reason::Shape {
+                why: ShapeWhy(CELL)
+            }
+        );
     }
-    match gravity_fn::typesem::keysem::user::op_user_key(&gravity_fn::typesem::KeyReq::hash(k.user_eq, k.coll), tf.typid) {
+    match gravity_fn::typesem::keysem::user::op_user_key(
+        &gravity_fn::typesem::KeyReq::hash(k.user_eq, k.coll),
+        tf.typid,
+    ) {
         Ok(Ok(user)) => TypeFacts { user, ..tf },
         Ok(Err(why)) => crate::refuse!(node, Reason::Shape { why: ShapeWhy(why) }),
-        Err(_) => crate::refuse!(node, Reason::Shape { why: ShapeWhy("rep.hosted.hash: a key type whose catalog rows could not be read") }),
+        Err(_) => crate::refuse!(
+            node,
+            Reason::Shape {
+                why: ShapeWhy("rep.hosted.hash: a key type whose catalog rows could not be read")
+            }
+        ),
     }
 }
 
@@ -55,14 +79,20 @@ fn road_tf(gx: &Gx<'_, '_>, g: &GroupDecl<'_>, k: &KeyDecl<'_>, tf: TypeFacts) -
         GroupForm::Sorted | GroupForm::Group | GroupForm::Unique => Road::Sorted,
         _ => return tf,
     };
-    if crate::cell::key_cell_rep(gx, g.producer.0 as usize, k).is_some_and(|r| !matches!(r, Rep::VarlenaPtr | Rep::CstrPtr | Rep::FixedPtr { .. })) {
+    if crate::cell::key_cell_rep(gx, g.producer.0 as usize, k)
+        .is_some_and(|r| !matches!(r, Rep::VarlenaPtr | Rep::CstrPtr | Rep::FixedPtr { .. }))
+    {
         return tf;
     }
     // D3374 (e) (record keys E2): an anonymous record whose columns are known only per row (decompose `KeyDecl::rec` none:
     // producers of other layouts) in a sorted group keys by the per-row user key (record_eq / hash_record through fmgr
     // over each row's own columns; kernels userfp.rs): two layouts are two classes, which adjacent rows of PostgreSQL's
     // Sort never are unless its comparison raised first (record_cmp raises on the pairs record_eq does)
-    if road == Road::Sorted && k.rec.is_none() && !k.bytes_eq && gravity_decompose::catalog::anonymous_record(tf.typid) {
+    if road == Road::Sorted
+        && k.rec.is_none()
+        && !k.bytes_eq
+        && gravity_decompose::catalog::anonymous_record(tf.typid)
+    {
         return crate::rep::hosted::hash::user_record_tf(g.node_id, tf, RECORD_EQ, k.coll, &[]);
     }
     match gravity_fn::typesem::keysem::rep::group_user_key(tf.typid, road) {

@@ -15,16 +15,19 @@ use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{IntBinOp, IntCond, Type, Value};
 use mcx::{GrowIn, Mcx, PgVec};
 
+use crate::frame::env::Env;
 use crate::ops::agg::numeric::strategies::num_tree::Tree;
 use crate::ops::agg::numeric::strategies::num_window::Val;
-use crate::frame::env::Env;
 
 crate::strategies! {
     /// Per-(row, cell / ExId) memo of mantissas and subtrees.
     NUM_MEMO = 26, "num.memo", NumAny;
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(NUM_MEMO, &Road)], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(NUM_MEMO, &Road)],
+    ..crate::ops::NONE
+};
 
 /// The road's registration value (plain.rs keeps one `Memo` per row body when it is on).
 struct Road;
@@ -42,7 +45,13 @@ pub(crate) struct Memo<'t> {
 
 impl<'t> Memo<'t> {
     pub(crate) fn new(on: bool, mcx: Mcx<'t>) -> Memo<'t> {
-        Memo { on, mcx, done: PgVec::new_in(mcx), cover: PgVec::new_in(mcx), sel: None }
+        Memo {
+            on,
+            mcx,
+            done: PgVec::new_in(mcx),
+            cover: PgVec::new_in(mcx),
+            sel: None,
+        }
     }
 
     /// The trees of the folds that read every row (no FILTER) and their nodes outside a CASE arm.
@@ -99,7 +108,9 @@ impl<'t> Memo<'t> {
 fn same<'a>(t: &Tree<'a>, u: &Tree<'a>) -> bool {
     crate::stack_check();
     match (t, u) {
-        (Tree::Add(a, b), Tree::Add(c, d)) | (Tree::Mul(a, b), Tree::Mul(c, d)) => (same(a, c) && same(b, d)) || (same(a, d) && same(b, c)),
+        (Tree::Add(a, b), Tree::Add(c, d)) | (Tree::Mul(a, b), Tree::Mul(c, d)) => {
+            (same(a, c) && same(b, d)) || (same(a, d) && same(b, c))
+        }
         (Tree::Sub(a, b), Tree::Sub(c, d)) => same(a, c) && same(b, d),
         _ => t == u,
     }
@@ -110,7 +121,13 @@ fn same<'a>(t: &Tree<'a>, u: &Tree<'a>) -> bool {
 fn fit<'v>(t: &Tree, u: &Tree, v: &Val<'v>, mcx: Mcx<'v>) -> Val<'v> {
     crate::stack_check();
     let mut r = v.clone();
-    if let ((Tree::Add(a, b), Tree::Add(c, d)) | (Tree::Mul(a, b), Tree::Mul(c, d)) | (Tree::Sub(a, b), Tree::Sub(c, d)), [k0, k1]) = ((t, u), &v.kids[..]) {
+    if let (
+        (Tree::Add(a, b), Tree::Add(c, d))
+        | (Tree::Mul(a, b), Tree::Mul(c, d))
+        | (Tree::Sub(a, b), Tree::Sub(c, d)),
+        [k0, k1],
+    ) = ((t, u), &v.kids[..])
+    {
         r.kids = match same(a, c) && same(b, d) {
             true => mcx::pg_vec![in mcx; fit(a, c, k0, mcx), fit(b, d, k1, mcx)],
             false => mcx::pg_vec![in mcx; fit(a, d, k1, mcx), fit(b, c, k0, mcx)],
@@ -123,10 +140,16 @@ fn fit<'v>(t: &Tree, u: &Tree, v: &Val<'v>, mcx: Mcx<'v>) -> Val<'v> {
 fn sign(b: &mut FunctionBuilder<'_>, env: &Env, v: &Val) -> (Value, Value) {
     let (lo, hi, ..) = v.parts();
     match hi {
-        None => (b.icmp(IntCond::Slt, lo, env.zero), b.icmp(IntCond::Eq, lo, env.zero)),
+        None => (
+            b.icmp(IntCond::Slt, lo, env.zero),
+            b.icmp(IntCond::Eq, lo, env.zero),
+        ),
         Some(hi) => {
             let neg = b.icmp(IntCond::Slt, hi, env.zero);
-            let (z1, z0) = (b.icmp(IntCond::Eq, hi, env.zero), b.icmp(IntCond::Eq, lo, env.zero));
+            let (z1, z0) = (
+                b.icmp(IntCond::Eq, hi, env.zero),
+                b.icmp(IntCond::Eq, lo, env.zero),
+            );
             (neg, b.int_bin(IntBinOp::And, z0, z1))
         }
     }
@@ -152,15 +175,26 @@ pub(crate) fn code(b: &mut FunctionBuilder<'_>, env: &Env, t: &Tree, v: &Val) ->
         Tree::Sub(x, y) => (x, y, true),
         Tree::Mul(x, y) => {
             let (cx, cy) = (code(b, env, x, &kids[0]), code(b, env, y, &kids[1]));
-            let (nan, pinf, ninf) = (b.iconst(Type::I64, SP_NAN), b.iconst(Type::I64, SP_PINF), b.iconst(Type::I64, SP_NINF));
+            let (nan, pinf, ninf) = (
+                b.iconst(Type::I64, SP_NAN),
+                b.iconst(Type::I64, SP_PINF),
+                b.iconst(Type::I64, SP_NINF),
+            );
             let (xn, yn) = (b.icmp(IntCond::Eq, cx, nan), b.icmp(IntCond::Eq, cy, nan));
             let any_nan = b.int_bin(IntBinOp::Or, xn, yn);
-            let (xf, yf) = (b.icmp(IntCond::Eq, cx, env.zero), b.icmp(IntCond::Eq, cy, env.zero));
+            let (xf, yf) = (
+                b.icmp(IntCond::Eq, cx, env.zero),
+                b.icmp(IntCond::Eq, cy, env.zero),
+            );
             let both_fin = b.int_bin(IntBinOp::And, xf, yf);
-            let ((xneg_f, xzero_f), (yneg_f, yzero_f)) = (sign(b, env, &kids[0]), sign(b, env, &kids[1]));
+            let ((xneg_f, xzero_f), (yneg_f, yzero_f)) =
+                (sign(b, env, &kids[0]), sign(b, env, &kids[1]));
             let (x_ninf, y_ninf) = (b.icmp(IntCond::Eq, cx, ninf), b.icmp(IntCond::Eq, cy, ninf));
             let (xneg, yneg) = (b.select(xf, xneg_f, x_ninf), b.select(yf, yneg_f, y_ninf));
-            let (xz, yz) = (b.int_bin(IntBinOp::And, xf, xzero_f), b.int_bin(IntBinOp::And, yf, yzero_f));
+            let (xz, yz) = (
+                b.int_bin(IntBinOp::And, xf, xzero_f),
+                b.int_bin(IntBinOp::And, yf, yzero_f),
+            );
             let zero = b.int_bin(IntBinOp::Or, xz, yz);
             let neg = b.int_bin(IntBinOp::Xor, xneg, yneg);
             let inf = b.select(neg, ninf, pinf);
@@ -187,7 +221,16 @@ mod tests {
     use gravity_ir::Value as V;
 
     fn val<'m>(m: Mcx<'m>, lo: u32, kids: PgVec<'m, Val<'m>>) -> Val<'m> {
-        Val { lo: V(lo), hi: None, sp: None, ok: V(0), kids, sel: PgVec::new_in(m), ds: None, raw: None }
+        Val {
+            lo: V(lo),
+            hi: None,
+            sp: None,
+            ok: V(0),
+            kids,
+            sel: PgVec::new_in(m),
+            ds: None,
+            raw: None,
+        }
     }
 
     /// A subtree is found by its value: numeric_add and numeric_mul commute at any depth (`(1 - d) * p` is `p * (1 - d)`,
@@ -199,8 +242,20 @@ mod tests {
         let cx = mcx::MemoryContext::new("num.memo");
         let m = cx.mcx();
         let bx = |t| mcx::box_in(t, m);
-        let col = |c| bx(Tree::Col { c, scale: 2, digits: 10 });
-        let k = |v| bx(Tree::Const { m: v, scale: 0, digits: 1 });
+        let col = |c| {
+            bx(Tree::Col {
+                c,
+                scale: 2,
+                digits: 10,
+            })
+        };
+        let k = |v| {
+            bx(Tree::Const {
+                m: v,
+                scale: 0,
+                digits: 1,
+            })
+        };
         let leaf = |lo| val(m, lo, PgVec::new_in(m));
         let pd = Tree::Mul(col(1), bx(Tree::Sub(k(1), col(2))));
         let dp = Tree::Mul(bx(Tree::Sub(k(1), col(2))), col(1));
@@ -208,22 +263,58 @@ mod tests {
         let abc = Tree::Add(bx(Tree::Mul(col(1), col(2))), col(3));
         let cba = Tree::Add(col(3), bx(Tree::Mul(col(2), col(1))));
         assert!(same(&abc, &cba));
-        assert!(same(&Tree::Add(k(1), col(1)), &Tree::Add(col(1), k(1))), "1 + n is n + 1");
-        assert!(!same(&Tree::Sub(col(1), col(2)), &Tree::Sub(col(2), col(1))), "numeric_sub does not commute");
-        assert!(!same(&Tree::Add(col(1), col(2)), &Tree::Mul(col(1), col(2))), "another operator");
-        assert!(!same(&Tree::Add(col(1), k(1)), &Tree::Add(col(1), k(2))), "another constant");
-        assert!(!same(&Tree::Mul(col(1), col(2)), &Tree::Mul(col(1), col(3))), "another column");
-        assert!(!same(&Tree::Mul(bx(Tree::Sub(col(1), col(2))), col(3)), &Tree::Mul(col(3), bx(Tree::Sub(col(2), col(1))))), "a commuted product of a commuted difference");
+        assert!(
+            same(&Tree::Add(k(1), col(1)), &Tree::Add(col(1), k(1))),
+            "1 + n is n + 1"
+        );
+        assert!(
+            !same(&Tree::Sub(col(1), col(2)), &Tree::Sub(col(2), col(1))),
+            "numeric_sub does not commute"
+        );
+        assert!(
+            !same(&Tree::Add(col(1), col(2)), &Tree::Mul(col(1), col(2))),
+            "another operator"
+        );
+        assert!(
+            !same(&Tree::Add(col(1), k(1)), &Tree::Add(col(1), k(2))),
+            "another constant"
+        );
+        assert!(
+            !same(&Tree::Mul(col(1), col(2)), &Tree::Mul(col(1), col(3))),
+            "another column"
+        );
+        assert!(
+            !same(
+                &Tree::Mul(bx(Tree::Sub(col(1), col(2))), col(3)),
+                &Tree::Mul(col(3), bx(Tree::Sub(col(2), col(1))))
+            ),
+            "a commuted product of a commuted difference"
+        );
         // the value of `a * b + c` read as `c + b * a`: kids [c, b * a] and the product's [b, a]
-        let have = val(m, 10, mcx::pg_vec![in m; val(m, 11, mcx::pg_vec![in m; leaf(12), leaf(13)]), leaf(14)]);
+        let have = val(
+            m,
+            10,
+            mcx::pg_vec![in m; val(m, 11, mcx::pg_vec![in m; leaf(12), leaf(13)]), leaf(14)],
+        );
         let got = fit(&cba, &abc, &have, m);
-        assert_eq!((got.lo, got.kids[0].lo, got.kids[1].lo), (V(10), V(14), V(11)));
-        assert_eq!((got.kids[1].kids[0].lo, got.kids[1].kids[1].lo), (V(13), V(12)));
+        assert_eq!(
+            (got.lo, got.kids[0].lo, got.kids[1].lo),
+            (V(10), V(14), V(11))
+        );
+        assert_eq!(
+            (got.kids[1].kids[0].lo, got.kids[1].kids[1].lo),
+            (V(13), V(12))
+        );
         let same_order = fit(&abc, &abc, &have, m);
-        assert_eq!((same_order.kids[0].lo, same_order.kids[1].lo), (V(11), V(14)));
+        assert_eq!(
+            (same_order.kids[0].lo, same_order.kids[1].lo),
+            (V(11), V(14))
+        );
         let mut memo = Memo::new(true, m);
         memo.put(&abc, have.clone());
-        assert!(memo.get(&cba).is_some_and(|v| v.kids[0].lo == V(14) && v.kids[1].kids[0].lo == V(13)));
+        assert!(memo
+            .get(&cba)
+            .is_some_and(|v| v.kids[0].lo == V(14) && v.kids[1].kids[0].lo == V(13)));
         assert!(memo.get(&Tree::Sub(col(3), col(1))).is_none());
         memo.cover([&pd].into_iter());
         assert!(memo.covers(&dp) && !memo.covers(&Tree::Mul(col(2), col(1))));

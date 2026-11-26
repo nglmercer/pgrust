@@ -16,12 +16,34 @@ use crate::effects::visible::merge::may_act_but;
 use crate::frame::px::Px;
 
 /// Merge `(k, j)` of type `jt` over pipeline `inner` in slot `slot`, not Sort-ended: its (ii) group may read it whole.
-pub(crate) fn first_pull(px: &Px<'_, '_>, (k, j): (usize, usize), inner: usize, slot: u8, jt: JoinType) -> bool {
+pub(crate) fn first_pull(
+    px: &Px<'_, '_>,
+    (k, j): (usize, usize),
+    inner: usize,
+    slot: u8,
+    jt: JoinType,
+) -> bool {
     let (gx, p) = (px.gx, &px.gx.pipelines()[inner]);
-    let own: PgVec<'_, u8> = p.desc.consumes.iter().copied().filter(|&s| gx.life_of(inner, s).is_some_and(|l| px.lazy.contains(&(l.0 as usize, inner)))).collect_in(px.mcx());
+    let own: PgVec<'_, u8> = p
+        .desc
+        .consumes
+        .iter()
+        .copied()
+        .filter(|&s| {
+            gx.life_of(inner, s)
+                .is_some_and(|l| px.lazy.contains(&(l.0 as usize, inner)))
+        })
+        .collect_in(px.mcx());
     let at = p.ops.iter().position(|op| matches!(op, Op::Join(JoinDesc::Merge { slot, .. } | JoinDesc::Probe { slot, .. }) if own == [*slot]));
     let hands = |op: &Op<'_>| !matches!(op, Op::Join(JoinDesc::Merge { jointype, .. }) if !matches!(*jointype, JoinType::JOIN_INNER | JoinType::JOIN_SEMI | JoinType::JOIN_RIGHT | JoinType::JOIN_RIGHT_ANTI));
-    let plain = |ops: &[Op<'_>]| ops.iter().all(|op| matches!(op, Op::Filter(_) | Op::Project(_) | Op::Join(JoinDesc::Nest { .. } | JoinDesc::Spool)));
+    let plain = |ops: &[Op<'_>]| {
+        ops.iter().all(|op| {
+            matches!(
+                op,
+                Op::Filter(_) | Op::Project(_) | Op::Join(JoinDesc::Nest { .. } | JoinDesc::Spool)
+            )
+        })
+    };
     matches!(crate::frame::iface::end_breaker(gx, inner), Some(BreakerKind::Materialize))
         && matches!(jt, JoinType::JOIN_INNER | JoinType::JOIN_LEFT | JoinType::JOIN_SEMI | JoinType::JOIN_ANTI)
         && at.is_some_and(|a| hands(&p.ops[a]) && plain(&p.ops[a + 1..]))

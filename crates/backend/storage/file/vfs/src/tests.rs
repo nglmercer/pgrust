@@ -77,16 +77,28 @@ fn vectored_io_roundtrip() {
     let a = *b"abcd";
     let b = *b"efgh";
     let iov = [
-        libc::iovec { iov_base: a.as_ptr() as *mut _, iov_len: 4 },
-        libc::iovec { iov_base: b.as_ptr() as *mut _, iov_len: 4 },
+        libc::iovec {
+            iov_base: a.as_ptr() as *mut _,
+            iov_len: 4,
+        },
+        libc::iovec {
+            iov_base: b.as_ptr() as *mut _,
+            iov_len: 4,
+        },
     ];
     assert_eq!(crate::pwritev(fd, &iov, 0), 8);
 
     let mut r1 = [0u8; 3];
     let mut r2 = [0u8; 5];
     let riov = [
-        libc::iovec { iov_base: r1.as_mut_ptr() as *mut _, iov_len: 3 },
-        libc::iovec { iov_base: r2.as_mut_ptr() as *mut _, iov_len: 5 },
+        libc::iovec {
+            iov_base: r1.as_mut_ptr() as *mut _,
+            iov_len: 3,
+        },
+        libc::iovec {
+            iov_base: r2.as_mut_ptr() as *mut _,
+            iov_len: 5,
+        },
     ];
     assert_eq!(crate::preadv(fd, &riov, 0), 8);
     assert_eq!(&r1, b"abc");
@@ -247,7 +259,10 @@ fn budget_probe_returns_and_releases() {
         }
         prev = again;
     }
-    assert!(stable, "consecutive probes never agreed: the probe is leaking fds");
+    assert!(
+        stable,
+        "consecutive probes never agreed: the probe is leaking fds"
+    );
     assert_eq!(crate::fd_budget_probe(16), prev.used as usize);
 }
 
@@ -283,14 +298,21 @@ fn cachestat_counts_the_cached_pages_of_a_range() {
     let rc = crate::cachestat(fd, 0, n as libc::off_t, &mut out);
     if rc == 0 {
         assert_eq!(out, [4, 4], "just written: every page in the cache");
-        assert_eq!(crate::cachestat(fd, page as libc::off_t + 1, 1, &mut out), 0);
+        assert_eq!(
+            crate::cachestat(fd, page as libc::off_t + 1, 1, &mut out),
+            0
+        );
         assert_eq!(out[1], 1);
         assert_eq!(crate::cachestat(fd, 0, 0, &mut out), 0);
         assert_eq!(out, [0, 0]);
         assert_eq!(crate::cachestat(-1, 0, 4096, &mut out), -1);
         assert_eq!(crate::get_errno(), libc::EBADF);
     } else {
-        assert!(matches!(crate::get_errno(), libc::ENOSYS | libc::EOPNOTSUPP), "errno {}", crate::get_errno());
+        assert!(
+            matches!(crate::get_errno(), libc::ENOSYS | libc::EOPNOTSUPP),
+            "errno {}",
+            crate::get_errno()
+        );
     }
     crate::close(fd);
     let _ = std::fs::remove_dir_all(&dir);
@@ -342,25 +364,68 @@ fn vfsfd_guard_posix_drop_closes_and_into_raw_disarms() {
 fn part_fd_slice_follows_demand_and_the_sessions_keep_the_rest() {
     use crate::{part_fd_slice_of_demand as slice, session_fd_limit_of as limit, FdBudget};
     // RLIMIT_NOFILE 7000, 134 children, 96 sessions (max_connections 20): cap 333
-    let b = FdBudget { for_caches: 6234, sessions: 96, c_bound: 990, reserved: 10, part_floor: 16, part_cap: 333 };
+    let b = FdBudget {
+        for_caches: 6234,
+        sessions: 96,
+        c_bound: 990,
+        reserved: 10,
+        part_floor: 16,
+        part_cap: 333,
+    };
     assert_eq!((slice(0, 16, 333), limit(&b, slice(0, 16, 333))), (16, 54));
-    assert_eq!((slice(100, 16, 333), limit(&b, slice(100, 16, 333))), (116, 53));
-    assert_eq!((slice(7500, 16, 333), limit(&b, slice(7500, 16, 333))), (333, 51));
+    assert_eq!(
+        (slice(100, 16, 333), limit(&b, slice(100, 16, 333))),
+        (116, 53)
+    );
+    assert_eq!(
+        (slice(7500, 16, 333), limit(&b, slice(7500, 16, 333))),
+        (333, 51)
+    );
     // 65536, 294 children, 176 sessions (max_connections 100): no parts = the share before parts were counted (353)
-    let b = FdBudget { for_caches: 63970, sessions: 176, c_bound: 990, reserved: 10, part_floor: 16, part_cap: 26881 };
+    let b = FdBudget {
+        for_caches: 63970,
+        sessions: 176,
+        c_bound: 990,
+        reserved: 10,
+        part_floor: 16,
+        part_cap: 26881,
+    };
     assert_eq!(limit(&b, slice(0, 16, 26881)), 353);
     assert_eq!(limit(&b, slice(300, 16, 26881)), 351);
     assert_eq!(limit(&b, slice(100_000, 16, 26881)), 200);
     // 1048576: max_files_per_process binds whatever the parts hold
-    let b = FdBudget { for_caches: 1_047_010, sessions: 176, c_bound: 990, reserved: 10, part_floor: 16, part_cap: 65536 };
+    let b = FdBudget {
+        for_caches: 1_047_010,
+        sessions: 176,
+        c_bound: 990,
+        reserved: 10,
+        part_floor: 16,
+        part_cap: 65536,
+    };
     assert_eq!(limit(&b, slice(100_000, 16, 65536)), 990);
 
     // the recorded budget: the pool's demand moves the slice and every session's limit
-    crate::set_fd_budget(FdBudget { for_caches: 6234, sessions: 96, c_bound: 990, reserved: 10, part_floor: 16, part_cap: 333 });
+    crate::set_fd_budget(FdBudget {
+        for_caches: 6234,
+        sessions: 96,
+        c_bound: 990,
+        reserved: 10,
+        part_floor: 16,
+        part_cap: 333,
+    });
     crate::set_part_fd_demand(0);
-    assert_eq!((crate::part_fd_slice(), crate::session_fd_limit()), (16, 54));
+    assert_eq!(
+        (crate::part_fd_slice(), crate::session_fd_limit()),
+        (16, 54)
+    );
     crate::set_part_fd_demand(7500);
-    assert_eq!((crate::part_fd_slice(), crate::session_fd_limit()), (333, 51));
+    assert_eq!(
+        (crate::part_fd_slice(), crate::session_fd_limit()),
+        (333, 51)
+    );
     crate::set_part_fd_demand(0);
-    assert_eq!((crate::part_fd_slice(), crate::session_fd_limit()), (16, 54));
+    assert_eq!(
+        (crate::part_fd_slice(), crate::session_fd_limit()),
+        (16, 54)
+    );
 }

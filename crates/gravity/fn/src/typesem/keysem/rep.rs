@@ -55,7 +55,10 @@ pub fn group_user_key(typid: Oid, road: super::user::Road) -> R<Option<u64>> {
 /// anonymous record over the plan-known columns `cols` by their canonical form (typesem `record_form`); any other key
 /// keeps its facts (`Ok(None)`). `Err(Some(why))`: a column has no form; `Err(None)`: a catalog read failed (bytea's form
 /// answers only that way).
-pub fn record_key_form(bytes_eq: bool, cols: Option<&[(Oid, Oid)]>) -> Result<Option<u64>, Option<&'static str>> {
+pub fn record_key_form(
+    bytes_eq: bool,
+    cols: Option<&[(Oid, Oid)]>,
+) -> Result<Option<u64>, Option<&'static str>> {
     if bytes_eq {
         return match super::super::form(types_core::catalog::BYTEAOID) {
             Ok(Ok((rec, _))) => Ok(Some(rec)),

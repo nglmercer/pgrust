@@ -39,16 +39,37 @@ pub extern "C-unwind" fn interval_out(_e: *mut ErrSlot, r: *mut Region, a0: View
 
 fn timetz(v: View) -> adt_date::TimeTzADT {
     let b = v.fixed::<12>();
-    adt_date::TimeTzADT { time: i64::from_ne_bytes(b[..8].try_into().unwrap()), zone: i32::from_ne_bytes(b[8..].try_into().unwrap()) }
+    adt_date::TimeTzADT {
+        time: i64::from_ne_bytes(b[..8].try_into().unwrap()),
+        zone: i32::from_ne_bytes(b[8..].try_into().unwrap()),
+    }
 }
 
-pub extern "C-unwind" fn timetz_larger(_e: *mut ErrSlot, r: *mut Region, a0: View, a1: View) -> Ret {
-    let pick = if adt_date::timetz_cmp_internal(&timetz(a0), &timetz(a1)) > 0 { a0 } else { a1 };
+pub extern "C-unwind" fn timetz_larger(
+    _e: *mut ErrSlot,
+    r: *mut Region,
+    a0: View,
+    a1: View,
+) -> Ret {
+    let pick = if adt_date::timetz_cmp_internal(&timetz(a0), &timetz(a1)) > 0 {
+        a0
+    } else {
+        a1
+    };
     region_copy(r, pick.fixed::<12>())
 }
 
-pub extern "C-unwind" fn timetz_smaller(_e: *mut ErrSlot, r: *mut Region, a0: View, a1: View) -> Ret {
-    let pick = if adt_date::timetz_cmp_internal(&timetz(a0), &timetz(a1)) < 0 { a0 } else { a1 };
+pub extern "C-unwind" fn timetz_smaller(
+    _e: *mut ErrSlot,
+    r: *mut Region,
+    a0: View,
+    a1: View,
+) -> Ret {
+    let pick = if adt_date::timetz_cmp_internal(&timetz(a0), &timetz(a1)) < 0 {
+        a0
+    } else {
+        a1
+    };
     region_copy(r, pick.fixed::<12>())
 }
 

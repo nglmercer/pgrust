@@ -12,7 +12,6 @@ use types_core::Oid;
 
 use types_error::PgResult;
 
-
 use types_nodes::parsenodes::RangeTblEntry;
 
 use types_nodes::plannodes::PlannedStmt;
@@ -122,7 +121,9 @@ impl Admitted {
     /// prepare for an undriven one), so an emit-only program whose one pipeline turned serial (a pool-unsafe call in its
     /// target list) still takes the producers' path (D3051: a CREATE TABLE AS over it claimed an unbuilt bitmap).
     pub fn is_parallel(&self) -> bool {
-        self.program.pipelines.len() > 1 || self.program.pipelines[0].is_eligible() || self.bitmap_site()
+        self.program.pipelines.len() > 1
+            || self.program.pipelines[0].is_eligible()
+            || self.bitmap_site()
     }
 
     /// A site of the program is a bitmap morsel's (D3051): the runner builds its bitmap.
@@ -133,31 +134,63 @@ impl Admitted {
     /// The completion tag's command (the CTE-write seam): a data-modifying CTE's write (`WritePlan::cte`) tags nothing, the
     /// main statement's SELECT does (its count the rows sent: the driver counts pushes); `cmd` stays the write's.
     pub fn tag(&self) -> Cmd {
-        if self.program.write.cte { Cmd::Select } else { self.cmd }
+        if self.program.write.cte {
+            Cmd::Select
+        } else {
+            self.cmd
+        }
     }
 }
 
-pub(crate) fn rte<'a>(pstmt: &'a PlannedStmt<'static>, rti: u32) -> Option<&'a RangeTblEntry<'static>> {
-    pstmt.rtable.nth(rti.checked_sub(1)? as usize).as_range_tbl_entry()
+pub(crate) fn rte<'a>(
+    pstmt: &'a PlannedStmt<'static>,
+    rti: u32,
+) -> Option<&'a RangeTblEntry<'static>> {
+    pstmt
+        .rtable
+        .nth(rti.checked_sub(1)? as usize)
+        .as_range_tbl_entry()
 }
 
 /// A key-expression image over `nparams` extern parameters (`SHAPE_PARAMS` at least).
 pub(crate) fn key_exprs_for(nparams: usize) -> KeyExprs {
     let n = nparams.max(SHAPE_PARAMS);
-    KeyExprs { stable: vec![ParamExternData { value: datum::Datum::null(), isnull: true, pflags: 0, ptype: 0 }; n].into_boxed_slice(), exprs: Vec::new(), acl_funcs: Vec::new(), filters: 0, rechecks: 0 } // alloc: Program
+    KeyExprs {
+        stable: vec![
+            ParamExternData {
+                value: datum::Datum::null(),
+                isnull: true,
+                pflags: 0,
+                ptype: 0
+            };
+            n
+        ]
+        .into_boxed_slice(),
+        exprs: Vec::new(),
+        acl_funcs: Vec::new(),
+        filters: 0,
+        rechecks: 0,
+    } // alloc: Program
 }
-
 
 /// The scan's filter compiled once per plan: a qual over the heap tuple with
 #[allow(dead_code)]
-pub(crate) fn compile_filter(mcx: Mcx<'static>, qual: &NodeList<'static>, exprs: &mut KeyExprs) -> PgResult<Option<Option<FilterFn>>> {
+pub(crate) fn compile_filter(
+    mcx: Mcx<'static>,
+    qual: &NodeList<'static>,
+    exprs: &mut KeyExprs,
+) -> PgResult<Option<Option<FilterFn>>> {
     let f = compile_filter_bound(mcx, qual, param_bind(exprs))?;
     exprs.filters += usize::from(matches!(f, Some(Some(_))));
     Ok(f)
 }
 
 /// `compile_filter` over a given binding (D1356: a bitmap recheck compiled again per derived source, exec v4/m8_recheck.rs).
-pub(crate) fn compile_filter_bound(mcx: Mcx<'static>, qual: &NodeList<'static>, bind: ParamBind<'static>) -> PgResult<Option<Option<FilterFn>>> {
+pub(crate) fn compile_filter_bound(
+    mcx: Mcx<'static>,
+    qual: &NodeList<'static>,
+    bind: ParamBind<'static>,
+) -> PgResult<Option<Option<FilterFn>>> {
     Ok(compile_filter_fused(mcx, qual, bind)?.map(|f| f.map(|(f, _)| f)))
 }
 

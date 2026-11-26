@@ -40,7 +40,16 @@ fn purges(g: &PipelineGraph<'_>) -> Vec<bool> {
     for p in g.pipelines.iter() {
         all_pipes(p, &mut ps);
     }
-    ps.iter().flat_map(|p| p.ops.iter()).filter_map(|op| if let Op::Join(JoinDesc::Memo { purge, .. }) = op { Some(*purge) } else { None }).collect()
+    ps.iter()
+        .flat_map(|p| p.ops.iter())
+        .filter_map(|op| {
+            if let Op::Join(JoinDesc::Memo { purge, .. }) = op {
+                Some(*purge)
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 /// The ids of the bitmapset field `field` (any prefix: `plan.`, `scan.plan.`, `join.plan.`) of the node opening at `t`'s
@@ -61,8 +70,14 @@ fn own_bms(t: &str, field: &str) -> Vec<i32> {
                 let end = t[i..].find(char::is_whitespace).map_or(t.len(), |e| i + e);
                 let name = &t[i + 1..end];
                 if name == field || name.ends_with(&format!(".{field}")) {
-                    let body = t[end..].trim_start().strip_prefix("(b").expect("a bitmapset");
-                    return body[..body.find(')').unwrap()].split_whitespace().map(|x| x.parse().unwrap()).collect();
+                    let body = t[end..]
+                        .trim_start()
+                        .strip_prefix("(b")
+                        .expect("a bitmapset");
+                    return body[..body.find(')').unwrap()]
+                        .split_whitespace()
+                        .map(|x| x.parse().unwrap())
+                        .collect();
                 }
             }
             _ => {}
@@ -74,12 +89,15 @@ fn own_bms(t: &str, field: &str) -> Vec<i32> {
 
 /// The plan text's own answer per Memoize (before statement-fixed params): the child's extParam holds a non-key param.
 fn reading(text: &str) -> Vec<bool> {
-    text.match_indices("{MEMOIZE").map(|(i, _)| {
-        let t = &text[i..];
-        let keys = own_bms(t, "keyparamids");
-        let child = &t[t.find(":plan.lefttree {").expect("a child") + ":plan.lefttree ".len()..];
-        own_bms(child, "extParam").iter().any(|x| !keys.contains(x))
-    }).collect()
+    text.match_indices("{MEMOIZE")
+        .map(|(i, _)| {
+            let t = &text[i..];
+            let keys = own_bms(t, "keyparamids");
+            let child =
+                &t[t.find(":plan.lefttree {").expect("a child") + ":plan.lefttree ".len()..];
+            own_bms(child, "extParam").iter().any(|x| !keys.contains(x))
+        })
+        .collect()
 }
 
 fn plan_files(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -110,7 +128,9 @@ fn a_memo_purges_only_where_its_child_reads_a_param_outside_its_keys() {
         let ctx = MemoryContext::new("memo_purge");
         let fx = corpus::load(ctx.mcx(), &text).unwrap_or_else(|e| panic!("{name}: {e}"));
         let arena = Arena::new(1 << 20);
-        let Ok(g) = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx) else { continue };
+        let Ok(g) = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx) else {
+            continue;
+        };
         let got = purges(&g);
         if got.is_empty() {
             continue; // a Memoize decompose folds away (none today): nothing to compare
@@ -121,13 +141,23 @@ fn a_memo_purges_only_where_its_child_reads_a_param_outside_its_keys() {
         let (mut a, mut b) = (got.clone(), want.clone());
         a.sort();
         b.sort();
-        assert_eq!(a, b, "{name}: decompose's purge facts {got:?}, the plan's reading {want:?}");
+        assert_eq!(
+            a, b,
+            "{name}: decompose's purge facts {got:?}, the plan's reading {want:?}"
+        );
         if got.iter().any(|&p| p) {
             purging.push(name);
         }
     }
     assert!(seen >= 70, "captured plans holding a Memoize: {seen}");
     assert!(decomposed >= 1, "no captured Memoize decomposed");
-    assert_eq!(purging, ["regress-full/memoize-012"], "only memoize#56 / #57's plan purges (the EXISTS SubPlan's child reads t0.ten)");
-    assert!(names.iter().any(|n| n == "regress-full/subselect-079"), "subselect-079 (a CteScan child holding its own CTE InitPlan) decomposed and never purges");
+    assert_eq!(
+        purging,
+        ["regress-full/memoize-012"],
+        "only memoize#56 / #57's plan purges (the EXISTS SubPlan's child reads t0.ten)"
+    );
+    assert!(
+        names.iter().any(|n| n == "regress-full/subselect-079"),
+        "subselect-079 (a CteScan child holding its own CTE InitPlan) decomposed and never purges"
+    );
 }

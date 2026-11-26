@@ -18,8 +18,14 @@ fn serial() -> MutexGuard<'static, ()> {
     static TURN: Mutex<()> = Mutex::new(());
     ONCE.call_once(|| {
         std::env::set_var("PGRUST_POOL_GRAVITY", "1");
-        assert!(pagepool::switches().gravity, "the switch, read at its first call");
-        assert!(pagepool::init(&pagepool::Config::from_policy()), "the pool reserves its zones");
+        assert!(
+            pagepool::switches().gravity,
+            "the switch, read at its first call"
+        );
+        assert!(
+            pagepool::init(&pagepool::Config::from_policy()),
+            "the pool reserves its zones"
+        );
     });
     TURN.lock().unwrap_or_else(|e| e.into_inner())
 }
@@ -59,21 +65,48 @@ fn an_operator_arenas_chunks_are_the_pools_on_its_owner_once_each() {
         for i in 0..1_000_000u64 {
             v.push(&arena, i).unwrap();
         }
-        let p = arena.alloc(Layout::from_size_align(24, 8).unwrap()).unwrap();
+        let p = arena
+            .alloc(Layout::from_size_align(24, 8).unwrap())
+            .unwrap();
         assert!(pagepool::owns(p.as_ptr()), "the pool's chunk");
         let chunks = arena.chunk_bytes() as i64;
         assert!(chunks >= 8_000_000, "the vector's bytes are inside them");
-        assert_eq!(usage(o).held, shell + chunks, "the chunks, each once, and the core");
-        assert_eq!(pool_bytes(a) - q0, chunks, "on the account's pool bytes, all the pool handed out");
-        assert_eq!(op_in_use() - u0, chunks as usize, "the pool's OP row holds what the owner holds");
+        assert_eq!(
+            usage(o).held,
+            shell + chunks,
+            "the chunks, each once, and the core"
+        );
+        assert_eq!(
+            pool_bytes(a) - q0,
+            chunks,
+            "on the account's pool bytes, all the pool handed out"
+        );
+        assert_eq!(
+            op_in_use() - u0,
+            chunks as usize,
+            "the pool's OP row holds what the owner holds"
+        );
         assert_eq!(v.as_slice(&arena)[999_999], 999_999);
         arena.reset();
-        assert_eq!((usage(o).held, arena.chunk_bytes(), pool_bytes(a) - q0, op_in_use()), (shell, 0, 0, u0), "back at the reset");
+        assert_eq!(
+            (
+                usage(o).held,
+                arena.chunk_bytes(),
+                pool_bytes(a) - q0,
+                op_in_use()
+            ),
+            (shell, 0, 0, u0),
+            "back at the reset"
+        );
         v.detach();
         v.push(&arena, 9).unwrap();
         assert!(pool_bytes(a) > q0);
         drop(arena);
-        assert_eq!((usage(o).held, pool_bytes(a), op_in_use()), (0, q0, u0), "the owner leaves with its arena, the chunks with it");
+        assert_eq!(
+            (usage(o).held, pool_bytes(a), op_in_use()),
+            (0, q0, u0),
+            "the owner leaves with its arena, the chunks with it"
+        );
     });
 }
 
@@ -83,8 +116,13 @@ fn an_uncharged_arena_keeps_the_allocators_road() {
     in_statement(4802, |a| {
         let q0 = pool_bytes(a);
         let arena = OpArena::scratch_of(None, Kind::Region);
-        let p = arena.alloc(Layout::from_size_align(4096, 8).unwrap()).unwrap();
-        assert!(!pagepool::owns(p.as_ptr()), "no owner: the allocator's chunk, on the allocating thread as door 1's");
+        let p = arena
+            .alloc(Layout::from_size_align(4096, 8).unwrap())
+            .unwrap();
+        assert!(
+            !pagepool::owns(p.as_ptr()),
+            "no owner: the allocator's chunk, on the allocating thread as door 1's"
+        );
         assert_eq!(pool_bytes(a), q0);
     });
 }

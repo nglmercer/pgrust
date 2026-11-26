@@ -31,14 +31,54 @@ impl Protocol for SortMerge {
     fn prepare(&self, p: &Proto, cx: &mut Prepare<'_>) -> PgResult<Option<Box<dyn Live>>> {
         let fixed = (p.peer != NONE).then_some((p.peer as usize, p.arg));
         // D508: a walked top's `n` (lowerv4 runs/walk.rs `TopKDesc.walking`), its bound read from the workers' cut runs
-        let walk = cx.program.pipelines.get(p.pipeline as usize).and_then(|x| x.topk).filter(|t| t.walk_attno > 0).map_or(0, |t| t.n as usize);
-        if let Some(a) = cx.program.v4.as_deref().and_then(|d| d.protos.iter().find(|a| a.kind == ProtoKind::Arms && a.slot == p.slot && arms_hold(a, p.pipeline))) {
-            return Ok(Some(crate::ops::sort::proto::ArmSort::new(Resident::new(a.pipeline as usize..(a.pipeline as u64 + a.arg) as usize, fixed, walk, None), p.slot, cx.program, cx.charged_vec())));
+        let walk = cx
+            .program
+            .pipelines
+            .get(p.pipeline as usize)
+            .and_then(|x| x.topk)
+            .filter(|t| t.walk_attno > 0)
+            .map_or(0, |t| t.n as usize);
+        if let Some(a) = cx.program.v4.as_deref().and_then(|d| {
+            d.protos
+                .iter()
+                .find(|a| a.kind == ProtoKind::Arms && a.slot == p.slot && arms_hold(a, p.pipeline))
+        }) {
+            return Ok(Some(crate::ops::sort::proto::ArmSort::new(
+                Resident::new(
+                    a.pipeline as usize..(a.pipeline as u64 + a.arg) as usize,
+                    fixed,
+                    walk,
+                    None,
+                ),
+                p.slot,
+                cx.program,
+                cx.charged_vec(),
+            )));
         }
         Ok(match (cx.width > 1, walk) {
-            (true, _) => Some(Box::new(Resident { hold_err: cx.program.pipelines.get(p.pipeline as usize).is_some_and(|x| x.held_sort), hold_at: cx.program.pipelines.get(p.pipeline as usize).is_some_and(|x| x.held_at), ..Resident::new(p.pipeline as usize..p.pipeline as usize + 1, fixed, walk, Some(p.slot)) }) as Box<dyn Live>), // alloc: Exec
+            (true, _) => Some(Box::new(Resident {
+                hold_err: cx
+                    .program
+                    .pipelines
+                    .get(p.pipeline as usize)
+                    .is_some_and(|x| x.held_sort),
+                hold_at: cx
+                    .program
+                    .pipelines
+                    .get(p.pipeline as usize)
+                    .is_some_and(|x| x.held_at),
+                ..Resident::new(
+                    p.pipeline as usize..p.pipeline as usize + 1,
+                    fixed,
+                    walk,
+                    Some(p.slot),
+                )
+            }) as Box<dyn Live>), // alloc: Exec
             (false, 0) => None,
-            (false, n) => Some(Box::new(WalkBound { pipeline: p.pipeline as usize, n })), // alloc: Exec
+            (false, n) => Some(Box::new(WalkBound {
+                pipeline: p.pipeline as usize,
+                n,
+            })), // alloc: Exec
         })
     }
 }
@@ -98,7 +138,9 @@ pub(crate) fn laid_bytes(rows: u64, rb: u32, var: u64) -> u64 {
 /// (knobs diag.rs `resident_cap`) so an e2e reaches the put past it without 4 GiB of copies.
 fn resident_cap() -> u64 {
     static CAP: pgsync::OnceLock<u64> = pgsync::OnceLock::new();
-    *CAP.get_or_init(|| crate::inputs::knobs::diag::resident_cap().map_or(RESIDENT_MAX, |c| c.min(RESIDENT_MAX)))
+    *CAP.get_or_init(|| {
+        crate::inputs::knobs::diag::resident_cap().map_or(RESIDENT_MAX, |c| c.min(RESIDENT_MAX))
+    })
 }
 
 /// Phase 2's cut: the runs `(base, rows)`, row `r * (parts + 1) + p` of `at` run r's first row of part p, each part's
@@ -130,7 +172,11 @@ pub(crate) fn run_bound(p: &[u8], n: usize) -> Option<i64> {
     }
     let r = raw::run_at(p);
     let len = r.len as usize;
-    if r.kind != TABLE_SORT || len < n || SORTRUN_HDR + len * r.row_bytes as usize > p.len() || r.row_bytes < 16 {
+    if r.kind != TABLE_SORT
+        || len < n
+        || SORTRUN_HDR + len * r.row_bytes as usize > p.len()
+        || r.row_bytes < 16
+    {
         return None;
     }
     let pair = |i: usize| raw::row_pair(r, i);
@@ -150,7 +196,10 @@ pub(crate) fn run_bound(p: &[u8], n: usize) -> Option<i64> {
         }
         // the n-th smallest of both is the (m + 1)-th largest of those m and the cut's last m + 1 (a cut row under them
         // has m + 1 at or over it); O(len - n), under the soft cap
-        let mut c: Vec<[u64; 2]> = (n.saturating_sub(m + 1)..n).map(pair).chain((n..len).map(pair).filter(|p| *p < cut)).collect(); // alloc: Exec
+        let mut c: Vec<[u64; 2]> = (n.saturating_sub(m + 1)..n)
+            .map(pair)
+            .chain((n..len).map(pair).filter(|p| *p < cut))
+            .collect(); // alloc: Exec
         let k = c.len() - (m + 1);
         return image(*c.select_nth_unstable(k).1);
     }
@@ -201,7 +250,11 @@ fn sealed(p: &[u8], var: bool, rb: &mut u32) -> Result<Option<(usize, u32)>> {
     if r.kind != TABLE_SORT || r.len == 0 || r.cap == 0 {
         return Ok(None);
     }
-    if r.pad[0] != RUN_SEALED || r.len > r.cap || (*rb != 0 && r.row_bytes != *rb) || (!var && r.var_top() != SORTRUN_HDR as u32 + r.cap * r.row_bytes) {
+    if r.pad[0] != RUN_SEALED
+        || r.len > r.cap
+        || (*rb != 0 && r.row_bytes != *rb)
+        || (!var && r.var_top() != SORTRUN_HDR as u32 + r.cap * r.row_bytes)
+    {
         return Err(Error::host("gravity: runs.sort: a worker run left unsealed (or a fixed run holding var copies) at its section end"));
     }
     *rb = r.row_bytes;
@@ -209,25 +262,53 @@ fn sealed(p: &[u8], var: bool, rb: &mut u32) -> Result<Option<(usize, u32)>> {
 }
 
 impl Resident {
-    pub(crate) fn new(arms: core::ops::Range<usize>, fixed: Option<(usize, u64)>, walk: usize, over: Option<u8>) -> Resident {
+    pub(crate) fn new(
+        arms: core::ops::Range<usize>,
+        fixed: Option<(usize, u64)>,
+        walk: usize,
+        over: Option<u8>,
+    ) -> Resident {
         let m = || pgsync::Mutex::new(Vec::new()); // alloc: Exec
-        Resident { arms, fixed, walk, cut: pgsync::Mutex::new(Cut::default()), done: AtomicUsize::new(0), held: m(), over, cap: resident_cap(), spilled: m(), hold_err: false, hold_at: false }
+        Resident {
+            arms,
+            fixed,
+            walk,
+            cut: pgsync::Mutex::new(Cut::default()),
+            done: AtomicUsize::new(0),
+            held: m(),
+            over,
+            cap: resident_cap(),
+            spilled: m(),
+            hold_err: false,
+            hold_at: false,
+        }
     }
 
     /// D3027 (b): whether `runs` (of shape `s`, `rb` bytes a row) merged would pass `cap` (the run `lay` lays). D3259: for
     /// every merge, `over` or not (an `ArmSort`'s too: `finish` then leaves it the runs).
     fn past_cap(&self, runs: &[(usize, u32)], rb: u32, s: &RunShape) -> bool {
-        let (Some(&(first, _)), true) = (runs.first(), rb > 0) else { return false };
+        let (Some(&(first, _)), true) = (runs.first(), rb > 0) else {
+            return false;
+        };
         let rows: u64 = runs.iter().map(|r| r.1 as u64).sum();
         let var: u64 = runs.iter().map(|r| raw::var_bytes(s, r.0)).sum();
-        let copy = if self.fixed.is_none() { raw::copy_bytes(first) as u64 } else { 0 };
+        let copy = if self.fixed.is_none() {
+            raw::copy_bytes(first) as u64
+        } else {
+            0
+        };
         laid_bytes(rows, rb, var + copy) > self.cap
     }
 
     /// D3027 (b): the sealed runs `finish` left past `cap` put to `slot`'s stream in their put form, the leader's region
     /// armed afresh first (it holds no laid run), so the emit's open finds no sealed run and merges the stream, as a sort
     /// whose workers put (ArmSort's put past the grant).
-    pub(crate) fn put_over(&self, node: &mut dyn crate::ops::sort::proto::ArmNode, slot: u8, spilled: Vec<(usize, usize)>) -> Result<()> {
+    pub(crate) fn put_over(
+        &self,
+        node: &mut dyn crate::ops::sort::proto::ArmNode,
+        slot: u8,
+        spilled: Vec<(usize, usize)>,
+    ) -> Result<()> {
         let (runs, _, shape) = self.runs(spilled.into_iter())?;
         let Some(s) = shape else { return Ok(()) };
         crate::ops::sort::proto::rearm(node.leader(slot));
@@ -242,7 +323,10 @@ impl Resident {
     }
 
     /// The sealed runs, their row bytes and their shape (`None` without a run).
-    pub(crate) fn runs(&self, partials: impl Iterator<Item = (usize, usize)>) -> Result<(Vec<(usize, u32)>, u32, Option<RunShape>)> {
+    pub(crate) fn runs(
+        &self,
+        partials: impl Iterator<Item = (usize, usize)>,
+    ) -> Result<(Vec<(usize, u32)>, u32, Option<RunShape>)> {
         let (mut rb, mut runs) = (0, Vec::new()); // alloc: Exec
         for (p, n) in partials {
             if let Some(r) = sealed(raw::partial_bytes(p, n), self.fixed.is_none(), &mut rb)? {
@@ -252,7 +336,9 @@ impl Resident {
         let shape = match (runs.first(), self.fixed) {
             (None, _) => None,
             (Some(_), Some((nkey, spec))) => Some(RunShape::fixed(rb, nkey, spec)),
-            (Some(&(b, _)), None) => Some(raw::var_run_shape(b).ok_or_else(|| Error::host("gravity: runs.sort: a var run without its table copy"))?),
+            (Some(&(b, _)), None) => Some(raw::var_run_shape(b).ok_or_else(|| {
+                Error::host("gravity: runs.sort: a var run without its table copy")
+            })?),
         };
         Ok((runs, rb, shape))
     }
@@ -265,17 +351,37 @@ impl Resident {
     /// (`State::grow_in`, nothing drawn when it refuses), and the caller puts the runs to the slot's stream for the emit's
     /// k-way merge (`finish`'s `spilled`, `ArmSort`'s put, a declined phase 2), as PostgreSQL's leader merges its workers'
     /// tapes rather than holding their rows twice.
-    pub(crate) fn lay(leader: &mut State<'_>, total: u64, rb: u32, var: u64, src: Option<usize>, max: u64) -> Result<(*mut u8, usize)> {
+    pub(crate) fn lay(
+        leader: &mut State<'_>,
+        total: u64,
+        rb: u32,
+        var: u64,
+        src: Option<usize>,
+        max: u64,
+    ) -> Result<(*mut u8, usize)> {
         let copy = src.map_or(0, raw::copy_bytes) as u64;
         if laid_bytes(total, rb, var + copy) > max {
-            return Err(Error::OutOfMemory { bytes: laid_bytes(total, rb, var + copy), held: 0, capacity: max, why: None });
+            return Err(Error::OutOfMemory {
+                bytes: laid_bytes(total, rb, var + copy),
+                held: 0,
+                capacity: max,
+                why: None,
+            });
         }
-        let cap = u32::try_from((total * rb as u64 + var + copy).div_ceil(rb as u64) + 1).map_err(|_| Error::host("gravity: runs.sort: a merged run past 2^32 rows"))?;
+        let cap = u32::try_from((total * rb as u64 + var + copy).div_ceil(rb as u64) + 1)
+            .map_err(|_| Error::host("gravity: runs.sort: a merged run past 2^32 rows"))?;
         let need = SORTRUN_HDR + cap as usize * rb as usize + SORTRUN_VAR_WORDS as usize;
         if leader.bytes.len() < need && !leader.grow_in(need)? {
-            return Err(Error::OutOfMemory { bytes: need as u64, held: leader.bytes.len() as u64, capacity: max, why: None });
+            return Err(Error::OutOfMemory {
+                bytes: need as u64,
+                held: leader.bytes.len() as u64,
+                capacity: max,
+                why: None,
+            });
         }
-        raw::lay_run(&mut leader.bytes[..], need, cap, rb, total, var, src).ok_or_else(|| Error::host("gravity: runs.sort: a merged run without room for its copies"))
+        raw::lay_run(&mut leader.bytes[..], need, cap, rb, total, var, src).ok_or_else(|| {
+            Error::host("gravity: runs.sort: a merged run without room for its copies")
+        })
     }
 }
 
@@ -304,7 +410,12 @@ impl Merge for Resident {
     /// D1236's held inner (ops/sort/held.rs): a `held_sort` pipeline's error deferred, the leader's run stamped empty
     /// (D2316: a `held_at` one's with its rows kept).
     fn defer_error(&self, leader: &mut State<'_>) -> Result<bool> {
-        Ok(self.hold_err && if self.hold_at { super::held::stamp_at(leader.bytes) } else { super::held::stamp(leader.bytes) })
+        Ok(self.hold_err
+            && if self.hold_at {
+                super::held::stamp_at(leader.bytes)
+            } else {
+                super::held::stamp(leader.bytes)
+            })
     }
 
     /// D3259: whether the section's live runs (each worker's run before its section end: its rows and their copies),
@@ -315,7 +426,12 @@ impl Merge for Resident {
         let (mut rows, mut var, mut rb) = (0u64, 0u64, 0u32);
         for p in partials.iter().filter(|p| p.bytes.len() >= SORTRUN_HDR) {
             let r = raw::run_at(p.bytes);
-            if r.kind != TABLE_SORT || r.cap == 0 || r.len > r.cap || SORTRUN_HDR + r.cap as usize * r.row_bytes as usize + SORTRUN_VAR_WORDS as usize > p.bytes.len() {
+            if r.kind != TABLE_SORT
+                || r.cap == 0
+                || r.len > r.cap
+                || SORTRUN_HDR + r.cap as usize * r.row_bytes as usize + SORTRUN_VAR_WORDS as usize
+                    > p.bytes.len()
+            {
                 continue;
             }
             rows += r.len as u64;
@@ -334,7 +450,12 @@ impl Merge for Resident {
         let mut rows = 0u64;
         for p in partials.iter().filter(|p| p.bytes.len() >= SORTRUN_HDR) {
             let r = raw::run_at(p.bytes);
-            if r.kind != TABLE_SORT || r.cap == 0 || r.len > r.cap || SORTRUN_HDR + r.cap as usize * r.row_bytes as usize + SORTRUN_VAR_WORDS as usize > p.bytes.len() {
+            if r.kind != TABLE_SORT
+                || r.cap == 0
+                || r.len > r.cap
+                || SORTRUN_HDR + r.cap as usize * r.row_bytes as usize + SORTRUN_VAR_WORDS as usize
+                    > p.bytes.len()
+            {
                 continue;
             }
             rows += r.len as u64;
@@ -345,7 +466,10 @@ impl Merge for Resident {
     /// The leader's own fold (no phase 2): the sealed run noted; `finish` merges them.
     fn merge_into(&self, _leader: &mut State<'_>, partial: Partial<'_>) -> Result<()> {
         if sealed(partial.bytes, self.fixed.is_none(), &mut 0)?.is_some() {
-            self.held.lock().unwrap_or_else(|e| e.into_inner()).push((partial.bytes.as_ptr() as usize, partial.bytes.len()));
+            self.held
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push((partial.bytes.as_ptr() as usize, partial.bytes.len()));
         }
         Ok(())
     }
@@ -353,40 +477,85 @@ impl Merge for Resident {
     /// Two runs or more past one L2 slice: a part per thread at least, and parts of about one slice each (the machine
     /// profile's destination slice, as the hash merge's), never more parts than rows.
     fn partition_plan(&self, partials: &[Partial<'_>]) -> Option<PartitionPlan> {
-        let (runs, rb, shape) = self.runs(partials.iter().map(|p| (p.bytes.as_ptr() as usize, p.bytes.len()))).ok()?;
+        let (runs, rb, shape) = self
+            .runs(
+                partials
+                    .iter()
+                    .map(|p| (p.bytes.as_ptr() as usize, p.bytes.len())),
+            )
+            .ok()?;
         // D3027 (b): a merge past the cap is laid by no phase: the leader's fold notes the runs and `finish` leaves them
         if shape.is_some_and(|s| self.past_cap(&runs, rb, &s)) {
             return None;
         }
         let total: u64 = runs.iter().map(|r| r.1 as u64).sum();
-        let bytes = total * rb as u64 + runs.iter().map(|r| shape.map_or(0, |s| raw::var_bytes(&s, r.0))).sum::<u64>();
+        let bytes = total * rb as u64
+            + runs
+                .iter()
+                .map(|r| shape.map_or(0, |s| raw::var_bytes(&s, r.0)))
+                .sum::<u64>();
         let slice = gravity_driver::sink::partition_bytes().max(1);
         if runs.len() < 2 || bytes <= slice {
             return None;
         }
-        let parts = bytes.div_ceil(slice).max(partials.len() as u64).next_power_of_two().min(total.next_power_of_two() / 2).max(2);
-        Some(PartitionPlan { pbits: parts.trailing_zeros() as u8, groups: total, record: rb })
+        let parts = bytes
+            .div_ceil(slice)
+            .max(partials.len() as u64)
+            .next_power_of_two()
+            .min(total.next_power_of_two() / 2)
+            .max(2);
+        Some(PartitionPlan {
+            pbits: parts.trailing_zeros() as u8,
+            groups: total,
+            record: rb,
+        })
     }
 
     /// The splitters: `parts` rows of every run at even steps, sorted, every run's `parts`-th of them; each run cut at
     /// each splitter's lower bound, so every row of part p sorts before every row of part p + 1 in every run (D3190:
     /// the cut module's `sample` and `cut`, held monotone under an order that is not total).
-    fn prepare_partitions_in(&self, leader: &mut State<'_>, plan: PartitionPlan, partials: &[Partial<'_>]) -> Result<()> {
-        let (runs, rb, shape) = self.runs(partials.iter().map(|p| (p.bytes.as_ptr() as usize, p.bytes.len())))?;
-        let (Some(s), parts, rbu) = (shape, 1usize << plan.pbits, rb as usize) else { return Ok(()) };
+    fn prepare_partitions_in(
+        &self,
+        leader: &mut State<'_>,
+        plan: PartitionPlan,
+        partials: &[Partial<'_>],
+    ) -> Result<()> {
+        let (runs, rb, shape) = self.runs(
+            partials
+                .iter()
+                .map(|p| (p.bytes.as_ptr() as usize, p.bytes.len())),
+        )?;
+        let (Some(s), parts, rbu) = (shape, 1usize << plan.pbits, rb as usize) else {
+            return Ok(());
+        };
         let total: u64 = runs.iter().map(|r| r.1 as u64).sum();
         let var: u64 = runs.iter().map(|r| raw::var_bytes(&s, r.0)).sum();
         let o = leader.op_owner();
         // C10: a merged run past the sort's grant declines phase 2 (`Unsupported`: the driver rearms the leader, nothing
         // drawn), so the leader's fold notes the runs and `finish` puts them
-        let (_, var0) = match Self::lay(leader, total, rb, var, self.fixed.is_none().then_some(runs[0].0), self.cap) {
-            Err(Error::OutOfMemory { .. }) => return Err(Error::Unsupported(gravity_abi::status::UNSUPPORTED_SPILL)),
+        let (_, var0) = match Self::lay(
+            leader,
+            total,
+            rb,
+            var,
+            self.fixed.is_none().then_some(runs[0].0),
+            self.cap,
+        ) {
+            Err(Error::OutOfMemory { .. }) => {
+                return Err(Error::Unsupported(gravity_abi::status::UNSUPPORTED_SPILL))
+            }
             r => r?,
         };
         let cmp = |a: usize, b: usize| raw::cmp_rows(&s, a, b);
         let mut cut_runs: ChargedVec<cut::Run<'_>> = ChargedVec::new(o, Kind::Sort); // alloc: Exec charged o
-        cut_runs.with_vec(|v| v.extend(runs.iter().map(|&(base, rows)| cut::Run::Mem { base, rows: rows as u64, rb: rbu }))); // alloc: Exec charged o
-        // CONVERT wave 2: the sample and each run's positions are the sort's working memory, on its slot owner's row
+        cut_runs.with_vec(|v| {
+            v.extend(runs.iter().map(|&(base, rows)| cut::Run::Mem {
+                base,
+                rows: rows as u64,
+                rb: rbu,
+            }))
+        }); // alloc: Exec charged o
+            // CONVERT wave 2: the sample and each run's positions are the sort's working memory, on its slot owner's row
         let a = OpArena::scratch_of(leader.op_owner(), Kind::Sort);
         let splitters = cut::sample_in(&a, &cut_runs, parts, &cmp).map_err(refused)?;
         let splitters = splitters.as_slice(&a);
@@ -397,12 +566,27 @@ impl Merge for Resident {
         for r in cut_runs.iter() {
             cut::cut_into(r, splitters, &cmp, pos.as_mut_slice(&a))?;
             // a resident run's positions are under its rows (u32)
-            at.with_vec(|v| v.extend(pos.as_slice(&a).iter().map(|&x| x as u32))); // alloc: Exec charged o
+            at.with_vec(|v| v.extend(pos.as_slice(&a).iter().map(|&x| x as u32)));
+            // alloc: Exec charged o
         }
-        let out = (0..=parts).map(|p| (0..runs.len()).map(|r| at[r * (parts + 1) + p] as u64).sum()).collect();
+        let out = (0..=parts)
+            .map(|p| {
+                (0..runs.len())
+                    .map(|r| at[r * (parts + 1) + p] as u64)
+                    .sum()
+            })
+            .collect();
         let mut vsum: ChargedVec<u64> = ChargedVec::new(o, Kind::Sort); // alloc: Exec charged o
         vsum.with_vec(|v| v.resize(if var > 0 { runs.len() * parts } else { 0 }, 0)); // alloc: Exec charged o
-        *self.cut.lock().unwrap_or_else(|e| e.into_inner()) = Cut { shape, runs, at, out, vsum, vbase: ChargedVec::default(), var0 }; // alloc: Exec
+        *self.cut.lock().unwrap_or_else(|e| e.into_inner()) = Cut {
+            shape,
+            runs,
+            at,
+            out,
+            vsum,
+            vbase: ChargedVec::default(),
+            var0,
+        }; // alloc: Exec
         self.done.store(0, core::sync::atomic::Ordering::Release);
         Ok(())
     }
@@ -418,33 +602,79 @@ impl Merge for Resident {
         let (parts, base) = (1usize << plan.pbits, partial.ptr as usize + SORTRUN_HDR);
         let (Some(s), Some(r)) = ({
             let c = self.cut.lock().unwrap_or_else(|e| e.into_inner());
-            (c.shape, c.runs.iter().position(|x| x.0 == base).filter(|_| !c.vsum.is_empty()))
-        }) else { return Ok(()) };
+            (
+                c.shape,
+                c.runs
+                    .iter()
+                    .position(|x| x.0 == base)
+                    .filter(|_| !c.vsum.is_empty()),
+            )
+        }) else {
+            return Ok(());
+        };
         let (mut at, mut sums) = ([0u32; PREP_BATCH + 1], [0u64; PREP_BATCH]);
         for p0 in (0..parts).step_by(PREP_BATCH) {
             let n = PREP_BATCH.min(parts - p0);
-            at[..=n].copy_from_slice(&self.cut.lock().unwrap_or_else(|e| e.into_inner()).at[r * (parts + 1) + p0..][..=n]);
+            at[..=n].copy_from_slice(
+                &self.cut.lock().unwrap_or_else(|e| e.into_inner()).at[r * (parts + 1) + p0..]
+                    [..=n],
+            );
             for (q, sum) in sums[..n].iter_mut().enumerate() {
-                *sum = raw::var_len(&s, base + at[q] as usize * plan.record as usize, at[q + 1] - at[q]);
+                *sum = raw::var_len(
+                    &s,
+                    base + at[q] as usize * plan.record as usize,
+                    at[q + 1] - at[q],
+                );
             }
-            self.cut.lock().unwrap_or_else(|e| e.into_inner()).vsum[r * parts + p0..][..n].copy_from_slice(&sums[..n]);
+            self.cut.lock().unwrap_or_else(|e| e.into_inner()).vsum[r * parts + p0..][..n]
+                .copy_from_slice(&sums[..n]);
         }
         Ok(())
     }
 
-    fn merge_partition(&self, leader: Region, part: u32, plan: PartitionPlan, _partials: &[Partial<'_>]) -> Result<()> {
+    fn merge_partition(
+        &self,
+        leader: Region,
+        part: u32,
+        plan: PartitionPlan,
+        _partials: &[Partial<'_>],
+    ) -> Result<()> {
         let (p, rb, parts) = (part as usize, plan.record as usize, 1usize << plan.pbits);
         let (s, mut srcs, out, var) = {
             let mut c = self.cut.lock().unwrap_or_else(|e| e.into_inner());
             if !c.vsum.is_empty() && c.vbase.is_empty() {
                 let (n, mut acc) = (c.runs.len(), 0);
                 let mut vb: ChargedVec<u64> = ChargedVec::new(c.at.owner(), Kind::Sort); // alloc: Exec charged c.at.owner()
-                vb.with_vec(|v| v.extend((0..parts).map(|q| { let b = acc; acc += (0..n).map(|r| c.vsum[r * parts + q]).sum::<u64>(); b }))); // alloc: Exec charged c.at.owner()
+                vb.with_vec(|v| {
+                    v.extend((0..parts).map(|q| {
+                        let b = acc;
+                        acc += (0..n).map(|r| c.vsum[r * parts + q]).sum::<u64>();
+                        b
+                    }))
+                }); // alloc: Exec charged c.at.owner()
                 c.vbase = vb;
             }
             let mut part: ChargedVec<(usize, u32)> = ChargedVec::new(c.at.owner(), Kind::Sort); // alloc: Exec charged c.at.owner()
-            part.with_vec(|v| v.extend(c.runs.iter().enumerate().map(|(r, &(b, _))| (b + c.at[r * (parts + 1) + p] as usize * rb, c.at[r * (parts + 1) + p + 1] - c.at[r * (parts + 1) + p])).filter(|s| s.1 != 0))); // alloc: Exec charged c.at.owner()
-            (c.shape, part, c.out[p] as usize, c.var0 + c.vbase.get(p).copied().unwrap_or(0) as usize)
+            part.with_vec(|v| {
+                v.extend(
+                    c.runs
+                        .iter()
+                        .enumerate()
+                        .map(|(r, &(b, _))| {
+                            (
+                                b + c.at[r * (parts + 1) + p] as usize * rb,
+                                c.at[r * (parts + 1) + p + 1] - c.at[r * (parts + 1) + p],
+                            )
+                        })
+                        .filter(|s| s.1 != 0),
+                )
+            }); // alloc: Exec charged c.at.owner()
+            (
+                c.shape,
+                part,
+                c.out[p] as usize,
+                c.var0 + c.vbase.get(p).copied().unwrap_or(0) as usize,
+            )
         };
         if let (Some(s), false) = (s, srcs.is_empty()) {
             if !raw::merge_part(&s, &mut srcs, leader.ptr, SORTRUN_HDR + out * rb, var) {
@@ -469,15 +699,34 @@ impl Merge for Resident {
             // D3259: under `ArmSort` (no `over`) they go back to `held`, which its `after` merges or puts.
             if self.past_cap(&runs, rb, &s) {
                 fires::fire("sort.resident.over");
-                *(if self.over.is_some() { &self.spilled } else { &self.held }).lock().unwrap_or_else(|e| e.into_inner()) = held;
+                *(if self.over.is_some() {
+                    &self.spilled
+                } else {
+                    &self.held
+                })
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = held;
                 return Ok(());
             }
             let var = runs.iter().map(|r| raw::var_bytes(&s, r.0)).sum();
             // C10: past the sort's grant (`lay`'s grow_in refused, nothing drawn) the runs take the cap's road
-            let (rows, var0) = match Self::lay(leader, runs.iter().map(|r| r.1 as u64).sum(), rb, var, self.fixed.is_none().then_some(runs[0].0), self.cap) {
+            let (rows, var0) = match Self::lay(
+                leader,
+                runs.iter().map(|r| r.1 as u64).sum(),
+                rb,
+                var,
+                self.fixed.is_none().then_some(runs[0].0),
+                self.cap,
+            ) {
                 Err(Error::OutOfMemory { .. }) => {
                     fires::fire("sort.resident.past_grant");
-                    *(if self.over.is_some() { &self.spilled } else { &self.held }).lock().unwrap_or_else(|e| e.into_inner()) = held;
+                    *(if self.over.is_some() {
+                        &self.spilled
+                    } else {
+                        &self.held
+                    })
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner()) = held;
                     return Ok(());
                 }
                 r => r?,
@@ -501,8 +750,8 @@ pub(crate) mod tests {
     use super::*;
     use gravity_abi::breaker::SortRun;
     use gravity_driver::{BorrowedBatch, Flow, Sink, SinkRef};
-    use gravity_kernels::ops::sort::entries::describe;
     use gravity_kernels::host_abi::{sort_image, SortSpec, VAR_TBL, VAR_WIDTH};
+    use gravity_kernels::ops::sort::entries::describe;
 
     pub(crate) struct Discard;
 
@@ -530,13 +779,28 @@ pub(crate) mod tests {
         let n = keys.len() as u32;
         v[SORTRUN_HDR / 8 + keys.len() * 3] = (SORTRUN_HDR as u32 + n * RB as u32) as u64;
         // SAFETY: the vector holds the header, the rows and the var words.
-        unsafe { *(v.as_mut_ptr() as *mut SortRun) = SortRun { cap: n, len: n, row_bytes: RB as u32, pad: [RUN_SEALED, 0, 0], kind: TABLE_SORT } };
+        unsafe {
+            *(v.as_mut_ptr() as *mut SortRun) = SortRun {
+                cap: n,
+                len: n,
+                row_bytes: RB as u32,
+                pad: [RUN_SEALED, 0, 0],
+                kind: TABLE_SORT,
+            }
+        };
         v
     }
 
     pub(crate) fn keys_of(seed: u64, n: usize, dups: u64) -> Vec<u64> {
         let mut x = seed.wrapping_mul(0x5851_f42d_4c95_7f2d) | 1;
-        (0..n).map(|_| { x ^= x << 13; x ^= x >> 7; x ^= x << 17; x % dups }).collect()
+        (0..n)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                x % dups
+            })
+            .collect()
     }
 
     fn resident() -> Resident {
@@ -546,12 +810,33 @@ pub(crate) mod tests {
     /// The leader's run: sealed, every row once, in key order.
     pub(crate) fn check(leader: &[u64], runs: &[Vec<u64>]) {
         let r = unsafe { &*(leader.as_ptr() as *const SortRun) };
-        let row = |v: &[u64], i: usize| (v[SORTRUN_HDR / 8 + i * 3], v[SORTRUN_HDR / 8 + i * 3 + 1], v[SORTRUN_HDR / 8 + i * 3 + 2]);
-        let mut want: Vec<(u64, u64, u64)> = runs.iter().flat_map(|v| (0..(v[0] >> 32) as usize).map(move |i| row(v, i))).collect();
+        let row = |v: &[u64], i: usize| {
+            (
+                v[SORTRUN_HDR / 8 + i * 3],
+                v[SORTRUN_HDR / 8 + i * 3 + 1],
+                v[SORTRUN_HDR / 8 + i * 3 + 2],
+            )
+        };
+        let mut want: Vec<(u64, u64, u64)> = runs
+            .iter()
+            .flat_map(|v| (0..(v[0] >> 32) as usize).map(move |i| row(v, i)))
+            .collect();
         let got: Vec<(u64, u64, u64)> = (0..r.len as usize).map(|i| row(leader, i)).collect();
-        assert_eq!((r.pad[0], r.kind, r.len as usize), (RUN_SEALED, TABLE_SORT, want.len()), "one sealed run of every row");
-        let fk = |i: usize| (leader[SORTRUN_HDR / 8 + i * 3], leader[SORTRUN_HDR / 8 + i * 3 + 1]);
-        assert!((1..r.len as usize).all(|i| fk(i - 1) <= fk(i)), "in (null flag, key) order");
+        assert_eq!(
+            (r.pad[0], r.kind, r.len as usize),
+            (RUN_SEALED, TABLE_SORT, want.len()),
+            "one sealed run of every row"
+        );
+        let fk = |i: usize| {
+            (
+                leader[SORTRUN_HDR / 8 + i * 3],
+                leader[SORTRUN_HDR / 8 + i * 3 + 1],
+            )
+        };
+        assert!(
+            (1..r.len as usize).all(|i| fk(i - 1) <= fk(i)),
+            "in (null flag, key) order"
+        );
         let mut g = got.clone();
         g.sort_unstable();
         want.sort_unstable();
@@ -559,31 +844,75 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn partials(runs: &[Vec<u64>]) -> Vec<Partial<'_>> {
-        runs.iter().enumerate().map(|(i, v)| Partial { ordinal: i as u16, bytes: unsafe { core::slice::from_raw_parts(v.as_ptr() as *const u8, v.len() * 8) }, rows_processed: 0 }).collect()
+        runs.iter()
+            .enumerate()
+            .map(|(i, v)| Partial {
+                ordinal: i as u16,
+                bytes: unsafe { core::slice::from_raw_parts(v.as_ptr() as *const u8, v.len() * 8) },
+                rows_processed: 0,
+            })
+            .collect()
     }
 
     fn workload(nruns: usize, dups: u64) -> Vec<Vec<u64>> {
-        (0..nruns).map(|r| run(&keys_of(r as u64 + 7, (r * 977 + 13) % 3001, dups), r as u64)).collect()
+        (0..nruns)
+            .map(|r| {
+                run(
+                    &keys_of(r as u64 + 7, (r * 977 + 13) % 3001, dups),
+                    r as u64,
+                )
+            })
+            .collect()
     }
 
     /// D443's rule is the producer's (a key's null image is its output's NULL); the merge keeps each null image's place:
     /// flag 0 (NULLS FIRST) before every value, flag 2 (NULLS LAST) after, across runs and splitter cuts.
     #[test]
     fn null_images_keep_their_placement_through_both_merges() {
-        let runs: Vec<Vec<u64>> = (0..6).map(|r| run_flagged(&keys_of(r + 11, 700, 9).into_iter().map(|k| ([0, 1, 1, 2][k as usize % 4], if k % 4 == 1 { k } else { 0 })).collect::<Vec<_>>(), r)).collect();
+        let runs: Vec<Vec<u64>> = (0..6)
+            .map(|r| {
+                run_flagged(
+                    &keys_of(r + 11, 700, 9)
+                        .into_iter()
+                        .map(|k| ([0, 1, 1, 2][k as usize % 4], if k % 4 == 1 { k } else { 0 }))
+                        .collect::<Vec<_>>(),
+                    r,
+                )
+            })
+            .collect();
         let (m, ps) = (resident(), partials(&runs));
         let mut leader = vec![0u64; 1 << 18]; // alloc: Cold
-        let bytes = unsafe { core::slice::from_raw_parts_mut(leader.as_mut_ptr() as *mut u8, leader.len() * 8) };
-        let plan = PartitionPlan { pbits: 3, groups: 0, record: RB as u32 };
-        m.prepare_partitions_in(&mut State::new(&mut *bytes, SinkRef::of(&mut Discard)), plan, &ps).unwrap();
-        let region = Region { ptr: bytes.as_mut_ptr(), len: bytes.len() };
+        let bytes = unsafe {
+            core::slice::from_raw_parts_mut(leader.as_mut_ptr() as *mut u8, leader.len() * 8)
+        };
+        let plan = PartitionPlan {
+            pbits: 3,
+            groups: 0,
+            record: RB as u32,
+        };
+        m.prepare_partitions_in(
+            &mut State::new(&mut *bytes, SinkRef::of(&mut Discard)),
+            plan,
+            &ps,
+        )
+        .unwrap();
+        let region = Region {
+            ptr: bytes.as_mut_ptr(),
+            len: bytes.len(),
+        };
         for part in 0..8 {
             m.merge_partition(region, part, plan, &ps).unwrap();
         }
-        m.finish(&mut State::new(bytes, SinkRef::of(&mut Discard))).unwrap();
+        m.finish(&mut State::new(bytes, SinkRef::of(&mut Discard)))
+            .unwrap();
         check(&leader, &runs);
-        let flags: Vec<u64> = (0..runs.iter().map(|v| (v[0] >> 32) as usize).sum()).map(|i| leader[SORTRUN_HDR / 8 + i * 3]).collect();
-        assert!(flags.windows(2).all(|w| w[0] <= w[1]) && flags[0] == 0 && flags[flags.len() - 1] == 2, "first NULLs, values, last NULLs");
+        let flags: Vec<u64> = (0..runs.iter().map(|v| (v[0] >> 32) as usize).sum())
+            .map(|i| leader[SORTRUN_HDR / 8 + i * 3])
+            .collect();
+        assert!(
+            flags.windows(2).all(|w| w[0] <= w[1]) && flags[0] == 0 && flags[flags.len() - 1] == 2,
+            "first NULLs, values, last NULLs"
+        );
     }
 
     #[test]
@@ -592,11 +921,15 @@ pub(crate) mod tests {
             let runs = workload(nruns, dups);
             let m = resident();
             for p in partials(&runs) {
-                m.merge_into(&mut State::new(&mut [], SinkRef::of(&mut Discard)), p).unwrap();
+                m.merge_into(&mut State::new(&mut [], SinkRef::of(&mut Discard)), p)
+                    .unwrap();
             }
             let mut leader = vec![0u64; 1 << 18]; // alloc: Cold
-            let bytes = unsafe { core::slice::from_raw_parts_mut(leader.as_mut_ptr() as *mut u8, leader.len() * 8) };
-            m.finish(&mut State::new(bytes, SinkRef::of(&mut Discard))).unwrap();
+            let bytes = unsafe {
+                core::slice::from_raw_parts_mut(leader.as_mut_ptr() as *mut u8, leader.len() * 8)
+            };
+            m.finish(&mut State::new(bytes, SinkRef::of(&mut Discard)))
+                .unwrap();
             check(&leader, &runs);
         }
     }
@@ -607,14 +940,29 @@ pub(crate) mod tests {
             let runs = workload(nruns, dups);
             let (m, ps) = (resident(), partials(&runs));
             let mut leader = vec![0u64; 1 << 18]; // alloc: Cold
-            let bytes = unsafe { core::slice::from_raw_parts_mut(leader.as_mut_ptr() as *mut u8, leader.len() * 8) };
-            let plan = PartitionPlan { pbits, groups: 0, record: RB as u32 };
-            m.prepare_partitions_in(&mut State::new(&mut *bytes, SinkRef::of(&mut Discard)), plan, &ps).unwrap();
-            let region = Region { ptr: bytes.as_mut_ptr(), len: bytes.len() };
+            let bytes = unsafe {
+                core::slice::from_raw_parts_mut(leader.as_mut_ptr() as *mut u8, leader.len() * 8)
+            };
+            let plan = PartitionPlan {
+                pbits,
+                groups: 0,
+                record: RB as u32,
+            };
+            m.prepare_partitions_in(
+                &mut State::new(&mut *bytes, SinkRef::of(&mut Discard)),
+                plan,
+                &ps,
+            )
+            .unwrap();
+            let region = Region {
+                ptr: bytes.as_mut_ptr(),
+                len: bytes.len(),
+            };
             for part in (0..1u32 << pbits).rev() {
                 m.merge_partition(region, part, plan, &ps).unwrap();
             }
-            m.finish(&mut State::new(bytes, SinkRef::of(&mut Discard))).unwrap();
+            m.finish(&mut State::new(bytes, SinkRef::of(&mut Discard)))
+                .unwrap();
             check(&leader, &runs);
         }
     }
@@ -623,11 +971,25 @@ pub(crate) mod tests {
     fn the_plan_takes_two_runs_past_one_slice_and_leaves_the_rest_to_the_leader() {
         let slice = gravity_driver::sink::partition_bytes() as usize;
         let small = workload(4, 1 << 40);
-        assert!(resident().partition_plan(&partials(&small)).is_none(), "under one slice of rows");
-        let big: Vec<Vec<u64>> = (0..3).map(|r| run(&keys_of(r, slice / RB, 1 << 40), r)).collect();
-        let p = resident().partition_plan(&partials(&big)).expect("three slices of rows");
-        assert!(p.pbits >= 2 && p.record == RB as u32, "{} parts", 1 << p.pbits);
-        assert!(resident().partition_plan(&partials(&big[..1])).is_none(), "one run needs no merge");
+        assert!(
+            resident().partition_plan(&partials(&small)).is_none(),
+            "under one slice of rows"
+        );
+        let big: Vec<Vec<u64>> = (0..3)
+            .map(|r| run(&keys_of(r, slice / RB, 1 << 40), r))
+            .collect();
+        let p = resident()
+            .partition_plan(&partials(&big))
+            .expect("three slices of rows");
+        assert!(
+            p.pbits >= 2 && p.record == RB as u32,
+            "{} parts",
+            1 << p.pbits
+        );
+        assert!(
+            resident().partition_plan(&partials(&big[..1])).is_none(),
+            "one run needs no merge"
+        );
     }
 
     #[test]
@@ -635,20 +997,49 @@ pub(crate) mod tests {
         let mut runs = workload(3, 9);
         runs[1][1] &= !(0xff << 32);
         let m = resident();
-        assert!(m.merge_into(&mut State::new(&mut [], SinkRef::of(&mut Discard)), partials(&runs)[1]).is_err(), "an unsealed run with rows");
+        assert!(
+            m.merge_into(
+                &mut State::new(&mut [], SinkRef::of(&mut Discard)),
+                partials(&runs)[1]
+            )
+            .is_err(),
+            "an unsealed run with rows"
+        );
         runs[1][1] |= (RUN_SEALED as u64) << 32;
         let (m, ps) = (resident(), partials(&runs));
         let mut leader = vec![0u64; 1 << 18]; // alloc: Cold
-        let bytes = unsafe { core::slice::from_raw_parts_mut(leader.as_mut_ptr() as *mut u8, leader.len() * 8) };
-        let plan = PartitionPlan { pbits: 2, groups: 0, record: RB as u32 };
-        m.prepare_partitions_in(&mut State::new(&mut *bytes, SinkRef::of(&mut Discard)), plan, &ps).unwrap();
-        m.merge_partition(Region { ptr: bytes.as_mut_ptr(), len: bytes.len() }, 0, plan, &ps).unwrap();
+        let bytes = unsafe {
+            core::slice::from_raw_parts_mut(leader.as_mut_ptr() as *mut u8, leader.len() * 8)
+        };
+        let plan = PartitionPlan {
+            pbits: 2,
+            groups: 0,
+            record: RB as u32,
+        };
+        m.prepare_partitions_in(
+            &mut State::new(&mut *bytes, SinkRef::of(&mut Discard)),
+            plan,
+            &ps,
+        )
+        .unwrap();
+        m.merge_partition(
+            Region {
+                ptr: bytes.as_mut_ptr(),
+                len: bytes.len(),
+            },
+            0,
+            plan,
+            &ps,
+        )
+        .unwrap();
         // phase 2 refused after one part: the driver re-arms the leader and folds every partial serially
         bytes[..64].fill(0);
         for p in ps.iter() {
-            m.merge_into(&mut State::new(&mut [], SinkRef::of(&mut Discard)), *p).unwrap();
+            m.merge_into(&mut State::new(&mut [], SinkRef::of(&mut Discard)), *p)
+                .unwrap();
         }
-        m.finish(&mut State::new(bytes, SinkRef::of(&mut Discard))).unwrap();
+        m.finish(&mut State::new(bytes, SinkRef::of(&mut Discard)))
+            .unwrap();
         check(&leader, &runs);
     }
 
@@ -657,7 +1048,20 @@ pub(crate) mod tests {
     /// One text key (its image's slot at 16, bytes order), the tag at 24, the record word at 32.
     pub(crate) fn vtbl() -> [u32; 12] {
         let spec = SortSpec::pack(&[(Some((16, VAR_WIDTH)), false)]).unwrap().0;
-        [VRB as u32, 2, 3 | VAR_TBL, 0, spec as u32, (spec >> 32) as u32, 1, 32, 2, 16, 0, 0]
+        [
+            VRB as u32,
+            2,
+            3 | VAR_TBL,
+            0,
+            spec as u32,
+            (spec >> 32) as u32,
+            1,
+            32,
+            2,
+            16,
+            0,
+            0,
+        ]
     }
 
     /// A sealed var run of `texts` (sorted here) as `sort_open_res_var` leaves one: the table copy, the rows, their copies.
@@ -674,7 +1078,11 @@ pub(crate) mod tests {
             for (i, x) in t.iter().enumerate() {
                 let p = (*run).rows_ptr().add((*run).len as usize * VRB) as *mut u64;
                 *p.add(4) = 0;
-                assert_eq!(sort_image(run as *mut u8, x.as_ptr(), x.len() as u64, 16, 32), 0, "room for the copy");
+                assert_eq!(
+                    sort_image(run as *mut u8, x.as_ptr(), x.len() as u64, 16, 32),
+                    0,
+                    "room for the copy"
+                );
                 let mut w = [0u8; 8];
                 w[..x.len().min(8)].copy_from_slice(&x[..x.len().min(8)]);
                 assert_eq!((*run).push() as *mut u64, p);
@@ -686,19 +1094,34 @@ pub(crate) mod tests {
     }
 
     fn texts(seed: u64, n: usize) -> Vec<Vec<u8>> {
-        keys_of(seed, n, 1 << 40).into_iter().map(|k| (0..(k % 23) as usize).map(|i| b"abc"[(k >> (i % 13)) as usize % 3]).collect()).collect()
+        keys_of(seed, n, 1 << 40)
+            .into_iter()
+            .map(|k| {
+                (0..(k % 23) as usize)
+                    .map(|i| b"abc"[(k >> (i % 13)) as usize % 3])
+                    .collect()
+            })
+            .collect()
     }
 
     /// The leader's var run: sealed, every (text, tag) once, in text order, each text read through its row's slot.
     pub(crate) fn vcheck(leader: &[u64], runs: &[Vec<Vec<u8>>]) {
         let r = unsafe { &*(leader.as_ptr() as *const SortRun) };
-        let got: Vec<Vec<u8>> = (0..r.len as usize).map(|i| unsafe {
-            #[allow(clippy::unnecessary_cast)]
-            let slot = (r.rows_ptr() as *const u8).add(i * VRB + 16);
-            let (size, off) = ((slot as *const u32).read_unaligned() as usize, (slot.add(4) as *const u32).read_unaligned() as usize);
-            core::slice::from_raw_parts(slot.add(off + 4), size - 4).to_vec()
-        }).collect();
-        assert_eq!((r.pad[0], got.len()), (RUN_SEALED, runs.iter().map(|t| t.len()).sum()));
+        let got: Vec<Vec<u8>> = (0..r.len as usize)
+            .map(|i| unsafe {
+                #[allow(clippy::unnecessary_cast)]
+                let slot = (r.rows_ptr() as *const u8).add(i * VRB + 16);
+                let (size, off) = (
+                    (slot as *const u32).read_unaligned() as usize,
+                    (slot.add(4) as *const u32).read_unaligned() as usize,
+                );
+                core::slice::from_raw_parts(slot.add(off + 4), size - 4).to_vec()
+            })
+            .collect();
+        assert_eq!(
+            (r.pad[0], got.len()),
+            (RUN_SEALED, runs.iter().map(|t| t.len()).sum())
+        );
         assert!(got.windows(2).all(|w| w[0] <= w[1]), "in text order");
         let (mut g, mut want) = (got.clone(), runs.concat());
         g.sort();
@@ -707,35 +1130,68 @@ pub(crate) mod tests {
     }
 
     fn var_resident() -> Resident {
-        Resident { fixed: None, ..resident() }
+        Resident {
+            fixed: None,
+            ..resident()
+        }
     }
 
     #[test]
     fn var_runs_merge_with_their_copies_on_the_leader_and_in_phase_2() {
         let ts: Vec<Vec<Vec<u8>>> = (0..5).map(|r| texts(r + 3, 40 + 37 * r as usize)).collect();
-        let runs: Vec<Vec<u64>> = ts.iter().enumerate().map(|(i, t)| vrun(t, i as u64)).collect();
+        let runs: Vec<Vec<u64>> = ts
+            .iter()
+            .enumerate()
+            .map(|(i, t)| vrun(t, i as u64))
+            .collect();
         let m = var_resident();
         for p in partials(&runs) {
-            m.merge_into(&mut State::new(&mut [], SinkRef::of(&mut Discard)), p).unwrap();
+            m.merge_into(&mut State::new(&mut [], SinkRef::of(&mut Discard)), p)
+                .unwrap();
         }
         let mut leader = vec![0u64; 1 << 16]; // alloc: Cold
-        let bytes = unsafe { core::slice::from_raw_parts_mut(leader.as_mut_ptr() as *mut u8, leader.len() * 8) };
-        m.finish(&mut State::new(bytes, SinkRef::of(&mut Discard))).unwrap();
+        let bytes = unsafe {
+            core::slice::from_raw_parts_mut(leader.as_mut_ptr() as *mut u8, leader.len() * 8)
+        };
+        m.finish(&mut State::new(bytes, SinkRef::of(&mut Discard)))
+            .unwrap();
         vcheck(&leader, &ts);
         let (m, ps) = (var_resident(), partials(&runs));
         let mut leader = vec![0u64; 1 << 16]; // alloc: Cold
-        let bytes = unsafe { core::slice::from_raw_parts_mut(leader.as_mut_ptr() as *mut u8, leader.len() * 8) };
-        let plan = PartitionPlan { pbits: 3, groups: 0, record: VRB as u32 };
+        let bytes = unsafe {
+            core::slice::from_raw_parts_mut(leader.as_mut_ptr() as *mut u8, leader.len() * 8)
+        };
+        let plan = PartitionPlan {
+            pbits: 3,
+            groups: 0,
+            record: VRB as u32,
+        };
         assert!(m.prepares_partials());
-        m.prepare_partitions_in(&mut State::new(&mut *bytes, SinkRef::of(&mut Discard)), plan, &ps).unwrap();
+        m.prepare_partitions_in(
+            &mut State::new(&mut *bytes, SinkRef::of(&mut Discard)),
+            plan,
+            &ps,
+        )
+        .unwrap();
         for v in runs.iter() {
-            m.prepare_partial(Region { ptr: v.as_ptr() as *mut u8, len: v.len() * 8 }, plan).unwrap();
+            m.prepare_partial(
+                Region {
+                    ptr: v.as_ptr() as *mut u8,
+                    len: v.len() * 8,
+                },
+                plan,
+            )
+            .unwrap();
         }
-        let region = Region { ptr: bytes.as_mut_ptr(), len: bytes.len() };
+        let region = Region {
+            ptr: bytes.as_mut_ptr(),
+            len: bytes.len(),
+        };
         for part in (0..8).rev() {
             m.merge_partition(region, part, plan, &ps).unwrap();
         }
-        m.finish(&mut State::new(bytes, SinkRef::of(&mut Discard))).unwrap();
+        m.finish(&mut State::new(bytes, SinkRef::of(&mut Discard)))
+            .unwrap();
         vcheck(&leader, &ts);
     }
 
@@ -745,19 +1201,66 @@ pub(crate) mod tests {
     fn the_seal_answer_reads_the_live_runs_against_the_cap() {
         let live = |len: u32| {
             let mut buf = vec![0u64; (SORTRUN_HDR + 8 * 16 + 64) / 8]; // alloc: Cold
-            unsafe { *(buf.as_mut_ptr() as *mut SortRun) = SortRun { cap: 8, len, row_bytes: 16, pad: [0; 3], kind: TABLE_SORT } };
-            unsafe { core::slice::from_raw_parts(buf.as_ptr() as *const u8, buf.len() * 8) }.to_vec() // alloc: Cold
+            unsafe {
+                *(buf.as_mut_ptr() as *mut SortRun) = SortRun {
+                    cap: 8,
+                    len,
+                    row_bytes: 16,
+                    pad: [0; 3],
+                    kind: TABLE_SORT,
+                }
+            };
+            unsafe { core::slice::from_raw_parts(buf.as_ptr() as *const u8, buf.len() * 8) }
+                .to_vec() // alloc: Cold
         };
         let mut armed = vec![0u64; (SORTRUN_HDR + 64) / 8]; // alloc: Cold
-        unsafe { *(armed.as_mut_ptr() as *mut SortRun) = SortRun { cap: 0, len: 0, row_bytes: 4096, pad: [0; 3], kind: 0 } };
-        let armed = unsafe { core::slice::from_raw_parts(armed.as_ptr() as *const u8, armed.len() * 8) }.to_vec(); // alloc: Cold
+        unsafe {
+            *(armed.as_mut_ptr() as *mut SortRun) = SortRun {
+                cap: 0,
+                len: 0,
+                row_bytes: 4096,
+                pad: [0; 3],
+                kind: 0,
+            }
+        };
+        let armed =
+            unsafe { core::slice::from_raw_parts(armed.as_ptr() as *const u8, armed.len() * 8) }
+                .to_vec(); // alloc: Cold
         let (a, b) = (live(5), live(7));
-        let ps = [Partial { ordinal: 0, bytes: &a, rows_processed: 0 }, Partial { ordinal: 1, bytes: &b, rows_processed: 0 }, Partial { ordinal: 2, bytes: &armed, rows_processed: 0 }];
-        let at = |cap| Resident { cap, ..Resident::new(0..1, Some((1, 0)), 0, Some(0)) };
+        let ps = [
+            Partial {
+                ordinal: 0,
+                bytes: &a,
+                rows_processed: 0,
+            },
+            Partial {
+                ordinal: 1,
+                bytes: &b,
+                rows_processed: 0,
+            },
+            Partial {
+                ordinal: 2,
+                bytes: &armed,
+                rows_processed: 0,
+            },
+        ];
+        let at = |cap| Resident {
+            cap,
+            ..Resident::new(0..1, Some((1, 0)), 0, Some(0))
+        };
         let need = laid_bytes(12, 16, SEAL_SLACK);
-        assert!(!at(need).seal_over(&ps), "12 rows merged fit a cap of their bytes: seal");
-        assert!(at(need - 1).seal_over(&ps), "a byte under them: every worker puts");
-        assert!(!at(RESIDENT_MAX).seal_over(&ps[2..]), "an armed share alone: nothing to merge");
+        assert!(
+            !at(need).seal_over(&ps),
+            "12 rows merged fit a cap of their bytes: seal"
+        );
+        assert!(
+            at(need - 1).seal_over(&ps),
+            "a byte under them: every worker puts"
+        );
+        assert!(
+            !at(RESIDENT_MAX).seal_over(&ps[2..]),
+            "an armed share alone: nothing to merge"
+        );
     }
 
     /// D508: the bound is row n-1's key-0 value of a run a cut marked, only for a value (flags 1) and `n` rows or more.
@@ -765,22 +1268,54 @@ pub(crate) mod tests {
     fn run_bound_reads_row_n_minus_1_of_a_cut_run() {
         let mut buf = vec![0u64; (SORTRUN_HDR + 8 * 16) / 8]; // alloc: Cold
         let r = buf.as_mut_ptr() as *mut SortRun;
-        let rows: [[u64; 2]; 4] = [[1, (-7i64 ^ i64::MIN) as u64], [1, (-3i64 ^ i64::MIN) as u64], [2, 0], [1, (40i64 ^ i64::MIN) as u64]];
+        let rows: [[u64; 2]; 4] = [
+            [1, (-7i64 ^ i64::MIN) as u64],
+            [1, (-3i64 ^ i64::MIN) as u64],
+            [2, 0],
+            [1, (40i64 ^ i64::MIN) as u64],
+        ];
         unsafe {
-            *r = SortRun { cap: 8, len: 4, row_bytes: 16, pad: [0; 3], kind: TABLE_SORT };
+            *r = SortRun {
+                cap: 8,
+                len: 4,
+                row_bytes: 16,
+                pad: [0; 3],
+                kind: TABLE_SORT,
+            };
             for (i, w) in rows.iter().enumerate() {
                 ((*r).row(i) as *mut [u64; 2]).write_unaligned(*w);
             }
         }
-        let bytes = |b: &Vec<u64>| unsafe { core::slice::from_raw_parts(b.as_ptr() as *const u8, b.len() * 8) }.to_vec(); // alloc: Cold
-        assert_eq!(run_bound(&bytes(&buf), 2), Some(-3), "no cut (D538): the 2nd smallest value, read in place");
+        let bytes = |b: &Vec<u64>| {
+            unsafe { core::slice::from_raw_parts(b.as_ptr() as *const u8, b.len() * 8) }.to_vec()
+        }; // alloc: Cold
+        assert_eq!(
+            run_bound(&bytes(&buf), 2),
+            Some(-3),
+            "no cut (D538): the 2nd smallest value, read in place"
+        );
         unsafe { (*r).pad[2] = RUN_CUT };
         let b = bytes(&buf);
-        assert_eq!((run_bound(&b, 1), run_bound(&b, 2), run_bound(&b, 4)), (Some(-7), Some(-3), Some(40)));
-        assert_eq!((run_bound(&b, 5), run_bound(&b, 0)), (None, None), "fewer rows, no n");
-        assert_eq!(run_bound(&b, 3), Some(40), "WC-01: a NULL row n-1, a value stored after the cut: the 3rd smallest of both");
+        assert_eq!(
+            (run_bound(&b, 1), run_bound(&b, 2), run_bound(&b, 4)),
+            (Some(-7), Some(-3), Some(40))
+        );
+        assert_eq!(
+            (run_bound(&b, 5), run_bound(&b, 0)),
+            (None, None),
+            "fewer rows, no n"
+        );
+        assert_eq!(
+            run_bound(&b, 3),
+            Some(40),
+            "WC-01: a NULL row n-1, a value stored after the cut: the 3rd smallest of both"
+        );
         unsafe { (*r).len = 3 };
-        assert_eq!(run_bound(&bytes(&buf), 3), None, "a NULL row n-1, nothing stored after the cut");
+        assert_eq!(
+            run_bound(&bytes(&buf), 3),
+            None,
+            "a NULL row n-1, nothing stored after the cut"
+        );
     }
 
     /// WC-01: a cut run holding rows stored after its cut (the open's re-arm: no cut per claim) bounds at the n-th smallest
@@ -792,14 +1327,24 @@ pub(crate) mod tests {
         let img = |v: i64| (v ^ i64::MIN) as u64;
         let vals: [i64; 8] = [1, 5, 9, 12, 3, 7, 20, 2];
         unsafe {
-            *r = SortRun { cap: 16, len: 8, row_bytes: 16, pad: [0, 0, RUN_CUT], kind: TABLE_SORT };
+            *r = SortRun {
+                cap: 16,
+                len: 8,
+                row_bytes: 16,
+                pad: [0, 0, RUN_CUT],
+                kind: TABLE_SORT,
+            };
             for (i, v) in vals.iter().enumerate() {
                 ((*r).row(i) as *mut [u64; 2]).write_unaligned([1, img(*v)]);
             }
         }
-        let b = unsafe { core::slice::from_raw_parts(buf.as_ptr() as *const u8, buf.len() * 8) }.to_vec(); // alloc: Cold
-        // n = 4: the cut kept 1 5 9 12, then 3 7 20 2 (all eight: 1 2 3 5 7 9 12 20); n = 2: kept 1 5, then 9 12 3 7 20 2
-        assert_eq!((run_bound(&b, 4), run_bound(&b, 2), run_bound(&b, 1)), (Some(5), Some(2), Some(1)));
+        let b = unsafe { core::slice::from_raw_parts(buf.as_ptr() as *const u8, buf.len() * 8) }
+            .to_vec(); // alloc: Cold
+                       // n = 4: the cut kept 1 5 9 12, then 3 7 20 2 (all eight: 1 2 3 5 7 9 12 20); n = 2: kept 1 5, then 9 12 3 7 20 2
+        assert_eq!(
+            (run_bound(&b, 4), run_bound(&b, 2), run_bound(&b, 1)),
+            (Some(5), Some(2), Some(1))
+        );
         // n = 6, one row after: only the cut's last two can be passed (all seven: 1 4 6 7 8 10 30)
         let vals: [i64; 7] = [1, 4, 6, 8, 10, 30, 7];
         unsafe {
@@ -808,7 +1353,8 @@ pub(crate) mod tests {
                 ((*r).row(i) as *mut [u64; 2]).write_unaligned([1, img(*v)]);
             }
         }
-        let b = unsafe { core::slice::from_raw_parts(buf.as_ptr() as *const u8, buf.len() * 8) }.to_vec(); // alloc: Cold
+        let b = unsafe { core::slice::from_raw_parts(buf.as_ptr() as *const u8, buf.len() * 8) }
+            .to_vec(); // alloc: Cold
         assert_eq!(run_bound(&b, 6), Some(10));
     }
 
@@ -818,15 +1364,36 @@ pub(crate) mod tests {
         let mut buf = vec![0u64; (SORTRUN_HDR + 8 * 16) / 8]; // alloc: Cold
         let r = buf.as_mut_ptr() as *mut SortRun;
         let img = |v: i64| (v ^ i64::MIN) as u64;
-        let rows: [[u64; 2]; 5] = [[1, img(40)], [2, 0], [1, img(-7)], [1, img(12)], [1, img(-7)]];
+        let rows: [[u64; 2]; 5] = [
+            [1, img(40)],
+            [2, 0],
+            [1, img(-7)],
+            [1, img(12)],
+            [1, img(-7)],
+        ];
         unsafe {
-            *r = SortRun { cap: 8, len: 5, row_bytes: 16, pad: [0; 3], kind: TABLE_SORT };
+            *r = SortRun {
+                cap: 8,
+                len: 5,
+                row_bytes: 16,
+                pad: [0; 3],
+                kind: TABLE_SORT,
+            };
             for (i, w) in rows.iter().enumerate() {
                 ((*r).row(i) as *mut [u64; 2]).write_unaligned(*w);
             }
         }
-        let b = unsafe { core::slice::from_raw_parts(buf.as_ptr() as *const u8, buf.len() * 8) }.to_vec(); // alloc: Cold
-        assert_eq!((run_bound(&b, 1), run_bound(&b, 2), run_bound(&b, 3), run_bound(&b, 4)), (Some(-7), Some(-7), Some(12), Some(40)));
+        let b = unsafe { core::slice::from_raw_parts(buf.as_ptr() as *const u8, buf.len() * 8) }
+            .to_vec(); // alloc: Cold
+        assert_eq!(
+            (
+                run_bound(&b, 1),
+                run_bound(&b, 2),
+                run_bound(&b, 3),
+                run_bound(&b, 4)
+            ),
+            (Some(-7), Some(-7), Some(12), Some(40))
+        );
         assert_eq!(run_bound(&b, 5), None, "four values, the fifth row a NULL");
     }
 
@@ -839,16 +1406,37 @@ pub(crate) mod tests {
         let img = |v: i64| (v ^ i64::MIN) as u64;
         let rows: [[u64; 2]; 4] = [[0, 0], [0, 0], [1, img(5)], [1, img(9)]];
         unsafe {
-            *r = SortRun { cap: 8, len: 4, row_bytes: 16, pad: [0; 3], kind: TABLE_SORT };
+            *r = SortRun {
+                cap: 8,
+                len: 4,
+                row_bytes: 16,
+                pad: [0; 3],
+                kind: TABLE_SORT,
+            };
             for (i, w) in rows.iter().enumerate() {
                 ((*r).row(i) as *mut [u64; 2]).write_unaligned(*w);
             }
         }
-        let bytes = |b: &Vec<u64>| unsafe { core::slice::from_raw_parts(b.as_ptr() as *const u8, b.len() * 8) }.to_vec(); // alloc: Cold
+        let bytes = |b: &Vec<u64>| {
+            unsafe { core::slice::from_raw_parts(b.as_ptr() as *const u8, b.len() * 8) }.to_vec()
+        }; // alloc: Cold
         let b = bytes(&buf);
-        assert_eq!((run_bound(&b, 1), run_bound(&b, 2), run_bound(&b, 3), run_bound(&b, 4)), (Some(i64::MIN), Some(i64::MIN), Some(5), Some(9)), "uncut: the NULLs first");
+        assert_eq!(
+            (
+                run_bound(&b, 1),
+                run_bound(&b, 2),
+                run_bound(&b, 3),
+                run_bound(&b, 4)
+            ),
+            (Some(i64::MIN), Some(i64::MIN), Some(5), Some(9)),
+            "uncut: the NULLs first"
+        );
         unsafe { (*r).pad[2] = RUN_CUT };
         let b = bytes(&buf);
-        assert_eq!((run_bound(&b, 2), run_bound(&b, 3), run_bound(&b, 5)), (Some(i64::MIN), Some(5), None), "cut: row n-1, a NULL first then a value");
+        assert_eq!(
+            (run_bound(&b, 2), run_bound(&b, 3), run_bound(&b, 5)),
+            (Some(i64::MIN), Some(5), None),
+            "cut: row n-1, a NULL first then a value"
+        );
     }
 }

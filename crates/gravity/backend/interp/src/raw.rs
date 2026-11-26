@@ -65,7 +65,11 @@ unsafe fn read<T: Copy>(p: *const u8, unaligned: bool) -> T {
     if unaligned {
         core::ptr::read_unaligned(p as *const T)
     } else {
-        debug_assert_eq!(p as usize % core::mem::align_of::<T>(), 0, "misaligned load");
+        debug_assert_eq!(
+            p as usize % core::mem::align_of::<T>(),
+            0,
+            "misaligned load"
+        );
         core::ptr::read(p as *const T)
     }
 }
@@ -74,14 +78,23 @@ unsafe fn write<T: Copy>(p: *mut u8, v: T, unaligned: bool) {
     if unaligned {
         core::ptr::write_unaligned(p as *mut T, v)
     } else {
-        debug_assert_eq!(p as usize % core::mem::align_of::<T>(), 0, "misaligned store");
+        debug_assert_eq!(
+            p as usize % core::mem::align_of::<T>(),
+            0,
+            "misaligned store"
+        );
         core::ptr::write(p as *mut T, v)
     }
 }
 
 /// Call the host at `addr` with integer-class arguments: contract::host's caller half (`gravity_abi::host::call`), one
 /// `extern "C"` trampoline per argument count.
-pub(crate) fn call_host(addr: usize, args: &[u64], narrow: u16, ret: gravity_abi::host::HostRet) -> u64 {
+pub(crate) fn call_host(
+    addr: usize,
+    args: &[u64],
+    narrow: u16,
+    ret: gravity_abi::host::HostRet,
+) -> u64 {
     // SAFETY: `HostFnDecl` promises `addr` is an `extern "C"` function whose
     // parameters are all integer-class and whose result is integer-class or
     // void (reading a garbage return register for a void function is fine).

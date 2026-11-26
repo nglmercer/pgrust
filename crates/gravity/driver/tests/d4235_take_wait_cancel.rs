@@ -40,27 +40,45 @@ fn a_cancel_lands_inside_the_pools_wait_for_another_statements_bytes() {
     REGIONS.trim();
     gravity_driver::DEPOT.trim();
     POOL.arm(2 * need + spare);
-    let res = std::rc::Rc::new(POOL.admit_need(want, &|g| footprint(g, &program, 1), Duration::from_millis(10)).unwrap());
+    let res = std::rc::Rc::new(
+        POOL.admit_need(
+            want,
+            &|g| footprint(g, &program, 1),
+            Duration::from_millis(10),
+        )
+        .unwrap(),
+    );
     res.set_pool_fraction(gravity_driver::POOL_FRACTION_WHOLE);
     let mut derive = FakeDerive::ranges(RangeTable::new(24, 10));
     let mut entry = Entry::new(2);
     let flag = AtomicU8::new(0);
     let mut sink = LegSink::new();
     let mut b = binding(&[8], &NULLS, &mut sink, &flag);
-    let exec = entry.start(None, &program, &mut derive, &mut b, res.clone()).unwrap();
+    let exec = entry
+        .start(None, &program, &mut derive, &mut b, res.clone())
+        .unwrap();
     let ctx = exec.node().ctx();
 
     // G drawn down to a MiB or less (a chunk inside G never meets the pool's wait), as D3239's test does
     let fill = res.left().saturating_sub(MIB);
     if fill > 0 {
-        assert_eq!(unsafe { gravity_abi::program::arena_grow(ctx, fill) }, fill as i64, "a chunk inside G");
+        assert_eq!(
+            unsafe { gravity_abi::program::arena_grow(ctx, fill) },
+            fill as i64,
+            "a chunk inside G"
+        );
     }
     // another session's statement holds the rest of the pool but `spare` until told to end (past BYTES_WAIT, so only the
     // cancel can end the draw's wait early)
-    let (admitted, end) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
+    let (admitted, end) = (
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(AtomicBool::new(false)),
+    );
     let (a, e) = (admitted.clone(), end.clone());
     let other = std::thread::spawn(move || {
-        let r = POOL.admit_need(Grant::of(need), &|g| g.bytes, Duration::from_millis(10)).expect("the other statement");
+        let r = POOL
+            .admit_need(Grant::of(need), &|g| g.bytes, Duration::from_millis(10))
+            .expect("the other statement");
         a.store(true, Relaxed);
         let t0 = Instant::now();
         while !e.load(Relaxed) && t0.elapsed() < Duration::from_secs(10) {
@@ -70,7 +88,10 @@ fn a_cancel_lands_inside_the_pools_wait_for_another_statements_bytes() {
     });
     let t0 = Instant::now();
     while !admitted.load(Relaxed) {
-        assert!(t0.elapsed() < Duration::from_secs(5), "the other statement was not admitted");
+        assert!(
+            t0.elapsed() < Duration::from_secs(5),
+            "the other statement was not admitted"
+        );
         std::thread::sleep(Duration::from_millis(1));
     }
     let past = res.left() + spare + MIB;
@@ -80,19 +101,38 @@ fn a_cancel_lands_inside_the_pools_wait_for_another_statements_bytes() {
         ABORT.store(cancelpoll::ABORT_BIT, Relaxed);
     });
     let t0 = Instant::now();
-    let (got, seen) = cancelpoll::scoped(&ABORT, || (unsafe { gravity_abi::program::arena_grow(ctx, past) }, cancelpoll::seen()));
+    let (got, seen) = cancelpoll::scoped(&ABORT, || {
+        (
+            unsafe { gravity_abi::program::arena_grow(ctx, past) },
+            cancelpoll::seen(),
+        )
+    });
     let took = t0.elapsed();
     canceller.join().expect("the canceller");
     let still = !end.load(Relaxed);
     end.store(true, Relaxed);
     other.join().expect("the other statement");
     assert!(still, "the other statement held the pool through the draw");
-    assert_eq!(POOL.stats().waits, waits + 1, "the draw reached the pool's wait (take_wait counted it)");
+    assert_eq!(
+        POOL.stats().waits,
+        waits + 1,
+        "the draw reached the pool's wait (take_wait counted it)"
+    );
     assert_eq!(got, 0, "the canceled draw is refused ({took:?})");
     assert!(seen, "refused as the statement's cancel (cancelpoll::seen)");
-    assert!(took >= CANCEL_AT.saturating_sub(Duration::from_millis(10)), "it waited in the pool until the cancel: {took:?}");
-    assert!(took < CANCEL_AT + BOUND, "the cancel ended the pool's wait within the poll bound: {took:?}");
-    assert!(POOL.held() <= held, "the refused draw took nothing: held {} of {held} before", POOL.held());
+    assert!(
+        took >= CANCEL_AT.saturating_sub(Duration::from_millis(10)),
+        "it waited in the pool until the cancel: {took:?}"
+    );
+    assert!(
+        took < CANCEL_AT + BOUND,
+        "the cancel ended the pool's wait within the poll bound: {took:?}"
+    );
+    assert!(
+        POOL.held() <= held,
+        "the refused draw took nothing: held {} of {held} before",
+        POOL.held()
+    );
 
     ABORT.store(0, Relaxed);
     entry.end(exec, false);
@@ -100,6 +140,10 @@ fn a_cancel_lands_inside_the_pools_wait_for_another_statements_bytes() {
     drop(entry);
     REGIONS.trim();
     gravity_driver::DEPOT.trim();
-    assert_eq!(POOL.held(), 0, "every chunk and reservation back at the statement's end");
+    assert_eq!(
+        POOL.held(),
+        0,
+        "every chunk and reservation back at the statement's end"
+    );
     POOL.arm(0);
 }

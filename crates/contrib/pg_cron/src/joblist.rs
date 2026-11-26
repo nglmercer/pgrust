@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use datum::Datum;
 use mcx::Mcx;
 use types_core::{InvalidOid, Oid, NAMEOID};
-use types_error::{PgResult, WARNING, ERRCODE_INSUFFICIENT_PRIVILEGE, LOG};
+use types_error::{PgResult, ERRCODE_INSUFFICIENT_PRIVILEGE, LOG, WARNING};
 use types_storage::lock::AccessShareLock;
 
 use crate::catalog::{self, tuple_text};
@@ -62,7 +62,11 @@ pub fn register_invalidation_callback() -> PgResult<()> {
 }
 
 /// Name-typed column as a String (NameStr).
-fn tuple_name(tup: &types_tuple::HeapTupleData<'_>, desc: &types_tuple::TupleDescData<'_>, attno: i32) -> Option<String> {
+fn tuple_name(
+    tup: &types_tuple::HeapTupleData<'_>,
+    desc: &types_tuple::TupleDescData<'_>,
+    attno: i32,
+) -> Option<String> {
     let mut isnull = false;
     // SAFETY: a cron.job tuple under cron.job's descriptor.
     let d = unsafe { types_tuple::heap_getattr(tup, attno, desc, &mut isnull) };
@@ -71,13 +75,20 @@ fn tuple_name(tup: &types_tuple::HeapTupleData<'_>, desc: &types_tuple::TupleDes
     }
     // SAFETY: a NameData datum: NAMEDATALEN NUL-padded bytes.
     let bytes = unsafe {
-        core::slice::from_raw_parts(d.as_usize() as *const u8, types_core::fmgr::NAMEDATALEN as usize)
+        core::slice::from_raw_parts(
+            d.as_usize() as *const u8,
+            types_core::fmgr::NAMEDATALEN as usize,
+        )
     };
     let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
     Some(String::from_utf8_lossy(&bytes[..end]).into_owned())
 }
 
-fn fixed_attr(tup: &types_tuple::HeapTupleData<'_>, desc: &types_tuple::TupleDescData<'_>, attno: i32) -> Datum {
+fn fixed_attr(
+    tup: &types_tuple::HeapTupleData<'_>,
+    desc: &types_tuple::TupleDescData<'_>,
+    attno: i32,
+) -> Datum {
     let mut isnull = false;
     // SAFETY: a cron.job tuple under cron.job's descriptor; the column is
     unsafe { types_tuple::heap_getattr(tup, attno, desc, &mut isnull) }
@@ -95,14 +106,18 @@ fn tuple_to_cron_job(
     if !gucs::enable_superuser_jobs() && superuser_seams::superuser_arg::call(owner_id)? {
         let _ = elog::ereport(WARNING)
             .errcode(ERRCODE_INSUFFICIENT_PRIVILEGE)
-            .errmsg(format!("skipping job {job_id} since superuser jobs are currently disallowed"))
+            .errmsg(format!(
+                "skipping job {job_id} since superuser jobs are currently disallowed"
+            ))
             .finish(loc("TupleToCronJob"));
         return Ok(None);
     }
 
-    let schedule_text = tuple_text(mcx, tup, desc, catalog::Anum_cron_job_schedule)?.unwrap_or_default();
+    let schedule_text =
+        tuple_text(mcx, tup, desc, catalog::Anum_cron_job_schedule)?.unwrap_or_default();
     let command = tuple_text(mcx, tup, desc, catalog::Anum_cron_job_command)?.unwrap_or_default();
-    let node_name = tuple_text(mcx, tup, desc, catalog::Anum_cron_job_nodename)?.unwrap_or_default();
+    let node_name =
+        tuple_text(mcx, tup, desc, catalog::Anum_cron_job_nodename)?.unwrap_or_default();
     let node_port = fixed_attr(tup, desc, catalog::Anum_cron_job_nodeport).as_i32();
     let database = tuple_text(mcx, tup, desc, catalog::Anum_cron_job_database)?.unwrap_or_default();
 
@@ -112,7 +127,11 @@ fn tuple_to_cron_job(
         true
     };
     let job_name = if desc.natts >= catalog::Anum_cron_job_jobname {
-        if desc.attr((catalog::Anum_cron_job_jobname - 1) as usize).atttypid == NAMEOID {
+        if desc
+            .attr((catalog::Anum_cron_job_jobname - 1) as usize)
+            .atttypid
+            == NAMEOID
+        {
             tuple_name(tup, desc, catalog::Anum_cron_job_jobname)
         } else {
             tuple_text(mcx, tup, desc, catalog::Anum_cron_job_jobname)?
@@ -181,8 +200,6 @@ pub fn load_cron_job_list() -> PgResult<Vec<CronJob>> {
             xact::CommitTransactionCommand()?;
             Ok(jobs)
         }
-        Err(e) => {
-            Err(e)
-        }
+        Err(e) => Err(e),
     }
 }

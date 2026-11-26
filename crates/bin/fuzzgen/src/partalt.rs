@@ -90,7 +90,10 @@ struct Prof {
     gucs: &'static [(&'static str, &'static str)],
 }
 
-const DEFAULTP: Prof = Prof { name: "default", gucs: &[] };
+const DEFAULTP: Prof = Prof {
+    name: "default",
+    gucs: &[],
+};
 /// Pruning disabled: every partition is scanned — the ground truth the
 /// pruned plans must reproduce byte-for-byte.
 const PRUNE_OFF: Prof = Prof {
@@ -184,8 +187,11 @@ const PWAGG_SORT_OFF: Prof = Prof {
 
 /// SET/RESET bracket (RESETs reversed) around `body`, one group.
 fn bracket(p: &Prof, body: Vec<StmtKind>) -> Vec<StmtKind> {
-    let mut v: Vec<StmtKind> =
-        p.gucs.iter().map(|(n, x)| raw(format!("SET {n} = {x};"))).collect();
+    let mut v: Vec<StmtKind> = p
+        .gucs
+        .iter()
+        .map(|(n, x)| raw(format!("SET {n} = {x};")))
+        .collect();
     v.extend(body);
     for (n, _) in p.gucs.iter().rev() {
         v.push(raw(format!("RESET {n};")));
@@ -306,8 +312,14 @@ fn gen_clauses(g: &mut Gen) -> Vec<StmtKind> {
         format!("SELECT pk FROM fz_pa_r WHERE {s} > a AND a >= 0 ORDER BY pk;"),
         format!("SELECT count(*)::int8 FROM fz_pa_r WHERE a = {s}::int2;"),
         format!("SELECT count(*)::int8 FROM fz_pa_r WHERE a < {s}::int8;"),
-        format!("SELECT count(*)::int8 FROM fz_pa_r WHERE a BETWEEN {s} AND {};", s + 26),
-        format!("SELECT count(*)::int8 FROM fz_pa_r WHERE a = ANY (ARRAY[{s}, {}, 205]);", s + 25),
+        format!(
+            "SELECT count(*)::int8 FROM fz_pa_r WHERE a BETWEEN {s} AND {};",
+            s + 26
+        ),
+        format!(
+            "SELECT count(*)::int8 FROM fz_pa_r WHERE a = ANY (ARRAY[{s}, {}, 205]);",
+            s + 25
+        ),
         // Cross-type SAOP element type (int8[] over the int4 key).
         format!("SELECT count(*)::int8 FROM fz_pa_r WHERE a = ANY (ARRAY[{s}, 60]::int8[]);"),
         "SELECT count(*)::int8 FROM fz_pa_r WHERE a IS NULL;".into(),
@@ -316,7 +328,10 @@ fn gen_clauses(g: &mut Gen) -> Vec<StmtKind> {
         "SELECT count(*)::int8 FROM fz_pa_r WHERE a < 10 AND a > 90;".into(),
         "SELECT count(*)::int8 FROM fz_pa_r WHERE a IS NULL AND a = 5;".into(),
         // OR arms (union of pruned sets) + a non-key OR disabling pruning.
-        format!("SELECT count(*)::int8 FROM fz_pa_r WHERE a < 10 OR a >= {};", 100 - s % 20),
+        format!(
+            "SELECT count(*)::int8 FROM fz_pa_r WHERE a < 10 OR a >= {};",
+            100 - s % 20
+        ),
         format!("SELECT count(*)::int8 FROM fz_pa_r WHERE a = {s} OR v = 3;"),
         // Rejected shapes (UNSUPPORTED walks) that still run correctly.
         "SELECT count(*)::int8 FROM fz_pa_r t WHERE a = v;".into(),
@@ -348,7 +363,10 @@ fn gen_clauses(g: &mut Gen) -> Vec<StmtKind> {
         "SELECT pk FROM fz_pa_b WHERE flag IS NOT TRUE ORDER BY pk LIMIT 20;".into(),
         // --- multi-column range key: prefix steps.
         "SELECT count(*)::int8 FROM fz_pa_m WHERE a = 10 AND b = 60;".into(),
-        format!("SELECT count(*)::int8 FROM fz_pa_m WHERE a = {} AND b < 55;", s % 14),
+        format!(
+            "SELECT count(*)::int8 FROM fz_pa_m WHERE a = {} AND b < 55;",
+            s % 14
+        ),
         format!("SELECT pk FROM fz_pa_m WHERE a = {} ORDER BY pk;", s % 14),
         "SELECT count(*)::int8 FROM fz_pa_m WHERE a < 5;".into(),
         "SELECT count(*)::int8 FROM fz_pa_m WHERE a <= 10 AND b >= 60;".into(),
@@ -494,7 +512,8 @@ fn multilevel_fixture() -> Vec<StmtKind> {
 fn gen_multilevel(g: &mut Gen) -> Vec<StmtKind> {
     let s = g.rng.below(130) as i64;
     let mut v = multilevel_fixture();
-    let queries: Vec<String> = vec![
+    let queries: Vec<String> =
+        vec![
         // Two-level static pruning: top range step + sub-list/sub-hash step.
         format!("SELECT count(*)::int8 FROM fz_pa_ml WHERE a = {s};"),
         format!("SELECT pk, a, c FROM fz_pa_ml WHERE a < 40 AND c = 2 ORDER BY pk;"),
@@ -523,8 +542,10 @@ fn gen_multilevel(g: &mut Gen) -> Vec<StmtKind> {
     // Generic-plan runtime pruning down BOTH levels + exec-param joins.
     let mut rt: Vec<StmtKind> = vec![
         raw("SET plan_cache_mode = force_generic_plan;"),
-        raw("PREPARE fz_pa_mlp (int4, int4) AS SELECT count(*)::int8 FROM fz_pa_ml \
-             WHERE a = $1 AND c = $2;"),
+        raw(
+            "PREPARE fz_pa_mlp (int4, int4) AS SELECT count(*)::int8 FROM fz_pa_ml \
+             WHERE a = $1 AND c = $2;",
+        ),
         raw(format!("EXECUTE fz_pa_mlp({}, 1);", s % 40)),
         raw("EXECUTE fz_pa_mlp(45, 3);"), // hash subtree: c is no key there
         raw("EXECUTE fz_pa_mlp(NULL, NULL);"),
@@ -547,8 +568,10 @@ fn gen_multilevel(g: &mut Gen) -> Vec<StmtKind> {
     // across sublevels and across top-level partitions, rolled back.
     let mut dml: Vec<StmtKind> = vec![
         raw("BEGIN;"),
-        raw("INSERT INTO fz_pa_ml VALUES (10001, 5, 1, 0), (10002, 45, NULL, 0), \
-             (10003, 85, 9, 0), (10004, 500, 2, 0), (10005, 12, 99, 0);"),
+        raw(
+            "INSERT INTO fz_pa_ml VALUES (10001, 5, 1, 0), (10002, 45, NULL, 0), \
+             (10003, 85, 9, 0), (10004, 500, 2, 0), (10005, 12, 99, 0);",
+        ),
         // list-sub -> list-sub-default (c move), stays in p0.
         raw("UPDATE fz_pa_ml SET c = 6 WHERE pk = 10001;"),
         // p0 -> p1 (a move: list subtree to hash subtree).
@@ -627,8 +650,7 @@ fn gen_pwjmerge(g: &mut Gen) -> Vec<StmtKind> {
          (SELECT 1 FROM fz_pa_j2 b WHERE b.k = a.k);"
             .into(),
         // Pruned pwise-merged join.
-        "SELECT count(*)::int8 FROM fz_pa_j1 a JOIN fz_pa_j2 b ON a.k = b.k WHERE a.k < 40;"
-            .into(),
+        "SELECT count(*)::int8 FROM fz_pa_j1 a JOIN fz_pa_j2 b ON a.k = b.k WHERE a.k < 40;".into(),
         // List-merge arms.
         "SELECT count(*)::int8, coalesce(sum(a.v)::int8, 0) FROM fz_pa_j3 a \
          JOIN fz_pa_j4 b ON a.k = b.k;"
@@ -645,7 +667,11 @@ fn gen_pwjmerge(g: &mut Gen) -> Vec<StmtKind> {
          JOIN fz_pa_j4 c ON b.k = c.k WHERE a.pk < 150;"
             .into(),
     ];
-    v.extend(sweep(g, &[PWISE, PWISE_NESTL, PWISE_MERGEA, DEFAULTP], &queries));
+    v.extend(sweep(
+        g,
+        &[PWISE, PWISE_NESTL, PWISE_MERGEA, DEFAULTP],
+        &queries,
+    ));
     v.push(raw("DROP TABLE fz_pa_j1, fz_pa_j2, fz_pa_j3, fz_pa_j4;"));
     v
 }
@@ -684,10 +710,8 @@ fn gen_pwagg(g: &mut Gen) -> Vec<StmtKind> {
         "SELECT x, count(*)::int8 FROM fz_pa_g1 GROUP BY x ORDER BY x;".into(),
         "SELECT x % 5, sum(v)::int8 FROM fz_pa_g1 GROUP BY 1 ORDER BY 1;".into(),
         // HAVING above both arms.
-        "SELECT k, count(*)::int8 FROM fz_pa_g1 GROUP BY k HAVING count(*) > 70 ORDER BY k;"
-            .into(),
-        "SELECT x, count(*)::int8 FROM fz_pa_g1 GROUP BY x HAVING sum(v) > 4000 ORDER BY x;"
-            .into(),
+        "SELECT k, count(*)::int8 FROM fz_pa_g1 GROUP BY k HAVING count(*) > 70 ORDER BY k;".into(),
+        "SELECT x, count(*)::int8 FROM fz_pa_g1 GROUP BY x HAVING sum(v) > 4000 ORDER BY x;".into(),
         // DISTINCT aggregate above the tree (blocks partial paths).
         "SELECT k, count(DISTINCT x)::int8 FROM fz_pa_g1 GROUP BY k ORDER BY k;".into(),
         // Agg over a pwise JOIN: child-join grouped rels.
@@ -798,7 +822,11 @@ fn gen_reparam(g: &mut Gen) -> Vec<StmtKind> {
          JOIN fz_pa_t2 p2 ON p1.pk = p2.pk WHERE p1.b < 12;"
             .into(),
     ];
-    v.extend(sweep(g, &[PWISE_BMP, PWISE_NESTL, PWISE_PAR, PWISE_MERGEA, DEFAULTP], &queries));
+    v.extend(sweep(
+        g,
+        &[PWISE_BMP, PWISE_NESTL, PWISE_PAR, PWISE_MERGEA, DEFAULTP],
+        &queries,
+    ));
     v.push(raw("DROP TABLE fz_pa_t1, fz_pa_t2, fz_pa_t3;"));
     v
 }
@@ -821,7 +849,8 @@ fn gen_hashfn(g: &mut Gen) -> Vec<StmtKind> {
         "CREATE TABLE fz_pa_rr (k int4) PARTITION BY RANGE (k);",
         "CREATE TABLE fz_pa_rr_0 PARTITION OF fz_pa_rr FOR VALUES FROM (0) TO (10);",
     ]);
-    let mut probes: Vec<StmtKind> = vec![
+    let mut probes: Vec<StmtKind> =
+        vec![
         // Success arms: every remainder, matched and unmatched values,
         // NULLs (hash of NULL contributes 0), cross-type coercion of the
         // variadic "any" args.
@@ -939,15 +968,24 @@ mod tests {
             assert!(!in_txn, "unclosed txn bracket at group end");
             let all = group.join("\n");
             for root in [
-                "fz_pa_r ", "fz_pa_l ", "fz_pa_b ", "fz_pa_m ", "fz_pa_h ", "fz_pa_ml ",
-                "fz_pa_j1 ", "fz_pa_g1 ", "fz_pa_t1 ", "fz_pa_hf ",
+                "fz_pa_r ",
+                "fz_pa_l ",
+                "fz_pa_b ",
+                "fz_pa_m ",
+                "fz_pa_h ",
+                "fz_pa_ml ",
+                "fz_pa_j1 ",
+                "fz_pa_g1 ",
+                "fz_pa_t1 ",
+                "fz_pa_hf ",
             ] {
                 let created = all.contains(&format!("CREATE TABLE {root}"));
                 if created {
                     let name = root.trim_end();
                     assert!(
-                        group.iter().any(|s| s.starts_with("DROP TABLE ")
-                            && s.contains(name)),
+                        group
+                            .iter()
+                            .any(|s| s.starts_with("DROP TABLE ") && s.contains(name)),
                         "{name} created but not dropped in-group"
                     );
                 }
@@ -984,15 +1022,28 @@ mod tests {
     fn prepared_statements_are_deallocated() {
         for group in gen_groups(23, 300) {
             let prepares = group.iter().filter(|s| s.starts_with("PREPARE ")).count();
-            let deallocs = group.iter().filter(|s| s.starts_with("DEALLOCATE ")).count();
-            assert_eq!(prepares, deallocs, "unbalanced PREPARE/DEALLOCATE: {group:?}");
+            let deallocs = group
+                .iter()
+                .filter(|s| s.starts_with("DEALLOCATE "))
+                .count();
+            assert_eq!(
+                prepares, deallocs,
+                "unbalanced PREPARE/DEALLOCATE: {group:?}"
+            );
         }
     }
 
     #[test]
     fn no_float_aggregates_or_explain() {
         for sql in flat(29, 200) {
-            for bad in ["avg(", "stddev", "var_samp", "percentile_cont", "::float", "EXPLAIN"] {
+            for bad in [
+                "avg(",
+                "stddev",
+                "var_samp",
+                "percentile_cont",
+                "::float",
+                "EXPLAIN",
+            ] {
                 assert!(!sql.contains(bad), "forbidden form: {sql}");
             }
         }
@@ -1043,7 +1094,10 @@ mod tests {
             "UPDATE fz_pa_ml SET a = 50 WHERE pk = 10001;",
             "SELECT count(*)::int8 FROM ONLY fz_pa_ml;",
         ] {
-            assert!(stmts.contains(needle), "arm never fired in 500 groups: {needle}");
+            assert!(
+                stmts.contains(needle),
+                "arm never fired in 500 groups: {needle}"
+            );
         }
     }
 

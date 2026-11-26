@@ -346,7 +346,10 @@ pub fn log_status_format(buf: &mut Vec<u8>, format: Option<&str>, edata: &PgErro
             b'a' => {
                 if has_port {
                     let appname = context.and_then(|c| c.application_name());
-                    let appname = appname.as_deref().filter(|s| !s.is_empty()).unwrap_or("[unknown]");
+                    let appname = appname
+                        .as_deref()
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or("[unknown]");
                     append_padded(buf, appname, padding);
                 } else if padding != 0 {
                     append_spaces(buf, padding);
@@ -359,7 +362,10 @@ pub fn log_status_format(buf: &mut Vec<u8>, format: Option<&str>, edata: &PgErro
             b'u' => {
                 if has_port {
                     let username = context.and_then(|c| c.user_name());
-                    let username = username.as_deref().filter(|s| !s.is_empty()).unwrap_or("[unknown]");
+                    let username = username
+                        .as_deref()
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or("[unknown]");
                     append_padded(buf, username, padding);
                 } else if padding != 0 {
                     append_spaces(buf, padding);
@@ -368,15 +374,18 @@ pub fn log_status_format(buf: &mut Vec<u8>, format: Option<&str>, edata: &PgErro
             b'd' => {
                 if has_port {
                     let dbname = context.and_then(|c| c.database_name());
-                    let dbname = dbname.as_deref().filter(|s| !s.is_empty()).unwrap_or("[unknown]");
+                    let dbname = dbname
+                        .as_deref()
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or("[unknown]");
                     append_padded(buf, dbname, padding);
                 } else if padding != 0 {
                     append_spaces(buf, padding);
                 }
             }
             b'c' => {
-                let start =
-                    context.map_or_else(init_small::globals::MyStartTime, |c| c.session_start_time());
+                let start = context
+                    .map_or_else(init_small::globals::MyStartTime, |c| c.session_start_time());
                 let value = format!("{:x}.{:x}", start, my_pid);
                 append_padded(buf, &value, padding);
             }
@@ -547,7 +556,9 @@ pub(crate) fn format_server_log_line(edata: &PgError) -> Vec<u8> {
     }
 
     if edata.cursor_position.unwrap_or(0) > 0 {
-        buf.extend_from_slice(format!(" at character {}", edata.cursor_position.unwrap()).as_bytes());
+        buf.extend_from_slice(
+            format!(" at character {}", edata.cursor_position.unwrap()).as_bytes(),
+        );
     } else if edata.internal_position.unwrap_or(0) > 0 {
         buf.extend_from_slice(
             format!(" at character {}", edata.internal_position.unwrap()).as_bytes(),
@@ -860,7 +871,9 @@ pub fn err_sendbytes(buf: &mut Vec<u8>, s: &[u8]) -> PgResult<()> {
                 Ok(None) => Ok(false),
                 // Raised at recursion depth 3 in C (errfinish, EmitErrorReport,
                 // errstart), where error_context_stack is abandoned.
-                Err(e) => Err(Box::new((*e).with_hide_context(true).with_context_abandoned())),
+                Err(e) => Err(Box::new(
+                    (*e).with_hide_context(true).with_context_abandoned(),
+                )),
             };
             cx.reset();
             done

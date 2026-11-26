@@ -7,7 +7,10 @@ fn ok(s: &str) -> Entry {
 }
 
 fn bad(s: &str) {
-    assert!(parse_schedule(s).is_none(), "expected invalid schedule: {s:?}");
+    assert!(
+        parse_schedule(s).is_none(),
+        "expected invalid schedule: {s:?}"
+    );
 }
 
 fn bits(list: &[i32], low: i32) -> u64 {
@@ -125,7 +128,13 @@ fn specials() {
 }
 
 const fn t(minute: i32, hour: i32, dom: i32, month: i32, dow: i32) -> LocalTime {
-    LocalTime { minute, hour, day_of_month: dom, month, day_of_week: dow }
+    LocalTime {
+        minute,
+        hour,
+        day_of_month: dom,
+        month,
+        day_of_week: dow,
+    }
 }
 
 #[test]

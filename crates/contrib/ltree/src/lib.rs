@@ -21,10 +21,9 @@ use types_tuple::varatt;
 
 const LIBRARY: &str = "ltree";
 
-
 // Full 4B-header image of a by-ref varlena arg; short/toasted forms are
 // canonicalized because the repr walkers read VARSIZE = word >> 2.
-unsafe fn arg_image(fcinfo: & Fcinfo, i: usize) -> PgResult<Vec<u8>> {
+unsafe fn arg_image(fcinfo: &Fcinfo, i: usize) -> PgResult<Vec<u8>> {
     // PG_FREE_IF_COPY parity (ltree_op.c:121): the detoasted copy dies here
     // instead of accumulating in a sort's context.
     let scratch = mcx::MemoryContext::new_wholesale("ltree arg detoast");
@@ -38,7 +37,7 @@ unsafe fn arg_image(fcinfo: & Fcinfo, i: usize) -> PgResult<Vec<u8>> {
     Ok(img)
 }
 
-unsafe fn arg_payload(fcinfo: & Fcinfo, i: usize) -> PgResult<& [u8]> {
+unsafe fn arg_payload(fcinfo: &Fcinfo, i: usize) -> PgResult<&[u8]> {
     // SAFETY: forwarded caller contract — non-null varlena arg (strict fn).
     Ok(unsafe { fcinfo.arg_varlena_packed(i)? }.data())
 }
@@ -67,7 +66,6 @@ fn ret_cstring(fcinfo: &Fcinfo, payload: &[u8]) -> PgResult<Datum> {
     v.push(0);
     Ok(cstring_result(v))
 }
-
 
 macro_rules! fc_type_in {
     ($($fname:ident: $parse:path;)*) => {$(
@@ -190,7 +188,6 @@ fn fc_ltxtq_send(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Dat
     ret_send_versioned(fcinfo, &text)
 }
 
-
 fn cmp_args(fcinfo: &Fcinfo) -> PgResult<(Vec<u8>, Vec<u8>)> {
     Ok(unsafe { (arg_image(fcinfo, 0)?, arg_image(fcinfo, 1)?) })
 }
@@ -226,9 +223,11 @@ fn fc_hash_ltree(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Dat
 fn fc_hash_ltree_extended(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let a = unsafe { arg_image(fcinfo, 0)? };
     let [_, seed] = fcinfo.args_n::<2>();
-    Ok(Datum::from_u64(op::hash_ltree_extended(&a, seed.value.as_u64())))
+    Ok(Datum::from_u64(op::hash_ltree_extended(
+        &a,
+        seed.value.as_u64(),
+    )))
 }
-
 
 fn fc_nlevel(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let a = unsafe { arg_image(fcinfo, 0)? };
@@ -266,13 +265,13 @@ fn fc_ltree_addltree(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult
 
 fn fc_ltree_addtext(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let a = unsafe { arg_image(fcinfo, 0)? };
-    let b = ::mcx::std_vec_from_slice("ltree",cstring_prefix(unsafe { arg_payload(fcinfo, 1)? }))?;
+    let b = ::mcx::std_vec_from_slice("ltree", cstring_prefix(unsafe { arg_payload(fcinfo, 1)? }))?;
     let tmp = io::parse_ltree(&b)?;
     ret_image(fcinfo, &op::ltree_concat(&a, &tmp)?)
 }
 
 fn fc_ltree_textadd(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
-    let b = ::mcx::std_vec_from_slice("ltree",cstring_prefix(unsafe { arg_payload(fcinfo, 0)? }))?;
+    let b = ::mcx::std_vec_from_slice("ltree", cstring_prefix(unsafe { arg_payload(fcinfo, 0)? }))?;
     let a = unsafe { arg_image(fcinfo, 1)? };
     let tmp = io::parse_ltree(&b)?;
     ret_image(fcinfo, &op::ltree_concat(&tmp, &a)?)
@@ -296,7 +295,7 @@ fn fc_lca(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
 }
 
 fn fc_text2ltree(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
-    let s = ::mcx::std_vec_from_slice("ltree",cstring_prefix(unsafe { arg_payload(fcinfo, 0)? }))?;
+    let s = ::mcx::std_vec_from_slice("ltree", cstring_prefix(unsafe { arg_payload(fcinfo, 0)? }))?;
     ret_image(fcinfo, &io::parse_ltree(&s)?)
 }
 
@@ -310,7 +309,6 @@ fn fc_ltree2text(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Dat
 fn fc_ltreeparentsel(_f: Option<&mut FmgrInfo>, _fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     Ok(Datum::from_f64(0.001))
 }
-
 
 fn fc_ltq_regex(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let (tree, query) = cmp_args(fcinfo)?;
@@ -353,7 +351,6 @@ fn fc_ltxtq_rexec(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Da
     Ok(Datum::from_bool(op::ltxtq_exec(&tree, &query)?))
 }
 
-
 fn array_iter_isparent(la: &[u8], query: &[u8], risparent: bool) -> PgResult<Option<Vec<u8>>> {
     let arr = array::LtreeArray::parse(la);
     arr.check_1d_no_nulls()?;
@@ -364,7 +361,7 @@ fn array_iter_isparent(la: &[u8], query: &[u8], risparent: bool) -> PgResult<Opt
             op::inner_isparent(query, item)
         };
         if matched {
-            return Ok(Some(::mcx::std_vec_from_slice("ltree",item)?));
+            return Ok(Some(::mcx::std_vec_from_slice("ltree", item)?));
         }
     }
     Ok(None)
@@ -375,7 +372,7 @@ fn array_iter_ltq(la: &[u8], query: &[u8]) -> PgResult<Option<Vec<u8>>> {
     arr.check_1d_no_nulls()?;
     for item in arr.elements() {
         if op::ltq_regex(item, query)? {
-            return Ok(Some(::mcx::std_vec_from_slice("ltree",item)?));
+            return Ok(Some(::mcx::std_vec_from_slice("ltree", item)?));
         }
     }
     Ok(None)
@@ -386,7 +383,7 @@ fn array_iter_ltxtq(la: &[u8], query: &[u8]) -> PgResult<Option<Vec<u8>>> {
     arr.check_1d_no_nulls()?;
     for item in arr.elements() {
         if op::ltxtq_exec(item, query)? {
-            return Ok(Some(::mcx::std_vec_from_slice("ltree",item)?));
+            return Ok(Some(::mcx::std_vec_from_slice("ltree", item)?));
         }
     }
     Ok(None)
@@ -471,7 +468,6 @@ fn fc__lca(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     }
 }
 
-
 // SAFETY helpers over the gist fmgr protocol (pg_trgm precedent).
 unsafe fn entry_arg<'a>(fcinfo: &Fcinfo, i: usize) -> &'a GISTENTRY {
     unsafe { &*(fcinfo.arg(i).as_usize() as *const GISTENTRY) }
@@ -479,7 +475,10 @@ unsafe fn entry_arg<'a>(fcinfo: &Fcinfo, i: usize) -> &'a GISTENTRY {
 
 fn entry_result(fcinfo: &Fcinfo, e: &GISTENTRY) -> PgResult<Datum> {
     let bytes = unsafe {
-        core::slice::from_raw_parts((e as *const GISTENTRY).cast::<u8>(), core::mem::size_of::<GISTENTRY>())
+        core::slice::from_raw_parts(
+            (e as *const GISTENTRY).cast::<u8>(),
+            core::mem::size_of::<GISTENTRY>(),
+        )
     };
     byref_result(fcinfo.result_mcx(), bytes)
 }
@@ -497,7 +496,10 @@ fn detoasted_image<'m>(mcx: mcx::Mcx<'m>, d: Datum) -> PgResult<&'m [u8]> {
             );
             let total = 4 + src.len();
             let mut buf: mcx::PgVec<'m, u8> = mcx::vec_with_capacity_in(mcx, total)?;
-            mcx::vec_append_bytes(&mut buf, &varatt::set_varsize_4b_word(total as u32).to_ne_bytes())?;
+            mcx::vec_append_bytes(
+                &mut buf,
+                &varatt::set_varsize_4b_word(total as u32).to_ne_bytes(),
+            )?;
             mcx::vec_append_bytes(&mut buf, src)?;
             let out = core::slice::from_raw_parts(buf.as_ptr(), buf.len());
             core::mem::forget(buf);
@@ -521,7 +523,9 @@ fn key_image<'a>(d: Datum) -> &'a [u8] {
 fn get_siglen(f: &Option<&mut FmgrInfo>, default: i32) -> usize {
     match f.as_ref().and_then(|f| f.opclass_options()) {
         Some(img) => i32::from_ne_bytes(
-            img[gist::OFFSETOF_SIGLEN..gist::OFFSETOF_SIGLEN + 4].try_into().unwrap(),
+            img[gist::OFFSETOF_SIGLEN..gist::OFFSETOF_SIGLEN + 4]
+                .try_into()
+                .unwrap(),
         ) as usize,
         None => default as usize,
     }
@@ -619,7 +623,7 @@ fn picksplit_common(
     let mut entries: Vec<(Vec<u8>, bool)> = ::mcx::std_vec_with_capacity("ltree", n)?;
     entries.push((Vec::new(), false));
     for e in &entryvec.vector[1..n] {
-        entries.push((::mcx::std_vec_from_slice("ltree",key_image(e.key))?, false));
+        entries.push((::mcx::std_vec_from_slice("ltree", key_image(e.key))?, false));
     }
     let (spl_left, spl_right, ldatum, rdatum) = split(&entries)?;
     v.spl_left = spl_left;
@@ -637,7 +641,7 @@ fn fc_ltree_picksplit(f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult
 fn gist_query_image(fcinfo: &Fcinfo) -> PgResult<Vec<u8>> {
     // SAFETY: the armed result mcx outlives this call.
     let mcx = unsafe { fcinfo.result_mcx_detached() };
-    ::mcx::std_vec_from_slice("ltree",detoasted_image(mcx, fcinfo.arg(1))?)
+    ::mcx::std_vec_from_slice("ltree", detoasted_image(mcx, fcinfo.arg(1))?)
 }
 
 fn fc_ltree_consistent(f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -646,8 +650,14 @@ fn fc_ltree_consistent(f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResul
     let entry = unsafe { entry_arg(fcinfo, 0) };
     let strategy = fcinfo.arg(2).as_u32() as u16;
     let query = gist_query_image(fcinfo)?;
-    let (matched, rc) =
-        gist::ltree_consistent(entry.page_is_leaf, key_image(entry.key), false, &query, strategy, siglen)?;
+    let (matched, rc) = gist::ltree_consistent(
+        entry.page_is_leaf,
+        key_image(entry.key),
+        false,
+        &query,
+        strategy,
+        siglen,
+    )?;
     let recheck = fcinfo.arg(4).as_usize() as *mut bool;
     // SAFETY: recheck out-param live in the caller frame.
     unsafe { *recheck = rc };
@@ -765,7 +775,6 @@ fn fc__ltree_gist_options(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgR
     );
     Ok(Datum::from_usize(0))
 }
-
 
 fn lookup(function: &str) -> Option<PGFunction> {
     Some(match function {
@@ -921,7 +930,12 @@ mod tests {
     fn lquery_ci_exact_length_in_c_ctype() {
         pin_c_ctype();
         let t = img("Top.abc");
-        for (q, want) in [("*.ab@", false), ("*.ab@*", true), ("*.ABC@", true), ("*.abcd@", false)] {
+        for (q, want) in [
+            ("*.ab@", false),
+            ("*.ab@*", true),
+            ("*.ABC@", true),
+            ("*.abcd@", false),
+        ] {
             let q_img = io::parse_lquery(q.as_bytes()).unwrap();
             assert_eq!(op::ltq_regex(&t, &q_img).unwrap(), want, "{q}");
         }
@@ -949,7 +963,9 @@ mod tests {
     fn lca() {
         let a = img("a.b.c.d");
         let b = img("a.b.e");
-        let r = op::lca_inner(&[a.as_slice(), b.as_slice()]).unwrap().unwrap();
+        let r = op::lca_inner(&[a.as_slice(), b.as_slice()])
+            .unwrap()
+            .unwrap();
         assert_eq!(io::deparse_ltree(&r), b"a.b");
     }
 
@@ -967,10 +983,7 @@ mod tests {
             .to_vec()
     }
 
-    fn fcinfo_with_arg(
-        ctx: & mcx::MemoryContext,
-        arg: Datum,
-    ) -> types_fmgr::LocalFcinfo<1> {
+    fn fcinfo_with_arg(ctx: &mcx::MemoryContext, arg: Datum) -> types_fmgr::LocalFcinfo<1> {
         // pq_sendtext consults the client-encoding seams; identity here.
         static SEAMS: std::sync::Once = std::sync::Once::new();
         SEAMS.call_once(|| {
@@ -1001,8 +1014,10 @@ mod tests {
         // recv accepts exactly what send produced (strips the version byte).
         let mut si = stringinfo::StringInfo::new_in(ctx.mcx()).unwrap();
         si.append_bytes(&wire).unwrap();
-        let mut fcinfo =
-            fcinfo_with_arg(&ctx, Datum::from_usize(core::ptr::from_mut(&mut si) as usize));
+        let mut fcinfo = fcinfo_with_arg(
+            &ctx,
+            Datum::from_usize(core::ptr::from_mut(&mut si) as usize),
+        );
         let d = fc_ltree_recv(None, &mut fcinfo).unwrap();
         // SAFETY: recv returns a live 4B-header ltree varlena.
         let payload = unsafe { datum::VarlenaRef::from_ptr(d.as_usize() as *const u8) }.data();
@@ -1035,8 +1050,10 @@ mod tests {
         let ctx = mcx::MemoryContext::new("t");
         let mut si = stringinfo::StringInfo::new_in(ctx.mcx()).unwrap();
         si.append_bytes(b"\x02a.b").unwrap();
-        let mut fcinfo =
-            fcinfo_with_arg(&ctx, Datum::from_usize(core::ptr::from_mut(&mut si) as usize));
+        let mut fcinfo = fcinfo_with_arg(
+            &ctx,
+            Datum::from_usize(core::ptr::from_mut(&mut si) as usize),
+        );
         let e = fc_ltree_recv(None, &mut fcinfo).unwrap_err();
         assert_eq!(e.message(), "unsupported ltree version number 2");
     }
@@ -1076,22 +1093,16 @@ mod tests {
                         pin_c_ctype();
                         if which == "check_cond" {
                             (
-                                io::parse_ltree(
-                                    "a.".repeat(n).trim_end_matches('.').as_bytes(),
-                                )
-                                .unwrap(),
-                                io::parse_lquery(
-                                    format!("{}a", "*{0,1}.".repeat(n)).as_bytes(),
-                                )
-                                .unwrap(),
+                                io::parse_ltree("a.".repeat(n).trim_end_matches('.').as_bytes())
+                                    .unwrap(),
+                                io::parse_lquery(format!("{}a", "*{0,1}.".repeat(n)).as_bytes())
+                                    .unwrap(),
                             )
                         } else {
                             (
                                 io::parse_ltree(b"a.b").unwrap(),
-                                io::parse_ltxtquery(
-                                    format!("{}a", "a&".repeat(n)).as_bytes(),
-                                )
-                                .unwrap(),
+                                io::parse_ltxtquery(format!("{}a", "a&".repeat(n)).as_bytes())
+                                    .unwrap(),
                             )
                         }
                     }
@@ -1204,7 +1215,9 @@ mod tests {
     /// docker postgres:18.3 and diffed. Inert without the env var.
     #[test]
     fn docker_differential_probe() {
-        let Ok(path) = std::env::var("LTREE_PROBE") else { return };
+        let Ok(path) = std::env::var("LTREE_PROBE") else {
+            return;
+        };
         let body = std::fs::read_to_string(&path).unwrap();
         // Emulate a backend thread: the stack-depth guard short-circuits on
         // base == 0, so without this the recursive parsers run UNGUARDED and
@@ -1220,8 +1233,7 @@ mod tests {
             let r = match kind {
                 "ltree" => io::parse_ltree(&buf).map(|i| io::deparse_ltree(&i)),
                 "lquery" => io::parse_lquery(&buf).and_then(|i| io::deparse_lquery(&i)),
-                "ltxtquery" => io::parse_ltxtquery(&buf)
-                    .and_then(|i| io::deparse_ltxtquery(&i)),
+                "ltxtquery" => io::parse_ltxtquery(&buf).and_then(|i| io::deparse_ltxtquery(&i)),
                 k => panic!("bad kind {k}"),
             };
             let v = match r {
@@ -1264,7 +1276,11 @@ mod tests {
         ] {
             let e = io::parse_lquery(input.as_bytes())
                 .expect_err(&format!("{input}: should be rejected"));
-            assert_eq!(e.sqlstate(), types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED, "{input}");
+            assert_eq!(
+                e.sqlstate(),
+                types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED,
+                "{input}"
+            );
         }
     }
 
@@ -1284,14 +1300,19 @@ mod tests {
     #[test]
     fn ltxtquery_deep_nesting_raises_54001_and_does_not_abort() {
         // (nesting depth, must the guard have fired?)
-        const DEPTHS: [(usize, bool); 5] =
-            [(700, false), (2800, true), (9000, true), (20000, true), (100_000, true)];
+        const DEPTHS: [(usize, bool); 5] = [
+            (700, false),
+            (2800, true),
+            (9000, true),
+            (20000, true),
+            (100_000, true),
+        ];
         if let Ok(d) = std::env::var("LTREE_STACK_PROBE") {
             let depth: usize = d.parse().unwrap();
             let mut s = Vec::new();
-            s.extend(std::iter::repeat_n(b'(',depth));
+            s.extend(std::iter::repeat_n(b'(', depth));
             s.push(b'a');
-            s.extend(std::iter::repeat_n(b')',depth));
+            s.extend(std::iter::repeat_n(b')', depth));
             let h = std::thread::Builder::new()
                 // The production pairing: child_thread_stack_size() hands a
                 // backend thread RLIMIT_STACK (8 MiB typical) while PG's boot
@@ -1337,10 +1358,7 @@ mod tests {
                 .lines()
                 .find(|l| l.starts_with("PROBE"))
                 .unwrap_or_else(|| panic!("depth {depth}: process died (no verdict): {se}"));
-            assert!(
-                out.status.success(),
-                "depth {depth}: child failed: {se}"
-            );
+            assert!(out.status.success(), "depth {depth}: child failed: {se}");
             // The depth at which the guard trips is NOT a comparison surface
             // (it is a function of frame size, which differs from C's); that
             // the process SURVIVES and reports 54001 rather than dying is.
@@ -1402,7 +1420,11 @@ mod tests {
         // spell out the offset the whole finding is about
         let voff = repr::LQUERY_HDRSIZE + repr::LQL_HDRSIZE;
         assert_eq!(img[voff + repr::LVAR_OFF_NAME], b'a', "label at +7");
-        assert_eq!(img[voff + repr::LVAR_HDRSIZE], 0, "+8 is pad, not the label");
+        assert_eq!(
+            img[voff + repr::LVAR_HDRSIZE],
+            0,
+            "+8 is pad, not the label"
+        );
     }
 
     /// upstream 7f019f34140a: a level's variant count and serialized size are
@@ -1414,7 +1436,11 @@ mod tests {
         pin_c_ctype();
         let limit = |input: &str, msg: &str, detail: &str| {
             let e = io::parse_lquery(input.as_bytes()).expect_err(msg);
-            assert_eq!(e.sqlstate(), types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED, "{msg}");
+            assert_eq!(
+                e.sqlstate(),
+                types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED,
+                "{msg}"
+            );
             assert_eq!(e.message(), msg);
             assert_eq!(e.detail(), Some(detail), "{msg}");
         };
@@ -1430,7 +1456,11 @@ mod tests {
         assert_eq!((lvl.numvar(), lvl.totallen()), (4094, 65520));
         assert_eq!(io::deparse_lquery(&img).unwrap(), ok.as_bytes());
         // one more variant crosses the level-size limit
-        limit(&format!("{}a", "a|".repeat(4094)), too_large, too_large_detail);
+        limit(
+            &format!("{}a", "a|".repeat(4094)),
+            too_large,
+            too_large_detail,
+        );
         // the upstream regress shapes
         let mut long = "x".repeat(1000);
         for _ in 0..65 {
@@ -1439,11 +1469,23 @@ mod tests {
         }
         limit(&long, too_large, too_large_detail);
         limit(&format!("ok.{long}"), too_large, too_large_detail);
-        limit(&format!("{}a", "a|".repeat(65535)), too_many, too_many_detail);
+        limit(
+            &format!("{}a", "a|".repeat(65535)),
+            too_many,
+            too_many_detail,
+        );
         // 65535 variants pass the count check and fail the size check
-        limit(&format!("{}a", "a|".repeat(65534)), too_large, too_large_detail);
+        limit(
+            &format!("{}a", "a|".repeat(65534)),
+            too_large,
+            too_large_detail,
+        );
         // ordering against syntax errors
-        limit(&format!("{}a..", "a|".repeat(65535)), too_many, too_many_detail);
+        limit(
+            &format!("{}a..", "a|".repeat(65535)),
+            too_many,
+            too_many_detail,
+        );
         for input in [format!(".{}a", "a|".repeat(65535)), format!("{long}..")] {
             let e = io::parse_lquery(input.as_bytes()).unwrap_err();
             assert_eq!(e.sqlstate(), types_error::ERRCODE_SYNTAX_ERROR);

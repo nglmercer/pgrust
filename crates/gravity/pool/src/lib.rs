@@ -13,7 +13,10 @@ use gravity_driver::mem::root::Root;
 use gravity_driver::mem::spill::{READ_BYTES, READ_PART, READ_RUN};
 use gravity_driver::Error;
 use gravity_parallel::{ErrorFunnel, FirstError, Job, MorselSource, Pool};
-use runtime::{CompletionWaiter, QuerySpec, RgHandle, RgOutcome, Runtime, TaskSetSpec, TaskSetWork, WidthRequest};
+use runtime::{
+    CompletionWaiter, QuerySpec, RgHandle, RgOutcome, Runtime, TaskSetSpec, TaskSetWork,
+    WidthRequest,
+};
 use types_core::TransactionId;
 use types_error::PgResult;
 
@@ -67,11 +70,16 @@ fn leader_xids(out: &mut budget::ChargedVec<TransactionId>) -> PgResult<()> {
     let n = xact::SerializeTransactionState(&mut buf)?;
     let nxids = (n - SERIALIZED_XACT_HEADER) / 4;
     out.clear();
-    out.try_reserve(nxids).map_err(|_| PgError::error("out of memory copying the leader's transaction xids"))?; // alloc: Cold
-    // bounded("other: one 4-byte copy per XID of the leader's serialized transaction state, its own and its subtransactions'; PG's SerializeTransactionState walks the same XIDs with no poll")
+    out.try_reserve(nxids)
+        .map_err(|_| PgError::error("out of memory copying the leader's transaction xids"))?; // alloc: Cold
+                                                                                              // bounded("other: one 4-byte copy per XID of the leader's serialized transaction state, its own and its subtransactions'; PG's SerializeTransactionState walks the same XIDs with no poll")
     for i in 0..nxids {
         let off = SERIALIZED_XACT_HEADER + 4 * i;
-        out.push(TransactionId::from_ne_bytes(buf[off..off + 4].try_into().expect("4 bytes"))).map_err(|_| PgError::error("out of memory copying the leader's transaction xids"))?; // alloc: Cold
+        out.push(TransactionId::from_ne_bytes(
+            buf[off..off + 4].try_into().expect("4 bytes"),
+        ))
+        .map_err(|_| PgError::error("out of memory copying the leader's transaction xids"))?;
+        // alloc: Cold
     }
     Ok(())
 }
@@ -82,8 +90,18 @@ fn no_xids(out: &mut budget::ChargedVec<TransactionId>) -> PgResult<()> {
 }
 
 impl Ambient {
-    pub const SERVER: Ambient = Ambient { interrupts: cancelpoll::interrupts::check, abort: server_abort, arm: arm_worker, xids: leader_xids };
-    pub const HARNESS: Ambient = Ambient { interrupts: no_interrupts, abort: no_abort, arm: no_arm, xids: no_xids };
+    pub const SERVER: Ambient = Ambient {
+        interrupts: cancelpoll::interrupts::check,
+        abort: server_abort,
+        arm: arm_worker,
+        xids: leader_xids,
+    };
+    pub const HARNESS: Ambient = Ambient {
+        interrupts: no_interrupts,
+        abort: no_abort,
+        arm: no_arm,
+        xids: no_xids,
+    };
 }
 
 /// A one-off job on a pool thread: the gate and the arming as a section's claim, then the job.
@@ -157,7 +175,16 @@ impl RuntimePool {
     pub fn new(rt: Arc<Runtime>, ambient: Ambient) -> RuntimePool {
         // the pool's workers are armed for temp files: the process's spill store goes with it
         let _ = install_spills();
-        RuntimePool { rt, ambient, query_ids: AtomicU64::new(1), sections: AtomicU64::new(0), claims_run: AtomicU64::new(0), wakes: AtomicU64::new(0), quanta: AtomicU64::new(0), first_section_micros: AtomicU64::new(0) } // alloc: Cold
+        RuntimePool {
+            rt,
+            ambient,
+            query_ids: AtomicU64::new(1),
+            sections: AtomicU64::new(0),
+            claims_run: AtomicU64::new(0),
+            wakes: AtomicU64::new(0),
+            quanta: AtomicU64::new(0),
+            first_section_micros: AtomicU64::new(0),
+        } // alloc: Cold
     }
 
     /// The process pool, when the postmaster started one; `None` means
@@ -318,7 +345,13 @@ impl AsRef<gravity_driver::claimcut::Cut> for Counted {
 
 impl Work {
     fn try_lease(&self) -> Option<u16> {
-        self.slots.iter().position(|s| s.compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed).is_ok()).map(|i| i as u16)
+        self.slots
+            .iter()
+            .position(|s| {
+                s.compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
+                    .is_ok()
+            })
+            .map(|i| i as u16)
     }
 
     /// `None` once the section has failed (the claims are closed; nothing to wait for).
@@ -350,7 +383,10 @@ impl Work {
             }
             let g = self.idle.0.lock().unwrap_or_else(|p| p.into_inner());
             if self.slots.iter().all(|s| s.load(Ordering::Acquire)) {
-                let _ = self.idle.1.wait_timeout(g, core::time::Duration::from_micros(200));
+                let _ = self
+                    .idle
+                    .1
+                    .wait_timeout(g, core::time::Duration::from_micros(200));
             }
             if let Some(i) = self.try_lease() {
                 return Some(i);
@@ -376,24 +412,37 @@ impl Work {
         }
         arm_once(self.arm).map_err(|e| (0, stash(e)))?;
         let _armed = self.stamp.arm().map_err(|e| (0, stash(e)))?; // D316 / D2350: the claim registry's state disarms at the claim's end
-        // D278: the ordered window admits the claim BEFORE its lease. Admitted after it, a claim waiting for room held its
-        // slot while the head's thread waited in `lease` for one: W slot holders parked until ROOM_WAIT (20 ms) per round.
+                                                                   // D278: the ordered window admits the claim BEFORE its lease. Admitted after it, a claim waiting for room held its
+                                                                   // slot while the head's thread waited in `lease` for one: W slot holders parked until ROOM_WAIT (20 ms) per round.
         let claim = MorselRange::new(range.start, range.end);
         let order = self.order();
         if order.is_some_and(|o| !o.admit(claim)) {
             return Ok(());
         }
         // admitted, it settles on every path: the job's result, or failed (a refused lease, an unwind)
-        let mut settle = Settle { order, claim, ok: false };
-        let Some(ordinal) = self.lease() else { return Ok(()) };
+        let mut settle = Settle {
+            order,
+            claim,
+            ok: false,
+        };
+        let Some(ordinal) = self.lease() else {
+            return Ok(());
+        };
         // the census's two instants per claim (the DST-REVIEW'd time sites): its start (the ordinal's first claim) and its end
         // (`last_end`); D3024 (b): their difference is the claim's wall (`claim_max`, `claim_sum`)
-        let began = self.census.then(|| self.t0.elapsed().as_nanos().max(1) as u64);
-        if let Some(b) = began.filter(|_| self.first[ordinal as usize].load(Ordering::Relaxed) == 0) {
+        let began = self
+            .census
+            .then(|| self.t0.elapsed().as_nanos().max(1) as u64);
+        if let Some(b) = began.filter(|_| self.first[ordinal as usize].load(Ordering::Relaxed) == 0)
+        {
             self.first[ordinal as usize].store(b, Ordering::Relaxed);
         }
         xact::enter_section_xids(self.xids.as_slice());
-        let mut leased = Leased { work: self, ordinal, ok: false }; // released on the unwind too: a panicked claim's slot held every slot-less thread (a hang)
+        let mut leased = Leased {
+            work: self,
+            ordinal,
+            ok: false,
+        }; // released on the unwind too: a panicked claim's slot held every slot-less thread (a hang)
         let job = self.job();
         // D4242: the smgr table's AtEOXact_SMgr on a thread that ends no transaction (a serve's own ends its)
         if !xact::IsTransactionOrTransactionBlock() {
@@ -402,7 +451,12 @@ impl Work {
         let start = SectionStats::claim_begin();
         // skewsplit: the claim's cut, offered to the claim's node and ended (a pending ask declined) when the job returns
         let r = match self.board.as_ref() {
-            Some(b) => b.run(&self.claims_run[ordinal as usize].1, claim.lo, claim.hi, || job(ordinal, claim)),
+            Some(b) => b.run(
+                &self.claims_run[ordinal as usize].1,
+                claim.lo,
+                claim.hi,
+                || job(ordinal, claim),
+            ),
             None => job(ordinal, claim),
         };
         settle.ok = r.is_ok();
@@ -412,10 +466,14 @@ impl Work {
         if let Some(b) = began {
             let end = self.t0.elapsed().as_nanos() as u64;
             self.last_end.fetch_max(end, Ordering::Relaxed);
-            self.claim_max.fetch_max(end.saturating_sub(b), Ordering::Relaxed);
-            self.claim_sum.fetch_add(end.saturating_sub(b), Ordering::Relaxed);
+            self.claim_max
+                .fetch_max(end.saturating_sub(b), Ordering::Relaxed);
+            self.claim_sum
+                .fetch_add(end.saturating_sub(b), Ordering::Relaxed);
         }
-        self.claims_run[ordinal as usize].0.fetch_add(1, Ordering::Relaxed);
+        self.claims_run[ordinal as usize]
+            .0
+            .fetch_add(1, Ordering::Relaxed);
         drop(leased);
         r.map_err(|e| (ordinal, e))
     }
@@ -455,11 +513,13 @@ impl Drop for Leased<'_> {
 }
 
 impl Work {
-
     fn fail(&self, claim_lo: u64, ordinal: u16, e: Error) {
         if let Some(pg) = take_any_error() {
             let mut slot = self.pg.lock().unwrap_or_else(|p| p.into_inner());
-            if slot.as_ref().is_none_or(|(lo, ord, _)| (claim_lo, ordinal) < (*lo, *ord)) {
+            if slot
+                .as_ref()
+                .is_none_or(|(lo, ord, _)| (claim_lo, ordinal) < (*lo, *ord))
+            {
                 *slot = Some((claim_lo, ordinal, pg));
             }
         }
@@ -510,8 +570,14 @@ impl TaskSetWork for Work {
                 // flattened; D611: PoolRetireRaw (a fence that moved between the pre-claim gate and this claim) is an
                 // exit too: the thread must die RAW and respawn, never be swallowed here and retire again at every
                 // later claim
-                if parallel::standing::is_exit_unwind(&*unwind) || unwind.is::<parallel::standing::PoolRetireRaw>() {
-                    self.fail(range.start, 0, Error::host("gravity: worker panicked in a claim"));
+                if parallel::standing::is_exit_unwind(&*unwind)
+                    || unwind.is::<parallel::standing::PoolRetireRaw>()
+                {
+                    self.fail(
+                        range.start,
+                        0,
+                        Error::host("gravity: worker panicked in a claim"),
+                    );
                     std::panic::resume_unwind(unwind);
                 }
                 // D2933: a bug's plain panic is C's abort(), here the leader's PANIC: the section fails (no thread
@@ -520,7 +586,11 @@ impl TaskSetWork for Work {
                 // group waiting for a drain no thread comes to do); the leader PANICs once the section completed
                 // (run_led) and the crash restart retires every pool thread (the fence). The hook printed the panic
                 if !parallel::standing::is_structured_error(&*unwind) {
-                    self.fail(range.start, 0, Error::host("gravity: worker panicked in a claim"));
+                    self.fail(
+                        range.start,
+                        0,
+                        Error::host("gravity: worker panicked in a claim"),
+                    );
                     self.bug_panic.store(true, Ordering::Release);
                     return;
                 }
@@ -562,7 +632,9 @@ fn slots(width: u16) -> Box<[AtomicBool]> {
 
 fn counted(width: u16) -> Box<[Counted]> {
     let mut v = Vec::with_capacity(width as usize); // alloc: Exec
-    v.resize_with(width as usize, || Counted(AtomicU64::new(0), gravity_driver::claimcut::Cut::new()));
+    v.resize_with(width as usize, || {
+        Counted(AtomicU64::new(0), gravity_driver::claimcut::Cut::new())
+    });
     v.into_boxed_slice()
 }
 
@@ -582,22 +654,43 @@ impl Pool for RuntimePool {
     }
 
     fn spawn(&self, job: Box<dyn FnOnce() + Send>) -> bool {
-        let work: Arc<dyn TaskSetWork> = Arc::new(Background { job: Mutex::new(Some(job)), arm: self.ambient.arm, stamp: SessionCarry::capture() }); // alloc: Cold
+        let work: Arc<dyn TaskSetWork> = Arc::new(Background {
+            job: Mutex::new(Some(job)),
+            arm: self.ambient.arm,
+            stamp: SessionCarry::capture(),
+        }); // alloc: Cold
         let source: Arc<dyn runtime::MorselSource> = Arc::new(OneUnit); // alloc: Cold
-        let spec = QuerySpec { query_id: self.query_ids.fetch_add(1, Ordering::Relaxed), tasksets: vec![TaskSetSpec { source, work, deps: Vec::new() }] }; // alloc: Cold
+        let spec = QuerySpec {
+            query_id: self.query_ids.fetch_add(1, Ordering::Relaxed),
+            tasksets: vec![TaskSetSpec {
+                source,
+                work,
+                deps: Vec::new(),
+            }],
+        }; // alloc: Cold
         let (_rg, _waiter) = self.rt.submit_with_width(spec, WidthRequest::unbounded(1));
         true
     }
 
     fn cold_micros(&self) -> (u64, u64) {
-        (gravity_hosts::first_arm_micros(), self.first_section_micros.load(Ordering::Relaxed))
+        (
+            gravity_hosts::first_arm_micros(),
+            self.first_section_micros.load(Ordering::Relaxed),
+        )
     }
 
     fn run(&self, width: u16, claims: &dyn MorselSource, job: &Job<'_>) -> Result<(), FirstError> {
         self.run_led(width, claims, job, None)
     }
 
-    fn run_leading(&self, width: u16, claims: &dyn MorselSource, job: &Job<'_>, lead: &mut dyn FnMut(), order: &gravity_driver::ClaimOrder) -> Result<(), FirstError> {
+    fn run_leading(
+        &self,
+        width: u16,
+        claims: &dyn MorselSource,
+        job: &Job<'_>,
+        lead: &mut dyn FnMut(),
+        order: &gravity_driver::ClaimOrder,
+    ) -> Result<(), FirstError> {
         self.run_led(width, claims, job, Some((lead, order)))
     }
 
@@ -657,21 +750,36 @@ fn park_ms(ms: u64) {
 
 impl RuntimePool {
     /// The section on the runtime, the leader parked until it completes; `lead` (R1D's ordered output) runs on every wake.
-    fn run_led(&self, width: u16, claims: &dyn MorselSource, job: &Job<'_>, mut lead: Option<(&mut dyn FnMut(), &gravity_driver::ClaimOrder)>) -> Result<(), FirstError> {
+    fn run_led(
+        &self,
+        width: u16,
+        claims: &dyn MorselSource,
+        job: &Job<'_>,
+        mut lead: Option<(&mut dyn FnMut(), &gravity_driver::ClaimOrder)>,
+    ) -> Result<(), FirstError> {
         assert!(width >= 1, "width {width}");
         parallel::standing::note_section_leader(); // D611: this leader proves shared memory live: a respawned thread may bind
-        // the section's own xids, charged to the leader's statement (or portal): no pool-lifetime buffer to copy them out of
-        let mut xids = budget::ChargedVec::new(Some(budget::charge::context().0), budget::Kind::Region);
+                                                   // the section's own xids, charged to the leader's statement (or portal): no pool-lifetime buffer to copy them out of
+        let mut xids =
+            budget::ChargedVec::new(Some(budget::charge::context().0), budget::Kind::Region);
         if let Err(e) = (self.ambient.xids)(&mut xids) {
-            return Err(FirstError { claim_lo: 0, ordinal: 0, error: stash(e) });
+            return Err(FirstError {
+                claim_lo: 0,
+                ordinal: 0,
+                error: stash(e),
+            });
         }
         // skewsplit (D3320): a running claim may be cut for an idle worker where the cursor allows it (never in a led section:
         // its claims are emitted in claim order); a half must clear the runtime's photo-finish floor
-        let board = (lead.is_none() && width >= 2 && claims.split_running()).then(|| gravity_driver::claimcut::Board::new(runtime::DEFAULT_T_MIN_NS));
-        let work = Arc::new(Work { // alloc: Exec
+        let board = (lead.is_none() && width >= 2 && claims.split_running())
+            .then(|| gravity_driver::claimcut::Board::new(runtime::DEFAULT_T_MIN_NS));
+        let work = Arc::new(Work {
+            // alloc: Exec
             job: raw::erase_job(job),
             claims: raw::erase_claims(claims),
-            order: lead.as_ref().map_or(core::ptr::null(), |(_, o)| *o as *const gravity_driver::ClaimOrder),
+            order: lead.as_ref().map_or(core::ptr::null(), |(_, o)| {
+                *o as *const gravity_driver::ClaimOrder
+            }),
             slots: slots(width),
             idle: (Mutex::new(()), pgsync::Condvar::new()),
             funnel: ErrorFunnel::new(),
@@ -692,10 +800,29 @@ impl RuntimePool {
             claim_sum: AtomicU64::new(0),
             board,
         });
-        let until = if lead.is_some() { u64::MAX } else { claims.whole_until() };
+        let until = if lead.is_some() {
+            u64::MAX
+        } else {
+            claims.whole_until()
+        };
         let cutting = work.board.is_some().then(|| work.clone());
-        let source: Arc<dyn runtime::MorselSource> = Arc::new(Units { claims: work.claims, total: claims.total(), c0: claims.startup_c0(), bounded: claims.whole_boundary_claims(), until, endgame: claims.endgame_split(), cutting }); // alloc: Exec
-        let spec = QuerySpec { query_id: self.query_ids.fetch_add(1, Ordering::Relaxed), tasksets: vec![TaskSetSpec { source, work: work.clone(), deps: Vec::new() }] }; // alloc: Exec
+        let source: Arc<dyn runtime::MorselSource> = Arc::new(Units {
+            claims: work.claims,
+            total: claims.total(),
+            c0: claims.startup_c0(),
+            bounded: claims.whole_boundary_claims(),
+            until,
+            endgame: claims.endgame_split(),
+            cutting,
+        }); // alloc: Exec
+        let spec = QuerySpec {
+            query_id: self.query_ids.fetch_add(1, Ordering::Relaxed),
+            tasksets: vec![TaskSetSpec {
+                source,
+                work: work.clone(),
+                deps: Vec::new(),
+            }],
+        }; // alloc: Exec
         let word = ::waiter::current_handle().as_u64();
         // armed before any worker runs: the first head can finish (and a claim wait for room) before the leader's loop
         if let Some((_, order)) = &lead {
@@ -703,10 +830,18 @@ impl RuntimePool {
             order.wake.arm_park(current_word, park_ms);
         }
         let started = std::time::Instant::now();
-        let (rg, waiter): (RgHandle, CompletionWaiter) = self.rt.submit_with_width(spec, WidthRequest::unbounded(width as u32));
+        let (rg, waiter): (RgHandle, CompletionWaiter) = self
+            .rt
+            .submit_with_width(spec, WidthRequest::unbounded(width as u32));
         // D2906: from here the pool's threads run claims over the job, the cursor and the section state this leader's
         // frames own: armed until the section completes, so an unwind out of the loop below quiesces it first
-        let mut quiesce = Quiesce { rg: &rg, waiter: &waiter, order: lead.as_ref().map(|(_, o)| *o), abort: self.ambient.abort, armed: true };
+        let mut quiesce = Quiesce {
+            rg: &rg,
+            waiter: &waiter,
+            order: lead.as_ref().map(|(_, o)| *o),
+            abort: self.ambient.abort,
+            armed: true,
+        };
         *work.rg.lock().unwrap_or_else(|p| p.into_inner()) = Some(rg.clone());
         let first = self.sections.fetch_add(1, Ordering::Relaxed) == 0;
         let mut interrupted: Option<Error> = None;
@@ -739,7 +874,8 @@ impl RuntimePool {
             if waiter.register_waker_word(word) {
                 continue;
             }
-            match ::waiter::park_timeout(core::time::Duration::from_millis(PARK_QUANTUM_MS as u64)) {
+            match ::waiter::park_timeout(core::time::Duration::from_millis(PARK_QUANTUM_MS as u64))
+            {
                 ::waiter::ParkResult::Notified => woken = true,
                 ::waiter::ParkResult::TimedOut | ::waiter::ParkResult::Recheck => {
                     self.quanta.fetch_add(1, Ordering::Relaxed);
@@ -755,32 +891,66 @@ impl RuntimePool {
             std::panic::resume_unwind(Box::new(types_error::PanicExitThread)); // alloc: Cold
         }
         if first {
-            let _ = self.first_section_micros.compare_exchange(0, started.elapsed().as_micros().max(1) as u64, Ordering::AcqRel, Ordering::Relaxed);
+            let _ = self.first_section_micros.compare_exchange(
+                0,
+                started.elapsed().as_micros().max(1) as u64,
+                Ordering::AcqRel,
+                Ordering::Relaxed,
+            );
         }
         claims.close();
         work.stats.fold_into_leader();
         let claims_src = claims;
-        let claims: u64 = work.claims_run.iter().map(|c| c.0.load(Ordering::Relaxed)).sum();
+        let claims: u64 = work
+            .claims_run
+            .iter()
+            .map(|c| c.0.load(Ordering::Relaxed))
+            .sum();
         if work.census {
             let ret = work.t0.elapsed().as_nanos() as u64;
             // one read of each engaged thread's first claim: their count, the earliest and the latest
-            let (engaged, lo, hi) = work.first.iter().map(|a| a.load(Ordering::Relaxed)).filter(|&n| n != 0).fold((0usize, u64::MAX, 0u64), |(c, lo, hi), n| (c + 1, lo.min(n), hi.max(n)));
+            let (engaged, lo, hi) = work
+                .first
+                .iter()
+                .map(|a| a.load(Ordering::Relaxed))
+                .filter(|&n| n != 0)
+                .fold((0usize, u64::MAX, 0u64), |(c, lo, hi), n| {
+                    (c + 1, lo.min(n), hi.max(n))
+                });
             let lo = if engaged == 0 { 0 } else { lo };
             let last = work.last_end.load(Ordering::Relaxed);
-            let (waits, overruns) = work.order().map_or((0, 0), |o| (o.waits.load(Ordering::Relaxed), o.overruns.load(Ordering::Relaxed)));
-            let (cmax, csum) = (work.claim_max.load(Ordering::Relaxed), work.claim_sum.load(Ordering::Relaxed));
+            let (waits, overruns) = work.order().map_or((0, 0), |o| {
+                (
+                    o.waits.load(Ordering::Relaxed),
+                    o.overruns.load(Ordering::Relaxed),
+                )
+            });
+            let (cmax, csum) = (
+                work.claim_max.load(Ordering::Relaxed),
+                work.claim_sum.load(Ordering::Relaxed),
+            );
             let split = tail_parts(claims_src, until);
-            let cuts = work.board.as_ref().map_or(0, |b| b.cuts_made.load(Ordering::Relaxed));
-            eprintln!("PHASES pool width={width} engaged={} first_claim_us={:.0} all_engaged_us={:.0} last_end_us={:.0} tail_us={:.0} return_us={:.0} claims={} order_waits={waits} order_overruns={overruns} claim_max_us={:.0} claim_mean_us={:.0} split={split} cuts={cuts}", engaged, lo as f64 / 1e3, hi as f64 / 1e3, last as f64 / 1e3, ret.saturating_sub(last) as f64 / 1e3, ret as f64 / 1e3, claims, cmax as f64 / 1e3, csum as f64 / 1e3 / claims.max(1) as f64); // alloc: Cold
+            let cuts = work
+                .board
+                .as_ref()
+                .map_or(0, |b| b.cuts_made.load(Ordering::Relaxed));
+            eprintln!("PHASES pool width={width} engaged={} first_claim_us={:.0} all_engaged_us={:.0} last_end_us={:.0} tail_us={:.0} return_us={:.0} claims={} order_waits={waits} order_overruns={overruns} claim_max_us={:.0} claim_mean_us={:.0} split={split} cuts={cuts}", engaged, lo as f64 / 1e3, hi as f64 / 1e3, last as f64 / 1e3, ret.saturating_sub(last) as f64 / 1e3, ret as f64 / 1e3, claims, cmax as f64 / 1e3, csum as f64 / 1e3 / claims.max(1) as f64);
+            // alloc: Cold
         }
         self.claims_run.fetch_add(claims, Ordering::Relaxed);
         *work.rg.lock().unwrap_or_else(|p| p.into_inner()) = None;
         if let Some(error) = interrupted {
-            return Err(FirstError { claim_lo: u64::MAX, ordinal: 0, error });
+            return Err(FirstError {
+                claim_lo: u64::MAX,
+                ordinal: 0,
+                error,
+            });
         }
         match work.funnel.take() {
             Some(first) => {
-                if let Some((lo, ord, mut pg)) = work.pg.lock().unwrap_or_else(|p| p.into_inner()).take() {
+                if let Some((lo, ord, mut pg)) =
+                    work.pg.lock().unwrap_or_else(|p| p.into_inner()).take()
+                {
                     if (lo, ord) == (first.claim_lo, first.ordinal) {
                         // The worker's errstart set the report's destinations on its own thread, which has no client
                         // (output_to_client false). Re-raised here the error is the leader's report, so the leader decides
@@ -792,12 +962,15 @@ impl RuntimePool {
                 }
                 Err(first)
             }
-            None if outcome == RgOutcome::Aborted => Err(FirstError { claim_lo: u64::MAX, ordinal: 0, error: Error::host("gravity: section aborted by the runtime") }),
+            None if outcome == RgOutcome::Aborted => Err(FirstError {
+                claim_lo: u64::MAX,
+                ordinal: 0,
+                error: Error::host("gravity: section aborted by the runtime"),
+            }),
             None => Ok(()),
         }
     }
 }
-
 
 /// The process's spill files (§2 decision 3): `spillset` under the driver's `SpillFactory`
 /// (`breakers.md`). Installed beside the pool; the leader and the pool's workers have temp
@@ -836,11 +1009,21 @@ impl File {
     /// The directory's charge fitted to its bytes now, on the thread whose epoch finish grew them (door 1: the growth is
     /// on this thread's account).
     /// Its fields alone (an epoch write holds `writing` borrowed meanwhile).
-    fn fit_dir(dir: &mut Option<budget::Charge>, owner: Option<budget::Owner>, f: &spillset::SpillFile) {
+    fn fit_dir(
+        dir: &mut Option<budget::Charge>,
+        owner: Option<budget::Owner>,
+        f: &spillset::SpillFile,
+    ) {
         let now = f.dir_bytes();
         if dir.is_none() {
             let Some(o) = owner else { return };
-            *dir = Some(budget::Charge::open(o, budget::Release::Statement, budget::Kind::Spill, budget::charge::Door::Heap, 0));
+            *dir = Some(budget::Charge::open(
+                o,
+                budget::Release::Statement,
+                budget::Kind::Spill,
+                budget::charge::Door::Heap,
+                0,
+            ));
         }
         if let Some(c) = dir.as_mut() {
             let had = c.committed();
@@ -862,13 +1045,18 @@ impl File {
 
 impl gravity_driver::SpillFactory for SpillSets {
     fn create(&self) -> gravity_driver::Result<Box<dyn gravity_driver::SpillSet>> {
-        Ok(Box::new(Set { set: spillset::SpillSet::create().map_err(stash)? })) // alloc: Exec
+        Ok(Box::new(Set {
+            set: spillset::SpillSet::create().map_err(stash)?,
+        })) // alloc: Exec
     }
 
     /// D491: the serial owners' chunk past the grant pool, a session temp file (`spillset::with_map_file`: temp_file_limit
     /// charged, blocks allocated) mapped shared; the file is unlinked once mapped.
     fn map_temp(&self, bytes: usize) -> gravity_driver::Result<Option<gravity_driver::TempMap>> {
-        spillset::with_map_file(bytes as u64, |fd| gravity_driver::TempMap::shared(fd, bytes)).map_err(stash)
+        spillset::with_map_file(bytes as u64, |fd| {
+            gravity_driver::TempMap::shared(fd, bytes)
+        })
+        .map_err(stash)
     }
 
     /// C10 (D4168): a session maps its temp files, so a spool past W and G writes there at once. D4945: only where
@@ -879,15 +1067,33 @@ impl gravity_driver::SpillFactory for SpillSets {
 }
 
 impl gravity_driver::SpillSet for Set {
-    fn open(&mut self, purpose: &str, generation: u64, worker: usize, nparts: u32) -> gravity_driver::Result<Box<dyn gravity_driver::SpillFile>> {
+    fn open(
+        &mut self,
+        purpose: &str,
+        generation: u64,
+        worker: usize,
+        nparts: u32,
+    ) -> gravity_driver::Result<Box<dyn gravity_driver::SpillFile>> {
         let name = spillset::SpillSet::file_name(purpose, generation, worker); // alloc: Exec
-        Ok(Box::new(File { dir: None, owner: None, f: spillset::SpillFile::new(Arc::clone(&self.set), name, nparts), ctx: gravity_driver::mem::root::Root::new("GravitySpill"), writing: AtomicBool::new(false) })) // alloc: Exec
+        Ok(Box::new(File {
+            dir: None,
+            owner: None,
+            f: spillset::SpillFile::new(Arc::clone(&self.set), name, nparts),
+            ctx: gravity_driver::mem::root::Root::new("GravitySpill"),
+            writing: AtomicBool::new(false),
+        })) // alloc: Exec
     }
 
     /// D3203: `spillset::SpillSet::delete_files_with`; an error (a directory the leader could not read) unlinks nothing
     /// here and leaves every file to the set's drop, whose walk reports it.
-    fn delete_files_with(&mut self, min_bytes: u64, fan: &dyn Fn(usize, &(dyn Fn(usize) + Sync))) -> (usize, u64, bool) {
-        self.set.delete_files_with(min_bytes, fan).unwrap_or((0, 0, false))
+    fn delete_files_with(
+        &mut self,
+        min_bytes: u64,
+        fan: &dyn Fn(usize, &(dyn Fn(usize) + Sync)),
+    ) -> (usize, u64, bool) {
+        self.set
+            .delete_files_with(min_bytes, fan)
+            .unwrap_or((0, 0, false))
     }
 }
 
@@ -929,11 +1135,17 @@ impl gravity_driver::SpillFile for File {
         self.owner = owner;
     }
 
-    fn read_part(&self, part: u32, sink: &mut dyn FnMut(&[u8]) -> gravity_driver::Result<()>) -> gravity_driver::Result<()> {
+    fn read_part(
+        &self,
+        part: u32,
+        sink: &mut dyn FnMut(&[u8]) -> gravity_driver::Result<()>,
+    ) -> gravity_driver::Result<()> {
         // a context per read: the third phase's workers read one file at once (a partition per token)
         let ctx = gravity_driver::mem::root::Root::new("GravitySpillRead");
         self.frozen()?;
-        let Some(mut r) = self.f.read_part(ctx.mcx(), part).map_err(stash)? else { return Ok(()) };
+        let Some(mut r) = self.f.read_part(ctx.mcx(), part).map_err(stash)? else {
+            return Ok(());
+        };
         let mut buf = [0u8; 64 << 10];
         // D3902: the statement's cancel polled per 64 KiB read (a read under the cgroup's reclaim stalls)
         let mut step = cancelpoll::step("pool read_part: a part's 64 KiB reads");
@@ -967,18 +1179,28 @@ impl gravity_driver::SpillFile for File {
     /// D2572-d: under the limit, a run is still written raw while the statement's spilled bytes with it stay far under it
     /// (`runcodec::raw_fits`): its bytes cannot decide a 53400 there, and the codec's CPU bought nothing.
     fn compress_run(&self, spilled: u64, bytes: u64) -> bool {
-        gravity_hosts::worker_arm::temp_file_limit_bytes().is_some_and(|limit| !gravity_driver::mem::runcodec::raw_fits(spilled, bytes, limit))
+        gravity_hosts::worker_arm::temp_file_limit_bytes()
+            .is_some_and(|limit| !gravity_driver::mem::runcodec::raw_fits(spilled, bytes, limit))
     }
 
-    fn open_part(&self, part: u32) -> gravity_driver::Result<Option<Box<dyn gravity_driver::RunReader>>> {
+    fn open_part(
+        &self,
+        part: u32,
+    ) -> gravity_driver::Result<Option<Box<dyn gravity_driver::RunReader>>> {
         self.frozen()?;
-        Ok(Reader::open(&self.f, part)?.map(|r| Box::new(r) as Box<dyn gravity_driver::RunReader>)) // alloc: Exec
+        Ok(Reader::open(&self.f, part)?.map(|r| Box::new(r) as Box<dyn gravity_driver::RunReader>))
+        // alloc: Exec
     }
 
     /// D3190: a put sort run read from a fence (`mem::fence`): the BufFile seeked to the byte, none read before it.
-    fn open_part_at(&self, part: u32, offset: u64) -> gravity_driver::Result<Option<Box<dyn gravity_driver::RunReader>>> {
+    fn open_part_at(
+        &self,
+        part: u32,
+        offset: u64,
+    ) -> gravity_driver::Result<Option<Box<dyn gravity_driver::RunReader>>> {
         self.frozen()?;
-        Ok(Reader::open_at(&self.f, part, offset)?.map(|r| Box::new(r) as Box<dyn gravity_driver::RunReader>)) // alloc: Exec
+        Ok(Reader::open_at(&self.f, part, offset)?
+            .map(|r| Box::new(r) as Box<dyn gravity_driver::RunReader>)) // alloc: Exec
     }
 
     fn spilled_bytes(&self) -> u64 {
@@ -1013,18 +1235,28 @@ impl gravity_driver::RunReader for Reader {
     /// read of a spilled partition took up to 2.6 s whole under the cgroup's reclaim); fewer bytes only at the run's end.
     /// D3967: before the first one too: a reload loop of reads that each fit one chunk polled nowhere (1.3 s).
     fn read(&mut self, buf: &mut [u8]) -> gravity_driver::Result<usize> {
-        let Some(r) = self.r.as_mut() else { return Ok(0) };
+        let Some(r) = self.r.as_mut() else {
+            return Ok(0);
+        };
         read_polled(r, buf)
     }
 }
 
 /// D4215: a run's reader as `read_polled` reads it (`read_extents`: `spillset::PartReader::read_each`).
 trait RunPieces {
-    fn read_extents(&mut self, buf: &mut [u8], each: &mut dyn FnMut() -> bool) -> gravity_driver::Result<(usize, bool)>;
+    fn read_extents(
+        &mut self,
+        buf: &mut [u8],
+        each: &mut dyn FnMut() -> bool,
+    ) -> gravity_driver::Result<(usize, bool)>;
 }
 
 impl RunPieces for spillset::PartReader<'_> {
-    fn read_extents(&mut self, buf: &mut [u8], each: &mut dyn FnMut() -> bool) -> gravity_driver::Result<(usize, bool)> {
+    fn read_extents(
+        &mut self,
+        buf: &mut [u8],
+        each: &mut dyn FnMut() -> bool,
+    ) -> gravity_driver::Result<(usize, bool)> {
         spillset::PartReader::read_each(self, buf, each).map_err(stash)
     }
 }
@@ -1074,8 +1306,13 @@ pub fn install_spills() -> bool {
 /// index a claim, the leader waiting; the pool's workers are armed for temp files (their spill writes), so a spill file's
 /// unlink runs on any of them. False (nothing ran) without a pool of two threads or more; the caller runs what no claim took.
 fn end_fan_out(width: usize, n: usize, job: &(dyn Fn(usize) + Sync)) -> bool {
-    let Some(pool) = gravity_parallel::installed_pool() else { return false };
-    let width = (pool.threads() as usize).min(width).min(n).min(u16::MAX as usize) as u16;
+    let Some(pool) = gravity_parallel::installed_pool() else {
+        return false;
+    };
+    let width = (pool.threads() as usize)
+        .min(width)
+        .min(n)
+        .min(u16::MAX as usize) as u16;
     if width < 2 {
         return false;
     }
@@ -1122,7 +1359,11 @@ mod tests {
 
     impl RunPieces for Slow<'_> {
         /// As spillset's `read_each`: a piece per extent, `each` asked before every piece past the first.
-        fn read_extents(&mut self, buf: &mut [u8], each: &mut dyn FnMut() -> bool) -> gravity_driver::Result<(usize, bool)> {
+        fn read_extents(
+            &mut self,
+            buf: &mut [u8],
+            each: &mut dyn FnMut() -> bool,
+        ) -> gravity_driver::Result<(usize, bool)> {
             let mut got = 0;
             while got < buf.len() {
                 if self.cur == self.extents.len() {
@@ -1147,7 +1388,14 @@ mod tests {
     #[test]
     fn a_cancel_during_a_runs_first_pread_stops_the_read_before_its_next_pread() {
         let byte = AtomicU8::new(0);
-        let mut r = Slow { extents: vec![40 << 10; 16], cur: 0, pos: 0, preads: 0, cancel_at: 1, byte: &byte }; // alloc: Cold
+        let mut r = Slow {
+            extents: vec![40 << 10; 16],
+            cur: 0,
+            pos: 0,
+            preads: 0,
+            cancel_at: 1,
+            byte: &byte,
+        }; // alloc: Cold
         let mut buf = vec![0u8; IO_CHUNK]; // alloc: Cold
         let got = cancelpoll::scoped(&byte, || read_polled(&mut r, &mut buf));
         assert!(got.is_err(), "the read stops for the cancel");
@@ -1158,7 +1406,14 @@ mod tests {
     fn a_run_read_through_the_polled_reads_gives_its_bytes() {
         let byte = AtomicU8::new(0);
         let extents = vec![40 << 10, 100, IO_CHUNK + 7, 64 << 10, 1]; // alloc: Cold
-        let mut r = Slow { extents: extents.clone(), cur: 0, pos: 0, preads: 0, cancel_at: usize::MAX, byte: &byte };
+        let mut r = Slow {
+            extents: extents.clone(),
+            cur: 0,
+            pos: 0,
+            preads: 0,
+            cancel_at: usize::MAX,
+            byte: &byte,
+        };
         let mut got = Vec::new(); // alloc: Cold
         let mut buf = vec![0u8; 3 * IO_CHUNK]; // alloc: Cold
         loop {
@@ -1168,7 +1423,11 @@ mod tests {
             }
             got.extend_from_slice(&buf[..n]);
         }
-        let want: Vec<u8> = extents.iter().enumerate().flat_map(|(e, &len)| (0..len).map(move |i| (e * 31 + i) as u8)).collect();
+        let want: Vec<u8> = extents
+            .iter()
+            .enumerate()
+            .flat_map(|(e, &len)| (0..len).map(move |i| (e * 31 + i) as u8))
+            .collect();
         assert_eq!(got.len(), want.len());
         assert!(got == want, "the run's bytes in order");
     }
@@ -1179,11 +1438,21 @@ mod tests {
     fn the_temp_file_road_is_claimed_only_where_a_temp_file_maps() {
         use gravity_driver::SpillFactory;
         use std::os::fd::AsRawFd;
-        let path = std::env::temp_dir().join(format!("gravity-pool-maps-temp-{}", std::process::id())); // alloc: Cold
-        let f = std::fs::OpenOptions::new().read(true).write(true).create_new(true).open(&path).expect("a temp file");
+        let path =
+            std::env::temp_dir().join(format!("gravity-pool-maps-temp-{}", std::process::id())); // alloc: Cold
+        let f = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .expect("a temp file");
         f.set_len(1 << 16).expect("its length");
         let maps = gravity_driver::TempMap::shared(f.as_raw_fd(), 1 << 16).is_some();
         std::fs::remove_file(&path).expect("unlinked once mapped");
-        assert_eq!(super::SPILL_SETS.maps_temp(), maps, "maps_temp says whether a temp file maps here");
+        assert_eq!(
+            super::SPILL_SETS.maps_temp(),
+            maps,
+            "maps_temp says whether a temp file maps here"
+        );
     }
 }

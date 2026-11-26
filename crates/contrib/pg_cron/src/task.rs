@@ -107,12 +107,19 @@ pub fn publish_job(spec: JobSpec) -> (u64, Arc<Mutex<JobResult>>) {
 
 /// Worker side: look the job up by bgw_main_arg (dsm_attach + shm_toc_lookup).
 pub fn lookup_job(key: u64) -> Option<(JobSpec, Arc<Mutex<JobResult>>)> {
-    JOB_REGISTRY.lock().unwrap_or_else(|e| e.into_inner()).get(&key).cloned()
+    JOB_REGISTRY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&key)
+        .cloned()
 }
 
 /// Launcher side, on task cleanup (dsm_detach): drop the registry entry.
 pub fn retire_job(key: u64) {
-    JOB_REGISTRY.lock().unwrap_or_else(|e| e.into_inner()).remove(&key);
+    JOB_REGISTRY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&key);
 }
 
 /// The launcher's task table (C: CronTaskHash), keyed by jobid; BTreeMap so
@@ -128,7 +135,9 @@ impl Default for TaskTable {
 
 impl TaskTable {
     pub fn new() -> Self {
-        TaskTable { tasks: BTreeMap::new() }
+        TaskTable {
+            tasks: BTreeMap::new(),
+        }
     }
 
     /// `RefreshTaskHash` (task_states.c): mark every task inactive, then

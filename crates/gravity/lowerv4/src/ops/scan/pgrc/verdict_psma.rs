@@ -17,7 +17,10 @@ crate::strategies! {
     VERDICT_PSMA = 11, "verdict.psma", PgrcFilter;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(VERDICT_PSMA, &VerdictImpl(&Psma))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(VERDICT_PSMA, &VerdictImpl(&Psma))],
+    ..crate::ops::NONE
+};
 
 struct Psma;
 
@@ -25,7 +28,14 @@ impl VerdictMech for Psma {
     fn declare(&self, px: &mut Px<'_, '_>, site: &mut SiteDesc, qual: ExId) -> bool {
         // P5-13: a memcmp-ordered fixed lane's order-key predicate too (its PSMA is over the same keys: uuid's Coarse prefix,
         // read never strict; macaddr's Exact image), never a text prefix predicate
-        let keyed = |z: &ZonePred| !z.prefix || matches!(site.lanes()[z.lane as usize].rep, Rep::FixedPtr { .. });
-        crate::ops::scan::pgrc::verdict_zone::of(px, site, qual).is_some_and(|(z, exact)| exact && keyed(&z) && !matches!(z.op, ZoneOp::Ne | ZoneOp::NotNull | ZoneOp::IsNull) && site.zone_preds().contains(&z))
+        let keyed = |z: &ZonePred| {
+            !z.prefix || matches!(site.lanes()[z.lane as usize].rep, Rep::FixedPtr { .. })
+        };
+        crate::ops::scan::pgrc::verdict_zone::of(px, site, qual).is_some_and(|(z, exact)| {
+            exact
+                && keyed(&z)
+                && !matches!(z.op, ZoneOp::Ne | ZoneOp::NotNull | ZoneOp::IsNull)
+                && site.zone_preds().contains(&z)
+        })
     }
 }

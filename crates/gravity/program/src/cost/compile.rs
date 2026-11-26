@@ -18,20 +18,46 @@ use crate::cost::anchor::Anchor;
 use crate::cost::fit::Fitted;
 
 const BOX: &str = "box 59: c8g (Neoverse V2), 64 threads";
-const SWEEP: &str = "lanes/inputs/work/fit_tier0.py: seed-1001 tables, 0..32 aggregate terms, 64..65,536 rows, W0";
+const SWEEP: &str =
+    "lanes/inputs/work/fit_tier0.py: seed-1001 tables, 0..32 aggregate terms, 64..65,536 rows, W0";
 
 /// The compile and the interpreter are both branchy work of the core (the sort anchor): one anchor, so the rule holds on
 /// every host, as the module says.
 ///
 /// A compile's fixed cost.
-pub const COMPILE_FIXED: Fitted = Fitted { ns: 340_200.0, machine: BOX, corpus: SWEEP, anchor: Anchor::Sort };
+pub const COMPILE_FIXED: Fitted = Fitted {
+    ns: 340_200.0,
+    machine: BOX,
+    corpus: SWEEP,
+    anchor: Anchor::Sort,
+};
 /// A compile's cost per IR line.
-pub const COMPILE_PER_LINE: Fitted = Fitted { ns: 378.06, machine: BOX, corpus: SWEEP, anchor: Anchor::Sort };
+pub const COMPILE_PER_LINE: Fitted = Fitted {
+    ns: 378.06,
+    machine: BOX,
+    corpus: SWEEP,
+    anchor: Anchor::Sort,
+};
 /// The interpreter's extra cost per row, per IR line, and its fixed part (negative: a program's setup lines run once).
-pub const INTERP_ROW_PER_LINE: Fitted = Fitted { ns: 0.9866, machine: BOX, corpus: SWEEP, anchor: Anchor::Sort };
-pub const INTERP_ROW_FIXED: Fitted = Fitted { ns: -505.3, machine: BOX, corpus: SWEEP, anchor: Anchor::Sort };
+pub const INTERP_ROW_PER_LINE: Fitted = Fitted {
+    ns: 0.9866,
+    machine: BOX,
+    corpus: SWEEP,
+    anchor: Anchor::Sort,
+};
+pub const INTERP_ROW_FIXED: Fitted = Fitted {
+    ns: -505.3,
+    machine: BOX,
+    corpus: SWEEP,
+    anchor: Anchor::Sort,
+};
 /// The least extra per row: the smallest program measured (no aggregate term, 585 lines).
-pub const INTERP_ROW_FLOOR: Fitted = Fitted { ns: 294.0, machine: BOX, corpus: SWEEP, anchor: Anchor::Sort };
+pub const INTERP_ROW_FLOOR: Fitted = Fitted {
+    ns: 294.0,
+    machine: BOX,
+    corpus: SWEEP,
+    anchor: Anchor::Sort,
+};
 
 /// The rows at most a program of `lines` IR lines may read for its first execution to run interpreted.
 pub fn tier0_rows(lines: u64) -> u64 {
@@ -43,10 +69,10 @@ pub fn tier0_rows(lines: u64) -> u64 {
 /// compile is every line's, the interpreter's extra per row is `per_row` lines'.
 pub fn tier0_rows_running(lines: u64, per_row: f64) -> u64 {
     let compile = COMPILE_FIXED.ns + COMPILE_PER_LINE.ns * lines as f64;
-    let row = (INTERP_ROW_FIXED.ns + INTERP_ROW_PER_LINE.ns * per_row.clamp(0.0, lines as f64)).max(INTERP_ROW_FLOOR.ns);
+    let row = (INTERP_ROW_FIXED.ns + INTERP_ROW_PER_LINE.ns * per_row.clamp(0.0, lines as f64))
+        .max(INTERP_ROW_FLOOR.ns);
     (compile / (2.0 * row)) as u64
 }
-
 
 /// The fewest LEFT / FULL hash probes one pipeline stacks for them to lower the steps after them once (lowerv4
 /// ops/hashjoin/probe_share.rs) instead of once for a probe's hits and once for its miss (2^n copies at n stacked probes).
@@ -63,11 +89,25 @@ mod tests {
     #[test]
     fn the_cap_is_half_the_compile_over_the_extra_per_row() {
         // within 15 % of every family measured (lines, break-even rows)
-        for (lines, measured) in [(585, 937), (1069, 605), (1480, 492), (2052, 408), (3131, 309), (5153, 263), (9197, 217)] {
+        for (lines, measured) in [
+            (585, 937),
+            (1069, 605),
+            (1480, 492),
+            (2052, 408),
+            (3131, 309),
+            (5153, 263),
+            (9197, 217),
+        ] {
             let n = tier0_rows(lines) as f64;
-            assert!((n / measured as f64 - 1.0).abs() < 0.15, "{lines} lines: {n} rows against {measured}");
+            assert!(
+                (n / measured as f64 - 1.0).abs() < 0.15,
+                "{lines} lines: {n} rows against {measured}"
+            );
         }
-        assert!(tier0_rows(20_000) < tier0_rows(2_000), "a bigger program runs more code a row");
+        assert!(
+            tier0_rows(20_000) < tier0_rows(2_000),
+            "a bigger program runs more code a row"
+        );
         assert!(tier0_rows(0) > 0);
     }
 
@@ -77,7 +117,10 @@ mod tests {
         // every line on every row is the plain cap; fewer lines a row raise it, never past the floor's
         assert_eq!(tier0_rows_running(20_000, 20_000.0), tier0_rows(20_000));
         assert!(tier0_rows_running(20_000, 2_000.0) > tier0_rows(20_000));
-        assert_eq!(tier0_rows_running(20_000, 0.0), tier0_rows_running(20_000, 1.0));
+        assert_eq!(
+            tier0_rows_running(20_000, 0.0),
+            tier0_rows_running(20_000, 1.0)
+        );
         assert_eq!(tier0_rows_running(20_000, 40_000.0), tier0_rows(20_000));
     }
 }

@@ -28,15 +28,41 @@ fn an_admission_trims_only_the_parked_regions_it_needs() {
     park(200 * MIB);
     let (p0, d0) = (POOL.stats(), REGIONS.stats());
     assert_eq!(d0.bytes as u64, 400 * MIB);
-    assert_eq!(POOL.held_by_statements(), 0, "a parked region is no statement's");
-    let a = POOL.admit_need(Grant::of(4000 * MIB), &|g| g.bytes, Duration::from_secs(5)).expect("admitted");
-    assert_eq!(a.grant.bytes, 2000 * MIB, "halved once, beside the parked regions");
+    assert_eq!(
+        POOL.held_by_statements(),
+        0,
+        "a parked region is no statement's"
+    );
+    let a = POOL
+        .admit_need(Grant::of(4000 * MIB), &|g| g.bytes, Duration::from_secs(5))
+        .expect("admitted");
+    assert_eq!(
+        a.grant.bytes,
+        2000 * MIB,
+        "halved once, beside the parked regions"
+    );
     let (p1, d1) = (POOL.stats(), REGIONS.stats());
-    assert_eq!((d1.evictions, d1.bytes), (d0.evictions, d0.bytes), "no parked region dropped for an ask past the pool");
-    assert_eq!(p1.trims - p0.trims, 1, "the ask past the pool trims the slot depot alone");
-    let r1 = REGIONS.take(200 * MIB as usize, None).expect("a parked region");
-    let r2 = REGIONS.take(200 * MIB as usize, None).expect("a parked region");
-    assert_eq!(REGIONS.stats().allocs, d1.allocs, "both draws served by the parked regions");
+    assert_eq!(
+        (d1.evictions, d1.bytes),
+        (d0.evictions, d0.bytes),
+        "no parked region dropped for an ask past the pool"
+    );
+    assert_eq!(
+        p1.trims - p0.trims,
+        1,
+        "the ask past the pool trims the slot depot alone"
+    );
+    let r1 = REGIONS
+        .take(200 * MIB as usize, None)
+        .expect("a parked region");
+    let r2 = REGIONS
+        .take(200 * MIB as usize, None)
+        .expect("a parked region");
+    assert_eq!(
+        REGIONS.stats().allocs,
+        d1.allocs,
+        "both draws served by the parked regions"
+    );
     drop(a);
     REGIONS.put(r1);
     REGIONS.put(r2);
@@ -44,10 +70,16 @@ fn an_admission_trims_only_the_parked_regions_it_needs() {
     // (2) an ask that fits whole once 128 MiB come back trims the least recently put region alone
     let (p2, d2) = (POOL.stats(), REGIONS.stats());
     assert_eq!((d2.entries, d2.bytes as u64), (2, 400 * MIB));
-    let b = POOL.admit_need(Grant::of(2800 * MIB), &|g| g.bytes, Duration::from_secs(5)).expect("admitted");
+    let b = POOL
+        .admit_need(Grant::of(2800 * MIB), &|g| g.bytes, Duration::from_secs(5))
+        .expect("admitted");
     assert_eq!(b.grant.bytes, 2800 * MIB, "the whole ask");
     let (p3, d3) = (POOL.stats(), REGIONS.stats());
-    assert_eq!((d3.entries, d3.bytes as u64, d3.evictions - d2.evictions), (1, 200 * MIB, 1), "one region dropped for the 128 MiB short");
+    assert_eq!(
+        (d3.entries, d3.bytes as u64, d3.evictions - d2.evictions),
+        (1, 200 * MIB, 1),
+        "one region dropped for the 128 MiB short"
+    );
     assert_eq!(p3.trims - p2.trims, 1);
     drop(b);
 

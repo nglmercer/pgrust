@@ -31,13 +31,20 @@ pub(crate) fn cursor_cell<'m>(mcx: mcx::Mcx<'m>, k: Word, by_param: bool) -> PgR
 /// `p` addresses a live array varlena (a non-null key cell).
 pub(crate) unsafe fn tid_array(p: *const u8, out: &mut Vec<ItemPointerData>) -> PgResult<()> {
     if *p & 0x03 != 0 {
-        return Err(crate::pg_err("gravity: a TID array whose image is compressed, short or external"));
+        return Err(crate::pg_err(
+            "gravity: a TID array whose image is compressed, short or external",
+        ));
     }
-    let rd = |o: usize| i32::from_le_bytes([*p.add(o), *p.add(o + 1), *p.add(o + 2), *p.add(o + 3)]);
+    let rd =
+        |o: usize| i32::from_le_bytes([*p.add(o), *p.add(o + 1), *p.add(o + 2), *p.add(o + 3)]);
     match rd(4) {
         0 => return Ok(()),
         1 => {}
-        _ => return Err(crate::pg_err("gravity: a TID array of more than one dimension")),
+        _ => {
+            return Err(crate::pg_err(
+                "gravity: a TID array of more than one dimension",
+            ))
+        }
     }
     let (dataoffset, n) = (rd(8) as usize, rd(16) as usize);
     let nulls = (dataoffset != 0).then(|| p.add(24));
@@ -45,7 +52,9 @@ pub(crate) unsafe fn tid_array(p: *const u8, out: &mut Vec<ItemPointerData>) -> 
     // an element is the unit (a 6-byte copy, so a tick per batch): the array is as long as its value
     let mut step = cancelpoll::step("tid_keys tid_array: one element of a tid array");
     for i in 0..n {
-        step.batch(i).map_err(|_| crate::pg_err("gravity: a TID array's read stopped for its statement's cancel"))?;
+        step.batch(i).map_err(|_| {
+            crate::pg_err("gravity: a TID array's read stopped for its statement's cancel")
+        })?;
         if nulls.is_some_and(|b| *b.add(i / 8) & (1 << (i % 8)) == 0) {
             continue;
         }
@@ -61,23 +70,39 @@ pub(crate) unsafe fn tid_array(p: *const u8, out: &mut Vec<ItemPointerData>) -> 
 /// portal: execCurrentOf's 34000 with its bytes verbatim.
 /// # Safety
 /// `k` is a non-null cursor word: a live `text` varlena when `by_param`, else the address of a live `CurrentOfExpr`.
-pub(crate) unsafe fn cursor_of<'m>(mcx: mcx::Mcx<'m>, k: Word, by_param: bool) -> PgResult<&'m str> {
+pub(crate) unsafe fn cursor_of<'m>(
+    mcx: mcx::Mcx<'m>,
+    k: Word,
+    by_param: bool,
+) -> PgResult<&'m str> {
     if !by_param {
         let c = &*(k as usize as *const types_nodes::primnodes::CurrentOfExpr<'m>);
-        return c.cursor_name.ok_or_else(|| crate::pg_err("gravity: a CURRENT OF word without its cursor name"));
+        return c
+            .cursor_name
+            .ok_or_else(|| crate::pg_err("gravity: a CURRENT OF word without its cursor name"));
     }
     use types_tuple::varatt::{varatt_is_1b, varatt_is_1b_e, varatt_is_4b_u, varsize_any};
     let p = k as usize as *const u8;
     let img = core::slice::from_raw_parts(p, varsize_any(p));
     // a plain image as it is; a compressed or external one detoasted into the execution's context
     let plain = varatt_is_4b_u(p) || (varatt_is_1b(p) && !varatt_is_1b_e(p));
-    let flat: &'m [u8] = if plain { img } else { detoast_seams::detoast_attr::call(mcx, img)?.leak() };
-    let bytes = if varatt_is_1b(flat.as_ptr()) { &flat[1..] } else { &flat[4..] };
+    let flat: &'m [u8] = if plain {
+        img
+    } else {
+        detoast_seams::detoast_attr::call(mcx, img)?.leak()
+    };
+    let bytes = if varatt_is_1b(flat.as_ptr()) {
+        &flat[1..]
+    } else {
+        &flat[4..]
+    };
     core::str::from_utf8(bytes).map_err(|_| {
         let mut msg = Vec::with_capacity(bytes.len() + 24); // alloc: Cold
         msg.extend_from_slice(b"cursor \"");
         msg.extend_from_slice(bytes);
         msg.extend_from_slice(b"\" does not exist");
-        PgError::error_raw_message(msg).with_sqlstate(ERRCODE_UNDEFINED_CURSOR).into()
+        PgError::error_raw_message(msg)
+            .with_sqlstate(ERRCODE_UNDEFINED_CURSOR)
+            .into()
     })
 }

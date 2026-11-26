@@ -9,23 +9,27 @@
 //! Budget 400 lines. Owner M3-GROUPED.
 use mcx::PgBox;
 
+use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::face::end::EndMech;
 use crate::face::kinds::KindId;
-use crate::face::strategy::RUN_PERGROUP;
 use crate::face::source::SourceMech;
 use crate::face::step::StepMech;
+use crate::face::strategy::RUN_PERGROUP;
 use crate::frame::frame::{EndMaker, SourceMaker, StepMaker};
 use crate::frame::iface::kind_impl;
-use crate::frame::px::Px;
-use crate::admit::refusal::{Reason, ShapeWhy};
-use crate::ops::Table;
 use crate::frame::iface::need_strategy;
+use crate::frame::px::Px;
+use crate::ops::Table;
 use gravity_decompose::ops::shared::agg::GroupDecl;
 use gravity_decompose::{Op, PipelineNode};
 use types_nodes::primnodes::OUTER_VAR;
 
 pub(crate) const ROWS: Table = Table {
-    kinds: &[(KindId::RunsUnique, &EndMaker(make_end)), (KindId::RunsUnique, &SourceMaker(make_emit)), (KindId::RunsUnique, &StepMaker(make_step))],
+    kinds: &[
+        (KindId::RunsUnique, &EndMaker(make_end)),
+        (KindId::RunsUnique, &SourceMaker(make_emit)),
+        (KindId::RunsUnique, &StepMaker(make_step)),
+    ],
     ..crate::ops::NONE
 };
 
@@ -36,9 +40,18 @@ fn make_end<'g, 'p>(px: &mut Px<'g, 'p>, k: usize) -> PgBox<'g, dyn EndMech + 'g
 
 fn make_emit<'g, 'p>(px: &mut Px<'g, 'p>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
     let node = px.gx.pipelines()[k].node_id;
-    if px.gx.drained_group(k).is_some_and(|g| reads_non_key(&px.gx.pipelines()[k], g)) {
+    if px
+        .gx
+        .drained_group(k)
+        .is_some_and(|g| reads_non_key(&px.gx.pipelines()[k], g))
+    {
         // D527: the record holds the keys alone; a DISTINCT ON reading another column is l2's first-of-run (V4R-147)
-        crate::refuse!(node, Reason::Shape { why: ShapeWhy("runs.unique D527: a DISTINCT ON reads a non-key column") });
+        crate::refuse!(
+            node,
+            Reason::Shape {
+                why: ShapeWhy("runs.unique D527: a DISTINCT ON reads a non-key column")
+            }
+        );
     }
     (kind_impl::<SourceMaker>(&node, KindId::KeyedEmitGroup).0)(px, k)
 }
@@ -49,7 +62,9 @@ fn reads_non_key(p: &PipelineNode<'_>, g: &GroupDecl<'_>) -> bool {
     let mut hit = false;
     let mut see = |n| {
         gravity_decompose::expr::walk(n, &mut |x| {
-            let v = x.as_var().filter(|v| v.varno == OUTER_VAR && v.varlevelsup == 0);
+            let v = x
+                .as_var()
+                .filter(|v| v.varno == OUTER_VAR && v.varlevelsup == 0);
             hit |= v.is_some_and(|v| !g.keys.iter().any(|kd| kd.resno == v.varattno));
             true
         });

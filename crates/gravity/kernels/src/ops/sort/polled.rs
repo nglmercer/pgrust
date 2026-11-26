@@ -47,7 +47,12 @@ impl<'a> Poll<'a> {
 /// `v` sorted by `cmp` under `poll`: runs of `SORT_RUN` sorted with a tick before each, then merged pairwise into
 /// `scratch` and back with a tick per `BATCH` elements (`cancelpoll::sort_by`'s algorithm). `scratch` holds at least
 /// `v.len()` when `v.len() > SORT_RUN` (the caller allocates it). `Err`: `v` holds its elements in no order.
-pub(crate) fn sort_by<T: Copy>(poll: &mut Poll<'_>, v: &mut [T], scratch: &mut [T], cmp: impl Fn(&T, &T) -> Ordering) -> Result<(), Stopped> {
+pub(crate) fn sort_by<T: Copy>(
+    poll: &mut Poll<'_>,
+    v: &mut [T],
+    scratch: &mut [T],
+    cmp: impl Fn(&T, &T) -> Ordering,
+) -> Result<(), Stopped> {
     for run in v.chunks_mut(SORT_RUN) {
         poll.tick()?;
         run.sort_unstable_by(&cmp);
@@ -59,7 +64,11 @@ pub(crate) fn sort_by<T: Copy>(poll: &mut Poll<'_>, v: &mut [T], scratch: &mut [
     let scratch = &mut scratch[..n];
     let (mut in_v, mut width, mut r) = (true, SORT_RUN, Ok(()));
     'passes: while width < n {
-        let (src, dst): (&[T], &mut [T]) = if in_v { (&*v, &mut *scratch) } else { (&*scratch, &mut *v) };
+        let (src, dst): (&[T], &mut [T]) = if in_v {
+            (&*v, &mut *scratch)
+        } else {
+            (&*scratch, &mut *v)
+        };
         let mut k = 0usize;
         for start in (0..n).step_by(2 * width) {
             let (mid, end) = ((start + width).min(n), (start + 2 * width).min(n));
@@ -97,16 +106,24 @@ mod tests {
     #[test]
     fn sort_by_sorts_and_a_stopped_sort_keeps_every_element() {
         let n = 3 * SORT_RUN + 17;
-        let input: Vec<u32> = (0..n as u32).map(|i| i.wrapping_mul(2654435761) % 100_003).collect();
+        let input: Vec<u32> = (0..n as u32)
+            .map(|i| i.wrapping_mul(2654435761) % 100_003)
+            .collect();
         let mut want = input.clone();
         want.sort_unstable();
         let never = || false;
         let mut quiet = Poll::new(&never);
         let mut small: Vec<u32> = input[..100].to_vec();
-        assert_eq!(sort_by(&mut quiet, &mut small, &mut [], |a, b| a.cmp(b)), Ok(()));
+        assert_eq!(
+            sort_by(&mut quiet, &mut small, &mut [], |a, b| a.cmp(b)),
+            Ok(())
+        );
         assert!(small.windows(2).all(|w| w[0] <= w[1]));
         let (mut v, mut scratch) = (input.clone(), vec![0u32; n]); // alloc: Cold
-        assert_eq!(sort_by(&mut quiet, &mut v, &mut scratch, |a, b| a.cmp(b)), Ok(()));
+        assert_eq!(
+            sort_by(&mut quiet, &mut v, &mut scratch, |a, b| a.cmp(b)),
+            Ok(())
+        );
         assert_eq!(v, want);
         // the abort lands halfway through the last merge pass: 4 runs' ticks, the first pass's n / BATCH, half the second's
         let polls = Cell::new(0usize);
@@ -116,7 +133,11 @@ mod tests {
         };
         let mut poll = Poll::new(&late);
         let mut v = input.clone();
-        assert_eq!(sort_by(&mut poll, &mut v, &mut scratch, |a, b| a.cmp(b)), Err(Stopped), "stopped in a merge pass");
+        assert_eq!(
+            sort_by(&mut poll, &mut v, &mut scratch, |a, b| a.cmp(b)),
+            Err(Stopped),
+            "stopped in a merge pass"
+        );
         v.sort_unstable();
         assert_eq!(v, want, "a stopped sort leaves every element in v");
     }
@@ -125,6 +146,9 @@ mod tests {
     fn batch_ticks_once_per_batch() {
         let yes = || true;
         let mut poll = Poll::new(&yes);
-        assert_eq!((0..3 * BATCH).position(|i| poll.batch(i).is_err()), Some(BATCH - 1));
+        assert_eq!(
+            (0..3 * BATCH).position(|i| poll.batch(i).is_err()),
+            Some(BATCH - 1)
+        );
     }
 }

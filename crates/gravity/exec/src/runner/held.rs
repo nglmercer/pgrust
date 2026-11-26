@@ -9,14 +9,14 @@
 //! result relations initial pruning keeps, the first when it keeps none: the hosts see a target at its first row only.
 use types_core::Oid;
 use types_error::PgResult;
-use types_nodes::parsenodes::RTEKind;
 use types_nodes::nodes_enums::CmdType;
+use types_nodes::parsenodes::RTEKind;
 use types_nodes::plannodes::{PlannedStmt, RowMarkType};
 use types_nodes::primnodes::OnConflictAction;
 use types_nodes::Node;
 use types_portal::ParamListHandle;
 use types_rel::Relation;
-use types_storage::lock::{LOCKMODE, NoLock};
+use types_storage::lock::{NoLock, LOCKMODE};
 
 use mcx::Mcx;
 use std::rc::Rc;
@@ -66,8 +66,18 @@ pub struct HeldPlan {
 
 impl HeldPlan {
     pub fn heap_bytes(&self) -> u64 {
-        let results: usize = self.results.iter().map(|r| core::mem::size_of_val(&**r) + r.iter().map(|c| core::mem::size_of_val(&*c.cmds)).sum::<usize>()).sum();
-        (core::mem::size_of_val(&*self.entries) + core::mem::size_of_val(&*self.results) + results) as u64
+        let results: usize = self
+            .results
+            .iter()
+            .map(|r| {
+                core::mem::size_of_val(&**r)
+                    + r.iter()
+                        .map(|c| core::mem::size_of_val(&*c.cmds))
+                        .sum::<usize>()
+            })
+            .sum();
+        (core::mem::size_of_val(&*self.entries) + core::mem::size_of_val(&*self.results) + results)
+            as u64
     }
 }
 
@@ -76,7 +86,10 @@ impl HeldPlan {
 /// D2578: also the run's hold on its initial pruning decision (`prune::decide`), read by its `src.prune` / rerun sets.
 #[derive(Default)]
 #[allow(dead_code)]
-pub struct Held(Vec<Relation<'static>>, Option<crate::ops::append::prune::Decided>);
+pub struct Held(
+    Vec<Relation<'static>>,
+    Option<crate::ops::append::prune::Decided>,
+);
 
 struct Walk<'a, 'p> {
     pstmt: &'a PlannedStmt<'p>,
@@ -89,7 +102,12 @@ struct Walk<'a, 'p> {
 
 impl<'p> Walk<'_, 'p> {
     fn rte(&self, rti: u32) -> Option<(Oid, LOCKMODE)> {
-        let r = self.pstmt.rtable.iter().nth((rti as usize).checked_sub(1)?)?.as_range_tbl_entry()?;
+        let r = self
+            .pstmt
+            .rtable
+            .iter()
+            .nth((rti as usize).checked_sub(1)?)?
+            .as_range_tbl_entry()?;
         (r.rtekind == RTEKind::RTE_RELATION).then_some((r.relid, r.rellockmode))
     }
 
@@ -98,9 +116,16 @@ impl<'p> Walk<'_, 'p> {
             let Walk { out, at, .. } = self;
             let mine = at.entry(rti).or_default();
             // a row mark's relation already held as a scan's: one handle, checked as the mark's (D976)
-            if let (What::Mark(_), Some(&i)) = (what, mine.iter().find(|&&i| out[i].oid == oid && out[i].what == What::Rel)) {
+            if let (What::Mark(_), Some(&i)) = (
+                what,
+                mine.iter()
+                    .find(|&&i| out[i].oid == oid && out[i].what == What::Rel),
+            ) {
                 out[i].what = what;
-            } else if !mine.iter().any(|&i| out[i].oid == oid && out[i].what == what) {
+            } else if !mine
+                .iter()
+                .any(|&i| out[i].oid == oid && out[i].what == what)
+            {
                 mine.push(out.len()); // alloc: Program
                 out.push(Entry { rti, oid, what }); // alloc: Program
             }
@@ -109,7 +134,11 @@ impl<'p> Walk<'_, 'p> {
 
     fn index(&mut self, rti: u32, indexid: Oid) {
         if let Some((_, lock)) = self.rte(rti) {
-            self.out.push(Entry { rti, oid: indexid, what: What::Index(lock) }); // alloc: Program
+            self.out.push(Entry {
+                rti,
+                oid: indexid,
+                what: What::Index(lock),
+            }); // alloc: Program
         }
     }
 
@@ -147,7 +176,16 @@ impl<'p> Walk<'_, 'p> {
                 self.rel(rti as u32, What::Rel);
                 // CheckValidResultRel: a MERGE's actions' commands, else the operation; ON CONFLICT DO UPDATE's UPDATE too
                 let mut cmds: Vec<CmdType> = match m.operation {
-                    CmdType::CMD_MERGE => m.mergeActionLists.iter().nth(i).and_then(|l| l.as_list()).into_iter().flat_map(|l| l.iter()).filter_map(|a| a.as_merge_action()).map(|a| a.commandType).collect(), // alloc: Program
+                    CmdType::CMD_MERGE => m
+                        .mergeActionLists
+                        .iter()
+                        .nth(i)
+                        .and_then(|l| l.as_list())
+                        .into_iter()
+                        .flat_map(|l| l.iter())
+                        .filter_map(|a| a.as_merge_action())
+                        .map(|a| a.commandType)
+                        .collect(), // alloc: Program
                     op => vec![op], // alloc: Program
                 };
                 if m.onConflictAction == OnConflictAction::ONCONFLICT_UPDATE as u32 {
@@ -155,7 +193,12 @@ impl<'p> Walk<'_, 'p> {
                 }
                 cmds.retain(|c| matches!(c, CmdType::CMD_UPDATE | CmdType::CMD_DELETE));
                 if let Some((oid, lock)) = self.rte(rti as u32) {
-                    group.push(ResultCheck { rti: rti as u32, oid, lock, cmds: cmds.into_boxed_slice() }); // alloc: Program
+                    group.push(ResultCheck {
+                        rti: rti as u32,
+                        oid,
+                        lock,
+                        cmds: cmds.into_boxed_slice(),
+                    }); // alloc: Program
                 }
             }
             // every result relation: an EXPLAIN's start checks each one's relkind too (`explain_plan`)
@@ -166,7 +209,12 @@ impl<'p> Walk<'_, 'p> {
                 self.rel(m.rootRelation, What::Rel);
             }
         }
-        let children = n.as_append().map(|a| &a.appendplans).or(n.as_merge_append().map(|a| &a.mergeplans)).or(n.as_bitmap_and().map(|a| &a.bitmapplans)).or(n.as_bitmap_or().map(|a| &a.bitmapplans));
+        let children = n
+            .as_append()
+            .map(|a| &a.appendplans)
+            .or(n.as_merge_append().map(|a| &a.mergeplans))
+            .or(n.as_bitmap_and().map(|a| &a.bitmapplans))
+            .or(n.as_bitmap_or().map(|a| &a.bitmapplans));
         for c in children.into_iter().flat_map(|l| l.iter()) {
             self.node(c);
         }
@@ -185,7 +233,12 @@ impl<'p> Walk<'_, 'p> {
 /// subplan (InitPlan initializes them all), the row marks' relations (not a parent's, not ROW_MARK_COPY) and the pruning
 /// infos' partitioned tables. A view has no scan node: never held.
 pub fn plan(pstmt: &PlannedStmt<'_>) -> HeldPlan {
-    let mut w = Walk { pstmt, out: Vec::new(), at: std::collections::HashMap::new(), results: Vec::new() }; // alloc: Program
+    let mut w = Walk {
+        pstmt,
+        out: Vec::new(),
+        at: std::collections::HashMap::new(),
+        results: Vec::new(),
+    }; // alloc: Program
     if let Some(t) = pstmt.planTree {
         w.node(t);
     }
@@ -198,15 +251,29 @@ pub fn plan(pstmt: &PlannedStmt<'_>) -> HeldPlan {
         }
     }
     let mut initial = false;
-    for info in pstmt.partPruneInfos.iter().filter_map(|n| n.as_partition_prune_info()) {
+    for info in pstmt
+        .partPruneInfos
+        .iter()
+        .filter_map(|n| n.as_partition_prune_info())
+    {
         for l in info.prune_infos.iter() {
-            for r in l.as_list().into_iter().flat_map(|l| l.iter()).filter_map(|r| r.as_partitioned_rel_prune_info()) {
+            for r in l
+                .as_list()
+                .into_iter()
+                .flat_map(|l| l.iter())
+                .filter_map(|r| r.as_partitioned_rel_prune_info())
+            {
                 initial |= !r.initial_pruning_steps.is_nil();
                 w.rel(r.rtindex, What::Pruning);
             }
         }
     }
-    HeldPlan { entries: w.out.into_boxed_slice(), initial, results: w.results.into_boxed_slice(), explain: None }
+    HeldPlan {
+        entries: w.out.into_boxed_slice(),
+        initial,
+        results: w.results.into_boxed_slice(),
+        explain: None,
+    }
 }
 
 /// `plan` for an EXPLAIN without ANALYZE (`generic`: EXPLAIN (GENERIC_PLAN)), whose `take` opens what ExecutorStart opens
@@ -215,7 +282,10 @@ pub fn plan(pstmt: &PlannedStmt<'_>) -> HeldPlan {
 /// skips it, so every relation is initialized), and each result relation's relkind checked as CheckValidResultRel does
 /// (the served write's host checks it at its bind, which an EXPLAIN never reaches).
 pub fn explain_plan(pstmt: &PlannedStmt<'_>, generic: bool) -> HeldPlan {
-    HeldPlan { explain: Some(generic), ..plan(pstmt) }
+    HeldPlan {
+        explain: Some(generic),
+        ..plan(pstmt)
+    }
 }
 
 /// One run's handles over `plan`'s relations, taken before anything of the run executes (an InitPlan's body, a key
@@ -223,7 +293,13 @@ pub fn explain_plan(pstmt: &PlannedStmt<'_>, generic: bool) -> HeldPlan {
 /// D2578: that pruning is the run's decision (`prune::decide`, held with the handles), made under `snap` pushed (the
 /// statement's snapshot), or else the caller's active snapshot (the served ExecutorStart's, PortalStart pushed it), or a
 /// transaction snapshot pushed for it when none is active: a step's function that runs SQL has its outer snapshot.
-pub fn take(mcx: Mcx<'static>, pstmt: &'static PlannedStmt<'static>, plan: &HeldPlan, params: ParamListHandle, snap: Option<&Rc<SnapshotData<'static>>>) -> PgResult<Held> {
+pub fn take(
+    mcx: Mcx<'static>,
+    pstmt: &'static PlannedStmt<'static>,
+    plan: &HeldPlan,
+    params: ParamListHandle,
+    snap: Option<&Rc<SnapshotData<'static>>>,
+) -> PgResult<Held> {
     let explain = plan.explain;
     if plan.entries.is_empty() {
         return Ok(Held::default());
@@ -231,7 +307,9 @@ pub fn take(mcx: Mcx<'static>, pstmt: &'static PlannedStmt<'static>, plan: &Held
     let (decided, unpruned) = if plan.initial && explain != Some(true) {
         let pushed = match snap {
             Some(s) => snapmgr::PushActiveSnapshot(s).map(|()| true)?,
-            None if !snapmgr::ActiveSnapshotSet() => snapmgr::PushActiveSnapshot(&snapmgr::GetTransactionSnapshot()?).map(|()| true)?,
+            None if !snapmgr::ActiveSnapshotSet() => {
+                snapmgr::PushActiveSnapshot(&snapmgr::GetTransactionSnapshot()?).map(|()| true)?
+            }
             None => false,
         };
         let d = crate::ops::append::prune::decide(pstmt, params);
@@ -263,9 +341,18 @@ pub fn take(mcx: Mcx<'static>, pstmt: &'static PlannedStmt<'static>, plan: &Held
     // D978: ExecInitModifyTable's CheckValidResultRel publication check over the result relations initial pruning keeps
     // (the first one when it keeps none), before any expression, trigger or row of the statement
     for group in plan.results.iter() {
-        let kept = |r: &&ResultCheck| unpruned.as_ref().is_none_or( |u| u.contains(&r.rti));
-        let first = if group.iter().any(|r| kept(&r)) { None } else { group.first() };
-        for r in group.iter().filter(kept).chain(first).filter(|r| explain.is_some() || !r.cmds.is_empty()) {
+        let kept = |r: &&ResultCheck| unpruned.as_ref().is_none_or(|u| u.contains(&r.rti));
+        let first = if group.iter().any(|r| kept(&r)) {
+            None
+        } else {
+            group.first()
+        };
+        for r in group
+            .iter()
+            .filter(kept)
+            .chain(first)
+            .filter(|r| explain.is_some() || !r.cmds.is_empty())
+        {
             let rel = table::table_open(mcx, r.oid, r.lock)?;
             if explain.is_some() {
                 if let Some(e) = gravity_hosts::ops::modifytable::write::result_kind_error(&rel) {
@@ -285,7 +372,10 @@ pub fn take(mcx: Mcx<'static>, pstmt: &'static PlannedStmt<'static>, plan: &Held
 /// ROW_MARK_REFERENCE is allowed) and any other non-table relkind cannot be locked. A foreign table's mark never reaches
 /// a served program (ForeignScan is an excluded node family, ledger.rs), so its RefetchForeignRow arm has no served case.
 fn valid_row_mark_rel(rel: &Relation<'_>, mark: RowMarkType) -> PgResult<()> {
-    use types_rel::{RELKIND_FOREIGN_TABLE, RELKIND_MATVIEW, RELKIND_PARTITIONED_TABLE, RELKIND_RELATION, RELKIND_SEQUENCE, RELKIND_TOASTVALUE, RELKIND_VIEW};
+    use types_rel::{
+        RELKIND_FOREIGN_TABLE, RELKIND_MATVIEW, RELKIND_PARTITIONED_TABLE, RELKIND_RELATION,
+        RELKIND_SEQUENCE, RELKIND_TOASTVALUE, RELKIND_VIEW,
+    };
     let what = match rel.rd_rel.relkind {
         RELKIND_RELATION | RELKIND_PARTITIONED_TABLE | RELKIND_FOREIGN_TABLE => return Ok(()),
         RELKIND_MATVIEW if mark == RowMarkType::ROW_MARK_REFERENCE => return Ok(()),
@@ -296,5 +386,8 @@ fn valid_row_mark_rel(rel: &Relation<'_>, mark: RowMarkType) -> PgResult<()> {
         _ => "relation",
     };
     let name = String::from_utf8_lossy(rel.rd_rel.relname.name_str()).to_string(); // alloc: Cold
-    Err(Box::new(types_error::PgError::error(format!("cannot lock rows in {what} \"{name}\"")).with_sqlstate(types_error::ERRCODE_WRONG_OBJECT_TYPE))) // alloc: Cold
+    Err(Box::new(
+        types_error::PgError::error(format!("cannot lock rows in {what} \"{name}\""))
+            .with_sqlstate(types_error::ERRCODE_WRONG_OBJECT_TYPE),
+    )) // alloc: Cold
 }

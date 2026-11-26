@@ -1,11 +1,10 @@
+use crate::api::{SN_close_env, SN_create_env};
 use crate::types::{among, symbol, SN_env};
-use crate::api::{SN_create_env, SN_close_env};
 #[allow(unused_imports)]
 use crate::utilities::{
-    in_grouping, in_grouping_b, out_grouping, out_grouping_b,
-    in_grouping_U, in_grouping_b_U, out_grouping_U, out_grouping_b_U,
-    find_among, find_among_b, slice_from_s, slice_del, slice_to,
-    eq_s, eq_s_b, eq_v_b, insert_s, len_utf8, skip_utf8, skip_b_utf8,
+    eq_s, eq_s_b, eq_v_b, find_among, find_among_b, in_grouping, in_grouping_U, in_grouping_b,
+    in_grouping_b_U, insert_s, len_utf8, out_grouping, out_grouping_U, out_grouping_b,
+    out_grouping_b_U, skip_b_utf8, skip_utf8, slice_del, slice_from_s, slice_to,
 };
 
 static mut s_0_0: [symbol; 3] = [
@@ -1610,9 +1609,7 @@ static mut a_0: [among; 132] = unsafe {
             s: &raw const s_0_17 as *const symbol,
             substring_i: 0 as ::core::ffi::c_int,
             result: -(1 as ::core::ffi::c_int),
-            function: Some(
-                r_CONSONANT as unsafe fn(*mut SN_env) -> ::core::ffi::c_int,
-            ),
+            function: Some(r_CONSONANT as unsafe fn(*mut SN_env) -> ::core::ffi::c_int),
         },
         among {
             s_size: 9 as ::core::ffi::c_int,
@@ -1640,9 +1637,7 @@ static mut a_0: [among; 132] = unsafe {
             s: &raw const s_0_21 as *const symbol,
             substring_i: 0 as ::core::ffi::c_int,
             result: -(1 as ::core::ffi::c_int),
-            function: Some(
-                r_CONSONANT as unsafe fn(*mut SN_env) -> ::core::ffi::c_int,
-            ),
+            function: Some(r_CONSONANT as unsafe fn(*mut SN_env) -> ::core::ffi::c_int),
         },
         among {
             s_size: 9 as ::core::ffi::c_int,
@@ -1712,9 +1707,7 @@ static mut a_0: [among; 132] = unsafe {
             s: &raw const s_0_31 as *const symbol,
             substring_i: 30 as ::core::ffi::c_int,
             result: -(1 as ::core::ffi::c_int),
-            function: Some(
-                r_CONSONANT as unsafe fn(*mut SN_env) -> ::core::ffi::c_int,
-            ),
+            function: Some(r_CONSONANT as unsafe fn(*mut SN_env) -> ::core::ffi::c_int),
         },
         among {
             s_size: 12 as ::core::ffi::c_int,
@@ -1861,9 +1854,7 @@ static mut a_0: [among; 132] = unsafe {
             s: &raw const s_0_52 as *const symbol,
             substring_i: 51 as ::core::ffi::c_int,
             result: -(1 as ::core::ffi::c_int),
-            function: Some(
-                r_CONSONANT as unsafe fn(*mut SN_env) -> ::core::ffi::c_int,
-            ),
+            function: Some(r_CONSONANT as unsafe fn(*mut SN_env) -> ::core::ffi::c_int),
         },
         among {
             s_size: 15 as ::core::ffi::c_int,
@@ -1877,9 +1868,7 @@ static mut a_0: [among; 132] = unsafe {
             s: &raw const s_0_54 as *const symbol,
             substring_i: 51 as ::core::ffi::c_int,
             result: -(1 as ::core::ffi::c_int),
-            function: Some(
-                r_CONSONANT as unsafe fn(*mut SN_env) -> ::core::ffi::c_int,
-            ),
+            function: Some(r_CONSONANT as unsafe fn(*mut SN_env) -> ::core::ffi::c_int),
         },
         among {
             s_size: 15 as ::core::ffi::c_int,
@@ -1928,9 +1917,7 @@ static mut a_0: [among; 132] = unsafe {
             s: &raw const s_0_61 as *const symbol,
             substring_i: 60 as ::core::ffi::c_int,
             result: -(1 as ::core::ffi::c_int),
-            function: Some(
-                r_CONSONANT as unsafe fn(*mut SN_env) -> ::core::ffi::c_int,
-            ),
+            function: Some(r_CONSONANT as unsafe fn(*mut SN_env) -> ::core::ffi::c_int),
         },
         among {
             s_size: 15 as ::core::ffi::c_int,
@@ -1944,9 +1931,7 @@ static mut a_0: [among; 132] = unsafe {
             s: &raw const s_0_63 as *const symbol,
             substring_i: 60 as ::core::ffi::c_int,
             result: -(1 as ::core::ffi::c_int),
-            function: Some(
-                r_CONSONANT as unsafe fn(*mut SN_env) -> ::core::ffi::c_int,
-            ),
+            function: Some(r_CONSONANT as unsafe fn(*mut SN_env) -> ::core::ffi::c_int),
         },
         among {
             s_size: 15 as ::core::ffi::c_int,
@@ -2086,9 +2071,7 @@ static mut a_0: [among; 132] = unsafe {
             s: &raw const s_0_83 as *const symbol,
             substring_i: 74 as ::core::ffi::c_int,
             result: -(1 as ::core::ffi::c_int),
-            function: Some(
-                r_CONSONANT as unsafe fn(*mut SN_env) -> ::core::ffi::c_int,
-            ),
+            function: Some(r_CONSONANT as unsafe fn(*mut SN_env) -> ::core::ffi::c_int),
         },
         among {
             s_size: 9 as ::core::ffi::c_int,
@@ -2116,9 +2099,7 @@ static mut a_0: [among; 132] = unsafe {
             s: &raw const s_0_87 as *const symbol,
             substring_i: 74 as ::core::ffi::c_int,
             result: -(1 as ::core::ffi::c_int),
-            function: Some(
-                r_CONSONANT as unsafe fn(*mut SN_env) -> ::core::ffi::c_int,
-            ),
+            function: Some(r_CONSONANT as unsafe fn(*mut SN_env) -> ::core::ffi::c_int),
         },
         among {
             s_size: 9 as ::core::ffi::c_int,
@@ -2265,9 +2246,7 @@ static mut a_0: [among; 132] = unsafe {
             s: &raw const s_0_108 as *const symbol,
             substring_i: -(1 as ::core::ffi::c_int),
             result: -(1 as ::core::ffi::c_int),
-            function: Some(
-                r_CONSONANT as unsafe fn(*mut SN_env) -> ::core::ffi::c_int,
-            ),
+            function: Some(r_CONSONANT as unsafe fn(*mut SN_env) -> ::core::ffi::c_int),
         },
         among {
             s_size: 9 as ::core::ffi::c_int,
@@ -2358,9 +2337,7 @@ static mut a_0: [among; 132] = unsafe {
             s: &raw const s_0_121 as *const symbol,
             substring_i: 112 as ::core::ffi::c_int,
             result: -(1 as ::core::ffi::c_int),
-            function: Some(
-                r_CONSONANT as unsafe fn(*mut SN_env) -> ::core::ffi::c_int,
-            ),
+            function: Some(r_CONSONANT as unsafe fn(*mut SN_env) -> ::core::ffi::c_int),
         },
         among {
             s_size: 9 as ::core::ffi::c_int,
@@ -2388,9 +2365,7 @@ static mut a_0: [among; 132] = unsafe {
             s: &raw const s_0_125 as *const symbol,
             substring_i: 112 as ::core::ffi::c_int,
             result: -(1 as ::core::ffi::c_int),
-            function: Some(
-                r_CONSONANT as unsafe fn(*mut SN_env) -> ::core::ffi::c_int,
-            ),
+            function: Some(r_CONSONANT as unsafe fn(*mut SN_env) -> ::core::ffi::c_int),
         },
         among {
             s_size: 9 as ::core::ffi::c_int,
@@ -2462,12 +2437,7 @@ unsafe fn r_CONSONANT(mut z: *mut SN_env) -> ::core::ffi::c_int {
     return 1 as ::core::ffi::c_int;
 }
 pub unsafe fn hindi_UTF_8_stem(mut z: *mut SN_env) -> ::core::ffi::c_int {
-    let mut ret: ::core::ffi::c_int = skip_utf8(
-        (*z).p,
-        (*z).c,
-        (*z).l,
-        1 as ::core::ffi::c_int,
-    );
+    let mut ret: ::core::ffi::c_int = skip_utf8((*z).p, (*z).c, (*z).l, 1 as ::core::ffi::c_int);
     if ret < 0 as ::core::ffi::c_int {
         return 0 as ::core::ffi::c_int;
     }

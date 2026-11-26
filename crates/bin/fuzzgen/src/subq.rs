@@ -24,12 +24,18 @@ const SUBQ_NESTING: u32 = 2;
 
 pub fn gen_subq_stmt(g: &mut Gen) -> SelectStmt {
     g.subq_depth = SUBQ_NESTING;
-    let stmt = match g.weights.pick(g.rng, &["subq:plain", "subq:derived", "subq:cte"]) {
+    let stmt = match g
+        .weights
+        .pick(g.rng, &["subq:plain", "subq:derived", "subq:cte"])
+    {
         "subq:derived" => {
             g.fire("subq:derived");
             let (body, columns) = gen_simple_body(g);
             let alias = g.next_alias();
-            let rel = ScopeRel { alias: alias.clone(), columns: columns.clone() };
+            let rel = ScopeRel {
+                alias: alias.clone(),
+                columns: columns.clone(),
+            };
             let from = FromItem::Derived {
                 body: Box::new(body),
                 alias,
@@ -43,15 +49,30 @@ pub fn gen_subq_stmt(g: &mut Gen) -> SelectStmt {
             let cte_name = g.next_cte_name();
             let ctes = vec![(cte_name.clone(), body)];
             let alias_a = g.next_alias();
-            let rel_a = ScopeRel { alias: alias_a.clone(), columns: columns.clone() };
-            let ref_a = FromItem::Table { name: cte_name.clone(), alias: alias_a };
+            let rel_a = ScopeRel {
+                alias: alias_a.clone(),
+                columns: columns.clone(),
+            };
+            let ref_a = FromItem::Table {
+                name: cte_name.clone(),
+                alias: alias_a,
+            };
             if g.weights.pick(g.rng, &["cte:once", "cte:twice"]) == "cte:twice" {
                 g.fire("cte:twice");
                 let alias_b = g.next_alias();
-                let rel_b = ScopeRel { alias: alias_b.clone(), columns };
-                let ref_b = FromItem::Table { name: cte_name, alias: alias_b };
+                let rel_b = ScopeRel {
+                    alias: alias_b.clone(),
+                    columns,
+                };
+                let ref_b = FromItem::Table {
+                    name: cte_name,
+                    alias: alias_b,
+                };
                 let rels = vec![rel_a, rel_b];
-                let scope = Scope { rels: &rels, outer: None };
+                let scope = Scope {
+                    rels: &rels,
+                    outer: None,
+                };
                 let on = g.gen_bool(&scope, 2);
                 let from = FromItem::Join {
                     left: Box::new(ref_a),
@@ -70,7 +91,10 @@ pub fn gen_subq_stmt(g: &mut Gen) -> SelectStmt {
             let table = g.pick_table();
             let alias = g.next_alias();
             let rel = ScopeRel::from_table(table, alias.clone());
-            let from = FromItem::Table { name: table.name.clone(), alias };
+            let from = FromItem::Table {
+                name: table.name.clone(),
+                alias,
+            };
             finish_select(g, &[rel], from, Vec::new())
         }
     };
@@ -88,7 +112,10 @@ fn gen_simple_body(g: &mut Gen) -> (SelectStmt, Vec<Column>) {
     let table = g.pick_table();
     let alias = g.next_alias();
     let rels = vec![ScopeRel::from_table(table, alias.clone())];
-    let scope = Scope { rels: &rels, outer: None };
+    let scope = Scope {
+        rels: &rels,
+        outer: None,
+    };
     let ncols = 1 + g.rng.below_usize(3);
     let mut items = Vec::with_capacity(ncols);
     let mut columns = Vec::with_capacity(ncols);
@@ -96,14 +123,30 @@ fn gen_simple_body(g: &mut Gen) -> (SelectStmt, Vec<Column>) {
         let ty = g.any_type(&scope);
         let expr = g.gen_typed(&scope, ty, 2);
         let name = format!("c{}", i);
-        items.push(SelectItem { expr, alias: Some(name.clone()), ty });
-        columns.push(Column { name, ty, nullable: true, ddl_type: None });
+        items.push(SelectItem {
+            expr,
+            alias: Some(name.clone()),
+            ty,
+        });
+        columns.push(Column {
+            name,
+            ty,
+            nullable: true,
+            ddl_type: None,
+        });
     }
-    let where_clause = if g.rng.chance(1, 2) { Some(g.gen_bool(&scope, 2)) } else { None };
+    let where_clause = if g.rng.chance(1, 2) {
+        Some(g.gen_bool(&scope, 2))
+    } else {
+        None
+    };
     g.subq_depth = saved;
     let body = SelectStmt {
         items,
-        from: Some(FromItem::Table { name: table.name.clone(), alias }),
+        from: Some(FromItem::Table {
+            name: table.name.clone(),
+            alias,
+        }),
         where_clause,
         ..Default::default()
     };
@@ -130,11 +173,17 @@ pub fn gen_recursive_cte_stmt(g: &mut Gen) -> StmtKind {
     g.fire("subq:rec");
     let shape = g.weights.pick(
         g.rng,
-        &["subq:rec:plain", "subq:rec:search", "subq:rec:cycle", "subq:rec:both"],
+        &[
+            "subq:rec:plain",
+            "subq:rec:search",
+            "subq:rec:cycle",
+            "subq:rec:both",
+        ],
     );
     g.fire(shape);
     let pick_dir = |g: &mut Gen| {
-        if g.weights.pick(g.rng, &["subq:rec:depth", "subq:rec:breadth"])
+        if g.weights
+            .pick(g.rng, &["subq:rec:depth", "subq:rec:breadth"])
             == "subq:rec:depth"
         {
             g.fire("subq:rec:depth");
@@ -174,8 +223,7 @@ pub fn gen_recursive_cte_stmt(g: &mut Gen) -> StmtKind {
             // Terminating chain: n counts up to depth, v accumulates.
             let depth = 3 + g.rng.below(10); // 3..12
             let start = g.rng.below(9);
-            let step = ["v + n", "v * 2", "v - 3", "v + 7"]
-                [g.rng.below_usize(4)];
+            let step = ["v + n", "v * 2", "v - 3", "v + 7"][g.rng.below_usize(4)];
             let (search, ord) = if shape == "subq:rec:search" {
                 let dir = pick_dir(g);
                 let by = if g.rng.chance(1, 2) { "n" } else { "n, v" };
@@ -206,10 +254,15 @@ fn with_subq_body<R>(g: &mut Gen, f: impl FnOnce(&mut Gen) -> R) -> R {
 /// correlated via colref:outer draws against `outer`.
 pub fn gen_scalar_subq(g: &mut Gen, outer: &Scope, ty: SqlType) -> Expr {
     g.fire("subq:scalar");
-    let single_row: Vec<&Table> =
-        g.catalog.tables.iter().filter(|t| t.at_most_one_row).collect();
+    let single_row: Vec<&Table> = g
+        .catalog
+        .tables
+        .iter()
+        .filter(|t| t.at_most_one_row)
+        .collect();
     let use_table = !single_row.is_empty()
-        && g.weights.pick(g.rng, &["subq:scalar_table", "subq:scalar_nofrom"])
+        && g.weights
+            .pick(g.rng, &["subq:scalar_table", "subq:scalar_nofrom"])
             == "subq:scalar_table";
     let body = with_subq_body(g, |g| {
         if use_table {
@@ -217,13 +270,26 @@ pub fn gen_scalar_subq(g: &mut Gen, outer: &Scope, ty: SqlType) -> Expr {
             let table = single_row[g.rng.below_usize(single_row.len())];
             let alias = g.next_alias();
             let rels = vec![ScopeRel::from_table(table, alias.clone())];
-            let scope = Scope { rels: &rels, outer: Some(outer) };
+            let scope = Scope {
+                rels: &rels,
+                outer: Some(outer),
+            };
             let expr = g.gen_typed(&scope, ty, 2);
-            let where_clause =
-                if g.rng.chance(1, 2) { Some(g.gen_bool(&scope, 2)) } else { None };
+            let where_clause = if g.rng.chance(1, 2) {
+                Some(g.gen_bool(&scope, 2))
+            } else {
+                None
+            };
             SelectStmt {
-                items: vec![SelectItem { expr, alias: None, ty }],
-                from: Some(FromItem::Table { name: table.name.clone(), alias }),
+                items: vec![SelectItem {
+                    expr,
+                    alias: None,
+                    ty,
+                }],
+                from: Some(FromItem::Table {
+                    name: table.name.clone(),
+                    alias,
+                }),
                 where_clause,
                 ..Default::default()
             }
@@ -231,15 +297,24 @@ pub fn gen_scalar_subq(g: &mut Gen, outer: &Scope, ty: SqlType) -> Expr {
             g.fire("subq:scalar_nofrom");
             // FROM-less scalar subquery: one row by construction; leaves
             // draw literals or outer references (correlation).
-            let scope = Scope { rels: &[], outer: Some(outer) };
+            let scope = Scope {
+                rels: &[],
+                outer: Some(outer),
+            };
             let expr = g.gen_typed(&scope, ty, 2);
             SelectStmt {
-                items: vec![SelectItem { expr, alias: None, ty }],
+                items: vec![SelectItem {
+                    expr,
+                    alias: None,
+                    ty,
+                }],
                 ..Default::default()
             }
         }
     });
-    Expr::ScalarSubq { body: Box::new(body) }
+    Expr::ScalarSubq {
+        body: Box::new(body),
+    }
 }
 
 /// `<expr> <cmp> (scalar subquery)` in a boolean position.
@@ -249,7 +324,11 @@ pub fn gen_cmp_subq(g: &mut Gen, outer: &Scope) -> Expr {
     let lhs = g.gen_typed(outer, ty, 2);
     let op = g.pick_cmp_op();
     let rhs = gen_scalar_subq(g, outer, ty);
-    Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs) }
+    Expr::Binary {
+        op,
+        lhs: Box::new(lhs),
+        rhs: Box::new(rhs),
+    }
 }
 
 /// `<expr> [NOT] IN (SELECT <expr> FROM t [WHERE ...])`. NULLs on either
@@ -261,48 +340,82 @@ pub fn gen_in_subq(g: &mut Gen, outer: &Scope) -> Expr {
     let alias = g.next_alias();
     let rels = vec![ScopeRel::from_table(table, alias.clone())];
     let (ty, body) = with_subq_body(g, |g| {
-        let scope = Scope { rels: &rels, outer: Some(outer) };
+        let scope = Scope {
+            rels: &rels,
+            outer: Some(outer),
+        };
         let ty = g.any_type(&scope);
         let expr = g.gen_typed(&scope, ty, 2);
-        let where_clause =
-            if g.rng.chance(1, 2) { Some(g.gen_bool(&scope, 2)) } else { None };
+        let where_clause = if g.rng.chance(1, 2) {
+            Some(g.gen_bool(&scope, 2))
+        } else {
+            None
+        };
         let body = SelectStmt {
-            items: vec![SelectItem { expr, alias: None, ty }],
-            from: Some(FromItem::Table { name: table.name.clone(), alias: alias.clone() }),
+            items: vec![SelectItem {
+                expr,
+                alias: None,
+                ty,
+            }],
+            from: Some(FromItem::Table {
+                name: table.name.clone(),
+                alias: alias.clone(),
+            }),
             where_clause,
             ..Default::default()
         };
         (ty, body)
     });
     let lhs = g.gen_typed(outer, ty, 2);
-    Expr::InSubq { lhs: Box::new(lhs), negated, body: Box::new(body) }
+    Expr::InSubq {
+        lhs: Box::new(lhs),
+        negated,
+        body: Box::new(body),
+    }
 }
 
 /// `[NOT] EXISTS (SELECT 1 FROM t [WHERE ...])`; the WHERE is where
 /// correlation usually lands.
 pub fn gen_exists_subq(g: &mut Gen, outer: &Scope) -> Expr {
-    let negated =
-        g.weights.pick(g.rng, &["subq:exists", "subq:not_exists"]) == "subq:not_exists";
-    g.fire(if negated { "subq:not_exists" } else { "subq:exists" });
+    let negated = g.weights.pick(g.rng, &["subq:exists", "subq:not_exists"]) == "subq:not_exists";
+    g.fire(if negated {
+        "subq:not_exists"
+    } else {
+        "subq:exists"
+    });
     let table = g.pick_table();
     let alias = g.next_alias();
     let rels = vec![ScopeRel::from_table(table, alias.clone())];
     let body = with_subq_body(g, |g| {
-        let scope = Scope { rels: &rels, outer: Some(outer) };
-        let where_clause =
-            if g.rng.chance(5, 6) { Some(g.gen_bool(&scope, 2)) } else { None };
+        let scope = Scope {
+            rels: &rels,
+            outer: Some(outer),
+        };
+        let where_clause = if g.rng.chance(5, 6) {
+            Some(g.gen_bool(&scope, 2))
+        } else {
+            None
+        };
         SelectStmt {
             items: vec![SelectItem {
-                expr: Expr::Lit { sql: "1".to_string() },
+                expr: Expr::Lit {
+                    sql: "1".to_string(),
+                },
                 alias: None,
                 ty: SqlType::Int4,
             }],
-            from: Some(FromItem::Table { name: table.name.clone(), alias: alias.clone() }),
+            from: Some(FromItem::Table {
+                name: table.name.clone(),
+                alias: alias.clone(),
+            }),
             where_clause,
             ..Default::default()
         }
     });
-    Expr::Exists { negated, body: Box::new(body) }
+    Expr::Exists {
+        negated,
+        body: Box::new(body),
+    }
 }
 
 #[cfg(test)]
@@ -330,8 +443,17 @@ mod tests {
             sqls.push('\n');
             prods_all.extend(prods);
         }
-        for frag in ["IN (SELECT", "NOT IN (SELECT", "EXISTS (SELECT", "WITH w", ") AS t"] {
-            assert!(sqls.contains(frag), "subquery flavor {frag:?} never generated");
+        for frag in [
+            "IN (SELECT",
+            "NOT IN (SELECT",
+            "EXISTS (SELECT",
+            "WITH w",
+            ") AS t",
+        ] {
+            assert!(
+                sqls.contains(frag),
+                "subquery flavor {frag:?} never generated"
+            );
         }
         for p in [
             "subq:scalar",
@@ -413,7 +535,10 @@ mod tests {
             "subq:rec:depth",
             "subq:rec:breadth",
         ] {
-            assert!(prods_all.iter().any(|q| q == p), "production {p} never fired");
+            assert!(
+                prods_all.iter().any(|q| q == p),
+                "production {p} never fired"
+            );
         }
         for frag in [
             "SEARCH DEPTH FIRST BY ",
@@ -421,7 +546,10 @@ mod tests {
             "CYCLE x SET is_c USING p",
             "UNION ALL",
         ] {
-            assert!(sqls.iter().any(|s| s.contains(frag)), "flavor {frag:?} never generated");
+            assert!(
+                sqls.iter().any(|s| s.contains(frag)),
+                "flavor {frag:?} never generated"
+            );
         }
         // Deterministic.
         let mut rng2 = Rng::new(0x5EA4C);

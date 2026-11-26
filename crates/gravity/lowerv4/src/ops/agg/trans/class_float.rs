@@ -22,15 +22,21 @@ use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{ConvOp, FloatBinOp as Fo, IntBinOp, IntCond, Type, Value};
 use mcx::{CollectIn, GrowIn, Mcx, PgVec};
 
+use crate::admit::refusal::Reason;
 use crate::face::fold::{Acc, AccShape, ClassImpl, FinalOrder, FoldClass};
 use crate::face::kinds::KindId;
 use crate::frame::env::Env;
-use crate::admit::refusal::Reason;
 use crate::rep::CellRef;
 
-use crate::ops::agg::trans::float_pg::{MAG, INF, accum, and3, arg64, arg_type, big, bits, final_ovf, fl, image, inf, not, pl, raise_ovf, tainted};
+use crate::ops::agg::trans::float_pg::{
+    accum, and3, arg64, arg_type, big, bits, final_ovf, fl, image, inf, not, pl, raise_ovf,
+    tainted, INF, MAG,
+};
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { kinds: &[(KindId::ClassFloat, &ClassImpl(&FLOAT))], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    kinds: &[(KindId::ClassFloat, &ClassImpl(&FLOAT))],
+    ..crate::ops::NONE
+};
 
 struct Float;
 static FLOAT: Float = Float;
@@ -50,7 +56,12 @@ fn form(env: &Env, a: &AggDecl<'_>) -> F {
         R::AvgF64 => F::Avg,
         R::MinF64 => F::Min,
         R::MaxF64 => F::Max,
-        _ => crate::refuse!(env.node, Reason::Bug { payload: "class.float over another register" }),
+        _ => crate::refuse!(
+            env.node,
+            Reason::Bug {
+                payload: "class.float over another register"
+            }
+        ),
     }
 }
 
@@ -80,13 +91,20 @@ fn ident<'e>(b: &mut FunctionBuilder<'_>, mcx: Mcx<'e>, f: F) -> PgVec<'e, Value
 }
 
 /// The state as words `[…, n]`: registers as they are; a slot's words (an invalid slot the identity, `n` its validity).
-fn load<'e>(b: &mut FunctionBuilder<'_>, env: &Env<'e, '_>, f: F, acc: &Acc<'_>) -> PgVec<'e, Value> {
+fn load<'e>(
+    b: &mut FunctionBuilder<'_>,
+    env: &Env<'e, '_>,
+    f: F,
+    acc: &Acc<'_>,
+) -> PgVec<'e, Value> {
     match acc {
         Acc::Regs(w) => mcx::to_vec_in(&w[..], env.mcx),
         Acc::Slot { base, off, valid } => {
             let ok = crate::ops::shared::slots::slot_ok(b, env, *base, *valid);
             let id = ident(b, env.mcx, f);
-            let mut w: PgVec<'_, Value> = (0..id.len() - 1).map(|i| b.load(Type::I64, *base, off + 8 * i as i32)).collect_in(env.mcx);
+            let mut w: PgVec<'_, Value> = (0..id.len() - 1)
+                .map(|i| b.load(Type::I64, *base, off + 8 * i as i32))
+                .collect_in(env.mcx);
             for (v, &i) in w.iter_mut().zip(id.iter()) {
                 *v = b.select(ok, *v, i);
             }
@@ -110,10 +128,20 @@ fn store(b: &mut FunctionBuilder<'_>, env: &Env, acc: Acc<'_>, w: &[Value]) {
 }
 
 /// Two states combined (`float8pl`, `float8_combine`, the extreme image): the words and the overflow.
-fn combine<'m>(b: &mut FunctionBuilder<'_>, mcx: Mcx<'m>, zero: Value, f: F, a: &[Value], c: &[Value]) -> (PgVec<'m, Value>, Value) {
+fn combine<'m>(
+    b: &mut FunctionBuilder<'_>,
+    mcx: Mcx<'m>,
+    zero: Value,
+    f: F,
+    a: &[Value],
+    c: &[Value],
+) -> (PgVec<'m, Value>, Value) {
     let k = a.len() - 1;
     let n = b.int_bin(IntBinOp::Add, a[k], c[k]);
-    let (a0, c0) = (b.icmp(IntCond::Eq, a[k], zero), b.icmp(IntCond::Eq, c[k], zero));
+    let (a0, c0) = (
+        b.icmp(IntCond::Eq, a[k], zero),
+        b.icmp(IntCond::Eq, c[k], zero),
+    );
     let pick = |b: &mut FunctionBuilder<'_>, v: Value, i: usize| {
         let v = b.select(a0, c[i], v);
         b.select(c0, a[i], v)
@@ -124,7 +152,8 @@ fn combine<'m>(b: &mut FunctionBuilder<'_>, mcx: Mcx<'m>, zero: Value, f: F, a: 
             (mcx::pg_vec![in mcx; pick(b, s, 0)], o)
         }
         F::Avg => {
-            let [n1, sx1, sxx1, n2, sx2, sxx2] = [a[0], a[1], a[2], c[0], c[1], c[2]].map(|v| fl(b, v));
+            let [n1, sx1, sxx1, n2, sx2, sxx2] =
+                [a[0], a[1], a[2], c[0], c[1], c[2]].map(|v| fl(b, v));
             let (sx, o1) = pl(b, false, a[1], c[1]);
             let nn = b.float_bin(Fo::Add, n1, n2);
             let (q1, q2) = (b.float_bin(Fo::Div, sx1, n1), b.float_bin(Fo::Div, sx2, n2));
@@ -141,12 +170,20 @@ fn combine<'m>(b: &mut FunctionBuilder<'_>, mcx: Mcx<'m>, zero: Value, f: F, a: 
             let o2 = and3(b, xi, n1i, n2i);
             // D432: an overflow here, or a tainted side, taints the merge (deferred to the final)
             let (t1, t2) = (tainted(b, a[2]), tainted(b, c[2]));
-            let t = [o1, o2, t1].into_iter().fold(t2, |x, y| b.int_bin(IntBinOp::Or, x, y));
+            let t = [o1, o2, t1]
+                .into_iter()
+                .fold(t2, |x, y| b.int_bin(IntBinOp::Or, x, y));
             let ti = b.iconst(Type::I64, INF);
             let sxx = b.select(t, ti, sxx);
-            (mcx::pg_vec![in mcx; pick(b, nn, 0), pick(b, sx, 1), pick(b, sxx, 2)], b.bconst(false))
+            (
+                mcx::pg_vec![in mcx; pick(b, nn, 0), pick(b, sx, 1), pick(b, sxx, 2)],
+                b.bconst(false),
+            )
         }
-        F::Min | F::Max => (mcx::pg_vec![in mcx; b.int_bin(if f == F::Min { IntBinOp::Smin } else { IntBinOp::Smax }, a[0], c[0])], b.bconst(false)),
+        F::Min | F::Max => (
+            mcx::pg_vec![in mcx; b.int_bin(if f == F::Min { IntBinOp::Smin } else { IntBinOp::Smax }, a[0], c[0])],
+            b.bconst(false),
+        ),
     };
     let either = b.int_bin(IntBinOp::Or, a0, c0);
     let no = b.bconst(false);
@@ -156,7 +193,11 @@ fn combine<'m>(b: &mut FunctionBuilder<'_>, mcx: Mcx<'m>, zero: Value, f: F, a: 
 }
 
 fn words(f: F) -> u8 {
-    if f == F::Avg { 4 } else { 2 }
+    if f == F::Avg {
+        4
+    } else {
+        2
+    }
 }
 
 impl FoldClass for Float {
@@ -165,7 +206,11 @@ impl FoldClass for Float {
             R::AvgF64 => F::Avg,
             _ => F::Min,
         };
-        AccShape { words: words(f), bytes: if f == F::Avg { 24 } else { 8 }, align: 8 }
+        AccShape {
+            words: words(f),
+            bytes: if f == F::Avg { 24 } else { 8 },
+            align: 8,
+        }
     }
 
     fn init(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, acc: Acc<'_>) {
@@ -173,9 +218,23 @@ impl FoldClass for Float {
         store(b, env, acc, &id[..]);
     }
 
-    fn step(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, acc: Acc<'_>, args: &[CellRef<'_>]) {
+    fn step(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        a: &AggDecl<'_>,
+        acc: Acc<'_>,
+        args: &[CellRef<'_>],
+    ) {
         let f = form(env, a);
-        let [c] = args else { crate::refuse!(env.node, Reason::Bug { payload: "class.float over other than one argument" }) };
+        let [c] = args else {
+            crate::refuse!(
+                env.node,
+                Reason::Bug {
+                    payload: "class.float over other than one argument"
+                }
+            )
+        };
         let (d, ok) = crate::ops::agg::trans::plain::args_ok(b, env, a, args);
         let x = arg64(b, arg_type(a, 0, c.cell.typid), d);
         if let Some(e) = risk(f).filter(|_| gravity_decompose::facts::order::rechecked()) {
@@ -187,7 +246,14 @@ impl FoldClass for Float {
         let (w, ovf) = match f {
             F::Avg => {
                 let (w, row) = accum(b, &s[..], x, env.mcx); // D2597: in PG's order the row's overflow is PG's; else the final's (D432)
-                (w, if gravity_decompose::facts::order::plan_order() { row } else { b.bconst(false) })
+                (
+                    w,
+                    if gravity_decompose::facts::order::plan_order() {
+                        row
+                    } else {
+                        b.bconst(false)
+                    },
+                )
             }
             F::Min | F::Max => {
                 let (img, one) = (image(b, x), b.iconst(Type::I64, 1));
@@ -200,11 +266,22 @@ impl FoldClass for Float {
         };
         let bad = b.int_bin(IntBinOp::And, ovf, ok);
         raise_ovf(b, env, bad);
-        let w: PgVec<'_, Value> = w.iter().zip(s.iter()).map(|(&n, &o)| b.select(ok, n, o)).collect_in(env.mcx);
+        let w: PgVec<'_, Value> = w
+            .iter()
+            .zip(s.iter())
+            .map(|(&n, &o)| b.select(ok, n, o))
+            .collect_in(env.mcx);
         store(b, env, acc, &w[..]);
     }
 
-    fn merge(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, into: Acc<'_>, from: Acc<'_>) {
+    fn merge(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        a: &AggDecl<'_>,
+        into: Acc<'_>,
+        from: Acc<'_>,
+    ) {
         let f = form(env, a);
         let (x, y) = (load(b, env, f, &into), load(b, env, f, &from));
         let (w, ovf) = combine(b, env.mcx, env.zero, f, &x[..], &y[..]);
@@ -212,11 +289,20 @@ impl FoldClass for Float {
         store(b, env, into, &w);
     }
 
-    fn finish(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, acc: Acc<'_>) -> (Value, Value) {
+    fn finish(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        a: &AggDecl<'_>,
+        acc: Acc<'_>,
+    ) -> (Value, Value) {
         let f = form(env, a);
         let w = load(b, env, f, &acc);
         let none = b.icmp(IntCond::Eq, w[w.len() - 1], env.zero);
-        let f4 = a.node.as_aggref().is_some_and(|r| r.aggtype == types_core::FLOAT4OID);
+        let f4 = a
+            .node
+            .as_aggref()
+            .is_some_and(|r| r.aggtype == types_core::FLOAT4OID);
         let v = match f {
             F::Avg => {
                 let ovf = final_ovf(b, w[1], w[2]);
@@ -250,7 +336,13 @@ impl FoldClass for Float {
     fn order(&self, a: &AggDecl<'_>) -> Option<FinalOrder> {
         match a.reg {
             R::SumF64 => Some(FinalOrder::F64),
-            R::MinF64 | R::MaxF64 if a.node.as_aggref().is_some_and(|r| r.aggtype == types_core::FLOAT8OID) => Some(FinalOrder::Word),
+            R::MinF64 | R::MaxF64
+                if a.node
+                    .as_aggref()
+                    .is_some_and(|r| r.aggtype == types_core::FLOAT8OID) =>
+            {
+                Some(FinalOrder::Word)
+            }
             _ => None,
         }
     }
@@ -266,7 +358,11 @@ pub(crate) static ABS_SUM: AbsSum = AbsSum;
 
 impl FoldClass for AbsSum {
     fn shape(&self, _a: &AggDecl<'_>) -> AccShape {
-        AccShape { words: 2, bytes: 8, align: 8 }
+        AccShape {
+            words: 2,
+            bytes: 8,
+            align: 8,
+        }
     }
 
     fn init(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, _a: &AggDecl<'_>, acc: Acc<'_>) {
@@ -274,8 +370,22 @@ impl FoldClass for AbsSum {
         store(b, env, acc, &id[..]);
     }
 
-    fn step(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, acc: Acc<'_>, args: &[CellRef<'_>]) {
-        let [c] = args else { crate::refuse!(env.node, Reason::Bug { payload: "an absolute float sum over other than one argument" }) };
+    fn step(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        a: &AggDecl<'_>,
+        acc: Acc<'_>,
+        args: &[CellRef<'_>],
+    ) {
+        let [c] = args else {
+            crate::refuse!(
+                env.node,
+                Reason::Bug {
+                    payload: "an absolute float sum over other than one argument"
+                }
+            )
+        };
         let (d, ok) = crate::ops::agg::trans::plain::args_ok(b, env, a, args);
         let x = arg64(b, arg_type(a, 0, c.cell.typid), d);
         let m = b.iconst(Type::I64, MAG);
@@ -285,19 +395,52 @@ impl FoldClass for AbsSum {
         let t = bits(b, t);
         let s = load(b, env, F::Sum { f32: false }, &acc);
         let one = b.iconst(Type::I64, 1);
-        let (w, _) = combine(b, env.mcx, env.zero, F::Sum { f32: false }, &s[..], &[t, one]);
-        let w: PgVec<'_, Value> = w.iter().zip(s.iter()).map(|(&n, &o)| b.select(ok, n, o)).collect_in(env.mcx);
+        let (w, _) = combine(
+            b,
+            env.mcx,
+            env.zero,
+            F::Sum { f32: false },
+            &s[..],
+            &[t, one],
+        );
+        let w: PgVec<'_, Value> = w
+            .iter()
+            .zip(s.iter())
+            .map(|(&n, &o)| b.select(ok, n, o))
+            .collect_in(env.mcx);
         store(b, env, acc, &w[..]);
     }
 
-    fn merge(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, _a: &AggDecl<'_>, into: Acc<'_>, from: Acc<'_>) {
-        let (x, y) = (load(b, env, F::Sum { f32: false }, &into), load(b, env, F::Sum { f32: false }, &from));
+    fn merge(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        _a: &AggDecl<'_>,
+        into: Acc<'_>,
+        from: Acc<'_>,
+    ) {
+        let (x, y) = (
+            load(b, env, F::Sum { f32: false }, &into),
+            load(b, env, F::Sum { f32: false }, &from),
+        );
         let (w, _) = combine(b, env.mcx, env.zero, F::Sum { f32: false }, &x[..], &y[..]);
         store(b, env, into, &w);
     }
 
-    fn finish(&self, _b: &mut FunctionBuilder<'_>, env: &mut Env, _a: &AggDecl<'_>, _acc: Acc<'_>) -> (Value, Value) {
-        crate::refuse!(env.node, Reason::Bug { payload: "an absolute float sum finished (a pass 1 record is read whole, never emitted)" })
+    fn finish(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        _a: &AggDecl<'_>,
+        _acc: Acc<'_>,
+    ) -> (Value, Value) {
+        crate::refuse!(
+            env.node,
+            Reason::Bug {
+                payload:
+                    "an absolute float sum finished (a pass 1 record is read whole, never emitted)"
+            }
+        )
     }
 }
 
@@ -306,7 +449,11 @@ mod tests {
     use super::*;
 
     /// `f` over `n` word params, its words returned, in the interpreter.
-    fn run(args: &[u64], out: usize, f: impl FnOnce(&mut FunctionBuilder<'_>, &[Value]) -> Vec<Value>) -> Vec<u64> {
+    fn run(
+        args: &[u64],
+        out: usize,
+        f: impl FnOnce(&mut FunctionBuilder<'_>, &[Value]) -> Vec<Value>,
+    ) -> Vec<u64> {
         let mut pb = gravity_ir::builder::ProgramBuilder::new();
         let fid = pb.declare_func("t", &vec![Type::I64; args.len()], &vec![Type::I64; out]);
         let mut b = pb.define(fid);
@@ -314,7 +461,9 @@ mod tests {
         let r = f(&mut b, &p);
         b.ret(&r);
         let prog = pb.finish();
-        gravity_interp::Interp::new(&prog).run(fid, args).expect("runs")
+        gravity_interp::Interp::new(&prog)
+            .run(fid, args)
+            .expect("runs")
     }
 
     fn same(a: f64, b: f64) -> bool {
@@ -345,7 +494,8 @@ mod tests {
         run(&[s[1].to_bits(), s[2].to_bits()], 1, |b, p| {
             let o = final_ovf(b, p[0], p[1]);
             vec![b.conv(ConvOp::Zext, Type::I64, o)]
-        })[0] == 1
+        })[0]
+            == 1
     }
 
     /// The accum step matches PG's row by row and its Inf / NaN rules; PG's overflow (from Sx or from Sxx alone) leaves the
@@ -353,36 +503,78 @@ mod tests {
     /// `{NaN, 0.5, 1e300}` (e2e-av2-v2agg-049: the heap walk feeds a plain aggregate's rows last to first).
     #[test]
     fn accum_is_float8_accum() {
-        let rows: [&[f64]; 8] = [&[1.5, 2.25, -3.0, 1e10, 0.1], &[1e200, -1e200], &[1e308, 1e308], &[f64::INFINITY, 1.0], &[f64::NAN, 2.0], &[f64::NEG_INFINITY, f64::INFINITY], &[0.5, 1e300, 2.0, f64::NAN, 1.0], &[0.5, 1e300, 2.0, f64::INFINITY]];
+        let rows: [&[f64]; 8] = [
+            &[1.5, 2.25, -3.0, 1e10, 0.1],
+            &[1e200, -1e200],
+            &[1e308, 1e308],
+            &[f64::INFINITY, 1.0],
+            &[f64::NAN, 2.0],
+            &[f64::NEG_INFINITY, f64::INFINITY],
+            &[0.5, 1e300, 2.0, f64::NAN, 1.0],
+            &[0.5, 1e300, 2.0, f64::INFINITY],
+        ];
         let cx = mcx::MemoryContext::new("d2597");
         for xs in rows {
             let (mut s, mut tainted) = ([0.0f64; 3], false);
             for (i, &x) in xs.iter().enumerate() {
-                let w = run(&[s[0].to_bits(), s[1].to_bits(), s[2].to_bits(), i as u64, x.to_bits()], 5, |b, p| {
-                    let (w, row) = accum(b, &p[..4], p[4], cx.mcx());
-                    let mut w = w.to_vec();
-                    w.push(b.conv(ConvOp::Zext, Type::I64, row));
-                    w
-                });
-                let got = [f64::from_bits(w[0]), f64::from_bits(w[1]), f64::from_bits(w[2])];
+                let w = run(
+                    &[
+                        s[0].to_bits(),
+                        s[1].to_bits(),
+                        s[2].to_bits(),
+                        i as u64,
+                        x.to_bits(),
+                    ],
+                    5,
+                    |b, p| {
+                        let (w, row) = accum(b, &p[..4], p[4], cx.mcx());
+                        let mut w = w.to_vec();
+                        w.push(b.conv(ConvOp::Zext, Type::I64, row));
+                        w
+                    },
+                );
+                let got = [
+                    f64::from_bits(w[0]),
+                    f64::from_bits(w[1]),
+                    f64::from_bits(w[2]),
+                ];
                 if !tainted {
-                    assert_eq!(w[4] == 1, pg_accum(s, x).is_none(), "{xs:?} row {i}: the row's overflow is float8_accum's (D2597)");
+                    assert_eq!(
+                        w[4] == 1,
+                        pg_accum(s, x).is_none(),
+                        "{xs:?} row {i}: the row's overflow is float8_accum's (D2597)"
+                    );
                 }
                 let want = match (tainted, pg_accum(s, x)) {
                     (false, Some(want)) => want,
                     _ => {
                         tainted = true;
-                        assert_eq!(got[2], f64::INFINITY, "{xs:?} row {i}: the overflow taints Sxx");
+                        assert_eq!(
+                            got[2],
+                            f64::INFINITY,
+                            "{xs:?} row {i}: the overflow taints Sxx"
+                        );
                         s = got;
                         continue;
                     }
                 };
-                assert!(got.iter().zip(want).all(|(&g, w)| same(g, w)), "{xs:?} row {i}: {got:?} vs {want:?}");
+                assert!(
+                    got.iter().zip(want).all(|(&g, w)| same(g, w)),
+                    "{xs:?} row {i}: {got:?} vs {want:?}"
+                );
                 s = got;
             }
-            assert_eq!(final_raises(s), tainted && !s[1].is_nan(), "{xs:?}: the final's overflow");
+            assert_eq!(
+                final_raises(s),
+                tainted && !s[1].is_nan(),
+                "{xs:?}: the final's overflow"
+            );
         }
-        assert!(!final_raises([3.0, f64::NAN, f64::INFINITY]) && final_raises([2.0, 1e300, f64::INFINITY]) && final_raises([2.0, f64::INFINITY, f64::INFINITY]));
+        assert!(
+            !final_raises([3.0, f64::NAN, f64::INFINITY])
+                && final_raises([2.0, 1e300, f64::INFINITY])
+                && final_raises([2.0, f64::INFINITY, f64::INFINITY])
+        );
     }
 
     /// D2597: `risk`'s bound: finite magnitudes from `2^e` up (either sign) raise, smaller ones, Inf and NaN do not; and no
@@ -390,16 +582,37 @@ mod tests {
     /// under 2^1022, 2^48 · 2 · 2^78 < 2^128).
     #[test]
     fn big_marks_the_risk() {
-        let at = |x: f64, e: i64| run(&[x.to_bits()], 1, |b, p| {
-            let v = big(b, p[0], e);
-            vec![b.conv(ConvOp::Zext, Type::I64, v)]
-        })[0] == 1;
-        for (e, f) in [(974, f64::MAX), (STAT_RISK, f64::MAX), (78, f32::MAX as f64)] {
+        let at = |x: f64, e: i64| {
+            run(&[x.to_bits()], 1, |b, p| {
+                let v = big(b, p[0], e);
+                vec![b.conv(ConvOp::Zext, Type::I64, v)]
+            })[0]
+                == 1
+        };
+        for (e, f) in [
+            (974, f64::MAX),
+            (STAT_RISK, f64::MAX),
+            (78, f32::MAX as f64),
+        ] {
             let t = 2f64.powi(e as i32);
-            assert!(at(t, e) && at(-t, e) && at(f64::MAX, e) && at(-f, e), "2^{e} and up");
-            assert!(!at(t * (1.0 - f64::EPSILON), e) && !at(1.0, e) && !at(0.0, e) && !at(f64::INFINITY, e) && !at(f64::NEG_INFINITY, e) && !at(f64::NAN, e), "2^{e}");
+            assert!(
+                at(t, e) && at(-t, e) && at(f64::MAX, e) && at(-f, e),
+                "2^{e} and up"
+            );
+            assert!(
+                !at(t * (1.0 - f64::EPSILON), e)
+                    && !at(1.0, e)
+                    && !at(0.0, e)
+                    && !at(f64::INFINITY, e)
+                    && !at(f64::NEG_INFINITY, e)
+                    && !at(f64::NAN, e),
+                "2^{e}"
+            );
         }
-        assert!(2f64.powi(48) * 2.0 * 2f64.powi(974) < f64::MAX && (3.0 * 2f64.powi(48) * 2f64.powi(STAT_RISK as i32)).powi(2) < 2f64.powi(1022));
+        assert!(
+            2f64.powi(48) * 2.0 * 2f64.powi(974) < f64::MAX
+                && (3.0 * 2f64.powi(48) * 2f64.powi(STAT_RISK as i32)).powi(2) < 2f64.powi(1022)
+        );
         assert!(2f64.powi(48) * 2.0 * 2f64.powi(78) <= 2f64.powi(127));
     }
 
@@ -408,10 +621,28 @@ mod tests {
     #[test]
     fn avg_merge_is_float8_combine() {
         let cx = mcx::MemoryContext::new("d432");
-        let st = [[0.0, 0.0, 0.0], [2.0, 3.0, 0.5], [3.0, -1e10, 7.25], [1.0, 1e200, 0.0], [1.0, -1e200, 0.0], [1.0, f64::NAN, f64::NAN], [2.0, 1e300, f64::INFINITY], [1.0, 1.7e308, 0.0]];
+        let st = [
+            [0.0, 0.0, 0.0],
+            [2.0, 3.0, 0.5],
+            [3.0, -1e10, 7.25],
+            [1.0, 1e200, 0.0],
+            [1.0, -1e200, 0.0],
+            [1.0, f64::NAN, f64::NAN],
+            [2.0, 1e300, f64::INFINITY],
+            [1.0, 1.7e308, 0.0],
+        ];
         for a in st {
             for c in st {
-                let arg = [a[0].to_bits(), a[1].to_bits(), a[2].to_bits(), a[0] as u64, c[0].to_bits(), c[1].to_bits(), c[2].to_bits(), c[0] as u64];
+                let arg = [
+                    a[0].to_bits(),
+                    a[1].to_bits(),
+                    a[2].to_bits(),
+                    a[0] as u64,
+                    c[0].to_bits(),
+                    c[1].to_bits(),
+                    c[2].to_bits(),
+                    c[0] as u64,
+                ];
                 let w = run(&arg, 4, |b, p| {
                     let z = b.iconst(Type::I64, 0);
                     let (w, o) = combine(b, cx.mcx(), z, F::Avg, &p[..4], &p[4..]);
@@ -420,7 +651,10 @@ mod tests {
                     w
                 });
                 match gravity_abi::breaker::float8_combine(a, c) {
-                    Ok(r) => assert!(w[3] == 0 && (0..3).all(|i| same(f64::from_bits(w[i]), r[i])), "{a:?} + {c:?}: {w:x?} vs {r:?}"),
+                    Ok(r) => assert!(
+                        w[3] == 0 && (0..3).all(|i| same(f64::from_bits(w[i]), r[i])),
+                        "{a:?} + {c:?}: {w:x?} vs {r:?}"
+                    ),
                     Err(_) => unreachable!("float8_combine defers its overflow (D432)"),
                 }
             }
@@ -452,9 +686,24 @@ mod tests {
     /// The min / max image orders as PG's float8 compare (NaN, of either sign, above all) and decodes back.
     #[test]
     fn images_order_as_pg() {
-        let xs = [f64::NEG_INFINITY, -1.0, -0.0, 0.0, 1e-300, 1.0, f64::INFINITY, f64::NAN];
-        let img: Vec<i64> = xs.iter().map(|x| run(&[x.to_bits()], 1, |b, p| vec![image(b, p[0])])[0] as i64).collect();
+        let xs = [
+            f64::NEG_INFINITY,
+            -1.0,
+            -0.0,
+            0.0,
+            1e-300,
+            1.0,
+            f64::INFINITY,
+            f64::NAN,
+        ];
+        let img: Vec<i64> = xs
+            .iter()
+            .map(|x| run(&[x.to_bits()], 1, |b, p| vec![image(b, p[0])])[0] as i64)
+            .collect();
         assert!(img.windows(2).all(|w| w[0] < w[1]), "{img:x?}");
-        assert_eq!(run(&[(-f64::NAN).to_bits()], 1, |b, p| vec![image(b, p[0])])[0] as i64, i64::MAX);
+        assert_eq!(
+            run(&[(-f64::NAN).to_bits()], 1, |b, p| vec![image(b, p[0])])[0] as i64,
+            i64::MAX
+        );
     }
 }

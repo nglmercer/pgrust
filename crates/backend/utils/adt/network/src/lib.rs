@@ -142,7 +142,10 @@ fn quoted(prefix: &str, input: &[u8], suffix: &str) -> PgError {
 #[inline(never)]
 fn invalid_input_err(is_cidr: bool, src: &[u8]) -> PgError {
     quoted(
-        &format!("invalid input syntax for type {}: \"", if is_cidr { "cidr" } else { "inet" }),
+        &format!(
+            "invalid input syntax for type {}: \"",
+            if is_cidr { "cidr" } else { "inet" }
+        ),
         src,
         "\"",
     )
@@ -319,7 +322,11 @@ pub fn inet_to_cidr(src: InetRef<'_>) -> PgResult<InetValue> {
 }
 
 pub fn inet_set_masklen(src: InetRef<'_>, bits: i32) -> PgResult<InetValue> {
-    let bits = if bits == -1 { src.maxbits() as i32 } else { bits };
+    let bits = if bits == -1 {
+        src.maxbits() as i32
+    } else {
+        bits
+    };
     if bits < 0 || bits > src.maxbits() as i32 {
         return Err(Box::new(mask_length_err(bits)));
     }
@@ -329,7 +336,11 @@ pub fn inet_set_masklen(src: InetRef<'_>, bits: i32) -> PgResult<InetValue> {
 }
 
 pub fn cidr_set_masklen(src: InetRef<'_>, bits: i32) -> PgResult<InetValue> {
-    let bits = if bits == -1 { src.maxbits() as i32 } else { bits };
+    let bits = if bits == -1 {
+        src.maxbits() as i32
+    } else {
+        bits
+    };
     if bits < 0 || bits > src.maxbits() as i32 {
         return Err(Box::new(mask_length_err(bits)));
     }

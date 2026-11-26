@@ -73,21 +73,24 @@ fn parse_args() -> Result<Args, String> {
     };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
-        let mut value = |name: &str| {
-            it.next().ok_or_else(|| format!("{name} requires a value"))
-        };
+        let mut value = |name: &str| it.next().ok_or_else(|| format!("{name} requires a value"));
         match arg.as_str() {
             "--host" => args.host = value("--host")?,
             "--port" => {
-                args.port =
-                    Some(value("--port")?.parse().map_err(|e| format!("bad --port: {e}"))?)
+                args.port = Some(
+                    value("--port")?
+                        .parse()
+                        .map_err(|e| format!("bad --port: {e}"))?,
+                )
             }
             "--db" => args.db = value("--db")?,
             "--user" => args.user = value("--user")?,
             "--setup" => args.setup = true,
             "--xproto" => {
                 args.xproto = Some(
-                    value("--xproto")?.parse().map_err(|e| format!("bad --xproto: {e}"))?,
+                    value("--xproto")?
+                        .parse()
+                        .map_err(|e| format!("bad --xproto: {e}"))?,
                 )
             }
             "--copybin" => args.copybin = true,
@@ -127,8 +130,7 @@ fn parse_args() -> Result<Args, String> {
 fn run() -> Result<ExitCode, String> {
     let args = parse_args()?;
     let port = args.port.ok_or("--port is required")?;
-    let mut ex =
-        ClientExecutor::connect_opts(&args.host, port, &args.db, &args.user, args.xproto)?;
+    let mut ex = ClientExecutor::connect_opts(&args.host, port, &args.db, &args.user, args.xproto)?;
 
     if args.setup {
         let catalog = FixtureCatalog.load_catalog()?;
@@ -166,9 +168,7 @@ fn run() -> Result<ExitCode, String> {
             // overflow, ...): they exercise error paths, which is coverage.
             StmtOutcome::Error { .. } => errors += 1,
             StmtOutcome::ConnLost { detail } => {
-                eprintln!(
-                    "covapply: connection lost after {applied} statements: {detail}"
-                );
+                eprintln!("covapply: connection lost after {applied} statements: {detail}");
                 return Ok(ExitCode::from(2));
             }
             _ => ok += 1,
@@ -186,21 +186,15 @@ fn run() -> Result<ExitCode, String> {
     if args.copytext {
         // Simple-protocol connection for the same reason as --copybin.
         let mut cex = ClientExecutor::connect_opts(&args.host, port, &args.db, &args.user, None)?;
-        let (capplied, cerrors) = fuzzgen::copytext::run_single(
-            &mut cex,
-            args.copytext_seed,
-            args.copytext_count,
-        );
+        let (capplied, cerrors) =
+            fuzzgen::copytext::run_single(&mut cex, args.copytext_seed, args.copytext_count);
         eprintln!("covapply: copytext applied={capplied} errors={cerrors}");
     }
     if args.copyopts {
         // Simple-protocol connection for the same reason as --copytext.
         let mut cex = ClientExecutor::connect_opts(&args.host, port, &args.db, &args.user, None)?;
-        let (capplied, cerrors) = fuzzgen::copyopts::run_single(
-            &mut cex,
-            args.copyopts_seed,
-            args.copyopts_count,
-        );
+        let (capplied, cerrors) =
+            fuzzgen::copyopts::run_single(&mut cex, args.copyopts_seed, args.copyopts_count);
         eprintln!("covapply: copyopts applied={capplied} errors={cerrors}");
     }
     if args.dbddl {

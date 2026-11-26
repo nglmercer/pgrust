@@ -7,15 +7,17 @@ use std::thread::ThreadId;
 
 use gravity_fn::srf_fmgr::Sets as FmgrSets;
 use gravity_hosts::ops::srf::store::ScanStore;
-use gravity_kernels::ops::srf::entries::{setfn_parts, SETFN_WORDS, SETFN_W_BASE, SETFN_W_CELLS, SETFN_W_NODE};
+use gravity_kernels::ops::srf::entries::{
+    setfn_parts, SETFN_WORDS, SETFN_W_BASE, SETFN_W_CELLS, SETFN_W_NODE,
+};
 use gravity_program::protos::{Proto, ProtoKind};
 use types_error::PgResult;
 use types_nodes::plannodes::PlannedStmt;
 use types_nodes::Node;
 
-use crate::ops::{Live, Prepare, Protocol};
 use crate::admit::{Admit, Bind};
 use crate::glue;
+use crate::ops::{Live, Prepare, Protocol};
 
 pub const ADMIT: &[Admit] = &[];
 pub const BIND: &[Bind] = &[];
@@ -31,16 +33,25 @@ impl Protocol for SetFn {
     fn prepare(&self, p: &Proto, cx: &mut Prepare<'_>) -> PgResult<Option<Box<dyn Live>>> {
         let base = p.words.base as usize;
         if p.words.n != SETFN_WORDS || base + SETFN_WORDS as usize > cx.words.len() {
-            return Err(glue::internal("gravity: srf's words are not its declaration's"));
+            return Err(glue::internal(
+                "gravity: srf's words are not its declaration's",
+            ));
         }
         let (nslots, cell_bytes, node) = setfn_parts(p.arg);
         let mut host = match node {
             Some(id) => {
-                let pstmt = cx.admitted.pstmt.ok_or_else(|| glue::internal("gravity: srf's node without its plan"))?;
-                let plan = plan_node(pstmt, id as i32).ok_or_else(|| glue::internal("gravity: srf's node is not in the plan"))?;
+                let pstmt = cx
+                    .admitted
+                    .pstmt
+                    .ok_or_else(|| glue::internal("gravity: srf's node without its plan"))?;
+                let plan = plan_node(pstmt, id as i32)
+                    .ok_or_else(|| glue::internal("gravity: srf's node is not in the plan"))?;
                 // H-b: a ProjectSet's fmgr sets; V4R-246: this execution's extern parameters (`eval_keys`) and query
                 // environment (the entry's QueryDesc) for a store scan
-                let h = FmgrSets::new(plan).map(Host::Fmgr).or_else(|| ScanStore::new(pstmt, plan, cx.admitted.params, cx.admitted.query_env).map(Host::Store));
+                let h = FmgrSets::new(plan).map(Host::Fmgr).or_else(|| {
+                    ScanStore::new(pstmt, plan, cx.admitted.params, cx.admitted.query_env)
+                        .map(Host::Store)
+                });
                 Some(h.ok_or_else(|| glue::internal("gravity: srf's node is no ProjectSet, FunctionScan, TableFuncScan or NamedTuplestoreScan"))?)
             }
             None => None,
@@ -62,7 +73,15 @@ impl Protocol for SetFn {
         cx.words[base + SETFN_W_CELLS] = cells[skip..].as_mut_ptr() as u64;
         cx.nulls[base..base + SETFN_WORDS as usize].fill(0);
         *cx.nparams = (*cx.nparams).max(base + SETFN_WORDS as usize);
-        Ok(Some(Box::new(Sets { level, first, nslots, thread: std::thread::current().id(), _cells: cells, fmgr, _host: host }))) // alloc: Exec
+        Ok(Some(Box::new(Sets {
+            level,
+            first,
+            nslots,
+            thread: std::thread::current().id(),
+            _cells: cells,
+            fmgr,
+            _host: host,
+        }))) // alloc: Exec
     }
 }
 
@@ -113,8 +132,18 @@ fn plan_node(pstmt: &'static PlannedStmt<'static>, id: i32) -> Option<Node<'stat
         if p.plan_node_id == id {
             return Some(n);
         }
-        let kids = [n.as_append().map(|a| &a.appendplans), n.as_merge_append().map(|m| &m.mergeplans)];
-        under(p.lefttree, id).or_else(|| under(p.righttree, id)).or_else(|| kids.into_iter().flatten().find_map(|l| l.iter().find_map(|c| under(Some(c), id)))).or_else(|| n.as_subquery_scan().and_then(|s| under(s.subplan, id)))
+        let kids = [
+            n.as_append().map(|a| &a.appendplans),
+            n.as_merge_append().map(|m| &m.mergeplans),
+        ];
+        under(p.lefttree, id)
+            .or_else(|| under(p.righttree, id))
+            .or_else(|| {
+                kids.into_iter()
+                    .flatten()
+                    .find_map(|l| l.iter().find_map(|c| under(Some(c), id)))
+            })
+            .or_else(|| n.as_subquery_scan().and_then(|s| under(s.subplan, id)))
     }
     under(pstmt.planTree, id).or_else(|| pstmt.subplans.iter().find_map(|s| under(s, id)))
 }
@@ -126,11 +155,27 @@ mod tests {
         use gravity_fn::srf::{at_level, release_slots, reserve_slots};
         at_level(5, || {
             let (a, b) = (reserve_slots(2), reserve_slots(3));
-            assert_eq!((a, b), ((5, 0), (5, 2)), "a second live execution takes the slots past the first's");
-            assert_eq!(at_level(6, || reserve_slots(1)), (6, 0), "another level numbers its own bank");
+            assert_eq!(
+                (a, b),
+                ((5, 0), (5, 2)),
+                "a second live execution takes the slots past the first's"
+            );
+            assert_eq!(
+                at_level(6, || reserve_slots(1)),
+                (6, 0),
+                "another level numbers its own bank"
+            );
             release_slots(5, a.1, 2);
-            assert_eq!(reserve_slots(1), (5, 0), "a released range is reused first-fit");
-            assert_eq!(reserve_slots(2), (5, 5), "a range that does not fit the hole goes past the held ones");
+            assert_eq!(
+                reserve_slots(1),
+                (5, 0),
+                "a released range is reused first-fit"
+            );
+            assert_eq!(
+                reserve_slots(2),
+                (5, 5),
+                "a range that does not fit the hole goes past the held ones"
+            );
             assert_eq!(reserve_slots(0), (5, 0), "a step with no slots holds none");
         });
     }

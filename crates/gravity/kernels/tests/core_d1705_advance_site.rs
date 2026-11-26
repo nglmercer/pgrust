@@ -29,14 +29,26 @@ unsafe extern "C" fn next(s: *mut Site) -> i64 {
     }
     src.left -= 1;
     src.served += 1;
-    *st.lanes = Lane::byval(CODES.as_ptr() as *const u8, core::ptr::null(), 4, lane::REGION_ARENA, 0);
+    *st.lanes = Lane::byval(
+        CODES.as_ptr() as *const u8,
+        core::ptr::null(),
+        4,
+        lane::REGION_ARENA,
+        0,
+    );
     (st.rows, st.nlanes, st.part_id) = (ROWS, 1, 3);
     ROWS as i64
 }
 
 /// A one-site ctx in `buf` laid out as the driver binds it (the site inline behind the header) over `src`.
 /// # Safety — every argument outlives the ctx's use.
-unsafe fn bind(buf: &mut [u64], src: &mut Src, lanes: &mut [Lane; 1], keys: &mut [u64; 2], keys_null: &mut [u8; 2]) -> *mut Ctx {
+unsafe fn bind(
+    buf: &mut [u64],
+    src: &mut Src,
+    lanes: &mut [Lane; 1],
+    keys: &mut [u64; 2],
+    keys_null: &mut [u8; 2],
+) -> *mut Ctx {
     assert!(buf.len() * 8 >= ctx_size(1));
     let ctx = buf.as_mut_ptr() as *mut Ctx;
     (*ctx).sites = (ctx as *mut u8).add(site_off(0)) as *mut Site;
@@ -86,8 +98,20 @@ fn heads_count_reads_each_window_after_the_host_rewrote_it() {
     let mut src = Src { left: 3, served: 0 };
     let (mut lanes, mut keys, mut keys_null) = ([Lane::NONE; 1], [0u64; 2], [0u8; 2]);
     // SAFETY: the ctx is bound over locals that outlive it; site 0 has two key cells.
-    let c = unsafe { heads_count((bind(&mut buf, &mut src, &mut lanes, &mut keys, &mut keys_null)) as u64, 0, 5 << 32 | 7, 0, 0) };
+    let c = unsafe {
+        heads_count(
+            (bind(&mut buf, &mut src, &mut lanes, &mut keys, &mut keys_null)) as u64,
+            0,
+            5 << 32 | 7,
+            0,
+            0,
+        )
+    };
     assert_eq!(c, 9, "three windows of [7, 9, 7, 7]");
-    assert_eq!((keys, keys_null), ([5, u64::MAX], [0, 0]), "the part's first granule as the seek keys");
+    assert_eq!(
+        (keys, keys_null),
+        ([5, u64::MAX], [0, 0]),
+        "the part's first granule as the seek keys"
+    );
     assert_eq!(src.served, 3);
 }

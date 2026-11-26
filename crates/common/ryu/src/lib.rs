@@ -66,7 +66,11 @@ mod tests {
             assert!(n < DOUBLE_SHORTEST_DECIMAL_LEN && buf[n] == 0);
             let s = core::str::from_utf8(&buf[..n]).unwrap();
             let back: f64 = s.parse().unwrap();
-            assert_eq!(back.to_bits(), v.to_bits(), "d2s roundtrip {bits:016x} via {s:?}");
+            assert_eq!(
+                back.to_bits(),
+                v.to_bits(),
+                "d2s roundtrip {bits:016x} via {s:?}"
+            );
         }
         let mut fbits: std::vec::Vec<u32> = dbits.iter().map(|&b| (b >> 32) as u32).collect();
         for e in 0..=254u32 {
@@ -84,7 +88,11 @@ mod tests {
             assert!(n < FLOAT_SHORTEST_DECIMAL_LEN && buf[n] == 0);
             let s = core::str::from_utf8(&buf[..n]).unwrap();
             let back: f32 = s.parse().unwrap();
-            assert_eq!(back.to_bits(), v.to_bits(), "f2s roundtrip {bits:08x} via {s:?}");
+            assert_eq!(
+                back.to_bits(),
+                v.to_bits(),
+                "f2s roundtrip {bits:08x} via {s:?}"
+            );
         }
     }
 

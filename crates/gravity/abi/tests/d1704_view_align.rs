@@ -7,12 +7,19 @@
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use gravity_abi::breaker::{Candidates, DenseFront, HashAgg, HashBuild, Owned, OwnerTop, Rec, RecordLayout, SlotKind, SortRun, TopK, T1};
+use gravity_abi::breaker::{
+    Candidates, DenseFront, HashAgg, HashBuild, Owned, OwnerTop, Rec, RecordLayout, SlotKind,
+    SortRun, TopK, T1,
+};
 use gravity_abi::buildrows::RowStore;
 
 fn panics_by_name(what: &str, f: impl FnOnce()) {
     let e = catch_unwind(AssertUnwindSafe(f)).expect_err(what);
-    let m = e.downcast_ref::<String>().map(String::as_str).or_else(|| e.downcast_ref::<&str>().copied()).unwrap_or("");
+    let m = e
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| e.downcast_ref::<&str>().copied())
+        .unwrap_or("");
     assert!(m.contains("D1704") && m.contains("aligned"), "{what}: {m}");
 }
 

@@ -29,14 +29,16 @@ use crate::stmt::{Gen, StmtKind};
 // Field material.
 // ---------------------------------------------------------------------
 
-const YEARS: &[&str] = &["1999", "2024", "0001", "1066", "1969", "2000", "9999", "5874897", "0099"];
+const YEARS: &[&str] = &[
+    "1999", "2024", "0001", "1066", "1969", "2000", "9999", "5874897", "0099",
+];
 
 /// Month spellings: full/abbrev/case-mangled (DecodeSpecial and the
 /// month table lookups downcase; the '.' abbreviation form has its own
 /// arm in DecodeDate).
 const MONTHS: &[&str] = &[
-    "Jan", "January", "FEB", "february", "Mar", "APRIL", "may", "Jun", "JULY",
-    "aug", "Sept", "sep", "October", "nov", "DEC", "Feb.", "Jan.",
+    "Jan", "January", "FEB", "february", "Mar", "APRIL", "may", "Jun", "JULY", "aug", "Sept",
+    "sep", "October", "nov", "DEC", "Feb.", "Jan.",
 ];
 
 const DAYS: &[&str] = &["1", "08", "15", "28", "29", "30", "31"];
@@ -49,37 +51,108 @@ const DOWS: &[&str] = &["Mon", "Thursday", "SAT", "sun", "Wed."];
 /// h/hm/hms arms, colon and compact), known abbreviations
 /// (DecodeTimezoneAbbrev), full zone names, and z/Z/zulu.
 const TZ_SPELLINGS: &[&str] = &[
-    "+05", "-08", "+0530", "+05:30", "+05:30:30", "-08:30:15", "+15:59:59",
-    "UTC", "GMT", "utc", "EST", "PST", "CET", "z", "Z", "zulu",
-    "America/New_York", "Asia/Kolkata", "Australia/Lord_Howe",
+    "+05",
+    "-08",
+    "+0530",
+    "+05:30",
+    "+05:30:30",
+    "-08:30:15",
+    "+15:59:59",
+    "UTC",
+    "GMT",
+    "utc",
+    "EST",
+    "PST",
+    "CET",
+    "z",
+    "Z",
+    "zulu",
+    "America/New_York",
+    "Asia/Kolkata",
+    "Australia/Lord_Howe",
     // Fixed abbrevs with DST semantics (DTZ arm), the "abbr DST" spelling,
     // and dynamic zone-linked abbreviations (DYNTZ arm) from the default
     // timezone_abbreviations list — shared by both engines via the
     // reference share dir.
-    "MET DST", "MEST", "MSK", "AEST", "EET",
+    "MET DST",
+    "MEST",
+    "MSK",
+    "AEST",
+    "EET",
     // Abbreviation-with-numeric-offset spellings: the
     // DecodeTimezoneAbbrevPrefix arms (LD10) — a known abbrev or GMT/UTC
     // prefix directly followed by a signed offset in each width.
-    "GMT+5", "GMT-0830", "UTC+05:30", "GMT+10:30:30", "EST+2", "Z+03",
+    "GMT+5",
+    "GMT-0830",
+    "UTC+05:30",
+    "GMT+10:30:30",
+    "EST+2",
+    "Z+03",
 ];
 
 /// Fractional-second tails, width 1..7 (7 digits exercises the rounding
 /// arm) plus bare trailing dot.
-const FRACS: &[&str] = &["", "", ".5", ".78", ".789", ".1234", ".56789", ".678901", ".8765432"];
+const FRACS: &[&str] = &[
+    "", "", ".5", ".78", ".789", ".1234", ".56789", ".678901", ".8765432",
+];
 
 const MERIDIEMS: &[&str] = &["AM", "PM", "am", "pm", "A.M.", "P.M."];
 
 /// Interval unit spellings incl. every alias family.
 const IVL_UNITS: &[&str] = &[
-    "microsecond", "microseconds", "us", "millisecond", "milliseconds", "ms",
-    "second", "seconds", "sec", "secs", "s", "minute", "minutes", "min", "mins", "m",
-    "hour", "hours", "hrs", "hr", "h", "day", "days", "d", "week", "weeks", "w",
-    "month", "months", "mon", "mons", "year", "years", "yr", "yrs", "y",
-    "decade", "decades", "dec", "decs", "century", "centuries", "c", "cent",
-    "millennium", "millenniums", "mil", "mils",
+    "microsecond",
+    "microseconds",
+    "us",
+    "millisecond",
+    "milliseconds",
+    "ms",
+    "second",
+    "seconds",
+    "sec",
+    "secs",
+    "s",
+    "minute",
+    "minutes",
+    "min",
+    "mins",
+    "m",
+    "hour",
+    "hours",
+    "hrs",
+    "hr",
+    "h",
+    "day",
+    "days",
+    "d",
+    "week",
+    "weeks",
+    "w",
+    "month",
+    "months",
+    "mon",
+    "mons",
+    "year",
+    "years",
+    "yr",
+    "yrs",
+    "y",
+    "decade",
+    "decades",
+    "dec",
+    "decs",
+    "century",
+    "centuries",
+    "c",
+    "cent",
+    "millennium",
+    "millenniums",
+    "mil",
+    "mils",
 ];
 
-const IVL_VALUES: &[&str] = &["1", "-1", "2", "-3", "0", "1.5", "-2.25", "100", "0.000001", "+7"];
+const IVL_VALUES: &[&str] = &[
+    "1", "-1", "2", "-3", "0", "1.5", "-2.25", "100", "0.000001", "+7",
+];
 
 /// Malformed decode fuel: field-range, conflict, dangling-tz, empty and
 /// junk shapes. Both engines must reject each with the same SQLSTATE.
@@ -118,7 +191,14 @@ fn date_lit(g: &mut Gen) -> String {
     let mut s = match g.rng.below(9) {
         0 => format!("{y}-{m:02}-{d}"),
         // Compact 8-digit / 6-digit (DecodeNumberField).
-        1 => format!("{y:0>4.4}{m:02}{}", if d.len() == 1 { format!("0{d}") } else { d.to_string() }),
+        1 => format!(
+            "{y:0>4.4}{m:02}{}",
+            if d.len() == 1 {
+                format!("0{d}")
+            } else {
+                d.to_string()
+            }
+        ),
         2 => format!("990{}0{}", 1 + g.rng.below(9), 1 + g.rng.below(9)),
         // Day-of-year dotted form (DecodeNumber decimal arm).
         3 => format!("{y}.{:03}", 1 + g.rng.below(365)),
@@ -141,7 +221,11 @@ fn date_lit(g: &mut Gen) -> String {
         // Julian day, sometimes with a day-fraction (the J-with-'.'
         // ParseFraction arms in DecodeDateTime/DecodeTimeOnly).
         6 => {
-            let frac = if g.rng.chance(1, 3) { *g.rng.pick(&[".5", ".25", ".999"]) } else { "" };
+            let frac = if g.rng.chance(1, 3) {
+                *g.rng.pick(&[".5", ".25", ".999"])
+            } else {
+                ""
+            };
             format!("J{}{frac}", 1 + g.rng.below(3_000_000))
         }
         // Two-digit year first (ambiguous-year arm).
@@ -179,7 +263,11 @@ fn time_core(g: &mut Gen) -> String {
 fn time_lit(g: &mut Gen, with_tz: bool) -> String {
     let mut s = if g.rng.chance(1, 10) {
         // 24:00 and leap-second edges.
-        if g.rng.chance(1, 2) { "24:00:00".to_string() } else { "23:59:60".to_string() }
+        if g.rng.chance(1, 2) {
+            "24:00:00".to_string()
+        } else {
+            "23:59:60".to_string()
+        }
     } else {
         time_core(g)
     };
@@ -225,7 +313,11 @@ fn interval_lit(g: &mut Gen) -> String {
             let n = 1 + g.rng.below(4);
             let mut parts = Vec::new();
             for _ in 0..n {
-                parts.push(format!("{} {}", *g.rng.pick(IVL_VALUES), *g.rng.pick(IVL_UNITS)));
+                parts.push(format!(
+                    "{} {}",
+                    *g.rng.pick(IVL_VALUES),
+                    *g.rng.pick(IVL_UNITS)
+                ));
             }
             let mut s = parts.join(" ");
             if g.rng.chance(1, 4) {
@@ -240,7 +332,13 @@ fn interval_lit(g: &mut Gen) -> String {
         2 => match g.rng.below(4) {
             0 => format!("{}-{}", g.rng.below(20), g.rng.below(12)),
             1 => format!("-{}-{}", g.rng.below(20), g.rng.below(12)),
-            2 => format!("{} {:02}:{:02}:{:02}", g.rng.below(40), g.rng.below(24), g.rng.below(60), g.rng.below(60)),
+            2 => format!(
+                "{} {:02}:{:02}:{:02}",
+                g.rng.below(40),
+                g.rng.below(24),
+                g.rng.below(60),
+                g.rng.below(60)
+            ),
             _ => format!("{:02}:{:02}", g.rng.below(24), g.rng.below(60)),
         },
         // ISO 8601 designator form, decimals included.
@@ -279,24 +377,43 @@ fn interval_lit(g: &mut Gen) -> String {
         _ => match g.rng.below(6) {
             0 => format!(
                 "P{:04}{:02}{:02}T{:02}{:02}{:02}",
-                g.rng.below(20), g.rng.below(12), g.rng.below(28),
-                g.rng.below(24), g.rng.below(60), g.rng.below(60)
+                g.rng.below(20),
+                g.rng.below(12),
+                g.rng.below(28),
+                g.rng.below(24),
+                g.rng.below(60),
+                g.rng.below(60)
             ),
             1 => format!("P{:04}-{:02}", g.rng.below(20), g.rng.below(12)),
-            2 => format!("P{:04}-{:02}-{:02}", g.rng.below(20), g.rng.below(12), g.rng.below(28)),
+            2 => format!(
+                "P{:04}-{:02}-{:02}",
+                g.rng.below(20),
+                g.rng.below(12),
+                g.rng.below(28)
+            ),
             3 => format!(
                 "P{:04}-{:02}-{:02}T{:02}",
-                g.rng.below(20), g.rng.below(12), g.rng.below(28), g.rng.below(24)
+                g.rng.below(20),
+                g.rng.below(12),
+                g.rng.below(28),
+                g.rng.below(24)
             ),
             4 => format!(
                 "P{:04}-{:02}-{:02}T{:02}:{:02}",
-                g.rng.below(20), g.rng.below(12), g.rng.below(28),
-                g.rng.below(24), g.rng.below(60)
+                g.rng.below(20),
+                g.rng.below(12),
+                g.rng.below(28),
+                g.rng.below(24),
+                g.rng.below(60)
             ),
             _ => format!(
                 "P{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
-                g.rng.below(20), g.rng.below(12), g.rng.below(28),
-                g.rng.below(24), g.rng.below(60), g.rng.below(60)
+                g.rng.below(20),
+                g.rng.below(12),
+                g.rng.below(28),
+                g.rng.below(24),
+                g.rng.below(60),
+                g.rng.below(60)
             ),
         },
     }
@@ -305,16 +422,37 @@ fn interval_lit(g: &mut Gen) -> String {
 /// Interval qualifier (typmod) ranges: the whole INTERVAL_MASK dispatch
 /// in DecodeInterval is unreachable without them.
 const IVL_RANGES: &[&str] = &[
-    "YEAR", "MONTH", "DAY", "HOUR", "MINUTE", "SECOND",
-    "YEAR TO MONTH", "DAY TO HOUR", "DAY TO MINUTE", "DAY TO SECOND",
-    "HOUR TO MINUTE", "HOUR TO SECOND", "MINUTE TO SECOND", "SECOND(3)",
+    "YEAR",
+    "MONTH",
+    "DAY",
+    "HOUR",
+    "MINUTE",
+    "SECOND",
+    "YEAR TO MONTH",
+    "DAY TO HOUR",
+    "DAY TO MINUTE",
+    "DAY TO SECOND",
+    "HOUR TO MINUTE",
+    "HOUR TO SECOND",
+    "MINUTE TO SECOND",
+    "SECOND(3)",
 ];
 
 /// Range-shaped literals: bare numbers and partial day-time strings whose
 /// meaning the qualifier disambiguates (the ambiguous-unit arms).
 const IVL_RANGE_LITS: &[&str] = &[
-    "3", "-3", "4 5", "1-2", "-1-2", "4:05", "4:05:06", "3 4:05",
-    "3 4:05:06.789", "-3 +4:05:06", "12:34:56.789012", "+4 -5:06",
+    "3",
+    "-3",
+    "4 5",
+    "1-2",
+    "-1-2",
+    "4:05",
+    "4:05:06",
+    "3 4:05",
+    "3 4:05:06.789",
+    "-3 +4:05:06",
+    "12:34:56.789012",
+    "+4 -5:06",
 ];
 
 /// Typed interval literals: `INTERVAL 'lit' <range>` (the typmod rides
@@ -328,7 +466,11 @@ fn typed_interval_stmt(g: &mut Gen) -> String {
             } else {
                 (*g.rng.pick(IVL_RANGE_LITS)).to_string()
             };
-            format!("(INTERVAL '{}' {})::text", esc(&lit), *g.rng.pick(IVL_RANGES))
+            format!(
+                "(INTERVAL '{}' {})::text",
+                esc(&lit),
+                *g.rng.pick(IVL_RANGES)
+            )
         })
         .collect();
     format!("SELECT {};", cols.join(", "))
@@ -354,10 +496,14 @@ fn cast_batch(g: &mut Gen, ty: &str, mut lit: impl FnMut(&mut Gen) -> String) ->
 }
 
 fn special_stmt(g: &mut Gen) -> String {
-    let ty = *g.rng.pick(&["date", "timestamp", "timestamptz", "time", "timetz"]);
+    let ty = *g
+        .rng
+        .pick(&["date", "timestamp", "timestamptz", "time", "timetz"]);
     if g.rng.chance(1, 2) {
         // Nondeterministic specials: observed only through IS NOT NULL.
-        let sp = *g.rng.pick(&["now", "today", "tomorrow", "yesterday", "NOW", "Tomorrow"]);
+        let sp = *g
+            .rng
+            .pick(&["now", "today", "tomorrow", "yesterday", "NOW", "Tomorrow"]);
         if (ty == "time" || ty == "timetz") && sp != "now" && sp != "NOW" {
             return format!("SELECT ('now'::{ty}) IS NOT NULL;");
         }
@@ -365,7 +511,9 @@ fn special_stmt(g: &mut Gen) -> String {
     } else {
         let sp = match ty {
             "time" | "timetz" => *g.rng.pick(&["allballs", "ALLBALLS", "epoch"]),
-            _ => *g.rng.pick(&["epoch", "infinity", "-infinity", "EPOCH", "Infinity"]),
+            _ => *g
+                .rng
+                .pick(&["epoch", "infinity", "-infinity", "EPOCH", "Infinity"]),
         };
         // ('epoch' into time/timetz is an identical two-sided error —
         // deliberate DecodeSpecial-reject fuel.)
@@ -379,7 +527,12 @@ fn special_stmt(g: &mut Gen) -> String {
 fn style_bracket(g: &mut Gen) -> Vec<String> {
     if g.rng.chance(1, 2) {
         let style = *g.rng.pick(&[
-            "'SQL, DMY'", "'SQL, MDY'", "'Postgres, DMY'", "'Postgres, MDY'", "'German'", "'ISO, YMD'",
+            "'SQL, DMY'",
+            "'SQL, MDY'",
+            "'Postgres, DMY'",
+            "'Postgres, MDY'",
+            "'German'",
+            "'ISO, YMD'",
         ]);
         let ty = *g.rng.pick(&["date", "timestamp", "timestamptz"]);
         let lit = match ty {
@@ -393,7 +546,9 @@ fn style_bracket(g: &mut Gen) -> Vec<String> {
             "SET DateStyle = 'ISO, MDY';".to_string(),
         ]
     } else {
-        let style = *g.rng.pick(&["sql_standard", "iso_8601", "postgres_verbose"]);
+        let style = *g
+            .rng
+            .pick(&["sql_standard", "iso_8601", "postgres_verbose"]);
         let lit = esc(&interval_lit(g));
         vec![
             format!("SET IntervalStyle = {style};"),
@@ -419,10 +574,28 @@ fn err_stmt(g: &mut Gen) -> String {
 /// Every EXTRACT field keyword (valid and per-type-invalid — the reject
 /// ereport of each *_part_common is a target arm too).
 const EXTRACT_FIELDS: &[&str] = &[
-    "century", "day", "decade", "dow", "doy", "epoch", "hour", "isodow",
-    "isoyear", "julian", "microseconds", "millennium", "milliseconds",
-    "minute", "month", "quarter", "second", "timezone", "timezone_hour",
-    "timezone_minute", "week", "year",
+    "century",
+    "day",
+    "decade",
+    "dow",
+    "doy",
+    "epoch",
+    "hour",
+    "isodow",
+    "isoyear",
+    "julian",
+    "microseconds",
+    "millennium",
+    "milliseconds",
+    "minute",
+    "month",
+    "quarter",
+    "second",
+    "timezone",
+    "timezone_hour",
+    "timezone_minute",
+    "week",
+    "year",
 ];
 
 /// Deterministic datetime operands for extract/trunc/arith shapes:
@@ -472,13 +645,29 @@ fn extract_stmt(g: &mut Gen) -> String {
 
 /// date_trunc units incl. the reject arms and the timezone-argument form.
 const TRUNC_UNITS: &[&str] = &[
-    "microseconds", "milliseconds", "second", "minute", "hour", "day",
-    "week", "month", "quarter", "year", "decade", "century", "millennium",
-    "timezone", "bogus",
+    "microseconds",
+    "milliseconds",
+    "second",
+    "minute",
+    "hour",
+    "day",
+    "week",
+    "month",
+    "quarter",
+    "year",
+    "decade",
+    "century",
+    "millennium",
+    "timezone",
+    "bogus",
 ];
 
 const TRUNC_ZONES: &[&str] = &[
-    "UTC", "America/New_York", "Asia/Kathmandu", "Australia/Lord_Howe", "+05:30",
+    "UTC",
+    "America/New_York",
+    "Asia/Kathmandu",
+    "Australia/Lord_Howe",
+    "+05:30",
 ];
 
 fn trunc_stmt(g: &mut Gen) -> String {
@@ -516,8 +705,17 @@ fn ivarith_stmt(g: &mut Gen) -> String {
         "1 day 25:00:00",
     ]);
     let f = *g.rng.pick(&[
-        "2", "-1", "0.5", "-0.25", "0", "1e10", "-1e10", "0.000001",
-        "'nan'::float8", "'infinity'::float8", "'-infinity'::float8",
+        "2",
+        "-1",
+        "0.5",
+        "-0.25",
+        "0",
+        "1e10",
+        "-1e10",
+        "0.000001",
+        "'nan'::float8",
+        "'infinity'::float8",
+        "'-infinity'::float8",
     ]);
     match g.rng.below(5) {
         0 => format!("SELECT ('{}'::interval * {})::text;", esc(iv), f),
@@ -653,8 +851,10 @@ mod tests {
                 for _ in 0..300 {
                     let mut prods = Vec::new();
                     let mut g = Gen::new(&mut rng, &cat, &w, &mut prods, 4);
-                    let stmts: Vec<String> =
-                        gen_decode_group(&mut g).iter().map(|s| s.to_sql()).collect();
+                    let stmts: Vec<String> = gen_decode_group(&mut g)
+                        .iter()
+                        .map(|s| s.to_sql())
+                        .collect();
                     out.push(stmts);
                 }
                 out
@@ -681,8 +881,10 @@ mod tests {
         for _ in 0..2000 {
             let mut prods = Vec::new();
             let mut g = Gen::new(&mut rng, &cat, &w, &mut prods, 4);
-            let stmts: Vec<String> =
-                gen_decode_group(&mut g).iter().map(|s| s.to_sql()).collect();
+            let stmts: Vec<String> = gen_decode_group(&mut g)
+                .iter()
+                .map(|s| s.to_sql())
+                .collect();
             let sets = stmts.iter().filter(|s| s.starts_with("SET ")).count();
             if sets > 0 {
                 assert_eq!(sets, 2, "unbalanced style bracket: {stmts:?}");
@@ -698,9 +900,19 @@ mod tests {
             }
         }
         for p in [
-            "dtmdec:date", "dtmdec:time", "dtmdec:timetz", "dtmdec:ts", "dtmdec:tstz",
-            "dtmdec:interval", "dtmdec:special", "dtmdec:style", "dtmdec:err",
-            "dtmdec:extract", "dtmdec:trunc", "dtmdec:ivarith", "dtmdec:overlaps",
+            "dtmdec:date",
+            "dtmdec:time",
+            "dtmdec:timetz",
+            "dtmdec:ts",
+            "dtmdec:tstz",
+            "dtmdec:interval",
+            "dtmdec:special",
+            "dtmdec:style",
+            "dtmdec:err",
+            "dtmdec:extract",
+            "dtmdec:trunc",
+            "dtmdec:ivarith",
+            "dtmdec:overlaps",
         ] {
             assert!(fired.contains(p), "sub-production {p} never fired");
         }

@@ -20,6 +20,19 @@ pub struct Composed {
     pub merge: Vec<crate::mergearms::MergeKey>,
 }
 
-pub fn lower_composed<'p>(arena: ArenaRef, mcx: mcx::Mcx<'_>, graph: &PipelineGraph<'p>, facts: &dyn gravity_decompose::Facts, catalog: &dyn Catalog<'p>, plan: &mut dyn WordPlan<'p>, opts: LowerOpts) -> Result<Composed> {
-    Ok(Composed { inits: Vec::new(), main: lower_graph(arena, mcx, graph, facts, catalog, plan, opts)?, arms: Vec::new(), merge: Vec::new() }) // alloc: Program
+pub fn lower_composed<'p>(
+    arena: ArenaRef,
+    mcx: mcx::Mcx<'_>,
+    graph: &PipelineGraph<'p>,
+    facts: &dyn gravity_decompose::Facts,
+    catalog: &dyn Catalog<'p>,
+    plan: &mut dyn WordPlan<'p>,
+    opts: LowerOpts,
+) -> Result<Composed> {
+    Ok(Composed {
+        inits: Vec::new(),
+        main: lower_graph(arena, mcx, graph, facts, catalog, plan, opts)?,
+        arms: Vec::new(),
+        merge: Vec::new(),
+    }) // alloc: Program
 }

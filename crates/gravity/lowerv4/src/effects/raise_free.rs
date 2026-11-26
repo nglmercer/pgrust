@@ -60,20 +60,35 @@ impl<'r> Reading<'r> {
     /// aggregate: its transitions ran in the pipelines that fold into the slot it reads, which the caller reads apart);
     /// the PARAM_EXEC ids `bound` names are bound words; under `arr` the quiet array reads.
     pub(crate) fn quiet(bound: &'r dyn Fn(i32) -> bool, agg: Agg<'r>, arr: bool) -> Reading<'r> {
-        Reading { param: bound, agg, array_reads: arr, list: false }
+        Reading {
+            param: bound,
+            agg,
+            array_reads: arr,
+            list: false,
+        }
     }
 
     /// effects/visible/topn.rs `pure` (D449 over a group's row): the one reading's row form (AGA-17 took its quiet calls and
     /// node kinds), where an extern parameter is a bound word and no PARAM_EXEC is (an InitPlan's or a SubPlan's may
     /// raise), an aggregate read as its group's final by `final_quiet`.
     pub(crate) fn group_row(final_quiet: &'r dyn Fn(&Aggref<'_>) -> bool) -> Reading<'r> {
-        Reading { param: &no_exec, agg: Agg::Final(final_quiet), array_reads: false, list: false }
+        Reading {
+            param: &no_exec,
+            agg: Agg::Final(final_quiet),
+            array_reads: false,
+            list: false,
+        }
     }
 
     /// effects/visible/nestloop.rs `quiet_in` (D1486's quiet arms): quiet calls, a List as an AND; the PARAM_EXEC ids
     /// `bound` names (a nest's or a per-row SubPlan's, written before the re-open) are bound words. No aggregate.
     pub(crate) fn union_arms(bound: &'r dyn Fn(i32) -> bool) -> Reading<'r> {
-        Reading { param: bound, agg: Agg::None, array_reads: false, list: true }
+        Reading {
+            param: bound,
+            agg: Agg::None,
+            array_reads: false,
+            list: true,
+        }
     }
 }
 
@@ -96,10 +111,24 @@ pub(in crate::effects) fn walk(gx: &Gx<'_, '_>, n: Node<'_>, r: &Reading<'_>) ->
         }
     }
     let fetch = |x: Node<'_>| super::quiet_fetch(gx, x);
-    let scope = Scope { bound: r.param, fetch: r.array_reads.then_some(&fetch as &dyn Fn(Node<'_>) -> bool) };
+    let scope = Scope {
+        bound: r.param,
+        fetch: r.array_reads.then_some(&fetch as &dyn Fn(Node<'_>) -> bool),
+    };
     let own = match n.as_aggref() {
-        Some(a) => matches!(r.agg, Agg::Fold) && gravity_decompose::effects::agg_quiet(a) && a.aggorder.is_nil() && a.aggdistinct.is_nil() && a.aggdirectargs.is_nil(),
-        None => quiet_node(gx.facts, n, &scope) || n.as_min_max_expr().is_some_and(|m| cmp_pure(gx, m.minmaxtype) && collation_set(0, m.inputcollid, &m.args)),
+        Some(a) => {
+            matches!(r.agg, Agg::Fold)
+                && gravity_decompose::effects::agg_quiet(a)
+                && a.aggorder.is_nil()
+                && a.aggdistinct.is_nil()
+                && a.aggdirectargs.is_nil()
+        }
+        None => {
+            quiet_node(gx.facts, n, &scope)
+                || n.as_min_max_expr().is_some_and(|m| {
+                    cmp_pure(gx, m.minmaxtype) && collation_set(0, m.inputcollid, &m.args)
+                })
+        }
     };
     let mut ok = own;
     let known = gravity_decompose::expr::kids(n, &mut |c| ok &= walk(gx, c, r));

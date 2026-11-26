@@ -6,12 +6,14 @@ use std::fs;
 use std::path::PathBuf;
 
 use gravity_abi::ctx::lane;
-use gravity_decompose::catalog::{AttFact, ExprFp, Facts, IndexExt, IndexFact, InsteadOf, LeafFact, RelFact};
+use gravity_decompose::catalog::{
+    AttFact, ExprFp, Facts, IndexExt, IndexFact, InsteadOf, LeafFact, RelFact,
+};
 use gravity_decompose::corpus::{self, FixtureFacts};
+use gravity_decompose::decompose_in;
 use gravity_decompose::effects::FuncProps;
 use gravity_decompose::graph::Source;
 use gravity_decompose::ops::modifytable::trig_facts::TrigExt;
-use gravity_decompose::decompose_in;
 use gravity_program::{Arena, LaneId, LaneLife, Rep};
 use mcx::MemoryContext;
 
@@ -51,7 +53,10 @@ impl Facts for Counted<'_> {
     fn att_generated(&self, relid: u32, attno: i16) -> u8 {
         self.inner.att_generated(relid, attno)
     }
-    fn key(&self, req: gravity_decompose::catalog::KeyReq) -> Option<gravity_decompose::catalog::KeyOrder> {
+    fn key(
+        &self,
+        req: gravity_decompose::catalog::KeyReq,
+    ) -> Option<gravity_decompose::catalog::KeyOrder> {
         self.inner.key(req)
     }
     fn op_image_eq(&self, opno: u32) -> Option<(u32, u32)> {
@@ -94,18 +99,34 @@ fn fixture(name: &str) -> PathBuf {
 }
 
 /// Per range scan of relation `relid`, column `attno`'s lane: (the scan's lane count, kind, rep, life).
-fn lanes_of(name: &str, counts: Option<(u64, u64)>, width: u32, relid: u32, attno: i16) -> Vec<(usize, u8, Rep, LaneLife)> {
+fn lanes_of(
+    name: &str,
+    counts: Option<(u64, u64)>,
+    width: u32,
+    relid: u32,
+    attno: i16,
+) -> Vec<(usize, u8, Rep, LaneLife)> {
     let text = fs::read_to_string(fixture(name)).unwrap();
     let ctx = MemoryContext::new("scan_datum_text");
     let fx = corpus::load(ctx.mcx(), &text).unwrap();
-    let facts = Counted { inner: &fx.facts, counts, width };
+    let facts = Counted {
+        inner: &fx.facts,
+        counts,
+        width,
+    };
     let arena = Arena::new(1 << 20);
-    let g = decompose_in(arena.handle(), fx.stmt, &facts, fx.mcx).unwrap_or_else(|r| panic!("{name}: refused {r:?}"));
+    let g = decompose_in(arena.handle(), fx.stmt, &facts, fx.mcx)
+        .unwrap_or_else(|r| panic!("{name}: refused {r:?}"));
     let mut out = Vec::new();
     for p in g.pipelines.iter() {
         if let Source::Range { site, relid: r, .. } = &p.source {
             let n = site.lanes().len();
-            out.extend(site.lanes().iter().filter(|l| *r == relid && l.id == LaneId::Attr(attno)).map(|l| (n, l.kind, l.rep, l.life)));
+            out.extend(
+                site.lanes()
+                    .iter()
+                    .filter(|l| *r == relid && l.id == LaneId::Attr(attno))
+                    .map(|l| (n, l.kind, l.rep, l.life)),
+            );
         }
     }
     out.sort_by_key(|l| l.0);
@@ -121,9 +142,24 @@ fn a_near_unique_column_read_by_calls_alone_is_a_by_reference_lane() {
     // scan (c_custkey, c_phone, c_acctbal) is the hashed side of the anti join: the Hash stores its rows, a parent no
     // rule reads through, so it keeps its codes though the join reads c_phone only through substring()
     let got = lanes_of("tpch-sf10-022", UNIQUE, 16, 16426, 5);
-    let codes = (lane::KIND_CODES, Rep::Code { dict: gravity_program::DictRef { lane: 1, fp_table: gravity_program::DictRef::NO_TABLE } }, LaneLife { until: gravity_program::Until::Part, home: gravity_program::Home::Dictionary });
+    let codes = (
+        lane::KIND_CODES,
+        Rep::Code {
+            dict: gravity_program::DictRef {
+                lane: 1,
+                fp_table: gravity_program::DictRef::NO_TABLE,
+            },
+        },
+        LaneLife {
+            until: gravity_program::Until::Part,
+            home: gravity_program::Home::Dictionary,
+        },
+    );
     // by the scan's lane count: the sub-plan's scan first
-    assert_eq!(got.iter().map(|l| (l.1, l.2, l.3)).collect::<Vec<_>>(), vec![(lane::KIND_BYREF, Rep::VarlenaPtr, LaneLife::PGRC), codes]);
+    assert_eq!(
+        got.iter().map(|l| (l.1, l.2, l.3)).collect::<Vec<_>>(),
+        vec![(lane::KIND_BYREF, Rep::VarlenaPtr, LaneLife::PGRC), codes]
+    );
     assert!(got[0].0 < got[1].0, "{got:?}");
 }
 
@@ -132,13 +168,23 @@ fn without_a_near_unique_count_the_column_keeps_its_codes() {
     // no count (heap, before a publish, a bpchar with no footer NDV and no ANALYZE), and a count under PS1-29's 95 %
     for counts in [None, Some((1_500_000, 1_400_000)), Some((1_000, 1_000))] {
         let got = lanes_of("tpch-sf10-022", counts, 16, 16426, 5);
-        assert!(got.len() == 2 && got.iter().all(|l| l.1 == lane::KIND_CODES), "{counts:?}: {got:?}");
+        assert!(
+            got.len() == 2 && got.iter().all(|l| l.1 == lane::KIND_CODES),
+            "{counts:?}: {got:?}"
+        );
     }
     // a near-unique column of wide values (a granule's images would sit in every reading source's arena), or of no
     // known width, keeps the shared dictionary
-    for width in [0, gravity_program::cost::DATUM_TEXT_WIDTH_MAX + 1, 136 << 10] {
+    for width in [
+        0,
+        gravity_program::cost::DATUM_TEXT_WIDTH_MAX + 1,
+        136 << 10,
+    ] {
         let got = lanes_of("tpch-sf10-022", UNIQUE, width, 16426, 5);
-        assert!(got.len() == 2 && got.iter().all(|l| l.1 == lane::KIND_CODES), "width {width}: {got:?}");
+        assert!(
+            got.len() == 2 && got.iter().all(|l| l.1 == lane::KIND_CODES),
+            "width {width}: {got:?}"
+        );
     }
 }
 
@@ -146,8 +192,15 @@ fn without_a_near_unique_count_the_column_keeps_its_codes() {
 fn a_column_compared_or_projected_keeps_its_codes() {
     // media_url LIKE '%atlas%' (an operator over the column); notes <> '' and the bare group key; media_url read through
     // octet_length() but also by media_url <> ''
-    for (name, relid, attno) in [("bench-154", 16498, 6), ("fieldobs-029", 16464, 28), ("fieldobs-043", 16464, 29)] {
+    for (name, relid, attno) in [
+        ("bench-154", 16498, 6),
+        ("fieldobs-029", 16464, 28),
+        ("fieldobs-043", 16464, 29),
+    ] {
         let got = lanes_of(name, UNIQUE, 16, relid, attno);
-        assert!(!got.is_empty() && got.iter().all(|l| l.1 == lane::KIND_CODES), "{name}: {got:?}");
+        assert!(
+            !got.is_empty() && got.iter().all(|l| l.1 == lane::KIND_CODES),
+            "{name}: {got:?}"
+        );
     }
 }

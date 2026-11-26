@@ -1,7 +1,7 @@
 //! geo_ops.c: the 2-D geometric types (point/lseg/line/box/path/polygon/circle)
 //! and their operators. PATH and POLYGON are varlena; the fixed-size types are
 //! by-ref native struct images.
-#![allow(non_snake_case,non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 pub mod boxes;
 pub mod builtins;
@@ -304,7 +304,11 @@ impl<'a> PolyRef<'a> {
     #[doc(hidden)]
     pub fn from_parts(boundbox: BOX, npts: usize, pts: &'a [u8]) -> PolyRef<'a> {
         debug_assert!(pts.len() >= npts * POINT_SIZE);
-        PolyRef { boundbox, npts, pts }
+        PolyRef {
+            boundbox,
+            npts,
+            pts,
+        }
     }
 }
 
@@ -501,7 +505,12 @@ mod tests {
 
     #[test]
     fn box_io_roundtrip() {
-        for s in ["((1,2),(3,4))", "(1,2),(3,4)", "1,2,3,4", " ( (1, 2) , (3 ,4) ) "] {
+        for s in [
+            "((1,2),(3,4))",
+            "(1,2),(3,4)",
+            "1,2,3,4",
+            " ( (1, 2) , (3 ,4) ) ",
+        ] {
             let b = box_in(s).unwrap();
             assert_eq!(b.high.x, 3.0);
             assert_eq!(b.high.y, 4.0);
@@ -546,9 +555,18 @@ mod tests {
         // `point <-> point` / `circle <-> point`.
         let arm = cfg!(target_arch = "aarch64");
         let pick = |a: f64, x: f64| if arm { a } else { x };
-        assert_eq!(pg_hypot(365.0, 119.5).unwrap(), pick(384.06412225043874, 384.06412225043886));
-        assert_eq!(pg_hypot(26.5, 47.0).unwrap(), pick(53.95600059307583, 53.95600059307584));
-        assert_eq!(pg_hypot(2.0, 5.0).unwrap(), pick(5.385164807134504, 5.385164807134505));
+        assert_eq!(
+            pg_hypot(365.0, 119.5).unwrap(),
+            pick(384.06412225043874, 384.06412225043886)
+        );
+        assert_eq!(
+            pg_hypot(26.5, 47.0).unwrap(),
+            pick(53.95600059307583, 53.95600059307584)
+        );
+        assert_eq!(
+            pg_hypot(2.0, 5.0).unwrap(),
+            pick(5.385164807134504, 5.385164807134505)
+        );
     }
 
     #[test]
@@ -570,7 +588,10 @@ mod nan_comparator_regression {
     use super::*;
 
     fn bx(lx: f64, ly: f64, hx: f64, hy: f64) -> BOX {
-        BOX { high: Point { x: hx, y: hy }, low: Point { x: lx, y: ly } }
+        BOX {
+            high: Point { x: hx, y: hy },
+            low: Point { x: lx, y: ly },
+        }
     }
 
     /// C (gistproc.c adjustBox, since 1acf757255 / bug #14238) uses the

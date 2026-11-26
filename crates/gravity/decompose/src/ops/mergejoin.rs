@@ -18,11 +18,25 @@ const AGG_SORTED: u32 = 1;
 /// streams, D1071 / facts/stream.rs `merge_inner`: PG's merge fetches it one group at a time and the group reads one feed
 /// row past each, whose arguments run with the next group), whose code acts, asked Exact.
 pub fn ask_exact<'p>(b: &mut Builder<'p, '_>, inner: Node<'p>) {
-    let scan = |n: Option<Node<'p>>| n.is_some_and(|n| n.as_seq_scan().is_some() || n.as_index_scan().is_some() || n.as_index_only_scan().is_some() || n.as_bitmap_heap_scan().is_some());
-    let group = inner.as_agg().is_some_and(|a| a.aggstrategy == AGG_SORTED && scan(a.plan.lefttree));
-    let shaped = scan(Some(inner)) || inner.as_material().is_some_and(|m| scan(m.plan.lefttree)) || group;
-    let Some(id) = inner.as_plan().map(|p| p.plan_node_id).filter(|_| shaped) else { return };
-    if crate::effects::of_plan(&Cx::new(b.stmt, b.facts, b.arena), inner).acts && !b.graph.exact.contains(&id) {
+    let scan = |n: Option<Node<'p>>| {
+        n.is_some_and(|n| {
+            n.as_seq_scan().is_some()
+                || n.as_index_scan().is_some()
+                || n.as_index_only_scan().is_some()
+                || n.as_bitmap_heap_scan().is_some()
+        })
+    };
+    let group = inner
+        .as_agg()
+        .is_some_and(|a| a.aggstrategy == AGG_SORTED && scan(a.plan.lefttree));
+    let shaped =
+        scan(Some(inner)) || inner.as_material().is_some_and(|m| scan(m.plan.lefttree)) || group;
+    let Some(id) = inner.as_plan().map(|p| p.plan_node_id).filter(|_| shaped) else {
+        return;
+    };
+    if crate::effects::of_plan(&Cx::new(b.stmt, b.facts, b.arena), inner).acts
+        && !b.graph.exact.contains(&id)
+    {
         b.graph.exact.push(id);
     }
 }

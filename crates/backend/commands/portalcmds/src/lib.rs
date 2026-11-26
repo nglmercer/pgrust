@@ -70,7 +70,8 @@ pub fn PerformCursorOpen(
     // — the analysis-time jumble covered only the outer utility Query.
     if parser_analyze::tap_post_parse_analyze::is_installed() && queryjumble::IsQueryIdEnabled() {
         let js = queryjumble::JumbleQuery(smcx, &mut query)?;
-        parser_analyze::tap_post_parse_analyze::call_if_or(Ok(()), |f| { f(&mut query, &js, source_text)
+        parser_analyze::tap_post_parse_analyze::call_if_or(Ok(()), |f| {
+            f(&mut query, &js, source_text)
         })?;
     } else if queryjumble::IsQueryIdEnabled() {
         queryjumble::JumbleQueryDiscard(smcx, &mut query)?;
@@ -85,8 +86,14 @@ pub fn PerformCursorOpen(
         return Err(non_select_in_declare());
     }
 
-    let planned = postgres::pg_plan_query(smcx, mcx::leak_in(mcx::alloc_in(smcx, query)?), source_text, cstmt.options, params,)?
-        .expect("planner output for a SELECT");
+    let planned = postgres::pg_plan_query(
+        smcx,
+        mcx::leak_in(mcx::alloc_in(smcx, query)?),
+        source_text,
+        cstmt.options,
+        params,
+    )?
+    .expect("planner output for a SELECT");
 
     // C copies the plan into the ALLOCSET_SMALL_SIZES portalContext.
     let plan_ctx = Box::new(MemoryContext::new_small_wholesale("PortalPlanContext"));
@@ -146,9 +153,7 @@ pub fn PerformCursorOpen(
             // A POLICY oracle since the backward-execution wave (B10): it
             // decides which cursors accept FETCH BACKWARD by default (C
             // parity); the reads themselves are store-served.
-            if plan.rowMarks.is_nil()
-                && execmain::plan_implicit_scroll_ok(plan.planTree)
-            {
+            if plan.rowMarks.is_nil() && execmain::plan_implicit_scroll_ok(plan.planTree) {
                 p.cursorOptions |= CURSOR_OPT_SCROLL;
             } else {
                 p.cursorOptions |= CURSOR_OPT_NO_SCROLL;
@@ -186,7 +191,11 @@ pub fn PerformPortalFetch(
     };
 
     if let Some(qc) = qc {
-        qc.commandTag = if stmt.ismove { CMDTAG_MOVE } else { CMDTAG_FETCH };
+        qc.commandTag = if stmt.ismove {
+            CMDTAG_MOVE
+        } else {
+            CMDTAG_FETCH
+        };
         qc.nprocessed = nprocessed;
     }
     Ok(())
@@ -255,7 +264,10 @@ pub fn PortalCleanup(portal: &Portal<'static>) -> PgResult<()> {
 
 pub fn PersistHoldablePortal(portal: &Portal<'static>) -> PgResult<()> {
     let query_desc = portal.borrow().queryDesc;
-    assert!(!query_desc.is_null(), "PersistHoldablePortal: portal has no queryDesc");
+    assert!(
+        !query_desc.is_null(),
+        "PersistHoldablePortal: portal has no queryDesc"
+    );
     debug_assert!(!portal.borrow().holdStore.is_null());
     debug_assert!(portal.borrow().holdSnapshot.is_none());
     // C copies tupDesc into holdContext before ExecutorEnd; the portal's Rc
@@ -302,7 +314,13 @@ pub fn PersistHoldablePortal(portal: &Portal<'static>) -> PgResult<()> {
 
             // detoast=true: the stored rows must not depend on the snapshot.
             let mut treceiver = tcop_dest::CreateDestReceiver(CommandDest::Tuplestore);
-            tcop_dest::SetTuplestoreDestReceiverParams(&mut treceiver, hold_store, true, None, None,);
+            tcop_dest::SetTuplestoreDestReceiverParams(
+                &mut treceiver,
+                hold_store,
+                true,
+                None,
+                None,
+            );
             execmain_seams::executor_run::call(query_desc, direction, 0, &mut treceiver)?;
             treceiver.destroy();
         }
@@ -319,7 +337,8 @@ pub fn PersistHoldablePortal(portal: &Portal<'static>) -> PgResult<()> {
             (p.atEnd, p.portalPos)
         };
         if at_end {
-            while tuplestore_hold_seams::tuplestore_skiptuples::call(hold_store, 1_000_000, true)? {}
+            while tuplestore_hold_seams::tuplestore_skiptuples::call(hold_store, 1_000_000, true)? {
+            }
         } else {
             tuplestore_hold_seams::tuplestore_rescan::call(hold_store)?;
             // No-scroll: the store starts at the not-yet-fetched rows already.

@@ -6,11 +6,14 @@ use mcx::PgBox;
 use crate::face::kinds::KindId;
 use crate::face::step::StepMech;
 use crate::frame::frame::StepMaker;
-use crate::frame::px::Px;
 use crate::frame::iface::kind_impl;
+use crate::frame::px::Px;
 use crate::ops::Table;
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::JoinFull, &StepMaker(make))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::JoinFull, &StepMaker(make))],
+    ..crate::ops::NONE
+};
 
 fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMech + 'g> {
     let node = px.gx.pipelines()[k].node_id;

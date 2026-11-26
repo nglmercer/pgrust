@@ -20,7 +20,10 @@ crate::strategies! {
     SETOP_EMPTYLEFT = 105, "setop.emptyleft", SetopAny;
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(SETOP_EMPTYLEFT, &())], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(SETOP_EMPTYLEFT, &())],
+    ..crate::ops::NONE
+};
 
 /// The skip protocol of the set operation over left producer `lp` and right producer `rp`, when the road is on: it rides
 /// `lp` and names `rp` as its peer, both of which frame/program.rs `to_program` maps to program order; exec v4 m9.rs
@@ -39,7 +42,12 @@ pub(crate) fn declare_plain(px: &mut Px<'_, '_>, lp: usize, rp: usize, left: u8,
 fn declare_with(px: &mut Px<'_, '_>, lp: usize, rp: usize, left: u8, plain: u64) {
     if Rescan::SkipEmpty.on() && rp > lp && plain <= 0xffff {
         fires::fire("setop.emptyleft"); // shapecheck fire signal (REGISTRY NEW-lowerv4-a2-38)
-        px.declare_proto(Proto::new(ProtoKind::SetOp, lp as u16).peer(rp as u16).slot(left).arg(plain << SKIP_PLAIN_SHIFT));
+        px.declare_proto(
+            Proto::new(ProtoKind::SetOp, lp as u16)
+                .peer(rp as u16)
+                .slot(left)
+                .arg(plain << SKIP_PLAIN_SHIFT),
+        );
     }
 }
 

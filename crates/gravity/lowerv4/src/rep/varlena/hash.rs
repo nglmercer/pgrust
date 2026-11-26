@@ -23,22 +23,32 @@ use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{ConvOp, HostFlags, IntBinOp, IntCond, Type, Value};
 use gravity_kernels::ops::agg::trans::entries::{m6_detoast, m6_fp_seed, m6_num_fp};
 
-use crate::face::kinds::KindId;
 use crate::admit::refusal::Reason;
+use crate::face::kinds::KindId;
 use crate::ops::Table;
 use crate::rep::{self, CellRef, HashArm, Lx, Scope, StoredRef, Words};
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::RepVarlenaHash, &ARM)], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::RepVarlenaHash, &ARM)],
+    ..crate::ops::NONE
+};
 
 pub(crate) const ARM: HashArm = HashArm { image, eq };
 
 fn err() -> HostFlags {
-    HostFlags { may_error: true, touches_memory: true, ..HostFlags::default() }
+    HostFlags {
+        may_error: true,
+        touches_memory: true,
+        ..HostFlags::default()
+    }
 }
 
 fn image(lx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, tf: &TypeFacts, scope: Scope) -> Words {
     if let Some([lo, hi]) = lx.fps.get(c.val) {
-        return Words { w: [Some(lo), Some(hi)], exact: true };
+        return Words {
+            w: [Some(lo), Some(hi)],
+            exact: true,
+        };
     }
     crate::rep::varkey::hash_image(lx, c, tf, KeyColl::NONE, scope, fp_image)
 }
@@ -47,15 +57,26 @@ fn image(lx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, tf: &TypeFacts, scope: Scope) 
 pub(crate) fn fp_image(lx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, tf: &TypeFacts) -> Words {
     let (p, null) = rep::datum(lx, c, tf);
     let zero = lx.b.iconst(Type::I64, 0);
-    let (l_val, l_out) = (lx.b.create_block(&[]), lx.b.create_block(&[Type::I64, Type::I64]));
+    let (l_val, l_out) = (
+        lx.b.create_block(&[]),
+        lx.b.create_block(&[Type::I64, Type::I64]),
+    );
     lx.b.cond_br(null, (l_out, &[zero, zero]), (l_val, &[]));
     lx.b.switch_to(l_val);
     let p = ptr(lx.b, p);
     let [lo, hi] = if tf.image.is_num_form() {
         let out = out2(lx.b);
         let ctx = lx.frame().ctx;
-        let f = lx.b.declare_host_once("m6_num_fp", &[Type::Ptr, Type::Ptr, Type::Ptr], Some(Type::I64), m6_num_fp as *const () as usize, err());
-        let st = lx.b.call_host(f, &[ctx, p, out], Some(Type::I64)).expect("m6_num_fp returns its status");
+        let f = lx.b.declare_host_once(
+            "m6_num_fp",
+            &[Type::Ptr, Type::Ptr, Type::Ptr],
+            Some(Type::I64),
+            m6_num_fp as *const () as usize,
+            err(),
+        );
+        let st =
+            lx.b.call_host(f, &[ctx, p, out], Some(Type::I64))
+                .expect("m6_num_fp returns its status");
         raise_on(lx, st);
         [lx.b.load(Type::I64, out, 0), lx.b.load(Type::I64, out, 8)]
     } else {
@@ -67,7 +88,10 @@ pub(crate) fn fp_image(lx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, tf: &TypeFacts) 
     lx.b.br(l_out, &[lo, hi]);
     lx.b.switch_to(l_out);
     let o = lx.b.block_params(l_out);
-    Words { w: [Some(o[0]), Some(o[1])], exact: true }
+    Words {
+        w: [Some(o[0]), Some(o[1])],
+        exact: true,
+    }
 }
 
 /// Where a detoasted copy sits in the Call's scratch (`payload`): the window's `(cur, end)` before the copy; `cur` 0 when
@@ -84,26 +108,51 @@ pub(crate) fn payload(lx: &mut Lx<'_, '_, '_>, p: Value, tf: &TypeFacts) -> (Val
     let v = siphash::varlena(lx.b, p);
     let zero = lx.b.iconst(Type::I64, 0);
     let bad = lx.b.icmp(IntCond::Ne, v.bad, zero);
-    let (l_host, l_out) = (lx.b.create_block(&[]), lx.b.create_block(&[Type::Ptr, Type::I64, Type::I64, Type::I64]));
+    let (l_host, l_out) = (
+        lx.b.create_block(&[]),
+        lx.b.create_block(&[Type::Ptr, Type::I64, Type::I64, Type::I64]),
+    );
     lx.b.cond_br(bad, (l_host, &[]), (l_out, &[v.ptr, v.len, zero, zero]));
     lx.b.switch_to(l_host);
     lx.b.mark_cold(l_host);
     let (ctx, out) = (lx.frame().ctx, out2(lx.b));
-    let (cur, end) = (lx.b.load(Type::I64, ctx, hdr::ARENA_CUR as i32), lx.b.load(Type::I64, ctx, hdr::ARENA_END as i32));
-    let f = lx.b.declare_host_once("m6_detoast", &[Type::Ptr, Type::Ptr, Type::Ptr], Some(Type::I64), m6_detoast as *const () as usize, err());
-    let st = lx.b.call_host(f, &[ctx, p, out], Some(Type::I64)).expect("m6_detoast returns its status");
+    let (cur, end) = (
+        lx.b.load(Type::I64, ctx, hdr::ARENA_CUR as i32),
+        lx.b.load(Type::I64, ctx, hdr::ARENA_END as i32),
+    );
+    let f = lx.b.declare_host_once(
+        "m6_detoast",
+        &[Type::Ptr, Type::Ptr, Type::Ptr],
+        Some(Type::I64),
+        m6_detoast as *const () as usize,
+        err(),
+    );
+    let st =
+        lx.b.call_host(f, &[ctx, p, out], Some(Type::I64))
+            .expect("m6_detoast returns its status");
     raise_on(lx, st);
     let (dp, dl) = (lx.b.load(Type::Ptr, out, 0), lx.b.load(Type::I64, out, 8));
     lx.b.br(l_out, &[dp, dl, cur, end]);
     lx.b.switch_to(l_out);
     let o = lx.b.block_params(l_out);
-    let (bytes, len, mark) = (o[0], o[1], Mark { cur: o[2], end: o[3] });
+    let (bytes, len, mark) = (
+        o[0],
+        o[1],
+        Mark {
+            cur: o[2],
+            end: o[3],
+        },
+    );
     if !tf.image.is_bpchar() {
         return (bytes, len, mark);
     }
     // bcTruelen: drop trailing blanks, a backward scan (a loop the key's length bounds)
     let n0 = lx.b.num_blocks();
-    let (l_head, l_byte, l_done) = (lx.b.create_block(&[Type::I64]), lx.b.create_block(&[]), lx.b.create_block(&[Type::I64]));
+    let (l_head, l_byte, l_done) = (
+        lx.b.create_block(&[Type::I64]),
+        lx.b.create_block(&[]),
+        lx.b.create_block(&[Type::I64]),
+    );
     lx.b.br(l_head, &[len]);
     lx.b.switch_to(l_head);
     lx.b.mark_loop_header(l_head);
@@ -136,7 +185,10 @@ pub(crate) fn release(lx: &mut Lx<'_, '_, '_>, m: Mark) {
     lx.b.switch_to(l_back);
     lx.b.mark_cold(l_back);
     let ctx = lx.frame().ctx;
-    let (cur, end) = (lx.b.load(Type::I64, ctx, hdr::ARENA_CUR as i32), lx.b.load(Type::I64, ctx, hdr::ARENA_END as i32));
+    let (cur, end) = (
+        lx.b.load(Type::I64, ctx, hdr::ARENA_CUR as i32),
+        lx.b.load(Type::I64, ctx, hdr::ARENA_END as i32),
+    );
     let same = lx.b.icmp(IntCond::Eq, end, m.end);
     let back = lx.b.select(same, m.cur, cur);
     lx.b.store(ctx, hdr::ARENA_CUR as i32, back);
@@ -147,8 +199,16 @@ pub(crate) fn release(lx: &mut Lx<'_, '_, '_>, m: Mark) {
 /// The Fp128 `[lo, hi]` of the `len` bytes at `bytes` under the process seed (`gravity_dict::fp::siphash128`).
 pub(crate) fn fp(lx: &mut Lx<'_, '_, '_>, bytes: Value, len: Value) -> [Value; 2] {
     let out = out2(lx.b);
-    let f = lx.b.declare_host_once("m6_fp_seed", &[Type::Ptr], Some(Type::I64), m6_fp_seed as *const () as usize, err());
-    let st = lx.b.call_host(f, &[out], Some(Type::I64)).expect("m6_fp_seed returns its status");
+    let f = lx.b.declare_host_once(
+        "m6_fp_seed",
+        &[Type::Ptr],
+        Some(Type::I64),
+        m6_fp_seed as *const () as usize,
+        err(),
+    );
+    let st =
+        lx.b.call_host(f, &[out], Some(Type::I64))
+            .expect("m6_fp_seed returns its status");
     raise_on(lx, st);
     let (k0, k1) = (lx.b.load(Type::I64, out, 0), lx.b.load(Type::I64, out, 8));
     let n0 = lx.b.num_blocks();
@@ -160,17 +220,34 @@ pub(crate) fn fp(lx: &mut Lx<'_, '_, '_>, bytes: Value, len: Value) -> [Value; 2
 /// Equality against a stored image: the two Fp128 words.
 fn eq(lx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, stored: StoredRef, tf: &TypeFacts) -> Value {
     let w = image(lx, c, tf, Scope::Program);
-    let (Some(lo), Some(hi), true) = (w.w[0], w.w[1], w.exact) else { crate::refuse!(lx, Reason::Bug { payload: "a varlena key image that is not two exact words" }) };
+    let (Some(lo), Some(hi), true) = (w.w[0], w.w[1], w.exact) else {
+        crate::refuse!(
+            lx,
+            Reason::Bug {
+                payload: "a varlena key image that is not two exact words"
+            }
+        )
+    };
     let p = ptr(lx.b, stored.ptr);
-    let (slo, shi) = (lx.b.load(Type::I64, p, stored.off), lx.b.load(Type::I64, p, stored.off + 8));
-    let (a, b) = (lx.b.int_bin(IntBinOp::Xor, lo, slo), lx.b.int_bin(IntBinOp::Xor, hi, shi));
+    let (slo, shi) = (
+        lx.b.load(Type::I64, p, stored.off),
+        lx.b.load(Type::I64, p, stored.off + 8),
+    );
+    let (a, b) = (
+        lx.b.int_bin(IntBinOp::Xor, lo, slo),
+        lx.b.int_bin(IntBinOp::Xor, hi, shi),
+    );
     let d = lx.b.int_bin(IntBinOp::Or, a, b);
     let zero = lx.b.iconst(Type::I64, 0);
     lx.b.icmp(IntCond::Eq, d, zero)
 }
 
 pub(crate) fn ptr(b: &mut FunctionBuilder<'_>, v: Value) -> Value {
-    if b.value_type(v) == Type::Ptr { v } else { b.conv(ConvOp::IntToPtr, Type::Ptr, v) }
+    if b.value_type(v) == Type::Ptr {
+        v
+    } else {
+        b.conv(ConvOp::IntToPtr, Type::Ptr, v)
+    }
 }
 
 /// Two words of stack a host writes its answer into.
@@ -181,10 +258,20 @@ pub(crate) fn out2(b: &mut FunctionBuilder<'_>) -> Value {
 
 /// A host's nonzero status leaves through the function's raise block with the HOST bit (its error stashed, D344).
 pub(crate) fn raise_on(lx: &mut Lx<'_, '_, '_>, st: Value) {
-    let Some(l_raise) = lx.raise else { crate::refuse!(lx, Reason::Bug { payload: "a varlena key host outside a function with a raise block" }) };
+    let Some(l_raise) = lx.raise else {
+        crate::refuse!(
+            lx,
+            Reason::Bug {
+                payload: "a varlena key host outside a function with a raise block"
+            }
+        )
+    };
     let zero = lx.b.iconst(Type::I64, 0);
     let bad = lx.b.icmp(IntCond::Ne, st, zero);
-    let e = lx.b.iconst(Type::I64, gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64);
+    let e = lx.b.iconst(
+        Type::I64,
+        gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64,
+    );
     let ok = lx.b.create_block(&[]);
     lx.b.cond_br(bad, (l_raise, &[e]), (ok, &[]));
     lx.b.switch_to(ok);

@@ -121,29 +121,48 @@ pub struct DatabaseCtype {
 
 /// This thread's database ctype (a leader's, at submit).
 pub fn capture_database_ctype() -> DatabaseCtype {
-    DatabaseCtype { is_c: database_ctype_is_c(), ctype: thread_locale(crate::lc::LC_CTYPE) }
+    DatabaseCtype {
+        is_c: database_ctype_is_c(),
+        ctype: thread_locale(crate::lc::LC_CTYPE),
+    }
 }
 
 /// Arm `want` on this thread until `restore_database_ctype` gets the returned value back; `None`: the thread's already
 /// matched, nothing to put back.
 pub fn arm_database_ctype(want: &DatabaseCtype) -> PgResult<Option<DatabaseCtype>> {
     let same = DATABASE_CTYPE_IS_C.with(Cell::get) == want.is_c
-        && THREAD_LOCALES.with(|l| l.borrow().iter().find(|(c, _)| *c == crate::lc::LC_CTYPE).map(|(_, v)| v.as_str()) == want.ctype.as_deref());
+        && THREAD_LOCALES.with(|l| {
+            l.borrow()
+                .iter()
+                .find(|(c, _)| *c == crate::lc::LC_CTYPE)
+                .map(|(_, v)| v.as_str())
+                == want.ctype.as_deref()
+        });
     if same {
         return Ok(None);
     }
-    let oom = |_: std::collections::TryReserveError| -> Box<types_error::PgError> { Box::new(types_error::PgError::error("out of memory").with_sqlstate(types_error::ERRCODE_OUT_OF_MEMORY)) };
+    let oom = |_: std::collections::TryReserveError| -> Box<types_error::PgError> {
+        Box::new(
+            types_error::PgError::error("out of memory")
+                .with_sqlstate(types_error::ERRCODE_OUT_OF_MEMORY),
+        )
+    };
     let ctype = match &want.ctype {
         Some(name) => {
             let mut copy = String::new();
             copy.try_reserve_exact(name.len()).map_err(oom)?;
             copy.push_str(name);
-            THREAD_LOCALES.with(|l| l.borrow_mut().try_reserve(1)).map_err(oom)?;
+            THREAD_LOCALES
+                .with(|l| l.borrow_mut().try_reserve(1))
+                .map_err(oom)?;
             Some(copy)
         }
         None => None,
     };
-    Ok(Some(swap_database_ctype(DatabaseCtype { is_c: want.is_c, ctype })))
+    Ok(Some(swap_database_ctype(DatabaseCtype {
+        is_c: want.is_c,
+        ctype,
+    })))
 }
 
 /// A claim's end: the thread's own database ctype back (a move, no allocation: `arm_database_ctype` reserved the room).
@@ -155,7 +174,10 @@ fn swap_database_ctype(new: DatabaseCtype) -> DatabaseCtype {
     let is_c = DATABASE_CTYPE_IS_C.with(|c| c.replace(new.is_c));
     let ctype = THREAD_LOCALES.with(|l| {
         let mut l = l.borrow_mut();
-        match (l.iter().position(|(c, _)| *c == crate::lc::LC_CTYPE), new.ctype) {
+        match (
+            l.iter().position(|(c, _)| *c == crate::lc::LC_CTYPE),
+            new.ctype,
+        ) {
             (Some(i), Some(name)) => Some(core::mem::replace(&mut l[i].1, name)),
             (Some(i), None) => Some(l.swap_remove(i).1),
             (None, Some(name)) => {
@@ -279,7 +301,11 @@ const CATEGORY_MASKS: [(c_int, c_int); 6] = [
 
 /// newlocale as a C backend sees it: pg_perm_setlocale's setenv (pg_locale.c:283)
 /// makes "" the database locale; this thread's records stand in for the env.
-pub(crate) fn newlocale_backend_env(mask: c_int, locale: &str, base: libc::locale_t) -> libc::locale_t {
+pub(crate) fn newlocale_backend_env(
+    mask: c_int,
+    locale: &str,
+    base: libc::locale_t,
+) -> libc::locale_t {
     let open = |m: c_int, name: &str, b: libc::locale_t| {
         let c = cstr(name);
         // SAFETY: c is NUL-terminated and outlives the call.
@@ -322,7 +348,13 @@ fn setenv(name: &str, value: &str) -> bool {
     let cname = cstr(name);
     let cval = cstr(value);
     // SAFETY: both arguments are NUL-terminated.
-    unsafe { libc::setenv(cname.as_ptr() as *const c_char, cval.as_ptr() as *const c_char, 1) == 0 }
+    unsafe {
+        libc::setenv(
+            cname.as_ptr() as *const c_char,
+            cval.as_ptr() as *const c_char,
+            1,
+        ) == 0
+    }
 }
 
 pub fn pg_perm_setlocale<'mcx>(
@@ -474,21 +506,18 @@ pub fn assign_locale_messages(newval: &str) {
 pub(crate) fn install_guc_hooks() {
     use guc_tables::{hooks, vars, GucVarAccessors};
 
-    hooks::check_locale_monetary.install(|newval, _extra, _source| {
-        check_locale_monetary(newval.as_deref().unwrap_or(""))
-    });
+    hooks::check_locale_monetary
+        .install(|newval, _extra, _source| check_locale_monetary(newval.as_deref().unwrap_or("")));
     hooks::assign_locale_monetary.install(|newval, _extra| {
         assign_locale_monetary(newval.unwrap_or(""));
     });
-    hooks::check_locale_numeric.install(|newval, _extra, _source| {
-        check_locale_numeric(newval.as_deref().unwrap_or(""))
-    });
+    hooks::check_locale_numeric
+        .install(|newval, _extra, _source| check_locale_numeric(newval.as_deref().unwrap_or("")));
     hooks::assign_locale_numeric.install(|newval, _extra| {
         assign_locale_numeric(newval.unwrap_or(""));
     });
-    hooks::check_locale_time.install(|newval, _extra, _source| {
-        check_locale_time(newval.as_deref().unwrap_or(""))
-    });
+    hooks::check_locale_time
+        .install(|newval, _extra, _source| check_locale_time(newval.as_deref().unwrap_or("")));
     hooks::assign_locale_time.install(|newval, _extra| {
         assign_locale_time(newval.unwrap_or(""));
     });

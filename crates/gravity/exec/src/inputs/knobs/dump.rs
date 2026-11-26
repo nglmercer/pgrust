@@ -22,7 +22,12 @@ fn meta() -> String {
         // one line: the statement's newlines and tabs as spaces
         let q = q.unwrap_or("unknown").replace(['\n', '\r', '\t'], " "); // alloc: Cold
         let a = &guc_tables::vars::application_name;
-        let app = if a.installed() { a.read().unwrap_or_default() } else { String::new() }.replace(['\n', '\r', '\t'], " "); // alloc: Cold
+        let app = if a.installed() {
+            a.read().unwrap_or_default()
+        } else {
+            String::new()
+        }
+        .replace(['\n', '\r', '\t'], " "); // alloc: Cold
         format!("app {app}\nstatement {q}\n") // alloc: Cold
     })
 }
@@ -40,14 +45,26 @@ pub(crate) fn install_dump_hooks() {
 /// D3182: `pipelines` are the ASSEMBLED programs' (`finals`: main, then each InitPlan, then each arm), so exec's own verdicts
 /// (`serial_over_index_sites`, `serial_over_temp_sources`) show; the lowerer's descriptors follow as `lowered_pipelines`
 /// only where exec changed one.
-pub(crate) fn write_install(dir: &str, c: &gravity_lower::Composed, finals: &[&[gravity_program::Pipeline]], words: &[crate::admit::WordTpl], recipes: usize) {
-    let descs = |l: &gravity_lower::Lowered, fin: Option<&[gravity_program::Pipeline]>, extra: String| {
+pub(crate) fn write_install(
+    dir: &str,
+    c: &gravity_lower::Composed,
+    finals: &[&[gravity_program::Pipeline]],
+    words: &[crate::admit::WordTpl],
+    recipes: usize,
+) {
+    let descs = |l: &gravity_lower::Lowered,
+                 fin: Option<&[gravity_program::Pipeline]>,
+                 extra: String| {
         let owner = l.descs.owner.take();
         let sig = owner.as_ref().map(|(_, s)| s.clone()); // alloc: Cold
         l.descs.owner.set(owner);
         let lowered: &[gravity_program::Pipeline] = &l.descs.pipelines;
         let pipes = fin.unwrap_or(lowered);
-        let changed = if pipes == lowered { String::new() } else { format!("lowered_pipelines {lowered:?}\n") }; // alloc: Cold
+        let changed = if pipes == lowered {
+            String::new()
+        } else {
+            format!("lowered_pipelines {lowered:?}\n")
+        }; // alloc: Cold
         format!( // alloc: Cold
             "layout {:?}\nsites {:?}\nout {:?}\nwrite {:?}\npipelines {:?}\n{changed}out_region {}\nno_cache {}\ninstr {:?}\nprotos {:?}\nused {}\nlocks {:?}\nfuncs {:?}\nowner_sig {:?}\n{extra}",
             l.descs.layout, l.descs.sites, l.descs.out, l.descs.write, pipes, l.descs.out_region, l.descs.no_cache, l.descs.instr, l.descs.v4.protos, l.descs.used, l.descs.locks, l.funcs, sig
@@ -55,12 +72,28 @@ pub(crate) fn write_install(dir: &str, c: &gravity_lower::Composed, finals: &[&[
     };
     let mut fin = finals.iter().copied();
     let mut parts = Vec::new(); // alloc: Cold
-    parts.push((String::from("main"), &c.main.ir, descs(&c.main, fin.next(), format!("words {words:?}\nrecipes {recipes}\nmerge {:?}\n", c.merge)))); // alloc: Cold
+    parts.push((
+        String::from("main"),
+        &c.main.ir,
+        descs(
+            &c.main,
+            fin.next(),
+            format!("words {words:?}\nrecipes {recipes}\nmerge {:?}\n", c.merge),
+        ),
+    )); // alloc: Cold
     for (k, i) in c.inits.iter().enumerate() {
-        parts.push((format!("init {k} param {}", i.param), &i.lowered.ir, descs(&i.lowered, fin.next(), String::new()))); // alloc: Cold
+        parts.push((
+            format!("init {k} param {}", i.param),
+            &i.lowered.ir,
+            descs(&i.lowered, fin.next(), String::new()),
+        )); // alloc: Cold
     }
     for (k, a) in c.arms.iter().enumerate() {
-        parts.push((format!("arm {k}"), &a.ir, descs(a, fin.next(), String::new()))); // alloc: Cold
+        parts.push((
+            format!("arm {k}"),
+            &a.ir,
+            descs(a, fin.next(), String::new()),
+        )); // alloc: Cold
     }
     gravity_backend::dump::write_prog(dir, &parts);
 }

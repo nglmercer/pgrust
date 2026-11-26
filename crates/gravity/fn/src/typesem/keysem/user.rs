@@ -80,7 +80,9 @@ static OWN_STAMPS: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64
 
 /// `read`'s user key, recorded (gravity_deps: the reads join the lowering's recording too), stamped by what it read
 /// (`UserKey::stamp`) and interned.
-fn stamped(read: impl FnOnce() -> R<Result<UserKey, &'static str>>) -> R<Result<u64, &'static str>> {
+fn stamped(
+    read: impl FnOnce() -> R<Result<UserKey, &'static str>>,
+) -> R<Result<u64, &'static str>> {
     let (k, deps) = gravity_deps::recording(read);
     let stamp = match deps.committed_stamp() {
         Some(s) => (s as u64 ^ (s >> 64) as u64) | 1,
@@ -150,11 +152,14 @@ fn user_key_read(typid: Oid, road: Road) -> R<Result<UserKey, &'static str>> {
     if !support_keyed(why) {
         return Ok(Err(why));
     }
-    let Some(t) = syscache_seams::lookup_pg_type_typcache_shape::call(typid)? else { return Ok(Err(why)) };
+    let Some(t) = syscache_seams::lookup_pg_type_typcache_shape::call(typid)? else {
+        return Ok(Err(why));
+    };
     if !(t.typlen == -1 || t.typlen > 0) || t.typbyval && t.typlen > 8 {
         return Ok(Err(why));
     }
-    let flags = typcache::TYPECACHE_EQ_OPR | typcache::TYPECACHE_HASH_PROC | typcache::TYPECACHE_CMP_PROC;
+    let flags =
+        typcache::TYPECACHE_EQ_OPR | typcache::TYPECACHE_HASH_PROC | typcache::TYPECACHE_CMP_PROC;
     let e = typcache::lookup_type_cache(typid, flags)?;
     if e.eq_opr() == 0 || (e.hash_proc() == 0 && e.cmp_proc() == 0) {
         return Ok(Err(why));
@@ -188,7 +193,18 @@ fn user_key_read(typid: Oid, road: Road) -> R<Result<UserKey, &'static str>> {
         (Ok(h), Ok(c)) => (h, c),
         (Err(shape), _) | (_, Err(shape)) => return Ok(Err(shape)),
     };
-    Ok(Ok(UserKey { typid, eq, hash, cmp, coll: t.typcollation, len: t.typlen, byval: t.typbyval, stamp: 0, row: 0, site: 0 }))
+    Ok(Ok(UserKey {
+        typid,
+        eq,
+        hash,
+        cmp,
+        coll: t.typcollation,
+        len: t.typlen,
+        byval: t.typbyval,
+        stamp: 0,
+        row: 0,
+        site: 0,
+    }))
 }
 
 /// with#62 / #65 / #82 / #86 (recursive UNION SEARCH / CYCLE keys; PLAN-v5-keysem §3, "anonymous record": Call): the
@@ -209,17 +225,31 @@ fn user_key_read(typid: Oid, road: Road) -> R<Result<UserKey, &'static str>> {
 /// own columns and raise as PostgreSQL's do, 42883 on a column type with no hash, say); two values of two layouts are
 /// two classes (kernels userfp.rs: record_eq's 42804 there is kept, and raised only when the recursive UNION's set holds
 /// the row PostgreSQL's table compares this one with). The lowering's call (the leader: it reads the catalog).
-pub fn record_user_key(req: &super::KeyReq, typid: Oid, cols: &[(Oid, Oid)]) -> R<Result<u64, &'static str>> {
+pub fn record_user_key(
+    req: &super::KeyReq,
+    typid: Oid,
+    cols: &[(Oid, Oid)],
+) -> R<Result<u64, &'static str>> {
     stamped(|| record_user_key_read(req, typid, cols))
 }
 
 /// `record_user_key`'s key, unstamped.
-fn record_user_key_read(req: &super::KeyReq, typid: Oid, cols: &[(Oid, Oid)]) -> R<Result<UserKey, &'static str>> {
+fn record_user_key_read(
+    req: &super::KeyReq,
+    typid: Oid,
+    cols: &[(Oid, Oid)],
+) -> R<Result<UserKey, &'static str>> {
     const UNKNOWN: &str = "an anonymous record key (its columns are known only per row)";
-    let Some(t) = syscache_seams::lookup_pg_type_typcache_shape::call(typid)? else { return Ok(Err("a key type the catalog does not know")) };
-    let array = t.typsubscript == super::super::F_ARRAY_SUBSCRIPT_HANDLER && t.typlen == -1 && t.typelem == super::super::RECORDOID;
+    let Some(t) = syscache_seams::lookup_pg_type_typcache_shape::call(typid)? else {
+        return Ok(Err("a key type the catalog does not know"));
+    };
+    let array = t.typsubscript == super::super::F_ARRAY_SUBSCRIPT_HANDLER
+        && t.typlen == -1
+        && t.typelem == super::super::RECORDOID;
     if typid != super::super::RECORDOID && !array {
-        return Ok(Err("a key that is neither an anonymous record nor an array of one (no record user key)"));
+        return Ok(Err(
+            "a key that is neither an anonymous record nor an array of one (no record user key)",
+        ));
     }
     for &(c, coll) in cols {
         if c == 0 || c == super::super::RECORDOID {
@@ -246,16 +276,43 @@ fn record_user_key_read(req: &super::KeyReq, typid: Oid, cols: &[(Oid, Oid)]) ->
     // own and the hash proc is KeySem's (hash_record; hash_array, which hashes record elements by hash_record)
     let own = typcache::lookup_type_cache(typid, typcache::TYPECACHE_EQ_OPR)?.eq_opr();
     let own_eq = own != 0 && lsyscache::get_opcode(own)? == k.procs.eq;
-    if k.by != super::By::Fmgr || !k.native || k.lt != k.rt || k.raise_hash || !k.linear || k.procs.lhs_hash != k.procs.rhs_hash || !own_eq {
-        return Ok(Err("an anonymous record key under an operator other than its type's own `=`"));
+    if k.by != super::By::Fmgr
+        || !k.native
+        || k.lt != k.rt
+        || k.raise_hash
+        || !k.linear
+        || k.procs.lhs_hash != k.procs.rhs_hash
+        || !own_eq
+    {
+        return Ok(Err(
+            "an anonymous record key under an operator other than its type's own `=`",
+        ));
     }
-    let (eq, hash) = match (crate::resolved::resolve(k.procs.eq)?, crate::resolved::resolve(k.procs.lhs_hash)?) {
+    let (eq, hash) = match (
+        crate::resolved::resolve(k.procs.eq)?,
+        crate::resolved::resolve(k.procs.lhs_hash)?,
+    ) {
         (Ok(e), Ok(h)) if e != 0 && h != 0 => (e, h),
         (Err(shape), _) | (_, Err(shape)) => return Ok(Err(shape)),
         _ => return Ok(Err(UNKNOWN)),
     };
-    let row = if cols.is_empty() { PER_ROW } else { row_id(cols) };
-    Ok(Ok(UserKey { typid, eq, hash, cmp: 0, coll: req.coll, len: -1, byval: false, stamp: 0, row, site: 0 }))
+    let row = if cols.is_empty() {
+        PER_ROW
+    } else {
+        row_id(cols)
+    };
+    Ok(Ok(UserKey {
+        typid,
+        eq,
+        hash,
+        cmp: 0,
+        coll: req.coll,
+        len: -1,
+        byval: false,
+        stamp: 0,
+        row,
+        site: 0,
+    }))
 }
 
 /// hj-0310 (D2640 serve; KeySem `KeyReq::hash`): the user key of a key of type `typid` hashed under user equality
@@ -274,10 +331,19 @@ pub fn op_user_key(req: &super::KeyReq, typid: Oid) -> R<Result<u64, &'static st
 
 /// `op_user_key`'s key, unstamped.
 fn op_user_key_read(req: &super::KeyReq, typid: Oid) -> R<Result<UserKey, &'static str>> {
-    const OTHER: &str = "a hashed key under a user operator KeySem does not key by its own procs (no user key)";
-    let Some(t) = syscache_seams::lookup_pg_type_typcache_shape::call(typid)? else { return Ok(Err("a key type the catalog does not know")) };
-    let array_of_record = t.typsubscript == super::super::F_ARRAY_SUBSCRIPT_HANDLER && t.typelem == super::super::RECORDOID;
-    if typid == super::super::RECORDOID || array_of_record || t.typtype as u8 == b'p' || !(t.typlen == -1 || t.typlen > 0) || t.typbyval && t.typlen > 8 {
+    const OTHER: &str =
+        "a hashed key under a user operator KeySem does not key by its own procs (no user key)";
+    let Some(t) = syscache_seams::lookup_pg_type_typcache_shape::call(typid)? else {
+        return Ok(Err("a key type the catalog does not know"));
+    };
+    let array_of_record = t.typsubscript == super::super::F_ARRAY_SUBSCRIPT_HANDLER
+        && t.typelem == super::super::RECORDOID;
+    if typid == super::super::RECORDOID
+        || array_of_record
+        || t.typtype as u8 == b'p'
+        || !(t.typlen == -1 || t.typlen > 0)
+        || t.typbyval && t.typlen > 8
+    {
         return Ok(Err(OTHER));
     }
     // a user `LANGUAGE internal` proc's prosrc is read into the context (`keysem::fmgr_proc`); the answer is plain data
@@ -288,15 +354,36 @@ fn op_user_key_read(req: &super::KeyReq, typid: Oid) -> R<Result<UserKey, &'stat
         Ok(k) => k,
         Err(tc) => return Ok(Err(tc.why())),
     };
-    if k.by != super::By::Fmgr || k.lt != typid || k.rt != typid || k.raise_hash || !k.linear || k.procs.lhs_hash == 0 || k.procs.lhs_hash != k.procs.rhs_hash {
+    if k.by != super::By::Fmgr
+        || k.lt != typid
+        || k.rt != typid
+        || k.raise_hash
+        || !k.linear
+        || k.procs.lhs_hash == 0
+        || k.procs.lhs_hash != k.procs.rhs_hash
+    {
         return Ok(Err(OTHER));
     }
-    let (eq, hash) = match (crate::resolved::resolve(k.procs.eq)?, crate::resolved::resolve(k.procs.lhs_hash)?) {
+    let (eq, hash) = match (
+        crate::resolved::resolve(k.procs.eq)?,
+        crate::resolved::resolve(k.procs.lhs_hash)?,
+    ) {
         (Ok(e), Ok(h)) if e != 0 && h != 0 => (e, h),
         (Err(shape), _) | (_, Err(shape)) => return Ok(Err(shape)),
         _ => return Ok(Err(OTHER)),
     };
-    Ok(Ok(UserKey { typid, eq, hash, cmp: 0, coll: req.coll, len: t.typlen, byval: t.typbyval, stamp: 0, row: 0, site: 0 }))
+    Ok(Ok(UserKey {
+        typid,
+        eq,
+        hash,
+        cmp: 0,
+        coll: req.coll,
+        len: t.typlen,
+        byval: t.typbyval,
+        stamp: 0,
+        row: 0,
+        site: 0,
+    }))
 }
 
 /// A hashed SubPlan's key under operator `req.op` over one type `typid` that KeySem answers `By::Fmgr` with one hash proc
@@ -309,13 +396,23 @@ fn op_user_key_read(req: &super::KeyReq, typid: Oid) -> R<Result<UserKey, &'stat
 /// an equivalence its hash agrees with (`linear` false), the key's table is the site's own (`UserKey::site`, `site`
 /// non-zero), so no other site's representatives come first. A pseudo-type, a by-value type wider than a word, a
 /// `raise_hash` key and an unresolvable proc keep a refusal. The lowering's call (the leader: it reads the catalog).
-pub fn subplan_user_key(req: &super::KeyReq, typid: Oid, site: u64) -> R<Result<u64, &'static str>> {
+pub fn subplan_user_key(
+    req: &super::KeyReq,
+    typid: Oid,
+    site: u64,
+) -> R<Result<u64, &'static str>> {
     stamped(|| subplan_user_key_read(req, typid, site))
 }
 
-fn subplan_user_key_read(req: &super::KeyReq, typid: Oid, site: u64) -> R<Result<UserKey, &'static str>> {
+fn subplan_user_key_read(
+    req: &super::KeyReq,
+    typid: Oid,
+    site: u64,
+) -> R<Result<UserKey, &'static str>> {
     const OTHER: &str = "a hashed SubPlan's key under an operator with no one hash proc over one type (no user key)";
-    let Some(t) = syscache_seams::lookup_pg_type_typcache_shape::call(typid)? else { return Ok(Err("a key type the catalog does not know")) };
+    let Some(t) = syscache_seams::lookup_pg_type_typcache_shape::call(typid)? else {
+        return Ok(Err("a key type the catalog does not know"));
+    };
     if t.typtype as u8 == b'p' || !(t.typlen == -1 || t.typlen > 0) || t.typbyval && t.typlen > 8 {
         return Ok(Err(OTHER));
     }
@@ -326,16 +423,36 @@ fn subplan_user_key_read(req: &super::KeyReq, typid: Oid, site: u64) -> R<Result
         Ok(k) => k,
         Err(tc) => return Ok(Err(tc.why())),
     };
-    if k.by != super::By::Fmgr || k.lt != typid || k.rt != typid || k.raise_hash || k.procs.lhs_hash == 0 || k.procs.lhs_hash != k.procs.rhs_hash {
+    if k.by != super::By::Fmgr
+        || k.lt != typid
+        || k.rt != typid
+        || k.raise_hash
+        || k.procs.lhs_hash == 0
+        || k.procs.lhs_hash != k.procs.rhs_hash
+    {
         return Ok(Err(OTHER));
     }
-    let (eq, hash) = match (crate::resolved::resolve(k.procs.eq)?, crate::resolved::resolve(k.procs.lhs_hash)?) {
+    let (eq, hash) = match (
+        crate::resolved::resolve(k.procs.eq)?,
+        crate::resolved::resolve(k.procs.lhs_hash)?,
+    ) {
         (Ok(e), Ok(h)) if e != 0 && h != 0 => (e, h),
         (Err(shape), _) | (_, Err(shape)) => return Ok(Err(shape)),
         _ => return Ok(Err(OTHER)),
     };
     let site = if k.linear { 0 } else { site };
-    Ok(Ok(UserKey { typid, eq, hash, cmp: 0, coll: req.coll, len: t.typlen, byval: t.typbyval, stamp: 0, row: 0, site }))
+    Ok(Ok(UserKey {
+        typid,
+        eq,
+        hash,
+        cmp: 0,
+        coll: req.coll,
+        len: t.typlen,
+        byval: t.typbyval,
+        stamp: 0,
+        row: 0,
+        site,
+    }))
 }
 
 /// `UserKey::row` of columns `cols`: never 0 (every other key's).
@@ -358,8 +475,13 @@ pub fn hashed_user_key(typid: Oid, coll: Oid, eq_proc: Oid, hash_proc: Oid) -> R
         Err(_) => return Ok(None),
     };
     let k = spec(id)?;
-    let fmgr = |p: Oid| -> R<Option<u32>> { Ok(crate::resolved::resolve(p)?.ok().filter(|&r| r != 0)) };
-    if k.hash == 0 || k.coll != coll || fmgr(eq_proc)? != Some(k.eq) || fmgr(hash_proc)? != Some(k.hash) {
+    let fmgr =
+        |p: Oid| -> R<Option<u32>> { Ok(crate::resolved::resolve(p)?.ok().filter(|&r| r != 0)) };
+    if k.hash == 0
+        || k.coll != coll
+        || fmgr(eq_proc)? != Some(k.eq)
+        || fmgr(hash_proc)? != Some(k.hash)
+    {
         return Ok(None);
     }
     crate::resolved::leader_only();
@@ -386,9 +508,13 @@ fn hash_agrees(typid: Oid, depth: u32) -> R<bool> {
     if depth > 16 {
         return Ok(false);
     }
-    let Some(t) = syscache_seams::lookup_pg_type_typcache_shape::call(typid)? else { return Ok(false) };
+    let Some(t) = syscache_seams::lookup_pg_type_typcache_shape::call(typid)? else {
+        return Ok(false);
+    };
     if t.typtype as u8 == b'd' {
-        let Some(b) = syscache_seams::pg_type_base_shape::call(typid)? else { return Ok(false) };
+        let Some(b) = syscache_seams::pg_type_base_shape::call(typid)? else {
+            return Ok(false);
+        };
         return hash_agrees(b.typbasetype, depth + 1);
     }
     let (_, _, eq) = super::super::own_eq(typid)?;
@@ -401,7 +527,11 @@ fn hash_agrees(typid: Oid, depth: u32) -> R<bool> {
     }
     let h = typcache::lookup_type_cache(typid, typcache::TYPECACHE_HASH_OPFAMILY)?;
     let (opf, intype) = (h.hash_opf(), h.hash_opintype());
-    if opf == 0 || eq == 0 || lsyscache::get_opfamily_member(opf, intype, intype, lsyscache::HTEqualStrategyNumber)? != eq {
+    if opf == 0
+        || eq == 0
+        || lsyscache::get_opfamily_member(opf, intype, intype, lsyscache::HTEqualStrategyNumber)?
+            != eq
+    {
         return Ok(false);
     }
     match lsyscache::get_opfamily_proc(opf, intype, intype, HASHSTANDARD_PROC)? {
@@ -409,7 +539,10 @@ fn hash_agrees(typid: Oid, depth: u32) -> R<bool> {
         F_HASH_ARRAY => Ok(t.typelem != 0 && hash_agrees(t.typelem, depth + 1)?),
         F_HASH_RECORD => {
             for att in 1.. {
-                let Some(a) = syscache_seams::lookup_pg_attribute_shape::call(t.typrelid, att)? else { break };
+                let Some(a) = syscache_seams::lookup_pg_attribute_shape::call(t.typrelid, att)?
+                else {
+                    break;
+                };
                 if !a.attisdropped && !hash_agrees(a.atttypid, depth + 1)? {
                     return Ok(false);
                 }
@@ -417,7 +550,8 @@ fn hash_agrees(typid: Oid, depth: u32) -> R<bool> {
             Ok(t.typrelid != 0)
         }
         F_HASH_RANGE => match syscache_seams::lookup_pg_range_shape::call(typid)? {
-            Some(r) => Ok(super::super::subtype_equality(r.rngsubtype, r.rngsubopc)? && hash_agrees(r.rngsubtype, depth + 1)?),
+            Some(r) => Ok(super::super::subtype_equality(r.rngsubtype, r.rngsubopc)?
+                && hash_agrees(r.rngsubtype, depth + 1)?),
             None => Ok(false),
         },
         F_HASH_MULTIRANGE => match syscache_seams::lookup_pg_range_by_multirange::call(typid)? {
@@ -441,13 +575,21 @@ fn cmp_agrees(typid: Oid, depth: u32) -> R<bool> {
     if depth > 16 {
         return Ok(false);
     }
-    let Some(t) = syscache_seams::lookup_pg_type_typcache_shape::call(typid)? else { return Ok(false) };
+    let Some(t) = syscache_seams::lookup_pg_type_typcache_shape::call(typid)? else {
+        return Ok(false);
+    };
     if t.typtype as u8 == b'd' {
-        let Some(b) = syscache_seams::pg_type_base_shape::call(typid)? else { return Ok(false) };
+        let Some(b) = syscache_seams::pg_type_base_shape::call(typid)? else {
+            return Ok(false);
+        };
         return cmp_agrees(b.typbasetype, depth + 1);
     }
     let (opf, intype, eq) = super::super::own_eq(typid)?;
-    if opf == 0 || eq == 0 || lsyscache::get_opfamily_member(opf, intype, intype, lsyscache::BTEqualStrategyNumber)? != eq {
+    if opf == 0
+        || eq == 0
+        || lsyscache::get_opfamily_member(opf, intype, intype, lsyscache::BTEqualStrategyNumber)?
+            != eq
+    {
         return Ok(false);
     }
     match lsyscache::get_opfamily_proc(opf, intype, intype, super::super::BTORDER_PROC)? {
@@ -455,7 +597,10 @@ fn cmp_agrees(typid: Oid, depth: u32) -> R<bool> {
         F_BTARRAYCMP => Ok(t.typelem != 0 && cmp_agrees(t.typelem, depth + 1)?),
         F_BTRECORDCMP => {
             for att in 1.. {
-                let Some(a) = syscache_seams::lookup_pg_attribute_shape::call(t.typrelid, att)? else { break };
+                let Some(a) = syscache_seams::lookup_pg_attribute_shape::call(t.typrelid, att)?
+                else {
+                    break;
+                };
                 if !a.attisdropped && !cmp_agrees(a.atttypid, depth + 1)? {
                     return Ok(false);
                 }
@@ -478,5 +623,9 @@ fn intern(k: UserKey) -> u64 {
 /// The user key of id `id` (any thread, no catalog); an error when no lowering in this process interned it.
 pub fn spec(id: u64) -> R<UserKey> {
     let t = SPECS.read().unwrap_or_else(|e| e.into_inner());
-    t.iter().find(|e| e.0 == id).map(|e| e.1).ok_or_else(|| Box::new(crate::PgError::error(format!("gravity: rep.hosted.hash: user key {id:#x} was not built in this process")))) // alloc: Cold
+    t.iter().find(|e| e.0 == id).map(|e| e.1).ok_or_else(|| {
+        Box::new(crate::PgError::error(format!(
+            "gravity: rep.hosted.hash: user key {id:#x} was not built in this process"
+        )))
+    }) // alloc: Cold
 }

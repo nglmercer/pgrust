@@ -6,7 +6,14 @@ use core::cmp::Ordering;
 use gravity_kernels::host_abi::{cmp_rows, SortSpec};
 
 /// (desc, nulls_first) per key: keys 5 and 6 (index 4, 5) DESC NULLS LAST and ASC NULLS FIRST, the rest mixed.
-const DIRS: [(bool, bool); 6] = [(false, false), (true, true), (false, true), (true, false), (true, false), (false, true)];
+const DIRS: [(bool, bool); 6] = [
+    (false, false),
+    (true, true),
+    (false, true),
+    (true, false),
+    (true, false),
+    (false, true),
+];
 
 /// The `[flags, word]` pair of `v` under `(desc, nulls_first)`, as runs/keylane.rs folds a word key.
 fn pair(v: Option<i64>, (desc, nulls_first): (bool, bool)) -> [u64; 2] {
@@ -23,22 +30,49 @@ fn pair(v: Option<i64>, (desc, nulls_first): (bool, bool)) -> [u64; 2] {
 fn pg(a: Option<i64>, b: Option<i64>, (desc, nulls_first): (bool, bool)) -> Ordering {
     match (a, b) {
         (None, None) => Ordering::Equal,
-        (None, Some(_)) => if nulls_first { Ordering::Less } else { Ordering::Greater },
-        (Some(_), None) => if nulls_first { Ordering::Greater } else { Ordering::Less },
-        (Some(x), Some(y)) => if desc { y.cmp(&x) } else { x.cmp(&y) },
+        (None, Some(_)) => {
+            if nulls_first {
+                Ordering::Less
+            } else {
+                Ordering::Greater
+            }
+        }
+        (Some(_), None) => {
+            if nulls_first {
+                Ordering::Greater
+            } else {
+                Ordering::Less
+            }
+        }
+        (Some(x), Some(y)) => {
+            if desc {
+                y.cmp(&x)
+            } else {
+                x.cmp(&y)
+            }
+        }
     }
 }
 
 #[test]
 fn keys_five_and_six_order_by_their_pairs_desc_and_nulls_included() {
     // every row equal on keys 1-4 except in small groups, so keys 5 and 6 decide most comparisons
-    let vals = [None, Some(i64::MIN), Some(-7), Some(0), Some(3), Some(i64::MAX)];
+    let vals = [
+        None,
+        Some(i64::MIN),
+        Some(-7),
+        Some(0),
+        Some(3),
+        Some(i64::MAX),
+    ];
     let mut rows: Vec<[Option<i64>; 6]> = Vec::new();
     let mut seed = 0x9e37_79b9_7f4a_7c15u64;
     for _ in 0..600 {
         let mut r = [None; 6];
         for (k, c) in r.iter_mut().enumerate() {
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             let n = if k < 4 { 2 } else { vals.len() };
             *c = vals[(seed >> 33) as usize % n];
         }
@@ -58,11 +92,26 @@ fn keys_five_and_six_order_by_their_pairs_desc_and_nulls_included() {
         .collect();
     let mut got: Vec<usize> = (0..rows.len()).collect();
     // SAFETY: each row is 12 words, the six keys' pairs.
-    got.sort_by(|&a, &b| unsafe { cmp_rows(6, spec, words[a].as_ptr() as *const u8, words[b].as_ptr() as *const u8) });
+    got.sort_by(|&a, &b| unsafe {
+        cmp_rows(
+            6,
+            spec,
+            words[a].as_ptr() as *const u8,
+            words[b].as_ptr() as *const u8,
+        )
+    });
     let mut want: Vec<usize> = (0..rows.len()).collect();
-    want.sort_by(|&a, &b| (0..6).map(|k| pg(rows[a][k], rows[b][k], DIRS[k])).find(|o| o.is_ne()).unwrap_or(Ordering::Equal));
+    want.sort_by(|&a, &b| {
+        (0..6)
+            .map(|k| pg(rows[a][k], rows[b][k], DIRS[k]))
+            .find(|o| o.is_ne())
+            .unwrap_or(Ordering::Equal)
+    });
     let key = |i: &usize| rows[*i];
-    assert_eq!(got.iter().map(key).collect::<Vec<_>>(), want.iter().map(key).collect::<Vec<_>>());
+    assert_eq!(
+        got.iter().map(key).collect::<Vec<_>>(),
+        want.iter().map(key).collect::<Vec<_>>()
+    );
     assert_eq!(spec.key(4), (0, 0, false));
     assert_eq!(spec.key(5), (0, 0, false));
 }

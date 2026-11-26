@@ -280,7 +280,9 @@ fn apply_dispatch_guts(
         other => {
             ereport(ERROR)
                 .errcode(ERRCODE_PROTOCOL_VIOLATION)
-                .errmsg(format!("invalid logical replication message type \"??? ({other})\""))
+                .errmsg(format!(
+                    "invalid logical replication message type \"??? ({other})\""
+                ))
                 .finish(loc("apply_dispatch"))?;
             unreachable!();
         }
@@ -521,7 +523,11 @@ fn apply_handle_rollback_prepared(
     // It is possible that we haven't received the prepare because it occurred
     // before the walsender reached a consistent point or two_phase was not
     // yet enabled; skip the rollback in that case.
-    if twophase::LookupGXact(&gid, rollback_data.prepare_end_lsn, rollback_data.prepare_time)? {
+    if twophase::LookupGXact(
+        &gid,
+        rollback_data.prepare_end_lsn,
+        rollback_data.prepare_time,
+    )? {
         origin::set_replorigin_session_origin_lsn(rollback_data.rollback_end_lsn);
         origin::set_replorigin_session_origin_timestamp(rollback_data.rollback_time);
 
@@ -659,7 +665,11 @@ fn slot_fill_defaults<'mcx>(
     }
 
     for (state, &i) in keep_alive.iter_mut().zip(defmap.iter()) {
-        let mut slots = execexpr::EvalSlots { scan: None, inner: None, outer: None };
+        let mut slots = execexpr::EvalSlots {
+            scan: None,
+            inner: None,
+            outer: None,
+        };
         let r = execexpr::exec_eval_expr(state, &mut slots)?;
         let base = slot.base_mut();
         base.tts_values[i] = r.value;
@@ -728,7 +738,10 @@ fn slot_modify_data<'mcx>(
 // outside the retained commit-ts range.
 pub(crate) fn get_tuple_transaction_info(
     localslot: &SlotData<'_>,
-) -> PgResult<(types_core::TransactionId, Option<(types_core::TimestampTz, types_core::RepOriginId)>)> {
+) -> PgResult<(
+    types_core::TransactionId,
+    Option<(types_core::TimestampTz, types_core::RepOriginId)>,
+)> {
     // A virtual slot (a pgrcolumnar target's) has no system columns (C's slot_getsysattr would raise 0A000 here).
     if matches!(localslot, SlotData::Virtual(_)) {
         return Ok((types_core::InvalidTransactionId, None));
@@ -784,7 +797,15 @@ fn report_origin_differs<'mcx>(
         origin: localorigin,
         ts: localts,
     }];
-    report_apply_conflict(mcx, rel, LOG, ty, Some(remoteslot), newslot.as_mut(), &mut conflicttuple)
+    report_apply_conflict(
+        mcx,
+        rel,
+        LOG,
+        ty,
+        Some(remoteslot),
+        newslot.as_mut(),
+        &mut conflicttuple,
+    )
 }
 
 fn report_row_missing<'mcx>(
@@ -854,11 +875,13 @@ fn apply_trig<'mcx>(rel: &Relation<'_>) -> PgResult<Option<ApplyTrig<'mcx>>> {
     if !rel.rd_hastriggers {
         return Ok(None);
     }
-    Ok(relcache::RelationGetTriggerDesc(rel.rd_id)?.map(|td| ApplyTrig {
-        td,
-        fmgr: trigger::TriggerFmgrCache::default(),
-        when: trigger::TriggerWhenCache::default(),
-    }))
+    Ok(
+        relcache::RelationGetTriggerDesc(rel.rd_id)?.map(|td| ApplyTrig {
+            td,
+            fmgr: trigger::TriggerFmgrCache::default(),
+            when: trigger::TriggerWhenCache::default(),
+        }),
+    )
 }
 
 fn check_relation_updatable(
@@ -925,8 +948,7 @@ fn tuples_equal<'mcx>(
         if n1 {
             continue;
         }
-        let typentry =
-            typcache::lookup_type_cache(att.atttypid, typcache::TYPECACHE_EQ_OPR_FINFO)?;
+        let typentry = typcache::lookup_type_cache(att.atttypid, typcache::TYPECACHE_EQ_OPR_FINFO)?;
         let mut finfo = typentry.eq_opr_finfo();
         if finfo.fn_oid == InvalidOid {
             ereport(ERROR)
@@ -956,7 +978,12 @@ fn build_replindex_scan_key(
     let form = idxrel.rd_index.as_ref().expect("index form");
     let mut keys = Vec::new();
     exectuples::slot_getallattrs(searchslot);
-    for (i, &table_attno) in form.indkey.iter().take(form.indnkeyatts as usize).enumerate() {
+    for (i, &table_attno) in form
+        .indkey
+        .iter()
+        .take(form.indnkeyatts as usize)
+        .enumerate()
+    {
         if table_attno == 0 {
             // XXX: Currently, we don't support expressions in the scan key.
             continue;
@@ -970,7 +997,8 @@ fn build_replindex_scan_key(
             opfamily,
             false,
         )?;
-        let operator = lsyscache::get_opfamily_member(opfamily, optype, optype, eq_strategy as i16)?;
+        let operator =
+            lsyscache::get_opfamily_member(opfamily, optype, optype, eq_strategy as i16)?;
         if operator == InvalidOid {
             return Err(Box::new(PgError::error(format!(
                 "missing operator {eq_strategy}({optype},{optype}) in opfamily {opfamily}"
@@ -981,7 +1009,11 @@ fn build_replindex_scan_key(
         key.sk_attno = (i + 1) as i16;
         key.sk_strategy = eq_strategy;
         key.sk_func = fmgr_seams::fmgr_info::call(regop)?;
-        key.sk_collation = idxrel.rd_indcollation.get(i).copied().unwrap_or(att.attcollation);
+        key.sk_collation = idxrel
+            .rd_indcollation
+            .get(i)
+            .copied()
+            .unwrap_or(att.attcollation);
         let (isnull, value) = {
             let b = searchslot.base();
             (
@@ -1014,7 +1046,10 @@ fn find_repl_tuple_by_index<'mcx>(
 
     // An in-progress match surfaces through dirty_xmin/dirty_xmax and is
     // waited out, then the scan is retried.
-    let snap = Rc::new(types_snapshot::SnapshotData::sentinel(mcx, types_snapshot::SNAPSHOT_DIRTY));
+    let snap = Rc::new(types_snapshot::SnapshotData::sentinel(
+        mcx,
+        types_snapshot::SNAPSHOT_DIRTY,
+    ));
     let keys = build_replindex_scan_key(&idxrel, rel, searchslot)?;
 
     let found = loop {
@@ -1121,7 +1156,10 @@ pub(crate) fn should_refetch_tuple(
         }
         other => {
             ereport(ERROR)
-                .errmsg(format!("unexpected table_tuple_lock status: {}", other as u32))
+                .errmsg(format!(
+                    "unexpected table_tuple_lock status: {}",
+                    other as u32
+                ))
                 .finish(loc("should_refetch_tuple"))?;
             unreachable!();
         }
@@ -1173,10 +1211,18 @@ fn find_repl_tuple_seq<'mcx>(
     searchslot: &mut SlotData<'mcx>,
     outslot: &mut SlotData<'mcx>,
 ) -> PgResult<bool> {
-    let snap = Rc::new(types_snapshot::SnapshotData::sentinel(mcx, types_snapshot::SNAPSHOT_DIRTY));
+    let snap = Rc::new(types_snapshot::SnapshotData::sentinel(
+        mcx,
+        types_snapshot::SNAPSHOT_DIRTY,
+    ));
     let found = loop {
-        let mut scan =
-            tableam_real::table_beginscan(mcx, rel, Some(snap.clone()), 0, mcx::PgVec::new_in(mcx))?;
+        let mut scan = tableam_real::table_beginscan(
+            mcx,
+            rel,
+            Some(snap.clone()),
+            0,
+            mcx::PgVec::new_in(mcx),
+        )?;
         let mut scanslot = tableam_real::table_slot_create(mcx, rel)?;
 
         let mut found = false;
@@ -1238,14 +1284,9 @@ fn find_repl_tuple_seq<'mcx>(
     Ok(found)
 }
 
-
 // RLS is unsupported on the apply path, so any relation with RLS enabled is
 // refused for every command alike.
-fn target_privileges_check<'mcx>(
-    mcx: Mcx<'mcx>,
-    rel: &Relation<'mcx>,
-    mode: u64,
-) -> PgResult<()> {
+fn target_privileges_check<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, mode: u64) -> PgResult<()> {
     let relid = rel.rd_id;
     let aclresult = aclchk::pg_class_aclcheck(relid, miscinit::GetUserId(), mode)?;
     if aclresult != aclchk::ACLCHECK_OK {
@@ -1293,7 +1334,11 @@ fn do_insert<'mcx>(
     slot: &mut SlotData<'mcx>,
 ) -> PgResult<()> {
     target_privileges_check(mcx, rel, types_nodes::parsenodes::ACL_INSERT)?;
-    execreplication::CheckCmdReplicaIdentity(mcx, rel, types_nodes::nodes_enums::CmdType::CMD_INSERT)?;
+    execreplication::CheckCmdReplicaIdentity(
+        mcx,
+        rel,
+        types_nodes::nodes_enums::CmdType::CMD_INSERT,
+    )?;
 
     // The indexes are opened BEFORE the row triggers fire so a trigger
     // cannot drop an index under the insert.
@@ -1304,8 +1349,11 @@ fn do_insert<'mcx>(
     if let Some(t) = trig.as_mut() {
         if t.td.trig_insert_before_row {
             let td = t.td.clone();
-            let mut when =
-                trigger::TriggerWhenEval { mcx, cache: &mut t.when, modified_cols: None };
+            let mut when = trigger::TriggerWhenEval {
+                mcx,
+                cache: &mut t.when,
+                modified_cols: None,
+            };
             if !trigger::ExecBRInsertTriggers(mcx, rel, &td, &mut t.fmgr, &mut when, slot)? {
                 execindexing::ExecCloseIndices(index_state)?;
                 return Ok(());
@@ -1314,20 +1362,35 @@ fn do_insert<'mcx>(
     }
 
     let mut generated_exprs = None;
-    if rel.rd_att.constr.as_deref().is_some_and(|c| c.has_generated_stored) {
+    if rel
+        .rd_att
+        .constr
+        .as_deref()
+        .is_some_and(|c| c.has_generated_stored)
+    {
         nodemodifytable::exec_compute_stored_generated(mcx, &mut generated_exprs, None, rel, slot)?;
     }
     let mut check_exprs = None;
     let mut nn_exprs = None;
     if rel.rd_att.constr.is_some() {
-        nodemodifytable::exec_constraints(mcx, &mut check_exprs, &mut nn_exprs, rel, slot, root_rel, None)?;
+        nodemodifytable::exec_constraints(
+            mcx,
+            &mut check_exprs,
+            &mut nn_exprs,
+            rel,
+            slot,
+            root_rel,
+            None,
+        )?;
     }
     // A row replicated straight into a partition must satisfy its partition
     // constraint.
     if rel.rd_rel.relispartition {
         let mut check_cache = None;
         if !execpartition::exec_partition_check(mcx, &mut check_cache, rel, slot)? {
-            return Err(execpartition::partition_constraint_violation(mcx, rel, slot, None, root_rel));
+            return Err(execpartition::partition_constraint_violation(
+                mcx, rel, slot, None, root_rel,
+            ));
         }
     }
 
@@ -1373,7 +1436,11 @@ fn do_insert<'mcx>(
     if let Some(t) = trig.as_mut() {
         let td = t.td.clone();
         let new_tid = slot.base().tts_tid;
-        let mut when = trigger::TriggerWhenEval { mcx, cache: &mut t.when, modified_cols: None };
+        let mut when = trigger::TriggerWhenEval {
+            mcx,
+            cache: &mut t.when,
+            modified_cols: None,
+        };
         trigger::ExecARInsertTriggers(
             mcx,
             rel,
@@ -1422,7 +1489,11 @@ fn do_update<'mcx>(
     use tableam_vocab::TU_UpdateIndexes;
 
     target_privileges_check(mcx, rel, types_nodes::parsenodes::ACL_UPDATE)?;
-    execreplication::CheckCmdReplicaIdentity(mcx, rel, types_nodes::nodes_enums::CmdType::CMD_UPDATE)?;
+    execreplication::CheckCmdReplicaIdentity(
+        mcx,
+        rel,
+        types_nodes::nodes_enums::CmdType::CMD_UPDATE,
+    )?;
 
     // As in do_insert, the indexes are open while the row triggers fire.
     let mut index_state = execindexing::ExecOpenIndices(mcx, rel, false)?;
@@ -1466,7 +1537,12 @@ fn do_update<'mcx>(
     }
 
     let mut generated_exprs = None;
-    if rel.rd_att.constr.as_deref().is_some_and(|c| c.has_generated_stored) {
+    if rel
+        .rd_att
+        .constr
+        .as_deref()
+        .is_some_and(|c| c.has_generated_stored)
+    {
         // The updatedCols filter the recomputed generated columns unless a
         // BEFORE ROW UPDATE trigger runs.
         let gen_filter = if trig.as_ref().is_some_and(|t| t.td.trig_update_before_row) {
@@ -1485,7 +1561,15 @@ fn do_update<'mcx>(
     let mut check_exprs = None;
     let mut nn_exprs = None;
     if rel.rd_att.constr.is_some() {
-        nodemodifytable::exec_constraints(mcx, &mut check_exprs, &mut nn_exprs, rel, slot, root_rel, None)?;
+        nodemodifytable::exec_constraints(
+            mcx,
+            &mut check_exprs,
+            &mut nn_exprs,
+            rel,
+            slot,
+            root_rel,
+            None,
+        )?;
     }
     // The updated row must still satisfy the partition's constraint.
     if rel.rd_rel.relispartition {
@@ -1579,7 +1663,11 @@ fn do_delete<'mcx>(
     searchslot: &mut SlotData<'mcx>,
 ) -> PgResult<()> {
     target_privileges_check(mcx, rel, types_nodes::parsenodes::ACL_DELETE)?;
-    execreplication::CheckCmdReplicaIdentity(mcx, rel, types_nodes::nodes_enums::CmdType::CMD_DELETE)?;
+    execreplication::CheckCmdReplicaIdentity(
+        mcx,
+        rel,
+        types_nodes::nodes_enums::CmdType::CMD_DELETE,
+    )?;
 
     let index_state = execindexing::ExecOpenIndices(mcx, rel, false)?;
 
@@ -1588,8 +1676,11 @@ fn do_delete<'mcx>(
     if let Some(t) = trig.as_mut() {
         if t.td.trig_delete_before_row {
             let td = t.td.clone();
-            let mut when =
-                trigger::TriggerWhenEval { mcx, cache: &mut t.when, modified_cols: None };
+            let mut when = trigger::TriggerWhenEval {
+                mcx,
+                cache: &mut t.when,
+                modified_cols: None,
+            };
             if !trigger::ExecBRDeleteTriggers(mcx, rel, &td, &mut t.fmgr, &mut when, searchslot)? {
                 execindexing::ExecCloseIndices(index_state)?;
                 exectuples::exec_clear_tuple(searchslot, mcx);
@@ -1605,7 +1696,11 @@ fn do_delete<'mcx>(
 
     if let Some(t) = trig.as_mut() {
         let td = t.td.clone();
-        let mut when = trigger::TriggerWhenEval { mcx, cache: &mut t.when, modified_cols: None };
+        let mut when = trigger::TriggerWhenEval {
+            mcx,
+            cache: &mut t.when,
+            modified_cols: None,
+        };
         trigger::ExecARDeleteTriggers(
             mcx,
             rel,
@@ -1638,7 +1733,11 @@ fn partition_names(mcx: Mcx<'_>, rel: &Relation<'_>) -> PgResult<(String, String
 // The apply estate's target ResultRelInfo (create_edata_for_relation):
 // its ri_TrigDesc is fixed before any trigger of the change runs.
 fn apply_result_rels(rel: &types_rel::Relation<'_>) -> PgResult<[trigger::TrigTargetDesc; 1]> {
-    let td = if rel.rd_hastriggers { relcache::RelationGetTriggerDesc(rel.rd_id)? } else { None };
+    let td = if rel.rd_hastriggers {
+        relcache::RelationGetTriggerDesc(rel.rd_id)?
+    } else {
+        None
+    };
     Ok([(rel.rd_id, td)])
 }
 
@@ -1650,8 +1749,7 @@ fn apply_handle_tuple_routing<'mcx>(
     op: RoutedOp<'_>,
 ) -> PgResult<()> {
     let mut partition_directory: Option<execpartition::PartitionDirectory<'mcx>> = None;
-    let mut proute =
-        execpartition::PartitionTupleRouting::new(mcx, rel, &mut partition_directory)?;
+    let mut proute = execpartition::PartitionTupleRouting::new(mcx, rel, &mut partition_directory)?;
     let eval_cx = mcx::MemoryContext::new("ApplyTupleRoutingEval");
 
     let idx = proute.find_partition(remoteslot, eval_cx.mcx(), &mut partition_directory, None)?;
@@ -1671,17 +1769,18 @@ fn apply_handle_tuple_routing<'mcx>(
     match op {
         RoutedOp::Insert => do_insert(mcx, &partrel, Some(rel), &mut remoteslot_part),
         RoutedOp::Delete => {
-            let part_entry = logicalrelation::logicalrep_partition_open(
-                mcx,
-                entry,
-                &partrel,
-                root_to_leaf,
-            )?;
+            let part_entry =
+                logicalrelation::logicalrep_partition_open(mcx, entry, &partrel, root_to_leaf)?;
             check_relation_updatable(mcx, &partrel, &part_entry)?;
 
             let mut localslot = tableam_real::table_slot_create(mcx, &partrel)?;
-            let found =
-                find_repl_tuple(mcx, &partrel, &part_entry, &mut remoteslot_part, &mut localslot)?;
+            let found = find_repl_tuple(
+                mcx,
+                &partrel,
+                &part_entry,
+                &mut remoteslot_part,
+                &mut localslot,
+            )?;
             if found {
                 let (localxmin, ctsdata) = get_tuple_transaction_info(&localslot)?;
                 if let Some((localts, localorigin)) = ctsdata {
@@ -1713,17 +1812,18 @@ fn apply_handle_tuple_routing<'mcx>(
             Ok(())
         }
         RoutedOp::Update(newtup) => {
-            let part_entry = logicalrelation::logicalrep_partition_open(
-                mcx,
-                entry,
-                &partrel,
-                root_to_leaf,
-            )?;
+            let part_entry =
+                logicalrelation::logicalrep_partition_open(mcx, entry, &partrel, root_to_leaf)?;
             check_relation_updatable(mcx, &partrel, &part_entry)?;
 
             let mut localslot = tableam_real::table_slot_create(mcx, &partrel)?;
-            let found =
-                find_repl_tuple(mcx, &partrel, &part_entry, &mut remoteslot_part, &mut localslot)?;
+            let found = find_repl_tuple(
+                mcx,
+                &partrel,
+                &part_entry,
+                &mut remoteslot_part,
+                &mut localslot,
+            )?;
             if !found {
                 report_row_missing(
                     mcx,
@@ -1755,15 +1855,33 @@ fn apply_handle_tuple_routing<'mcx>(
             let mut modfuncs = InFuncs::new(partrel.rd_att.natts as usize)?;
             let mut newslot = tableam_real::table_slot_create(mcx, &partrel)?;
             slot_modify_data(
-                mcx, &mut newslot, &mut localslot, &part_entry, &partrel, newtup, &mut modfuncs,
+                mcx,
+                &mut newslot,
+                &mut localslot,
+                &part_entry,
+                &partrel,
+                newtup,
+                &mut modfuncs,
             )?;
 
             let mut check_cache = None;
             if !partrel.rd_rel.relispartition
-                || execpartition::exec_partition_check(mcx, &mut check_cache, &partrel, &mut newslot)?
+                || execpartition::exec_partition_check(
+                    mcx,
+                    &mut check_cache,
+                    &partrel,
+                    &mut newslot,
+                )?
             {
                 let updated = apply_updated_cols(mcx, &partrel, &part_entry, newtup)?;
-                do_update(mcx, &partrel, Some(rel), &mut localslot, &mut newslot, Some(&updated))
+                do_update(
+                    mcx,
+                    &partrel,
+                    Some(rel),
+                    &mut localslot,
+                    &mut newslot,
+                    Some(&updated),
+                )
             } else {
                 // Moving the tuple into the new partition requires DELETE from
                 // the old partition, re-route via the root, and INSERT into
@@ -1774,7 +1892,10 @@ fn apply_handle_tuple_routing<'mcx>(
                         let leaf_to_root =
                             tupdesc::build_attrmap_by_name(mcx, &partrel.rd_att, &rel.rd_att)?;
                         exectuples::execute_attr_map_slot(
-                            &leaf_to_root, &mut newslot, &mut rootslot, mcx,
+                            &leaf_to_root,
+                            &mut newslot,
+                            &mut rootslot,
+                            mcx,
                         );
                     }
                     None => exectuples::exec_copy_slot(&mut rootslot, &mut newslot, mcx, mcx)?,
@@ -1796,11 +1917,12 @@ fn apply_handle_tuple_routing<'mcx>(
                 let mut newslot_part = tableam_real::table_slot_create(mcx, &newpartrel)?;
                 match new_map {
                     Some(map) => exectuples::execute_attr_map_slot(
-                        map, &mut rootslot, &mut newslot_part, mcx,
+                        map,
+                        &mut rootslot,
+                        &mut newslot_part,
+                        mcx,
                     ),
-                    None => {
-                        exectuples::exec_copy_slot(&mut newslot_part, &mut rootslot, mcx, mcx)?
-                    }
+                    None => exectuples::exec_copy_slot(&mut newslot_part, &mut rootslot, mcx, mcx)?,
                 }
                 do_insert(mcx, &newpartrel, Some(rel), &mut newslot_part)
             }
@@ -1929,10 +2051,32 @@ fn apply_handle_update(mcx: Mcx<'static>, r: &mut Reader<'_>) -> PgResult<()> {
         // invalidate remoteslot's datums mid-use otherwise.
         let mut modfuncs = InFuncs::new(rel.rd_att.natts as usize)?;
         let mut newslot = tableam_real::table_slot_create(mcx, &rel)?;
-        slot_modify_data(mcx, &mut newslot, &mut localslot, &entry, &rel, &upd.newtup, &mut modfuncs)?;
-        do_update(mcx, &rel, None, &mut localslot, &mut newslot, Some(&updated))?;
+        slot_modify_data(
+            mcx,
+            &mut newslot,
+            &mut localslot,
+            &entry,
+            &rel,
+            &upd.newtup,
+            &mut modfuncs,
+        )?;
+        do_update(
+            mcx,
+            &rel,
+            None,
+            &mut localslot,
+            &mut newslot,
+            Some(&updated),
+        )?;
     } else {
-        report_row_missing(mcx, &rel, &entry, &mut remoteslot, &mut localslot, Some(&upd.newtup))?;
+        report_row_missing(
+            mcx,
+            &rel,
+            &entry,
+            &mut remoteslot,
+            &mut localslot,
+            Some(&upd.newtup),
+        )?;
     }
 
     trigger::AfterTriggerEndQuery(None, &result_rels)?;

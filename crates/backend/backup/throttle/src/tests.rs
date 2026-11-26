@@ -83,7 +83,9 @@ impl<'a, 'mcx> BbsinkOps<'mcx> for RecordingOps<'a, 'mcx> {
         _state: &mut BbsinkState,
         name: &str,
     ) -> PgResult<()> {
-        self.log.borrow_mut().push(Event::BeginArchive(name.to_string()));
+        self.log
+            .borrow_mut()
+            .push(Event::BeginArchive(name.to_string()));
         Ok(())
     }
     fn archive_contents(
@@ -99,7 +101,11 @@ impl<'a, 'mcx> BbsinkOps<'mcx> for RecordingOps<'a, 'mcx> {
         self.log.borrow_mut().push(Event::EndArchive);
         Ok(())
     }
-    fn begin_manifest(&mut self, _sink: &mut Bbsink<'mcx>, _state: &mut BbsinkState,) -> PgResult<()> {
+    fn begin_manifest(
+        &mut self,
+        _sink: &mut Bbsink<'mcx>,
+        _state: &mut BbsinkState,
+    ) -> PgResult<()> {
         self.log.borrow_mut().push(Event::BeginManifest);
         Ok(())
     }
@@ -184,7 +190,11 @@ fn sub_sample_increment_does_not_wait() {
 
     bbsink_archive_contents(&mut sink, &mut st, BLCKSZ).unwrap();
 
-    assert_eq!(WAIT_CALLS.load(Ordering::SeqCst), 0, "below-sample must not sleep");
+    assert_eq!(
+        WAIT_CALLS.load(Ordering::SeqCst),
+        0,
+        "below-sample must not sleep"
+    );
     assert!(log.borrow().contains(&Event::ArchiveContents(BLCKSZ)));
 
     bbsink_end_backup(&mut sink, &mut st, 99, 7).unwrap();
@@ -229,7 +239,11 @@ fn counter_remainder_carries_over() {
     assert_eq!(WAIT_CALLS.load(Ordering::SeqCst), 1);
 
     bbsink_archive_contents(&mut sink, &mut st, 256).unwrap();
-    assert_eq!(WAIT_CALLS.load(Ordering::SeqCst), 1, "remainder must carry over");
+    assert_eq!(
+        WAIT_CALLS.load(Ordering::SeqCst),
+        1,
+        "remainder must carry over"
+    );
 
     bbsink_cleanup(&mut sink, &mut st).unwrap();
 }
@@ -290,6 +304,10 @@ fn already_slow_enough_does_not_wait() {
 
     bbsink_archive_contents(&mut sink, &mut st, 1024).unwrap();
 
-    assert_eq!(WAIT_CALLS.load(Ordering::SeqCst), 0, "slow transfer must not sleep");
+    assert_eq!(
+        WAIT_CALLS.load(Ordering::SeqCst),
+        0,
+        "slow transfer must not sleep"
+    );
     assert!(log.borrow().contains(&Event::ArchiveContents(1024)));
 }

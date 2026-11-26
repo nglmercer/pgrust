@@ -89,8 +89,11 @@ impl AuthPolicy {
         // trimming, so an empty field is an (invalid) empty method name.
         for (idx, part) in s.split(',').enumerate() {
             let first = idx == 0;
-            let duplicate =
-                || Err(format!("require_auth method \"{part}\" is specified more than once"));
+            let duplicate = || {
+                Err(format!(
+                    "require_auth method \"{part}\" is specified more than once"
+                ))
+            };
             // Check for negation, e.g. '!password'. If one element is
             // negated, they all have to be.
             let method = if let Some(rest) = part.strip_prefix('!') {
@@ -99,7 +102,8 @@ impl AuthPolicy {
                     // mechanisms, and subtract from it.
                     pol.auth_required = false;
                     pol.allowed_auth_methods = u32::MAX;
-                    pol.allowed_sasl_mechs = [Some(SUPPORTED_SASL_MECHS[0]), Some(SUPPORTED_SASL_MECHS[1])];
+                    pol.allowed_sasl_mechs =
+                        [Some(SUPPORTED_SASL_MECHS[0]), Some(SUPPORTED_SASL_MECHS[1])];
                 } else if !negated {
                     return Err(format!(
                         "negative require_auth method \"{part}\" cannot be mixed with non-negative methods"
@@ -206,7 +210,11 @@ impl AuthPolicy {
 
     #[cfg(test)]
     pub(crate) fn with_channel_binding_required(self, required: bool) -> Self {
-        self.with_channel_binding(if required { ChannelBinding::Require } else { ChannelBinding::Prefer })
+        self.with_channel_binding(if required {
+            ChannelBinding::Require
+        } else {
+            ChannelBinding::Prefer
+        })
     }
 
     fn check_expected_areq(&self, areq: i32, st: AreqState) -> Result<(), String> {
@@ -249,7 +257,11 @@ impl AuthPolicy {
     /// pg_SASL_init's mechanism choice (fe-auth.c:475): SCRAM-SHA-256-PLUS
     /// over TLS unless channel binding is disabled, else SCRAM-SHA-256;
     /// -PLUS offered in cleartext is a stripped-TLS symptom and fatal.
-    fn select_sasl_mechanism(&self, mechs: &[String], ssl_in_use: bool) -> Result<&'static str, String> {
+    fn select_sasl_mechanism(
+        &self,
+        mechs: &[String],
+        ssl_in_use: bool,
+    ) -> Result<&'static str, String> {
         let mut selected: Option<&'static str> = None;
         for m in mechs {
             if m == scram_common::SCRAM_SHA_256_PLUS_NAME {
@@ -302,7 +314,9 @@ impl AuthPolicy {
             return Ok(());
         }
         let reason = reason.unwrap_or_else(|| auth_method_description(areq));
-        Err(format!("authentication method requirement \"{require_auth}\" failed: {reason}"))
+        Err(format!(
+            "authentication method requirement \"{require_auth}\" failed: {reason}"
+        ))
     }
 
     /// pg_SASL_init's "Make sure require_auth is satisfied" (fe-auth.c:556):
@@ -422,7 +436,11 @@ fn sasl_mechanisms(mbody: &[u8]) -> Result<Vec<String>, String> {
             None => return Err(malformed()),
             Some(0) => return Ok(mechs),
             Some(_) => {
-                let end = list[p..].iter().position(|&c| c == 0).ok_or_else(malformed)? + p;
+                let end = list[p..]
+                    .iter()
+                    .position(|&c| c == 0)
+                    .ok_or_else(malformed)?
+                    + p;
                 mechs.push(String::from_utf8_lossy(&list[p..end]).into_owned());
                 p = end + 1;
             }
@@ -465,7 +483,12 @@ pub(crate) fn handshake(
                 };
                 // pg_fe_sendauth: every request is vetted against
                 // require_auth before it is answered (fe-auth.c:1072).
-                let st = AreqState { client_finished_auth, channel_bound, ssl_cert_requested, ssl_cert_sent };
+                let st = AreqState {
+                    client_finished_auth,
+                    channel_bound,
+                    ssl_cert_requested,
+                    ssl_cert_sent,
+                };
                 if let Err(e) = auth.policy.check_expected_areq(authtype, st) {
                     return Ok(Err(e));
                 }
@@ -528,7 +551,9 @@ pub(crate) fn handshake(
                         if auth.keys.client.is_none() && password.is_none() {
                             return Ok(Err("fe_sendauth: no password supplied".into()));
                         }
-                        if let Err(e) = scram_exchange(conn, password, &auth.keys, &auth.policy, mech)? {
+                        if let Err(e) =
+                            scram_exchange(conn, password, &auth.keys, &auth.policy, mech)?
+                        {
                             return Ok(Err(pgpassfile_warning(conn, auth, e)));
                         }
                         // fe-auth-scram.c:286 (FE_SCRAM_FINISHED after the
@@ -625,7 +650,11 @@ fn parse_server_first(payload: &[u8], client_nonce: &str) -> Result<ServerFirst,
         Ok(v) if v > 0 => v,
         _ => return Err("malformed SCRAM message (invalid iteration count)".into()),
     };
-    Ok(ServerFirst { server_nonce, salt, iterations })
+    Ok(ServerFirst {
+        server_nonce,
+        salt,
+        iterations,
+    })
 }
 
 /// Extract the server signature (v=...) from the server-final-message payload.
@@ -639,10 +668,20 @@ fn parse_server_final(payload: &[u8]) -> Result<String, String> {
 /// require_auth before the SASL continuation is consumed; anything but the
 /// expected continue/final code is a protocol error.
 fn expect_sasl_request(t: u8, mbody: &[u8], want: i32, policy: &AuthPolicy) -> Result<(), String> {
-    let what = if want == AUTH_REQ_SASL_CONT { "continue" } else { "final" };
+    let what = if want == AUTH_REQ_SASL_CONT {
+        "continue"
+    } else {
+        "final"
+    };
     if t == b'R' {
         if let Ok(code) = auth_req_code(mbody) {
-            policy.check_expected_areq(code, AreqState { client_finished_auth: false, ..Default::default() })?;
+            policy.check_expected_areq(
+                code,
+                AreqState {
+                    client_finished_auth: false,
+                    ..Default::default()
+                },
+            )?;
             if code == want {
                 return Ok(());
             }
@@ -775,7 +814,11 @@ fn scram_exchange(
     // decoded and must be exactly key_length bytes.
     let server_sig = match decode_server_signature(&server_sig_b64) {
         Some(v) => v,
-        None => return Ok(Err("malformed SCRAM message (malformed server signature)".into())),
+        None => {
+            return Ok(Err(
+                "malformed SCRAM message (malformed server signature)".into()
+            ))
+        }
     };
     let server_key = match keys.server {
         Some(k) => k,
@@ -809,7 +852,10 @@ mod tests {
         assert_eq!(ok.server_nonce, "abc");
         assert!(super::parse_server_first(b"r=abcd,s=c2FsdA==,i=4096", "abc").is_ok());
         let err = super::parse_server_first(b"r=ab,s=c2FsdA==,i=4096", "abc").err();
-        assert_eq!(err.as_deref(), Some("invalid SCRAM response (nonce mismatch)"));
+        assert_eq!(
+            err.as_deref(),
+            Some("invalid SCRAM response (nonce mismatch)")
+        );
         assert!(super::parse_server_first(b"r=abx,s=c2FsdA==,i=4096", "abc").is_err());
     }
 
@@ -834,7 +880,12 @@ mod tests {
     #[test]
     fn truncated_auth_request_header() {
         // 'R' message bodies shorter than the 4-byte request code.
-        for body in [&[][..], &[0x00][..], &[0x00, 0x00][..], &[0x00, 0x00, 0x00][..]] {
+        for body in [
+            &[][..],
+            &[0x00][..],
+            &[0x00, 0x00][..],
+            &[0x00, 0x00, 0x00][..],
+        ] {
             assert!(auth_req_code(body).is_err());
         }
         assert_eq!(auth_req_code(&[0, 0, 0, 10]), Ok(10));
@@ -855,7 +906,10 @@ mod tests {
         body.extend_from_slice(b"SCRAM-SHA-256\0SCRAM-SHA-256-PLUS\0\0");
         assert_eq!(
             sasl_mechanisms(&body).unwrap(),
-            vec!["SCRAM-SHA-256".to_string(), "SCRAM-SHA-256-PLUS".to_string()]
+            vec![
+                "SCRAM-SHA-256".to_string(),
+                "SCRAM-SHA-256-PLUS".to_string()
+            ]
         );
     }
 
@@ -897,9 +951,19 @@ mod tests {
 
     #[test]
     fn server_first_iteration_count_must_be_positive() {
-        for bad in ["i=0", "i=-1", "i=-4096", "i=", "i=abc", "i=99999999999999999999"] {
+        for bad in [
+            "i=0",
+            "i=-1",
+            "i=-4096",
+            "i=",
+            "i=abc",
+            "i=99999999999999999999",
+        ] {
             let m = format!("r=clientXYZserver,s=c2FsdA==,{bad}");
-            assert!(parse_server_first(m.as_bytes(), "clientXYZ").is_err(), "accepted {bad}");
+            assert!(
+                parse_server_first(m.as_bytes(), "clientXYZ").is_err(),
+                "accepted {bad}"
+            );
         }
     }
 
@@ -932,9 +996,21 @@ mod tests {
     fn require_auth_unset_allows_everything() {
         let p = AuthPolicy::parse(None).unwrap();
         for areq in [0, 3, 5, 7, 8, 9, 10, 11, 12, 1, 99] {
-            assert!(p.check_expected_areq(areq, AreqState { client_finished_auth: false, ..Default::default() }).is_ok(), "{areq}");
+            assert!(
+                p.check_expected_areq(
+                    areq,
+                    AreqState {
+                        client_finished_auth: false,
+                        ..Default::default()
+                    }
+                )
+                .is_ok(),
+                "{areq}"
+            );
         }
-        assert!(p.check_sasl_mech(SaslMech::ScramSha256, "SCRAM-SHA-256").is_ok());
+        assert!(p
+            .check_sasl_mech(SaslMech::ScramSha256, "SCRAM-SHA-256")
+            .is_ok());
     }
 
     // require_auth='' keeps the calloc'd defaults (nothing allowed, no
@@ -942,9 +1018,24 @@ mod tests {
     #[test]
     fn require_auth_empty_arms_checks_with_defaults() {
         let p = AuthPolicy::parse(Some("")).unwrap();
-        assert!(p.check_expected_areq(0, AreqState { client_finished_auth: false, ..Default::default() }).is_ok());
+        assert!(p
+            .check_expected_areq(
+                0,
+                AreqState {
+                    client_finished_auth: false,
+                    ..Default::default()
+                }
+            )
+            .is_ok());
         assert_eq!(
-            p.check_expected_areq(3, AreqState { client_finished_auth: false, ..Default::default() }).unwrap_err(),
+            p.check_expected_areq(
+                3,
+                AreqState {
+                    client_finished_auth: false,
+                    ..Default::default()
+                }
+            )
+            .unwrap_err(),
             "authentication method requirement \"\" failed: server requested a cleartext password"
         );
         assert_eq!(
@@ -962,9 +1053,27 @@ mod tests {
             p.check_expected_areq(0, AreqState { client_finished_auth: false, ..Default::default() }).unwrap_err(),
             "authentication method requirement \"scram-sha-256\" failed: server did not complete authentication"
         );
-        assert!(p.check_expected_areq(0, AreqState { client_finished_auth: true, ..Default::default() }).is_ok());
+        assert!(p
+            .check_expected_areq(
+                0,
+                AreqState {
+                    client_finished_auth: true,
+                    ..Default::default()
+                }
+            )
+            .is_ok());
         for areq in [10, 11, 12] {
-            assert!(p.check_expected_areq(areq, AreqState { client_finished_auth: false, ..Default::default() }).is_ok(), "{areq}");
+            assert!(
+                p.check_expected_areq(
+                    areq,
+                    AreqState {
+                        client_finished_auth: false,
+                        ..Default::default()
+                    }
+                )
+                .is_ok(),
+                "{areq}"
+            );
         }
         assert_eq!(
             p.check_expected_areq(5, AreqState { client_finished_auth: false, ..Default::default() }).unwrap_err(),
@@ -982,7 +1091,9 @@ mod tests {
             p.check_expected_areq(2, AreqState { client_finished_auth: false, ..Default::default() }).unwrap_err(),
             "authentication method requirement \"scram-sha-256\" failed: server requested an unknown authentication type"
         );
-        assert!(p.check_sasl_mech(SaslMech::ScramSha256, "SCRAM-SHA-256").is_ok());
+        assert!(p
+            .check_sasl_mech(SaslMech::ScramSha256, "SCRAM-SHA-256")
+            .is_ok());
         assert_eq!(
             p.check_sasl_mech(SaslMech::OAuth, "OAUTHBEARER").unwrap_err(),
             "authentication method requirement \"scram-sha-256\" failed: server requested OAUTHBEARER authentication"
@@ -992,47 +1103,195 @@ mod tests {
     #[test]
     fn require_auth_lists_and_none() {
         let p = AuthPolicy::parse(Some("password,md5")).unwrap();
-        assert!(p.check_expected_areq(3, AreqState { client_finished_auth: false, ..Default::default() }).is_ok());
-        assert!(p.check_expected_areq(5, AreqState { client_finished_auth: false, ..Default::default() }).is_ok());
+        assert!(p
+            .check_expected_areq(
+                3,
+                AreqState {
+                    client_finished_auth: false,
+                    ..Default::default()
+                }
+            )
+            .is_ok());
+        assert!(p
+            .check_expected_areq(
+                5,
+                AreqState {
+                    client_finished_auth: false,
+                    ..Default::default()
+                }
+            )
+            .is_ok());
         assert_eq!(
             p.check_expected_areq(10, AreqState { client_finished_auth: false, ..Default::default() }).unwrap_err(),
             "authentication method requirement \"password,md5\" failed: server requested SASL authentication"
         );
         // "none" allows an unchallenged AuthenticationOk.
         let p = AuthPolicy::parse(Some("none")).unwrap();
-        assert!(p.check_expected_areq(0, AreqState { client_finished_auth: false, ..Default::default() }).is_ok());
-        assert!(p.check_expected_areq(3, AreqState { client_finished_auth: false, ..Default::default() }).is_err());
+        assert!(p
+            .check_expected_areq(
+                0,
+                AreqState {
+                    client_finished_auth: false,
+                    ..Default::default()
+                }
+            )
+            .is_ok());
+        assert!(p
+            .check_expected_areq(
+                3,
+                AreqState {
+                    client_finished_auth: false,
+                    ..Default::default()
+                }
+            )
+            .is_err());
         let p = AuthPolicy::parse(Some("scram-sha-256,none")).unwrap();
-        assert!(p.check_expected_areq(0, AreqState { client_finished_auth: false, ..Default::default() }).is_ok());
-        assert!(p.check_expected_areq(10, AreqState { client_finished_auth: false, ..Default::default() }).is_ok());
+        assert!(p
+            .check_expected_areq(
+                0,
+                AreqState {
+                    client_finished_auth: false,
+                    ..Default::default()
+                }
+            )
+            .is_ok());
+        assert!(p
+            .check_expected_areq(
+                10,
+                AreqState {
+                    client_finished_auth: false,
+                    ..Default::default()
+                }
+            )
+            .is_ok());
         // gss/sspi share the GSS_CONT bit.
         let p = AuthPolicy::parse(Some("gss")).unwrap();
-        assert!(p.check_expected_areq(7, AreqState { client_finished_auth: false, ..Default::default() }).is_ok());
-        assert!(p.check_expected_areq(8, AreqState { client_finished_auth: false, ..Default::default() }).is_ok());
-        assert!(p.check_expected_areq(9, AreqState { client_finished_auth: false, ..Default::default() }).is_err());
+        assert!(p
+            .check_expected_areq(
+                7,
+                AreqState {
+                    client_finished_auth: false,
+                    ..Default::default()
+                }
+            )
+            .is_ok());
+        assert!(p
+            .check_expected_areq(
+                8,
+                AreqState {
+                    client_finished_auth: false,
+                    ..Default::default()
+                }
+            )
+            .is_ok());
+        assert!(p
+            .check_expected_areq(
+                9,
+                AreqState {
+                    client_finished_auth: false,
+                    ..Default::default()
+                }
+            )
+            .is_err());
     }
 
     #[test]
     fn require_auth_negated() {
         let p = AuthPolicy::parse(Some("!password")).unwrap();
-        assert!(p.check_expected_areq(0, AreqState { client_finished_auth: false, ..Default::default() }).is_ok());
-        assert!(p.check_expected_areq(3, AreqState { client_finished_auth: false, ..Default::default() }).is_err());
-        assert!(p.check_expected_areq(5, AreqState { client_finished_auth: false, ..Default::default() }).is_ok());
-        assert!(p.check_expected_areq(10, AreqState { client_finished_auth: false, ..Default::default() }).is_ok());
-        assert!(p.check_sasl_mech(SaslMech::ScramSha256, "SCRAM-SHA-256").is_ok());
+        assert!(p
+            .check_expected_areq(
+                0,
+                AreqState {
+                    client_finished_auth: false,
+                    ..Default::default()
+                }
+            )
+            .is_ok());
+        assert!(p
+            .check_expected_areq(
+                3,
+                AreqState {
+                    client_finished_auth: false,
+                    ..Default::default()
+                }
+            )
+            .is_err());
+        assert!(p
+            .check_expected_areq(
+                5,
+                AreqState {
+                    client_finished_auth: false,
+                    ..Default::default()
+                }
+            )
+            .is_ok());
+        assert!(p
+            .check_expected_areq(
+                10,
+                AreqState {
+                    client_finished_auth: false,
+                    ..Default::default()
+                }
+            )
+            .is_ok());
+        assert!(p
+            .check_sasl_mech(SaslMech::ScramSha256, "SCRAM-SHA-256")
+            .is_ok());
         // Negating every mechanism also drops the SASL request bits.
         let p = AuthPolicy::parse(Some("!scram-sha-256,!oauth")).unwrap();
-        assert!(p.check_expected_areq(10, AreqState { client_finished_auth: false, ..Default::default() }).is_err());
-        assert!(p.check_expected_areq(3, AreqState { client_finished_auth: false, ..Default::default() }).is_ok());
+        assert!(p
+            .check_expected_areq(
+                10,
+                AreqState {
+                    client_finished_auth: false,
+                    ..Default::default()
+                }
+            )
+            .is_err());
+        assert!(p
+            .check_expected_areq(
+                3,
+                AreqState {
+                    client_finished_auth: false,
+                    ..Default::default()
+                }
+            )
+            .is_ok());
         // Negating one mechanism keeps SASL requests allowed.
         let p = AuthPolicy::parse(Some("!oauth")).unwrap();
-        assert!(p.check_expected_areq(10, AreqState { client_finished_auth: false, ..Default::default() }).is_ok());
-        assert!(p.check_sasl_mech(SaslMech::ScramSha256, "SCRAM-SHA-256").is_ok());
+        assert!(p
+            .check_expected_areq(
+                10,
+                AreqState {
+                    client_finished_auth: false,
+                    ..Default::default()
+                }
+            )
+            .is_ok());
+        assert!(p
+            .check_sasl_mech(SaslMech::ScramSha256, "SCRAM-SHA-256")
+            .is_ok());
         assert!(p.check_sasl_mech(SaslMech::OAuth, "OAUTHBEARER").is_err());
         // "!none" requires an exchange.
         let p = AuthPolicy::parse(Some("!none")).unwrap();
-        assert!(p.check_expected_areq(0, AreqState { client_finished_auth: false, ..Default::default() }).is_err());
-        assert!(p.check_expected_areq(0, AreqState { client_finished_auth: true, ..Default::default() }).is_ok());
+        assert!(p
+            .check_expected_areq(
+                0,
+                AreqState {
+                    client_finished_auth: false,
+                    ..Default::default()
+                }
+            )
+            .is_err());
+        assert!(p
+            .check_expected_areq(
+                0,
+                AreqState {
+                    client_finished_auth: true,
+                    ..Default::default()
+                }
+            )
+            .is_ok());
     }
 
     #[test]
@@ -1130,8 +1389,14 @@ mod tests {
         assert_ne!(variant, canonical);
         assert_eq!(decode_server_signature(&canonical), Some(sig));
         assert_eq!(decode_server_signature(&variant), Some(sig));
-        assert_eq!(decode_server_signature(&b64(&[1u8; SCRAM_MAX_KEY_LEN - 1])), None);
-        assert_eq!(decode_server_signature(&b64(&[1u8; SCRAM_MAX_KEY_LEN + 1])), None);
+        assert_eq!(
+            decode_server_signature(&b64(&[1u8; SCRAM_MAX_KEY_LEN - 1])),
+            None
+        );
+        assert_eq!(
+            decode_server_signature(&b64(&[1u8; SCRAM_MAX_KEY_LEN + 1])),
+            None
+        );
         assert_eq!(decode_server_signature("not base64!"), None);
         assert_eq!(decode_server_signature(""), None);
     }

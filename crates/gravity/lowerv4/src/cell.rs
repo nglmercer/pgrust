@@ -53,15 +53,24 @@ pub struct CellLife {
 
 impl CellLife {
     pub const fn of_lane(l: LaneLife) -> CellLife {
-        CellLife { until: l.until, home: CellHome::Lane(l.home) }
+        CellLife {
+            until: l.until,
+            home: CellHome::Lane(l.home),
+        }
     }
 
     /// A computed value's life: a lane's as the lane's; `Row` in the row context; `Call` until the builtin's next call.
     pub const fn of_expr(l: ExprLife, site: u16) -> CellLife {
         match l {
             ExprLife::Lane(l) => CellLife::of_lane(l),
-            ExprLife::Row => CellLife { until: Until::Row, home: CellHome::RowCx },
-            ExprLife::Call { .. } => CellLife { until: Until::Call, home: CellHome::SiteCx(site) },
+            ExprLife::Row => CellLife {
+                until: Until::Row,
+                home: CellHome::RowCx,
+            },
+            ExprLife::Call { .. } => CellLife {
+                until: Until::Call,
+                home: CellHome::SiteCx(site),
+            },
         }
     }
 
@@ -89,7 +98,10 @@ pub enum At {
     Locator,
     Slot(u16),
     Value(u16),
-    Step { k: u8, col: u16 },
+    Step {
+        k: u8,
+        col: u16,
+    },
     Const(u16),
 }
 
@@ -120,23 +132,64 @@ impl Cell {
 
     /// A source lane's cell: every fact from decompose's `LaneDesc`.
     pub fn of_lane(lane: LaneId, d: &LaneDesc, typid: u32, null: Nullable) -> Cell {
-        Cell { rep: d.rep, typid, num: d.num, life: CellLife::of_lane(d.life), at: At::Lane(lane), null }
+        Cell {
+            rep: d.rep,
+            typid,
+            num: d.num,
+            life: CellLife::of_lane(d.life),
+            at: At::Lane(lane),
+            null,
+        }
     }
 
     /// A computed cell: every fact from the node's `ExprOut` (`graph.out_of`).
     pub fn of_expr(out: ExprOut, value: u16, site: u16, null: Nullable) -> Cell {
         let num = crate::rep::num_of(out.rep);
-        Cell { rep: out.rep, typid: out.typid, num, life: CellLife::of_expr(out.life, site), at: At::Value(value), null }
+        Cell {
+            rep: out.rep,
+            typid: out.typid,
+            num,
+            life: CellLife::of_expr(out.life, site),
+            at: At::Value(value),
+            null,
+        }
     }
 
     /// A record column read back (§3.4): the stored `Rep`, living as long as the record's life.
-    pub fn of_record(rep: Rep, typid: u32, num: NumTypmod, life: LifeId, slot: u16, null: Nullable) -> Cell {
-        Cell { rep, typid, num, life: CellLife { until: Until::Life, home: CellHome::Record(life) }, at: At::Slot(slot), null }
+    pub fn of_record(
+        rep: Rep,
+        typid: u32,
+        num: NumTypmod,
+        life: LifeId,
+        slot: u16,
+        null: Nullable,
+    ) -> Cell {
+        Cell {
+            rep,
+            typid,
+            num,
+            life: CellLife {
+                until: Until::Life,
+                home: CellHome::Record(life),
+            },
+            at: At::Slot(slot),
+            null,
+        }
     }
 
     /// The source's row locator (H28): one by-value word, never NULL, valid for the window it was read in.
     pub fn of_locator() -> Cell {
-        Cell { rep: Rep::Word { bytes: 8 }, typid: TIDOID, num: NumTypmod::NONE, life: CellLife { until: Until::Window, home: CellHome::FrameSlot }, at: At::Locator, null: Nullable::Never }
+        Cell {
+            rep: Rep::Word { bytes: 8 },
+            typid: TIDOID,
+            num: NumTypmod::NONE,
+            life: CellLife {
+                until: Until::Window,
+                home: CellHome::FrameSlot,
+            },
+            at: At::Locator,
+            null: Nullable::Never,
+        }
     }
 }
 
@@ -149,12 +202,30 @@ pub struct Row<'e> {
 impl<'e> Row<'e> {
     /// No cells, in `mcx`.
     pub fn new_in(mcx: Mcx<'e>) -> Row<'e> {
-        Row { cells: PgVec::new_in(mcx) }
+        Row {
+            cells: PgVec::new_in(mcx),
+        }
     }
 
     /// The site's column lanes as cells (`Row::from_site`): `types` names each lane's SQL type, `nulls` its nullability.
-    pub fn from_site(lanes: &[LaneDesc], types: &[u32], nulls: &[Nullable], mcx: Mcx<'e>) -> Row<'e> {
-        let cells = lanes.iter().enumerate().map(|(k, d)| Cell::of_lane(LaneId::col(k as u16), d, types.get(k).copied().unwrap_or(0), nulls.get(k).copied().unwrap_or(Nullable::Maybe))).collect_in(mcx);
+    pub fn from_site(
+        lanes: &[LaneDesc],
+        types: &[u32],
+        nulls: &[Nullable],
+        mcx: Mcx<'e>,
+    ) -> Row<'e> {
+        let cells = lanes
+            .iter()
+            .enumerate()
+            .map(|(k, d)| {
+                Cell::of_lane(
+                    LaneId::col(k as u16),
+                    d,
+                    types.get(k).copied().unwrap_or(0),
+                    nulls.get(k).copied().unwrap_or(Nullable::Maybe),
+                )
+            })
+            .collect_in(mcx);
         Row { cells }
     }
 
@@ -176,10 +247,17 @@ impl<'e> Row<'e> {
 /// made the lowering quadratic in the levels.
 pub(crate) fn key_cell_rep(gx: &Gx<'_, '_>, producer: usize, k: &KeyDecl<'_>) -> Option<Rep> {
     let memo = crate::memo::key_of(&gx.graph.pipelines);
-    let who = (gx.over.map_or(0, |o| o as *const _ as usize), gx.facts as *const _ as *const () as usize, gx.catalog as *const _ as *const () as usize);
+    let who = (
+        gx.over.map_or(0, |o| o as *const _ as usize),
+        gx.facts as *const _ as *const () as usize,
+        gx.catalog as *const _ as *const () as usize,
+    );
     let expr = k.expr.node().as_raw().as_ptr() as usize;
     let known = crate::memo::read(memo, |m| match &m.key_reps {
-        Some((w, reps)) if *w == who => reps.get(producer).and_then(|r| r.iter().find(|e| e.0 == k.resno && e.1 == expr)).map(|e| e.2),
+        Some((w, reps)) if *w == who => reps
+            .get(producer)
+            .and_then(|r| r.iter().find(|e| e.0 == k.resno && e.1 == expr))
+            .map(|e| e.2),
         _ => None,
     });
     if let Some(Some(rep)) = known {
@@ -215,7 +293,13 @@ fn key_cell_rep_of(gx: &Gx<'_, '_>, producer: usize, k: &KeyDecl<'_>) -> Option<
         r => Some(r),
     };
     match col.filter(|_| ops.iter().any(|op| matches!(op, Op::Project(_)))) {
-        Some(c) => col_at(gx, producer, ops.len(), types_nodes::primnodes::OUTER_VAR, c),
+        Some(c) => col_at(
+            gx,
+            producer,
+            ops.len(),
+            types_nodes::primnodes::OUTER_VAR,
+            c,
+        ),
         None => expr_rep(gx, producer, k.expr.node()),
     }
 }
@@ -228,8 +312,12 @@ fn expr_rep(gx: &Gx<'_, '_>, producer: usize, e: types_nodes::Node<'_>) -> Optio
 /// `expr_rep` of `e` over the row entering op `pos` of `producer`: a computed expression's decompose output, a Var's column
 /// (`col_at`).
 fn rep_at(gx: &Gx<'_, '_>, producer: usize, pos: usize, e: types_nodes::Node<'_>) -> Option<Rep> {
-    let Some(v) = e.as_var() else { return gx.out_of(e).map(|o| o.rep) };
-    (v.varlevelsup == 0).then(|| col_at(gx, producer, pos, v.varno, v.varattno)).flatten()
+    let Some(v) = e.as_var() else {
+        return gx.out_of(e).map(|o| o.rep);
+    };
+    (v.varlevelsup == 0)
+        .then(|| col_at(gx, producer, pos, v.varno, v.varattno))
+        .flatten()
 }
 
 /// Column `a` of `varno` over the row entering op `pos` of `producer`, shaped by the last Project or join before `pos`
@@ -246,16 +334,51 @@ fn col_at(gx: &Gx<'_, '_>, producer: usize, pos: usize, varno: i32, a: i16) -> O
     use gravity_decompose::{join::JoinDesc, Op};
     use types_nodes::primnodes::{INNER_VAR, OUTER_VAR};
     let p = &gx.pipelines()[producer];
-    let shapes = |op: &Op<'_>| matches!(op, Op::Project(_) | Op::Join(JoinDesc::Probe { .. } | JoinDesc::Merge { .. } | JoinDesc::Nest { .. } | JoinDesc::Drain { .. }));
+    let shapes = |op: &Op<'_>| {
+        matches!(
+            op,
+            Op::Project(_)
+                | Op::Join(
+                    JoinDesc::Probe { .. }
+                        | JoinDesc::Merge { .. }
+                        | JoinDesc::Nest { .. }
+                        | JoinDesc::Drain { .. }
+                )
+        )
+    };
     if varno != OUTER_VAR && varno != INNER_VAR {
         let own = p.source.relation().is_some_and(|s| s.0 as i32 == varno);
-        return match p.ops[..pos].iter().rposition(shapes).map(|i| (i, &p.ops[i])) {
-            Some((i, Op::Project(l))) if !own => rep_at(gx, producer, i, l.iter().filter_map(|n| n.as_target_entry()).find(|te| te.resno == a)?.expr),
+        return match p.ops[..pos]
+            .iter()
+            .rposition(shapes)
+            .map(|i| (i, &p.ops[i]))
+        {
+            Some((i, Op::Project(l))) if !own => rep_at(
+                gx,
+                producer,
+                i,
+                l.iter()
+                    .filter_map(|n| n.as_target_entry())
+                    .find(|te| te.resno == a)?
+                    .expr,
+            ),
             _ => source_rep(gx, producer, varno, a),
         };
     }
-    match p.ops[..pos].iter().rposition(shapes).map(|i| (i, &p.ops[i])) {
-        Some((i, Op::Project(l))) if varno == OUTER_VAR => rep_at(gx, producer, i, l.iter().filter_map(|n| n.as_target_entry()).find(|te| te.resno == a)?.expr),
+    match p.ops[..pos]
+        .iter()
+        .rposition(shapes)
+        .map(|i| (i, &p.ops[i]))
+    {
+        Some((i, Op::Project(l))) if varno == OUTER_VAR => rep_at(
+            gx,
+            producer,
+            i,
+            l.iter()
+                .filter_map(|n| n.as_target_entry())
+                .find(|te| te.resno == a)?
+                .expr,
+        ),
         // D3839: past a draining hash join's Drain (RIGHT / FULL), an outer column is the probe's row's: the probe pipeline
         // runs the ops after the Drain as its tail (hashjoin/drain/lower.rs, the `m` rule) and the drain pipeline's own outer
         // cells are NULLs (drain/source.rs), which image at the record's words (rec.rs `mantissa_cell`); the pipeline's
@@ -270,7 +393,9 @@ fn col_at(gx: &Gx<'_, '_>, producer: usize, pos: usize, varno: i32, a: i16) -> O
             col_at(gx, build, gx.pipelines()[build].ops.len(), OUTER_VAR, a)
         }
         Some(_) => None,
-        None => (varno == OUTER_VAR).then(|| source_rep(gx, producer, OUTER_VAR, a)).flatten(),
+        None => (varno == OUTER_VAR)
+            .then(|| source_rep(gx, producer, OUTER_VAR, a))
+            .flatten(),
     }
 }
 
@@ -286,13 +411,23 @@ pub(crate) fn row_col_rep(gx: &Gx<'_, '_>, producer: usize, pos: usize, a: i16) 
 fn source_rep(gx: &Gx<'_, '_>, k: usize, varno: i32, a: i16) -> Option<Rep> {
     let p = &gx.pipelines()[k];
     if varno == types_nodes::primnodes::OUTER_VAR {
-        let gravity_decompose::Source::Breaker { slot } = p.source else { return None };
+        let gravity_decompose::Source::Breaker { slot } = p.source else {
+            return None;
+        };
         let life = gx.life_of(k, slot)?;
-        let sorted = gx.pipelines()[life.0 as usize].ops.iter().any(|op| matches!(op, gravity_decompose::Op::Sort(_)));
-        return (sorted || emit_copy(gx, k, a)).then_some(Rep::VarlenaPtr).or_else(|| emit_packed(gx, k, a));
+        let sorted = gx.pipelines()[life.0 as usize]
+            .ops
+            .iter()
+            .any(|op| matches!(op, gravity_decompose::Op::Sort(_)));
+        return (sorted || emit_copy(gx, k, a))
+            .then_some(Rep::VarlenaPtr)
+            .or_else(|| emit_packed(gx, k, a));
     }
     let (_, _, site) = p.source.relation().filter(|s| varno == s.0 as i32)?;
-    site.lanes.iter().find(|l| l.id == gravity_program::LaneId::Attr(a)).map(|l| l.rep)
+    site.lanes
+        .iter()
+        .find(|l| l.id == gravity_program::LaneId::Attr(a))
+        .map(|l| l.rep)
 }
 
 /// V4R-569 (D1391): column `a` of pipeline `k` draining a keyed group's emit (keyed.emit_group; runs.group / runs.unique emit
@@ -301,7 +436,13 @@ fn source_rep(gx: &Gx<'_, '_>, k: usize, varno: i32, a: i16) -> Option<Rep> {
 /// (`KeyOut::Num`, `emit_packed`). Asked only where the sort line answers None: a group key trunk refused (D1391, the
 /// width Bug) or a DISTINCT argument trunk served on one mantissa word (V4R-569 review F1); either way `key_copy_wall`.
 fn emit_copy(gx: &Gx<'_, '_>, k: usize, a: i16) -> bool {
-    let copy = emit_key(gx, k, a).is_some_and(|(g, kd)| kd.image.is_mantissa() && !matches!(key_cell_rep(gx, g.producer.0 as usize, kd), Some(Rep::PackedNum { .. })));
+    let copy = emit_key(gx, k, a).is_some_and(|(g, kd)| {
+        kd.image.is_mantissa()
+            && !matches!(
+                key_cell_rep(gx, g.producer.0 as usize, kd),
+                Some(Rep::PackedNum { .. })
+            )
+    });
     if copy {
         key_copy_wall(gx, gx.pipelines()[k].node_id);
     }
@@ -314,14 +455,26 @@ fn emit_copy(gx: &Gx<'_, '_>, k: usize, a: i16) -> bool {
 fn emit_packed(gx: &Gx<'_, '_>, k: usize, a: i16) -> Option<Rep> {
     let (g, kd) = emit_key(gx, k, a)?;
     let facts = crate::ops::sort::topn::copy_words::packed_key(gx, g.producer.0 as usize, kd)?;
-    Some(Rep::PackedNum { facts, form: gravity_program::NumForm::Word })
+    Some(Rep::PackedNum {
+        facts,
+        form: gravity_program::NumForm::Word,
+    })
 }
 
 /// The drained group's key resno `a` when pipeline `k` drains a keyed group's emit (keyed.emit_group; runs.group /
 /// runs.unique emit through it; emit_group.rs `record_row`).
-fn emit_key<'a, 'p>(gx: &'a Gx<'_, 'p>, k: usize, a: i16) -> Option<(&'a gravity_decompose::ops::shared::agg::GroupDecl<'p>, &'a KeyDecl<'p>)> {
+fn emit_key<'a, 'p>(
+    gx: &'a Gx<'_, 'p>,
+    k: usize,
+    a: i16,
+) -> Option<(
+    &'a gravity_decompose::ops::shared::agg::GroupDecl<'p>,
+    &'a KeyDecl<'p>,
+)> {
     use crate::face::kinds::KindId::{KeyedEmitGroup, RunsGroup, RunsUnique};
-    let g = (a > 0 && matches!(gx.source_kind(k), KeyedEmitGroup | RunsGroup | RunsUnique)).then(|| gx.drained_group(k)).flatten()?;
+    let g = (a > 0 && matches!(gx.source_kind(k), KeyedEmitGroup | RunsGroup | RunsUnique))
+        .then(|| gx.drained_group(k))
+        .flatten()?;
     Some((g, g.keys.iter().find(|kd| kd.resno == a)?))
 }
 
@@ -339,5 +492,10 @@ fn key_copy_wall(gx: &Gx<'_, '_>, node: i32) {
         _ if op(&|o| matches!(o, Op::Join(JoinDesc::Probe { .. } | JoinDesc::Merge { .. }))) => "a keyed group emit's numeric key copy read as a key in a statement with a hash or merge join (D2194 / D2147 / D2201)",
         _ => return,
     };
-    crate::refuse!(node, crate::admit::refusal::Reason::Shape { why: crate::admit::refusal::ShapeWhy(why) })
+    crate::refuse!(
+        node,
+        crate::admit::refusal::Reason::Shape {
+            why: crate::admit::refusal::ShapeWhy(why)
+        }
+    )
 }

@@ -3,9 +3,9 @@
 //! every claim's rows through the real sink after the section, in claim order
 //! (ascending `claim.lo`: the order a serial run emits) or sorted by the plan's keys.
 
+use pgsync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use pgsync::Mutex;
 
 use gravity_abi::{Datum, MorselRange};
 use gravity_driver::{BorrowedBatch, Error, Flow, LegRef, Result, Sink, SinkLeg, WireFormat};
@@ -80,7 +80,11 @@ impl ClaimBuf {
 
 impl Leg {
     fn new(wire: Option<WireFormat>, shared: Arc<Shared>) -> Leg {
-        Leg { claims: Mutex::new(Claims::default()), wire, shared }
+        Leg {
+            claims: Mutex::new(Claims::default()),
+            wire,
+            shared,
+        }
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Claims> {
@@ -93,7 +97,14 @@ impl Leg {
 
     fn fresh(&self, lo: u64) -> ClaimBuf {
         let o = self.owner();
-        ClaimBuf { lo, values: ChargedVec::new(o, Kind::Region), isnull: ChargedVec::new(o, Kind::Region), bytes: ChargedVec::new(o, Kind::Region), framed: ChargedVec::new(o, Kind::Region), rows: 0 } // alloc: Exec charged o
+        ClaimBuf {
+            lo,
+            values: ChargedVec::new(o, Kind::Region),
+            isnull: ChargedVec::new(o, Kind::Region),
+            bytes: ChargedVec::new(o, Kind::Region),
+            framed: ChargedVec::new(o, Kind::Region),
+            rows: 0,
+        } // alloc: Exec charged o
     }
 
     /// Room in the settled list for the open claim (its settle takes it at a claim's begin or end, which cannot fail).
@@ -132,22 +143,43 @@ impl SinkLeg for Leg {
         c.rows += b.rows as u64;
         if let Some(fmt) = &self.wire {
             let room = b.rows * gravity_wire::datarow::frame_row_max(fmt);
-            c.framed.try_reserve(room).map_err(|_| refused::<u8>(room))?;
+            c.framed
+                .try_reserve(room)
+                .map_err(|_| refused::<u8>(room))?;
             // one frame per row of a pushed out block, at most lowerv4 OUT_ROWS (64) rows; the pushing kernel polls between blocks
-            c.framed.with_vec(|f| b.iter().for_each(|(v, n)| frame_row(f, fmt, v, n))); // alloc: Exec charged the legs' owner (room reserved above)
+            c.framed
+                .with_vec(|f| b.iter().for_each(|(v, n)| frame_row(f, fmt, v, n))); // alloc: Exec charged the legs' owner (room reserved above)
             return Ok(Flow::Continue);
         }
         let n = b.natts * b.rows;
         let at = c.values.len();
         grow(&mut c.values, &b.values[..n])?;
         grow(&mut c.isnull, &b.isnull[..n])?;
-        if sparse_region(&c.values[at..], &c.isnull[at..], &self.shared.typlen, b.rows, b.region.len()) {
-            compact(&mut c.values[at..], &c.isnull[at..], &self.shared.typlen, &mut c.bytes)?;
+        if sparse_region(
+            &c.values[at..],
+            &c.isnull[at..],
+            &self.shared.typlen,
+            b.rows,
+            b.region.len(),
+        ) {
+            compact(
+                &mut c.values[at..],
+                &c.isnull[at..],
+                &self.shared.typlen,
+                &mut c.bytes,
+            )?;
             return Ok(Flow::Continue);
         }
         let base = c.bytes.len();
         grow(&mut c.bytes, b.region)?;
-        keep(&mut c.values[at..], &c.isnull[at..], &self.shared.typlen, (b.region.as_ptr() as u64, b.region.len()), base, &mut c.bytes)?;
+        keep(
+            &mut c.values[at..],
+            &c.isnull[at..],
+            &self.shared.typlen,
+            (b.region.as_ptr() as u64, b.region.len()),
+            base,
+            &mut c.bytes,
+        )?;
         Ok(Flow::Continue)
     }
 
@@ -213,7 +245,14 @@ pub static OUTSIDE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64:
 
 /// The block's by-reference datums re-based to offsets into the claim's `bytes` (the block's region was copied there at
 /// `base`); a datum outside the region has its image copied to the end of `bytes` (8-aligned) and points there.
-fn keep(v: &mut [Datum], n: &[u8], typlen: &[i16], (lo, len): (u64, usize), base: usize, bytes: &mut ChargedVec<u8>) -> Result<()> {
+fn keep(
+    v: &mut [Datum],
+    n: &[u8],
+    typlen: &[i16],
+    (lo, len): (u64, usize),
+    base: usize,
+    bytes: &mut ChargedVec<u8>,
+) -> Result<()> {
     let w = typlen.len().max(1);
     let mut outside = 0;
     // bounded("small-fixed: one datum of a pushed out block, at most lowerv4 OUT_ROWS (64) rows of at most MaxTupleAttributeNumber (1664) columns; the pushing kernel polls between blocks")
@@ -234,7 +273,10 @@ fn keep(v: &mut [Datum], n: &[u8], typlen: &[i16], (lo, len): (u64, usize), base
     }
     if outside > 0 {
         OUTSIDE.fetch_add(outside, std::sync::atomic::Ordering::Relaxed);
-        debug_assert!(outside == 0, "gravity: a sink leg's by-reference datum outside its block region ({outside} copied)");
+        debug_assert!(
+            outside == 0,
+            "gravity: a sink leg's by-reference datum outside its block region ({outside} copied)"
+        );
     }
     Ok(())
 }
@@ -256,7 +298,6 @@ fn message_end(framed: &[u8], mut at: usize, n: u64) -> usize {
     }
     at
 }
-
 
 /// The offsets `keep` left turned into pointers into `bytes` (the drain's copy).
 fn point_into(v: &mut [Datum], n: &[u8], byref: &[bool], bytes: &[u8]) {
@@ -288,18 +329,51 @@ impl<'a, S: Sink> LegSink<'a, S> {
     /// `typlen` when by reference, 0 by value (`Shared::typlen`). `owner`: the ledger owner the legs' claim buffers are charged to
     /// (wave 2: the statement's, or the executing portal's); `None`: uncharged.
     #[allow(clippy::too_many_arguments)]
-    pub fn new(inner: &'a mut S, natts: usize, width: usize, _cap_rows: usize, hold: bool, sorted: bool, typlen: &[i16], owner: Option<Owner>) -> LegSink<'a, S> {
-        let wire = if hold || sorted { None } else { inner.wire_format() };
+    pub fn new(
+        inner: &'a mut S,
+        natts: usize,
+        width: usize,
+        _cap_rows: usize,
+        hold: bool,
+        sorted: bool,
+        typlen: &[i16],
+        owner: Option<Owner>,
+    ) -> LegSink<'a, S> {
+        let wire = if hold || sorted {
+            None
+        } else {
+            inner.wire_format()
+        };
         let mut legs: ChargedVec<Leg> = ChargedVec::new(owner, Kind::Region); // alloc: Exec charged owner
         legs.with_vec(|v| v.reserve_exact(width + 1)); // alloc: Exec charged owner
-        // the output columns' byref / typlen, built once for every leg (D4493: not once per leg)
+                                                       // the output columns' byref / typlen, built once for every leg (D4493: not once per leg)
         let mut byref: ChargedVec<bool> = ChargedVec::new(owner, Kind::Region); // alloc: Exec charged owner
-        byref.with_vec(|v| { v.reserve_exact(typlen.len()); v.extend(typlen.iter().map(|&t| t != 0)) }); // alloc: Exec charged owner
+        byref.with_vec(|v| {
+            v.reserve_exact(typlen.len());
+            v.extend(typlen.iter().map(|&t| t != 0))
+        }); // alloc: Exec charged owner
         let mut lens: ChargedVec<i16> = ChargedVec::new(owner, Kind::Region); // alloc: Exec charged owner
-        lens.with_vec(|v| { v.reserve_exact(typlen.len()); v.extend_from_slice(typlen) }); // alloc: Exec charged owner
-        let shared = Arc::new(Shared { stop: AtomicBool::new(false), bytes: AtomicU64::new(0), owner, byref, typlen: lens }); // alloc: Exec
+        lens.with_vec(|v| {
+            v.reserve_exact(typlen.len());
+            v.extend_from_slice(typlen)
+        }); // alloc: Exec charged owner
+        let shared = Arc::new(Shared {
+            stop: AtomicBool::new(false),
+            bytes: AtomicU64::new(0),
+            owner,
+            byref,
+            typlen: lens,
+        }); // alloc: Exec
         legs.with_vec(|v| v.resize_with(width + 1, || Leg::new(wire, shared.clone()))); // alloc: Exec charged owner
-        LegSink { inner, natts, legs, through: 0, stopped: false, hold, sorted }
+        LegSink {
+            inner,
+            natts,
+            legs,
+            through: 0,
+            stopped: false,
+            hold,
+            sorted,
+        }
     }
 
     /// Rows that reached the real sink: the leader's own pushes plus the drained legs.
@@ -327,10 +401,14 @@ impl<'a, S: Sink> LegSink<'a, S> {
     /// PostgreSQL checks per tuple, so a cancel landing while a large claim is sent is seen within `SEND_ROWS` rows, not at
     /// the next claim.
     fn emit(&mut self, mut b: ClaimBuf, i: usize) -> Result<()> {
-        self.legs[i].shared.bytes.fetch_sub(b.size(), Ordering::Relaxed);
+        self.legs[i]
+            .shared
+            .bytes
+            .fetch_sub(b.size(), Ordering::Relaxed);
         // C9: the drain's step is on the backend's own abort byte (`glue::abort_u8`): it runs outside any kernel call, so no byte
         // is lent to it
-        let mut step = cancelpoll::step_static(crate::glue::abort_u8(), "legs drain: a claim's rows sent");
+        let mut step =
+            cancelpoll::step_static(crate::glue::abort_u8(), "legs drain: a claim's rows sent");
         if self.legs[i].wire.is_some() {
             let mut at = 0;
             let mut left = b.rows;
@@ -349,14 +427,25 @@ impl<'a, S: Sink> LegSink<'a, S> {
             }
             return Ok(());
         }
-        point_into(&mut b.values, &b.isnull, &self.legs[i].shared.byref, &b.bytes);
+        point_into(
+            &mut b.values,
+            &b.isnull,
+            &self.legs[i].shared.byref,
+            &b.bytes,
+        );
         // the claim's own row count: a zero-column row (`SELECT FROM t`) stores no value to count by
         let (natts, rows) = (self.natts, b.rows as usize);
         let mut r = 0;
         while r < rows && !self.stopped {
             let n = (rows - r).min(SEND_ROWS as usize);
             let (lo, hi) = (r * natts, (r + n) * natts);
-            self.forward(BorrowedBatch { natts, rows: n, values: &b.values[lo..hi], isnull: &b.isnull[lo..hi], region: &b.bytes })?;
+            self.forward(BorrowedBatch {
+                natts,
+                rows: n,
+                values: &b.values[lo..hi],
+                isnull: &b.isnull[lo..hi],
+                region: &b.bytes,
+            })?;
             r += n;
             if r < rows {
                 step.tick()?;
@@ -375,12 +464,13 @@ impl<'a, S: Sink> LegSink<'a, S> {
     pub fn drain(&mut self, keys: &[i16]) -> Result<u64> {
         let natts = self.natts;
         // C9: on the backend's own abort byte, as `emit`'s
-        let mut step = cancelpoll::step_static(crate::glue::abort_u8(), "legs drain: the claims sent");
+        let mut step =
+            cancelpoll::step_static(crate::glue::abort_u8(), "legs drain: the claims sent");
         let before = self.through;
         // the claims' lists and the drain's order, on the legs' owner as the claims are
         let o = self.legs.first().and_then(Leg::owner);
         let mut bufs: ChargedVec<(ClaimBuf, usize)> = ChargedVec::new(o, Kind::Region); // alloc: Exec charged o
-        // one leg per worker ordinal and the leader's own (`LegSink::new`: width + 1), at most driver section MAX_WIDTH + 1 (256)
+                                                                                        // one leg per worker ordinal and the leader's own (`LegSink::new`: width + 1), at most driver section MAX_WIDTH + 1 (256)
         for (i, leg) in self.legs.iter().enumerate() {
             let mut g = leg.lock();
             leg.settle(&mut g);
@@ -402,7 +492,9 @@ impl<'a, S: Sink> LegSink<'a, S> {
         }
         let mut scratch: ChargedVec<(u64, u32)> = ChargedVec::new(o, Kind::Region); // alloc: Exec charged o
         if places.len() > cancelpoll::SORT_RUN {
-            scratch.resize(places.len(), (0, 0)).map_err(|_| refused::<(u64, u32)>(places.len()))?; // alloc: Exec charged the legs' owner
+            scratch
+                .resize(places.len(), (0, 0))
+                .map_err(|_| refused::<(u64, u32)>(places.len()))?; // alloc: Exec charged the legs' owner
         }
         cancelpoll::sort_by(&mut step, &mut places, &mut scratch, |a, b| a.cmp(b))?;
         drop(scratch);
@@ -427,7 +519,7 @@ impl<'a, S: Sink> LegSink<'a, S> {
         }
         let mut v: ChargedVec<Datum> = ChargedVec::new(o, Kind::Region); // alloc: Exec charged o
         let mut n: ChargedVec<u8> = ChargedVec::new(o, Kind::Region); // alloc: Exec charged o
-        // the claims' regions, alive through the forwards
+                                                                      // the claims' regions, alive through the forwards
         let mut kept: ChargedVec<ChargedVec<u8>> = ChargedVec::new(o, Kind::Region); // alloc: Exec charged o
         room(&mut kept, sorted.len())?;
         for k in 0..sorted.len() {
@@ -443,7 +535,7 @@ impl<'a, S: Sink> LegSink<'a, S> {
         let mut order: ChargedVec<u32> = ChargedVec::new(o, Kind::Region); // alloc: Exec charged o
         room(&mut order, rows)?;
         order.with_vec(|x| x.extend(0..rows as u32)); // alloc: Exec charged the legs' owner (room reserved above)
-        // C9: the rows' sort is the polled one (`cancelpoll::sort_by`), its merge's scratch past one sort run
+                                                      // C9: the rows' sort is the polled one (`cancelpoll::sort_by`), its merge's scratch past one sort run
         let mut scratch: ChargedVec<u32> = ChargedVec::new(o, Kind::Region); // alloc: Exec charged o
         if rows > cancelpoll::SORT_RUN {
             scratch.resize(rows, 0).map_err(|_| refused::<u32>(rows))?; // alloc: Exec charged the legs' owner
@@ -469,7 +561,13 @@ impl<'a, S: Sink> LegSink<'a, S> {
             }
             step.tick()?;
             let at = i as usize * natts;
-            self.forward(BorrowedBatch { natts, rows: 1, values: &v[at..at + natts], isnull: &n[at..at + natts], region: &[] })?;
+            self.forward(BorrowedBatch {
+                natts,
+                rows: 1,
+                values: &v[at..at + natts],
+                isnull: &n[at..at + natts],
+                region: &[],
+            })?;
         }
         step.tick()?;
         Ok(self.through - before)
@@ -489,7 +587,9 @@ impl<S: Sink> Sink for LegSink<'_, S> {
     }
 
     fn buffered(&self) -> u64 {
-        self.legs.first().map_or(0, |l| l.shared.bytes.load(Ordering::Relaxed))
+        self.legs
+            .first()
+            .map_or(0, |l| l.shared.bytes.load(Ordering::Relaxed))
     }
 
     fn drain_ready(&mut self, los: &[u64]) -> Result<Flow> {
@@ -506,7 +606,11 @@ impl<S: Sink> Sink for LegSink<'_, S> {
                 self.emit(b, i)?;
             }
         }
-        Ok(if self.stopped { Flow::Stop } else { Flow::Continue })
+        Ok(if self.stopped {
+            Flow::Stop
+        } else {
+            Flow::Continue
+        })
     }
 
     fn leg(&self, ordinal: u16) -> Option<LegRef<'_>> {
@@ -528,7 +632,11 @@ mod tests {
                 self.0.push((v[0], n[0]));
                 self.0.push((v[1], n[1]));
                 // the by-reference column read at the push, as a wire sink would
-                self.1.push(if n[1] == 0 { unsafe { core::slice::from_raw_parts(v[1] as *const u8, 8) }.to_vec() } else { Vec::new() }); // alloc: Cold
+                self.1.push(if n[1] == 0 {
+                    unsafe { core::slice::from_raw_parts(v[1] as *const u8, 8) }.to_vec()
+                } else {
+                    Vec::new()
+                }); // alloc: Cold
             }
             Ok(Flow::Continue)
         }
@@ -537,7 +645,14 @@ mod tests {
     /// D379: a framed claim is sent `SEND_ROWS` DataRow messages at a time; `message_end` finds the boundary by the messages' own lengths.
     #[test]
     fn message_end_steps_over_whole_data_rows() {
-        let fmt = WireFormat { natts: 1, kinds: { let mut k = [0u8; MAX_WIRE_ATTS]; k[0] = 8; k } };
+        let fmt = WireFormat {
+            natts: 1,
+            kinds: {
+                let mut k = [0u8; MAX_WIRE_ATTS];
+                k[0] = 8;
+                k
+            },
+        };
         let mut framed = Vec::new(); // alloc: Cold
         let v: Vec<u64> = (0..5u64).map(|i| 10u64.pow(i as u32)).collect(); // alloc: Cold
         gravity_wire::frame_rows(&mut framed, &fmt, &v, &[0; 5], 5);
@@ -557,15 +672,41 @@ mod tests {
         let mut region = *b"abcdefghXXXXXXXX";
         let v = [7u64, region.as_ptr() as u64, 8, 0];
         let n = [0u8, 0, 0, 1];
-        SinkLeg::push(&legs.legs[0], BorrowedBatch { natts: 2, rows: 2, values: &v, isnull: &n, region: &region[..8] }).unwrap();
+        SinkLeg::push(
+            &legs.legs[0],
+            BorrowedBatch {
+                natts: 2,
+                rows: 2,
+                values: &v,
+                isnull: &n,
+                region: &region[..8],
+            },
+        )
+        .unwrap();
         region.fill(b'!');
         let mut region2 = *b"ijklmnopXXXXXXXX";
         let v2 = [9u64, region2.as_ptr() as u64];
-        SinkLeg::push(&legs.legs[0], BorrowedBatch { natts: 2, rows: 1, values: &v2, isnull: &[0, 0], region: &region2[..8] }).unwrap();
+        SinkLeg::push(
+            &legs.legs[0],
+            BorrowedBatch {
+                natts: 2,
+                rows: 1,
+                values: &v2,
+                isnull: &[0, 0],
+                region: &region2[..8],
+            },
+        )
+        .unwrap();
         region2.fill(b'?');
         assert_eq!(legs.drain(&[]).unwrap(), 3);
-        assert_eq!(keep.0.iter().map(|r| r.0).step_by(2).collect::<Vec<_>>(), [7, 8, 9]);
-        assert_eq!(keep.1, [b"abcdefgh".to_vec(), Vec::new(), b"ijklmnop".to_vec()]); // alloc: Cold
+        assert_eq!(
+            keep.0.iter().map(|r| r.0).step_by(2).collect::<Vec<_>>(),
+            [7, 8, 9]
+        );
+        assert_eq!(
+            keep.1,
+            [b"abcdefgh".to_vec(), Vec::new(), b"ijklmnop".to_vec()]
+        ); // alloc: Cold
     }
 
     /// Wave 2: a claim's buffers are on the legs' owner from the worker's push (the worker serving its leader's account, as a
@@ -588,17 +729,38 @@ mod tests {
                         let _serving = memledger::charge::enter_as(o);
                         leg.claim_begin(MorselRange::new(0, 10));
                         for i in 0..1000u64 {
-                            SinkLeg::push(leg, BorrowedBatch { natts: 2, rows: 1, values: &[i, region.as_ptr() as u64], isnull: &[0, 0], region: &region }).unwrap();
+                            SinkLeg::push(
+                                leg,
+                                BorrowedBatch {
+                                    natts: 2,
+                                    rows: 1,
+                                    values: &[i, region.as_ptr() as u64],
+                                    isnull: &[0, 0],
+                                    region: &region,
+                                },
+                            )
+                            .unwrap();
                         }
                         leg.claim_end(true);
                     });
                 });
                 let held = memledger::charge::owner_row(o).committed;
-                assert!(held >= 1000 * (16 + 2 + 8), "the claim's values, nulls and images are on the owner: {held}");
+                assert!(
+                    held >= 1000 * (16 + 2 + 8),
+                    "the claim's values, nulls and images are on the owner: {held}"
+                );
                 assert_eq!(legs.drain(&[]).unwrap(), 1000);
-                assert_eq!(memledger::charge::owner_row(o).committed, base, "emitted and freed on the leader");
+                assert_eq!(
+                    memledger::charge::owner_row(o).committed,
+                    base,
+                    "emitted and freed on the leader"
+                );
             }
-            assert_eq!(memledger::charge::owner_row(o).committed, 0, "the legs' lists given back at the sink's drop");
+            assert_eq!(
+                memledger::charge::owner_row(o).committed,
+                0,
+                "the legs' lists given back at the sink's drop"
+            );
             assert_eq!(keep.1[999], b"abcdefgh".to_vec()); // alloc: Cold
             memledger::statement_end();
             memledger::unbind_backend();
@@ -646,11 +808,30 @@ mod tests {
         let mut region = vec![b'.'; 256 << 10]; // alloc: Cold
         region[1000..1008].copy_from_slice(b"keepme01");
         region[200_000..200_008].copy_from_slice(b"keepme02");
-        let v = [1u64, region[1000..].as_ptr() as u64, 2, region[200_000..].as_ptr() as u64];
-        SinkLeg::push(&legs.legs[0], BorrowedBatch { natts: 2, rows: 2, values: &v, isnull: &[0, 0, 0, 0], region: &region }).unwrap();
+        let v = [
+            1u64,
+            region[1000..].as_ptr() as u64,
+            2,
+            region[200_000..].as_ptr() as u64,
+        ];
+        SinkLeg::push(
+            &legs.legs[0],
+            BorrowedBatch {
+                natts: 2,
+                rows: 2,
+                values: &v,
+                isnull: &[0, 0, 0, 0],
+                region: &region,
+            },
+        )
+        .unwrap();
         legs.legs[0].claim_end(true);
         region.fill(gravity_driver::POISON);
-        assert!(legs.buffered() < 1024, "{} bytes kept for two 8-byte images", legs.buffered());
+        assert!(
+            legs.buffered() < 1024,
+            "{} bytes kept for two 8-byte images",
+            legs.buffered()
+        );
         assert_eq!(legs.drain(&[]).unwrap(), 2);
         assert_eq!(keep.1, [b"keepme01".to_vec(), b"keepme02".to_vec()]); // alloc: Cold
     }
@@ -659,8 +840,13 @@ mod tests {
     #[test]
     fn a_dense_region_is_kept_whole() {
         let region = vec![b'x'; 128 << 10]; // alloc: Cold
-        let v: Vec<u64> = (0..128u64).flat_map(|i| [i, region[(i as usize) * 1024..].as_ptr() as u64]).collect(); // alloc: Cold
-        assert!(!sparse_region(&v, &[0; 256], &[0, 1024], 128, region.len()), "128 rows of 1 KiB images fill the region");
+        let v: Vec<u64> = (0..128u64)
+            .flat_map(|i| [i, region[(i as usize) * 1024..].as_ptr() as u64])
+            .collect(); // alloc: Cold
+        assert!(
+            !sparse_region(&v, &[0; 256], &[0, 1024], 128, region.len()),
+            "128 rows of 1 KiB images fill the region"
+        );
     }
 
     /// R1D: four workers' claims settle out of order; the drain emits them in claim order (ascending `lo`), each claim's
@@ -675,15 +861,31 @@ mod tests {
             leg.claim_begin(MorselRange::new(lo, lo + 10));
             region[..8].copy_from_slice(format!("row{lo:05}").as_bytes()); // alloc: Cold
             let v = [lo, region.as_ptr() as u64];
-            SinkLeg::push(leg, BorrowedBatch { natts: 2, rows: 1, values: &v, isnull: &[0, 0], region: &region[..8] }).unwrap();
+            SinkLeg::push(
+                leg,
+                BorrowedBatch {
+                    natts: 2,
+                    rows: 1,
+                    values: &v,
+                    isnull: &[0, 0],
+                    region: &region[..8],
+                },
+            )
+            .unwrap();
             leg.claim_end(true);
             region.fill(gravity_driver::POISON);
         }
         legs.legs[1].claim_begin(MorselRange::new(50, 60));
         legs.legs[1].claim_end(true);
         assert_eq!(legs.drain(&[]).unwrap(), 5, "an empty claim adds no rows");
-        assert_eq!(keep.0.iter().map(|r| r.0).step_by(2).collect::<Vec<_>>(), [0, 10, 20, 30, 40]);
-        assert_eq!(keep.1, [0, 10, 20, 30, 40].map(|lo: u64| format!("row{lo:05}").into_bytes())); // alloc: Cold
+        assert_eq!(
+            keep.0.iter().map(|r| r.0).step_by(2).collect::<Vec<_>>(),
+            [0, 10, 20, 30, 40]
+        );
+        assert_eq!(
+            keep.1,
+            [0, 10, 20, 30, 40].map(|lo: u64| format!("row{lo:05}").into_bytes())
+        ); // alloc: Cold
     }
 
     /// R1D (c): once the receiver stops (a LIMIT met in claim order) every worker's next push is a stop, so running claims
@@ -694,20 +896,50 @@ mod tests {
         impl Sink for Two {
             fn push(&mut self, b: BorrowedBatch<'_>) -> Result<Flow> {
                 self.0 += b.rows as u64;
-                Ok(if self.0 >= 2 { Flow::Stop } else { Flow::Continue })
+                Ok(if self.0 >= 2 {
+                    Flow::Stop
+                } else {
+                    Flow::Continue
+                })
             }
         }
         let mut two = Two(0);
         let mut legs = LegSink::new(&mut two, 1, 2, 0, false, false, &[0], None);
         for (w, lo) in [(0usize, 0u64), (1, 1), (0, 2)] {
             legs.legs[w].claim_begin(MorselRange::new(lo, lo + 1));
-            assert_eq!(SinkLeg::push(&legs.legs[w], BorrowedBatch { natts: 1, rows: 1, values: &[lo], isnull: &[0], region: &[] }).unwrap(), Flow::Continue);
+            assert_eq!(
+                SinkLeg::push(
+                    &legs.legs[w],
+                    BorrowedBatch {
+                        natts: 1,
+                        rows: 1,
+                        values: &[lo],
+                        isnull: &[0],
+                        region: &[]
+                    }
+                )
+                .unwrap(),
+                Flow::Continue
+            );
             legs.legs[w].claim_end(true);
         }
         assert_eq!(legs.drain_ready(&[0, 1, 2]).unwrap(), Flow::Stop);
         assert_eq!(legs.through(), 2, "the rows through the stop, no more");
         legs.legs[1].claim_begin(MorselRange::new(3, 4));
-        assert_eq!(SinkLeg::push(&legs.legs[1], BorrowedBatch { natts: 1, rows: 1, values: &[3], isnull: &[0], region: &[] }).unwrap(), Flow::Stop);
+        assert_eq!(
+            SinkLeg::push(
+                &legs.legs[1],
+                BorrowedBatch {
+                    natts: 1,
+                    rows: 1,
+                    values: &[3],
+                    isnull: &[0],
+                    region: &[]
+                }
+            )
+            .unwrap(),
+            Flow::Stop
+        );
     }
 
     /// D342: a zero-column row (`SELECT FROM t`) stores no value to count by; each worker's claim reaches a receiver that is not
@@ -725,7 +957,17 @@ mod tests {
         let mut legs = LegSink::new(&mut count, 0, 2, 0, false, false, &[], None);
         for (w, lo, rows) in [(1usize, 10u64, 3usize), (0, 0, 5)] {
             legs.legs[w].claim_begin(MorselRange::new(lo, lo + 10));
-            SinkLeg::push(&legs.legs[w], BorrowedBatch { natts: 0, rows, values: &[], isnull: &[], region: &[] }).unwrap();
+            SinkLeg::push(
+                &legs.legs[w],
+                BorrowedBatch {
+                    natts: 0,
+                    rows,
+                    values: &[],
+                    isnull: &[],
+                    region: &[],
+                },
+            )
+            .unwrap();
             legs.legs[w].claim_end(true);
         }
         assert_eq!(legs.drain(&[]).unwrap(), 8);
@@ -743,13 +985,27 @@ mod tests {
             let mut legs = LegSink::new(&mut keep, 2, 1, 0, false, false, &[0, 8], None);
             let (mut page, region) = (*b"pagebyte", *b"regionby");
             legs.legs[0].claim_begin(MorselRange::new(0, 1));
-            SinkLeg::push(&legs.legs[0], BorrowedBatch { natts: 2, rows: 1, values: &[1, page.as_ptr() as u64], isnull: &[0, 0], region: &region }).unwrap();
+            SinkLeg::push(
+                &legs.legs[0],
+                BorrowedBatch {
+                    natts: 2,
+                    rows: 1,
+                    values: &[1, page.as_ptr() as u64],
+                    isnull: &[0, 0],
+                    region: &region,
+                },
+            )
+            .unwrap();
             legs.legs[0].claim_end(true);
             page.fill(b'!');
             assert_eq!(legs.drain(&[]).unwrap(), 1);
         }
         assert!(OUTSIDE.load(Ordering::Relaxed) > before, "counted");
-        assert_eq!(keep.1, [b"pagebyte".to_vec()], "the drain reads the copy, not the released page"); // alloc: Cold
+        assert_eq!(
+            keep.1,
+            [b"pagebyte".to_vec()],
+            "the drain reads the copy, not the released page"
+        ); // alloc: Cold
     }
 
     /// D470: `keep`'s image lengths are `VARSIZE_ANY`'s (1-byte header, 4-byte header) and a fixed type's `typlen`.
@@ -770,7 +1026,11 @@ mod tests {
         bytes.extend_from_slice(&[7u8; 3]).unwrap();
         let mut v = [short.as_ptr() as u64, 42];
         keep(&mut v, &[0, 0], &[-1, 0], (0, 0), 0, &mut bytes).unwrap();
-        assert_eq!((v, &bytes[8..]), ([8, 42], &short[..5]), "8-aligned after what the claim held; a by-value word untouched");
+        assert_eq!(
+            (v, &bytes[8..]),
+            ([8, 42], &short[..5]),
+            "8-aligned after what the claim held; a by-value word untouched"
+        );
     }
 
     /// `frame_row` writes what `WireNode::send_row` puts on the wire for text-format integers:
@@ -782,18 +1042,48 @@ mod tests {
         kinds[..4].copy_from_slice(&[4, 8, 2, 4]);
         let fmt = WireFormat { natts: 4, kinds };
         let mut out = Vec::new(); // alloc: Cold
-        frame_row(&mut out, &fmt, &[1, (-5i64) as u64, (-32768i16 as u16) as u64, (i32::MIN as u32) as u64], &[0, 0, 0, 1]);
+        frame_row(
+            &mut out,
+            &fmt,
+            &[
+                1,
+                (-5i64) as u64,
+                (-32768i16 as u16) as u64,
+                (i32::MIN as u32) as u64,
+            ],
+            &[0, 0, 0, 1],
+        );
         let mut want = vec![b'D']; // alloc: Cold
-        let body: Vec<u8> = [&0u16.to_be_bytes()[..0], &4u16.to_be_bytes(), &1u32.to_be_bytes(), b"1", &2u32.to_be_bytes(), b"-5", &6u32.to_be_bytes(), b"-32768", &(-1i32).to_be_bytes()].concat();
+        let body: Vec<u8> = [
+            &0u16.to_be_bytes()[..0],
+            &4u16.to_be_bytes(),
+            &1u32.to_be_bytes(),
+            b"1",
+            &2u32.to_be_bytes(),
+            b"-5",
+            &6u32.to_be_bytes(),
+            b"-32768",
+            &(-1i32).to_be_bytes(),
+        ]
+        .concat();
         want.extend_from_slice(&((body.len() + 4) as u32).to_be_bytes());
         want.extend_from_slice(&body);
         assert_eq!(out, want);
         // two rows append two messages; the second starts where the first's length says
-        frame_row(&mut out, &fmt, &[2147483647, 9223372036854775807u64, 7, 0], &[0, 0, 0, 0]);
+        frame_row(
+            &mut out,
+            &fmt,
+            &[2147483647, 9223372036854775807u64, 7, 0],
+            &[0, 0, 0, 0],
+        );
         let first = 1 + u32::from_be_bytes([out[1], out[2], out[3], out[4]]) as usize;
         assert_eq!(out[first], b'D');
         assert!(out[first..].ends_with(b"0"));
-        assert!(std::str::from_utf8(&out[first..]).unwrap().contains("2147483647"));
-        assert!(std::str::from_utf8(&out[first..]).unwrap().contains("9223372036854775807"));
+        assert!(std::str::from_utf8(&out[first..])
+            .unwrap()
+            .contains("2147483647"));
+        assert!(std::str::from_utf8(&out[first..])
+            .unwrap()
+            .contains("9223372036854775807"));
     }
 }

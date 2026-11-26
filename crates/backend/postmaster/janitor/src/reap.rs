@@ -136,60 +136,92 @@ mod tests {
     #[test]
     fn template_exemption_is_absolute() {
         // Prefix-matching template: never a candidate (spec item 1).
-        assert!(!reap_candidate("tv_tpl", "tv_", true, false, false, false, false, false));
+        assert!(!reap_candidate(
+            "tv_tpl", "tv_", true, false, false, false, false, false
+        ));
         // Sealed template under the recommended out-of-prefix convention.
-        assert!(!reap_candidate("tpl_abc", "tv_", true, false, false, false, false, false));
+        assert!(!reap_candidate(
+            "tpl_abc", "tv_", true, false, false, false, false, false
+        ));
         // The same name without the template bit IS a candidate.
-        assert!(reap_candidate("tv_tpl", "tv_", false, false, false, false, false, false));
+        assert!(reap_candidate(
+            "tv_tpl", "tv_", false, false, false, false, false, false
+        ));
     }
 
     #[test]
     fn pin_exempts() {
-        assert!(!reap_candidate("tv_pinned",
+        assert!(!reap_candidate(
+            "tv_pinned",
             "tv_",
             false,
             true,
             false,
-            false, false, false));
-        assert!(reap_candidate("tv_pinned",
+            false,
+            false,
+            false
+        ));
+        assert!(reap_candidate(
+            "tv_pinned",
             "tv_",
             false,
             false,
             false,
-            false, false, false));
+            false,
+            false,
+            false
+        ));
     }
 
     #[test]
     fn prefix_scoping_is_exact() {
-        assert!(reap_candidate("tv_x", "tv_", false, false, false, false, false, false));
-        assert!(!reap_candidate("tx_x", "tv_", false, false, false, false, false, false));
-        assert!(!reap_candidate("tv", "tv_", false, false, false, false, false, false));
+        assert!(reap_candidate(
+            "tv_x", "tv_", false, false, false, false, false, false
+        ));
+        assert!(!reap_candidate(
+            "tx_x", "tv_", false, false, false, false, false, false
+        ));
+        assert!(!reap_candidate(
+            "tv", "tv_", false, false, false, false, false, false
+        ));
         // Empty prefix means the feature is off: nothing ever matches, even
         // though every string starts with "".
-        assert!(!reap_candidate("tv_x", "", false, false, false, false, false, false));
+        assert!(!reap_candidate(
+            "tv_x", "", false, false, false, false, false, false
+        ));
     }
 
     #[test]
     fn own_database_is_never_a_candidate() {
-        assert!(!reap_candidate("postgres", "post", false, false, true, false, false, false));
+        assert!(!reap_candidate(
+            "postgres", "post", false, false, true, false, false, false
+        ));
     }
 
     #[test]
     fn ensure_shield_exempts_like_a_pin() {
         // An in-flight/lingering mint Ensure shields from sweep AND reap
         // (deleting the ensure_shielded clause fails this).
-        assert!(!reap_candidate("tv_minting",
+        assert!(!reap_candidate(
+            "tv_minting",
             "tv_",
             false,
             false,
             false,
-            true, false, false));
-        assert!(reap_candidate("tv_minting",
+            true,
+            false,
+            false
+        ));
+        assert!(reap_candidate(
+            "tv_minting",
             "tv_",
             false,
             false,
             false,
-            false, false, false));
+            false,
+            false,
+            false
+        ));
     }
 
     #[test]
@@ -205,8 +237,9 @@ mod tests {
             false,
             false,
             false,
-            true
-        , false));
+            true,
+            false
+        ));
         assert!(reap_candidate(
             "tv_spare_1",
             "tv_",
@@ -214,8 +247,9 @@ mod tests {
             false,
             false,
             false,
+            false,
             false
-        , false));
+        ));
     }
 
     #[test]
@@ -224,10 +258,24 @@ mod tests {
         // reap (deleting the seal_shielded clause fails this); the same
         // name without an in-flight seal is an ordinary candidate.
         assert!(!reap_candidate(
-            "tv_sealing", "tv_", false, false, false, false, false, true
+            "tv_sealing",
+            "tv_",
+            false,
+            false,
+            false,
+            false,
+            false,
+            true
         ));
         assert!(reap_candidate(
-            "tv_sealing", "tv_", false, false, false, false, false, false
+            "tv_sealing",
+            "tv_",
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
         ));
     }
 

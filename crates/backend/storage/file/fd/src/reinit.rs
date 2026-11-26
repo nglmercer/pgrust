@@ -8,8 +8,8 @@ use types_storage::{PG_TBLSPC_DIR, TABLESPACE_VERSION_DIRECTORY};
 
 use crate::copydir::copy_file;
 use crate::desc::{AllocateDir, FreeDir, ReadDir};
-use crate::vfd::get_errno;
 use crate::sync::fsync_fname;
+use crate::vfd::get_errno;
 
 pub const UNLOGGED_RELATION_CLEANUP: i32 = 1 << 0;
 pub const UNLOGGED_RELATION_INIT: i32 = 1 << 1;
@@ -48,8 +48,10 @@ pub fn ResetUnloggedRelations(op: i32) -> PgResult<()> {
         if de.d_name == "." || de.d_name == ".." {
             continue;
         }
-        let temp_path =
-            format!("{PG_TBLSPC_DIR}/{}/{TABLESPACE_VERSION_DIRECTORY}", de.d_name);
+        let temp_path = format!(
+            "{PG_TBLSPC_DIR}/{}/{TABLESPACE_VERSION_DIRECTORY}",
+            de.d_name
+        );
         ResetUnloggedRelationsInTablespaceDir(&temp_path, op)?;
     }
     FreeDir(spc_dir)?;
@@ -97,7 +99,11 @@ fn ResetUnloggedRelationsInTablespaceDir(tsdirname: &str, op: i32) -> PgResult<(
 }
 
 /// `only`: reset that relfilenumber alone (WALMODE's unsynced markers), else every unlogged relation.
-fn ResetUnloggedRelationsInDbspaceDir(dbspacedirname: &str, op: i32, only: Option<u32>) -> PgResult<()> {
+fn ResetUnloggedRelationsInDbspaceDir(
+    dbspacedirname: &str,
+    op: i32,
+    only: Option<u32>,
+) -> PgResult<()> {
     debug_assert!(op & (UNLOGGED_RELATION_CLEANUP | UNLOGGED_RELATION_INIT) != 0);
 
     if op & UNLOGGED_RELATION_CLEANUP != 0 {
@@ -108,8 +114,7 @@ fn ResetUnloggedRelationsInDbspaceDir(dbspacedirname: &str, op: i32, only: Optio
 
         let dbspace_dir = AllocateDir(dbspacedirname)?;
         while let Some(de) = ReadDir(dbspace_dir, dbspacedirname)? {
-            let Some((relnumber, fork, _segno)) =
-                parse_filename_for_nontemp_relation(&de.d_name)
+            let Some((relnumber, fork, _segno)) = parse_filename_for_nontemp_relation(&de.d_name)
             else {
                 continue;
             };
@@ -132,8 +137,7 @@ fn ResetUnloggedRelationsInDbspaceDir(dbspacedirname: &str, op: i32, only: Optio
                 }
                 continue;
             }
-            let Some((relnumber, fork, _segno)) =
-                parse_filename_for_nontemp_relation(&de.d_name)
+            let Some((relnumber, fork, _segno)) = parse_filename_for_nontemp_relation(&de.d_name)
             else {
                 continue;
             };
@@ -160,8 +164,7 @@ fn ResetUnloggedRelationsInDbspaceDir(dbspacedirname: &str, op: i32, only: Optio
     if op & UNLOGGED_RELATION_INIT != 0 {
         let dbspace_dir = AllocateDir(dbspacedirname)?;
         while let Some(de) = ReadDir(dbspace_dir, dbspacedirname)? {
-            let Some((relnumber, fork, segno)) =
-                parse_filename_for_nontemp_relation(&de.d_name)
+            let Some((relnumber, fork, segno)) = parse_filename_for_nontemp_relation(&de.d_name)
             else {
                 continue;
             };
@@ -180,8 +183,7 @@ fn ResetUnloggedRelationsInDbspaceDir(dbspacedirname: &str, op: i32, only: Optio
         // will do it during recovery), then the directory itself.
         let dbspace_dir = AllocateDir(dbspacedirname)?;
         while let Some(de) = ReadDir(dbspace_dir, dbspacedirname)? {
-            let Some((relnumber, fork, segno)) =
-                parse_filename_for_nontemp_relation(&de.d_name)
+            let Some((relnumber, fork, segno)) = parse_filename_for_nontemp_relation(&de.d_name)
             else {
                 continue;
             };
@@ -204,10 +206,23 @@ fn ResetUnloggedRelationsInDbspaceDir(dbspacedirname: &str, op: i32, only: Optio
 pub fn ResetUnsyncedPgrc() -> PgResult<()> {
     use pgrc_format::spool::{parse_unsynced_name, UNSYNCED_DIR};
     let names: Vec<String> = match vfs::read_dir(&crate::vfd::cpath(UNSYNCED_DIR)) {
-        Ok(it) => it.filter_map(|e| e.ok()).filter_map(|p| p.as_str().map(str::to_string)).filter(|n| n != "." && n != "..").collect(),
+        Ok(it) => it
+            .filter_map(|e| e.ok())
+            .filter_map(|p| p.as_str().map(str::to_string))
+            .filter(|n| n != "." && n != "..")
+            .collect(),
         Err(_) => return Ok(()),
     };
-    let first_line = |p: &str| read_small(p).map(|b| String::from_utf8_lossy(&b).lines().next().unwrap_or("").trim().to_string());
+    let first_line = |p: &str| {
+        read_small(p).map(|b| {
+            String::from_utf8_lossy(&b)
+                .lines()
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_string()
+        })
+    };
     let boot = first_line("/proc/sys/kernel/random/boot_id").filter(|s| !s.is_empty());
     let mut removed = false;
     for n in names {
@@ -234,7 +249,11 @@ pub fn ResetUnsyncedPgrc() -> PgResult<()> {
                     ))
                     .finish(loc("ResetUnsyncedPgrc"))?;
                 // a directory whose relation has no init fork (not unlogged any more) is left alone
-                ResetUnloggedRelationsInDbspaceDir(dbspace, UNLOGGED_RELATION_CLEANUP | UNLOGGED_RELATION_INIT, u32::try_from(rel).ok())?;
+                ResetUnloggedRelationsInDbspaceDir(
+                    dbspace,
+                    UNLOGGED_RELATION_CLEANUP | UNLOGGED_RELATION_INIT,
+                    u32::try_from(rel).ok(),
+                )?;
             }
         }
         if vfs::unlink(&crate::vfd::cpath(&marker)) != 0 && get_errno() != libc::ENOENT {
@@ -255,7 +274,11 @@ pub fn ResetUnsyncedPgrc() -> PgResult<()> {
 
 /// A small file's bytes through the vfs (`None`: absent or unreadable).
 fn read_small(path: &str) -> Option<Vec<u8>> {
-    let fd = vfs::open(&crate::vfd::cpath(path), libc::O_RDONLY | libc::O_CLOEXEC, 0);
+    let fd = vfs::open(
+        &crate::vfd::cpath(path),
+        libc::O_RDONLY | libc::O_CLOEXEC,
+        0,
+    );
     if fd < 0 {
         return None;
     }

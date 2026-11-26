@@ -64,7 +64,10 @@ fn session(procno: u32) -> (i64, i64) {
         let unbound = account(Acct::UNBOUND);
         guc::store::initialize_guc_options().unwrap();
         let rose = account(Acct::UNBOUND) - unbound;
-        guc::store::with_store_mut(|r| drop(std::mem::replace(r, guc::registry::GucRegistry::new()))).unwrap();
+        guc::store::with_store_mut(|r| {
+            drop(std::mem::replace(r, guc::registry::GucRegistry::new()))
+        })
+        .unwrap();
         let kept = account(Acct::backend(procno)) - base;
         unbind_backend();
         (rose, kept)
@@ -81,20 +84,35 @@ fn the_shared_builtin_index_is_built_once_on_unbound_and_never_on_a_session() {
     // and the second is the plain session the shared ones are compared with
     let _ = session(4039);
     let (rose, warm) = session(4040);
-    assert!(rose.abs() <= SLACK, "sharing off: nothing is built on UNBOUND: rose {rose}");
+    assert!(
+        rose.abs() <= SLACK,
+        "sharing off: nothing is built on UNBOUND: rose {rose}"
+    );
 
     guc::store::set_share_builtin_index(true);
     let (rose1, kept1) = session(4041);
     eprintln!("d4682 witness: a plain session kept {warm} B; session 1 put {rose1} B on UNBOUND and kept {kept1} B");
-    assert!(rose1 > 8 << 10, "session 1 publishes the index on UNBOUND: rose {rose1}");
-    assert!((kept1 - warm).abs() <= SLACK, "session 1 keeps none of the index: kept {kept1}, a plain session {warm}");
+    assert!(
+        rose1 > 8 << 10,
+        "session 1 publishes the index on UNBOUND: rose {rose1}"
+    );
+    assert!(
+        (kept1 - warm).abs() <= SLACK,
+        "session 1 keeps none of the index: kept {kept1}, a plain session {warm}"
+    );
     for procno in 4042..4045 {
         let (rose, kept) = session(procno);
         eprintln!("d4682 witness: session {procno} put {rose} B on UNBOUND and kept {kept} B");
-        assert!(rose.abs() <= SLACK, "session {procno} adopts the index, nothing more on UNBOUND: rose {rose}");
+        assert!(
+            rose.abs() <= SLACK,
+            "session {procno} adopts the index, nothing more on UNBOUND: rose {rose}"
+        );
         // the registry's clone dropped with it; had it been the last reference, the index's free would show here as
         // the index's bytes below the plain session
-        assert!((kept - warm).abs() <= SLACK, "session {procno}: kept {kept}, a plain session {warm}");
+        assert!(
+            (kept - warm).abs() <= SLACK,
+            "session {procno}: kept {kept}, a plain session {warm}"
+        );
     }
     guc::store::set_share_builtin_index(false);
 }

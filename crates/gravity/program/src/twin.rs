@@ -13,7 +13,12 @@
 /// The twin of a spelling, its function's class read by the caller's home: `starts_with` itself, or an int4 compare `top`
 /// of a textpos call (`pos`: whether the call is the compare's left operand) with the constant `k`. `Some((head, tail,
 /// negated))`: the twin is `x [NOT] LIKE twin_pattern(c, head, tail)`, NOT when `negated`.
-pub fn twin_spelling(starts_with: bool, top: u32, pos: Option<bool>, k: Option<i32>) -> Option<(bool, bool, bool)> {
+pub fn twin_spelling(
+    starts_with: bool,
+    top: u32,
+    pos: Option<bool>,
+    k: Option<i32>,
+) -> Option<(bool, bool, bool)> {
     if starts_with {
         return Some((false, true, false));
     }
@@ -29,10 +34,21 @@ pub fn textpos_test(op: u32, k: i32, left: bool) -> Option<bool> {
     let (k, max) = (i64::from(k), i64::from(i32::MAX));
     let at = |s: i64| {
         let (a, b) = if left { (s, k) } else { (k, s) };
-        Some(match op { 65 => a == b, 144 => a != b, 66 => a < b, 149 => a <= b, 147 => a > b, 150 => a >= b, _ => return None })
+        Some(match op {
+            65 => a == b,
+            144 => a != b,
+            66 => a < b,
+            149 => a <= b,
+            147 => a > b,
+            150 => a >= b,
+            _ => return None,
+        })
     };
     let found = at(1)?;
-    let steady = [max, k - 1, k, k + 1].into_iter().filter(|s| (1..=max).contains(s)).all(|s| at(s) == Some(found));
+    let steady = [max, k - 1, k, k + 1]
+        .into_iter()
+        .filter(|s| (1..=max).contains(s))
+        .all(|s| at(s) == Some(found));
     (steady && at(0) != Some(found)).then_some(found)
 }
 
@@ -72,7 +88,15 @@ mod tests {
                 for k in [i32::MIN, -2, -1, 0, 1, 2, 3, max - 1, max] {
                     let at = |s: i32| {
                         let (a, b) = if left { (s, k) } else { (k, s) };
-                        match op { 65 => a == b, 144 => a != b, 66 => a < b, 149 => a <= b, 147 => a > b, 150 => a >= b, _ => panic!("{op}") }
+                        match op {
+                            65 => a == b,
+                            144 => a != b,
+                            66 => a < b,
+                            149 => a <= b,
+                            147 => a > b,
+                            150 => a >= b,
+                            _ => panic!("{op}"),
+                        }
                     };
                     let v = at(1);
                     let want = (ss[1..].iter().all(|&s| at(s) == v) && at(0) != v).then_some(v);
@@ -81,10 +105,21 @@ mod tests {
             }
         }
         let cases = [
-            (147, 0, true, Some(true)), (144, 0, true, Some(true)), (150, 1, true, Some(true)), (66, 0, false, Some(true)),
-            (65, 0, true, Some(false)), (66, 1, true, Some(false)), (149, 0, true, Some(false)), (147, 1, false, Some(false)),
-            (147, 1, true, None), (65, 3, true, None), (147, -1, true, None), (150, 0, true, None), (66, max, true, None),
-            (149, max, true, None), (67, 0, true, None),
+            (147, 0, true, Some(true)),
+            (144, 0, true, Some(true)),
+            (150, 1, true, Some(true)),
+            (66, 0, false, Some(true)),
+            (65, 0, true, Some(false)),
+            (66, 1, true, Some(false)),
+            (149, 0, true, Some(false)),
+            (147, 1, false, Some(false)),
+            (147, 1, true, None),
+            (65, 3, true, None),
+            (147, -1, true, None),
+            (150, 0, true, None),
+            (66, max, true, None),
+            (149, max, true, None),
+            (67, 0, true, None),
         ];
         for (op, k, left, want) in cases {
             assert_eq!(textpos_test(op, k, left), want, "op {op} k {k} left {left}");
@@ -93,15 +128,55 @@ mod tests {
 
     #[test]
     fn each_spelling_is_its_twin() {
-        assert_eq!(twin_spelling(true, 0, None, None), Some((false, true, false)), "starts_with: prefix");
-        assert_eq!(twin_spelling(false, 147, Some(true), Some(0)), Some((true, true, false)), "strpos(x, c) > 0");
-        assert_eq!(twin_spelling(false, 65, Some(true), Some(0)), Some((true, true, true)), "position(c IN x) = 0: NOT LIKE");
-        assert_eq!(twin_spelling(false, 66, Some(false), Some(0)), Some((true, true, false)), "0 < strpos(x, c)");
-        assert_eq!(twin_spelling(false, 147, Some(true), Some(5)), None, "strpos(x, c) > 5: a position test");
-        assert_eq!(twin_spelling(false, 147, None, Some(0)), None, "not over a textpos call");
-        assert_eq!(twin_spelling(false, 147, Some(true), None), None, "no constant");
-        assert_eq!(twin_spelling(false, 868, None, None), None, "strpos as a value");
-        assert_eq!(twin_pattern(b"g%_\\", true, true), b"%g\\%\\_\\\\%".to_vec(), "escaped, both ends");
-        assert_eq!(twin_pattern(b"", false, true), b"%".to_vec(), "starts_with(x, '')");
+        assert_eq!(
+            twin_spelling(true, 0, None, None),
+            Some((false, true, false)),
+            "starts_with: prefix"
+        );
+        assert_eq!(
+            twin_spelling(false, 147, Some(true), Some(0)),
+            Some((true, true, false)),
+            "strpos(x, c) > 0"
+        );
+        assert_eq!(
+            twin_spelling(false, 65, Some(true), Some(0)),
+            Some((true, true, true)),
+            "position(c IN x) = 0: NOT LIKE"
+        );
+        assert_eq!(
+            twin_spelling(false, 66, Some(false), Some(0)),
+            Some((true, true, false)),
+            "0 < strpos(x, c)"
+        );
+        assert_eq!(
+            twin_spelling(false, 147, Some(true), Some(5)),
+            None,
+            "strpos(x, c) > 5: a position test"
+        );
+        assert_eq!(
+            twin_spelling(false, 147, None, Some(0)),
+            None,
+            "not over a textpos call"
+        );
+        assert_eq!(
+            twin_spelling(false, 147, Some(true), None),
+            None,
+            "no constant"
+        );
+        assert_eq!(
+            twin_spelling(false, 868, None, None),
+            None,
+            "strpos as a value"
+        );
+        assert_eq!(
+            twin_pattern(b"g%_\\", true, true),
+            b"%g\\%\\_\\\\%".to_vec(),
+            "escaped, both ends"
+        );
+        assert_eq!(
+            twin_pattern(b"", false, true),
+            b"%".to_vec(),
+            "starts_with(x, '')"
+        );
     }
 }

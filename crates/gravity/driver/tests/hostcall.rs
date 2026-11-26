@@ -10,7 +10,10 @@ use common::*;
 use gravity_abi::ctx::{arena_bump, cancel_pending, lane, site_ptr};
 use gravity_abi::status::{DONE, ERROR};
 use gravity_abi::{Ctx, Datum, Lane, ScanPos};
-use gravity_driver::{box_source, ArenaBox, ArenaRef, BindingRef, BorrowedBatch, Cursor, Derive, Entry, Locker, Result, Sink, Source, SourceBox, Window, WindowBase, Writer};
+use gravity_driver::{
+    box_source, ArenaBox, ArenaRef, BindingRef, BorrowedBatch, Cursor, Derive, Entry, Locker,
+    Result, Sink, Source, SourceBox, Window, WindowBase, Writer,
+};
 use gravity_program::{Code, Layout, OutCol, Program, SiteDesc, WritePlan};
 
 const ROWS: usize = 8192;
@@ -34,8 +37,26 @@ impl Source for Resident {
     }
 
     fn window(&mut self, w: &mut Window<'_>) -> Result<u32> {
-        w.set(0, Lane::byval(COL0.as_ptr() as *const u8, core::ptr::null(), 8, lane::REGION_ARENA, lane::id(lane::ID_ATTR, 1)));
-        w.set(1, Lane::byval(COL1.as_ptr() as *const u8, core::ptr::null(), 8, lane::REGION_ARENA, lane::id(lane::ID_ATTR, 2)));
+        w.set(
+            0,
+            Lane::byval(
+                COL0.as_ptr() as *const u8,
+                core::ptr::null(),
+                8,
+                lane::REGION_ARENA,
+                lane::id(lane::ID_ATTR, 1),
+            ),
+        );
+        w.set(
+            1,
+            Lane::byval(
+                COL1.as_ptr() as *const u8,
+                core::ptr::null(),
+                8,
+                lane::REGION_ARENA,
+                lane::id(lane::ID_ATTR, 2),
+            ),
+        );
         w.rows = ROWS as u32;
         w.set_base(WindowBase::at(ScanPos::new(77, 1, 0)));
         Ok(ROWS as u32)
@@ -145,7 +166,19 @@ fn program(k: unsafe extern "C-unwind" fn(*mut Ctx) -> i64) -> Program {
     let st = gravity_program::Arena::new(1 << 12);
     let sites = [SiteDesc::range_source(st.handle(), 77, &[1, 2])];
     let out = [OutCol::new("c0", 20, -1, 8, true)];
-    Program::new(Layout { nsites: 1, out_natts: 1, out_rows: 64, scratch_bytes: 65536, exec_bytes: 0 }, &sites, &out, WritePlan::SELECT, Code::hand(k))
+    Program::new(
+        Layout {
+            nsites: 1,
+            out_natts: 1,
+            out_rows: 64,
+            scratch_bytes: 65536,
+            exec_bytes: 0,
+        },
+        &sites,
+        &out,
+        WritePlan::SELECT,
+        Code::hand(k),
+    )
 }
 
 fn time(name: &str, k: unsafe extern "C-unwind" fn(*mut Ctx) -> i64) -> f64 {
@@ -158,9 +191,25 @@ fn time(name: &str, k: unsafe extern "C-unwind" fn(*mut Ctx) -> i64) -> f64 {
     let sink = FakeSink::new();
     let mut sref = &sink;
     let mut b = binding(&params, &nulls, &mut sref, &flag);
-    let mut exec = entry.start(None, &program, &mut derive, &mut b, lease(gravity_driver::Grant::of(8 << 20))).unwrap();
+    let mut exec = entry
+        .start(
+            None,
+            &program,
+            &mut derive,
+            &mut b,
+            lease(gravity_driver::Grant::of(8 << 20)),
+        )
+        .unwrap();
     entry.run_to_end(&mut exec, &mut b).unwrap();
-    let mut exec2 = entry.start(None, &program, &mut derive, &mut b, lease(gravity_driver::Grant::of(8 << 20))).unwrap();
+    let mut exec2 = entry
+        .start(
+            None,
+            &program,
+            &mut derive,
+            &mut b,
+            lease(gravity_driver::Grant::of(8 << 20)),
+        )
+        .unwrap();
     let t = Instant::now();
     entry.run_to_end(&mut exec2, &mut b).unwrap();
     let ns = t.elapsed().as_nanos() as f64 / ITERS as f64;
@@ -176,7 +225,13 @@ fn sink_alone() -> f64 {
     let mut sref = &sink;
     let t = Instant::now();
     for _ in 0..ITERS {
-        let empty = BorrowedBatch { natts: 1, rows: 0, values: &[], isnull: &[], region: &[] };
+        let empty = BorrowedBatch {
+            natts: 1,
+            rows: 0,
+            values: &[],
+            isnull: &[],
+            region: &[],
+        };
         Sink::push(core::hint::black_box(&mut sref), empty).unwrap();
     }
     let ns = t.elapsed().as_nanos() as f64 / ITERS as f64;
@@ -189,7 +244,10 @@ fn hostcall_table() {
     time("Site.next (resident part, decoded window)", k_next);
     let push = time("Program.push (empty block)", k_push);
     let alone = sink_alone();
-    println!("hostcall Program.push over the sink's own work: {:.2} ns", push - alone);
+    println!(
+        "hostcall Program.push over the sink's own work: {:.2} ns",
+        push - alone
+    );
     time("cancel test (one load)", k_cancel);
     time("arena bump (cur += n)", k_bump);
 }

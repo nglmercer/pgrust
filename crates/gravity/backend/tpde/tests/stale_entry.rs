@@ -16,8 +16,12 @@ use tpde_compiler::RegallocEvent;
 fn stale(text: &str) -> usize {
     let p: Program = parse_program(text, &|_| Some(0x1000)).unwrap_or_else(|e| panic!("{e}"));
     let ctx = MemoryContext::new("gravity-tpde-test");
-    let c = gravity_tpde::compile_recording(ctx.mcx(), &p).unwrap_or_else(|e| panic!("compile: {e:?}"));
-    c.regalloc().iter().filter(|e| e.event == RegallocEvent::StaleEntry).count()
+    let c =
+        gravity_tpde::compile_recording(ctx.mcx(), &p).unwrap_or_else(|e| panic!("compile: {e:?}"));
+    c.regalloc()
+        .iter()
+        .filter(|e| e.event == RegallocEvent::StaleEntry)
+        .count()
 }
 
 #[test]
@@ -69,7 +73,9 @@ fn programs(dump: &str) -> Vec<(String, String)> {
 
 #[test]
 fn the_corpus_enters_no_block_with_a_stale_register() {
-    let Ok(path) = std::env::var("GRAVITY_VERIFY_IR") else { return };
+    let Ok(path) = std::env::var("GRAVITY_VERIFY_IR") else {
+        return;
+    };
     let dump = std::fs::read_to_string(&path).unwrap();
     let (mut total, mut bad) = (0, Vec::new());
     let mut unparsed = 0;
@@ -85,9 +91,25 @@ fn the_corpus_enters_no_block_with_a_stale_register() {
             bad.push((name, n));
         }
     }
-    eprintln!("stale_entry: {} programs ({} unparsed), {} with a stale entry", total, unparsed, bad.len());
+    eprintln!(
+        "stale_entry: {} programs ({} unparsed), {} with a stale entry",
+        total,
+        unparsed,
+        bad.len()
+    );
     for (name, n) in &bad {
-        eprintln!("  {name}: {}", if *n == usize::MAX { "PANIC".to_string() } else { n.to_string() });
+        eprintln!(
+            "  {name}: {}",
+            if *n == usize::MAX {
+                "PANIC".to_string()
+            } else {
+                n.to_string()
+            }
+        );
     }
-    assert!(bad.iter().all(|&(_, n)| n == 0), "{} programs enter a block with a stale register", bad.len());
+    assert!(
+        bad.iter().all(|&(_, n)| n == 0),
+        "{} programs enter a block with a stale register",
+        bad.len()
+    );
 }

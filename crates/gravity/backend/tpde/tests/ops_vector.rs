@@ -74,29 +74,90 @@ fn lane_get(ty: Type, v: &[u8], i: usize) -> i64 {
 fn vector_binary_ops_match_the_interpreter() {
     for ty in INT_VECS {
         for (name, mk) in [
-            ("vadd", Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Add, x, y)) as Box<dyn Fn(&mut FunctionBuilder, Value, Value) -> Value>),
-            ("vsub", Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Sub, x, y))),
-            ("vand", Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::And, x, y))),
-            ("vor", Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Or, x, y))),
-            ("vxor", Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Xor, x, y))),
-            ("vsmin", Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Smin, x, y))),
-            ("vsmax", Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Smax, x, y))),
-            ("vumin", Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Umin, x, y))),
-            ("vumax", Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Umax, x, y))),
-            ("vcmp eq", Box::new(|b: &mut FunctionBuilder, x, y| b.vcmp(IntCond::Eq, x, y))),
-            ("vcmp ne", Box::new(|b: &mut FunctionBuilder, x, y| b.vcmp(IntCond::Ne, x, y))),
-            ("vcmp slt", Box::new(|b: &mut FunctionBuilder, x, y| b.vcmp(IntCond::Slt, x, y))),
-            ("vcmp sle", Box::new(|b: &mut FunctionBuilder, x, y| b.vcmp(IntCond::Sle, x, y))),
-            ("vcmp sgt", Box::new(|b: &mut FunctionBuilder, x, y| b.vcmp(IntCond::Sgt, x, y))),
-            ("vcmp sge", Box::new(|b: &mut FunctionBuilder, x, y| b.vcmp(IntCond::Sge, x, y))),
-            ("vcmp ult", Box::new(|b: &mut FunctionBuilder, x, y| b.vcmp(IntCond::Ult, x, y))),
-            ("vcmp ule", Box::new(|b: &mut FunctionBuilder, x, y| b.vcmp(IntCond::Ule, x, y))),
-            ("vcmp ugt", Box::new(|b: &mut FunctionBuilder, x, y| b.vcmp(IntCond::Ugt, x, y))),
-            ("vcmp uge", Box::new(|b: &mut FunctionBuilder, x, y| b.vcmp(IntCond::Uge, x, y))),
-            ("vselect", Box::new(|b: &mut FunctionBuilder, x, y| {
-                let m = b.vcmp(IntCond::Sgt, x, y);
-                b.vselect(m, x, y)
-            })),
+            (
+                "vadd",
+                Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Add, x, y))
+                    as Box<dyn Fn(&mut FunctionBuilder, Value, Value) -> Value>,
+            ),
+            (
+                "vsub",
+                Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Sub, x, y)),
+            ),
+            (
+                "vand",
+                Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::And, x, y)),
+            ),
+            (
+                "vor",
+                Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Or, x, y)),
+            ),
+            (
+                "vxor",
+                Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Xor, x, y)),
+            ),
+            (
+                "vsmin",
+                Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Smin, x, y)),
+            ),
+            (
+                "vsmax",
+                Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Smax, x, y)),
+            ),
+            (
+                "vumin",
+                Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Umin, x, y)),
+            ),
+            (
+                "vumax",
+                Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Umax, x, y)),
+            ),
+            (
+                "vcmp eq",
+                Box::new(|b: &mut FunctionBuilder, x, y| b.vcmp(IntCond::Eq, x, y)),
+            ),
+            (
+                "vcmp ne",
+                Box::new(|b: &mut FunctionBuilder, x, y| b.vcmp(IntCond::Ne, x, y)),
+            ),
+            (
+                "vcmp slt",
+                Box::new(|b: &mut FunctionBuilder, x, y| b.vcmp(IntCond::Slt, x, y)),
+            ),
+            (
+                "vcmp sle",
+                Box::new(|b: &mut FunctionBuilder, x, y| b.vcmp(IntCond::Sle, x, y)),
+            ),
+            (
+                "vcmp sgt",
+                Box::new(|b: &mut FunctionBuilder, x, y| b.vcmp(IntCond::Sgt, x, y)),
+            ),
+            (
+                "vcmp sge",
+                Box::new(|b: &mut FunctionBuilder, x, y| b.vcmp(IntCond::Sge, x, y)),
+            ),
+            (
+                "vcmp ult",
+                Box::new(|b: &mut FunctionBuilder, x, y| b.vcmp(IntCond::Ult, x, y)),
+            ),
+            (
+                "vcmp ule",
+                Box::new(|b: &mut FunctionBuilder, x, y| b.vcmp(IntCond::Ule, x, y)),
+            ),
+            (
+                "vcmp ugt",
+                Box::new(|b: &mut FunctionBuilder, x, y| b.vcmp(IntCond::Ugt, x, y)),
+            ),
+            (
+                "vcmp uge",
+                Box::new(|b: &mut FunctionBuilder, x, y| b.vcmp(IntCond::Uge, x, y)),
+            ),
+            (
+                "vselect",
+                Box::new(|b: &mut FunctionBuilder, x, y| {
+                    let m = b.vcmp(IntCond::Sgt, x, y);
+                    b.vselect(m, x, y)
+                }),
+            ),
         ] {
             if ty == Type::V2I64 && name == "vmul" {
                 continue;
@@ -105,7 +166,15 @@ fn vector_binary_ops_match_the_interpreter() {
             for a in lanes(ty) {
                 for c in lanes(ty) {
                     let mut out = [0u8; 16];
-                    run(&p, &[a.as_ptr() as u64, c.as_ptr() as u64, out.as_mut_ptr() as u64]).unwrap_or_else(|t| panic!("{name} {ty:?}: {t:?}"));
+                    run(
+                        &p,
+                        &[
+                            a.as_ptr() as u64,
+                            c.as_ptr() as u64,
+                            out.as_mut_ptr() as u64,
+                        ],
+                    )
+                    .unwrap_or_else(|t| panic!("{name} {ty:?}: {t:?}"));
                     // `common::both` ran the interpreter and TPDE with the
                     // same `out`: each arm's result is checked inside it
                     // for scalar returns; for the store the two writes must
@@ -118,7 +187,15 @@ fn vector_binary_ops_match_the_interpreter() {
             let p = vec_bin(ty, |b, x, y| b.vbin(VecBinOp::Mul, x, y));
             for a in lanes(ty) {
                 let mut out = [0u8; 16];
-                run(&p, &[a.as_ptr() as u64, a.as_ptr() as u64, out.as_mut_ptr() as u64]).unwrap();
+                run(
+                    &p,
+                    &[
+                        a.as_ptr() as u64,
+                        a.as_ptr() as u64,
+                        out.as_mut_ptr() as u64,
+                    ],
+                )
+                .unwrap();
             }
         }
     }
@@ -129,7 +206,9 @@ fn vector_binary_ops_match_the_interpreter() {
 fn stored_both(p: &Program, args_mk: impl Fn(*mut u8) -> Vec<u64>) -> ([u8; 16], [u8; 16]) {
     let mut o1 = [0u8; 16];
     let mut o2 = [0u8; 16];
-    gravity_interp::Interp::new(p).run(Func(0), &args_mk(o1.as_mut_ptr())).unwrap();
+    gravity_interp::Interp::new(p)
+        .run(Func(0), &args_mk(o1.as_mut_ptr()))
+        .unwrap();
     common::native(p, Func(0), &args_mk(o2.as_mut_ptr()));
     (o1, o2)
 }
@@ -138,35 +217,83 @@ fn stored_both(p: &Program, args_mk: impl Fn(*mut u8) -> Vec<u64>) -> ([u8; 16],
 fn vector_stores_agree_lane_by_lane() {
     for ty in INT_VECS {
         for (name, mk) in [
-            ("vadd", Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Add, x, y)) as Box<dyn Fn(&mut FunctionBuilder, Value, Value) -> Value>),
-            ("vsub", Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Sub, x, y))),
-            ("vsmin", Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Smin, x, y))),
-            ("vsmax", Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Smax, x, y))),
-            ("vumin", Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Umin, x, y))),
-            ("vumax", Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Umax, x, y))),
-            ("vcmp slt", Box::new(|b: &mut FunctionBuilder, x, y| b.vcmp(IntCond::Slt, x, y))),
-            ("vcmp ne", Box::new(|b: &mut FunctionBuilder, x, y| b.vcmp(IntCond::Ne, x, y))),
-            ("vcmp ugt", Box::new(|b: &mut FunctionBuilder, x, y| b.vcmp(IntCond::Ugt, x, y))),
-            ("vselect", Box::new(|b: &mut FunctionBuilder, x, y| {
-                let m = b.vcmp(IntCond::Sge, x, y);
-                b.vselect(m, x, y)
-            })),
-            ("vshl", Box::new(|b: &mut FunctionBuilder, x, _y| b.vshift(VecShiftOp::Shl, x, 3))),
-            ("vushr", Box::new(|b: &mut FunctionBuilder, x, _y| b.vshift(VecShiftOp::Ushr, x, 3))),
-            ("vsshr", Box::new(|b: &mut FunctionBuilder, x, _y| b.vshift(VecShiftOp::Sshr, x, 3))),
-            ("vsplat", Box::new(|b: &mut FunctionBuilder, x, _y| {
-                let s = b.vextract(x, 1);
-                b.vsplat(b.value_type(x), s)
-            })),
-            ("vinsert", Box::new(|b: &mut FunctionBuilder, x, y| {
-                let s = b.vextract(y, 0);
-                b.vinsert(x, 1, s)
-            })),
+            (
+                "vadd",
+                Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Add, x, y))
+                    as Box<dyn Fn(&mut FunctionBuilder, Value, Value) -> Value>,
+            ),
+            (
+                "vsub",
+                Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Sub, x, y)),
+            ),
+            (
+                "vsmin",
+                Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Smin, x, y)),
+            ),
+            (
+                "vsmax",
+                Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Smax, x, y)),
+            ),
+            (
+                "vumin",
+                Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Umin, x, y)),
+            ),
+            (
+                "vumax",
+                Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Umax, x, y)),
+            ),
+            (
+                "vcmp slt",
+                Box::new(|b: &mut FunctionBuilder, x, y| b.vcmp(IntCond::Slt, x, y)),
+            ),
+            (
+                "vcmp ne",
+                Box::new(|b: &mut FunctionBuilder, x, y| b.vcmp(IntCond::Ne, x, y)),
+            ),
+            (
+                "vcmp ugt",
+                Box::new(|b: &mut FunctionBuilder, x, y| b.vcmp(IntCond::Ugt, x, y)),
+            ),
+            (
+                "vselect",
+                Box::new(|b: &mut FunctionBuilder, x, y| {
+                    let m = b.vcmp(IntCond::Sge, x, y);
+                    b.vselect(m, x, y)
+                }),
+            ),
+            (
+                "vshl",
+                Box::new(|b: &mut FunctionBuilder, x, _y| b.vshift(VecShiftOp::Shl, x, 3)),
+            ),
+            (
+                "vushr",
+                Box::new(|b: &mut FunctionBuilder, x, _y| b.vshift(VecShiftOp::Ushr, x, 3)),
+            ),
+            (
+                "vsshr",
+                Box::new(|b: &mut FunctionBuilder, x, _y| b.vshift(VecShiftOp::Sshr, x, 3)),
+            ),
+            (
+                "vsplat",
+                Box::new(|b: &mut FunctionBuilder, x, _y| {
+                    let s = b.vextract(x, 1);
+                    b.vsplat(b.value_type(x), s)
+                }),
+            ),
+            (
+                "vinsert",
+                Box::new(|b: &mut FunctionBuilder, x, y| {
+                    let s = b.vextract(y, 0);
+                    b.vinsert(x, 1, s)
+                }),
+            ),
         ] {
             let p = vec_bin(ty, &*mk);
             for a in lanes(ty) {
                 for c in lanes(ty) {
-                    let (o1, o2) = stored_both(&p, |out| vec![a.as_ptr() as u64, c.as_ptr() as u64, out as u64]);
+                    let (o1, o2) = stored_both(&p, |out| {
+                        vec![a.as_ptr() as u64, c.as_ptr() as u64, out as u64]
+                    });
                     assert_eq!(o1, o2, "{name} {ty:?} a={a:?} c={c:?}");
                 }
             }
@@ -175,7 +302,9 @@ fn vector_stores_agree_lane_by_lane() {
             let p = vec_bin(ty, |b, x, y| b.vbin(VecBinOp::Mul, x, y));
             for a in lanes(ty) {
                 for c in lanes(ty) {
-                    let (o1, o2) = stored_both(&p, |out| vec![a.as_ptr() as u64, c.as_ptr() as u64, out as u64]);
+                    let (o1, o2) = stored_both(&p, |out| {
+                        vec![a.as_ptr() as u64, c.as_ptr() as u64, out as u64]
+                    });
                     assert_eq!(o1, o2, "vmul {ty:?}");
                 }
             }
@@ -185,7 +314,9 @@ fn vector_stores_agree_lane_by_lane() {
             for (signed, high) in [(false, false), (false, true), (true, false), (true, true)] {
                 let p = vec_bin(ty, move |b, x, _y| b.vwiden(x, signed, high));
                 for a in lanes(ty) {
-                    let (o1, o2) = stored_both(&p, |out| vec![a.as_ptr() as u64, a.as_ptr() as u64, out as u64]);
+                    let (o1, o2) = stored_both(&p, |out| {
+                        vec![a.as_ptr() as u64, a.as_ptr() as u64, out as u64]
+                    });
                     assert_eq!(o1, o2, "vwiden {ty:?} signed={signed} high={high}");
                 }
             }
@@ -194,7 +325,9 @@ fn vector_stores_agree_lane_by_lane() {
             let p = vec_bin(ty, |b, x, y| b.vnarrow(x, y));
             for a in lanes(ty) {
                 for c in lanes(ty) {
-                    let (o1, o2) = stored_both(&p, |out| vec![a.as_ptr() as u64, c.as_ptr() as u64, out as u64]);
+                    let (o1, o2) = stored_both(&p, |out| {
+                        vec![a.as_ptr() as u64, c.as_ptr() as u64, out as u64]
+                    });
                     assert_eq!(o1, o2, "vnarrow {ty:?}");
                 }
             }
@@ -203,21 +336,51 @@ fn vector_stores_agree_lane_by_lane() {
     // Float lanes: add / sub / mul and a bitcast.
     for ty in [Type::V2F64, Type::V4F32] {
         for (name, mk) in [
-            ("vadd", Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Add, x, y)) as Box<dyn Fn(&mut FunctionBuilder, Value, Value) -> Value>),
-            ("vsub", Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Sub, x, y))),
-            ("vmul", Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Mul, x, y))),
-            ("bitcast", Box::new(|b: &mut FunctionBuilder, x, y| {
-                let xi = b.vbitcast(Type::V2I64, x);
-                let yi = b.vbitcast(Type::V2I64, y);
-                let r = b.vbin(VecBinOp::Xor, xi, yi);
-                b.vbitcast(b.value_type(x), r)
-            })),
+            (
+                "vadd",
+                Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Add, x, y))
+                    as Box<dyn Fn(&mut FunctionBuilder, Value, Value) -> Value>,
+            ),
+            (
+                "vsub",
+                Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Sub, x, y)),
+            ),
+            (
+                "vmul",
+                Box::new(|b: &mut FunctionBuilder, x, y| b.vbin(VecBinOp::Mul, x, y)),
+            ),
+            (
+                "bitcast",
+                Box::new(|b: &mut FunctionBuilder, x, y| {
+                    let xi = b.vbitcast(Type::V2I64, x);
+                    let yi = b.vbitcast(Type::V2I64, y);
+                    let r = b.vbin(VecBinOp::Xor, xi, yi);
+                    b.vbitcast(b.value_type(x), r)
+                }),
+            ),
         ] {
             let p = vec_bin(ty, &*mk);
-            let fa: Vec<[u8; 16]> = if ty == Type::V2F64 { vec![[0u8; 16], { let mut v = [0u8; 16]; v[..8].copy_from_slice(&1.5f64.to_le_bytes()); v[8..].copy_from_slice(&(-2.25f64).to_le_bytes()); v }] } else { vec![[0u8; 16], { let mut v = [0u8; 16]; for (i, f) in [1.5f32, -2.25, 3.0, 1e-3].iter().enumerate() { v[i * 4..i * 4 + 4].copy_from_slice(&f.to_le_bytes()); } v }] };
+            let fa: Vec<[u8; 16]> = if ty == Type::V2F64 {
+                vec![[0u8; 16], {
+                    let mut v = [0u8; 16];
+                    v[..8].copy_from_slice(&1.5f64.to_le_bytes());
+                    v[8..].copy_from_slice(&(-2.25f64).to_le_bytes());
+                    v
+                }]
+            } else {
+                vec![[0u8; 16], {
+                    let mut v = [0u8; 16];
+                    for (i, f) in [1.5f32, -2.25, 3.0, 1e-3].iter().enumerate() {
+                        v[i * 4..i * 4 + 4].copy_from_slice(&f.to_le_bytes());
+                    }
+                    v
+                }]
+            };
             for a in &fa {
                 for c in &fa {
-                    let (o1, o2) = stored_both(&p, |out| vec![a.as_ptr() as u64, c.as_ptr() as u64, out as u64]);
+                    let (o1, o2) = stored_both(&p, |out| {
+                        vec![a.as_ptr() as u64, c.as_ptr() as u64, out as u64]
+                    });
                     assert_eq!(o1, o2, "{name} {ty:?}");
                 }
             }
@@ -235,11 +398,18 @@ fn vector_reductions_and_movmask_match_the_interpreter() {
         }
         for a in lanes(ty) {
             let mut scratch = [0u8; 16];
-            let r = run(&red, &[a.as_ptr() as u64, scratch.as_mut_ptr() as u64]).unwrap_or_else(|t| panic!("vreduce_add {ty:?}: {t:?}"))[0] as i64;
-            let want: i64 = (0..ty.lanes() as usize).map(|i| lane_get(ty, &a, i)).fold(0i64, |s, x| s.wrapping_add(x));
+            let r = run(&red, &[a.as_ptr() as u64, scratch.as_mut_ptr() as u64])
+                .unwrap_or_else(|t| panic!("vreduce_add {ty:?}: {t:?}"))[0]
+                as i64;
+            let want: i64 = (0..ty.lanes() as usize)
+                .map(|i| lane_get(ty, &a, i))
+                .fold(0i64, |s, x| s.wrapping_add(x));
             assert_eq!(r, want, "vreduce_add {ty:?} {a:?}");
-            let m = run(&mm, &[a.as_ptr() as u64, scratch.as_mut_ptr() as u64]).unwrap_or_else(|t| panic!("vmovmask {ty:?}: {t:?}"))[0];
-            let want_m: u64 = (0..ty.lanes() as usize).map(|i| ((lane_get(ty, &a, i) < 0) as u64) << i).sum();
+            let m = run(&mm, &[a.as_ptr() as u64, scratch.as_mut_ptr() as u64])
+                .unwrap_or_else(|t| panic!("vmovmask {ty:?}: {t:?}"))[0];
+            let want_m: u64 = (0..ty.lanes() as usize)
+                .map(|i| ((lane_get(ty, &a, i) < 0) as u64) << i)
+                .sum();
             assert_eq!(m, want_m, "vmovmask {ty:?} {a:?}");
         }
         // extract every lane
@@ -247,7 +417,8 @@ fn vector_reductions_and_movmask_match_the_interpreter() {
             let ex = vec_un(ty, move |b, a, _out| Some(b.vextract(a, i)));
             for a in lanes(ty) {
                 let mut scratch = [0u8; 16];
-                let r = run(&ex, &[a.as_ptr() as u64, scratch.as_mut_ptr() as u64]).unwrap()[0] as i64;
+                let r =
+                    run(&ex, &[a.as_ptr() as u64, scratch.as_mut_ptr() as u64]).unwrap()[0] as i64;
                 assert_eq!(r, lane_get(ty, &a, i as usize), "vextract {ty:?} lane {i}");
             }
         }
@@ -282,23 +453,38 @@ fn vector_reductions_and_movmask_match_the_interpreter() {
 fn vector_min_max_match_scalar_references() {
     for ty in INT_VECS {
         let w = ty.lane().bytes() * 8;
-        for (name, op, signed, is_min) in [("vsmin", VecBinOp::Smin, true, true), ("vsmax", VecBinOp::Smax, true, false), ("vumin", VecBinOp::Umin, false, true), ("vumax", VecBinOp::Umax, false, false)] {
+        for (name, op, signed, is_min) in [
+            ("vsmin", VecBinOp::Smin, true, true),
+            ("vsmax", VecBinOp::Smax, true, false),
+            ("vumin", VecBinOp::Umin, false, true),
+            ("vumax", VecBinOp::Umax, false, false),
+        ] {
             let p = vec_bin(ty, |b, x, y| b.vbin(op, x, y));
             for a in lanes(ty) {
                 for c in lanes(ty) {
-                    let (o1, o2) = stored_both(&p, |out| vec![a.as_ptr() as u64, c.as_ptr() as u64, out as u64]);
+                    let (o1, o2) = stored_both(&p, |out| {
+                        vec![a.as_ptr() as u64, c.as_ptr() as u64, out as u64]
+                    });
                     assert_eq!(o1, o2, "{name} {ty:?} a={a:?} c={c:?}");
                     for i in 0..ty.lanes() as usize {
                         let (x, y) = (lane_get(ty, &a, i), lane_get(ty, &c, i));
                         let want = if signed {
-                            if is_min { x.min(y) } else { x.max(y) }
+                            if is_min {
+                                x.min(y)
+                            } else {
+                                x.max(y)
+                            }
                         } else {
                             let m = if w == 64 { u64::MAX } else { (1u64 << w) - 1 };
                             let (xu, yu) = (x as u64 & m, y as u64 & m);
                             let r = if is_min { xu.min(yu) } else { xu.max(yu) };
                             ((r << (64 - w)) as i64) >> (64 - w)
                         };
-                        assert_eq!(lane_get(ty, &o2, i), want, "{name} {ty:?} lane {i} of a={a:?} c={c:?}");
+                        assert_eq!(
+                            lane_get(ty, &o2, i),
+                            want,
+                            "{name} {ty:?} lane {i} of a={a:?} c={c:?}"
+                        );
                     }
                 }
             }

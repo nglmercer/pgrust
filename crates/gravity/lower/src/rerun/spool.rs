@@ -9,7 +9,10 @@
 
 use gravity_abi::breaker::{SortRun, SORTRUN_HDR};
 use gravity_abi::ctx::RESUME_NONE;
-use gravity_abi::program::{consumed, partial, SPILL_RUNS, SPILL_RUN_BASE, SPILL_RUN_CLOSE, SPILL_RUN_FILL, SPILL_RUN_OPEN, SPILL_RUN_PUT};
+use gravity_abi::program::{
+    consumed, partial, SPILL_RUNS, SPILL_RUN_BASE, SPILL_RUN_CLOSE, SPILL_RUN_FILL, SPILL_RUN_OPEN,
+    SPILL_RUN_PUT,
+};
 use gravity_abi::status::{unsupported, ERROR, UNSUPPORTED_SCRATCH};
 use gravity_abi::Ctx;
 use gravity_expr::byref::{self, ByRef};
@@ -42,7 +45,13 @@ pub fn encode_row(out: &mut Vec<u8>, values: &[u64], nulls: &[u8], images: &[Opt
                     let w = img.len().div_ceil(8);
                     row.resize(words + w, 0);
                     // SAFETY: `w` words were just appended at `words`.
-                    unsafe { core::ptr::copy_nonoverlapping(img.as_ptr(), row.as_mut_ptr().add(words) as *mut u8, img.len()) };
+                    unsafe {
+                        core::ptr::copy_nonoverlapping(
+                            img.as_ptr(),
+                            row.as_mut_ptr().add(words) as *mut u8,
+                            img.len(),
+                        )
+                    };
                     words += w;
                     at as u64
                 }
@@ -104,8 +113,26 @@ pub struct Col {
 }
 
 pub fn declare_producer(pb: &mut ProgramBuilder) -> Producer {
-    let mem = HostFlags { touches_memory: true, ..HostFlags::default() };
-    Producer { open: pb.declare_host("spool_open", &[Type::Ptr], Some(Type::I64), h_spool_open as *const () as usize, mem), full: pb.declare_host("spool_full", &[Type::Ptr, Type::Ptr], Some(Type::I64), h_spool_full as *const () as usize, mem) }
+    let mem = HostFlags {
+        touches_memory: true,
+        ..HostFlags::default()
+    };
+    Producer {
+        open: pb.declare_host(
+            "spool_open",
+            &[Type::Ptr],
+            Some(Type::I64),
+            h_spool_open as *const () as usize,
+            mem,
+        ),
+        full: pb.declare_host(
+            "spool_full",
+            &[Type::Ptr, Type::Ptr],
+            Some(Type::I64),
+            h_spool_full as *const () as usize,
+            mem,
+        ),
+    }
 }
 
 /// `spool_open`'s word: `<= 0` the pipeline leaves with it (0: the section end's put is done), else the run.
@@ -115,11 +142,27 @@ pub fn open(b: &mut FunctionBuilder<'_>, p: &Producer, ctx: Value) -> Value {
 
 /// Append one row; a full run is put first (`spool_full`), a row wider than an empty run leaves through
 /// `unsupported(UNSUPPORTED_SCRATCH)`. `l_exit` takes the status. The builder continues after the store.
-pub fn push(b: &mut FunctionBuilder<'_>, p: &Producer, ctx: Value, run: Value, cols: &[Col], l_exit: Block) {
+pub fn push(
+    b: &mut FunctionBuilder<'_>,
+    p: &Producer,
+    ctx: Value,
+    run: Value,
+    cols: &[Col],
+    l_exit: Block,
+) {
     let natts = cols.len();
     let fixed = fixed_words(natts) as i64 * 8;
     let zero = b.iconst(Type::I64, 0);
-    let refs: Vec<ByRef> = cols.iter().filter_map(|c| c.typlen.map(|typlen| ByRef { value: c.value, valid: c.valid, typlen })).collect(); // alloc: Program
+    let refs: Vec<ByRef> = cols
+        .iter()
+        .filter_map(|c| {
+            c.typlen.map(|typlen| ByRef {
+                value: c.value,
+                valid: c.valid,
+                typlen,
+            })
+        })
+        .collect(); // alloc: Program
     let (per, total) = byref::sizes(b, &refs);
     let fixed_v = b.iconst(Type::I64, fixed);
     let bytes = b.int_bin(IntBinOp::Add, fixed_v, total);
@@ -182,7 +225,15 @@ pub fn push(b: &mut FunctionBuilder<'_>, p: &Producer, ctx: Value, run: Value, c
 
 /// The `len`-byte image at `src` copied to `row + at` when `valid`, as `byref::store` copies it (no byte past the image is
 /// read, D3661).
-fn copy_image(b: &mut FunctionBuilder<'_>, row: Value, at: Value, src: Value, valid: Value, typlen: i16, len: Value) {
+fn copy_image(
+    b: &mut FunctionBuilder<'_>,
+    row: Value,
+    at: Value,
+    src: Value,
+    valid: Value,
+    typlen: i16,
+    len: Value,
+) {
     let (l_copy, l_done) = (b.create_block(&[]), b.create_block(&[]));
     b.cond_br(valid, (l_copy, &[]), (l_done, &[]));
     b.switch_to(l_copy);
@@ -236,14 +287,25 @@ unsafe fn lay(ctx: *mut Ctx, base: *mut u8, bytes: usize, stream: u64) -> u64 {
     if (*ctx).resume != RESUME_NONE && (*rd).magic == MAGIC {
         return base as u64;
     }
-    if bytes < READER_HDR + 16 || ! (base as usize).is_multiple_of( 8) {
+    if bytes < READER_HDR + 16 || !(base as usize).is_multiple_of(8) {
         return unsupported(UNSUPPORTED_SCRATCH) as u64;
     }
     let nruns = spill(ctx, SPILL_RUNS, stream as i64);
     if nruns < 0 {
         return ERROR as u64;
     }
-    *rd = Reader { buf: base.add(READER_HDR) as u64, pos: 0, end: 0, cap: ((bytes - READER_HDR) & !7) as u64, run: 0, nruns: nruns as u32, off: 0, handle: -1, stream: stream as u32, magic: MAGIC };
+    *rd = Reader {
+        buf: base.add(READER_HDR) as u64,
+        pos: 0,
+        end: 0,
+        cap: ((bytes - READER_HDR) & !7) as u64,
+        run: 0,
+        nruns: nruns as u32,
+        off: 0,
+        handle: -1,
+        stream: stream as u32,
+        magic: MAGIC,
+    };
     base as u64
 }
 
@@ -397,18 +459,70 @@ pub struct Sink {
 }
 
 pub fn declare_reader(pb: &mut ProgramBuilder) -> ReaderHosts {
-    let mem = HostFlags { touches_memory: true, ..HostFlags::default() };
+    let mem = HostFlags {
+        touches_memory: true,
+        ..HostFlags::default()
+    };
     ReaderHosts {
-        open: pb.declare_host("spool_reader", &[Type::Ptr, Type::I64, Type::I64], Some(Type::I64), h_reader_open as *const () as usize, mem),
-        open_at: pb.declare_host("spool_reader_at", &[Type::Ptr, Type::Ptr, Type::I64, Type::I64], Some(Type::I64), h_reader_open_at as *const () as usize, mem),
-        fill: pb.declare_host("spool_fill", &[Type::Ptr, Type::Ptr], Some(Type::I64), h_reader_fill as *const () as usize, mem),
-        seek: pb.declare_host("spool_seek", &[Type::Ptr, Type::Ptr, Type::I64, Type::I64], Some(Type::I64), h_reader_seek as *const () as usize, mem),
+        open: pb.declare_host(
+            "spool_reader",
+            &[Type::Ptr, Type::I64, Type::I64],
+            Some(Type::I64),
+            h_reader_open as *const () as usize,
+            mem,
+        ),
+        open_at: pb.declare_host(
+            "spool_reader_at",
+            &[Type::Ptr, Type::Ptr, Type::I64, Type::I64],
+            Some(Type::I64),
+            h_reader_open_at as *const () as usize,
+            mem,
+        ),
+        fill: pb.declare_host(
+            "spool_fill",
+            &[Type::Ptr, Type::Ptr],
+            Some(Type::I64),
+            h_reader_fill as *const () as usize,
+            mem,
+        ),
+        seek: pb.declare_host(
+            "spool_seek",
+            &[Type::Ptr, Type::Ptr, Type::I64, Type::I64],
+            Some(Type::I64),
+            h_reader_seek as *const () as usize,
+            mem,
+        ),
     }
 }
 
 pub fn declare_sink(pb: &mut ProgramBuilder) -> Sink {
-    let mem = HostFlags { touches_memory: true, ..HostFlags::default() };
-    Sink { emit: pb.declare_host("spool_emit", &[Type::Ptr, Type::Ptr, Type::Ptr, Type::I64], Some(Type::I64), h_emit as *const () as usize, mem), stopped: pb.declare_host("spool_stopped", &[Type::Ptr], Some(Type::I64), h_stopped as *const () as usize, mem), done: pb.declare_host("spool_done", &[Type::Ptr], Some(Type::I64), h_done as *const () as usize, mem) }
+    let mem = HostFlags {
+        touches_memory: true,
+        ..HostFlags::default()
+    };
+    Sink {
+        emit: pb.declare_host(
+            "spool_emit",
+            &[Type::Ptr, Type::Ptr, Type::Ptr, Type::I64],
+            Some(Type::I64),
+            h_emit as *const () as usize,
+            mem,
+        ),
+        stopped: pb.declare_host(
+            "spool_stopped",
+            &[Type::Ptr],
+            Some(Type::I64),
+            h_stopped as *const () as usize,
+            mem,
+        ),
+        done: pb.declare_host(
+            "spool_done",
+            &[Type::Ptr],
+            Some(Type::I64),
+            h_done as *const () as usize,
+            mem,
+        ),
+    }
 }
 
 fn opened(b: &mut FunctionBuilder<'_>, r: Value, l_exit: Block) -> Value {
@@ -425,23 +539,48 @@ fn opened(b: &mut FunctionBuilder<'_>, r: Value, l_exit: Block) -> Value {
 
 /// The reader over the pipeline's `k`-th consumed slot (`stream` = that slot + 1): fresh on a fresh call, the live
 /// cursor on a resumed one (the sink's stop mid-read).
-pub fn reader_open(b: &mut FunctionBuilder<'_>, h: &ReaderHosts, ctx: Value, k: usize, stream: u32, l_exit: Block) -> Value {
+pub fn reader_open(
+    b: &mut FunctionBuilder<'_>,
+    h: &ReaderHosts,
+    ctx: Value,
+    k: usize,
+    stream: u32,
+    l_exit: Block,
+) -> Value {
     let kv = b.iconst(Type::I64, k as i64);
     let sv = b.iconst(Type::I64, stream as i64);
-    let r = b.call_host(h.open, &[ctx, kv, sv], Some(Type::I64)).unwrap();
+    let r = b
+        .call_host(h.open, &[ctx, kv, sv], Some(Type::I64))
+        .unwrap();
     opened(b, r, l_exit)
 }
 
 /// `reader_open` over a buffer the rung owns (`bytes` at `base`, 8-aligned, stable across a resume).
-pub fn reader_open_at(b: &mut FunctionBuilder<'_>, h: &ReaderHosts, ctx: Value, base: Value, bytes: Value, stream: u32, l_exit: Block) -> Value {
+pub fn reader_open_at(
+    b: &mut FunctionBuilder<'_>,
+    h: &ReaderHosts,
+    ctx: Value,
+    base: Value,
+    bytes: Value,
+    stream: u32,
+    l_exit: Block,
+) -> Value {
     let sv = b.iconst(Type::I64, stream as i64);
-    let r = b.call_host(h.open_at, &[ctx, base, bytes, sv], Some(Type::I64)).unwrap();
+    let r = b
+        .call_host(h.open_at, &[ctx, base, bytes, sv], Some(Type::I64))
+        .unwrap();
     opened(b, r, l_exit)
 }
 
 /// The next row: `(has, row)`; the row's bytes live until the next `next` / `restore`. The fast path is IR over the
 /// buffer; `spool_fill` once per buffer.
-pub fn next(b: &mut FunctionBuilder<'_>, h: &ReaderHosts, ctx: Value, rd: Value, l_exit: Block) -> (Value, Value) {
+pub fn next(
+    b: &mut FunctionBuilder<'_>,
+    h: &ReaderHosts,
+    ctx: Value,
+    rd: Value,
+    l_exit: Block,
+) -> (Value, Value) {
     let zero = b.iconst(Type::I64, 0);
     let one = b.iconst(Type::I64, 1);
     let eight = b.iconst(Type::I64, 8);
@@ -496,7 +635,13 @@ pub fn next(b: &mut FunctionBuilder<'_>, h: &ReaderHosts, ctx: Value, rd: Value,
 }
 
 /// Column `k` of `natts` at `row`: `(datum, valid)`; a by-reference datum is the image's address inside the row.
-pub fn col(b: &mut FunctionBuilder<'_>, row: Value, natts: usize, k: usize, by_ref: bool) -> (Value, Value) {
+pub fn col(
+    b: &mut FunctionBuilder<'_>,
+    row: Value,
+    natts: usize,
+    k: usize,
+    by_ref: bool,
+) -> (Value, Value) {
     let zero = b.iconst(Type::I64, 0);
     let word = b.load(Type::I64, row, ((1 + k) * 8) as i32);
     let nb = b.load_zext(Type::I8, row, ((1 + natts) * 8 + k) as i32);
@@ -520,9 +665,19 @@ pub fn mark(b: &mut FunctionBuilder<'_>, rd: Value) -> (Value, Value) {
 }
 
 /// Back to a `mark` (a merge join's equal-key group read again): no copy, a host call per restore, never per row.
-pub fn restore(b: &mut FunctionBuilder<'_>, h: &ReaderHosts, ctx: Value, rd: Value, run: Value, at: Value, l_exit: Block) {
+pub fn restore(
+    b: &mut FunctionBuilder<'_>,
+    h: &ReaderHosts,
+    ctx: Value,
+    rd: Value,
+    run: Value,
+    at: Value,
+    l_exit: Block,
+) {
     let zero = b.iconst(Type::I64, 0);
-    let r = b.call_host(h.seek, &[ctx, rd, run, at], Some(Type::I64)).unwrap();
+    let r = b
+        .call_host(h.seek, &[ctx, rd, run, at], Some(Type::I64))
+        .unwrap();
     let bad = b.icmp(IntCond::Slt, r, zero);
     let l_ok = b.create_block(&[]);
     b.cond_br(bad, (l_exit, &[r]), (l_ok, &[]));

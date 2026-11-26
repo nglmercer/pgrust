@@ -8,6 +8,7 @@
 //! opened when the catalog holds the part.
 use std::sync::Arc;
 
+use crate::ops::scan::heap_source::HeldCharge;
 use gravity_abi::ctx::{lane, Datum, Lane, ScanPos};
 use gravity_driver::{BindingRef, Cursor, Error, Residency, Result, Source, Window};
 use pgrc_format::abi::{ByteArena, DecodeOut, Selection, ValidityVerdict};
@@ -16,7 +17,6 @@ use pgrc_format::rowid::{rowid_granule, rowid_part, rowid_row};
 use pgrc_format::FormatError;
 use pgrc_read::{OpenPart, PartPin, PartRegistry, ReadError, StreamCursor};
 use pgrc_scan::PartDeletes;
-use crate::ops::scan::heap_source::HeldCharge;
 use types_core::Oid;
 use types_error::PgResult;
 use types_rel::Relation;
@@ -27,7 +27,8 @@ use crate::ops::scan::pgrc::granule_source::{open_io, PartList, Resolved};
 /// on it).
 pub const MAX_FETCH_ROWS: usize = gravity_abi::site::MAX_FETCH_ROWS;
 /// The process census of every fetch site: `[rows fetched, (granule, column) decodes]` — the served line's `fetch=` witness.
-pub static FETCH_DIAG: [core::sync::atomic::AtomicU64; 2] = [const { core::sync::atomic::AtomicU64::new(0) }; 2];
+pub static FETCH_DIAG: [core::sync::atomic::AtomicU64; 2] =
+    [const { core::sync::atomic::AtomicU64::new(0) }; 2];
 const VALIDITY_WORDS: usize = 128;
 const ARENA_MIN: usize = gravity_program::cost::pgrc::FETCH_ARENA_MIN_BYTES;
 /// A column read as a by-value datum word (`decode_sel` writes the datum itself).
@@ -56,7 +57,10 @@ impl FetchRecipe {
         use tableam_vocab::TableAm;
         use types_rel::{RELKIND_MATVIEW, RELKIND_RELATION};
         // D2989: a pgrcolumnar materialized view too (the same storage)
-        if !matches!(rel.rd_rel.relkind, RELKIND_RELATION | RELKIND_MATVIEW) || TableAm::of(rel) != Some(TableAm::Pgrcolumnar) || rel.rd_islocaltemp {
+        if !matches!(rel.rd_rel.relkind, RELKIND_RELATION | RELKIND_MATVIEW)
+            || TableAm::of(rel) != Some(TableAm::Pgrcolumnar)
+            || rel.rd_islocaltemp
+        {
             return Err(crate::pg_err("gravity: fetch needs a pgrc relation"));
         }
         if attnos.is_empty() {
@@ -64,22 +68,46 @@ impl FetchRecipe {
         }
         let schemas = pgrc_am::schema::col_schemas(rel)?;
         let mut kinds = vec![KIND_INT; attnos.len()]; // alloc: Program
-        // bounded("key-columns: one fetched column's class at plan time, found among the table's columns, at most MaxTupleAttributeNumber (1664) columns")
+                                                      // bounded("key-columns: one fetched column's class at plan time, found among the table's columns, at most MaxTupleAttributeNumber (1664) columns")
         for (k, &a) in attnos.iter().enumerate() {
-            let Some(c) = schemas.iter().find(|c| a > 0 && c.attno == a as u32) else { return Err(crate::pg_err("gravity: fetch attno")) };
+            let Some(c) = schemas.iter().find(|c| a > 0 && c.attno == a as u32) else {
+                return Err(crate::pg_err("gravity: fetch attno"));
+            };
             kinds[k] = match c.class {
-                StorageClass::ByvalWord { .. } | StorageClass::F32 | StorageClass::F64 | StorageClass::Bool => KIND_INT,
+                StorageClass::ByvalWord { .. }
+                | StorageClass::F32
+                | StorageClass::F64
+                | StorageClass::Bool => KIND_INT,
                 // SRC-26: a fixed-length by-reference image is published as a pointer to its arena copy, as a varlena's
                 StorageClass::VarlenaVerbatim | StorageClass::Fixed { .. } => KIND_TEXT,
             };
         }
-        Ok(FetchRecipe::for_test(rel.rd_id, attnos, &kinds, pgrc_am::inval::registry()))
+        Ok(FetchRecipe::for_test(
+            rel.rd_id,
+            attnos,
+            &kinds,
+            pgrc_am::inval::registry(),
+        ))
     }
 
     /// The recipe without a relation: the part list comes through the statement's `Resolved`.
-    pub fn for_test(rel: Oid, attnos: &[i16], kinds: &[u8], registry: Arc<PartRegistry>) -> FetchRecipe {
-        assert!(attnos.len() == kinds.len() && !attnos.is_empty(), "fetch shape");
-        FetchRecipe { rel, natts: attnos.len(), attnos: Arc::from(attnos), kinds: Arc::from(kinds), registry } // alloc: Program
+    pub fn for_test(
+        rel: Oid,
+        attnos: &[i16],
+        kinds: &[u8],
+        registry: Arc<PartRegistry>,
+    ) -> FetchRecipe {
+        assert!(
+            attnos.len() == kinds.len() && !attnos.is_empty(),
+            "fetch shape"
+        );
+        FetchRecipe {
+            rel,
+            natts: attnos.len(),
+            attnos: Arc::from(attnos),
+            kinds: Arc::from(kinds),
+            registry,
+        } // alloc: Program
     }
 }
 
@@ -123,7 +151,26 @@ fn read_err(e: ReadError) -> Error {
 
 impl FetchSource {
     pub fn new(recipe: FetchRecipe) -> FetchSource {
-        FetchSource { held: HeldCharge::new(), recipe, list: None, slots: Vec::new(), held_generation: 0, datums: Vec::new(), valid: Vec::new(), arena: Vec::new(), spent: Vec::new(), order: Vec::new(), sel: Vec::new(), didx: Vec::new(), dense: Vec::new(), vmask: Vec::new(), fetched: 0, granule_decodes: 0, bound: false, cur: Cursor::new() } // alloc: Node
+        FetchSource {
+            held: HeldCharge::new(),
+            recipe,
+            list: None,
+            slots: Vec::new(),
+            held_generation: 0,
+            datums: Vec::new(),
+            valid: Vec::new(),
+            arena: Vec::new(),
+            spent: Vec::new(),
+            order: Vec::new(),
+            sel: Vec::new(),
+            didx: Vec::new(),
+            dense: Vec::new(),
+            vmask: Vec::new(),
+            fetched: 0,
+            granule_decodes: 0,
+            bound: false,
+            cur: Cursor::new(),
+        } // alloc: Node
     }
 
     /// The census: rows fetched, `(granule, column)` decodes.
@@ -132,9 +179,15 @@ impl FetchSource {
     }
 
     fn pin(&mut self, p: usize) -> Result<()> {
-        let list = Arc::clone(self.list.as_ref().ok_or_else(|| Error::host("gravity: fetch on an unbound source"))?);
+        let list = Arc::clone(
+            self.list
+                .as_ref()
+                .ok_or_else(|| Error::host("gravity: fetch on an unbound source"))?,
+        );
         if p >= list.len() {
-            return Err(Error::host("gravity: a rowid names a part outside the plan"));
+            return Err(Error::host(
+                "gravity: a rowid names a part outside the plan",
+            ));
         }
         if self.slots[p].part.is_some() {
             return Ok(());
@@ -142,10 +195,18 @@ impl FetchSource {
         let spec = &list.parts()[p];
         let part = match &spec.part {
             Some(part) => Arc::clone(part),
-            None => Arc::clone(self.recipe.registry.open_pinned(&spec.expect, || open_io(&spec.io)).map_err(read_err)?.part()),
+            None => Arc::clone(
+                self.recipe
+                    .registry
+                    .open_pinned(&spec.expect, || open_io(&spec.io))
+                    .map_err(read_err)?
+                    .part(),
+            ),
         };
         if part.footer().granule_count != spec.granules {
-            return Err(Error::host("gravity: pgrc part geometry changed under the plan"));
+            return Err(Error::host(
+                "gravity: pgrc part geometry changed under the plan",
+            ));
         }
         let _ = PartPin::pin(&part);
         self.slots[p].part = Some(part);
@@ -165,7 +226,8 @@ impl FetchSource {
                 Some(l) => Arc::clone(l.lane_part(p, attno, real).map_err(crate::stash)?),
                 None => Arc::clone(real),
             };
-            let mut cur = StreamCursor::open(part, pgrc_am::scan::codec_binding(), attno, 0).map_err(read_err)?;
+            let mut cur = StreamCursor::open(part, pgrc_am::scan::codec_binding(), attno, 0)
+                .map_err(read_err)?;
             cur.set_owner(self.held.owner());
             slot.cursors[k] = Some(cur); // alloc: Node
         }
@@ -186,14 +248,19 @@ impl FetchSource {
         let (p, lg) = (rowid_part(id) as usize, rowid_granule(id));
         self.pin(p)?;
         let list = Arc::clone(self.list.as_ref().expect("bound"));
-        let deletes = list.parts()[p].deletes.as_ref().and_then(|d| d.granule_mask(lg));
+        let deletes = list.parts()[p]
+            .deletes
+            .as_ref()
+            .and_then(|d| d.granule_mask(lg));
         self.sel.clear();
         self.didx.clear();
         // bounded("small-fixed: one fetch request's rows, at most MAX_FETCH_ROWS (1024)")
         for &i in &self.order[from..to] {
             let row = rowid_row(rowids[i as usize]);
             if deletes.is_some_and(|m| PartDeletes::is_deleted(m, row)) {
-                return Err(Error::host("gravity: a fetched row is deleted under the snapshot"));
+                return Err(Error::host(
+                    "gravity: a fetched row is deleted under the snapshot",
+                ));
             }
             if self.sel.last() != Some(&(row as u16)) {
                 self.sel.push(row as u16); // alloc: Node charged self.held.owner()
@@ -207,7 +274,9 @@ impl FetchSource {
             step.tick()?;
             let rows = self.cursor(p, k)?.rows_in_granule(lg);
             if self.sel.last().is_some_and(|&r| r as u32 >= rows) {
-                return Err(Error::host("gravity: a rowid names a row outside its granule"));
+                return Err(Error::host(
+                    "gravity: a rowid names a row outside its granule",
+                ));
             }
             // bounded("small-fixed: one retry per doubling of the fetch's arena chunk, at most 64 (a usize's bits)")
             loop {
@@ -219,7 +288,10 @@ impl FetchSource {
                     self.grow((used + ARENA_MIN).div_ceil(8) * 16);
                     continue;
                 }
-                let mut out = DecodeOut { datums: &mut self.dense[..n], arena };
+                let mut out = DecodeOut {
+                    datums: &mut self.dense[..n],
+                    arena,
+                };
                 let sel = Selection { rows: &self.sel };
                 let cur = self.slots[p].cursors[k].as_mut().expect("cursor");
                 match cur.decode_sel(lg, &sel, &mut out) {
@@ -237,7 +309,11 @@ impl FetchSource {
                 }
             }
             let cur = self.slots[p].cursors[k].as_mut().expect("cursor");
-            let all = !cur.has_validity_stream() || matches!(cur.validity(lg, &mut self.vmask).map_err(read_err)?, ValidityVerdict::AllValid);
+            let all = !cur.has_validity_stream()
+                || matches!(
+                    cur.validity(lg, &mut self.vmask).map_err(read_err)?,
+                    ValidityVerdict::AllValid
+                );
             self.granule_decodes += 1;
             FETCH_DIAG[1].fetch_add(1, core::sync::atomic::Ordering::Relaxed);
             // bounded("small-fixed: one fetch request's rows, at most MAX_FETCH_ROWS (1024)")
@@ -260,7 +336,11 @@ impl Source for FetchSource {
         // columns: any by-value class or varlena); here, not in from_plan, so a program-cache hit fires too
         fires::fire_shared("pgrc.fetch_site");
         // the relation's list as the statement's leader resolved it (the scan site's, §4.2)
-        let list = Resolved::of(b).map_err(crate::stash)?.list(self.recipe.rel).cloned().ok_or_else(|| Error::host("gravity: fetch source bound without a part list"))?;
+        let list = Resolved::of(b)
+            .map_err(crate::stash)?
+            .list(self.recipe.rel)
+            .cloned()
+            .ok_or_else(|| Error::host("gravity: fetch source bound without a part list"))?;
         if list.generation() != self.held_generation {
             self.slots.clear();
             self.held_generation = list.generation();
@@ -269,19 +349,32 @@ impl Source for FetchSource {
         // back to the session)
         let (to, release) = memledger::charge::context();
         // bounded("other: one O(1) owner move per kept cursor, the read columns of the parts this source keeps")
-        for c in self.slots.iter_mut().flat_map(|s| s.cursors.iter_mut()).flatten() {
+        for c in self
+            .slots
+            .iter_mut()
+            .flat_map(|s| s.cursors.iter_mut())
+            .flatten()
+        {
             c.rejoin(to, release);
         }
         // CONVERT wave 2: a fetch site has no window to name its breaker: its buffers are the statement's (or portal's)
         if self.held.home(HeldCharge::of_statement()) {
             let to = self.held.owner();
             // bounded("other: one O(1) owner set per kept cursor, the read columns of the parts this source keeps")
-            for c in self.slots.iter_mut().flat_map(|s| s.cursors.iter_mut()).flatten() {
+            for c in self
+                .slots
+                .iter_mut()
+                .flat_map(|s| s.cursors.iter_mut())
+                .flatten()
+            {
                 c.set_owner(to);
             }
         }
         if self.slots.len() < list.len() {
-            self.slots.resize_with(list.len(), || Slot { part: None, cursors: Vec::new() }); // alloc: Node
+            self.slots.resize_with(list.len(), || Slot {
+                part: None,
+                cursors: Vec::new(),
+            }); // alloc: Node
         }
         if self.datums.len() < (self.recipe.natts + 1) * MAX_FETCH_ROWS {
             self.datums.resize(self.recipe.natts * MAX_FETCH_ROWS, 0); // alloc: Node charged self.held.owner()
@@ -324,7 +417,7 @@ impl Source for FetchSource {
         self.spent.clear();
         self.order.clear();
         self.order.extend(0..n as u32); // alloc: Node charged self.held.owner()
-        // bounded("small-fixed: one fetch request's rows, at most MAX_FETCH_ROWS (1024)")
+                                        // bounded("small-fixed: one fetch request's rows, at most MAX_FETCH_ROWS (1024)")
         self.order.sort_unstable_by_key(|&i| rowids[i as usize]);
         self.valid[..natts * VALIDITY_WORDS / 8].fill(0);
         self.dense[MAX_FETCH_ROWS] = 0;
@@ -346,9 +439,28 @@ impl Source for FetchSource {
         #[allow(clippy::needless_range_loop)]
         for k in 0..natts {
             let words = n.div_ceil(64);
-            let all = self.valid[k * VALIDITY_WORDS / 8..][..words].iter().enumerate().all(|(w, &v)| v == if w + 1 == words && ! n.is_multiple_of( 64) { (1u64 << (n % 64)) - 1 } else { !0 });
-            let valid = if all { core::ptr::null() } else { self.valid[k * VALIDITY_WORDS / 8..].as_ptr() };
-            let mut l = Lane::byval(self.datums[k * MAX_FETCH_ROWS..].as_ptr() as *const u8, valid, 8, lane::REGION_ARENA, lane::id(lane::ID_ATTR, self.recipe.attnos[k] as u32));
+            let all = self.valid[k * VALIDITY_WORDS / 8..][..words]
+                .iter()
+                .enumerate()
+                .all(|(w, &v)| {
+                    v == if w + 1 == words && !n.is_multiple_of(64) {
+                        (1u64 << (n % 64)) - 1
+                    } else {
+                        !0
+                    }
+                });
+            let valid = if all {
+                core::ptr::null()
+            } else {
+                self.valid[k * VALIDITY_WORDS / 8..].as_ptr()
+            };
+            let mut l = Lane::byval(
+                self.datums[k * MAX_FETCH_ROWS..].as_ptr() as *const u8,
+                valid,
+                8,
+                lane::REGION_ARENA,
+                lane::id(lane::ID_ATTR, self.recipe.attnos[k] as u32),
+            );
             if self.recipe.kinds[k] == KIND_TEXT {
                 l.kind = lane::KIND_BYREF;
             }
@@ -383,7 +495,12 @@ impl Source for FetchSource {
         self.list = None;
         // C8: the kept cursors' part uses pass to the backend's session (D1507: they outlive the statement)
         // bounded("other: one O(1) owner move per kept cursor, the read columns of the parts this source keeps")
-        for c in self.slots.iter_mut().flat_map(|s| s.cursors.iter_mut()).flatten() {
+        for c in self
+            .slots
+            .iter_mut()
+            .flat_map(|s| s.cursors.iter_mut())
+            .flatten()
+        {
             c.keep_past_statement();
         }
         self.held.park(self.kept_bytes() as u64);
@@ -392,7 +509,16 @@ impl Source for FetchSource {
     /// D3213: the published cells and the decode buffers, kept between statements (`slots` is not: `release_rel` takes it).
     fn kept_bytes(&self) -> usize {
         use gravity_driver::vec_bytes as v;
-        v(&self.datums) + v(&self.valid) + v(&self.arena) + v(&self.spent) + self.spent.iter().map(v).sum::<usize>() + v(&self.order) + v(&self.sel) + v(&self.didx) + v(&self.dense) + v(&self.vmask)
+        v(&self.datums)
+            + v(&self.valid)
+            + v(&self.arena)
+            + v(&self.spent)
+            + self.spent.iter().map(v).sum::<usize>()
+            + v(&self.order)
+            + v(&self.sel)
+            + v(&self.didx)
+            + v(&self.dense)
+            + v(&self.vmask)
     }
 
     /// D1507: an unbound source's kept parts and cursors (each holds its part file open) moved out; the next bind grows the
@@ -419,7 +545,12 @@ impl Source for FetchSource {
         }
         self.held.transfer(to, release);
         // bounded("other: one O(1) owner move per kept cursor, the read columns of the parts this source keeps")
-        for c in self.slots.iter_mut().flat_map(|s| s.cursors.iter_mut()).flatten() {
+        for c in self
+            .slots
+            .iter_mut()
+            .flat_map(|s| s.cursors.iter_mut())
+            .flatten()
+        {
             c.transfer_kept(to, release);
         }
     }
@@ -430,13 +561,21 @@ impl Source for FetchSource {
             return;
         }
         // bounded("other: one O(1) owner move per kept cursor, the read columns of the parts this source keeps")
-        for c in self.slots.iter_mut().flat_map(|s| s.cursors.iter_mut()).flatten() {
+        for c in self
+            .slots
+            .iter_mut()
+            .flat_map(|s| s.cursors.iter_mut())
+            .flatten()
+        {
             c.transfer_use(to, release);
         }
     }
 
     fn residency(&self) -> Residency {
         let held = self.slots.iter().filter_map(|s| s.part.as_ref());
-        Residency { parts: held.clone().count() as u32, bytes: held.map(|p| p.resident()).sum() }
+        Residency {
+            parts: held.clone().count() as u32,
+            bytes: held.map(|p| p.resident()).sum(),
+        }
     }
 }

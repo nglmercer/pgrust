@@ -19,18 +19,30 @@ pub(crate) fn quiet(gx: &Gx<'_, '_>, k: usize, end: Option<BreakerKind>) -> bool
         #[allow(clippy::redundant_guards)]
         Some(b) if b == BreakerKind::Materialize => true,
         #[allow(clippy::redundant_guards)]
-        Some(b) if b == BreakerKind::HashBuild => matches!(p.ops.last(), Some(Op::Join(JoinDesc::Build { keys, .. })) if keys.iter().all(rf)),
+        Some(b) if b == BreakerKind::HashBuild => {
+            matches!(p.ops.last(), Some(Op::Join(JoinDesc::Build { keys, .. })) if keys.iter().all(rf))
+        }
         #[allow(clippy::redundant_guards)]
-        Some(b) if matches!(b, BreakerKind::PlainAgg | BreakerKind::HashAgg | BreakerKind::Distinct) => gx.group_at(k).is_some_and(|g| g.aggs.iter().all(|a| rf(a.node) && a.filter.is_none_or(rf))),
+        Some(b)
+            if matches!(
+                b,
+                BreakerKind::PlainAgg | BreakerKind::HashAgg | BreakerKind::Distinct
+            ) =>
+        {
+            gx.group_at(k)
+                .is_some_and(|g| g.aggs.iter().all(|a| rf(a.node) && a.filter.is_none_or(rf)))
+        }
         _ => false,
     };
-    end && crate::ops::hashjoin::build_class::own_side(gx, k) == crate::ops::hashjoin::build_class::Side::Safe
+    end && crate::ops::hashjoin::build_class::own_side(gx, k)
+        == crate::ops::hashjoin::build_class::Side::Safe
 }
 
 /// D2571 (ops/shared/limit.rs, ops/result/gate.rs): whether evaluating gate qual `n` (a list: each member) once more would
 /// show: it calls a user function or a VOLATILE one in whole scope (`subplan::calls_whole`, D4138: a SubPlan's plan,
 /// test and args too), or holds a row-reading xml builtin or a node the walk cannot see (`Fx::user_typed`).
 pub(crate) fn qual_calls(gx: &Gx<'_, '_>, n: types_nodes::Node<'_>) -> bool {
-    let one = |c: types_nodes::Node<'_>| super::subplan::calls_whole(gx, c) || gx.fx(c).user_typed();
+    let one =
+        |c: types_nodes::Node<'_>| super::subplan::calls_whole(gx, c) || gx.fx(c).user_typed();
     n.as_list().map_or_else(|| one(n), |l| l.iter().any(one))
 }

@@ -47,7 +47,10 @@ fn bringup() -> MutexGuard<'static, ()> {
     // so a sibling that registered static workers without running shmem
     // init (the over-limit LOG tests) would otherwise leak them into this
     // test's slots and `registered` entries (scheduling-dependent).
-    STATIC_PENDING.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    STATIC_PENDING
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
     BackgroundWorkerShmemInit().expect("shmem init");
     guard
 }
@@ -56,7 +59,10 @@ fn bringup() -> MutexGuard<'static, ()> {
 /// pending list, IsUnderPostmaster false (bgworker.c:949 admits us).
 fn static_registration_setup() {
     *REGISTRY.lock().unwrap_or_else(|e| e.into_inner()) = None;
-    STATIC_PENDING.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    STATIC_PENDING
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
     g::SetIsUnderPostmaster(false);
     g::SetIsPostmasterEnvironment(true);
 }
@@ -70,7 +76,9 @@ fn pending_names() -> Vec<String> {
         .collect()
 }
 
-fn with_log_capture<R>(f: impl FnOnce() -> R) -> (R, Vec<(types_error::SqlState, String, Option<String>)>) {
+fn with_log_capture<R>(
+    f: impl FnOnce() -> R,
+) -> (R, Vec<(types_error::SqlState, String, Option<String>)>) {
     LOGS.lock().unwrap_or_else(|e| e.into_inner()).clear();
     let prior = elog::sink::set_emit_log_hook(Some(capture_log));
     let r = f();
@@ -163,7 +171,10 @@ fn parallel_admit_shares_the_max_parallel_workers_counter() {
 fn handle_status_transitions() {
     let _g = bringup();
     let h = register("t0", BGWORKER_SHMEM_ACCESS).expect("slot");
-    assert_eq!(GetBackgroundWorkerPid(&h), (BgwHandleStatus::BGWH_NOT_YET_STARTED, 0));
+    assert_eq!(
+        GetBackgroundWorkerPid(&h),
+        (BgwHandleStatus::BGWH_NOT_YET_STARTED, 0)
+    );
 
     BackgroundWorkerStateChange(true);
     let idx = registered_idx_for(&h);
@@ -171,19 +182,31 @@ fn handle_status_transitions() {
 
     set_rw_pid(idx, 1234);
     ReportBackgroundWorkerPID(idx);
-    assert_eq!(GetBackgroundWorkerPid(&h), (BgwHandleStatus::BGWH_STARTED, 1234));
+    assert_eq!(
+        GetBackgroundWorkerPid(&h),
+        (BgwHandleStatus::BGWH_STARTED, 1234)
+    );
     assert_eq!(GetBackgroundWorkerTypeByPid(1234).as_deref(), Some("t0"));
 
     set_rw_pid(idx, 0);
     ReportBackgroundWorkerExit(idx);
-    assert_eq!(GetBackgroundWorkerPid(&h), (BgwHandleStatus::BGWH_STOPPED, 0));
+    assert_eq!(
+        GetBackgroundWorkerPid(&h),
+        (BgwHandleStatus::BGWH_STOPPED, 0)
+    );
     with_registry(|reg| {
         assert!(!reg.slots[h.slot as usize].in_use);
         assert!(reg.registered.iter().all(|rw| rw.is_none()));
     });
 
-    let stale = BackgroundWorkerHandle { slot: h.slot, generation: h.generation + 7 };
-    assert_eq!(GetBackgroundWorkerPid(&stale), (BgwHandleStatus::BGWH_STOPPED, 0));
+    let stale = BackgroundWorkerHandle {
+        slot: h.slot,
+        generation: h.generation + 7,
+    };
+    assert_eq!(
+        GetBackgroundWorkerPid(&stale),
+        (BgwHandleStatus::BGWH_STOPPED, 0)
+    );
 }
 
 #[test]
@@ -200,7 +223,10 @@ fn terminate_before_start_frees_slot_and_counts_parallel() {
         assert_eq!(reg.parallel_terminate_count, 1);
         assert!(reg.registered.iter().all(|rw| rw.is_none()));
     });
-    assert_eq!(GetBackgroundWorkerPid(&h), (BgwHandleStatus::BGWH_STOPPED, 0));
+    assert_eq!(
+        GetBackgroundWorkerPid(&h),
+        (BgwHandleStatus::BGWH_STOPPED, 0)
+    );
 }
 
 #[test]
@@ -209,7 +235,10 @@ fn state_change_disallowing_new_workers_terminates_pending() {
     let h = register("dn", BGWORKER_SHMEM_ACCESS).expect("slot");
     BackgroundWorkerStateChange(false);
     with_registry(|reg| assert!(!reg.slots[h.slot as usize].in_use));
-    assert_eq!(GetBackgroundWorkerPid(&h), (BgwHandleStatus::BGWH_STOPPED, 0));
+    assert_eq!(
+        GetBackgroundWorkerPid(&h),
+        (BgwHandleStatus::BGWH_STOPPED, 0)
+    );
 }
 
 #[test]
@@ -227,7 +256,10 @@ fn running_terminated_worker_marks_rw_terminate() {
 
     set_rw_pid(idx, 0);
     ReportBackgroundWorkerExit(idx);
-    assert_eq!(GetBackgroundWorkerPid(&h), (BgwHandleStatus::BGWH_STOPPED, 0));
+    assert_eq!(
+        GetBackgroundWorkerPid(&h),
+        (BgwHandleStatus::BGWH_STOPPED, 0)
+    );
 }
 
 #[test]
@@ -235,21 +267,33 @@ fn forget_unstarted_only_zaps_waited_on_workers() {
     let _g = bringup();
     let mut w = mk_worker("fu", BGWORKER_SHMEM_ACCESS);
     w.bgw_notify_pid = 7777;
-    let h = RegisterDynamicBackgroundWorker(w).expect("register").expect("slot");
+    let h = RegisterDynamicBackgroundWorker(w)
+        .expect("register")
+        .expect("slot");
     let h2 = register("fu2", BGWORKER_SHMEM_ACCESS).expect("slot");
 
     // notify-pid validation needs the pmchild seam; simulate the postmaster
     // knowing pid 7777 by patching after registration instead.
     with_registry(|reg| {
-        reg.slots[h.slot as usize].worker.as_mut().unwrap().bgw_notify_pid = 0;
+        reg.slots[h.slot as usize]
+            .worker
+            .as_mut()
+            .unwrap()
+            .bgw_notify_pid = 0;
     });
     BackgroundWorkerStateChange(true);
     let idx = registered_idx_for(&h);
     with_registry(|reg| rw_mut(reg, idx).worker.bgw_notify_pid = 7777);
 
     ForgetUnstartedBackgroundWorkers();
-    assert_eq!(GetBackgroundWorkerPid(&h), (BgwHandleStatus::BGWH_STOPPED, 0));
-    assert_eq!(GetBackgroundWorkerPid(&h2), (BgwHandleStatus::BGWH_NOT_YET_STARTED, 0));
+    assert_eq!(
+        GetBackgroundWorkerPid(&h),
+        (BgwHandleStatus::BGWH_STOPPED, 0)
+    );
+    assert_eq!(
+        GetBackgroundWorkerPid(&h2),
+        (BgwHandleStatus::BGWH_NOT_YET_STARTED, 0)
+    );
 }
 
 #[test]
@@ -283,12 +327,17 @@ fn get_background_worker_type_by_pid() {
     let _g = bringup();
     let mut w = mk_worker("typed", BGWORKER_SHMEM_ACCESS);
     w.bgw_type = "test worker".to_string();
-    let h = RegisterDynamicBackgroundWorker(w).expect("register").expect("slot");
+    let h = RegisterDynamicBackgroundWorker(w)
+        .expect("register")
+        .expect("slot");
     BackgroundWorkerStateChange(true);
     let idx = registered_idx_for(&h);
     with_registry(|reg| rw_mut(reg, idx).pid = 4242);
     ReportBackgroundWorkerPID(idx);
-    assert_eq!(GetBackgroundWorkerTypeByPid(4242).as_deref(), Some("test worker"));
+    assert_eq!(
+        GetBackgroundWorkerTypeByPid(4242).as_deref(),
+        Some("test worker")
+    );
     assert_eq!(GetBackgroundWorkerTypeByPid(4243), None);
 }
 
@@ -333,24 +382,42 @@ fn dynamic_worker_with_restart_interval_registers_and_survives_crash() {
     let _g = bringup();
     let mut w = mk_worker("restarting", BGWORKER_SHMEM_ACCESS);
     w.bgw_restart_time = 60;
-    let h = RegisterDynamicBackgroundWorker(w).expect("register").expect("slot");
-    assert_eq!(GetBackgroundWorkerPid(&h), (BgwHandleStatus::BGWH_NOT_YET_STARTED, 0));
+    let h = RegisterDynamicBackgroundWorker(w)
+        .expect("register")
+        .expect("slot");
+    assert_eq!(
+        GetBackgroundWorkerPid(&h),
+        (BgwHandleStatus::BGWH_NOT_YET_STARTED, 0)
+    );
 
     BackgroundWorkerStateChange(true);
     let idx = registered_idx_for(&h);
     assert_eq!(rw_restart_time(idx), 60);
     set_rw_pid(idx, 5150);
     ReportBackgroundWorkerPID(idx);
-    assert_eq!(GetBackgroundWorkerPid(&h), (BgwHandleStatus::BGWH_STARTED, 5150));
+    assert_eq!(
+        GetBackgroundWorkerPid(&h),
+        (BgwHandleStatus::BGWH_STARTED, 5150)
+    );
 
     // Crash exit (CleanupBackend: rw_pid = 0, crashed_at set, not terminated).
     set_rw_pid(idx, 0);
     set_rw_crashed_at(idx, 1);
     ReportBackgroundWorkerExit(idx);
-    assert_eq!(GetBackgroundWorkerPid(&h), (BgwHandleStatus::BGWH_STOPPED, 0));
+    assert_eq!(
+        GetBackgroundWorkerPid(&h),
+        (BgwHandleStatus::BGWH_STOPPED, 0)
+    );
     with_registry(|reg| {
-        assert!(reg.slots[h.slot as usize].in_use, "restartable worker keeps its slot");
-        assert_eq!(find_rw_by_slot(reg, h.slot), Some(idx), "registered entry survives for the restart");
+        assert!(
+            reg.slots[h.slot as usize].in_use,
+            "restartable worker keeps its slot"
+        );
+        assert_eq!(
+            find_rw_by_slot(reg, h.slot),
+            Some(idx),
+            "registered entry survives for the restart"
+        );
     });
     assert_eq!(rw_crashed_at(idx), 1);
 }
@@ -365,7 +432,10 @@ fn static_registration_after_shmem_init_is_an_error_not_a_panic() {
         .expect_err("registration after shmem init must fail");
     assert_eq!(e.level(), ERROR);
     assert_eq!(e.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
-    assert_eq!(e.message(), "cannot register background worker \"late static\" after shmem init");
+    assert_eq!(
+        e.message(),
+        "cannot register background worker \"late static\" after shmem init"
+    );
 }
 
 // bgworker.c:1003-1008: the over-limit LOG carries ERRCODE_CONFIGURATION_LIMIT_
@@ -416,9 +486,14 @@ fn static_registration_outside_postmaster_environment_is_refused_at_log() {
     g::SetIsPostmasterEnvironment(false);
 
     let (_, logs) = with_log_capture(|| {
-        RegisterBackgroundWorker(&mk_worker("single-user", BGWORKER_SHMEM_ACCESS)).expect("register");
+        RegisterBackgroundWorker(&mk_worker("single-user", BGWORKER_SHMEM_ACCESS))
+            .expect("register");
     });
-    assert!(pending_names().is_empty(), "registered outside the postmaster: {:?}", pending_names());
+    assert!(
+        pending_names().is_empty(),
+        "registered outside the postmaster: {:?}",
+        pending_names()
+    );
     let refused = logs
         .iter()
         .find(|(_, m, _)| m.contains("must be registered in \"shared_preload_libraries\""))
@@ -431,11 +506,15 @@ fn static_registration_outside_postmaster_environment_is_refused_at_log() {
 
     miscinit::set_process_shared_preload_libraries_in_progress(true);
     let (_, logs) = with_log_capture(|| {
-        RegisterBackgroundWorker(&mk_worker("preloading", BGWORKER_SHMEM_ACCESS)).expect("register");
+        RegisterBackgroundWorker(&mk_worker("preloading", BGWORKER_SHMEM_ACCESS))
+            .expect("register");
     });
     miscinit::set_process_shared_preload_libraries_in_progress(false);
     assert!(pending_names().is_empty());
-    assert!(logs.is_empty(), "shared_preload_libraries-time registration must be silent: {logs:?}");
+    assert!(
+        logs.is_empty(),
+        "shared_preload_libraries-time registration must be silent: {logs:?}"
+    );
 
     g::SetIsPostmasterEnvironment(true);
     let mut w = mk_worker("notifier", BGWORKER_SHMEM_ACCESS);
@@ -459,9 +538,15 @@ fn worker_identity_sets_process_title_to_bgw_name() {
     let w = mk_worker("titled worker", BGWORKER_SHMEM_ACCESS);
     adopt_worker_identity(&w);
     assert_eq!(miscinit::GetMyBackendType(), BackendType::BgWorker);
-    assert_eq!(MyBgworkerEntry().map(|w| w.bgw_name), Some("titled worker".to_string()));
     assert_eq!(
-        PS_TITLE.lock().unwrap_or_else(|e| e.into_inner()).as_deref(),
+        MyBgworkerEntry().map(|w| w.bgw_name),
+        Some("titled worker".to_string())
+    );
+    assert_eq!(
+        PS_TITLE
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_deref(),
         Some("titled worker")
     );
 }
@@ -477,12 +562,22 @@ fn registrations_are_traversed_newest_first() {
     g::SetIsUnderPostmaster(true);
     BackgroundWorkerShmemInit().expect("shmem init");
     let names = |idxs: Vec<usize>| -> Vec<String> {
-        with_registry(|reg| idxs.iter().map(|&i| rw_ref(reg, i).worker.bgw_name.clone()).collect())
+        with_registry(|reg| {
+            idxs.iter()
+                .map(|&i| rw_ref(reg, i).worker.bgw_name.clone())
+                .collect()
+        })
     };
-    assert_eq!(names(registered_indexes()), vec!["second static", "first static"]);
+    assert_eq!(
+        names(registered_indexes()),
+        vec!["second static", "first static"]
+    );
     register("dynamic", BGWORKER_SHMEM_ACCESS).expect("slot");
     BackgroundWorkerStateChange(true);
-    assert_eq!(names(registered_indexes()), vec!["dynamic", "second static", "first static"]);
+    assert_eq!(
+        names(registered_indexes()),
+        vec!["dynamic", "second static", "first static"]
+    );
 }
 
 /// bgworker.c:982: a static worker failing SanityCheckBackgroundWorker is
@@ -495,7 +590,9 @@ fn static_sanity_failure_logs_with_invalid_parameter_value() {
     let (_, logs) = with_log_capture(|| RegisterBackgroundWorker(&w).expect("register"));
     let hit = logs
         .iter()
-        .find(|(_, m, _)| m.ends_with("background workers without shared memory access are not supported"))
+        .find(|(_, m, _)| {
+            m.ends_with("background workers without shared memory access are not supported")
+        })
         .unwrap_or_else(|| panic!("no sanity LOG in {logs:?}"));
     assert_eq!(hit.0, types_error::ERRCODE_INVALID_PARAMETER_VALUE);
     assert!(pending_names().is_empty());
@@ -508,20 +605,34 @@ fn pooled_worker_startup_logs_use_postmaster_scope() {
     elog::config::set_log_min_messages(DEBUG1);
     POOL_PID.store(4242, std::sync::atomic::Ordering::Relaxed);
     let (handle, logs) = with_log_capture(|| {
-        register("pooled startup", BGWORKER_SHMEM_ACCESS | BGWORKER_CLASS_PARALLEL).unwrap()
+        register(
+            "pooled startup",
+            BGWORKER_SHMEM_ACCESS | BGWORKER_CLASS_PARALLEL,
+        )
+        .unwrap()
     });
     POOL_PID.store(0, std::sync::atomic::Ordering::Relaxed);
-    assert!(logs.is_empty(), "leader must not log postmaster diagnostics: {logs:?}");
+    assert!(
+        logs.is_empty(),
+        "leader must not log postmaster diagnostics: {logs:?}"
+    );
     elog::config::set_log_min_messages(types_error::WARNING);
     let (_, logs) = with_log_capture(|| BackgroundWorkerStateChange(true));
-    assert!(logs.is_empty(), "postmaster threshold must suppress DEBUG1: {logs:?}");
+    assert!(
+        logs.is_empty(),
+        "postmaster threshold must suppress DEBUG1: {logs:?}"
+    );
     elog::config::set_log_min_messages(DEBUG1);
     let (_, logs) = with_log_capture(|| BackgroundWorkerStateChange(true));
     assert!(logs.is_empty(), "suppressed reports must not be replayed");
     ForgetBackgroundWorker(registered_idx_for(&handle));
 
     POOL_PID.store(4242, std::sync::atomic::Ordering::Relaxed);
-    let handle = register("pooled startup", BGWORKER_SHMEM_ACCESS | BGWORKER_CLASS_PARALLEL).unwrap();
+    let handle = register(
+        "pooled startup",
+        BGWORKER_SHMEM_ACCESS | BGWORKER_CLASS_PARALLEL,
+    )
+    .unwrap();
     POOL_PID.store(0, std::sync::atomic::Ordering::Relaxed);
     let idx = registered_idx_for(&handle);
     let (_, logs) = with_log_capture(|| {
@@ -529,10 +640,13 @@ fn pooled_worker_startup_logs_use_postmaster_scope() {
         BackgroundWorkerStateChange(true);
         ReportPendingBackgroundWorkerStartup(idx);
     });
-    assert_eq!(logs.iter().map(|l| l.1.as_str()).collect::<Vec<_>>(), vec![
-        "registering background worker \"pooled startup\"",
-        "starting background worker process \"pooled startup\"",
-    ]);
+    assert_eq!(
+        logs.iter().map(|l| l.1.as_str()).collect::<Vec<_>>(),
+        vec![
+            "registering background worker \"pooled startup\"",
+            "starting background worker process \"pooled startup\"",
+        ]
+    );
     ForgetBackgroundWorker(idx);
     elog::config::set_log_min_messages(prior_level);
 }

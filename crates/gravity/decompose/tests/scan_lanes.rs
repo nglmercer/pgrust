@@ -3,7 +3,7 @@ use gravity_abi::ctx::lane;
 use gravity_decompose::ops::scan::lane_of;
 use gravity_decompose::ops::shared::scan::{text_zone_op, zone_op, zone_word_of};
 use gravity_decompose::{Am, AttFact};
-use gravity_program::{DictRef, Home, LaneLife, NumTypmod, NumForm, Rep, Until, ZoneOp};
+use gravity_program::{DictRef, Home, LaneLife, NumForm, NumTypmod, Rep, Until, ZoneOp};
 
 fn att(typid: u32, typmod: i32, typlen: i16, byval: bool) -> AttFact {
     AttFact::plain(typid, typmod, typlen, byval, false)
@@ -15,11 +15,29 @@ fn numeric(p: i32, s: i32) -> AttFact {
 
 #[test]
 fn by_value_columns_are_words_on_every_am() {
-    for (typid, len) in [(21, 2), (23, 4), (20, 8), (1082, 4), (1114, 8), (26, 4), (700, 4), (701, 8), (16, 1)] {
+    for (typid, len) in [
+        (21, 2),
+        (23, 4),
+        (20, 8),
+        (1082, 4),
+        (1114, 8),
+        (26, 4),
+        (700, 4),
+        (701, 8),
+        (16, 1),
+    ] {
         let h = lane_of(0, 1, att(typid, -1, len, true), Am::Heap);
-        assert_eq!((h.rep, h.life, h.kind, h.width), (Rep::Word { bytes: 8 }, LaneLife::VALUE, lane::KIND_BYVAL, 8), "heap {typid}");
+        assert_eq!(
+            (h.rep, h.life, h.kind, h.width),
+            (Rep::Word { bytes: 8 }, LaneLife::VALUE, lane::KIND_BYVAL, 8),
+            "heap {typid}"
+        );
         let c = lane_of(0, 1, att(typid, -1, len, true), Am::Pgrcolumnar);
-        assert_eq!((c.rep, c.life, c.width), (Rep::Word { bytes: len as u8 }, LaneLife::VALUE, len as u8), "pgrc {typid}");
+        assert_eq!(
+            (c.rep, c.life, c.width),
+            (Rep::Word { bytes: len as u8 }, LaneLife::VALUE, len as u8),
+            "pgrc {typid}"
+        );
     }
 }
 
@@ -27,8 +45,15 @@ fn by_value_columns_are_words_on_every_am() {
 fn pgrc_float_and_bool_keep_the_fixed_kind_byte_but_are_words() {
     for (typid, len) in [(700, 4), (701, 8), (16, 1)] {
         let c = lane_of(2, 3, att(typid, -1, len, true), Am::Pgrcolumnar);
-        assert_eq!(c.kind, lane::KIND_FIXED, "the runtime lane block is unchanged");
-        assert!(matches!(c.rep, Rep::Word { .. }), "D198: {typid} is never a packed numeric");
+        assert_eq!(
+            c.kind,
+            lane::KIND_FIXED,
+            "the runtime lane block is unchanged"
+        );
+        assert!(
+            matches!(c.rep, Rep::Word { .. }),
+            "D198: {typid} is never a packed numeric"
+        );
         assert_eq!(c.num, NumTypmod::NONE);
     }
 }
@@ -38,11 +63,34 @@ fn text_columns_are_page_pointers_on_heap_and_codes_on_pgrc() {
     for typid in [25, 1043, 1042] {
         let h = lane_of(3, 4, att(typid, -1, -1, false), Am::Heap);
         assert_eq!((h.rep, h.life), (Rep::VarlenaPtr, LaneLife::PAGE));
-        assert_eq!(h.life, LaneLife { until: Until::Window, home: Home::PagePin });
+        assert_eq!(
+            h.life,
+            LaneLife {
+                until: Until::Window,
+                home: Home::PagePin
+            }
+        );
         let c = lane_of(3, 4, att(typid, -1, -1, false), Am::Pgrcolumnar);
-        assert_eq!(c.rep, Rep::Code { dict: DictRef { lane: 3, fp_table: DictRef::NO_TABLE } });
-        assert_eq!(c.life, LaneLife { until: Until::Part, home: Home::Dictionary });
-        assert_eq!((c.kind, c.width, c.region), (lane::KIND_CODES, 4, lane::REGION_DICTIONARY));
+        assert_eq!(
+            c.rep,
+            Rep::Code {
+                dict: DictRef {
+                    lane: 3,
+                    fp_table: DictRef::NO_TABLE
+                }
+            }
+        );
+        assert_eq!(
+            c.life,
+            LaneLife {
+                until: Until::Part,
+                home: Home::Dictionary
+            }
+        );
+        assert_eq!(
+            (c.kind, c.width, c.region),
+            (lane::KIND_CODES, 4, lane::REGION_DICTIONARY)
+        );
     }
 }
 
@@ -52,21 +100,37 @@ fn other_varlenas_are_pointers_with_the_source_life() {
         let h = lane_of(0, 1, att(typid, -1, -1, false), Am::Heap);
         assert_eq!((h.rep, h.life), (Rep::VarlenaPtr, LaneLife::PAGE));
         let c = lane_of(0, 1, att(typid, -1, -1, false), Am::Pgrcolumnar);
-        assert_eq!((c.rep, c.life, c.kind), (Rep::VarlenaPtr, LaneLife::PGRC, lane::KIND_BYREF));
+        assert_eq!(
+            (c.rep, c.life, c.kind),
+            (Rep::VarlenaPtr, LaneLife::PGRC, lane::KIND_BYREF)
+        );
     }
     let u = lane_of(0, 1, att(1700, -1, -1, false), Am::Pgrcolumnar);
-    assert_eq!((u.rep, u.num), (Rep::VarlenaPtr, NumTypmod::NONE), "an unconstrained numeric has no typmod facts");
+    assert_eq!(
+        (u.rep, u.num),
+        (Rep::VarlenaPtr, NumTypmod::NONE),
+        "an unconstrained numeric has no typmod facts"
+    );
 }
 
 #[test]
 fn fixed_length_by_reference_columns_are_never_varlenas() {
     for (typid, len) in [(19, 64), (2950, 16), (1186, 16), (1266, 12)] {
         let h = lane_of(0, 1, att(typid, -1, len, false), Am::Heap);
-        assert_eq!((h.rep, h.life), (Rep::FixedPtr { len: len as u16 }, LaneLife::PAGE));
+        assert_eq!(
+            (h.rep, h.life),
+            (Rep::FixedPtr { len: len as u16 }, LaneLife::PAGE)
+        );
         let c = lane_of(0, 1, att(typid, -1, len, false), Am::Pgrcolumnar);
-        assert_eq!((c.rep, c.life), (Rep::FixedPtr { len: len as u16 }, LaneLife::PGRC));
+        assert_eq!(
+            (c.rep, c.life),
+            (Rep::FixedPtr { len: len as u16 }, LaneLife::PGRC)
+        );
     }
-    assert_eq!(lane_of(0, 1, att(2275, -1, -2, false), Am::Heap).rep, Rep::CstrPtr);
+    assert_eq!(
+        lane_of(0, 1, att(2275, -1, -2, false), Am::Heap).rep,
+        Rep::CstrPtr
+    );
 }
 
 #[test]
@@ -75,39 +139,86 @@ fn numeric_typmod_facts_ride_the_lane() {
     assert_eq!((h.rep, h.life), (Rep::VarlenaPtr, LaneLife::PAGE));
     assert_eq!(h.num, NumTypmod::of(15, 2));
     let c = lane_of(0, 1, numeric(15, 2), Am::Pgrcolumnar);
-    assert_eq!(c.rep, Rep::PackedNum { facts: NumTypmod::of(15, 2), form: NumForm::Window });
-    assert_eq!((c.kind, c.width, c.life), (lane::KIND_FIXED, 8, LaneLife::PGRC));
+    assert_eq!(
+        c.rep,
+        Rep::PackedNum {
+            facts: NumTypmod::of(15, 2),
+            form: NumForm::Window
+        }
+    );
+    assert_eq!(
+        (c.kind, c.width, c.life),
+        (lane::KIND_FIXED, 8, LaneLife::PGRC)
+    );
     let w = lane_of(0, 1, numeric(25, 2), Am::Pgrcolumnar);
-    assert!(matches!(w.rep, Rep::PackedNum { facts, .. } if !facts.narrow()), "D197: p > 18 is wide");
+    assert!(
+        matches!(w.rep, Rep::PackedNum { facts, .. } if !facts.narrow()),
+        "D197: p > 18 is wide"
+    );
 }
 
 /// D2700: a domain column keys by its base (`AttFact::base`): a domain over text reads codes on pgrc, a domain over
 /// `numeric(p, s)` (the column's own typmod -1, the domain's p / s its base typmod) carries the facts and the packed form.
 #[test]
 fn a_domain_column_keys_by_its_base() {
-    let dom = |base: u32, base_typmod: i32, typlen: i16| AttFact { base, base_typmod, ..att(70_001, -1, typlen, false) };
+    let dom = |base: u32, base_typmod: i32, typlen: i16| AttFact {
+        base,
+        base_typmod,
+        ..att(70_001, -1, typlen, false)
+    };
     for base in [25, 1043, 1042] {
         let d = dom(base, -1, -1);
         assert!(d.is_text(), "a domain over {base}");
         let c = lane_of(3, 4, d, Am::Pgrcolumnar);
-        assert_eq!((c.rep, c.kind), (Rep::Code { dict: DictRef { lane: 3, fp_table: DictRef::NO_TABLE } }, lane::KIND_CODES));
+        assert_eq!(
+            (c.rep, c.kind),
+            (
+                Rep::Code {
+                    dict: DictRef {
+                        lane: 3,
+                        fp_table: DictRef::NO_TABLE
+                    }
+                },
+                lane::KIND_CODES
+            )
+        );
         assert_eq!(lane_of(3, 4, d, Am::Heap).rep, Rep::VarlenaPtr);
     }
     let n = dom(1700, numeric(15, 2).typmod, -1);
-    assert_eq!((n.numeric_scale(), n.num_facts()), (Some(2), NumTypmod::of(15, 2)));
+    assert_eq!(
+        (n.numeric_scale(), n.num_facts()),
+        (Some(2), NumTypmod::of(15, 2))
+    );
     assert_eq!(lane_of(0, 1, n, Am::Heap).num, NumTypmod::of(15, 2));
-    assert_eq!(lane_of(0, 1, n, Am::Pgrcolumnar).rep, Rep::PackedNum { facts: NumTypmod::of(15, 2), form: NumForm::Window });
+    assert_eq!(
+        lane_of(0, 1, n, Am::Pgrcolumnar).rep,
+        Rep::PackedNum {
+            facts: NumTypmod::of(15, 2),
+            form: NumForm::Window
+        }
+    );
     let other = dom(17, -1, -1);
-    assert!(!other.is_text() && other.num_facts() == NumTypmod::NONE, "a domain over bytea is neither");
+    assert!(
+        !other.is_text() && other.num_facts() == NumTypmod::NONE,
+        "a domain over bytea is neither"
+    );
     let plain = att(25, -1, -1, false);
-    assert_eq!((plain.base, plain.base_typmod), (25, -1), "a column that is no domain is its own base");
+    assert_eq!(
+        (plain.base, plain.base_typmod),
+        (25, -1),
+        "a column that is no domain is its own base"
+    );
 }
 
 #[test]
 fn num_facts_decode_the_typmod() {
     let f = |p: i32, s: i32| NumTypmod::of_typmod(((p << 16) | (s & 0x7ff)) + 4);
     assert_eq!(f(15, 2), NumTypmod::of(15, 2));
-    assert_eq!(f(10, -3), NumTypmod::of(10, -3), "a negative scale is the 11-bit signed field");
+    assert_eq!(
+        f(10, -3),
+        NumTypmod::of(10, -3),
+        "a negative scale is the 11-bit signed field"
+    );
     assert_eq!(NumTypmod::of_typmod(-1), NumTypmod::NONE);
     assert!(f(18, 18).narrow() && f(18, 0).narrow());
     assert!(!f(19, 2).narrow() && !f(10, -3).narrow() && !NumTypmod::NONE.narrow());
@@ -136,11 +247,44 @@ fn d257_zone_op_maps_only_same_unit_operators() {
     for o in (2345..=2350).chain(2371..=2376) {
         assert_eq!(zone_op(o), None, "{o}");
     }
-    let same = [(1093, ZoneOp::Eq), (1094, ZoneOp::Ne), (1095, ZoneOp::Lt), (1096, ZoneOp::Le), (1097, ZoneOp::Gt), (1098, ZoneOp::Ge)];
-    let ts = [(2060, ZoneOp::Eq), (2061, ZoneOp::Ne), (2062, ZoneOp::Lt), (2063, ZoneOp::Le), (2064, ZoneOp::Gt), (2065, ZoneOp::Ge)];
-    let tstz = [(1320, ZoneOp::Eq), (1321, ZoneOp::Ne), (1322, ZoneOp::Lt), (1323, ZoneOp::Le), (1324, ZoneOp::Gt), (1325, ZoneOp::Ge)];
-    let ints = [(96, ZoneOp::Eq), (416, ZoneOp::Eq), (15, ZoneOp::Eq), (418, ZoneOp::Lt), (37, ZoneOp::Lt), (1864, ZoneOp::Lt)];
-    for (o, z) in same.iter().chain(ts.iter()).chain(tstz.iter()).chain(ints.iter()) {
+    let same = [
+        (1093, ZoneOp::Eq),
+        (1094, ZoneOp::Ne),
+        (1095, ZoneOp::Lt),
+        (1096, ZoneOp::Le),
+        (1097, ZoneOp::Gt),
+        (1098, ZoneOp::Ge),
+    ];
+    let ts = [
+        (2060, ZoneOp::Eq),
+        (2061, ZoneOp::Ne),
+        (2062, ZoneOp::Lt),
+        (2063, ZoneOp::Le),
+        (2064, ZoneOp::Gt),
+        (2065, ZoneOp::Ge),
+    ];
+    let tstz = [
+        (1320, ZoneOp::Eq),
+        (1321, ZoneOp::Ne),
+        (1322, ZoneOp::Lt),
+        (1323, ZoneOp::Le),
+        (1324, ZoneOp::Gt),
+        (1325, ZoneOp::Ge),
+    ];
+    let ints = [
+        (96, ZoneOp::Eq),
+        (416, ZoneOp::Eq),
+        (15, ZoneOp::Eq),
+        (418, ZoneOp::Lt),
+        (37, ZoneOp::Lt),
+        (1864, ZoneOp::Lt),
+    ];
+    for (o, z) in same
+        .iter()
+        .chain(ts.iter())
+        .chain(tstz.iter())
+        .chain(ints.iter())
+    {
         assert_eq!(zone_op(*o), Some(*z), "{o}");
     }
 }
@@ -151,14 +295,29 @@ fn d257_zone_op_maps_only_same_unit_operators() {
 /// name's (93, 660), an integer's (97) or a cross-type text operator.
 #[test]
 fn src09_text_zone_op_maps_text_comparisons_only() {
-    let text = [(664, ZoneOp::Lt), (665, ZoneOp::Le), (98, ZoneOp::Eq), (667, ZoneOp::Ge), (666, ZoneOp::Gt), (531, ZoneOp::Ne)];
+    let text = [
+        (664, ZoneOp::Lt),
+        (665, ZoneOp::Le),
+        (98, ZoneOp::Eq),
+        (667, ZoneOp::Ge),
+        (666, ZoneOp::Gt),
+        (531, ZoneOp::Ne),
+    ];
     for (o, z) in text {
         assert_eq!(text_zone_op(o), Some(z), "{o}");
     }
-    let pattern = [(2314, ZoneOp::Lt), (2315, ZoneOp::Le), (2317, ZoneOp::Ge), (2318, ZoneOp::Gt)];
+    let pattern = [
+        (2314, ZoneOp::Lt),
+        (2315, ZoneOp::Le),
+        (2317, ZoneOp::Ge),
+        (2318, ZoneOp::Gt),
+    ];
     for o in 0..=u32::from(u16::MAX) {
         let Some(z) = text_zone_op(o) else { continue };
-        assert!(text.iter().chain(pattern.iter()).any(|&t| t == (o, z)), "pg_operator {o}: {z:?}");
+        assert!(
+            text.iter().chain(pattern.iter()).any(|&t| t == (o, z)),
+            "pg_operator {o}: {z:?}"
+        );
     }
     for o in [1054, 1058, 93, 660, 97] {
         assert_eq!(text_zone_op(o), None, "{o}");
@@ -174,8 +333,12 @@ fn src09_text_zone_op_maps_text_comparisons_only() {
 fn zone_op_from_btree_families_maps_the_old_hand_list() {
     let old = |o: u32| {
         Some(match o {
-            96 | 410 | 94 | 416 | 15 | 532 | 533 | 1862 | 1868 | 1093 | 2060 | 1320 | 98 => ZoneOp::Eq,
-            518 | 411 | 519 | 417 | 36 | 538 | 539 | 1863 | 1869 | 1094 | 2061 | 1321 | 531 => ZoneOp::Ne,
+            96 | 410 | 94 | 416 | 15 | 532 | 533 | 1862 | 1868 | 1093 | 2060 | 1320 | 98 => {
+                ZoneOp::Eq
+            }
+            518 | 411 | 519 | 417 | 36 | 538 | 539 | 1863 | 1869 | 1094 | 2061 | 1321 | 531 => {
+                ZoneOp::Ne
+            }
             97 | 412 | 95 | 418 | 37 | 534 | 535 | 1864 | 1870 | 1095 | 2062 | 1322 => ZoneOp::Lt,
             523 | 414 | 522 | 420 | 80 | 540 | 541 | 1866 | 1872 | 1096 | 2063 | 1323 => ZoneOp::Le,
             521 | 413 | 520 | 419 | 76 | 536 | 537 | 1865 | 1871 | 1097 | 2064 | 1324 => ZoneOp::Gt,
@@ -192,7 +355,12 @@ fn zone_op_from_btree_families_maps_the_old_hand_list() {
     for o in 0..=u32::from(u16::MAX) {
         assert_eq!(zone_op(o), old(o), "pg_operator {o}");
     }
-    assert_eq!((0..=u32::from(u16::MAX)).filter(|&o| zone_op(o).is_some()).count(), 92);
+    assert_eq!(
+        (0..=u32::from(u16::MAX))
+            .filter(|&o| zone_op(o).is_some())
+            .count(),
+        92
+    );
 }
 
 /// NEW-47: a constant meets a zone in the zone's key order: oid (and a reg* alias) zero-extended, as pgrc keys an

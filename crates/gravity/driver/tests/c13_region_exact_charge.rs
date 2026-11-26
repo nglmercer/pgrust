@@ -11,7 +11,9 @@
 use gravity_driver_rig as common;
 
 use common::*;
-use gravity_driver::mem::region::{alloc_witness, charge_witness, region_move_witness, reservation_witness, RegionMove};
+use gravity_driver::mem::region::{
+    alloc_witness, charge_witness, region_move_witness, reservation_witness, RegionMove,
+};
 use gravity_driver::{POOL, REGIONS};
 
 const KIB: usize = 1 << 10;
@@ -46,7 +48,13 @@ fn read() -> (i64, i64) {
 #[track_caller]
 fn exact(base: (i64, i64), what: &str) -> i64 {
     let (u, c) = read();
-    assert_eq!(u - base.0, c - base.1, "{what}: REGION in use moved {} B, the pool charges {} B", u - base.0, c - base.1);
+    assert_eq!(
+        u - base.0,
+        c - base.1,
+        "{what}: REGION in use moved {} B, the pool charges {} B",
+        u - base.0,
+        c - base.1
+    );
     u - base.0
 }
 
@@ -59,16 +67,32 @@ fn an_allocation_charges_the_slice_the_pool_counts() {
     let base = read();
     let mut held = Vec::new();
     let mut sum = 0u64;
-    for ask in [5 * KIB + 1, 100 * KIB + 3, 300 * KIB + 5, MIB + 1, 3 * MIB + 4 * KIB + 7, 40 * MIB + 9] {
+    for ask in [
+        5 * KIB + 1,
+        100 * KIB + 3,
+        300 * KIB + 5,
+        MIB + 1,
+        3 * MIB + 4 * KIB + 7,
+        40 * MIB + 9,
+    ] {
         let r = alloc_witness(ask).expect("a pool region");
         let c = charge_witness(&r);
-        assert!(c >= ask as u64, "ask {ask}: its charge {c} holds at least the ask");
+        assert!(
+            c >= ask as u64,
+            "ask {ask}: its charge {c} holds at least the ask"
+        );
         sum += c;
         let moved = exact(base, &format!("ask {ask} taken"));
-        assert_eq!(moved, sum as i64, "ask {ask}: REGION in use is the sum of the regions' charges");
+        assert_eq!(
+            moved, sum as i64,
+            "ask {ask}: REGION in use is the sum of the regions' charges"
+        );
         held.push(r);
     }
-    assert!(sum > held.iter().map(|r| r.len() as u64).sum::<u64>(), "some ask was rounded up: the round is charged");
+    assert!(
+        sum > held.iter().map(|r| r.len() as u64).sum::<u64>(),
+        "some ask was rounded up: the round is charged"
+    );
     drop(held);
     assert_eq!(exact(base, "all dropped"), 0, "back to the start");
 }
@@ -88,12 +112,22 @@ fn an_allocations_fit_and_park_move_its_charge_by_the_pools_count() {
     // the new length stays live and charged
     let (c1, done) = region_move_witness(&mut r, RegionMove::Fit(3 * MIB + 5 * KIB));
     assert!(done, "the fit is taken");
-    assert!(c1 < c0 && c1 >= (3 * MIB + 5 * KIB) as u64, "the charge gave the dead runs: {c0} -> {c1}");
-    assert_eq!(c1 % RUN as u64, c0 % RUN as u64, "the charge moved by whole runs: {c0} -> {c1}");
+    assert!(
+        c1 < c0 && c1 >= (3 * MIB + 5 * KIB) as u64,
+        "the charge gave the dead runs: {c0} -> {c1}"
+    );
+    assert_eq!(
+        c1 % RUN as u64,
+        c0 % RUN as u64,
+        "the charge moved by whole runs: {c0} -> {c1}"
+    );
     exact(base, "fitted down");
     let (c2, done) = region_move_witness(&mut r, RegionMove::Fit(6 * MIB));
     assert!(done, "the growth is taken");
-    assert!(c2 > c1, "the charge took back the revived runs: {c1} -> {c2}");
+    assert!(
+        c2 > c1,
+        "the charge took back the revived runs: {c1} -> {c2}"
+    );
     exact(base, "fitted up");
     let (c3, _) = region_move_witness(&mut r, RegionMove::ParkFree);
     assert!(c3 < c2, "a park's dead pages left the charge: {c2} -> {c3}");
@@ -116,14 +150,23 @@ fn a_reservations_charge_follows_the_pools_count() {
     let (mut r, rw) = reservation_witness(ask, 8 * MIB).expect("a pool reservation");
     assert!(rw >= ask, "its ask's pages writable");
     let c0 = charge_witness(&r);
-    assert!(c0 >= rw as u64 && c0 <= rw.next_multiple_of(RUN) as u64, "the ask's pages and their part-run: {c0} (rw {rw})");
+    assert!(
+        c0 >= rw as u64 && c0 <= rw.next_multiple_of(RUN) as u64,
+        "the ask's pages and their part-run: {c0} (rw {rw})"
+    );
     exact(base, "reserved");
     let (c1, done) = region_move_witness(&mut r, RegionMove::Commit(3 * MIB));
     assert!(done, "a commit inside the reservation");
-    assert!(c1 >= c0 + 3 * MIB as u64 - RUN as u64, "the commit is charged: {c0} -> {c1}");
+    assert!(
+        c1 >= c0 + 3 * MIB as u64 - RUN as u64,
+        "the commit is charged: {c0} -> {c1}"
+    );
     exact(base, "committed");
     let (c2, _) = region_move_witness(&mut r, RegionMove::GiveBackCommitted);
-    assert!(c2 < c1, "the given-back commit left the charge: {c1} -> {c2}");
+    assert!(
+        c2 < c1,
+        "the given-back commit left the charge: {c1} -> {c2}"
+    );
     exact(base, "commit given back");
     let (_, done) = region_move_witness(&mut r, RegionMove::Commit(2 * MIB + 3 * KIB));
     assert!(done, "a second commit");
@@ -137,10 +180,12 @@ fn a_reservations_charge_follows_the_pools_count() {
 
     // a lazy span (512 MiB): its first owner commits 256 MiB + 20 KiB, the next asks a part-run of a span of that size
     // (warm: its last commit is the pool's count until the dead runs leave it)
-    let (first, _) = reservation_witness(256 * MIB + 20 * KIB, 512 * MIB).expect("a lazy pool reservation");
+    let (first, _) =
+        reservation_witness(256 * MIB + 20 * KIB, 512 * MIB).expect("a lazy pool reservation");
     exact(base, "lazy reserved");
     drop(first);
-    let (mut next, _) = reservation_witness(RUN + 4 * KIB, 512 * MIB).expect("a lazy pool reservation");
+    let (mut next, _) =
+        reservation_witness(RUN + 4 * KIB, 512 * MIB).expect("a lazy pool reservation");
     exact(base, "warm lazy reserved");
     region_move_witness(&mut next, RegionMove::Commit(5 * MIB));
     exact(base, "warm lazy committed");

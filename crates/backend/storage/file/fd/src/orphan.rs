@@ -48,7 +48,10 @@ pub(crate) fn owner() -> Option<ThreadId> {
             return r.id;
         }
         let id = pgsync::thread::current().id();
-        let inbox = Arc::new(Inbox { pending: AtomicBool::new(false), files: pgsync::Mutex::new(Vec::new()) });
+        let inbox = Arc::new(Inbox {
+            pending: AtomicBool::new(false),
+            files: pgsync::Mutex::new(Vec::new()),
+        });
         pgsync::lock(&OWNERS).push((id, Arc::clone(&inbox)));
         fd.orphan = Some(Registered { id, inbox });
         id
@@ -60,7 +63,10 @@ pub(crate) fn is_current(owner: ThreadId) -> bool {
 }
 
 pub(crate) fn send(to: ThreadId, files: impl IntoIterator<Item = (File, u64)>) {
-    let inbox = pgsync::lock(&OWNERS).iter().find(|(id, _)| *id == to).map(|(_, inbox)| Arc::clone(inbox));
+    let inbox = pgsync::lock(&OWNERS)
+        .iter()
+        .find(|(id, _)| *id == to)
+        .map(|(_, inbox)| Arc::clone(inbox));
     if let Some(inbox) = inbox {
         pgsync::lock(&inbox.files).extend(files);
         inbox.pending.store(true, Ordering::Release);
@@ -74,7 +80,10 @@ pub fn drain() {
     let files = with_fd(|fd| {
         fd.orphan
             .as_ref()
-            .filter(|r| r.inbox.pending.load(Ordering::Relaxed) && r.inbox.pending.swap(false, Ordering::AcqRel))
+            .filter(|r| {
+                r.inbox.pending.load(Ordering::Relaxed)
+                    && r.inbox.pending.swap(false, Ordering::AcqRel)
+            })
             .map(|r| core::mem::take(&mut *pgsync::lock(&r.inbox.files)))
     });
     for (file, gen) in files.into_iter().flatten() {
@@ -84,5 +93,9 @@ pub fn drain() {
 
 #[cfg(test)]
 pub(crate) fn pending() -> bool {
-    with_fd(|fd| fd.orphan.as_ref().is_some_and(|r| r.inbox.pending.load(Ordering::Acquire)))
+    with_fd(|fd| {
+        fd.orphan
+            .as_ref()
+            .is_some_and(|r| r.inbox.pending.load(Ordering::Acquire))
+    })
 }

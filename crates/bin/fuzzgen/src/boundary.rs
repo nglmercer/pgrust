@@ -39,8 +39,8 @@ pub fn bank(ty: SqlType) -> &'static [&'static str] {
             "(-1)::int2",
             "(32767)::int2",
             "(-32768)::int2",
-            "('32768'::int4)::int2",  // overflow via runtime cast
-            "(16384)::int2",          // high bit of the positive range
+            "('32768'::int4)::int2", // overflow via runtime cast
+            "(16384)::int2",         // high bit of the positive range
         ],
         SqlType::Int4 => &[
             "(0)::int4",
@@ -65,7 +65,7 @@ pub fn bank(ty: SqlType) -> &'static [&'static str] {
             "('-Infinity')::float4",
             "('NaN')::float4",
             "('-0')::float4",
-            "('3.4028235e38')::float4",  // max finite
+            "('3.4028235e38')::float4", // max finite
             "('-3.4028235e38')::float4",
             "('1.1754944e-38')::float4", // min normal
             "('1e-45')::float4",         // subnormal
@@ -91,7 +91,7 @@ pub fn bank(ty: SqlType) -> &'static [&'static str] {
             "('NaN')::numeric",
             "('0')::numeric",
             "('-0.0')::numeric",
-            "('1e-16383')::numeric",  // min display scale region
+            "('1e-16383')::numeric",           // min display scale region
             "('9.999999999e131071')::numeric", // near max weight
             "('0.00000000000000000001')::numeric",
             "('-1')::numeric",
@@ -111,15 +111,15 @@ pub fn bank(ty: SqlType) -> &'static [&'static str] {
             "('epoch')::date",
             "('infinity')::date",
             "('-infinity')::date",
-            "DATE '2000-02-29'",           // century leap day (valid)
-            "DATE '2004-02-29'",           // ordinary leap day
-            "('1900-02-29'::text)::date",  // century non-leap: REJECT
-            "('2019-02-29'::text)::date",  // non-leap year: REJECT
-            "DATE 'February 29, 2000'",    // month-name spelling
+            "DATE '2000-02-29'",          // century leap day (valid)
+            "DATE '2004-02-29'",          // ordinary leap day
+            "('1900-02-29'::text)::date", // century non-leap: REJECT
+            "('2019-02-29'::text)::date", // non-leap year: REJECT
+            "DATE 'February 29, 2000'",   // month-name spelling
             "DATE '0001-01-01 BC'",
             "DATE '0001-01-01 AD'",
-            "DATE '4714-11-24 BC'",        // Julian day 0
-            "DATE '5874897-12-31'",        // max
+            "DATE '4714-11-24 BC'", // Julian day 0
+            "DATE '5874897-12-31'", // max
         ],
         SqlType::Timestamp => &[
             "('epoch')::timestamp",
@@ -136,14 +136,14 @@ pub fn bank(ty: SqlType) -> &'static [&'static str] {
         // field), AM/PM folds both ways, leap second.
         SqlType::Time => &[
             "TIME '24:00:00'",
-            "('24:00:01'::text)::time",   // REJECT: past the boundary
-            "('24:01:00'::text)::time",   // REJECT: nonzero minute
-            "('25:00:00'::text)::time",   // REJECT
-            "TIME '12:00 AM'",            // -> 00:00:00
-            "TIME '12:00 PM'",            // -> 12:00:00
+            "('24:00:01'::text)::time", // REJECT: past the boundary
+            "('24:01:00'::text)::time", // REJECT: nonzero minute
+            "('25:00:00'::text)::time", // REJECT
+            "TIME '12:00 AM'",          // -> 00:00:00
+            "TIME '12:00 PM'",          // -> 12:00:00
             "TIME '12:00:00.000001 AM'",
             "TIME '11:59:59.999999 PM'",
-            "TIME '23:59:60'",            // leap second folds to 24:00:00
+            "TIME '23:59:60'", // leap second folds to 24:00:00
             "TIME '00:00:00'",
             "TIME '23:59:59.999999'",
         ],
@@ -152,8 +152,8 @@ pub fn bank(ty: SqlType) -> &'static [&'static str] {
             "('24:00:01+00'::text)::timetz", // REJECT
             "TIMETZ '12:00 AM +05:45'",
             "TIMETZ '12:00 PM -08'",
-            "TIMETZ '23:59:60+00'",          // leap second
-            "TIMETZ '15:00:00+15:59:59'",    // max zone offset
+            "TIMETZ '23:59:60+00'",       // leap second
+            "TIMETZ '15:00:00+15:59:59'", // max zone offset
             "TIMETZ '15:00:00-15:59:59'",
         ],
         // Intervals: uncommon unit words, qualified (`HOUR TO MINUTE`)
@@ -170,7 +170,7 @@ pub fn bank(ty: SqlType) -> &'static [&'static str] {
             "(INTERVAL '1-2' YEAR TO MONTH)",
             "(INTERVAL '5 4:03:02.1' DAY TO SECOND)",
             "(INTERVAL '100' SECOND (3))",
-            "('P100000000000000D'::text)::interval",   // REJECT: ISO overflow
+            "('P100000000000000D'::text)::interval", // REJECT: ISO overflow
             "('PT2562047788:00:54.775807')::interval", // near max time part
             "('@ 1 decade 2 centuries ago')::interval",
             "('178000000 years')::interval",
@@ -190,11 +190,11 @@ pub fn bank(ty: SqlType) -> &'static [&'static str] {
             "('ffffffff-ffff-ffff-ffff-ffffffffffff')::uuid",
         ],
         SqlType::Bytea => &[
-            "('\\x')::bytea",   // empty
+            "('\\x')::bytea", // empty
             "('\\x00')::bytea",
             "('\\xff')::bytea",
-            "('\\000'::text)::bytea",  // octal-escape spelling
-            "('\\\\')::bytea",         // escaped-backslash spelling
+            "('\\000'::text)::bytea", // octal-escape spelling
+            "('\\\\')::bytea",        // escaped-backslash spelling
         ],
         // Empty / NULL-bearing / duplicated arrays.
         SqlType::TextArr => &[
@@ -223,11 +223,7 @@ mod tests {
         // representation; json/jsonb are reached via explicit productions
         // but still carry a bank.
         for &ty in ALL_TYPES {
-            assert!(
-                !bank(ty).is_empty(),
-                "no boundary bank for {:?}",
-                ty
-            );
+            assert!(!bank(ty).is_empty(), "no boundary bank for {:?}", ty);
         }
         assert!(!bank(SqlType::Jsonb).is_empty());
     }

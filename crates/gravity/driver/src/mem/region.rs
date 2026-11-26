@@ -100,7 +100,10 @@ pub(crate) fn pool_release(bytes: u64) {
     if memledger::ladder_pass::on_ladder_thread() {
         pagepool::purge_now(bytes, Some(pagepool::Class::Task));
     } else {
-        pagepool::set_pressure(pagepool::Pressure::Release { bytes, class: Some(pagepool::Class::Task) });
+        pagepool::set_pressure(pagepool::Pressure::Release {
+            bytes,
+            class: Some(pagepool::Class::Task),
+        });
     }
 }
 
@@ -133,7 +136,13 @@ pub(crate) fn ledger_kind(b: Option<gravity_abi::breaker::BreakerKind>) -> memle
 /// a slot's (opened under it, `Node::open_slot`) or drawn while its code runs (a call or a claim of it: a table's growth, an
 /// arena chunk, a build's rows).
 pub(crate) fn pipeline_kind(program: &gravity_program::Program, p: usize) -> memledger::Kind {
-    ledger_kind(program.pipelines.get(p).and_then(|pipe| pipe.breaker()).map(|b| b.kind))
+    ledger_kind(
+        program
+            .pipelines
+            .get(p)
+            .and_then(|pipe| pipe.breaker())
+            .map(|b| b.kind),
+    )
 }
 
 /// G1-B: the regions the calling thread makes count under pipeline `p`'s breaker kind until the guard drops: a pipeline's
@@ -151,7 +160,10 @@ impl Drop for RegionBuf {
                 // pagepool P3: off its owner first, then the block back to the pool whole (warm; its dead runs live again
                 // there); never the reaper's
                 crate::mem::resident::unregister(self.res);
-                drop(core::mem::replace(&mut self.charge, memledger::Charge::NONE));
+                drop(core::mem::replace(
+                    &mut self.charge,
+                    memledger::Charge::NONE,
+                ));
                 // SAFETY: the pool block or span `pool_alloc` / `pool_reserved` took, given back once by its only owner
                 unsafe { pagepool::give(self.ptr, self.reserve) };
                 return;
@@ -163,7 +175,14 @@ impl Drop for RegionBuf {
                 // D2894: a mapped reservation goes back whole (its touched pages with it): a large one through the reaper
                 // (`reap::defer`: unmapped off this thread, its pool charge released after; D3872: its residency entry
                 // moves to REAPING with its last numbers), else here
-                if !crate::mem::reap::defer(self.ptr.as_ptr(), self.reserve, self.rw, &mut self.held, self.res, charge) {
+                if !crate::mem::reap::defer(
+                    self.ptr.as_ptr(),
+                    self.reserve,
+                    self.rw,
+                    &mut self.held,
+                    self.res,
+                    charge,
+                ) {
                     crate::mem::resident::unregister(self.res);
                     unmap(self.ptr.as_ptr(), self.reserve);
                 }
@@ -180,9 +199,17 @@ impl Drop for RegionBuf {
             // G1-A / C8: door 1 takes the allocation's `reserve` bytes off the dropping thread's account: the charge's drop
             // moves them (its given-back pages with them) from the region's account to the dropping thread's, so both net
             // to zero
-            drop(core::mem::replace(&mut self.charge, memledger::Charge::NONE));
+            drop(core::mem::replace(
+                &mut self.charge,
+                memledger::Charge::NONE,
+            ));
             // SAFETY: `ptr` is a live allocation of exactly this layout (`RegionBuf::alloc`, `reserve` bytes); the held charges drop after it.
-            unsafe { std::alloc::dealloc(self.ptr.as_ptr(), core::alloc::Layout::from_size_align_unchecked(self.reserve, REGION_ALIGN)) };
+            unsafe {
+                std::alloc::dealloc(
+                    self.ptr.as_ptr(),
+                    core::alloc::Layout::from_size_align_unchecked(self.reserve, REGION_ALIGN),
+                )
+            };
         }
     }
 }
@@ -232,9 +259,40 @@ impl GiveParts {
     /// (PARKED), as a parked region's is when a take finds it (`RegionDepot::take_parked` moves it on to the taker).
     /// pagepool P3: never a pool region (`give_parts` refuses one), so an allocator region again.
     pub(crate) fn take_back(self) -> RegionBuf {
-        let GiveParts { at, reserve, charge, res, pool, kept, plain, len, slack, given, .. } = self;
+        let GiveParts {
+            at,
+            reserve,
+            charge,
+            res,
+            pool,
+            kept,
+            plain,
+            len,
+            slack,
+            given,
+            ..
+        } = self;
         debug_assert!(plain, "a plain allocator region");
-        let mut b = RegionBuf { ptr: at, len, held: crate::mem::grant::Held::settled(pool, kept), reserve, committed: 0, extra: Vec::new(), rw: 0, floor: false, laid: false, charge, lay: 0, cut: 0, slack, given, res, pool: false, dead: false, round: 0 }; // alloc: Cold
+        let mut b = RegionBuf {
+            ptr: at,
+            len,
+            held: crate::mem::grant::Held::settled(pool, kept),
+            reserve,
+            committed: 0,
+            extra: Vec::new(),
+            rw: 0,
+            floor: false,
+            laid: false,
+            charge,
+            lay: 0,
+            cut: 0,
+            slack,
+            given,
+            res,
+            pool: false,
+            dead: false,
+            round: 0,
+        }; // alloc: Cold
         b.parked();
         b
     }
@@ -244,22 +302,46 @@ impl GiveParts {
     /// thread's account up by the block's) and the block freed (door 1: this thread's account down by it, so this thread
     /// nets 0), then the pool's bytes released: the pool's room never rises before the pages are given.
     pub(crate) fn give(self) {
-        let GiveParts { at, reserve, give, charge, res, pool, kept, .. } = self;
+        let GiveParts {
+            at,
+            reserve,
+            give,
+            charge,
+            res,
+            pool,
+            kept,
+            ..
+        } = self;
         dontneed(at.as_ptr(), give);
         #[cfg(all(debug_assertions, target_os = "linux"))]
         {
             // the whole 2 MiB pages inside: no huge-page collapse can refill them (none of their pages is mapped)
             const PMD: usize = 2 << 20;
-            let (lo, hi) = ((at.as_ptr() as usize).next_multiple_of(PMD), (at.as_ptr() as usize + give) & !(PMD - 1));
-            let left = if hi > lo { pagegive::resident_bytes(lo, hi, &mut [0u8; 512]) } else { None };
-            debug_assert!(left.is_none_or(|b| b == 0), "a give's pages given back before its pool bytes: {left:?} resident");
+            let (lo, hi) = (
+                (at.as_ptr() as usize).next_multiple_of(PMD),
+                (at.as_ptr() as usize + give) & !(PMD - 1),
+            );
+            let left = if hi > lo {
+                pagegive::resident_bytes(lo, hi, &mut [0u8; 512])
+            } else {
+                None
+            };
+            debug_assert!(
+                left.is_none_or(|b| b == 0),
+                "a give's pages given back before its pool bytes: {left:?} resident"
+            );
         }
         crate::mem::giveback::probe(at.as_ptr() as usize, give);
         crate::mem::resident::unregister(res);
         drop(charge);
         // SAFETY: `at` is a live allocation of exactly this layout (`RegionBuf::alloc`, `reserve` bytes), taken out of its
         // region by `give_parts` (which left the region empty, so its drop frees nothing) and freed once, here.
-        unsafe { std::alloc::dealloc(at.as_ptr(), core::alloc::Layout::from_size_align_unchecked(reserve, REGION_ALIGN)) };
+        unsafe {
+            std::alloc::dealloc(
+                at.as_ptr(),
+                core::alloc::Layout::from_size_align_unchecked(reserve, REGION_ALIGN),
+            )
+        };
         crate::mem::grant::give_back(pool, kept);
     }
 }
@@ -284,14 +366,33 @@ impl RegionBuf {
             return None;
         }
         let (pool, kept) = self.held.take_pool()?;
-        self.move_to(memledger::Owner::Cache(memledger::Holder::Reaping), memledger::Release::Evict);
+        self.move_to(
+            memledger::Owner::Cache(memledger::Holder::Reaping),
+            memledger::Release::Evict,
+        );
         unguard(self.ptr.as_ptr(), self.len);
         let plain = !self.is_reserved();
-        let give = if plain { self.len } else { self.len + self.committed };
+        let give = if plain {
+            self.len
+        } else {
+            self.len + self.committed
+        };
         let charge = core::mem::replace(&mut self.charge, memledger::Charge::NONE);
         let res = core::mem::replace(&mut self.res, crate::mem::resident::NONE);
         let len = core::mem::replace(&mut self.len, 0);
-        Some(GiveParts { at: self.ptr, reserve: self.reserve, give, charge, res, pool, kept, plain: plain && !self.floor && !self.laid, len, slack: self.slack, given: self.given })
+        Some(GiveParts {
+            at: self.ptr,
+            reserve: self.reserve,
+            give,
+            charge,
+            res,
+            pool,
+            kept,
+            plain: plain && !self.floor && !self.laid,
+            len,
+            slack: self.slack,
+            given: self.given,
+        })
     }
 }
 
@@ -322,7 +423,8 @@ pub(crate) struct ParkParts {
 unsafe impl Send for ParkParts {}
 
 /// C1-c: mapping tails left writable because the kernel refused their PROT_NONE in a park job (given back all the same).
-pub static PARK_PROTECT_REFUSED: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+pub static PARK_PROTECT_REFUSED: core::sync::atomic::AtomicU64 =
+    core::sync::atomic::AtomicU64::new(0);
 
 impl ParkParts {
     /// Its bytes on REAPING (a mapping's tail, E1) and its pending relief (an allocator reservation's committed bytes).
@@ -341,7 +443,16 @@ impl ParkParts {
     /// then the committed bytes' pool bytes released: the pool's room never rises before the pages are given. The region,
     /// for the depot's insertion.
     pub(crate) fn give(self) -> RegionBuf {
-        let ParkParts { buf, gone, keep, tail, reaping, res, pool, kept } = self;
+        let ParkParts {
+            buf,
+            gone,
+            keep,
+            tail,
+            reaping,
+            res,
+            pool,
+            kept,
+        } = self;
         // SAFETY: `[ptr + len, ptr + len + gone)` is inside this allocation of `reserve` bytes; its contents are dead (the
         // region parks with its share only) and nothing else holds the region until its insertion
         let at = unsafe { buf.ptr.as_ptr().add(buf.len) };
@@ -371,15 +482,33 @@ impl RegionBuf {
         }
         let gone = core::mem::take(&mut self.committed);
         // at least a page: `rw != 0` is what marks the region a mapping (`Drop` unmaps it)
-        let keep = self.len.next_multiple_of(page_sizes().0).max(page_sizes().0);
-        let (mut tail, mut reaping, mut res) = (0, memledger::Charge::NONE, crate::mem::resident::NONE);
+        let keep = self
+            .len
+            .next_multiple_of(page_sizes().0)
+            .max(page_sizes().0);
+        let (mut tail, mut reaping, mut res) =
+            (0, memledger::Charge::NONE, crate::mem::resident::NONE);
         if self.rw > keep {
             tail = self.rw - keep;
             let before = self.charge.committed();
             self.charge.give(tail as u64);
             let delta = before - self.charge.committed();
-            reaping = memledger::Charge::open(memledger::Owner::Cache(memledger::Holder::Reaping), memledger::Release::Evict, memledger::Kind::Mapped, memledger::charge::Door::Mapped, delta);
-            res = crate::mem::resident::register(self.ptr.as_ptr() as usize + keep, tail, delta as usize, memledger::Acct::REAPING, true, false, reaping.nr_home());
+            reaping = memledger::Charge::open(
+                memledger::Owner::Cache(memledger::Holder::Reaping),
+                memledger::Release::Evict,
+                memledger::Kind::Mapped,
+                memledger::charge::Door::Mapped,
+                delta,
+            );
+            res = crate::mem::resident::register(
+                self.ptr.as_ptr() as usize + keep,
+                tail,
+                delta as usize,
+                memledger::Acct::REAPING,
+                true,
+                false,
+                reaping.nr_home(),
+            );
             self.rw = keep;
         }
         // the committed bytes' holds give the pool its part of them (a charge to G becomes the pool's, the statement's
@@ -396,7 +525,16 @@ impl RegionBuf {
         self.extra.clear();
         self.settle();
         self.parked();
-        Ok(ParkParts { buf: self, gone, keep, tail, reaping, res, pool, kept })
+        Ok(ParkParts {
+            buf: self,
+            gone,
+            keep,
+            tail,
+            reaping,
+            res,
+            pool,
+            kept,
+        })
     }
 }
 
@@ -421,7 +559,26 @@ pub fn park_witness_take(share: usize, reserve: usize) -> Option<RegionBuf> {
 
 impl RegionBuf {
     pub const fn empty() -> RegionBuf {
-        RegionBuf { ptr: NonNull::<u64>::dangling().cast(), len: 0, held: crate::mem::grant::Held::NONE, reserve: 0, committed: 0, extra: Vec::new(), rw: 0, floor: false, laid: false, charge: memledger::Charge::NONE, lay: 0, cut: 0, slack: 0, given: 0, res: crate::mem::resident::NONE, pool: false, dead: false, round: 0 } // alloc: Cold
+        RegionBuf {
+            ptr: NonNull::<u64>::dangling().cast(),
+            len: 0,
+            held: crate::mem::grant::Held::NONE,
+            reserve: 0,
+            committed: 0,
+            extra: Vec::new(),
+            rw: 0,
+            floor: false,
+            laid: false,
+            charge: memledger::Charge::NONE,
+            lay: 0,
+            cut: 0,
+            slack: 0,
+            given: 0,
+            res: crate::mem::resident::NONE,
+            pool: false,
+            dead: false,
+            round: 0,
+        } // alloc: Cold
     }
 
     /// `bytes` (> 0) at `REGION_ALIGN`, zeroed or not, held by nothing yet; `None` when the allocator refuses.
@@ -431,22 +588,67 @@ impl RegionBuf {
                 return Some(b);
             }
         }
-        let layout = core::alloc::Layout::from_size_align(bytes, REGION_ALIGN).ok().filter(|l| l.size() != 0)?;
+        let layout = core::alloc::Layout::from_size_align(bytes, REGION_ALIGN)
+            .ok()
+            .filter(|l| l.size() != 0)?;
         // SAFETY: a non-zero-size layout; a null return is the allocator's refusal, handled here.
-        let p = unsafe { if zeroed { std::alloc::alloc_zeroed(layout) } else { std::alloc::alloc(layout) } }; // alloc: Node
+        let p = unsafe {
+            if zeroed {
+                std::alloc::alloc_zeroed(layout)
+            } else {
+                std::alloc::alloc(layout)
+            }
+        }; // alloc: Node
         let ptr = NonNull::new(p)?;
         // C8: the allocator counted the block on this thread's account: the charge books its kind for the context's owner
         let (owner, release) = memledger::charge::context();
-        let charge = memledger::Charge::open(owner, release, memledger::kind(), memledger::charge::Door::Heap, bytes as u64);
-        let res = crate::mem::resident::register(p as usize, bytes, bytes, charge.acct(), false, false, charge.nr_home());
-        Some(RegionBuf { ptr, len: bytes, held: crate::mem::grant::Held::NONE, reserve: bytes, committed: 0, extra: Vec::new(), rw: 0, floor: false, laid: false, charge, lay: 0, cut: 0, slack: 0, given: 0, res, pool: false, dead: false, round: 0 }) // alloc: Cold
+        let charge = memledger::Charge::open(
+            owner,
+            release,
+            memledger::kind(),
+            memledger::charge::Door::Heap,
+            bytes as u64,
+        );
+        let res = crate::mem::resident::register(
+            p as usize,
+            bytes,
+            bytes,
+            charge.acct(),
+            false,
+            false,
+            charge.nr_home(),
+        );
+        Some(RegionBuf {
+            ptr,
+            len: bytes,
+            held: crate::mem::grant::Held::NONE,
+            reserve: bytes,
+            committed: 0,
+            extra: Vec::new(),
+            rw: 0,
+            floor: false,
+            laid: false,
+            charge,
+            lay: 0,
+            cut: 0,
+            slack: 0,
+            given: 0,
+            res,
+            pool: false,
+            dead: false,
+            round: 0,
+        }) // alloc: Cold
     }
 
     /// pagepool P3: `alloc` from the page pool (`Tag::REGION`, statement-lived; zeroed or not as asked): the block on the
     /// context owner's `Door::Pool` charge (no door counted it on this thread). `None`: the pool refused (the allocator's
     /// road then).
     fn pool_alloc(bytes: usize, zeroed: bool) -> Option<RegionBuf> {
-        let hint = POOL_HINT.zero(if zeroed { pagepool::Zero::Dense } else { pagepool::Zero::No });
+        let hint = POOL_HINT.zero(if zeroed {
+            pagepool::Zero::Dense
+        } else {
+            pagepool::Zero::No
+        });
         let s = pagepool::take(bytes, POOL_ALIGN, hint)?;
         // pppress card 13 (3): the slice's length is what the pool counts in use for the block (`pagepool::usable`; a
         // span's commit): charged whole, so REGION's account is the pool's in-use bytes by construction. `len` and
@@ -455,9 +657,42 @@ impl RegionBuf {
         let have = s.len().max(bytes);
         let ptr = s.cast::<u8>();
         let (owner, release) = memledger::charge::context();
-        let charge = memledger::Charge::open(owner, release, memledger::kind(), memledger::charge::Door::Pool, have as u64);
-        let res = crate::mem::resident::register(ptr.as_ptr() as usize, have, have, charge.acct(), false, false, charge.nr_home());
-        Some(RegionBuf { ptr, len: bytes, held: crate::mem::grant::Held::NONE, reserve: bytes, committed: 0, extra: Vec::new(), rw: 0, floor: false, laid: false, charge, lay: 0, cut: 0, slack: 0, given: 0, res, pool: true, dead: false, round: have - bytes }) // alloc: Cold
+        let charge = memledger::Charge::open(
+            owner,
+            release,
+            memledger::kind(),
+            memledger::charge::Door::Pool,
+            have as u64,
+        );
+        let res = crate::mem::resident::register(
+            ptr.as_ptr() as usize,
+            have,
+            have,
+            charge.acct(),
+            false,
+            false,
+            charge.nr_home(),
+        );
+        Some(RegionBuf {
+            ptr,
+            len: bytes,
+            held: crate::mem::grant::Held::NONE,
+            reserve: bytes,
+            committed: 0,
+            extra: Vec::new(),
+            rw: 0,
+            floor: false,
+            laid: false,
+            charge,
+            lay: 0,
+            cut: 0,
+            slack: 0,
+            given: 0,
+            res,
+            pool: true,
+            dead: false,
+            round: have - bytes,
+        }) // alloc: Cold
     }
 
     /// pagepool P3: `map_reserved` from the page pool: a span of the reservation's mapped length, its first `bytes` (whole
@@ -479,11 +714,44 @@ impl RegionBuf {
         let had = s.committed().max(rw);
         let ptr = NonNull::new(s.as_ptr())?;
         let (owner, release) = memledger::charge::context();
-        let charge = memledger::Charge::open(owner, release, memledger::kind(), memledger::charge::Door::Pool, had as u64);
-        let mut b = RegionBuf { ptr, len: bytes, held: crate::mem::grant::Held::NONE, reserve, committed: 0, extra: Vec::new(), rw, floor: false, laid: false, charge, lay: 0, cut: 0, slack: 0, given: 0, res: crate::mem::resident::NONE, pool: true, dead: false, round: 0 }; // alloc: Cold
+        let charge = memledger::Charge::open(
+            owner,
+            release,
+            memledger::kind(),
+            memledger::charge::Door::Pool,
+            had as u64,
+        );
+        let mut b = RegionBuf {
+            ptr,
+            len: bytes,
+            held: crate::mem::grant::Held::NONE,
+            reserve,
+            committed: 0,
+            extra: Vec::new(),
+            rw,
+            floor: false,
+            laid: false,
+            charge,
+            lay: 0,
+            cut: 0,
+            slack: 0,
+            given: 0,
+            res: crate::mem::resident::NONE,
+            pool: true,
+            dead: false,
+            round: 0,
+        }; // alloc: Cold
         b.pool_dead_off(rw, had - rw);
         let charged = b.charge.committed() as usize;
-        b.res = crate::mem::resident::register(ptr.as_ptr() as usize, b.pool_extent(), charged, b.charge.acct(), false, false, b.charge.nr_home());
+        b.res = crate::mem::resident::register(
+            ptr.as_ptr() as usize,
+            b.pool_extent(),
+            charged,
+            b.charge.acct(),
+            false,
+            false,
+            b.charge.nr_home(),
+        );
         Some(b)
     }
 
@@ -530,7 +798,9 @@ impl RegionBuf {
         }
         let b = self.ptr.as_ptr() as usize;
         let lo = ((b + at) & !(POOL_RUN - 1)).max(b.next_multiple_of(POOL_RUN));
-        let hi = (b + at + len).next_multiple_of(POOL_RUN).min((b + self.reserve) & !(POOL_RUN - 1));
+        let hi = (b + at + len)
+            .next_multiple_of(POOL_RUN)
+            .min((b + self.reserve) & !(POOL_RUN - 1));
         if hi <= lo {
             return 0;
         }
@@ -562,9 +832,42 @@ impl RegionBuf {
         // the context owner's charge
         let ptr = NonNull::new(p)?;
         let (owner, release) = memledger::charge::context();
-        let charge = memledger::Charge::open(owner, release, memledger::kind(), memledger::charge::Door::Mapped, rw as u64);
-        let res = crate::mem::resident::register(p as usize, rw, rw, charge.acct(), true, true, charge.nr_home());
-        Some(RegionBuf { ptr, len: bytes, held: crate::mem::grant::Held::NONE, reserve, committed: 0, extra: Vec::new(), rw, floor: false, laid: false, charge, lay: 0, cut: 0, slack: 0, given: 0, res, pool: false, dead: false, round: 0 }) // alloc: Cold
+        let charge = memledger::Charge::open(
+            owner,
+            release,
+            memledger::kind(),
+            memledger::charge::Door::Mapped,
+            rw as u64,
+        );
+        let res = crate::mem::resident::register(
+            p as usize,
+            rw,
+            rw,
+            charge.acct(),
+            true,
+            true,
+            charge.nr_home(),
+        );
+        Some(RegionBuf {
+            ptr,
+            len: bytes,
+            held: crate::mem::grant::Held::NONE,
+            reserve,
+            committed: 0,
+            extra: Vec::new(),
+            rw,
+            floor: false,
+            laid: false,
+            charge,
+            lay: 0,
+            cut: 0,
+            slack: 0,
+            given: 0,
+            res,
+            pool: false,
+            dead: false,
+            round: 0,
+        }) // alloc: Cold
     }
 
     #[cfg(not(target_os = "linux"))]
@@ -608,12 +911,20 @@ impl RegionBuf {
 
     /// The reservation a laid region's table reads (`RESERVE_LAYOUT`): its taker's ask (`lay`), else the mapping's.
     pub fn lay_reserve(&self) -> usize {
-        if self.laid && self.lay != 0 { self.lay.min(self.reserve) } else { self.reserve }
+        if self.laid && self.lay != 0 {
+            self.lay.min(self.reserve)
+        } else {
+            self.reserve
+        }
     }
 
     /// D3809: the share a laid region's partitions are cut by (its taker's), 0 for any other region.
     pub fn lay_share(&self) -> usize {
-        if self.laid { self.cut } else { 0 }
+        if self.laid {
+            self.cut
+        } else {
+            0
+        }
     }
 
     /// Marks a reservation that started small (`grant::start_bytes`); an allocator region (the mapping refused) never is.
@@ -649,7 +960,10 @@ impl RegionBuf {
     pub(crate) fn fit_to(&mut self, bytes: usize) -> bool {
         debug_assert!(!self.is_reserved() && self.rw == 0, "an allocator region");
         let whole = self.whole();
-        let len = bytes.next_multiple_of(page_sizes().0).min(whole).max(bytes.min(whole));
+        let len = bytes
+            .next_multiple_of(page_sizes().0)
+            .min(whole)
+            .max(bytes.min(whole));
         if len == self.len {
             return true;
         }
@@ -699,7 +1013,11 @@ impl RegionBuf {
     /// added in place past it (`map_reserved`'s writable extent before page rounding); an allocator region's `len` (its
     /// uncharged tail, `fit_to`, left out).
     pub fn charged_bytes(&self) -> u64 {
-        (if self.is_reserved() { self.len + self.committed } else { self.len }) as u64
+        (if self.is_reserved() {
+            self.len + self.committed
+        } else {
+            self.len
+        }) as u64
     }
 
     /// C5 (revoke's give-back): what `commit` added past `len` given back mid-statement, its contents dead (a revoked
@@ -728,7 +1046,11 @@ impl RegionBuf {
     /// D4291: the bytes `give_back_past(keep)` would give back now (a kept hold's length aside).
     pub(crate) fn past_bytes(&self, keep: usize) -> usize {
         let keep = keep.next_multiple_of(page_sizes().0);
-        let warm = if self.is_reserved() && self.len > keep && !self.held.is_charged() { self.len - keep } else { 0 };
+        let warm = if self.is_reserved() && self.len > keep && !self.held.is_charged() {
+            self.len - keep
+        } else {
+            0
+        };
         self.committed + warm
     }
 
@@ -740,7 +1062,11 @@ impl RegionBuf {
     pub(crate) fn give_back_past(&mut self, keep: usize) -> usize {
         let mut given = self.give_back_committed();
         let keep = keep.next_multiple_of(page_sizes().0);
-        if self.is_reserved() && self.len > keep && !self.held.is_charged() && self.held.resize_pool(keep as u64) {
+        if self.is_reserved()
+            && self.len > keep
+            && !self.held.is_charged()
+            && self.held.resize_pool(keep as u64)
+        {
             if self.pool {
                 // pppress card 13 (3): off its charge as they leave the pool's in-use count
                 self.pool_dead_off(keep, self.len - keep);
@@ -784,7 +1110,10 @@ impl RegionBuf {
             self.listed();
         }
         // at least a page: `rw != 0` is what marks the region a mapping (`Drop` unmaps it)
-        let keep = self.len.next_multiple_of(page_sizes().0).max(page_sizes().0);
+        let keep = self
+            .len
+            .next_multiple_of(page_sizes().0)
+            .max(page_sizes().0);
         // pagepool P3: a pool region's pages past `keep` go dead in the pool instead (no protection change)
         if self.pool && self.rw > keep {
             // pppress card 13 (3): its charge gives what the pool's in-use count gave (whole runs), not `rw - keep`
@@ -808,7 +1137,10 @@ impl RegionBuf {
     /// address boundaries (`open_to`): one protection change per step, each step one huge page to the kernel; the charge
     /// stays the bytes committed.
     pub(crate) fn commit(&mut self, bytes: usize, held: crate::mem::grant::Held) -> bool {
-        debug_assert!(self.len + self.committed + bytes <= self.reserve, "a commit within the reservation");
+        debug_assert!(
+            self.len + self.committed + bytes <= self.reserve,
+            "a commit within the reservation"
+        );
         let end = self.len + self.committed + bytes;
         if self.pool {
             // pagepool P3: what `give_back_committed` / `give_back_past` / `uncommit` gave dead, live before it is written
@@ -921,7 +1253,10 @@ impl RegionBuf {
     /// G1-A / C8: a region put in the depot leaves its statement for the depot's holder (PARKED's account), released when
     /// the depot evicts it.
     pub(crate) fn parked(&mut self) {
-        self.move_to(memledger::Owner::Cache(memledger::Holder::Parked), memledger::Release::Evict);
+        self.move_to(
+            memledger::Owner::Cache(memledger::Holder::Parked),
+            memledger::Release::Evict,
+        );
     }
 
     /// G1-A / C8: the bytes this region has on its account (a mapping's writable pages; an allocation less its given-back
@@ -942,7 +1277,14 @@ impl RegionBuf {
         } else {
             (self.reserve, self.reserve - self.given)
         };
-        crate::mem::resident::update_at(self.res, self.ptr.as_ptr() as usize, span, charged, self.charge.acct(), self.charge.nr_home());
+        crate::mem::resident::update_at(
+            self.res,
+            self.ptr.as_ptr() as usize,
+            span,
+            charged,
+            self.charge.acct(),
+            self.charge.nr_home(),
+        );
     }
 
     /// pppress card 13 (3): the bytes of a pool region's block its residency entry reads: a reservation's writable pages
@@ -950,7 +1292,11 @@ impl RegionBuf {
     /// with it). A warm lazy span's last commit past that, kept with PGRUST_POOL_SPAN_TRIM off, ends in a part-run the
     /// pool cannot give dead (under a run, outside this range: read as not resident).
     fn pool_extent(&self) -> usize {
-        if self.rw != 0 { self.rw.next_multiple_of(POOL_RUN) } else { self.reserve + self.round }
+        if self.rw != 0 {
+            self.rw.next_multiple_of(POOL_RUN)
+        } else {
+            self.reserve + self.round
+        }
     }
 
     #[allow(clippy::wrong_self_convention)]
@@ -960,7 +1306,11 @@ impl RegionBuf {
 
     /// False: the region does not fit the statement's grant (the caller drops it and takes an exact one).
     #[must_use]
-    pub(crate) fn recharge(&mut self, stmt: Option<&crate::mem::grant::Reservation>, life: Option<&std::rc::Rc<crate::mem::grant::StmtCtx>>) -> bool {
+    pub(crate) fn recharge(
+        &mut self,
+        stmt: Option<&crate::mem::grant::Reservation>,
+        life: Option<&std::rc::Rc<crate::mem::grant::StmtCtx>>,
+    ) -> bool {
         let n = self.len;
         n == 0 || self.held.recharge(stmt, life, n)
     }
@@ -1018,13 +1368,23 @@ pub fn try_region_in(stmt: &crate::mem::grant::Reservation, bytes: usize) -> Res
 
 /// An arena chunk: a parked region first (W holds it when it covers it, else the statement), else a zeroed one on lazy zero
 /// pages (`alloc_zeroed`); past W and G it is reserved at its size (D225). None when the pool or the allocator refuses.
-pub(crate) fn chunk_region(bytes: usize, w: Option<&mut u64>, stmt: Option<&crate::mem::grant::Reservation>, worker: bool) -> Option<RegionBuf> {
+pub(crate) fn chunk_region(
+    bytes: usize,
+    w: Option<&mut u64>,
+    stmt: Option<&crate::mem::grant::Reservation>,
+    worker: bool,
+) -> Option<RegionBuf> {
     road_region(bytes, w, stmt, worker, true, false, Asker::Refuses)
 }
 
 /// C10 (D4168): `chunk_region` with no road past W and G: W, else G (a leader's room left, a worker's claim purse, D4043);
 /// `None` past them, where the caller writes to its temp-file road (a spool, `hostimpl::arena::object_region`).
-pub(crate) fn chunk_region_within(bytes: usize, w: Option<&mut u64>, stmt: Option<&crate::mem::grant::Reservation>, worker: bool) -> Option<RegionBuf> {
+pub(crate) fn chunk_region_within(
+    bytes: usize,
+    w: Option<&mut u64>,
+    stmt: Option<&crate::mem::grant::Reservation>,
+    worker: bool,
+) -> Option<RegionBuf> {
     let n = bytes as u64;
     if w.as_deref().is_some_and(|c| *c >= n) || stmt.is_some_and(|s| s.left() >= n) {
         return chunk_region(bytes, w, stmt, worker);
@@ -1034,7 +1394,12 @@ pub(crate) fn chunk_region_within(bytes: usize, w: Option<&mut u64>, stmt: Optio
 
 /// `chunk_region` that takes the pool's room past W and G as it is now, with no wait and no refusal kept on the statement:
 /// the reopen of a breaker under its ceiling (`grow::region_grow_in`), whose caller spills when the pool has no room.
-pub(crate) fn chunk_region_now(bytes: usize, w: Option<&mut u64>, stmt: Option<&crate::mem::grant::Reservation>, worker: bool) -> Option<RegionBuf> {
+pub(crate) fn chunk_region_now(
+    bytes: usize,
+    w: Option<&mut u64>,
+    stmt: Option<&crate::mem::grant::Reservation>,
+    worker: bool,
+) -> Option<RegionBuf> {
     road_region(bytes, w, stmt, worker, true, true, Asker::Refuses)
 }
 
@@ -1042,7 +1407,13 @@ pub(crate) fn chunk_region_now(bytes: usize, w: Option<&mut u64>, stmt: Option<&
 /// do without (KN-02 (B)'s owners past G) takes the pool's room past W and G as it is now, with no wait and no refusal kept
 /// on the statement. D3212: zeroed, the allocator memset reused memory on the drawing thread (a 1.2 GB owner chunk, 0.6-1.5 s
 /// on the leader with every worker idle).
-pub(crate) fn chunk_region_unzeroed(bytes: usize, w: Option<&mut u64>, stmt: Option<&crate::mem::grant::Reservation>, worker: bool, now: bool) -> Option<RegionBuf> {
+pub(crate) fn chunk_region_unzeroed(
+    bytes: usize,
+    w: Option<&mut u64>,
+    stmt: Option<&crate::mem::grant::Reservation>,
+    worker: bool,
+    now: bool,
+) -> Option<RegionBuf> {
     road_region(bytes, w, stmt, worker, false, now, Asker::Refuses)
 }
 
@@ -1050,8 +1421,26 @@ pub(crate) fn chunk_region_unzeroed(bytes: usize, w: Option<&mut u64>, stmt: Opt
 /// the pool (`spill_host::v4::take_road` in a session with a temp-file road: the statement's mapped temp file): past W and G
 /// the gate's `Spills` asker (`GrantPool::take_gate`: no wait unless bytes are on their way, no refusal kept). With
 /// `gate_now` off, `chunk_region`'s road exactly.
-pub(crate) fn chunk_region_spills(bytes: usize, w: Option<&mut u64>, stmt: Option<&crate::mem::grant::Reservation>, worker: bool, zeroed: bool) -> Option<RegionBuf> {
-    road_region(bytes, w, stmt, worker, zeroed, false, if mempolicy::admit::gate_now() { Asker::Spills } else { Asker::Refuses })
+pub(crate) fn chunk_region_spills(
+    bytes: usize,
+    w: Option<&mut u64>,
+    stmt: Option<&crate::mem::grant::Reservation>,
+    worker: bool,
+    zeroed: bool,
+) -> Option<RegionBuf> {
+    road_region(
+        bytes,
+        w,
+        stmt,
+        worker,
+        zeroed,
+        false,
+        if mempolicy::admit::gate_now() {
+            Asker::Spills
+        } else {
+            Asker::Refuses
+        },
+    )
 }
 
 /// `chunk_region`'s road for a slot's or a worker share's region G has no room for (`past_g`, `WorkerSlot::bind_region`),
@@ -1059,7 +1448,11 @@ pub(crate) fn chunk_region_spills(bytes: usize, w: Option<&mut u64>, stmt: Optio
 /// `ZERO_PREFIX` at the slot's open or the worker's first claim, a table zeroes the extent it lays out, a parked region
 /// comes back unzeroed). Zeroed, a worker's share past W and G was a memset of the whole share every statement: a W8
 /// union-arm sort's 32 MiB (`alloc_zeroed` over the allocator's reused pages), 25% of a 1.7 ms top-N over a nested Append.
-pub(crate) fn region_past(bytes: usize, w: Option<&mut u64>, stmt: Option<&crate::mem::grant::Reservation>) -> Option<RegionBuf> {
+pub(crate) fn region_past(
+    bytes: usize,
+    w: Option<&mut u64>,
+    stmt: Option<&crate::mem::grant::Reservation>,
+) -> Option<RegionBuf> {
     road_region(bytes, w, stmt, false, false, false, Asker::Refuses)
 }
 
@@ -1078,15 +1471,28 @@ pub(crate) fn region_past(bytes: usize, w: Option<&mut u64>, stmt: Option<&crate
 /// refused, it parks again); else a fresh floor reservation of `bytes` (`reserved_region`). Either is marked laid, its
 /// table laid at `reserve` (`lay_reserve`) whatever reservation the region was mapped with, and its partitions cut by its
 /// taker's `share` (`lay_share`, D3809), whoever opened it before.
-pub(crate) fn laid_region(bytes: usize, reserve: usize, share: usize, mut w: Option<&mut u64>, stmt: Option<&crate::mem::grant::Reservation>) -> Result<RegionBuf> {
+pub(crate) fn laid_region(
+    bytes: usize,
+    reserve: usize,
+    share: usize,
+    mut w: Option<&mut u64>,
+    stmt: Option<&crate::mem::grant::Reservation>,
+) -> Result<RegionBuf> {
     // the forced-spill and revoke test faults (`Grant::spill_every`, `revoke_every`) open every laid region cold, at its
     // start: a warm one holds what its last run grew to, so the run would ask for no room and the fault could refuse nothing
     let warm = stmt.is_none_or(|s| s.grant.spill_every == 0 && s.grant.revoke_every == 0);
-    if let Some(b) = warm.then(|| crate::park::REGIONS.take_laid(bytes, reserve)).flatten() {
+    if let Some(b) = warm
+        .then(|| crate::park::REGIONS.take_laid(bytes, reserve))
+        .flatten()
+    {
         if let Some(s) = stmt {
             s.region_draw()?;
         }
-        if let Some(b) = hold_warm(b, reserve, share, |len| crate::mem::grant::POOL.hold(len, stmt, None).or_else(|| road_held_now(len, w.as_deref_mut(), stmt, false))) {
+        if let Some(b) = hold_warm(b, reserve, share, |len| {
+            crate::mem::grant::POOL
+                .hold(len, stmt, None)
+                .or_else(|| road_held_now(len, w.as_deref_mut(), stmt, false))
+        }) {
             return Ok(b);
         }
     }
@@ -1100,7 +1506,12 @@ pub(crate) fn laid_region(bytes: usize, reserve: usize, share: usize, mut w: Opt
 /// and cut by `share` (the taker's, not the opener's: a W16 retake of a region a W4 statement opened cuts at W16's share);
 /// refused, it parks again and `None` sends the ask to a fresh floor reservation (a start-small ask is never refused
 /// because the warm region it found is longer than its taker's room).
-fn hold_warm(mut b: RegionBuf, reserve: usize, share: usize, hold: impl FnOnce(usize) -> Option<crate::mem::grant::Held>) -> Option<RegionBuf> {
+fn hold_warm(
+    mut b: RegionBuf,
+    reserve: usize,
+    share: usize,
+    hold: impl FnOnce(usize) -> Option<crate::mem::grant::Held>,
+) -> Option<RegionBuf> {
     b.held = crate::mem::grant::Held::NONE;
     match hold(b.len()) {
         Some(h) => {
@@ -1117,7 +1528,13 @@ fn hold_warm(mut b: RegionBuf, reserve: usize, share: usize, hold: impl FnOnce(u
     }
 }
 
-pub(crate) fn reserved_region(bytes: usize, reserve: usize, w: Option<&mut u64>, stmt: Option<&crate::mem::grant::Reservation>, floor: bool) -> Result<RegionBuf> {
+pub(crate) fn reserved_region(
+    bytes: usize,
+    reserve: usize,
+    w: Option<&mut u64>,
+    stmt: Option<&crate::mem::grant::Reservation>,
+    floor: bool,
+) -> Result<RegionBuf> {
     let pool = &crate::mem::grant::POOL;
     if let Some(s) = stmt {
         s.region_draw()?;
@@ -1129,10 +1546,17 @@ pub(crate) fn reserved_region(bytes: usize, reserve: usize, w: Option<&mut u64>,
         b.held = crate::mem::grant::Held::NONE;
     }
     let len = parked.as_ref().map_or(bytes, RegionBuf::len);
-    let oom = || Error::OutOfMemory { bytes: len as u64, held: pool.held(), capacity: pool.capacity(), why: None };
+    let oom = || Error::OutOfMemory {
+        bytes: len as u64,
+        held: pool.held(),
+        capacity: pool.capacity(),
+        why: None,
+    };
     let held = match pool.hold(len, stmt, None) {
         Some(h) => h,
-        None if stmt.is_some_and(crate::mem::grant::Reservation::admitted) => road_held(len, w, stmt, false).ok_or_else(oom)?,
+        None if stmt.is_some_and(crate::mem::grant::Reservation::admitted) => {
+            road_held(len, w, stmt, false).ok_or_else(oom)?
+        }
         None => return Err(oom()),
     };
     reserved_with(parked, bytes, reserve, held, floor).ok_or_else(oom)
@@ -1142,20 +1566,44 @@ pub(crate) fn reserved_region(bytes: usize, reserve: usize, w: Option<&mut u64>,
 /// share, `grow::share_reserve`): `reserved_region`, and on an admitted statement's out of memory the share at the pool's
 /// room now (at least `SHARE_FLOOR`, never past `bytes`) inside the same reservation. The caller arms the breaker at the
 /// share it holds, so it spills there, or commits in place as the pool frees. Returns the region and that share.
-pub(crate) fn reserved_share(bytes: u32, reserve: usize, w: Option<&mut u64>, stmt: Option<&crate::mem::grant::Reservation>, floor: bool) -> Result<(RegionBuf, u32)> {
-    let e = match reserved_region(crate::park::region_bytes(bytes as usize), reserve, w, stmt, floor) {
+pub(crate) fn reserved_share(
+    bytes: u32,
+    reserve: usize,
+    w: Option<&mut u64>,
+    stmt: Option<&crate::mem::grant::Reservation>,
+    floor: bool,
+) -> Result<(RegionBuf, u32)> {
+    let e = match reserved_region(
+        crate::park::region_bytes(bytes as usize),
+        reserve,
+        w,
+        stmt,
+        floor,
+    ) {
         Ok(buf) => return Ok((buf, bytes)),
         Err(e) => e,
     };
     // D4291: a refusal on the own-spill road goes back to the open first (its own sorts are put before a smaller share)
-    let Some(s) = stmt.filter(|s| floor && s.admitted() && !s.own_refused() && matches!(e, Error::OutOfMemory { .. })) else { return Err(e) };
+    let Some(s) = stmt.filter(|s| {
+        floor && s.admitted() && !s.own_refused() && matches!(e, Error::OutOfMemory { .. })
+    }) else {
+        return Err(e);
+    };
     let pool = &crate::mem::grant::POOL;
     let mut share = room_share(bytes);
     while share >= crate::mem::grant::SHARE_FLOOR as u64 {
         let len = crate::park::region_bytes(share as usize);
         if s.grow_fits(len as u64) && pool.take_trimming(len as u64) {
             s.note_grown(len as u64);
-            let Some(buf) = reserved_with(None, len, reserve, crate::mem::grant::Held::pool(len as u64), floor) else { return Err(e) };
+            let Some(buf) = reserved_with(
+                None,
+                len,
+                reserve,
+                crate::mem::grant::Held::pool(len as u64),
+                floor,
+            ) else {
+                return Err(e);
+            };
             s.note_refused(0);
             OPENED_SMALLER.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
             return Ok((buf, (share as u32) & !7));
@@ -1167,12 +1615,21 @@ pub(crate) fn reserved_share(bytes: u32, reserve: usize, w: Option<&mut u64>, st
 
 /// `reserved_region`'s region once `held` holds its share: `parked`, else a fresh reservation of `reserve` bytes whose first
 /// `bytes` are committed; `None` when not even the share maps.
-fn reserved_with(parked: Option<RegionBuf>, bytes: usize, reserve: usize, held: crate::mem::grant::Held, floor: bool) -> Option<RegionBuf> {
+fn reserved_with(
+    parked: Option<RegionBuf>,
+    bytes: usize,
+    reserve: usize,
+    held: crate::mem::grant::Held,
+    floor: bool,
+) -> Option<RegionBuf> {
     let len = parked.as_ref().map_or(bytes, RegionBuf::len);
     let mut buf = match parked {
         Some(b) => b,
         // D2894: a fresh reservation is address space alone (`map_reserved`: PROT_NONE + MAP_NORESERVE past the share)
-        None => match (reserve > bytes).then(|| RegionBuf::map_reserved(bytes, reserve)).flatten() {
+        None => match (reserve > bytes)
+            .then(|| RegionBuf::map_reserved(bytes, reserve))
+            .flatten()
+        {
             Some(mut b) => {
                 advise_huge(b.as_mut_ptr(), b.reserve);
                 b
@@ -1200,14 +1657,24 @@ fn reserved_with(parked: Option<RegionBuf>, bytes: usize, reserve: usize, held: 
 /// What holds `bytes` drawn past a region's share (option c''s `commit`; `road_region`'s charge with no allocation): W first,
 /// else G, else for an admitted statement (or a worker) pool bytes reserved past both, counted as grown (D225, D254). `None`
 /// when the pool refuses within its wait (the refusal noted on the statement, D2845).
-pub(crate) fn road_held(bytes: usize, w: Option<&mut u64>, stmt: Option<&crate::mem::grant::Reservation>, worker: bool) -> Option<crate::mem::grant::Held> {
+pub(crate) fn road_held(
+    bytes: usize,
+    w: Option<&mut u64>,
+    stmt: Option<&crate::mem::grant::Reservation>,
+    worker: bool,
+) -> Option<crate::mem::grant::Held> {
     road_held_with(bytes, w, stmt, worker, true)
 }
 
 /// D2894: `road_held` for a commit whose refusal spills (a kind-7 build's `grow_in`, a merge's `State::grow_in`): pool bytes
 /// past W and G only if the pool has them now (no wait, no refusal noted on the statement); `None` spills at once, as a
 /// refused `grow_in` did before.
-pub(crate) fn road_held_now(bytes: usize, w: Option<&mut u64>, stmt: Option<&crate::mem::grant::Reservation>, worker: bool) -> Option<crate::mem::grant::Held> {
+pub(crate) fn road_held_now(
+    bytes: usize,
+    w: Option<&mut u64>,
+    stmt: Option<&crate::mem::grant::Reservation>,
+    worker: bool,
+) -> Option<crate::mem::grant::Held> {
     road_held_with(bytes, w, stmt, worker, false)
 }
 
@@ -1215,10 +1682,18 @@ pub(crate) fn road_held_now(bytes: usize, w: Option<&mut u64>, stmt: Option<&cra
 /// else charged to the pool directly, waiting for its room (F3, `take_wait`), within the statement's part of the pool
 /// (`past_cap`, asked once: no retry follows a refusal). `None`: past that part, or the pool stayed short through its
 /// wait; the caller takes the kind's road (the owner phase as before: its owners' mapped temp file), never an error.
-pub(crate) fn road_held_exact(bytes: usize, w: Option<&mut u64>, stmt: Option<&crate::mem::grant::Reservation>) -> Option<crate::mem::grant::Held> {
+pub(crate) fn road_held_exact(
+    bytes: usize,
+    w: Option<&mut u64>,
+    stmt: Option<&crate::mem::grant::Reservation>,
+) -> Option<crate::mem::grant::Held> {
     let w_fits = w.as_deref().is_some_and(|c| *c >= bytes as u64);
     let g_fits = stmt.is_some_and(|s| s.left() >= bytes as u64);
-    match mempolicy::admit::road(stmt.is_some_and(crate::mem::grant::Reservation::admitted), w_fits, g_fits) {
+    match mempolicy::admit::road(
+        stmt.is_some_and(crate::mem::grant::Reservation::admitted),
+        w_fits,
+        g_fits,
+    ) {
         Road::W => {
             if let Some(c) = w {
                 *c -= bytes as u64;
@@ -1240,27 +1715,57 @@ pub(crate) fn road_held_exact(bytes: usize, w: Option<&mut u64>, stmt: Option<&c
         crate::mem::grant::note_refusal(mcx::ladder_stats::Why::PastCap, bytes as u64);
         return None;
     }
-    if !crate::mem::grant::POOL.take_gate(bytes as u64, false, mcx::ladder::Gate::Draw, Asker::Spills) {
+    if !crate::mem::grant::POOL.take_gate(
+        bytes as u64,
+        false,
+        mcx::ladder::Gate::Draw,
+        Asker::Spills,
+    ) {
         return None;
     }
     let past = stmt.map(|s| s.note_grown(bytes as u64));
     Some(crate::mem::grant::Held::grown(bytes as u64, past))
 }
 
-fn road_held_with(bytes: usize, w: Option<&mut u64>, stmt: Option<&crate::mem::grant::Reservation>, worker: bool, wait: bool) -> Option<crate::mem::grant::Held> {
+fn road_held_with(
+    bytes: usize,
+    w: Option<&mut u64>,
+    stmt: Option<&crate::mem::grant::Reservation>,
+    worker: bool,
+    wait: bool,
+) -> Option<crate::mem::grant::Held> {
     let w_fits = w.as_deref().is_some_and(|c| *c >= bytes as u64);
-    road_held_on(road_of(bytes as u64, w_fits, stmt, worker), bytes, w, stmt, worker, wait)
+    road_held_on(
+        road_of(bytes as u64, w_fits, stmt, worker),
+        bytes,
+        w,
+        stmt,
+        worker,
+        wait,
+    )
 }
 
 /// A draw's road: W, G (`left`: G's room and its purse's bytes), else past both for an admitted statement or a worker.
-fn road_of(bytes: u64, w_fits: bool, stmt: Option<&crate::mem::grant::Reservation>, worker: bool) -> Road {
+fn road_of(
+    bytes: u64,
+    w_fits: bool,
+    stmt: Option<&crate::mem::grant::Reservation>,
+    worker: bool,
+) -> Road {
     let admitted = worker || stmt.is_some_and(crate::mem::grant::Reservation::admitted);
     mempolicy::admit::road(admitted, w_fits, stmt.is_some_and(|s| s.left() >= bytes))
 }
 
 /// `road_held_with` on `road` (`road_of`, read before the take). D4043: a G road the purse decided, which the section's
 /// workers drew before the take, goes on past G (`purse_missed`).
-fn road_held_on(road: Road, bytes: usize, w: Option<&mut u64>, stmt: Option<&crate::mem::grant::Reservation>, worker: bool, wait: bool) -> Option<crate::mem::grant::Held> {
+fn road_held_on(
+    road: Road,
+    bytes: usize,
+    w: Option<&mut u64>,
+    stmt: Option<&crate::mem::grant::Reservation>,
+    worker: bool,
+    wait: bool,
+) -> Option<crate::mem::grant::Held> {
     if road != Road::PastG {
         let held = held_from(bytes, w, stmt);
         if held.is_some() || !purse_missed(stmt, bytes as u64) {
@@ -1283,7 +1788,11 @@ fn road_held_on(road: Road, bytes: usize, w: Option<&mut u64>, stmt: Option<&cra
     let pool = &crate::mem::grant::POOL;
     // D4291: on an open's own-spill road the depots alone (no wait): the open puts its own sorts and retries the ladder
     let waits = wait && !own_first(stmt, worker);
-    if !(if waits { pool.take_wait(bytes as u64, worker) } else { pool.take_trimming(bytes as u64) }) {
+    if !(if waits {
+        pool.take_wait(bytes as u64, worker)
+    } else {
+        pool.take_trimming(bytes as u64)
+    }) {
         // D4914: `take_wait` notes its own branch
         if !waits {
             crate::mem::grant::note_refusal(mcx::ladder_stats::Why::NoWait, bytes as u64);
@@ -1337,7 +1846,8 @@ pub fn reservation_witness(bytes: usize, reserve: usize) -> Option<(RegionBuf, u
 /// bytes after, `None` when the commit was refused.
 #[doc(hidden)]
 pub fn commit_witness(r: &mut RegionBuf, bytes: usize) -> Option<usize> {
-    r.commit(bytes, crate::mem::grant::Held::NONE).then_some(r.rw)
+    r.commit(bytes, crate::mem::grant::Held::NONE)
+        .then_some(r.rw)
 }
 
 /// pppress card 13 (3) witness: a region of `bytes` from the allocator's road (`RegionBuf::alloc`: the page pool's under
@@ -1404,7 +1914,11 @@ pub fn charge_witness(r: &RegionBuf) -> u64 {
 /// D4043's leader-road race made to happen: a leader's `road_held` of `bytes` on `stmt` with `between` run after its road is
 /// read and before the take (the section's workers drawing the purse). The draw, or `None` when it was refused.
 #[doc(hidden)]
-pub fn leader_road_race_witness(bytes: usize, stmt: &crate::mem::grant::Reservation, between: impl FnOnce()) -> Option<crate::mem::grant::Held> {
+pub fn leader_road_race_witness(
+    bytes: usize,
+    stmt: &crate::mem::grant::Reservation,
+    between: impl FnOnce(),
+) -> Option<crate::mem::grant::Held> {
     let road = road_of(bytes as u64, false, Some(stmt), false);
     between();
     road_held_on(road, bytes, None, Some(stmt), false, true)
@@ -1412,7 +1926,15 @@ pub fn leader_road_race_witness(bytes: usize, stmt: &crate::mem::grant::Reservat
 
 /// `asker` (ladder step 1.1, `gate_now`): `Spills` = the caller maps its temp file past the pool, so a miss there keeps no
 /// refusal on the statement; always `Refuses` with the knob off.
-fn road_region(bytes: usize, mut w: Option<&mut u64>, stmt: Option<&crate::mem::grant::Reservation>, worker: bool, zeroed: bool, now: bool, asker: Asker) -> Option<RegionBuf> {
+fn road_region(
+    bytes: usize,
+    mut w: Option<&mut u64>,
+    stmt: Option<&crate::mem::grant::Reservation>,
+    worker: bool,
+    zeroed: bool,
+    now: bool,
+    asker: Asker,
+) -> Option<RegionBuf> {
     let admitted = worker || stmt.is_some_and(crate::mem::grant::Reservation::admitted);
     let fits_g = |n: u64| stmt.is_some_and(|s| s.left() >= n);
     if let Some(mut buf) = crate::park::REGIONS.take_parked(bytes, None, None) {
@@ -1472,7 +1994,10 @@ fn road_region(bytes: usize, mut w: Option<&mut u64>, stmt: Option<&crate::mem::
         return None;
     }
     if region_debug() & ARENA != 0 {
-        eprintln!("gravity: arena: reserve {bytes} B past W and G ({})", if worker { "worker" } else { "leader" });
+        eprintln!(
+            "gravity: arena: reserve {bytes} B past W and G ({})",
+            if worker { "worker" } else { "leader" }
+        );
     }
     if now {
         if !crate::mem::grant::POOL.take_trimming(bytes as u64) {
@@ -1484,7 +2009,12 @@ fn road_region(bytes: usize, mut w: Option<&mut u64>, stmt: Option<&crate::mem::
             refused_or_own(stmt, worker, bytes);
             return None;
         }
-    } else if !crate::mem::grant::POOL.take_gate(bytes as u64, worker, mcx::ladder::Gate::Draw, asker) {
+    } else if !crate::mem::grant::POOL.take_gate(
+        bytes as u64,
+        worker,
+        mcx::ladder::Gate::Draw,
+        asker,
+    ) {
         if asker == Asker::Refuses {
             refused(stmt, worker, bytes);
         }
@@ -1506,7 +2036,11 @@ fn worker_purse(worker: bool, bytes: u64) -> Option<crate::mem::grant::Held> {
 
 /// A draw of `bytes` past W and G the pool granted: a leader's counted on its statement (`Reservation::note_grown`), a
 /// worker's shown on its claim's memory ledger account (G1-B: the ledger's pool bytes alone; a worker has no statement count).
-fn grown_hold(bytes: u64, stmt: Option<&crate::mem::grant::Reservation>, worker: bool) -> crate::mem::grant::Held {
+fn grown_hold(
+    bytes: u64,
+    stmt: Option<&crate::mem::grant::Reservation>,
+    worker: bool,
+) -> crate::mem::grant::Held {
     if worker {
         return crate::mem::grant::Held::grown_worker(bytes);
     }
@@ -1538,7 +2072,13 @@ pub fn scratch_draw(bytes: u64) -> crate::mem::grant::Held {
     }
     // D4324 step 3: with the ladder on, no room climbs and waits (`take_wait`); the overdraft only once its budget ends
     let pool = &crate::mem::grant::POOL;
-    if !past_cap(None, true, bytes) && (if mcx::ladder::on() { pool.take_wait_at(bytes, true, mcx::ladder::Gate::Scratch) } else { pool.take_trimming(bytes) }) {
+    if !past_cap(None, true, bytes)
+        && (if mcx::ladder::on() {
+            pool.take_wait_at(bytes, true, mcx::ladder::Gate::Scratch)
+        } else {
+            pool.take_trimming(bytes)
+        })
+    {
         return crate::mem::grant::Held::pool(bytes);
     }
     SCRATCH_PAST.fetch_add(1, Relaxed);
@@ -1551,7 +2091,9 @@ pub fn scratch_draw(bytes: u64) -> crate::mem::grant::Held {
 /// mapped temp file, `copy_map`; the run written uncoded), never a refusal. The hold gives the bytes back at its drop.
 /// Pool bytes only, as `scratch_draw`'s: the copy is the allocator's, already on the thread's account.
 pub fn scratch_take(bytes: u64) -> Option<crate::mem::grant::Held> {
-    crate::mem::grant::POOL.take_trimming(bytes).then(|| crate::mem::grant::Held::pool(bytes))
+    crate::mem::grant::POOL
+        .take_trimming(bytes)
+        .then(|| crate::mem::grant::Held::pool(bytes))
 }
 
 /// D4373 (b): `scratch_take`'s road past the pool for a put's compact copy: `bytes` of a mapped temp file (the statement's
@@ -1566,7 +2108,8 @@ fn past_cap(stmt: Option<&crate::mem::grant::Reservation>, worker: bool, bytes: 
     if worker {
         // D4373 (a): a worker's draw past W and G is charged on its statement's memory ledger (`Held::show_worker`), so it
         // meets that ledger's limit as the leader's does (`Reservation::grow_fits`): refused there, the kernel's road runs
-        return crate::mem::grant::worker_past_cap(bytes) || !mcx::governor::Charge::new("gravity worker grown", 0).fits(bytes as usize);
+        return crate::mem::grant::worker_past_cap(bytes)
+            || !mcx::governor::Charge::new("gravity worker grown", 0).fits(bytes as usize);
     }
     stmt.is_some_and(|s| !s.grow_fits(bytes))
 }
@@ -1595,9 +2138,15 @@ fn refused(stmt: Option<&crate::mem::grant::Reservation>, worker: bool, bytes: u
 
 /// D285: a slot region G has no room for (an admitted statement grown past it: an owner re-placed, T1 growth) takes D275's
 /// road, reserved past G and counted as grown (`chunk_region`), with no life; `e` (the refusal) for any other statement.
-pub(crate) fn past_g(bytes: u32, stmt: Option<&crate::mem::grant::Reservation>, e: Error) -> Result<RegionBuf> {
+pub(crate) fn past_g(
+    bytes: u32,
+    stmt: Option<&crate::mem::grant::Reservation>,
+    e: Error,
+) -> Result<RegionBuf> {
     match e {
-        Error::OutOfMemory { .. } if stmt.is_some_and(crate::mem::grant::Reservation::admitted) => region_past(crate::park::region_bytes(bytes as usize), None, stmt).ok_or(e),
+        Error::OutOfMemory { .. } if stmt.is_some_and(crate::mem::grant::Reservation::admitted) => {
+            region_past(crate::park::region_bytes(bytes as usize), None, stmt).ok_or(e)
+        }
         e => Err(e),
     }
 }
@@ -1608,7 +2157,11 @@ pub(crate) fn past_g(bytes: u32, stmt: Option<&crate::mem::grant::Reservation>, 
 /// does. The full pool at a region's open was the statement's 53200 (two W8 statements at once: the 8th worker share's
 /// 874 MiB).
 /// Returns the region and the share bytes it holds; the refusal when not even `SHARE_FLOOR` is free.
-pub(crate) fn past_g_share(bytes: u32, stmt: Option<&crate::mem::grant::Reservation>, e: Error) -> Result<(RegionBuf, u32)> {
+pub(crate) fn past_g_share(
+    bytes: u32,
+    stmt: Option<&crate::mem::grant::Reservation>,
+    e: Error,
+) -> Result<(RegionBuf, u32)> {
     match past_g(bytes, stmt, e) {
         Ok(buf) => Ok((buf, bytes)),
         Err(e) => share_at_room(bytes, stmt, e),
@@ -1616,9 +2169,17 @@ pub(crate) fn past_g_share(bytes: u32, stmt: Option<&crate::mem::grant::Reservat
 }
 
 /// `past_g_share`'s road once the past-G road refused `bytes` (`e`): the region at the pool's room now, or `e`.
-pub(crate) fn share_at_room(bytes: u32, stmt: Option<&crate::mem::grant::Reservation>, e: Error) -> Result<(RegionBuf, u32)> {
+pub(crate) fn share_at_room(
+    bytes: u32,
+    stmt: Option<&crate::mem::grant::Reservation>,
+    e: Error,
+) -> Result<(RegionBuf, u32)> {
     // D4291: as `reserved_share`: the own-spill road's refusal goes back to the open first
-    let Some(s) = stmt.filter(|s| s.admitted() && !s.own_refused() && matches!(e, Error::OutOfMemory { .. })) else { return Err(e) };
+    let Some(s) =
+        stmt.filter(|s| s.admitted() && !s.own_refused() && matches!(e, Error::OutOfMemory { .. }))
+    else {
+        return Err(e);
+    };
     let pool = &crate::mem::grant::POOL;
     let mut share = room_share(bytes);
     while share >= crate::mem::grant::SHARE_FLOOR as u64 {
@@ -1641,8 +2202,12 @@ pub(crate) fn share_at_room(bytes: u32, stmt: Option<&crate::mem::grant::Reserva
 /// The pool's room now for a share of `bytes`, at most `bytes`, in whole `REGION_MIN`s.
 fn room_share(bytes: u32) -> u64 {
     let pool = &crate::mem::grant::POOL;
-    let limit = pool.capacity().saturating_sub(pool.reserve()).saturating_add(pool.small_held());
-    (limit.saturating_sub(pool.held()).min(bytes as u64) as usize / crate::park::REGION_MIN * crate::park::REGION_MIN) as u64
+    let limit = pool
+        .capacity()
+        .saturating_sub(pool.reserve())
+        .saturating_add(pool.small_held());
+    (limit.saturating_sub(pool.held()).min(bytes as u64) as usize / crate::park::REGION_MIN
+        * crate::park::REGION_MIN) as u64
 }
 
 /// D3226 (c1): the share-budgeted regions opened at the pool's room below their share (`past_g_share`, `reserved_share`),
@@ -1650,7 +2215,11 @@ fn room_share(bytes: u32) -> u64 {
 pub static OPENED_SMALLER: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
 
 /// `bytes` from W, else from G (`GrantPool::hold`: G's room, past it the statement's purse).
-fn held_from(bytes: usize, w: Option<&mut u64>, stmt: Option<&crate::mem::grant::Reservation>) -> Option<crate::mem::grant::Held> {
+fn held_from(
+    bytes: usize,
+    w: Option<&mut u64>,
+    stmt: Option<&crate::mem::grant::Reservation>,
+) -> Option<crate::mem::grant::Held> {
     match w {
         Some(c) if *c >= bytes as u64 => {
             *c -= bytes as u64;
@@ -1689,7 +2258,11 @@ pub const ZERO_PREFIX: usize = 128;
 /// allocator's mapping: pages are zero until touched, so a region costs what its table lays out.
 /// A region of a huge page or more (`page_sizes`) asks for transparent huge pages (Graviton, §4b (d): THP is
 /// `madvise` on the box, the fold's dependent probes pay the page walk otherwise).
-pub(crate) fn uninit_region(bytes: usize, stmt: Option<&crate::mem::grant::Reservation>, life: Option<&std::rc::Rc<crate::mem::grant::StmtCtx>>) -> Result<RegionBuf> {
+pub(crate) fn uninit_region(
+    bytes: usize,
+    stmt: Option<&crate::mem::grant::Reservation>,
+    life: Option<&std::rc::Rc<crate::mem::grant::StmtCtx>>,
+) -> Result<RegionBuf> {
     region_held_by(bytes, |pool| pool.hold(bytes, stmt, life))
 }
 
@@ -1703,11 +2276,23 @@ pub fn in_list_set_region(bytes: usize) -> Result<RegionBuf> {
 }
 
 /// `uninit_region`'s mapping, its bytes held on the pool by `hold`.
-fn region_held_by(bytes: usize, hold: impl FnOnce(&crate::mem::grant::GrantPool) -> Option<crate::mem::grant::Held>) -> Result<RegionBuf> {
+fn region_held_by(
+    bytes: usize,
+    hold: impl FnOnce(&crate::mem::grant::GrantPool) -> Option<crate::mem::grant::Held>,
+) -> Result<RegionBuf> {
     let pool = &crate::mem::grant::POOL;
-    let oom = || Error::OutOfMemory { bytes: bytes as u64, held: pool.held(), capacity: pool.capacity(), why: None };
+    let oom = || Error::OutOfMemory {
+        bytes: bytes as u64,
+        held: pool.held(),
+        capacity: pool.capacity(),
+        why: None,
+    };
     // every byte is written (the prefix by the driver, the tables' extents by the tables) before a kernel or the merge reads it
-    let mut v = if bytes == 0 { RegionBuf::empty() } else { RegionBuf::alloc(bytes, false).ok_or_else(oom)? };
+    let mut v = if bytes == 0 {
+        RegionBuf::empty()
+    } else {
+        RegionBuf::alloc(bytes, false).ok_or_else(oom)?
+    };
     v.held = hold(pool).ok_or_else(oom)?;
     if region_debug() & POISON != 0 {
         // SAFETY: `v` holds `bytes` u8; a table that reads a byte it never wrote now sees 0xA5, not the mapping's zero.
@@ -1732,7 +2317,14 @@ pub(crate) fn region_debug() -> u8 {
     static ON: pgsync::OnceLock<u8> = pgsync::OnceLock::new();
     *ON.get_or_init(|| {
         let v = crate::env::text("PGRUST_GRAVITY_REGION_DEBUG").unwrap_or_default(); // alloc: Cold
-        v.split(',').fold(0, |m, w| m | match w.trim() { "poison" => POISON, "trace" => TRACE, "arena" => ARENA, _ => 0 })
+        v.split(',').fold(0, |m, w| {
+            m | match w.trim() {
+                "poison" => POISON,
+                "trace" => TRACE,
+                "arena" => ARENA,
+                _ => 0,
+            }
+        })
     })
 }
 
@@ -1748,7 +2340,10 @@ pub(crate) fn page_sizes() -> (usize, usize) {
     static SIZES: pgsync::OnceLock<(usize, usize)> = pgsync::OnceLock::new();
     *SIZES.get_or_init(|| {
         // SAFETY: sysconf is a pure read.
-        let page = usize::try_from(unsafe { sysconf(SC_PAGESIZE) }).ok().filter(|p| p.is_power_of_two()).unwrap_or(4096);
+        let page = usize::try_from(unsafe { sysconf(SC_PAGESIZE) })
+            .ok()
+            .filter(|p| p.is_power_of_two())
+            .unwrap_or(4096);
         let huge = std::fs::read_to_string("/sys/kernel/mm/transparent_hugepage/hpage_pmd_size") // alloc: Cold
             .ok()
             .and_then(|t| t.trim().parse::<usize>().ok())
@@ -1769,7 +2364,11 @@ pub(crate) fn page_sizes() -> (usize, usize) {
 #[cfg(target_os = "linux")]
 pub(crate) fn advise_huge(ptr: *mut u8, bytes: usize) -> bool {
     extern "C" {
-        fn madvise(addr: *mut core::ffi::c_void, len: usize, advice: core::ffi::c_int) -> core::ffi::c_int;
+        fn madvise(
+            addr: *mut core::ffi::c_void,
+            len: usize,
+            advice: core::ffi::c_int,
+        ) -> core::ffi::c_int;
     }
     const MADV_HUGEPAGE: core::ffi::c_int = 14;
     let (page, huge) = page_sizes();
@@ -1823,7 +2422,11 @@ pub(crate) fn dontneed(_ptr: *mut u8, _bytes: usize) {}
 #[cfg(target_os = "linux")]
 pub(crate) fn free_lazy(ptr: *mut u8, bytes: usize) {
     extern "C" {
-        fn madvise(addr: *mut core::ffi::c_void, len: usize, advice: core::ffi::c_int) -> core::ffi::c_int;
+        fn madvise(
+            addr: *mut core::ffi::c_void,
+            len: usize,
+            advice: core::ffi::c_int,
+        ) -> core::ffi::c_int;
     }
     const MADV_FREE: core::ffi::c_int = 8;
     let (lo, hi) = inward(ptr, bytes);
@@ -1839,7 +2442,10 @@ pub(crate) fn free_lazy(_ptr: *mut u8, _bytes: usize) {}
 /// The whole pages inside `[ptr, ptr + bytes)`, inward to 64 KiB: page-aligned under a 4 KiB or a 64 KiB kernel page.
 fn inward(ptr: *const u8, bytes: usize) -> (usize, usize) {
     const PAGE: usize = 1 << 16;
-    ((ptr as usize).next_multiple_of(PAGE), (ptr as usize + bytes) / PAGE * PAGE)
+    (
+        (ptr as usize).next_multiple_of(PAGE),
+        (ptr as usize + bytes) / PAGE * PAGE,
+    )
 }
 
 /// D2687's debug-build check (no release code): the pages of a spill region parked at its statement's end are
@@ -1857,7 +2463,11 @@ const PROT_READ_WRITE: core::ffi::c_int = 3;
 #[cfg(all(debug_assertions, target_os = "linux"))]
 fn protect(lo: usize, hi: usize, prot: core::ffi::c_int) -> bool {
     extern "C" {
-        fn mprotect(addr: *mut core::ffi::c_void, len: usize, prot: core::ffi::c_int) -> core::ffi::c_int;
+        fn mprotect(
+            addr: *mut core::ffi::c_void,
+            len: usize,
+            prot: core::ffi::c_int,
+        ) -> core::ffi::c_int;
     }
     // SAFETY: whole pages inside one live allocation (`inward`); only its protection changes, never its bytes.
     unsafe { mprotect(lo as *mut core::ffi::c_void, hi - lo, prot) == 0 }
@@ -1890,7 +2500,10 @@ fn unguard(ptr: *const u8, bytes: usize) {
     let mut guarded = pgsync::lock(&GUARDED);
     if let Some(i) = guarded.iter().position(|&e| e == (lo, hi)) {
         guarded.swap_remove(i);
-        assert!(protect(lo, hi, PROT_READ_WRITE), "D2687: a parked spill region's pages could not be made accessible again");
+        assert!(
+            protect(lo, hi, PROT_READ_WRITE),
+            "D2687: a parked spill region's pages could not be made accessible again"
+        );
     }
 }
 
@@ -1904,7 +2517,9 @@ mod page_size_tests {
     fn the_huge_threshold_is_the_kernels_pmd_size() {
         let (page, huge) = super::page_sizes();
         assert!(page.is_power_of_two() && page >= 4096);
-        let sys = std::fs::read_to_string("/sys/kernel/mm/transparent_hugepage/hpage_pmd_size").ok().and_then(|t| t.trim().parse::<usize>().ok());
+        let sys = std::fs::read_to_string("/sys/kernel/mm/transparent_hugepage/hpage_pmd_size")
+            .ok()
+            .and_then(|t| t.trim().parse::<usize>().ok());
         assert_eq!(huge, sys.filter(|h| *h > page).unwrap_or(0));
         // a region below the threshold, and any region when the kernel has no THP, takes no advice (never faults)
         let mut v = vec![0u8; 1 << 16]; // alloc: Cold
@@ -1930,20 +2545,29 @@ mod reserved_tests {
     fn a_mappings_unwritten_pages_are_not_resident_on_its_account() {
         const MIB: usize = 1 << 20;
         let a = memledger::Acct::of(memledger::Consumer::CondCache);
-        let _on = memledger::charge::enter_as(memledger::Owner::Cache(memledger::Holder::of_acct(a)));
+        let _on =
+            memledger::charge::enter_as(memledger::Owner::Cache(memledger::Holder::of_acct(a)));
         let nr = || memledger::account_row(a).not_resident_mapped_bytes;
         let before = nr();
         // a shape no other test parks, so the region is a fresh mapping
         let (share, reserve) = (6 * MIB, 96 * MIB + 4096);
-        let mut r = super::reserved_region(share, reserve, None, None, false).expect("a reserved region");
+        let mut r =
+            super::reserved_region(share, reserve, None, None, false).expect("a reserved region");
         assert!(super::super::resident::pass_all());
         let fresh = nr() - before;
         // at least half: making the region may touch its first huge page
-        assert!(fresh >= (share / 2) as i64, "a fresh mapping's writable pages are not resident ({fresh})");
+        assert!(
+            fresh >= (share / 2) as i64,
+            "a fresh mapping's writable pages are not resident ({fresh})"
+        );
         // SAFETY: the share's bytes are writable (`reserved_region`)
         unsafe { core::ptr::write_bytes(r.as_mut_ptr(), 0x5a, share) };
         assert!(super::super::resident::pass_all());
-        assert!(nr() - before < MIB as i64, "written pages are resident ({})", nr() - before);
+        assert!(
+            nr() - before < MIB as i64,
+            "written pages are resident ({})",
+            nr() - before
+        );
         drop(r);
         assert_eq!(nr(), before, "its not-resident bytes leave with it");
     }
@@ -1955,14 +2579,23 @@ mod reserved_tests {
     #[test]
     fn d4404_a_mappings_landing_credit_is_its_touched_bytes_not_its_writable_ones() {
         const MIB: usize = 1 << 20;
-        let mut r = super::RegionBuf::map_reserved(1024 * MIB, 1024 * MIB + 2 * MIB).expect("a mapped reservation");
+        let mut r = super::RegionBuf::map_reserved(1024 * MIB, 1024 * MIB + 2 * MIB)
+            .expect("a mapped reservation");
         assert_eq!(r.rw, 1024 * MIB, "a gigabyte writable");
-        assert_eq!(crate::mem::reap::owed_of(r.res), 0, "a fresh mapping no pass has read: no credit");
+        assert_eq!(
+            crate::mem::reap::owed_of(r.res),
+            0,
+            "a fresh mapping no pass has read: no credit"
+        );
         // SAFETY: the first 100 MiB are writable (`map_reserved`)
         unsafe { core::ptr::write_bytes(r.as_mut_ptr(), 0x5a, 100 * MIB) };
         assert!(super::super::resident::pass_all());
         let owed = crate::mem::reap::owed_of(r.res);
-        assert!((100 * MIB as u64..=104 * MIB as u64).contains(&owed), "credits the touched 100 MiB, not the writable GiB: {} MiB", owed >> 20);
+        assert!(
+            (100 * MIB as u64..=104 * MIB as u64).contains(&owed),
+            "credits the touched 100 MiB, not the writable GiB: {} MiB",
+            owed >> 20
+        );
         drop(r);
     }
 
@@ -1979,25 +2612,45 @@ mod reserved_tests {
             memledger::statement_begin();
             let st = memledger::charge::context().0;
             let op = memledger::charge::op_begin(st, memledger::Kind::Sort as u32, 0);
-            let mut r = super::RegionBuf::map_reserved(64 * MIB, 64 * MIB + 2 * MIB).expect("a mapped reservation");
+            let mut r = super::RegionBuf::map_reserved(64 * MIB, 64 * MIB + 2 * MIB)
+                .expect("a mapped reservation");
             assert_eq!(r.charge.owner(), st, "made on the running statement");
             let u = memledger::charge::usage(st);
             // another test's pass may have read it already: making the region may touch its first huge page
-            assert!(u.held == 64 * M && (60 * M..=64 * M).contains(&u.not_resident), "a fresh mapping: (nearly) none of it in memory: {u:?}");
+            assert!(
+                u.held == 64 * M && (60 * M..=64 * M).contains(&u.not_resident),
+                "a fresh mapping: (nearly) none of it in memory: {u:?}"
+            );
             // SAFETY: the first 16 MiB are writable (`map_reserved`)
             unsafe { core::ptr::write_bytes(r.as_mut_ptr(), 0x5a, 16 * MIB) };
             assert!(super::super::resident::pass_all());
             let u = memledger::charge::usage(st);
-            assert!((16 * M..=20 * M).contains(&u.subtree_resident()), "resident = held - not resident: {} MiB", u.subtree_resident() >> 20);
+            assert!(
+                (16 * M..=20 * M).contains(&u.subtree_resident()),
+                "resident = held - not resident: {} MiB",
+                u.subtree_resident() >> 20
+            );
             let nr = u.not_resident;
             r.own_by(op);
             let (us, uo) = (memledger::charge::usage(st), memledger::charge::usage(op));
-            assert_eq!((uo.held, uo.not_resident), (64 * M, nr), "the operator's now, its not-resident bytes with it");
-            assert_eq!((us.held, us.not_resident, us.subtree_not_resident), (0, 0, nr), "in the statement's subtree only");
+            assert_eq!(
+                (uo.held, uo.not_resident),
+                (64 * M, nr),
+                "the operator's now, its not-resident bytes with it"
+            );
+            assert_eq!(
+                (us.held, us.not_resident, us.subtree_not_resident),
+                (0, 0, nr),
+                "in the statement's subtree only"
+            );
             assert_eq!(us.subtree_resident(), uo.subtree_resident());
             drop(r);
             let uo = memledger::charge::usage(op);
-            assert_eq!((uo.held, uo.not_resident), (0, 0), "gone with the region (unmapped, or handed to the reaper)");
+            assert_eq!(
+                (uo.held, uo.not_resident),
+                (0, 0),
+                "gone with the region (unmapped, or handed to the reaper)"
+            );
             memledger::charge::op_end(op);
             let _ = memledger::statement_end();
             memledger::unbind_backend();
@@ -2011,24 +2664,44 @@ mod reserved_tests {
     #[test]
     fn a_reserved_region_commits_in_place() {
         let (share, reserve) = (1usize << 20, 32usize << 20);
-        let mut r = super::reserved_region(share, reserve, None, None, false).expect("a reserved region");
+        let mut r =
+            super::reserved_region(share, reserve, None, None, false).expect("a reserved region");
         // a parked reservation of this shape may come back (`take_reserved`: its share within an eighth over the ask)
-        assert!(r.is_reserved() && r.len() >= share && r.reserve() >= reserve && r.committed() == 0);
+        assert!(
+            r.is_reserved() && r.len() >= share && r.reserve() >= reserve && r.committed() == 0
+        );
         let len = r.len();
         let p = r.as_mut_ptr();
         let held = super::road_held(share, None, None, false).expect("a commit's draw");
         assert!(r.commit(share, held), "a commit within the reservation");
-        assert_eq!((r.committed(), r.as_mut_ptr()), (share, p), "committed in place");
+        assert_eq!(
+            (r.committed(), r.as_mut_ptr()),
+            (share, p),
+            "committed in place"
+        );
         // SAFETY: the reservation's bytes are the allocation's (`reserved_region`); the committed ones are written here
         unsafe { core::ptr::write_bytes(p, 0x5a, share + r.committed()) };
         // the depot parks it with its share only (the committed tail back to the kernel, its hold released): a plain share
         // ask never takes it; a reservation ask of its shape does, at the same address, nothing committed
         crate::park::REGIONS.put(r);
         let plain = crate::park::REGIONS.take_parked(share, None, None);
-        assert!(plain.as_ref().is_none_or(|b| !b.is_reserved()), "a plain take never gets a reservation");
+        assert!(
+            plain.as_ref().is_none_or(|b| !b.is_reserved()),
+            "a plain take never gets a reservation"
+        );
         drop(plain);
-        let again = crate::park::REGIONS.take_reserved(share, reserve).expect("the parked reservation");
-        assert_eq!((again.as_ptr(), again.committed(), again.len(), again.is_reserved()), (p as *const u8, 0, len, true));
+        let again = crate::park::REGIONS
+            .take_reserved(share, reserve)
+            .expect("the parked reservation");
+        assert_eq!(
+            (
+                again.as_ptr(),
+                again.committed(),
+                again.len(),
+                again.is_reserved()
+            ),
+            (p as *const u8, 0, len, true)
+        );
     }
 
     /// A region that started small and grew through its whole reservation parks with its length equal to the reservation
@@ -2038,20 +2711,35 @@ mod reserved_tests {
     fn a_laid_region_grown_to_its_reservation_stays_a_reservation() {
         let _laid = laid_lock();
         let (start, reserve) = (2usize << 20, 8usize << 20);
-        let mut r = super::reserved_region(start, reserve, None, None, true).expect("a floor reservation");
+        let mut r =
+            super::reserved_region(start, reserve, None, None, true).expect("a floor reservation");
         r.set_laid(true);
         let (p, res, more) = (r.as_mut_ptr(), r.reserve(), r.reserve() - r.len());
-        let held = super::road_held_now(more, None, None, false).expect("an unadmitted draw holds pool bytes");
+        let held = super::road_held_now(more, None, None, false)
+            .expect("an unadmitted draw holds pool bytes");
         assert!(r.commit(more, held));
         // SAFETY: the start and the committed bytes are writable
         unsafe { core::ptr::write_bytes(p, 0x3c, r.len() + more) };
         crate::park::REGIONS.put(r);
         for ask in [start, start + 4096, 4usize << 20] {
             let plain = crate::park::REGIONS.take_parked(ask, None, None);
-            assert!(plain.as_ref().is_none_or(|b| !std::ptr::eq( b.as_ptr(), p)), "a plain take never gets the full laid region");
+            assert!(
+                plain.as_ref().is_none_or(|b| !std::ptr::eq(b.as_ptr(), p)),
+                "a plain take never gets the full laid region"
+            );
         }
-        let again = crate::park::REGIONS.take_laid(start, reserve).expect("the parked laid region");
-        assert_eq!((again.as_ptr(), again.len(), again.is_reserved(), again.is_laid()), (p as *const u8, res, true, true));
+        let again = crate::park::REGIONS
+            .take_laid(start, reserve)
+            .expect("the parked laid region");
+        assert_eq!(
+            (
+                again.as_ptr(),
+                again.len(),
+                again.is_reserved(),
+                again.is_laid()
+            ),
+            (p as *const u8, res, true, true)
+        );
         #[cfg(target_os = "linux")]
         assert!(again.rw >= again.len(), "its whole length is writable");
     }
@@ -2063,14 +2751,19 @@ mod reserved_tests {
     fn a_laid_take_answers_the_reservation_it_asked() {
         let _laid = laid_lock();
         let (start, big, small) = (2usize << 20, 12usize << 20, 6usize << 20);
-        let mut r = super::reserved_region(start, big, None, None, true).expect("a floor reservation");
+        let mut r =
+            super::reserved_region(start, big, None, None, true).expect("a floor reservation");
         r.set_laid(true);
         let p = r.as_mut_ptr();
         crate::park::REGIONS.put(r);
         let again = super::laid_region(start, small, start, None, None).expect("a laid region");
         assert!(again.is_laid());
-        if std::ptr::eq( again.as_ptr(), p) {
-            assert_eq!((again.reserve(), again.lay_reserve()), (big, small), "the parked mapping, laid at the ask");
+        if std::ptr::eq(again.as_ptr(), p) {
+            assert_eq!(
+                (again.reserve(), again.lay_reserve()),
+                (big, small),
+                "the parked mapping, laid at the ask"
+            );
         }
         assert_eq!(again.lay_reserve(), small);
         let fresh = super::laid_region(start, small, start, None, None).expect("a laid region");
@@ -2086,10 +2779,12 @@ mod reserved_tests {
         let _laid = laid_lock();
         // a reservation no other test asks (the depot is process-wide; a laid take needs a reservation at least the ask's)
         let (start, share, reserve) = (2usize << 20, 4usize << 20, 26usize << 20);
-        let mut r = super::reserved_region(start, reserve, None, None, true).expect("a floor reservation");
+        let mut r =
+            super::reserved_region(start, reserve, None, None, true).expect("a floor reservation");
         r.set_laid(true);
         let (p, more) = (r.as_mut_ptr(), (12usize << 20) - r.len());
-        let held = super::road_held_now(more, None, None, false).expect("an unadmitted draw holds pool bytes");
+        let held = super::road_held_now(more, None, None, false)
+            .expect("an unadmitted draw holds pool bytes");
         assert!(r.commit(more, held));
         // SAFETY: the start and the committed bytes are writable
         unsafe { core::ptr::write_bytes(p, 0x4d, r.len() + more) };
@@ -2097,27 +2792,56 @@ mod reserved_tests {
         assert!(grown > share, "grown past its share");
         crate::park::REGIONS.put(r);
         let short = crate::park::REGIONS.take_laid(start, grown - (1 << 20));
-        assert!(short.as_ref().is_none_or(|b| !std::ptr::eq( b.as_ptr(), p)), "an ask whose reservation it passes never takes it");
+        assert!(
+            short.as_ref().is_none_or(|b| !std::ptr::eq(b.as_ptr(), p)),
+            "an ask whose reservation it passes never takes it"
+        );
         drop(short);
         let again = super::laid_region(start, reserve, share, None, None).expect("a laid region");
-        assert_eq!((again.as_ptr(), again.len(), again.is_laid(), again.lay_reserve(), again.lay_share()), (p as *const u8, grown, true, reserve, share), "taken back warm, whole, cut by its taker's share");
+        assert_eq!(
+            (
+                again.as_ptr(),
+                again.len(),
+                again.is_laid(),
+                again.lay_reserve(),
+                again.lay_share()
+            ),
+            (p as *const u8, grown, true, reserve, share),
+            "taken back warm, whole, cut by its taker's share"
+        );
         #[cfg(target_os = "linux")]
         assert!(again.rw >= again.len(), "its whole length is writable");
         // SAFETY: `grown` bytes at `p` are the region's length, writable; the pages it grew kept their bytes
-        assert_eq!(unsafe { *p.add(grown - 1) }, 0x4d, "its grown pages stayed resident");
+        assert_eq!(
+            unsafe { *p.add(grown - 1) },
+            0x4d,
+            "its grown pages stayed resident"
+        );
         // a taker whose room cannot hold the warm length: the region parks again (the next laid take finds it) and the
         // ask opens a fresh reservation
         crate::park::REGIONS.put(again);
-        let warm = crate::park::REGIONS.take_laid(start, reserve).expect("the warm region, parked again");
+        let warm = crate::park::REGIONS
+            .take_laid(start, reserve)
+            .expect("the warm region, parked again");
         assert_eq!(warm.as_ptr(), p as *const u8);
-        assert!(super::hold_warm(warm, reserve, share, |_| None).is_none(), "refused: no warm region");
-        let back = crate::park::REGIONS.take_laid(start, reserve).expect("parked again after the refusal");
+        assert!(
+            super::hold_warm(warm, reserve, share, |_| None).is_none(),
+            "refused: no warm region"
+        );
+        let back = crate::park::REGIONS
+            .take_laid(start, reserve)
+            .expect("parked again after the refusal");
         assert_eq!((back.as_ptr(), back.len()), (p as *const u8, grown));
         // D3809: another statement's retake (a wider section's smaller share) cuts by its own share, not the opener's
         crate::park::REGIONS.put(back);
         let narrower = share / 4;
-        let retaken = super::laid_region(start, reserve, narrower, None, None).expect("a laid region");
-        assert_eq!((retaken.as_ptr(), retaken.lay_share()), (p as *const u8, narrower), "the retaker's share");
+        let retaken =
+            super::laid_region(start, reserve, narrower, None, None).expect("a laid region");
+        assert_eq!(
+            (retaken.as_ptr(), retaken.lay_share()),
+            (p as *const u8, narrower),
+            "the retaker's share"
+        );
         drop(retaken);
     }
 
@@ -2128,19 +2852,29 @@ mod reserved_tests {
         let _laid = laid_lock();
         // a reservation no other test asks (the depot is process-wide; a laid take needs a reservation at least the ask's)
         let (start, share, reserve) = (2usize << 20, 4usize << 20, 22usize << 20);
-        let mut r = super::reserved_region(start, reserve, None, None, true).expect("a floor reservation");
+        let mut r =
+            super::reserved_region(start, reserve, None, None, true).expect("a floor reservation");
         r.set_laid(true);
         let (p, more) = (r.as_mut_ptr(), (8usize << 20) - r.len());
-        let held = super::road_held_now(more, None, None, false).expect("an unadmitted draw holds pool bytes");
+        let held = super::road_held_now(more, None, None, false)
+            .expect("an unadmitted draw holds pool bytes");
         assert!(r.commit(more, held));
         let grown = r.len() + more;
         crate::park::REGIONS.put(r);
-        let faulted = crate::mem::grant::Reservation::unadmitted(crate::mem::grant::Grant::of(64 << 20).with_spill_every(1));
-        let cold = super::laid_region(start, reserve, share, None, Some(&faulted)).expect("a laid region");
-        assert!(!std::ptr::eq(cold.as_ptr(), p) && cold.len() < grown, "under the fault: a fresh reservation at its start");
+        let faulted = crate::mem::grant::Reservation::unadmitted(
+            crate::mem::grant::Grant::of(64 << 20).with_spill_every(1),
+        );
+        let cold =
+            super::laid_region(start, reserve, share, None, Some(&faulted)).expect("a laid region");
+        assert!(
+            !std::ptr::eq(cold.as_ptr(), p) && cold.len() < grown,
+            "under the fault: a fresh reservation at its start"
+        );
         assert!(cold.is_laid());
         drop(cold);
-        let warm = crate::park::REGIONS.take_laid(start, reserve).expect("the warm region, still parked");
+        let warm = crate::park::REGIONS
+            .take_laid(start, reserve)
+            .expect("the warm region, still parked");
         assert_eq!((warm.as_ptr(), warm.len()), (p as *const u8, grown));
     }
 
@@ -2149,8 +2883,9 @@ mod reserved_tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn a_large_dropped_reservation_goes_to_the_reaper_with_its_charge() {
-        use crate::mem::reap::{drain, defer, REAP_MIN};
-        let mut r = super::reserved_region(REAP_MIN, 4 * REAP_MIN, None, None, true).expect("a floor reservation");
+        use crate::mem::reap::{defer, drain, REAP_MIN};
+        let mut r = super::reserved_region(REAP_MIN, 4 * REAP_MIN, None, None, true)
+            .expect("a floor reservation");
         assert!(r.rw >= REAP_MIN);
         let p = r.as_mut_ptr();
         // SAFETY: the share's bytes are writable at once
@@ -2161,15 +2896,29 @@ mod reserved_tests {
         let (reserve, rw, res) = (r.reserve, r.rw, r.res);
         r.len = 0;
         drop(r);
-        assert!(defer(p, reserve, rw, &mut held, res, charge), "handed to the reaper");
+        assert!(
+            defer(p, reserve, rw, &mut held, res, charge),
+            "handed to the reaper"
+        );
         assert_eq!(held.pool_bytes(), 0, "its pool charge went with it");
         drain();
-        let mut small = super::reserved_region(64 << 10, REAP_MIN, None, None, true).expect("a small floor reservation");
+        let mut small = super::reserved_region(64 << 10, REAP_MIN, None, None, true)
+            .expect("a small floor reservation");
         let mut kept = core::mem::replace(&mut small.held, crate::mem::grant::Held::NONE);
         let pool = kept.pool_bytes();
         assert!(small.rw < REAP_MIN);
         let charge = core::mem::replace(&mut small.charge, memledger::Charge::NONE);
-        assert!(!defer(small.as_mut_ptr(), small.reserve, small.rw, &mut kept, crate::mem::resident::NONE, charge), "a small one is unmapped by its owner");
+        assert!(
+            !defer(
+                small.as_mut_ptr(),
+                small.reserve,
+                small.rw,
+                &mut kept,
+                crate::mem::resident::NONE,
+                charge
+            ),
+            "a small one is unmapped by its owner"
+        );
         assert_eq!(kept.pool_bytes(), pool, "its hold untouched");
         small.held = kept;
     }
@@ -2181,19 +2930,36 @@ mod reserved_tests {
     fn a_commit_opens_whole_steps_and_charges_its_bytes() {
         let page = super::page_sizes().0;
         let (start, reserve, more) = (2usize << 20, 16usize << 20, 3 * page + 1);
-        let mut r = super::reserved_region(start, reserve, None, None, true).expect("a floor reservation");
-        let (p, rw0, c0, base) = (r.as_mut_ptr() as usize, r.rw, r.committed(), r.len() + r.committed());
-        let held = super::road_held_now(more, None, None, false).expect("an unadmitted draw holds pool bytes");
+        let mut r =
+            super::reserved_region(start, reserve, None, None, true).expect("a floor reservation");
+        let (p, rw0, c0, base) = (
+            r.as_mut_ptr() as usize,
+            r.rw,
+            r.committed(),
+            r.len() + r.committed(),
+        );
+        let held = super::road_held_now(more, None, None, false)
+            .expect("an unadmitted draw holds pool bytes");
         assert!(r.commit(more, held));
-        assert_eq!(r.committed(), c0 + more, "the charge is the bytes committed");
+        assert_eq!(
+            r.committed(),
+            c0 + more,
+            "the charge is the bytes committed"
+        );
         let end = base + more;
         if rw0 < end {
             match super::open_step() {
                 0 => assert_eq!(r.rw, end.next_multiple_of(page)),
-                s => assert!((p + r.rw).is_multiple_of( s) && r.rw >= end && r.rw - end < s, "opened to the next step boundary"),
+                s => assert!(
+                    (p + r.rw).is_multiple_of(s) && r.rw >= end && r.rw - end < s,
+                    "opened to the next step boundary"
+                ),
             }
         }
-        assert!(r.rw >= end && r.rw <= super::mapped_len(reserve), "the committed bytes writable, within the mapping");
+        assert!(
+            r.rw >= end && r.rw <= super::mapped_len(reserve),
+            "the committed bytes writable, within the mapping"
+        );
         // SAFETY: the committed bytes are writable
         unsafe { core::ptr::write_bytes((p + base) as *mut u8, 0x5a, more) };
     }
@@ -2203,22 +2969,37 @@ mod reserved_tests {
     #[test]
     fn a_floor_reservation_is_address_space_until_committed() {
         let (share, reserve) = (64usize << 10, 1usize << 30);
-        let mut r = super::reserved_region(share, reserve, None, None, true).expect("a floor reservation");
-        assert!(r.is_reserved() && r.is_floor() && r.len() == share && r.reserve() == reserve && r.committed() == 0);
+        let mut r =
+            super::reserved_region(share, reserve, None, None, true).expect("a floor reservation");
+        assert!(
+            r.is_reserved()
+                && r.is_floor()
+                && r.len() == share
+                && r.reserve() == reserve
+                && r.committed() == 0
+        );
         let p = r.as_mut_ptr();
         // SAFETY: the share's bytes are writable at once
         unsafe { core::ptr::write_bytes(p, 0x11, share) };
         let more = (3usize << 20) + 5; // not a page multiple: the commit's last page is made writable whole
-        let held = super::road_held_now(more, None, None, false).expect("an unadmitted draw holds pool bytes");
+        let held = super::road_held_now(more, None, None, false)
+            .expect("an unadmitted draw holds pool bytes");
         assert!(r.commit(more, held));
-        assert_eq!((r.committed(), r.as_mut_ptr()), (more, p), "committed in place");
+        assert_eq!(
+            (r.committed(), r.as_mut_ptr()),
+            (more, p),
+            "committed in place"
+        );
         // SAFETY: the share and the committed bytes are writable; the bytes read back are the ones written
         unsafe {
             core::ptr::write_bytes(p.add(share), 0x22, more);
             assert_eq!((*p, *p.add(share + more - 1)), (0x11, 0x22));
         }
         #[cfg(target_os = "linux")]
-        assert!(r.rw >= share + more && r.rw.is_multiple_of( super::page_sizes().0) && r.rw < reserve, "only the committed pages are writable");
+        assert!(
+            r.rw >= share + more && r.rw.is_multiple_of(super::page_sizes().0) && r.rw < reserve,
+            "only the committed pages are writable"
+        );
         crate::park::REGIONS.put(r);
     }
 
@@ -2229,18 +3010,29 @@ mod reserved_tests {
     fn an_uncommitted_reservation_is_closed_past_its_share() {
         let page = super::page_sizes().0;
         let (share, reserve, more) = (64usize << 10, 64usize << 20, 4 * page + 1);
-        let mut r = super::reserved_region(share, reserve, None, None, true).expect("a floor reservation");
+        let mut r =
+            super::reserved_region(share, reserve, None, None, true).expect("a floor reservation");
         let p = r.as_mut_ptr();
         let keep = share.next_multiple_of(page);
-        let held = super::road_held_now(more, None, None, false).expect("an unadmitted draw holds pool bytes");
+        let held = super::road_held_now(more, None, None, false)
+            .expect("an unadmitted draw holds pool bytes");
         assert!(r.commit(more, held));
         // SAFETY: the share and the committed bytes are writable
         unsafe { core::ptr::write_bytes(p.add(share), 0x33, more) };
         assert_eq!(prot_at(p as usize + keep), "rw-", "committed: writable");
         r.uncommit();
-        assert_eq!((r.committed(), r.rw), (0, keep), "only the share's pages stay writable");
-        assert_eq!(prot_at(p as usize + keep), "---", "past the share: no access until a commit");
-        let held = super::road_held_now(more, None, None, false).expect("an unadmitted draw holds pool bytes");
+        assert_eq!(
+            (r.committed(), r.rw),
+            (0, keep),
+            "only the share's pages stay writable"
+        );
+        assert_eq!(
+            prot_at(p as usize + keep),
+            "---",
+            "past the share: no access until a commit"
+        );
+        let held = super::road_held_now(more, None, None, false)
+            .expect("an unadmitted draw holds pool bytes");
         assert!(r.commit(more, held), "a later commit opens them again");
         // SAFETY: committed again: writable
         unsafe { core::ptr::write_bytes(p.add(share), 0x44, more) };
@@ -2256,7 +3048,10 @@ mod reserved_tests {
             let mut f = line.split_whitespace();
             let (range, perms) = (f.next().unwrap_or(""), f.next().unwrap_or(""));
             let (lo, hi) = range.split_once('-').unwrap_or(("0", "0"));
-            let (lo, hi) = (usize::from_str_radix(lo, 16).unwrap_or(0), usize::from_str_radix(hi, 16).unwrap_or(0));
+            let (lo, hi) = (
+                usize::from_str_radix(lo, 16).unwrap_or(0),
+                usize::from_str_radix(hi, 16).unwrap_or(0),
+            );
             if (lo..hi).contains(&addr) {
                 return perms.chars().take(3).collect(); // alloc: Cold
             }
@@ -2270,7 +3065,14 @@ mod reserved_tests {
 mod vm {
     use core::ffi::{c_int, c_void};
     extern "C" {
-        fn mmap(addr: *mut c_void, len: usize, prot: c_int, flags: c_int, fd: c_int, off: i64) -> *mut c_void;
+        fn mmap(
+            addr: *mut c_void,
+            len: usize,
+            prot: c_int,
+            flags: c_int,
+            fd: c_int,
+            off: i64,
+        ) -> *mut c_void;
         fn munmap(addr: *mut c_void, len: usize) -> c_int;
         fn mprotect(addr: *mut c_void, len: usize, prot: c_int) -> c_int;
     }
@@ -2284,7 +3086,16 @@ mod vm {
     /// `len` bytes (whole pages) of address space: no access, no swap or commit charge, no page behind any of it.
     pub(super) fn map_none(len: usize) -> Option<*mut u8> {
         // SAFETY: an anonymous private mapping at an address the kernel picks; nothing else is touched.
-        let p = unsafe { mmap(core::ptr::null_mut(), len, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0) };
+        let p = unsafe {
+            mmap(
+                core::ptr::null_mut(),
+                len,
+                PROT_NONE,
+                MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE,
+                -1,
+                0,
+            )
+        };
         (p as usize != usize::MAX && !p.is_null()).then_some(p as *mut u8)
     }
 
@@ -2319,7 +3130,11 @@ pub(crate) fn unmap(p: *mut u8, reserve: usize) {
 const OPEN_STEP: usize = 2 << 20;
 
 fn open_step() -> usize {
-    if page_sizes().1 == OPEN_STEP { OPEN_STEP } else { 0 }
+    if page_sizes().1 == OPEN_STEP {
+        OPEN_STEP
+    } else {
+        0
+    }
 }
 
 /// The length of a mapped reservation of `reserve` bytes: whole 2 MiB steps when it holds one (`open_step`), so the kernel
@@ -2337,7 +3152,8 @@ fn open_to(ptr: *const u8, end: usize, mapped: usize) -> usize {
     let page = page_sizes().0;
     let to = match open_step() {
         0 => end.next_multiple_of(page),
-        s => ((ptr as usize + end).next_multiple_of(s) - ptr as usize).max(end.next_multiple_of(page)),
+        s => ((ptr as usize + end).next_multiple_of(s) - ptr as usize)
+            .max(end.next_multiple_of(page)),
     };
     to.min(mapped)
 }
@@ -2384,10 +3200,14 @@ pub(crate) fn set_frame_word(node: &crate::node::Node, i: u16, v: u64) -> bool {
 
 fn frame_cell(node: &crate::node::Node, i: u16) -> Option<*mut u64> {
     let program = node.program();
-    let (ws, n) = program.sites.iter().enumerate().find_map(|(x, s)| match s.kind {
-        gravity_program::SiteKind::Words { n } => Some((x, n)),
-        _ => None,
-    })?;
+    let (ws, n) = program
+        .sites
+        .iter()
+        .enumerate()
+        .find_map(|(x, s)| match s.kind {
+            gravity_program::SiteKind::Words { n } => Some((x, n)),
+            _ => None,
+        })?;
     let ctx = node.ctx();
     if i >= n || ctx.is_null() {
         return None;
@@ -2411,7 +3231,8 @@ mod p3_tests {
     #[test]
     fn p3_r2p_reach_and_trim_are_the_parked_regions_account_bytes_not_their_lengths() {
         let d = crate::park::RegionDepot::fresh();
-        let mut a = super::RegionBuf::map_reserved(64 * MIB, 64 * MIB + 2 * MIB).expect("a mapped reservation");
+        let mut a = super::RegionBuf::map_reserved(64 * MIB, 64 * MIB + 2 * MIB)
+            .expect("a mapped reservation");
         // SAFETY: the first 64 MiB are writable (`map_reserved`)
         unsafe { core::ptr::write_bytes(a.as_mut_ptr(), 0x5a, 16 * MIB) };
         let (res, len) = (a.res, a.len());
@@ -2419,12 +3240,26 @@ mod p3_tests {
         d.put(super::RegionBuf::alloc(MIB, true).expect("a heap region"));
         assert!(super::super::resident::pass_all());
         let resident = super::super::resident::resident_of(res).expect("listed");
-        assert!((16 * MIB..=20 * MIB).contains(&resident), "the mapping's written pages are resident: {} MiB", resident >> 20);
+        assert!(
+            (16 * MIB..=20 * MIB).contains(&resident),
+            "the mapping's written pages are resident: {} MiB",
+            resident >> 20
+        );
         assert_eq!(len, 64 * MIB);
         let reach = d.trimmable_account_bytes();
-        assert_eq!(reach, resident, "R2p's reach: the older region's account bytes, not its length ({} MiB)", reach >> 20);
+        assert_eq!(
+            reach,
+            resident,
+            "R2p's reach: the older region's account bytes, not its length ({} MiB)",
+            reach >> 20
+        );
         let freed = d.trim_account_but_newest(usize::MAX);
-        assert_eq!(freed, resident, "the trim notes the bytes its drop takes off the account, not the length ({} MiB)", freed >> 20);
+        assert_eq!(
+            freed,
+            resident,
+            "the trim notes the bytes its drop takes off the account, not the length ({} MiB)",
+            freed >> 20
+        );
         assert_eq!(d.stats().entries, 1, "the newest region kept");
     }
 
@@ -2439,19 +3274,32 @@ mod p3_tests {
         let acct = || memledger::account_row(memledger::Acct::PARKED).account_bytes;
         let before = acct();
         let d = crate::park::RegionDepot::fresh();
-        let mut a = super::RegionBuf::map_reserved(64 * MIB, 64 * MIB + 2 * MIB).expect("a mapped reservation");
+        let mut a = super::RegionBuf::map_reserved(64 * MIB, 64 * MIB + 2 * MIB)
+            .expect("a mapped reservation");
         // SAFETY: the first 64 MiB are writable (`map_reserved`)
         unsafe { core::ptr::write_bytes(a.as_mut_ptr(), 0x5a, 16 * MIB) };
         d.put(a);
         let mut c = super::RegionBuf::alloc(8 * MIB, true).expect("a heap region");
         assert!(c.fit_to(MIB), "fitted: its tail's pages given back");
-        assert_eq!(c.charge_committed(), MIB as u64, "its tail is off its charge");
+        assert_eq!(
+            c.charge_committed(),
+            MIB as u64,
+            "its tail is off its charge"
+        );
         d.put(c);
         d.put(super::RegionBuf::alloc(MIB, true).expect("a heap region"));
         let charged = d.charged_bytes() as i64;
-        assert_eq!(acct() - before, charged, "PARKED holds the parked regions' charges");
+        assert_eq!(
+            acct() - before,
+            charged,
+            "PARKED holds the parked regions' charges"
+        );
         let _ = d.trim_account_but_newest(usize::MAX);
-        assert_eq!(acct() - before, d.charged_bytes() as i64, "after the trim: the newest one's charge");
+        assert_eq!(
+            acct() - before,
+            d.charged_bytes() as i64,
+            "after the trim: the newest one's charge"
+        );
         assert_eq!(d.charged_bytes(), MIB as u64);
     }
 }

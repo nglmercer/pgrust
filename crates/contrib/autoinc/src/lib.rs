@@ -146,8 +146,9 @@ fn fc_autoinc(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<D
     }
     let mut newnulls = mcx::vec_with_capacity_in(mcx, chattrs.len())?;
     newnulls.resize(chattrs.len(), false);
-    let newtuple =
-        heaptuple::heap_modify_tuple_by_cols(mcx, rettuple, tupdesc, &chattrs, &newvals, &newnulls)?;
+    let newtuple = heaptuple::heap_modify_tuple_by_cols(
+        mcx, rettuple, tupdesc, &chattrs, &newvals, &newnulls,
+    )?;
     let ht = newtuple.as_tuple();
     // SAFETY: the image is mcx-owned and leaked below; the descriptor copy
     // rides in the same mcx so it outlives the trigger driver's copy-out.

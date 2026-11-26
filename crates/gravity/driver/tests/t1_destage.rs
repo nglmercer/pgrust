@@ -7,7 +7,9 @@ use std::collections::BTreeMap;
 
 use gravity_abi::breaker::{KeyKind, Rec, RecordLayout, SlotKind, T1, T1_HDR};
 use gravity_abi::hash::KeyHash;
-use gravity_driver::mem::spill::{scatter_t1, scatter_t1_destaging, RunReader, SpillFile, DESTAGE_FLUSHES};
+use gravity_driver::mem::spill::{
+    scatter_t1, scatter_t1_destaging, RunReader, SpillFile, DESTAGE_FLUSHES,
+};
 use gravity_driver::Result;
 
 const L: RecordLayout = RecordLayout::new_nn(&[KeyKind::I64], &[SlotKind::Count]);
@@ -20,7 +22,10 @@ struct Mem {
 
 impl SpillFile for Mem {
     fn write_epoch(&mut self, parts: &[(u32, &[u8])]) -> Result<()> {
-        assert!(parts.windows(2).all(|w| w[0].0 <= w[1].0), "an epoch names its partitions in order");
+        assert!(
+            parts.windows(2).all(|w| w[0].0 <= w[1].0),
+            "an epoch names its partitions in order"
+        );
         for (p, b) in parts {
             assert_eq!(b.len() % L.size() as usize, 0, "whole records");
             self.records += (b.len() / L.size() as usize) as u64;
@@ -57,7 +62,11 @@ fn tally(bytes: &[u8], part: Option<u32>, pbits: u8, got: &mut BTreeMap<u64, i64
         };
         let k = r.key(0);
         if let Some(p) = part {
-            assert_eq!(KeyHash::of(&[k]).part(pbits as u32), p, "key {k} in its partition");
+            assert_eq!(
+                KeyHash::of(&[k]).part(pbits as u32),
+                p,
+                "key {k} in its partition"
+            );
         }
         *got.entry(k).or_default() += r.count(0);
     }
@@ -78,7 +87,15 @@ struct Run {
 fn run(limit: usize, pbits: u8, rows: impl Fn(u64) -> (u64, u64), destage: bool) -> Run {
     let mut buf = vec![0u64; limit / 8]; // alloc: Cold (a test)
     buf[..T1_HDR / 8].fill(0);
-    let t = unsafe { T1::at(buf.as_mut_ptr() as *mut u8, &L, pbits, 512 << 10, limit as u32) } as *mut T1;
+    let t = unsafe {
+        T1::at(
+            buf.as_mut_ptr() as *mut u8,
+            &L,
+            pbits,
+            512 << 10,
+            limit as u32,
+        )
+    } as *mut T1;
     let (groups, n) = rows(unsafe { (*t).nblocks as u64 * (*t).block_recs as u64 });
     let mut file = Mem::default();
     let mut spilled = Vec::new(); // alloc: Cold (a test)
@@ -137,12 +154,27 @@ fn run(limit: usize, pbits: u8, rows: impl Fn(u64) -> (u64, u64), destage: bool)
     for p in 0..tr.parts() as u32 {
         for b in tr.chain(p) {
             // SAFETY: the block's records lie in `buf`.
-            tally(unsafe { core::slice::from_raw_parts(b.ptr, b.recs * L.size() as usize) }, Some(p), pbits, &mut got);
+            tally(
+                unsafe { core::slice::from_raw_parts(b.ptr, b.recs * L.size() as usize) },
+                Some(p),
+                pbits,
+                &mut got,
+            );
             kept += b.recs as u64;
         }
     }
-    assert_eq!(kept, tr.buffered, "buffered counts the kept chains' records");
-    Run { want, got, written: file.records, flushes, spilled_parts: file.parts.len(), parts: tr.parts() }
+    assert_eq!(
+        kept, tr.buffered,
+        "buffered counts the kept chains' records"
+    );
+    Run {
+        want,
+        got,
+        written: file.records,
+        flushes,
+        spilled_parts: file.parts.len(),
+        parts: tr.parts(),
+    }
 }
 
 #[test]
@@ -154,10 +186,18 @@ fn a_destaging_flush_loses_no_row() {
         assert!(r.flushes > 0, "{groups} groups pass a 64 KiB region");
     }
     for over in [1.1f64, 1.5, 2.5, 8.0] {
-        let r = run(64 << 10, 4, |pool| ((pool as f64 * over) as u64, (pool as f64 * over) as u64), true);
+        let r = run(
+            64 << 10,
+            4,
+            |pool| ((pool as f64 * over) as u64, (pool as f64 * over) as u64),
+            true,
+        );
         assert_eq!(r.got, r.want, "unique keys over {over} pools");
         assert!(r.flushes > 0 || over < 1.2, "unique keys over {over} pools");
-        assert!(over < 4.0 || r.flushes as u64 > DESTAGE_FLUSHES, "past {DESTAGE_FLUSHES} flushes the pools are written whole");
+        assert!(
+            over < 4.0 || r.flushes as u64 > DESTAGE_FLUSHES,
+            "past {DESTAGE_FLUSHES} flushes the pools are written whole"
+        );
     }
 }
 
@@ -169,8 +209,21 @@ fn an_input_past_its_pool_by_less_than_a_pool_writes_less_than_whole_pools() {
         let hybrid = run(64 << 10, 4, rows, true);
         assert_eq!(whole.got, whole.want, "whole pools: {over} pools");
         assert_eq!(hybrid.got, hybrid.want, "destaging: {over} pools");
-        assert!(whole.flushes > 0 && hybrid.flushes > 0, "{over} pools: the pool fills");
-        assert!(2 * hybrid.written < 3 * whole.written / 2 && hybrid.written < whole.written, "{over} pools: destaging wrote {} records, whole pools {}", hybrid.written, whole.written);
-        assert!(hybrid.spilled_parts < hybrid.parts, "{over} pools: some partitions never written ({} of {})", hybrid.spilled_parts, hybrid.parts);
+        assert!(
+            whole.flushes > 0 && hybrid.flushes > 0,
+            "{over} pools: the pool fills"
+        );
+        assert!(
+            2 * hybrid.written < 3 * whole.written / 2 && hybrid.written < whole.written,
+            "{over} pools: destaging wrote {} records, whole pools {}",
+            hybrid.written,
+            whole.written
+        );
+        assert!(
+            hybrid.spilled_parts < hybrid.parts,
+            "{over} pools: some partitions never written ({} of {})",
+            hybrid.spilled_parts,
+            hybrid.parts
+        );
     }
 }

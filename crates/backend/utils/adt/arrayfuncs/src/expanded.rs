@@ -25,7 +25,12 @@ pub struct ArrayMetaState {
 
 impl ArrayMetaState {
     pub const fn invalid() -> Self {
-        ArrayMetaState { element_type: 0, typlen: 0, typbyval: false, typalign: 0 }
+        ArrayMetaState {
+            element_type: 0,
+            typlen: 0,
+            typbyval: false,
+            typalign: 0,
+        }
     }
 }
 
@@ -97,7 +102,9 @@ impl ExpandedArrayHeader {
     }
 
     pub fn dvalues(&self) -> Option<(&[Datum], Option<&[bool]>)> {
-        self.dvalues.as_ref().map(|v| (v.as_slice(), self.dnulls.as_deref()))
+        self.dvalues
+            .as_ref()
+            .map(|v| (v.as_slice(), self.dnulls.as_deref()))
     }
 
     /// C array_append over an expanded array (array_set_element_expanded at subscript lbound + dims, 1-D or empty):
@@ -283,7 +290,9 @@ pub fn expand_array_owned(
     let p = Box::into_raw(expand_array_boxed(arraydatum, parentcontext, metacache)?);
     // SAFETY: p is the header's final address.
     unsafe { eoh_init_header(&raw mut (*p).hdr, &EA_METHODS, &raw const (*p).ctx) };
-    Ok(OwnedExpandedArray(core::ptr::NonNull::new(p).expect("Box pointer")))
+    Ok(OwnedExpandedArray(
+        core::ptr::NonNull::new(p).expect("Box pointer"),
+    ))
 }
 
 /// The flat image for read-only consumers, cached until the next change.
@@ -302,7 +311,9 @@ pub fn expanded_array_flat_datum(eah: &mut ExpandedArrayHeader) -> PgResult<Datu
         }
         eah.flat_cache = Some(buf);
     }
-    Ok(Datum::from_usize(eah.flat_cache.as_ref().unwrap().as_ptr() as usize))
+    Ok(Datum::from_usize(
+        eah.flat_cache.as_ref().unwrap().as_ptr() as usize
+    ))
 }
 
 fn copy_byval_expanded_array(
@@ -380,8 +391,7 @@ fn fill_from_flat(
             eah.typalign = m.typalign;
         }
         other => {
-            let (typlen, typbyval, typalign) =
-                ::lsyscache::get_typlenbyvalalign(eah.element_type)?;
+            let (typlen, typbyval, typalign) = ::lsyscache::get_typlenbyvalalign(eah.element_type)?;
             eah.typlen = typlen;
             eah.typbyval = typbyval;
             eah.typalign = typalign as u8;
@@ -434,8 +444,10 @@ fn att_addlength_datum(cur: usize, typlen: i16, typbyval: bool, value: Datum) ->
 #[inline(never)]
 fn array_size_exceeds_limit() -> ! {
     std::panic::panic_any(
-        PgError::error(format!("array size exceeds the maximum allowed ({MAX_ALLOC_SIZE})"))
-            .with_sqlstate(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+        PgError::error(format!(
+            "array size exceeds the maximum allowed ({MAX_ALLOC_SIZE})"
+        ))
+        .with_sqlstate(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
     )
 }
 
@@ -449,7 +461,10 @@ unsafe fn ea_get_flat_size(eohptr: *mut ExpandedObjectHeader) -> usize {
         return eah.flat_size;
     }
     let nelems = eah.nelems as usize;
-    let dvalues = eah.dvalues.as_ref().expect("expanded array has neither fvalue nor dvalues");
+    let dvalues = eah
+        .dvalues
+        .as_ref()
+        .expect("expanded array has neither fvalue nor dvalues");
     let dnulls = eah.dnulls.as_deref();
     let mut nbytes = 0usize;
     for i in 0..nelems {
@@ -562,13 +577,22 @@ pub fn deconstruct_expanded_array(eah: &mut ExpandedArrayHeader) -> PgResult<()>
         return Ok(());
     }
     let mcx = eah.obj_mcx();
-    let fvalue = eah.fvalue.as_ref().expect("expanded array has neither fvalue nor dvalues");
+    let fvalue = eah
+        .fvalue
+        .as_ref()
+        .expect("expanded array has neither fvalue nor dvalues");
     // SAFETY(lifetime launder): dvalues' by-ref element datums point into
     // fvalue, which this object owns and never frees before them.
     let flat: &'static [u8] = unsafe { core::mem::transmute(fvalue.as_slice()) };
     let hasnull = arr_hasnull(flat);
-    let (dvalues, dnulls) =
-        deconstruct_array(mcx, flat, eah.typlen as i32, eah.typbyval, eah.typalign, true)?;
+    let (dvalues, dnulls) = deconstruct_array(
+        mcx,
+        flat,
+        eah.typlen as i32,
+        eah.typbyval,
+        eah.typalign,
+        true,
+    )?;
     let nelems = dvalues.len() as i32;
     eah.dvalues = Some(dvalues);
     eah.dnulls = if hasnull { Some(dnulls) } else { None };
@@ -578,7 +602,9 @@ pub fn deconstruct_expanded_array(eah: &mut ExpandedArrayHeader) -> PgResult<()>
 }
 
 pub fn expanded_array_data_bounds(eah: &ExpandedArrayHeader) -> Option<(usize, usize)> {
-    eah.fvalue.as_ref().map(|f| (arr_data_offset(f), arr_size(f)))
+    eah.fvalue
+        .as_ref()
+        .map(|f| (arr_data_offset(f), arr_size(f)))
 }
 
 fn elem_image_size(value: Datum, typlen: i16) -> usize {
@@ -634,7 +660,9 @@ pub fn array_set_element_expanded(
             .map_err(|_| mcx.oom(size))?
             .cast();
         // SAFETY: fresh `size`-byte allocation; the source is readable for size bytes.
-        unsafe { core::ptr::copy_nonoverlapping(data_value.as_usize() as *const u8, dst.as_ptr(), size) };
+        unsafe {
+            core::ptr::copy_nonoverlapping(data_value.as_usize() as *const u8, dst.as_ptr(), size)
+        };
         Datum::from_usize(dst.as_ptr() as usize)
     } else {
         data_value
@@ -692,10 +720,13 @@ pub fn array_set_element_expanded(
     let target = newnelems.saturating_add(newnelems / 8);
     let dvalues = eah.dvalues.as_mut().expect("deconstructed");
     if newnelems > dvalues.capacity() {
-        dvalues.try_reserve_exact(target - dvalues.len()).map_err(|_| mcx.oom(target * 8))?;
+        dvalues
+            .try_reserve_exact(target - dvalues.len())
+            .map_err(|_| mcx.oom(target * 8))?;
     }
     if let Some(n) = eah.dnulls.as_mut().filter(|n| newnelems > n.capacity()) {
-        n.try_reserve_exact(target - n.len()).map_err(|_| mcx.oom(target))?;
+        n.try_reserve_exact(target - n.len())
+            .map_err(|_| mcx.oom(target))?;
     }
     if newhasnulls && eah.dnulls.is_none() {
         let cap = eah.dvalues.as_ref().unwrap().capacity().max(newnelems);
@@ -829,7 +860,9 @@ mod flat_size_limit_tests {
     }
 
     fn dvalues_only_text_array(claims: &[usize]) -> Box<ExpandedArrayHeader> {
-        let mut eah = Box::new(ExpandedArrayHeader::empty(MemoryContext::new("flat size limit")));
+        let mut eah = Box::new(ExpandedArrayHeader::empty(MemoryContext::new(
+            "flat size limit",
+        )));
         eah.ndims = 1;
         eah.dims[0] = claims.len() as i32;
         eah.lbound[0] = 1;
@@ -864,7 +897,10 @@ mod flat_size_limit_tests {
         let payload = r.expect_err("flat size past MaxAllocSize must not succeed");
         let err = ::types_error::pg_error_from_panic(payload)
             .unwrap_or_else(|_| panic!("expected a structured PgError, got an unstructured panic"));
-        assert_eq!(err.sqlstate(), ::types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED);
+        assert_eq!(
+            err.sqlstate(),
+            ::types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED
+        );
         assert_eq!(
             err.message(),
             format!("array size exceeds the maximum allowed ({MAX_ALLOC_SIZE})")

@@ -107,10 +107,10 @@ fn hash_combine64_matches_c() {
     assert_eq!(hash_combine64(0, 0), 0x49a0f4dd15e5a8e3);
     let a = 0x123456789abcdef0u64;
     let b = 0x0fedcba987654321u64;
-    let expected = a ^ (b
-        .wrapping_add(0x49a0f4dd15e5a8e3)
-        .wrapping_add(a << 54)
-        .wrapping_add(a >> 7));
+    let expected = a
+        ^ (b.wrapping_add(0x49a0f4dd15e5a8e3)
+            .wrapping_add(a << 54)
+            .wrapping_add(a >> 7));
     assert_eq!(hash_combine64(a, b), expected);
 }
 
@@ -128,8 +128,9 @@ fn create_hash_bounds_sorts_and_maps() {
     let (info, mapping) = partition_bounds_create(mcx, &specs, &key).unwrap();
     assert_eq!(info.ndatums, 4);
     assert_eq!(info.width, 2);
-    let pairs: Vec<(i32, i32)> =
-        (0..4).map(|i| (info.datum(i, 0).as_i32(), info.datum(i, 1).as_i32())).collect();
+    let pairs: Vec<(i32, i32)> = (0..4)
+        .map(|i| (info.datum(i, 0).as_i32(), info.datum(i, 1).as_i32()))
+        .collect();
     assert_eq!(pairs, vec![(2, 0), (4, 1), (8, 3), (8, 7)]);
     assert_eq!(&info.indexes[..], &[0, 1, 0, 2, 0, 1, 0, 3]);
     assert_eq!(mapping, vec![2, 0, 3, 1]);
@@ -160,7 +161,8 @@ fn check_new_hash_partition_no_conflict() {
     let specs = [hash_spec(mcx, 4, 0), hash_spec(mcx, 8, 2)];
     let (info, _) = partition_bounds_create(mcx, &specs, &key).unwrap();
     let new_spec = hash_spec(mcx, 8, 1);
-    check_new_partition_bound(mcx, "p_new", &key, Some(&info), &[100, 101], new_spec, None).unwrap();
+    check_new_partition_bound(mcx, "p_new", &key, Some(&info), &[100, 101], new_spec, None)
+        .unwrap();
 }
 
 #[test]
@@ -188,7 +190,10 @@ fn create_list_bounds_assigns_default_last() {
 
     let mut plain = Node::build::<PartitionBoundSpec>(mcx).unwrap();
     plain.strategy = PARTITION_STRATEGY_LIST;
-    plain.listdatums.lappend(mcx, int_const(mcx, Some(42))).unwrap();
+    plain
+        .listdatums
+        .lappend(mcx, int_const(mcx, Some(42)))
+        .unwrap();
     plain.listdatums.lappend(mcx, int_const(mcx, None)).unwrap();
     let plain = plain.seal_ref();
 
@@ -367,7 +372,10 @@ fn support_function_error_surfaces_from_bound_creation() {
     assert_cmp_failed(&e);
 
     let key = raising_key(PARTITION_STRATEGY_RANGE);
-    let specs = [range_spec(mcx, Some(1), Some(10)), range_spec(mcx, Some(10), Some(20))];
+    let specs = [
+        range_spec(mcx, Some(1), Some(10)),
+        range_spec(mcx, Some(10), Some(20)),
+    ];
     let e = partition_bounds_create(mcx, &specs, &key)
         .err()
         .expect("range bound sort must surface the support function error");

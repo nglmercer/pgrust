@@ -10,8 +10,8 @@
 //! of the whole `bitmapqualorig`). D1016 row 6: a leaf key computed from executor parameters is the host's cell (params_key.rs
 //! `computed_key`, evaluated at every re-open as ExecReScanBitmapIndexScan's ExecIndexEvalRuntimeKeys), its parameters input
 //! cells after every leaf's words (exec / hosts v4/m8_bitmap_param.rs). Registers kind `src.bitmap`. Owner M2-HEAP.
-use gravity_decompose::ops::shared::scan::BitmapPlan;
 use gravity_decompose::graph::{IndexKey, KeyForm};
+use gravity_decompose::ops::shared::scan::BitmapPlan;
 use gravity_decompose::Source;
 use gravity_ir::builder::{FunctionBuilder, ProgramBuilder};
 use gravity_ir::{Block, ConvOp, Type, Value};
@@ -19,7 +19,7 @@ use gravity_program::{limits, LaneDesc, LaneId as SiteLane, Pipeline, SiteDesc};
 use mcx::{CollectIn, GrowIn, PgBox, PgVec};
 use types_nodes::Node;
 
-use crate::ops::scan::heap::tid_image;
+use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::face::kinds::KindId;
 use crate::face::source::{Locator, SourceMech, WinConds};
 use crate::frame::env::Env;
@@ -29,11 +29,14 @@ use crate::frame::row::{Carry, RowVals};
 use crate::frame::site::{index_site, Reader, CTID_AT, EXEC_KEY};
 #[allow(unused_imports)]
 use crate::graph::Gx;
-use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::lifetime::bound::{self, Feed, KeyAt};
+use crate::ops::scan::heap::tid_image;
 use crate::ops::Table;
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::SrcBitmap, &SourceMaker(make))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::SrcBitmap, &SourceMaker(make))],
+    ..crate::ops::NONE
+};
 
 pub(crate) fn shape(node: i32, why: &'static str) -> ! {
     crate::refuse!(node, Reason::Shape { why: ShapeWhy(why) })
@@ -52,7 +55,13 @@ pub(crate) struct Words<'g, 'p> {
 
 impl<'g> Words<'g, '_> {
     pub(crate) fn new_in(mcx: mcx::Mcx<'g>) -> Self {
-        Words { slots: PgVec::new_in(mcx), attnos: PgVec::new_in(mcx), ids: PgVec::new_in(mcx), scalar: PgVec::new_in(mcx), vals: PgVec::new_in(mcx) }
+        Words {
+            slots: PgVec::new_in(mcx),
+            attnos: PgVec::new_in(mcx),
+            ids: PgVec::new_in(mcx),
+            scalar: PgVec::new_in(mcx),
+            vals: PgVec::new_in(mcx),
+        }
     }
 }
 
@@ -61,14 +70,23 @@ impl<'g> Words<'g, '_> {
 /// parameter's word, V4R-108; D1016 row 6: a computed one the host's cell), a btree row comparison's members' values in column
 /// order (the host's SK_ROW_MEMBER keys), each with its table attno (0: an expression column); a null test has no word (the
 /// host's search-null key, D409).
-pub(crate) fn leaf_words<'p>(px: &mut Px<'_, 'p>, node: i32, keys: &[IndexKey<'p>], k: &mut Words<'_, 'p>) {
+pub(crate) fn leaf_words<'p>(
+    px: &mut Px<'_, 'p>,
+    node: i32,
+    keys: &[IndexKey<'p>],
+    k: &mut Words<'_, 'p>,
+) {
     // D899: an expression key is PostgreSQL's runtime key, bound when the pipeline reading it starts; D1016 row 6 / D1630:
     // one computed from executor parameters, or bound at bind on an inner walk, is the host's at every (re-)open
     // (lifetime/bound.rs `index_key`)
     let q = px.making.0;
     let word = |px: &mut Px<'_, 'p>, v: Node<'p>, scalar: bool, k: &mut Words<'_, 'p>| {
         k.vals.push_in(v);
-        let feed = if scalar { Feed::IndexKey } else { Feed::ArrayKey };
+        let feed = if scalar {
+            Feed::IndexKey
+        } else {
+            Feed::ArrayKey
+        };
         match bound::index_key(px, feed, q, v, node, &mut k.ids) {
             KeyAt::Host(w) => {
                 if scalar {
@@ -77,8 +95,13 @@ pub(crate) fn leaf_words<'p>(px: &mut Px<'_, 'p>, node: i32, keys: &[IndexKey<'p
                 w
             }
             KeyAt::Word(w) => w,
-            KeyAt::Fold if gravity_lower::rerun::words::has_exec(v) => crate::rerun::params::key(px.gx, node, v),
-            KeyAt::Fold => shape(node, "a bitmap index key without a parameter word (a folded expression)"),
+            KeyAt::Fold if gravity_lower::rerun::words::has_exec(v) => {
+                crate::rerun::params::key(px.gx, node, v)
+            }
+            KeyAt::Fold => shape(
+                node,
+                "a bitmap index key without a parameter word (a folded expression)",
+            ),
         }
     };
     for key in keys.iter() {
@@ -89,7 +112,14 @@ pub(crate) fn leaf_words<'p>(px: &mut Px<'_, 'p>, node: i32, keys: &[IndexKey<'p
             // D1016 row 6): btree searches it natively, every other AM scans once per element (D433, m2_bitmap_array.rs)
             KeyForm::Any | KeyForm::AmAny => word(px, key.value, false, k),
             KeyForm::Row => {
-                let Some(rc) = key.value.as_row_compare_expr() else { crate::refuse!(node, Reason::Bug { payload: "a row comparison index key over another node" }) };
+                let Some(rc) = key.value.as_row_compare_expr() else {
+                    crate::refuse!(
+                        node,
+                        Reason::Bug {
+                            payload: "a row comparison index key over another node"
+                        }
+                    )
+                };
                 for r in rc.rargs.iter() {
                     let w = word(px, r, true, k);
                     k.slots.push_in(w);
@@ -105,7 +135,10 @@ pub(crate) fn leaf_words<'p>(px: &mut Px<'_, 'p>, node: i32, keys: &[IndexKey<'p
         k.attnos.push_in(key.attno);
     }
     if k.slots.len() > limits::KEYS * 8 {
-        shape(node, "a bitmap scan with more key words than its site holds");
+        shape(
+            node,
+            "a bitmap scan with more key words than its site holds",
+        );
     }
 }
 
@@ -113,11 +146,22 @@ pub(crate) fn leaf_words<'p>(px: &mut Px<'_, 'p>, node: i32, keys: &[IndexKey<'p
 /// InitPlan / hash-probe / bound-beside refusals, row B's `beside` / `ahead` names, D2071's declaration). D2194's no-widen
 /// name (a hash or merge join in the statement) left at item 14 part 4: D2325 fixed, CAND-M39 not reproduced.
 fn computed_cells(px: &mut Px<'_, '_>, node: i32, k: &mut Words<'_, '_>) {
-    if !crate::rerun::params_key::input_cells(px, node, &k.ids, &k.scalar, k.vals.iter().copied(), &mut k.slots, &mut k.attnos) {
+    if !crate::rerun::params_key::input_cells(
+        px,
+        node,
+        &k.ids,
+        &k.scalar,
+        k.vals.iter().copied(),
+        &mut k.slots,
+        &mut k.attnos,
+    ) {
         return;
     }
     if k.slots.len() > limits::KEYS * 8 {
-        shape(node, "a bitmap scan with more key words and computed keys' parameters than its site holds");
+        shape(
+            node,
+            "a bitmap scan with more key words and computed keys' parameters than its site holds",
+        );
     }
 }
 
@@ -125,9 +169,27 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
     let gx = px.gx;
     let p = &gx.pipelines()[k];
     let node = p.node_id;
-    let Source::Bitmap { site, am, relid, plan, morsel, .. } = &p.source else { crate::refuse!(node, Reason::Bug { payload: "a bitmap entry over another source" }) };
+    let Source::Bitmap {
+        site,
+        am,
+        relid,
+        plan,
+        morsel,
+        ..
+    } = &p.source
+    else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a bitmap entry over another source"
+            }
+        )
+    };
     if !crate::ops::scan::index::index_fetch(gx, *am, *relid) {
-        shape(node, "a bitmap heap scan over a relation that is not a heap table");
+        shape(
+            node,
+            "a bitmap heap scan over a relation that is not a heap table",
+        );
     }
     if *morsel {
         return make_morsel(px, k);
@@ -149,13 +211,23 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
     let Words { slots, attnos, .. } = kw;
     // the decomposer's range site as an index site over the probe's index: its attribute lanes, and (below) the RowId lane
     // that asks the host for windows of whole heap pages, each row's tid in it (D2988: a window may span pages)
-    let params: PgVec<'_, i16> = slots.iter().map(|&w| if w & EXEC_KEY != 0 { -1 } else { w as i16 }).collect_in(px.mcx());
-    let mut d = SiteDesc::index_source(px.arena, site.relation, indexid, &attnos, &params[..], &site.out_attnos);
+    let params: PgVec<'_, i16> = slots
+        .iter()
+        .map(|&w| if w & EXEC_KEY != 0 { -1 } else { w as i16 })
+        .collect_in(px.mcx());
+    let mut d = SiteDesc::index_source(
+        px.arena,
+        site.relation,
+        indexid,
+        &attnos,
+        &params[..],
+        &site.out_attnos,
+    );
     for l in site.lanes().iter() {
-        if let
-            SiteLane::Attr(_) = l.id {
-                if let Some(i) = d.lane_index(l.id) {
-                    d.lanes[i] = *l;}
+        if let SiteLane::Attr(_) = l.id {
+            if let Some(i) = d.lane_index(l.id) {
+                d.lanes[i] = *l;
+            }
         }
     }
     // a walk reading no column (count(*)) keeps the RowId lane alone: the window's row count drives it, with no by-value
@@ -176,7 +248,17 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
     // D2988: the RowId lane last, right after the attribute lanes (the host's `PageBatch` lane `natts`): each row's heap tid
     // (hosts `tid_word`), so a window may hold the rows of several heap pages
     s.add_lane(LaneDesc::rowid(), false);
-    let Some(rowid) = s.lane_index(SiteLane::RowId).filter(|&r| r + 1 == s.lanes().len()) else { crate::refuse!(node, Reason::Bug { payload: "a bitmap site whose RowId lane is not the last" }) };
+    let Some(rowid) = s
+        .lane_index(SiteLane::RowId)
+        .filter(|&r| r + 1 == s.lanes().len())
+    else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a bitmap site whose RowId lane is not the last"
+            }
+        )
+    };
     let rd = Reader::new(px, &s, *relid, node, Some(slots), ctid.then_some(CTID_AT));
     px.set_site(k, s);
     mcx::pg_box_dyn!(px.mcx(), Bitmap { rd, rowid, ctid } => dyn SourceMech + 'g)
@@ -192,7 +274,17 @@ fn make_morsel<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 
     let gx = px.gx;
     let p = &gx.pipelines()[k];
     let node = p.node_id;
-    let Source::Bitmap { site, relid, plan, .. } = &p.source else { crate::refuse!(node, Reason::Bug { payload: "a bitmap entry over another source" }) };
+    let Source::Bitmap {
+        site, relid, plan, ..
+    } = &p.source
+    else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a bitmap entry over another source"
+            }
+        )
+    };
     let mut kw = Words::new_in(px.mcx());
     match plan {
         BitmapPlan::Index { keys, .. } => leaf_words(px, node, keys, &mut kw),
@@ -200,13 +292,27 @@ fn make_morsel<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 
             crate::ops::scan::bitmap_tree::tree(px, node, tree, &mut kw);
         }
     }
-    if !kw.ids.is_empty() || kw.slots.iter().any(|&w| w != crate::frame::site::HOST_KEY && w & EXEC_KEY != 0) {
-        crate::refuse!(node, Reason::Bug { payload: "a morsel-form bitmap key read per open" });
+    if !kw.ids.is_empty()
+        || kw
+            .slots
+            .iter()
+            .any(|&w| w != crate::frame::site::HOST_KEY && w & EXEC_KEY != 0)
+    {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a morsel-form bitmap key read per open"
+            }
+        );
     }
     let mut s = site.copy_in(px.arena);
     s.param_slots = gravity_program::ArenaVec::new_in(px.arena);
     for &w in kw.slots.iter() {
-        s.param_slots.push(if w == crate::frame::site::HOST_KEY { -1 } else { w as i16 }); // alloc: Program
+        s.param_slots.push(if w == crate::frame::site::HOST_KEY {
+            -1
+        } else {
+            w as i16
+        }); // alloc: Program
     }
     crate::ops::scan::heap::make_over(px, k, s, *relid, node)
 }
@@ -246,10 +352,26 @@ impl SourceMech for Bitmap<'_> {
     fn next_window(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, l_eof: Block) -> Win {
         let (cursor, end) = self.rd.window(b, env, l_eof);
         let w = self.rd.vals();
-        Win { cursor, end, facts: WinConds { nonulls: self.rd.nonulls(b), nosel: Some(w.sel_null), ..WinConds::default() } }
+        Win {
+            cursor,
+            end,
+            facts: WinConds {
+                nonulls: self.rd.nonulls(b),
+                nosel: Some(w.sel_null),
+                ..WinConds::default()
+            },
+        }
     }
 
-    fn row<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e> {
+    fn row<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+        j: Value,
+        carry: Carry<'e>,
+        next: Value,
+    ) -> RowVals<'e> {
         let mut row = self.rd.row(b, env, j, carry, next);
         // the reader's `ctid` is the row's RowId word
         if let Some(Some(c)) = self.ctid.then(|| row.cols[CTID_AT as usize - 1]) {
@@ -261,9 +383,19 @@ impl SourceMech for Bitmap<'_> {
     }
 
     /// H28: the row's `(block, offset)`; the pinned page is not published.
-    fn locator(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals) -> Option<Locator> {
+    fn locator(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        row: &RowVals,
+    ) -> Option<Locator> {
         let i = self.rd.row_index(b, env, row.at);
         let (block, off) = self.tid(b, env, i);
-        Some(Locator { block: b.conv(ConvOp::Zext, Type::I64, block), offset: b.conv(ConvOp::Zext, Type::I64, off), pinned: None, rel: None })
+        Some(Locator {
+            block: b.conv(ConvOp::Zext, Type::I64, block),
+            offset: b.conv(ConvOp::Zext, Type::I64, off),
+            pinned: None,
+            rel: None,
+        })
     }
 }

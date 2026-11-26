@@ -8,10 +8,20 @@ use gravity_fn::typesem::keysem::image;
 #[test]
 fn shared_fixture_rows_are_the_key_homes_rows() {
     let mut f = FixtureFacts::default();
-    for line in SHARED_IMAGEEQ_LINES.lines().filter(|l| l.starts_with("-- imageeq ")) {
-        assert!(f.line(&line[3..]).expect("a well-formed imageeq line"), "an imageeq line: {line}");
+    for line in SHARED_IMAGEEQ_LINES
+        .lines()
+        .filter(|l| l.starts_with("-- imageeq "))
+    {
+        assert!(
+            f.line(&line[3..]).expect("a well-formed imageeq line"),
+            "an imageeq line: {line}"
+        );
     }
-    let mut home: Vec<(u32, u32, u32)> = image::IMAGE_EQ.iter().map(|&(op, t)| (op, t, t)).chain(image::INT_CROSS_EQ.iter().copied()).collect();
+    let mut home: Vec<(u32, u32, u32)> = image::IMAGE_EQ
+        .iter()
+        .map(|&(op, t)| (op, t, t))
+        .chain(image::INT_CROSS_EQ.iter().copied())
+        .collect();
     let mut file = f.image_eqs.clone();
     home.sort_unstable();
     file.sort_unstable();

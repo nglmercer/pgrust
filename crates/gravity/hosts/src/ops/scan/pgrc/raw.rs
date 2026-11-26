@@ -33,7 +33,11 @@ pub(crate) fn push_bind_varlena(out: &mut Vec<u8>, w: u64) -> Option<()> {
 /// plain 4-byte forms) or `len` bytes of a fixed-length by-reference datum; `None` for a NULL pointer, an external (TOAST)
 /// pointer or a compressed image. The caller passes only a by-reference literal's word of the execution (a bound zone
 /// constant, an IN list element inside the execution's array).
-pub(crate) fn with_bind_image<R>(w: u64, len: Option<usize>, f: impl FnOnce(&[u8]) -> R) -> Option<R> {
+pub(crate) fn with_bind_image<R>(
+    w: u64,
+    len: Option<usize>,
+    f: impl FnOnce(&[u8]) -> R,
+) -> Option<R> {
     let p = w as *const u8;
     let data = match len {
         // SAFETY: a varlena bind word points at the statement's datum for the execution (or is null).
@@ -53,7 +57,10 @@ pub(crate) fn with_bind_image<R>(w: u64, len: Option<usize>, f: impl FnOnce(&[u8
 pub(crate) fn tid_array(w: u64) -> Option<Vec<(u32, u16)>> {
     // SAFETY: the word is a tid[] bind word: null, or the statement's datum for the execution.
     let data = unsafe { varlena_data(w as *const u8) }?;
-    let word = |at: usize| data.get(at..at + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]));
+    let word = |at: usize| {
+        data.get(at..at + 4)
+            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    };
     match (word(0)?, word(4)?) {
         (0, _) => return Some(Vec::new()), // alloc: Exec
         (1, 0) => {}
@@ -61,7 +68,18 @@ pub(crate) fn tid_array(w: u64) -> Option<Vec<(u32, u16)>> {
     }
     let n = word(12)? as usize;
     let elems = data.get(20..20 + n.checked_mul(6)?)?;
-    Some(elems.chunks_exact(6).map(|e| ((u16::from_le_bytes([e[0], e[1]]) as u32) << 16 | u16::from_le_bytes([e[2], e[3]]) as u32, u16::from_le_bytes([e[4], e[5]]))).collect()) // alloc: Exec
+    Some(
+        elems
+            .chunks_exact(6)
+            .map(|e| {
+                (
+                    (u16::from_le_bytes([e[0], e[1]]) as u32) << 16
+                        | u16::from_le_bytes([e[2], e[3]]) as u32,
+                    u16::from_le_bytes([e[4], e[5]]),
+                )
+            })
+            .collect(),
+    ) // alloc: Exec
 }
 
 /// A varlena datum's data read in place (PostgreSQL varatt.h, little-endian headers): the 1-byte short and the plain
@@ -83,7 +101,10 @@ unsafe fn varlena_data<'a>(p: *const u8) -> Option<&'a [u8]> {
     if h & 0x03 != 0 {
         return None;
     }
-    Some(core::slice::from_raw_parts(p.add(4), ((h >> 2) as usize).checked_sub(4)?))
+    Some(core::slice::from_raw_parts(
+        p.add(4),
+        ((h >> 2) as usize).checked_sub(4)?,
+    ))
 }
 
 /// Whole u64 words viewed as their bytes (records handed to a byte sink).
@@ -110,7 +131,12 @@ unsafe impl Sync for RunSpan {}
 impl RunSpan {
     /// The span of `recs` and `off`; the caller keeps both buffers alive and unchanged while it holds the span.
     pub(crate) fn new(recs: &[u64], off: &[u32]) -> RunSpan {
-        RunSpan { recs: recs.as_ptr(), nrecs: recs.len(), off: off.as_ptr(), noff: off.len() }
+        RunSpan {
+            recs: recs.as_ptr(),
+            nrecs: recs.len(),
+            off: off.as_ptr(),
+            noff: off.len(),
+        }
     }
 
     /// Offset `b`.
@@ -123,7 +149,7 @@ impl RunSpan {
 
     /// Words `lo..hi` of the records, borrowed for the life of `owner` (the holder of the buffers).
     #[inline(always)]
-    pub(crate) fn words< T: ?Sized>(self, _owner: & T, lo: usize, hi: usize) -> & [u64] {
+    pub(crate) fn words<T: ?Sized>(self, _owner: &T, lo: usize, hi: usize) -> &[u64] {
         assert!(lo <= hi && hi <= self.nrecs);
         // SAFETY: `lo..hi` is inside the records, which `owner` keeps alive and unchanged for `'a`.
         unsafe { core::slice::from_raw_parts(self.recs.add(lo), hi - lo) }
@@ -144,7 +170,10 @@ pub(crate) struct Gather<const N: usize> {
 
 impl<const N: usize> Gather<N> {
     pub(crate) fn new() -> Self {
-        Gather { buf: [core::mem::MaybeUninit::uninit(); N], n: 0 }
+        Gather {
+            buf: [core::mem::MaybeUninit::uninit(); N],
+            n: 0,
+        }
     }
 
     pub(crate) fn len(&self) -> usize {
@@ -156,14 +185,22 @@ impl<const N: usize> Gather<N> {
     pub(crate) fn push(&mut self, w: &[u64]) {
         assert!(w.len() <= N - self.n);
         // SAFETY: `n + w.len() <= N` words of `buf`; the source is a whole slice.
-        unsafe { core::ptr::copy_nonoverlapping(w.as_ptr(), self.buf.as_mut_ptr().add(self.n) as *mut u64, w.len()) };
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                w.as_ptr(),
+                self.buf.as_mut_ptr().add(self.n) as *mut u64,
+                w.len(),
+            )
+        };
         self.n += w.len();
     }
 
     /// The gathered words' bytes.
     pub(crate) fn bytes(&self) -> &[u8] {
         // SAFETY: the first `n` words were written by `push`.
-        words_as_bytes(unsafe { core::slice::from_raw_parts(self.buf.as_ptr() as *const u64, self.n) })
+        words_as_bytes(unsafe {
+            core::slice::from_raw_parts(self.buf.as_ptr() as *const u64, self.n)
+        })
     }
 
     pub(crate) fn clear(&mut self) {
@@ -174,7 +211,12 @@ impl<const N: usize> Gather<N> {
 /// The source side of kernels' `entry_runs_offer` (entry_runs.rs `install`): site `site`'s source sees the offer.
 /// # Safety
 /// `ctx` is bound (the claim's own, on its thread).
-pub(crate) unsafe fn entry_runs_offer(ctx: *mut gravity_abi::Ctx, site: usize, layout: &gravity_abi::breaker::RecordLayout, bits: u8) {
+pub(crate) unsafe fn entry_runs_offer(
+    ctx: *mut gravity_abi::Ctx,
+    site: usize,
+    layout: &gravity_abi::breaker::RecordLayout,
+    bits: u8,
+) {
     // SAFETY: the caller's contract.
     if let Some(s) = unsafe { gravity_driver::source::site_source_mut(ctx, site) } {
         s.entry_runs_offer(layout, bits);
@@ -197,14 +239,44 @@ unsafe impl Sync for EmptyTable {}
 static ZERO_WORD: [u64; 2] = [0; 2];
 const fn empty_header(elem: u8, data: *const u8) -> EmptyTable {
     let n = core::ptr::null();
-    EmptyTable(gravity_dict::table::Header { elem, flags: 0, pad: [0; 2], ncodes: 0, faults: gravity_abi::word(core::ptr::null()), data: gravity_abi::word(data), base: gravity_abi::word(n), canon: gravity_abi::word(core::ptr::null()), hashes: gravity_abi::word(core::ptr::null()), ndistinct: 0, nfaults: 0 })
+    EmptyTable(gravity_dict::table::Header {
+        elem,
+        flags: 0,
+        pad: [0; 2],
+        ncodes: 0,
+        faults: gravity_abi::word(core::ptr::null()),
+        data: gravity_abi::word(data),
+        base: gravity_abi::word(n),
+        canon: gravity_abi::word(core::ptr::null()),
+        hashes: gravity_abi::word(core::ptr::null()),
+        ndistinct: 0,
+        nfaults: 0,
+    })
 }
 // ELEM_FP128: a jsonb path group key's fingerprint table (its code-0 entry the two zero words)
-static EMPTY_TABLES: [EmptyTable; 3] = [empty_header(gravity_dict::lane::ELEM_BITS, ZERO_WORD.as_ptr() as *const u8), empty_header(gravity_dict::lane::ELEM_I64, ZERO_WORD.as_ptr() as *const u8), empty_header(gravity_dict::lane::ELEM_FP128, ZERO_WORD.as_ptr() as *const u8)];
+static EMPTY_TABLES: [EmptyTable; 3] = [
+    empty_header(
+        gravity_dict::lane::ELEM_BITS,
+        ZERO_WORD.as_ptr() as *const u8,
+    ),
+    empty_header(
+        gravity_dict::lane::ELEM_I64,
+        ZERO_WORD.as_ptr() as *const u8,
+    ),
+    empty_header(
+        gravity_dict::lane::ELEM_FP128,
+        ZERO_WORD.as_ptr() as *const u8,
+    ),
+];
 
 /// Publishes the empty table of element kind `elem` (a shred code lane the part did not elect) as table lane `ordinal`
 /// over lane `over`; `None` (nothing published) for a kind with no empty table.
-pub(crate) fn publish_empty_table(elem: u8, ordinal: u32, over: u8, out: &mut gravity_abi::Lane) -> Option<()> {
+pub(crate) fn publish_empty_table(
+    elem: u8,
+    ordinal: u32,
+    over: u8,
+    out: &mut gravity_abi::Lane,
+) -> Option<()> {
     let t = EMPTY_TABLES.iter().find(|t| t.0.elem == elem)?;
     // SAFETY: a header of immutable zero words, for the process
     unsafe { gravity_dict::lane::publish(&t.0, ordinal, over, out) };
@@ -228,7 +300,12 @@ pub(crate) fn adapt_fill(h: *const gravity_dict::table::Header, sample: u32) -> 
     for k in 0..read {
         let code = (k as u64 * n as u64 / read.max(1) as u64) as usize;
         // SAFETY: code < ncodes, and each entry is two u64 words at `data + 16 * code` (read unaligned)
-        let (lo, hi) = unsafe { (core::ptr::read_unaligned(hdr.data.ptr().add(code * 16) as *const u64), core::ptr::read_unaligned(hdr.data.ptr().add(code * 16 + 8) as *const u64)) };
+        let (lo, hi) = unsafe {
+            (
+                core::ptr::read_unaligned(hdr.data.ptr().add(code * 16) as *const u64),
+                core::ptr::read_unaligned(hdr.data.ptr().add(code * 16 + 8) as *const u64),
+            )
+        };
         filled += (lo | hi != 0) as u64;
     }
     Some((filled, read as u64))

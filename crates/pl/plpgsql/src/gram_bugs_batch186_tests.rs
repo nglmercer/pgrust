@@ -32,9 +32,21 @@ fn misplaced_block_label_needs_the_full_production() {
             "block label must be placed before DECLARE, not after",
             9,
         ),
-        (&b"declare << 1 >> begin end"[..], "syntax error at or near \"1\"", 12),
-        (&b"declare << foo begin end"[..], "syntax error at or near \"begin\"", 16),
-        (&b"declare << begin end"[..], "syntax error at or near \"begin\"", 12),
+        (
+            &b"declare << 1 >> begin end"[..],
+            "syntax error at or near \"1\"",
+            12,
+        ),
+        (
+            &b"declare << foo begin end"[..],
+            "syntax error at or near \"begin\"",
+            16,
+        ),
+        (
+            &b"declare << begin end"[..],
+            "syntax error at or near \"begin\"",
+            12,
+        ),
         (&b"declare <<"[..], "syntax error at end of input", 11),
     ] {
         let cx = mcx::MemoryContext::new("plpgsql b186 decl label");
@@ -54,10 +66,22 @@ fn misplaced_block_label_needs_the_full_production() {
 #[test]
 fn datatype_span_keeps_trailing_whitespace() {
     for (src, msg) in [
-        (&b"declare x setof int ; begin end"[..], "invalid type name \"setof int \""),
-        (&b"declare x setof int\n\t; begin end"[..], "invalid type name \"setof int\n\t\""),
-        (&b"declare x setof int   := 1; begin end"[..], "invalid type name \"setof int   \""),
-        (&b"declare x setof int; begin end"[..], "invalid type name \"setof int\""),
+        (
+            &b"declare x setof int ; begin end"[..],
+            "invalid type name \"setof int \"",
+        ),
+        (
+            &b"declare x setof int\n\t; begin end"[..],
+            "invalid type name \"setof int\n\t\"",
+        ),
+        (
+            &b"declare x setof int   := 1; begin end"[..],
+            "invalid type name \"setof int   \"",
+        ),
+        (
+            &b"declare x setof int; begin end"[..],
+            "invalid type name \"setof int\"",
+        ),
     ] {
         let cx = mcx::MemoryContext::new("plpgsql b186 datatype span");
         let mut comp = crate::comp::CompState::new();
@@ -78,8 +102,14 @@ fn sql_construct_at_end_of_input_ends_like_c() {
     for (src, msg) in [
         (&b"begin if true"[..], "syntax error at end of input"),
         (&b"begin perform 1"[..], "syntax error at end of input"),
-        (&b"begin exit when true"[..], "EXIT cannot be used outside a loop, unless it has a label"),
-        (&b"begin raise notice 'x', 1"[..], "missing \", or ; or USING\" at end of SQL expression"),
+        (
+            &b"begin exit when true"[..],
+            "EXIT cannot be used outside a loop, unless it has a label",
+        ),
+        (
+            &b"begin raise notice 'x', 1"[..],
+            "missing \", or ; or USING\" at end of SQL expression",
+        ),
     ] {
         let cx = mcx::MemoryContext::new("plpgsql b234 eof construct");
         let mut comp = crate::comp::CompState::new();

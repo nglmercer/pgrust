@@ -99,8 +99,17 @@ fn ladder_on_at_start() -> bool {
 /// This machine's physical memory (bytes; 0 unknown).
 fn physical_bytes() -> u64 {
     // SAFETY: sysconf reads a constant, no pointers.
-    let (pages, size) = unsafe { (libc::sysconf(libc::_SC_PHYS_PAGES), libc::sysconf(libc::_SC_PAGESIZE)) };
-    if pages <= 0 || size <= 0 { 0 } else { (pages as u64).saturating_mul(size as u64) }
+    let (pages, size) = unsafe {
+        (
+            libc::sysconf(libc::_SC_PHYS_PAGES),
+            libc::sysconf(libc::_SC_PAGESIZE),
+        )
+    };
+    if pages <= 0 || size <= 0 {
+        0
+    } else {
+        (pages as u64).saturating_mul(size as u64)
+    }
 }
 
 /// buf_grow: the reservation's buffers for a pool that may grow into free memory: `buf_grow_max_pct` of `phys` bytes in
@@ -113,7 +122,11 @@ pub(crate) fn grow_max_buffers(nbuffers: i32, ladder_on: bool, phys: u64) -> i32
     }
     let bytes = (phys as u128 * get(K::BufGrowMaxPct).min(100) as u128 / 100) as u64;
     let n = (bytes / BLCKSZ as u64).min(i32::MAX as u64 / 2) as i32 & !(EXTENT_BUFFERS - 1);
-    if n > nbuffers { n } else { 0 }
+    if n > nbuffers {
+        n
+    } else {
+        0
+    }
 }
 
 /// `pgrust.buffer_pool_max` 0 is shared_buffers exactly (the inert default:
@@ -157,7 +170,11 @@ pub(crate) fn geometry_from_gucs(nbuffers: i32) -> PgResult<Geometry> {
     };
     // buf_grow (user 10-18: the buffer pool grows into free memory): with no explicit max and the ladder on at the
     // start, the reservation is buf_grow_max_pct of physical memory, so the ladder can grow the pool into it
-    let max_guc = if max_guc == 0 { grow_max_buffers(nbuffers, ladder_on_at_start(), physical_bytes()) } else { max_guc };
+    let max_guc = if max_guc == 0 {
+        grow_max_buffers(nbuffers, ladder_on_at_start(), physical_bytes())
+    } else {
+        max_guc
+    };
     let thp = guc_tables::vars::pgrust_buffer_pool_thp.installed()
         && guc_tables::vars::pgrust_buffer_pool_thp.read();
     plan_geometry(nbuffers, max_guc, thp)
@@ -303,7 +320,10 @@ pub fn blocks_span() -> (usize, usize) {
     if base == 0 {
         return (0, 0);
     }
-    (base, MAP.n_extents.load(Ordering::Relaxed).max(0) as usize * EXTENT_BYTES)
+    (
+        base,
+        MAP.n_extents.load(Ordering::Relaxed).max(0) as usize * EXTENT_BYTES,
+    )
 }
 
 /// MIMALLOC_ALLOW_THP=0 disables THP for the whole process (mimalloc sets
@@ -362,10 +382,17 @@ pub(crate) fn set_active_buffers(n: i32) {
     let shared = memledger::Acct::of(memledger::Consumer::SharedBuffers);
     let bytes = n.max(0) as usize * BLCKSZ;
     {
-        let owner = memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::SharedBuffers));
+        let owner =
+            memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::SharedBuffers));
         let mut held = ACTIVE_HELD.lock().unwrap_or_else(|e| e.into_inner());
         let held = held.get_or_insert_with(|| {
-            memledger::Charge::open(owner, memledger::Release::Evict, memledger::Kind::Mapped, memledger::charge::Door::Mapped, 0)
+            memledger::Charge::open(
+                owner,
+                memledger::Release::Evict,
+                memledger::Kind::Mapped,
+                memledger::charge::Door::Mapped,
+                0,
+            )
         });
         let have = held.committed();
         if bytes as u64 >= have {
@@ -391,7 +418,10 @@ fn list_resident(shared: memledger::Acct, bytes: usize) {
     if id != memledger::resident::NONE {
         memledger::resident::update(id, lo, span, bytes, shared);
     } else if lo != 0 && bytes >= mempolicy::watchdog::RESIDENCY_MIN {
-        BLOCKS_RES.store(memledger::resident::register(lo, span, bytes, shared, true, true), Ordering::Relaxed);
+        BLOCKS_RES.store(
+            memledger::resident::register(lo, span, bytes, shared, true, true),
+            Ordering::Relaxed,
+        );
     }
 }
 

@@ -8,7 +8,16 @@ use gravity_ir::*;
 /// overflow guard that calls a host error function.
 fn build() -> Program {
     let mut pb = ProgramBuilder::new();
-    let raise = pb.declare_host("raise_overflow", &[], None, 0, HostFlags { may_error: true, ..Default::default() });
+    let raise = pb.declare_host(
+        "raise_overflow",
+        &[],
+        None,
+        0,
+        HostFlags {
+            may_error: true,
+            ..Default::default()
+        },
+    );
     let f = pb.declare_func("sum_positive", &[Type::Ptr, Type::I64], &[Type::I64]);
     let mut b = pb.define(f);
     let [ctx, n]: [Value; 2] = b.params().try_into().unwrap();
@@ -169,8 +178,13 @@ fn min_max_ops_round_trip_and_verify() {
     let p = parse_program(src, &|_| None).unwrap_or_else(|e| panic!("{e}"));
     verify(&p).unwrap_or_else(|e| panic!("{e:?}"));
     let text = print_program(&p);
-    for op in ["smin", "smax", "umin", "umax", "vsmin", "vsmax", "vumin", "vumax"] {
-        assert!(text.contains(&format!("({op} ")), "{op} missing from\n{text}");
+    for op in [
+        "smin", "smax", "umin", "umax", "vsmin", "vsmax", "vumin", "vumax",
+    ] {
+        assert!(
+            text.contains(&format!("({op} ")),
+            "{op} missing from\n{text}"
+        );
     }
     let again = parse_program(&text, &|_| None).unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(print_program(&again), text);
@@ -193,5 +207,7 @@ fn deeply_nested_text_is_an_error_not_a_stack_overflow() {
     assert!(read_sexp(&nest(MAX_SEXP_DEPTH as usize)).is_ok());
     let e = read_sexp(&nest(MAX_SEXP_DEPTH as usize + 1)).unwrap_err();
     assert!(e.contains("nested deeper than"), "{e}");
-    assert!(read_sexp(&nest(200_000)).unwrap_err().contains("nested deeper than"));
+    assert!(read_sexp(&nest(200_000))
+        .unwrap_err()
+        .contains("nested deeper than"));
 }

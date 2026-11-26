@@ -10,7 +10,10 @@
 /// netmasked bits. `network_cmp` orders by family, then the address over the shorter netmask, then the netmask length,
 /// then the whole address, which is the order of the words wherever they differ (PostgreSQL's own abbreviated compare).
 pub fn net_word(payload: &[u8]) -> i64 {
-    let (family, bits) = (payload.first().copied().unwrap_or(0), payload.get(1).copied().unwrap_or(0) as u32);
+    let (family, bits) = (
+        payload.first().copied().unwrap_or(0),
+        payload.get(1).copied().unwrap_or(0) as u32,
+    );
     let addr = payload.get(2..).unwrap_or(&[]);
     let mut a = [0u8; 8];
     let n = addr.len().min(8);
@@ -27,7 +30,11 @@ pub fn net_word(payload: &[u8]) -> i64 {
         // IPv4: (32 - bits) subnet bits (all 32 at /0, whose network part is 0), the top 25 of them kept
         let ip = u32::from_be_bytes([a[0], a[1], a[2], a[3]]) as u64;
         let size = 32u32.saturating_sub(bits);
-        let (mask, network) = if bits == 0 { (u64::MAX, 0) } else { ((1u64 << size) - 1, ip & !((1u64 << size) - 1)) };
+        let (mask, network) = if bits == 0 {
+            (u64::MAX, 0)
+        } else {
+            ((1u64 << size) - 1, ip & !((1u64 << size) - 1))
+        };
         network << 31 | (bits as u64) << 25 | (ip & mask) >> size.saturating_sub(25)
     };
     (abbrev ^ 1 << 63) as i64
@@ -45,11 +52,14 @@ pub const BITS_WORD_BYTES: usize = 7;
 /// over its bytes, it is the shorter, and its length byte is the lower: a long value's 0xff is above every short one's).
 pub fn bits_word(payload: &[u8]) -> i64 {
     let data = payload.get(4..).unwrap_or(&[]);
-    let bitlen = payload.get(..4).map_or(-1, |l| i32::from_ne_bytes([l[0], l[1], l[2], l[3]]));
+    let bitlen = payload
+        .get(..4)
+        .map_or(-1, |l| i32::from_ne_bytes([l[0], l[1], l[2], l[3]]));
     let mut w = [0u8; 8];
     let n = data.len().min(BITS_WORD_BYTES);
     w[..n].copy_from_slice(&data[..n]);
-    let exact = (0..=8 * BITS_WORD_BYTES as i32).contains(&bitlen) && data.len() == (bitlen as usize).div_ceil(8);
+    let exact = (0..=8 * BITS_WORD_BYTES as i32).contains(&bitlen)
+        && data.len() == (bitlen as usize).div_ceil(8);
     w[BITS_WORD_BYTES] = if exact { 2 * bitlen as u8 } else { 0xff };
     (u64::from_be_bytes(w) ^ 1 << 63) as i64
 }
@@ -85,39 +95,94 @@ mod tests {
     /// equal values share one, and a lower word is a lower value (`network_cmp_internal`).
     #[test]
     fn net_words_are_pg_abbreviations_ordered_as_network_cmp() {
-        let lits = [("0.0.0.0/0", false), ("0.0.0.1/0", false), ("0.0.0.2/0", false), ("255.255.255.255/0", false), ("10.0.0.0/8", true),
-            ("10.1.0.0/16", true), ("10.1.2.3", false), ("10.1.2.3/8", false), ("10.1.2.3/24", false), ("10.1.2.4/24", false), ("10.2.0.0/16", true),
-            ("9.0.0.0/16", true), ("10.0.0.0/7", false), ("192.168.1.1", false), ("192.168.1.1/31", false), ("192.168.1.0/31", false),
-            ("192.168.1.128/25", true), ("192.168.1.255", false), ("128.0.0.0/1", true), ("127.255.255.255", false), ("1.2.3.4/32", false),
-            ("::/0", false), ("::1", false), ("::2/0", false), ("ffff::/16", true), ("ffff::1/16", false), ("fe80::/10", true),
-            ("fe80::1/64", false), ("fe80::1/63", false), ("fe80::2/128", false), ("2001:db8::/32", true), ("2001:db8::1", false),
-            ("2001:db8:0:0:1::/80", true), ("2001:db8:0:0:1::1/80", false), ("2001:db8::ffff:ffff:ffff:fffe", false),
-            ("2001:db8::ffff:ffff:ffff:ffff", false), ("::ffff:10.1.2.3", false), ("8000::/1", true), ("7fff:ffff:ffff:ffff::/64", true),
-            ("7fff:ffff:ffff:fffe::/63", true)];
+        let lits = [
+            ("0.0.0.0/0", false),
+            ("0.0.0.1/0", false),
+            ("0.0.0.2/0", false),
+            ("255.255.255.255/0", false),
+            ("10.0.0.0/8", true),
+            ("10.1.0.0/16", true),
+            ("10.1.2.3", false),
+            ("10.1.2.3/8", false),
+            ("10.1.2.3/24", false),
+            ("10.1.2.4/24", false),
+            ("10.2.0.0/16", true),
+            ("9.0.0.0/16", true),
+            ("10.0.0.0/7", false),
+            ("192.168.1.1", false),
+            ("192.168.1.1/31", false),
+            ("192.168.1.0/31", false),
+            ("192.168.1.128/25", true),
+            ("192.168.1.255", false),
+            ("128.0.0.0/1", true),
+            ("127.255.255.255", false),
+            ("1.2.3.4/32", false),
+            ("::/0", false),
+            ("::1", false),
+            ("::2/0", false),
+            ("ffff::/16", true),
+            ("ffff::1/16", false),
+            ("fe80::/10", true),
+            ("fe80::1/64", false),
+            ("fe80::1/63", false),
+            ("fe80::2/128", false),
+            ("2001:db8::/32", true),
+            ("2001:db8::1", false),
+            ("2001:db8:0:0:1::/80", true),
+            ("2001:db8:0:0:1::1/80", false),
+            ("2001:db8::ffff:ffff:ffff:fffe", false),
+            ("2001:db8::ffff:ffff:ffff:ffff", false),
+            ("::ffff:10.1.2.3", false),
+            ("8000::/1", true),
+            ("7fff:ffff:ffff:ffff::/64", true),
+            ("7fff:ffff:ffff:fffe::/63", true),
+        ];
         let ps: Vec<Vec<u8>> = lits.iter().map(|&(s, c)| inet(s, c)).collect(); // alloc: Program
         for i in 0..ps.len() {
-            let pg = adt_network::abbrev::NetworkAbbrevState::new().convert(InetRef::from_payload(&ps[i]));
+            let pg = adt_network::abbrev::NetworkAbbrevState::new()
+                .convert(InetRef::from_payload(&ps[i]));
             assert_eq!(net_word(&ps[i]), (pg ^ 1 << 63) as i64, "{}", lits[i].0);
             for j in 0..ps.len() {
-                let c = adt_network::network_cmp_internal(InetRef::from_payload(&ps[i]), InetRef::from_payload(&ps[j]));
+                let c = adt_network::network_cmp_internal(
+                    InetRef::from_payload(&ps[i]),
+                    InetRef::from_payload(&ps[j]),
+                );
                 let (wi, wj) = (net_word(&ps[i]), net_word(&ps[j]));
                 if c == 0 {
                     assert_eq!(wi, wj, "{} = {}", lits[i].0, lits[j].0);
                 }
                 if wi < wj {
-                    assert!(c < 0, "{} word below {} but not the value", lits[i].0, lits[j].0);
+                    assert!(
+                        c < 0,
+                        "{} word below {} but not the value",
+                        lits[i].0,
+                        lits[j].0
+                    );
                 }
             }
         }
-        assert_eq!(net_word(&ps[1]), net_word(&ps[2]), "past 25 subnet bits a tie is the comparator's");
+        assert_eq!(
+            net_word(&ps[1]),
+            net_word(&ps[2]),
+            "past 25 subnet bits a tie is the comparator's"
+        );
     }
 
     /// Byte strings in memcmp-then-length order have ascending or equal words (equal only past 8 bytes).
     #[test]
     fn bytes_words_order_as_memcmp() {
-        let vals: [&[u8]; 9] = [b"", b"\x01", b"A", b"AB", b"AB\t", b"ABC", b"Q Q", b"X", b"\xff"];
-        assert!(vals.windows(2).all(|w| bytes_word(w[0]) < bytes_word(w[1])), "ascending");
-        assert_eq!(bytes_word(b"abcdefghX"), bytes_word(b"abcdefghY"), "past 8 bytes the comparator decides");
+        let vals: [&[u8]; 9] = [
+            b"", b"\x01", b"A", b"AB", b"AB\t", b"ABC", b"Q Q", b"X", b"\xff",
+        ];
+        assert!(
+            vals.windows(2).all(|w| bytes_word(w[0]) < bytes_word(w[1])),
+            "ascending"
+        );
+        assert_eq!(
+            bytes_word(b"abcdefghX"),
+            bytes_word(b"abcdefghY"),
+            "past 8 bytes the comparator decides"
+        );
     }
 
     fn bits(n: i32, data: &[u8]) -> Vec<u8> {
@@ -130,14 +195,37 @@ mod tests {
     /// equal exact words (`bits_word_exact`: at most 56 bits) are equal values.
     #[test]
     fn bits_words_order_as_bit_cmp() {
-        let vals = [bits(0, &[]), bits(1, &[0x00]), bits(1, &[0x80]), bits(2, &[0x80]), bits(8, &[0x80]), bits(9, &[0x80, 0x00]),
-            bits(16, &[0x80, 0x01]), bits(8, &[0x7f]), bits(16, &[0x7f, 0xff]), bits(64, &[1, 2, 3, 4, 5, 6, 7, 8]),
-            bits(65, &[1, 2, 3, 4, 5, 6, 7, 8, 0x00]), bits(72, &[1, 2, 3, 4, 5, 6, 7, 8, 0xff]), bits(72, &[1, 2, 3, 4, 5, 6, 7, 9, 0x00]),
-            bits(6, &[0xfc]), bits(6, &[0x04]), bits(3, &[0xe0]), bits(7, &[0xfe]), bits(55, &[1, 2, 3, 4, 5, 6, 6]),
-            bits(56, &[1, 2, 3, 4, 5, 6, 7]), bits(56, &[1, 2, 3, 4, 5, 6, 8]), bits(57, &[1, 2, 3, 4, 5, 6, 7, 0x00]),
-            bits(57, &[1, 2, 3, 4, 5, 6, 7, 0x80]), bits(64, &[1, 2, 3, 4, 5, 6, 7, 0xff]), bits(56, &[0xff; 7]),
-            bits(57, &[0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x80]), bits(48, &[1, 2, 3, 4, 5, 6]), bits(49, &[1, 2, 3, 4, 5, 6, 0]),
-            bits(24, &[0, 0, 0]), bits(25, &[0, 0, 0, 0])];
+        let vals = [
+            bits(0, &[]),
+            bits(1, &[0x00]),
+            bits(1, &[0x80]),
+            bits(2, &[0x80]),
+            bits(8, &[0x80]),
+            bits(9, &[0x80, 0x00]),
+            bits(16, &[0x80, 0x01]),
+            bits(8, &[0x7f]),
+            bits(16, &[0x7f, 0xff]),
+            bits(64, &[1, 2, 3, 4, 5, 6, 7, 8]),
+            bits(65, &[1, 2, 3, 4, 5, 6, 7, 8, 0x00]),
+            bits(72, &[1, 2, 3, 4, 5, 6, 7, 8, 0xff]),
+            bits(72, &[1, 2, 3, 4, 5, 6, 7, 9, 0x00]),
+            bits(6, &[0xfc]),
+            bits(6, &[0x04]),
+            bits(3, &[0xe0]),
+            bits(7, &[0xfe]),
+            bits(55, &[1, 2, 3, 4, 5, 6, 6]),
+            bits(56, &[1, 2, 3, 4, 5, 6, 7]),
+            bits(56, &[1, 2, 3, 4, 5, 6, 8]),
+            bits(57, &[1, 2, 3, 4, 5, 6, 7, 0x00]),
+            bits(57, &[1, 2, 3, 4, 5, 6, 7, 0x80]),
+            bits(64, &[1, 2, 3, 4, 5, 6, 7, 0xff]),
+            bits(56, &[0xff; 7]),
+            bits(57, &[0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x80]),
+            bits(48, &[1, 2, 3, 4, 5, 6]),
+            bits(49, &[1, 2, 3, 4, 5, 6, 0]),
+            bits(24, &[0, 0, 0]),
+            bits(25, &[0, 0, 0, 0]),
+        ];
         for a in &vals {
             for b in &vals {
                 let c = adt_varbit::bit_cmp_payload(a, b);
@@ -154,8 +242,18 @@ mod tests {
             }
         }
         let exact: Vec<bool> = vals.iter().map(|v| bits_word_exact(bits_word(v))).collect(); // alloc: Program
-        assert!(vals.iter().zip(&exact).all(|(v, &e)| e == (i32::from_ne_bytes([v[0], v[1], v[2], v[3]]) <= 8 * BITS_WORD_BYTES as i32)), "exact up to 56 bits");
-        assert!(!bits_word_exact(bits_word(&bits(8, &[0x80, 0x00]))), "a data length that is not the bit length's is never exact");
-        assert!(!bits_word_exact(bits_word(&[1, 2])), "a truncated payload is never exact");
+        assert!(
+            vals.iter().zip(&exact).all(|(v, &e)| e
+                == (i32::from_ne_bytes([v[0], v[1], v[2], v[3]]) <= 8 * BITS_WORD_BYTES as i32)),
+            "exact up to 56 bits"
+        );
+        assert!(
+            !bits_word_exact(bits_word(&bits(8, &[0x80, 0x00]))),
+            "a data length that is not the bit length's is never exact"
+        );
+        assert!(
+            !bits_word_exact(bits_word(&[1, 2])),
+            "a truncated payload is never exact"
+        );
     }
 }

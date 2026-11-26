@@ -20,7 +20,9 @@ fn no_flinfo(name: &str) -> ! {
 struct OutBuf(Vec<u8>);
 
 fn out_scratch<'a>(flinfo: Option<&'a mut FmgrInfo>, name: &'static str) -> &'a mut Vec<u8> {
-    let Some(flinfo) = flinfo else { no_flinfo(name) };
+    let Some(flinfo) = flinfo else {
+        no_flinfo(name)
+    };
     if !flinfo.has_fn_extra() {
         flinfo.set_fn_extra(OutBuf(Vec::new()));
     }
@@ -82,7 +84,11 @@ pub fn fc_varcharin(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRes
     Ok(Datum::from_usize(buf.as_ptr() as usize))
 }
 
-fn fc_out(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo, name: &'static str) -> PgResult<Datum> {
+fn fc_out(
+    flinfo: Option<&mut FmgrInfo>,
+    fcinfo: &mut Fcinfo,
+    name: &'static str,
+) -> PgResult<Datum> {
     // SAFETY: catalog arg 0 is a non-null bpchar/varchar varlena (strict fn).
     let payload = unsafe { fcinfo.arg_varlena_packed(0)? }.data();
     let buf = out_scratch(flinfo, name);
@@ -286,11 +292,9 @@ pub fn fc_hashbpcharextended(
     // SAFETY: catalog arg 0 is a non-null bpchar varlena (strict fn).
     let payload = unsafe { fcinfo.arg_varlena_packed(0)? }.data();
     let seed = fcinfo.arg_i64(1) as u64;
-    Ok(Datum::from_i64(crate::hashbpcharextended(
-        payload,
-        fcinfo.get_collation(),
-        seed,
-    )? as i64))
+    Ok(Datum::from_i64(
+        crate::hashbpcharextended(payload, fcinfo.get_collation(), seed)? as i64,
+    ))
 }
 
 macro_rules! fc_bpchar_pattern {
@@ -323,10 +327,7 @@ macro_rules! fc_unported {
 
 // varchar_support (varchar.c): SupportRequestSimplify only — widening (or
 // unconstraining) a varchar typmod becomes a RelabelType, no rewrite.
-pub fn fc_varchar_support(
-    _flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut Fcinfo,
-) -> PgResult<Datum> {
+pub fn fc_varchar_support(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     use ::types_nodes::{supportnodes::SupportRequestSimplify, NodeTag};
     let [a] = fcinfo.args_n::<1>();
     let p = a.value.as_usize() as *const NodeTag;
@@ -411,5 +412,10 @@ pub const VARCHAR_BUILTINS: &[FmgrBuiltin] = &[
     b(2916, "varchartypmodout", 1, fc_varchartypmodout),
     b(3097, "varchar_support", 1, fc_varchar_support),
     b(3328, "bpchar_sortsupport", 1, fc_bpchar_sortsupport),
-    b(3333, "btbpchar_pattern_sortsupport", 1, fc_btbpchar_pattern_sortsupport),
+    b(
+        3333,
+        "btbpchar_pattern_sortsupport",
+        1,
+        fc_btbpchar_pattern_sortsupport,
+    ),
 ];

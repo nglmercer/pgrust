@@ -47,17 +47,35 @@ struct RegexEnv {
 }
 
 fn regex_env(collation: Oid) -> RegexEnv {
-    RegexEnv { encoding: mbutils::GetDatabaseEncoding(), default: regex_core::regex_locale::default_ctype(collation) }
+    RegexEnv {
+        encoding: mbutils::GetDatabaseEncoding(),
+        default: regex_core::regex_locale::default_ctype(collation),
+    }
 }
 
 impl CachedRe {
-    fn new(parent: Mcx<'_>, pattern: &[u8], cflags: i32, collation: Oid, env: RegexEnv, re: RegexCompiled) -> PgResult<Self> {
-        let cre_context = mcx::PinnedContext::new(parent.context().new_child("RegexpMemoryContext"));
+    fn new(
+        parent: Mcx<'_>,
+        pattern: &[u8],
+        cflags: i32,
+        collation: Oid,
+        env: RegexEnv,
+        re: RegexCompiled,
+    ) -> PgResult<Self> {
+        let cre_context =
+            mcx::PinnedContext::new(parent.context().new_child("RegexpMemoryContext"));
         // SAFETY: cre_pat is the only borrower and is declared before (drops
         // before) cre_context.
         let cre_pat = slice_in(unsafe { cre_context.handle() }, pattern)?;
         cre_context.set_ident(Some(&String::from_utf8_lossy(pattern)));
-        Ok(CachedRe { cre_pat, cre_flags: cflags, cre_collation: collation, cre_env: env, re, cre_context })
+        Ok(CachedRe {
+            cre_pat,
+            cre_flags: cflags,
+            cre_collation: collation,
+            cre_env: env,
+            re,
+            cre_context,
+        })
     }
 }
 
@@ -85,7 +103,12 @@ fn with_cache<R>(f: impl for<'mcx> FnOnce(&mut ReCache<'mcx>) -> PgResult<R>) ->
         if slot.is_none() {
             let cache = mcx::McxOwned::try_new(
                 mcx::MemoryContext::new("RegexpCacheMemoryContext"),
-                |mcx| Ok(ReCache { mcx, entries: PgVec::new_in(mcx) }),
+                |mcx| {
+                    Ok(ReCache {
+                        mcx,
+                        entries: PgVec::new_in(mcx),
+                    })
+                },
             )?;
             *slot = Some(ManuallyDrop::new(cache));
             mcx::register_session_cleanup(Box::new(clear_cache));
@@ -122,7 +145,9 @@ pub fn RE_compile_and_cache(
                 && e.cre_collation == collation
                 && e.cre_env == env
                 && e.cre_pat.as_slice() == pattern
-        }) else { return Ok(None) };
+        }) else {
+            return Ok(None);
+        };
         if i > 0 {
             let entry = cache.entries.remove(i);
             cache.entries.insert(0, entry);
@@ -215,7 +240,14 @@ pub fn nameregexeq(mcx: Mcx<'_>, n: &[u8], p: &[u8], collation: Oid) -> PgResult
 }
 
 pub fn nameregexne(mcx: Mcx<'_>, n: &[u8], p: &[u8], collation: Oid) -> PgResult<bool> {
-    Ok(!RE_compile_and_execute(mcx, p, n, REG_ADVANCED, collation, &mut [])?)
+    Ok(!RE_compile_and_execute(
+        mcx,
+        p,
+        n,
+        REG_ADVANCED,
+        collation,
+        &mut [],
+    )?)
 }
 
 pub fn textregexeq(mcx: Mcx<'_>, s: &[u8], p: &[u8], collation: Oid) -> PgResult<bool> {
@@ -223,7 +255,14 @@ pub fn textregexeq(mcx: Mcx<'_>, s: &[u8], p: &[u8], collation: Oid) -> PgResult
 }
 
 pub fn textregexne(mcx: Mcx<'_>, s: &[u8], p: &[u8], collation: Oid) -> PgResult<bool> {
-    Ok(!RE_compile_and_execute(mcx, p, s, REG_ADVANCED, collation, &mut [])?)
+    Ok(!RE_compile_and_execute(
+        mcx,
+        p,
+        s,
+        REG_ADVANCED,
+        collation,
+        &mut [],
+    )?)
 }
 
 pub fn nameicregexeq(mcx: Mcx<'_>, n: &[u8], p: &[u8], collation: Oid) -> PgResult<bool> {
@@ -231,7 +270,14 @@ pub fn nameicregexeq(mcx: Mcx<'_>, n: &[u8], p: &[u8], collation: Oid) -> PgResu
 }
 
 pub fn nameicregexne(mcx: Mcx<'_>, n: &[u8], p: &[u8], collation: Oid) -> PgResult<bool> {
-    Ok(!RE_compile_and_execute(mcx, p, n, REG_ADVANCED | REG_ICASE, collation, &mut [])?)
+    Ok(!RE_compile_and_execute(
+        mcx,
+        p,
+        n,
+        REG_ADVANCED | REG_ICASE,
+        collation,
+        &mut [],
+    )?)
 }
 
 pub fn texticregexeq(mcx: Mcx<'_>, s: &[u8], p: &[u8], collation: Oid) -> PgResult<bool> {
@@ -239,7 +285,14 @@ pub fn texticregexeq(mcx: Mcx<'_>, s: &[u8], p: &[u8], collation: Oid) -> PgResu
 }
 
 pub fn texticregexne(mcx: Mcx<'_>, s: &[u8], p: &[u8], collation: Oid) -> PgResult<bool> {
-    Ok(!RE_compile_and_execute(mcx, p, s, REG_ADVANCED | REG_ICASE, collation, &mut [])?)
+    Ok(!RE_compile_and_execute(
+        mcx,
+        p,
+        s,
+        REG_ADVANCED | REG_ICASE,
+        collation,
+        &mut [],
+    )?)
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -249,7 +302,10 @@ pub struct PgReFlags {
 }
 
 pub fn parse_re_flags(opts: Option<&[u8]>) -> PgResult<PgReFlags> {
-    let mut flags = PgReFlags { cflags: REG_ADVANCED, glob: false };
+    let mut flags = PgReFlags {
+        cflags: REG_ADVANCED,
+        glob: false,
+    };
 
     if let Some(opt_p) = opts {
         for i in 0..opt_p.len() {
@@ -289,8 +345,7 @@ pub fn parse_re_flags(opts: Option<&[u8]>) -> PgResult<PgReFlags> {
 #[cold]
 #[inline(never)]
 fn invalid_re_option(opt: &[u8]) -> PgError {
-    let mblen =
-        (mbutils::pg_mblen_range(opt).unwrap_or(opt.len() as i32) as usize).min(opt.len());
+    let mblen = (mbutils::pg_mblen_range(opt).unwrap_or(opt.len() as i32) as usize).min(opt.len());
     // regexp.c:445 "%.*s": the option's bytes verbatim (SQL_ASCII high bytes).
     let err = match core::str::from_utf8(&opt[..mblen]) {
         Ok(s) => PgError::error(format!("invalid regular expression option: \"{s}\"")),
@@ -376,7 +431,10 @@ pub fn textregexsubstr<'mcx>(
     if mbutils::pg_database_encoding_max_length() == 1 {
         Ok(Some(slice_in(mcx, &s[so as usize..eo as usize])?))
     } else {
-        Ok(Some(mbutils::pg_wchar2mb_with_len(mcx, &wide[so as usize..eo as usize])?))
+        Ok(Some(mbutils::pg_wchar2mb_with_len(
+            mcx,
+            &wide[so as usize..eo as usize],
+        )?))
     }
 }
 
@@ -621,7 +679,9 @@ pub fn similar_escape<'mcx>(
     pat_text: Option<&[u8]>,
     esc_text: Option<&[u8]>,
 ) -> PgResult<Option<PgVec<'mcx, u8>>> {
-    let Some(pat_text) = pat_text else { return Ok(None) };
+    let Some(pat_text) = pat_text else {
+        return Ok(None);
+    };
     Ok(Some(similar_escape_internal(mcx, pat_text, esc_text)?))
 }
 
@@ -663,7 +723,8 @@ fn cache_keys() -> Vec<(Vec<u8>, i32, Oid)> {
             .iter()
             .map(|e| (e.cre_pat.as_slice().to_vec(), e.cre_flags, e.cre_collation))
             .collect())
-    }).unwrap()
+    })
+    .unwrap()
 }
 
 #[cfg(test)]

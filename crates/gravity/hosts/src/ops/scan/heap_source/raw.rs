@@ -13,7 +13,9 @@ pub(super) fn missing_len(attlen: i16, p: *const u8) -> usize {
     unsafe {
         match attlen {
             -1 => types_tuple::varatt::varsize_any(p),
-            -2 => core::ffi::CStr::from_ptr(p as *const core::ffi::c_char).to_bytes_with_nul().len(),
+            -2 => core::ffi::CStr::from_ptr(p as *const core::ffi::c_char)
+                .to_bytes_with_nul()
+                .len(),
             n => n as usize,
         }
     }
@@ -28,7 +30,9 @@ pub(super) fn copy_missing(p: *const u8, img: &mut [u64], len: usize) {
 
 /// The statement's snapshot at `p`, `None` when `p` is null. The caller passes `snapshot_ptr`'s pointer: the leader's
 /// registered snapshot, alive from bind to unbind (null on a claimless bind).
-pub(super) fn snapshot_opt<'a>(p: *const SnapshotData<'static>) -> Option<&'a SnapshotData<'static>> {
+pub(super) fn snapshot_opt<'a>(
+    p: *const SnapshotData<'static>,
+) -> Option<&'a SnapshotData<'static>> {
     // SAFETY: the caller's contract above.
     unsafe { p.as_ref() }
 }
@@ -49,7 +53,15 @@ pub(super) fn pinned_page<'a>(buf: Buffer) -> PageRef<'a> {
 
 /// heap_window's `deform_rows` over the staged page. The caller keeps the page pinned while it is staged, `vis` holding
 /// its normal line pointers.
-pub(super) fn deform_page(page: &PageRef<'_>, blk: BlockNumber, s: &Shape<'_>, out: &mut Lanes<'_>, vis: &[u16], rows: Option<&[u32]>, upto: usize) -> PgResult<()> {
+pub(super) fn deform_page(
+    page: &PageRef<'_>,
+    blk: BlockNumber,
+    s: &Shape<'_>,
+    out: &mut Lanes<'_>,
+    vis: &[u16],
+    rows: Option<&[u32]>,
+    upto: usize,
+) -> PgResult<()> {
     // SAFETY: the caller's contract above.
     unsafe { deform_rows(page, blk, s, out, vis, rows, upto) }
 }
@@ -69,13 +81,20 @@ pub(super) fn normal_line(buf: Buffer, off: u16) -> PgResult<bool> {
     Ok(unsafe { page.item_id_unchecked(off) }.is_normal())
 }
 
-
 /// The page's visible line pointers and their `page_flags`, in one walk, as heapam's `page_collect_tuples`: a page marked
 /// PD_ALL_VISIBLE under a snapshot not taken during recovery is answered from its line pointers (every normal one is visible,
 /// no tuple test); a serializable read (`ssi`: the relation, on the bind thread) still runs its conflict check per tuple.
 /// Returns `(nvis, flags, direct)`, `direct` when no tuple went through the MVCC seam.
 #[inline(always)]
-pub(super) fn collect_visible(buf: Buffer, blk: BlockNumber, heap: Oid, want: usize, snapshot: &SnapshotData<'_>, vis: &mut [u16; MaxHeapTuplesPerPage], ssi: Option<&RelationData<'_>>) -> PgResult<(usize, u16, bool)> {
+pub(super) fn collect_visible(
+    buf: Buffer,
+    blk: BlockNumber,
+    heap: Oid,
+    want: usize,
+    snapshot: &SnapshotData<'_>,
+    vis: &mut [u16; MaxHeapTuplesPerPage],
+    ssi: Option<&RelationData<'_>>,
+) -> PgResult<(usize, u16, bool)> {
     // SAFETY: `buf` is pinned and share-locked by `stage`.
     let page = unsafe { PageRef::from_raw(bufmgr_seams::buffer_page_ptr(buf)) };
     let lines = page.max_offset_number();
@@ -96,13 +115,27 @@ pub(super) fn collect_visible(buf: Buffer, blk: BlockNumber, heap: Oid, want: us
     let direct = all_visible && ssi.is_none();
     // V4R-371: the offsets ascend without repeats, so as many as there are line pointers are exactly 1..=lines
     #[allow(clippy::precedence)]
-    Ok((nvis, flags | (direct as u16) * PAGE_ALL_VISIBLE | ((nvis == lines as usize) as u16 * PAGE_IOTA), direct))
+    Ok((
+        nvis,
+        flags | (direct as u16) * PAGE_ALL_VISIBLE | ((nvis == lines as usize) as u16 * PAGE_IOTA),
+        direct,
+    ))
 }
 
 /// # Safety — `lines <= MaxHeapTuplesPerPage` on a pinned, share-locked page.
 #[allow(clippy::too_many_arguments)]
 #[inline(always)]
-unsafe fn walk<const ALL_VISIBLE: bool>(page: &PageRef<'_>, lines: u16, buf: Buffer, blk: BlockNumber, heap: Oid, want: usize, snapshot: &SnapshotData<'_>, vis: &mut [u16; MaxHeapTuplesPerPage], ssi: Option<&RelationData<'_>>) -> PgResult<(usize, u16)> {
+unsafe fn walk<const ALL_VISIBLE: bool>(
+    page: &PageRef<'_>,
+    lines: u16,
+    buf: Buffer,
+    blk: BlockNumber,
+    heap: Oid,
+    want: usize,
+    snapshot: &SnapshotData<'_>,
+    vis: &mut [u16; MaxHeapTuplesPerPage],
+    ssi: Option<&RelationData<'_>>,
+) -> PgResult<(usize, u16)> {
     let mut memo = XidVisMemo::new();
     let (mut nvis, mut nonulls, mut full) = (0usize, true, true);
     let mut hinted_n = 0u64;
@@ -112,11 +145,21 @@ unsafe fn walk<const ALL_VISIBLE: bool>(page: &PageRef<'_>, lines: u16, buf: Buf
         let lpp = page.item_id_unchecked(off);
         if lpp.is_normal() {
             let (ptr, len) = page.item_raw_unchecked(lpp);
-            let mut tup = HeapTupleData::from_raw_parts(ptr, len, ItemPointerData::new(blk, off), heap);
+            let mut tup =
+                HeapTupleData::from_raw_parts(ptr, len, ItemPointerData::new(blk, off), heap);
             // H2: the hint bits settle an old committed live tuple before the MVCC seam (M2-inventory row 3)
-            let hinted = !ALL_VISIBLE && hinted_visible(tup.t_data().t_infomask, tup.t_data().xmin_raw(), snapshot.xmin);
+            let hinted = !ALL_VISIBLE
+                && hinted_visible(
+                    tup.t_data().t_infomask,
+                    tup.t_data().xmin_raw(),
+                    snapshot.xmin,
+                );
             hinted_n += hinted as u64;
-            let valid = ALL_VISIBLE || hinted || heapam_visibility_seams::heap_tuple_satisfies_mvcc_page::call(&mut tup, snapshot, buf, &mut memo)?;
+            let valid = ALL_VISIBLE
+                || hinted
+                || heapam_visibility_seams::heap_tuple_satisfies_mvcc_page::call(
+                    &mut tup, snapshot, buf, &mut memo,
+                )?;
             if let Some(rel) = ssi {
                 HeapCheckForSerializableConflictOut(valid, rel, &mut tup, buf, snapshot)?;
             }
@@ -131,6 +174,8 @@ unsafe fn walk<const ALL_VISIBLE: bool>(page: &PageRef<'_>, lines: u16, buf: Buf
         off += 1;
     }
     count_hinted(hinted_n);
-    Ok((nvis, ((nonulls as u16) * PAGE_NONULLS) | ((full as u16) * PAGE_FULL)))
+    Ok((
+        nvis,
+        ((nonulls as u16) * PAGE_NONULLS) | ((full as u16) * PAGE_FULL),
+    ))
 }
-

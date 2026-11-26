@@ -15,8 +15,11 @@ impl<'p> Walk<'_, '_, 'p> {
         // a key names the child's column (the window op reads the stored rows, no projection before it: V4R-C)
         let child = gravity_decompose::ops::window::child_tlist(d.plan);
         for key in d.partition.iter().chain(d.order.iter()) {
-            let e = input.and_then(|l| entry(l, key.resno)).or_else(|| child.and_then(|l| entry(l, key.resno)));
-            let image = e.and_then(|e| self.image_of(gravity_decompose::catalog::expr_type::type_of(e)?));
+            let e = input
+                .and_then(|l| entry(l, key.resno))
+                .or_else(|| child.and_then(|l| entry(l, key.resno)));
+            let image =
+                e.and_then(|e| self.image_of(gravity_decompose::catalog::expr_type::type_of(e)?));
             self.add(key_kind(key.kind, image, packed, Accessor::Order));
         }
         self.list(d.tlist);

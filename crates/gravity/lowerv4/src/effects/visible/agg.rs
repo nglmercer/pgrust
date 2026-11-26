@@ -2,9 +2,9 @@
 //! walked group's fold raises past its first key (walk_skip.rs, D449); whether a hosted aggregate in a sorted group reads
 //! its rows' order (trans/hosted.rs, #530, with the comparator and type tests it reads); whether a call's ORDER BY can
 //! change its answer (trans/args.rs, D458); and whether a finals.cse entry can raise (trans/strategies/finals_cse.rs).
-use gravity_decompose::ops::shared::agg_class::{Class, Collect as C};
-use gravity_decompose::ops::shared::agg::{AggDecl, GroupForm};
 use gravity_decompose::catalog::typefacts::FIRST_NORMAL_OID;
+use gravity_decompose::ops::shared::agg::{AggDecl, GroupForm};
+use gravity_decompose::ops::shared::agg_class::{Class, Collect as C};
 use gravity_expr::Catalog;
 use types_nodes::primnodes::Aggref;
 use types_nodes::{Node, NodeTag};
@@ -34,11 +34,42 @@ pub(crate) fn still_in(cat: &dyn Catalog<'_>, d: &AggDecl<'_>) -> bool {
     use Class as K;
     // AGC-22: an argument type past FirstNormalObjectId whose output, comparison and hash procs are initdb's (`type_free`:
     // an enum, a domain over a free type, an array or a composite of them, e.g. a table's row type) collects as a builtin's
-    let free = |t: u32| native(cat, t) || t >= FIRST_NORMAL_OID && crate::effects::type_free(cat, t, 0);
-    let builtin = |r: &Aggref<'_>, json: bool| crate::effects::support_in(cat, d.node).is_ok() && r.aggargtypes.iter().all(|t| free(t) && !(json && crate::effects::json_text(cat, t)));
+    let free =
+        |t: u32| native(cat, t) || t >= FIRST_NORMAL_OID && crate::effects::type_free(cat, t, 0);
+    let builtin = |r: &Aggref<'_>, json: bool| {
+        crate::effects::support_in(cat, d.node).is_ok()
+            && r.aggargtypes
+                .iter()
+                .all(|t| free(t) && !(json && crate::effects::json_text(cat, t)))
+    };
     match d.class {
-        c @ (K::Collect(C::Json | C::Range | C::RangeIntersect) | K::OrderedSet(_) | K::Hypothetical(_)) => d.node.as_aggref().is_some_and(|r| builtin(r, c == K::Collect(C::Json) && crate::effects::json_reparsed(r))),
-        c => matches!(c, K::CountStar | K::CountAny | K::CountPair | K::SumI64 | K::SumI128 | K::SumNum | K::AvgI128 | K::AvgNum | K::Min(_) | K::Max(_) | K::BoolAnd | K::BoolOr | K::BitI64(_) | K::Stat3I128(_) | K::Stat3Num(_) | K::Collect(C::Array | C::String | C::Xml | C::AnyValue)),
+        c @ (K::Collect(C::Json | C::Range | C::RangeIntersect)
+        | K::OrderedSet(_)
+        | K::Hypothetical(_)) => d.node.as_aggref().is_some_and(|r| {
+            builtin(
+                r,
+                c == K::Collect(C::Json) && crate::effects::json_reparsed(r),
+            )
+        }),
+        c => matches!(
+            c,
+            K::CountStar
+                | K::CountAny
+                | K::CountPair
+                | K::SumI64
+                | K::SumI128
+                | K::SumNum
+                | K::AvgI128
+                | K::AvgNum
+                | K::Min(_)
+                | K::Max(_)
+                | K::BoolAnd
+                | K::BoolOr
+                | K::BitI64(_)
+                | K::Stat3I128(_)
+                | K::Stat3Num(_)
+                | K::Collect(C::Array | C::String | C::Xml | C::AnyValue)
+        ),
     }
 }
 
@@ -46,9 +77,20 @@ pub(crate) fn still_in(cat: &dyn Catalog<'_>, d: &AggDecl<'_>) -> bool {
 /// aggregate `walk_folds`, and none of the group forms whose rows fold in another shape.
 pub(crate) fn raise_free(gx: &Gx<'_, '_>, rec: &GroupRec<'_, '_>) -> bool {
     let g = rec.g;
-    let keys = rec.ksrc.iter().zip(g.keys.iter()).all(|(s, k)| matches!(s, Some(Arg::Col(_))) || quiet_past(gx, k.expr.node()));
-    let aggs = rec.aggs.iter().all(|a| (a.filter.is_none() || a.d.filter.is_some()) && walk_folds(gx, &a.d));
-    keys && aggs && g.form != GroupForm::Distinct && g.two_pass.is_none() && g.set.is_none() && rec.nums.is_none()
+    let keys = rec
+        .ksrc
+        .iter()
+        .zip(g.keys.iter())
+        .all(|(s, k)| matches!(s, Some(Arg::Col(_))) || quiet_past(gx, k.expr.node()));
+    let aggs = rec
+        .aggs
+        .iter()
+        .all(|a| (a.filter.is_none() || a.d.filter.is_some()) && walk_folds(gx, &a.d));
+    keys && aggs
+        && g.form != GroupForm::Distinct
+        && g.two_pass.is_none()
+        && g.set.is_none()
+        && rec.nums.is_none()
 }
 
 /// D449 / D554: aggregate `d` folds a row a walk skips (walk_skip.rs, sort/strategies/walk.rs `skip_safe`) as PG does
@@ -56,8 +98,19 @@ pub(crate) fn raise_free(gx: &Gx<'_, '_>, rec: &GroupRec<'_, '_>) -> bool {
 /// its FILTER `quiet_past`.
 pub(crate) fn walk_folds(gx: &Gx<'_, '_>, d: &AggDecl<'_>) -> bool {
     let m = d.mods;
-    let args = || d.node.as_aggref().is_some_and(|r| r.args.iter().all(|t| t.as_target_entry().is_some_and(|t| quiet_past(gx, t.expr))));
-    m.distinct == 0 && m.order == 0 && m.direct == 0 && folds(d.class) && d.filter.is_none_or(|f| quiet_past(gx, f)) && args()
+    let args = || {
+        d.node.as_aggref().is_some_and(|r| {
+            r.args
+                .iter()
+                .all(|t| t.as_target_entry().is_some_and(|t| quiet_past(gx, t.expr)))
+        })
+    };
+    m.distinct == 0
+        && m.order == 0
+        && m.direct == 0
+        && folds(d.class)
+        && d.filter.is_none_or(|f| quiet_past(gx, f))
+        && args()
 }
 
 /// An expression a skipped row may leave unevaluated: it raises on no row (the home's `raise_free`) and calls no user or
@@ -70,7 +123,19 @@ fn quiet_past(gx: &Gx<'_, '_>, n: Node<'_>) -> bool {
 /// folds. That is runs/topk_groups.rs `raises`'s allowlist without the float sums (their overflow raises at the row,
 /// class_float.rs) and without array_agg.
 fn folds(c: Class) -> bool {
-    matches!(c, Class::CountStar | Class::CountAny | Class::SumI64 | Class::SumI128 | Class::AvgI128 | Class::Min(_) | Class::Max(_) | Class::BoolAnd | Class::BoolOr | Class::BitI64(_))
+    matches!(
+        c,
+        Class::CountStar
+            | Class::CountAny
+            | Class::SumI64
+            | Class::SumI128
+            | Class::AvgI128
+            | Class::Min(_)
+            | Class::Max(_)
+            | Class::BoolAnd
+            | Class::BoolOr
+            | Class::BitI64(_)
+    )
 }
 
 /// #530 (trans/hosted.rs): whether hosted `d` folds a sorted group's rows in input order to PG's value but for its
@@ -91,22 +156,50 @@ fn folds(c: Class) -> bool {
 /// gives, as a streamed group's user aggregate does (trans/hosted.rs `keyed_slots`).
 pub(crate) fn sort_free(px: &Px<'_, '_>, d: &AggDecl<'_>, streamed: bool) -> bool {
     let gx = px.gx;
-    let exact = matches!(d.class, Class::SumNum | Class::AvgNum | Class::Stat3I128(_) | Class::Stat3Num(_) | Class::OrderedSet(_) | Class::Hypothetical(_));
+    let exact = matches!(
+        d.class,
+        Class::SumNum
+            | Class::AvgNum
+            | Class::Stat3I128(_)
+            | Class::Stat3Num(_)
+            | Class::OrderedSet(_)
+            | Class::Hypothetical(_)
+    );
     let float = matches!(d.class, Class::Stat3F64(_) | Class::Stat6F64(_));
-    let extremum = matches!(d.class, Class::Min(_) | Class::Max(_)) && d.node.as_aggref().is_some_and(|r| crate::effects::arg_types(r).all(|t| builtin_order(gx, t)));
+    let extremum = matches!(d.class, Class::Min(_) | Class::Max(_))
+        && d.node
+            .as_aggref()
+            .is_some_and(|r| crate::effects::arg_types(r).all(|t| builtin_order(gx, t)));
     let text = crate::props::class_kind(d) == KindId::ClassText;
     let any = d.class == Class::Collect(C::AnyValue);
-    let quiet = || streamed || !d.node.as_aggref().is_some_and(|r| acts_beside_column(px, r));
-    exact || collect(d) || (extremum && text) || ((float || extremum || any || crate::graph::one_image_extremum(d)) && quiet())
+    let quiet = || {
+        streamed
+            || !d
+                .node
+                .as_aggref()
+                .is_some_and(|r| acts_beside_column(px, r))
+    };
+    exact
+        || collect(d)
+        || (extremum && text)
+        || ((float || extremum || any || crate::graph::one_image_extremum(d)) && quiet())
 }
 
 /// `sort_free`: whether call `r`'s arguments and FILTER act (the effects home: a VOLATILE call, a SubPlan or a function
 /// the catalog cannot answer) and read a column of the row.
 fn acts_beside_column(px: &Px<'_, '_>, r: &Aggref<'_>) -> bool {
     use gravity_decompose::effects;
-    let column = r.args.iter().chain(r.aggfilter).any(|n| px.gx.fx(n).reads_column());
+    let column = r
+        .args
+        .iter()
+        .chain(r.aggfilter)
+        .any(|n| px.gx.fx(n).reads_column());
     let cx = effects::Cx::without_stmt(px.gx.facts, px.arena);
-    column && r.args.iter().chain(r.aggfilter).any(|n| px.gx.fx(n).acts_plain(&cx))
+    column
+        && r.args
+            .iter()
+            .chain(r.aggfilter)
+            .any(|n| px.gx.fx(n).acts_plain(&cx))
 }
 
 /// #530 (trans/hosted.rs): whether type `t` orders by a built-in comparator: a built-in type but an `effects::rowless`
@@ -114,7 +207,11 @@ fn acts_beside_column(px: &Px<'_, '_>, r: &Aggref<'_>) -> bool {
 /// (`effects::cmp_free`: a composite or array of them).
 pub(crate) fn builtin_order(gx: &Gx<'_, '_>, t: u32) -> bool {
     let built_in = |t: u32| native(gx.catalog, t);
-    built_in(t) || gx.facts.type_row(t).is_some_and(|r| built_in(r.base) || gx.facts.type_row(r.base).is_some_and(|b| b.typtype == b'e')) || crate::effects::cmp_free(gx.catalog, t)
+    built_in(t)
+        || gx.facts.type_row(t).is_some_and(|r| {
+            built_in(r.base) || gx.facts.type_row(r.base).is_some_and(|b| b.typtype == b'e')
+        })
+        || crate::effects::cmp_free(gx.catalog, t)
 }
 
 /// #530 (trans/hosted.rs `builtin_order` and `still`): type `t` is a built-in type (below FIRST_NORMAL_OID) but no
@@ -128,7 +225,18 @@ pub(crate) fn native(c: &dyn Catalog<'_>, t: u32) -> bool {
 /// jsonb the last of a key's pairs): PG's sort output order, ties free (D1428); its transition raises (a NULL key, WITH
 /// UNIQUE's duplicate), so it is not `still` and folds ahead only under the licence (`effects::fold_ahead`).
 pub(crate) fn collect(d: &AggDecl<'_>) -> bool {
-    matches!(d.class, Class::Collect(C::Array | C::ArrayOfArrays | C::String | C::Json | C::JsonObject | C::Range | C::RangeIntersect))
+    matches!(
+        d.class,
+        Class::Collect(
+            C::Array
+                | C::ArrayOfArrays
+                | C::String
+                | C::Json
+                | C::JsonObject
+                | C::Range
+                | C::RangeIntersect
+        )
+    )
 }
 
 /// D458 (V4R-178; trans/args.rs): an ORDER BY inside the call that cannot change the answer, so the call folds as if it
@@ -142,7 +250,9 @@ pub(crate) fn collect(d: &AggDecl<'_>) -> bool {
 /// (ExecBuildAggTrans, past the FILTER) for a sort whose order the class's answer never shows: an entry raises on the
 /// rows PostgreSQL's does, a VOLATILE one is called per row. The plain fold does the same (trans/args.rs `discards`).
 pub(crate) fn order_free(a: &AggDecl<'_>, evaluated: bool) -> bool {
-    a.node.as_aggref().is_some_and(|r| order_free_ref(r, evaluated))
+    a.node
+        .as_aggref()
+        .is_some_and(|r| order_free_ref(r, evaluated))
 }
 
 /// `order_free` over the call itself (its catalog class), as a projection's compile sees it; `any`: its ORDER BY entries
@@ -152,17 +262,31 @@ pub(crate) fn order_free_ref(r: &types_nodes::primnodes::Aggref<'_>, any: bool) 
     if r.aggkind != types_nodes::primnodes::AGGKIND_NORMAL {
         return r.aggdistinct.is_nil(); // V4R-425: WITHIN GROUP input is sorted by the call itself, a user one's too (no table row)
     }
-    let class = gravity_decompose::ops::agg::trans::table::row(r.aggfnoid).map_or(Class::User, |w| w.class);
-    let mods = Mods { distinct: r.aggdistinct.len() as u8, order: 0, filter: false, direct: r.aggdirectargs.len() as u8, split: Split::of(r.aggsplit), star: r.aggstar };
-    let bare = |t: &types_nodes::primnodes::TargetEntry<'_>| !t.resjunk || t.expr.as_var().is_some() || t.expr.as_const().is_some();
-    gravity_decompose::facts::order::order_free(class, &mods) && (any || r.args.iter().all(|t| t.as_target_entry().is_none_or(bare)))
+    let class =
+        gravity_decompose::ops::agg::trans::table::row(r.aggfnoid).map_or(Class::User, |w| w.class);
+    let mods = Mods {
+        distinct: r.aggdistinct.len() as u8,
+        order: 0,
+        filter: false,
+        direct: r.aggdirectargs.len() as u8,
+        split: Split::of(r.aggsplit),
+        star: r.aggstar,
+    };
+    let bare = |t: &types_nodes::primnodes::TargetEntry<'_>| {
+        !t.resjunk || t.expr.as_var().is_some() || t.expr.as_const().is_some()
+    };
+    gravity_decompose::facts::order::order_free(class, &mods)
+        && (any || r.args.iter().all(|t| t.as_target_entry().is_none_or(bare)))
 }
 
 /// finals.cse (trans/strategies/finals_cse.rs): a bare Aggref, Var or Const (through RelabelType): an entry that cannot
 /// raise.
 pub(crate) fn quiet(e: Node<'_>) -> bool {
     crate::stack_check();
-    matches!(e.node_tag(), NodeTag::T_Aggref | NodeTag::T_Var | NodeTag::T_Const) || e.as_relabel_type().is_some_and(|r| quiet(r.arg))
+    matches!(
+        e.node_tag(),
+        NodeTag::T_Aggref | NodeTag::T_Var | NodeTag::T_Const
+    ) || e.as_relabel_type().is_some_and(|r| quiet(r.arg))
 }
 
 /// D1108 (rerun/spool/form.rs `first_pull`): aggregate `d`'s final raises nothing PostgreSQL's would not raise at the
@@ -172,8 +296,22 @@ pub(crate) fn quiet(e: Node<'_>) -> bool {
 /// PostgreSQL's transition raises it at that first fetch. Each finalized by its slot's rendering.
 pub(crate) fn final_quiet(d: &AggDecl<'_>) -> bool {
     use gravity_decompose::ops::shared::agg::FinalForm as F;
-    let class = !crate::effects::visible::topn::raises(d.class) && !matches!(d.class, Class::Collect(_)) || matches!(d.class, Class::AvgF64);
-    let final_ = matches!(d.final_, F::Identity | F::Int128Sum | F::Int128Avg | F::F64Avg | F::Rendered | F::Numeric | F::NumericAvg | F::F64Ordered | F::Bool | F::F32);
+    let class = !crate::effects::visible::topn::raises(d.class)
+        && !matches!(d.class, Class::Collect(_))
+        || matches!(d.class, Class::AvgF64);
+    let final_ = matches!(
+        d.final_,
+        F::Identity
+            | F::Int128Sum
+            | F::Int128Avg
+            | F::F64Avg
+            | F::Rendered
+            | F::Numeric
+            | F::NumericAvg
+            | F::F64Ordered
+            | F::Bool
+            | F::F32
+    );
     class && final_
 }
 

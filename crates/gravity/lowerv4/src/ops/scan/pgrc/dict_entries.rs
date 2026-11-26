@@ -53,27 +53,30 @@
 use gravity_abi::breaker::KeyKind;
 use gravity_abi::ctx::lane;
 use gravity_decompose::ops::shared::agg::{AggDecl, FinalForm, GroupDecl};
-use gravity_decompose::ops::shared::append::AppendDesc;
 use gravity_decompose::ops::shared::agg_class::Class;
+use gravity_decompose::ops::shared::append::AppendDesc;
 use gravity_decompose::{Op, Source};
 use gravity_program::{shred_kind, LaneId, SiteDesc};
 use types_nodes::primnodes::OUTER_VAR;
 use types_nodes::Node;
 
-use crate::face::kinds::KindId;
-use crate::face::strategy::CODE_HEADS;
-use crate::face::runs::CodeTopkImpl;
-use crate::frame::px::Px;
 use crate::admit::refusal::Variant;
-use crate::ops::Table;
+use crate::face::kinds::KindId;
+use crate::face::runs::CodeTopkImpl;
+use crate::face::strategy::CODE_HEADS;
 use crate::frame::iface::need_strategy;
+use crate::frame::px::Px;
+use crate::ops::Table;
 
 crate::strategies! {
     /// Value-set consumers read dictionary entries.
     DICT_ENTRIES = 23, "dict.entries", CodeKeyed;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(DICT_ENTRIES, &())], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(DICT_ENTRIES, &())],
+    ..crate::ops::NONE
+};
 
 /// Pipeline `k`'s drafted site publishes its one code lane's entries when the pipeline is the value-set consumer above.
 pub(crate) fn entries(px: &Px<'_, '_>, k: usize, site: &mut SiteDesc) {
@@ -94,22 +97,40 @@ pub(crate) fn entries(px: &Px<'_, '_>, k: usize, site: &mut SiteDesc) {
         fires::fire("dict.entries"); // shapecheck fire signal (REGISTRY SRC-24)
         return;
     }
-    let [l] = site.lanes()[..site.natts()] else { return };
+    let [l] = site.lanes()[..site.natts()] else {
+        return;
+    };
     let LaneId::Attr(attno) = l.id else { return };
     let ops = &gx.pipelines()[k].ops;
     let filtered = ops.iter().any(|op| matches!(op, Op::Filter(_)));
     let plain = ops.iter().all(|op| match op {
-        Op::Project(list) => !filtered || list.iter().filter_map(|n| n.as_target_entry()).all(|t| t.expr.as_var().is_some()),
+        Op::Project(list) => {
+            !filtered
+                || list
+                    .iter()
+                    .filter_map(|n| n.as_target_entry())
+                    .all(|t| t.expr.as_var().is_some())
+        }
         // PS1-27: a streamed union's arm marker passes its arm's rows on unchanged (an arm the planner prunes runs no rows)
         Op::Append(AppendDesc::Arm { .. }) => true,
-        Op::Filter(q) => crate::effects::raise_free(gx, *q) && !crate::effects::user_or_volatile(gx, *q),
+        Op::Filter(q) => {
+            crate::effects::raise_free(gx, *q) && !crate::effects::user_or_volatile(gx, *q)
+        }
         _ => false,
     });
     // D1162: the key's collation must equate equal bytes only (a nondeterministic key's image is key.coll's sort key, the
     // entry runs' the entry's bytes)
     // AGA-33: PairFold is left out since no coded column reaches it (pgrc codes only text; PairFold is integer-only); it rides when an integer code lane exists
     let counts = gx.end_need(k) == KindId::KeyedDistinctPlain
-        && gx.group_at(k).is_some_and(|g| g.keys.len() == 1 && key_reads(px, k, g, attno) && gx.facts.coll(g.keys[0].coll).bytes_eq && !g.aggs.is_empty() && g.aggs.iter().all(|d| matches!(d.final_, FinalForm::PairCount)));
+        && gx.group_at(k).is_some_and(|g| {
+            g.keys.len() == 1
+                && key_reads(px, k, g, attno)
+                && gx.facts.coll(g.keys[0].coll).bytes_eq
+                && !g.aggs.is_empty()
+                && g.aggs
+                    .iter()
+                    .all(|d| matches!(d.final_, FinalForm::PairCount))
+        });
     // RD-dict.entries: or a value-set group, a hashed group with no aggregate whose one key is this column (`SELECT
     // DISTINCT x`, `GROUP BY x` alone): each group is one value of the column, so each part's entries give its groups; a
     // NULL row is a group of its own there, so each part adds its NULL row when its stats count one (`entries_nulls`: asked
@@ -118,20 +139,43 @@ pub(crate) fn entries(px: &Px<'_, '_>, k: usize, site: &mut SiteDesc) {
     // key's rows in its Count slots, which INTERSECT ALL / EXCEPT ALL read (exec setop/proto.rs CopiesLive); read as
     // entries, each value would count once a part
     let groups = gx.end_need(k) == KindId::KeyedHashagg
-        && gx.group_at(k).is_some_and(|g| g.keys.len() == 1 && g.aggs.is_empty() && g.layout.slots.is_empty() && g.keys[0].attno != 0 && scan_col(px, k, g.keys[0].attno) == Some(attno) && gx.facts.coll(g.keys[0].coll).bytes_eq);
+        && gx.group_at(k).is_some_and(|g| {
+            g.keys.len() == 1
+                && g.aggs.is_empty()
+                && g.layout.slots.is_empty()
+                && g.keys[0].attno != 0
+                && scan_col(px, k, g.keys[0].attno) == Some(attno)
+                && gx.facts.coll(g.keys[0].coll).bytes_eq
+        });
     // or an unfiltered plain fold whose every aggregate is a collated extreme of this column (`extreme`): the extreme of
     // each part's value set is its rows'; a NULL, which no entry holds, the extreme skips
     let extremes = !filtered
         && gx.end_need(k) == KindId::FoldPlain
-        && gx.group_at(k).is_some_and(|g| g.keys.is_empty() && !g.aggs.is_empty() && g.aggs.iter().all(|d| extreme(d) && arg_lane(px, k, d, site) == Some(0)));
+        && gx.group_at(k).is_some_and(|g| {
+            g.keys.is_empty()
+                && !g.aggs.is_empty()
+                && g.aggs
+                    .iter()
+                    .all(|d| extreme(d) && arg_lane(px, k, d, site) == Some(0))
+        });
     // D343: the keyed end's own Fp128 table over this lane (fp_lanes' `over` is the lane index) passes, and a filter's
     // per-code tables over it
     let fp = |t: &gravity_program::TableDecl| t.func == gravity_program::table_fn::FINGERPRINT;
-    let own_fp = site.tables.iter().all(|t| t.over == 0 && (fp(t) || filtered));
+    let own_fp = site
+        .tables
+        .iter()
+        .all(|t| t.over == 0 && (fp(t) || filtered));
     // V4R-310: or the top code.heads engages over this site (its mech says; the part's safety is the host's, entries_safe)
     let r = CODE_HEADS;
-    let heads = px.strategies.has(r) && crate::face::source::on(Variant::Strategy(r)) && need_strategy::<CodeTopkImpl>(&gx.pipelines()[k].node_id, r).0.entries(px, k, site);
-    if l.kind == lane::KIND_CODES && ((site.zone.is_empty() || filtered) && plain && (counts || groups || extremes) && own_fp || heads) {
+    let heads = px.strategies.has(r)
+        && crate::face::source::on(Variant::Strategy(r))
+        && need_strategy::<CodeTopkImpl>(&gx.pipelines()[k].node_id, r)
+            .0
+            .entries(px, k, site);
+    if l.kind == lane::KIND_CODES
+        && ((site.zone.is_empty() || filtered) && plain && (counts || groups || extremes) && own_fp
+            || heads)
+    {
         // an entries window's granules are code blocks, not rows: no row zone map speaks for them (the qual still runs)
         site.clear_zone();
         site.sparse_dicts = true;
@@ -141,18 +185,25 @@ pub(crate) fn entries(px: &Px<'_, '_>, k: usize, site: &mut SiteDesc) {
         site.entries_filtered = filtered;
         // DC-21: a row count (every call a starred PairCount, distinct_plain `row`: count(DISTINCT ROW(x))) counts the NULL
         // key as a value of its own, as a value-set group does, so it asks for each part's NULL row too
-        let row = counts && gx.group_at(k).is_some_and(|g| g.aggs.iter().all(|d| d.mods.star));
+        let row = counts
+            && gx
+                .group_at(k)
+                .is_some_and(|g| g.aggs.iter().all(|d| d.mods.star));
         // B3-24 / RUNS-15: code.heads over a nullable key sends each part's NULL rows as one NULL entry (heads.rs NULL_CODE)
-        site.entries_nulls = (groups && !counts || row) && !heads || heads && crate::dict::strategies::heads::nullable_key(gx, k);
+        site.entries_nulls = (groups && !counts || row) && !heads
+            || heads && crate::dict::strategies::heads::nullable_key(gx, k);
         // D2981: a top whose first key descends (code.heads) reads each part's codes from its highest, so code.cut's
         // early end ends a window at its first row past the cut in either direction (dict/strategies/code_cut.rs)
-        site.entries_desc = heads && !(counts || groups) && ops.iter().find_map(|op| match op {
-            Op::Sort(sd) => sd.keys.as_slice().first().map(|k| k.desc),
-            _ => None,
-        }) == Some(true);
+        site.entries_desc = heads
+            && !(counts || groups)
+            && ops.iter().find_map(|op| match op {
+                Op::Sort(sd) => sd.keys.as_slice().first().map(|k| k.desc),
+                _ => None,
+            }) == Some(true);
         // D3007: a value-set group under a top by its key descending (code.cut's group form, dict/strategies/code_cut.rs)
         // walks each part's codes from its highest too, so the cut ends a window at its first entry past it
-        site.entries_desc |= groups && !counts && !heads && crate::dict::strategies::code_cut::group_desc(px, k);
+        site.entries_desc |=
+            groups && !counts && !heads && crate::dict::strategies::code_cut::group_desc(px, k);
         fires::fire("dict.entries"); // shapecheck fire signal (REGISTRY SRC-24)
     }
 }
@@ -164,24 +215,44 @@ fn every(px: &Px<'_, '_>, k: usize, site: &SiteDesc) -> bool {
     let gx = px.gx;
     let natts = site.natts();
     let lanes = &site.lanes()[..natts];
-    if !(2..=64).contains(&natts) || !lanes.iter().all(|l| l.kind == lane::KIND_CODES && matches!(l.id, LaneId::Attr(_))) {
+    if !(2..=64).contains(&natts)
+        || !lanes
+            .iter()
+            .all(|l| l.kind == lane::KIND_CODES && matches!(l.id, LaneId::Attr(_)))
+    {
         return false;
     }
     if !site.zone.is_empty() || !site.tables.is_empty() || !site.shreds.is_empty() {
         return false;
     }
-    if !gx.pipelines()[k].ops.iter().all(|op| matches!(op, Op::Project(_))) || gx.end_need(k) != KindId::FoldPlain {
+    if !gx.pipelines()[k]
+        .ops
+        .iter()
+        .all(|op| matches!(op, Op::Project(_)))
+        || gx.end_need(k) != KindId::FoldPlain
+    {
         return false;
     }
-    let Some(g) = gx.group_at(k).filter(|g| g.keys.is_empty() && !g.aggs.is_empty()) else { return false };
+    let Some(g) = gx
+        .group_at(k)
+        .filter(|g| g.keys.is_empty() && !g.aggs.is_empty())
+    else {
+        return false;
+    };
     let mut counted = 0u64;
     for d in g.aggs.iter() {
-        let distinct = matches!(d.class, Class::CountAny) && d.mods.distinct != 0 && d.mods.order == 0 && !d.mods.filter && d.filter.is_none();
+        let distinct = matches!(d.class, Class::CountAny)
+            && d.mods.distinct != 0
+            && d.mods.order == 0
+            && !d.mods.filter
+            && d.filter.is_none();
         #[allow(clippy::nonminimal_bool)]
         if !(distinct && d.final_ == FinalForm::Distinct && d.coll.bytes_eq) && !extreme(d) {
             return false;
         }
-        let Some(l) = arg_lane(px, k, d, site) else { return false };
+        let Some(l) = arg_lane(px, k, d, site) else {
+            return false;
+        };
         counted |= 1 << l;
     }
     counted.count_ones() as usize == natts
@@ -208,10 +279,23 @@ fn extreme(d: &AggDecl<'_>) -> bool {
 fn path(px: &Px<'_, '_>, k: usize, site: &mut SiteDesc) -> Option<usize> {
     let gx = px.gx;
     let p = &gx.pipelines()[k];
-    let Source::Range { scanrelid, relid, .. } = &p.source else { return None };
-    let [l] = site.lanes()[..site.natts()] else { return None };
-    let LaneId::Attr(attno) = l.id else { return None };
-    if !site.zone.is_empty() || !site.tables.is_empty() || !site.shreds.is_empty() || gx.end_need(k) != KindId::KeyedDistinctPlain {
+    let Source::Range {
+        scanrelid, relid, ..
+    } = &p.source
+    else {
+        return None;
+    };
+    let [l] = site.lanes()[..site.natts()] else {
+        return None;
+    };
+    let LaneId::Attr(attno) = l.id else {
+        return None;
+    };
+    if !site.zone.is_empty()
+        || !site.tables.is_empty()
+        || !site.shreds.is_empty()
+        || gx.end_need(k) != KindId::KeyedDistinctPlain
+    {
         return None;
     }
     // the cell is synthetic, so no reader of the column but the key: an aggregate's FILTER would read the synthetic
@@ -219,21 +303,39 @@ fn path(px: &Px<'_, '_>, k: usize, site: &mut SiteDesc) -> Option<usize> {
     let g = gx.group_at(k).filter(|g| {
         // DC-21: never a row count (a starred PairCount): an electing part's entries are the path's non-NULL value set and
         // no NULL row stands for the rows without the path, which the row count counts as a group
-        g.keys.len() == 1 && g.set.is_none() && g.two_pass.is_none() && !g.empty_no_row && g.pinned.is_empty() && !g.aggs.is_empty() && g.aggs.iter().all(|d| matches!(d.final_, FinalForm::PairCount) && d.filter.is_none() && !d.mods.filter && !d.mods.star)
+        g.keys.len() == 1
+            && g.set.is_none()
+            && g.two_pass.is_none()
+            && !g.empty_no_row
+            && g.pinned.is_empty()
+            && !g.aggs.is_empty()
+            && g.aggs.iter().all(|d| {
+                matches!(d.final_, FinalForm::PairCount)
+                    && d.filter.is_none()
+                    && !d.mods.filter
+                    && !d.mods.star
+            })
     })?;
     let x = &g.keys[0];
-    let f = field(px, k, x.expr.node(), *scanrelid).filter(|f| f.0 == attno && x.kind == KeyKind::Fp128 && gx.facts.coll(x.coll).bytes_eq)?;
+    let f = field(px, k, x.expr.node(), *scanrelid)
+        .filter(|f| f.0 == attno && x.kind == KeyKind::Fp128 && gx.facts.coll(x.coll).bytes_eq)?;
     let read = |n: Node<'_>| {
         let e = n.as_target_entry().map_or(n, |t| t.expr);
         crate::step::project::bare_var(e).is_some() || field(px, k, e, *scanrelid) == Some(f)
     };
-    if !p.ops.iter().all(|op| matches!(op, Op::Project(list) if list.iter().all(&read))) {
+    if !p
+        .ops
+        .iter()
+        .all(|op| matches!(op, Op::Project(list) if list.iter().all(&read)))
+    {
         return None;
     }
     // the lane is declared only where each electing part sealed the path as a dictionary (SRC-30's lowering-time read): a
     // verbatim part's lane would build its byte ranks for a window that walks the rows anyway
     let key = core::str::from_utf8(f.1).ok()?;
-    if gx.facts.shred_election(*relid, attno, &[key]) != Some((shred_kind::TEXT, 0)) || !crate::ops::scan::pgrc::strategies::jsonb_lanes::dict_sealed(gx, *relid, attno, f.1) {
+    if gx.facts.shred_election(*relid, attno, &[key]) != Some((shred_kind::TEXT, 0))
+        || !crate::ops::scan::pgrc::strategies::jsonb_lanes::dict_sealed(gx, *relid, attno, f.1)
+    {
         return None;
     }
     site.add_shred(attno, f.1, shred_kind::TEXT_CODES, 0)
@@ -248,7 +350,9 @@ fn field<'n>(px: &Px<'_, '_>, k: usize, e: Node<'n>, scanrelid: u16) -> Option<(
         _ => return None,
     };
     let [a, b] = args.as_slice() else { return None };
-    let v = a.as_var().filter(|v| v.varlevelsup == 0 && v.vartype == types_core::JSONBOID)?;
+    let v = a
+        .as_var()
+        .filter(|v| v.varlevelsup == 0 && v.vartype == types_core::JSONBOID)?;
     let col = match v.varno {
         OUTER_VAR => scan_col(px, k, v.varattno)?,
         n if n == scanrelid as i32 && v.varattno > 0 => v.varattno,
@@ -261,8 +365,13 @@ fn field<'n>(px: &Px<'_, '_>, k: usize, e: Node<'n>, scanrelid: u16) -> Option<(
 fn arg_lane(px: &Px<'_, '_>, k: usize, d: &AggDecl<'_>, site: &SiteDesc) -> Option<usize> {
     let r = d.node.as_aggref()?;
     let t = r.args.iter().next().filter(|_| r.args.len() == 1)?;
-    let c = scan_col(px, k, crate::step::project::bare_var(t.as_target_entry().map_or(t, |t| t.expr))?)?;
-    site.lane_index(LaneId::Attr(c)).filter(|&l| l < site.natts())
+    let c = scan_col(
+        px,
+        k,
+        crate::step::project::bare_var(t.as_target_entry().map_or(t, |t| t.expr))?,
+    )?;
+    site.lane_index(LaneId::Attr(c))
+        .filter(|&l| l < site.natts())
 }
 
 /// PS1-27: the pair key of group `g` reads scan column `attno`: its column traced back through pipeline `k`'s
@@ -272,7 +381,11 @@ fn key_reads(px: &Px<'_, '_>, k: usize, g: &GroupDecl<'_>, attno: i16) -> bool {
     let arg = |d: &AggDecl<'_>| {
         let r = d.node.as_aggref()?;
         let t = r.args.iter().next().filter(|_| r.args.len() == 1)?;
-        scan_col(px, k, crate::step::project::bare_var(t.as_target_entry().map_or(t, |t| t.expr))?)
+        scan_col(
+            px,
+            k,
+            crate::step::project::bare_var(t.as_target_entry().map_or(t, |t| t.expr))?,
+        )
     };
     match g.keys[0].attno {
         0 => g.aggs.iter().all(|d| arg(d) == Some(attno)),

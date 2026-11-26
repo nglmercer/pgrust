@@ -14,7 +14,8 @@ use ::types_snapshot::{SnapshotData, SnapshotType};
 use ::types_storage::bufpage::{ItemIdData, PageRef};
 use ::types_tuple::{
     FirstOffsetNumber, HeapTupleHeaderData, ItemPointerData, ItemPointerGetBlockNumber,
-    ItemPointerGetBlockNumberNoCheck, ItemPointerGetOffsetNumber, ItemPointerGetOffsetNumberNoCheck,
+    ItemPointerGetBlockNumberNoCheck, ItemPointerGetOffsetNumber,
+    ItemPointerGetOffsetNumberNoCheck,
 };
 
 use crate::fetch::heap_hot_search_buffer;

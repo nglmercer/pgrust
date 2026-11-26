@@ -18,7 +18,11 @@ fn fixture(rel: &str) -> String {
 }
 
 fn edit(text: &str, from: &str, to: &str) -> String {
-    assert_eq!(text.matches(from).count(), 1, "the fixture holds {from} once");
+    assert_eq!(
+        text.matches(from).count(),
+        1,
+        "the fixture holds {from} once"
+    );
     text.replacen(from, to, 1)
 }
 
@@ -27,8 +31,14 @@ fn key_of(text: &str) -> ContentKey {
     let ctx = MemoryContext::new("srf key");
     let fx = corpus::load(ctx.mcx(), text).unwrap_or_else(|e| panic!("fixture: {e}"));
     let arena = Arena::new(1 << 20);
-    let g = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx).unwrap_or_else(|r| panic!("decompose: {r}"));
-    assert!(g.pipelines.iter().any(|p| p.ops.iter().any(|o| matches!(o, Op::Srf(_)))), "an SRF op");
+    let g = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx)
+        .unwrap_or_else(|r| panic!("decompose: {r}"));
+    assert!(
+        g.pipelines
+            .iter()
+            .any(|p| p.ops.iter().any(|o| matches!(o, Op::Srf(_)))),
+        "an SRF op"
+    );
     key(&g)
 }
 
@@ -36,7 +46,15 @@ fn key_of(text: &str) -> ContentKey {
 fn a_series_bound_literal_is_no_part_of_the_key() {
     let base = fixture(FROM);
     // stop 5 -> 6: a by-value literal, a word of the program
-    assert_eq!(key_of(&edit(&base, ":constvalue 4 [ 5 0 0 0 0 0 0 0 ]", ":constvalue 4 [ 6 0 0 0 0 0 0 0 ]")), key_of(&base), "another stop");
+    assert_eq!(
+        key_of(&edit(
+            &base,
+            ":constvalue 4 [ 5 0 0 0 0 0 0 0 ]",
+            ":constvalue 4 [ 6 0 0 0 0 0 0 0 ]"
+        )),
+        key_of(&base),
+        "another stop"
+    );
 }
 
 /// Does not apply (G4): another function keys apart.
@@ -52,5 +70,9 @@ fn another_function_keys_apart() {
 /// env!()'s path baked in at compile time: a test binary reused from another checkout would read that checkout's files.
 fn manifest_dir() -> &'static std::path::Path {
     static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| std::env::var_os("CARGO_MANIFEST_DIR").map(Into::into).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)"))
+    DIR.get_or_init(|| {
+        std::env::var_os("CARGO_MANIFEST_DIR")
+            .map(Into::into)
+            .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+    })
 }

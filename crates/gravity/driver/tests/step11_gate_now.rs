@@ -14,7 +14,10 @@ use std::time::{Duration, Instant};
 
 use common::*;
 use gravity_driver::mem::spill_host::v4;
-use gravity_driver::{footprint, install_spill_factory, Entry, Grant, SpillFactory, SpillSet, TempMap, POOL, POOL_FRACTION_WHOLE, REGIONS};
+use gravity_driver::{
+    footprint, install_spill_factory, Entry, Grant, SpillFactory, SpillSet, TempMap, POOL,
+    POOL_FRACTION_WHOLE, REGIONS,
+};
 use mempolicy::consts::{set, K};
 
 const MIB: u64 = 1 << 20;
@@ -32,8 +35,17 @@ impl SpillFactory for FileRoad {
     fn map_temp(&self, bytes: usize) -> gravity_driver::Result<Option<TempMap>> {
         use std::os::fd::AsRawFd;
         static N: AtomicU64 = AtomicU64::new(0);
-        let path = std::env::temp_dir().join(format!("step11-{}-{}", std::process::id(), N.fetch_add(1, Relaxed)));
-        let f = std::fs::OpenOptions::new().read(true).write(true).create_new(true).open(&path).expect("a temp file");
+        let path = std::env::temp_dir().join(format!(
+            "step11-{}-{}",
+            std::process::id(),
+            N.fetch_add(1, Relaxed)
+        ));
+        let f = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .expect("a temp file");
         f.set_len(bytes as u64).expect("its length");
         let m = TempMap::shared(f.as_raw_fd(), bytes);
         std::fs::remove_file(&path).expect("unlinked once mapped");
@@ -58,7 +70,10 @@ fn resumed() {}
 
 #[test]
 fn a_pool_miss_waits_only_for_bytes_on_their_way() {
-    assert!(install_spill_factory(&FILE_ROAD), "this binary owns the process's spill factory");
+    assert!(
+        install_spill_factory(&FILE_ROAD),
+        "this binary owns the process's spill factory"
+    );
     set(K::GateNow, 1);
     gravity_driver::mem::grant::set_mem_wait(paused, resumed);
     let program = Arc::new(p_group_share(4));
@@ -69,23 +84,37 @@ fn a_pool_miss_waits_only_for_bytes_on_their_way() {
     REGIONS.trim();
     gravity_driver::DEPOT.trim();
     POOL.arm(2 * need + spare);
-    let res = Rc::new(POOL.admit_need(want, &|g| footprint(g, &program, 1), Duration::from_millis(10)).expect("admitted"));
+    let res = Rc::new(
+        POOL.admit_need(
+            want,
+            &|g| footprint(g, &program, 1),
+            Duration::from_millis(10),
+        )
+        .expect("admitted"),
+    );
     res.set_pool_fraction(POOL_FRACTION_WHOLE);
     let mut derive = FakeDerive::ranges(RangeTable::new(24, 10));
     let mut entry = Entry::new(2);
     let flag = AtomicU8::new(0);
     let mut sink = LegSink::new();
     let mut b = binding(&[8], &NULLS, &mut sink, &flag);
-    let exec = entry.start(None, &program, &mut derive, &mut b, res.clone()).expect("started");
+    let exec = entry
+        .start(None, &program, &mut derive, &mut b, res.clone())
+        .expect("started");
     let ctx = exec.node().ctx();
 
     // G held whole: every draw below is past W and G
     let carved = res.hold(res.left()).expect("G's room held");
     // another session's statement holds the pool but `spare`, and gives nothing back until told to
-    let (admitted, done) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
+    let (admitted, done) = (
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(AtomicBool::new(false)),
+    );
     let (a, d) = (admitted.clone(), done.clone());
     let other = std::thread::spawn(move || {
-        let r = POOL.admit_need(Grant::of(need), &|g| g.bytes, Duration::from_millis(10)).expect("the other statement");
+        let r = POOL
+            .admit_need(Grant::of(need), &|g| g.bytes, Duration::from_millis(10))
+            .expect("the other statement");
         a.store(true, Relaxed);
         let t0 = Instant::now();
         while !d.load(Relaxed) && t0.elapsed() < Duration::from_secs(60) {
@@ -95,20 +124,35 @@ fn a_pool_miss_waits_only_for_bytes_on_their_way() {
     });
     let t0 = Instant::now();
     while !admitted.load(Relaxed) {
-        assert!(t0.elapsed() < Duration::from_secs(5), "the other statement was not admitted");
+        assert!(
+            t0.elapsed() < Duration::from_secs(5),
+            "the other statement was not admitted"
+        );
         std::thread::sleep(Duration::from_millis(1));
     }
     let ask = spare + MIB;
-    assert!(POOL.capacity() - POOL.held() < ask, "past the pool's room: {} B free", POOL.capacity() - POOL.held());
+    assert!(
+        POOL.capacity() - POOL.held() < ask,
+        "past the pool's room: {} B free",
+        POOL.capacity() - POOL.held()
+    );
 
     // (1) a draw with a road past the pool (the session's temp file): the file at once, no memory wait
     let stats_0 = mcx::ladder_stats::site(mcx::ladder_stats::Site::Draw);
-    let (held, pauses, mapped) = (POOL.held(), PAUSED.load(Relaxed), v4::SPILL_MAPPED.load(Relaxed));
+    let (held, pauses, mapped) = (
+        POOL.held(),
+        PAUSED.load(Relaxed),
+        v4::SPILL_MAPPED.load(Relaxed),
+    );
     let t0 = Instant::now();
     // SAFETY: the leader's context, bound for the statement, on this thread
     let p = unsafe { v4::take(ctx, ask as usize) };
     let took = t0.elapsed();
-    let (held_1, pauses_1, mapped_1) = (POOL.held(), PAUSED.load(Relaxed), v4::SPILL_MAPPED.load(Relaxed));
+    let (held_1, pauses_1, mapped_1) = (
+        POOL.held(),
+        PAUSED.load(Relaxed),
+        v4::SPILL_MAPPED.load(Relaxed),
+    );
     // SAFETY: `p` is the owner's region until its `give`
     if !p.is_null() {
         unsafe { v4::give(ctx, p) };
@@ -129,17 +173,48 @@ fn a_pool_miss_waits_only_for_bytes_on_their_way() {
     set(K::GateNow, 0);
 
     assert!(!p.is_null(), "(1) served ({took:?})");
-    assert_eq!(mapped_1, mapped + 1, "(1) by the statement's mapped temp file ({took:?})");
+    assert_eq!(
+        mapped_1,
+        mapped + 1,
+        "(1) by the statement's mapped temp file ({took:?})"
+    );
     assert_eq!(held_1, held, "(1) nothing drawn from the pool");
-    assert_eq!(pauses_1, pauses, "(1) no memory wait for room another statement holds and gives nothing back ({took:?})");
-    assert!(q.is_null(), "(2) refused: the pool stayed short ({waited:?})");
-    assert_eq!(pauses_3, pauses_2 + 1, "(2) it waited for room ({waited:?})");
-    assert!(waited >= Duration::from_millis(190) && waited < Duration::from_millis(1500), "(2) ~200 ms for room, then refused, never the 2 s budget ({waited:?})");
+    assert_eq!(
+        pauses_1, pauses,
+        "(1) no memory wait for room another statement holds and gives nothing back ({took:?})"
+    );
+    assert!(
+        q.is_null(),
+        "(2) refused: the pool stayed short ({waited:?})"
+    );
+    assert_eq!(
+        pauses_3,
+        pauses_2 + 1,
+        "(2) it waited for room ({waited:?})"
+    );
+    assert!(
+        waited >= Duration::from_millis(190) && waited < Duration::from_millis(1500),
+        "(2) ~200 ms for room, then refused, never the 2 s budget ({waited:?})"
+    );
     // pgrust_memory_ladder_stats() counts a gate_now wait at its gate's site, as it counts take_wait's
-    assert!(stats_1.waits > stats_0.waits, "(1) ladder_stats counts the miss's wait at the draw site ({stats_0:?} -> {stats_1:?})");
-    assert_eq!(stats_2.waits, stats_1.waits + 1, "(2) ladder_stats counts its wait at the draw site ({stats_1:?} -> {stats_2:?})");
-    assert_eq!(stats_2.refusals, stats_1.refusals + 1, "(2) ladder_stats counts its refusal ({stats_1:?} -> {stats_2:?})");
-    assert!(stats_2.wait_ns - stats_1.wait_ns >= 190_000_000, "(2) ladder_stats counts its ~200 ms ({stats_1:?} -> {stats_2:?})");
+    assert!(
+        stats_1.waits > stats_0.waits,
+        "(1) ladder_stats counts the miss's wait at the draw site ({stats_0:?} -> {stats_1:?})"
+    );
+    assert_eq!(
+        stats_2.waits,
+        stats_1.waits + 1,
+        "(2) ladder_stats counts its wait at the draw site ({stats_1:?} -> {stats_2:?})"
+    );
+    assert_eq!(
+        stats_2.refusals,
+        stats_1.refusals + 1,
+        "(2) ladder_stats counts its refusal ({stats_1:?} -> {stats_2:?})"
+    );
+    assert!(
+        stats_2.wait_ns - stats_1.wait_ns >= 190_000_000,
+        "(2) ladder_stats counts its ~200 ms ({stats_1:?} -> {stats_2:?})"
+    );
 
     drop(carved);
     entry.end(exec, false);

@@ -24,7 +24,8 @@ fn with<R>(text: &str, f: impl FnOnce(&PipelineGraph<'_>) -> R) -> R {
     let ctx = MemoryContext::new("srf args key");
     let fx = corpus::load(ctx.mcx(), text).unwrap_or_else(|e| panic!("fixture: {e}"));
     let arena = Arena::new(1 << 20);
-    let g = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx).unwrap_or_else(|r| panic!("decompose: {r}"));
+    let g = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx)
+        .unwrap_or_else(|r| panic!("decompose: {r}"));
     f(&g)
 }
 
@@ -35,14 +36,25 @@ fn key_of(text: &str) -> ContentKey {
 #[test]
 fn another_argument_keys_the_same() {
     let base = fixture(EACH);
-    assert_eq!(base.matches(ARG_TAIL).count(), 1, "the fixture holds the argument's tail once");
+    assert_eq!(
+        base.matches(ARG_TAIL).count(),
+        1,
+        "the fixture holds the argument's tail once"
+    );
     // '{"k": 1, "j": 2}' -> '{"k": 3, "j": 2}'
-    assert_eq!(key_of(&base.replacen(ARG_TAIL, "0 128 3 0 ]}", 1)), key_of(&base), "another jsonb_each argument");
+    assert_eq!(
+        key_of(&base.replacen(ARG_TAIL, "0 128 3 0 ]}", 1)),
+        key_of(&base),
+        "another jsonb_each argument"
+    );
 }
 
 #[test]
 fn the_argument_is_class_keyed() {
-    assert!(with(&fixture(EACH), |g| !class_keyed_lists(g).is_empty()), "the argument is logged with the class-keyed lists");
+    assert!(
+        with(&fixture(EACH), |g| !class_keyed_lists(g).is_empty()),
+        "the argument is logged with the class-keyed lists"
+    );
 }
 
 /// Does not apply: another function keys apart (the key holds the funcid, only the literal is its class).
@@ -50,12 +62,20 @@ fn the_argument_is_class_keyed() {
 fn another_function_keys_apart() {
     let base = fixture(EACH);
     let text = base.replace(":funcid 3208 ", ":funcid 3932 ");
-    assert_ne!(key_of(&text), key_of(&base), "jsonb_each_text is another program");
+    assert_ne!(
+        key_of(&text),
+        key_of(&base),
+        "jsonb_each_text is another program"
+    );
 }
 
 /// D793-b: the checkout under test, read at run time (cargo sets CARGO_MANIFEST_DIR for every test process), never
 /// env!()'s path baked in at compile time: a test binary reused from another checkout would read that checkout's files.
 fn manifest_dir() -> &'static std::path::Path {
     static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| std::env::var_os("CARGO_MANIFEST_DIR").map(Into::into).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)"))
+    DIR.get_or_init(|| {
+        std::env::var_os("CARGO_MANIFEST_DIR")
+            .map(Into::into)
+            .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+    })
 }

@@ -197,7 +197,11 @@ pub(crate) fn enumerate_dir_job(src_dir: &str, dst_dir: &str) -> PgResult<CopyDi
             )?);
         }
     }
-    Ok(CopyDirJob { dst_dir: dst_dir.to_owned(), files, subdirs })
+    Ok(CopyDirJob {
+        dst_dir: dst_dir.to_owned(),
+        files,
+        subdirs,
+    })
 }
 
 /// Run every job across `workers` scoped threads (clamped to the job
@@ -312,7 +316,13 @@ pub(crate) fn copy_dirs_parallel(
     // caller's: mint.rs runs fd::fsync_fname(dst, true) per directory on
     // the janitor thread after this returns — transient-fd machinery that
     // must not run on workers. Per-FILE fsyncs already ran here.
-    Ok(CopyStats { dirs, files, threads, wall_ns, busy_ns: busy_ns.into_inner() })
+    Ok(CopyStats {
+        dirs,
+        files,
+        threads,
+        wall_ns,
+        busy_ns: busy_ns.into_inner(),
+    })
 }
 
 fn worker_loop(
@@ -373,7 +383,12 @@ fn copy_one_dir(job: &CopyDirJob, abort: &AtomicBool, knobs: CopyKnobs) -> Resul
 
 impl CopyDirJob {
     fn file_count(&self) -> usize {
-        self.files.len() + self.subdirs.iter().map(CopyDirJob::file_count).sum::<usize>()
+        self.files.len()
+            + self
+                .subdirs
+                .iter()
+                .map(CopyDirJob::file_count)
+                .sum::<usize>()
     }
 }
 
@@ -414,7 +429,9 @@ fn copy_one_file(
         if abort.load(Ordering::Acquire) {
             return Ok(()); // batch is aborting; partial dst is its orphan
         }
-        let n = from.read(&mut buf).map_err(|e| io_failure("read file", src, &e))?;
+        let n = from
+            .read(&mut buf)
+            .map_err(|e| io_failure("read file", src, &e))?;
         if n == 0 {
             break;
         }
@@ -516,7 +533,11 @@ fn clone_file_raw(
     _abort: &AtomicBool,
     _knobs: CopyKnobs,
 ) -> Result<(), CopyFailure> {
-    Err(io_failure("clone file", dst, &std::io::Error::from(std::io::ErrorKind::Unsupported)))
+    Err(io_failure(
+        "clone file",
+        dst,
+        &std::io::Error::from(std::io::ErrorKind::Unsupported),
+    ))
 }
 
 #[cfg(target_os = "linux")]
@@ -573,7 +594,12 @@ fn clone_file_raw(
 }
 
 fn io_failure(op: &'static str, path: &str, e: &std::io::Error) -> CopyFailure {
-    CopyFailure { op, path: path.to_owned(), errno: e.raw_os_error().unwrap_or(0), panic: false }
+    CopyFailure {
+        op,
+        path: path.to_owned(),
+        errno: e.raw_os_error().unwrap_or(0),
+        panic: false,
+    }
 }
 
 fn cstr(s: &str) -> Result<CString, CopyFailure> {
@@ -610,10 +636,7 @@ mod tests {
     }
 
     fn scratch(tag: &str) -> std::path::PathBuf {
-        let d = std::env::temp_dir().join(format!(
-            "pgrust_parcopy_{tag}_{}",
-            std::process::id()
-        ));
+        let d = std::env::temp_dir().join(format!("pgrust_parcopy_{tag}_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
@@ -665,8 +688,14 @@ mod tests {
         let job = enumerate_dir_job(src.to_str().unwrap(), dst.to_str().unwrap()).unwrap();
         let stats = copy_dirs_parallel(vec![job], 2, knobs()).unwrap();
         assert_eq!(stats.files, 3);
-        assert_eq!(std::fs::read(dst.join("pgrc_16386/CURRENT")).unwrap(), b"current");
-        assert_eq!(std::fs::read(dst.join("pgrc_16386/part-0.pgrc")).unwrap(), b"part");
+        assert_eq!(
+            std::fs::read(dst.join("pgrc_16386/CURRENT")).unwrap(),
+            b"current"
+        );
+        assert_eq!(
+            std::fs::read(dst.join("pgrc_16386/part-0.pgrc")).unwrap(),
+            b"part"
+        );
         assert!(!dst.join("pgrc_t3_16390").exists());
         assert!(!dst.join("other").exists());
         let _ = std::fs::remove_dir_all(&root);
@@ -684,12 +713,10 @@ mod tests {
         mkfile(&src.join("f0"), b"x");
         let poisoned_dst = root.join("dst_taken");
         std::fs::create_dir(&poisoned_dst).unwrap(); // squatter
-        let job =
-            enumerate_dir_job(src.to_str().unwrap(), poisoned_dst.to_str().unwrap()).unwrap();
+        let job = enumerate_dir_job(src.to_str().unwrap(), poisoned_dst.to_str().unwrap()).unwrap();
         let err = copy_dirs_parallel(vec![job], 2, knobs()).unwrap_err();
         assert!(
-            err.message().contains("create directory")
-                && err.message().contains("dst_taken"),
+            err.message().contains("create directory") && err.message().contains("dst_taken"),
             "error names the op and path: {}",
             err.message()
         );
@@ -713,8 +740,15 @@ mod tests {
         let mut k = knobs();
         k.file_mode = 0o400;
         copy_dirs_parallel(vec![job], 1, k).unwrap();
-        let mode = std::fs::metadata(dst.join("f0")).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o400, "dst mode is knobs.file_mode, not a hardcoded 0600");
+        let mode = std::fs::metadata(dst.join("f0"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(
+            mode, 0o400,
+            "dst mode is knobs.file_mode, not a hardcoded 0600"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -775,12 +809,22 @@ mod tests {
         park_failure(
             &failure,
             &flag,
-            CopyFailure { op: "one", path: "p1".into(), errno: 1, panic: false },
+            CopyFailure {
+                op: "one",
+                path: "p1".into(),
+                errno: 1,
+                panic: false,
+            },
         );
         park_failure(
             &failure,
             &flag,
-            CopyFailure { op: "two", path: "p2".into(), errno: 2, panic: false },
+            CopyFailure {
+                op: "two",
+                path: "p2".into(),
+                errno: 2,
+                panic: false,
+            },
         );
         assert!(flag.load(Ordering::Acquire));
         let kept = failure.into_inner().unwrap().unwrap();

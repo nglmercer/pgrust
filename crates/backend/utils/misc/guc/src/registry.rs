@@ -136,7 +136,10 @@ impl GucRegistry {
     /// D4682 step 2 (a): this registry, still empty, takes `builtins` as its built-in variables' names instead of
     /// building its own (its built-in definitions go through `define_builtin`, then `settle_builtin_index`).
     pub fn adopt_builtin_index(&mut self, builtins: std::sync::Arc<BuiltinIndex>) {
-        debug_assert!(self.vars.is_empty() && self.index.is_empty(), "a registry adopts the built-in index before any define");
+        debug_assert!(
+            self.vars.is_empty() && self.index.is_empty(),
+            "a registry adopts the built-in index before any define"
+        );
         self.builtins = Some(builtins);
     }
 
@@ -147,7 +150,11 @@ impl GucRegistry {
             return self.define(var);
         };
         let idx = self.vars.len();
-        debug_assert_eq!(builtins.get(fold_name(var.name()).as_str()).copied(), Some(idx), "the built-in definition order moved");
+        debug_assert_eq!(
+            builtins.get(fold_name(var.name()).as_str()).copied(),
+            Some(idx),
+            "the built-in definition order moved"
+        );
         self.vars.try_reserve(1).map_err(|_| oom())?;
         self.nondef.try_grow(idx + 1).map_err(|_| oom())?;
         self.vars.push(var);
@@ -160,7 +167,12 @@ impl GucRegistry {
         let Some(builtins) = &self.builtins else {
             return Ok(());
         };
-        let at = |i: usize| builtins.get(fold_name(self.vars[i].name()).as_str()).copied() == Some(i);
+        let at = |i: usize| {
+            builtins
+                .get(fold_name(self.vars[i].name()).as_str())
+                .copied()
+                == Some(i)
+        };
         let n = self.vars.len();
         if builtins.len() == n && (n == 0 || (at(0) && at(n - 1))) {
             return Ok(());
@@ -168,7 +180,8 @@ impl GucRegistry {
         self.builtins = None;
         self.index.try_reserve(n).map_err(|_| oom())?;
         for (idx, var) in self.vars.iter().enumerate() {
-            self.index.insert(fold_name(var.name()).into_boxed_str(), idx);
+            self.index
+                .insert(fold_name(var.name()).into_boxed_str(), idx);
         }
         Ok(())
     }
@@ -228,7 +241,11 @@ impl GucRegistry {
     // the entry set_config_option pushed for a committed session value.
     pub fn stack_top_nest_level(&mut self, name: &str) -> Option<&mut i32> {
         let idx = self.find_index(name)?;
-        self.vars[idx].gen_mut().stack.as_deref_mut().map(|s| &mut s.nest_level)
+        self.vars[idx]
+            .gen_mut()
+            .stack
+            .as_deref_mut()
+            .map(|s| &mut s.nest_level)
     }
 
     pub fn stack_depth(&self, name: &str) -> usize {
@@ -389,7 +406,9 @@ impl GucRegistry {
     // The variable at an index find_index returned before, unless it has
     // become a tombstone since (remove_reserved_placeholders).
     pub(crate) fn live_at(&self, idx: usize) -> Option<&GucVariable> {
-        self.vars.get(idx).filter(|v| v.gen().status & crate::model::GUC_REMOVED == 0)
+        self.vars
+            .get(idx)
+            .filter(|v| v.gen().status & crate::model::GUC_REMOVED == 0)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -1252,7 +1271,12 @@ pub fn set_config_option_prepare(
         change_val = false;
     }
 
-    SetConfigPrepared::Pending(SetConfigPrep { idx, elevel, change_val, make_default })
+    SetConfigPrepared::Pending(SetConfigPrep {
+        idx,
+        elevel,
+        change_val,
+        make_default,
+    })
 }
 
 // Value step, store borrowed shared: check_datestyle reads the reset value.
@@ -1286,7 +1310,12 @@ pub fn set_config_option_apply(
     is_reload: bool,
     deferred_hooks: &mut Vec<DeferredAssignHook>,
 ) -> PgResult<i32> {
-    let SetConfigPrep { idx, elevel, change_val, make_default } = prep;
+    let SetConfigPrep {
+        idx,
+        elevel,
+        change_val,
+        make_default,
+    } = prep;
 
     // Originals for the session_authorization -> role kluge below.
     let orig_context = context;
@@ -1311,7 +1340,9 @@ pub fn set_config_option_apply(
                 elevel,
                 err(
                     ERRCODE_CANT_CHANGE_RUNTIME_PARAM,
-                    format!("parameter \"{cname}\" cannot be changed without restarting the server"),
+                    format!(
+                        "parameter \"{cname}\" cannot be changed without restarting the server"
+                    ),
                 ),
             );
         }
@@ -1873,7 +1904,9 @@ fn publish_later(record: &GucVariable) -> Option<DeferredAssignHook> {
     }
 }
 
-pub(crate) fn installed_hook<T: Copy + 'static>(slot: Option<&'static guc_tables::GucSlot<T>>) -> Option<T> {
+pub(crate) fn installed_hook<T: Copy + 'static>(
+    slot: Option<&'static guc_tables::GucSlot<T>>,
+) -> Option<T> {
     let slot = slot?;
     if slot.installed() {
         Some(slot.get())
@@ -2029,7 +2062,11 @@ fn restore_stacked_value(
     let mut changed = false;
     match (record, newvalue.val.as_ref()) {
         (GucVariable::Bool(c), Some(config_var_val::Boolval(nv))) => {
-            let current = if pending_restore { c.value.unwrap() } else { current_bool(c) };
+            let current = if pending_restore {
+                c.value.unwrap()
+            } else {
+                current_bool(c)
+            };
             if current != *nv || extra_differs(&c.gen.extra, &newextra) {
                 c.value = Some(*nv);
                 if let Some(hook) = defer_assign(
@@ -2045,7 +2082,11 @@ fn restore_stacked_value(
             }
         }
         (GucVariable::Int(c), Some(config_var_val::Intval(nv))) => {
-            let current = if pending_restore { c.value.unwrap() } else { current_int(c) };
+            let current = if pending_restore {
+                c.value.unwrap()
+            } else {
+                current_int(c)
+            };
             if current != *nv || extra_differs(&c.gen.extra, &newextra) {
                 c.value = Some(*nv);
                 if let Some(hook) = defer_assign(
@@ -2061,7 +2102,11 @@ fn restore_stacked_value(
             }
         }
         (GucVariable::Real(c), Some(config_var_val::Realval(nv))) => {
-            let current = if pending_restore { c.value.unwrap() } else { current_real(c) };
+            let current = if pending_restore {
+                c.value.unwrap()
+            } else {
+                current_real(c)
+            };
             if current != *nv || extra_differs(&c.gen.extra, &newextra) {
                 c.value = Some(*nv);
                 if let Some(hook) = defer_assign(
@@ -2077,7 +2122,11 @@ fn restore_stacked_value(
             }
         }
         (GucVariable::String(c), Some(config_var_val::Stringval(nv))) => {
-            let current = if pending_restore { c.value.clone().unwrap() } else { current_string(c) };
+            let current = if pending_restore {
+                c.value.clone().unwrap()
+            } else {
+                current_string(c)
+            };
             let differs = match (current, nv) {
                 (Some(a), Some(b)) => a != *b,
                 (None, None) => false,
@@ -2103,7 +2152,11 @@ fn restore_stacked_value(
             }
         }
         (GucVariable::Enum(c), Some(config_var_val::Enumval(nv))) => {
-            let current = if pending_restore { c.value.unwrap() } else { current_enum(c) };
+            let current = if pending_restore {
+                c.value.unwrap()
+            } else {
+                current_enum(c)
+            };
             if current != *nv || extra_differs(&c.gen.extra, &newextra) {
                 c.value = Some(*nv);
                 if let Some(hook) = defer_assign(
@@ -2203,7 +2256,6 @@ fn pop_var_stack(
         let mut restore_masked = false;
 
         #[allow(clippy::if_same_then_else)]
-
         if !is_commit {
             restore_prior = true;
         } else if stack.state == GUC_SAVE {
@@ -2412,9 +2464,21 @@ fn reset_one_to_boot(var: &mut GucVariable, publish: bool) -> Option<DeferredAss
     // GUC_NO_RESET_ALL hooks (assign_session_authorization / assign_role) go
     // through SetConfigOption("is_superuser") and would re-borrow the store.
     let hook = if publish {
-        apply_value(var, bootval.clone(), bootextra.clone(), PGC_INTERNAL, BOOTSTRAP_SUPERUSERID)
+        apply_value(
+            var,
+            bootval.clone(),
+            bootextra.clone(),
+            PGC_INTERNAL,
+            BOOTSTRAP_SUPERUSERID,
+        )
     } else {
-        store_value(var, bootval.clone(), bootextra.clone(), PGC_INTERNAL, BOOTSTRAP_SUPERUSERID);
+        store_value(
+            var,
+            bootval.clone(),
+            bootextra.clone(),
+            PGC_INTERNAL,
+            BOOTSTRAP_SUPERUSERID,
+        );
         publish_later(var)
     };
     match (&mut *var, &bootval) {
@@ -2515,7 +2579,10 @@ pub(crate) fn reset_restorable_to_boot(
     while let Some(idx) = cur {
         cur = reg.nondef.next_of(idx);
         let gen = reg.vars[idx].gen();
-        if gen.context == PGC_POSTMASTER || gen.context == PGC_INTERNAL || gen.source == PGC_S_DEFAULT {
+        if gen.context == PGC_POSTMASTER
+            || gen.context == PGC_INTERNAL
+            || gen.source == PGC_S_DEFAULT
+        {
             continue;
         }
         if reg.vars[idx].gen().stack.is_some() {
@@ -2536,7 +2603,8 @@ pub(crate) fn reset_restorable_to_boot(
 // Whether the capture carries `name` at a non-default source, i.e. sets it
 // again (bind_captured_guc returns early for PGC_S_DEFAULT captures).
 pub(crate) fn recaptured(caps: &[CapturedGuc], name: &str) -> bool {
-    caps.iter().any(|c| c.source != PGC_S_DEFAULT && guc_name_eq(&c.name, name))
+    caps.iter()
+        .any(|c| c.source != PGC_S_DEFAULT && guc_name_eq(&c.name, name))
 }
 
 // The parked boot publishes (reset_restorable_to_boot) of variables the

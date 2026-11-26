@@ -127,7 +127,12 @@ fn mark_updatable(entry: &mut LogicalRepRelMapEntry) -> PgResult<()> {
         let off = (attnum - 1) as usize;
         let remote = entry.attrmap.get(off).copied().unwrap_or(-1);
         if remote < 0
-            || !entry.remoterel.attkeys.get(remote as usize).copied().unwrap_or(false)
+            || !entry
+                .remoterel
+                .attkeys
+                .get(remote as usize)
+                .copied()
+                .unwrap_or(false)
         {
             entry.updatable = false;
             break;
@@ -231,7 +236,10 @@ pub fn is_index_usable_for_replica_identity_full(
     // this port that is the btree and hash AMs (indexam::am_gettuple).
     let kind = amapi::GetIndexAmRoutineByAmId(idxrel.rd_rel.relam, false)?
         .expect("noerror=false returned Some");
-    if !matches!(kind, types_relscan::IndexAmKind::Btree | types_relscan::IndexAmKind::Hash) {
+    if !matches!(
+        kind,
+        types_relscan::IndexAmKind::Btree | types_relscan::IndexAmKind::Hash
+    ) {
         return Ok(false);
     }
 
@@ -301,7 +309,11 @@ fn report_missing_or_gen_attrs(
     generated: &[usize],
 ) -> PgResult<()> {
     if !missing.is_empty() {
-        let column = if missing.len() == 1 { "column" } else { "columns" };
+        let column = if missing.len() == 1 {
+            "column"
+        } else {
+            "columns"
+        };
         ereport(ERROR)
             .errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE)
             .errmsg(format!(
@@ -315,9 +327,13 @@ fn report_missing_or_gen_attrs(
     }
     if !generated.is_empty() {
         // C collects these in a Bitmapset: ascending remote attnum order.
-        let mut generated = ::mcx::std_vec_from_slice("replication",generated)?;
+        let mut generated = ::mcx::std_vec_from_slice("replication", generated)?;
         generated.sort_unstable();
-        let column = if generated.len() == 1 { "column" } else { "columns" };
+        let column = if generated.len() == 1 {
+            "column"
+        } else {
+            "columns"
+        };
         ereport(ERROR)
             .errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE)
             .errmsg(format!(
@@ -408,7 +424,11 @@ pub fn logicalrep_rel_open<'mcx>(
         let rel = table::table_open(mcx, relid, types_rel::NoLock)?;
         entry.localreloid = relid;
 
-        check_relkind(rel.rd_rel.relkind as u8, &remoterel.nspname, &remoterel.relname)?;
+        check_relkind(
+            rel.rd_rel.relkind as u8,
+            &remoterel.nspname,
+            &remoterel.relname,
+        )?;
 
         // Local-offset -> remote-column attrmap by column name; track remote
         // columns with no local counterpart and local generated columns
@@ -416,7 +436,8 @@ pub fn logicalrep_rel_open<'mcx>(
         let desc = &rel.rd_att;
         let natts = desc.natts as usize;
         entry.attrmap = ::mcx::std_vec_from_elem("replication", -1i16, natts)?;
-        let mut missing: Vec<bool> = ::mcx::std_vec_from_elem("replication", true, remoterel.natts)?;
+        let mut missing: Vec<bool> =
+            ::mcx::std_vec_from_elem("replication", true, remoterel.natts)?;
         let mut generated_hit: Vec<usize> = Vec::new();
         for i in 0..natts {
             let attr = desc.attr(i);
@@ -453,8 +474,7 @@ pub fn logicalrep_rel_open<'mcx>(
     }
 
     if entry.state != SUBREL_STATE_READY {
-        let (state, lsn) =
-            pg_subscription::GetSubscriptionRelState(mcx, subid, entry.localreloid)?;
+        let (state, lsn) = pg_subscription::GetSubscriptionRelState(mcx, subid, entry.localreloid)?;
         entry.state = state;
         entry.statelsn = lsn;
     }
@@ -463,7 +483,10 @@ pub fn logicalrep_rel_open<'mcx>(
         m.borrow_mut().insert(remoteid, entry.clone());
     });
 
-    Ok((entry, localrel.expect("logicalrep_rel_open produced a relation")))
+    Ok((
+        entry,
+        localrel.expect("logicalrep_rel_open produced a relation"),
+    ))
 }
 
 pub fn logicalrep_rel_close(rel: Relation<'_>, lockmode: LOCKMODE) -> PgResult<()> {
@@ -491,7 +514,10 @@ pub fn logicalrep_partition_open(
                 if root_attno == 0 {
                     -1
                 } else {
-                    root.attrmap.get((root_attno - 1) as usize).copied().unwrap_or(-1)
+                    root.attrmap
+                        .get((root_attno - 1) as usize)
+                        .copied()
+                        .unwrap_or(-1)
                 }
             })
             .collect(),
@@ -621,9 +647,15 @@ mod tests {
             err.message(),
             "cannot use relation \"public.t\" as logical replication target"
         );
-        assert_eq!(err.detail(), Some("This operation is not supported for views."));
+        assert_eq!(
+            err.detail(),
+            Some("This operation is not supported for views.")
+        );
         let err = check_relkind(b'f', "s", "ft").unwrap_err();
-        assert_eq!(err.detail(), Some("This operation is not supported for foreign tables."));
+        assert_eq!(
+            err.detail(),
+            Some("This operation is not supported for foreign tables.")
+        );
         assert!(check_relkind(b'r', "public", "t").is_ok());
         assert!(check_relkind(b'p', "public", "t").is_ok());
     }

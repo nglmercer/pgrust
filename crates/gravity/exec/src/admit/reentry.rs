@@ -138,7 +138,9 @@ fn free_deep(from: usize) {
                 continue;
             }
             let retired: Vec<_> = x.retired.borrow_mut().drain(..).collect(); // alloc: Exec
-            retired.into_iter().for_each(|(key, a)| b.drop_admission(key, a));
+            retired
+                .into_iter()
+                .for_each(|(key, a)| b.drop_admission(key, a));
             // filed since the last flush: a flush during its run left them stale
             if x.flush_seen.get() == FLUSH_GEN.get() && x.pending.borrow().is_empty() {
                 super::kept::keep_level(b);
@@ -154,7 +156,12 @@ fn free_deep(from: usize) {
     }
     let levels = DEEP.with(|d| {
         let mut d = d.borrow_mut();
-        let keep = d.iter().rposition(|x| Rc::strong_count(x) > 1 || x.level.try_borrow().map_or(true, |g| g.is_some())).map_or(0, |i| i + 1);
+        let keep = d
+            .iter()
+            .rposition(|x| {
+                Rc::strong_count(x) > 1 || x.level.try_borrow().map_or(true, |g| g.is_some())
+            })
+            .map_or(0, |i| i + 1);
         d.truncate(keep);
         MAX_DEPTH + keep
     });
@@ -167,7 +174,12 @@ fn free_deep(from: usize) {
 /// `home` = the level the statement was admitted at (its program instances are that level's): run away from
 /// it, the home level is held too while idle, and refused by name while it runs when the programs have host
 /// state (`hosted`), since the running statement may be inside the same instance.
-pub fn enter<R>(build: Option<Build>, home: Option<usize>, hosted: bool, f: impl FnOnce(&mut Backend, usize) -> R) -> Result<Option<R>, &'static str> {
+pub fn enter<R>(
+    build: Option<Build>,
+    home: Option<usize>,
+    hosted: bool,
+    f: impl FnOnce(&mut Backend, usize) -> R,
+) -> Result<Option<R>, &'static str> {
     // D3620: the run is no closure of the thread-local's `with` (whose frame would sit on every nested statement's stack
     // path): the levels have no destructor (each is `ManuallyDrop`), so the run takes them by reference outside it
     let levels = super::raw::thread_ref(&LEVELS);
@@ -186,7 +198,14 @@ pub fn enter<R>(build: Option<Build>, home: Option<usize>, hosted: bool, f: impl
 
 /// `enter` at static level `depth`, which no running statement holds.
 #[inline(never)]
-fn enter_static<R>(levels: &[Level; MAX_DEPTH], depth: usize, build: Option<Build>, home: Option<usize>, hosted: bool, f: impl FnOnce(&mut Backend, usize) -> R) -> Result<Option<R>, &'static str> {
+fn enter_static<R>(
+    levels: &[Level; MAX_DEPTH],
+    depth: usize,
+    build: Option<Build>,
+    home: Option<usize>,
+    hosted: bool,
+    f: impl FnOnce(&mut Backend, usize) -> R,
+) -> Result<Option<R>, &'static str> {
     // free: `enter`'s search found it so on this thread, nothing between
     let mut guard = levels[depth].borrow_mut();
     if guard.is_none() {
@@ -196,7 +215,11 @@ fn enter_static<R>(levels: &[Level; MAX_DEPTH], depth: usize, build: Option<Buil
     let home_deep = home.filter(|&h| h != depth).and_then(deep_at);
     let _held = hold_home(levels, home_deep.as_deref(), home, depth, hosted)?;
     let _above = Above(depth);
-    let out = FLUSH_SEEN.with(|s| PENDING.with(|p| RETIRED.with(|r| run_at(&mut guard, depth, &s[depth], &p[depth], &r[depth], f))));
+    let out = FLUSH_SEEN.with(|s| {
+        PENDING.with(|p| {
+            RETIRED.with(|r| run_at(&mut guard, depth, &s[depth], &p[depth], &r[depth], f))
+        })
+    });
     Ok(Some(out))
 }
 
@@ -204,7 +227,13 @@ fn enter_static<R>(levels: &[Level; MAX_DEPTH], depth: usize, build: Option<Buil
 /// Its admission arena is unmapped again after each borrow (an admission's scratch: `admit::graph` resets it), so the
 /// pool keeps no arena's hold per depth.
 #[inline(never)]
-fn enter_deep<R>(levels: &[Level; MAX_DEPTH], build: Option<Build>, home: Option<usize>, hosted: bool, f: impl FnOnce(&mut Backend, usize) -> R) -> Result<Option<R>, &'static str> {
+fn enter_deep<R>(
+    levels: &[Level; MAX_DEPTH],
+    build: Option<Build>,
+    home: Option<usize>,
+    hosted: bool,
+    f: impl FnOnce(&mut Backend, usize) -> R,
+) -> Result<Option<R>, &'static str> {
     let mut i = DEEP_FROM.get().min(DEEP.with(|d| d.borrow().len()));
     loop {
         DEEP_PROBES.set(DEEP_PROBES.get() + 1);
@@ -229,7 +258,14 @@ fn enter_deep<R>(levels: &[Level; MAX_DEPTH], build: Option<Build>, home: Option
         let _held = hold_home(levels, home_deep.as_deref(), home, depth, hosted)?;
         let _from = DeepFrom(DEEP_FROM.replace(i + 1));
         let _above = Above(depth);
-        let out = run_at(&mut guard, depth, &deep.flush_seen, &deep.pending, &deep.retired, f);
+        let out = run_at(
+            &mut guard,
+            depth,
+            &deep.flush_seen,
+            &deep.pending,
+            &deep.retired,
+            f,
+        );
         if let Some(b) = guard.as_mut() {
             b.release_graph_arena();
         }
@@ -241,7 +277,12 @@ fn enter_deep<R>(levels: &[Level; MAX_DEPTH], build: Option<Build>, home: Option
 /// statement's stack path past the static levels) does not hold its build.
 #[inline(never)]
 fn new_deep() -> Rc<Deep> {
-    let d = Rc::new(Deep { level: RefCell::new(ManuallyDrop::new(None)), flush_seen: Cell::new(0), pending: RefCell::new(Vec::new()), retired: RefCell::new(ManuallyDrop::new(Vec::new())) }); // alloc: Exec
+    let d = Rc::new(Deep {
+        level: RefCell::new(ManuallyDrop::new(None)),
+        flush_seen: Cell::new(0),
+        pending: RefCell::new(Vec::new()),
+        retired: RefCell::new(ManuallyDrop::new(Vec::new())),
+    }); // alloc: Exec
     DEEP.with(|v| v.borrow_mut().push(d.clone())); // alloc: Exec
     d
 }
@@ -256,12 +297,22 @@ impl Drop for DeepFrom {
 }
 
 fn deep_at(depth: usize) -> Option<Rc<Deep>> {
-    depth.checked_sub(MAX_DEPTH).and_then(|i| DEEP.with(|d| d.borrow().get(i).cloned()))
+    depth
+        .checked_sub(MAX_DEPTH)
+        .and_then(|i| DEEP.with(|d| d.borrow().get(i).cloned()))
 }
 
 /// The home level held for a run away from it (`enter`'s `home`): a static level, or the deep one `deep` (`deep_at(home)`).
-fn hold_home<'a>(levels: &'a [Level; MAX_DEPTH], deep: Option<&'a Deep>, home: Option<usize>, depth: usize, hosted: bool) -> Result<Option<std::cell::RefMut<'a, ManuallyDrop<Option<Box<Backend>>>>>, &'static str> {
-    let Some(h) = home.filter(|&h| h != depth) else { return Ok(None) };
+fn hold_home<'a>(
+    levels: &'a [Level; MAX_DEPTH],
+    deep: Option<&'a Deep>,
+    home: Option<usize>,
+    depth: usize,
+    hosted: bool,
+) -> Result<Option<std::cell::RefMut<'a, ManuallyDrop<Option<Box<Backend>>>>>, &'static str> {
+    let Some(h) = home.filter(|&h| h != depth) else {
+        return Ok(None);
+    };
     let level = match (levels.get(h), deep) {
         (Some(l), _) => l,
         (None, Some(d)) => &d.level,
@@ -278,7 +329,13 @@ fn hold_home<'a>(levels: &'a [Level; MAX_DEPTH], deep: Option<&'a Deep>, home: O
 /// level last ran, a catalog change under its refusals, its named portals. D3620: out of line, so `run_at`'s frame (on every nested
 /// statement's stack path) does not hold its locals.
 #[inline(never)]
-fn settle(backend: &mut Backend, depth: usize, flush_seen: &Cell<u64>, pending: &RefCell<Vec<gravity_program::Handle>>, retired: &Retired) {
+fn settle(
+    backend: &mut Backend,
+    depth: usize,
+    flush_seen: &Cell<u64>,
+    pending: &RefCell<Vec<gravity_program::Handle>>,
+    retired: &Retired,
+) {
     let generation = FLUSH_GEN.get();
     if flush_seen.replace(generation) != generation {
         backend.drop_plans(None);
@@ -291,7 +348,8 @@ fn settle(backend: &mut Backend, depth: usize, flush_seen: &Cell<u64>, pending: 
     // D3346: the admissions retired while this level ran, after the Nodes parked under their keys
     if !retired.borrow().is_empty() {
         let gone: Vec<_> = retired.borrow_mut().drain(..).collect(); // alloc: Exec
-        gone.into_iter().for_each(|(key, a)| backend.drop_admission(key, a));
+        gone.into_iter()
+            .for_each(|(key, a)| backend.drop_admission(key, a));
     }
     // D2663, C3 S4c: a catalog row a refusal of this level read moved (a filed plan answers for itself: `catalog_stale`)
     backend.follow_refusals();
@@ -302,7 +360,14 @@ fn settle(backend: &mut Backend, depth: usize, flush_seen: &Cell<u64>, pending: 
 
 // D3620: inlined into `enter_static` / `enter_deep`, so a statement's stack path holds one frame for both
 #[inline(always)]
-fn run_at<R>(guard: &mut ManuallyDrop<Option<Box<Backend>>>, depth: usize, flush_seen: &Cell<u64>, pending: &RefCell<Vec<gravity_program::Handle>>, retired: &Retired, f: impl FnOnce(&mut Backend, usize) -> R) -> R {
+fn run_at<R>(
+    guard: &mut ManuallyDrop<Option<Box<Backend>>>,
+    depth: usize,
+    flush_seen: &Cell<u64>,
+    pending: &RefCell<Vec<gravity_program::Handle>>,
+    retired: &Retired,
+    f: impl FnOnce(&mut Backend, usize) -> R,
+) -> R {
     let backend = guard.as_mut().expect("built");
     settle(backend, depth, flush_seen, pending, retired);
     DEEPEST.set(DEEPEST.get().max(depth));
@@ -351,14 +416,26 @@ pub fn built(depth: usize) -> Box<Backend> {
     crate::inputs::knobs::grant::arm_grant_pool();
     if let Some(t0) = t0.filter(|_| b.reporting()) {
         let us = t0.elapsed().as_micros();
-        b.report_line(&format!("gravity: backend state built in {us} us (level {depth}: first serve at this depth)")); // alloc: Cold
+        b.report_line(&format!(
+            "gravity: backend state built in {us} us (level {depth}: first serve at this depth)"
+        )); // alloc: Cold
     }
     b
 }
 
 pub fn depth() -> usize {
-    let busy = LEVELS.with(|levels| levels.iter().filter(|l| l.try_borrow_mut().is_err()).count());
-    busy + DEEP.with(|d| d.borrow().iter().filter(|x| x.level.try_borrow_mut().is_err()).count())
+    let busy = LEVELS.with(|levels| {
+        levels
+            .iter()
+            .filter(|l| l.try_borrow_mut().is_err())
+            .count()
+    });
+    busy + DEEP.with(|d| {
+        d.borrow()
+            .iter()
+            .filter(|x| x.level.try_borrow_mut().is_err())
+            .count()
+    })
 }
 
 /// D3465: some level runs a statement now (`depth() > 0`, stopping at the first busy level: the entry asks it for
@@ -399,7 +476,9 @@ pub fn for_each_idle(mut f: impl FnMut(&mut Backend)) -> usize {
 
 /// Every level with its pending drops: the static ones, then the deep ones (D3360) in depth order.
 fn each_level(mut f: impl FnMut(&Level, &RefCell<Vec<gravity_program::Handle>>)) {
-    LEVELS.with(|levels| PENDING.with(|pending| levels.iter().zip(pending.iter()).for_each(|(l, p)| f(l, p))));
+    LEVELS.with(|levels| {
+        PENDING.with(|pending| levels.iter().zip(pending.iter()).for_each(|(l, p)| f(l, p)))
+    });
     let mut i = 0;
     while let Some(d) = DEEP.with(|v| v.borrow().get(i).cloned()) {
         f(&d.level, &d.pending);
@@ -425,7 +504,12 @@ pub fn retire(home: usize, key: gravity_program::PlanKey, a: Box<crate::Admitted
 
 /// D3881: `f` over level `depth`'s state when it is built and no statement runs there (`None` otherwise).
 pub(crate) fn at_idle<R>(depth: usize, f: impl FnOnce(&mut Backend) -> R) -> Option<R> {
-    let run = |level: &Level| level.try_borrow_mut().ok().and_then(|mut g| g.as_mut().map(|b| f(b)));
+    let run = |level: &Level| {
+        level
+            .try_borrow_mut()
+            .ok()
+            .and_then(|mut g| g.as_mut().map(|b| f(b)))
+    };
     match deep_at(depth) {
         Some(d) => run(&d.level),
         None => LEVELS.with(|levels| levels.get(depth).and_then(run)),
@@ -433,7 +517,12 @@ pub(crate) fn at_idle<R>(depth: usize, f: impl FnOnce(&mut Backend) -> R) -> Opt
 }
 
 /// `retire` at one level (static or deep, D3360): `Some(a)` when the level was never built (no Node is parked there).
-fn retire_at(level: &Level, retired: &Retired, key: gravity_program::PlanKey, a: Box<crate::Admitted>) -> Option<Box<crate::Admitted>> {
+fn retire_at(
+    level: &Level,
+    retired: &Retired,
+    key: gravity_program::PlanKey,
+    a: Box<crate::Admitted>,
+) -> Option<Box<crate::Admitted>> {
     match level.try_borrow_mut() {
         Ok(mut g) => match g.as_mut() {
             Some(b) => {
@@ -547,7 +636,10 @@ pub fn teardown() {
 fn trim_deep() {
     let gone = DEEP.with(|d| {
         let mut d = d.borrow_mut();
-        let keep = d.iter().rposition(|x| x.level.try_borrow_mut().is_err() || Rc::strong_count(x) > 1).map_or(0, |i| i + 1);
+        let keep = d
+            .iter()
+            .rposition(|x| x.level.try_borrow_mut().is_err() || Rc::strong_count(x) > 1)
+            .map_or(0, |i| i + 1);
         match keep {
             0 => core::mem::take(&mut *d),
             k => d.split_off(k), // alloc: Cold
@@ -558,7 +650,9 @@ fn trim_deep() {
             // D3346: its retired admissions, after the Nodes parked under their keys (the list is ManuallyDrop)
             if let Some(b) = g.as_mut() {
                 let retired: Vec<_> = x.retired.borrow_mut().drain(..).collect(); // alloc: Cold
-                retired.into_iter().for_each(|(key, a)| b.drop_admission(key, a));
+                retired
+                    .into_iter()
+                    .for_each(|(key, a)| b.drop_admission(key, a));
             }
             **g = None;
         }

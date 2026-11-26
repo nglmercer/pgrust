@@ -34,7 +34,10 @@ impl SourceBox {
 
 pub fn box_source<S: Source + 'static>(s: S, a: ArenaRef) -> SourceBox {
     let raw = ArenaBox::into_raw(ArenaBox::new_in(s, a)) as *mut dyn Source;
-    SourceBox { src: unsafe { ArenaBox::from_raw_in(raw, a) }, calls: SiteCalls::of::<S>() }
+    SourceBox {
+        src: unsafe { ArenaBox::from_raw_in(raw, a) },
+        calls: SiteCalls::of::<S>(),
+    }
 }
 
 pub fn box_writer<W: Writer + 'static>(w: W, a: ArenaRef) -> ArenaBox<dyn Writer> {

@@ -15,7 +15,16 @@ use crate::view::const_canon;
 pub fn program(p: &Program, m: Mcx<'_>) -> Option<Program> {
     let hit = |f: &Function| {
         let c = consts(f, m);
-        f.blocks.iter().flat_map(|b| &b.insts).any(|i| i.result.is_some_and(|r| c[r.index()].is_none()) && eval(f, &c, &i.op, i.result.map_or(Type::I64, |r| f.values[r.index()])).is_some())
+        f.blocks.iter().flat_map(|b| &b.insts).any(|i| {
+            i.result.is_some_and(|r| c[r.index()].is_none())
+                && eval(
+                    f,
+                    &c,
+                    &i.op,
+                    i.result.map_or(Type::I64, |r| f.values[r.index()]),
+                )
+                .is_some()
+        })
     };
     if !p.funcs.iter().any(hit) {
         return None;
@@ -43,12 +52,16 @@ fn function(f: &mut Function, m: Mcx<'_>) {
         changed = false;
         for bi in 0..f.blocks.len() {
             for ii in 0..f.blocks[bi].insts.len() {
-                let Some(r) = f.blocks[bi].insts[ii].result else { continue };
+                let Some(r) = f.blocks[bi].insts[ii].result else {
+                    continue;
+                };
                 let ty = f.values[r.index()];
                 if c[r.index()].is_some() {
                     continue;
                 }
-                let Some(bits) = eval(f, &c, &f.blocks[bi].insts[ii].op, ty) else { continue };
+                let Some(bits) = eval(f, &c, &f.blocks[bi].insts[ii].op, ty) else {
+                    continue;
+                };
                 let bits = const_canon(ty, bits) as u64;
                 f.blocks[bi].insts[ii].op = Op::Const { ty, bits };
                 c[r.index()] = Some((ty, bits));
@@ -67,9 +80,23 @@ fn eval(_f: &Function, c: &[Option<(Type, u64)>], op: &Op, ty: Type) -> Option<u
     match *op {
         Op::IntBin { op, a, b } => k(a).zip(k(b)).and_then(|(x, y)| bin(op, ty, x.1, y.1)),
         Op::Icmp { cond, a, b } => k(a).zip(k(b)).and_then(|(x, y)| cmp(cond, x.0, x.1, y.1)),
-        Op::Select { cond, a, b } => k(cond).and_then(|s| k(if s.1 & 1 != 0 { a } else { b })).map(|x| x.1),
-        Op::Conv { op: ConvOp::Zext, a, .. } => k(a).filter(|x| x.0 == Type::Bool || x.0.is_int()).map(|(t, x)| const_canon(t, x) as u64 & mask(t)),
-        Op::Conv { op: ConvOp::Sext | ConvOp::Trunc, a, .. } => k(a).filter(|x| x.0 == Type::Bool || x.0.is_int()).map(|(t, x)| const_canon(t, x) as u64),
+        Op::Select { cond, a, b } => k(cond)
+            .and_then(|s| k(if s.1 & 1 != 0 { a } else { b }))
+            .map(|x| x.1),
+        Op::Conv {
+            op: ConvOp::Zext,
+            a,
+            ..
+        } => k(a)
+            .filter(|x| x.0 == Type::Bool || x.0.is_int())
+            .map(|(t, x)| const_canon(t, x) as u64 & mask(t)),
+        Op::Conv {
+            op: ConvOp::Sext | ConvOp::Trunc,
+            a,
+            ..
+        } => k(a)
+            .filter(|x| x.0 == Type::Bool || x.0.is_int())
+            .map(|(t, x)| const_canon(t, x) as u64),
         _ => None,
     }
 }
@@ -146,7 +173,12 @@ mod tests {
         {
             let mut b = pb.define(f);
             let x = b.params()[0];
-            let (one, hundred, zero, tenk) = (b.iconst(Type::I64, 1), b.iconst(Type::I64, 100), b.iconst(Type::I64, 0), b.iconst(Type::I64, 10000));
+            let (one, hundred, zero, tenk) = (
+                b.iconst(Type::I64, 1),
+                b.iconst(Type::I64, 100),
+                b.iconst(Type::I64, 0),
+                b.iconst(Type::I64, 10000),
+            );
             let h = b.int_bin(IntBinOp::Mul, one, hundred); // 100
             let z = b.int_bin(IntBinOp::Smulh, zero, tenk); // 0
             let lt = b.icmp(IntCond::Slt, z, h); // true
@@ -164,13 +196,76 @@ mod tests {
         let q = super::program(&p, ctx.mcx()).expect("something folds");
         let g = &q.funcs[0];
         let insts: alloc::vec::Vec<_> = g.blocks.iter().flat_map(|b| &b.insts).collect();
-        let n_const = insts.iter().filter(|i| matches!(i.op, Op::Const { .. })).count();
-        assert!(n_const > p.funcs[0].blocks.iter().flat_map(|b| &b.insts).filter(|i| matches!(i.op, Op::Const { .. })).count());
-        assert!(insts.iter().any(|i| matches!(i.op, Op::IntBin { op: IntBinOp::Sdiv, .. })), "a division stays");
-        assert_eq!(insts.iter().filter(|i| matches!(i.op, Op::IntBin { op: IntBinOp::Add, .. })).count(), 3, "live adds stay");
-        let consts: alloc::vec::Vec<i64> = insts.iter().filter_map(|i| if let Op::Const { ty, bits } = i.op { Some(super::const_canon(ty, bits)) } else { None }).collect();
-        assert!(consts.contains(&100) && consts.contains(&0), "1 x 100 and 0 x 10^4 folded: {consts:?}");
-        assert_eq!(p.funcs[0].blocks.iter().flat_map(|b| &b.insts).filter(|i| matches!(i.op, Op::IntBin { op: IntBinOp::Mul, .. })).count(), 1, "the original keeps its ops");
-        assert!(super::program(&q, ctx.mcx()).is_none(), "a folded program folds no further");
+        let n_const = insts
+            .iter()
+            .filter(|i| matches!(i.op, Op::Const { .. }))
+            .count();
+        assert!(
+            n_const
+                > p.funcs[0]
+                    .blocks
+                    .iter()
+                    .flat_map(|b| &b.insts)
+                    .filter(|i| matches!(i.op, Op::Const { .. }))
+                    .count()
+        );
+        assert!(
+            insts.iter().any(|i| matches!(
+                i.op,
+                Op::IntBin {
+                    op: IntBinOp::Sdiv,
+                    ..
+                }
+            )),
+            "a division stays"
+        );
+        assert_eq!(
+            insts
+                .iter()
+                .filter(|i| matches!(
+                    i.op,
+                    Op::IntBin {
+                        op: IntBinOp::Add,
+                        ..
+                    }
+                ))
+                .count(),
+            3,
+            "live adds stay"
+        );
+        let consts: alloc::vec::Vec<i64> = insts
+            .iter()
+            .filter_map(|i| {
+                if let Op::Const { ty, bits } = i.op {
+                    Some(super::const_canon(ty, bits))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(
+            consts.contains(&100) && consts.contains(&0),
+            "1 x 100 and 0 x 10^4 folded: {consts:?}"
+        );
+        assert_eq!(
+            p.funcs[0]
+                .blocks
+                .iter()
+                .flat_map(|b| &b.insts)
+                .filter(|i| matches!(
+                    i.op,
+                    Op::IntBin {
+                        op: IntBinOp::Mul,
+                        ..
+                    }
+                ))
+                .count(),
+            1,
+            "the original keeps its ops"
+        );
+        assert!(
+            super::program(&q, ctx.mcx()).is_none(),
+            "a folded program folds no further"
+        );
     }
 }

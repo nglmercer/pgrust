@@ -49,7 +49,9 @@ fn parse_hostport(s: &str, db: &str, user: &str) -> Result<Endpoint, String> {
         .ok_or_else(|| format!("endpoint must be host:port, got {s:?}"))?;
     Ok(Endpoint {
         host: host.to_string(),
-        port: port.parse().map_err(|e| format!("bad port {port:?}: {e}"))?,
+        port: port
+            .parse()
+            .map_err(|e| format!("bad port {port:?}: {e}"))?,
         db: db.to_string(),
         user: user.to_string(),
     })
@@ -71,7 +73,9 @@ fn parse_args() -> Result<Args, String> {
     let mut i = 0;
     let need = |i: &mut usize, argv: &[String], flag: &str| -> Result<String, String> {
         *i += 1;
-        argv.get(*i).cloned().ok_or_else(|| format!("{flag} needs a value"))
+        argv.get(*i)
+            .cloned()
+            .ok_or_else(|| format!("{flag} needs a value"))
     };
     while i < argv.len() {
         match argv[i].as_str() {
@@ -134,7 +138,17 @@ fn parse_args() -> Result<Args, String> {
     }
     let a = parse_hostport(&a.ok_or("--a required")?, &db, &user)?;
     let b = parse_hostport(&b.ok_or("--b required")?, &db, &user)?;
-    Ok(Args { a, b, scenarios, list, rand_seeds, rand_steps, findings, transcripts, tun })
+    Ok(Args {
+        a,
+        b,
+        scenarios,
+        list,
+        rand_seeds,
+        rand_steps,
+        findings,
+        transcripts,
+        tun,
+    })
 }
 
 fn json_escape(s: &str) -> String {
@@ -191,7 +205,11 @@ fn main() -> ExitCode {
     let _ = writeln!(
         out,
         "{{\"meta\":\"ssidiff\",\"a\":\"{}:{}\",\"b\":\"{}:{}\",\"scenarios\":{}}}",
-        args.a.host, args.a.port, args.b.host, args.b.port, list.len()
+        args.a.host,
+        args.a.port,
+        args.b.host,
+        args.b.port,
+        list.len()
     );
 
     let mut n_div = 0usize;
@@ -231,14 +249,8 @@ fn main() -> ExitCode {
                 // hand-verification evidence), divergence or not.
                 if let Some(dir) = &args.transcripts {
                     let _ = std::fs::create_dir_all(dir);
-                    let _ = std::fs::write(
-                        format!("{dir}/{}-A.txt", v.scenario),
-                        &v.transcript_a,
-                    );
-                    let _ = std::fs::write(
-                        format!("{dir}/{}-B.txt", v.scenario),
-                        &v.transcript_b,
-                    );
+                    let _ = std::fs::write(format!("{dir}/{}-A.txt", v.scenario), &v.transcript_a);
+                    let _ = std::fs::write(format!("{dir}/{}-B.txt", v.scenario), &v.transcript_b);
                 }
             }
             Err(e) => {

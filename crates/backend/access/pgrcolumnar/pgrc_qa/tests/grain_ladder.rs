@@ -58,8 +58,7 @@ fn widerow_fixture_seals_at_grain_1024_and_round_trips() {
     // no more default-grain fiction for non-default parts.
     let part_bytes = built.files.get("part-0.pgrc").expect("part file");
     let tail = PartTail::decode_at_eof(part_bytes).expect("tail");
-    let footer =
-        FooterFixed::decode(&part_bytes[tail.footer_off as usize..]).expect("footer");
+    let footer = FooterFixed::decode(&part_bytes[tail.footer_off as usize..]).expect("footer");
     assert_eq!(footer.granule_rows, 1_024, "SB-10 elected grain");
     assert_eq!(footer.granule_count, 2);
     let rec = &built.manifest.parts[0];
@@ -71,8 +70,7 @@ fn widerow_fixture_seals_at_grain_1024_and_round_trips() {
     );
 
     // Full decode-vs-oracle round trip through the REAL registry binding.
-    let verified =
-        verify_manifest(&built.files, &built.manifest, &built.fx).expect("round trip");
+    let verified = verify_manifest(&built.files, &built.manifest, &built.fx).expect("round trip");
     assert_eq!(verified, rows);
 }
 
@@ -86,19 +84,15 @@ fn narrow_fixture_stays_at_the_default_grain() {
         db: 5,
         relfilenumber: 9002,
         schema: vec![int8_col(1)],
-        oracle: vec![(0..rows)
-            .map(|i| Some(OracleVal::Word(i)))
-            .collect()],
+        oracle: vec![(0..rows).map(|i| Some(OracleVal::Word(i))).collect()],
         plans: Vec::new(),
         policy: PartCutPolicy::default(),
     };
     let built = build_fixture(fx);
     let part_bytes = built.files.get("part-0.pgrc").expect("part file");
     let tail = PartTail::decode_at_eof(part_bytes).expect("tail");
-    let footer =
-        FooterFixed::decode(&part_bytes[tail.footer_off as usize..]).expect("footer");
+    let footer = FooterFixed::decode(&part_bytes[tail.footer_off as usize..]).expect("footer");
     assert_eq!(footer.granule_rows, pgrc_format::geom::GRANULE_ROWS);
-    let verified =
-        verify_manifest(&built.files, &built.manifest, &built.fx).expect("round trip");
+    let verified = verify_manifest(&built.files, &built.manifest, &built.fx).expect("round trip");
     assert_eq!(verified, rows);
 }

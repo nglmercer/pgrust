@@ -71,7 +71,13 @@ pub trait StoreSource {
     /// branches to `l_eof`. A resume never re-reads the store from its first row.
     fn window(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, l_eof: Block, from: Value) -> Win;
     /// Row `j` of the window.
-    fn row<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, win: &Win, j: Value) -> StoreRow<'e>;
+    fn row<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        win: &Win,
+        j: Value,
+    ) -> StoreRow<'e>;
     /// PG's `tuplestore_rescan` through the open's handle and pointer: the next window reads from the store's first row.
     fn rewind(&self, b: &mut FunctionBuilder<'_>, env: &mut Env);
     /// D1874: `rewind`, first passing each value of a FROM call's SubPlans (plan id, datum word, NULL flag: the step
@@ -81,4 +87,6 @@ pub trait StoreSource {
 }
 
 /// The reader's maker, as store_read.rs registers it (`(KindId::SrfFunction, &StoreMaker(make))`).
-pub struct StoreMaker(pub for<'g, 'p> fn(&mut Px<'g, 'p>, RowType<'g>) -> PgBox<'g, dyn StoreSource + 'g>);
+pub struct StoreMaker(
+    pub for<'g, 'p> fn(&mut Px<'g, 'p>, RowType<'g>) -> PgBox<'g, dyn StoreSource + 'g>,
+);

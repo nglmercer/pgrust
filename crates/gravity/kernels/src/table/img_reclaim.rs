@@ -13,8 +13,14 @@
 //! Only where nothing outside the table and its pool holds an image (no spill or destage yet: a written record names
 //! its images until the spill inlines them; no text min / max or numeric side copy, whose copies a code front's
 //! records hold while a flush runs) and the lowerer named the copy slots (`T1::img_slots`).
-use gravity_abi::breaker::{img_chunk, img_data_off, img_extent, img_fill, img_mark, img_open_chunk, img_set_fill, img_unmark_all, SlotKind, T1};
-use gravity_abi::breaker::{IMG_SLOTS_KNOWN, IMG_SLOTS_MAX, IMG_SLOT_PLAIN, IMG_SLOT_TAGGED, IMG_TAG_COPY, MINCODE_NONE, T1_IMAGE_CHUNK};
+use gravity_abi::breaker::{
+    img_chunk, img_data_off, img_extent, img_fill, img_mark, img_open_chunk, img_set_fill,
+    img_unmark_all, SlotKind, T1,
+};
+use gravity_abi::breaker::{
+    IMG_SLOTS_KNOWN, IMG_SLOTS_MAX, IMG_SLOT_PLAIN, IMG_SLOT_TAGGED, IMG_TAG_COPY, MINCODE_NONE,
+    T1_IMAGE_CHUNK,
+};
 use gravity_fn::arena::{AVec, OpArena, Refused};
 
 /// The arena bytes past twice the last reclaim's kept bytes that start the next reclaim: each reclaim moves at most the
@@ -33,7 +39,9 @@ pub(crate) unsafe fn scratch_bound(t: *mut T1) -> usize {
     if mask & IMG_SLOTS_KNOWN == 0 {
         return 0;
     }
-    let copies = (0..layout.nslots().min(IMG_SLOTS_MAX)).filter(|&j| matches!(mask >> (2 * j) & 3, IMG_SLOT_PLAIN | IMG_SLOT_TAGGED)).count();
+    let copies = (0..layout.nslots().min(IMG_SLOTS_MAX))
+        .filter(|&j| matches!(mask >> (2 * j) & 3, IMG_SLOT_PLAIN | IMG_SLOT_TAGGED))
+        .count();
     16 * (*t).buffered as usize * copies
 }
 
@@ -49,11 +57,24 @@ pub(crate) unsafe fn reclaim(t: *mut T1, a: &OpArena) -> Result<bool, Refused> {
         return Ok(false);
     }
     let layout = &(*t).layout;
-    if layout.slot_kinds().iter().any(|k| matches!(k, SlotKind::MinVar | SlotKind::MaxVar | SlotKind::NumSideMin | SlotKind::NumSideMax | SlotKind::AggState)) {
+    if layout.slot_kinds().iter().any(|k| {
+        matches!(
+            k,
+            SlotKind::MinVar
+                | SlotKind::MaxVar
+                | SlotKind::NumSideMin
+                | SlotKind::NumSideMax
+                | SlotKind::AggState
+        )
+    }) {
         return Ok(false);
     }
     // the chain in bump order: (base, bytes, fill); the open chunk's fill is its cursor
-    let (mut chain, mut c, mut used) = (AVec::<(usize, usize, usize)>::new(), img_chunk(open).2, 0u64);
+    let (mut chain, mut c, mut used) = (
+        AVec::<(usize, usize, usize)>::new(),
+        img_chunk(open).2,
+        0u64,
+    );
     while c != 0 {
         let (next, size, _) = img_chunk(c);
         let fill = if c == open { *w as usize } else { img_fill(c) };
@@ -92,20 +113,33 @@ pub(crate) unsafe fn reclaim(t: *mut T1, a: &OpArena) -> Result<bool, Refused> {
                     let p = r.add(off) as *mut u64;
                     let v = p.read_unaligned();
                     let at = match tagged {
-                        true if v >= IMG_TAG_COPY && v != MINCODE_NONE => (v & !IMG_TAG_COPY) as usize,
+                        true if v >= IMG_TAG_COPY && v != MINCODE_NONE => {
+                            (v & !IMG_TAG_COPY) as usize
+                        }
                         true => continue,
                         false => v as usize,
                     };
                     let k = by_base.partition_point(|&(base, _)| base <= at);
-                    if at == 0 || k == 0 || at >= chunks[by_base[k - 1].1].0 + chunks[by_base[k - 1].1].1 {
+                    if at == 0
+                        || k == 0
+                        || at >= chunks[by_base[k - 1].1].0 + chunks[by_base[k - 1].1].1
+                    {
                         continue; // none, or another arena's image (a merged region's): not this chain's to move
                     }
                     let (base, size, fill) = chunks[by_base[k - 1].1];
                     if at < base + img_data_off(size) || at >= fill {
                         return Ok(false); // a word into the chain that names no image: nothing moved
                     }
-                    let Some((start, _)) = img_extent(base, at, fill) else { return Ok(false) };
-                    refs.push(a, ((by_base[k - 1].1 as u64) << OFF_BITS | (start - base) as u64, p))?;
+                    let Some((start, _)) = img_extent(base, at, fill) else {
+                        return Ok(false);
+                    };
+                    refs.push(
+                        a,
+                        (
+                            (by_base[k - 1].1 as u64) << OFF_BITS | (start - base) as u64,
+                            p,
+                        ),
+                    )?;
                 }
             }
         }
@@ -113,19 +147,31 @@ pub(crate) unsafe fn reclaim(t: *mut T1, a: &OpArena) -> Result<bool, Refused> {
     let refs = refs.as_mut_slice(a);
     refs.sort_unstable_by_key(|r| r.0);
     // slide: an image never moves past its own place (the bump packed the same chain in the same order)
-    let (mut di, mut d, mut last, mut moved) = (0usize, chunks[0].0 + img_data_off(chunks[0].1), u64::MAX, (0usize, 0usize));
+    let (mut di, mut d, mut last, mut moved) = (
+        0usize,
+        chunks[0].0 + img_data_off(chunks[0].1),
+        u64::MAX,
+        (0usize, 0usize),
+    );
     for r in refs.iter_mut() {
         if r.0 != last {
             last = r.0;
-            let (ord, base) = ((r.0 >> OFF_BITS) as usize, chunks[(r.0 >> OFF_BITS) as usize].0);
+            let (ord, base) = (
+                (r.0 >> OFF_BITS) as usize,
+                chunks[(r.0 >> OFF_BITS) as usize].0,
+            );
             let start = base + (r.0 & ((1 << OFF_BITS) - 1)) as usize;
-            let (_, end) = img_extent(base, start, chunks[ord].2).expect("an image's start is marked");
+            let (_, end) =
+                img_extent(base, start, chunks[ord].2).expect("an image's start is marked");
             while d + (end - start) > chunks[di].0 + chunks[di].1 {
                 img_set_fill(chunks[di].0, d);
                 di += 1;
                 d = chunks[di].0 + img_data_off(chunks[di].1);
             }
-            debug_assert!(di < ord || di == ord && d <= start, "D3312: an image slid past its place");
+            debug_assert!(
+                di < ord || di == ord && d <= start,
+                "D3312: an image slid past its place"
+            );
             core::ptr::copy(start as *const u8, d as *mut u8, end - start);
             moved = (start, d);
             d += end - start;
@@ -148,7 +194,11 @@ pub(crate) unsafe fn reclaim(t: *mut T1, a: &OpArena) -> Result<bool, Refused> {
     img_set_fill(chunks[di].0, d);
     let (base, size, _) = chunks[di];
     (*w, *w.add(1), *w.add(2)) = (d as u64, (base + size) as u64, size as u64);
-    *kept = chunks[..di].iter().map(|c| (img_fill(c.0) - c.0 - img_data_off(c.1)) as u64).sum::<u64>() + (d - base - img_data_off(size)) as u64;
+    *kept = chunks[..di]
+        .iter()
+        .map(|c| (img_fill(c.0) - c.0 - img_data_off(c.1)) as u64)
+        .sum::<u64>()
+        + (d - base - img_data_off(size)) as u64;
     T1::dedupe_clear(t);
     Ok(true)
 }

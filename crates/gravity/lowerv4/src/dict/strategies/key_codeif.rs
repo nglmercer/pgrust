@@ -17,29 +17,40 @@
 use mcx::{GrowIn, Mcx, PgVec};
 use types_nodes::Node;
 
-use crate::table::keyimg::{CodeIfImpl, CodeIfMech};
 use crate::ops::Table;
+use crate::table::keyimg::{CodeIfImpl, CodeIfMech};
 
 crate::strategies! {
     /// KEY_CODE_IF: key image in SSA over codes.
     KEY_CODEIF = 75, "key.codeif", CodeCaseKey;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(KEY_CODEIF, &CodeIfImpl(&CODEIF))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(KEY_CODEIF, &CodeIfImpl(&CODEIF))],
+    ..crate::ops::NONE
+};
 
 struct CodeIf;
 static CODEIF: CodeIf = CodeIf;
 
 impl CodeIfMech for CodeIf {
     fn form<'a>(&self, e: Node<'a>) -> Option<[Node<'a>; 3]> {
-        let c = e.as_case_expr().filter(|c| c.arg.is_none() && c.args.len() > 0 && gravity_fn::typesem::text_payload(c.casetype))?;
+        let c = e.as_case_expr().filter(|c| {
+            c.arg.is_none() && c.args.len() > 0 && gravity_fn::typesem::text_payload(c.casetype)
+        })?;
         let (mut col, mut k, mut null) = (None::<Node<'a>>, None::<Node<'a>>, None::<Node<'a>>);
         // KEYED-31 / BG-07: every arm (each WHEN's result, the ELSE) is the one code column or a constant of the CASE's type,
         // any number of non-NULL constants (one cached Fp128 each, percode_guard), the column at least once
         for a in arm_list(c) {
             let a = a?;
-            if let Some(v) = a.as_var().filter(|v| v.varlevelsup == 0 && v.vartype == c.casetype) {
-                if col.and_then(|x| x.as_var()).is_some_and(|x| (x.varno, x.varattno) != (v.varno, v.varattno)) {
+            if let Some(v) = a
+                .as_var()
+                .filter(|v| v.varlevelsup == 0 && v.vartype == c.casetype)
+            {
+                if col
+                    .and_then(|x| x.as_var())
+                    .is_some_and(|x| (x.varno, x.varattno) != (v.varno, v.varattno))
+                {
                     return None;
                 }
                 col = col.or(Some(a));
@@ -63,14 +74,24 @@ impl CodeIfMech for CodeIf {
 /// (no CASE operand; no ELSE is a NULL constant ELSE). Its image is the chosen arm's constant Fp128, one cached row per
 /// constant (dict/strategies/key_consts.rs), with no column at all.
 pub(crate) fn consts<'a>(e: Node<'a>) -> Option<&'a types_nodes::primnodes::CaseExpr<'a>> {
-    let c = e.as_case_expr().filter(|c| c.arg.is_none() && c.args.len() > 0 && gravity_fn::typesem::text_payload(c.casetype))?;
-    let k = |a: Option<Node<'a>>| a.and_then(|a| a.as_const()).filter(|x| x.consttype == c.casetype);
-    (arm_list(c).all(|a| k(a).is_some()) && arm_list(c).any(|a| k(a).is_some_and(|x| !x.constisnull))).then_some(c)
+    let c = e.as_case_expr().filter(|c| {
+        c.arg.is_none() && c.args.len() > 0 && gravity_fn::typesem::text_payload(c.casetype)
+    })?;
+    let k = |a: Option<Node<'a>>| {
+        a.and_then(|a| a.as_const())
+            .filter(|x| x.consttype == c.casetype)
+    };
+    (arm_list(c).all(|a| k(a).is_some())
+        && arm_list(c).any(|a| k(a).is_some_and(|x| !x.constisnull)))
+    .then_some(c)
 }
 
 /// The arms of `c` in PostgreSQL's order: each WHEN's result, then the ELSE (a NULL constant when there is none); `None`
 /// for a WHEN with no condition.
-pub(crate) fn arms<'g, 'a>(c: &types_nodes::primnodes::CaseExpr<'a>, mcx: Mcx<'g>) -> Option<PgVec<'g, Node<'a>>> {
+pub(crate) fn arms<'g, 'a>(
+    c: &types_nodes::primnodes::CaseExpr<'a>,
+    mcx: Mcx<'g>,
+) -> Option<PgVec<'g, Node<'a>>> {
     let mut out: PgVec<'g, Node<'a>> = mcx::reserved_in(c.args.len() + 1, mcx);
     for a in arm_list(c) {
         out.push_in(a?);
@@ -79,6 +100,15 @@ pub(crate) fn arms<'g, 'a>(c: &types_nodes::primnodes::CaseExpr<'a>, mcx: Mcx<'g
 }
 
 /// `arms` read in place: each item `None` where `arms` is.
-fn arm_list<'c, 'a>(c: &'c types_nodes::primnodes::CaseExpr<'a>) -> impl Iterator<Item = Option<Node<'a>>> + 'c {
-    c.args.iter().map(|w| w.as_case_when().filter(|w| w.expr.is_some()).and_then(|w| w.result)).chain(core::iter::once(c.defresult))
+fn arm_list<'c, 'a>(
+    c: &'c types_nodes::primnodes::CaseExpr<'a>,
+) -> impl Iterator<Item = Option<Node<'a>>> + 'c {
+    c.args
+        .iter()
+        .map(|w| {
+            w.as_case_when()
+                .filter(|w| w.expr.is_some())
+                .and_then(|w| w.result)
+        })
+        .chain(core::iter::once(c.defresult))
 }

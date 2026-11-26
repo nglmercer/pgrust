@@ -170,7 +170,12 @@ macro_rules! string_var {
     };
 }
 
-bool_var!(B_AllowAlterSystem, AllowAlterSystem, set_AllowAlterSystem, true);
+bool_var!(
+    B_AllowAlterSystem,
+    AllowAlterSystem,
+    set_AllowAlterSystem,
+    true
+);
 
 bool_var!(B_assert_enabled, assert_enabled, set_assert_enabled, false);
 
@@ -194,14 +199,39 @@ bool_var!(B_pgrust_runtime, pgrust_runtime, set_pgrust_runtime, true);
 // from night/mem-defaults into the config train). PGC_POSTMASTER, default OFF
 // so the byte-identical SHOW ALL / pg_settings conformance suite is unaffected
 // unless the operator opts in. Seeded by the PGRUST_MEM_AUTOTUNE boot env var.
-bool_var!(B_pgrust_mem_autotune, pgrust_mem_autotune, set_pgrust_mem_autotune, false);
+bool_var!(
+    B_pgrust_mem_autotune,
+    pgrust_mem_autotune,
+    set_pgrust_mem_autotune,
+    false
+);
 
 // The resizable buffer pool: max and THP size the startup reservation
 // (PGC_POSTMASTER); relocate and drain_rate are read by each resize call.
-int_var!(I_pgrust_buffer_pool_max, pgrust_buffer_pool_max, set_pgrust_buffer_pool_max, 0);
-bool_var!(B_pgrust_buffer_pool_thp, pgrust_buffer_pool_thp, set_pgrust_buffer_pool_thp, false);
-bool_var!(B_pgrust_buffer_pool_relocate, pgrust_buffer_pool_relocate, set_pgrust_buffer_pool_relocate, true);
-int_var!(I_pgrust_buffer_pool_drain_rate, pgrust_buffer_pool_drain_rate, set_pgrust_buffer_pool_drain_rate, 50000);
+int_var!(
+    I_pgrust_buffer_pool_max,
+    pgrust_buffer_pool_max,
+    set_pgrust_buffer_pool_max,
+    0
+);
+bool_var!(
+    B_pgrust_buffer_pool_thp,
+    pgrust_buffer_pool_thp,
+    set_pgrust_buffer_pool_thp,
+    false
+);
+bool_var!(
+    B_pgrust_buffer_pool_relocate,
+    pgrust_buffer_pool_relocate,
+    set_pgrust_buffer_pool_relocate,
+    true
+);
+int_var!(
+    I_pgrust_buffer_pool_drain_rate,
+    pgrust_buffer_pool_drain_rate,
+    set_pgrust_buffer_pool_drain_rate,
+    50000
+);
 
 // pgrust.runtime_vacuum_pool (pgrust-only, regression flip): parallel VACUUM's
 // driver rides the morsel-pool workers (M4.1 ⊕ Q2, PGPROC-leasing bound gate
@@ -463,15 +493,50 @@ bool_var!(
 // pgrust-only (lane membroker, memory step 5): Gravity's one memory budget. Process-global cells, read off backend
 // threads (the memory watchdog's sampler; Gravity's budget at its arming). target / floors / reserve in MB (0 = derived),
 // the broker an enum index (consts MEMORY_BROKER_*), the interval in seconds.
-int_var!(I_pgrust_memory_target, pgrust_memory_target, set_pgrust_memory_target, 0);
-int_var!(I_pgrust_memory_broker, pgrust_memory_broker, set_pgrust_memory_broker, crate::consts::MEMORY_BROKER_ADVISE);
-string_var!(CELL_pgrust_memory_broker_actuators, pgrust_memory_broker_actuators, set_pgrust_memory_broker_actuators, Some("all"));
-int_var!(I_pgrust_memory_broker_interval, pgrust_memory_broker_interval, set_pgrust_memory_broker_interval, 30);
-int_var!(I_pgrust_memory_page_cache_floor_mb, pgrust_memory_page_cache_floor_mb, set_pgrust_memory_page_cache_floor_mb, 0);
-int_var!(I_pgrust_memory_reserve_mb, pgrust_memory_reserve_mb, set_pgrust_memory_reserve_mb, 0);
+int_var!(
+    I_pgrust_memory_target,
+    pgrust_memory_target,
+    set_pgrust_memory_target,
+    0
+);
+int_var!(
+    I_pgrust_memory_broker,
+    pgrust_memory_broker,
+    set_pgrust_memory_broker,
+    crate::consts::MEMORY_BROKER_ADVISE
+);
+string_var!(
+    CELL_pgrust_memory_broker_actuators,
+    pgrust_memory_broker_actuators,
+    set_pgrust_memory_broker_actuators,
+    Some("all")
+);
+int_var!(
+    I_pgrust_memory_broker_interval,
+    pgrust_memory_broker_interval,
+    set_pgrust_memory_broker_interval,
+    30
+);
+int_var!(
+    I_pgrust_memory_page_cache_floor_mb,
+    pgrust_memory_page_cache_floor_mb,
+    set_pgrust_memory_page_cache_floor_mb,
+    0
+);
+int_var!(
+    I_pgrust_memory_reserve_mb,
+    pgrust_memory_reserve_mb,
+    set_pgrust_memory_reserve_mb,
+    0
+);
 // the pgrc part cache's server-wide budget in MB (-1 = derived, `cost::part_cache_cap`): read at every Gravity statement
 // start, one value for every session (a session SET is refused, PGC_SIGHUP)
-int_var!(I_pgrust_pgrc_part_cache_mb, pgrust_pgrc_part_cache_mb, set_pgrust_pgrc_part_cache_mb, -1);
+int_var!(
+    I_pgrust_pgrc_part_cache_mb,
+    pgrust_pgrc_part_cache_mb,
+    set_pgrust_pgrc_part_cache_mb,
+    -1
+);
 // pgrust-only (docs/design/test-views.md D1): the ephemeral-database
 // janitor. Both are process-global cells per this file's header law —
 // prefix is PGC_POSTMASTER, grace PGC_SIGHUP (the janitor thread runs the
@@ -542,7 +607,12 @@ bool_var!(
 );
 
 int_var!(I_huge_page_size, huge_page_size, set_huge_page_size, 0);
-int_var!(I_max_function_args, max_function_args, set_max_function_args, 100); // FUNC_MAX_ARGS
+int_var!(
+    I_max_function_args,
+    max_function_args,
+    set_max_function_args,
+    100
+); // FUNC_MAX_ARGS
 int_var!(I_max_index_keys, max_index_keys, set_max_index_keys, 32); // INDEX_MAX_KEYS
 int_var!(
     I_max_identifier_length,
@@ -571,7 +641,12 @@ int_var!(
     set_shared_memory_size_in_huge_pages,
     -1
 );
-int_var!(I_num_os_semaphores, num_os_semaphores, set_num_os_semaphores, 0);
+int_var!(
+    I_num_os_semaphores,
+    num_os_semaphores,
+    set_num_os_semaphores,
+    0
+);
 
 int_var!(
     I_SuperuserReservedConnections,
@@ -596,22 +671,92 @@ string_var!(
 );
 // jwt_validator.* / oauth_validator.* (pgrust-only): the in-tree OAuth
 // validators' configuration (crates/backend/libpq/oauth_validators).
-string_var!(CELL_jwt_validator_jwks_uri, jwt_validator_jwks_uri, set_jwt_validator_jwks_uri, Some(""));
-string_var!(CELL_jwt_validator_audience, jwt_validator_audience, set_jwt_validator_audience, Some(""));
-string_var!(CELL_jwt_validator_identity_claim, jwt_validator_identity_claim, set_jwt_validator_identity_claim, Some("sub"));
-string_var!(CELL_jwt_validator_introspection_uri, jwt_validator_introspection_uri, set_jwt_validator_introspection_uri, Some(""));
-string_var!(CELL_jwt_validator_introspection_client_id, jwt_validator_introspection_client_id, set_jwt_validator_introspection_client_id, Some(""));
-string_var!(CELL_jwt_validator_introspection_client_secret, jwt_validator_introspection_client_secret, set_jwt_validator_introspection_client_secret, Some(""));
-string_var!(CELL_jwt_validator_ca_file, jwt_validator_ca_file, set_jwt_validator_ca_file, Some(""));
-bool_var!(B_jwt_validator_require_scopes, jwt_validator_require_scopes, set_jwt_validator_require_scopes, true);
-bool_var!(B_jwt_validator_allow_insecure_http, jwt_validator_allow_insecure_http, set_jwt_validator_allow_insecure_http, false);
-int_var!(I_jwt_validator_clock_skew, jwt_validator_clock_skew, set_jwt_validator_clock_skew, 60);
-int_var!(I_jwt_validator_jwks_cache_ttl, jwt_validator_jwks_cache_ttl, set_jwt_validator_jwks_cache_ttl, 300);
-int_var!(I_jwt_validator_http_timeout, jwt_validator_http_timeout, set_jwt_validator_http_timeout, 10);
+string_var!(
+    CELL_jwt_validator_jwks_uri,
+    jwt_validator_jwks_uri,
+    set_jwt_validator_jwks_uri,
+    Some("")
+);
+string_var!(
+    CELL_jwt_validator_audience,
+    jwt_validator_audience,
+    set_jwt_validator_audience,
+    Some("")
+);
+string_var!(
+    CELL_jwt_validator_identity_claim,
+    jwt_validator_identity_claim,
+    set_jwt_validator_identity_claim,
+    Some("sub")
+);
+string_var!(
+    CELL_jwt_validator_introspection_uri,
+    jwt_validator_introspection_uri,
+    set_jwt_validator_introspection_uri,
+    Some("")
+);
+string_var!(
+    CELL_jwt_validator_introspection_client_id,
+    jwt_validator_introspection_client_id,
+    set_jwt_validator_introspection_client_id,
+    Some("")
+);
+string_var!(
+    CELL_jwt_validator_introspection_client_secret,
+    jwt_validator_introspection_client_secret,
+    set_jwt_validator_introspection_client_secret,
+    Some("")
+);
+string_var!(
+    CELL_jwt_validator_ca_file,
+    jwt_validator_ca_file,
+    set_jwt_validator_ca_file,
+    Some("")
+);
+bool_var!(
+    B_jwt_validator_require_scopes,
+    jwt_validator_require_scopes,
+    set_jwt_validator_require_scopes,
+    true
+);
+bool_var!(
+    B_jwt_validator_allow_insecure_http,
+    jwt_validator_allow_insecure_http,
+    set_jwt_validator_allow_insecure_http,
+    false
+);
+int_var!(
+    I_jwt_validator_clock_skew,
+    jwt_validator_clock_skew,
+    set_jwt_validator_clock_skew,
+    60
+);
+int_var!(
+    I_jwt_validator_jwks_cache_ttl,
+    jwt_validator_jwks_cache_ttl,
+    set_jwt_validator_jwks_cache_ttl,
+    300
+);
+int_var!(
+    I_jwt_validator_http_timeout,
+    jwt_validator_http_timeout,
+    set_jwt_validator_http_timeout,
+    10
+);
 #[cfg(feature = "oauth-test-validator")]
-string_var!(CELL_oauth_validator_authn_id, oauth_validator_authn_id, set_oauth_validator_authn_id, None);
+string_var!(
+    CELL_oauth_validator_authn_id,
+    oauth_validator_authn_id,
+    set_oauth_validator_authn_id,
+    None
+);
 #[cfg(feature = "oauth-test-validator")]
-bool_var!(B_oauth_validator_authorize_tokens, oauth_validator_authorize_tokens, set_oauth_validator_authorize_tokens, true);
+bool_var!(
+    B_oauth_validator_authorize_tokens,
+    oauth_validator_authorize_tokens,
+    set_oauth_validator_authorize_tokens,
+    true
+);
 bool_var!(
     B_restart_after_crash,
     restart_after_crash,
@@ -660,8 +805,8 @@ string_var!(
 );
 
 int_var!(I_huge_pages, huge_pages, set_huge_pages, 2); // HUGE_PAGES_TRY
-// shared_memory_type (guc_tables.c): read by PGSharedMemoryCreate's huge_pages
-// interlock (sysv_shmem.c:730); the thread model has no other consumer.
+                                                       // shared_memory_type (guc_tables.c): read by PGSharedMemoryCreate's huge_pages
+                                                       // interlock (sysv_shmem.c:730); the thread model has no other consumer.
 int_var!(
     I_shared_memory_type,
     shared_memory_type,
@@ -690,20 +835,23 @@ pub fn pgrust_allocator() -> Option<String> {
 }
 pub fn set_pgrust_allocator(_: Option<String>) {}
 
- // COMPUTE_QUERY_ID_AUTO
+// COMPUTE_QUERY_ID_AUTO
 
 string_var!(CELL_event_source, event_source, set_event_source, None);
-session_string_var!(CELL_client_encoding_string,
+session_string_var!(
+    CELL_client_encoding_string,
     client_encoding_string,
     set_client_encoding_string,
     Some("SQL_ASCII")
 );
-session_string_var!(CELL_datestyle_string,
+session_string_var!(
+    CELL_datestyle_string,
     datestyle_string,
     set_datestyle_string,
     Some("ISO, MDY")
 );
-session_string_var!(CELL_server_encoding_string,
+session_string_var!(
+    CELL_server_encoding_string,
     server_encoding_string,
     set_server_encoding_string,
     Some("SQL_ASCII")
@@ -714,17 +862,15 @@ string_var!(
     set_server_version_string,
     Some(crate::consts::PG_COMPAT_VERSION) // PG_VERSION
 );
-session_string_var!(CELL_role_string,
-    role_string,
-    set_role_string,
-    Some("none")
-);
-session_string_var!(CELL_pgrust_gravity_dump_dir,
+session_string_var!(CELL_role_string, role_string, set_role_string, Some("none"));
+session_string_var!(
+    CELL_pgrust_gravity_dump_dir,
     pgrust_gravity_dump_dir,
     set_pgrust_gravity_dump_dir,
     Some("")
 );
-session_string_var!(CELL_session_authorization_string,
+session_string_var!(
+    CELL_session_authorization_string,
     session_authorization_string,
     set_session_authorization_string,
     None
@@ -735,7 +881,8 @@ string_var!(
     set_syslog_ident_str,
     Some("postgres")
 );
-session_string_var!(CELL_timezone_string,
+session_string_var!(
+    CELL_timezone_string,
     timezone_string,
     set_timezone_string,
     Some("GMT")
@@ -746,7 +893,8 @@ string_var!(
     set_log_timezone_string,
     Some("GMT")
 );
-session_string_var!(CELL_timezone_abbreviations_string,
+session_string_var!(
+    CELL_timezone_abbreviations_string,
     timezone_abbreviations_string,
     set_timezone_abbreviations_string,
     None
@@ -757,7 +905,12 @@ string_var!(
     set_data_directory,
     None
 );
-string_var!(CELL_ConfigFileName, ConfigFileName, set_ConfigFileName, None);
+string_var!(
+    CELL_ConfigFileName,
+    ConfigFileName,
+    set_ConfigFileName,
+    None
+);
 string_var!(CELL_HbaFileName, HbaFileName, set_HbaFileName, None);
 string_var!(CELL_IdentFileName, IdentFileName, set_IdentFileName, None);
 string_var!(
@@ -766,19 +919,22 @@ string_var!(
     set_external_pid_file,
     None
 );
-session_string_var!(CELL_application_name,
+session_string_var!(
+    CELL_application_name,
     application_name,
     set_application_name,
     Some("")
 );
-session_string_var!(CELL_backtrace_functions,
+session_string_var!(
+    CELL_backtrace_functions,
     backtrace_functions,
     set_backtrace_functions,
     Some("")
 );
 // upstream 2a29b607dbbb (18.6): Add an output_plugin_libraries GUC to bless trusted output plugins
 // C: char *output_plugin_libraries_string (logical.c). PGC_SUSET.
-session_string_var!(CELL_output_plugin_libraries_string,
+session_string_var!(
+    CELL_output_plugin_libraries_string,
     output_plugin_libraries_string,
     set_output_plugin_libraries_string,
     Some("pgoutput, test_decoding")
@@ -843,8 +999,18 @@ string_var!(
     set_recoveryEndCommand,
     Some("")
 );
-string_var!(CELL_PrimaryConnInfo, PrimaryConnInfo, set_PrimaryConnInfo, Some(""));
-string_var!(CELL_PrimarySlotName, PrimarySlotName, set_PrimarySlotName, Some(""));
+string_var!(
+    CELL_PrimaryConnInfo,
+    PrimaryConnInfo,
+    set_PrimaryConnInfo,
+    Some("")
+);
+string_var!(
+    CELL_PrimarySlotName,
+    PrimarySlotName,
+    set_PrimarySlotName,
+    Some("")
+);
 bool_var!(
     B_recoveryTargetInclusive,
     recoveryTargetInclusive,
@@ -915,7 +1081,12 @@ int_var!(
     set_ssl_max_protocol_version,
     crate::consts::PG_TLS_ANY
 );
-string_var!(CELL_ssl_library, ssl_library, set_ssl_library, Some("OpenSSL"));
+string_var!(
+    CELL_ssl_library,
+    ssl_library,
+    set_ssl_library,
+    Some("OpenSSL")
+);
 string_var!(
     CELL_ssl_cert_file,
     ssl_cert_file,
@@ -974,20 +1145,105 @@ pub extern "C" fn pgrust_guc_tls_probe() -> i32 {
 
 // pgrust-only: the instance aux process. Process-global cells: its listener
 // threads read them without a GUC store of their own.
-bool_var!(B_pgrust_instance_aux, pgrust_instance_aux, set_pgrust_instance_aux, false);
-int_var!(I_pgrust_instance_aux_ready_commit_age, pgrust_instance_aux_ready_commit_age, set_pgrust_instance_aux_ready_commit_age, 5000);
-int_var!(I_pgrust_instance_aux_ready_lag, pgrust_instance_aux_ready_lag, set_pgrust_instance_aux_ready_lag, 10000);
-int_var!(I_pgrust_instance_aux_startup_stall, pgrust_instance_aux_startup_stall, set_pgrust_instance_aux_startup_stall, 60000);
-int_var!(I_pgrust_instance_aux_liveness_interval, pgrust_instance_aux_liveness_interval, set_pgrust_instance_aux_liveness_interval, 1000);
-int_var!(I_pgrust_instance_aux_wedge_timeout, pgrust_instance_aux_wedge_timeout, set_pgrust_instance_aux_wedge_timeout, 10000);
-string_var!(CELL_pgrust_instance_aux_listen, pgrust_instance_aux_listen, set_pgrust_instance_aux_listen, Some(""));
-string_var!(CELL_pgrust_instance_aux_socket, pgrust_instance_aux_socket, set_pgrust_instance_aux_socket, Some(""));
-string_var!(CELL_pgrust_instance_aux_cert_file, pgrust_instance_aux_cert_file, set_pgrust_instance_aux_cert_file, Some(""));
-string_var!(CELL_pgrust_instance_aux_key_file, pgrust_instance_aux_key_file, set_pgrust_instance_aux_key_file, Some(""));
-string_var!(CELL_pgrust_instance_aux_ca_file, pgrust_instance_aux_ca_file, set_pgrust_instance_aux_ca_file, Some(""));
-string_var!(CELL_pgrust_instance_aux_admin_identities, pgrust_instance_aux_admin_identities, set_pgrust_instance_aux_admin_identities, Some(""));
-string_var!(CELL_pgrust_instance_aux_cluster, pgrust_instance_aux_cluster, set_pgrust_instance_aux_cluster, Some(""));
-string_var!(CELL_pgrust_instance_aux_instance, pgrust_instance_aux_instance, set_pgrust_instance_aux_instance, Some(""));
-string_var!(CELL_pgrust_instance_aux_incarnation, pgrust_instance_aux_incarnation, set_pgrust_instance_aux_incarnation, Some(""));
-string_var!(CELL_pgrust_instance_aux_managed_conf, pgrust_instance_aux_managed_conf, set_pgrust_instance_aux_managed_conf, Some("pgrust.managed.conf"));
-string_var!(CELL_pgrust_instance_aux_state_file, pgrust_instance_aux_state_file, set_pgrust_instance_aux_state_file, Some("pgrust_instance_aux.state"));
+bool_var!(
+    B_pgrust_instance_aux,
+    pgrust_instance_aux,
+    set_pgrust_instance_aux,
+    false
+);
+int_var!(
+    I_pgrust_instance_aux_ready_commit_age,
+    pgrust_instance_aux_ready_commit_age,
+    set_pgrust_instance_aux_ready_commit_age,
+    5000
+);
+int_var!(
+    I_pgrust_instance_aux_ready_lag,
+    pgrust_instance_aux_ready_lag,
+    set_pgrust_instance_aux_ready_lag,
+    10000
+);
+int_var!(
+    I_pgrust_instance_aux_startup_stall,
+    pgrust_instance_aux_startup_stall,
+    set_pgrust_instance_aux_startup_stall,
+    60000
+);
+int_var!(
+    I_pgrust_instance_aux_liveness_interval,
+    pgrust_instance_aux_liveness_interval,
+    set_pgrust_instance_aux_liveness_interval,
+    1000
+);
+int_var!(
+    I_pgrust_instance_aux_wedge_timeout,
+    pgrust_instance_aux_wedge_timeout,
+    set_pgrust_instance_aux_wedge_timeout,
+    10000
+);
+string_var!(
+    CELL_pgrust_instance_aux_listen,
+    pgrust_instance_aux_listen,
+    set_pgrust_instance_aux_listen,
+    Some("")
+);
+string_var!(
+    CELL_pgrust_instance_aux_socket,
+    pgrust_instance_aux_socket,
+    set_pgrust_instance_aux_socket,
+    Some("")
+);
+string_var!(
+    CELL_pgrust_instance_aux_cert_file,
+    pgrust_instance_aux_cert_file,
+    set_pgrust_instance_aux_cert_file,
+    Some("")
+);
+string_var!(
+    CELL_pgrust_instance_aux_key_file,
+    pgrust_instance_aux_key_file,
+    set_pgrust_instance_aux_key_file,
+    Some("")
+);
+string_var!(
+    CELL_pgrust_instance_aux_ca_file,
+    pgrust_instance_aux_ca_file,
+    set_pgrust_instance_aux_ca_file,
+    Some("")
+);
+string_var!(
+    CELL_pgrust_instance_aux_admin_identities,
+    pgrust_instance_aux_admin_identities,
+    set_pgrust_instance_aux_admin_identities,
+    Some("")
+);
+string_var!(
+    CELL_pgrust_instance_aux_cluster,
+    pgrust_instance_aux_cluster,
+    set_pgrust_instance_aux_cluster,
+    Some("")
+);
+string_var!(
+    CELL_pgrust_instance_aux_instance,
+    pgrust_instance_aux_instance,
+    set_pgrust_instance_aux_instance,
+    Some("")
+);
+string_var!(
+    CELL_pgrust_instance_aux_incarnation,
+    pgrust_instance_aux_incarnation,
+    set_pgrust_instance_aux_incarnation,
+    Some("")
+);
+string_var!(
+    CELL_pgrust_instance_aux_managed_conf,
+    pgrust_instance_aux_managed_conf,
+    set_pgrust_instance_aux_managed_conf,
+    Some("pgrust.managed.conf")
+);
+string_var!(
+    CELL_pgrust_instance_aux_state_file,
+    pgrust_instance_aux_state_file,
+    set_pgrust_instance_aux_state_file,
+    Some("pgrust_instance_aux.state")
+);

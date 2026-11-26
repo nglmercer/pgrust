@@ -15,20 +15,40 @@ use crate::frame::env::Env;
 use crate::frame::px::{ExId, Px};
 use crate::frame::row::RowVals;
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { kinds: &[(KindId::FoldFilter, &FoldFilter)], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    kinds: &[(KindId::FoldFilter, &FoldFilter)],
+    ..crate::ops::NONE
+};
 
 /// The kind's registration value (the ends fold through this file's helpers).
 pub(crate) struct FoldFilter;
 
 /// `a`'s FILTER compiled over the rows reaching step `j` of pipeline `k` (the aggregate's input row), if it has one.
-pub(crate) fn compile<'p>(px: &mut Px<'_, 'p>, k: usize, j: usize, a: &AggDecl<'p>, node: i32) -> Option<ExId> {
-    a.filter.map(|f| crate::step::expr::compile_at(px, k, j, f, None, node))
+pub(crate) fn compile<'p>(
+    px: &mut Px<'_, 'p>,
+    k: usize,
+    j: usize,
+    a: &AggDecl<'p>,
+    node: i32,
+) -> Option<ExId> {
+    a.filter
+        .map(|f| crate::step::expr::compile_at(px, k, j, f, None, node))
 }
 
 /// `step` over the carry words `accs` when the row passes `filter` (always without one): the predicate's NULL is false,
 /// its error raises through the row; on a failing row the words pass on unchanged (joined by block parameters).
-pub(crate) fn step_if(b: &mut FunctionBuilder<'_>, env: &mut Env, node: i32, row: &RowVals, filter: Option<ExId>, accs: &mut [Value], step: impl FnOnce(&mut FunctionBuilder<'_>, &mut Env, &mut [Value])) {
-    let Some(ex) = filter else { return step(b, env, accs) };
+pub(crate) fn step_if(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    node: i32,
+    row: &RowVals,
+    filter: Option<ExId>,
+    accs: &mut [Value],
+    step: impl FnOnce(&mut FunctionBuilder<'_>, &mut Env, &mut [Value]),
+) {
+    let Some(ex) = filter else {
+        return step(b, env, accs);
+    };
     let pass = crate::step::expr::pred(b, env, node, row, ex);
     let types: PgVec<'_, _> = accs.iter().map(|&v| b.value_type(v)).collect_in(env.mcx);
     let (l_on, l_join) = (b.create_block(&[]), b.create_block(&types[..]));
@@ -47,7 +67,13 @@ pub(crate) fn step_if(b: &mut FunctionBuilder<'_>, env: &mut Env, node: i32, row
 /// D3233 (road case.select): `fold` into `acc` only where `pass` holds (num_case.rs `select`: a CASE aggregate's rows that
 /// take a non-NULL arm); elsewhere a register state passes on unchanged (joined by block parameters) and a slot state is
 /// left as it is. The row's memo is set aside inside, as in `step_if`.
-pub(crate) fn acc_when(b: &mut FunctionBuilder<'_>, env: &mut Env, pass: Value, acc: Acc<'_>, fold: impl FnOnce(&mut FunctionBuilder<'_>, &mut Env, Acc<'_>)) {
+pub(crate) fn acc_when(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    pass: Value,
+    acc: Acc<'_>,
+    fold: impl FnOnce(&mut FunctionBuilder<'_>, &mut Env, Acc<'_>),
+) {
     match acc {
         Acc::Regs(r) => {
             let types: PgVec<'_, _> = r.iter().map(|&v| b.value_type(v)).collect_in(env.mcx);

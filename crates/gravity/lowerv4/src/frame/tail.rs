@@ -8,10 +8,10 @@ use gravity_program::protos::{Proto, ProtoKind, NO_SLOT};
 use gravity_program::{ArenaRef, Pipeline};
 use mcx::{PgBox, PgVec};
 
+use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::face::step::StepMech;
 use crate::frame::frame::rename_slot;
 use crate::frame::px::Px;
-use crate::admit::refusal::{Reason, ShapeWhy};
 
 /// A pipeline's tail and consumed slots (see the file's head).
 pub struct Tail<'g> {
@@ -30,7 +30,13 @@ impl<'g> Px<'g, '_> {
         let (ident, mcx) = (self.ident(self.making.0), self.mcx());
         match self.tails.iter_mut().find(|t| t.ident == ident) {
             Some(t) => t.consumes = consumes,
-            None => self.tails.push(Tail { ident, shape: ident, of: self.making.0, consumes, steps: PgVec::new_in(mcx) }), // alloc: Program
+            None => self.tails.push(Tail {
+                ident,
+                shape: ident,
+                of: self.making.0,
+                consumes,
+                steps: PgVec::new_in(mcx),
+            }), // alloc: Program
         }
     }
 
@@ -39,7 +45,11 @@ impl<'g> Px<'g, '_> {
     pub fn open_tail(&mut self, shape: usize, consumes: Vec<u8>) {
         self.set_consumes(consumes);
         let ident = self.ident(self.making.0);
-        if let Some(t) = self.tails.iter_mut().find(|t| t.ident == ident && t.shape == ident) {
+        if let Some(t) = self
+            .tails
+            .iter_mut()
+            .find(|t| t.ident == ident && t.shape == ident)
+        {
             t.shape = shape;
         } else {
             self.bug("two tails for one pipeline");
@@ -47,7 +57,11 @@ impl<'g> Px<'g, '_> {
     }
 
     pub fn set_tail(&mut self, ident: usize, steps: PgVec<'g, PgBox<'g, dyn StepMech + 'g>>) {
-        match self.tails.iter_mut().find(|t| t.ident == ident && t.shape != ident) {
+        match self
+            .tails
+            .iter_mut()
+            .find(|t| t.ident == ident && t.shape != ident)
+        {
             Some(t) => t.steps = steps,
             None => self.bug("a tail's steps without its open"),
         }
@@ -63,7 +77,8 @@ impl<'g> Px<'g, '_> {
     /// Whether the makers running are a tail's (`making` = its shape, its ident): its steps share their union words
     /// with the shape's own (step/limit.rs `Scope::Union`).
     pub(crate) fn tailing(&self) -> bool {
-        self.making.0 != self.making.1 && self.tails.iter().any(|t| (t.shape, t.ident) == self.making)
+        self.making.0 != self.making.1
+            && self.tails.iter().any(|t| (t.shape, t.ident) == self.making)
     }
 
     /// The index of `slot` among the slots pipeline `k`'s program descriptor consumes (a probe's `region`): the declared
@@ -78,8 +93,17 @@ impl<'g> Px<'g, '_> {
         let ps = self.gx.pipelines();
         match self.tails.iter().find(|t| t.ident == self.ident(k)) {
             Some(t) => {
-                let from = |s: u8| if t.of < ps.len() && ps[t.of].desc.consumes.contains(&s) { t.of } else { t.shape };
-                t.consumes.iter().filter(|&&s| s == slot || !self.lazy_set(from(s), s)).position(|&s| s == slot)
+                let from = |s: u8| {
+                    if t.of < ps.len() && ps[t.of].desc.consumes.contains(&s) {
+                        t.of
+                    } else {
+                        t.shape
+                    }
+                };
+                t.consumes
+                    .iter()
+                    .filter(|&&s| s == slot || !self.lazy_set(from(s), s))
+                    .position(|&s| s == slot)
             }
             None => {
                 // an embedded inner runs in its owner's call, whose descriptor lists its inners' slots (Pipes::consumed_at)
@@ -87,7 +111,12 @@ impl<'g> Px<'g, '_> {
                 while k >= ps.len() {
                     k = ps.inners()[k - ps.len()].0 .0;
                 }
-                ps[k].desc.consumes.iter().filter(|&&s| s == slot || !self.lazy_set(k, s)).position(|&s| s == slot)
+                ps[k]
+                    .desc
+                    .consumes
+                    .iter()
+                    .filter(|&&s| s == slot || !self.lazy_set(k, s))
+                    .position(|&s| s == slot)
             }
         }
     }
@@ -98,7 +127,11 @@ impl<'g> Px<'g, '_> {
             return false;
         }
         let life = self.gx.life_of(k, s).map(|l| l.0 as usize);
-        self.protos.iter().any(|p| p.kind == ProtoKind::SubHash && p.arg & SUBHASH_LAZY != 0 && Some(p.pipeline as usize) == life)
+        self.protos.iter().any(|p| {
+            p.kind == ProtoKind::SubHash
+                && p.arg & SUBHASH_LAZY != 0
+                && Some(p.pipeline as usize) == life
+        })
     }
 }
 
@@ -111,12 +144,31 @@ impl<'g> Px<'g, '_> {
 pub(crate) const SEEDED_DRAIN: &str = "join.drain's seeded form (a probe under a breaker end)";
 
 pub(crate) fn seeded_drain(node: i32) -> ! {
-    crate::refuse!(node, Reason::Shape { why: ShapeWhy(SEEDED_DRAIN) })
+    crate::refuse!(
+        node,
+        Reason::Shape {
+            why: ShapeWhy(SEEDED_DRAIN)
+        }
+    )
 }
 
-pub(crate) fn renumber_seeded(arena: ArenaRef, pipelines: &mut [Pipeline], protos: &mut [Proto], node: i32) {
-    let follows = |a: &Proto| protos.iter().find(|f| f.kind == ProtoKind::Follows && f.peer == a.pipeline).map(|f| f.pipeline as usize);
-    let seeded: Vec<(usize, usize, u8)> = protos.iter().filter(|a| a.kind == ProtoKind::Arms).filter_map(|a| Some((a.pipeline as usize, follows(a)?, a.slot))).collect(); // alloc: Program
+pub(crate) fn renumber_seeded(
+    arena: ArenaRef,
+    pipelines: &mut [Pipeline],
+    protos: &mut [Proto],
+    node: i32,
+) {
+    let follows = |a: &Proto| {
+        protos
+            .iter()
+            .find(|f| f.kind == ProtoKind::Follows && f.peer == a.pipeline)
+            .map(|f| f.pipeline as usize)
+    };
+    let seeded: Vec<(usize, usize, u8)> = protos
+        .iter()
+        .filter(|a| a.kind == ProtoKind::Arms)
+        .filter_map(|a| Some((a.pipeline as usize, follows(a)?, a.slot)))
+        .collect(); // alloc: Program
     for (k, q, s) in seeded {
         if q >= pipelines.len() {
             continue;
@@ -127,9 +179,20 @@ pub(crate) fn renumber_seeded(arena: ArenaRef, pipelines: &mut [Pipeline], proto
         let kind = pipelines[q].breaker().map(|b| b.kind);
         let mut x = k + 1;
         while x < q {
-            if pipelines[x].produces() == Some(s) && pipelines[x].breaker().map(|b| b.kind) != kind {
-                let Some(to) = (0..NO_SLOT).find(|&t| !pipelines.iter().any(|p| p.produces() == Some(t) || p.consumes.contains(&t))) else {
-                    crate::refuse!(node, Reason::Width { needed: NO_SLOT as u32 + 1, have: NO_SLOT as u32 })
+            if pipelines[x].produces() == Some(s) && pipelines[x].breaker().map(|b| b.kind) != kind
+            {
+                let Some(to) = (0..NO_SLOT).find(|&t| {
+                    !pipelines
+                        .iter()
+                        .any(|p| p.produces() == Some(t) || p.consumes.contains(&t))
+                }) else {
+                    crate::refuse!(
+                        node,
+                        Reason::Width {
+                            needed: NO_SLOT as u32 + 1,
+                            have: NO_SLOT as u32
+                        }
+                    )
                 };
                 // D3514: the arms of an Append between (an aggregate over a partitioned table) fold into one production,
                 // so they take one number together (each its own left the reader the last partition's fold alone)
@@ -144,15 +207,32 @@ pub(crate) fn renumber_seeded(arena: ArenaRef, pipelines: &mut [Pipeline], proto
         }
         // D1188: the probe, or a pipeline between (B4d), reads a life before the probe under the number
         let read = |p: &Pipeline| p.consumes.contains(&s);
-        if !pipelines.get(k).is_some_and(|p| p.produces() == Some(s) && (read(p) || pipelines[k + 1..q].iter().any(read))) {
+        if !pipelines.get(k).is_some_and(|p| {
+            p.produces() == Some(s) && (read(p) || pipelines[k + 1..q].iter().any(read))
+        }) {
             continue;
         }
         // D3822: a probe union's arms (V4R-533) are each a seeded run of this drain on its slot: one production, renamed together
-        if protos.iter().any(|a| a.kind == ProtoKind::Arms && a.slot == s && overlap(a, k..q + 1) && !seeded_probe(pipelines, protos, a.pipeline as usize, q, s)) {
+        if protos.iter().any(|a| {
+            a.kind == ProtoKind::Arms
+                && a.slot == s
+                && overlap(a, k..q + 1)
+                && !seeded_probe(pipelines, protos, a.pipeline as usize, q, s)
+        }) {
             seeded_drain(node)
         }
-        let Some(to) = (0..NO_SLOT).find(|&t| !pipelines.iter().any(|p| p.produces() == Some(t) || p.consumes.contains(&t))) else {
-            crate::refuse!(node, Reason::Width { needed: NO_SLOT as u32 + 1, have: NO_SLOT as u32 })
+        let Some(to) = (0..NO_SLOT).find(|&t| {
+            !pipelines
+                .iter()
+                .any(|p| p.produces() == Some(t) || p.consumes.contains(&t))
+        }) else {
+            crate::refuse!(
+                node,
+                Reason::Width {
+                    needed: NO_SLOT as u32 + 1,
+                    have: NO_SLOT as u32
+                }
+            )
         };
         for p in 0..q {
             if seeded_probe(pipelines, protos, p, q, s) {
@@ -161,8 +241,17 @@ pub(crate) fn renumber_seeded(arena: ArenaRef, pipelines: &mut [Pipeline], proto
                 }
             }
         }
-        let renamed = |a: &Proto| a.pipeline as usize == k || (a.slot == s && pipelines.get(a.pipeline as usize).is_some_and(|x| x.produces() == Some(to)));
-        protos.iter_mut().filter(|a| a.kind == ProtoKind::Arms && renamed(a)).for_each(|a| a.slot = to);
+        let renamed = |a: &Proto| {
+            a.pipeline as usize == k
+                || (a.slot == s
+                    && pipelines
+                        .get(a.pipeline as usize)
+                        .is_some_and(|x| x.produces() == Some(to)))
+        };
+        protos
+            .iter_mut()
+            .filter(|a| a.kind == ProtoKind::Arms && renamed(a))
+            .for_each(|a| a.slot = to);
         rename_slot(arena, pipelines, protos, q, s, to);
     }
     merge_arms(protos);
@@ -170,23 +259,41 @@ pub(crate) fn renumber_seeded(arena: ArenaRef, pipelines: &mut [Pipeline], proto
 
 /// D3514: the arms of the `Arms` run inside the seeded run `(k, q)` (exclusive) that holds `x` on slot `s`, in program
 /// order (`protos::arms_of`'s rule, never the seeded run itself, which spans `k ..= q`); `[x]` when `x` is no arm of one.
-fn between_arms(pipelines: &[Pipeline], protos: &[Proto], (k, q): (usize, usize), x: usize, s: u8) -> Vec<usize> {
+fn between_arms(
+    pipelines: &[Pipeline],
+    protos: &[Proto],
+    (k, q): (usize, usize),
+    x: usize,
+    s: u8,
+) -> Vec<usize> {
     let produces = |y: usize| pipelines.get(y).and_then(|p| p.produces()) == Some(s);
     let run = protos
         .iter()
-        .filter(|a| a.kind == ProtoKind::Arms && a.slot == s && (a.pipeline as usize) > k && (a.pipeline as usize).saturating_add(a.arg as usize) <= q)
+        .filter(|a| {
+            a.kind == ProtoKind::Arms
+                && a.slot == s
+                && (a.pipeline as usize) > k
+                && (a.pipeline as usize).saturating_add(a.arg as usize) <= q
+        })
         .map(|a| a.pipeline as usize..(a.pipeline as usize).saturating_add(a.arg as usize))
         .find(|r| r.contains(&x) && produces(r.start) && produces(r.end - 1));
     match run {
         Some(r) => r.filter(|&y| produces(y)).collect(), // alloc: Program
-        None => vec![x], // alloc: Program
+        None => vec![x],                                 // alloc: Program
     }
 }
 
 /// D3822: pipeline `p` is a probe of drain `q` seeding the end's slot `s` (its `Arms` run on `s`, the drain `Follows` it).
 fn seeded_probe(pipelines: &[Pipeline], protos: &[Proto], p: usize, q: usize, s: u8) -> bool {
-    let follows = |a: &Proto| protos.iter().any(|f| f.kind == ProtoKind::Follows && f.peer == a.pipeline && f.pipeline as usize == q);
-    pipelines.get(p).is_some_and(|x| x.produces() == Some(s)) && protos.iter().any(|a| a.kind == ProtoKind::Arms && a.pipeline as usize == p && a.slot == s && follows(a))
+    let follows = |a: &Proto| {
+        protos.iter().any(|f| {
+            f.kind == ProtoKind::Follows && f.peer == a.pipeline && f.pipeline as usize == q
+        })
+    };
+    pipelines.get(p).is_some_and(|x| x.produces() == Some(s))
+        && protos.iter().any(|a| {
+            a.kind == ProtoKind::Arms && a.pipeline as usize == p && a.slot == s && follows(a)
+        })
 }
 
 fn overlap(a: &Proto, r: core::ops::Range<usize>) -> bool {
@@ -197,8 +304,14 @@ fn overlap(a: &Proto, r: core::ops::Range<usize>) -> bool {
 /// the drain) and the append's overlap on one slot, one production. Every such proto takes the union, so the run holding
 /// any of its pipelines is the same one (program `arms_of`, the driver's, `ArmSort`); a build between is no arm.
 pub(crate) fn merge_arms(protos: &mut [Proto]) {
-    let follows = |p: u16| protos.iter().any(|f| f.kind == ProtoKind::Follows && f.peer == p);
-    let seeded: Vec<usize> = (0..protos.len()).filter(|&i| protos[i].kind == ProtoKind::Arms && follows(protos[i].pipeline)).collect(); // alloc: Program
+    let follows = |p: u16| {
+        protos
+            .iter()
+            .any(|f| f.kind == ProtoKind::Follows && f.peer == p)
+    };
+    let seeded: Vec<usize> = (0..protos.len())
+        .filter(|&i| protos[i].kind == ProtoKind::Arms && follows(protos[i].pipeline))
+        .collect(); // alloc: Program
     let mut again = true;
     while again {
         again = false;
@@ -206,8 +319,16 @@ pub(crate) fn merge_arms(protos: &mut [Proto]) {
             for j in 0..protos.len() {
                 let (a, b) = (protos[i], protos[j]);
                 let r = b.pipeline as usize..b.pipeline as usize + b.arg as usize;
-                if j != i && b.kind == ProtoKind::Arms && b.slot == a.slot && overlap(&a, r.clone()) && (a.pipeline, a.arg) != (b.pipeline, b.arg) {
-                    let (lo, hi) = (r.start.min(a.pipeline as usize), r.end.max(a.pipeline as usize + a.arg as usize));
+                if j != i
+                    && b.kind == ProtoKind::Arms
+                    && b.slot == a.slot
+                    && overlap(&a, r.clone())
+                    && (a.pipeline, a.arg) != (b.pipeline, b.arg)
+                {
+                    let (lo, hi) = (
+                        r.start.min(a.pipeline as usize),
+                        r.end.max(a.pipeline as usize + a.arg as usize),
+                    );
                     for x in [i, j] {
                         (protos[x].pipeline, protos[x].arg) = (lo as u16, (hi - lo) as u64);
                     }
@@ -224,7 +345,12 @@ pub(crate) fn merge_arms(protos: &mut [Proto]) {
 pub(crate) fn seeded_arms(protos: &mut [Proto], map: impl Fn(u16) -> u16) {
     for i in 0..protos.len() {
         let p = protos[i];
-        if p.kind != ProtoKind::Arms || p.arg < 1 || !protos.iter().any(|f| f.kind == ProtoKind::Follows && f.peer == p.pipeline) {
+        if p.kind != ProtoKind::Arms
+            || p.arg < 1
+            || !protos
+                .iter()
+                .any(|f| f.kind == ProtoKind::Follows && f.peer == p.pipeline)
+        {
             continue;
         }
         let (a, z) = (map(p.pipeline), map(p.pipeline + p.arg as u16 - 1));
@@ -263,7 +389,11 @@ mod tests {
             Proto::new(ProtoKind::Arms, 8).slot(4).arg(2),
         ];
         merge_arms(&mut protos);
-        let runs: Vec<(u16, u64)> = protos.iter().filter(|a| a.kind == ProtoKind::Arms).map(|a| (a.pipeline, a.arg)).collect();
+        let runs: Vec<(u16, u64)> = protos
+            .iter()
+            .filter(|a| a.kind == ProtoKind::Arms)
+            .map(|a| (a.pipeline, a.arg))
+            .collect();
         assert_eq!(runs, [(1, 6), (1, 6), (1, 6), (8, 2)]);
     }
 
@@ -276,17 +406,52 @@ mod tests {
         use gravity_program::{Arena, End};
         let arena = Arena::new(1 << 16);
         let a = arena.handle();
-        let end = |kind| End::Breaker(Breaker { kind, slot: 2, bytes: 64, budget: Budget::Fixed(64), spill: Spill::None });
-        let (distinct, fold) = (Pipeline::eligible(-1, end(BreakerKind::Distinct), 0), Pipeline::eligible(-1, end(BreakerKind::PlainAgg), 0));
+        let end = |kind| {
+            End::Breaker(Breaker {
+                kind,
+                slot: 2,
+                bytes: 64,
+                budget: Budget::Fixed(64),
+                spill: Spill::None,
+            })
+        };
+        let (distinct, fold) = (
+            Pipeline::eligible(-1, end(BreakerKind::Distinct), 0),
+            Pipeline::eligible(-1, end(BreakerKind::PlainAgg), 0),
+        );
         let sink = Pipeline::eligible(-1, End::Sink, 0);
-        let mut pipes = [distinct, fold, fold, fold, sink.consuming_in(a, 2), distinct, sink.consuming_in(a, 2)];
-        let mut protos = [Proto::new(ProtoKind::Arms, 0).slot(2).arg(6), Proto::new(ProtoKind::Follows, 5).peer(0), Proto::new(ProtoKind::Arms, 1).slot(2).arg(3)];
+        let mut pipes = [
+            distinct,
+            fold,
+            fold,
+            fold,
+            sink.consuming_in(a, 2),
+            distinct,
+            sink.consuming_in(a, 2),
+        ];
+        let mut protos = [
+            Proto::new(ProtoKind::Arms, 0).slot(2).arg(6),
+            Proto::new(ProtoKind::Follows, 5).peer(0),
+            Proto::new(ProtoKind::Arms, 1).slot(2).arg(3),
+        ];
         renumber_seeded(a, &mut pipes, &mut protos, -1);
         let t = pipes[1].produces().expect("the fold's slot");
         assert_ne!(t, 2, "the fold leaves the seeded run's number");
-        assert_eq!((pipes[2].produces(), pipes[3].produces()), (Some(t), Some(t)), "every arm folds into one production");
-        assert_eq!((pipes[4].consumes, protos[2].slot), (&[t][..], t), "its reader and its run follow it");
-        assert_eq!((pipes[0].produces(), pipes[5].produces(), pipes[6].consumes), (Some(2), Some(2), &[2u8][..]), "the seeded run keeps its number");
+        assert_eq!(
+            (pipes[2].produces(), pipes[3].produces()),
+            (Some(t), Some(t)),
+            "every arm folds into one production"
+        );
+        assert_eq!(
+            (pipes[4].consumes, protos[2].slot),
+            (&[t][..], t),
+            "its reader and its run follow it"
+        );
+        assert_eq!(
+            (pipes[0].produces(), pipes[5].produces(), pipes[6].consumes),
+            (Some(2), Some(2), &[2u8][..]),
+            "the seeded run keeps its number"
+        );
     }
 
     /// D3822: a drain's probe is a union of two arms (1, 2), each a seeded run of drain 3 on the Sort's slot 2; arm 1 reads
@@ -298,10 +463,27 @@ mod tests {
         use gravity_program::{Arena, End};
         let arena = Arena::new(1 << 16);
         let a = arena.handle();
-        let end = |kind| End::Breaker(Breaker { kind, slot: 2, bytes: 64, budget: Budget::Fixed(64), spill: Spill::None });
-        let (build, sort) = (Pipeline::eligible(-1, end(BreakerKind::HashBuild), 0), Pipeline::eligible(-1, end(BreakerKind::Sort), 0));
+        let end = |kind| {
+            End::Breaker(Breaker {
+                kind,
+                slot: 2,
+                bytes: 64,
+                budget: Budget::Fixed(64),
+                spill: Spill::None,
+            })
+        };
+        let (build, sort) = (
+            Pipeline::eligible(-1, end(BreakerKind::HashBuild), 0),
+            Pipeline::eligible(-1, end(BreakerKind::Sort), 0),
+        );
         let sink = Pipeline::eligible(-1, End::Sink, 0);
-        let pipes = [build, sort.consuming_in(a, 2), sort, sort, sink.consuming_in(a, 2)];
+        let pipes = [
+            build,
+            sort.consuming_in(a, 2),
+            sort,
+            sort,
+            sink.consuming_in(a, 2),
+        ];
         let protos = [
             Proto::new(ProtoKind::Arms, 1).slot(2).arg(3),
             Proto::new(ProtoKind::Follows, 3).peer(1),
@@ -312,19 +494,48 @@ mod tests {
         renumber_seeded(a, &mut p, &mut q, -1);
         let t = p[1].produces().expect("the first arm's slot");
         assert_ne!(t, 2, "the union's arms leave the build's number");
-        assert_eq!((p[2].produces(), p[3].produces(), p[4].consumes), (Some(t), Some(t), &[t][..]), "one production, its reader follows");
-        assert_eq!((p[0].produces(), p[1].consumes), (Some(2), &[2u8][..]), "the build keeps its number");
-        assert_eq!(q.iter().filter(|x| x.kind == ProtoKind::Arms).map(|x| (x.pipeline, x.arg, x.slot)).collect::<Vec<_>>(), [(1, 3, t), (1, 3, t)]);
+        assert_eq!(
+            (p[2].produces(), p[3].produces(), p[4].consumes),
+            (Some(t), Some(t), &[t][..]),
+            "one production, its reader follows"
+        );
+        assert_eq!(
+            (p[0].produces(), p[1].consumes),
+            (Some(2), &[2u8][..]),
+            "the build keeps its number"
+        );
+        assert_eq!(
+            q.iter()
+                .filter(|x| x.kind == ProtoKind::Arms)
+                .map(|x| (x.pipeline, x.arg, x.slot))
+                .collect::<Vec<_>>(),
+            [(1, 3, t), (1, 3, t)]
+        );
         let mut p = pipes;
-        let mut q = [protos[0], protos[1], protos[2], protos[3], Proto::new(ProtoKind::Arms, 0).slot(2).arg(2)];
-        let e = crate::catch(-1, || renumber_seeded(a, &mut p, &mut q, -1)).err().map(|e| format!("{e:?}")).unwrap_or_default();
+        let mut q = [
+            protos[0],
+            protos[1],
+            protos[2],
+            protos[3],
+            Proto::new(ProtoKind::Arms, 0).slot(2).arg(2),
+        ];
+        let e = crate::catch(-1, || renumber_seeded(a, &mut p, &mut q, -1))
+            .err()
+            .map(|e| format!("{e:?}"))
+            .unwrap_or_default();
         assert!(e.contains(SEEDED_DRAIN), "{e}");
     }
 
     /// D1331: the seeded drain form refuses by its Shape, not by NotBuilt of the built join.drain.
     #[test]
     fn a_seeded_drain_refuses_by_shape() {
-        let e = crate::catch(7, || -> () { seeded_drain(7) }).err().map(|e| format!("{e:?}")).unwrap_or_default();
-        assert!(e.contains("Shape") && e.contains(SEEDED_DRAIN) && !e.contains("NotBuilt"), "{e}");
+        let e = crate::catch(7, || -> () { seeded_drain(7) })
+            .err()
+            .map(|e| format!("{e:?}"))
+            .unwrap_or_default();
+        assert!(
+            e.contains("Shape") && e.contains(SEEDED_DRAIN) && !e.contains("NotBuilt"),
+            "{e}"
+        );
     }
 }

@@ -4,9 +4,18 @@ use gravity_abi::breaker::{KeyKind, RecordLayout, SlotKind, WideLayout, LAYOUT_W
 
 #[test]
 fn a_layout_reads_back_from_its_words() {
-    let narrow = RecordLayout::new(&[KeyKind::I64, KeyKind::Code], &[SlotKind::Count, SlotKind::SumI128, SlotKind::MinCode]);
+    let narrow = RecordLayout::new(
+        &[KeyKind::I64, KeyKind::Code],
+        &[SlotKind::Count, SlotKind::SumI128, SlotKind::MinCode],
+    );
     let keys: &'static [KeyKind] = &[KeyKind::I32];
-    let slots: &'static [SlotKind] = Box::leak(vec![SlotKind::SumI64; 40].into_iter().chain([SlotKind::Count]).collect::<Vec<_>>().into_boxed_slice());
+    let slots: &'static [SlotKind] = Box::leak(
+        vec![SlotKind::SumI64; 40]
+            .into_iter()
+            .chain([SlotKind::Count])
+            .collect::<Vec<_>>()
+            .into_boxed_slice(),
+    );
     let offs: &'static mut [u32] = Box::leak(vec![0u32; slots.len()].into_boxed_slice());
     let w: &'static WideLayout = Box::leak(Box::new(WideLayout::compute(keys, slots, offs, true)));
     let wide = RecordLayout::wide(w, true, false);

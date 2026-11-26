@@ -22,7 +22,9 @@
 use gravity_decompose::Source;
 use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{ConvOp, HostFlags, IntBinOp, IntCond, Type, Value};
-use gravity_program::protos::{literals_mark, Proto, ProtoKind, LITERALS_CODED, LITERALS_STREAM_PARAMS};
+use gravity_program::protos::{
+    literals_mark, Proto, ProtoKind, LITERALS_CODED, LITERALS_STREAM_PARAMS,
+};
 
 use crate::face::end::{LitTable, LiteralsMech, LiteralsRoad};
 use crate::frame::env::Env;
@@ -34,7 +36,10 @@ crate::strategies! {
     WRITE_LITERALS = 119, "write.literals", Insert;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(WRITE_LITERALS, &LiteralsRoad(&Literals))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(WRITE_LITERALS, &LiteralsRoad(&Literals))],
+    ..crate::ops::NONE
+};
 
 /// The table's words (exec v4/m4_proto.rs `LIT_CELLS` / `LIT_NULLS` / `LIT_ROWS`, `LIT_WORDS`).
 const CELLS: u16 = 0;
@@ -50,17 +55,34 @@ mod raw;
 pub(crate) struct Literals;
 
 impl LiteralsMech for Literals {
-    fn table(&self, px: &mut Px<'_, '_>, k: usize, node: i32, cols: usize, stream: bool) -> Option<LitTable> {
+    fn table(
+        &self,
+        px: &mut Px<'_, '_>,
+        k: usize,
+        node: i32,
+        cols: usize,
+        stream: bool,
+    ) -> Option<LitTable> {
         let gx = px.gx;
-        let Source::Values { lists, .. } = &gx.pipelines()[k].source else { return None };
+        let Source::Values { lists, .. } = &gx.pipelines()[k].source else {
+            return None;
+        };
         if cols == 0 || cols > u16::MAX as usize {
             return None;
         }
         let coded = lists.iter().enumerate().flat_map(|(r, l)| {
-            l.as_list().into_iter().flat_map(|l| l.iter().enumerate()).filter(|(_, n)| n.as_const().is_none()).map(move |(c, _)| (r, c))
+            l.as_list()
+                .into_iter()
+                .flat_map(|l| l.iter().enumerate())
+                .filter(|(_, n)| n.as_const().is_none())
+                .map(move |(c, _)| (r, c))
         });
         // D4449: a list of Consts alone marks no coded cell, and its cells are not walked to learn it
-        let mark = if crate::ops::shared::values::consts_only(gx.graph, lists) { literals_mark(core::iter::empty()) } else { literals_mark(coded) };
+        let mark = if crate::ops::shared::values::consts_only(gx.graph, lists) {
+            literals_mark(core::iter::empty())
+        } else {
+            literals_mark(coded)
+        };
         let n = if stream { STREAM_WORDS } else { WORDS };
         let mut base = px.proto_words(n);
         if base == 0 {
@@ -68,11 +90,26 @@ impl LiteralsMech for Literals {
             base = px.proto_words(n);
         }
         let arg = node as u32 as u64 | (cols as u64) << 32 | (mark as u64) << 48;
-        px.declare_proto(Proto::new(ProtoKind::Literals, k as u16).words(base, n).arg(arg));
-        Some(LitTable { base, cols: cols as u16, stream })
+        px.declare_proto(
+            Proto::new(ProtoKind::Literals, k as u16)
+                .words(base, n)
+                .arg(arg),
+        );
+        Some(LitTable {
+            base,
+            cols: cols as u16,
+            stream,
+        })
     }
 
-    fn stream(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &LitTable, j: Value, params: &[(Value, Value)]) {
+    fn stream(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        t: &LitTable,
+        j: Value,
+        params: &[(Value, Value)],
+    ) {
         let hook = word(b, env, t, STREAM);
         if !params.is_empty() {
             // D3374: the executor parameters' slots (protos `LiteralsStream::params`): parameter i's datum at 16 * i, its
@@ -88,12 +125,27 @@ impl LiteralsMech for Literals {
             }
         }
         // not a worker's host: PostgreSQL's evaluator runs on the execution's thread
-        let flags = HostFlags { may_error: true, touches_memory: true, ..HostFlags::default() };
-        let h = b.declare_host_once("values::stream_row", &[Type::I64, Type::I64], Some(Type::I64), raw::stream_row as *const () as usize, flags);
-        let r = b.call_host(h, &[hook, j], Some(Type::I64)).expect("returns its status");
+        let flags = HostFlags {
+            may_error: true,
+            touches_memory: true,
+            ..HostFlags::default()
+        };
+        let h = b.declare_host_once(
+            "values::stream_row",
+            &[Type::I64, Type::I64],
+            Some(Type::I64),
+            raw::stream_row as *const () as usize,
+            flags,
+        );
+        let r = b
+            .call_host(h, &[hook, j], Some(Type::I64))
+            .expect("returns its status");
         let failed = b.icmp(IntCond::Eq, r, env.zero);
         let l_ok = b.create_block(&[]);
-        let e = b.iconst(Type::I64, gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64);
+        let e = b.iconst(
+            Type::I64,
+            gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64,
+        );
         b.cond_br(failed, (env.l_raise, &[e]), (l_ok, &[]));
         b.switch_to(l_ok);
     }
@@ -114,13 +166,23 @@ impl LiteralsMech for Literals {
         b.icmp(IntCond::Ne, m, env.zero)
     }
 
-    fn cell(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &LitTable, j: Value, c: usize) -> (Value, Value) {
+    fn cell(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        t: &LitTable,
+        j: Value,
+        c: usize,
+    ) -> (Value, Value) {
         let (cells, nulls) = (word(b, env, t, CELLS), word(b, env, t, NULLS));
         let cols = b.iconst(Type::I64, t.cols as i64);
         let row = b.int_bin(IntBinOp::Mul, j, cols);
         let col = b.iconst(Type::I64, c as i64);
         let at = b.int_bin(IntBinOp::Add, row, col);
-        let (cp, np) = (b.conv(ConvOp::IntToPtr, Type::Ptr, cells), b.conv(ConvOp::IntToPtr, Type::Ptr, nulls));
+        let (cp, np) = (
+            b.conv(ConvOp::IntToPtr, Type::Ptr, cells),
+            b.conv(ConvOp::IntToPtr, Type::Ptr, nulls),
+        );
         let (vp, bp) = (b.ptr_add(cp, at, 8, 0), b.ptr_add(np, at, 1, 0));
         let v = b.load(Type::I64, vp, 0);
         let n = b.load_zext(Type::I8, bp, 0);
@@ -141,7 +203,10 @@ mod tests {
     /// The words are the protocol's (exec ops/modifytable/proto.rs): cells, nulls, rows; CAP-29's stream hook after them.
     #[test]
     fn words_are_the_protocols() {
-        assert_eq!((super::CELLS, super::NULLS, super::ROWS_WORD, super::WORDS), (0, 1, 2, 3));
+        assert_eq!(
+            (super::CELLS, super::NULLS, super::ROWS_WORD, super::WORDS),
+            (0, 1, 2, 3)
+        );
         assert_eq!((super::STREAM, super::STREAM_WORDS), (3, 4));
     }
 }

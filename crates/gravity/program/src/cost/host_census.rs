@@ -18,12 +18,24 @@ fn the_scan_decisions_on_each_host() {
     ];
     let mut got = Vec::new();
     for (name, r, _) in HOSTS {
-        let most = |d: LaneDecode, bytes: u8| (0..=ROWS).take_while(|&s| d.gather_pays_on(&r, bytes, ROWS, s, s.min(ROWS / 1024))).last().unwrap_or(0);
+        let most = |d: LaneDecode, bytes: u8| {
+            (0..=ROWS)
+                .take_while(|&s| d.gather_pays_on(&r, bytes, ROWS, s, s.min(ROWS / 1024)))
+                .last()
+                .unwrap_or(0)
+        };
         let row: Vec<u64> = lanes.iter().map(|&(_, d, b)| most(d, b)).collect();
-        println!("census\t{name}\tRT_DIV {}\tgather survivors {:?}", pgrc::rt_div_on(&r), lanes.iter().map(|l| l.0).zip(&row).collect::<Vec<_>>());
+        println!(
+            "census\t{name}\tRT_DIV {}\tgather survivors {:?}",
+            pgrc::rt_div_on(&r),
+            lanes.iter().map(|l| l.0).zip(&row).collect::<Vec<_>>()
+        );
         got.push((pgrc::rt_div_on(&r), row));
     }
-    assert!(got.iter().all(|g| g.0 == pgrc::RT_DIV), "one anchor: the reference's idle share on each host");
+    assert!(
+        got.iter().all(|g| g.0 == pgrc::RT_DIV),
+        "one anchor: the reference's idle share on each host"
+    );
 }
 
 /// key.codeif's served break-even against its measured band, the octet lane's break-even and the drain set's crossover
@@ -31,12 +43,26 @@ fn the_scan_decisions_on_each_host() {
 #[test]
 fn the_lowering_decisions_on_each_host() {
     for (name, r, _) in HOSTS {
-        let served: Vec<f64> = [0u16, 8, 16].iter().map(|&w| codeif::codeif_entries_per_row_served_on(&r, w)).collect();
-        let in_band = served.iter().all(|e| (codeif::CODEIF_BAND_LOW..=codeif::CODEIF_BAND_HIGH).contains(e));
-        let lane: Vec<f64> = [0u16, 8].iter().map(|&w| octet::lane_entries_per_row_on(&r, w)).collect();
-        let sets: Vec<f64> = [(true, 0u16), (true, 8), (false, 0), (false, 8)].iter().map(|&(word, w)| drain_set::set_rows_on(&r, word, w).round()).collect();
+        let served: Vec<f64> = [0u16, 8, 16]
+            .iter()
+            .map(|&w| codeif::codeif_entries_per_row_served_on(&r, w))
+            .collect();
+        let in_band = served
+            .iter()
+            .all(|e| (codeif::CODEIF_BAND_LOW..=codeif::CODEIF_BAND_HIGH).contains(e));
+        let lane: Vec<f64> = [0u16, 8]
+            .iter()
+            .map(|&w| octet::lane_entries_per_row_on(&r, w))
+            .collect();
+        let sets: Vec<f64> = [(true, 0u16), (true, 8), (false, 0), (false, 8)]
+            .iter()
+            .map(|&(word, w)| drain_set::set_rows_on(&r, word, w).round())
+            .collect();
         println!("census\t{name}\tcodeif served W0/8/16 {served:.3?} in band {in_band}\toctet W0/8 {lane:.4?}\tdrain_set int W0/W8 text W0/W8 {sets:?}");
-        assert!(in_band, "{name}: the band decides key.codeif as at the reference");
+        assert!(
+            in_band,
+            "{name}: the band decides key.codeif as at the reference"
+        );
     }
 }
 

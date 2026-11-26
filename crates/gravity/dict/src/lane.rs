@@ -108,7 +108,9 @@ impl IdxLen<false> {
     /// # Safety — a lane the source filled through `publish`.
     #[allow(clippy::missing_safety_doc)]
     pub unsafe fn from_lane(l: &Lane) -> Option<IdxLen<false>> {
-        header(l, ELEM_LEN_IDX).filter(|h| (**h).pad[0] == LEN_MODE_BYTES).map(|h| IdxLen::at(h))
+        header(l, ELEM_LEN_IDX)
+            .filter(|h| (**h).pad[0] == LEN_MODE_BYTES)
+            .map(|h| IdxLen::at(h))
     }
 }
 

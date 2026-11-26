@@ -123,9 +123,7 @@ mod e2e {
     use types_nodes::plannodes::PlannedStmt;
     #[allow(unused_imports)]
     use types_nodes::primnodes::FromExpr;
-    use types_portal::{
-        CachedPlanHandle, ParamListHandle, QueryCompletion, FETCH_ALL,
-    };
+    use types_portal::{CachedPlanHandle, ParamListHandle, QueryCompletion, FETCH_ALL};
 
     use crate::{stmt_list, PortalRun, PortalSetResultFormat, PortalStart};
 
@@ -161,7 +159,13 @@ mod e2e {
         SHOW_USAGE_CALLS.with(|c| c.set(0));
         FLIP_EXECUTOR_STATS_ON_SEND.with(|c| c.set(true));
         let mcx = leaked_mcx();
-        let show = Node::mk(mcx, VariableShowStmt { name: Some("work_mem") }).unwrap();
+        let show = Node::mk(
+            mcx,
+            VariableShowStmt {
+                name: Some("work_mem"),
+            },
+        )
+        .unwrap();
         let (_qc, sent) = run_utility_portal("stats-reread", "SHOW work_mem", utility_pstmt(show));
         guc_tables::backing::set_log_executor_stats(false);
         assert_eq!(data_rows(&sent), ["4MB"]);
@@ -186,7 +190,9 @@ mod e2e {
         };
         let mut s = data.to_vec();
         s.push(0);
-        Ok(Datum::from_usize(Box::leak(s.into_boxed_slice()).as_ptr() as usize))
+        Ok(Datum::from_usize(
+            Box::leak(s.into_boxed_slice()).as_ptr() as usize
+        ))
     }
 
     // Proc/shmem substrate for snapmgr's MyProc xmin writes (explain tests' shape).
@@ -381,8 +387,7 @@ mod e2e {
         let mut dest = tcop_dest::CreateDestReceiver(CommandDest::RemoteExecute);
         tcop_dest::SetRemoteDestReceiverParams(&mut dest, portal.clone());
         let mut qc = QueryCompletion::default();
-        let complete =
-            PortalRun(&portal, FETCH_ALL, true, &mut dest, None, Some(&mut qc)).unwrap();
+        let complete = PortalRun(&portal, FETCH_ALL, true, &mut dest, None, Some(&mut qc)).unwrap();
         assert!(complete);
         (qc, SENT.with(|s| s.borrow().clone()))
     }
@@ -402,12 +407,21 @@ mod e2e {
     fn show_work_mem_wire_bytes_through_portal() {
         install_fixtures();
         let mcx = leaked_mcx();
-        let show = Node::mk(mcx, VariableShowStmt { name: Some("work_mem") }).unwrap();
+        let show = Node::mk(
+            mcx,
+            VariableShowStmt {
+                name: Some("work_mem"),
+            },
+        )
+        .unwrap();
         let stmts = utility_pstmt(show);
         let (qc, sent) = run_utility_portal("show-e2e", "SHOW work_mem", stmts);
 
-        let rows: Vec<&Vec<u8>> =
-            sent.iter().filter(|(t, _)| *t == b'D').map(|(_, b)| b).collect();
+        let rows: Vec<&Vec<u8>> = sent
+            .iter()
+            .filter(|(t, _)| *t == b'D')
+            .map(|(_, b)| b)
+            .collect();
         assert_eq!(rows.len(), 1);
         // 'D' body pinned byte-for-byte: 1 column, 3 bytes, "4MB".
         assert_eq!(rows[0][..], [0, 1, 0, 0, 0, 3, b'4', b'M', b'B']);
@@ -438,7 +452,13 @@ mod e2e {
         install_fixtures();
         install_cancel_seam();
         let mcx = leaked_mcx();
-        let show = Node::mk(mcx, VariableShowStmt { name: Some("work_mem") }).unwrap();
+        let show = Node::mk(
+            mcx,
+            VariableShowStmt {
+                name: Some("work_mem"),
+            },
+        )
+        .unwrap();
         let stmts = utility_pstmt(show);
         let _ = run_utility_portal("persist-cancel", "SHOW work_mem", stmts);
         let portal = portalmem::GetPortalByName(Some("persist-cancel")).unwrap();
@@ -468,14 +488,27 @@ mod e2e {
         install_fixtures();
         SENT.with(|s| s.borrow_mut().clear());
         let mcx = leaked_mcx();
-        let show = Node::mk(mcx, VariableShowStmt { name: Some(guc_name) }).unwrap();
+        let show = Node::mk(
+            mcx,
+            VariableShowStmt {
+                name: Some(guc_name),
+            },
+        )
+        .unwrap();
         let stmts = utility_pstmt(show);
         // SAFETY: stmts is leaked 'static.
         let h = unsafe { stmt_list::register(stmts) };
         let tag = utility::CreateCommandTag(stmts[0].utilityStmt.unwrap());
         let portal = portalmem::CreatePortal(name, false, false).unwrap();
-        portalmem::PortalDefineQuery(&portal, None, "SHOW work_mem", tag, h, CachedPlanHandle::NULL)
-            .unwrap();
+        portalmem::PortalDefineQuery(
+            &portal,
+            None,
+            "SHOW work_mem",
+            tag,
+            h,
+            CachedPlanHandle::NULL,
+        )
+        .unwrap();
         // DECLARE SCROLL's option set; CreatePortal defaults to NO_SCROLL.
         portal.borrow_mut().cursorOptions = types_portal::CURSOR_OPT_SCROLL;
         crate::PortalStart(&portal, ParamListHandle::NULL, 0, None).unwrap();
@@ -526,13 +559,19 @@ mod e2e {
         );
         assert_eq!(pos(&portal), (true, false, 0));
 
-        assert_eq!(data_rows(&SENT.with(|s| s.borrow().clone())), ["4MB", "4MB"]);
+        assert_eq!(
+            data_rows(&SENT.with(|s| s.borrow().clone())),
+            ["4MB", "4MB"]
+        );
 
         // The live-portal arms of utility's FetchStmt surfaces.
         let mcx = leaked_mcx();
         let f = Node::mk(
             mcx,
-            FetchStmt { portalname: Some("fetch-e2e"), ..FetchStmt::default() },
+            FetchStmt {
+                portalname: Some("fetch-e2e"),
+                ..FetchStmt::default()
+            },
         )
         .unwrap();
         assert!(utility::UtilityReturnsTuples(f));
@@ -560,8 +599,13 @@ mod e2e {
         assert_eq!(pos(&portal), (false, true, 1));
 
         assert_eq!(
-            crate::PortalRunFetch(&portal, FetchDirection::FETCH_BACKWARD, FETCH_ALL, &mut none)
-                .unwrap(),
+            crate::PortalRunFetch(
+                &portal,
+                FetchDirection::FETCH_BACKWARD,
+                FETCH_ALL,
+                &mut none
+            )
+            .unwrap(),
             1
         );
         assert_eq!(pos(&portal), (true, false, 0));
@@ -602,7 +646,10 @@ mod e2e {
             1
         );
         assert_eq!(pos(&portal), (false, false, 1));
-        assert_eq!(data_rows(&SENT.with(|s| s.borrow().clone())), ["4MB", "4MB"]);
+        assert_eq!(
+            data_rows(&SENT.with(|s| s.borrow().clone())),
+            ["4MB", "4MB"]
+        );
     }
 
     fn first_cols(sent: &[(u8, Vec<u8>)]) -> Vec<String> {
@@ -645,14 +692,23 @@ mod e2e {
         assert_eq!(pos(&portal), (true, false, 0));
 
         // Forward-from-here leg: goal past halfway.
-        assert_eq!(fetch_rows(&portal, FETCH_ABSOLUTE, 3), (1, vec![all[2].clone()]));
+        assert_eq!(
+            fetch_rows(&portal, FETCH_ABSOLUTE, 3),
+            (1, vec![all[2].clone()])
+        );
         assert_eq!(pos(&portal), (false, false, 3));
 
         // Rewind leg: goal at most halfway back.
-        assert_eq!(fetch_rows(&portal, FETCH_ABSOLUTE, 2), (1, vec![all[1].clone()]));
+        assert_eq!(
+            fetch_rows(&portal, FETCH_ABSOLUTE, 2),
+            (1, vec![all[1].clone()])
+        );
         assert_eq!(pos(&portal), (false, false, 2));
 
-        assert_eq!(fetch_rows(&portal, FETCH_ABSOLUTE, 4), (1, vec![all[3].clone()]));
+        assert_eq!(
+            fetch_rows(&portal, FETCH_ABSOLUTE, 4),
+            (1, vec![all[3].clone()])
+        );
         assert_eq!(pos(&portal), (false, false, 4));
 
         // Negative: advance to end, return the last row.
@@ -666,15 +722,23 @@ mod e2e {
         assert_eq!(fetch_rows(&portal, FETCH_ABSOLUTE, 0), (0, vec![]));
         assert_eq!(pos(&portal), (true, false, 0));
 
-        assert_eq!(fetch_rows(&portal, FETCH_RELATIVE, 3), (1, vec![all[2].clone()]));
+        assert_eq!(
+            fetch_rows(&portal, FETCH_RELATIVE, 3),
+            (1, vec![all[2].clone()])
+        );
         assert_eq!(pos(&portal), (false, false, 3));
 
-        assert_eq!(fetch_rows(&portal, FETCH_RELATIVE, -2), (1, vec![all[0].clone()]));
+        assert_eq!(
+            fetch_rows(&portal, FETCH_RELATIVE, -2),
+            (1, vec![all[0].clone()])
+        );
         assert_eq!(pos(&portal), (false, false, 1));
 
         // RELATIVE 0 == FETCH FORWARD 0: re-fetch the current row.
-        assert_eq!(fetch_rows(&portal, FETCH_RELATIVE, 0), (1, vec![all[0].clone()]));
+        assert_eq!(
+            fetch_rows(&portal, FETCH_RELATIVE, 0),
+            (1, vec![all[0].clone()])
+        );
         assert_eq!(pos(&portal), (false, false, 1));
     }
-
 }

@@ -1,11 +1,10 @@
+use crate::api::{SN_close_env, SN_create_env};
 use crate::types::{among, symbol, SN_env};
-use crate::api::{SN_create_env, SN_close_env};
 #[allow(unused_imports)]
 use crate::utilities::{
-    in_grouping, in_grouping_b, out_grouping, out_grouping_b,
-    in_grouping_U, in_grouping_b_U, out_grouping_U, out_grouping_b_U,
-    find_among, find_among_b, slice_from_s, slice_del, slice_to,
-    eq_s, eq_s_b, eq_v_b, insert_s, len_utf8, skip_utf8, skip_b_utf8,
+    eq_s, eq_s_b, eq_v_b, find_among, find_among_b, in_grouping, in_grouping_U, in_grouping_b,
+    in_grouping_b_U, insert_s, len_utf8, out_grouping, out_grouping_U, out_grouping_b,
+    out_grouping_b_U, skip_b_utf8, skip_utf8, slice_del, slice_from_s, slice_to,
 };
 
 static mut s_0_0: [symbol; 6] = [
@@ -4433,12 +4432,14 @@ unsafe fn r_fix_va_start(mut z: *mut SN_env) -> ::core::ffi::c_int {
     let mut among_var: ::core::ffi::c_int = 0;
     (*z).bra = (*z).c;
     if (*z).c + 5 as ::core::ffi::c_int >= (*z).l
-        || *(*z).p.offset(((*z).c + 5 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int >> 5 as ::core::ffi::c_int != 4 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c + 5 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            >> 5 as ::core::ffi::c_int
+            != 4 as ::core::ffi::c_int
         || 3078 as ::core::ffi::c_int
-            >> (*(*z).p.offset(((*z).c + 5 as ::core::ffi::c_int) as isize)
-                as ::core::ffi::c_int & 0x1f as ::core::ffi::c_int)
-            & 1 as ::core::ffi::c_int == 0
+            >> (*(*z).p.offset(((*z).c + 5 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+                & 0x1f as ::core::ffi::c_int)
+            & 1 as ::core::ffi::c_int
+            == 0
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -4449,41 +4450,29 @@ unsafe fn r_fix_va_start(mut z: *mut SN_env) -> ::core::ffi::c_int {
     (*z).ket = (*z).c;
     match among_var {
         1 => {
-            let mut ret: ::core::ffi::c_int = slice_from_s(
-                z,
-                3 as ::core::ffi::c_int,
-                &raw const s_0 as *const symbol,
-            );
+            let mut ret: ::core::ffi::c_int =
+                slice_from_s(z, 3 as ::core::ffi::c_int, &raw const s_0 as *const symbol);
             if ret < 0 as ::core::ffi::c_int {
                 return ret;
             }
         }
         2 => {
-            let mut ret_0: ::core::ffi::c_int = slice_from_s(
-                z,
-                3 as ::core::ffi::c_int,
-                &raw const s_1 as *const symbol,
-            );
+            let mut ret_0: ::core::ffi::c_int =
+                slice_from_s(z, 3 as ::core::ffi::c_int, &raw const s_1 as *const symbol);
             if ret_0 < 0 as ::core::ffi::c_int {
                 return ret_0;
             }
         }
         3 => {
-            let mut ret_1: ::core::ffi::c_int = slice_from_s(
-                z,
-                3 as ::core::ffi::c_int,
-                &raw const s_2 as *const symbol,
-            );
+            let mut ret_1: ::core::ffi::c_int =
+                slice_from_s(z, 3 as ::core::ffi::c_int, &raw const s_2 as *const symbol);
             if ret_1 < 0 as ::core::ffi::c_int {
                 return ret_1;
             }
         }
         4 => {
-            let mut ret_2: ::core::ffi::c_int = slice_from_s(
-                z,
-                3 as ::core::ffi::c_int,
-                &raw const s_3 as *const symbol,
-            );
+            let mut ret_2: ::core::ffi::c_int =
+                slice_from_s(z, 3 as ::core::ffi::c_int, &raw const s_3 as *const symbol);
             if ret_2 < 0 as ::core::ffi::c_int {
                 return ret_2;
             }
@@ -4501,15 +4490,13 @@ unsafe fn r_fix_endings(mut z: *mut SN_env) -> ::core::ffi::c_int {
             (*z).c = c2;
             break;
         } else if ret < 0 as ::core::ffi::c_int {
-            return ret
+            return ret;
         }
     }
     (*z).c = c1;
     return 1 as ::core::ffi::c_int;
 }
-unsafe fn r_remove_question_prefixes(
-    mut z: *mut SN_env,
-) -> ::core::ffi::c_int {
+unsafe fn r_remove_question_prefixes(mut z: *mut SN_env) -> ::core::ffi::c_int {
     (*z).bra = (*z).c;
     if eq_s(z, 3 as ::core::ffi::c_int, &raw const s_4 as *const symbol) == 0 {
         return 0 as ::core::ffi::c_int;
@@ -4543,11 +4530,7 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
     (*z).c = (*z).l;
     let mut m1: ::core::ffi::c_int = (*z).l - (*z).c;
     (*z).ket = (*z).c;
-    among_var = find_among_b(
-        z,
-        &raw const a_5 as *const among,
-        17 as ::core::ffi::c_int,
-    );
+    among_var = find_among_b(z, &raw const a_5 as *const among, 17 as ::core::ffi::c_int);
     if among_var == 0 {
         current_block = 2092442392310703162;
     } else {
@@ -4572,11 +4555,8 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             current_block = 2092442392310703162;
                         } else {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                3 as ::core::ffi::c_int,
-                                &raw const s_9 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 3 as ::core::ffi::c_int, &raw const s_9 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                                 let mut ret_4: ::core::ffi::c_int = slice_from_s(
@@ -4595,11 +4575,8 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     }
                     13536709405535804910 => {
                         let mut m_test2: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if find_among_b(
-                            z,
-                            &raw const a_2 as *const among,
-                            3 as ::core::ffi::c_int,
-                        ) == 0
+                        if find_among_b(z, &raw const a_2 as *const among, 3 as ::core::ffi::c_int)
+                            == 0
                         {
                             current_block = 2092442392310703162;
                         } else {
@@ -4613,14 +4590,12 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     }
                     15623170874954075441 => {
                         if (*z).c - 2 as ::core::ffi::c_int <= (*z).lb
-                            || *(*z)
-                                .p
-                                .offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                                as ::core::ffi::c_int != 136 as ::core::ffi::c_int
-                                && *(*z)
-                                    .p
-                                    .offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                                    as ::core::ffi::c_int != 141 as ::core::ffi::c_int
+                            || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
+                                as ::core::ffi::c_int
+                                != 136 as ::core::ffi::c_int
+                                && *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
+                                    as ::core::ffi::c_int
+                                    != 141 as ::core::ffi::c_int
                         {
                             among_var = 2 as ::core::ffi::c_int;
                         } else {
@@ -4693,11 +4668,8 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     }
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if find_among_b(
-                            z,
-                            &raw const a_3 as *const among,
-                            8 as ::core::ffi::c_int,
-                        ) == 0
+                        if find_among_b(z, &raw const a_3 as *const among, 8 as ::core::ffi::c_int)
+                            == 0
                         {
                             (*z).c = (*z).l - m4;
                             let mut ret_6: ::core::ffi::c_int = slice_del(z);
@@ -4730,11 +4702,8 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             current_block = 2092442392310703162;
                         } else {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                3 as ::core::ffi::c_int,
-                                &raw const s_9 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 3 as ::core::ffi::c_int, &raw const s_9 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                                 let mut ret_4: ::core::ffi::c_int = slice_from_s(
@@ -4753,11 +4722,8 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     }
                     13536709405535804910 => {
                         let mut m_test2: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if find_among_b(
-                            z,
-                            &raw const a_2 as *const among,
-                            3 as ::core::ffi::c_int,
-                        ) == 0
+                        if find_among_b(z, &raw const a_2 as *const among, 3 as ::core::ffi::c_int)
+                            == 0
                         {
                             current_block = 2092442392310703162;
                         } else {
@@ -4771,14 +4737,12 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     }
                     15623170874954075441 => {
                         if (*z).c - 2 as ::core::ffi::c_int <= (*z).lb
-                            || *(*z)
-                                .p
-                                .offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                                as ::core::ffi::c_int != 136 as ::core::ffi::c_int
-                                && *(*z)
-                                    .p
-                                    .offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                                    as ::core::ffi::c_int != 141 as ::core::ffi::c_int
+                            || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
+                                as ::core::ffi::c_int
+                                != 136 as ::core::ffi::c_int
+                                && *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
+                                    as ::core::ffi::c_int
+                                    != 141 as ::core::ffi::c_int
                         {
                             among_var = 2 as ::core::ffi::c_int;
                         } else {
@@ -4851,11 +4815,8 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     }
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if find_among_b(
-                            z,
-                            &raw const a_3 as *const among,
-                            8 as ::core::ffi::c_int,
-                        ) == 0
+                        if find_among_b(z, &raw const a_3 as *const among, 8 as ::core::ffi::c_int)
+                            == 0
                         {
                             (*z).c = (*z).l - m4;
                             let mut ret_6: ::core::ffi::c_int = slice_del(z);
@@ -4888,11 +4849,8 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             current_block = 2092442392310703162;
                         } else {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                3 as ::core::ffi::c_int,
-                                &raw const s_9 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 3 as ::core::ffi::c_int, &raw const s_9 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                                 let mut ret_4: ::core::ffi::c_int = slice_from_s(
@@ -4911,11 +4869,8 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     }
                     13536709405535804910 => {
                         let mut m_test2: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if find_among_b(
-                            z,
-                            &raw const a_2 as *const among,
-                            3 as ::core::ffi::c_int,
-                        ) == 0
+                        if find_among_b(z, &raw const a_2 as *const among, 3 as ::core::ffi::c_int)
+                            == 0
                         {
                             current_block = 2092442392310703162;
                         } else {
@@ -4929,14 +4884,12 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     }
                     15623170874954075441 => {
                         if (*z).c - 2 as ::core::ffi::c_int <= (*z).lb
-                            || *(*z)
-                                .p
-                                .offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                                as ::core::ffi::c_int != 136 as ::core::ffi::c_int
-                                && *(*z)
-                                    .p
-                                    .offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                                    as ::core::ffi::c_int != 141 as ::core::ffi::c_int
+                            || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
+                                as ::core::ffi::c_int
+                                != 136 as ::core::ffi::c_int
+                                && *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
+                                    as ::core::ffi::c_int
+                                    != 141 as ::core::ffi::c_int
                         {
                             among_var = 2 as ::core::ffi::c_int;
                         } else {
@@ -5009,11 +4962,8 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     }
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if find_among_b(
-                            z,
-                            &raw const a_3 as *const among,
-                            8 as ::core::ffi::c_int,
-                        ) == 0
+                        if find_among_b(z, &raw const a_3 as *const among, 8 as ::core::ffi::c_int)
+                            == 0
                         {
                             (*z).c = (*z).l - m4;
                             let mut ret_6: ::core::ffi::c_int = slice_del(z);
@@ -5046,11 +4996,8 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             current_block = 2092442392310703162;
                         } else {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                3 as ::core::ffi::c_int,
-                                &raw const s_9 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 3 as ::core::ffi::c_int, &raw const s_9 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                                 let mut ret_4: ::core::ffi::c_int = slice_from_s(
@@ -5069,11 +5016,8 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     }
                     13536709405535804910 => {
                         let mut m_test2: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if find_among_b(
-                            z,
-                            &raw const a_2 as *const among,
-                            3 as ::core::ffi::c_int,
-                        ) == 0
+                        if find_among_b(z, &raw const a_2 as *const among, 3 as ::core::ffi::c_int)
+                            == 0
                         {
                             current_block = 2092442392310703162;
                         } else {
@@ -5087,14 +5031,12 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     }
                     15623170874954075441 => {
                         if (*z).c - 2 as ::core::ffi::c_int <= (*z).lb
-                            || *(*z)
-                                .p
-                                .offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                                as ::core::ffi::c_int != 136 as ::core::ffi::c_int
-                                && *(*z)
-                                    .p
-                                    .offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                                    as ::core::ffi::c_int != 141 as ::core::ffi::c_int
+                            || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
+                                as ::core::ffi::c_int
+                                != 136 as ::core::ffi::c_int
+                                && *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
+                                    as ::core::ffi::c_int
+                                    != 141 as ::core::ffi::c_int
                         {
                             among_var = 2 as ::core::ffi::c_int;
                         } else {
@@ -5167,11 +5109,8 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     }
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if find_among_b(
-                            z,
-                            &raw const a_3 as *const among,
-                            8 as ::core::ffi::c_int,
-                        ) == 0
+                        if find_among_b(z, &raw const a_3 as *const among, 8 as ::core::ffi::c_int)
+                            == 0
                         {
                             (*z).c = (*z).l - m4;
                             let mut ret_6: ::core::ffi::c_int = slice_del(z);
@@ -5204,11 +5143,8 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             current_block = 2092442392310703162;
                         } else {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                3 as ::core::ffi::c_int,
-                                &raw const s_9 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 3 as ::core::ffi::c_int, &raw const s_9 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                                 let mut ret_4: ::core::ffi::c_int = slice_from_s(
@@ -5227,11 +5163,8 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     }
                     13536709405535804910 => {
                         let mut m_test2: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if find_among_b(
-                            z,
-                            &raw const a_2 as *const among,
-                            3 as ::core::ffi::c_int,
-                        ) == 0
+                        if find_among_b(z, &raw const a_2 as *const among, 3 as ::core::ffi::c_int)
+                            == 0
                         {
                             current_block = 2092442392310703162;
                         } else {
@@ -5245,14 +5178,12 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     }
                     15623170874954075441 => {
                         if (*z).c - 2 as ::core::ffi::c_int <= (*z).lb
-                            || *(*z)
-                                .p
-                                .offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                                as ::core::ffi::c_int != 136 as ::core::ffi::c_int
-                                && *(*z)
-                                    .p
-                                    .offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                                    as ::core::ffi::c_int != 141 as ::core::ffi::c_int
+                            || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
+                                as ::core::ffi::c_int
+                                != 136 as ::core::ffi::c_int
+                                && *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
+                                    as ::core::ffi::c_int
+                                    != 141 as ::core::ffi::c_int
                         {
                             among_var = 2 as ::core::ffi::c_int;
                         } else {
@@ -5325,11 +5256,8 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     }
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if find_among_b(
-                            z,
-                            &raw const a_3 as *const among,
-                            8 as ::core::ffi::c_int,
-                        ) == 0
+                        if find_among_b(z, &raw const a_3 as *const among, 8 as ::core::ffi::c_int)
+                            == 0
                         {
                             (*z).c = (*z).l - m4;
                             let mut ret_6: ::core::ffi::c_int = slice_del(z);
@@ -5362,11 +5290,8 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             current_block = 2092442392310703162;
                         } else {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                3 as ::core::ffi::c_int,
-                                &raw const s_9 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 3 as ::core::ffi::c_int, &raw const s_9 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                                 let mut ret_4: ::core::ffi::c_int = slice_from_s(
@@ -5385,11 +5310,8 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     }
                     13536709405535804910 => {
                         let mut m_test2: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if find_among_b(
-                            z,
-                            &raw const a_2 as *const among,
-                            3 as ::core::ffi::c_int,
-                        ) == 0
+                        if find_among_b(z, &raw const a_2 as *const among, 3 as ::core::ffi::c_int)
+                            == 0
                         {
                             current_block = 2092442392310703162;
                         } else {
@@ -5403,14 +5325,12 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     }
                     15623170874954075441 => {
                         if (*z).c - 2 as ::core::ffi::c_int <= (*z).lb
-                            || *(*z)
-                                .p
-                                .offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                                as ::core::ffi::c_int != 136 as ::core::ffi::c_int
-                                && *(*z)
-                                    .p
-                                    .offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                                    as ::core::ffi::c_int != 141 as ::core::ffi::c_int
+                            || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
+                                as ::core::ffi::c_int
+                                != 136 as ::core::ffi::c_int
+                                && *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
+                                    as ::core::ffi::c_int
+                                    != 141 as ::core::ffi::c_int
                         {
                             among_var = 2 as ::core::ffi::c_int;
                         } else {
@@ -5483,11 +5403,8 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     }
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if find_among_b(
-                            z,
-                            &raw const a_3 as *const among,
-                            8 as ::core::ffi::c_int,
-                        ) == 0
+                        if find_among_b(z, &raw const a_3 as *const among, 8 as ::core::ffi::c_int)
+                            == 0
                         {
                             (*z).c = (*z).l - m4;
                             let mut ret_6: ::core::ffi::c_int = slice_del(z);
@@ -5520,11 +5437,8 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             current_block = 2092442392310703162;
                         } else {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                3 as ::core::ffi::c_int,
-                                &raw const s_9 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 3 as ::core::ffi::c_int, &raw const s_9 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                                 let mut ret_4: ::core::ffi::c_int = slice_from_s(
@@ -5543,11 +5457,8 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     }
                     13536709405535804910 => {
                         let mut m_test2: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if find_among_b(
-                            z,
-                            &raw const a_2 as *const among,
-                            3 as ::core::ffi::c_int,
-                        ) == 0
+                        if find_among_b(z, &raw const a_2 as *const among, 3 as ::core::ffi::c_int)
+                            == 0
                         {
                             current_block = 2092442392310703162;
                         } else {
@@ -5561,14 +5472,12 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     }
                     15623170874954075441 => {
                         if (*z).c - 2 as ::core::ffi::c_int <= (*z).lb
-                            || *(*z)
-                                .p
-                                .offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                                as ::core::ffi::c_int != 136 as ::core::ffi::c_int
-                                && *(*z)
-                                    .p
-                                    .offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                                    as ::core::ffi::c_int != 141 as ::core::ffi::c_int
+                            || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
+                                as ::core::ffi::c_int
+                                != 136 as ::core::ffi::c_int
+                                && *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
+                                    as ::core::ffi::c_int
+                                    != 141 as ::core::ffi::c_int
                         {
                             among_var = 2 as ::core::ffi::c_int;
                         } else {
@@ -5641,11 +5550,8 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     }
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if find_among_b(
-                            z,
-                            &raw const a_3 as *const among,
-                            8 as ::core::ffi::c_int,
-                        ) == 0
+                        if find_among_b(z, &raw const a_3 as *const among, 8 as ::core::ffi::c_int)
+                            == 0
                         {
                             (*z).c = (*z).l - m4;
                             let mut ret_6: ::core::ffi::c_int = slice_del(z);
@@ -5678,11 +5584,8 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             current_block = 2092442392310703162;
                         } else {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                3 as ::core::ffi::c_int,
-                                &raw const s_9 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 3 as ::core::ffi::c_int, &raw const s_9 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                                 let mut ret_4: ::core::ffi::c_int = slice_from_s(
@@ -5701,11 +5604,8 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     }
                     13536709405535804910 => {
                         let mut m_test2: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if find_among_b(
-                            z,
-                            &raw const a_2 as *const among,
-                            3 as ::core::ffi::c_int,
-                        ) == 0
+                        if find_among_b(z, &raw const a_2 as *const among, 3 as ::core::ffi::c_int)
+                            == 0
                         {
                             current_block = 2092442392310703162;
                         } else {
@@ -5719,14 +5619,12 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     }
                     15623170874954075441 => {
                         if (*z).c - 2 as ::core::ffi::c_int <= (*z).lb
-                            || *(*z)
-                                .p
-                                .offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                                as ::core::ffi::c_int != 136 as ::core::ffi::c_int
-                                && *(*z)
-                                    .p
-                                    .offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                                    as ::core::ffi::c_int != 141 as ::core::ffi::c_int
+                            || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
+                                as ::core::ffi::c_int
+                                != 136 as ::core::ffi::c_int
+                                && *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
+                                    as ::core::ffi::c_int
+                                    != 141 as ::core::ffi::c_int
                         {
                             among_var = 2 as ::core::ffi::c_int;
                         } else {
@@ -5799,11 +5697,8 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     }
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if find_among_b(
-                            z,
-                            &raw const a_3 as *const among,
-                            8 as ::core::ffi::c_int,
-                        ) == 0
+                        if find_among_b(z, &raw const a_3 as *const among, 8 as ::core::ffi::c_int)
+                            == 0
                         {
                             (*z).c = (*z).l - m4;
                             let mut ret_6: ::core::ffi::c_int = slice_del(z);
@@ -5836,11 +5731,8 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             current_block = 2092442392310703162;
                         } else {
                             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                3 as ::core::ffi::c_int,
-                                &raw const s_9 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 3 as ::core::ffi::c_int, &raw const s_9 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m3;
                                 let mut ret_4: ::core::ffi::c_int = slice_from_s(
@@ -5859,11 +5751,8 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     }
                     13536709405535804910 => {
                         let mut m_test2: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if find_among_b(
-                            z,
-                            &raw const a_2 as *const among,
-                            3 as ::core::ffi::c_int,
-                        ) == 0
+                        if find_among_b(z, &raw const a_2 as *const among, 3 as ::core::ffi::c_int)
+                            == 0
                         {
                             current_block = 2092442392310703162;
                         } else {
@@ -5877,14 +5766,12 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     }
                     15623170874954075441 => {
                         if (*z).c - 2 as ::core::ffi::c_int <= (*z).lb
-                            || *(*z)
-                                .p
-                                .offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                                as ::core::ffi::c_int != 136 as ::core::ffi::c_int
-                                && *(*z)
-                                    .p
-                                    .offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                                    as ::core::ffi::c_int != 141 as ::core::ffi::c_int
+                            || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
+                                as ::core::ffi::c_int
+                                != 136 as ::core::ffi::c_int
+                                && *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
+                                    as ::core::ffi::c_int
+                                    != 141 as ::core::ffi::c_int
                         {
                             among_var = 2 as ::core::ffi::c_int;
                         } else {
@@ -5957,11 +5844,8 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     }
                     _ => {
                         let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if find_among_b(
-                            z,
-                            &raw const a_3 as *const among,
-                            8 as ::core::ffi::c_int,
-                        ) == 0
+                        if find_among_b(z, &raw const a_3 as *const among, 8 as ::core::ffi::c_int)
+                            == 0
                         {
                             (*z).c = (*z).l - m4;
                             let mut ret_6: ::core::ffi::c_int = slice_del(z);
@@ -5984,30 +5868,17 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
         2092442392310703162 => {
             (*z).c = (*z).l - m1;
             (*z).ket = (*z).c;
-            if eq_s_b(z, 3 as ::core::ffi::c_int, &raw const s_13 as *const symbol) == 0
-            {
+            if eq_s_b(z, 3 as ::core::ffi::c_int, &raw const s_13 as *const symbol) == 0 {
                 return 0 as ::core::ffi::c_int;
             }
             let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-            if find_among_b(z, &raw const a_6 as *const among, 6 as ::core::ffi::c_int)
-                == 0
-            {
+            if find_among_b(z, &raw const a_6 as *const among, 6 as ::core::ffi::c_int) == 0 {
                 (*z).c = (*z).l - m5;
-                if find_among_b(
-                    z,
-                    &raw const a_8 as *const among,
-                    11 as ::core::ffi::c_int,
-                ) == 0
-                {
+                if find_among_b(z, &raw const a_8 as *const among, 11 as ::core::ffi::c_int) == 0 {
                     current_block = 1196376431729137931;
                 } else {
                     (*z).bra = (*z).c;
-                    if eq_s_b(
-                        z,
-                        3 as ::core::ffi::c_int,
-                        &raw const s_15 as *const symbol,
-                    ) == 0
-                    {
+                    if eq_s_b(z, 3 as ::core::ffi::c_int, &raw const s_15 as *const symbol) == 0 {
                         current_block = 1196376431729137931;
                     } else {
                         let mut ret_10: ::core::ffi::c_int = slice_del(z);
@@ -6022,11 +5893,8 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     _ => {
                         (*z).c = (*z).l - m5;
                         let mut m_test7: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if find_among_b(
-                            z,
-                            &raw const a_9 as *const among,
-                            9 as ::core::ffi::c_int,
-                        ) == 0
+                        if find_among_b(z, &raw const a_9 as *const among, 9 as ::core::ffi::c_int)
+                            == 0
                         {
                             return 0 as ::core::ffi::c_int;
                         }
@@ -6040,15 +5908,10 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
                 }
             } else {
                 let mut m6: ::core::ffi::c_int = (*z).l - (*z).c;
-                if eq_s_b(z, 3 as ::core::ffi::c_int, &raw const s_14 as *const symbol)
-                    == 0
-                {
+                if eq_s_b(z, 3 as ::core::ffi::c_int, &raw const s_14 as *const symbol) == 0 {
                     (*z).c = (*z).l - m6;
-                } else if find_among_b(
-                    z,
-                    &raw const a_7 as *const among,
-                    6 as ::core::ffi::c_int,
-                ) == 0
+                } else if find_among_b(z, &raw const a_7 as *const among, 6 as ::core::ffi::c_int)
+                    == 0
                 {
                     (*z).c = (*z).l - m6;
                 }
@@ -6064,17 +5927,17 @@ unsafe fn r_fix_ending(mut z: *mut SN_env) -> ::core::ffi::c_int {
     (*z).c = (*z).lb;
     return 1 as ::core::ffi::c_int;
 }
-unsafe fn r_remove_pronoun_prefixes(
-    mut z: *mut SN_env,
-) -> ::core::ffi::c_int {
+unsafe fn r_remove_pronoun_prefixes(mut z: *mut SN_env) -> ::core::ffi::c_int {
     (*z).bra = (*z).c;
     if (*z).c + 2 as ::core::ffi::c_int >= (*z).l
-        || *(*z).p.offset(((*z).c + 2 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int >> 5 as ::core::ffi::c_int != 4 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c + 2 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            >> 5 as ::core::ffi::c_int
+            != 4 as ::core::ffi::c_int
         || 672 as ::core::ffi::c_int
-            >> (*(*z).p.offset(((*z).c + 2 as ::core::ffi::c_int) as isize)
-                as ::core::ffi::c_int & 0x1f as ::core::ffi::c_int)
-            & 1 as ::core::ffi::c_int == 0
+            >> (*(*z).p.offset(((*z).c + 2 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+                & 0x1f as ::core::ffi::c_int)
+            & 1 as ::core::ffi::c_int
+            == 0
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -6106,16 +5969,12 @@ unsafe fn r_remove_plural_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
     (*z).c = (*z).l;
     (*z).ket = (*z).c;
     if (*z).c - 8 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 141 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 141 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
-    among_var = find_among_b(
-        z,
-        &raw const a_13 as *const among,
-        4 as ::core::ffi::c_int,
-    );
+    among_var = find_among_b(z, &raw const a_13 as *const among, 4 as ::core::ffi::c_int);
     if among_var == 0 {
         return 0 as ::core::ffi::c_int;
     }
@@ -6123,45 +5982,31 @@ unsafe fn r_remove_plural_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
     match among_var {
         1 => {
             let mut m1: ::core::ffi::c_int = (*z).l - (*z).c;
-            if find_among_b(z, &raw const a_12 as *const among, 6 as ::core::ffi::c_int)
-                == 0
-            {
+            if find_among_b(z, &raw const a_12 as *const among, 6 as ::core::ffi::c_int) == 0 {
                 (*z).c = (*z).l - m1;
-                let mut ret_0: ::core::ffi::c_int = slice_from_s(
-                    z,
-                    3 as ::core::ffi::c_int,
-                    &raw const s_18 as *const symbol,
-                );
+                let mut ret_0: ::core::ffi::c_int =
+                    slice_from_s(z, 3 as ::core::ffi::c_int, &raw const s_18 as *const symbol);
                 if ret_0 < 0 as ::core::ffi::c_int {
                     return ret_0;
                 }
             } else {
-                let mut ret: ::core::ffi::c_int = slice_from_s(
-                    z,
-                    9 as ::core::ffi::c_int,
-                    &raw const s_17 as *const symbol,
-                );
+                let mut ret: ::core::ffi::c_int =
+                    slice_from_s(z, 9 as ::core::ffi::c_int, &raw const s_17 as *const symbol);
                 if ret < 0 as ::core::ffi::c_int {
                     return ret;
                 }
             }
         }
         2 => {
-            let mut ret_1: ::core::ffi::c_int = slice_from_s(
-                z,
-                6 as ::core::ffi::c_int,
-                &raw const s_19 as *const symbol,
-            );
+            let mut ret_1: ::core::ffi::c_int =
+                slice_from_s(z, 6 as ::core::ffi::c_int, &raw const s_19 as *const symbol);
             if ret_1 < 0 as ::core::ffi::c_int {
                 return ret_1;
             }
         }
         3 => {
-            let mut ret_2: ::core::ffi::c_int = slice_from_s(
-                z,
-                6 as ::core::ffi::c_int,
-                &raw const s_20 as *const symbol,
-            );
+            let mut ret_2: ::core::ffi::c_int =
+                slice_from_s(z, 6 as ::core::ffi::c_int, &raw const s_20 as *const symbol);
             if ret_2 < 0 as ::core::ffi::c_int {
                 return ret_2;
             }
@@ -6177,9 +6022,7 @@ unsafe fn r_remove_plural_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
     (*z).c = (*z).lb;
     return 1 as ::core::ffi::c_int;
 }
-unsafe fn r_remove_question_suffixes(
-    mut z: *mut SN_env,
-) -> ::core::ffi::c_int {
+unsafe fn r_remove_question_suffixes(mut z: *mut SN_env) -> ::core::ffi::c_int {
     let mut ret: ::core::ffi::c_int = r_has_min_length(z);
     if ret <= 0 as ::core::ffi::c_int {
         return ret;
@@ -6188,14 +6031,10 @@ unsafe fn r_remove_question_suffixes(
     (*z).c = (*z).l;
     let mut m1: ::core::ffi::c_int = (*z).l - (*z).c;
     (*z).ket = (*z).c;
-    if !(find_among_b(z, &raw const a_14 as *const among, 3 as ::core::ffi::c_int) == 0)
-    {
+    if !(find_among_b(z, &raw const a_14 as *const among, 3 as ::core::ffi::c_int) == 0) {
         (*z).bra = (*z).c;
-        let mut ret_0: ::core::ffi::c_int = slice_from_s(
-            z,
-            3 as ::core::ffi::c_int,
-            &raw const s_21 as *const symbol,
-        );
+        let mut ret_0: ::core::ffi::c_int =
+            slice_from_s(z, 3 as ::core::ffi::c_int, &raw const s_21 as *const symbol);
         if ret_0 < 0 as ::core::ffi::c_int {
             return ret_0;
         }
@@ -6208,9 +6047,7 @@ unsafe fn r_remove_question_suffixes(
     }
     return 1 as ::core::ffi::c_int;
 }
-unsafe fn r_remove_command_suffixes(
-    mut z: *mut SN_env,
-) -> ::core::ffi::c_int {
+unsafe fn r_remove_command_suffixes(mut z: *mut SN_env) -> ::core::ffi::c_int {
     let mut ret: ::core::ffi::c_int = r_has_min_length(z);
     if ret <= 0 as ::core::ffi::c_int {
         return ret;
@@ -6219,8 +6056,8 @@ unsafe fn r_remove_command_suffixes(
     (*z).c = (*z).l;
     (*z).ket = (*z).c;
     if (*z).c - 5 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 191 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 191 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -6247,11 +6084,8 @@ unsafe fn r_remove_um(mut z: *mut SN_env) -> ::core::ffi::c_int {
         return 0 as ::core::ffi::c_int;
     }
     (*z).bra = (*z).c;
-    let mut ret_0: ::core::ffi::c_int = slice_from_s(
-        z,
-        3 as ::core::ffi::c_int,
-        &raw const s_23 as *const symbol,
-    );
+    let mut ret_0: ::core::ffi::c_int =
+        slice_from_s(z, 3 as ::core::ffi::c_int, &raw const s_23 as *const symbol);
     if ret_0 < 0 as ::core::ffi::c_int {
         return ret_0;
     }
@@ -6264,9 +6098,7 @@ unsafe fn r_remove_um(mut z: *mut SN_env) -> ::core::ffi::c_int {
     (*z).c = c1;
     return 1 as ::core::ffi::c_int;
 }
-unsafe fn r_remove_common_word_endings(
-    mut z: *mut SN_env,
-) -> ::core::ffi::c_int {
+unsafe fn r_remove_common_word_endings(mut z: *mut SN_env) -> ::core::ffi::c_int {
     let mut among_var: ::core::ffi::c_int = 0;
     let mut ret: ::core::ffi::c_int = r_has_min_length(z);
     if ret <= 0 as ::core::ffi::c_int {
@@ -6275,40 +6107,28 @@ unsafe fn r_remove_common_word_endings(
     (*z).lb = (*z).c;
     (*z).c = (*z).l;
     (*z).ket = (*z).c;
-    among_var = find_among_b(
-        z,
-        &raw const a_17 as *const among,
-        26 as ::core::ffi::c_int,
-    );
+    among_var = find_among_b(z, &raw const a_17 as *const among, 26 as ::core::ffi::c_int);
     if among_var == 0 {
         return 0 as ::core::ffi::c_int;
     }
     (*z).bra = (*z).c;
     match among_var {
         1 => {
-            let mut ret_0: ::core::ffi::c_int = slice_from_s(
-                z,
-                3 as ::core::ffi::c_int,
-                &raw const s_24 as *const symbol,
-            );
+            let mut ret_0: ::core::ffi::c_int =
+                slice_from_s(z, 3 as ::core::ffi::c_int, &raw const s_24 as *const symbol);
             if ret_0 < 0 as ::core::ffi::c_int {
                 return ret_0;
             }
         }
         2 => {
             let mut m1: ::core::ffi::c_int = (*z).l - (*z).c;
-            if find_among_b(z, &raw const a_16 as *const among, 8 as ::core::ffi::c_int)
-                == 0
-            {
+            if find_among_b(z, &raw const a_16 as *const among, 8 as ::core::ffi::c_int) == 0 {
                 (*z).c = (*z).l - m1;
             } else {
-                return 0 as ::core::ffi::c_int
+                return 0 as ::core::ffi::c_int;
             }
-            let mut ret_1: ::core::ffi::c_int = slice_from_s(
-                z,
-                3 as ::core::ffi::c_int,
-                &raw const s_25 as *const symbol,
-            );
+            let mut ret_1: ::core::ffi::c_int =
+                slice_from_s(z, 3 as ::core::ffi::c_int, &raw const s_25 as *const symbol);
             if ret_1 < 0 as ::core::ffi::c_int {
                 return ret_1;
             }
@@ -6328,9 +6148,7 @@ unsafe fn r_remove_common_word_endings(
     }
     return 1 as ::core::ffi::c_int;
 }
-unsafe fn r_remove_vetrumai_urupukal(
-    mut z: *mut SN_env,
-) -> ::core::ffi::c_int {
+unsafe fn r_remove_vetrumai_urupukal(mut z: *mut SN_env) -> ::core::ffi::c_int {
     let mut current_block: u64;
     let mut among_var: ::core::ffi::c_int = 0;
     *(*z).I.offset(0 as ::core::ffi::c_int as isize) = 0 as ::core::ffi::c_int;
@@ -6344,20 +6162,18 @@ unsafe fn r_remove_vetrumai_urupukal(
     let mut m_test2: ::core::ffi::c_int = (*z).l - (*z).c;
     (*z).ket = (*z).c;
     if (*z).c - 2 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int >> 5 as ::core::ffi::c_int != 4 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            >> 5 as ::core::ffi::c_int
+            != 4 as ::core::ffi::c_int
         || -(2147475197 as ::core::ffi::c_int)
-            >> (*(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                as ::core::ffi::c_int & 0x1f as ::core::ffi::c_int)
-            & 1 as ::core::ffi::c_int == 0
+            >> (*(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+                & 0x1f as ::core::ffi::c_int)
+            & 1 as ::core::ffi::c_int
+            == 0
     {
         current_block = 17784659355455874416;
     } else {
-        among_var = find_among_b(
-            z,
-            &raw const a_20 as *const among,
-            22 as ::core::ffi::c_int,
-        );
+        among_var = find_among_b(z, &raw const a_20 as *const among, 22 as ::core::ffi::c_int);
         if among_var == 0 {
             current_block = 17784659355455874416;
         } else {
@@ -6371,11 +6187,8 @@ unsafe fn r_remove_vetrumai_urupukal(
                     current_block = 12497913735442871383;
                 }
                 2 => {
-                    let mut ret_1: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        3 as ::core::ffi::c_int,
-                        &raw const s_26 as *const symbol,
-                    );
+                    let mut ret_1: ::core::ffi::c_int =
+                        slice_from_s(z, 3 as ::core::ffi::c_int, &raw const s_26 as *const symbol);
                     if ret_1 < 0 as ::core::ffi::c_int {
                         return ret_1;
                     }
@@ -6383,12 +6196,7 @@ unsafe fn r_remove_vetrumai_urupukal(
                 }
                 3 => {
                     let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
-                    if eq_s_b(
-                        z,
-                        3 as ::core::ffi::c_int,
-                        &raw const s_27 as *const symbol,
-                    ) == 0
-                    {
+                    if eq_s_b(z, 3 as ::core::ffi::c_int, &raw const s_27 as *const symbol) == 0 {
                         (*z).c = (*z).l - m3;
                         let mut ret_2: ::core::ffi::c_int = slice_from_s(
                             z,
@@ -6420,11 +6228,8 @@ unsafe fn r_remove_vetrumai_urupukal(
                 }
                 5 => {
                     let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
-                    if find_among_b(
-                        z,
-                        &raw const a_18 as *const among,
-                        8 as ::core::ffi::c_int,
-                    ) == 0
+                    if find_among_b(z, &raw const a_18 as *const among, 8 as ::core::ffi::c_int)
+                        == 0
                     {
                         (*z).c = (*z).l - m4;
                         let mut ret_4: ::core::ffi::c_int = slice_from_s(
@@ -6442,11 +6247,8 @@ unsafe fn r_remove_vetrumai_urupukal(
                 }
                 6 => {
                     let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                    if find_among_b(
-                        z,
-                        &raw const a_19 as *const among,
-                        8 as ::core::ffi::c_int,
-                    ) == 0
+                    if find_among_b(z, &raw const a_19 as *const among, 8 as ::core::ffi::c_int)
+                        == 0
                     {
                         (*z).c = (*z).l - m5;
                         let mut ret_5: ::core::ffi::c_int = slice_del(z);
@@ -6459,11 +6261,8 @@ unsafe fn r_remove_vetrumai_urupukal(
                     }
                 }
                 7 => {
-                    let mut ret_6: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        3 as ::core::ffi::c_int,
-                        &raw const s_31 as *const symbol,
-                    );
+                    let mut ret_6: ::core::ffi::c_int =
+                        slice_from_s(z, 3 as ::core::ffi::c_int, &raw const s_31 as *const symbol);
                     if ret_6 < 0 as ::core::ffi::c_int {
                         return ret_6;
                     }
@@ -6487,40 +6286,27 @@ unsafe fn r_remove_vetrumai_urupukal(
             (*z).c = (*z).l - m1;
             let mut m_test6: ::core::ffi::c_int = (*z).l - (*z).c;
             (*z).ket = (*z).c;
-            if eq_s_b(z, 3 as ::core::ffi::c_int, &raw const s_32 as *const symbol) == 0
-            {
+            if eq_s_b(z, 3 as ::core::ffi::c_int, &raw const s_32 as *const symbol) == 0 {
                 return 0 as ::core::ffi::c_int;
             }
             let mut m7: ::core::ffi::c_int = (*z).l - (*z).c;
             let mut m8: ::core::ffi::c_int = (*z).l - (*z).c;
-            if find_among_b(z, &raw const a_21 as *const among, 6 as ::core::ffi::c_int)
-                == 0
-            {
+            if find_among_b(z, &raw const a_21 as *const among, 6 as ::core::ffi::c_int) == 0 {
                 (*z).c = (*z).l - m8;
             } else {
                 (*z).c = (*z).l - m7;
                 let mut m_test9: ::core::ffi::c_int = (*z).l - (*z).c;
-                if find_among_b(
-                    z,
-                    &raw const a_22 as *const among,
-                    6 as ::core::ffi::c_int,
-                ) == 0
-                {
+                if find_among_b(z, &raw const a_22 as *const among, 6 as ::core::ffi::c_int) == 0 {
                     return 0 as ::core::ffi::c_int;
                 }
-                if eq_s_b(z, 3 as ::core::ffi::c_int, &raw const s_33 as *const symbol)
-                    == 0
-                {
+                if eq_s_b(z, 3 as ::core::ffi::c_int, &raw const s_33 as *const symbol) == 0 {
                     return 0 as ::core::ffi::c_int;
                 }
                 (*z).c = (*z).l - m_test9;
             }
             (*z).bra = (*z).c;
-            let mut ret_7: ::core::ffi::c_int = slice_from_s(
-                z,
-                3 as ::core::ffi::c_int,
-                &raw const s_34 as *const symbol,
-            );
+            let mut ret_7: ::core::ffi::c_int =
+                slice_from_s(z, 3 as ::core::ffi::c_int, &raw const s_34 as *const symbol);
             if ret_7 < 0 as ::core::ffi::c_int {
                 return ret_7;
             }
@@ -6533,11 +6319,8 @@ unsafe fn r_remove_vetrumai_urupukal(
     (*z).ket = (*z).c;
     if !(eq_s_b(z, 9 as ::core::ffi::c_int, &raw const s_35 as *const symbol) == 0) {
         (*z).bra = (*z).c;
-        let mut ret_8: ::core::ffi::c_int = slice_from_s(
-            z,
-            3 as ::core::ffi::c_int,
-            &raw const s_36 as *const symbol,
-        );
+        let mut ret_8: ::core::ffi::c_int =
+            slice_from_s(z, 3 as ::core::ffi::c_int, &raw const s_36 as *const symbol);
         if ret_8 < 0 as ::core::ffi::c_int {
             return ret_8;
         }
@@ -6581,11 +6364,7 @@ unsafe fn r_remove_tense_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
     let mut m1: ::core::ffi::c_int = (*z).l - (*z).c;
     let mut m_test2: ::core::ffi::c_int = (*z).l - (*z).c;
     (*z).ket = (*z).c;
-    among_var = find_among_b(
-        z,
-        &raw const a_25 as *const among,
-        46 as ::core::ffi::c_int,
-    );
+    among_var = find_among_b(z, &raw const a_25 as *const among, 46 as ::core::ffi::c_int);
     if !(among_var == 0) {
         (*z).bra = (*z).c;
         match among_var {
@@ -6600,19 +6379,19 @@ unsafe fn r_remove_tense_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                 let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
                 if (*z).c - 2 as ::core::ffi::c_int <= (*z).lb
                     || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                        as ::core::ffi::c_int >> 5 as ::core::ffi::c_int
+                        as ::core::ffi::c_int
+                        >> 5 as ::core::ffi::c_int
                         != 4 as ::core::ffi::c_int
                     || 1951712 as ::core::ffi::c_int
                         >> (*(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                            as ::core::ffi::c_int & 0x1f as ::core::ffi::c_int)
-                        & 1 as ::core::ffi::c_int == 0
+                            as ::core::ffi::c_int
+                            & 0x1f as ::core::ffi::c_int)
+                        & 1 as ::core::ffi::c_int
+                        == 0
                 {
                     current_block = 14856155306599981950;
-                } else if find_among_b(
-                    z,
-                    &raw const a_23 as *const among,
-                    12 as ::core::ffi::c_int,
-                ) == 0
+                } else if find_among_b(z, &raw const a_23 as *const among, 12 as ::core::ffi::c_int)
+                    == 0
                 {
                     current_block = 14856155306599981950;
                 } else {
@@ -6632,12 +6411,7 @@ unsafe fn r_remove_tense_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
             }
             3 => {
                 let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
-                if find_among_b(
-                    z,
-                    &raw const a_24 as *const among,
-                    8 as ::core::ffi::c_int,
-                ) == 0
-                {
+                if find_among_b(z, &raw const a_24 as *const among, 8 as ::core::ffi::c_int) == 0 {
                     (*z).c = (*z).l - m4;
                     let mut ret_2: ::core::ffi::c_int = slice_del(z);
                     if ret_2 < 0 as ::core::ffi::c_int {
@@ -6650,15 +6424,10 @@ unsafe fn r_remove_tense_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
             }
             4 => {
                 let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
-                if eq_s_b(z, 3 as ::core::ffi::c_int, &raw const s_37 as *const symbol)
-                    == 0
-                {
+                if eq_s_b(z, 3 as ::core::ffi::c_int, &raw const s_37 as *const symbol) == 0 {
                     (*z).c = (*z).l - m5;
-                    let mut ret_3: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        3 as ::core::ffi::c_int,
-                        &raw const s_38 as *const symbol,
-                    );
+                    let mut ret_3: ::core::ffi::c_int =
+                        slice_from_s(z, 3 as ::core::ffi::c_int, &raw const s_38 as *const symbol);
                     if ret_3 < 0 as ::core::ffi::c_int {
                         return ret_3;
                     }
@@ -6668,11 +6437,8 @@ unsafe fn r_remove_tense_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
                 }
             }
             5 => {
-                let mut ret_4: ::core::ffi::c_int = slice_from_s(
-                    z,
-                    3 as ::core::ffi::c_int,
-                    &raw const s_39 as *const symbol,
-                );
+                let mut ret_4: ::core::ffi::c_int =
+                    slice_from_s(z, 3 as ::core::ffi::c_int, &raw const s_39 as *const symbol);
                 if ret_4 < 0 as ::core::ffi::c_int {
                     return ret_4;
                 }
@@ -6680,9 +6446,7 @@ unsafe fn r_remove_tense_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
             }
             6 => {
                 let mut m_test6: ::core::ffi::c_int = (*z).l - (*z).c;
-                if eq_s_b(z, 3 as ::core::ffi::c_int, &raw const s_40 as *const symbol)
-                    == 0
-                {
+                if eq_s_b(z, 3 as ::core::ffi::c_int, &raw const s_40 as *const symbol) == 0 {
                     current_block = 10346081849507595293;
                 } else {
                     (*z).c = (*z).l - m_test6;
@@ -6700,8 +6464,7 @@ unsafe fn r_remove_tense_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
         match current_block {
             10346081849507595293 => {}
             _ => {
-                *(*z).I.offset(1 as ::core::ffi::c_int as isize) = 1
-                    as ::core::ffi::c_int;
+                *(*z).I.offset(1 as ::core::ffi::c_int as isize) = 1 as ::core::ffi::c_int;
                 (*z).c = (*z).l - m_test2;
             }
         }
@@ -6710,14 +6473,12 @@ unsafe fn r_remove_tense_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
     let mut m7: ::core::ffi::c_int = (*z).l - (*z).c;
     (*z).ket = (*z).c;
     if !((*z).c - 8 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 141 as ::core::ffi::c_int
-            && *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                as ::core::ffi::c_int != 177 as ::core::ffi::c_int)
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 141 as ::core::ffi::c_int
+            && *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+                != 177 as ::core::ffi::c_int)
     {
-        if !(find_among_b(z, &raw const a_26 as *const among, 6 as ::core::ffi::c_int)
-            == 0)
-        {
+        if !(find_among_b(z, &raw const a_26 as *const among, 6 as ::core::ffi::c_int) == 0) {
             (*z).bra = (*z).c;
             let mut ret_6: ::core::ffi::c_int = slice_del(z);
             if ret_6 < 0 as ::core::ffi::c_int {

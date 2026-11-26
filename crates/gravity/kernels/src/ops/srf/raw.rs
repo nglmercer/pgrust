@@ -5,7 +5,10 @@
 use gravity_abi::Ctx;
 use gravity_fn::ErrSlot;
 
-use super::entries::{bug, cell_nulls, done, entry_at, no_entry, settle, stale, CELL_ARGS, CELL_OUT, CELL_STATE, FACT_ALIGN, FACT_BYVAL, SRF_FAILED, STORE_FAILED, STORE_MAGIC};
+use super::entries::{
+    bug, cell_nulls, done, entry_at, no_entry, settle, stale, CELL_ARGS, CELL_OUT, CELL_STATE,
+    FACT_ALIGN, FACT_BYVAL, SRF_FAILED, STORE_FAILED, STORE_MAGIC,
+};
 
 crate::contract::host! {
     /// `open` the library entry `entry` (its index in `gravity_fn::srf::ENTRIES`, the face's `Form::Library`) over the cell's
@@ -19,14 +22,27 @@ crate::contract::host! {
 }
 
 unsafe fn open(ctx: *mut Ctx, cell: *mut u8, entry: u64, nargs: usize, coll: u64) -> u64 {
-    let Some(en) = entry_at(entry) else { return no_entry(entry) };
+    let Some(en) = entry_at(entry) else {
+        return no_entry(entry);
+    };
     let nulls = cell.add(cell_nulls(nargs));
     if en.strict && (0..nargs).any(|i| nulls.add(i).read() != 0) {
         return 0;
     }
     let aux = if en.coll { coll as i64 } else { en.aux };
     let mut e = ErrSlot::NONE;
-    done((en.open)(&mut e, ctx, cell.add(CELL_STATE), cell.add(CELL_ARGS) as *const i64, nulls, nargs as i64, aux), &mut e)
+    done(
+        (en.open)(
+            &mut e,
+            ctx,
+            cell.add(CELL_STATE),
+            cell.add(CELL_ARGS) as *const i64,
+            nulls,
+            nargs as i64,
+            aux,
+        ),
+        &mut e,
+    )
 }
 
 crate::contract::host! {
@@ -38,9 +54,16 @@ crate::contract::host! {
 }
 
 unsafe fn step(ctx: *mut Ctx, cell: *mut u8, entry: u64) -> u64 {
-    let Some(en) = entry_at(entry) else { return no_entry(entry) };
+    let Some(en) = entry_at(entry) else {
+        return no_entry(entry);
+    };
     let mut e = ErrSlot::NONE;
-    match (en.step)(&mut e, ctx, cell.add(CELL_STATE), cell.add(CELL_OUT) as *mut i64) {
+    match (en.step)(
+        &mut e,
+        ctx,
+        cell.add(CELL_STATE),
+        cell.add(CELL_OUT) as *mut i64,
+    ) {
         r @ (0 | 1) => r as u64,
         _ => settle(&mut e),
     }
@@ -106,14 +129,27 @@ pub struct StoreHead {
     /// `STORE_MAGIC` while the object lives: a stale or foreign handle is an error, never a wild call.
     pub magic: u64,
     /// One window of reader `ptr`: its address, `STORE_END`, or `Err` with PG's error stashed.
-    pub batch: unsafe fn(h: *mut StoreHead, ctx: *mut Ctx, ptr: u32, max: u32, natts: u32, need: u64) -> Result<u64, ()>,
+    pub batch: unsafe fn(
+        h: *mut StoreHead,
+        ctx: *mut Ctx,
+        ptr: u32,
+        max: u32,
+        natts: u32,
+        need: u64,
+    ) -> Result<u64, ()>,
     /// Reader `ptr` back to the first row (`tuplestore_rescan`), its window and copies released.
     pub rewind: unsafe fn(h: *mut StoreHead, ctx: *mut Ctx, ptr: u32) -> Result<(), ()>,
     /// M8 store_reopen (V4R-439): exec param `id`'s value and frame flags (lowerv4 params.rs `SET` / `NULL`) into the
     /// store's own executor state, `changed` when its owner wrote it since this store's last open (PG's chgParam).
-    pub param: unsafe fn(h: *mut StoreHead, ctx: *mut Ctx, id: u32, value: u64, flags: u64, changed: bool) -> Result<(), ()>,
+    pub param: unsafe fn(
+        h: *mut StoreHead,
+        ctx: *mut Ctx,
+        id: u32,
+        value: u64,
+        flags: u64,
+        changed: bool,
+    ) -> Result<(), ()>,
 }
-
 
 crate::contract::host! {
     /// Up to `max` rows of reader `ptr` of store `h`, the first `natts` columns deformed and those in `need` written (bit c

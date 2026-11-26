@@ -35,9 +35,9 @@
 //! Switches: `PGRUST_CACHE_PURGE_NOW` and `PGRUST_QUERY_PURGE_BG` (1 = on; anything else, or unset, = off); with both off
 //! the purger does not start (and the hold, which only applies to the arenas it owns, does nothing).
 
-use core::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering::Relaxed, Ordering::SeqCst};
-use mempolicy::ladder::PurgeMode;
+use core::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering::Relaxed, Ordering::SeqCst};
 use core::time::Duration;
+use mempolicy::ladder::PurgeMode;
 
 /// The tick: the cut re-read (a few relaxed loads and each cache's cap) and the expired purge.
 pub const TICK_MS: u64 = 50;
@@ -146,7 +146,12 @@ pub fn mode_counts() -> (u64, u64, u64, u64) {
         since => mcx::ladder_stats::clock_ns().saturating_sub(since),
     };
     let entries = |i: usize| MODE_ENTRIES[i].load(Relaxed);
-    ((MODE_NS.load(Relaxed) + open) / 1_000_000, entries(0), entries(1), entries(2))
+    (
+        (MODE_NS.load(Relaxed) + open) / 1_000_000,
+        entries(0),
+        entries(1),
+        entries(2),
+    )
 }
 
 /// Unpark the purger for its next pass now (no burst, unlike `wake`); a no-op with no purger thread.
@@ -218,7 +223,13 @@ fn pressed_in_mode(mode: &mut PurgeMode) -> bool {
     let asked = ASKED.swap(0, SeqCst);
     let past = pressure();
     let back = mode.on && mcx::ladder::read_now().is_some_and(mcx::ladder::at_take_target);
-    let (pressed, next, cause) = mempolicy::ladder::purge_mode_tick(*mode, past, asked & ASK_NEED != 0, asked & ASK_LET_GO != 0, back);
+    let (pressed, next, cause) = mempolicy::ladder::purge_mode_tick(
+        *mode,
+        past,
+        asked & ASK_NEED != 0,
+        asked & ASK_LET_GO != 0,
+        back,
+    );
     let now = mcx::ladder_stats::clock_ns().max(1);
     if let Some(c) = cause {
         MODE_ENTRIES[c as usize].fetch_add(1, Relaxed);
@@ -232,7 +243,6 @@ fn pressed_in_mode(mode: &mut PurgeMode) -> bool {
     pressed
 }
 
-
 /// Wake the purger now (`mcx::wake_purger` calls it): it applies the cut and purges in a burst. Never waits.
 pub fn wake() {
     WAKE.store(true, Relaxed);
@@ -243,7 +253,13 @@ pub fn wake() {
 
 /// `(cuts that freed bytes, bytes freed, bytes held at the last cut, bursts, purges that purged)`.
 pub fn counts() -> (u64, u64, u64, u64, u64) {
-    (CUTS.load(Relaxed), FREED.load(Relaxed), HELD.load(Relaxed), BURSTS.load(Relaxed), PURGES.load(Relaxed))
+    (
+        CUTS.load(Relaxed),
+        FREED.load(Relaxed),
+        HELD.load(Relaxed),
+        BURSTS.load(Relaxed),
+        PURGES.load(Relaxed),
+    )
 }
 
 /// C4: `(general sweeps, arenas a sweep purged something in)`.
@@ -254,7 +270,12 @@ pub fn general_counts() -> (u64, u64) {
 /// The hold: `(ticks under ladder pressure, bytes purged on them, arenas an idle purge purged something in, bytes the idle
 /// purges purged)`.
 pub fn hold_counts() -> (u64, u64, u64, u64) {
-    (PRESSED.load(Relaxed), PRESSED_BYTES.load(Relaxed), IDLE_PURGES.load(Relaxed), IDLE_BYTES.load(Relaxed))
+    (
+        PRESSED.load(Relaxed),
+        PRESSED_BYTES.load(Relaxed),
+        IDLE_PURGES.load(Relaxed),
+        IDLE_BYTES.load(Relaxed),
+    )
 }
 
 /// Start the purger when the switch is on (memruntime's `start`, once, before any backend). Whether it started.
@@ -265,11 +286,14 @@ pub fn start() -> bool {
     }
     // at the default priority (nice 0): at nice 10 a saturating load starved it past the dead-man stretch (1 s), and an
     // ordinary collect on a query thread purged its arenas instead
-    let spawned = std::thread::Builder::new().name("pg:mempurge".into()).stack_size(STACK).spawn(pagegive::pinned(|| {
-        mcx::set_purge_wake(wake);
-        // unwind-ok: log-then-die
-        let _ = std::panic::catch_unwind(run);
-    }));
+    let spawned = std::thread::Builder::new()
+        .name("pg:mempurge".into())
+        .stack_size(STACK)
+        .spawn(pagegive::pinned(|| {
+            mcx::set_purge_wake(wake);
+            // unwind-ok: log-then-die
+            let _ = std::panic::catch_unwind(run);
+        }));
     match spawned {
         Ok(h) => {
             let _ = THREAD.set(h.thread().clone());
@@ -524,7 +548,11 @@ fn burst_with(io: &dyn Io) -> Burst {
     BURSTS.fetch_add(1, Relaxed);
     io.collect();
     let start = io.now();
-    let mut b = Burst { purges: 0, found: 0, end: BurstEnd::Max };
+    let mut b = Burst {
+        purges: 0,
+        found: 0,
+        end: BurstEnd::Max,
+    };
     let mut idle = 0;
     for i in 0..BURST_MAX {
         if io.now().saturating_sub(start) >= BURST_WINDOW_NS {
@@ -602,7 +630,10 @@ mod tests {
 
     impl Fake {
         fn new(pause_ns: u64) -> Fake {
-            Fake { pause_ns, ..Fake::default() }
+            Fake {
+                pause_ns,
+                ..Fake::default()
+            }
         }
 
         fn log(&self, d: D) {
@@ -618,7 +649,10 @@ mod tests {
     impl Io for Fake {
         fn cut(&self) -> mcx::CacheCut {
             self.log(D::Cut);
-            mcx::CacheCut { freed: self.freed.take(), held: 7 }
+            mcx::CacheCut {
+                freed: self.freed.take(),
+                held: 7,
+            }
         }
         fn purge(&self, force: bool) -> bool {
             self.log(D::Purge(force));
@@ -679,18 +713,58 @@ mod tests {
         let idle = super::BURST_IDLE_END;
         assert_eq!(
             super::step_with(&f, false),
-            Step::Burst(Burst { purges: 2 + idle, found: 2, end: BurstEnd::Dry }),
+            Step::Burst(Burst {
+                purges: 2 + idle,
+                found: 2,
+                end: BurstEnd::Dry
+            }),
             "two purges found pages, then three found none"
         );
-        assert_eq!(f.take(), [D::Cut, D::Collect, P, D::Pause, P, D::Pause, P, D::Pause, P, D::Pause, P]);
+        assert_eq!(
+            f.take(),
+            [
+                D::Cut,
+                D::Collect,
+                P,
+                D::Pause,
+                P,
+                D::Pause,
+                P,
+                D::Pause,
+                P,
+                D::Pause,
+                P
+            ]
+        );
         let (cuts, freed, held, bursts, purges) = super::counts();
-        assert_eq!((cuts - cuts0, freed - freed0, held, bursts - bursts0, purges - purges0), (1, 4 << 20, 7, 1, 2));
-        assert_eq!(super::step_with(&f, false), Step::Quiet(false), "a quiet tick");
-        assert_eq!(f.take(), [D::Cut, D::Purge(false)], "one purge, of the expired ranges only (not forced)");
+        assert_eq!(
+            (
+                cuts - cuts0,
+                freed - freed0,
+                held,
+                bursts - bursts0,
+                purges - purges0
+            ),
+            (1, 4 << 20, 7, 1, 2)
+        );
+        assert_eq!(
+            super::step_with(&f, false),
+            Step::Quiet(false),
+            "a quiet tick"
+        );
+        assert_eq!(
+            f.take(),
+            [D::Cut, D::Purge(false)],
+            "one purge, of the expired ranges only (not forced)"
+        );
         f.finds.set(1);
         assert_eq!(
             super::step_with(&f, true),
-            Step::Burst(Burst { purges: 1 + idle, found: 1, end: BurstEnd::Dry }),
+            Step::Burst(Burst {
+                purges: 1 + idle,
+                found: 1,
+                end: BurstEnd::Dry
+            }),
             "a wake bursts without a cut"
         );
         assert_eq!(super::counts().3 - bursts0, 2);
@@ -705,16 +779,49 @@ mod tests {
         f.finds.set(1_000);
         assert_eq!(
             super::burst_with(&f),
-            Burst { purges: 4, found: 4, end: BurstEnd::Window },
+            Burst {
+                purges: 4,
+                found: 4,
+                end: BurstEnd::Window
+            },
             "purges at 0, 300, 600 and 900 ms; the window closed at 1.2 s"
         );
-        let f = Fake { sweeps: true, ..Fake::new(0) };
+        let f = Fake {
+            sweeps: true,
+            ..Fake::new(0)
+        };
         f.finds.set(1_000);
         let max = super::BURST_MAX;
-        assert_eq!(super::burst_with(&f), Burst { purges: max, found: max, end: BurstEnd::Max });
+        assert_eq!(
+            super::burst_with(&f),
+            Burst {
+                purges: max,
+                found: max,
+                end: BurstEnd::Max
+            }
+        );
         let did = f.take();
-        assert_eq!(did[..12], [D::Collect, P, D::Pause, P, D::Pause, P, D::Pause, P, D::Pause, D::Sweep, P, D::Pause]);
-        assert_eq!(did.iter().filter(|d| **d == D::Sweep).count(), (max / 5) as usize);
+        assert_eq!(
+            did[..12],
+            [
+                D::Collect,
+                P,
+                D::Pause,
+                P,
+                D::Pause,
+                P,
+                D::Pause,
+                P,
+                D::Pause,
+                D::Sweep,
+                P,
+                D::Pause
+            ]
+        );
+        assert_eq!(
+            did.iter().filter(|d| **d == D::Sweep).count(),
+            (max / 5) as usize
+        );
     }
 
     /// A burst ends at its first purge's turn when a pressure tick is asked for (an R6 victim let go under the pressure mode,
@@ -723,24 +830,54 @@ mod tests {
     #[test]
     fn a_burst_ends_at_once_for_a_pressure_tick() {
         let _turn = turn();
-        assert!(super::burst_yields(true, super::ASK_LET_GO, false), "the pressure mode, a let-go asked");
-        assert!(super::burst_yields(false, 0, true), "its own read past the line, mode or not");
-        assert!(!super::burst_yields(false, super::ASK_LET_GO, false), "an ask with the mode off is not a pressure tick");
-        assert!(!super::burst_yields(true, 0, false), "nothing asked, the read under the line: the burst goes on");
+        assert!(
+            super::burst_yields(true, super::ASK_LET_GO, false),
+            "the pressure mode, a let-go asked"
+        );
+        assert!(
+            super::burst_yields(false, 0, true),
+            "its own read past the line, mode or not"
+        );
+        assert!(
+            !super::burst_yields(false, super::ASK_LET_GO, false),
+            "an ask with the mode off is not a pressure tick"
+        );
+        assert!(
+            !super::burst_yields(true, 0, false),
+            "nothing asked, the read under the line: the burst goes on"
+        );
         let yields0 = super::burst_yield_count();
         let f = Fake::new(BURST_PAUSE_NS);
         f.finds.set(1_000);
         f.yield_at.set(1);
-        assert_eq!(super::burst_with(&f), Burst { purges: 0, found: 0, end: BurstEnd::Yield });
-        assert_eq!(f.take(), [D::Collect], "no cache-arena purge before the pressure tick");
+        assert_eq!(
+            super::burst_with(&f),
+            Burst {
+                purges: 0,
+                found: 0,
+                end: BurstEnd::Yield
+            }
+        );
+        assert_eq!(
+            f.take(),
+            [D::Collect],
+            "no cache-arena purge before the pressure tick"
+        );
         assert_eq!(super::burst_yield_count(), yields0 + 1);
-        assert!(super::AGAIN.swap(false, Relaxed), "the next tick does not park");
+        assert!(
+            super::AGAIN.swap(false, Relaxed),
+            "the next tick does not park"
+        );
         let f = Fake::new(BURST_PAUSE_NS);
         f.finds.set(1_000);
         f.yield_at.set(3);
         assert_eq!(
             super::burst_with(&f),
-            Burst { purges: 2, found: 2, end: BurstEnd::Yield },
+            Burst {
+                purges: 2,
+                found: 2,
+                end: BurstEnd::Yield
+            },
             "asked during the burst: it ends at its next turn"
         );
         assert!(super::AGAIN.swap(false, Relaxed));
@@ -750,7 +887,11 @@ mod tests {
         f.finds.set(1_000);
         let (pressed0, bytes0, _, _) = super::hold_counts();
         super::tick_with(&f, true, false, 0, true, true);
-        assert_eq!(f.take(), [D::PressurePurge, D::PassDone, D::Cut], "the pressure purge, its pass, the cut; no burst");
+        assert_eq!(
+            f.take(),
+            [D::PressurePurge, D::PassDone, D::Cut],
+            "the pressure purge, its pass, the cut; no burst"
+        );
         let (pressed, bytes, _, _) = super::hold_counts();
         assert_eq!((pressed - pressed0, bytes - bytes0), (1, 5 << 20));
     }
@@ -773,15 +914,43 @@ mod tests {
     #[test]
     fn the_hold_purges_after_idle_and_pressure_ends_it() {
         let _turn = turn();
-        let ms: Vec<u64> =
-            [None, Some("1"), Some("0"), Some("x"), Some(" 60 "), Some("999999"), Some(" never")].into_iter().map(super::hold_from).collect();
-        assert_eq!(ms, [0, 0, 0, 0, 60_000, super::HOLD_MAX_S * 1000, super::HOLD_NEVER]);
+        let ms: Vec<u64> = [
+            None,
+            Some("1"),
+            Some("0"),
+            Some("x"),
+            Some(" 60 "),
+            Some("999999"),
+            Some(" never"),
+        ]
+        .into_iter()
+        .map(super::hold_from)
+        .collect();
+        assert_eq!(
+            ms,
+            [
+                0,
+                0,
+                0,
+                0,
+                60_000,
+                super::HOLD_MAX_S * 1000,
+                super::HOLD_NEVER
+            ]
+        );
         let f = Fake::new(0);
         let (pressed0, _, idle0, idle_bytes0) = super::hold_counts();
         super::tick_with(&f, false, true, 60_000, true, false);
-        assert_eq!(f.take(), [D::IdlePurge(true, false, 60_000)], "held: the idle purge only");
+        assert_eq!(
+            f.take(),
+            [D::IdlePurge(true, false, 60_000)],
+            "held: the idle purge only"
+        );
         let (pressed, _, idle, idle_bytes) = super::hold_counts();
-        assert_eq!((pressed, idle - idle0, idle_bytes - idle_bytes0), (pressed0, 2, 2 << 20));
+        assert_eq!(
+            (pressed, idle - idle0, idle_bytes - idle_bytes0),
+            (pressed0, 2, 2 << 20)
+        );
         super::tick_with(&f, false, true, 60_000, false, true);
         assert_eq!(f.take(), [D::Sweep], "pressed: today's sweep");
         assert_eq!(super::hold_counts().0, pressed0 + 1);
@@ -789,11 +958,19 @@ mod tests {
         assert_eq!(f.take(), [D::Sweep], "no hold: today's sweep");
         assert_eq!(super::hold_counts().0, pressed0 + 1);
         super::tick_with(&f, false, true, 0, false, true);
-        assert_eq!(f.take(), [D::PressurePurge, D::PassDone, D::Sweep], "no hold, pressed: ladder pressure's purge, then the sweep");
+        assert_eq!(
+            f.take(),
+            [D::PressurePurge, D::PassDone, D::Sweep],
+            "no hold, pressed: ladder pressure's purge, then the sweep"
+        );
         assert_eq!(super::hold_counts().0, pressed0 + 2, "and counted");
         f.freed.set(4 << 20);
         f.finds.set(1_000);
         super::tick_with(&f, true, false, 60_000, true, false);
-        assert_eq!(f.take(), [D::Cut, D::IdlePurge(false, true, 60_000)], "held with the cache's switch: the cut, no burst");
+        assert_eq!(
+            f.take(),
+            [D::Cut, D::IdlePurge(false, true, 60_000)],
+            "held with the cache's switch: the cut, no burst"
+        );
     }
 }

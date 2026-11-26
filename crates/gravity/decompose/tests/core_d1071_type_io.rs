@@ -54,7 +54,10 @@ impl Facts for Io<'_> {
     fn att_generated(&self, relid: u32, attno: i16) -> u8 {
         self.fx.att_generated(relid, attno)
     }
-    fn key(&self, req: gravity_decompose::catalog::KeyReq) -> Option<gravity_decompose::catalog::KeyOrder> {
+    fn key(
+        &self,
+        req: gravity_decompose::catalog::KeyReq,
+    ) -> Option<gravity_decompose::catalog::KeyOrder> {
         self.fx.key(req)
     }
     fn op_image_eq(&self, opno: u32) -> Option<(u32, u32)> {
@@ -66,19 +69,37 @@ impl Facts for Io<'_> {
     fn trig_ext(&self, relid: u32) -> gravity_decompose::ops::modifytable::trig_facts::TrigExt {
         self.fx.trig_ext(relid)
     }
-    fn partition_leaves(&self, root: u32, f: &mut dyn FnMut(gravity_decompose::catalog::LeafFact)) -> bool {
+    fn partition_leaves(
+        &self,
+        root: u32,
+        f: &mut dyn FnMut(gravity_decompose::catalog::LeafFact),
+    ) -> bool {
         self.fx.partition_leaves(root, f)
     }
     fn index_expr(&self, indexid: u32, col: u8) -> Option<gravity_decompose::ExprFp> {
         self.fx.index_expr(indexid, col)
     }
     fn type_io(&self, typid: u32) -> Option<(u32, u32)> {
-        if typid == LOCKMODES { self.io } else { self.fx.type_io(typid) }
+        if typid == LOCKMODES {
+            self.io
+        } else {
+            self.fx.type_io(typid)
+        }
     }
     fn func(&self, funcid: u32) -> Option<FuncProps> {
         match funcid {
-            f if Some(f) == self.volatile => Some(FuncProps { volatility: Volatility::Volatile, strict: true, leakproof: false, parallel: gravity_decompose::effects::Parallel::Unsafe }),
-            USER_IN | USER_OUT => Some(FuncProps { volatility: Volatility::Immutable, strict: true, leakproof: false, parallel: gravity_decompose::effects::Parallel::Unsafe }),
+            f if Some(f) == self.volatile => Some(FuncProps {
+                volatility: Volatility::Volatile,
+                strict: true,
+                leakproof: false,
+                parallel: gravity_decompose::effects::Parallel::Unsafe,
+            }),
+            USER_IN | USER_OUT => Some(FuncProps {
+                volatility: Volatility::Immutable,
+                strict: true,
+                leakproof: false,
+                parallel: gravity_decompose::effects::Parallel::Unsafe,
+            }),
             f => self.fx.func(f),
         }
     }
@@ -86,25 +107,44 @@ impl Facts for Io<'_> {
 
 /// Whether alter_table-034's sorted group streams under `io` (lockmodes's I/O functions) and `volatile`.
 fn streams(io: Option<(u32, u32)>, volatile: Option<u32>) -> bool {
-    let text = fs::read_to_string(harness::plans_root().join("regress-full/alter_table-034.plan")).unwrap();
-    assert!(text.contains(&format!(":resulttype {LOCKMODES}")), "the fixture casts to lockmodes ({LOCKMODES})");
+    let text = fs::read_to_string(harness::plans_root().join("regress-full/alter_table-034.plan"))
+        .unwrap();
+    assert!(
+        text.contains(&format!(":resulttype {LOCKMODES}")),
+        "the fixture casts to lockmodes ({LOCKMODES})"
+    );
     let ctx = MemoryContext::new("fixture");
     let fx = corpus::load(ctx.mcx(), &text).unwrap();
     let arena = Arena::new(1 << 20);
-    let facts = Io { fx: &fx.facts, io, volatile };
+    let facts = Io {
+        fx: &fx.facts,
+        io,
+        volatile,
+    };
     let g = decompose_in(arena.handle(), fx.stmt, &facts, fx.mcx).unwrap_or_else(|e| panic!("{e}"));
-    g.pipelines.iter().any(|p| p.ops.iter().any(|op| matches!(op, Op::GroupRun(_))))
+    g.pipelines
+        .iter()
+        .any(|p| p.ops.iter().any(|op| matches!(op, Op::GroupRun(_))))
 }
 
 #[test]
 fn d1071_an_enum_cast_is_stable_and_keeps_the_keyed_form() {
-    assert!(!streams(Some(ENUM_IO), None), "enum_in / enum_out are STABLE: max(mode::lockmodes) calls nothing VOLATILE");
+    assert!(
+        !streams(Some(ENUM_IO), None),
+        "enum_in / enum_out are STABLE: max(mode::lockmodes) calls nothing VOLATILE"
+    );
 }
 
 #[test]
 fn d1071_a_user_type_whose_input_function_is_volatile_streams() {
-    assert!(streams(Some((USER_IN, USER_OUT)), Some(USER_IN)), "a VOLATILE typinput makes the cast VOLATILE");
-    assert!(!streams(Some((USER_IN, USER_OUT)), None), "the same type with IMMUTABLE I/O functions calls nothing VOLATILE");
+    assert!(
+        streams(Some((USER_IN, USER_OUT)), Some(USER_IN)),
+        "a VOLATILE typinput makes the cast VOLATILE"
+    );
+    assert!(
+        !streams(Some((USER_IN, USER_OUT)), None),
+        "the same type with IMMUTABLE I/O functions calls nothing VOLATILE"
+    );
 }
 
 #[test]

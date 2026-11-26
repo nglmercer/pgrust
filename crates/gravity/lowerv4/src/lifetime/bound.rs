@@ -25,7 +25,8 @@ pub(crate) const BIND_ONCE: &str = "bound-at: a value bound once at bind that PG
 /// A word evaluated at its pipeline's first open only where PG evaluates it at every rescan.
 pub(crate) const OPEN_ONCE: &str = "bound-at: a value evaluated at its walk's first open only that PG evaluates at every rescan of a re-opened walk, where an evaluation shows (C4)";
 /// A plan-time word that is no constant.
-pub(crate) const PLAN_NOT_CONST: &str = "bound-at: a plan-time word over a value that is no constant (C4)";
+pub(crate) const PLAN_NOT_CONST: &str =
+    "bound-at: a plan-time word over a value that is no constant (C4)";
 
 /// D1630: value `v` is a bind-time expression word (lower words.rs `key_word`'s `Expr` / `Late`): no constant, parameter
 /// or executor parameter's.
@@ -40,7 +41,10 @@ fn embedded(px: &Px<'_, '_>) -> bool {
 
 /// Pipeline `k` is a member of a rerun set (run again at each of its owner's re-opens).
 fn member(gx: &Gx<'_, '_>, k: usize) -> bool {
-    gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(k as u16)))
+    gx.graph
+        .reruns
+        .iter()
+        .any(|r| r.pipelines.contains(&(k as u16)))
 }
 
 /// D1016 / D1630: value `v` is the host's at every (re-)open of its walk: computed from executor parameters
@@ -69,10 +73,15 @@ fn beside_host(px: &Px<'_, '_>, v: Node<'_>) -> bool {
     if !at_bind(v) || k >= gx.pipelines().len() || !member(gx, k) {
         return false;
     }
-    let gravity_decompose::graph::Source::Index { keys, .. } = &gx.pipelines()[k].source else { return false };
+    let gravity_decompose::graph::Source::Index { keys, .. } = &gx.pipelines()[k].source else {
+        return false;
+    };
     keys.iter().any(|key| match key.form {
         KeyForm::Null | KeyForm::NotNull => false,
-        KeyForm::Row => key.value.as_row_compare_expr().is_some_and(|rc| rc.rargs.iter().any(crate::rerun::params_key::computed)),
+        KeyForm::Row => key
+            .value
+            .as_row_compare_expr()
+            .is_some_and(|rc| rc.rargs.iter().any(crate::rerun::params_key::computed)),
         _ => crate::rerun::params_key::computed(key.value),
     })
 }
@@ -98,21 +107,31 @@ fn first_fetch(px: &Px<'_, '_>, v: Node<'_>) -> bool {
         return false;
     }
     let p = &gx.pipelines()[k];
-    let gravity_decompose::graph::Source::Index { keys, .. } = &p.source else { return false };
-    if p.ops.iter().any(|op| matches!(op, Op::Join(JoinDesc::Probe { .. }))) && !crate::ops::hashjoin::probe_calls::seek_orders(gx, k) {
+    let gravity_decompose::graph::Source::Index { keys, .. } = &p.source else {
+        return false;
+    };
+    if p.ops
+        .iter()
+        .any(|op| matches!(op, Op::Join(JoinDesc::Probe { .. })))
+        && !crate::ops::hashjoin::probe_calls::seek_orders(gx, k)
+    {
         return false;
     }
     let mcx = px.mcx();
     let vals = || {
-        keys.iter().flat_map(|key| {
-            match key.form {
-                gravity_decompose::graph::KeyForm::Null | gravity_decompose::graph::KeyForm::NotNull => mcx::PgVec::new_in(mcx),
-                gravity_decompose::graph::KeyForm::Row => key.value.as_row_compare_expr().map_or_else(|| mcx::PgVec::new_in(mcx), |rc| rc.rargs.iter().collect_in(mcx)),
-                _ => mcx::pg_vec![in mcx; key.value],
-            }
+        keys.iter().flat_map(|key| match key.form {
+            gravity_decompose::graph::KeyForm::Null
+            | gravity_decompose::graph::KeyForm::NotNull => mcx::PgVec::new_in(mcx),
+            gravity_decompose::graph::KeyForm::Row => key.value.as_row_compare_expr().map_or_else(
+                || mcx::PgVec::new_in(mcx),
+                |rc| rc.rargs.iter().collect_in(mcx),
+            ),
+            _ => mcx::pg_vec![in mcx; key.value],
         })
     };
-    if vals().any(|x| gravity_lower::rerun::words::has_exec(x) || gravity_decompose::expr::has_subplan(x)) {
+    if vals().any(|x| {
+        gravity_lower::rerun::words::has_exec(x) || gravity_decompose::expr::has_subplan(x)
+    }) {
         return false;
     }
     vals().any(|x| at_bind(x) && !crate::effects::expr_quiet(gx, x))
@@ -131,7 +150,8 @@ pub fn reopened(px: &Px<'_, '_>, k: usize) -> bool {
 /// PostgreSQL's recompute_limits evaluates at each rescan and never for a run it skips: it is read per open
 /// (rerun/params_bound.rs `admit`).
 pub fn rebinds(gx: &Gx<'_, '_>, k: usize, b: &Bound<'_>) -> bool {
-    matches!(*b, Bound::Expr(e) if e.as_const().is_none() && e.as_param().is_none()) && member(gx, k)
+    matches!(*b, Bound::Expr(e) if e.as_const().is_none() && e.as_param().is_none())
+        && member(gx, k)
 }
 
 /// D3538 (Workers IO sig-f7bd0180c7c1): pipeline `p` is a rerun set's member that may run as a section (a nested member
@@ -198,12 +218,19 @@ pub(crate) fn declare(px: &Px<'_, '_>, feed: Feed, k: usize, v: Node<'_>, node: 
 /// over no executor parameter that raises nothing and calls no user or VOLATILE code (effects.rs `expr_quiet`); at the
 /// walk's first open, one over no executor parameter that calls no user or VOLATILE code (PG raises at its first rescan
 /// too).
-pub(crate) fn mismatch(px: &Px<'_, '_>, feed: Feed, k: usize, v: Node<'_>, at: BoundAt) -> Option<&'static str> {
+pub(crate) fn mismatch(
+    px: &Px<'_, '_>,
+    feed: Feed,
+    k: usize,
+    v: Node<'_>,
+    at: BoundAt,
+) -> Option<&'static str> {
     if at.rank() >= feed.pg().rank() || !reopened(px, k) {
         return None;
     }
     let gx = px.gx;
-    let reads = || gravity_lower::rerun::words::has_exec(v) || crate::effects::user_or_volatile(gx, v);
+    let reads =
+        || gravity_lower::rerun::words::has_exec(v) || crate::effects::user_or_volatile(gx, v);
     match at {
         BoundAt::Plan => v.as_const().is_none().then_some(PLAN_NOT_CONST),
         BoundAt::Bind => (reads() || !crate::effects::expr_quiet(gx, v)).then_some(BIND_ONCE),
@@ -226,7 +253,14 @@ pub(crate) enum KeyAt {
 /// An index, index-only, AM or bitmap key's value `v` feeding `feed` in pipeline `k` (plan node `node`): the host's at
 /// every seek when `per_open` (its parameters into `ids`), else a word bound when the pipeline reading it starts (D899:
 /// PostgreSQL's runtime key at its scan's first pull, `late`) or an executor parameter's cell.
-pub(crate) fn index_key<'p>(px: &mut Px<'_, 'p>, feed: Feed, k: usize, v: Node<'p>, node: i32, ids: &mut mcx::PgVec<'_, i32>) -> KeyAt {
+pub(crate) fn index_key<'p>(
+    px: &mut Px<'_, 'p>,
+    feed: Feed,
+    k: usize,
+    v: Node<'p>,
+    node: i32,
+    ids: &mut mcx::PgVec<'_, i32>,
+) -> KeyAt {
     if per_open(px, v) {
         declare(px, feed, k, v, node, BoundAt::Rescan);
         return KeyAt::Host(crate::rerun::params_key::computed_key(node, v, ids));

@@ -13,7 +13,11 @@ pub struct Worker<'a> {
 
 impl<'a> Worker<'a> {
     pub fn new(open: &'a Open<'a>, ordinal: u16, abort: &'a AtomicU8) -> Worker<'a> {
-        Worker { open, ordinal, abort }
+        Worker {
+            open,
+            ordinal,
+            abort,
+        }
     }
 
     pub fn ordinal(&self) -> u16 {

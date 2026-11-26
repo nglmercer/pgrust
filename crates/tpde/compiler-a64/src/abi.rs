@@ -18,8 +18,13 @@ pub const RESERVED_REGS: u64 = (1 << 31)
     | (1 << 29)
     | (1 << 16)
     | (1 << 17)
-    | if cfg!(target_os = "macos") { 1 << 18 } else { 0 };
-pub const AAPCS_INFO: CCInfo = CCInfo::new( !RESERVED_REGS,
+    | if cfg!(target_os = "macos") {
+        1 << 18
+    } else {
+        0
+    };
+pub const AAPCS_INFO: CCInfo = CCInfo::new(
+    !RESERVED_REGS,
     (0x3ff << 19) | (0xff << 40),
     0x1ff | (0xff << 32),
 );
@@ -148,7 +153,10 @@ mod tests {
     fn aapcs_masks_exclude_reserved_and_preserve_only_declared_registers() {
         let excluded = !AAPCS_INFO.allocatable_regs();
         assert_eq!(excluded, RESERVED_REGS);
-        assert_eq!(RESERVED_REGS & !(1 << 18), (1 << 16) | (1 << 17) | (1 << 29) | (1 << 31));
+        assert_eq!(
+            RESERVED_REGS & !(1 << 18),
+            (1 << 16) | (1 << 17) | (1 << 29) | (1 << 31)
+        );
         assert_eq!(RESERVED_REGS & (1 << 18) != 0, cfg!(target_os = "macos"));
         assert_eq!(AAPCS_INFO.callee_saved_regs().count_ones(), 18);
         assert_eq!(AAPCS_INFO.arg_regs().count_ones(), 17);

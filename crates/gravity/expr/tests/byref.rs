@@ -30,7 +30,11 @@ fn build_for(typlens: &[i16]) -> (gravity_ir::Program, gravity_ir::Func) {
             let value: Value = b.load(Type::I64, frame, 24 + 16 * k as i32);
             let valid_w = b.load(Type::I64, frame, 32 + 16 * k as i32);
             let valid = b.icmp(gravity_ir::IntCond::Ne, valid_w, zero);
-            ByRef { value, valid, typlen }
+            ByRef {
+                value,
+                valid,
+                typlen,
+            }
         })
         .collect();
     let (sizes, total) = byref::sizes(&mut b, &cols);
@@ -75,18 +79,31 @@ fn images() -> Vec<Option<Vec<u8>>> {
 fn run(code: gravity_program::Code, region_cap: usize) -> (i64, Vec<u64>, Vec<u8>, Vec<u8>, i64) {
     let imgs = images();
     // each image in its own 8-aligned chunk (the word copy over-reads at most 7 bytes)
-    let chunks: Vec<Vec<u64>> = imgs.iter().map(|i| vec![0u64; i.as_ref().map_or(1, |v| v.len().div_ceil(8) + 1)]).collect();
+    let chunks: Vec<Vec<u64>> = imgs
+        .iter()
+        .map(|i| vec![0u64; i.as_ref().map_or(1, |v| v.len().div_ceil(8) + 1)])
+        .collect();
     let mut chunks = chunks;
     for (c, i) in chunks.iter_mut().zip(imgs.iter()) {
         if let Some(v) = i {
-            unsafe { core::ptr::copy_nonoverlapping(v.as_ptr(), c.as_mut_ptr() as *mut u8, v.len()) };
+            unsafe {
+                core::ptr::copy_nonoverlapping(v.as_ptr(), c.as_mut_ptr() as *mut u8, v.len())
+            };
         }
     }
     let n = COLS.len();
     let mut vals = vec![0u64; n];
     let mut nulls = vec![0xEEu8; n];
     let mut region = vec![0u8; region_cap.max(1)];
-    let mut o = Out { values: vals.as_mut_ptr(), isnull: nulls.as_mut_ptr(), count: 0, cap: 64, region: region.as_mut_ptr(), region_cap: region_cap as i64, region_len: 0 };
+    let mut o = Out {
+        values: vals.as_mut_ptr(),
+        isnull: nulls.as_mut_ptr(),
+        count: 0,
+        cap: 64,
+        region: region.as_mut_ptr(),
+        region_cap: region_cap as i64,
+        region_len: 0,
+    };
     let mut frame = vec![0u64; 3 + 2 * n];
     frame[0] = &mut o as *mut Out as u64;
     frame[1] = vals.as_mut_ptr() as u64;
@@ -133,13 +150,20 @@ fn the_images_are_copied_into_the_region_and_the_datums_point_at_the_copies() {
 #[test]
 fn a_row_that_does_not_fit_is_reported_before_any_store_and_an_oversize_row_by_name() {
     let (ir, f) = build();
-    for code in [gravity_backend::mapped(&ir, f).unwrap(), gravity_backend::interp(ir.clone(), f).unwrap()] {
+    for code in [
+        gravity_backend::mapped(&ir, f).unwrap(),
+        gravity_backend::interp(ir.clone(), f).unwrap(),
+    ] {
         let (r, _, nulls, _, len) = run(code, 8 + 304 + 24 + 16 + 8);
         assert_eq!((r, len), (0, 352));
         assert_eq!(nulls[0], 0);
     }
     let (r, _, nulls, _, len) = run(gravity_backend::interp(ir, f).unwrap(), 351);
-    assert_eq!((r, len), (2, 0), "352 bytes exceed a 351-byte region: refused by name, nothing stored");
+    assert_eq!(
+        (r, len),
+        (2, 0),
+        "352 bytes exceed a 351-byte region: refused by name, nothing stored"
+    );
     assert_eq!(nulls[0], 0xEE, "no null byte written");
 }
 
@@ -150,23 +174,43 @@ fn a_full_block_refuses_by_name_only_past_the_whole_region() {
     let (r, _, _, _, len) = run(gravity_backend::interp(ir.clone(), f).unwrap(), 600);
     assert_eq!((r, len), (0, 352));
     let (r, _, _, _, len) = run_twice(gravity_backend::interp(ir, f).unwrap(), 600);
-    assert_eq!((r, len), (1, 352), "the second row does not fit behind the first: the block is to be pushed");
+    assert_eq!(
+        (r, len),
+        (1, 352),
+        "the second row does not fit behind the first: the block is to be pushed"
+    );
 }
 
 /// The row emitted once, then the same row again into the same block.
-fn run_twice(code: gravity_program::Code, region_cap: usize) -> (i64, Vec<u64>, Vec<u8>, Vec<u8>, i64) {
+fn run_twice(
+    code: gravity_program::Code,
+    region_cap: usize,
+) -> (i64, Vec<u64>, Vec<u8>, Vec<u8>, i64) {
     let imgs = images();
-    let mut chunks: Vec<Vec<u64>> = imgs.iter().map(|i| vec![0u64; i.as_ref().map_or(1, |v| v.len().div_ceil(8) + 1)]).collect();
+    let mut chunks: Vec<Vec<u64>> = imgs
+        .iter()
+        .map(|i| vec![0u64; i.as_ref().map_or(1, |v| v.len().div_ceil(8) + 1)])
+        .collect();
     for (c, i) in chunks.iter_mut().zip(imgs.iter()) {
         if let Some(v) = i {
-            unsafe { core::ptr::copy_nonoverlapping(v.as_ptr(), c.as_mut_ptr() as *mut u8, v.len()) };
+            unsafe {
+                core::ptr::copy_nonoverlapping(v.as_ptr(), c.as_mut_ptr() as *mut u8, v.len())
+            };
         }
     }
     let n = COLS.len();
     let mut vals = vec![0u64; 2 * n];
     let mut nulls = vec![0xEEu8; 2 * n];
     let mut region = vec![0u8; region_cap];
-    let mut o = Out { values: vals.as_mut_ptr(), isnull: nulls.as_mut_ptr(), count: 0, cap: 64, region: region.as_mut_ptr(), region_cap: region_cap as i64, region_len: 0 };
+    let mut o = Out {
+        values: vals.as_mut_ptr(),
+        isnull: nulls.as_mut_ptr(),
+        count: 0,
+        cap: 64,
+        region: region.as_mut_ptr(),
+        region_cap: region_cap as i64,
+        region_len: 0,
+    };
     let mut frame = vec![0u64; 3 + 2 * n];
     frame[0] = &mut o as *mut Out as u64;
     for k in 0..n {
@@ -199,7 +243,11 @@ fn an_image_ending_its_mapping_is_copied_without_reading_past_it() {
     // SAFETY: a private anonymous two-page mapping, the second page made inaccessible; unmapped below.
     let (base, page) = unsafe {
         let page = getpagesize() as usize;
-        let map_anon = if cfg!(target_os = "macos") { 0x1000 } else { 0x20 };
+        let map_anon = if cfg!(target_os = "macos") {
+            0x1000
+        } else {
+            0x20
+        };
         let base = mmap(core::ptr::null_mut(), 2 * page, 3, 0x02 | map_anon, -1, 0);
         assert!(!base.is_null() && base as isize != -1, "mmap");
         assert_eq!(mprotect(base.add(page), page, 0), 0, "mprotect");
@@ -221,7 +269,10 @@ fn an_image_ending_its_mapping_is_copied_without_reading_past_it() {
     }
     for typlen in [-1i16, 6, 12, 16] {
         let (ir, f) = build_for(&[typlen]);
-        let codes = [("tpde", gravity_backend::mapped(&ir, f).unwrap()), ("interp", gravity_backend::interp(ir, f).unwrap())];
+        let codes = [
+            ("tpde", gravity_backend::mapped(&ir, f).unwrap()),
+            ("interp", gravity_backend::interp(ir, f).unwrap()),
+        ];
         for (_, img) in cases.iter().filter(|(t, _)| *t == typlen) {
             // SAFETY: the image's bytes end at the first page's last byte.
             let at = unsafe {
@@ -233,16 +284,37 @@ fn an_image_ending_its_mapping_is_copied_without_reading_past_it() {
                 let mut vals = [0u64; 1];
                 let mut nulls = [0xEEu8; 1];
                 let mut region = vec![0xEEu8; 64];
-                let mut o = Out { values: vals.as_mut_ptr(), isnull: nulls.as_mut_ptr(), count: 0, cap: 64, region: region.as_mut_ptr(), region_cap: 64, region_len: 0 };
-                let mut frame = [&mut o as *mut Out as u64, vals.as_mut_ptr() as u64, nulls.as_mut_ptr() as u64, at as u64, 1];
+                let mut o = Out {
+                    values: vals.as_mut_ptr(),
+                    isnull: nulls.as_mut_ptr(),
+                    count: 0,
+                    cap: 64,
+                    region: region.as_mut_ptr(),
+                    region_cap: 64,
+                    region_len: 0,
+                };
+                let mut frame = [
+                    &mut o as *mut Out as u64,
+                    vals.as_mut_ptr() as u64,
+                    nulls.as_mut_ptr() as u64,
+                    at as u64,
+                    1,
+                ];
                 // SAFETY: the frame's pointers are live for the call; the region is 64 bytes, the image at most 40.
                 let r = unsafe { code.call(frame.as_mut_ptr().cast()) };
                 let size = img.len().next_multiple_of(8);
                 let what = format!("{arm} typlen {typlen} len {}", img.len());
                 assert_eq!((r, o.region_len, nulls[0]), (0, size as i64, 0), "{what}");
-                assert_eq!(vals[0], region.as_ptr() as u64, "{what}: the datum is the copy");
+                assert_eq!(
+                    vals[0],
+                    region.as_ptr() as u64,
+                    "{what}: the datum is the copy"
+                );
                 assert_eq!(&region[..img.len()], &img[..], "{what}: the image");
-                assert!(region[img.len()..size].iter().all(|&b| b == 0), "{what}: the last word's bytes above the image are zero");
+                assert!(
+                    region[img.len()..size].iter().all(|&b| b == 0),
+                    "{what}: the last word's bytes above the image are zero"
+                );
             }
         }
     }

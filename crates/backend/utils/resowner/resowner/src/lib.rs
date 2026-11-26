@@ -275,7 +275,12 @@ pub fn session_mem_teardown() {
     STANDING_OWNER.with(|c| c.set(ResourceOwner::NULL));
     // D4682: every handle into the dropped arena is stale; a reused backend thread's next session starts with
     // no owner, as a new thread does (a stale CURRENT_OWNER hit bad_owner in its first catalog lock).
-    for cell in [&CURRENT_OWNER, &CUR_TRANSACTION_OWNER, &TOP_TRANSACTION_OWNER, &AUX_PROCESS_OWNER] {
+    for cell in [
+        &CURRENT_OWNER,
+        &CUR_TRANSACTION_OWNER,
+        &TOP_TRANSACTION_OWNER,
+        &AUX_PROCESS_OWNER,
+    ] {
         cell.with(|c| c.set(ResourceOwner::NULL));
     }
 }
@@ -485,7 +490,11 @@ fn resource_owner_release_all(
             debug_assert!(d.releasing);
             debug_assert!(d.sorted);
             let in_hash = d.nhash != 0;
-            let mut nitems = if in_hash { d.nhash as usize } else { d.narr as usize };
+            let mut nitems = if in_hash {
+                d.nhash as usize
+            } else {
+                d.narr as usize
+            };
             let mut n = 0;
             while nitems > 0 && n < CHUNK {
                 let elem = if in_hash {
@@ -671,7 +680,7 @@ pub fn ResourceOwnerRelease(
 fn reassign_or_release_owner_locks(owner: ResourceOwner, is_commit: bool) -> PgResult<()> {
     let cached = with_arena(|a| {
         let d = a.data(owner);
-        (d.nlocks <= MAX_RESOWNER_LOCKS).then_some( (d.locks, d.nlocks as usize))
+        (d.nlocks <= MAX_RESOWNER_LOCKS).then_some((d.locks, d.nlocks as usize))
     });
     let locallocks = cached.as_ref().map(|(locks, n)| &locks[..*n]);
     if is_commit {
@@ -742,11 +751,7 @@ fn resource_owner_release_internal(
             return None;
         }
         let d = a.data_mut(owner);
-        if d.firstchild.is_null()
-            && d.narr == 0
-            && d.nhash == 0
-            && d.aio_handles.is_empty()
-        {
+        if d.firstchild.is_null() && d.narr == 0 && d.nhash == 0 && d.aio_handles.is_empty() {
             // The phase bookkeeping the slow path would have done (sorting
             // zero items is a flag store).
             d.releasing = true;

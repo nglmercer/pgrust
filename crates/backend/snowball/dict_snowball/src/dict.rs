@@ -145,10 +145,7 @@ pub struct DictSnowball {
 }
 
 fn eq_strcasecmp(a: &str, b: &[u8]) -> bool {
-    a.len() == b.len()
-        && a.bytes()
-            .zip(b)
-            .all(|(x, &y)| x.eq_ignore_ascii_case(& y))
+    a.len() == b.len() && a.bytes().zip(b).all(|(x, &y)| x.eq_ignore_ascii_case(&y))
 }
 
 pub(crate) struct Located {
@@ -181,22 +178,38 @@ pub(crate) fn locate_stem_module(lang: &[u8]) -> PgResult<Located> {
         if (m.enc == PG_SQL_ASCII || m.enc == db_enc) && eq_strcasecmp(m.name, lang) {
             // SAFETY: generated stemmer constructor allocating via crate::mem.
             let z = unsafe { (m.create)() };
-            return Ok(Located { z, stem: m.stem, close: m.close, needrecode: false });
+            return Ok(Located {
+                z,
+                stem: m.stem,
+                close: m.close,
+                needrecode: false,
+            });
         }
     }
     for m in STEMMER_MODULES {
         if m.enc == PG_UTF8 && eq_strcasecmp(m.name, lang) {
             // SAFETY: as above.
             let z = unsafe { (m.create)() };
-            return Ok(Located { z, stem: m.stem, close: m.close, needrecode: true });
+            return Ok(Located {
+                z,
+                stem: m.stem,
+                close: m.close,
+                needrecode: true,
+            });
         }
     }
     let mut msg = b"no Snowball stemmer available for language \"".to_vec();
     msg.extend_from_slice(lang);
     msg.extend_from_slice(
-        format!("\" and encoding \"{}\"", ::mbutils::GetDatabaseEncodingName()).as_bytes(),
+        format!(
+            "\" and encoding \"{}\"",
+            ::mbutils::GetDatabaseEncodingName()
+        )
+        .as_bytes(),
     );
-    Err(PgError::error_raw_message(msg).with_sqlstate(ERRCODE_UNDEFINED_OBJECT).into())
+    Err(PgError::error_raw_message(msg)
+        .with_sqlstate(ERRCODE_UNDEFINED_OBJECT)
+        .into())
 }
 
 fn invalid_param(msg: &str) -> PgError {
@@ -236,7 +249,9 @@ pub fn dsnowball_init(init: &DictInitData<'static>) -> PgResult<DictSnowball> {
         z: core::mem::replace(&mut located.z, core::ptr::null_mut()),
         stem: located.stem,
         close: located.close,
-        stoplist: stoplist.unwrap_or(StopList { stop: PgVec::new_in(mcx) }),
+        stoplist: stoplist.unwrap_or(StopList {
+            stop: PgVec::new_in(mcx),
+        }),
         needrecode: located.needrecode,
     })
 }
@@ -283,7 +298,9 @@ pub fn dsnowball_lexize<'mcx>(
         let n = out_l as usize;
         let mut stemmed: PgVec<'mcx, u8> = PgVec::new_in(mcx);
         // SAFETY: the stemmer leaves z->l valid bytes at z->p.
-        ::mcx::vec_append_bytes(&mut stemmed, unsafe { core::slice::from_raw_parts(out_p, n) })?;
+        ::mcx::vec_append_bytes(&mut stemmed, unsafe {
+            core::slice::from_raw_parts(out_p, n)
+        })?;
         txt = stemmed;
     }
 
@@ -300,6 +317,10 @@ fn one_lexeme<'mcx>(mcx: Mcx<'mcx>, lexeme: PgVec<'mcx, u8>) -> PgResult<LexizeR
     let mut out: PgVec<'mcx, TsLexeme<'mcx>> = PgVec::new_in(mcx);
     out.try_reserve(1)
         .map_err(|_| mcx.oom(core::mem::size_of::<TsLexeme>()))?;
-    out.push(TsLexeme { nvariant: 0, flags: 0, lexeme });
+    out.push(TsLexeme {
+        nvariant: 0,
+        flags: 0,
+        lexeme,
+    });
     Ok(LexizeResult(out))
 }

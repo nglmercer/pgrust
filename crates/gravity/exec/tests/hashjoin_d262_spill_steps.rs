@@ -16,7 +16,13 @@ struct Ran {
 }
 
 fn breaker(kind: BreakerKind, slot: u8) -> End {
-    End::Breaker(Breaker { kind, slot, bytes: 0, budget: Budget::Share, spill: Spill::Partitioned { bits: 3 } })
+    End::Breaker(Breaker {
+        kind,
+        slot,
+        bytes: 0,
+        budget: Budget::Share,
+        spill: Spill::Partitioned { bits: 3 },
+    })
 }
 
 /// A producer ending in `kind` at slot 0, a pipeline over slot 0's spill partitions (when `read`), and the sink.
@@ -30,13 +36,27 @@ fn pipes(kind: BreakerKind, read: bool) -> Vec<Pipeline> {
 
 /// The steps after pipeline 0 with a v4 protocol that acts (`Some(Ok)`, as TwoPass / Marks / RtFilter do after the producer
 /// they read): the totals set, and the result.
-fn after(pipes: &[Pipeline], parts: u32, acts: Option<Result<(), Error>>) -> (Vec<(u8, u64)>, Option<Result<(), Error>>, bool) {
-    let mut ran = Ran { parts: [parts, 0, 0, 0], v4: Cell::new(false) };
+fn after(
+    pipes: &[Pipeline],
+    parts: u32,
+    acts: Option<Result<(), Error>>,
+) -> (Vec<(u8, u64)>, Option<Result<(), Error>>, bool) {
+    let mut ran = Ran {
+        parts: [parts, 0, 0, 0],
+        v4: Cell::new(false),
+    };
     let mut totals = Vec::new();
-    let r = producer_ran(pipes, 0, &mut ran, |e: &Ran, s| e.parts[s as usize], &mut |s, n| totals.push((s, n)), |e: &mut Ran| {
-        e.v4.set(true);
-        acts
-    });
+    let r = producer_ran(
+        pipes,
+        0,
+        &mut ran,
+        |e: &Ran, s| e.parts[s as usize],
+        &mut |s, n| totals.push((s, n)),
+        |e: &mut Ran| {
+            e.v4.set(true);
+            acts
+        },
+    );
     (totals, r, ran.v4.get())
 }
 
@@ -44,8 +64,15 @@ fn after(pipes: &[Pipeline], parts: u32, acts: Option<Result<(), Error>>) -> (Ve
 fn a_spilled_build_a_protocol_reads_still_hands_its_partition_phase_the_claim_total() {
     for kind in [BreakerKind::HashBuild, BreakerKind::HashAgg] {
         let (totals, r, v4) = after(&pipes(kind, true), 8, Some(Ok(())));
-        assert_eq!(totals, vec![(0, 8)], "{kind:?}: the partition phase's total before the protocol acted");
-        assert!(matches!(r, Some(Ok(()))) && v4, "{kind:?}: the protocol ran and acted");
+        assert_eq!(
+            totals,
+            vec![(0, 8)],
+            "{kind:?}: the partition phase's total before the protocol acted"
+        );
+        assert!(
+            matches!(r, Some(Ok(()))) && v4,
+            "{kind:?}: the protocol ran and acted"
+        );
     }
 }
 
@@ -64,7 +91,17 @@ fn an_unspilled_producer_runs_the_protocols_and_a_silent_one_leaves_the_shape_st
     let (totals, r, v4) = after(&pipes(BreakerKind::HashBuild, false), 0, Some(Ok(())));
     assert!(totals == vec![(0, 0)] && matches!(r, Some(Ok(()))) && v4);
     let (_, r, v4) = after(&pipes(BreakerKind::HashAgg, true), 0, None);
-    assert!(r.is_none() && v4, "no protocol acted: the shape table's steps run");
-    let (_, r, _) = after(&pipes(BreakerKind::HashAgg, true), 8, Some(Err(Error::host("pass 1 spilled"))));
-    assert!(matches!(r, Some(Err(Error::Host(_)))), "a protocol's error is the result");
+    assert!(
+        r.is_none() && v4,
+        "no protocol acted: the shape table's steps run"
+    );
+    let (_, r, _) = after(
+        &pipes(BreakerKind::HashAgg, true),
+        8,
+        Some(Err(Error::host("pass 1 spilled"))),
+    );
+    assert!(
+        matches!(r, Some(Err(Error::Host(_)))),
+        "a protocol's error is the result"
+    );
 }

@@ -173,5 +173,8 @@ fn ctype_follows_libc_locale() {
 fn dmetaphone_input_length_hits_max_alloc_size() {
     assert!(dmetaphone_alloc_guard(1073741816).is_ok());
     let err = dmetaphone_alloc_guard(1073741817).unwrap_err();
-    assert_eq!(err.message(), "invalid memory alloc request size 1073741824");
+    assert_eq!(
+        err.message(),
+        "invalid memory alloc request size 1073741824"
+    );
 }

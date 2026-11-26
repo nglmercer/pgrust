@@ -24,23 +24,26 @@ use gravity_program::{ExprLife, ExprOut, OutCol, Rep};
 
 use gravity_program::SiteDesc;
 
+use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::cell::{Cell, Nullable, Row};
 use crate::face::end::{LitTable, LiteralsMech, LiteralsRoad};
 use crate::face::kinds::KindId;
-use crate::face::strategy::WRITE_LITERALS;
 use crate::face::source::{SourceMech, WinConds};
+use crate::face::strategy::WRITE_LITERALS;
 use crate::frame::env::Env;
 use crate::frame::frame::{SourceMaker, Win};
 use crate::frame::px::{ExId, Px};
 use crate::frame::row::{Carry, RowVals};
-use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::ops::shared::values;
 use crate::ops::Table;
 use mcx::{CollectIn, GrowIn, Mcx, PgBox, PgVec};
 use types_nodes::primnodes::ParamKind;
 use types_nodes::Node;
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::SrcValues, &SourceMaker(make))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::SrcValues, &SourceMaker(make))],
+    ..crate::ops::NONE
+};
 
 #[derive(Clone, Copy)]
 enum Src {
@@ -78,52 +81,91 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
     let gx = px.gx;
     let p = &gx.pipelines()[k];
     let node = p.node_id;
-    let Source::Values { lists, scanrelid } = &p.source else { crate::refuse!(node, Reason::Bug { payload: "a VALUES entry over another source" }) };
+    let Source::Values { lists, scanrelid } = &p.source else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a VALUES entry over another source"
+            }
+        )
+    };
     if lists.len() == 0 {
         shape(node, "a VALUES list of no row");
     }
-    let ncols = lists.iter().next().and_then(|l| l.as_list()).map_or(0, |l| l.len());
+    let ncols = lists
+        .iter()
+        .next()
+        .and_then(|l| l.as_list())
+        .map_or(0, |l| l.len());
     let src = gravity_lower::inputs::key::values_node(p);
     let road = crate::ops::strategy(WRITE_LITERALS).and_then(|m| m.downcast_ref::<LiteralsRoad>());
     // CAP-29 / D2907: past the per-row code's cost (its cells), its capacity (its rows) or the words its expressions'
     // literals would take, the rows holding an expression stream (the table's stream form)
-    let holds = |l: &Node<'_>| l.as_list().is_none_or( |l| l.iter().any(|n| n.as_const().is_none()));
+    let holds = |l: &Node<'_>| {
+        l.as_list()
+            .is_none_or(|l| l.iter().any(|n| n.as_const().is_none()))
+    };
     // D4449: a list of Consts alone (`consts_only`) has no row holding an expression, no coded cell and no expression's
     // literal word: it streams only for the plan's own words, and its rows are not walked to learn it
     let consts = values::consts_only(gx.graph, lists);
-    let (over_rows, past) = if consts { (false, false) } else { (values::over_rows(lists), values::streams_past_cut(lists)) };
+    let (over_rows, past) = if consts {
+        (false, false)
+    } else {
+        (values::over_rows(lists), values::streams_past_cut(lists))
+    };
     let can_stream = past || consts || values::streamable(lists);
     if over_rows && !can_stream {
         shape(node, "a VALUES list of more than 65536 rows holding an expression that reads a subplan or a column");
     }
     let words = if consts { 0 } else { literal_words(lists, mcx) };
-    let stream = past || (can_stream && (consts || values::streams_for_cost(lists)) && px.plan.nwords() + words > gravity_program::cost::VALUES_CODED_WORDS_MAX);
+    let stream = past
+        || (can_stream
+            && (consts || values::streams_for_cost(lists))
+            && px.plan.nwords() + words > gravity_program::cost::VALUES_CODED_WORDS_MAX);
     let lit = road.and_then(|r| r.0.table(px, k, src, ncols, stream).map(|t| (r.0, t)));
     let stream = lit.is_some_and(|(_, t)| t.stream);
     if past && !stream {
         // the props walk and a plain fold's effects skipped its cells (`streams_past_cut`): never a program compiling them
-        crate::refuse!(node, Reason::Bug { payload: "a VALUES list past the coded cells' cost without write.literals' stream form" });
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload:
+                    "a VALUES list past the coded cells' cost without write.literals' stream form"
+            }
+        );
     }
     if past && !over_rows {
         // R5-B: streamed for its coded cells' cost (`values::coded_cells_max`, the class table's rows), not its capacity
         fires::fire("values.coded_cut");
     }
-    let coded = lists.iter().filter(|l| !stream && (lit.is_none() || holds(l)));
+    let coded = lists
+        .iter()
+        .filter(|l| !stream && (lit.is_none() || holds(l)));
     if !(consts && lit.is_some()) && coded.count() > gravity_program::cost::VALUES_CODED_ROWS_MAX {
-        shape(node, "a VALUES list of more than 65536 rows holding an expression");
+        shape(
+            node,
+            "a VALUES list of more than 65536 rows holding an expression",
+        );
     }
-    let (mut rows, mut outs, mut code) = (mcx::reserved_in(lists.len(), mcx), PgVec::new_in(mcx), PgVec::new_in(mcx));
+    let (mut rows, mut outs, mut code) = (
+        mcx::reserved_in(lists.len(), mcx),
+        PgVec::new_in(mcx),
+        PgVec::new_in(mcx),
+    );
     let mut gates = mcx::reserved_in(lists.len(), mcx);
     // D4449: a cell outside the graph's outs takes its type's storage (`cell_out`), read from the catalog once per type of
     // the list, not once per cell (a 25k-row list read pg_type four times per cell)
     let mut typed: Typed = [None; TYPED];
     for (r, l) in lists.iter().enumerate() {
         crate::admit::refusal::check_interrupts(node); // D231: a long list's rows compile one by one, each a cancel point
-        let Some(list) = l.as_list() else { shape(node, "a VALUES row that is not a list") };
+        let Some(list) = l.as_list() else {
+            shape(node, "a VALUES row that is not a list")
+        };
         if !outs.is_empty() && list.len() != outs.len() {
             shape(node, "VALUES rows of different widths");
         }
-        let compiled = !stream && (lit.is_none() || !consts && list.iter().any(|n| n.as_const().is_none()));
+        let compiled =
+            !stream && (lit.is_none() || !consts && list.iter().any(|n| n.as_const().is_none()));
         let mut cells = mcx::reserved_in(if compiled { list.len() } else { 0 }, mcx);
         for (c, n) in list.iter().enumerate() {
             let out = match gx.out_of(n) {
@@ -131,7 +173,14 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
                 None => cell_out(px, node, n, &mut typed),
             };
             // CAP-29: a streamed cell lives until the next coded row's evaluation
-            let out = if stream && n.as_const().is_none() { ExprOut { life: out.life.min(ExprLife::Row), ..out } } else { out };
+            let out = if stream && n.as_const().is_none() {
+                ExprOut {
+                    life: out.life.min(ExprLife::Row),
+                    ..out
+                }
+            } else {
+                out
+            };
             if outs.len() <= c {
                 outs.push_in(out);
             } else if outs[c].rep != out.rep {
@@ -150,7 +199,11 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
         }
         // D2775: a row holding a SubPlan is compiled at ExecInitValuesScan, its gates exec's at the start (admit gates.rs)
         let visit = compiled && !list.iter().any(gravity_decompose::expr::has_subplan);
-        gates.push_in(if visit { visit_gates(list, mcx) } else { PgVec::new_in(mcx) });
+        gates.push_in(if visit {
+            visit_gates(list, mcx)
+        } else {
+            PgVec::new_in(mcx)
+        });
         rows.push_in(cells);
     }
     // D3374: the stream form's executor parameters, each a compiled Param (step/expr.rs: a nest's, a lateral outer row's
@@ -171,11 +224,17 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
     let rti = u32::from(*scanrelid);
     let copy = crate::rerun::epq::marks::copied(gx, rti).then(|| {
         // mergecmd 9 (COPYROW): the site marks.rs `copy_pos` made first for a rechecking pipeline's own VALUES scan
-        if let Some(at) = px.ext::<crate::rerun::epq::marks::CopySites>(crate::face::kinds::Face::End).and_then(|c| c.0.iter().find(|e| e.0 == rti)).map(|e| e.1.clone()) {
+        if let Some(at) = px
+            .ext::<crate::rerun::epq::marks::CopySites>(crate::face::kinds::Face::End)
+            .and_then(|c| c.0.iter().find(|e| e.0 == rti))
+            .map(|e| e.1.clone())
+        {
             return at;
         }
         let at = px.add_late_site(SiteDesc::copy(px.arena, rti));
-        px.ext_mut::<crate::rerun::epq::marks::CopySites>(crate::face::kinds::Face::End).0.push_in((rti, at.clone()));
+        px.ext_mut::<crate::rerun::epq::marks::CopySites>(crate::face::kinds::Face::End)
+            .0
+            .push_in((rti, at.clone()));
         at
     });
     mcx::pg_box_dyn!(mcx, Values { rows, gates, outs, code, lits: lit, xparams, node, copy, mcx } => dyn SourceMech + 'g)
@@ -197,8 +256,14 @@ fn cell_out(px: &Px<'_, '_>, node: i32, n: Node<'_>, typed: &mut Typed) -> ExprO
             return out;
         }
     }
-    let Ok(tf) = crate::rep::storage::of(px.gx.catalog, typ) else { shape(node, "a VALUES cell type the catalog refused") };
-    let out = ExprOut { rep: OutCol::new("", typ, -1, tf.len, tf.byval).rep, typid: typ, life: ExprLife::Row };
+    let Ok(tf) = crate::rep::storage::of(px.gx.catalog, typ) else {
+        shape(node, "a VALUES cell type the catalog refused")
+    };
+    let out = ExprOut {
+        rep: OutCol::new("", typ, -1, tf.len, tf.byval).rep,
+        typid: typ,
+        life: ExprLife::Row,
+    };
     *slot = Some((typ, out));
     out
 }
@@ -228,15 +293,39 @@ impl<'g> SourceMech for Values<'g> {
         b.cond_br(past, (l_eof, &[env.zero]), (l_win, &[]));
         b.switch_to(l_win);
         let t = b.iconst(Type::I64, 1);
-        Win { cursor: pos, end, facts: WinConds { nosel: Some(t), ..WinConds::default() } }
+        Win {
+            cursor: pos,
+            end,
+            facts: WinConds {
+                nosel: Some(t),
+                ..WinConds::default()
+            },
+        }
     }
 
     /// Row `j`'s cells: a bisection to the row's block, each cell evaluated there, the values joined as block params.
-    fn row<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e> {
+    fn row<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+        j: Value,
+        carry: Carry<'e>,
+        next: Value,
+    ) -> RowVals<'e> {
         let ncols = self.outs.len();
-        let tys: PgVec<'_, Type> = (0..ncols).flat_map(|_| [Type::I64, Type::Bool]).collect_in(self.mcx);
+        let tys: PgVec<'_, Type> = (0..ncols)
+            .flat_map(|_| [Type::I64, Type::Bool])
+            .collect_in(self.mcx);
         let l_join = b.create_block(&tys[..]);
-        let bare = RowVals { row: Row::new_in(env.mcx), vals: PgVec::new_in(env.mcx), cols: PgVec::new_in(env.mcx), carry: carry.copy_in(env.mcx), next, at: j };
+        let bare = RowVals {
+            row: Row::new_in(env.mcx),
+            vals: PgVec::new_in(env.mcx),
+            cols: PgVec::new_in(env.mcx),
+            carry: carry.copy_in(env.mcx),
+            next,
+            at: j,
+        };
         if let Some(c) = self.copy.as_ref().map(|c| c.get()) {
             let (l_copy, l_list) = (b.create_block(&[]), b.create_block(&[]));
             let copied = crate::rerun::epq::copy_row::copying(b, env, c);
@@ -253,7 +342,11 @@ impl<'g> SourceMech for Values<'g> {
                     let coded = m.coded(b, env, &t, j);
                     b.cond_br(coded, (l_code, &[]), (l_lits, &[]));
                     b.switch_to(l_code);
-                    let xs: PgVec<'_, (Value, Value)> = self.xparams.iter().map(|&id| crate::step::expr::emit(b, env, self.node, &bare, id)).collect_in(self.mcx);
+                    let xs: PgVec<'_, (Value, Value)> = self
+                        .xparams
+                        .iter()
+                        .map(|&id| crate::step::expr::emit(b, env, self.node, &bare, id))
+                        .collect_in(self.mcx);
                     env.memo.clear();
                     m.stream(b, env, &t, j, &xs[..]);
                     b.br(l_lits, &[]);
@@ -263,7 +356,16 @@ impl<'g> SourceMech for Values<'g> {
                     let coded = m.coded(b, env, &t, j);
                     b.cond_br(coded, (l_code, &[]), (l_lits, &[]));
                     b.switch_to(l_code);
-                    self.bisect(b, env, &bare, j, &|i| self.code[i], 0, self.code.len(), l_join);
+                    self.bisect(
+                        b,
+                        env,
+                        &bare,
+                        j,
+                        &|i| self.code[i],
+                        0,
+                        self.code.len(),
+                        l_join,
+                    );
                     b.switch_to(l_lits);
                 }
                 let args: PgVec<'_, Value> = (0..ncols)
@@ -279,14 +381,24 @@ impl<'g> SourceMech for Values<'g> {
         b.switch_to(l_join);
         let ps = mcx::to_vec_in(b.block_params(l_join), self.mcx);
         let t = b.bconst(true);
-        let (mut rcells, mut vals) = (mcx::reserved_in(ncols, env.mcx), mcx::reserved_in(ncols, env.mcx));
+        let (mut rcells, mut vals) = (
+            mcx::reserved_in(ncols, env.mcx),
+            mcx::reserved_in(ncols, env.mcx),
+        );
         for (c, out) in self.outs.iter().enumerate() {
             let null = b.int_bin(IntBinOp::Xor, ps[2 * c + 1], t);
             rcells.push_in(Cell::of_expr(*out, c as u16, c as u16, Nullable::Maybe));
             vals.push_in((ps[2 * c], Some(null)));
         }
         let cols = (0..ncols as u16).map(Some).collect_in(env.mcx);
-        RowVals { row: Row { cells: rcells }, vals, cols, carry, next, at: j }
+        RowVals {
+            row: Row { cells: rcells },
+            vals,
+            cols,
+            carry,
+            next,
+            at: j,
+        }
     }
 
     /// The position after the last row taken, as the resume word.
@@ -332,10 +444,18 @@ fn visit_gates<'g>(list: &types_nodes::NodeList<'_>, mcx: Mcx<'g>) -> PgVec<'g, 
 /// not one counts.
 fn literal_words(lists: &types_nodes::NodeList<'_>, mcx: Mcx<'_>) -> usize {
     let (mut n, mut ids) = (0, PgVec::new_in(mcx));
-    for c in lists.iter().filter_map(|l| l.as_list()).flat_map(|l| l.iter()).filter(|c| c.as_const().is_none()) {
+    for c in lists
+        .iter()
+        .filter_map(|l| l.as_list())
+        .flat_map(|l| l.iter())
+        .filter(|c| c.as_const().is_none())
+    {
         gravity_decompose::expr::walk(c, &mut |x| {
             n += usize::from(x.as_const().is_some());
-            if let Some(p) = x.as_param().filter(|p| p.paramkind == ParamKind::PARAM_EXTERN && !ids.contains(&p.paramid)) {
+            if let Some(p) = x
+                .as_param()
+                .filter(|p| p.paramkind == ParamKind::PARAM_EXTERN && !ids.contains(&p.paramid))
+            {
                 ids.push_in(p.paramid);
             }
             true
@@ -350,14 +470,28 @@ impl<'g> Values<'g> {
         if self.gates[r].is_empty() {
             return;
         }
-        let flags = gravity_ir::HostFlags { may_error: true, ..gravity_ir::HostFlags::default() };
-        let h = b.declare_host_once("values::gate", &[Type::I64], Some(Type::I64), super::raw::gate as *const () as usize, flags);
+        let flags = gravity_ir::HostFlags {
+            may_error: true,
+            ..gravity_ir::HostFlags::default()
+        };
+        let h = b.declare_host_once(
+            "values::gate",
+            &[Type::I64],
+            Some(Type::I64),
+            super::raw::gate as *const () as usize,
+            flags,
+        );
         for &f in self.gates[r].iter() {
             let oid = b.iconst(Type::I64, i64::from(f));
-            let ok = b.call_host(h, &[oid], Some(Type::I64)).expect("returns its status");
+            let ok = b
+                .call_host(h, &[oid], Some(Type::I64))
+                .expect("returns its status");
             let denied = b.icmp(IntCond::Eq, ok, env.zero);
             let l_ok = b.create_block(&[]);
-            let e = b.iconst(Type::I64, gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64);
+            let e = b.iconst(
+                Type::I64,
+                gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64,
+            );
             b.cond_br(denied, (env.l_raise, &[e]), (l_ok, &[]));
             b.switch_to(l_ok);
         }
@@ -366,12 +500,25 @@ impl<'g> Values<'g> {
     /// D732: the stored record's columns (`copy_row::fields`), joined at `l_join` as a list row's cells are.
     fn copied_row(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, c: usize, l_join: Block) {
         let typids: PgVec<'_, u32> = self.outs.iter().map(|o| o.typid).collect_in(self.mcx);
-        let args: PgVec<'_, Value> = crate::rerun::epq::copy_row::fields(b, env, c, &typids[..]).into_iter().flat_map(|(v, ok)| [v, ok]).collect_in(self.mcx);
+        let args: PgVec<'_, Value> = crate::rerun::epq::copy_row::fields(b, env, c, &typids[..])
+            .into_iter()
+            .flat_map(|(v, ok)| [v, ok])
+            .collect_in(self.mcx);
         b.br(l_join, &args[..]);
     }
 
     /// The rows `row(lo..hi)` (`row` ascending): halve on `j` until one row is left.
-    fn bisect(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, bare: &RowVals, j: Value, row: &dyn Fn(usize) -> usize, lo: usize, hi: usize, l_join: Block) {
+    fn bisect(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        bare: &RowVals,
+        j: Value,
+        row: &dyn Fn(usize) -> usize,
+        lo: usize,
+        hi: usize,
+        l_join: Block,
+    ) {
         crate::stack_check();
         if hi - lo == 1 {
             self.emit_row(b, env, bare, row(lo), l_join);
@@ -388,7 +535,14 @@ impl<'g> Values<'g> {
         self.bisect(b, env, bare, j, row, mid, hi, l_join);
     }
 
-    fn emit_row(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, bare: &RowVals, r: usize, l_join: Block) {
+    fn emit_row(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        bare: &RowVals,
+        r: usize,
+        l_join: Block,
+    ) {
         crate::admit::refusal::check_interrupts(self.node); // D231: each row's code is emitted here, a cancel point per row
         self.gate_row(b, env, r);
         let cells = &self.rows[r];
@@ -400,7 +554,12 @@ impl<'g> Values<'g> {
                     let row = b.iconst(Type::I64, r as i64);
                     m.cell(b, env, &t, row, c)
                 }
-                (Src::Lit, None) => crate::refuse!(self.node, Reason::Bug { payload: "a VALUES table cell without its table" }),
+                (Src::Lit, None) => crate::refuse!(
+                    self.node,
+                    Reason::Bug {
+                        payload: "a VALUES table cell without its table"
+                    }
+                ),
             };
             args.extend_in([v, valid]);
         }

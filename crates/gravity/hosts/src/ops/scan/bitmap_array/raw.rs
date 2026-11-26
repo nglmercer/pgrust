@@ -15,11 +15,15 @@ pub(super) fn array_image(p: *const u8) -> Option<Vec<u8>> {
         }
         Some(if b0 & 0x01 == 0x01 {
             let total = ((b0 >> 1) & 0x7F) as usize;
-            let mut v = ((total - 1 + 4) as u32).wrapping_shl(2).to_le_bytes().to_vec(); // alloc: Exec
+            let mut v = ((total - 1 + 4) as u32)
+                .wrapping_shl(2)
+                .to_le_bytes()
+                .to_vec(); // alloc: Exec
             v.extend_from_slice(core::slice::from_raw_parts(p.add(1), total - 1));
             v
         } else {
-            core::slice::from_raw_parts(p, arrayfuncs::arr_size(core::slice::from_raw_parts(p, 4))).to_vec() // alloc: Exec
+            core::slice::from_raw_parts(p, arrayfuncs::arr_size(core::slice::from_raw_parts(p, 4)))
+                .to_vec() // alloc: Exec
         })
     }
 }

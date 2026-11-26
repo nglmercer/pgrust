@@ -65,7 +65,9 @@ impl GucBaseSnapshot {
     }
 
     pub fn contains(&self, name: &str) -> bool {
-        self.vars.iter().any(|v| v.name() == name && v.source() != PGC_S_DEFAULT)
+        self.vars
+            .iter()
+            .any(|v| v.name() == name && v.source() != PGC_S_DEFAULT)
     }
 
     /// Lookup for reload-diff consumers (started-with vs new-base compares).
@@ -79,7 +81,14 @@ impl GucBaseSnapshot {
 /// keeps every consumer total (single-user mode, unit rigs).
 fn empty_base() -> Arc<GucBaseSnapshot> {
     static EMPTY: OnceLock<Arc<GucBaseSnapshot>> = OnceLock::new();
-    EMPTY.get_or_init(|| Arc::new(GucBaseSnapshot { epoch: 0, vars: Vec::new() })).clone()
+    EMPTY
+        .get_or_init(|| {
+            Arc::new(GucBaseSnapshot {
+                epoch: 0,
+                vars: Vec::new(),
+            })
+        })
+        .clone()
 }
 
 static GUC_BASE: RwLock<Option<Arc<GucBaseSnapshot>>> = RwLock::new(None);
@@ -127,7 +136,10 @@ pub fn ensure_base_current() -> Arc<GucBaseSnapshot> {
     let epoch = current_base().epoch + 1;
     let base = Arc::new(GucBaseSnapshot { epoch, vars });
     *GUC_BASE.write().unwrap_or_else(|e| e.into_inner()) = Some(base.clone());
-    *publisher = Some(PublisherState { thread: me, mutations });
+    *publisher = Some(PublisherState {
+        thread: me,
+        mutations,
+    });
     base
 }
 
@@ -247,7 +259,10 @@ pub fn current_query_pin() -> Arc<GucQuerySnapshot> {
             }
         }
         let pin = Arc::new(GucQuerySnapshot { base, session });
-        *slot = Some(CachedPin { mutations, pin: pin.clone() });
+        *slot = Some(CachedPin {
+            mutations,
+            pin: pin.clone(),
+        });
         pin
     })
 }
@@ -293,7 +308,7 @@ pub fn bind_base(base: &Arc<GucBaseSnapshot>) -> PgResult<()> {
         store::with_store_mut(|reg| {
             crate::registry::bind_captured_guc(reg, cap, &mut deferred, false)
         })
-            .expect("bind_base: InitializeGUCOptions must run on this thread first")?;
+        .expect("bind_base: InitializeGUCOptions must run on this thread first")?;
         for hook in deferred {
             hook();
         }

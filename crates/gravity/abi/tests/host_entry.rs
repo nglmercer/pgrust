@@ -48,7 +48,9 @@ gravity_abi::host! {
 
 /// The parked payload's message, taken off the thread's slot.
 fn take_parked() -> Option<&'static str> {
-    std::panic::catch_unwind(resume).err().and_then(|p| p.downcast_ref::<&str>().copied())
+    std::panic::catch_unwind(resume)
+        .err()
+        .and_then(|p| p.downcast_ref::<&str>().copied())
 }
 
 #[test]
@@ -58,7 +60,11 @@ fn a_guarded_entry_answers_its_body_and_parks_a_panic_as_its_failure_value() {
     assert_eq!(unsafe { entry(&base as *const u64 as u64, 2) }, 42);
     assert_eq!(take_parked(), None, "nothing parked on a return");
     assert_eq!(unsafe { entry(0, 0) }, ERROR as u64);
-    assert_eq!(take_parked(), Some("host bug"), "the panic waits for the program's caller");
+    assert_eq!(
+        take_parked(),
+        Some("host bug"),
+        "the panic waits for the program's caller"
+    );
 
     let safe: extern "C" fn(u64) -> u64 = guarded_safe;
     assert_eq!(safe(4), 8);
@@ -80,7 +86,8 @@ fn bare_entries_keep_their_body_generics_and_c_abi() {
 fn an_unwind_entry_is_c_unwind_and_lets_the_panic_through() {
     let entry: unsafe extern "C-unwind" fn(i64) -> i64 = unwinding;
     assert_eq!(unsafe { entry(1) }, 2);
-    let p = std::panic::catch_unwind(|| unsafe { entry(-1) }).expect_err("the panic reaches the caller");
+    let p = std::panic::catch_unwind(|| unsafe { entry(-1) })
+        .expect_err("the panic reaches the caller");
     assert_eq!(p.downcast_ref::<&str>().copied(), Some("unwinds"));
     assert_eq!(take_parked(), None, "nothing parked: no pad");
 }

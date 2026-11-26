@@ -2,7 +2,9 @@
 //! section's per-key `kflags >> KFLAG_SPEC_SHIFT` (the table's `SortSpec` packs four), with the key's collation and
 //! `KFLAG_BPCHAR`; before, a tail at key 4 or past was never read and rows tying on its prefix word compared equal.
 use core::cmp::Ordering;
-use gravity_kernels::host_abi::{RowCmp, SortSpec, KFLAG_BPCHAR, KFLAG_SPEC_SHIFT, VAR_TBL, VAR_WIDTH};
+use gravity_kernels::host_abi::{
+    RowCmp, SortSpec, KFLAG_BPCHAR, KFLAG_SPEC_SHIFT, VAR_TBL, VAR_WIDTH,
+};
 
 const NKEY: usize = 6;
 /// Six `[flags, word]` pairs, then the var slots of keys 4 and 5.
@@ -24,7 +26,8 @@ impl Row {
         for (k, (slot, t)) in SLOT.into_iter().zip([t4, t5]).enumerate() {
             let mut w = [0u8; 8];
             w[..t.len().min(8)].copy_from_slice(&t.as_bytes()[..t.len().min(8)]);
-            r.0[16 * (4 + k) + 8..16 * (4 + k) + 16].copy_from_slice(&u64::from_be_bytes(w).to_ne_bytes());
+            r.0[16 * (4 + k) + 8..16 * (4 + k) + 16]
+                .copy_from_slice(&u64::from_be_bytes(w).to_ne_bytes());
             let size = (t.len() + 4) as u32;
             r.0[slot..slot + 4].copy_from_slice(&size.to_ne_bytes());
             r.0[slot + 4..slot + 8].copy_from_slice(&((at - slot) as u32).to_ne_bytes());
@@ -37,8 +40,26 @@ impl Row {
 
 /// The emit table: no images, two var columns; keys 4 and 5 VAR_WIDTH tails in their kflags (key 5 DESC and bpchar by the flags).
 fn table(desc5: bool, bpchar5: bool) -> Vec<u32> {
-    let entry = |slot: usize, desc: bool| (SortSpec::pack(&[(Some((slot as u32, VAR_WIDTH)), desc)]).unwrap().0 as u32) << KFLAG_SPEC_SHIFT;
-    let mut t = vec![ROW as u32, 2 * NKEY as u32, 6 | VAR_TBL, 0, 0, 0, 2, 0, 4, SLOT[0] as u32, 5, SLOT[1] as u32];
+    let entry = |slot: usize, desc: bool| {
+        (SortSpec::pack(&[(Some((slot as u32, VAR_WIDTH)), desc)])
+            .unwrap()
+            .0 as u32)
+            << KFLAG_SPEC_SHIFT
+    };
+    let mut t = vec![
+        ROW as u32,
+        2 * NKEY as u32,
+        6 | VAR_TBL,
+        0,
+        0,
+        0,
+        2,
+        0,
+        4,
+        SLOT[0] as u32,
+        5,
+        SLOT[1] as u32,
+    ];
     for k in 0..NKEY {
         let kf = match k {
             4 => entry(SLOT[0], false),
@@ -57,20 +78,56 @@ fn cmp(t: &[u32], a: &Row, b: &Row) -> Ordering {
 #[test]
 fn key_five_orders_by_its_tail_past_the_prefix_word() {
     let t = table(false, false);
-    let (jam, fool) = (Row::new("strawberry jam", "x"), Row::new("strawberry fool", "x"));
-    assert_eq!(cmp(&t, &fool, &jam), Ordering::Less, "the fifth key's tail decides a tie on every pair");
-    let mut rows = [Row::new("strawberry jam", "b"), Row::new("strawberry fool", "b"), Row::new("strawberry jam", "a")];
+    let (jam, fool) = (
+        Row::new("strawberry jam", "x"),
+        Row::new("strawberry fool", "x"),
+    );
+    assert_eq!(
+        cmp(&t, &fool, &jam),
+        Ordering::Less,
+        "the fifth key's tail decides a tie on every pair"
+    );
+    let mut rows = [
+        Row::new("strawberry jam", "b"),
+        Row::new("strawberry fool", "b"),
+        Row::new("strawberry jam", "a"),
+    ];
     rows.sort_by(|a, b| cmp(&t, a, b));
-    let got: Vec<(&[u8], &[u8])> = rows.iter().map(|r| (&r.0[ROW + 4..ROW + 19], &r.0[ROW + 68..ROW + 69])).collect();
-    assert_eq!(got, [(&b"strawberry fool"[..], &b"b"[..]), (&b"strawberry jam\0"[..], &b"a"[..]), (&b"strawberry jam\0"[..], &b"b"[..])]);
+    let got: Vec<(&[u8], &[u8])> = rows
+        .iter()
+        .map(|r| (&r.0[ROW + 4..ROW + 19], &r.0[ROW + 68..ROW + 69]))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            (&b"strawberry fool"[..], &b"b"[..]),
+            (&b"strawberry jam\0"[..], &b"a"[..]),
+            (&b"strawberry jam\0"[..], &b"b"[..])
+        ]
+    );
 }
 
 #[test]
 fn key_six_takes_its_own_desc_and_bpchar_flags() {
     let (a, b) = (Row::new("same", "abcdefgh1"), Row::new("same", "abcdefgh2"));
     assert_eq!(cmp(&table(false, false), &a, &b), Ordering::Less);
-    assert_eq!(cmp(&table(true, false), &a, &b), Ordering::Greater, "DESC reverses the sixth key's tail");
-    let (pad, bare) = (Row::new("same", "abcdefghij   "), Row::new("same", "abcdefghij"));
-    assert_eq!(cmp(&table(false, false), &bare, &pad), Ordering::Less, "text: trailing blanks count");
-    assert_eq!(cmp(&table(false, true), &bare, &pad), Ordering::Equal, "bpchar: trailing blanks trimmed");
+    assert_eq!(
+        cmp(&table(true, false), &a, &b),
+        Ordering::Greater,
+        "DESC reverses the sixth key's tail"
+    );
+    let (pad, bare) = (
+        Row::new("same", "abcdefghij   "),
+        Row::new("same", "abcdefghij"),
+    );
+    assert_eq!(
+        cmp(&table(false, false), &bare, &pad),
+        Ordering::Less,
+        "text: trailing blanks count"
+    );
+    assert_eq!(
+        cmp(&table(false, true), &bare, &pad),
+        Ordering::Equal,
+        "bpchar: trailing blanks trimmed"
+    );
 }

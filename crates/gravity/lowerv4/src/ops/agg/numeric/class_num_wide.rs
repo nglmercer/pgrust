@@ -18,15 +18,20 @@ use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{ConvOp, HostFlags, IntBinOp, IntCond, Type, Value};
 use mcx::{CollectIn, PgVec};
 
+use crate::admit::refusal::Reason;
 use crate::face::fold::{Acc, AccShape, ClassImpl, FoldClass, WideTerm};
 use crate::face::kinds::KindId;
 use crate::frame::env::Env;
-use crate::admit::refusal::Reason;
 use crate::rep::CellRef;
 
-use crate::ops::agg::numeric::num_wide::{avg_final, codes, host_final, raise, scaled, slot_ok, sum_final, term, UNREADABLE};
+use crate::ops::agg::numeric::num_wide::{
+    avg_final, codes, host_final, raise, scaled, slot_ok, sum_final, term, UNREADABLE,
+};
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { kinds: &[(KindId::ClassNumWide, &ClassImpl(&WIDE))], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    kinds: &[(KindId::ClassNumWide, &ClassImpl(&WIDE))],
+    ..crate::ops::NONE
+};
 
 struct Wide;
 static WIDE: Wide = Wide;
@@ -34,23 +39,53 @@ static WIDE: Wide = Wide;
 /// Whether `a` is an avg (its count at +32); refuses any decl that is not a wide sum / avg at one fixed scale.
 fn avg(node: i32, a: &AggDecl<'_>) -> bool {
     if a.scale < 0 || a.dscale_slot != NONE {
-        crate::refuse!(node, Reason::Bug { payload: "class.num_wide without one fixed scale" });
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "class.num_wide without one fixed scale"
+            }
+        );
     }
     match a.reg {
         R::SumNumWide => false,
         R::AvgNumWide => true,
-        _ => crate::refuse!(node, Reason::Bug { payload: "class.num_wide over another register" }),
+        _ => crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "class.num_wide over another register"
+            }
+        ),
     }
 }
 
 /// One row `[w0..w3]` (its specials code `code`: > 0 a NaN / Infinity / OVERFLOW row, the code on the sentinel's top word)
 /// entered where `ok` with `n` rows into `acc`.
 #[allow(clippy::too_many_arguments)]
-fn fold_row(b: &mut FunctionBuilder<'_>, env: &Env, f: bool, acc: Acc<'_>, code: Value, w: [Value; 4], ok: Value, n: Value) {
+fn fold_row(
+    b: &mut FunctionBuilder<'_>,
+    env: &Env,
+    f: bool,
+    acc: Acc<'_>,
+    code: Value,
+    w: [Value; 4],
+    ok: Value,
+    n: Value,
+) {
     let special = b.icmp(IntCond::Sgt, code, env.zero);
     let sent = b.iconst(Type::I64, SENT_HI);
-    let row = [b.select(special, code, w[0]), b.select(special, env.zero, w[1]), b.select(special, env.zero, w[2]), b.select(special, sent, w[3])];
-    let row = [b.select(ok, row[0], env.zero), b.select(ok, row[1], env.zero), b.select(ok, row[2], env.zero), b.select(ok, row[3], env.zero), b.select(ok, n, env.zero)];
+    let row = [
+        b.select(special, code, w[0]),
+        b.select(special, env.zero, w[1]),
+        b.select(special, env.zero, w[2]),
+        b.select(special, sent, w[3]),
+    ];
+    let row = [
+        b.select(ok, row[0], env.zero),
+        b.select(ok, row[1], env.zero),
+        b.select(ok, row[2], env.zero),
+        b.select(ok, row[3], env.zero),
+        b.select(ok, n, env.zero),
+    ];
     let s = load(b, env, f, &acc);
     let s = combine(b, env, &s, &row);
     store(b, env, f, acc, &s);
@@ -68,7 +103,11 @@ fn load(b: &mut FunctionBuilder<'_>, env: &Env, avg: bool, acc: &Acc<'_>) -> [Va
         let v = b.load(Type::I64, base, off + 8 * i as i32);
         *x = b.select(ok, v, env.zero);
     }
-    let n = if avg { b.load(Type::I64, base, off + 32) } else { b.conv(ConvOp::Zext, Type::I64, ok) };
+    let n = if avg {
+        b.load(Type::I64, base, off + 32)
+    } else {
+        b.conv(ConvOp::Zext, Type::I64, ok)
+    };
     w[4] = b.select(ok, n, env.zero);
     w
 }
@@ -102,7 +141,11 @@ fn add256(b: &mut FunctionBuilder<'_>, env: &Env, a: &[Value], c: &[Value]) -> [
     let sent = b.iconst(Type::I64, SENT_HI);
     let m = b.int_bin(IntBinOp::Smin, a[3], c[3]);
     let slow = b.icmp(IntCond::Eq, m, sent);
-    let (l_slow, l_fast, l_join) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[Type::I64; 4]));
+    let (l_slow, l_fast, l_join) = (
+        b.create_block(&[]),
+        b.create_block(&[]),
+        b.create_block(&[Type::I64; 4]),
+    );
     b.mark_cold(l_slow);
     b.cond_br(slow, (l_slow, &[]), (l_fast, &[]));
     b.switch_to(l_fast);
@@ -122,17 +165,42 @@ fn add256(b: &mut FunctionBuilder<'_>, env: &Env, a: &[Value], c: &[Value]) -> [
     let h = b.int_bin(IntBinOp::Add, s[3], lim);
     let out = b.icmp(IntCond::Uge, h, span);
     let ovf = b.iconst(Type::I64, SP_OVERFLOW);
-    let (s0, s1, s2, s3) = (b.select(out, ovf, s[0]), b.select(out, env.zero, s[1]), b.select(out, env.zero, s[2]), b.select(out, sent, s[3]));
+    let (s0, s1, s2, s3) = (
+        b.select(out, ovf, s[0]),
+        b.select(out, env.zero, s[1]),
+        b.select(out, env.zero, s[2]),
+        b.select(out, sent, s[3]),
+    );
     b.br(l_join, &[s0, s1, s2, s3]);
     b.switch_to(l_slow);
-    let (a_s, c_s) = (b.icmp(IntCond::Eq, a[3], sent), b.icmp(IntCond::Eq, c[3], sent));
-    let h = b.declare_host_once("class_num_wide::codes", &[Type::I64, Type::I64], Some(Type::I64), codes as *const () as usize, HostFlags { pure: true, ..HostFlags::default() });
-    let both = b.call_host(h, &[a[0], c[0]], Some(Type::I64)).expect("returns the code");
+    let (a_s, c_s) = (
+        b.icmp(IntCond::Eq, a[3], sent),
+        b.icmp(IntCond::Eq, c[3], sent),
+    );
+    let h = b.declare_host_once(
+        "class_num_wide::codes",
+        &[Type::I64, Type::I64],
+        Some(Type::I64),
+        codes as *const () as usize,
+        HostFlags {
+            pure: true,
+            ..HostFlags::default()
+        },
+    );
+    let both = b
+        .call_host(h, &[a[0], c[0]], Some(Type::I64))
+        .expect("returns the code");
     let two = b.int_bin(IntBinOp::And, a_s, c_s);
     let mut w = [env.zero; 4];
     for (i, x) in w.iter_mut().enumerate() {
         let one = b.select(a_s, a[i], c[i]);
-        let pair = if i == 0 { both } else if i == 3 { sent } else { env.zero };
+        let pair = if i == 0 {
+            both
+        } else if i == 3 {
+            sent
+        } else {
+            env.zero
+        };
         *x = b.select(two, pair, one);
     }
     b.br(l_join, &w);
@@ -152,7 +220,11 @@ impl FoldClass for Wide {
     }
 
     fn shape(&self, a: &AggDecl<'_>) -> AccShape {
-        AccShape { words: 5, bytes: if avg(0, a) { 40 } else { 32 }, align: 8 }
+        AccShape {
+            words: 5,
+            bytes: if avg(0, a) { 40 } else { 32 },
+            align: 8,
+        }
     }
 
     fn init(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, acc: Acc<'_>) {
@@ -160,10 +232,27 @@ impl FoldClass for Wide {
     }
 
     /// The argument's datum as a one-row state (`term`, w copies under join.mult), added into `acc`; NULL adds nothing.
-    fn step(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, acc: Acc<'_>, args: &[CellRef<'_>]) {
+    fn step(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        a: &AggDecl<'_>,
+        acc: Acc<'_>,
+        args: &[CellRef<'_>],
+    ) {
         let f = avg(env.node, a);
-        let [c] = args else { crate::refuse!(env.node, Reason::Bug { payload: "class.num_wide over other than one argument" }) };
-        let tf = gravity_decompose::catalog::typefacts::row_of(gravity_decompose::catalog::NUMERICOID).copied().expect("numeric's type facts");
+        let [c] = args else {
+            crate::refuse!(
+                env.node,
+                Reason::Bug {
+                    payload: "class.num_wide over other than one argument"
+                }
+            )
+        };
+        let tf =
+            gravity_decompose::catalog::typefacts::row_of(gravity_decompose::catalog::NUMERICOID)
+                .copied()
+                .expect("numeric's type facts");
         let mut cx = env.lx(b, env.node);
         let (ptr, null) = crate::rep::datum(&mut cx, *c, &tf);
         env.memo = cx.memo;
@@ -171,12 +260,25 @@ impl FoldClass for Wide {
         let (l_call, l_out) = (b.create_block(&[]), b.create_block(&[Type::I64; 5]));
         b.cond_br(null, (l_out, &[env.zero; 5]), (l_call, &[]));
         b.switch_to(l_call);
-        let h = b.declare_host_once("class_num_wide::term", &[Type::I64, Type::I64, Type::I64, Type::Ptr], Some(Type::I64), term as *const () as usize, HostFlags { touches_memory: true, ..HostFlags::default() });
+        let h = b.declare_host_once(
+            "class_num_wide::term",
+            &[Type::I64, Type::I64, Type::I64, Type::Ptr],
+            Some(Type::I64),
+            term as *const () as usize,
+            HostFlags {
+                touches_memory: true,
+                ..HostFlags::default()
+            },
+        );
         let out = b.declare_stack_slot(32, 8);
         let out = b.stack_addr(out);
         let sc = b.iconst(Type::I64, a.scale as i64);
-        let code = b.call_host(h, &[ptr, sc, w, out], Some(Type::I64)).expect("returns the term's code");
-        let v: PgVec<'_, Value> = core::iter::once(code).chain((0..4).map(|i| b.load(Type::I64, out, 8 * i))).collect_in(env.mcx);
+        let code = b
+            .call_host(h, &[ptr, sc, w, out], Some(Type::I64))
+            .expect("returns the term's code");
+        let v: PgVec<'_, Value> = core::iter::once(code)
+            .chain((0..4).map(|i| b.load(Type::I64, out, 8 * i)))
+            .collect_in(env.mcx);
         b.br(l_out, &v[..]);
         b.switch_to(l_out);
         let v = mcx::to_vec_in(b.block_params(l_out), env.mcx);
@@ -190,7 +292,14 @@ impl FoldClass for Wide {
 
     /// A num.window product's term (the plain and keyed ends' tree fold, num_window `wide_term`); join.mult's `w` copies
     /// of it multiplied exactly (`scaled`, past |2^254| the OVERFLOW code).
-    fn fold_wide(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, acc: Acc<'_>, t: &WideTerm) {
+    fn fold_wide(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        a: &AggDecl<'_>,
+        acc: Acc<'_>,
+        t: &WideTerm,
+    ) {
         let f = avg(env.node, a);
         let (mut w, mut code) = (t.w, t.sp.unwrap_or(env.zero));
         let n = match env.mult {
@@ -200,10 +309,24 @@ impl FoldClass for Wide {
                 for (i, &x) in w.iter().enumerate() {
                     b.store(p, 8 * i as i32, x);
                 }
-                let h = b.declare_host_once("class_num_wide::scaled", &[Type::Ptr, Type::I64], Some(Type::I64), scaled as *const () as usize, HostFlags { touches_memory: true, ..HostFlags::default() });
-                let past = b.call_host(h, &[p, m], Some(Type::I64)).expect("returns the overflow flag");
+                let h = b.declare_host_once(
+                    "class_num_wide::scaled",
+                    &[Type::Ptr, Type::I64],
+                    Some(Type::I64),
+                    scaled as *const () as usize,
+                    HostFlags {
+                        touches_memory: true,
+                        ..HostFlags::default()
+                    },
+                );
+                let past = b
+                    .call_host(h, &[p, m], Some(Type::I64))
+                    .expect("returns the overflow flag");
                 w = [0, 1, 2, 3].map(|i| b.load(Type::I64, p, 8 * i));
-                let (past, ovf) = (b.icmp(IntCond::Ne, past, env.zero), b.iconst(Type::I64, SP_OVERFLOW));
+                let (past, ovf) = (
+                    b.icmp(IntCond::Ne, past, env.zero),
+                    b.iconst(Type::I64, SP_OVERFLOW),
+                );
                 let fin = b.icmp(IntCond::Eq, code, env.zero);
                 let lost = b.int_bin(IntBinOp::And, past, fin);
                 code = b.select(lost, ovf, code);
@@ -214,7 +337,14 @@ impl FoldClass for Wide {
         fold_row(b, env, f, acc, code, w, t.ok, n);
     }
 
-    fn merge(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, into: Acc<'_>, from: Acc<'_>) {
+    fn merge(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        a: &AggDecl<'_>,
+        into: Acc<'_>,
+        from: Acc<'_>,
+    ) {
         let f = avg(env.node, a);
         let (x, y) = (load(b, env, f, &into), load(b, env, f, &from));
         let s = combine(b, env, &x, &y);
@@ -222,7 +352,13 @@ impl FoldClass for Wide {
     }
 
     /// gravity_fn's `num_sum256` / `num_avg256` over the words (a stack copy), NULL for no row.
-    fn finish(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, acc: Acc<'_>) -> (Value, Value) {
+    fn finish(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        a: &AggDecl<'_>,
+        acc: Acc<'_>,
+    ) -> (Value, Value) {
         let f = avg(env.node, a);
         let w = load(b, env, f, &acc);
         let none = b.icmp(IntCond::Eq, w[4], env.zero);
@@ -233,8 +369,22 @@ impl FoldClass for Wide {
         }
         let sc = b.iconst(Type::I64, a.scale as i64);
         let v = match f {
-            false => host_final(b, env, "class_num_wide::sum_final", sum_final as *const () as usize, &[p, sc], none),
-            true => host_final(b, env, "class_num_wide::avg_final", avg_final as *const () as usize, &[p, w[4], sc], none),
+            false => host_final(
+                b,
+                env,
+                "class_num_wide::sum_final",
+                sum_final as *const () as usize,
+                &[p, sc],
+                none,
+            ),
+            true => host_final(
+                b,
+                env,
+                "class_num_wide::avg_final",
+                avg_final as *const () as usize,
+                &[p, w[4], sc],
+                none,
+            ),
         };
         (v, none)
     }
@@ -251,23 +401,72 @@ mod tests {
     fn only_a_wide_register_is_class_num_wide() {
         use gravity_decompose::ops::shared::agg::fold_of;
         let ctx = mcx::MemoryContext::new("g4");
-        let node = types_nodes::Node::mk(ctx.mcx(), types_nodes::primnodes::Aggref { aggfnoid: 2114, aggtype: 1700, ..Default::default() }).unwrap();
-        let mods = Mods { distinct: 0, order: 0, filter: false, direct: 0, split: Split::Simple, star: false };
-        let coll = gravity_decompose::catalog::typefacts::KeyColl { oid: 0, bytes_eq: true, bytes_order: true };
+        let node = types_nodes::Node::mk(
+            ctx.mcx(),
+            types_nodes::primnodes::Aggref {
+                aggfnoid: 2114,
+                aggtype: 1700,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let mods = Mods {
+            distinct: 0,
+            order: 0,
+            filter: false,
+            direct: 0,
+            split: Split::Simple,
+            star: false,
+        };
+        let coll = gravity_decompose::catalog::typefacts::KeyColl {
+            oid: 0,
+            bytes_eq: true,
+            bytes_order: true,
+        };
         let decl = |class: Class, scaled: bool, reg: Option<R>| {
             let (r, trans, final_) = fold_of(class, 2114, false, scaled);
-            AggDecl { aggno: 0, fnoid: 2114, reg: reg.unwrap_or(r), slot: 0, count_slot: NONE, final_, node, scale: if scaled { 6 } else { -1 }, filter: None, class, trans, mods, coll, dscale_slot: NONE, dscales: &[] }
+            AggDecl {
+                aggno: 0,
+                fnoid: 2114,
+                reg: reg.unwrap_or(r),
+                slot: 0,
+                count_slot: NONE,
+                final_,
+                node,
+                scale: if scaled { 6 } else { -1 },
+                filter: None,
+                class,
+                trans,
+                mods,
+                coll,
+                dscale_slot: NONE,
+                dscales: &[],
+            }
         };
         for (a, k) in [
-            (decl(Class::SumNum, true, Some(R::SumNumWide)), KindId::ClassNumWide),
-            (decl(Class::AvgNum, true, Some(R::AvgNumWide)), KindId::ClassNumWide),
+            (
+                decl(Class::SumNum, true, Some(R::SumNumWide)),
+                KindId::ClassNumWide,
+            ),
+            (
+                decl(Class::AvgNum, true, Some(R::AvgNumWide)),
+                KindId::ClassNumWide,
+            ),
             (decl(Class::SumNum, true, None), KindId::ClassNumPacked),
             (decl(Class::AvgNum, false, None), KindId::ClassNumVarlena),
         ] {
             assert_eq!(crate::props::class_kind(&a), k, "{:?}", a.reg);
         }
         assert!(avg(0, &decl(Class::AvgNum, true, Some(R::AvgNumWide))));
-        assert_eq!(WIDE.shape(&decl(Class::AvgNum, true, Some(R::AvgNumWide))).bytes, 40);
-        assert_eq!(WIDE.shape(&decl(Class::SumNum, true, Some(R::SumNumWide))).bytes, 32);
+        assert_eq!(
+            WIDE.shape(&decl(Class::AvgNum, true, Some(R::AvgNumWide)))
+                .bytes,
+            40
+        );
+        assert_eq!(
+            WIDE.shape(&decl(Class::SumNum, true, Some(R::SumNumWide)))
+                .bytes,
+            32
+        );
     }
 }

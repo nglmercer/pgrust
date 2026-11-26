@@ -40,7 +40,11 @@ pub fn c_strtol_base0(s: &[u8]) -> ScanInt {
                 i += 2;
             } else {
                 // "0" alone; the 'x' is left for endptr.
-                return ScanInt { value: 0, consumed: i + 1, erange: false };
+                return ScanInt {
+                    value: 0,
+                    consumed: i + 1,
+                    erange: false,
+                };
             }
         } else {
             base = 8;
@@ -81,9 +85,17 @@ pub fn c_strtol_base0(s: &[u8]) -> ScanInt {
 
     if !any && digits_start == i {
         if base == 8 && digits_start > 0 && s.get(digits_start - 1) == Some(&b'0') {
-            return ScanInt { value: 0, consumed: digits_start, erange: false };
+            return ScanInt {
+                value: 0,
+                consumed: digits_start,
+                erange: false,
+            };
         }
-        return ScanInt { value: 0, consumed: 0, erange: false };
+        return ScanInt {
+            value: 0,
+            consumed: 0,
+            erange: false,
+        };
     }
 
     if overflow {
@@ -95,7 +107,11 @@ pub fn c_strtol_base0(s: &[u8]) -> ScanInt {
     }
 
     let value = (if negative { -acc } else { acc }) as i64;
-    ScanInt { value, consumed: i, erange: false }
+    ScanInt {
+        value,
+        consumed: i,
+        erange: false,
+    }
 }
 
 pub fn c_strtod(s: &[u8]) -> ScanReal {
@@ -103,7 +119,15 @@ pub fn c_strtod(s: &[u8]) -> ScanReal {
     // floats + inf/nan words, glibc ERANGE semantics including the
     // subnormal-inexact underflow probe). This shim only adapts the shape.
     match ::adt_float::io::strtod_c(s) {
-        Some((value, consumed, erange)) => ScanReal { value, consumed, erange },
-        None => ScanReal { value: 0.0, consumed: 0, erange: false },
+        Some((value, consumed, erange)) => ScanReal {
+            value,
+            consumed,
+            erange,
+        },
+        None => ScanReal {
+            value: 0.0,
+            consumed: 0,
+            erange: false,
+        },
     }
 }

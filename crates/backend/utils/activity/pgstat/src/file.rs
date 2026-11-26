@@ -143,7 +143,10 @@ fn push_fixed<T: Copy>(out: &mut Vec<u8>, kind: PgStat_Kind, v: &T) {
 pub(crate) fn pgstat_write_statsfile() -> PgResult<()> {
     let tmp = stat_path(PGSTAT_STAT_PERMANENT_TMPFILE);
     let dst = stat_path(PGSTAT_STAT_PERMANENT_FILENAME);
-    let _ = elog(DEBUG2, format!("writing stats file \"{PGSTAT_STAT_PERMANENT_FILENAME}\""));
+    let _ = elog(
+        DEBUG2,
+        format!("writing stats file \"{PGSTAT_STAT_PERMANENT_FILENAME}\""),
+    );
     // vfs-routed (provider-seam reroute): pg_stat/ is datadir domain;
     // std::fs would bypass the sim namespace. pg_stat is one level deep.
     // C never creates the directory (initdb does); a failure here surfaces
@@ -153,15 +156,27 @@ pub(crate) fn pgstat_write_statsfile() -> PgResult<()> {
     }
     let mut out = Vec::with_capacity(8192);
     out.extend_from_slice(&PGSTAT_FILE_FORMAT_ID.to_ne_bytes());
-    push_fixed(&mut out, PGSTAT_KIND_ARCHIVER, &crate::archiver::export_archiver_stats());
-    push_fixed(&mut out, PGSTAT_KIND_BGWRITER, &crate::bgwriter::export_bgwriter_stats());
+    push_fixed(
+        &mut out,
+        PGSTAT_KIND_ARCHIVER,
+        &crate::archiver::export_archiver_stats(),
+    );
+    push_fixed(
+        &mut out,
+        PGSTAT_KIND_BGWRITER,
+        &crate::bgwriter::export_bgwriter_stats(),
+    );
     push_fixed(
         &mut out,
         PGSTAT_KIND_CHECKPOINTER,
         &crate::checkpointer::export_checkpointer_stats(),
     );
     push_fixed(&mut out, PGSTAT_KIND_IO, &crate::io::export_io_file());
-    push_fixed(&mut out, PGSTAT_KIND_SLRU, &crate::slru::export_slru_stats());
+    push_fixed(
+        &mut out,
+        PGSTAT_KIND_SLRU,
+        &crate::slru::export_slru_stats(),
+    );
     push_fixed(&mut out, PGSTAT_KIND_WAL, &crate::wal::export_wal_stats());
     let mut nameless_slot: Option<u64> = None;
     crate::shmem::export_entries(|key, entry| {
@@ -171,8 +186,9 @@ pub(crate) fn pgstat_write_statsfile() -> PgResult<()> {
         if let SharedEntry::ReplSlot(slot_entry) = &entry {
             // to_serialized_name: late shutdown, the slot set can't change; a
             // missing name is C's elog(ERROR) here.
-            let Some(namebuf) =
-                slot_seams::replication_slot_name::call(key.objid as i32).ok().flatten()
+            let Some(namebuf) = slot_seams::replication_slot_name::call(key.objid as i32)
+                .ok()
+                .flatten()
             else {
                 nameless_slot = Some(key.objid);
                 return;
@@ -225,7 +241,11 @@ pub(crate) fn pgstat_write_statsfile() -> PgResult<()> {
         }
         if n <= 0 {
             // C's write_chunk: a short write with no errno is ENOSPC.
-            write_errno = Some(if n == 0 { libc::ENOSPC } else { fd::get_errno() });
+            write_errno = Some(if n == 0 {
+                libc::ENOSPC
+            } else {
+                fd::get_errno()
+            });
             break;
         }
         off += n as usize;
@@ -341,9 +361,7 @@ pub(crate) fn read_statsfile_body(buf: &[u8]) -> Option<()> {
             }
             t if t == i32::from(PGSTAT_FILE_ENTRY_FIXED) => {
                 let Some(kind) = c.take_u32().map(PgStat_Kind) else {
-                    return corrupt(format!(
-                        "could not read stats kind for entry of type {tc}"
-                    ));
+                    return corrupt(format!("could not read stats kind for entry of type {tc}"));
                 };
                 if !is_kind_valid(kind) {
                     return corrupt(format!(
@@ -450,7 +468,11 @@ pub(crate) fn read_statsfile_body(buf: &[u8]) -> Option<()> {
                         }
                         continue;
                     }
-                    PgStat_HashKey { kind, dboid: types_core::InvalidOid, objid: index as u64 }
+                    PgStat_HashKey {
+                        kind,
+                        dboid: types_core::InvalidOid,
+                        objid: index as u64,
+                    }
                 };
 
                 // don't allow duplicate entries (dshash_find_or_insert found)
@@ -464,9 +486,7 @@ pub(crate) fn read_statsfile_body(buf: &[u8]) -> Option<()> {
                     PGSTAT_KIND_RELATION => take_payload(&mut c).map(SharedEntry::Relation),
                     PGSTAT_KIND_DATABASE => take_payload(&mut c).map(SharedEntry::Database),
                     PGSTAT_KIND_FUNCTION => take_payload(&mut c).map(SharedEntry::Function),
-                    PGSTAT_KIND_SUBSCRIPTION => {
-                        take_payload(&mut c).map(SharedEntry::Subscription)
-                    }
+                    PGSTAT_KIND_SUBSCRIPTION => take_payload(&mut c).map(SharedEntry::Subscription),
                     PGSTAT_KIND_BACKEND => {
                         take_payload(&mut c).map(|b| SharedEntry::Backend(Box::new(b)))
                     }
@@ -501,7 +521,10 @@ pub(crate) fn read_statsfile_body(buf: &[u8]) -> Option<()> {
 pub(crate) fn pgstat_read_statsfile() {
     let path = stat_path(PGSTAT_STAT_PERMANENT_FILENAME);
     let path_s = path.to_str().expect("stat paths are UTF-8");
-    let _ = elog(DEBUG2, format!("reading stats file \"{PGSTAT_STAT_PERMANENT_FILENAME}\""));
+    let _ = elog(
+        DEBUG2,
+        format!("reading stats file \"{PGSTAT_STAT_PERMANENT_FILENAME}\""),
+    );
     // vfs-routed (provider-seam reroute).
     let buf = match fd::read_whole_file(path_s) {
         Ok(buf) => buf,

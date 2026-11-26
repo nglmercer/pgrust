@@ -11,7 +11,7 @@
 use gravity_abi::breaker::BreakerKind;
 use gravity_decompose::{Op, Source};
 use gravity_program::{shred_kind, End, LaneId, SiteDesc};
-use mcx::{CollectIn, PgVec, GrowIn};
+use mcx::{CollectIn, GrowIn, PgVec};
 use types_nodes::Node;
 
 use crate::face::source::{VerdictImpl, VerdictMech};
@@ -23,14 +23,18 @@ crate::strategies! {
     VERDICT_ELIDE = 13, "verdict.elide", PgrcFilter;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(VERDICT_ELIDE, &VerdictImpl(&Elide))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(VERDICT_ELIDE, &VerdictImpl(&Elide))],
+    ..crate::ops::NONE
+};
 
 struct Elide;
 
 impl VerdictMech for Elide {
     /// `true` when `qual` is an exact zone predicate over a filter-only lane: an `AllMatch` window may leave it undecoded.
     fn declare(&self, px: &mut Px<'_, '_>, site: &mut SiteDesc, qual: ExId) -> bool {
-        crate::ops::scan::pgrc::verdict_zone::of(px, site, qual).is_some_and(|(z, exact)| exact && site.filter_lanes.contains(z.lane as usize))
+        crate::ops::scan::pgrc::verdict_zone::of(px, site, qual)
+            .is_some_and(|(z, exact)| exact && site.filter_lanes.contains(z.lane as usize))
     }
 }
 
@@ -40,8 +44,21 @@ impl VerdictMech for Elide {
 /// a merge inner's run row or a spilled probe row is the scan's whole target list, filled in a covered window), and
 /// under `hit_only` (VERDICT_ELIDE_HIT: only a window a condition-cache hit decided) its `qual_only` columns too. None
 /// when a filter reads a whole row or a node whose reads are unknown.
-pub(crate) fn lanes<'g>(px: &Px<'g, '_>, k: usize, site: &SiteDesc, covers: u64, hit_only: bool) -> PgVec<'g, usize> {
-    walk(px, k, site, covers, hit_only, (keeps_rows(px.gx.pipelines()[k].end()), false))
+pub(crate) fn lanes<'g>(
+    px: &Px<'g, '_>,
+    k: usize,
+    site: &SiteDesc,
+    covers: u64,
+    hit_only: bool,
+) -> PgVec<'g, usize> {
+    walk(
+        px,
+        k,
+        site,
+        covers,
+        hit_only,
+        (keeps_rows(px.gx.pipelines()[k].end()), false),
+    )
 }
 
 /// The packed body's first-only lanes of pipeline `k`'s drafted `site` (bit l: site lane l; lower.rs `Declared`): the
@@ -54,23 +71,57 @@ pub(crate) fn lanes<'g>(px: &Px<'g, '_>, k: usize, site: &SiteDesc, covers: u64,
 /// fetch), a lock or a write (EPQ's recheck), a limit, a window or a sub-plan.
 pub(crate) fn first_only(px: &Px<'_, '_>, k: usize, site: &SiteDesc) -> u64 {
     let p = &px.gx.pipelines()[k];
-    let plain = p.ops.iter().skip(1).all(|o| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_)));
-    let group = plain && matches!(p.end(), End::Breaker(b) if b.kind == BreakerKind::Distinct) && px.gx.group_at(k).is_some();
-    walk(px, k, site, 1, false, (keeps_rows(p.end()) && !group, group)).iter().filter(|&&l| l < 64).fold(0, |m, &l| m | 1 << l)
+    let plain = p
+        .ops
+        .iter()
+        .skip(1)
+        .all(|o| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_)));
+    let group = plain
+        && matches!(p.end(), End::Breaker(b) if b.kind == BreakerKind::Distinct)
+        && px.gx.group_at(k).is_some();
+    walk(
+        px,
+        k,
+        site,
+        1,
+        false,
+        (keeps_rows(p.end()) && !group, group),
+    )
+    .iter()
+    .filter(|&&l| l < 64)
+    .fold(0, |m, &l| m | 1 << l)
 }
 
 /// `lanes`' walk: `keeps` counts every projection; `gates` counts the gates' reads too.
-fn walk<'g>(px: &Px<'g, '_>, k: usize, site: &SiteDesc, covers: u64, hit_only: bool, (keeps, gates): (bool, bool)) -> PgVec<'g, usize> {
+fn walk<'g>(
+    px: &Px<'g, '_>,
+    k: usize,
+    site: &SiteDesc,
+    covers: u64,
+    hit_only: bool,
+    (keeps, gates): (bool, bool),
+) -> PgVec<'g, usize> {
     let p = &px.gx.pipelines()[k];
     let mcx = px.mcx();
-    let Source::Range { scanrelid, relid, .. } = &p.source else { return PgVec::new_in(mcx) };
+    let Source::Range {
+        scanrelid, relid, ..
+    } = &p.source
+    else {
+        return PgVec::new_in(mcx);
+    };
     let n = site.lanes().len();
     let mut read = mcx::pg_vec![in mcx; false; n];
     for (j, op) in p.ops.iter().enumerate() {
         let quals: PgVec<'_, Node<'_>> = match op {
-            Op::Filter(q) if !(j < 64 && covers & (1 << j) != 0) => q.as_list().map_or_else(|| mcx::pg_vec![in mcx; *q], |l| l.iter().collect_in(mcx)),
-            Op::Gate(q) if gates => q.as_list().map_or_else(|| mcx::pg_vec![in mcx; *q], |l| l.iter().collect_in(mcx)),
-            Op::Project(cols) if keeps || p.ops[j + 1..].iter().any(|o| matches!(o, Op::Join(_))) => {
+            Op::Filter(q) if !(j < 64 && covers & (1 << j) != 0) => q
+                .as_list()
+                .map_or_else(|| mcx::pg_vec![in mcx; *q], |l| l.iter().collect_in(mcx)),
+            Op::Gate(q) if gates => q
+                .as_list()
+                .map_or_else(|| mcx::pg_vec![in mcx; *q], |l| l.iter().collect_in(mcx)),
+            Op::Project(cols)
+                if keeps || p.ops[j + 1..].iter().any(|o| matches!(o, Op::Join(_))) =>
+            {
                 cols.iter().collect_in(mcx)
             }
             _ => continue,
@@ -78,9 +129,16 @@ fn walk<'g>(px: &Px<'g, '_>, k: usize, site: &SiteDesc, covers: u64, hit_only: b
         for q in quals {
             let mut whole = false;
             let known = gravity_decompose::expr::walk(q, &mut |x| {
-                if let Some(v) = x.as_var().filter(|v| v.varno == *scanrelid as i32 && v.varlevelsup == 0) {
+                if let Some(v) = x
+                    .as_var()
+                    .filter(|v| v.varno == *scanrelid as i32 && v.varlevelsup == 0)
+                {
                     whole |= v.varattno == 0;
-                    if let Some(l) = site.lanes().iter().position(|l| l.id == LaneId::Attr(v.varattno)) {
+                    if let Some(l) = site
+                        .lanes()
+                        .iter()
+                        .position(|l| l.id == LaneId::Attr(v.varattno))
+                    {
                         read[l] = true;
                     }
                 }
@@ -94,14 +152,29 @@ fn walk<'g>(px: &Px<'g, '_>, k: usize, site: &SiteDesc, covers: u64, hit_only: b
     let qual_only = |l: usize| {
         hit_only
             && match site.lanes()[l].id {
-                LaneId::Attr(a) => px.gx.graph.qual_only.iter().any(|e| e.node_id == p.node_id && e.relid == *relid && e.attno == a),
+                LaneId::Attr(a) => px
+                    .gx
+                    .graph
+                    .qual_only
+                    .iter()
+                    .any(|e| e.node_id == p.node_id && e.relid == *relid && e.attno == a),
                 _ => false,
             }
     };
     let elided = |l: usize| (site.filter_lanes.contains(l) || qual_only(l)) && !read[l];
     // M6 R3: a path's code lane (`shred_kind::TEXT_CODES`) only compares over its column read goes with its elided column
-    let col = |l: usize| site.lanes().iter().position(|c| site.out_attnos.get(l).is_some_and(|&a| c.id == LaneId::Attr(a)));
-    let coded = |l: usize| site.shred_of(l).is_some_and(|d| d.kind == shred_kind::TEXT_CODES) && col(l).is_some_and(elided);
+    let col = |l: usize| {
+        site.lanes().iter().position(|c| {
+            site.out_attnos
+                .get(l)
+                .is_some_and(|&a| c.id == LaneId::Attr(a))
+        })
+    };
+    let coded = |l: usize| {
+        site.shred_of(l)
+            .is_some_and(|d| d.kind == shred_kind::TEXT_CODES)
+            && col(l).is_some_and(elided)
+    };
     (0..n).filter(|&l| elided(l) || coded(l)).collect_in(mcx)
 }
 
@@ -112,17 +185,27 @@ fn walk<'g>(px: &Px<'g, '_>, k: usize, site: &SiteDesc, covers: u64, hit_only: b
 /// the compare, so the lane is left undecoded beside a document the rows past the filters still read (the host's late
 /// guard then reads no elided path lane: `guard_fill`). Empty when an op past the filters is anything else or a read is
 /// unknown. Speed only: an elided lane is one no step of a covered window reads.
-pub(crate) fn path_lanes<'g>(px: &Px<'g, '_>, k: usize, site: &SiteDesc, covers: u64) -> PgVec<'g, usize> {
+pub(crate) fn path_lanes<'g>(
+    px: &Px<'g, '_>,
+    k: usize,
+    site: &SiteDesc,
+    covers: u64,
+) -> PgVec<'g, usize> {
     use crate::ops::scan::pgrc::strategies::jsonb_lanes::{contained, field_in, key_test};
     let p = &px.gx.pipelines()[k];
     let mcx = px.mcx();
-    let Source::Range { scanrelid, .. } = &p.source else { return PgVec::new_in(mcx) };
+    let Source::Range { scanrelid, .. } = &p.source else {
+        return PgVec::new_in(mcx);
+    };
     let scan = *scanrelid as i32;
     if site.shreds.is_empty() {
         return PgVec::new_in(mcx);
     }
     // (column or None for a projection entry's path, path) of every field an uncovered read names; and the covered ones
-    let (mut other, mut mine): (PgVec<'_, (Option<i16>, PgVec<'g, u8>)>, PgVec<'_, (i16, PgVec<'g, u8>)>) = (PgVec::new_in(mcx), PgVec::new_in(mcx));
+    let (mut other, mut mine): (
+        PgVec<'_, (Option<i16>, PgVec<'g, u8>)>,
+        PgVec<'_, (i16, PgVec<'g, u8>)>,
+    ) = (PgVec::new_in(mcx), PgVec::new_in(mcx));
     let mut known = true;
     let mut see = |n: Node<'_>, out: &mut PgVec<'_, (Option<i16>, PgVec<'g, u8>)>| {
         known &= reads(n, &mut |x| {
@@ -132,7 +215,11 @@ pub(crate) fn path_lanes<'g>(px: &Px<'g, '_>, k: usize, site: &SiteDesc, covers:
                 out.push_in((None, path));
             }
             // a template's leaves and a key test's paths read path lanes too (jsonb_codes `contained`, jsonops (3))
-            for (a, path) in contained(x, scan, mcx).into_iter().flatten().chain(key_test(x, scan, mcx).into_iter().flat_map(|(_, v)| v)) {
+            for (a, path) in contained(x, scan, mcx)
+                .into_iter()
+                .flatten()
+                .chain(key_test(x, scan, mcx).into_iter().flat_map(|(_, v)| v))
+            {
                 out.push_in((Some(a), path));
             }
         });
@@ -167,8 +254,13 @@ pub(crate) fn path_lanes<'g>(px: &Px<'g, '_>, k: usize, site: &SiteDesc, covers:
         .iter()
         .filter(|d| {
             let (l, path) = (d.lane as usize, site.table_arg_at(d.path));
-            let Some(&a) = site.out_attnos.get(l).filter(|_| site.entries.is_none()) else { return false };
-            mine.iter().any(|(c, q)| *c == a && &q[..] == path) && !other.iter().any(|(c, q)| c.is_none_or(|c| c == a) && related(q, path))
+            let Some(&a) = site.out_attnos.get(l).filter(|_| site.entries.is_none()) else {
+                return false;
+            };
+            mine.iter().any(|(c, q)| *c == a && &q[..] == path)
+                && !other
+                    .iter()
+                    .any(|(c, q)| c.is_none_or(|c| c == a) && related(q, path))
         })
         .map(|d| d.lane as usize)
         .collect_in(mcx)

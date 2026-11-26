@@ -21,7 +21,9 @@ fn no_flinfo(name: &str) -> ! {
 struct OutBuf(Vec<u8>);
 
 fn cstring_result(flinfo: Option<&mut FmgrInfo>, name: &'static str, s: &str) -> PgResult<Datum> {
-    let Some(flinfo) = flinfo else { no_flinfo(name) };
+    let Some(flinfo) = flinfo else {
+        no_flinfo(name)
+    };
     if !flinfo.has_fn_extra() {
         flinfo.set_fn_extra(OutBuf(Vec::new()));
     }
@@ -126,7 +128,7 @@ pub fn fc_pg_mcv_list_recv(
 }
 
 // PG_GETARG_BYTEA_P: detoasted, short headers expanded to the 4-byte form.
-unsafe fn bytea_body(fcinfo: & Fcinfo, i: usize) -> PgResult<& [u8]> {
+unsafe fn bytea_body(fcinfo: &Fcinfo, i: usize) -> PgResult<&[u8]> {
     // SAFETY: forwarded caller contract (strict fn, non-null varlena arg).
     let v = unsafe { fcinfo.arg_varlena_packed(i)? };
     if v.is_short() {
@@ -143,7 +145,10 @@ fn output_datum_text(mcx: Mcx<'_>, typid: Oid, value: Datum) -> PgResult<Datum> 
     // SAFETY: out functions return a NUL-terminated cstring datum; copied into
     // a text varlena before finfo (and its scratch) dies.
     let s = unsafe { core::ffi::CStr::from_ptr(d.as_usize() as *const core::ffi::c_char) };
-    Ok(types_fmgr::varlena_result(varlena::cstring_to_text(mcx, s.to_bytes())?))
+    Ok(types_fmgr::varlena_result(varlena::cstring_to_text(
+        mcx,
+        s.to_bytes(),
+    )?))
 }
 
 fn fc_pg_mcv_list_items(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -214,11 +219,21 @@ pub const STATISTICS_BUILTINS: &[FmgrBuiltin] = &[
     b(3355, "pg_ndistinct_in", 1, fc_pg_ndistinct_in),
     b(3356, "pg_ndistinct_out", 1, fc_pg_ndistinct_out),
     b(3357, "pg_ndistinct_recv", 1, fc_pg_ndistinct_recv),
-    b(3358, "pg_ndistinct_send", 1, varlena::builtins::fc_byteasend),
+    b(
+        3358,
+        "pg_ndistinct_send",
+        1,
+        varlena::builtins::fc_byteasend,
+    ),
     b(3404, "pg_dependencies_in", 1, fc_pg_dependencies_in),
     b(3405, "pg_dependencies_out", 1, fc_pg_dependencies_out),
     b(3406, "pg_dependencies_recv", 1, fc_pg_dependencies_recv),
-    b(3407, "pg_dependencies_send", 1, varlena::builtins::fc_byteasend),
+    b(
+        3407,
+        "pg_dependencies_send",
+        1,
+        varlena::builtins::fc_byteasend,
+    ),
     bs(3427, "pg_stats_ext_mcvlist_items", 1, fc_pg_mcv_list_items),
     b(5018, "pg_mcv_list_in", 1, fc_pg_mcv_list_in),
     b(5019, "pg_mcv_list_out", 1, varlena::builtins::fc_byteaout),

@@ -53,7 +53,11 @@ impl gravity_kernels::contract::Host for PullCopyFixed {
             }
             (*ptr, *cap) = (p as u64, size);
         }
-        core::ptr::copy_nonoverlapping(datum as usize as *const u8, *ptr as usize as *mut u8, len as usize);
+        core::ptr::copy_nonoverlapping(
+            datum as usize as *const u8,
+            *ptr as usize as *mut u8,
+            len as usize,
+        );
         *ptr
     }
 
@@ -158,9 +162,17 @@ mod d1392_tests {
     /// The stashed error is PostgreSQL's "out of memory" (ERRCODE_OUT_OF_MEMORY), never nothing (the client's "an error
     /// without a message (raise code 7)").
     fn assert_out_of_memory() {
-        let e = gravity_fn::take_error().expect("a refused pin stashes its error for the HOST raise");
-        assert_eq!((e.message(), e.sqlstate()), ("out of memory", types_error::ERRCODE_OUT_OF_MEMORY));
-        assert!(e.detail().is_some_and(|d| d.contains("pinned region")), "{:?}", e.detail());
+        let e =
+            gravity_fn::take_error().expect("a refused pin stashes its error for the HOST raise");
+        assert_eq!(
+            (e.message(), e.sqlstate()),
+            ("out of memory", types_error::ERRCODE_OUT_OF_MEMORY)
+        );
+        assert!(
+            e.detail().is_some_and(|d| d.contains("pinned region")),
+            "{:?}",
+            e.detail()
+        );
     }
 
     /// A 4-byte-header varlena of `s`, 8-aligned.
@@ -181,7 +193,13 @@ mod d1392_tests {
         let (text, mut buf) = (varlena(b"a held arm row's text"), [0u64; 2]);
         drop(gravity_fn::take_error());
         // SAFETY: a bound ctx; `text` a live varlena; `buf` the two buffer words.
-        let r = unsafe { pull_copy((ctx.as_mut_ptr() as *mut Ctx) as u64, buf.as_mut_ptr() as u64, text.as_ptr() as u64) };
+        let r = unsafe {
+            pull_copy(
+                (ctx.as_mut_ptr() as *mut Ctx) as u64,
+                buf.as_mut_ptr() as u64,
+                text.as_ptr() as u64,
+            )
+        };
         assert!(r < 0, "no room: the raise exit");
         assert_out_of_memory();
     }

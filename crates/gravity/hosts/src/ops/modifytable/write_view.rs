@@ -30,7 +30,11 @@ impl ViewInsert {
     /// `CheckValidResultRel` for a view target: without the INSTEAD OF INSERT row trigger the statement is the executor's 55000
     /// (`merge`: MERGE's hint, rewriteHandler.c `error_view_not_updatable`).
     pub fn bind(view: &Relation<'static>, merge: bool) -> PgResult<ViewInsert> {
-        let desc = if view.rd_hastriggers { relcache_seams::relation_get_trigger_desc::call(view.rd_id)? } else { None };
+        let desc = if view.rd_hastriggers {
+            relcache_seams::relation_get_trigger_desc::call(view.rd_id)?
+        } else {
+            None
+        };
         let Some(desc) = desc.filter(|d| d.trig_insert_instead_row) else {
             return Err(Box::new(PgError::error(format!("cannot insert into view \"{}\"", view.name())) // alloc: Cold
                     .with_sqlstate(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE)
@@ -39,11 +43,26 @@ impl ViewInsert {
         };
         let scratch = NodeScratch::new("GravityViewInsert");
         let new = tableam::table_slot_create(scratch.mcx(), view)?;
-        Ok(ViewInsert { desc, fmgr: TriggerFmgrCache::default(), when: TriggerWhenCache::default(), new, words: Vec::new(), wnulls: Vec::new(), done: false, scratch }) // alloc: Node
+        Ok(ViewInsert {
+            desc,
+            fmgr: TriggerFmgrCache::default(),
+            when: TriggerWhenCache::default(),
+            new,
+            words: Vec::new(),
+            wnulls: Vec::new(),
+            done: false,
+            scratch,
+        }) // alloc: Node
     }
 
     /// The row's cells into the view's slot, the triggers' verdict: false = a NULL return, the row is skipped (not counted).
-    pub fn insert(&mut self, mcx: Mcx<'static>, view: &Relation<'static>, values: &[Datum], nulls: &[bool]) -> PgResult<bool> {
+    pub fn insert(
+        &mut self,
+        mcx: Mcx<'static>,
+        view: &Relation<'static>,
+        values: &[Datum],
+        nulls: &[bool],
+    ) -> PgResult<bool> {
         self.done = false;
         exectuples::exec_clear_tuple(&mut self.new, self.scratch.mcx());
         let n = values.len();
@@ -55,8 +74,18 @@ impl ViewInsert {
         exectuples::exec_materialize_slot(&mut self.new, self.scratch.mcx())?;
         self.new.base_mut().tts_tableOid = view.rd_id;
         let desc = Rc::clone(&self.desc);
-        let ViewInsert { fmgr, when, new, scratch, .. } = self;
-        let mut w = TriggerWhenEval { mcx: scratch.mcx(), cache: when, modified_cols: None };
+        let ViewInsert {
+            fmgr,
+            when,
+            new,
+            scratch,
+            ..
+        } = self;
+        let mut w = TriggerWhenEval {
+            mcx: scratch.mcx(),
+            cache: when,
+            modified_cols: None,
+        };
         let go = trigger::ExecIRInsertTriggers(mcx, view, &desc, fmgr, &mut w, new)?;
         if go {
             // D667: ExecInsert's RETURNING projects the row the trigger returned: copied into the slot's retained buffer

@@ -9,9 +9,9 @@ use types_fmgr::{cstring_result, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 use types_tuple::varatt;
 
 use crate::vec::{
-    check_dim, check_dims, check_element, check_expected_dim, inner_product,
-    cosine_similarity, l1_distance, l2_squared_distance, parse_vector, vector_cmp_internal,
-    vector_norm, VecBuilder, VecView, VECTOR_MAX_DIM,
+    check_dim, check_dims, check_element, check_expected_dim, cosine_similarity, inner_product,
+    l1_distance, l2_squared_distance, parse_vector, vector_cmp_internal, vector_norm, VecBuilder,
+    VecView, VECTOR_MAX_DIM,
 };
 
 pub(crate) fn image_datum(img: PgVec<'_, u8>) -> Datum {
@@ -187,7 +187,8 @@ pub fn fc_array_to_vector(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgR
     } else {
         arrayfuncs::construct::builtin_meta(elemtype)?
     };
-    let (elems, _nulls) = arrayfuncs::deconstruct_array(mcx, arr, elmlen, elmbyval, elmalign, true)?;
+    let (elems, _nulls) =
+        arrayfuncs::deconstruct_array(mcx, arr, elmlen, elmbyval, elmalign, true)?;
     let n = elems.len();
     check_dim(n)?;
     check_expected_dim(typmod, n)?;
@@ -218,9 +219,10 @@ pub fn fc_array_to_vector(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgR
                     let hdr = if varatt::varatt_is_1b(p) { 1 } else { 4 };
                     core::slice::from_raw_parts(p.add(hdr), total - hdr)
                 };
-                b.set(i, adt_numeric::ops::numeric_float4(
-                    adt_numeric::Num::from_payload(payload),
-                )?);
+                b.set(
+                    i,
+                    adt_numeric::ops::numeric_float4(adt_numeric::Num::from_payload(payload))?,
+                );
             }
         }
         _ => {
@@ -433,7 +435,11 @@ pub fn fc_subvector(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<
     }
     let adim = a.dim() as i32;
     // start + count without i32 overflow (both checked positive / bounded).
-    let end = if start > adim - count { adim + 1 } else { start + count };
+    let end = if start > adim - count {
+        adim + 1
+    } else {
+        start + count
+    };
     if start < 1 {
         start = 1;
     } else if start > adim {
@@ -632,7 +638,11 @@ mod tests {
     fn real_array_casts_to_vector() {
         let ctx = mcx::MemoryContext::new("pgvector-test");
         let mcx = ctx.mcx();
-        let elems = [Datum::from_f32(1.0), Datum::from_f32(2.5), Datum::from_f32(-3.0)];
+        let elems = [
+            Datum::from_f32(1.0),
+            Datum::from_f32(2.5),
+            Datum::from_f32(-3.0),
+        ];
         let arr = arrayfuncs::construct_array(mcx, &elems, FLOAT4OID, 4, true, b'i').unwrap();
         let mut fcinfo = types_fmgr::LocalFcinfo::<2>::new(0);
         // SAFETY: ctx outlives the call.

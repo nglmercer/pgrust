@@ -189,7 +189,9 @@ fn gen_contain(g: &mut Gen) -> String {
     g.fire("jsonfuncs:contain");
     // 1/4: fz_rich sweep (both directions against a literal probe).
     if g.rng.chance(1, 4) {
-        let probe = *g.rng.pick(&["{\"a\": 1}", "{\"k\": \"v\"}", "[]", "{}", "[1]"]);
+        let probe = *g
+            .rng
+            .pick(&["{\"a\": 1}", "{\"k\": \"v\"}", "[]", "{}", "[1]"]);
         return format!(
             "SELECT pk, r_jsonb @> jsonb '{probe}', r_jsonb <@ jsonb '{probe}' FROM fz_rich ORDER BY pk;"
         );
@@ -217,7 +219,9 @@ fn gen_exist(g: &mut Gen) -> String {
     g.fire("jsonfuncs:exist");
     if g.rng.chance(1, 4) {
         let k = *g.rng.pick(KEYS);
-        let set = *g.rng.pick(&["array['a','b']", "array['k','zz']", "array['a']"]);
+        let set = *g
+            .rng
+            .pick(&["array['a','b']", "array['k','zz']", "array['a']"]);
         return format!(
             "SELECT pk, r_jsonb ? '{k}', r_jsonb ?| {set}, r_jsonb ?& {set} FROM fz_rich ORDER BY pk;"
         );
@@ -236,11 +240,21 @@ fn gen_exist(g: &mut Gen) -> String {
             format!("SELECT jsonb '{d}' ? '{k}';")
         }
         1 => {
-            let set = *g.rng.pick(&["array['a','x']", "array['zz','q0']", "array['b']", "array[]::text[]"]);
+            let set = *g.rng.pick(&[
+                "array['a','x']",
+                "array['zz','q0']",
+                "array['b']",
+                "array[]::text[]",
+            ]);
             format!("SELECT jsonb '{d}' ?| {set};")
         }
         _ => {
-            let set = *g.rng.pick(&["array['a','b']", "array['a','zz']", "array['a']", "array[]::text[]"]);
+            let set = *g.rng.pick(&[
+                "array['a','b']",
+                "array['a','zz']",
+                "array['a']",
+                "array[]::text[]",
+            ]);
             format!("SELECT jsonb '{d}' ?& {set};")
         }
     }
@@ -253,7 +267,9 @@ fn gen_concat(g: &mut Gen) -> String {
     match g.rng.below(6) {
         // object || object (right wins on key clash)
         0 | 1 => {
-            let a = *g.rng.pick(&["{\"a\": 1, \"b\": 2}", "{}", "{\"a\": {\"x\": 1}}"]);
+            let a = *g
+                .rng
+                .pick(&["{\"a\": 1, \"b\": 2}", "{}", "{\"a\": {\"x\": 1}}"]);
             let b = *g.rng.pick(&["{\"b\": 9, \"c\": 3}", "{\"a\": 99}", "{}"]);
             format!("SELECT (jsonb '{a}' || jsonb '{b}')::text;")
         }
@@ -265,8 +281,15 @@ fn gen_concat(g: &mut Gen) -> String {
         }
         // object - text[] (delete several keys at once)
         3 => {
-            let d = *g.rng.pick(&["{\"a\": 1, \"b\": 2, \"c\": 3}", "{\"a\": 1}", "{}"]);
-            let ks = *g.rng.pick(&["array['a','c']", "array['b']", "array['zz']", "array['a','b','c']"]);
+            let d = *g
+                .rng
+                .pick(&["{\"a\": 1, \"b\": 2, \"c\": 3}", "{\"a\": 1}", "{}"]);
+            let ks = *g.rng.pick(&[
+                "array['a','c']",
+                "array['b']",
+                "array['zz']",
+                "array['a','b','c']",
+            ]);
             format!("SELECT (jsonb '{d}' - {ks})::text;")
         }
         // array - text[] is not defined; use array - int (element delete)
@@ -277,7 +300,9 @@ fn gen_concat(g: &mut Gen) -> String {
         }
         // object - text (single key), chained with ||
         _ => {
-            let d = *g.rng.pick(&["{\"a\": 1, \"b\": 2}", "{\"k\": \"v\", \"z\": 0}"]);
+            let d = *g
+                .rng
+                .pick(&["{\"a\": 1, \"b\": 2}", "{\"k\": \"v\", \"z\": 0}"]);
             let k = *g.rng.pick(KEYS);
             format!("SELECT (jsonb '{d}' - '{k}' || jsonb '{{\"n\": 1}}')::text;")
         }
@@ -293,15 +318,11 @@ fn gen_each(g: &mut Gen) -> String {
         0 => format!(
             "SELECT key, value::text FROM jsonb_each(jsonb '{d}') ORDER BY key, value::text;"
         ),
-        1 => format!(
-            "SELECT key, value FROM jsonb_each_text(jsonb '{d}') ORDER BY key, value;"
-        ),
-        2 => format!(
-            "SELECT key, value::text FROM json_each(json '{d}') ORDER BY key, value::text;"
-        ),
-        _ => format!(
-            "SELECT key, value FROM json_each_text(json '{d}') ORDER BY key, value;"
-        ),
+        1 => format!("SELECT key, value FROM jsonb_each_text(jsonb '{d}') ORDER BY key, value;"),
+        2 => {
+            format!("SELECT key, value::text FROM json_each(json '{d}') ORDER BY key, value::text;")
+        }
+        _ => format!("SELECT key, value FROM json_each_text(json '{d}') ORDER BY key, value;"),
     }
 }
 
@@ -404,9 +425,7 @@ fn gen_agg(g: &mut Gen) -> String {
             ]);
             let jb = if g.rng.chance(1, 2) { "json" } else { "jsonb" };
             let expr = *g.rng.pick(&["v", "n", "json_build_object('n', n, 'v', v)"]);
-            format!(
-                "SELECT {jb}_agg({expr} ORDER BY n)::text FROM (VALUES {rows}) AS t(n, v);"
-            )
+            format!("SELECT {jb}_agg({expr} ORDER BY n)::text FROM (VALUES {rows}) AS t(n, v);")
         }
         // json_object_agg / jsonb_object_agg over ordered VALUES (dup keys:
         // json keeps all, jsonb keeps last — ORDER BY k, v makes both
@@ -448,12 +467,16 @@ fn gen_sub(g: &mut Gen) -> Vec<StmtKind> {
     if g.rng.chance(1, 2) {
         let sql = match g.rng.below(4) {
             0 => {
-                let d = *g.rng.pick(&["{\"a\": {\"b\": 1}}", "{\"a\": 1, \"k\": \"v\"}"]);
+                let d = *g
+                    .rng
+                    .pick(&["{\"a\": {\"b\": 1}}", "{\"a\": 1, \"k\": \"v\"}"]);
                 let k = *g.rng.pick(KEYS);
                 format!("SELECT (jsonb '{d}')['{k}']::text;")
             }
             1 => {
-                let d = *g.rng.pick(&["[10, 20, 30]", "[[1, 2], [3]]", "[{\"a\": 1}]"]);
+                let d = *g
+                    .rng
+                    .pick(&["[10, 20, 30]", "[[1, 2], [3]]", "[{\"a\": 1}]"]);
                 let i = *g.rng.pick(&["0", "1", "2", "5"]);
                 format!("SELECT (jsonb '{d}')[{i}]::text;")
             }
@@ -552,7 +575,10 @@ mod tests {
                 );
                 let low = sql.to_ascii_lowercase();
                 assert!(!low.contains("now("), "nondeterministic now(): {sql}");
-                assert!(!low.contains("current_"), "nondeterministic current_*: {sql}");
+                assert!(
+                    !low.contains("current_"),
+                    "nondeterministic current_*: {sql}"
+                );
                 // Every SELECT..FROM fz_rich (multi-row) must be ordered;
                 // the pk-pinned scalar subquery form is single-row/exempt.
                 if low.contains("from fz_rich") && !low.contains("where pk =") {
@@ -560,7 +586,9 @@ mod tests {
                 }
                 // Every set-returning FROM over an each/elements/keys SRF
                 // must be ordered.
-                if (low.contains("_each") || low.contains("_array_elements") || low.contains("_object_keys"))
+                if (low.contains("_each")
+                    || low.contains("_array_elements")
+                    || low.contains("_object_keys"))
                     && low.starts_with("select")
                     && low.contains(" from ")
                 {
@@ -572,10 +600,18 @@ mod tests {
             }
         }
         for p in [
-            "jsonfuncs:jacc", "jsonfuncs:contain", "jsonfuncs:exist",
-            "jsonfuncs:concat", "jsonfuncs:each", "jsonfuncs:elems",
-            "jsonfuncs:keys", "jsonfuncs:extract", "jsonfuncs:meta",
-            "jsonfuncs:agg", "jsonfuncs:sub", "jsonfuncs:err",
+            "jsonfuncs:jacc",
+            "jsonfuncs:contain",
+            "jsonfuncs:exist",
+            "jsonfuncs:concat",
+            "jsonfuncs:each",
+            "jsonfuncs:elems",
+            "jsonfuncs:keys",
+            "jsonfuncs:extract",
+            "jsonfuncs:meta",
+            "jsonfuncs:agg",
+            "jsonfuncs:sub",
+            "jsonfuncs:err",
         ] {
             assert!(seen.contains(p), "production {p} never fired");
         }

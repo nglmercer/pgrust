@@ -78,7 +78,13 @@ fn bucket(lo: u64, hi: u64) -> usize {
 pub fn build(entries: &[u8]) -> core::result::Result<(Vec<u64>, Box<[u32]>), cancelpoll::Canceled> {
     let mut step = cancelpoll::step("entry_runs build: a part's entries in bucket order");
     let n = entries.len() / 16;
-    let word = |i: usize, w: usize| u64::from_le_bytes(entries[16 * i + 8 * w..16 * i + 8 * w + 8].try_into().expect("8 bytes"));
+    let word = |i: usize, w: usize| {
+        u64::from_le_bytes(
+            entries[16 * i + 8 * w..16 * i + 8 * w + 8]
+                .try_into()
+                .expect("8 bytes"),
+        )
+    };
     let mut off = vec![0u32; (1 << BUCKET_BITS) + 1]; // alloc: Cold
     for i in 0..n {
         step.batch(i)?;
@@ -122,7 +128,10 @@ pub struct Runs {
 impl Runs {
     pub fn push(&mut self, t: Arc<FpTable>) {
         let (recs, off) = t.runs().expect("an entry-runs table");
-        debug_assert!(off.len() == (1 << BUCKET_BITS) + 1, "a table of 2^BUCKET_BITS buckets");
+        debug_assert!(
+            off.len() == (1 << BUCKET_BITS) + 1,
+            "a table of 2^BUCKET_BITS buckets"
+        );
         self.spans.push(RunSpan::new(recs, off)); // alloc: Node
         self.bytes += (LAYOUT_BYTES * (recs.len() / WORDS)) as u64;
         self.tables.push(crate::dict::text_hosts::FpPin::of(&t)); // alloc: Node
@@ -145,7 +154,10 @@ impl Runs {
 
     /// The file at `pbits` partition bits; `None` when no part published runs.
     pub fn at(&self, pbits: u8) -> Option<&dyn SpillFile> {
-        debug_assert!(pbits as u32 <= BUCKET_BITS, "an owner phase past the runs' buckets");
+        debug_assert!(
+            pbits as u32 <= BUCKET_BITS,
+            "an owner phase past the runs' buckets"
+        );
         self.pbits.store(pbits, Ordering::Relaxed);
         (!self.tables.is_empty()).then_some(self as &dyn SpillFile)
     }
@@ -165,7 +177,11 @@ impl Runs {
             let b = (part >> (pbits - BUCKET_BITS)) as usize;
             for s in &self.spans {
                 step.tick()?;
-                for (i, r) in self.words(*s, s.at(b), s.at(b + 1)).chunks_exact(WORDS).enumerate() {
+                for (i, r) in self
+                    .words(*s, s.at(b), s.at(b + 1))
+                    .chunks_exact(WORDS)
+                    .enumerate()
+                {
                     step.batch(i)?;
                     if KeyHash::of(&r[..2]).part(pbits) == part {
                         f(r)?;
@@ -214,13 +230,14 @@ impl SpillFile for Runs {
     /// a slice of `IN_PLACE` words or more is handed out in place.
     fn read_part(&self, part: u32, sink: &mut dyn FnMut(&[u8]) -> Result<()>) -> Result<()> {
         let mut buf = Gather::<GATHER>::new();
-        let flush = |sink: &mut dyn FnMut(&[u8]) -> Result<()>, buf: &mut Gather<GATHER>| -> Result<()> {
-            if buf.len() > 0 {
-                sink(buf.bytes())?;
-                buf.clear();
-            }
-            Ok(())
-        };
+        let flush =
+            |sink: &mut dyn FnMut(&[u8]) -> Result<()>, buf: &mut Gather<GATHER>| -> Result<()> {
+                if buf.len() > 0 {
+                    sink(buf.bytes())?;
+                    buf.clear();
+                }
+                Ok(())
+            };
         self.each(part, &mut |w: &[u64]| {
             if w.len() >= IN_PLACE {
                 flush(sink, &mut buf)?;
@@ -254,10 +271,16 @@ impl SpillFile for Runs {
     fn part_bytes(&self, part: u32) -> u64 {
         let pbits = self.pbits.load(Ordering::Relaxed) as u32;
         let (b0, b1) = match pbits > BUCKET_BITS {
-            true => ((part >> (pbits - BUCKET_BITS)) as usize, (part >> (pbits - BUCKET_BITS)) as usize + 1),
+            true => (
+                (part >> (pbits - BUCKET_BITS)) as usize,
+                (part >> (pbits - BUCKET_BITS)) as usize + 1,
+            ),
             false => buckets_of(part, pbits as u8),
         };
-        self.spans.iter().map(|s| (LAYOUT_BYTES * (s.at(b1) - s.at(b0))) as u64).sum()
+        self.spans
+            .iter()
+            .map(|s| (LAYOUT_BYTES * (s.at(b1) - s.at(b0))) as u64)
+            .sum()
     }
 }
 
@@ -309,14 +332,25 @@ mod tests {
     fn the_runs_hold_every_entry_once_as_a_pair_record_in_bucket_order() {
         let e = fps(5000);
         let (recs, off) = build(&e).unwrap();
-        assert_eq!((recs.len(), off.len(), off[1 << BUCKET_BITS] as usize), (2 * 5000, (1 << BUCKET_BITS) + 1, 5000));
+        assert_eq!(
+            (recs.len(), off.len(), off[1 << BUCKET_BITS] as usize),
+            (2 * 5000, (1 << BUCKET_BITS) + 1, 5000)
+        );
         let mut seen: Vec<[u64; 2]> = recs.chunks_exact(2).map(|r| [r[0], r[1]]).collect();
         for b in 0..1 << BUCKET_BITS {
             for r in recs[2 * off[b] as usize..2 * off[b + 1] as usize].chunks_exact(2) {
                 assert_eq!(bucket(r[0], r[1]), b);
             }
         }
-        let mut want: Vec<[u64; 2]> = e.chunks_exact(16).map(|c| [u64::from_le_bytes(c[..8].try_into().unwrap()), u64::from_le_bytes(c[8..].try_into().unwrap())]).collect();
+        let mut want: Vec<[u64; 2]> = e
+            .chunks_exact(16)
+            .map(|c| {
+                [
+                    u64::from_le_bytes(c[..8].try_into().unwrap()),
+                    u64::from_le_bytes(c[8..].try_into().unwrap()),
+                ]
+            })
+            .collect();
         seen.sort_unstable();
         want.sort_unstable();
         assert_eq!(seen, want);
@@ -330,13 +364,21 @@ mod tests {
         let l = pair();
         assert_eq!(l.size(), 24);
         let (mut e, mut runs) = (Vec::new(), Runs::default()); // alloc: Cold
-        for (k, n) in [3000usize, 20000].into_iter().chain(core::iter::repeat_n(300, 40)).enumerate() {
+        for (k, n) in [3000usize, 20000]
+            .into_iter()
+            .chain(core::iter::repeat_n(300, 40))
+            .enumerate()
+        {
             let part = fps_of(n, k as u64 + 1);
             let (recs, off) = build(&part).unwrap();
             runs.push(Arc::new(FpTable::of_runs(recs, off)));
             e.extend_from_slice(&part);
         }
-        let at: std::collections::HashMap<&[u8], usize> = e.chunks_exact(16).enumerate().map(|(i, c)| (c, i)).collect();
+        let at: std::collections::HashMap<&[u8], usize> = e
+            .chunks_exact(16)
+            .enumerate()
+            .map(|(i, c)| (c, i))
+            .collect();
         assert_eq!(at.len(), e.len() / 16, "distinct images");
         for pbits in 0..=BUCKET_BITS as u8 {
             let f = runs.at(pbits).expect("runs");
@@ -344,7 +386,10 @@ mod tests {
             for part in 0..1u32 << pbits {
                 f.read_part(part, &mut |bytes: &[u8]| {
                     for r in bytes.chunks_exact(16) {
-                        let (lo, hi) = (u64::from_le_bytes(r[..8].try_into().unwrap()), u64::from_le_bytes(r[8..16].try_into().unwrap()));
+                        let (lo, hi) = (
+                            u64::from_le_bytes(r[..8].try_into().unwrap()),
+                            u64::from_le_bytes(r[8..16].try_into().unwrap()),
+                        );
                         let mut row = [lo, hi, 1u64];
                         // the phase-1 record of the same image, routed as the owner phase routes it
                         let rec = unsafe { Rec::at(row.as_mut_ptr() as *mut u8, &l) };
@@ -364,7 +409,10 @@ mod tests {
                 .unwrap();
                 assert_eq!(f.part_bytes(part), n / 16 * 24, "the pair layout's bytes");
             }
-            assert!(got.iter().all(|&c| c == 1), "every entry once at pbits {pbits}");
+            assert!(
+                got.iter().all(|&c| c == 1),
+                "every entry once at pbits {pbits}"
+            );
         }
     }
 
@@ -378,14 +426,26 @@ mod tests {
         let (mut runs, mut all) = (Runs::default(), Vec::new()); // alloc: Cold
         for k in 0..6u64 {
             // parts 1..5 share the first 400 entries of part 0
-            let part = if k == 0 { fps_of(3000, 1) } else { [fps_of(3000, 1)[..400 * 16].to_vec(), fps_of(700, k + 1)].concat() };
+            let part = if k == 0 {
+                fps_of(3000, 1)
+            } else {
+                [fps_of(3000, 1)[..400 * 16].to_vec(), fps_of(700, k + 1)].concat()
+            };
             let (recs, off) = build(&part).unwrap();
             runs.push(Arc::new(FpTable::of_runs(recs, off)));
             all.extend_from_slice(&part);
         }
         let distinct: std::collections::HashSet<&[u8]> = all.chunks_exact(16).collect();
-        let counted = RecordLayout::with_sentinel(&[KeyKind::Fp128, KeyKind::Fp128], &[SlotKind::Count], false, None);
-        assert!(gravity_kernels::table::owner_fold::ident_folds(&pair()) && gravity_kernels::table::owner_fold::ident_folds(&counted));
+        let counted = RecordLayout::with_sentinel(
+            &[KeyKind::Fp128, KeyKind::Fp128],
+            &[SlotKind::Count],
+            false,
+            None,
+        );
+        assert!(
+            gravity_kernels::table::owner_fold::ident_folds(&pair())
+                && gravity_kernels::table::owner_fold::ident_folds(&counted)
+        );
         for pbits in [0u8, 3, 9, 11] {
             let f = runs.at(pbits).expect("runs");
             let (g, width) = f.iov().expect("the runs name their fold");
@@ -394,11 +454,17 @@ mod tests {
                 let mut total = 0usize;
                 for part in 0..1u32 << pbits {
                     let mut mem = vec![0u64; (1 << 20) / 8]; // alloc: Cold
-                    let split = SubSplit { pbits, depth: 0, reread: 0, sub: 0 };
+                    let split = SubSplit {
+                        pbits,
+                        depth: 0,
+                        reread: 0,
+                        sub: 0,
+                    };
                     let t = unsafe {
                         let p = mem.as_mut_ptr() as *mut u8;
                         core::ptr::write_bytes(p, 0, HASHAGG_HDR);
-                        let t = HashAgg::at(p, &l, HashAgg::cap_of(&l, 1 << 20).min(1 << 14), 1 << 20);
+                        let t =
+                            HashAgg::at(p, &l, HashAgg::cap_of(&l, 1 << 20).min(1 << 14), 1 << 20);
                         t.set_route_bits(split.table_depth());
                         t as *mut HashAgg
                     };
@@ -408,10 +474,19 @@ mod tests {
                         assert!(v >= 0, "a table of 2^14 slots holds the partition");
                         folded += v as usize;
                     });
-                    assert_eq!(folded * 16, f.part_bytes(part) as usize / 24 * 16, "every record folded once");
+                    assert_eq!(
+                        folded * 16,
+                        f.part_bytes(part) as usize / 24 * 16,
+                        "every record folded once"
+                    );
                     total += unsafe { (*t).len } as usize;
                 }
-                assert_eq!(total, distinct.len(), "pbits {pbits}: each distinct entry once over the partitions ({} B layout)", l.size());
+                assert_eq!(
+                    total,
+                    distinct.len(),
+                    "pbits {pbits}: each distinct entry once over the partitions ({} B layout)",
+                    l.size()
+                );
             }
         }
     }
@@ -420,9 +495,31 @@ mod tests {
     fn only_the_plain_fp128_pair_at_the_bucket_bits_is_accepted() {
         assert!((0..=11).all(|b| accepts(&pair(), b)));
         assert!(!accepts(&pair(), 12));
-        assert!(!accepts(&RecordLayout::with_sentinel(&[KeyKind::I64, KeyKind::I64], &[], false, None), 11));
-        assert!(!accepts(&RecordLayout::with_sentinel(&[KeyKind::Fp128, KeyKind::Fp128, KeyKind::I32], &[], false, None), 11));
-        assert!(!accepts(&RecordLayout::with_sentinel(&[KeyKind::Fp128, KeyKind::Fp128], &[SlotKind::Count], false, Some(0)), 11));
-        assert!(!accepts(&RecordLayout::with_sentinel(&[KeyKind::Fp128, KeyKind::Fp128], &[], true, None), 11));
+        assert!(!accepts(
+            &RecordLayout::with_sentinel(&[KeyKind::I64, KeyKind::I64], &[], false, None),
+            11
+        ));
+        assert!(!accepts(
+            &RecordLayout::with_sentinel(
+                &[KeyKind::Fp128, KeyKind::Fp128, KeyKind::I32],
+                &[],
+                false,
+                None
+            ),
+            11
+        ));
+        assert!(!accepts(
+            &RecordLayout::with_sentinel(
+                &[KeyKind::Fp128, KeyKind::Fp128],
+                &[SlotKind::Count],
+                false,
+                Some(0)
+            ),
+            11
+        ));
+        assert!(!accepts(
+            &RecordLayout::with_sentinel(&[KeyKind::Fp128, KeyKind::Fp128], &[], true, None),
+            11
+        ));
     }
 }

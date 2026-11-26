@@ -17,8 +17,7 @@ fn desc_mcx() -> Mcx<'static> {
     CTX.with(|c| match c.get() {
         Some(m) => m.mcx(),
         None => {
-            let m: &'static MemoryContext =
-                ::mcx::session_root("UtilityTupleDescs");
+            let m: &'static MemoryContext = ::mcx::session_root("UtilityTupleDescs");
             c.set(Some(m));
             // D4682: the teardown retires this root; clear the slot first, so a reused thread's next
             // session builds a new one.
@@ -52,11 +51,9 @@ pub fn UtilityReturnsTuples(parsetree: Node<'_>) -> bool {
         }
         T_ExecuteStmt => {
             let stmt = parsetree.as_execute_stmt().unwrap();
-            let entry = prepare::FetchPreparedStatement(
-                stmt.name.expect("EXECUTE has a name"),
-                false,
-            )
-            .expect("throwError=false cannot fail");
+            let entry =
+                prepare::FetchPreparedStatement(stmt.name.expect("EXECUTE has a name"), false)
+                    .expect("throwError=false cannot fail");
             match entry {
                 Some(e) => plancache::CachedPlanResultDesc(e.plansource).is_some(),
                 None => false,
@@ -68,9 +65,7 @@ pub fn UtilityReturnsTuples(parsetree: Node<'_>) -> bool {
     }
 }
 
-pub fn UtilityTupleDescriptor(
-    parsetree: Node<'_>,
-) -> PgResult<Option<Rc<TupleDescData<'static>>>> {
+pub fn UtilityTupleDescriptor(parsetree: Node<'_>) -> PgResult<Option<Rc<TupleDescData<'static>>>> {
     use NodeTag::*;
     match parsetree.node_tag() {
         T_CallStmt => {
@@ -87,17 +82,18 @@ pub fn UtilityTupleDescriptor(
             match portalmem::GetPortalByName(stmt.portalname)
                 .and_then(|portal| portal.borrow().tupDesc.clone())
             {
-                Some(desc) => Ok(Some(Rc::new(tupdesc::CreateTupleDescCopy(desc_mcx(), &desc)?))),
+                Some(desc) => Ok(Some(Rc::new(tupdesc::CreateTupleDescCopy(
+                    desc_mcx(),
+                    &desc,
+                )?))),
                 None => Ok(None),
             }
         }
         T_ExecuteStmt => {
             let stmt = parsetree.as_execute_stmt().unwrap();
-            let entry = prepare::FetchPreparedStatement(
-                stmt.name.expect("EXECUTE has a name"),
-                false,
-            )
-            .expect("throwError=false cannot fail");
+            let entry =
+                prepare::FetchPreparedStatement(stmt.name.expect("EXECUTE has a name"), false)
+                    .expect("throwError=false cannot fail");
             // upstream 37b8f3b0e05e (18.6): Cross-check the type of a portal running EXECUTE or FETCH.
             match entry {
                 Some(e) => prepare::FetchPreparedStatementResultDesc(desc_mcx(), &e),
@@ -139,7 +135,9 @@ pub fn UtilityContainsQuery<'mcx>(parsetree: Node<'mcx>) -> Option<Node<'mcx>> {
             .expect("analyzed CTAS holds a Query"),
         _ => return None,
     };
-    let qry = qry_node.as_query().expect("analyzed statement holds a Query");
+    let qry = qry_node
+        .as_query()
+        .expect("analyzed statement holds a Query");
     if qry.commandType == types_nodes::nodes_enums::CmdType::CMD_UTILITY {
         return UtilityContainsQuery(qry.utilityStmt.expect("utility Query holds its stmt"));
     }

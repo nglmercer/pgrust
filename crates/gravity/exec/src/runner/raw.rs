@@ -20,14 +20,18 @@ use super::ExecSlot;
 pub(super) fn pinned_stmt(pstmt: &PlannedStmt<'_>) -> &'static PlannedStmt<'static> {
     // SAFETY: the cplan refcount pins the plan and its stmts past this bind.
     #[allow(clippy::unnecessary_cast)]
-    unsafe { &*(pstmt as *const PlannedStmt<'_> as *const PlannedStmt<'static>) }
+    unsafe {
+        &*(pstmt as *const PlannedStmt<'_> as *const PlannedStmt<'static>)
+    }
 }
 
 /// execute.rs's simple protocol: the current statement's plan, held for the call.
 pub(super) fn current_stmt(pstmt: &PlannedStmt<'_>) -> &'static PlannedStmt<'static> {
     // SAFETY: pstmt outlives this call (it is the current statement's plan).
     #[allow(clippy::unnecessary_cast)]
-    unsafe { &*(pstmt as *const PlannedStmt<'_> as *const PlannedStmt<'static>) }
+    unsafe {
+        &*(pstmt as *const PlannedStmt<'_> as *const PlannedStmt<'static>)
+    }
 }
 
 /// The runner plan scratch's context (plan.rs `PlanScratch::take`), for the vectors its `Bufs` place.
@@ -78,7 +82,9 @@ pub(super) fn varlena_payload<'a>(datum: u64, len: u32) -> &'a [u8] {
 }
 
 /// plan.rs `late_words`: the admission's key expressions.
-pub(super) fn late_exprs<'a>(exprs: *mut crate::shapes::KeyExprs) -> &'a mut crate::shapes::KeyExprs {
+pub(super) fn late_exprs<'a>(
+    exprs: *mut crate::shapes::KeyExprs,
+) -> &'a mut crate::shapes::KeyExprs {
     // SAFETY: `late_exprs` points at the admission's key expressions (`prepare`'s `a`), which outlive the plan (the run
     // holds the admission); the leader evaluates them as a pipeline starts, when no other borrow of them is live (bind
     // evaluated its own words before the run, an EPQ recheck runs between calls)
@@ -112,7 +118,16 @@ pub(super) fn exec_program(exec: *mut Exec) -> Arc<Program> {
 
 /// producers.rs `Leader::at` (D1702): the execution a nested run re-enters: the innermost runner call's (the entry's
 /// current, published for that call only), else the frame's own.
-pub(super) fn current<'a, 'b>(cell: *const gravity_driver::CurrentCell, entry: *mut gravity_driver::Entry, exec: *mut Exec, binding: *mut Binding<'b>) -> (&'a mut gravity_driver::Entry, &'a mut Exec, &'a mut Binding<'b>) {
+pub(super) fn current<'a, 'b>(
+    cell: *const gravity_driver::CurrentCell,
+    entry: *mut gravity_driver::Entry,
+    exec: *mut Exec,
+    binding: *mut Binding<'b>,
+) -> (
+    &'a mut gravity_driver::Entry,
+    &'a mut Exec,
+    &'a mut Binding<'b>,
+) {
     // SAFETY: `cell` is the runner's installed slot: `with_current_slot` takes it off and the cell drops after `_frame`
     // unpublishes the frame, so the cell outlives every call through the frame. The pointers are the runner's own objects,
     // alive while the frame is published (`_frame` drops first); the current is the innermost call's own, live across that

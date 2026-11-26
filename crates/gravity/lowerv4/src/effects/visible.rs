@@ -9,15 +9,15 @@
 //! - `error_visible`: which row raises first, when an early-exit consumer may stop before a later row's error (D2593);
 //!   `fold_visible`: whether a fold's error depends on the row order beyond what errorhold's recheck repairs (D2597).
 //! Planning facts come from decompose (its effects facts on the ops, `crate::graph`'s aggregate classes), never copied.
-/// The merge families' moved decisions (EFF-MERGE-APPEND: MergeAppend's raise-free arms, merge.join's quiet inner and outer).
-pub(crate) mod merge;
+/// The cover (D2212): a pipeline run ahead whose raises PG's statement makes too (merge.join's FULL inner, a hash join's
+/// outer side run before a build PG makes first).
+pub(crate) mod cover;
 /// join.drain's spooled form's effect readings (spool_admit.rs's quiet, acts, order-free and raise-free tests).
 pub(crate) mod drain;
 /// lowerv4 ops/material's effects tests (a Material fill run ahead, a nest's Materialize inner): its family's sibling file.
 pub(crate) mod material;
-/// The cover (D2212): a pipeline run ahead whose raises PG's statement makes too (merge.join's FULL inner, a hash join's
-/// outer side run before a build PG makes first).
-pub(crate) mod cover;
+/// The merge families' moved decisions (EFF-MERGE-APPEND: MergeAppend's raise-free arms, merge.join's quiet inner and outer).
+pub(crate) mod merge;
 
 use gravity_decompose::effects::Volatility;
 use gravity_decompose::join::JoinDesc;
@@ -44,24 +44,24 @@ pub(crate) mod group;
 pub mod admit;
 /// The ctescan family's moved decision (a CTE plan a reader pulls WINDOW rows at a time).
 pub(crate) mod ctescan;
-/// Construct C2's same-row rule: the one decider of a run ahead at PostgreSQL's own point.
-pub(crate) mod same_row;
 /// The dict family's moved decision (a code cell's calls).
 pub(crate) mod dict;
+/// Construct C2's same-row rule: the one decider of a run ahead at PostgreSQL's own point.
+pub(crate) mod same_row;
 
 use crate::effects::fx::PlanFx;
 use crate::graph::Gx;
 /// lowerv4 ops/memoize's effects tests (a purge's VOLATILE calls): its family's sibling file.
 pub(crate) mod memoize;
 
-/// The srf family's decisions (ProjectSet's open error order, D1657's VOLATILE test).
-pub(crate) mod srf;
 pub(crate) mod hashjoin;
-pub(crate) mod nestloop;
 /// The lockrows family's REFERENCE rechecks (a refetched row's calls, a build part's rerun).
 pub(crate) mod lockrows;
+pub(crate) mod nestloop;
 /// The pgrc source's lead-qual quiet reading (whether its verdicts may skip rows for a qual).
 pub(crate) mod pgrc;
+/// The srf family's decisions (ProjectSet's open error order, D1657's VOLATILE test).
+pub(crate) mod srf;
 
 /// agg's and aggtrans's decisions (EFF-AGG / EFF-AGGTRANS: the walk skip's raise-freedom, the hosted path's sort and
 /// order freedom, finals_cse's quiet test).
@@ -130,7 +130,8 @@ pub fn wide_build_visible(gx: &Gx<'_, '_>, k: usize) -> Option<Why> {
             _ => {}
         }
     }
-    if crate::frame::iface::end_breaker(gx, k) != Some(gravity_abi::breaker::BreakerKind::HashBuild) {
+    if crate::frame::iface::end_breaker(gx, k) != Some(gravity_abi::breaker::BreakerKind::HashBuild)
+    {
         return Some(Why::Rows);
     }
     calls_visible(gx, k).or_else(|| error_by(gx, k, true))
@@ -146,15 +147,28 @@ fn visible_by(gx: &Gx<'_, '_>, k: usize, member: bool) -> Option<Why> {
             _ => {}
         }
     }
-    let sorts = matches!(crate::frame::iface::end_breaker(gx, k), Some(gravity_abi::breaker::BreakerKind::Sort | gravity_abi::breaker::BreakerKind::TopK));
+    let sorts = matches!(
+        crate::frame::iface::end_breaker(gx, k),
+        Some(gravity_abi::breaker::BreakerKind::Sort | gravity_abi::breaker::BreakerKind::TopK)
+    );
     if !member && sorts {
-        return calls_visible(gx, k).or_else(|| error_by(gx, k, true)).or_else(|| run_visible(gx, k));
+        return calls_visible(gx, k)
+            .or_else(|| error_by(gx, k, true))
+            .or_else(|| run_visible(gx, k));
     }
-    let Some(g) = gx.group_at(k) else { return Some(Why::Rows) };
+    let Some(g) = gx.group_at(k) else {
+        return Some(Why::Rows);
+    };
     if !crate::graph::order_free(g) {
         return Some(Why::Agg);
     }
-    if let Some(w) = g.aggs.iter().find_map(fold_visible).or_else(|| calls_visible(gx, k)).or_else(|| error_by(gx, k, !member)) {
+    if let Some(w) = g
+        .aggs
+        .iter()
+        .find_map(fold_visible)
+        .or_else(|| calls_visible(gx, k))
+        .or_else(|| error_by(gx, k, !member))
+    {
         return Some(w);
     }
     (member && !crate::graph::walk_free(g)).then_some(Why::Member)
@@ -169,13 +183,23 @@ fn visible_by(gx: &Gx<'_, '_>, k: usize, member: bool) -> Option<Why> {
 /// visible.
 fn run_visible(gx: &Gx<'_, '_>, k: usize) -> Option<Why> {
     use gravity_abi::breaker::BreakerKind as B;
-    let Some(run) = crate::frame::iface::end_breaker_of(gx, k) else { return Some(Why::Rows) };
+    let Some(run) = crate::frame::iface::end_breaker_of(gx, k) else {
+        return Some(Why::Rows);
+    };
     let ps = gx.pipelines();
-    let mut readers = (k + 1..ps.len()).filter(|&q| gx.life_of(q, run.slot).is_some_and(|l| l.0 as usize == k)).peekable();
+    let mut readers = (k + 1..ps.len())
+        .filter(|&q| gx.life_of(q, run.slot).is_some_and(|l| l.0 as usize == k))
+        .peekable();
     if readers.peek().is_none() {
         return Some(Why::Rows);
     }
-    let group = |g: &gravity_decompose::ops::shared::agg::GroupDecl<'_>| if !crate::graph::order_free(g) { Some(Why::Agg) } else { g.aggs.iter().find_map(fold_visible) };
+    let group = |g: &gravity_decompose::ops::shared::agg::GroupDecl<'_>| {
+        if !crate::graph::order_free(g) {
+            Some(Why::Agg)
+        } else {
+            g.aggs.iter().find_map(fold_visible)
+        }
+    };
     for q in readers {
         let streamed = ps[q].ops.iter().filter_map(|op| match op {
             Op::GroupRun(i) => gx.stream(*i as usize),
@@ -216,18 +240,32 @@ fn calls_by_ops(gx: &Gx<'_, '_>, k: usize, build: bool) -> Option<Why> {
     let v = |n: Node<'_>| calls(gx, n);
     let p = &gx.pipelines()[k];
     let source = matches!(p.source, gravity_decompose::graph::Source::Values { lists, .. } if lists.iter().any(v));
-    let probe_calls = |d: &gravity_decompose::ops::shared::subplan::SubPlanDesc<'_>| d.test.is_some_and(v) || d.args.iter().any(v);
+    let probe_calls = |d: &gravity_decompose::ops::shared::subplan::SubPlanDesc<'_>| {
+        d.test.is_some_and(v) || d.args.iter().any(v)
+    };
     let ops = p.ops.iter().any(|op| match op {
-        Op::SubPlan(d) if !build && matches!(d.form, SubForm::Build) => d.volatility == Volatility::Volatile && (source || !probe_calls(d)),
+        Op::SubPlan(d) if !build && matches!(d.form, SubForm::Build) => {
+            d.volatility == Volatility::Volatile && (source || !probe_calls(d))
+        }
         Op::Filter(n) | Op::Gate(n) => v(*n),
         Op::Project(l) => l.iter().any(v),
-        Op::Join(JoinDesc::Probe { keys, qual, clauses, .. }) => keys.iter().chain(qual.iter()).chain(clauses.iter()).any(v),
+        Op::Join(JoinDesc::Probe {
+            keys,
+            qual,
+            clauses,
+            ..
+        }) => keys.iter().chain(qual.iter()).chain(clauses.iter()).any(v),
         Op::Srf(d) => d.functions.iter().any(|f| v(f.node)),
-        Op::Join(JoinDesc::Nest { qual, facts, .. }) => facts.volatility == Volatility::Volatile || qual.iter().any(v),
+        Op::Join(JoinDesc::Nest { qual, facts, .. }) => {
+            facts.volatility == Volatility::Volatile || qual.iter().any(v)
+        }
         Op::SubPlan(d) => d.volatility == Volatility::Volatile,
         _ => false,
     });
-    (ops || gx.group_at(k).is_some_and(|g| g.aggs.iter().any(|a| v(a.node) || a.filter.is_some_and(v)))).then_some(Why::Volatile)
+    (ops || gx
+        .group_at(k)
+        .is_some_and(|g| g.aggs.iter().any(|a| v(a.node) || a.filter.is_some_and(v))))
+    .then_some(Why::Volatile)
 }
 
 /// D4124: whether pipeline `k`'s own expressions (`calls_by_ops`' quals, projections, probe keys and quals, sets, a nest's
@@ -245,13 +283,22 @@ pub fn order_shown(gx: &Gx<'_, '_>, k: usize) -> bool {
     let ops = p.ops.iter().any(|op| match op {
         Op::Filter(n) | Op::Gate(n) => v(*n),
         Op::Project(l) => l.iter().any(v),
-        Op::Join(JoinDesc::Probe { keys, qual, clauses, .. }) => keys.iter().chain(qual.iter()).chain(clauses.iter()).any(v),
+        Op::Join(JoinDesc::Probe {
+            keys,
+            qual,
+            clauses,
+            ..
+        }) => keys.iter().chain(qual.iter()).chain(clauses.iter()).any(v),
         Op::Srf(d) => d.functions.iter().any(|f| v(f.node)),
         Op::Join(JoinDesc::Nest { qual, .. }) => qual.iter().any(v),
         Op::SubPlan(d) => d.answer().order_call,
         _ => false,
     });
-    source || ops || gx.group_at(k).is_some_and(|g| g.aggs.iter().any(|a| v(a.node) || a.filter.is_some_and(v)))
+    source
+        || ops
+        || gx
+            .group_at(k)
+            .is_some_and(|g| g.aggs.iter().any(|a| v(a.node) || a.filter.is_some_and(v)))
 }
 
 /// Whether expression `n` makes a VOLATILE call: the union of the VOLATILE readings (T2; effects/volatile.rs `any`: a call
@@ -276,7 +323,8 @@ pub(crate) enum RangeCmp {
 
 /// `calls`, reading a range function over a user comparator as `range` says.
 fn calls_by(gx: &Gx<'_, '_>, n: Node<'_>, range: RangeCmp) -> bool {
-    gx.fx(n).volatile_by(&super::volatile::Reading::any()) || range == RangeCmp::Hidden && gx.fx(n).range_user_cmp()
+    gx.fx(n).volatile_by(&super::volatile::Reading::any())
+        || range == RangeCmp::Hidden && gx.fx(n).range_user_cmp()
 }
 
 /// Whether every VOLATILE call in expression `n` is an independent random draw (by the builtin it runs: `random()`,
@@ -327,12 +375,26 @@ pub fn rewind_visible(gx: &Gx<'_, '_>) -> Option<Why> {
     let kept = |op: &Op<'_>| kept_call(gx, op);
     // a rerun set's member is run again at each re-open of its owner (decompose `Rerun`: its params change), unless PG
     // keeps it at a rescan (`PipelineGraph::kept`)
-    let rerun = |k: usize| gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(k as u16))) && !gx.graph.kept.contains(&(k as u16));
+    let rerun = |k: usize| {
+        gx.graph
+            .reruns
+            .iter()
+            .any(|r| r.pipelines.contains(&(k as u16)))
+            && !gx.graph.kept.contains(&(k as u16))
+    };
     let root = gx.graph.root as usize;
     // a pipeline ending in the sink (an Append arm streamed to the statement's output) is the top chain: PG's rescan
     // evaluates it again, as the root's
-    let fills = |k: usize| k != root && ps[k].desc.produces().is_some() && !rerun(k) && calls_by_ops(gx, k, false).is_some();
-    (0..ps.len()).filter(|&k| !init[k]).any(|k| ps[k].ops.iter().any(kept) || fills(k)).then_some(Why::Rewind)
+    let fills = |k: usize| {
+        k != root
+            && ps[k].desc.produces().is_some()
+            && !rerun(k)
+            && calls_by_ops(gx, k, false).is_some()
+    };
+    (0..ps.len())
+        .filter(|&k| !init[k])
+        .any(|k| ps[k].ops.iter().any(kept) || fills(k))
+        .then_some(Why::Rewind)
 }
 
 /// D2651: op `op` makes a VOLATILE call whose result PostgreSQL's rescan keeps: a FROM function called on arguments that
@@ -343,9 +405,20 @@ pub fn rewind_visible(gx: &Gx<'_, '_>) -> Option<Why> {
 fn kept_call(gx: &Gx<'_, '_>, op: &Op<'_>) -> bool {
     use gravity_decompose::ops::shared::subplan::SubForm;
     match op {
-        Op::Srf(d) => matches!(d.place, SrfPlace::From { .. }) && d.functions.iter().any(|f| calls(gx, f.node) && !f.args.iter().any(reads_row)),
-        Op::SubPlan(d) => d.args.len() == 0 && d.volatility == Volatility::Volatile && matches!(d.form, SubForm::Nested { .. }),
-        Op::Join(JoinDesc::Nest { params, facts, .. }) => params.len() == 0 && facts.volatility == Volatility::Volatile,
+        Op::Srf(d) => {
+            matches!(d.place, SrfPlace::From { .. })
+                && d.functions
+                    .iter()
+                    .any(|f| calls(gx, f.node) && !f.args.iter().any(reads_row))
+        }
+        Op::SubPlan(d) => {
+            d.args.len() == 0
+                && d.volatility == Volatility::Volatile
+                && matches!(d.form, SubForm::Nested { .. })
+        }
+        Op::Join(JoinDesc::Nest { params, facts, .. }) => {
+            params.len() == 0 && facts.volatility == Volatility::Volatile
+        }
         _ => false,
     }
 }
@@ -370,12 +443,20 @@ pub fn soft_rewind(gx: &Gx<'_, '_>) -> bool {
     for i in gx.graph.init_plans.iter() {
         fill(gx, i.pipeline as usize, &mut init);
     }
-    let member = |k: usize| gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(k as u16)));
+    let member = |k: usize| {
+        gx.graph
+            .reruns
+            .iter()
+            .any(|r| r.pipelines.contains(&(k as u16)))
+    };
     // the emits: the root and every Append arm streamed to the sink (no slot filled, no InitPlan's cell); the re-arm runs
     // more than one again from the first on, so then every pipeline from there is one
     let emit = |k: usize| !init[k] && ps[k].desc.produces().is_none();
     let mut todo: PgVec<'_, usize> = (0..ps.len()).filter(|&k| emit(k)).collect_in(gx.mcx);
-    if todo.first().is_none_or(|&first| todo.len() > 1 && todo.len() != ps.len() - first) {
+    if todo
+        .first()
+        .is_none_or(|&first| todo.len() > 1 && todo.len() != ps.len() - first)
+    {
         return false;
     }
     let mut seen = mcx::pg_vec![in gx.mcx; false; ps.len()];
@@ -385,7 +466,10 @@ pub fn soft_rewind(gx: &Gx<'_, '_>) -> bool {
         }
         // a set function an emit runs ends at a rewind (ReScanExprContext's callbacks, D703): the re-arm keeps it
         let srf = emit(p) && ps[p].ops.iter().any(|op| matches!(op, Op::Srf(_)));
-        if srf || ps[p].ops.iter().any(|op| kept_call(gx, op)) || (!emit(p) && calls_visible(gx, p).is_some()) {
+        if srf
+            || ps[p].ops.iter().any(|op| kept_call(gx, op))
+            || (!emit(p) && calls_visible(gx, p).is_some())
+        {
             return false;
         }
         for &s in ps[p].desc.consumes.iter() {
@@ -393,8 +477,14 @@ pub fn soft_rewind(gx: &Gx<'_, '_>) -> bool {
             for q in (0..p).rev() {
                 if ps[q].desc.produces() == Some(s) {
                     met = true;
-                    let kind = gx.graph.breakers.iter().find(|b| b.breaker.slot == s && b.producer as usize == q).map(|b| b.breaker.kind);
-                    let keeps = matches!(kind, Some(B::Materialize)) || (emit(p) && matches!(kind, Some(B::Sort | B::TopK)));
+                    let kind = gx
+                        .graph
+                        .breakers
+                        .iter()
+                        .find(|b| b.breaker.slot == s && b.producer as usize == q)
+                        .map(|b| b.breaker.kind);
+                    let keeps = matches!(kind, Some(B::Materialize))
+                        || (emit(p) && matches!(kind, Some(B::Sort | B::TopK)));
                     if !init[q] && !member(q) && !keeps {
                         todo.push_in(q);
                     }
@@ -411,7 +501,9 @@ pub fn soft_rewind(gx: &Gx<'_, '_>) -> bool {
 /// call, a hosted aggregate's or a group's per-row call, a rerun store or key that calls one). A pull then asks for the
 /// rows the fetch still owes, never a full block (`V4Descs::pull_exact`; the driver adds a row lock's).
 pub fn pull_exact(protos: &[gravity_program::protos::Proto]) -> bool {
-    protos.iter().any(|p| p.kind == gravity_program::protos::ProtoKind::Volatile)
+    protos
+        .iter()
+        .any(|p| p.kind == gravity_program::protos::ProtoKind::Volatile)
 }
 
 /// D2651 (the KEPT road): does a rewind of this SCROLL plan make no call a reader can see, so that replaying the portal's
@@ -427,7 +519,10 @@ pub fn pull_exact(protos: &[gravity_program::protos::Proto]) -> bool {
 /// without ORDER BY / DISTINCT, an uncorrelated hashed SubPlan (its table is kept, only its test runs again) or a SubPlan
 /// whose per-call plan is quiet (`per_call_quiet`). Any other expression or plan node is loud. The admit entry asks it
 /// only for the portals it serves (the row executor's rewinds keep D1406's answer).
-pub fn rewind_quiet<'a>(pstmt: &types_nodes::plannodes::PlannedStmt<'a>, cat: &dyn Catalog<'a>) -> bool {
+pub fn rewind_quiet<'a>(
+    pstmt: &types_nodes::plannodes::PlannedStmt<'a>,
+    cat: &dyn Catalog<'a>,
+) -> bool {
     chain_quiet(&pstmt.subplans, cat, pstmt.planTree)
 }
 
@@ -437,19 +532,39 @@ fn chain_quiet<'a>(sp: Subplans<'_, 'a>, cat: &dyn Catalog<'a>, node: Option<Nod
     crate::stack_check();
     use types_nodes::NodeTag as T;
     let Some(node) = node else { return false };
-    let Some(plan) = node.as_plan() else { return false };
-    if plan.parallel_aware || !list_quiet(sp, cat, &plan.targetlist) || !list_quiet(sp, cat, &plan.qual) {
+    let Some(plan) = node.as_plan() else {
+        return false;
+    };
+    if plan.parallel_aware
+        || !list_quiet(sp, cat, &plan.targetlist)
+        || !list_quiet(sp, cat, &plan.qual)
+    {
         return false;
     }
     let q = |n: Node<'a>| PlanFx::of(cat, n).rewind_quiet(sp);
     match node.node_tag() {
         // their rescan keeps the rows (Sort / Material), the function results (FunctionScan) or the CTE store (CteScan)
         T::T_Sort | T::T_Material | T::T_FunctionScan | T::T_CteScan | T::T_SeqScan => true,
-        T::T_Result => plan.lefttree.is_some() && node.as_result().is_some_and(|r| r.resconstantqual.is_none_or(q)) && chain_quiet(sp, cat, plan.lefttree),
-        T::T_Limit => node.as_limit().is_some_and(|l| limit_quiet(sp, cat, l)) && chain_quiet(sp, cat, plan.lefttree),
+        T::T_Result => {
+            plan.lefttree.is_some()
+                && node
+                    .as_result()
+                    .is_some_and(|r| r.resconstantqual.is_none_or(q))
+                && chain_quiet(sp, cat, plan.lefttree)
+        }
+        T::T_Limit => {
+            node.as_limit().is_some_and(|l| limit_quiet(sp, cat, l))
+                && chain_quiet(sp, cat, plan.lefttree)
+        }
         T::T_SubqueryScan => chain_quiet(sp, cat, node.as_subquery_scan().and_then(|s| s.subplan)),
-        T::T_Append => node.as_append().is_some_and(|a| a.nasyncplans == 0 && a.appendplans.iter().all(|p| chain_quiet(sp, cat, Some(p)))),
-        T::T_IndexScan | T::T_IndexOnlyScan | T::T_TidScan | T::T_TidRangeScan | T::T_ValuesScan => keys_quiet(sp, cat, node),
+        T::T_Append => node.as_append().is_some_and(|a| {
+            a.nasyncplans == 0 && a.appendplans.iter().all(|p| chain_quiet(sp, cat, Some(p)))
+        }),
+        T::T_IndexScan
+        | T::T_IndexOnlyScan
+        | T::T_TidScan
+        | T::T_TidRangeScan
+        | T::T_ValuesScan => keys_quiet(sp, cat, node),
         _ => false,
     }
 }
@@ -462,7 +577,10 @@ fn chain_quiet<'a>(sp: Subplans<'_, 'a>, cat: &dyn Catalog<'a>, node: Option<Nod
 /// Replaying the portal's cursor store is exact when the top chain (Result over an outer plan, Limit, SubqueryScan)
 /// reaches such a node with only IMMUTABLE expressions (the home's `PlanFx::fixed`), so the chain's second evaluation equals
 /// the first.
-pub fn rewind_keeps<'a>(pstmt: &types_nodes::plannodes::PlannedStmt<'a>, cat: &dyn Catalog<'a>) -> bool {
+pub fn rewind_keeps<'a>(
+    pstmt: &types_nodes::plannodes::PlannedStmt<'a>,
+    cat: &dyn Catalog<'a>,
+) -> bool {
     chain_keeps(cat, pstmt.planTree)
 }
 
@@ -470,7 +588,9 @@ fn chain_keeps<'a>(cat: &dyn Catalog<'a>, node: Option<Node<'a>>) -> bool {
     crate::stack_check();
     use types_nodes::NodeTag as T;
     let Some(node) = node else { return false };
-    let Some(plan) = node.as_plan() else { return false };
+    let Some(plan) = node.as_plan() else {
+        return false;
+    };
     let fixed = |l: &types_nodes::NodeList<'a>| l.iter().all(|n| PlanFx::of(cat, n).fixed());
     if plan.parallel_aware || !fixed(&plan.targetlist) || !fixed(&plan.qual) {
         return false;
@@ -478,10 +598,20 @@ fn chain_keeps<'a>(cat: &dyn Catalog<'a>, node: Option<Node<'a>>) -> bool {
     let f = |n: Node<'a>| PlanFx::of(cat, n).fixed();
     match node.node_tag() {
         T::T_Sort | T::T_Material | T::T_FunctionScan | T::T_CteScan => true,
-        T::T_Result => plan.lefttree.is_some() && node.as_result().is_some_and(|r| r.resconstantqual.is_none_or(f)) && chain_keeps(cat, plan.lefttree),
+        T::T_Result => {
+            plan.lefttree.is_some()
+                && node
+                    .as_result()
+                    .is_some_and(|r| r.resconstantqual.is_none_or(f))
+                && chain_keeps(cat, plan.lefttree)
+        }
         T::T_Limit => {
             node.as_limit().is_some_and(|l| {
-                l.limitOffset.is_none_or(f) && l.limitCount.is_none_or(f) && l.uniqOperators.iter().all(|&o| o != 0 && o < types_core::catalog::FirstNormalObjectId)
+                l.limitOffset.is_none_or(f)
+                    && l.limitCount.is_none_or(f)
+                    && l.uniqOperators
+                        .iter()
+                        .all(|&o| o != 0 && o < types_core::catalog::FirstNormalObjectId)
             }) && chain_keeps(cat, plan.lefttree)
         }
         T::T_SubqueryScan => chain_keeps(cat, node.as_subquery_scan().and_then(|s| s.subplan)),
@@ -489,9 +619,17 @@ fn chain_keeps<'a>(cat: &dyn Catalog<'a>, node: Option<Node<'a>>) -> bool {
     }
 }
 
-fn limit_quiet<'a>(sp: Subplans<'_, 'a>, cat: &dyn Catalog<'a>, l: &types_nodes::plannodes::Limit<'a>) -> bool {
+fn limit_quiet<'a>(
+    sp: Subplans<'_, 'a>,
+    cat: &dyn Catalog<'a>,
+    l: &types_nodes::plannodes::Limit<'a>,
+) -> bool {
     let q = |n: Node<'a>| PlanFx::of(cat, n).rewind_quiet(sp);
-    l.limitOffset.is_none_or(q) && l.limitCount.is_none_or(q) && l.uniqOperators.iter().all(|&o| o != 0 && o < types_core::catalog::FirstNormalObjectId)
+    l.limitOffset.is_none_or(q)
+        && l.limitCount.is_none_or(q)
+        && l.uniqOperators
+            .iter()
+            .all(|&o| o != 0 && o < types_core::catalog::FirstNormalObjectId)
 }
 
 /// The scan-specific expressions a rescan evaluates again (index keys, TID quals, VALUES lists).
@@ -499,10 +637,25 @@ fn keys_quiet<'a>(sp: Subplans<'_, 'a>, cat: &dyn Catalog<'a>, node: Node<'a>) -
     use types_nodes::NodeTag as T;
     let ql = |l: &types_nodes::NodeList<'a>| list_quiet(sp, cat, l);
     match node.node_tag() {
-        T::T_IndexScan => node.as_index_scan().is_some_and(|s| [&s.indexqual, &s.indexqualorig, &s.indexorderby, &s.indexorderbyorig].into_iter().all(ql)),
-        T::T_IndexOnlyScan => node.as_index_only_scan().is_some_and(|s| [&s.indexqual, &s.recheckqual, &s.indexorderby].into_iter().all(ql)),
+        T::T_IndexScan => node.as_index_scan().is_some_and(|s| {
+            [
+                &s.indexqual,
+                &s.indexqualorig,
+                &s.indexorderby,
+                &s.indexorderbyorig,
+            ]
+            .into_iter()
+            .all(ql)
+        }),
+        T::T_IndexOnlyScan => node.as_index_only_scan().is_some_and(|s| {
+            [&s.indexqual, &s.recheckqual, &s.indexorderby]
+                .into_iter()
+                .all(ql)
+        }),
         T::T_TidScan => node.as_tid_scan().is_some_and(|s| ql(&s.tidquals)),
-        T::T_TidRangeScan => node.as_tid_range_scan().is_some_and(|s| ql(&s.tidrangequals)),
+        T::T_TidRangeScan => node
+            .as_tid_range_scan()
+            .is_some_and(|s| ql(&s.tidrangequals)),
         T::T_ValuesScan => node.as_values_scan().is_some_and(|s| ql(&s.values_lists)),
         _ => false,
     }
@@ -511,12 +664,22 @@ fn keys_quiet<'a>(sp: Subplans<'_, 'a>, cat: &dyn Catalog<'a>, node: Node<'a>) -
 /// A SubPlan's plan, run again at each call (ExecScanSubPlan rescans it with its params changed): every expression it
 /// evaluates is quiet, but a FunctionScan's function that reads no PARAM_EXEC param keeps its stored rows
 /// (ExecReScanFunctionScan drops them only when its `funcparams` changed). An InitPlan inside, or a node not named, is loud.
-pub(in crate::effects) fn per_call_quiet<'a>(sp: Subplans<'_, 'a>, cat: &dyn Catalog<'a>, node: Option<Node<'a>>) -> bool {
+pub(in crate::effects) fn per_call_quiet<'a>(
+    sp: Subplans<'_, 'a>,
+    cat: &dyn Catalog<'a>,
+    node: Option<Node<'a>>,
+) -> bool {
     crate::stack_check();
     use types_nodes::NodeTag as T;
     let Some(node) = node else { return true };
-    let Some(plan) = node.as_plan() else { return false };
-    if plan.parallel_aware || plan.initPlan.len() != 0 || !list_quiet(sp, cat, &plan.targetlist) || !list_quiet(sp, cat, &plan.qual) {
+    let Some(plan) = node.as_plan() else {
+        return false;
+    };
+    if plan.parallel_aware
+        || plan.initPlan.len() != 0
+        || !list_quiet(sp, cat, &plan.targetlist)
+        || !list_quiet(sp, cat, &plan.qual)
+    {
         return false;
     }
     if !per_call_quiet(sp, cat, plan.lefttree) || !per_call_quiet(sp, cat, plan.righttree) {
@@ -525,23 +688,42 @@ pub(in crate::effects) fn per_call_quiet<'a>(sp: Subplans<'_, 'a>, cat: &dyn Cat
     let q = |n: Node<'a>| PlanFx::of(cat, n).rewind_quiet(sp);
     match node.node_tag() {
         T::T_SeqScan | T::T_Sort | T::T_Material | T::T_Agg => true,
-        T::T_Result => node.as_result().is_some_and(|r| r.resconstantqual.is_none_or(q)),
+        T::T_Result => node
+            .as_result()
+            .is_some_and(|r| r.resconstantqual.is_none_or(q)),
         T::T_Limit => node.as_limit().is_some_and(|l| limit_quiet(sp, cat, l)),
-        T::T_FunctionScan => node.as_function_scan().is_some_and(|f| f.functions.iter().all(|r| r.as_range_tbl_function().is_some_and(|r| r.funcparams.is_empty() || r.funcexpr.is_none_or(q)))),
-        T::T_SubqueryScan => per_call_quiet(sp, cat, node.as_subquery_scan().and_then(|s| s.subplan)),
-        T::T_IndexScan | T::T_IndexOnlyScan | T::T_TidScan | T::T_TidRangeScan | T::T_ValuesScan => keys_quiet(sp, cat, node),
+        T::T_FunctionScan => node.as_function_scan().is_some_and(|f| {
+            f.functions.iter().all(|r| {
+                r.as_range_tbl_function()
+                    .is_some_and(|r| r.funcparams.is_empty() || r.funcexpr.is_none_or(q))
+            })
+        }),
+        T::T_SubqueryScan => {
+            per_call_quiet(sp, cat, node.as_subquery_scan().and_then(|s| s.subplan))
+        }
+        T::T_IndexScan
+        | T::T_IndexOnlyScan
+        | T::T_TidScan
+        | T::T_TidRangeScan
+        | T::T_ValuesScan => keys_quiet(sp, cat, node),
         _ => false,
     }
 }
 
-fn list_quiet<'a>(sp: Subplans<'_, 'a>, cat: &dyn Catalog<'a>, l: &types_nodes::NodeList<'a>) -> bool {
+fn list_quiet<'a>(
+    sp: Subplans<'_, 'a>,
+    cat: &dyn Catalog<'a>,
+    l: &types_nodes::NodeList<'a>,
+) -> bool {
     l.iter().all(|n| PlanFx::of(cat, n).rewind_quiet(sp))
 }
 
 /// Whether expression `n` reads a row: a column, or a PARAM_EXEC param (a nest's or a SubPlan's, set per outer row).
 fn reads_row(n: Node<'_>) -> bool {
     crate::stack_check();
-    let mut any = n.as_var().is_some() || n.as_param().is_some_and(|p| p.paramkind == ParamKind::PARAM_EXEC);
+    let mut any = n.as_var().is_some()
+        || n.as_param()
+            .is_some_and(|p| p.paramkind == ParamKind::PARAM_EXEC);
     gravity_decompose::expr::kids(n, &mut |c| any |= reads_row(c));
     any
 }
@@ -580,8 +762,19 @@ pub fn error_visible(gx: &Gx<'_, '_>, k: usize) -> Option<Why> {
 /// as `ops_raise_free` does (a filter, gate or projection; any join op may raise).
 fn error_by(gx: &Gx<'_, '_>, k: usize, joins: bool) -> Option<Why> {
     let ops = &gx.pipelines()[k].ops;
-    let fill = |jt: &JoinType| matches!(jt, JoinType::JOIN_LEFT | JoinType::JOIN_FULL | JoinType::JOIN_ANTI);
-    let quiet = |pre: &[Op<'_>]| if joins { joins_quiet(gx, pre) } else { super::ops_raise_free(gx, pre) };
+    let fill = |jt: &JoinType| {
+        matches!(
+            jt,
+            JoinType::JOIN_LEFT | JoinType::JOIN_FULL | JoinType::JOIN_ANTI
+        )
+    };
+    let quiet = |pre: &[Op<'_>]| {
+        if joins {
+            joins_quiet(gx, pre)
+        } else {
+            super::ops_raise_free(gx, pre)
+        }
+    };
     ops.iter()
         .enumerate()
         .any(|(j, op)| matches!(op, Op::Join(JoinDesc::Probe { outer_first: true, jointype, .. }) if !fill(jointype)) && !quiet(&ops[..j]))
@@ -596,9 +789,13 @@ fn error_by(gx: &Gx<'_, '_>, k: usize, joins: bool) -> Option<Why> {
 /// reading); a nest step when its F5 facts, its join qual and its parameters do (`op_raise_free`'s tail reading). Any
 /// other op may raise.
 fn joins_quiet(gx: &Gx<'_, '_>, ops: &[Op<'_>]) -> bool {
-    let clause = |c: Node<'_>| gx.fx(c).quiet() && !gravity_decompose::effects::user_hash_clause(gx.facts, c);
+    let clause = |c: Node<'_>| {
+        gx.fx(c).quiet() && !gravity_decompose::effects::user_hash_clause(gx.facts, c)
+    };
     ops.iter().all(|o| match o {
-        Op::Join(JoinDesc::Probe { clauses, .. }) => super::op_raise_free(gx, o, Some(&[])) && clauses.iter().all(clause),
+        Op::Join(JoinDesc::Probe { clauses, .. }) => {
+            super::op_raise_free(gx, o, Some(&[])) && clauses.iter().all(clause)
+        }
         Op::Join(JoinDesc::Nest { .. }) => super::op_raise_free(gx, o, Some(&[])),
         _ => super::op_raise_free(gx, o, None),
     })
@@ -624,7 +821,9 @@ pub fn bounds_may_raise(op: &Op<'_>) -> bool {
     let loose = |b: &Bound<'_>| !matches!(b, Bound::All | Bound::Const(0..));
     match op {
         Op::Limit { count, offset, .. } => loose(count) || loose(offset),
-        Op::Sort(s) => matches!(&s.form, SortForm::TopK { count, offset, .. } | SortForm::Walk { count, offset, .. } if loose(count) || loose(offset)),
+        Op::Sort(s) => {
+            matches!(&s.form, SortForm::TopK { count, offset, .. } | SortForm::Walk { count, offset, .. } if loose(count) || loose(offset))
+        }
         _ => false,
     }
 }

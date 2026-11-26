@@ -37,7 +37,16 @@ pub(crate) fn unique_key(px: &mut Px<'_, '_>, q: usize, col: i16) -> Option<Uniq
         From::Inner { j, attno } => (j, Some(attno)),
         From::Scan(a) => (outer_key(gx, q, a)?, None),
     };
-    let Op::Join(JoinDesc::Probe { slot, jointype: JoinType::JOIN_INNER, decls, unique, .. }) = &gx.pipelines()[q].ops[j] else { return None };
+    let Op::Join(JoinDesc::Probe {
+        slot,
+        jointype: JoinType::JOIN_INNER,
+        decls,
+        unique,
+        ..
+    }) = &gx.pipelines()[q].ops[j]
+    else {
+        return None;
+    };
     let (b, _) = records_of(gx, q, j).filter(|_| decls.len() == 1)?;
     if attno.is_some_and(|a| !same_col(gx, b, decls[0].inner.node(), a)) {
         return None;
@@ -47,9 +56,23 @@ pub(crate) fn unique_key(px: &mut Px<'_, '_>, q: usize, col: i16) -> Option<Uniq
         return None;
     }
     // the pass pairs the pipeline's last probe (spill/build.rs `alone`: only filters and projections follow it)
-    let last = gx.pipelines()[q].ops.iter().rposition(|op| matches!(op, Op::Join(JoinDesc::Probe { .. })));
-    let pairing = px.ext::<crate::ops::hashjoin::build_side::JoinExt>(crate::face::kinds::Face::Join).is_some_and(|e| e.pairing.is_some());
-    Some(UniqueKey { b, j, consumed: if pairing && last == Some(j) { None } else { px.consumed(q, *slot) }, unique: *unique })
+    let last = gx.pipelines()[q]
+        .ops
+        .iter()
+        .rposition(|op| matches!(op, Op::Join(JoinDesc::Probe { .. })));
+    let pairing = px
+        .ext::<crate::ops::hashjoin::build_side::JoinExt>(crate::face::kinds::Face::Join)
+        .is_some_and(|e| e.pairing.is_some());
+    Some(UniqueKey {
+        b,
+        j,
+        consumed: if pairing && last == Some(j) {
+            None
+        } else {
+            px.consumed(q, *slot)
+        },
+        unique: *unique,
+    })
 }
 
 /// D3324 R3 (road key.carry): column `col` of the row entering pipeline `q`'s end as a payload column of an INNER probe's
@@ -57,14 +80,28 @@ pub(crate) fn unique_key(px: &mut Px<'_, '_>, q: usize, col: i16) -> Option<Uniq
 /// `None`, `unique` false), whose code columns `code_col` then names.
 pub(crate) fn build_row(px: &mut Px<'_, '_>, q: usize, col: i16) -> Option<UniqueKey> {
     let gx = px.gx;
-    let Some(From::Inner { j, .. }) = walk(gx, q, end_pos(gx, q), col) else { return None };
-    let Op::Join(JoinDesc::Probe { slot, jointype: JoinType::JOIN_INNER, .. }) = &gx.pipelines()[q].ops[j] else { return None };
+    let Some(From::Inner { j, .. }) = walk(gx, q, end_pos(gx, q), col) else {
+        return None;
+    };
+    let Op::Join(JoinDesc::Probe {
+        slot,
+        jointype: JoinType::JOIN_INNER,
+        ..
+    }) = &gx.pipelines()[q].ops[j]
+    else {
+        return None;
+    };
     let (b, _) = records_of(gx, q, j)?;
     let sh = crate::ops::hashjoin::build_side::shape(px, *slot, b);
     if sh.swapped || crate::ops::hashjoin::build::arms_run(px, b, *slot) {
         return None;
     }
-    Some(UniqueKey { b, j, consumed: None, unique: false })
+    Some(UniqueKey {
+        b,
+        j,
+        consumed: None,
+        unique: false,
+    })
 }
 
 /// Road key.dependent's probe-side key (`GROUP BY e.tenant_id, t.tenant_name` over `JOIN tenants t ON t.tenant_id =
@@ -76,13 +113,35 @@ pub(crate) fn build_row(px: &mut Px<'_, '_>, q: usize, col: i16) -> Option<Uniqu
 fn outer_key(gx: &Gx<'_, '_>, q: usize, a: i16) -> Option<usize> {
     let ops = &gx.pipelines()[q].ops;
     ops.iter().enumerate().find_map(|(j, op)| {
-        let Op::Join(JoinDesc::Probe { jointype: JoinType::JOIN_INNER, decls, .. }) = op else { return None };
+        let Op::Join(JoinDesc::Probe {
+            jointype: JoinType::JOIN_INNER,
+            decls,
+            ..
+        }) = op
+        else {
+            return None;
+        };
         let [d] = &decls[..] else { return None };
-        let v = crate::table::emit_group::bare(d.outer.node()).as_var().filter(|v| v.varlevelsup == 0 && v.varattno > 0)?;
+        let v = crate::table::emit_group::bare(d.outer.node())
+            .as_var()
+            .filter(|v| v.varlevelsup == 0 && v.varattno > 0)?;
         let at = match v.varno {
             OUTER_VAR if d.outer.agg() => walk(gx, q, j, v.varattno),
-            OUTER_VAR => walk(gx, q, ops[..j].iter().rposition(|op| matches!(op, Op::Project(_)))?, v.varattno),
-            r if gx.pipelines()[q].source.relation().is_some_and(|s| r == s.0 as i32) => Some(From::Scan(v.varattno)),
+            OUTER_VAR => walk(
+                gx,
+                q,
+                ops[..j]
+                    .iter()
+                    .rposition(|op| matches!(op, Op::Project(_)))?,
+                v.varattno,
+            ),
+            r if gx.pipelines()[q]
+                .source
+                .relation()
+                .is_some_and(|s| r == s.0 as i32) =>
+            {
+                Some(From::Scan(v.varattno))
+            }
             _ => None,
         };
         (at == Some(From::Scan(a))).then_some(j)
@@ -93,10 +152,21 @@ fn outer_key(gx: &Gx<'_, '_>, q: usize, a: i16) -> Option<usize> {
 /// to one scan attribute.
 fn same_col(gx: &Gx<'_, '_>, b: usize, key: Node<'_>, a: i16) -> bool {
     let end = end_pos(gx, b);
-    let Some(v) = crate::table::emit_group::bare(key).as_var().filter(|v| v.varlevelsup == 0 && v.varattno > 0) else { return false };
+    let Some(v) = crate::table::emit_group::bare(key)
+        .as_var()
+        .filter(|v| v.varlevelsup == 0 && v.varattno > 0)
+    else {
+        return false;
+    };
     let at = match v.varno {
         OUTER_VAR => walk(gx, b, end, v.varattno),
-        r if gx.pipelines()[b].source.relation().is_some_and(|s| r == s.0 as i32) => Some(From::Scan(v.varattno)),
+        r if gx.pipelines()[b]
+            .source
+            .relation()
+            .is_some_and(|s| r == s.0 as i32) =>
+        {
+            Some(From::Scan(v.varattno))
+        }
         _ => None,
     };
     matches!(at, Some(From::Scan(_))) && at == walk(gx, b, end, a)
@@ -106,20 +176,51 @@ fn same_col(gx: &Gx<'_, '_>, b: usize, key: Node<'_>, a: i16) -> bool {
 /// scan lane's code (build.rs: a code lane's cell, not a column hoist.rs replaced by a call's verdict): its INNER_VAR attno
 /// and the code rep, its table dropped (rep.code.hash renders it, or reads join.payload_fp's words). `bp`: the key is
 /// bpchar (then the column is a bpchar of declared length, payload_fp.rs `lane`).
-pub(crate) fn code_col(px: &mut Px<'_, '_>, q: usize, u: &UniqueKey, col: i16, bp: bool) -> Option<(i16, Rep)> {
+pub(crate) fn code_col(
+    px: &mut Px<'_, '_>,
+    q: usize,
+    u: &UniqueKey,
+    col: i16,
+    bp: bool,
+) -> Option<(i16, Rep)> {
     let gx = px.gx;
-    let Some(From::Inner { j, attno }) = walk(gx, q, end_pos(gx, q), col) else { return None };
-    let Op::Join(JoinDesc::Probe { slot, .. }) = &gx.pipelines()[q].ops[j] else { return None };
+    let Some(From::Inner { j, attno }) = walk(gx, q, end_pos(gx, q), col) else {
+        return None;
+    };
+    let Op::Join(JoinDesc::Probe { slot, .. }) = &gx.pipelines()[q].ops[j] else {
+        return None;
+    };
     let sh = crate::ops::hashjoin::build_side::shape(px, *slot, u.b);
     if j != u.j || !sh.payload.contains(&attno) || sh.hoist.get().is_some_and(|h| h.col == attno) {
         return None;
     }
-    let (Some(From::Scan(a)), Some(_)) = (walk(gx, u.b, end_pos(gx, u.b), attno), lane(gx, u.b, attno, bp)) else { return None };
+    let (Some(From::Scan(a)), Some(_)) = (
+        walk(gx, u.b, end_pos(gx, u.b), attno),
+        lane(gx, u.b, attno, bp),
+    ) else {
+        return None;
+    };
     // the lane as the build's site numbered it (made before this pipeline), its records' cells' rep: emit_group.rs `site_rep`
-    let rep = |s: &gravity_program::SiteDesc| s.lanes.iter().find(|l| l.id == LaneId::Attr(a)).map(|l| l.rep);
-    let numbered = px.pipeline_site(u.b).and_then(|i| px.sites.get(i)).and_then(rep);
+    let rep = |s: &gravity_program::SiteDesc| {
+        s.lanes
+            .iter()
+            .find(|l| l.id == LaneId::Attr(a))
+            .map(|l| l.rep)
+    };
+    let numbered = px
+        .pipeline_site(u.b)
+        .and_then(|i| px.sites.get(i))
+        .and_then(rep);
     match numbered.or_else(|| px.site_mut(u.b).and_then(|s| rep(s)))? {
-        Rep::Code { dict } => Some((attno, Rep::Code { dict: DictRef { fp_table: DictRef::NO_TABLE, ..dict } })),
+        Rep::Code { dict } => Some((
+            attno,
+            Rep::Code {
+                dict: DictRef {
+                    fp_table: DictRef::NO_TABLE,
+                    ..dict
+                },
+            },
+        )),
         _ => None,
     }
 }
@@ -134,7 +235,13 @@ pub(crate) fn unique_now(u: &UniqueKey, b: &mut FunctionBuilder<'_>, env: &Env) 
     }
     let r = crate::ops::hashjoin::build::region(b, env, Some(u.consumed?));
     let mut ok = b.bconst(true);
-    for (off, mask, want) in [(gravity_abi::breaker::TABLE_KIND_OFF, u8::MAX, KIND), (PHASE, u8::MAX, 2), (FORM, u8::MAX, DENSE), (FLAGS, F_DUP, 0), (crate::ops::hashjoin::spill::build::SPILL, u8::MAX, 0)] {
+    for (off, mask, want) in [
+        (gravity_abi::breaker::TABLE_KIND_OFF, u8::MAX, KIND),
+        (PHASE, u8::MAX, 2),
+        (FORM, u8::MAX, DENSE),
+        (FLAGS, F_DUP, 0),
+        (crate::ops::hashjoin::spill::build::SPILL, u8::MAX, 0),
+    ] {
         let v = b.load_zext(Type::I8, r, off as i32);
         let m = b.iconst(Type::I64, mask as i64);
         let v = b.int_bin(IntBinOp::And, v, m);

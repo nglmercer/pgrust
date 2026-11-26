@@ -51,9 +51,15 @@ fn num_cache(len: usize, fmt: &[u8]) -> PgResult<(Fmt, NUMDesc)> {
     if len > NUM_CACHE_SIZE {
         let mut num = NUMDesc::default();
         num.zeroize();
-        let format: Fmt =
-            crate::parse::parse_format(fmt, NUM_KEYWORDS, &[], &NUM_INDEX, NUM_FLAG, Some(&mut num))?
-                .into();
+        let format: Fmt = crate::parse::parse_format(
+            fmt,
+            NUM_KEYWORDS,
+            &[],
+            &NUM_INDEX,
+            NUM_FLAG,
+            Some(&mut num),
+        )?
+        .into();
         Ok((format, num))
     } else {
         crate::cache::num_cache_fetch(fmt)
@@ -326,7 +332,10 @@ pub fn int4_to_char<'mcx>(mcx: Mcx<'mcx>, value: i32, fmt: &[u8]) -> PgResult<Va
     } else {
         let mut orgnum: Vec<u8>;
         if num.is_multi() {
-            orgnum = value.wrapping_mul(pow10_as_c_int32(num.multi)).to_string().into_bytes();
+            orgnum = value
+                .wrapping_mul(pow10_as_c_int32(num.multi))
+                .to_string()
+                .into_bytes();
             num.pre += num.multi;
         } else {
             orgnum = value.to_string().into_bytes();
@@ -642,10 +651,19 @@ mod tests {
     fn int4_basic() {
         let c = ctx();
         // Positive values reserve a leading sign space (no FM/MI/PL/SG/S).
-        assert_eq!(as_text(&int4_to_char(c.mcx(), 1234, b"0000").unwrap()), " 1234");
-        assert_eq!(as_text(&int4_to_char(c.mcx(), 485, b"999").unwrap()), " 485");
+        assert_eq!(
+            as_text(&int4_to_char(c.mcx(), 1234, b"0000").unwrap()),
+            " 1234"
+        );
+        assert_eq!(
+            as_text(&int4_to_char(c.mcx(), 485, b"999").unwrap()),
+            " 485"
+        );
         // RN is right-justified in a 15-wide field, no sign space.
-        assert_eq!(as_text(&int4_to_char(c.mcx(), 485, b"RN").unwrap()), "        CDLXXXV");
+        assert_eq!(
+            as_text(&int4_to_char(c.mcx(), 485, b"RN").unwrap()),
+            "        CDLXXXV"
+        );
     }
 
     // C numeric_round clamps the scale to NUMERIC_DSCALE_MAX (16383); a
@@ -660,7 +678,9 @@ mod tests {
         assert_eq!(out.len(), 16386);
         assert!(out.starts_with(" 1.00000"));
         assert!(out[3..].bytes().all(|b| b == b'0'));
-        let v = ::numeric::numeric_in("-123.456", -1, None).unwrap().unwrap();
+        let v = ::numeric::numeric_in("-123.456", -1, None)
+            .unwrap()
+            .unwrap();
         let mut fmt = b"999.".to_vec();
         fmt.extend(core::iter::repeat_n(b'9', 16384));
         let out = as_text(&numeric_to_char(c.mcx(), v.num(), &fmt).unwrap());
@@ -683,7 +703,9 @@ mod tests {
     #[test]
     fn numeric_grouping_and_sign() {
         let c = ctx();
-        let v = ::numeric::numeric_in("-1234.56", -1, None).unwrap().unwrap();
+        let v = ::numeric::numeric_in("-1234.56", -1, None)
+            .unwrap()
+            .unwrap();
         assert_eq!(
             as_text(&numeric_to_char(c.mcx(), v.num(), b"9G999D99").unwrap()),
             "-1,234.56"
@@ -694,7 +716,10 @@ mod tests {
     fn numeric_fm() {
         let c = ctx();
         let v = ::numeric::numeric_in("0.1", -1, None).unwrap().unwrap();
-        assert_eq!(as_text(&numeric_to_char(c.mcx(), v.num(), b"FM9.99").unwrap()), ".1");
+        assert_eq!(
+            as_text(&numeric_to_char(c.mcx(), v.num(), b"FM9.99").unwrap()),
+            ".1"
+        );
     }
 
     /// RB-8 (a fuzzing round): under lc_monetary=C the `L` currency
@@ -747,7 +772,10 @@ mod tests {
         );
         // D alone under the C locale: '.' fallback, digits blanked.
         let v = ::numeric::numeric_in("123.45", -1, None).unwrap().unwrap();
-        assert_eq!(as_text(&numeric_to_char(c.mcx(), v.num(), b"D99").unwrap()), " .##");
+        assert_eq!(
+            as_text(&numeric_to_char(c.mcx(), v.num(), b"D99").unwrap()),
+            " .##"
+        );
         // G alone: ',' fallback.
         let v = ::numeric::numeric_in("1234.5", -1, None).unwrap().unwrap();
         assert_eq!(
@@ -759,8 +787,14 @@ mod tests {
     #[test]
     fn int4_to_char_out_of_range_multiplier_matches_amd64() {
         let c = ctx();
-        assert_eq!(as_text(&int4_to_char(c.mcx(), 1, b"9V9999999999").unwrap()), " -2147483648");
-        assert_eq!(as_text(&int4_to_char(c.mcx(), 1, b"9V999").unwrap()), " 1000");
+        assert_eq!(
+            as_text(&int4_to_char(c.mcx(), 1, b"9V9999999999").unwrap()),
+            " -2147483648"
+        );
+        assert_eq!(
+            as_text(&int4_to_char(c.mcx(), 1, b"9V999").unwrap()),
+            " 1000"
+        );
     }
 
     #[test]
@@ -775,7 +809,10 @@ mod tests {
     #[test]
     fn to_char_admits_the_result_image_before_the_format() {
         let err = num_tochar_admit(134217728).unwrap_err();
-        assert_eq!(err.message(), "invalid memory alloc request size 1073741829");
+        assert_eq!(
+            err.message(),
+            "invalid memory alloc request size 1073741829"
+        );
         assert!(num_tochar_admit(134217727).is_ok());
     }
 }

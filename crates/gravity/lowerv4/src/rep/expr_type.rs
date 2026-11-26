@@ -10,5 +10,6 @@ use crate::graph::Gx;
 /// type) takes the compiled expression's type.
 pub(crate) fn result_type<'p>(gx: &Gx<'_, 'p>, node: Node<'p>, id: i32) -> Oid {
     crate::stack_check();
-    gravity_decompose::catalog::expr_type::type_of(node).unwrap_or_else(|| crate::frame::raw::compiled_type(gx, node, id))
+    gravity_decompose::catalog::expr_type::type_of(node)
+        .unwrap_or_else(|| crate::frame::raw::compiled_type(gx, node, id))
 }

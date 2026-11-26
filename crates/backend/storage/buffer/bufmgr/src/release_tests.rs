@@ -20,7 +20,9 @@ fn vm_flags(addr: usize) -> Vec<String> {
     for line in smaps.lines() {
         if let Some((range, _)) = line.split_once(' ') {
             if let Some((lo, hi)) = range.split_once('-') {
-                if let (Ok(lo), Ok(hi)) = (usize::from_str_radix(lo, 16), usize::from_str_radix(hi, 16)) {
+                if let (Ok(lo), Ok(hi)) =
+                    (usize::from_str_radix(lo, 16), usize::from_str_radix(hi, 16))
+                {
                     inside = lo <= addr && addr < hi;
                     continue;
                 }
@@ -47,24 +49,51 @@ fn d4685_release_maps_over_and_keeps_the_reservation_flags() {
     fill(9801, 8000);
     let top = TEST_NBUFFERS / EXTENT_BUFFERS - 1;
     let lo = top * EXTENT_BUFFERS;
-    assert!((lo..lo + EXTENT_BUFFERS).any(|id| GetBufferDescriptor(id).state.load(Ordering::Relaxed) & BM_TAG_VALID != 0));
+    assert!((lo..lo + EXTENT_BUFFERS).any(|id| GetBufferDescriptor(id)
+        .state
+        .load(Ordering::Relaxed)
+        & BM_TAG_VALID
+        != 0));
     let p = BufferGetBlockPtr(lo + 1) as usize;
-    assert_eq!(p % EXTENT_BYTES, 0, "an extent's blocks are one whole 2 MiB-aligned range");
+    assert_eq!(
+        p % EXTENT_BYTES,
+        0,
+        "an extent's blocks are one whole 2 MiB-aligned range"
+    );
     let before = vm_flags(p);
-    assert!(before.iter().any(|f| f == "nr"), "the reservation is MAP_NORESERVE: {before:?}");
+    assert!(
+        before.iter().any(|f| f == "nr"),
+        "the reservation is MAP_NORESERVE: {before:?}"
+    );
     if std::env::var_os("PGRUST_CORE_DUMP_BUFFERS").is_none() {
-        assert!(before.iter().any(|f| f == "dd"), "the reservation is out of the core: {before:?}");
+        assert!(
+            before.iter().any(|f| f == "dd"),
+            "the reservation is out of the core: {before:?}"
+        );
     }
 
-    let out = BufferPoolResize((TEST_NBUFFERS - EXTENT_BUFFERS) as i64 * BLCKSZ as i64, 10_000).unwrap();
+    let out = BufferPoolResize(
+        (TEST_NBUFFERS - EXTENT_BUFFERS) as i64 * BLCKSZ as i64,
+        10_000,
+    )
+    .unwrap();
     assert_eq!(out.shortfall_bytes, 0);
     assert_eq!(extent::state(top), RETIRED);
     // SAFETY: the retired extent's range stays mapped (read-write, inside the reservation); nothing writes it.
     let bytes = unsafe { core::slice::from_raw_parts(p as *const u8, EXTENT_BYTES) };
-    assert!(bytes.iter().all(|&b| b == 0), "a released extent reads zero");
+    assert!(
+        bytes.iter().all(|&b| b == 0),
+        "a released extent reads zero"
+    );
     let after = vm_flags(p);
-    assert!(after.iter().any(|f| f == "nr"), "MAP_NORESERVE kept: {after:?}");
-    assert!(after.iter().any(|f| f == "rd") && after.iter().any(|f| f == "wr"), "read-write kept: {after:?}");
+    assert!(
+        after.iter().any(|f| f == "nr"),
+        "MAP_NORESERVE kept: {after:?}"
+    );
+    assert!(
+        after.iter().any(|f| f == "rd") && after.iter().any(|f| f == "wr"),
+        "read-write kept: {after:?}"
+    );
     assert_eq!(
         after.iter().any(|f| f == "dd"),
         before.iter().any(|f| f == "dd"),

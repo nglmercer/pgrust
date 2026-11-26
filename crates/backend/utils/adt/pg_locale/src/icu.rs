@@ -8,7 +8,7 @@ use core::ffi::c_char;
 
 use mcx::Mcx;
 use types_error::{
-    PgError, PgResult, ERRCODE_FEATURE_NOT_SUPPORTED, ERRCODE_INVALID_PARAMETER_VALUE, ErrorLevel,
+    ErrorLevel, PgError, PgResult, ERRCODE_FEATURE_NOT_SUPPORTED, ERRCODE_INVALID_PARAMETER_VALUE,
 };
 
 use crate::icu_ffi::{self as ffi, IcuApi, UChar, UCharIterator, UErrorCode};
@@ -33,7 +33,11 @@ impl IcuLocale {
     // exercised through it: `ucol()` debug-asserts an opened collator.
     #[cfg(test)]
     pub(crate) const fn null_collator(utf8: bool) -> IcuLocale {
-        IcuLocale { ucol: 0, loc: None, utf8 }
+        IcuLocale {
+            ucol: 0,
+            loc: None,
+            utf8,
+        }
     }
 
     #[inline]
@@ -43,7 +47,9 @@ impl IcuLocale {
     }
 
     fn loc_ptr(self) -> *const c_char {
-        self.loc.expect("ICU case op without locale string").as_ptr() as *const c_char
+        self.loc
+            .expect("ICU case op without locale string")
+            .as_ptr() as *const c_char
     }
 }
 
@@ -76,7 +82,10 @@ fn collation_failed(api: &IcuApi, status: UErrorCode) -> Box<PgError> {
 #[cold]
 #[inline(never)]
 fn sort_key_generation_failed(api: &IcuApi, status: UErrorCode) -> Box<PgError> {
-    icu_error(format!("sort key generation failed: {}", errname(api, status)))
+    icu_error(format!(
+        "sort key generation failed: {}",
+        errname(api, status)
+    ))
 }
 
 // pg_enc2icu_tbl (encnames.c); None entries are not supported by ICU.
@@ -431,16 +440,29 @@ fn convert_case(
         unsafe {
             match kind {
                 CASE_LOWER => (api.u_strToLower)(
-                    dest.as_mut_ptr(), cap, src.as_ptr(), src.len() as i32,
-                    locale.loc_ptr(), status,
+                    dest.as_mut_ptr(),
+                    cap,
+                    src.as_ptr(),
+                    src.len() as i32,
+                    locale.loc_ptr(),
+                    status,
                 ),
                 CASE_UPPER => (api.u_strToUpper)(
-                    dest.as_mut_ptr(), cap, src.as_ptr(), src.len() as i32,
-                    locale.loc_ptr(), status,
+                    dest.as_mut_ptr(),
+                    cap,
+                    src.as_ptr(),
+                    src.len() as i32,
+                    locale.loc_ptr(),
+                    status,
                 ),
                 CASE_TITLE => (api.u_strToTitle)(
-                    dest.as_mut_ptr(), cap, src.as_ptr(), src.len() as i32,
-                    core::ptr::null_mut(), locale.loc_ptr(), status,
+                    dest.as_mut_ptr(),
+                    cap,
+                    src.as_ptr(),
+                    src.len() as i32,
+                    core::ptr::null_mut(),
+                    locale.loc_ptr(),
+                    status,
                 ),
                 _ => {
                     // u_strFoldCase has no locale; Turkic 'tr'/'az' get the
@@ -457,7 +479,12 @@ fn convert_case(
                         options = ffi::U_FOLD_CASE_EXCLUDE_SPECIAL_I;
                     }
                     (api.u_strFoldCase)(
-                        dest.as_mut_ptr(), cap, src.as_ptr(), src.len() as i32, options, status,
+                        dest.as_mut_ptr(),
+                        cap,
+                        src.as_ptr(),
+                        src.len() as i32,
+                        options,
+                        status,
                     )
                 }
             }
@@ -613,7 +640,10 @@ pub fn icu_language_tag(loc_str: &str, elevel: ErrorLevel) -> PgResult<Option<St
         }
         return Ok(None);
     }
-    let len = langtag.iter().position(|&b| b == 0).unwrap_or(langtag.len());
+    let len = langtag
+        .iter()
+        .position(|&b| b == 0)
+        .unwrap_or(langtag.len());
     Ok(Some(String::from_utf8_lossy(&langtag[..len]).into_owned()))
 }
 
@@ -806,7 +836,10 @@ mod failure_arm_tests {
         let api = ffi::icu();
         const U_ILLEGAL_ARGUMENT_ERROR: UErrorCode = 1;
         let err = sort_key_generation_failed(api, U_ILLEGAL_ARGUMENT_ERROR);
-        assert_eq!(err.message(), "sort key generation failed: U_ILLEGAL_ARGUMENT_ERROR");
+        assert_eq!(
+            err.message(),
+            "sort key generation failed: U_ILLEGAL_ARGUMENT_ERROR"
+        );
         assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
         let err = collation_failed(api, U_ILLEGAL_ARGUMENT_ERROR);
         assert_eq!(err.message(), "collation failed: U_ILLEGAL_ARGUMENT_ERROR");
@@ -837,7 +870,10 @@ mod collation_failed_tests {
         assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
         assert_eq!(
             err.message(),
-            format!("collation failed: {}", errname(api, U_ILLEGAL_ARGUMENT_ERROR))
+            format!(
+                "collation failed: {}",
+                errname(api, U_ILLEGAL_ARGUMENT_ERROR)
+            )
         );
         assert_eq!(err.message(), "collation failed: U_ILLEGAL_ARGUMENT_ERROR");
     }
@@ -849,7 +885,9 @@ mod icu_absent_tests {
 
     #[test]
     fn absent_libicu_is_the_c_non_icu_error() {
-        let Err(err) = ffi::require(None) else { panic!("require(None) returned Ok") };
+        let Err(err) = ffi::require(None) else {
+            panic!("require(None) returned Ok")
+        };
         assert_eq!(err.message(), "ICU is not supported in this build");
         assert_eq!(err.sqlstate(), ERRCODE_FEATURE_NOT_SUPPORTED);
         if let Some(api) = ffi::try_icu() {
@@ -862,12 +900,21 @@ mod icu_absent_tests {
     #[test]
     fn public_icu_entry_points_follow_c_without_icu() {
         let out = std::process::Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", "icu::icu_absent_tests::no_icu_child", "--ignored", "--test-threads=1"])
+            .args([
+                "--exact",
+                "icu::icu_absent_tests::no_icu_child",
+                "--ignored",
+                "--test-threads=1",
+            ])
             .env("PGRUST_TEST_NO_ICU", "1")
             .output()
             .unwrap();
         let stdout = String::from_utf8_lossy(&out.stdout);
-        assert!(out.status.success() && stdout.contains("1 passed"), "{stdout}{}", String::from_utf8_lossy(&out.stderr));
+        assert!(
+            out.status.success() && stdout.contains("1 passed"),
+            "{stdout}{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
     }
 
     #[test]
@@ -881,7 +928,10 @@ mod icu_absent_tests {
             assert_eq!(err.message(), "ICU is not supported in this build");
             assert_eq!(err.sqlstate(), ERRCODE_FEATURE_NOT_SUPPORTED);
         }
-        assert_eq!(crate::get_collation_actual_version(crate::COLLPROVIDER_ICU, "und").unwrap(), None);
+        assert_eq!(
+            crate::get_collation_actual_version(crate::COLLPROVIDER_ICU, "und").unwrap(),
+            None
+        );
         assert!(icu_available_locale_ids().is_none());
         assert!(icu_locale_display_name_ascii("en").is_none());
         assert!(crate::icu_unicode_version_str().is_none());

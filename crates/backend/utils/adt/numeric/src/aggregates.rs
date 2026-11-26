@@ -184,8 +184,14 @@ impl NumericSumAccum {
                     );
                     let old = core::alloc::Layout::array::<i32>(old_ndigits as usize)
                         .expect("digit buffer layout");
-                    mcx.deallocate(core::ptr::NonNull::new_unchecked(self.pos_digits.cast()), old);
-                    mcx.deallocate(core::ptr::NonNull::new_unchecked(self.neg_digits.cast()), old);
+                    mcx.deallocate(
+                        core::ptr::NonNull::new_unchecked(self.pos_digits.cast()),
+                        old,
+                    );
+                    mcx.deallocate(
+                        core::ptr::NonNull::new_unchecked(self.neg_digits.cast()),
+                        old,
+                    );
                 }
             }
             self.pos_digits = new_pos;

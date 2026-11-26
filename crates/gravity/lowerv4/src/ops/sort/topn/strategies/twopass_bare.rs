@@ -23,9 +23,11 @@ use gravity_decompose::ops::shared::agg_class::Class;
 use gravity_expr::emit::hash::{emit_key_hash, emit_part, Bits, ImageValues};
 use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{ConvOp, HostFlags, HostFn, IntBinOp, IntCond, Type, Value};
+use gravity_kernels::host_abi::{
+    self as abi, AggState, Pass1State, PASS1_APP, PASS1_BOUND, PASS1_STATE_BYTES,
+};
 use gravity_kernels::ops::sort::topn::t3;
 use gravity_kernels::ops::sort::topn::t3::BARE;
-use gravity_kernels::host_abi::{self as abi, AggState, Pass1State, PASS1_APP, PASS1_BOUND, PASS1_STATE_BYTES};
 use gravity_kernels::table::params::spill_bits;
 use gravity_program::protos::{Proto, ProtoKind};
 use gravity_program::{OwnerDesc, Pipeline};
@@ -37,8 +39,8 @@ use crate::frame::px::Px;
 use crate::frame::row::{Carry, RowVals};
 use crate::frame::stop::Exits;
 
-use crate::table::rec::GroupRec;
 use crate::ops::shared::twopass::Split;
+use crate::table::rec::GroupRec;
 
 const ST_T1: i32 = (offset_of!(Pass1State, agg) + offset_of!(AggState, t)) as i32;
 const ST_HEADS: i32 = (offset_of!(Pass1State, agg) + offset_of!(AggState, heads)) as i32;
@@ -49,7 +51,8 @@ const T1_BUFFERED: i32 = offset_of!(T1, buffered) as i32;
 pub(crate) const P1_WORDS: [u64; t3::NPARAMS] = {
     let mut p = [0u64; t3::NPARAMS];
     p[t3::P_LIMIT] = 1;
-    p[t3::P_SHAPE] = t3::shape_word_nn(1, 1, t3::ORDER_KEYS_ASC, t3::MODE_HASH, 0, None, 0, 0, true);
+    p[t3::P_SHAPE] =
+        t3::shape_word_nn(1, 1, t3::ORDER_KEYS_ASC, t3::MODE_HASH, 0, None, 0, 0, true);
     p[t3::P_KEYS] = t3::packed(&[(0, t3::K_INT)], 4);
     p[t3::P_SLOTS] = t3::packed(&[(0, t3::S_COUNT)], 4);
     p[t3::P_EXPORT] = t3::EXPORT_DUPS;
@@ -64,7 +67,11 @@ fn bare_owner(_words: &[u64]) -> gravity_abi::breaker::OwnerFns {
 pub(crate) fn bare_n<'g, 'p>(px: &mut Px<'g, 'p>, k: usize) -> Option<u32> {
     let gx = px.gx;
     let g1 = gx.group_at(k)?;
-    let q = (0..gx.pipelines().len()).find(|&q| gx.group_at(q).and_then(|h| h.two_pass).is_some_and(|t| t.pass1 as usize == k))?;
+    let q = (0..gx.pipelines().len()).find(|&q| {
+        gx.group_at(q)
+            .and_then(|h| h.two_pass)
+            .is_some_and(|t| t.pass1 as usize == k)
+    })?;
     let g2 = gx.group_at(q)?;
     let _tp = g2.two_pass?;
     // pass 1 keys the hint's one column (keyed_twopass: more is a bug); the floor orders its image word as the type orders
@@ -73,9 +80,14 @@ pub(crate) fn bare_n<'g, 'p>(px: &mut Px<'g, 'p>, k: usize) -> Option<u32> {
         return None;
     }
     let top = crate::ops::sort::topn::strategies::twopass::top_drain(gx, g2)?;
-    let n = crate::ops::sort::topn::lower::bound(px, top).filter(|&n| (1..=0x7f_ffff).contains(&n))?;
+    let n =
+        crate::ops::sort::topn::lower::bound(px, top).filter(|&n| (1..=0x7f_ffff).contains(&n))?;
     // pass 1 counts its rows alone (the end's sentinel, or an unfiltered count(*)'s)
-    if !g1.aggs.iter().all(|d| d.class == Class::CountStar && d.filter.is_none()) {
+    if !g1
+        .aggs
+        .iter()
+        .all(|d| d.class == Class::CountStar && d.filter.is_none())
+    {
         return None;
     }
     let rec = GroupRec::counts(px, g1)?;
@@ -88,13 +100,17 @@ pub(crate) fn bare_n<'g, 'p>(px: &mut Px<'g, 'p>, k: usize) -> Option<u32> {
 /// a float's or a numeric's word, a two-word image).
 fn word_order(k: &KeyDecl<'_>) -> Option<bool> {
     let typ = gravity_decompose::catalog::expr_type::type_of(k.expr.node())?;
-    (k.words == 1 && k.image.is_raw()).then(|| gravity_fn::typesem::keysem::word_image_order(typ)).flatten()
+    (k.words == 1 && k.image.is_raw())
+        .then(|| gravity_fn::typesem::keysem::word_image_order(typ))
+        .flatten()
 }
 
 /// The top's tie order on pass `k`'s key is descending (`bare_n` found the TwoPass pass 2).
 fn floor_desc(px: &Px<'_, '_>, k: usize) -> bool {
     let gx = px.gx;
-    (0..gx.pipelines().len()).filter_map(|q| gx.group_at(q).and_then(|h| h.two_pass)).any(|t| t.pass1 as usize == k && t.floor_desc)
+    (0..gx.pipelines().len())
+        .filter_map(|q| gx.group_at(q).and_then(|h| h.two_pass))
+        .any(|t| t.pass1 as usize == k && t.floor_desc)
 }
 
 /// Pass 1's end in the bare form (`bare_n`'s `n`).
@@ -105,7 +121,13 @@ pub(crate) fn make<'g, 'p>(px: &mut Px<'g, 'p>, k: usize, n: u32) -> PgBox<'g, d
     let rows = px.gx.pipelines()[k].desc.predicted_rows;
     let null_at = rec.flags_word();
     // KEY-PREDICTED-ROWS road (b): the partition bits decided on pass 1's estimate are a guard of the program
-    let bits = gravity_lower::inputs::key::decide(k, false, rows, bare_bits, [BARE.size() as u64, 0, 0, 0]) as u8;
+    let bits = gravity_lower::inputs::key::decide(
+        k,
+        false,
+        rows,
+        bare_bits,
+        [BARE.size() as u64, 0, 0, 0],
+    ) as u8;
     let unsigned = word_order(&g.keys[0]) == Some(false);
     let shared = shared_floor(px, k, n);
     mcx::pg_box_dyn!(px.mcx(), BareEnd { rec, n, desc: floor_desc(px, k), unsigned, bits, null_at, shared } => dyn EndMech + 'g)
@@ -118,11 +140,19 @@ fn shared_floor(px: &mut Px<'_, '_>, k: usize, n: u32) -> Option<u16> {
         return None;
     }
     let ident = px.ident(k) as u16;
-    if let Some(p) = px.protos.iter().find(|p| p.kind == ProtoKind::TwoPassFloor && p.pipeline == ident) {
+    if let Some(p) = px
+        .protos
+        .iter()
+        .find(|p| p.kind == ProtoKind::TwoPassFloor && p.pipeline == ident)
+    {
         return Some(p.words.base);
     }
     let word = px.proto_words(1);
-    px.declare_proto(Proto::new(ProtoKind::TwoPassFloor, k as u16).words(word, 1).arg(n as u64));
+    px.declare_proto(
+        Proto::new(ProtoKind::TwoPassFloor, k as u16)
+            .words(word, 1)
+            .arg(n as u64),
+    );
     fires::fire("twopass.floor.shared"); // shapecheck fire signal (D3157): a bare pass 1's claims share one floor
     Some(word)
 }
@@ -148,7 +178,17 @@ struct BareEnd<'g, 'p> {
 }
 
 fn host(b: &mut FunctionBuilder<'_>, name: &str, params: &[Type], addr: usize) -> HostFn {
-    b.declare_host_once(name, params, Some(Type::I64), addr, HostFlags { touches_memory: true, may_error: true, ..HostFlags::default() })
+    b.declare_host_once(
+        name,
+        params,
+        Some(Type::I64),
+        addr,
+        HostFlags {
+            touches_memory: true,
+            may_error: true,
+            ..HostFlags::default()
+        },
+    )
 }
 
 fn fail_on(b: &mut FunctionBuilder<'_>, env: &Env, l_exit: gravity_ir::Block, r: Value) {
@@ -159,12 +199,20 @@ fn fail_on(b: &mut FunctionBuilder<'_>, env: &Env, l_exit: gravity_ir::Block, r:
 
 impl BareEnd<'_, '_> {
     fn st(&self, env: &Env) -> Value {
-        env.state.expect("the end's state slot is laid before its open")
+        env.state
+            .expect("the end's state slot is laid before its open")
     }
 
     /// Key word `k` appended at partition `part`'s head (a full or absent block through `agg_block`, the appends so far
     /// counted there); ends at `l_cont`.
-    fn append(&self, b: &mut FunctionBuilder<'_>, env: &Env, part: Value, k: Value, l_cont: gravity_ir::Block) {
+    fn append(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &Env,
+        part: Value,
+        k: Value,
+        l_cont: gravity_ir::Block,
+    ) {
         let st = self.st(env);
         let rec = BARE.size() as u64;
         let heads = b.load(Type::Ptr, st, ST_HEADS);
@@ -176,8 +224,15 @@ impl BareEnd<'_, '_> {
         b.cond_br(full, (l_blk, &[]), (l_st, &[head]));
         b.switch_to(l_blk);
         let app = b.load(Type::I64, st, PASS1_APP);
-        let block = host(b, "agg_block", &[Type::Ptr, Type::Ptr, Type::I64, Type::I64], gravity_abi::host_words!(abi::agg_block(ctx, st, part, appended)));
-        let r = b.call_host(block, &[env.ctx, st, part, app], Some(Type::I64)).expect("agg_block returns a head or a status");
+        let block = host(
+            b,
+            "agg_block",
+            &[Type::Ptr, Type::Ptr, Type::I64, Type::I64],
+            gravity_abi::host_words!(abi::agg_block(ctx, st, part, appended)),
+        );
+        let r = b
+            .call_host(block, &[env.ctx, st, part, app], Some(Type::I64))
+            .expect("agg_block returns a head or a status");
         b.store(st, PASS1_APP, env.zero);
         let bad = b.icmp(IntCond::Sle, r, env.zero);
         b.cond_br(bad, (env.x.l_exit, &[r]), (l_st, &[r]));
@@ -199,7 +254,14 @@ impl BareEnd<'_, '_> {
 
     /// A run's close: its key once, twice for `rc >= 2` (the dup rule), at the partition `pass1_close` routes the floor
     /// to (`KeyHash::of(&[k]).part(pbits)`); ends at `l_cont`.
-    fn end_run(&self, b: &mut FunctionBuilder<'_>, env: &Env, k: Value, rc: Value, l_cont: gravity_ir::Block) {
+    fn end_run(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &Env,
+        k: Value,
+        rc: Value,
+        l_cont: gravity_ir::Block,
+    ) {
         let st = self.st(env);
         let h = emit_key_hash(b, &ImageValues { words: vec![k] }); // alloc: Program
         let pbits = b.load(Type::I64, st, ST_PBITS);
@@ -223,23 +285,60 @@ impl<'p> EndMech for BareEnd<'_, 'p> {
 
     fn open(&self, b: &mut FunctionBuilder<'_>, env: &mut Env) {
         let st = self.st(env);
-        let open = host(b, "pass1_open", &[Type::Ptr, Type::Ptr, Type::I64, Type::I64, Type::I64, Type::Ptr], gravity_abi::host_words!(abi::pass1_open(ctx, st, bits, n, order, shared)));
-        let order = if self.desc { abi::PASS1_DESC } else { 0 } | if self.unsigned { abi::PASS1_UNSIGNED } else { 0 };
-        let (bits, n, order) = (b.iconst(Type::I64, self.bits as i64), b.iconst(Type::I64, self.n as i64), b.iconst(Type::I64, order as i64));
+        let open = host(
+            b,
+            "pass1_open",
+            &[
+                Type::Ptr,
+                Type::Ptr,
+                Type::I64,
+                Type::I64,
+                Type::I64,
+                Type::Ptr,
+            ],
+            gravity_abi::host_words!(abi::pass1_open(ctx, st, bits, n, order, shared)),
+        );
+        let order = if self.desc { abi::PASS1_DESC } else { 0 }
+            | if self.unsigned {
+                abi::PASS1_UNSIGNED
+            } else {
+                0
+            };
+        let (bits, n, order) = (
+            b.iconst(Type::I64, self.bits as i64),
+            b.iconst(Type::I64, self.n as i64),
+            b.iconst(Type::I64, order as i64),
+        );
         let shared = match self.shared {
             Some(w) => b.load(Type::Ptr, env.params, 8 * w as i32),
             None => b.iconst(Type::Ptr, 0),
         };
-        let r = b.call_host(open, &[env.ctx, st, bits, n, order, shared], Some(Type::I64)).expect("pass1_open returns a status");
+        let r = b
+            .call_host(
+                open,
+                &[env.ctx, st, bits, n, order, shared],
+                Some(Type::I64),
+            )
+            .expect("pass1_open returns a status");
         fail_on(b, env, env.x.l_exit, r);
     }
 
     /// The open run: its row count (0: none) and its key.
-    fn carried<'e>(&self, _b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>) -> mcx::PgVec<'e, Value> {
+    fn carried<'e>(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+    ) -> mcx::PgVec<'e, Value> {
         mcx::pg_vec![in env.mcx; env.zero, env.zero]
     }
 
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, _x: &Exits) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        _x: &Exits,
+    ) -> Carry<'e> {
         let img = self.rec.image(b, env, row);
         let k = img.words.words[0];
         let (rc, rkey) = (row.carry.accs[0], row.carry.accs[1]);
@@ -252,7 +351,13 @@ impl<'p> EndMech for BareEnd<'_, 'p> {
             b.cond_br(null, (l_next, &[out, rc, rkey]), (l_key, &[]));
             b.switch_to(l_key);
         }
-        let (l_same, l_new, l_end, l_open, l_offer) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));
+        let (l_same, l_new, l_end, l_open, l_offer) = (
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         let eq = b.icmp(IntCond::Eq, k, rkey);
         let live = b.icmp(IntCond::Ne, rc, env.zero);
         let same = b.int_bin(IntBinOp::And, eq, live);
@@ -278,12 +383,20 @@ impl<'p> EndMech for BareEnd<'_, 'p> {
         let under = b.icmp(cond, k, bound);
         b.cond_br(under, (l_offer, &[]), (l_next, &[out, env.one, k]));
         b.switch_to(l_offer);
-        let floor = host(b, "pass1_floor", &[Type::Ptr, Type::Ptr, Type::I64], gravity_abi::host_words!(abi::pass1_floor(ctx, st, k)));
+        let floor = host(
+            b,
+            "pass1_floor",
+            &[Type::Ptr, Type::Ptr, Type::I64],
+            gravity_abi::host_words!(abi::pass1_floor(ctx, st, k)),
+        );
         b.call_host(floor, &[env.ctx, st, k], Some(Type::I64));
         b.br(l_next, &[out, env.one, k]);
         b.switch_to(l_next);
         let p = b.block_params(l_next);
-        Carry { out: p[0], accs: mcx::to_vec_in(&p[1..], env.mcx) }
+        Carry {
+            out: p[0],
+            accs: mcx::to_vec_in(&p[1..], env.mcx),
+        }
     }
 
     /// The window's open run closed (a run never spans windows: a key split by the edge appends twice, a dup as it is),
@@ -298,7 +411,10 @@ impl<'p> EndMech for BareEnd<'_, 'p> {
         b.switch_to(l_ended);
         let st = self.st(env);
         let t1 = b.load(Type::Ptr, st, ST_T1);
-        let (app, buffered) = (b.load(Type::I64, st, PASS1_APP), b.load(Type::I64, t1, T1_BUFFERED));
+        let (app, buffered) = (
+            b.load(Type::I64, st, PASS1_APP),
+            b.load(Type::I64, t1, T1_BUFFERED),
+        );
         let sum = b.int_bin(IntBinOp::Add, buffered, app);
         b.store(t1, T1_BUFFERED, sum);
         b.store(st, PASS1_APP, env.zero);
@@ -307,8 +423,15 @@ impl<'p> EndMech for BareEnd<'_, 'p> {
     /// The claim's end: the floor's keys appended once more, T1 drained into the owners' partitions.
     fn finish(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, x: &Exits) {
         let st = self.st(env);
-        let close = host(b, "pass1_close", &[Type::Ptr, Type::Ptr], gravity_abi::host_words!(abi::pass1_close(ctx, st)));
-        let r = b.call_host(close, &[env.ctx, st], Some(Type::I64)).expect("pass1_close returns a status");
+        let close = host(
+            b,
+            "pass1_close",
+            &[Type::Ptr, Type::Ptr],
+            gravity_abi::host_words!(abi::pass1_close(ctx, st)),
+        );
+        let r = b
+            .call_host(close, &[env.ctx, st], Some(Type::I64))
+            .expect("pass1_close returns a status");
         fail_on(b, env, x.l_exit, r);
     }
 

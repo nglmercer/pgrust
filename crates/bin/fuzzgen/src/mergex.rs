@@ -134,11 +134,9 @@ fn gen_defcol(g: &mut Gen) -> Vec<StmtKind> {
         // whole column; c has no default and is DEFAULT in some rows ->
         // rewriteValuesRTEToNulls turns those cells NULL; b mixes literal and
         // DEFAULT cells (the ordinary per-row default substitution).
-        raw(
-            "INSERT INTO fz_mx_d (pk, a, b, c) VALUES \
+        raw("INSERT INTO fz_mx_d (pk, a, b, c) VALUES \
              (1, DEFAULT, 5, DEFAULT), (2, DEFAULT, DEFAULT, 9), \
-             (3, DEFAULT, DEFAULT, DEFAULT);",
-        ),
+             (3, DEFAULT, DEFAULT, DEFAULT);"),
         raw("INSERT INTO fz_mx_d (pk, a, b, c) VALUES (4, 1, 2, 3);"),
         // UPDATE-side DEFAULT: reset to the column default expressions.
         raw("UPDATE fz_mx_d SET a = DEFAULT, c = DEFAULT WHERE pk = 4;"),
@@ -147,7 +145,9 @@ fn gen_defcol(g: &mut Gen) -> Vec<StmtKind> {
     // routes through the default machinery.
     if g.rng.chance(1, 2) {
         g.fire("mergex:defcol:allrow");
-        v.push(raw("INSERT INTO fz_mx_d (pk, a, b, c) VALUES (5, DEFAULT, DEFAULT, DEFAULT);"));
+        v.push(raw(
+            "INSERT INTO fz_mx_d (pk, a, b, c) VALUES (5, DEFAULT, DEFAULT, DEFAULT);",
+        ));
     }
     v.push(raw("SELECT pk, a, b, c FROM fz_mx_d ORDER BY pk;"));
     v.push(raw("DROP TABLE fz_mx_d;"));
@@ -163,13 +163,13 @@ fn gen_subfield(g: &mut Gen) -> Vec<StmtKind> {
         raw("DROP VIEW IF EXISTS fz_mx_sv;"),
         raw("DROP TABLE IF EXISTS fz_mx_s;"),
         raw("CREATE TABLE fz_mx_s (pk int4 PRIMARY KEY, arr int4[], k int4);"),
-        raw(
-            "INSERT INTO fz_mx_s VALUES (1, ARRAY[10, 20, 30], 1), \
-             (2, ARRAY[40, 50, 60], 2), (3, ARRAY[70, 80, 90], 3);",
-        ),
+        raw("INSERT INTO fz_mx_s VALUES (1, ARRAY[10, 20, 30], 1), \
+             (2, ARRAY[40, 50, 60], 2), (3, ARRAY[70, 80, 90], 3);"),
         // Two subscript assignments to one column in one SET list: the merge
         // that get_assignment_input performs (base-table path).
-        raw(format!("UPDATE fz_mx_s SET arr[1] = {e1}, arr[3] = {e2} WHERE pk = 1;")),
+        raw(format!(
+            "UPDATE fz_mx_s SET arr[1] = {e1}, arr[3] = {e2} WHERE pk = 1;"
+        )),
         // A subscript target reading the same column + another column.
         raw("UPDATE fz_mx_s SET arr[2] = arr[1] + k WHERE pk = 2;"),
         // Same arm reached through the auto-updatable view rewrite.
@@ -256,7 +256,10 @@ mod tests {
         for _ in 0..n {
             let mut p = Vec::new();
             let mut g = Gen::new(&mut rng, &cat, &w, &mut p, 3);
-            let stmts: Vec<String> = gen_mergex_module(&mut g).iter().map(|s| s.to_sql()).collect();
+            let stmts: Vec<String> = gen_mergex_module(&mut g)
+                .iter()
+                .map(|s| s.to_sql())
+                .collect();
             groups.push(stmts);
             prods.extend(p);
         }
@@ -276,10 +279,18 @@ mod tests {
     fn every_family_fires_and_is_well_formed() {
         let (groups, prods) = gen_many(0x11EE, 1200, "");
         for family in FAMILIES {
-            assert!(prods.iter().any(|p| p == family), "family {family} never fired");
+            assert!(
+                prods.iter().any(|p| p == family),
+                "family {family} never fired"
+            );
         }
         // Deparse and generated-column surfaces must appear.
-        let all: String = groups.iter().flatten().cloned().collect::<Vec<_>>().join("\n");
+        let all: String = groups
+            .iter()
+            .flatten()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n");
         for frag in [
             "GENERATED ALWAYS AS",
             "MERGE INTO fz_mx_g",
@@ -289,7 +300,10 @@ mod tests {
             "pg_get_functiondef('fz_mx_mf'::regproc)",
             "BEGIN ATOMIC MERGE INTO fz_mx_m",
         ] {
-            assert!(all.contains(frag), "expected fragment {frag:?} never generated");
+            assert!(
+                all.contains(frag),
+                "expected fragment {frag:?} never generated"
+            );
         }
         // Structural invariants on every emitted statement.
         for group in &groups {
@@ -308,8 +322,14 @@ mod tests {
             }
             // Every group creates and drops its own object (self-contained).
             let joined = group.join(" ");
-            assert!(joined.contains("CREATE TABLE fz_mx_"), "group creates no table: {joined}");
-            assert!(joined.contains("DROP TABLE fz_mx_"), "group drops no table: {joined}");
+            assert!(
+                joined.contains("CREATE TABLE fz_mx_"),
+                "group creates no table: {joined}"
+            );
+            assert!(
+                joined.contains("DROP TABLE fz_mx_"),
+                "group drops no table: {joined}"
+            );
         }
     }
 
@@ -323,7 +343,10 @@ mod tests {
                 .iter()
                 .take(2)
                 .any(|s| s.contains("DROP") && s.contains("IF EXISTS"));
-            assert!(opens_with_drop_if_exists, "group without leading DROP IF EXISTS: {group:?}");
+            assert!(
+                opens_with_drop_if_exists,
+                "group without leading DROP IF EXISTS: {group:?}"
+            );
         }
     }
 }

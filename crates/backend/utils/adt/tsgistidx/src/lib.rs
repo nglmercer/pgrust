@@ -11,7 +11,8 @@ use ::mcx::{Mcx, PgVec};
 use ::types_error::{PgError, PgResult, ERRCODE_FEATURE_NOT_SUPPORTED};
 use ::types_fmgr::{
     byref_result, cstring_result, varlena_result, FmgrBuiltin, FmgrInfo,
-    FunctionCallInfoBaseData as Fcinfo, };
+    FunctionCallInfoBaseData as Fcinfo,
+};
 use ::types_gist::{GistEntryVector, GistSplitVec, GISTENTRY};
 use ::types_scan::scankey::{RTContainedByStrategyNumber, RTContainsStrategyNumber};
 use ::types_tuple::varatt;
@@ -110,7 +111,10 @@ struct GtsBuilder<'m> {
 impl<'m> GtsBuilder<'m> {
     fn alloc_empty(mcx: Mcx<'m>, flag: i32, size: usize) -> PgResult<Self> {
         let mut img: PgVec<'m, u8> = mcx::vec_with_capacity_in(mcx, size)?;
-        mcx::vec_append_bytes(&mut img, &varatt::set_varsize_4b_word(size as u32).to_ne_bytes())?;
+        mcx::vec_append_bytes(
+            &mut img,
+            &varatt::set_varsize_4b_word(size as u32).to_ne_bytes(),
+        )?;
         mcx::vec_append_bytes(&mut img, &flag.to_ne_bytes())?;
         Ok(GtsBuilder { img })
     }
@@ -118,7 +122,10 @@ impl<'m> GtsBuilder<'m> {
     fn alloc(mcx: Mcx<'m>, flag: i32, len: usize, sign: Option<&[u8]>) -> PgResult<Self> {
         let size = calcgtsize(flag, len);
         let mut img: PgVec<'m, u8> = mcx::vec_with_capacity_in(mcx, size)?;
-        mcx::vec_append_bytes(&mut img, &varatt::set_varsize_4b_word(size as u32).to_ne_bytes())?;
+        mcx::vec_append_bytes(
+            &mut img,
+            &varatt::set_varsize_4b_word(size as u32).to_ne_bytes(),
+        )?;
         mcx::vec_append_bytes(&mut img, &flag.to_ne_bytes())?;
         if flag & (SIGNKEY | ALLISTRUE) == SIGNKEY {
             match sign {
@@ -243,7 +250,10 @@ fn detoasted_image<'m>(mcx: Mcx<'m>, d: Datum) -> PgResult<&'m [u8]> {
             );
             let total = 4 + src.len();
             let mut buf: PgVec<'m, u8> = mcx::vec_with_capacity_in(mcx, total)?;
-            mcx::vec_append_bytes(&mut buf, &varatt::set_varsize_4b_word(total as u32).to_ne_bytes())?;
+            mcx::vec_append_bytes(
+                &mut buf,
+                &varatt::set_varsize_4b_word(total as u32).to_ne_bytes(),
+            )?;
             mcx::vec_append_bytes(&mut buf, src)?;
             let out = core::slice::from_raw_parts(buf.as_ptr(), buf.len());
             core::mem::forget(buf);
@@ -276,7 +286,11 @@ fn fc_gtsvectorout(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<D
     } else {
         let siglen = key.siglen();
         let cnttrue = sizebitvec(key.sign(), siglen);
-        format!("{} true bits, {} false bits", cnttrue, SIGLENBIT(siglen) - cnttrue)
+        format!(
+            "{} true bits, {} false bits",
+            cnttrue,
+            SIGLENBIT(siglen) - cnttrue
+        )
     };
     let mut out: PgVec<'_, u8> = mcx::vec_with_capacity_in(mcx, s.len() + 1)?;
     mcx::vec_append_bytes(&mut out, s.as_bytes())?;
@@ -427,13 +441,17 @@ fn fc_gtsvector_consistent(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> Pg
     // SAFETY: the armed result mcx outlives this call.
     let mcx = unsafe { fcinfo.result_mcx_detached() };
     let qimg = detoasted_image(mcx, fcinfo.arg(1))?;
-    let query = TsQueryRef { payload: &qimg[4..] };
+    let query = TsQueryRef {
+        payload: &qimg[4..],
+    };
     let recheck = fcinfo.arg(4).as_usize() as *mut bool;
     // SAFETY: recheck out-param live in the caller frame; all lanes inexact.
     unsafe { *recheck = true };
     // SAFETY: decompressed key is a plain SignTSVector image.
     let key = unsafe { GtsRef::at(entry.key) };
-    Ok(Datum::from_bool(gtsvector_consistent_core(mcx, key, query)?))
+    Ok(Datum::from_bool(gtsvector_consistent_core(
+        mcx, key, query,
+    )?))
 }
 
 fn unionkey(sbase: &mut [u8], add: GtsRef<'_>, siglen: usize) -> bool {
@@ -646,7 +664,10 @@ fn fc_gtsvector_picksplit(f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRe
     for j in 1..=maxoff {
         let size_alpha = cache.hemdist(seed_1, j);
         let size_beta = cache.hemdist(seed_2, j);
-        costvector.push(SplitCost { pos: j as u16, cost: (size_alpha - size_beta).abs() });
+        costvector.push(SplitCost {
+            pos: j as u16,
+            cost: (size_alpha - size_beta).abs(),
+        });
     }
     ::pg_qsort::pg_qsort(&mut costvector, |a, b| a.cost.cmp(&b.cost) as i32);
 
@@ -665,7 +686,11 @@ fn fc_gtsvector_picksplit(f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRe
                 if alltrue && cache.alltrue[j] {
                     0
                 } else {
-                    let from: &[u8] = if cache.alltrue[j] { sign } else { cache.sign(j) };
+                    let from: &[u8] = if cache.alltrue[j] {
+                        sign
+                    } else {
+                        cache.sign(j)
+                    };
                     SIGLENBIT(siglen) - sizebitvec(from, siglen)
                 }
             } else {
@@ -770,7 +795,9 @@ fn fc_gtsquery_consistent(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgR
     // SAFETY: recheck out-param live in the caller frame; all lanes inexact.
     unsafe { *recheck = true };
     let key = entry.key.as_u64();
-    let sq = make_tsquery_sign(TsQueryRef { payload: &qimg[4..] });
+    let sq = make_tsquery_sign(TsQueryRef {
+        payload: &qimg[4..],
+    });
     let retval = if strategy == RTContainsStrategyNumber {
         if entry.page_is_leaf {
             (key & sq) == sq
@@ -881,7 +908,10 @@ pub(crate) fn gtsquery_picksplit_core(
     for j in 1..=maxoff {
         let size_alpha = tsqs_hemdist(key_at(seed_1), key_at(j));
         let size_beta = tsqs_hemdist(key_at(seed_2), key_at(j));
-        costvector.push(SplitCost { pos: j as u16, cost: (size_alpha - size_beta).abs() });
+        costvector.push(SplitCost {
+            pos: j as u16,
+            cost: (size_alpha - size_beta).abs(),
+        });
     }
     ::pg_qsort::pg_qsort(&mut costvector, |a, b| a.cost.cmp(&b.cost) as i32);
 
@@ -933,6 +963,16 @@ pub const TSGISTIDX_BUILTINS: &[FmgrBuiltin] = &[
     b(3699, "gtsquery_same", 3, fc_gtsquery_same),
     b(3700, "gtsquery_penalty", 3, fc_gtsquery_penalty),
     b(3701, "gtsquery_consistent", 5, fc_gtsquery_consistent),
-    b(3790, "gtsvector_consistent_oldsig", 5, fc_gtsvector_consistent),
-    b(3793, "gtsquery_consistent_oldsig", 5, fc_gtsquery_consistent),
+    b(
+        3790,
+        "gtsvector_consistent_oldsig",
+        5,
+        fc_gtsvector_consistent,
+    ),
+    b(
+        3793,
+        "gtsquery_consistent_oldsig",
+        5,
+        fc_gtsquery_consistent,
+    ),
 ];

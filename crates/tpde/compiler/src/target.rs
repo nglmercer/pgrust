@@ -2,10 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 use crate::{
-    branches::BranchMachine, calls::CallMachine, compiler_base::CompilerAdaptor,
+    branches::BranchMachine,
+    calls::CallMachine,
+    compiler_base::CompilerAdaptor,
     generic_value_part::GenericValuePart,
     guard_machine::{GuardMachine, RegallocEvent},
-    value_part_ref::ValuePartRef, value_ref::ValueRef,
+    value_part_ref::ValuePartRef,
+    value_ref::ValueRef,
 };
 use tpde_assembler::{Architecture, AssemblerElf, SecRef, SymRef};
 use tpde_base::ValLocalIdx;

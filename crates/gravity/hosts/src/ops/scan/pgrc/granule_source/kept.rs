@@ -44,17 +44,27 @@ pub(super) struct SiteKept {
 
 impl SiteKept {
     pub(super) fn new(natts: usize, nparts: usize) -> SiteKept {
-        SiteKept { lanes: StmtSlice::collect((0..natts).map(|_| OnceLock::new())), nparts } // alloc: Exec charged gravity_driver::stmt_context()
+        SiteKept {
+            lanes: StmtSlice::collect((0..natts).map(|_| OnceLock::new())),
+            nparts,
+        } // alloc: Exec charged gravity_driver::stmt_context()
     }
 
     fn lane(&self, k: usize) -> &LaneKept {
         let n = self.nparts;
-        self.lanes[k].get_or_init(|| LaneKept { homes: StmtSlice::collect((0..n).map(|_| AtomicU8::new(HOME_UNKNOWN))), cells: StmtSlice::collect((0..n).map(|_| AtomicPtr::new(core::ptr::null_mut()))) }) // alloc: Exec charged gravity_driver::stmt_context()
+        self.lanes[k].get_or_init(|| LaneKept {
+            homes: StmtSlice::collect((0..n).map(|_| AtomicU8::new(HOME_UNKNOWN))),
+            cells: StmtSlice::collect((0..n).map(|_| AtomicPtr::new(core::ptr::null_mut()))),
+        }) // alloc: Exec charged gravity_driver::stmt_context()
     }
 
     #[inline]
     fn home(&self, p: usize, k: usize) -> u8 {
-        self.lanes.get(k).and_then(OnceLock::get).and_then(|l| l.homes.get(p)).map_or(HOME_UNKNOWN, |h| h.load(Ordering::Acquire))
+        self.lanes
+            .get(k)
+            .and_then(OnceLock::get)
+            .and_then(|l| l.homes.get(p))
+            .map_or(HOME_UNKNOWN, |h| h.load(Ordering::Acquire))
     }
 
     fn set_home(&self, p: usize, k: usize, home: u8) {
@@ -89,7 +99,11 @@ impl GranuleRangeSource {
     /// Kept mode for this execution of the site (set at bind; the same in every source of the site).
     pub(super) fn kept_mode_of(&self) -> bool {
         crate::inputs::kept_dicts_enabled()
-            && self.rel_unbound().stmt.as_deref().is_none_or(|s| !s.releases_dicts())
+            && self
+                .rel_unbound()
+                .stmt
+                .as_deref()
+                .is_none_or(|s| !s.releases_dicts())
             && self.recipe.entries.is_none()
             && self.recipe.sample.is_none()
             && self.nzone_bind > 0
@@ -104,7 +118,11 @@ impl GranuleRangeSource {
     /// Off as kept mode is: a statement that releases its dictionaries, an entries window, a sample.
     pub(super) fn lens_mode_of(&self) -> bool {
         self.recipe.lens_only.words().iter().any(|&w| w != 0)
-            && self.rel_unbound().stmt.as_deref().is_none_or(|s| !s.releases_dicts())
+            && self
+                .rel_unbound()
+                .stmt
+                .as_deref()
+                .is_none_or(|s| !s.releases_dicts())
             && self.recipe.entries.is_none()
             && self.recipe.sample.is_none()
             && self.resolved_unbound().kept.get(self.site).is_some()
@@ -119,7 +137,11 @@ impl GranuleRangeSource {
         let nparts = self.list.as_ref().map_or(0, |l| l.len());
         let natts = self.recipe.natts;
         #[allow(clippy::borrowed_box)]
-        let sk: &'r Box<SiteKept> = self.resolved_unbound().kept.get(self.site)?.get_or_init(|| Box::new(SiteKept::new(natts, nparts))); // alloc: Exec
+        let sk: &'r Box<SiteKept> = self
+            .resolved_unbound()
+            .kept
+            .get(self.site)?
+            .get_or_init(|| Box::new(SiteKept::new(natts, nparts))); // alloc: Exec
         Some(&**sk)
     }
 
@@ -140,7 +162,10 @@ impl GranuleRangeSource {
     #[inline]
     pub(super) fn dict_at<'r>(&self, p: usize, k: usize) -> Option<&'r DictEntry> {
         // lens mode alone decides the homes of its length-only lanes; kept mode every code lane's
-        if let Some(sk) = self.kept_cells().filter(|_| self.kept_mode || self.recipe.lens_only.has(k)) {
+        if let Some(sk) = self
+            .kept_cells()
+            .filter(|_| self.kept_mode || self.recipe.lens_only.has(k))
+        {
             match sk.home(p, k) {
                 HOME_OWN => return sk.get(p, k),
                 HOME_LIST => {}
@@ -151,7 +176,8 @@ impl GranuleRangeSource {
         }
         // D4410: the statement's own, else the list's warm entry, which the statement holds from here on
         let (rp, j) = (self.rel_unbound(), self.face(k));
-        rp.dict_if_open(p, j).or_else(|| rp.adopt_warm(p, j, self.renders_derived(k)))
+        rp.dict_if_open(p, j)
+            .or_else(|| rp.adopt_warm(p, j, self.renders_derived(k)))
     }
 
     /// D3038 (A): lens mode at the open of code lane `k` of part `p` (this source's cursor over it open). A length-only
@@ -163,14 +189,19 @@ impl GranuleRangeSource {
         if !self.recipe.lens_only.has(k) || self.recipe.shred_of(k).is_some() {
             return Ok(false);
         }
-        let Some(sk) = self.kept_cells() else { return Ok(false) };
+        let Some(sk) = self.kept_cells() else {
+            return Ok(false);
+        };
         match sk.home(p, k) {
             HOME_LIST => return Ok(false),
             // the site's own table (this lens open's, or kept mode's for a part with no octet lane): open once published
             HOME_OWN if sk.get(p, k).is_some() => return Ok(true),
             _ => {}
         }
-        let lane = match (self.kept_lane(p, k), self.parts().list.faces.locate(self.face(k), p, part)?) {
+        let lane = match (
+            self.kept_lane(p, k),
+            self.parts().list.faces.locate(self.face(k), p, part)?,
+        ) {
             (Some(true), Some((attno, 0))) => octet_lane_ord(part, attno)?.map(|o| (attno, o)),
             _ => None,
         };
@@ -189,13 +220,22 @@ impl GranuleRangeSource {
         }
         fires::fire_shared("octet.lens_coded"); // shapecheck fire signal (D3038 A): a verbatim part's code lane coded by length
         let binding = pgrc_am::scan::codec_binding();
-        let mut cur = StreamCursor::open(Arc::clone(part), binding, attno, ord).map_err(read_err)?;
+        let mut cur =
+            StreamCursor::open(Arc::clone(part), binding, attno, ord).map_err(read_err)?;
         cur.set_owner(self.held.owner());
-        let table = crate::dict::text_hosts::lane_codes(part, attno, &mut cur).map_err(table_err)?;
+        let table =
+            crate::dict::text_hosts::lane_codes(part, attno, &mut cur).map_err(table_err)?;
         let ranks = table.ranks().expect("ranks");
         // its codes are not the part's byte ranks: its own epoch, so no memo or once-cell keyed by the part's reads it
         let epoch = part.dict_epoch(attno, 0) ^ ranks.salt().rotate_left(29);
-        sk.set(p, k, DictEntry::new(Dict::Ranked { table: crate::dict::text_hosts::FpPin::of(&table), epoch }));
+        sk.set(
+            p,
+            k,
+            DictEntry::new(Dict::Ranked {
+                table: crate::dict::text_hosts::FpPin::of(&table),
+                epoch,
+            }),
+        );
         Ok(true)
     }
 
@@ -207,7 +247,9 @@ impl GranuleRangeSource {
         if !self.lens_mode || !self.recipe.lens_only.has(k) || self.recipe.shred_of(k).is_some() {
             return false;
         }
-        let Some(sk) = self.kept_cells() else { return false };
+        let Some(sk) = self.kept_cells() else {
+            return false;
+        };
         match sk.home(p, k) {
             HOME_LIST => return false,
             HOME_OWN => {
@@ -215,9 +257,16 @@ impl GranuleRangeSource {
             }
             _ => {}
         }
-        let Some(part) = self.parts().part_if_open(p) else { return false };
-        match (self.kept_lane(p, k), self.parts().list.faces.locate(self.face(k), p, part)) {
-            (Some(true), Ok(Some((attno, 0)))) => octet_lane_ord(part, attno).ok().flatten().is_some(),
+        let Some(part) = self.parts().part_if_open(p) else {
+            return false;
+        };
+        match (
+            self.kept_lane(p, k),
+            self.parts().list.faces.locate(self.face(k), p, part),
+        ) {
+            (Some(true), Ok(Some((attno, 0)))) => {
+                octet_lane_ord(part, attno).ok().flatten().is_some()
+            }
             _ => false,
         }
     }
@@ -227,12 +276,16 @@ impl GranuleRangeSource {
     /// `real` is part `p` itself: the zone lanes' Stats read from it; lane `k` reads its stand-in when the part lacks its
     /// column (FASTADD, `RelParts::lane`).
     pub(super) fn open_kept(&mut self, p: usize, k: usize, real: &Arc<OpenPart>) -> PgResult<bool> {
-        let Some(sk) = self.kept_cells() else { return Ok(false) };
+        let Some(sk) = self.kept_cells() else {
+            return Ok(false);
+        };
         if sk.home(p, k) == HOME_LIST {
             return Ok(false);
         }
         let part = &Arc::clone(self.parts().lane(p, self.face(k), real)?);
-        let Some((attno, ord)) = self.parts().list.faces.locate(self.face(k), p, part)? else { return Ok(false) };
+        let Some((attno, ord)) = self.parts().list.faces.locate(self.face(k), p, part)? else {
+            return Ok(false);
+        };
         let kept = match self.kept_lane(p, k) {
             Some(true) if ord == 0 => {
                 let kept = self.kept_of(p, real)?;
@@ -255,20 +308,43 @@ impl GranuleRangeSource {
             return Err(Box::<types_error::PgError>::new(e)); // alloc: Cold
         }
         fires::fire_shared("dict.kept"); // shapecheck fire signal (D3156): a verbatim part's code table over its kept granules
-        let cur = self.cursors[p * self.recipe.natts + k].as_deref_mut().expect("cursor");
-        let table = crate::dict::text_hosts::row_codes(part, cur, stream_key(attno, ord), &mut self.scratch, Some(&kept)).map_err(table_err)?;
+        let cur = self.cursors[p * self.recipe.natts + k]
+            .as_deref_mut()
+            .expect("cursor");
+        let table = crate::dict::text_hosts::row_codes(
+            part,
+            cur,
+            stream_key(attno, ord),
+            &mut self.scratch,
+            Some(&kept),
+        )
+        .map_err(table_err)?;
         let ranks = table.ranks().expect("ranks");
         // a kept table's codes are not the whole part's: its own epoch, so no memo or once-cell keyed by the part's reads it
         let epoch = part.dict_epoch(attno, ord) ^ ranks.salt().rotate_left(29);
-        sk.set(p, k, DictEntry::new(Dict::Ranked { table: crate::dict::text_hosts::FpPin::of(&table), epoch }));
+        sk.set(
+            p,
+            k,
+            DictEntry::new(Dict::Ranked {
+                table: crate::dict::text_hosts::FpPin::of(&table),
+                epoch,
+            }),
+        );
         Ok(true)
     }
 
     /// Part `p`'s granules the bind's zone predicates keep by the part's Stats records alone (read whole here first, so
     /// every source of the site computes the same set), when they are at most 1 / `KEPT_GRANULES_DIV` of its granules;
     /// `None`: the whole part's table.
-    fn kept_of(&self, p: usize, part: &Arc<OpenPart>) -> PgResult<Option<crate::dict::text_hosts::Kept>> {
-        let (n, granules) = (self.nzone_bind.min(self.zone.len()), part.footer().granule_count);
+    fn kept_of(
+        &self,
+        p: usize,
+        part: &Arc<OpenPart>,
+    ) -> PgResult<Option<crate::dict::text_hosts::Kept>> {
+        let (n, granules) = (
+            self.nzone_bind.min(self.zone.len()),
+            part.footer().granule_count,
+        );
         if n == 0 || granules == 0 {
             return Ok(None);
         }
@@ -284,19 +360,27 @@ impl GranuleRangeSource {
         for lg in 0..granules {
             step.tick().map_err(|_| err(WALK_CANCELED))?;
             let rows = self.granule_rows(p, lg);
-            let none = self.zone[..n].iter().enumerate().any(|(i, z)| self.facts_of(p, z.lane as usize, lg).is_some_and(|rec| self.text_verdict(i, &rec, rows, z) == V_NONE));
+            let none = self.zone[..n].iter().enumerate().any(|(i, z)| {
+                self.facts_of(p, z.lane as usize, lg)
+                    .is_some_and(|rec| self.text_verdict(i, &rec, rows, z) == V_NONE)
+            });
             if !none {
                 bits[lg as usize / 64] |= 1 << (lg % 64);
                 kept += 1;
             }
         }
-        Ok((kept * gravity_program::cost::pgrc::KEPT_GRANULES_DIV <= granules as u64).then(|| crate::dict::text_hosts::Kept::new(bits, granules)))
+        Ok(
+            (kept * gravity_program::cost::pgrc::KEPT_GRANULES_DIV <= granules as u64)
+                .then(|| crate::dict::text_hosts::Kept::new(bits, granules)),
+        )
     }
 
     /// Granule `lg` of part `p` lies outside a kept table of one of the site's code lanes: no row of it passes the bind's
     /// zone predicates, so the window is skipped before its code lanes are read.
     pub(super) fn kept_skips(&self, p: usize, lg: u32) -> bool {
-        let Some(sk) = self.kept_cells() else { return false };
+        let Some(sk) = self.kept_cells() else {
+            return false;
+        };
         (0..self.recipe.natts).any(|k| match sk.get(p, k).map(|e| &e.dict) {
             Some(Dict::Ranked { table, .. }) => !table.ranks().expect("ranks").covers(lg),
             _ => false,

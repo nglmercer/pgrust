@@ -182,7 +182,7 @@ impl Iterator for DecompositionCodes<'_> {
 fn get_decomposed_size(code: pg_wchar, compat: bool) -> usize {
     if (SBASE..SBASE + SCOUNT).contains(&code) {
         let sindex = code - SBASE;
-        return if ! sindex.is_multiple_of( TCOUNT) { 3 } else { 2 };
+        return if !sindex.is_multiple_of(TCOUNT) { 3 } else { 2 };
     }
 
     let Some(entry) = get_code_entry(code).copied() else {
@@ -469,13 +469,19 @@ mod tests {
         let mut input = vec![0xac01 as pg_wchar; limit / 3];
         let cx = MemoryContext::new("test-unicode-norm-oversized");
         let err = unicode_normalize(cx.mcx(), UNICODE_NFD, &input).unwrap_err();
-        assert_eq!(err.message(), "invalid memory alloc request size 1073741824");
+        assert_eq!(
+            err.message(),
+            "invalid memory alloc request size 1073741824"
+        );
         // Past the limit C stops summing at the first overshoot and reports
         // that partial request, not the full decomposed length.
         input.push(0xac01);
         input.push(0xac01);
         let err = unicode_normalize(cx.mcx(), UNICODE_NFD, &input).unwrap_err();
-        assert_eq!(err.message(), "invalid memory alloc request size 1073741836");
+        assert_eq!(
+            err.message(),
+            "invalid memory alloc request size 1073741836"
+        );
     }
 
     #[test]
@@ -646,11 +652,15 @@ mod tests {
         let mut n = 0;
         for entry in UnicodeDecompMain.iter() {
             let index = entry.dec_index as usize;
-            let composable = entry.decomposition_size() == 2 && !entry.no_compose() && !entry.is_compat();
+            let composable =
+                entry.decomposition_size() == 2 && !entry.no_compose() && !entry.is_compat();
             if entry.decomposition_size() != 2 {
                 continue;
             }
-            let (a, b) = (UnicodeDecomp_codepoints[index], UnicodeDecomp_codepoints[index + 1]);
+            let (a, b) = (
+                UnicodeDecomp_codepoints[index],
+                UnicodeDecomp_codepoints[index + 1],
+            );
             let got = recompose_code(a, b);
             if composable {
                 assert_eq!(got, Some(entry.codepoint), "U+{a:04X}+U+{b:04X}");

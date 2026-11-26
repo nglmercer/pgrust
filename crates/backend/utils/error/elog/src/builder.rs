@@ -38,7 +38,11 @@ impl ErrorBuilder {
 
     #[inline]
     fn suppressed(level: ErrorLevel) -> Self {
-        Self { level, error: None, verbatim: false }
+        Self {
+            level,
+            error: None,
+            verbatim: false,
+        }
     }
 
     #[inline]

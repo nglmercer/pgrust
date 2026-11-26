@@ -39,15 +39,24 @@ fn security_definer_wrapper_switches_user_and_gucs() {
     });
     miscinit_seams::get_user_id_and_sec_context::set(|| (10, 0));
     miscinit_seams::set_user_id_and_sec_context::set(|userid, ctx| {
-        EVENTS.lock().unwrap().push(format!("setuser({userid},{ctx})"));
+        EVENTS
+            .lock()
+            .unwrap()
+            .push(format!("setuser({userid},{ctx})"));
     });
     guc_seams::new_guc_nest_level::set(|| 7);
     guc_seams::process_guc_array_secdef::set(|array| {
-        EVENTS.lock().unwrap().push(format!("guc({})", array.join(",")));
+        EVENTS
+            .lock()
+            .unwrap()
+            .push(format!("guc({})", array.join(",")));
         Ok(())
     });
     guc_seams::at_eoxact_guc::set(|is_commit, nest| {
-        EVENTS.lock().unwrap().push(format!("pop({is_commit},{nest})"));
+        EVENTS
+            .lock()
+            .unwrap()
+            .push(format!("pop({is_commit},{nest})"));
         Ok(())
     });
 

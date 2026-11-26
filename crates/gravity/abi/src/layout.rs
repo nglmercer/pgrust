@@ -18,7 +18,10 @@ pub struct Word<P: Copy> {
 }
 
 #[cfg(not(target_pointer_width = "64"))]
-const _: () = assert!(core::mem::size_of::<Word<*mut u8>>() == 8 && core::mem::size_of::<Word<Option<unsafe extern "C" fn()>>>() == 8);
+const _: () = assert!(
+    core::mem::size_of::<Word<*mut u8>>() == 8
+        && core::mem::size_of::<Word<Option<unsafe extern "C" fn()>>>() == 8
+);
 
 /// `p` as a block's pointer word (the identity on a 64-bit host).
 #[cfg(target_pointer_width = "64")]
@@ -101,13 +104,33 @@ macro_rules! block {
 pub const LAYOUT: &[(&str, usize, &[(&str, usize, usize)])] = &[
     ("ctx", crate::ctx::hdr::SIZE, crate::ctx::hdr::FIELDS),
     ("site", crate::site::site::SIZE, crate::site::site::FIELDS),
-    ("program", crate::program::prog::SIZE, crate::program::prog::FIELDS),
+    (
+        "program",
+        crate::program::prog::SIZE,
+        crate::program::prog::FIELDS,
+    ),
     ("out", crate::ctx::out::SIZE, crate::ctx::out::FIELDS),
     ("lane", crate::ctx::lane::SIZE, crate::ctx::lane::FIELDS),
-    ("answer", crate::ctx::answer::SIZE, crate::ctx::answer::FIELDS),
-    ("partials", crate::ctx::partials::SIZE, crate::ctx::partials::FIELDS),
-    ("identity", crate::ctx::identity::SIZE, crate::ctx::identity::FIELDS),
-    ("scanpos", crate::ctx::scanpos::SIZE, crate::ctx::scanpos::FIELDS),
+    (
+        "answer",
+        crate::ctx::answer::SIZE,
+        crate::ctx::answer::FIELDS,
+    ),
+    (
+        "partials",
+        crate::ctx::partials::SIZE,
+        crate::ctx::partials::FIELDS,
+    ),
+    (
+        "identity",
+        crate::ctx::identity::SIZE,
+        crate::ctx::identity::FIELDS,
+    ),
+    (
+        "scanpos",
+        crate::ctx::scanpos::SIZE,
+        crate::ctx::scanpos::FIELDS,
+    ),
 ];
 
 pub fn describe(out: &mut dyn Write) -> core::fmt::Result {
@@ -121,25 +144,62 @@ pub fn describe(out: &mut dyn Write) -> core::fmt::Result {
             writeln!(out, "{block} {name} {off} {sz}")?;
         }
     }
-    writeln!(out, "ctx claim.lo {} 8 claim.hi {} 8", hdr::CLAIM_LO, hdr::CLAIM_HI)?;
-    writeln!(out, "site pos.flags {} 2 pos.off {} 2 pos.rel {} 4 pos.block {} 4", site::POS_FLAGS, site::POS_OFF, site::POS_REL, site::POS_BLOCK)?;
-    writeln!(out, "site window cells {} {}", site::WINDOW_CELLS.0, site::WINDOW_CELLS.1)?;
-    writeln!(out, "sites stride {} count ctx.nsites after header {}", site::SIZE, hdr::SIZE)?;
+    writeln!(
+        out,
+        "ctx claim.lo {} 8 claim.hi {} 8",
+        hdr::CLAIM_LO,
+        hdr::CLAIM_HI
+    )?;
+    writeln!(
+        out,
+        "site pos.flags {} 2 pos.off {} 2 pos.rel {} 4 pos.block {} 4",
+        site::POS_FLAGS,
+        site::POS_OFF,
+        site::POS_REL,
+        site::POS_BLOCK
+    )?;
+    writeln!(
+        out,
+        "site window cells {} {}",
+        site::WINDOW_CELLS.0,
+        site::WINDOW_CELLS.1
+    )?;
+    writeln!(
+        out,
+        "sites stride {} count ctx.nsites after header {}",
+        site::SIZE,
+        hdr::SIZE
+    )?;
     writeln!(out, "lanes count site.nlanes per program")?;
     writeln!(out, "lane kind byval 0 byref 1 codes 2 fixed 3")?;
-    writeln!(out, "lane region page 0 arena 1 dictionary 2 breaker 3 immediate 4")?;
+    writeln!(
+        out,
+        "lane region page 0 arena 1 dictionary 2 breaker 3 immediate 4"
+    )?;
     writeln!(out, "lane flags all_valid 1 sorted 2 verdict mixed 0 all_match 4 none_match 8 answered 16 entries 32")?;
-    writeln!(out, "lane id kind<<24 attr 0 rowid 1 offset 2 verdict 3 projection 4 jsonb 5 table 6")?;
+    writeln!(
+        out,
+        "lane id kind<<24 attr 0 rowid 1 offset 2 verdict 3 projection 4 jsonb 5 table 6"
+    )?;
     writeln!(out, "lane empty_code_none {}", lane::EMPTY_CODE_NONE)?;
     writeln!(out, "answer flags sum 1 minmax 2")?;
     writeln!(out, "site state closed 0 open 1 eof 2")?;
     writeln!(out, "pos flags valid 1 row 2")?;
     writeln!(out, "flags resume 1")?;
     writeln!(out, "claim all 0 {}", u64::MAX)?;
-    writeln!(out, "resume phase<<48|position none 0 build 1 probe 2 spill_batch 3 emit 4")?;
+    writeln!(
+        out,
+        "resume phase<<48|position none 0 build 1 probe 2 spill_batch 3 emit 4"
+    )?;
     writeln!(out, "status ok 0 stop {} cancelled {} error {} suspend -({}|full<<8) recheck -({}|site<<8) unsupported -({}|kind<<8) fault -({}|site<<8|lane<<16|code<<24)", status::STOP, status::CANCELLED, status::ERROR, -status::SUSPEND, -status::RECHECK, -status::UNSUPPORTED, -status::FAULT)?;
-    writeln!(out, "unsupported shape 1 scratch 2 null_key 3 on_worker 4 out_region 5")?;
-    writeln!(out, "write op insert 1 update 2 delete 3 value skipped 0 done 1 recheck 2")?;
+    writeln!(
+        out,
+        "unsupported shape 1 scratch 2 null_key 3 on_worker 4 out_region 5"
+    )?;
+    writeln!(
+        out,
+        "write op insert 1 update 2 delete 3 value skipped 0 done 1 recheck 2"
+    )?;
     writeln!(out, "spill op scatter 0 refill 1 parts 2 drop 3 target 4 run_put 5 runs 6 run_open 7 run_fill 8")?;
     writeln!(out, "calls site next(site) lane(site,k) fetch(site,nrows) program push(ctx) spill(ctx,op,arg) arena_grow(ctx,bytes) write(ctx,op,site) lock(ctx,site) rec_open(ctx,partial,layout,cap,limit,keys)")?;
     writeln!(out, "abi C-unwind i64")

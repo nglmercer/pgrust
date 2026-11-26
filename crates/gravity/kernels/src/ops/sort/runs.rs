@@ -2,8 +2,11 @@
 //! var table copy, the sealed runs' merge (`RunShape`), road sort.keylane's radix and sort.natural's skip. Owner M3-HOSTS.
 use crate::host_abi::SEALED;
 
-pub use super::raw::runs::{describe, sort_full_res, sort_full_res_var, sort_last_res, sort_last_res_var, sort_open_res, sort_open_res_top, sort_open_res_var, sort_open_res_var_top};
 pub(crate) use super::raw::runs::index;
+pub use super::raw::runs::{
+    describe, sort_full_res, sort_full_res_var, sort_last_res, sort_last_res_var, sort_open_res,
+    sort_open_res_top, sort_open_res_var, sort_open_res_var_top,
+};
 
 /// The `pad[0]` of a run sealed in its region (`sort_last`'s, `sort_open_res`'s): exec v4/m3_sort.rs merges only these.
 pub const RUN_SEALED: u8 = SEALED;

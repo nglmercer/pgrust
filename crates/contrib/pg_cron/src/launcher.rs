@@ -93,7 +93,10 @@ fn contain(e: Box<types_error::PgError>, what: &str) -> PgResult<()> {
         let _ = xact::AbortCurrentTransaction();
     }
     elog::emit_error_report_for(&e);
-    let _ = elog::elog(WARNING, format!("pg_cron launcher: error while {what}: {}", e.message()));
+    let _ = elog::elog(
+        WARNING,
+        format!("pg_cron launcher: error while {what}: {}", e.message()),
+    );
     Ok(())
 }
 
@@ -210,11 +213,20 @@ impl Launcher {
     }
 
     /// `ShouldRunTask`'s clock half: break `t` down in cron.timezone and ask
-    fn should_run(&self, schedule: &Entry, t: TimestampTz, do_wild: bool, do_nonwild: bool) -> bool {
+    fn should_run(
+        &self,
+        schedule: &Entry,
+        t: TimestampTz,
+        do_wild: bool,
+        do_nonwild: bool,
+    ) -> bool {
         let secs = adt_timestamp::timestamptz_to_time_t(t);
         let tomorrow = adt_timestamp::timestamptz_to_time_t(t + USECS_PER_DAY);
-        let Some(tm) = adt_datetime::tz::pg_localtime(secs, &self.tz) else { return false };
-        let is_lastdom = adt_datetime::tz::pg_localtime(tomorrow, &self.tz).is_some_and(|tt| tt.tm_mday == 1);
+        let Some(tm) = adt_datetime::tz::pg_localtime(secs, &self.tz) else {
+            return false;
+        };
+        let is_lastdom =
+            adt_datetime::tz::pg_localtime(tomorrow, &self.tz).is_some_and(|tt| tt.tm_mday == 1);
         let now = LocalTime {
             minute: tm.tm_min,
             hour: tm.tm_hour,
@@ -222,14 +234,23 @@ impl Launcher {
             month: tm.tm_mon,
             day_of_week: tm.tm_wday,
         };
-        schedule.matches(now, is_lastdom, gucs::match_dom_and_dow(), do_wild, do_nonwild)
+        schedule.matches(
+            now,
+            is_lastdom,
+            gucs::match_dom_and_dow(),
+            do_wild,
+            do_nonwild,
+        )
     }
 
     /// `StartAllPendingRuns`.
     fn start_all_pending_runs(&mut self, current_time: TimestampTz) {
         if !self.reboot_jobs_scheduled {
             for task in self.tasks.tasks.values_mut() {
-                let at_restart = self.jobs.get(&task.job_id).is_some_and(|j| j.schedule.flags & WHEN_REBOOT != 0);
+                let at_restart = self
+                    .jobs
+                    .get(&task.job_id)
+                    .is_some_and(|j| j.schedule.flags & WHEN_REBOOT != 0);
                 if at_restart && task.is_active {
                     task.pending_run_count += 1;
                 }
@@ -345,10 +366,16 @@ impl Launcher {
         let mut next_event = minute_end(current_time);
         let mut any_running = false;
         for task in self.tasks.tasks.values() {
-            if task.state == TaskState::Done || task.state == TaskState::Error || self.can_start(task) {
+            if task.state == TaskState::Done
+                || task.state == TaskState::Error
+                || self.can_start(task)
+            {
                 return Ok(());
             }
-            if task.state == TaskState::Waiting && task.pending_run_count == 0 && task.seconds_interval > 0 {
+            if task.state == TaskState::Waiting
+                && task.pending_run_count == 0
+                && task.seconds_interval > 0
+            {
                 let next_run = plus_ms(task.last_start_time, task.seconds_interval as i64 * 1000);
                 if next_run < next_event {
                     next_event = next_run;
@@ -399,7 +426,9 @@ impl Launcher {
 
     /// `ManageCronTask`: one pass over the state machine for job `id`.
     fn manage_cron_task(&mut self, id: i64, current_time: TimestampTz) -> PgResult<()> {
-        let Some(state) = self.tasks.tasks.get(&id).map(|t| t.state) else { return Ok(()) };
+        let Some(state) = self.tasks.tasks.get(&id).map(|t| t.state) else {
+            return Ok(());
+        };
         let mut state = state;
 
         if state == TaskState::Waiting {
@@ -473,12 +502,26 @@ impl Launcher {
             match outcome {
                 (Some(msg), _, _) => {
                     if gucs::log_run() {
-                        rundetails::update_job_run_detail(run_id, None, Some(CronStatus::Failed), Some(&msg), None, Some(end_time))?;
+                        rundetails::update_job_run_detail(
+                            run_id,
+                            None,
+                            Some(CronStatus::Failed),
+                            Some(&msg),
+                            None,
+                            Some(end_time),
+                        )?;
                     }
                 }
                 (None, Some(tag), _) => {
                     if gucs::log_run() {
-                        rundetails::update_job_run_detail(run_id, None, Some(CronStatus::Succeeded), Some(&tag), None, Some(end_time))?;
+                        rundetails::update_job_run_detail(
+                            run_id,
+                            None,
+                            Some(CronStatus::Succeeded),
+                            Some(&tag),
+                            None,
+                            Some(end_time),
+                        )?;
                     }
                     if gucs::log_statement() {
                         let _ = elog::elog(LOG, format!("cron job {id} COMMAND completed: {tag}"));
@@ -509,12 +552,22 @@ impl Launcher {
                 Some(msg) => {
                     if gucs::log_run() {
                         let end_time = adt_timestamp::GetCurrentTimestamp();
-                        rundetails::update_job_run_detail(run_id, None, Some(CronStatus::Failed), Some(&msg), Some(last_start), Some(end_time))?;
+                        rundetails::update_job_run_detail(
+                            run_id,
+                            None,
+                            Some(CronStatus::Failed),
+                            Some(&msg),
+                            Some(last_start),
+                            Some(end_time),
+                        )?;
                     }
                     let _ = elog::elog(LOG, format!("cron job {id} {msg}"));
                 }
                 None => {
-                    let _ = elog::elog(LOG, format!("cron job {id} {}", CronStatus::Failed.as_str()));
+                    let _ = elog::elog(
+                        LOG,
+                        format!("cron job {id} {}", CronStatus::Failed.as_str()),
+                    );
                 }
             }
             let task = self.tasks.tasks.get_mut(&id).expect("task present");
@@ -533,7 +586,8 @@ impl Launcher {
             let task = self.tasks.tasks.get_mut(&id).expect("task present");
             let pending = task.pending_run_count;
             if job_active {
-                let (interval, active, last_start) = (task.seconds_interval, task.is_active, task.last_start_time);
+                let (interval, active, last_start) =
+                    (task.seconds_interval, task.is_active, task.last_start_time);
                 task.reinitialize();
                 task.seconds_interval = interval;
                 task.is_active = active;
@@ -559,7 +613,11 @@ impl Launcher {
         if gucs::log_statement() {
             let _ = elog::elog(
                 LOG,
-                format!("cron job {id} {}: {}", CronStatus::Starting.as_str(), job.command),
+                format!(
+                    "cron job {id} {}: {}",
+                    CronStatus::Starting.as_str(),
+                    job.command
+                ),
             );
         }
         let (key, result) = task::publish_job(JobSpec {
@@ -572,7 +630,8 @@ impl Launcher {
         let worker = bgworker::BackgroundWorker {
             bgw_name: "pg_cron worker".to_string(),
             bgw_type: "pg_cron".to_string(),
-            bgw_flags: bgworker::BGWORKER_SHMEM_ACCESS | bgworker::BGWORKER_BACKEND_DATABASE_CONNECTION,
+            bgw_flags: bgworker::BGWORKER_SHMEM_ACCESS
+                | bgworker::BGWORKER_BACKEND_DATABASE_CONNECTION,
             bgw_start_time: bgworker::BgWorkerStartTime::ConsistentState,
             bgw_restart_time: bgworker::BGW_NEVER_RESTART,
             bgw_main: worker::cron_background_worker_main,
@@ -589,7 +648,11 @@ impl Launcher {
             match bgworker::RegisterDynamicBackgroundWorker(worker.clone())? {
                 Some(h) => break Some(h),
                 None => {
-                    if adt_timestamp::TimestampDifferenceExceeds(start_deadline, adt_timestamp::GetCurrentTimestamp(), 0) {
+                    if adt_timestamp::TimestampDifferenceExceeds(
+                        start_deadline,
+                        adt_timestamp::GetCurrentTimestamp(),
+                        0,
+                    ) {
                         break None;
                     }
                     latch::WaitLatch(
@@ -625,7 +688,9 @@ impl Launcher {
             task.start_deadline = 0;
         }
         let (status, pid) = bgworker::WaitForBackgroundWorkerStartup(&handle)?;
-        if status != bgworker::BgwHandleStatus::BGWH_STARTED && status != bgworker::BgwHandleStatus::BGWH_STOPPED {
+        if status != bgworker::BgwHandleStatus::BGWH_STARTED
+            && status != bgworker::BgwHandleStatus::BGWH_STOPPED
+        {
             fail(self, "could not start background process; more details may be available in the server log");
             return Ok(());
         }
@@ -633,10 +698,21 @@ impl Launcher {
         if let Some(task) = self.tasks.tasks.get_mut(&id) {
             task.last_start_time = started_at;
             task.state = TaskState::BgwRunning;
-            task.run = Some(RunningJob { handle, key, result });
+            task.run = Some(RunningJob {
+                handle,
+                key,
+                result,
+            });
         }
         if gucs::log_run() {
-            rundetails::update_job_run_detail(run_id, Some(pid), Some(CronStatus::Running), None, Some(started_at), None)?;
+            rundetails::update_job_run_detail(
+                run_id,
+                Some(pid),
+                Some(CronStatus::Running),
+                None,
+                Some(started_at),
+                None,
+            )?;
         }
         Ok(())
     }

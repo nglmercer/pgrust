@@ -28,12 +28,18 @@ fn in_statement(procno: u32, f: impl FnOnce(Acct) + Send + 'static) {
 #[test]
 fn ledger2_an_arenas_owner_holds_its_chunks_once_however_many_carves() {
     in_statement(4070, |a| {
-        let st = Owner::Statement { acct: a, stmt: memledger::running_statement(a) };
+        let st = Owner::Statement {
+            acct: a,
+            stmt: memledger::running_statement(a),
+        };
         let arena = OpArena::new(core::ptr::null_mut(), Kind::Sort, 1 << 20);
         let o = arena.owner();
         assert!(matches!(o, Owner::Op { .. }), "an operator owner: {o:?}");
         let shell = usage(o).held;
-        assert!(shell > 0 && shell < 8 << 10, "the arena's core alone: {shell}");
+        assert!(
+            shell > 0 && shell < 8 << 10,
+            "the arena's core alone: {shell}"
+        );
         assert_eq!(usage(o).budget, 1 << 20, "its share, promised");
         let mut v: AVec<u64> = AVec::new();
         for i in 0..1_000_000u64 {
@@ -45,16 +51,31 @@ fn ledger2_an_arenas_owner_holds_its_chunks_once_however_many_carves() {
         }
         assert_eq!(raw, 10_000);
         let held = usage(o).held;
-        assert_eq!(held, shell + arena.chunk_bytes() as i64, "the chunks, each once, and the core");
-        assert!(arena.chunk_draws() <= 12, "1,010,000 carves in {} chunks", arena.chunk_draws());
-        assert!(arena.chunk_bytes() >= 8_000_000, "the vector's bytes are inside them");
+        assert_eq!(
+            held,
+            shell + arena.chunk_bytes() as i64,
+            "the chunks, each once, and the core"
+        );
+        assert!(
+            arena.chunk_draws() <= 12,
+            "1,010,000 carves in {} chunks",
+            arena.chunk_draws()
+        );
+        assert!(
+            arena.chunk_bytes() >= 8_000_000,
+            "the vector's bytes are inside them"
+        );
         assert_eq!(v.as_slice(&arena)[999_999], 999_999);
         assert_eq!(usage(st).held, 0, "nothing on the statement itself");
         assert_eq!(usage(st).subtree, held, "its subtree counts the operator");
         let child = arena.child(Kind::Sort, 0);
         let b = child.bytes(&[7u8; 100]).unwrap();
         assert_eq!(child.read(b), &[7u8; 100][..]);
-        assert_eq!(usage(o).subtree, held + usage(child.owner()).held, "a child under its arena's owner");
+        assert_eq!(
+            usage(o).subtree,
+            held + usage(child.owner()).held,
+            "a child under its arena's owner"
+        );
         drop(child);
         drop(arena);
         assert_eq!(usage(o).held, 0, "the owner leaves with its arena");
@@ -72,7 +93,11 @@ fn ledger2_a_reset_gives_the_chunks_back_and_a_worker_arena_charges_the_same_own
         v.extend_from_slice(&arena, &[1, 2, 3]).unwrap();
         assert!(usage(o).held > shell);
         arena.reset();
-        assert_eq!((usage(o).held, arena.chunk_bytes()), (shell, 0), "the chunks back at the reset");
+        assert_eq!(
+            (usage(o).held, arena.chunk_bytes()),
+            (shell, 0),
+            "the chunks back at the reset"
+        );
         v.detach();
         v.push(&arena, 9).unwrap();
         assert_eq!(v.as_slice(&arena), &[9]);
@@ -88,7 +113,10 @@ fn ledger2_a_reset_gives_the_chunks_back_and_a_worker_arena_charges_the_same_own
         })
         .join()
         .unwrap();
-        assert_eq!(held_by_worker.0, o, "the worker's arena charges the same owner");
+        assert_eq!(
+            held_by_worker.0, o,
+            "the worker's arena charges the same owner"
+        );
         assert_eq!(usage(o).held, before, "and its chunks went back with it");
         drop(arena);
     });
@@ -153,7 +181,14 @@ struct Host {
     slot_kind: u64,
 }
 
-static HOST: Mutex<Host> = Mutex::new(Host { refuse: false, asks: Vec::new(), lent: Vec::new(), gives: 0, slot: None, slot_kind: 0 });
+static HOST: Mutex<Host> = Mutex::new(Host {
+    refuse: false,
+    asks: Vec::new(),
+    lent: Vec::new(),
+    gives: 0,
+    slot: None,
+    slot_kind: 0,
+});
 static ONE: Mutex<()> = Mutex::new(());
 
 unsafe extern "C" fn spill(_ctx: *mut Ctx, op: u32, arg: u64) -> i64 {
@@ -179,7 +214,11 @@ unsafe extern "C" fn spill(_ctx: *mut Ctx, op: u32, arg: u64) -> i64 {
             p as i64
         }
         SPILL_ARENA_GIVE => {
-            let i = h.lent.iter().position(|(p, _)| *p == arg as usize).expect("a give of a lent chunk");
+            let i = h
+                .lent
+                .iter()
+                .position(|(p, _)| *p == arg as usize)
+                .expect("a give of a lent chunk");
             h.lent.swap_remove(i);
             h.gives += 1;
             0
@@ -191,7 +230,12 @@ unsafe extern "C" fn spill(_ctx: *mut Ctx, op: u32, arg: u64) -> i64 {
 #[test]
 fn ledger2_with_a_host_the_chunks_are_asked_of_it_for_the_owner_and_given_back() {
     let _one = ONE.lock().unwrap();
-    let mut block = ProgramBlock { spill: word(Some(spill as unsafe extern "C" fn(*mut Ctx, u32, u64) -> i64)), ..ProgramBlock::NONE };
+    let mut block = ProgramBlock {
+        spill: word(Some(
+            spill as unsafe extern "C" fn(*mut Ctx, u32, u64) -> i64,
+        )),
+        ..ProgramBlock::NONE
+    };
     // SAFETY: a ctx is plain words; zero is its closed state, its program block the fake host's.
     let mut ctx: Ctx = unsafe { core::mem::zeroed() };
     ctx.program = word(&mut block as *mut ProgramBlock);
@@ -209,19 +253,34 @@ fn ledger2_with_a_host_the_chunks_are_asked_of_it_for_the_owner_and_given_back()
     let asked: u64 = HOST.lock().unwrap().asks.iter().map(|a| a.0).sum();
     {
         let h = HOST.lock().unwrap();
-        assert!(h.asks.iter().all(|a| memledger::Owner::from_words(a.1) == Some(o)), "every chunk asked for the arena's owner");
-        assert_eq!(h.asks[0].0, ARENA_CHUNK_FIRST as u64, "the first chunk is the smallest");
+        assert!(
+            h.asks
+                .iter()
+                .all(|a| memledger::Owner::from_words(a.1) == Some(o)),
+            "every chunk asked for the arena's owner"
+        );
+        assert_eq!(
+            h.asks[0].0, ARENA_CHUNK_FIRST as u64,
+            "the first chunk is the smallest"
+        );
     }
     assert_eq!(arena.chunk_bytes(), asked, "the arena holds what it asked");
     drop(arena);
     {
         let h = HOST.lock().unwrap();
-        assert_eq!((h.lent.len(), h.gives), (0, h.asks.len()), "every chunk given back at the drop");
+        assert_eq!(
+            (h.lent.len(), h.gives),
+            (0, h.asks.len()),
+            "every chunk given back at the drop"
+        );
     }
     HOST.lock().unwrap().refuse = true;
     let arena = OpArena::new(&mut ctx, Kind::Sort, 0);
     let mut v: AVec<u64> = AVec::new();
-    assert!(v.push(&arena, 1).is_err(), "a refused chunk is the push's Refused, never an abort");
+    assert!(
+        v.push(&arena, 1).is_err(),
+        "a refused chunk is the push's Refused, never an abort"
+    );
     drop(arena);
     HOST.lock().unwrap().refuse = false;
 }
@@ -232,9 +291,17 @@ fn ledger2_with_a_host_the_chunks_are_asked_of_it_for_the_owner_and_given_back()
 fn ledger2_a_scratch_arena_is_the_slot_owners_child_on_the_allocators_chunks() {
     let _one = ONE.lock().unwrap();
     in_statement(4072, |a| {
-        let st = Owner::Statement { acct: a, stmt: memledger::running_statement(a) };
+        let st = Owner::Statement {
+            acct: a,
+            stmt: memledger::running_statement(a),
+        };
         let slot = memledger::charge::op_begin(st, Kind::Sort as u32, 8 << 20);
-        let mut block = ProgramBlock { spill: word(Some(spill as unsafe extern "C" fn(*mut Ctx, u32, u64) -> i64)), ..ProgramBlock::NONE };
+        let mut block = ProgramBlock {
+            spill: word(Some(
+                spill as unsafe extern "C" fn(*mut Ctx, u32, u64) -> i64,
+            )),
+            ..ProgramBlock::NONE
+        };
         // SAFETY: a ctx is plain words; zero is its closed state, its program block the fake host's.
         let mut ctx: Ctx = unsafe { core::mem::zeroed() };
         ctx.program = word(&mut block as *mut ProgramBlock);
@@ -243,18 +310,38 @@ fn ledger2_a_scratch_arena_is_the_slot_owners_child_on_the_allocators_chunks() {
             (h.refuse, h.gives, h.slot) = (false, 0, None);
             h.asks.clear();
         }
-        assert!(OpArena::scratch(&mut ctx, Kind::Sort).is_none(), "no slot owner named: no scratch arena");
-        assert!(OpArena::scratch(core::ptr::null_mut(), Kind::Sort).is_none(), "no host: none");
+        assert!(
+            OpArena::scratch(&mut ctx, Kind::Sort).is_none(),
+            "no slot owner named: no scratch arena"
+        );
+        assert!(
+            OpArena::scratch(core::ptr::null_mut(), Kind::Sort).is_none(),
+            "no host: none"
+        );
         HOST.lock().unwrap().slot = Some(slot.words());
-        let s = OpArena::scratch(&mut ctx, Kind::Sort).expect("a scratch arena under the slot owner");
-        let p = s.alloc(Layout::from_size_align(3 << 20, 8).unwrap()).expect("the allocator's chunk");
+        let s =
+            OpArena::scratch(&mut ctx, Kind::Sort).expect("a scratch arena under the slot owner");
+        let p = s
+            .alloc(Layout::from_size_align(3 << 20, 8).unwrap())
+            .expect("the allocator's chunk");
         // SAFETY: 3 MiB just carved, this test's alone
         unsafe { core::ptr::write_bytes(p.as_ptr(), 7, 3 << 20) };
-        assert!(HOST.lock().unwrap().asks.is_empty(), "no chunk asked of the host");
+        assert!(
+            HOST.lock().unwrap().asks.is_empty(),
+            "no chunk asked of the host"
+        );
         let held = usage(s.owner()).held;
         assert!(held >= 3 << 20, "the chunk on the scratch owner: {held}");
-        assert_eq!(usage(slot).subtree, usage(slot).held + held, "under the slot owner");
-        assert_eq!(usage(st).subtree, usage(slot).subtree, "and the statement's subtree");
+        assert_eq!(
+            usage(slot).subtree,
+            usage(slot).held + held,
+            "under the slot owner"
+        );
+        assert_eq!(
+            usage(st).subtree,
+            usage(slot).subtree,
+            "and the statement's subtree"
+        );
         drop(s);
         assert_eq!(usage(slot).subtree, usage(slot).held, "gone with the call");
         HOST.lock().unwrap().slot = None;
@@ -269,7 +356,10 @@ fn ledger2_a_scratch_arena_is_the_slot_owners_child_on_the_allocators_chunks() {
 #[test]
 fn convert1_a_scratch_of_arena_charges_the_slot_owner_itself_and_without_one_no_owner() {
     in_statement(4073, |a| {
-        let st = Owner::Statement { acct: a, stmt: memledger::running_statement(a) };
+        let st = Owner::Statement {
+            acct: a,
+            stmt: memledger::running_statement(a),
+        };
         let slot = memledger::charge::op_begin(st, Kind::HashBuild as u32, 8 << 20);
         let before = usage(slot).held;
         {
@@ -280,11 +370,22 @@ fn convert1_a_scratch_of_arena_charges_the_slot_owner_itself_and_without_one_no_
             assert!(v.as_slice(&s).iter().all(|&b| b == 7));
             v.resize(&s, 10, 0).unwrap();
             v.resize(&s, 20, 9).unwrap();
-            assert_eq!(v.as_slice(&s), &[7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9][..], "kept, then filled");
+            assert_eq!(
+                v.as_slice(&s),
+                &[7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9][..],
+                "kept, then filled"
+            );
             let held = usage(slot).held - before;
-            assert!(held >= 3 << 20 && held as u64 >= s.chunk_bytes(), "the chunks on the slot's own row: {held}");
+            assert!(
+                held >= 3 << 20 && held as u64 >= s.chunk_bytes(),
+                "the chunks on the slot's own row: {held}"
+            );
             assert_eq!(usage(slot).subtree, usage(slot).held, "no child row");
-            assert_eq!(usage(st).subtree, usage(slot).subtree, "the statement's subtree counts them through the slot");
+            assert_eq!(
+                usage(st).subtree,
+                usage(slot).subtree,
+                "the statement's subtree counts them through the slot"
+            );
         }
         assert_eq!(usage(slot).held, before, "gone at the drop");
         let sub = usage(st).subtree;
@@ -305,9 +406,17 @@ fn convert1_a_scratch_of_arena_charges_the_slot_owner_itself_and_without_one_no_
 fn convert1_a_scratch_seed_keeps_the_allocators_road_on_a_worker() {
     let _one = ONE.lock().unwrap();
     in_statement(4074, |a| {
-        let st = Owner::Statement { acct: a, stmt: memledger::running_statement(a) };
+        let st = Owner::Statement {
+            acct: a,
+            stmt: memledger::running_statement(a),
+        };
         let slot = memledger::charge::op_begin(st, Kind::HashBuild as u32, 0);
-        let mut block = ProgramBlock { spill: word(Some(spill as unsafe extern "C" fn(*mut Ctx, u32, u64) -> i64)), ..ProgramBlock::NONE };
+        let mut block = ProgramBlock {
+            spill: word(Some(
+                spill as unsafe extern "C" fn(*mut Ctx, u32, u64) -> i64,
+            )),
+            ..ProgramBlock::NONE
+        };
         // SAFETY: a ctx is plain words; zero is its closed state, its program block the fake host's.
         let mut ctx: Ctx = unsafe { core::mem::zeroed() };
         ctx.program = word(&mut block as *mut ProgramBlock);
@@ -319,9 +428,16 @@ fn convert1_a_scratch_seed_keeps_the_allocators_road_on_a_worker() {
         let s = OpArena::scratch_of(Some(slot), Kind::HashBuild);
         let before = usage(slot).held;
         let w = s.for_worker().arena(&mut ctx);
-        w.alloc(Layout::from_size_align(1 << 20, 8).unwrap()).expect("the allocator's chunk");
-        assert!(HOST.lock().unwrap().asks.is_empty(), "no chunk asked of the worker's host");
-        assert!(usage(slot).held - before >= 1 << 20, "on the slot's own row");
+        w.alloc(Layout::from_size_align(1 << 20, 8).unwrap())
+            .expect("the allocator's chunk");
+        assert!(
+            HOST.lock().unwrap().asks.is_empty(),
+            "no chunk asked of the worker's host"
+        );
+        assert!(
+            usage(slot).held - before >= 1 << 20,
+            "on the slot's own row"
+        );
         drop(w);
         assert_eq!(usage(slot).held, before, "back at the worker arena's drop");
         drop(s);
@@ -336,9 +452,17 @@ fn convert1_a_scratch_seed_keeps_the_allocators_road_on_a_worker() {
 fn wave2_slot_owner_kind_reads_the_kind_beside_the_owner() {
     let _one = ONE.lock().unwrap();
     in_statement(4075, |a| {
-        let st = Owner::Statement { acct: a, stmt: memledger::running_statement(a) };
+        let st = Owner::Statement {
+            acct: a,
+            stmt: memledger::running_statement(a),
+        };
         let slot = memledger::charge::op_begin(st, Kind::HashAgg as u32, 0);
-        let mut block = ProgramBlock { spill: word(Some(spill as unsafe extern "C" fn(*mut Ctx, u32, u64) -> i64)), ..ProgramBlock::NONE };
+        let mut block = ProgramBlock {
+            spill: word(Some(
+                spill as unsafe extern "C" fn(*mut Ctx, u32, u64) -> i64,
+            )),
+            ..ProgramBlock::NONE
+        };
         // SAFETY: a ctx is plain words; zero is its closed state, its program block the fake host's.
         let mut ctx: Ctx = unsafe { core::mem::zeroed() };
         ctx.program = word(&mut block as *mut ProgramBlock);
@@ -347,15 +471,39 @@ fn wave2_slot_owner_kind_reads_the_kind_beside_the_owner() {
             (h.refuse, h.slot, h.slot_kind) = (false, slot, kind);
         };
         set(None, 0);
-        assert_eq!(OpArena::slot_owner_kind(&mut ctx), None, "no owner named: none");
-        assert_eq!(OpArena::slot_owner_kind(core::ptr::null_mut()), None, "no host: none");
+        assert_eq!(
+            OpArena::slot_owner_kind(&mut ctx),
+            None,
+            "no owner named: none"
+        );
+        assert_eq!(
+            OpArena::slot_owner_kind(core::ptr::null_mut()),
+            None,
+            "no host: none"
+        );
         set(Some(slot.words()), Kind::HashAgg as u64);
-        assert_eq!(OpArena::slot_owner_kind(&mut ctx), Some((slot, Kind::HashAgg)), "the produced slot's owner and its breaker's kind");
-        assert_eq!(OpArena::slot_owner(&mut ctx), Some(slot), "slot_owner: the same owner");
+        assert_eq!(
+            OpArena::slot_owner_kind(&mut ctx),
+            Some((slot, Kind::HashAgg)),
+            "the produced slot's owner and its breaker's kind"
+        );
+        assert_eq!(
+            OpArena::slot_owner(&mut ctx),
+            Some(slot),
+            "slot_owner: the same owner"
+        );
         set(Some(st.words()), Kind::Region as u64);
-        assert_eq!(OpArena::slot_owner_kind(&mut ctx), Some((st, Kind::Region)), "the statement's owner, Kind::Region");
+        assert_eq!(
+            OpArena::slot_owner_kind(&mut ctx),
+            Some((st, Kind::Region)),
+            "the statement's owner, Kind::Region"
+        );
         set(Some(slot.words()), 99);
-        assert_eq!(OpArena::slot_owner_kind(&mut ctx), None, "a word 0 no Kind names: none");
+        assert_eq!(
+            OpArena::slot_owner_kind(&mut ctx),
+            None,
+            "a word 0 no Kind names: none"
+        );
         set(None, 0);
         memledger::charge::op_end(slot);
     });
@@ -369,7 +517,10 @@ fn wave2_slot_owner_kind_reads_the_kind_beside_the_owner() {
 #[test]
 fn wave3_an_arena_draws_past_its_inline_chunk_table_its_overflow_charged_to_the_owner() {
     in_statement(4076, |a| {
-        let st = Owner::Statement { acct: a, stmt: memledger::running_statement(a) };
+        let st = Owner::Statement {
+            acct: a,
+            stmt: memledger::running_statement(a),
+        };
         let slot = memledger::charge::op_begin(st, Kind::HashBuild as u32, 0);
         let before = usage(slot).held;
         {
@@ -378,23 +529,48 @@ fn wave3_an_arena_draws_past_its_inline_chunk_table_its_overflow_charged_to_the_
             let big = Layout::from_size_align(ARENA_CHUNK_MAX, 8).unwrap();
             let n = CHUNKS + 12;
             for i in 0..n {
-                s.alloc(big).unwrap_or_else(|r| panic!("carve {i} of {n} refused: {r:?}"));
+                s.alloc(big)
+                    .unwrap_or_else(|r| panic!("carve {i} of {n} refused: {r:?}"));
             }
             assert_eq!(s.chunk_draws(), n as u64, "one chunk per carve");
             let b = s.bytes(&[5u8; 100]).unwrap();
-            assert_eq!(s.chunk_draws(), n as u64, "the handle's bytes in the newest chunk, past the inline table");
-            assert_eq!(s.read(b), &[5u8; 100][..], "a handle into an overflow chunk reads back");
+            assert_eq!(
+                s.chunk_draws(),
+                n as u64,
+                "the handle's bytes in the newest chunk, past the inline table"
+            );
+            assert_eq!(
+                s.read(b),
+                &[5u8; 100][..],
+                "a handle into an overflow chunk reads back"
+            );
             let table = usage(slot).held - made - s.chunk_bytes() as i64;
-            assert!(( 12 * 24.. 64 << 10).contains(&table), "the overflow table's bytes on the owner: {table}");
+            assert!(
+                (12 * 24..64 << 10).contains(&table),
+                "the overflow table's bytes on the owner: {table}"
+            );
             s.reset();
             assert_eq!(s.chunk_bytes(), 0);
-            assert_eq!(usage(slot).held, made + table, "every chunk back at the reset, the table kept");
+            assert_eq!(
+                usage(slot).held,
+                made + table,
+                "every chunk back at the reset, the table kept"
+            );
             for i in 0..CHUNKS + 2 {
-                s.alloc(big).unwrap_or_else(|r| panic!("carve {i} after the reset refused: {r:?}"));
+                s.alloc(big)
+                    .unwrap_or_else(|r| panic!("carve {i} after the reset refused: {r:?}"));
             }
-            assert_eq!(usage(slot).held - made - s.chunk_bytes() as i64, table, "the table reused, not grown");
+            assert_eq!(
+                usage(slot).held - made - s.chunk_bytes() as i64,
+                table,
+                "the table reused, not grown"
+            );
         }
-        assert_eq!(usage(slot).held, before, "the drop leaves the owner as it was");
+        assert_eq!(
+            usage(slot).held,
+            before,
+            "the drop leaves the owner as it was"
+        );
         memledger::charge::op_end(slot);
     });
 }
@@ -409,12 +585,23 @@ fn wave3_a_scratch_arena_carries_its_owners_release() {
         memledger::charge::portal_begin(p);
         let po = Owner::Portal { acct: a, portal: p };
         let s = OpArena::scratch_of(Some(po), Kind::Sort);
-        assert!(format!("{:?}", s.for_worker()).contains("release: Portal"), "{:?}", s.for_worker());
+        assert!(
+            format!("{:?}", s.for_worker()).contains("release: Portal"),
+            "{:?}",
+            s.for_worker()
+        );
         drop(s);
-        let st = Owner::Statement { acct: a, stmt: memledger::running_statement(a) };
+        let st = Owner::Statement {
+            acct: a,
+            stmt: memledger::running_statement(a),
+        };
         let op = memledger::charge::op_begin(st, Kind::Sort as u32, 0);
         let s = OpArena::scratch_of(Some(op), Kind::Sort);
-        assert!(format!("{:?}", s.for_worker()).contains("release: Statement"), "{:?}", s.for_worker());
+        assert!(
+            format!("{:?}", s.for_worker()).contains("release: Statement"),
+            "{:?}",
+            s.for_worker()
+        );
         drop(s);
         memledger::charge::op_end(op);
         let _ = memledger::charge::portal_end(a, p);

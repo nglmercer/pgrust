@@ -2,22 +2,22 @@
 //! the leases a pipeline holds and the reset unit (moved from lowerv4 mem.rs; the driver makes every context).
 pub mod arena;
 pub mod batch;
+pub mod budget;
 pub mod feedback;
 pub mod fence;
 pub mod giveback;
-pub mod budget;
 pub mod grant;
 pub mod grow;
 /// Memory step 6a's broker policy is the memory policy's (`mempolicy::broker`); its driver path stays.
 pub use mempolicy::broker as policy;
-pub mod spill;
-pub mod spill_host;
 pub mod reap;
 pub mod reclaim;
 pub mod region;
 pub mod resident;
 pub mod root;
 pub mod runcodec;
+pub mod spill;
+pub mod spill_host;
 
 use gravity_program::{LifeId, Until};
 

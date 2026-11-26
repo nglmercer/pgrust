@@ -1,9 +1,14 @@
 //! The lab hand programs (par_*) the kernel / parallel / pool tests drive.
-use crate::{Arena, Code, End, Layout, OutCol, OwnerDesc, Pipeline, Program, Reason, SiteDesc, WordsDesc, WritePlan};
+use crate::{
+    Arena, Code, End, Layout, OutCol, OwnerDesc, Pipeline, Program, Reason, SiteDesc, WordsDesc,
+    WritePlan,
+};
 use gravity_abi::breaker::{Breaker, BreakerKind};
 
-use gravity_kernels::{par_distinct, par_hashagg_codes, par_hashjoin, par_scan_count, par_sort, par_topk};
 use gravity_kernels::table::params as par_hashagg;
+use gravity_kernels::{
+    par_distinct, par_hashagg_codes, par_hashjoin, par_scan_count, par_sort, par_topk,
+};
 
 pub const OUT_ROWS: u32 = 64;
 /// The staging arena a hand program's descriptors are built in (`Program::with_pipelines` copies them out).
@@ -82,7 +87,13 @@ fn layout(nsites: usize, out_natts: usize, out_rows: u32, scratch_bytes: u32) ->
 }
 
 fn layout_(nsites: usize, out_natts: usize, out_rows: u32, scratch_bytes: u32) -> Layout {
-    Layout { nsites: nsites as u16, out_natts: out_natts as u16, out_rows, scratch_bytes, exec_bytes: 0 }
+    Layout {
+        nsites: nsites as u16,
+        out_natts: out_natts as u16,
+        out_rows,
+        scratch_bytes,
+        exec_bytes: 0,
+    }
 }
 
 fn int4(name: &str, tbl: u32, col: i16) -> OutCol {
@@ -95,8 +106,18 @@ pub fn par_scan_count_with(rel: u32, rows: u64) -> Program {
     let sites = [SiteDesc::range_source(a, rel, &[1])];
     let out = [OutCol::new("count", INT8, -1, 8, true)];
     let pipes = [
-        (Pipeline::eligible(0, End::Breaker(Breaker::sized(BreakerKind::PlainAgg, par_scan_count::BYTES)), rows), Code::hand(par_scan_count::par_scan_count)),
-        (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), Code::hand(par_scan_count::par_scan_count_emit)),
+        (
+            Pipeline::eligible(
+                0,
+                End::Breaker(Breaker::sized(BreakerKind::PlainAgg, par_scan_count::BYTES)),
+                rows,
+            ),
+            Code::hand(par_scan_count::par_scan_count),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            Code::hand(par_scan_count::par_scan_count_emit),
+        ),
     ];
     Program::with_pipelines(layout(1, 1, 1, 0), &sites, &out, WritePlan::SELECT, pipes)
 }
@@ -107,26 +128,58 @@ pub fn par_scan_count(rel: u32) -> Program {
 
 /// `par_hashagg`'s kernel words and owner phase declared (milestone-2.md §2.6 item 18; ir-probe.md §20.3): the
 /// runner's facts at `PARAM_*`, the phase over `LAYOUT` with the bits at `PARAM_SPILL_BITS`.
-pub const PAR_HASHAGG_WORDS: WordsDesc = WordsDesc { topk: par_hashagg::PARAM_TOPK_N as u16, dense_lo: par_hashagg::PARAM_DENSE_LO as u16, dense_hi: par_hashagg::PARAM_DENSE_HI as u16, bits: par_hashagg::PARAM_SPILL_BITS as u16, order: par_hashagg::PARAM_ORDER as u16, nparams: par_hashagg::NPARAMS as u16 };
-pub const PAR_HASHAGG_OWNER: OwnerDesc = OwnerDesc::named(par_hashagg::LAYOUT, par_hashagg::owner_fns, Some((par_hashagg::PARAM_SPILL_BITS as u8, 0)));
+pub const PAR_HASHAGG_WORDS: WordsDesc = WordsDesc {
+    topk: par_hashagg::PARAM_TOPK_N as u16,
+    dense_lo: par_hashagg::PARAM_DENSE_LO as u16,
+    dense_hi: par_hashagg::PARAM_DENSE_HI as u16,
+    bits: par_hashagg::PARAM_SPILL_BITS as u16,
+    order: par_hashagg::PARAM_ORDER as u16,
+    nparams: par_hashagg::NPARAMS as u16,
+};
+pub const PAR_HASHAGG_OWNER: OwnerDesc = OwnerDesc::named(
+    par_hashagg::LAYOUT,
+    par_hashagg::owner_fns,
+    Some((par_hashagg::PARAM_SPILL_BITS as u8, 0)),
+);
 /// The join's build takes the bits word alone.
-pub const PAR_HASHJOIN_WORDS: WordsDesc = WordsDesc::bits_only(par_hashjoin::PARAM_SPILL_BITS as u16, par_hashjoin::NPARAMS as u16);
+pub const PAR_HASHJOIN_WORDS: WordsDesc = WordsDesc::bits_only(
+    par_hashjoin::PARAM_SPILL_BITS as u16,
+    par_hashjoin::NPARAMS as u16,
+);
 
 /// PGROUP's scan pipeline (`groups`: the plan's estimate behind the partition bits), declaring both descriptors.
 pub const fn par_hashagg_pipeline(groups: u64, rows: u64) -> Pipeline {
-    Pipeline::eligible(0, End::Breaker(par_hashagg::breaker(groups)), rows).owner(PAR_HASHAGG_OWNER).words(PAR_HASHAGG_WORDS)
+    Pipeline::eligible(0, End::Breaker(par_hashagg::breaker(groups)), rows)
+        .owner(PAR_HASHAGG_OWNER)
+        .words(PAR_HASHAGG_WORDS)
 }
 
 pub fn par_hashagg_with(rel: u32, out_rows: u32, rows: u64) -> Program {
     let st = stage();
     let a = st.handle();
     let sites = [SiteDesc::range_source(a, rel, &[1, 2])];
-    let out = [int4("k", rel, 1), OutCol::new("sum", INT8, -1, 8, true), OutCol::new("count", INT8, -1, 8, true)];
-    let pipes = [
-        (par_hashagg_pipeline(0, rows), Code::hand(par_hashagg::par_hashagg)),
-        (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), Code::hand(par_hashagg::par_hashagg_emit)),
+    let out = [
+        int4("k", rel, 1),
+        OutCol::new("sum", INT8, -1, 8, true),
+        OutCol::new("count", INT8, -1, 8, true),
     ];
-    Program::with_pipelines(layout(1, 3, out_rows, 0), &sites, &out, WritePlan::SELECT, pipes)
+    let pipes = [
+        (
+            par_hashagg_pipeline(0, rows),
+            Code::hand(par_hashagg::par_hashagg),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            Code::hand(par_hashagg::par_hashagg_emit),
+        ),
+    ];
+    Program::with_pipelines(
+        layout(1, 3, out_rows, 0),
+        &sites,
+        &out,
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
 pub fn par_hashagg(rel: u32) -> Program {
@@ -138,12 +191,34 @@ pub fn par_hashagg_codes_with(rel: u32, out_rows: u32, rows: u64) -> Program {
     let st = stage();
     let a = st.handle();
     let sites = [SiteDesc::range_source(a, rel, &[1]).codes_lane(0)];
-    let out = [OutCol::new("t", 25, -1, -1, false).origin(rel, 1), OutCol::new("count", INT8, -1, 8, true)];
-    let pipes = [
-        (Pipeline::eligible(0, End::Breaker(Breaker::sized(BreakerKind::HashAgg, par_hashagg_codes::BYTES)), rows), Code::hand(par_hashagg_codes::par_hashagg_codes)),
-        (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), Code::hand(par_hashagg_codes::par_hashagg_codes_emit)),
+    let out = [
+        OutCol::new("t", 25, -1, -1, false).origin(rel, 1),
+        OutCol::new("count", INT8, -1, 8, true),
     ];
-    Program::with_pipelines(layout(1, 2, out_rows, 0), &sites, &out, WritePlan::SELECT, pipes)
+    let pipes = [
+        (
+            Pipeline::eligible(
+                0,
+                End::Breaker(Breaker::sized(
+                    BreakerKind::HashAgg,
+                    par_hashagg_codes::BYTES,
+                )),
+                rows,
+            ),
+            Code::hand(par_hashagg_codes::par_hashagg_codes),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            Code::hand(par_hashagg_codes::par_hashagg_codes_emit),
+        ),
+    ];
+    Program::with_pipelines(
+        layout(1, 2, out_rows, 0),
+        &sites,
+        &out,
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
 pub fn par_hashagg_codes(rel: u32) -> Program {
@@ -158,22 +233,57 @@ pub fn par_topk_with(rel: u32, n: u32, out_rows: u32, rows: u64) -> Program {
     let sites = [SiteDesc::range_source(a, rel, &[1, 2])];
     let out = [int4("a", rel, 1), int4("b", rel, 2)];
     let pipes = [
-        (Pipeline::eligible(0, End::Breaker(Breaker::sized(BreakerKind::TopK, par_topk::bytes(n, 2))), rows), Code::hand(par_topk::par_topk)),
-        (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), Code::hand(par_topk::par_topk_emit)),
+        (
+            Pipeline::eligible(
+                0,
+                End::Breaker(Breaker::sized(BreakerKind::TopK, par_topk::bytes(n, 2))),
+                rows,
+            ),
+            Code::hand(par_topk::par_topk),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            Code::hand(par_topk::par_topk_emit),
+        ),
     ];
-    Program::with_pipelines(layout(1, 2, out_rows, 0), &sites, &out, WritePlan::SELECT, pipes)
+    Program::with_pipelines(
+        layout(1, 2, out_rows, 0),
+        &sites,
+        &out,
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
 pub fn par_topk(rel: u32, n: u32) -> Program {
     par_topk_with(rel, n, OUT_ROWS, 0)
 }
 
-pub fn par_hashjoin_with(inner: u32, outer: u32, out_rows: u32, inner_rows: u64, outer_rows: u64) -> Program {
+pub fn par_hashjoin_with(
+    inner: u32,
+    outer: u32,
+    out_rows: u32,
+    inner_rows: u64,
+    outer_rows: u64,
+) -> Program {
     let st = stage();
     let a = st.handle();
-    let sites = [SiteDesc::range_source(a, inner, &[1, 2]), SiteDesc::range_source(a, outer, &[1, 2])];
-    let out = [int4("k", outer, 1), int4("a", inner, 2), int4("b", outer, 2)];
-    Program::with_pipelines(layout(2, 3, out_rows, 0), &sites, &out, WritePlan::SELECT, hashjoin_pipelines(inner_rows, outer_rows, inner_rows))
+    let sites = [
+        SiteDesc::range_source(a, inner, &[1, 2]),
+        SiteDesc::range_source(a, outer, &[1, 2]),
+    ];
+    let out = [
+        int4("k", outer, 1),
+        int4("a", inner, 2),
+        int4("b", outer, 2),
+    ];
+    Program::with_pipelines(
+        layout(2, 3, out_rows, 0),
+        &sites,
+        &out,
+        WritePlan::SELECT,
+        hashjoin_pipelines(inner_rows, outer_rows, inner_rows),
+    )
 }
 
 pub fn par_hashjoin(inner: u32, outer: u32) -> Program {
@@ -181,12 +291,32 @@ pub fn par_hashjoin(inner: u32, outer: u32) -> Program {
 }
 
 /// The join with its spill partition bits given (the kernel words must say the same: `par_hashjoin::params`).
-pub fn par_hashjoin_bits(inner: u32, outer: u32, out_rows: u32, inner_rows: u64, outer_rows: u64, bits: u8) -> Program {
+pub fn par_hashjoin_bits(
+    inner: u32,
+    outer: u32,
+    out_rows: u32,
+    inner_rows: u64,
+    outer_rows: u64,
+    bits: u8,
+) -> Program {
     let st = stage();
     let a = st.handle();
-    let sites = [SiteDesc::range_source(a, inner, &[1, 2]), SiteDesc::range_source(a, outer, &[1, 2])];
-    let out = [int4("k", outer, 1), int4("a", inner, 2), int4("b", outer, 2)];
-    Program::with_pipelines(layout(2, 3, out_rows, 0), &sites, &out, WritePlan::SELECT, hashjoin_pipelines_bits(inner_rows, outer_rows, bits))
+    let sites = [
+        SiteDesc::range_source(a, inner, &[1, 2]),
+        SiteDesc::range_source(a, outer, &[1, 2]),
+    ];
+    let out = [
+        int4("k", outer, 1),
+        int4("a", inner, 2),
+        int4("b", outer, 2),
+    ];
+    Program::with_pipelines(
+        layout(2, 3, out_rows, 0),
+        &sites,
+        &out,
+        WritePlan::SELECT,
+        hashjoin_pipelines_bits(inner_rows, outer_rows, bits),
+    )
 }
 
 /// `SELECT cols FROM t ORDER BY cols[0]` over `natts` int lanes (the sort breaker; params `par_sort::params`).
@@ -194,12 +324,28 @@ pub fn par_sort_with(rel: u32, out_rows: u32, rows: u64, attnos: &[i16]) -> Prog
     let st = stage();
     let a = st.handle();
     let sites = [SiteDesc::range_source(a, rel, attnos)];
-    let out: Vec<OutCol> = attnos.iter().enumerate().map(|(i, &a)| int4(["a", "b", "c", "d", "e", "f", "g", "h"][i.min(7)], rel, a)).collect(); // alloc: Program
+    let out: Vec<OutCol> = attnos
+        .iter()
+        .enumerate()
+        .map(|(i, &a)| int4(["a", "b", "c", "d", "e", "f", "g", "h"][i.min(7)], rel, a))
+        .collect(); // alloc: Program
     let pipes = [
-        (Pipeline::eligible(0, End::Breaker(par_sort::BREAKER), rows).finishing(), Code::hand(par_sort::par_sort)),
-        (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), Code::hand(par_sort::par_sort_emit)),
+        (
+            Pipeline::eligible(0, End::Breaker(par_sort::BREAKER), rows).finishing(),
+            Code::hand(par_sort::par_sort),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            Code::hand(par_sort::par_sort_emit),
+        ),
     ];
-    Program::with_pipelines(layout(1, attnos.len(), out_rows, 0), &sites, &out, WritePlan::SELECT, pipes)
+    Program::with_pipelines(
+        layout(1, attnos.len(), out_rows, 0),
+        &sites,
+        &out,
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
 /// `SELECT k, count(DISTINCT x) FROM t GROUP BY k` over two int lanes (the distinct breaker; params `par_distinct::params`).
@@ -209,26 +355,57 @@ pub fn par_distinct_with(rel: u32, out_rows: u32, rows: u64, pairs: u64) -> Prog
     let sites = [SiteDesc::range_source(a, rel, &[1, 2])];
     let out = [int4("k", rel, 1), OutCol::new("count", INT8, -1, 8, true)];
     let pipes = [
-        (Pipeline::eligible(0, End::Breaker(par_distinct::breaker(pairs)), rows), Code::hand(par_distinct::par_distinct)),
-        (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), Code::hand(par_distinct::par_distinct_emit)),
+        (
+            Pipeline::eligible(0, End::Breaker(par_distinct::breaker(pairs)), rows),
+            Code::hand(par_distinct::par_distinct),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            Code::hand(par_distinct::par_distinct_emit),
+        ),
     ];
-    Program::with_pipelines(layout(1, 2, out_rows, 0), &sites, &out, WritePlan::SELECT, pipes)
+    Program::with_pipelines(
+        layout(1, 2, out_rows, 0),
+        &sites,
+        &out,
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
 /// The join's pipelines: build over the inner, probe over the outer (consuming the build; it
 /// produces the outer rows only when the build spilled), then the spilled partitions one claim each (reading both
 /// spilled streams, so the partition pipe consumes both slots).
-pub fn hashjoin_pipelines(inner_rows: u64, outer_rows: u64, build_rows: u64) -> [(Pipeline, Code); 3] {
+pub fn hashjoin_pipelines(
+    inner_rows: u64,
+    outer_rows: u64,
+    build_rows: u64,
+) -> [(Pipeline, Code); 3] {
     hashjoin_pipelines_bits(inner_rows, outer_rows, par_hashjoin::spill_bits(build_rows))
 }
 
 /// `hashjoin_pipelines` with the partition bits given (the tests' small shares).
-pub fn hashjoin_pipelines_bits(inner_rows: u64, outer_rows: u64, bits: u8) -> [(Pipeline, Code); 3] {
+pub fn hashjoin_pipelines_bits(
+    inner_rows: u64,
+    outer_rows: u64,
+    bits: u8,
+) -> [(Pipeline, Code); 3] {
     use par_hashjoin::{INNER, OUTER, SLOT_BUILD, SLOT_OUTER};
     let [b, o, p] = par_hashjoin::breakers_bits(bits);
     [
-        (Pipeline::eligible(INNER as i16, End::Breaker(b), inner_rows).words(PAR_HASHJOIN_WORDS), Code::hand(par_hashjoin::par_hashjoin_build)),
-        (Pipeline::eligible(OUTER as i16, End::Breaker(o), outer_rows).consuming(&[SLOT_BUILD]), Code::hand(par_hashjoin::par_hashjoin_probe)),
-        (Pipeline::eligible(OUTER as i16, End::Breaker(p), 0).consuming(&[SLOT_BUILD, SLOT_OUTER]).over_spill_partitions(SLOT_BUILD), Code::hand(par_hashjoin::par_hashjoin_part)),
+        (
+            Pipeline::eligible(INNER as i16, End::Breaker(b), inner_rows).words(PAR_HASHJOIN_WORDS),
+            Code::hand(par_hashjoin::par_hashjoin_build),
+        ),
+        (
+            Pipeline::eligible(OUTER as i16, End::Breaker(o), outer_rows).consuming(&[SLOT_BUILD]),
+            Code::hand(par_hashjoin::par_hashjoin_probe),
+        ),
+        (
+            Pipeline::eligible(OUTER as i16, End::Breaker(p), 0)
+                .consuming(&[SLOT_BUILD, SLOT_OUTER])
+                .over_spill_partitions(SLOT_BUILD),
+            Code::hand(par_hashjoin::par_hashjoin_part),
+        ),
     ]
 }

@@ -26,9 +26,9 @@ use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{Block, ConvOp, IntBinOp, IntCond, IntUnOp, StackSlot, Type, Value};
 use mcx::{CollectIn, GrowIn, PgVec};
 
+use crate::cell::Row;
 use crate::frame::env::Env;
 use crate::frame::frame::{Mechs, Win};
-use crate::cell::Row;
 use crate::frame::row::{Carry, RowVals};
 
 crate::strategies! {
@@ -36,7 +36,10 @@ crate::strategies! {
     MASK_ROWS = 164, "mask.rows", ScanFilter; // a3-strategy-bits.tsv row 164 (after win.partfill 163)
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(MASK_ROWS, &())], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(MASK_ROWS, &())],
+    ..crate::ops::NONE
+};
 
 /// The counters (`Stats::off`): decayed passing rows, decayed flips, windows picked, decayed rows read.
 const PASS: usize = 0;
@@ -73,7 +76,12 @@ const DECAY: i64 = 3;
 /// off the text in place (nothing allocated).
 fn costs() -> (i64, i64, i64) {
     let knob = gravity_driver::env::text("PGRUST_GRAVITY_MASK_ROWS_COSTS").and_then(|t| {
-        let mut v = t.split(',').map(|x| x.trim().parse::<i64>().ok().filter(|x| (0..=1000).contains(x)));
+        let mut v = t.split(',').map(|x| {
+            x.trim()
+                .parse::<i64>()
+                .ok()
+                .filter(|x| (0..=1000).contains(x))
+        });
         match (v.next(), v.next(), v.next(), v.next()) {
             (Some(Some(f)), Some(Some(r)), Some(Some(p)), None) => Some((f, r, p)),
             _ => None,
@@ -93,7 +101,11 @@ pub(crate) fn pick(b: &mut FunctionBuilder<'_>, env: &Env, stats: Stats) -> Valu
     let probe = b.icmp(IntCond::Eq, phase, env.zero);
     let (pass, flip, rows) = (stats.get(b, PASS), stats.get(b, FLIP), stats.get(b, NROWS));
     let (cf, cr, cp) = costs();
-    let (cf, cr, cp) = (b.iconst(Type::I64, cf), b.iconst(Type::I64, cr), b.iconst(Type::I64, cp));
+    let (cf, cr, cp) = (
+        b.iconst(Type::I64, cf),
+        b.iconst(Type::I64, cr),
+        b.iconst(Type::I64, cp),
+    );
     let gain = b.int_bin(IntBinOp::Mul, flip, cf);
     let row_cost = b.int_bin(IntBinOp::Mul, rows, cr);
     let pass_cost = b.int_bin(IntBinOp::Mul, pass, cp);
@@ -104,7 +116,14 @@ pub(crate) fn pick(b: &mut FunctionBuilder<'_>, env: &Env, stats: Stats) -> Valu
 
 /// The mask's row walk: row `i` through the chain with the span's tests skipped (`skip`: steps 1.. of the span), over its
 /// kept row (`Keep`) where the source kept it, else made again.
-pub(crate) type SpanWalk<'a, 'e> = &'a mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env<'e, '_>, Value, Carry<'e>, u64, Option<&RowVals<'e>>) -> Carry<'e>;
+pub(crate) type SpanWalk<'a, 'e> = &'a mut dyn FnMut(
+    &mut FunctionBuilder<'_>,
+    &mut Env<'e, '_>,
+    Value,
+    Carry<'e>,
+    u64,
+    Option<&RowVals<'e>>,
+) -> Carry<'e>;
 
 /// A word of a kept row: its index among the row's kept words (a `Bool` kept widened), or a constant made again.
 #[derive(Clone, Copy)]
@@ -126,8 +145,19 @@ struct Keep<'e> {
 
 impl<'e> Keep<'e> {
     /// Row `t`'s `row` and resume value `at` stored; `None` (the walk makes its rows again) for a vector or over 32 words.
-    fn of(b: &mut FunctionBuilder<'_>, env: &Env<'e, '_>, row: &RowVals<'_>, at: Option<Value>, t: Value) -> Option<Keep<'e>> {
-        let flat: PgVec<'_, Value> = row.vals.iter().flat_map(|&(v, n)| core::iter::once(v).chain(n)).chain(at).collect_in(env.mcx);
+    fn of(
+        b: &mut FunctionBuilder<'_>,
+        env: &Env<'e, '_>,
+        row: &RowVals<'_>,
+        at: Option<Value>,
+        t: Value,
+    ) -> Option<Keep<'e>> {
+        let flat: PgVec<'_, Value> = row
+            .vals
+            .iter()
+            .flat_map(|&(v, n)| core::iter::once(v).chain(n))
+            .chain(at)
+            .collect_in(env.mcx);
         let (mut kept, mut words) = (0, PgVec::new_in(env.mcx));
         for &v in flat.iter() {
             let ty = b.value_type(v);
@@ -146,14 +176,27 @@ impl<'e> Keep<'e> {
         let (base, row_at) = Self::at(b, slot, t, kept);
         for (&v, w) in flat.iter().zip(words.iter()) {
             if let Word::At(k, ty) = *w {
-                let v = if ty == Type::Bool { b.conv(ConvOp::Zext, Type::I64, v) } else { v };
+                let v = if ty == Type::Bool {
+                    b.conv(ConvOp::Zext, Type::I64, v)
+                } else {
+                    v
+                };
                 let p = b.ptr_add(base, row_at, 8, k * 8);
                 b.store(p, 0, v);
             }
         }
         let nulls = row.vals.iter().map(|v| v.1.is_some()).collect_in(env.mcx);
-        let cells = Row { cells: mcx::to_vec_in(&row.row.cells[..], env.mcx) };
-        Some(Keep { slot, kept: kept as i64, words, nulls, cells, cols: mcx::to_vec_in(&row.cols[..], env.mcx) })
+        let cells = Row {
+            cells: mcx::to_vec_in(&row.row.cells[..], env.mcx),
+        };
+        Some(Keep {
+            slot,
+            kept: kept as i64,
+            words,
+            nulls,
+            cells,
+            cols: mcx::to_vec_in(&row.cols[..], env.mcx),
+        })
     }
 
     /// The slot's address and row `t`'s first word's index.
@@ -164,7 +207,14 @@ impl<'e> Keep<'e> {
     }
 
     /// Row `t`'s kept row as row `i` of the window (its carry `carry`), and its resume value.
-    fn read(&self, b: &mut FunctionBuilder<'_>, env: &Env<'e, '_>, t: Value, i: Value, carry: Carry<'e>) -> (RowVals<'e>, Option<Value>) {
+    fn read(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &Env<'e, '_>,
+        t: Value,
+        i: Value,
+        carry: Carry<'e>,
+    ) -> (RowVals<'e>, Option<Value>) {
         let (base, row_at) = Self::at(b, self.slot, t, self.kept as i32);
         let mut read = |w: Word| match w {
             Word::K(ty, bits) => b.const_raw(ty, bits),
@@ -187,8 +237,20 @@ impl<'e> Keep<'e> {
         }
         let resume = words.next();
         let next = b.int_bin(IntBinOp::Add, i, env.one);
-        let cells = Row { cells: mcx::to_vec_in(&self.cells.cells[..], env.mcx) };
-        (RowVals { row: cells, vals, cols: mcx::to_vec_in(&self.cols[..], env.mcx), carry, next, at: i }, resume)
+        let cells = Row {
+            cells: mcx::to_vec_in(&self.cells.cells[..], env.mcx),
+        };
+        (
+            RowVals {
+                row: cells,
+                vals,
+                cols: mcx::to_vec_in(&self.cols[..], env.mcx),
+                carry,
+                next,
+                at: i,
+            },
+            resume,
+        )
     }
 }
 
@@ -197,13 +259,29 @@ impl<'e> Keep<'e> {
 /// `n = min(64, end - j)` rows: each row's bit from the span's `row_pass` over its early cells (`SourceMech::row_early`
 /// where the source decodes late), the counters, then the passing rows through `walk` (the chain, the span's tests
 /// skipped); a raising row's block hands the window to `l_gen` at that row after the rows before it walked.
-pub(crate) fn body<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, m: &Mechs<'_>, win: &Win, stats: Stats, (l_in, l_wend, l_gen): (Block, Block, Block), walk: SpanWalk<'_, 'e>) {
+pub(crate) fn body<'e>(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env<'e, '_>,
+    m: &Mechs<'_>,
+    win: &Win,
+    stats: Stats,
+    (l_in, l_wend, l_gen): (Block, Block, Block),
+    walk: SpanWalk<'_, 'e>,
+) {
     fires::fire("mask.rows"); // shapecheck fire signal (brfix): a window may run the first filter's row-made mask
-    // the span: step 0 and each next leading filter op whose test joins the mask (at most 63 steps: skip bits 1..)
-    let span = 1 + m.steps[1..].iter().take(62).take_while(|s| s.row_maskable()).count();
+                              // the span: step 0 and each next leading filter op whose test joins the mask (at most 63 steps: skip bits 1..)
+    let span = 1 + m.steps[1..]
+        .iter()
+        .take(62)
+        .take_while(|s| s.row_maskable())
+        .count();
     let skip = ((1u64 << span) - 1) & !1;
     b.switch_to(l_in);
-    let types: PgVec<'_, Type> = b.block_params(l_in).iter().map(|&v| b.value_type(v)).collect_in(env.mcx);
+    let types: PgVec<'_, Type> = b
+        .block_params(l_in)
+        .iter()
+        .map(|&v| b.value_type(v))
+        .collect_in(env.mcx);
     let p = mcx::to_vec_in(b.block_params(l_in), env.mcx);
     let l_blk = b.create_block(&types);
     b.br(l_blk, &p);
@@ -220,7 +298,10 @@ pub(crate) fn body<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, m: &M
     let left = b.int_bin(IntBinOp::Sub, win.end, j);
     let n = b.int_bin(IntBinOp::Umin, left, sixty_four);
     // the bits `l_bit(t, mask, errs)`: row j + t's pass bit and raise bit at t
-    let (l_bit, l_done) = (b.create_block(&[Type::I64; 3]), b.create_block(&[Type::I64; 2]));
+    let (l_bit, l_done) = (
+        b.create_block(&[Type::I64; 3]),
+        b.create_block(&[Type::I64; 2]),
+    );
     b.br(l_bit, &[env.zero, env.zero, env.zero]);
     b.mark_loop_header(l_bit);
     env.bounded.push_in(l_bit);
@@ -247,12 +328,20 @@ pub(crate) fn body<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, m: &M
         false => m.source.row(b, env, win, i, carry, next),
     };
     // the row kept for its walk where the source keeps it (else the walk makes it again)
-    let keep = m.source.keep_row(early).and_then(|at| Keep::of(b, env, &row, at, t));
+    let keep = m
+        .source
+        .keep_row(early)
+        .and_then(|at| Keep::of(b, env, &row, at, t));
     let (mut pass, mut err) = (None, None);
     for (k, s) in m.steps[..span].iter().enumerate() {
         env.step = Some(k);
         let Some((p, e)) = s.row_pass(b, env, &row) else {
-            crate::refuse!(env.node, crate::admit::refusal::Reason::Bug { payload: "a mask.rows step without its row test" })
+            crate::refuse!(
+                env.node,
+                crate::admit::refusal::Reason::Bug {
+                    payload: "a mask.rows step without its row test"
+                }
+            )
         };
         pass = Some(pass.map_or(p, |a| b.int_bin(IntBinOp::And, a, p)));
         if b.const_of(e).is_none_or(|(_, c)| c != 0) {
@@ -260,7 +349,14 @@ pub(crate) fn body<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, m: &M
         }
     }
     env.step = None;
-    let Some(pass) = pass else { crate::refuse!(env.node, crate::admit::refusal::Reason::Bug { payload: "a mask.rows span without a step" }) };
+    let Some(pass) = pass else {
+        crate::refuse!(
+            env.node,
+            crate::admit::refusal::Reason::Bug {
+                payload: "a mask.rows span without a step"
+            }
+        )
+    };
     env.memo.clear();
     env.escape = saved;
     let at = |b: &mut FunctionBuilder<'_>, v: Value| {
@@ -300,8 +396,14 @@ pub(crate) fn body<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, m: &M
     let stop = b.select(any, te, n);
     count(b, env, stats, mask, n);
     // the walk `l_w(bits, carry…)`, then the next block or (a raising row) the general body from it
-    let wt: PgVec<'_, Type> = core::iter::once(Type::I64).chain(types[1..].iter().copied()).collect_in(env.mcx);
-    let (l_w, l_one, l_after) = (b.create_block(&wt), b.create_block(&[]), b.create_block(&types[1..]));
+    let wt: PgVec<'_, Type> = core::iter::once(Type::I64)
+        .chain(types[1..].iter().copied())
+        .collect_in(env.mcx);
+    let (l_w, l_one, l_after) = (
+        b.create_block(&wt),
+        b.create_block(&[]),
+        b.create_block(&types[1..]),
+    );
     let mut first = mcx::pg_vec![in env.mcx; mask];
     first.extend_from_slice_in(&p[1..]);
     b.br(l_w, &first);
@@ -332,9 +434,16 @@ pub(crate) fn body<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, m: &M
     b.br(l_w, &back);
     b.switch_to(l_after);
     let c = mcx::to_vec_in(b.block_params(l_after), env.mcx);
-    let (jn, js) = (b.int_bin(IntBinOp::Add, j, n), b.int_bin(IntBinOp::Add, j, stop));
-    let on: PgVec<'_, Value> = core::iter::once(jn).chain(c.iter().copied()).collect_in(env.mcx);
-    let gen: PgVec<'_, Value> = core::iter::once(js).chain(c.iter().copied()).collect_in(env.mcx);
+    let (jn, js) = (
+        b.int_bin(IntBinOp::Add, j, n),
+        b.int_bin(IntBinOp::Add, j, stop),
+    );
+    let on: PgVec<'_, Value> = core::iter::once(jn)
+        .chain(c.iter().copied())
+        .collect_in(env.mcx);
+    let gen: PgVec<'_, Value> = core::iter::once(js)
+        .chain(c.iter().copied())
+        .collect_in(env.mcx);
     b.cond_br(any, (l_gen, &gen), (l_blk, &on));
 }
 

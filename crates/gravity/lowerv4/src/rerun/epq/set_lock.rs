@@ -31,30 +31,60 @@ use crate::graph::Gx;
 pub(crate) fn form(gx: &Gx<'_, '_>, k: usize, j: usize) -> Option<LockSite> {
     let ps = gx.pipelines();
     let p = ps.get(k).filter(|_| k < ps.len())?;
-    let Some(Op::Lock(d)) = p.ops.get(j) else { return None };
+    let Some(Op::Lock(d)) = p.ops.get(j) else {
+        return None;
+    };
     let b = p.ops.len().checked_sub(1)?;
-    let Some(Op::SubPlan(bd)) = p.ops.get(b) else { return None };
+    let Some(Op::SubPlan(bd)) = p.ops.get(b) else {
+        return None;
+    };
     let slot = p.desc.produces()?;
-    if !matches!(bd.form, SubForm::Build) || !p.desc.consumes.is_empty() || crate::lifetime::subplan::rebuilt(gx, k) {
+    if !matches!(bd.form, SubForm::Build)
+        || !p.desc.consumes.is_empty()
+        || crate::lifetime::subplan::rebuilt(gx, k)
+    {
         return None;
     }
-    let (Some(m), None) = (d.marks.first(), d.marks.get(1)) else { return None };
-    if d.family().is_some() || m.lock == LockKind::None || m.parent || m.ctid_col <= 0 || m.relid != d.plan.target_rel || !own_scan(p, m.rti, m.relid) {
+    let (Some(m), None) = (d.marks.first(), d.marks.get(1)) else {
+        return None;
+    };
+    if d.family().is_some()
+        || m.lock == LockKind::None
+        || m.parent
+        || m.ctid_col <= 0
+        || m.relid != d.plan.target_rel
+        || !own_scan(p, m.rti, m.relid)
+    {
         return None;
     }
     let plain = |o: &Op<'_>| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_));
-    if !p.ops[..j].iter().all(plain) || !p.ops[j + 1..b].iter().all(|o| matches!(o, Op::Project(_))) {
+    if !p.ops[..j].iter().all(plain) || !p.ops[j + 1..b].iter().all(|o| matches!(o, Op::Project(_)))
+    {
         return None;
     }
     // the scan's projection, last below the lock, carries the mark's junk ctid
-    let Some(Op::Project(l)) = p.ops[..j].last() else { return None };
-    let ctid = l.iter().filter_map(|x| x.as_target_entry()).any(|te| te.resno == m.ctid_col && te.expr.as_var().is_some_and(|v| v.varattno == -1 && v.varlevelsup == 0 && i64::from(v.varno) == i64::from(m.rti)));
+    let Some(Op::Project(l)) = p.ops[..j].last() else {
+        return None;
+    };
+    let ctid = l.iter().filter_map(|x| x.as_target_entry()).any(|te| {
+        te.resno == m.ctid_col
+            && te.expr.as_var().is_some_and(|v| {
+                v.varattno == -1 && v.varlevelsup == 0 && i64::from(v.varno) == i64::from(m.rti)
+            })
+    });
     // one hashed probe of the set, in the claim's part (`claim_part`), beside the statement's UPDATE / DELETE
     let mut probes = ps.iter().enumerate().flat_map(|(q, x)| x.ops.iter().enumerate().filter(move |(_, o)| matches!(o, Op::SubPlan(s) if matches!(s.form, SubForm::Hashed { slot: t } if t == slot))).map(move |(i, _)| (q, i)));
-    let (Some((q, i)), None) = (probes.next(), probes.next()) else { return None };
+    let (Some((q, i)), None) = (probes.next(), probes.next()) else {
+        return None;
+    };
     let part = claim_part(gx)?;
     let write = ps.iter().any(|x| x.ops.iter().any(|o| matches!(o, Op::Write(w) if matches!(w.cmd, gravity_program::Cmd::Update | gravity_program::Cmd::Delete))));
-    (ctid && write && q != k && part.iter().any(|&(c, jc)| q == c && i < jc)).then_some(LockSite { rti: m.rti, relid: m.relid, lock: m.lock, wait: m.wait })
+    (ctid && write && q != k && part.iter().any(|&(c, jc)| q == c && i < jc)).then_some(LockSite {
+        rti: m.rti,
+        relid: m.relid,
+        lock: m.lock,
+        wait: m.wait,
+    })
 }
 
 /// The ops a recheck of the statement's other lock (`claim`) redoes: its pipeline's ops below it, and when that
@@ -76,18 +106,30 @@ fn claim_part<'g>(gx: &Gx<'g, '_>) -> Option<PgVec<'g, (usize, usize)>> {
 
 /// The hashed probes of the `form` locks' sets among pipeline `q`'s ops before `jq` (a claim's Sort producer), each
 /// made again for its lock's EvalPlanQual redo (subplan hashed.rs `redo_probe`), by SubPlan id.
-pub(crate) fn redo_probes<'g>(px: &mut crate::frame::px::Px<'g, '_>, q: usize, jq: usize, node: i32) -> PgVec<'g, (i32, mcx::PgBox<'g, dyn crate::face::step::StepMech + 'g>)> {
+pub(crate) fn redo_probes<'g>(
+    px: &mut crate::frame::px::Px<'g, '_>,
+    q: usize,
+    jq: usize,
+    node: i32,
+) -> PgVec<'g, (i32, mcx::PgBox<'g, dyn crate::face::step::StepMech + 'g>)> {
     let gx = px.gx;
     let mcx = px.mcx();
     let sets = set_slots(gx);
-    let at: PgVec<'_, usize> = (0..jq).filter(|&i| set_probe(&gx.pipelines()[q].ops[i], &sets)).collect_in(gx.mcx);
-    at.into_iter().map(|i| crate::ops::subplan::hashed::redo_probe(px, q, i, node)).collect_in(mcx)
+    let at: PgVec<'_, usize> = (0..jq)
+        .filter(|&i| set_probe(&gx.pipelines()[q].ops[i], &sets))
+        .collect_in(gx.mcx);
+    at.into_iter()
+        .map(|i| crate::ops::subplan::hashed::redo_probe(px, q, i, node))
+        .collect_in(mcx)
 }
 
 /// The slots the `form` locks' sets are built into.
 pub(crate) fn set_slots<'g>(gx: &Gx<'g, '_>) -> PgVec<'g, u8> {
     let ps = gx.pipelines();
-    locks(gx).iter().filter_map(|x| ps[x.0].desc.produces()).collect_in(gx.mcx)
+    locks(gx)
+        .iter()
+        .filter_map(|x| ps[x.0].desc.produces())
+        .collect_in(gx.mcx)
 }
 
 /// Op `o` is a hashed SubPlan probe of a `form` lock's set (slots `sets`, `set_slots`).
@@ -99,10 +141,22 @@ pub(crate) fn set_probe(o: &Op<'_>, sets: &[u8]) -> bool {
 /// holds, else none.
 pub(crate) fn claim(gx: &Gx<'_, '_>) -> Option<(usize, usize)> {
     let ps = gx.pipelines();
-    let at = |q: usize| ps[q].ops.iter().enumerate().filter(|(_, o)| matches!(o, Op::Lock(_))).map(move |(i, _)| (q, i));
+    let at = |q: usize| {
+        ps[q]
+            .ops
+            .iter()
+            .enumerate()
+            .filter(|(_, o)| matches!(o, Op::Lock(_)))
+            .map(move |(i, _)| (q, i))
+    };
     let mut locks = (0..ps.len()).filter(|&q| !builds_set(&ps[q])).flat_map(at);
-    let (Some(c), None) = (locks.next(), locks.next()) else { return None };
-    ps.inners().iter().all(|x| !x.1.ops.iter().any(|o| matches!(o, Op::Lock(_)))).then_some(c)
+    let (Some(c), None) = (locks.next(), locks.next()) else {
+        return None;
+    };
+    ps.inners()
+        .iter()
+        .all(|x| !x.1.ops.iter().any(|o| matches!(o, Op::Lock(_))))
+        .then_some(c)
 }
 
 /// Pipeline `p` ends in a hashed SubPlan's set build.
@@ -129,7 +183,10 @@ pub(crate) fn locks<'g>(gx: &Gx<'g, '_>) -> PgVec<'g, (usize, usize, LockSite)> 
 /// The `Program.locks` mark (1-based) of the `form` lock at op `j` of pipeline `k`: after the claim's entries
 /// (`claims`).
 pub(crate) fn mark(gx: &Gx<'_, '_>, k: usize, j: usize, claims: usize) -> Option<usize> {
-    locks(gx).iter().position(|x| x.0 == k && x.1 == j).map(|i| claims + i + 1)
+    locks(gx)
+        .iter()
+        .position(|x| x.0 == k && x.1 == j)
+        .map(|i| claims + i + 1)
 }
 
 /// The set build pipeline `kb` holds a `form` lock: its probes' recheck reads a set of its own (`twin`).
@@ -156,7 +213,25 @@ pub(crate) fn write_twin(gx: &Gx<'_, '_>, k: usize, kb: usize) -> bool {
 /// ONLY).
 fn own_scan(p: &PipelineNode<'_>, rti: u32, relid: u32) -> bool {
     match &p.source {
-        Source::Range { am: Am::Heap, scanrelid, relid: r, .. } | Source::Bitmap { am: Am::Heap, scanrelid, relid: r, .. } | Source::Index { am: Am::Heap, scanrelid, relid: r, only: false, .. } => u32::from(*scanrelid) == rti && *r == relid,
+        Source::Range {
+            am: Am::Heap,
+            scanrelid,
+            relid: r,
+            ..
+        }
+        | Source::Bitmap {
+            am: Am::Heap,
+            scanrelid,
+            relid: r,
+            ..
+        }
+        | Source::Index {
+            am: Am::Heap,
+            scanrelid,
+            relid: r,
+            only: false,
+            ..
+        } => u32::from(*scanrelid) == rti && *r == relid,
         _ => false,
     }
 }
@@ -166,6 +241,9 @@ fn own_scan(p: &PipelineNode<'_>, rti: u32, relid: u32) -> bool {
 /// sets of its own (`twin`), as the LockRows' fresh EvalPlanQual estate builds them.
 pub(crate) fn probes_sets(gx: &Gx<'_, '_>, k: usize, j: usize) -> bool {
     let sets = set_slots(gx);
-    let mut subs = gx.pipelines()[k].ops[..j].iter().filter(|o| matches!(o, Op::SubPlan(_))).peekable();
+    let mut subs = gx.pipelines()[k].ops[..j]
+        .iter()
+        .filter(|o| matches!(o, Op::SubPlan(_)))
+        .peekable();
     subs.peek().is_some() && subs.all(|o| set_probe(o, &sets))
 }

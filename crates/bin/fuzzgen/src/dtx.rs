@@ -50,12 +50,7 @@ const ZONES: &[&str] = &[
 
 /// Interval offset arguments for the interval-form timezone()/typmod paths.
 const OFFSETS: &[&str] = &[
-    "'+05:30'",
-    "'-08:00'",
-    "'+00:00'",
-    "'+14:00'",
-    "'-12:00'",
-    "'+05:45'",
+    "'+05:30'", "'-08:00'", "'+00:00'", "'+14:00'", "'-12:00'", "'+05:45'",
 ];
 
 /// Curated (start, end, step) triples for generate_series over timestamp.
@@ -64,22 +59,46 @@ const OFFSETS: &[&str] = &[
 /// microsecond and day steps.
 const GS_TS: &[(&str, &str, &str)] = &[
     ("'2000-01-01 00:00'", "'2000-01-02 00:00'", "'2 hours'"),
-    ("'1999-12-31 23:00'", "'2000-01-01 01:00:00.5'", "'15 minutes'"),
+    (
+        "'1999-12-31 23:00'",
+        "'2000-01-01 01:00:00.5'",
+        "'15 minutes'",
+    ),
     ("'2021-03-14 00:00'", "'2021-03-14 06:00'", "'30 minutes'"),
     ("'2024-01-31'", "'2024-06-30'", "'1 month'"),
     ("'2000-01-01'", "'2000-01-08'", "'1 day'"),
     ("'0002-01-01 BC'", "'0002-01-01'", "'1 year'"),
-    ("'2000-01-01 00:00:00'", "'2000-01-01 00:00:00.00001'", "'0.000002 seconds'"),
+    (
+        "'2000-01-01 00:00:00'",
+        "'2000-01-01 00:00:00.00001'",
+        "'0.000002 seconds'",
+    ),
     ("'294276-12-30'", "'294276-12-31'", "'6 hours'"),
 ];
 
 /// Curated (start, end, step) triples for generate_series over
 /// timestamptz. Offsets are explicit; TimeZone is pinned UTC.
 const GS_TSTZ: &[(&str, &str, &str)] = &[
-    ("'2021-11-06 00:00-04'", "'2021-11-08 00:00-05'", "'6 hours'"),
-    ("'2000-01-01 00:00+00'", "'2000-01-02 00:00+00'", "'3 hours'"),
-    ("'2019-12-31 18:30+05:30'", "'2020-01-01 18:30+05:30'", "'4 hours'"),
-    ("'2000-01-01 00:00+00'", "'2000-04-01 00:00+00'", "'1 month'"),
+    (
+        "'2021-11-06 00:00-04'",
+        "'2021-11-08 00:00-05'",
+        "'6 hours'",
+    ),
+    (
+        "'2000-01-01 00:00+00'",
+        "'2000-01-02 00:00+00'",
+        "'3 hours'",
+    ),
+    (
+        "'2019-12-31 18:30+05:30'",
+        "'2020-01-01 18:30+05:30'",
+        "'4 hours'",
+    ),
+    (
+        "'2000-01-01 00:00+00'",
+        "'2000-04-01 00:00+00'",
+        "'1 month'",
+    ),
 ];
 
 /// generate_series steps that are deliberate error / edge fuel (zero step
@@ -220,14 +239,22 @@ fn gen_gseries(g: &mut Gen) -> String {
     if g.rng.chance(1, 2) {
         // timestamp, 3-arg
         let (a, b, step) = *g.rng.pick(GS_TS);
-        let step = if err_step { *g.rng.pick(GS_STEP_ERR) } else { step };
+        let step = if err_step {
+            *g.rng.pick(GS_STEP_ERR)
+        } else {
+            step
+        };
         format!(
             "SELECT g FROM generate_series(TIMESTAMP {}, TIMESTAMP {}, INTERVAL {}) AS g ORDER BY 1;",
             a, b, step
         )
     } else {
         let (a, b, step) = *g.rng.pick(GS_TSTZ);
-        let step = if err_step { *g.rng.pick(GS_STEP_ERR) } else { step };
+        let step = if err_step {
+            *g.rng.pick(GS_STEP_ERR)
+        } else {
+            step
+        };
         if g.rng.chance(1, 2) {
             // timestamptz, 4-arg zone-bucketing form (PG16+)
             let z = g.rng.pick(ZONES);
@@ -280,7 +307,11 @@ fn gen_typmod(g: &mut Gen) -> String {
                 format!("(TIMESTAMP {})::timestamp({})::text", lit, p)
             } else {
                 // give the tstz form an explicit offset so it is a legal tstz
-                format!("(TIMESTAMPTZ {}+00')::timestamptz({})::text", lit.trim_end_matches('\''), p)
+                format!(
+                    "(TIMESTAMPTZ {}+00')::timestamptz({})::text",
+                    lit.trim_end_matches('\''),
+                    p
+                )
             }
         }
         // time / timetz precision cast
@@ -290,7 +321,11 @@ fn gen_typmod(g: &mut Gen) -> String {
             if g.rng.chance(1, 2) {
                 format!("(TIME {})::time({})::text", lit, p)
             } else {
-                format!("(TIMETZ {}+00')::timetz({})::text", lit.trim_end_matches('\''), p)
+                format!(
+                    "(TIMETZ {}+00')::timetz({})::text",
+                    lit.trim_end_matches('\''),
+                    p
+                )
             }
         }
     }

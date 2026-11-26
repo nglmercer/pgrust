@@ -16,7 +16,12 @@ use types_tuple::{HeapTupleData, ItemPointerData};
 /// W6-D1112: `f` over `st` with the by-reference results of its calls allocated in `row` (the row's context: a check
 /// option SubPlan's left side laid into the parked call outlives this call but not the row), its frames armed again with
 /// `bind` (the context the state was compiled in, which outlives it) before returning, as write_check.rs's qual is.
-pub(crate) fn eval_in_row<'m, R>(st: &mut ExprState<'m>, row: Mcx<'_>, bind: Mcx<'m>, f: impl FnOnce(&mut ExprState<'m>) -> R) -> R {
+pub(crate) fn eval_in_row<'m, R>(
+    st: &mut ExprState<'m>,
+    row: Mcx<'_>,
+    bind: Mcx<'m>,
+    f: impl FnOnce(&mut ExprState<'m>) -> R,
+) -> R {
     // SAFETY: the state evaluates only inside `f`, while `row` is borrowed (its context alive and address-stable for the
     // call); the frames point at `bind` again before any later evaluation
     unsafe { st.arm_result_mcx_raw(row) };
@@ -47,17 +52,30 @@ pub(crate) fn param_word(ptr: *const u64, len: usize, i: usize) -> Option<u64> {
 /// decompose `serial_after(.., Reason::Write)`).
 pub(crate) fn init_pair(cell: u64, paramid: i32) -> Option<(u64, u64)> {
     // SAFETY: the caller's contract above
-    let pair = unsafe { gravity_kernels::ops::shared::object::entries::m8_init_run(core::ptr::null_mut(), cell, paramid as u32 as u64) };
+    let pair = unsafe {
+        gravity_kernels::ops::shared::object::entries::m8_init_run(
+            core::ptr::null_mut(),
+            cell,
+            paramid as u32 as u64,
+        )
+    };
     // SAFETY: a nonnegative return is the address of the param's pair: the value word, then the null word
     (pair >= 0).then(|| unsafe { (*(pair as *const u64), *(pair as *const u64).add(1)) })
 }
 
 /// D1112 (write_check.rs): a check SubPlan's cookie is its own node (`CheckSpec::node` keeps the plan alive while the
 /// states live); `SuspendKind::SubPlan` hands it back at the read (`cookie_sub_plan`).
-pub(crate) unsafe fn sub_cookie(_: NonNull<()>, n: Node<'_>, _: Option<AggBind>, _: Option<execexpr::MergeActionCell>) -> PgResult<NonNull<()>> {
+pub(crate) unsafe fn sub_cookie(
+    _: NonNull<()>,
+    n: Node<'_>,
+    _: Option<AggBind>,
+    _: Option<execexpr::MergeActionCell>,
+) -> PgResult<NonNull<()>> {
     match n.as_sub_plan() {
         Some(sp) => Ok(NonNull::from(sp).cast()),
-        None => Err(Box::new(PgError::error("gravity: a check option SubPlan cookie over another node"))), // alloc: Cold
+        None => Err(Box::new(PgError::error(
+            "gravity: a check option SubPlan cookie over another node",
+        ))), // alloc: Cold
     }
 }
 
@@ -88,7 +106,12 @@ pub(crate) fn wholerow_image(mcx: Mcx<'_>, d: Datum) -> PgResult<(*const u8, u32
 /// write_view_rows.rs: a heap tuple over `img`, `len` bytes, at `tid` of table `toid`. The callers' images: a wholerow
 /// cell's flat image (`wholerow_image`, live for the row op's call), a slot's materialized image or a row-context copy,
 /// each MAXALIGNed, readable for `len` bytes and written by no one while the tuple is read (the trigger runs).
-pub(crate) fn tuple_at<'t>(img: *const u8, len: u32, tid: ItemPointerData, toid: Oid) -> HeapTupleData<'t> {
+pub(crate) fn tuple_at<'t>(
+    img: *const u8,
+    len: u32,
+    tid: ItemPointerData,
+    toid: Oid,
+) -> HeapTupleData<'t> {
     // SAFETY: the caller's contract above (HeapTupleData::from_raw_parts's)
     unsafe { HeapTupleData::from_raw_parts(img, len, tid, toid) }
 }

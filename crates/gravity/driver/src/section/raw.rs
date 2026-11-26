@@ -3,9 +3,9 @@
 //! the one-owner header.
 #![allow(unsafe_code)]
 
-use gravity_abi::PtrWord;
 use gravity_abi::breaker::{HashAgg, OwnerTop};
 use gravity_abi::ctx::{FLAG_RESUME, RESUME_NONE};
+use gravity_abi::PtrWord;
 
 use crate::node::Ret;
 
@@ -46,7 +46,11 @@ impl Open<'_> {
     // Kept as-is on purpose: a slot of the shared section, mutated through its raw window by its owning worker.
     #[allow(clippy::mut_from_ref)]
     pub(super) fn slot(&self, ordinal: u16) -> &mut WorkerSlot {
-        assert!(ordinal < self.width, "ordinal {ordinal} of width {}", self.width);
+        assert!(
+            ordinal < self.width,
+            "ordinal {ordinal} of width {}",
+            self.width
+        );
         unsafe { &mut *self.slots.add(ordinal as usize) }
     }
 
@@ -54,7 +58,10 @@ impl Open<'_> {
         let slot: *mut WorkerSlot = self.slot(ordinal);
         // SAFETY: the section's slot `ordinal`, this thread's until `_busy` drops
         let busy = unsafe { core::ptr::addr_of!((*slot).busy) };
-        assert!(!unsafe { &*busy }.swap(true, Ordering::AcqRel), "ordinal {ordinal} claimed from two threads");
+        assert!(
+            !unsafe { &*busy }.swap(true, Ordering::AcqRel),
+            "ordinal {ordinal} claimed from two threads"
+        );
         // cleared on every exit, a contained panic's unwind included: the pool catches the
         // panic and fails the statement, and the Node (its slots) serves the next execution
         let _busy = BusyMark(busy);
@@ -73,7 +80,11 @@ impl Open<'_> {
             // thread at a time. The header prefix is zeroed (`ZERO_PREFIX`): every table zeroes
             // the extent it lays out (pass 3 item 2: a program-constant region too).
             unsafe {
-                core::ptr::write_bytes(slot.state_ptr, 0, crate::node::ZERO_PREFIX.min(slot.state_bytes as usize));
+                core::ptr::write_bytes(
+                    slot.state_ptr,
+                    0,
+                    crate::node::ZERO_PREFIX.min(slot.state_bytes as usize),
+                );
                 if slot.state_arm != 0 {
                     HashAgg::arm(slot.state_ptr, slot.state_arm);
                 }
@@ -112,7 +123,7 @@ impl Open<'_> {
             CutOff(env)
         };
         let _run = crate::node::OwnerRun::enter(owner); // D2355
-        // G1-B: the regions the claim draws count under its pipeline's breaker kind in the ledger's per-kind split
+                                                        // G1-B: the regions the claim draws count under its pipeline's breaker kind in the ledger's per-kind split
         let _kind = memledger::with_kind(crate::mem::region::pipeline_kind(program, self.pipeline));
         // D4043: the claim's draws past its W come out of its statement's purse before the pool's capacity
         let _purse = crate::mem::grant::claim_purse(self.purse.as_ref());
@@ -128,7 +139,8 @@ impl Open<'_> {
         // pool worker read no byte and the poll-gap probe never saw a worker, so a W >= 2 statement's cancel waited out its
         // workers' host calls (a cold part's text dictionary builds: seconds; a memory-watchdog cancel that never
         // answered before the kernel's kill).
-        let (v, stopped) = lend_cancel_seen(ctx, || unsafe { program.code_of(self.pipeline).call(ctx) });
+        let (v, stopped) =
+            lend_cancel_seen(ctx, || unsafe { program.code_of(self.pipeline).call(ctx) });
         // SAFETY: as above; no borrow of the slot or its `Inner` is live
         let ret = unsafe { crate::node::Inner::settle_call(env, v, stopped) };
         let slot = unsafe { &mut *raw };
@@ -149,7 +161,9 @@ impl Open<'_> {
             Ret::Suspended { .. } => Claimed::Stopped,
             Ret::Recheck { site } => return Err(Error::Recheck(site)),
             // D824: a lazy build's probe runs leader-only (lowerv4 refuses a parallel one by name)
-            Ret::BuildWait { consumed } => return Err(Error::BadReturn(gravity_abi::status::build_wait(consumed))),
+            Ret::BuildWait { consumed } => {
+                return Err(Error::BadReturn(gravity_abi::status::build_wait(consumed)))
+            }
         };
         if pins != 0 {
             return Err(Error::host("pins held at claim settle"));
@@ -172,12 +186,20 @@ impl Open<'_> {
         let base = match self.owners_base.get() {
             b if b.is_null() => {
                 // D3322: a cut of the leader region ends inside it (`owner_within`)
-                debug_assert!(gravity_abi::breaker::OWNED_HDR + (ordinal as usize + 1) * bytes <= self.leader.get().1, "owner {ordinal}'s cut of {bytes} B passes the {} B leader region", self.leader.get().1);
+                debug_assert!(
+                    gravity_abi::breaker::OWNED_HDR + (ordinal as usize + 1) * bytes
+                        <= self.leader.get().1,
+                    "owner {ordinal}'s cut of {bytes} B passes the {} B leader region",
+                    self.leader.get().1
+                );
                 unsafe { self.leader.get().0.add(gravity_abi::breaker::OWNED_HDR) }
             }
             b => b,
         };
-        crate::sink::Region { ptr: unsafe { base.add(ordinal as usize * bytes) }, len: bytes }
+        crate::sink::Region {
+            ptr: unsafe { base.add(ordinal as usize * bytes) },
+            len: bytes,
+        }
     }
 
     /// The chunk `own_past_grant` pinned for the owners (`width` x `owner_bytes`), when it did.
@@ -187,7 +209,9 @@ impl Open<'_> {
         let base = self.owners_base.get();
         // SAFETY: the chunk own_past_grant pinned, `width` x `owner_bytes` long and pinned to the statement's end; its owner
         // phase has ended (the callers run on the leader after it), so it is this thread's alone
-        (!base.is_null()).then(|| unsafe { core::slice::from_raw_parts_mut(base, self.width as usize * self.owner_bytes() as usize) })
+        (!base.is_null()).then(|| unsafe {
+            core::slice::from_raw_parts_mut(base, self.width as usize * self.owner_bytes() as usize)
+        })
     }
 
     /// The site an owner renders through: the pipeline's driving site on its own worker ctx (the
@@ -198,19 +222,29 @@ impl Open<'_> {
     }
 
     /// Owner `ordinal`'s round-2 flush: its round-2 buffers to its round-2 file of the produced slot.
-    pub(super) fn round2_flush<'a>(&'a self, merge: &'a dyn Merge, ordinal: u16) -> impl FnMut() -> Result<()> + 'a {
+    pub(super) fn round2_flush<'a>(
+        &'a self,
+        merge: &'a dyn Merge,
+        ordinal: u16,
+    ) -> impl FnMut() -> Result<()> + 'a {
         let region = self.owner_region(ordinal);
         let slot = self.produced_slot();
         let spill: *const crate::mem::spill::SpillTable = &*self.exec.node().spill;
         move || {
-            let (Some(slot), Some(r2)) = (slot, merge.round2_partial(region)) else { return Err(Error::Unsupported(UNSUPPORTED_SCRATCH)) };
+            let (Some(slot), Some(r2)) = (slot, merge.round2_partial(region)) else {
+                return Err(Error::Unsupported(UNSUPPORTED_SCRATCH));
+            };
             // SAFETY: the node's spill table outlives the section; the owner's round-2 buffers are its own.
             unsafe { (*spill).flush_round2(slot, ordinal as usize, r2.ptr) }.map(|_| ())
         }
     }
 
     /// Slot `o`'s source at `site`, read once the section's claims are over.
-    pub(super) fn slot_source(&self, o: u16, site: usize) -> Option<&(dyn crate::source::Source + 'static)> {
+    pub(super) fn slot_source(
+        &self,
+        o: u16,
+        site: usize,
+    ) -> Option<&(dyn crate::source::Source + 'static)> {
         // SAFETY: each slot's ctx is bound for the section; no claim runs, so nothing writes its sources.
         unsafe { crate::source::site_source(self.slot(o).ctx(), site) }
     }
@@ -222,9 +256,23 @@ pub(crate) fn owned_header(leader: &mut [u8], region: Owners) -> Result<()> {
     if leader.len() < OWNED_HDR {
         return Err(Error::Unsupported(UNSUPPORTED_SCRATCH));
     }
-    assert!(region.bytes <= OWNER_WALL && leader.len() <= u32::MAX as usize, "the one-owner header's u32 words");
+    assert!(
+        region.bytes <= OWNER_WALL && leader.len() <= u32::MAX as usize,
+        "the one-owner header's u32 words"
+    );
     // SAFETY: the leader region's first 64 bytes.
-    unsafe { *(leader.as_mut_ptr() as *mut Owned) = Owned { nowners: region.k, owner_bytes: region.bytes as u32, limit: leader.len() as u32, pad0: [0; 3], kind: TABLE_OWNED, base: region.base as u64, pad1: [0; 5], cell: core::cell::UnsafeCell::new([]) } };
+    unsafe {
+        *(leader.as_mut_ptr() as *mut Owned) = Owned {
+            nowners: region.k,
+            owner_bytes: region.bytes as u32,
+            limit: leader.len() as u32,
+            pad0: [0; 3],
+            kind: TABLE_OWNED,
+            base: region.base as u64,
+            pad1: [0; 5],
+            cell: core::cell::UnsafeCell::new([]),
+        }
+    };
     Ok(())
 }
 
@@ -235,7 +283,11 @@ pub(super) fn bind_pending(slot: &mut WorkerSlot) -> Result<()> {
     if !core::mem::take(&mut slot.bind_pending) {
         return Ok(());
     }
-    let b = slot.binding.as_ref().expect("a slot bound at its claim has its binding").as_ref();
+    let b = slot
+        .binding
+        .as_ref()
+        .expect("a slot bound at its claim has its binding")
+        .as_ref();
     let mut err = None;
     slot.inner.for_each_host_but(slot.skip, &mut |h| {
         if err.is_none() {
@@ -330,7 +382,10 @@ pub(super) fn bytes_of<'a>(r: crate::sink::Region) -> &'a [u8] {
 /// other long host loops stop on the statement's cancel (`cancelpoll::canceled`). C9: a raise or a host's error after such
 /// a stop is the statement's cancel when the stop is still the statement's to raise (`crate::stopped_error`): an owner
 /// fold's hosted combine (merge.rs `FOLD_HOST`), an owner reduce's raise, the leader's fold of a partial.
-pub(super) fn lend_cancel<T>(ctx: *mut gravity_abi::Ctx, f: impl FnOnce() -> Result<T>) -> Result<T> {
+pub(super) fn lend_cancel<T>(
+    ctx: *mut gravity_abi::Ctx,
+    f: impl FnOnce() -> Result<T>,
+) -> Result<T> {
     let (r, stopped) = lend_cancel_seen(ctx, f);
     match r {
         Err(e) if stopped => Err(crate::stopped_error(cancel_of(ctx), e)),
@@ -362,7 +417,12 @@ pub(super) fn reset_round2(spill: &crate::mem::spill::SpillTable, slot: u8, ordi
 }
 
 /// An owner's round-2 buffers flushed into round-2 file `ordinal` of `slot`. Callers own both (`SpillTable::flush_round2`).
-pub(super) fn flush_round2_at(spill: &crate::mem::spill::SpillTable, slot: u8, ordinal: usize, region: *mut u8) -> Result<u64> {
+pub(super) fn flush_round2_at(
+    spill: &crate::mem::spill::SpillTable,
+    slot: u8,
+    ordinal: usize,
+    region: *mut u8,
+) -> Result<u64> {
     // SAFETY: as the callers say at each call: the buffers and the file are this thread's alone.
     unsafe { spill.flush_round2(slot, ordinal, region) }
 }
@@ -405,7 +465,12 @@ pub(super) fn file_slot_pin(ctx: *mut gravity_abi::Ctx, slot: Option<u8>, p: *mu
 
 /// D4078 (ADMITFP (A)): the owner region at `p` this owner phase pinned, given back before the split pins its chunk
 /// (`arena::give_owner_pin`, at or over `floor`); the bytes given back (0: kept).
-pub(super) fn give_owner_pin(ctx: *mut gravity_abi::Ctx, slot: Option<u8>, p: *mut u8, floor: usize) -> u64 {
+pub(super) fn give_owner_pin(
+    ctx: *mut gravity_abi::Ctx,
+    slot: Option<u8>,
+    p: *mut u8,
+    floor: usize,
+) -> u64 {
     // SAFETY: as `pin_zeroed`; the caller reads the region no more (own_all_lent returns the split's owners).
     unsafe { crate::hostimpl::arena::give_owner_pin(ctx, slot, p, floor) }
 }
@@ -466,11 +531,12 @@ pub(super) fn owner_top<'a>(r: crate::sink::Region) -> &'a OwnerTop {
 /// D3111: an opened one-round owner's state before a partition's fold, its header and kept bytes `[0, end)` (`end` a
 /// multiple of 8 at most its table offset), into `snap`.
 pub(super) fn owner_save(r: crate::sink::Region, end: usize, snap: &mut Vec<u64>) {
-    debug_assert!(end.is_multiple_of( 8) && end <= owner_top(r).table_off as usize && end <= r.len);
+    debug_assert!(end.is_multiple_of(8) && end <= owner_top(r).table_off as usize && end <= r.len);
     snap.clear();
     // SAFETY: the owner's first `end` bytes (its header and kept state, below its table space), this thread's alone and
     // 8-aligned as every owner region (`OwnerTop::view`).
-    snap.extend_from_slice(unsafe { core::slice::from_raw_parts(r.ptr as *const u64, end / 8) }); // alloc: Cold
+    snap.extend_from_slice(unsafe { core::slice::from_raw_parts(r.ptr as *const u64, end / 8) });
+    // alloc: Cold
 }
 
 /// D3111: `snap` (`owner_save`'s) laid over the start of `r`, an owner the same form just opened in a grown region: its
@@ -498,7 +564,10 @@ pub(super) fn owner_restore(r: crate::sink::Region, snap: &[u64]) -> bool {
 /// Owner `o`'s region of a split chunk, `bytes` long, its header prefix zeroed as a one-round cut's.
 pub(super) fn split_owner(base: *mut u8, o: u32, bytes: usize) -> crate::sink::Region {
     // SAFETY: owner `o`'s bytes of the chunk, this thread's alone; its header prefix zeroed as a one-round cut's.
-    let region = crate::sink::Region { ptr: unsafe { base.add(o as usize * bytes) }, len: bytes };
+    let region = crate::sink::Region {
+        ptr: unsafe { base.add(o as usize * bytes) },
+        len: bytes,
+    };
     unsafe { core::ptr::write_bytes(region.ptr, 0, crate::node::ZERO_PREFIX.min(bytes)) };
     region
 }
@@ -516,7 +585,11 @@ pub(super) fn erase(wb: WorkerBinding<'_>) -> WorkerBinding<'static> {
 }
 
 /// KEYED-22: worker ctx `from`'s per-site rows (`rows_in`, `rows_out`) added to the node ctx `to`'s and zeroed in `from`.
-pub(super) fn fold_site_rows(from: *mut gravity_abi::Ctx, to: *mut gravity_abi::Ctx, nsites: usize) {
+pub(super) fn fold_site_rows(
+    from: *mut gravity_abi::Ctx,
+    to: *mut gravity_abi::Ctx,
+    nsites: usize,
+) {
     if from.is_null() || from == to {
         return;
     }
@@ -525,8 +598,14 @@ pub(super) fn fold_site_rows(from: *mut gravity_abi::Ctx, to: *mut gravity_abi::
         // SAFETY: two ctxs `build_image` laid for one program (`nsites` sites each), a slot's and the node's; the leader
         // thread after the section's claims, no worker running.
         unsafe {
-            let (f, t) = (&mut *gravity_abi::ctx::site_ptr(from, i), &mut *gravity_abi::ctx::site_ptr(to, i));
-            (t.rows_in, t.rows_out) = (t.rows_in.wrapping_add(f.rows_in), t.rows_out.wrapping_add(f.rows_out));
+            let (f, t) = (
+                &mut *gravity_abi::ctx::site_ptr(from, i),
+                &mut *gravity_abi::ctx::site_ptr(to, i),
+            );
+            (t.rows_in, t.rows_out) = (
+                t.rows_in.wrapping_add(f.rows_in),
+                t.rows_out.wrapping_add(f.rows_out),
+            );
             (f.rows_in, f.rows_out) = (0, 0);
         }
     }
@@ -572,11 +651,20 @@ pub(super) fn settle_loops(to: *mut u64, cells: &[(i32, u8)], at_open: &[u64]) {
 /// in the program's frame words (the words site's key cells, `Px::frame_word`) on the leader's ctx: each worker's ctx gets
 /// a copy of them at the section's open, before any claim (a worker kept the words of the statement's start: a LATERAL
 /// bound read as 0 there).
-pub(super) fn copy_frame_words(program: &gravity_program::Program, from: *mut gravity_abi::Ctx, to: *mut gravity_abi::Ctx) {
-    let Some((ws, n)) = program.sites.iter().enumerate().find_map(|(x, s)| match s.kind {
-        gravity_program::SiteKind::Words { n } => Some((x, n as usize)),
-        _ => None,
-    }) else {
+pub(super) fn copy_frame_words(
+    program: &gravity_program::Program,
+    from: *mut gravity_abi::Ctx,
+    to: *mut gravity_abi::Ctx,
+) {
+    let Some((ws, n)) = program
+        .sites
+        .iter()
+        .enumerate()
+        .find_map(|(x, s)| match s.kind {
+            gravity_program::SiteKind::Words { n } => Some((x, n as usize)),
+            _ => None,
+        })
+    else {
         return;
     };
     if from.is_null() || to.is_null() {
@@ -584,8 +672,11 @@ pub(super) fn copy_frame_words(program: &gravity_program::Program, from: *mut gr
     }
     // SAFETY: both bound ctxs lay site `ws` with `n` key cells (node/image.rs); the leader thread, no worker running yet
     unsafe {
-        let (f, t) = ((*gravity_abi::ctx::site_ptr(from, ws)).keys.ptr() as *const u64, (*gravity_abi::ctx::site_ptr(to, ws)).keys.ptr());
-        if !f.is_null() && !t.is_null() && !std::ptr::eq( f, t) {
+        let (f, t) = (
+            (*gravity_abi::ctx::site_ptr(from, ws)).keys.ptr() as *const u64,
+            (*gravity_abi::ctx::site_ptr(to, ws)).keys.ptr(),
+        );
+        if !f.is_null() && !t.is_null() && !std::ptr::eq(f, t) {
             core::ptr::copy_nonoverlapping(f, t, n);
         }
     }
@@ -598,7 +689,15 @@ pub(super) fn copy_frame_words(program: &gravity_program::Program, from: *mut gr
 /// instead: a pool lane no worker of this section takes (they are 0..width), and no suspended row holds one (a nested run
 /// starts only from a row on the leader, and a section runs whole before its caller goes on). A pool lane, not the run's
 /// nested lane: worker 0 runs on a pool thread, where only a pool lane's twins may be armed (D2983).
-pub(super) fn bind_ctx(inner: &crate::node::Inner, b: &WorkerBinding<'static>, i: u16, width: u16, arm: u32, budget: u64, leader: *mut gravity_abi::Ctx) {
+pub(super) fn bind_ctx(
+    inner: &crate::node::Inner,
+    b: &WorkerBinding<'static>,
+    i: u16,
+    width: u16,
+    arm: u32,
+    budget: u64,
+    leader: *mut gravity_abi::Ctx,
+) {
     // SAFETY: the slot's own identity cell and bound ctx, written on the leader thread before any claim; the Node's own
     // ctx (`leader`), alive while the node is, read on that thread.
     unsafe {

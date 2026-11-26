@@ -38,9 +38,17 @@ pub fn path_of<'mcx>(cat: &dyn Catalog<'mcx>, collation: Oid) -> PgResult<Path> 
 
 pub fn compile<'mcx>(b: &mut Builder<'_, 'mcx>, c: &CollateExpr<'mcx>) -> CompileResult<NodeId> {
     let arg = b.compile(c.arg)?;
-    Ok(b.push(ExprNode::Collate(Collate { arg, collation: c.collOid })))
+    Ok(b.push(ExprNode::Collate(Collate {
+        arg,
+        collation: c.collOid,
+    })))
 }
 
-pub fn eval(p: &Prog<'_, '_>, st: &mut St<'_>, n: &Collate, cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
+pub fn eval(
+    p: &Prog<'_, '_>,
+    st: &mut St<'_>,
+    n: &Collate,
+    cx: &mut Cx<'_, '_>,
+) -> PgResult<NullableDatum> {
     crate::eval::eval(p, st, n.arg, cx)
 }

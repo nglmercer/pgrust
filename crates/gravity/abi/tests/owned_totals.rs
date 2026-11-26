@@ -1,7 +1,9 @@
 //! `Owned::totals`: the plain distinct form's observation (exec statement.rs Observe) sums the owners' `total` (their
 //! deduped pairs) beside `records`, where `counts` sums `groups`; a region that is not a finished `Owned` one has neither.
 
-use gravity_abi::breaker::{Owned, OwnerTop, GROUPS_UNCOUNTED, OWNED_HDR, OWNERTOP_HDR, TABLE_OWNED};
+use gravity_abi::breaker::{
+    Owned, OwnerTop, GROUPS_UNCOUNTED, OWNED_HDR, OWNERTOP_HDR, TABLE_OWNED,
+};
 
 fn region(tops: &[(u64, u64, u64)]) -> Vec<u64> {
     let owner_bytes = (OWNERTOP_HDR + 63) & !63;

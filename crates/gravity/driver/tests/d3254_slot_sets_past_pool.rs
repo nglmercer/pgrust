@@ -40,15 +40,24 @@ fn drain(open: &Open<'_>, cursor: &AtomicU64, ordinal: u16) -> Result<u64, Error
 fn statement(entry: &mut Entry, program: &Arc<Program>, derive: &mut FakeDerive, flag: &AtomicU8) {
     let mut sink = LegSink::new();
     let mut b = binding(&[100], &NULLS, &mut sink, flag);
-    let mut exec = entry.start(None, program, derive, &mut b, lease(Grant::of(8 << 20))).unwrap();
+    let mut exec = entry
+        .start(None, program, derive, &mut b, lease(Grant::of(8 << 20)))
+        .unwrap();
     exec.set_slot_salt(Some(0x3254));
-    let open = entry.open_section(&mut exec, & b, derive, 0, WIDTH).unwrap();
+    let open = entry.open_section(&mut exec, &b, derive, 0, WIDTH).unwrap();
     let cursor = AtomicU64::new(0);
     for o in 0..WIDTH {
         drain(&open, &cursor, o).unwrap();
     }
-    entry.close_section(open, &mut b, &CountMerge, true).unwrap();
-    assert_eq!(entry.run(&mut exec, &mut b, gravity_driver::Call::batch(4)).unwrap(), Step::Done);
+    entry
+        .close_section(open, &mut b, &CountMerge, true)
+        .unwrap();
+    assert_eq!(
+        entry
+            .run(&mut exec, &mut b, gravity_driver::Call::batch(4))
+            .unwrap(),
+        Step::Done
+    );
     entry.end(exec, true);
 }
 
@@ -69,12 +78,26 @@ fn an_ask_past_the_pool_drops_the_parked_slot_sets_not_the_regions() {
     REGIONS.put(try_region((200 * MIB) as usize).expect("room in the pool"));
     let (regions, ev) = (REGIONS.stats(), DEPOT.stats().evictions);
 
-    let a = POOL.admit_need(Grant::of(4000 * MIB), &|g| g.bytes, Duration::from_secs(5)).expect("admitted");
-    assert_eq!(a.grant.bytes, 2000 * MIB, "halved once, beside the parked region");
+    let a = POOL
+        .admit_need(Grant::of(4000 * MIB), &|g| g.bytes, Duration::from_secs(5))
+        .expect("admitted");
+    assert_eq!(
+        a.grant.bytes,
+        2000 * MIB,
+        "halved once, beside the parked region"
+    );
     let s = DEPOT.stats();
-    assert_eq!((s.entries, s.evictions - ev), (0, 1), "the ask past the pool dropped the parked slot set");
+    assert_eq!(
+        (s.entries, s.evictions - ev),
+        (0, 1),
+        "the ask past the pool dropped the parked slot set"
+    );
     let r = REGIONS.stats();
-    assert_eq!((r.bytes, r.evictions), (regions.bytes, regions.evictions), "and kept the parked region");
+    assert_eq!(
+        (r.bytes, r.evictions),
+        (regions.bytes, regions.evictions),
+        "and kept the parked region"
+    );
     drop(a);
 
     REGIONS.trim();

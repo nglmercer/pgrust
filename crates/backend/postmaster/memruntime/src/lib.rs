@@ -199,22 +199,51 @@ struct SoftLimit {
 
 fn memory_limit(limit_mb: i32) -> MemLimit {
     let self_cgroup = read_text("/proc/self/cgroup").unwrap_or_default();
-    memory_limit_in(std::path::Path::new("/sys/fs/cgroup"), &self_cgroup, limit_mb, physical_memory())
+    memory_limit_in(
+        std::path::Path::new("/sys/fs/cgroup"),
+        &self_cgroup,
+        limit_mb,
+        physical_memory(),
+    )
 }
 
 /// `root` plays /sys/fs/cgroup, `self_cgroup` the /proc/self/cgroup contents.
-fn memory_limit_in(root: &std::path::Path, self_cgroup: &str, limit_mb: i32, physical: Option<u64>) -> MemLimit {
+fn memory_limit_in(
+    root: &std::path::Path,
+    self_cgroup: &str,
+    limit_mb: i32,
+    physical: Option<u64>,
+) -> MemLimit {
     let soft = soft_limit_in(root, self_cgroup);
     if limit_mb > 0 {
-        return MemLimit { bytes: (limit_mb as u64) << 20, source: LimitSource::Guc, soft, ..MemLimit::default() };
+        return MemLimit {
+            bytes: (limit_mb as u64) << 20,
+            source: LimitSource::Guc,
+            soft,
+            ..MemLimit::default()
+        };
     }
     if let Some((dir, lim, knob)) = cgroup_limit(root, self_cgroup) {
         let bytes = physical.map_or(lim, |p| lim.min(p));
-        return MemLimit { bytes, source: LimitSource::Cgroup, cgroup: Some(dir), knob, soft };
+        return MemLimit {
+            bytes,
+            source: LimitSource::Cgroup,
+            cgroup: Some(dir),
+            knob,
+            soft,
+        };
     }
     match physical {
-        Some(p) => MemLimit { bytes: p, source: LimitSource::Physical, soft, ..MemLimit::default() },
-        None => MemLimit { soft, ..MemLimit::default() },
+        Some(p) => MemLimit {
+            bytes: p,
+            source: LimitSource::Physical,
+            soft,
+            ..MemLimit::default()
+        },
+        None => MemLimit {
+            soft,
+            ..MemLimit::default()
+        },
     }
 }
 
@@ -224,7 +253,8 @@ fn soft_limit_in(root: &std::path::Path, self_cgroup: &str) -> Option<SoftLimit>
     let rel = v2_rel(self_cgroup)?;
     let (dir, high) = min_limit(root, rel, "memory.high")?;
     let max = min_limit(root, rel, "memory.max").map(|(_, m)| m);
-    max.is_none_or( |m| high < m).then_some(SoftLimit { high, dir, max })
+    max.is_none_or(|m| high < m)
+        .then_some(SoftLimit { high, dir, max })
 }
 
 /// The unified hierarchy's path of this process's cgroup (`0::` line), when no v1 hierarchy carries the memory controller.
@@ -232,7 +262,13 @@ fn v2_rel(self_cgroup: &str) -> Option<&str> {
     if v1_rel(self_cgroup).is_some() {
         return None;
     }
-    Some(self_cgroup.lines().find_map(|l| l.strip_prefix("0::"))?.trim().trim_start_matches('/'))
+    Some(
+        self_cgroup
+            .lines()
+            .find_map(|l| l.strip_prefix("0::"))?
+            .trim()
+            .trim_start_matches('/'),
+    )
 }
 
 /// The v1 hierarchy that carries the memory controller (a `memory` line), its path.
@@ -240,14 +276,18 @@ fn v1_rel(self_cgroup: &str) -> Option<String> {
     self_cgroup.lines().find_map(|l| {
         let mut it = l.splitn(3, ':');
         let (_, ctls, path) = (it.next()?, it.next()?, it.next()?);
-        ctls.split(',').any(|c| c == "memory").then(|| path.trim().trim_start_matches('/').to_string())
+        ctls.split(',')
+            .any(|c| c == "memory")
+            .then(|| path.trim().trim_start_matches('/').to_string())
     })
 }
 
 /// D4290: the server log's WARNING at start for a soft limit (`SoftLimit`) and its HINT: both values, and the memory
 /// budget sized to (`budget`, the limit read).
 fn soft_limit_warning(s: &SoftLimit, budget: u64) -> (String, String) {
-    let max = s.max.map_or_else(|| "unlimited".to_string(), |m| format!("{} MiB", m >> 20));
+    let max = s
+        .max
+        .map_or_else(|| "unlimited".to_string(), |m| format!("{} MiB", m >> 20));
     (
         format!(
             "the cgroup's memory.high ({} MiB) is below its memory.max ({max}): the kernel throttles the server past \
@@ -267,11 +307,17 @@ fn soft_limit_warning(s: &SoftLimit, budget: u64) -> (String, String) {
 /// and never canceled (an 8 GiB ancestor limit was OOM-killed 3 s in).
 /// D4290: on v2, the smaller of the smallest bounded memory.max and the smallest bounded memory.high (the kernel
 /// throttles at memory.high), and which file it is.
-fn cgroup_limit(root: &std::path::Path, self_cgroup: &str) -> Option<(std::path::PathBuf, u64, &'static str)> {
+fn cgroup_limit(
+    root: &std::path::Path,
+    self_cgroup: &str,
+) -> Option<(std::path::PathBuf, u64, &'static str)> {
     if let Some(rel) = v1_rel(self_cgroup) {
         let base = root.join("memory");
         // v1 spells unlimited as a huge number
-        let (dir, lim) = base.is_dir().then(|| min_limit(&base, &rel, "memory.limit_in_bytes")).flatten()?;
+        let (dir, lim) = base
+            .is_dir()
+            .then(|| min_limit(&base, &rel, "memory.limit_in_bytes"))
+            .flatten()?;
         return Some((dir, lim, "memory.limit_in_bytes"));
     }
     let rel = v2_rel(self_cgroup)?;
@@ -286,10 +332,14 @@ fn cgroup_limit(root: &std::path::Path, self_cgroup: &str) -> Option<(std::path:
 /// The smallest bounded `file` (numeric, under 2^60; "max" is unbounded) over `base/rel` and its ancestors up to `base`.
 fn min_limit(base: &std::path::Path, rel: &str, file: &str) -> Option<(std::path::PathBuf, u64)> {
     let mut best: Option<(std::path::PathBuf, u64)> = None;
-    let mut dir = if rel.is_empty() { base.to_path_buf() } else { base.join(rel) };
+    let mut dir = if rel.is_empty() {
+        base.to_path_buf()
+    } else {
+        base.join(rel)
+    };
     loop {
         if let Some(lim) = read_u64(&dir.join(file)).filter(|&l| l < 1 << 60) {
-            if best.as_ref().is_none_or( |(_, b)| lim < *b) {
+            if best.as_ref().is_none_or(|(_, b)| lim < *b) {
                 best = Some((dir.clone(), lim));
             }
         }
@@ -322,7 +372,9 @@ fn field(text: &[u8], key: &[u8]) -> u64 {
             v.iter()
                 .skip_while(|c| c.is_ascii_whitespace())
                 .take_while(|c| c.is_ascii_digit())
-                .fold(0u64, |a, &c| a.saturating_mul(10).saturating_add(u64::from(c - b'0')))
+                .fold(0u64, |a, &c| {
+                    a.saturating_mul(10).saturating_add(u64::from(c - b'0'))
+                })
         })
 }
 
@@ -344,7 +396,11 @@ fn reclaimable_file(stat: impl AsRef<[u8]>) -> u64 {
 /// process in the cgroup, so the line stays `governed_resident`'s): who acts past it (`mempolicy::watchdog::acts`).
 fn own_view_in(own: u64, current: u64, stat: &[u8]) -> u64 {
     let others = (field(stat, b"anon ") + field(stat, b"shmem ")).saturating_sub(own);
-    own.max(current.saturating_sub(reclaimable_file(stat)).saturating_sub(others))
+    own.max(
+        current
+            .saturating_sub(reclaimable_file(stat))
+            .saturating_sub(others),
+    )
 }
 
 /// D3314: the limit as last read (`refresh_limit`: at `start`, then once a second), so the 100 ms governor path walks no
@@ -361,7 +417,10 @@ fn store_limit() -> (MemLimit, bool) {
     }
     LIMIT_BYTES.store(l.bytes, Ordering::Relaxed);
     open_sample(&l);
-    let stored = LIMIT.try_lock().map(|mut cached| *cached = Some(l.clone())).is_ok();
+    let stored = LIMIT
+        .try_lock()
+        .map(|mut cached| *cached = Some(l.clone()))
+        .is_ok();
     (l, stored)
 }
 
@@ -426,7 +485,11 @@ impl SampleFiles {
                 Some(d) => open(&d.join("memory.pressure")),
                 None => open(std::path::Path::new("/proc/pressure/memory")),
             };
-            self.vmstat = if dir.is_none() { open(std::path::Path::new("/proc/vmstat")) } else { None };
+            self.vmstat = if dir.is_none() {
+                open(std::path::Path::new("/proc/vmstat"))
+            } else {
+                None
+            };
             self.refaults = None;
             self.host = mempolicy::hostpress::HostPress::new();
             self.host_open = true;
@@ -441,10 +504,20 @@ impl SampleFiles {
 
     /// `governed_resident` from the open files: anon + shmem, and at least the cgroup's unreclaimable bytes.
     fn resident(&mut self, buf: &mut SampleBuf) -> Option<u64> {
-        let SampleFiles { status, current, stat, events, .. } = self;
+        let SampleFiles {
+            status,
+            current,
+            stat,
+            events,
+            ..
+        } = self;
         let text = pread(status.as_ref()?, buf)?;
         let own = (field(text, b"RssAnon:") + field(text, b"RssShmem:")) * 1024;
-        let Some(current) = current.as_ref().and_then(|f| pread(f, buf)).map(|t| field(t, b"")) else {
+        let Some(current) = current
+            .as_ref()
+            .and_then(|f| pread(f, buf))
+            .map(|t| field(t, b""))
+        else {
             // D4388: no cgroup limit (or its files unreadable): the cgroup's last figures go, so the ladder's read and B0's
             // headroom are the governed resident's, never a stale cgroup-wide number from before the limit moved
             CGROUP_SEEN.clear();
@@ -452,14 +525,28 @@ impl SampleFiles {
             LAST_OWN.store(own, Ordering::Relaxed);
             return Some(own);
         };
-        let (clean, view, file, inactive, mapped, refaults) = stat.as_ref().and_then(|f| pread(f, buf)).map_or((0, own.max(current), 0, 0, 0, None), |t| {
-            let refaults = field(t, b"workingset_refault_file ").saturating_mul(page_bytes());
-            // ladder_reconcile: the split its rule 3 checks against (two more lines read, with the knob on only)
-            let (anon, shmem) = if mcx::reconcile::on() { (field(t, b"anon "), field(t, b"shmem ")) } else { (0, 0) };
-            CGROUP_SEEN.anon.store(anon, Ordering::Relaxed);
-            CGROUP_SEEN.shmem.store(shmem, Ordering::Relaxed);
-            (reclaimable_file(t), own_view_in(own, current, t), field(t, b"file "), field(t, b"inactive_file ").saturating_sub(dirty_file(t)), field(t, b"file_mapped "), Some(refaults))
-        });
+        let (clean, view, file, inactive, mapped, refaults) = stat
+            .as_ref()
+            .and_then(|f| pread(f, buf))
+            .map_or((0, own.max(current), 0, 0, 0, None), |t| {
+                let refaults = field(t, b"workingset_refault_file ").saturating_mul(page_bytes());
+                // ladder_reconcile: the split its rule 3 checks against (two more lines read, with the knob on only)
+                let (anon, shmem) = if mcx::reconcile::on() {
+                    (field(t, b"anon "), field(t, b"shmem "))
+                } else {
+                    (0, 0)
+                };
+                CGROUP_SEEN.anon.store(anon, Ordering::Relaxed);
+                CGROUP_SEEN.shmem.store(shmem, Ordering::Relaxed);
+                (
+                    reclaimable_file(t),
+                    own_view_in(own, current, t),
+                    field(t, b"file "),
+                    field(t, b"inactive_file ").saturating_sub(dirty_file(t)),
+                    field(t, b"file_mapped "),
+                    Some(refaults),
+                )
+            });
         CGROUP_SEEN.clean.store(clean, Ordering::Relaxed);
         // D4872: the cgroup's refaults for the host-pressure tracker too (`host_pressed`)
         self.refaults = refaults;
@@ -468,8 +555,18 @@ impl SampleFiles {
             Some(b) => mcx::ladder::note_file_refaults(b, mcx::governor::decide_ms()),
             None => mcx::ladder::no_file_refaults(),
         }
-        let max_events = events.as_ref().and_then(|f| pread(f, buf)).map_or(0, |t| field(t, b"max "));
-        CGROUP_SEEN.note(current, file, inactive, mapped, max_events, mcx::governor::decide_ms());
+        let max_events = events
+            .as_ref()
+            .and_then(|f| pread(f, buf))
+            .map_or(0, |t| field(t, b"max "));
+        CGROUP_SEEN.note(
+            current,
+            file,
+            inactive,
+            mapped,
+            max_events,
+            mcx::governor::decide_ms(),
+        );
         LAST_OWN.store(view, Ordering::Relaxed);
         Some(own.max(current.saturating_sub(clean)))
     }
@@ -480,23 +577,38 @@ impl SampleFiles {
     /// refaults (the cgroup's from the last `resident`, else the host's /proc/vmstat), through the tracker; whether
     /// pressed. No allocation, no path walk (the files were opened with the limit).
     fn host_pressed(&mut self, buf: &mut SampleBuf, now_ms: u64) -> bool {
-        let psi_some_us = self.psi.as_ref().and_then(|f| pread(f, buf)).and_then(psi_some_total);
+        let psi_some_us = self
+            .psi
+            .as_ref()
+            .and_then(|f| pread(f, buf))
+            .and_then(psi_some_total);
         let refault_bytes = match self.vmstat.as_ref() {
-            Some(f) => pread(f, buf).map(|t| field(t, b"workingset_refault_file ").saturating_mul(page_bytes())),
+            Some(f) => pread(f, buf)
+                .map(|t| field(t, b"workingset_refault_file ").saturating_mul(page_bytes())),
             None => self.refaults,
         };
-        let reading = mempolicy::hostpress::Reading { psi_some_us, refault_bytes };
-        self.host.step(now_ms, reading, &mempolicy::hostpress::Bars::now())
+        let reading = mempolicy::hostpress::Reading {
+            psi_some_us,
+            refault_bytes,
+        };
+        self.host
+            .step(now_ms, reading, &mempolicy::hostpress::Bars::now())
     }
 }
 
 /// D4872: a PSI file's `some` line's total (µs): "some avg10=0.00 avg60=0.00 avg300=0.00 total=24".
 fn psi_some_total(text: &[u8]) -> Option<u64> {
-    let line = text.split(|&c| c == b'\n').find(|l| l.starts_with(b"some "))?;
+    let line = text
+        .split(|&c| c == b'\n')
+        .find(|l| l.starts_with(b"some "))?;
     let at = line.windows(6).position(|w| w == b"total=")? + 6;
     let digits = &line[at..];
     let n = digits.iter().take_while(|c| c.is_ascii_digit()).count();
-    (n > 0).then(|| digits[..n].iter().fold(0u64, |a, &c| a.saturating_mul(10).saturating_add(u64::from(c - b'0'))))
+    (n > 0).then(|| {
+        digits[..n].iter().fold(0u64, |a, &c| {
+            a.saturating_mul(10).saturating_add(u64::from(c - b'0'))
+        })
+    })
 }
 
 /// D4872: the host's memory pressure to the page pool, every sample on the watchdog's thread (`refresh_governor`):
@@ -508,7 +620,9 @@ fn host_press_pass() {
         return;
     }
     let Ok(mut s) = SAMPLE.try_lock() else { return };
-    let Ok(mut b) = SAMPLE_BUF_MEM.try_lock() else { return };
+    let Ok(mut b) = SAMPLE_BUF_MEM.try_lock() else {
+        return;
+    };
     let pressed = s.host_pressed(&mut b, mcx::governor::decide_ms());
     drop((b, s));
     pagepool::set_host_pressed(pressed);
@@ -550,7 +664,9 @@ fn page_bytes() -> u64 {
         0 => {
             #[cfg(unix)]
             // SAFETY: sysconf reads a constant of the running system.
-            let p = u64::try_from(unsafe { libc::sysconf(libc::_SC_PAGESIZE) }).unwrap_or(4096).max(1);
+            let p = u64::try_from(unsafe { libc::sysconf(libc::_SC_PAGESIZE) })
+                .unwrap_or(4096)
+                .max(1);
             #[cfg(not(unix))]
             let p = 4096;
             PAGE_BYTES.store(p, Ordering::Relaxed);
@@ -603,21 +719,43 @@ struct CgroupSeen {
 impl CgroupSeen {
     /// D4388: no cgroup is read: its byte figures are 0 (`ladder_read_of` and B0's headroom read the governed resident).
     fn clear(&self) {
-        for a in [&self.current, &self.file, &self.inactive, &self.mapped, &self.anon, &self.shmem, &self.clean] {
+        for a in [
+            &self.current,
+            &self.file,
+            &self.inactive,
+            &self.mapped,
+            &self.anon,
+            &self.shmem,
+            &self.clean,
+        ] {
             a.store(0, Ordering::Relaxed);
         }
     }
 
-    fn note(&self, current: u64, file: u64, inactive: u64, mapped: u64, max_events: u64, now_ms: u64) {
+    fn note(
+        &self,
+        current: u64,
+        file: u64,
+        inactive: u64,
+        mapped: u64,
+        max_events: u64,
+        now_ms: u64,
+    ) {
         self.current.store(current, Ordering::Relaxed);
         self.file.store(file, Ordering::Relaxed);
         self.inactive.store(inactive, Ordering::Relaxed);
         self.mapped.store(mapped, Ordering::Relaxed);
-        let (at, n) = (self.mark_ms.load(Ordering::Relaxed), self.mark_max.load(Ordering::Relaxed));
+        let (at, n) = (
+            self.mark_ms.load(Ordering::Relaxed),
+            self.mark_max.load(Ordering::Relaxed),
+        );
         let span = now_ms.saturating_sub(at);
         if at == 0 || span >= 1000 {
             if at != 0 {
-                self.max_rate.store(max_events.saturating_sub(n).saturating_mul(1000) / span, Ordering::Relaxed);
+                self.max_rate.store(
+                    max_events.saturating_sub(n).saturating_mul(1000) / span,
+                    Ordering::Relaxed,
+                );
             }
             self.mark_ms.store(now_ms.max(1), Ordering::Relaxed);
             self.mark_max.store(max_events, Ordering::Relaxed);
@@ -727,7 +865,9 @@ impl HighWatch {
             _ => self.pending = 0,
         }
         self.seen = Some((dir.to_path_buf(), count));
-        let due = self.warned_ms.is_none_or( |w| now_ms.saturating_sub(w) >= mempolicy::watchdog::HIGH_WARN_EVERY_MS);
+        let due = self
+            .warned_ms
+            .is_none_or(|w| now_ms.saturating_sub(w) >= mempolicy::watchdog::HIGH_WARN_EVERY_MS);
         if self.pending == 0 || !due {
             return None;
         }
@@ -739,7 +879,9 @@ impl HighWatch {
 /// The 'high' line of a cgroup's memory.events.
 fn high_events_in(dir: &std::path::Path) -> Option<u64> {
     let text = read_text(dir.join("memory.events"))?;
-    text.lines().find_map(|l| l.strip_prefix("high ")).and_then(|v| v.trim().parse().ok())
+    text.lines()
+        .find_map(|l| l.strip_prefix("high "))
+        .and_then(|v| v.trim().parse().ok())
 }
 
 /// D4290: the run-time WARNING and its HINT: the throttling events since the last warning.
@@ -784,7 +926,9 @@ fn cgroup_resident() -> Option<usize> {
 }
 
 fn cgroup_resident_in(l: &MemLimit) -> Option<usize> {
-    let (LimitSource::Cgroup, Some(dir)) = (&l.source, &l.cgroup) else { return None };
+    let (LimitSource::Cgroup, Some(dir)) = (&l.source, &l.cgroup) else {
+        return None;
+    };
     let stat = read_text(dir.join("memory.stat"))?;
     let field = |k: &str| {
         stat.lines()
@@ -813,7 +957,16 @@ fn reconcile_terms() -> [Option<u64>; mcx::governor::reconcile::TERMS] {
             t[r::KERNEL] = Some(if has(b"kernel ") {
                 field(s, b"kernel ")
             } else {
-                [&b"kernel_stack "[..], &b"pagetables "[..], &b"percpu "[..], &b"slab "[..], &b"vmalloc "[..]].iter().map(|k| field(s, k)).sum()
+                [
+                    &b"kernel_stack "[..],
+                    &b"pagetables "[..],
+                    &b"percpu "[..],
+                    &b"slab "[..],
+                    &b"vmalloc "[..],
+                ]
+                .iter()
+                .map(|k| field(s, k))
+                .sum()
             });
             t[r::SOCK] = Some(field(s, b"sock "));
         }
@@ -852,7 +1005,9 @@ fn c_library_in_use() -> Option<u64> {
 fn allocator_resident() -> Option<usize> {
     let maps = present_in(&read_text("/proc/self/maps")?, |n| n == "[anon:mimalloc]")?;
     let mut pool = 0;
-    let r = with_pool(maps, pagepool::on(), || pagepool::present_fresh().inspect(|&p| pool = p));
+    let r = with_pool(maps, pagepool::on(), || {
+        pagepool::present_fresh().inspect(|&p| pool = p)
+    });
     RESIDENT_SPLIT.with(|c| c.set(r.map(|_| (maps, pool))));
     r
 }
@@ -887,7 +1042,9 @@ fn region_resident() -> Option<usize> {
 }
 
 fn is_region_name(n: &str) -> bool {
-    (n == "[anon:pgrust:region]" || n.starts_with("[anon:pgrust:region:")) && n != "[anon:pgrust:region:arena]" && n != "[anon:pgrust:region:mapped]"
+    (n == "[anon:pgrust:region]" || n.starts_with("[anon:pgrust:region:"))
+        && n != "[anon:pgrust:region:arena]"
+        && n != "[anon:pgrust:region:mapped]"
 }
 
 fn present_in(maps: &str, named: impl Fn(&str) -> bool) -> Option<usize> {
@@ -904,11 +1061,19 @@ fn present_in(maps: &str, named: impl Fn(&str) -> bool) -> Option<usize> {
 }
 
 /// The address ranges of the /proc/<pid>/maps lines whose name (the sixth field) `named` accepts.
-fn named_ranges<'a>(maps: &'a str, named: &'a impl Fn(&str) -> bool) -> impl Iterator<Item = (usize, usize)> + 'a {
-    maps.lines().filter(move |l| l.split_whitespace().nth(5).is_some_and( named)).filter_map(|l| {
-        let (lo, hi) = l.split_once(' ')?.0.split_once('-')?;
-        Some((usize::from_str_radix(lo, 16).ok()?, usize::from_str_radix(hi, 16).ok()?))
-    })
+fn named_ranges<'a>(
+    maps: &'a str,
+    named: &'a impl Fn(&str) -> bool,
+) -> impl Iterator<Item = (usize, usize)> + 'a {
+    maps.lines()
+        .filter(move |l| l.split_whitespace().nth(5).is_some_and(named))
+        .filter_map(|l| {
+            let (lo, hi) = l.split_once(' ')?.0.split_once('-')?;
+            Some((
+                usize::from_str_radix(lo, 16).ok()?,
+                usize::from_str_radix(hi, 16).ok()?,
+            ))
+        })
 }
 
 // ---------------------------------------------------------------------------
@@ -957,7 +1122,9 @@ fn collect(l: &MemLimit) -> Ledger {
     // D3314 / D3316: the one limit; under a cgroup's (the leaf's or an ancestor's), the usage and the ledger's cgroup
     // figures are that cgroup's
     let limiting = match (&l.source, &l.cgroup) {
-        (LimitSource::Cgroup, Some(dir)) => read_u64(&dir.join("memory.current")).map(|c| (c, Some(l.bytes))),
+        (LimitSource::Cgroup, Some(dir)) => {
+            read_u64(&dir.join("memory.current")).map(|c| (c, Some(l.bytes)))
+        }
         _ => None,
     };
     let cg = limiting.or_else(cgroup_mem);
@@ -984,7 +1151,10 @@ fn physical_memory() -> Option<u64> {
     {
         // SAFETY: sysconf takes an integer name and touches no memory.
         let (pages, page) = unsafe {
-            (libc::sysconf(libc::_SC_PHYS_PAGES), libc::sysconf(libc::_SC_PAGESIZE))
+            (
+                libc::sysconf(libc::_SC_PHYS_PAGES),
+                libc::sysconf(libc::_SC_PAGESIZE),
+            )
         };
         (pages > 0 && page > 0).then(|| pages as u64 * page as u64)
     }
@@ -1006,7 +1176,11 @@ fn allocator_line() {
         (None, None) => "this architecture's default: Hearth on Linux aarch64 and x86_64, mimalloc elsewhere".to_owned(),
     };
     // by_arch_default!'s constructor came after the first allocation: the pool served by the old default
-    let why = if pagepool::by_arch_late() { format!("{why}; WARNING: the per-architecture default ran after the first allocation and did not apply") } else { why };
+    let why = if pagepool::by_arch_late() {
+        format!("{why}; WARNING: the per-architecture default ran after the first allocation and did not apply")
+    } else {
+        why
+    };
     let line = if pagepool::hatch_on() {
         format!("global allocator: mimalloc ({why}; Hearth is off and its PGRUST_POOL_* switches are ignored; PGRUST_ALLOCATOR=hearth at start turns it on)")
     } else {
@@ -1060,7 +1234,11 @@ fn fire(l: &Ledger, pct: u64, tier_pct: u64) {
     let alloc_commit_kb = l.alloc.map_or(0, |a| a.current_commit / 1024);
     // D3243 diagnostic: the allocator's live blocks against the same basis (only while counted)
     let live = mcx::governor::allocator_in_use().map_or_else(String::new, |b| {
-        format!(" allocator_in_use={} kB resident_not_live={} kB", b / 1024, rss_basis_kb as i64 - (b / 1024) as i64)
+        format!(
+            " allocator_in_use={} kB resident_not_live={} kB",
+            b / 1024,
+            rss_basis_kb as i64 - (b / 1024) as i64
+        )
     });
     log_line(&format!(
         "memory use {pct}% of limit crossed the {tier_pct}% tier: \
@@ -1095,7 +1273,11 @@ fn fire(l: &Ledger, pct: u64, tier_pct: u64) {
 // exiting mid-scan). The line names the backends and their rank bytes.
 fn request_backend_dumps() -> String {
     use types_storage::ProcSignalReason::PROCSIG_LOG_MEMORY_CONTEXT;
-    let live = lmgr_proc::ProcGlobal().allProcs.iter().filter(|p| p.pid.load(Ordering::Relaxed) != 0).count();
+    let live = lmgr_proc::ProcGlobal()
+        .allProcs
+        .iter()
+        .filter(|p| p.pid.load(Ordering::Relaxed) != 0)
+        .count();
     let mut top = [mcx::governor::TopHolder::default(); mempolicy::watchdog::DUMP_TOP];
     let Ok(k) = mcx::governor::try_top_holders(top.len(), &mut top) else {
         return format!("requested memory context dumps from 0 backends of {live} live (the statement registry was busy: no dumps at this crossing)");
@@ -1104,7 +1286,12 @@ fn request_backend_dumps() -> String {
     for h in &top[..k] {
         if procsignal::SendProcSignal(h.pid, PROCSIG_LOG_MEMORY_CONTEXT, h.slot as _) >= 0 {
             n += 1;
-            who.push_str(&format!("{}pid {} at {} MB", if who.is_empty() { "" } else { ", " }, h.pid, h.bytes >> 20));
+            who.push_str(&format!(
+                "{}pid {} at {} MB",
+                if who.is_empty() { "" } else { ", " },
+                h.pid,
+                h.bytes >> 20
+            ));
         }
     }
     format!(
@@ -1134,7 +1321,8 @@ fn announce(state: &mut WatchState, l: &Ledger, base: i32) {
                     LimitSource::Guc => "pgrust.memory_watchdog_limit",
                     LimitSource::Cgroup if l.knob == "memory.high" => "cgroup v2 memory.high",
                     LimitSource::Cgroup => "cgroup v2 memory.max",
-                    LimitSource::Physical => "physical memory; no cgroup v2 limit, pgrust.memory_watchdog_limit is 0",
+                    LimitSource::Physical =>
+                        "physical memory; no cgroup v2 limit, pgrust.memory_watchdog_limit is 0",
                     LimitSource::None => unreachable!(),
                 },
                 t[0],
@@ -1192,7 +1380,9 @@ fn arm(state: &mut WatchState, base: i32) -> Option<Ledger> {
 /// before resident memory reaches the governor's bar (else 90 % of the limit, the backstop's cancel tier). A take past
 /// it wakes this thread at once (`memledger::arena::note_taken`); 0 (off) without a limit or before the arenas exist.
 fn set_alloc_line(limit: u64, resident: u64) {
-    let Some((general, cache)) = memledger::arena::taken() else { return };
+    let Some((general, cache)) = memledger::arena::taken() else {
+        return;
+    };
     let line_at = match mcx::governor::bar() as u64 {
         0 => limit / 10 * 9,
         bar => bar,
@@ -1202,7 +1392,11 @@ fn set_alloc_line(limit: u64, resident: u64) {
         return;
     }
     let taken = general.saturating_add(cache);
-    memledger::arena::set_line(taken.saturating_add(line_at.saturating_sub(resident)).max(taken.saturating_add(1)));
+    memledger::arena::set_line(
+        taken
+            .saturating_add(line_at.saturating_sub(resident))
+            .max(taken.saturating_add(1)),
+    );
 }
 
 fn refresh_governor() {
@@ -1241,15 +1435,21 @@ fn refresh_governor() {
 /// footprint.
 fn publish_samples(pct: i32, limit: u64, resident: Option<u64>, footprint: usize) {
     match resident {
-        Some(r) if pct > 0 && limit > 0 => {
-            mcx::governor::publish((limit / 100).saturating_mul(pct.clamp(1, 100) as u64) as usize, r as usize, footprint)
-        }
+        Some(r) if pct > 0 && limit > 0 => mcx::governor::publish(
+            (limit / 100).saturating_mul(pct.clamp(1, 100) as u64) as usize,
+            r as usize,
+            footprint,
+        ),
         _ => mcx::governor::publish(0, 0, footprint),
     }
     // `ladder_kill_read` (USER 10-18): the block gate holds and cancels at the cancel line, a kill read: the governed
     // resident with the switch on, the ladder's read without it
     if let Some(r) = resident {
-        let gate = if mempolicy::ladder::kill_read_on() { r } else { ladder_read_of(r) };
+        let gate = if mempolicy::ladder::kill_read_on() {
+            r
+        } else {
+            ladder_read_of(r)
+        };
         mcx::governor::publish_gate(gate as usize, footprint);
     }
 }
@@ -1275,12 +1475,24 @@ fn ladder_shadow(limit: u64, resident: u64) {
     };
     // step 3b: under an armed watchdog cancel, below its line by the margin (mempolicy::ladder::line); D4389: the margin
     // is measured (the p99 rise over a cancel's landing and a tick, `ladder_margin`) while the ladder runs
-    let margin = if mode == mcx::ladder::OFF { ladder::MARGIN_MIN } else { ladder_margin(limit) };
-    let line = ladder::line_with(limit, guc_tables::backing::pgrust_memory_cancel_threshold(), margin);
+    let margin = if mode == mcx::ladder::OFF {
+        ladder::MARGIN_MIN
+    } else {
+        ladder_margin(limit)
+    };
+    let line = ladder::line_with(
+        limit,
+        guc_tables::backing::pgrust_memory_cancel_threshold(),
+        margin,
+    );
     mcx::ladder::publish(if limit == 0 { mcx::ladder::OFF } else { mode }, line);
     // the watchdog's cancel line, for the ladder's readers (inline purges past it under PGRUST_PURGE_PRESSURE_BG)
     let pct = guc_tables::backing::pgrust_memory_cancel_threshold().clamp(1, 100) as u64;
-    let cancel_line = if limit == 0 { 0 } else { (limit / 100).saturating_mul(pct) };
+    let cancel_line = if limit == 0 {
+        0
+    } else {
+        (limit / 100).saturating_mul(pct)
+    };
     mcx::ladder::publish_cancel_line(cancel_line);
     if mode == mcx::ladder::OFF || limit == 0 {
         mcx::ladder::clear_narrow();
@@ -1303,7 +1515,13 @@ fn ladder_shadow(limit: u64, resident: u64) {
     if mode == mcx::ladder::ON {
         // D4364: past the watchdog's cancel line the one-tick wait is waived: R2b / R6 run now (the watchdog cancels
         // nothing while the ladder is on: refresh_cancel)
-        if mempolicy::watchdog::cancel_at(resident, limit, guc_tables::backing::pgrust_memory_cancel_threshold()).is_some() {
+        if mempolicy::watchdog::cancel_at(
+            resident,
+            limit,
+            guc_tables::backing::pgrust_memory_cancel_threshold(),
+        )
+        .is_some()
+        {
             mcx::ladder::waive_wait();
         }
         // the flag R6's hold reads in this pass (`r6_held`; the pass clears it)
@@ -1319,24 +1537,51 @@ fn ladder_shadow(limit: u64, resident: u64) {
             purge::ask(false);
         }
         // the landing's hold, counted: a pass past its wait that still needed bytes, with R6 held for the landing
-        note_r6_hold(now, landing && waited && climbed.need != 0, past_cancel, ladder_read_of(resident) > cancel_line);
+        note_r6_hold(
+            now,
+            landing && waited && climbed.need != 0,
+            past_cancel,
+            ladder_read_of(resident) > cancel_line,
+        );
         // ladder C1 (`cache_floor`): the background trigger after the hook's pass (under LOW, R2a to HIGH, a batch of at
         // most 2 GiB a sample), the room under the line the draws read, and LOW the burst over a batch's give-back and a
         // tick (`ladder_low_burst`)
-        let burst = if mcx::ladder::floors_on() { ladder_low_burst(limit) } else { None };
-        let _ = mcx::ladder::background_pass(limit, line, ladder_read_of(resident), climbed.ran != 0, burst);
+        let burst = if mcx::ladder::floors_on() {
+            ladder_low_burst(limit)
+        } else {
+            None
+        };
+        let _ = mcx::ladder::background_pass(
+            limit,
+            line,
+            ladder_read_of(resident),
+            climbed.ran != 0,
+            burst,
+        );
         ladderlog::sample(&moves, now, ladder_read_of(resident), line);
         if mcx::reconcile::on() {
             reconcile_sample(limit, line, resident);
         }
         // pagepool P6: the claimer's prefault is a raise: only into the room past TOP, nothing while pressed or landing
         // pppress card 15: the pool's landing once (the driver's hook, from the server's start, holds it already)
-        let landing = mcx::ladder::claimer_landing(mcx::governor::decide_inputs().pending, pagepool::landing(u32::MAX) as u64);
+        let landing = mcx::ladder::claimer_landing(
+            mcx::governor::decide_inputs().pending,
+            pagepool::landing(u32::MAX) as u64,
+        );
         let top = mcx::ladder::marks3_now(limit).2;
-        pagepool::set_claim_room(pagepool::claim_room(line, ladder_read_of(resident), mcx::ladder::room_low(), top, landing));
+        pagepool::set_claim_room(pagepool::claim_room(
+            line,
+            ladder_read_of(resident),
+            mcx::ladder::room_low(),
+            top,
+            landing,
+        ));
         // the warm reserve (PGRUST_POOL_RESERVE=1): its budget, the ladder's sized cache 3 (start: E1d's bound)
         if pagepool::reserve_on() {
-            pagepool::set_reserve_budget(mcx::ladder::sized_budget(mcx::ladder::SIZED_RESERVE, pagepool::reserve_bound()));
+            pagepool::set_reserve_budget(mcx::ladder::sized_budget(
+                mcx::ladder::SIZED_RESERVE,
+                pagepool::reserve_bound(),
+            ));
         }
     } else {
         pagepool::set_claim_room(usize::MAX);
@@ -1346,7 +1591,13 @@ fn ladder_shadow(limit: u64, resident: u64) {
     // shadow: the whole path it would climb, as before; on: R2b / R6 only once its wait ended
     let waited = mode != mcx::ladder::ON || mcx::ladder::hook_waited(now);
     let kill_read = mcx::ladder::kill_read_now();
-    let mut s = State { read, line, waited, kill_read, ..State::default() };
+    let mut s = State {
+        read,
+        line,
+        waited,
+        kill_read,
+        ..State::default()
+    };
     if ladder::need(&s) == 0 {
         mcx::ladder::clear_narrow();
     }
@@ -1357,12 +1608,20 @@ fn ladder_shadow(limit: u64, resident: u64) {
         s.cancel_in_flight = mcx::governor::try_no_victim_view().is_ok_and(|v| v.pending_ack);
     }
     let plan = ladder::plan(Who::Hook, &s);
-    let Ok(mut sh) = LADDER_SHADOW.try_lock() else { return };
-    let Some(l) = sh.observe(ladder::need(&s), plan, now) else { return };
+    let Ok(mut sh) = LADDER_SHADOW.try_lock() else {
+        return;
+    };
+    let Some(l) = sh.observe(ladder::need(&s), plan, now) else {
+        return;
+    };
     let episode = sh.episodes;
     drop(sh);
     // lane ladderview: the hook's episode in pgrust_memory_ladder_episodes() (observe only)
-    if let ShadowLine::Open { need, .. } = l { mcx::ladder_stats::hook_open(need, read, line) } else if matches!(l, ShadowLine::Close { .. }) { mcx::ladder_stats::hook_close() }
+    if let ShadowLine::Open { need, .. } = l {
+        mcx::ladder_stats::hook_open(need, read, line)
+    } else if matches!(l, ShadowLine::Close { .. }) {
+        mcx::ladder_stats::hook_close()
+    }
     let mut rungs = String::new(); // alloc: Cold
     let mb = |b: u64| b >> 20;
     let closed = matches!(l, ShadowLine::Close { .. });
@@ -1370,7 +1629,11 @@ fn ladder_shadow(limit: u64, resident: u64) {
     let text = match l {
         ShadowLine::Open { need, plan } | ShadowLine::Plan { need, plan } => {
             ladder::plan_names(Who::Hook, plan, &mut rungs);
-            let what = if matches!(l, ShadowLine::Open { .. }) { "opens" } else { "plan changes" };
+            let what = if matches!(l, ShadowLine::Open { .. }) {
+                "opens"
+            } else {
+                "plan changes"
+            };
             format!(
                 "ladder {} episode {episode} {what}: read {} MB (memory.current less inactive_file) past its line {} MB (the {} MB limit, its cancel line and {} MB of margin) by {} MB: would climb {rungs} (elastic {} MB, protected {} MB, revocable {} MB, cancel in flight {}){}",
                 if mode == mcx::ladder::ON { "on" } else { "shadow" },
@@ -1394,7 +1657,8 @@ fn ladder_shadow(limit: u64, resident: u64) {
                 for r in ladder::ASKER {
                     let (n, b) = counts[r as usize];
                     if n != 0 {
-                        ran.push_str(&format!(" {} {n} runs {} MB", r.name(), b >> 20)); // alloc: Cold
+                        ran.push_str(&format!(" {} {n} runs {} MB", r.name(), b >> 20));
+                        // alloc: Cold
                     }
                 }
             }
@@ -1432,7 +1696,10 @@ fn sample_hint(limit: u64, line: u64, read: u64) {
     let past = read > line.saturating_sub(mcx::ladder::marks_now(limit).0);
     let was = HINT_PAST_LOW.swap(past, Ordering::Relaxed);
     if past {
-        let _ = mcx::governor::try_hint_stale(mempolicy::consts::get(mempolicy::consts::K::CancelMin) as usize, !was);
+        let _ = mcx::governor::try_hint_stale(
+            mempolicy::consts::get(mempolicy::consts::K::CancelMin) as usize,
+            !was,
+        );
     }
 }
 
@@ -1441,7 +1708,10 @@ fn sample_hint(limit: u64, line: u64, read: u64) {
 fn ladder_wiring_line() -> String {
     let (counts, _) = mcx::ladder::counts();
     let mut out = String::from("ladder on wiring: gate climbs"); // alloc: Cold
-    for (g, n) in mcx::ladder::Gate::ALL.iter().zip(mcx::ladder::gate_climbs()) {
+    for (g, n) in mcx::ladder::Gate::ALL
+        .iter()
+        .zip(mcx::ladder::gate_climbs())
+    {
         out.push_str(&format!(" {} {n}", g.name())); // alloc: Cold
     }
     out.push_str("; rungs (runs, relief bytes)");
@@ -1463,9 +1733,24 @@ fn reconcile_sample(limit: u64, line: u64, resident: u64) {
     let current = seen(&CGROUP_SEEN.current);
     let split = if current == 0 {
         let own = LAST_OWN.load(Ordering::Relaxed);
-        Split { current: own, anon: own, line, limit, ..Split::default() }
+        Split {
+            current: own,
+            anon: own,
+            line,
+            limit,
+            ..Split::default()
+        }
     } else {
-        Split { current, anon: seen(&CGROUP_SEEN.anon), shmem: seen(&CGROUP_SEEN.shmem), file: seen(&CGROUP_SEEN.file), inactive: seen(&CGROUP_SEEN.inactive), clean: seen(&CGROUP_SEEN.clean), line, limit }
+        Split {
+            current,
+            anon: seen(&CGROUP_SEEN.anon),
+            shmem: seen(&CGROUP_SEEN.shmem),
+            file: seen(&CGROUP_SEEN.file),
+            inactive: seen(&CGROUP_SEEN.inactive),
+            clean: seen(&CGROUP_SEEN.clean),
+            line,
+            limit,
+        }
     };
     mcx::reconcile::sample(split);
 }
@@ -1479,20 +1764,27 @@ fn reconcile_sample(limit: u64, line: u64, resident: u64) {
 fn ladder_read_of(resident: u64) -> u64 {
     let current = CGROUP_SEEN.current.load(Ordering::Relaxed);
     if current != 0 {
-        current.saturating_sub(CGROUP_SEEN.inactive.load(Ordering::Relaxed)).max(resident)
+        current
+            .saturating_sub(CGROUP_SEEN.inactive.load(Ordering::Relaxed))
+            .max(resident)
     } else {
         resident
     }
 }
 
 /// D4389: the ladder's last measured margin (bytes; `MARGIN_MIN` until the first), kept when the ring is busy.
-static LADDER_MARGIN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(mempolicy::ladder::MARGIN_MIN);
+static LADDER_MARGIN: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(mempolicy::ladder::MARGIN_MIN);
 
 /// D4389 (section 7): the ladder's margin for `limit` now: the p99 rise of the governed resident over a cancel's landing
 /// and one tick, from the 100 ms ring (`RISE`, pushed whatever the cancel rule), clamped by `mempolicy::ladder::margin`.
 fn ladder_margin(limit: u64) -> u64 {
-    let Ok(ring) = RISE.try_lock() else { return LADDER_MARGIN.load(Ordering::Relaxed) };
-    let h = mempolicy::ladder::margin_window_ms(mempolicy::consts::get(mempolicy::consts::K::CancelLandingMs));
+    let Ok(ring) = RISE.try_lock() else {
+        return LADDER_MARGIN.load(Ordering::Relaxed);
+    };
+    let h = mempolicy::ladder::margin_window_ms(mempolicy::consts::get(
+        mempolicy::consts::K::CancelLandingMs,
+    ));
     let m = mempolicy::ladder::margin(limit, ring.rise_p99_scaled(h));
     drop(ring);
     LADDER_MARGIN.store(m, Ordering::Relaxed);
@@ -1549,7 +1841,10 @@ static LADDER_ACTS: mcx::ladder::Acts = mcx::ladder::Acts {
 /// too), unless this server is a bystander in its cgroup (D4262's test); with none, D4029's road (a canceled statement
 /// that never answered is terminated). True when a cancel was raised.
 fn ladder_cancel(_need: u64) -> bool {
-    let (limit, resident) = (LIMIT_BYTES.load(Ordering::Relaxed), LAST_RESIDENT.load(Ordering::Relaxed));
+    let (limit, resident) = (
+        LIMIT_BYTES.load(Ordering::Relaxed),
+        LAST_RESIDENT.load(Ordering::Relaxed),
+    );
     if limit == 0 || resident == 0 {
         return false;
     }
@@ -1558,12 +1853,17 @@ fn ladder_cancel(_need: u64) -> bool {
         0 => read,
         o => o,
     };
-    let Ok(largest) = mcx::governor::try_largest_live() else { return false };
+    let Ok(largest) = mcx::governor::try_largest_live() else {
+        return false;
+    };
     if !mempolicy::watchdog::acts(read, own, largest as u64, line) {
         return false;
     }
     let pct = (read.saturating_mul(100) / limit).clamp(1, 100) as usize;
-    match mcx::governor::try_cancel_largest_victim(pct, mempolicy::consts::get(mempolicy::consts::K::CancelMin) as usize) {
+    match mcx::governor::try_cancel_largest_victim(
+        pct,
+        mempolicy::consts::get(mempolicy::consts::K::CancelMin) as usize,
+    ) {
         Ok(Some(v)) => {
             let at = mcx::governor::decide_ms();
             note_r6(at, read, v.bytes as u64, v.backend);
@@ -1572,7 +1872,9 @@ fn ladder_cancel(_need: u64) -> bool {
             true
         }
         Ok(None) => {
-            let top = mempolicy::watchdog::tiers(guc_tables::backing::pgrust_memory_watchdog_threshold())[2];
+            let top =
+                mempolicy::watchdog::tiers(guc_tables::backing::pgrust_memory_watchdog_threshold())
+                    [2];
             no_victim(pct, read, limit, pct as i32, top, Some(line));
             false
         }
@@ -1588,7 +1890,9 @@ fn ladder_cancel_in_flight() -> bool {
     let own = r6_victim();
     let acks = mcx::governor::try_pending_acks(own.map(|(_, v)| v)).ok();
     r6_acks_hold(acks, own.map_or(0, |(raised, _)| raised), now, past)
-        || ladder_read_now().is_some_and(|read| r6_held(now, read, past) || pool_r1_holds(read, LIMIT_BYTES.load(Ordering::Relaxed)))
+        || ladder_read_now().is_some_and(|read| {
+            r6_held(now, read, past) || pool_r1_holds(read, LIMIT_BYTES.load(Ordering::Relaxed))
+        })
 }
 
 /// Kill safety: whether the cancels waiting for their answer hold R6 (`acks`). Past the cancel line ANY unanswered
@@ -1598,8 +1902,15 @@ fn ladder_cancel_in_flight() -> bool {
 /// word, so another road's pending cancel never times out R6's earlier, answered raise. Once R6's own cancel (the one
 /// raised at `raised`, `r6_victim`'s) is answered, its raise time is cleared (`r6_answered`). A busy registry (None)
 /// holds as R6's own raise would, uncounted.
-fn r6_acks_hold(acks: Option<mcx::governor::PendingAcks>, raised: u64, now_ms: u64, past_cancel: bool) -> bool {
-    let Some(a) = acks else { return mempolicy::ladder::r6_ack_holds(now_ms, raised, past_cancel) };
+fn r6_acks_hold(
+    acks: Option<mcx::governor::PendingAcks>,
+    raised: u64,
+    now_ms: u64,
+    past_cancel: bool,
+) -> bool {
+    let Some(a) = acks else {
+        return mempolicy::ladder::r6_ack_holds(now_ms, raised, past_cancel);
+    };
     if !a.own {
         r6_answered(raised);
     }
@@ -1612,7 +1923,15 @@ fn r6_acks_hold(acks: Option<mcx::governor::PendingAcks>, raised: u64, now_ms: u
 fn r6_victim() -> Option<(u64, (Option<usize>, usize))> {
     // Acquire: pairs with `note_r6_ack`'s Release, after the victim's slot and word
     let raised = R6_RAISED_AT.load(Ordering::Acquire);
-    (raised != 0).then(|| (raised, (R6_VICTIM_SLOT.load(Ordering::Relaxed).checked_sub(1), R6_VICTIM_WORD.load(Ordering::Relaxed))))
+    (raised != 0).then(|| {
+        (
+            raised,
+            (
+                R6_VICTIM_SLOT.load(Ordering::Relaxed).checked_sub(1),
+                R6_VICTIM_WORD.load(Ordering::Relaxed),
+            ),
+        )
+    })
 }
 
 /// Kill safety: R6's own cancel `word` raised at `at_ms` on its victim's `backend` (`Victim::word` / `::backend`), the
@@ -1707,8 +2026,20 @@ fn r6_victim_account(backend: Option<(usize, i32)>) -> Option<(memledger::Acct, 
     let row = memledger::account_row(a);
     let stmt = memledger::running_statement(a);
     let slack = (row.fold_slack as i64).max(memledger::DOOR_FOLD_BYTES);
-    (u32::try_from(pid).ok() == Some(row.pid) && row.running && stmt != 0 && row.statement_net > slack)
-        .then(|| (a, stmt, row.account_bytes.saturating_sub(row.statement_net).saturating_sub(memledger::keepers(a)), slack))
+    (u32::try_from(pid).ok() == Some(row.pid)
+        && row.running
+        && stmt != 0
+        && row.statement_net > slack)
+        .then(|| {
+            (
+                a,
+                stmt,
+                row.account_bytes
+                    .saturating_sub(row.statement_net)
+                    .saturating_sub(memledger::keepers(a)),
+                slack,
+            )
+        })
 }
 
 fn note_r6(at_ms: u64, read: u64, victim: u64, backend: Option<(usize, i32)>) {
@@ -1726,7 +2057,10 @@ fn note_r6(at_ms: u64, read: u64, victim: u64, backend: Option<(usize, i32)>) {
             R6_ACCT.store(a.0 + 1, Ordering::Relaxed);
         }
         None => {
-            R6_LIVE.store(Relief::of(Source::Reusable, mcx::ladder::reusable_bytes()).landing_read(read), Ordering::Relaxed);
+            R6_LIVE.store(
+                Relief::of(Source::Reusable, mcx::ladder::reusable_bytes()).landing_read(read),
+                Ordering::Relaxed,
+            );
             R6_ACCT.store(0, Ordering::Relaxed);
         }
     }
@@ -1762,16 +2096,33 @@ fn r6_landing_at(now_ms: u64, read_now: u64) -> bool {
     );
     let landing = match R6_ACCT.load(Ordering::Relaxed) {
         0 => {
-            let live_now = Relief::of(Source::Reusable, mcx::ladder::reusable_bytes()).landing_read(read_now);
-            let live_holds = mempolicy::ladder::r6_landing(now_ms, at, landing_ms, R6_LIVE.load(Ordering::Relaxed), live_now, victim);
+            let live_now =
+                Relief::of(Source::Reusable, mcx::ladder::reusable_bytes()).landing_read(read_now);
+            let live_holds = mempolicy::ladder::r6_landing(
+                now_ms,
+                at,
+                landing_ms,
+                R6_LIVE.load(Ordering::Relaxed),
+                live_now,
+                victim,
+            );
             mempolicy::ladder::r6_landing(now_ms, at, landing_ms, read_at, read_now, victim)
                 && (live_holds || r6_let_go_pending(now_ms, read_now))
         }
         i => {
             let (stmt, net) = memledger::statement_hold(memledger::Acct(i - 1));
             let holds = stmt == R6_STMT.load(Ordering::Relaxed)
-                && net.saturating_sub(R6_BASE.load(Ordering::Relaxed)) > R6_SLACK.load(Ordering::Relaxed);
-            mempolicy::ladder::r6_victim_landing(now_ms, at, landing_ms, read_at, read_now, victim, holds || r6_let_go_pending(now_ms, read_now))
+                && net.saturating_sub(R6_BASE.load(Ordering::Relaxed))
+                    > R6_SLACK.load(Ordering::Relaxed);
+            mempolicy::ladder::r6_victim_landing(
+                now_ms,
+                at,
+                landing_ms,
+                read_at,
+                read_now,
+                victim,
+                holds || r6_let_go_pending(now_ms, read_now),
+            )
         }
     };
     if !landing {
@@ -1791,7 +2142,10 @@ fn r6_let_go_pending(now_ms: u64, read_now: u64) -> bool {
     let passes = purge::passes();
     // the first call that sees the let-go marks it: its time, then the purger's count to wait for (Release: a reader of
     // the count sees the time), and unparks the purger for that pass
-    if R6_LET_GO_MS.compare_exchange(0, now_ms.max(1), Ordering::Relaxed, Ordering::Relaxed).is_ok() {
+    if R6_LET_GO_MS
+        .compare_exchange(0, now_ms.max(1), Ordering::Relaxed, Ordering::Relaxed)
+        .is_ok()
+    {
         R6_LET_GO.store(purge::pass_mark(), Ordering::Release);
         if owns {
             purge::ask(true);
@@ -1803,9 +2157,21 @@ fn r6_let_go_pending(now_ms: u64, read_now: u64) -> bool {
         return true;
     }
     let let_go_ms = R6_LET_GO_MS.load(Ordering::Relaxed);
-    let (read_at, victim) = (R6_READ.load(Ordering::Relaxed), R6_BYTES.load(Ordering::Relaxed));
-    let pending =
-        mempolicy::ladder::r6_let_go_pending(owns, mark, passes, let_go_ms, now_ms, purge::TICK_MS, read_at, read_now, victim);
+    let (read_at, victim) = (
+        R6_READ.load(Ordering::Relaxed),
+        R6_BYTES.load(Ordering::Relaxed),
+    );
+    let pending = mempolicy::ladder::r6_let_go_pending(
+        owns,
+        mark,
+        passes,
+        let_go_ms,
+        now_ms,
+        purge::TICK_MS,
+        read_at,
+        read_now,
+        victim,
+    );
     if !pending && !R6_WAIT_COUNTED.swap(true, Ordering::Relaxed) {
         R6_PURGE_WAIT_MS.fetch_add(now_ms.saturating_sub(let_go_ms), Ordering::Relaxed);
         let ticked = owns && passes >= mark;
@@ -1902,14 +2268,17 @@ fn ladder_protected() -> u64 {
 static LADDER_ACTS_IN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// The shadow ladder's episode (only the watchdog thread samples).
-static LADDER_SHADOW: pgsync::Mutex<mempolicy::ladder::Shadow> = pgsync::Mutex::new(mempolicy::ladder::Shadow::new());
+static LADDER_SHADOW: pgsync::Mutex<mempolicy::ladder::Shadow> =
+    pgsync::Mutex::new(mempolicy::ladder::Shadow::new());
 
 // D3243 diagnostic: the governor's trips since the last line (at most one line every TRIP_LINE_SAMPLES governor samples, a
 // second at the 100 ms cadence), with the allocator's figures, while the allocator's live bytes are counted
 // (PGRUST_ALLOC_COUNT=1). The last trip's measures were taken at the trip. Only the watchdog thread writes these.
 const TRIP_LINE_SAMPLES: u32 = 10;
-static TRIPS_LOGGED: [std::sync::atomic::AtomicU64; 4] = [const { std::sync::atomic::AtomicU64::new(0) }; 4];
-static SAMPLES_SINCE_LINE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(TRIP_LINE_SAMPLES);
+static TRIPS_LOGGED: [std::sync::atomic::AtomicU64; 4] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; 4];
+static SAMPLES_SINCE_LINE: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(TRIP_LINE_SAMPLES);
 
 fn log_trips(resident: Option<usize>) {
     if mcx::governor::allocator_in_use().is_none() {
@@ -1956,9 +2325,11 @@ fn resident_now() -> Option<usize> {
 // file_writeback; 0 when the limit is not a cgroup's, whose resident counts no page cache), for a bulk load's gate.
 fn dirty_now() -> Option<usize> {
     match current_limit() {
-        MemLimit { source: LimitSource::Cgroup, cgroup: Some(dir), .. } => {
-            read_text(dir.join("memory.stat")).map(|s| dirty_file(&s) as usize)
-        }
+        MemLimit {
+            source: LimitSource::Cgroup,
+            cgroup: Some(dir),
+            ..
+        } => read_text(dir.join("memory.stat")).map(|s| dirty_file(&s) as usize),
         _ => Some(0),
     }
 }
@@ -2006,12 +2377,19 @@ pub fn set_pool_tick(f: fn(u64, Option<u64>)) {
 }
 
 fn pool_tick() {
-    let (p, resident) = (POOL_TICK.load(Ordering::Acquire), LAST_RESIDENT.load(Ordering::Relaxed));
+    let (p, resident) = (
+        POOL_TICK.load(Ordering::Acquire),
+        LAST_RESIDENT.load(Ordering::Relaxed),
+    );
     if p.is_null() || resident == 0 {
         return;
     }
     let seen = |a: &std::sync::atomic::AtomicU64| a.load(Ordering::Relaxed);
-    let room = mempolicy::sizes::pool_headroom_room(LIMIT_BYTES.load(Ordering::Relaxed), seen(&CGROUP_SEEN.current), seen(&CGROUP_SEEN.inactive));
+    let room = mempolicy::sizes::pool_headroom_room(
+        LIMIT_BYTES.load(Ordering::Relaxed),
+        seen(&CGROUP_SEEN.current),
+        seen(&CGROUP_SEEN.inactive),
+    );
     // SAFETY: only set_pool_tick stores here, always from the fn type.
     let f: fn(u64, Option<u64>) = unsafe { std::mem::transmute(p) };
     f(resident, room);
@@ -2028,8 +2406,14 @@ pub fn set_residency_pass(f: fn() -> bool) {
 
 /// The residency pass's period now: the governed resident bytes against B at the current limit and bar.
 fn residency_period() -> i64 {
-    let (resident, limit) = (LAST_RESIDENT.load(Ordering::Relaxed), LIMIT_BYTES.load(Ordering::Relaxed));
-    mempolicy::watchdog::residency_period_ms(resident, mempolicy::snapshot::b_now(limit, mcx::governor::bar() as u64))
+    let (resident, limit) = (
+        LAST_RESIDENT.load(Ordering::Relaxed),
+        LIMIT_BYTES.load(Ordering::Relaxed),
+    );
+    mempolicy::watchdog::residency_period_ms(
+        resident,
+        mempolicy::snapshot::b_now(limit, mcx::governor::bar() as u64),
+    )
 }
 
 fn residency_pass() {
@@ -2059,16 +2443,26 @@ static RESIDENCY_STALE: std::sync::atomic::AtomicU64 = std::sync::atomic::Atomic
 /// `(the last residency pass's age on the watchdog's clock in ms, the samples that found it stale, the passes)`; the age
 /// is the watchdog's whole run while no pass has ended.
 pub fn residency_counts() -> (u64, u64, u64) {
-    let (at, now) = (RESIDENCY_AT.load(Ordering::Relaxed), WATCH_MS.load(Ordering::Relaxed));
-    (now.saturating_sub(at), RESIDENCY_STALE.load(Ordering::Relaxed), RESIDENCY_PASSES.load(Ordering::Relaxed))
+    let (at, now) = (
+        RESIDENCY_AT.load(Ordering::Relaxed),
+        WATCH_MS.load(Ordering::Relaxed),
+    );
+    (
+        now.saturating_sub(at),
+        RESIDENCY_STALE.load(Ordering::Relaxed),
+        RESIDENCY_PASSES.load(Ordering::Relaxed),
+    )
 }
 
 fn start_resident() {
-    let spawned = std::thread::Builder::new().name("pg:memresident".into()).stack_size(WATCHDOG_STACK).spawn(pagegive::pinned(|| {
-        // a memory thread: its lines (the residency report) never wait on the log either
-        memlog::defer_here();
-        resident_loop();
-    }));
+    let spawned = std::thread::Builder::new()
+        .name("pg:memresident".into())
+        .stack_size(WATCHDOG_STACK)
+        .spawn(pagegive::pinned(|| {
+            // a memory thread: its lines (the residency report) never wait on the log either
+            memlog::defer_here();
+            resident_loop();
+        }));
     if let Ok(h) = spawned {
         let _ = RESIDENT_THREAD.set(h.thread().clone());
         // D4812: a cancel's pick hands the statements it found stale to this thread (it reads none itself)
@@ -2095,7 +2489,9 @@ fn resident_loop() {
         // unwind-ok: log-then-die
         let _ = std::panic::catch_unwind(memledger::resident::refresh_hinted);
         // unwind-ok: log-then-die
-        if !RESIDENCY_PASS.load(Ordering::Acquire).is_null() && std::panic::catch_unwind(residency_period).is_ok_and(|p| since_residency >= p) {
+        if !RESIDENCY_PASS.load(Ordering::Acquire).is_null()
+            && std::panic::catch_unwind(residency_period).is_ok_and(|p| since_residency >= p)
+        {
             since_residency = 0;
             // unwind-ok: log-then-die
             let _ = std::panic::catch_unwind(residency_pass);
@@ -2114,7 +2510,10 @@ fn note_residency_age() {
     if RESIDENCY_PASS.load(Ordering::Acquire).is_null() {
         return;
     }
-    let (at, now) = (RESIDENCY_AT.load(Ordering::Relaxed), WATCH_MS.load(Ordering::Relaxed));
+    let (at, now) = (
+        RESIDENCY_AT.load(Ordering::Relaxed),
+        WATCH_MS.load(Ordering::Relaxed),
+    );
     if now.saturating_sub(at) > 2 * residency_period().max(0) as u64 {
         RESIDENCY_STALE.fetch_add(1, Ordering::Relaxed);
     }
@@ -2165,7 +2564,9 @@ fn backstop_reclaim(want: u64) -> u64 {
 pub fn retained_now() -> Option<u64> {
     let alloc_resident = allocator_resident()? as i64;
     let mut heap = 0i64;
-    memledger::for_each_row(|r| heap = heap.wrapping_add(r.account_bytes.wrapping_sub(r.mapped_bytes)));
+    memledger::for_each_row(|r| {
+        heap = heap.wrapping_add(r.account_bytes.wrapping_sub(r.mapped_bytes))
+    });
     let given = memledger::given_back_bytes();
     let (nr_heap, _) = memledger::not_resident_bytes();
     let live = mcx::governor::allocator_in_use().map_or(heap, |c| (c as i64).wrapping_sub(given));
@@ -2232,7 +2633,13 @@ fn rung_return_allocator_memory(resident: u64) {
 /// pagepool P3: the pool's R1 faces for mcx's ladder (`mcx::ladder::PoolReturn`).
 static POOL_RETURN: mcx::ladder::PoolReturn = mcx::ladder::PoolReturn {
     ask: pool_return_ask,
-    releasable: || (pagepool::releasable() as u64).saturating_add(if on_watchdog() { pagepool::reserve_kept() } else { 0 }),
+    releasable: || {
+        (pagepool::releasable() as u64).saturating_add(if on_watchdog() {
+            pagepool::reserve_kept()
+        } else {
+            0
+        })
+    },
 };
 
 std::thread_local! {
@@ -2262,13 +2669,25 @@ fn pool_return_ask() -> u64 {
     let need = if mcx::ladder::past_cancel() {
         u64::MAX
     } else {
-        let (read, line) = (SAMPLE_READ.load(Ordering::Relaxed), SAMPLE_LINE.load(Ordering::Relaxed));
+        let (read, line) = (
+            SAMPLE_READ.load(Ordering::Relaxed),
+            SAMPLE_LINE.load(Ordering::Relaxed),
+        );
         let high = mcx::ladder::marks_now(SAMPLE_LIMIT.load(Ordering::Relaxed)).1;
-        if read > line { read - line } else { high.saturating_sub(line - read).min(mempolicy::ladder::C1_BATCH_MAX) }.saturating_sub(landing)
+        if read > line {
+            read - line
+        } else {
+            high.saturating_sub(line - read)
+                .min(mempolicy::ladder::C1_BATCH_MAX)
+        }
+        .saturating_sub(landing)
     };
     let shed = pagepool::reserve_ask(usize::try_from(need).unwrap_or(usize::MAX)) as u64;
     if shed != 0 {
-        mcx::ladder::note_taken(mcx::ladder::SIZED_RESERVE, pagepool::reserve_probe().0.saturating_sub(shed));
+        mcx::ladder::note_taken(
+            mcx::ladder::SIZED_RESERVE,
+            pagepool::reserve_probe().0.saturating_sub(shed),
+        );
     }
     landing.saturating_add(shed)
 }
@@ -2306,7 +2725,11 @@ fn backstop_sample(resident: u64, limit: u64, pct: i32, top: u64) -> Option<bool
         }
     }
     // C5: what the reclaim leaves, asked of running statements as spills (pgrust.memory_revoke; nothing while it is off)
-    let asked = if step.revoke != 0 { mcx::revoke::request_revoke(step.revoke, 0, None) } else { 0 };
+    let asked = if step.revoke != 0 {
+        mcx::revoke::request_revoke(step.revoke, 0, None)
+    } else {
+        0
+    };
     if asked != 0 {
         log_line(&format!(
             "resident {} MB is past {pct}% of the {} MB limit: asked running statements to spill {} MB ({} asks, {} MB since start){}",
@@ -2330,12 +2753,21 @@ fn refresh_cancel(limit: u64, resident: u64) {
 /// `refresh_cancel` with `largest` the largest live statement's reader (`mcx::governor::try_largest_live`; D4417's witness
 /// passes one that answers busy, as a held pins table or registry does).
 fn refresh_cancel_by(limit: u64, resident: u64, largest: LargestLive) {
-    let Some((past, least)) = backstop_cancels(limit, resident, largest) else { return };
+    let Some((past, least)) = backstop_cancels(limit, resident, largest) else {
+        return;
+    };
     let pct = guc_tables::backing::pgrust_memory_cancel_threshold();
     // a busy registry or pins table: the next sample retries
     match mcx::governor::try_cancel_largest_victim(past, least) {
         Ok(Some(v)) => cancel_raised(v, resident, limit, pct, None),
-        Ok(None) => no_victim(past, resident, limit, pct, mempolicy::watchdog::tiers(guc_tables::backing::pgrust_memory_watchdog_threshold())[2], None),
+        Ok(None) => no_victim(
+            past,
+            resident,
+            limit,
+            pct,
+            mempolicy::watchdog::tiers(guc_tables::backing::pgrust_memory_watchdog_threshold())[2],
+            None,
+        ),
         Err(_) => {}
     }
 }
@@ -2344,10 +2776,18 @@ fn refresh_cancel_by(limit: u64, resident: u64, largest: LargestLive) {
 /// ask; a test's fake in its place).
 fn pool_r1_landing() -> u64 {
     #[cfg(test)]
-    if let Some(f) = *tests::POOL_LANDING.lock().unwrap_or_else(|e| e.into_inner()) {
+    if let Some(f) = *tests::POOL_LANDING
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+    {
         return f();
     }
-    pagepool::landing(u32::try_from(mempolicy::consts::get(mempolicy::consts::K::CancelLandingMs)).unwrap_or(u32::MAX)) as u64
+    pagepool::landing(
+        u32::try_from(mempolicy::consts::get(
+            mempolicy::consts::K::CancelLandingMs,
+        ))
+        .unwrap_or(u32::MAX),
+    ) as u64
 }
 
 /// D4886: past the watchdog's cancel line and under its top tier, the pool's R1 ask still landing (`pool_r1_landing`)
@@ -2357,8 +2797,12 @@ fn pool_r1_landing() -> u64 {
 /// Graviton's 100M-row bulk load (Hearth) the backstop canceled the COPY at 91 % with 12.1 GB of the pool's free runs
 /// asked of the purger in the same sample and not yet released.
 fn pool_r1_holds(read: u64, limit: u64) -> bool {
-    let top = mempolicy::watchdog::tiers(guc_tables::backing::pgrust_memory_watchdog_threshold())[2];
-    let (pct, pool) = (guc_tables::backing::pgrust_memory_cancel_threshold(), pool_r1_landing());
+    let top =
+        mempolicy::watchdog::tiers(guc_tables::backing::pgrust_memory_watchdog_threshold())[2];
+    let (pct, pool) = (
+        guc_tables::backing::pgrust_memory_cancel_threshold(),
+        pool_r1_landing(),
+    );
     let held = mempolicy::watchdog::landing_holds(read, limit, pct, top, pool);
     if held {
         note_pool_hold(read, limit, pct, pool);
@@ -2411,10 +2855,18 @@ fn backstop_cancels(limit: u64, resident: u64, largest: LargestLive) -> Option<(
         return None;
     }
     // a bystander's sample, or (D4417) one that could not tell: the next sample decides
-    if bystander(resident, LAST_OWN.load(Ordering::Relaxed), limit, past, largest) != Some(false) {
+    if bystander(
+        resident,
+        LAST_OWN.load(Ordering::Relaxed),
+        limit,
+        past,
+        largest,
+    ) != Some(false)
+    {
         return None;
     }
-    let top = mempolicy::watchdog::tiers(guc_tables::backing::pgrust_memory_watchdog_threshold())[2];
+    let top =
+        mempolicy::watchdog::tiers(guc_tables::backing::pgrust_memory_watchdog_threshold())[2];
     if backstop_sample(resident, limit, pct, top) != Some(true) {
         return None;
     }
@@ -2450,7 +2902,13 @@ static MEASURED_LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::Atomi
 /// BYSTRIM (main 2026-10-12T22:29:54Z): a bystander still runs the reclaim rung on its OWN idle memory (parked regions,
 /// cache trims, `backstop_reclaim`) as the backstop's sample would: over the line that has no victim and lowers the risk
 /// of a kernel kill. A trim after the episode's first line gets its own line.
-fn bystander(resident: u64, own: u64, limit: u64, past: usize, largest: LargestLive) -> Option<bool> {
+fn bystander(
+    resident: u64,
+    own: u64,
+    limit: u64,
+    past: usize,
+    largest: LargestLive,
+) -> Option<bool> {
     let own = if own == 0 { resident } else { own };
     let line = (limit / 100).saturating_mul(past as u64);
     // the tenant's own share acts whatever its largest statement holds (`acts` with none): no registry read
@@ -2464,7 +2922,11 @@ fn bystander(resident: u64, own: u64, limit: u64, past: usize, largest: LargestL
     BACKSTOP_TRIMMED.store(false, Ordering::Relaxed);
     let (freed, wanted) = bystander_trim(resident, limit, past);
     let trimmed = if freed != 0 {
-        format!("reclaimed {} MB of its own parked memory and caches ({} MB wanted), ", freed >> 20, wanted >> 20)
+        format!(
+            "reclaimed {} MB of its own parked memory and caches ({} MB wanted), ",
+            freed >> 20,
+            wanted >> 20
+        )
     } else {
         String::new()
     };
@@ -2498,7 +2960,11 @@ type LargestLive = fn() -> Result<usize, mcx::governor::Busy>;
 /// re-arm line, at most what the rungs could free now) on this server's own parked memory and caches; no ask, no cancel.
 /// The bytes freed and wanted.
 fn bystander_trim(resident: u64, limit: u64, past: usize) -> (u64, u64) {
-    let Some(step) = mempolicy::watchdog::backstop(resident, limit, past as i32, 100, backstop_bytes(), false) else { return (0, 0) };
+    let Some(step) =
+        mempolicy::watchdog::backstop(resident, limit, past as i32, 100, backstop_bytes(), false)
+    else {
+        return (0, 0);
+    };
     rung_return_allocator_memory(resident);
     if step.trim == 0 {
         return (0, 0);
@@ -2507,8 +2973,18 @@ fn bystander_trim(resident: u64, limit: u64, past: usize) -> (u64, u64) {
 }
 
 /// The backstop's cancel landed on `victim` (`ladder`: the ladder's R6 at that line, D4353, with `resident` its read).
-fn cancel_raised(victim: mcx::governor::Victim, resident: u64, limit: u64, pct: i32, ladder: Option<u64>) {
-    mcx::ladder_stats::note_cancel(if ladder.is_some() { mcx::ladder_stats::Cancel::LadderR6 } else { mcx::ladder_stats::Cancel::Watchdog });
+fn cancel_raised(
+    victim: mcx::governor::Victim,
+    resident: u64,
+    limit: u64,
+    pct: i32,
+    ladder: Option<u64>,
+) {
+    mcx::ladder_stats::note_cancel(if ladder.is_some() {
+        mcx::ladder_stats::Cancel::LadderR6
+    } else {
+        mcx::ladder_stats::Cancel::Watchdog
+    });
     let victim = Some(victim);
     // D3821: the victim is also condemned and its backend's interrupt and Gravity abort byte raised, so it stops at its
     // next interrupt poll or kernel back-edge, not only at its next block or draw (p99 2.7 s, max 15.9 s before)
@@ -2518,9 +2994,13 @@ fn cancel_raised(victim: mcx::governor::Victim, resident: u64, limit: u64, pct: 
     let (held, charged) = victim.map_or((0, 0), |v| (v.bytes, v.charged));
     if held != 0 {
         // D3243 diagnostic: the allocator's split of the same resident bytes (while counted)
-        let split = mcx::governor::allocator_census(resident as usize).map_or_else(String::new, |c| format!(" ({c}, MiB)"));
+        let split = mcx::governor::allocator_census(resident as usize)
+            .map_or_else(String::new, |c| format!(" ({c}, MiB)"));
         // the victim's backend, so a cancel that is never answered can be traced to its session
-        let who = victim.and_then(|v| v.backend).map_or_else(|| " in no backend".to_string(), |(slot, pid)| format!(" in pid {pid} (slot {slot})"));
+        let who = victim.and_then(|v| v.backend).map_or_else(
+            || " in no backend".to_string(),
+            |(slot, pid)| format!(" in pid {pid} (slot {slot})"),
+        );
         let head = match ladder {
             Some(line) => format!("ladder on R6: read {} MB is past its line {} MB of the {} MB limit: canceling the largest holder", resident >> 20, line >> 20, limit >> 20),
             None => format!("resident {} MB is past {pct}% of the {} MB limit: canceling the statement holding the most memory", resident >> 20, limit >> 20),
@@ -2547,7 +3027,13 @@ fn ranked_line(top: &[mcx::governor::Cand]) -> String {
             Some((slot, pid)) => write!(out, "pid {pid} (slot {slot})"),
             None => write!(out, "no backend"),
         };
-        let _ = write!(out, " rank {} MB (resident {} MB, parts {} MB)", c.rank >> 20, c.resident >> 20, c.parts >> 20);
+        let _ = write!(
+            out,
+            " rank {} MB (resident {} MB, parts {} MB)",
+            c.rank >> 20,
+            c.resident >> 20,
+            c.parts >> 20
+        );
         if c.canceled {
             out.push_str(", canceled");
         }
@@ -2563,16 +3049,32 @@ static NO_VICTIM_LINE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU
 /// nothing while a canceled statement that never answered grew to the kernel's kill.
 fn no_victim(past: usize, resident: u64, limit: u64, pct: i32, top: u64, ladder: Option<u64>) {
     use mempolicy::watchdog::{NoVictim, CANCEL_ACK_MS, NO_VICTIM_LINE_MS};
-    let tag = if ladder.is_some() { "ladder on R6: " } else { "" };
-    let Ok(v) = mcx::governor::try_no_victim_view() else { return };
-    let Ok(mut term) = TERMINATED.try_lock() else { return };
+    let tag = if ladder.is_some() {
+        "ladder on R6: "
+    } else {
+        ""
+    };
+    let Ok(v) = mcx::governor::try_no_victim_view() else {
+        return;
+    };
+    let Ok(mut term) = TERMINATED.try_lock() else {
+        return;
+    };
     let now = mcx::governor::decide_ms();
     let terminated = v.stalled.and_then(|s| {
         let t = (*term)?;
-        (Some(t.0) == s.backend.map(|b| b.1) && t.1 == s.word).then(|| if t.3 { CANCEL_ACK_MS } else { now.saturating_sub(t.2) })
+        (Some(t.0) == s.backend.map(|b| b.1) && t.1 == s.word).then(|| {
+            if t.3 {
+                CANCEL_ACK_MS
+            } else {
+                now.saturating_sub(t.2)
+            }
+        })
     });
     let at_top = resident >= (limit / 100).saturating_mul(top.max(pct as u64));
-    let stalled = v.stalled.map(|s| (s.now > s.ranked && s.backend.is_some(), terminated));
+    let stalled = v
+        .stalled
+        .map(|s| (s.now > s.ranked && s.backend.is_some(), terminated));
     let mb = |b: usize| b >> 20;
     match mempolicy::watchdog::no_victim(v.pending_ack, stalled, at_top) {
         NoVictim::Wait => {}
@@ -2609,8 +3111,15 @@ fn no_victim(past: usize, resident: u64, limit: u64, pct: i32, top: u64, ladder:
             }
             NO_VICTIM_LINE.store(now, Ordering::Relaxed);
             let why = v.stalled.map_or_else(String::new, |s| {
-                let who = s.backend.map_or_else(|| "no backend".to_string(), |(_, pid)| format!("pid {pid}"));
-                format!("{who} canceled {} ms ago and unanswered ({} -> {} MB), ", s.age_ms, mb(s.ranked), mb(s.now))
+                let who = s
+                    .backend
+                    .map_or_else(|| "no backend".to_string(), |(_, pid)| format!("pid {pid}"));
+                format!(
+                    "{who} canceled {} ms ago and unanswered ({} -> {} MB), ",
+                    s.age_ms,
+                    mb(s.ranked),
+                    mb(s.now)
+                )
             });
             log_line(&format!(
                 "{tag}resident {} MB is past {pct}% of the {} MB limit: no victim: {why}the largest other statement holds {} MB < cancel_min ({} MB){}",
@@ -2629,7 +3138,8 @@ fn no_victim(past: usize, resident: u64, limit: u64, pct: i32, top: u64, ladder:
 // ---------------------------------------------------------------------------
 
 /// The resident ring for rise99 and U (`mempolicy::decide::Rise`): only this thread writes it; `try_lock` only.
-static RISE: pgsync::Mutex<mempolicy::decide::Rise> = pgsync::Mutex::new(mempolicy::decide::Rise::new());
+static RISE: pgsync::Mutex<mempolicy::decide::Rise> =
+    pgsync::Mutex::new(mempolicy::decide::Rise::new());
 
 /// The fast rungs (Gravity's parked regions, slot sets and managed caches; installed by the postmaster from the hosts):
 /// the bytes they could free now, and a reclaim of up to n bytes (the bytes freed).
@@ -2666,7 +3176,8 @@ static RULE_ANNOUNCED: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8
 /// The backstop's decide ticks (`log_decides` writes at every tenth).
 static DECIDE_TICKS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 /// The decide counts and the revoke asks (count, bytes) at the last line (`log_decides`).
-static DECIDES_LOGGED: pgsync::Mutex<Option<(mcx::governor::DecideCounts, u64, u64)>> = pgsync::Mutex::new(None);
+static DECIDES_LOGGED: pgsync::Mutex<Option<(mcx::governor::DecideCounts, u64, u64)>> =
+    pgsync::Mutex::new(None);
 
 /// pgrust.memory_cancel_rule read into `mempolicy::decide` (every 100 ms; SIGHUP moves it); a change is logged.
 fn sync_rule() {
@@ -2700,13 +3211,23 @@ fn decide_sample() {
     use mempolicy::decide;
     sync_rule();
     let projection = decide::projection();
-    let (r, limit) = (LAST_RESIDENT.load(Ordering::Relaxed), LIMIT_BYTES.load(Ordering::Relaxed));
+    let (r, limit) = (
+        LAST_RESIDENT.load(Ordering::Relaxed),
+        LIMIT_BYTES.load(Ordering::Relaxed),
+    );
     // D4389: the ring feeds the ladder's measured margin whatever the rule (its unattributed band only under projection)
     if r != 0 {
         if let Ok(mut ring) = RISE.try_lock() {
             // pagepool P2: the pool's resident bytes no owner holds are retained, not unattributed; pppress card 9: door 1's
             // pool bytes (PoolAlloc's) are in doors_total on their accounts, so pool_unowned leaves them out (counted once)
-            ring.push(r, if projection { r as i64 - memledger::doors_total() - memledger::pool_unowned() } else { 0 });
+            ring.push(
+                r,
+                if projection {
+                    r as i64 - memledger::doors_total() - memledger::pool_unowned()
+                } else {
+                    0
+                },
+            );
         }
     }
     if !projection {
@@ -2729,10 +3250,19 @@ fn decide_sample() {
         revoke_on: mcx::revoke::enabled(),
     });
     drop(ring);
-    let Some(t) = mcx::governor::decide_tick() else { return };
-    let freed = if t.reclaim_fast { fast_reclaim(decide::fast_want(&t.inputs)) } else { 0 };
+    let Some(t) = mcx::governor::decide_tick() else {
+        return;
+    };
+    let freed = if t.reclaim_fast {
+        fast_reclaim(decide::fast_want(&t.inputs))
+    } else {
+        0
+    };
     if let Some(v) = t.victim {
-        let who = v.backend.map_or_else(|| " in no backend".to_string(), |(slot, pid)| format!(" in pid {pid} (slot {slot})"));
+        let who = v.backend.map_or_else(
+            || " in no backend".to_string(),
+            |(slot, pid)| format!(" in pid {pid} (slot {slot})"),
+        );
         log_line(&format!(
             "resident {} MB is projected past the {} MB limit less its margin before memory can be freed (F {} MB, F* {} MB, pending {} MB, rise99 {} MB over {} ms): canceling the statement furthest past its fair share of {} MB ({} MB){who}",
             t.inputs.r >> 20,
@@ -2748,15 +3278,27 @@ fn decide_sample() {
     }
     if mempolicy::trace::on() {
         let mut rec = decide::record(decide::Event::Tick, &t.inputs, &t.plan);
-        rec.push_str(&format!(" freed_fast={freed} revoked={} victim={}", t.revoked, t.victim.map_or(0, |v| v.bytes)));
+        rec.push_str(&format!(
+            " freed_fast={freed} revoked={} victim={}",
+            t.revoked,
+            t.victim.map_or(0, |v| v.bytes)
+        ));
         mempolicy::trace::note("decide.tick", &rec);
         let dropped = mcx::governor::drain_inline_trace(|d| {
             let mut rec = decide::record(d.event, &d.inputs, &d.plan);
-            rec.push_str(&format!(" at_ms={} slot={} victim={}", d.at_ms, d.slot.map_or(-1, |s| s as i64), d.victim.map_or(0, |v| v.bytes)));
+            rec.push_str(&format!(
+                " at_ms={} slot={} victim={}",
+                d.at_ms,
+                d.slot.map_or(-1, |s| s as i64),
+                d.victim.map_or(0, |v| v.bytes)
+            ));
             mempolicy::trace::note("decide.grow", &rec);
         });
         if dropped != 0 {
-            mempolicy::trace::note("decide.grow", &format!("dropped={dropped} (the inline ring was full)"));
+            mempolicy::trace::note(
+                "decide.grow",
+                &format!("dropped={dropped} (the inline ring was full)"),
+            );
         }
     }
     log_decides();
@@ -2771,8 +3313,13 @@ fn log_decides() {
         return;
     }
     let c = mcx::governor::decide_counts();
-    let (asks, asked) = (mcx::revoke::ASKS.load(Ordering::Relaxed), mcx::revoke::ASKED_BYTES.load(Ordering::Relaxed));
-    let Ok(mut last) = DECIDES_LOGGED.try_lock() else { return };
+    let (asks, asked) = (
+        mcx::revoke::ASKS.load(Ordering::Relaxed),
+        mcx::revoke::ASKED_BYTES.load(Ordering::Relaxed),
+    );
+    let Ok(mut last) = DECIDES_LOGGED.try_lock() else {
+        return;
+    };
     let (prev, prev_asks, prev_asked) = last.unwrap_or_default();
     if (c, asks, asked) == (prev, prev_asks, prev_asked) {
         return;
@@ -2847,7 +3394,7 @@ pub fn start(thread_init: impl FnOnce() + Send + 'static) {
     // D4812: the drainer of the memory threads' log writes, before the first of them; mcx's own lines (the victim pick's
     // ledger2 shadow line, revoke's settled-ask line) through elog's stderr writer, so they are deferred there too
     let _ = memlog::start();
-    mcx::set_line_sink( elog::write_stderr);
+    mcx::set_line_sink(elog::write_stderr);
     // D4812 (2): the block gate's inline rungs write their lines through the same ring, on the allocating thread
     mcx::set_gate_log_defer(memlog::gate_defer_begin, memlog::gate_defer_end);
     // C3: the cache purger beside the watchdog (PGRUST_CACHE_PURGE_NOW=1; off: not started)
@@ -2893,7 +3440,8 @@ pub fn start(thread_init: impl FnOnce() + Send + 'static) {
             loop {
                 // C3: GOVERNOR_CADENCE_MS, or 10 ms under the projection rule while resident memory is past B / 2
                 // unwind-ok: log-then-die
-                let period = std::panic::catch_unwind(sample_period).map_or(GOVERNOR_CADENCE_MS, |p| p as i64);
+                let period = std::panic::catch_unwind(sample_period)
+                    .map_or(GOVERNOR_CADENCE_MS, |p| p as i64);
                 // the allocator's entry point (ALLOC-LADDER (c)): a take of mimalloc past the line ends the park at once
                 memledger::arena::park_ladder(period as u64);
                 let due = memledger::arena::take_ladder_due();
@@ -2968,9 +3516,21 @@ mod tests {
         let host = b"some avg10=0.00 avg60=0.00 avg300=0.00 total=356581\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=352040\n";
         assert_eq!(psi_some_total(host), Some(356_581));
         let full_first = b"full avg10=1.00 avg60=0.00 avg300=0.00 total=7\nsome avg10=2.50 avg60=0.10 avg300=0.00 total=1906241\n";
-        assert_eq!(psi_some_total(full_first), Some(1_906_241), "the some line, wherever it is");
-        assert_eq!(psi_some_total(b"full avg10=0.00 avg60=0.00 avg300=0.00 total=24\n"), None, "no some line");
-        assert_eq!(psi_some_total(b"some avg10=0.00 avg60=0.00 avg300=0.00\n"), None, "no total");
+        assert_eq!(
+            psi_some_total(full_first),
+            Some(1_906_241),
+            "the some line, wherever it is"
+        );
+        assert_eq!(
+            psi_some_total(b"full avg10=0.00 avg60=0.00 avg300=0.00 total=24\n"),
+            None,
+            "no some line"
+        );
+        assert_eq!(
+            psi_some_total(b"some avg10=0.00 avg60=0.00 avg300=0.00\n"),
+            None,
+            "no total"
+        );
         assert_eq!(psi_some_total(b""), None);
     }
 
@@ -2990,11 +3550,15 @@ mod tests {
             .lines()
             .find(|l| {
                 let (a, z) = l.split(' ').next().unwrap().split_once('-').unwrap();
-                (usize::from_str_radix(a, 16).unwrap()..usize::from_str_radix(z, 16).unwrap()).contains(&last)
+                (usize::from_str_radix(a, 16).unwrap()..usize::from_str_radix(z, 16).unwrap())
+                    .contains(&last)
             })
             .unwrap_or_else(|| panic!("no mapping holds {last:#x}"));
         let f: Vec<&str> = line.split_whitespace().collect();
-        assert!(f[1].starts_with("rw") && (f.len() == 5 || f[5] == "[heap]"), "the sample buffer is mapped from the binary (.data), not .bss: {line}");
+        assert!(
+            f[1].starts_with("rw") && (f.len() == 5 || f[5] == "[heap]"),
+            "the sample buffer is mapped from the binary (.data), not .bss: {line}"
+        );
     }
 
     /// D4444: glibc carves every thread's static TLS out of its own stack, so the watchdog's stack must hold twice
@@ -3014,9 +3578,16 @@ mod tests {
             // is the caller's &mut usize, alive for the whole call.
             let (phdrs, total) = unsafe {
                 let info = &*info;
-                (std::slice::from_raw_parts(info.dlpi_phdr, info.dlpi_phnum as usize), &mut *total.cast::<usize>())
+                (
+                    std::slice::from_raw_parts(info.dlpi_phdr, info.dlpi_phnum as usize),
+                    &mut *total.cast::<usize>(),
+                )
             };
-            *total += phdrs.iter().filter(|p| p.p_type == libc::PT_TLS).map(|p| p.p_memsz as usize).sum::<usize>();
+            *total += phdrs
+                .iter()
+                .filter(|p| p.p_type == libc::PT_TLS)
+                .map(|p| p.p_memsz as usize)
+                .sum::<usize>();
             0
         }
         let mut tls = 0usize;
@@ -3056,28 +3627,52 @@ mod tests {
         ready_rx.recv().unwrap();
         mcx::revoke::set_enabled(false);
         BACKSTOP_TRIMMED.store(false, Ordering::Relaxed);
-        assert_eq!(backstop_sample(at(91), limit, 90, 95), Some(true), "revoke off: nothing asked, the first sample cancels");
+        assert_eq!(
+            backstop_sample(at(91), limit, 90, 95),
+            Some(true),
+            "revoke off: nothing asked, the first sample cancels"
+        );
         assert_eq!(BYTE.load(Ordering::Relaxed) & mcx::revoke::REVOKE_BIT, 0);
         mcx::revoke::set_enabled(true);
         BACKSTOP_TRIMMED.store(false, Ordering::Relaxed);
-        assert_eq!(backstop_sample(at(89), limit, 90, 95), None, "under the threshold");
+        assert_eq!(
+            backstop_sample(at(89), limit, 90, 95),
+            None,
+            "under the threshold"
+        );
         let before = mcx::revoke::ASKED_BYTES.load(Ordering::Relaxed);
-        assert_eq!(backstop_sample(at(91), limit, 90, 95), Some(true), "asked to spill, and the sample cancels as with revoke off (D4314 (a))");
-        assert_ne!(BYTE.load(Ordering::Relaxed) & mcx::revoke::REVOKE_BIT, 0, "the statement's byte carries the revoke bit");
+        assert_eq!(
+            backstop_sample(at(91), limit, 90, 95),
+            Some(true),
+            "asked to spill, and the sample cancels as with revoke off (D4314 (a))"
+        );
+        assert_ne!(
+            BYTE.load(Ordering::Relaxed) & mcx::revoke::REVOKE_BIT,
+            0,
+            "the statement's byte carries the revoke bit"
+        );
         assert!(mcx::revoke::ASKED_BYTES.load(Ordering::Relaxed) > before);
-        assert_eq!(backstop_sample(at(91), limit, 90, 95), Some(true), "still past the next sample: cancel");
+        assert_eq!(
+            backstop_sample(at(91), limit, 90, 95),
+            Some(true),
+            "still past the next sample: cancel"
+        );
         mcx::revoke::set_enabled(false);
         BACKSTOP_TRIMMED.store(false, Ordering::Relaxed);
         go_tx.send(()).unwrap();
         let (asked, canceled) = stmt.join().unwrap();
-        assert!(asked != 0 && !canceled, "the statement read an ask, never a cancel (the sample itself cancels nobody)");
+        assert!(
+            asked != 0 && !canceled,
+            "the statement read an ask, never a cancel (the sample itself cancels nobody)"
+        );
     }
 
     /// The tests that drive the process-wide revoke switch, the ladder's mode and the cancel threshold, one at a time.
     pub(crate) static GLOBALS: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     /// D4886: the pool's R1 landing in `pool_r1_landing`'s place (None: the pool's own).
-    pub(crate) static POOL_LANDING: std::sync::Mutex<Option<fn() -> u64>> = std::sync::Mutex::new(None);
+    pub(crate) static POOL_LANDING: std::sync::Mutex<Option<fn() -> u64>> =
+        std::sync::Mutex::new(None);
 
     /// D4886 (born red): on a 32 GiB Graviton's 100M-row bulk load (Hearth, a 31483 MB limit) the backstop canceled the
     /// COPY at 28703 MB (91 %) while 12.1 GB of the pool's free runs sat in superpages still in use: the sample that
@@ -3092,7 +3687,11 @@ mod tests {
         static SERVED: AtomicBool = AtomicBool::new(false);
         // the purger's ask landing from the sample's own R1 (`rung_return_allocator_memory` marks it) until served
         fn landing() -> u64 {
-            if RUNG1_AT_MS.load(Ordering::Relaxed) != u64::MAX && !SERVED.load(Ordering::Relaxed) { 12_100 * MB } else { 0 }
+            if RUNG1_AT_MS.load(Ordering::Relaxed) != u64::MAX && !SERVED.load(Ordering::Relaxed) {
+                12_100 * MB
+            } else {
+                0
+            }
         }
         let (limit, read) = (31_483 * MB, 28_703 * MB);
         let watch0 = guc_tables::backing::pgrust_memory_watchdog_threshold();
@@ -3107,21 +3706,48 @@ mod tests {
         LAST_OWN.store(0, Ordering::Relaxed);
         SERVED.store(false, Ordering::Relaxed);
         POOL_HOLD_LOGGED.store(false, Ordering::Relaxed);
-        assert_eq!(backstop_cancels(limit, read, busy), None, "the first sample past the line: its own R1 ask, landing, holds the cancel");
-        assert!(POOL_HOLD_LOGGED.load(Ordering::Relaxed), "the held cancel has its line");
-        assert_ne!(RUNG1_AT_MS.load(Ordering::Relaxed), u64::MAX, "the sample asked the pool (R1)");
+        assert_eq!(
+            backstop_cancels(limit, read, busy),
+            None,
+            "the first sample past the line: its own R1 ask, landing, holds the cancel"
+        );
+        assert!(
+            POOL_HOLD_LOGGED.load(Ordering::Relaxed),
+            "the held cancel has its line"
+        );
+        assert_ne!(
+            RUNG1_AT_MS.load(Ordering::Relaxed),
+            u64::MAX,
+            "the sample asked the pool (R1)"
+        );
         assert!(pool_r1_holds(read, limit), "R6 waits for the same ask");
         SERVED.store(true, Ordering::Relaxed);
         BACKSTOP_TRIMMED.store(false, Ordering::Relaxed);
-        assert!(backstop_cancels(limit, read, busy).is_some(), "served and the read still past the line: the next sample cancels");
+        assert!(
+            backstop_cancels(limit, read, busy).is_some(),
+            "served and the read still past the line: the next sample cancels"
+        );
         assert!(!pool_r1_holds(read, limit), "served: R6 too");
         SERVED.store(false, Ordering::Relaxed);
         BACKSTOP_TRIMMED.store(false, Ordering::Relaxed);
-        assert!(backstop_cancels(limit, limit / 100 * 96, busy).is_some(), "the top tier: no landing holds a cancel");
-        assert!(!pool_r1_holds(limit / 100 * 96, limit), "the top tier: R6 cancels");
+        assert!(
+            backstop_cancels(limit, limit / 100 * 96, busy).is_some(),
+            "the top tier: no landing holds a cancel"
+        );
+        assert!(
+            !pool_r1_holds(limit / 100 * 96, limit),
+            "the top tier: R6 cancels"
+        );
         assert!(!pool_r1_holds(read, 0), "no limit, no hold");
-        assert_eq!(backstop_cancels(limit, limit / 100 * 80, busy), None, "under the line");
-        assert!(!POOL_HOLD_LOGGED.load(Ordering::Relaxed), "under the line the episode ends: the next hold writes its line again");
+        assert_eq!(
+            backstop_cancels(limit, limit / 100 * 80, busy),
+            None,
+            "under the line"
+        );
+        assert!(
+            !POOL_HOLD_LOGGED.load(Ordering::Relaxed),
+            "under the line the episode ends: the next hold writes its line again"
+        );
         *POOL_LANDING.lock().unwrap_or_else(|e| e.into_inner()) = None;
         guc_tables::backing::set_pgrust_memory_cancel_threshold(0);
         guc_tables::backing::set_pgrust_memory_watchdog_threshold(watch0);
@@ -3162,18 +3788,29 @@ mod tests {
         mcx::ladder::publish(mcx::ladder::ON, at(85));
         refresh_cancel(limit, at(91));
         refresh_cancel(limit, at(96));
-        assert_eq!(BYTE.load(Ordering::Relaxed) & mcx::revoke::REVOKE_BIT, 0, "ladder on: the watchdog asked a statement to spill");
+        assert_eq!(
+            BYTE.load(Ordering::Relaxed) & mcx::revoke::REVOKE_BIT,
+            0,
+            "ladder on: the watchdog asked a statement to spill"
+        );
         // the ladder off: the same sample is the backstop's, as today
         mcx::ladder::publish(mcx::ladder::OFF, 0);
         BACKSTOP_TRIMMED.store(false, Ordering::Relaxed);
         LAST_OWN.store(0, Ordering::Relaxed);
         refresh_cancel(limit, at(91));
-        assert_ne!(BYTE.load(Ordering::Relaxed) & mcx::revoke::REVOKE_BIT, 0, "ladder off: the backstop still asks (unchanged)");
+        assert_ne!(
+            BYTE.load(Ordering::Relaxed) & mcx::revoke::REVOKE_BIT,
+            0,
+            "ladder off: the backstop still asks (unchanged)"
+        );
         mcx::revoke::set_enabled(false);
         guc_tables::backing::set_pgrust_memory_cancel_threshold(0);
         BACKSTOP_TRIMMED.store(false, Ordering::Relaxed);
         go_tx.send(()).unwrap();
-        assert!(!stmt.join().unwrap(), "no watchdog cancel reached the statement");
+        assert!(
+            !stmt.join().unwrap(),
+            "no watchdog cancel reached the statement"
+        );
     }
 
     /// D4374 (memtest's D-tip scorecard, cell b, 1536M: R6 canceled a second statement 6 ms after the first, while the
@@ -3188,8 +3825,14 @@ mod tests {
         const MIB: u64 = 1 << 20;
         let _one = GLOBALS.lock().unwrap_or_else(|e| e.into_inner());
         note_r6(20_000, 1369 * MIB, 960 * MIB, None);
-        assert!(!r6_landing_at(20_108, 526 * MIB), "108 ms later the read fell to 526 MB: landed");
-        assert!(!r6_landing_at(22_532, 1306 * MIB), "2.5 s later a new grower at 1306 MB: not the old victim landing");
+        assert!(
+            !r6_landing_at(20_108, 526 * MIB),
+            "108 ms later the read fell to 526 MB: landed"
+        );
+        assert!(
+            !r6_landing_at(22_532, 1306 * MIB),
+            "2.5 s later a new grower at 1306 MB: not the old victim landing"
+        );
         R6_AT.store(0, Ordering::Relaxed);
     }
 
@@ -3201,8 +3844,14 @@ mod tests {
         const MIB: u64 = 1 << 20;
         let _one = GLOBALS.lock().unwrap_or_else(|e| e.into_inner());
         note_r6(30_000, 1500 * MIB, 468 * MIB, None);
-        assert!(r6_held(30_400, 1700 * MIB, false), "under the cancel line: the bytes reused, the read up 200 MB: held");
-        assert!(!r6_held(30_400, 1700 * MIB, true), "past the cancel line: the next pass may cancel");
+        assert!(
+            r6_held(30_400, 1700 * MIB, false),
+            "under the cancel line: the bytes reused, the read up 200 MB: held"
+        );
+        assert!(
+            !r6_held(30_400, 1700 * MIB, true),
+            "past the cancel line: the next pass may cancel"
+        );
         R6_AT.store(0, Ordering::Relaxed);
     }
 
@@ -3212,23 +3861,39 @@ mod tests {
     /// read falls or stays; the read rising (the bytes reused) frees R6 at that test. Not answered: the ack hold's (250 ms
     /// at most), not this one's. Off: past the line no landing holds R6, as before.
     #[test]
-    fn d4374_past_the_cancel_line_an_answered_victims_landing_holds_r6_while_the_read_is_not_rising() {
+    fn d4374_past_the_cancel_line_an_answered_victims_landing_holds_r6_while_the_read_is_not_rising(
+    ) {
         const MIB: u64 = 1 << 20;
         let _one = GLOBALS.lock().unwrap_or_else(|e| e.into_inner());
         use mempolicy::consts::{set, K};
         note_r6(60_000, 1458 * MIB, 848 * MIB, None);
         note_r6_ack(60_000, None, 0x305);
-        assert!(!r6_held(60_005, 1458 * MIB, true), "not answered yet: this hold is not the one in flight");
+        assert!(
+            !r6_held(60_005, 1458 * MIB, true),
+            "not answered yet: this hold is not the one in flight"
+        );
         r6_answered(60_000);
-        assert!(r6_held(60_013, 1408 * MIB, true), "answered, 13 ms later the read fell 50 MB: held");
+        assert!(
+            r6_held(60_013, 1408 * MIB, true),
+            "answered, 13 ms later the read fell 50 MB: held"
+        );
         assert!(r6_held(60_022, 1255 * MIB, true), "still falling: held");
         assert!(r6_held(60_025, 1255 * MIB, true), "flat: held");
-        assert!(!r6_held(60_030, 1300 * MIB, true), "the read rose (the next hog reusing the bytes): R6 free");
+        assert!(
+            !r6_held(60_030, 1300 * MIB, true),
+            "the read rose (the next hog reusing the bytes): R6 free"
+        );
         note_r6(61_000, 1458 * MIB, 848 * MIB, None);
         set(K::R6LandPastCancel, 0);
-        assert!(!r6_held(61_013, 1408 * MIB, true), "off: past the line no landing holds R6");
+        assert!(
+            !r6_held(61_013, 1408 * MIB, true),
+            "off: past the line no landing holds R6"
+        );
         set(K::R6LandPastCancel, 1);
-        assert!(r6_held(61_014, 1408 * MIB, false), "under the line: the landing test as before");
+        assert!(
+            r6_held(61_014, 1408 * MIB, false),
+            "under the line: the landing test as before"
+        );
         R6_AT.store(0, Ordering::Relaxed);
         R6_RAISED_AT.store(0, Ordering::Relaxed);
     }
@@ -3243,10 +3908,19 @@ mod tests {
         note_r6(50_000, 1500 * MIB, 468 * MIB, None);
         note_r6_ack(50_000, None, 0x105);
         let before = n();
-        assert!(r6_ack_held(50_100, true), "100 ms after the cancel: in flight");
-        assert!(r6_ack_held(50_300, false), "under the cancel line: held until answered");
+        assert!(
+            r6_ack_held(50_100, true),
+            "100 ms after the cancel: in flight"
+        );
+        assert!(
+            r6_ack_held(50_300, false),
+            "under the cancel line: held until answered"
+        );
         assert_eq!(n(), before);
-        assert!(!r6_ack_held(50_250, true), "250 ms unanswered past the line: R6 may act again");
+        assert!(
+            !r6_ack_held(50_250, true),
+            "250 ms unanswered past the line: R6 may act again"
+        );
         assert!(!r6_ack_held(50_400, true));
         assert_eq!(n(), before + 1, "counted once for that cancel");
         note_r6(51_000, 1500 * MIB, 468 * MIB, None);
@@ -3268,32 +3942,103 @@ mod tests {
         let n = || mcx::ladder_stats::cancels()[mcx::ladder_stats::Cancel::R6AckTimeout as usize];
         note_r6(50_000, 1500 * MIB, 468 * MIB, None);
         note_r6_ack(50_000, Some((7, 4007)), 0x105);
-        assert_eq!(r6_victim(), Some((50_000, (Some(7), 0x105))), "R6's own cancel, named by its victim's slot and word");
+        assert_eq!(
+            r6_victim(),
+            Some((50_000, (Some(7), 0x105))),
+            "R6's own cancel, named by its victim's slot and word"
+        );
         let before = n();
-        let watchdog = PendingAcks { own: false, other: true, other_young: true };
-        assert!(r6_acks_hold(Some(watchdog), 50_000, 50_400, true), "the watchdog's cancel in its ack window holds R6");
+        let watchdog = PendingAcks {
+            own: false,
+            other: true,
+            other_young: true,
+        };
+        assert!(
+            r6_acks_hold(Some(watchdog), 50_000, 50_400, true),
+            "the watchdog's cancel in its ack window holds R6"
+        );
         assert_eq!(n(), before, "R6's answered raise never times out");
-        assert_eq!(R6_RAISED_AT.load(Ordering::Relaxed), 0, "answered: its raise is cleared");
+        assert_eq!(
+            R6_RAISED_AT.load(Ordering::Relaxed),
+            0,
+            "answered: its raise is cleared"
+        );
         assert_eq!(r6_victim(), None);
-        assert!(r6_acks_hold(Some(watchdog), 0, 50_500, true), "and the watchdog's cancel goes on holding R6");
+        assert!(
+            r6_acks_hold(Some(watchdog), 0, 50_500, true),
+            "and the watchdog's cancel goes on holding R6"
+        );
         assert_eq!(n(), before);
         // R6's own cancel unanswered past the line: bounded at 250 ms, counted once (R5b), whatever another road's
         note_r6_ack(60_000, Some((7, 4007)), 0x205);
-        let own = PendingAcks { own: true, other: false, other_young: false };
-        assert!(r6_acks_hold(Some(own), 60_000, 60_100, true), "its own cancel 100 ms unanswered: held");
-        assert!(!r6_acks_hold(Some(own), 60_000, 60_250, true), "250 ms unanswered past the line: R6 may act again");
+        let own = PendingAcks {
+            own: true,
+            other: false,
+            other_young: false,
+        };
+        assert!(
+            r6_acks_hold(Some(own), 60_000, 60_100, true),
+            "its own cancel 100 ms unanswered: held"
+        );
+        assert!(
+            !r6_acks_hold(Some(own), 60_000, 60_250, true),
+            "250 ms unanswered past the line: R6 may act again"
+        );
         assert_eq!(n(), before + 1, "one timeout for that cancel");
-        assert!(r6_acks_hold(Some(PendingAcks { own: true, other: true, other_young: true }), 60_000, 60_300, true), "another road's young cancel still holds R6");
-        assert!(!r6_acks_hold(Some(PendingAcks { own: true, other: true, other_young: false }), 60_000, 60_300, true), "no cancel under 250 ms old past the line: R6 may act");
-        assert!(r6_acks_hold(Some(own), 60_000, 61_000, false), "under the cancel line: held until answered");
-        assert!(!r6_acks_hold(None, 60_000, 61_000, true), "a busy registry past the line holds as R6's own raise: past its bound");
-        assert!(r6_acks_hold(None, 60_000, 60_100, true), "and inside it: held");
-        assert!(r6_acks_hold(None, 0, 61_000, true), "with no raise of its own: held");
+        assert!(
+            r6_acks_hold(
+                Some(PendingAcks {
+                    own: true,
+                    other: true,
+                    other_young: true
+                }),
+                60_000,
+                60_300,
+                true
+            ),
+            "another road's young cancel still holds R6"
+        );
+        assert!(
+            !r6_acks_hold(
+                Some(PendingAcks {
+                    own: true,
+                    other: true,
+                    other_young: false
+                }),
+                60_000,
+                60_300,
+                true
+            ),
+            "no cancel under 250 ms old past the line: R6 may act"
+        );
+        assert!(
+            r6_acks_hold(Some(own), 60_000, 61_000, false),
+            "under the cancel line: held until answered"
+        );
+        assert!(
+            !r6_acks_hold(None, 60_000, 61_000, true),
+            "a busy registry past the line holds as R6's own raise: past its bound"
+        );
+        assert!(
+            r6_acks_hold(None, 60_000, 60_100, true),
+            "and inside it: held"
+        );
+        assert!(
+            r6_acks_hold(None, 0, 61_000, true),
+            "with no raise of its own: held"
+        );
         assert_eq!(n(), before + 1);
         // a raise noted after the scan is never cleared by that scan's answer
         note_r6_ack(70_000, Some((7, 4007)), 0x305);
-        assert!(!r6_acks_hold(Some(PendingAcks::default()), 60_000, 70_010, true), "nothing pending");
-        assert_eq!(R6_RAISED_AT.load(Ordering::Relaxed), 70_000, "the newer raise is kept");
+        assert!(
+            !r6_acks_hold(Some(PendingAcks::default()), 60_000, 70_010, true),
+            "nothing pending"
+        );
+        assert_eq!(
+            R6_RAISED_AT.load(Ordering::Relaxed),
+            70_000,
+            "the newer raise is kept"
+        );
         R6_AT.store(0, Ordering::Relaxed);
         R6_RAISED_AT.store(0, Ordering::Relaxed);
     }
@@ -3308,11 +4053,35 @@ mod tests {
         R6_RAISED_AT.store(0, Ordering::Relaxed);
         let n = || mcx::ladder_stats::cancels()[mcx::ladder_stats::Cancel::R6AckTimeout as usize];
         let before = n();
-        let (aged, young) = (PendingAcks { own: false, other: true, other_young: false }, PendingAcks { own: false, other: true, other_young: true });
-        assert!(!r6_acks_hold(Some(aged), 0, 80_300, true), "a watchdog cancel pending 300 ms past the line: R6 not held");
-        assert!(r6_acks_hold(Some(young), 0, 80_100, true), "one pending under 250 ms: held");
-        assert!(r6_acks_hold(Some(aged), 0, 80_300, false), "under the cancel line: held until answered");
-        assert_eq!(n(), before, "another road's cancel never counts R6's timeout");
+        let (aged, young) = (
+            PendingAcks {
+                own: false,
+                other: true,
+                other_young: false,
+            },
+            PendingAcks {
+                own: false,
+                other: true,
+                other_young: true,
+            },
+        );
+        assert!(
+            !r6_acks_hold(Some(aged), 0, 80_300, true),
+            "a watchdog cancel pending 300 ms past the line: R6 not held"
+        );
+        assert!(
+            r6_acks_hold(Some(young), 0, 80_100, true),
+            "one pending under 250 ms: held"
+        );
+        assert!(
+            r6_acks_hold(Some(aged), 0, 80_300, false),
+            "under the cancel line: held until answered"
+        );
+        assert_eq!(
+            n(),
+            before,
+            "another road's cancel never counts R6's timeout"
+        );
     }
 
     #[test]
@@ -3322,11 +4091,23 @@ mod tests {
         let landing = mempolicy::consts::get(mempolicy::consts::K::CancelLandingMs);
         // the victim answered (no statement is registered, so no cancel waits for its ack) but its bytes are still there
         note_r6(10_000, 1500 * MIB, 960 * MIB, None);
-        assert!(r6_landing_at(10_006, 1490 * MIB), "6 ms later the victim's bytes have not left: no second cancel");
-        assert!(!r6_landing_at(10_006, 1000 * MIB), "the read fell by half the victim's bytes: landed");
-        assert!(!r6_landing_at(10_000 + landing, 1490 * MIB), "past its landing time the next cancel may go");
+        assert!(
+            r6_landing_at(10_006, 1490 * MIB),
+            "6 ms later the victim's bytes have not left: no second cancel"
+        );
+        assert!(
+            !r6_landing_at(10_006, 1000 * MIB),
+            "the read fell by half the victim's bytes: landed"
+        );
+        assert!(
+            !r6_landing_at(10_000 + landing, 1490 * MIB),
+            "past its landing time the next cancel may go"
+        );
         R6_AT.store(0, Ordering::Relaxed);
-        assert!(!r6_landing_at(10_006, 1490 * MIB), "no R6 yet: nothing in flight");
+        assert!(
+            !r6_landing_at(10_006, 1490 * MIB),
+            "no R6 yet: nothing in flight"
+        );
     }
 
     /// The landing judged by attribution (born red). 1536M ladder wiring witness with the purger owning the arenas and
@@ -3345,21 +4126,42 @@ mod tests {
         memledger::door_heap((600 * MIB) as isize);
         memledger::fold();
         note_r6(20_811, 1351 * MIB, 600 * MIB, Some((procno as usize, pid)));
-        assert!(r6_landing_at(20_812, 1351 * MIB), "the victim still holds its 600 MB: R6 stays in flight");
+        assert!(
+            r6_landing_at(20_812, 1351 * MIB),
+            "the victim still holds its 600 MB: R6 stays in flight"
+        );
         // the canceled statement frees its bytes: they leave its account, not (yet) the read
         memledger::door_heap(-((600 * MIB) as isize));
         memledger::fold();
-        assert!(r6_landing_at(20_815, 1292 * MIB), "its account let go; its pages are still on their way out");
-        assert!(!r6_landing_at(20_915, 1266 * MIB), "two purger periods after the let-go: landed, though the read fell only 85 MB");
-        assert!(!r6_landing_at(21_290, 1336 * MIB), "the next grower is not the victim landing: R6 may pick it");
+        assert!(
+            r6_landing_at(20_815, 1292 * MIB),
+            "its account let go; its pages are still on their way out"
+        );
+        assert!(
+            !r6_landing_at(20_915, 1266 * MIB),
+            "two purger periods after the let-go: landed, though the read fell only 85 MB"
+        );
+        assert!(
+            !r6_landing_at(21_290, 1336 * MIB),
+            "the next grower is not the victim landing: R6 may pick it"
+        );
         // a victim that holds its bytes keeps the hold until it lets go or its statement ends
         memledger::door_heap((500 * MIB) as isize);
         memledger::fold();
         note_r6(30_000, 1400 * MIB, 500 * MIB, Some((procno as usize, pid)));
-        assert!(r6_landing_at(30_010, 1390 * MIB), "the victim still holds its 500 MB");
+        assert!(
+            r6_landing_at(30_010, 1390 * MIB),
+            "the victim still holds its 500 MB"
+        );
         let _ = memledger::statement_end();
-        assert!(r6_landing_at(30_020, 1390 * MIB), "its statement ended (what it kept is its session's); its pages on their way");
-        assert!(!r6_landing_at(30_120, 1390 * MIB), "two purger periods on: landed");
+        assert!(
+            r6_landing_at(30_020, 1390 * MIB),
+            "its statement ended (what it kept is its session's); its pages on their way"
+        );
+        assert!(
+            !r6_landing_at(30_120, 1390 * MIB),
+            "two purger periods on: landed"
+        );
         memledger::door_heap(-((500 * MIB) as isize));
         memledger::fold();
         memledger::unbind_backend();
@@ -3383,14 +4185,29 @@ mod tests {
         note_r6(20_811, 1351 * MIB, 600 * MIB, None);
         assert!(r6_landing_at(20_812, 1351 * MIB), "nothing freed yet");
         FAKE_REUSABLE.store(100 * MIB, Ordering::Relaxed);
-        assert!(r6_landing_at(20_813, 1351 * MIB), "96 MB freed and kept: not half the victim's bytes");
+        assert!(
+            r6_landing_at(20_813, 1351 * MIB),
+            "96 MB freed and kept: not half the victim's bytes"
+        );
         FAKE_REUSABLE.store(619 * MIB, Ordering::Relaxed);
-        assert!(r6_landing_at(20_815, 1292 * MIB), "615 MB freed and kept: let go, its pages on their way out");
-        assert!(!r6_landing_at(20_915, 1292 * MIB), "two purger periods on: landed, though the whole read fell 59 MB");
+        assert!(
+            r6_landing_at(20_815, 1292 * MIB),
+            "615 MB freed and kept: let go, its pages on their way out"
+        );
+        assert!(
+            !r6_landing_at(20_915, 1292 * MIB),
+            "two purger periods on: landed, though the whole read fell 59 MB"
+        );
         FAKE_REUSABLE.store(0, Ordering::Relaxed);
         note_r6(30_000, 1351 * MIB, 600 * MIB, Some((4012, 4012)));
-        assert!(r6_landing_at(30_010, 1292 * MIB), "a backend with no account bound: the read judges, as before");
-        assert!(!r6_landing_at(30_010, 1000 * MIB), "the whole read fell by half the victim's bytes");
+        assert!(
+            r6_landing_at(30_010, 1292 * MIB),
+            "a backend with no account bound: the read judges, as before"
+        );
+        assert!(
+            !r6_landing_at(30_010, 1000 * MIB),
+            "the whole read fell by half the victim's bytes"
+        );
         R6_AT.store(0, Ordering::Relaxed);
     }
 
@@ -3412,14 +4229,31 @@ mod tests {
         memledger::door_heap(-((600 * MIB) as isize));
         memledger::fold();
         purge::test_purging(true);
-        assert!(r6_landing_at(20_815, 1292 * MIB), "let go, but its pages wait for the purger's pass");
+        assert!(
+            r6_landing_at(20_815, 1292 * MIB),
+            "let go, but its pages wait for the purger's pass"
+        );
         purge::test_tick();
         purge::test_purging(false);
-        assert!(r6_landing_at(20_840, 1292 * MIB), "the pass running at the let-go finished: it may have begun before the free");
+        assert!(
+            r6_landing_at(20_840, 1292 * MIB),
+            "the pass running at the let-go finished: it may have begun before the free"
+        );
         purge::test_tick();
-        assert!(!r6_landing_at(20_870, 1292 * MIB), "a pass begun after the let-go finished: landed, the read as it was");
-        assert_eq!(r6_hold_counts().2 - wait0, 55, "the wait, from the let-go to its end");
-        assert_eq!(r6_hold_counts().3, bounded0, "the tick ended it, not the bound");
+        assert!(
+            !r6_landing_at(20_870, 1292 * MIB),
+            "a pass begun after the let-go finished: landed, the read as it was"
+        );
+        assert_eq!(
+            r6_hold_counts().2 - wait0,
+            55,
+            "the wait, from the let-go to its end"
+        );
+        assert_eq!(
+            r6_hold_counts().3,
+            bounded0,
+            "the tick ended it, not the bound"
+        );
         // a purger that never ticks: the bound ends the wait two periods after the let-go
         memledger::door_heap((500 * MIB) as isize);
         memledger::fold();
@@ -3427,10 +4261,23 @@ mod tests {
         memledger::door_heap(-((500 * MIB) as isize));
         memledger::fold();
         let period = purge::TICK_MS;
-        assert!(r6_landing_at(30_010, 1390 * MIB), "let go: waiting for the purger");
-        assert!(r6_landing_at(30_010 + 2 * period - 1, 1390 * MIB), "under two periods: still waiting");
-        assert!(!r6_landing_at(30_010 + 2 * period, 1390 * MIB), "two periods with no tick: landed by the bound");
-        assert_eq!(r6_hold_counts().3, bounded0 + 1, "the bound ended this wait");
+        assert!(
+            r6_landing_at(30_010, 1390 * MIB),
+            "let go: waiting for the purger"
+        );
+        assert!(
+            r6_landing_at(30_010 + 2 * period - 1, 1390 * MIB),
+            "under two periods: still waiting"
+        );
+        assert!(
+            !r6_landing_at(30_010 + 2 * period, 1390 * MIB),
+            "two periods with no tick: landed by the bound"
+        );
+        assert_eq!(
+            r6_hold_counts().3,
+            bounded0 + 1,
+            "the bound ended this wait"
+        );
         let _ = memledger::statement_end();
         memledger::unbind_backend();
         purge::TEST_OWNS.store(false, Ordering::Relaxed);
@@ -3443,15 +4290,25 @@ mod tests {
         let (ms0, past0, _, _) = r6_hold_counts();
         R6_HOLD_PASS_MS.store(0, Ordering::Relaxed);
         note_r6_hold(1_000, true, false, false);
-        assert_eq!(r6_hold_counts().0 - ms0, 0, "the first pass has no previous one to time from");
+        assert_eq!(
+            r6_hold_counts().0 - ms0,
+            0,
+            "the first pass has no previous one to time from"
+        );
         assert_eq!(r6_hold_counts().1, past0);
         note_r6_hold(1_100, true, false, true);
         note_r6_hold(1_200, false, false, true);
         note_r6_hold(1_250, true, false, false);
-        assert_eq!((r6_hold_counts().0, r6_hold_counts().1), (ms0 + 150, past0 + 1));
+        assert_eq!(
+            (r6_hold_counts().0, r6_hold_counts().1),
+            (ms0 + 150, past0 + 1)
+        );
         // the pass's cancel-line flag up: R6 is not held (`r6_held`), so neither the time nor the pass counts
         note_r6_hold(1_300, true, true, true);
-        assert_eq!((r6_hold_counts().0, r6_hold_counts().1), (ms0 + 150, past0 + 1));
+        assert_eq!(
+            (r6_hold_counts().0, r6_hold_counts().1),
+            (ms0 + 150, past0 + 1)
+        );
     }
 
     /// R5: past the watchdog's cancel line no landing holds R6 off, the let-go's wait on the purger's pass included.
@@ -3468,12 +4325,21 @@ mod tests {
         note_r6(40_000, 1400 * MIB, 600 * MIB, Some((procno as usize, pid)));
         memledger::door_heap(-((600 * MIB) as isize));
         memledger::fold();
-        assert!(r6_held(40_005, 1400 * MIB, false), "let go, its pages wait for the purger's pass: R6 held");
+        assert!(
+            r6_held(40_005, 1400 * MIB, false),
+            "let go, its pages wait for the purger's pass: R6 held"
+        );
         mempolicy::consts::set(mempolicy::consts::K::R6LandPastCancel, 0);
-        assert!(!r6_held(40_005, 1400 * MIB, true), "r6_land_past_cancel 0, the cancel-line flag up: the wait holds nothing");
+        assert!(
+            !r6_held(40_005, 1400 * MIB, true),
+            "r6_land_past_cancel 0, the cancel-line flag up: the wait holds nothing"
+        );
         mempolicy::consts::set(mempolicy::consts::K::R6LandPastCancel, 1);
         // D4374: on, the victim answered and the read flat past the line: its landing holds; a rise ends it
-        assert!(r6_held(40_006, 1400 * MIB, true), "r6_land_past_cancel 1, the read not rising: held");
+        assert!(
+            r6_held(40_006, 1400 * MIB, true),
+            "r6_land_past_cancel 1, the read not rising: held"
+        );
         assert!(!r6_held(40_007, 1401 * MIB, true), "the read rose: R6 free");
         let _ = memledger::statement_end();
         memledger::unbind_backend();
@@ -3508,11 +4374,15 @@ mod tests {
 
     /// A scratch cgroup v2 tree: `files` are (relative path, contents).
     fn fake_tree(tag: &str, files: &[(&str, &str)]) -> std::path::PathBuf {
-        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-        let root = std::env::temp_dir().join(format!("memwatchdog-{tag}-{}-{nanos}", std::process::id()));
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        let root =
+            std::env::temp_dir().join(format!("memwatchdog-{tag}-{}-{nanos}", std::process::id()));
         for (rel, text) in files {
             let f = root.join(rel);
-            std::fs::create_dir_all(f.parent().expect("a file under the root")).expect("scratch dir");
+            std::fs::create_dir_all(f.parent().expect("a file under the root"))
+                .expect("scratch dir");
             std::fs::write(&f, text).expect("scratch file");
         }
         std::fs::create_dir_all(&root).expect("scratch root");
@@ -3530,24 +4400,44 @@ mod tests {
                 ("system.slice/memory.max", "max\n"),
                 ("system.slice/pg.service/memory.max", "17179869184\n"),
                 ("system.slice/pg.service/leaf/memory.max", "max\n"),
-                ("system.slice/pg.service/leaf/inner/memory.max", "34359738368\n"),
+                (
+                    "system.slice/pg.service/leaf/inner/memory.max",
+                    "34359738368\n",
+                ),
             ],
         );
-        let l = memory_limit_in(&root, "0::/system.slice/pg.service/leaf/inner\n", 0, Some(61 * G));
+        let l = memory_limit_in(
+            &root,
+            "0::/system.slice/pg.service/leaf/inner\n",
+            0,
+            Some(61 * G),
+        );
         assert_eq!((l.bytes, l.source), (16 * G, LimitSource::Cgroup));
-        assert_eq!(l.cgroup.as_deref(), Some(root.join("system.slice/pg.service").as_path()));
+        assert_eq!(
+            l.cgroup.as_deref(),
+            Some(root.join("system.slice/pg.service").as_path())
+        );
         // the leaf alone unbounded, the unit bounded: the unit's
         let l = memory_limit_in(&root, "0::/system.slice/pg.service/leaf\n", 0, Some(61 * G));
         assert_eq!(l.bytes, 16 * G);
         // never past physical memory
-        assert_eq!(memory_limit_in(&root, "0::/system.slice/pg.service\n", 0, Some(8 * G)).bytes, 8 * G);
+        assert_eq!(
+            memory_limit_in(&root, "0::/system.slice/pg.service\n", 0, Some(8 * G)).bytes,
+            8 * G
+        );
         // the GUC wins
         let l = memory_limit_in(&root, "0::/system.slice/pg.service\n", 4096, Some(61 * G));
-        assert_eq!((l.bytes, l.source, l.cgroup), (4 * G, LimitSource::Guc, None));
+        assert_eq!(
+            (l.bytes, l.source, l.cgroup),
+            (4 * G, LimitSource::Guc, None)
+        );
         // every level unbounded, or no cgroup: physical memory
         let l = memory_limit_in(&root, "0::/system.slice\n", 0, Some(61 * G));
         assert_eq!((l.bytes, l.source), (61 * G, LimitSource::Physical));
-        assert_eq!(memory_limit_in(&root, "", 0, Some(61 * G)).source, LimitSource::Physical);
+        assert_eq!(
+            memory_limit_in(&root, "", 0, Some(61 * G)).source,
+            LimitSource::Physical
+        );
         assert_eq!(memory_limit_in(&root, "", 0, None), MemLimit::default());
         // inside a cgroup namespace the container's limit sits on the mount's root
         let ns = fake_tree("ns", &[("memory.max", "8589934592\n")]);
@@ -3556,19 +4446,39 @@ mod tests {
         let pod = fake_tree(
             "pod",
             &[
-                ("kubepods.slice/kubepods-pod1.slice/memory.max", "8589934592\n"),
-                ("kubepods.slice/kubepods-pod1.slice/cri-1.scope/memory.max", "max\n"),
+                (
+                    "kubepods.slice/kubepods-pod1.slice/memory.max",
+                    "8589934592\n",
+                ),
+                (
+                    "kubepods.slice/kubepods-pod1.slice/cri-1.scope/memory.max",
+                    "max\n",
+                ),
             ],
         );
-        let l = memory_limit_in(&pod, "0::/kubepods.slice/kubepods-pod1.slice/cri-1.scope\n", 0, Some(61 * G));
+        let l = memory_limit_in(
+            &pod,
+            "0::/kubepods.slice/kubepods-pod1.slice/cri-1.scope\n",
+            0,
+            Some(61 * G),
+        );
         assert_eq!((l.bytes, l.source), (8 * G, LimitSource::Cgroup));
         // v1 (the memory controller on a named hierarchy) wins over the unified line; unlimited is a huge number
         let v1 = fake_tree(
             "v1",
-            &[("memory/pod/memory.limit_in_bytes", "4294967296\n"), ("memory/pod/c/memory.limit_in_bytes", "9223372036854771712\n")],
+            &[
+                ("memory/pod/memory.limit_in_bytes", "4294967296\n"),
+                (
+                    "memory/pod/c/memory.limit_in_bytes",
+                    "9223372036854771712\n",
+                ),
+            ],
         );
         let l = memory_limit_in(&v1, "12:memory:/pod/c\n0::/x\n", 0, Some(61 * G));
-        assert_eq!((l.bytes, l.cgroup.as_deref()), (4 * G, Some(v1.join("memory/pod").as_path())));
+        assert_eq!(
+            (l.bytes, l.cgroup.as_deref()),
+            (4 * G, Some(v1.join("memory/pod").as_path()))
+        );
         for d in [&root, &ns, &pod, &v1] {
             let _ = std::fs::remove_dir_all(d);
         }
@@ -3586,19 +4496,38 @@ mod tests {
             &[
                 ("system.slice/memory.max", "max\n"),
                 ("system.slice/memory.high", "max\n"),
-                ("system.slice/slot.scope/memory.max", &(18396 * M).to_string()),
-                ("system.slice/slot.scope/memory.high", &(14717 * M).to_string()),
+                (
+                    "system.slice/slot.scope/memory.max",
+                    &(18396 * M).to_string(),
+                ),
+                (
+                    "system.slice/slot.scope/memory.high",
+                    &(14717 * M).to_string(),
+                ),
                 ("system.slice/slot.scope/leaf/memory.max", "max\n"),
                 ("system.slice/slot.scope/leaf/memory.high", "max\n"),
             ],
         );
         let l = memory_limit_in(&root, "0::/system.slice/slot.scope/leaf\n", 0, Some(61 * G));
-        assert_eq!((l.bytes >> 20, l.source), (14717, LimitSource::Cgroup), "memory.high, not memory.max");
-        assert_eq!(l.cgroup.as_deref(), Some(root.join("system.slice/slot.scope").as_path()));
+        assert_eq!(
+            (l.bytes >> 20, l.source),
+            (14717, LimitSource::Cgroup),
+            "memory.high, not memory.max"
+        );
+        assert_eq!(
+            l.cgroup.as_deref(),
+            Some(root.join("system.slice/slot.scope").as_path())
+        );
         // never past physical memory
-        assert_eq!(memory_limit_in(&root, "0::/system.slice/slot.scope\n", 0, Some(8 * G)).bytes, 8 * G);
+        assert_eq!(
+            memory_limit_in(&root, "0::/system.slice/slot.scope\n", 0, Some(8 * G)).bytes,
+            8 * G
+        );
         // the GUC still wins
-        assert_eq!(memory_limit_in(&root, "0::/system.slice/slot.scope\n", 4096, Some(61 * G)).bytes, 4 * G);
+        assert_eq!(
+            memory_limit_in(&root, "0::/system.slice/slot.scope\n", 4096, Some(61 * G)).bytes,
+            4 * G
+        );
         let other = fake_tree(
             "high2",
             &[
@@ -3619,11 +4548,17 @@ mod tests {
             ],
         );
         let at = |cg: &str| memory_limit_in(&other, &format!("0::/{cg}\n"), 0, Some(61 * G));
-        assert_eq!((at("un").bytes, at("un").source), (8 * G, LimitSource::Cgroup));
+        assert_eq!(
+            (at("un").bytes, at("un").source),
+            (8 * G, LimitSource::Cgroup)
+        );
         assert_eq!(at("eq").bytes, 8 * G);
         assert_eq!(at("above").bytes, 8 * G);
         let l = at("unit/leaf");
-        assert_eq!((l.bytes, l.cgroup.as_deref()), (4 * G, Some(other.join("unit").as_path())));
+        assert_eq!(
+            (l.bytes, l.cgroup.as_deref()),
+            (4 * G, Some(other.join("unit").as_path()))
+        );
         for d in [&root, &other] {
             let _ = std::fs::remove_dir_all(d);
         }
@@ -3636,7 +4571,8 @@ mod tests {
     fn d4290_a_soft_limit_is_warned_at_start_and_its_throttling_at_run_time() {
         const G: u64 = 1 << 30;
         const M: u64 = 1 << 20;
-        let events = |high: u64| format!("low 0\nhigh {high}\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n");
+        let events =
+            |high: u64| format!("low 0\nhigh {high}\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n");
         let root = fake_tree(
             "soft",
             &[
@@ -3656,19 +4592,45 @@ mod tests {
         // start: both values and the budget, and the hint
         let l = at("slot");
         assert_eq!(l.knob, "memory.high");
-        let soft = l.soft.clone().expect("memory.high below memory.max is a soft limit");
-        assert_eq!((soft.high >> 20, soft.max.map(|m| m >> 20), soft.dir.clone()), (14717, Some(18396), root.join("slot")));
+        let soft = l
+            .soft
+            .clone()
+            .expect("memory.high below memory.max is a soft limit");
+        assert_eq!(
+            (soft.high >> 20, soft.max.map(|m| m >> 20), soft.dir.clone()),
+            (14717, Some(18396), root.join("slot"))
+        );
         let (msg, hint) = soft_limit_warning(&soft, l.bytes);
-        assert!(msg.contains("memory.high (14717 MiB)") && msg.contains("memory.max (18396 MiB)"), "{msg}");
+        assert!(
+            msg.contains("memory.high (14717 MiB)") && msg.contains("memory.max (18396 MiB)"),
+            "{msg}"
+        );
         assert!(msg.contains("budget is sized to 14717 MiB"), "{msg}");
-        assert!(hint.contains("Set MemoryHigh equal to MemoryMax") && hint.contains("leave it unset"), "{hint}");
+        assert!(
+            hint.contains("Set MemoryHigh equal to MemoryMax") && hint.contains("leave it unset"),
+            "{hint}"
+        );
         // memory.max unlimited
         let un = at("un");
-        let (msg, _) = soft_limit_warning(un.soft.as_ref().expect("memory.max unlimited, memory.high set"), un.bytes);
-        assert!(msg.contains("memory.high (8192 MiB)") && msg.contains("memory.max (unlimited)") && msg.contains("sized to 8192 MiB"), "{msg}");
+        let (msg, _) = soft_limit_warning(
+            un.soft
+                .as_ref()
+                .expect("memory.max unlimited, memory.high set"),
+            un.bytes,
+        );
+        assert!(
+            msg.contains("memory.high (8192 MiB)")
+                && msg.contains("memory.max (unlimited)")
+                && msg.contains("sized to 8192 MiB"),
+            "{msg}"
+        );
         // the GUC's budget is named, the soft limit still warned
         let g = memory_limit_in(&root, "0::/slot\n", 4096, Some(61 * G));
-        assert!(soft_limit_warning(g.soft.as_ref().expect("warned under the GUC too"), g.bytes).0.contains("sized to 4096 MiB"));
+        assert!(
+            soft_limit_warning(g.soft.as_ref().expect("warned under the GUC too"), g.bytes)
+                .0
+                .contains("sized to 4096 MiB")
+        );
         // equal limits, or memory.high unset: none
         assert_eq!((at("eq").soft, at("unset").soft), (None, None));
         assert_eq!(at("eq").knob, "memory.max");
@@ -3678,21 +4640,35 @@ mod tests {
         assert_eq!(high_tick(&mut w, &l, 2_000), None, "no rise");
         std::fs::write(root.join("slot/memory.events"), events(6460)).expect("events");
         let (msg, hint) = high_tick(&mut w, &l, 3_000).expect("a rise is warned");
-        assert!(msg.contains("memory.high (14717 MiB) 3 times") && msg.contains("memory.events high"), "{msg}");
+        assert!(
+            msg.contains("memory.high (14717 MiB) 3 times") && msg.contains("memory.events high"),
+            "{msg}"
+        );
         assert!(hint.contains("Set MemoryHigh equal to MemoryMax"), "{hint}");
         std::fs::write(root.join("slot/memory.events"), events(6465)).expect("events");
         assert_eq!(high_tick(&mut w, &l, 4_000), None, "rate-limited");
         std::fs::write(root.join("slot/memory.events"), events(6470)).expect("events");
-        assert_eq!(high_tick(&mut w, &l, 62_999), None, "still within the minute");
+        assert_eq!(
+            high_tick(&mut w, &l, 62_999),
+            None,
+            "still within the minute"
+        );
         let (msg, _) = high_tick(&mut w, &l, 63_000).expect("a minute later");
-        assert!(msg.contains(" 10 times"), "the rises in between summed: {msg}");
+        assert!(
+            msg.contains(" 10 times"),
+            "the rises in between summed: {msg}"
+        );
         assert_eq!(high_tick(&mut w, &l, 200_000), None, "flat: nothing");
         // equal limits: no watch, whatever the events
         let eq = at("eq");
         let mut w = HighWatch::default();
         assert_eq!(high_tick(&mut w, &eq, 1_000), None);
         std::fs::write(root.join("eq/memory.events"), events(500)).expect("events");
-        assert_eq!(high_tick(&mut w, &eq, 100_000), None, "equal limits warn nothing");
+        assert_eq!(
+            high_tick(&mut w, &eq, 100_000),
+            None,
+            "equal limits warn nothing"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -3706,17 +4682,38 @@ mod tests {
         assert_eq!(reclaimable_file("file 5\nfile_dirty 9\n"), 0);
         let root = fake_tree(
             "resident",
-            &[("u/memory.current", &format!("{}\n", 16_000 * M)), ("u/memory.stat", stat)],
+            &[
+                ("u/memory.current", &format!("{}\n", 16_000 * M)),
+                ("u/memory.stat", stat),
+            ],
         );
-        let l = MemLimit { bytes: 16 << 30, source: LimitSource::Cgroup, cgroup: Some(root.join("u")), ..MemLimit::default() };
+        let l = MemLimit {
+            bytes: 16 << 30,
+            source: LimitSource::Cgroup,
+            cgroup: Some(root.join("u")),
+            ..MemLimit::default()
+        };
         let unreclaimable = 16_000 * M - reclaimable_file(stat);
         assert_eq!(cgroup_unreclaimable(&root.join("u")), Some(unreclaimable));
-        let small = ProcMem { anon_kb: 1024, shmem_kb: 1024, ..ProcMem::default() };
+        let small = ProcMem {
+            anon_kb: 1024,
+            shmem_kb: 1024,
+            ..ProcMem::default()
+        };
         assert_eq!(governed_resident(&small, &l), unreclaimable);
-        let big = ProcMem { anon_kb: 15 << 20, shmem_kb: 0, ..ProcMem::default() };
+        let big = ProcMem {
+            anon_kb: 15 << 20,
+            shmem_kb: 0,
+            ..ProcMem::default()
+        };
         assert_eq!(governed_resident(&big, &l), 15 << 30);
         // not a cgroup limit: anon + shmem only
-        let physical = MemLimit { bytes: 61 << 30, source: LimitSource::Physical, cgroup: None, ..MemLimit::default() };
+        let physical = MemLimit {
+            bytes: 61 << 30,
+            source: LimitSource::Physical,
+            cgroup: None,
+            ..MemLimit::default()
+        };
         assert_eq!(governed_resident(&small, &physical), 2 * M);
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -3739,20 +4736,62 @@ mod tests {
             200 * M,
             50 * M
         );
-        let root = fake_tree("d4262", &[("s/memory.current", &format!("{}\n", 14_000 * M)), ("s/memory.stat", &shared)]);
+        let root = fake_tree(
+            "d4262",
+            &[
+                ("s/memory.current", &format!("{}\n", 14_000 * M)),
+                ("s/memory.stat", &shared),
+            ],
+        );
         let limit = 14_717 * M;
-        let own = ProcMem { anon_kb: 150 << 10, shmem_kb: 50 << 10, ..ProcMem::default() };
-        let l = MemLimit { bytes: limit, source: LimitSource::Cgroup, cgroup: Some(root.join("s")), ..MemLimit::default() };
+        let own = ProcMem {
+            anon_kb: 150 << 10,
+            shmem_kb: 50 << 10,
+            ..ProcMem::default()
+        };
+        let l = MemLimit {
+            bytes: limit,
+            source: LimitSource::Cgroup,
+            cgroup: Some(root.join("s")),
+            ..MemLimit::default()
+        };
         let resident = governed_resident(&own, &l);
-        assert_eq!(resident, 14_000 * M - 450 * M, "the trigger: the cgroup less its clean page cache, as before");
+        assert_eq!(
+            resident,
+            14_000 * M - 450 * M,
+            "the trigger: the cgroup less its clean page cache, as before"
+        );
         let view = own_view_in(200 * M, 14_000 * M, shared.as_bytes());
-        assert_eq!(view, 200 * M + 150 * M, "own view: this server's 200 MiB and the cgroup's unmapped 150 MiB");
-        assert_eq!(own_view_in(200 * M, 600 * M, b"anon 209715200\nactive_file 314572800\n"), 600 * M - 300 * M, "alone: the cgroup less its clean cache");
-        let (past, _) = mempolicy::watchdog::cancel_at(resident, limit, 90).expect("past the 90 % line");
-        assert!(decided(|| bystander(resident, view, limit, past, mcx::governor::try_largest_live)), "200 MiB of 13,550: a bystander, nothing canceled");
-        assert!(BYSTANDER_LOGGED.load(Ordering::Relaxed), "its one line this episode");
-        assert_eq!(bystander(resident, resident / 2, limit, past, busy), Some(false), "half the cgroup: the tenant acts, no registry read");
-        assert_eq!(bystander(resident, 0, limit, past, busy), Some(false), "no own view yet: acts as before");
+        assert_eq!(
+            view,
+            200 * M + 150 * M,
+            "own view: this server's 200 MiB and the cgroup's unmapped 150 MiB"
+        );
+        assert_eq!(
+            own_view_in(200 * M, 600 * M, b"anon 209715200\nactive_file 314572800\n"),
+            600 * M - 300 * M,
+            "alone: the cgroup less its clean cache"
+        );
+        let (past, _) =
+            mempolicy::watchdog::cancel_at(resident, limit, 90).expect("past the 90 % line");
+        assert!(
+            decided(|| bystander(resident, view, limit, past, mcx::governor::try_largest_live)),
+            "200 MiB of 13,550: a bystander, nothing canceled"
+        );
+        assert!(
+            BYSTANDER_LOGGED.load(Ordering::Relaxed),
+            "its one line this episode"
+        );
+        assert_eq!(
+            bystander(resident, resident / 2, limit, past, busy),
+            Some(false),
+            "half the cgroup: the tenant acts, no registry read"
+        );
+        assert_eq!(
+            bystander(resident, 0, limit, past, busy),
+            Some(false),
+            "no own view yet: acts as before"
+        );
         BYSTANDER_LOGGED.store(false, Ordering::Relaxed);
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -3771,7 +4810,11 @@ mod tests {
         }
         // the rungs answer this test's thread only: another test's backstop sample reads none, as with no rungs installed
         fn bytes() -> u64 {
-            if MINE.with(core::cell::Cell::get) { 300 * M } else { 0 }
+            if MINE.with(core::cell::Cell::get) {
+                300 * M
+            } else {
+                0
+            }
         }
         fn reclaim(want: u64) -> u64 {
             if !MINE.with(core::cell::Cell::get) {
@@ -3784,9 +4827,23 @@ mod tests {
         MINE.with(|m| m.set(true));
         let limit = 14_717 * M;
         let resident = 13_550 * M;
-        let (past, _) = mempolicy::watchdog::cancel_at(resident, limit, 90).expect("past the 90 % line");
-        assert!(decided(|| bystander(resident, 350 * M, limit, past, mcx::governor::try_largest_live)), "350 MiB of 13,550 MiB, no statement: a bystander");
-        assert_eq!(WANTED.with(core::cell::Cell::get), 300 * M, "its own parked memory and caches trimmed: all 300 MiB, the excess is larger");
+        let (past, _) =
+            mempolicy::watchdog::cancel_at(resident, limit, 90).expect("past the 90 % line");
+        assert!(
+            decided(|| bystander(
+                resident,
+                350 * M,
+                limit,
+                past,
+                mcx::governor::try_largest_live
+            )),
+            "350 MiB of 13,550 MiB, no statement: a bystander"
+        );
+        assert_eq!(
+            WANTED.with(core::cell::Cell::get),
+            300 * M,
+            "its own parked memory and caches trimmed: all 300 MiB, the excess is larger"
+        );
         MINE.with(|m| m.set(false));
     }
 
@@ -3838,10 +4895,24 @@ mod tests {
         // a bystander's sample with the registry held: nothing asked, no line, nothing decided
         LAST_OWN.store(350 * M, Ordering::Relaxed);
         refresh_cancel_by(limit, resident, busy);
-        assert!(!asked(), "a held registry: the bystander's sample asked its statement to spill");
-        assert!(!BYSTANDER_LOGGED.load(Ordering::Relaxed), "a held registry decides nothing: no bystander line yet");
-        assert_eq!(bystander(resident, 350 * M, limit, 90, busy), None, "a held registry: unknown, not 'acts'");
-        assert_eq!(bystander(resident, resident / 2, limit, 90, busy), Some(false), "the tenant: acts, no registry read");
+        assert!(
+            !asked(),
+            "a held registry: the bystander's sample asked its statement to spill"
+        );
+        assert!(
+            !BYSTANDER_LOGGED.load(Ordering::Relaxed),
+            "a held registry decides nothing: no bystander line yet"
+        );
+        assert_eq!(
+            bystander(resident, 350 * M, limit, 90, busy),
+            None,
+            "a held registry: unknown, not 'acts'"
+        );
+        assert_eq!(
+            bystander(resident, resident / 2, limit, 90, busy),
+            Some(false),
+            "the tenant: acts, no registry read"
+        );
         // the next sample reads the registry (retried while another test holds it): a bystander, one line, nothing asked
         for _ in 0..10_000 {
             refresh_cancel(limit, resident);
@@ -3850,14 +4921,20 @@ mod tests {
             }
             std::thread::yield_now();
         }
-        assert!(BYSTANDER_LOGGED.load(Ordering::Relaxed), "a later sample decides: a bystander, its one line");
+        assert!(
+            BYSTANDER_LOGGED.load(Ordering::Relaxed),
+            "a later sample decides: a bystander, its one line"
+        );
         assert!(!asked(), "a bystander asks nothing");
         // the tenant (half the cgroup) acts with the registry held: its share decides without the registry
         BYSTANDER_LOGGED.store(false, Ordering::Relaxed);
         BACKSTOP_TRIMMED.store(false, Ordering::Relaxed);
         LAST_OWN.store(resident / 2, Ordering::Relaxed);
         refresh_cancel_by(limit, resident, busy);
-        assert!(asked(), "the tenant's sample asks its statement to spill, the registry held or not");
+        assert!(
+            asked(),
+            "the tenant's sample asks its statement to spill, the registry held or not"
+        );
         mcx::revoke::set_enabled(false);
         guc_tables::backing::set_pgrust_memory_cancel_threshold(0);
         BACKSTOP_TRIMMED.store(false, Ordering::Relaxed);
@@ -3921,16 +4998,33 @@ mod tests {
         let _one = GLOBALS.lock().unwrap_or_else(|e| e.into_inner());
         const M: u64 = 1 << 20;
         let stat = "anon 100\nfile 0\nactive_file 0\ninactive_file 0\nfile_mapped 0\nfile_dirty 0\nfile_writeback 0\n";
-        let root = fake_tree("d4388", &[("u/memory.current", &format!("{}\n", 16_000 * M)), ("u/memory.stat", stat), ("u/memory.events", "max 0\n")]);
+        let root = fake_tree(
+            "d4388",
+            &[
+                ("u/memory.current", &format!("{}\n", 16_000 * M)),
+                ("u/memory.stat", stat),
+                ("u/memory.events", "max 0\n"),
+            ],
+        );
         let dir = root.join("u");
         let mut files = Box::new(SampleFiles::new());
         let mut buf: Box<SampleBuf> = Box::new([0; SAMPLE_BUF]);
         files.open(Some(&dir));
         let _ = files.resident(&mut buf);
-        assert_eq!(ladder_read_of(0), 16_000 * M, "under the cgroup limit: the cgroup's read");
+        assert_eq!(
+            ladder_read_of(0),
+            16_000 * M,
+            "under the cgroup limit: the cgroup's read"
+        );
         files.open(None);
-        let own = files.resident(&mut buf).expect("the process's own resident");
-        assert_eq!(ladder_read_of(own), own, "off the cgroup: the governed resident, not the cgroup's last 16,000 MiB");
+        let own = files
+            .resident(&mut buf)
+            .expect("the process's own resident");
+        assert_eq!(
+            ladder_read_of(own),
+            own,
+            "off the cgroup: the governed resident, not the cgroup's last 16,000 MiB"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -3944,26 +5038,59 @@ mod tests {
         let stat = "anon 100\nfile 4194304000\nactive_file 3145728000\ninactive_file 1048576000\nfile_mapped 7340032\nfile_dirty 104857600\nfile_writeback 0\n";
         let root = fake_tree(
             "sample",
-            &[("u/memory.current", &format!("{}\n", 16_000 * M)), ("u/memory.stat", stat), ("u/memory.events", "low 0\nhigh 0\nmax 27485\noom 2\n")],
+            &[
+                ("u/memory.current", &format!("{}\n", 16_000 * M)),
+                ("u/memory.stat", stat),
+                ("u/memory.events", "low 0\nhigh 0\nmax 27485\noom 2\n"),
+            ],
         );
         let dir = root.join("u");
         let mut files = Box::new(SampleFiles::new());
         let mut buf: Box<SampleBuf> = Box::new([0; SAMPLE_BUF]);
         files.open(Some(&dir));
-        let l = MemLimit { bytes: 16 << 30, source: LimitSource::Cgroup, cgroup: Some(dir.clone()), ..MemLimit::default() };
+        let l = MemLimit {
+            bytes: 16 << 30,
+            source: LimitSource::Cgroup,
+            cgroup: Some(dir.clone()),
+            ..MemLimit::default()
+        };
         let want = governed_resident(&proc_status().expect("status"), &l);
         COUNTING.with(|c| c.set(true));
         let got = files.resident(&mut buf);
         COUNTING.with(|c| c.set(false));
-        assert_eq!((got, ALLOCS.with(std::cell::Cell::get)), (Some(want), 0), "the reading path's resident, no allocation");
+        assert_eq!(
+            (got, ALLOCS.with(std::cell::Cell::get)),
+            (Some(want), 0),
+            "the reading path's resident, no allocation"
+        );
         // D4029 (c), observe-only: the cgroup's numbers for the backstop's lines
         let seen = |a: &std::sync::atomic::AtomicU64| a.load(Ordering::Relaxed);
-        assert_eq!((seen(&CGROUP_SEEN.current), seen(&CGROUP_SEEN.inactive), seen(&CGROUP_SEEN.mapped)), (16_000 * M, 1_048_576_000 - 104_857_600, 7 * M), "B0: the inactive page cache less its dirty pages");
-        let s = CgroupSeen { mark_ms: 1000.into(), mark_max: 100.into(), ..CgroupSeen::default() };
+        assert_eq!(
+            (
+                seen(&CGROUP_SEEN.current),
+                seen(&CGROUP_SEEN.inactive),
+                seen(&CGROUP_SEEN.mapped)
+            ),
+            (16_000 * M, 1_048_576_000 - 104_857_600, 7 * M),
+            "B0: the inactive page cache less its dirty pages"
+        );
+        let s = CgroupSeen {
+            mark_ms: 1000.into(),
+            mark_max: 100.into(),
+            ..CgroupSeen::default()
+        };
         s.note(0, 0, 0, 0, 400, 1500);
-        assert_eq!(s.max_rate.load(Ordering::Relaxed), 0, "inside the second: no rate yet");
+        assert_eq!(
+            s.max_rate.load(Ordering::Relaxed),
+            0,
+            "inside the second: no rate yet"
+        );
         s.note(0, 0, 0, 0, 700, 3000);
-        assert_eq!(s.max_rate.load(Ordering::Relaxed), 300, "600 'max' events over 2 s");
+        assert_eq!(
+            s.max_rate.load(Ordering::Relaxed),
+            300,
+            "600 'max' events over 2 s"
+        );
         assert_eq!(want, 16_000 * M - reclaimable_file(stat));
         // no cgroup limit: anon + shmem from the status file alone
         files.open(None);
@@ -3987,17 +5114,33 @@ mod tests {
     /// stores, then announces, and the announced limit is the cached one the cancel path reads.
     #[test]
     fn d3629_armed_is_announced_only_after_the_limit_store() {
-        let cached = || LIMIT.try_lock().ok().and_then(|c| c.clone()).map(|l| (l.source, l.bytes));
+        let cached = || {
+            LIMIT
+                .try_lock()
+                .ok()
+                .and_then(|c| c.clone())
+                .map(|l| (l.source, l.bytes))
+        };
         let mut state = WatchState::default();
         for mb in [321, 654] {
             guc_tables::backing::set_pgrust_memory_watchdog_limit(mb);
             let before = (state.announced, cached());
             {
                 let _held = pgsync::lock(&LIMIT);
-                assert!(arm(&mut state, 80).is_none(), "a skipped store announces nothing");
+                assert!(
+                    arm(&mut state, 80).is_none(),
+                    "a skipped store announces nothing"
+                );
             }
-            assert!(state.store_due, "a skipped store is retried at the next sample");
-            assert_eq!((state.announced, cached()), before, "neither the log nor the cache moved");
+            assert!(
+                state.store_due,
+                "a skipped store is retried at the next sample"
+            );
+            assert_eq!(
+                (state.announced, cached()),
+                before,
+                "neither the log nor the cache moved"
+            );
             let l = arm(&mut state, 80).expect("the next sample stores, then announces");
             let want = Some((LimitSource::Guc, (mb as u64) << 20));
             assert!(!state.store_due);
@@ -4014,9 +5157,19 @@ mod tests {
     fn the_cgroup_resident_is_its_anon_plus_shmem() {
         let stat = "anon_thp 4\nanon 100\nfile 999\nactive_anon 60\nshmem_thp 2\nshmem 7\n";
         let root = fake_tree("cgres", &[("u/memory.stat", stat)]);
-        let l = MemLimit { bytes: 16 << 30, source: LimitSource::Cgroup, cgroup: Some(root.join("u")), ..MemLimit::default() };
+        let l = MemLimit {
+            bytes: 16 << 30,
+            source: LimitSource::Cgroup,
+            cgroup: Some(root.join("u")),
+            ..MemLimit::default()
+        };
         assert_eq!(cgroup_resident_in(&l), Some(107));
-        let physical = MemLimit { bytes: 61 << 30, source: LimitSource::Physical, cgroup: None, ..MemLimit::default() };
+        let physical = MemLimit {
+            bytes: 61 << 30,
+            source: LimitSource::Physical,
+            cgroup: None,
+            ..MemLimit::default()
+        };
         assert_eq!(cgroup_resident_in(&physical), None);
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -4028,7 +5181,11 @@ mod tests {
         let r = super::allocator_resident();
         let s = super::take_allocator_resident_split();
         match r {
-            Some(r) => assert_eq!(s.map(|(maps, pool)| maps + pool), Some(r), "maps + pool = the reading"),
+            Some(r) => assert_eq!(
+                s.map(|(maps, pool)| maps + pool),
+                Some(r),
+                "maps + pool = the reading"
+            ),
             None => assert_eq!(s, None),
         }
         assert_eq!(super::take_allocator_resident_split(), None, "taken once");
@@ -4038,8 +5195,14 @@ mod tests {
     /// unreadable pool reading leaves the whole reading unknown (never the maps alone, never its claimed bytes).
     #[test]
     fn the_allocator_resident_adds_the_pools_present_bytes_while_it_is_on() {
-        assert_eq!(super::with_pool(7 << 20, false, || panic!("the pool is off: no reading")), Some(7 << 20));
-        assert_eq!(super::with_pool(7 << 20, true, || Some(3 << 20)), Some(10 << 20));
+        assert_eq!(
+            super::with_pool(7 << 20, false, || panic!("the pool is off: no reading")),
+            Some(7 << 20)
+        );
+        assert_eq!(
+            super::with_pool(7 << 20, true, || Some(3 << 20)),
+            Some(10 << 20)
+        );
         assert_eq!(super::with_pool(7 << 20, true, || None), None);
     }
 
@@ -4055,7 +5218,13 @@ aaaa00000000-aaaa00100000 r-xp 00000000 103:01 4242                      /usr/li
 7f0070000000-7f0070400000 ---p 00000000 00:00 0                          [anon:mimalloc]
 ";
         let r: Vec<_> = named_ranges(maps, &|n: &str| n == "[anon:mimalloc]").collect();
-        assert_eq!(r, vec![(0x7f00_0000_0000, 0x7f00_4000_0000), (0x7f00_7000_0000, 0x7f00_7040_0000)]);
+        assert_eq!(
+            r,
+            vec![
+                (0x7f00_0000_0000, 0x7f00_4000_0000),
+                (0x7f00_7000_0000, 0x7f00_7040_0000)
+            ]
+        );
         // the Gravity regions' mappings: the default kind's and each breaker kind's, not the arena's nor `:mapped`
         let regions = "\
 7f0080000000-7f0080100000 rw-p 00000000 00:00 0                          [anon:pgrust:region]
@@ -4066,19 +5235,38 @@ aaaa00000000-aaaa00100000 r-xp 00000000 103:01 4242                      /usr/li
 7f00d0000000-7f00d0100000 rw-p 00000000 00:00 0                          [anon:pgrust:arena]
 ";
         let r: Vec<_> = named_ranges(regions, &is_region_name).collect();
-        assert_eq!(r, vec![(0x7f00_8000_0000, 0x7f00_8010_0000), (0x7f00_9000_0000, 0x7f00_9020_0000)]);
+        assert_eq!(
+            r,
+            vec![
+                (0x7f00_8000_0000, 0x7f00_8010_0000),
+                (0x7f00_9000_0000, 0x7f00_9020_0000)
+            ]
+        );
         #[cfg(target_os = "linux")]
         {
             // a real mapping of 64 pages with 10 of them written: 10 pages present
             // SAFETY: sysconf has no preconditions; a fresh anonymous private mapping, written inside its length.
             let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as usize;
-            let p = unsafe { libc::mmap(core::ptr::null_mut(), 64 * page, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_PRIVATE | libc::MAP_ANONYMOUS, -1, 0) };
+            let p = unsafe {
+                libc::mmap(
+                    core::ptr::null_mut(),
+                    64 * page,
+                    libc::PROT_READ | libc::PROT_WRITE,
+                    libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
+                    -1,
+                    0,
+                )
+            };
             assert_ne!(p, libc::MAP_FAILED);
             for i in 0..10 {
                 // SAFETY: inside the mapping.
                 unsafe { (p as *mut u8).add(i * page * 3).write_volatile(1) };
             }
-            let line = format!("{:x}-{:x} rw-p 00000000 00:00 0 [anon:test]", p as usize, p as usize + 64 * page);
+            let line = format!(
+                "{:x}-{:x} rw-p 00000000 00:00 0 [anon:test]",
+                p as usize,
+                p as usize + 64 * page
+            );
             assert_eq!(present_in(&line, |n| n == "[anon:test]"), Some(10 * page));
             // SAFETY: the mapping made above.
             unsafe { libc::munmap(p, 64 * page) };
@@ -4106,7 +5294,11 @@ aaaa00000000-aaaa00100000 r-xp 00000000 103:01 4242                      /usr/li
             }
             // no reading: the gate keeps its sample
             publish_samples(90, 16_000 * M, None, footprint);
-            assert_eq!(mcx::governor::gate_projection_at(footprint + since), (want as usize) + since, "ladder_kill_read {kill}: an unreadable sample keeps the gate's last");
+            assert_eq!(
+                mcx::governor::gate_projection_at(footprint + since),
+                (want as usize) + since,
+                "ladder_kill_read {kill}: an unreadable sample keeps the gate's last"
+            );
         }
         mempolicy::consts::set(mempolicy::consts::K::LadderKillRead, 1);
         CGROUP_SEEN.clear();

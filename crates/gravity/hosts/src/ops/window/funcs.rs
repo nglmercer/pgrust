@@ -19,7 +19,11 @@ enum Kind {
     PercentRank,
     CumeDist,
     Ntile,
-    LeadLag { forward: bool, offset: bool, default: bool },
+    LeadLag {
+        forward: bool,
+        offset: bool,
+        default: bool,
+    },
     FirstValue,
     LastValue,
     NthValue,
@@ -37,14 +41,20 @@ struct Local {
 }
 
 pub(crate) struct Funcs {
-    kinds: Vec<Kind>, // alloc: Exec
+    kinds: Vec<Kind>,  // alloc: Exec
     local: Vec<Local>, // alloc: Exec
 }
 
 /// A window function's kind by its pg_proc OID (or an aggregate's), `None` for one outside windowfuncs.c (refused at
 /// lowering).
 fn kind_of(oid: u32, winagg: bool) -> Option<Kind> {
-    let ll = |forward, offset, default| Some(Kind::LeadLag { forward, offset, default });
+    let ll = |forward, offset, default| {
+        Some(Kind::LeadLag {
+            forward,
+            offset,
+            default,
+        })
+    };
     match oid {
         _ if winagg => Some(Kind::Agg),
         3100 => Some(Kind::RowNumber),
@@ -68,9 +78,23 @@ fn kind_of(oid: u32, winagg: bool) -> Option<Kind> {
 
 impl Funcs {
     pub(crate) fn new(s: &WinSpec) -> PgResult<Funcs> {
-        let kinds = s.funcs.iter().zip(s.builtins.iter()).map(|(w, &b)| kind_of(b, w.winagg).ok_or_else(|| bad(&format!("window.agg: window function {} is not built in", w.winfnoid)))) // alloc: Cold
+        let kinds = s
+            .funcs
+            .iter()
+            .zip(s.builtins.iter())
+            .map(|(w, &b)| {
+                kind_of(b, w.winagg).ok_or_else(|| {
+                    bad(&format!(
+                        "window.agg: window function {} is not built in",
+                        w.winfnoid
+                    ))
+                })
+            }) // alloc: Cold
             .collect::<PgResult<Vec<_>>>()?; // alloc: Exec
-        Ok(Funcs { local: vec![Local::default(); kinds.len()], kinds }) // alloc: Exec
+        Ok(Funcs {
+            local: vec![Local::default(); kinds.len()],
+            kinds,
+        }) // alloc: Exec
     }
 
     pub(crate) fn is_agg(&self, i: usize) -> bool {
@@ -107,7 +131,9 @@ impl Rt {
             _ => {}
         }
         let begins = self.status != Status::Done && self.begins(j)?;
-        let unset = f.checked_sub(1).map(|i| i as usize).is_some_and(|i| self.fns.kinds.get(i) == Some(&Kind::Ntile) && self.fns.local[i].ntile == 0);
+        let unset = f.checked_sub(1).map(|i| i as usize).is_some_and(|i| {
+            self.fns.kinds.get(i) == Some(&Kind::Ntile) && self.fns.local[i].ntile == 0
+        });
         Ok(match (self.status, begins) {
             (Status::Done, _) => 0,
             (_, true) => abi::READS_RUN | abi::READS_FIRST,
@@ -153,10 +179,15 @@ impl Rt {
             (self.f.fh_valid, self.f.ft_valid) = (false, false);
         }
         if self.f.cur != (j - self.f.pstart) as i64 {
-            return Err(bad("window.agg: the current row is not the stored row read"));
+            return Err(bad(
+                "window.agg: the current row is not the stored row read",
+            ));
         }
         let fo = self.f.fo;
-        if fo & (FRAMEOPTION_GROUPS | FRAMEOPTION_EXCLUDE_GROUP | FRAMEOPTION_EXCLUDE_TIES) != 0 && self.f.cur > 0 && !self.are_peers(self.f.cur - 1, self.f.cur)? {
+        if fo & (FRAMEOPTION_GROUPS | FRAMEOPTION_EXCLUDE_GROUP | FRAMEOPTION_EXCLUDE_TIES) != 0
+            && self.f.cur > 0
+            && !self.are_peers(self.f.cur - 1, self.f.cur)?
+        {
             self.f.curgroup += 1;
             self.f.grouphead = self.f.cur;
             self.f.gt_valid = false;
@@ -196,7 +227,9 @@ impl Rt {
     /// with pass-through goes on with NULL values (a top window drops the rest of the partition, this row too), one
     /// without is done. Asked again for the same row, the same answer.
     pub(crate) fn runfail(&mut self) -> PgResult<i64> {
-        let Some((j, st, done)) = self.last else { return Err(bad("m10_win_runfail: no row answered")) };
+        let Some((j, st, done)) = self.last else {
+            return Err(bad("m10_win_runfail: no row answered"));
+        };
         if let Some(a) = done {
             return Ok(a);
         }
@@ -225,7 +258,10 @@ impl Rt {
 
     /// begin_partition's per-function part: the partition-local memory and the aggregates' positions.
     fn begin_funcs(&mut self) {
-        self.fns.local.iter_mut().for_each(|l| *l = Local::default());
+        self.fns
+            .local
+            .iter_mut()
+            .for_each(|l| *l = Local::default());
         self.aggs.begin_partition();
     }
 
@@ -233,7 +269,9 @@ impl Rt {
     fn arg_at(&mut self, i: usize, a: usize, pos: i64) -> PgResult<NullableDatum> {
         let (base, n, _) = self.spec.args[i];
         if a >= n {
-            return Err(bad("window.agg: a window function argument past its arguments"));
+            return Err(bad(
+                "window.agg: a window function argument past its arguments",
+            ));
         }
         self.cell(self.f.pstart + pos as u64, base + a)
     }
@@ -244,7 +282,12 @@ impl Rt {
     }
 
     /// PG `WinGetFuncArgInPartition` relative to the current row: `None` when out of the partition.
-    fn arg_in_partition(&mut self, i: usize, a: usize, relpos: i64) -> PgResult<Option<NullableDatum>> {
+    fn arg_in_partition(
+        &mut self,
+        i: usize,
+        a: usize,
+        relpos: i64,
+    ) -> PgResult<Option<NullableDatum>> {
         let pos = self.f.cur + relpos;
         if !self.has(pos)? {
             return Ok(None);
@@ -253,7 +296,13 @@ impl Rt {
     }
 
     /// PG `WinGetFuncArgInFrame` (seek from the frame's head, `head`, or its tail): `None` when out of the frame.
-    fn arg_in_frame(&mut self, i: usize, a: usize, relpos: i64, head: bool) -> PgResult<Option<NullableDatum>> {
+    fn arg_in_frame(
+        &mut self,
+        i: usize,
+        a: usize,
+        relpos: i64,
+        head: bool,
+    ) -> PgResult<Option<NullableDatum>> {
         let fo = self.f.fo;
         let excl = fo & FRAMEOPTION_EXCLUSION;
         let cur = self.f.cur;
@@ -276,7 +325,13 @@ impl Rt {
                     let (gh, gt) = (self.f.grouphead, self.f.grouptail);
                     if pos >= gh && gt > fh {
                         let start = gh.max(fh);
-                        pos = if excl == FRAMEOPTION_EXCLUDE_GROUP { pos + gt - start } else if pos == start { cur } else { pos + gt - start - 1 };
+                        pos = if excl == FRAMEOPTION_EXCLUDE_GROUP {
+                            pos + gt - start
+                        } else if pos == start {
+                            cur
+                        } else {
+                            pos + gt - start - 1
+                        };
                     }
                 }
                 _ => return Err(bad("window.agg: an unrecognized frame exclusion")),
@@ -301,7 +356,13 @@ impl Rt {
                         let (gh, gt) = (self.f.grouphead, self.f.grouptail);
                         if pos < gt && gh < ft {
                             let end = gt.min(ft);
-                            pos = if excl == FRAMEOPTION_EXCLUDE_GROUP { pos - (end - gh) } else if pos == end - 1 { cur } else { pos - (end - 1 - gh) };
+                            pos = if excl == FRAMEOPTION_EXCLUDE_GROUP {
+                                pos - (end - gh)
+                            } else if pos == end - 1 {
+                                cur
+                            } else {
+                                pos - (end - 1 - gh)
+                            };
                         }
                     }
                     _ => return Err(bad("window.agg: an unrecognized frame exclusion")),
@@ -332,7 +393,12 @@ impl Rt {
     /// PG `eval_windowfunction` over windowfuncs.c's built-in functions.
     fn eval_windowfunction(&mut self, i: usize) -> PgResult<NullableDatum> {
         let cur = self.f.cur;
-        let val = |d: Datum| Ok(NullableDatum { value: d, isnull: false });
+        let val = |d: Datum| {
+            Ok(NullableDatum {
+                value: d,
+                isnull: false,
+            })
+        };
         match self.fns.kinds[i] {
             Kind::RowNumber => val(Datum::from_i64(cur + 1)),
             Kind::Rank => {
@@ -355,7 +421,9 @@ impl Rt {
                 if total <= 1 {
                     return val(Datum::from_f64(0.0));
                 }
-                val(Datum::from_f64((self.fns.local[i].rank - 1) as f64 / (total - 1) as f64))
+                val(Datum::from_f64(
+                    (self.fns.local[i].rank - 1) as f64 / (total - 1) as f64,
+                ))
             }
             Kind::CumeDist => {
                 let total = self.part_rows()?;
@@ -372,10 +440,16 @@ impl Rt {
                         row += 1;
                     }
                 }
-                val(Datum::from_f64(self.fns.local[i].rank as f64 / total as f64))
+                val(Datum::from_f64(
+                    self.fns.local[i].rank as f64 / total as f64,
+                ))
             }
             Kind::Ntile => self.ntile(i),
-            Kind::LeadLag { forward, offset, default } => {
+            Kind::LeadLag {
+                forward,
+                offset,
+                default,
+            } => {
                 let off = if offset {
                     let o = self.arg_current(i, 1)?;
                     if o.isnull {
@@ -391,8 +465,12 @@ impl Rt {
                     None => Ok(NullableDatum::null()),
                 }
             }
-            Kind::FirstValue => Ok(self.arg_in_frame(i, 0, 0, true)?.unwrap_or(NullableDatum::null())),
-            Kind::LastValue => Ok(self.arg_in_frame(i, 0, 0, false)?.unwrap_or(NullableDatum::null())),
+            Kind::FirstValue => Ok(self
+                .arg_in_frame(i, 0, 0, true)?
+                .unwrap_or(NullableDatum::null())),
+            Kind::LastValue => Ok(self
+                .arg_in_frame(i, 0, 0, false)?
+                .unwrap_or(NullableDatum::null())),
             Kind::NthValue => {
                 let nth = self.arg_current(i, 1)?;
                 if nth.isnull {
@@ -400,11 +478,20 @@ impl Rt {
                 }
                 let nth = nth.value.as_i32();
                 if nth <= 0 {
-                    return Err(Box::new(PgError::error("argument of nth_value must be greater than zero".to_string()).with_sqlstate(types_error::ERRCODE_INVALID_ARGUMENT_FOR_NTH_VALUE))); // alloc: Cold
+                    return Err(Box::new(
+                        PgError::error(
+                            "argument of nth_value must be greater than zero".to_string(),
+                        )
+                        .with_sqlstate(types_error::ERRCODE_INVALID_ARGUMENT_FOR_NTH_VALUE),
+                    )); // alloc: Cold
                 }
-                Ok(self.arg_in_frame(i, 0, nth as i64 - 1, true)?.unwrap_or(NullableDatum::null()))
+                Ok(self
+                    .arg_in_frame(i, 0, nth as i64 - 1, true)?
+                    .unwrap_or(NullableDatum::null()))
             }
-            Kind::Agg => Err(bad("window.agg: an aggregate evaluated as a window function")),
+            Kind::Agg => Err(bad(
+                "window.agg: an aggregate evaluated as a window function",
+            )),
         }
     }
 
@@ -418,7 +505,10 @@ impl Rt {
             }
             let nb = nb.value.as_i32();
             if nb <= 0 {
-                return Err(Box::new(PgError::error("argument of ntile must be greater than zero".to_string()).with_sqlstate(types_error::ERRCODE_INVALID_ARGUMENT_FOR_NTILE))); // alloc: Cold
+                return Err(Box::new(
+                    PgError::error("argument of ntile must be greater than zero".to_string())
+                        .with_sqlstate(types_error::ERRCODE_INVALID_ARGUMENT_FOR_NTILE),
+                )); // alloc: Cold
             }
             let l = &mut self.fns.local[i];
             (l.ntile, l.rows_per_bucket, l.boundary) = (1, 0, total / nb as i64);
@@ -441,6 +531,9 @@ impl Rt {
             l.ntile += 1;
             l.rows_per_bucket = 1;
         }
-        Ok(NullableDatum { value: Datum::from_i32(l.ntile), isnull: false })
+        Ok(NullableDatum {
+            value: Datum::from_i32(l.ntile),
+            isnull: false,
+        })
     }
 }

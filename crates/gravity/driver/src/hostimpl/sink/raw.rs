@@ -2,8 +2,8 @@
 //! moved verbatim from sink.rs (private ones pub(super)); it imports them back.
 #![allow(unsafe_code)]
 
-use gravity_abi::PtrWord;
 use super::*;
+use gravity_abi::PtrWord;
 
 gravity_abi::host! {
     /// `Program.push` over the concrete sink `S` behind the block's `sink` word (abi-v2 §2.3): the
@@ -34,13 +34,22 @@ gravity_abi::host! {
 }
 
 #[inline(always)]
-pub(super) unsafe fn settle(ctx: *mut Ctx, push: impl FnOnce(BorrowedBatch<'_>) -> Result<Flow>) -> i64 {
+pub(super) unsafe fn settle(
+    ctx: *mut Ctx,
+    push: impl FnOnce(BorrowedBatch<'_>) -> Result<Flow>,
+) -> i64 {
     let n = inner((*(*ctx).program.ptr()).env.ptr());
     let out = &mut *(*ctx).out.ptr();
     let rows = out.count as usize;
     let cells = rows * n.out_natts;
     let region = core::slice::from_raw_parts(out.region.ptr(), out.region_len as usize);
-    let flow = push(BorrowedBatch { natts: n.out_natts, rows, values: core::slice::from_raw_parts(out.values.ptr(), cells), isnull: core::slice::from_raw_parts(out.isnull.ptr(), cells), region });
+    let flow = push(BorrowedBatch {
+        natts: n.out_natts,
+        rows,
+        values: core::slice::from_raw_parts(out.values.ptr(), cells),
+        isnull: core::slice::from_raw_parts(out.isnull.ptr(), cells),
+        region,
+    });
     n.pushed += rows as u64;
     if cfg!(debug_assertions) {
         core::ptr::write_bytes(out.values.ptr() as *mut u8, POISON, cells * 8);

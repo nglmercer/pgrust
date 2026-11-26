@@ -13,6 +13,15 @@ pub(super) fn cstring(te: &TargetEntry<'_>) -> bool {
 pub(super) fn out_col(te: &TargetEntry<'_>) -> PgResult<OutCol> {
     let typ = gravity_expr::nodes::func::expr_type(te.expr);
     let (typlen, byval) = gravity_fn::typesem::storage::len_byval(typ)?;
-    let c = OutCol::new(te.resname.unwrap_or("?column?"), typ, gravity_expr::nodes::func::expr_typmod(te.expr), typlen, byval);
-    Ok(c.collation(gravity_expr::nodes::func::expr_collation(te.expr)).origin(te.resorigtbl, te.resorigcol))
+    let c = OutCol::new(
+        te.resname.unwrap_or("?column?"),
+        typ,
+        gravity_expr::nodes::func::expr_typmod(te.expr),
+        typlen,
+        byval,
+    );
+    Ok(
+        c.collation(gravity_expr::nodes::func::expr_collation(te.expr))
+            .origin(te.resorigtbl, te.resorigcol),
+    )
 }

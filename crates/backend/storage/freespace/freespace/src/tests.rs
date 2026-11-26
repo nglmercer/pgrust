@@ -29,7 +29,10 @@ fn view(page: &mut AlignedPage) -> FsmPage {
 struct Lcg(u64);
 impl Lcg {
     fn next(&mut self) -> u64 {
-        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        self.0 = self
+            .0
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         self.0 >> 16
     }
 }
@@ -53,7 +56,11 @@ static WAL_LEVEL: AtomicI32 = AtomicI32::new(1); // replica
 static WAL_LOG_HINTS: AtomicBool = AtomicBool::new(false);
 
 const REL_OID: Oid = 91000;
-const TEST_LOCATOR: RelFileLocator = RelFileLocator { spcOid: 1663, dbOid: 5, relNumber: REL_OID };
+const TEST_LOCATOR: RelFileLocator = RelFileLocator {
+    spcOid: 1663,
+    dbOid: 5,
+    relNumber: REL_OID,
+};
 
 fn serial() -> MutexGuard<'static, ()> {
     SERIAL.lock().unwrap_or_else(|e| e.into_inner())
@@ -83,7 +90,10 @@ fn install_page_seams() {
         bufmgr_seams::read_buffer_extended::set(|_rel, fork, blk, mode, _strategy| {
             assert_eq!(fork, ForkNumber::FSM_FORKNUM);
             assert_eq!(mode, ReadBufferMode::ZeroOnError);
-            assert!(blk < NFSM.load(Relaxed), "read past the fake FSM fork: block {blk}");
+            assert!(
+                blk < NFSM.load(Relaxed),
+                "read past the fake FSM fork: block {blk}"
+            );
             Ok(blk as Buffer + 1)
         });
         bufmgr_seams::mark_buffer_dirty::set(|_buf| Ok(()));
@@ -123,10 +133,15 @@ fn install_page_seams() {
         // QUERY_CANCELED ereport(ERROR) comes back as the Err.
         postgres_seams::check_for_interrupts::set(|| {
             INTERRUPT_CALLS.fetch_add(1, Relaxed);
-            Err(Box::new(PgError::error("canceling statement due to user request")))
+            Err(Box::new(PgError::error(
+                "canceling statement due to user request",
+            )))
         });
         elog_seams::ereport_msg::set(|level, msg, detail| {
-            LOGGED.lock().unwrap_or_else(|e| e.into_inner()).push((level, msg, detail));
+            LOGGED
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push((level, msg, detail));
             Ok(())
         });
         bufmgr_seams::lock_buffer::set(|_buf, mode| {
@@ -175,8 +190,10 @@ struct FsmFork;
 
 fn install_fsm_fork(pages: &mut [Box<AlignedPage>]) -> FsmFork {
     install_page_seams();
-    *PAGES.lock().unwrap_or_else(|e| e.into_inner()) =
-        pages.iter_mut().map(|p| p.0.as_mut_ptr() as usize).collect();
+    *PAGES.lock().unwrap_or_else(|e| e.into_inner()) = pages
+        .iter_mut()
+        .map(|p| p.0.as_mut_ptr() as usize)
+        .collect();
     NFSM.store(pages.len() as BlockNumber, Relaxed);
     FSM_CACHED.store(InvalidBlockNumber, Relaxed);
     FsmFork
@@ -231,7 +248,12 @@ fn test_relation<'mcx>(mcx: mcx::Mcx<'mcx>) -> RelationData<'mcx> {
         rd_newRelfilelocatorSubid: Cell::new(0),
         rd_firstRelfilelocatorSubid: Cell::new(0),
         rd_droppedSubid: Cell::new(0),
-        rd_lockInfo: LockInfoData { lockRelId: LockRelId { relId: REL_OID, dbId: 5 } },
+        rd_lockInfo: LockInfoData {
+            lockRelId: LockRelId {
+                relId: REL_OID,
+                dbId: 5,
+            },
+        },
         rd_rel: FormData_pg_class {
             relname,
             relnamespace: 2200,
@@ -303,7 +325,8 @@ fn vacuum_checks_for_interrupts_per_slot() {
     init_small::globals::SetInterruptPending(false);
     let err = res.expect_err("FreeSpaceMapVacuum ignored a pending interrupt");
     assert!(
-        err.message().contains("canceling statement due to user request"),
+        err.message()
+            .contains("canceling statement due to user request"),
         "{err:?}"
     );
     assert_eq!(INTERRUPT_CALLS.load(Relaxed), 1);
@@ -312,9 +335,16 @@ fn vacuum_checks_for_interrupts_per_slot() {
     init_small::globals::SetInterruptPending(true);
     let res = FreeSpaceMapVacuumRange(&rel, 0, 10);
     init_small::globals::SetInterruptPending(false);
-    assert!(res.is_err(), "FreeSpaceMapVacuumRange ignored a pending interrupt");
+    assert!(
+        res.is_err(),
+        "FreeSpaceMapVacuumRange ignored a pending interrupt"
+    );
     assert_eq!(INTERRUPT_CALLS.load(Relaxed), 2);
-    assert_eq!(LOCK_STATE.load(Relaxed), 0, "content lock leaked across the error");
+    assert_eq!(
+        LOCK_STATE.load(Relaxed),
+        0,
+        "content lock leaked across the error"
+    );
 }
 
 // freespace.c:341: `!InRecovery && RelationNeedsWAL(rel) && XLogHintBitIsNeeded()`
@@ -346,10 +376,18 @@ fn prepare_truncate_fpi_follows_relation_needs_wal() {
     expect_fpis(&rel, 0, "rd_createSubid set under wal_level=minimal");
     rel.rd_createSubid.set(0);
     rel.rd_firstRelfilelocatorSubid.set(1);
-    expect_fpis(&rel, 0, "rd_firstRelfilelocatorSubid set under wal_level=minimal");
+    expect_fpis(
+        &rel,
+        0,
+        "rd_firstRelfilelocatorSubid set under wal_level=minimal",
+    );
     // wal_level=replica: XLogIsNeeded, so the same relation is WAL-logged.
     WAL_LEVEL.store(1, Relaxed);
-    expect_fpis(&rel, 1, "rd_firstRelfilelocatorSubid set under wal_level=replica");
+    expect_fpis(
+        &rel,
+        1,
+        "rd_firstRelfilelocatorSubid set under wal_level=replica",
+    );
     // Neither wal_log_hints nor checksums: no FPI regardless.
     WAL_LOG_HINTS.store(false, Relaxed);
     rel.rd_firstRelfilelocatorSubid.set(0);
@@ -359,7 +397,11 @@ fn prepare_truncate_fpi_follows_relation_needs_wal() {
 // First slot >= min at/after fp_next_slot, wrapping (fsmpage.c's result).
 fn model_search(leaves: &[u8; SLOTS_PER_FSM_PAGE as usize], target: i32, min: u8) -> i32 {
     let n = SLOTS_PER_FSM_PAGE as usize;
-    let start = if (0..SLOTS_PER_FSM_PAGE).contains(&target) { target as usize } else { 0 };
+    let start = if (0..SLOTS_PER_FSM_PAGE).contains(&target) {
+        target as usize
+    } else {
+        0
+    };
     for i in 0..n {
         let s = (start + i) % n;
         if leaves[s] >= min {
@@ -393,13 +435,20 @@ fn set_get_and_search_match_model() {
             let next = (rng.next() % (SLOTS_PER_FSM_PAGE as u64 + 7)) as i32;
             v.set_next_slot(next);
             let got = search(&mut page, min, false, true);
-            assert_eq!(got, model_search(&model, next, min), "min={min} next={next}");
+            assert_eq!(
+                got,
+                model_search(&model, next, min),
+                "min={min} next={next}"
+            );
             if got != -1 {
                 assert_eq!(view(&mut page).next_slot(), got);
             }
         }
     }
-    assert!(!fsm_rebuild_page(view(&mut page)), "propagation left the tree inconsistent");
+    assert!(
+        !fsm_rebuild_page(view(&mut page)),
+        "propagation left the tree inconsistent"
+    );
 }
 
 #[test]
@@ -441,14 +490,21 @@ fn search_torn_page_repairs_under_exclusive_and_restarts() {
     // Shared-lock caller: the repair relocks exclusive, rebuilds, restarts,
     // and still finds the genuine slot.
     assert_eq!(search(&mut page, 200, false, false), -1);
-    assert!(RELOCKS.load(Relaxed) >= 1, "repair did not take the exclusive lock");
+    assert!(
+        RELOCKS.load(Relaxed) >= 1,
+        "repair did not take the exclusive lock"
+    );
     assert!(DIRTY_HINTS.load(Relaxed) >= 1);
     // fsmpage.c:276: elog(DEBUG1, "fixing corrupt FSM block %u, relation
     // %u/%u/%u") from BufferGetTag, once per repair.
     let logged = take_logged();
     assert_eq!(
         logged,
-        vec![(DEBUG1, "fixing corrupt FSM block 0, relation 1663/5/91000".to_string(), None)],
+        vec![(
+            DEBUG1,
+            "fixing corrupt FSM block 0, relation 1663/5/91000".to_string(),
+            None
+        )],
         "{logged:?}"
     );
     assert_eq!(view(&mut page).node(0), 90, "rebuild did not fix the root");
@@ -498,7 +554,10 @@ fn category_math_matches_c() {
     assert_eq!(fsm_space_needed_to_cat(8129).unwrap(), 255);
     assert_eq!(fsm_space_needed_to_cat(8160).unwrap(), 255);
     let err = fsm_space_needed_to_cat(8161).unwrap_err();
-    assert!(err.message().contains("invalid FSM request size 8161"), "{err:?}");
+    assert!(
+        err.message().contains("invalid FSM request size 8161"),
+        "{err:?}"
+    );
 
     // avail_to_cat rounds down: the represented lower bound never overstates.
     for avail in [0usize, 1, 31, 32, 4000, 8128, 8159, 8160, 8191] {
@@ -528,7 +587,10 @@ fn physical_addresses_are_dense_dfs() {
     let mut phys = Vec::new();
     phys.push(fsm_logical_to_physical(FSM_ROOT_ADDRESS));
     for l1 in 0..2 {
-        phys.push(fsm_logical_to_physical(FSMAddress { level: 1, logpageno: l1 }));
+        phys.push(fsm_logical_to_physical(FSMAddress {
+            level: 1,
+            logpageno: l1,
+        }));
         for leaf in 0..SLOTS_PER_FSM_PAGE {
             phys.push(fsm_logical_to_physical(FSMAddress {
                 level: 0,

@@ -21,8 +21,15 @@ fn sql_key(s: &str) -> String {
 }
 
 fn plan_text(id: &str) -> Option<String> {
-    let rel = id.strip_prefix("regress-full-").map_or_else(|| format!("{id}.plan"), |s| format!("regress-full/{s}.plan"));
-    std::fs::read_to_string(common::plans_dir().join(rel)).ok().or_else(|| std::fs::read_to_string(common::milestone_dir(6).join(format!("{id}.plan"))).ok())
+    let rel = id.strip_prefix("regress-full-").map_or_else(
+        || format!("{id}.plan"),
+        |s| format!("regress-full/{s}.plan"),
+    );
+    std::fs::read_to_string(common::plans_dir().join(rel))
+        .ok()
+        .or_else(|| {
+            std::fs::read_to_string(common::milestone_dir(6).join(format!("{id}.plan"))).ok()
+        })
 }
 
 /// `tests/fixtures/m6/<dir>/*.tsv` as (stem, its non-comment rows); each dir's README says what an entry means.
@@ -31,9 +38,21 @@ fn entries(dir: &str) -> BTreeMap<String, Vec<Vec<String>>> {
     let mut out = BTreeMap::new();
     for e in std::fs::read_dir(&d).unwrap_or_else(|e| panic!("{}: {e}", d.display())) {
         let p = e.expect("dir entry").path();
-        let Some(id) = p.file_name().and_then(|f| f.to_str()).and_then(|f| f.strip_suffix(".tsv")) else { continue };
+        let Some(id) = p
+            .file_name()
+            .and_then(|f| f.to_str())
+            .and_then(|f| f.strip_suffix(".tsv"))
+        else {
+            continue;
+        };
         let t = std::fs::read_to_string(&p).expect("entry file");
-        out.insert(id.to_owned(), t.lines().filter(|l| !l.starts_with('#') && !l.is_empty()).map(|l| l.split('\t').map(str::to_owned).collect()).collect());
+        out.insert(
+            id.to_owned(),
+            t.lines()
+                .filter(|l| !l.starts_with('#') && !l.is_empty())
+                .map(|l| l.split('\t').map(str::to_owned).collect())
+                .collect(),
+        );
     }
     out
 }
@@ -70,16 +89,25 @@ fn seed() -> Vec<(String, String, String)> {
 #[test]
 fn m6_seed_verdicts_and_pins() {
     fp_seed();
-    let (rows, dir, write) = (seed(), common::milestone_dir(6), std::env::var("LOWERV4_PIN").is_ok_and(|v| v == "write"));
+    let (rows, dir, write) = (
+        seed(),
+        common::milestone_dir(6),
+        std::env::var("LOWERV4_PIN").is_ok_and(|v| v == "write"),
+    );
     let mut bad = Vec::new();
     for (id, src, want) in &rows {
         let text = plan_text(id);
-        let got = text.as_deref().and_then(verdict).unwrap_or_else(|| "not decomposed".to_owned());
+        let got = text
+            .as_deref()
+            .and_then(verdict)
+            .unwrap_or_else(|| "not decomposed".to_owned());
         println!("m6 seed\t{id}\t{src}\t{got}");
         if want != "server-only" && got != *want {
             bad.push(format!("{id} ({src}): expected {want}, got {got}"));
         }
-        let Some(Ok(ir)) = text.and_then(|t| write_rig::lower_declared(&t)) else { continue };
+        let Some(Ok(ir)) = text.and_then(|t| write_rig::lower_declared(&t)) else {
+            continue;
+        };
         let pin = dir.join(format!("{id}.ir"));
         match std::fs::read_to_string(&pin) {
             _ if write => std::fs::write(&pin, &ir).unwrap_or_else(|e| panic!("{}: {e}", pin.display())),
@@ -88,7 +116,12 @@ fn m6_seed_verdicts_and_pins() {
         }
     }
     assert!(rows.len() >= MIN_SEED, "{} seed rows", rows.len());
-    assert!(bad.is_empty(), "{} seed rows:\n{}", bad.len(), bad.join("\n"));
+    assert!(
+        bad.is_empty(),
+        "{} seed rows:\n{}",
+        bad.len(),
+        bad.join("\n")
+    );
 }
 
 /// corpus.d's rows at M6-L1.
@@ -96,19 +129,46 @@ const MIN_SEED: usize = 108;
 
 /// The m6x fixture of statement `sql` (fixtures/m6/m6x-<n>.plan, never a body's nested `.k` plan), found by its text.
 fn m6x(sql: &str) -> String {
-    let hits: Vec<(String, String)> = common::files(&common::milestone_dir(6), "plan").into_iter()
-        .filter(|(n, t)| n.starts_with("m6x-") && !n.contains('.') && t.lines().any(|l| l.strip_prefix("-- sql: ").is_some_and(|q| sql_key(q) == sql_key(sql))))
+    let hits: Vec<(String, String)> = common::files(&common::milestone_dir(6), "plan")
+        .into_iter()
+        .filter(|(n, t)| {
+            n.starts_with("m6x-")
+                && !n.contains('.')
+                && t.lines().any(|l| {
+                    l.strip_prefix("-- sql: ")
+                        .is_some_and(|q| sql_key(q) == sql_key(sql))
+                })
+        })
         .collect();
-    assert_eq!(hits.len(), 1, "m6x fixtures of {sql}: {:?}", hits.iter().map(|h| &h.0).collect::<Vec<_>>());
+    assert_eq!(
+        hits.len(),
+        1,
+        "m6x fixtures of {sql}: {:?}",
+        hits.iter().map(|h| &h.0).collect::<Vec<_>>()
+    );
     hits.into_iter().next().expect("one").1
 }
 
 /// Every collation oid a plan names (expression / Sort / Agg / hash-key collations; 0 = none).
 fn collations(text: &str) -> BTreeSet<u32> {
     let mut out = BTreeSet::new();
-    for tag in [":inputcollid ", ":varcollid ", ":collid ", ":collations (", ":grpCollations (", ":hashcollations ("] {
+    for tag in [
+        ":inputcollid ",
+        ":varcollid ",
+        ":collid ",
+        ":collations (",
+        ":grpCollations (",
+        ":hashcollations (",
+    ] {
         for x in text.split(tag).skip(1) {
-            out.extend(x.split(['}', ')', ':']).next().unwrap_or("").split(' ').filter_map(|n| n.parse::<u32>().ok()).filter(|&n| n != 0));
+            out.extend(
+                x.split(['}', ')', ':'])
+                    .next()
+                    .unwrap_or("")
+                    .split(' ')
+                    .filter_map(|n| n.parse::<u32>().ok())
+                    .filter(|&n| n != 0),
+            );
         }
     }
     out
@@ -122,17 +182,41 @@ fn collations(text: &str) -> BTreeSet<u32> {
 #[test]
 fn m6_the_collation_matrix() {
     let mut bad = Vec::new();
-    let (c, default, user) = (|o: &u32| *o == 950, |o: &u32| *o == 100, |o: &u32| *o >= 16384);
+    let (c, default, user) = (
+        |o: &u32| *o == 950,
+        |o: &u32| *o == 100,
+        |o: &u32| *o >= 16384,
+    );
     let initdb = |o: &u32| *o != 100 && *o != 950 && *o != 951 && *o < 16384;
-    let coll: [(&str, &dyn Fn(&u32) -> bool); 5] = [("\"C\"", &c), ("", &default), ("\"en_US\"", &initdb), ("\"und-x-icu\"", &initdb), ("ci", &user)];
-    for sql in ["SELECT t{c}, count(*) FROM tt GROUP BY {k}", "SELECT k, t FROM tt ORDER BY t{c}, k"] {
+    let coll: [(&str, &dyn Fn(&u32) -> bool); 5] = [
+        ("\"C\"", &c),
+        ("", &default),
+        ("\"en_US\"", &initdb),
+        ("\"und-x-icu\"", &initdb),
+        ("ci", &user),
+    ];
+    for sql in [
+        "SELECT t{c}, count(*) FROM tt GROUP BY {k}",
+        "SELECT k, t FROM tt ORDER BY t{c}, k",
+    ] {
         for (name, class) in &coll {
-            let q = sql.replace("{c}", &if name.is_empty() { String::new() } else { format!(" COLLATE {name}") }).replace("{k}", if name.is_empty() { "t" } else { "1" });
+            let q = sql
+                .replace(
+                    "{c}",
+                    &if name.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" COLLATE {name}")
+                    },
+                )
+                .replace("{k}", if name.is_empty() { "t" } else { "1" });
             let t = m6x(&q);
             let cs = collations(&t);
             println!("m6x coll\t{q}\t{cs:?}\t{:?}", verdict(&t));
-            if !cs.iter().any( class) || cs.iter().any(|o| *o != 100 && !class(o)) {
-                bad.push(format!("{q}: the plan's collations {cs:?} are not {name}'s: re-capture m6x"));
+            if !cs.iter().any(class) || cs.iter().any(|o| *o != 100 && !class(o)) {
+                bad.push(format!(
+                    "{q}: the plan's collations {cs:?} are not {name}'s: re-capture m6x"
+                ));
             }
         }
     }
@@ -148,19 +232,30 @@ fn m6_rows_against_the_oracle() {
     fp_seed();
     let want: BTreeMap<String, String> = seed().into_iter().map(|(id, _, x)| (id, x)).collect();
     let gaps = entries("rig_gaps.d"); // a fixture the crate rig cannot run (a locale's comparator): the server runner's
-    let host_raise = format!("Raised({})", gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST));
+    let host_raise = format!(
+        "Raised({})",
+        gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST)
+    );
     pgtz::init_seams();
     xact_seams::get_current_sub_transaction_id::set(|| 1);
     // a text function's character count (length(t): varlena::text_length) reads the database encoding, the server's UTF8
     // (mbutils installs both there); the golden fixtures' text is valid UTF-8
     mbutils_seams::pg_database_encoding_max_length::set(|| 4);
-    mbutils_seams::pg_mbstrlen_with_len::set(|s| Ok(String::from_utf8_lossy(s).chars().count() as i32));
+    mbutils_seams::pg_mbstrlen_with_len::set(|s| {
+        Ok(String::from_utf8_lossy(s).chars().count() as i32)
+    });
     pgtz::set_session_timezone(pgtz::pg_tzset_offset(0).expect("UTC offset zone"));
     let (mut ran, mut goldens, mut bad) = (0, 0, Vec::new());
-    for e in common::corpus(&common::milestone_dir(6)).into_iter().filter(|e| e.golden.is_some()) {
+    for e in common::corpus(&common::milestone_dir(6))
+        .into_iter()
+        .filter(|e| e.golden.is_some())
+    {
         goldens += 1;
         if let Some(g) = gaps.get(&e.name) {
-            println!("m6 driver\t{}\t-\tserver rig (rig_gaps.d): {}", e.name, g[0][0]);
+            println!(
+                "m6 driver\t{}\t-\tserver rig (rig_gaps.d): {}",
+                e.name, g[0][0]
+            );
             continue;
         }
         for mode in common::MODES {
@@ -172,17 +267,29 @@ fn m6_rows_against_the_oracle() {
                 }
                 Some(Err(w)) if w.contains("host site") => format!("server rig: {w}"),
                 // a named Shape refusal (the lowerer declines the shape; served coverage is v5probe's count): not a wrong answer
-                Some(Err(w)) if w.starts_with("refused: lowerv4: Shape: ") => format!("refused: {}", &w[9..]),
+                Some(Err(w)) if w.starts_with("refused: lowerv4: Shape: ") => {
+                    format!("refused: {}", &w[9..])
+                }
                 // a server-only seed row's host raise (raise::HOST: the crate's fmgr host stashes no error): the server rig's
                 Some(Ok(multiset::Outcome::Error { message, .. }))
-                    if message == host_raise && want.get(&e.name).is_some_and(|w| w == "server-only") => format!("server rig: {message}"),
+                    if message == host_raise
+                        && want.get(&e.name).is_some_and(|w| w == "server-only") =>
+                {
+                    format!("server rig: {message}")
+                }
                 Some(Err(w)) => {
                     bad.push(format!("{} {m}: {w}", e.name));
                     format!("FAILED: {w}")
                 }
                 Some(Ok(got)) => {
                     ran += 1;
-                    common::check(&e, mode, &got).map_or_else(|x| { bad.push(x.clone()); format!("WRONG: {x}") }, |()| "ok".to_owned())
+                    common::check(&e, mode, &got).map_or_else(
+                        |x| {
+                            bad.push(x.clone());
+                            format!("WRONG: {x}")
+                        },
+                        |()| "ok".to_owned(),
+                    )
                 }
             };
             println!("m6 driver\t{}\t{m}\t{v}", e.name);
@@ -190,9 +297,13 @@ fn m6_rows_against_the_oracle() {
     }
     eprintln!("m6 driver: {goldens} PG goldens, {ran} runs compared");
     assert!(goldens >= MIN_GOLDENS, "{goldens} fixtures/m6 goldens");
-    assert!(bad.is_empty(), "{} driver runs:\n{}", bad.len(), bad.join("\n"));
+    assert!(
+        bad.is_empty(),
+        "{} driver runs:\n{}",
+        bad.len(),
+        bad.join("\n")
+    );
 }
 
 /// fixtures/m6's `.pg` goldens at M6-L1.
 const MIN_GOLDENS: usize = 18;
-

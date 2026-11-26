@@ -17,9 +17,9 @@ use types_nodes::Node;
 use types_tuple::TupleDescData;
 
 use execexpr::{exec_init_expr_subplans, ExprState};
+use exectuples;
 use executils::{EStateData, EcxtId};
 use nodeforeignscan::{ForeignScanState, OuterPlanDrive};
-use exectuples;
 use pgclient::ExecStatus;
 
 use crate::connection;
@@ -114,11 +114,13 @@ impl AttInMeta {
             typlens.push(typlen);
             typbyvals.push(typbyval);
         }
-        let (tid_infunc, tid_ioparam) =
-            lsyscache::getTypeInputInfo(types_core::catalog::TIDOID)?;
+        let (tid_infunc, tid_ioparam) = lsyscache::getTypeInputInfo(types_core::catalog::TIDOID)?;
         Ok(AttInMeta {
             natts,
-            names: std::rc::Rc::new(ConvNames { ctx, ctid_rel: Some(relname.to_string()) }),
+            names: std::rc::Rc::new(ConvNames {
+                ctx,
+                ctid_rel: Some(relname.to_string()),
+            }),
             in_funcs,
             typioparams,
             typmods,
@@ -153,7 +155,9 @@ pub(crate) struct ConvNames {
 impl ConvNames {
     fn context_line(&self, attno: i32) -> String {
         let ctx = if attno == types_tuple::htup::SelfItemPointerAttributeNumber {
-            self.ctid_rel.as_ref().map(|r| ConvCtx::Column(r.clone(), "ctid".to_string()))
+            self.ctid_rel
+                .as_ref()
+                .map(|r| ConvCtx::Column(r.clone(), "ctid".to_string()))
         } else if attno >= 1 && attno as usize <= self.ctx.len() {
             Some(self.ctx[(attno - 1) as usize].clone())
         } else {
@@ -180,7 +184,11 @@ fn rte_eref_names(rte: &types_nodes::parsenodes::RangeTblEntry<'_>) -> (String, 
     let colnames = eref
         .colnames
         .iter()
-        .map(|n| n.as_string().map(|s| s.sval.to_string()).unwrap_or_default())
+        .map(|n| {
+            n.as_string()
+                .map(|s| s.sval.to_string())
+                .unwrap_or_default()
+        })
         .collect();
     (eref.aliasname.unwrap_or("").to_string(), colnames)
 }
@@ -196,7 +204,9 @@ pub(crate) fn base_scan_attin(
     let mut attin = AttInMeta::build(relname, tupdesc)?;
     let (alias, colnames) = rte_eref_names(rte);
     let natts = tupdesc.natts as usize;
-    let ctx = (1..=natts as i32).map(|colno| var_conv_ctx(&alias, &colnames, colno)).collect();
+    let ctx = (1..=natts as i32)
+        .map(|colno| var_conv_ctx(&alias, &colnames, colno))
+        .collect();
     attin.set_scan_context(ctx, Some(alias));
     Ok(attin)
 }
@@ -217,7 +227,9 @@ fn var_conv_ctx(relname: &str, colnames: &[String], colno: i32) -> ConvCtx {
 }
 
 fn fsstate<'a>(node: &'a mut ForeignScanState<'_>) -> Option<&'a mut PgFdwScanState> {
-    node.fdw_state.as_mut().and_then(|s| s.downcast_mut::<PgFdwScanState>())
+    node.fdw_state
+        .as_mut()
+        .and_then(|s| s.downcast_mut::<PgFdwScanState>())
 }
 
 #[track_caller]
@@ -251,8 +263,12 @@ fn tupdesc_for_join_scan_tuples<'mcx>(
         if att.atttypid != types_core::RECORDOID || att.atttypmod >= 0 {
             continue;
         }
-        let tle = tle_node.as_target_entry().expect("fdw_scan_tlist holds TargetEntries");
-        let Some(var) = tle.expr.as_var() else { continue };
+        let tle = tle_node
+            .as_target_entry()
+            .expect("fdw_scan_tlist holds TargetEntries");
+        let Some(var) = tle.expr.as_var() else {
+            continue;
+        };
         if var.varattno != 0 {
             continue;
         }
@@ -281,7 +297,9 @@ pub(crate) fn join_scan_attin<'mcx>(
     let mut attin = AttInMeta::build("foreign join", &desc)?;
     let mut ctx = ::mcx::std_vec_with_capacity("postgres_fdw", desc.natts as usize)?;
     for tle_node in fsplan.fdw_scan_tlist.iter() {
-        let tle = tle_node.as_target_entry().expect("fdw_scan_tlist holds TargetEntries");
+        let tle = tle_node
+            .as_target_entry()
+            .expect("fdw_scan_tlist holds TargetEntries");
         let mut c = ConvCtx::Expr;
         if let Some(var) = tle.expr.as_var() {
             if var.varno > 0 {
@@ -321,7 +339,11 @@ pub(crate) fn begin_foreign_scan<'mcx>(
     // C: rtindex = scanrelid, or the lowest fs_base_relids member for a
     // pushed-down join/upper scan.
     let rte_relid = if fsplan.scan.scanrelid > 0 {
-        node.ss.ss_currentRelation.as_ref().expect("base foreign scan has a relation").rd_id
+        node.ss
+            .ss_currentRelation
+            .as_ref()
+            .expect("base foreign scan has a relation")
+            .rd_id
     } else {
         let rtindex = fsplan.fs_base_relids.next_member(-1);
         debug_assert!(rtindex > 0);
@@ -369,7 +391,11 @@ pub(crate) fn begin_foreign_scan<'mcx>(
     // node (postgres_fdw.c:7770-7812: rte->eref, for consistency between the
     // simple-relation and remote-join cases), never from the relation.
     let attin = if fsplan.scan.scanrelid > 0 {
-        let rel = node.ss.ss_currentRelation.as_ref().expect("base foreign scan has a relation");
+        let rel = node
+            .ss
+            .ss_currentRelation
+            .as_ref()
+            .expect("base foreign scan has a relation");
         let rte = estate.es_range_table[(fsplan.scan.scanrelid - 1) as usize];
         base_scan_attin(rel.name(), &rel.rd_att, rte)?
     } else {
@@ -471,12 +497,15 @@ pub(crate) fn process_query_params<'mcx>(
     let r = (|| -> PgResult<Vec<Option<String>>> {
         let scratch = mcx::MemoryContext::new_wholesale("postgres_fdw param output");
         let datums = eval_query_params(param_exprs, estate, ecxt)?;
-        let mut values: Vec<Option<String>> = ::mcx::std_vec_with_capacity("postgres_fdw", datums.len())?;
+        let mut values: Vec<Option<String>> =
+            ::mcx::std_vec_with_capacity("postgres_fdw", datums.len())?;
         for (nd, flinfo) in datums.iter().zip(param_flinfo.iter_mut()) {
             if nd.isnull {
                 values.push(None);
             } else {
-                values.push(Some(crate::modify::output_to_string(flinfo, &scratch, nd.value)?));
+                values.push(Some(crate::modify::output_to_string(
+                    flinfo, &scratch, nd.value,
+                )?));
             }
         }
         Ok(values)
@@ -497,10 +526,18 @@ fn create_cursor<'mcx>(
     let values = if state.param_exprs.is_empty() {
         Vec::new()
     } else {
-        process_query_params(&mut state.param_exprs, &mut state.param_flinfo, estate, ecxt)?
+        process_query_params(
+            &mut state.param_exprs,
+            &mut state.param_flinfo,
+            estate,
+            ecxt,
+        )?
     };
     let params: Vec<Option<&str>> = values.iter().map(|v| v.as_deref()).collect();
-    let sql = format!("DECLARE c{} CURSOR FOR\n{}", state.cursor_number, state.query);
+    let sql = format!(
+        "DECLARE c{} CURSOR FOR\n{}",
+        state.cursor_number, state.query
+    );
     let res = connection::exec_query_params(state.conn_key, &sql, &params, state.query)?;
     if res.status != ExecStatus::CommandOk {
         return Err(connection::remote_error(&res, Some(state.query)));
@@ -621,8 +658,7 @@ fn convert_result_row_inner(
                 // error under the column's conversion errcontext. SQL_ASCII
                 // accepts every byte, so valid behavior is preserved. This
                 // guards both the scan-batch and modify RETURNING paths.
-                mbutils::pg_verifymbstr(bytes, false)
-                    .map_err(|e| conversion_error(e, attin, i))?;
+                mbutils::pg_verifymbstr(bytes, false).map_err(|e| conversion_error(e, attin, i))?;
                 Some(CString::new(bytes.as_slice()).map_err(|_| {
                     Box::new(PgError::error("remote value contains embedded NUL byte"))
                 })?)
@@ -665,12 +701,7 @@ fn convert_result_row_inner(
                     // C's heap_form_tuple materialization, done per datum
                     // (CI cluster r2 find: every retained text datum aliased the
                     // batch's last row; a use-after-free on Linux).
-                    values[idx] = retain_datum(
-                        batch,
-                        d,
-                        attin.typlens[idx],
-                        attin.typbyvals[idx],
-                    )?;
+                    values[idx] = retain_datum(batch, d, attin.typlens[idx], attin.typbyvals[idx])?;
                 }
             }
             Err(e) => return Err(conversion_error(e, attin, i)),
@@ -690,13 +721,23 @@ fn make_tuple_from_result_row(
     state: &mut PgFdwScanState,
     row: &[Option<Vec<u8>>],
 ) -> PgResult<(Vec<Datum>, Vec<bool>, types_tuple::ItemPointerData)> {
-    let PgFdwScanState { attin, retrieved_attrs, batch_mcx, .. } = state;
+    let PgFdwScanState {
+        attin,
+        retrieved_attrs,
+        batch_mcx,
+        ..
+    } = state;
     convert_result_row(attin, retrieved_attrs, row, batch_mcx.mcx())
 }
 
 // Deep-copy a byref datum image into the batch context (datumCopy shape;
 // evaluate_expr's byref-image precedent).
-pub(crate) fn retain_datum(batch: mcx::Mcx<'_>, d: Datum, typlen: i16, typbyval: bool) -> PgResult<Datum> {
+pub(crate) fn retain_datum(
+    batch: mcx::Mcx<'_>,
+    d: Datum,
+    typlen: i16,
+    typbyval: bool,
+) -> PgResult<Datum> {
     if typbyval {
         return Ok(d);
     }
@@ -717,7 +758,9 @@ pub(crate) fn retain_datum(batch: mcx::Mcx<'_>, d: Datum, typlen: i16, typbyval:
             l => core::slice::from_raw_parts(p, l as usize),
         }
     };
-    Ok(Datum::from_usize(mcx::slice_borrow_in(batch, bytes)?.as_ptr() as usize))
+    Ok(Datum::from_usize(
+        mcx::slice_borrow_in(batch, bytes)?.as_ptr() as usize,
+    ))
 }
 
 // conversion_error_callback: C's errcontext line for a failed conversion.
@@ -739,7 +782,10 @@ pub(crate) fn iterate_foreign_scan<'mcx>(
     node: &mut ForeignScanState<'mcx>,
     estate: &mut EStateData<'mcx>,
 ) -> PgResult<bool> {
-    if !fsstate(node).expect("fdw_state set by BeginForeignScan").cursor_exists {
+    if !fsstate(node)
+        .expect("fdw_state set by BeginForeignScan")
+        .cursor_exists
+    {
         create_cursor(node, estate)?;
     }
     let scan_slot = node.ss.ss_ScanTupleSlot;
@@ -796,7 +842,11 @@ pub(crate) fn store_remote_heap_tuple<'mcx>(
     nulls: &[bool],
     ctid: types_tuple::ItemPointerData,
 ) -> PgResult<()> {
-    let desc = slot.base().tts_tupleDescriptor.clone().expect("slot descriptor");
+    let desc = slot
+        .base()
+        .tts_tupleDescriptor
+        .clone()
+        .expect("slot descriptor");
     let mut tuple = heaptuple::heap_form_tuple(qmcx, &desc, values, nulls)?;
     let t = tuple.as_tuple_mut();
     t.t_self = ctid;
@@ -990,8 +1040,9 @@ fn produce_tuple_asynchronously<'mcx>(
         )
     };
     // Not to be called while our own request is in flight.
-    debug_assert!(connection::pending_fetch(conn_key)?
-        .is_none_or(|p| p.cursor_number != cursor_number));
+    debug_assert!(
+        connection::pending_fetch(conn_key)?.is_none_or(|p| p.cursor_number != cursor_number)
+    );
     if !have_tuple {
         return produce_out_of_tuples(node, estate, areq, fetch, eof, conn_key);
     }
@@ -1119,8 +1170,11 @@ mod query_param_tests {
 
     // ExecSetParamPlan stand-in: fills param 0 and clears its pending bit.
     unsafe fn set_param_plan(_: NonNull<()>, estate: &mut EStateData<'_>) -> PgResult<()> {
-        estate.es_param_exec_vals[0] =
-            ParamExecData { value: Datum::from_i32(1206), isnull: false, exec_plan: false };
+        estate.es_param_exec_vals[0] = ParamExecData {
+            value: Datum::from_i32(1206),
+            isnull: false,
+            exec_plan: false,
+        };
         Ok(())
     }
 
@@ -1134,7 +1188,8 @@ mod query_param_tests {
                 isnull: true,
                 exec_plan: true,
             });
-            es.es_param_subplans.push(Some(SubplanStateCell(NonNull::dangling())));
+            es.es_param_subplans
+                .push(Some(SubplanStateCell(NonNull::dangling())));
             es.es_subplan_hook = Some(set_param_plan);
             let ecxt = es.create_expr_context();
             let node = Node::mk(

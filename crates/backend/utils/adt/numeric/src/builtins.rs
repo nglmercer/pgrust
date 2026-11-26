@@ -199,7 +199,11 @@ pub struct ShortNum(pub [u8; 128]);
 
 /// # Safety
 /// Arg `i` is a non-null, untoasted numeric varlena.
-unsafe fn num_arg_local<'a>(fcinfo: &'a Fcinfo, i: usize, buf: &'a mut ShortNum) -> PgResult<Num<'a>> {
+unsafe fn num_arg_local<'a>(
+    fcinfo: &'a Fcinfo,
+    i: usize,
+    buf: &'a mut ShortNum,
+) -> PgResult<Num<'a>> {
     // SAFETY: forwarded caller contract.
     let v = unsafe { fcinfo.arg_varlena_packed(i)? };
     if !v.is_short() {
@@ -971,7 +975,10 @@ unsafe fn int8_transarray_at(fcinfo: &Fcinfo, i: usize, copy: bool) -> PgResult<
             p.cast_mut()
         }
     };
-    debug_assert!((arr as usize).is_multiple_of( 8), "transarray must be MAXALIGNed");
+    debug_assert!(
+        (arr as usize).is_multiple_of(8),
+        "transarray must be MAXALIGNed"
+    );
     // SAFETY: 4B-U image at least header-readable; size validated before the
     // data pointer is used.
     unsafe {
@@ -1446,8 +1453,22 @@ pub const NUMERIC_BUILTINS: &[FmgrBuiltin] = &[
     builtin(1835, "int4_accum", 2, false, false, fc_int4_accum),
     builtin(1836, "int8_accum", 2, false, false, fc_int8_accum),
     builtin(1837, "numeric_avg", 1, false, false, fc_numeric_avg),
-    builtin(1838, "numeric_var_samp", 1, false, false, fc_numeric_var_samp),
-    builtin(1839, "numeric_stddev_samp", 1, false, false, fc_numeric_stddev_samp),
+    builtin(
+        1838,
+        "numeric_var_samp",
+        1,
+        false,
+        false,
+        fc_numeric_var_samp,
+    ),
+    builtin(
+        1839,
+        "numeric_stddev_samp",
+        1,
+        false,
+        false,
+        fc_numeric_stddev_samp,
+    ),
     builtin(1840, "int2_sum", 2, false, false, fc_int2_sum),
     builtin(1841, "int4_sum", 2, false, false, fc_int4_sum),
     builtin(1842, "int8_sum", 2, false, false, fc_int8_sum),
@@ -1458,49 +1479,259 @@ pub const NUMERIC_BUILTINS: &[FmgrBuiltin] = &[
     builtin(1707, "numeric_round", 2, true, false, fc_numeric_round),
     builtin(1709, "numeric_trunc", 2, true, false, fc_numeric_trunc),
     builtin(1783, "numeric_int2", 1, true, false, fc_numeric_int2),
-    builtin(1973, "numeric_div_trunc", 2, true, false, fc_numeric_div_trunc),
+    builtin(
+        1973,
+        "numeric_div_trunc",
+        2,
+        true,
+        false,
+        fc_numeric_div_trunc,
+    ),
     builtin(3281, "numeric_scale", 1, true, false, fc_numeric_scale),
-    builtin(5042, "numeric_min_scale", 1, true, false, fc_numeric_min_scale),
-    builtin(5043, "numeric_trim_scale", 1, true, false, fc_numeric_trim_scale),
-    builtin(1980, "numeric_div_trunc", 2, true, false, fc_numeric_div_trunc),
+    builtin(
+        5042,
+        "numeric_min_scale",
+        1,
+        true,
+        false,
+        fc_numeric_min_scale,
+    ),
+    builtin(
+        5043,
+        "numeric_trim_scale",
+        1,
+        true,
+        false,
+        fc_numeric_trim_scale,
+    ),
+    builtin(
+        1980,
+        "numeric_div_trunc",
+        2,
+        true,
+        false,
+        fc_numeric_div_trunc,
+    ),
     builtin(2169, "power", 2, true, false, fc_numeric_power),
-    builtin(2170, "width_bucket", 4, true, false, fc_width_bucket_numeric),
+    builtin(
+        2170,
+        "width_bucket",
+        4,
+        true,
+        false,
+        fc_width_bucket_numeric,
+    ),
     builtin(2460, "numeric_recv", 3, true, false, fc_numeric_recv),
     builtin(2461, "numeric_send", 1, true, false, fc_numeric_send),
     builtin(2514, "numeric_var_pop", 1, false, false, fc_numeric_var_pop),
-    builtin(2596, "numeric_stddev_pop", 1, false, false, fc_numeric_stddev_pop),
+    builtin(
+        2596,
+        "numeric_stddev_pop",
+        1,
+        false,
+        false,
+        fc_numeric_stddev_pop,
+    ),
     builtin(2746, "int8_avg_accum", 2, false, false, fc_int8_avg_accum),
-    builtin(3548, "numeric_accum_inv", 2, false, false, fc_numeric_accum_inv),
+    builtin(
+        3548,
+        "numeric_accum_inv",
+        2,
+        false,
+        false,
+        fc_numeric_accum_inv,
+    ),
     builtin(3567, "int2_accum_inv", 2, false, false, fc_int2_accum_inv),
     builtin(3568, "int4_accum_inv", 2, false, false, fc_int4_accum_inv),
     builtin(3569, "int8_accum_inv", 2, false, false, fc_int8_accum_inv),
-    builtin(3387, "int8_avg_accum_inv", 2, false, false, fc_int8_avg_accum_inv),
-    builtin(3570, "int2_avg_accum_inv", 2, true, false, fc_int2_avg_accum_inv),
-    builtin(3571, "int4_avg_accum_inv", 2, true, false, fc_int4_avg_accum_inv),
+    builtin(
+        3387,
+        "int8_avg_accum_inv",
+        2,
+        false,
+        false,
+        fc_int8_avg_accum_inv,
+    ),
+    builtin(
+        3570,
+        "int2_avg_accum_inv",
+        2,
+        true,
+        false,
+        fc_int2_avg_accum_inv,
+    ),
+    builtin(
+        3571,
+        "int4_avg_accum_inv",
+        2,
+        true,
+        false,
+        fc_int4_avg_accum_inv,
+    ),
     builtin(3572, "int2int4_sum", 1, true, false, fc_int2int4_sum),
-    builtin(3283, "numeric_sortsupport", 1, true, false, ::types_fmgr::fc_internal_dispatch_only),
-    builtin(2858, "numeric_avg_accum", 2, false, false, fc_numeric_avg_accum),
+    builtin(
+        3283,
+        "numeric_sortsupport",
+        1,
+        true,
+        false,
+        ::types_fmgr::fc_internal_dispatch_only,
+    ),
+    builtin(
+        2858,
+        "numeric_avg_accum",
+        2,
+        false,
+        false,
+        fc_numeric_avg_accum,
+    ),
     builtin(3341, "numeric_combine", 2, false, false, fc_numeric_combine),
-    builtin(3337, "numeric_avg_combine", 2, false, false, fc_numeric_avg_combine),
-    builtin(2740, "numeric_avg_serialize", 1, true, false, fc_numeric_avg_serialize),
-    builtin(2741, "numeric_avg_deserialize", 2, true, false, fc_numeric_avg_deserialize),
-    builtin(3335, "numeric_serialize", 1, true, false, fc_numeric_serialize),
-    builtin(3336, "numeric_deserialize", 2, true, false, fc_numeric_deserialize),
-    builtin(3338, "numeric_poly_combine", 2, false, false, fc_numeric_poly_combine),
-    builtin(3339, "numeric_poly_serialize", 1, true, false, fc_numeric_poly_serialize),
-    builtin(3340, "numeric_poly_deserialize", 2, true, false, fc_numeric_poly_deserialize),
-    builtin(2785, "int8_avg_combine", 2, false, false, fc_int8_avg_combine),
-    builtin(3324, "int4_avg_combine", 2, true, false, fc_int4_avg_combine),
-    builtin(2786, "int8_avg_serialize", 1, true, false, fc_int8_avg_serialize),
-    builtin(2787, "int8_avg_deserialize", 2, true, false, fc_int8_avg_deserialize),
+    builtin(
+        3337,
+        "numeric_avg_combine",
+        2,
+        false,
+        false,
+        fc_numeric_avg_combine,
+    ),
+    builtin(
+        2740,
+        "numeric_avg_serialize",
+        1,
+        true,
+        false,
+        fc_numeric_avg_serialize,
+    ),
+    builtin(
+        2741,
+        "numeric_avg_deserialize",
+        2,
+        true,
+        false,
+        fc_numeric_avg_deserialize,
+    ),
+    builtin(
+        3335,
+        "numeric_serialize",
+        1,
+        true,
+        false,
+        fc_numeric_serialize,
+    ),
+    builtin(
+        3336,
+        "numeric_deserialize",
+        2,
+        true,
+        false,
+        fc_numeric_deserialize,
+    ),
+    builtin(
+        3338,
+        "numeric_poly_combine",
+        2,
+        false,
+        false,
+        fc_numeric_poly_combine,
+    ),
+    builtin(
+        3339,
+        "numeric_poly_serialize",
+        1,
+        true,
+        false,
+        fc_numeric_poly_serialize,
+    ),
+    builtin(
+        3340,
+        "numeric_poly_deserialize",
+        2,
+        true,
+        false,
+        fc_numeric_poly_deserialize,
+    ),
+    builtin(
+        2785,
+        "int8_avg_combine",
+        2,
+        false,
+        false,
+        fc_int8_avg_combine,
+    ),
+    builtin(
+        3324,
+        "int4_avg_combine",
+        2,
+        true,
+        false,
+        fc_int4_avg_combine,
+    ),
+    builtin(
+        2786,
+        "int8_avg_serialize",
+        1,
+        true,
+        false,
+        fc_int8_avg_serialize,
+    ),
+    builtin(
+        2787,
+        "int8_avg_deserialize",
+        2,
+        true,
+        false,
+        fc_int8_avg_deserialize,
+    ),
     builtin(2917, "numerictypmodin", 1, true, false, fc_numerictypmodin),
     builtin(3178, "numeric_sum", 1, false, false, fc_numeric_sum),
-    builtin(3388, "numeric_poly_sum", 1, false, false, fc_numeric_poly_sum),
-    builtin(3389, "numeric_poly_avg", 1, false, false, fc_numeric_poly_avg),
-    builtin(3390, "numeric_poly_var_pop", 1, false, false, fc_numeric_poly_var_pop),
-    builtin(3391, "numeric_poly_var_samp", 1, false, false, fc_numeric_poly_var_samp),
-    builtin(3392, "numeric_poly_stddev_pop", 1, false, false, fc_numeric_poly_stddev_pop),
-    builtin(3393, "numeric_poly_stddev_samp", 1, false, false, fc_numeric_poly_stddev_samp),
+    builtin(
+        3388,
+        "numeric_poly_sum",
+        1,
+        false,
+        false,
+        fc_numeric_poly_sum,
+    ),
+    builtin(
+        3389,
+        "numeric_poly_avg",
+        1,
+        false,
+        false,
+        fc_numeric_poly_avg,
+    ),
+    builtin(
+        3390,
+        "numeric_poly_var_pop",
+        1,
+        false,
+        false,
+        fc_numeric_poly_var_pop,
+    ),
+    builtin(
+        3391,
+        "numeric_poly_var_samp",
+        1,
+        false,
+        false,
+        fc_numeric_poly_var_samp,
+    ),
+    builtin(
+        3392,
+        "numeric_poly_stddev_pop",
+        1,
+        false,
+        false,
+        fc_numeric_poly_stddev_pop,
+    ),
+    builtin(
+        3393,
+        "numeric_poly_stddev_samp",
+        1,
+        false,
+        false,
+        fc_numeric_poly_stddev_samp,
+    ),
     builtin(5048, "gcd", 2, true, false, fc_numeric_gcd),
     builtin(5049, "lcm", 2, true, false, fc_numeric_lcm),
     builtin(1705, "abs", 1, true, false, fc_numeric_abs),
@@ -1511,11 +1742,32 @@ pub const NUMERIC_BUILTINS: &[FmgrBuiltin] = &[
     builtin(2167, "ceiling", 1, true, false, fc_numeric_ceil),
     builtin(3157, "numeric_support", 1, true, false, fc_numeric_support),
     builtin(432, "hash_numeric", 1, true, false, fc_hash_numeric),
-    builtin(780, "hash_numeric_extended", 2, true, false, fc_hash_numeric_extended),
+    builtin(
+        780,
+        "hash_numeric_extended",
+        2,
+        true,
+        false,
+        fc_hash_numeric_extended,
+    ),
     srf(3259, "generate_series", 3, fc_generate_series_numeric),
     srf(3260, "generate_series", 2, fc_generate_series_numeric),
-    builtin(4141, "in_range_numeric_numeric", 5, true, false, fc_in_range_numeric_numeric),
-    builtin(6357, "generate_series_numeric_support", 1, true, false, fc_generate_series_numeric_support),
+    builtin(
+        4141,
+        "in_range_numeric_numeric",
+        5,
+        true,
+        false,
+        fc_in_range_numeric_numeric,
+    ),
+    builtin(
+        6357,
+        "generate_series_numeric_support",
+        1,
+        true,
+        false,
+        fc_generate_series_numeric_support,
+    ),
 ];
 
 // numeric_out into the caller's buffer (printtup, COPY TO): an inline image read in place (a short header's payload
@@ -1534,7 +1786,11 @@ fn with_num<R>(v: Datum, f: impl FnOnce(crate::Num<'_>) -> R) -> Option<R> {
             // a short payload is under 127 bytes
             let data = img.data();
             let mut words = [0u64; 16];
-            core::ptr::copy_nonoverlapping(data.as_ptr(), words.as_mut_ptr().cast::<u8>(), data.len());
+            core::ptr::copy_nonoverlapping(
+                data.as_ptr(),
+                words.as_mut_ptr().cast::<u8>(),
+                data.len(),
+            );
             let bytes = core::slice::from_raw_parts(words.as_ptr().cast::<u8>(), data.len());
             return Some(f(crate::Num::from_payload(bytes)));
         }
@@ -1546,8 +1802,15 @@ fn numeric_bound(v: Datum) -> Option<usize> {
 }
 unsafe fn numeric_render(v: Datum, dst: *mut u8) -> PgResult<usize> {
     // SAFETY: numeric_bound returned Some: `dst` has room for numeric_out_bound bytes of the same image.
-    Ok(with_num(v, |n| unsafe { crate::io::numeric_out_raw(n, dst) }).expect("numeric_render after numeric_bound"))
+    Ok(
+        with_num(v, |n| unsafe { crate::io::numeric_out_raw(n, dst) })
+            .expect("numeric_render after numeric_bound"),
+    )
 }
 
-pub static NUMERIC_OUT_INTO: &[OutInto] =
-    &[OutInto { foid: 1702, bound: numeric_bound, render: numeric_render, chars: Some(OUT_CHARS_NUMERIC) }];
+pub static NUMERIC_OUT_INTO: &[OutInto] = &[OutInto {
+    foid: 1702,
+    bound: numeric_bound,
+    render: numeric_render,
+    chars: Some(OUT_CHARS_NUMERIC),
+}];

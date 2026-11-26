@@ -13,15 +13,19 @@
 //!   conflict site, the write site + 1 (driver dml.rs), which `cells(.., true)` reads.
 //! - below zero: the host's error, a stop at the row.
 //!   The ModifyTable node's loops count at the open, as the end's. Width: leader-only, `claim`'s refusal (write/rowop.rs).
-use mcx::{CollectIn, GrowIn, PgBox, PgVec};
 use gravity_abi::ctx::site_off;
-use gravity_abi::site::site;
 use gravity_abi::program::{WRITE_DELETE, WRITE_INSERT};
-use gravity_abi::status::{recheck, unsupported, UNSUPPORTED_SHAPE, WRITE_CONFLICT, WRITE_DONE, WRITE_NOT_MATCHED, WRITE_RECHECK};
+use gravity_abi::site::site;
+use gravity_abi::status::{
+    recheck, unsupported, UNSUPPORTED_SHAPE, WRITE_CONFLICT, WRITE_DONE, WRITE_NOT_MATCHED,
+    WRITE_RECHECK,
+};
 use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{ConvOp, IntBinOp, IntCond, Type, Value};
 use gravity_program::SiteDesc;
+use mcx::{CollectIn, GrowIn, PgBox, PgVec};
 
+use crate::admit::refusal::Reason;
 use crate::face::end::{Arm, LocFrom, RowOpDecl, RowOpMaker, RowOpMech, RowOpRow, SYS_CELLS};
 use crate::face::kinds::KindId;
 use crate::frame::env::Env;
@@ -29,25 +33,47 @@ use crate::frame::frame::Next;
 use crate::frame::instr;
 use crate::frame::px::Px;
 use crate::frame::row::{Carry, RowVals};
-use crate::admit::refusal::Reason;
 
-use crate::ops::modifytable::rowop::{claim, host_op, shared_sys, stop_at, store_loc, store_pos, Late};
+use crate::ops::modifytable::rowop::{
+    claim, host_op, shared_sys, stop_at, store_loc, store_pos, Late,
+};
 
 /// The step form's maker, one more row of `write.delete` (the kind that owns the row-op machinery at M1).
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { kinds: &[(KindId::WriteDelete, &RowOpMaker(make_op))], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    kinds: &[(KindId::WriteDelete, &RowOpMaker(make_op))],
+    ..crate::ops::NONE
+};
 
 /// The row op as a step for pipeline `k`: the write site, then the conflict site right after it.
-pub(crate) fn make_op<'g>(px: &mut Px<'g, '_>, k: usize, d: RowOpDecl) -> PgBox<'g, dyn RowOpMech + 'g> {
-    let (wants_old, wants_sys, old_n) = (d.plan.old, d.plan.sys, d.natts + d.plan.sys_old as u16 * SYS_CELLS);
+pub(crate) fn make_op<'g>(
+    px: &mut Px<'g, '_>,
+    k: usize,
+    d: RowOpDecl,
+) -> PgBox<'g, dyn RowOpMech + 'g> {
+    let (wants_old, wants_sys, old_n) = (
+        d.plan.old,
+        d.plan.sys,
+        d.natts + d.plan.sys_old as u16 * SYS_CELLS,
+    );
     // EXPLAIN ANALYZE's Conflicting Tuples under DO NOTHING: a skipped row is a conflict's where no BEFORE ROW INSERT
     // trigger can skip one (the target's, a routed leaf's), as only ExecInsert's conflict arm counts it
-    let nothing = d.op == WRITE_INSERT && d.plan.conflict == gravity_program::Conflict::Nothing && instr::on() && {
-        use gravity_decompose::ops::modifytable::trig_facts::TRIG_INSERT;
-        let t = px.gx.facts.trig_ext(d.relid);
-        t.known && t.before_row & TRIG_INSERT == 0 && d.plan.route.as_ref().is_none_or(|r| r.leaves.iter().all(|l| !l.before_row))
-    };
+    let nothing = d.op == WRITE_INSERT
+        && d.plan.conflict == gravity_program::Conflict::Nothing
+        && instr::on()
+        && {
+            use gravity_decompose::ops::modifytable::trig_facts::TRIG_INSERT;
+            let t = px.gx.facts.trig_ext(d.relid);
+            t.known
+                && t.before_row & TRIG_INSERT == 0
+                && d.plan
+                    .route
+                    .as_ref()
+                    .is_none_or(|r| r.leaves.iter().all(|l| !l.before_row))
+        };
     let (site, node, write_node, marks) = claim(px, k, d.relid, d.natts, d.plan, true);
-    let conflict = d.conflict.then(|| px.add_late_site(SiteDesc::write(d.relid, d.natts)));
+    let conflict = d
+        .conflict
+        .then(|| px.add_late_site(SiteDesc::write(d.relid, d.natts)));
     // M4-RET R4a: RETURNING OLD's site, the successor of the site the host updates (the write site's; under DO UPDATE the
     // conflict site's, whose update fetches the existing row it replaced): driver dml.rs fills `i + 1`; V4R-501: its
     // system columns after its cells (`WritePlan.sys_old`)
@@ -95,20 +121,57 @@ impl RowOpMech for RowOpStep<'_> {
         }
     }
 
-    fn call<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, r: RowOpRow<'_>, done: Next<'_, 'e>, conflict: Option<Next<'_, 'e>>) -> Carry<'e> {
-        self.call_op(b, env, row, self.op, r, done, conflict.map_or(Arm::None, Arm::Conflict))
+    fn call<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        r: RowOpRow<'_>,
+        done: Next<'_, 'e>,
+        conflict: Option<Next<'_, 'e>>,
+    ) -> Carry<'e> {
+        self.call_op(
+            b,
+            env,
+            row,
+            self.op,
+            r,
+            done,
+            conflict.map_or(Arm::None, Arm::Conflict),
+        )
     }
 
     /// A DELETE may pass no cells (the host fills the deleted row for RETURNING); MERGE's INSERT arm (`op` INSERT under
     /// a junk-ctid declaration) passes no tid and writes with an empty position.
-    fn call_op<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, op: u32, r: RowOpRow<'_>, done: Next<'_, 'e>, arm: Arm<'_, 'e>) -> Carry<'e> {
-        let (arm, rerun) = match arm { Arm::Epq(e, c) if self.epq => (Arm::None, Some((e, c))), Arm::Epq(..) => (Arm::None, None), a => (a, None) };
-        let cells_ok = r.cells.len() == self.natts as usize || op == WRITE_DELETE && r.cells.is_empty();
+    fn call_op<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        op: u32,
+        r: RowOpRow<'_>,
+        done: Next<'_, 'e>,
+        arm: Arm<'_, 'e>,
+    ) -> Carry<'e> {
+        let (arm, rerun) = match arm {
+            Arm::Epq(e, c) if self.epq => (Arm::None, Some((e, c))),
+            Arm::Epq(..) => (Arm::None, None),
+            a => (a, None),
+        };
+        let cells_ok =
+            r.cells.len() == self.natts as usize || op == WRITE_DELETE && r.cells.is_empty();
         let junk = matches!(self.loc, LocFrom::JunkCtid { .. });
         let tid_ok = r.tid.is_some() == junk || junk && op == WRITE_INSERT && r.tid.is_none();
         // D655 Row C: a MERGE action under its own redo (merge/epq.rs), or its NOT MATCHED INSERT (never rechecks)
-        let redo = match &arm { Arm::MergeEpq(_, l) => Some(*l), _ => None };
-        if !cells_ok || matches!(arm, Arm::Conflict(_)) && self.conflict.is_none() || !tid_ok || self.epq && rerun.is_none() && redo.is_none() && op != WRITE_INSERT {
+        let redo = match &arm {
+            Arm::MergeEpq(_, l) => Some(*l),
+            _ => None,
+        };
+        if !cells_ok
+            || matches!(arm, Arm::Conflict(_)) && self.conflict.is_none()
+            || !tid_ok
+            || self.epq && rerun.is_none() && redo.is_none() && op != WRITE_INSERT
+        {
             crate::refuse!(self.node, Reason::Bug { payload: "a row op called with cells, a tid or a conflict arm its declaration does not have" });
         }
         let (x, l_cold) = (env.x, b.create_block(&[Type::I64]));
@@ -134,7 +197,11 @@ impl RowOpMech for RowOpStep<'_> {
                 b.cond_br(valid, (l_tid, &[]), (l_cold, &[uns]));
                 b.switch_to(l_tid);
                 let p = b.conv(ConvOp::IntToPtr, Type::Ptr, d);
-                let (hi, lo, off) = (b.load_zext(Type::I16, p, 0), b.load_zext(Type::I16, p, 2), b.load_zext(Type::I16, p, 4));
+                let (hi, lo, off) = (
+                    b.load_zext(Type::I16, p, 0),
+                    b.load_zext(Type::I16, p, 2),
+                    b.load_zext(Type::I16, p, 4),
+                );
                 let sixteen = b.iconst(Type::I64, 16);
                 let hi = b.int_bin(IntBinOp::Shl, hi, sixteen);
                 let block = b.int_bin(IntBinOp::Or, hi, lo);
@@ -142,7 +209,11 @@ impl RowOpMech for RowOpStep<'_> {
                 // G2(c): the row's own relation (the multi-target host's leaf) over the declared one
                 if let Some((rel, _)) = r.rel {
                     let rel = b.conv(ConvOp::Trunc, Type::I32, rel);
-                    b.store(env.ctx, site_off(self.site.get()) as i32 + site::POS_REL as i32, rel);
+                    b.store(
+                        env.ctx,
+                        site_off(self.site.get()) as i32 + site::POS_REL as i32,
+                        rel,
+                    );
                 }
                 Some(site)
             }
@@ -162,17 +233,48 @@ impl RowOpMech for RowOpStep<'_> {
         crate::rerun::epq::marks::store(b, env, row, self.node, &self.marks);
         let st = host_op(b, env, self.site.get(), op);
         let (st, l_st) = super::rowop_epq::arms(b, st, rerun.is_some());
-        let st = crate::ops::modifytable::rowop_sub::serve(b, env, self.site.get(), op, st, (&self.fed, row), self.node);
+        let st = crate::ops::modifytable::rowop_sub::serve(
+            b,
+            env,
+            self.site.get(),
+            op,
+            st,
+            (&self.fed, row),
+            self.node,
+        );
         // below zero the host's error; above the op's last status (CONFLICT only with a conflict site) unsupported
-        let top = b.iconst(Type::I64, if self.conflict.is_some() { WRITE_CONFLICT } else { WRITE_RECHECK });
-        let (odd, neg) = (b.icmp(IntCond::Sgt, st, top), b.icmp(IntCond::Slt, st, env.zero));
+        let top = b.iconst(
+            Type::I64,
+            if self.conflict.is_some() {
+                WRITE_CONFLICT
+            } else {
+                WRITE_RECHECK
+            },
+        );
+        let (odd, neg) = (
+            b.icmp(IntCond::Sgt, st, top),
+            b.icmp(IntCond::Slt, st, env.zero),
+        );
         // W6: a MERGE's NOT_MATCHED (its target row concurrently deleted) is no odd status: its NOT MATCHED actions, else a skip
-        let merge = matches!(arm, Arm::Merge(_) | Arm::MergeEpq(..)).then(|| b.iconst(Type::I64, WRITE_NOT_MATCHED));
-        let odd = merge.map_or(odd, |nm| { let ok = b.icmp(IntCond::Ne, st, nm); b.int_bin(IntBinOp::And, odd, ok) });
+        let merge = matches!(arm, Arm::Merge(_) | Arm::MergeEpq(..))
+            .then(|| b.iconst(Type::I64, WRITE_NOT_MATCHED));
+        let odd = merge.map_or(odd, |nm| {
+            let ok = b.icmp(IntCond::Ne, st, nm);
+            b.int_bin(IntBinOp::And, odd, ok)
+        });
         let bad = b.int_bin(IntBinOp::Or, neg, odd);
         let err = b.select(neg, st, uns);
-        let types = row.carry.params().iter().map(|&v| b.value_type(v)).collect_in(env.mcx);
-        let (l_ok, l_done, l_join) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&types[..]));
+        let types = row
+            .carry
+            .params()
+            .iter()
+            .map(|&v| b.value_type(v))
+            .collect_in(env.mcx);
+        let (l_ok, l_done, l_join) = (
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&types[..]),
+        );
         b.cond_br(bad, (l_cold, &[err]), (l_ok, &[]));
         b.switch_to(l_cold);
         let e = b.block_params(l_cold)[0];
@@ -199,7 +301,18 @@ impl RowOpMech for RowOpStep<'_> {
             _ => rsite.map_or(uns, |s| b.iconst(Type::I64, recheck(s))),
         };
         match (rerun.zip(l_st), redo) {
-            (Some(((e, cells), l)), _) => super::rowop_epq::retry(b, env, row, (self.site.get(), self.node, op), e, cells, &|b, env, c| self.store_cells(b, env, c), l, l_join, &x),
+            (Some(((e, cells), l)), _) => super::rowop_epq::retry(
+                b,
+                env,
+                row,
+                (self.site.get(), self.node, op),
+                e,
+                cells,
+                &|b, env, c| self.store_cells(b, env, c),
+                l,
+                l_join,
+                &x,
+            ),
             // D655 Row C: the MERGE's redo loop (merge/epq.rs)
             (None, Some(l)) => b.br(l, &[]),
             (None, None) => b.br(x.l_stop_in, &[row.carry.out, row.next, rs]),
@@ -230,31 +343,63 @@ impl RowOpMech for RowOpStep<'_> {
         Carry::from_params(b.block_params(l_join), env.mcx)
     }
 
-    fn cells<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, conflict: bool) -> PgVec<'e, (Value, Value)> {
+    fn cells<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        conflict: bool,
+    ) -> PgVec<'e, (Value, Value)> {
         let at = match (conflict, &self.conflict) {
             (false, _) => site_off(self.site.get()),
             (true, Some(c)) if c.get() == self.site.get() + 1 => site_off(c.get()),
-            _ => crate::refuse!(self.node, Reason::Bug { payload: "a conflict site read without one, or not the write site's successor" }),
+            _ => crate::refuse!(
+                self.node,
+                Reason::Bug {
+                    payload: "a conflict site read without one, or not the write site's successor"
+                }
+            ),
         } as i32;
         let mut out = self.load_cells(b, env, at, self.natts);
         match &self.sys {
             None => {}
             // D774: the written row's system columns after its cells (write.returning's continuation lays them out); V4R-501:
             // an ON CONFLICT's (the inserted row's, DO UPDATE's new version's) after the conflict and old sites
-            Some(y) if y.get() == self.site.get() + 1 + self.conflict.is_some() as usize + self.old.is_some() as usize => {
+            Some(y)
+                if y.get()
+                    == self.site.get()
+                        + 1
+                        + self.conflict.is_some() as usize
+                        + self.old.is_some() as usize =>
+            {
                 out.extend_in(self.load_cells(b, env, site_off(y.get()) as i32, SYS_CELLS));
             }
-            _ => crate::refuse!(self.node, Reason::Bug { payload: "a sys site not after the conflict and old sites" }),
+            _ => crate::refuse!(
+                self.node,
+                Reason::Bug {
+                    payload: "a sys site not after the conflict and old sites"
+                }
+            ),
         }
         out
     }
 
-    fn old_cells<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>) -> PgVec<'e, (Value, Value)> {
+    fn old_cells<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+    ) -> PgVec<'e, (Value, Value)> {
         let at = match &self.old {
             // no RETURNING OLD (the plan fetches nothing): no old cells
             None => return PgVec::new_in(env.mcx),
-            Some(o) if o.get() == self.site.get() + 1 + self.conflict.is_some() as usize => site_off(o.get()) as i32,
-            _ => crate::refuse!(self.node, Reason::Bug { payload: "an old site that is not the updated site's successor" }),
+            Some(o) if o.get() == self.site.get() + 1 + self.conflict.is_some() as usize => {
+                site_off(o.get()) as i32
+            }
+            _ => crate::refuse!(
+                self.node,
+                Reason::Bug {
+                    payload: "an old site that is not the updated site's successor"
+                }
+            ),
         };
         self.load_cells(b, env, at, self.old_n)
     }
@@ -274,8 +419,17 @@ impl RowOpMech for RowOpStep<'_> {
 
 impl RowOpStep<'_> {
     /// The `n` cells of the site at ctx offset `at`: `(datum, isnull)` in attno order.
-    fn load_cells<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, at: i32, n: u16) -> PgVec<'e, (Value, Value)> {
-        let (vp, np) = (b.load(Type::Ptr, env.ctx, at + site::VALUES as i32), b.load(Type::Ptr, env.ctx, at + site::ISNULL as i32));
+    fn load_cells<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        at: i32,
+        n: u16,
+    ) -> PgVec<'e, (Value, Value)> {
+        let (vp, np) = (
+            b.load(Type::Ptr, env.ctx, at + site::VALUES as i32),
+            b.load(Type::Ptr, env.ctx, at + site::ISNULL as i32),
+        );
         let mut out = mcx::reserved_in(n as usize, env.mcx);
         for a in 0..n as i32 {
             let (v, n) = (b.load(Type::I64, vp, a * 8), b.load_zext(Type::I8, np, a));
@@ -298,7 +452,10 @@ impl RowOpStep<'_> {
             return;
         }
         let at = site_off(self.site.get()) as i32;
-        let (vp, np) = (b.load(Type::Ptr, env.ctx, at + site::VALUES as i32), b.load(Type::Ptr, env.ctx, at + site::ISNULL as i32));
+        let (vp, np) = (
+            b.load(Type::Ptr, env.ctx, at + site::VALUES as i32),
+            b.load(Type::Ptr, env.ctx, at + site::ISNULL as i32),
+        );
         let (z8, o8) = (b.iconst(Type::I8, 0), b.iconst(Type::I8, 1));
         for (a, &(d, valid)) in cells.iter().enumerate() {
             let v = b.select(valid, d, env.zero);
@@ -328,11 +485,17 @@ mod tests {
     fn the_driving_insert_arm_matches_only_an_insert_under_the_driving_declaration() {
         assert!(driving_insert(LocFrom::Driving, WRITE_INSERT));
         for op in [WRITE_UPDATE, WRITE_DELETE, 0, 4] {
-            assert!(!driving_insert(LocFrom::Driving, op), "the driving declaration's op {op} keeps the locator arm");
+            assert!(
+                !driving_insert(LocFrom::Driving, op),
+                "the driving declaration's op {op} keeps the locator arm"
+            );
         }
         for loc in [LocFrom::JunkCtid { site: 3 }, LocFrom::None] {
             for op in [WRITE_INSERT, WRITE_UPDATE, WRITE_DELETE] {
-                assert!(!driving_insert(loc, op), "{op} under a non-driving declaration keeps its own arm");
+                assert!(
+                    !driving_insert(loc, op),
+                    "{op} under a non-driving declaration keeps its own arm"
+                );
             }
         }
     }

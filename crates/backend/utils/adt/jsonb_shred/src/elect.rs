@@ -86,11 +86,7 @@ impl PathStats {
 ///   in caller order, then frequency order.
 /// - hints deeper than max_depth are refused (the walker would never reach
 ///   them; electing them would create permanently-dead lanes).
-pub fn elect_manifest(
-    rows: &[&[u8]],
-    hints: &[PathHint],
-    budgets: &ShredBudgets,
-) -> ShredManifest {
+pub fn elect_manifest(rows: &[&[u8]], hints: &[PathHint], budgets: &ShredBudgets) -> ShredManifest {
     elect_manifest_auto(rows, hints, &[], budgets)
 }
 
@@ -109,37 +105,43 @@ pub fn elect_manifest_auto(
 ) -> ShredManifest {
     let mut stats: BTreeMap<JsonPath, PathStats> = BTreeMap::new();
     for payload in rows {
-        walk_row(payload, budgets.max_depth, &mut |_| false, &mut |segs, v| {
-            if segs.is_empty() {
-                return; // non-object root: never electable, rides residual
-            }
-            let entry = stats
-                .entry(JsonPath::from_borrowed(segs))
-                .or_default();
-            entry.presence += 1;
-            if let PathValue::Scalar(item) = v {
-                match item {
-                    JsonbItem::String(_) => entry.nstring += 1,
-                    JsonbItem::Numeric(_) => entry.nnumber += 1,
-                    JsonbItem::Bool(_) => entry.nbool += 1,
-                    _ => {}
+        walk_row(
+            payload,
+            budgets.max_depth,
+            &mut |_| false,
+            &mut |segs, v| {
+                if segs.is_empty() {
+                    return; // non-object root: never electable, rides residual
                 }
-            }
-        });
+                let entry = stats.entry(JsonPath::from_borrowed(segs)).or_default();
+                entry.presence += 1;
+                if let PathValue::Scalar(item) = v {
+                    match item {
+                        JsonbItem::String(_) => entry.nstring += 1,
+                        JsonbItem::Numeric(_) => entry.nnumber += 1,
+                        JsonbItem::Bool(_) => entry.nbool += 1,
+                        _ => {}
+                    }
+                }
+            },
+        );
     }
 
     let mut manifest = ShredManifest::new(budgets.nbuckets, budgets.max_depth);
 
     // Admission with the prefix-freeness cap.
     let mut admitted: Vec<(JsonPath, Lane, bool, u64)> = Vec::new();
-    let admit = |cand: &JsonPath, lane: Lane, hinted: bool, presence: u64,
-                     admitted: &mut Vec<(JsonPath, Lane, bool, u64)>| {
+    let admit = |cand: &JsonPath,
+                 lane: Lane,
+                 hinted: bool,
+                 presence: u64,
+                 admitted: &mut Vec<(JsonPath, Lane, bool, u64)>| {
         if admitted.len() >= budgets.max_paths {
             return;
         }
-        let conflict = admitted.iter().any(|(p, ..)| {
-            p == cand || p.is_strict_prefix_of(cand) || cand.is_strict_prefix_of(p)
-        });
+        let conflict = admitted
+            .iter()
+            .any(|(p, ..)| p == cand || p.is_strict_prefix_of(cand) || cand.is_strict_prefix_of(p));
         if !conflict {
             admitted.push((cand.clone(), lane, hinted, presence));
         }

@@ -1,18 +1,15 @@
 use datum::Datum;
 use mcx::{Mcx, PgVec};
 use types_core::{Oid, BLCKSZ};
-use types_error::{
-    PgError, PgResult,
-};
+use types_error::{PgError, PgResult};
 use types_fmgr::{FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction};
 use types_nodes::list::{IntList, NodeList};
 use types_nodes::{FdwKind, FdwRoutine, Node};
 use types_pathnodes::relids::{relids_is_empty, relids_is_subset, relids_overlap};
 use types_pathnodes::{
-    EcId, EmId, PathId, PathKey, PathNode, PtId, RelId, RinfoId, COMPARE_LT,
-    RELOPT_BASEREL, RELOPT_JOINREL, RELOPT_OTHER_JOINREL, RELOPT_OTHER_MEMBER_REL,
-    RELOPT_OTHER_UPPER_REL, RELOPT_UPPER_REL, UPPERREL_FINAL, UPPERREL_GROUP_AGG,
-    UPPERREL_ORDERED,
+    EcId, EmId, PathId, PathKey, PathNode, PtId, RelId, RinfoId, COMPARE_LT, RELOPT_BASEREL,
+    RELOPT_JOINREL, RELOPT_OTHER_JOINREL, RELOPT_OTHER_MEMBER_REL, RELOPT_OTHER_UPPER_REL,
+    RELOPT_UPPER_REL, UPPERREL_FINAL, UPPERREL_GROUP_AGG, UPPERREL_ORDERED,
 };
 use types_tuple::{SizeofHeapTupleHeader, MAXALIGN};
 
@@ -43,12 +40,18 @@ pub(crate) struct PgFdwPathExtraData {
 
 // IS_SIMPLE_REL (pathnodes.h).
 fn is_simple_rel(run: &PlannerRun<'_>, rel: RelId) -> bool {
-    matches!(run.root.rel(rel).reloptkind, RELOPT_BASEREL | RELOPT_OTHER_MEMBER_REL)
+    matches!(
+        run.root.rel(rel).reloptkind,
+        RELOPT_BASEREL | RELOPT_OTHER_MEMBER_REL
+    )
 }
 
 // IS_UPPER_REL (pathnodes.h:873).
 fn is_upper_rel(run: &PlannerRun<'_>, rel: RelId) -> bool {
-    matches!(run.root.rel(rel).reloptkind, RELOPT_UPPER_REL | RELOPT_OTHER_UPPER_REL)
+    matches!(
+        run.root.rel(rel).reloptkind,
+        RELOPT_UPPER_REL | RELOPT_OTHER_UPPER_REL
+    )
 }
 
 // IS_OTHER_REL (pathnodes.h).
@@ -61,7 +64,10 @@ fn is_other_rel(run: &PlannerRun<'_>, rel: RelId) -> bool {
 
 // ---------- handler ----------
 
-fn fc_postgres_fdw_handler(_flinfo: Option<&mut FmgrInfo>, _fcinfo: &mut Fcinfo) -> PgResult<Datum> {
+fn fc_postgres_fdw_handler(
+    _flinfo: Option<&mut FmgrInfo>,
+    _fcinfo: &mut Fcinfo,
+) -> PgResult<Datum> {
     static ROUTINE: FdwRoutine = FdwRoutine::new(FdwKind::PostgresFdw);
     Ok(Datum::from_usize(&ROUTINE as *const FdwRoutine as usize))
 }
@@ -107,7 +113,8 @@ fn apply_server_options<'mcx>(
                 }
             }
             "extensions" => {
-                fp.shippable_extensions = crate::option::extract_extension_list(mcx, &value, false)?;
+                fp.shippable_extensions =
+                    crate::option::extract_extension_list(mcx, &value, false)?;
             }
             "fetch_size" => {
                 if let guc::units::ParseNum::Ok(v) = guc::units::parse_int(&value, 0) {
@@ -173,18 +180,33 @@ fn postgres_get_foreign_rel_size<'mcx>(
     apply_table_options(&mut fp, &table)?;
 
     // classifyConditions over baserestrictinfo.
-    let baserestrict: Vec<RinfoId> =
-        run.root.rel(rel_id).baserestrictinfo.iter().copied().collect();
+    let baserestrict: Vec<RinfoId> = run
+        .root
+        .rel(rel_id)
+        .baserestrictinfo
+        .iter()
+        .copied()
+        .collect();
     let mut remote_conds = PgVec::new_in(mcx);
     let mut local_conds = PgVec::new_in(mcx);
     attach_fpinfo(mcx, run.root.rel_mut(rel_id), fp)?;
-    deparse::classify_conditions(run, rel_id, &baserestrict, &mut remote_conds, &mut local_conds)?;
+    deparse::classify_conditions(
+        run,
+        rel_id,
+        &baserestrict,
+        &mut remote_conds,
+        &mut local_conds,
+    )?;
 
     // attrs_used: reltarget exprs + local_conds clauses.
     let varno = run.root.rel(rel_id).relid as i32;
     let mut attrs_used = types_nodes::Bitmapset::empty();
-    let expr_ids: Vec<types_pathnodes::NodeId> =
-        run.pathtarget(run.rel_reltarget_id(rel_id)).exprs.iter().copied().collect();
+    let expr_ids: Vec<types_pathnodes::NodeId> = run
+        .pathtarget(run.rel_reltarget_id(rel_id))
+        .exprs
+        .iter()
+        .copied()
+        .collect();
     for id in expr_ids {
         vars::pull_varattnos(mcx, *run.root.expr_node(id), varno, &mut attrs_used)?;
     }
@@ -312,8 +334,13 @@ pub(crate) fn estimate_path_cost_size<'mcx>(
         )?;
 
         let mut remote_conds: Vec<RinfoId> = remote_param_join_conds.iter().copied().collect();
-        remote_conds
-            .extend(fpinfo(run.root.rel(rel_id)).borrow().remote_conds.iter().copied());
+        remote_conds.extend(
+            fpinfo(run.root.rel(rel_id))
+                .borrow()
+                .remote_conds
+                .iter()
+                .copied(),
+        );
 
         let fdw_scan_tlist = if matches!(
             run.root.rel(rel_id).reloptkind,
@@ -348,7 +375,11 @@ pub(crate) fn estimate_path_cost_size<'mcx>(
         };
         let userid = {
             let u = run.root.rel(rel_id).userid;
-            if u != types_core::InvalidOid { u } else { miscinit::GetUserId() }
+            if u != types_core::InvalidOid {
+                u
+            } else {
+                miscinit::GetUserId()
+            }
         };
         let user = foreigncmds::foreign::GetUserMapping(mcx, userid, serverid)?;
         let conn_key = crate::connection::get_connection(mcx, &user, false)?;
@@ -415,7 +446,13 @@ pub(crate) fn estimate_path_cost_size<'mcx>(
         let mut run_cost;
         let (cached_startup, cached_total, cached_retrieved, cached_rows, cached_width) = {
             let fp = fpinfo(run.root.rel(rel_id)).borrow();
-            (fp.rel_startup_cost, fp.rel_total_cost, fp.retrieved_rows, fp.rows, fp.width)
+            (
+                fp.rel_startup_cost,
+                fp.rel_total_cost,
+                fp.retrieved_rows,
+                fp.rows,
+                fp.width,
+            )
         };
         if cached_startup >= 0.0 && cached_total >= 0.0 {
             debug_assert!(cached_retrieved >= 0.0);
@@ -466,8 +503,7 @@ pub(crate) fn estimate_path_cost_size<'mcx>(
                 (fp.rows, fp.rel_startup_cost, fp.rel_total_cost)
             };
             let mut nrows = i_rows * o_rows;
-            retrieved_rows = planner::costsize::clamp_row_est(rows / local_conds_sel)
-                .min(nrows);
+            retrieved_rows = planner::costsize::clamp_row_est(rows / local_conds_sel).min(nrows);
 
             let qual_cost = |run: &mut PlannerRun<'mcx>,
                              ids: &[RinfoId]|
@@ -484,7 +520,10 @@ pub(crate) fn estimate_path_cost_size<'mcx>(
             };
             let (remote_ids, join_ids): (Vec<RinfoId>, Vec<RinfoId>) = {
                 let fp = fpinfo(run.root.rel(rel_id)).borrow();
-                (fp.remote_conds.iter().copied().collect(), fp.joinclauses.iter().copied().collect())
+                (
+                    fp.remote_conds.iter().copied().collect(),
+                    fp.joinclauses.iter().copied().collect(),
+                )
             };
             let remote_conds_cost = qual_cost(run, &remote_ids)?;
             let join_cost = qual_cost(run, &join_ids)?;
@@ -537,15 +576,15 @@ pub(crate) fn estimate_path_cost_size<'mcx>(
                 )?;
             }
             let num_group_cols = run.root.processed_groupClause.len();
-            let grouped_tlist =
-                fpinfo(run.root.rel(rel_id)).borrow().grouped_tlist.clone_in(mcx)?;
-            let clauses = planner::relnode::pgvec_clone_shallow(
-                mcx,run.root.processed_groupClause,
-            );
+            let grouped_tlist = fpinfo(run.root.rel(rel_id))
+                .borrow()
+                .grouped_tlist
+                .clone_in(mcx)?;
+            let clauses =
+                planner::relnode::pgvec_clone_shallow(mcx, run.root.processed_groupClause);
             let group_exprs =
                 types_pathnodes::run::sortgrouplist_exprs(run, &clauses, &grouped_tlist);
-            let num_groups =
-                planner::selfuncs::estimate_num_groups(run, &group_exprs, input_rows)?;
+            let num_groups = planner::selfuncs::estimate_num_groups(run, &group_exprs, input_rows)?;
 
             if run.root.hasHavingQual {
                 let remote_ids: Vec<RinfoId> = fpinfo(run.root.rel(rel_id))
@@ -664,8 +703,9 @@ pub(crate) fn estimate_path_cost_size<'mcx>(
                     run.root.rel(rel_id).reloptkind == RELOPT_UPPER_REL
                         && fpinfo(run.root.rel(rel_id)).borrow().stage == UPPERREL_GROUP_AGG
                 );
-                let limit_tuples =
-                    fpextra.expect("a sorted grouping path carries fpextra").limit_tuples;
+                let limit_tuples = fpextra
+                    .expect("a sorted grouping path carries fpextra")
+                    .limit_tuples;
                 let run_before = run_cost;
                 if let Some(m) = adjust_foreign_grouping_path_cost(
                     run,
@@ -712,7 +752,8 @@ pub(crate) fn estimate_path_cost_size<'mcx>(
             let newcost = run.pathtarget(f.target).cost;
             startup_cost += newcost.startup - oldcost.startup;
             total_cost += newcost.startup - oldcost.startup;
-            total_cost = fma_add_eval(total_cost, newcost.per_tuple - oldcost.per_tuple, rows); // :3543
+            total_cost = fma_add_eval(total_cost, newcost.per_tuple - oldcost.per_tuple, rows);
+            // :3543
         }
     }
 
@@ -748,8 +789,7 @@ pub(crate) fn estimate_path_cost_size<'mcx>(
     // LIMIT is a useful one (postgres_fdw.c:3548-3564).
     if let Some(f) = fpextra {
         let fp_rows = fpinfo(run.root.rel(rel_id)).borrow().rows;
-        if !use_remote_estimate && f.has_limit && f.limit_tuples > 0.0 && f.limit_tuples < fp_rows
-        {
+        if !use_remote_estimate && f.has_limit && f.limit_tuples > 0.0 && f.limit_tuples < fp_rows {
             debug_assert!(fp_rows > 0.0);
             total_cost -= (total_cost - startup_cost) * 0.05 * (fp_rows - f.limit_tuples) / fp_rows;
         }
@@ -776,10 +816,15 @@ fn adjust_foreign_grouping_path_cost(
     // it is sort-able but isn't a superset of the given pathkeys. Otherwise
     // apply the same heuristic as for the scan or join case.
     let grouping_is_sortable = run.root.processed_groupClause.iter().all(|&id| {
-        run.root.expr_node(id).as_sort_group_clause().expect("group clause cell").sortop != 0
+        run.root
+            .expr_node(id)
+            .as_sort_group_clause()
+            .expect("group clause cell")
+            .sortop
+            != 0
     });
     if !grouping_is_sortable
-        || !types_pathnodes::pathkeys_contained_in(pathkeys,run.root.group_pathkeys)
+        || !types_pathnodes::pathkeys_contained_in(pathkeys, run.root.group_pathkeys)
     {
         let (_disabled_nodes, startup_cost, total_cost) = planner::costsize::cost_sort_shape(
             0,
@@ -840,12 +885,20 @@ fn fma_having_run_cost(
     local_per_tuple: f64,
     retrieved_rows: f64,
 ) -> f64 {
-    fmadd(local_per_tuple, retrieved_rows, fmadd(remote_per_tuple, num_groups, rc))
+    fmadd(
+        local_per_tuple,
+        retrieved_rows,
+        fmadd(remote_per_tuple, num_groups, rc),
+    )
 }
 
 // postgres_fdw.c:3573/3574.
 fn fma_transfer(total: f64, fdw_tuple_cost: f64, cpu_tuple_cost: f64, retrieved_rows: f64) -> f64 {
-    fmadd(cpu_tuple_cost, retrieved_rows, fmadd(fdw_tuple_cost, retrieved_rows, total))
+    fmadd(
+        cpu_tuple_cost,
+        retrieved_rows,
+        fmadd(fdw_tuple_cost, retrieved_rows, total),
+    )
 }
 
 // postgres_fdw.c:3201/3204/3213 (remote-estimate lane).
@@ -980,7 +1033,9 @@ pub(crate) fn find_em_for_rel_target<'mcx>(
         // parse->sortClause).
         if sgref == 0
             || !sort_clause.iter().any(|c| {
-                c.as_sort_group_clause().expect("sortClause holds SortGroupClause").tleSortGroupRef
+                c.as_sort_group_clause()
+                    .expect("sortClause holds SortGroupClause")
+                    .tleSortGroupRef
                     == sgref
             })
         {
@@ -1178,13 +1233,8 @@ fn get_useful_pathkeys_for_relation<'mcx>(
             continue;
         }
         // Looks like we can generate a pathkey, so let's do it.
-        let pathkey = planner::pathkeys::make_canonical_pathkey(
-            run,
-            cur_ec,
-            opfamily,
-            COMPARE_LT,
-            false,
-        );
+        let pathkey =
+            planner::pathkeys::make_canonical_pathkey(run, cur_ec, opfamily, COMPARE_LT, false);
         let mut keys = PgVec::new_in(mcx);
         keys.push(pathkey);
         useful_pathkeys_list.push(keys);
@@ -1242,8 +1292,12 @@ fn add_paths_with_pathkeys_for_rel<'mcx>(
                     needed.lappend(mcx, v)?;
                 }
             }
-            let local: Vec<RinfoId> =
-                fpinfo(run.root.rel(rel)).borrow().local_conds.iter().copied().collect();
+            let local: Vec<RinfoId> = fpinfo(run.root.rel(rel))
+                .borrow()
+                .local_conds
+                .iter()
+                .copied()
+                .collect();
             for ri in local {
                 let clause = *run.root.expr_node(run.root.rinfo(ri).clause);
                 for v in &vars::pull_var_clause(mcx, clause, vars::PVC_RECURSE_PLACEHOLDERS)? {
@@ -1302,13 +1356,13 @@ fn add_paths_with_pathkeys_for_rel<'mcx>(
             ) {
                 let mut keys = PgVec::new_in(mcx);
                 keys.extend(useful_pathkeys.iter().copied());
-                sorted_epq_path =
-                    Some(planner::pathnode::create_sort_path(run, rel, epq, keys, -1.0));
+                sorted_epq_path = Some(planner::pathnode::create_sort_path(
+                    run, rel, epq, keys, -1.0,
+                ));
             }
         }
 
-        let lateral_relids =
-            planner::relnode::relids_copy(mcx, &run.root.rel(rel).lateral_relids);
+        let lateral_relids = planner::relnode::relids_copy(mcx, &run.root.rel(rel).lateral_relids);
         let path = if is_simple_rel(run, rel) {
             planner::pathnode::create_foreignscan_path(
                 run,
@@ -1361,7 +1415,9 @@ fn get_remote_estimate(conn_key: Oid, sql: &str) -> PgResult<(f64, i32, f64, f64
         .and_then(|c| c.as_deref())
         .and_then(|b| core::str::from_utf8(b).ok())
         .unwrap_or("");
-    let parsed = line.rfind('(').and_then(|p| parse_explain_costs(&line[p..]));
+    let parsed = line
+        .rfind('(')
+        .and_then(|p| parse_explain_costs(&line[p..]));
     match parsed {
         Some((startup, total, rows, width)) => Ok((rows, width, startup, total)),
         None => Err(Box::new(PgError::error(format!(
@@ -1404,8 +1460,7 @@ fn postgres_get_foreign_paths<'mcx>(
         let fp = fpinfo(run.root.rel(rel_id)).borrow();
         (fp.rows, fp.disabled_nodes, fp.startup_cost, fp.total_cost)
     };
-    let required_outer =
-        planner::relnode::relids_copy(mcx, &run.root.rel(rel_id).lateral_relids);
+    let required_outer = planner::relnode::relids_copy(mcx, &run.root.rel(rel_id).lateral_relids);
     let path = planner::pathnode::create_foreignscan_path(
         run,
         rel_id,
@@ -1430,9 +1485,7 @@ fn postgres_get_foreign_paths<'mcx>(
         return Ok(());
     }
 
-    use types_pathnodes::relids::{
-        relids_del_member, relids_equal, relids_is_empty, relids_union,
-    };
+    use types_pathnodes::relids::{relids_del_member, relids_equal, relids_is_empty, relids_union};
 
     // Collect candidate outer parameterizations as ParamPathInfos, first from
     // generic join clauses, then from EquivalenceClasses.
@@ -1457,7 +1510,10 @@ fn postgres_get_foreign_paths<'mcx>(
         }
         let ppi = planner::pathnode::get_baserel_parampathinfo(run, rel_id, &required_outer)?
             .expect("non-empty required_outer yields a PPI");
-        if !ppi_outers.iter().any(|o| relids_equal(o, &ppi.ppi_req_outer)) {
+        if !ppi_outers
+            .iter()
+            .any(|o| relids_equal(o, &ppi.ppi_req_outer))
+        {
             ppi_outers.push(ppi.ppi_req_outer.clone());
         }
     }
@@ -1482,10 +1538,7 @@ fn postgres_get_foreign_paths<'mcx>(
                         ));
                     }
                     if already_used.iter().any(|&u| {
-                        types_nodes::equal::equal(
-                            *run.root.expr_node(expr),
-                            *run.root.expr_node(u),
-                        )
+                        types_nodes::equal::equal(*run.root.expr_node(expr), *run.root.expr_node(u))
                     }) {
                         return Ok(false);
                     }
@@ -1517,7 +1570,10 @@ fn postgres_get_foreign_paths<'mcx>(
                 let ppi =
                     planner::pathnode::get_baserel_parampathinfo(run, rel_id, &required_outer)?
                         .expect("non-empty required_outer yields a PPI");
-                if !ppi_outers.iter().any(|o| relids_equal(o, &ppi.ppi_req_outer)) {
+                if !ppi_outers
+                    .iter()
+                    .any(|o| relids_equal(o, &ppi.ppi_req_outer))
+                {
                     ppi_outers.push(ppi.ppi_req_outer.clone());
                 }
             }
@@ -1590,7 +1646,11 @@ fn semijoin_target_ok<'mcx>(
     let mcx = run.mcx;
     let expr_ids: Vec<types_pathnodes::NodeId> = {
         let rel = run.root.rel(joinrel);
-        run.pathtarget(rel.pathtarget_id.expect("rel has reltarget")).exprs.iter().copied().collect()
+        run.pathtarget(rel.pathtarget_id.expect("rel has reltarget"))
+            .exprs
+            .iter()
+            .copied()
+            .collect()
     };
     for id in expr_ids {
         let node = *run.root.expr_node(id);
@@ -1624,7 +1684,8 @@ fn merge_fdw_options<'mcx>(
     fp.fdw_startup_cost = fo.fdw_startup_cost;
     fp.fdw_tuple_cost = fo.fdw_tuple_cost;
     fp.shippable_extensions.clear();
-    fp.shippable_extensions.extend(fo.shippable_extensions.iter().copied());
+    fp.shippable_extensions
+        .extend(fo.shippable_extensions.iter().copied());
     fp.use_remote_estimate = fo.use_remote_estimate || fi.use_remote_estimate;
     fp.fetch_size = fo.fetch_size.max(fi.fetch_size);
     fp.async_capable = fo.async_capable || fi.async_capable;
@@ -1639,9 +1700,7 @@ fn foreign_join_ok<'mcx>(
     innerrel: RelId,
     restrictlist: &[RinfoId],
 ) -> PgResult<bool> {
-    use types_pathnodes::relids::{
-        relids_copy, relids_is_empty, relids_is_subset, relids_union,
-    };
+    use types_pathnodes::relids::{relids_copy, relids_is_empty, relids_is_subset, relids_union};
     use types_pathnodes::{JOIN_FULL, JOIN_LEFT, JOIN_RIGHT, JOIN_SEMI};
     let mcx = run.mcx;
 
@@ -1656,8 +1715,12 @@ fn foreign_join_ok<'mcx>(
     }
 
     {
-        let Some(fo) = fpinfo_opt(run.root.rel(outerrel)) else { return Ok(false) };
-        let Some(fi) = fpinfo_opt(run.root.rel(innerrel)) else { return Ok(false) };
+        let Some(fo) = fpinfo_opt(run.root.rel(outerrel)) else {
+            return Ok(false);
+        };
+        let Some(fi) = fpinfo_opt(run.root.rel(innerrel)) else {
+            return Ok(false);
+        };
         if !fo.borrow().pushdown_safe || !fi.borrow().pushdown_safe {
             return Ok(false);
         }
@@ -1677,8 +1740,7 @@ fn foreign_join_ok<'mcx>(
     for &ri in restrictlist {
         let clause_node = *run.root.expr_node(run.root.rinfo(ri).clause);
         let is_remote = deparse::is_foreign_expr(run, joinrel, clause_node)?;
-        if is_outer_join(jointype)
-            && !planner::joinrels::rinfo_is_pushed_down(run, ri, &joinrelids)
+        if is_outer_join(jointype) && !planner::joinrels::rinfo_is_pushed_down(run, ri, &joinrelids)
         {
             if !is_remote {
                 return Ok(false);
@@ -1694,9 +1756,7 @@ fn foreign_join_ok<'mcx>(
     // A PlaceHolderVar that must be evaluated inside this join tree defeats
     // deparseExplicitTargetList; one evaluated at the top is fine.
     {
-        let relids = if run.root.rel(joinrel).reloptkind
-            == types_pathnodes::RELOPT_OTHER_JOINREL
-        {
+        let relids = if run.root.rel(joinrel).reloptkind == types_pathnodes::RELOPT_OTHER_JOINREL {
             relids_copy(mcx, &run.root.rel(joinrel).top_parent_relids)
         } else {
             relids_copy(mcx, &run.root.rel(joinrel).relids)
@@ -1762,28 +1822,19 @@ fn foreign_join_ok<'mcx>(
             joinclauses.extend(i_remote.iter().copied());
             joinclauses.extend(remote_conds.iter().copied());
             remote_conds = o_remote.clone();
-            hidden_subquery_rels = relids_union(
-                mcx,
-                &hidden_subquery_rels,
-                &run.root.rel(innerrel).relids,
-            );
+            hidden_subquery_rels =
+                relids_union(mcx, &hidden_subquery_rels, &run.root.rel(innerrel).relids);
         }
         JOIN_FULL => {
             if !o_remote.is_empty() {
                 make_outerrel_subquery = true;
-                lower_subquery_rels = relids_union(
-                    mcx,
-                    &lower_subquery_rels,
-                    &run.root.rel(outerrel).relids,
-                );
+                lower_subquery_rels =
+                    relids_union(mcx, &lower_subquery_rels, &run.root.rel(outerrel).relids);
             }
             if !i_remote.is_empty() {
                 make_innerrel_subquery = true;
-                lower_subquery_rels = relids_union(
-                    mcx,
-                    &lower_subquery_rels,
-                    &run.root.rel(innerrel).relids,
-                );
+                lower_subquery_rels =
+                    relids_union(mcx, &lower_subquery_rels, &run.root.rel(innerrel).relids);
             }
         }
         _ => unreachable!(),
@@ -1807,10 +1858,12 @@ fn foreign_join_ok<'mcx>(
 
     let relation_name = mcx_str(
         mcx,
-        &format!("({o_name}) {} JOIN ({i_name})", deparse::jointype_name(jointype)?),
+        &format!(
+            "({o_name}) {} JOIN ({i_name})",
+            deparse::jointype_name(jointype)?
+        ),
     )?;
-    let relation_index =
-        run.parse().rtable.len() as i32 + run.root.join_rel_list.len() as i32;
+    let relation_index = run.parse().rtable.len() as i32 + run.root.join_rel_list.len() as i32;
 
     {
         let fpc = fpinfo(run.root.rel(joinrel));
@@ -1871,8 +1924,7 @@ fn postgres_get_foreign_join_paths<'mcx>(
     let epq_path: Option<PathId> = {
         use types_nodes::CmdType;
         let ct = run.parse().commandType;
-        if ct == CmdType::CMD_DELETE || ct == CmdType::CMD_UPDATE || !run.root.rowMarks.is_empty()
-        {
+        if ct == CmdType::CMD_DELETE || ct == CmdType::CMD_UPDATE || !run.root.rowMarks.is_empty() {
             let Some(p) = planner::pathnode::get_existing_local_join_path(run, joinrel) else {
                 // postgres_fdw.c:6423, elog(DEBUG3).
                 let _ = elog::ereport(types_error::DEBUG3)
@@ -1893,8 +1945,12 @@ fn postgres_get_foreign_join_paths<'mcx>(
         return Ok(());
     }
 
-    let local_ids: Vec<RinfoId> =
-        fpinfo(run.root.rel(joinrel)).borrow().local_conds.iter().copied().collect();
+    let local_ids: Vec<RinfoId> = fpinfo(run.root.rel(joinrel))
+        .borrow()
+        .local_conds
+        .iter()
+        .copied()
+        .collect();
     let local_conds_sel = planner::clausesel::clauselist_selectivity(
         run,
         &local_ids,
@@ -1912,8 +1968,12 @@ fn postgres_get_foreign_join_paths<'mcx>(
     }
     let use_remote_estimate = fpinfo(run.root.rel(joinrel)).borrow().use_remote_estimate;
     let joinclause_sel = if !use_remote_estimate {
-        let join_ids: Vec<RinfoId> =
-            fpinfo(run.root.rel(joinrel)).borrow().joinclauses.iter().copied().collect();
+        let join_ids: Vec<RinfoId> = fpinfo(run.root.rel(joinrel))
+            .borrow()
+            .joinclauses
+            .iter()
+            .copied()
+            .collect();
         let fp_jointype = fpinfo(run.root.rel(joinrel)).borrow().jointype;
         planner::clausesel::clauselist_selectivity(run, &join_ids, 0, fp_jointype, Some(sjinfo))?
     } else {
@@ -1982,7 +2042,9 @@ fn postgres_get_foreign_upper_paths<'mcx>(
     // If input rel is not safe to pushdown, then simply return as we cannot
     // perform any post-join operations on the foreign server.
     {
-        let Some(ifp) = fpinfo_opt(run.root.rel(input_rel)) else { return Ok(()) };
+        let Some(ifp) = fpinfo_opt(run.root.rel(input_rel)) else {
+            return Ok(());
+        };
         if !ifp.borrow().pushdown_safe {
             return Ok(());
         }
@@ -2009,9 +2071,12 @@ fn postgres_get_foreign_upper_paths<'mcx>(
         UPPERREL_ORDERED => add_foreign_ordered_paths(run, input_rel, output_rel),
         UPPERREL_FINAL => {
             let (limit_needed, limit_tuples, count_est, offset_est) = match extra {
-                UpperPathExtra::Final { limit_needed, limit_tuples, count_est, offset_est } => {
-                    (*limit_needed, *limit_tuples, *count_est, *offset_est)
-                }
+                UpperPathExtra::Final {
+                    limit_needed,
+                    limit_tuples,
+                    count_est,
+                    offset_est,
+                } => (*limit_needed, *limit_tuples, *count_est, *offset_est),
                 _ => (false, -1.0, 0, 0),
             };
             add_foreign_final_paths(
@@ -2024,7 +2089,9 @@ fn postgres_get_foreign_upper_paths<'mcx>(
                 offset_est,
             )
         }
-        _ => Err(Box::new(PgError::error(format!("unexpected upper relation: {stage}")))),
+        _ => Err(Box::new(PgError::error(format!(
+            "unexpected upper relation: {stage}"
+        )))),
     }
 }
 
@@ -2038,7 +2105,8 @@ fn copy_fdw_options(run: &PlannerRun<'_>, dst: RelId, src: RelId) {
     fp.fdw_startup_cost = fo.fdw_startup_cost;
     fp.fdw_tuple_cost = fo.fdw_tuple_cost;
     fp.shippable_extensions.clear();
-    fp.shippable_extensions.extend(fo.shippable_extensions.iter().copied());
+    fp.shippable_extensions
+        .extend(fo.shippable_extensions.iter().copied());
     fp.use_remote_estimate = fo.use_remote_estimate;
     fp.fetch_size = fo.fetch_size;
     fp.async_capable = fo.async_capable;
@@ -2053,7 +2121,10 @@ fn make_path_private<'mcx>(
 ) -> PgResult<PgVec<'mcx, types_pathnodes::NodeId>> {
     let mcx = run.mcx;
     let mut fdw_private = PgVec::new_in(mcx);
-    fdw_private.push(run.root.alloc_expr_node(Node::mk_boolean(mcx, has_final_sort)?));
+    fdw_private.push(
+        run.root
+            .alloc_expr_node(Node::mk_boolean(mcx, has_final_sort)?),
+    );
     fdw_private.push(run.root.alloc_expr_node(Node::mk_boolean(mcx, has_limit)?));
     Ok(fdw_private)
 }
@@ -2088,8 +2159,10 @@ fn add_foreign_ordered_paths<'mcx>(
     // standard_qp_callback()).
     let input_kind = run.root.rel(input_rel).reloptkind;
     if input_kind == RELOPT_BASEREL || input_kind == RELOPT_JOINREL {
-        debug_assert!(types_pathnodes::pathkeys_contained_in(run.root.query_pathkeys,run.root.sort_pathkeys
-        ) && run.root.query_pathkeys.len() == run.root.sort_pathkeys.len());
+        debug_assert!(
+            types_pathnodes::pathkeys_contained_in(run.root.query_pathkeys, run.root.sort_pathkeys)
+                && run.root.query_pathkeys.len() == run.root.sort_pathkeys.len()
+        );
         // Safe to push down if the query_pathkeys is safe to push down.
         let qp_safe = fpinfo(run.root.rel(input_rel)).borrow().qp_is_pushdown_safe;
         fpinfo(run.root.rel(ordered_rel)).borrow_mut().pushdown_safe = qp_safe;
@@ -2239,7 +2312,9 @@ fn add_foreign_final_paths<'mcx>(
                     let ifp = fpinfo(run.root.rel(input_rel)).borrow();
                     ifp.stage == UPPERREL_ORDERED
                         && matches!(
-                            run.root.rel(ifp.outerrel.expect("ordered rel has outerrel")).reloptkind,
+                            run.root
+                                .rel(ifp.outerrel.expect("ordered rel has outerrel"))
+                                .reloptkind,
                             RELOPT_BASEREL | RELOPT_JOINREL
                         )
                 })
@@ -2344,7 +2419,11 @@ fn add_foreign_final_paths<'mcx>(
 
     // Assess if it is safe to push down the LIMIT and OFFSET to the remote
     // server: not if the underlying relation has any local conditions.
-    if !fpinfo(run.root.rel(input_rel)).borrow().local_conds.is_empty() {
+    if !fpinfo(run.root.rel(input_rel))
+        .borrow()
+        .local_conds
+        .is_empty()
+    {
         return Ok(());
     }
 
@@ -2403,7 +2482,9 @@ fn add_foreign_final_paths<'mcx>(
     };
     let estimate = estimate_path_cost_size(run, input_rel, &[], &pathkeys, Some(&fpextra));
     if let Some(saved) = save_use_remote_estimate {
-        fpinfo(run.root.rel(input_rel)).borrow_mut().use_remote_estimate = saved;
+        fpinfo(run.root.rel(input_rel))
+            .borrow_mut()
+            .use_remote_estimate = saved;
     }
     let (rows, _width, disabled_nodes, startup_cost, total_cost) = estimate?;
 
@@ -2461,8 +2542,12 @@ fn add_foreign_grouping_paths<'mcx>(
         return Ok(());
     }
 
-    let local_ids: Vec<RinfoId> =
-        fpinfo(run.root.rel(grouped_rel)).borrow().local_conds.iter().copied().collect();
+    let local_ids: Vec<RinfoId> = fpinfo(run.root.rel(grouped_rel))
+        .borrow()
+        .local_conds
+        .iter()
+        .copied()
+        .collect();
     let local_conds_sel = planner::clausesel::clauselist_selectivity(
         run,
         &local_ids,
@@ -2523,44 +2608,52 @@ fn foreign_grouping_ok<'mcx>(
     if !run.parse().groupingSets.is_nil() {
         return Ok(false);
     }
-    let outerrel = fpinfo(run.root.rel(grouped_rel)).borrow().outerrel.expect("outerrel set");
-    if !fpinfo(run.root.rel(outerrel)).borrow().local_conds.is_empty() {
+    let outerrel = fpinfo(run.root.rel(grouped_rel))
+        .borrow()
+        .outerrel
+        .expect("outerrel set");
+    if !fpinfo(run.root.rel(outerrel))
+        .borrow()
+        .local_conds
+        .is_empty()
+    {
         return Ok(false);
     }
 
     let mut tlist: NodeList<'mcx> = NodeList::nil();
-    let add_flat = |mcx: mcx::Mcx<'mcx>,
-                    tlist: &mut NodeList<'mcx>,
-                    expr: Node<'mcx>|
-     -> PgResult<()> {
-        for existing in &*tlist {
-            let tle = existing.as_target_entry().expect("TargetEntry");
-            if types_nodes::equal::equal(tle.expr, expr) {
-                return Ok(());
+    let add_flat =
+        |mcx: mcx::Mcx<'mcx>, tlist: &mut NodeList<'mcx>, expr: Node<'mcx>| -> PgResult<()> {
+            for existing in &*tlist {
+                let tle = existing.as_target_entry().expect("TargetEntry");
+                if types_nodes::equal::equal(tle.expr, expr) {
+                    return Ok(());
+                }
             }
-        }
-        let resno = (tlist.len() + 1) as i16;
-        tlist.lappend(
-            mcx,
-            Node::mk(
+            let resno = (tlist.len() + 1) as i16;
+            tlist.lappend(
                 mcx,
-                types_nodes::primnodes::TargetEntry {
-                    expr,
-                    resno,
-                    resname: None,
-                    ressortgroupref: 0,
-                    resorigtbl: 0,
-                    resorigcol: 0,
-                    resjunk: false,
-                },
-            )?,
-        )?;
-        Ok(())
-    };
+                Node::mk(
+                    mcx,
+                    types_nodes::primnodes::TargetEntry {
+                        expr,
+                        resno,
+                        resname: None,
+                        ressortgroupref: 0,
+                        resorigtbl: 0,
+                        resorigcol: 0,
+                        resjunk: false,
+                    },
+                )?,
+            )?;
+            Ok(())
+        };
 
     let (expr_ids, sgrefs): (Vec<types_pathnodes::NodeId>, Vec<u32>) = {
         let pt = run.pathtarget(run.rel_reltarget_id(grouped_rel));
-        (pt.exprs.iter().copied().collect(), pt.sortgrouprefs.iter().copied().collect())
+        (
+            pt.exprs.iter().copied().collect(),
+            pt.sortgrouprefs.iter().copied().collect(),
+        )
     };
     for (i, id) in expr_ids.iter().enumerate() {
         let expr = *run.root.expr_node(*id);
@@ -2600,8 +2693,10 @@ fn foreign_grouping_ok<'mcx>(
         {
             add_flat(mcx, &mut tlist, expr)?;
         } else {
-            let aggvars =
-                Node::mk_list(mcx, vars::pull_var_clause(mcx, expr, vars::PVC_INCLUDE_AGGREGATES)?)?;
+            let aggvars = Node::mk_list(
+                mcx,
+                vars::pull_var_clause(mcx, expr, vars::PVC_INCLUDE_AGGREGATES)?,
+            )?;
             if !deparse::is_foreign_expr(run, grouped_rel, aggvars)? {
                 return Ok(false);
             }
@@ -2617,8 +2712,11 @@ fn foreign_grouping_ok<'mcx>(
     let mut remote_conds: Vec<RinfoId> = Vec::new();
     let mut local_conds: Vec<RinfoId> = Vec::new();
     if let Some(h) = having_qual {
-        let clauses: Vec<Node<'mcx>> =
-            h.as_list().expect("preprocessed havingQual is a list").iter().collect();
+        let clauses: Vec<Node<'mcx>> = h
+            .as_list()
+            .expect("preprocessed havingQual is a list")
+            .iter()
+            .collect();
         for expr in clauses {
             let relids = planner::relnode::relids_copy(mcx, &run.root.rel(grouped_rel).relids);
             let sec = run.root.qual_security_level;
@@ -2696,10 +2794,16 @@ fn postgres_get_foreign_plan<'mcx>(
     // any (FdwPathPrivateIndex), and the path's pathkeys.
     let (has_final_sort, has_limit, path_pathkeys) = {
         let PathNode::ForeignPath(fp) = run.root.path(best_path) else {
-            return Err(Box::new(PgError::error("postgresGetForeignPlan: not a ForeignPath")));
+            return Err(Box::new(PgError::error(
+                "postgresGetForeignPlan: not a ForeignPath",
+            )));
         };
         let flag = |id: types_pathnodes::NodeId| -> bool {
-            run.root.expr_node(id).as_boolean().expect("FdwPathPrivate flag is a Boolean").boolval
+            run.root
+                .expr_node(id)
+                .as_boolean()
+                .expect("FdwPathPrivate flag is a Boolean")
+                .boolval
         };
         let (fs, hl) = if fp.fdw_private.is_empty() {
             (false, false)
@@ -2730,7 +2834,10 @@ fn postgres_get_foreign_plan<'mcx>(
         // shape plus the remote/local decision).
         let (remote_set, local_set): (Vec<RinfoId>, Vec<RinfoId>) = {
             let fp = fpinfo(run.root.rel(rel_id)).borrow();
-            (fp.remote_conds.iter().copied().collect(), fp.local_conds.iter().copied().collect())
+            (
+                fp.remote_conds.iter().copied().collect(),
+                fp.local_conds.iter().copied().collect(),
+            )
         };
         for &ri in scan_clauses.iter() {
             if run.root.rinfo(ri).pseudoconstant {
@@ -2758,7 +2865,10 @@ fn postgres_get_foreign_plan<'mcx>(
         debug_assert!(scan_clauses.is_empty());
         let (remote, local): (Vec<RinfoId>, Vec<RinfoId>) = {
             let fp = fpinfo(run.root.rel(rel_id)).borrow();
-            (fp.remote_conds.iter().copied().collect(), fp.local_conds.iter().copied().collect())
+            (
+                fp.remote_conds.iter().copied().collect(),
+                fp.local_conds.iter().copied().collect(),
+            )
         };
         for &ri in &remote {
             remote_rinfos.push(ri);
@@ -2803,15 +2913,15 @@ fn postgres_get_foreign_plan<'mcx>(
                 // be in the mergequals or hashquals, but we can't touch those
                 // without breaking the plan.)
                 let join_inner = match op.node_tag() {
-                    types_nodes::NodeTag::T_NestLoop => {
-                        op.as_nest_loop().map(|j| (j.join.jointype, &j.join.joinqual))
-                    }
-                    types_nodes::NodeTag::T_MergeJoin => {
-                        op.as_merge_join().map(|j| (j.join.jointype, &j.join.joinqual))
-                    }
-                    types_nodes::NodeTag::T_HashJoin => {
-                        op.as_hash_join().map(|j| (j.join.jointype, &j.join.joinqual))
-                    }
+                    types_nodes::NodeTag::T_NestLoop => op
+                        .as_nest_loop()
+                        .map(|j| (j.join.jointype, &j.join.joinqual)),
+                    types_nodes::NodeTag::T_MergeJoin => op
+                        .as_merge_join()
+                        .map(|j| (j.join.jointype, &j.join.joinqual)),
+                    types_nodes::NodeTag::T_HashJoin => op
+                        .as_hash_join()
+                        .map(|j| (j.join.jointype, &j.join.joinqual)),
                     _ => None,
                 };
                 if let Some((jt, joinqual)) = join_inner {
@@ -2820,14 +2930,16 @@ fn postgres_get_foreign_plan<'mcx>(
                         // SAFETY: as above.
                         unsafe {
                             match op.node_tag() {
-                                types_nodes::NodeTag::T_NestLoop => op
-                                    .with_mut::<types_nodes::plannodes::NestLoop, _>(|j| {
+                                types_nodes::NodeTag::T_NestLoop => {
+                                    op.with_mut::<types_nodes::plannodes::NestLoop, _>(|j| {
                                         j.join.joinqual = new_joinqual
-                                    }),
-                                types_nodes::NodeTag::T_MergeJoin => op
-                                    .with_mut::<types_nodes::plannodes::MergeJoin, _>(|j| {
+                                    })
+                                }
+                                types_nodes::NodeTag::T_MergeJoin => {
+                                    op.with_mut::<types_nodes::plannodes::MergeJoin, _>(|j| {
                                         j.join.joinqual = new_joinqual
-                                    }),
+                                    })
+                                }
                                 _ => op.with_mut::<types_nodes::plannodes::HashJoin, _>(|j| {
                                     j.join.joinqual = new_joinqual
                                 }),
@@ -2931,16 +3043,16 @@ fn list_delete_equal<'mcx>(
 // build_tlist_to_deparse (deparse.c): Vars needed from the foreign server —
 // reltarget exprs plus local_conds Vars, deduplicated (add_to_flat_tlist).
 // Upper rels return the grouped_tlist built by foreign_grouping_ok.
-fn build_tlist_to_deparse<'mcx>(
-    run: &PlannerRun<'mcx>,
-    rel_id: RelId,
-) -> PgResult<NodeList<'mcx>> {
+fn build_tlist_to_deparse<'mcx>(run: &PlannerRun<'mcx>, rel_id: RelId) -> PgResult<NodeList<'mcx>> {
     let mcx = run.mcx;
     if matches!(
         run.root.rel(rel_id).reloptkind,
         types_pathnodes::RELOPT_UPPER_REL | types_pathnodes::RELOPT_OTHER_UPPER_REL
     ) {
-        return fpinfo(run.root.rel(rel_id)).borrow().grouped_tlist.clone_in(mcx);
+        return fpinfo(run.root.rel(rel_id))
+            .borrow()
+            .grouped_tlist
+            .clone_in(mcx);
     }
     let mut tlist: NodeList<'mcx> = NodeList::nil();
     let add_vars = |vars: NodeList<'mcx>, tlist: &mut NodeList<'mcx>| -> PgResult<()> {
@@ -2976,15 +3088,23 @@ fn build_tlist_to_deparse<'mcx>(
     };
     let expr_ids: Vec<types_pathnodes::NodeId> = {
         let rel = run.root.rel(rel_id);
-        run.pathtarget(rel.pathtarget_id.expect("rel has reltarget")).exprs.iter().copied().collect()
+        run.pathtarget(rel.pathtarget_id.expect("rel has reltarget"))
+            .exprs
+            .iter()
+            .copied()
+            .collect()
     };
     for id in expr_ids {
         let node = *run.root.expr_node(id);
         let vars = vars::pull_var_clause(mcx, node, vars::PVC_RECURSE_PLACEHOLDERS)?;
         add_vars(vars, &mut tlist)?;
     }
-    let local: Vec<RinfoId> =
-        fpinfo(run.root.rel(rel_id)).borrow().local_conds.iter().copied().collect();
+    let local: Vec<RinfoId> = fpinfo(run.root.rel(rel_id))
+        .borrow()
+        .local_conds
+        .iter()
+        .copied()
+        .collect();
     for ri in local {
         let clause = *run.root.expr_node(run.root.rinfo(ri).clause);
         let vars = vars::pull_var_clause(mcx, clause, vars::PVC_RECURSE_PLACEHOLDERS)?;
@@ -3007,7 +3127,12 @@ fn explain_foreign_scan<'mcx>(
     // Direct modify (postgresExplainDirectModify): only "Remote SQL".
     if node.plan.operation != types_nodes::CmdType::CMD_SELECT {
         if flags.verbose {
-            if let Some(sql) = node.plan.fdw_private.iter().next().and_then(|n| n.as_string())
+            if let Some(sql) = node
+                .plan
+                .fdw_private
+                .iter()
+                .next()
+                .and_then(|n| n.as_string())
             {
                 emit("Remote SQL", types_nodes::FdwExplainProp::Text(sql.sval))?;
             }
@@ -3063,8 +3188,7 @@ fn explain_foreign_scan<'mcx>(
                 let rti = rti + rtoffset;
                 debug_assert!(node.plan.fs_base_relids.is_member(rti));
                 let rte = estate.es_range_table[(rti - 1) as usize];
-                let relname = lsyscache::get_rel_name(mcx, rte.relid)?
-                    .expect("relation exists");
+                let relname = lsyscache::get_rel_name(mcx, rte.relid)?.expect("relation exists");
                 #[allow(unused_imports)]
                 use crate::deparse::Push as _;
                 let mut piece = mcx::PgString::new_in(mcx);
@@ -3100,7 +3224,13 @@ fn explain_foreign_scan<'mcx>(
         return Ok(());
     }
     // fdw_private[FdwScanPrivateSelectSql] = the remote SELECT.
-    if let Some(sql) = node.plan.fdw_private.iter().next().and_then(|n| n.as_string()) {
+    if let Some(sql) = node
+        .plan
+        .fdw_private
+        .iter()
+        .next()
+        .and_then(|n| n.as_string())
+    {
         emit("Remote SQL", types_nodes::FdwExplainProp::Text(sql.sval))?;
     }
     Ok(())
@@ -3132,10 +3262,7 @@ static MODIFY_ROUTINE: nodemodifytable::FdwModifyRoutine = nodemodifytable::FdwM
 };
 
 // postgresIsForeignPathAsyncCapable.
-fn postgres_is_foreign_path_async_capable<'mcx>(
-    run: &PlannerRun<'mcx>,
-    path_id: PathId,
-) -> bool {
+fn postgres_is_foreign_path_async_capable<'mcx>(run: &PlannerRun<'mcx>, path_id: PathId) -> bool {
     let rel = run.root.rel(run.root.path(path_id).base().parent);
     fpinfo(rel).borrow().async_capable
 }
@@ -3202,32 +3329,398 @@ mod d400_fma_tests {
         let m = 1.0 + (DEFAULT_FDW_SORT_MULTIPLIER - 1.0) * 0.25;
         let arm = cfg!(target_arch = "aarch64");
         let rows: [(&str, f64, f64, f64); 26] = [
-        ("remote", fma_remote_local(2913.1804, 0.019570902, 0.037947012, 2716.7862, 0.094169167, 0.067663908, 2601.4288), 3245.561283166737, 3245.5612831667377),
-        ("remote", fma_remote_local(333.54099, 0.03195005, 0.0054359381, 2050.5072, 0.054311253, 0.044602921, 715.45719), 442.1670195556163, 442.16701955561626),
-        ("remote", fma_remote_local(794.88864, 0.079802813, 0.088792722, 4038.2765, 0.056305389, 0.072003817, 4316.9522), 1786.6173685909748, 1786.6173685909753),
-        ("tback", fma_tlist_back(1046.4749, 0.0098519362, 0.057469066, 4976.0174), 760.4979756860515, 760.4979756860516),
-        ("cached", fma_add_eval(2264.209, 0.047271021, 4438.1591), 2474.005312017441, 2474.0053120174407),
-        ("join", fma_join_run_cost((1398.736, 3304.5155, 2590.5449, 2735.228), 239.20996, 0.029364198, 2206.0191, 0.090203655, 0.097372643, 446.40747, 0.043253469, 947.13778), 2340.9126642636247, 2340.9126642636243),
-        ("join", fma_join_run_cost((3801.5732, 1532.6533, 2135.9076, 4469.6686), 2457.1045, 0.021154384, 1700.9012, 0.0081237343, 0.095765685, 1898.5735, 0.048660025, 310.75222), 327.5767040848323, 327.5767040848322),
-        ("join", fma_join_run_cost((2320.6801, 468.20174, 1183.0925, 2370.4062), 4450.6417, 0.086801146, 1333.2895, 0.072202157, 0.098525353, 3436.7284, 0.086780766, 2256.9768), 351.88957212419353, 351.88957212419353),
-        ("join", fma_join_run_cost((1345.8887, 836.68968, 909.60969, 2117.2094), 3228.0772, 0.011058053, 215.73624, 0.033265464, 0.058068378, 1366.8529, 0.019884238, 712.97162), 834.8213331378289, 834.8213331378288),
-        ("ustart", fma_upper_startup(616.43837, 0.076270859, 0.047885382, 0.05126854, 2655.436, 0.077947411, 0.0025, 3), 772.69657043544, 772.6965704354399),
-        ("ustart", fma_upper_startup(3691.4938, 0.0014721062, 0.091010829, 0.076394925, 1718.672, 0.082444582, 0.0025, 3), 3835.8565860568, 3835.8565860567996),
-        ("urun0", fma_add_eval(fma_upper_run_cost_head(474.97775, 4534.5374, 0.083858164, 1586.9892, 0.095267728, 4330.6886, 0.01), 0.096736264, 4981.6776), -2988.6870203261838, -2988.687020326184),
-        ("urun0", fma_add_eval(fma_upper_run_cost_head(286.84737, 3520.4045, 0.051684818, 3463.5611, 0.090776152, 1778.5999, 0.01), 0.039422236, 4115.6995), -2713.0530740509535, -2713.053074050953),
-        ("urun0", fma_add_eval(fma_upper_run_cost_head(3839.5964, 4355.6998, 0.097548933, 537.597, 0.089840184, 4244.4159, 0.01), 0.026808274, 1508.7634), 0.5492207908978205, 0.5492207908978344),
-        ("urun0", fma_add_eval(fma_upper_run_cost_head(1242.4528, 3738.048, 0.040088843, 3056.87, 0.015922996, 2128.3772, 0.01), 0.091217343, 2507.1214), -2089.181952170058, -2089.1819521700586),
-        ("urun1", fma_add_eval(fma_having_run_cost(fma_upper_run_cost_head(3661.9547, 2625.136, 0.062908257, 4746.5009, 0.028600514, 2972.3155, 0.01), 0.055791912, 2972.3155, 0.024271862, 3151.5655), 0.065485159, 3539.4251), 1924.251047692386, 1924.2510476923862),
-        ("urun1", fma_add_eval(fma_having_run_cost(fma_upper_run_cost_head(2397.2075, 4408.4774, 0.067977197, 4898.2646, 0.045728091, 2809.0007, 0.01), 0.098108432, 2809.0007, 0.018419653, 4601.8336), 0.043446953, 2497.7898), -1052.887167414887, -1052.8871674148872),
-        ("urun1", fma_add_eval(fma_having_run_cost(fma_upper_run_cost_head(784.61758, 1339.1066, 0.072514456, 1149.7205, 0.047712773, 1798.1721, 0.01), 0.023231266, 1798.1721, 0.014389196, 568.22506), 0.098682741, 4070.4497), 84.29308445973929, 84.2930844597393),
-        ("urun1", fma_add_eval(fma_having_run_cost(fma_upper_run_cost_head(4164.3737, 3960.6444, 0.096689998, 2153.0971, 0.049664514, 2723.1867, 0.01), 0.022347485, 2723.1867, 0.017144735, 4187.5523), 0.087392593, 1149.7482), 807.5201901872422, 807.5201901872423),
-        ("urun1", fma_add_eval(fma_having_run_cost(fma_upper_run_cost_head(1811.3161, 3499.1138, 0.075912159, 1010.2311, 0.021507163, 3276.0537, 0.01), 0.081612189, 3276.0537, 0.050053476, 3040.899), 0.094270805, 4180.6084), -694.2069200761667, -694.2069200761669),
-        ("base", fma_base_run_cost(1.0, 669.86257, 0.01, 0.04040327, 4400.2481, 0.026926937, 174.84146), 896.357408029695, 896.3574080296951),
-        ("base", fma_base_run_cost(1.0, 551.61974, 0.01, 0.074452654, 4981.6871, 0.021473075, 1724.0129), 1009.3562952952308, 1009.3562952952309),
-        ("usort", fma_sort_multiplied_total(1497.9513 * m, 1827.3879, m), 3491.60616, 3491.6061600000003),
-        ("fsort", fma_add_eval(349.25376, 0.0026572531 - 0.071463728, 4195.487), 60.57708904122371, 60.5770890412237),
-        ("xfer", fma_transfer(3512.4033, 0.01, 0.01, 4321.8795), 3598.8408900000004, 3598.8408899999995),
-        ("xfer", fma_transfer(4700.3304, 0.01, 0.01, 3827.7063), 4776.884526000001, 4776.884526),
+            (
+                "remote",
+                fma_remote_local(
+                    2913.1804,
+                    0.019570902,
+                    0.037947012,
+                    2716.7862,
+                    0.094169167,
+                    0.067663908,
+                    2601.4288,
+                ),
+                3245.561283166737,
+                3245.5612831667377,
+            ),
+            (
+                "remote",
+                fma_remote_local(
+                    333.54099,
+                    0.03195005,
+                    0.0054359381,
+                    2050.5072,
+                    0.054311253,
+                    0.044602921,
+                    715.45719,
+                ),
+                442.1670195556163,
+                442.16701955561626,
+            ),
+            (
+                "remote",
+                fma_remote_local(
+                    794.88864,
+                    0.079802813,
+                    0.088792722,
+                    4038.2765,
+                    0.056305389,
+                    0.072003817,
+                    4316.9522,
+                ),
+                1786.6173685909748,
+                1786.6173685909753,
+            ),
+            (
+                "tback",
+                fma_tlist_back(1046.4749, 0.0098519362, 0.057469066, 4976.0174),
+                760.4979756860515,
+                760.4979756860516,
+            ),
+            (
+                "cached",
+                fma_add_eval(2264.209, 0.047271021, 4438.1591),
+                2474.005312017441,
+                2474.0053120174407,
+            ),
+            (
+                "join",
+                fma_join_run_cost(
+                    (1398.736, 3304.5155, 2590.5449, 2735.228),
+                    239.20996,
+                    0.029364198,
+                    2206.0191,
+                    0.090203655,
+                    0.097372643,
+                    446.40747,
+                    0.043253469,
+                    947.13778,
+                ),
+                2340.9126642636247,
+                2340.9126642636243,
+            ),
+            (
+                "join",
+                fma_join_run_cost(
+                    (3801.5732, 1532.6533, 2135.9076, 4469.6686),
+                    2457.1045,
+                    0.021154384,
+                    1700.9012,
+                    0.0081237343,
+                    0.095765685,
+                    1898.5735,
+                    0.048660025,
+                    310.75222,
+                ),
+                327.5767040848323,
+                327.5767040848322,
+            ),
+            (
+                "join",
+                fma_join_run_cost(
+                    (2320.6801, 468.20174, 1183.0925, 2370.4062),
+                    4450.6417,
+                    0.086801146,
+                    1333.2895,
+                    0.072202157,
+                    0.098525353,
+                    3436.7284,
+                    0.086780766,
+                    2256.9768,
+                ),
+                351.88957212419353,
+                351.88957212419353,
+            ),
+            (
+                "join",
+                fma_join_run_cost(
+                    (1345.8887, 836.68968, 909.60969, 2117.2094),
+                    3228.0772,
+                    0.011058053,
+                    215.73624,
+                    0.033265464,
+                    0.058068378,
+                    1366.8529,
+                    0.019884238,
+                    712.97162,
+                ),
+                834.8213331378289,
+                834.8213331378288,
+            ),
+            (
+                "ustart",
+                fma_upper_startup(
+                    616.43837,
+                    0.076270859,
+                    0.047885382,
+                    0.05126854,
+                    2655.436,
+                    0.077947411,
+                    0.0025,
+                    3,
+                ),
+                772.69657043544,
+                772.6965704354399,
+            ),
+            (
+                "ustart",
+                fma_upper_startup(
+                    3691.4938,
+                    0.0014721062,
+                    0.091010829,
+                    0.076394925,
+                    1718.672,
+                    0.082444582,
+                    0.0025,
+                    3,
+                ),
+                3835.8565860568,
+                3835.8565860567996,
+            ),
+            (
+                "urun0",
+                fma_add_eval(
+                    fma_upper_run_cost_head(
+                        474.97775,
+                        4534.5374,
+                        0.083858164,
+                        1586.9892,
+                        0.095267728,
+                        4330.6886,
+                        0.01,
+                    ),
+                    0.096736264,
+                    4981.6776,
+                ),
+                -2988.6870203261838,
+                -2988.687020326184,
+            ),
+            (
+                "urun0",
+                fma_add_eval(
+                    fma_upper_run_cost_head(
+                        286.84737,
+                        3520.4045,
+                        0.051684818,
+                        3463.5611,
+                        0.090776152,
+                        1778.5999,
+                        0.01,
+                    ),
+                    0.039422236,
+                    4115.6995,
+                ),
+                -2713.0530740509535,
+                -2713.053074050953,
+            ),
+            (
+                "urun0",
+                fma_add_eval(
+                    fma_upper_run_cost_head(
+                        3839.5964,
+                        4355.6998,
+                        0.097548933,
+                        537.597,
+                        0.089840184,
+                        4244.4159,
+                        0.01,
+                    ),
+                    0.026808274,
+                    1508.7634,
+                ),
+                0.5492207908978205,
+                0.5492207908978344,
+            ),
+            (
+                "urun0",
+                fma_add_eval(
+                    fma_upper_run_cost_head(
+                        1242.4528,
+                        3738.048,
+                        0.040088843,
+                        3056.87,
+                        0.015922996,
+                        2128.3772,
+                        0.01,
+                    ),
+                    0.091217343,
+                    2507.1214,
+                ),
+                -2089.181952170058,
+                -2089.1819521700586,
+            ),
+            (
+                "urun1",
+                fma_add_eval(
+                    fma_having_run_cost(
+                        fma_upper_run_cost_head(
+                            3661.9547,
+                            2625.136,
+                            0.062908257,
+                            4746.5009,
+                            0.028600514,
+                            2972.3155,
+                            0.01,
+                        ),
+                        0.055791912,
+                        2972.3155,
+                        0.024271862,
+                        3151.5655,
+                    ),
+                    0.065485159,
+                    3539.4251,
+                ),
+                1924.251047692386,
+                1924.2510476923862,
+            ),
+            (
+                "urun1",
+                fma_add_eval(
+                    fma_having_run_cost(
+                        fma_upper_run_cost_head(
+                            2397.2075,
+                            4408.4774,
+                            0.067977197,
+                            4898.2646,
+                            0.045728091,
+                            2809.0007,
+                            0.01,
+                        ),
+                        0.098108432,
+                        2809.0007,
+                        0.018419653,
+                        4601.8336,
+                    ),
+                    0.043446953,
+                    2497.7898,
+                ),
+                -1052.887167414887,
+                -1052.8871674148872,
+            ),
+            (
+                "urun1",
+                fma_add_eval(
+                    fma_having_run_cost(
+                        fma_upper_run_cost_head(
+                            784.61758,
+                            1339.1066,
+                            0.072514456,
+                            1149.7205,
+                            0.047712773,
+                            1798.1721,
+                            0.01,
+                        ),
+                        0.023231266,
+                        1798.1721,
+                        0.014389196,
+                        568.22506,
+                    ),
+                    0.098682741,
+                    4070.4497,
+                ),
+                84.29308445973929,
+                84.2930844597393,
+            ),
+            (
+                "urun1",
+                fma_add_eval(
+                    fma_having_run_cost(
+                        fma_upper_run_cost_head(
+                            4164.3737,
+                            3960.6444,
+                            0.096689998,
+                            2153.0971,
+                            0.049664514,
+                            2723.1867,
+                            0.01,
+                        ),
+                        0.022347485,
+                        2723.1867,
+                        0.017144735,
+                        4187.5523,
+                    ),
+                    0.087392593,
+                    1149.7482,
+                ),
+                807.5201901872422,
+                807.5201901872423,
+            ),
+            (
+                "urun1",
+                fma_add_eval(
+                    fma_having_run_cost(
+                        fma_upper_run_cost_head(
+                            1811.3161,
+                            3499.1138,
+                            0.075912159,
+                            1010.2311,
+                            0.021507163,
+                            3276.0537,
+                            0.01,
+                        ),
+                        0.081612189,
+                        3276.0537,
+                        0.050053476,
+                        3040.899,
+                    ),
+                    0.094270805,
+                    4180.6084,
+                ),
+                -694.2069200761667,
+                -694.2069200761669,
+            ),
+            (
+                "base",
+                fma_base_run_cost(
+                    1.0,
+                    669.86257,
+                    0.01,
+                    0.04040327,
+                    4400.2481,
+                    0.026926937,
+                    174.84146,
+                ),
+                896.357408029695,
+                896.3574080296951,
+            ),
+            (
+                "base",
+                fma_base_run_cost(
+                    1.0,
+                    551.61974,
+                    0.01,
+                    0.074452654,
+                    4981.6871,
+                    0.021473075,
+                    1724.0129,
+                ),
+                1009.3562952952308,
+                1009.3562952952309,
+            ),
+            (
+                "usort",
+                fma_sort_multiplied_total(1497.9513 * m, 1827.3879, m),
+                3491.60616,
+                3491.6061600000003,
+            ),
+            (
+                "fsort",
+                fma_add_eval(349.25376, 0.0026572531 - 0.071463728, 4195.487),
+                60.57708904122371,
+                60.5770890412237,
+            ),
+            (
+                "xfer",
+                fma_transfer(3512.4033, 0.01, 0.01, 4321.8795),
+                3598.8408900000004,
+                3598.8408899999995,
+            ),
+            (
+                "xfer",
+                fma_transfer(4700.3304, 0.01, 0.01, 3827.7063),
+                4776.884526000001,
+                4776.884526,
+            ),
         ];
         for (site, got, fused, unfused) in rows {
             assert_eq!(got, if arm { fused } else { unfused }, "{site}");

@@ -9,8 +9,8 @@ use ::vfs::VfsFd;
 use ::elog::{ereport, PCT_M};
 use ::types_core::Oid;
 use ::types_error::{
-    ErrorLevel, ErrorLocation, PgResult, DEBUG2, ERRCODE_INSUFFICIENT_RESOURCES, FATAL, LOG,
-    PANIC, WARNING,
+    ErrorLevel, ErrorLocation, PgResult, DEBUG2, ERRCODE_INSUFFICIENT_RESOURCES, FATAL, LOG, PANIC,
+    WARNING,
 };
 use ::types_resowner::ResourceOwner;
 use ::types_storage::{File, FD_MINFREE, NUM_RESERVED_FDS};
@@ -182,10 +182,8 @@ scalar_global! {
 // backend at the 0600/0700 defaults after the postmaster enabled group access
 // (thread-model hazard class 1; caught by pg_basebackup/010 group-permission
 // leg: runtime-created tablespace/WAL files came out 0600 on a 0750 cluster).
-static PG_FILE_CREATE_MODE: std::sync::atomic::AtomicU32 =
-    std::sync::atomic::AtomicU32::new(0o600);
-static PG_DIR_CREATE_MODE: std::sync::atomic::AtomicU32 =
-    std::sync::atomic::AtomicU32::new(0o700);
+static PG_FILE_CREATE_MODE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0o600);
+static PG_DIR_CREATE_MODE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0o700);
 
 pub fn pg_file_create_mode() -> u32 {
     PG_FILE_CREATE_MODE.load(std::sync::atomic::Ordering::Relaxed)
@@ -264,7 +262,10 @@ pub(crate) fn LruDelete(fd: &mut FdState, file: i32) -> PgResult<()> {
     debug_assert!(file != 0);
 
     CloseDioFd(fd, file);
-    let handle = fd.vfd_cache[file as usize].fd.take().expect("LruDelete on closed VFD");
+    let handle = fd.vfd_cache[file as usize]
+        .fd
+        .take()
+        .expect("LruDelete on closed VFD");
     crate::pgaio_closing_fd_if_engine_present(handle.as_raw());
 
     // Live descriptor just released from the guard (disarmed); closed
@@ -281,7 +282,10 @@ pub(crate) fn LruDelete(fd: &mut FdState, file: i32) -> PgResult<()> {
         } else {
             data_sync_elevel(LOG)
         };
-        let name = fd.vfd_cache[file as usize].file_name.clone().unwrap_or_default();
+        let name = fd.vfd_cache[file as usize]
+            .file_name
+            .clone()
+            .unwrap_or_default();
         ereport(elevel)
             .with_saved_errno(en)
             .errmsg_internal(format!("could not close file \"{name}\": {PCT_M}"))
@@ -305,7 +309,10 @@ pub(crate) fn LruInsert(fd: &mut FdState, file: i32) -> PgResult<i32> {
     if FileIsNotOpen(fd, file) {
         ReleaseLruFiles(fd)?;
 
-        let name = fd.vfd_cache[file as usize].file_name.clone().unwrap_or_default();
+        let name = fd.vfd_cache[file as usize]
+            .file_name
+            .clone()
+            .unwrap_or_default();
         let flags = fd.vfd_cache[file as usize].file_flags;
         let mode = fd.vfd_cache[file as usize].file_mode;
         let raw = BasicOpenFilePermInternal(fd, &name, flags, mode)?;
@@ -378,7 +385,13 @@ pub fn ShedIdleFiles() -> PgResult<()> {
     if !fd_tls_alive() {
         return Ok(());
     }
-    with_fd(|fd| if fd.nfile > target { shed_to(fd, target) } else { Ok(()) })
+    with_fd(|fd| {
+        if fd.nfile > target {
+            shed_to(fd, target)
+        } else {
+            Ok(())
+        }
+    })
 }
 
 pub fn shed_target() -> i32 {
@@ -393,9 +406,9 @@ pub(crate) fn AllocateVfd(fd: &mut FdState) -> PgResult<i32> {
         let new_size = (old_size * 2).max(32);
 
         // C reallocs and ereports ERROR (ERRCODE_OUT_OF_MEMORY) on failure.
-        fd.vfd_cache.try_reserve(new_size - old_size).map_err(|_| {
-            ::mcx::oom_named("VfdCache", new_size * core::mem::size_of::<Vfd>())
-        })?;
+        fd.vfd_cache
+            .try_reserve(new_size - old_size)
+            .map_err(|_| ::mcx::oom_named("VfdCache", new_size * core::mem::size_of::<Vfd>()))?;
         for i in old_size..new_size {
             let mut v = Vfd::zeroed();
             v.next_free = (i + 1) as i32;
@@ -427,7 +440,10 @@ pub(crate) struct TempCharge {
 
 impl TempCharge {
     pub(crate) fn totals(&self) -> (u64, u64) {
-        (self.account.load(Ordering::Relaxed), self.bytes.load(Ordering::Relaxed))
+        (
+            self.account.load(Ordering::Relaxed),
+            self.bytes.load(Ordering::Relaxed),
+        )
     }
 
     pub(crate) fn grow_to(&self, end: u64) {
@@ -446,7 +462,8 @@ impl TempCharge {
     }
 }
 
-static NAMED_TEMP: pgsync::Mutex<BTreeMap<String, Arc<TempCharge>>> = pgsync::Mutex::new(BTreeMap::new());
+static NAMED_TEMP: pgsync::Mutex<BTreeMap<String, Arc<TempCharge>>> =
+    pgsync::Mutex::new(BTreeMap::new());
 
 fn named_temp() -> pgsync::MutexGuard<'static, BTreeMap<String, Arc<TempCharge>>> {
     pgsync::lock(&NAMED_TEMP)
@@ -475,10 +492,22 @@ pub(crate) fn charge_for_life(file: File, created: bool) {
 /// file's (another descriptor may have made it), else a new one to the account charged now.
 pub(crate) fn temp_charge_for(fd: &mut FdState, file: i32) -> Arc<TempCharge> {
     let account = fd.temp_current();
-    let fresh = || Arc::new(TempCharge { account, bytes: AtomicU64::new(0) });
+    let fresh = || {
+        Arc::new(TempCharge {
+            account,
+            bytes: AtomicU64::new(0),
+        })
+    };
     let vfd_p = &fd.vfd_cache[file as usize];
-    match vfd_p.file_name.as_ref().filter(|_| vfd_p.fdstate & FD_TEMP_FOR_LIFE != 0) {
-        Some(name) => named_temp().entry(name.clone()).or_insert_with(fresh).clone(),
+    match vfd_p
+        .file_name
+        .as_ref()
+        .filter(|_| vfd_p.fdstate & FD_TEMP_FOR_LIFE != 0)
+    {
+        Some(name) => named_temp()
+            .entry(name.clone())
+            .or_insert_with(fresh)
+            .clone(),
         None => fresh(),
     }
 }
@@ -492,7 +521,10 @@ pub(crate) fn named_temp_gone(path: &str) {
 /// A descriptor on a file charged for its life closes: the charge stays with the file, unless the file went away (or
 /// was created over) while the descriptor was open, leaving the charge to nothing else.
 pub(crate) fn named_temp_closed(path: &str, charge: &Arc<TempCharge>) {
-    if !named_temp().get(path).is_some_and(|c| Arc::ptr_eq(c, charge)) {
+    if !named_temp()
+        .get(path)
+        .is_some_and(|c| Arc::ptr_eq(c, charge))
+    {
         charge.shrink_to(0);
     }
 }
@@ -535,7 +567,10 @@ pub(crate) fn FileAccessDio(fd: &mut FdState, file: i32) -> PgResult<i32> {
         return Ok(-1);
     }
     ReleaseLruFiles(fd)?;
-    let name = fd.vfd_cache[file as usize].file_name.clone().unwrap_or_default();
+    let name = fd.vfd_cache[file as usize]
+        .file_name
+        .clone()
+        .unwrap_or_default();
     let flags = (fd.vfd_cache[file as usize].file_flags | PG_O_DIRECT)
         & !(libc::O_CREAT | libc::O_TRUNC | libc::O_EXCL);
     let mode = fd.vfd_cache[file as usize].file_mode;
@@ -628,7 +663,10 @@ pub fn FileAccessReady() -> bool {
 
 pub fn InitTemporaryFileAccess() -> PgResult<()> {
     debug_assert!(with_fd(|fd| fd.size_vfd_cache() != 0));
-    debug_assert!(!with_fd(|fd| fd.temporary_files_allowed), "call me only once");
+    debug_assert!(
+        !with_fd(|fd| fd.temporary_files_allowed),
+        "call me only once"
+    );
 
     ipc_seams::before_shmem_exit::call(before_shmem_exit_files_cb, datum::Datum::from_i32(0))?;
 
@@ -678,9 +716,7 @@ pub(crate) fn count_usable_fds(max_to_probe: i32) -> PgResult<(i32, i32)> {
             .finish(loc("count_usable_fds"))?;
     }
 
-    if probe.stop_errno != 0
-        && probe.stop_errno != libc::EMFILE
-        && probe.stop_errno != libc::ENFILE
+    if probe.stop_errno != 0 && probe.stop_errno != libc::EMFILE && probe.stop_errno != libc::ENFILE
     {
         let used = probe.used;
         ereport(WARNING)
@@ -859,8 +895,13 @@ pub fn set_max_safe_fds(max_child_threads: i32, max_session_threads: i32) -> PgR
         }
     }
 
-    let share =
-        compute_max_safe_fds(usable_fds, mfp, ceiling, max_child_threads, max_session_threads);
+    let share = compute_max_safe_fds(
+        usable_fds,
+        mfp,
+        ceiling,
+        max_child_threads,
+        max_session_threads,
+    );
     let new_max = compute_thread_max_safe_fds(usable_fds, mfp, ceiling, max_child_threads);
     set_max_safe_fds_value(new_max);
     if let Some(c) = ceiling {
@@ -896,7 +937,9 @@ pub fn set_max_safe_fds(max_child_threads: i32, max_session_threads: i32) -> PgR
                  and wait sets, and the file caches need at least {}.",
                 max_child_threads.max(1),
                 needed_total,
-                ceiling.map(|c| c.to_string()).unwrap_or_else(|| usable_fds.to_string()),
+                ceiling
+                    .map(|c| c.to_string())
+                    .unwrap_or_else(|| usable_fds.to_string()),
                 already_open,
                 hard_limit_text(limits.hard),
                 PER_SESSION_SETUP_FDS,
@@ -928,7 +971,9 @@ pub fn set_max_safe_fds(max_child_threads: i32, max_session_threads: i32) -> PgR
                 share.max(0) + NUM_RESERVED_FDS,
                 max_session_threads.max(1)
             ))
-            .errhint("Raise the open file limit (ulimit -n / LimitNOFILE), or lower max_connections.")
+            .errhint(
+                "Raise the open file limit (ulimit -n / LimitNOFILE), or lower max_connections.",
+            )
             .finish(loc("set_max_safe_fds"))?;
     }
 
@@ -990,7 +1035,9 @@ pub(crate) fn BasicOpenFilePermInternalBytes(
             ereport(LOG)
                 .with_saved_errno(save_errno)
                 .errcode(ERRCODE_INSUFFICIENT_RESOURCES)
-                .errmsg(format!("out of file descriptors: {PCT_M}; release and retry"))
+                .errmsg(format!(
+                    "out of file descriptors: {PCT_M}; release and retry"
+                ))
                 .finish(loc("BasicOpenFilePerm"))?;
             set_errno(0);
             SHED_GEN.fetch_add(1, Ordering::Relaxed);

@@ -276,9 +276,7 @@ fn write_skew_pair_one_aborts_with_40001() {
             "unexpected error: {msg}"
         );
         assert!(
-            msg.contains(
-                "Canceled on identification as a pivot, during commit attempt."
-            ),
+            msg.contains("Canceled on identification as a pivot, during commit attempt."),
             "unexpected detail: {msg}"
         );
         crate::engine::ReleasePredicateLocks(false, false).unwrap();
@@ -320,8 +318,7 @@ fn tuple_locks_promote_to_page() {
         // Locks 3 tuples on one page (> max_predicate_locks_per_page = 2):
         // promotes to a page-granularity lock.
         for off in 1..=3u16 {
-            crate::engine::PredicateLockTID(TESTDB, 30011, false, false, 7, off, &snap, 5)
-                .unwrap();
+            crate::engine::PredicateLockTID(TESTDB, 30011, false, false, 7, off, &snap, 5).unwrap();
         }
         to_t1.send(()).unwrap();
         from_t1.recv().unwrap();
@@ -416,13 +413,21 @@ fn at_prepare_registers_records_post_prepare_hands_off_finish_releases() {
     // Record 0: XACT (type 0), payload xmin + flags.
     assert_eq!(rec_word(&regs[0].2, 0), 0, "record 0 is XACT");
     assert_eq!(rec_word(&regs[0].2, 4), xmin, "xact record xmin");
-    assert_ne!(rec_word(&regs[0].2, 8) & SXACT_FLAG_PREPARED, 0, "flags carry PREPARED");
+    assert_ne!(
+        rec_word(&regs[0].2, 8) & SXACT_FLAG_PREPARED,
+        0,
+        "flags carry PREPARED"
+    );
     // Record 1: LOCK (type 1), target = (db, REL_A, page 7, offset 0).
     assert_eq!(rec_word(&regs[1].2, 0), 1, "record 1 is LOCK");
     assert_eq!(rec_word(&regs[1].2, 4), TESTDB, "lock target db");
     assert_eq!(rec_word(&regs[1].2, 8), REL_A, "lock target rel");
     assert_eq!(rec_word(&regs[1].2, 12), 7, "lock target page");
-    assert_eq!(rec_word(&regs[1].2, 16), 0, "lock target offset (page lock)");
+    assert_eq!(
+        rec_word(&regs[1].2, 16),
+        0,
+        "lock target offset (page lock)"
+    );
 
     // PostPrepare hands off: the owning thread no longer references the sxact.
     crate::engine::PostPrepare_PredicateLocks(topxid).unwrap();
@@ -465,7 +470,10 @@ fn twophase_recover_rebuilds_sxact_and_lock_then_finish_releases() {
             && e.tag.locktag_field3 == 5
             && e.pid == 0
     });
-    assert!(found, "recovered predicate lock on REL_A page 5 (pid 0) not found");
+    assert!(
+        found,
+        "recovered predicate lock on REL_A page 5 (pid 0) not found"
+    );
 
     // Rollback-prepared releases the recovered sxact and its lock.
     crate::engine::PredicateLockTwoPhaseFinish(recxid, false).unwrap();
@@ -473,7 +481,10 @@ fn twophase_recover_rebuilds_sxact_and_lock_then_finish_releases() {
     let still = status.iter().any(|e| {
         e.tag.locktag_field1 == TESTDB && e.tag.locktag_field2 == REL_A && e.tag.locktag_field3 == 5
     });
-    assert!(!still, "recovered lock should be gone after ROLLBACK PREPARED finish");
+    assert!(
+        !still,
+        "recovered lock should be gone after ROLLBACK PREPARED finish"
+    );
 }
 
 // A crafted / truncated 2PC statefile record must be rejected with a clean
@@ -521,7 +532,6 @@ fn twophase_recover_lock_without_xact_is_clean_error() {
     assert_eq!(err.sqlstate(), types_error::ERRCODE_DATA_CORRUPTED);
 }
 
-
 // SetSerializableTransactionSnapshot import arm (predicate.c:1722 ->
 // GetSerializableTransactionSnapshotInt's sourcevxid path): the sxact is
 // created and our xmin installed atomically with the source-still-running
@@ -538,13 +548,22 @@ fn snapshot_import_installs_xmin_and_rejects_dead_source() {
         become_backend();
         let procno = lmgr_proc::MyProc().unwrap();
         let proc = lmgr_proc::GetPGProcByNumber(procno);
-        proc.databaseId.store(TESTDB, std::sync::atomic::Ordering::Relaxed);
-        proc.vxid.lxid.store(4242, std::sync::atomic::Ordering::Relaxed);
-        proc.xmin.value.store(xmin, std::sync::atomic::Ordering::Relaxed);
-        proc.pgxactoff.store(-1, std::sync::atomic::Ordering::Relaxed);
+        proc.databaseId
+            .store(TESTDB, std::sync::atomic::Ordering::Relaxed);
+        proc.vxid
+            .lxid
+            .store(4242, std::sync::atomic::Ordering::Relaxed);
+        proc.xmin
+            .value
+            .store(xmin, std::sync::atomic::Ordering::Relaxed);
+        proc.pgxactoff
+            .store(-1, std::sync::atomic::Ordering::Relaxed);
         procarray::ProcArrayAdd(procno).unwrap();
         let vxid = types_core::VirtualTransactionId {
-            procNumber: proc.vxid.procNumber.load(std::sync::atomic::Ordering::Relaxed),
+            procNumber: proc
+                .vxid
+                .procNumber
+                .load(std::sync::atomic::Ordering::Relaxed),
             localTransactionId: 4242,
         };
         tx.send((procno, vxid)).unwrap();
@@ -570,7 +589,10 @@ fn snapshot_import_installs_xmin_and_rejects_dead_source() {
     let err = crate::engine::SetSerializableTransactionSnapshot(xmin, Some((dead, 4321)))
         .expect_err("import from a vanished source must fail");
     let msg = format!("{err:?}");
-    assert!(msg.contains("could not import the requested snapshot"), "got: {msg}");
+    assert!(
+        msg.contains("could not import the requested snapshot"),
+        "got: {msg}"
+    );
     assert!(
         msg.contains("The source process with PID 4321 is not running anymore."),
         "got: {msg}"
@@ -652,7 +674,10 @@ fn serial_store_roundtrip_truncation_crash_cycle() {
         InvalidSerCommitSeqNo
     );
     // In-range xid never added: zeroed entry reads back 0 ("no conflict").
-    assert_eq!(SerialGetMinConflictCommitSeqNo(base + 2 * per_page).unwrap(), 0);
+    assert_eq!(
+        SerialGetMinConflictCommitSeqNo(base + 2 * per_page).unwrap(),
+        0
+    );
     // Still-visible first page.
     assert_eq!(SerialGetMinConflictCommitSeqNo(xid_a).unwrap(), 42);
     // Outside [tailXid, headXid]: early-out zeros.
@@ -822,13 +847,25 @@ fn shmem_init_registers_predicate_hashes_with_c_shared_size() {
     let max_table_size = crate::engine::NPREDICATELOCKTARGETENTS(CFG.max_prepared_xacts);
     let (_, found) =
         shmem::ShmemInitStruct("PREDICATELOCKTARGET hash", shared_size(max_table_size)).unwrap();
-    assert!(found, "\"PREDICATELOCKTARGET hash\" is not registered in the ShmemIndex");
+    assert!(
+        found,
+        "\"PREDICATELOCKTARGET hash\" is not registered in the ShmemIndex"
+    );
     let (_, found) =
         shmem::ShmemInitStruct("PREDICATELOCK hash", shared_size(max_table_size * 2)).unwrap();
-    assert!(found, "\"PREDICATELOCK hash\" is not registered in the ShmemIndex");
+    assert!(
+        found,
+        "\"PREDICATELOCK hash\" is not registered in the ShmemIndex"
+    );
     let (_, found) =
         shmem::ShmemInitStruct("SERIALIZABLEXID hash", shared_size(max_table_size * 2)).unwrap();
-    assert!(found, "\"SERIALIZABLEXID hash\" is not registered in the ShmemIndex");
+    assert!(
+        found,
+        "\"SERIALIZABLEXID hash\" is not registered in the ShmemIndex"
+    );
     let (_, found) = shmem::ShmemInitStruct("SerialControlData", 16).unwrap();
-    assert!(found, "\"SerialControlData\" is not registered in the ShmemIndex");
+    assert!(
+        found,
+        "\"SerialControlData\" is not registered in the ShmemIndex"
+    );
 }

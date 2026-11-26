@@ -62,7 +62,7 @@ fn payload<'a>(d: Datum) -> &'a [u8] {
 }
 
 fn fc_mytextout(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
-    let bytes = ::mcx::std_vec_from_slice("adt",payload(fcinfo.arg(0)))?;
+    let bytes = ::mcx::std_vec_from_slice("adt", payload(fcinfo.arg(0)))?;
     OUT_SCRATCH.with(|c| {
         let mut b = c.borrow_mut();
         b.clear();
@@ -77,21 +77,23 @@ static SEAMS: std::sync::Once = std::sync::Once::new();
 fn install() {
     SEAMS.call_once(|| {
         ::syscache_seams::pg_type_io_shape::set(|typid| {
-            Ok((typid == TEXTOID).then_some( ::syscache_seams::PgTypeIoShape {
-                oid: TEXTOID,
-                typinput: MYTEXTIN,
-                typoutput: MYTEXTOUT,
-                typreceive: InvalidOid,
-                typsend: InvalidOid,
-                typmodin: InvalidOid,
-                typmodout: InvalidOid,
-                typelem: InvalidOid,
-                typlen: -1,
-                typbyval: false,
-                typalign: b'i' as i8,
-                typdelim: b',' as i8,
-                typisdefined: true,
-            }))
+            Ok(
+                (typid == TEXTOID).then_some(::syscache_seams::PgTypeIoShape {
+                    oid: TEXTOID,
+                    typinput: MYTEXTIN,
+                    typoutput: MYTEXTOUT,
+                    typreceive: InvalidOid,
+                    typsend: InvalidOid,
+                    typmodin: InvalidOid,
+                    typmodout: InvalidOid,
+                    typelem: InvalidOid,
+                    typlen: -1,
+                    typbyval: false,
+                    typalign: b'i' as i8,
+                    typdelim: b',' as i8,
+                    typisdefined: true,
+                }),
+            )
         });
         ::fmgr_seams::fmgr_info::set(|oid| match oid {
             MYTEXTIN => Ok(FmgrInfo::new(fc_mytextin, MYTEXTIN, 1, true, false)),
@@ -330,8 +332,7 @@ fn record_out_over_ceiling_output_raises_c_stringinfo_error() {
     let d = Datum::from_usize(img.as_ptr() as usize);
 
     let tuple =
-        ::heaptuple::heap_form_tuple(mcx, &tupdesc, &[d, Datum::null()], &[false, true])
-            .unwrap();
+        ::heaptuple::heap_form_tuple(mcx, &tupdesc, &[d, Datum::null()], &[false, true]).unwrap();
     let rec = Datum::from_usize(tuple.image().as_ptr() as usize);
     core::mem::forget(tuple);
     drop(img);

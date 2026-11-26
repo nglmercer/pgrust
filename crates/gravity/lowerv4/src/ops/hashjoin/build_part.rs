@@ -21,7 +21,8 @@ pub(crate) fn plan(partials: &[Partial<'_>]) -> Option<PartitionPlan> {
     let (allow, range) = (h0.allow, heads().all(|h| h.flags & F_RANGE != 0));
     let (lo, hi) = heads().fold((i64::MAX, i64::MIN), |(l, h), x| (l.min(x.lo), h.max(x.hi)));
     let compact = h0.flags & F_COMPACT != 0;
-    let unbits = compact && (allow & A_DENSE == 0 || !range || bits::span(lo, hi, n as usize).is_none());
+    let unbits =
+        compact && (allow & A_DENSE == 0 || !range || bits::span(lo, hi, n as usize).is_none());
     let kept = allow & A_KEEP != 0 && heads().any(|h| h.kept != 0);
     let fifo = allow & crate::ops::hashjoin::build::A_FIFO != 0;
     // join.dedup: the serial lay-out drops a chain's copies (strategies/dedup.rs); the jobs' CAS pushes do not
@@ -29,7 +30,10 @@ pub(crate) fn plan(partials: &[Partial<'_>]) -> Option<PartitionPlan> {
     if allow & A_MULT != 0 && !compact || n >= u32::MAX as u64 || unbits || kept || fifo || dedup {
         return None;
     }
-    let dense = allow & (A_DENSE | A_MARKS) == A_DENSE && range && n > 0 && (hi as i128 - lo as i128 + 1) <= crate::ops::hashjoin::rt::dense_span_max(n) as i128;
+    let dense = allow & (A_DENSE | A_MARKS) == A_DENSE
+        && range
+        && n > 0
+        && (hi as i128 - lo as i128 + 1) <= crate::ops::hashjoin::rt::dense_span_max(n) as i128;
     gravity_driver::partition_plan(n, table_record(h0.rec, n, !compact && !dense))
 }
 
@@ -48,13 +52,20 @@ pub(crate) fn plan_within(partials: &[Partial<'_>], ceil: u64) -> Option<Partiti
 /// record and its share of the directory at the cost home's load (rt.rs `dir_bits`); a dense or bits form's record alone
 /// (its slots and bitmaps follow the key span, not a load).
 fn table_record(rec: u32, n: u64, keyhash: bool) -> u32 {
-    let dir = if keyhash { (8u64 << crate::ops::hashjoin::rt::dir_bits(n)).div_ceil(n.max(1)) } else { 0 };
+    let dir = if keyhash {
+        (8u64 << crate::ops::hashjoin::rt::dir_bits(n)).div_ceil(n.max(1))
+    } else {
+        0
+    };
     (rec as u64 + dir).min(u32::MAX as u64) as u32
 }
 
 /// The leader headed, grown for every record, the directory and every image, its directory zeroed for the form its
 /// jobs chain into (`DENSE` slots or the KeyHash heads) and laid out (`PHASE` 2) before the jobs run.
-pub(crate) fn prepare(leader: &mut State<'_>, partials: &[Partial<'_>]) -> gravity_driver::Result<()> {
+pub(crate) fn prepare(
+    leader: &mut State<'_>,
+    partials: &[Partial<'_>],
+) -> gravity_driver::Result<()> {
     crate::ops::hashjoin::raw::prepare_parts(leader, partials)
 }
 
@@ -62,16 +73,26 @@ pub(crate) fn prepare(leader: &mut State<'_>, partials: &[Partial<'_>]) -> gravi
 /// settled against its images' place in the leader (the worker whose first record falls here copies them), then every
 /// record chained into the shared directory (`dense::put`, `bloomtag::put`); a compact build's bits come straight from the
 /// regions' records (`bits::put`).
-pub(crate) fn merge(leader: Region, part: u32, plan: PartitionPlan, partials: &[Partial<'_>]) -> gravity_driver::Result<()> {
+pub(crate) fn merge(
+    leader: Region,
+    part: u32,
+    plan: PartitionPlan,
+    partials: &[Partial<'_>],
+) -> gravity_driver::Result<()> {
     crate::ops::hashjoin::raw::merge_part(leader, part, plan, partials)
 }
 
 #[cfg(test)]
 #[allow(unsafe_code)]
 mod tests {
-    use gravity_driver::{BorrowedBatch, Error, Flow, Partial, PartitionPlan, Region, Sink, SinkRef, State};
+    use gravity_driver::{
+        BorrowedBatch, Error, Flow, Partial, PartitionPlan, Region, Sink, SinkRef, State,
+    };
 
-    use crate::ops::hashjoin::build::{ALLOW, A_DENSE, DBITS, DIR, END, FLAGS, FORM, FULL, F_COMPACT, F_RANGE, HDR, HI, LO, N, PHASE, REC, SLOTS, TOP, WORDS};
+    use crate::ops::hashjoin::build::{
+        ALLOW, A_DENSE, DBITS, DIR, END, FLAGS, FORM, FULL, F_COMPACT, F_RANGE, HDR, HI, LO, N,
+        PHASE, REC, SLOTS, TOP, WORDS,
+    };
     use crate::ops::hashjoin::rt::{rd, wr};
 
     struct NoRows;
@@ -91,10 +112,26 @@ mod tests {
         let mut buf = vec![0u64; 512];
         let d = buf.as_mut_ptr() as *mut u8;
         // SAFETY: `buf` is the region (4096 bytes).
-        unsafe {wr::<u8>(d, PHASE, 1); wr::<u8>(d, WORDS, 1); wr::<u32>(d, REC, 8); wr::<u32>(d, FULL, 16 + 8 * pay as u32); crate::ops::hashjoin::layout::set_pay(d, pay as usize);
-wr::<u8>(d, ALLOW, allow); wr::<u8>(d, FLAGS, F_RANGE | F_COMPACT); wr::<u64>(d, N, keys.len() as u64);
-wr::<u64>(d, TOP, 4096); wr::<u64>(d, END, 4096); wr::<i64>(d, LO, *keys.iter().min().unwrap()); wr::<i64>(d, HI, *keys.iter().max().unwrap());
-            keys.iter().enumerate().for_each(|(i, &k)| wr::<u64>(d, HDR + 8 * i, (k as u64 & 0xffff_ffff) | ((k & 1) as u64 * pay as u64) << 32));
+        unsafe {
+            wr::<u8>(d, PHASE, 1);
+            wr::<u8>(d, WORDS, 1);
+            wr::<u32>(d, REC, 8);
+            wr::<u32>(d, FULL, 16 + 8 * pay as u32);
+            crate::ops::hashjoin::layout::set_pay(d, pay as usize);
+            wr::<u8>(d, ALLOW, allow);
+            wr::<u8>(d, FLAGS, F_RANGE | F_COMPACT);
+            wr::<u64>(d, N, keys.len() as u64);
+            wr::<u64>(d, TOP, 4096);
+            wr::<u64>(d, END, 4096);
+            wr::<i64>(d, LO, *keys.iter().min().unwrap());
+            wr::<i64>(d, HI, *keys.iter().max().unwrap());
+            keys.iter().enumerate().for_each(|(i, &k)| {
+                wr::<u64>(
+                    d,
+                    HDR + 8 * i,
+                    (k as u64 & 0xffff_ffff) | ((k & 1) as u64 * pay as u64) << 32,
+                )
+            });
         }
         buf
     }
@@ -104,26 +141,72 @@ wr::<u64>(d, TOP, 4096); wr::<u64>(d, END, 4096); wr::<i64>(d, LO, *keys.iter().
     #[test]
     fn a_compact_build_puts_its_bits_from_the_workers_and_a_duplicate_refuses_phase_2() {
         for dup in [false, true] {
-            let (a, mut b): (Vec<i64>, Vec<i64>) = ((0..200).filter(|k| k % 3 == 0).collect(), (0..200).filter(|k| k % 3 == 1).collect());
+            let (a, mut b): (Vec<i64>, Vec<i64>) = (
+                (0..200).filter(|k| k % 3 == 0).collect(),
+                (0..200).filter(|k| k % 3 == 1).collect(),
+            );
             if dup {
                 b[40] = a[7];
             }
             let (wa, wb, mut lead) = (worker(&a), worker(&b), vec![0u64; 8192]);
             // SAFETY: the workers' and the leader's buffers outlive every view; the leader (64 KiB) needs no grow.
             unsafe {
-                let bytes = |w: &Vec<u64>| core::slice::from_raw_parts(w.as_ptr() as *const u8, 4096);
-                let partials = [Partial { ordinal: 0, bytes: bytes(&wa), rows_processed: 0 }, Partial { ordinal: 1, bytes: bytes(&wb), rows_processed: 0 }];
+                let bytes =
+                    |w: &Vec<u64>| core::slice::from_raw_parts(w.as_ptr() as *const u8, 4096);
+                let partials = [
+                    Partial {
+                        ordinal: 0,
+                        bytes: bytes(&wa),
+                        rows_processed: 0,
+                    },
+                    Partial {
+                        ordinal: 1,
+                        bytes: bytes(&wb),
+                        rows_processed: 0,
+                    },
+                ];
                 let (d, len, sink) = (lead.as_mut_ptr() as *mut u8, 65536, &mut NoRows);
-                let plan = PartitionPlan { pbits: 3, groups: (a.len() + b.len()) as u64, record: 8 };
-                super::prepare(&mut State::new(core::slice::from_raw_parts_mut(d, len), SinkRef::of(sink)), &partials).unwrap();
+                let plan = PartitionPlan {
+                    pbits: 3,
+                    groups: (a.len() + b.len()) as u64,
+                    record: 8,
+                };
+                super::prepare(
+                    &mut State::new(core::slice::from_raw_parts_mut(d, len), SinkRef::of(sink)),
+                    &partials,
+                )
+                .unwrap();
                 assert_eq!((rd::<u8>(d, FORM), rd::<u8>(d, PHASE)), (DBITS, 2));
-                let refused = (0..8).filter(|&p| matches!(super::merge(Region { ptr: d, len }, p, plan, &partials), Err(Error::Unsupported(_)))).count();
+                let refused = (0..8)
+                    .filter(|&p| {
+                        matches!(
+                            super::merge(Region { ptr: d, len }, p, plan, &partials),
+                            Err(Error::Unsupported(_))
+                        )
+                    })
+                    .count();
                 assert_eq!(refused > 0, dup, "a duplicate refuses phase 2");
-                assert!((HDR..HDR + 8 * (a.len() + b.len())).all(|o| *d.add(o) == 0), "no record copied into the leader");
-                let (dir, stride, lo) = (rd::<u64>(d, DIR) as usize, (rd::<u64>(d, SLOTS) - rd::<u64>(d, DIR)) as usize, rd::<i64>(d, LO));
-                let bit = |j: usize, k: i64| rd::<u64>(d.add(dir + j * stride + 8 * ((k - lo) as usize >> 6)), 0) >> ((k - lo) & 63) & 1 == 1;
+                assert!(
+                    (HDR..HDR + 8 * (a.len() + b.len())).all(|o| *d.add(o) == 0),
+                    "no record copied into the leader"
+                );
+                let (dir, stride, lo) = (
+                    rd::<u64>(d, DIR) as usize,
+                    (rd::<u64>(d, SLOTS) - rd::<u64>(d, DIR)) as usize,
+                    rd::<i64>(d, LO),
+                );
+                let bit = |j: usize, k: i64| {
+                    rd::<u64>(d.add(dir + j * stride + 8 * ((k - lo) as usize >> 6)), 0)
+                        >> ((k - lo) & 63)
+                        & 1
+                        == 1
+                };
                 for k in (0..200).filter(|_| !dup) {
-                    assert_eq!((bit(0, k), bit(1, k), bit(2, k)), (k % 3 != 2, k % 3 != 2 && k & 1 == 1, false), "key {k}");
+                    assert_eq!(
+                        (bit(0, k), bit(1, k), bit(2, k)),
+                        (k % 3 != 2, k % 3 != 2 && k & 1 == 1, false),
+                        "key {k}"
+                    );
                 }
             }
         }
@@ -137,31 +220,87 @@ wr::<u64>(d, TOP, 4096); wr::<u64>(d, END, 4096); wr::<i64>(d, LO, *keys.iter().
         use gravity_driver::Merge;
 
         use crate::ops::hashjoin::build::{A_MULT, DENSE};
-        let (a, b): (Vec<i64>, Vec<i64>) = ((0..200).filter(|k| k % 3 == 0).collect(), (0..200).filter(|k| k % 3 == 1).collect());
+        let (a, b): (Vec<i64>, Vec<i64>) = (
+            (0..200).filter(|k| k % 3 == 0).collect(),
+            (0..200).filter(|k| k % 3 == 1).collect(),
+        );
         let mut in_a = a.clone();
         in_a[9] = a[4];
         let mut across = b.clone();
         across[40] = a[7];
-        for (case, wa_keys, wb_keys, dup) in [("unique", &a, &b, None), ("in one worker", &in_a, &b, Some(a[4])), ("across workers", &a, &across, Some(a[7]))] {
-            let (wa, wb, mut lead) = (worker_as(wa_keys, A_DENSE | A_MULT, 0), worker_as(wb_keys, A_DENSE | A_MULT, 0), vec![0u64; 8192]);
+        for (case, wa_keys, wb_keys, dup) in [
+            ("unique", &a, &b, None),
+            ("in one worker", &in_a, &b, Some(a[4])),
+            ("across workers", &a, &across, Some(a[7])),
+        ] {
+            let (wa, wb, mut lead) = (
+                worker_as(wa_keys, A_DENSE | A_MULT, 0),
+                worker_as(wb_keys, A_DENSE | A_MULT, 0),
+                vec![0u64; 8192],
+            );
             // SAFETY: the workers' and the leader's buffers outlive every view; the leader (64 KiB) needs no grow.
             unsafe {
-                let bytes = |w: &Vec<u64>| core::slice::from_raw_parts(w.as_ptr() as *const u8, 4096);
-                let partials = [Partial { ordinal: 0, bytes: bytes(&wa), rows_processed: 0 }, Partial { ordinal: 1, bytes: bytes(&wb), rows_processed: 0 }];
-                assert_eq!(super::plan(&partials), gravity_driver::partition_plan((a.len() + b.len()) as u64, 8), "{case}: join.mult's compact build is partitioned");
+                let bytes =
+                    |w: &Vec<u64>| core::slice::from_raw_parts(w.as_ptr() as *const u8, 4096);
+                let partials = [
+                    Partial {
+                        ordinal: 0,
+                        bytes: bytes(&wa),
+                        rows_processed: 0,
+                    },
+                    Partial {
+                        ordinal: 1,
+                        bytes: bytes(&wb),
+                        rows_processed: 0,
+                    },
+                ];
+                assert_eq!(
+                    super::plan(&partials),
+                    gravity_driver::partition_plan((a.len() + b.len()) as u64, 8),
+                    "{case}: join.mult's compact build is partitioned"
+                );
                 let (d, len, sink) = (lead.as_mut_ptr() as *mut u8, 65536, &mut NoRows);
-                let plan = PartitionPlan { pbits: 3, groups: (a.len() + b.len()) as u64, record: 8 };
-                super::prepare(&mut State::new(core::slice::from_raw_parts_mut(d, len), SinkRef::of(sink)), &partials).unwrap();
-                let refused = (0..8).filter(|&p| matches!(super::merge(Region { ptr: d, len }, p, plan, &partials), Err(Error::Unsupported(_)))).count();
-                assert_eq!(refused > 0, dup.is_some(), "{case}: a duplicate refuses phase 2");
+                let plan = PartitionPlan {
+                    pbits: 3,
+                    groups: (a.len() + b.len()) as u64,
+                    record: 8,
+                };
+                super::prepare(
+                    &mut State::new(core::slice::from_raw_parts_mut(d, len), SinkRef::of(sink)),
+                    &partials,
+                )
+                .unwrap();
+                let refused = (0..8)
+                    .filter(|&p| {
+                        matches!(
+                            super::merge(Region { ptr: d, len }, p, plan, &partials),
+                            Err(Error::Unsupported(_))
+                        )
+                    })
+                    .count();
+                assert_eq!(
+                    refused > 0,
+                    dup.is_some(),
+                    "{case}: a duplicate refuses phase 2"
+                );
                 // each key's count over both workers' records
-                let want = |k: i64| wa_keys.iter().chain(wb_keys.iter()).filter(|&&x| x == k).count() as u64;
+                let want = |k: i64| {
+                    wa_keys
+                        .iter()
+                        .chain(wb_keys.iter())
+                        .filter(|&&x| x == k)
+                        .count() as u64
+                };
                 if dup.is_none() {
                     // no payload: the exist bitmap alone
                     let (lo, dir) = (rd::<i64>(d, LO), rd::<u64>(d, DIR) as usize);
                     for k in 0..200i64 {
                         let o = (k - lo) as usize;
-                        assert_eq!(rd::<u64>(d, dir + 8 * (o >> 6)) >> (o & 63) & 1, want(k), "{case} key {k}: present 1, absent 0");
+                        assert_eq!(
+                            rd::<u64>(d, dir + 8 * (o >> 6)) >> (o & 63) & 1,
+                            want(k),
+                            "{case} key {k}: present 1, absent 0"
+                        );
                     }
                     continue;
                 }
@@ -169,16 +308,32 @@ wr::<u64>(d, TOP, 4096); wr::<u64>(d, END, 4096); wr::<i64>(d, LO, *keys.iter().
                 lead.iter_mut().for_each(|w| *w = 0);
                 let mut st = State::new(core::slice::from_raw_parts_mut(d, len), SinkRef::of(sink));
                 for &p in &partials {
-                    crate::ops::hashjoin::rt::BUILD_MERGE.merge_into(&mut st, p).unwrap();
+                    crate::ops::hashjoin::rt::BUILD_MERGE
+                        .merge_into(&mut st, p)
+                        .unwrap();
                 }
-                crate::ops::hashjoin::rt::BUILD_MERGE.finish(&mut st).unwrap();
-                assert_eq!((rd::<u8>(d, FORM), rd::<u8>(d, PHASE)), (DENSE, 2), "{case}: the records expanded into DENSE");
-                let (lo, dir, slots) = (rd::<i64>(d, LO), rd::<u64>(d, DIR) as usize, rd::<u64>(d, SLOTS) as usize);
+                crate::ops::hashjoin::rt::BUILD_MERGE
+                    .finish(&mut st)
+                    .unwrap();
+                assert_eq!(
+                    (rd::<u8>(d, FORM), rd::<u8>(d, PHASE)),
+                    (DENSE, 2),
+                    "{case}: the records expanded into DENSE"
+                );
+                let (lo, dir, slots) = (
+                    rd::<i64>(d, LO),
+                    rd::<u64>(d, DIR) as usize,
+                    rd::<u64>(d, SLOTS) as usize,
+                );
                 let srec = (rd::<u32>(d, REC) - 8) as usize;
                 for k in 0..200i64 {
                     let o = (k - lo) as usize;
                     let set = rd::<u64>(d, dir + 8 * (o >> 6)) >> (o & 63) & 1 != 0;
-                    let count = if set { (rd::<u64>(d, slots + o * srec) >> 32) + 1 } else { 0 };
+                    let count = if set {
+                        (rd::<u64>(d, slots + o * srec) >> 32) + 1
+                    } else {
+                        0
+                    };
                     assert_eq!(count, want(k), "{case} key {k}");
                 }
             }
@@ -192,12 +347,32 @@ wr::<u64>(d, TOP, 4096); wr::<u64>(d, END, 4096); wr::<i64>(d, LO, *keys.iter().
         let mut buf = vec![0u64; 512];
         let d = buf.as_mut_ptr() as *mut u8;
         // SAFETY: `buf` is the region (4096 bytes); the records fit below its end.
-        unsafe {wr::<u8>(d, PHASE, 1); wr::<u8>(d, WORDS, 1); wr::<u32>(d, REC, 24); crate::ops::hashjoin::layout::set_pay(d, 1); wr::<u8>(d, ALLOW, allow); wr::<u8>(d, FLAGS, F_RANGE);
-wr::<u64>(d, N, keys.len() as u64); wr::<u64>(d, KEPT, keys.iter().filter(|k| k.is_none()).count() as u64); wr::<u64>(d, TOP, 4096); wr::<u64>(d, END, 4096);
-wr::<i64>(d, LO, keys.iter().flatten().copied().min().unwrap_or(i64::MAX)); wr::<i64>(d, HI, keys.iter().flatten().copied().max().unwrap_or(i64::MIN));
+        unsafe {
+            wr::<u8>(d, PHASE, 1);
+            wr::<u8>(d, WORDS, 1);
+            wr::<u32>(d, REC, 24);
+            crate::ops::hashjoin::layout::set_pay(d, 1);
+            wr::<u8>(d, ALLOW, allow);
+            wr::<u8>(d, FLAGS, F_RANGE);
+            wr::<u64>(d, N, keys.len() as u64);
+            wr::<u64>(d, KEPT, keys.iter().filter(|k| k.is_none()).count() as u64);
+            wr::<u64>(d, TOP, 4096);
+            wr::<u64>(d, END, 4096);
+            wr::<i64>(
+                d,
+                LO,
+                keys.iter().flatten().copied().min().unwrap_or(i64::MAX),
+            );
+            wr::<i64>(
+                d,
+                HI,
+                keys.iter().flatten().copied().max().unwrap_or(i64::MIN),
+            );
             for (i, k) in keys.iter().enumerate() {
                 let r = d.add(HDR + 24 * i);
-                wr::<i64>(r, 0, k.unwrap_or(0)); wr::<u64>(r, 8, if k.is_none() { NULLKEY } else { 0 }); wr::<u64>(r, 16, tag + i as u64);
+                wr::<i64>(r, 0, k.unwrap_or(0));
+                wr::<u64>(r, 8, if k.is_none() { NULLKEY } else { 0 });
+                wr::<u64>(r, 16, tag + i as u64);
             }
         }
         buf
@@ -213,31 +388,68 @@ wr::<i64>(d, LO, keys.iter().flatten().copied().min().unwrap_or(i64::MAX)); wr::
         use crate::ops::hashjoin::build::{A_KEEP, A_MARKS, A_TAGS, HASH, KEPT, MARKS};
         let (allow, big) = (A_TAGS | A_KEEP | A_MARKS, 1u64 << 30);
         let (a, b) = ([Some(1), None, Some(2)], [None, Some(3), Some(1)]);
-        let (mut wa, mut wb, mut wc) = (keeping(&a, allow, 0), keeping(&b, allow, 100), keeping(&[Some(4), Some(5), Some(6)], allow, 200));
+        let (mut wa, mut wb, mut wc) = (
+            keeping(&a, allow, 0),
+            keeping(&b, allow, 100),
+            keeping(&[Some(4), Some(5), Some(6)], allow, 200),
+        );
         // SAFETY: the workers' and the leader's buffers outlive every view; the leader (64 KiB) needs no grow.
         unsafe {
-            let bytes = |w: &mut Vec<u64>| core::slice::from_raw_parts(w.as_ptr() as *const u8, 4096);
+            let bytes =
+                |w: &mut Vec<u64>| core::slice::from_raw_parts(w.as_ptr() as *const u8, 4096);
             // the plan reads the headers only: a large N makes decision 5 worth it unless a partial keeps NULL-key records
             let (pa, pb) = (wa.as_mut_ptr() as *mut u8, wc.as_mut_ptr() as *mut u8);
             let (na, nc) = (rd::<u64>(pa, N), rd::<u64>(pb, N));
-            wr::<u64>(pa, N, big); wr::<u64>(pb, N, big);
-            let two = |x: &mut Vec<u64>, y: &mut Vec<u64>| [Partial { ordinal: 0, bytes: bytes(x), rows_processed: 0 }, Partial { ordinal: 1, bytes: bytes(y), rows_processed: 0 }];
+            wr::<u64>(pa, N, big);
+            wr::<u64>(pb, N, big);
+            let two = |x: &mut Vec<u64>, y: &mut Vec<u64>| {
+                [
+                    Partial {
+                        ordinal: 0,
+                        bytes: bytes(x),
+                        rows_processed: 0,
+                    },
+                    Partial {
+                        ordinal: 1,
+                        bytes: bytes(y),
+                        rows_processed: 0,
+                    },
+                ]
+            };
             let mut wc2 = wc.clone();
-            assert_eq!(super::plan(&two(&mut wc, &mut wc2)), gravity_driver::partition_plan(2 * big, super::table_record(24, 2 * big, true)), "no NULL-key record: decision 5 as before");
-            assert_eq!(super::plan(&two(&mut wa, &mut wc2)), None, "a NULL-key partial: the serial merge");
-            wr::<u64>(pa, N, na); wr::<u64>(pb, N, nc);
+            assert_eq!(
+                super::plan(&two(&mut wc, &mut wc2)),
+                gravity_driver::partition_plan(2 * big, super::table_record(24, 2 * big, true)),
+                "no NULL-key record: decision 5 as before"
+            );
+            assert_eq!(
+                super::plan(&two(&mut wa, &mut wc2)),
+                None,
+                "a NULL-key partial: the serial merge"
+            );
+            wr::<u64>(pa, N, na);
+            wr::<u64>(pb, N, nc);
             let mut lead = vec![0u64; 8192];
             let (d, sink) = (lead.as_mut_ptr() as *mut u8, &mut NoRows);
             let mut st = State::new(core::slice::from_raw_parts_mut(d, 65536), SinkRef::of(sink));
             for p in two(&mut wa, &mut wb) {
-                crate::ops::hashjoin::rt::BUILD_MERGE.merge_into(&mut st, p).unwrap();
+                crate::ops::hashjoin::rt::BUILD_MERGE
+                    .merge_into(&mut st, p)
+                    .unwrap();
             }
-            crate::ops::hashjoin::rt::BUILD_MERGE.finish(&mut st).unwrap();
+            crate::ops::hashjoin::rt::BUILD_MERGE
+                .finish(&mut st)
+                .unwrap();
             let d = st.bytes.as_mut_ptr();
-            assert_eq!((rd::<u64>(d, N), rd::<u64>(d, KEPT), rd::<u8>(d, FORM)), (4, 2, HASH));
+            assert_eq!(
+                (rd::<u64>(d, N), rd::<u64>(d, KEPT), rd::<u8>(d, FORM)),
+                (4, 2, HASH)
+            );
             let row = |i: usize| rd::<u64>(d.add(HDR + 24 * i), 16);
-            let (mut keyed, mut kept): (Vec<u64>, Vec<u64>) = ((0..4).map(row).collect(), (4..6).map(row).collect());
-            keyed.sort_unstable(); kept.sort_unstable();
+            let (mut keyed, mut kept): (Vec<u64>, Vec<u64>) =
+                ((0..4).map(row).collect(), (4..6).map(row).collect());
+            keyed.sort_unstable();
+            kept.sort_unstable();
             assert_eq!((keyed, kept), (vec![0, 2, 101, 102], vec![1, 100]));
             let m = rd::<u64>(d, MARKS) as usize;
             assert!(m >= HDR + 6 * 24 && (m..m + 6).all(|o| *d.add(o) == 0));
@@ -250,20 +462,48 @@ wr::<i64>(d, LO, keys.iter().flatten().copied().min().unwrap_or(i64::MAX)); wr::
     fn a_partitioned_marking_build_zeroes_its_marks_in_the_prepare() {
         use crate::ops::hashjoin::build::{A_MARKS, A_TAGS, HASH, MARKS};
         let keys: Vec<Option<i64>> = (0..60).map(Some).collect();
-        let (wa, wb) = (keeping(&keys[..30], A_TAGS | A_MARKS, 0), keeping(&keys[30..], A_TAGS | A_MARKS, 30));
+        let (wa, wb) = (
+            keeping(&keys[..30], A_TAGS | A_MARKS, 0),
+            keeping(&keys[30..], A_TAGS | A_MARKS, 30),
+        );
         let mut lead = vec![u64::MAX; 8192];
         // SAFETY: the workers' and the leader's buffers outlive every view; the leader (64 KiB) needs no grow.
         unsafe {
             let bytes = |w: &Vec<u64>| core::slice::from_raw_parts(w.as_ptr() as *const u8, 4096);
-            let partials = [Partial { ordinal: 0, bytes: bytes(&wa), rows_processed: 0 }, Partial { ordinal: 1, bytes: bytes(&wb), rows_processed: 0 }];
+            let partials = [
+                Partial {
+                    ordinal: 0,
+                    bytes: bytes(&wa),
+                    rows_processed: 0,
+                },
+                Partial {
+                    ordinal: 1,
+                    bytes: bytes(&wb),
+                    rows_processed: 0,
+                },
+            ];
             let (d, sink) = (lead.as_mut_ptr() as *mut u8, &mut NoRows);
             core::ptr::write_bytes(d, 0, HDR);
-            super::prepare(&mut State::new(core::slice::from_raw_parts_mut(d, 65536), SinkRef::of(sink)), &partials).unwrap();
-            let plan = PartitionPlan { pbits: 2, groups: 60, record: 24 };
-            (0..4).for_each(|p| super::merge(Region { ptr: d, len: 65536 }, p, plan, &partials).unwrap());
+            super::prepare(
+                &mut State::new(core::slice::from_raw_parts_mut(d, 65536), SinkRef::of(sink)),
+                &partials,
+            )
+            .unwrap();
+            let plan = PartitionPlan {
+                pbits: 2,
+                groups: 60,
+                record: 24,
+            };
+            (0..4).for_each(|p| {
+                super::merge(Region { ptr: d, len: 65536 }, p, plan, &partials).unwrap()
+            });
             let m = rd::<u64>(d, MARKS) as usize;
             assert_eq!(rd::<u8>(d, FORM), HASH);
-            assert!(m >= HDR + 60 * 24 && (m..m + 60).all(|o| *d.add(o) == 0) && rd::<u64>(d, DIR) as usize >= m + 60);
+            assert!(
+                m >= HDR + 60 * 24
+                    && (m..m + 60).all(|o| *d.add(o) == 0)
+                    && rd::<u64>(d, DIR) as usize >= m + 60
+            );
         }
     }
 }

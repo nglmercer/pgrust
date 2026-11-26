@@ -47,7 +47,16 @@ mod update;
 
 /// Hook A: S0's SELECT without FROM (`nofrom`), else S5's point statement (`skip`, pgrust.point_noplan); `Err` hands
 /// the queries to the planner.
-pub fn plan_skip<'mcx>(mcx: mcx::Mcx<'mcx>, querytrees: mcx::PgVec<'mcx, types_nodes::parsenodes::Query<'mcx>>, dest: CommandDest) -> PgResult<Result<mcx::PgVec<'mcx, PlannedStmt<'mcx>>, mcx::PgVec<'mcx, types_nodes::parsenodes::Query<'mcx>>>> {
+pub fn plan_skip<'mcx>(
+    mcx: mcx::Mcx<'mcx>,
+    querytrees: mcx::PgVec<'mcx, types_nodes::parsenodes::Query<'mcx>>,
+    dest: CommandDest,
+) -> PgResult<
+    Result<
+        mcx::PgVec<'mcx, PlannedStmt<'mcx>>,
+        mcx::PgVec<'mcx, types_nodes::parsenodes::Query<'mcx>>,
+    >,
+> {
     skip::clear_hit();
     match nofrom::plan_skip(mcx, querytrees, dest)? {
         Ok(plans) => Ok(Ok(plans)),
@@ -86,13 +95,23 @@ struct State {
 }
 
 fn state_new() -> State {
-    let ctx = mcx::session_root_mut(gravity_driver::mem::root::context_wholesale("GravityPointRun", true));
-    State { ctx, wire: gravity_wire::WireNode::new() }
+    let ctx = mcx::session_root_mut(gravity_driver::mem::root::context_wholesale(
+        "GravityPointRun",
+        true,
+    ));
+    State {
+        ctx,
+        wire: gravity_wire::WireNode::new(),
+    }
 }
 
 fn env_once(c: &Cell<u8>, name: &str) -> bool {
     if c.get() == 0 {
-        c.set(if crate::inputs::knobs::env_on(name) { 2 } else { 1 });
+        c.set(if crate::inputs::knobs::env_on(name) {
+            2
+        } else {
+            1
+        });
     }
     c.get() == 2
 }
@@ -108,13 +127,27 @@ fn keeping() -> bool {
 
 #[cold]
 fn report(msg: &str) {
-    let line = elog::with_debug_query_string(|q| format!("gravity: point {msg} :: {}", q.unwrap_or("").replace('\n', " "))); // alloc: Cold
-    let _ = elog::ereport(types_error::LOG).errmsg(line).errhidestmt(true).errhidecontext(true).finish(types_error::ErrorLocation::new("gravity", 0, "point"));
+    let line = elog::with_debug_query_string(|q| {
+        format!(
+            "gravity: point {msg} :: {}",
+            q.unwrap_or("").replace('\n', " ")
+        )
+    }); // alloc: Cold
+    let _ = elog::ereport(types_error::LOG)
+        .errmsg(line)
+        .errhidestmt(true)
+        .errhidecontext(true)
+        .finish(types_error::ErrorLocation::new("gravity", 0, "point"));
 }
 
 #[cold]
 fn strict_error(why: &str) -> Box<PgError> {
-    Box::new(PgError::error(format!("point path: an eligible statement fell back ({why})")).with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR)) // alloc: Cold
+    Box::new(
+        PgError::error(format!(
+            "point path: an eligible statement fell back ({why})"
+        ))
+        .with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR),
+    ) // alloc: Cold
 }
 
 /// What keeps hook B from serving the statement now: the same answer at hook A, so a plan A built is one B takes.
@@ -135,7 +168,10 @@ fn runtime_refusal(dest: CommandDest) -> Option<&'static str> {
 }
 
 /// Hook B: `None` leaves the statement to Gravity, unchanged.
-pub(super) fn serve(pstmt: &PlannedStmt<'_>, dest: &mut DestReceiver<'_>) -> Option<PgResult<Option<QueryCompletion>>> {
+pub(super) fn serve(
+    pstmt: &PlannedStmt<'_>,
+    dest: &mut DestReceiver<'_>,
+) -> Option<PgResult<Option<QueryCompletion>>> {
     let built = BUILT.with(|b| b.replace(false));
     let hit = skip::take_hit(pstmt).filter(|_| keeping());
     let mode = point_path();
@@ -145,10 +181,12 @@ pub(super) fn serve(pstmt: &PlannedStmt<'_>, dest: &mut DestReceiver<'_>) -> Opt
     if !built && pstmt.planTree.is_some_and(|n| n.as_index_scan().is_some()) {
         return select::serve(pstmt, dest, hit);
     }
-    if !built && pstmt.commandType == types_nodes::nodes_enums::CmdType::CMD_DELETE && point_write() {
+    if !built && pstmt.commandType == types_nodes::nodes_enums::CmdType::CMD_DELETE && point_write()
+    {
         return delete::serve(pstmt, dest, hit);
     }
-    if !built && pstmt.commandType == types_nodes::nodes_enums::CmdType::CMD_UPDATE && point_write() {
+    if !built && pstmt.commandType == types_nodes::nodes_enums::CmdType::CMD_UPDATE && point_write()
+    {
         return update::serve(pstmt, dest, hit);
     }
     nofrom::serve(pstmt, dest, built, mode)

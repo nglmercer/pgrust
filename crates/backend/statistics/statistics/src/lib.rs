@@ -124,7 +124,10 @@ fn varlena_body<'mcx>(mcx: Mcx<'mcx>, d: Datum) -> PgResult<&'mcx [u8]> {
             Ok(core::slice::from_raw_parts(p.add(1), len - 1))
         } else {
             let w = u32::from_ne_bytes(*(p as *const [u8; 4]));
-            Ok(core::slice::from_raw_parts(p.add(4), ((w as usize) >> 2) - 4))
+            Ok(core::slice::from_raw_parts(
+                p.add(4),
+                ((w as usize) >> 2) - 4,
+            ))
         }
     }
 }
@@ -190,11 +193,17 @@ pub fn fetch_statentries_for_relation<'mcx>(
         let (nkeys, keydata) = stxkeys_elems(varlena_body(mcx, keys_d)?);
         let mut columns: PgVec<'mcx, AttrNumber> = mcx::vec_with_capacity_in(mcx, nkeys)?;
         for i in 0..nkeys {
-            columns.push(i16::from_ne_bytes(keydata[i * 2..i * 2 + 2].try_into().unwrap()));
+            columns.push(i16::from_ne_bytes(
+                keydata[i * 2..i * 2 + 2].try_into().unwrap(),
+            ));
         }
 
         let (target_d, target_null) = getattr(tup, Anum_pg_statistic_ext_stxstattarget, desc);
-        let stattarget = if target_null { -1 } else { target_d.as_i16() as i32 };
+        let stattarget = if target_null {
+            -1
+        } else {
+            target_d.as_i16() as i32
+        };
 
         let (kind_d, _) = getattr(tup, Anum_pg_statistic_ext_stxkind, desc);
         let (nkinds, kinddata) = stxkind_elems(varlena_body(mcx, kind_d)?)?;
@@ -319,8 +328,14 @@ pub fn BuildRelationExtStatistics<'mcx, F: ExprStatsCompute<'mcx>>(
     for stat in statslist.iter() {
         let bcx = mcx::MemoryContext::new("BuildRelationExtStatistics");
         let bmcx = bcx.mcx();
-        let Some(stats) =
-            lookup_var_attr_stats(mcx, bmcx, &stat.columns, &stat.exprs, colstats, expr_compute)?
+        let Some(stats) = lookup_var_attr_stats(
+            mcx,
+            bmcx,
+            &stat.columns,
+            &stat.exprs,
+            colstats,
+            expr_compute,
+        )?
         else {
             // extended_stats.c:172: report this fact (except in autovacuum),
             // with errtable(onerel)'s schema/table fields.
@@ -339,7 +354,11 @@ pub fn BuildRelationExtStatistics<'mcx, F: ExprStatsCompute<'mcx>>(
                     ))
                     .err_generic_string(PG_DIAG_SCHEMA_NAME, nsp)?
                     .err_generic_string(PG_DIAG_TABLE_NAME, onerel.name())?
-                    .finish(ErrorLocation { filename: None, lineno: 0, funcname: None })?;
+                    .finish(ErrorLocation {
+                        filename: None,
+                        lineno: 0,
+                        funcname: None,
+                    })?;
             }
             continue;
         };
@@ -375,7 +394,8 @@ pub fn BuildRelationExtStatistics<'mcx, F: ExprStatsCompute<'mcx>>(
                     )
                     .into());
                 }
-                let rows_stats = expr_compute.compute(mcx, onerel, &stat.exprs, stattarget, rows)?;
+                let rows_stats =
+                    expr_compute.compute(mcx, onerel, &stat.exprs, stattarget, rows)?;
                 exprstats = Some(expression::serialize_expr_stats(bmcx, &rows_stats)?);
             }
         }
@@ -497,7 +517,13 @@ fn make_build_data<'mcx, 'b>(
         )?;
     }
 
-    Ok(StatsBuildData { numrows, attnums, stats: statsv, values, nulls })
+    Ok(StatsBuildData {
+        numrows,
+        attnums,
+        stats: statsv,
+        values,
+        nulls,
+    })
 }
 
 // AmAutoVacuumWorkerProcess() (miscadmin.h).
@@ -593,7 +619,11 @@ pub fn build_sorted_items<'mcx>(
     for off in 0..nrows {
         items.push(SortItem { off, count: 0 });
     }
-    let store = ItemStore { values, isnull, width };
+    let store = ItemStore {
+        values,
+        isnull,
+        width,
+    };
     // extended_stats.c:1110 qsort_interruptible(items, nrows, ..., multi_sort_compare, mss)
     sortitem::qsort_interruptible_arg(&mut items, |a, b| store.compare(mss, *a, *b))?;
     // Detoasted images ride mcx until teardown; from ANALYZE this is an

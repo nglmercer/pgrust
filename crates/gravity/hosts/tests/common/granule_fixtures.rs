@@ -1,5 +1,5 @@
 //! The pgrc fixtures `granule_source.rs` and `granule_census.rs` share (each is its own test binary).
-#![allow(clippy::duplicate_mod,dead_code)]
+#![allow(clippy::duplicate_mod, dead_code)]
 
 use std::sync::atomic::AtomicU8;
 use std::sync::Arc;
@@ -11,7 +11,9 @@ use pgrc_qa::corpus::{build_fixture, int8_fixture, BuiltFixture, Fixture, Oracle
 use pgrc_qa::text_col;
 use pgrc_read::PartExpect;
 use pgrc_write::dict::TextSemantics;
-use pgrc_write::elect::{CandidateSource, CodecCandidates, ColumnPosture, DictPolicy, ReferenceCandidates};
+use pgrc_write::elect::{
+    CandidateSource, CodecCandidates, ColumnPosture, DictPolicy, ReferenceCandidates,
+};
 use pgrc_write::writer::PartCutPolicy;
 use pgrc_write::wvfs::WriteVfs;
 
@@ -34,22 +36,58 @@ pub fn part_list_at(bf: &BuiltFixture, ino: u64) -> Arc<PartList> {
         .iter()
         .enumerate()
         .map(|(i, rec)| {
-            let bytes: Arc<[u8]> = Arc::from(bf.files.get(&part_file_name(rec.part_no)).expect("part file").as_slice());
-            PartSpec { io: PartIoSpec::Mem { bytes, dev: 7, ino: ino + i as u64 }, expect: PartExpect::none(), rows: rec.rows, granules: rec.granule_count, deletes: None, part: None }
+            let bytes: Arc<[u8]> = Arc::from(
+                bf.files
+                    .get(&part_file_name(rec.part_no))
+                    .expect("part file")
+                    .as_slice(),
+            );
+            PartSpec {
+                io: PartIoSpec::Mem {
+                    bytes,
+                    dev: 7,
+                    ino: ino + i as u64,
+                },
+                expect: PartExpect::none(),
+                rows: rec.rows,
+                granules: rec.granule_count,
+                deletes: None,
+                part: None,
+            }
         })
         .collect();
     Arc::new(PartList::new(parts))
 }
 
 pub fn binding_ref(resolved: &Resolved) -> BindingRef<'_> {
-    BindingRef { snapshot: Snapshot(0), command_id: CommandId(0), params: &[], abort_flag: &FLAG, pins: Pins(0), per_tuple: PerTuple(0), identity: Identity::default(), resolved: Some(resolved), ordinal: None }
+    BindingRef {
+        snapshot: Snapshot(0),
+        command_id: CommandId(0),
+        params: &[],
+        abort_flag: &FLAG,
+        pins: Pins(0),
+        per_tuple: PerTuple(0),
+        identity: Identity::default(),
+        resolved: Some(resolved),
+        ordinal: None,
+    }
 }
 
 pub const REL_SORTED: u32 = 4244;
 
 /// A sorted int8 table (`a = i`): parts of 24 576, 24 576 and 10 848 rows, granules 0..8 hold [8192·g, 8192·(g+1)).
 pub fn sorted_fixture() -> BuiltFixture {
-    build_fixture(int8_fixture("gravity_zones", 7303, ROWS, vec![], PartCutPolicy { max_rows: 20_000, ..PartCutPolicy::default() }, |i| Some(i as i64)))
+    build_fixture(int8_fixture(
+        "gravity_zones",
+        7303,
+        ROWS,
+        vec![],
+        PartCutPolicy {
+            max_rows: 20_000,
+            ..PartCutPolicy::default()
+        },
+        |i| Some(i as i64),
+    ))
 }
 
 pub const REL_TEXT: u32 = 4246;
@@ -81,7 +119,13 @@ pub fn hex_value(i: u64) -> Vec<u8> {
     format!("{:016x}", z ^ (z >> 31)).into_bytes()
 }
 
-pub fn text_fixture_of(name: &'static str, relfilenumber: u32, rows: u64, max_rows: u64, tv: fn(u64) -> Vec<u8>) -> BuiltFixture {
+pub fn text_fixture_of(
+    name: &'static str,
+    relfilenumber: u32,
+    rows: u64,
+    max_rows: u64,
+    tv: fn(u64) -> Vec<u8>,
+) -> BuiltFixture {
     use pgrc_qa::adapters::Probe;
     use pgrc_qa::corpus::{append_rows_with_sources, finish_with_sources, open_writer};
     use pgrc_write::publish::{effective_manifest, TxnVerdict};
@@ -94,9 +138,19 @@ pub fn text_fixture_of(name: &'static str, relfilenumber: u32, rows: u64, max_ro
         schema: vec![text_col(1)],
         oracle: vec![(0..rows).map(|i| Some(OracleVal::Bytes(tv(i)))).collect()],
         plans: vec![],
-        policy: PartCutPolicy { max_rows, ..PartCutPolicy::default() },
+        policy: PartCutPolicy {
+            max_rows,
+            ..PartCutPolicy::default()
+        },
     };
-    let posture = ColumnPosture { dict: Some(DictPolicy { ndv_cap: 100_000, exec_ok: true, sem: TextSemantics::BytesOnly }), ..ColumnPosture::default() };
+    let posture = ColumnPosture {
+        dict: Some(DictPolicy {
+            ndv_cap: 100_000,
+            exec_ok: true,
+            sem: TextSemantics::BytesOnly,
+        }),
+        ..ColumnPosture::default()
+    };
     let cands = CodecCandidates::new(ColumnPosture::default()).with_column(1, 0, posture);
     let sources: [&dyn CandidateSource; 2] = [&cands, &ReferenceCandidates];
     let mut vfs = pgrc_qa::simvfs::SimVfs::new();
@@ -110,6 +164,12 @@ pub fn text_fixture_of(name: &'static str, relfilenumber: u32, rows: u64, max_ro
     w.publish(&mut vfs, &probe).expect("publish");
     probe.mark(fxid, TxnVerdict::Committed);
     let files = vfs.snapshot_dir(&fx.dir);
-    let manifest = effective_manifest(&mut vfs, &fx.dir, &probe, None).expect("effective").expect("committed generation");
-    BuiltFixture { fx, files, manifest }
+    let manifest = effective_manifest(&mut vfs, &fx.dir, &probe, None)
+        .expect("effective")
+        .expect("committed generation");
+    BuiltFixture {
+        fx,
+        files,
+        manifest,
+    }
 }

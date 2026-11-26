@@ -92,7 +92,9 @@ fn program() -> Program {
     ));
     let mut prev = "s0".to_string();
     for k in 1..=NK {
-        src.push_str(&format!("      (t{k} (iadd k{k} k{k}))\n      (s{k} (iadd {prev} t{k}))\n"));
+        src.push_str(&format!(
+            "      (t{k} (iadd k{k} k{k}))\n      (s{k} (iadd {prev} t{k}))\n"
+        ));
         prev = format!("s{k}");
     }
     src.push_str(&format!(
@@ -117,18 +119,33 @@ fn program() -> Program {
 fn fixed_holder_is_not_demoted_in_a_diamond_arm() {
     let p = program();
     // Cells 0..=8: h, k1..k8; cells 17..=24: m1..m8; cell 31: the loop bound.
-    let mut cells: Vec<i64> = (0..31).map(|i| 0x5eed_0000_1000 + 7919 * i as i64).collect();
+    let mut cells: Vec<i64> = (0..31)
+        .map(|i| 0x5eed_0000_1000 + 7919 * i as i64)
+        .collect();
     let bound = 6i64;
     cells.push(bound);
     let mut touched = 0i64;
     let f = Func(0);
-    let want = common::both(&p, f, &[cells.as_ptr() as u64, &mut touched as *mut i64 as u64]).unwrap();
+    let want = common::both(
+        &p,
+        f,
+        &[cells.as_ptr() as u64, &mut touched as *mut i64 as u64],
+    )
+    .unwrap();
     // The interpreter's answer, as a sanity check of the program itself.
     let mut acc = 0i64;
     for i in 0..bound {
-        let r = if i & 1 == 1 { -6 * cells[0] } else { i + bound + cells[17..17 + NM].iter().sum::<i64>() };
+        let r = if i & 1 == 1 {
+            -6 * cells[0]
+        } else {
+            i + bound + cells[17..17 + NM].iter().sum::<i64>()
+        };
         acc += cells[0] + r + cells[1..=NK].iter().map(|k| 2 * k).sum::<i64>();
     }
     assert_eq!(want, vec![acc as u64]);
-    assert_eq!(touched, 2 * 1000 * bound, "the join's call ran once per iteration on both arms");
+    assert_eq!(
+        touched,
+        2 * 1000 * bound,
+        "the join's call ran once per iteration on both arms"
+    );
 }

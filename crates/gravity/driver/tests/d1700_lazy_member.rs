@@ -19,9 +19,15 @@ use gravity_abi::ctx::FLAG_PENDING_SHIFT;
 use gravity_abi::status::{build_wait, DONE};
 use gravity_abi::Ctx;
 use gravity_driver::{Binding, Call, Entry, Exec, Grant, Step, REGIONS};
-use gravity_program::{Arena, Code, End, Generation, Handle, Layout, OutCol, Pipeline, PlanKey, Program, Reason, SiteDesc, WritePlan};
+use gravity_program::{
+    Arena, Code, End, Generation, Handle, Layout, OutCol, Pipeline, PlanKey, Program, Reason,
+    SiteDesc, WritePlan,
+};
 
-const KEY: PlanKey = PlanKey { handle: Handle(37), generation: Generation(1) };
+const KEY: PlanKey = PlanKey {
+    handle: Handle(37),
+    generation: Generation(1),
+};
 const THR: [u64; 1] = [7];
 
 /// The build's calls (one per run: it reads its whole range in one call).
@@ -51,16 +57,49 @@ unsafe extern "C-unwind" fn k_probe(ctx: *mut Ctx) -> i64 {
 fn program() -> Program {
     let st = Arena::new(1 << 14);
     let sites = [SiteDesc::range_source(st.handle(), 2001, &[1, 2])];
-    let mut build = Pipeline::serial(0, End::Breaker(Breaker::sized(BreakerKind::PlainAgg, COUNT_SUM_BYTES).in_slot(0)), Reason::Host);
+    let mut build = Pipeline::serial(
+        0,
+        End::Breaker(Breaker::sized(BreakerKind::PlainAgg, COUNT_SUM_BYTES).in_slot(0)),
+        Reason::Host,
+    );
     build.lazy_for = 1;
-    let probe = Pipeline::serial(-1, End::Breaker(Breaker::sized(BreakerKind::PlainAgg, COUNT_SUM_BYTES).in_slot(1)), Reason::NoDrivingSite).consuming(&[0]);
+    let probe = Pipeline::serial(
+        -1,
+        End::Breaker(Breaker::sized(BreakerKind::PlainAgg, COUNT_SUM_BYTES).in_slot(1)),
+        Reason::NoDrivingSite,
+    )
+    .consuming(&[0]);
     let owner = Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming(&[1]);
-    let pipes = [(build, Code::hand(k_build)), (probe, Code::hand(k_probe)), (owner, Code::hand(k_noop))];
+    let pipes = [
+        (build, Code::hand(k_build)),
+        (probe, Code::hand(k_probe)),
+        (owner, Code::hand(k_noop)),
+    ];
     let cols: [OutCol; 1] = [OutCol::new("c0", 20, -1, 8, true)];
-    rerun_set(Program::with_pipelines(Layout { nsites: 1, out_natts: 1, out_rows: 4, scratch_bytes: 0, exec_bytes: 0 }, &sites, &cols, WritePlan::SELECT, pipes), &[0, 1])
+    rerun_set(
+        Program::with_pipelines(
+            Layout {
+                nsites: 1,
+                out_natts: 1,
+                out_rows: 4,
+                scratch_bytes: 0,
+                exec_bytes: 0,
+            },
+            &sites,
+            &cols,
+            WritePlan::SELECT,
+            pipes,
+        ),
+        &[0, 1],
+    )
 }
 
-fn run_whole(e: &mut Entry, x: &mut Exec, b: &mut Binding<'_>, p: usize) -> gravity_driver::Result<()> {
+fn run_whole(
+    e: &mut Entry,
+    x: &mut Exec,
+    b: &mut Binding<'_>,
+    p: usize,
+) -> gravity_driver::Result<()> {
     match e.run_pipeline(x, b, Call::batch(4))? {
         Step::Done => Ok(()),
         s => panic!("the build (pipeline {p}) stopped with {s:?}"),
@@ -68,7 +107,12 @@ fn run_whole(e: &mut Entry, x: &mut Exec, b: &mut Binding<'_>, p: usize) -> grav
 }
 
 /// A member's run, as the runner's width-1 producer arm: a `BuildWait` runs the build, then the call resumes at its row.
-fn run_member(e: &mut Entry, x: &mut Exec, b: &mut Binding<'_>, p: usize) -> gravity_driver::Result<()> {
+fn run_member(
+    e: &mut Entry,
+    x: &mut Exec,
+    b: &mut Binding<'_>,
+    p: usize,
+) -> gravity_driver::Result<()> {
     let mut call = Call::batch(4);
     loop {
         match e.run_pipeline(x, b, call)? {
@@ -98,30 +142,59 @@ fn a_rerun_sets_lazy_build_runs_once_at_its_probes_first_row_and_never_without_o
     let mut sink = LegSink::new();
     let mut b = binding(&THR, &[0], &mut sink, &flag);
     let l = lease(Grant::of(8 << 20));
-    let mut exec = entry.start(Some(KEY), &program, &mut derive, &mut b, l.clone()).unwrap();
-    assert!(entry.skip_lazy(&mut exec).unwrap(), "the lazy build steps past in order");
+    let mut exec = entry
+        .start(Some(KEY), &program, &mut derive, &mut b, l.clone())
+        .unwrap();
+    assert!(
+        entry.skip_lazy(&mut exec).unwrap(),
+        "the lazy build steps past in order"
+    );
     entry.skip_rerun(&mut exec, 2).unwrap();
     let mut once = -1;
     let mut after_first = (0, 0);
-    for (i, row) in [true, true, false, true, false, false, true, true, false].into_iter().enumerate() {
+    for (i, row) in [true, true, false, true, false, false, true, true, false]
+        .into_iter()
+        .enumerate()
+    {
         PROBE_ROW.store(row, Relaxed);
         PROBE_READ.store(-1, Relaxed);
         let builds = BUILDS.load(Relaxed);
-        entry.rerun_nested(&mut exec, &mut b, &[0, 1], &mut run_member).unwrap();
-        assert_eq!(BUILDS.load(Relaxed) - builds, row as u32, "rerun {i}: the build runs once at its probe's first row, never without one");
+        entry
+            .rerun_nested(&mut exec, &mut b, &[0, 1], &mut run_member)
+            .unwrap();
+        assert_eq!(
+            BUILDS.load(Relaxed) - builds,
+            row as u32,
+            "rerun {i}: the build runs once at its probe's first row, never without one"
+        );
         if !row {
             assert_eq!(PROBE_READ.load(Relaxed), -1);
             continue;
         }
         let read = PROBE_READ.load(Relaxed);
-        assert!(read > 0, "rerun {i}: the probe reads the build's table ({read})");
+        assert!(
+            read > 0,
+            "rerun {i}: the probe reads the build's table ({read})"
+        );
         if once < 0 {
             (once, after_first) = (read, (REGIONS.stats().takes, l.drawn()));
         }
-        assert_eq!(read, once, "rerun {i}: the probe reads one build's rows, never a table built over the one before");
+        assert_eq!(
+            read, once,
+            "rerun {i}: the probe reads one build's rows, never a table built over the one before"
+        );
     }
-    assert_eq!((REGIONS.stats().takes, l.drawn()), after_first, "the build's kept slot: no region or grant drawn after its first run");
-    assert_eq!(entry.run_pipeline(&mut exec, &mut b, Call::batch(4)).unwrap(), Step::Done);
+    assert_eq!(
+        (REGIONS.stats().takes, l.drawn()),
+        after_first,
+        "the build's kept slot: no region or grant drawn after its first run"
+    );
+    assert_eq!(
+        entry
+            .run_pipeline(&mut exec, &mut b, Call::batch(4))
+            .unwrap(),
+        Step::Done
+    );
     entry.end(exec, true);
 }
 
@@ -134,15 +207,40 @@ fn an_init_sets_lazy_build_runs_once_at_its_probes_first_row() {
     let flag = AtomicU8::new(0);
     let mut sink = LegSink::new();
     let mut b = binding(&THR, &[0], &mut sink, &flag);
-    let mut exec = entry.start(Some(KEY), &program, &mut derive, &mut b, lease(Grant::of(8 << 20))).unwrap();
-    assert!(entry.skip_lazy(&mut exec).unwrap(), "the lazy build steps past in order");
+    let mut exec = entry
+        .start(
+            Some(KEY),
+            &program,
+            &mut derive,
+            &mut b,
+            lease(Grant::of(8 << 20)),
+        )
+        .unwrap();
+    assert!(
+        entry.skip_lazy(&mut exec).unwrap(),
+        "the lazy build steps past in order"
+    );
     entry.skip_deferred(&mut exec);
     PROBE_ROW.store(true, Relaxed);
     PROBE_READ.store(-1, Relaxed);
     let builds = BUILDS.load(Relaxed);
-    entry.run_nested(&mut exec, &mut b, &[0, 1], &mut run_member).unwrap();
-    assert_eq!(BUILDS.load(Relaxed) - builds, 1, "the build runs once, at its probe's first row");
-    assert!(PROBE_READ.load(Relaxed) > 0, "the probe reads the build's table");
-    assert_eq!(entry.run_pipeline(&mut exec, &mut b, Call::batch(4)).unwrap(), Step::Done);
+    entry
+        .run_nested(&mut exec, &mut b, &[0, 1], &mut run_member)
+        .unwrap();
+    assert_eq!(
+        BUILDS.load(Relaxed) - builds,
+        1,
+        "the build runs once, at its probe's first row"
+    );
+    assert!(
+        PROBE_READ.load(Relaxed) > 0,
+        "the probe reads the build's table"
+    );
+    assert_eq!(
+        entry
+            .run_pipeline(&mut exec, &mut b, Call::batch(4))
+            .unwrap(),
+        Step::Done
+    );
     entry.end(exec, true);
 }

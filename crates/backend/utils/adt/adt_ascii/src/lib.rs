@@ -2,11 +2,8 @@
 
 use ::datum::{Datum, Varlena};
 use ::mcx::Mcx;
-use ::types_error::{
-    PgError, PgResult, ERRCODE_FEATURE_NOT_SUPPORTED, ERRCODE_UNDEFINED_OBJECT,
-};
-use ::types_fmgr::{
-    varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, };
+use ::types_error::{PgError, PgResult, ERRCODE_FEATURE_NOT_SUPPORTED, ERRCODE_UNDEFINED_OBJECT};
+use ::types_fmgr::{varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 use ::wchar::{pg_enc, pg_valid_encoding, PG_LATIN1, PG_LATIN2, PG_LATIN9, PG_WIN1250};
 
 const RANGE_128: u8 = 128;

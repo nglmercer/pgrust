@@ -13,8 +13,14 @@ fn checked_matches_the_build_stage() {
     );
     let panicked = std::panic::catch_unwind(|| tpde_assert!(false, "contract")).is_err();
     assert_eq!(panicked, CHECKED);
-    assert_eq!(std::panic::catch_unwind(|| tpde_assert_eq!(1, 2)).is_err(), CHECKED);
-    assert_eq!(std::panic::catch_unwind(|| tpde_assert_ne!(1, 1)).is_err(), CHECKED);
+    assert_eq!(
+        std::panic::catch_unwind(|| tpde_assert_eq!(1, 2)).is_err(),
+        CHECKED
+    );
+    assert_eq!(
+        std::panic::catch_unwind(|| tpde_assert_ne!(1, 1)).is_err(),
+        CHECKED
+    );
     tpde_assert!(true);
     tpde_assert_eq!(1, 1);
     tpde_assert_ne!(1, 2);
@@ -22,7 +28,10 @@ fn checked_matches_the_build_stage() {
 #[cfg(tpde_address_sanitizer)]
 #[test]
 fn sanitizer_builds_keep_every_check() {
-    assert!(CHECKED, "address-sanitizer stage must keep TPDE_ASSERT checks");
+    assert!(
+        CHECKED,
+        "address-sanitizer stage must keep TPDE_ASSERT checks"
+    );
 }
 #[test]
 fn alignment_and_overflow() {

@@ -1,5 +1,5 @@
-use crate::layout::{unword, word, Word};
 use crate::ctx::{Answer, Datum, Lane, ScanPos};
+use crate::layout::{unword, word, Word};
 
 pub type NextFn = Option<unsafe extern "C" fn(*mut Site) -> i64>;
 pub type LaneFn = Option<unsafe extern "C" fn(*mut Site, u32) -> i64>;
@@ -117,7 +117,11 @@ pub unsafe fn lane<'a>(s: *const Site, k: usize) -> &'a Lane {
 #[inline(always)]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe fn table_lane<'a>(s: *const Site, k: usize) -> &'a Lane {
-    debug_assert!((k as u16) < (*s).lanes_cap, "table lane {k} of {}", (*s).lanes_cap);
+    debug_assert!(
+        (k as u16) < (*s).lanes_cap,
+        "table lane {k} of {}",
+        (*s).lanes_cap
+    );
     &*unword((*s).lanes).add(k)
 }
 
@@ -233,12 +237,18 @@ pub unsafe fn next_row(s: *mut Site, natts: usize) -> i64 {
                     }
                     *unword(st.values).add(k) = l.datum(i);
                     *unword(st.isnull).add(k) = !l.is_valid(i) as u8;
-                } else if crate::lane::id_kind(l.id) == crate::lane::ID_OFFSET && !unword(l.ptr).is_null() {
+                } else if crate::lane::id_kind(l.id) == crate::lane::ID_OFFSET
+                    && !unword(l.ptr).is_null()
+                {
                     off_lane = l;
                 }
             }
             if !st.pos.is_row() {
-                st.pos.off = if off_lane.is_null() { i as u16 + 1 } else { *(unword((*off_lane).ptr) as *const u16).add(i) };
+                st.pos.off = if off_lane.is_null() {
+                    i as u16 + 1
+                } else {
+                    *(unword((*off_lane).ptr) as *const u16).add(i)
+                };
             }
             st.cursor += 1;
             return 1;

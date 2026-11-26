@@ -28,11 +28,20 @@ use crate::ops::scan::index_source::BTREE_AM_OID;
 
 /// `keys`' bitmap over `index` into `tbm` through its image, the TIDs reported; `None` when the image path does not
 /// apply (nothing read, `tbm` untouched). `in_recovery` is the relation scan's `xactStartedInRecovery`.
-pub fn getbitmap(mcx: Mcx<'_>, index: &Relation<'_>, snapshot: &Rc<SnapshotData<'static>>, keys: &[ScanKeyData], in_recovery: bool, tbm: &mut tidbitmap::TIDBitmap<'_>) -> PgResult<Option<u64>> {
+pub fn getbitmap(
+    mcx: Mcx<'_>,
+    index: &Relation<'_>,
+    snapshot: &Rc<SnapshotData<'static>>,
+    keys: &[ScanKeyData],
+    in_recovery: bool,
+    tbm: &mut tidbitmap::TIDBitmap<'_>,
+) -> PgResult<Option<u64>> {
     if index.rd_rel.relam != BTREE_AM_OID {
         return Ok(None);
     }
-    if xact_seams::isolation_is_serializable::is_installed() && xact_seams::isolation_is_serializable::call() {
+    if xact_seams::isolation_is_serializable::is_installed()
+        && xact_seams::isolation_is_serializable::call()
+    {
         fires::fire("index.image.refused");
         return Ok(None);
     }
@@ -59,9 +68,20 @@ pub fn getbitmap(mcx: Mcx<'_>, index: &Relation<'_>, snapshot: &Rc<SnapshotData<
         (Ok(n), true) => *n as u64,
         _ => 0,
     };
-    pgstat::relation::pgstat_count_index_scan_batched(index.rd_id, shared, scan.xs_pgstat.take_detached_scans(), tuples, 0);
+    pgstat::relation::pgstat_count_index_scan_batched(
+        index.rd_id,
+        shared,
+        scan.xs_pgstat.take_detached_scans(),
+        tuples,
+        0,
+    );
     if index.pgstat_enabled.get() {
-        pgstat::relation::pgstat_count_buffer_reads(index.rd_id, shared, r.blocks_fetched(), r.blocks_hit());
+        pgstat::relation::pgstat_count_buffer_reads(
+            index.rd_id,
+            shared,
+            r.blocks_fetched(),
+            r.blocks_hit(),
+        );
     }
     let ntids = walked?;
     ended?;
@@ -85,19 +105,42 @@ pub fn install_fan_out(f: FanOut) {
 /// frozen bitmaps into `tbm`. `None` when the image path or the fan-out does not apply (`tbm` untouched: the caller
 /// walks); backward scans are not asked for here (the morsel form's walk is forward).
 #[allow(clippy::too_many_arguments)]
-pub fn getbitmap_wide(index: &Relation<'_>, snapshot: &Rc<SnapshotData<'static>>, keys: &[ScanKeyData], in_recovery: bool, width: u16, maxbytes: usize, tbm: &mut tidbitmap::TIDBitmap<'_>) -> PgResult<Option<u64>> {
-    let Some(fan) = FAN_OUT.get().copied() else { return Ok(None) };
+pub fn getbitmap_wide(
+    index: &Relation<'_>,
+    snapshot: &Rc<SnapshotData<'static>>,
+    keys: &[ScanKeyData],
+    in_recovery: bool,
+    width: u16,
+    maxbytes: usize,
+    tbm: &mut tidbitmap::TIDBitmap<'_>,
+) -> PgResult<Option<u64>> {
+    let Some(fan) = FAN_OUT.get().copied() else {
+        return Ok(None);
+    };
     if width < 2 || index.rd_rel.relam != BTREE_AM_OID {
         return Ok(None);
     }
-    if xact_seams::isolation_is_serializable::is_installed() && xact_seams::isolation_is_serializable::call() {
+    if xact_seams::isolation_is_serializable::is_installed()
+        && xact_seams::isolation_is_serializable::call()
+    {
         return Ok(None);
     }
-    let Some(images) = keys.iter().map(SharedScanKey::of).collect::<Option<Vec<SharedScanKey>>>() else { return Ok(None) }; // alloc: Cold
-    if !images.iter().all(|k| k.func == 0 || gravity_fn::session::pool_hosted(k.func)) {
+    let Some(images) = keys
+        .iter()
+        .map(SharedScanKey::of)
+        .collect::<Option<Vec<SharedScanKey>>>()
+    else {
+        return Ok(None);
+    }; // alloc: Cold
+    if !images
+        .iter()
+        .all(|k| k.func == 0 || gravity_fn::session::pool_hosted(k.func))
+    {
         return Ok(None);
     }
-    let Some(img) = nbtree::IndexImage::capture(index)? else { return Ok(None) };
+    let Some(img) = nbtree::IndexImage::capture(index)? else {
+        return Ok(None);
+    };
     if !img.proc_oids().all(gravity_fn::session::pool_hosted) {
         return Ok(None);
     }
@@ -110,7 +153,8 @@ pub fn getbitmap_wide(index: &Relation<'_>, snapshot: &Rc<SnapshotData<'static>>
     let types_relscan::ParallelIndexAmShared::Btree(bt) = &shared.am;
     // every claim's walk, whatever its ordinal: two claims can run on one pool thread (the later finds the scan done and
     // brings an empty bitmap), so a walk is kept by arrival, never filed by ordinal (one slot per ordinal lost the first)
-    let walks: Mutex<Vec<crate::ops::scan::bitmap_leaves::Walked>> = Mutex::new(Vec::with_capacity(width as usize)); // alloc: Cold
+    let walks: Mutex<Vec<crate::ops::scan::bitmap_leaves::Walked>> =
+        Mutex::new(Vec::with_capacity(width as usize)); // alloc: Cold
     let failed: Mutex<Option<types_error::PgError>> = Mutex::new(None);
     let per = (maxbytes / width as usize).max(64 * 1024);
     // testing: PGRUST_GRAVITY_LEAF_FAULT=n raises in the n-th walk to arrive (the forced-error witness: no hang, the
@@ -120,7 +164,15 @@ pub fn getbitmap_wide(index: &Relation<'_>, snapshot: &Rc<SnapshotData<'static>>
     let arrivals = core::sync::atomic::AtomicU64::new(0);
     let job = |_ord: u16| -> PgResult<()> {
         let n = arrivals.fetch_add(1, core::sync::atomic::Ordering::Relaxed) + 1;
-        match crate::ops::scan::bitmap_leaves::walk(&img, &shared, bt, &images, in_recovery, per, fault == Some(n)) {
+        match crate::ops::scan::bitmap_leaves::walk(
+            &img,
+            &shared,
+            bt,
+            &images,
+            in_recovery,
+            per,
+            fault == Some(n),
+        ) {
             Ok(w) => {
                 walks.lock().unwrap_or_else(|p| p.into_inner()).push(w); // alloc: Cold
                 Ok(())
@@ -130,7 +182,9 @@ pub fn getbitmap_wide(index: &Relation<'_>, snapshot: &Rc<SnapshotData<'static>>
                 if f.is_none() {
                     *f = Some(*e);
                 }
-                Err(Box::new(types_error::PgError::error("gravity: a parallel index leaf walk failed"))) // alloc: Cold
+                Err(Box::new(types_error::PgError::error(
+                    "gravity: a parallel index leaf walk failed",
+                ))) // alloc: Cold
             }
         }
     };
@@ -147,14 +201,27 @@ pub fn getbitmap_wide(index: &Relation<'_>, snapshot: &Rc<SnapshotData<'static>>
     // one walk's bitmap unioned is the unit (a pass over its pages; the walks are at most the fan's width)
     let mut step = cancelpoll::step("bitmap_image getbitmap_wide: one walk's bitmap unioned");
     for w in walks.into_inner().unwrap_or_else(|p| p.into_inner()) {
-        step.tick().map_err(|_| crate::pg_err("gravity: a bitmap union stopped for its statement's cancel"))?;
+        step.tick().map_err(|_| {
+            crate::pg_err("gravity: a bitmap union stopped for its statement's cancel")
+        })?;
         tbm.union_frozen(&w.frozen)?;
-        (tids, fetched, hit, scans) = (tids + w.tids, fetched + w.fetched, hit + w.hit, scans + w.scans);
+        (tids, fetched, hit, scans) = (
+            tids + w.tids,
+            fetched + w.fetched,
+            hit + w.hit,
+            scans + w.scans,
+        );
     }
     // the relation path's counts on the index's entry (one idx_scan per primitive scan any thread started)
     let shared_rel = index.rd_rel.relisshared;
     if index.pgstat_enabled.get() {
-        pgstat::relation::pgstat_count_index_scan_batched(index.rd_id, shared_rel, scans, tids.max(0) as u64, 0);
+        pgstat::relation::pgstat_count_index_scan_batched(
+            index.rd_id,
+            shared_rel,
+            scans,
+            tids.max(0) as u64,
+            0,
+        );
         pgstat::relation::pgstat_count_buffer_reads(index.rd_id, shared_rel, fetched, hit);
     }
     Ok(Some(tids.max(0) as u64))

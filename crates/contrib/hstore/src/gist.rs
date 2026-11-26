@@ -91,12 +91,17 @@ fn decode_key(image: &[u8]) -> PgResult<GhKey> {
         return Err(PgError::error("corrupt ghstore GiST key (short header)").into());
     }
     let raw = u32::from_ne_bytes(image[0..4].try_into().unwrap());
-    let varsize = (varatt::varsize_4b_word(raw) as usize).min(image.len()).max(GTHDRSIZE);
+    let varsize = (varatt::varsize_4b_word(raw) as usize)
+        .min(image.len())
+        .max(GTHDRSIZE);
     let flag = i32::from_ne_bytes(image[4..8].try_into().unwrap());
     if flag & ALLISTRUE != 0 {
         Ok(GhKey::AllTrue)
     } else {
-        Ok(GhKey::Sign(::mcx::std_vec_from_slice("contrib", &image[GTHDRSIZE..varsize])?))
+        Ok(GhKey::Sign(::mcx::std_vec_from_slice(
+            "contrib",
+            &image[GTHDRSIZE..varsize],
+        )?))
     }
 }
 
@@ -173,7 +178,10 @@ pub(crate) fn detoasted_image<'m>(mcx: Mcx<'m>, d: Datum) -> PgResult<&'m [u8]> 
             );
             let total = 4 + src.len();
             let mut buf: mcx::PgVec<'m, u8> = mcx::vec_with_capacity_in(mcx, total)?;
-            mcx::vec_append_bytes(&mut buf, &varatt::set_varsize_4b_word(total as u32).to_ne_bytes())?;
+            mcx::vec_append_bytes(
+                &mut buf,
+                &varatt::set_varsize_4b_word(total as u32).to_ne_bytes(),
+            )?;
             mcx::vec_append_bytes(&mut buf, src)?;
             let out = core::slice::from_raw_parts(buf.as_ptr(), buf.len());
             core::mem::forget(buf);
@@ -480,9 +488,7 @@ pub fn fc_ghstore_consistent(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> 
                         || getbit(sign, hashval(crc32_sz(query.val(i)), siglen)))
             })
         }
-        HSTORE_EXISTS_STRATEGY => {
-            getbit(sign, hashval(crc32_sz(&query_image()?[4..]), siglen))
-        }
+        HSTORE_EXISTS_STRATEGY => getbit(sign, hashval(crc32_sz(&query_image()?[4..]), siglen)),
         HSTORE_EXISTS_ALL_STRATEGY => {
             let scratch = mcx::MemoryContext::new("ghstore consistent text[]");
             let keys = crate::deconstruct_text_array(scratch.mcx(), query_image()?)?;
@@ -525,6 +531,9 @@ mod tests {
             GhKey::Sign(s) => assert_eq!(s, sign),
             GhKey::AllTrue => panic!("sign key"),
         }
-        assert!(matches!(decode_key(&ghstore_alloc(true, 16, None)).unwrap(), GhKey::AllTrue));
+        assert!(matches!(
+            decode_key(&ghstore_alloc(true, 16, None)).unwrap(),
+            GhKey::AllTrue
+        ));
     }
 }

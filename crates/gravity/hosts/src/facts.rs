@@ -2,12 +2,14 @@
 //! expressions from `index_open`; a relation opened with no lock (the plan holds it), an index under AccessShareLock taken only if granted at once and released after its facts are read (D582: an INSERT target's indexes were never opened by the planner, and PostgreSQL locks them only at the first inserted row) in the caller's memory
 //! context. Every fact the capture script's fixture header carries is answered here — the two are held equal by `scripts/gravity-facts-check.sh` (`facts::render` on both).
 
-use gravity_decompose::catalog::{expr_fp, nth_index_expr, AttLayout, IndexExt, IndexOpc, KeyBind, LeafFact, RelExt};
+use datum::Datum;
+use gravity_decompose::catalog::typefacts::KeyColl;
+use gravity_decompose::catalog::{
+    expr_fp, nth_index_expr, AttLayout, IndexExt, IndexOpc, KeyBind, LeafFact, RelExt,
+};
 use gravity_decompose::effects::Parallel;
 use gravity_decompose::ops::modifytable::trig_facts::TrigExt;
-use gravity_decompose::catalog::typefacts::KeyColl;
 use gravity_decompose::{Am, AttFact, ExprFp, Facts, IndexAm, IndexFact, InsteadOf, RelFact};
-use datum::Datum;
 use gravity_program::limits;
 use mcx::{Mcx, TryCollectOptionIn};
 use tableam_vocab::TableAm;
@@ -41,7 +43,13 @@ impl Facts for RelcacheFacts<'_> {
         let mut f = RelFact::plain(relid, am, r.rd_rel.relkind as u8, r.rd_att.natts as i16);
         // PGRCSERVE G4: the twin lever sends a user heap table's scans down the rows road (ops/scan/am_rows.rs); the
         // catalogs keep their index roads. G5: so does the admission's road answer for a table of another access method
-        let lever = am == Am::Heap && r.rd_id >= FirstNormalObjectId && matches!(r.rd_rel.relkind, types_rel::RELKIND_RELATION | types_rel::RELKIND_MATVIEW) && crate::ops::scan::am_rows::forced();
+        let lever = am == Am::Heap
+            && r.rd_id >= FirstNormalObjectId
+            && matches!(
+                r.rd_rel.relkind,
+                types_rel::RELKIND_RELATION | types_rel::RELKIND_MATVIEW
+            )
+            && crate::ops::scan::am_rows::forced();
         if lever || am != Am::Heap && crate::ops::scan::am_rows::scoped_rows(relid) {
             f = f.on_rows_road();
         }
@@ -53,14 +61,28 @@ impl Facts for RelcacheFacts<'_> {
         // a system column (ctid, xmin, cmin, xmax, cmax, tableoid): PG's fixed definition, the same for every relation (D2366)
         if attno < 0 {
             let a = catalog_heap::SystemAttributeDefinition(attno).ok()?;
-            return Some(AttFact::plain(a.atttypid, a.atttypmod, a.attlen, a.attbyval, a.attnotnull));
+            return Some(AttFact::plain(
+                a.atttypid,
+                a.atttypmod,
+                a.attlen,
+                a.attbyval,
+                a.attnotnull,
+            ));
         }
         let r = table::table_open(self.mcx, relid as Oid, NoLock).ok()?;
         // a dropped column has no facts (the corpus capture's contract: a write nulls its cell). D2838: never null only
         // under a VALID not-null constraint: PG 18 sets attnotnull for a NOT VALID one too, over rows that may hold NULLs;
         // the relcache's attnullability (from pg_constraint) tells them apart, as the planner's plancat.rs reads it
         let i = attno as usize - 1;
-        let a = r.rd_att.attrs.get(i).filter(|a| !a.attisdropped).map(|a| (a.atttypid, a.atttypmod, a.attlen, a.attbyval, r.rd_att.compact_attr(i).attnullability == ATTNULLABLE_VALID));
+        let a = r.rd_att.attrs.get(i).filter(|a| !a.attisdropped).map(|a| {
+            (
+                a.atttypid,
+                a.atttypmod,
+                a.attlen,
+                a.attbyval,
+                r.rd_att.compact_attr(i).attnullability == ATTNULLABLE_VALID,
+            )
+        });
         let _ = r.close(NoLock);
         a.and_then(|(t, m, len, byval, notnull)| based(AttFact::plain(t, m, len, byval, notnull)))
     }
@@ -70,24 +92,39 @@ impl Facts for RelcacheFacts<'_> {
             return None;
         }
         let r = table::table_open(self.mcx, relid as Oid, NoLock).ok()?;
-        let a = r.rd_att.attrs.get(attno as usize - 1).filter(|a| a.attisdropped).and_then(|a| {
-            let align = match a.attalign as u8 {
-                b'c' => 1,
-                b's' => 2,
-                b'i' => 4,
-                b'd' => 8,
-                _ => return None,
-            };
-            Some(AttLayout { typlen: a.attlen, byval: a.attbyval, align })
-        });
+        let a = r
+            .rd_att
+            .attrs
+            .get(attno as usize - 1)
+            .filter(|a| a.attisdropped)
+            .and_then(|a| {
+                let align = match a.attalign as u8 {
+                    b'c' => 1,
+                    b's' => 2,
+                    b'i' => 4,
+                    b'd' => 8,
+                    _ => return None,
+                };
+                Some(AttLayout {
+                    typlen: a.attlen,
+                    byval: a.attbyval,
+                    align,
+                })
+            });
         let _ = r.close(NoLock);
         a
     }
 
     fn type_row(&self, typid: u32) -> Option<gravity_decompose::TypeRow> {
-        let (typlen, byval, typtype, base) = gravity_fn::typesem::keysem::catalog::type_row(typid as Oid)?;
+        let (typlen, byval, typtype, base) =
+            gravity_fn::typesem::keysem::catalog::type_row(typid as Oid)?;
         #[allow(clippy::redundant_field_names)]
-        Some(gravity_decompose::TypeRow { typlen, byval, typtype, base: base })
+        Some(gravity_decompose::TypeRow {
+            typlen,
+            byval,
+            typtype,
+            base: base,
+        })
     }
 
     /// D3796: C `DomainConstraintRef`'s list (typcache load_domaintype_info: the NOT NULL and the planned CHECKs of every
@@ -95,7 +132,11 @@ impl Facts for RelcacheFacts<'_> {
     /// reader's catalog reads take rebuilds the entry). Each domain of the chain is read first: an ALTER DOMAIN sends a
     /// pg_type invalidation of the domain it alters, which a recording of these reads holds (C3, gravity_deps). False for
     /// a type that is no domain or a failed catalog read.
-    fn domain_checks(&self, typid: u32, f: &mut dyn for<'n> FnMut(Option<types_nodes::Node<'n>>)) -> bool {
+    fn domain_checks(
+        &self,
+        typid: u32,
+        f: &mut dyn for<'n> FnMut(Option<types_nodes::Node<'n>>),
+    ) -> bool {
         let mut t = typid as Oid;
         loop {
             match syscache_seams::pg_type_domain_shape::call(t) {
@@ -104,7 +145,9 @@ impl Facts for RelcacheFacts<'_> {
                 _ => return false,
             }
         }
-        let Ok(r) = typcache::DomainConstraintRef::init(typid as Oid) else { return false };
+        let Ok(r) = typcache::DomainConstraintRef::init(typid as Oid) else {
+            return false;
+        };
         for c in r.constraints() {
             match (c.constrainttype, c.check_expr) {
                 (typcache::DomConstraintType::NotNull, _) => f(None),
@@ -118,7 +161,10 @@ impl Facts for RelcacheFacts<'_> {
     /// C `get_range_subtype` (InvalidOid for a type that is no range: none).
     fn range_subtype(&self, typid: u32) -> Option<u32> {
         #[allow(clippy::map_identity)]
-        lsyscache::get_range_subtype(typid as Oid).ok().filter(|&t| t != 0).map(|t| t)
+        lsyscache::get_range_subtype(typid as Oid)
+            .ok()
+            .filter(|&t| t != 0)
+            .map(|t| t)
     }
 
     /// D693: C `lookup_rowtype_tupdesc_domain`'s descriptor (a domain read through to its composite base), copied into
@@ -126,20 +172,43 @@ impl Facts for RelcacheFacts<'_> {
     fn row_att(&self, typid: u32, attno: i16) -> Option<AttFact> {
         let base = lsyscache::typ::getBaseType(typid as Oid).ok()?;
         let d = typcache::lookup_rowtype_tupdesc_copy(self.mcx, base, -1).ok()?;
-        let a = d.attrs.get((attno as usize).checked_sub(1)?).filter(|a| attno as i32 <= d.natts && !a.attisdropped)?;
+        let a = d
+            .attrs
+            .get((attno as usize).checked_sub(1)?)
+            .filter(|a| attno as i32 <= d.natts && !a.attisdropped)?;
         // D2838: a composite value's field may be NULL whatever its relation's NOT NULL constraints (PG checks them only
         // on the relation's own rows), so the row type's attribute is never "never null"
-        based(AttFact::plain(a.atttypid, a.atttypmod, a.attlen, a.attbyval, false))
+        based(AttFact::plain(
+            a.atttypid,
+            a.atttypmod,
+            a.attlen,
+            a.attbyval,
+            false,
+        ))
     }
 
     /// AGC-20: `row_att`'s descriptor, read once: every live column in attribute order (rowtypes.c's record_eq /
     /// btrecordcmp / hash_record skip a dropped one); false when the type is no composite (the typcache's error).
     fn row_cols(&self, typid: u32, f: &mut dyn FnMut(AttFact)) -> bool {
-        let Some(d) = lsyscache::typ::getBaseType(typid as Oid).ok().and_then(|b| typcache::lookup_rowtype_tupdesc_copy(self.mcx, b, -1).ok()) else {
+        let Some(d) = lsyscache::typ::getBaseType(typid as Oid)
+            .ok()
+            .and_then(|b| typcache::lookup_rowtype_tupdesc_copy(self.mcx, b, -1).ok())
+        else {
             return false;
         };
-        for a in d.attrs.iter().take(d.natts.max(0) as usize).filter(|a| !a.attisdropped) {
-            match based(AttFact::plain(a.atttypid, a.atttypmod, a.attlen, a.attbyval, false)) {
+        for a in d
+            .attrs
+            .iter()
+            .take(d.natts.max(0) as usize)
+            .filter(|a| !a.attisdropped)
+        {
+            match based(AttFact::plain(
+                a.atttypid,
+                a.atttypmod,
+                a.attlen,
+                a.attbyval,
+                false,
+            )) {
                 Some(x) => f(x),
                 None => return false,
             }
@@ -157,12 +226,22 @@ impl Facts for RelcacheFacts<'_> {
         use gravity_fn::typesem::EqForm;
         let form = gravity_fn::typesem::eq_form(self.mcx, opno as Oid, typid as Oid);
         let is = |f: EqForm| matches!(&form, Ok(x) if *x == f);
-        gravity_decompose::catalog::keysem::image::key_eq_from(is(EqForm::Own), is(EqForm::Bytes), is(EqForm::User))
+        gravity_decompose::catalog::keysem::image::key_eq_from(
+            is(EqForm::Own),
+            is(EqForm::Bytes),
+            is(EqForm::User),
+        )
     }
 
     /// hj-0310: typesem's `op_user_key` of the operator over the key type (a failed catalog read answers false: the refusal).
     fn op_key_hash(&self, opno: u32, typid: u32, coll: u32) -> bool {
-        matches!(gravity_fn::typesem::keysem::user::op_user_key(&gravity_fn::typesem::KeyReq::hash(opno as Oid, coll as Oid), typid as Oid), Ok(Ok(_)))
+        matches!(
+            gravity_fn::typesem::keysem::user::op_user_key(
+                &gravity_fn::typesem::KeyReq::hash(opno as Oid, coll as Oid),
+                typid as Oid
+            ),
+            Ok(Ok(_))
+        )
     }
 
     /// KeySem slice 4: the operator's image-equality sides, from the key home (`keysem::image::eq`).
@@ -177,25 +256,45 @@ impl Facts for RelcacheFacts<'_> {
         }
         let d = typcache::lookup_rowtype_tupdesc_copy(self.mcx, RECORDOID, typmod).ok()?;
         let cols = d.attrs.iter().take(d.natts.max(0) as usize);
-        cols.map(|a| (!a.attisdropped).then_some((a.atttypid, a.attcollation))).collect()
+        cols.map(|a| (!a.attisdropped).then_some((a.atttypid, a.attcollation)))
+            .collect()
     }
 
     /// D1073: C `get_expr_result_type`'s descriptor of a FROM call, as `ExecInitFunctionScan` takes it.
     fn call_col(&self, call: types_nodes::Node<'_>, attno: i16) -> Option<(u32, i32, u32)> {
-        let d = funcapi::get_expr_result_type(self.mcx, Some(call)).ok()?.result_tuple_desc?;
-        let a = d.attrs.get((attno as usize).checked_sub(1)?).filter(|a| attno as i32 <= d.natts && !a.attisdropped)?;
+        let d = funcapi::get_expr_result_type(self.mcx, Some(call))
+            .ok()?
+            .result_tuple_desc?;
+        let a = d
+            .attrs
+            .get((attno as usize).checked_sub(1)?)
+            .filter(|a| attno as i32 <= d.natts && !a.attisdropped)?;
         Some((a.atttypid, a.atttypmod, a.attcollation))
     }
 
     /// D3374: `call_col`'s descriptor, its attribute `attno` a dropped one.
     fn call_col_dropped(&self, call: types_nodes::Node<'_>, attno: i16) -> bool {
-        let Some(d) = funcapi::get_expr_result_type(self.mcx, Some(call)).ok().and_then(|r| r.result_tuple_desc) else { return false };
-        (attno as usize).checked_sub(1).and_then(|i| d.attrs.get(i)).is_some_and(|a| attno as i32 <= d.natts && a.attisdropped)
+        let Some(d) = funcapi::get_expr_result_type(self.mcx, Some(call))
+            .ok()
+            .and_then(|r| r.result_tuple_desc)
+        else {
+            return false;
+        };
+        (attno as usize)
+            .checked_sub(1)
+            .and_then(|i| d.attrs.get(i))
+            .is_some_and(|a| attno as i32 <= d.natts && a.attisdropped)
     }
 
     fn att_range(&self, relid: u32, attno: i16) -> Option<(i64, i64)> {
         let r = table::table_open(self.mcx, relid as Oid, NoLock).ok()?;
-        let x = if matches!(TableAm::of(&r), Some(TableAm::Pgrcolumnar)) { crate::ops::scan::pgrc::granule_source::zone_extrema(&r, attno as u32).ok().flatten() } else { None };
+        let x = if matches!(TableAm::of(&r), Some(TableAm::Pgrcolumnar)) {
+            crate::ops::scan::pgrc::granule_source::zone_extrema(&r, attno as u32)
+                .ok()
+                .flatten()
+        } else {
+            None
+        };
         let _ = r.close(NoLock);
         x
     }
@@ -204,7 +303,11 @@ impl Facts for RelcacheFacts<'_> {
     fn att_estimate(&self, relid: u32, attno: i16) -> Option<(i64, i64)> {
         let r = table::table_open(self.mcx, relid as Oid, NoLock).ok()?;
         let x = match TableAm::of(&r) {
-            Some(TableAm::Pgrcolumnar) => crate::ops::scan::pgrc::granule_source::zone_extrema(&r, attno as u32).ok().flatten(),
+            Some(TableAm::Pgrcolumnar) => {
+                crate::ops::scan::pgrc::granule_source::zone_extrema(&r, attno as u32)
+                    .ok()
+                    .flatten()
+            }
             Some(TableAm::Heap) => stats_bounds(self.mcx, relid as Oid, attno),
             _ => None,
         };
@@ -216,41 +319,91 @@ impl Facts for RelcacheFacts<'_> {
     fn shred_election(&self, relid: u32, attno: i16, keys: &[&str]) -> Option<(u8, i32)> {
         let r = table::table_open(self.mcx, relid as Oid, NoLock).ok()?;
         let path = crate::ops::scan::pgrc::granule_source::shred_path(keys);
-        let pgrc = matches!(TableAm::of(&r), Some(TableAm::Pgrcolumnar)) && attno > 0 && layout_read(relid);
-        let x = if pgrc { self.resident(&r).and_then(|l| crate::ops::scan::pgrc::granule_source::shred_election(&l, attno as u32, &path)).ok().flatten() } else { None };
+        let pgrc = matches!(TableAm::of(&r), Some(TableAm::Pgrcolumnar))
+            && attno > 0
+            && layout_read(relid);
+        let x = if pgrc {
+            self.resident(&r)
+                .and_then(|l| {
+                    crate::ops::scan::pgrc::granule_source::shred_election(&l, attno as u32, &path)
+                })
+                .ok()
+                .flatten()
+        } else {
+            None
+        };
         let _ = r.close(NoLock);
         // D4854's witness (regress/isolation-overlay/specs/pgrc-d4854-election-pin.spec): a publish committed after one of a
         // lowering's election reads, before the next
         if pgrc {
             injection_point::injection_point("gravity-shred-election-read").ok()?;
         }
-        x.map(|(k, s)| (crate::ops::scan::pgrc::granule_source::ShredLane::code_of(k), s))
+        x.map(|(k, s)| {
+            (
+                crate::ops::scan::pgrc::granule_source::ShredLane::code_of(k),
+                s,
+            )
+        })
     }
 
     /// SRC-30: pgrc's resident parts' dictionary seal of a jsonb text path (`granule_source::shred_dict`); false on heap.
     fn shred_dict(&self, relid: u32, attno: i16, keys: &[&str]) -> bool {
-        let Ok(r) = table::table_open(self.mcx, relid as Oid, NoLock) else { return false };
+        let Ok(r) = table::table_open(self.mcx, relid as Oid, NoLock) else {
+            return false;
+        };
         let path = crate::ops::scan::pgrc::granule_source::shred_path(keys);
-        let x = matches!(TableAm::of(&r), Some(TableAm::Pgrcolumnar)) && attno > 0 && layout_read(relid) && self.resident(&r).and_then(|l| crate::ops::scan::pgrc::granule_source::shred_dict(&l, attno as u32, &path)).unwrap_or(false);
+        let x = matches!(TableAm::of(&r), Some(TableAm::Pgrcolumnar))
+            && attno > 0
+            && layout_read(relid)
+            && self
+                .resident(&r)
+                .and_then(|l| {
+                    crate::ops::scan::pgrc::granule_source::shred_dict(&l, attno as u32, &path)
+                })
+                .unwrap_or(false);
         let _ = r.close(NoLock);
         x
     }
 
     /// jsonops (3): `granule_source::shred_object_roots`; false on heap.
     fn shred_object_roots(&self, relid: u32, attno: i16, keys: &[&str]) -> bool {
-        let Ok(r) = table::table_open(self.mcx, relid as Oid, NoLock) else { return false };
+        let Ok(r) = table::table_open(self.mcx, relid as Oid, NoLock) else {
+            return false;
+        };
         let path = crate::ops::scan::pgrc::granule_source::shred_path(keys);
-        let x = matches!(TableAm::of(&r), Some(TableAm::Pgrcolumnar)) && attno > 0 && layout_read(relid) && self.resident(&r).and_then(|l| crate::ops::scan::pgrc::granule_source::shred_object_roots(&l, attno as u32, &path)).unwrap_or(false);
+        let x = matches!(TableAm::of(&r), Some(TableAm::Pgrcolumnar))
+            && attno > 0
+            && layout_read(relid)
+            && self
+                .resident(&r)
+                .and_then(|l| {
+                    crate::ops::scan::pgrc::granule_source::shred_object_roots(
+                        &l,
+                        attno as u32,
+                        &path,
+                    )
+                })
+                .unwrap_or(false);
         let _ = r.close(NoLock);
         x
     }
 
     /// sortpath: pgrc's declared `sorted_by` key holds jsonb path `keys` of column `attno`; false on heap.
     fn shred_sorted(&self, relid: u32, attno: i16, keys: &[&str]) -> bool {
-        let Ok(r) = table::table_open(self.mcx, relid as Oid, NoLock) else { return false };
+        let Ok(r) = table::table_open(self.mcx, relid as Oid, NoLock) else {
+            return false;
+        };
         let x = matches!(TableAm::of(&r), Some(TableAm::Pgrcolumnar))
             && attno > 0
-            && pgrc_am::reloptions::sorted_by_keys(&r).is_some_and(|ks| ks.iter().any(|(a, p)| *a == attno as u32 && p.len() == keys.len() && p.iter().zip(keys).all(|(x, k)| x.as_slice() == k.as_bytes())));
+            && pgrc_am::reloptions::sorted_by_keys(&r).is_some_and(|ks| {
+                ks.iter().any(|(a, p)| {
+                    *a == attno as u32
+                        && p.len() == keys.len()
+                        && p.iter()
+                            .zip(keys)
+                            .all(|(x, k)| x.as_slice() == k.as_bytes())
+                })
+            });
         let _ = r.close(NoLock);
         x
     }
@@ -258,7 +411,11 @@ impl Facts for RelcacheFacts<'_> {
     /// pgrc's resident parts' rows (no snapshot: the latest generation); none on heap.
     fn rel_rows(&self, relid: u32) -> Option<u64> {
         let r = table::table_open(self.mcx, relid as Oid, NoLock).ok()?;
-        let x = if matches!(TableAm::of(&r), Some(TableAm::Pgrcolumnar)) { self.resident(&r).ok().map(|l| l.rows()) } else { None };
+        let x = if matches!(TableAm::of(&r), Some(TableAm::Pgrcolumnar)) {
+            self.resident(&r).ok().map(|l| l.rows())
+        } else {
+            None
+        };
         let _ = r.close(NoLock);
         x
     }
@@ -268,9 +425,17 @@ impl Facts for RelcacheFacts<'_> {
     fn rel_rows_bound(&self, relid: u32) -> Option<u64> {
         let r = table::table_open(self.mcx, relid as Oid, NoLock).ok()?;
         let x = matches!(TableAm::of(&r), Some(TableAm::Heap))
-            .then(|| bufmgr_seams::relation_get_number_of_blocks_in_fork::call(&r, types_core::ForkNumber::MAIN_FORKNUM).ok())
+            .then(|| {
+                bufmgr_seams::relation_get_number_of_blocks_in_fork::call(
+                    &r,
+                    types_core::ForkNumber::MAIN_FORKNUM,
+                )
+                .ok()
+            })
             .flatten()
-            .map(|pages| u64::from(pages).saturating_mul(types_storage::bufpage::MaxHeapTuplesPerPage as u64));
+            .map(|pages| {
+                u64::from(pages).saturating_mul(types_storage::bufpage::MaxHeapTuplesPerPage as u64)
+            });
         let _ = r.close(NoLock);
         x
     }
@@ -285,12 +450,21 @@ impl Facts for RelcacheFacts<'_> {
         let a = usize::try_from(attno).ok()?.checked_sub(1)?;
         let r = table::table_open(self.mcx, relid as Oid, NoLock).ok()?;
         let x = match TableAm::of(&r) {
-            Some(TableAm::Pgrcolumnar) => match pgrc_am::footer::footer_codecs(&r).ok().flatten().map(|c| (c.codec.get(a).copied(), c.ncodes.get(a).copied())) {
+            Some(TableAm::Pgrcolumnar) => match pgrc_am::footer::footer_codecs(&r)
+                .ok()
+                .flatten()
+                .map(|c| (c.codec.get(a).copied(), c.ncodes.get(a).copied()))
+            {
                 Some((Some(CODEC_DICT), Some(n))) if n > 0 => Some(n),
-                Some((Some(CODEC_TEXT | CODEC_FIXED), _)) => pgrc_am::footer::footer_ndv(&r).ok().flatten().and_then(|v| v.get(a).copied()).filter(|&n| n > 0).or_else(|| {
-                    let rows = self.resident(&r).ok().map(|l| l.rows())?;
-                    stats_distinct(self.mcx, relid as Oid, attno, rows)
-                }),
+                Some((Some(CODEC_TEXT | CODEC_FIXED), _)) => pgrc_am::footer::footer_ndv(&r)
+                    .ok()
+                    .flatten()
+                    .and_then(|v| v.get(a).copied())
+                    .filter(|&n| n > 0)
+                    .or_else(|| {
+                        let rows = self.resident(&r).ok().map(|l| l.rows())?;
+                        stats_distinct(self.mcx, relid as Oid, attno, rows)
+                    }),
                 _ => None,
             },
             _ => None,
@@ -304,11 +478,21 @@ impl Facts for RelcacheFacts<'_> {
     /// `ncodes` serve a mixed column as verbatim); false otherwise, before a publish, and on any other AM.
     fn att_dict(&self, relid: u32, attno: i16) -> bool {
         use pgrc_am::footer::{footer_codecs, footer_qual_classes, CODEC_DICT, QUAL_CLASS_DICT};
-        let Some(a) = usize::try_from(attno).ok().and_then(|a| a.checked_sub(1)) else { return false };
-        let Ok(r) = table::table_open(self.mcx, relid as Oid, NoLock) else { return false };
+        let Some(a) = usize::try_from(attno).ok().and_then(|a| a.checked_sub(1)) else {
+            return false;
+        };
+        let Ok(r) = table::table_open(self.mcx, relid as Oid, NoLock) else {
+            return false;
+        };
         let x = matches!(TableAm::of(&r), Some(TableAm::Pgrcolumnar))
-            && (footer_codecs(&r).ok().flatten().is_some_and(|c| c.codec.get(a).copied() == Some(CODEC_DICT))
-                || footer_qual_classes(&r).ok().flatten().is_some_and(|q| q.get(a).is_some_and(|&b| b & QUAL_CLASS_DICT != 0)));
+            && (footer_codecs(&r)
+                .ok()
+                .flatten()
+                .is_some_and(|c| c.codec.get(a).copied() == Some(CODEC_DICT))
+                || footer_qual_classes(&r)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|q| q.get(a).is_some_and(|&b| b & QUAL_CLASS_DICT != 0)));
         let _ = r.close(NoLock);
         x
     }
@@ -318,7 +502,13 @@ impl Facts for RelcacheFacts<'_> {
         let a = usize::try_from(attno).ok()?.checked_sub(1)?;
         let r = table::table_open(self.mcx, relid as Oid, NoLock).ok()?;
         let x = match TableAm::of(&r) {
-            Some(TableAm::Pgrcolumnar) => pgrc_am::footer::footer_avg_widths(&r).ok().flatten().and_then(|w| w.get(a).copied()).filter(|&w| w > 0).map(|w| w as u32).or_else(|| stats_width(self.mcx, relid as Oid, attno)),
+            Some(TableAm::Pgrcolumnar) => pgrc_am::footer::footer_avg_widths(&r)
+                .ok()
+                .flatten()
+                .and_then(|w| w.get(a).copied())
+                .filter(|&w| w > 0)
+                .map(|w| w as u32)
+                .or_else(|| stats_width(self.mcx, relid as Oid, attno)),
             _ => None,
         };
         let _ = r.close(NoLock);
@@ -331,7 +521,11 @@ impl Facts for RelcacheFacts<'_> {
         let a = usize::try_from(attno).ok()?.checked_sub(1)?;
         let r = table::table_open(self.mcx, relid as Oid, NoLock).ok()?;
         let footer = match TableAm::of(&r) {
-            Some(TableAm::Pgrcolumnar) => pgrc_am::footer::footer_avg_widths(&r).ok().flatten().and_then(|w| w.get(a).copied()).filter(|&w| w > 0),
+            Some(TableAm::Pgrcolumnar) => pgrc_am::footer::footer_avg_widths(&r)
+                .ok()
+                .flatten()
+                .and_then(|w| w.get(a).copied())
+                .filter(|&w| w > 0),
             _ => None,
         };
         let _ = r.close(NoLock);
@@ -407,28 +601,46 @@ impl Facts for RelcacheFacts<'_> {
             for (k, o) in r.rd_indoption.iter().take(natts).enumerate() {
                 opts[k] = *o as u8;
             }
-            Some(IndexFact { indexid, relid: i.indrelid, keys, opts, nkeys: natts as u8, unique: i.indisunique, immediate: i.indimmediate, btree: am_of(r.rd_rel.relam) == IndexAm::Btree, partial: i.has_indpred })
+            Some(IndexFact {
+                indexid,
+                relid: i.indrelid,
+                keys,
+                opts,
+                nkeys: natts as u8,
+                unique: i.indisunique,
+                immediate: i.indimmediate,
+                btree: am_of(r.rd_rel.relam) == IndexAm::Btree,
+                partial: i.has_indpred,
+            })
         });
         let _ = r.close(NoLock);
         f
     }
 
     fn index_am(&self, indexid: u32) -> IndexAm {
-        let Some((r, _held)) = self.open_index(indexid) else { return IndexAm::Other };
+        let Some((r, _held)) = self.open_index(indexid) else {
+            return IndexAm::Other;
+        };
         let am = am_of(r.rd_rel.relam);
         let _ = r.close(NoLock);
         am
     }
 
     fn index_insertable(&self, indexid: u32) -> bool {
-        let Some((r, _held)) = self.open_index(indexid) else { return false };
-        let ok = crate::ops::modifytable::write_index_am::insertable(types_relscan::IndexAmKind::from_relam(r.rd_rel.relam));
+        let Some((r, _held)) = self.open_index(indexid) else {
+            return false;
+        };
+        let ok = crate::ops::modifytable::write_index_am::insertable(
+            types_relscan::IndexAmKind::from_relam(r.rd_rel.relam),
+        );
         let _ = r.close(NoLock);
         ok
     }
 
     fn indexes_of(&self, relid: u32, f: &mut dyn FnMut(IndexFact)) {
-        let Ok(list) = relcache_seams::relation_get_index_list::call(self.mcx, relid as Oid) else { return };
+        let Ok(list) = relcache_seams::relation_get_index_list::call(self.mcx, relid as Oid) else {
+            return;
+        };
         for &oid in list.iter() {
             if let Some(i) = self.index(oid) {
                 f(i);
@@ -438,12 +650,26 @@ impl Facts for RelcacheFacts<'_> {
 
     /// D582: every index held for the whole list (each lock only if free now, released after), or none read.
     fn indexes_all(&self, relid: u32, f: &mut dyn FnMut(IndexFact)) -> bool {
-        let Ok(list) = relcache_seams::relation_get_index_list::call(self.mcx, relid as Oid) else { return false };
+        let Ok(list) = relcache_seams::relation_get_index_list::call(self.mcx, relid as Oid) else {
+            return false;
+        };
         // memsig E-pub t3: both lists in the facts' context (the planning statement's); the guards still drop after the facts,
         // and a `None` drops what was taken, in order, as `collect::<Option<Vec<_>>>` does
-        let Some(_held) = list.iter().map(|&oid| Held::take(oid)).try_collect_in(self.mcx) else { return false };
-        let Some(facts) = list.iter().map(|&oid| self.index(oid)).try_collect_in(self.mcx) else { return false };
-        facts.into_iter().for_each( f);
+        let Some(_held) = list
+            .iter()
+            .map(|&oid| Held::take(oid))
+            .try_collect_in(self.mcx)
+        else {
+            return false;
+        };
+        let Some(facts) = list
+            .iter()
+            .map(|&oid| self.index(oid))
+            .try_collect_in(self.mcx)
+        else {
+            return false;
+        };
+        facts.into_iter().for_each(f);
         true
     }
 
@@ -451,12 +677,16 @@ impl Facts for RelcacheFacts<'_> {
         let idx = self.index(indexid)?;
         let (r, _held) = self.open_index(indexid)?;
         // the stored pg_node_tree, as the capture writes it: the same text on both sides, the same reader
-        let fp = r.rd_index.as_ref().and_then(|i| i.indexprs_src.as_ref()).and_then(|src| {
-            let list = readfuncs::stringToNodeNullable(self.mcx, src.as_str()).ok()??;
-            let list = list.as_list()?;
-            let e = nth_index_expr(&idx, list, col)?;
-            expr_fp(e, 1)
-        });
+        let fp = r
+            .rd_index
+            .as_ref()
+            .and_then(|i| i.indexprs_src.as_ref())
+            .and_then(|src| {
+                let list = readfuncs::stringToNodeNullable(self.mcx, src.as_str()).ok()??;
+                let list = list.as_list()?;
+                let e = nth_index_expr(&idx, list, col)?;
+                expr_fp(e, 1)
+            });
         let _ = r.close(NoLock);
         fp
     }
@@ -464,11 +694,24 @@ impl Facts for RelcacheFacts<'_> {
     /// D2313: a btree key column's family against its declared and stored types' default families (typcache `btree_opf`); a
     /// failed default read keeps the family (another family's order is never taken for the default's).
     fn index_family(&self, indexid: u32, col: u8) -> u32 {
-        let Some((r, _held)) = self.open_index(indexid) else { return 0 };
+        let Some((r, _held)) = self.open_index(indexid) else {
+            return 0;
+        };
         let k = col as usize;
-        let n = r.rd_index.as_ref().map_or(0, |i| i.indnkeyatts.max(0) as usize);
-        let fam = if k < n && am_of(r.rd_rel.relam) == IndexAm::Btree && r.rd_opfamily.len() > k && r.rd_opcintype.len() > k {
-            gravity_fn::typesem::keysem::catalog::index_family(r.rd_opfamily[k], r.rd_opcintype[k], r.rd_att.attrs.get(k).map(|a| a.atttypid))
+        let n = r
+            .rd_index
+            .as_ref()
+            .map_or(0, |i| i.indnkeyatts.max(0) as usize);
+        let fam = if k < n
+            && am_of(r.rd_rel.relam) == IndexAm::Btree
+            && r.rd_opfamily.len() > k
+            && r.rd_opcintype.len() > k
+        {
+            gravity_fn::typesem::keysem::catalog::index_family(
+                r.rd_opfamily[k],
+                r.rd_opcintype[k],
+                r.rd_att.attrs.get(k).map(|a| a.atttypid),
+            )
         } else {
             0
         };
@@ -479,8 +722,15 @@ impl Facts for RelcacheFacts<'_> {
     /// D3752: a key column's collation from the index's relcache entry (`rd_indcollation`).
     fn index_coll(&self, indexid: u32, col: u8) -> Option<u32> {
         let (r, _held) = self.open_index(indexid)?;
-        let n = r.rd_index.as_ref().map_or(0, |i| i.indnkeyatts.max(0) as usize);
-        let c = r.rd_indcollation.get(col as usize).filter(|_| (col as usize) < n).copied();
+        let n = r
+            .rd_index
+            .as_ref()
+            .map_or(0, |i| i.indnkeyatts.max(0) as usize);
+        let c = r
+            .rd_indcollation
+            .get(col as usize)
+            .filter(|_| (col as usize) < n)
+            .copied();
         let _ = r.close(NoLock);
         c
     }
@@ -490,16 +740,31 @@ impl Facts for RelcacheFacts<'_> {
         if !syscache_seams::lookup_pg_sequence_form::is_installed() {
             return None;
         }
-        syscache_seams::lookup_pg_sequence_form::call(seqid).ok().flatten().map(|f| f.seqcycle)
+        syscache_seams::lookup_pg_sequence_form::call(seqid)
+            .ok()
+            .flatten()
+            .map(|f| f.seqcycle)
     }
 
     /// KeySem slice 3: a sort operator's order, one read for every order fact (`op_dir`, `op_family_dir`, `op_order`,
     /// `op_family`, `no_order_proc` read it): the key-semantics home's `keysem::sort_order` (`get_ordering_op_properties`,
     /// decision 49; the type cache's default btree family, D1346; the family's comparator and `FinishSortSupportFunction`'s
     /// raise test). A failed read answers none (the key refuses by its consumer's name, as an unknown operator does).
-    fn key(&self, req: gravity_decompose::catalog::KeyReq) -> Option<gravity_decompose::catalog::KeyOrder> {
-        let o = gravity_fn::typesem::keysem::sort_order(req.op as Oid).ok().flatten()?;
-        Some(gravity_decompose::catalog::KeyOrder { desc: o.desc, family: o.family as u32, opcintype: o.opcintype as u32, default_family: o.default_family, cmp: o.cmp as u32, no_proc: o.no_proc })
+    fn key(
+        &self,
+        req: gravity_decompose::catalog::KeyReq,
+    ) -> Option<gravity_decompose::catalog::KeyOrder> {
+        let o = gravity_fn::typesem::keysem::sort_order(req.op as Oid)
+            .ok()
+            .flatten()?;
+        Some(gravity_decompose::catalog::KeyOrder {
+            desc: o.desc,
+            family: o.family as u32,
+            opcintype: o.opcintype as u32,
+            default_family: o.default_family,
+            cmp: o.cmp as u32,
+            no_proc: o.no_proc,
+        })
     }
 
     /// OID-07: a btree equality of any family (`get_mergejoin_opfamilies`: strategy 3 in some btree opfamily).
@@ -523,25 +788,42 @@ impl Facts for RelcacheFacts<'_> {
     /// that fails answers none: the call stays the user function it is).
     fn builtin_body(&self, funcid: u32) -> Option<u32> {
         #[allow(clippy::map_identity)]
-        gravity_fn::typesem::keysem::body(self.mcx, funcid as Oid).ok().flatten().map(|b| b)
+        gravity_fn::typesem::keysem::body(self.mcx, funcid as Oid)
+            .ok()
+            .flatten()
+            .map(|b| b)
     }
 
     /// D3082: `keysem::sql_inlined`, a user `LANGUAGE sql` function's body as the planner's `inline_function` would
     /// substitute it, judged (a failed read or inline answers false).
-    fn sql_inlined(&self, funcid: u32, judge: &mut dyn FnMut(types_nodes::Node<'_>) -> bool) -> bool {
+    fn sql_inlined(
+        &self,
+        funcid: u32,
+        judge: &mut dyn FnMut(types_nodes::Node<'_>) -> bool,
+    ) -> bool {
         gravity_fn::typesem::keysem::sql_inlined(self.mcx, funcid as Oid, judge).unwrap_or(false)
     }
 
     /// D3713: `keysem::sql_fmgr_body`, the body fmgr_sql runs past the SECURITY DEFINER / SET clause gates, judged.
-    fn sql_fmgr_body(&self, funcid: u32, judge: &mut dyn FnMut(types_nodes::Node<'_>) -> bool) -> bool {
+    fn sql_fmgr_body(
+        &self,
+        funcid: u32,
+        judge: &mut dyn FnMut(types_nodes::Node<'_>) -> bool,
+    ) -> bool {
         gravity_fn::typesem::keysem::sql_fmgr_body(self.mcx, funcid as Oid, judge).unwrap_or(false)
     }
 
     /// KeySem: `keysem::op_calls`, the support functions a node naming the operator alone runs (none on a failed read).
     fn op_calls(&self, opno: u32) -> Option<gravity_decompose::catalog::OpCalls> {
-        let c = gravity_fn::typesem::keysem::op_calls(opno as Oid).ok().flatten()?;
+        let c = gravity_fn::typesem::keysem::op_calls(opno as Oid)
+            .ok()
+            .flatten()?;
         let pair = |p: [Oid; 2]| [p[0], p[1]];
-        Some(gravity_decompose::catalog::OpCalls { code: c.code as u32, order: c.order.map(pair), hash: c.hash.map(pair) })
+        Some(gravity_decompose::catalog::OpCalls {
+            code: c.code as u32,
+            order: c.order.map(pair),
+            hash: c.hash.map(pair),
+        })
     }
 
     /// D247: the collation as `pg_locale` builds it (`pg_newlocale_from_collation`, the database default's from
@@ -560,22 +842,41 @@ impl Facts for RelcacheFacts<'_> {
     /// DEFAULT opclass through the typcache, which a user may create), and its family is `family_initdb`'s. A lock not
     /// free now or a catalog read that fails answers `UNKNOWN`.
     fn index_opc(&self, indexid: u32) -> IndexOpc {
-        if !(syscache_seams::lookup_pg_amproc_rows::is_installed() && syscache_seams::lookup_pg_amop_rows::is_installed()) {
+        if !(syscache_seams::lookup_pg_amproc_rows::is_installed()
+            && syscache_seams::lookup_pg_amop_rows::is_installed())
+        {
             return IndexOpc::UNKNOWN;
         }
-        let Some((r, _held)) = self.open_index(indexid) else { return IndexOpc::UNKNOWN };
-        let n = r.rd_index.as_ref().map_or(0, |i| i.indnkeyatts.max(0) as usize);
-        let ok = n > 0 && n <= limits::KEYS && am_of(r.rd_rel.relam) != IndexAm::Other && r.rd_opfamily.len() >= n && r.rd_opcintype.len() >= n && r.rd_att.attrs.len() >= n;
+        let Some((r, _held)) = self.open_index(indexid) else {
+            return IndexOpc::UNKNOWN;
+        };
+        let n = r
+            .rd_index
+            .as_ref()
+            .map_or(0, |i| i.indnkeyatts.max(0) as usize);
+        let ok = n > 0
+            && n <= limits::KEYS
+            && am_of(r.rd_rel.relam) != IndexAm::Other
+            && r.rd_opfamily.len() >= n
+            && r.rd_opcintype.len() >= n
+            && r.rd_att.attrs.len() >= n;
         let o = ok.then(|| {
             let mut builtin = 0u32;
             for k in 0..n {
                 let t = r.rd_opcintype[k];
-                let typed = initdb(t) && t != ANYARRAYOID && t != RECORDOID && initdb(r.rd_att.attrs[k].atttypid);
+                let typed = initdb(t)
+                    && t != ANYARRAYOID
+                    && t != RECORDOID
+                    && initdb(r.rd_att.attrs[k].atttypid);
                 if typed && family_initdb(self.mcx, r.rd_opfamily[k])? {
                     builtin |= 1 << k;
                 }
             }
-            Some(IndexOpc { builtin, nkeys: n as u8, known: true })
+            Some(IndexOpc {
+                builtin,
+                nkeys: n as u8,
+                known: true,
+            })
         });
         let _ = r.close(NoLock);
         o.flatten().unwrap_or(IndexOpc::UNKNOWN)
@@ -583,8 +884,18 @@ impl Facts for RelcacheFacts<'_> {
 
     /// D1's index facts (decompose.md §2.12): the constraint forms and the key-column count from `rd_index`.
     fn index_ext(&self, indexid: u32) -> IndexExt {
-        let Some((r, _held)) = self.open_index(indexid) else { return IndexExt::UNKNOWN };
-        let e = r.rd_index.as_ref().map_or(IndexExt::UNKNOWN, |i| IndexExt { deferrable: !i.indimmediate, valid: i.indisvalid, ready: i.indisready, exclusion: i.indisexclusion, primary: i.indisprimary, nkeyatts: i.indnkeyatts as u8, known: true });
+        let Some((r, _held)) = self.open_index(indexid) else {
+            return IndexExt::UNKNOWN;
+        };
+        let e = r.rd_index.as_ref().map_or(IndexExt::UNKNOWN, |i| IndexExt {
+            deferrable: !i.indimmediate,
+            valid: i.indisvalid,
+            ready: i.indisready,
+            exclusion: i.indisexclusion,
+            primary: i.indisprimary,
+            nkeyatts: i.indnkeyatts as u8,
+            known: true,
+        });
         let _ = r.close(NoLock);
         e
     }
@@ -592,24 +903,44 @@ impl Facts for RelcacheFacts<'_> {
     /// AGB-28: one open of the index; each key column's family (`rd_opfamily`, typesem's strategy read) and collation
     /// (`rd_indcollation`) against its binds, a nullable bind's operator strict (`op_strict`). A failed read is false.
     fn unique_bound(&self, indexid: u32, binds: &[KeyBind], partial_ok: bool) -> bool {
-        let Some((r, _held)) = self.open_index(indexid) else { return false };
+        let Some((r, _held)) = self.open_index(indexid) else {
+            return false;
+        };
         let bound = |k: usize, b: &KeyBind| {
             b.col as usize == k
-                && r.rd_opfamily.get(k).is_some_and(|&fam| gravity_fn::typesem::btree_equality_member(b.opno as Oid, fam))
-                && r.rd_indcollation.get(k).is_some_and(|&c| c == 0 || c == b.collid as Oid)
+                && r.rd_opfamily.get(k).is_some_and(|&fam| {
+                    gravity_fn::typesem::btree_equality_member(b.opno as Oid, fam)
+                })
+                && r.rd_indcollation
+                    .get(k)
+                    .is_some_and(|&c| c == 0 || c == b.collid as Oid)
                 && (!b.nullable || lsyscache::op_strict(b.opno as Oid).unwrap_or(false))
         };
         let ok = r.rd_index.as_ref().is_some_and(|i| {
             let n = i.indnkeyatts.max(0) as usize;
-            i.indisunique && i.indimmediate && i.indisvalid && (partial_ok || !i.has_indpred) && n > 0 && (0..n).all(|k| binds.iter().any(|b| bound(k, b)))
+            i.indisunique
+                && i.indimmediate
+                && i.indisvalid
+                && (partial_ok || !i.has_indpred)
+                && n > 0
+                && (0..n).all(|k| binds.iter().any(|b| bound(k, b)))
         });
         let _ = r.close(NoLock);
         ok
     }
 
     fn rel_ext(&self, relid: u32) -> RelExt {
-        let Ok(r) = table::table_open(self.mcx, relid as Oid, NoLock) else { return RelExt::UNKNOWN };
-        let e = RelExt { has_triggers: r.rd_hastriggers, has_rules: r.rd_hasrules, has_subclass: r.rd_rel.relhassubclass, is_partition: r.rd_rel.relispartition, known: true, temp: r.rd_rel.relpersistence == b't' };
+        let Ok(r) = table::table_open(self.mcx, relid as Oid, NoLock) else {
+            return RelExt::UNKNOWN;
+        };
+        let e = RelExt {
+            has_triggers: r.rd_hastriggers,
+            has_rules: r.rd_hasrules,
+            has_subclass: r.rd_rel.relhassubclass,
+            is_partition: r.rd_rel.relispartition,
+            known: true,
+            temp: r.rd_rel.relpersistence == b't',
+        };
         let _ = r.close(NoLock);
         e
     }
@@ -617,9 +948,22 @@ impl Facts for RelcacheFacts<'_> {
     /// The INSTEAD OF row triggers from the relcache's trigger descriptor (`RelationGetTriggerDesc`, built on
     /// demand while the relation is open; a relation without triggers has none), as `CheckValidResultRel` reads them.
     fn instead_of(&self, relid: u32) -> InsteadOf {
-        let Ok(r) = table::table_open(self.mcx, relid as Oid, NoLock) else { return InsteadOf::UNKNOWN };
-        let t = if r.rd_hastriggers { relcache_seams::relation_get_trigger_desc::call(relid as Oid).ok().flatten() } else { None };
-        let f = t.map_or(InsteadOf::NONE, |d| InsteadOf { insert: d.trig_insert_instead_row, update: d.trig_update_instead_row, delete: d.trig_delete_instead_row, known: true });
+        let Ok(r) = table::table_open(self.mcx, relid as Oid, NoLock) else {
+            return InsteadOf::UNKNOWN;
+        };
+        let t = if r.rd_hastriggers {
+            relcache_seams::relation_get_trigger_desc::call(relid as Oid)
+                .ok()
+                .flatten()
+        } else {
+            None
+        };
+        let f = t.map_or(InsteadOf::NONE, |d| InsteadOf {
+            insert: d.trig_insert_instead_row,
+            update: d.trig_update_instead_row,
+            delete: d.trig_delete_instead_row,
+            known: true,
+        });
         let _ = r.close(NoLock);
         f
     }
@@ -643,7 +987,9 @@ impl Facts for RelcacheFacts<'_> {
     /// default arm rechecks the default's changed constraint (PostgreSQL's 23514). A partition dropped since the listing
     /// still answers `known = false`.
     fn partition_leaves(&self, root: u32, f: &mut dyn FnMut(LeafFact)) -> bool {
-        let Ok(r) = table::table_open(self.mcx, root as Oid, NoLock) else { return false };
+        let Ok(r) = table::table_open(self.mcx, root as Oid, NoLock) else {
+            return false;
+        };
         let ok = self.leaves_under(&r, &r, f);
         let _ = r.close(NoLock);
         ok
@@ -659,17 +1005,34 @@ impl Facts for RelcacheFacts<'_> {
             c.borrow().as_ref().is_some_and(|l| {
                 let hit = l.relid == a && l.held.holds();
                 if hit && gravity_deps::checking() {
-                    l.held.check("hosts facts heap_twin (LEAD)", || lead_facts(self.mcx, a).is_some_and(|f| f.0 == l.plain && f.1 == l.natts && f.2 == l.relam && f.3 == l.atts));
+                    l.held.check("hosts facts heap_twin (LEAD)", || {
+                        lead_facts(self.mcx, a).is_some_and(|f| {
+                            f.0 == l.plain && f.1 == l.natts && f.2 == l.relam && f.3 == l.atts
+                        })
+                    });
                 }
                 hit
             })
         });
         if !hit {
             let (lead, held) = gravity_deps::Held::fill(|| lead_facts(self.mcx, a));
-            let Some((plain, natts, relam, atts)) = lead else { return false };
-            LEAD.with(|c| *c.borrow_mut() = Some(Lead { relid: a, held, plain, natts, relam, atts }));
+            let Some((plain, natts, relam, atts)) = lead else {
+                return false;
+            };
+            LEAD.with(|c| {
+                *c.borrow_mut() = Some(Lead {
+                    relid: a,
+                    held,
+                    plain,
+                    natts,
+                    relam,
+                    atts,
+                })
+            });
         }
-        let Ok(y) = table::table_open(self.mcx, b as Oid, NoLock) else { return false };
+        let Ok(y) = table::table_open(self.mcx, b as Oid, NoLock) else {
+            return false;
+        };
         let twin = LEAD.with(|c| c.borrow().as_ref().is_some_and(|l| l.twin(&y)));
         let _ = y.close(NoLock);
         twin
@@ -685,31 +1048,62 @@ impl Facts for RelcacheFacts<'_> {
             c.borrow().as_ref().is_some_and(|l| {
                 let hit = l.relid == a && l.held.holds();
                 if hit && gravity_deps::checking() {
-                    l.held.check("hosts facts write_twin (WLEAD)", || self.wlead_facts(a).is_some_and(|f| f.0 == l.form && f.1 == l.indexes));
+                    l.held.check("hosts facts write_twin (WLEAD)", || {
+                        self.wlead_facts(a)
+                            .is_some_and(|f| f.0 == l.form && f.1 == l.indexes)
+                    });
                 }
                 hit
             })
         });
         if !hit {
             let (lead, held) = gravity_deps::Held::fill(|| self.wlead_facts(a));
-            let Some((form, indexes)) = lead else { return false };
-            WLEAD.with(|c| *c.borrow_mut() = Some(WriteLead { relid: a, held, form, indexes }));
+            let Some((form, indexes)) = lead else {
+                return false;
+            };
+            WLEAD.with(|c| {
+                *c.borrow_mut() = Some(WriteLead {
+                    relid: a,
+                    held,
+                    form,
+                    indexes,
+                })
+            });
         }
-        let Ok(y) = table::table_open(self.mcx, b as Oid, NoLock) else { return false };
+        let Ok(y) = table::table_open(self.mcx, b as Oid, NoLock) else {
+            return false;
+        };
         let form = write_form(&y);
         let _ = y.close(NoLock);
         let Some(form) = form else { return false };
-        if !WLEAD.with(|c| c.borrow().as_ref().is_some_and(|l| l.indexes.is_some() && l.form.as_ref() == Some(&form))) {
+        if !WLEAD.with(|c| {
+            c.borrow()
+                .as_ref()
+                .is_some_and(|l| l.indexes.is_some() && l.form.as_ref() == Some(&form))
+        }) {
             return false;
         }
-        let Some(indexes) = self.index_shapes(b) else { return false };
-        WLEAD.with(|c| c.borrow().as_ref().is_some_and(|l| l.indexes.as_ref() == Some(&indexes)))
+        let Some(indexes) = self.index_shapes(b) else {
+            return false;
+        };
+        WLEAD.with(|c| {
+            c.borrow()
+                .as_ref()
+                .is_some_and(|l| l.indexes.as_ref() == Some(&indexes))
+        })
     }
 
     /// `pg_attribute.attgenerated` from the tuple descriptor (0 = none; a dropped column has none).
     fn att_generated(&self, relid: u32, attno: i16) -> u8 {
-        let Ok(r) = table::table_open(self.mcx, relid as Oid, NoLock) else { return 0 };
-        let g = r.rd_att.attrs.get(attno as usize - 1).filter(|a| !a.attisdropped).map_or(0, |a| a.attgenerated as u8);
+        let Ok(r) = table::table_open(self.mcx, relid as Oid, NoLock) else {
+            return 0;
+        };
+        let g = r
+            .rd_att
+            .attrs
+            .get(attno as usize - 1)
+            .filter(|a| !a.attisdropped)
+            .map_or(0, |a| a.attgenerated as u8);
         let _ = r.close(NoLock);
         g
     }
@@ -732,7 +1126,10 @@ impl Facts for RelcacheFacts<'_> {
         if !syscache_seams::pg_constraint_primary_key_attnos::is_installed() {
             return None;
         }
-        let (attnos, _) = syscache_seams::pg_constraint_primary_key_attnos::call(self.mcx, relid as Oid, false).ok().flatten()?;
+        let (attnos, _) =
+            syscache_seams::pg_constraint_primary_key_attnos::call(self.mcx, relid as Oid, false)
+                .ok()
+                .flatten()?;
         if attnos.is_empty() || attnos.len() > limits::KEYS || attnos.iter().any(|&a| a <= 0) {
             return None;
         }
@@ -747,7 +1144,9 @@ impl Facts for RelcacheFacts<'_> {
         if !syscache_seams::lookup_pg_aggregate_shape::is_installed() {
             return None;
         }
-        let a = syscache_seams::lookup_pg_aggregate_shape::call(aggfnoid as Oid).ok().flatten()?;
+        let a = syscache_seams::lookup_pg_aggregate_shape::call(aggfnoid as Oid)
+            .ok()
+            .flatten()?;
         Some(gravity_decompose::catalog::AggSupport {
             trans: a.aggtransfn as u32,
             final_: a.aggfinalfn as u32,
@@ -771,7 +1170,9 @@ impl Facts for RelcacheFacts<'_> {
         // of int4gt in a fresh session's shared hit)
         let hit = FUNCS.with(|c| {
             let v = c.borrow();
-            let (_, f, held) = v.iter().find(|e| e.0 == funcid && e.2.as_ref().is_some_and(gravity_deps::Held::holds))?;
+            let (_, f, held) = v
+                .iter()
+                .find(|e| e.0 == funcid && e.2.as_ref().is_some_and(gravity_deps::Held::holds))?;
             if let Some(held) = held.as_ref().filter(|_| gravity_deps::checking()) {
                 held.check("hosts facts func (FUNCS)", || func_props(funcid) == *f);
             }
@@ -792,13 +1193,29 @@ impl Facts for RelcacheFacts<'_> {
     /// D1018 (create_function_sql#92): the function's pg_proc row as text, read now (language first: only a LANGUAGE sql
     /// row reads its namespace, name and body), handed to `f`.
     fn proc_text(&self, funcid: u32, f: &mut dyn FnMut(&[u8], &[u8], u32, &[u8]) -> bool) -> bool {
-        if !(syscache_seams::lookup_pg_proc_shape::is_installed() && syscache_seams::pg_namespace_nspname::is_installed() && syscache_seams::pg_proc_proname::is_installed() && syscache_seams::lookup_pg_proc_prosrc::is_installed()) {
+        if !(syscache_seams::lookup_pg_proc_shape::is_installed()
+            && syscache_seams::pg_namespace_nspname::is_installed()
+            && syscache_seams::pg_proc_proname::is_installed()
+            && syscache_seams::lookup_pg_proc_prosrc::is_installed())
+        {
             return false;
         }
-        let Some(p) = syscache_seams::lookup_pg_proc_shape::call(funcid as Oid).ok().flatten().filter(|p| p.prolang == types_core::quiet::SQL_LANGUAGE) else { return false };
-        let nsp = syscache_seams::pg_namespace_nspname::call(p.pronamespace).ok().flatten();
-        let name = syscache_seams::pg_proc_proname::call(funcid as Oid).ok().flatten();
-        let src = syscache_seams::lookup_pg_proc_prosrc::call(self.mcx, funcid as Oid).ok().flatten();
+        let Some(p) = syscache_seams::lookup_pg_proc_shape::call(funcid as Oid)
+            .ok()
+            .flatten()
+            .filter(|p| p.prolang == types_core::quiet::SQL_LANGUAGE)
+        else {
+            return false;
+        };
+        let nsp = syscache_seams::pg_namespace_nspname::call(p.pronamespace)
+            .ok()
+            .flatten();
+        let name = syscache_seams::pg_proc_proname::call(funcid as Oid)
+            .ok()
+            .flatten();
+        let src = syscache_seams::lookup_pg_proc_prosrc::call(self.mcx, funcid as Oid)
+            .ok()
+            .flatten();
         matches!((nsp, name, src), (Some(n), Some(m), Some(b)) if f(n.name_str(), m.name_str(), p.prolang, b.as_bytes()))
     }
 
@@ -806,15 +1223,18 @@ impl Facts for RelcacheFacts<'_> {
     /// `get_op_hash_functions` resolves, as ExecInitHashJoin does); none without hash support, under an indeterminate
     /// collation, or without a readable catalog.
     fn op_hash_functions(&self, opno: u32, coll: u32) -> Option<(u32, u32)> {
-        let (l, r) = gravity_fn::typesem::hash_procs(self.mcx, opno as Oid, coll as Oid).ok()?.ok()?;
+        let (l, r) = gravity_fn::typesem::hash_procs(self.mcx, opno as Oid, coll as Oid)
+            .ok()?
+            .ok()?;
         Some((l, r))
     }
 }
 
-
 /// A plain permanent heap table (`Lead::twin`'s relations).
 fn plain_heap(r: &types_rel::Relation<'_>) -> bool {
-    r.rd_rel.relkind == b'r' && r.rd_rel.relpersistence == types_core::catalog::RELPERSISTENCE_PERMANENT && TableAm::of(r) == Some(TableAm::Heap)
+    r.rd_rel.relkind == b'r'
+        && r.rd_rel.relpersistence == types_core::catalog::RELPERSISTENCE_PERMANENT
+        && TableAm::of(r) == Some(TableAm::Heap)
 }
 
 /// Attribute `i`'s facts `Lead::twin` compares: whether it has a missing value, and (dropped, type, typmod, length, by
@@ -827,13 +1247,36 @@ struct AttTwin {
 
 fn att_layout(r: &types_rel::Relation<'_>, i: usize) -> AttTwin {
     let p = &r.rd_att.attrs[i];
-    AttTwin { missing: p.atthasmissing, layout: (p.attisdropped, p.atttypid, p.atttypmod, p.attlen, p.attbyval, p.attalign, p.attstorage, p.attcollation, p.attndims, p.attnotnull, p.attgenerated, r.rd_att.compact_attr(i).attnullability) }
+    AttTwin {
+        missing: p.atthasmissing,
+        layout: (
+            p.attisdropped,
+            p.atttypid,
+            p.atttypmod,
+            p.attlen,
+            p.attbyval,
+            p.attalign,
+            p.attstorage,
+            p.attcollation,
+            p.attndims,
+            p.attnotnull,
+            p.attgenerated,
+            r.rd_att.compact_attr(i).attnullability,
+        ),
+    }
 }
 
 /// `Lead`'s facts of relation `a`, read from its relcache entry (plain heap, natts, relam, every attribute's layout).
 fn lead_facts(mcx: Mcx<'_>, a: u32) -> Option<(bool, i32, Oid, Vec<AttTwin>)> {
     let x = table::table_open(mcx, a as Oid, NoLock).ok()?;
-    let facts = (plain_heap(&x), x.rd_att.natts, x.rd_rel.relam, (0..x.rd_att.natts.max(0) as usize).map(|i| att_layout(&x, i)).collect()); // alloc: Program
+    let facts = (
+        plain_heap(&x),
+        x.rd_att.natts,
+        x.rd_rel.relam,
+        (0..x.rd_att.natts.max(0) as usize)
+            .map(|i| att_layout(&x, i))
+            .collect(),
+    ); // alloc: Program
     let _ = x.close(NoLock);
     Some(facts)
 }
@@ -854,10 +1297,14 @@ impl Lead {
     /// same, a dropped one where the other's is dropped, and no attribute with a missing value (a heap range recipe deforms
     /// by one descriptor and fills one set of missing values; a lowering reads one relation's attribute facts).
     fn twin(&self, y: &types_rel::Relation<'_>) -> bool {
-        self.plain && plain_heap(y) && self.natts == y.rd_att.natts && self.relam == y.rd_rel.relam && self.atts.iter().enumerate().all(|(i, p)| {
-            let q = att_layout(y, i);
-            !p.missing && !q.missing && p.layout == q.layout
-        })
+        self.plain
+            && plain_heap(y)
+            && self.natts == y.rd_att.natts
+            && self.relam == y.rd_rel.relam
+            && self.atts.iter().enumerate().all(|(i, p)| {
+                let q = att_layout(y, i);
+                !p.missing && !q.missing && p.layout == q.layout
+            })
     }
 }
 
@@ -881,11 +1328,27 @@ fn write_form(r: &types_rel::Relation<'_>) -> Option<WriteForm> {
         None => (0, Vec::new(), Vec::new()), // alloc: Program
         Some(c) => (
             c.relchecks,
-            c.check.iter().map(|k| (text(&k.ccname), text(&k.ccbin), k.ccenforced, k.ccvalid, k.ccnoinherit)).collect(), // alloc: Program
+            c.check
+                .iter()
+                .map(|k| {
+                    (
+                        text(&k.ccname),
+                        text(&k.ccbin),
+                        k.ccenforced,
+                        k.ccvalid,
+                        k.ccnoinherit,
+                    )
+                })
+                .collect(), // alloc: Program
             c.defval.iter().map(|d| (d.adnum, text(&d.adbin))).collect(), // alloc: Program
         ),
     };
-    Some(WriteForm { rowsecurity: r.rd_rel.relrowsecurity, relchecks, checks, defaults })
+    Some(WriteForm {
+        rowsecurity: r.rd_rel.relrowsecurity,
+        relchecks,
+        checks,
+        defaults,
+    })
 }
 
 /// D3681: one index as `write_twin` compares it: access method; (natts, key natts, unique, nulls not distinct, primary,
@@ -928,7 +1391,9 @@ thread_local! {
 /// `Facts::func` read from pg_proc.
 fn func_props(funcid: u32) -> Option<gravity_decompose::effects::FuncProps> {
     use gravity_decompose::effects::{FuncProps, Volatility};
-    let p = syscache_seams::lookup_pg_proc_shape::call(funcid as Oid).ok().flatten()?;
+    let p = syscache_seams::lookup_pg_proc_shape::call(funcid as Oid)
+        .ok()
+        .flatten()?;
     let volatility = match p.provolatile as u8 {
         b'i' => Volatility::Immutable,
         b's' => Volatility::Stable,
@@ -936,7 +1401,12 @@ fn func_props(funcid: u32) -> Option<gravity_decompose::effects::FuncProps> {
     };
     // D1035: proparallel as stored; effects (`FuncProps::pool`) takes a user function's call as Unsafe
     let parallel = parallel_of(p.proparallel);
-    Some(FuncProps { volatility, strict: p.proisstrict, leakproof: p.proleakproof, parallel })
+    Some(FuncProps {
+        volatility,
+        strict: p.proisstrict,
+        leakproof: p.proleakproof,
+        parallel,
+    })
 }
 
 /// D2700: `f` with its base type and typmod (C `getBaseTypeAndTypmod`): a domain's base and the domain's typmod, so the
@@ -967,8 +1437,19 @@ fn family_initdb(mcx: Mcx<'_>, fam: Oid) -> Option<bool> {
     let reach = |l: Oid, r: Oid| initdb(l) && initdb(r);
     let (procs, _) = syscache_seams::lookup_pg_amproc_rows::call(mcx, fam).ok()?;
     let (ops, _) = syscache_seams::lookup_pg_amop_rows::call(mcx, fam).ok()?;
-    let procs_ok = procs.iter().any(|p| reach(p.amproclefttype, p.amprocrighttype)) && procs.iter().all(|p| !reach(p.amproclefttype, p.amprocrighttype) || initdb(p.amproc));
-    let ops_ok = ops.iter().all(|o| if reach(o.amoplefttype, o.amoprighttype) { initdb(o.amopopr) && initdb(o.amopsortfamily) } else { !initdb(o.amopopr) });
+    let procs_ok = procs
+        .iter()
+        .any(|p| reach(p.amproclefttype, p.amprocrighttype))
+        && procs
+            .iter()
+            .all(|p| !reach(p.amproclefttype, p.amprocrighttype) || initdb(p.amproc));
+    let ops_ok = ops.iter().all(|o| {
+        if reach(o.amoplefttype, o.amoprighttype) {
+            initdb(o.amopopr) && initdb(o.amopsortfamily)
+        } else {
+            !initdb(o.amopopr)
+        }
+    });
     Some(procs_ok && ops_ok)
 }
 
@@ -993,9 +1474,15 @@ const STAT_HISTOGRAM: i16 = 2;
 
 /// The extrema of the column's MCV list and histogram over an int-word type (bool, int2, int4, int8: the key words the front indexes); none without statistics or over another type.
 fn stats_bounds(mcx: Mcx<'_>, relid: Oid, attno: i16) -> Option<(i64, i64)> {
-    let b = syscache_seams::lookup_pg_statistic_bundle::call(mcx, relid, attno, false).ok().flatten()?;
+    let b = syscache_seams::lookup_pg_statistic_bundle::call(mcx, relid, attno, false)
+        .ok()
+        .flatten()?;
     let mut r: Option<(i64, i64)> = None;
-    for s in b.slots.iter().filter(|s| matches!(s.kind, STAT_MCV | STAT_HISTOGRAM)) {
+    for s in b
+        .slots
+        .iter()
+        .filter(|s| matches!(s.kind, STAT_MCV | STAT_HISTOGRAM))
+    {
         let word: fn(Datum) -> i64 = match s.valuetype().ok()? {
             16 => |d| d.as_bool() as i64,
             21 => |d| d.as_i16() as i64,
@@ -1018,7 +1505,10 @@ fn stats_width(mcx: Mcx<'_>, relid: Oid, attno: i16) -> Option<u32> {
     if !syscache_seams::lookup_pg_statistic_bundle::is_installed() {
         return None;
     }
-    let w = syscache_seams::lookup_pg_statistic_bundle::call(mcx, relid, attno, false).ok().flatten()?.stawidth;
+    let w = syscache_seams::lookup_pg_statistic_bundle::call(mcx, relid, attno, false)
+        .ok()
+        .flatten()?
+        .stawidth;
     u32::try_from(w).ok().filter(|&w| w > 0)
 }
 
@@ -1026,7 +1516,10 @@ fn stats_distinct(mcx: Mcx<'_>, relid: Oid, attno: i16, rows: u64) -> Option<u64
     if !syscache_seams::lookup_pg_statistic_bundle::is_installed() {
         return None;
     }
-    let d = syscache_seams::lookup_pg_statistic_bundle::call(mcx, relid, attno, false).ok().flatten()?.stadistinct as f64;
+    let d = syscache_seams::lookup_pg_statistic_bundle::call(mcx, relid, attno, false)
+        .ok()
+        .flatten()?
+        .stadistinct as f64;
     match d {
         d if d > 0.0 => Some(d as u64),
         d if d < 0.0 => Some((-d * rows as f64) as u64),
@@ -1049,7 +1542,9 @@ fn stats_top_share(mcx: Mcx<'_>, relid: Oid, attno: i16, table: u64, rows: u64) 
     if !syscache_seams::lookup_pg_statistic_bundle::is_installed() {
         return None;
     }
-    let b = syscache_seams::lookup_pg_statistic_bundle::call(mcx, relid, attno, false).ok().flatten()?;
+    let b = syscache_seams::lookup_pg_statistic_bundle::call(mcx, relid, attno, false)
+        .ok()
+        .flatten()?;
     let mcv = match b.slots.iter().find(|s| s.kind == STATISTIC_KIND_MCV) {
         Some(s) => s.numbers().ok()?,
         None => &[],
@@ -1069,8 +1564,16 @@ fn top_share(nullfrac: f32, mcv: &[f32], stadistinct: f32, table: u64, rows: u64
         return None;
     }
     let listed: f64 = mcv.iter().map(|&f| f as f64).sum();
-    let rest = if distinct > mcv.len() as f64 { (1.0 - nulls - listed).max(0.0) / (distinct - mcv.len() as f64) } else { 0.0 };
-    let shares = || core::iter::once(nulls).chain(mcv.iter().map(|&f| f as f64)).chain(core::iter::once(rest));
+    let rest = if distinct > mcv.len() as f64 {
+        (1.0 - nulls - listed).max(0.0) / (distinct - mcv.len() as f64)
+    } else {
+        0.0
+    };
+    let shares = || {
+        core::iter::once(nulls)
+            .chain(mcv.iter().map(|&f| f as f64))
+            .chain(core::iter::once(rest))
+    };
     let independent = shares().fold(0.0, f64::max);
     let read = if rows == 0 { t } else { rows as f64 };
     let whole = shares().filter(|&f| f * t <= read).fold(0.0, f64::max) * t / read;
@@ -1084,7 +1587,11 @@ pub fn key_coll(oid: u32) -> KeyColl {
         return KeyColl::of(0);
     }
     match gravity_fn::typesem::collation::Facts::of(oid as Oid) {
-        Ok(f) => KeyColl { oid, bytes_eq: f.equality_is_bytes(), bytes_order: f.order_is_bytes() },
+        Ok(f) => KeyColl {
+            oid,
+            bytes_eq: f.equality_is_bytes(),
+            bytes_order: f.order_is_bytes(),
+        },
         Err(_) => KeyColl::of(oid),
     }
 }
@@ -1118,7 +1625,10 @@ fn layout_read(relid: u32) -> bool {
 
 impl<'m> RelcacheFacts<'m> {
     pub fn new(mcx: Mcx<'m>) -> Self {
-        RelcacheFacts { mcx, pinned: std::cell::RefCell::new([const { None }; PINNED]) }
+        RelcacheFacts {
+            mcx,
+            pinned: std::cell::RefCell::new([const { None }; PINNED]),
+        }
     }
 
     /// D4854: pgrc relation `r`'s resident parts as this lowering first read them (no snapshot: the latest generation then),
@@ -1145,7 +1655,9 @@ impl<'m> RelcacheFacts<'m> {
         gravity_deps::note_stats(relid as Oid);
         let rows = match TableAm::of(&r) {
             Some(TableAm::Pgrcolumnar) => self.resident(&r).ok().map(|l| l.rows()),
-            Some(TableAm::Heap) => Some(r.rd_rel.reltuples).filter(|t| t.is_finite() && *t > 0.0).map(|t| t as u64),
+            Some(TableAm::Heap) => Some(r.rd_rel.reltuples)
+                .filter(|t| t.is_finite() && *t > 0.0)
+                .map(|t| t as u64),
             _ => None,
         };
         let _ = r.close(NoLock);
@@ -1181,7 +1693,17 @@ impl<'m> RelcacheFacts<'m> {
                 let (r, _held) = self.open_index(oid)?;
                 let s = r.rd_index.as_ref().map(|i| IndexShape {
                     am: r.rd_rel.relam,
-                    form: (i.indnatts, i.indnkeyatts, i.indisunique, i.indnullsnotdistinct, i.indisprimary, i.indisexclusion, i.indimmediate, i.indisvalid, i.indisready),
+                    form: (
+                        i.indnatts,
+                        i.indnkeyatts,
+                        i.indisunique,
+                        i.indnullsnotdistinct,
+                        i.indisprimary,
+                        i.indisexclusion,
+                        i.indimmediate,
+                        i.indisvalid,
+                        i.indisready,
+                    ),
                     keys: i.indkey.iter().copied().collect(), // alloc: Program
                     families: r.rd_opfamily.iter().copied().collect(), // alloc: Program
                     collations: r.rd_indcollation.iter().copied().collect(), // alloc: Program
@@ -1195,14 +1717,35 @@ impl<'m> RelcacheFacts<'m> {
             .collect() // alloc: Program
     }
 
-    fn leaves_under(&self, root: &types_rel::Relation<'_>, parent: &types_rel::Relation<'_>, f: &mut dyn FnMut(LeafFact)) -> bool {
+    fn leaves_under(
+        &self,
+        root: &types_rel::Relation<'_>,
+        parent: &types_rel::Relation<'_>,
+        f: &mut dyn FnMut(LeafFact),
+    ) -> bool {
         stack_depth_core::check_stack_depth_or_panic();
-        let Ok(children) = pg_inherits::find_inheritance_children_extended(self.mcx, parent.rd_id, true, NoLock, None, None) else { return false };
+        let Ok(children) = pg_inherits::find_inheritance_children_extended(
+            self.mcx,
+            parent.rd_id,
+            true,
+            NoLock,
+            None,
+            None,
+        ) else {
+            return false;
+        };
         for &oid in children.iter() {
             let ok = held_briefly(oid, |held| {
                 // a partition dropped since the listing fails its open: the leaves unknown
-                let Some(c) = open_held(held, oid, || table::table_open(self.mcx, oid, NoLock)) else { return false };
-                let ok = if c.rd_rel.relkind == types_rel::RELKIND_PARTITIONED_TABLE { self.leaves_under(root, &c, f) } else { self.leaf_fact(root, &c).map(&mut * f).is_some() };
+                let Some(c) = open_held(held, oid, || table::table_open(self.mcx, oid, NoLock))
+                else {
+                    return false;
+                };
+                let ok = if c.rd_rel.relkind == types_rel::RELKIND_PARTITIONED_TABLE {
+                    self.leaves_under(root, &c, f)
+                } else {
+                    self.leaf_fact(root, &c).map(&mut *f).is_some()
+                };
                 let _ = c.close(NoLock);
                 ok
             });
@@ -1214,10 +1757,30 @@ impl<'m> RelcacheFacts<'m> {
     }
 
     /// A leaf's facts (an index locked now is read with NoLock, `held_briefly`).
-    fn leaf_fact(&self, root: &types_rel::Relation<'_>, leaf: &types_rel::Relation<'_>) -> Option<LeafFact> {
+    fn leaf_fact(
+        &self,
+        root: &types_rel::Relation<'_>,
+        leaf: &types_rel::Relation<'_>,
+    ) -> Option<LeafFact> {
         let natts = leaf.rd_att.natts as i16;
-        let same_layout = leaf.rd_att.natts == root.rd_att.natts && root.rd_att.attrs.iter().zip(leaf.rd_att.attrs.iter()).all(|(a, b)| a.attisdropped == b.attisdropped && (a.attisdropped || (a.attname == b.attname && a.atttypid == b.atttypid && a.atttypmod == b.atttypmod)));
-        let has_generated = leaf.rd_att.constr.as_ref().is_some_and(|c| c.has_generated_stored || c.has_generated_virtual);
+        let same_layout = leaf.rd_att.natts == root.rd_att.natts
+            && root
+                .rd_att
+                .attrs
+                .iter()
+                .zip(leaf.rd_att.attrs.iter())
+                .all(|(a, b)| {
+                    a.attisdropped == b.attisdropped
+                        && (a.attisdropped
+                            || (a.attname == b.attname
+                                && a.atttypid == b.atttypid
+                                && a.atttypmod == b.atttypmod))
+                });
+        let has_generated = leaf
+            .rd_att
+            .constr
+            .as_ref()
+            .is_some_and(|c| c.has_generated_stored || c.has_generated_virtual);
         let (mut nindexes, mut indexes_plain) = (0u16, true);
         match relcache_seams::relation_get_index_list::call(self.mcx, leaf.rd_id) {
             Ok(list) => {
@@ -1226,7 +1789,9 @@ impl<'m> RelcacheFacts<'m> {
                     held_briefly(oid, |held| {
                         match open_held(held, oid, || indexam::index_open(self.mcx, oid, NoLock)) {
                             Some(i) => {
-                                indexes_plain &= crate::ops::modifytable::index_maint::unmaintainable_routed(&i).is_none();
+                                indexes_plain &=
+                                    crate::ops::modifytable::index_maint::unmaintainable_routed(&i)
+                                        .is_none();
                                 let _ = i.close(NoLock);
                             }
                             None => indexes_plain = false,
@@ -1237,7 +1802,26 @@ impl<'m> RelcacheFacts<'m> {
             }
             Err(_) => indexes_plain = false,
         }
-        Some(LeafFact { relid: leaf.rd_id, natts, heap: leaf.rd_rel.relkind == types_rel::RELKIND_RELATION && TableAm::of(leaf) == Some(TableAm::Heap), foreign: leaf.rd_rel.relkind == types_rel::RELKIND_FOREIGN_TABLE, pgrc: leaf.rd_rel.relkind == types_rel::RELKIND_RELATION && TableAm::of(leaf) == Some(TableAm::Pgrcolumnar), same_layout, has_triggers: leaf.rd_hastriggers, trig: if leaf.rd_hastriggers { crate::ops::modifytable::trigger::trig_ext_of(leaf.rd_id) } else { TrigExt::NONE }, has_rules: leaf.rd_hasrules, has_generated, nindexes, indexes_plain })
+        Some(LeafFact {
+            relid: leaf.rd_id,
+            natts,
+            heap: leaf.rd_rel.relkind == types_rel::RELKIND_RELATION
+                && TableAm::of(leaf) == Some(TableAm::Heap),
+            foreign: leaf.rd_rel.relkind == types_rel::RELKIND_FOREIGN_TABLE,
+            pgrc: leaf.rd_rel.relkind == types_rel::RELKIND_RELATION
+                && TableAm::of(leaf) == Some(TableAm::Pgrcolumnar),
+            same_layout,
+            has_triggers: leaf.rd_hastriggers,
+            trig: if leaf.rd_hastriggers {
+                crate::ops::modifytable::trigger::trig_ext_of(leaf.rd_id)
+            } else {
+                TrigExt::NONE
+            },
+            has_rules: leaf.rd_hasrules,
+            has_generated,
+            nindexes,
+            indexes_plain,
+        })
     }
 }
 
@@ -1254,11 +1838,17 @@ fn held_briefly(oid: Oid, f: impl FnOnce(bool) -> bool) -> bool {
 /// its relcache entry as built from the catalog snapshot, taken without `relation_open`, which asserts that a NoLock
 /// opener holds a lock (PostgreSQL's relation_open Assert, D2951: this backend holds none here): RelationIdGetRelation,
 /// as relation_open reads the entry after its lock. Its handle closes nothing. `None`: the relation is gone.
-fn open_held<'m>(held: bool, oid: Oid, open: impl FnOnce() -> PgResult<types_rel::Relation<'m>>) -> Option<types_rel::Relation<'m>> {
+fn open_held<'m>(
+    held: bool,
+    oid: Oid,
+    open: impl FnOnce() -> PgResult<types_rel::Relation<'m>>,
+) -> Option<types_rel::Relation<'m>> {
     if held {
         return open().ok();
     }
-    let data = relcache_seams::relation_id_get_relation::call(oid).ok().flatten()?;
+    let data = relcache_seams::relation_id_get_relation::call(oid)
+        .ok()
+        .flatten()?;
     Some(types_rel::Relation::open_rc(data, None))
 }
 
@@ -1267,7 +1857,11 @@ struct Held(Oid);
 
 impl Held {
     fn take(oid: Oid) -> Option<Held> {
-        matches!(lmgr_seams::conditional_lock_relation_oid::call(oid, AccessShareLock), Ok(true)).then(|| Held(oid))
+        matches!(
+            lmgr_seams::conditional_lock_relation_oid::call(oid, AccessShareLock),
+            Ok(true)
+        )
+        .then(|| Held(oid))
     }
 }
 
@@ -1284,7 +1878,9 @@ impl Drop for Held {
 pub fn alias_verdict(cmp: u32, b: u32) -> bool {
     let cx = mcx::MemoryContext::new_bump("gravity_hosts alias verdict");
     let f = RelcacheFacts::new(cx.mcx());
-    let stable = f.func(cmp).is_some_and(|p| p.volatility <= gravity_decompose::effects::Volatility::Stable);
+    let stable = f
+        .func(cmp)
+        .is_some_and(|p| p.volatility <= gravity_decompose::effects::Volatility::Stable);
     stable && gravity_decompose::effects::quiet_call(&f, b)
 }
 
@@ -1299,8 +1895,18 @@ mod tests {
         let t = 100_000_000;
         let kind = top_share(0.0, &[0.93, 0.0425, 0.0165, 0.003], 40.0, t, 5_400_000).unwrap();
         let model = top_share(0.0, &[0.946, 0.0495, 0.0023], 170.0, t, 5_400_000).unwrap();
-        assert!((kind - 0.787).abs() < 0.001 && (model - 0.917).abs() < 0.001, "{kind} {model}");
-        let phrase = top_share(0.0, &[0.87, 0.0009, 0.000_37, 0.000_27], 5_800_000.0, t, 13_000_000).unwrap();
+        assert!(
+            (kind - 0.787).abs() < 0.001 && (model - 0.917).abs() < 0.001,
+            "{kind} {model}"
+        );
+        let phrase = top_share(
+            0.0,
+            &[0.87, 0.0009, 0.000_37, 0.000_27],
+            5_800_000.0,
+            t,
+            13_000_000,
+        )
+        .unwrap();
         assert!(phrase < 0.01, "{phrase}");
         // unfiltered: the most common value's share; an independent filter keeps it (the smaller reading)
         assert!((top_share(0.0, &[0.183, 0.066], 9195.0, t, 0).unwrap() - 0.183).abs() < 1e-6);

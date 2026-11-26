@@ -40,18 +40,46 @@ impl SourceMech for OneRow {
         b.iconst(Type::I64, 0)
     }
     fn next_window(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, _l_eof: Block) -> Win {
-        Win { cursor: env.zero, end: b.iconst(Type::I64, 1), facts: Default::default() }
+        Win {
+            cursor: env.zero,
+            end: b.iconst(Type::I64, 1),
+            facts: Default::default(),
+        }
     }
-    fn row<'e>(&self, _b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e> {
-        RowVals { row: gravity_lowerv4::cell::Row::new_in(env.mcx), vals: mcx::PgVec::new_in(env.mcx), cols: mcx::PgVec::new_in(env.mcx), carry, next, at: j }
+    fn row<'e>(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+        j: Value,
+        carry: Carry<'e>,
+        next: Value,
+    ) -> RowVals<'e> {
+        RowVals {
+            row: gravity_lowerv4::cell::Row::new_in(env.mcx),
+            vals: mcx::PgVec::new_in(env.mcx),
+            cols: mcx::PgVec::new_in(env.mcx),
+            carry,
+            next,
+            at: j,
+        }
     }
 }
 
 struct Count;
 
 impl EndMech for Count {
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, _x: &Exits) -> Carry<'e> {
-        Carry { out: b.int_bin(IntBinOp::Add, row.carry.out, env.one), accs: mcx::to_vec_in(&row.carry.accs[..], env.mcx) }
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        _x: &Exits,
+    ) -> Carry<'e> {
+        Carry {
+            out: b.int_bin(IntBinOp::Add, row.carry.out, env.one),
+            accs: mcx::to_vec_in(&row.carry.accs[..], env.mcx),
+        }
     }
 }
 
@@ -67,13 +95,21 @@ impl gravity_driver::Derive for Derive {
     fn writer_size_hint(&self) -> usize {
         0
     }
-    fn derive_writer(&mut self, _plan: &WritePlan, _a: gravity_program::ArenaRef) -> ArenaBox<dyn Writer> {
+    fn derive_writer(
+        &mut self,
+        _plan: &WritePlan,
+        _a: gravity_program::ArenaRef,
+    ) -> ArenaBox<dyn Writer> {
         panic!("no writer")
     }
     fn locker_size_hint(&self) -> usize {
         0
     }
-    fn derive_locker(&mut self, _plan: &WritePlan, _a: gravity_program::ArenaRef) -> ArenaBox<dyn Locker> {
+    fn derive_locker(
+        &mut self,
+        _plan: &WritePlan,
+        _a: gravity_program::ArenaRef,
+    ) -> ArenaBox<dyn Locker> {
         panic!("no locker")
     }
 }
@@ -81,7 +117,10 @@ impl gravity_driver::Derive for Derive {
 struct NoRows;
 
 impl gravity_driver::Sink for NoRows {
-    fn push(&mut self, _b: gravity_driver::BorrowedBatch<'_>) -> gravity_driver::Result<gravity_driver::Flow> {
+    fn push(
+        &mut self,
+        _b: gravity_driver::BorrowedBatch<'_>,
+    ) -> gravity_driver::Result<gravity_driver::Flow> {
         Ok(gravity_driver::Flow::Continue)
     }
 }
@@ -109,8 +148,21 @@ unsafe fn one_row(ctx: *mut Ctx, img: &[u8]) -> Result<i64, (String, String)> {
     let an = [0u8; 2];
     let mut state = vec![0u8; STATE_BYTES];
     let mut err = ErrSlot::NONE;
-    let fail = |err: &mut ErrSlot| err.take().map_or(("?".into(), "?".into()), |x| (format!("{:?}", x.sqlstate()), x.message().to_owned()));
-    if (e.open)(&mut err, ctx, state.as_mut_ptr(), av.as_ptr(), an.as_ptr(), 2, 100) < 0 {
+    let fail = |err: &mut ErrSlot| {
+        err.take().map_or(("?".into(), "?".into()), |x| {
+            (format!("{:?}", x.sqlstate()), x.message().to_owned())
+        })
+    };
+    if (e.open)(
+        &mut err,
+        ctx,
+        state.as_mut_ptr(),
+        av.as_ptr(),
+        an.as_ptr(),
+        2,
+        100,
+    ) < 0
+    {
         return Err(fail(&mut err));
     }
     let mut out = [0i64; OUT_WORDS];
@@ -131,23 +183,63 @@ fn with_ctx<T>(f: impl FnOnce(*mut Ctx) -> T) -> T {
     let arena = Arena::new(1 << 20);
     let a = arena.handle();
     let mut g = gravity_decompose::PipelineGraph::new(a);
-    g.pipelines.push(gravity_decompose::PipelineNode::new(a, 0, gravity_decompose::Source::Const, gravity_program::Pipeline::serial(-1, gravity_program::End::Sink, gravity_program::Reason::NoDrivingSite)));
-    let gx = Gx { graph: &g, facts: &gravity_decompose::NoFacts, catalog: common::RigCatalog::get(), over: None, mcx: rig.mcx() };
+    g.pipelines.push(gravity_decompose::PipelineNode::new(
+        a,
+        0,
+        gravity_decompose::Source::Const,
+        gravity_program::Pipeline::serial(
+            -1,
+            gravity_program::End::Sink,
+            gravity_program::Reason::NoDrivingSite,
+        ),
+    ));
+    let gx = Gx {
+        graph: &g,
+        facts: &gravity_decompose::NoFacts,
+        catalog: common::RigCatalog::get(),
+        over: None,
+        mcx: rig.mcx(),
+    };
     let mut words = Sequential::new(a);
     let mut px = Px::new(a, &gx, &mut words);
-    let m = Mechs::new(&mut px, 0, mcx::pg_box_dyn!(rig.mcx(), OneRow => dyn SourceMech), mcx::PgVec::new_in(rig.mcx()), mcx::pg_box_dyn!(rig.mcx(), Count => dyn EndMech));
+    let m = Mechs::new(
+        &mut px,
+        0,
+        mcx::pg_box_dyn!(rig.mcx(), OneRow => dyn SourceMech),
+        mcx::PgVec::new_in(rig.mcx()),
+        mcx::pg_box_dyn!(rig.mcx(), Count => dyn EndMech),
+    );
     let l = program::emit(&mut px, vec![m]);
     drop(px);
     let codes = compile(&l, Backend::Interp).unwrap_or_else(|e| panic!("backend: {}", e.message()));
     let program = Arc::new(assemble(&l, codes));
     let flag = AtomicU8::new(0);
     let mut sink = NoRows;
-    use gravity_driver::{Binding, BindingParts, CommandId, Entry, Grant, Identity, PerTuple, Pins, Reservation, Snapshot};
-    let parts = BindingParts { snapshot: Snapshot(0), command_id: CommandId(0), params: &[0], param_nulls: &[0], abort_flag: &flag, pins: Pins(0), per_tuple: PerTuple(0), identity: Identity { proc_number: 0, resource_owner: 0, latch: 0 }, resolved: None };
+    use gravity_driver::{
+        Binding, BindingParts, CommandId, Entry, Grant, Identity, PerTuple, Pins, Reservation,
+        Snapshot,
+    };
+    let parts = BindingParts {
+        snapshot: Snapshot(0),
+        command_id: CommandId(0),
+        params: &[0],
+        param_nulls: &[0],
+        abort_flag: &flag,
+        pins: Pins(0),
+        per_tuple: PerTuple(0),
+        identity: Identity {
+            proc_number: 0,
+            resource_owner: 0,
+            latch: 0,
+        },
+        resolved: None,
+    };
     let mut b = Binding::new(parts, &mut sink);
     let mut entry = Entry::new(1);
     let lease = std::rc::Rc::new(Reservation::unadmitted(Grant::of(1 << 30)));
-    let exec = entry.start(None, &program, &mut Derive, &mut b, lease).unwrap_or_else(|e| panic!("start: {e:?}"));
+    let exec = entry
+        .start(None, &program, &mut Derive, &mut b, lease)
+        .unwrap_or_else(|e| panic!("start: {e:?}"));
     let r = f(exec.node().ctx());
     entry.end(exec, true);
     r

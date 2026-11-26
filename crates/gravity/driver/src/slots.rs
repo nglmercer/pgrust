@@ -1,12 +1,12 @@
 use gravity_abi::PtrWord;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use pgsync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 use gravity_program::cost::runtime::{RELEASED_CAP, RELEASED_LOG_CAP as LOG_CAP};
 use gravity_program::{ContentKey, Program};
 
-use crate::mem::arena::{Arena, ArenaBox, ArenaVec, Mark};
 use crate::binding::WorkerBinding;
+use crate::mem::arena::{Arena, ArenaBox, ArenaVec, Mark};
 use crate::node::{build_image, image_bytes, Derive, Image, Inner, Node, Role};
 
 mod raw;
@@ -86,16 +86,52 @@ pub(crate) struct Warm {
 
 impl PartialEq for Warm {
     fn eq(&self, o: &Warm) -> bool {
-        (self.snapshot, self.command_id, self.abort_flag, self.identity, self.per_tuple, self.pins, self.resolved) == (o.snapshot, o.command_id, o.abort_flag, o.identity, o.per_tuple, o.pins, o.resolved)
+        (
+            self.snapshot,
+            self.command_id,
+            self.abort_flag,
+            self.identity,
+            self.per_tuple,
+            self.pins,
+            self.resolved,
+        ) == (
+            o.snapshot,
+            o.command_id,
+            o.abort_flag,
+            o.identity,
+            o.per_tuple,
+            o.pins,
+            o.resolved,
+        )
     }
 }
 
 impl Warm {
     pub(crate) fn of(parts: &crate::binding::BindingParts<'_>) -> Warm {
-        let crate::binding::BindingParts { snapshot, command_id, params: _, param_nulls: _, abort_flag, pins, per_tuple, identity, resolved } = *parts;
+        let crate::binding::BindingParts {
+            snapshot,
+            command_id,
+            params: _,
+            param_nulls: _,
+            abort_flag,
+            pins,
+            per_tuple,
+            identity,
+            resolved,
+        } = *parts;
         let abort_flag = abort_flag as *const core::sync::atomic::AtomicU8 as usize;
-        let resolved = resolved.map_or(0, |r| r as *const (dyn core::any::Any + Send + Sync) as *const () as usize);
-        Warm { snapshot, command_id, abort_flag, identity, per_tuple, pins, resolved }
+        let resolved = resolved.map_or(0, |r| {
+            r as *const (dyn core::any::Any + Send + Sync) as *const () as usize
+        });
+        Warm {
+            snapshot,
+            command_id,
+            abort_flag,
+            identity,
+            per_tuple,
+            pins,
+            resolved,
+        }
     }
 }
 
@@ -130,7 +166,8 @@ static BIND_AT_CLAIM: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU
 pub(crate) fn serial_skip() -> bool {
     match SERIAL_SKIP.load(core::sync::atomic::Ordering::Relaxed) {
         0 => {
-            let on = crate::env::num::<u32>("PGRUST_GRAVITY_SLOT_SERIAL_SKIP").is_some_and(|v| v != 0);
+            let on =
+                crate::env::num::<u32>("PGRUST_GRAVITY_SLOT_SERIAL_SKIP").is_some_and(|v| v != 0);
             SERIAL_SKIP.store(1 + on as u8, core::sync::atomic::Ordering::Relaxed);
             on
         }
@@ -215,20 +252,57 @@ impl Drop for WorkerSlot {
 
 impl WorkerSlot {
     /// D3957: a refused image arena is the statement's `OutOfMemory`; the open that provisions the slot fails its exec.
-    fn new(program: &Program, derive: &mut dyn Derive, owner: *mut u8) -> crate::Result<WorkerSlot> {
+    fn new(
+        program: &Program,
+        derive: &mut dyn Derive,
+        owner: *mut u8,
+    ) -> crate::Result<WorkerSlot> {
         let bytes = image_bytes(program, derive, Role::Worker);
         let arena = Arena::try_new(bytes).ok_or_else(|| crate::node::refused_arena(bytes))?;
         let a = arena.handle();
         let Image { inner, regions, .. } = build_image(a, program, derive, Role::Worker, owner);
         let claim_mark = a.mark();
-        Ok(WorkerSlot { inner, regions, claim_mark, binding: None, busy: AtomicBool::new(false), state_stale: false, state_ptr: core::ptr::null_mut(), state_bytes: 0, state_arm: 0, share_ceil: 0, share_fault: crate::mem::grow::Fault::OFF, share_spills: false, share_debt: None, share_cut: 0, share_buf: crate::node::RegionBuf::empty(), share_high: 0, fixed_buf: crate::node::RegionBuf::empty(), share_counted: 0, fixed_counted: 0, retired: Vec::new(), warm: None, bind_pending: false, skip: 0, arena }) // alloc: Node
+        Ok(WorkerSlot {
+            inner,
+            regions,
+            claim_mark,
+            binding: None,
+            busy: AtomicBool::new(false),
+            state_stale: false,
+            state_ptr: core::ptr::null_mut(),
+            state_bytes: 0,
+            state_arm: 0,
+            share_ceil: 0,
+            share_fault: crate::mem::grow::Fault::OFF,
+            share_spills: false,
+            share_debt: None,
+            share_cut: 0,
+            share_buf: crate::node::RegionBuf::empty(),
+            share_high: 0,
+            fixed_buf: crate::node::RegionBuf::empty(),
+            share_counted: 0,
+            fixed_counted: 0,
+            retired: Vec::new(),
+            warm: None,
+            bind_pending: false,
+            skip: 0,
+            arena,
+        }) // alloc: Node
     }
 
-    pub(crate) fn fixed_region(&mut self, bytes: u32, stmt: Option<&crate::mem::grant::Reservation>, limits: &crate::mem::grant::Counters) -> crate::Result<*mut u8> {
+    pub(crate) fn fixed_region(
+        &mut self,
+        bytes: u32,
+        stmt: Option<&crate::mem::grant::Reservation>,
+        limits: &crate::mem::grant::Counters,
+    ) -> crate::Result<*mut u8> {
         if self.fixed_buf.len() < bytes as usize {
             self.fixed_buf = crate::node::RegionBuf::empty();
             self.fixed_buf = self.bind_region(bytes as usize, stmt)?;
-            limits.limit(bytes as u64, core::mem::replace(&mut self.fixed_counted, bytes as u64));
+            limits.limit(
+                bytes as u64,
+                core::mem::replace(&mut self.fixed_counted, bytes as u64),
+            );
         } else if !self.fixed_buf.recharge(stmt, None) {
             self.fixed_buf = crate::node::RegionBuf::empty();
             self.fixed_buf = self.bind_region(bytes as usize, stmt)?;
@@ -240,16 +314,33 @@ impl WorkerSlot {
     /// earlier section's bind carved it as the workers' W: a W8 build's, then the probe's program-constant regions found
     /// none) an admitted statement's region comes from this worker's W, else is reserved past G and counted as grown
     /// (`chunk_region`, the arena's and the grows' road: D254, no runtime past-share error before M7's spill.breakers).
-    fn bind_region(&mut self, bytes: usize, stmt: Option<&crate::mem::grant::Reservation>) -> crate::Result<crate::node::RegionBuf> {
+    fn bind_region(
+        &mut self,
+        bytes: usize,
+        stmt: Option<&crate::mem::grant::Reservation>,
+    ) -> crate::Result<crate::node::RegionBuf> {
         match crate::park::REGIONS.take(bytes, stmt) {
-            Err(e @ crate::Error::OutOfMemory { .. }) if stmt.is_some_and(crate::mem::grant::Reservation::admitted) => crate::node::region_past(crate::park::region_bytes(bytes), Some(&mut self.inner.w), stmt).ok_or(e),
+            Err(e @ crate::Error::OutOfMemory { .. })
+                if stmt.is_some_and(crate::mem::grant::Reservation::admitted) =>
+            {
+                crate::node::region_past(
+                    crate::park::region_bytes(bytes),
+                    Some(&mut self.inner.w),
+                    stmt,
+                )
+                .ok_or(e)
+            }
             r => r,
         }
     }
 
     /// D3226 (c1): `bind_region` for the worker's share: past its refusal, a region at the pool's room now
     /// (`share_at_room`), with the share bytes it holds, which the bind arms (`Section::bind`).
-    fn bind_share(&mut self, bytes: u32, stmt: Option<&crate::mem::grant::Reservation>) -> crate::Result<(crate::node::RegionBuf, u32)> {
+    fn bind_share(
+        &mut self,
+        bytes: u32,
+        stmt: Option<&crate::mem::grant::Reservation>,
+    ) -> crate::Result<(crate::node::RegionBuf, u32)> {
         match self.bind_region(bytes as usize, stmt) {
             Ok(buf) => Ok((buf, bytes)),
             Err(e) => crate::mem::region::share_at_room(bytes, stmt, e),
@@ -267,22 +358,44 @@ impl WorkerSlot {
     /// (`reserved_region`), whose pool the fold commits in place; between binds it parks in the depot uncommitted.
     /// `laid`: the region started small (`grant::starts_small`): its reservation is marked so (`RegionBuf::set_laid`).
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn share_region(&mut self, bytes: u32, stmt: Option<&crate::mem::grant::Reservation>, limits: &crate::mem::grant::Counters, uncut: u64, reserve: u64, floor: bool, laid: u32) -> crate::Result<(*mut u8, u32, u32)> {
+    pub(crate) fn share_region(
+        &mut self,
+        bytes: u32,
+        stmt: Option<&crate::mem::grant::Reservation>,
+        limits: &crate::mem::grant::Counters,
+        uncut: u64,
+        reserve: u64,
+        floor: bool,
+        laid: u32,
+    ) -> crate::Result<(*mut u8, u32, u32)> {
         let want = crate::park::region_bytes(bytes as usize);
         let mut held = bytes;
         let grows = self.share_buf.len() < bytes as usize;
-        let over = stmt.is_some_and(crate::mem::grant::Reservation::admitted) && self.share_buf.len().saturating_sub(want) > want / 8;
+        let over = stmt.is_some_and(crate::mem::grant::Reservation::admitted)
+            && self.share_buf.len().saturating_sub(want) > want / 8;
         if reserve > bytes as u64 || self.share_buf.is_reserved() {
             crate::park::REGIONS.put_from_life(core::mem::take(&mut self.share_buf), stmt);
             self.share_buf = if reserve > bytes as u64 {
                 if laid != 0 {
                     // A parked laid region's resident length is the start, past the share when it grew past it (D3794): the
                     // table's limit is the region's writable end, so its commits in place go on from there
-                    let buf = crate::node::laid_region(want, reserve as usize, laid as usize, Some(&mut self.inner.w), stmt)?;
+                    let buf = crate::node::laid_region(
+                        want,
+                        reserve as usize,
+                        laid as usize,
+                        Some(&mut self.inner.w),
+                        stmt,
+                    )?;
                     held = held.max(buf.len().min(buf.lay_reserve()) as u32 & !7);
                     buf
                 } else {
-                    let (buf, h) = crate::mem::region::reserved_share(bytes, reserve as usize, Some(&mut self.inner.w), stmt, floor)?;
+                    let (buf, h) = crate::mem::region::reserved_share(
+                        bytes,
+                        reserve as usize,
+                        Some(&mut self.inner.w),
+                        stmt,
+                        floor,
+                    )?;
                     held = h;
                     buf
                 }
@@ -292,7 +405,10 @@ impl WorkerSlot {
                 buf
             };
             let counted = uncut.max(self.share_counted);
-            limits.limit(counted, core::mem::replace(&mut self.share_counted, counted));
+            limits.limit(
+                counted,
+                core::mem::replace(&mut self.share_counted, counted),
+            );
         } else if grows || over {
             // mid-statement: the charge goes to the pool so G's room comes back (`put_from_life`; `put` settles, kept in G)
             crate::park::REGIONS.put_from_life(core::mem::take(&mut self.share_buf), stmt);
@@ -301,7 +417,10 @@ impl WorkerSlot {
             // the counted limit follows the largest share this ordinal took, as it did when a region only ever grew
             // (footprint's per-worker max): a smaller region only draws less of it
             let counted = uncut.max(self.share_counted);
-            limits.limit(counted, core::mem::replace(&mut self.share_counted, counted));
+            limits.limit(
+                counted,
+                core::mem::replace(&mut self.share_counted, counted),
+            );
         } else if !self.share_buf.recharge(stmt, None) {
             self.share_buf = crate::node::RegionBuf::empty();
             let (buf, h) = self.bind_share(bytes, stmt)?;
@@ -320,7 +439,12 @@ impl WorkerSlot {
             return;
         }
         if self.state_ptr == self.share_buf.as_mut_ptr() {
-            (self.state_ptr, self.state_bytes, self.state_arm, self.state_stale) = (core::ptr::null_mut(), 0, 0, false);
+            (
+                self.state_ptr,
+                self.state_bytes,
+                self.state_arm,
+                self.state_stale,
+            ) = (core::ptr::null_mut(), 0, 0, false);
         }
         crate::park::REGIONS.put_from_life(core::mem::take(&mut self.share_buf), None);
     }
@@ -333,7 +457,9 @@ impl WorkerSlot {
             return;
         }
         let p = self.state_ptr as usize;
-        let holds = |b: &crate::node::RegionBuf| !b.is_empty() && p >= b.as_ptr() as usize && p < b.as_ptr() as usize + b.len();
+        let holds = |b: &crate::node::RegionBuf| {
+            !b.is_empty() && p >= b.as_ptr() as usize && p < b.as_ptr() as usize + b.len()
+        };
         if holds(&self.share_buf) {
             self.share_buf.own_by(o);
         } else if holds(&self.fixed_buf) {
@@ -353,7 +479,9 @@ impl WorkerSlot {
             return 0;
         }
         let p = self.state_ptr as usize;
-        let holds = |b: &crate::node::RegionBuf| !b.is_empty() && p >= b.as_ptr() as usize && p < b.as_ptr() as usize + b.len();
+        let holds = |b: &crate::node::RegionBuf| {
+            !b.is_empty() && p >= b.as_ptr() as usize && p < b.as_ptr() as usize + b.len()
+        };
         if holds(&self.share_buf) {
             self.share_buf.charged_bytes()
         } else if holds(&self.fixed_buf) {
@@ -365,7 +493,9 @@ impl WorkerSlot {
 
     /// D254 (leader thread, the section closed): the buffers grown partials replaced back to the depot.
     pub(crate) fn settle_retired(&mut self) {
-        self.retired.drain(..).for_each(|b| crate::park::REGIONS.put(b));
+        self.retired
+            .drain(..)
+            .for_each(|b| crate::park::REGIONS.put(b));
     }
 
     /// D4631: the heap blocks of the slot's per-statement lists at their capacity (each emptied at the statement's end,
@@ -376,7 +506,15 @@ impl WorkerSlot {
             v.capacity() * core::mem::size_of::<T>()
         }
         let n = &*self.inner;
-        b(&self.retired) + b(&n.chunks) + b(&n.spills) + b(&n.owner_maps) + b(&n.bigs) + b(&n.work_maps) + b(&n.stmt_pins) + b(&n.slot_pins) + b(&n.readers)
+        b(&self.retired)
+            + b(&n.chunks)
+            + b(&n.spills)
+            + b(&n.owner_maps)
+            + b(&n.bigs)
+            + b(&n.work_maps)
+            + b(&n.stmt_pins)
+            + b(&n.slot_pins)
+            + b(&n.readers)
     }
 
     /// The statement's end (leader thread): the buffers and chunks to the free list.
@@ -401,7 +539,9 @@ impl WorkerSlot {
     /// The share and fixed buffers dropped (a parked slot under pool pressure); the pointers into
     /// them are re-taken at the next bind.
     pub(crate) fn shed_regions(&mut self) -> usize {
-        let freed = self.share_buf.len() + self.fixed_buf.len() + self.inner.chunks.iter().map(|c| c.len()).sum::<usize>();
+        let freed = self.share_buf.len()
+            + self.fixed_buf.len()
+            + self.inner.chunks.iter().map(|c| c.len()).sum::<usize>();
         self.retired.clear();
         self.share_buf = crate::node::RegionBuf::empty();
         self.fixed_buf = crate::node::RegionBuf::empty();
@@ -418,7 +558,11 @@ impl WorkerSlot {
     /// The arena's capacity in bytes plus the region buffers and the sources' kept buffers (D3213): what the depot's cap
     /// and the idle trims count.
     pub(crate) fn bytes(&self) -> usize {
-        self.arena.handle().capacity() + self.share_buf.len() + self.fixed_buf.len() + self.inner.chunks.iter().map(|c| c.len()).sum::<usize>() + self.inner.kept_bytes()
+        self.arena.handle().capacity()
+            + self.share_buf.len()
+            + self.fixed_buf.len()
+            + self.inner.chunks.iter().map(|c| c.len()).sum::<usize>()
+            + self.inner.kept_bytes()
     }
 
     pub(crate) fn zero_regions(&mut self) {
@@ -477,7 +621,10 @@ pub(crate) struct ReleaseLog {
 
 impl ReleaseLog {
     pub(crate) const fn new() -> ReleaseLog {
-        ReleaseLog { gen: AtomicU64::new(0), log: [const { AtomicU64::new(0) }; LOG_CAP] }
+        ReleaseLog {
+            gen: AtomicU64::new(0),
+            log: [const { AtomicU64::new(0) }; LOG_CAP],
+        }
     }
 
     /// The generation a new reader starts from (it has nothing parked yet).
@@ -488,7 +635,8 @@ impl ReleaseLog {
     /// Record `rel` (0: every relation). No lock, no allocation, cannot fail.
     pub(crate) fn note(&self, rel: u32) {
         let g = self.gen.fetch_add(1, Ordering::AcqRel) + 1;
-        self.log[(g % LOG_CAP as u64) as usize].store(((g as u32 as u64) << 32) | rel as u64, Ordering::Release);
+        self.log[(g % LOG_CAP as u64) as usize]
+            .store(((g as u32 as u64) << 32) | rel as u64, Ordering::Release);
     }
 
     /// What was recorded after `*seen`, and `*seen` moved to the current generation; `None` when nothing was.
@@ -499,7 +647,10 @@ impl ReleaseLog {
             return None;
         }
         *seen = cur;
-        let mut out = Released { all: cur.wrapping_sub(from) > LOG_CAP as u64, rels: [0; RELEASED_CAP] };
+        let mut out = Released {
+            all: cur.wrapping_sub(from) > LOG_CAP as u64,
+            rels: [0; RELEASED_CAP],
+        };
         let mut n = 0;
         let mut g = from;
         while !out.all && g != cur {
@@ -545,11 +696,18 @@ pub struct Released {
 
 impl Released {
     /// Every relation: a release of every kept cursor and pin, whatever the relcache recorded.
-    pub(crate) const ALL: Released = Released { all: true, rels: [0; RELEASED_CAP] };
+    pub(crate) const ALL: Released = Released {
+        all: true,
+        rels: [0; RELEASED_CAP],
+    };
 
     /// D4768: the listed relids (none listed under `all`).
     fn listed(&self) -> &[u32] {
-        let n = self.rels.iter().position(|&r| r == 0).unwrap_or(RELEASED_CAP);
+        let n = self
+            .rels
+            .iter()
+            .position(|&r| r == 0)
+            .unwrap_or(RELEASED_CAP);
         &self.rels[..n]
     }
 
@@ -593,7 +751,10 @@ pub fn note_released(rel: u32) {
 
 /// Whether `rel` (0: any relation) is recorded and not yet drained: a read, no swap (tests of the callback's reach).
 pub fn released_pending(rel: u32) -> bool {
-    RELEASED_ANY.load(Ordering::Acquire) && (rel == 0 || RELEASED_ALL.load(Ordering::Acquire) || RELEASED.iter().any(|s| s.load(Ordering::Acquire) == rel))
+    RELEASED_ANY.load(Ordering::Acquire)
+        && (rel == 0
+            || RELEASED_ALL.load(Ordering::Acquire)
+            || RELEASED.iter().any(|s| s.load(Ordering::Acquire) == rel))
 }
 
 /// The depot's record swapped out (see `RELEASED` for the order); `None` when nothing was recorded.
@@ -637,7 +798,9 @@ pub fn drain_released() {
     let mut doomed: Vec<Box<dyn core::any::Any>> = Vec::new(); // alloc: Cold
     {
         // D4398: in the ladder thread's pass, left for the next drain while another thread holds the depot
-        let Some(mut e) = memledger::ladder_pass::lock_or_skip(&DEPOT.entries) else { return };
+        let Some(mut e) = memledger::ladder_pass::lock_or_skip(&DEPOT.entries) else {
+            return;
+        };
         DEPOT.release_locked(&mut e, &mut doomed);
     }
     drop(doomed);
@@ -714,7 +877,13 @@ pub fn depot_bytes() -> usize {
     mempolicy::keep::slot_depot_bytes(crate::mem::grant::POOL.capacity())
 }
 
-pub static DEPOT: SlotDepot = SlotDepot { entries: Mutex::new(Vec::new()), clock: AtomicU64::new(0), takes: AtomicU64::new(0), puts: AtomicU64::new(0), evictions: AtomicU64::new(0) }; // alloc: Cold
+pub static DEPOT: SlotDepot = SlotDepot {
+    entries: Mutex::new(Vec::new()),
+    clock: AtomicU64::new(0),
+    takes: AtomicU64::new(0),
+    puts: AtomicU64::new(0),
+    evictions: AtomicU64::new(0),
+}; // alloc: Cold
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DepotStats {
@@ -734,10 +903,13 @@ impl SlotDepot {
             let mut e = self.entries.lock().unwrap_or_else(|p| p.into_inner());
             // D1507: the recorded relations released before a set is handed out (no statement runs on a dropped relation's part)
             self.release_locked(&mut e, &mut doomed);
-            (0..e.len()).filter(|&i| e[i].key == key).max_by_key(|&i| e[i].stamp).map(|i| {
-                self.takes.fetch_add(1, Ordering::Relaxed);
-                e.swap_remove(i)
-            })
+            (0..e.len())
+                .filter(|&i| e[i].key == key)
+                .max_by_key(|&i| e[i].stamp)
+                .map(|i| {
+                    self.takes.fetch_add(1, Ordering::Relaxed);
+                    e.swap_remove(i)
+                })
         };
         drop(doomed);
         // D4631: the set's depot charge back on the taking thread first: its backend holds the set's lists from now on
@@ -751,19 +923,40 @@ impl SlotDepot {
     fn put(&self, key: (ContentKey, u64), slots: Vec<WorkerSlot>, mut seen: u64) {
         let bytes = slots.iter().map(WorkerSlot::bytes).sum();
         // D4631: on the parking backend's thread, where its statement's threads grew them
-        let loose = slots.capacity() * core::mem::size_of::<WorkerSlot>() + slots.iter().map(WorkerSlot::list_bytes).sum::<usize>();
-        let held = memledger::Charge::open(memledger::Owner::Cache(memledger::Holder::SlotDepot), memledger::Release::Evict, memledger::Kind::Region, memledger::charge::Door::Heap, loose as u64);
-        let warm = if mempolicy::keep::keep_warm() { slots.iter().map(|s| s.inner.park_bytes()).sum() } else { 0 };
+        let loose = slots.capacity() * core::mem::size_of::<WorkerSlot>()
+            + slots.iter().map(WorkerSlot::list_bytes).sum::<usize>();
+        let held = memledger::Charge::open(
+            memledger::Owner::Cache(memledger::Holder::SlotDepot),
+            memledger::Release::Evict,
+            memledger::Kind::Region,
+            memledger::charge::Door::Heap,
+            loose as u64,
+        );
+        let warm = if mempolicy::keep::keep_warm() {
+            slots.iter().map(|s| s.inner.park_bytes()).sum()
+        } else {
+            0
+        };
         let stamp = self.clock.fetch_add(1, Ordering::Relaxed) + 1;
         let mut doomed: Vec<Box<dyn core::any::Any>> = Vec::new(); // alloc: Cold
         let mut evicted: Vec<Parked> = Vec::new(); // alloc: Cold
-        let set = Parked { held, key, slots, bytes, warm, stamp };
+        let set = Parked {
+            held,
+            key,
+            slots,
+            bytes,
+            warm,
+            stamp,
+        };
         let mut removed = None;
         'park: {
             let mut e = self.entries.lock().unwrap_or_else(|p| p.into_inner());
             // D4768: a relation removed since the set came to its Node, one it reads: no take could find it, so it drops
             // here instead of waiting in the depot (checked under the lock `evict_reading` evicts under)
-            if REMOVED_LOG.since(&mut seen).is_some_and(|r| r.all || set.reads_any(&|rel| r.listed().contains(&rel))) {
+            if REMOVED_LOG
+                .since(&mut seen)
+                .is_some_and(|r| r.all || set.reads_any(&|rel| r.listed().contains(&rel)))
+            {
                 removed = Some(set);
                 self.evictions.fetch_add(1, Ordering::Relaxed);
                 break 'park;
@@ -772,18 +965,27 @@ impl SlotDepot {
             self.puts.fetch_add(1, Ordering::Relaxed);
             self.release_locked(&mut e, &mut doomed);
             while e.iter().filter(|p| p.key == key).count() > DEPOT_SETS_PER_KEY {
-                let victim = (0..e.len()).filter(|&i| e[i].key == key && e[i].stamp != stamp).min_by_key(|&i| e[i].stamp).expect("an older set of the key");
+                let victim = (0..e.len())
+                    .filter(|&i| e[i].key == key && e[i].stamp != stamp)
+                    .min_by_key(|&i| e[i].stamp)
+                    .expect("an older set of the key");
                 Parked::evict_at(&mut e, victim, &mut evicted);
                 self.evictions.fetch_add(1, Ordering::Relaxed);
             }
             while e.len() > DEPOT_SETS {
-                let victim = (0..e.len()).filter(|&i| e[i].stamp != stamp).min_by_key(|&i| e[i].stamp).expect("an older set");
+                let victim = (0..e.len())
+                    .filter(|&i| e[i].stamp != stamp)
+                    .min_by_key(|&i| e[i].stamp)
+                    .expect("an older set");
                 Parked::evict_at(&mut e, victim, &mut evicted);
                 self.evictions.fetch_add(1, Ordering::Relaxed);
             }
             let cap = depot_bytes();
             while e.len() > 1 && e.iter().map(|p| p.bytes).sum::<usize>() > cap {
-                let victim = (0..e.len()).filter(|&i| e[i].stamp != stamp).max_by_key(|&i| e[i].bytes).expect("an older entry");
+                let victim = (0..e.len())
+                    .filter(|&i| e[i].stamp != stamp)
+                    .max_by_key(|&i| e[i].bytes)
+                    .expect("an older entry");
                 Parked::evict_at(&mut e, victim, &mut evicted);
                 self.evictions.fetch_add(1, Ordering::Relaxed);
             }
@@ -799,7 +1001,9 @@ impl SlotDepot {
     /// invalidation also comes for ANALYZE, ALTER, statistics: the cursors reopen lazily). The caller holds the lock and
     /// drops `doomed` after it: a released cursor's drop closes its file.
     fn release_locked(&self, e: &mut [Parked], doomed: &mut Vec<Box<dyn core::any::Any>>) {
-        let Some(record) = take_released() else { return };
+        let Some(record) = take_released() else {
+            return;
+        };
         for p in e.iter_mut() {
             for s in p.slots.iter_mut() {
                 release_slot(&mut s.inner, &record, doomed);
@@ -826,7 +1030,8 @@ impl SlotDepot {
                     i += 1;
                 }
             }
-            self.evictions.fetch_add(evicted.len() as u64, Ordering::Relaxed);
+            self.evictions
+                .fetch_add(evicted.len() as u64, Ordering::Relaxed);
         }
         let n = evicted.len();
         drop(evicted);
@@ -850,7 +1055,8 @@ impl SlotDepot {
                 victims.push(p); // alloc: Cold
             }
         }
-        self.evictions.fetch_add(victims.len() as u64, Ordering::Relaxed);
+        self.evictions
+            .fetch_add(victims.len() as u64, Ordering::Relaxed);
         drop(victims);
         freed
     }
@@ -864,7 +1070,9 @@ impl SlotDepot {
         let mut freed = 0usize;
         {
             // D4398: in the ladder thread's pass, nothing while another thread holds the depot
-            let Some(mut e) = memledger::ladder_pass::lock_or_skip(&self.entries) else { return 0 };
+            let Some(mut e) = memledger::ladder_pass::lock_or_skip(&self.entries) else {
+                return 0;
+            };
             while freed < bytes && e.len() > mempolicy::keep::NEWEST_KEPT {
                 let oldest = (0..e.len()).min_by_key(|&i| e[i].stamp).expect("non-empty");
                 let p = e.swap_remove(oldest);
@@ -879,7 +1087,8 @@ impl SlotDepot {
                 freed += p.shed();
             }
         }
-        self.evictions.fetch_add(victims.len() as u64, Ordering::Relaxed);
+        self.evictions
+            .fetch_add(victims.len() as u64, Ordering::Relaxed);
         drop(victims);
         freed
     }
@@ -887,7 +1096,9 @@ impl SlotDepot {
     /// C3: the bytes `trim_but_newest` could free now (every parked set but the `NEWEST_KEPT` newest, and their warm buffers).
     pub fn trimmable_bytes(&self) -> usize {
         // D4398: in the ladder thread's pass, none while another thread holds the depot
-        let Some(e) = memledger::ladder_pass::lock_or_skip(&self.entries) else { return 0 };
+        let Some(e) = memledger::ladder_pass::lock_or_skip(&self.entries) else {
+            return 0;
+        };
         let total: usize = e.iter().map(|p| p.bytes).sum();
         let (mut kept, mut below) = (0usize, u64::MAX);
         for _ in 0..mempolicy::keep::NEWEST_KEPT {
@@ -911,20 +1122,41 @@ impl SlotDepot {
     pub fn stats(&self) -> DepotStats {
         // D4398: on the memory ladder's pass (the part cache's short hook), an empty count while another thread holds it
         let Some(e) = memledger::ladder_pass::lock_or_skip(&self.entries) else {
-            return DepotStats { entries: 0, bytes: 0, held: 0, takes: self.takes.load(Ordering::Relaxed), puts: self.puts.load(Ordering::Relaxed), evictions: self.evictions.load(Ordering::Relaxed) };
+            return DepotStats {
+                entries: 0,
+                bytes: 0,
+                held: 0,
+                takes: self.takes.load(Ordering::Relaxed),
+                puts: self.puts.load(Ordering::Relaxed),
+                evictions: self.evictions.load(Ordering::Relaxed),
+            };
         };
-        DepotStats { entries: e.len(), bytes: e.iter().map(|p| p.bytes).sum(), held: e.iter().map(|p| p.held.committed()).sum(), takes: self.takes.load(Ordering::Relaxed), puts: self.puts.load(Ordering::Relaxed), evictions: self.evictions.load(Ordering::Relaxed) }
+        DepotStats {
+            entries: e.len(),
+            bytes: e.iter().map(|p| p.bytes).sum(),
+            held: e.iter().map(|p| p.held.committed()).sum(),
+            takes: self.takes.load(Ordering::Relaxed),
+            puts: self.puts.load(Ordering::Relaxed),
+            evictions: self.evictions.load(Ordering::Relaxed),
+        }
     }
 
     /// Drop every parked slot (the tests; a process never needs it).
     pub fn clear(&self) {
-        self.entries.lock().unwrap_or_else(|p| p.into_inner()).clear();
+        self.entries
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clear();
     }
 }
 
 impl Node {
     /// D1507: `record` applied to a parked Node's sources and the worker slots it keeps (`Park::release_rel`).
-    pub(crate) fn release_recorded(&mut self, record: &Released, doomed: &mut Vec<Box<dyn core::any::Any>>) {
+    pub(crate) fn release_recorded(
+        &mut self,
+        record: &Released,
+        doomed: &mut Vec<Box<dyn core::any::Any>>,
+    ) {
         self.for_each_host(|h| {
             if let crate::node::HostRef::Source(s) = h {
                 record.each(|rel| doomed.extend(s.release_rel(rel)));
@@ -936,7 +1168,12 @@ impl Node {
     }
 
     /// `width` worker slots: the depot's for `salt` when it has them, the rest built (alloc: Node); `None` keeps them with the Node.
-    pub fn provision(&mut self, width: u16, derive: &mut dyn Derive, salt: Option<u64>) -> crate::Result<()> {
+    pub fn provision(
+        &mut self,
+        width: u16,
+        derive: &mut dyn Derive,
+        salt: Option<u64>,
+    ) -> crate::Result<()> {
         if self.workers.is_empty() && width > 0 {
             if let Some(salt) = salt {
                 let key = (self.program().key, salt);
@@ -983,12 +1220,17 @@ impl Node {
 
     /// At the statement's end the slots go back to the depot detached (their readers dropped at `reset`); the Node keeps none.
     pub(crate) fn release_workers(&mut self) {
-        let Some(key) = self.depot_key.take() else { return };
+        let Some(key) = self.depot_key.take() else {
+            return;
+        };
         if self.workers.is_empty() {
             return;
         }
         for w in self.workers.iter_mut() {
-            debug_assert!(w.binding.is_none() && w.warm.is_none(), "a slot released while attached or warm");
+            debug_assert!(
+                w.binding.is_none() && w.warm.is_none(),
+                "a slot released while attached or warm"
+            );
             w.inner.spill = core::ptr::null_mut();
             w.state_ptr = core::ptr::null_mut();
             w.state_bytes = 0;
@@ -1007,12 +1249,21 @@ impl Node {
                     if !mempolicy::keep::keep_warm() {
                         s.park();
                     }
-                    s.kept_uses_to(memledger::Owner::Cache(memledger::Holder::Parked), memledger::Release::Evict);
-                    s.transfer_held(memledger::Owner::Cache(memledger::Holder::SlotDepot), memledger::Release::Evict);
+                    s.kept_uses_to(
+                        memledger::Owner::Cache(memledger::Holder::Parked),
+                        memledger::Release::Evict,
+                    );
+                    s.transfer_held(
+                        memledger::Owner::Cache(memledger::Holder::SlotDepot),
+                        memledger::Release::Evict,
+                    );
                 }
             });
             // C8: and its arena's pages, so a set evicted or taken by another backend leaves no session holding them
-            w.arena.transfer_charge(memledger::Owner::Cache(memledger::Holder::Parked), memledger::Release::Evict);
+            w.arena.transfer_charge(
+                memledger::Owner::Cache(memledger::Holder::Parked),
+                memledger::Release::Evict,
+            );
         }
         DEPOT.put(key, core::mem::take(&mut self.workers), self.depot_seen);
     }
@@ -1040,7 +1291,6 @@ impl Node {
     }
 }
 
-
 #[cfg(test)]
 mod release_log_tests {
     //! D1507: the parks' release log (`ReleaseLog`): what a reader applies between its `seen` and `gen`.
@@ -1063,7 +1313,10 @@ mod release_log_tests {
         assert_eq!(rels(&r), vec![7, 9], "each relation once"); // alloc: Cold
         assert!(log.since(&mut seen).is_none(), "applied once");
         log.note(0);
-        assert!(log.since(&mut seen).unwrap().all, "relid 0 (a reset) releases every relation");
+        assert!(
+            log.since(&mut seen).unwrap().all,
+            "relid 0 (a reset) releases every relation"
+        );
     }
 
     #[test]
@@ -1073,12 +1326,18 @@ mod release_log_tests {
         for i in 0..=LOG_CAP as u32 {
             log.note(100 + i);
         }
-        assert!(log.since(&mut seen).unwrap().all, "LOG_CAP + 1 records: the oldest was overwritten");
+        assert!(
+            log.since(&mut seen).unwrap().all,
+            "LOG_CAP + 1 records: the oldest was overwritten"
+        );
         let mut seen = log.current();
         for i in 0..(RELEASED_CAP as u32 + 1) {
             log.note(500 + i);
         }
-        assert!(log.since(&mut seen).unwrap().all, "more distinct relations than a record holds");
+        assert!(
+            log.since(&mut seen).unwrap().all,
+            "more distinct relations than a record holds"
+        );
     }
 
     #[test]
@@ -1089,7 +1348,10 @@ mod release_log_tests {
         // a writer between its fetch_add and its store: gen moved, the word still carries an older tag
         log.gen.fetch_add(1, Ordering::AcqRel);
         let r = log.since(&mut seen).unwrap();
-        assert!(r.all, "the pending generation is covered by a release-all, not skipped as stale");
+        assert!(
+            r.all,
+            "the pending generation is covered by a release-all, not skipped as stale"
+        );
         assert!(log.since(&mut seen).is_none());
     }
 
@@ -1106,7 +1368,9 @@ mod release_log_tests {
     fn concurrent_writers_are_each_applied_or_covered_by_a_release_all() {
         static LOG: ReleaseLog = ReleaseLog::new();
         let mut seen = LOG.current();
-        let writers: Vec<_> = (1..=4u32).map(|t| std::thread::spawn(move || (0..8u32).for_each(|i| LOG.note(t * 100 + i)))).collect();
+        let writers: Vec<_> = (1..=4u32)
+            .map(|t| std::thread::spawn(move || (0..8u32).for_each(|i| LOG.note(t * 100 + i))))
+            .collect();
         let mut got = std::collections::HashSet::new();
         let mut all = false;
         let mut sweep = |seen: &mut u64| {
@@ -1120,8 +1384,13 @@ mod release_log_tests {
         }
         writers.into_iter().for_each(|w| w.join().unwrap());
         sweep(&mut seen);
-        let want: std::collections::HashSet<u32> = (1..=4u32).flat_map(|t| (0..8u32).map(move |i| t * 100 + i)).collect();
-        assert!(all || got == want, "every record applied, or a release-all covered the rest");
+        let want: std::collections::HashSet<u32> = (1..=4u32)
+            .flat_map(|t| (0..8u32).map(move |i| t * 100 + i))
+            .collect();
+        assert!(
+            all || got == want,
+            "every record applied, or a release-all covered the rest"
+        );
         assert_eq!(seen, LOG.current());
     }
 }

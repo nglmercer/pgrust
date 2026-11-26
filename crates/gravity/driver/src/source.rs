@@ -1,5 +1,5 @@
-use gravity_abi::PtrWord;
 use core::ops::{Deref, DerefMut};
+use gravity_abi::PtrWord;
 
 use gravity_abi::ctx::lane;
 use gravity_abi::site::{self as abi_site, Site};
@@ -24,7 +24,13 @@ pub struct WindowBase {
 
 impl WindowBase {
     pub const fn at(pos: ScanPos) -> WindowBase {
-        WindowBase { pos, part_id: 0, dict_epoch: 0, granule: 0, claim_id: 0 }
+        WindowBase {
+            pos,
+            part_id: 0,
+            dict_epoch: 0,
+            granule: 0,
+            claim_id: 0,
+        }
     }
 }
 
@@ -80,7 +86,13 @@ impl<'a> Window<'a> {
     }
 
     pub fn base(&self) -> WindowBase {
-        WindowBase { pos: self.s.pos, part_id: self.s.part_id, dict_epoch: self.s.dict_epoch, granule: self.s.granule, claim_id: self.s.claim_id }
+        WindowBase {
+            pos: self.s.pos,
+            part_id: self.s.part_id,
+            dict_epoch: self.s.dict_epoch,
+            granule: self.s.granule,
+            claim_id: self.s.claim_id,
+        }
     }
 
     /// The answered form (addition f): `rows` and one `Answer` per site lane, no lanes.
@@ -134,7 +146,25 @@ impl Default for Cursor {
 
 impl Cursor {
     pub const fn new() -> Cursor {
-        Cursor { lanes: Vec::new(), scratch: Vec::new(), nlanes: 0, rows: 0, row: 0, sel: core::ptr::null(), sel_n: 0, base: WindowBase { pos: ScanPos::NONE, part_id: 0, dict_epoch: 0, granule: 0, claim_id: 0 }, pos: ScanPos::NONE, answered: false, offset_lane: -1 } // alloc: Node
+        Cursor {
+            lanes: Vec::new(),
+            scratch: Vec::new(),
+            nlanes: 0,
+            rows: 0,
+            row: 0,
+            sel: core::ptr::null(),
+            sel_n: 0,
+            base: WindowBase {
+                pos: ScanPos::NONE,
+                part_id: 0,
+                dict_epoch: 0,
+                granule: 0,
+                claim_id: 0,
+            },
+            pos: ScanPos::NONE,
+            answered: false,
+            offset_lane: -1,
+        } // alloc: Node
     }
 
     /// Forget the window (a seek, a release, an unbind).
@@ -160,7 +190,10 @@ impl Cursor {
         self.sel_n = w.sel_n;
         self.base = w.base();
         self.answered = w.is_answered();
-        self.offset_lane = self.lanes[..n].iter().position(|l| lane::id_kind(l.id) == lane::ID_OFFSET && !l.ptr.ptr().is_null()).map_or(-1, |i| i as i8);
+        self.offset_lane = self.lanes[..n]
+            .iter()
+            .position(|l| lane::id_kind(l.id) == lane::ID_OFFSET && !l.ptr.ptr().is_null())
+            .map_or(-1, |i| i as i8);
     }
 
     pub const fn end(&self) -> u32 {
@@ -219,7 +252,9 @@ pub trait Source {
         let _ = drive;
         cut.forbid();
         if cut.was_cut() {
-            return Err(Error::host("gravity: a cut claim reached a range site that cannot follow the cut"));
+            return Err(Error::host(
+                "gravity: a cut claim reached a range site that cannot follow the cut",
+            ));
         }
         Ok(())
     }
@@ -248,7 +283,9 @@ pub trait Source {
             let mut w = Window::over(&mut site);
             let n = self.window(&mut w)?;
             if n > 0 && (w.is_answered() || w.lanes().iter().any(|l| l.ptr.ptr().is_null())) {
-                return Err(Error::host("gravity: the row protocol over an answered window or an undecoded lane"));
+                return Err(Error::host(
+                    "gravity: the row protocol over an answered window or an undecoded lane",
+                ));
             }
             self.cursor_mut().take(&w);
             if n == 0 {
@@ -365,10 +402,20 @@ pub struct SiteCalls {
 }
 
 impl SiteCalls {
-    pub const NONE: SiteCalls = SiteCalls { next: None, lane: None, fetch: None, dict: None };
+    pub const NONE: SiteCalls = SiteCalls {
+        next: None,
+        lane: None,
+        fetch: None,
+        dict: None,
+    };
 
     pub fn of<S: Source + 'static>() -> SiteCalls {
-        SiteCalls { next: Some(crate::hostimpl::source::next::<S>), lane: Some(crate::hostimpl::source::lane::<S>), fetch: Some(crate::hostimpl::source::fetch::<S>), dict: Some(crate::hostimpl::source::dict_value::<S>) }
+        SiteCalls {
+            next: Some(crate::hostimpl::source::next::<S>),
+            lane: Some(crate::hostimpl::source::lane::<S>),
+            fetch: Some(crate::hostimpl::source::fetch::<S>),
+            dict: Some(crate::hostimpl::source::dict_value::<S>),
+        }
     }
 }
 
@@ -414,13 +461,21 @@ pub enum Outcome {
 
 pub trait Writer {
     fn bind(&mut self, b: &BindingRef<'_>) -> Result<()>;
-    fn write(&mut self, op: WriteOp, pos: ScanPos, values: &[Datum], isnull: &[u8]) -> Result<Outcome>;
+    fn write(
+        &mut self,
+        op: WriteOp,
+        pos: ScanPos,
+        values: &[Datum],
+        isnull: &[u8],
+    ) -> Result<Outcome>;
     fn recheck_pos(&self) -> ScanPos {
         ScanPos::NONE
     }
     /// After `Outcome::Conflict`: the locked conflicting row's cells, its position returned (the update's).
     fn existing(&mut self, _values: &mut [Datum], _isnull: &mut [u8]) -> Result<ScanPos> {
-        Err(Error::host("gravity: a conflict outcome from a writer without ON CONFLICT DO UPDATE"))
+        Err(Error::host(
+            "gravity: a conflict outcome from a writer without ON CONFLICT DO UPDATE",
+        ))
     }
     /// After `Outcome::Done` of a write whose plan fetches the replaced version (`WritePlan.old`, RETURNING OLD, M4-RET
     /// R4a): that version's cells into the old site (the write site's successor); `false` without one.
@@ -445,7 +500,9 @@ pub trait Writer {
     /// D655 Row C (V4R-534, `WRITE_EPQ_ROW`): after `Outcome::Recheck`, the newest version the recheck locked: its cells
     /// into the write site, its position returned, pinned until the next such call or unbind. Without one: an error.
     fn epq_row(&mut self, _values: &mut [Datum], _isnull: &mut [u8]) -> Result<ScanPos> {
-        Err(Error::host("gravity: an EvalPlanQual row from a writer that keeps no locked version"))
+        Err(Error::host(
+            "gravity: an EvalPlanQual row from a writer that keeps no locked version",
+        ))
     }
     /// ON CONFLICT DO UPDATE (`WRITE_CONFLICT_CHECK`): after `Outcome::Conflict` and the arm's WHERE, the row-level security
     /// check over the existing row (WCO_RLS_CONFLICT_CHECK). A writer with no such policies checks nothing.
@@ -455,11 +512,21 @@ pub trait Writer {
     /// W6-D1112: after `Outcome::SubPlan`, the parked call's words (gravity_abi::program's `SUB_*` layout), alive until
     /// the resume.
     fn sub_call(&mut self) -> Result<*mut u64> {
-        Err(Error::host("gravity: a SubPlan call from a writer that parks none"))
+        Err(Error::host(
+            "gravity: a SubPlan call from a writer that parks none",
+        ))
     }
     /// W6-D1112: the parked row op resumed over the same row, its SubPlan's result in the call's words.
-    fn resume(&mut self, _op: WriteOp, _pos: ScanPos, _values: &[Datum], _isnull: &[u8]) -> Result<Outcome> {
-        Err(Error::host("gravity: a SubPlan resume on a writer that parks none"))
+    fn resume(
+        &mut self,
+        _op: WriteOp,
+        _pos: ScanPos,
+        _values: &[Datum],
+        _isnull: &[u8],
+    ) -> Result<Outcome> {
+        Err(Error::host(
+            "gravity: a SubPlan resume on a writer that parks none",
+        ))
     }
     /// Gives back what `bind` took. D4602: also after a failed bind, on the host whose bind failed partway and on hosts
     /// never bound (`Node::apply`'s and a worker slot's failure paths): what a partial bind took is given back, and a host
@@ -483,13 +550,22 @@ pub trait Locker {
     /// RL1b: after `Outcome::Recheck`, the newest version the lock traversed to (the EPQ test tuple): its cells into
     /// the lock site, its position returned. Never locks again (D604). A locker without cells refuses.
     fn existing(&mut self, _values: &mut [Datum], _isnull: &mut [u8]) -> Result<ScanPos> {
-        Err(Error::host("gravity: a lock host without the locked row's cells"))
+        Err(Error::host(
+            "gravity: a lock host without the locked row's cells",
+        ))
     }
     /// REFFETCH (`LockSite::FETCH`): an in-IR recheck's REFERENCE-marked row, EvalPlanQualFetchRowMark's: the
     /// version at `pos` (its relation, its tid) under SnapshotAny, its cells into `values` / `isnull`, its position
     /// returned; nothing is locked. By-reference cells point into its pinned buffer until the next fetch or unbind.
-    fn fetch(&mut self, _pos: ScanPos, _values: &mut [Datum], _isnull: &mut [u8]) -> Result<ScanPos> {
-        Err(Error::host("gravity: a lock host that fetches no joined row"))
+    fn fetch(
+        &mut self,
+        _pos: ScanPos,
+        _values: &mut [Datum],
+        _isnull: &mut [u8],
+    ) -> Result<ScanPos> {
+        Err(Error::host(
+            "gravity: a lock host that fetches no joined row",
+        ))
     }
     /// D604: the node runs as an EvalPlanQual recheck (`on`) until `epq(false)` or unbind. PG's EvalPlanQual re-evaluates the
     /// plan below LockRows over the rows ExecLockRows already locked and never locks again, so a lock in the recheck node

@@ -41,7 +41,10 @@ fn print_mixed_struct(out: &mut String, var: &GucVariable) {
             out.push_str(&format!("REAL\t0\t{}\t{}\t", fmt_g(c.min), fmt_g(c.max)));
         }
         GucVariable::String(c) => {
-            out.push_str(&format!("STRING\t{}\t\t\t", c.boot_val.as_deref().unwrap_or("")));
+            out.push_str(&format!(
+                "STRING\t{}\t\t\t",
+                c.boot_val.as_deref().unwrap_or("")
+            ));
         }
         GucVariable::Enum(c) => {
             out.push_str(&format!(
@@ -61,8 +64,9 @@ fn print_mixed_struct(out: &mut String, var: &GucVariable) {
 /// environment — in get_guc_variables order (guc.c:890 guc_var_compare),
 /// one printMixedStruct line per displayable variable.
 pub fn guc_info_text() -> String {
-    let mut vars: Vec<GucVariable> =
-        all_settings().filter_map(crate::store::build_variable).collect();
+    let mut vars: Vec<GucVariable> = all_settings()
+        .filter_map(crate::store::build_variable)
+        .collect();
     vars.sort_by(|a, b| guc_name_compare(&a.gen().name, &b.gen().name));
     let mut out = String::with_capacity(64 * 1024);
     for var in &vars {

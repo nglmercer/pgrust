@@ -27,8 +27,8 @@ use types_error::PgResult;
 
 use memledger::ChargedVec;
 
-use crate::ops::{Frame, Live, Prepare, Protocol};
 use crate::glue;
+use crate::ops::{Frame, Live, Prepare, Protocol};
 
 /// L0-k's read of an InitPlan param (raw.rs, its unsafe half): exec pruning's and a rerun set's, by this path.
 pub(crate) use super::raw::read_param;
@@ -108,8 +108,24 @@ impl Copies {
     /// Empty, charged to `owner` (on its kind lane) as it fills; `None`: uncharged.
     pub(super) fn new(owner: Option<(memledger::Owner, memledger::Kind)>) -> Copies {
         match owner {
-            Some((o, k)) => Copies { charge: memledger::Charge::open(o, memledger::charge::release_of(o), k, memledger::charge::Door::Heap, 0), on: true, words: 0, v: Vec::new() }, // alloc: Exec charged o
-            None => Copies { charge: memledger::Charge::NONE, on: false, words: 0, v: Vec::new() }, // alloc: Exec
+            Some((o, k)) => Copies {
+                charge: memledger::Charge::open(
+                    o,
+                    memledger::charge::release_of(o),
+                    k,
+                    memledger::charge::Door::Heap,
+                    0,
+                ),
+                on: true,
+                words: 0,
+                v: Vec::new(),
+            }, // alloc: Exec charged o
+            None => Copies {
+                charge: memledger::Charge::NONE,
+                on: false,
+                words: 0,
+                v: Vec::new(),
+            }, // alloc: Exec
         }
     }
 
@@ -123,7 +139,8 @@ impl Copies {
 
     /// The bytes the copies hold: each copy's block and the list's.
     fn bytes(&self) -> u64 {
-        (self.v.capacity() * core::mem::size_of::<Box<[u64]>>() + self.words * core::mem::size_of::<u64>()) as u64
+        (self.v.capacity() * core::mem::size_of::<Box<[u64]>>()
+            + self.words * core::mem::size_of::<u64>()) as u64
     }
 
     /// The charge brought to `bytes` on this thread (R2: after every change).
@@ -150,7 +167,12 @@ impl Copies {
     /// `other`'s copies moved in whole (their addresses hold), its charge taken over (`Charge::absorb`: moved to this one's
     /// owner when another); an uncharged `other`'s bytes are committed here by the refit (the leader allocated them).
     pub(super) fn extend(&mut self, other: Copies) {
-        let Copies { charge, on, words, v } = other;
+        let Copies {
+            charge,
+            on,
+            words,
+            v,
+        } = other;
         self.words += words;
         if self.on && on {
             self.charge.absorb(charge);
@@ -206,7 +228,9 @@ impl Live for InitLive {
             return Ok(());
         }
         let state = super::raw::own_state(&self.cell);
-        let Some(mut f) = self.rt.frame.get() else { return Ok(()) };
+        let Some(mut f) = self.rt.frame.get() else {
+            return Ok(());
+        };
         if state.load(Ordering::Acquire) != NOT_RUN {
             return Ok(());
         }
@@ -215,7 +239,8 @@ impl Live for InitLive {
         let ran = super::raw::on_demand(&mut f).prerun_members(pipeline, &self.rt.members);
         if crate::inputs::knobs::seam::report_on() && !matches!(ran, Ok(false)) {
             let what = if ran.is_ok() { "ran" } else { "failed" };
-            let _ = elog::ereport(types_error::LOG).errmsg(format!("gravity: nest.initplan {what} its members {:?} ahead of reader pipeline {pipeline} (D1035 step 2)", self.rt.members)).errhidestmt(true).errhidecontext(true).finish(types_error::ErrorLocation::new("gravity", 0, "initplan")); // alloc: Cold
+            let _ = elog::ereport(types_error::LOG).errmsg(format!("gravity: nest.initplan {what} its members {:?} ahead of reader pipeline {pipeline} (D1035 step 2)", self.rt.members)).errhidestmt(true).errhidecontext(true).finish(types_error::ErrorLocation::new("gravity", 0, "initplan"));
+            // alloc: Cold
         }
         match ran {
             Ok(true) => state.store(DONE, Ordering::Release),
@@ -237,20 +262,45 @@ impl Protocol for Init {
     fn prepare(&self, p: &Proto, cx: &mut Prepare<'_>) -> PgResult<Option<Box<dyn Live>>> {
         // D3865: the members once per admission (a nested statement's Init is laid at every call)
         let program = cx.program;
-        let members = match core::ptr::eq(program, &*cx.admitted.program) {
-            true => cx.admitted.memo.members(program.pipelines.len(), p.pipeline as usize, || members_of(p, program))?,
-            false => members_of(p, program)?,
-        };
-        lay(p, program, Some(members), cx.owner, cx.words, cx.nulls, cx.nparams).map(Some)
+        let members =
+            match core::ptr::eq(program, &*cx.admitted.program) {
+                true => cx.admitted.memo.members(
+                    program.pipelines.len(),
+                    p.pipeline as usize,
+                    || members_of(p, program),
+                )?,
+                false => members_of(p, program)?,
+            };
+        lay(
+            p,
+            program,
+            Some(members),
+            cx.owner,
+            cx.words,
+            cx.nulls,
+            cx.nparams,
+        )
+        .map(Some)
     }
 }
 
 /// M8 (RT-1): the M8 lives of `program` alone (Init; RT-2a / RT-2c's SubHash and SubResult), laid as exec's prepare lays
 /// them (the handle words): the crate rig's (lowerv4 tests/common), which drives a program through the driver without
 /// exec's `State`. The rig skips each live's `deferred` pipelines and publishes its own frame to each (`Live::frame`).
-pub fn prepare_bare(program: &gravity_program::Program, words: &mut [u64], nulls: &mut [u8], nparams: &mut usize, out: &mut crate::ops::LiveList) -> PgResult<()> {
+pub fn prepare_bare(
+    program: &gravity_program::Program,
+    words: &mut [u64],
+    nulls: &mut [u8],
+    nparams: &mut usize,
+    out: &mut crate::ops::LiveList,
+) -> PgResult<()> {
     let protos = program.v4.as_ref().map_or(&[][..], |d| &d.protos[..]);
-    let mut b = crate::ops::subplan::hash::Bare { program, words, nulls, nparams };
+    let mut b = crate::ops::subplan::hash::Bare {
+        program,
+        words,
+        nulls,
+        nparams,
+    };
     let lay_one = |p: &Proto, b: &mut crate::ops::subplan::hash::Bare<'_>| match p.kind {
         ProtoKind::Init => lay(p, b.program, None, None, b.words, b.nulls, b.nparams).map(Some),
         ProtoKind::SubHash => crate::ops::subplan::hash::lay_set(p, b).map(Some),
@@ -280,7 +330,10 @@ pub(crate) fn eager(p: &Proto) -> bool {
 
 /// The Init's members (`p` and its exclusive producers), their slots checked as the members' alone.
 fn members_of(p: &Proto, program: &gravity_program::Program) -> PgResult<Box<[u16]>> {
-    let members = program.members(p.pipeline as usize).members.into_boxed_slice(); // alloc: Exec
+    let members = program
+        .members(p.pipeline as usize)
+        .members
+        .into_boxed_slice(); // alloc: Exec
     exclusive_slots(program, &members, "nest.initplan")?;
     Ok(members)
 }
@@ -296,18 +349,44 @@ fn charged<T>(owner: Option<(memledger::Owner, memledger::Kind)>) -> ChargedVec<
 /// One Init proto's cell and state, its handle laid in its word; its `members` when the caller kept them. The state's
 /// lists kept for the execution are charged to `owner` (the execution's prepare owner, `Prepare::owner`; `None`: uncharged).
 #[allow(clippy::too_many_arguments)]
-fn lay(p: &Proto, program: &gravity_program::Program, members: Option<Box<[u16]>>, owner: Option<(memledger::Owner, memledger::Kind)>, words: &mut [u64], nulls: &mut [u8], nparams: &mut usize) -> PgResult<Box<dyn Live>> {
+fn lay(
+    p: &Proto,
+    program: &gravity_program::Program,
+    members: Option<Box<[u16]>>,
+    owner: Option<(memledger::Owner, memledger::Kind)>,
+    words: &mut [u64],
+    nulls: &mut [u8],
+    nparams: &mut usize,
+) -> PgResult<Box<dyn Live>> {
     let (n, first) = (abi::init_pairs(p.arg) as usize, abi::init_first(p.arg));
     let base = p.words.base as usize;
-    if n == 0 || n > MAX_PAIRS || p.words.n != 1 || base >= words.len() || base >= nulls.len() || p.pipeline as usize >= program.pipelines.len() {
+    if n == 0
+        || n > MAX_PAIRS
+        || p.words.n != 1
+        || base >= words.len()
+        || base >= nulls.len()
+        || p.pipeline as usize >= program.pipelines.len()
+    {
         return Err(glue::internal("gravity: nest.initplan's declaration is not its Init cell's (1 to INIT_MAX_PAIRS pairs, one handle word)"));
     }
     let members = match members {
         Some(m) => m,
         None => members_of(p, program)?,
     };
-    let reader = (p.peer != gravity_program::protos::NONE && p.arg & abi::INIT_EAGER != 0).then_some(p.peer as usize);
-    let rt = Box::new(InitRt { first, members, frame: Cell::new(None), copies: RefCell::new(Copies::new(owner)), reader, epq: Cell::new(false), armed: RefCell::new(None), keyed: RefCell::new(charged(owner)), ran: RefCell::new(charged(owner)), exists: p.arg & abi::INIT_EXISTS != 0 }); // alloc: Exec
+    let reader = (p.peer != gravity_program::protos::NONE && p.arg & abi::INIT_EAGER != 0)
+        .then_some(p.peer as usize);
+    let rt = Box::new(InitRt {
+        first,
+        members,
+        frame: Cell::new(None),
+        copies: RefCell::new(Copies::new(owner)),
+        reader,
+        epq: Cell::new(false),
+        armed: RefCell::new(None),
+        keyed: RefCell::new(charged(owner)),
+        ran: RefCell::new(charged(owner)),
+        exists: p.arg & abi::INIT_EXISTS != 0,
+    }); // alloc: Exec
     let nwords = abi::init_pair(n) / 8 + 1;
     let mut cell = vec![0u64; nwords].into_boxed_slice(); // alloc: Exec
     super::raw::lay_cell(&mut cell, n, &rt);
@@ -320,7 +399,11 @@ fn lay(p: &Proto, program: &gravity_program::Program, members: Option<Box<[u16]>
 /// The wall behind lowerv4's renumbering of deferred slots (D1005's renumber_deferred, M8's members added): a member's
 /// slot number no pipeline outside the members produces or reads, so a nested run never re-opens a slot a running
 /// pipeline holds. A miss is an ERROR by name at the execution's prepare, never a clobber.
-pub(crate) fn exclusive_slots(program: &gravity_program::Program, members: &[u16], what: &str) -> PgResult<()> {
+pub(crate) fn exclusive_slots(
+    program: &gravity_program::Program,
+    members: &[u16],
+    what: &str,
+) -> PgResult<()> {
     let ps = &program.pipelines;
     match shared_slot(ps.len(), members, |q| ps[q].produces(), |q| ps[q].consumes) {
         Some((m, s, q)) => Err(glue::internal(&format!("gravity: {what}: member pipeline {m}'s slot {s} is also pipeline {q}'s (a deferred slot not renumbered)"))), // alloc: Cold
@@ -329,11 +412,19 @@ pub(crate) fn exclusive_slots(program: &gravity_program::Program, members: &[u16
 }
 
 /// The first member slot a non-member also produces or reads: `(member, slot, the other pipeline)`.
-fn shared_slot<'a>(n: usize, members: &[u16], produces: impl Fn(usize) -> Option<u8>, consumes: impl Fn(usize) -> &'a [u8]) -> Option<(u16, u8, usize)> {
+fn shared_slot<'a>(
+    n: usize,
+    members: &[u16],
+    produces: impl Fn(usize) -> Option<u8>,
+    consumes: impl Fn(usize) -> &'a [u8],
+) -> Option<(u16, u8, usize)> {
     let member = |q: usize| u16::try_from(q).is_ok_and(|q| members.binary_search(&q).is_ok());
     members.iter().find_map(|&m| {
         let s = produces(m as usize)?;
-        (0..n).filter(|&q| !member(q)).find(|&q| produces(q) == Some(s) || consumes(q).contains(&s)).map(|q| (m, s, q))
+        (0..n)
+            .filter(|&q| !member(q))
+            .find(|&q| produces(q) == Some(s) || consumes(q).contains(&s))
+            .map(|q| (m, s, q))
     })
 }
 
@@ -365,13 +456,21 @@ struct CarriedInit {
 
 /// The Init protos a rewind carries: all but those a rerun set holds, which the set re-arms at each of its runs (D1262).
 fn carried(protos: &[Proto]) -> impl Iterator<Item = &Proto> {
-    protos.iter().filter(move |p| p.kind == ProtoKind::Init && !protos.iter().any(|q| q.kind == ProtoKind::Rerun && q.pipeline == p.pipeline))
+    protos.iter().filter(move |p| {
+        p.kind == ProtoKind::Init
+            && !protos
+                .iter()
+                .any(|q| q.kind == ProtoKind::Rerun && q.pipeline == p.pipeline)
+    })
 }
 
 /// D2647, as the run that may be rewound closes: each carried Init of `program` that ran, read from `words` (the run's bound
 /// words; its protocols still alive): its pairs, and its copies moved out.
 pub fn carry_out(program: &gravity_program::Program, words: &[u64]) -> Carried {
-    carry_from(program.v4.as_ref().map_or(&[][..], |d| &d.protos[..]), words)
+    carry_from(
+        program.v4.as_ref().map_or(&[][..], |d| &d.protos[..]),
+        words,
+    )
 }
 
 fn carry_from(protos: &[Proto], words: &[u64]) -> Carried {
@@ -379,7 +478,11 @@ fn carry_from(protos: &[Proto], words: &[u64]) -> Carried {
     for p in carried(protos) {
         let base = p.words.base as usize;
         if let Some((pairs, copies)) = words.get(base).and_then(|&w| super::raw::take_done(w)) {
-            out.push(CarriedInit { base, pairs, copies }); // alloc: Exec
+            out.push(CarriedInit {
+                base,
+                pairs,
+                copies,
+            }); // alloc: Exec
         }
     }
     Carried(out)
@@ -390,7 +493,8 @@ fn carry_from(protos: &[Proto], words: &[u64]) -> Carried {
 pub fn carry_in(words: &[u64], kept: &mut Carried) -> PgResult<()> {
     for k in kept.0.drain(..) {
         let w = words.get(k.base).copied().unwrap_or(0);
-        super::raw::lay_done(w, &k.pairs, k.copies).map_err(|why| bad(&format!("D2647: {why}")))?; // alloc: Cold
+        super::raw::lay_done(w, &k.pairs, k.copies).map_err(|why| bad(&format!("D2647: {why}")))?;
+        // alloc: Cold
     }
     Ok(())
 }
@@ -411,8 +515,8 @@ pub(super) fn bad(what: &str) -> Box<types_error::PgError> {
 #[cfg(test)]
 #[allow(unsafe_code)]
 mod tests {
-    use super::*;
     use super::super::raw::op;
+    use super::*;
     use gravity_abi::Ctx;
 
     /// A frame that records the member runs and answers with `then`; a run ahead (D1035 step 2) answers `wide`.
@@ -430,7 +534,14 @@ mod tests {
 
     impl Rec {
         fn new(then: Option<gravity_driver::Error>) -> Rec {
-            Rec { runs: Vec::new(), then, wide: false, ahead: Vec::new(), reruns: Vec::new(), copy_to: 0 } // alloc: Cold
+            Rec {
+                runs: Vec::new(),
+                then,
+                wide: false,
+                ahead: Vec::new(),
+                reruns: Vec::new(),
+                copy_to: 0,
+            } // alloc: Cold
         }
 
         /// The run's cell end (`copy_to`): run k's value is the varlena "value k".
@@ -438,9 +549,14 @@ mod tests {
             if self.copy_to != 0 {
                 // the run was recorded already: run k (from 0) is the (k + 1)th
                 let v = format!("\x0bvalue {}", self.runs.len() + self.reruns.len() - 1); // alloc: Cold
-                // SAFETY: `copy_to` is a live cell's handle (the test's), pair 0's value word inside it
+                                                                                          // SAFETY: `copy_to` is a live cell's handle (the test's), pair 0's value word inside it
                 unsafe {
-                    let at = abi::m8_init_copy(core::ptr::null_mut(), self.copy_to, v.as_ptr(), v.len() as u64);
+                    let at = abi::m8_init_copy(
+                        core::ptr::null_mut(),
+                        self.copy_to,
+                        v.as_ptr(),
+                        v.len() as u64,
+                    );
                     *(self.copy_to as *mut u64).add(abi::init_pair(0) / 8) = at as u64;
                 }
             }
@@ -460,7 +576,11 @@ mod tests {
             self.then.take().map_or(Ok(()), Err)
         }
 
-        fn prerun_members(&mut self, reader: usize, members: &[u16]) -> gravity_driver::Result<bool> {
+        fn prerun_members(
+            &mut self,
+            reader: usize,
+            members: &[u16],
+        ) -> gravity_driver::Result<bool> {
             self.ahead.push((reader, members.to_vec())); // alloc: Cold
             match self.wide {
                 true => self.then.take().map_or(Ok(true), Err),
@@ -481,13 +601,23 @@ mod tests {
     }
 
     fn cell_state(l: &InitLive) -> &AtomicU32 {
-        unsafe { &*core::ptr::addr_of!((*l.cell.as_ptr().cast::<abi::InitCell>()).state).cast::<AtomicU32>() }
+        unsafe {
+            &*core::ptr::addr_of!((*l.cell.as_ptr().cast::<abi::InitCell>()).state)
+                .cast::<AtomicU32>()
+        }
     }
 
     /// A read on another thread (a worker: no frame), as the handle word and the returned pair's address.
     fn worker_read(l: &InitLive, paramid: i32) -> (i64, String) {
         let hw = h(l);
-        std::thread::scope(|s| s.spawn(move || { let r = unsafe { abi::m8_init_run(core::ptr::null_mut(), hw, paramid as u64) }; (r, message()) }).join().unwrap())
+        std::thread::scope(|s| {
+            s.spawn(move || {
+                let r = unsafe { abi::m8_init_run(core::ptr::null_mut(), hw, paramid as u64) };
+                (r, message())
+            })
+            .join()
+            .unwrap()
+        })
     }
 
     #[test]
@@ -498,9 +628,15 @@ mod tests {
         l.frame(Some(frame(&mut r)));
         let mut out = gravity_parallel::LateWords::none();
         l.late_words(2, &mut out).expect("another pipeline's start");
-        assert!(r.ahead.is_empty() && state(&l) == NOT_RUN, "only the reader's start runs ahead");
+        assert!(
+            r.ahead.is_empty() && state(&l) == NOT_RUN,
+            "only the reader's start runs ahead"
+        );
         l.late_words(3, &mut out).expect("the reader's start");
-        assert_eq!((r.ahead.clone(), state(&l), out.len()), (vec![(3usize, vec![0u16, 1])], DONE, 0)); // alloc: Cold
+        assert_eq!(
+            (r.ahead.clone(), state(&l), out.len()),
+            (vec![(3usize, vec![0u16, 1])], DONE, 0)
+        ); // alloc: Cold
         l.late_words(3, &mut out).expect("a later arm's start");
         assert_eq!(r.ahead.len(), 1, "once per execution");
         l.frame(None);
@@ -522,26 +658,49 @@ mod tests {
         let l = eager(7, &[0], 1);
         let mut r = Rec::new(None);
         l.frame(Some(frame(&mut r)));
-        l.late_words(1, &mut gravity_parallel::LateWords::none()).expect("the reader's start");
-        assert_eq!((r.ahead.len(), state(&l)), (1, NOT_RUN), "width 1: nothing ahead");
+        l.late_words(1, &mut gravity_parallel::LateWords::none())
+            .expect("the reader's start");
+        assert_eq!(
+            (r.ahead.len(), state(&l)),
+            (1, NOT_RUN),
+            "width 1: nothing ahead"
+        );
         let ctx: *mut Ctx = core::ptr::null_mut();
-        assert_eq!(unsafe { abi::m8_init_run(ctx, h(&l), 7) }, h(&l) as i64 + 24);
-        assert_eq!(r.runs, [[0u16]], "the first read runs the members nested, as before");
+        assert_eq!(
+            unsafe { abi::m8_init_run(ctx, h(&l), 7) },
+            h(&l) as i64 + 24
+        );
+        assert_eq!(
+            r.runs,
+            [[0u16]],
+            "the first read runs the members nested, as before"
+        );
     }
 
     #[test]
     fn errorhold_a_run_aheads_error_is_the_readers_start_error_and_the_statement_rechecks() {
         let l = eager(7, &[0], 1);
-        let mut r = Rec::new(Some(gravity_driver::Error::Refused("an InitPlan member's error".into())));
+        let mut r = Rec::new(Some(gravity_driver::Error::Refused(
+            "an InitPlan member's error".into(),
+        )));
         r.wide = true;
         l.frame(Some(frame(&mut r)));
-        let e = l.late_words(1, &mut gravity_parallel::LateWords::none()).expect_err("the run ahead's error is the reader's start's");
-        assert!(e.message().contains("an InitPlan member's error"), "{}", e.message());
+        let e = l
+            .late_words(1, &mut gravity_parallel::LateWords::none())
+            .expect_err("the run ahead's error is the reader's start's");
+        assert!(
+            e.message().contains("an InitPlan member's error"),
+            "{}",
+            e.message()
+        );
         assert_eq!(state(&l), FAILED);
         l.frame(None);
         let (w, _) = worker_read(&l, 7);
         assert_eq!(w, ERROR, "nothing reads a failed execution's pair");
-        assert!(r.runs.is_empty(), "never run again in this execution (the re-run is a new one)");
+        assert!(
+            r.runs.is_empty(),
+            "never run again in this execution (the re-run is a new one)"
+        );
     }
 
     #[test]
@@ -557,17 +716,39 @@ mod tests {
         let mut r = Rec::new(Some(gravity_driver::Error::Cancelled));
         r.wide = true;
         l.frame(Some(frame(&mut r)));
-        let e = l.late_words(1, &mut gravity_parallel::LateWords::none()).expect_err("a cancel is raised at once");
+        let e = l
+            .late_words(1, &mut gravity_parallel::LateWords::none())
+            .expect_err("a cancel is raised at once");
         assert_eq!(e.sqlstate(), types_error::ERRCODE_QUERY_CANCELED);
         assert_eq!(state(&l), FAILED);
     }
 
     fn live(paramid: i32, members: &[u16]) -> InitLive {
-        let rt = Box::new(InitRt { first: paramid, members: members.into(), frame: Cell::new(None), copies: RefCell::new(Copies::new(None)), reader: None, epq: Cell::new(false), armed: RefCell::new(None), keyed: RefCell::new(ChargedVec::none()), ran: RefCell::new(ChargedVec::none()), exists: false }); // alloc: Cold
+        let rt = Box::new(InitRt {
+            first: paramid,
+            members: members.into(),
+            frame: Cell::new(None),
+            copies: RefCell::new(Copies::new(None)),
+            reader: None,
+            epq: Cell::new(false),
+            armed: RefCell::new(None),
+            keyed: RefCell::new(ChargedVec::none()),
+            ran: RefCell::new(ChargedVec::none()),
+            exists: false,
+        }); // alloc: Cold
         let words = abi::init_pair(1) / 8 + 1;
         let mut cell = vec![0u64; words].into_boxed_slice(); // alloc: Cold
         unsafe {
-            cell.as_mut_ptr().cast::<abi::InitCell>().write(abi::InitCell { head: abi::Head { magic: abi::INIT_MAGIC, op }, state: NOT_RUN, n: 1 });
+            cell.as_mut_ptr()
+                .cast::<abi::InitCell>()
+                .write(abi::InitCell {
+                    head: abi::Head {
+                        magic: abi::INIT_MAGIC,
+                        op,
+                    },
+                    state: NOT_RUN,
+                    n: 1,
+                });
             *cell.as_mut_ptr().add(words - 1) = &*rt as *const InitRt as u64;
         }
         InitLive { cell, rt }
@@ -580,11 +761,19 @@ mod tests {
     fn frame(r: &mut Rec) -> Frame {
         let p: *mut (dyn gravity_driver::OnDemand + '_) = r;
         // SAFETY: the test keeps `r` alive past every use of the frame.
-        NonNull::new(unsafe { core::mem::transmute::<*mut (dyn gravity_driver::OnDemand + '_), *mut (dyn gravity_driver::OnDemand + 'static)>(p) }).unwrap()
+        NonNull::new(unsafe {
+            core::mem::transmute::<
+                *mut (dyn gravity_driver::OnDemand + '_),
+                *mut (dyn gravity_driver::OnDemand + 'static),
+            >(p)
+        })
+        .unwrap()
     }
 
     fn message() -> String {
-        gravity_fn::take_error().map(|e| e.message().to_owned()).unwrap_or_default()
+        gravity_fn::take_error()
+            .map(|e| e.message().to_owned())
+            .unwrap_or_default()
     }
 
     #[test]
@@ -598,7 +787,11 @@ mod tests {
         l.frame(None);
         let third = unsafe { abi::m8_init_run(ctx, h(&l), 7) };
         assert_eq!(first, h(&l) as i64 + 24);
-        assert_eq!((again, third), (first, first), "a done Init needs no frame and runs no member again");
+        assert_eq!(
+            (again, third),
+            (first, first),
+            "a done Init needs no frame and runs no member again"
+        );
         assert_eq!(r.runs, [[2u16, 3, 5]]);
         assert!(l.deferred(3) && !l.deferred(4));
     }
@@ -610,7 +803,11 @@ mod tests {
         l.frame(Some(frame(&mut r)));
         let ctx: *mut Ctx = core::ptr::null_mut();
         rearm(cell_state(&l)).expect("a cell that never ran");
-        assert_eq!(state(&l), NOT_RUN, "nothing to re-arm: the first read runs it");
+        assert_eq!(
+            state(&l),
+            NOT_RUN,
+            "nothing to re-arm: the first read runs it"
+        );
         let first = unsafe { abi::m8_init_run(ctx, h(&l), 7) };
         rearm(cell_state(&l)).expect("a done cell");
         assert_eq!(state(&l), STALE, "re-armed, not run");
@@ -618,9 +815,15 @@ mod tests {
         let second = unsafe { abi::m8_init_run(ctx, h(&l), 7) };
         let third = unsafe { abi::m8_init_run(ctx, h(&l), 7) };
         assert_eq!((first, second, third), (h(&l) as i64 + 24, first, first));
-        assert_eq!((r.runs.clone(), r.reruns.clone(), state(&l)), (vec![vec![2u16, 3]], vec![vec![2u16, 3]], DONE)); // alloc: Cold
+        assert_eq!(
+            (r.runs.clone(), r.reruns.clone(), state(&l)),
+            (vec![vec![2u16, 3]], vec![vec![2u16, 3]], DONE)
+        ); // alloc: Cold
         cell_state(&l).store(RUNNING, Ordering::Relaxed);
-        assert!(rearm(cell_state(&l)).is_err(), "a re-arm inside the run errors by name");
+        assert!(
+            rearm(cell_state(&l)).is_err(),
+            "a re-arm inside the run errors by name"
+        );
     }
 
     /// D4442: a cell a rerun set re-arms frees its previous run's by-reference copies at its run again, as PostgreSQL's
@@ -641,8 +844,16 @@ mod tests {
             assert_eq!(pair, h(&l) as i64 + 24);
             let at = unsafe { *(pair as *const u64) } as *const u8;
             let want = format!("\x0bvalue {i}"); // alloc: Cold
-            assert_eq!(unsafe { core::slice::from_raw_parts(at, want.len()) }, want.as_bytes(), "run {i} reads its own value");
-            assert_eq!(l.rt.copies.borrow().len(), 1, "run {i}: one run's copy held, the earlier runs' freed");
+            assert_eq!(
+                unsafe { core::slice::from_raw_parts(at, want.len()) },
+                want.as_bytes(),
+                "run {i} reads its own value"
+            );
+            assert_eq!(
+                l.rt.copies.borrow().len(),
+                1,
+                "run {i}: one run's copy held, the earlier runs' freed"
+            );
         }
         assert_eq!((r.runs.len(), r.reruns.len()), (1, 63));
     }
@@ -660,16 +871,41 @@ mod tests {
         let pair = unsafe { abi::m8_init_run(ctx, h(&l), 7) } as *const u64;
         let first = unsafe { *pair };
         let a = super::super::raw::epq_arm(h(&l)).expect("a done cell with a frame is armed");
-        assert_eq!((state(&l), l.rt.copies.borrow().len()), (STALE, 0), "the arming holds the first run's copy");
-        assert!(unsafe { abi::m8_init_run(ctx, h(&l), 7) } > 0, "the recheck's read runs the members again");
+        assert_eq!(
+            (state(&l), l.rt.copies.borrow().len()),
+            (STALE, 0),
+            "the arming holds the first run's copy"
+        );
+        assert!(
+            unsafe { abi::m8_init_run(ctx, h(&l), 7) } > 0,
+            "the recheck's read runs the members again"
+        );
         assert_ne!(unsafe { *pair }, first, "the recheck's own value");
         super::super::raw::epq_back(a);
-        assert_eq!((state(&l), unsafe { *pair }), (DONE, first), "the statement's pair back");
-        assert!(l.rt.copies.borrow().iter().any(|b| b.as_ptr() as u64 == first), "the copy it points into is the cell's again");
-        assert_eq!(unsafe { core::slice::from_raw_parts(first as *const u8, 8) }, b"\x0bvalue 0", "and alive");
+        assert_eq!(
+            (state(&l), unsafe { *pair }),
+            (DONE, first),
+            "the statement's pair back"
+        );
+        assert!(
+            l.rt.copies
+                .borrow()
+                .iter()
+                .any(|b| b.as_ptr() as u64 == first),
+            "the copy it points into is the cell's again"
+        );
+        assert_eq!(
+            unsafe { core::slice::from_raw_parts(first as *const u8, 8) },
+            b"\x0bvalue 0",
+            "and alive"
+        );
         rearm(cell_state(&l)).expect("a done cell");
         assert!(unsafe { abi::m8_init_run(ctx, h(&l), 7) } > 0);
-        assert_eq!(l.rt.copies.borrow().len(), 1, "a run again frees the statement's and the recheck's copies");
+        assert_eq!(
+            l.rt.copies.borrow().len(),
+            1,
+            "a run again frees the statement's and the recheck's copies"
+        );
     }
 
     #[test]
@@ -695,7 +931,10 @@ mod tests {
         assert_eq!(unsafe { abi::m8_init_run(ctx, h(&l), 1) }, ERROR);
         let _ = message();
         assert_eq!(unsafe { abi::m8_init_run(ctx, h(&l), 1) }, ERROR);
-        assert_eq!(message(), "gravity: m8_init_run: the InitPlan failed earlier in this execution");
+        assert_eq!(
+            message(),
+            "gravity: m8_init_run: the InitPlan failed earlier in this execution"
+        );
         assert_eq!(r.runs.len(), 1);
     }
 
@@ -706,7 +945,10 @@ mod tests {
         assert_eq!(unsafe { abi::m8_init_run(ctx, h(&l), 4) }, ERROR);
         assert!(message().starts_with("gravity: m8_init_run: no runner frame"));
         assert_eq!(unsafe { abi::m8_init_run(ctx, h(&l), 5) }, ERROR);
-        assert_eq!(message(), "gravity: m8_init_run: exec param 5 is not this InitPlan's (4 to 4)");
+        assert_eq!(
+            message(),
+            "gravity: m8_init_run: exec param 5 is not this InitPlan's (4 to 4)"
+        );
     }
 
     #[test]
@@ -728,7 +970,10 @@ mod tests {
         let ctx: *mut Ctx = core::ptr::null_mut();
         let at = unsafe { abi::m8_init_copy(ctx, h(&l), bytes.as_ptr(), bytes.len() as u64) };
         assert!(at > 0 && at % 8 == 0);
-        assert_eq!(unsafe { core::slice::from_raw_parts(at as *const u8, bytes.len()) }, &bytes);
+        assert_eq!(
+            unsafe { core::slice::from_raw_parts(at as *const u8, bytes.len()) },
+            &bytes
+        );
         assert_eq!(l.rt.copies.borrow().len(), 1);
     }
 
@@ -739,41 +984,93 @@ mod tests {
     }
 
     #[test]
-    fn d2647_a_rewind_carries_each_done_cell_and_its_copies_but_never_a_rerun_sets_or_one_not_run() {
+    fn d2647_a_rewind_carries_each_done_cell_and_its_copies_but_never_a_rerun_sets_or_one_not_run()
+    {
         // a ran, b ran but a rerun set holds it, c never ran
         let (a, b, c) = (live(7, &[2]), live(8, &[3]), live(9, &[4]));
         let mut r = Rec::new(None);
-        [&a, &b, &c].iter().for_each(|l| l.frame(Some(frame(&mut r))));
+        [&a, &b, &c]
+            .iter()
+            .for_each(|l| l.frame(Some(frame(&mut r))));
         let ctx: *mut Ctx = core::ptr::null_mut();
         let bytes = *b"\x0bhello, world";
         let at = unsafe { abi::m8_init_copy(ctx, h(&a), bytes.as_ptr(), bytes.len() as u64) };
-        assert!(unsafe { abi::m8_init_run(ctx, h(&a), 7) } > 0 && unsafe { abi::m8_init_run(ctx, h(&b), 8) } > 0);
+        assert!(
+            unsafe { abi::m8_init_run(ctx, h(&a), 7) } > 0
+                && unsafe { abi::m8_init_run(ctx, h(&b), 8) } > 0
+        );
         unsafe { *(h(&a) as *mut u64).add(abi::init_pair(0) / 8) = at as u64 };
-        let protos = [init_proto(2, 0), init_proto(3, 1), Proto::new(ProtoKind::Rerun, 3), init_proto(4, 2)];
+        let protos = [
+            init_proto(2, 0),
+            init_proto(3, 1),
+            Proto::new(ProtoKind::Rerun, 3),
+            init_proto(4, 2),
+        ];
         let mut kept = carry_from(&protos, &[h(&a), h(&b), h(&c)]);
-        assert_eq!(kept.0.len(), 1, "only a: b's set re-decides it, c runs at its first read");
-        assert!(a.rt.copies.borrow().is_empty(), "the copies moved out with the pairs");
+        assert_eq!(
+            kept.0.len(),
+            1,
+            "only a: b's set re-decides it, c runs at its first read"
+        );
+        assert!(
+            a.rt.copies.borrow().is_empty(),
+            "the copies moved out with the pairs"
+        );
         drop((a, b, c));
         let (a2, b2, c2) = (live(7, &[2]), live(8, &[3]), live(9, &[4]));
         carry_in(&[h(&a2), h(&b2), h(&c2)], &mut kept).expect("the reopened cells");
         assert!(kept.0.is_empty());
-        assert_eq!((state(&a2), state(&b2), state(&c2)), (DONE, NOT_RUN, NOT_RUN));
+        assert_eq!(
+            (state(&a2), state(&b2), state(&c2)),
+            (DONE, NOT_RUN, NOT_RUN)
+        );
         let pair = unsafe { abi::m8_init_run(ctx, h(&a2), 7) };
-        assert_eq!(pair, h(&a2) as i64 + 24, "a done cell answers with no frame and runs nothing");
+        assert_eq!(
+            pair,
+            h(&a2) as i64 + 24,
+            "a done cell answers with no frame and runs nothing"
+        );
         assert_eq!(unsafe { *(pair as *const u64) }, at as u64);
-        assert_eq!(unsafe { core::slice::from_raw_parts(at as *const u8, bytes.len()) }, &bytes, "the copy outlived its first execution");
+        assert_eq!(
+            unsafe { core::slice::from_raw_parts(at as *const u8, bytes.len()) },
+            &bytes,
+            "the copy outlived its first execution"
+        );
         assert_eq!((r.runs.len(), a2.rt.copies.borrow().len()), (2, 1));
         let mut again = carry_from(&protos, &[h(&a2), h(&b2), h(&c2)]);
-        assert!(carry_in(&[0, h(&b2), h(&c2)], &mut again).is_err(), "a carried word that is no Init cell errors by name");
+        assert!(
+            carry_in(&[0, h(&b2), h(&c2)], &mut again).is_err(),
+            "a carried word that is no Init cell errors by name"
+        );
     }
 
     #[test]
     fn a_multiexpr_cells_param_k_reads_pair_k_and_read_param_runs_the_members_first() {
-        let rt = Box::new(InitRt { first: 10, members: [4u16].into(), frame: Cell::new(None), copies: RefCell::new(Copies::new(None)), reader: None, epq: Cell::new(false), armed: RefCell::new(None), keyed: RefCell::new(ChargedVec::none()), ran: RefCell::new(ChargedVec::none()), exists: false }); // alloc: Cold
+        let rt = Box::new(InitRt {
+            first: 10,
+            members: [4u16].into(),
+            frame: Cell::new(None),
+            copies: RefCell::new(Copies::new(None)),
+            reader: None,
+            epq: Cell::new(false),
+            armed: RefCell::new(None),
+            keyed: RefCell::new(ChargedVec::none()),
+            ran: RefCell::new(ChargedVec::none()),
+            exists: false,
+        }); // alloc: Cold
         let words = abi::init_pair(2) / 8 + 1;
         let mut cell = vec![0u64; words].into_boxed_slice(); // alloc: Cold
         unsafe {
-            cell.as_mut_ptr().cast::<abi::InitCell>().write(abi::InitCell { head: abi::Head { magic: abi::INIT_MAGIC, op }, state: NOT_RUN, n: 2 });
+            cell.as_mut_ptr()
+                .cast::<abi::InitCell>()
+                .write(abi::InitCell {
+                    head: abi::Head {
+                        magic: abi::INIT_MAGIC,
+                        op,
+                    },
+                    state: NOT_RUN,
+                    n: 2,
+                });
             *cell.as_mut_ptr().add(words - 1) = &*rt as *const InitRt as u64;
         }
         // pair 0 (param 10): 77, not null; pair 1 (param 11): NULL
@@ -784,11 +1081,20 @@ mod tests {
         assert_eq!(read_param(h(&l), 10).expect("param 10"), (77, 0));
         assert_eq!(read_param(h(&l), 11).expect("param 11"), (0, 1));
         let ctx: *mut Ctx = core::ptr::null_mut();
-        assert_eq!(unsafe { abi::m8_init_run(ctx, h(&l), 11) }, h(&l) as i64 + 40);
+        assert_eq!(
+            unsafe { abi::m8_init_run(ctx, h(&l), 11) },
+            h(&l) as i64 + 40
+        );
         assert_eq!(unsafe { abi::m8_init_run(ctx, h(&l), 12) }, ERROR);
-        assert_eq!(message(), "gravity: m8_init_run: exec param 12 is not this InitPlan's (10 to 11)");
+        assert_eq!(
+            message(),
+            "gravity: m8_init_run: exec param 12 is not this InitPlan's (10 to 11)"
+        );
         assert_eq!(r.runs.len(), 1, "one run for both params");
-        assert!(read_param(0, 10).is_err(), "a word that is no Init cell errors by name");
+        assert!(
+            read_param(0, 10).is_err(),
+            "a word that is no Init cell errors by name"
+        );
     }
 
     /// D2673: a done cell a recheck arms runs its members again at the recheck's read and goes back to the statement's run
@@ -797,7 +1103,8 @@ mod tests {
     #[test]
     fn d2673_a_recheck_runs_a_fresh_init_again_once_and_the_run_keeps_its_value() {
         use super::super::raw::{epq_arm, epq_back};
-        let pair0 = |l: &InitLive| unsafe { (l.cell.as_ptr() as *mut u64).add(abi::init_pair(0) / 8) };
+        let pair0 =
+            |l: &InitLive| unsafe { (l.cell.as_ptr() as *mut u64).add(abi::init_pair(0) / 8) };
         let l = live(7, &[3]);
         assert!(epq_arm(h(&l)).is_none(), "no frame: left alone");
         let mut r = Rec::new(None);
@@ -811,8 +1118,15 @@ mod tests {
         epq_back(a);
         assert_eq!(state(&l), DONE);
         assert_eq!(read_param(h(&l), 7).expect("the run's next read"), (41, 0));
-        assert_eq!((r.runs.len(), r.reruns.len()), (1, 1), "one run, one run again (the recheck's)");
-        assert!(epq_arm(h(&l)).is_none(), "a later recheck reads the run's value");
+        assert_eq!(
+            (r.runs.len(), r.reruns.len()),
+            (1, 1),
+            "one run, one run again (the recheck's)"
+        );
+        assert!(
+            epq_arm(h(&l)).is_none(),
+            "a later recheck reads the run's value"
+        );
         let p = live(8, &[4]);
         p.frame(Some(frame(&mut r)));
         let a = epq_arm(h(&p)).expect("a pending cell is armed");
@@ -822,7 +1136,11 @@ mod tests {
         let a = epq_arm(h(&p)).expect("still armable");
         read_param(h(&p), 8).expect("the recheck's read");
         epq_back(a);
-        assert_eq!(state(&p), STALE, "the recheck ran it: the run's next read runs it again");
+        assert_eq!(
+            state(&p),
+            STALE,
+            "the recheck ran it: the run's next read runs it again"
+        );
         assert!(epq_arm(h(&p)).is_none());
     }
 
@@ -831,28 +1149,45 @@ mod tests {
     /// the run its own value; no later recheck arms it again.
     #[test]
     fn d3272_an_ir_recheck_arms_a_cell_until_its_put_back() {
-        let pair0 = |l: &InitLive| unsafe { (l.cell.as_ptr() as *mut u64).add(abi::init_pair(0) / 8) };
+        let pair0 =
+            |l: &InitLive| unsafe { (l.cell.as_ptr() as *mut u64).add(abi::init_pair(0) / 8) };
         let ctx: *mut Ctx = core::ptr::null_mut();
         let l = live(7, &[3]);
         let mut r = Rec::new(None);
         l.frame(Some(frame(&mut r)));
         read_param(h(&l), 7).expect("the run's read");
         unsafe { *pair0(&l) = 41 };
-        assert_eq!(unsafe { abi::m8_init_epq(ctx, h(&l), 0) }, 0, "a put back with no arming kept");
+        assert_eq!(
+            unsafe { abi::m8_init_epq(ctx, h(&l), 0) },
+            0,
+            "a put back with no arming kept"
+        );
         assert_eq!(state(&l), DONE);
         assert_eq!(unsafe { abi::m8_init_epq(ctx, h(&l), 1) }, 0);
-        assert_eq!(unsafe { abi::m8_init_epq(ctx, h(&l), 1) }, 0, "a second arm keeps the first");
+        assert_eq!(
+            unsafe { abi::m8_init_epq(ctx, h(&l), 1) },
+            0,
+            "a second arm keeps the first"
+        );
         assert_eq!(state(&l), STALE);
         read_param(h(&l), 7).expect("the recheck's read");
         unsafe { *pair0(&l) = 42 };
         assert_eq!(unsafe { abi::m8_init_epq(ctx, h(&l), 0) }, 0);
         assert_eq!(state(&l), DONE);
         assert_eq!(read_param(h(&l), 7).expect("the run's next read"), (41, 0));
-        assert_eq!((r.runs.len(), r.reruns.len()), (1, 1), "one run, one run again (the recheck's)");
+        assert_eq!(
+            (r.runs.len(), r.reruns.len()),
+            (1, 1),
+            "one run, one run again (the recheck's)"
+        );
         assert_eq!(unsafe { abi::m8_init_epq(ctx, h(&l), 1) }, 0);
         assert_eq!(state(&l), DONE, "a later recheck reads the run's value");
         assert_eq!(unsafe { abi::m8_init_epq(ctx, h(&l), 0) }, 0);
-        assert_eq!(unsafe { abi::m8_init_epq(ctx, 0, 1) }, ERROR, "a word that is no Init cell");
+        assert_eq!(
+            unsafe { abi::m8_init_epq(ctx, 0, 1) },
+            ERROR,
+            "a word that is no Init cell"
+        );
     }
 
     /// D3274: keyed armings: each EvalPlanQual state, by key and by whether another arming is open below it, runs the
@@ -860,7 +1195,8 @@ mod tests {
     /// is its own, and `INIT_EPQ_END` ends a state so its next recheck arms afresh.
     #[test]
     fn d3274_a_keyed_state_runs_a_fresh_init_once_until_it_ends() {
-        let pair0 = |l: &InitLive| unsafe { (l.cell.as_ptr() as *mut u64).add(abi::init_pair(0) / 8) };
+        let pair0 =
+            |l: &InitLive| unsafe { (l.cell.as_ptr() as *mut u64).add(abi::init_pair(0) / 8) };
         let ctx: *mut Ctx = core::ptr::null_mut();
         let l = live(7, &[3]);
         let mut r = Rec::new(None);
@@ -876,18 +1212,29 @@ mod tests {
         assert_eq!(call(op(abi::INIT_EPQ_BACK, 1)), 0);
         assert_eq!(read_param(h(&l), 7).expect("the run's read"), (41, 0));
         assert_eq!(call(op(abi::INIT_EPQ_ARM, 1)), 0);
-        assert_eq!(state(&l), DONE, "the same state again reads the run's value");
+        assert_eq!(
+            state(&l),
+            DONE,
+            "the same state again reads the run's value"
+        );
         assert_eq!(call(op(abi::INIT_EPQ_BACK, 1)), 0);
         assert_eq!(call(op(abi::INIT_EPQ_ARM, 2)), 0);
         assert_eq!(state(&l), STALE, "the write's state arms it");
         read_param(h(&l), 7).expect("the write recheck's read");
         unsafe { *pair0(&l) = 43 };
         assert_eq!(call(op(abi::INIT_EPQ_ARM, 1)), 0);
-        assert_eq!(state(&l), STALE, "the lock's state inside the write's is its own");
+        assert_eq!(
+            state(&l),
+            STALE,
+            "the lock's state inside the write's is its own"
+        );
         read_param(h(&l), 7).expect("the nested lock recheck's read");
         unsafe { *pair0(&l) = 44 };
         assert_eq!(call(op(abi::INIT_EPQ_BACK, 1)), 0);
-        assert_eq!(read_param(h(&l), 7).expect("the write recheck's next read"), (43, 0));
+        assert_eq!(
+            read_param(h(&l), 7).expect("the write recheck's next read"),
+            (43, 0)
+        );
         assert_eq!(call(op(abi::INIT_EPQ_BACK, 2)), 0);
         assert_eq!(read_param(h(&l), 7).expect("the run's next read"), (41, 0));
         assert_eq!(call(op(abi::INIT_EPQ_END, 1)), 0);
@@ -895,8 +1242,16 @@ mod tests {
         assert_eq!(state(&l), STALE, "an ended state arms it afresh");
         assert_eq!(call(op(abi::INIT_EPQ_BACK, 1)), 0);
         assert_eq!(state(&l), DONE, "not read: as it was");
-        assert_eq!((r.runs.len(), r.reruns.len()), (1, 3), "one run, three runs again (one per state)");
-        assert_eq!(call(op(abi::INIT_EPQ_BACK, 1)), 0, "a put back with none kept");
+        assert_eq!(
+            (r.runs.len(), r.reruns.len()),
+            (1, 3),
+            "one run, three runs again (one per state)"
+        );
+        assert_eq!(
+            call(op(abi::INIT_EPQ_BACK, 1)),
+            0,
+            "a put back with none kept"
+        );
     }
 
     /// An Init's by-reference copies are on the execution's prepare owner from their push to their
@@ -914,25 +1269,52 @@ mod tests {
                 let mut c = Copies::new(Some((o, memledger::Kind::Region)));
                 c.push(vec![7u64; 1000].into_boxed_slice()); // alloc: Cold
                 let one = row() - base;
-                assert_eq!(one as u64, c.bytes(), "the copy's block and the list's are on the owner");
+                assert_eq!(
+                    one as u64,
+                    c.bytes(),
+                    "the copy's block and the list's are on the owner"
+                );
                 assert!(one >= 8000, "{one}");
                 let armed = c.take();
-                assert_eq!((c.len(), armed.len()), (0, 1), "the take moves the copies out whole");
-                assert_eq!(row() - base, one, "and their bytes with them, still on the owner");
+                assert_eq!(
+                    (c.len(), armed.len()),
+                    (0, 1),
+                    "the take moves the copies out whole"
+                );
+                assert_eq!(
+                    row() - base,
+                    one,
+                    "and their bytes with them, still on the owner"
+                );
                 c.push(vec![1u64; 10].into_boxed_slice()); // alloc: Cold
                 let at = armed[0].as_ptr();
                 c.extend(armed);
                 assert_eq!(c.len(), 2);
-                assert!(c.iter().any(|b| b.as_ptr() == at), "the put back keeps the copy's address");
-                assert_eq!((row() - base) as u64, c.bytes(), "the put back's charge taken over, no byte twice");
+                assert!(
+                    c.iter().any(|b| b.as_ptr() == at),
+                    "the put back keeps the copy's address"
+                );
+                assert_eq!(
+                    (row() - base) as u64,
+                    c.bytes(),
+                    "the put back's charge taken over, no byte twice"
+                );
                 c.clear();
                 assert_eq!(row(), base, "a run again's clear gives every byte back");
                 c.push(vec![2u64; 100].into_boxed_slice()); // alloc: Cold
                 let mut uncharged = Copies::new(None);
                 uncharged.push(vec![3u64; 50].into_boxed_slice()); // alloc: Cold
-                assert_eq!(uncharged.charge.committed(), 0, "no owner: the bytes stay on the thread's account");
+                assert_eq!(
+                    uncharged.charge.committed(),
+                    0,
+                    "no owner: the bytes stay on the thread's account"
+                );
                 c.extend(uncharged);
-                assert_eq!((row() - base) as u64, c.bytes(), "an uncharged carry's bytes are committed at the extend");
+                assert_eq!(
+                    (row() - base) as u64,
+                    c.bytes(),
+                    "an uncharged carry's bytes are committed at the extend"
+                );
             }
             assert_eq!(row(), base, "the drop gives them back");
             memledger::statement_end();

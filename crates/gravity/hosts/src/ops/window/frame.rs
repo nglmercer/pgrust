@@ -25,7 +25,7 @@ struct Key {
 pub(crate) struct Frame {
     pub(crate) fo: i32,
     part: Vec<Key>, // alloc: Exec
-    ord: Vec<Key>, // alloc: Exec
+    ord: Vec<Key>,  // alloc: Exec
     /// The start / end in_range functions (RANGE with an offset), the order column and the comparison's options.
     in_range: [Option<FmgrInfo>; 2],
     sort_col: usize,
@@ -66,27 +66,53 @@ fn keys(n: i32, cols: &[i16], ops: &[Oid], colls: &[Oid]) -> PgResult<Vec<Key>> 
     if cols.len() < n || ops.len() < n || colls.len() < n {
         return Err(bad("window.agg: key arrays shorter than their count"));
     }
-    (0..n).map(|i| {
-        let col = cols[i] as usize;
-        if col == 0 {
-            return Err(bad("window.agg: a key column 0"));
-        }
-        Ok(Key { col: col - 1, f: fmgr_core::fmgr_info(lsyscache::get_opcode(ops[i])?)?, coll: colls[i] })
-    }).collect()
+    (0..n)
+        .map(|i| {
+            let col = cols[i] as usize;
+            if col == 0 {
+                return Err(bad("window.agg: a key column 0"));
+            }
+            Ok(Key {
+                col: col - 1,
+                f: fmgr_core::fmgr_info(lsyscache::get_opcode(ops[i])?)?,
+                coll: colls[i],
+            })
+        })
+        .collect()
 }
 
 impl Frame {
     pub(crate) fn new(s: &WinSpec, root: &MemoryContext) -> PgResult<Frame> {
         let w = s.plan;
         let fo = w.frameOptions;
-        let part = keys(w.partNumCols, w.partColIdx, w.partOperators, w.partCollations)?;
+        let part = keys(
+            w.partNumCols,
+            w.partColIdx,
+            w.partOperators,
+            w.partCollations,
+        )?;
         let ord = keys(w.ordNumCols, w.ordColIdx, w.ordOperators, w.ordCollations)?;
         if part.iter().chain(ord.iter()).any(|k| k.col >= s.natts) {
             return Err(bad("window.agg: a key past the child's columns"));
         }
         let range_off = fo & FRAMEOPTION_RANGE != 0;
-        let bind = |on: bool, f: Oid| -> PgResult<Option<FmgrInfo>> { if on { Ok(Some(fmgr_core::fmgr_info(f)?)) } else { Ok(None) } };
-        let in_range = [bind(range_off && fo & FRAMEOPTION_START_OFFSET != 0, w.startInRangeFunc)?, bind(range_off && fo & FRAMEOPTION_END_OFFSET != 0, w.endInRangeFunc)?];
+        let bind = |on: bool, f: Oid| -> PgResult<Option<FmgrInfo>> {
+            if on {
+                Ok(Some(fmgr_core::fmgr_info(f)?))
+            } else {
+                Ok(None)
+            }
+        };
+        let in_range = [
+            bind(
+                range_off && fo & FRAMEOPTION_START_OFFSET != 0,
+                w.startInRangeFunc,
+            )?,
+            bind(
+                range_off && fo & FRAMEOPTION_END_OFFSET != 0,
+                w.endInRangeFunc,
+            )?,
+        ];
         let sort_col = ord.first().map_or(0, |k| k.col);
         let groups_or_range = fo & (FRAMEOPTION_RANGE | FRAMEOPTION_GROUPS) != 0;
         let has_ord = w.ordNumCols != 0;
@@ -117,8 +143,12 @@ impl Frame {
             grouphead: 0,
             grouptail: -1,
             gt_valid: false,
-            head_ptr: groups_or_range && (fo & FRAMEOPTION_START_CURRENT_ROW != 0 && has_ord || fo & FRAMEOPTION_START_OFFSET != 0),
-            tail_ptr: groups_or_range && (fo & FRAMEOPTION_END_CURRENT_ROW != 0 && has_ord || fo & FRAMEOPTION_END_OFFSET != 0),
+            head_ptr: groups_or_range
+                && (fo & FRAMEOPTION_START_CURRENT_ROW != 0 && has_ord
+                    || fo & FRAMEOPTION_START_OFFSET != 0),
+            tail_ptr: groups_or_range
+                && (fo & FRAMEOPTION_END_CURRENT_ROW != 0 && has_ord
+                    || fo & FRAMEOPTION_END_OFFSET != 0),
             gt_ptr: fo & (FRAMEOPTION_EXCLUDE_GROUP | FRAMEOPTION_EXCLUDE_TIES) != 0 && has_ord,
         })
     }
@@ -132,7 +162,9 @@ impl Frame {
     }
 
     fn offset(&self, i: usize) -> PgResult<Datum> {
-        self.off.map(|o| o[i]).ok_or_else(|| bad("window.agg: a frame offset read before m10_win_offsets"))
+        self.off
+            .map(|o| o[i])
+            .ok_or_else(|| bad("window.agg: a frame offset read before m10_win_offsets"))
     }
 }
 
@@ -142,21 +174,38 @@ impl Rt {
         // D1368: the key functions' first call reads the catalog (lookup_type_cache); window pipelines are leader-only (the
         // fill Ineligible{Sink}, the reader site-less): an eligible one must bind the keys catalog-free first.
         // D3336: a parted object's keys are catalog-free builtins (`object::pool_safe`), compared on its claim's thread
-        debug_assert!(self.spec.parted || !crate::worker_arm::is_armed(), "window.agg: a key comparison on a pool thread (D1368)");
-        let n = if part { self.f.part.len() } else { self.f.ord.len() };
+        debug_assert!(
+            self.spec.parted || !crate::worker_arm::is_armed(),
+            "window.agg: a key comparison on a pool thread (D1368)"
+        );
+        let n = if part {
+            self.f.part.len()
+        } else {
+            self.f.ord.len()
+        };
         // bounded("key-columns: one compare per partition or order key of two rows; PG polls no deeper (a datum compare is one unit there too), at most MaxTupleAttributeNumber (1664) keys")
         for i in 0..n {
-            let col = if part { self.f.part[i].col } else { self.f.ord[i].col };
+            let col = if part {
+                self.f.part[i].col
+            } else {
+                self.f.ord[i].col
+            };
             let (x, y) = (self.cell(a, col)?, self.cell(b, col)?);
             match (x.isnull, y.isnull) {
                 (true, true) => continue,
                 (true, false) | (false, true) => return Ok(false),
                 _ => {}
             }
-            let Frame { part: ps, ord: os, cmp, .. } = &mut self.f;
+            let Frame {
+                part: ps,
+                ord: os,
+                cmp,
+                ..
+            } = &mut self.f;
             let k = if part { &mut ps[i] } else { &mut os[i] };
             // D1368: the result context armed (a record / array equality allocates), reset after the call
-            let eq = types_fmgr::function_call2_coll_in(&mut k.f, k.coll, cmp.mcx(), x.value, y.value);
+            let eq =
+                types_fmgr::function_call2_coll_in(&mut k.f, k.coll, cmp.mcx(), x.value, y.value);
             cmp.reset();
             if !eq?.as_bool() {
                 return Ok(false);
@@ -190,7 +239,13 @@ impl Rt {
             }
             let Frame { part, cmp, .. } = &mut self.f;
             let k = &mut part[i];
-            let eq = types_fmgr::function_call2_coll_in(&mut k.f, k.coll, cmp.mcx(), x.value, Datum::from_u64(w));
+            let eq = types_fmgr::function_call2_coll_in(
+                &mut k.f,
+                k.coll,
+                cmp.mcx(),
+                x.value,
+                Datum::from_u64(w),
+            );
             cmp.reset();
             if !eq?.as_bool() {
                 return Ok(false);
@@ -212,8 +267,25 @@ impl Rt {
     /// checked that row `j` is stored).
     pub(crate) fn begin_partition(&mut self, j: u64) {
         let f = &mut self.f;
-        (f.pstart, f.n, f.spooled, f.next_partition, f.fh_valid, f.ft_valid, f.gt_valid) = (j, 1, false, false, false, false, false);
-        (f.cur, f.fh, f.ft, f.curgroup, f.fhgroup, f.ftgroup, f.grouphead, f.grouptail) = (0, 0, 0, 0, 0, 0, 0, -1);
+        (
+            f.pstart,
+            f.n,
+            f.spooled,
+            f.next_partition,
+            f.fh_valid,
+            f.ft_valid,
+            f.gt_valid,
+        ) = (j, 1, false, false, false, false, false);
+        (
+            f.cur,
+            f.fh,
+            f.ft,
+            f.curgroup,
+            f.fhgroup,
+            f.ftgroup,
+            f.grouphead,
+            f.grouptail,
+        ) = (0, 0, 0, 0, 0, 0, 0, -1);
     }
 
     /// PG `spool_tuples(winstate, pos)`: the partition's rows up to position `pos` (every row for a negative `pos`) spooled,
@@ -267,16 +339,39 @@ impl Rt {
 
     /// in_range(bound row `pos`'s order value, the current row's, the offset, sub, less) of `which` (0 start, 1 end),
     /// with PG's NULL ordering first: `Some(result)` when both are non-NULL, else `None` with the NULL flags.
-    fn in_range(&mut self, which: usize, pos: i64, sub: bool, less: bool) -> PgResult<Result<bool, (bool, bool)>> {
+    fn in_range(
+        &mut self,
+        which: usize,
+        pos: i64,
+        sub: bool,
+        less: bool,
+    ) -> PgResult<Result<bool, (bool, bool)>> {
         let p = self.f.pstart;
-        let (v, c) = (self.cell(p + pos as u64, self.f.sort_col)?, self.cell(p + self.f.cur as u64, self.f.sort_col)?);
+        let (v, c) = (
+            self.cell(p + pos as u64, self.f.sort_col)?,
+            self.cell(p + self.f.cur as u64, self.f.sort_col)?,
+        );
         if v.isnull || c.isnull {
             return Ok(Err((v.isnull, c.isnull)));
         }
         let off = self.f.offset(which)?;
         let (coll, mcx) = (self.f.in_coll, self.row_cx.mcx());
-        let Some(fi) = self.f.in_range[which].as_mut() else { return Err(bad("window.agg: a RANGE offset frame without its in_range function")) };
-        Ok(Ok(types_fmgr::function_call5_coll_in(fi, coll, mcx, v.value, c.value, off, Datum::from_bool(sub), Datum::from_bool(less))?.as_bool()))
+        let Some(fi) = self.f.in_range[which].as_mut() else {
+            return Err(bad(
+                "window.agg: a RANGE offset frame without its in_range function",
+            ));
+        };
+        Ok(Ok(types_fmgr::function_call5_coll_in(
+            fi,
+            coll,
+            mcx,
+            v.value,
+            c.value,
+            off,
+            Datum::from_bool(sub),
+            Datum::from_bool(less),
+        )?
+        .as_bool()))
     }
 
     /// PG `update_frameheadpos`.
@@ -304,7 +399,13 @@ impl Rt {
                     off = -off;
                 }
                 let fh = cur.checked_add(off).unwrap_or(i64::MAX);
-                self.f.fh = if fh < 0 { 0 } else if fh > cur + 1 { self.spool(fh - 1).map(|()| fh.min(self.f.n))? } else { fh };
+                self.f.fh = if fh < 0 {
+                    0
+                } else if fh > cur + 1 {
+                    self.spool(fh - 1).map(|()| fh.min(self.f.n))?
+                } else {
+                    fh
+                };
             } else if fo & FRAMEOPTION_RANGE != 0 {
                 let (mut sub, mut less) = (fo & FRAMEOPTION_START_OFFSET_PRECEDING != 0, false);
                 if !self.f.in_asc {
@@ -313,7 +414,13 @@ impl Rt {
                 while self.has(self.f.fh)? {
                     let stop = match self.in_range(0, self.f.fh, sub, less)? {
                         Ok(r) => r,
-                        Err((headnull, currnull)) => if self.f.in_nulls_first { !headnull || currnull } else { headnull || !currnull },
+                        Err((headnull, currnull)) => {
+                            if self.f.in_nulls_first {
+                                !headnull || currnull
+                            } else {
+                                headnull || !currnull
+                            }
+                        }
                     };
                     if stop {
                         break;
@@ -322,7 +429,11 @@ impl Rt {
                 }
             } else {
                 let off = self.f.offset(0)?.as_i64();
-                let min = if fo & FRAMEOPTION_START_OFFSET_PRECEDING != 0 { self.f.curgroup - off } else { self.f.curgroup.checked_add(off).unwrap_or(i64::MAX) };
+                let min = if fo & FRAMEOPTION_START_OFFSET_PRECEDING != 0 {
+                    self.f.curgroup - off
+                } else {
+                    self.f.curgroup.checked_add(off).unwrap_or(i64::MAX)
+                };
                 while self.f.fhgroup < min && self.has(self.f.fh)? {
                     self.f.fh += 1;
                     if self.has(self.f.fh)? && !self.are_peers(self.f.fh - 1, self.f.fh)? {
@@ -351,7 +462,9 @@ impl Rt {
             } else if self.f.ord.is_empty() {
                 self.f.ft = self.part_rows()?;
             } else {
-                while self.has(self.f.ft)? && (self.f.ft <= cur || self.are_peers(self.f.ft, cur)?) {
+                while self.has(self.f.ft)?
+                    && (self.f.ft <= cur || self.are_peers(self.f.ft, cur)?)
+                {
                     self.f.ft += 1;
                 }
             }
@@ -361,8 +474,17 @@ impl Rt {
                 if fo & FRAMEOPTION_END_OFFSET_PRECEDING != 0 {
                     off = -off;
                 }
-                let ft = cur.checked_add(off).and_then(|v| v.checked_add(1)).unwrap_or(i64::MAX);
-                self.f.ft = if ft < 0 { 0 } else if ft > cur + 1 { self.spool(ft - 1).map(|()| ft.min(self.f.n))? } else { ft };
+                let ft = cur
+                    .checked_add(off)
+                    .and_then(|v| v.checked_add(1))
+                    .unwrap_or(i64::MAX);
+                self.f.ft = if ft < 0 {
+                    0
+                } else if ft > cur + 1 {
+                    self.spool(ft - 1).map(|()| ft.min(self.f.n))?
+                } else {
+                    ft
+                };
             } else if fo & FRAMEOPTION_RANGE != 0 {
                 let (mut sub, mut less) = (fo & FRAMEOPTION_END_OFFSET_PRECEDING != 0, true);
                 if !self.f.in_asc {
@@ -371,7 +493,13 @@ impl Rt {
                 while self.has(self.f.ft)? {
                     let stop = match self.in_range(1, self.f.ft, sub, less)? {
                         Ok(r) => !r,
-                        Err((tailnull, currnull)) => if self.f.in_nulls_first { !tailnull } else { !currnull },
+                        Err((tailnull, currnull)) => {
+                            if self.f.in_nulls_first {
+                                !tailnull
+                            } else {
+                                !currnull
+                            }
+                        }
                     };
                     if stop {
                         break;
@@ -380,7 +508,11 @@ impl Rt {
                 }
             } else {
                 let off = self.f.offset(1)?.as_i64();
-                let max = if fo & FRAMEOPTION_END_OFFSET_PRECEDING != 0 { self.f.curgroup - off } else { self.f.curgroup.checked_add(off).unwrap_or(i64::MAX) };
+                let max = if fo & FRAMEOPTION_END_OFFSET_PRECEDING != 0 {
+                    self.f.curgroup - off
+                } else {
+                    self.f.curgroup.checked_add(off).unwrap_or(i64::MAX)
+                };
                 while self.f.ftgroup <= max && self.has(self.f.ft)? {
                     self.f.ft += 1;
                     if self.has(self.f.ft)? && !self.are_peers(self.f.ft - 1, self.f.ft)? {
@@ -448,7 +580,9 @@ impl Rt {
             if pos == cur {
                 return Ok(0);
             }
-        } else if fo & FRAMEOPTION_EXCLUDE_GROUP != 0 || fo & FRAMEOPTION_EXCLUDE_TIES != 0 && pos != cur {
+        } else if fo & FRAMEOPTION_EXCLUDE_GROUP != 0
+            || fo & FRAMEOPTION_EXCLUDE_TIES != 0 && pos != cur
+        {
             if self.f.ord.is_empty() {
                 return Ok(0);
             }

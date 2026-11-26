@@ -83,7 +83,12 @@ pub mod builtins {
     use ::types_fmgr::builtin_strict_retset as srf;
 
     pub const FOREIGN_BUILTINS: &[FmgrBuiltin] = &[
-        b(2316, "postgresql_fdw_validator", 2, fc_postgresql_fdw_validator,),
+        b(
+            2316,
+            "postgresql_fdw_validator",
+            2,
+            fc_postgresql_fdw_validator,
+        ),
         srf(2289, "pg_options_to_table", 1, fc_pg_options_to_table),
     ];
 }

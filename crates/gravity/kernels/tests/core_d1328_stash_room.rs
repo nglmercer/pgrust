@@ -18,7 +18,10 @@ fn laid_buffer_never_passes_the_stash_room() {
         while usable < floor + 300_000 {
             let sb = var_stash_bytes(usable, nruns);
             let (buf, room) = var_stash_room(usable, nruns, sb);
-            assert!(buf <= room, "nruns {nruns} usable {usable}: stash {sb}, run buffer {buf} past the room {room}");
+            assert!(
+                buf <= room,
+                "nruns {nruns} usable {usable}: stash {sb}, run buffer {buf} past the room {room}"
+            );
             layouts += 1;
             usable += step;
         }
@@ -29,9 +32,13 @@ fn laid_buffer_never_passes_the_stash_room() {
 /// The old cut (no 8 bytes for the floor) against the same layout: the gap the test above closes is real.
 #[test]
 fn the_old_cut_left_the_buffer_past_the_room() {
-    let old = |usable: usize, nruns: usize| 8 + (usable - fixed_bytes(nruns) - 8) / (nruns + 1) / 8 * 8;
+    let old =
+        |usable: usize, nruns: usize| 8 + (usable - fixed_bytes(nruns) - 8) / (nruns + 1) / 8 * 8;
     let over = (1..=64usize)
-        .flat_map(|n| (fixed_bytes(n) + 8 * (n + 2)..fixed_bytes(n) + 8 * (n + 2) + 20_000).map(move |u| (n, u)))
+        .flat_map(|n| {
+            (fixed_bytes(n) + 8 * (n + 2)..fixed_bytes(n) + 8 * (n + 2) + 20_000)
+                .map(move |u| (n, u))
+        })
         .filter(|&(n, u)| {
             let (buf, room) = var_stash_room(u, n, old(u, n));
             buf > room

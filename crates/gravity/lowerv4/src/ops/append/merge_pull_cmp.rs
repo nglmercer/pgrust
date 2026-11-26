@@ -20,14 +20,46 @@ use crate::rep::keylane::Key;
 /// comparator over the two held copies (called only then, never over the empty best `none`). A compare that raised leaves
 /// through `env.l_raise` (HOST: its error stashed).
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn less(b: &mut FunctionBuilder<'_>, env: &mut Env, keys: &[Key], pairs: &[Value], bp: &[Value], vals: &[Value], nulls: &[Value], bv: &[Value], none: Value) -> Value {
-    let h = b.declare_host_once("pull_key_cmp", &[Type::I64, Type::I64, Type::I64], Some(Type::I64), crate::ops::append::raw::pull_key_cmp as *const () as usize, HostFlags { may_error: true, ..HostFlags::default() });
-    let hh = b.declare_host_once("pull_key_hosted", &[Type::Ptr, Type::I64, Type::I64, Type::I64], Some(Type::I64), gravity_kernels::contract::entry3::<crate::ops::append::raw::PullKeyHosted> as *const () as usize, HostFlags { may_error: true, ..HostFlags::default() });
+pub(crate) fn less(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    keys: &[Key],
+    pairs: &[Value],
+    bp: &[Value],
+    vals: &[Value],
+    nulls: &[Value],
+    bv: &[Value],
+    none: Value,
+) -> Value {
+    let h = b.declare_host_once(
+        "pull_key_cmp",
+        &[Type::I64, Type::I64, Type::I64],
+        Some(Type::I64),
+        crate::ops::append::raw::pull_key_cmp as *const () as usize,
+        HostFlags {
+            may_error: true,
+            ..HostFlags::default()
+        },
+    );
+    let hh = b.declare_host_once(
+        "pull_key_hosted",
+        &[Type::Ptr, Type::I64, Type::I64, Type::I64],
+        Some(Type::I64),
+        gravity_kernels::contract::entry3::<crate::ops::append::raw::PullKeyHosted> as *const ()
+            as usize,
+        HostFlags {
+            may_error: true,
+            ..HostFlags::default()
+        },
+    );
     let (mut less, mut eq) = (b.bconst(false), b.bconst(true));
     for (i, key) in keys.iter().enumerate() {
         let mut lt_i = b.bconst(false);
         let mut eq_i = b.bconst(true);
-        for (w, p) in pairs[2 * i..2 * i + 2].iter().zip(bp[2 * i..2 * i + 2].iter()) {
+        for (w, p) in pairs[2 * i..2 * i + 2]
+            .iter()
+            .zip(bp[2 * i..2 * i + 2].iter())
+        {
             let lt = b.icmp(IntCond::Ult, *w, *p);
             let e = b.icmp(IntCond::Eq, *w, *p);
             let both = b.int_bin(IntBinOp::And, eq_i, lt);
@@ -49,7 +81,11 @@ pub(crate) fn less(b: &mut FunctionBuilder<'_>, env: &mut Env, keys: &[Key], pai
                 let coll = b.iconst(Type::I64, key.coll.oid as i64);
                 call_on(b, env, h, tie, &[vals[c], bv[c], coll], env.l_raise)
             };
-            let cmp = if key.desc { b.int_bin(IntBinOp::Sub, env.zero, cmp) } else { cmp };
+            let cmp = if key.desc {
+                b.int_bin(IntBinOp::Sub, env.zero, cmp)
+            } else {
+                cmp
+            };
             let lt_t = b.icmp(IntCond::Slt, cmp, env.zero);
             let eq_t = b.icmp(IntCond::Eq, cmp, env.zero);
             let tail_lt = b.int_bin(IntBinOp::And, eq_i, lt_t);
@@ -65,14 +101,26 @@ pub(crate) fn less(b: &mut FunctionBuilder<'_>, env: &mut Env, keys: &[Key], pai
 
 /// The comparator's −1 / 0 / 1 of the two copies `args` carry (with its collation) when `when` holds, else 0; its `2`
 /// (raised) leaves through `l_raise`.
-fn call_on(b: &mut FunctionBuilder<'_>, env: &mut Env, h: gravity_ir::HostFn, when: Value, args: &[Value], l_raise: Block) -> Value {
+fn call_on(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    h: gravity_ir::HostFn,
+    when: Value,
+    args: &[Value],
+    l_raise: Block,
+) -> Value {
     let (l_call, l_join) = (b.create_block(&[]), b.create_block(&[Type::I64]));
     b.cond_br(when, (l_call, &[]), (l_join, &[env.zero]));
     b.switch_to(l_call);
-    let r = b.call_host(h, args, Some(Type::I64)).expect("returns the order");
+    let r = b
+        .call_host(h, args, Some(Type::I64))
+        .expect("returns the order");
     let two = b.iconst(Type::I64, 2);
     let (raised, l_ok) = (b.icmp(IntCond::Eq, r, two), b.create_block(&[]));
-    let e = b.iconst(Type::I64, gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64);
+    let e = b.iconst(
+        Type::I64,
+        gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64,
+    );
     b.cond_br(raised, (l_raise, &[e]), (l_ok, &[]));
     b.switch_to(l_ok);
     b.br(l_join, &[r]);

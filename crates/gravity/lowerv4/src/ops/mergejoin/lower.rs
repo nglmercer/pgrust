@@ -36,8 +36,8 @@ pub(crate) use gravity_ir::{Block, IntBinOp, IntCond, Type, Value};
 pub(crate) use gravity_program::End;
 pub(crate) use types_nodes::jointype::JoinType;
 
+pub(crate) use crate::admit::refusal::{Reason, ShapeWhy};
 pub(crate) use crate::face::end::EndMech;
-pub(crate) use crate::ops::shared::lazy::{LazyImpl, LazyMech};
 pub(crate) use crate::face::kinds::{Face, KindId};
 pub(crate) use crate::face::runs::{SlotRun, SlotRunImpl};
 pub(crate) use crate::face::step::{Expand, ExpandKind, ExprFace, StepMech};
@@ -48,11 +48,17 @@ pub(crate) use crate::frame::px::{ExId, Px, WordKey};
 pub(crate) use crate::frame::row::{Carry, RowVals};
 pub(crate) use crate::frame::stop::{self, Exits, ResumeWord};
 pub(crate) use crate::graph::Gx;
-pub(crate) use crate::admit::refusal::{Reason, ShapeWhy};
+pub(crate) use crate::ops::shared::lazy::{LazyImpl, LazyMech};
 pub(crate) use crate::ops::Table;
 use mcx::{CollectIn, GrowIn, Mcx, PgBox, PgVec};
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::MergeJoin, &StepMaker(make)), (KindId::MergeJoin, &EndMaker(make_end))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[
+        (KindId::MergeJoin, &StepMaker(make)),
+        (KindId::MergeJoin, &EndMaker(make_end)),
+    ],
+    ..crate::ops::NONE
+};
 
 // PG's EXEC_MJ_* states (the word `W_ST`), plus DONE.
 pub(crate) const INIT_OUTER: u64 = 0;
@@ -135,8 +141,15 @@ pub(crate) struct Merge<'g> {
 /// The Materialize under a merge join: runs.sort's keyless run (runs/slot_run.rs).
 pub(crate) fn make_end<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn EndMech + 'g> {
     let node = px.gx.pipelines()[k].node_id;
-    let (mech, pulled) = (crate::frame::iface::kind_impl::<SlotRunImpl>(&node, KindId::RunsSort).0, crate::ops::mergejoin::exact_inner::pulled(px, k));
-    if pulled { mech.pulled_end(px, k) } else { mech.end(px, k) } // jmerge-0012: a pulled inner's end stops after each row
+    let (mech, pulled) = (
+        crate::frame::iface::kind_impl::<SlotRunImpl>(&node, KindId::RunsSort).0,
+        crate::ops::mergejoin::exact_inner::pulled(px, k),
+    );
+    if pulled {
+        mech.pulled_end(px, k)
+    } else {
+        mech.end(px, k)
+    } // jmerge-0012: a pulled inner's end stops after each row
 }
 
 /// A Material's own spool op in the pipeline that fills this kind's inner (graph.rs `pipe_kind`): its rows pass as they
@@ -144,7 +157,13 @@ pub(crate) fn make_end<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn EndMe
 pub(crate) struct Through;
 
 impl StepMech for Through {
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, next: Next<'_, 'e>) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        next: Next<'_, 'e>,
+    ) -> Carry<'e> {
         next(b, env, row)
     }
 }
@@ -156,57 +175,126 @@ pub(crate) fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn
     if matches!(p.ops.get(j), Some(Op::Join(JoinDesc::Spool))) {
         return mcx::pg_box_dyn!(mcx, Through => dyn StepMech + 'g);
     }
-    let node = p.node_ops.iter().rev().find(|n| n.first_op as usize <= j).map_or(p.node_id, |n| n.node_id);
-    let Some(Op::Join(JoinDesc::Merge { slot, jointype, clauses, reversals, nulls_first, families, collations, qual, unique, .. })) = p.ops.get(j) else {
-        crate::refuse!(node, Reason::Bug { payload: "a merge step over another op" })
+    let node = p
+        .node_ops
+        .iter()
+        .rev()
+        .find(|n| n.first_op as usize <= j)
+        .map_or(p.node_id, |n| n.node_id);
+    let Some(Op::Join(JoinDesc::Merge {
+        slot,
+        jointype,
+        clauses,
+        reversals,
+        nulls_first,
+        families,
+        collations,
+        qual,
+        unique,
+        ..
+    })) = p.ops.get(j)
+    else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a merge step over another op"
+            }
+        )
     };
     let jt = match *jointype {
-        JoinType::JOIN_INNER | JoinType::JOIN_LEFT | JoinType::JOIN_SEMI | JoinType::JOIN_ANTI | JoinType::JOIN_RIGHT | JoinType::JOIN_FULL | JoinType::JOIN_RIGHT_ANTI => *jointype,
+        JoinType::JOIN_INNER
+        | JoinType::JOIN_LEFT
+        | JoinType::JOIN_SEMI
+        | JoinType::JOIN_ANTI
+        | JoinType::JOIN_RIGHT
+        | JoinType::JOIN_FULL
+        | JoinType::JOIN_RIGHT_ANTI => *jointype,
         _ => shape(node, "a merge join of a type nodeMergejoin never runs"),
     };
     let fill_inner = crate::ops::mergejoin::fill_inner::fills_inner(jt);
     if let Err(why) = crate::ops::mergejoin::fill_inner::qual_ok(fill_inner, qual.iter()) {
         crate::refuse!(node, why)
     }
-    let Some(life) = gx.life_of(k, *slot) else { crate::refuse!(node, Reason::Bug { payload: "a merge without its inner" }) };
+    let Some(life) = gx.life_of(k, *slot) else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a merge without its inner"
+            }
+        )
+    };
     // MERGE R3 (ii), V4R-494: PG's ExecSort reads its whole subtree at INITIALIZE_INNER's first fetch (the first matchable
     // outer tuple); an INNER / LEFT / SEMI / ANTI join over a Sort-ended inner that may act runs it there (D824's lazy group)
     let inner = life.0 as usize;
     let pull = crate::ops::mergejoin::exact_inner::declare(px, (k, j), inner); // jmerge-0012: pulled as PG fetches it
-    // D2026: every arm of a UNION ALL inner fills the run (lazy_outer.rs `fillers`), not the last one alone
+                                                                               // D2026: every arm of a UNION ALL inner fills the run (lazy_outer.rs `fillers`), not the last one alone
     let fillers = crate::ops::mergejoin::lazy_outer::fillers(gx, k, *slot);
     // D3634: a nest loop's inner merge over a run filled once ahead of the owner (nest_inner.rs) takes no lazy group
     let nested = crate::ops::mergejoin::nest_inner::serves(gx, k, j);
     // Construct C2: the licences of the inner's run whole before the outer's first row (`Merge.ahead`)
     let mut ahead: PgVec<'_, gravity_decompose::effects::Licence> = PgVec::new_in(mcx);
     if nested {
-        let Some(l) = crate::ops::mergejoin::nest_inner::ahead(px, &fillers) else { shape(node, crate::rerun::inner::INNER_BEYOND_FORMS) };
+        let Some(l) = crate::ops::mergejoin::nest_inner::ahead(px, &fillers) else {
+            shape(node, crate::rerun::inner::INNER_BEYOND_FORMS)
+        };
         ahead.push_in(l);
     }
     let held_in = VCell::new(None); // D1236's held inner (held_inner.rs): its licence
-    // D3799: an INNER / LEFT / SEMI / ANTI merge fetches its outer first (MJ_INITIALIZE_OUTER) and stops on an empty one,
-    // so what the outer's first row ran to its end (lazy_outer.rs `first_whole`) never runs for the inner: River's
-    // conflicts read jobs_with_rownum, whose Sort read the FOR UPDATE claim whole before the merge's first inner fetch.
-    // Only where PG surely runs the merge: its pipeline writes (ModifyTable reads its plan to the end) and only filters
-    // and projections come before it
-    let sure = matches!(jt, JoinType::JOIN_INNER | JoinType::JOIN_LEFT | JoinType::JOIN_SEMI | JoinType::JOIN_ANTI)
-        && p.ops.iter().any(|o| matches!(o, Op::Write(_)))
-        && p.ops[..j].iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_)));
+                                    // D3799: an INNER / LEFT / SEMI / ANTI merge fetches its outer first (MJ_INITIALIZE_OUTER) and stops on an empty one,
+                                    // so what the outer's first row ran to its end (lazy_outer.rs `first_whole`) never runs for the inner: River's
+                                    // conflicts read jobs_with_rownum, whose Sort read the FOR UPDATE claim whole before the merge's first inner fetch.
+                                    // Only where PG surely runs the merge: its pipeline writes (ModifyTable reads its plan to the end) and only filters
+                                    // and projections come before it
+    let sure = matches!(
+        jt,
+        JoinType::JOIN_INNER | JoinType::JOIN_LEFT | JoinType::JOIN_SEMI | JoinType::JOIN_ANTI
+    ) && p.ops.iter().any(|o| matches!(o, Op::Write(_)))
+        && p.ops[..j]
+            .iter()
+            .all(|o| matches!(o, Op::Filter(_) | Op::Project(_)));
     let ran = match p.source {
-        Source::Breaker { slot: s } if sure => crate::ops::mergejoin::lazy_outer::first_whole(gx, k, s),
+        Source::Breaker { slot: s } if sure => {
+            crate::ops::mergejoin::lazy_outer::first_whole(gx, k, s)
+        }
         _ => PgVec::new_in(mcx),
     };
-    let acts_after = pull.is_none() && !nested && fillers.iter().any(|&x| crate::effects::visible::merge::inner_may_act_after(gx, x, &ran));
+    let acts_after = pull.is_none()
+        && !nested
+        && fillers
+            .iter()
+            .any(|&x| crate::effects::visible::merge::inner_may_act_after(gx, x, &ran));
     // a sealed inner whose fillers act nowhere after what PG ran first runs whole before the outer's first row: it departs
     // from nothing (the no-effects licence, as nest_inner.rs `ahead` reads a quiet inner)
     if pull.is_none() && !nested && !acts_after {
-        if let Some(l) = gravity_decompose::effects::unobservable(gravity_decompose::effects::Effects::NONE) {
+        if let Some(l) =
+            gravity_decompose::effects::unobservable(gravity_decompose::effects::Effects::NONE)
+        {
             px.hold(inner, &l);
             // Construct C2 (b): what fills and feeds the inner runs before it under the same licence, each one asked as the
             // inner was (its own walk finds nothing that acts after what PG ran first)
             if crate::frame::program::stamps_on() {
-                let src = |x: usize| if let Source::Breaker { slot } = gx.pipelines()[x].source { Some(slot) } else { None };
-                let fed = fillers.iter().flat_map(|&x| crate::ops::mergejoin::lazy_outer::lives(gx, x, gx.pipelines()[x].desc.consumes.iter().copied().chain(src(x)))).chain(fillers.iter().copied());
+                let src = |x: usize| {
+                    if let Source::Breaker { slot } = gx.pipelines()[x].source {
+                        Some(slot)
+                    } else {
+                        None
+                    }
+                };
+                let fed = fillers
+                    .iter()
+                    .flat_map(|&x| {
+                        crate::ops::mergejoin::lazy_outer::lives(
+                            gx,
+                            x,
+                            gx.pipelines()[x]
+                                .desc
+                                .consumes
+                                .iter()
+                                .copied()
+                                .chain(src(x)),
+                        )
+                    })
+                    .chain(fillers.iter().copied());
                 for x in fed.filter(|x| !ran.contains(x)) {
                     if !crate::effects::visible::merge::inner_may_act_after(gx, x, &ran) {
                         px.hold(x, &l);
@@ -320,24 +408,63 @@ pub(crate) fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn
         Some((consumed, lz))
     }).flatten();
     let ex: &'static ExprFace = crate::frame::iface::expr_face(&node);
-    let cmps = crate::ops::mergejoin::strategies::markable::compares(px, node, clauses, families, collations);
+    let cmps = crate::ops::mergejoin::strategies::markable::compares(
+        px, node, clauses, families, collations,
+    );
     let mut cs = mcx::reserved_in(cmps.len(), mcx);
     for (i, (o, n, c)) in cmps.into_iter().enumerate() {
-        let (outer, inner, cmp) = (ex.0.compile_at(px, (k, j), o, None, node), ex.0.compile_at(px, (k, j), n, None, node), ex.0.compile_at(px, (k, j), c, None, node));
-        let (Some(&desc), Some(&nulls_first)) = (reversals.get(i), nulls_first.get(i)) else { shape(node, "merge arrays shorter than the clauses") };
-        cs.push_in(Clause { outer, inner, cmp, desc, nulls_first });
+        let (outer, inner, cmp) = (
+            ex.0.compile_at(px, (k, j), o, None, node),
+            ex.0.compile_at(px, (k, j), n, None, node),
+            ex.0.compile_at(px, (k, j), c, None, node),
+        );
+        let (Some(&desc), Some(&nulls_first)) = (reversals.get(i), nulls_first.get(i)) else {
+            shape(node, "merge arrays shorter than the clauses")
+        };
+        cs.push_in(Clause {
+            outer,
+            inner,
+            cmp,
+            desc,
+            nulls_first,
+        });
     }
     let const_false = qual.iter().any(crate::ops::shared::dummy::never);
-    let qual: PgVec<'_, ExId> = qual.iter().map(|q| ex.0.compile_at(px, (k, j), q, None, node)).collect_in(mcx);
+    let qual: PgVec<'_, ExId> = qual
+        .iter()
+        .map(|q| ex.0.compile_at(px, (k, j), q, None, node))
+        .collect_in(mcx);
     let held = qual.iter().map(|&q| px.placed(q).held.len()).sum::<usize>() as u8;
     let mech = crate::frame::iface::kind_impl::<SlotRunImpl>(&node, KindId::RunsSort).0;
-    let run = if pull.is_some() { mech.pulled_reader(px, k, *slot) } else { mech.reader(px, k, *slot) };
-    let run = if let Some(held) = held_in.get() { crate::ops::mergejoin::held_inner::wrap(px, k, *slot, run, held) } else { run };
-    let offset = stop::resume_word(px, ResumeWord::StepOffset { k, j: crate::frame::px::key_j(j) });
+    let run = if pull.is_some() {
+        mech.pulled_reader(px, k, *slot)
+    } else {
+        mech.reader(px, k, *slot)
+    };
+    let run = if let Some(held) = held_in.get() {
+        crate::ops::mergejoin::held_inner::wrap(px, k, *slot, run, held)
+    } else {
+        run
+    };
+    let offset = stop::resume_word(
+        px,
+        ResumeWord::StepOffset {
+            k,
+            j: crate::frame::px::key_j(j),
+        },
+    );
     // (an outer whose first key is a NOT NULL scan column, through filters, projections and joins that keep the scan row, never reaches that key: D3494)
     let nn = matches!(&p.source, Source::Range { relid, .. } | Source::Index { relid, .. } if p.ops[..j].iter().all(crate::props::code::keeps_scan_row) &&clauses.iter().next().and_then(|c| c.as_op_expr()).and_then(|o| crate::props::code::scan_attno(p.ops[..j].iter(), o.args.nth(0))).and_then(|a| gx.facts.att(*relid, a)).is_some_and(|f| f.notnull));
     // (nor one with at most one NULL-keyed row, the last: a group keyed by that column alone, D1289's `one_null_row`)
-    let one = || clauses.iter().next().and_then(|c| c.as_op_expr()).is_some_and(|o| crate::ops::mergejoin::lazy_outer::one_null_row(gx, k, j, o.args.nth(0)));
+    let one = || {
+        clauses
+            .iter()
+            .next()
+            .and_then(|c| c.as_op_expr())
+            .is_some_and(|o| {
+                crate::ops::mergejoin::lazy_outer::one_null_row(gx, k, j, o.args.nth(0))
+            })
+    };
     // (D4106, S3 rkeep ra-hx8/m7-mj-left-in-lat: nor through what PG ran whole at the merge's first outer fetch: MJ_INITIALIZE_OUTER
     // pulls the outer's first tuple, and a full breaker's producer (a Sort's run: lazy_outer.rs `first_whole`) reads its
     // whole input there, before any key is seen, in both engines; only what runs per outer row after it may act past the key)
@@ -348,13 +475,30 @@ pub(crate) fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn
         };
         crate::effects::visible::merge::outer_may_act_after(gx, k, j, Some(*slot), &ran)
     };
-    if matches!(jt, JoinType::JOIN_RIGHT | JoinType::JOIN_RIGHT_ANTI) && cs.first().is_some_and(|c| !c.nulls_first) && !nn && acts_past() && !one() { shape(node, "a RIGHT merge join whose outer may act past its first NULLS LAST NULL key (PG fetches no outer past it: D1289)") }
+    if matches!(jt, JoinType::JOIN_RIGHT | JoinType::JOIN_RIGHT_ANTI)
+        && cs.first().is_some_and(|c| !c.nulls_first)
+        && !nn
+        && acts_past()
+        && !one()
+    {
+        shape(node, "a RIGHT merge join whose outer may act past its first NULLS LAST NULL key (PG fetches no outer past it: D1289)")
+    }
     let mut w = [0; 5];
-    for i in [W_ST, W_IP, W_MARK, W_MO].into_iter().chain(fill_inner.then_some(W_MI)) {
-        w[i as usize] = px.frame_word(WordKey::Open { face: Face::Merge, k, j: crate::frame::px::key_j(j), i }) as i32 * 8;
+    for i in [W_ST, W_IP, W_MARK, W_MO]
+        .into_iter()
+        .chain(fill_inner.then_some(W_MI))
+    {
+        w[i as usize] = px.frame_word(WordKey::Open {
+            face: Face::Merge,
+            k,
+            j: crate::frame::px::key_j(j),
+            i,
+        }) as i32
+            * 8;
     }
     let single = jt == JoinType::JOIN_SEMI || *unique;
-    let cosplit = crate::face::cosplit::of(px, k).is_some() && crate::face::cosplit::merge_at(&px.gx.pipelines()[px.ident(k)]) == Some(j);
+    let cosplit = crate::face::cosplit::of(px, k).is_some()
+        && crate::face::cosplit::merge_at(&px.gx.pipelines()[px.ident(k)]) == Some(j);
     if cosplit && (lazy.is_some() || pull.is_some()) {
         crate::refuse!(node, Reason::Bug { payload: "a co-split merge join with a lazy or pulled inner (merge/cosplit.rs declares neither)" })
     }
@@ -365,16 +509,34 @@ pub(crate) fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn
 /// fetch, else ENDOUTER's over an empty or unmatchable outer) and hands nothing on before: so PG must surely call it and v4
 /// reach its input's end, where `flush` waits (a LIMIT or gate before it ends the pipeline there). FULL fills outer first.
 /// D2026: a UNION ALL's arms on either side are not this form (lower.rs's other roads take the merge).
-pub(crate) fn fills(gx: &Gx<'_, '_>, (k, j): (usize, usize), jt: JoinType, (before, all): (&[usize], &[usize])) -> bool {
+pub(crate) fn fills(
+    gx: &Gx<'_, '_>,
+    (k, j): (usize, usize),
+    jt: JoinType,
+    (before, all): (&[usize], &[usize]),
+) -> bool {
     let ops = &gx.pipelines()[k].ops[..j];
-    let arms = crate::ops::mergejoin::lazy_outer::arms(gx, before) || crate::ops::mergejoin::lazy_outer::arms(gx, all) || ops.iter().any(|op| matches!(op, Op::Append(_)));
-    matches!(jt, JoinType::JOIN_RIGHT | JoinType::JOIN_RIGHT_ANTI) && !arms
-        && ops.iter().all(|op| matches!(op, Op::Filter(_) | Op::Project(_) | Op::Join(JoinDesc::Nest { .. })) || crate::frame::iface::limit_bounds(op).is_some_and(|(count, _)| matches!(count, Bound::All))) && crate::ops::mergejoin::lazy_outer::reached(gx, k, j + 1)
+    let arms = crate::ops::mergejoin::lazy_outer::arms(gx, before)
+        || crate::ops::mergejoin::lazy_outer::arms(gx, all)
+        || ops.iter().any(|op| matches!(op, Op::Append(_)));
+    matches!(jt, JoinType::JOIN_RIGHT | JoinType::JOIN_RIGHT_ANTI)
+        && !arms
+        && ops.iter().all(|op| {
+            matches!(
+                op,
+                Op::Filter(_) | Op::Project(_) | Op::Join(JoinDesc::Nest { .. })
+            ) || crate::frame::iface::limit_bounds(op)
+                .is_some_and(|(count, _)| matches!(count, Bound::All))
+        })
+        && crate::ops::mergejoin::lazy_outer::reached(gx, k, j + 1)
 }
 
 impl Merge<'_> {
     pub(crate) fn fill_outer(&self) -> bool {
-        matches!(self.jt, JoinType::JOIN_LEFT | JoinType::JOIN_ANTI | JoinType::JOIN_FULL)
+        matches!(
+            self.jt,
+            JoinType::JOIN_LEFT | JoinType::JOIN_ANTI | JoinType::JOIN_FULL
+        )
     }
 
     pub(crate) fn fill_inner(&self) -> bool {
@@ -391,22 +553,60 @@ impl Merge<'_> {
     }
 
     /// The outer row joined to inner row `ip`, and the map of the inner's columns into it (`env.inner`).
-    pub(crate) fn joined<'r, 'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals<'r>, carry: &Carry, ip: Value) -> (RowVals<'r>, PgVec<'e, Option<u16>>) {
+    pub(crate) fn joined<'r, 'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals<'r>,
+        carry: &Carry,
+        ip: Value,
+    ) -> (RowVals<'r>, PgVec<'e, Option<u16>>) {
         let r = self.inner_at(b, env, row, carry, ip);
-        crate::ops::mergejoin::strategies::markable::join_rows(row, (&r.row.cells, &r.vals, &r.cols), carry, env.mcx)
+        crate::ops::mergejoin::strategies::markable::join_rows(
+            row,
+            (&r.row.cells, &r.vals, &r.cols),
+            carry,
+            env.mcx,
+        )
     }
 
     /// Inner row `ip` as the join reads it.
-    pub(crate) fn inner_at<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, carry: &Carry, ip: Value) -> RowVals<'e> {
+    pub(crate) fn inner_at<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        carry: &Carry,
+        ip: Value,
+    ) -> RowVals<'e> {
         let p = self.run.fetch(b, env, ip);
-        let r = self.run.vals(b, env, p, carry.copy_in(env.mcx), row.at, row.at);
-        let types: PgVec<'_, Type> = r.vals.iter().map(|&(v, _)| b.value_type(v)).collect_in(self.mcx);
-        self.cells.borrow_mut().get_or_insert_with(|| (mcx::to_vec_in(&r.row.cells[..], self.mcx), types, mcx::to_vec_in(&r.cols[..], self.mcx)));
+        let r = self
+            .run
+            .vals(b, env, p, carry.copy_in(env.mcx), row.at, row.at);
+        let types: PgVec<'_, Type> = r
+            .vals
+            .iter()
+            .map(|&(v, _)| b.value_type(v))
+            .collect_in(self.mcx);
+        self.cells.borrow_mut().get_or_insert_with(|| {
+            (
+                mcx::to_vec_in(&r.row.cells[..], self.mcx),
+                types,
+                mcx::to_vec_in(&r.cols[..], self.mcx),
+            )
+        });
         r
     }
 
     /// The expression `e` over `row` with the inner's columns mapped by `map`: `(value, valid)`.
-    fn emit(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals, map: Option<&[Option<u16>]>, e: ExId) -> (Value, Value) {
+    fn emit(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        row: &RowVals,
+        map: Option<&[Option<u16>]>,
+        e: ExId,
+    ) -> (Value, Value) {
         // the machine's blocks do not dominate each other: no memoized read crosses them
         env.memo.clear();
         let mcx = env.mcx;
@@ -418,9 +618,23 @@ impl Merge<'_> {
 
     /// MJEvalOuterValues (`outer`) / MJEvalInnerValues: MATCHABLE, NONMATCHABLE or ENDOFJOIN (`I64`). A NULL first key that
     /// sorts NULLS LAST ends the join unless that side is filled; any other NULL key makes the tuple non-matchable.
-    pub(crate) fn eval(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals, map: Option<&[Option<u16>]>, outer: bool) -> Value {
-        let fill = if outer { self.fill_outer() } else { self.fill_inner() };
-        let (nm, eoj) = (b.iconst(Type::I64, NONMATCHABLE), b.iconst(Type::I64, ENDOFJOIN));
+    pub(crate) fn eval(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        row: &RowVals,
+        map: Option<&[Option<u16>]>,
+        outer: bool,
+    ) -> Value {
+        let fill = if outer {
+            self.fill_outer()
+        } else {
+            self.fill_inner()
+        };
+        let (nm, eoj) = (
+            b.iconst(Type::I64, NONMATCHABLE),
+            b.iconst(Type::I64, ENDOFJOIN),
+        );
         let mut res = env.zero; // MATCHABLE
         for (i, c) in self.clauses.iter().enumerate() {
             let (_, valid) = self.emit(b, env, row, map, if outer { c.outer } else { c.inner });
@@ -438,7 +652,13 @@ impl Merge<'_> {
 
     /// MJCompare over the joined row: `< 0`, `0` or `> 0` (`I64`), the first clause that differs deciding (negated for
     /// DESC); a tie is `> 0` under a constant-false join qual.
-    pub(crate) fn compare(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals, map: &[Option<u16>]) -> Value {
+    pub(crate) fn compare(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        row: &RowVals,
+        map: &[Option<u16>],
+    ) -> Value {
         let l_end = b.create_block(&[Type::I64]);
         for c in self.clauses.iter() {
             let (v, _) = self.emit(b, env, row, Some(map), c.cmp);
@@ -447,7 +667,11 @@ impl Merge<'_> {
                 _ => v,
             };
             let v = b.conv(gravity_ir::ConvOp::Sext, Type::I64, v);
-            let v = if c.desc { b.int_bin(IntBinOp::Sub, env.zero, v) } else { v };
+            let v = if c.desc {
+                b.int_bin(IntBinOp::Sub, env.zero, v)
+            } else {
+                v
+            };
             let (ne, l_go) = (b.icmp(IntCond::Ne, v, env.zero), b.create_block(&[]));
             b.cond_br(ne, (l_end, &[v]), (l_go, &[]));
             b.switch_to(l_go);
@@ -462,7 +686,11 @@ impl Merge<'_> {
 /// D688: a later expanding step's offset word is set (it stopped inside the row handed on: re-enter it); `None` without one.
 pub(crate) fn later_set(b: &mut FunctionBuilder<'_>, env: &Env) -> Option<Value> {
     let mut set = None;
-    for &(_, o) in env.expands.iter().filter(|e| env.step.is_some_and(|j| e.0 > j)) {
+    for &(_, o) in env
+        .expands
+        .iter()
+        .filter(|e| env.step.is_some_and(|j| e.0 > j))
+    {
         let w = env.load_word(b, o);
         set = Some(set.map_or(w, |a| b.int_bin(IntBinOp::Or, a, w)));
     }
@@ -470,7 +698,13 @@ pub(crate) fn later_set(b: &mut FunctionBuilder<'_>, env: &Env) -> Option<Value>
 }
 
 /// A three-way branch on a verdict (`MATCHABLE` / `NONMATCHABLE` / else) or a compare (`== 0` / `< 0` / `> 0`).
-pub(crate) fn three(b: &mut FunctionBuilder<'_>, v: Value, (a, n, e): (Block, Block, Block), cmp: bool, cp: &[Value]) {
+pub(crate) fn three(
+    b: &mut FunctionBuilder<'_>,
+    v: Value,
+    (a, n, e): (Block, Block, Block),
+    cmp: bool,
+    cp: &[Value],
+) {
     let z = b.iconst(Type::I64, MATCHABLE); // 0: also a compare's tie
     let first = b.icmp(IntCond::Eq, v, z);
     let l_rest = b.create_block(&[]);
@@ -489,14 +723,50 @@ pub(crate) fn three(b: &mut FunctionBuilder<'_>, v: Value, (a, n, e): (Block, Bl
 impl StepMech for Merge<'_> {
     fn open_words(&self, w: &mut OpenWords) {
         self.pulled_words(w);
-        w.declare(OpenWord::open("merge.join offset", Base::Words, self.offset, Type::I64, 0));
-        w.declare(OpenWord::open("merge.join state", Base::Words, self.w[W_ST as usize], Type::I64, INIT_OUTER as i64));
-        w.declare(OpenWord::open("merge.join inner tuple", Base::Words, self.w[W_IP as usize], Type::I64, -1));
-        w.declare(OpenWord::open("merge.join mark", Base::Words, self.w[W_MARK as usize], Type::I64, -1));
-        w.declare(OpenWord::open("merge.join matched outer", Base::Words, self.w[W_MO as usize], Type::I64, 0));
+        w.declare(OpenWord::open(
+            "merge.join offset",
+            Base::Words,
+            self.offset,
+            Type::I64,
+            0,
+        ));
+        w.declare(OpenWord::open(
+            "merge.join state",
+            Base::Words,
+            self.w[W_ST as usize],
+            Type::I64,
+            INIT_OUTER as i64,
+        ));
+        w.declare(OpenWord::open(
+            "merge.join inner tuple",
+            Base::Words,
+            self.w[W_IP as usize],
+            Type::I64,
+            -1,
+        ));
+        w.declare(OpenWord::open(
+            "merge.join mark",
+            Base::Words,
+            self.w[W_MARK as usize],
+            Type::I64,
+            -1,
+        ));
+        w.declare(OpenWord::open(
+            "merge.join matched outer",
+            Base::Words,
+            self.w[W_MO as usize],
+            Type::I64,
+            0,
+        ));
         if self.fill_inner() {
             // 1 while there is no current inner tuple (no fill before the first fetch)
-            w.declare(OpenWord::open("merge.join matched inner", Base::Words, self.w[W_MI as usize], Type::I64, 1));
+            w.declare(OpenWord::open(
+                "merge.join matched inner",
+                Base::Words,
+                self.w[W_MI as usize],
+                Type::I64,
+                1,
+            ));
         }
     }
 
@@ -507,10 +777,23 @@ impl StepMech for Merge<'_> {
 
     /// W8-D1236-CLASSA: ENDOUTER fetches the inner (an empty outer's too): a lazy inner still pending runs first, the call
     /// stopping by the flush's exit; the resumed one reaches the input's end again, its window re-reading the run.
-    fn flush<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, carry: Carry<'e>, next: Next<'_, 'e>) -> Carry<'e> {
+    fn flush<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        carry: Carry<'e>,
+        next: Next<'_, 'e>,
+    ) -> Carry<'e> {
         self.run.first_fetch(b, env); // W8-EQUIVCLASS-SORTOP: ENDOUTER's inner call raises first (INITIALIZE_INNER's raised before)
         if let Some((consumed, lz)) = self.lazy {
-            let r = RowVals { row: crate::cell::Row::new_in(env.mcx), vals: PgVec::new_in(env.mcx), cols: PgVec::new_in(env.mcx), carry: carry.copy_in(env.mcx), next: env.zero, at: env.zero };
+            let r = RowVals {
+                row: crate::cell::Row::new_in(env.mcx),
+                vals: PgVec::new_in(env.mcx),
+                cols: PgVec::new_in(env.mcx),
+                carry: carry.copy_in(env.mcx),
+                next: env.zero,
+                at: env.zero,
+            };
             lz.wait(b, env, &r, self.offset, consumed);
         }
         // mergecmd RIGHT_OWN (held-out subq-0184): the outer's end has no current outer row, so no driving locator (its
@@ -530,7 +813,11 @@ impl StepMech for Merge<'_> {
     }
 
     fn expand(&self) -> Option<Expand> {
-        Some(Expand { kind: ExpandKind::Chain, offset: self.offset, held: self.held })
+        Some(Expand {
+            kind: ExpandKind::Chain,
+            offset: self.offset,
+            held: self.held,
+        })
     }
 
     /// MERGE-3d: one machine per join (its state, mark and matched words are one scan's), as PG never runs a merge join
@@ -538,11 +825,21 @@ impl StepMech for Merge<'_> {
     /// ON true / false) runs serial on the leader. D3190: the co-split form runs one machine per claim, a key range of
     /// both inputs that no equal key straddles, so it runs wide.
     fn serial(&self) -> bool {
-        let shape = if self.cosplit { gravity_program::StepShape::MergeCoSplit } else { gravity_program::StepShape::Merge };
+        let shape = if self.cosplit {
+            gravity_program::StepShape::MergeCoSplit
+        } else {
+            gravity_program::StepShape::Merge
+        };
         gravity_program::step_serial(&shape).is_some()
     }
 
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, next: Next<'_, 'e>) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        next: Next<'_, 'e>,
+    ) -> Carry<'e> {
         // D3269 (a): a recheck's stored COPY row enters the chain at its SubqueryScan before any window start (frame.rs
         // `copy_entry`, the subquery the merge's outer): the merge opens its inner's run there itself, the run the recheck
         // reran; the window's own start sets it again for the source's rows
@@ -551,15 +848,38 @@ impl StepMech for Merge<'_> {
             None => {
                 let x = env.x;
                 self.window(b, env, &x);
-                self.n.take().unwrap_or_else(|| crate::refuse!(self.node, Reason::Bug { payload: "a merge row before its window" }))
+                self.n.take().unwrap_or_else(|| {
+                    crate::refuse!(
+                        self.node,
+                        Reason::Bug {
+                            payload: "a merge row before its window"
+                        }
+                    )
+                })
             }
         };
         self.n.set(Some(n));
-        let ctypes: PgVec<'_, Type> = row.carry.params().iter().map(|&v| b.value_type(v)).collect_in(env.mcx);
-        let [l_mach, l_out, l_fill, l_done, l_emit, l_odone, l_ieoj] = [(); 7].map(|_| b.create_block(&ctypes));
+        let ctypes: PgVec<'_, Type> = row
+            .carry
+            .params()
+            .iter()
+            .map(|&v| b.value_type(v))
+            .collect_in(env.mcx);
+        let [l_mach, l_out, l_fill, l_done, l_emit, l_odone, l_ieoj] =
+            [(); 7].map(|_| b.create_block(&ctypes));
         let l_ifill = self.fill_inner().then(|| b.create_block(&ctypes));
-        let types: PgVec<'_, Type> = row.vals.iter().map(|&(v, _)| b.value_type(v)).collect_in(self.mcx);
-        self.outer.borrow_mut().get_or_insert_with(|| (mcx::to_vec_in(&row.row.cells[..], self.mcx), types, mcx::to_vec_in(&row.cols[..], self.mcx)));
+        let types: PgVec<'_, Type> = row
+            .vals
+            .iter()
+            .map(|&(v, _)| b.value_type(v))
+            .collect_in(self.mcx);
+        self.outer.borrow_mut().get_or_insert_with(|| {
+            (
+                mcx::to_vec_in(&row.row.cells[..], self.mcx),
+                types,
+                mcx::to_vec_in(&row.cols[..], self.mcx),
+            )
+        });
         let cp = row.carry.params();
         let memo = env.memo.set_aside();
         let later = later_set(b, env);
@@ -570,9 +890,15 @@ impl StepMech for Merge<'_> {
         b.cond_br(fresh, (l_fresh, &[]), (l_res, &[]));
         b.switch_to(l_res);
         // the last hand-on (the outer's fill, the inner's, else a joined row) again, or past it
-        let arms = [(FILLED, l_fill, l_out)].into_iter().chain(l_ifill.map(|l| (FILLED_INNER, l, l_mach)));
+        let arms = [(FILLED, l_fill, l_out)]
+            .into_iter()
+            .chain(l_ifill.map(|l| (FILLED_INNER, l, l_mach)));
         for (v, again, past) in arms {
-            let (f, on, l_else) = (b.iconst(Type::I64, v), b.create_block(&[]), b.create_block(&[]));
+            let (f, on, l_else) = (
+                b.iconst(Type::I64, v),
+                b.create_block(&[]),
+                b.create_block(&[]),
+            );
             let is = b.icmp(IntCond::Eq, off, f);
             b.cond_br(is, (on, &[]), (l_else, &[]));
             b.switch_to(on);
@@ -591,17 +917,25 @@ impl StepMech for Merge<'_> {
         self.set(b, env, W_MO, 0);
         let st = self.word(b, env, W_ST);
         let l_eval = b.create_block(&ctypes);
-        let cases = [(DONE, l_done), (ENDINNER, l_fill)].into_iter().chain(l_ifill.map(|_| (ENDOUTER, l_out))); // ENDOUTER: PG fetches no further outer tuple
+        let cases = [(DONE, l_done), (ENDINNER, l_fill)]
+            .into_iter()
+            .chain(l_ifill.map(|_| (ENDOUTER, l_out))); // ENDOUTER: PG fetches no further outer tuple
         b.switch(st, cases.map(|(v, t)| (v, t, &cp[..])), (l_eval, &cp));
         b.switch_to(l_eval);
         let c = Carry::from_params(b.block_params(l_eval), env.mcx);
         let r = self.eval(b, env, row, None, true);
-        let (l_m, l_nm, l_eoj) = (b.create_block(&ctypes), b.create_block(&ctypes), b.create_block(&ctypes));
+        let (l_m, l_nm, l_eoj) = (
+            b.create_block(&ctypes),
+            b.create_block(&ctypes),
+            b.create_block(&ctypes),
+        );
         three(b, r, (l_m, l_nm, l_eoj), false, &c.params());
         b.switch_to(l_m);
         let st = self.word(b, env, W_ST);
         // INITIALIZE_OUTER -> INITIALIZE_INNER, NEXTOUTER -> TESTOUTER, SKIPOUTER_ADVANCE -> SKIP_TEST
-        let [io_c, no_c, to_c, sk_c, ii_c] = [INIT_OUTER, NEXTOUTER, TESTOUTER, SKIP_TEST, INIT_INNER].map(|v| b.iconst(Type::I64, v as i64));
+        let [io_c, no_c, to_c, sk_c, ii_c] =
+            [INIT_OUTER, NEXTOUTER, TESTOUTER, SKIP_TEST, INIT_INNER]
+                .map(|v| b.iconst(Type::I64, v as i64));
         let (io, no) = (b.icmp(IntCond::Eq, st, io_c), b.icmp(IntCond::Eq, st, no_c));
         let to = b.select(no, to_c, sk_c);
         let to = b.select(io, ii_c, to);
@@ -617,9 +951,32 @@ impl StepMech for Merge<'_> {
         b.br(if self.fill_inner() { l_out } else { l_done }, &p);
         // D3379 (mergecmd_rowc_cte :48): the outer row stays in reach of a writing CTE's MERGE redo in the IR (merge/epq.rs
         // SORTED `held_source`: a merge clause's source column its projection does not carry), as nest.loop's outer row
-        env.redo_outers.push_in((self.node, (mcx::to_vec_in(&row.row.cells[..], env.mcx), mcx::to_vec_in(&row.vals[..], env.mcx), mcx::to_vec_in(&row.cols[..], env.mcx), crate::frame::env::Filled::No)));
-        self.machine(b, env, row, n, [l_mach, l_emit, l_odone, l_ieoj], l_ifill, &ctypes);
-        self.tails(b, env, row, [l_emit, l_fill, l_odone, l_ieoj, l_done, l_mach, l_out], l_ifill, next);
+        env.redo_outers.push_in((
+            self.node,
+            (
+                mcx::to_vec_in(&row.row.cells[..], env.mcx),
+                mcx::to_vec_in(&row.vals[..], env.mcx),
+                mcx::to_vec_in(&row.cols[..], env.mcx),
+                crate::frame::env::Filled::No,
+            ),
+        ));
+        self.machine(
+            b,
+            env,
+            row,
+            n,
+            [l_mach, l_emit, l_odone, l_ieoj],
+            l_ifill,
+            &ctypes,
+        );
+        self.tails(
+            b,
+            env,
+            row,
+            [l_emit, l_fill, l_odone, l_ieoj, l_done, l_mach, l_out],
+            l_ifill,
+            next,
+        );
         env.redo_outers.pop();
         b.switch_to(l_out);
         env.memo.restore(memo);
@@ -634,7 +991,14 @@ impl Merge<'_> {
     }
 
     /// Stores state `v` and loops back to the machine with carry `c`.
-    pub(crate) fn to(&self, b: &mut FunctionBuilder<'_>, env: &Env, v: u64, l_mach: Block, c: &[Value]) {
+    pub(crate) fn to(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &Env,
+        v: u64,
+        l_mach: Block,
+        c: &[Value],
+    ) {
         self.st(b, env, v);
         b.br(l_mach, c);
     }

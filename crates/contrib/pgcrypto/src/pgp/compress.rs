@@ -1,6 +1,5 @@
-
-use ::miniz_oxide::deflate::core::{compress, create_comp_flags_from_zip_params, CompressorOxide};
 use ::miniz_oxide::deflate::core::TDEFLStatus;
+use ::miniz_oxide::deflate::core::{compress, create_comp_flags_from_zip_params, CompressorOxide};
 use ::miniz_oxide::inflate::core::{decompress, inflate_flags, DecompressorOxide};
 use ::miniz_oxide::inflate::TINFLStatus;
 
@@ -64,7 +63,7 @@ const HIST_CAP: usize = WINDOW + 256 * 1024;
 fn zlib_needs_dict(hdr: [u8; 2]) -> bool {
     hdr[0] & 0x0f == 8
         && hdr[0] >> 4 <= 7
-        && (((hdr[0] as u32) << 8) | hdr[1] as u32).is_multiple_of( 31)
+        && (((hdr[0] as u32) << 8) | hdr[1] as u32).is_multiple_of(31)
         && hdr[1] & 0x20 != 0
 }
 
@@ -176,7 +175,13 @@ impl Inflater {
             flags |= inflate_flags::TINFL_FLAG_HAS_MORE_INPUT;
         }
         let end = self.used + room;
-        let (st, inb, outb) = decompress(&mut self.decomp, input, &mut self.hist[..end], self.used, flags);
+        let (st, inb, outb) = decompress(
+            &mut self.decomp,
+            input,
+            &mut self.hist[..end],
+            self.used,
+            flags,
+        );
         self.used += outb;
         (st, inb, outb)
     }
@@ -211,9 +216,15 @@ mod tests {
 
     #[test]
     fn streams_large_output_in_bounded_steps() {
-        let plain: Vec<u8> = (0..3_000_000u32).map(|i| (i % 251) as u8 ^ (i >> 13) as u8).collect();
+        let plain: Vec<u8> = (0..3_000_000u32)
+            .map(|i| (i % 251) as u8 ^ (i >> 13) as u8)
+            .collect();
         for zlib in [false, true] {
-            let comp = if zlib { deflate_zlib(&plain, 6) } else { deflate_raw(&plain, 6) };
+            let comp = if zlib {
+                deflate_zlib(&plain, 6)
+            } else {
+                deflate_raw(&plain, 6)
+            };
             assert_eq!(inflate_all(&comp, zlib).unwrap(), plain);
         }
     }
@@ -232,11 +243,23 @@ mod tests {
 
     #[test]
     fn inflate_failures_carry_zlib_codes() {
-        assert_eq!(inflate_all(&[0xff, 0xff, 0xff, 0xff], false).unwrap_err(), -3);
+        assert_eq!(
+            inflate_all(&[0xff, 0xff, 0xff, 0xff], false).unwrap_err(),
+            -3
+        );
         assert_eq!(inflate_all(&[0x00, 0x00], true).unwrap_err(), -3);
-        assert_eq!(inflate_all(&[0x78, 0x20, 0, 0, 0, 1, 0x03, 0x00], true).unwrap_err(), 2);
-        assert_eq!(inflate_all(&[0x78, 0x21, 0, 0, 0, 1, 0x03, 0x00], true).unwrap_err(), -3);
-        assert_eq!(inflate_all(&[0x78, 0x20, 0, 0, 0, 1, 0x03, 0x00], false).unwrap_err(), -3);
+        assert_eq!(
+            inflate_all(&[0x78, 0x20, 0, 0, 0, 1, 0x03, 0x00], true).unwrap_err(),
+            2
+        );
+        assert_eq!(
+            inflate_all(&[0x78, 0x21, 0, 0, 0, 1, 0x03, 0x00], true).unwrap_err(),
+            -3
+        );
+        assert_eq!(
+            inflate_all(&[0x78, 0x20, 0, 0, 0, 1, 0x03, 0x00], false).unwrap_err(),
+            -3
+        );
         let comp = deflate_raw(b"truncated stream payload", 6);
         assert_eq!(inflate_all(&comp[..comp.len() / 2], false).unwrap_err(), -5);
         assert_eq!(inflate_all(&[], false).unwrap_err(), -5);

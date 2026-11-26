@@ -42,7 +42,11 @@ mod tests;
 
 // wasm32: no pipes on WASI; POSIX floor (512), elog's wasm arm convention.
 #[cfg(not(target_family = "wasm"))]
-pub const PIPE_CHUNK_SIZE: usize = if libc::PIPE_BUF > 65536 { 65536 } else { libc::PIPE_BUF };
+pub const PIPE_CHUNK_SIZE: usize = if libc::PIPE_BUF > 65536 {
+    65536
+} else {
+    libc::PIPE_BUF
+};
 #[cfg(target_family = "wasm")]
 pub const PIPE_CHUNK_SIZE: usize = 512;
 pub const PIPE_HEADER_SIZE: usize = 9;
@@ -101,9 +105,13 @@ pub fn set_resume_current_files(on: bool) {
 
 fn current_file_names() -> [Option<String>; 3] {
     let mut names = [None, None, None];
-    let Ok(text) = std::fs::read_to_string(LOG_METAINFO_DATAFILE) else { return names };
+    let Ok(text) = std::fs::read_to_string(LOG_METAINFO_DATAFILE) else {
+        return names;
+    };
     for line in text.lines() {
-        let Some((label, name)) = line.split_once(' ') else { continue };
+        let Some((label, name)) = line.split_once(' ') else {
+            continue;
+        };
         let i = match label {
             "stderr" => 0,
             "csvlog" => 1,
@@ -154,7 +162,11 @@ fn Log_RotationSize() -> i32 {
 }
 
 fn Log_directory() -> String {
-    LOG_DIRECTORY.lock().unwrap().clone().unwrap_or_else(|| "log".to_string())
+    LOG_DIRECTORY
+        .lock()
+        .unwrap()
+        .clone()
+        .unwrap_or_else(|| "log".to_string())
 }
 
 fn Log_filename() -> String {
@@ -259,10 +271,12 @@ pub fn SysLoggerMain(startup_data: &StartupData) -> ! {
         std::mem::take(&mut *START_NAMES.lock().unwrap_or_else(|e| e.into_inner()));
     st.last_sys_file_name = sys_name.or_else(|| Some(logfile_getname(first_time, None)));
     if !CSVLOG_FILE.load(Relaxed).is_null() {
-        st.last_csv_file_name = csv_name.or_else(|| Some(logfile_getname(first_time, Some(".csv"))));
+        st.last_csv_file_name =
+            csv_name.or_else(|| Some(logfile_getname(first_time, Some(".csv"))));
     }
     if !JSONLOG_FILE.load(Relaxed).is_null() {
-        st.last_json_file_name = json_name.or_else(|| Some(logfile_getname(first_time, Some(".json"))));
+        st.last_json_file_name =
+            json_name.or_else(|| Some(logfile_getname(first_time, Some(".json"))));
     }
 
     let mut current_log_dir = Log_directory();
@@ -311,11 +325,13 @@ pub fn SysLoggerMain(startup_data: &StartupData) -> ! {
                     ROTATION_REQUESTED.store(true, Relaxed);
                 }
 
-                if ((elog::config::log_destination() & LOG_DESTINATION_CSVLOG) != 0) ==CSVLOG_FILE.load(Relaxed).is_null()
+                if ((elog::config::log_destination() & LOG_DESTINATION_CSVLOG) != 0)
+                    == CSVLOG_FILE.load(Relaxed).is_null()
                 {
                     ROTATION_REQUESTED.store(true, Relaxed);
                 }
-                if ((elog::config::log_destination() & LOG_DESTINATION_JSONLOG) != 0) ==JSONLOG_FILE.load(Relaxed).is_null()
+                if ((elog::config::log_destination() & LOG_DESTINATION_JSONLOG) != 0)
+                    == JSONLOG_FILE.load(Relaxed).is_null()
                 {
                     ROTATION_REQUESTED.store(true, Relaxed);
                 }
@@ -362,9 +378,8 @@ pub fn SysLoggerMain(startup_data: &StartupData) -> ! {
 
             if ROTATION_REQUESTED.load(Relaxed) {
                 if !time_based_rotation && size_rotation_for == 0 {
-                    size_rotation_for = LOG_DESTINATION_STDERR
-                        | LOG_DESTINATION_CSVLOG
-                        | LOG_DESTINATION_JSONLOG;
+                    size_rotation_for =
+                        LOG_DESTINATION_STDERR | LOG_DESTINATION_CSVLOG | LOG_DESTINATION_JSONLOG;
                 }
                 logfile_rotate(time_based_rotation, size_rotation_for, &mut st)?;
             }
@@ -384,8 +399,12 @@ pub fn SysLoggerMain(startup_data: &StartupData) -> ! {
             };
 
             let mut occurred = [WaitEvent::default(); 1];
-            let rc =
-                waiteventset::WaitEventSetWait(wes, cur_timeout, &mut occurred, WAIT_EVENT_SYSLOGGER_MAIN)?;
+            let rc = waiteventset::WaitEventSetWait(
+                wes,
+                cur_timeout,
+                &mut occurred,
+                WAIT_EVENT_SYSLOGGER_MAIN,
+            )?;
 
             if rc == 1 && occurred[0].events == WL_SOCKET_READABLE {
                 let bytes_read = unsafe {
@@ -398,8 +417,12 @@ pub fn SysLoggerMain(startup_data: &StartupData) -> ! {
                 if bytes_read < 0 {
                     let e = last_errno();
                     if e != libc::EINTR {
-                        logger_pipe_report(LOG, e, &format!("could not read from logger pipe: {PCT_M}"))
-                            .finish(loc("SysLoggerMain"))?;
+                        logger_pipe_report(
+                            LOG,
+                            e,
+                            &format!("could not read from logger pipe: {PCT_M}"),
+                        )
+                        .finish(loc("SysLoggerMain"))?;
                     }
                 } else if bytes_read > 0 {
                     bytes_in_logbuffer += bytes_read as usize;
@@ -472,8 +495,12 @@ pub fn SysLogger_Start(child_slot: i32) -> PgResult<i32> {
         #[cfg(target_family = "wasm")]
         let pipe_rc = -1;
         if pipe_rc < 0 {
-            logger_pipe_report(FATAL, last_errno(), &format!("could not create pipe for syslog: {PCT_M}"))
-                .finish(loc("SysLogger_Start"))?;
+            logger_pipe_report(
+                FATAL,
+                last_errno(),
+                &format!("could not create pipe for syslog: {PCT_M}"),
+            )
+            .finish(loc("SysLogger_Start"))?;
         }
         SYSLOG_PIPE_R.store(fds[0], Relaxed);
         SYSLOG_PIPE_W.store(fds[1], Relaxed);
@@ -494,7 +521,11 @@ pub fn SysLogger_Start(child_slot: i32) -> PgResult<i32> {
     }
 
     let resume = RESUME_CURRENT_FILES.swap(false, Relaxed);
-    let [stderr_name, csv_name, json_name] = if resume { current_file_names() } else { [None, None, None] };
+    let [stderr_name, csv_name, json_name] = if resume {
+        current_file_names()
+    } else {
+        [None, None, None]
+    };
     let mut names: [Option<String>; 3] = [None, None, None];
     let filename = stderr_name.unwrap_or_else(|| logfile_getname(first_time, None));
     SYSLOG_FILE.store(logfile_open(&filename, "a", false)?, Relaxed);
@@ -512,8 +543,12 @@ pub fn SysLogger_Start(child_slot: i32) -> PgResult<i32> {
     }
     *START_NAMES.lock().unwrap_or_else(|e| e.into_inner()) = names;
 
-    let syslogger_pid =
-        launch_backend::postmaster_child_launch(BackendType::Logger, child_slot, StartupData::None, None);
+    let syslogger_pid = launch_backend::postmaster_child_launch(
+        BackendType::Logger,
+        child_slot,
+        StartupData::None,
+        None,
+    );
 
     if syslogger_pid == -1 {
         log_fork_failure(elog::errno::current_errno())?;
@@ -575,7 +610,11 @@ pub fn SysLogger_Start(child_slot: i32) -> PgResult<i32> {
     Ok(syslogger_pid)
 }
 
-fn process_pipe_input(st: &mut SysLoggerState, logbuffer: &mut [u8], bytes_in_logbuffer: &mut usize) {
+fn process_pipe_input(
+    st: &mut SysLoggerState,
+    logbuffer: &mut [u8],
+    bytes_in_logbuffer: &mut usize,
+) {
     let mut cursor: usize = 0;
     let mut count: usize = *bytes_in_logbuffer;
     let mut dest: i32 = LOG_DESTINATION_STDERR;
@@ -618,7 +657,10 @@ fn process_pipe_input(st: &mut SysLoggerState, logbuffer: &mut [u8], bytes_in_lo
                     free.pid = pid;
                     free.data.extend_from_slice(payload);
                 } else {
-                    list.push(SaveBuffer { pid, data: payload.to_vec() });
+                    list.push(SaveBuffer {
+                        pid,
+                        data: payload.to_vec(),
+                    });
                 }
             } else if let Some(existing) = list.iter_mut().find(|b| b.pid == pid) {
                 existing.data.extend_from_slice(payload);
@@ -687,7 +729,10 @@ pub fn write_syslogger_file(buffer: &[u8], destination: i32) {
         unsafe { libc::fwrite(buffer.as_ptr().cast(), 1, buffer.len(), logfile) }
     };
     if rc != buffer.len() {
-        let msg = format!("could not write to log file: {}\n", elog::errno::strerror(last_errno()));
+        let msg = format!(
+            "could not write to log file: {}\n",
+            elog::errno::strerror(last_errno())
+        );
         let orig = SYSLOG_ORIG_STDERR.load(Relaxed);
         if orig < 0 {
             elog::write_stderr(&msg);
@@ -721,7 +766,11 @@ fn logfile_open(filename: &str, mode: &str, allow_errors: bool) -> PgResult<*mut
     // close-on-exec instead (COPY PROGRAM and archive commands).
     let oflags = libc::O_WRONLY
         | libc::O_CLOEXEC
-        | if mode == "w" { libc::O_TRUNC } else { libc::O_APPEND };
+        | if mode == "w" {
+            libc::O_TRUNC
+        } else {
+            libc::O_APPEND
+        };
     let c_filename = std::ffi::CString::new(filename).expect("log path contains NUL");
 
     let fh = unsafe {
@@ -745,8 +794,7 @@ fn logfile_open(filename: &str, mode: &str, allow_errors: bool) -> PgResult<*mut
         if fd < 0 {
             std::ptr::null_mut()
         } else {
-            let c_mode =
-                std::ffi::CString::new(if mode == "w" { "w" } else { "a" }).unwrap();
+            let c_mode = std::ffi::CString::new(if mode == "w" { "w" } else { "a" }).unwrap();
             let fh = libc::fdopen(fd, c_mode.as_ptr());
             if fh.is_null() {
                 libc::close(fd);
@@ -852,18 +900,47 @@ fn logfile_rotate_dest(
     Ok(true)
 }
 
-fn logfile_rotate(time_based_rotation: bool, size_rotation_for: i32, st: &mut SysLoggerState) -> PgResult<()> {
+fn logfile_rotate(
+    time_based_rotation: bool,
+    size_rotation_for: i32,
+    st: &mut SysLoggerState,
+) -> PgResult<()> {
     ROTATION_REQUESTED.store(false, Relaxed);
 
-    let fntime = if time_based_rotation { st.next_rotation_time } else { time_now() };
+    let fntime = if time_based_rotation {
+        st.next_rotation_time
+    } else {
+        time_now()
+    };
 
-    if !logfile_rotate_dest(st, time_based_rotation, size_rotation_for, fntime, LOG_DESTINATION_STDERR, Slot::Stderr)? {
+    if !logfile_rotate_dest(
+        st,
+        time_based_rotation,
+        size_rotation_for,
+        fntime,
+        LOG_DESTINATION_STDERR,
+        Slot::Stderr,
+    )? {
         return Ok(());
     }
-    if !logfile_rotate_dest(st, time_based_rotation, size_rotation_for, fntime, LOG_DESTINATION_CSVLOG, Slot::Csvlog)? {
+    if !logfile_rotate_dest(
+        st,
+        time_based_rotation,
+        size_rotation_for,
+        fntime,
+        LOG_DESTINATION_CSVLOG,
+        Slot::Csvlog,
+    )? {
         return Ok(());
     }
-    if !logfile_rotate_dest(st, time_based_rotation, size_rotation_for, fntime, LOG_DESTINATION_JSONLOG, Slot::Jsonlog)? {
+    if !logfile_rotate_dest(
+        st,
+        time_based_rotation,
+        size_rotation_for,
+        fntime,
+        LOG_DESTINATION_JSONLOG,
+        Slot::Jsonlog,
+    )? {
         return Ok(());
     }
 
@@ -883,7 +960,9 @@ fn logfile_getname(timestamp: pg_time_t, suffix: Option<&str>) -> String {
         // syslogger.c:1424: pg_strftime(filename + len, MAXPGPATH - len, ...)
         // — the NUL slot is inside that size, so MAXPGPATH - len - 1 bytes fit.
         let mut buf = [0u8; MAXPGPATH];
-        if let Some(n) = strftime::pg_strftime(&mut buf[..MAXPGPATH - len], Log_filename().as_bytes(), &tm) {
+        if let Some(n) =
+            strftime::pg_strftime(&mut buf[..MAXPGPATH - len], Log_filename().as_bytes(), &tm)
+        {
             filename.push_str(&String::from_utf8_lossy(&buf[..n]));
         }
     }
@@ -935,7 +1014,9 @@ fn update_metainfo_datafile(st: &SysLoggerState) -> PgResult<()> {
                 ereport(LOG)
                     .with_saved_errno(e.raw_os_error().unwrap_or(0))
                     .errcode_for_file_access()
-                    .errmsg(format!("could not remove file \"{LOG_METAINFO_DATAFILE}\": {PCT_M}"))
+                    .errmsg(format!(
+                        "could not remove file \"{LOG_METAINFO_DATAFILE}\": {PCT_M}"
+                    ))
                     .finish(loc("update_metainfo_datafile"))?;
             }
         }
@@ -967,7 +1048,9 @@ fn update_metainfo_datafile(st: &SysLoggerState) -> PgResult<()> {
         ereport(LOG)
             .with_saved_errno(last_errno())
             .errcode_for_file_access()
-            .errmsg(format!("could not open file \"{LOG_METAINFO_DATAFILE_TMP}\": {PCT_M}"))
+            .errmsg(format!(
+                "could not open file \"{LOG_METAINFO_DATAFILE_TMP}\": {PCT_M}"
+            ))
             .finish(loc("update_metainfo_datafile"))?;
         return Ok(());
     }
@@ -991,7 +1074,9 @@ fn update_metainfo_datafile(st: &SysLoggerState) -> PgResult<()> {
             ereport(LOG)
                 .with_saved_errno(e)
                 .errcode_for_file_access()
-                .errmsg(format!("could not write file \"{LOG_METAINFO_DATAFILE_TMP}\": {PCT_M}"))
+                .errmsg(format!(
+                    "could not write file \"{LOG_METAINFO_DATAFILE_TMP}\": {PCT_M}"
+                ))
                 .finish(loc("update_metainfo_datafile"))?;
             return Ok(());
         }

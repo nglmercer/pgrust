@@ -2,14 +2,11 @@
 //! operators/functions over `ltree` / `lquery` / `ltxtquery` (everything that
 //! works on a sequential scan). Each function operates on the borrowed varlena
 
-use ::types_error::{
-    ERRCODE_INVALID_PARAMETER_VALUE, ERRCODE_PROGRAM_LIMIT_EXCEEDED,
-};
 use ::types_error::PgError;
+use ::types_error::{ERRCODE_INVALID_PARAMETER_VALUE, ERRCODE_PROGRAM_LIMIT_EXCEEDED};
 
 use crate::crc::fold;
 use crate::repr::*;
-
 
 // upstream c3e36a9a5f19 (18.6): Fix int32 overflow in ltree_compare()
 /// btree-comparison function, sign-only: memcmp value, label-length
@@ -130,12 +127,13 @@ pub fn inner_isparent(c: &[u8], p: &[u8]) -> bool {
     true
 }
 
-
 pub fn inner_subltree(t: &[u8], startpos: i32, endpos_in: i32) -> Result<Vec<u8>, PgError> {
     let tt = Ltree::new(t);
     let numlevel = tt.numlevel() as i32;
     if startpos < 0 || endpos_in < 0 || startpos >= numlevel || startpos > endpos_in {
-        return Err(PgError::error("invalid positions").with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE));
+        return Err(
+            PgError::error("invalid positions").with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE)
+        );
     }
     let endpos = endpos_in.min(numlevel);
 
@@ -325,13 +323,19 @@ pub fn lca_inner(a: &[&[u8]]) -> ::types_error::PgResult<Option<Vec<u8>>> {
     Ok(Some(build_ltree(&first_levels[..num])?))
 }
 
-
 // upstream b3c2a3d386fa (18.4): Fix more multibyte issues in ltree.
 /// C `ltree_label_match`: does `label` match the predicate `pred`? With
 /// `prefix` ('*') the predicate is a prefix; with `ci` ('@') the comparison
 /// is case-insensitive under the default collation's ctype.
 fn ltree_label_match(pred: &[u8], label: &[u8], prefix: bool, ci: bool) -> bool {
-    label_match_with(pred, label, prefix, ci, crate::crc::default_ctype_is_c(), fold)
+    label_match_with(
+        pred,
+        label,
+        prefix,
+        ci,
+        crate::crc::default_ctype_is_c(),
+        fold,
+    )
 }
 
 /// The matcher over an explicit ctype flag and fold primitive. A casefold can
@@ -360,7 +364,7 @@ fn label_match_with<F: Fn(&[u8]) -> Vec<u8>>(
         return pred
             .iter()
             .zip(label)
-            .all(|(p, l)| p.eq_ignore_ascii_case( l));
+            .all(|(p, l)| p.eq_ignore_ascii_case(l));
     }
 
     let fpred = fold(pred);
@@ -488,9 +492,7 @@ fn check_cond(
 
         let mut matchcnt = 0i32;
         while matchcnt < high {
-            if matchcnt >= low
-                && check_cond(levels, nextqi, qlen, t_names, ti, tlen as usize)?
-            {
+            if matchcnt >= low && check_cond(levels, nextqi, qlen, t_names, ti, tlen as usize)? {
                 return Ok(true);
             }
             if !check_level(curq, t_names[ti]) {
@@ -510,16 +512,8 @@ pub fn ltq_regex(tree: &[u8], query: &[u8]) -> Result<bool, PgError> {
     let q = Lquery::new(query);
     let t_names: Vec<&[u8]> = t.levels().map(|l| l.name).collect();
     let levels: Vec<LqlView> = q.levels().collect();
-    check_cond(
-        &levels,
-        0,
-        q.numlevel(),
-        &t_names,
-        0,
-        t.numlevel(),
-    )
+    check_cond(&levels, 0, q.numlevel(), &t_names, 0, t.numlevel())
 }
-
 
 fn checkcondition_str(t_names: &[&[u8]], operand: &[u8], it: &Item) -> bool {
     let start = it.distance as usize;
@@ -534,7 +528,7 @@ fn checkcondition_str(t_names: &[&[u8]], operand: &[u8], it: &Item) -> bool {
             if compare_subnode(name, op, prefix, ci) {
                 return true;
             }
-        } else if ltree_label_match(op,name, prefix, ci) {
+        } else if ltree_label_match(op, name, prefix, ci) {
             return true;
         }
     }
@@ -731,7 +725,10 @@ mod tests {
     fn ltree_compare_distance_keeps_c_scaling() {
         let t = |s: &str| crate::io::parse_ltree(s.as_bytes()).unwrap();
         let deep = t(&format!("{}a", "a.".repeat(14999)));
-        assert_eq!(ltree_compare_distance(&deep, &t("a")), (14999.0f64 * 10.0 * 15000.0) as f32);
+        assert_eq!(
+            ltree_compare_distance(&deep, &t("a")),
+            (14999.0f64 * 10.0 * 15000.0) as f32
+        );
         // one equal level leaves an = 0 on the short side: (1 - 15000) * 10 * 1
         assert_eq!(ltree_compare_distance(&t("a"), &deep), -149990.0);
         assert_eq!(ltree_compare_distance(&t("a.b"), &t("a.z")), -20.0);

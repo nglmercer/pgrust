@@ -127,36 +127,66 @@ pub(crate) fn install_from_env(workers: usize, standbys: usize, gang: usize) {
     // Pool k's worker count: pool 0 is the configured count; a per-node
     // pool k >= 1 is sized to its node's set (launch_backend spawns it so).
     // PGRUST_CPU_AFFINITY_PAIRS=1 (lane wakelit) pairs cores within each pool's set.
-    let pairs_on = matches!(std::env::var("PGRUST_CPU_AFFINITY_PAIRS").as_deref(), Ok("1"));
+    let pairs_on = matches!(
+        std::env::var("PGRUST_CPU_AFFINITY_PAIRS").as_deref(),
+        Ok("1")
+    );
     let policies: Vec<AffinityPolicy> = plan
         .pools
         .iter()
         .enumerate()
         .map(|(k, cpus)| {
             let n = cpus.len();
-            let pairs = if pairs_on && n >= 2 { Some((0..n).map(|i| [cpus[i], cpus[(i + n / 2) % n]]).collect()) } else { None };
-            AffinityPolicy { cpus: cpus.clone(), workers: if k == 0 { workers } else { n }, pairs } // alloc: Cold
+            let pairs = if pairs_on && n >= 2 {
+                Some((0..n).map(|i| [cpus[i], cpus[(i + n / 2) % n]]).collect())
+            } else {
+                None
+            };
+            AffinityPolicy {
+                cpus: cpus.clone(),
+                workers: if k == 0 { workers } else { n },
+                pairs,
+            } // alloc: Cold
         })
         .collect();
     let witness = format_cpu_list(&plan.cpus);
-    let boards: Vec<Vec<AtomicI32>> =
-        policies.iter().map(|p| (0..p.workers + standbys).map(|_| AtomicI32::new(-1)).collect()).collect(); // alloc: Cold
-    // The boot witness (the e2e greps this exact shape).
+    let boards: Vec<Vec<AtomicI32>> = policies
+        .iter()
+        .map(|p| {
+            (0..p.workers + standbys)
+                .map(|_| AtomicI32::new(-1))
+                .collect()
+        })
+        .collect(); // alloc: Cold
+                    // The boot witness (the e2e greps this exact shape).
     eprintln!(
         "pgrust: cpu affinity: {workers} workers on cpus {witness} \
          (gang mirrored; standbys pool-set){}",
-        if std::env::var("PGRUST_CPU_AFFINITY_PAIRS").as_deref() == Ok("1") { " pairs" } else { "" }
+        if std::env::var("PGRUST_CPU_AFFINITY_PAIRS").as_deref() == Ok("1") {
+            " pairs"
+        } else {
+            ""
+        }
     );
     if let Some((id, n)) = plan.node {
-        eprintln!("pgrust: cpu affinity: numa node {id} of {n} (cpus {witness}); the pool is sized to it");
+        eprintln!(
+            "pgrust: cpu affinity: numa node {id} of {n} (cpus {witness}); the pool is sized to it"
+        );
     }
     for (k, p) in policies.iter().enumerate().skip(1) {
-        eprintln!("pgrust: cpu affinity: pool {k}: {} workers on cpus {} (per-node)", p.workers, format_cpu_list(&p.cpus));
+        eprintln!(
+            "pgrust: cpu affinity: pool {k}: {} workers on cpus {} (per-node)",
+            p.workers,
+            format_cpu_list(&p.cpus)
+        );
     }
     // the pool's claimer first-touches most of its memory: it must run on the workers' node
     if let Some(set) = plan.helper_cpus(&runtime::cpuset::allowed_cpus()) {
         if pagepool::on() && pagepool::set_helper_cpus(&set) {
-            eprintln!("pgrust: cpu affinity: page pool helpers on cpus {}", format_cpu_list(&set));
+            eprintln!(
+                "pgrust: cpu affinity: page pool helpers on cpus {}",
+                format_cpu_list(&set)
+            );
         }
     }
     let _ = POLICY.set(policies);
@@ -173,20 +203,30 @@ pub(crate) fn apply_rtworker(ordinal: usize) {
 
 /// Bind the calling rtworker of pool `pool` (`per-node`: pool k = node k's pool).
 pub(crate) fn apply_rtworker_in(pool: usize, ordinal: usize) {
-    let Some(p) = POLICY.get().and_then(|v| v.get(pool)) else { return };
-    apply_and_observe(p.rtworker_set(ordinal), RTWORKER_BOARD.get().and_then(|b| b.get(pool)), ordinal);
+    let Some(p) = POLICY.get().and_then(|v| v.get(pool)) else {
+        return;
+    };
+    apply_and_observe(
+        p.rtworker_set(ordinal),
+        RTWORKER_BOARD.get().and_then(|b| b.get(pool)),
+        ordinal,
+    );
 }
 
 /// Bind the calling rtgang thread per pool 0's policy (same map as rtworkers).
 pub(crate) fn apply_rtgang(ordinal: usize) {
-    let Some(p) = POLICY.get().and_then(|v| v.first()) else { return };
+    let Some(p) = POLICY.get().and_then(|v| v.first()) else {
+        return;
+    };
     apply_and_observe(p.rtgang_set(ordinal), RTGANG_BOARD.get(), ordinal);
 }
 
 /// Bind the calling wpool standby to pool 0's full set mask (no board slot
 /// — wpool standbys have no stable ordinal and never take a singleton).
 pub(crate) fn apply_wpool_standby() {
-    let Some(p) = POLICY.get().and_then(|v| v.first()) else { return };
+    let Some(p) = POLICY.get().and_then(|v| v.first()) else {
+        return;
+    };
     if let Err(e) = set_current_thread_affinity(p.pool_set()) {
         degrade_loud_once(&format!("sched_setaffinity failed (errno {e})"));
     }
@@ -220,12 +260,17 @@ fn degrade_loud_once(reason: &str) {
 /// Observed rtworker board (ordinal -> observed core; None = unobserved,
 /// i.e. OFF / standby full-mask / non-Linux). Diagnostics + tests.
 pub fn rtworker_board() -> Option<Vec<Option<u32>>> {
-    RTWORKER_BOARD.get().and_then(|b| b.first()).map(|b| b.iter().map(slot_to_cpu).collect())
+    RTWORKER_BOARD
+        .get()
+        .and_then(|b| b.first())
+        .map(|b| b.iter().map(slot_to_cpu).collect())
 }
 
 /// Observed rtgang board (same shape as [`rtworker_board`]).
 pub fn rtgang_board() -> Option<Vec<Option<u32>>> {
-    RTGANG_BOARD.get().map(|b| b.iter().map(slot_to_cpu).collect())
+    RTGANG_BOARD
+        .get()
+        .map(|b| b.iter().map(slot_to_cpu).collect())
 }
 
 fn slot_to_cpu(slot: &AtomicI32) -> Option<u32> {
@@ -279,7 +324,9 @@ fn current_thread_cpus() -> Vec<usize> {
         if libc::sched_getaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &mut set) != 0 {
             return Vec::new();
         }
-        (0..CPU_SET_WIDTH).filter(|&c| libc::CPU_ISSET(c, &set)).collect()
+        (0..CPU_SET_WIDTH)
+            .filter(|&c| libc::CPU_ISSET(c, &set))
+            .collect()
     }
 }
 
@@ -307,7 +354,10 @@ mod tests {
 
     #[test]
     fn parse_mixed_and_whitespace() {
-        assert_eq!(parse_cpu_list(" 0-3, 8 - 11 ,15"), Some(vec![0, 1, 2, 3, 8, 9, 10, 11, 15]));
+        assert_eq!(
+            parse_cpu_list(" 0-3, 8 - 11 ,15"),
+            Some(vec![0, 1, 2, 3, 8, 9, 10, 11, 15])
+        );
     }
 
     #[test]
@@ -317,14 +367,29 @@ mod tests {
 
     #[test]
     fn parse_garbage_is_none() {
-        for bad in ["", " ", "a", "1,,2", "1-", "-3", "3-1", "1;2", "0-1023,1024", "1024"] {
+        for bad in [
+            "",
+            " ",
+            "a",
+            "1,,2",
+            "1-",
+            "-3",
+            "3-1",
+            "1;2",
+            "0-1023,1024",
+            "1024",
+        ] {
             assert_eq!(parse_cpu_list(bad), None, "input {bad:?}");
         }
     }
 
     #[test]
     fn identity_map_and_standby_mask() {
-        let p = AffinityPolicy { cpus: (0..8).collect(), workers: 8, pairs: None };
+        let p = AffinityPolicy {
+            cpus: (0..8).collect(),
+            workers: 8,
+            pairs: None,
+        };
         assert_eq!(p.rtworker_set(0), &[0]);
         assert_eq!(p.rtworker_set(3), &[3]);
         assert_eq!(p.rtworker_set(7), &[7]);
@@ -338,7 +403,11 @@ mod tests {
     #[test]
     fn ordinal_beyond_set_wraps_modulo() {
         // Set smaller than the pool: ordinals wrap (documented policy).
-        let p = AffinityPolicy { cpus: vec![1, 2, 3], workers: 5, pairs: None };
+        let p = AffinityPolicy {
+            cpus: vec![1, 2, 3],
+            workers: 5,
+            pairs: None,
+        };
         assert_eq!(p.rtworker_set(3), &[1]);
         assert_eq!(p.rtworker_set(4), &[2]);
         assert_eq!(p.rtgang_set(4), &[2]);
@@ -363,14 +432,21 @@ mod tests {
     fn pair_map_gives_each_worker_its_core_and_the_one_half_the_set_away() {
         let cpus: Vec<usize> = (0..8).collect();
         let pairs: Vec<[usize; 2]> = (0..8).map(|i| [cpus[i], cpus[(i + 4) % 8]]).collect();
-        let p = AffinityPolicy { cpus: cpus.clone(), workers: 8, pairs: Some(pairs.clone()) };
+        let p = AffinityPolicy {
+            cpus: cpus.clone(),
+            workers: 8,
+            pairs: Some(pairs.clone()),
+        };
         assert_eq!(p.rtworker_set(0), &[0, 4]);
         assert_eq!(p.rtworker_set(5), &[5, 1]);
         assert_eq!(p.rtgang_set(3), &[3, 7]);
         assert_eq!(p.rtworker_set(8).len(), 8); // standby ordinal (>= workers): the full set
-        // more workers than cores: ordinals wrap over the pair map like the singleton map
-        let q = AffinityPolicy { cpus, workers: 16, pairs: Some(pairs) };
+                                                // more workers than cores: ordinals wrap over the pair map like the singleton map
+        let q = AffinityPolicy {
+            cpus,
+            workers: 16,
+            pairs: Some(pairs),
+        };
         assert_eq!(q.rtworker_set(9), &[1, 5]);
     }
-
 }

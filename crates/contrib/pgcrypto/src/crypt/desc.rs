@@ -58,8 +58,14 @@ mod tests {
     #[test]
     fn desc_xdes_known_vectors() {
         arm_cfi(u64::MAX);
-        assert_eq!(crypt_xdes(b"", b"_J9..j2zz").unwrap(), b"_J9..j2zzR/nIRDK3pPc");
-        assert_eq!(crypt_xdes(b"foox", b"_J9..j2zz").unwrap(), b"_J9..j2zzAYKMvO2BYRY");
+        assert_eq!(
+            crypt_xdes(b"", b"_J9..j2zz").unwrap(),
+            b"_J9..j2zzR/nIRDK3pPc"
+        );
+        assert_eq!(
+            crypt_xdes(b"foox", b"_J9..j2zz").unwrap(),
+            b"_J9..j2zzAYKMvO2BYRY"
+        );
         assert_eq!(
             crypt_xdes(b"longlongpassword", b"_J9..j2zz").unwrap(),
             b"_J9..j2zz4BeseiQNwUg"
@@ -69,7 +75,10 @@ mod tests {
     #[test]
     fn desc_xdes_adversarial_bang_salt() {
         arm_cfi(u64::MAX);
-        assert_eq!(crypt_xdes(b"password", b"_/!!!!!!!").unwrap(), b"_/!!!!!!!zqM49hRzxko");
+        assert_eq!(
+            crypt_xdes(b"password", b"_/!!!!!!!").unwrap(),
+            b"_/!!!!!!!zqM49hRzxko"
+        );
     }
 
     #[test]
@@ -87,7 +96,10 @@ mod tests {
 
     #[test]
     fn desc_xdes_short_setting_invalid_salt() {
-        assert_eq!(msg(crypt_xdes(b"foox", b"_J9..BWH").unwrap_err()), "invalid salt");
+        assert_eq!(
+            msg(crypt_xdes(b"foox", b"_J9..BWH").unwrap_err()),
+            "invalid salt"
+        );
     }
 
     #[test]

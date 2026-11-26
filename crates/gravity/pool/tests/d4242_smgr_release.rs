@@ -15,7 +15,14 @@ use types_core::primitive::{InvalidBlockNumber, INVALID_PROC_NUMBER};
 use types_storage::{RelFileLocator, RelFileLocatorBackend};
 
 fn rel(n: u32) -> RelFileLocatorBackend {
-    RelFileLocatorBackend { locator: RelFileLocator { spcOid: 1663, dbOid: 4_242, relNumber: 900_000 + n }, backend: INVALID_PROC_NUMBER }
+    RelFileLocatorBackend {
+        locator: RelFileLocator {
+            spcOid: 1663,
+            dbOid: 4_242,
+            relNumber: 900_000 + n,
+        },
+        backend: INVALID_PROC_NUMBER,
+    }
 }
 
 struct OneThread {
@@ -30,7 +37,11 @@ impl OneThread {
         let thread = &self.thread;
         let f: Box<Job<'_>> = Box::new(move |_ordinal, _range| {
             let me = std::thread::current().id();
-            assert_eq!(*thread.lock().unwrap().get_or_insert(me), me, "every claim runs on the one pool thread");
+            assert_eq!(
+                *thread.lock().unwrap().get_or_insert(me),
+                me,
+                "every claim runs on the one pool thread"
+            );
             job();
             Ok(())
         });
@@ -48,18 +59,29 @@ impl OneThread {
 fn a_pool_threads_smgr_entries_go_after_a_release_or_past_the_cap() {
     let rt = Runtime::new(RuntimeConfig::new(1));
     let workers = runtime::WorkerPool::spawn_std(Arc::clone(&rt)).expect("pool thread");
-    let one = OneThread { pool: RuntimePool::new(Arc::clone(&rt), Ambient::HARNESS), thread: Mutex::new(None) };
+    let one = OneThread {
+        pool: RuntimePool::new(Arc::clone(&rt), Ambient::HARNESS),
+        thread: Mutex::new(None),
+    };
 
     let a = rel(1);
     one.claim(|| {
         smgr::smgropen(a.locator, a.backend).expect("smgropen");
         smgr::smgrsettargblock(a, 7);
     });
-    assert_eq!(one.targblock(a), 7, "with nothing released, a later claim keeps the thread's entry (no reopen per claim)");
+    assert_eq!(
+        one.targblock(a),
+        7,
+        "with nothing released, a later claim keeps the thread's entry (no reopen per claim)"
+    );
 
     // what a leader's smgr inval for a dropped relation runs (inval local.rs -> smgrreleaserellocator)
     smgr::smgrreleaserellocator(a).expect("release");
-    assert_eq!(one.targblock(a), InvalidBlockNumber, "after a release, the pool thread's next claim starts without the entry");
+    assert_eq!(
+        one.targblock(a),
+        InvalidBlockNumber,
+        "after a release, the pool thread's next claim starts without the entry"
+    );
 
     let b = rel(2);
     one.claim(|| {
@@ -70,6 +92,10 @@ fn a_pool_threads_smgr_entries_go_after_a_release_or_past_the_cap() {
         smgr::smgropen(b.locator, b.backend).expect("smgropen");
         smgr::smgrsettargblock(b, 9);
     });
-    assert_eq!(one.targblock(b), InvalidBlockNumber, "past the cap, the next claim starts with an empty table");
+    assert_eq!(
+        one.targblock(b),
+        InvalidBlockNumber,
+        "past the cap, the next claim starts with an empty table"
+    );
     workers.shutdown();
 }

@@ -59,14 +59,14 @@ pub(crate) mod sync {
 pub mod clock;
 pub mod io;
 
-use sync::MutexGuard;
-use sync::atomic::Ordering::SeqCst;
-#[cfg(not(loom))]
-use sync::atomic::{AtomicU64, Ordering};
 #[cfg(not(loom))]
 use pgsync::OnceLock;
 #[cfg(not(loom))]
 use std::time::Duration;
+use sync::atomic::Ordering::SeqCst;
+#[cfg(not(loom))]
+use sync::atomic::{AtomicU64, Ordering};
+use sync::MutexGuard;
 
 /// Waiter slot capacity: bounds peak concurrent threads-with-waiters, not
 /// threads served over the process lifetime (slots are recycled on thread
@@ -240,7 +240,10 @@ impl Slot {
     /// Condvar wait hook for loom-model clocks (loom's condvar cannot be
     /// reached through the pub(crate) accessor from an integration test).
     #[cfg(loom)]
-    pub fn wait_for_model<'a>(&self, guard: MutexGuard<'a, SlotInner>) -> MutexGuard<'a, SlotInner> {
+    pub fn wait_for_model<'a>(
+        &self,
+        guard: MutexGuard<'a, SlotInner>,
+    ) -> MutexGuard<'a, SlotInner> {
         self.cv.wait(guard).unwrap_or_else(|e| e.into_inner())
     }
 
@@ -503,10 +506,7 @@ mod global {
         if !SLOT_EXT.load(Ordering::Acquire).is_null() {
             return;
         }
-        let slab: &'static mut [Slot] = (0..owners)
-            .map(|_| Slot::new())
-            .collect::<Vec<_>>()
-            .leak();
+        let slab: &'static mut [Slot] = (0..owners).map(|_| Slot::new()).collect::<Vec<_>>().leak();
         SLOT_EXT_LEN.store(slab.len(), Ordering::Relaxed);
         SLOT_EXT.store(slab.as_mut_ptr(), Ordering::Release);
     }
@@ -577,10 +577,7 @@ mod global {
     // network peers, so exhaustion must be a refusable condition at
     // InitPostmasterChild, not an assert on the child thread.
     pub(super) fn try_allocate_slot() -> Option<usize> {
-        let recycled = SLOT_FREE
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .pop();
+        let recycled = SLOT_FREE.lock().unwrap_or_else(|e| e.into_inner()).pop();
         let idx = match recycled {
             Some(i) => i,
             None => {
@@ -824,13 +821,13 @@ mod global {
             return Err(std::io::Error::last_os_error().raw_os_error().unwrap_or(0));
         }
         for fd in pipefd {
-            for (cmd, arg) in
-                [(libc::F_SETFL, libc::O_NONBLOCK), (libc::F_SETFD, libc::FD_CLOEXEC)]
-            {
+            for (cmd, arg) in [
+                (libc::F_SETFL, libc::O_NONBLOCK),
+                (libc::F_SETFD, libc::FD_CLOEXEC),
+            ] {
                 // SAFETY: fcntl on fds just created.
                 if unsafe { libc::fcntl(fd, cmd, arg) } == -1 {
-                    let errno =
-                        std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
+                    let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
                     for fd in pipefd {
                         // SAFETY: closing the fds we just created.
                         unsafe { libc::close(fd) };
@@ -957,17 +954,23 @@ mod global {
         #[cfg(target_os = "linux")]
         #[test]
         fn the_boot_slab_is_in_bss() {
-            let last = core::ptr::addr_of!(SLOTS[WAITER_CAP - 1]) as usize + core::mem::size_of::<Slot>() - 1;
+            let last = core::ptr::addr_of!(SLOTS[WAITER_CAP - 1]) as usize
+                + core::mem::size_of::<Slot>()
+                - 1;
             let maps = std::fs::read_to_string("/proc/self/maps").unwrap();
             let line = maps
                 .lines()
                 .find(|l| {
                     let (a, z) = l.split(' ').next().unwrap().split_once('-').unwrap();
-                    (usize::from_str_radix(a, 16).unwrap()..usize::from_str_radix(z, 16).unwrap()).contains(&last)
+                    (usize::from_str_radix(a, 16).unwrap()..usize::from_str_radix(z, 16).unwrap())
+                        .contains(&last)
                 })
                 .unwrap_or_else(|| panic!("no mapping holds {last:#x}"));
             let f: Vec<&str> = line.split_whitespace().collect();
-            assert!(f[1].starts_with("rw") && (f.len() == 5 || f[5] == "[heap]"), "the waiter slab is mapped from the binary (.data), not .bss: {line}");
+            assert!(
+                f[1].starts_with("rw") && (f.len() == 5 || f[5] == "[heap]"),
+                "the waiter slab is mapped from the binary (.data), not .bss: {line}"
+            );
         }
 
         /// D4511: a slot no thread ever took reads "no wake pipe" (-1) on every route, and the fd + 1 codec keeps fd 0.
@@ -979,7 +982,12 @@ mod global {
                 let g = s.lock();
                 assert_eq!((g.wake_rfd(), g.wake_wfd()), (-1, -1));
             }
-            let mut i = SlotInner { token: 0, mode: Mode::Free, wake_rfd1: 0, wake_wfd1: 0 };
+            let mut i = SlotInner {
+                token: 0,
+                mode: Mode::Free,
+                wake_rfd1: 0,
+                wake_wfd1: 0,
+            };
             for (r, w) in [(0, 1), (7, 8), (i32::MAX - 1, 3), (-1, -1)] {
                 i.set_wake_fds(r, w);
                 assert_eq!((i.wake_rfd(), i.wake_wfd()), (r, w));

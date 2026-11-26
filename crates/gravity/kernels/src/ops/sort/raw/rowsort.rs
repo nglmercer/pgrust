@@ -4,13 +4,19 @@
 //! the row and image compares and the stash. Moved unchanged from rowsort.rs (rule R6: the family's unsafe code lives
 //! in raw); rowsort.rs re-exports them under their old paths.
 use crate::host_abi::*;
-use gravity_fn::typesem::keysem::call;
+use crate::table::emit::{Road, Work};
 use gravity_abi::ctx::{cancel_pending, POLL_BATCH};
 use gravity_abi::status::CANCELLED;
-use crate::table::emit::{Road, Work};
+use gravity_fn::typesem::keysem::call;
 
 use super::super::polled::{Poll, Stopped};
-use super::super::rowsort::{order_failed, polled_scratch, sort_by_order_polled, var_alloc, var_cmp_as, want_begin, Order, SortSpec, VarShape, BIG, CMP_ERR, KFLAG_BPCHAR, KFLAG_EQTIE, KFLAG_HOSTED, KFLAG_SPEC_SHIFT, KFLAG_TOTAL, KFLAG_USER, KFLAG_WORDEXACT, ROWCMP_KEYS, SEALED, SMALL_SORT_ROWS, SMALL_SORT_ROW_BYTES, SORTRUN_BIG, SORT_MODE_MEM, SORT_MODE_MERGE, SORT_TBL_HDR, SPOOL_EMPTY, SPOOL_SPILLED_WHAT, STASH, VAR_TBL, VAR_WIDTH, WANT, WANT_GEN, WORD_WIDTH};
+use super::super::rowsort::{
+    order_failed, polled_scratch, sort_by_order_polled, var_alloc, var_cmp_as, want_begin, Order,
+    SortSpec, VarShape, BIG, CMP_ERR, KFLAG_BPCHAR, KFLAG_EQTIE, KFLAG_HOSTED, KFLAG_SPEC_SHIFT,
+    KFLAG_TOTAL, KFLAG_USER, KFLAG_WORDEXACT, ROWCMP_KEYS, SEALED, SMALL_SORT_ROWS,
+    SMALL_SORT_ROW_BYTES, SORTRUN_BIG, SORT_MODE_MEM, SORT_MODE_MERGE, SORT_TBL_HDR, SPOOL_EMPTY,
+    SPOOL_SPILLED_WHAT, STASH, VAR_TBL, VAR_WIDTH, WANT, WANT_GEN, WORD_WIDTH,
+};
 
 /// The run row comparator of a table: the key words, then a fixed image's bytes or a variable image's tail (the equal-short-key shortcut, the bytes under a bytes-ordered collation, `varstr_cmp` through the collation once per tie).
 #[derive(Clone, Copy)]
@@ -53,12 +59,20 @@ pub(crate) struct Head {
     pub(crate) i: u32,
 }
 
-const _: () = assert!(core::mem::size_of::<Head>() == 24, "a head is a SortTuple's 24 bytes");
+const _: () = assert!(
+    core::mem::size_of::<Head>() == 24,
+    "a head is a SortTuple's 24 bytes"
+);
 
 /// D4411: a polled sort's scratch head (`Work::block_on`), written before it is read.
 impl Default for Head {
     fn default() -> Head {
-        Head { w: 0, p: core::ptr::null(), nf: 0, i: 0 }
+        Head {
+            w: 0,
+            p: core::ptr::null(),
+            nf: 0,
+            i: 0,
+        }
     }
 }
 
@@ -78,38 +92,71 @@ pub unsafe fn cmp_rows(nkey: usize, spec: SortSpec, a: *const u8, b: *const u8) 
         if len == 0 || fa != 1 {
             continue;
         }
-        let o = core::slice::from_raw_parts(a.add(off), len).cmp(core::slice::from_raw_parts(b.add(off), len));
+        let o = core::slice::from_raw_parts(a.add(off), len)
+            .cmp(core::slice::from_raw_parts(b.add(off), len));
         if o != Ordering::Equal {
             return if desc { o.reverse() } else { o };
         }
     }
     Ordering::Equal
 }
-unsafe fn sort_rows(ctx: *mut Ctx, run: *mut SortRun, nkey: usize, spec: SortSpec, road: Road) -> i64 {
+unsafe fn sort_rows(
+    ctx: *mut Ctx,
+    run: *mut SortRun,
+    nkey: usize,
+    spec: SortSpec,
+    road: Road,
+) -> i64 {
     if nkey == 0 {
         return 0; // a spool's run (M8): no keys, the rows keep their order
     }
-    sort_rows_by(ctx, run, &|a, b| cmp_rows(nkey / 2, spec, a, b), None, Order::Images, road)
+    sort_rows_by(
+        ctx,
+        run,
+        &|a, b| cmp_rows(nkey / 2, spec, a, b),
+        None,
+        Order::Images,
+        road,
+    )
 }
 /// The rows' `cmp` order as indexes, by `order` (`sort_by_order`; `Exact`, USEROP `RowCmp::exact`: PostgreSQL's qsort over
 /// them in arrival order). D4373 (b): the index is a block of the statement's grant (`Work`: the allocator's under the
 /// memory policy's floor); `Err` when the grant refuses it. D4411: the order is a polled step (`sort_by_order_polled`, its
 /// scratch a block of the grant too): `Err(CANCELLED)` when the statement's abort is pending.
-unsafe fn sorted_index(ctx: *mut Ctx, run: *mut SortRun, cmp: &dyn Fn(*const u8, *const u8) -> Ordering, order: Order, road: Road) -> Result<Work<usize>, i64> {
+unsafe fn sorted_index(
+    ctx: *mut Ctx,
+    run: *mut SortRun,
+    cmp: &dyn Fn(*const u8, *const u8) -> Ordering,
+    order: Order,
+    road: Road,
+) -> Result<Work<usize>, i64> {
     let n = (*run).len as usize;
     let rb = (*run).row_bytes as usize;
     let base = (*run).row(0);
     let mut idx = Work::from_fn_on(ctx, n, |i| i, road)?;
     let mut scratch = Work::<usize>::block_on(ctx, polled_scratch(n, order), road)?;
     let pending = || !ctx.is_null() && cancel_pending(ctx);
-    match sort_by_order_polled(&mut Poll::new(&pending), &mut idx, &mut scratch, order, &|a, b| cmp(base.add(a * rb), base.add(b * rb))) {
+    match sort_by_order_polled(
+        &mut Poll::new(&pending),
+        &mut idx,
+        &mut scratch,
+        order,
+        &|a, b| cmp(base.add(a * rb), base.add(b * rb)),
+    ) {
         Ok(()) => Ok(idx),
         Err(Stopped) => Err(CANCELLED),
     }
 }
 /// The rows permuted into `cmp` order in place (`order`: `sorted_index`'s); a var row's slots re-pointed by the distance
 /// it moved. 0, a status below zero (the index refused, `CANCELLED` mid-permutation).
-pub(crate) unsafe fn sort_rows_by(ctx: *mut Ctx, run: *mut SortRun, cmp: &dyn Fn(*const u8, *const u8) -> Ordering, var: Option<VarShape>, order: Order, road: Road) -> i64 {
+pub(crate) unsafe fn sort_rows_by(
+    ctx: *mut Ctx,
+    run: *mut SortRun,
+    cmp: &dyn Fn(*const u8, *const u8) -> Ordering,
+    var: Option<VarShape>,
+    order: Order,
+    road: Road,
+) -> i64 {
     let idx = match sorted_index(ctx, run, cmp, order, road) {
         Ok(idx) => idx,
         Err(e) => return e,
@@ -126,12 +173,22 @@ pub(crate) unsafe fn sort_rows_by(ctx: *mut Ctx, run: *mut SortRun, cmp: &dyn Fn
 /// place by its cycles (`permute_in_place`: a row of scratch and a bit per row) rather than a refusal: the same bytes
 /// either way. `pending` (the statement's cancel) is read every `POLL_BATCH` rows; true = it stopped, the run holding
 /// every row once with its slots right, in no order.
-pub(crate) unsafe fn permute_rows(ctx: *mut Ctx, run: *mut SortRun, idx: &dyn Fn(usize) -> usize, var: Option<VarShape>, pending: &dyn Fn() -> bool) -> bool {
+pub(crate) unsafe fn permute_rows(
+    ctx: *mut Ctx,
+    run: *mut SortRun,
+    idx: &dyn Fn(usize) -> usize,
+    var: Option<VarShape>,
+    pending: &dyn Fn() -> bool,
+) -> bool {
     if (0..(*run).len as usize).all(|j| idx(j) == j) {
         return false;
     }
     let bytes = (*run).len as usize * (*run).row_bytes as usize;
-    match if ctx.is_null() { None } else { gravity_abi::program::work_try(ctx, bytes as u64) } {
+    match if ctx.is_null() {
+        None
+    } else {
+        gravity_abi::program::work_try(ctx, bytes as u64)
+    } {
         None => {
             // LEDGER2 step 5: the allocator's road, from `ARENA_SCRATCH_MIN` bytes on a scratch arena under the slot's owner
             let mut tmp = super::runs::SortCopy::allocator(ctx, bytes);
@@ -148,7 +205,13 @@ pub(crate) unsafe fn permute_rows(ctx: *mut Ctx, run: *mut SortRun, idx: &dyn Fn
 
 /// `permute_rows` through `dst` (room for the run's rows): the rows gathered there in `idx`'s order, their slots
 /// re-pointed, then laid back over the run. Stopped by `pending`, the run is left as it was.
-pub(crate) unsafe fn permute_by_copy(run: *mut SortRun, idx: &dyn Fn(usize) -> usize, var: Option<VarShape>, pending: &dyn Fn() -> bool, dst: *mut u8) -> bool {
+pub(crate) unsafe fn permute_by_copy(
+    run: *mut SortRun,
+    idx: &dyn Fn(usize) -> usize,
+    var: Option<VarShape>,
+    pending: &dyn Fn() -> bool,
+    dst: *mut u8,
+) -> bool {
     let n = (*run).len as usize;
     let rb = (*run).row_bytes as usize;
     let base = (*run).row(0) as *mut u8;
@@ -163,7 +226,8 @@ pub(crate) unsafe fn permute_by_copy(run: *mut SortRun, idx: &dyn Fn(usize) -> u
             for c in 0..v.nvar {
                 let slot = at.add(*v.slots.add(2 * c + 1) as usize);
                 if (slot as *const u32).read_unaligned() != 0 {
-                    let off = (slot.add(4) as *const u32).read_unaligned() as i64 + (i as i64 - j as i64) * rb as i64;
+                    let off = (slot.add(4) as *const u32).read_unaligned() as i64
+                        + (i as i64 - j as i64) * rb as i64;
                     (slot.add(4) as *mut u32).write_unaligned(off as u32);
                 }
             }
@@ -180,9 +244,16 @@ pub(crate) unsafe fn permute_by_copy(run: *mut SortRun, idx: &dyn Fn(usize) -> u
 /// next move would have read), so the run holds every row once with its slots right, in no order.
 /// LEDGER2 step 5: the bitmap is the allocator's road (`Work::scratch`: from `ARENA_SCRATCH_MIN` bytes on, a scratch arena
 /// under `ctx`'s slot owner; `ctx` null: the allocator's).
-pub(crate) unsafe fn permute_in_place(ctx: *mut Ctx, run: *mut SortRun, idx: &dyn Fn(usize) -> usize, var: Option<VarShape>, pending: &dyn Fn() -> bool) -> bool {
+pub(crate) unsafe fn permute_in_place(
+    ctx: *mut Ctx,
+    run: *mut SortRun,
+    idx: &dyn Fn(usize) -> usize,
+    var: Option<VarShape>,
+    pending: &dyn Fn() -> bool,
+) -> bool {
     // a bit per row (n / 8 bytes) and one row of scratch
-    let mut done = Work::scratch(ctx, ((*run).len as usize).div_ceil(64), |_| 0u64, false).expect("an infallible scratch");
+    let mut done = Work::scratch(ctx, ((*run).len as usize).div_ceil(64), |_| 0u64, false)
+        .expect("an infallible scratch");
     let mut held: Vec<u8> = vec![0; (*run).row_bytes as usize]; // alloc: Exec
     permute_cycles(run, idx, var, pending, &mut done, held.as_mut_ptr())
 }
@@ -191,17 +262,34 @@ pub(crate) unsafe fn permute_in_place(ctx: *mut Ctx, run: *mut SortRun, idx: &dy
 /// walk through a bitmap and a row on the stack (the same bytes as a copy's), no poll. False (the run untouched) for a
 /// wider row or a longer run: the caller takes `permute_rows`.
 pub(crate) unsafe fn permute_small(run: *mut SortRun, idx: &[u32], var: Option<VarShape>) -> bool {
-    if (*run).row_bytes as usize > SMALL_SORT_ROW_BYTES || (*run).len as usize > SMALL_SORT_ROWS || idx.len() != (*run).len as usize {
+    if (*run).row_bytes as usize > SMALL_SORT_ROW_BYTES
+        || (*run).len as usize > SMALL_SORT_ROWS
+        || idx.len() != (*run).len as usize
+    {
         return false;
     }
     let mut done = [0u64; SMALL_SORT_ROWS.div_ceil(64)];
     let mut held = [0u64; SMALL_SORT_ROW_BYTES / 8];
-    permute_cycles(run, &|j| idx[j] as usize, var, &|| false, &mut done, held.as_mut_ptr() as *mut u8);
+    permute_cycles(
+        run,
+        &|j| idx[j] as usize,
+        var,
+        &|| false,
+        &mut done,
+        held.as_mut_ptr() as *mut u8,
+    );
     true
 }
 
 /// `permute_in_place`'s walk: `done` a zeroed bit per row, `held` one row's bytes.
-unsafe fn permute_cycles(run: *mut SortRun, idx: &dyn Fn(usize) -> usize, var: Option<VarShape>, pending: &dyn Fn() -> bool, done: &mut [u64], held: *mut u8) -> bool {
+unsafe fn permute_cycles(
+    run: *mut SortRun,
+    idx: &dyn Fn(usize) -> usize,
+    var: Option<VarShape>,
+    pending: &dyn Fn() -> bool,
+    done: &mut [u64],
+    held: *mut u8,
+) -> bool {
     let n = (*run).len as usize;
     let rb = (*run).row_bytes as usize;
     let base = (*run).row(0) as *mut u8;
@@ -212,7 +300,8 @@ unsafe fn permute_cycles(run: *mut SortRun, idx: &dyn Fn(usize) -> usize, var: O
             for c in 0..v.nvar {
                 let slot = row.add(*v.slots.add(2 * c + 1) as usize);
                 if (slot as *const u32).read_unaligned() != 0 {
-                    let off = (slot.add(4) as *const u32).read_unaligned() as i64 + (i as i64 - j as i64) * rb as i64;
+                    let off = (slot.add(4) as *const u32).read_unaligned() as i64
+                        + (i as i64 - j as i64) * rb as i64;
                     (slot.add(4) as *mut u32).write_unaligned(off as u32);
                 }
             }
@@ -265,7 +354,11 @@ unsafe fn put_var_at(ctx: *mut Ctx, run: *mut SortRun, tbl: *const u32, region: 
     let cmp = RowCmp::of(tbl);
     CMP_ERR.with(|c| c.set(false));
     // a keyless run (a Material's, D3105 (b)) keeps its rows' order, as `sort_rows` keeps a fixed one's
-    let idx = if *tbl.add(1) == 0 { Work::from_fn_on(ctx, (*run).len as usize, |i| i, Road::Put) } else { sorted_index(ctx, run, &|a, b| cmp.cmp(a, b), cmp.order(), Road::Put) };
+    let idx = if *tbl.add(1) == 0 {
+        Work::from_fn_on(ctx, (*run).len as usize, |i| i, Road::Put)
+    } else {
+        sorted_index(ctx, run, &|a, b| cmp.cmp(a, b), cmp.order(), Road::Put)
+    };
     if CMP_ERR.with(|c| c.get()) {
         return cmp_failed("a sort compare failed");
     }
@@ -278,7 +371,8 @@ unsafe fn put_var_at(ctx: *mut Ctx, run: *mut SortRun, tbl: *const u32, region: 
     // D4373 (b): the records' copy in a block of the grant, sized as `RunShape::compact`'s (the rows and the var region,
     // which the records never outgrow)
     let span = (SORTRUN_HDR + (*run).cap as usize * rb).saturating_sub((*run).var_top() as usize);
-    let mut tmp = match super::runs::SortCopy::new(ctx, (*run).len as usize * rb + span, Road::Put) {
+    let mut tmp = match super::runs::SortCopy::new(ctx, (*run).len as usize * rb + span, Road::Put)
+    {
         Ok(t) => t,
         Err(e) => return e,
     };
@@ -324,16 +418,24 @@ unsafe fn last_var(ctx: *mut Ctx, run: *mut SortRun, tbl: *const u32) -> i64 {
     if (*run).len == 0 {
         return 0;
     }
-    let keeps = (*ctx).width == 1 && match spill(ctx, SPILL_RUNS, 0) {
-        n if n < 0 => return n,
-        n => n == 0,
-    };
+    let keeps = (*ctx).width == 1
+        && match spill(ctx, SPILL_RUNS, 0) {
+            n if n < 0 => return n,
+            n => n == 0,
+        };
     if !keeps {
         return put_var(ctx, run, tbl);
     }
     let cmp = RowCmp::of(tbl);
     CMP_ERR.with(|c| c.set(false));
-    let st = sort_rows_by(ctx, run, &|a, b| cmp.cmp(a, b), var_shape(tbl), cmp.order(), Road::Seal);
+    let st = sort_rows_by(
+        ctx,
+        run,
+        &|a, b| cmp.cmp(a, b),
+        var_shape(tbl),
+        cmp.order(),
+        Road::Seal,
+    );
     if CMP_ERR.with(|c| c.get()) {
         return cmp_failed("a sort compare failed");
     }
@@ -358,7 +460,12 @@ crate::contract::host! {
 }
 /// D1330: a section end's big run in flight put (`run` the big run itself: true, nothing else to do; `run` the own run:
 /// its pending big run's put first, false).
-pub(crate) unsafe fn last_big(ctx: *mut Ctx, run: *mut SortRun, tbl: *const u32, put: VarPut) -> Result<bool, i64> {
+pub(crate) unsafe fn last_big(
+    ctx: *mut Ctx,
+    run: *mut SortRun,
+    tbl: *const u32,
+    put: VarPut,
+) -> Result<bool, i64> {
     let own = partial(ctx) as *mut SortRun;
     if (*run).pad[1] == SORTRUN_BIG {
         big_put(ctx, own, run, tbl, put)?;
@@ -422,7 +529,11 @@ fn big_key(own: *mut SortRun) -> u64 {
 /// freed, and none past the statement's end: `drop_result_spills` clears them).
 unsafe fn big_of(ctx: *mut Ctx, own: *mut SortRun) -> Result<*mut SortRun, i64> {
     let w = [big_key(own), u64::MAX];
-    match spill(ctx, gravity_abi::program::SPILL_MERGE_BIG, w.as_ptr() as i64) {
+    match spill(
+        ctx,
+        gravity_abi::program::SPILL_MERGE_BIG,
+        w.as_ptr() as i64,
+    ) {
         n if n < 0 => Err(n),
         n => Ok(n as usize as *mut SortRun),
     }
@@ -430,7 +541,11 @@ unsafe fn big_of(ctx: *mut Ctx, own: *mut SortRun) -> Result<*mut SortRun, i64> 
 /// D1330: `own`'s big run freed for reuse.
 unsafe fn big_free(ctx: *mut Ctx, own: *mut SortRun) -> Result<(), i64> {
     let w = [big_key(own), 0];
-    match spill(ctx, gravity_abi::program::SPILL_MERGE_BIG, w.as_ptr() as i64) {
+    match spill(
+        ctx,
+        gravity_abi::program::SPILL_MERGE_BIG,
+        w.as_ptr() as i64,
+    ) {
         n if n < 0 => Err(n),
         _ => Ok(()),
     }
@@ -438,7 +553,13 @@ unsafe fn big_free(ctx: *mut Ctx, own: *mut SortRun) -> Result<(), i64> {
 /// D1330: an empty big run for a row whose copies want `want` bytes (twice that, so the rows behind it fill it too), drawn
 /// from the grant (PG lets one tuple pass work_mem); the one before it, too small, freed first.
 #[cold]
-unsafe fn big_run(ctx: *mut Ctx, own: *mut SortRun, want: usize, tbl: *const u32, prep: VarPrep) -> Result<*mut SortRun, i64> {
+unsafe fn big_run(
+    ctx: *mut Ctx,
+    own: *mut SortRun,
+    want: usize,
+    tbl: *const u32,
+    prep: VarPrep,
+) -> Result<*mut SortRun, i64> {
     big_free(ctx, own)?;
     let rb = (*own).row_bytes as usize;
     let cap = (rb + 2 * want).div_ceil(rb).max(2);
@@ -447,18 +568,34 @@ unsafe fn big_run(ctx: *mut Ctx, own: *mut SortRun, want: usize, tbl: *const u32
     }
     let bytes = SORTRUN_HDR + cap * rb + gravity_abi::breaker::SORTRUN_VAR_WORDS as usize;
     let w = [big_key(own), bytes as u64];
-    let p = spill(ctx, gravity_abi::program::SPILL_MERGE_BIG, w.as_ptr() as i64) as *mut SortRun;
+    let p = spill(
+        ctx,
+        gravity_abi::program::SPILL_MERGE_BIG,
+        w.as_ptr() as i64,
+    ) as *mut SortRun;
     if p.is_null() {
         return Err(ERROR);
     }
-    *p = SortRun { cap: cap as u32, len: 0, row_bytes: rb as u32, pad: [0, SORTRUN_BIG, 0], kind: TABLE_SORT };
+    *p = SortRun {
+        cap: cap as u32,
+        len: 0,
+        row_bytes: rb as u32,
+        pad: [0, SORTRUN_BIG, 0],
+        kind: TABLE_SORT,
+    };
     (*p).clear();
     prep(p, tbl);
     Ok(p)
 }
 /// D1330: the big run's rows put (a run of their own, `SPILL_RUN_PUT` at its address), the buffer freed, the own run next.
 #[cold]
-pub(crate) unsafe fn big_put(ctx: *mut Ctx, own: *mut SortRun, big: *mut SortRun, tbl: *const u32, put: VarPut) -> Result<(), i64> {
+pub(crate) unsafe fn big_put(
+    ctx: *mut Ctx,
+    own: *mut SortRun,
+    big: *mut SortRun,
+    tbl: *const u32,
+    put: VarPut,
+) -> Result<(), i64> {
     let r = put(ctx, big, tbl, big as i64);
     if r < 0 {
         return Err(r);
@@ -473,7 +610,13 @@ pub(crate) type VarPut = unsafe fn(*mut Ctx, *mut SortRun, *const u32, i64) -> i
 pub(crate) type VarPrep = unsafe fn(*mut SortRun, *const u32);
 /// A var run's put with the big-run turns (D1330): an armed empty run grows a big run (returned, the next row's run); a
 /// big run's rows put and the own run returned; else `put`.
-pub(crate) unsafe fn full_var_by(ctx: *mut Ctx, run: *mut SortRun, tbl: *const u32, put: VarPut, prep: VarPrep) -> i64 {
+pub(crate) unsafe fn full_var_by(
+    ctx: *mut Ctx,
+    run: *mut SortRun,
+    tbl: *const u32,
+    put: VarPut,
+    prep: VarPrep,
+) -> i64 {
     if (*run).len != 0 && (*run).pad[1] != SORTRUN_BIG {
         return put(ctx, run, tbl, 0);
     }
@@ -518,12 +661,23 @@ crate::contract::host! {
         })
     }
 }
-unsafe fn image_into(run: *mut u8, ptr: *const u8, len: u32, slot_off: u64, rec_off: u64, raw: bool) -> i64 {
+unsafe fn image_into(
+    run: *mut u8,
+    ptr: *const u8,
+    len: u32,
+    slot_off: u64,
+    rec_off: u64,
+    raw: bool,
+) -> i64 {
     let r = &mut *(run as *mut SortRun);
     let size = if raw { len } else { 4 + len };
     let alloc = var_alloc(size);
     let Some(top) = r.reserve_var(alloc) else {
-        return if r.len == 0 { want_room(run, r, alloc) } else { 1 };
+        return if r.len == 0 {
+            want_room(run, r, alloc)
+        } else {
+            1
+        };
     };
     let dst = run.add(top as usize);
     if raw {
@@ -558,17 +712,22 @@ pub(crate) unsafe fn put(ctx: *mut Ctx, run: *mut SortRun, nkey: usize, spec: So
 }
 unsafe fn sealed(own: *const u8, row_bytes: usize) -> bool {
     let run = &*(own as *const SortRun);
-    run.cap != 0 && run.kind == TABLE_SORT && run.row_bytes as usize == row_bytes && run.pad[0] == SEALED && run.len <= run.cap
+    run.cap != 0
+        && run.kind == TABLE_SORT
+        && run.row_bytes as usize == row_bytes
+        && run.pad[0] == SEALED
+        && run.len <= run.cap
 }
 pub(crate) unsafe fn last(ctx: *mut Ctx, run: *mut SortRun, nkey: usize, spec: SortSpec) -> i64 {
     if (*run).len == 0 {
         return 0;
     }
     // the leader's run with no run put before stays sorted in the region (the emit reads it there); else put
-    let keeps = (*ctx).width == 1 && match spill(ctx, SPILL_RUNS, 0) {
-        n if n < 0 => return n,
-        n => n == 0,
-    };
+    let keeps = (*ctx).width == 1
+        && match spill(ctx, SPILL_RUNS, 0) {
+            n if n < 0 => return n,
+            n => n == 0,
+        };
     if !keeps {
         return put(ctx, run, nkey, spec);
     }
@@ -658,7 +817,12 @@ crate::contract::host! {
     }
 }
 pub(crate) unsafe fn tbl_shape(tbl: *const u32) -> (usize, usize, usize, SortSpec) {
-    (*tbl as usize, *tbl.add(1) as usize, (*tbl.add(2) & !VAR_TBL) as usize, SortSpec(*tbl.add(4) as u64 | (*tbl.add(5) as u64) << 32))
+    (
+        *tbl as usize,
+        *tbl.add(1) as usize,
+        (*tbl.add(2) & !VAR_TBL) as usize,
+        SortSpec(*tbl.add(4) as u64 | (*tbl.add(5) as u64) << 32),
+    )
 }
 /// # Safety
 /// `tbl` is an emit table.
@@ -669,16 +833,31 @@ pub unsafe fn var_shape(tbl: *const u32) -> Option<VarShape> {
     let at = tbl.add(SORT_TBL_HDR + 3 * *tbl.add(3) as usize);
     let (nvar, rec_off) = (*at as usize, *at.add(1) as usize);
     // face/runs.rs Shape::plan_coded: the key pairs, a datum word per column, the null bytes 8-rounded, the record word
-    let (natts, nulls) = ((*tbl.add(2) & !VAR_TBL) as usize, 8 * *tbl.add(1) as usize + 8 * (*tbl.add(2) & !VAR_TBL) as usize);
-    let pad = if nulls + natts.next_multiple_of(8) == rec_off { (nulls + natts, rec_off) } else { (0, 0) };
-    Some(VarShape { nvar, rec_off, slots: at.add(2), keys: at.add(2 + 2 * nvar), pad })
+    let (natts, nulls) = (
+        (*tbl.add(2) & !VAR_TBL) as usize,
+        8 * *tbl.add(1) as usize + 8 * (*tbl.add(2) & !VAR_TBL) as usize,
+    );
+    let pad = if nulls + natts.next_multiple_of(8) == rec_off {
+        (nulls + natts, rec_off)
+    } else {
+        (0, 0)
+    };
+    Some(VarShape {
+        nvar,
+        rec_off,
+        slots: at.add(2),
+        keys: at.add(2 + 2 * nvar),
+        pad,
+    })
 }
 /// The hosted section of a var table (`KFLAG_HOSTED`): one support-function oid per key after the `(coll, kflags)` words,
 /// present when any key is hosted; `None` otherwise.
 pub(crate) unsafe fn hosted_procs(tbl: *const u32) -> Option<*const u32> {
     let v = var_shape(tbl)?;
     let nkeys = *tbl.add(1) as usize / 2;
-    (0..nkeys).any(|k| *v.keys.add(2 * k + 1) & KFLAG_HOSTED != 0).then(|| v.keys.add(2 * nkeys))
+    (0..nkeys)
+        .any(|k| *v.keys.add(2 * k + 1) & KFLAG_HOSTED != 0)
+        .then(|| v.keys.add(2 * nkeys))
 }
 impl Head {
     const LEN: u32 = (1 << 30) - 1;
@@ -691,12 +870,30 @@ impl Head {
     /// # Safety
     /// The head is a `RowCmp::head` of a live run that has not been put, sealed or grown since (`index_by`'s order).
     unsafe fn bytes(&self) -> &[u8] {
-        if self.p.is_null() { &[] } else { core::slice::from_raw_parts(self.p, (self.nf & Self::LEN) as usize) }
+        if self.p.is_null() {
+            &[]
+        } else {
+            core::slice::from_raw_parts(self.p, (self.nf & Self::LEN) as usize)
+        }
     }
 }
 impl RowCmp {
     pub(crate) const fn fixed(nkey: usize, spec: SortSpec) -> RowCmp {
-        RowCmp { nkey, spec, coll: [0; ROWCMP_KEYS], bpchar: 0, ext: [0; ROWCMP_KEYS - 4], hosted: 0, eqtie: 0, wexact: 0, user: 0, exact: false, lenient: false, procs: 0, far: 0 }
+        RowCmp {
+            nkey,
+            spec,
+            coll: [0; ROWCMP_KEYS],
+            bpchar: 0,
+            ext: [0; ROWCMP_KEYS - 4],
+            hosted: 0,
+            eqtie: 0,
+            wexact: 0,
+            user: 0,
+            exact: false,
+            lenient: false,
+            procs: 0,
+            far: 0,
+        }
     }
 
     /// # Safety
@@ -726,7 +923,8 @@ impl RowCmp {
                 c.far = v.keys as usize;
             }
             c.exact = (0..c.nkey).any(|k| *v.keys.add(2 * k + 1) & KFLAG_USER != 0);
-            c.lenient = (0..c.nkey).any(|k| *v.keys.add(2 * k + 1) & (KFLAG_HOSTED | KFLAG_TOTAL) == KFLAG_HOSTED);
+            c.lenient = (0..c.nkey)
+                .any(|k| *v.keys.add(2 * k + 1) & (KFLAG_HOSTED | KFLAG_TOTAL) == KFLAG_HOSTED);
         }
         c
     }
@@ -775,14 +973,31 @@ impl RowCmp {
     /// # Safety
     /// Both tables are live (a hosted key's support function is read from its table).
     pub unsafe fn cross_ok(&self, other: &RowCmp, nkey: usize) -> bool {
-        if nkey == 0 || nkey > ROWCMP_KEYS || nkey > self.nkey || nkey > other.nkey || self.exact || other.exact || self.lenient || other.lenient {
+        if nkey == 0
+            || nkey > ROWCMP_KEYS
+            || nkey > self.nkey
+            || nkey > other.nkey
+            || self.exact
+            || other.exact
+            || self.lenient
+            || other.lenient
+        {
             return false;
         }
         (0..nkey).all(|k| {
             let ((_, la, da), (_, lb, db)) = (self.key(k), other.key(k));
             let same = |x: u16, y: u16| (x ^ y) >> k & 1 == 0;
-            let alike = la == lb && da == db && self.coll[k] == other.coll[k] && same(self.bpchar, other.bpchar) && same(self.hosted, other.hosted);
-            alike && (self.hosted >> k & 1 == 0 || (same(self.eqtie, other.eqtie) && same(self.wexact, other.wexact) && *(self.procs as *const u32).add(k) == *(other.procs as *const u32).add(k)))
+            let alike = la == lb
+                && da == db
+                && self.coll[k] == other.coll[k]
+                && same(self.bpchar, other.bpchar)
+                && same(self.hosted, other.hosted);
+            alike
+                && (self.hosted >> k & 1 == 0
+                    || (same(self.eqtie, other.eqtie)
+                        && same(self.wexact, other.wexact)
+                        && *(self.procs as *const u32).add(k)
+                            == *(other.procs as *const u32).add(k)))
         })
     }
 
@@ -790,16 +1005,31 @@ impl RowCmp {
     /// key as `cmp_from` orders it, its image read where its own table lays it.
     /// # Safety
     /// `a` is a run row of this table, `b` one of `other`'s, and `cross_ok(other, nkey)`.
-    pub unsafe fn cmp_cross(&self, a: *const u8, other: &RowCmp, b: *const u8, nkey: usize) -> Ordering {
+    pub unsafe fn cmp_cross(
+        &self,
+        a: *const u8,
+        other: &RowCmp,
+        b: *const u8,
+        nkey: usize,
+    ) -> Ordering {
         for k in 0..nkey {
             let (x, y) = (a as *const u64, b as *const u64);
             let ((oa, len, desc), (ob, _, _)) = (self.key(k), other.key(k));
-            let img = || if len >= WORD_WIDTH as usize || self.hosted >> k & 1 != 0 {
-                self.tail(k, *x.add(2 * k + 1), a.add(oa), b.add(ob), len)
-            } else {
-                core::slice::from_raw_parts(a.add(oa), len).cmp(core::slice::from_raw_parts(b.add(ob), len))
+            let img = || {
+                if len >= WORD_WIDTH as usize || self.hosted >> k & 1 != 0 {
+                    self.tail(k, *x.add(2 * k + 1), a.add(oa), b.add(ob), len)
+                } else {
+                    core::slice::from_raw_parts(a.add(oa), len)
+                        .cmp(core::slice::from_raw_parts(b.add(ob), len))
+                }
             };
-            if let Some(o) = Self::step([*x.add(2 * k), *y.add(2 * k)], [*x.add(2 * k + 1), *y.add(2 * k + 1)], len, desc, img) {
+            if let Some(o) = Self::step(
+                [*x.add(2 * k), *y.add(2 * k)],
+                [*x.add(2 * k + 1), *y.add(2 * k + 1)],
+                len,
+                desc,
+                img,
+            ) {
                 return o;
             }
         }
@@ -811,12 +1041,21 @@ impl RowCmp {
         for k in k0..self.nkey.min(ROWCMP_KEYS) {
             let (x, y) = (a as *const u64, b as *const u64);
             let (off, len, desc) = self.key(k);
-            let img = || if len >= WORD_WIDTH as usize || self.hosted >> k & 1 != 0 {
-                self.tail(k, *x.add(2 * k + 1), a.add(off), b.add(off), len)
-            } else {
-                core::slice::from_raw_parts(a.add(off), len).cmp(core::slice::from_raw_parts(b.add(off), len))
+            let img = || {
+                if len >= WORD_WIDTH as usize || self.hosted >> k & 1 != 0 {
+                    self.tail(k, *x.add(2 * k + 1), a.add(off), b.add(off), len)
+                } else {
+                    core::slice::from_raw_parts(a.add(off), len)
+                        .cmp(core::slice::from_raw_parts(b.add(off), len))
+                }
             };
-            if let Some(o) = Self::step([*x.add(2 * k), *y.add(2 * k)], [*x.add(2 * k + 1), *y.add(2 * k + 1)], len, desc, img) {
+            if let Some(o) = Self::step(
+                [*x.add(2 * k), *y.add(2 * k)],
+                [*x.add(2 * k + 1), *y.add(2 * k + 1)],
+                len,
+                desc,
+                img,
+            ) {
                 return o;
             }
         }
@@ -835,10 +1074,20 @@ impl RowCmp {
         let far = self.far as *const u32;
         for k in k0..self.nkey {
             let (x, y) = (a as *const u64, b as *const u64);
-            let (coll, f) = if far.is_null() { (0, 0) } else { (*far.add(2 * k), *far.add(2 * k + 1)) };
+            let (coll, f) = if far.is_null() {
+                (0, 0)
+            } else {
+                (*far.add(2 * k), *far.add(2 * k + 1))
+            };
             let (off, len, desc) = SortSpec((f >> KFLAG_SPEC_SHIFT) as u64).key(0);
             let img = || self.far_tail(k, coll, f, a.add(off), b.add(off), len);
-            if let Some(o) = Self::step([*x.add(2 * k), *y.add(2 * k)], [*x.add(2 * k + 1), *y.add(2 * k + 1)], len, desc, img) {
+            if let Some(o) = Self::step(
+                [*x.add(2 * k), *y.add(2 * k)],
+                [*x.add(2 * k + 1), *y.add(2 * k + 1)],
+                len,
+                desc,
+                img,
+            ) {
                 return o;
             }
         }
@@ -847,9 +1096,25 @@ impl RowCmp {
 
     /// Key `k`'s image past `ROWCMP_KEYS` (`cmp_far`), under its var section words `coll` and `f`: a fixed image's bytes, a
     /// hosted key's comparator (the table's hosted section), a var copy's payloads (`var_cmp_as`).
-    unsafe fn far_tail(&self, k: usize, coll: u32, f: u32, sa: *const u8, sb: *const u8, len: usize) -> Ordering {
+    unsafe fn far_tail(
+        &self,
+        k: usize,
+        coll: u32,
+        f: u32,
+        sa: *const u8,
+        sb: *const u8,
+        len: usize,
+    ) -> Ordering {
         if f & KFLAG_HOSTED != 0 {
-            return tail_pair(*(self.far as *const u32).add(2 * self.nkey + k), coll, f & KFLAG_EQTIE != 0, f & KFLAG_USER != 0, sa, sb, len);
+            return tail_pair(
+                *(self.far as *const u32).add(2 * self.nkey + k),
+                coll,
+                f & KFLAG_EQTIE != 0,
+                f & KFLAG_USER != 0,
+                sa,
+                sb,
+                len,
+            );
         }
         if len < WORD_WIDTH as usize {
             return core::slice::from_raw_parts(sa, len).cmp(core::slice::from_raw_parts(sb, len));
@@ -857,13 +1122,24 @@ impl RowCmp {
         if len != VAR_WIDTH as usize {
             return Ordering::Equal; // as `tail`: a WORD_WIDTH entry is laid only with its comparator
         }
-        var_cmp_as(coll, f & KFLAG_BPCHAR != 0, var_payload(sa), var_payload(sb))
+        var_cmp_as(
+            coll,
+            f & KFLAG_BPCHAR != 0,
+            var_payload(sa),
+            var_payload(sb),
+        )
     }
 
     /// One key's order: its flags, its word, then (a present value with an image) the image's, reversed when descending;
     /// `None` when the key ties (the next key decides).
     #[inline(always)]
-    fn step(f: [u64; 2], w: [u64; 2], len: usize, desc: bool, img: impl FnOnce() -> Ordering) -> Option<Ordering> {
+    fn step(
+        f: [u64; 2],
+        w: [u64; 2],
+        len: usize,
+        desc: bool,
+        img: impl FnOnce() -> Ordering,
+    ) -> Option<Ordering> {
         if f[0] != f[1] {
             return Some(f[0].cmp(&f[1]));
         }
@@ -888,18 +1164,38 @@ impl RowCmp {
     /// `row` is run row `i` of the table; `heads_ok()`.
     pub(crate) unsafe fn head(&self, row: *const u8, i: u32) -> Head {
         let (f, w) = (*(row as *const u64), *(row as *const u64).add(1));
-        let (p, n) = if f == 1 { let s = var_payload(row.add(self.key(0).0)); (s.as_ptr(), s.len() as u32) } else { (core::ptr::null(), 0) };
-        debug_assert!(f <= 2 && n <= Head::LEN, "a key 0 flag past NULLS LAST or a payload past a varlena's");
-        Head { w, p, nf: n | (f as u32) << 30, i }
+        let (p, n) = if f == 1 {
+            let s = var_payload(row.add(self.key(0).0));
+            (s.as_ptr(), s.len() as u32)
+        } else {
+            (core::ptr::null(), 0)
+        };
+        debug_assert!(
+            f <= 2 && n <= Head::LEN,
+            "a key 0 flag past NULLS LAST or a payload past a varlena's"
+        );
+        Head {
+            w,
+            p,
+            nf: n | (f as u32) << 30,
+            i,
+        }
     }
 
     /// D1581 (G4): `cmp` of the rows of two heads: key 0 by the heads (`step` and `var_cmp`, the rows' own code), the
     /// later keys by the rows.
     /// # Safety
     /// The heads are `head`s of this table's live run, `row` its rows by index.
-    pub(crate) unsafe fn head_cmp(&self, x: &Head, y: &Head, row: &dyn Fn(u32) -> *const u8) -> Ordering {
+    pub(crate) unsafe fn head_cmp(
+        &self,
+        x: &Head,
+        y: &Head,
+        row: &dyn Fn(u32) -> *const u8,
+    ) -> Ordering {
         let (_, len, desc) = self.key(0);
-        match Self::step([x.f(), y.f()], [x.w, y.w], len, desc, || self.var_cmp(0, x.bytes(), y.bytes())) {
+        match Self::step([x.f(), y.f()], [x.w, y.w], len, desc, || {
+            self.var_cmp(0, x.bytes(), y.bytes())
+        }) {
             Some(o) => o,
             None => self.cmp_from(1, row(x.i), row(y.i)),
         }
@@ -909,7 +1205,15 @@ impl RowCmp {
     #[cold]
     #[inline(never)]
     unsafe fn hosted_tail(&self, k: usize, sa: *const u8, sb: *const u8, len: usize) -> Ordering {
-        tail_pair(*(self.procs as *const u32).add(k), self.coll[k], self.eqtie >> k & 1 != 0, self.user >> k & 1 != 0, sa, sb, len)
+        tail_pair(
+            *(self.procs as *const u32).add(k),
+            self.coll[k],
+            self.eqtie >> k & 1 != 0,
+            self.user >> k & 1 != 0,
+            sa,
+            sb,
+            len,
+        )
     }
 
     /// Key `k`'s tail on a tie of its word `w` (both rows').
@@ -938,17 +1242,53 @@ impl RowCmp {
 /// decides when equal copies tie with no call): `proc` (a resolution id) under `coll` over the var copies' Datums,
 /// (`WORD_WIDTH`) the datum words, or (a fixed image, under `WORD_WIDTH`: a `name` under a non-C collation) the images'
 /// addresses, a by-reference Datum, with how the copies compare as bytes.
-unsafe fn tail_pair(proc: u32, coll: u32, eqtie: bool, user: bool, sa: *const u8, sb: *const u8, len: usize) -> Ordering {
+unsafe fn tail_pair(
+    proc: u32,
+    coll: u32,
+    eqtie: bool,
+    user: bool,
+    sa: *const u8,
+    sb: *const u8,
+    len: usize,
+) -> Ordering {
     let (da, db, copies) = if len == VAR_WIDTH as usize {
         let (pa, pb) = (var_payload(sa), var_payload(sb));
-        (var_datum(sa) as u64, var_datum(sb) as u64, if !user && pa == pb { call::Copies::SameVar(pa) } else { call::Copies::Differ })
+        (
+            var_datum(sa) as u64,
+            var_datum(sb) as u64,
+            if !user && pa == pb {
+                call::Copies::SameVar(pa)
+            } else {
+                call::Copies::Differ
+            },
+        )
     } else if len < WORD_WIDTH as usize {
-        let same = !user && core::slice::from_raw_parts(sa, len) == core::slice::from_raw_parts(sb, len);
-        (sa as usize as u64, sb as usize as u64, if same { call::Copies::Same } else { call::Copies::Differ })
+        let same =
+            !user && core::slice::from_raw_parts(sa, len) == core::slice::from_raw_parts(sb, len);
+        (
+            sa as usize as u64,
+            sb as usize as u64,
+            if same {
+                call::Copies::Same
+            } else {
+                call::Copies::Differ
+            },
+        )
     } else {
         // D3238: the datum word is 8 bytes on every target (a usize read is its low half on wasm32)
-        let (da, db) = ((sa as *const u64).read_unaligned(), (sb as *const u64).read_unaligned());
-        (da, db, if !user && da == db { call::Copies::Same } else { call::Copies::Differ })
+        let (da, db) = (
+            (sa as *const u64).read_unaligned(),
+            (sb as *const u64).read_unaligned(),
+        );
+        (
+            da,
+            db,
+            if !user && da == db {
+                call::Copies::Same
+            } else {
+                call::Copies::Differ
+            },
+        )
     };
     call::order_pair(proc, coll, eqtie, user, copies, da, db).unwrap_or_else(order_failed)
 }
@@ -969,13 +1309,22 @@ fn stash_bytes(row_bytes: usize) -> usize {
 pub(crate) unsafe fn stash_of(own: *mut u8) -> *mut u8 {
     let m = &*(own as *const runmerge::RunMerge);
     let n = m.nruns as usize;
-    own.add(size_of::<runmerge::RunMerge>() + n * size_of::<runmerge::RunCur>() + ((n * 4 + 7) & !7) + n * m.buf as usize)
+    own.add(
+        size_of::<runmerge::RunMerge>()
+            + n * size_of::<runmerge::RunCur>()
+            + ((n * 4 + 7) & !7)
+            + n * m.buf as usize,
+    )
 }
 /// The winner copied whole into the stash: `rb` bytes, or a var record's length word at `rec_off` when `rb` is 0.
 /// D1328: never past the stash's room (a record wider than it is a layout bug, raised by name, never a write past the region).
 pub(crate) unsafe fn stash_row(_ctx: *mut Ctx, row: *const u8) -> i64 {
     let (dst, rb, rec_off, room) = STASH.with(|c| c.get());
-    let n = if rb == 0 { (row.add(rec_off) as *const u32).read_unaligned() as usize } else { rb };
+    let n = if rb == 0 {
+        (row.add(rec_off) as *const u32).read_unaligned() as usize
+    } else {
+        rb
+    };
     if n > room {
         return stash_overflow(n, room);
     }
@@ -984,7 +1333,9 @@ pub(crate) unsafe fn stash_row(_ctx: *mut Ctx, row: *const u8) -> i64 {
 }
 #[cold]
 fn stash_overflow(n: usize, room: usize) -> i64 {
-    bare(&format!("Bug: a sort merge's emit stash of {room} bytes under a record of {n} (D1328)")) // alloc: Cold
+    bare(&format!(
+        "Bug: a sort merge's emit stash of {room} bytes under a record of {n} (D1328)"
+    )) // alloc: Cold
 }
 /// D1327: `stash_row` once a run's buffer grew past the region (`runmerge::grow`): a record longer than the region's stash
 /// goes to the big stash (drawn as the big buffers, held until the statement's end, grown as needed).
@@ -1001,7 +1352,11 @@ unsafe fn stash_big(ctx: *mut Ctx, row: *const u8) -> i64 {
     if n > cap {
         cap = n.next_power_of_two();
         let w = [own as u64, cap as u64];
-        big = spill(ctx, gravity_abi::program::SPILL_MERGE_BIG, w.as_ptr() as i64) as *mut u8;
+        big = spill(
+            ctx,
+            gravity_abi::program::SPILL_MERGE_BIG,
+            w.as_ptr() as i64,
+        ) as *mut u8;
         if big.is_null() {
             return ERROR;
         }
@@ -1022,7 +1377,10 @@ pub(crate) unsafe fn point_images(row: *mut u8, tbl: *const u32) {
     }
     if let Some(v) = var_shape(tbl) {
         for c in 0..v.nvar {
-            let (col, so) = (*v.slots.add(2 * c) as usize, *v.slots.add(2 * c + 1) as usize);
+            let (col, so) = (
+                *v.slots.add(2 * c) as usize,
+                *v.slots.add(2 * c + 1) as usize,
+            );
             let slot = row.add(so);
             if (slot as *const u32).read_unaligned() != 0 {
                 let off = (slot.add(4) as *const u32).read_unaligned() as usize;
@@ -1049,7 +1407,9 @@ crate::contract::host! {
 /// its own at its open, over the bytes the first found); `None` over a run, an armed region or a merge no emit laid.
 pub(crate) unsafe fn relaid<'a>(own: *const u8) -> Option<&'a runmerge::RunMerge> {
     let m = &*(own as *const runmerge::RunMerge);
-    let hit = table_kind(own) != TABLE_SORT && m.kind == runmerge::RUNMERGE_KIND && m.tag == runmerge::EMIT_TAG;
+    let hit = table_kind(own) != TABLE_SORT
+        && m.kind == runmerge::RUNMERGE_KIND
+        && m.tag == runmerge::EMIT_TAG;
     debug_assert!(!hit || m.heap_len < 1 << 24, "a merge's byte 15 is 0");
     hit.then_some(m)
 }
@@ -1072,7 +1432,11 @@ unsafe fn held_at(ctx: *mut Ctx, run: *mut SortRun, tbl: *const u32, stream: u64
         _ => return unsupported(UNSUPPORTED_SHAPE),
     }
     let (row_bytes, nkey, _, spec) = tbl_shape(tbl);
-    if var_shape(tbl).is_some() || (*run).cap == 0 || (*run).row_bytes as usize != row_bytes || (*run).len > (*run).cap {
+    if var_shape(tbl).is_some()
+        || (*run).cap == 0
+        || (*run).row_bytes as usize != row_bytes
+        || (*run).len > (*run).cap
+    {
         return bare("Bug: a run held at its rows that is not a fixed row's open run (D2316)");
     }
     let st = sort_rows(ctx, run, nkey, spec, Road::Seal);
@@ -1102,7 +1466,10 @@ unsafe fn begin_in(ctx: *mut Ctx, own: *mut u8, tbl: *const u32, stream: u64) ->
         // D449: a held run (op 14 for runs.sort: its fill raised, exec ops/sort/held.rs) has nothing to send, never its
         // partial rows or put runs; its reader raises the held error at the run's end (`m11_run_held`). D2316: one held
         // at its rows (`RUN_HELD_AT`) is sealed here and read as any sealed run, up to its reader's count
-        if word == RESUME_NONE && table_kind(own) == TABLE_SORT && (*(own as *const SortRun)).pad[2] & RUN_HELD != 0 {
+        if word == RESUME_NONE
+            && table_kind(own) == TABLE_SORT
+            && (*(own as *const SortRun)).pad[2] & RUN_HELD != 0
+        {
             if (*(own as *const SortRun)).pad[2] & RUN_HELD_AT == 0 {
                 return DONE;
             }
@@ -1126,11 +1493,15 @@ unsafe fn begin_in(ctx: *mut Ctx, own: *mut u8, tbl: *const u32, stream: u64) ->
             // closed and the merge laid again from the runs. Another reader's merge in flight stays a Bug (D1061).
             let reader = reader_of(ctx, tbl);
             let usable = match relaid(own) {
-                Some(m) if m.active != 0 && m.reader == reader => match super::super::raw::abandon(ctx, own) {
-                    0 => m.region as usize,
-                    e => return e,
-                },
-                Some(m) if m.active != 0 => return bare("Bug: a sort emit's merge laid over another reader's merge in flight (D1061)"),
+                Some(m) if m.active != 0 && m.reader == reader => {
+                    match super::super::raw::abandon(ctx, own) {
+                        0 => m.region as usize,
+                        e => return e,
+                    }
+                }
+                Some(m) if m.active != 0 => return bare(
+                    "Bug: a sort emit's merge laid over another reader's merge in flight (D1061)",
+                ),
                 Some(m) => m.region as usize,
                 None => SortRun::region_bytes(own, row_bytes as u32),
             };
@@ -1141,7 +1512,16 @@ unsafe fn begin_in(ctx: *mut Ctx, own: *mut u8, tbl: *const u32, stream: u64) ->
                         return bare("a sort region smaller than its row stash");
                     }
                     let cmp = |a: *const u8, b: *const u8| cmp_rows(nkey / 2, spec, a, b);
-                    runmerge::open_by(ctx, own, usable - sb, row_bytes, nkey as u16, true, stream, &cmp)
+                    runmerge::open_by(
+                        ctx,
+                        own,
+                        usable - sb,
+                        row_bytes,
+                        nkey as u16,
+                        true,
+                        stream,
+                        &cmp,
+                    )
                 }
                 Some(v) => {
                     // the stash holds one record: a run buffer's worth, the merge laid over the rest
@@ -1161,7 +1541,15 @@ unsafe fn begin_in(ctx: *mut Ctx, own: *mut u8, tbl: *const u32, stream: u64) ->
                     // D1293: the open's tree compares the runs' heads; a failed one raises here (`next_in` clears
                     // `CMP_ERR` before its drain, so the open's failure was lost and the first rows came out misordered)
                     CMP_ERR.with(|c| c.set(false));
-                    let opened = runmerge::open_var_in(ctx, own, usable - sb, row_bytes, v.rec_off as u16, stream, &cmp);
+                    let opened = runmerge::open_var_in(
+                        ctx,
+                        own,
+                        usable - sb,
+                        row_bytes,
+                        v.rec_off as u16,
+                        stream,
+                        &cmp,
+                    );
                     if CMP_ERR.with(|c| c.get()) {
                         return cmp_failed("a sort merge compare failed");
                     }
@@ -1174,7 +1562,12 @@ unsafe fn begin_in(ctx: *mut Ctx, own: *mut u8, tbl: *const u32, stream: u64) ->
                 Ok(true) => {}
             }
             let m = &mut *(own as *mut runmerge::RunMerge);
-            (m.region, m.active, m.tag, m.reader) = (usable.min(u32::MAX as usize) as u32, 1, runmerge::EMIT_TAG, reader);
+            (m.region, m.active, m.tag, m.reader) = (
+                usable.min(u32::MAX as usize) as u32,
+                1,
+                runmerge::EMIT_TAG,
+                reader,
+            );
             *(stash_of(own) as *mut u64) = 0;
         } else if resume::position(word) & MERGING == 0 {
             return bare("a sort resumed outside its merge");
@@ -1232,7 +1625,10 @@ pub(crate) unsafe fn spool_pointed(r: &SortRun, tbl: *const u32) -> bool {
 /// # Safety
 /// As `spool_pointed`; `hi` is at most the run's rows.
 pub(crate) unsafe fn spool_pointed_in(r: &SortRun, tbl: *const u32, lo: usize, hi: usize) -> bool {
-    if *tbl.add(3) == 0 && r.var_bytes() == 0 && r.var_top() as usize == SORTRUN_HDR + r.cap as usize * r.row_bytes as usize {
+    if *tbl.add(3) == 0
+        && r.var_bytes() == 0
+        && r.var_top() as usize == SORTRUN_HDR + r.cap as usize * r.row_bytes as usize
+    {
         return true;
     }
     let (_, nkey, natts, _) = tbl_shape(tbl);
@@ -1253,7 +1649,10 @@ pub(crate) unsafe fn spool_pointed_in(r: &SortRun, tbl: *const u32, lo: usize, h
         }
         if let Some(v) = var {
             for c in 0..v.nvar {
-                let (col, so) = (*v.slots.add(2 * c) as usize, *v.slots.add(2 * c + 1) as usize);
+                let (col, so) = (
+                    *v.slots.add(2 * c) as usize,
+                    *v.slots.add(2 * c + 1) as usize,
+                );
                 let slot = row.add(so);
                 if (slot as *const u32).read_unaligned() != 0 {
                     let off = (slot.add(4) as *const u32).read_unaligned() as usize;
@@ -1288,7 +1687,13 @@ crate::contract::host! {
 /// are pointed (when they read unpointed), so workers reading disjoint slices of one sealed run write disjoint rows.
 /// # Safety
 /// As `spool_view`'s: consumed region `k` of `ctx` and the run's table `tbl`.
-pub unsafe fn spool_view_slice(ctx: *mut Ctx, k: u64, tbl: *const u32, lo: u64, hi: u64) -> *const u8 {
+pub unsafe fn spool_view_slice(
+    ctx: *mut Ctx,
+    k: u64,
+    tbl: *const u32,
+    lo: u64,
+    hi: u64,
+) -> *const u8 {
     let r = consumed(ctx, k as usize) as *mut SortRun;
     if r.is_null() || (*r).cap == 0 {
         return SPOOL_EMPTY.as_ptr() as *const u8;
@@ -1312,7 +1717,14 @@ pub unsafe fn spool_view_slice(ctx: *mut Ctx, k: u64, tbl: *const u32, lo: u64, 
 /// (`next_slices` drains it), `DONE` when every slice is empty, a status below zero else.
 /// # Safety
 /// `area` is `usable` bytes this owner holds for the statement; `tbl` the run's table.
-pub unsafe fn begin_slices(ctx: *mut Ctx, area: *mut u8, usable: usize, tbl: *const u32, nruns: usize, open: &dyn Fn(usize) -> i64) -> i64 {
+pub unsafe fn begin_slices(
+    ctx: *mut Ctx,
+    area: *mut u8,
+    usable: usize,
+    tbl: *const u32,
+    nruns: usize,
+    open: &dyn Fn(usize) -> i64,
+) -> i64 {
     let (row_bytes, nkey, _, spec) = tbl_shape(tbl);
     if spill(ctx, SPILL_RUN_BASE, area as i64) < 0 {
         return ERROR;
@@ -1332,7 +1744,17 @@ pub unsafe fn begin_slices(ctx: *mut Ctx, area: *mut u8, usable: usize, tbl: *co
                 return bare("a co-split merge area smaller than its row stash");
             }
             let cmp = |a: *const u8, b: *const u8| cmp_rows(nkey / 2, spec, a, b);
-            runmerge::open_slices(ctx, area, usable - sb, row_bytes, nkey as u16, None, nruns, open, &cmp)
+            runmerge::open_slices(
+                ctx,
+                area,
+                usable - sb,
+                row_bytes,
+                nkey as u16,
+                None,
+                nruns,
+                open,
+                &cmp,
+            )
         }
         Some(v) => {
             // the stash as wide as a run's buffer (`begin_in`'s var layout at a fan-in of every run)
@@ -1343,7 +1765,17 @@ pub unsafe fn begin_slices(ctx: *mut Ctx, area: *mut u8, usable: usize, tbl: *co
             let rc = RowCmp::of(tbl);
             let cmp = |a: *const u8, b: *const u8| rc.cmp(a, b);
             CMP_ERR.with(|c| c.set(false));
-            let opened = runmerge::open_slices(ctx, area, usable - sb, row_bytes, 0, Some(v.rec_off as u16), nruns, open, &cmp);
+            let opened = runmerge::open_slices(
+                ctx,
+                area,
+                usable - sb,
+                row_bytes,
+                0,
+                Some(v.rec_off as u16),
+                nruns,
+                open,
+                &cmp,
+            );
             if CMP_ERR.with(|c| c.get()) {
                 return cmp_failed("a sort merge compare failed");
             }
@@ -1356,7 +1788,12 @@ pub unsafe fn begin_slices(ctx: *mut Ctx, area: *mut u8, usable: usize, tbl: *co
         Ok(true) => {}
     }
     let m = &mut *(area as *mut runmerge::RunMerge);
-    (m.region, m.active, m.tag, m.reader) = (usable.min(u32::MAX as usize) as u32, 1, runmerge::EMIT_TAG, reader_of(ctx, tbl));
+    (m.region, m.active, m.tag, m.reader) = (
+        usable.min(u32::MAX as usize) as u32,
+        1,
+        runmerge::EMIT_TAG,
+        reader_of(ctx, tbl),
+    );
     *(stash_of(area) as *mut u64) = 0;
     SORT_MODE_MERGE
 }
@@ -1368,7 +1805,9 @@ pub unsafe fn slices_area_bytes(tbl: *const u32, nruns: usize) -> usize {
     let (row_bytes, ..) = tbl_shape(tbl);
     let var = var_shape(tbl).is_some();
     let unit = if var { 8 } else { row_bytes.max(8) };
-    let buf = SLICE_BUF.max(runmerge::min_buf(row_bytes, var)).next_multiple_of(unit);
+    let buf = SLICE_BUF
+        .max(runmerge::min_buf(row_bytes, var))
+        .next_multiple_of(unit);
     runmerge::fixed_bytes(nruns) + (nruns + 1) * buf + stash_bytes(row_bytes) + 64
 }
 /// D3190: a co-split claim's merge buffer per run (`slices_area_bytes`): a fill reads at most 64 kB, a slice's reader
@@ -1378,7 +1817,13 @@ const SLICE_BUF: usize = 16 << 10;
 /// based there; `stream` the outer's (`STREAM_CONSUMED | k`).
 /// # Safety
 /// As `begin_slices`, after it answered `SORT_MODE_MERGE`.
-pub unsafe fn next_slices(ctx: *mut Ctx, area: *mut u8, tbl: *const u32, i: u64, stream: u64) -> *const u8 {
+pub unsafe fn next_slices(
+    ctx: *mut Ctx,
+    area: *mut u8,
+    tbl: *const u32,
+    i: u64,
+    stream: u64,
+) -> *const u8 {
     next_in(ctx, area, tbl, SORT_MODE_MERGE as u64, i, stream)
 }
 crate::contract::host! {
@@ -1416,7 +1861,14 @@ crate::contract::host! {
         guard!(ERROR as *const u8, next_in(ctx, consumed(ctx, k as usize), tbl, mode, i, gravity_abi::program::STREAM_CONSUMED | k))
     }
 }
-pub(crate) unsafe fn next_in(ctx: *mut Ctx, own: *mut u8, tbl: *const u32, mode: u64, i: u64, stream: u64) -> *const u8 {
+pub(crate) unsafe fn next_in(
+    ctx: *mut Ctx,
+    own: *mut u8,
+    tbl: *const u32,
+    mode: u64,
+    i: u64,
+    stream: u64,
+) -> *const u8 {
     {
         let (row_bytes, nkey, _, spec) = tbl_shape(tbl);
         let row = if mode as i64 == SORT_MODE_MEM {
@@ -1431,27 +1883,56 @@ pub(crate) unsafe fn next_in(ctx: *mut Ctx, own: *mut u8, tbl: *const u32, mode:
             let m = &*(own as *const runmerge::RunMerge);
             // D1301: a stop inside row `i` (a write's recheck, an expanding step's offset) re-reads row `i` on its resume,
             // as SORT_MODE_MEM re-reads it by index: the merge's last row, still in the stash, never the next winner
-            debug_assert!(i <= m.emitted && i + 1 >= m.emitted, "a sort merge's emit asked for row {i} after {} rows", m.emitted);
+            debug_assert!(
+                i <= m.emitted && i + 1 >= m.emitted,
+                "a sort merge's emit asked for row {i} after {} rows",
+                m.emitted
+            );
             if *hold != 0 || (m.emitted != 0 && i + 1 == m.emitted) {
                 *hold = 0;
-                return if m.big_last != 0 { m.big_stash as *const u8 } else { stash };
+                return if m.big_last != 0 {
+                    m.big_stash as *const u8
+                } else {
+                    stash
+                };
             }
             let var = var_shape(tbl);
             let m = &*(own as *const runmerge::RunMerge);
             let room = (own as usize + m.region as usize).saturating_sub(stash as usize);
-            STASH.with(|c| c.set((stash, if var.is_some() { 0 } else { row_bytes }, var.map_or(0, |v| v.rec_off), room)));
+            STASH.with(|c| {
+                c.set((
+                    stash,
+                    if var.is_some() { 0 } else { row_bytes },
+                    var.map_or(0, |v| v.rec_off),
+                    room,
+                ))
+            });
             let big = {
                 // D1327: a run's buffer wider than the stash (a merge after passes lays fewer runs than the fan-in the stash
                 // was cut for) holds records the stash cannot: the big stash takes them, as it takes a grown buffer's
                 let big = m.big_seen != 0 || (var.is_some() && m.buf as usize > room);
                 if big {
-                    BIG.with(|c| c.set((room, m.big_stash as *mut u8, m.big_cap as usize, false, own as usize)));
+                    BIG.with(|c| {
+                        c.set((
+                            room,
+                            m.big_stash as *mut u8,
+                            m.big_cap as usize,
+                            false,
+                            own as usize,
+                        ))
+                    });
                 }
                 big
             };
             CMP_ERR.with(|c| c.set(false));
             let rc = RowCmp::of(tbl);
-            let cmp = |a: *const u8, b: *const u8| if var.is_some() { rc.cmp(a, b) } else { cmp_rows(nkey / 2, spec, a, b) };
+            let cmp = |a: *const u8, b: *const u8| {
+                if var.is_some() {
+                    rc.cmp(a, b)
+                } else {
+                    cmp_rows(nkey / 2, spec, a, b)
+                }
+            };
             if stream != 0 && spill(ctx, SPILL_RUN_BASE, own as i64) < 0 {
                 return ERROR as *const u8;
             }
@@ -1520,7 +2001,11 @@ mod cross_tests {
     /// Rows `[flags, word]` then an image: table A lays key 0's 4-byte image at 16, table B at 24 (another column first).
     fn row(flags: u64, word: u64, img: u32, at: usize) -> [u64; 4] {
         let mut r = [flags, word, 0, 0];
-        r[at / 8] = img.to_be_bytes().iter().rev().fold(0u64, |w, &b| w << 8 | b as u64);
+        r[at / 8] = img
+            .to_be_bytes()
+            .iter()
+            .rev()
+            .fold(0u64, |w, &b| w << 8 | b as u64);
         r
     }
 
@@ -1532,19 +2017,38 @@ mod cross_tests {
         let b = RowCmp::fixed(1, SortSpec::pack(&[(Some((24, 4)), false)]).unwrap());
         unsafe {
             assert!(a.cross_ok(&b, 1) && b.cross_ok(&a, 1));
-            let rows_a = [row(1, 5, 0x0102_0304, 16), row(1, 5, 0x0102_0305, 16), row(1, 6, 0, 16), row(0, 0, 0, 16), row(2, 0, 0, 16)];
-            let rows_b = [row(1, 5, 0x0102_0304, 24), row(1, 5, 0x0102_0305, 24), row(1, 6, 0, 24), row(0, 0, 0, 24), row(2, 0, 0, 24)];
+            let rows_a = [
+                row(1, 5, 0x0102_0304, 16),
+                row(1, 5, 0x0102_0305, 16),
+                row(1, 6, 0, 16),
+                row(0, 0, 0, 16),
+                row(2, 0, 0, 16),
+            ];
+            let rows_b = [
+                row(1, 5, 0x0102_0304, 24),
+                row(1, 5, 0x0102_0305, 24),
+                row(1, 6, 0, 24),
+                row(0, 0, 0, 24),
+                row(2, 0, 0, 24),
+            ];
             for (i, ra) in rows_a.iter().enumerate() {
                 for (j, rb) in rows_b.iter().enumerate() {
-                    let cross = a.cmp_cross(ra.as_ptr() as *const u8, &b, rb.as_ptr() as *const u8, 1);
+                    let cross =
+                        a.cmp_cross(ra.as_ptr() as *const u8, &b, rb.as_ptr() as *const u8, 1);
                     let same = a.cmp(ra.as_ptr() as *const u8, rows_a[j].as_ptr() as *const u8);
                     assert_eq!(cross, same, "row {i} of A against row {j} of B");
                 }
             }
             let wide = RowCmp::fixed(1, SortSpec::pack(&[(Some((24, 8)), false)]).unwrap());
             let desc = RowCmp::fixed(1, SortSpec::pack(&[(Some((24, 4)), true)]).unwrap());
-            assert!(!a.cross_ok(&wide, 1) && !a.cross_ok(&desc, 1), "another width or direction");
-            assert!(!a.cross_ok(&b, 0) && !a.cross_ok(&b, 2), "no key, or more keys than a table has");
+            assert!(
+                !a.cross_ok(&wide, 1) && !a.cross_ok(&desc, 1),
+                "another width or direction"
+            );
+            assert!(
+                !a.cross_ok(&b, 0) && !a.cross_ok(&b, 2),
+                "no key, or more keys than a table has"
+            );
         }
     }
 }
@@ -1561,7 +2065,13 @@ mod d4373_permute_in_place {
     unsafe fn run_of(n: usize) -> Vec<u64> {
         let mut buf = vec![0u64; (SORTRUN_HDR + n * RB + n * 8) / 8 + 1]; // alloc: Cold
         let run = buf.as_mut_ptr() as *mut SortRun;
-        *run = SortRun { cap: n as u32, len: n as u32, row_bytes: RB as u32, pad: [0; 3], kind: 0 };
+        *run = SortRun {
+            cap: n as u32,
+            len: n as u32,
+            row_bytes: RB as u32,
+            pad: [0; 3],
+            kind: 0,
+        };
         let base = buf.as_mut_ptr() as *mut u8;
         for i in 0..n {
             let row = base.add(SORTRUN_HDR + i * RB);
@@ -1581,7 +2091,8 @@ mod d4373_permute_in_place {
         for (j, &i) in idx.iter().enumerate() {
             let at = tmp.len();
             tmp.extend_from_slice(core::slice::from_raw_parts(base.add(i * RB), RB));
-            let off = (tmp.as_ptr().add(at + 12) as *const u32).read_unaligned() as i64 + (i as i64 - j as i64) * RB as i64;
+            let off = (tmp.as_ptr().add(at + 12) as *const u32).read_unaligned() as i64
+                + (i as i64 - j as i64) * RB as i64;
             (tmp.as_mut_ptr().add(at + 12) as *mut u32).write_unaligned(off as u32);
         }
         core::ptr::copy_nonoverlapping(tmp.as_ptr(), base, tmp.len());
@@ -1591,14 +2102,22 @@ mod d4373_permute_in_place {
         let mut v: Vec<usize> = (0..n).collect();
         let mut x = seed;
         for i in (1..n).rev() {
-            x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            x = x
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             v.swap(i, (x >> 33) as usize % (i + 1));
         }
         v
     }
 
     fn shape(slots: &[u32; 2]) -> VarShape {
-        VarShape { nvar: 1, rec_off: 0, slots: slots.as_ptr(), keys: core::ptr::null(), pad: (0, 0) }
+        VarShape {
+            nvar: 1,
+            rec_off: 0,
+            slots: slots.as_ptr(),
+            keys: core::ptr::null(),
+            pad: (0, 0),
+        }
     }
 
     #[test]
@@ -1609,7 +2128,13 @@ mod d4373_permute_in_place {
                 unsafe {
                     let (mut a, mut b) = (run_of(n), run_of(n));
                     let ra = a.as_mut_ptr() as *mut SortRun;
-                    assert!(!permute_in_place(core::ptr::null_mut(), ra, &|j| idx[j], Some(shape(&slots)), &|| false));
+                    assert!(!permute_in_place(
+                        core::ptr::null_mut(),
+                        ra,
+                        &|j| idx[j],
+                        Some(shape(&slots)),
+                        &|| false
+                    ));
                     by_copy(b.as_mut_ptr() as *mut SortRun, &idx);
                     assert!(a == b, "n {n}: the same bytes as the copy's");
                     #[allow(clippy::unnecessary_cast)]
@@ -1617,8 +2142,15 @@ mod d4373_permute_in_place {
                     #[allow(clippy::needless_range_loop)]
                     for j in 0..n {
                         let row = base.add(j * RB);
-                        let copy = row.add(8 + (row.add(12) as *const u32).read_unaligned() as usize);
-                        assert_eq!(((row as *const u64).read_unaligned(), (copy as *const u64).read_unaligned()), (idx[j] as u64, 3 * idx[j] as u64));
+                        let copy =
+                            row.add(8 + (row.add(12) as *const u32).read_unaligned() as usize);
+                        assert_eq!(
+                            (
+                                (row as *const u64).read_unaligned(),
+                                (copy as *const u64).read_unaligned()
+                            ),
+                            (idx[j] as u64, 3 * idx[j] as u64)
+                        );
                     }
                 }
             }
@@ -1632,7 +2164,16 @@ mod d4373_permute_in_place {
         unsafe {
             let mut a = run_of(n);
             let ra = a.as_mut_ptr() as *mut SortRun;
-            assert!(permute_in_place(core::ptr::null_mut(), ra, &|j| idx[j], Some(shape(&slots)), &|| true), "stopped at the first poll");
+            assert!(
+                permute_in_place(
+                    core::ptr::null_mut(),
+                    ra,
+                    &|j| idx[j],
+                    Some(shape(&slots)),
+                    &|| true
+                ),
+                "stopped at the first poll"
+            );
             #[allow(clippy::unnecessary_cast)]
             let base = (*ra).row(0) as *const u8;
             let mut seen = vec![false; n]; // alloc: Cold
@@ -1640,7 +2181,11 @@ mod d4373_permute_in_place {
                 let row = base.add(j * RB);
                 let id = (row as *const u64).read_unaligned() as usize;
                 let copy = row.add(8 + (row.add(12) as *const u32).read_unaligned() as usize);
-                assert_eq!((copy as *const u64).read_unaligned(), 3 * id as u64, "row {j}'s slot points at its own copy");
+                assert_eq!(
+                    (copy as *const u64).read_unaligned(),
+                    3 * id as u64,
+                    "row {j}'s slot points at its own copy"
+                );
                 assert!(!seen[id], "row {id} once");
                 seen[id] = true;
             }
@@ -1662,7 +2207,11 @@ mod d4373_permute_in_place {
         lent: Vec<(usize, Vec<u64>)>,
     }
 
-    static HOST: std::sync::Mutex<Host> = std::sync::Mutex::new(Host { mode: Mode::Room, ops: Vec::new(), lent: Vec::new() }); // alloc: Cold
+    static HOST: std::sync::Mutex<Host> = std::sync::Mutex::new(Host {
+        mode: Mode::Room,
+        ops: Vec::new(),
+        lent: Vec::new(),
+    }); // alloc: Cold
 
     unsafe extern "C" fn spill(_ctx: *mut Ctx, op: u32, arg: u64) -> i64 {
         if op == gravity_abi::program::SPILL_ARENA_CHUNK {
@@ -1682,7 +2231,11 @@ mod d4373_permute_in_place {
                 }
             },
             gravity_abi::program::SPILL_WORK_GIVE => {
-                let i = h.lent.iter().position(|(p, _)| *p == arg as usize).expect("a give of a lent block");
+                let i = h
+                    .lent
+                    .iter()
+                    .position(|(p, _)| *p == arg as usize)
+                    .expect("a give of a lent block");
                 h.lent.swap_remove(i);
                 0
             }
@@ -1698,8 +2251,18 @@ mod d4373_permute_in_place {
         let slots = [0u32, 8];
         let n = 3 * POLL_BATCH + 17;
         let idx = shuffled(n, 13);
-        let mut block = gravity_abi::ProgramBlock { spill: gravity_abi::word(Some(spill as unsafe extern "C" fn(*mut Ctx, u32, u64) -> i64)), ..gravity_abi::ProgramBlock::NONE };
-        for mode in [Some(Mode::Room), Some(Mode::NoRoom), Some(Mode::Floor), None] {
+        let mut block = gravity_abi::ProgramBlock {
+            spill: gravity_abi::word(Some(
+                spill as unsafe extern "C" fn(*mut Ctx, u32, u64) -> i64,
+            )),
+            ..gravity_abi::ProgramBlock::NONE
+        };
+        for mode in [
+            Some(Mode::Room),
+            Some(Mode::NoRoom),
+            Some(Mode::Floor),
+            None,
+        ] {
             unsafe {
                 // SAFETY: a ctx is plain words; zero is its closed state, its program block the fake host's when a mode is given
                 let mut ctx: Ctx = core::mem::zeroed();
@@ -1713,19 +2276,49 @@ mod d4373_permute_in_place {
                 if mode.is_some() {
                     ctx.program = gravity_abi::word(&mut block as *mut gravity_abi::ProgramBlock);
                 }
-                let c: *mut Ctx = if mode.is_some() { &mut ctx } else { core::ptr::null_mut() };
+                let c: *mut Ctx = if mode.is_some() {
+                    &mut ctx
+                } else {
+                    core::ptr::null_mut()
+                };
                 let (mut a, mut b) = (run_of(n), run_of(n));
-                assert!(!permute_rows(c, a.as_mut_ptr() as *mut SortRun, &|j| idx[j], Some(shape(&slots)), &|| false), "{mode:?}: not stopped");
+                assert!(
+                    !permute_rows(
+                        c,
+                        a.as_mut_ptr() as *mut SortRun,
+                        &|j| idx[j],
+                        Some(shape(&slots)),
+                        &|| false
+                    ),
+                    "{mode:?}: not stopped"
+                );
                 by_copy(b.as_mut_ptr() as *mut SortRun, &idx);
                 assert!(a == b, "{mode:?}: the bytes the copy laid");
                 let h = HOST.lock().unwrap();
-                let tries: Vec<u64> = h.ops.iter().filter(|o| o.0 == gravity_abi::program::SPILL_WORK_TRY).map(|o| o.1).collect();
-                let gives = h.ops.iter().filter(|o| o.0 == gravity_abi::program::SPILL_WORK_GIVE).count();
+                let tries: Vec<u64> = h
+                    .ops
+                    .iter()
+                    .filter(|o| o.0 == gravity_abi::program::SPILL_WORK_TRY)
+                    .map(|o| o.1)
+                    .collect();
+                let gives = h
+                    .ops
+                    .iter()
+                    .filter(|o| o.0 == gravity_abi::program::SPILL_WORK_GIVE)
+                    .count();
                 match mode {
                     None => assert!(h.ops.is_empty(), "no spill host: the allocator's copy"),
                     Some(m) => {
-                        assert_eq!(tries, [(n * RB) as u64], "{m:?}: one draw of the copy's bytes, from the grant's room only");
-                        assert_eq!(gives, usize::from(m == Mode::Room), "{m:?}: a lent block given back, nothing else");
+                        assert_eq!(
+                            tries,
+                            [(n * RB) as u64],
+                            "{m:?}: one draw of the copy's bytes, from the grant's room only"
+                        );
+                        assert_eq!(
+                            gives,
+                            usize::from(m == Mode::Room),
+                            "{m:?}: a lent block given back, nothing else"
+                        );
                         assert!(h.lent.is_empty(), "{m:?}: no block held after");
                     }
                 }
@@ -1739,7 +2332,9 @@ mod d4373_permute_in_place {
     #[test]
     #[ignore]
     fn bench_permute() {
-        let Ok(spec) = std::env::var("D4373_BENCH") else { return };
+        let Ok(spec) = std::env::var("D4373_BENCH") else {
+            return;
+        };
         let f: Vec<&str> = spec.split(':').collect();
         let (how, n, var) = (f[0], f[1].parse::<usize>().unwrap(), f[2] == "var");
         let slots = [0u32, 8];
@@ -1762,7 +2357,10 @@ mod d4373_permute_in_place {
                     permute_by_copy(run, &|j| idx[j], v, &|| false, tmp.as_mut_ptr());
                 }
             }
-            eprintln!("D4373_BENCH {spec} {:.3} ms", t.elapsed().as_secs_f64() * 1e3);
+            eprintln!(
+                "D4373_BENCH {spec} {:.3} ms",
+                t.elapsed().as_secs_f64() * 1e3
+            );
             std::hint::black_box(&a);
         }
     }

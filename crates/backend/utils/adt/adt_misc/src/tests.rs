@@ -38,13 +38,15 @@ fn run(mcx: Mcx<'_>, input: &str, strict: bool) -> PgResult<Vec<String>> {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
         syscache_seams::lookup_pg_type_shape::set(|typid| {
-            Ok((typid == TEXTOID).then_some(types_tuple::tupdesc::PgTypeShape {
-                typlen: -1,
-                typbyval: false,
-                typalign: b'i' as i8,
-                typstorage: b'x' as i8,
-                typcollation: 100,
-            }))
+            Ok(
+                (typid == TEXTOID).then_some(types_tuple::tupdesc::PgTypeShape {
+                    typlen: -1,
+                    typbyval: false,
+                    typalign: b'i' as i8,
+                    typstorage: b'x' as i8,
+                    typcollation: 100,
+                }),
+            )
         });
     });
     let mut fcinfo = LocalFcinfo::<2>::new(0);
@@ -89,7 +91,10 @@ fn parse_ident_quoted_preserves_case() {
 fn parse_ident_strict_trailing_garbage_errors() {
     let ctx = MemoryContext::new("t");
     let err = run(ctx.mcx(), "foo.bar!", true).unwrap_err();
-    assert_eq!(err.message, "string is not a valid identifier: \"foo.bar!\"");
+    assert_eq!(
+        err.message,
+        "string is not a valid identifier: \"foo.bar!\""
+    );
 }
 
 #[test]
@@ -104,7 +109,10 @@ fn parse_ident_invalid_after_dot_message() {
     let ctx = MemoryContext::new("t");
     let err = run(ctx.mcx(), "foo.", true).unwrap_err();
     assert_eq!(err.message, "string is not a valid identifier: \"foo.\"");
-    assert_eq!(err.detail.as_deref(), Some("No valid identifier after \".\"."));
+    assert_eq!(
+        err.detail.as_deref(),
+        Some("No valid identifier after \".\".")
+    );
 }
 
 #[test]
@@ -125,7 +133,10 @@ fn atooid_strtoul_semantics() {
 fn sys_fk_relationships_matches_generated_header() {
     let rows = crate::catalog_fk::SYS_FK_RELATIONSHIPS;
     assert_eq!(rows.len(), 219);
-    assert_eq!(rows[0], (1255, 2615, "{pronamespace}", "{oid}", false, false));
+    assert_eq!(
+        rows[0],
+        (1255, 2615, "{pronamespace}", "{oid}", false, false)
+    );
     assert_eq!(rows[218], (6102, 1259, "{srrelid}", "{oid}", false, false));
     for (fk, pk, fkc, pkc, _, _) in rows {
         assert_ne!(*fk, 0);
@@ -148,7 +159,9 @@ fn install_jit_guc() {
 
 fn jit_available() -> bool {
     let mut fcinfo = LocalFcinfo::<0>::new(0);
-    crate::builtins::fc_pg_jit_available(None, &mut fcinfo).unwrap().as_bool()
+    crate::builtins::fc_pg_jit_available(None, &mut fcinfo)
+        .unwrap()
+        .as_bool()
 }
 
 #[test]
@@ -162,12 +175,18 @@ fn pg_jit_available_is_false_without_a_provider_shlib() {
     init_small::globals::set_pkglib_path(buf);
 
     guc_tables::vars::jit_enabled.write(false);
-    assert!(!jit_available(), "jit=off short-circuits, C provider_init()");
+    assert!(
+        !jit_available(),
+        "jit=off short-circuits, C provider_init()"
+    );
     guc_tables::vars::jit_enabled.write(true);
     assert!(!jit_available(), "no llvmjit.so in pkglib_path");
     // provider_failed_loading latches: a provider appearing later stays false.
     std::fs::write(dir.join("llvmjit.so"), b"").unwrap();
-    assert!(!jit_available(), "failed probe is cached, C provider_failed_loading");
+    assert!(
+        !jit_available(),
+        "failed probe is cached, C provider_failed_loading"
+    );
     let _ = std::fs::remove_dir_all(&dir);
     guc_tables::vars::jit_enabled.write(true);
 }
@@ -191,9 +210,10 @@ fn recovery_control_fns_error_outside_recovery() {
         set: |v| XLOG_BUFFERS.store(v, Ordering::Relaxed),
     });
     transam_xlog::XLOGShmemInit();
-    transam_xlog::ctl::XLogCtl()
-        .SharedRecoveryState
-        .store(transam_xlog::RECOVERY_STATE_DONE, std::sync::atomic::Ordering::Relaxed);
+    transam_xlog::ctl::XLogCtl().SharedRecoveryState.store(
+        transam_xlog::RECOVERY_STATE_DONE,
+        std::sync::atomic::Ordering::Relaxed,
+    );
     for f in [
         crate::builtins::fc_pg_wal_replay_pause,
         crate::builtins::fc_pg_wal_replay_resume,
@@ -300,9 +320,17 @@ fn current_logfiles_reads_like_fgets_maxpgpath() {
     use crate::builtins::current_logfiles_entry;
     let long = |n: usize| format!("stderr {}\n", "x".repeat(n)).into_bytes();
     // 'stderr ' + 1015 x + LF fits fgets' 1023-byte read; one more splits the line.
-    assert_eq!(current_logfiles_entry(&long(1015), Some(b"stderr")).unwrap().unwrap().len(), 1015);
     assert_eq!(
-        current_logfiles_entry(&long(1016), Some(b"stderr")).unwrap_err().message(),
+        current_logfiles_entry(&long(1015), Some(b"stderr"))
+            .unwrap()
+            .unwrap()
+            .len(),
+        1015
+    );
+    assert_eq!(
+        current_logfiles_entry(&long(1016), Some(b"stderr"))
+            .unwrap_err()
+            .message(),
         "missing newline character in \"current_logfiles\""
     );
     // A later valid line does not rescue the split first line.
@@ -311,7 +339,9 @@ fn current_logfiles_reads_like_fgets_maxpgpath() {
     assert!(current_logfiles_entry(&two, Some(b"csvlog")).is_err());
     let nospace = format!("{} stderr\n", "x".repeat(1030)).into_bytes();
     assert_eq!(
-        current_logfiles_entry(&nospace, None).unwrap_err().message(),
+        current_logfiles_entry(&nospace, None)
+            .unwrap_err()
+            .message(),
         "missing space character in \"current_logfiles\""
     );
     // strchr stops at an embedded NUL.
@@ -320,7 +350,10 @@ fn current_logfiles_reads_like_fgets_maxpgpath() {
         current_logfiles_entry(b"stderr log/a.log\ncsvlog log/a.csv\n", Some(b"csvlog")).unwrap(),
         Some(&b"log/a.csv"[..])
     );
-    assert_eq!(current_logfiles_entry(b"stderr log/a.log\n", Some(b"csvlog")).unwrap(), None);
+    assert_eq!(
+        current_logfiles_entry(b"stderr log/a.log\n", Some(b"csvlog")).unwrap(),
+        None
+    );
 }
 
 // xlogfuncs.c:717: `WAITS_PER_SECOND * wait_seconds` is int arithmetic under
@@ -329,7 +362,10 @@ fn current_logfiles_reads_like_fgets_maxpgpath() {
 #[test]
 fn pg_promote_wait_loop_bound_wraps_like_c() {
     assert_eq!(crate::builtins::promote_wait_iterations(300), 3000);
-    assert_eq!(crate::builtins::promote_wait_iterations(300_000_000), 3_000_000_000u32 as i32);
+    assert_eq!(
+        crate::builtins::promote_wait_iterations(300_000_000),
+        3_000_000_000u32 as i32
+    );
     assert!(crate::builtins::promote_wait_iterations(i32::MAX) < 0);
 }
 
@@ -400,7 +436,10 @@ fn pg_current_logfile_primary_reads_a_one_arg_frame() {
 #[test]
 fn walfile_and_restore_point_messages_keep_non_utf8_bytes() {
     let e = crate::builtins::invalid_walfile_name(b"\xff");
-    assert_eq!(e.message_raw.as_deref(), Some(&b"invalid WAL file name \"\xff\""[..]));
+    assert_eq!(
+        e.message_raw.as_deref(),
+        Some(&b"invalid WAL file name \"\xff\""[..])
+    );
     let e = crate::builtins::invalid_walfile_name(b"nope");
     assert_eq!(e.message_raw, None);
     assert_eq!(e.message(), "invalid WAL file name \"nope\"");

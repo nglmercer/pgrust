@@ -23,39 +23,73 @@ crate::strategies! {
     KEY_COLL = 83, "key.coll", VarlenaKey;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(KEY_COLL, &IMPL)], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(KEY_COLL, &IMPL)],
+    ..crate::ops::NONE
+};
 
 const IMPL: VarKeyImpl = VarKeyImpl(&Coll);
 
 struct Coll;
 
 impl VarKeyMech for Coll {
-    fn hash(&self, lx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, tf: &TypeFacts, coll: KeyColl, _: Scope) -> Option<Words> {
+    fn hash(
+        &self,
+        lx: &mut Lx<'_, '_, '_>,
+        c: CellRef<'_>,
+        tf: &TypeFacts,
+        coll: KeyColl,
+        _: Scope,
+    ) -> Option<Words> {
         if coll.bytes_eq {
             return None;
         }
         let (p, null) = rep::datum(lx, c, tf);
         let zero = lx.b.iconst(Type::I64, 0);
-        let (l_val, l_out) = (lx.b.create_block(&[]), lx.b.create_block(&[Type::I64, Type::I64]));
+        let (l_val, l_out) = (
+            lx.b.create_block(&[]),
+            lx.b.create_block(&[Type::I64, Type::I64]),
+        );
         lx.b.cond_br(null, (l_out, &[zero, zero]), (l_val, &[]));
         lx.b.switch_to(l_val);
         let p = ptr(lx.b, p);
         let (bytes, len, mark) = payload(lx, p, tf);
         let (out, oid) = (out2(lx.b), lx.b.iconst(Type::I64, coll.oid as i64));
-        let flags = HostFlags { may_error: true, touches_memory: true, ..HostFlags::default() };
+        let flags = HostFlags {
+            may_error: true,
+            touches_memory: true,
+            ..HostFlags::default()
+        };
         let ctx = lx.frame().ctx;
-        let f = lx.b.declare_host_once("text_strnxfrm", &[Type::Ptr, Type::Ptr, Type::I64, Type::I64, Type::Ptr], Some(Type::I64), text_strnxfrm as *const () as usize, flags);
-        let st = lx.b.call_host(f, &[ctx, bytes, len, oid, out], Some(Type::I64)).expect("text_strnxfrm returns its status");
+        let f = lx.b.declare_host_once(
+            "text_strnxfrm",
+            &[Type::Ptr, Type::Ptr, Type::I64, Type::I64, Type::Ptr],
+            Some(Type::I64),
+            text_strnxfrm as *const () as usize,
+            flags,
+        );
+        let st =
+            lx.b.call_host(f, &[ctx, bytes, len, oid, out], Some(Type::I64))
+                .expect("text_strnxfrm returns its status");
         raise_on(lx, st);
         let (lo, hi) = (lx.b.load(Type::I64, out, 0), lx.b.load(Type::I64, out, 8));
         release(lx, mark);
         lx.b.br(l_out, &[lo, hi]);
         lx.b.switch_to(l_out);
         let o = lx.b.block_params(l_out);
-        Some(Words { w: [Some(o[0]), Some(o[1])], exact: true })
+        Some(Words {
+            w: [Some(o[0]), Some(o[1])],
+            exact: true,
+        })
     }
 
-    fn order(&self, lx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, tf: &TypeFacts, coll: KeyColl) -> Option<(Value, TailForm)> {
+    fn order(
+        &self,
+        lx: &mut Lx<'_, '_, '_>,
+        c: CellRef<'_>,
+        tf: &TypeFacts,
+        coll: KeyColl,
+    ) -> Option<(Value, TailForm)> {
         // bytes order: rep.varlena.order's bytes prefix (declined here); so is an equality word under a collation whose
         // equal values are its equal bytes (`KeyWord::Equal`: equal values, equal prefixes; a changed prefix, a changed value)
         if coll.bytes_order || (lx.key_word == KeyWord::Equal && coll.bytes_eq) {
@@ -66,7 +100,10 @@ impl VarKeyMech for Coll {
         // any other (libc: Decision 5, never a strxfrm) is 0, every compare the comparator's. A function without a raise
         // block keeps the 0 word (never a refusal), and so does a bounded top's run (`KeyWord::Plain`: PostgreSQL's bounded
         // sort takes no abbreviated key).
-        if lx.key_word == KeyWord::Plain || lx.raise.is_none() || !gravity_fn::typesem::collation::prefix_enabled(coll.oid) {
+        if lx.key_word == KeyWord::Plain
+            || lx.raise.is_none()
+            || !gravity_fn::typesem::collation::prefix_enabled(coll.oid)
+        {
             return Some((lx.b.iconst(Type::I64, 0), tail));
         }
         let (p, null) = rep::datum(lx, c, tf);
@@ -77,9 +114,21 @@ impl VarKeyMech for Coll {
         let p = ptr(lx.b, p);
         let (bytes, len, mark) = payload(lx, p, tf);
         let (out, oid) = (out2(lx.b), lx.b.iconst(Type::I64, coll.oid as i64));
-        let flags = HostFlags { may_error: true, touches_memory: true, ..HostFlags::default() };
-        let f = lx.b.declare_host_once("m6_coll_prefix", &[Type::Ptr, Type::I64, Type::I64, Type::Ptr], Some(Type::I64), m6_coll_prefix as *const () as usize, flags);
-        let st = lx.b.call_host(f, &[bytes, len, oid, out], Some(Type::I64)).expect("m6_coll_prefix returns its status");
+        let flags = HostFlags {
+            may_error: true,
+            touches_memory: true,
+            ..HostFlags::default()
+        };
+        let f = lx.b.declare_host_once(
+            "m6_coll_prefix",
+            &[Type::Ptr, Type::I64, Type::I64, Type::Ptr],
+            Some(Type::I64),
+            m6_coll_prefix as *const () as usize,
+            flags,
+        );
+        let st =
+            lx.b.call_host(f, &[bytes, len, oid, out], Some(Type::I64))
+                .expect("m6_coll_prefix returns its status");
         raise_on(lx, st);
         let w = lx.b.load(Type::I64, out, 0);
         release(lx, mark);

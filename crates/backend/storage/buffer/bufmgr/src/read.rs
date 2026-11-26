@@ -6,25 +6,23 @@ use condition_variable::{
 };
 use datum::Datum;
 use elog::ereport;
-use types_resowner::{ResourceOwnerDesc, RELEASE_PRIO_BUFFER_IOS, RESOURCE_RELEASE_BEFORE_LOCKS};
 use lwlock::{LWLockAcquire, LWLockConditionalAcquire, LWLockRelease, LW_EXCLUSIVE, LW_SHARED};
-use types_core::{
-    BlockNumber, Buffer, BufferIsValid, ForkNumber, InvalidBlockNumber, InvalidBuffer, BLCKSZ,
-    INIT_FORKNUM,
-    INVALID_PROC_NUMBER, RELPERSISTENCE_PERMANENT, RELPERSISTENCE_TEMP, RELPERSISTENCE_UNLOGGED,
-};
-use types_error::{
-    ErrorLocation, PgResult, ERRCODE_DATA_CORRUPTED, ERROR, WARNING,
-};
 use pgstat::io::{
     pgstat_count_io_op, pgstat_count_io_op_time, pgstat_prepare_io_time, IOObject, IOOp,
 };
+use types_core::{
+    BlockNumber, Buffer, BufferIsValid, ForkNumber, InvalidBlockNumber, InvalidBuffer, BLCKSZ,
+    INIT_FORKNUM, INVALID_PROC_NUMBER, RELPERSISTENCE_PERMANENT, RELPERSISTENCE_TEMP,
+    RELPERSISTENCE_UNLOGGED,
+};
+use types_error::{ErrorLocation, PgResult, ERRCODE_DATA_CORRUPTED, ERROR, WARNING};
+use types_rel::rel::RelationData;
+use types_resowner::{ResourceOwnerDesc, RELEASE_PRIO_BUFFER_IOS, RESOURCE_RELEASE_BEFORE_LOCKS};
 use types_storage::buf::{
     buftag, BufferAccessStrategy, IOContext, BM_DIRTY, BM_IO_ERROR, BM_IO_IN_PROGRESS,
     BM_PERMANENT, BM_TAG_VALID, BM_VALID, BUF_FLAG_MASK, BUF_USAGECOUNT_MASK, BUF_USAGECOUNT_ONE,
 };
 use types_storage::{ReadBufferMode, RelFileLocator, RelFileLocatorBackend};
-use types_rel::rel::RelationData;
 
 use crate::buf_hdr::{
     cleared_buftag, BufferDesc, BufferDescriptorGetBuffer, BufferDescriptorGetIOCV,
@@ -83,7 +81,11 @@ pub(crate) fn loc(funcname: &'static str) -> ErrorLocation {
     ErrorLocation::new(site.file(), site.line() as i32, funcname)
 }
 
-pub(crate) fn init_buffer_tag(rlocator: RelFileLocator, forknum: ForkNumber, blkno: BlockNumber) -> buftag {
+pub(crate) fn init_buffer_tag(
+    rlocator: RelFileLocator,
+    forknum: ForkNumber,
+    blkno: BlockNumber,
+) -> buftag {
     buftag {
         spcOid: rlocator.spcOid,
         dbOid: rlocator.dbOid,
@@ -138,7 +140,11 @@ pub fn ReadBufferBatchedWithoutRelcache(
 /// otherwise. The run is clipped to the fork's end (smgrnblocks: the size cache, no lseek once warm), and a fork file that is
 /// not there (a dropped relation; a temp relation, whose file is not at the shared-buffer path this seam opens) advises
 /// nothing: `Ok(false)` = nothing issued.
-pub fn PrefetchRangeWithoutRelcache(rlocator: RelFileLocator, blkno: BlockNumber, nblocks: BlockNumber) -> PgResult<bool> {
+pub fn PrefetchRangeWithoutRelcache(
+    rlocator: RelFileLocator,
+    blkno: BlockNumber,
+    nblocks: BlockNumber,
+) -> PgResult<bool> {
     if !prefetch_range_advises(
         aio_core::io_method(),
         crate::gucs::effective_io_concurrency(),
@@ -146,7 +152,10 @@ pub fn PrefetchRangeWithoutRelcache(rlocator: RelFileLocator, blkno: BlockNumber
     ) {
         return Ok(false);
     }
-    let smgr = RelFileLocatorBackend { locator: rlocator, backend: INVALID_PROC_NUMBER };
+    let smgr = RelFileLocatorBackend {
+        locator: rlocator,
+        backend: INVALID_PROC_NUMBER,
+    };
     prefetch_range_clipped(
         blkno,
         nblocks,
@@ -156,7 +165,11 @@ pub fn PrefetchRangeWithoutRelcache(rlocator: RelFileLocator, blkno: BlockNumber
 }
 
 /// The advice gate: io_method=sync, effective_io_concurrency > 0 and no direct data I/O.
-pub(crate) fn prefetch_range_advises(io_method: i32, effective_io_concurrency: i32, io_direct_flags: i32) -> bool {
+pub(crate) fn prefetch_range_advises(
+    io_method: i32,
+    effective_io_concurrency: i32,
+    io_direct_flags: i32,
+) -> bool {
     io_method == guc_tables::consts::IOMETHOD_SYNC
         && effective_io_concurrency > 0
         && io_direct_flags & types_storage::IO_DIRECT_DATA == 0
@@ -251,15 +264,17 @@ pub(crate) fn ReadBuffer_common_acct(
         if found {
             ReadAccounting::Hit
         } else {
-            ReadAccounting::Miss { reads: 1, forwarded_hit: false }
+            ReadAccounting::Miss {
+                reads: 1,
+                forwarded_hit: false,
+            }
         }
     };
     if matches!(
         mode,
         ReadBufferMode::ZeroAndLock | ReadBufferMode::ZeroAndCleanupLock
     ) {
-        let (buffer, found) =
-            PinBufferForBlock(smgr, persistence, forknum, blkno, &strategy)?;
+        let (buffer, found) = PinBufferForBlock(smgr, persistence, forknum, blkno, &strategy)?;
         ZeroAndLockBuffer(buffer, mode, found)?;
         return Ok((buffer, hit_or_miss(found)));
     }
@@ -382,13 +397,22 @@ pub(crate) fn BufferAlloc(
     let new_hash = BufTableHashCode(&new_tag);
     crate::wss::note(new_hash);
     // cache_track (C2): sampled by the mapping hash just computed (its top 24 bits), so an unsampled lookup is inline, no call
-    memledger::value::lookup_hashed(memledger::Consumer::SharedBuffers, u64::from(new_hash) << 32 | u64::from(blkno), new_hash >> 8, types_core::BLCKSZ as u64);
+    memledger::value::lookup_hashed(
+        memledger::Consumer::SharedBuffers,
+        u64::from(new_hash) << 32 | u64::from(blkno),
+        new_hash >> 8,
+        types_core::BLCKSZ as u64,
+    );
     let partition_lock = BufMappingPartitionLock(new_hash);
 
     // M2 swizzling decision site: shared partition LWLock + hash probe + pin
     // CAS on every warm hit — the block a swizzled parent pointer with
     // optimistic version validation removes entirely (strategy.md lever 8).
-    LWLockAcquire(partition_lock, LW_SHARED, init_small::globals::MyProcNumber())?;
+    LWLockAcquire(
+        partition_lock,
+        LW_SHARED,
+        init_small::globals::MyProcNumber(),
+    )?;
     let existing_id = BufTableLookup(&new_tag, new_hash)?;
     if existing_id >= 0 {
         let desc = GetBufferDescriptor(existing_id);
@@ -403,7 +427,11 @@ pub(crate) fn BufferAlloc(
     let victim_buffer = GetVictimBuffer(strategy, io_context)?;
     let victim_desc = GetBufferDescriptor(victim_buffer - 1);
 
-    LWLockAcquire(partition_lock, LW_EXCLUSIVE, init_small::globals::MyProcNumber())?;
+    LWLockAcquire(
+        partition_lock,
+        LW_EXCLUSIVE,
+        init_small::globals::MyProcNumber(),
+    )?;
     let existing_id = BufTableInsert(&new_tag, new_hash, victim_desc.buf_id)?;
     if existing_id >= 0 {
         let existing_desc = GetBufferDescriptor(existing_id);
@@ -418,9 +446,7 @@ pub(crate) fn BufferAlloc(
 
     let mut victim_state = LockBufHdr(victim_desc);
     debug_assert!(buffer_refcount(victim_state) == 1);
-    debug_assert!(
-        victim_state & (BM_TAG_VALID | BM_VALID | BM_DIRTY | BM_IO_IN_PROGRESS) == 0
-    );
+    debug_assert!(victim_state & (BM_TAG_VALID | BM_VALID | BM_DIRTY | BM_IO_IN_PROGRESS) == 0);
     // SAFETY: header lock held, our pin is the only reference (asserted).
     unsafe { victim_desc.set_tag(new_tag) };
     victim_state |= BM_TAG_VALID | BUF_USAGECOUNT_ONE;
@@ -515,7 +541,13 @@ pub(crate) fn GetCleanVictimBuffer(tries: u32) -> PgResult<Option<Buffer>> {
         if buf_state & BM_VALID != 0 {
             counters::evict();
             crate::giveback::note_evicted(buf_id);
-            pgstat_count_io_op(IOObject::Relation, IOContext::IOCONTEXT_NORMAL, IOOp::Evict, 1, 0);
+            pgstat_count_io_op(
+                IOObject::Relation,
+                IOContext::IOCONTEXT_NORMAL,
+                IOOp::Evict,
+                1,
+                0,
+            );
         }
         return Ok(Some(BufferDescriptorGetBuffer(desc)));
     }
@@ -528,7 +560,11 @@ pub(crate) fn InvalidateVictimBuffer(desc: &BufferDesc) -> PgResult<bool> {
     let hash = BufTableHashCode(&tag);
     let partition_lock = BufMappingPartitionLock(hash);
 
-    LWLockAcquire(partition_lock, LW_EXCLUSIVE, init_small::globals::MyProcNumber())?;
+    LWLockAcquire(
+        partition_lock,
+        LW_EXCLUSIVE,
+        init_small::globals::MyProcNumber(),
+    )?;
     let mut buf_state = LockBufHdr(desc);
     if buffer_refcount(buf_state) != 1 || buf_state & BM_DIRTY != 0 {
         UnlockBufHdr(desc, buf_state);
@@ -846,7 +882,9 @@ fn start_read_buffers_impl(
             let state = if is_temp {
                 crate::localbuf::local_buffer_state(buffer)
             } else {
-                GetBufferDescriptor(buffer - 1).state.load(Ordering::Relaxed)
+                GetBufferDescriptor(buffer - 1)
+                    .state
+                    .load(Ordering::Relaxed)
             };
             debug_assert!(state & BM_TAG_VALID != 0);
             found = state & BM_VALID != 0;
@@ -944,7 +982,14 @@ pub(crate) fn ReadBuffer_batched(
 ) -> PgResult<(Buffer, bool)> {
     let forknum = ForkNumber::MAIN_FORKNUM;
     if persistence == RELPERSISTENCE_TEMP {
-        return ReadBuffer_common(smgr, persistence, forknum, blkno, ReadBufferMode::Normal, strategy);
+        return ReadBuffer_common(
+            smgr,
+            persistence,
+            forknum,
+            blkno,
+            ReadBufferMode::Normal,
+            strategy,
+        );
     }
     // The extra blocks each hold a pin until the read completes: cap the run by GetAdditionalPinLimit() (may be zero),
     // so a seqscan on a tiny pool never pins it whole.
@@ -957,7 +1002,9 @@ pub(crate) fn ReadBuffer_batched(
     };
     // read_stream.c:618: the strategy ring caps the stream's pins, and with them one combined read (at least one block).
     let strategy_pin_limit = crate::freelist::GetAccessStrategyPinLimit(&strategy).max(1) as usize;
-    let cap = (crate::gucs::io_combine_limit().min(io_max).clamp(1, MAX_READ_BATCH as i32) as usize)
+    let cap = (crate::gucs::io_combine_limit()
+        .min(io_max)
+        .clamp(1, MAX_READ_BATCH as i32) as usize)
         .min(nblocks_hint.max(1) as usize)
         .min(pin_room)
         .min(strategy_pin_limit);
@@ -969,7 +1016,9 @@ pub(crate) fn ReadBuffer_batched(
     // A split at a valid block leaves it pinned past the accepted range: this caller never continues a split.
     for i in (nblocks as usize)..cap {
         if operation.buffers[i] != InvalidBuffer {
-            UnpinBuffer(crate::buf_hdr::GetBufferDescriptor(operation.buffers[i] - 1));
+            UnpinBuffer(crate::buf_hdr::GetBufferDescriptor(
+                operation.buffers[i] - 1,
+            ));
             operation.buffers[i] = InvalidBuffer;
         }
     }
@@ -978,7 +1027,9 @@ pub(crate) fn ReadBuffer_batched(
     }
     // Extras end valid-and-unpinned (the batched-read contract).
     for i in 1..(nblocks as usize) {
-        UnpinBuffer(crate::buf_hdr::GetBufferDescriptor(operation.buffers[i] - 1));
+        UnpinBuffer(crate::buf_hdr::GetBufferDescriptor(
+            operation.buffers[i] - 1,
+        ));
     }
     Ok((operation.buffers[0], !did_start_io))
 }
@@ -1050,7 +1101,11 @@ fn ProcessReadBuffersResult(operation: &mut ReadBuffersOperation) -> PgResult<()
     debug_assert!(aio_core::pgaio_wref_valid(&operation.io_wref));
     debug_assert!(rs != Rs::Unknown);
 
-    let newly_read_blocks = if rs != Rs::Error { operation.io_return.result.result } else { 0 };
+    let newly_read_blocks = if rs != Rs::Error {
+        operation.io_return.result.result
+    } else {
+        0
+    };
 
     if rs == Rs::Error || rs == Rs::Warning {
         aio_core::pgaio_result_report(
@@ -1079,7 +1134,10 @@ fn io_object_and_context(operation: &ReadBuffersOperation) -> (IOObject, IOConte
     if operation.persistence == RELPERSISTENCE_TEMP {
         (IOObject::TempRelation, IOContext::IOCONTEXT_NORMAL)
     } else {
-        (IOObject::Relation, IOContextForStrategy(&operation.strategy))
+        (
+            IOObject::Relation,
+            IOContextForStrategy(&operation.strategy),
+        )
     }
 }
 
@@ -1272,7 +1330,13 @@ fn AsyncReadLocalBuffers(
         if let Some(rel) = rel {
             crate::pgstat_count_buffer_hit_only(rel);
         }
-        pgstat_count_io_op(IOObject::TempRelation, IOContext::IOCONTEXT_NORMAL, IOOp::Hit, 1, 0);
+        pgstat_count_io_op(
+            IOObject::TempRelation,
+            IOContext::IOCONTEXT_NORMAL,
+            IOOp::Hit,
+            1,
+            0,
+        );
         return Ok(false);
     }
     let mut len = 1usize;
@@ -1284,14 +1348,20 @@ fn AsyncReadLocalBuffers(
     }
     let first_block = operation.blocknum + nblocks_done as BlockNumber;
     {
-        let mut pages: [&mut [u8]; MAX_READ_BATCH] = core::array::from_fn(|_| <&mut [u8]>::default());
+        let mut pages: [&mut [u8]; MAX_READ_BATCH] =
+            core::array::from_fn(|_| <&mut [u8]>::default());
         for (k, page) in pages.iter_mut().enumerate().take(len) {
             let blk = crate::localbuf::local_block_ptr(operation.buffers[nblocks_done + k]);
             // SAFETY: pinned local block, single thread; image not yet valid.
             *page = unsafe { core::slice::from_raw_parts_mut(blk, BLCKSZ) };
         }
         let io_start = pgstat_prepare_io_time(crate::gucs::track_io_timing());
-        smgr_seams::smgr_readv::call(operation.smgr, operation.forknum, first_block, &mut pages[..len])?;
+        smgr_seams::smgr_readv::call(
+            operation.smgr,
+            operation.forknum,
+            first_block,
+            &mut pages[..len],
+        )?;
         pgstat_count_io_op_time(
             IOObject::TempRelation,
             IOContext::IOCONTEXT_NORMAL,
@@ -1403,7 +1473,11 @@ pub fn page_is_verified(
     // but only after we've checked for the all-zeroes case.
     if checksum_failure {
         if flags & (PIV_LOG_WARNING | PIV_LOG_LOG) != 0 {
-            let level = if flags & PIV_LOG_WARNING != 0 { WARNING } else { types_error::LOG };
+            let level = if flags & PIV_LOG_WARNING != 0 {
+                WARNING
+            } else {
+                types_error::LOG
+            };
             let _ = ereport(level)
                 .errcode(ERRCODE_DATA_CORRUPTED)
                 .errmsg(format!(
@@ -1588,17 +1662,31 @@ pub fn PrefetchSharedBuffer(
     let hash = BufTableHashCode(&tag);
     let partition_lock = BufMappingPartitionLock(hash);
     let lookup = || -> PgResult<Buffer> {
-        LWLockAcquire(partition_lock, LW_SHARED, init_small::globals::MyProcNumber())?;
+        LWLockAcquire(
+            partition_lock,
+            LW_SHARED,
+            init_small::globals::MyProcNumber(),
+        )?;
         let buf_id = BufTableLookup(&tag, hash)?;
         LWLockRelease(partition_lock)?;
-        Ok(if buf_id >= 0 { buf_id + 1 } else { InvalidBuffer })
+        Ok(if buf_id >= 0 {
+            buf_id + 1
+        } else {
+            InvalidBuffer
+        })
     };
     let recent_buffer = lookup()?;
     if BufferIsValid(recent_buffer) {
-        return Ok(PrefetchBufferResult { recent_buffer, initiated_io: false });
+        return Ok(PrefetchBufferResult {
+            recent_buffer,
+            initiated_io: false,
+        });
     }
     if fd::io_direct_flags() & types_storage::IO_DIRECT_DATA != 0 {
-        return Ok(PrefetchBufferResult { recent_buffer: InvalidBuffer, initiated_io: false });
+        return Ok(PrefetchBufferResult {
+            recent_buffer: InvalidBuffer,
+            initiated_io: false,
+        });
     }
     // The uring route engages only when the effective io_method selects it
     // (C 18: io_uring serves IO only under io_method=io_uring). It used to be

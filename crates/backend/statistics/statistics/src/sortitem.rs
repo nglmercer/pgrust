@@ -1,9 +1,9 @@
 use std::rc::Rc;
 
 use datum::Datum;
+use typcache::TypeCacheEntry;
 use types_core::Oid;
 use types_error::{PgError, PgResult};
-use typcache::TypeCacheEntry;
 use types_fmgr::FmgrInfo;
 
 // `cmp` is a copy of the entry's cmp_proc_finfo: comparators may re-enter
@@ -23,7 +23,9 @@ pub struct MultiSort {
 
 impl MultiSort {
     pub fn init(ndims: usize) -> PgResult<MultiSort> {
-        Ok(MultiSort { dims: ::mcx::std_vec_with_capacity("statistics", ndims)? })
+        Ok(MultiSort {
+            dims: ::mcx::std_vec_with_capacity("statistics", ndims)?,
+        })
     }
 
     pub fn add_dimension(&mut self, typid: Oid, collation: Oid) -> PgResult<()> {
@@ -35,7 +37,11 @@ impl MultiSort {
             return Err(missing_lt_opr(typid));
         }
         let cmp = entry.cmp_proc_finfo().clone();
-        self.dims.push(SortDim { entry, cmp, collation });
+        self.dims.push(SortDim {
+            entry,
+            cmp,
+            collation,
+        });
         Ok(())
     }
 
@@ -65,8 +71,10 @@ impl MultiSort {
         // Comparators (numeric_cmp etc.) detoast by-ref args through the
         // result mcx; call-lifetime scratch (ANALYZE cold path).
         let scratch = ::mcx::MemoryContext::new("multi_sort compare_dim");
-        Ok(types_fmgr::function_call2_coll_in(&mut d.cmp, d.collation, scratch.mcx(), a, b)?
-            .as_i32())
+        Ok(
+            types_fmgr::function_call2_coll_in(&mut d.cmp, d.collation, scratch.mcx(), a, b)?
+                .as_i32(),
+        )
     }
 }
 
@@ -151,10 +159,7 @@ pub fn check_for_interrupts() -> PgResult<()> {
 //   template check point (each of which is adjacent to a comparison), never
 //   touches the data, and so leaves the permutation pg_qsort-exact; the
 //   InterruptPending fast path makes the extra checks a thread-local load.
-pub fn qsort_interruptible<T: Copy>(
-    v: &mut [T],
-    cmp: impl FnMut(&T, &T) -> i32,
-) -> PgResult<()> {
+pub fn qsort_interruptible<T: Copy>(v: &mut [T], cmp: impl FnMut(&T, &T) -> i32) -> PgResult<()> {
     ::pg_qsort::pg_qsort_interruptible(v, cmp, check_for_interrupts)
 }
 

@@ -24,14 +24,21 @@ struct Num {
 impl Write for Num {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         let end = self.n + s.len();
-        self.b.get_mut(self.n..end).ok_or(core::fmt::Error)?.copy_from_slice(s.as_bytes());
+        self.b
+            .get_mut(self.n..end)
+            .ok_or(core::fmt::Error)?
+            .copy_from_slice(s.as_bytes());
         self.n = end;
         Ok(())
     }
 }
 
 /// A text value written straight into the result context: `items` formatted by `put`, space separated.
-fn text_of<'m, T>(mcx: mcx::Mcx<'m>, items: &[T], put: impl Fn(&mut Num, &T) -> core::fmt::Result) -> Datum {
+fn text_of<'m, T>(
+    mcx: mcx::Mcx<'m>,
+    items: &[T],
+    put: impl Fn(&mut Num, &T) -> core::fmt::Result,
+) -> Datum {
     let mut img: mcx::PgVec<'_, u8> = mcx::PgVec::new_in(mcx);
     img.extend_from_slice(&[0u8; datum::VARHDRSZ]);
     for (i, x) in items.iter().enumerate() {
@@ -56,14 +63,20 @@ fn text_of<'m, T>(mcx: mcx::Mcx<'m>, items: &[T], put: impl Fn(&mut Num, &T) -> 
 /// unvalidated cache's fixed curve, C0's measured slowdown: fraction of size:ns_per_s points; empty when none), open_hist
 /// (the open epoch's losses by distance bin, bin:loss for each bin with any, `mempolicy::curve::bin_edges`: a validation
 /// reads the LRU model at any size from it, A6).
-pub fn fc_pgrust_memory_cache_curves(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
+pub fn fc_pgrust_memory_cache_curves(
+    flinfo: Option<&mut FmgrInfo>,
+    fcinfo: &mut Fcinfo,
+) -> PgResult<Datum> {
     let flinfo = flinfo.expect("pgrust_memory_cache_curves: resolved FmgrInfo required");
     let mcx = super::raw::result_mcx(fcinfo);
     let mut srf = funcapi::InitMaterializedSRF(mcx, flinfo, fcinfo, 0)?;
     if srf.tupdesc.natts as usize != CURVE_COLS {
-        return Err(Box::new(types_error::PgError::error("the memory views' installed declaration is another build's: run scripts/memory-broker-views.sql again").with_sqlstate(types_error::ERRCODE_DATATYPE_MISMATCH))); // alloc: Cold
+        return Err(Box::new(types_error::PgError::error("the memory views' installed declaration is another build's: run scripts/memory-broker-views.sql again").with_sqlstate(types_error::ERRCODE_DATATYPE_MISMATCH)));
+        // alloc: Cold
     }
-    let Some(rows) = mempolicy::track::curves() else { return Ok(srf.finish(fcinfo)) };
+    let Some(rows) = mempolicy::track::curves() else {
+        return Ok(srf.finish(fcinfo));
+    };
     let dropped = mempolicy::track::dropped();
     let own = mempolicy::track::own_bytes();
     for r in &rows {
@@ -94,9 +107,17 @@ pub fn fc_pgrust_memory_cache_curves(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut
             i8d(r.bytes),
             i8d(own),
             text_of(mcx, &c.raw, |n, x| write!(n, "{}", *x as u64)),
-            text_of(mcx, &[c.open_secs, c.open[0], c.open[1], c.open[2]], |n, x| write!(n, "{x:.1}")),
+            text_of(
+                mcx,
+                &[c.open_secs, c.open[0], c.open[1], c.open[2]],
+                |n, x| write!(n, "{x:.1}"),
+            ),
             Datum::from_bool(r.validated),
-            text_of(mcx, mempolicy::track::standin(r.cache).unwrap_or(&[]), |n, p| write!(n, "{}:{}", p.0, p.1 as u64)),
+            text_of(
+                mcx,
+                mempolicy::track::standin(r.cache).unwrap_or(&[]),
+                |n, p| write!(n, "{}:{}", p.0, p.1 as u64),
+            ),
             text_of(mcx, &hist[..nh], |n, p| write!(n, "{}:{}", p.0, p.1)),
         ];
         srf.putvalues(&values, &[false; CURVE_COLS])?;

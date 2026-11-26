@@ -705,7 +705,10 @@ mod tests {
             ("CREATE ROLE dd_u;", "DROP ROLE dd_u;"),
             ("CREATE FUNCTION dd_f1(", "DROP FUNCTION dd_f1(int);"),
             ("CREATE FUNCTION dd_srf(", "DROP FUNCTION dd_srf();"),
-            ("CREATE FUNCTION dd_sqlbody(", "DROP FUNCTION dd_sqlbody(int), dd_sqlbody2(int);"),
+            (
+                "CREATE FUNCTION dd_sqlbody(",
+                "DROP FUNCTION dd_sqlbody(int), dd_sqlbody2(int);",
+            ),
             ("CREATE PROCEDURE dd_proc(", "DROP PROCEDURE dd_proc2(int);"),
             ("CREATE TYPE dd_castt AS ", "DROP TYPE dd_castt;"),
             ("CREATE DOMAIN dd_cd AS ", "DROP DOMAIN dd_cd;"),
@@ -715,11 +718,17 @@ mod tests {
             ("CREATE TEMP SEQUENCE dd_tsq;", "DROP SEQUENCE dd_tsq;"),
             ("CREATE SEQUENCE dd_sq2 ", "DROP SEQUENCE dd_sq2;"),
             ("CREATE TABLE dd_vb (", "DROP TABLE dd_vb CASCADE;"),
-            ("CREATE MATERIALIZED VIEW dd_mv ", "DROP MATERIALIZED VIEW dd_mv2;"),
+            (
+                "CREATE MATERIALIZED VIEW dd_mv ",
+                "DROP MATERIALIZED VIEW dd_mv2;",
+            ),
             ("CREATE TABLE dd_tp (", "DROP TABLE dd_tp;"),
             ("CREATE FUNCTION dd_tpf(", "DROP FUNCTION dd_tpf();"),
             ("CREATE TABLE dd_tt3 (", "DROP TABLE dd_tt3;"),
-            ("CREATE FUNCTION dd_ttf(", "DROP FUNCTION dd_ttf(), dd_trf();"),
+            (
+                "CREATE FUNCTION dd_ttf(",
+                "DROP FUNCTION dd_ttf(), dd_trf();",
+            ),
             ("CREATE ROLE dd_pu;", "DROP ROLE dd_pu;"),
             ("CREATE TABLE dd_st (", "DROP TABLE dd_st;"),
             ("CREATE SCHEMA dd_sts;", "DROP SCHEMA dd_sts;"),
@@ -747,17 +756,29 @@ mod tests {
             }
             if let Some(sr) = joined.rfind("SET ROLE ") {
                 let rr = joined.rfind("RESET ROLE;");
-                assert!(rr.is_some() && rr.unwrap() > sr, "SET ROLE without later RESET ROLE:\n{joined}");
+                assert!(
+                    rr.is_some() && rr.unwrap() > sr,
+                    "SET ROLE without later RESET ROLE:\n{joined}"
+                );
             }
             for (set, reset) in [
-                ("SET session_replication_role", "RESET session_replication_role;"),
+                (
+                    "SET session_replication_role",
+                    "RESET session_replication_role;",
+                ),
                 ("SET row_security", "RESET row_security;"),
                 ("SET default_tablespace", "RESET default_tablespace;"),
-                ("SET allow_in_place_tablespaces", "RESET allow_in_place_tablespaces;"),
+                (
+                    "SET allow_in_place_tablespaces",
+                    "RESET allow_in_place_tablespaces;",
+                ),
             ] {
                 if let Some(s) = joined.find(set) {
                     let r = joined.rfind(reset);
-                    assert!(r.is_some() && r.unwrap() > s, "{set} without later {reset}:\n{joined}");
+                    assert!(
+                        r.is_some() && r.unwrap() > s,
+                        "{set} without later {reset}:\n{joined}"
+                    );
                 }
             }
         }

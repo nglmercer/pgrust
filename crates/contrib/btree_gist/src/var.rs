@@ -61,9 +61,17 @@ pub fn key_readable(k: &[u8]) -> VarKey<'_> {
     if total > VARHDRSZ + lsize {
         let uoff = VARHDRSZ + intalign(lsize);
         let usize_ = varsize(&k[uoff..]);
-        VarKey { lower, upper: &k[uoff..uoff + usize_], is_leaf_shape: false }
+        VarKey {
+            lower,
+            upper: &k[uoff..uoff + usize_],
+            is_leaf_shape: false,
+        }
     } else {
-        VarKey { lower, upper: lower, is_leaf_shape: true }
+        VarKey {
+            lower,
+            upper: lower,
+            is_leaf_shape: true,
+        }
     }
 }
 
@@ -167,11 +175,7 @@ fn node_truncate(node: &[u8], cpf_length: i32) -> PgResult<Vec<u8>> {
 }
 
 // gbt_var_bin_union; `u` is None before the first union.
-pub fn bin_union<T: VarOps>(
-    u: &mut Option<Vec<u8>>,
-    e: &[u8],
-    ctx: &mut Ctx,
-) -> PgResult<()> {
+pub fn bin_union<T: VarOps>(u: &mut Option<Vec<u8>>, e: &[u8], ctx: &mut Ctx) -> PgResult<()> {
     let node_img;
     let eo = {
         let r = key_readable(e);
@@ -233,12 +237,7 @@ pub fn same<T: VarOps>(a: &[u8], b: &[u8], ctx: &mut Ctx) -> PgResult<bool> {
 }
 
 // gbt_var_penalty.
-pub fn penalty<T: VarOps>(
-    orig: &[u8],
-    new: &[u8],
-    natts: u16,
-    ctx: &mut Ctx,
-) -> PgResult<f32> {
+pub fn penalty<T: VarOps>(orig: &[u8], new: &[u8], natts: u16, ctx: &mut Ctx) -> PgResult<f32> {
     let nk_img;
     let nk = {
         let r = key_readable(new);
@@ -310,7 +309,11 @@ pub fn picksplit<T: VarOps>(
     #[allow(clippy::needless_range_loop)]
     for i in 1..=maxoff {
         let r = key_readable(keys[i]);
-        owned.push(if r.is_leaf_shape { leaf2node::<T>(keys[i])? } else { None });
+        owned.push(if r.is_leaf_shape {
+            leaf2node::<T>(keys[i])?
+        } else {
+            None
+        });
     }
     let mut arr: Vec<(u16, &[u8])> = (1..=maxoff)
         .map(|i| (i as u16, owned[i].as_deref().unwrap_or(keys[i])))
@@ -371,7 +374,9 @@ pub fn consistent<T: VarOps>(
     is_leaf: bool,
     ctx: &mut Ctx,
 ) -> PgResult<bool> {
-    use crate::num::{BT_EQUAL, BT_GREATER, BT_GREATER_EQUAL, BT_LESS, BT_LESS_EQUAL, BT_NOT_EQUAL};
+    use crate::num::{
+        BT_EQUAL, BT_GREATER, BT_GREATER_EQUAL, BT_LESS, BT_LESS_EQUAL, BT_NOT_EQUAL,
+    };
     Ok(match strategy {
         BT_LESS_EQUAL | BT_LESS => {
             if is_leaf {
@@ -410,8 +415,7 @@ pub fn consistent<T: VarOps>(
             } else {
                 // equal untruncated bounds pin every entry below; truncated say nothing
                 T::TRNC
-                    || !(T::cmp(query, key.lower, ctx)? == 0
-                        && T::cmp(query, key.upper, ctx)? == 0)
+                    || !(T::cmp(query, key.lower, ctx)? == 0 && T::cmp(query, key.upper, ctx)? == 0)
             }
         }
         _ => false,

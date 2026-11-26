@@ -78,9 +78,14 @@ fn parse_errors_22p02() {
         "12:13:14",
     ] {
         let err = parse(mcx, s).unwrap_err();
-        assert_eq!(err.sqlstate(), types_error::ERRCODE_INVALID_TEXT_REPRESENTATION, "input {s}");
+        assert_eq!(
+            err.sqlstate(),
+            types_error::ERRCODE_INVALID_TEXT_REPRESENTATION,
+            "input {s}"
+        );
         assert!(
-            err.message().contains("invalid input syntax for type pg_snapshot"),
+            err.message()
+                .contains("invalid input syntax for type pg_snapshot"),
             "input {s}: {}",
             err.message()
         );
@@ -180,14 +185,23 @@ fn recv_vectors() {
     ] {
         let mut si = si_of(&bad);
         let err = snapshot_recv(mcx, &mut si).unwrap_err();
-        assert_eq!(err.sqlstate(), types_error::ERRCODE_INVALID_BINARY_REPRESENTATION);
+        assert_eq!(
+            err.sqlstate(),
+            types_error::ERRCODE_INVALID_BINARY_REPRESENTATION
+        );
     }
 }
 
 #[test]
 fn allowable_at_epochs() {
-    assert_eq!(full_xid_from_allowable_at((3 << 32) | 100, 50), (3 << 32) | 50);
-    assert_eq!(full_xid_from_allowable_at((3 << 32) | 100, 200), (2 << 32) | 200);
+    assert_eq!(
+        full_xid_from_allowable_at((3 << 32) | 100, 50),
+        (3 << 32) | 50
+    );
+    assert_eq!(
+        full_xid_from_allowable_at((3 << 32) | 100, 200),
+        (2 << 32) | 200
+    );
     assert_eq!(full_xid_from_allowable_at((3 << 32) | 100, 2), 2);
     assert_eq!(full_xid_from_allowable_at((3 << 32) | 100, 0), 0);
 }
@@ -208,5 +222,8 @@ fn bad_format_keeps_non_utf8_input_bytes() {
     );
     let e = parse(mcx, "10:20:x").unwrap_err();
     assert_eq!(e.message_raw, None);
-    assert_eq!(e.message(), "invalid input syntax for type pg_snapshot: \"10:20:x\"");
+    assert_eq!(
+        e.message(),
+        "invalid input syntax for type pg_snapshot: \"10:20:x\""
+    );
 }

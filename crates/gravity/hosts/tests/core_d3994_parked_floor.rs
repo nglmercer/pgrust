@@ -9,8 +9,12 @@ use std::sync::atomic::AtomicU8;
 use std::sync::Arc;
 
 use gravity_abi::Lane;
-use gravity_driver::{blank_site, BindingRef, CommandId, Identity, PerTuple, Pins, Snapshot, Source, Window};
-use gravity_hosts::ops::scan::pgrc::granule_source::{GranuleRangeSource, GranuleRecipe, PartIoSpec, PartList, PartSpec, Resolved};
+use gravity_driver::{
+    blank_site, BindingRef, CommandId, Identity, PerTuple, Pins, Snapshot, Source, Window,
+};
+use gravity_hosts::ops::scan::pgrc::granule_source::{
+    GranuleRangeSource, GranuleRecipe, PartIoSpec, PartList, PartSpec, Resolved,
+};
 use gravity_parallel::{ClaimSize, GranuleRange, MorselSource};
 use mempolicy::consts::{self, K};
 use pgrc_format::dirlayout::part_file_name;
@@ -24,7 +28,17 @@ const ROWS: u64 = 60_000;
 static FLAG: AtomicU8 = AtomicU8::new(0);
 
 fn binding_ref(resolved: &Resolved) -> BindingRef<'_> {
-    BindingRef { snapshot: Snapshot(0), command_id: CommandId(0), params: &[], abort_flag: &FLAG, pins: Pins(0), per_tuple: PerTuple(0), identity: Identity::default(), resolved: Some(resolved), ordinal: None }
+    BindingRef {
+        snapshot: Snapshot(0),
+        command_id: CommandId(0),
+        params: &[],
+        abort_flag: &FLAG,
+        pins: Pins(0),
+        per_tuple: PerTuple(0),
+        identity: Identity::default(),
+        resolved: Some(resolved),
+        ordinal: None,
+    }
 }
 
 fn pass(src: &mut GranuleRangeSource, claims: &GranuleRange) -> u64 {
@@ -47,24 +61,74 @@ fn pass(src: &mut GranuleRangeSource, claims: &GranuleRange) -> u64 {
 }
 
 /// Three parts of a 60,000-row int8 fixture opened through `reg` (so its content trim walks them), their list and recipe.
-fn fixture(reg: &Arc<PartRegistry>, rel: u32, name: &'static str, ino0: u64) -> (Vec<Arc<OpenPart>>, Vec<pgrc_read::registry::PartPin>, Arc<PartList>, GranuleRecipe) {
-    let bf = build_fixture(int8_fixture(name, rel as u64, ROWS, vec![], PartCutPolicy { max_rows: 20_000, ..PartCutPolicy::default() }, |i| Some((i as i64 * 31) % 1000)));
+fn fixture(
+    reg: &Arc<PartRegistry>,
+    rel: u32,
+    name: &'static str,
+    ino0: u64,
+) -> (
+    Vec<Arc<OpenPart>>,
+    Vec<pgrc_read::registry::PartPin>,
+    Arc<PartList>,
+    GranuleRecipe,
+) {
+    let bf = build_fixture(int8_fixture(
+        name,
+        rel as u64,
+        ROWS,
+        vec![],
+        PartCutPolicy {
+            max_rows: 20_000,
+            ..PartCutPolicy::default()
+        },
+        |i| Some((i as i64 * 31) % 1000),
+    ));
     let (mut parts, mut pins, mut specs) = (Vec::new(), Vec::new(), Vec::new());
     for (i, rec) in bf.manifest.parts.iter().enumerate() {
-        let bytes = bf.files.get(&part_file_name(rec.part_no)).expect("part file").clone();
+        let bytes = bf
+            .files
+            .get(&part_file_name(rec.part_no))
+            .expect("part file")
+            .clone();
         let ino = ino0 + i as u64;
-        let pin = reg.open_pinned(&PartExpect::none(), || Ok(Box::new(MemPartIo::new(bytes.clone(), 7, ino)) as Box<dyn pgrc_read::io::PartIo>)).expect("open part");
+        let pin = reg
+            .open_pinned(&PartExpect::none(), || {
+                Ok(Box::new(MemPartIo::new(bytes.clone(), 7, ino))
+                    as Box<dyn pgrc_read::io::PartIo>)
+            })
+            .expect("open part");
         let part = Arc::clone(pin.part());
-        specs.push(PartSpec { io: PartIoSpec::Mem { bytes: Arc::from(bytes.as_slice()), dev: 7, ino }, expect: PartExpect::none(), rows: rec.rows, granules: rec.granule_count, deletes: None, part: Some(part.clone()) });
+        specs.push(PartSpec {
+            io: PartIoSpec::Mem {
+                bytes: Arc::from(bytes.as_slice()),
+                dev: 7,
+                ino,
+            },
+            expect: PartExpect::none(),
+            rows: rec.rows,
+            granules: rec.granule_count,
+            deletes: None,
+            part: Some(part.clone()),
+        });
         parts.push(part);
         pins.push(pin);
     }
     assert_eq!(parts.len(), 3, "the fixture cut into three parts");
-    (parts, pins, Arc::new(PartList::new(specs)), GranuleRecipe::for_test(rel, &[1], Arc::clone(reg)))
+    (
+        parts,
+        pins,
+        Arc::new(PartList::new(specs)),
+        GranuleRecipe::for_test(rel, &[1], Arc::clone(reg)),
+    )
 }
 
 /// One statement over the source: bound, read whole, unbound (parked).
-fn statement(src: &mut GranuleRangeSource, recipe: &GranuleRecipe, list: &Arc<PartList>, claims: &GranuleRange) -> u64 {
+fn statement(
+    src: &mut GranuleRangeSource,
+    recipe: &GranuleRecipe,
+    list: &Arc<PartList>,
+    claims: &GranuleRange,
+) -> u64 {
     memledger::statement_begin();
     let resolved = Resolved::for_recipe(recipe, list.clone());
     src.bind(&binding_ref(&resolved)).unwrap();
@@ -91,7 +155,10 @@ fn a_parked_sources_parts_leave_the_floor_and_come_back_when_a_statement_binds_i
     memledger::bind_backend(195, 9195);
 
     assert_eq!(statement(&mut src, &recipe, &list, &claims), ROWS);
-    assert!(parts.iter().all(|p| p.users() >= 1), "the parked source keeps a cursor (a use) on every part it read");
+    assert!(
+        parts.iter().all(|p| p.users() >= 1),
+        "the parked source keeps a cursor (a use) on every part it read"
+    );
     assert!(cached(&parts) > 0, "the parts' streams stay cached");
     assert_eq!(reg.in_use_bytes(), 0, "parked: the parts are in no running owner's read, so not in the cache's floor (trunk: all of them)");
 
@@ -99,7 +166,11 @@ fn a_parked_sources_parts_leave_the_floor_and_come_back_when_a_statement_binds_i
     memledger::statement_begin();
     let resolved = Resolved::for_recipe(&recipe, list.clone());
     src.bind(&binding_ref(&resolved)).unwrap();
-    assert_eq!(reg.in_use_bytes(), cached(&parts), "bound again: every byte of its parts is in use");
+    assert_eq!(
+        reg.in_use_bytes(),
+        cached(&parts),
+        "bound again: every byte of its parts is in use"
+    );
     assert_eq!(pass(&mut src, &claims), ROWS);
     src.unbind();
     drop(resolved);

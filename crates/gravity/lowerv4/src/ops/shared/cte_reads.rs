@@ -15,9 +15,22 @@ pub(crate) const WINDOW: i64 = 4096;
 /// append.arms run it ends (`arms`).
 pub(crate) fn reads<'g>(gx: &Gx<'g, '_>, p: usize) -> PgVec<'g, usize> {
     let pl = &gx.pipelines()[p];
-    let src = if let Source::Breaker { slot } = pl.source { Some(slot) } else { None };
-    let lives = pl.desc.consumes.iter().copied().chain(src).filter_map(|s| gx.life_of(p, s).map(|l| (l.0 as usize, s)));
-    lives.filter(|&(l, _)| l < gx.pipelines().len()).flat_map(|(l, s)| arms(gx, l, s)).collect_in(gx.mcx)
+    let src = if let Source::Breaker { slot } = pl.source {
+        Some(slot)
+    } else {
+        None
+    };
+    let lives = pl
+        .desc
+        .consumes
+        .iter()
+        .copied()
+        .chain(src)
+        .filter_map(|s| gx.life_of(p, s).map(|l| (l.0 as usize, s)));
+    lives
+        .filter(|&(l, _)| l < gx.pipelines().len())
+        .flat_map(|(l, s)| arms(gx, l, s))
+        .collect_in(gx.mcx)
 }
 
 /// Producer `l` of `slot` and, when it is an arm of an append.arms run, the run's earlier arms: the nearest earlier producers
@@ -27,12 +40,28 @@ pub(crate) fn reads<'g>(gx: &Gx<'g, '_>, p: usize) -> PgVec<'g, usize> {
 fn arms<'g>(gx: &Gx<'g, '_>, l: usize, slot: u8) -> PgVec<'g, usize> {
     let ps = gx.pipelines();
     let arm = |q: usize| {
-        let (j, i) = ps[q].ops.iter().enumerate().rev().find_map(|(j, o)| if let Op::Append(AppendDesc::Arm { i, .. }) = o { Some((j, *i)) } else { None })?;
-        Some((ps[q].node_ops.iter().rev().find(|n| n.first_op as usize <= j).map_or(ps[q].node_id, |n| n.node_id), i))
+        let (j, i) = ps[q].ops.iter().enumerate().rev().find_map(|(j, o)| {
+            if let Op::Append(AppendDesc::Arm { i, .. }) = o {
+                Some((j, *i))
+            } else {
+                None
+            }
+        })?;
+        Some((
+            ps[q]
+                .node_ops
+                .iter()
+                .rev()
+                .find(|n| n.first_op as usize <= j)
+                .map_or(ps[q].node_id, |n| n.node_id),
+            i,
+        ))
     };
     let (mut out, mut at) = (mcx::pg_vec![in gx.mcx; l], arm(l));
     while let Some((node, i)) = at {
-        let q = (0..out[out.len() - 1]).rev().find(|&q| matches!(breaker_of(&ps[q].desc), Some(b) if b.slot == slot));
+        let q = (0..out[out.len() - 1])
+            .rev()
+            .find(|&q| matches!(breaker_of(&ps[q].desc), Some(b) if b.slot == slot));
         at = q.and_then(arm).filter(|&(n, j)| n == node && j <= i);
         out.extend_in(q.filter(|_| at.is_some()));
     }

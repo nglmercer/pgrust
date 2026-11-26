@@ -1,6 +1,5 @@
 #![no_std]
 #![allow(non_upper_case_globals)]
-
 // A function's address is not an identity: builtin / wrapper identity reads
 // the resolution record (FmgrInfo::fn_kind / fn_body), never a pointer compare.
 #![deny(unpredictable_function_pointer_comparisons)]
@@ -25,16 +24,15 @@ use ::types_error::PgResult;
 use ::types_tuple::ItemPointerData;
 
 pub use ::fmgr::{
-    direct_input_function_call_safe, input_function_call, input_function_call_safe,
-    receive_function_call, send_function_call, ErrorSaveNode,
+    direct_function_call1_coll_in, direct_function_call2_coll, direct_function_call2_coll_in,
+    direct_function_call3_coll, direct_function_call3_coll_in, function_call0_coll,
+    function_call1_coll_in, function_call2_coll, function_call2_coll_in, function_call3_coll,
+    function_call3_coll_in, function_call4_coll, function_call5_coll, function_call6_coll,
+    function_call7_coll, function_call8_coll, function_call9_coll,
 };
 pub use ::fmgr::{
-    direct_function_call1_coll_in, direct_function_call2_coll,
-    direct_function_call2_coll_in, direct_function_call3_coll, direct_function_call3_coll_in,
-    function_call0_coll, function_call1_coll_in, function_call2_coll,
-    function_call2_coll_in, function_call3_coll, function_call3_coll_in, function_call4_coll,
-    function_call5_coll, function_call6_coll, function_call7_coll, function_call8_coll,
-    function_call9_coll,
+    direct_input_function_call_safe, input_function_call, input_function_call_safe,
+    receive_function_call, send_function_call, ErrorSaveNode,
 };
 pub use canonical::{CANONICAL, CANONICAL_LAST_BUILTIN_OID};
 
@@ -82,7 +80,10 @@ impl<const N: usize> BuiltinOidIndex<N> {
         let mut prev = 0u32;
         while i < entries.len() {
             let oid = entries[i].foid;
-            assert!(i == 0 || oid > prev, "entries must be strictly OID-ascending");
+            assert!(
+                i == 0 || oid > prev,
+                "entries must be strictly OID-ascending"
+            );
             assert!((oid as usize) < N, "entry OID exceeds index span");
             prev = oid;
             map[oid as usize] = i as u16;
@@ -206,7 +207,10 @@ const fn build_builtins() -> [FmgrBuiltin; FMGR_NBUILTINS] {
     let mut prev = 0u32;
     while p < ported::PORTED.len() {
         let (oid, func) = ported::PORTED[p];
-        assert!(p == 0 || oid > prev, "PORTED must be strictly OID-ascending");
+        assert!(
+            p == 0 || oid > prev,
+            "PORTED must be strictly OID-ascending"
+        );
         prev = oid;
         let mut lo = 0;
         let mut hi = FMGR_NBUILTINS;
@@ -261,7 +265,6 @@ const OID_INDEX: BuiltinOidIndex<FMGR_OID_INDEX_SIZE> = BuiltinOidIndex::build(&
 // A static, not a const: a const array is materialized at every use.
 static NOT_PORTED_ROW: [bool; FMGR_NBUILTINS] = build_not_ported();
 
-
 /// C: `fmgr_builtins[]`.
 pub static FMGR_BUILTINS: [FmgrBuiltin; FMGR_NBUILTINS] = BUILTINS;
 pub static FMGR_BUILTIN_OID_INDEX: BuiltinOidIndex<FMGR_OID_INDEX_SIZE> = OID_INDEX;
@@ -306,7 +309,10 @@ pub fn install_extra_builtins(tables: &'static [&'static [FmgrBuiltin]]) {
         // extra_builtin answers the first row with an oid: a second row with
         // the same oid would take that row's calls by oid (D3128).
         if let Some(c) = rows().skip(i + 1).find(|c| c.foid == b.foid) {
-            panic!("extra builtins {} and {} share oid {}", b.name, c.name, b.foid);
+            panic!(
+                "extra builtins {} and {} share oid {}",
+                b.name, c.name, b.foid
+            );
         }
     }
     let prev = EXTRA_PTR.swap(
@@ -326,12 +332,8 @@ fn extra_builtin(id: Oid) -> Option<&'static FmgrBuiltin> {
     }
     let len = EXTRA_LEN.load(core::sync::atomic::Ordering::Relaxed);
     // SAFETY: set-once invariant above — (ptr,len) is the installed slice.
-    let tables = unsafe {
-        core::slice::from_raw_parts(ptr as *const &'static [FmgrBuiltin], len)
-    };
-    tables
-        .iter()
-        .find_map(|t| t.iter().find(|b| b.foid == id))
+    let tables = unsafe { core::slice::from_raw_parts(ptr as *const &'static [FmgrBuiltin], len) };
+    tables.iter().find_map(|t| t.iter().find(|b| b.foid == id))
 }
 
 #[inline]
@@ -484,10 +486,12 @@ pub fn canonical_builtin_oid(funcid: Oid) -> PgResult<Oid> {
 fn internal_fn_addr(prosrc: &str) -> Option<(::fmgr::PGFunction, FnKind, Oid)> {
     let fbp = fmgr_lookup_by_name(prosrc)?;
     if row_is_stub(fbp) {
-        return Some(match late_builtin(fbp.foid).or_else(|| extra_builtin(fbp.foid)) {
-            Some(b) => (b.func, FnKind::Builtin, fbp.foid),
-            None => (fbp.func, FnKind::NotPorted, fbp.foid),
-        });
+        return Some(
+            match late_builtin(fbp.foid).or_else(|| extra_builtin(fbp.foid)) {
+                Some(b) => (b.func, FnKind::Builtin, fbp.foid),
+                None => (fbp.func, FnKind::NotPorted, fbp.foid),
+            },
+        );
     }
     Some((fbp.func, FnKind::Builtin, fbp.foid))
 }
@@ -502,9 +506,7 @@ fn extra_builtin_by_name(name: &str) -> Option<&'static FmgrBuiltin> {
     let len = EXTRA_LEN.load(core::sync::atomic::Ordering::Relaxed);
     // SAFETY: set-once invariant (install_extra_builtins) — (ptr,len) is the
     // installed slice.
-    let tables = unsafe {
-        core::slice::from_raw_parts(ptr as *const &'static [FmgrBuiltin], len)
-    };
+    let tables = unsafe { core::slice::from_raw_parts(ptr as *const &'static [FmgrBuiltin], len) };
     tables
         .iter()
         .find_map(|t| t.iter().find(|b| b.name == name))
@@ -529,15 +531,28 @@ pub fn fmgr_info_from_builtin_into(fbp: &FmgrBuiltin, function_id: Oid, finfo: &
             None => (fbp, FnKind::NotPorted),
         }
     } else if canonical_row_index(fbp).is_some()
-        || [extra_builtin(fbp.foid), late_builtin(fbp.foid), native_clang_builtin(fbp.foid)]
-            .into_iter().flatten().any(|row| core::ptr::eq(row, fbp))
+        || [
+            extra_builtin(fbp.foid),
+            late_builtin(fbp.foid),
+            native_clang_builtin(fbp.foid),
+        ]
+        .into_iter()
+        .flatten()
+        .any(|row| core::ptr::eq(row, fbp))
     {
         (fbp, FnKind::Builtin)
     } else {
         (fbp, FnKind::Direct)
     };
     finfo.set_fn_addr(fbp.func);
-    finfo.set_resolution(kind, if kind == FnKind::Direct { InvalidOid } else { fbp.foid });
+    finfo.set_resolution(
+        kind,
+        if kind == FnKind::Direct {
+            InvalidOid
+        } else {
+            fbp.foid
+        },
+    );
     finfo.fn_nargs = fbp.nargs;
     finfo.fn_strict = fbp.strict;
     finfo.fn_retset = fbp.retset;
@@ -618,8 +633,14 @@ pub fn register_plpgsql_handlers(
     inline_handler: ::fmgr::PGFunction,
     validator: ::fmgr::PGFunction,
 ) {
-    PLPGSQL_CALL_HANDLER.store(call_handler as *mut (), core::sync::atomic::Ordering::Release);
-    PLPGSQL_INLINE_HANDLER.store(inline_handler as *mut (), core::sync::atomic::Ordering::Release);
+    PLPGSQL_CALL_HANDLER.store(
+        call_handler as *mut (),
+        core::sync::atomic::Ordering::Release,
+    );
+    PLPGSQL_INLINE_HANDLER.store(
+        inline_handler as *mut (),
+        core::sync::atomic::Ordering::Release,
+    );
     PLPGSQL_VALIDATOR.store(validator as *mut (), core::sync::atomic::Ordering::Release);
 }
 
@@ -689,7 +710,14 @@ fn record_c_func(
             }));
             core::mem::ManuallyDrop::new(CFuncHash::with_capacity_in(100, mcx))
         });
-        table.insert(fn_oid, CFuncHashTabEntry { fn_xmin: xmin, fn_tid: tid, user_fn });
+        table.insert(
+            fn_oid,
+            CFuncHashTabEntry {
+                fn_xmin: xmin,
+                fn_tid: tid,
+                user_fn,
+            },
+        );
     });
 }
 
@@ -794,7 +822,11 @@ fn fmgr_info_pg_proc(
             }
             // SAFETY: written only by register_sql_language_handler from a
             // valid PGFunction.
-            (unsafe { core::mem::transmute::<*mut (), ::fmgr::PGFunction>(h) }, FnKind::Language, InvalidOid)
+            (
+                unsafe { core::mem::transmute::<*mut (), ::fmgr::PGFunction>(h) },
+                FnKind::Language,
+                InvalidOid,
+            )
         }
         C_LANGUAGE_ID => match lookup_c_func(function_id, row.xmin, row.tid) {
             Some(f) => (f, FnKind::Language, InvalidOid),
@@ -896,7 +928,11 @@ pub fn fmgr_security_definer(
         // XX000, not an abort.
         let row = syscache_seams::lookup_pg_proc_secdef::call(flinfo.fn_oid)?
             .ok_or_else(|| function_lookup_failed(flinfo.fn_oid))?;
-        let userid = if row.prosecdef { row.proowner } else { InvalidOid };
+        let userid = if row.prosecdef {
+            row.proowner
+        } else {
+            InvalidOid
+        };
         flinfo.fn_extra = Some(::fmgr::FnExtra::new(SecurityDefinerCache {
             flinfo: inner,
             userid,
@@ -929,7 +965,9 @@ pub fn fmgr_security_definer(
     let fcu = if cache.flinfo.fn_stats < TRACK_FUNC_ALL
         && ::pgstat::function::pgstat_track_functions() > i32::from(cache.flinfo.fn_stats)
     {
-        Some(::pgstat::function::pgstat_init_function_usage(cache.flinfo.fn_oid)?)
+        Some(::pgstat::function::pgstat_init_function_usage(
+            cache.flinfo.fn_oid,
+        )?)
     } else {
         None
     };
@@ -997,7 +1035,12 @@ macro_rules! define_oid_calls {
 }
 
 /// C OidFunctionCall1Coll with the result context named (no one-argument call without one: `fmgr::function_call1_coll_in`).
-pub fn oid_function_call1_coll_in(function_id: Oid, collation: Oid, mcx: ::mcx::Mcx<'_>, a1: Datum) -> PgResult<Datum> {
+pub fn oid_function_call1_coll_in(
+    function_id: Oid,
+    collation: Oid,
+    mcx: ::mcx::Mcx<'_>,
+    a1: Datum,
+) -> PgResult<Datum> {
     let mut flinfo = FmgrInfo::unresolved();
     fmgr_info_into(function_id, &mut flinfo)?;
     ::fmgr::function_call1_coll_in(&mut flinfo, collation, mcx, a1)

@@ -38,7 +38,9 @@ pub fn int_width(typid: Oid) -> Option<u8> {
         }
     }
     of(typid).or_else(|| {
-        let base = syscache_seams::pg_type_base_shape::is_installed().then(|| lsyscache::getBaseType(typid).ok()).flatten()?;
+        let base = syscache_seams::pg_type_base_shape::is_installed()
+            .then(|| lsyscache::getBaseType(typid).ok())
+            .flatten()?;
         (base != typid).then(|| of(base)).flatten()
     })
 }
@@ -54,7 +56,12 @@ pub fn int_arith(funcid: Oid) -> Option<IntArith> {
         "mul" => IntOp::Mul,
         _ => return None,
     };
-    Some(IntArith { op, left, right, result: left.max(right) })
+    Some(IntArith {
+        op,
+        left,
+        right,
+        result: left.max(right),
+    })
 }
 
 /// A built-in integer division or remainder function: `div` (`int2div` .. `int84div`: `/`, truncating toward zero) or
@@ -106,15 +113,52 @@ mod tests {
     /// each at the wider operand's width (a cast `int48`, `int8_numeric`, `int4inc` or `int8pl_inet` is none).
     #[test]
     fn int_arith_names_exactly_the_integer_operators() {
-        let found: Vec<(u32, IntArith)> = crate::ROWS.iter().filter_map(|r| int_arith(r.oid).map(|a| (r.oid, a))).collect();
+        let found: Vec<(u32, IntArith)> = crate::ROWS
+            .iter()
+            .filter_map(|r| int_arith(r.oid).map(|a| (r.oid, a)))
+            .collect();
         assert_eq!(found.len(), 27, "{found:?}");
-        let shapes: std::collections::BTreeSet<_> = found.iter().map(|(_, a)| (a.op, a.left, a.right)).collect();
-        assert_eq!(shapes.len(), 27, "one function per operation and width pair");
+        let shapes: std::collections::BTreeSet<_> =
+            found.iter().map(|(_, a)| (a.op, a.left, a.right)).collect();
+        assert_eq!(
+            shapes.len(),
+            27,
+            "one function per operation and width pair"
+        );
         assert!(found.iter().all(|(_, a)| a.result == a.left.max(a.right)));
-        assert_eq!(int_arith(177), Some(IntArith { op: IntOp::Add, left: 4, right: 4, result: 4 }), "int4pl");
-        assert_eq!(int_arith(1280), Some(IntArith { op: IntOp::Mul, left: 4, right: 8, result: 8 }), "int48mul");
-        assert_eq!(int_arith(942), Some(IntArith { op: IntOp::Sub, left: 2, right: 8, result: 8 }), "int28mi");
-        for none in crate::ROWS.iter().filter(|r| ["int48", "int8_numeric", "int4inc", "int8pl_inet", "int4um"].contains(&r.name)) {
+        assert_eq!(
+            int_arith(177),
+            Some(IntArith {
+                op: IntOp::Add,
+                left: 4,
+                right: 4,
+                result: 4
+            }),
+            "int4pl"
+        );
+        assert_eq!(
+            int_arith(1280),
+            Some(IntArith {
+                op: IntOp::Mul,
+                left: 4,
+                right: 8,
+                result: 8
+            }),
+            "int48mul"
+        );
+        assert_eq!(
+            int_arith(942),
+            Some(IntArith {
+                op: IntOp::Sub,
+                left: 2,
+                right: 8,
+                result: 8
+            }),
+            "int28mi"
+        );
+        for none in crate::ROWS.iter().filter(|r| {
+            ["int48", "int8_numeric", "int4inc", "int8pl_inet", "int4um"].contains(&r.name)
+        }) {
             assert_eq!(int_arith(none.oid), None, "{}", none.name);
         }
     }
@@ -123,13 +167,40 @@ mod tests {
     /// twice each (the `%` operator's function and `mod(x, y)` name one routine); nothing else.
     #[test]
     fn int_divmod_names_exactly_the_integer_divisions_and_remainders() {
-        let found: std::collections::BTreeMap<u32, IntDivMod> = crate::ROWS.iter().filter_map(|r| int_divmod(r.oid).map(|a| (r.oid, a))).collect();
-        let div: Vec<u32> = found.iter().filter(|(_, a)| a.div).map(|(&o, _)| o).collect();
-        let rem: Vec<u32> = found.iter().filter(|(_, a)| !a.div).map(|(&o, _)| o).collect();
+        let found: std::collections::BTreeMap<u32, IntDivMod> = crate::ROWS
+            .iter()
+            .filter_map(|r| int_divmod(r.oid).map(|a| (r.oid, a)))
+            .collect();
+        let div: Vec<u32> = found
+            .iter()
+            .filter(|(_, a)| a.div)
+            .map(|(&o, _)| o)
+            .collect();
+        let rem: Vec<u32> = found
+            .iter()
+            .filter(|(_, a)| !a.div)
+            .map(|(&o, _)| o)
+            .collect();
         assert_eq!(div, [153, 154, 172, 173, 466, 840, 948, 1277, 1281]);
         assert_eq!(rem, [155, 156, 940, 941, 945, 947]);
-        assert_eq!(int_divmod(1281), Some(IntDivMod { div: true, left: 4, right: 8 }), "int48div");
-        assert_eq!(int_divmod(940), Some(IntDivMod { div: false, left: 2, right: 2 }), "mod(int2, int2)");
+        assert_eq!(
+            int_divmod(1281),
+            Some(IntDivMod {
+                div: true,
+                left: 4,
+                right: 8
+            }),
+            "int48div"
+        );
+        assert_eq!(
+            int_divmod(940),
+            Some(IntDivMod {
+                div: false,
+                left: 2,
+                right: 2
+            }),
+            "mod(int2, int2)"
+        );
         assert_eq!(int_divmod(177), None, "int4pl");
     }
 
@@ -139,8 +210,20 @@ mod tests {
     fn the_quiet_divisor_rules_name_the_catalog_divisions_and_remainders() {
         for r in crate::ROWS.iter() {
             let d = int_divmod(r.oid);
-            assert_eq!(types_core::quiet::int_div(r.oid), d.is_some_and(|a| a.div), "{} {}", r.oid, r.name);
-            assert_eq!(types_core::quiet::int_mod(r.oid), d.is_some_and(|a| !a.div), "{} {}", r.oid, r.name);
+            assert_eq!(
+                types_core::quiet::int_div(r.oid),
+                d.is_some_and(|a| a.div),
+                "{} {}",
+                r.oid,
+                r.name
+            );
+            assert_eq!(
+                types_core::quiet::int_mod(r.oid),
+                d.is_some_and(|a| !a.div),
+                "{} {}",
+                r.oid,
+                r.name
+            );
         }
     }
 
@@ -149,7 +232,10 @@ mod tests {
     #[test]
     fn int_width_of_the_integer_types_only() {
         use types_core::catalog::{CASHOID, NUMERICOID, OIDOID};
-        assert_eq!([INT2OID, INT4OID, INT8OID].map(int_width), [Some(2), Some(4), Some(8)]);
+        assert_eq!(
+            [INT2OID, INT4OID, INT8OID].map(int_width),
+            [Some(2), Some(4), Some(8)]
+        );
         assert_eq!([NUMERICOID, OIDOID, CASHOID].map(int_width), [None; 3]);
     }
 }

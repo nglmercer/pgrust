@@ -64,24 +64,36 @@ gravity_kernels::contract::host! {
 /// than its part's losing threshold (codes of one part order as their bytes).
 pub(super) unsafe fn loses(cur: u64, word: u64, min: bool) -> bool {
     let (p, c) = ((word >> 32) as u32, word as u32);
-    let same = |w: u64| c != EMPTY_CODE_NONE && (w >> 32) as u32 == p && w as u32 != EMPTY_CODE_NONE;
+    let same =
+        |w: u64| c != EMPTY_CODE_NONE && (w >> 32) as u32 == p && w as u32 != EMPTY_CODE_NONE;
     let h = cur as *const u64;
     let (win, thr) = (*h.sub(2), *h.sub(1));
-    same(win) && !gains(min, c, win as u32) || thr != NO_THR && same(thr) && !gains(min, c, thr as u32)
+    same(win) && !gains(min, c, win as u32)
+        || thr != NO_THR && same(thr) && !gains(min, c, thr as u32)
 }
 
 /// Folds `new` (the winner word `word`) into the copy at `slot`: compared by bytes unless `coded` said it is the winner's
 /// part and better; see `fold_row`.
-pub(super) unsafe fn put(ctx: *mut Ctx, slot: *mut u64, images: *mut u64, new: &[u8], word: u64, min: bool) -> i64 {
+pub(super) unsafe fn put(
+    ctx: *mut Ctx,
+    slot: *mut u64,
+    images: *mut u64,
+    new: &[u8],
+    word: u64,
+    min: bool,
+) -> i64 {
     let cur = slot.read_unaligned();
     if cur == 0 {
         return copy(ctx, slot, images, new, new.len() + 4, word, NO_THR);
     }
     let h = cur as *mut u64;
     let (win, p, c) = (*h.sub(2), (word >> 32) as u32, word as u32);
-    let same_part = c != EMPTY_CODE_NONE && (win >> 32) as u32 == p && win as u32 != EMPTY_CODE_NONE;
+    let same_part =
+        c != EMPTY_CODE_NONE && (win >> 32) as u32 == p && win as u32 != EMPTY_CODE_NONE;
     if !same_part || !gains(min, c, win as u32) {
-        let o = new.cmp(gravity_kernels::dict::reps::varlena_bytes(cur as usize as *const u8));
+        let o = new.cmp(gravity_kernels::dict::reps::varlena_bytes(
+            cur as usize as *const u8,
+        ));
         if !(o == Ordering::Less && min || o == Ordering::Greater && !min) {
             if c != EMPTY_CODE_NONE && !same_part {
                 *h.sub(1) = word;
@@ -95,11 +107,27 @@ pub(super) unsafe fn put(ctx: *mut Ctx, slot: *mut u64, images: *mut u64, new: &
         *h.sub(2) = word;
         return 1;
     }
-    copy(ctx, slot, images, new, (2 * cap).max(new.len() + 4), word, *h.sub(1))
+    copy(
+        ctx,
+        slot,
+        images,
+        new,
+        (2 * cap).max(new.len() + 4),
+        word,
+        *h.sub(1),
+    )
 }
 
 /// A copy of capacity `cap` (rounded to 8) holding `new`, its header `(cap, win, thr)`, its varlena's address at `slot`.
-unsafe fn copy(ctx: *mut Ctx, slot: *mut u64, images: *mut u64, new: &[u8], cap: usize, win: u64, thr: u64) -> i64 {
+unsafe fn copy(
+    ctx: *mut Ctx,
+    slot: *mut u64,
+    images: *mut u64,
+    new: &[u8],
+    cap: usize,
+    win: u64,
+    thr: u64,
+) -> i64 {
     let cap = (cap + 7) & !7;
     let d = alloc(ctx, images, HDR + cap);
     if d.is_null() {
@@ -107,7 +135,9 @@ unsafe fn copy(ctx: *mut Ctx, slot: *mut u64, images: *mut u64, new: &[u8], cap:
         return 0;
     }
     let h = d as *mut u64;
-    h.write(cap as u64); h.add(1).write(win); h.add(2).write(thr);
+    h.write(cap as u64);
+    h.add(1).write(win);
+    h.add(2).write(thr);
     write_image(d.add(HDR), new);
     slot.write_unaligned(d.add(HDR) as u64);
     1
@@ -126,5 +156,6 @@ pub(crate) unsafe fn alloc(ctx: *mut Ctx, images: *mut u64, need: usize) -> *mut
         return gravity_abi::program::pin(ctx, need as u64);
     }
     let images = gravity_abi::breaker::T1::img_resolve(images); // D1392 (a): a state's words name its table's
-    gravity_abi::breaker::img_bump(images, need, |bytes| gravity_abi::program::pin(ctx, bytes)) // D3312: the arena's one bump
+    gravity_abi::breaker::img_bump(images, need, |bytes| gravity_abi::program::pin(ctx, bytes))
+    // D3312: the arena's one bump
 }

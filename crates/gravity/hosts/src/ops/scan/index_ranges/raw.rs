@@ -15,14 +15,20 @@ pub(super) fn image(filed: &std::sync::Arc<Filed>) -> &'static nbtree::IndexImag
 /// its attributes read in place (`first_column`), a by-reference bound pointing into it.
 pub(super) fn aligned(key: &[u8]) -> Vec<u64> {
     let mut buf = vec![0u64; key.len().div_ceil(8)]; // alloc: Exec
-    // SAFETY: `buf` holds at least `key.len()` bytes and does not overlap `key`
-    unsafe { core::ptr::copy_nonoverlapping(key.as_ptr(), buf.as_mut_ptr().cast::<u8>(), key.len()) };
+                                                     // SAFETY: `buf` holds at least `key.len()` bytes and does not overlap `key`
+    unsafe {
+        core::ptr::copy_nonoverlapping(key.as_ptr(), buf.as_mut_ptr().cast::<u8>(), key.len())
+    };
     buf
 }
 
 /// Separator `key`'s (`aligned`) first key column under the index's descriptor `desc` (`indnkeyatts` key columns): `None`
 /// when it is NULL or the separator keeps no key column (a minus-infinity pivot). A by-reference value points into `key`.
-pub(super) fn first_column(key: &[u64], desc: &types_tuple::TupleDescData<'_>, indnkeyatts: i32) -> Option<datum::Datum> {
+pub(super) fn first_column(
+    key: &[u64],
+    desc: &types_tuple::TupleDescData<'_>,
+    indnkeyatts: i32,
+) -> Option<datum::Datum> {
     let itup = key.as_ptr().cast::<u8>();
     // SAFETY: `key` holds a whole index tuple (a pivot's copy, its size its own header's), read while `key` lives
     if key.is_empty() || unsafe { nbtree::itup::bt_tuple_get_natts(itup, indnkeyatts) } < 1 {

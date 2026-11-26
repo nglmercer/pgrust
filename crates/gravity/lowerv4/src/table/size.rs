@@ -15,29 +15,37 @@
 //!
 //! Registers: road `table.sized` (`TABLE_SIZED`), a marker: the open reads the bound (registered for
 //! the sized open; the grow in place lands before any keyed or join bar cell of record).
-use gravity_abi::breaker::{RecordLayout, t1_default_bytes};
+use gravity_abi::breaker::{t1_default_bytes, RecordLayout};
 use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{HostFlags, IntBinOp, IntCond, Type, Value};
 use gravity_kernels::host_abi as abi;
 use gravity_program::protos::{Fact, Proto, ProtoKind};
 
-use crate::table::bypass::{fail_on, host, state, sync_bypass, Hashed, ST_APP, ST_LAYOUT, ST_T1, T1_LAYOUT};
-use crate::table::face::{Domain, TableDecl, TablePolicy};
 use crate::frame::env::Env;
 use crate::frame::px::{Px, DRAFT_SITE};
+use crate::table::bypass::{
+    fail_on, host, state, sync_bypass, Hashed, ST_APP, ST_LAYOUT, ST_T1, T1_LAYOUT,
+};
+use crate::table::face::{Domain, TableDecl, TablePolicy};
 
 crate::strategies! {
     /// Sized from bound / observation, grown in place, lazy zero.
     TABLE_SIZED = 35, "table.sized", Table;
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(TABLE_SIZED, &())], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(TABLE_SIZED, &())],
+    ..crate::ops::NONE
+};
 
 /// Table `t`'s Facts words on pipeline `k` (its `facts`): the dense domain's `DenseLo`, `DenseHi` of key lane `lane` when
 /// the domain is bound at run time, then `TableSize`, in `Fact` order. Never word 0, so 0 stays "none". With the table's
 /// breaker slot (`k` produces it), an `observe` on `k` remembers its finished groups for the next execution's `TableSize`.
 pub(crate) fn declare_facts(px: &mut Px<'_, '_>, k: usize, t: &TableDecl, lane: u8) -> u16 {
-    let dense = matches!(t.key.domain, Domain::Bound | Domain::Div { .. } | Domain::Shift { .. });
+    let dense = matches!(
+        t.key.domain,
+        Domain::Bound | Domain::Div { .. } | Domain::Shift { .. }
+    );
     let n = if dense { 3 } else { 1 };
     let mut base = px.proto_words(n);
     if base == 0 {
@@ -50,7 +58,10 @@ pub(crate) fn declare_facts(px: &mut Px<'_, '_>, k: usize, t: &TableDecl, lane: 
         p = p.site(DRAFT_SITE).slot(lane);
     }
     px.declare_proto(p.arg(arg));
-    if let Some(br) = (t.life.0 as usize == k).then(|| crate::frame::iface::end_breaker_of(px.gx, k)).flatten() {
+    if let Some(br) = (t.life.0 as usize == k)
+        .then(|| crate::frame::iface::end_breaker_of(px.gx, k))
+        .flatten()
+    {
         px.declare_proto(Proto::new(ProtoKind::Observe, k as u16).slot(br.slot));
     }
     base
@@ -67,10 +78,25 @@ fn fact(b: &mut FunctionBuilder<'_>, env: &Env, t: &TableDecl, i: u16) -> Value 
 pub(crate) fn groups(b: &mut FunctionBuilder<'_>, env: &Env, t: &TableDecl) -> Value {
     // D2988: a rerun table's planner numGroups (`TableDecl::expect`, below the full table only) stands for a missing fact
     let full = (t1_default_bytes() / t.layout.size()) as u64;
-    let full = b.iconst(Type::I64, t.expect.filter(|&g| g < full).unwrap_or(full) as i64);
+    let full = b.iconst(
+        Type::I64,
+        t.expect.filter(|&g| g < full).unwrap_or(full) as i64,
+    );
     let bound = match t.facts {
         0 => b.iconst(Type::I64, t.expect.unwrap_or(0) as i64),
-        _ => fact(b, env, t, if matches!(t.key.domain, Domain::Bound | Domain::Div { .. } | Domain::Shift { .. }) { 2 } else { 0 }),
+        _ => fact(
+            b,
+            env,
+            t,
+            if matches!(
+                t.key.domain,
+                Domain::Bound | Domain::Div { .. } | Domain::Shift { .. }
+            ) {
+                2
+            } else {
+                0
+            },
+        ),
     };
     let none = b.icmp(IntCond::Eq, bound, env.zero);
     b.select(none, full, bound)
@@ -81,7 +107,14 @@ pub(crate) fn groups(b: &mut FunctionBuilder<'_>, env: &Env, t: &TableDecl) -> V
 /// `Domain::Shift` key `x + c` adds `c` to it (increasing; a bound that leaves i64 wraps below the other, so the domain is
 /// none: a row there raises out of range in PostgreSQL anyway), none kept.
 pub(crate) fn domain(b: &mut FunctionBuilder<'_>, env: &Env, t: &TableDecl) -> (Value, Value) {
-    debug_assert!(t.facts != 0 && matches!(t.key.domain, Domain::Bound | Domain::Div { .. } | Domain::Shift { .. }), "a bound domain's table declared its facts");
+    debug_assert!(
+        t.facts != 0
+            && matches!(
+                t.key.domain,
+                Domain::Bound | Domain::Div { .. } | Domain::Shift { .. }
+            ),
+        "a bound domain's table declared its facts"
+    );
     let (lo, hi) = (fact(b, env, t, 0), fact(b, env, t, 1));
     let (op, c) = match t.key.domain {
         Domain::Div { c } => (IntBinOp::Sdiv, c),
@@ -117,7 +150,13 @@ impl Hashed {
     /// count cleared, the bypass word read. `groups` is taken within the table's bound (`groups`: a dense domain's span
     /// past it sizes at the bound) and below `GROUPS_MAX`: a count never reaches `agg_open`'s flag words (D370: a bigint
     /// key's span, 2^64 - 1.1e13 as an unsigned difference, set AGG_GROUPS_OBSERVE and _BYPASS and held its T1).
-    pub(crate) fn open_with(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &TableDecl, groups: Value) {
+    pub(crate) fn open_with(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        t: &TableDecl,
+        groups: Value,
+    ) {
         let (ctx, zero, x) = (env.ctx, env.zero, env.x);
         let (bound, max) = (self::groups(b, env, t), b.iconst(Type::I64, GROUPS_MAX));
         let groups = b.int_bin(IntBinOp::Umin, groups, bound);
@@ -126,11 +165,26 @@ impl Hashed {
         let lp = layout_slot(b, &t.layout);
         let bits = crate::table::radix::bits(b, env, t);
         let (name, f) = match TablePolicy::Sized.on() {
-            true => ("agg_open_grown", gravity_abi::host_words!(gravity_kernels::table::entries::agg_open_grown(ctx, st, layout, bits, groups))),
-            false => ("agg_open", gravity_abi::host_words!(abi::agg_open(ctx, st, layout, bits, groups))),
+            true => (
+                "agg_open_grown",
+                gravity_abi::host_words!(gravity_kernels::table::entries::agg_open_grown(
+                    ctx, st, layout, bits, groups
+                )),
+            ),
+            false => (
+                "agg_open",
+                gravity_abi::host_words!(abi::agg_open(ctx, st, layout, bits, groups)),
+            ),
         };
-        let open = host(b, name, &[Type::Ptr, Type::Ptr, Type::Ptr, Type::I64, Type::I64], f);
-        let r = b.call_host(open, &[ctx, st, lp, bits, groups], Some(Type::I64)).expect("agg_open returns a status");
+        let open = host(
+            b,
+            name,
+            &[Type::Ptr, Type::Ptr, Type::Ptr, Type::I64, Type::I64],
+            f,
+        );
+        let r = b
+            .call_host(open, &[ctx, st, lp, bits, groups], Some(Type::I64))
+            .expect("agg_open returns a status");
         fail_on(b, env, &x, r);
         if t.copies != 0 {
             // D3312: the slots holding key copies named on the table, for an in-memory compact's reclaim
@@ -144,8 +198,19 @@ impl Hashed {
         // recipe) decides; it then hands whole parts to the owner phase as resident runs, and a rejected offer keeps the
         // rows (KEYED-20: no second spelling of the layout here)
         if let Some(site) = env.site {
-            let addr = gravity_abi::host_words!(gravity_kernels::dict::entries_tables::entry_runs_offer(ctx, site, layout, bits));
-            let offer = b.declare_host_once("entry_runs_offer", &[Type::Ptr, Type::I64, Type::Ptr, Type::I64], Some(Type::I64), addr, HostFlags { touches_memory: true, ..HostFlags::default() });
+            let addr = gravity_abi::host_words!(
+                gravity_kernels::dict::entries_tables::entry_runs_offer(ctx, site, layout, bits)
+            );
+            let offer = b.declare_host_once(
+                "entry_runs_offer",
+                &[Type::Ptr, Type::I64, Type::Ptr, Type::I64],
+                Some(Type::I64),
+                addr,
+                HostFlags {
+                    touches_memory: true,
+                    ..HostFlags::default()
+                },
+            );
             let s = b.iconst(Type::I64, site as i64);
             b.call_host(offer, &[ctx, s, lp, bits], Some(Type::I64));
         }

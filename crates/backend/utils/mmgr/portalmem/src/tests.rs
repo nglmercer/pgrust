@@ -44,7 +44,11 @@ fn install() {
             ResourceOwner::from_parts(id, 1)
         });
         resowner_portal_seams::resource_owner_release::set(|o, phase, is_commit, top| {
-            log(format!("release({},{:?},{is_commit},{top})", o.slot(), phase));
+            log(format!(
+                "release({},{:?},{is_commit},{top})",
+                o.slot(),
+                phase
+            ));
         });
         resowner_portal_seams::resource_owner_delete::set(|o| {
             log(format!("owner_delete({})", o.slot()));
@@ -61,7 +65,10 @@ fn install() {
         portalcmds_seams::portal_cleanup::set(|p| {
             log(format!("cleanup({})", p.borrow().name.as_str()));
             if CLEANUP_FAILS.get() {
-                return Err(ereport(ERROR).errmsg_internal("cleanup boom").into_error().into());
+                return Err(ereport(ERROR)
+                    .errmsg_internal("cleanup boom")
+                    .into_error()
+                    .into());
             }
             Ok(())
         });
@@ -146,7 +153,9 @@ fn create_lookup_drop() {
 fn duplicate_name_semantics() {
     setup();
     let a = CreatePortal("dup", false, false).unwrap();
-    let Err(err) = CreatePortal("dup", false, false) else { panic!("expected error") };
+    let Err(err) = CreatePortal("dup", false, false) else {
+        panic!("expected error")
+    };
     assert_eq!(err.sqlstate(), ERRCODE_DUPLICATE_CURSOR);
     assert!(err.message().contains("cursor \"dup\" already exists"));
 
@@ -163,7 +172,9 @@ fn overlong_names_truncate_and_collide() {
     let long_b = format!("{}{}", "x".repeat(63), "different-tail");
     let a = CreatePortal(&long_a, false, false).unwrap();
     assert_eq!(a.borrow().name.len(), MAX_PORTALNAME_LEN - 1);
-    let Err(err) = CreatePortal(&long_b, false, false) else { panic!("expected error") };
+    let Err(err) = CreatePortal(&long_b, false, false) else {
+        panic!("expected error")
+    };
     assert_eq!(err.sqlstate(), ERRCODE_DUPLICATE_CURSOR);
     PortalDrop(&a, false).unwrap();
 }
@@ -198,7 +209,9 @@ fn abort_cleanup_walks_many_portals_once_in_scan_order() {
         p.borrow_mut().status = PORTAL_READY;
     }
     let order: Vec<String> = with_mgr(|m| {
-        m.scan_order().map(|p| p.borrow().name.as_str().to_owned()).collect()
+        m.scan_order()
+            .map(|p| p.borrow().name.as_str().to_owned())
+            .collect()
     })
     .unwrap();
     assert_eq!(order.len(), n);
@@ -206,7 +219,10 @@ fn abort_cleanup_walks_many_portals_once_in_scan_order() {
     AtAbort_Portals().unwrap();
     let cleaned: Vec<String> = events()
         .into_iter()
-        .filter_map(|e| e.strip_prefix("cleanup(").map(|s| s.trim_end_matches(')').to_owned()))
+        .filter_map(|e| {
+            e.strip_prefix("cleanup(")
+                .map(|s| s.trim_end_matches(')').to_owned())
+        })
         .collect();
     assert_eq!(cleaned, order);
     AtCleanup_Portals().unwrap();
@@ -223,7 +239,12 @@ fn parked_portal_contexts_leave_the_context_tree() {
     setup();
     let portal_children = || {
         with_mgr(|m| {
-            m.top.stats_tree().children.iter().filter(|c| c.name == "PortalContext").count()
+            m.top
+                .stats_tree()
+                .children
+                .iter()
+                .filter(|c| c.name == "PortalContext")
+                .count()
         })
         .unwrap()
     };
@@ -351,13 +372,23 @@ fn session_teardown_drops_held_portals_and_ends_their_stores() {
         p.cleanup = PortalCleanupHook::None;
     }
     AtCleanup_Portals().unwrap();
-    assert!(GetPortalByName(Some("held")).is_some(), "held cursor survives cleanup");
+    assert!(
+        GetPortalByName(Some("held")).is_some(),
+        "held cursor survives cleanup"
+    );
     EVENTS.with(|e| e.borrow_mut().clear());
 
     session_teardown_portals();
 
-    assert!(events().contains(&"ts_end(42)".to_owned()), "hold store ended: {:?}", events());
-    assert!(PORTAL_MGR.with(|m| m.borrow().is_none()), "manager torn down");
+    assert!(
+        events().contains(&"ts_end(42)".to_owned()),
+        "hold store ended: {:?}",
+        events()
+    );
+    assert!(
+        PORTAL_MGR.with(|m| m.borrow().is_none()),
+        "manager torn down"
+    );
     // Idempotent: a second drain (or a never-enabled manager) is a no-op.
     session_teardown_portals();
     EnablePortalManager();
@@ -542,7 +573,9 @@ fn subxact_lifecycle() {
         assert_eq!(p.createSubid, 1);
         assert_eq!(p.createLevel, 1);
     }
-    assert!(events().iter().any(|e| e.starts_with("new_parent(") && e.ends_with(",900)")));
+    assert!(events()
+        .iter()
+        .any(|e| e.starts_with("new_parent(") && e.ends_with(",900)")));
 
     AtSubAbort_Portals(6, 1, ResourceOwner::from_parts(901, 1), parent_owner).unwrap();
     assert_eq!(portal.borrow().createSubid, 1);
@@ -634,9 +667,10 @@ fn forget_portal_snapshots_balances() {
     setup();
     let portal = CreatePortal("fs", false, false).unwrap();
     let top = mgr("test", |m| m.top).unwrap();
-    portal.borrow_mut().portalSnapshot = Some(Rc::new(
-        ::types_snapshot::SnapshotData::sentinel(top.mcx(), ::types_snapshot::SNAPSHOT_MVCC),
-    ));
+    portal.borrow_mut().portalSnapshot = Some(Rc::new(::types_snapshot::SnapshotData::sentinel(
+        top.mcx(),
+        ::types_snapshot::SNAPSHOT_MVCC,
+    )));
     ACTIVE_SNAPS.set(1);
     ForgetPortalSnapshots().unwrap();
     assert!(portal.borrow().portalSnapshot.is_none());
@@ -738,7 +772,11 @@ fn unnamed_portal_context_ident_is_unnamed() {
     let unnamed = CreatePortal("", false, false).unwrap();
     let named = CreatePortal("c_ident", false, false).unwrap();
     let ident_of = |p: &Portal<'static>| {
-        p.borrow().portalContext.as_ref().expect("portalContext").ident()
+        p.borrow()
+            .portalContext
+            .as_ref()
+            .expect("portalContext")
+            .ident()
     };
     assert_eq!(ident_of(&unnamed).as_deref(), Some("<unnamed>"));
     assert_eq!(ident_of(&named).as_deref(), Some("c_ident"));
@@ -807,7 +845,12 @@ fn taken_parked_portal_context_is_identified_unnamed() {
     with_mgr(|m| m.parked.push((psrc, shell.clone()))).unwrap();
     let taken = TakeParkedPortal(psrc).unwrap().expect("parked shell");
     assert!(taken.ptr_eq(&shell));
-    let ident = taken.borrow().portalContext.as_ref().expect("portalContext").ident();
+    let ident = taken
+        .borrow()
+        .portalContext
+        .as_ref()
+        .expect("portalContext")
+        .ident();
     assert_eq!(ident.as_deref(), Some("<unnamed>"));
     PortalDrop(&taken, false).unwrap();
 }
@@ -829,7 +872,13 @@ fn hold_pinned_portals_survives_portals_created_while_holding() {
     HoldPinnedPortals().unwrap();
     assert!(first.borrow().autoHeld);
     assert!(second.borrow().autoHeld);
-    assert_eq!(events().iter().filter(|e| e.starts_with("persist(")).count(), 2);
+    assert_eq!(
+        events()
+            .iter()
+            .filter(|e| e.starts_with("persist("))
+            .count(),
+        2
+    );
     for p in [&first, &second] {
         p.borrow_mut().portalPinned = false;
         PortalDrop(p, false).unwrap();
@@ -846,8 +895,15 @@ fn define_query_source_copy_is_freed_with_the_portal() {
     let text = "PREPARE p1(int) AS SELECT v FROM t1 WHERE id = $1";
     let cycle = || {
         let portal = CreateNewPortal().unwrap();
-        PortalDefineQuery(&portal, None, text, CMDTAG_SELECT, StmtListHandle::NULL, CachedPlanHandle::NULL)
-            .unwrap();
+        PortalDefineQuery(
+            &portal,
+            None,
+            text,
+            CMDTAG_SELECT,
+            StmtListHandle::NULL,
+            CachedPlanHandle::NULL,
+        )
+        .unwrap();
         assert_eq!(portal.borrow().sourceText.unwrap(), text);
         PortalDrop(&portal, false).unwrap();
     };
@@ -859,7 +915,11 @@ fn define_query_source_copy_is_freed_with_the_portal() {
     for _ in 0..1000 {
         cycle();
     }
-    assert_eq!(top_used(), before, "TopPortalContext grew over 1000 define/drop cycles");
+    assert_eq!(
+        top_used(),
+        before,
+        "TopPortalContext grew over 1000 define/drop cycles"
+    );
 }
 
 #[test]

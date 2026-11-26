@@ -9,7 +9,12 @@ const RUN: &[&str] = &["sort_open_res", "sort_open_res_top", "sort_claim_res"];
 const READER: &[&str] = &["sort_begin", "sort_begin_at"];
 
 /// The host calls a value derives from, through the conversions and selects the lowerer puts between a call and its store.
-fn roots<'a>(v: &'a str, defs: &BTreeMap<&'a str, Vec<&'a str>>, seen: &mut BTreeSet<&'a str>, out: &mut BTreeSet<&'a str>) {
+fn roots<'a>(
+    v: &'a str,
+    defs: &BTreeMap<&'a str, Vec<&'a str>>,
+    seen: &mut BTreeSet<&'a str>,
+    out: &mut BTreeSet<&'a str>,
+) {
     if !seen.insert(v) {
         return;
     }
@@ -18,7 +23,10 @@ fn roots<'a>(v: &'a str, defs: &BTreeMap<&'a str, Vec<&'a str>>, seen: &mut BTre
         Some("call_host") => {
             out.insert(t[1]);
         }
-        Some("ptrtoint" | "inttoptr" | "select") => t[1..].iter().filter(|a| a.starts_with('v')).for_each(|a| roots(a, defs, seen, out)),
+        Some("ptrtoint" | "inttoptr" | "select") => t[1..]
+            .iter()
+            .filter(|a| a.starts_with('v'))
+            .for_each(|a| roots(a, defs, seen, out)),
         _ => {}
     }
 }
@@ -28,17 +36,30 @@ fn collisions(ir: &str) -> Vec<String> {
     let mut bad = Vec::new();
     for f in ir.split("(fn ").skip(1) {
         let name = f.split_whitespace().next().unwrap_or("?");
-        let toks = |l: &str| l.replace(['(', ')'], " ").split_whitespace().map(str::to_owned).collect::<Vec<_>>();
+        let toks = |l: &str| {
+            l.replace(['(', ')'], " ")
+                .split_whitespace()
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        };
         let lines: Vec<Vec<String>> = f.lines().map(toks).collect();
         let mut defs = BTreeMap::new();
-        for t in lines.iter().filter(|t| t.len() > 1 && t[0].starts_with('v') && t[1] != "ptr" && t[1] != "i64") {
-            defs.insert(t[0].as_str(), t[1..].iter().map(String::as_str).collect::<Vec<_>>());
+        for t in lines
+            .iter()
+            .filter(|t| t.len() > 1 && t[0].starts_with('v') && t[1] != "ptr" && t[1] != "i64")
+        {
+            defs.insert(
+                t[0].as_str(),
+                t[1..].iter().map(String::as_str).collect::<Vec<_>>(),
+            );
         }
         let mut at: BTreeMap<(String, String), BTreeSet<&str>> = BTreeMap::new();
         for t in lines.iter().filter(|t| t.len() == 4 && t[0] == "store") {
             let mut hosts = BTreeSet::new();
             roots(&t[3], &defs, &mut BTreeSet::new(), &mut hosts);
-            at.entry((t[1].clone(), t[2].clone())).or_default().extend(hosts);
+            at.entry((t[1].clone(), t[2].clone()))
+                .or_default()
+                .extend(hosts);
         }
         for ((base, off), hosts) in at {
             if hosts.iter().any(|h| RUN.contains(h)) && hosts.iter().any(|h| READER.contains(h)) {
@@ -60,11 +81,19 @@ fn a_run_reader_and_a_sort_end_keep_their_own_words() {
         }
         let ir = std::fs::read_to_string(&p).expect("pin");
         both += usize::from(RUN.iter().any(|h| ir.contains(h)) && ir.contains("sort_begin_at"));
-        bad.extend(collisions(&ir).into_iter().map(|c| format!("{}: {c}", p.display())));
+        bad.extend(
+            collisions(&ir)
+                .into_iter()
+                .map(|c| format!("{}: {c}", p.display())),
+        );
     }
     // part-034 (M3-MERGE) is the pinned program of the shape; a tree without it still runs the synthetic check below
     eprintln!("D482: {both} pinned programs read a run and end in a sort");
-    assert!(bad.is_empty(), "a reader's mode and a sort end's run share a word:\n{}", bad.join("\n"));
+    assert!(
+        bad.is_empty(),
+        "a reader's mode and a sort end's run share a word:\n{}",
+        bad.join("\n")
+    );
 }
 
 /// The check itself: the D482 program (one word for the run and the mode) is caught, the fixed one is not.
@@ -85,5 +114,9 @@ fn the_check_catches_the_shared_word() {
 /// env!()'s path baked in at compile time: a test binary reused from another checkout would read that checkout's files.
 fn manifest_dir() -> &'static std::path::Path {
     static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| std::env::var_os("CARGO_MANIFEST_DIR").map(|d| std::path::Path::new(&d).with_file_name("lowerv4")).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)"))
+    DIR.get_or_init(|| {
+        std::env::var_os("CARGO_MANIFEST_DIR")
+            .map(|d| std::path::Path::new(&d).with_file_name("lowerv4"))
+            .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+    })
 }

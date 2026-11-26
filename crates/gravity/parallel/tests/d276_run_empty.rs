@@ -58,32 +58,103 @@ fn a_masked_producer_never_reads_and_its_consumer_reads_an_empty_product_at_ever
             // unmasked: pipeline 1 reads, and the read fails
             table.fresh();
             table.fail_block.store(u64::MAX, Ordering::Relaxed);
-            let plan = AfterBuild { inner: FixturePlan::new(&program, &derive, w, claim), table: &table, mask: 0 };
+            let plan = AfterBuild {
+                inner: FixturePlan::new(&program, &derive, w, claim),
+                table: &table,
+                mask: 0,
+            };
             let mut sink = LegSink::new(true);
-            let r = run_planned(&mut entry, &program, &mut derive, &pool, &plan, Grant::of(64 << 20), &[thr], &NO_ABORT, &mut sink);
-            assert_eq!(r, Err(Error::host("range read failed")), "width {w} claim {claim}: the control raises");
+            let r = run_planned(
+                &mut entry,
+                &program,
+                &mut derive,
+                &pool,
+                &plan,
+                Grant::of(64 << 20),
+                &[thr],
+                &NO_ABORT,
+                &mut sink,
+            );
+            assert_eq!(
+                r,
+                Err(Error::host("range read failed")),
+                "width {w} claim {claim}: the control raises"
+            );
 
             // masked: pipeline 1 runs empty, its count is 0, pipeline 0's stands
             table.fresh();
             table.fail_block.store(u64::MAX, Ordering::Relaxed);
-            let plan = AfterBuild { inner: FixturePlan::new(&program, &derive, w, claim), table: &table, mask: 0b011 };
+            let plan = AfterBuild {
+                inner: FixturePlan::new(&program, &derive, w, claim),
+                table: &table,
+                mask: 0b011,
+            };
             let mut sink = LegSink::new(true);
-            let n = run_planned(&mut entry, &program, &mut derive, &pool, &plan, Grant::of(64 << 20), &[thr], &NO_ABORT, &mut sink).expect("the masked producer never reads");
+            let n = run_planned(
+                &mut entry,
+                &program,
+                &mut derive,
+                &pool,
+                &plan,
+                Grant::of(64 << 20),
+                &[thr],
+                &NO_ABORT,
+                &mut sink,
+            )
+            .expect("the masked producer never reads");
             assert_eq!(n, 1, "width {w} claim {claim}");
-            assert_eq!(sink.sorted(), vec![vec![want, want, 0]], "width {w} claim {claim}: slot 1 empty, slot 0 whole");
-            assert_eq!(table.ledger.twice(), 0, "width {w} claim {claim}: no block claimed by the masked producer");
-            assert_eq!(table.pins.load(Ordering::Relaxed), 0, "width {w} claim {claim}");
+            assert_eq!(
+                sink.sorted(),
+                vec![vec![want, want, 0]],
+                "width {w} claim {claim}: slot 1 empty, slot 0 whole"
+            );
+            assert_eq!(
+                table.ledger.twice(),
+                0,
+                "width {w} claim {claim}: no block claimed by the masked producer"
+            );
+            assert_eq!(
+                table.pins.load(Ordering::Relaxed),
+                0,
+                "width {w} claim {claim}"
+            );
 
             // the emit (no driving site) masked too: it ends at its first call without its program, no row and no read
             table.fresh();
             table.fail_block.store(u64::MAX, Ordering::Relaxed);
-            let plan = AfterBuild { inner: FixturePlan::new(&program, &derive, w, claim), table: &table, mask: 0b111 };
+            let plan = AfterBuild {
+                inner: FixturePlan::new(&program, &derive, w, claim),
+                table: &table,
+                mask: 0b111,
+            };
             let mut sink = LegSink::new(true);
-            let n = run_planned(&mut entry, &program, &mut derive, &pool, &plan, Grant::of(64 << 20), &[thr], &NO_ABORT, &mut sink).expect("the masked emit runs nothing");
-            assert_eq!(n, 0, "width {w} claim {claim}: the masked emit hands no row");
+            let n = run_planned(
+                &mut entry,
+                &program,
+                &mut derive,
+                &pool,
+                &plan,
+                Grant::of(64 << 20),
+                &[thr],
+                &NO_ABORT,
+                &mut sink,
+            )
+            .expect("the masked emit runs nothing");
+            assert_eq!(
+                n, 0,
+                "width {w} claim {claim}: the masked emit hands no row"
+            );
             assert!(sink.sorted().is_empty(), "width {w} claim {claim}");
-            assert_eq!(table.ledger.twice(), 0, "width {w} claim {claim}: no block claimed by the masked producer");
-            assert_eq!(table.pins.load(Ordering::Relaxed), 0, "width {w} claim {claim}");
+            assert_eq!(
+                table.ledger.twice(),
+                0,
+                "width {w} claim {claim}: no block claimed by the masked producer"
+            );
+            assert_eq!(
+                table.pins.load(Ordering::Relaxed),
+                0,
+                "width {w} claim {claim}"
+            );
         }
     }
     table.fail_block.store(u64::MAX, Ordering::Relaxed);

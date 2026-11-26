@@ -23,7 +23,10 @@ use crate::shapes::AclObject;
 /// current command id used (`GetCurrentCommandId(true)`), so the CommandCounterIncrement after the EXPLAIN advances it
 /// and a later statement of the transaction shows it (its cmin / cmax).
 pub fn mark_output_cid(pstmt: &PlannedStmt<'_>) -> PgResult<()> {
-    if pstmt.commandType != CmdType::CMD_SELECT || pstmt.rowMarks.iter().next().is_some() || pstmt.hasModifyingCTE {
+    if pstmt.commandType != CmdType::CMD_SELECT
+        || pstmt.rowMarks.iter().next().is_some()
+        || pstmt.hasModifyingCTE
+    {
         xact::GetCurrentCommandId(true)?;
     }
     Ok(())
@@ -36,16 +39,24 @@ fn each_child<'p>(n: Node<'p>, prune: Option<&Initial>, mut f: impl FnMut(Node<'
     for c in [p.lefttree, p.righttree].into_iter().flatten() {
         f(c);
     }
-    let arms = n.as_append().map(|a| (&a.appendplans, a.part_prune_index)).or(n.as_merge_append().map(|m| (&m.mergeplans, m.part_prune_index)));
+    let arms = n
+        .as_append()
+        .map(|a| (&a.appendplans, a.part_prune_index))
+        .or(n
+            .as_merge_append()
+            .map(|m| (&m.mergeplans, m.part_prune_index)));
     if let Some((arms, index)) = arms {
         let kept = prune.and_then(|p| p.valid.get(usize::try_from(index).ok()?).cloned().flatten());
         for (i, c) in arms.iter().enumerate() {
-            if kept.as_ref().is_none_or( |k| k.contains(&(i as i32))) {
+            if kept.as_ref().is_none_or(|k| k.contains(&(i as i32))) {
                 f(c);
             }
         }
     }
-    let bitmaps = n.as_bitmap_and().map(|a| &a.bitmapplans).or(n.as_bitmap_or().map(|o| &o.bitmapplans));
+    let bitmaps = n
+        .as_bitmap_and()
+        .map(|a| &a.bitmapplans)
+        .or(n.as_bitmap_or().map(|o| &o.bitmapplans));
     for c in bitmaps.into_iter().flat_map(|l| l.iter()) {
         f(c);
     }
@@ -61,7 +72,11 @@ fn each_child<'p>(n: Node<'p>, prune: Option<&Initial>, mut f: impl FnMut(Node<'
 /// ExecBuildParamSetEqual: `node_gate_ops`, `distinct_eq_ops`). Where C compiles a node's expressions: `Gates::node`.
 pub fn plan_gates(pstmt: &PlannedStmt<'_>, prune: Option<&Initial>) -> PgResult<()> {
     let owner = gravity_driver::stmt_context().map(|(o, _)| o);
-    let mut g = Gates { gates: true, list: ChargedVec::new(owner, Kind::Region), ..Gates::default() }; // alloc: Exec charged owner
+    let mut g = Gates {
+        gates: true,
+        list: ChargedVec::new(owner, Kind::Region),
+        ..Gates::default()
+    }; // alloc: Exec charged owner
     for t in pstmt.subplans.iter().flatten().chain(pstmt.planTree) {
         g.node(t, prune);
     }
@@ -77,7 +92,10 @@ pub fn plan_gates(pstmt: &PlannedStmt<'_>, prune: Option<&Initial>) -> PgResult<
 /// program files): `plan_gates`' walk without its gates.
 pub fn init_lookups(pstmt: &PlannedStmt<'_>, prune: Option<&Initial>) -> PgResult<()> {
     let owner = gravity_driver::stmt_context().map(|(o, _)| o);
-    let mut g = Gates { list: ChargedVec::new(owner, Kind::Region), ..Gates::default() }; // alloc: Exec charged owner
+    let mut g = Gates {
+        list: ChargedVec::new(owner, Kind::Region),
+        ..Gates::default()
+    }; // alloc: Exec charged owner
     for t in pstmt.subplans.iter().flatten().chain(pstmt.planTree) {
         g.node(t, prune);
     }
@@ -124,11 +142,17 @@ impl Gates {
     fn run(&self) -> PgResult<()> {
         for &c in self.list.iter() {
             match c {
-                Check::Gate(f, AclObject::Aggregate) => gravity_expr::nodes::func::aggregate_gate(f)?,
+                Check::Gate(f, AclObject::Aggregate) => {
+                    gravity_expr::nodes::func::aggregate_gate(f)?
+                }
                 Check::Gate(f, AclObject::Function) => gravity_expr::nodes::func::execute_gate(f)?,
-                Check::MergeClause(op, family) => gravity_fn::typesem::expr::init_merge_clause(op, family)?,
+                Check::MergeClause(op, family) => {
+                    gravity_fn::typesem::expr::init_merge_clause(op, family)?
+                }
                 Check::SortKey(op) => gravity_fn::typesem::expr::init_ordering_op(op)?,
-                Check::RowCompare(op, family) => gravity_fn::typesem::expr::init_row_compare(op, family)?,
+                Check::RowCompare(op, family) => {
+                    gravity_fn::typesem::expr::init_row_compare(op, family)?
+                }
                 Check::MinMax(t) => gravity_fn::typesem::expr::init_min_max(t)?,
                 Check::HashOp(op) => gravity_fn::typesem::expr::init_hash_op(op)?,
             }
@@ -153,17 +177,27 @@ impl Gates {
                     self.push(gate(s.hashfuncid));
                 }
                 NodeTag::T_Aggref => {
-                    self.push(Check::Gate(n.as_aggref().unwrap().aggfnoid, AclObject::Aggregate));
+                    self.push(Check::Gate(
+                        n.as_aggref().unwrap().aggfnoid,
+                        AclObject::Aggregate,
+                    ));
                     gravity_decompose::admit::distinct_eq_ops(n, &mut self.eq_ops);
                 }
                 NodeTag::T_WindowFunc => self.push(gate(n.as_window_func().unwrap().winfnoid)),
                 NodeTag::T_RowCompareExpr => {
                     let r = n.as_row_compare_expr().unwrap();
-                    for c in r.opnos.iter().zip(r.opfamilies.iter()).map(|(op, family)| Check::RowCompare(op, family)) {
+                    for c in r
+                        .opnos
+                        .iter()
+                        .zip(r.opfamilies.iter())
+                        .map(|(op, family)| Check::RowCompare(op, family))
+                    {
                         self.push(c);
                     }
                 }
-                NodeTag::T_MinMaxExpr => self.push(Check::MinMax(n.as_min_max_expr().unwrap().minmaxtype)),
+                NodeTag::T_MinMaxExpr => {
+                    self.push(Check::MinMax(n.as_min_max_expr().unwrap().minmaxtype))
+                }
                 _ => {}
             }
             true
@@ -221,7 +255,12 @@ impl Gates {
         match n.node_tag() {
             NodeTag::T_Result => self.opt(n.as_result().unwrap().resconstantqual),
             NodeTag::T_SampleScan => {
-                if let Some(t) = n.as_sample_scan().unwrap().tablesample.and_then(|t| t.as_table_sample_clause()) {
+                if let Some(t) = n
+                    .as_sample_scan()
+                    .unwrap()
+                    .tablesample
+                    .and_then(|t| t.as_table_sample_clause())
+                {
                     self.exprs(&t.args);
                     self.opt(t.repeatable);
                 }
@@ -234,25 +273,50 @@ impl Gates {
                 self.exprs(&s.indexorderbyorig);
             }
             NodeTag::T_IndexOnlyScan => self.exprs(&n.as_index_only_scan().unwrap().recheckqual),
-            NodeTag::T_BitmapHeapScan => self.exprs(&n.as_bitmap_heap_scan().unwrap().bitmapqualorig),
+            NodeTag::T_BitmapHeapScan => {
+                self.exprs(&n.as_bitmap_heap_scan().unwrap().bitmapqualorig)
+            }
             NodeTag::T_FunctionScan => {
-                for f in n.as_function_scan().unwrap().functions.iter().filter_map(|f| f.as_range_tbl_function()) {
+                for f in n
+                    .as_function_scan()
+                    .unwrap()
+                    .functions
+                    .iter()
+                    .filter_map(|f| f.as_range_tbl_function())
+                {
                     self.opt(f.funcexpr);
                 }
             }
             NodeTag::T_TableFuncScan => {
-                if let Some(t) = n.as_table_func_scan().unwrap().tablefunc.and_then(|t| t.as_table_func()) {
+                if let Some(t) = n
+                    .as_table_func_scan()
+                    .unwrap()
+                    .tablefunc
+                    .and_then(|t| t.as_table_func())
+                {
                     self.exprs(&t.ns_uris);
                     self.opt(t.docexpr);
                     self.opt(t.rowexpr);
-                    for e in t.colexprs.iter().chain(t.coldefexprs.iter()).chain(t.colvalexprs.iter()).flatten() {
+                    for e in t
+                        .colexprs
+                        .iter()
+                        .chain(t.coldefexprs.iter())
+                        .chain(t.colvalexprs.iter())
+                        .flatten()
+                    {
                         self.expr(e);
                     }
                     self.exprs(&t.passingvalexprs);
                 }
             }
             NodeTag::T_ValuesScan => {
-                for row in n.as_values_scan().unwrap().values_lists.iter().filter_map(|r| r.as_list()) {
+                for row in n
+                    .as_values_scan()
+                    .unwrap()
+                    .values_lists
+                    .iter()
+                    .filter_map(|r| r.as_list())
+                {
                     if row.iter().any(gravity_decompose::expr::has_subplan) {
                         self.exprs(row);
                     }
@@ -303,7 +367,9 @@ impl Gates {
                         g.exprs(&a.targetList);
                     }
                 });
-                self.lists(&m.withCheckOptionLists, |g, e| g.opt(e.as_with_check_option().and_then(|w| w.qual)));
+                self.lists(&m.withCheckOptionLists, |g, e| {
+                    g.opt(e.as_with_check_option().and_then(|w| w.qual))
+                });
                 self.lists(&m.returningLists, |g, e| g.expr(e));
                 self.exprs(&m.onConflictSet);
                 self.opt(m.onConflictWhere);

@@ -1,7 +1,7 @@
 //! Row selection in `GranuleRangeSource`: the rows the predicates and the delete mask keep, and the sparse stage.
 
-use super::*;
 use super::raw::{mask_ne_u32, mask_range_i16, mask_range_i32, mask_table_u32};
+use super::*;
 
 impl GranuleRangeSource {
     /// The rows the predicates keep (the int comparisons at the lane's width, a code lane's `<>` against the constant's
@@ -16,11 +16,17 @@ impl GranuleRangeSource {
         // D1536: a counting execution (EXPLAIN ANALYZE, `GranuleRecipe::skipped`) selects no row inside a granule unless its
         // scan runs to its end (VERDICT_COUNT_SELECT, whose caller counts the rows dropped): every row reaches the program,
         // whose count of what its qual removes stops where the scan stops (a LIMIT's last window)
-        if self.verdict != V_MIXED && (self.verdict != V_ALL || table.is_none()) || self.recipe.skipped.is_some() && !self.on(VERDICT_COUNT_SELECT) {
+        if self.verdict != V_MIXED && (self.verdict != V_ALL || table.is_none())
+            || self.recipe.skipped.is_some() && !self.on(VERDICT_COUNT_SELECT)
+        {
             return Ok((false, 0));
         }
         let (mut lanes, mut codes) = (0u64, [u32::MAX; ROW_PREDS]);
-        let nzone = if self.verdict == V_MIXED { self.nzone } else { 0 };
+        let nzone = if self.verdict == V_MIXED {
+            self.nzone
+        } else {
+            0
+        };
         if table.is_some() {
             fires::fire_shared("pgrc.code_select");
         }
@@ -33,7 +39,9 @@ impl GranuleRangeSource {
                 if self.elided.has(k) || self.recipe.shred_of(k).is_some() {
                     continue;
                 }
-                let Some(c) = self.row_code(p, zi)? else { continue };
+                let Some(c) = self.row_code(p, zi)? else {
+                    continue;
+                };
                 codes[zi] = c;
                 fires::fire_shared("pgrc.code_select");
             } else if !self.row_pred(&z) {
@@ -64,7 +72,12 @@ impl GranuleRangeSource {
                     }
                     return Ok((false, 0));
                 }
-                let n = kept + if sample < rows { self.apply_preds(lanes, &codes, table, sample, rows) } else { 0 };
+                let n = kept
+                    + if sample < rows {
+                        self.apply_preds(lanes, &codes, table, sample, rows)
+                    } else {
+                        0
+                    };
                 if n * SELECT_DIV > rows {
                     if table.is_some() {
                         self.table_dense = p;
@@ -75,14 +88,26 @@ impl GranuleRangeSource {
             }
         };
         self.sel16_ok = false;
-        let k = words_to_sel32(&self.mask[..rows.div_ceil(64)], &mut self.sel, &mut self.sel16);
+        let k = words_to_sel32(
+            &self.mask[..rows.div_ceil(64)],
+            &mut self.sel,
+            &mut self.sel16,
+        );
         debug_assert_eq!(k, n, "the selection is apply_preds' kept rows");
         // D3223 S2: the selection is exact (every selected row satisfies every zone predicate of the window, and every other
         // row fails one) when it applied every zone predicate (none a prefix, hashed, unsigned-key or by-reference one, a
         // code lane's only as `<>` with its code in the part, at most ROW_PREDS of them), took no code verdict table (a table's faults pass rows)
         // and no encoded lane fell back to the mask as it was (`enc_mask`)
-        let all = if self.nzone >= 64 { u64::MAX } else { (1u64 << self.nzone) - 1 };
-        self.sel_exact = table.is_none() && self.verdict == V_MIXED && self.nzone <= ROW_PREDS && lanes == all && !self.enc_fell;
+        let all = if self.nzone >= 64 {
+            u64::MAX
+        } else {
+            (1u64 << self.nzone) - 1
+        };
+        self.sel_exact = table.is_none()
+            && self.verdict == V_MIXED
+            && self.nzone <= ROW_PREDS
+            && lanes == all
+            && !self.enc_fell;
         Ok((true, n))
     }
 
@@ -91,11 +116,20 @@ impl GranuleRangeSource {
     /// the lane's open dictionary, whose index the claim run staged (`u32::MAX` where the dictionary lacks it: no row
     /// holds it).
     fn row_code(&mut self, p: usize, zi: usize) -> PgResult<Option<u32>> {
-        if let Some(c) = self.zcode_preds.get(zi).and_then(Option::as_ref).filter(|c| self.zcode_part == p && c.op == ZoneOp::Ne) {
+        if let Some(c) = self
+            .zcode_preds
+            .get(zi)
+            .and_then(Option::as_ref)
+            .filter(|c| self.zcode_part == p && c.op == ZoneOp::Ne)
+        {
             return Ok(Some(u32::try_from(c.value).unwrap_or(u32::MAX)));
         }
         let z = self.zone[zi];
-        if z.op != ZoneOp::Ne || !z.prefix || zi >= ROW_PREDS || !self.record_lanes.has(z.lane as usize) {
+        if z.op != ZoneOp::Ne
+            || !z.prefix
+            || zi >= ROW_PREDS
+            || !self.record_lanes.has(z.lane as usize)
+        {
             return Ok(None);
         }
         if self.ne_part != p {
@@ -112,16 +146,28 @@ impl GranuleRangeSource {
     /// part `p`: `code_pred` over a byte-ordered part dictionary; in a verbatim part's table, ranked by bytes or by length,
     /// only '', which sorts first in either order (code 0 when the part holds it). `None`: the program's filter tests the rows.
     fn ne_place(&self, p: usize, z: &ZonePred) -> PgResult<Option<u32>> {
-        let mut hits = self.zcode_images.iter().filter(|c| c.lane == z.lane && c.op == z.op && c.key == z.value);
-        let Some(c) = hits.next() else { return Ok(None) };
+        let mut hits = self
+            .zcode_images
+            .iter()
+            .filter(|c| c.lane == z.lane && c.op == z.op && c.key == z.value);
+        let Some(c) = hits.next() else {
+            return Ok(None);
+        };
         if hits.any(|o| o.image != c.image) {
             return Ok(None);
         }
-        let Some(entry) = self.dict_at(p, z.lane as usize) else { return Ok(None) };
+        let Some(entry) = self.dict_at(p, z.lane as usize) else {
+            return Ok(None);
+        };
         Ok(match &entry.dict {
-            Dict::Part(d) if d.byte_rank_sorted() => super::verdicts::code_pred(d, z, &c.image)?.map(|w| u32::try_from(w.value).unwrap_or(u32::MAX)),
+            Dict::Part(d) if d.byte_rank_sorted() => super::verdicts::code_pred(d, z, &c.image)?
+                .map(|w| u32::try_from(w.value).unwrap_or(u32::MAX)),
             Dict::Part(_) => None,
-            Dict::Ranked { table, .. } if c.image.is_empty() => table.ranks().map(|r| if r.has_empty() { 0 } else { u32::MAX }),
+            Dict::Ranked { table, .. } if c.image.is_empty() => {
+                table
+                    .ranks()
+                    .map(|r| if r.has_empty() { 0 } else { u32::MAX })
+            }
             Dict::Ranked { .. } => None,
         })
     }
@@ -134,7 +180,13 @@ impl GranuleRangeSource {
         // SRC-09: a prefix predicate's value is a key, never the lane's word; NEW-47: so is an unsigned word's (oid), its
         // zero-extended key, where the lane's cells compare signed at their width. P5-11: a probe word is no value
         #[allow(clippy::nonminimal_bool)]
-        !(z.prefix || z.is_hashed() || k >= self.recipe.natts || self.elided.has(k) || self.recipe.kinds[k] > lane::KIND_CODES && !(self.recipe.numeric.has(k) && !self.lane_byref.has(k)) || self.unsigned_key(k))
+        !(z.prefix
+            || z.is_hashed()
+            || k >= self.recipe.natts
+            || self.elided.has(k)
+            || self.recipe.kinds[k] > lane::KIND_CODES
+                && !(self.recipe.numeric.has(k) && !self.lane_byref.has(k))
+            || self.unsigned_key(k))
     }
 
     /// D3223 S1 (the encoded row filter): the zone lanes of granule `lg` of part `p` that `row_select` compares on their
@@ -154,10 +206,18 @@ impl GranuleRangeSource {
             let z = self.zone[zi];
             let k = z.lane as usize;
             // a shred lane's cells may not be its stream's values (a presence or octet lane, an absent path)
-            if !self.row_pred(&z) || self.enc_set.has(k) || self.recipe.kinds[k] == lane::KIND_CODES || pred_bounds(&z).is_none() || self.recipe.shred_of(k).is_some() {
+            if !self.row_pred(&z)
+                || self.enc_set.has(k)
+                || self.recipe.kinds[k] == lane::KIND_CODES
+                || pred_bounds(&z).is_none()
+                || self.recipe.shred_of(k).is_some()
+            {
                 continue;
             }
-            if self.zone[..nz].iter().any(|y| y.lane == z.lane && y.op == ZoneOp::Ne && self.row_pred(y)) {
+            if self.zone[..nz]
+                .iter()
+                .any(|y| y.lane == z.lane && y.op == ZoneOp::Ne && self.row_pred(y))
+            {
                 continue;
             }
             let numeric = self.recipe.numeric.has(k);
@@ -167,25 +227,64 @@ impl GranuleRangeSource {
                 (false, lane::KIND_BYVAL, 2) => (i16::MIN as i64, i16::MAX as i64),
                 _ => continue,
             };
-            let enc = (if numeric { EncodingId::PackedNumeric } else { EncodingId::ByteFor }) as u16;
+            let enc = (if numeric {
+                EncodingId::PackedNumeric
+            } else {
+                EncodingId::ByteFor
+            }) as u16;
             let scale = numeric.then(|| self.lane_scale(p, k) as i32);
-            let Some(cur) = self.cursors[p * natts + k].as_deref_mut() else { continue };
+            let Some(cur) = self.cursors[p * natts + k].as_deref_mut() else {
+                continue;
+            };
             let w = cur.key().width;
-            if cur.key().encoding != enc || !matches!(w, 1 | 2 | 4) || cur.rows_in_granule(lg) as usize != rows {
+            if cur.key().encoding != enc
+                || !matches!(w, 1 | 2 | 4)
+                || cur.rows_in_granule(lg) as usize != rows
+            {
                 continue;
             }
-            let Ok(Some(f)) = cur.framed(lg, enc) else { continue };
-            let f = pgrc_codec::bytefor::Framed { payload: f.payload, frame_table: f.frame_table, fbase: f.fbase, values: f.values };
-            if f.values as usize != rows || scale.is_some_and(|s| pgrc_codec::packednum::framed_scale(&f).ok() != Some(s)) {
+            let Ok(Some(f)) = cur.framed(lg, enc) else {
+                continue;
+            };
+            let f = pgrc_codec::bytefor::Framed {
+                payload: f.payload,
+                frame_table: f.frame_table,
+                fbase: f.fbase,
+                values: f.values,
+            };
+            if f.values as usize != rows
+                || scale.is_some_and(|s| pgrc_codec::packednum::framed_scale(&f).ok() != Some(s))
+            {
                 continue;
             }
             let top = dom_hi - ((1i64 << (8 * w)) - 1);
-            if pgrc_codec::bytefor::each_frame(&f, w, |_, r, _| (dom_lo..=top).contains(&(r as i64))).ok() != Some(true) {
+            if pgrc_codec::bytefor::each_frame(&f, w, |_, r, _| {
+                (dom_lo..=top).contains(&(r as i64))
+            })
+            .ok()
+                != Some(true)
+            {
                 continue;
             }
-            let Ok(v) = (if cur.has_validity_stream() { cur.validity(lg, &mut self.valid[k * VALIDITY_WORDS..(k + 1) * VALIDITY_WORDS]).map(|v| matches!(v, ValidityVerdict::AllValid)) } else { Ok(true) }) else { continue };
+            let Ok(v) = (if cur.has_validity_stream() {
+                cur.validity(
+                    lg,
+                    &mut self.valid[k * VALIDITY_WORDS..(k + 1) * VALIDITY_WORDS],
+                )
+                .map(|v| matches!(v, ValidityVerdict::AllValid))
+            } else {
+                Ok(true)
+            }) else {
+                continue;
+            };
             self.all_valid[k] = v;
-            self.enc.push(EncLane { lane: k as u32, part: p as u32, lg, enc, w }); // alloc: Node (kept at its high-water mark)
+            self.enc.push(EncLane {
+                lane: k as u32,
+                part: p as u32,
+                lg,
+                enc,
+                w,
+            }); // alloc: Node (kept at its high-water mark)
             self.enc_set.set(k);
             self.first.unset(k);
         }
@@ -206,19 +305,42 @@ impl GranuleRangeSource {
     /// `cost::code_sparse_dense_pct` keeps it off parts with no dominant value. A condition-cache hit (covering or mixed:
     /// `cond_hit` is V_ALL) keeps the whole decode: its selection is known, and the non-base walk costs more than the bulk
     /// unpack at narrow lane widths (about 20% slower when measured).
-    pub(super) fn sparse_stage(&mut self, p: usize, lg: u32, rows: usize) -> PgResult<Option<(usize, usize)>> {
-        let Some(t) = code_sparse_table(self.enables) else { return Ok(None) };
-        let k = self.recipe.tables.get(t).map_or(usize::MAX, |s| s.over as usize);
-        if self.win.is_some() || self.cond_hit == V_ALL || k >= self.recipe.natts || self.elided.has(k) || self.recipe.kinds[k] != lane::KIND_CODES || self.lane_all.has(k) || self.recipe.entries == Some(k) {
+    pub(super) fn sparse_stage(
+        &mut self,
+        p: usize,
+        lg: u32,
+        rows: usize,
+    ) -> PgResult<Option<(usize, usize)>> {
+        let Some(t) = code_sparse_table(self.enables) else {
+            return Ok(None);
+        };
+        let k = self
+            .recipe
+            .tables
+            .get(t)
+            .map_or(usize::MAX, |s| s.over as usize);
+        if self.win.is_some()
+            || self.cond_hit == V_ALL
+            || k >= self.recipe.natts
+            || self.elided.has(k)
+            || self.recipe.kinds[k] != lane::KIND_CODES
+            || self.lane_all.has(k)
+            || self.recipe.entries == Some(k)
+        {
             return Ok(None);
         }
         // a mixed or all-match zone window, any zone count; the code lane one the window decodes first; not in a part a
         // granule of which showed no dominant base (`sparse_dense`)
-        if (self.verdict != V_MIXED && self.verdict != V_ALL) || !self.first.has(k) || self.sparse_dense == p {
+        if (self.verdict != V_MIXED && self.verdict != V_ALL)
+            || !self.first.has(k)
+            || self.sparse_dense == p
+        {
             return Ok(None);
         }
         // a lane the selection gathers: on a code-only window the whole decode and the per-row test are cheaper
-        if !(0..self.recipe.natts).any(|l| l != k && !self.elided.has(l) && self.recipe.kinds[l] != lane::KIND_CODES) {
+        if !(0..self.recipe.natts)
+            .any(|l| l != k && !self.elided.has(l) && self.recipe.kinds[l] != lane::KIND_CODES)
+        {
             return Ok(None);
         }
         let entry = self.dict_at(p, k).expect("dictionary");
@@ -228,32 +350,74 @@ impl GranuleRangeSource {
         // the first cost choice, before any walk: a part whose dictionary holds more values than
         // `code_sparse_dense_pct()` % of its rows (a near-unique column) has no value covering the rest at the part level, so
         // it decodes whole (a heuristic: a clustered granule can still hold a dominant base; the walk's guard below is exact)
-        let (dict_codes, dense_pct) = (entry.dict.ncodes() as u64, gravity_program::cost::code_sparse_dense_pct());
-        if self.parts().part_if_open(p).is_some_and(|part| dict_codes * 100 > part.rows() * dense_pct) {
+        let (dict_codes, dense_pct) = (
+            entry.dict.ncodes() as u64,
+            gravity_program::cost::code_sparse_dense_pct(),
+        );
+        if self
+            .parts()
+            .part_if_open(p)
+            .is_some_and(|part| dict_codes * 100 > part.rows() * dense_pct)
+        {
             self.sparse_dense = p;
             return Ok(None);
         }
-        let Some(verdict) = self.sparse_table(p, t)? else { return Ok(None) };
-        let cur = self.cursors[p * self.recipe.natts + k].as_deref_mut().expect("cursor");
+        let Some(verdict) = self.sparse_table(p, t)? else {
+            return Ok(None);
+        };
+        let cur = self.cursors[p * self.recipe.natts + k]
+            .as_deref_mut()
+            .expect("cursor");
         if cur.rows_in_granule(lg) as usize != rows {
             return Err(err("gravity: pgrc granule row skew"));
         }
         let words = rows.div_ceil(64);
-        let codes = crate::ops::scan::pgrc::raw::words_as_u32_mut(&mut self.datums[k * ROWS..(k + 1) * ROWS], rows);
-        let Some(b) = verdict.bits() else { return Ok(None) };
+        let codes = crate::ops::scan::pgrc::raw::words_as_u32_mut(
+            &mut self.datums[k * ROWS..(k + 1) * ROWS],
+            rows,
+        );
+        let Some(b) = verdict.bits() else {
+            return Ok(None);
+        };
         // the walk selects the rows the table may pass (bit set, or a fault the program re-tests), not every non-base row
         let mask = &mut self.mask[..words];
-        let walked = crate::dict::strategies::code_sparse::sparse_block(cur, lg, rows, |base| b.rejects(base), |c| !b.rejects(c), codes, mask);
+        let walked = crate::dict::strategies::code_sparse::sparse_block(
+            cur,
+            lg,
+            rows,
+            |base| b.rejects(base),
+            |c| !b.rejects(c),
+            codes,
+            mask,
+        );
         let Some(dropped) = walked.map_err(read_err)? else {
             return Ok(None);
         };
         // the non-base rows: those the walk selected and those the table dropped (the dense guard below)
-        let nonbase = dropped + self.mask[..words].iter().map(|w| w.count_ones() as usize).sum::<usize>();
-        let cur = self.cursors[p * self.recipe.natts + k].as_deref_mut().expect("cursor");
-        self.all_valid[k] = !cur.has_validity_stream() || matches!(cur.validity(lg, &mut self.valid[k * VALIDITY_WORDS..(k + 1) * VALIDITY_WORDS]).map_err(read_err)?, ValidityVerdict::AllValid);
+        let nonbase = dropped
+            + self.mask[..words]
+                .iter()
+                .map(|w| w.count_ones() as usize)
+                .sum::<usize>();
+        let cur = self.cursors[p * self.recipe.natts + k]
+            .as_deref_mut()
+            .expect("cursor");
+        self.all_valid[k] = !cur.has_validity_stream()
+            || matches!(
+                cur.validity(
+                    lg,
+                    &mut self.valid[k * VALIDITY_WORDS..(k + 1) * VALIDITY_WORDS]
+                )
+                .map_err(read_err)?,
+                ValidityVerdict::AllValid
+            );
         // bounded("small-fixed: the mask words of one granule, at most VALIDITY_WORDS (128)")
         for w in 0..words {
-            let v = if self.all_valid[k] { !0 } else { self.valid[k * VALIDITY_WORDS + w] };
+            let v = if self.all_valid[k] {
+                !0
+            } else {
+                self.valid[k * VALIDITY_WORDS + w]
+            };
             self.mask[w] &= v & if self.has_dv { !self.dv[w] } else { !0 };
         }
         self.sel16_ok = false;
@@ -269,24 +433,38 @@ impl GranuleRangeSource {
 
     /// The table form's verdict table `t` for part `p` (`sparse_stage`): `cond_table`'s, kept for the part; `None` when it
     /// is no host-built `Bits` table over a part dictionary (the window decodes whole).
-    pub(super) fn sparse_table(&mut self, p: usize, t: usize) -> PgResult<Option<Arc<crate::dict::text_hosts::FpTable>>> {
+    pub(super) fn sparse_table(
+        &mut self,
+        p: usize,
+        t: usize,
+    ) -> PgResult<Option<Arc<crate::dict::text_hosts::FpTable>>> {
         if let Some((_, v)) = self.sparse_tab.as_ref().filter(|(q, _)| *q == p) {
             return Ok(Some(v.arc_clone()));
         }
-        let Some(spec) = self.recipe.tables.get(t).cloned() else { return Ok(None) };
+        let Some(spec) = self.recipe.tables.get(t).cloned() else {
+            return Ok(None);
+        };
         // NEW-72 entry C: a bound code set or byte interval by this execution's values (the program wrote them before its seek)
         let spec = self.bound_spec(spec);
-        if !matches!(spec.func, crate::dict::text_hosts::TableFn::Like { .. } | crate::dict::text_hosts::TableFn::Eq { .. } | crate::dict::text_hosts::TableFn::Range { .. }) {
+        if !matches!(
+            spec.func,
+            crate::dict::text_hosts::TableFn::Like { .. }
+                | crate::dict::text_hosts::TableFn::Eq { .. }
+                | crate::dict::text_hosts::TableFn::Range { .. }
+        ) {
             return Ok(None);
         }
         let k = spec.over as usize;
         // FASTADD: the lane's part (a stand-in for a column the part lacks)
         let part = self.lane_part(p, k)?;
         let tkey = self.table_key(p, k, &part)?;
-        let Dict::Part(d) = &self.dict_at(p, k).expect("dictionary").dict else { return Ok(None) };
+        let Dict::Part(d) = &self.dict_at(p, k).expect("dictionary").dict else {
+            return Ok(None);
+        };
         let read_err_cell = core::cell::Cell::new(None);
         let view = crate::dict::text_hosts::DictView::Part(d, &read_err_cell);
-        let v = crate::dict::text_hosts::cond_table_in(self.fp_memo(), &part, tkey, &spec, &view).map_err(table_err)?;
+        let v = crate::dict::text_hosts::cond_table_in(self.fp_memo(), &part, tkey, &spec, &view)
+            .map_err(table_err)?;
         if v.bits().is_none() {
             return Ok(None);
         }
@@ -296,7 +474,12 @@ impl GranuleRangeSource {
 
     /// Lane `k`'s zone values are zero-extended keys of an unsigned word (`UnsignedWordSmall`: oid), not its cells' order.
     pub(super) fn unsigned_key(&self, k: usize) -> bool {
-        self.recipe.profiles.get(k).copied().flatten().is_some_and(|p| p.key == pgrc_meta::key::KeyDerivation::UnsignedWordSmall)
+        self.recipe
+            .profiles
+            .get(k)
+            .copied()
+            .flatten()
+            .is_some_and(|p| p.key == pgrc_meta::key::KeyDerivation::UnsignedWordSmall)
     }
 
     /// H06: the code verdict's table of part `p` over its decoded code lane (`VERDICT_CODE_TABLE`; the table `sparse_table`
@@ -304,12 +487,21 @@ impl GranuleRangeSource {
     fn row_table(&self, p: usize) -> Option<(usize, gravity_dict::table::Bits)> {
         let (_, k) = self.code_table()?;
         let (q, v) = self.sparse_tab.as_ref()?;
-        (*q == p && self.table_dense != p && !self.elided.has(k)).then(|| v.bits().map(|b| (k, b))).flatten()
+        (*q == p && self.table_dense != p && !self.elided.has(k))
+            .then(|| v.bits().map(|b| (k, b)))
+            .flatten()
     }
 
     /// The mask words of rows `from..to` (`from` a multiple of 64): the delete mask, the predicates in `lanes`, the code
     /// verdict's `table` (H06), their lanes' validity; the rows kept.
-    pub(super) fn apply_preds(&mut self, lanes: u64, codes: &[u32; ROW_PREDS], table: Option<(usize, gravity_dict::table::Bits)>, from: usize, to: usize) -> usize {
+    pub(super) fn apply_preds(
+        &mut self,
+        lanes: u64,
+        codes: &[u32; ROW_PREDS],
+        table: Option<(usize, gravity_dict::table::Bits)>,
+        from: usize,
+        to: usize,
+    ) -> usize {
         let (w0, w1) = (from / 64, to.div_ceil(64));
         let mask = &mut self.mask[w0..w1];
         // bounded("small-fixed: the mask words of one granule, at most VALIDITY_WORDS (128)")
@@ -331,34 +523,67 @@ impl GranuleRangeSource {
             let k = z.lane as usize;
             let slot = &self.datums[k * ROWS..(k + 1) * ROWS];
             // L5a: the lane's comparison predicates in `lanes` as one inclusive range, one pass (a code lane's are `Ne`)
-            let range = pred_bounds(z).filter(|_| self.recipe.kinds[k] != lane::KIND_CODES).map(|b| {
-                self.zone[zi + 1..self.nzone.min(ROW_PREDS)].iter().enumerate().fold(b, |(lo, hi), (d, y)| {
-                    let zj = zi + 1 + d;
-                    match pred_bounds(y).filter(|_| y.lane == z.lane && lanes & (1 << zj) != 0) {
-                        Some((l2, h2)) => {
-                            fused |= 1 << zj;
-                            (lo.max(l2), hi.min(h2))
-                        }
-                        None => (lo, hi),
-                    }
-                })
-            });
-            let enc = if self.enc_set.has(k) { self.enc.iter().find(|e| e.lane as usize == k).copied() } else { None };
+            let range = pred_bounds(z)
+                .filter(|_| self.recipe.kinds[k] != lane::KIND_CODES)
+                .map(|b| {
+                    self.zone[zi + 1..self.nzone.min(ROW_PREDS)]
+                        .iter()
+                        .enumerate()
+                        .fold(b, |(lo, hi), (d, y)| {
+                            let zj = zi + 1 + d;
+                            match pred_bounds(y)
+                                .filter(|_| y.lane == z.lane && lanes & (1 << zj) != 0)
+                            {
+                                Some((l2, h2)) => {
+                                    fused |= 1 << zj;
+                                    (lo.max(l2), hi.min(h2))
+                                }
+                                None => (lo, hi),
+                            }
+                        })
+                });
+            let enc = if self.enc_set.has(k) {
+                self.enc.iter().find(|e| e.lane as usize == k).copied()
+            } else {
+                None
+            };
             // the lane's slot holds `to` cells at its width; D3223 S1: an encoded lane's (`enc_stage`) is not decoded yet: its
             // range compares on its stored deltas, its other predicates are NULL tests (the validity below)
             match (self.recipe.kinds[k], self.recipe.widths[k], range) {
                 _ if enc.is_some() => {
                     if let (Some((lo, hi)), Some(e)) = (range, enc) {
-                        if !enc_mask(self.cursors[e.part as usize * self.recipe.natts + k].as_deref_mut(), e, mask, from, to, lo, hi) {
+                        if !enc_mask(
+                            self.cursors[e.part as usize * self.recipe.natts + k].as_deref_mut(),
+                            e,
+                            mask,
+                            from,
+                            to,
+                            lo,
+                            hi,
+                        ) {
                             self.enc_fell = true;
                         }
                     }
                 }
-                (lane::KIND_CODES, _, _) => mask_ne_u32(mask, from, to, super::raw::cells::<u32>(slot, to), codes[zi]),
-                (_, 4, Some((lo, hi))) => mask_range_i32(mask, from, to, super::raw::cells::<i32>(slot, to), lo, hi),
-                (_, 2, Some((lo, hi))) => mask_range_i16(mask, from, to, super::raw::cells::<i16>(slot, to), lo, hi),
-                (_, 1, Some((lo, hi))) => mask_range(mask, from, to, super::raw::cells::<i8>(slot, to), lo, hi),
-                (_, _, Some((lo, hi))) => mask_range(mask, from, to, super::raw::cells::<i64>(slot, to), lo, hi),
+                (lane::KIND_CODES, _, _) => mask_ne_u32(
+                    mask,
+                    from,
+                    to,
+                    super::raw::cells::<u32>(slot, to),
+                    codes[zi],
+                ),
+                (_, 4, Some((lo, hi))) => {
+                    mask_range_i32(mask, from, to, super::raw::cells::<i32>(slot, to), lo, hi)
+                }
+                (_, 2, Some((lo, hi))) => {
+                    mask_range_i16(mask, from, to, super::raw::cells::<i16>(slot, to), lo, hi)
+                }
+                (_, 1, Some((lo, hi))) => {
+                    mask_range(mask, from, to, super::raw::cells::<i8>(slot, to), lo, hi)
+                }
+                (_, _, Some((lo, hi))) => {
+                    mask_range(mask, from, to, super::raw::cells::<i64>(slot, to), lo, hi)
+                }
                 (_, 4, None) => int_pred(mask, from, to, super::raw::cells::<i32>(slot, to), z),
                 (_, 2, None) => int_pred(mask, from, to, super::raw::cells::<i16>(slot, to), z),
                 (_, 1, None) => int_pred(mask, from, to, super::raw::cells::<i8>(slot, to), z),
@@ -370,17 +595,29 @@ impl GranuleRangeSource {
                 mask.fill(0);
             } else if !self.all_valid[k] {
                 // bounded("small-fixed: the mask words of one granule, at most VALIDITY_WORDS (128)")
-                for (m, v) in mask.iter_mut().zip(&self.valid[k * VALIDITY_WORDS + w0..k * VALIDITY_WORDS + w1]) {
+                for (m, v) in mask
+                    .iter_mut()
+                    .zip(&self.valid[k * VALIDITY_WORDS + w0..k * VALIDITY_WORDS + w1])
+                {
                     *m &= if is_null { !*v } else { *v };
                 }
             }
         }
         // H06: the code verdict's qual is strict, so a NULL row fails it as well
         if let Some((k, b)) = table {
-            mask_table_u32(mask, from, to, super::raw::cells::<u32>(&self.datums[k * ROWS..(k + 1) * ROWS], to), &b);
+            mask_table_u32(
+                mask,
+                from,
+                to,
+                super::raw::cells::<u32>(&self.datums[k * ROWS..(k + 1) * ROWS], to),
+                &b,
+            );
             if !self.all_valid[k] {
                 // bounded("small-fixed: the mask words of one granule, at most VALIDITY_WORDS (128)")
-                for (m, v) in mask.iter_mut().zip(&self.valid[k * VALIDITY_WORDS + w0..k * VALIDITY_WORDS + w1]) {
+                for (m, v) in mask
+                    .iter_mut()
+                    .zip(&self.valid[k * VALIDITY_WORDS + w0..k * VALIDITY_WORDS + w1])
+                {
                     *m &= *v;
                 }
             }
@@ -407,18 +644,46 @@ pub(super) struct EncLane {
 /// frame's rows start a mask word. A cursor that no longer resolves the granule framed leaves the mask as it is: a
 /// superset, which the program narrows (it tests every predicate per row), and the lane's own decode reports the read:
 /// `false` then (the selection is no exact one: `row_select`'s `sel_exact`).
-fn enc_mask(cur: Option<&mut StreamCursor>, e: EncLane, mask: &mut [u64], from: usize, to: usize, lo: i64, hi: i64) -> bool {
-    let Some(Ok(Some(f))) = cur.map(|c| c.framed(e.lg, e.enc)) else { return false };
-    let f = pgrc_codec::bytefor::Framed { payload: f.payload, frame_table: f.frame_table, fbase: f.fbase, values: f.values };
+fn enc_mask(
+    cur: Option<&mut StreamCursor>,
+    e: EncLane,
+    mask: &mut [u64],
+    from: usize,
+    to: usize,
+    lo: i64,
+    hi: i64,
+) -> bool {
+    let Some(Ok(Some(f))) = cur.map(|c| c.framed(e.lg, e.enc)) else {
+        return false;
+    };
+    let f = pgrc_codec::bytefor::Framed {
+        payload: f.payload,
+        frame_table: f.frame_table,
+        fbase: f.fbase,
+        values: f.values,
+    };
     // a walk that stops early (a frame past `to`) or fails past the frames it masked: the frames walked are exact, a failed
     // one (a bound the enc_stage walk proved) leaves its rows unmasked
-    pgrc_codec::bytefor::each_frame(&f, e.w, |first, r, deltas| frame_mask(mask, from, to, first, r, deltas, e.w, lo, hi)).is_ok()
+    pgrc_codec::bytefor::each_frame(&f, e.w, |first, r, deltas| {
+        frame_mask(mask, from, to, first, r, deltas, e.w, lo, hi)
+    })
+    .is_ok()
 }
 
 /// `enc_mask`'s frame: the frame of reference `r` whose `deltas` (width `w`) are rows `first..` of the granule, its rows in
 /// `from..to` into `mask` (the words of `from..to`); `false` once the frame starts at or past `to` (the walk stops).
 #[allow(clippy::too_many_arguments)]
-pub(super) fn frame_mask(mask: &mut [u64], from: usize, to: usize, first: usize, r: u64, deltas: &[u8], w: u8, lo: i64, hi: i64) -> bool {
+pub(super) fn frame_mask(
+    mask: &mut [u64],
+    from: usize,
+    to: usize,
+    first: usize,
+    r: u64,
+    deltas: &[u8],
+    w: u8,
+    lo: i64,
+    hi: i64,
+) -> bool {
     let (wb, dmax) = (w as usize, (1i128 << (8 * w)) - 1);
     let end = first + deltas.len() / wb;
     if first >= to {
@@ -434,7 +699,13 @@ pub(super) fn frame_mask(mask: &mut [u64], from: usize, to: usize, first: usize,
     if dlo > dhi {
         words.fill(0);
     } else if dlo > 0 || dhi < dmax {
-        super::raw::mask_delta(words, &deltas[(a - first) * wb..(b - first) * wb], w, dlo as u32, (dhi - dlo) as u32);
+        super::raw::mask_delta(
+            words,
+            &deltas[(a - first) * wb..(b - first) * wb],
+            w,
+            dlo as u32,
+            (dhi - dlo) as u32,
+        );
     }
     true
 }

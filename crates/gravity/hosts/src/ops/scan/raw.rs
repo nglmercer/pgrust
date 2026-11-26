@@ -21,7 +21,9 @@ pub(crate) struct SeekImages(Option<Root>);
 impl SeekImages {
     /// The region for this seek's images; `reset` empties it first (the first expansion of a seek).
     pub(crate) fn region(&mut self, reset: bool) -> Mcx<'static> {
-        let root = self.0.get_or_insert_with(|| Root::bump("GravityIndexArrays"));
+        let root = self
+            .0
+            .get_or_insert_with(|| Root::bump("GravityIndexArrays"));
         if reset {
             root.reset();
         }
@@ -45,7 +47,12 @@ pub(crate) fn arm_result_mcx(fc: &mut LocalFcinfo<2>, mcx: Mcx<'_>) {
 /// bundle scan-05, moved as is from index_window.rs and indexonly.rs). The caller passes the scan's `xs_itup` (the AM's
 /// image of the current row, live until the next `amgettuple` on its descriptor) with its `xs_itupdesc`, and an `attnum`
 /// of that descriptor.
-pub(crate) fn index_attr(itup: core::ptr::NonNull<u8>, attnum: AttrNumber, desc: &TupleDescData<'_>, isnull: &mut bool) -> Datum {
+pub(crate) fn index_attr(
+    itup: core::ptr::NonNull<u8>,
+    attnum: AttrNumber,
+    desc: &TupleDescData<'_>,
+    isnull: &mut bool,
+) -> Datum {
     // SAFETY: the caller's contract above.
     unsafe { index_getattr(itup.as_ptr(), attnum, desc, isnull) }
 }
@@ -95,7 +102,10 @@ pub(crate) fn index_cstr<'a>(d: Datum) -> &'a core::ffi::CStr {
 
 /// The heap tuple header at normal line pointer `lp` of heap page `page` (tid_pages.rs's chain walk); `None` for an item
 /// shorter than a header. `item_raw` bounds the item to the page image; the caller holds the page's pin and share lock.
-pub(crate) fn heap_header<'a>(page: types_storage::bufpage::PageRef<'a>, lp: types_storage::bufpage::ItemIdData) -> Option<&'a types_tuple::HeapTupleHeaderData> {
+pub(crate) fn heap_header<'a>(
+    page: types_storage::bufpage::PageRef<'a>,
+    lp: types_storage::bufpage::ItemIdData,
+) -> Option<&'a types_tuple::HeapTupleHeaderData> {
     let (ptr, len) = page.item_raw(lp);
     if (len as usize) < core::mem::size_of::<types_tuple::HeapTupleHeaderData>() {
         return None;

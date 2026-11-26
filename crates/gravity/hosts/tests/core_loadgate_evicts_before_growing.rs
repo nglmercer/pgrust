@@ -19,8 +19,28 @@ const REL: u64 = 4517;
 
 /// The three part files of a 60,000-row int8 fixture.
 fn part_files() -> Vec<Vec<u8>> {
-    let bf = build_fixture(int8_fixture("gravity_loadgate", REL, ROWS, vec![], PartCutPolicy { max_rows: 20_000, ..PartCutPolicy::default() }, |i| Some((i as i64 * 7919) % 100_003)));
-    let files: Vec<Vec<u8>> = bf.manifest.parts.iter().map(|rec| bf.files.get(&part_file_name(rec.part_no)).expect("part file").clone()).collect();
+    let bf = build_fixture(int8_fixture(
+        "gravity_loadgate",
+        REL,
+        ROWS,
+        vec![],
+        PartCutPolicy {
+            max_rows: 20_000,
+            ..PartCutPolicy::default()
+        },
+        |i| Some((i as i64 * 7919) % 100_003),
+    ));
+    let files: Vec<Vec<u8>> = bf
+        .manifest
+        .parts
+        .iter()
+        .map(|rec| {
+            bf.files
+                .get(&part_file_name(rec.part_no))
+                .expect("part file")
+                .clone()
+        })
+        .collect();
     assert_eq!(files.len(), 3, "the fixture cut into three parts");
     files
 }
@@ -28,7 +48,11 @@ fn part_files() -> Vec<Vec<u8>> {
 /// Part `i` opened in the process part registry (the one the server's scans and the cache's trims use).
 fn open(files: &[Vec<u8>], i: usize) -> PartPin {
     let io = MemPartIo::new(files[i].clone(), 77, 4400 + i as u64);
-    pgrc_am::inval::registry().open_pinned(&PartExpect::none(), move || Ok(Box::new(io) as Box<dyn PartIo>)).expect("open")
+    pgrc_am::inval::registry()
+        .open_pinned(&PartExpect::none(), move || {
+            Ok(Box::new(io) as Box<dyn PartIo>)
+        })
+        .expect("open")
 }
 
 /// Every listed section of `part` faulted one by one; the most the process part cache held after any of the loads.
@@ -55,7 +79,11 @@ fn a_load_at_the_caches_budget_evicts_finished_parts_before_the_cache_grows() {
     drop(a_use);
     let a_bytes = a.part().cache_bytes();
     assert!(a_bytes > 0, "the finished part's images are cached");
-    assert_eq!(partcache::bytes(), a_bytes, "the cache holds the finished part only");
+    assert_eq!(
+        partcache::bytes(),
+        a_bytes,
+        "the cache holds the finished part only"
+    );
 
     // the cache's budget: room for one part and a half. A scan now reads a second part of the same size: the finished
     // part's images are elastic, so the loads make room by evicting them before the cache grows past its budget
@@ -65,10 +93,18 @@ fn a_load_at_the_caches_budget_evicts_finished_parts_before_the_cache_grows() {
     let b_use = b.part().use_part();
     let peak = load_all(b.part());
     let b_bytes = b.part().cache_bytes();
-    assert!(b_bytes > budget - a_bytes, "the second part's images do not fit beside the first's ({b_bytes} > {})", budget - a_bytes);
+    assert!(
+        b_bytes > budget - a_bytes,
+        "the second part's images do not fit beside the first's ({b_bytes} > {})",
+        budget - a_bytes
+    );
     assert!(peak <= budget, "a load past the budget evicted the finished part before the cache grew: peak {peak} <= budget {budget} (trunk: {} = both parts)", a_bytes + b_bytes);
     assert_eq!(a.part().cache_bytes(), 0, "the finished part's images went");
-    assert_eq!(b.part().cache_bytes(), b_bytes, "the running scan's part keeps every image it loaded");
+    assert_eq!(
+        b.part().cache_bytes(),
+        b_bytes,
+        "the running scan's part keeps every image it loaded"
+    );
 
     // only pinned bytes block a load: with the running scan's part over the budget alone, a third part's load still
     // proceeds (a running scan's read is never refused) and the cache holds both running parts
@@ -76,7 +112,14 @@ fn a_load_at_the_caches_budget_evicts_finished_parts_before_the_cache_grows() {
     let c = open(&files, 2);
     let c_use = c.part().use_part();
     load_all(c.part());
-    assert!(c.part().cache_bytes() > 0, "the load past a budget pinned bytes fill proceeds");
-    assert_eq!(b.part().cache_bytes(), b_bytes, "a running scan's images are never evicted for another load");
+    assert!(
+        c.part().cache_bytes() > 0,
+        "the load past a budget pinned bytes fill proceeds"
+    );
+    assert_eq!(
+        b.part().cache_bytes(),
+        b_bytes,
+        "a running scan's images are never evicted for another load"
+    );
     drop((b_use, c_use));
 }

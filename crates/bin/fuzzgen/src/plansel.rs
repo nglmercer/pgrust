@@ -84,7 +84,10 @@ pub struct Profile {
     pub gucs: &'static [(&'static str, &'static str)],
 }
 
-const P_DEFAULT: Profile = Profile { name: "default", gucs: &[] };
+const P_DEFAULT: Profile = Profile {
+    name: "default",
+    gucs: &[],
+};
 const P_SEQ: Profile = Profile {
     name: "seqscan",
     gucs: &[
@@ -142,19 +145,31 @@ const P_NESTL_NOMEMO: Profile = Profile {
         ("enable_material", "off"),
     ],
 };
-const P_HASHAGG: Profile = Profile { name: "hashagg", gucs: &[("enable_sort", "off")] };
-const P_GROUPAGG: Profile = Profile { name: "groupagg", gucs: &[("enable_hashagg", "off")] };
+const P_HASHAGG: Profile = Profile {
+    name: "hashagg",
+    gucs: &[("enable_sort", "off")],
+};
+const P_GROUPAGG: Profile = Profile {
+    name: "groupagg",
+    gucs: &[("enable_hashagg", "off")],
+};
 const P_NOINCSORT: Profile = Profile {
     name: "noincsort",
     gucs: &[("enable_incremental_sort", "off")],
 };
 const P_CHEAPIDX: Profile = Profile {
     name: "cheapidx",
-    gucs: &[("random_page_cost", "0.1"), ("cpu_index_tuple_cost", "0.0001")],
+    gucs: &[
+        ("random_page_cost", "0.1"),
+        ("cpu_index_tuple_cost", "0.0001"),
+    ],
 };
 const P_DEARIDX: Profile = Profile {
     name: "dearidx",
-    gucs: &[("random_page_cost", "10000"), ("cpu_index_tuple_cost", "0.5")],
+    gucs: &[
+        ("random_page_cost", "10000"),
+        ("cpu_index_tuple_cost", "0.5"),
+    ],
 };
 const P_CPUCOST: Profile = Profile {
     name: "cpucost",
@@ -219,8 +234,9 @@ const P_PARALLEL_AGG: Profile = Profile {
     ],
 };
 
-const SCAN_POOL: &[Profile] =
-    &[P_SEQ, P_IDX, P_BITMAP, P_IOS, P_CHEAPIDX, P_DEARIDX, P_CPUCOST, P_PARALLEL, P_DEFAULT];
+const SCAN_POOL: &[Profile] = &[
+    P_SEQ, P_IDX, P_BITMAP, P_IOS, P_CHEAPIDX, P_DEARIDX, P_CPUCOST, P_PARALLEL, P_DEFAULT,
+];
 const JOIN_POOL: &[Profile] = &[
     P_HASHJ,
     P_MERGEJ,
@@ -233,13 +249,31 @@ const JOIN_POOL: &[Profile] = &[
     P_PARALLEL,
     P_DEFAULT,
 ];
-const PWISE_POOL: &[Profile] =
-    &[P_PWISE, P_PWISE_NEST, P_PWISE_MERGE, P_PARALLEL_AGG, P_GEQO, P_DEFAULT];
-const AGG_POOL: &[Profile] =
-    &[P_HASHAGG, P_GROUPAGG, P_NOINCSORT, P_PARALLEL_AGG, P_CPUCOST, P_DEFAULT];
+const PWISE_POOL: &[Profile] = &[
+    P_PWISE,
+    P_PWISE_NEST,
+    P_PWISE_MERGE,
+    P_PARALLEL_AGG,
+    P_GEQO,
+    P_DEFAULT,
+];
+const AGG_POOL: &[Profile] = &[
+    P_HASHAGG,
+    P_GROUPAGG,
+    P_NOINCSORT,
+    P_PARALLEL_AGG,
+    P_CPUCOST,
+    P_DEFAULT,
+];
 const SETOP_POOL: &[Profile] = &[P_HASHAGG, P_GROUPAGG, P_PARALLEL, P_DEFAULT];
-const SUBQ_POOL: &[Profile] =
-    &[P_HASHJ, P_MERGEJ, P_NESTL, P_NESTL_NOMEMO, P_CHEAPIDX, P_DEFAULT];
+const SUBQ_POOL: &[Profile] = &[
+    P_HASHJ,
+    P_MERGEJ,
+    P_NESTL,
+    P_NESTL_NOMEMO,
+    P_CHEAPIDX,
+    P_DEFAULT,
+];
 const PREP_POOL: &[Profile] = &[P_DEFAULT, P_SEQ, P_IDX, P_MERGEJ, P_COLLAPSE1];
 const JOINRM_POOL: &[Profile] = &[P_DEFAULT, P_NESTL, P_HASHJ];
 const DML_POOL: &[Profile] = &[P_DEFAULT, P_SEQ, P_IDX, P_BITMAP, P_NESTL, P_HASHJ];
@@ -439,8 +473,12 @@ fn gen_create(g: &mut Gen) -> Vec<StmtKind> {
         StmtKind::Raw(format!("CREATE INDEX fz_psi_{n}_txt ON {big} (txt);")),
         // Partial + expression indexes: predtest proof / boolean-clause /
         // expression-index matching fuel (indxpath.c, predtest.c).
-        StmtKind::Raw(format!("CREATE INDEX fz_psi_{n}_cf ON {big} (c) WHERE flag;")),
-        StmtKind::Raw(format!("CREATE INDEX fz_psi_{n}_bp ON {big} (b) WHERE a > 100;")),
+        StmtKind::Raw(format!(
+            "CREATE INDEX fz_psi_{n}_cf ON {big} (c) WHERE flag;"
+        )),
+        StmtKind::Raw(format!(
+            "CREATE INDEX fz_psi_{n}_bp ON {big} (b) WHERE a > 100;"
+        )),
         StmtKind::Raw(format!("CREATE INDEX fz_psi_{n}_absc ON {big} (abs(c));")),
         StmtKind::Raw(format!("ANALYZE {big};")),
         // small: pk-unique join target (join removal / unique-ification).
@@ -461,8 +499,9 @@ fn gen_create(g: &mut Gen) -> Vec<StmtKind> {
             "CREATE TABLE {t} (pk int4 PRIMARY KEY, a int4, b int4, txt text) \
              PARTITION BY RANGE (pk);"
         )));
-        for (i, (lo, hi)) in
-            [(0, 2500), (2500, 5000), (5000, 7500), (7500, 10000)].iter().enumerate()
+        for (i, (lo, hi)) in [(0, 2500), (2500, 5000), (5000, 7500), (7500, 10000)]
+            .iter()
+            .enumerate()
         {
             stmts.push(StmtKind::Raw(format!(
                 "CREATE TABLE {t}_c{i} PARTITION OF {t} FOR VALUES FROM ({lo}) TO ({hi}) \
@@ -486,7 +525,9 @@ fn gen_create(g: &mut Gen) -> Vec<StmtKind> {
     stmts.push(StmtKind::Raw(format!(
         "INSERT INTO {gen} (pk, x) SELECT i, (i * 19) % 500 FROM generate_series(1, {GEN_ROWS}) i;"
     )));
-    stmts.push(StmtKind::Raw(format!("CREATE INDEX fz_psi_{n}_gs ON {gen} (gs);")));
+    stmts.push(StmtKind::Raw(format!(
+        "CREATE INDEX fz_psi_{n}_gs ON {gen} (gs);"
+    )));
     stmts.push(StmtKind::Raw(format!("ANALYZE {gen};")));
     // Inlinable SQL functions (SRF inlining / constant-function pullup).
     stmts.push(StmtKind::Raw(format!(
@@ -616,11 +657,8 @@ fn gen_scan(g: &mut Gen) -> Vec<StmtKind> {
         // match_boolean_index_clause's IS TRUE / NOT arms.
         "plansel:scan:bool" => {
             let c = g.rng.below(1000);
-            let v = ["flag", "NOT flag", "flag IS TRUE", "flag IS NOT FALSE"]
-                [g.rng.below_usize(4)];
-            format!(
-                "SELECT count(*), min(pk), max(pk) FROM {t} WHERE {v} AND c < {c};"
-            )
+            let v = ["flag", "NOT flag", "flag IS TRUE", "flag IS NOT FALSE"][g.rng.below_usize(4)];
+            format!("SELECT count(*), min(pk), max(pk) FROM {t} WHERE {v} AND c < {c};")
         }
         // Quals that IMPLY the partial-index predicate (a > 100) without
         // repeating it verbatim: predicate_implied_by / operator_
@@ -628,9 +666,7 @@ fn gen_scan(g: &mut Gen) -> Vec<StmtKind> {
         "plansel:scan:partial" => {
             let lo = 101 + g.rng.below(80);
             let b = g.rng.below(50);
-            format!(
-                "SELECT count(*), sum(b::int8) FROM {t} WHERE a >= {lo} AND b = {b};"
-            )
+            format!("SELECT count(*), sum(b::int8) FROM {t} WHERE a >= {lo} AND b = {b};")
         }
         "plansel:scan:exprIdx" => {
             let c = g.rng.below(1000);
@@ -825,8 +861,11 @@ fn gen_agg(g: &mut Gen) -> Vec<StmtKind> {
             )
         }
         "plansel:agg:gsets" => {
-            let kind = ["ROLLUP (a, b)", "CUBE (a, b)", "GROUPING SETS ((a), (b), ())"]
-                [g.rng.below_usize(3)];
+            let kind = [
+                "ROLLUP (a, b)",
+                "CUBE (a, b)",
+                "GROUPING SETS ((a), (b), ())",
+            ][g.rng.below_usize(3)];
             format!(
                 "SELECT a, b, count(*), sum(pk::int8) FROM {t} WHERE a < {} \
                  GROUP BY {kind} ORDER BY a NULLS LAST, b NULLS LAST;",
@@ -867,8 +906,14 @@ fn gen_setop(g: &mut Gen) -> Vec<StmtKind> {
     let nm = need_set!(g);
     g.fire("plansel:setop");
     let (b, s, p1) = (&nm.big, &nm.small, &nm.p1);
-    let op = ["UNION", "UNION ALL", "INTERSECT", "INTERSECT ALL", "EXCEPT", "EXCEPT ALL"]
-        [g.rng.below_usize(6)];
+    let op = [
+        "UNION",
+        "UNION ALL",
+        "INTERSECT",
+        "INTERSECT ALL",
+        "EXCEPT",
+        "EXCEPT ALL",
+    ][g.rng.below_usize(6)];
     g.fire2("plansel:setop:", op);
     let lim = 50 + g.rng.below(150);
     let q = if g.rng.chance(1, 2) {
@@ -946,7 +991,10 @@ fn gen_subq(g: &mut Gen) -> Vec<StmtKind> {
                     "SELECT pk, a FROM {b} ORDER BY pk LIMIT (SELECT {}) OFFSET 3;",
                     10 + g.rng.below(40)
                 ),
-                1 => format!("SELECT pk, a FROM {b} ORDER BY pk LIMIT ALL OFFSET {};", BIG_ROWS - 5),
+                1 => format!(
+                    "SELECT pk, a FROM {b} ORDER BY pk LIMIT ALL OFFSET {};",
+                    BIG_ROWS - 5
+                ),
                 2 => format!(
                     "SELECT * FROM (SELECT pk, b FROM {b} ORDER BY b \
                      FETCH FIRST {} ROWS WITH TIES) w ORDER BY b, pk;",
@@ -1110,7 +1158,11 @@ fn gen_joinrm(g: &mut Gen) -> Vec<StmtKind> {
     let (b, s) = (&nm.big, &nm.small);
     let shape = g.weights.pick(
         g.rng,
-        &["plansel:joinrm:left", "plansel:joinrm:distinct", "plansel:joinrm:self"],
+        &[
+            "plansel:joinrm:left",
+            "plansel:joinrm:distinct",
+            "plansel:joinrm:self",
+        ],
     );
     g.fire(shape);
     let q = match shape {

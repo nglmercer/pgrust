@@ -10,7 +10,9 @@
 use cost_profile::measured::at;
 
 fn ns(primitive: &str, width: u16) -> Option<f64> {
-    at(primitive, u32::from(width)).map(|r| r.ns).filter(|v| v.is_finite())
+    at(primitive, u32::from(width))
+        .map(|r| r.ns)
+        .filter(|v| v.is_finite())
 }
 
 /// The ends a program is judged at: the leader alone and the server's widest width.
@@ -21,9 +23,33 @@ fn ends(widest: u16) -> [u16; 2] {
 /// EXTREME_PRIM_MIN's rows by element class: (the extreme's price a row over the unrolled base, one compare's price an
 /// element a row), for `< ANY` and `>= ALL`.
 const EXTREME: [(&str, [(&str, &str); 2]); 3] = [
-    ("int4", [("expr.saop.extreme.int4.lt_any", "expr.cmp.prim.int4.lt_any"), ("expr.saop.extreme.int4.ge_all", "expr.cmp.prim.int4.ge_all")]),
-    ("int8", [("expr.saop.extreme.int8.lt_any", "expr.cmp.prim.int8.lt_any"), ("expr.saop.extreme.int8.ge_all", "expr.cmp.prim.int8.ge_all")]),
-    ("float8", [("expr.saop.extreme.float8.lt_any", "expr.cmp.prim.float8.lt_any"), ("expr.saop.extreme.float8.ge_all", "expr.cmp.prim.float8.ge_all")]),
+    (
+        "int4",
+        [
+            ("expr.saop.extreme.int4.lt_any", "expr.cmp.prim.int4.lt_any"),
+            ("expr.saop.extreme.int4.ge_all", "expr.cmp.prim.int4.ge_all"),
+        ],
+    ),
+    (
+        "int8",
+        [
+            ("expr.saop.extreme.int8.lt_any", "expr.cmp.prim.int8.lt_any"),
+            ("expr.saop.extreme.int8.ge_all", "expr.cmp.prim.int8.ge_all"),
+        ],
+    ),
+    (
+        "float8",
+        [
+            (
+                "expr.saop.extreme.float8.lt_any",
+                "expr.cmp.prim.float8.lt_any",
+            ),
+            (
+                "expr.saop.extreme.float8.ge_all",
+                "expr.cmp.prim.float8.ge_all",
+            ),
+        ],
+    ),
 ];
 
 /// The measured class of a by-value list element: float4 / float8 read the float8 rows, another 8-byte type the int8
@@ -59,13 +85,41 @@ pub fn extreme_prim_min(typ: u32, len: i16, widest: u16) -> Option<usize> {
 /// row) of each measured case (a miss at the element's length, a miss at another length, half the rows hitting; elements of
 /// 4, 32 and 1000 bytes).
 const TEXT_SET: [(&str, &str, &str); 7] = [
-    ("expr.saop.text_walk.base.hit_half.L4", "expr.saop.text_walk.hit_half.L4", "expr.saop.byteset.hit_half.L4"),
-    ("expr.saop.text_walk.base.miss_eq.L4", "expr.saop.text_walk.miss_eq.L4", "expr.saop.byteset.miss_eq.L4"),
-    ("expr.saop.text_walk.base.miss_eq.L32", "expr.saop.text_walk.miss_eq.L32", "expr.saop.byteset.miss_eq.L32"),
-    ("expr.saop.text_walk.base.miss_eq.L1000", "expr.saop.text_walk.miss_eq.L1000", "expr.saop.byteset.miss_eq.L1000"),
-    ("expr.saop.text_walk.base.miss_len.L4", "expr.saop.text_walk.miss_len.L4", "expr.saop.byteset.miss_len.L4"),
-    ("expr.saop.text_walk.base.miss_len.L32", "expr.saop.text_walk.miss_len.L32", "expr.saop.byteset.miss_len.L32"),
-    ("expr.saop.text_walk.base.miss_len.L1000", "expr.saop.text_walk.miss_len.L1000", "expr.saop.byteset.miss_len.L1000"),
+    (
+        "expr.saop.text_walk.base.hit_half.L4",
+        "expr.saop.text_walk.hit_half.L4",
+        "expr.saop.byteset.hit_half.L4",
+    ),
+    (
+        "expr.saop.text_walk.base.miss_eq.L4",
+        "expr.saop.text_walk.miss_eq.L4",
+        "expr.saop.byteset.miss_eq.L4",
+    ),
+    (
+        "expr.saop.text_walk.base.miss_eq.L32",
+        "expr.saop.text_walk.miss_eq.L32",
+        "expr.saop.byteset.miss_eq.L32",
+    ),
+    (
+        "expr.saop.text_walk.base.miss_eq.L1000",
+        "expr.saop.text_walk.miss_eq.L1000",
+        "expr.saop.byteset.miss_eq.L1000",
+    ),
+    (
+        "expr.saop.text_walk.base.miss_len.L4",
+        "expr.saop.text_walk.miss_len.L4",
+        "expr.saop.byteset.miss_len.L4",
+    ),
+    (
+        "expr.saop.text_walk.base.miss_len.L32",
+        "expr.saop.text_walk.miss_len.L32",
+        "expr.saop.byteset.miss_len.L32",
+    ),
+    (
+        "expr.saop.text_walk.base.miss_len.L1000",
+        "expr.saop.text_walk.miss_len.L1000",
+        "expr.saop.byteset.miss_len.L1000",
+    ),
 ];
 
 /// TEXT_SET_MIN's reader (lowerv4 step/expr_saop.rs `bytes_list`): the shortest constant text list expr.saop answers
@@ -89,8 +143,16 @@ pub fn text_set_min() -> Option<usize> {
 /// PERCODE_DATUM_*'s rows by body class (the hosted md5 body's, then a bpchar range's): the datum's price a row, the
 /// table's read a row, the table's price an entry.
 const PERCODE: [(&str, &str, &str); 2] = [
-    ("percode.datum.md5", "percode.table.read.md5", "percode.table.entry.md5"),
-    ("percode.datum.cheap", "percode.table.read.cheap", "percode.table.entry.cheap"),
+    (
+        "percode.datum.md5",
+        "percode.table.read.md5",
+        "percode.table.entry.md5",
+    ),
+    (
+        "percode.datum.cheap",
+        "percode.table.read.cheap",
+        "percode.table.entry.cheap",
+    ),
 ];
 
 /// PERCODE_DATUM_*'s reader (lowerv4 dict/percode.rs `attach`): a per-code body over a column of `entries` entries in a
@@ -153,7 +215,10 @@ pub fn values_coded_cells_max() -> Option<usize> {
 pub fn payload_fp_permille(widest: u16) -> Option<u64> {
     let mut r = 0.0f64;
     for w in ends(widest) {
-        let (store, saved) = (ns("join.payload_fp.store", w)?, ns("join.payload_fp.saved", w)?);
+        let (store, saved) = (
+            ns("join.payload_fp.store", w)?,
+            ns("join.payload_fp.saved", w)?,
+        );
         if saved <= 0.0 {
             return None;
         }
@@ -171,33 +236,77 @@ mod tests {
     fn every_reader_reads_its_rows() {
         for (typ, len) in [(23, 4), (20, 8), (701, 8), (700, 4), (21, 2), (1114, 8)] {
             for widest in [0, 8, 16] {
-                assert!(extreme_prim_min(typ, len, widest).is_some(), "extreme {typ} at {widest}");
+                assert!(
+                    extreme_prim_min(typ, len, widest).is_some(),
+                    "extreme {typ} at {widest}"
+                );
             }
         }
         assert!(text_set_min().is_some());
         assert!(values_coded_cells_max().is_some());
         for transform in [false, true] {
-            assert!(percode_datum(1, 1, transform, 16).is_some(), "an entry a row decides at both ends");
+            assert!(
+                percode_datum(1, 1, transform, 16).is_some(),
+                "an entry a row decides at both ends"
+            );
         }
         for widest in [0, 8, 16] {
-            assert!(payload_fp_permille(widest).is_some(), "payload_fp at {widest}");
+            assert!(
+                payload_fp_permille(widest).is_some(),
+                "payload_fp at {widest}"
+            );
         }
     }
 
     /// The R5 rows' answers, as the PLANNER-CHANGES row R5-B states them.
     #[test]
     fn the_r5_rows_answers() {
-        assert_eq!((extreme_prim_min(23, 4, 16), extreme_prim_min(20, 8, 16), extreme_prim_min(701, 8, 16)), (Some(15), Some(15), Some(13)));
-        assert_eq!(extreme_prim_min(23, 4, 0), Some(15), "the leader alone: W0's rows at both ends");
+        assert_eq!(
+            (
+                extreme_prim_min(23, 4, 16),
+                extreme_prim_min(20, 8, 16),
+                extreme_prim_min(701, 8, 16)
+            ),
+            (Some(15), Some(15), Some(13))
+        );
+        assert_eq!(
+            extreme_prim_min(23, 4, 0),
+            Some(15),
+            "the leader alone: W0's rows at both ends"
+        );
         assert_eq!(text_set_min(), Some(2));
         assert_eq!(values_coded_cells_max(), Some(1));
         let pct = |n: u64, transform: bool| percode_datum(n, 1000, transform, 16);
-        assert_eq!((pct(472, false), pct(474, false), pct(1000, false)), (None, Some(true), Some(true)), "a compare body: 47.3 %");
-        assert_eq!((pct(990, true), pct(992, true), pct(1000, true)), (None, Some(true), Some(true)), "a transforming body: 99.1 %");
-        assert_eq!((pct(72, true), pct(74, true)), (Some(false), None), "a transforming body keeps the table under 7.3 %");
-        assert_eq!(percode_datum(4000, 4000, false, 16), Some(true), "no row minimum: an entry a row reads the datum");
-        assert_eq!(percode_datum(400, 1000, false, 0), Some(false), "the leader alone: W0's rows decide");
+        assert_eq!(
+            (pct(472, false), pct(474, false), pct(1000, false)),
+            (None, Some(true), Some(true)),
+            "a compare body: 47.3 %"
+        );
+        assert_eq!(
+            (pct(990, true), pct(992, true), pct(1000, true)),
+            (None, Some(true), Some(true)),
+            "a transforming body: 99.1 %"
+        );
+        assert_eq!(
+            (pct(72, true), pct(74, true)),
+            (Some(false), None),
+            "a transforming body keeps the table under 7.3 %"
+        );
+        assert_eq!(
+            percode_datum(4000, 4000, false, 16),
+            Some(true),
+            "no row minimum: an entry a row reads the datum"
+        );
+        assert_eq!(
+            percode_datum(400, 1000, false, 0),
+            Some(false),
+            "the leader alone: W0's rows decide"
+        );
         // costcal pfp (box 40, 10-15): a build row's store 4.06 ns against 61.90 ns saved a drained row at W0 (W8: no store)
-        assert_eq!((payload_fp_permille(0), payload_fp_permille(16)), (Some(66), Some(66)), "the words pay from 6.6 % of the build's rows");
+        assert_eq!(
+            (payload_fp_permille(0), payload_fp_permille(16)),
+            (Some(66), Some(66)),
+            "the words pay from 6.6 % of the build's rows"
+        );
     }
 }

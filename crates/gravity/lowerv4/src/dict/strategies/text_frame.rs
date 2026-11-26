@@ -26,21 +26,23 @@ use gravity_lower::Place;
 use gravity_program::LaneId;
 use types_nodes::primnodes::BoolExprType;
 
+use crate::admit::refusal::Reason;
 use crate::cell::LaneId as CellLane;
 use crate::dict::face::{PerValue, PerValueImpl, PerValueMech};
 use crate::frame::env::Env;
 use crate::frame::frame::{Mask, WordWin};
 use crate::frame::px::{ExId, Px};
 use crate::hir::Ex;
-use crate::admit::refusal::Reason;
 
 crate::strategies! {
     /// LIKE over a verbatim pgrc lane: one substring pass per frame and anchor, hits mapped to rows by the offsets.
     TEXT_FRAME = 60, "text.frame", PgrcLike;
 }
 
-pub(crate) const ROWS: crate::ops::Table =
-    crate::ops::Table { strategies: &[(TEXT_FRAME, &PerValueImpl(&ROAD))], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(TEXT_FRAME, &PerValueImpl(&ROAD))],
+    ..crate::ops::NONE
+};
 
 const PG_UTF8: i32 = 6;
 /// The verdict words of one window: a granule's 8192 rows, the word past the last a straddling read touches, one spare.
@@ -56,19 +58,31 @@ pub(crate) struct Frame {
 
 /// The frame form of qual `c` read by step `j` of pipeline `k` over its site's own columns (only filters and gates
 /// before it), `None` when it is not this road's shape.
-pub(crate) fn attach(px: &mut Px<'_, '_>, k: usize, j: usize, c: &Compiled<'_>) -> Option<Rc<Frame>> {
+pub(crate) fn attach(
+    px: &mut Px<'_, '_>,
+    k: usize,
+    j: usize,
+    c: &Compiled<'_>,
+) -> Option<Rc<Frame>> {
     if !PerValue::Frame.on() || gravity_fn::typesem::collation::database_encoding() != PG_UTF8 {
         return None;
     }
-    if !px.gx.pipelines()[k].ops[..j].iter().all(|o| matches!(o, Op::Filter(_) | Op::Gate(_))) {
+    if !px.gx.pipelines()[k].ops[..j]
+        .iter()
+        .all(|o| matches!(o, Op::Filter(_) | Op::Gate(_)))
+    {
         return None;
     }
     let p = &c.prog;
     let (root, not) = match &p.nodes[c.root.0 as usize] {
-        ExprNode::Bool(n) if n.op == BoolExprType::NOT_EXPR => (p.kids[n.args.start as usize], true),
+        ExprNode::Bool(n) if n.op == BoolExprType::NOT_EXPR => {
+            (p.kids[n.args.start as usize], true)
+        }
         _ => (c.root, false),
     };
-    let (ExprNode::Op(n) | ExprNode::Func(n)) = &p.nodes[root.0 as usize] else { return None };
+    let (ExprNode::Op(n) | ExprNode::Func(n)) = &p.nodes[root.0 as usize] else {
+        return None;
+    };
     let call = &p.sites[n.site.0 as usize];
     // LIKE / NOT LIKE by the catalog body (B2-17: every spelling of textlike / textnlike), not ILIKE
     let nlike = match gravity_expr::percode::like_body(call.funcid)? {
@@ -83,25 +97,56 @@ pub(crate) fn attach(px: &mut Px<'_, '_>, k: usize, j: usize, c: &Compiled<'_>) 
     let (attno, typ) = scan_col(c, p.kids[call.args.start as usize])?;
     // a character type, or a domain over one by the column's base type in the catalog facts (D2700: a domain stores
     // its base's bytes)
-    let relid = px.gx.pipelines()[k].source.relation().map(|(_, relid, _)| relid);
-    let base = relid.and_then(|r| px.gx.facts.att(r, attno)).map(|f| f.base);
-    if !gravity_fn::typesem::character_type(typ) && !base.is_some_and(gravity_fn::typesem::character_type) {
+    let relid = px.gx.pipelines()[k]
+        .source
+        .relation()
+        .map(|(_, relid, _)| relid);
+    let base = relid
+        .and_then(|r| px.gx.facts.att(r, attno))
+        .map(|f| f.base);
+    if !gravity_fn::typesem::character_type(typ)
+        && !base.is_some_and(gravity_fn::typesem::character_type)
+    {
         return None;
     }
-    let ExprNode::Const(pat) = &p.nodes[p.kids[call.args.start as usize + 1].0 as usize] else { return None };
+    let ExprNode::Const(pat) = &p.nodes[p.kids[call.args.start as usize + 1].0 as usize] else {
+        return None;
+    };
     if pat.byval {
         return None;
     }
     // the sources whose mechanisms open word windows (frame.rs's block path); the decline is by shape, never the pattern
-    let blocks = matches!(px.gx.pipelines()[k].source, Source::Index { .. } | Source::Range { am: Am::Pgrcolumnar, .. });
-    if !blocks && PerValue::Memmem.on() && crate::step::text_like::word_shape(c, root, &crate::step::text_like::domain_bases(px, c), px.mcx()).is_some() {
+    let blocks = matches!(
+        px.gx.pipelines()[k].source,
+        Source::Index { .. }
+            | Source::Range {
+                am: Am::Pgrcolumnar,
+                ..
+            }
+    );
+    if !blocks
+        && PerValue::Memmem.on()
+        && crate::step::text_like::word_shape(
+            c,
+            root,
+            &crate::step::text_like::domain_bases(px, c),
+            px.mcx(),
+        )
+        .is_some()
+    {
         return None;
     }
     let lanes = px.site_mut(k)?.lanes();
-    let lane = lanes.iter().position(|l| l.id == LaneId::Attr(attno) && l.kind != KIND_CODES)?;
+    let lane = lanes
+        .iter()
+        .position(|l| l.id == LaneId::Attr(attno) && l.kind != KIND_CODES)?;
     let lane = u8::try_from(lane).ok()?;
     fires::fire("text.frame"); // shapecheck fire signal (REGISTRY STEP-11 / RUNS-39 / BG-13 / OIDW-57..59)
-    Some(Rc::new(Frame { lane, negated: not != nlike, out: Cell::new(None) })) // alloc: Program
+    Some(Rc::new(Frame {
+        lane,
+        negated: not != nlike,
+        out: Cell::new(None),
+    })) // alloc: Program
 }
 
 /// The column of the source's row at `id` (through any RelabelType) and the Var's type.
@@ -125,7 +170,10 @@ pub(crate) fn open(b: &mut FunctionBuilder<'_>, env: &mut Env, q: ExId) -> Optio
     let f = frame_of(env.placed(q))?;
     let site = env.site?;
     let e = env.placed(q);
-    if e.places.len() != 1 || !matches!(e.needs.first(), Some(ParamNeed::Const(_))) || !matches!(e.places[0], Place::Word(_)) {
+    if e.places.len() != 1
+        || !matches!(e.needs.first(), Some(ParamNeed::Const(_)))
+        || !matches!(e.places[0], Place::Word(_))
+    {
         return None;
     }
     // D683: the pattern's word as this execution bound it, never its image's address baked (a front-key hit ran it freed)
@@ -133,20 +181,45 @@ pub(crate) fn open(b: &mut FunctionBuilder<'_>, env: &mut Env, q: ExId) -> Optio
     let pattern = b.select(cn[0], env.zero, cv[0]);
     let slot = b.declare_stack_slot((CAP * 8) as u32, 8);
     let out = b.stack_addr(slot);
-    let flags = HostFlags { touches_memory: true, ..HostFlags::default() };
-    let params = [Type::Ptr, Type::I64, Type::I64, Type::I64, Type::I64, Type::Ptr, Type::I64];
-    let h = b.declare_host_once("like_frame", &params, Some(Type::I64), gravity_abi::host_words!(gravity_kernels::ops::agg::entries::like_frame(ctx, site, lane, pattern, negated, out, cap)), flags);
+    let flags = HostFlags {
+        touches_memory: true,
+        ..HostFlags::default()
+    };
+    let params = [
+        Type::Ptr,
+        Type::I64,
+        Type::I64,
+        Type::I64,
+        Type::I64,
+        Type::Ptr,
+        Type::I64,
+    ];
+    let h = b.declare_host_once(
+        "like_frame",
+        &params,
+        Some(Type::I64),
+        gravity_abi::host_words!(gravity_kernels::ops::agg::entries::like_frame(
+            ctx, site, lane, pattern, negated, out, cap
+        )),
+        flags,
+    );
     let words = [site as i64, f.lane as i64, f.negated as i64];
     let [s, l, n] = words.map(|w| b.iconst(Type::I64, w));
     let cap = b.iconst(Type::I64, CAP as i64);
-    let st = b.call_host(h, &[env.ctx, s, l, pattern, n, out, cap], Some(Type::I64)).unwrap_or(env.zero);
+    let st = b
+        .call_host(h, &[env.ctx, s, l, pattern, n, out, cap], Some(Type::I64))
+        .unwrap_or(env.zero);
     f.out.set(Some(out));
     Some(Mask(b.icmp(IntCond::Eq, st, env.zero)))
 }
 
 /// The 64 bits of the word array at `words` from bit `base` on: the two words it straddles, shifted together.
 fn bits_at(b: &mut FunctionBuilder<'_>, words: Value, base: Value) -> Value {
-    let (six, m63, one) = (b.iconst(Type::I64, 6), b.iconst(Type::I64, 63), b.iconst(Type::I64, 1));
+    let (six, m63, one) = (
+        b.iconst(Type::I64, 6),
+        b.iconst(Type::I64, 63),
+        b.iconst(Type::I64, 1),
+    );
     let wi = b.int_bin(IntBinOp::Ushr, base, six);
     let s = b.int_bin(IntBinOp::And, base, m63);
     let p = b.ptr_add(words, wi, 8, 0);
@@ -165,16 +238,42 @@ pub(crate) static ROAD: Road = Road;
 
 impl PerValueMech for Road {
     /// The rows of block `[base, base + 64)` within `m` that pass frame qual `expr`: the window's verdict bits.
-    fn mask(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, _w: &WordWin, base: Value, _lane: CellLane, expr: ExId, m: Mask) -> Mask {
+    fn mask(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        _w: &WordWin,
+        base: Value,
+        _lane: CellLane,
+        expr: ExId,
+        m: Mask,
+    ) -> Mask {
         let Some(out) = frame_of(env.placed(expr)).and_then(|f| f.out.get()) else {
-            crate::refuse!(env.node, Reason::Bug { payload: "a frame mask before its window's pass" })
+            crate::refuse!(
+                env.node,
+                Reason::Bug {
+                    payload: "a frame mask before its window's pass"
+                }
+            )
         };
         let bits = bits_at(b, out, base);
         Mask(b.int_bin(IntBinOp::And, bits, m.0))
     }
 
     /// A frame qual is decided per window, never per value.
-    fn value(&self, _b: &mut FunctionBuilder<'_>, env: &mut Env, _lane: CellLane, _expr: ExId, _code: Value) -> (Value, Value) {
-        crate::refuse!(env.node, Reason::Bug { payload: "a per-value read of a frame qual" })
+    fn value(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        _lane: CellLane,
+        _expr: ExId,
+        _code: Value,
+    ) -> (Value, Value) {
+        crate::refuse!(
+            env.node,
+            Reason::Bug {
+                payload: "a per-value read of a frame qual"
+            }
+        )
     }
 }

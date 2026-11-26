@@ -80,15 +80,30 @@ fn held_for_sources() -> i64 {
 fn cycle(entry: &mut Entry, program: &Arc<Program>, derive: &mut FakeDerive, flag: &AtomicU8) {
     let mut sink = LegSink::new();
     let mut b = binding(&[100], &NULLS, &mut sink, flag);
-    let mut exec = entry.start(None, program, derive, &mut b, lease(gravity_driver::Grant::of(8 << 20))).unwrap();
+    let mut exec = entry
+        .start(
+            None,
+            program,
+            derive,
+            &mut b,
+            lease(gravity_driver::Grant::of(8 << 20)),
+        )
+        .unwrap();
     exec.set_slot_salt(Some(SALT));
     let open = entry.open_section(&mut exec, &b, derive, 0, WIDTH).unwrap();
     let cursor = AtomicU64::new(0);
     for o in 0..WIDTH {
         drain(&open, &cursor, o).unwrap();
     }
-    entry.close_section(open, &mut b, &CountMerge, true).unwrap();
-    assert_eq!(entry.run(&mut exec, &mut b, gravity_driver::Call::batch(4)).unwrap(), Step::Done);
+    entry
+        .close_section(open, &mut b, &CountMerge, true)
+        .unwrap();
+    assert_eq!(
+        entry
+            .run(&mut exec, &mut b, gravity_driver::Call::batch(4))
+            .unwrap(),
+        Step::Done
+    );
     entry.end(exec, true);
 }
 
@@ -113,8 +128,16 @@ fn a_warm_parked_set_keeps_its_bind_sized_buffers_on_the_depot_and_off_frees_the
         for run in 1..=3u64 {
             cycle(&mut entry, &program, &mut derive, &flag);
             assert_eq!(DEPOT.stats().entries, 1, "the set parks");
-            assert_eq!(table.parks.load(Ordering::Relaxed), run * WIDTH as u64, "each park parks every source");
-            assert_eq!(table.heaps.load(Ordering::Relaxed), run * WIDTH as u64, "each run's bind builds the buffers again");
+            assert_eq!(
+                table.parks.load(Ordering::Relaxed),
+                run * WIDTH as u64,
+                "each park parks every source"
+            );
+            assert_eq!(
+                table.heaps.load(Ordering::Relaxed),
+                run * WIDTH as u64,
+                "each run's bind builds the buffers again"
+            );
             assert_eq!(held_for_sources(), d0, "the parked set holds no buffer");
         }
         drop(entry);
@@ -123,20 +146,39 @@ fn a_warm_parked_set_keeps_its_bind_sized_buffers_on_the_depot_and_off_frees_the
         // on: the first run builds them, the park leaves them on the depot's holder, the next runs take them as they are
         consts::set(K::KeepWarm, 1);
         assert!(mempolicy::keep::keep_warm());
-        let (parks0, heaps0) = (table.parks.load(Ordering::Relaxed), table.heaps.load(Ordering::Relaxed));
+        let (parks0, heaps0) = (
+            table.parks.load(Ordering::Relaxed),
+            table.heaps.load(Ordering::Relaxed),
+        );
         let mut entry = Entry::new(2);
         for _ in 0..3 {
             cycle(&mut entry, &program, &mut derive, &flag);
             assert_eq!(DEPOT.stats().entries, 1, "the set parks");
-            assert_eq!(table.parks.load(Ordering::Relaxed), parks0, "the depot's park leaves the sources as they are");
-            assert_eq!(table.heaps.load(Ordering::Relaxed), heaps0 + WIDTH as u64, "built by the first run only");
-            assert_eq!(held_for_sources() - d0, parked, "the parked set's {WIDTH} buffers are the depot's");
+            assert_eq!(
+                table.parks.load(Ordering::Relaxed),
+                parks0,
+                "the depot's park leaves the sources as they are"
+            );
+            assert_eq!(
+                table.heaps.load(Ordering::Relaxed),
+                heaps0 + WIDTH as u64,
+                "built by the first run only"
+            );
+            assert_eq!(
+                held_for_sources() - d0,
+                parked,
+                "the parked set's {WIDTH} buffers are the depot's"
+            );
         }
 
         // under pressure the reclaim's slot rung parks the kept set's sources: their buffers leave the depot, the set stays.
         // The shed runs on the TRIMMING thread (the reclaimer's or a make_room backend's, another account than the set's),
         // under the depot's lock: the buffers' frees land on its door 1, and its account goes no lower than it started.
-        assert_eq!(DEPOT.trimmable_bytes(), parked as usize, "the newest set's warm buffers are the trim's");
+        assert_eq!(
+            DEPOT.trimmable_bytes(),
+            parked as usize,
+            "the newest set's warm buffers are the trim's"
+        );
         let (freed, start, end) = std::thread::spawn(move || {
             memledger::bind_backend(TRIMMER, 9000 + TRIMMER);
             let me = Acct::backend(TRIMMER);
@@ -149,21 +191,43 @@ fn a_warm_parked_set_keeps_its_bind_sized_buffers_on_the_depot_and_off_frees_the
         .join()
         .unwrap();
         assert_eq!(freed, parked as usize, "the reclaim frees them");
-        assert!(end >= start, "the trimming thread's account goes no lower than it started: {start} -> {end}");
+        assert!(
+            end >= start,
+            "the trimming thread's account goes no lower than it started: {start} -> {end}"
+        );
         assert_eq!(DEPOT.stats().entries, 1, "the set stays");
-        assert_eq!(table.parks.load(Ordering::Relaxed), parks0 + WIDTH as u64, "its sources parked once");
+        assert_eq!(
+            table.parks.load(Ordering::Relaxed),
+            parks0 + WIDTH as u64,
+            "its sources parked once"
+        );
         assert_eq!(held_for_sources(), d0, "the depot holds none of them");
-        assert_eq!((DEPOT.trimmable_bytes(), DEPOT.trim_but_newest(parked as usize)), (0, 0), "nothing more to shed");
+        assert_eq!(
+            (
+                DEPOT.trimmable_bytes(),
+                DEPOT.trim_but_newest(parked as usize)
+            ),
+            (0, 0),
+            "nothing more to shed"
+        );
         // and the next run builds them again and leaves them warm
         cycle(&mut entry, &program, &mut derive, &flag);
-        assert_eq!(table.heaps.load(Ordering::Relaxed), heaps0 + 2 * WIDTH as u64, "built again once");
+        assert_eq!(
+            table.heaps.load(Ordering::Relaxed),
+            heaps0 + 2 * WIDTH as u64,
+            "built again once"
+        );
         assert_eq!(held_for_sources() - d0, parked, "warm again on the depot");
         drop(entry);
 
         // the depot gives them back with the set: its holder's row returns to where it was
         DEPOT.clear();
         assert_eq!(DEPOT.stats().entries, 0);
-        assert_eq!(held_for_sources(), d0, "the dropped set's buffers leave the depot");
+        assert_eq!(
+            held_for_sources(),
+            d0,
+            "the dropped set's buffers leave the depot"
+        );
         consts::reset();
         memledger::unbind_backend();
     })

@@ -213,21 +213,27 @@ fn conv_name(op: ConvOp) -> &'static str {
     }
 }
 
-fn const_lit(ty: Type, bits: u64) -> String { // alloc: Cold
+fn const_lit(ty: Type, bits: u64) -> String {
+    // alloc: Cold
     match ty {
         Type::Bool => (if bits != 0 { "true" } else { "false" }).to_string(), // alloc: Cold
-        Type::F32 => format!("{:?}", f32::from_bits(bits as u32)), // alloc: Cold
-        Type::F64 => format!("{:?}", f64::from_bits(bits)), // alloc: Cold
-        Type::I8 => (bits as u8 as i8).to_string(), // alloc: Cold
-        Type::I16 => (bits as u16 as i16).to_string(), // alloc: Cold
-        Type::I32 => (bits as u32 as i32).to_string(), // alloc: Cold
-        Type::I64 | Type::Ptr => (bits as i64).to_string(), // alloc: Cold
+        Type::F32 => format!("{:?}", f32::from_bits(bits as u32)),            // alloc: Cold
+        Type::F64 => format!("{:?}", f64::from_bits(bits)),                   // alloc: Cold
+        Type::I8 => (bits as u8 as i8).to_string(),                           // alloc: Cold
+        Type::I16 => (bits as u16 as i16).to_string(),                        // alloc: Cold
+        Type::I32 => (bits as u32 as i32).to_string(),                        // alloc: Cold
+        Type::I64 | Type::Ptr => (bits as i64).to_string(),                   // alloc: Cold
         _ => unreachable!("no vector constants"),
     }
 }
 
 /// `items` written with `put`, space-separated.
-fn join<'a, T: 'a>(out: &mut String, items: impl Iterator<Item = &'a T>, mut put: impl FnMut(&mut String, &'a T)) { // alloc: Cold
+fn join<'a, T: 'a>(
+    out: &mut String,
+    items: impl Iterator<Item = &'a T>,
+    mut put: impl FnMut(&mut String, &'a T),
+) {
+    // alloc: Cold
     for (i, x) in items.enumerate() {
         if i > 0 {
             out.push(' '); // alloc: Cold
@@ -236,7 +242,8 @@ fn join<'a, T: 'a>(out: &mut String, items: impl Iterator<Item = &'a T>, mut put
     }
 }
 
-fn edge(out: &mut String, e: &Edge) { // alloc: Cold
+fn edge(out: &mut String, e: &Edge) {
+    // alloc: Cold
     let _ = write!(out, "(b{}", e.target.0); // alloc: Cold
     for a in e.args.iter() {
         let _ = write!(out, " v{}", a.0); // alloc: Cold
@@ -244,7 +251,8 @@ fn edge(out: &mut String, e: &Edge) { // alloc: Cold
     out.push(')'); // alloc: Cold
 }
 
-pub fn print_program(p: &Program) -> String { // alloc: Cold
+pub fn print_program(p: &Program) -> String {
+    // alloc: Cold
     let mut out = String::from("(program\n"); // alloc: Cold
     for h in &p.host_fns {
         let _ = write!(out, "  (host {} (", h.name); // alloc: Cold
@@ -277,7 +285,8 @@ pub fn print_program(p: &Program) -> String { // alloc: Cold
     out
 }
 
-fn print_function(out: &mut String, p: &Program, f: &Function) { // alloc: Cold
+fn print_function(out: &mut String, p: &Program, f: &Function) {
+    // alloc: Cold
     let _ = write!(out, "  (fn {} (", f.name); // alloc: Cold
     let entry = &f.blocks[f.entry.index()];
     join(out, entry.params.iter(), |o, &v| {
@@ -298,30 +307,48 @@ fn print_function(out: &mut String, p: &Program, f: &Function) { // alloc: Cold
         out.push_str("    (hints"); // alloc: Cold
         if !h.cold_blocks.is_empty() {
             out.push_str(" (cold"); // alloc: Cold
-            for b in &h.cold_blocks { let _ = write!(out, " b{}", b.0); } // alloc: Cold
+            for b in &h.cold_blocks {
+                let _ = write!(out, " b{}", b.0);
+            } // alloc: Cold
             out.push(')'); // alloc: Cold
         }
-        for (b, fr) in &h.block_freq { let _ = write!(out, " (freq b{} {})", b.0, fr); } // alloc: Cold
+        for (b, fr) in &h.block_freq {
+            let _ = write!(out, " (freq b{} {})", b.0, fr);
+        } // alloc: Cold
         if !h.loop_headers.is_empty() {
             out.push_str(" (loop"); // alloc: Cold
-            for b in &h.loop_headers { let _ = write!(out, " b{}", b.0); } // alloc: Cold
+            for b in &h.loop_headers {
+                let _ = write!(out, " b{}", b.0);
+            } // alloc: Cold
             out.push(')'); // alloc: Cold
         }
-        for (b, then) in &h.likely { let _ = write!(out, " (likely b{} {})", b.0, if *then { "then" } else { "else" }); } // alloc: Cold
+        for (b, then) in &h.likely {
+            let _ = write!(
+                out,
+                " (likely b{} {})",
+                b.0,
+                if *then { "then" } else { "else" }
+            );
+        } // alloc: Cold
         if !h.remat.is_empty() {
             out.push_str(" (remat"); // alloc: Cold
-            for v in &h.remat { let _ = write!(out, " v{}", v.0); } // alloc: Cold
+            for v in &h.remat {
+                let _ = write!(out, " v{}", v.0);
+            } // alloc: Cold
             out.push(')'); // alloc: Cold
         }
         if !h.nowrap.is_empty() {
             out.push_str(" (nowrap"); // alloc: Cold
-            for v in &h.nowrap { let _ = write!(out, " v{}", v.0); } // alloc: Cold
+            for v in &h.nowrap {
+                let _ = write!(out, " v{}", v.0);
+            } // alloc: Cold
             out.push(')'); // alloc: Cold
         }
         out.push_str(")\n"); // alloc: Cold
     }
     // Entry block first so the loader can recover the signature from it.
-    let order = core::iter::once(f.entry.index()).chain((0..f.blocks.len()).filter(|&i| i != f.entry.index()));
+    let order = core::iter::once(f.entry.index())
+        .chain((0..f.blocks.len()).filter(|&i| i != f.entry.index()));
     for bi in order {
         let b = &f.blocks[bi];
         let _ = write!(out, "    (block b{} (", bi); // alloc: Cold
@@ -344,7 +371,8 @@ fn print_function(out: &mut String, p: &Program, f: &Function) { // alloc: Cold
     out.push_str("  )\n"); // alloc: Cold
 }
 
-fn print_op(out: &mut String, p: &Program, op: &Op) { // alloc: Cold
+fn print_op(out: &mut String, p: &Program, op: &Op) {
+    // alloc: Cold
     let v = |x: &Value| format!("v{}", x.0); // alloc: Cold
     let s = match op {
         Op::Const { ty, bits } => format!("(const {} {})", ty_name(*ty), const_lit(*ty, *bits)), // alloc: Cold
@@ -356,24 +384,66 @@ fn print_op(out: &mut String, p: &Program, op: &Op) { // alloc: Cold
         Op::FloatUn { op, a } => format!("({} {})", float_un_name(*op), v(a)), // alloc: Cold
         Op::Fcmp { cond, a, b } => format!("(fcmp {} {} {})", float_cond_name(*cond), v(a), v(b)), // alloc: Cold
         Op::Conv { op, to, a } => match op {
-            ConvOp::Fpromote | ConvOp::Fdemote | ConvOp::PtrToInt | ConvOp::IntToPtr => format!("({} {})", conv_name(*op), v(a)), // alloc: Cold
+            ConvOp::Fpromote | ConvOp::Fdemote | ConvOp::PtrToInt | ConvOp::IntToPtr => {
+                format!("({} {})", conv_name(*op), v(a))
+            } // alloc: Cold
             _ => format!("({} {} {})", conv_name(*op), ty_name(*to), v(a)), // alloc: Cold
         },
         Op::Select { cond, a, b } => format!("(select {} {} {})", v(cond), v(a), v(b)), // alloc: Cold
-        Op::Load { ty, ptr, offset, unaligned } => {
-            format!("(load {} {} {}{})", ty_name(*ty), v(ptr), offset, if *unaligned { " unaligned" } else { "" }) // alloc: Cold
+        Op::Load {
+            ty,
+            ptr,
+            offset,
+            unaligned,
+        } => {
+            format!(
+                "(load {} {} {}{})",
+                ty_name(*ty),
+                v(ptr),
+                offset,
+                if *unaligned { " unaligned" } else { "" }
+            ) // alloc: Cold
         }
-        Op::LoadZext { ty, ptr, offset, unaligned } => {
-            format!("(loadz {} {} {}{})", ty_name(*ty), v(ptr), offset, if *unaligned { " unaligned" } else { "" }) // alloc: Cold
+        Op::LoadZext {
+            ty,
+            ptr,
+            offset,
+            unaligned,
+        } => {
+            format!(
+                "(loadz {} {} {}{})",
+                ty_name(*ty),
+                v(ptr),
+                offset,
+                if *unaligned { " unaligned" } else { "" }
+            ) // alloc: Cold
         }
-        Op::Store { ptr, offset, value, unaligned } => {
-            format!("(store {} {} {}{})", v(ptr), offset, v(value), if *unaligned { " unaligned" } else { "" }) // alloc: Cold
+        Op::Store {
+            ptr,
+            offset,
+            value,
+            unaligned,
+        } => {
+            format!(
+                "(store {} {} {}{})",
+                v(ptr),
+                offset,
+                v(value),
+                if *unaligned { " unaligned" } else { "" }
+            ) // alloc: Cold
         }
         Op::Prefetch { ptr, offset } => format!("(prefetch {} {})", v(ptr), offset), // alloc: Cold
-        Op::Crc32c { acc, data } => format!("(crc32c {} {})", v(acc), v(data)), // alloc: Cold
-        Op::AddHi { alo, blo, ahi, bhi } => format!("(addhi {} {} {} {})", v(alo), v(blo), v(ahi), v(bhi)), // alloc: Cold
-        Op::StackAddr { slot } => format!("(stack_addr {})", slot.0), // alloc: Cold
-        Op::PtrAdd { base, index, scale, offset } => format!("(ptr_add {} {} {} {})", v(base), v(index), scale, offset), // alloc: Cold
+        Op::Crc32c { acc, data } => format!("(crc32c {} {})", v(acc), v(data)),      // alloc: Cold
+        Op::AddHi { alo, blo, ahi, bhi } => {
+            format!("(addhi {} {} {} {})", v(alo), v(blo), v(ahi), v(bhi))
+        } // alloc: Cold
+        Op::StackAddr { slot } => format!("(stack_addr {})", slot.0),                // alloc: Cold
+        Op::PtrAdd {
+            base,
+            index,
+            scale,
+            offset,
+        } => format!("(ptr_add {} {} {} {})", v(base), v(index), scale, offset), // alloc: Cold
         Op::Call { callee, args } => {
             let mut s = format!("(call {}", p.funcs[callee.index()].name); // alloc: Cold
             for a in args.iter() {
@@ -392,28 +462,56 @@ fn print_op(out: &mut String, p: &Program, op: &Op) { // alloc: Cold
             s.push(')'); // alloc: Cold
             s
         }
-        Op::VecLoad { ty, ptr, offset, unaligned } => {
-            format!("(vload {} {} {}{})", ty_name(*ty), v(ptr), offset, if *unaligned { " unaligned" } else { "" }) // alloc: Cold
+        Op::VecLoad {
+            ty,
+            ptr,
+            offset,
+            unaligned,
+        } => {
+            format!(
+                "(vload {} {} {}{})",
+                ty_name(*ty),
+                v(ptr),
+                offset,
+                if *unaligned { " unaligned" } else { "" }
+            ) // alloc: Cold
         }
-        Op::VecStore { ptr, offset, value, unaligned } => {
-            format!("(vstore {} {} {}{})", v(ptr), offset, v(value), if *unaligned { " unaligned" } else { "" }) // alloc: Cold
+        Op::VecStore {
+            ptr,
+            offset,
+            value,
+            unaligned,
+        } => {
+            format!(
+                "(vstore {} {} {}{})",
+                v(ptr),
+                offset,
+                v(value),
+                if *unaligned { " unaligned" } else { "" }
+            ) // alloc: Cold
         }
         Op::VecBin { op, a, b } => format!("({} {} {})", vec_bin_name(*op), v(a), v(b)), // alloc: Cold
         Op::VecShift { op, a, count } => format!("({} {} {})", vec_shift_name(*op), v(a), count), // alloc: Cold
         Op::VecCmp { cond, a, b } => format!("(vcmp {} {} {})", int_cond_name(*cond), v(a), v(b)), // alloc: Cold
         Op::VecSelect { mask, a, b } => format!("(vselect {} {} {})", v(mask), v(a), v(b)), // alloc: Cold
         Op::VecReduceAdd { a } => format!("(vreduce_add {})", v(a)), // alloc: Cold
-        Op::VecMovmask { a } => format!("(vmovmask {})", v(a)), // alloc: Cold
+        Op::VecMovmask { a } => format!("(vmovmask {})", v(a)),      // alloc: Cold
         Op::VecSplat { ty, a } => format!("(vsplat {} {})", ty_name(*ty), v(a)), // alloc: Cold
         Op::VecExtract { a, lane } => format!("(vextract {} {})", v(a), lane), // alloc: Cold
         Op::VecInsert { a, lane, value } => format!("(vinsert {} {} {})", v(a), lane, v(value)), // alloc: Cold
-        Op::VecWiden { a, signed, high } => format!("(vwiden {} {} {})", if *signed { "s" } else { "u" }, if *high { "hi" } else { "lo" }, v(a)), // alloc: Cold
+        Op::VecWiden { a, signed, high } => format!(
+            "(vwiden {} {} {})",
+            if *signed { "s" } else { "u" },
+            if *high { "hi" } else { "lo" },
+            v(a)
+        ), // alloc: Cold
         Op::VecNarrow { a, b } => format!("(vnarrow {} {})", v(a), v(b)), // alloc: Cold
     };
     out.push_str(&s); // alloc: Cold
 }
 
-fn print_term(out: &mut String, t: &Terminator) { // alloc: Cold
+fn print_term(out: &mut String, t: &Terminator) {
+    // alloc: Cold
     match t {
         Terminator::Br(e) => {
             let _ = write!(out, "(br b{}", e.target.0); // alloc: Cold
@@ -422,14 +520,22 @@ fn print_term(out: &mut String, t: &Terminator) { // alloc: Cold
             }
             out.push(')'); // alloc: Cold
         }
-        Terminator::CondBr { cond, then_edge, else_edge } => {
+        Terminator::CondBr {
+            cond,
+            then_edge,
+            else_edge,
+        } => {
             let _ = write!(out, "(condbr v{} ", cond.0); // alloc: Cold
             edge(out, then_edge);
             out.push(' '); // alloc: Cold
             edge(out, else_edge);
             out.push(')'); // alloc: Cold
         }
-        Terminator::Switch { value, cases, default } => {
+        Terminator::Switch {
+            value,
+            cases,
+            default,
+        } => {
             let _ = write!(out, "(switch v{}", value.0); // alloc: Cold
             for c in cases.iter() {
                 let _ = write!(out, " (case {} ", c.value); // alloc: Cold
@@ -464,13 +570,15 @@ pub enum Sexp {
 
 #[cfg(any(test, feature = "text-loader"))]
 impl Sexp {
-    fn atom(&self) -> Result<&str, String> { // alloc: Cold
+    fn atom(&self) -> Result<&str, String> {
+        // alloc: Cold
         match self {
             Sexp::Atom(s) => Ok(s),
             Sexp::List(_) => Err("expected atom, got list".into()),
         }
     }
-    fn list(&self) -> Result<&[Sexp], String> { // alloc: Cold
+    fn list(&self) -> Result<&[Sexp], String> {
+        // alloc: Cold
         match self {
             Sexp::List(l) => Ok(l),
             Sexp::Atom(a) => Err(format!("expected list, got atom `{a}`")), // alloc: Cold
@@ -485,7 +593,8 @@ impl Sexp {
 pub const MAX_SEXP_DEPTH: u32 = 64;
 
 #[cfg(any(test, feature = "text-loader"))]
-pub fn read_sexp(src: &str) -> Result<Sexp, String> { // alloc: Cold
+pub fn read_sexp(src: &str) -> Result<Sexp, String> {
+    // alloc: Cold
     let mut chars = src.char_indices().peekable();
     let v = read_one(src, &mut chars, 0)?.ok_or("empty input")?;
     skip_ws(src, &mut chars);
@@ -517,12 +626,17 @@ fn skip_ws(_src: &str, it: &mut Chars) {
 }
 
 #[cfg(any(test, feature = "text-loader"))]
-fn read_one(src: &str, it: &mut Chars, depth: u32) -> Result<Option<Sexp>, String> { // alloc: Cold
+fn read_one(src: &str, it: &mut Chars, depth: u32) -> Result<Option<Sexp>, String> {
+    // alloc: Cold
     skip_ws(src, it);
-    let Some(&(start, c)) = it.peek() else { return Ok(None) };
+    let Some(&(start, c)) = it.peek() else {
+        return Ok(None);
+    };
     if c == '(' {
         if depth >= MAX_SEXP_DEPTH {
-            return Err(format!("lists nested deeper than {MAX_SEXP_DEPTH} at byte {start}")); // alloc: Cold
+            return Err(format!(
+                "lists nested deeper than {MAX_SEXP_DEPTH} at byte {start}"
+            )); // alloc: Cold
         }
         it.next();
         let mut items = Vec::new();
@@ -562,7 +676,8 @@ fn read_one(src: &str, it: &mut Chars, depth: u32) -> Result<Option<Sexp>, Strin
 pub type HostResolver<'a> = &'a dyn Fn(&str) -> Option<usize>;
 
 #[cfg(any(test, feature = "text-loader"))]
-pub fn parse_program(src: &str, resolve_host: HostResolver) -> Result<Program, String> { // alloc: Cold
+pub fn parse_program(src: &str, resolve_host: HostResolver) -> Result<Program, String> {
+    // alloc: Cold
     let sexp = read_sexp(src)?;
     let items = sexp.list()?;
     if items.first().and_then(|s| s.atom().ok()) != Some("program") {
@@ -590,13 +705,21 @@ pub fn parse_program(src: &str, resolve_host: HostResolver) -> Result<Program, S
                         "pure" => flags.pure = true,
                         "touches_memory" => flags.touches_memory = true,
                         other => match other.strip_prefix("state=") {
-                            Some(m) => flags.state = StateMask(m.parse::<u8>().map_err(|_| format!("host {name}: bad state mask `{m}`"))?), // alloc: Cold
+                            Some(m) => {
+                                flags.state =
+                                    StateMask(m.parse::<u8>().map_err(|_| {
+                                        format!("host {name}: bad state mask `{m}`")
+                                    })?)
+                            } // alloc: Cold
                             None => return Err(format!("host {name}: unknown flag `{other}`")), // alloc: Cold
                         },
                     }
                 }
                 let addr = resolve_host(name).unwrap_or(0);
-                hosts.insert(name.to_string(), (pb.declare_host(name, &params, ret, addr, flags), ret));
+                hosts.insert(
+                    name.to_string(),
+                    (pb.declare_host(name, &params, ret, addr, flags), ret),
+                );
             }
             "fn" => {
                 let name = l.get(1).ok_or("fn: missing name")?.atom()?;
@@ -611,7 +734,10 @@ pub fn parse_program(src: &str, resolve_host: HostResolver) -> Result<Program, S
                     })
                     .collect::<Result<_, _>>()?;
                 let returns = parse_types(l.get(3).ok_or("fn: missing returns")?)?;
-                funcs.insert(name.to_string(), (pb.declare_func(name, &params, &returns), returns));
+                funcs.insert(
+                    name.to_string(),
+                    (pb.declare_func(name, &params, &returns), returns),
+                );
                 fn_forms.push(l);
             }
             other => return Err(format!("unknown top-level form `{other}`")), // alloc: Cold
@@ -622,7 +748,8 @@ pub fn parse_program(src: &str, resolve_host: HostResolver) -> Result<Program, S
         let name = l[1].atom()?;
         let func = funcs[name].0;
         let fb = pb.define(func);
-        load_body(fb, l, &funcs, &hosts).map_err(|e| format!("fn {name}: {e}"))?; // alloc: Cold
+        load_body(fb, l, &funcs, &hosts).map_err(|e| format!("fn {name}: {e}"))?;
+        // alloc: Cold
     }
     let program = pb.finish();
     crate::verify::verify(&program).map_err(|e| format!("fn {}: {}", e.func, e.message))?; // alloc: Cold
@@ -630,7 +757,8 @@ pub fn parse_program(src: &str, resolve_host: HostResolver) -> Result<Program, S
 }
 
 #[cfg(any(test, feature = "text-loader"))]
-fn parse_type(s: &str) -> Result<Type, String> { // alloc: Cold
+fn parse_type(s: &str) -> Result<Type, String> {
+    // alloc: Cold
     Ok(match s {
         "bool" => Type::Bool,
         "i8" => Type::I8,
@@ -656,29 +784,43 @@ fn parse_types(s: &Sexp) -> Result<Vec<Type>, String> {
 }
 
 #[cfg(any(test, feature = "text-loader"))]
-fn parse_int(s: &str) -> Result<i64, String> { // alloc: Cold
+fn parse_int(s: &str) -> Result<i64, String> {
+    // alloc: Cold
     let (neg, body) = match s.strip_prefix('-') {
         Some(b) => (true, b),
         None => (false, s),
     };
     let v = if let Some(h) = body.strip_prefix("0x") {
-        u64::from_str_radix(h, 16).map_err(|e| format!("bad integer `{s}`: {e}"))? // alloc: Cold
+        u64::from_str_radix(h, 16).map_err(|e| format!("bad integer `{s}`: {e}"))?
+    // alloc: Cold
     } else {
-        body.parse::<u64>().map_err(|e| format!("bad integer `{s}`: {e}"))? // alloc: Cold
+        body.parse::<u64>()
+            .map_err(|e| format!("bad integer `{s}`: {e}"))? // alloc: Cold
     };
-    Ok(if neg { (v as i64).wrapping_neg() } else { v as i64 })
+    Ok(if neg {
+        (v as i64).wrapping_neg()
+    } else {
+        v as i64
+    })
 }
 
 #[cfg(any(test, feature = "text-loader"))]
-fn parse_const(ty: Type, s: &str) -> Result<u64, String> { // alloc: Cold
+fn parse_const(ty: Type, s: &str) -> Result<u64, String> {
+    // alloc: Cold
     Ok(match ty {
         Type::Bool => match s {
             "true" | "1" => 1,
             "false" | "0" => 0,
             _ => return Err(format!("bad bool `{s}`")), // alloc: Cold
         },
-        Type::F32 => s.parse::<f32>().map_err(|e| format!("bad f32 `{s}`: {e}"))?.to_bits() as u64, // alloc: Cold
-        Type::F64 => s.parse::<f64>().map_err(|e| format!("bad f64 `{s}`: {e}"))?.to_bits(), // alloc: Cold
+        Type::F32 => s
+            .parse::<f32>()
+            .map_err(|e| format!("bad f32 `{s}`: {e}"))?
+            .to_bits() as u64, // alloc: Cold
+        Type::F64 => s
+            .parse::<f64>()
+            .map_err(|e| format!("bad f64 `{s}`: {e}"))?
+            .to_bits(), // alloc: Cold
         _ => parse_int(s)? as u64,
     })
 }
@@ -691,18 +833,29 @@ struct Names {
 
 #[cfg(any(test, feature = "text-loader"))]
 impl Names {
-    fn value(&self, s: &Sexp) -> Result<Value, String> { // alloc: Cold
+    fn value(&self, s: &Sexp) -> Result<Value, String> {
+        // alloc: Cold
         let a = s.atom()?;
-        self.values.get(a).copied().ok_or_else(|| format!("unknown value `{a}`")) // alloc: Cold
+        self.values
+            .get(a)
+            .copied()
+            .ok_or_else(|| format!("unknown value `{a}`")) // alloc: Cold
     }
-    fn block(&self, s: &Sexp) -> Result<Block, String> { // alloc: Cold
+    fn block(&self, s: &Sexp) -> Result<Block, String> {
+        // alloc: Cold
         let a = s.atom()?;
-        self.blocks.get(a).copied().ok_or_else(|| format!("unknown block `{a}`")) // alloc: Cold
+        self.blocks
+            .get(a)
+            .copied()
+            .ok_or_else(|| format!("unknown block `{a}`")) // alloc: Cold
     }
     fn edge(&self, s: &Sexp) -> Result<(Block, Vec<Value>), String> {
         let l = s.list()?;
         let target = self.block(l.first().ok_or("empty edge")?)?;
-        let args = l[1..].iter().map(|a| self.value(a)).collect::<Result<_, _>>()?;
+        let args = l[1..]
+            .iter()
+            .map(|a| self.value(a))
+            .collect::<Result<_, _>>()?;
         Ok((target, args))
     }
 }
@@ -713,8 +866,12 @@ fn load_body(
     l: &[Sexp],
     funcs: &BTreeMap<String, (Func, Vec<Type>)>,
     hosts: &BTreeMap<String, (HostFn, Option<Type>)>,
-) -> Result<(), String> { // alloc: Cold
-    let mut names = Names { values: BTreeMap::new(), blocks: BTreeMap::new() };
+) -> Result<(), String> {
+    // alloc: Cold
+    let mut names = Names {
+        values: BTreeMap::new(),
+        blocks: BTreeMap::new(),
+    };
     let mut body = &l[4..];
     if let Some(first) = body.first() {
         if first.list()?.first().and_then(|a| a.atom().ok()) == Some("slots") {
@@ -746,11 +903,19 @@ fn load_body(
         }
         let bname = form.get(1).ok_or("block: missing name")?.atom()?;
         let params = form.get(2).ok_or("block: missing params")?.list()?;
-        let param_types: Vec<Type> =
-            params.iter().map(|p| parse_type(p.list()?.get(1).ok_or("param: type")?.atom()?)).collect::<Result<_, _>>()?;
+        let param_types: Vec<Type> = params
+            .iter()
+            .map(|p| parse_type(p.list()?.get(1).ok_or("param: type")?.atom()?))
+            .collect::<Result<_, _>>()?;
         let block = if i == 0 {
             let e = fb.entry();
-            if fb.block_params(e).iter().map(|&v| fb.value_type(v)).collect::<Vec<_>>() != param_types {
+            if fb
+                .block_params(e)
+                .iter()
+                .map(|&v| fb.value_type(v))
+                .collect::<Vec<_>>()
+                != param_types
+            {
                 return Err("entry block params do not match fn params".into());
             }
             e
@@ -777,7 +942,10 @@ fn load_body(
         for inst in insts {
             let inst = inst.list()?;
             let (result_name, op) = match inst.first().ok_or("empty instruction")? {
-                Sexp::Atom(name) => (Some(name.as_str()), inst.get(1).ok_or("instruction: missing op")?.list()?),
+                Sexp::Atom(name) => (
+                    Some(name.as_str()),
+                    inst.get(1).ok_or("instruction: missing op")?.list()?,
+                ),
                 Sexp::List(op) => (None, op.as_slice()),
             };
             let result = load_op(&mut fb, op, &names, funcs, hosts)?;
@@ -798,16 +966,55 @@ fn load_body(
         for item in h {
             let item = item.list()?;
             let kind = item.first().ok_or("hint: empty")?.atom()?;
-            let blk = |k: &Sexp| -> Result<Block, String> { let n = k.atom()?; names.blocks.get(n).copied().ok_or_else(|| format!("hint: unknown block `{n}`")) }; // alloc: Cold
-            let val = |k: &Sexp| -> Result<Value, String> { let n = k.atom()?; names.values.get(n).copied().ok_or_else(|| format!("hint: unknown value `{n}`")) }; // alloc: Cold
+            let blk = |k: &Sexp| -> Result<Block, String> {
+                let n = k.atom()?;
+                names
+                    .blocks
+                    .get(n)
+                    .copied()
+                    .ok_or_else(|| format!("hint: unknown block `{n}`"))
+            }; // alloc: Cold
+            let val = |k: &Sexp| -> Result<Value, String> {
+                let n = k.atom()?;
+                names
+                    .values
+                    .get(n)
+                    .copied()
+                    .ok_or_else(|| format!("hint: unknown value `{n}`"))
+            }; // alloc: Cold
             match kind {
-                "cold" => for k in &item[1..] { let b = blk(k)?; fb.mark_cold(b); },
-                "loop" => for k in &item[1..] { let b = blk(k)?; fb.mark_loop_header(b); },
-                "remat" => for k in &item[1..] { let v = val(k)?; fb.mark_remat(v); },
-                "nowrap" => for k in &item[1..] { let v = val(k)?; fb.mark_nowrap(v); },
+                "cold" => {
+                    for k in &item[1..] {
+                        let b = blk(k)?;
+                        fb.mark_cold(b);
+                    }
+                }
+                "loop" => {
+                    for k in &item[1..] {
+                        let b = blk(k)?;
+                        fb.mark_loop_header(b);
+                    }
+                }
+                "remat" => {
+                    for k in &item[1..] {
+                        let v = val(k)?;
+                        fb.mark_remat(v);
+                    }
+                }
+                "nowrap" => {
+                    for k in &item[1..] {
+                        let v = val(k)?;
+                        fb.mark_nowrap(v);
+                    }
+                }
                 "freq" => {
                     let b = blk(item.get(1).ok_or("freq: block")?)?;
-                    let f: f32 = item.get(2).ok_or("freq: value")?.atom()?.parse().map_err(|_| "freq: not a number".to_string())?; // alloc: Cold
+                    let f: f32 = item
+                        .get(2)
+                        .ok_or("freq: value")?
+                        .atom()?
+                        .parse()
+                        .map_err(|_| "freq: not a number".to_string())?; // alloc: Cold
                     fb.set_freq(b, f);
                 }
                 "likely" => {
@@ -829,20 +1036,27 @@ fn load_op(
     n: &Names,
     funcs: &BTreeMap<String, (Func, Vec<Type>)>,
     hosts: &BTreeMap<String, (HostFn, Option<Type>)>,
-) -> Result<Option<Value>, String> { // alloc: Cold
+) -> Result<Option<Value>, String> {
+    // alloc: Cold
     let head = op.first().ok_or("empty op")?.atom()?;
-    let arg = |i: usize| -> Result<&Sexp, String> { op.get(i).ok_or_else(|| format!("{head}: missing operand {i}")) }; // alloc: Cold
+    let arg = |i: usize| -> Result<&Sexp, String> {
+        op.get(i)
+            .ok_or_else(|| format!("{head}: missing operand {i}"))
+    }; // alloc: Cold
     let v = |i: usize| -> Result<Value, String> { n.value(arg(i)?) }; // alloc: Cold
     let int_bin = |o: IntBinOp, fb: &mut FunctionBuilder| Ok(Some(fb.int_bin(o, v(1)?, v(2)?)));
     let int_un = |o: IntUnOp, fb: &mut FunctionBuilder| Ok(Some(fb.int_un(o, v(1)?)));
     let int_ovf = |o: IntOvfOp, fb: &mut FunctionBuilder| Ok(Some(fb.int_ovf(o, v(1)?, v(2)?)));
-    let float_bin = |o: FloatBinOp, fb: &mut FunctionBuilder| Ok(Some(fb.float_bin(o, v(1)?, v(2)?)));
+    let float_bin =
+        |o: FloatBinOp, fb: &mut FunctionBuilder| Ok(Some(fb.float_bin(o, v(1)?, v(2)?)));
     let float_un = |o: FloatUnOp, fb: &mut FunctionBuilder| Ok(Some(fb.float_un(o, v(1)?)));
-    let conv_to = |o: ConvOp, fb: &mut FunctionBuilder| -> Result<Option<Value>, String> { // alloc: Cold
+    let conv_to = |o: ConvOp, fb: &mut FunctionBuilder| -> Result<Option<Value>, String> {
+        // alloc: Cold
         let to = parse_type(arg(1)?.atom()?)?;
         Ok(Some(fb.conv(o, to, v(2)?)))
     };
-    let conv_fixed = |o: ConvOp, to: Type, fb: &mut FunctionBuilder| Ok(Some(fb.conv(o, to, v(1)?)));
+    let conv_fixed =
+        |o: ConvOp, to: Type, fb: &mut FunctionBuilder| Ok(Some(fb.conv(o, to, v(1)?)));
     match head {
         "const" => {
             let ty = parse_type(arg(1)?.atom()?)?;
@@ -929,7 +1143,11 @@ fn load_op(
             let ptr = v(2)?;
             let off = parse_int(arg(3)?.atom()?)? as i32;
             let unaligned = op.get(4).map(|a| a.atom()) == Some(Ok("unaligned"));
-            Ok(Some(if unaligned { fb.load_unaligned(ty, ptr, off) } else { fb.load(ty, ptr, off) }))
+            Ok(Some(if unaligned {
+                fb.load_unaligned(ty, ptr, off)
+            } else {
+                fb.load(ty, ptr, off)
+            }))
         }
         "loadz" => {
             let ty = parse_type(arg(1)?.atom()?)?;
@@ -938,7 +1156,11 @@ fn load_op(
             let unaligned = op.get(4).map(|a| a.atom()) == Some(Ok("unaligned"));
             let val = fb.load_zext(ty, ptr, off);
             if unaligned {
-                if let Some(crate::Instruction { op: Op::LoadZext { unaligned: u, .. }, .. }) = fb.last_inst_mut() {
+                if let Some(crate::Instruction {
+                    op: Op::LoadZext { unaligned: u, .. },
+                    ..
+                }) = fb.last_inst_mut()
+                {
                     *u = true;
                 }
             }
@@ -975,19 +1197,29 @@ fn load_op(
         }
         "call" => {
             let name = arg(1)?.atom()?;
-            let (callee, returns) = funcs.get(name).ok_or_else(|| format!("unknown function `{name}`"))?; // alloc: Cold
+            let (callee, returns) = funcs
+                .get(name)
+                .ok_or_else(|| format!("unknown function `{name}`"))?; // alloc: Cold
             let ret = match returns.as_slice() {
                 [] => None,
                 [t] => Some(*t),
                 _ => return Err(format!("call {name}: multi-value returns not supported")), // alloc: Cold
             };
-            let args = op[2..].iter().map(|a| n.value(a)).collect::<Result<Vec<_>, _>>()?;
+            let args = op[2..]
+                .iter()
+                .map(|a| n.value(a))
+                .collect::<Result<Vec<_>, _>>()?;
             Ok(fb.call(*callee, &args, ret))
         }
         "call_host" => {
             let name = arg(1)?.atom()?;
-            let (callee, ret) = *hosts.get(name).ok_or_else(|| format!("unknown host fn `{name}`"))?; // alloc: Cold
-            let args = op[2..].iter().map(|a| n.value(a)).collect::<Result<Vec<_>, _>>()?;
+            let (callee, ret) = *hosts
+                .get(name)
+                .ok_or_else(|| format!("unknown host fn `{name}`"))?; // alloc: Cold
+            let args = op[2..]
+                .iter()
+                .map(|a| n.value(a))
+                .collect::<Result<Vec<_>, _>>()?;
             Ok(fb.call_host(callee, &args, ret))
         }
         "vload" => {
@@ -998,7 +1230,11 @@ fn load_op(
             if !ty.is_vector() {
                 return Err(format!("vload: {ty:?} is not a vector type")); // alloc: Cold
             }
-            Ok(Some(if unaligned { fb.vload_unaligned(ty, ptr, off) } else { fb.vload(ty, ptr, off) }))
+            Ok(Some(if unaligned {
+                fb.vload_unaligned(ty, ptr, off)
+            } else {
+                fb.vload(ty, ptr, off)
+            }))
         }
         "vstore" => {
             let ptr = v(1)?;
@@ -1066,14 +1302,18 @@ fn load_op(
             };
             let a = v(3)?;
             if fb.value_type(a).widened().is_none() {
-                return Err(format!("vwiden: {:?} has no wider lanes", fb.value_type(a))); // alloc: Cold
+                return Err(format!("vwiden: {:?} has no wider lanes", fb.value_type(a)));
+                // alloc: Cold
             }
             Ok(Some(fb.vwiden(a, signed, high)))
         }
         "vnarrow" => {
             let a = v(1)?;
             if fb.value_type(a).narrowed().is_none() {
-                return Err(format!("vnarrow: {:?} has no narrower lanes", fb.value_type(a))); // alloc: Cold
+                return Err(format!(
+                    "vnarrow: {:?} has no narrower lanes",
+                    fb.value_type(a)
+                )); // alloc: Cold
             }
             Ok(Some(fb.vnarrow(a, v(2)?)))
         }
@@ -1082,7 +1322,8 @@ fn load_op(
 }
 
 #[cfg(any(test, feature = "text-loader"))]
-fn parse_int_cond(s: &str) -> Result<IntCond, String> { // alloc: Cold
+fn parse_int_cond(s: &str) -> Result<IntCond, String> {
+    // alloc: Cold
     Ok(match s {
         "eq" => IntCond::Eq,
         "ne" => IntCond::Ne,
@@ -1099,12 +1340,16 @@ fn parse_int_cond(s: &str) -> Result<IntCond, String> { // alloc: Cold
 }
 
 #[cfg(any(test, feature = "text-loader"))]
-fn load_term(fb: &mut FunctionBuilder<'_>, t: &[Sexp], n: &Names) -> Result<(), String> { // alloc: Cold
+fn load_term(fb: &mut FunctionBuilder<'_>, t: &[Sexp], n: &Names) -> Result<(), String> {
+    // alloc: Cold
     let head = t.first().ok_or("empty terminator")?.atom()?;
     match head {
         "br" => {
             let target = n.block(t.get(1).ok_or("br: missing target")?)?;
-            let args = t[2..].iter().map(|a| n.value(a)).collect::<Result<Vec<_>, _>>()?;
+            let args = t[2..]
+                .iter()
+                .map(|a| n.value(a))
+                .collect::<Result<Vec<_>, _>>()?;
             fb.br(target, &args);
         }
         "condbr" => {
@@ -1112,7 +1357,11 @@ fn load_term(fb: &mut FunctionBuilder<'_>, t: &[Sexp], n: &Names) -> Result<(), 
             let te = n.edge(t.get(2).ok_or("condbr: missing then edge")?)?;
             let ee = n.edge(t.get(3).ok_or("condbr: missing else edge")?)?;
             let (then_edge, else_edge) = (fb.edge(te.0, &te.1), fb.edge(ee.0, &ee.1));
-            fb.terminate(Terminator::CondBr { cond, then_edge, else_edge });
+            fb.terminate(Terminator::CondBr {
+                cond,
+                then_edge,
+                else_edge,
+            });
         }
         "switch" => {
             let value = n.value(t.get(1).ok_or("switch: missing value")?)?;
@@ -1122,7 +1371,8 @@ fn load_term(fb: &mut FunctionBuilder<'_>, t: &[Sexp], n: &Names) -> Result<(), 
                 let c = c.list()?;
                 match c.first().ok_or("switch: empty case")?.atom()? {
                     "case" => {
-                        let value = parse_int(c.get(1).ok_or("case: missing value")?.atom()?)? as u64;
+                        let value =
+                            parse_int(c.get(1).ok_or("case: missing value")?.atom()?)? as u64;
                         let (target, args) = n.edge(c.get(2).ok_or("case: missing edge")?)?;
                         cases.push((value, target, args));
                     }
@@ -1134,7 +1384,10 @@ fn load_term(fb: &mut FunctionBuilder<'_>, t: &[Sexp], n: &Names) -> Result<(), 
             fb.switch(value, cases, (dt, &da));
         }
         "return" => {
-            let vals = t[1..].iter().map(|a| n.value(a)).collect::<Result<Vec<_>, _>>()?;
+            let vals = t[1..]
+                .iter()
+                .map(|a| n.value(a))
+                .collect::<Result<Vec<_>, _>>()?;
             fb.ret(&vals);
         }
         "unreachable" => fb.unreachable(),

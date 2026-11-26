@@ -16,7 +16,9 @@ use types_dest::CommandDest;
 use types_nodes::node_tree::Node;
 use types_nodes::nodes_enums::CmdType;
 use types_nodes::plannodes::{Plan, PlannedStmt, Result as ResultPlan};
-use types_portal::{CachedPlanHandle, ParamListHandle, QueryDescHandle, CMDTAG_SELECT, PORTAL_ONE_SELECT};
+use types_portal::{
+    CachedPlanHandle, ParamListHandle, QueryDescHandle, CMDTAG_SELECT, PORTAL_ONE_SELECT,
+};
 use types_snapshot::{SnapshotData, SnapshotType};
 
 /// This test's backend slot (memledger's own tests use 3907..3910).
@@ -42,7 +44,9 @@ fn install() {
         resowner_seams::current_resource_owner::set(|| types_resowner::ResourceOwner::NULL);
         resowner_seams::set_current_resource_owner::set(|_| {});
         resowner_seams::top_transaction_resource_owner::set(|| types_resowner::ResourceOwner::NULL);
-        resowner_portal_seams::resource_owner_create_portal::set(|| types_resowner::ResourceOwner::from_parts(1, 1));
+        resowner_portal_seams::resource_owner_create_portal::set(|| {
+            types_resowner::ResourceOwner::from_parts(1, 1)
+        });
         resowner_portal_seams::resource_owner_release::set(|_, _, _, _| {});
         resowner_portal_seams::resource_owner_delete::set(|_| {});
         xact_seams::get_current_transaction_nest_level::set(|| 1);
@@ -54,11 +58,13 @@ fn install() {
             USES.with(|u| u.borrow_mut().clear());
             Ok(())
         });
-        execmain_seams::create_query_desc::set(|pstmt, _src, snapshot, _cross, _dest, _params, _env, _instr| {
-            assert_eq!(pstmt.commandType, CmdType::CMD_SELECT);
-            QD_SNAPSHOT.with(|s| *s.borrow_mut() = snapshot);
-            Ok(QueryDescHandle(7))
-        });
+        execmain_seams::create_query_desc::set(
+            |pstmt, _src, snapshot, _cross, _dest, _params, _env, _instr| {
+                assert_eq!(pstmt.commandType, CmdType::CMD_SELECT);
+                QD_SNAPSHOT.with(|s| *s.borrow_mut() = snapshot);
+                Ok(QueryDescHandle(7))
+            },
+        );
         execmain_seams::free_query_desc::set(|_| {});
         execmain_seams::release_query_desc::set(|_| {});
         pquery::init_seams();
@@ -84,9 +90,26 @@ fn install() {
 fn select_stmts() -> types_portal::StmtListHandle {
     let base: &'static MemoryContext = Box::leak(Box::new(MemoryContext::new("c8-portal-owner")));
     let mcx = base.mcx();
-    let tree = Node::mk(mcx, ResultPlan { plan: Plan { total_cost: 0.01, ..Plan::default() }, resconstantqual: None }).unwrap();
-    let stmts: &'static [PlannedStmt<'static>] =
-        Box::leak(vec![PlannedStmt { commandType: CmdType::CMD_SELECT, canSetTag: true, planTree: Some(tree), ..PlannedStmt::default() }].into_boxed_slice());
+    let tree = Node::mk(
+        mcx,
+        ResultPlan {
+            plan: Plan {
+                total_cost: 0.01,
+                ..Plan::default()
+            },
+            resconstantqual: None,
+        },
+    )
+    .unwrap();
+    let stmts: &'static [PlannedStmt<'static>] = Box::leak(
+        vec![PlannedStmt {
+            commandType: CmdType::CMD_SELECT,
+            canSetTag: true,
+            planTree: Some(tree),
+            ..PlannedStmt::default()
+        }]
+        .into_boxed_slice(),
+    );
     // SAFETY: the statements are leaked 'static.
     unsafe { pquery::stmt_list::register(stmts) }
 }
@@ -110,20 +133,40 @@ fn a_cursors_executor_takes_for_the_portal_not_for_the_statement_that_runs_it() 
     std::thread::spawn(move || {
         install();
         memledger::bind_backend(PROCNO, 9000 + PROCNO);
-        let base: &'static MemoryContext = Box::leak(Box::new(MemoryContext::new("c8-portal-snap")));
-        let snap: snapmgr::Snapshot = std::rc::Rc::new(SnapshotData::sentinel(base.mcx(), SnapshotType::SNAPSHOT_MVCC));
+        let base: &'static MemoryContext =
+            Box::leak(Box::new(MemoryContext::new("c8-portal-snap")));
+        let snap: snapmgr::Snapshot = std::rc::Rc::new(SnapshotData::sentinel(
+            base.mcx(),
+            SnapshotType::SNAPSHOT_MVCC,
+        ));
         // the transaction's active snapshot, kept pushed: popping the last one resets MyProc's xmin (no proc here)
         snapmgr::PushActiveSnapshot(&snap).unwrap();
 
         // DECLARE: PortalStart (its ExecutorStart takes a use)
         memledger::statement_begin();
         let portal = portalmem::CreatePortal("c8_cur", false, false).unwrap();
-        portalmem::PortalDefineQuery(&portal, None, "DECLARE c8_cur CURSOR FOR SELECT 1", CMDTAG_SELECT, select_stmts(), CachedPlanHandle::NULL).unwrap();
+        portalmem::PortalDefineQuery(
+            &portal,
+            None,
+            "DECLARE c8_cur CURSOR FOR SELECT 1",
+            CMDTAG_SELECT,
+            select_stmts(),
+            CachedPlanHandle::NULL,
+        )
+        .unwrap();
         pquery::PortalStart(&portal, ParamListHandle::NULL, 0, Some(snap.clone())).unwrap();
         assert_eq!(portal.borrow().strategy, PORTAL_ONE_SELECT);
         memledger::statement_end();
-        assert_eq!(residues(a), [], "the DECLARE's end: the cursor's ExecutorStart use is the cursor's");
-        assert_eq!(live_portals(a), 1, "the cursor is a memory owner from its PortalStart");
+        assert_eq!(
+            residues(a),
+            [],
+            "the DECLARE's end: the cursor's ExecutorStart use is the cursor's"
+        );
+        assert_eq!(
+            live_portals(a),
+            1,
+            "the cursor is a memory owner from its PortalStart"
+        );
 
         // two FETCHes: PortalRun forward one row each (ExecutorRun takes a use each time)
         for _ in 0..2 {
@@ -133,7 +176,11 @@ fn a_cursors_executor_takes_for_the_portal_not_for_the_statement_that_runs_it() 
             memledger::statement_end();
         }
         assert_eq!(USES.with(|u| u.borrow().len()), 3);
-        assert_eq!(residues(a), [], "a FETCH's end: what the suspended cursor's run took is the cursor's");
+        assert_eq!(
+            residues(a),
+            [],
+            "a FETCH's end: what the suspended cursor's run took is the cursor's"
+        );
 
         // CLOSE: PortalDrop's cleanup ends the executor (the uses go), then the cursor's owner end finds nothing
         memledger::statement_begin();
@@ -141,7 +188,11 @@ fn a_cursors_executor_takes_for_the_portal_not_for_the_statement_that_runs_it() 
         memledger::statement_end();
         assert_eq!(USES.with(|u| u.borrow().len()), 0);
         assert_eq!(residues(a), [], "the CLOSE: no residue anywhere");
-        assert_eq!(live_portals(a), 0, "the cursor's owner ended at its PortalDrop");
+        assert_eq!(
+            live_portals(a),
+            0,
+            "the cursor's owner ended at its PortalDrop"
+        );
         memledger::unbind_backend();
         assert_eq!(residues(a), [], "the session's end: nothing left on it");
     })

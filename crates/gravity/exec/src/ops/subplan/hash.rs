@@ -33,7 +33,6 @@ use super::super::{Frame, Live, Prepare, Protocol};
 use crate::glue;
 use crate::ops::subplan::keyset::KeySet;
 
-
 // the kernels' LAZY bit is the lowering's (program v4.rs; kernels names no crate past the ABI)
 const _: () = assert!(abi::SUBHASH_LAZY == gravity_program::protos::SUBHASH_LAZY);
 
@@ -59,14 +58,21 @@ pub struct Bare<'a> {
 
 impl<'a> Bare<'a> {
     fn of(cx: &'a mut Prepare<'_>) -> Bare<'a> {
-        Bare { program: cx.program, words: &mut *cx.words, nulls: &mut *cx.nulls, nparams: &mut *cx.nparams }
+        Bare {
+            program: cx.program,
+            words: &mut *cx.words,
+            nulls: &mut *cx.nulls,
+            nparams: &mut *cx.nparams,
+        }
     }
 
     /// The handle word `p` declares, checked.
     fn handle(&self, p: &Proto, what: &str) -> PgResult<usize> {
         let base = p.words.base as usize;
         if p.words.n != 1 || base >= self.words.len() || base >= self.nulls.len() {
-            return Err(glue::internal(&format!("gravity: {what}'s declaration is not its object's (one handle word)"))); // alloc: Cold
+            return Err(glue::internal(&format!(
+                "gravity: {what}'s declaration is not its object's (one handle word)"
+            ))); // alloc: Cold
         }
         Ok(base)
     }
@@ -111,7 +117,10 @@ struct SetLive {
 
 impl Live for SetLive {
     fn answers(&self) -> u16 {
-        crate::ops::ask::MERGE | crate::ops::ask::DEFERRED | crate::ops::ask::FRAME | crate::ops::ask::LATE
+        crate::ops::ask::MERGE
+            | crate::ops::ask::DEFERRED
+            | crate::ops::ask::FRAME
+            | crate::ops::ask::LATE
     }
 
     fn merge_for(&self, pipeline: usize) -> Option<&dyn gravity_driver::Merge> {
@@ -139,7 +148,11 @@ impl Live for SetLive {
 struct NoMerge;
 
 impl gravity_driver::Merge for NoMerge {
-    fn merge_into(&self, _leader: &mut gravity_driver::State<'_>, _partial: gravity_driver::Partial<'_>) -> gravity_driver::Result<()> {
+    fn merge_into(
+        &self,
+        _leader: &mut gravity_driver::State<'_>,
+        _partial: gravity_driver::Partial<'_>,
+    ) -> gravity_driver::Result<()> {
         Ok(())
     }
 }
@@ -158,12 +171,15 @@ impl Protocol for SubHash {
 /// one whose reader (`lay_set`'s) can run on workers, where its start builds the set ahead (an emit or a serial reader
 /// builds nothing ahead, `crate::ops::reader_runs_wide`).
 pub(crate) fn builds_nested(p: &Proto, program: &gravity_program::Program) -> bool {
-    p.arg & abi::SUBHASH_LAZY != 0 && !(ahead(p) && crate::ops::reader_runs_wide(program, p.peer as usize))
+    p.arg & abi::SUBHASH_LAZY != 0
+        && !(ahead(p) && crate::ops::reader_runs_wide(program, p.peer as usize))
 }
 
 /// D2914 (2a): SubHash proto `p` is a LAZY set built ahead, its one reader named (`lay_set`'s run-ahead arm).
 pub(crate) fn ahead(p: &Proto) -> bool {
-    p.arg & abi::SUBHASH_LAZY != 0 && p.arg & abi::SUBHASH_AHEAD != 0 && p.peer != gravity_program::protos::NONE
+    p.arg & abi::SUBHASH_LAZY != 0
+        && p.arg & abi::SUBHASH_AHEAD != 0
+        && p.peer != gravity_program::protos::NONE
 }
 
 /// SubHash proto `p`'s set, its handle laid (exec's prepare, and the crate rig's `prepare_bare`).
@@ -176,10 +192,16 @@ pub fn lay_set(p: &Proto, b: &mut Bare<'_>) -> PgResult<Box<dyn Live>> {
     // AHEAD: a LAZY set with one reader (the proto's `peer`) that may build before its first probe
     let ahead = p.arg & abi::SUBHASH_AHEAD != 0;
     if ahead && (p.arg & abi::SUBHASH_LAZY == 0 || p.peer == gravity_program::protos::NONE) {
-        return Err(glue::internal("gravity: nest.subplan (hashed): an AHEAD set that is not LAZY or names no reader"));
+        return Err(glue::internal(
+            "gravity: nest.subplan (hashed): an AHEAD set that is not LAZY or names no reader",
+        ));
     }
     let reader = ahead.then_some(p.peer as usize);
-    let obj = new_set(p.arg & !(abi::SUBHASH_LAZY | abi::SUBHASH_AHEAD), p.pipeline as usize, lazy)?;
+    let obj = new_set(
+        p.arg & !(abi::SUBHASH_LAZY | abi::SUBHASH_AHEAD),
+        p.pipeline as usize,
+        lazy,
+    )?;
     b.lay(base, &obj.head as *const abi::Head as u64);
     Ok(Box::new(SetLive { obj, reader })) // alloc: Exec
 }
@@ -200,31 +222,66 @@ impl Protocol for SubHashEpq {
 pub fn lay_twin(p: &Proto, b: &mut Bare<'_>) -> PgResult<Box<dyn Live>> {
     let base = b.handle(p, "nest.subplan.epq")?;
     let protos = b.program.v4.as_ref().map_or(&[][..], |d| &d.protos[..]);
-    let main = protos.iter().find(|m| m.kind == ProtoKind::SubHash && m.pipeline == p.pipeline).map(|m| m.words.base as usize);
-    let at = main.and_then(|m| b.words.get(m).copied()).filter(|&w| w != 0);
+    let main = protos
+        .iter()
+        .find(|m| m.kind == ProtoKind::SubHash && m.pipeline == p.pipeline)
+        .map(|m| m.words.base as usize);
+    let at = main
+        .and_then(|m| b.words.get(m).copied())
+        .filter(|&w| w != 0);
     let Some(at) = at.filter(|_| p.arg & abi::SUBHASH_LAZY != 0) else {
-        return Err(glue::internal("gravity: nest.subplan.epq: no LAZY SubHash set of its build pipeline laid before it"));
+        return Err(glue::internal(
+            "gravity: nest.subplan.epq: no LAZY SubHash set of its build pipeline laid before it",
+        ));
     };
     let lazy = crate::ops::subplan::lazy::Lazy::of(b.program, p.pipeline as usize)?;
     lazy.run.set(crate::ops::subplan::lazy::STALE);
-    let obj = new_set(p.arg & !(abi::SUBHASH_LAZY | abi::SUBHASH_AHEAD), usize::MAX, lazy)?;
+    let obj = new_set(
+        p.arg & !(abi::SUBHASH_LAZY | abi::SUBHASH_AHEAD),
+        usize::MAX,
+        lazy,
+    )?;
     obj.twin_of.set(at);
     b.lay(base, &obj.head as *const abi::Head as u64);
     Ok(Box::new(SetLive { obj, reader: None })) // alloc: Exec
 }
 
 /// An empty set of the key layout `arg` (ncols | width << 8; the first form: one column of 1, 2, 4 or 8 bytes).
-pub(crate) fn new_set(arg: u64, pipeline: usize, lazy: crate::ops::subplan::lazy::Lazy) -> PgResult<Box<SetObj>> {
-    let (no_nulls, arg) = (arg & abi::SUBHASH_NO_NULLS != 0, arg & !abi::SUBHASH_NO_NULLS);
+pub(crate) fn new_set(
+    arg: u64,
+    pipeline: usize,
+    lazy: crate::ops::subplan::lazy::Lazy,
+) -> PgResult<Box<SetObj>> {
+    let (no_nulls, arg) = (
+        arg & abi::SUBHASH_NO_NULLS != 0,
+        arg & !abi::SUBHASH_NO_NULLS,
+    );
     let (ncols, width) = (arg & 0xff, (arg >> 8) & 0xff);
     let multi = crate::ops::subplan::multi::Multi::of(arg).map(RefCell::new);
     if multi.is_none() && (ncols != 1 || ![1, 2, 4, 8].contains(&width) || arg >> 16 != 0) {
-        return Err(glue::internal(&format!("gravity: nest.subplan's hashed key layout {arg:#x} (one column of 1, 2, 4 or 8 bytes, 2 to 8 columns, or 1 to 8 with byte keys, or 9 to 20 in the wide form)"))); // alloc: Cold
+        return Err(glue::internal(&format!("gravity: nest.subplan's hashed key layout {arg:#x} (one column of 1, 2, 4 or 8 bytes, 2 to 8 columns, or 1 to 8 with byte keys, or 9 to 20 in the wide form)")));
+        // alloc: Cold
     }
     let width = if multi.is_some() { 8 } else { width as u8 };
-    let head = abi::Head { magic: abi::SUBHASH_MAGIC, op: super::raw::set_op };
+    let head = abi::Head {
+        magic: abi::SUBHASH_MAGIC,
+        op: super::raw::set_op,
+    };
     let set = RefCell::new(KeySet::new(width));
-    Ok(Box::new(SetObj { head, table: Cell::new(0), width, pipeline, sealed: Cell::new(false), set, lazy, multi, mseal: Cell::new(0), no_nulls, redirect: Cell::new(0), twin_of: Cell::new(0) })) // alloc: Exec
+    Ok(Box::new(SetObj {
+        head,
+        table: Cell::new(0),
+        width,
+        pipeline,
+        sealed: Cell::new(false),
+        set,
+        lazy,
+        multi,
+        mseal: Cell::new(0),
+        no_nulls,
+        redirect: Cell::new(0),
+        twin_of: Cell::new(0),
+    })) // alloc: Exec
 }
 
 impl SetObj {
@@ -232,7 +289,11 @@ impl SetObj {
     /// emptied, so the next probe finds no header and builds it again over the new parameters.
     pub(crate) fn rearm(&self) -> PgResult<()> {
         self.lazy.rearm()?;
-        let Ok(mut set) = self.set.try_borrow_mut() else { return Err(glue::internal("gravity: m8_rerun: a LAZY hashed set re-armed inside its own call")) };
+        let Ok(mut set) = self.set.try_borrow_mut() else {
+            return Err(glue::internal(
+                "gravity: m8_rerun: a LAZY hashed set re-armed inside its own call",
+            ));
+        };
         self.table.set(0);
         self.mseal.set(0);
         if let Some(m) = &self.multi {
@@ -243,7 +304,6 @@ impl SetObj {
         Ok(())
     }
 }
-
 
 // ---------------------------------------------------------------------------------------------------------- SubResult
 
@@ -264,7 +324,11 @@ impl Live for ResultLive {
         crate::ops::ask::AFTER
     }
 
-    fn after_pipeline(&self, _pipeline: usize, exec: &mut gravity_driver::Exec) -> Option<gravity_driver::Result<()>> {
+    fn after_pipeline(
+        &self,
+        _pipeline: usize,
+        exec: &mut gravity_driver::Exec,
+    ) -> Option<gravity_driver::Result<()>> {
         self._obj.arrays.charge(exec)
     }
 }
@@ -289,10 +353,15 @@ pub fn lay_result(p: &Proto, b: &mut Bare<'_>) -> PgResult<Box<dyn Live>> {
 
 pub(crate) fn new_result(arrays: crate::ops::subplan::array::Arrays) -> Box<ResultObj> {
     let slots = (0..LANES).map(|_| UnsafeCell::new(Vec::new())).collect(); // alloc: Exec
-    Box::new(ResultObj { head: abi::Head { magic: abi::ARRAY_MAGIC, op: super::raw::result_op }, slots, arrays }) // alloc: Exec
+    Box::new(ResultObj {
+        head: abi::Head {
+            magic: abi::ARRAY_MAGIC,
+            op: super::raw::result_op,
+        },
+        slots,
+        arrays,
+    }) // alloc: Exec
 }
-
-
 
 #[cold]
 #[inline(never)]
@@ -309,7 +378,9 @@ mod tests {
     use gravity_lower::ops::subplan::keyset::{lookup, verdict, KeyTable, HAS_NULL, NONEMPTY};
 
     fn message() -> String {
-        gravity_fn::take_error().map(|e| e.message().to_owned()).unwrap_or_default()
+        gravity_fn::take_error()
+            .map(|e| e.message().to_owned())
+            .unwrap_or_default()
     }
 
     fn h(head: &abi::Head) -> u64 {
@@ -336,26 +407,51 @@ mod tests {
 
     #[test]
     fn the_set_answers_pgs_hashed_verdicts_null_keys_counted_never_stored() {
-        let o = new_set(1 | 4 << 8, 0, crate::ops::subplan::lazy::Lazy::new(Box::default())).expect("a set");
+        let o = new_set(
+            1 | 4 << 8,
+            0,
+            crate::ops::subplan::lazy::Lazy::new(Box::default()),
+        )
+        .expect("a set");
         unsafe {
             let empty = seal(&o);
-            assert_eq!((*empty).flags & NONEMPTY, 0, "an empty set: every probe answers false");
+            assert_eq!(
+                (*empty).flags & NONEMPTY,
+                0,
+                "an empty set: every probe answers false"
+            );
             assert_eq!(lookup(empty, 5, 4), (false, false, false));
             assert_eq!(abi::m8_subhash_reset(core::ptr::null_mut(), h(&o.head)), 0);
             for k in 0..1000u64 {
                 assert_eq!(insert(&o, k * 3, false), 0);
-                assert_eq!(insert(&o, ( k * 3) | 0xdead_0000_0000_0000, false), 0, "past the width: the same key");
+                assert_eq!(
+                    insert(&o, (k * 3) | 0xdead_0000_0000_0000, false),
+                    0,
+                    "past the width: the same key"
+                );
             }
             let t = seal(&o);
             assert_eq!(seal(&o), t, "a second seal is the same header");
-            let loaded = *(h(&o.head) as *const u8).add(abi::SUBHASH_TABLE_AT as usize).cast::<u64>();
-            assert_eq!(loaded, t as u64, "the probe's load at SUBHASH_TABLE_AT is the sealed header");
-            assert_eq!(((*t).flags & NONEMPTY, (*t).flags & HAS_NULL), (NONEMPTY, 0));
+            let loaded = *(h(&o.head) as *const u8)
+                .add(abi::SUBHASH_TABLE_AT as usize)
+                .cast::<u64>();
+            assert_eq!(
+                loaded, t as u64,
+                "the probe's load at SUBHASH_TABLE_AT is the sealed header"
+            );
+            assert_eq!(
+                ((*t).flags & NONEMPTY, (*t).flags & HAS_NULL),
+                (NONEMPTY, 0)
+            );
             assert_eq!(lookup(t, 9, 4), (true, true, false));
             assert_eq!(lookup(t, 10, 4), (true, false, false));
             // a NULL key: counted; a miss is then unknown (x = ANY (.., NULL) is NULL), a hit stays true
             assert_eq!(abi::m8_subhash_reset(core::ptr::null_mut(), h(&o.head)), 0);
-            assert_eq!(o.table.get(), 0, "a reset set has no header to probe until its next seal");
+            assert_eq!(
+                o.table.get(),
+                0,
+                "a reset set has no header to probe until its next seal"
+            );
             assert_eq!(insert(&o, 9, false), 0);
             assert_eq!(insert(&o, 0, true), 0);
             let t = seal(&o);
@@ -363,7 +459,11 @@ mod tests {
             assert_eq!(verdict(ne, found, null, true), (0, false));
             let (ne, found, null) = lookup(t, 9, 4);
             assert_eq!(verdict(ne, found, null, true), (1, true));
-            assert_eq!(lookup(t, 0, 4), (true, false, true), "the NULL key is not stored as 0");
+            assert_eq!(
+                lookup(t, 0, 4),
+                (true, false, true),
+                "the NULL key is not stored as 0"
+            );
             // an all-NULL build: nonempty, nothing found, HAS_NULL
             assert_eq!(abi::m8_subhash_reset(core::ptr::null_mut(), h(&o.head)), 0);
             assert_eq!(insert(&o, 0, true), 0);
@@ -371,34 +471,64 @@ mod tests {
             assert_eq!(lookup(t, 0, 4), (true, false, true));
         }
         // unknownEqFalse (no hashnulls): a NULL key is dropped, so an all-NULL build is the empty set
-        let o = new_set(1 | 4 << 8 | abi::SUBHASH_NO_NULLS, 0, crate::ops::subplan::lazy::Lazy::new(Box::default())).expect("a set");
+        let o = new_set(
+            1 | 4 << 8 | abi::SUBHASH_NO_NULLS,
+            0,
+            crate::ops::subplan::lazy::Lazy::new(Box::default()),
+        )
+        .expect("a set");
         unsafe {
             assert_eq!(insert(&o, 0, true), 0);
-            assert_eq!((*seal(&o)).flags & (NONEMPTY | HAS_NULL), 0, "only NULL keys: empty");
+            assert_eq!(
+                (*seal(&o)).flags & (NONEMPTY | HAS_NULL),
+                0,
+                "only NULL keys: empty"
+            );
             assert_eq!(abi::m8_subhash_reset(core::ptr::null_mut(), h(&o.head)), 0);
             assert_eq!(insert(&o, 0, true), 0);
             assert_eq!(insert(&o, 9, false), 0);
             let t = seal(&o);
-            assert_eq!(((*t).flags & NONEMPTY, (*t).flags & HAS_NULL), (NONEMPTY, 0));
+            assert_eq!(
+                ((*t).flags & NONEMPTY, (*t).flags & HAS_NULL),
+                (NONEMPTY, 0)
+            );
             assert_eq!(lookup(t, 9, 4), (true, true, false));
         }
     }
 
     #[test]
     fn a_sealed_set_takes_no_row_until_a_reset_and_a_second_filler_errors_by_name() {
-        let o = new_set(1 | 8 << 8, 0, crate::ops::subplan::lazy::Lazy::new(Box::default())).expect("a set");
+        let o = new_set(
+            1 | 8 << 8,
+            0,
+            crate::ops::subplan::lazy::Lazy::new(Box::default()),
+        )
+        .expect("a set");
         unsafe {
             seal(&o);
             assert_eq!(insert(&o, 1, false), ERROR);
-            assert_eq!(message(), "gravity: m8_subhash_insert: a row into a sealed set (a rebuild resets it first)");
+            assert_eq!(
+                message(),
+                "gravity: m8_subhash_insert: a row into a sealed set (a rebuild resets it first)"
+            );
             let mut c = ctx(3, 8);
             let row = [1u64, 0];
-            assert_eq!(abi::m8_subhash_insert(&mut c, h(&o.head), row.as_ptr()), ERROR);
+            assert_eq!(
+                abi::m8_subhash_insert(&mut c, h(&o.head), row.as_ptr()),
+                ERROR
+            );
             assert!(message().contains("filled by more than one worker"));
         }
         for arg in [0, 2 | 4 << 8, 1 | 3 << 8, 1 | 4 << 8 | 1 << 16] {
-            let e = new_set(arg, 0, crate::ops::subplan::lazy::Lazy::new(Box::default())).err().expect("refused");
-            assert!(e.message().starts_with("gravity: nest.subplan's hashed key layout"), "{}", e.message());
+            let e = new_set(arg, 0, crate::ops::subplan::lazy::Lazy::new(Box::default()))
+                .err()
+                .expect("refused");
+            assert!(
+                e.message()
+                    .starts_with("gravity: nest.subplan's hashed key layout"),
+                "{}",
+                e.message()
+            );
         }
     }
 
@@ -429,7 +559,10 @@ mod tests {
                 }
                 for &k in &self.keys {
                     let row = [k, 0];
-                    assert_eq!(abi::m8_subhash_insert(core::ptr::null_mut(), self.set, row.as_ptr()), 0);
+                    assert_eq!(
+                        abi::m8_subhash_insert(core::ptr::null_mut(), self.set, row.as_ptr()),
+                        0
+                    );
                 }
                 if self.seal {
                     assert!(abi::m8_subhash_seal(core::ptr::null_mut(), self.set) > 0);
@@ -438,7 +571,11 @@ mod tests {
             Ok(())
         }
 
-        fn prerun_members(&mut self, _reader: usize, members: &[u16]) -> gravity_driver::Result<bool> {
+        fn prerun_members(
+            &mut self,
+            _reader: usize,
+            members: &[u16],
+        ) -> gravity_driver::Result<bool> {
             if !self.wide {
                 return Ok(false);
             }
@@ -447,37 +584,83 @@ mod tests {
     }
 
     fn lazy_set(members: &[u16]) -> SetLive {
-        SetLive { obj: new_set(1 | 8 << 8, members[members.len() - 1] as usize, crate::ops::subplan::lazy::Lazy::new(members.into())).expect("a set"), reader: None }
+        SetLive {
+            obj: new_set(
+                1 | 8 << 8,
+                members[members.len() - 1] as usize,
+                crate::ops::subplan::lazy::Lazy::new(members.into()),
+            )
+            .expect("a set"),
+            reader: None,
+        }
     }
 
     fn build(l: &SetLive, keys: &[u64]) -> Build {
-        Build { set: h(&l.obj.head), keys: keys.to_vec(), seal: true, probe: false, then: None, runs: Vec::new(), inner: 0, wide: false } // alloc: Cold
+        Build {
+            set: h(&l.obj.head),
+            keys: keys.to_vec(),
+            seal: true,
+            probe: false,
+            then: None,
+            runs: Vec::new(),
+            inner: 0,
+            wide: false,
+        } // alloc: Cold
     }
 
     fn frame(b: &mut Build) -> Frame {
         let p: *mut (dyn gravity_driver::OnDemand + '_) = b;
         // SAFETY: each test keeps `b` alive past every use of the frame.
-        core::ptr::NonNull::new(unsafe { core::mem::transmute::<*mut (dyn gravity_driver::OnDemand + '_), *mut (dyn gravity_driver::OnDemand + 'static)>(p) }).unwrap()
+        core::ptr::NonNull::new(unsafe {
+            core::mem::transmute::<
+                *mut (dyn gravity_driver::OnDemand + '_),
+                *mut (dyn gravity_driver::OnDemand + 'static),
+            >(p)
+        })
+        .unwrap()
     }
 
     #[test]
     fn a_lazy_set_builds_at_its_first_probe_once_and_never_unprobed() {
         let l = lazy_set(&[2, 3, 5]);
-        assert!(l.deferred(2) && l.deferred(5) && !l.deferred(4) && !l.deferred(6), "the members are stepped past");
+        assert!(
+            l.deferred(2) && l.deferred(5) && !l.deferred(4) && !l.deferred(6),
+            "the members are stepped past"
+        );
         let mut b = build(&l, &[7, 9, 11]);
         l.frame(Some(frame(&mut b)));
         let ctx: *mut Ctx = core::ptr::null_mut();
         let set = h(&l.obj.head);
         unsafe {
-            assert_eq!(*(set as *const u8).add(abi::SUBHASH_TABLE_AT as usize).cast::<u64>(), 0, "unbuilt: the probe calls the run");
+            assert_eq!(
+                *(set as *const u8)
+                    .add(abi::SUBHASH_TABLE_AT as usize)
+                    .cast::<u64>(),
+                0,
+                "unbuilt: the probe calls the run"
+            );
             let t = abi::m8_subhash_run(ctx, set);
             assert!(t > 0, "{}", message());
-            assert_eq!(*(set as *const u8).add(abi::SUBHASH_TABLE_AT as usize).cast::<u64>(), t as u64, "then the probe loads it");
+            assert_eq!(
+                *(set as *const u8)
+                    .add(abi::SUBHASH_TABLE_AT as usize)
+                    .cast::<u64>(),
+                t as u64,
+                "then the probe loads it"
+            );
             assert_eq!(lookup(t as *const KeyTable, 9, 8), (true, true, false));
             assert_eq!(lookup(t as *const KeyTable, 8, 8), (true, false, false));
-            assert_eq!(abi::m8_subhash_run(ctx, set), t, "built: the same header, no second run");
+            assert_eq!(
+                abi::m8_subhash_run(ctx, set),
+                t,
+                "built: the same header, no second run"
+            );
             l.frame(None);
-            assert_eq!(abi::m8_subhash_run(ctx, set), t, "a built set needs no frame");
+            assert_eq!(
+                abi::m8_subhash_run(ctx, set),
+                t,
+                "a built set needs no frame"
+            );
         }
         assert_eq!(b.runs, [[2u16, 3, 5]]);
         // a LAZY set never probed never runs its build (PG: an empty outer never reaches buildSubPlanHash)
@@ -487,9 +670,20 @@ mod tests {
         never.frame(None);
         assert!(nb.runs.is_empty() && never.obj.table.get() == 0);
         // a set built in program order is not LAZY: nothing is deferred, and its run before the seal is an error by name
-        let eager = SetLive { obj: new_set(1 | 8 << 8, 0, crate::ops::subplan::lazy::Lazy::new(Box::default())).expect("a set"), reader: None };
+        let eager = SetLive {
+            obj: new_set(
+                1 | 8 << 8,
+                0,
+                crate::ops::subplan::lazy::Lazy::new(Box::default()),
+            )
+            .expect("a set"),
+            reader: None,
+        };
         assert!(!eager.deferred(0));
-        assert_eq!(unsafe { abi::m8_subhash_run(ctx, h(&eager.obj.head)) }, ERROR);
+        assert_eq!(
+            unsafe { abi::m8_subhash_run(ctx, h(&eager.obj.head)) },
+            ERROR
+        );
         assert_eq!(message(), "gravity: m8_subhash_run: a set built in program order (not LAZY) probed before its seal");
     }
 
@@ -502,36 +696,68 @@ mod tests {
         let mut b = build(&w, &[7, 9]);
         b.wide = true;
         w.frame(Some(frame(&mut b)));
-        w.late_words(3, &mut gravity_parallel::LateWords::none()).expect("another pipeline's start");
-        assert!(b.runs.is_empty() && w.obj.table.get() == 0, "only the reader's start runs ahead");
-        w.late_words(4, &mut gravity_parallel::LateWords::none()).expect("the reader's start");
+        w.late_words(3, &mut gravity_parallel::LateWords::none())
+            .expect("another pipeline's start");
+        assert!(
+            b.runs.is_empty() && w.obj.table.get() == 0,
+            "only the reader's start runs ahead"
+        );
+        w.late_words(4, &mut gravity_parallel::LateWords::none())
+            .expect("the reader's start");
         assert_eq!(b.runs, [[2u16, 3]]);
         let t = unsafe { abi::m8_subhash_run(ctx, h(&w.obj.head)) };
         assert!(t > 0 && t as u64 == w.obj.table.get(), "{}", message());
         // SAFETY: the table the run just sealed, alive while `w` holds it
-        assert_eq!(unsafe { lookup(t as *const KeyTable, 9, 8) }, (true, true, false));
-        w.late_words(4, &mut gravity_parallel::LateWords::none()).expect("a second start of the reader");
-        assert_eq!(b.runs.len(), 1, "built ahead once: neither the probe nor a second start runs it again");
+        assert_eq!(
+            unsafe { lookup(t as *const KeyTable, 9, 8) },
+            (true, true, false)
+        );
+        w.late_words(4, &mut gravity_parallel::LateWords::none())
+            .expect("a second start of the reader");
+        assert_eq!(
+            b.runs.len(),
+            1,
+            "built ahead once: neither the probe nor a second start runs it again"
+        );
         w.frame(None);
         // the reader runs on the leader alone: its start runs nothing, and its first probe builds the set
         let mut l = lazy_set(&[1]);
         l.reader = Some(2);
         let mut lb = build(&l, &[5]);
         l.frame(Some(frame(&mut lb)));
-        l.late_words(2, &mut gravity_parallel::LateWords::none()).expect("the reader's start");
-        assert!(lb.runs.is_empty() && l.obj.table.get() == 0, "a leader reader leaves the build to its first probe");
-        assert!(unsafe { abi::m8_subhash_run(ctx, h(&l.obj.head)) } > 0, "{}", message());
+        l.late_words(2, &mut gravity_parallel::LateWords::none())
+            .expect("the reader's start");
+        assert!(
+            lb.runs.is_empty() && l.obj.table.get() == 0,
+            "a leader reader leaves the build to its first probe"
+        );
+        assert!(
+            unsafe { abi::m8_subhash_run(ctx, h(&l.obj.head)) } > 0,
+            "{}",
+            message()
+        );
         assert_eq!(lb.runs.len(), 1);
         l.frame(None);
         // a run ahead that fails is the reader start's error, and the build never runs again
         let mut f = lazy_set(&[1]);
         f.reader = Some(2);
         let mut fb = build(&f, &[5]);
-        (fb.wide, fb.then) = (true, Some(gravity_driver::Error::Host("the build's error".into())));
+        (fb.wide, fb.then) = (
+            true,
+            Some(gravity_driver::Error::Host("the build's error".into())),
+        );
         f.frame(Some(frame(&mut fb)));
-        assert_eq!(f.late_words(2, &mut gravity_parallel::LateWords::none()).expect_err("the build's error").message(), "gravity: the build's error");
+        assert_eq!(
+            f.late_words(2, &mut gravity_parallel::LateWords::none())
+                .expect_err("the build's error")
+                .message(),
+            "gravity: the build's error"
+        );
         assert_eq!(unsafe { abi::m8_subhash_run(ctx, h(&f.obj.head)) }, ERROR);
-        assert_eq!(message(), "gravity: m8_subhash_run: the set's build failed earlier in this execution");
+        assert_eq!(
+            message(),
+            "gravity: m8_subhash_run: the set's build failed earlier in this execution"
+        );
         assert_eq!(fb.runs.len(), 1);
         f.frame(None);
     }
@@ -544,15 +770,23 @@ mod tests {
         l.frame(Some(frame(&mut b)));
         let ctx: *mut Ctx = core::ptr::null_mut();
         assert_eq!(unsafe { abi::m8_subhash_run(ctx, h(&l.obj.head)) }, ERROR);
-        assert_eq!(message(), "gravity: the build's error", "the build's error raises at the probe");
+        assert_eq!(
+            message(),
+            "gravity: the build's error",
+            "the build's error raises at the probe"
+        );
         assert_eq!(unsafe { abi::m8_subhash_run(ctx, h(&l.obj.head)) }, ERROR);
-        assert_eq!(message(), "gravity: m8_subhash_run: the set's build failed earlier in this execution");
+        assert_eq!(
+            message(),
+            "gravity: m8_subhash_run: the set's build failed earlier in this execution"
+        );
         assert_eq!(b.runs.len(), 1);
         l.frame(None);
     }
 
     #[test]
-    fn a_lazy_set_without_a_frame_unsealed_reprobed_inside_its_build_or_reset_after_it_errors_by_name() {
+    fn a_lazy_set_without_a_frame_unsealed_reprobed_inside_its_build_or_reset_after_it_errors_by_name(
+    ) {
         let ctx: *mut Ctx = core::ptr::null_mut();
         let l = lazy_set(&[4]);
         assert_eq!(unsafe { abi::m8_subhash_run(ctx, h(&l.obj.head)) }, ERROR);
@@ -563,20 +797,29 @@ mod tests {
         ub.seal = false;
         u.frame(Some(frame(&mut ub)));
         assert_eq!(unsafe { abi::m8_subhash_run(ctx, h(&u.obj.head)) }, ERROR);
-        assert_eq!(message(), "gravity: m8_subhash_run: the LAZY set's build ran without sealing it");
+        assert_eq!(
+            message(),
+            "gravity: m8_subhash_run: the LAZY set's build ran without sealing it"
+        );
         u.frame(None);
         // a probe of the set inside its own build
         let r = lazy_set(&[4]);
         let mut rb = build(&r, &[1]);
         rb.probe = true;
         r.frame(Some(frame(&mut rb)));
-        assert!(unsafe { abi::m8_subhash_run(ctx, h(&r.obj.head)) } > 0, "the outer probe's build completes");
+        assert!(
+            unsafe { abi::m8_subhash_run(ctx, h(&r.obj.head)) } > 0,
+            "the outer probe's build completes"
+        );
         assert_eq!(rb.inner, ERROR);
         // (the inner probe's stashed error was taken by nothing: the outer call returned a header)
         let _ = message();
         // a reset after the build that no rerun set re-armed (the build's own open never resets a LAZY set)
         assert_eq!(unsafe { abi::m8_subhash_reset(ctx, h(&r.obj.head)) }, ERROR);
-        assert_eq!(message(), "gravity: m8_subhash_reset: a LAZY set's rebuild its rerun set did not re-arm");
+        assert_eq!(
+            message(),
+            "gravity: m8_subhash_reset: a LAZY set's rebuild its rerun set did not re-arm"
+        );
         r.frame(None);
     }
 
@@ -584,20 +827,55 @@ mod tests {
     fn a_copy_is_valid_until_the_same_lanes_next_copy_and_lanes_never_share() {
         let o = new_result(crate::ops::subplan::array::Arrays::with(None));
         let (mut c0, mut c7) = (ctx(0, 8), ctx(7, 8));
-        let (a, b) = (b"first by-reference result".as_slice(), b"another".as_slice());
+        let (a, b) = (
+            b"first by-reference result".as_slice(),
+            b"another".as_slice(),
+        );
         unsafe {
-            let p0 = abi::m8_sub_copy(&mut c0 as *mut _ as u64, h(&o.head), a.as_ptr() as u64, a.len() as u64);
-            let p7 = abi::m8_sub_copy(&mut c7 as *mut _ as u64, h(&o.head), b.as_ptr() as u64, b.len() as u64);
+            let p0 = abi::m8_sub_copy(
+                &mut c0 as *mut _ as u64,
+                h(&o.head),
+                a.as_ptr() as u64,
+                a.len() as u64,
+            );
+            let p7 = abi::m8_sub_copy(
+                &mut c7 as *mut _ as u64,
+                h(&o.head),
+                b.as_ptr() as u64,
+                b.len() as u64,
+            );
             assert!(p0 > 0 && p7 > 0 && p0 != p7, "{}", message());
-            assert_eq!(std::slice::from_raw_parts(p0 as *const u8, a.len()), a, "lane 7's copy never touches lane 0's");
+            assert_eq!(
+                std::slice::from_raw_parts(p0 as *const u8, a.len()),
+                a,
+                "lane 7's copy never touches lane 0's"
+            );
             // the same lane again: its buffer reused for a result no larger (PG frees curTuple at the next call)
-            let q0 = abi::m8_sub_copy(&mut c0 as *mut _ as u64, h(&o.head), b.as_ptr() as u64, b.len() as u64);
-            assert_eq!((q0, std::slice::from_raw_parts(q0 as *const u8, b.len())), (p0, b));
+            let q0 = abi::m8_sub_copy(
+                &mut c0 as *mut _ as u64,
+                h(&o.head),
+                b.as_ptr() as u64,
+                b.len() as u64,
+            );
+            assert_eq!(
+                (q0, std::slice::from_raw_parts(q0 as *const u8, b.len())),
+                (p0, b)
+            );
             // a copy of the lane's own previous copy is moved, not read after a free
-            let r0 = abi::m8_sub_copy(&mut c0 as *mut _ as u64, h(&o.head), (q0 as *const u8) as u64, b.len() as u64);
+            let r0 = abi::m8_sub_copy(
+                &mut c0 as *mut _ as u64,
+                h(&o.head),
+                (q0 as *const u8) as u64,
+                b.len() as u64,
+            );
             assert_eq!(std::slice::from_raw_parts(r0 as *const u8, b.len()), b);
             let big = vec![5u8; 4096]; // alloc: Cold
-            let s0 = abi::m8_sub_copy(&mut c0 as *mut _ as u64, h(&o.head), big.as_ptr() as u64, 4096);
+            let s0 = abi::m8_sub_copy(
+                &mut c0 as *mut _ as u64,
+                h(&o.head),
+                big.as_ptr() as u64,
+                4096,
+            );
             assert_eq!(std::slice::from_raw_parts(s0 as *const u8, 4096), &big[..]);
         }
     }
@@ -607,14 +885,20 @@ mod tests {
         let o = new_result(crate::ops::subplan::array::Arrays::with(None));
         let mut c = ctx(2, 1);
         let v: Vec<u8> = (0..200u8).collect(); // alloc: Cold
-        let first = unsafe { abi::m8_sub_copy(&mut c as *mut _ as u64, h(&o.head), v.as_ptr() as u64, 200) };
+        let first = unsafe {
+            abi::m8_sub_copy(&mut c as *mut _ as u64, h(&o.head), v.as_ptr() as u64, 200)
+        };
         for i in 0..1_000_000u64 {
             let n = 1 + i % 200;
-            let p = unsafe { abi::m8_sub_copy(&mut c as *mut _ as u64, h(&o.head), v.as_ptr() as u64, n) };
-            assert_eq!(p, first, "call {i}: the lane's buffer is reused, never grown past the largest result");
+            let p = unsafe {
+                abi::m8_sub_copy(&mut c as *mut _ as u64, h(&o.head), v.as_ptr() as u64, n)
+            };
+            assert_eq!(
+                p, first,
+                "call {i}: the lane's buffer is reused, never grown past the largest result"
+            );
         }
         // SAFETY: the slot is this thread's.
         assert_eq!(unsafe { (*o.slots[2].get()).capacity() }, 25);
     }
-
 }

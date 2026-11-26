@@ -32,12 +32,14 @@ use tuplesort::{SortSupport, SortSupportInit};
 use types_core::Oid;
 use types_error::PgResult;
 use types_fmgr::LocalFcinfo;
-use types_nodes::NodeList;
 use types_nodes::node_tree::Node;
 use types_nodes::primnodes::INDEX_VAR;
+use types_nodes::NodeList;
 use types_rel::Relation;
 use types_relscan::IndexScanDescData;
-use types_scan::scankey::{ScanKeyData, StrategyNumber, SK_ISNULL, SK_ORDER_BY, SK_SEARCHNOTNULL, SK_SEARCHNULL};
+use types_scan::scankey::{
+    ScanKeyData, StrategyNumber, SK_ISNULL, SK_ORDER_BY, SK_SEARCHNOTNULL, SK_SEARCHNULL,
+};
 use types_scan::sdir::ScanDirection;
 use types_slot::SlotData;
 use types_storage::bufpage::MaxIndexTuplesPerPage;
@@ -96,7 +98,13 @@ struct Sizes {
 
 impl Sizes {
     fn new(budget: Option<u64>) -> Sizes {
-        Sizes { cap: 1, budget, left: budget, count: budget.unwrap_or(0), step: 0 }
+        Sizes {
+            cap: 1,
+            budget,
+            left: budget,
+            count: budget.unwrap_or(0),
+            step: 0,
+        }
     }
 
     /// A run cell's value: the rows left from the next window on, windows doubling again until it is spent.
@@ -115,7 +123,12 @@ impl Sizes {
 
     /// After a window of `rows` (> 0) rows.
     fn after(&mut self, rows: usize) {
-        self.cap = if self.step > 0 { self.cap + self.step } else { self.cap * 2 }.min(IOS_MAX_ROWS);
+        self.cap = if self.step > 0 {
+            self.cap + self.step
+        } else {
+            self.cap * 2
+        }
+        .min(IOS_MAX_ROWS);
         if let Some(l) = self.left.filter(|&l| l > 0) {
             // the budget spent, the consumer asks on (a filter above dropped rows): windows grow again from one row, by
             // the count per window
@@ -130,14 +143,36 @@ impl Sizes {
 
 impl IosBatch {
     /// The batch over `attnos` of `heap` (by-reference columns named from the heap descriptor).
-    pub fn new(heap: &Relation<'_>, attnos: &[i16], budget: Option<u64>, run: Option<std::sync::Arc<std::sync::atomic::AtomicU64>>) -> IosBatch {
+    pub fn new(
+        heap: &Relation<'_>,
+        attnos: &[i16],
+        budget: Option<u64>,
+        run: Option<std::sync::Arc<std::sync::atomic::AtomicU64>>,
+    ) -> IosBatch {
         IosBatch::with_byref(byref_of(heap, attnos), attnos, budget, run)
     }
 
     /// `new` with the lanes' by-reference lengths (`byref_of`) taken on another thread (a pool worker has no relcache).
-    pub fn with_byref(byref: Vec<i16>, attnos: &[i16], budget: Option<u64>, run: Option<std::sync::Arc<std::sync::atomic::AtomicU64>>) -> IosBatch {
+    pub fn with_byref(
+        byref: Vec<i16>,
+        attnos: &[i16],
+        budget: Option<u64>,
+        run: Option<std::sync::Arc<std::sync::atomic::AtomicU64>>,
+    ) -> IosBatch {
         let n = attnos.len();
-        IosBatch { sizes: Sizes::new(budget), run, byref, lanes: vec![0; n * IOS_MAX_ROWS], valid: vec![0; n * WORDS], has_null: vec![false; n], tids: vec![0; IOS_MAX_ROWS], bytes: Vec::new(), vals: vec![0; n], nulls: vec![0; n], attnos: attnos.to_vec() } // alloc: Node
+        IosBatch {
+            sizes: Sizes::new(budget),
+            run,
+            byref,
+            lanes: vec![0; n * IOS_MAX_ROWS],
+            valid: vec![0; n * WORDS],
+            has_null: vec![false; n],
+            tids: vec![0; IOS_MAX_ROWS],
+            bytes: Vec::new(),
+            vals: vec![0; n],
+            nulls: vec![0; n],
+            attnos: attnos.to_vec(),
+        } // alloc: Node
     }
 
     /// A seek: the next window starts at one row again.
@@ -148,7 +183,16 @@ impl IosBatch {
     /// A one-row window's RowId lane (an EvalPlanQual row, `IndexSource::window`'s single-row path): the row at `pos`.
     pub fn one(&mut self, pos: ScanPos, w: &mut Window<'_>) {
         self.tids[0] = tid_word(pos.block, pos.off);
-        w.set(self.attnos.len(), Lane::byval(self.tids.as_ptr() as *const u8, core::ptr::null(), 8, lane::REGION_ARENA, LaneId::RowId.encode()));
+        w.set(
+            self.attnos.len(),
+            Lane::byval(
+                self.tids.as_ptr() as *const u8,
+                core::ptr::null(),
+                8,
+                lane::REGION_ARENA,
+                LaneId::RowId.encode(),
+            ),
+        );
     }
 
     /// The next window: up to `cap` rows, the attribute lanes, the RowId lane (lane `natts`) and the base at the first row.
@@ -156,12 +200,24 @@ impl IosBatch {
     /// (`Cells::put`) and returns its heap position, `None` at the end (no cell put). Returns `(rows, the last row's
     /// position, ended)`: `ended` once the walk reported its end (never asked again: a btree asked past its end starts
     /// over, v1 `IosBatch.eof`).
-    pub fn fill<E>(&mut self, mut next: impl FnMut(&mut Cells<'_>) -> Result<Option<ScanPos>, E>, heap_oid: u32, w: &mut Window<'_>) -> Result<(u32, ScanPos, bool), E> {
+    pub fn fill<E>(
+        &mut self,
+        mut next: impl FnMut(&mut Cells<'_>) -> Result<Option<ScanPos>, E>,
+        heap_oid: u32,
+        w: &mut Window<'_>,
+    ) -> Result<(u32, ScanPos, bool), E> {
         let cap = self.start();
         let (mut rows, mut last, mut ended) = (0usize, ScanPos::NONE, false);
         // bounded("small-fixed: at most the window's row cap (IOS_MAX_ROWS: MaxIndexTuplesPerPage, 408 at 8 K pages), one row of the caller's walk each")
         while rows < cap {
-            let mut cells = Cells { byref: &self.byref, lanes: &mut self.lanes, valid: &mut self.valid, has_null: &mut self.has_null, bytes: &mut self.bytes, row: rows };
+            let mut cells = Cells {
+                byref: &self.byref,
+                lanes: &mut self.lanes,
+                valid: &mut self.valid,
+                has_null: &mut self.has_null,
+                bytes: &mut self.bytes,
+                row: rows,
+            };
             let Some(pos) = next(&mut cells)? else {
                 ended = true;
                 break;
@@ -176,7 +232,12 @@ impl IosBatch {
     /// `fill` for a walk that hands each row over as arrays (`IndexSource::next`: an index-only row formed from the index
     /// tuple, a row with a system cell): `next` writes lane `k`'s word and null flag into `vals[k]` / `nulls[k]`, copied
     /// into the window before the next row (a by-reference image lives only until then).
-    pub fn fill_rows<E>(&mut self, mut next: impl FnMut(&mut [Word], &mut [u8]) -> Result<Option<ScanPos>, E>, heap_oid: u32, w: &mut Window<'_>) -> Result<(u32, ScanPos, bool), E> {
+    pub fn fill_rows<E>(
+        &mut self,
+        mut next: impl FnMut(&mut [Word], &mut [u8]) -> Result<Option<ScanPos>, E>,
+        heap_oid: u32,
+        w: &mut Window<'_>,
+    ) -> Result<(u32, ScanPos, bool), E> {
         let cap = self.start();
         let (mut rows, mut last, mut ended) = (0usize, ScanPos::NONE, false);
         // bounded("small-fixed: at most the window's row cap (IOS_MAX_ROWS: MaxIndexTuplesPerPage, 408 at 8 K pages), one row of the caller's walk each")
@@ -187,7 +248,14 @@ impl IosBatch {
             };
             self.tids[rows] = tid_word(pos.block, pos.off);
             last = ScanPos::row(heap_oid, pos.block, pos.off);
-            let mut cells = Cells { byref: &self.byref, lanes: &mut self.lanes, valid: &mut self.valid, has_null: &mut self.has_null, bytes: &mut self.bytes, row: rows };
+            let mut cells = Cells {
+                byref: &self.byref,
+                lanes: &mut self.lanes,
+                valid: &mut self.valid,
+                has_null: &mut self.has_null,
+                bytes: &mut self.bytes,
+                row: rows,
+            };
             // bounded("key-columns: one cell per output column of a row, at most MaxTupleAttributeNumber (1664) columns")
             for (k, (&v, &null)) in self.vals.iter().zip(&self.nulls).enumerate() {
                 cells.put(k, v, null != 0);
@@ -201,14 +269,31 @@ impl IosBatch {
     fn start(&mut self) -> usize {
         self.bytes.clear();
         self.has_null.fill(false);
-        if let Some(v) = self.run.as_ref().map(|c| c.swap(crate::ops::scan::index_source::RUN_NONE, std::sync::atomic::Ordering::Relaxed)).filter(|&v| v != crate::ops::scan::index_source::RUN_NONE) {
+        if let Some(v) = self
+            .run
+            .as_ref()
+            .map(|c| {
+                c.swap(
+                    crate::ops::scan::index_source::RUN_NONE,
+                    std::sync::atomic::Ordering::Relaxed,
+                )
+            })
+            .filter(|&v| v != crate::ops::scan::index_source::RUN_NONE)
+        {
             self.sizes.set_left(v);
         }
         self.sizes.cap()
     }
 
     /// A window of `rows` rows filled: its copied images' offsets made pointers, its lanes, RowId lane and base set.
-    fn finish(&mut self, rows: usize, last: ScanPos, ended: bool, heap_oid: u32, w: &mut Window<'_>) -> (u32, ScanPos, bool) {
+    fn finish(
+        &mut self,
+        rows: usize,
+        last: ScanPos,
+        ended: bool,
+        heap_oid: u32,
+        w: &mut Window<'_>,
+    ) -> (u32, ScanPos, bool) {
         let natts = self.attnos.len();
         // the copied images: offsets into `bytes` until the window is complete (it may grow), then pointers
         let base = self.bytes.as_ptr() as u64;
@@ -218,7 +303,11 @@ impl IosBatch {
             if self.has_null[k] {
                 let words = &self.valid[k * WORDS..(k + 1) * WORDS];
                 // bounded("small-fixed: one window's rows, at most IOS_MAX_ROWS (MaxIndexTuplesPerPage, 408 at 8 K pages), an add each")
-                for (_r, cell) in lane.iter_mut().enumerate().filter(|(r, _)| words[r / 64] >> (r % 64) & 1 != 0) {
+                for (_r, cell) in lane
+                    .iter_mut()
+                    .enumerate()
+                    .filter(|(r, _)| words[r / 64] >> (r % 64) & 1 != 0)
+                {
                     *cell += base;
                 }
             } else {
@@ -231,14 +320,33 @@ impl IosBatch {
         self.sizes.after(rows);
         // bounded("key-columns: one lane per output column, at most MaxTupleAttributeNumber (1664) columns")
         for (k, &a) in self.attnos.iter().enumerate() {
-            let valid = if self.has_null[k] { self.valid[k * WORDS..].as_ptr() } else { core::ptr::null() };
-            let mut l = Lane::byval(self.lanes[k * IOS_MAX_ROWS..].as_ptr() as *const u8, valid, 8, lane::REGION_ARENA, lane::id(lane::ID_ATTR, a as u32));
+            let valid = if self.has_null[k] {
+                self.valid[k * WORDS..].as_ptr()
+            } else {
+                core::ptr::null()
+            };
+            let mut l = Lane::byval(
+                self.lanes[k * IOS_MAX_ROWS..].as_ptr() as *const u8,
+                valid,
+                8,
+                lane::REGION_ARENA,
+                lane::id(lane::ID_ATTR, a as u32),
+            );
             if self.byref[k] != 0 {
                 l.kind = lane::KIND_BYREF;
             }
             w.set(k, l);
         }
-        w.set(natts, Lane::byval(self.tids.as_ptr() as *const u8, core::ptr::null(), 8, lane::REGION_ARENA, LaneId::RowId.encode()));
+        w.set(
+            natts,
+            Lane::byval(
+                self.tids.as_ptr() as *const u8,
+                core::ptr::null(),
+                8,
+                lane::REGION_ARENA,
+                LaneId::RowId.encode(),
+            ),
+        );
         w.rows = rows as u32;
         let (b0, o0) = gravity_kernels::ops::scan::entries::tid_of_word(self.tids[0]);
         w.set_base(WindowBase::at(ScanPos::row(heap_oid, b0, o0)));
@@ -248,7 +356,15 @@ impl IosBatch {
 
 /// Per lane of `attnos` (columns of `heap`): the column's `attlen` when it is by reference, 0 by value (`IosBatch`).
 pub fn byref_of(heap: &Relation<'_>, attnos: &[i16]) -> Vec<i16> {
-    attnos.iter().map(|&a| heap.rd_att.compact_attrs.get(a as usize - 1).map_or(0, |c| if c.attbyval { 0 } else { c.attlen })).collect() // alloc: Node
+    attnos
+        .iter()
+        .map(|&a| {
+            heap.rd_att
+                .compact_attrs
+                .get(a as usize - 1)
+                .map_or(0, |c| if c.attbyval { 0 } else { c.attlen })
+        })
+        .collect() // alloc: Node
 }
 
 /// One row of an `IosBatch` window as the source's walk writes it (`IosBatch::fill`'s `next`): lane `k`'s cell by `put`.
@@ -275,7 +391,7 @@ impl Cells<'_> {
                 let words = &mut self.valid[k * WORDS..(k + 1) * WORDS];
                 words.fill(0);
                 words[..r / 64].fill(u64::MAX);
-                if ! r.is_multiple_of( 64) {
+                if !r.is_multiple_of(64) {
                     words[r / 64] = (1u64 << (r % 64)) - 1;
                 }
             }
@@ -286,7 +402,11 @@ impl Cells<'_> {
         }
         let len = self.byref[k];
         // a non-null by-reference cell points at its live image (the walk's contract above)
-        self.lanes[k * IOS_MAX_ROWS + r] = if len == 0 { v } else { raw::copy_cell(self.bytes, v as *const u8, len) };
+        self.lanes[k * IOS_MAX_ROWS + r] = if len == 0 {
+            v
+        } else {
+            raw::copy_cell(self.bytes, v as *const u8, len)
+        };
     }
 }
 
@@ -307,22 +427,66 @@ pub struct AmRecipe {
 impl AmRecipe {
     /// The keys of `indexorderby`; `ops[i]` = clause `i`'s indexorderbyops operator, result type and collation (none for
     /// an index-only walk, which never reorders); each key's word appended to `words`.
-    pub fn new(index: &Relation<'_>, indexorderby: &NodeList<'_>, ops: &[(Oid, Oid, Oid)], words: &mut Vec<KeyWord>) -> PgResult<AmRecipe> {
+    pub fn new(
+        index: &Relation<'_>,
+        indexorderby: &NodeList<'_>,
+        ops: &[(Oid, Oid, Oid)],
+        words: &mut Vec<KeyWord>,
+    ) -> PgResult<AmRecipe> {
         let mut r = AmRecipe::default();
         // bounded("other: one key built per clause of the plan's index ORDER BY, at plan time; the statement's ORDER BY bounds them")
         for (j, clause) in indexorderby.iter().enumerate() {
-            let op = clause.as_op_expr().filter(|o| o.args.len() == 2).ok_or_else(|| crate::pg_err("gravity: an ORDER BY key that is not an operator"))?;
-            let var = strip_relabel(op.args.nth(0)).as_var().filter(|v| v.varno == INDEX_VAR && v.varattno >= 1 && v.varattno as i32 <= index.indnkeyatts()).ok_or_else(|| crate::pg_err("gravity: ORDER BY key side"))?;
+            let op = clause
+                .as_op_expr()
+                .filter(|o| o.args.len() == 2)
+                .ok_or_else(|| crate::pg_err("gravity: an ORDER BY key that is not an operator"))?;
+            let var = strip_relabel(op.args.nth(0))
+                .as_var()
+                .filter(|v| {
+                    v.varno == INDEX_VAR
+                        && v.varattno >= 1
+                        && v.varattno as i32 <= index.indnkeyatts()
+                })
+                .ok_or_else(|| crate::pg_err("gravity: ORDER BY key side"))?;
             // 0: an expression column (its value formed by the index's expression)
-            let heap = index.rd_index.as_ref().and_then(|f| f.indkey.get(var.varattno as usize - 1).copied()).filter(|&a| a >= 0).ok_or_else(|| crate::pg_err("gravity: an ORDER BY key on a system column"))?;
-            let (strategy, _, right) = gravity_fn::typesem::op_opfamily_properties(op.opno, index.rd_opfamily[var.varattno as usize - 1], true)?;
+            let heap = index
+                .rd_index
+                .as_ref()
+                .and_then(|f| f.indkey.get(var.varattno as usize - 1).copied())
+                .filter(|&a| a >= 0)
+                .ok_or_else(|| crate::pg_err("gravity: an ORDER BY key on a system column"))?;
+            let (strategy, _, right) = gravity_fn::typesem::op_opfamily_properties(
+                op.opno,
+                index.rd_opfamily[var.varattno as usize - 1],
+                true,
+            )?;
             let mut k = ScanKeyData::empty();
-            (k.sk_flags, k.sk_attno, k.sk_strategy, k.sk_subtype, k.sk_collation) = (SK_ORDER_BY, var.varattno, strategy as StrategyNumber, right, op.inputcollid);
+            (
+                k.sk_flags,
+                k.sk_attno,
+                k.sk_strategy,
+                k.sk_subtype,
+                k.sk_collation,
+            ) = (
+                SK_ORDER_BY,
+                var.varattno,
+                strategy as StrategyNumber,
+                right,
+                op.inputcollid,
+            );
             fmgr_core::fmgr_info_into(op.opfuncid, &mut k.sk_func)?;
             r.orderby.push(k); // alloc: Program
             r.orderby_heap.push(heap); // alloc: Program
             if let Some(&(sortop, typ, coll)) = ops.get(j) {
-                r.ssup.push(tuplesort::prepare_sort_support_from_ordering_op(sortop, &SortSupportInit { ssup_collation: coll, ssup_nulls_first: false, ssup_attno: 0 })?); // alloc: Program
+                r.ssup
+                    .push(tuplesort::prepare_sort_support_from_ordering_op(
+                        sortop,
+                        &SortSupportInit {
+                            ssup_collation: coll,
+                            ssup_nulls_first: false,
+                            ssup_attno: 0,
+                        },
+                    )?); // alloc: Program
                 r.typs.push(gravity_fn::typesem::storage::len_byval(typ)?); // alloc: Program
             }
             words.push(KeyWord::OrderBy(j as u16)); // alloc: Program
@@ -344,12 +508,25 @@ pub struct Quals<'a> {
 
 /// Index column `attno`'s expression (varno 1, RelationGetIndexExpressions), `None` for a table column: exec's
 /// admission compares it with the plan's original clause (m2_index_admit.rs).
-pub fn index_expression<'m>(mcx: Mcx<'m>, index: &Relation<'_>, attno: i16) -> PgResult<Option<Node<'m>>> {
-    let Some(ind) = index.rd_index.as_ref().filter(|_| attno >= 1 && attno as i32 <= index.indnkeyatts()) else { return Ok(None) };
+pub fn index_expression<'m>(
+    mcx: Mcx<'m>,
+    index: &Relation<'_>,
+    attno: i16,
+) -> PgResult<Option<Node<'m>>> {
+    let Some(ind) = index
+        .rd_index
+        .as_ref()
+        .filter(|_| attno >= 1 && attno as i32 <= index.indnkeyatts())
+    else {
+        return Ok(None);
+    };
     if ind.indkey.get(attno as usize - 1).copied() != Some(0) {
         return Ok(None);
     }
-    let k = ind.indkey[..attno as usize - 1].iter().filter(|&&a| a == 0).count();
+    let k = ind.indkey[..attno as usize - 1]
+        .iter()
+        .filter(|&&a| a == 0)
+        .count();
     let exprs = execindexing::RelationGetIndexExpressions(mcx, index)?;
     Ok((k < exprs.len()).then(|| exprs.nth(k)))
 }
@@ -368,7 +545,13 @@ type QueueCmp = Box<dyn Fn(&Queued, &Queued) -> i32>;
 /// table rows are dead or invisible to the walk's snapshot is that many table fetches before the next row (each a buffer
 /// read, and a dirty victim's write and WAL flush under a small shared_buffers), with no poll between them: PostgreSQL's
 /// loop checks for interrupts only as the index walk steps to its next page.
-pub(crate) fn getnext_slot_polled<'mcx>(step: &mut cancelpoll::Step, mcx: Mcx<'mcx>, scan: &mut IndexScanDescData<'mcx>, dir: ScanDirection, slot: &mut SlotData<'mcx>) -> PgResult<bool> {
+pub(crate) fn getnext_slot_polled<'mcx>(
+    step: &mut cancelpoll::Step,
+    mcx: Mcx<'mcx>,
+    scan: &mut IndexScanDescData<'mcx>,
+    dir: ScanDirection,
+    slot: &mut SlotData<'mcx>,
+) -> PgResult<bool> {
     loop {
         if !scan.xs_heap_continue && indexam::index_getnext_tid(scan, dir)?.is_none() {
             return Ok(false);
@@ -422,7 +605,12 @@ fn cmp(a: (&[Datum], &[bool]), b: (&[Datum], &[bool]), ssup: &[SortSupport]) -> 
 }
 
 /// Key `k`'s operator on `d` and its argument; `None` when it returns NULL.
-fn call(fc: &mut LocalFcinfo<2>, k: &mut ScanKeyData, d: Datum, mcx: Mcx<'_>) -> PgResult<Option<Datum>> {
+fn call(
+    fc: &mut LocalFcinfo<2>,
+    k: &mut ScanKeyData,
+    d: Datum,
+    mcx: Mcx<'_>,
+) -> PgResult<Option<Datum>> {
     fc.rearm(k.sk_collation);
     // the exec context outlives this call; it resets at unbind
     crate::ops::scan::raw::arm_result_mcx(fc, mcx);
@@ -433,7 +621,12 @@ fn call(fc: &mut LocalFcinfo<2>, k: &mut ScanKeyData, d: Datum, mcx: Mcx<'_>) ->
 }
 
 /// IndexRecheck over the scan keys: a null test on its column's nullness, an operator key on its column (`col(i)`).
-fn passes(fc: &mut LocalFcinfo<2>, keys: &mut [ScanKeyData], mut col: impl FnMut(usize, i16) -> (Datum, bool), mcx: Mcx<'_>) -> PgResult<bool> {
+fn passes(
+    fc: &mut LocalFcinfo<2>,
+    keys: &mut [ScanKeyData],
+    mut col: impl FnMut(usize, i16) -> (Datum, bool),
+    mcx: Mcx<'_>,
+) -> PgResult<bool> {
     // bounded("other: one recheck per scan key of the walk, which the statement's index quals bound")
     for (i, k) in keys.iter_mut().enumerate() {
         let (d, null) = col(i, k.sk_attno);
@@ -442,7 +635,10 @@ fn passes(fc: &mut LocalFcinfo<2>, keys: &mut [ScanKeyData], mut col: impl FnMut
             if null != (search == SK_SEARCHNULL) {
                 return Ok(false);
             }
-        } else if null || k.sk_flags & SK_ISNULL != 0 || !call(fc, k, d, mcx)?.is_some_and(|r| r.as_bool()) {
+        } else if null
+            || k.sk_flags & SK_ISNULL != 0
+            || !call(fc, k, d, mcx)?.is_some_and(|r| r.as_bool())
+        {
             return Ok(false);
         }
     }
@@ -450,7 +646,12 @@ fn passes(fc: &mut LocalFcinfo<2>, keys: &mut [ScanKeyData], mut col: impl FnMut
 }
 
 /// A key's column: table column `heap`, or (0) index column `attno`'s formed value.
-fn key_col(slot: &mut SlotData<'static>, heap: i16, attno: i16, formed: (&[Datum; INDEX_COLS], &[bool; INDEX_COLS])) -> (Datum, bool) {
+fn key_col(
+    slot: &mut SlotData<'static>,
+    heap: i16,
+    attno: i16,
+    formed: (&[Datum; INDEX_COLS], &[bool; INDEX_COLS]),
+) -> (Datum, bool) {
     if heap == 0 {
         return (formed.0[attno as usize - 1], formed.1[attno as usize - 1]);
     }
@@ -461,7 +662,16 @@ fn key_col(slot: &mut SlotData<'static>, heap: i16, attno: i16, formed: (&[Datum
 /// FormIndexDatum for the row in `slot` when some key in `heap` is on an expression column (IndexRecheck evaluates the
 /// same expressions through indexqualorig), into `ivals` / `inull` allocated in `row` (reset first).
 #[allow(clippy::too_many_arguments)]
-fn form<'m>(heap: &[i16], index: &Relation<'static>, info: &mut Option<execindexing::IndexInfo<'m>>, slot: &mut SlotData<'m>, row: &mut Root, ivals: &mut [Datum; INDEX_COLS], inull: &mut [bool; INDEX_COLS], mcx: Mcx<'m>) -> PgResult<()> {
+fn form<'m>(
+    heap: &[i16],
+    index: &Relation<'static>,
+    info: &mut Option<execindexing::IndexInfo<'m>>,
+    slot: &mut SlotData<'m>,
+    row: &mut Root,
+    ivals: &mut [Datum; INDEX_COLS],
+    inull: &mut [bool; INDEX_COLS],
+    mcx: Mcx<'m>,
+) -> PgResult<()> {
     if !heap.contains(&0) {
         return Ok(());
     }
@@ -469,19 +679,40 @@ fn form<'m>(heap: &[i16], index: &Relation<'static>, info: &mut Option<execindex
         *info = Some(execindexing::BuildIndexInfo(mcx, index)?);
     }
     row.reset();
-    execindexing::FormIndexDatum(mcx, row.mcx(), info.as_mut().expect("built"), slot, ivals, inull)
+    execindexing::FormIndexDatum(
+        mcx,
+        row.mcx(),
+        info.as_mut().expect("built"),
+        slot,
+        ivals,
+        inull,
+    )
 }
 
 /// An index-only row's table columns as a virtual row in `slot`: each plain index column's value (`att`) in its table
 /// column, the others null.
-fn table_row<'m>(slot: &mut SlotData<'m>, index: &Relation<'static>, att: impl Fn(i16) -> (Datum, bool), mcx: Mcx<'m>) {
+fn table_row<'m>(
+    slot: &mut SlotData<'m>,
+    index: &Relation<'static>,
+    att: impl Fn(i16) -> (Datum, bool),
+    mcx: Mcx<'m>,
+) {
     exectuples::exec_clear_tuple(slot, mcx);
     let base = slot.base_mut();
     base.tts_isnull.iter_mut().for_each(|n| *n = true);
     // bounded("key-columns: one value per index column, at most INDEX_MAX_KEYS (32)")
-    for (j, &h) in index.rd_index.as_ref().map_or(&[][..], |f| &f.indkey[..]).iter().enumerate() {
+    for (j, &h) in index
+        .rd_index
+        .as_ref()
+        .map_or(&[][..], |f| &f.indkey[..])
+        .iter()
+        .enumerate()
+    {
         if h > 0 && (h as usize) <= base.tts_values.len() && base.tts_isnull[h as usize - 1] {
-            (base.tts_values[h as usize - 1], base.tts_isnull[h as usize - 1]) = att(j as i16 + 1);
+            (
+                base.tts_values[h as usize - 1],
+                base.tts_isnull[h as usize - 1],
+            ) = att(j as i16 + 1);
         }
     }
     exectuples::exec_store_virtual_tuple(slot);
@@ -494,11 +725,25 @@ impl AmWalk {
         let mut ssup = mcx::PgVec::new_in(scratch.mcx());
         mcx::GrowIn::extend_from_slice_in(&mut ssup, &am.ssup);
         // reorderqueue_cmp: the pairing heap surfaces its greatest element, KNN wants the nearest
-        let qcmp: QueueCmp = Box::new(move |a, b| cmp((&b.vals, &b.nulls), (&a.vals, &a.nulls), &ssup)); // alloc: Node
+        let qcmp: QueueCmp =
+            Box::new(move |a, b| cmp((&b.vals, &b.nulls), (&a.vals, &a.nulls), &ssup)); // alloc: Node
         let n = am.orderby.len();
         // D2944: reset wholesale per row (FormIndexDatum's values live until the next row's reset, a per-tuple context)
         let row = Root::wholesale("gravity index recheck row"); // alloc: Node
-        AmWalk { held: HeldCharge::new(), synced: 0, orderby: am.orderby.clone(), queue: PairingHeap::new(qcmp), reached_end: false, vals: vec![Datum::null(); n], nulls: vec![true; n], fcinfo: LocalFcinfo::<2>::new(0), ivals: [Datum::null(); INDEX_COLS], inull: [true; INDEX_COLS], row, row_at: None } // alloc: Node
+        AmWalk {
+            held: HeldCharge::new(),
+            synced: 0,
+            orderby: am.orderby.clone(),
+            queue: PairingHeap::new(qcmp),
+            reached_end: false,
+            vals: vec![Datum::null(); n],
+            nulls: vec![true; n],
+            fcinfo: LocalFcinfo::<2>::new(0),
+            ivals: [Datum::null(); INDEX_COLS],
+            inull: [true; INDEX_COLS],
+            row,
+            row_at: None,
+        } // alloc: Node
     }
 
     /// The slot depot's hook for its `IndexSource` (`Source::transfer_held`): the parked queue arena's charge and the
@@ -532,14 +777,29 @@ impl AmWalk {
     /// caller's row walk's: a row the reorder queue takes and a row a lossy recheck drops tick it (IndexNextWithReorder
     /// checks for interrupts per pass).
     #[allow(clippy::too_many_arguments)]
-    pub fn next(&mut self, step: &mut cancelpoll::Step, am: &AmRecipe, q: Quals<'_>, mcx: Mcx<'static>, scan: &mut IndexScanDescData<'static>, slot: &mut SlotData<'static>, dir: ScanDirection) -> PgResult<bool> {
+    pub fn next(
+        &mut self,
+        step: &mut cancelpoll::Step,
+        am: &AmRecipe,
+        q: Quals<'_>,
+        mcx: Mcx<'static>,
+        scan: &mut IndexScanDescData<'static>,
+        slot: &mut SlotData<'static>,
+        dir: ScanDirection,
+    ) -> PgResult<bool> {
         if self.orderby.is_empty() {
             return self.fetch(step, q, mcx, scan, slot, dir);
         }
         loop {
             step.tick().map_err(|_| crate::pg_err(WALK_CANCELED))?;
             if let Some(top) = self.queue.first() {
-                if self.reached_end || cmp((&top.vals, &top.nulls), (&scan.xs_orderbyvals, &scan.xs_orderbynulls), &am.ssup) <= 0 {
+                if self.reached_end
+                    || cmp(
+                        (&top.vals, &top.nulls),
+                        (&scan.xs_orderbyvals, &scan.xs_orderbynulls),
+                        &am.ssup,
+                    ) <= 0
+                {
                     let top = self.queue.remove_first().expect("a non-empty queue"); // alloc: Node charged self.held
                     self.track();
                     exectuples::exec_force_store_heap_tuple_owned(top.htup, slot, mcx)?;
@@ -548,20 +808,55 @@ impl AmWalk {
             } else if self.reached_end {
                 return Ok(false);
             }
-            if !self.fetch(step, Quals { keys: &mut *q.keys, heap: q.heap, index: q.index, info: &mut *q.info, cols: q.cols }, mcx, scan, slot, dir)? {
+            if !self.fetch(
+                step,
+                Quals {
+                    keys: &mut *q.keys,
+                    heap: q.heap,
+                    index: q.index,
+                    info: &mut *q.info,
+                    cols: q.cols,
+                },
+                mcx,
+                scan,
+                slot,
+                dir,
+            )? {
                 self.reached_end = true;
                 continue;
             }
             let exact = if scan.xs_recheckorderby {
                 // EvalOrderByExpressions
-                form(&am.orderby_heap, q.index, &mut *q.info, slot, &mut self.row, &mut self.ivals, &mut self.inull, mcx)?;
+                form(
+                    &am.orderby_heap,
+                    q.index,
+                    &mut *q.info,
+                    slot,
+                    &mut self.row,
+                    &mut self.ivals,
+                    &mut self.inull,
+                    mcx,
+                )?;
                 // bounded("other: one distance per ORDER BY key of the walk, which the statement's ORDER BY bounds")
                 for (i, k) in self.orderby.iter_mut().enumerate() {
-                    let (d, null) = key_col(slot, am.orderby_heap[i], k.sk_attno, (&self.ivals, &self.inull));
-                    let v = if null || k.sk_flags & SK_ISNULL != 0 { None } else { call(&mut self.fcinfo, k, d, mcx)? };
+                    let (d, null) = key_col(
+                        slot,
+                        am.orderby_heap[i],
+                        k.sk_attno,
+                        (&self.ivals, &self.inull),
+                    );
+                    let v = if null || k.sk_flags & SK_ISNULL != 0 {
+                        None
+                    } else {
+                        call(&mut self.fcinfo, k, d, mcx)?
+                    };
                     (self.vals[i], self.nulls[i]) = (v.unwrap_or(Datum::null()), v.is_none());
                 }
-                let c = cmp((&self.vals, &self.nulls), (&scan.xs_orderbyvals, &scan.xs_orderbynulls), &am.ssup);
+                let c = cmp(
+                    (&self.vals, &self.nulls),
+                    (&scan.xs_orderbyvals, &scan.xs_orderbynulls),
+                    &am.ssup,
+                );
                 if c < 0 {
                     return Err(crate::pg_err("index returned tuples in wrong order"));
                 }
@@ -571,14 +866,25 @@ impl AmWalk {
                 self.nulls.copy_from_slice(&scan.xs_orderbynulls);
                 true
             };
-            if exact && self.queue.first().is_none_or(|t| cmp((&self.vals, &self.nulls), (&t.vals, &t.nulls), &am.ssup) <= 0) {
+            if exact
+                && self.queue.first().is_none_or(|t| {
+                    cmp((&self.vals, &self.nulls), (&t.vals, &t.nulls), &am.ssup) <= 0
+                })
+            {
                 return Ok(true);
             }
             let htup = exectuples::exec_copy_slot_heap_tuple(slot, mcx, mcx)?;
-            let (mut vals, nulls) = (mcx::slice_in(mcx, &self.vals)?, mcx::slice_in(mcx, &self.nulls)?);
+            let (mut vals, nulls) = (
+                mcx::slice_in(mcx, &self.vals)?,
+                mcx::slice_in(mcx, &self.nulls)?,
+            );
             // bounded("other: one distance per ORDER BY key of the walk, which the statement's ORDER BY bounds")
             for ((v, &n), &(len, byval)) in vals.iter_mut().zip(&self.nulls).zip(&am.typs) {
-                *v = if n { Datum::null() } else { adt_scalar::datum_copy(mcx, *v, byval, len)? };
+                *v = if n {
+                    Datum::null()
+                } else {
+                    adt_scalar::datum_copy(mcx, *v, byval, len)?
+                };
             }
             self.queue.add(Queued { htup, vals, nulls }); // alloc: Node charged self.held
             self.track();
@@ -598,7 +904,15 @@ impl AmWalk {
     }
 
     /// next_indextuple: the AM's next visible row, a lossy one rechecked on the table row.
-    fn fetch(&mut self, step: &mut cancelpoll::Step, q: Quals<'_>, mcx: Mcx<'static>, scan: &mut IndexScanDescData<'static>, slot: &mut SlotData<'static>, dir: ScanDirection) -> PgResult<bool> {
+    fn fetch(
+        &mut self,
+        step: &mut cancelpoll::Step,
+        q: Quals<'_>,
+        mcx: Mcx<'static>,
+        scan: &mut IndexScanDescData<'static>,
+        slot: &mut SlotData<'static>,
+        dir: ScanDirection,
+    ) -> PgResult<bool> {
         loop {
             if !getnext_slot_polled(step, mcx, scan, dir, slot)? {
                 return Ok(false);
@@ -606,9 +920,23 @@ impl AmWalk {
             if !scan.xs_recheck {
                 return Ok(true);
             }
-            form(q.heap, q.index, &mut *q.info, slot, &mut self.row, &mut self.ivals, &mut self.inull, mcx)?;
+            form(
+                q.heap,
+                q.index,
+                &mut *q.info,
+                slot,
+                &mut self.row,
+                &mut self.ivals,
+                &mut self.inull,
+                mcx,
+            )?;
             let formed = (&self.ivals, &self.inull);
-            if passes(&mut self.fcinfo, &mut *q.keys, |i, attno| key_col(slot, q.heap[i], attno, formed), mcx)? {
+            if passes(
+                &mut self.fcinfo,
+                &mut *q.keys,
+                |i, attno| key_col(slot, q.heap[i], attno, formed),
+                mcx,
+            )? {
                 return Ok(true);
             }
             // a row the lossy recheck drops is the unit: a run of them is as long as the index
@@ -620,9 +948,19 @@ impl AmWalk {
     /// on an expression column on its value formed from the row's table columns (`slot`: every column an index-only
     /// plan reads is one the AM returns, check_index_only; recheckqual computes the expression from them); a lossy
     /// distance is PostgreSQL's error.
-    pub fn only_passes(&mut self, q: Quals<'_>, mcx: Mcx<'static>, scan: &IndexScanDescData<'static>, slot: &mut SlotData<'static>) -> PgResult<bool> {
+    pub fn only_passes(
+        &mut self,
+        q: Quals<'_>,
+        mcx: Mcx<'static>,
+        scan: &IndexScanDescData<'static>,
+        slot: &mut SlotData<'static>,
+    ) -> PgResult<bool> {
         if scan.xs_recheck {
-            let Some(row) = crate::ops::scan::raw::OnlyRow::of(scan) else { return Err(crate::pg_err("gravity: a lossy index-only row without its index tuple")) };
+            let Some(row) = crate::ops::scan::raw::OnlyRow::of(scan) else {
+                return Err(crate::pg_err(
+                    "gravity: a lossy index-only row without its index tuple",
+                ));
+            };
             let att = |attno: i16| {
                 let mut null = false;
                 // D3453: a column the AM cannot return reads the returnable column on its table column (PostgreSQL's
@@ -632,18 +970,38 @@ impl AmWalk {
                 (row.attr(attno, &mut null), null)
             };
             if q.heap.contains(&0) {
-                table_row(slot, q.index,att, mcx);
-                form(q.heap, q.index, &mut *q.info, slot, &mut self.row, &mut self.ivals, &mut self.inull, mcx)?;
+                table_row(slot, q.index, att, mcx);
+                form(
+                    q.heap,
+                    q.index,
+                    &mut *q.info,
+                    slot,
+                    &mut self.row,
+                    &mut self.ivals,
+                    &mut self.inull,
+                    mcx,
+                )?;
                 exectuples::exec_clear_tuple(slot, mcx);
             }
             let (ivals, inull) = (&self.ivals, &self.inull);
-            let col = |i: usize, attno: i16| if q.heap[i] == 0 { (ivals[attno as usize - 1], inull[attno as usize - 1]) } else { att(attno) };
+            let col = |i: usize, attno: i16| {
+                if q.heap[i] == 0 {
+                    (ivals[attno as usize - 1], inull[attno as usize - 1])
+                } else {
+                    att(attno)
+                }
+            };
             if !passes(&mut self.fcinfo, q.keys, col, mcx)? {
                 return Ok(false);
             }
         }
         if !self.orderby.is_empty() && scan.xs_recheckorderby {
-            return Err(Box::new(types_error::PgError::error("lossy distance functions are not supported in index-only scans").with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED))); // alloc: Cold
+            return Err(Box::new(
+                types_error::PgError::error(
+                    "lossy distance functions are not supported in index-only scans",
+                )
+                .with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED),
+            )); // alloc: Cold
         }
         Ok(true)
     }
@@ -666,12 +1024,49 @@ mod tests {
     /// keys unread); equal distances fall to the next key.
     #[test]
     fn the_reorder_comparison_is_postgres_cmp_orderbyvals() {
-        let ss = [SortSupport { ssup_collation: 0, ssup_reverse: false, ssup_nulls_first: false, ssup_attno: 0, comparator: SortComparator::Float64 }; 2];
+        let ss = [SortSupport {
+            ssup_collation: 0,
+            ssup_reverse: false,
+            ssup_nulls_first: false,
+            ssup_attno: 0,
+            comparator: SortComparator::Float64,
+        }; 2];
         let d = |x: f64| Datum::from_f64(x);
-        assert_eq!(cmp((&[d(1.0), d(0.0)], &[false, false]), (&[d(2.0), d(0.0)], &[false, false]), &ss), -1);
-        assert_eq!(cmp((&[d(2.0), d(5.0)], &[false, false]), (&[d(2.0), d(3.0)], &[false, false]), &ss), 1, "a tie falls to the next key");
-        assert_eq!(cmp((&[d(0.0), d(0.0)], &[true, false]), (&[d(9.0), d(0.0)], &[false, false]), &ss), 1, "NULLS LAST");
-        assert_eq!(cmp((&[d(0.0), d(1.0)], &[true, false]), (&[d(0.0), d(9.0)], &[true, false]), &ss), 0, "two NULLs tie the row");
+        assert_eq!(
+            cmp(
+                (&[d(1.0), d(0.0)], &[false, false]),
+                (&[d(2.0), d(0.0)], &[false, false]),
+                &ss
+            ),
+            -1
+        );
+        assert_eq!(
+            cmp(
+                (&[d(2.0), d(5.0)], &[false, false]),
+                (&[d(2.0), d(3.0)], &[false, false]),
+                &ss
+            ),
+            1,
+            "a tie falls to the next key"
+        );
+        assert_eq!(
+            cmp(
+                (&[d(0.0), d(0.0)], &[true, false]),
+                (&[d(9.0), d(0.0)], &[false, false]),
+                &ss
+            ),
+            1,
+            "NULLS LAST"
+        );
+        assert_eq!(
+            cmp(
+                (&[d(0.0), d(1.0)], &[true, false]),
+                (&[d(0.0), d(9.0)], &[true, false]),
+                &ss
+            ),
+            0,
+            "two NULLs tie the row"
+        );
     }
 
     /// IndexRecheck of null-test keys (V4R-49): IS NULL passes a null column, IS NOT NULL a non-null one; a NULL operator
@@ -685,9 +1080,19 @@ mod tests {
             (k.sk_flags, k.sk_attno) = (flags, 1);
             k
         };
-        for (flags, null, want) in [(SK_ISNULL | SK_SEARCHNULL, true, true), (SK_ISNULL | SK_SEARCHNULL, false, false), (SK_ISNULL | SK_SEARCHNOTNULL, false, true), (SK_ISNULL | SK_SEARCHNOTNULL, true, false), (SK_ISNULL, false, false)] {
+        for (flags, null, want) in [
+            (SK_ISNULL | SK_SEARCHNULL, true, true),
+            (SK_ISNULL | SK_SEARCHNULL, false, false),
+            (SK_ISNULL | SK_SEARCHNOTNULL, false, true),
+            (SK_ISNULL | SK_SEARCHNOTNULL, true, false),
+            (SK_ISNULL, false, false),
+        ] {
             let mut keys = [key(flags)];
-            assert_eq!(passes(&mut fc, &mut keys, |_, _| (Datum::from_u64(7), null), mcx).unwrap(), want, "flags {flags:#x} null {null}");
+            assert_eq!(
+                passes(&mut fc, &mut keys, |_, _| (Datum::from_u64(7), null), mcx).unwrap(),
+                want,
+                "flags {flags:#x} null {null}"
+            );
         }
     }
 
@@ -698,17 +1103,44 @@ mod tests {
     fn a_windows_valid_words_mark_exactly_its_null_cells() {
         use gravity_abi::{Lane, ScanPos};
         let n = 3;
-        let mut b = super::IosBatch { sizes: Sizes::new(None), run: None, byref: vec![0, -1, 0], lanes: vec![0; n * IOS_MAX_ROWS], valid: vec![0; n * super::WORDS], has_null: vec![false; n], tids: vec![0; IOS_MAX_ROWS], bytes: Vec::new(), vals: vec![0; n], nulls: vec![0; n], attnos: vec![1, 2, 3] }; // alloc: Cold
-        let texts: Vec<Vec<u8>> = (0..70u8).map(|i| vec![(3 << 1) | 1, b'a' + i % 26, b'z']).collect(); // alloc: Cold
+        let mut b = super::IosBatch {
+            sizes: Sizes::new(None),
+            run: None,
+            byref: vec![0, -1, 0],
+            lanes: vec![0; n * IOS_MAX_ROWS],
+            valid: vec![0; n * super::WORDS],
+            has_null: vec![false; n],
+            tids: vec![0; IOS_MAX_ROWS],
+            bytes: Vec::new(),
+            vals: vec![0; n],
+            nulls: vec![0; n],
+            attnos: vec![1, 2, 3],
+        }; // alloc: Cold
+        let texts: Vec<Vec<u8>> = (0..70u8)
+            .map(|i| vec![(3 << 1) | 1, b'a' + i % 26, b'z'])
+            .collect(); // alloc: Cold
         let null_at = |k: usize, r: usize| match k {
             0 => false,
             1 => r % 5 == 3,
             _ => r == 66,
         };
-        let word = |k: usize, r: usize| if k == 1 { texts[r].as_ptr() as u64 } else { 1000 * k as u64 + r as u64 };
+        let word = |k: usize, r: usize| {
+            if k == 1 {
+                texts[r].as_ptr() as u64
+            } else {
+                1000 * k as u64 + r as u64
+            }
+        };
         // a NULL first at row 66 (lane 2) and every fifth row from row 3 (lane 1); a short window after has none; the
         // slot-cells fill and the arrays fill alike
-        for (cap, arrays) in [(70usize, false), (3, false), (70, false), (70, true), (3, true), (70, true)] {
+        for (cap, arrays) in [
+            (70usize, false),
+            (3, false),
+            (70, false),
+            (70, true),
+            (3, true),
+            (70, true),
+        ] {
             let mut lanes = [Lane::NONE; 8];
             let mut site = gravity_driver::blank_site(lanes.as_mut_ptr());
             let mut w = gravity_driver::Window::over(&mut site);
@@ -745,10 +1177,22 @@ mod tests {
             for k in 0..n {
                 let l = lanes[k];
                 let any = (0..rows).any(|r| null_at(k, r));
-                assert_eq!(l.ptr, b.lanes[k * IOS_MAX_ROWS..].as_ptr() as *const u8, "lane {k} is the batch's");
-                assert_eq!(l.valid.is_null(), !any, "lane {k}: valid words only when a cell is NULL");
+                assert_eq!(
+                    l.ptr,
+                    b.lanes[k * IOS_MAX_ROWS..].as_ptr() as *const u8,
+                    "lane {k} is the batch's"
+                );
+                assert_eq!(
+                    l.valid.is_null(),
+                    !any,
+                    "lane {k}: valid words only when a cell is NULL"
+                );
                 if any {
-                    assert_eq!(l.valid, b.valid[k * super::WORDS..].as_ptr(), "lane {k}'s valid words are the batch's");
+                    assert_eq!(
+                        l.valid,
+                        b.valid[k * super::WORDS..].as_ptr(),
+                        "lane {k}'s valid words are the batch's"
+                    );
                 }
                 #[allow(clippy::needless_range_loop)]
                 for r in 0..rows {
@@ -760,7 +1204,11 @@ mod tests {
                     }
                     if k == 1 {
                         let off = (word - b.bytes.as_ptr() as u64) as usize;
-                        assert_eq!(&b.bytes[off..off + 3], &texts[r][..], "row {r}'s image, copied into the window");
+                        assert_eq!(
+                            &b.bytes[off..off + 3],
+                            &texts[r][..],
+                            "row {r}'s image, copied into the window"
+                        );
                     } else {
                         assert_eq!(word, 1000 * k as u64 + r as u64);
                     }
@@ -788,15 +1236,28 @@ mod tests {
     fn windows_double_until_a_limits_budget_is_spent_then_grow_by_its_count() {
         assert_eq!(caps(Sizes::new(None), 40), [1, 2, 4, 8, 16, 9]);
         assert_eq!(caps(Sizes::new(Some(1)), 12), [1, 1, 2, 3, 4, 1]);
-        assert_eq!(caps(Sizes::new(Some(10)), 80), [1, 2, 4, 3, 1, 11, 21, 31, 6]);
-        assert_eq!(caps(Sizes::new(Some(0)), 3), [1, 1, 1], "a single-match inner: one row per window");
+        assert_eq!(
+            caps(Sizes::new(Some(10)), 80),
+            [1, 2, 4, 3, 1, 11, 21, 31, 6]
+        );
+        assert_eq!(
+            caps(Sizes::new(Some(0)), 3),
+            [1, 1, 1],
+            "a single-match inner: one row per window"
+        );
         // a long walk: windows 1, 1, 2 .. IOS_MAX_ROWS - 1, then page-sized ones
         let long = caps(Sizes::new(Some(1)), 200_000);
         assert_eq!(&long[..4], [1, 1, 2, 3]);
         assert_eq!(long[IOS_MAX_ROWS], IOS_MAX_ROWS);
-        assert!(long[IOS_MAX_ROWS..long.len() - 1].iter().all(|&n| n == IOS_MAX_ROWS));
+        assert!(long[IOS_MAX_ROWS..long.len() - 1]
+            .iter()
+            .all(|&n| n == IOS_MAX_ROWS));
         let mut run = Sizes::new(None);
         run.set_left(3);
-        assert_eq!(caps(run, 8), [1, 2, 1, 4], "a run cell's count is spent like a budget");
+        assert_eq!(
+            caps(run, 8),
+            [1, 2, 1, 4],
+            "a run cell's count is spent like a budget"
+        );
     }
 }

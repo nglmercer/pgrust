@@ -30,8 +30,8 @@
 //!     cell's one run; a member in a CTE's plan the set holds nothing of is kept, as PG keeps it);
 //!   - an ARRAY InitPlan of arrays, records or cstrings (the ARRAY SubPlan's names, nest/subplan_result.rs).
 use gravity_abi::status::raise;
-use gravity_decompose::ops::shared::subplan::SubLink;
 use gravity_decompose::catalog::typefacts::{self, TypeFacts};
+use gravity_decompose::ops::shared::subplan::SubLink;
 use gravity_decompose::Op;
 use gravity_expr::byref;
 use gravity_ir::builder::FunctionBuilder;
@@ -40,6 +40,7 @@ use gravity_kernels::ops::shared::object::entries as m8;
 use gravity_program::protos::{Proto, ProtoKind};
 use mcx::{CollectIn, GrowIn, PgBox, PgVec};
 
+use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::face::end::EndMech;
 use crate::face::kinds::{Face, KindId};
 use crate::frame::env::Env;
@@ -49,16 +50,21 @@ use crate::frame::px::{Px, WordKey};
 use crate::frame::row::{Carry, RowVals};
 use crate::frame::stop::Exits;
 use crate::graph::Gx;
-use crate::rerun::params;
-use crate::rerun::params::InitLoad;
-use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::ops::Table;
 use crate::rep;
+use crate::rerun::params;
+use crate::rerun::params::InitLoad;
 
 use crate::ops::subplan::result as sr;
 use crate::ops::subplan::result::AccOp;
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::NestInitplan, &EndMaker(make)), (KindId::NestInitplan, &InitLoad(load))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[
+        (KindId::NestInitplan, &EndMaker(make)),
+        (KindId::NestInitplan, &InitLoad(load)),
+    ],
+    ..crate::ops::NONE
+};
 
 fn shape(node: i32, why: &'static str) -> ! {
     crate::refuse!(node, Reason::Shape { why: ShapeWhy(why) })
@@ -95,7 +101,11 @@ struct Init<'g> {
 
 /// Whether pipeline `q` is a member of a (non-CTE) InitPlan: a rerun set holding it re-arms the InitPlan, never runs it.
 pub(crate) fn member(gx: &Gx<'_, '_>, q: usize) -> bool {
-    gx.graph.init_plans.iter().filter(|i| !matches!(i.link, SubLink::Cte)).any(|i| members(gx, i.pipeline as usize).contains(&q))
+    gx.graph
+        .init_plans
+        .iter()
+        .filter(|i| !matches!(i.link, SubLink::Cte))
+        .any(|i| members(gx, i.pipeline as usize).contains(&q))
 }
 
 /// The InitPlan's members: pipeline `k` and, transitively, every producer of a slot one of them reads (the range the
@@ -106,7 +116,10 @@ fn members<'g>(gx: &Gx<'g, '_>, k: usize) -> PgVec<'g, usize> {
     while let Some(&q) = out.get(i) {
         i += 1;
         for &s in gx.pipelines()[q].desc.consumes.iter() {
-            for l in gx.life_of(q, s).map_or_else(|| mcx::PgVec::new_in(gx.mcx), |l| arms(gx, l.0 as usize, q, s)) {
+            for l in gx.life_of(q, s).map_or_else(
+                || mcx::PgVec::new_in(gx.mcx),
+                |l| arms(gx, l.0 as usize, q, s),
+            ) {
                 if !out.contains(&l) {
                     out.push_in(l);
                 }
@@ -122,29 +135,59 @@ fn arms<'g>(gx: &Gx<'g, '_>, l: usize, q: usize, s: u8) -> PgVec<'g, usize> {
     let ps = gx.pipelines();
     let produces = |j: usize| ps[j].desc.produces() == Some(s);
     let reads = |j: usize| ps[j].desc.consumes.contains(&s);
-    let before = (0..l).rev().take_while(|&j| !reads(j)).filter(|&j| produces(j));
-    let after = (l + 1..q).take_while(|&j| !reads(j)).filter(|&j| produces(j));
-    core::iter::once(l).chain(before).chain(after).collect_in(gx.mcx)
+    let before = (0..l)
+        .rev()
+        .take_while(|&j| !reads(j))
+        .filter(|&j| produces(j));
+    let after = (l + 1..q)
+        .take_while(|&j| !reads(j))
+        .filter(|&j| produces(j));
+    core::iter::once(l)
+        .chain(before)
+        .chain(after)
+        .collect_in(gx.mcx)
 }
 
 /// The InitPlan's columns `0..n` of its last projection (junk entries follow every result column).
 fn cols<'g>(px: &Px<'g, '_>, k: usize, n: usize, node: i32) -> PgVec<'g, Col> {
     let gx = px.gx;
-    let Some(list) = gx.pipelines()[k].ops.iter().rev().find_map(|op| if let Op::Project(l) = op { Some(*l) } else { None }) else {
+    let Some(list) = gx.pipelines()[k].ops.iter().rev().find_map(|op| {
+        if let Op::Project(l) = op {
+            Some(*l)
+        } else {
+            None
+        }
+    }) else {
         shape(node, "an InitPlan whose row has no projection")
     };
     let mut out = mcx::reserved_in(n, px.mcx());
     for (entry, e) in list.iter().enumerate().take(n) {
-        let Some(te) = e.as_target_entry().filter(|te| !te.resjunk) else { shape(node, "an InitPlan result column that is not a result entry") };
-        let typ = gravity_decompose::catalog::expr_type::type_of(te.expr).unwrap_or_else(|| gravity_decompose::catalog::expr_type::result_type(te.expr));
-        let Some(tf) = typefacts::facts_of(gx.facts, typ) else { shape(node, "an InitPlan result of a type the catalog does not know") };
+        let Some(te) = e.as_target_entry().filter(|te| !te.resjunk) else {
+            shape(node, "an InitPlan result column that is not a result entry")
+        };
+        let typ = gravity_decompose::catalog::expr_type::type_of(te.expr)
+            .unwrap_or_else(|| gravity_decompose::catalog::expr_type::result_type(te.expr));
+        let Some(tf) = typefacts::facts_of(gx.facts, typ) else {
+            shape(
+                node,
+                "an InitPlan result of a type the catalog does not know",
+            )
+        };
         if tf.typlen == -2 {
             shape(node, "an InitPlan cstring result");
         }
-        out.push_in(Col { entry, typ, tf, byref: (!tf.byval).then_some(tf.typlen) });
+        out.push_in(Col {
+            entry,
+            typ,
+            tf,
+            byref: (!tf.byval).then_some(tf.typlen),
+        });
     }
     if out.len() != n {
-        shape(node, "an InitPlan with fewer result columns than parameters");
+        shape(
+            node,
+            "an InitPlan with fewer result columns than parameters",
+        );
     }
     out
 }
@@ -152,8 +195,18 @@ fn cols<'g>(px: &Px<'g, '_>, k: usize, n: usize, node: i32) -> PgVec<'g, Col> {
 fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn EndMech + 'g> {
     let gx = px.gx;
     let node = gx.pipelines()[k].node_id;
-    let Some(init) = gx.graph.init_plans.iter().find(|i| i.pipeline as usize == k && !matches!(i.link, SubLink::Cte)) else {
-        crate::refuse!(node, Reason::Bug { payload: "nest.initplan's end on a pipeline no InitPlan ends in" })
+    let Some(init) = gx
+        .graph
+        .init_plans
+        .iter()
+        .find(|i| i.pipeline as usize == k && !matches!(i.link, SubLink::Cte))
+    else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "nest.initplan's end on a pipeline no InitPlan ends in"
+            }
+        )
     };
     // D1262: PG re-runs only the nodes a rescan changed a parameter of, and the cell's run runs every member. A set wholly
     // inside the InitPlan (a recursive union's generations, a nest's inner: its owner a member too) that does not hold the
@@ -164,9 +217,19 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn EndMech + 'g> {
     // parameter there (ExecReScanCteScan rewinds the store), and the run keeps it too: its readers pull it, and its
     // store stays for the statement
     let m = members(gx, k);
-    let inside = |r: &gravity_decompose::graph::Rerun| r.pipelines.iter().all(|&p| m.contains(&(p as usize))) && !r.pipelines.contains(&(k as u16));
-    let kept = |r: &gravity_decompose::graph::Rerun, q: usize| crate::frame::iface::in_cte_plan_apart(gx, q, &r.pipelines[..]);
-    if gx.graph.reruns.iter().any(|r| r.pipelines.iter().any(|&p| m.contains(&(p as usize))) && !inside(r) && !m.iter().all(|&q| r.pipelines.contains(&(q as u16)) || kept(r, q))) {
+    let inside = |r: &gravity_decompose::graph::Rerun| {
+        r.pipelines.iter().all(|&p| m.contains(&(p as usize))) && !r.pipelines.contains(&(k as u16))
+    };
+    let kept = |r: &gravity_decompose::graph::Rerun, q: usize| {
+        crate::frame::iface::in_cte_plan_apart(gx, q, &r.pipelines[..])
+    };
+    if gx.graph.reruns.iter().any(|r| {
+        r.pipelines.iter().any(|&p| m.contains(&(p as usize)))
+            && !inside(r)
+            && !m
+                .iter()
+                .all(|&q| r.pipelines.contains(&(q as u16)) || kept(r, q))
+    }) {
         shape(node, "an InitPlan whose members a rerun set holds only in part (D1262: PG keeps a member no changed parameter reaches)");
     }
     let (exists, n) = match init.link {
@@ -176,20 +239,46 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn EndMech + 'g> {
         // one parameter, the array of the first column's values; no statement-wide no-widen name (item 8: D2194's root fix
         // D2325 and the D2178 / D2180 / D2197 / D2213 root fixes are on the trunk)
         SubLink::Array if init.params.len() == 1 => (false, 1),
-        SubLink::Array => crate::refuse!(node, Reason::Bug { payload: "an ARRAY InitPlan with other than one parameter" }),
-        SubLink::Any | SubLink::All | SubLink::Cte => crate::refuse!(node, Reason::Bug { payload: "an ANY / ALL / CTE link on a non-CTE InitPlan" }),
+        SubLink::Array => crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "an ARRAY InitPlan with other than one parameter"
+            }
+        ),
+        SubLink::Any | SubLink::All | SubLink::Cte => crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "an ANY / ALL / CTE link on a non-CTE InitPlan"
+            }
+        ),
     };
     // pair k is setParam k: m8_init_run finds a parameter's pair as `paramid - first` (PG numbers them in order)
-    if init.params.first() != Some(init.param) || init.params.iter().enumerate().any(|(i, p)| p != init.param + i as i32) {
-        shape(node, "an InitPlan whose parameters are not numbered in column order");
+    if init.params.first() != Some(init.param)
+        || init
+            .params
+            .iter()
+            .enumerate()
+            .any(|(i, p)| p != init.param + i as i32)
+    {
+        shape(
+            node,
+            "an InitPlan whose parameters are not numbered in column order",
+        );
     }
     // D2799: the Init cell holds at most contract::layout's INIT_MAX_PAIRS pairs, a target list's bound (exec
     // ops/subplan/initplan/init.rs `lay` raises XX000 at prepare past it), so no ROWCOMPARE / MULTIEXPR InitPlan PostgreSQL
     // plans reaches this guard; it stays, by name, for a declaration the cell cannot hold
     if n > gravity_abi::limits::INIT_MAX_PAIRS {
-        shape(node, "an InitPlan with more parameters than the Init cell's pair cap (a target list's)");
+        shape(
+            node,
+            "an InitPlan with more parameters than the Init cell's pair cap (a target list's)",
+        );
     }
-    let cols = if exists { PgVec::new_in(px.mcx()) } else { cols(px, k, n, node) };
+    let cols = if exists {
+        PgVec::new_in(px.mcx())
+    } else {
+        cols(px, k, n, node)
+    };
     let array = matches!(init.link, SubLink::Array);
     let acc = array.then(|| sr::array_acc(px, k, node, cols[0].typ));
     let h = params::init_handle(px, init.param);
@@ -200,17 +289,41 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn EndMech + 'g> {
     // ARRAY: its accumulator is the leader lane's, so its reader stays there too
     use gravity_decompose::effects::{licence, unobservable, Departure, Effects};
     let eager = if init.parallel_safe && !array {
-        licence(px.batch_effects(Effects::of_init_plan(init)), Departure::Ahead).ok().inspect(|l| px.licensed(k, l))
+        licence(
+            px.batch_effects(Effects::of_init_plan(init)),
+            Departure::Ahead,
+        )
+        .ok()
+        .inspect(|l| px.licensed(k, l))
     } else {
         None
     };
     // D2998: an EXISTS whose plan cannot raise (F5): a section's workers read rows past the one PostgreSQL stops at.
     // Construct C2: only a plan that neither raises nor acts (`effects::unobservable`): a VOLATILE one (which acts) is
     // read on the leader, stopping where PostgreSQL stops
-    let exists_ahead = if exists && init.parallel_safe { unobservable(Effects::of_init_plan(init)) } else { None };
-    let bits = if eager.is_some() { m8::INIT_EAGER } else { 0 } | if exists_ahead.is_some() { m8::INIT_EXISTS } else { 0 };
-    px.declare_proto(Proto::new(ProtoKind::Init, k as u16).words(h, 1).arg(pairs | bits | (init.param as u32 as u64) << 32));
-    let seen = px.frame_word(WordKey::Open { face: Face::Nest, k, j: u64::MAX, i: 0 }) as i32 * 8;
+    let exists_ahead = if exists && init.parallel_safe {
+        unobservable(Effects::of_init_plan(init))
+    } else {
+        None
+    };
+    let bits = if eager.is_some() { m8::INIT_EAGER } else { 0 }
+        | if exists_ahead.is_some() {
+            m8::INIT_EXISTS
+        } else {
+            0
+        };
+    px.declare_proto(
+        Proto::new(ProtoKind::Init, k as u16)
+            .words(h, 1)
+            .arg(pairs | bits | (init.param as u32 as u64) << 32),
+    );
+    let seen = px.frame_word(WordKey::Open {
+        face: Face::Nest,
+        k,
+        j: u64::MAX,
+        i: 0,
+    }) as i32
+        * 8;
     let cell_reset = exists_ahead.is_some();
     // construct C2 (b): an eager InitPlan's members run at its reader's start, ahead of PostgreSQL's first read of the
     // param, under that licence, which was asked with the whole InitPlan's effects (`Effects::of_init_plan`): the run-ahead
@@ -224,7 +337,17 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn EndMech + 'g> {
 }
 
 fn host(b: &mut FunctionBuilder<'_>, name: &str, params: &[Type], addr: usize) -> HostFn {
-    b.declare_host_once(name, params, Some(Type::I64), addr, HostFlags { touches_memory: true, may_error: true, ..HostFlags::default() })
+    b.declare_host_once(
+        name,
+        params,
+        Some(Type::I64),
+        addr,
+        HostFlags {
+            touches_memory: true,
+            may_error: true,
+            ..HostFlags::default()
+        },
+    )
 }
 
 /// The Init cell's address (the handle word, laid once per execution).
@@ -253,15 +376,30 @@ fn store_pair(b: &mut FunctionBuilder<'_>, c: Value, k: usize, v: Value, null: V
 
 impl<'g> Init<'g> {
     /// Column `col`'s datum as the cell keeps it: a by-reference value copied into the cell's arena, 0 for a NULL.
-    fn keep(&self, b: &mut FunctionBuilder<'_>, env: &Env, c: Value, byref: Option<i16>, d: Value, null: Value) -> Value {
+    fn keep(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &Env,
+        c: Value,
+        byref: Option<i16>,
+        d: Value,
+        null: Value,
+    ) -> Value {
         let Some(typlen) = byref else { return d };
         let (l_copy, l_join) = (b.create_block(&[]), b.create_block(&[Type::I64]));
         b.cond_br(null, (l_join, &[env.zero]), (l_copy, &[]));
         b.switch_to(l_copy);
         let p = b.conv(ConvOp::IntToPtr, Type::Ptr, d);
         let len = byref::image_len(b, p, typlen);
-        let f = host(b, "m8_init_copy", &[Type::Ptr, Type::Ptr, Type::Ptr, Type::I64], gravity_abi::host_words!(m8::m8_init_copy(ctx, h, ptr, len)));
-        let r = b.call_host(f, &[env.ctx, c, p, len], Some(Type::I64)).unwrap_or(env.zero);
+        let f = host(
+            b,
+            "m8_init_copy",
+            &[Type::Ptr, Type::Ptr, Type::Ptr, Type::I64],
+            gravity_abi::host_words!(m8::m8_init_copy(ctx, h, ptr, len)),
+        );
+        let r = b
+            .call_host(f, &[env.ctx, c, p, len], Some(Type::I64))
+            .unwrap_or(env.zero);
         let bad = b.icmp(IntCond::Slt, r, env.zero);
         raise_if(b, env, bad);
         b.br(l_join, &[r]);
@@ -272,7 +410,13 @@ impl<'g> Init<'g> {
 
 impl<'g> EndMech for Init<'g> {
     fn open_words(&self, w: &mut OpenWords) {
-        w.declare(OpenWord::open("nest.initplan rows folded", Base::Words, self.seen, Type::I64, 0));
+        w.declare(OpenWord::open(
+            "nest.initplan rows folded",
+            Base::Words,
+            self.seen,
+            Type::I64,
+            0,
+        ));
     }
 
     fn open(&self, b: &mut FunctionBuilder<'_>, env: &mut Env) {
@@ -281,7 +425,13 @@ impl<'g> EndMech for Init<'g> {
         }
     }
 
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, _x: &Exits) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        _x: &Exits,
+    ) -> Carry<'e> {
         let out = b.int_bin(IntBinOp::Add, row.carry.out, env.one);
         if self.exists {
             // ExecSetParamPlan's EXISTS: true, and no further row is read
@@ -289,7 +439,10 @@ impl<'g> EndMech for Init<'g> {
             store_pair(b, c, 0, env.one, env.zero);
             env.store_word(b, self.seen, env.one);
             // the count-reached exit, as a LIMIT met: write-back, finish, then the done host (the call ends Done)
-            let c = Carry { out, accs: mcx::to_vec_in(&row.carry.accs[..], env.mcx) };
+            let c = Carry {
+                out,
+                accs: mcx::to_vec_in(&row.carry.accs[..], env.mcx),
+            };
             env.full(b, &c, row.next);
             let l_after = b.create_block(&[]);
             b.switch_to(l_after);
@@ -299,7 +452,14 @@ impl<'g> EndMech for Init<'g> {
         let mut ds = mcx::reserved_in(self.cols.len(), env.mcx);
         let mut cx = env.lx(b, self.node);
         for col in self.cols.iter() {
-            let Some(cr) = row.cell(col.entry) else { crate::refuse!(self.node, Reason::Bug { payload: "an InitPlan column past the row" }) };
+            let Some(cr) = row.cell(col.entry) else {
+                crate::refuse!(
+                    self.node,
+                    Reason::Bug {
+                        payload: "an InitPlan column past the row"
+                    }
+                )
+            };
             ds.push_in(rep::datum(&mut cx, cr, &col.tf));
         }
         env.memo = cx.memo;
@@ -308,7 +468,10 @@ impl<'g> EndMech for Init<'g> {
             let (d, null) = ds[0];
             let n = b.conv(ConvOp::Zext, Type::I64, null);
             sr::acc_call(b, env, (self.acc, self.node), AccOp::Push, &[d, n]);
-            return Carry { out, accs: mcx::to_vec_in(&row.carry.accs[..], env.mcx) };
+            return Carry {
+                out,
+                accs: mcx::to_vec_in(&row.carry.accs[..], env.mcx),
+            };
         }
         let seen = env.load_word(b, self.seen);
         let again = b.icmp(IntCond::Ne, seen, env.zero);
@@ -316,7 +479,12 @@ impl<'g> EndMech for Init<'g> {
         b.mark_cold(l_again);
         b.cond_br(again, (l_again, &[]), (l_first, &[]));
         b.switch_to(l_again);
-        let f = host(b, "m8_raise", &[Type::Ptr, Type::I64], m8::m8_raise as *const () as usize);
+        let f = host(
+            b,
+            "m8_raise",
+            &[Type::Ptr, Type::I64],
+            m8::m8_raise as *const () as usize,
+        );
         let code = b.iconst(Type::I64, m8::RAISE_CARDINALITY as i64);
         b.call_host(f, &[env.ctx, code], Some(Type::I64));
         let e = b.iconst(Type::I64, raise::bit(raise::HOST) as i64);
@@ -329,7 +497,10 @@ impl<'g> EndMech for Init<'g> {
             let n = b.conv(ConvOp::Zext, Type::I64, null);
             store_pair(b, c, k, v, n);
         }
-        Carry { out, accs: mcx::to_vec_in(&row.carry.accs[..], env.mcx) }
+        Carry {
+            out,
+            accs: mcx::to_vec_in(&row.carry.accs[..], env.mcx),
+        }
     }
 
     /// No row: the parameters are NULL, an EXISTS false (ExecSetParamPlan past its loop). ARRAY: the accumulated array
@@ -366,7 +537,13 @@ impl<'g> EndMech for Init<'g> {
 /// once SET; before that `m8_init_run` runs the InitPlan (once per execution: at most here, on this thread's first read)
 /// and hands back the pair's address, whose value and null are copied into the frame pair. An error of the InitPlan's run
 /// is the host's raise, returned in `err` for the reader to raise where PG raises it.
-fn load<'e, 'p>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, 'p>, _node: i32, h: u16, id: i32) -> [Value; 3] {
+fn load<'e, 'p>(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env<'e, 'p>,
+    _node: i32,
+    h: u16,
+    id: i32,
+) -> [Value; 3] {
     let (vo, fo) = (params::word(id, 0), params::word(id, 1));
     let flags = env.load_word(b, fo);
     let bit = b.iconst(Type::I64, params::SET);
@@ -378,8 +555,15 @@ fn load<'e, 'p>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, 'p>, _node: i32, 
     b.switch_to(l_run);
     let hv = b.load(Type::I64, env.params, h as i32 * 8);
     let pid = b.iconst(Type::I64, id as i64);
-    let f = host(b, "m8_init_run", &[Type::Ptr, Type::I64, Type::I64], gravity_abi::host_words!(m8::m8_init_run(ctx, h, paramid)));
-    let p = b.call_host(f, &[env.ctx, hv, pid], Some(Type::I64)).unwrap_or(env.zero);
+    let f = host(
+        b,
+        "m8_init_run",
+        &[Type::Ptr, Type::I64, Type::I64],
+        gravity_abi::host_words!(m8::m8_init_run(ctx, h, paramid)),
+    );
+    let p = b
+        .call_host(f, &[env.ctx, hv, pid], Some(Type::I64))
+        .unwrap_or(env.zero);
     let bad = b.icmp(IntCond::Slt, p, env.zero);
     let (l_bad, l_ok) = (b.create_block(&[]), b.create_block(&[]));
     b.cond_br(bad, (l_bad, &[]), (l_ok, &[]));
@@ -392,7 +576,10 @@ fn load<'e, 'p>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, 'p>, _node: i32, 
     let n = b.load(Type::I64, pp, 8);
     env.store_word(b, vo, v);
     // the cell's null word is 0 or 1: flags SET | NULL * null
-    let (is_null, not_null) = (b.iconst(Type::I64, params::SET | params::NULL), b.iconst(Type::I64, params::SET));
+    let (is_null, not_null) = (
+        b.iconst(Type::I64, params::SET | params::NULL),
+        b.iconst(Type::I64, params::SET),
+    );
     let null = b.icmp(IntCond::Ne, n, env.zero);
     let f2 = b.select(null, is_null, not_null);
     env.store_word(b, fo, f2);

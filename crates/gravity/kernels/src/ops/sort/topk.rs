@@ -1,8 +1,11 @@
 use crate::host_abi::*;
 
-pub use super::raw::topk::{topk_cut, topk_cut_open, topk_insert, topk_insert_text, topk_open, topk_order, topk_order_text, topk_run, topk_text_word};
 #[allow(unused_imports)]
 pub(crate) use super::raw::topk::code_bytes;
+pub use super::raw::topk::{
+    topk_cut, topk_cut_open, topk_insert, topk_insert_text, topk_open, topk_order, topk_order_text,
+    topk_run, topk_text_word,
+};
 
 /// The spec words of `topk_insert_text`: `spec1 = site | key col << 8 | key lane << 24` (a text first key's code column, `TEXT_NONE` when the first key is a word), `spec2 = kind | col << 8 | lane << 24 | at << 40` for the second key (kind 0 none, 1 a word at run column `at`, 2 a pair at `at`, 3 the text of code column `col`).
 pub const TEXT_NONE: u64 = 0xffff;
@@ -44,9 +47,20 @@ pub(crate) const CUT_REST_Q16: [u64; 8] = [12672, 12921, 13194, 16055, 24798, 38
 /// The calls the `round`-th rest of a run lets through at `n` codes: `q (round + 1) / 2`, rounded up, at least one, at
 /// most the rest field's 32 bits (cost_profile cut.rs `rest_calls`, which cut_tests hold equal).
 pub(crate) const fn cut_rest_calls(n: u64, round: u64) -> u64 {
-    let d = if n <= 1 { 0 } else { 63 - n.leading_zeros() as usize };
-    let q = CUT_REST_Q16[if d < CUT_REST_Q16.len() { d } else { CUT_REST_Q16.len() - 1 }];
-    let r = q.saturating_mul(round.saturating_add(1)).saturating_add((1 << 17) - 1) >> 17;
+    let d = if n <= 1 {
+        0
+    } else {
+        63 - n.leading_zeros() as usize
+    };
+    let q = CUT_REST_Q16[if d < CUT_REST_Q16.len() {
+        d
+    } else {
+        CUT_REST_Q16.len() - 1
+    }];
+    let r = q
+        .saturating_mul(round.saturating_add(1))
+        .saturating_add((1 << 17) - 1)
+        >> 17;
     if r == 0 {
         1
     } else if r > CUT_REST_MAX {

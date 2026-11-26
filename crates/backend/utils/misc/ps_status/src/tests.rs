@@ -99,7 +99,10 @@ fn activity_truncates_at_buffer_bound() {
     let long = "x".repeat(ps_buffer_size() * 2);
     set_ps_display(&long);
     let a = activity();
-    assert_eq!(a.len(), ps_buffer_size() - 1 - "postgres: trunc backend ".len());
+    assert_eq!(
+        a.len(),
+        ps_buffer_size() - 1 - "postgres: trunc backend ".len()
+    );
     assert!(a.bytes().all(|b| b == b'x'));
 
     set_ps_display("SELECT");
@@ -128,6 +131,8 @@ fn seams_route_to_crate() {
 fn buffer_spans_argv_and_environ_area() {
     setup();
     let area: usize = std::env::args_os().map(|a| a.len() + 1).sum::<usize>()
-        + std::env::vars_os().map(|(k, v)| k.len() + v.len() + 2).sum::<usize>();
+        + std::env::vars_os()
+            .map(|(k, v)| k.len() + v.len() + 2)
+            .sum::<usize>();
     assert_eq!(ps_buffer_size(), (area - 1).min(PS_BUFFER_MAX));
 }

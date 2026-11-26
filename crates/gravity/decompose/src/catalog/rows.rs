@@ -30,26 +30,46 @@ pub fn max_rows<'p>(facts: &dyn Facts, stmt: &PlannedStmt<'_>, node: Node<'p>) -
             if !a.groupingSets.is_nil() {
                 return None;
             }
-            if a.aggstrategy == crate::ops::shared::agg::AGG_PLAIN { Some(1) } else { child(p.lefttree) }
+            if a.aggstrategy == crate::ops::shared::agg::AGG_PLAIN {
+                Some(1)
+            } else {
+                child(p.lefttree)
+            }
         }
         NodeTag::T_Limit => {
             let l = node.as_limit()?;
             let below = child(p.lefttree);
             match crate::ops::limit_bounds(l).0 {
-                Bound::Const(c) if c >= 0 && l.limitOption != LimitOption::LIMIT_OPTION_WITH_TIES => Some(below.map_or(c as u64, |m| m.min(c as u64))),
+                Bound::Const(c)
+                    if c >= 0 && l.limitOption != LimitOption::LIMIT_OPTION_WITH_TIES =>
+                {
+                    Some(below.map_or(c as u64, |m| m.min(c as u64)))
+                }
                 _ => below,
             }
         }
-        NodeTag::T_Sort | NodeTag::T_IncrementalSort | NodeTag::T_Material | NodeTag::T_Memoize | NodeTag::T_Unique | NodeTag::T_Group | NodeTag::T_LockRows | NodeTag::T_WindowAgg | NodeTag::T_Hash => child(p.lefttree),
+        NodeTag::T_Sort
+        | NodeTag::T_IncrementalSort
+        | NodeTag::T_Material
+        | NodeTag::T_Memoize
+        | NodeTag::T_Unique
+        | NodeTag::T_Group
+        | NodeTag::T_LockRows
+        | NodeTag::T_WindowAgg
+        | NodeTag::T_Hash => child(p.lefttree),
         NodeTag::T_SubqueryScan => child(node.as_subquery_scan()?.subplan),
         NodeTag::T_Append => sum(facts, stmt, &node.as_append()?.appendplans),
         NodeTag::T_MergeAppend => sum(facts, stmt, &node.as_merge_append()?.mergeplans),
-        NodeTag::T_NestLoop | NodeTag::T_HashJoin | NodeTag::T_MergeJoin => join(node, child(p.lefttree), child(p.righttree)),
+        NodeTag::T_NestLoop | NodeTag::T_HashJoin | NodeTag::T_MergeJoin => {
+            join(node, child(p.lefttree), child(p.righttree))
+        }
         NodeTag::T_ValuesScan => Some(node.as_values_scan()?.values_lists.len() as u64),
-        NodeTag::T_IndexScan | NodeTag::T_IndexOnlyScan | NodeTag::T_BitmapHeapScan => match probe_rows(facts, node) {
-            Some(m) if m <= 1 => Some(m),
-            probe => min(probe, scan_quals(facts, stmt, node)),
-        },
+        NodeTag::T_IndexScan | NodeTag::T_IndexOnlyScan | NodeTag::T_BitmapHeapScan => {
+            match probe_rows(facts, node) {
+                Some(m) if m <= 1 => Some(m),
+                probe => min(probe, scan_quals(facts, stmt, node)),
+            }
+        }
         NodeTag::T_SeqScan => scan_quals(facts, stmt, node),
         _ => None,
     }
@@ -78,7 +98,10 @@ fn bitmap(facts: &dyn Facts, n: Node<'_>) -> Option<u64> {
         return point(facts, b.indexid, &b.indexqual);
     }
     if let Some(o) = n.as_bitmap_or() {
-        return o.bitmapplans.iter().try_fold(0u64, |s, c| bitmap(facts, c).map(|m| s.saturating_add(m)));
+        return o
+            .bitmapplans
+            .iter()
+            .try_fold(0u64, |s, c| bitmap(facts, c).map(|m| s.saturating_add(m)));
     }
     if let Some(a) = n.as_bitmap_and() {
         return a.bitmapplans.iter().filter_map(|c| bitmap(facts, c)).min();
@@ -89,13 +112,31 @@ fn bitmap(facts: &dyn Facts, n: Node<'_>) -> Option<u64> {
 /// The index quals of a probe: each `index column = value` conjunct (the planner puts the index column on the left) is a
 /// bind; the rest only narrow the scan.
 fn point(facts: &dyn Facts, indexid: u32, quals: &NodeList<'_>) -> Option<u64> {
-    let mut binds = [KeyBind { col: 0, opno: 0, collid: 0, nullable: false }; KEYS];
+    let mut binds = [KeyBind {
+        col: 0,
+        opno: 0,
+        collid: 0,
+        nullable: false,
+    }; KEYS];
     let mut n = 0;
     for c in quals.iter() {
-        let Some(op) = c.as_op_expr().filter(|op| op.args.len() == 2) else { continue };
-        let Some(col) = strip(op.args.nth(0)).as_var().and_then(|v| u8::try_from(v.varattno).ok()).and_then(|a| a.checked_sub(1)) else { continue };
+        let Some(op) = c.as_op_expr().filter(|op| op.args.len() == 2) else {
+            continue;
+        };
+        let Some(col) = strip(op.args.nth(0))
+            .as_var()
+            .and_then(|v| u8::try_from(v.varattno).ok())
+            .and_then(|a| a.checked_sub(1))
+        else {
+            continue;
+        };
         if n < binds.len() {
-            binds[n] = KeyBind { col, opno: op.opno, collid: op.inputcollid, nullable: false };
+            binds[n] = KeyBind {
+                col,
+                opno: op.opno,
+                collid: op.inputcollid,
+                nullable: false,
+            };
             n += 1;
         }
     }
@@ -117,21 +158,42 @@ fn scan_quals<'p>(facts: &dyn Facts, stmt: &PlannedStmt<'_>, node: Node<'p>) -> 
     } else {
         return None;
     };
-    let relid = (scanrelid as usize).checked_sub(1).filter(|&i| i < stmt.rtable.len()).and_then(|i| stmt.rtable.nth(i).as_range_tbl_entry()).map(|r| r.relid)?;
-    const NONE: KeyBind = KeyBind { col: 0, opno: 0, collid: 0, nullable: false };
+    let relid = (scanrelid as usize)
+        .checked_sub(1)
+        .filter(|&i| i < stmt.rtable.len())
+        .and_then(|i| stmt.rtable.nth(i).as_range_tbl_entry())
+        .map(|r| r.relid)?;
+    const NONE: KeyBind = KeyBind {
+        col: 0,
+        opno: 0,
+        collid: 0,
+        nullable: false,
+    };
     let mut eqs = [(0i16, NONE); 2 * KEYS];
     let mut n = 0;
     for c in p.qual.iter().chain(orig.into_iter().flat_map(|l| l.iter())) {
-        let Some(op) = c.as_op_expr().filter(|op| op.args.len() == 2) else { continue };
+        let Some(op) = c.as_op_expr().filter(|op| op.args.len() == 2) else {
+            continue;
+        };
         let (l, r) = (strip(op.args.nth(0)), strip(op.args.nth(1)));
         let side = |var: Node<'p>, val: Node<'p>| {
-            let v = var.as_var().filter(|v| v.varno as u32 == scanrelid && v.varlevelsup == 0 && v.varattno > 0)?;
+            let v = var
+                .as_var()
+                .filter(|v| v.varno as u32 == scanrelid && v.varlevelsup == 0 && v.varattno > 0)?;
             let nullable = match (val.as_const(), val.as_param()) {
                 (Some(k), _) if !k.constisnull => false,
                 (None, Some(_)) => true,
                 _ => return None,
             };
-            Some((v.varattno, KeyBind { col: 0, opno: op.opno, collid: op.inputcollid, nullable }))
+            Some((
+                v.varattno,
+                KeyBind {
+                    col: 0,
+                    opno: op.opno,
+                    collid: op.inputcollid,
+                    nullable,
+                },
+            ))
         };
         if let Some(e) = side(l, r).or_else(|| side(r, l)).filter(|_| n < eqs.len()) {
             eqs[n] = e;
@@ -163,7 +225,9 @@ fn scan_quals<'p>(facts: &dyn Facts, stmt: &PlannedStmt<'_>, node: Node<'p>) -> 
 }
 
 fn sum(facts: &dyn Facts, stmt: &PlannedStmt<'_>, l: &NodeList<'_>) -> Option<u64> {
-    l.iter().try_fold(0u64, |s, c| max_rows(facts, stmt, c).map(|m| s.saturating_add(m)))
+    l.iter().try_fold(0u64, |s, c| {
+        max_rows(facts, stmt, c).map(|m| s.saturating_add(m))
+    })
 }
 
 fn min(a: Option<u64>, b: Option<u64>) -> Option<u64> {
@@ -177,7 +241,11 @@ fn min(a: Option<u64>, b: Option<u64>) -> Option<u64> {
 /// semi / anti join each outer row once; `inner_unique` (PostgreSQL's own proof, on which its executor stops at the first
 /// match) at most one row per outer row. A full join is no bound.
 fn join(node: Node<'_>, outer: Option<u64>, inner: Option<u64>) -> Option<u64> {
-    let j = node.as_nest_loop().map(|n| &n.join).or(node.as_hash_join().map(|h| &h.join)).or(node.as_merge_join().map(|m| &m.join))?;
+    let j = node
+        .as_nest_loop()
+        .map(|n| &n.join)
+        .or(node.as_hash_join().map(|h| &h.join))
+        .or(node.as_merge_join().map(|m| &m.join))?;
     let (o, i) = (outer, inner);
     match j.jointype {
         JoinType::JOIN_SEMI | JoinType::JOIN_ANTI => o,

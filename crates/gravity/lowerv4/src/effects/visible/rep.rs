@@ -13,8 +13,15 @@ use gravity_decompose::ops::shared::sort::SortKey;
 pub(crate) fn user_reach<'m>(catalog: &dyn gravity_expr::Catalog<'m>, t: u32) -> bool {
     crate::stack_check();
     match catalog.type_facts(t) {
-        Ok(f) if f.len == -1 && f.elem != 0 => f.elem >= gravity_decompose::catalog::typefacts::FIRST_NORMAL_OID || user_reach(catalog, f.elem),
-        Ok(f) => matches!(f.typtype as u8, b'c' | b'p') || t >= gravity_decompose::catalog::typefacts::FIRST_NORMAL_OID && matches!(f.typtype as u8, b'r' | b'm'),
+        Ok(f) if f.len == -1 && f.elem != 0 => {
+            f.elem >= gravity_decompose::catalog::typefacts::FIRST_NORMAL_OID
+                || user_reach(catalog, f.elem)
+        }
+        Ok(f) => {
+            matches!(f.typtype as u8, b'c' | b'p')
+                || t >= gravity_decompose::catalog::typefacts::FIRST_NORMAL_OID
+                    && matches!(f.typtype as u8, b'r' | b'm')
+        }
         Err(_) => true,
     }
 }
@@ -24,9 +31,17 @@ pub(crate) fn user_reach<'m>(catalog: &dyn gravity_expr::Catalog<'m>, t: u32) ->
 /// array's of a user type (`rep::user_reach`). A record's `record_cmp` is not: its run keeps its equal-copy tie
 /// (`KFLAG_EQTIE`) and its sort; but a per-row record's is (decompose `SortKey::per_row`, D3374 (e): it raises on pairs
 /// of two layouts, so its first raise must be PostgreSQL's).
-pub(crate) fn user_cmp<'m>(catalog: &dyn gravity_expr::Catalog<'m>, sk: &SortKey, tf: &TypeFacts) -> bool {
-    let record = matches!(catalog.type_facts(tf.base), Ok(f) if matches!(f.typtype as u8, b'c' | b'p'));
-    sk.compare_fn() || sk.per_row || crate::rep::keylane::no_image(tf) || !record && user_reach(catalog, tf.base)
+pub(crate) fn user_cmp<'m>(
+    catalog: &dyn gravity_expr::Catalog<'m>,
+    sk: &SortKey,
+    tf: &TypeFacts,
+) -> bool {
+    let record =
+        matches!(catalog.type_facts(tf.base), Ok(f) if matches!(f.typtype as u8, b'c' | b'p'));
+    sk.compare_fn()
+        || sk.per_row
+        || crate::rep::keylane::no_image(tf)
+        || !record && user_reach(catalog, tf.base)
 }
 
 /// Whether pipeline `k`'s sort is rep/keylane.rs `USER_BATCHES`' shape: a sort keyed by another family's comparator in SQL

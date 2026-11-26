@@ -73,12 +73,28 @@ impl AsRef<Cut> for Cut {
 
 impl Cut {
     pub const fn new() -> Cut {
-        Cut { state: AtomicU32::new(IDLE), lo: AtomicU64::new(0), first_hi: AtomicU64::new(0), hi: AtomicU64::new(0), at: AtomicU64::new(0), skipped: AtomicU64::new(0), t0: AtomicU64::new(0), gift_lo: AtomicU64::new(0), gift_hi: AtomicU64::new(0), cut: AtomicBool::new(false), adopted: AtomicBool::new(false), claims: AtomicU64::new(0) }
+        Cut {
+            state: AtomicU32::new(IDLE),
+            lo: AtomicU64::new(0),
+            first_hi: AtomicU64::new(0),
+            hi: AtomicU64::new(0),
+            at: AtomicU64::new(0),
+            skipped: AtomicU64::new(0),
+            t0: AtomicU64::new(0),
+            gift_lo: AtomicU64::new(0),
+            gift_hi: AtomicU64::new(0),
+            cut: AtomicBool::new(false),
+            adopted: AtomicBool::new(false),
+            claims: AtomicU64::new(0),
+        }
     }
 
     /// The claim `[lo, hi)` begins on this ordinal: never asked until its source adopts it.
     fn begin(&self, lo: u64, hi: u64) {
-        self.claims.store(self.claims.load(Ordering::Relaxed).wrapping_add(1), Ordering::Relaxed);
+        self.claims.store(
+            self.claims.load(Ordering::Relaxed).wrapping_add(1),
+            Ordering::Relaxed,
+        );
         self.lo.store(lo, Ordering::Relaxed);
         self.first_hi.store(hi, Ordering::Relaxed);
         self.hi.store(hi, Ordering::Relaxed);
@@ -92,7 +108,10 @@ impl Cut {
 
     /// The claim as handed out, `(lo, hi)`.
     pub fn claim(&self) -> (u64, u64) {
-        (self.lo.load(Ordering::Relaxed), self.first_hi.load(Ordering::Relaxed))
+        (
+            self.lo.load(Ordering::Relaxed),
+            self.first_hi.load(Ordering::Relaxed),
+        )
     }
 
     /// The claim's current end.
@@ -107,11 +126,19 @@ impl Cut {
 
     /// The driving source adopts the claim (once per claim): from now on a worker may ask it, and the token steps it.
     pub fn adopt(&self) -> Option<CutToken> {
-        (!self.adopted.swap(true, Ordering::AcqRel) && self.state.compare_exchange(WHOLE, RUN, Ordering::AcqRel, Ordering::Acquire).is_ok()).then(|| self.token())
+        (!self.adopted.swap(true, Ordering::AcqRel)
+            && self
+                .state
+                .compare_exchange(WHOLE, RUN, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok())
+        .then(|| self.token())
     }
 
     fn token(&self) -> CutToken {
-        CutToken { cut: self as *const Cut as usize, claim: self.claims.load(Ordering::Relaxed) }
+        CutToken {
+            cut: self as *const Cut as usize,
+            claim: self.claims.load(Ordering::Relaxed),
+        }
     }
 
     /// No further cut of this claim (a second range site reads it, or the source re-seeks): a pending ask is declined.
@@ -121,7 +148,11 @@ impl Cut {
         loop {
             match self.state.load(Ordering::Acquire) {
                 RUN => {
-                    if self.state.compare_exchange(RUN, WHOLE, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+                    if self
+                        .state
+                        .compare_exchange(RUN, WHOLE, Ordering::AcqRel, Ordering::Acquire)
+                        .is_ok()
+                    {
                         return;
                     }
                 }
@@ -167,7 +198,11 @@ impl Cut {
         loop {
             match self.state.load(Ordering::Acquire) {
                 s @ (WHOLE | RUN) => {
-                    if self.state.compare_exchange(s, IDLE, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+                    if self
+                        .state
+                        .compare_exchange(s, IDLE, Ordering::AcqRel, Ordering::Acquire)
+                        .is_ok()
+                    {
                         return;
                     }
                 }
@@ -186,14 +221,22 @@ impl Cut {
         if self.state.load(Ordering::Acquire) != RUN {
             return None;
         }
-        let (lo, at, hi) = (self.lo.load(Ordering::Relaxed), self.at.load(Ordering::Relaxed), self.hi.load(Ordering::Relaxed));
+        let (lo, at, hi) = (
+            self.lo.load(Ordering::Relaxed),
+            self.at.load(Ordering::Relaxed),
+            self.hi.load(Ordering::Relaxed),
+        );
         let left = hi.saturating_sub(at);
         if left < 2 {
             return None;
         }
         let spent = now.saturating_sub(self.t0.load(Ordering::Relaxed));
         let taken = at.saturating_sub(lo);
-        let read = if pace_all() { taken } else { taken.saturating_sub(self.skipped.load(Ordering::Relaxed)) };
+        let read = if pace_all() {
+            taken
+        } else {
+            taken.saturating_sub(self.skipped.load(Ordering::Relaxed))
+        };
         Some(((left as u128 * spent as u128) / read.max(1) as u128).min(u64::MAX as u128) as u64)
     }
 
@@ -202,7 +245,10 @@ impl Cut {
         if self.state.load(Ordering::Acquire) != GIVEN {
             return None;
         }
-        let (lo, hi) = (self.gift_lo.load(Ordering::Relaxed), self.gift_hi.load(Ordering::Relaxed));
+        let (lo, hi) = (
+            self.gift_lo.load(Ordering::Relaxed),
+            self.gift_hi.load(Ordering::Relaxed),
+        );
         self.state.store(RUN, Ordering::Release);
         Some((lo < hi).then_some((lo, hi)))
     }
@@ -221,7 +267,14 @@ impl CutToken {
     /// thread still runs the adopted claim: the claim's new end when a worker asked (`[end, old end)` handed over), `None`
     /// otherwise. One thread-local read, two relaxed stores and one relaxed load when nobody asked.
     pub fn step(self, at: u64, skipped: u64) -> Option<u64> {
-        with_current(|c| if c.token() == self { c.step(at, skipped) } else { None }).flatten()
+        with_current(|c| {
+            if c.token() == self {
+                c.step(at, skipped)
+            } else {
+                None
+            }
+        })
+        .flatten()
     }
 }
 
@@ -249,7 +302,11 @@ pub enum Ask {
 
 impl Board {
     pub const fn new(floor_ns: u64) -> Board {
-        Board { floor_ns, pending: AtomicUsize::new(0), cuts_made: AtomicU64::new(0) }
+        Board {
+            floor_ns,
+            pending: AtomicUsize::new(0),
+            cuts_made: AtomicU64::new(0),
+        }
     }
 
     /// `f` runs the claim `[lo, hi)` on the ordinal whose cut is `cut`: the cut begins, is offered to the claim's node for
@@ -259,7 +316,9 @@ impl Board {
         cut.begin(lo, hi);
         let me = self as *const Board as usize;
         if CLAIM.with(|c| c.gift.replace(NO_GIFT)) == (me, lo, hi) {
-            let _ = self.pending.fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_sub(1));
+            let _ = self
+                .pending
+                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_sub(1));
         }
         let was = CLAIM.with(|c| c.offered.replace(cut as *const Cut));
         let _begun = Begun { cut, was };
@@ -270,27 +329,47 @@ impl Board {
     /// is asked; then wait for its owner's answer with `wait` between looks.
     pub fn ask<C: AsRef<Cut>>(&self, cuts: &[C], wait: &mut dyn FnMut()) -> Ask {
         let now = pg_clock::mono_ns();
-        let best = cuts.iter().map(AsRef::as_ref).filter_map(|c| c.left_ns(now).filter(|&t| t / 2 >= self.floor_ns).map(|t| (t, c))).max_by_key(|&(t, _)| t);
+        let best = cuts
+            .iter()
+            .map(AsRef::as_ref)
+            .filter_map(|c| {
+                c.left_ns(now)
+                    .filter(|&t| t / 2 >= self.floor_ns)
+                    .map(|t| (t, c))
+            })
+            .max_by_key(|&(t, _)| t);
         let Some((_, cut)) = best else {
             // a claim begun and not yet adopted (its source has not reached its seek: a range just handed over is one) may
             // become askable: wait for it rather than leave the section while it still holds the work
-            let maybe = cuts.iter().map(AsRef::as_ref).any(|c| match c.state.load(Ordering::Acquire) {
-                ASK | GIVEN => true,
-                WHOLE => !c.adopted.load(Ordering::Acquire),
-                _ => false,
-            });
+            let maybe =
+                cuts.iter()
+                    .map(AsRef::as_ref)
+                    .any(|c| match c.state.load(Ordering::Acquire) {
+                        ASK | GIVEN => true,
+                        WHOLE => !c.adopted.load(Ordering::Acquire),
+                        _ => false,
+                    });
             if maybe || self.pending.load(Ordering::Acquire) > 0 {
                 return Ask::Wait;
             }
             if trace() {
                 // what the asker saw when it left: each running claim's state, units and pace
-                for c in cuts.iter().map(AsRef::as_ref).filter(|c| c.state.load(Ordering::Relaxed) != IDLE) {
-                    eprintln!("SPLITTRACE left: claim [{}, {}) at {} end {} state={} adopted={} after {} us", c.lo.load(Ordering::Relaxed), c.first_hi.load(Ordering::Relaxed), c.at.load(Ordering::Relaxed), c.hi.load(Ordering::Relaxed), c.state.load(Ordering::Relaxed), c.adopted.load(Ordering::Relaxed), now.saturating_sub(c.t0.load(Ordering::Relaxed)) / 1000); // alloc: Cold
+                for c in cuts
+                    .iter()
+                    .map(AsRef::as_ref)
+                    .filter(|c| c.state.load(Ordering::Relaxed) != IDLE)
+                {
+                    eprintln!("SPLITTRACE left: claim [{}, {}) at {} end {} state={} adopted={} after {} us", c.lo.load(Ordering::Relaxed), c.first_hi.load(Ordering::Relaxed), c.at.load(Ordering::Relaxed), c.hi.load(Ordering::Relaxed), c.state.load(Ordering::Relaxed), c.adopted.load(Ordering::Relaxed), now.saturating_sub(c.t0.load(Ordering::Relaxed)) / 1000);
+                    // alloc: Cold
                 }
             }
             return Ask::Nothing;
         };
-        if cut.state.compare_exchange(RUN, ASK, Ordering::AcqRel, Ordering::Acquire).is_err() {
+        if cut
+            .state
+            .compare_exchange(RUN, ASK, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
             return Ask::Wait;
         }
         // bounded("other: the owner answers at its next granule step or at its claim's end (Cut::finish), and every claim ends")
@@ -298,7 +377,13 @@ impl Board {
             match cut.take() {
                 Some(Some((lo, hi))) => {
                     if trace() {
-                        eprintln!("SPLITTRACE took [{lo}, {hi}) from claim [{}, {}) at {} after {} us", cut.lo.load(Ordering::Relaxed), cut.first_hi.load(Ordering::Relaxed), cut.at.load(Ordering::Relaxed), now.saturating_sub(cut.t0.load(Ordering::Relaxed)) / 1000); // alloc: Cold
+                        eprintln!(
+                            "SPLITTRACE took [{lo}, {hi}) from claim [{}, {}) at {} after {} us",
+                            cut.lo.load(Ordering::Relaxed),
+                            cut.first_hi.load(Ordering::Relaxed),
+                            cut.at.load(Ordering::Relaxed),
+                            now.saturating_sub(cut.t0.load(Ordering::Relaxed)) / 1000
+                        ); // alloc: Cold
                     }
                     CLAIM.with(|c| c.gift.set((self as *const Board as usize, lo, hi)));
                     self.pending.fetch_add(1, Ordering::AcqRel);
@@ -330,7 +415,16 @@ impl Drop for Begun<'_> {
         });
         if trace() {
             let c = self.cut;
-            eprintln!("SPLITTRACE end [{}, {}) -> {} adopted={} state={} cut={} {} us", c.lo.load(Ordering::Relaxed), c.first_hi.load(Ordering::Relaxed), c.hi.load(Ordering::Relaxed), c.adopted.load(Ordering::Relaxed), c.state.load(Ordering::Relaxed), c.cut.load(Ordering::Relaxed), pg_clock::mono_ns().saturating_sub(c.t0.load(Ordering::Relaxed)) / 1000); // alloc: Cold
+            eprintln!(
+                "SPLITTRACE end [{}, {}) -> {} adopted={} state={} cut={} {} us",
+                c.lo.load(Ordering::Relaxed),
+                c.first_hi.load(Ordering::Relaxed),
+                c.hi.load(Ordering::Relaxed),
+                c.adopted.load(Ordering::Relaxed),
+                c.state.load(Ordering::Relaxed),
+                c.cut.load(Ordering::Relaxed),
+                pg_clock::mono_ns().saturating_sub(c.t0.load(Ordering::Relaxed)) / 1000
+            ); // alloc: Cold
         }
         self.cut.finish();
     }
@@ -342,7 +436,10 @@ impl Drop for Begun<'_> {
 pub(crate) fn enter(adoptable: bool) -> Entered {
     let offered = CLAIM.with(|c| c.offered.replace(core::ptr::null()));
     let was = CLAIM.with(|c| c.current.replace(offered));
-    let entered = Entered { was, on: !offered.is_null() };
+    let entered = Entered {
+        was,
+        on: !offered.is_null(),
+    };
     if entered.on && !adoptable {
         with_current(Cut::forbid);
     }
@@ -381,7 +478,12 @@ impl Drop for Entered {
 /// or `=1`; `=0` turns the split off, exec `claim_split_on`).
 fn flags() -> (bool, bool) {
     static ON: pgsync::OnceLock<(bool, bool)> = pgsync::OnceLock::new();
-    *ON.get_or_init(|| (crate::env::num::<u64>("PGRUST_GRAVITY_SPLIT_TRACE").is_some_and(|v| v != 0), crate::env::num::<u64>("PGRUST_GRAVITY_CLAIM_SPLIT") == Some(2)))
+    *ON.get_or_init(|| {
+        (
+            crate::env::num::<u64>("PGRUST_GRAVITY_SPLIT_TRACE").is_some_and(|v| v != 0),
+            crate::env::num::<u64>("PGRUST_GRAVITY_CLAIM_SPLIT") == Some(2),
+        )
+    })
 }
 
 fn trace() -> bool {
@@ -435,7 +537,13 @@ mod tests {
                         let a = b.ask(&cuts, &mut || std::thread::yield_now());
                         if let Ask::Took(lo, hi) = a {
                             assert_eq!(b.pending.load(Ordering::Acquire), 1);
-                            b.run(&cuts[1], lo, hi, || assert_eq!(b.pending.load(Ordering::Acquire), 0, "begun: no longer pending"));
+                            b.run(&cuts[1], lo, hi, || {
+                                assert_eq!(
+                                    b.pending.load(Ordering::Acquire),
+                                    0,
+                                    "begun: no longer pending"
+                                )
+                            });
                         }
                         a
                     });
@@ -456,7 +564,11 @@ mod tests {
         });
         assert_eq!(cut.state.load(Ordering::Acquire), IDLE);
         assert_eq!(t.step(14, 0), None, "outside its claim");
-        b.run(cut, 20, 30, || entered(true, |_| assert_ne!(cut.token(), t, "a later claim on the same cut")));
+        b.run(cut, 20, 30, || {
+            entered(true, |_| {
+                assert_ne!(cut.token(), t, "a later claim on the same cut")
+            })
+        });
     }
 
     #[test]
@@ -464,23 +576,38 @@ mod tests {
         let b = Board::new(0);
         let cuts = [Cut::new()];
         b.run(&cuts[0], 0, 100, || {
-            assert!(matches!(b.ask(&cuts, &mut || ()), Ask::Wait), "begun, not adopted yet: it may become askable");
+            assert!(
+                matches!(b.ask(&cuts, &mut || ()), Ask::Wait),
+                "begun, not adopted yet: it may become askable"
+            );
             entered(true, |_| {
                 let t = adopt_current().expect("adopted");
                 cuts[0].forbid();
-                assert!(matches!(b.ask(&cuts, &mut || ()), Ask::Nothing), "forbidden");
+                assert!(
+                    matches!(b.ask(&cuts, &mut || ()), Ask::Nothing),
+                    "forbidden"
+                );
                 assert_eq!(t.step(5, 0), None);
             });
         });
-        assert!(matches!(b.ask(&cuts, &mut || ()), Ask::Nothing), "no claim running");
+        assert!(
+            matches!(b.ask(&cuts, &mut || ()), Ask::Nothing),
+            "no claim running"
+        );
         b.run(&cuts[0], 0, 100, || {
             entered(false, |on| {
                 assert!(on);
-                assert!(adopt_current().is_none(), "no driving site: forbidden at once");
+                assert!(
+                    adopt_current().is_none(),
+                    "no driving site: forbidden at once"
+                );
                 assert!(matches!(b.ask(&cuts, &mut || ()), Ask::Nothing));
             });
         });
-        assert!(entered(true, |on| !on && adopt_current().is_none()), "no pool claim: no cut");
+        assert!(
+            entered(true, |on| !on && adopt_current().is_none()),
+            "no pool claim: no cut"
+        );
     }
 
     #[test]
@@ -528,7 +655,10 @@ mod tests {
             entered(true, |_| {
                 let t = adopt_current().expect("adopted");
                 assert_eq!(t.step(1, 0), None);
-                assert!(matches!(b.ask(&cuts, &mut || ()), Ask::Nothing), "under the floor");
+                assert!(
+                    matches!(b.ask(&cuts, &mut || ()), Ask::Nothing),
+                    "under the floor"
+                );
             })
         });
         let b0 = Board::new(0);
@@ -536,7 +666,10 @@ mod tests {
             entered(true, |_| {
                 let t = adopt_current().expect("adopted");
                 assert_eq!(t.step(3, 0), None);
-                assert!(matches!(b0.ask(&cuts, &mut || ()), Ask::Nothing), "one unit left");
+                assert!(
+                    matches!(b0.ask(&cuts, &mut || ()), Ask::Nothing),
+                    "one unit left"
+                );
             })
         });
     }

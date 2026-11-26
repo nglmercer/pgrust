@@ -34,41 +34,74 @@ pub struct Monotone {
     pub raises: bool,
 }
 
-const UP: Monotone = Monotone { increasing: true, affine: true, raises: true };
-const DOWN: Monotone = Monotone { increasing: false, affine: true, raises: true };
-const WIDEN: Monotone = Monotone { increasing: true, affine: true, raises: false };
+const UP: Monotone = Monotone {
+    increasing: true,
+    affine: true,
+    raises: true,
+};
+const DOWN: Monotone = Monotone {
+    increasing: false,
+    affine: true,
+    raises: true,
+};
+const WIDEN: Monotone = Monotone {
+    increasing: true,
+    affine: true,
+    raises: false,
+};
 
 /// `(pg_proc oid, proname, argument, fact)`: each `+` is increasing in both arguments, each `-` in its first and
 /// decreasing in its second, a unary minus decreasing (it raises at the type's minimum only).
 const TABLE: &[(u32, &str, u8, Monotone)] = &[
-    (176, "int2pl", 0, UP), (176, "int2pl", 1, UP),       // int.c:935
-    (177, "int4pl", 0, UP), (177, "int4pl", 1, UP),       // int.c:820
-    (178, "int24pl", 0, UP), (178, "int24pl", 1, UP),     // int.c:1017
-    (179, "int42pl", 0, UP), (179, "int42pl", 1, UP),     // int.c:1078
-    (180, "int2mi", 0, UP), (180, "int2mi", 1, DOWN),     // int.c:949
-    (181, "int4mi", 0, UP), (181, "int4mi", 1, DOWN),     // int.c:834
-    (182, "int24mi", 0, UP), (182, "int24mi", 1, DOWN),   // int.c:1031
-    (183, "int42mi", 0, UP), (183, "int42mi", 1, DOWN),   // int.c:1092
-    (212, "int4um", 0, DOWN),                             // int.c:800
-    (213, "int2um", 0, DOWN),                             // int.c:915
-    (462, "int8um", 0, DOWN),                             // int8.c:440
-    (463, "int8pl", 0, UP), (463, "int8pl", 1, UP),       // int8.c:462
-    (464, "int8mi", 0, UP), (464, "int8mi", 1, DOWN),     // int8.c:476
-    (480, "int84", 0, UP),                                // int8.c:1249 (int8 -> int4: out of range raises, both tails)
-    (481, "int48", 0, WIDEN),                             // int8.c:1241 (int4 -> int8)
-    (837, "int82pl", 0, UP), (837, "int82pl", 1, UP),     // int8.c:1032
-    (838, "int82mi", 0, UP), (838, "int82mi", 1, DOWN),   // int8.c:1046
-    (841, "int28pl", 0, UP), (841, "int28pl", 1, UP),     // int8.c:1113
-    (942, "int28mi", 0, UP), (942, "int28mi", 1, DOWN),   // int8.c:1127
-    (1274, "int84pl", 0, UP), (1274, "int84pl", 1, UP),   // int8.c:890
-    (1275, "int84mi", 0, UP), (1275, "int84mi", 1, DOWN), // int8.c:904
-    (1278, "int48pl", 0, UP), (1278, "int48pl", 1, UP),   // int8.c:971
-    (1279, "int48mi", 0, UP), (1279, "int48mi", 1, DOWN), // int8.c:985
+    (176, "int2pl", 0, UP),
+    (176, "int2pl", 1, UP), // int.c:935
+    (177, "int4pl", 0, UP),
+    (177, "int4pl", 1, UP), // int.c:820
+    (178, "int24pl", 0, UP),
+    (178, "int24pl", 1, UP), // int.c:1017
+    (179, "int42pl", 0, UP),
+    (179, "int42pl", 1, UP), // int.c:1078
+    (180, "int2mi", 0, UP),
+    (180, "int2mi", 1, DOWN), // int.c:949
+    (181, "int4mi", 0, UP),
+    (181, "int4mi", 1, DOWN), // int.c:834
+    (182, "int24mi", 0, UP),
+    (182, "int24mi", 1, DOWN), // int.c:1031
+    (183, "int42mi", 0, UP),
+    (183, "int42mi", 1, DOWN), // int.c:1092
+    (212, "int4um", 0, DOWN),  // int.c:800
+    (213, "int2um", 0, DOWN),  // int.c:915
+    (462, "int8um", 0, DOWN),  // int8.c:440
+    (463, "int8pl", 0, UP),
+    (463, "int8pl", 1, UP), // int8.c:462
+    (464, "int8mi", 0, UP),
+    (464, "int8mi", 1, DOWN), // int8.c:476
+    (480, "int84", 0, UP),    // int8.c:1249 (int8 -> int4: out of range raises, both tails)
+    (481, "int48", 0, WIDEN), // int8.c:1241 (int4 -> int8)
+    (837, "int82pl", 0, UP),
+    (837, "int82pl", 1, UP), // int8.c:1032
+    (838, "int82mi", 0, UP),
+    (838, "int82mi", 1, DOWN), // int8.c:1046
+    (841, "int28pl", 0, UP),
+    (841, "int28pl", 1, UP), // int8.c:1113
+    (942, "int28mi", 0, UP),
+    (942, "int28mi", 1, DOWN), // int8.c:1127
+    (1274, "int84pl", 0, UP),
+    (1274, "int84pl", 1, UP), // int8.c:890
+    (1275, "int84mi", 0, UP),
+    (1275, "int84mi", 1, DOWN), // int8.c:904
+    (1278, "int48pl", 0, UP),
+    (1278, "int48pl", 1, UP), // int8.c:971
+    (1279, "int48mi", 0, UP),
+    (1279, "int48mi", 1, DOWN), // int8.c:985
 ];
 
 /// Function `fnoid`'s monotone fact in argument `arg` (0-based), the others constant; None = not known monotone.
 pub fn monotone(fnoid: u32, arg: usize) -> Option<Monotone> {
-    TABLE.iter().find(|r| r.0 == fnoid && r.2 as usize == arg).map(|r| r.3)
+    TABLE
+        .iter()
+        .find(|r| r.0 == fnoid && r.2 as usize == arg)
+        .map(|r| r.3)
 }
 
 #[cfg(test)]
@@ -78,7 +111,10 @@ mod tests {
     /// The C body's arithmetic by proname (None = the body raises: the result is out of its type).
     fn eval(name: &str, a: &[i128]) -> Option<i128> {
         let (ws, _, r) = sig(name);
-        assert!(a.iter().zip(&ws).all(|(&x, &b)| x >= lo(b) && x <= hi(b)), "{name}: an argument out of its type");
+        assert!(
+            a.iter().zip(&ws).all(|(&x, &b)| x >= lo(b) && x <= hi(b)),
+            "{name}: an argument out of its type"
+        );
         let v = if name.ends_with("pl") {
             a[0] + a[1]
         } else if name.ends_with("mi") {
@@ -116,9 +152,34 @@ mod tests {
     /// off-by-one pairs around each bound the constant `c` moves (max - c and max - c + 1, min - c and min - c - 1, and
     /// c - max / c - min with theirs) for a result of width `r`.
     fn points(w: u8, c: i128, r: u8) -> Vec<i128> {
-        let mut p = vec![lo(w), lo(w) + 1, lo(w) + 2, -2, -1, 0, 1, 2, hi(w) - 2, hi(w) - 1, hi(w)]; // alloc: Cold
+        let mut p = vec![
+            lo(w),
+            lo(w) + 1,
+            lo(w) + 2,
+            -2,
+            -1,
+            0,
+            1,
+            2,
+            hi(w) - 2,
+            hi(w) - 1,
+            hi(w),
+        ]; // alloc: Cold
         p.extend((1..8 * w as u32 - 1).flat_map(|k| [1i128 << k, -(1i128 << k)]));
-        p.extend([hi(r) - c, hi(r) - c + 1, lo(r) - c, lo(r) - c - 1, c - hi(r), c - hi(r) - 1, c - lo(r), c - lo(r) + 1, hi(r), hi(r) + 1, lo(r), lo(r) - 1]);
+        p.extend([
+            hi(r) - c,
+            hi(r) - c + 1,
+            lo(r) - c,
+            lo(r) - c - 1,
+            c - hi(r),
+            c - hi(r) - 1,
+            c - lo(r),
+            c - lo(r) + 1,
+            hi(r),
+            hi(r) + 1,
+            lo(r),
+            lo(r) - 1,
+        ]);
         p.retain(|&x| x >= lo(w) && x <= hi(w));
         p.sort_unstable();
         p.dedup();
@@ -133,24 +194,53 @@ mod tests {
     fn every_row_is_its_proname_monotone_affine_and_raises_on_tails_only() {
         let tiers = include_str!("../../../fn/function_tiers.tsv");
         for &(f, name, arg, m) in TABLE {
-            let row = tiers.lines().find(|l| l.split('\t').next().and_then(|o| o.parse::<u32>().ok()) == Some(f));
-            assert_eq!(row.and_then(|l| l.split('\t').nth(1)), Some(name), "oid {f}: not {name} in pg_proc");
-            assert!(crate::catalog::never_null::audited(f), "{name}: not in never_null's audited set");
+            let row = tiers
+                .lines()
+                .find(|l| l.split('\t').next().and_then(|o| o.parse::<u32>().ok()) == Some(f));
+            assert_eq!(
+                row.and_then(|l| l.split('\t').nth(1)),
+                Some(name),
+                "oid {f}: not {name} in pg_proc"
+            );
+            assert!(
+                crate::catalog::never_null::audited(f),
+                "{name}: not in never_null's audited set"
+            );
             let (ws, n, r) = sig(name);
             let unary = n == 1;
-            let consts = if unary { vec![0] } else { points(ws[1 - arg as usize], 0, r) }; // alloc: Cold
+            let consts = if unary {
+                vec![0]
+            } else {
+                points(ws[1 - arg as usize], 0, r)
+            }; // alloc: Cold
             for c in consts {
                 let xs = points(ws[arg as usize], if unary { 0 } else { c }, r);
-                let out: Vec<Option<i128>> = xs.iter().map(|&x| eval(name, &(if arg == 0 { [x, c] } else { [c, x] })[..n])).collect();
+                let out: Vec<Option<i128>> = xs
+                    .iter()
+                    .map(|&x| eval(name, &(if arg == 0 { [x, c] } else { [c, x] })[..n]))
+                    .collect();
                 let ok: Vec<usize> = (0..xs.len()).filter(|&i| out[i].is_some()).collect();
                 if let (Some(&a), Some(&b)) = (ok.first(), ok.last()) {
-                    assert_eq!(b - a + 1, ok.len(), "{name} arg {arg} c {c}: a raising x between two that do not");
+                    assert_eq!(
+                        b - a + 1,
+                        ok.len(),
+                        "{name} arg {arg} c {c}: a raising x between two that do not"
+                    );
                 }
-                assert!(m.raises || ok.len() == xs.len(), "{name} arg {arg} c {c}: raises though the row says never");
+                assert!(
+                    m.raises || ok.len() == xs.len(),
+                    "{name} arg {arg} c {c}: raises though the row says never"
+                );
                 for w in ok.windows(2) {
                     let (dx, dy) = (xs[w[1]] - xs[w[0]], out[w[1]].unwrap() - out[w[0]].unwrap());
-                    assert!(if m.increasing { dy >= 0 } else { dy <= 0 }, "{name} arg {arg} c {c}: direction");
-                    assert!(!m.affine || dy == if m.increasing { dx } else { -dx }, "{name} arg {arg} c {c}: slope");
+                    assert!(
+                        if m.increasing { dy >= 0 } else { dy <= 0 },
+                        "{name} arg {arg} c {c}: direction"
+                    );
+                    assert!(
+                        !m.affine || dy == if m.increasing { dx } else { -dx },
+                        "{name} arg {arg} c {c}: slope"
+                    );
                 }
             }
         }
@@ -164,7 +254,11 @@ mod tests {
         let (mx, mn) = (hi(4), lo(4));
         assert_eq!(eval("int4pl", &[mx - 5, 5]), Some(mx));
         assert_eq!(eval("int4pl", &[mx - 4, 5]), None);
-        assert_eq!(eval("int4mi", &[5, mn + 5]), None, "5 - (min + 5) = max + 1");
+        assert_eq!(
+            eval("int4mi", &[5, mn + 5]),
+            None,
+            "5 - (min + 5) = max + 1"
+        );
         assert_eq!(eval("int4mi", &[5, mn + 6]), Some(mx));
         assert_eq!(eval("int4mi", &[-1, mn]), Some(mx), "c = -1: never raises");
         assert_eq!(eval("int4um", &[mn]), None);
@@ -175,8 +269,16 @@ mod tests {
 
     #[test]
     fn an_unknown_function_or_argument_is_not_monotone() {
-        assert_eq!(monotone(141, 0), None, "int4mul: its direction is the constant's sign");
+        assert_eq!(
+            monotone(141, 0),
+            None,
+            "int4mul: its direction is the constant's sign"
+        );
         assert_eq!(monotone(212, 1), None, "int4um has one argument");
-        assert_eq!(monotone(181, 1), Some(DOWN), "int4mi falls with its subtrahend");
+        assert_eq!(
+            monotone(181, 1),
+            Some(DOWN),
+            "int4mi falls with its subtrahend"
+        );
     }
 }

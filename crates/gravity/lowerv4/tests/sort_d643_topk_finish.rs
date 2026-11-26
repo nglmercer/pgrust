@@ -21,8 +21,15 @@ const A_IO: &str = "{FUNCEXPR :funcid 1937 :funcresulttype 23 :funcretset false 
 /// D643's variant of bench-073 (a hosted output column).
 fn tops() -> Vec<(String, String)> {
     let dir = common::plans_dir();
-    let all = [common::files(&dir, "plan"), common::files(&dir.join("regress-full"), "plan")].concat();
-    let mut v: Vec<(String, String)> = all.into_iter().filter(|(_, t)| t.contains("{LIMIT") && t.contains("{SORT")).collect();
+    let all = [
+        common::files(&dir, "plan"),
+        common::files(&dir.join("regress-full"), "plan"),
+    ]
+    .concat();
+    let mut v: Vec<(String, String)> = all
+        .into_iter()
+        .filter(|(_, t)| t.contains("{LIMIT") && t.contains("{SORT"))
+        .collect();
     let b = std::fs::read_to_string(dir.join("bench-073.plan")).expect("bench-073.plan");
     assert_eq!(b.matches(T).count(), 1, "bench-073's scan column id, once");
     v.push(("d643-bench-073-restricted".to_owned(), b.replace(T, A_IO)));
@@ -43,20 +50,32 @@ fn d643_a_resident_top_run_has_its_section_end() {
         let Some(Ok(l)) = r else { continue };
         let ir = gravity_ir::text::print_program(&l.ir);
         if name.starts_with("d643-") {
-            assert!(ir.contains("call_host sort_cut_res") && l.descs.pipelines.iter().any(|p| !p.is_eligible()), "{name}: a row top over a pipeline its hosted call keeps serial");
+            assert!(
+                ir.contains("call_host sort_cut_res")
+                    && l.descs.pipelines.iter().any(|p| !p.is_eligible()),
+                "{name}: a row top over a pipeline its hosted call keeps serial"
+            );
         }
         for (k, p) in l.descs.pipelines.iter().enumerate() {
             let Some(f) = fn_text(&ir, k) else { continue };
             if f.contains("call_host sort_cut_res") && f.contains("call_host sort_open_res") {
                 seen += 1;
                 if !p.finish {
-                    bad.push(format!("{name}: p{k} cuts a resident run but has no section end ({:?})", p.parallel));
+                    bad.push(format!(
+                        "{name}: p{k} cuts a resident run but has no section end ({:?})",
+                        p.parallel
+                    ));
                 }
             }
         }
     }
     assert!(seen > 0, "no fixture lowers a resident row top");
-    assert!(bad.is_empty(), "{} resident top(s) without a section end:\n{}", bad.len(), bad.join("\n"));
+    assert!(
+        bad.is_empty(),
+        "{} resident top(s) without a section end:\n{}",
+        bad.len(),
+        bad.join("\n")
+    );
 }
 
 /// Pipeline `k`'s function text in the printed program: the `k`-th function. The program declares one function per

@@ -15,10 +15,16 @@ pub mod substr;
 pub mod table;
 
 pub use derived::Derived;
-pub use lane::{publish, ELEM_BITS, ELEM_DERIVED, ELEM_FP128, ELEM_HASH, ELEM_I64, ELEM_LEN_IDX, ELEM_LEN_IDX_DELTA};
+pub use lane::{
+    publish, ELEM_BITS, ELEM_DERIVED, ELEM_FP128, ELEM_HASH, ELEM_I64, ELEM_LEN_IDX,
+    ELEM_LEN_IDX_DELTA,
+};
 pub use like::{EntryIndex, Matcher, Mode, PayloadDict};
 pub use once::{Claim, Key, OnceTable};
-pub use table::{index_len_header, Bits, CodeCell, Codes, Deferred, Fp128, Halt, Hash, Header, IdxLen, LenField, Lens, HDR_DATA, HDR_ELEM, HDR_FAULTS, HDR_FLAGS, HDR_MODE, HDR_NCODES, I64};
+pub use table::{
+    index_len_header, Bits, CodeCell, Codes, Deferred, Fp128, Halt, Hash, Header, IdxLen, LenField,
+    Lens, HDR_DATA, HDR_ELEM, HDR_FAULTS, HDR_FLAGS, HDR_MODE, HDR_NCODES, I64,
+};
 
 /// A byte string by address: a dictionary entry's payload, a derived value, a pattern.
 #[repr(C)]
@@ -29,10 +35,16 @@ pub struct View {
 }
 
 impl View {
-    pub const EMPTY: View = View { ptr: core::ptr::null(), len: 0 };
+    pub const EMPTY: View = View {
+        ptr: core::ptr::null(),
+        len: 0,
+    };
 
     pub const fn of(b: &[u8]) -> View {
-        View { ptr: b.as_ptr(), len: b.len() as u32 }
+        View {
+            ptr: b.as_ptr(),
+            len: b.len() as u32,
+        }
     }
 
     /// # Safety — the bytes are live for `'a`.
@@ -64,7 +76,9 @@ pub trait Dict {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BuildError {
-    RegionFull { needed: usize },
+    RegionFull {
+        needed: usize,
+    },
     TooManyCodes,
     /// An `Fp128` build before `fp::install`.
     NoSeed,
@@ -84,14 +98,22 @@ impl Region {
     /// # Safety — `ptr..ptr+len` is writable for the region's lifetime and 8-aligned.
     #[allow(clippy::missing_safety_doc)]
     pub unsafe fn new(ptr: *mut u8, len: usize) -> Region {
-        Region { base: ptr, cur: ptr, end: ptr.add(len) }
+        Region {
+            base: ptr,
+            cur: ptr,
+            end: ptr.add(len),
+        }
     }
 
     pub fn alloc(&mut self, bytes: usize, align: usize) -> Result<*mut u8, BuildError> {
         let start = (self.cur as usize).next_multiple_of(align.max(1));
-        let stop = start.checked_add(bytes).ok_or(BuildError::RegionFull { needed: bytes })?;
+        let stop = start
+            .checked_add(bytes)
+            .ok_or(BuildError::RegionFull { needed: bytes })?;
         if stop > self.end as usize {
-            return Err(BuildError::RegionFull { needed: stop - self.cur as usize });
+            return Err(BuildError::RegionFull {
+                needed: stop - self.cur as usize,
+            });
         }
         self.cur = stop as *mut u8;
         Ok(start as *mut u8)
@@ -108,7 +130,10 @@ impl Region {
         let p = self.alloc(b.len(), 1)?;
         // SAFETY: `p..p+len` was just reserved; `b` lies outside it or is read before the write.
         unsafe { core::ptr::copy(b.as_ptr(), p, b.len()) };
-        Ok(View { ptr: p, len: b.len() as u32 })
+        Ok(View {
+            ptr: p,
+            len: b.len() as u32,
+        })
     }
 
     pub fn base(&self) -> *const u8 {
@@ -124,7 +149,8 @@ impl Region {
     }
 
     pub fn contains(&self, p: *const u8) -> bool {
-        (self.base as usize..self.cur as usize).contains(&(p as usize)) || (p == self.cur && self.cur == self.end)
+        (self.base as usize..self.cur as usize).contains(&(p as usize))
+            || (p == self.cur && self.cur == self.end)
     }
 
     pub fn mark(&self) -> usize {

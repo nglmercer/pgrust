@@ -1,12 +1,20 @@
 use std::collections::HashMap;
 
-use gravity_abi::status::{UNSUPPORTED_DOMAIN, UNSUPPORTED_SCRATCH};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering as AtomicOrdering};
-use gravity_abi::Datum;
-use gravity_driver::{partition_plan, stream_runs, BatchFold, BorrowedBatch, Error, Flush, IovFn, Merge, Partial, PartitionPlan, Region, Result, SpillFile, State};
-use gravity_abi::buildrows::RowStore;
-use gravity_abi::breaker::{table_kind, Candidates, FloatOverflow, FOLD_HOST, FOLD_OVERFLOW, HashAgg, HashBuild, Owned, OwnerFns, OwnerTop, Rec, RecordLayout, SubSplit, TopK, T1, BUILD_TABLE, SELECT_MAX, TOPK_PAIRS, HASHAGG_HDR, HASHBUILD_ENTRY, HASHBUILD_HDR, MAX_BUILD_PARTS, ORDER_NONE, OWNED_HDR, REDUCE_FLUSH, TABLE_AGG, TABLE_OWNED, TABLE_T1};
 pub use gravity_abi::breaker::TOPK_TIES;
+use gravity_abi::breaker::{
+    table_kind, Candidates, FloatOverflow, HashAgg, HashBuild, Owned, OwnerFns, OwnerTop, Rec,
+    RecordLayout, SubSplit, TopK, BUILD_TABLE, FOLD_HOST, FOLD_OVERFLOW, HASHAGG_HDR,
+    HASHBUILD_ENTRY, HASHBUILD_HDR, MAX_BUILD_PARTS, ORDER_NONE, OWNED_HDR, REDUCE_FLUSH,
+    SELECT_MAX, T1, TABLE_AGG, TABLE_OWNED, TABLE_T1, TOPK_PAIRS,
+};
+use gravity_abi::buildrows::RowStore;
+use gravity_abi::status::{UNSUPPORTED_DOMAIN, UNSUPPORTED_SCRATCH};
+use gravity_abi::Datum;
+use gravity_driver::{
+    partition_plan, stream_runs, BatchFold, BorrowedBatch, Error, Flush, IovFn, Merge, Partial,
+    PartitionPlan, Region, Result, SpillFile, State,
+};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering as AtomicOrdering};
 
 /// An owner hook's failing status as the statement's error: a raise (a float merge's overflow, D244) keeps its sqlstate,
 /// a key outside the owner's dense domain (D597) its kind, a stop for the statement's cancel (`CANCELLED`: a host step
@@ -16,7 +24,9 @@ fn reduce_error(v: i64) -> Error {
     match gravity_abi::status::Status::decode(v) {
         gravity_abi::status::Status::Raised { mask } => Error::Raised(mask),
         gravity_abi::status::Status::Cancelled => Error::Cancelled,
-        gravity_abi::status::Status::Unsupported { kind: UNSUPPORTED_DOMAIN } => Error::Unsupported(UNSUPPORTED_DOMAIN),
+        gravity_abi::status::Status::Unsupported {
+            kind: UNSUPPORTED_DOMAIN,
+        } => Error::Unsupported(UNSUPPORTED_DOMAIN),
         _ => Error::Unsupported(UNSUPPORTED_SCRATCH),
     }
 }
@@ -26,16 +36,26 @@ pub struct PlainAggPartial;
 
 impl Merge for PlainAggPartial {
     fn merge_into(&self, leader: &mut State<'_>, partial: Partial<'_>) -> Result<()> {
-        let Some((layout, _, _)) = partial_shape(partial.bytes) else { return Ok(()) };
+        let Some((layout, _, _)) = partial_shape(partial.bytes) else {
+            return Ok(());
+        };
         let pt = unsafe { HashAgg::view(partial.bytes.as_ptr()) };
         // a record opened under SHARE (the window kernels' count) opens the leader under SHARE; a fixed-budget record (every
         // PlainAgg breaker: `Budget::Fixed(layout.size())`) keeps the fold's own limit — the `record` bytes the emit's
         // `record_consumed` re-opens with — whatever the leader's arm: a slot a hash build shared earlier is armed at its open
         // (the chain under a plain aggregate at W4: `HashAgg::at` "hash aggregate shape" at the emit)
-        let limit = if pt.flags & gravity_abi::breaker::FLAG_SHARE_LIMIT != 0 { gravity_abi::breaker::SHARE } else { pt.limit };
+        let limit = if pt.flags & gravity_abi::breaker::FLAG_SHARE_LIMIT != 0 {
+            gravity_abi::breaker::SHARE
+        } else {
+            pt.limit
+        };
         let l = unsafe { HashAgg::at(leader.bytes.as_mut_ptr(), &layout, 1, limit) };
         // NEW-numeric-1 (P): partials fold in after the leader's record (a width-1 arm's in plan order), each the newer
-        each_record(partial.bytes, &mut |r: Rec<'_>| l.single().fold_newer(&r).map_err(|_| Error::Raised(FloatOverflow::MASK)))
+        each_record(partial.bytes, &mut |r: Rec<'_>| {
+            l.single()
+                .fold_newer(&r)
+                .map_err(|_| Error::Raised(FloatOverflow::MASK))
+        })
     }
 }
 
@@ -44,7 +64,11 @@ impl Merge for PlainAggPartial {
 /// EX-13: the bytes of the records the partials hold together (tables and buffers, records x their layout's size): the
 /// owner phase's input.
 pub(crate) fn held_bytes(partials: &[Partial<'_>]) -> u64 {
-    partials.iter().filter_map(|p| partial_shape(p.bytes)).map(|(l, held, _)| held * l.size() as u64).sum()
+    partials
+        .iter()
+        .filter_map(|p| partial_shape(p.bytes))
+        .map(|(l, held, _)| held * l.size() as u64)
+        .sum()
 }
 
 fn partial_shape(bytes: &[u8]) -> Option<(RecordLayout, u64, u8)> {
@@ -60,7 +84,7 @@ fn partial_shape(bytes: &[u8]) -> Option<(RecordLayout, u64, u8)> {
             }
             TABLE_AGG => {
                 let t = HashAgg::view(bytes.as_ptr());
-                (t.cap != 0).then_some( (t.layout, t.len as u64, 0))
+                (t.cap != 0).then_some((t.layout, t.len as u64, 0))
             }
             _ => None,
         }
@@ -77,7 +101,9 @@ fn empty_t1(bytes: &[u8]) -> Option<u8> {
     unsafe {
         match table_kind(bytes.as_ptr()) {
             0 => Some(1),
-            TABLE_T1 if T1::view(bytes.as_ptr()).cap == 0 => Some(T1::view(bytes.as_ptr()).pbits.max(1)),
+            TABLE_T1 if T1::view(bytes.as_ptr()).cap == 0 => {
+                Some(T1::view(bytes.as_ptr()).pbits.max(1))
+            }
             _ => None,
         }
     }
@@ -112,7 +138,13 @@ fn each_record(bytes: &[u8], f: &mut dyn FnMut(Rec<'_>) -> Result<()>) -> Result
     Ok(())
 }
 
-unsafe fn each_chain_record(step: &mut cancelpoll::Step, k: &mut usize, t: &T1, part: u32, f: &mut dyn FnMut(Rec<'_>) -> Result<()>) -> Result<()> {
+unsafe fn each_chain_record(
+    step: &mut cancelpoll::Step,
+    k: &mut usize,
+    t: &T1,
+    part: u32,
+    f: &mut dyn FnMut(Rec<'_>) -> Result<()>,
+) -> Result<()> {
     let rec = t.layout.size() as usize;
     for b in t.chain(part) {
         for i in 0..b.recs {
@@ -148,14 +180,32 @@ pub struct HashAggPartial {
 
 impl HashAggPartial {
     pub const fn new(limit: u32, owner: Option<OwnerFns>) -> HashAggPartial {
-        HashAggPartial { limit, flip: 0, owner, plain: None, missed: AtomicBool::new(false), kept: [AtomicU64::new(0), AtomicU64::new(0)] }
+        HashAggPartial {
+            limit,
+            flip: 0,
+            owner,
+            plain: None,
+            missed: AtomicBool::new(false),
+            kept: [AtomicU64::new(0), AtomicU64::new(0)],
+        }
     }
 
     /// D597: `owner` bound over a dense domain, `plain` the same form without it. A key outside the domain ends the owner's
     /// round 1 (`UNSUPPORTED_DOMAIN`); the driver's round-1 rerun (the scratch road: section.rs `own_all`, parallel `own_single`)
     /// folds it again from the partials and files it only read, through `plain`.
-    pub const fn with_plain(limit: u32, owner: Option<OwnerFns>, plain: Option<OwnerFns>) -> HashAggPartial {
-        HashAggPartial { limit, flip: 0, owner, plain, missed: AtomicBool::new(false), kept: [AtomicU64::new(0), AtomicU64::new(0)] }
+    pub const fn with_plain(
+        limit: u32,
+        owner: Option<OwnerFns>,
+        plain: Option<OwnerFns>,
+    ) -> HashAggPartial {
+        HashAggPartial {
+            limit,
+            flip: 0,
+            owner,
+            plain,
+            missed: AtomicBool::new(false),
+            kept: [AtomicU64::new(0), AtomicU64::new(0)],
+        }
     }
 
     /// GP-1b: the walk's bound over the NOT of the key when `desc` (a descending group walk).
@@ -166,26 +216,56 @@ impl HashAggPartial {
 
     /// The owner functions in force: `plain` once a domain missed.
     fn fns(&self) -> Option<&OwnerFns> {
-        if self.missed.load(AtomicOrdering::Acquire) { self.plain.as_ref() } else { self.owner.as_ref() }
+        if self.missed.load(AtomicOrdering::Acquire) {
+            self.plain.as_ref()
+        } else {
+            self.owner.as_ref()
+        }
     }
 }
-
 
 /// Partition `part` of every phase-1 partial (sub-partition `sub` at `depth`) folded into a table
 /// laid out over `tp..tp + bytes` and reduced; a table that fills at its largest capacity splits
 /// into eight sub-partitions read again with the finer filter (the second generation, §3.2).
 /// `cancel` is checked per run of records (a source block, a residue record, a streamed run): D283.
 #[allow(clippy::too_many_arguments)]
-fn fold_sub(tp: *mut u8, bytes: usize, layout: &RecordLayout, part: u32, pbits: u8, depth: u8, reread: u8, sub: u64, est: u64, groups: u64, partials: &[Partial<'_>], files: &[&dyn SpillFile], site: *mut gravity_abi::Site, cancel: *const u8, owner: *mut u8, fns: &OwnerFns, reduce: gravity_abi::breaker::ReduceFn, order_slot: u8, flush: Flush<'_>) -> Result<()> {
+fn fold_sub(
+    tp: *mut u8,
+    bytes: usize,
+    layout: &RecordLayout,
+    part: u32,
+    pbits: u8,
+    depth: u8,
+    reread: u8,
+    sub: u64,
+    est: u64,
+    groups: u64,
+    partials: &[Partial<'_>],
+    files: &[&dyn SpillFile],
+    site: *mut gravity_abi::Site,
+    cancel: *const u8,
+    owner: *mut u8,
+    fns: &OwnerFns,
+    reduce: gravity_abi::breaker::ReduceFn,
+    order_slot: u8,
+    flush: Flush<'_>,
+) -> Result<()> {
     // C9: the owner phase's step on the statement's abort byte (`Ctx::cancel`; null: none), which its binding lends the
     // owner's ctxs, not a kernel call (`cancelpoll::step_on`): a set abort bit stops the fold at its next tick with
     // `Error::Cancelled`, which the statement raises as PG's error (D283); a tick is a poll for the poll-gap probe too
     // (D3969: the owner phase's folds read the byte, so the probe saw a gap from one host label to the next).
     // SAFETY: null or the live abort byte the statement's binding lends its ctxs, alive through the owner phase.
-    let mut step = unsafe { cancelpoll::step_on(cancel, "merge fold_sub: a partition's runs folded") };
+    let mut step =
+        unsafe { cancelpoll::step_on(cancel, "merge fold_sub: a partition's runs folded") };
     step.tick()?;
-    let split = SubSplit { pbits, depth, reread, sub };
-    let cap = ((groups.saturating_mul(2)).next_power_of_two().max(64)).min(HashAgg::cap_of(layout, bytes as u32) as u64) as u32;
+    let split = SubSplit {
+        pbits,
+        depth,
+        reread,
+        sub,
+    };
+    let cap = ((groups.saturating_mul(2)).next_power_of_two().max(64))
+        .min(HashAgg::cap_of(layout, bytes as u32) as u64) as u32;
     if cap < 2 {
         return Err(Error::Unsupported(UNSUPPORTED_SCRATCH));
     }
@@ -211,7 +291,9 @@ fn fold_sub(tp: *mut u8, bytes: usize, layout: &RecordLayout, part: u32, pbits: 
     let ovf = core::cell::Cell::new(false);
     // V4R-375: a hosted combine raised (`FOLD_HOST`, the host's error stashed): the statement's error once the sources stop
     let host = core::cell::Cell::new(false);
-    let hosted = layout.slot_kinds().contains(&gravity_abi::breaker::SlotKind::AggState);
+    let hosted = layout
+        .slot_kinds()
+        .contains(&gravity_abi::breaker::SlotKind::AggState);
     // interval kinds: a merge keeps the later of equal members, or raises as PG's combine in PG's order
     // (`SlotKind::folds_oldest_first`), and an order-key layout's owner fold takes the newer member of a tie
     // (`Rec::fold_newer`), so the partition is read oldest first as a hosted table's is: a W0 group's partials in input
@@ -229,7 +311,14 @@ fn fold_sub(tp: *mut u8, bytes: usize, layout: &RecordLayout, part: u32, pbits: 
         // table space left allows, up to the table's slots; past that room the reduce scans the table.
         let room = bytes.saturating_sub(used) / 4;
         // SAFETY: the owner's table space past the table, this thread's alone; the owner header was opened.
-        cand = unsafe { Candidates::at(tp.add(used), room.min(cap as usize), layout.slot_off(order_slot as usize) as usize, OwnerTop::view(owner).thr) };
+        cand = unsafe {
+            Candidates::at(
+                tp.add(used),
+                room.min(cap as usize),
+                layout.slot_off(order_slot as usize) as usize,
+                OwnerTop::view(owner).thr,
+            )
+        };
     }
     {
         let t = unsafe { &mut *table };
@@ -245,7 +334,14 @@ fn fold_sub(tp: *mut u8, bytes: usize, layout: &RecordLayout, part: u32, pbits: 
             let v = unsafe {
                 match (own, fns.fold) {
                     (Some((g, width)), _) => g(t as *mut HashAgg, &[(ptr, recs)], width, split),
-                    (None, Some(f)) => f(fns.params.as_ptr(), t as *mut HashAgg, ptr, recs, split, &mut cand),
+                    (None, Some(f)) => f(
+                        fns.params.as_ptr(),
+                        t as *mut HashAgg,
+                        ptr,
+                        recs,
+                        split,
+                        &mut cand,
+                    ),
                     (None, None) => t.fold_run(ptr, recs, split, &mut cand),
                 }
             };
@@ -263,29 +359,35 @@ fn fold_sub(tp: *mut u8, bytes: usize, layout: &RecordLayout, part: u32, pbits: 
         // every owner's epochs of the partition (the flushes), streamed in runs of whole records; a
         // full table stops the stream (the split re-reads). V4R-375: a table holding hosted states reads a file's records
         // through the owner's fold (its states combine; never a file's own fold)
-        let files_pass = |run: &mut dyn FnMut(*const u8, usize, Option<(IovFn, usize)>) -> bool| -> Result<()> {
-            // bounded("other: one spill file per worker and round, at most the section's 2 * SLOTS + 1 arrays; each run it streams goes through `run`, which ticks the fold's step first")
-            for f in files {
-                if full.get() {
-                    break;
-                }
-                let own = f.iov().filter(|_| !hosted);
-                let r = stream_runs(*f, part, own.map_or(rec, |o| o.1), &mut |ptr: *const u8, recs: usize| {
-                    if run(ptr, recs, own) {
-                        Ok(())
-                    } else {
-                        full.set(true);
-                        Err(Error::Unsupported(UNSUPPORTED_SCRATCH))
+        let files_pass =
+            |run: &mut dyn FnMut(*const u8, usize, Option<(IovFn, usize)>) -> bool| -> Result<()> {
+                // bounded("other: one spill file per worker and round, at most the section's 2 * SLOTS + 1 arrays; each run it streams goes through `run`, which ticks the fold's step first")
+                for f in files {
+                    if full.get() {
+                        break;
                     }
-                });
-                match r {
-                    Ok(_) => {}
-                    Err(Error::Unsupported(_)) if full.get() => break,
-                    Err(e) => return Err(e),
+                    let own = f.iov().filter(|_| !hosted);
+                    let r = stream_runs(
+                        *f,
+                        part,
+                        own.map_or(rec, |o| o.1),
+                        &mut |ptr: *const u8, recs: usize| {
+                            if run(ptr, recs, own) {
+                                Ok(())
+                            } else {
+                                full.set(true);
+                                Err(Error::Unsupported(UNSUPPORTED_SCRATCH))
+                            }
+                        },
+                    );
+                    match r {
+                        Ok(_) => {}
+                        Err(Error::Unsupported(_)) if full.get() => break,
+                        Err(e) => return Err(e),
+                    }
                 }
-            }
-            Ok(())
-        };
+                Ok(())
+            };
         // V4R-375: a table holding hosted states reads the partition oldest first (the files' epochs, then the chains, then
         // the tables' records: a width-1 group's partials in input order), and so does one holding interval kinds or an
         // order-key layout; every other as before (chains, records, files)
@@ -337,14 +439,19 @@ fn fold_sub(tp: *mut u8, bytes: usize, layout: &RecordLayout, part: u32, pbits: 
         return Err(Error::Raised(FloatOverflow::MASK));
     }
     if host.get() {
-        return Err(Error::Raised(gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST)));
+        return Err(Error::Raised(gravity_abi::status::raise::bit(
+            gravity_abi::status::raise::HOST,
+        )));
     }
     if full.get() {
         if groups < est {
             // the estimate's table filled: once more over the partition at the records' size (the split re-reads eight times);
             // `reread`: the dense round noted the records before the fill at the insert — the fold keeps them quiet
             crate::TABLE_RETRY.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-            return fold_sub(tp, bytes, layout, part, pbits, depth, 1, sub, est, est, partials, files, site, cancel, owner, fns, reduce, order_slot, flush);
+            return fold_sub(
+                tp, bytes, layout, part, pbits, depth, 1, sub, est, est, partials, files, site,
+                cancel, owner, fns, reduce, order_slot, flush,
+            );
         }
         // D445: a split that did not divide splits again on the next three route bits while the route has them (D446: a
         // chain of splits that do not divide goes on to the route's end, ROUTE_BITS); past them the partition is given back
@@ -357,7 +464,27 @@ fn fold_sub(tp: *mut u8, bytes: usize, layout: &RecordLayout, part: u32, pbits: 
         // quarter of its parent's while its records were an eighth, so a partition far past its table split ~7 deep
         let share = est / 8 + 1;
         for s in 0..8u32 {
-            fold_sub(tp, bytes, layout, part, pbits, depth + 1, 0, sub << 3 | s as u64, share.max(n.get() / 8 + 1), n.get() / 8 + 1, partials, files, site, cancel, owner, fns, reduce, order_slot, flush)?;
+            fold_sub(
+                tp,
+                bytes,
+                layout,
+                part,
+                pbits,
+                depth + 1,
+                0,
+                sub << 3 | s as u64,
+                share.max(n.get() / 8 + 1),
+                n.get() / 8 + 1,
+                partials,
+                files,
+                site,
+                cancel,
+                owner,
+                fns,
+                reduce,
+                order_slot,
+                flush,
+            )?;
         }
         return Ok(());
     }
@@ -365,20 +492,48 @@ fn fold_sub(tp: *mut u8, bytes: usize, layout: &RecordLayout, part: u32, pbits: 
     // SAFETY: the folded table is live; the kernel's reduce reads it and writes the owner's result;
     // full round-2 buffers are flushed to the owner's round-2 file and the reduce resumes (§3.7)
     // SAFETY: as `step`'s: the owner phase's abort byte
-    let mut reduced = unsafe { cancelpoll::step_on(cancel, "merge fold_sub: a partition's reduce") };
-    let mut v = unsafe { reduce(fns.params.as_ptr(), owner, table, site, cand.ptr, cand.ncand()) };
+    let mut reduced =
+        unsafe { cancelpoll::step_on(cancel, "merge fold_sub: a partition's reduce") };
+    let mut v = unsafe {
+        reduce(
+            fns.params.as_ptr(),
+            owner,
+            table,
+            site,
+            cand.ptr,
+            cand.ncand(),
+        )
+    };
     while v == REDUCE_FLUSH {
         reduced.tick()?;
         flush()?;
-        v = unsafe { reduce(fns.params.as_ptr(), owner, table, site, cand.ptr, cand.ncand()) };
+        v = unsafe {
+            reduce(
+                fns.params.as_ptr(),
+                owner,
+                table,
+                site,
+                cand.ptr,
+                cand.ncand(),
+            )
+        };
     }
     if v < 0 {
         return Err(reduce_error(v));
     }
     if let (Some(t0), Some(t1), Some(t2)) = (t0, t1, t2) {
-        crate::OWN_CENSUS[0].fetch_add((t1 - t0).as_nanos() as u64, core::sync::atomic::Ordering::Relaxed);
-        crate::OWN_CENSUS[1].fetch_add((t2 - t1).as_nanos() as u64, core::sync::atomic::Ordering::Relaxed);
-        crate::OWN_CENSUS[2].fetch_add(t2.elapsed().as_nanos() as u64, core::sync::atomic::Ordering::Relaxed);
+        crate::OWN_CENSUS[0].fetch_add(
+            (t1 - t0).as_nanos() as u64,
+            core::sync::atomic::Ordering::Relaxed,
+        );
+        crate::OWN_CENSUS[1].fetch_add(
+            (t2 - t1).as_nanos() as u64,
+            core::sync::atomic::Ordering::Relaxed,
+        );
+        crate::OWN_CENSUS[2].fetch_add(
+            t2.elapsed().as_nanos() as u64,
+            core::sync::atomic::Ordering::Relaxed,
+        );
         crate::OWN_CENSUS[3].fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         crate::OWN_CENSUS[4].fetch_add(n.get(), core::sync::atomic::Ordering::Relaxed);
     }
@@ -401,18 +556,33 @@ impl Merge for HashAggPartial {
     /// phase-1 table — a one-key count group-by, a grouped average, the PGROUPT text group-by); a phase-1 table's partials are the
     /// owners' and never reach it.
     fn merge_into(&self, leader: &mut State<'_>, partial: Partial<'_>) -> Result<()> {
-        let Some((layout, held, _)) = partial_shape(partial.bytes) else { return Ok(()) };
+        let Some((layout, held, _)) = partial_shape(partial.bytes) else {
+            return Ok(());
+        };
         if T1::of(partial.bytes).is_some() {
             return Err(Error::Unsupported(UNSUPPORTED_SCRATCH));
         }
         let armed = unsafe { HashAgg::view(leader.bytes.as_ptr()) }.limit;
         let p_limit = unsafe { *(partial.bytes.as_ptr().add(8) as *const u32) };
-        let limit = if armed != 0 { gravity_abi::breaker::SHARE } else { p_limit };
-        assert!(leader.bytes.len() >= p_limit.min(armed.max(1)) as usize, "leader state below the partial's region");
-        let cap = ((held * 8) / 7 + 1).next_power_of_two().clamp(256, u32::MAX as u64) as u32;
+        let limit = if armed != 0 {
+            gravity_abi::breaker::SHARE
+        } else {
+            p_limit
+        };
+        assert!(
+            leader.bytes.len() >= p_limit.min(armed.max(1)) as usize,
+            "leader state below the partial's region"
+        );
+        let cap = ((held * 8) / 7 + 1)
+            .next_power_of_two()
+            .clamp(256, u32::MAX as u64) as u32;
         let l = unsafe { HashAgg::at(leader.bytes.as_mut_ptr(), &layout, cap, limit) };
         each_record(partial.bytes, &mut |r: Rec<'_>| {
-            let Some(dst) = (if layout.nkeys() == 0 { Some(l.single()) } else { l.find_or_insert(r.keys()) }) else {
+            let Some(dst) = (if layout.nkeys() == 0 {
+                Some(l.single())
+            } else {
+                l.find_or_insert(r.keys())
+            }) else {
                 return Err(Error::Unsupported(UNSUPPORTED_SCRATCH));
             };
             dst.fold(&r).map_err(|_| Error::Raised(FloatOverflow::MASK))
@@ -424,7 +594,9 @@ impl Merge for HashAggPartial {
         if leader.len() < HASHAGG_HDR {
             return true;
         }
-        let Some((layout, held, _)) = partial_shape(partial.bytes) else { return true };
+        let Some((layout, held, _)) = partial_shape(partial.bytes) else {
+            return true;
+        };
         let l = unsafe { HashAgg::view(leader.as_ptr()) };
         let p_limit = unsafe { *(partial.bytes.as_ptr().add(8) as *const u32) };
         let limit = if l.limit != 0 { l.limit } else { p_limit };
@@ -446,7 +618,10 @@ impl Merge for HashAggPartial {
             return Some(pbits);
         }
         let floor = (fns.min_bytes)(fns.params.as_ptr(), 1);
-        (fns.rounds == 1 && fns.order_slot == ORDER_NONE && owner_bytes as u64 * owners as u64 >= 2 * floor).then_some(pbits)
+        (fns.rounds == 1
+            && fns.order_slot == ORDER_NONE
+            && owner_bytes as u64 * owners as u64 >= 2 * floor)
+            .then_some(pbits)
     }
 
     fn owner_floor(&self) -> Option<u64> {
@@ -466,12 +641,18 @@ impl Merge for HashAggPartial {
         // bounded("small-fixed: one partial per worker, at most SLOTS (256)")
         for p in partials {
             match partial_shape(p.bytes) {
-                Some((_, _, b)) if T1::of(p.bytes).is_some() => (pbits, held) = (pbits.max(b), true),
+                Some((_, _, b)) if T1::of(p.bytes).is_some() => {
+                    (pbits, held) = (pbits.max(b), true)
+                }
                 Some(_) => return None,
                 None => empty = empty.zip(empty_t1(p.bytes)).map(|(a, b)| a.max(b)),
             }
         }
-        if held { (pbits != 0).then_some(pbits) } else { empty }
+        if held {
+            (pbits != 0).then_some(pbits)
+        } else {
+            empty
+        }
     }
 
     fn open_owner(&self, owner: Region, _ordinal: u16) -> Result<()> {
@@ -503,7 +684,13 @@ impl Merge for HashAggPartial {
 
     /// D2988 (C): the partitions the partials' chains and tables hold a record of (`own_partition`'s sources), from memory
     /// alone: none with a file to read, or a partial that is not a phase-1 table.
-    fn held_parts(&self, partials: &[Partial<'_>], files: &[&dyn SpillFile], pbits: u8, mask: &mut [u64]) -> bool {
+    fn held_parts(
+        &self,
+        partials: &[Partial<'_>],
+        files: &[&dyn SpillFile],
+        pbits: u8,
+        mask: &mut [u64],
+    ) -> bool {
         if !files.is_empty() || (1usize << pbits) > 64 * mask.len() {
             return false;
         }
@@ -544,7 +731,13 @@ impl Merge for HashAggPartial {
     /// records (walked, as `held_parts` does) at the partial's record size, and each file's partition bytes (a file that
     /// cannot say: its even share, as `own_partition` estimates it); `false` for a partial that is not a phase-1 table at
     /// `pbits`.
-    fn part_record_bytes(&self, partials: &[Partial<'_>], files: &[&dyn SpillFile], pbits: u8, parts: &mut [u64]) -> bool {
+    fn part_record_bytes(
+        &self,
+        partials: &[Partial<'_>],
+        files: &[&dyn SpillFile],
+        pbits: u8,
+        parts: &mut [u64],
+    ) -> bool {
         let n = 1usize << pbits;
         if n > parts.len() {
             return false;
@@ -555,7 +748,9 @@ impl Merge for HashAggPartial {
         // partition then stops with it
         let mut step = cancelpoll::step("merge part_record_bytes: the partials' records counted");
         for p in partials {
-            let Some((layout, _, _)) = partial_shape(p.bytes) else { continue };
+            let Some((layout, _, _)) = partial_shape(p.bytes) else {
+                continue;
+            };
             if T1::of(p.bytes).is_none() {
                 return false;
             }
@@ -619,22 +814,39 @@ impl Merge for HashAggPartial {
     }
 
     fn round2_pbits(&self, owner: Region) -> u8 {
-        self.round2_partial(owner).map_or(0, |r| unsafe { T1::view(r.ptr) }.pbits)
+        self.round2_partial(owner)
+            .map_or(0, |r| unsafe { T1::view(r.ptr) }.pbits)
     }
 
     fn round2_partial(&self, owner: Region) -> Option<Region> {
         // SAFETY: the owner's region, opened: its header says where the round-2 buffers start.
         let off = unsafe { OwnerTop::view(owner.ptr) }.round2_off as usize;
-        (off != 0 && off < owner.len).then(|| Region { ptr: unsafe { owner.ptr.add(off) }, len: owner.len - off })
+        (off != 0 && off < owner.len).then(|| Region {
+            ptr: unsafe { owner.ptr.add(off) },
+            len: owner.len - off,
+        })
     }
 
     // Kept safe on purpose: `site` and `cancel` are the shared-memory pointers the merge round owns for its duration.
     #[allow(clippy::not_unsafe_ptr_arg_deref)]
-    fn own_partition(&self, owner: Region, part: u32, pbits: u8, partials: &[Partial<'_>], files: &[&dyn SpillFile], site: *mut gravity_abi::Site, cancel: *const u8, round: u8, flush: Flush<'_>) -> Result<()> {
+    fn own_partition(
+        &self,
+        owner: Region,
+        part: u32,
+        pbits: u8,
+        partials: &[Partial<'_>],
+        files: &[&dyn SpillFile],
+        site: *mut gravity_abi::Site,
+        cancel: *const u8,
+        round: u8,
+        flush: Flush<'_>,
+    ) -> Result<()> {
         // SAFETY: as `fold_sub`'s step: the owner phase's abort byte
         unsafe { cancelpoll::step_on(cancel, "merge own_partition: a partition owned") }.tick()?;
         let fns = self.fns().ok_or_else(gravity_driver::no_owner_phase)?;
-        let Some((layout, _, _)) = partials.iter().find_map(|p| partial_shape(p.bytes)) else { return Ok(()) };
+        let Some((layout, _, _)) = partials.iter().find_map(|p| partial_shape(p.bytes)) else {
+            return Ok(());
+        };
         // SAFETY: the owner's region was opened (`open_owner`): its result header says where the table space starts.
         let off = unsafe { OwnerTop::view(owner.ptr) }.table_off as usize;
         if off >= owner.len {
@@ -643,8 +855,17 @@ impl Merge for HashAggPartial {
         // D4033: every phase-1 partial of one owner phase holds the owner phase's partitions (kernels `fold_bits` cuts a
         // worker share the pool's room opened smaller by its section's share). One at another count is refused by name and
         // never read: its words past its own partitions are no chains, and a chain below them holds other partitions' records
-        if let Some(t) = partials.iter().filter(|p| partial_shape(p.bytes).is_some()).filter_map(|p| T1::of(p.bytes)).find(|t| t.pbits != pbits) {
-            return Err(Error::host(format!("gravity: a phase-1 partial at {} partitions where its owner phase reads {}", 1u32 << t.pbits, 1u32 << pbits))); // alloc: Cold
+        if let Some(t) = partials
+            .iter()
+            .filter(|p| partial_shape(p.bytes).is_some())
+            .filter_map(|p| T1::of(p.bytes))
+            .find(|t| t.pbits != pbits)
+        {
+            return Err(Error::host(format!(
+                "gravity: a phase-1 partial at {} partitions where its owner phase reads {}",
+                1u32 << t.pbits,
+                1u32 << pbits
+            ))); // alloc: Cold
         }
         let mut est = 0u64;
         // bounded("small-fixed: one partial per worker, at most SLOTS (256); a partial's chain of the partition summed by blocks")
@@ -653,7 +874,12 @@ impl Merge for HashAggPartial {
                 continue;
             }
             let t1 = unsafe { T1::view(p.bytes.as_ptr()) };
-            est += t1.chain(part).map(|b| b.recs as u64).sum::<u64>() + if t1.len != 0 { t1.len as u64 / t1.parts() as u64 + 1 } else { 0 };
+            est += t1.chain(part).map(|b| b.recs as u64).sum::<u64>()
+                + if t1.len != 0 {
+                    t1.len as u64 / t1.parts() as u64 + 1
+                } else {
+                    0
+                };
         }
         // a file that cannot say a partition's bytes is estimated at its even share (never skipped)
         let mut in_files = false;
@@ -669,18 +895,44 @@ impl Merge for HashAggPartial {
         if est == 0 && !in_files {
             return Ok(());
         }
-        let (reduce, order_slot) = if round == 2 { (fns.reduce2, fns.order_slot2) } else { (fns.reduce, fns.order_slot) };
+        let (reduce, order_slot) = if round == 2 {
+            (fns.reduce2, fns.order_slot2)
+        } else {
+            (fns.reduce, fns.order_slot)
+        };
         let groups = match crate::owner_groups_cap() {
             0 => table_groups(est, pbits, layout.size() as u64),
             cap => table_groups(est, pbits, layout.size() as u64).min(cap),
         };
-        match fold_sub(unsafe { owner.ptr.add(off) }, owner.len - off, &layout, part, pbits, 0, 0, 0, est, groups, partials, files, site, cancel, owner.ptr, fns, reduce, order_slot, flush) {
+        match fold_sub(
+            unsafe { owner.ptr.add(off) },
+            owner.len - off,
+            &layout,
+            part,
+            pbits,
+            0,
+            0,
+            0,
+            est,
+            groups,
+            partials,
+            files,
+            site,
+            cancel,
+            owner.ptr,
+            fns,
+            reduce,
+            order_slot,
+            flush,
+        ) {
             // D597: the round-1 rerun (the scratch road) folds again through the plain form; without one, the error by name
             Err(Error::Unsupported(UNSUPPORTED_DOMAIN)) if self.plain.is_some() => {
                 self.missed.store(true, AtomicOrdering::Release);
                 Err(Error::Unsupported(UNSUPPORTED_SCRATCH))
             }
-            Err(Error::Unsupported(UNSUPPORTED_DOMAIN)) => Err(Error::host("gravity: a group key outside the owner's dense domain")),
+            Err(Error::Unsupported(UNSUPPORTED_DOMAIN)) => Err(Error::host(
+                "gravity: a group key outside the owner's dense domain",
+            )),
             r => r,
         }
     }
@@ -690,7 +942,18 @@ impl Merge for HashAggPartial {
             return Err(Error::Unsupported(UNSUPPORTED_SCRATCH));
         }
         // SAFETY: the leader region's first 64 bytes, the owners' regions lie behind them.
-        unsafe { *(leader.as_mut_ptr() as *mut Owned) = Owned { nowners: width as u32, owner_bytes, limit: leader.len() as u32, pad0: [0; 3], kind: TABLE_OWNED, base: 0, pad1: [0; 5], cell: core::cell::UnsafeCell::new([]) } };
+        unsafe {
+            *(leader.as_mut_ptr() as *mut Owned) = Owned {
+                nowners: width as u32,
+                owner_bytes,
+                limit: leader.len() as u32,
+                pad0: [0; 3],
+                kind: TABLE_OWNED,
+                base: 0,
+                pad1: [0; 5],
+                cell: core::cell::UnsafeCell::new([]),
+            }
+        };
         Ok(())
     }
 
@@ -740,8 +1003,17 @@ impl Merge for HashAggPartial {
                 layout = layout.or(Some(l));
             }
         }
-        let plain = if self.missed.load(AtomicOrdering::Acquire) { None } else { self.plain };
-        Some(Box::new(HashAggBatch { owner: *fns, plain, missed: AtomicBool::new(false), layout: layout? })) // alloc: Exec
+        let plain = if self.missed.load(AtomicOrdering::Acquire) {
+            None
+        } else {
+            self.plain
+        };
+        Some(Box::new(HashAggBatch {
+            owner: *fns,
+            plain,
+            missed: AtomicBool::new(false),
+            layout: layout?,
+        })) // alloc: Exec
     }
 }
 
@@ -784,7 +1056,15 @@ impl BatchFold for HashAggBatch {
         }
     }
 
-    fn fold(&self, owner: Region, part: u32, pbits: u8, files: &[&dyn SpillFile], site: *mut gravity_abi::Site, cancel: *const u8) -> Result<()> {
+    fn fold(
+        &self,
+        owner: Region,
+        part: u32,
+        pbits: u8,
+        files: &[&dyn SpillFile],
+        site: *mut gravity_abi::Site,
+        cancel: *const u8,
+    ) -> Result<()> {
         let fns = self.fns();
         let rec = self.layout.size() as u64;
         // SAFETY: the owner region was opened (`open`): its result header says where the table space starts.
@@ -812,10 +1092,36 @@ impl BatchFold for HashAggBatch {
         };
         // SAFETY: the table space behind the opened owner's header, inside its region.
         let tp = unsafe { owner.ptr.add(off) };
-        match fold_sub(tp, owner.len - off, &self.layout, part, pbits, 0, 0, 0, est, groups, &[], files, site, cancel, owner.ptr, fns, fns.reduce, fns.order_slot, &mut || Err(Error::Unsupported(UNSUPPORTED_SCRATCH))) {
+        match fold_sub(
+            tp,
+            owner.len - off,
+            &self.layout,
+            part,
+            pbits,
+            0,
+            0,
+            0,
+            est,
+            groups,
+            &[],
+            files,
+            site,
+            cancel,
+            owner.ptr,
+            fns,
+            fns.reduce,
+            fns.order_slot,
+            &mut || Err(Error::Unsupported(UNSUPPORTED_SCRATCH)),
+        ) {
             // D597: the batch folds again through the plain form (the batches before it keep the dense one's runs)
-            Err(Error::Unsupported(UNSUPPORTED_DOMAIN)) if self.plain.is_some() && !self.missed.swap(true, AtomicOrdering::AcqRel) => Err(Error::Unsupported(UNSUPPORTED_DOMAIN)),
-            Err(Error::Unsupported(UNSUPPORTED_DOMAIN)) => Err(Error::host("gravity: a group key outside the owner's dense domain")),
+            Err(Error::Unsupported(UNSUPPORTED_DOMAIN))
+                if self.plain.is_some() && !self.missed.swap(true, AtomicOrdering::AcqRel) =>
+            {
+                Err(Error::Unsupported(UNSUPPORTED_DOMAIN))
+            }
+            Err(Error::Unsupported(UNSUPPORTED_DOMAIN)) => Err(Error::host(
+                "gravity: a group key outside the owner's dense domain",
+            )),
             r => r,
         }
     }
@@ -826,8 +1132,14 @@ impl BatchFold for HashAggBatch {
         match unsafe { (fns.end_round)(fns.params.as_ptr(), owner.ptr) } {
             REDUCE_FLUSH => Err(Error::Unsupported(UNSUPPORTED_SCRATCH)),
             v if v < 0 => match reduce_error(v) {
-                Error::Unsupported(UNSUPPORTED_DOMAIN) if self.plain.is_some() && !self.missed.swap(true, AtomicOrdering::AcqRel) => Err(Error::Unsupported(UNSUPPORTED_DOMAIN)),
-                Error::Unsupported(UNSUPPORTED_DOMAIN) => Err(Error::host("gravity: a group key outside the owner's dense domain")),
+                Error::Unsupported(UNSUPPORTED_DOMAIN)
+                    if self.plain.is_some() && !self.missed.swap(true, AtomicOrdering::AcqRel) =>
+                {
+                    Err(Error::Unsupported(UNSUPPORTED_DOMAIN))
+                }
+                Error::Unsupported(UNSUPPORTED_DOMAIN) => Err(Error::host(
+                    "gravity: a group key outside the owner's dense domain",
+                )),
                 e => Err(e),
             },
             _ => Ok(()),
@@ -872,7 +1184,10 @@ impl Merge for TopKPartial {
             return None;
         }
         let p = unsafe { TopK::view(partial.bytes.as_ptr()) };
-        if p.n == 0 || (partial.bytes.len() as u32) < TopK::bytes_cap(p.cap, p.natts) || p.flags & TOPK_PAIRS != 0 {
+        if p.n == 0
+            || (partial.bytes.len() as u32) < TopK::bytes_cap(p.cap, p.natts)
+            || p.flags & TOPK_PAIRS != 0
+        {
             return None;
         }
         p.bound()
@@ -889,17 +1204,36 @@ impl Merge for TopKPartial {
 /// once per distinct `(column, part, code)` (a ties run repeats a few hundred words over
 /// thousands of rows), and with a secondary key only that key's column before the cut: the
 /// other code columns are rendered for the `n` survivors.
-pub fn order_topk(stmt: &gravity_driver::Reservation, run: &mut TopK, codes: u32, secondary: Option<u16>, mut resolve: impl FnMut(u32, u16, u32) -> Result<(u64, u32)>) -> Result<()> {
+pub fn order_topk(
+    stmt: &gravity_driver::Reservation,
+    run: &mut TopK,
+    codes: u32,
+    secondary: Option<u16>,
+    mut resolve: impl FnMut(u32, u16, u32) -> Result<(u64, u32)>,
+) -> Result<()> {
     let natts = run.natts as usize;
     let census = crate::phases_on().then(std::time::Instant::now);
     // memsig (UNOWNED runtime, parallel): the render's lists on the statement this leader-only call serves (exec runner
     // plan.rs, the leader's drive: `stmt_context` is its statement or portal); uncharged outside one
     let owner = gravity_driver::stmt_context().map(|(o, _)| o);
-    let oom = |bytes: usize| gravity_driver::Error::OutOfMemory { bytes: bytes as u64, held: gravity_driver::POOL.held(), capacity: gravity_driver::POOL.capacity(), why: None };
+    let oom = |bytes: usize| gravity_driver::Error::OutOfMemory {
+        bytes: bytes as u64,
+        held: gravity_driver::POOL.held(),
+        capacity: gravity_driver::POOL.capacity(),
+        why: None,
+    };
     // the rendered codes' table, its buckets on `owner` (`map_charge`, fitted to the table after each render pass; declared
     // after the table, so it drops first)
     let mut rendered: HashMap<(u16, u64), u64> = HashMap::new(); // alloc: Exec charged owner (map_charge, fitted after each render pass)
-    let mut map_charge = owner.map(|o| memledger::Charge::open(o, memledger::charge::release_of(o), memledger::Kind::Region, memledger::charge::Door::Heap, 0));
+    let mut map_charge = owner.map(|o| {
+        memledger::Charge::open(
+            o,
+            memledger::charge::release_of(o),
+            memledger::Kind::Region,
+            memledger::charge::Door::Heap,
+            0,
+        )
+    });
     // C9: on the byte the running kernel call lends (outside one, a step that never stops); a tick per row rendered (a
     // dictionary value's render may read its part), a batch per row moved
     let mut step = cancelpoll::step("merge order_topk: a top-k run's codes rendered and cut");
@@ -912,7 +1246,8 @@ pub fn order_topk(stmt: &gravity_driver::Reservation, run: &mut TopK, codes: u32
                 if columns >> c & 1 == 0 || nl[c] != 0 {
                     continue;
                 }
-                *cell = match rendered.entry((c as u16, *cell)) { // alloc: Exec charged owner (map_charge, fitted after the pass)
+                *cell = match rendered.entry((c as u16, *cell)) {
+                    // alloc: Exec charged owner (map_charge, fitted after the pass)
                     std::collections::hash_map::Entry::Occupied(e) => *e.get(),
                     std::collections::hash_map::Entry::Vacant(e) => {
                         let (part, code) = ((*cell >> 32) as u32, *cell as u32);
@@ -930,12 +1265,20 @@ pub fn order_topk(stmt: &gravity_driver::Reservation, run: &mut TopK, codes: u32
         // so only the rows that can win are rendered (a ties run holds the walk's stragglers too,
         // and which ones it holds differs run to run)
         let (len, n) = (run.len as usize, run.n as usize);
-        let mut keys = memledger::ChargedVec::try_from_iter(owner, memledger::Kind::Region, (0..len).map(|i| run.row(i).0[0] as i64)).map_err(|_| oom(len * 8))?;
+        let mut keys = memledger::ChargedVec::try_from_iter(
+            owner,
+            memledger::Kind::Region,
+            (0..len).map(|i| run.row(i).0[0] as i64),
+        )
+        .map_err(|_| oom(len * 8))?;
         let (_, kth, _) = keys.select_nth_unstable(n - 1);
         let kth = *kth;
         drop(keys);
         // one row's copy, reused for every row moved down (was a copy per row)
-        let (mut rv, mut rn) = (memledger::ChargedVec::new(owner, memledger::Kind::Region), memledger::ChargedVec::new(owner, memledger::Kind::Region));
+        let (mut rv, mut rn) = (
+            memledger::ChargedVec::new(owner, memledger::Kind::Region),
+            memledger::ChargedVec::new(owner, memledger::Kind::Region),
+        );
         rv.resize(natts, 0u64).map_err(|_| oom(natts * 9))?;
         rn.resize(natts, 0u8).map_err(|_| oom(natts * 9))?;
         let mut kept = 0usize;
@@ -960,7 +1303,10 @@ pub fn order_topk(stmt: &gravity_driver::Reservation, run: &mut TopK, codes: u32
     let (t_resolve, len0) = (census.map(|t| t.elapsed()), run.len);
     if let Some(sec) = secondary {
         let sec = sec as usize;
-        assert!(sec < natts && codes >> sec & 1 != 0, "the secondary key is a rendered code column");
+        assert!(
+            sec < natts && codes >> sec & 1 != 0,
+            "the secondary key is a rendered code column"
+        );
         // SAFETY: a rendered cell is a 4B-U varlena image resident with its part for the Node's life.
         let bytes = |v: &[u64], nl: &[u8]| -> Option<&'static [u8]> {
             if nl[sec] != 0 {
@@ -996,7 +1342,9 @@ pub fn order_topk(stmt: &gravity_driver::Reservation, run: &mut TopK, codes: u32
                     a.cmp(&b)
                 }
             };
-            let mut idx = memledger::ChargedVec::try_from_iter(owner, memledger::Kind::Region, 0..len as u32).map_err(|_| oom(len * 4))?;
+            let mut idx =
+                memledger::ChargedVec::try_from_iter(owner, memledger::Kind::Region, 0..len as u32)
+                    .map_err(|_| oom(len * 4))?;
             idx.select_nth_unstable_by(n - 1, cmp);
             idx.with_vec(|v| v.truncate(n));
             // the polled sort (cancelpoll::sort_by): its merge passes need a scratch past one run
@@ -1007,10 +1355,16 @@ pub fn order_topk(stmt: &gravity_driver::Reservation, run: &mut TopK, codes: u32
             cancelpoll::sort_by(&mut step, &mut idx, &mut scratch, cmp)?;
             drop(scratch);
             // the n winners' copy: on `owner`, within the statement's hold of their bytes (n x natts x 9)
-            let (mut tv, mut tn) = (memledger::ChargedVec::new(owner, memledger::Kind::Region), memledger::ChargedVec::new(owner, memledger::Kind::Region));
+            let (mut tv, mut tn) = (
+                memledger::ChargedVec::new(owner, memledger::Kind::Region),
+                memledger::ChargedVec::new(owner, memledger::Kind::Region),
+            );
             stmt.region_draw()?;
             let held = stmt.hold((n * natts * 9) as u64);
-            if held.is_none() || tv.try_reserve(n * natts).is_err() || tn.try_reserve(n * natts).is_err() {
+            if held.is_none()
+                || tv.try_reserve(n * natts).is_err()
+                || tn.try_reserve(n * natts).is_err()
+            {
                 return Err(oom(n * natts * 9));
             }
             for (k, &i) in idx.iter().enumerate() {
@@ -1034,7 +1388,15 @@ pub fn order_topk(stmt: &gravity_driver::Reservation, run: &mut TopK, codes: u32
     run.truncate(run.n);
     render(&mut step, run, codes & !first)?;
     if let (Some(t), Some(r)) = (census, t_resolve) {
-        eprintln!("PHASES topk rows={} n={} codes={:#b} rendered={} resolve={:.2}ms order={:.2}ms", len0, run.n, codes, rendered.len(), r.as_secs_f64() * 1e3, (t.elapsed() - r).as_secs_f64() * 1e3);
+        eprintln!(
+            "PHASES topk rows={} n={} codes={:#b} rendered={} resolve={:.2}ms order={:.2}ms",
+            len0,
+            run.n,
+            codes,
+            rendered.len(),
+            r.as_secs_f64() * 1e3,
+            (t.elapsed() - r).as_secs_f64() * 1e3
+        );
     }
     Ok(())
 }
@@ -1048,7 +1410,11 @@ fn fit_map<K, V>(charge: &mut Option<memledger::Charge>, map: &HashMap<K, V>) {
     let bytes = if cap == 0 {
         0
     } else {
-        let buckets = if cap < 8 { (cap + 1).next_power_of_two() } else { (cap * 8 / 7).next_power_of_two() };
+        let buckets = if cap < 8 {
+            (cap + 1).next_power_of_two()
+        } else {
+            (cap * 8 / 7).next_power_of_two()
+        };
         (buckets * (core::mem::size_of::<(K, V)>() + 1) + 16) as u64
     };
     c.fit_committed(bytes);
@@ -1073,7 +1439,10 @@ impl Merge for HashBuildPartial {
         let mut rebase = [0u32; MAX_BUILD_PARTS];
         let stored = match unsafe { RowStore::of(partial.bytes.as_ptr()) } {
             Some(ps) => {
-                let ls = unsafe { RowStore::carve(leader.bytes.as_mut_ptr(), ps.row_hdr as u32, ps.parts) }.ok_or(Error::Unsupported(UNSUPPORTED_SCRATCH))?;
+                let ls = unsafe {
+                    RowStore::carve(leader.bytes.as_mut_ptr(), ps.row_hdr as u32, ps.parts)
+                }
+                .ok_or(Error::Unsupported(UNSUPPORTED_SCRATCH))?;
                 if !ls.merge_from(ps, &mut rebase) {
                     return Err(Error::Unsupported(UNSUPPORTED_SCRATCH));
                 }
@@ -1083,13 +1452,17 @@ impl Merge for HashBuildPartial {
         };
         let l = unsafe { HashBuild::at_share_sized(leader.bytes.as_mut_ptr(), BUILD_TABLE, want) };
         // bounded("other: the table doubles until it holds the merged rows, at most 32 doublings of a u32 capacity")
-        while (l.cap as u64) < HashBuild::table_cap_for(l.len as u64 + p.len as u64) as u64 && l.grow() {}
+        while (l.cap as u64) < HashBuild::table_cap_for(l.len as u64 + p.len as u64) as u64
+            && l.grow()
+        {}
         // C9: under the byte the leader's fold lends (driver section.rs `close_section`)
         let mut step = cancelpoll::step("merge merge_into: a build partial's entries");
         for (k, e) in p.entries().enumerate() {
             step.batch(k)?;
             let payload = match stored {
-                Some(bits) => (e.payload as u32).wrapping_add(rebase[HashBuild::partition_of(e.key, bits) as usize]) as i64,
+                Some(bits) => (e.payload as u32)
+                    .wrapping_add(rebase[HashBuild::partition_of(e.key, bits) as usize])
+                    as i64,
                 None => e.payload,
             };
             if !l.insert_tagged(e.key, payload, e.used) {
@@ -1126,46 +1499,74 @@ impl Merge for HashBuildPartial {
             return true;
         }
         let l = unsafe { HashBuild::view(leader.as_ptr()) };
-        if let (Some(ps), Some(ls)) = (unsafe { RowStore::of(partial.bytes.as_ptr()) }, unsafe { RowStore::of(leader.as_ptr()) }) {
+        if let (Some(ps), Some(ls)) = (unsafe { RowStore::of(partial.bytes.as_ptr()) }, unsafe {
+            RowStore::of(leader.as_ptr())
+        }) {
             if !ls.room_for(ps) {
                 return false;
             }
         }
-        let entries = match (unsafe { RowStore::of(leader.as_ptr()) }, unsafe { RowStore::of(partial.bytes.as_ptr()) }) {
+        let entries = match (unsafe { RowStore::of(leader.as_ptr()) }, unsafe {
+            RowStore::of(partial.bytes.as_ptr())
+        }) {
             (Some(_), _) => l.pad2,
-            (None, Some(ps)) => leader.len() as u32 - RowStore::split(leader.len() as u32, ps.row_hdr as u32),
+            (None, Some(ps)) => {
+                leader.len() as u32 - RowStore::split(leader.len() as u32, ps.row_hdr as u32)
+            }
             (None, None) => leader.len() as u32,
         };
-        let (len, cap) = if l.cap == 0 { (0u64, HashBuild::table_cap_of(entries) as u64) } else { (l.len as u64, l.max_cap() as u64) };
+        let (len, cap) = if l.cap == 0 {
+            (0u64, HashBuild::table_cap_of(entries) as u64)
+        } else {
+            (l.len as u64, l.max_cap() as u64)
+        };
         len + p.len as u64 <= cap - cap / 8
     }
 
     fn partition_plan(&self, partials: &[Partial<'_>]) -> Option<PartitionPlan> {
-        let entries: u64 = partials.iter().filter(|p| p.bytes.len() >= HASHBUILD_HDR).map(|p| unsafe { HashBuild::view(p.bytes.as_ptr()) }).filter(|b| b.cap != 0).map(|b| b.len as u64).sum();
+        let entries: u64 = partials
+            .iter()
+            .filter(|p| p.bytes.len() >= HASHBUILD_HDR)
+            .map(|p| unsafe { HashBuild::view(p.bytes.as_ptr()) })
+            .filter(|b| b.cap != 0)
+            .map(|b| b.len as u64)
+            .sum();
         partition_plan(entries, HASHBUILD_ENTRY as u32)
     }
 
     /// The destination: one partitioned `BUILD_TABLE` over the leader region, refused when the
     /// entries would pass 7/8 of it (the serial fold then spills as it must); its slices are
     /// zeroed by the jobs (`merge_partition`), not here on the leader.
-    fn prepare_partitions(&self, leader: &mut [u8], plan: PartitionPlan, partials: &[Partial<'_>]) -> Result<()> {
+    fn prepare_partitions(
+        &self,
+        leader: &mut [u8],
+        plan: PartitionPlan,
+        partials: &[Partial<'_>],
+    ) -> Result<()> {
         // the row store's slices must be the plan's partitions (one job appends one slice); else the serial fold
         let mut entries = leader.len() as u32;
-        if let Some(ps) = partials.iter().filter(|p| p.bytes.len() >= HASHBUILD_HDR).find_map(|p| unsafe { RowStore::of(p.bytes.as_ptr()) }) {
+        if let Some(ps) = partials
+            .iter()
+            .filter(|p| p.bytes.len() >= HASHBUILD_HDR)
+            .find_map(|p| unsafe { RowStore::of(p.bytes.as_ptr()) })
+        {
             if ps.bits() != plan.pbits {
                 return Err(Error::Unsupported(UNSUPPORTED_SCRATCH));
             }
             if unsafe { HashBuild::armed(leader.as_ptr()) } == 0 {
                 unsafe { HashAgg::arm(leader.as_mut_ptr(), leader.len() as u32) };
             }
-            unsafe { RowStore::carve(leader.as_mut_ptr(), ps.row_hdr as u32, ps.parts) }.ok_or(Error::Unsupported(UNSUPPORTED_SCRATCH))?;
+            unsafe { RowStore::carve(leader.as_mut_ptr(), ps.row_hdr as u32, ps.parts) }
+                .ok_or(Error::Unsupported(UNSUPPORTED_SCRATCH))?;
             entries = unsafe { HashBuild::armed(leader.as_ptr()) };
         }
         let cap = HashBuild::table_cap_of(entries) as u64;
         if cap < 1 << plan.pbits || plan.groups > cap - cap / 8 {
             return Err(Error::Unsupported(UNSUPPORTED_SCRATCH));
         }
-        let want = (plan.groups.saturating_mul(2) + 1).next_power_of_two().min(u32::MAX as u64) as u32;
+        let want = (plan.groups.saturating_mul(2) + 1)
+            .next_power_of_two()
+            .min(u32::MAX as u64) as u32;
         unsafe { HashBuild::at_partitioned_lazy(leader.as_mut_ptr(), entries, plan.pbits, want) };
         Ok(())
     }
@@ -1195,7 +1596,13 @@ impl Merge for HashBuildPartial {
 
     /// Slice `part` zeroed, then partition `part` of every partial (its sorted range; the whole
     /// partial scanned only when a partial was not sorted) inserted into it.
-    fn merge_partition(&self, leader: Region, part: u32, plan: PartitionPlan, partials: &[Partial<'_>]) -> Result<()> {
+    fn merge_partition(
+        &self,
+        leader: Region,
+        part: u32,
+        plan: PartitionPlan,
+        partials: &[Partial<'_>],
+    ) -> Result<()> {
         let dst = leader.ptr as *mut HashBuild;
         // SAFETY: slice `part` of the destination is this job's alone (`Region`); `len` is added
         // once per partition (a per-entry atomic on the shared header was 8 % of the workers' time).
@@ -1217,7 +1624,8 @@ impl Merge for HashBuildPartial {
             let delta = match (store.as_mut(), unsafe { RowStore::of(p.bytes.as_ptr()) }) {
                 (Some(ls), Some(ps)) => {
                     rows += ps.len;
-                    ls.append_slice(part as u16, ps.part_bytes(part as u16)).ok_or(Error::Unsupported(UNSUPPORTED_SCRATCH))?
+                    ls.append_slice(part as u16, ps.part_bytes(part as u16))
+                        .ok_or(Error::Unsupported(UNSUPPORTED_SCRATCH))?
                 }
                 _ => 0,
             };
@@ -1227,9 +1635,26 @@ impl Merge for HashBuildPartial {
                         step.batch(i)?;
                         let e = b.entry(i);
                         let payload = (e.payload as u32).wrapping_add(delta) as i64;
-                        if unsafe { HashBuild::insert_partitioned_uncounted(dst, e.key, payload, e.used) }.is_none() {
-                            for (k, v) in [part, b.len, b.cap, b.sorted as u32, lo as u32, hi as u32, n, e.key as u32].into_iter().enumerate() {
-                                gravity_driver::P2_DIAG[k].store(v, core::sync::atomic::Ordering::Relaxed);
+                        if unsafe {
+                            HashBuild::insert_partitioned_uncounted(dst, e.key, payload, e.used)
+                        }
+                        .is_none()
+                        {
+                            for (k, v) in [
+                                part,
+                                b.len,
+                                b.cap,
+                                b.sorted as u32,
+                                lo as u32,
+                                hi as u32,
+                                n,
+                                e.key as u32,
+                            ]
+                            .into_iter()
+                            .enumerate()
+                            {
+                                gravity_driver::P2_DIAG[k]
+                                    .store(v, core::sync::atomic::Ordering::Relaxed);
                             }
                             return Err(Error::Unsupported(UNSUPPORTED_SCRATCH));
                         }
@@ -1243,7 +1668,11 @@ impl Merge for HashBuildPartial {
                             continue;
                         }
                         let payload = (e.payload as u32).wrapping_add(delta) as i64;
-                        if unsafe { HashBuild::insert_partitioned_uncounted(dst, e.key, payload, e.used) }.is_none() {
+                        if unsafe {
+                            HashBuild::insert_partitioned_uncounted(dst, e.key, payload, e.used)
+                        }
+                        .is_none()
+                        {
                             return Err(Error::Unsupported(UNSUPPORTED_SCRATCH));
                         }
                         n += 1;
@@ -1261,10 +1690,18 @@ impl Merge for HashBuildPartial {
 
 /// A k-way merge of sorted runs into `push` (a binary heap over the run heads: `O(n log k)`
 /// comparisons where the repeated two-way merge does `O(n k)`), the tie order by run index.
-pub fn kway_merge<'a>(runs: &[&'a SortedRun], cap_rows: u32, less: impl Fn((&[Datum], &[u8]), (&[Datum], &[u8])) -> bool, mut push: impl FnMut((&'a [Datum], &'a [u8])) -> Result<()>) -> Result<()> {
+pub fn kway_merge<'a>(
+    runs: &[&'a SortedRun],
+    cap_rows: u32,
+    less: impl Fn((&[Datum], &[u8]), (&[Datum], &[u8])) -> bool,
+    mut push: impl FnMut((&'a [Datum], &'a [u8])) -> Result<()>,
+) -> Result<()> {
     const MAX_RUNS: usize = gravity_program::cost::runtime::KWAY_MERGE_RUNS;
     if runs.len() > MAX_RUNS {
-        gravity_abi::limits::exceeded(format_args!("a k-way merge over {} runs: at most {MAX_RUNS}", runs.len()));
+        gravity_abi::limits::exceeded(format_args!(
+            "a k-way merge over {} runs: at most {MAX_RUNS}",
+            runs.len()
+        ));
     }
     let mut pos = [0usize; MAX_RUNS];
     let mut heap = [0usize; MAX_RUNS];
@@ -1286,21 +1723,22 @@ pub fn kway_merge<'a>(runs: &[&'a SortedRun], cap_rows: u32, less: impl Fn((&[Da
         }
     };
     // bounded("small-fixed: a heap of at most MAX_RUNS (KWAY_MERGE_RUNS) runs, at most log2(MAX_RUNS) levels")
-    let sift_down = |heap: &mut [usize; MAX_RUNS], n: usize, mut i: usize, pos: &[usize; MAX_RUNS]| loop {
-        let (l, r) = (2 * i + 1, 2 * i + 2);
-        let mut m = i;
-        if l < n && before(heap[l], heap[m], pos) {
-            m = l;
-        }
-        if r < n && before(heap[r], heap[m], pos) {
-            m = r;
-        }
-        if m == i {
-            break;
-        }
-        heap.swap(i, m);
-        i = m;
-    };
+    let sift_down =
+        |heap: &mut [usize; MAX_RUNS], n: usize, mut i: usize, pos: &[usize; MAX_RUNS]| loop {
+            let (l, r) = (2 * i + 1, 2 * i + 2);
+            let mut m = i;
+            if l < n && before(heap[l], heap[m], pos) {
+                m = l;
+            }
+            if r < n && before(heap[r], heap[m], pos) {
+                m = r;
+            }
+            if m == i {
+                break;
+            }
+            heap.swap(i, m);
+            i = m;
+        };
     // bounded("small-fixed: one run, at most MAX_RUNS (KWAY_MERGE_RUNS), each a heap insert")
     for (k, run) in runs.iter().enumerate() {
         if run.nrows > 0 {
@@ -1355,7 +1793,10 @@ impl SortedRun {
     }
 
     fn values(&self) -> *const Datum {
-        unsafe { (self as *const SortedRun as *const u8).add(core::mem::size_of::<SortedRun>()) as *const Datum }
+        unsafe {
+            (self as *const SortedRun as *const u8).add(core::mem::size_of::<SortedRun>())
+                as *const Datum
+        }
     }
 
     fn nulls(&self, cap_rows: u32) -> *const u8 {
@@ -1364,7 +1805,12 @@ impl SortedRun {
 
     pub fn row(&self, i: usize, cap_rows: u32) -> (&[Datum], &[u8]) {
         let n = self.natts as usize;
-        unsafe { (core::slice::from_raw_parts(self.values().add(i * n), n), core::slice::from_raw_parts(self.nulls(cap_rows).add(i * n), n)) }
+        unsafe {
+            (
+                core::slice::from_raw_parts(self.values().add(i * n), n),
+                core::slice::from_raw_parts(self.nulls(cap_rows).add(i * n), n),
+            )
+        }
     }
 
     pub fn push(&mut self, cap_rows: u32, v: &[Datum], nulls: &[u8]) -> bool {
@@ -1375,7 +1821,11 @@ impl SortedRun {
         let i = self.nrows as usize;
         unsafe {
             core::ptr::copy_nonoverlapping(v.as_ptr(), (self.values() as *mut Datum).add(i * n), n);
-            core::ptr::copy_nonoverlapping(nulls.as_ptr(), (self.nulls(cap_rows) as *mut u8).add(i * n), n);
+            core::ptr::copy_nonoverlapping(
+                nulls.as_ptr(),
+                (self.nulls(cap_rows) as *mut u8).add(i * n),
+                n,
+            );
         }
         self.nrows += 1;
         true
@@ -1421,7 +1871,9 @@ impl RowsOrdered {
         let mut step = cancelpoll::step("merge two_way: an ordered partial merged");
         while i < front.nrows as usize || j < run.nrows as usize {
             step.batch(i + j)?;
-            let take_run = j < run.nrows as usize && (i >= front.nrows as usize || self.less(run.row(j, self.cap_rows), front.row(i, self.cap_rows)));
+            let take_run = j < run.nrows as usize
+                && (i >= front.nrows as usize
+                    || self.less(run.row(j, self.cap_rows), front.row(i, self.cap_rows)));
             let (v, n) = if take_run {
                 j += 1;
                 run.row(j - 1, self.cap_rows)
@@ -1440,7 +1892,10 @@ impl RowsOrdered {
 
 impl Merge for RowsOrdered {
     fn merge_into(&self, leader: &mut State<'_>, partial: Partial<'_>) -> Result<()> {
-        assert!(leader.bytes.len() > 2 * self.half(), "ordered merge state = two runs and a flag byte");
+        assert!(
+            leader.bytes.len() > 2 * self.half(),
+            "ordered merge state = two runs and a flag byte"
+        );
         let run = unsafe { &*(partial.bytes.as_ptr() as *const SortedRun) };
         if run.nrows == 0 {
             return Ok(());
@@ -1451,7 +1906,14 @@ impl Merge for RowsOrdered {
     fn finish(&self, leader: &mut State<'_>) -> Result<()> {
         let half = self.half();
         let which = leader.bytes[2 * half] as usize;
-        let front = unsafe { SortedRun::at(leader.bytes.as_mut_ptr().add(if which == 0 { 0 } else { half })) };
+        let front = unsafe {
+            SortedRun::at(
+                leader
+                    .bytes
+                    .as_mut_ptr()
+                    .add(if which == 0 { 0 } else { half }),
+            )
+        };
         if front.natts == 0 {
             return Ok(());
         }
@@ -1459,6 +1921,15 @@ impl Merge for RowsOrdered {
         let rows = front.nrows as usize;
         let values = unsafe { core::slice::from_raw_parts(front.values(), rows * n) };
         let nulls = unsafe { core::slice::from_raw_parts(front.nulls(self.cap_rows), rows * n) };
-        leader.sink.push(BorrowedBatch { natts: n, rows, values, isnull: nulls, region: &[] }).map(|_| ())
+        leader
+            .sink
+            .push(BorrowedBatch {
+                natts: n,
+                rows,
+                values,
+                isnull: nulls,
+                region: &[],
+            })
+            .map(|_| ())
     }
 }

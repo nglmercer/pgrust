@@ -4,13 +4,13 @@ use datum::Datum;
 use mcx::{Mcx, MemoryContext, PgString, PgVec};
 use relcache::schemapg::ATTRIBUTE_RELID_NUM_INDEX_ID;
 use types_core::fmgr::F_INT2GT;
+use types_core::{AttrNumber, INDEX_MAX_KEYS};
 use types_core::{
-    ATTRIBUTE_RELATION_ID, ATTR_DEFAULT_INDEX_ID, ATTR_DEFAULT_RELATION_ID,
-    CONSTRAINT_RELATION_ID, CONSTRAINT_RELID_TYPID_NAME_INDEX_ID, InvalidOid, Oid, RECORDOID,
+    InvalidOid, Oid, ATTRIBUTE_RELATION_ID, ATTR_DEFAULT_INDEX_ID, ATTR_DEFAULT_RELATION_ID,
+    CONSTRAINT_RELATION_ID, CONSTRAINT_RELID_TYPID_NAME_INDEX_ID, RECORDOID,
 };
 use types_error::{PgError, PgResult, ERRCODE_INTERNAL_ERROR};
-use types_core::{AttrNumber, INDEX_MAX_KEYS};
-use types_rel::{AccessShareLock, FormData_pg_class, ForeignKeyCacheInfo};
+use types_rel::{AccessShareLock, ForeignKeyCacheInfo, FormData_pg_class};
 use types_scan::scankey::BTGreaterStrategyNumber;
 use types_tuple::{
     AttrDefault, ConstrCheck, FormData_pg_attribute, HeapTupleData, TupleConstr, TupleDescData,
@@ -120,7 +120,11 @@ pub(crate) fn relation_build_tuple_desc(
     let has_missing = !missing_pairs.is_empty();
 
     let mut td = tupdesc::CreateTupleDesc(mcx, &slots)?;
-    td.tdtypeid = if form.reltype != InvalidOid { form.reltype } else { RECORDOID };
+    td.tdtypeid = if form.reltype != InvalidOid {
+        form.reltype
+    } else {
+        RECORDOID
+    };
     td.tdtypmod = -1;
     td.tdrefcount = 1;
     if natts > 0 {
@@ -154,8 +158,7 @@ pub(crate) fn relation_build_tuple_desc(
                 } else {
                     debug_assert!(
                         attr.attnullability == ATTNULLABLE_INVALID
-                            || attr.attnullability
-                                == types_tuple::ATTNULLABLE_UNRESTRICTED
+                            || attr.attnullability == types_tuple::ATTNULLABLE_UNRESTRICTED
                     );
                 }
             }
@@ -196,12 +199,15 @@ pub(crate) fn relation_build_tuple_desc(
 }
 
 // TextDatumGetCString over a possibly packed/toasted pg_node_tree column.
-pub(crate) fn text_str<'mcx>(mcx: Mcx<'mcx>, scratch: Mcx<'_>, d: Datum) -> PgResult<PgString<'mcx>> {
+pub(crate) fn text_str<'mcx>(
+    mcx: Mcx<'mcx>,
+    scratch: Mcx<'_>,
+    d: Datum,
+) -> PgResult<PgString<'mcx>> {
     let p = d.as_usize() as *const u8;
     // SAFETY: d comes off a not-null text column: a live varlena image
     // readable through its varsize_any extent.
-    let image =
-        unsafe { std::slice::from_raw_parts(p, types_tuple::varatt::varsize_any(p)) };
+    let image = unsafe { std::slice::from_raw_parts(p, types_tuple::varatt::varsize_any(p)) };
     let payload = varlena::open_image(scratch, image)?;
     let s = core::str::from_utf8(payload.as_bytes())
         .unwrap_or_else(|_| panic!("non-UTF-8 pg_node_tree text"));
@@ -251,7 +257,10 @@ fn attr_default_fetch(
             )?;
             continue;
         }
-        defval.push(AttrDefault { adnum, adbin: Some(text_str(mcx, smcx, val)?) });
+        defval.push(AttrDefault {
+            adnum,
+            adbin: Some(text_str(mcx, smcx, val)?),
+        });
     }
     genam::systable_endscan(smcx, scan)?;
     rel.close(AccessShareLock)?;
@@ -346,7 +355,10 @@ fn check_nn_constraint_fetch(
         )?;
     }
     check.sort_unstable_by(|a, b| {
-        a.ccname.as_ref().map(|s| s.as_str()).cmp(&b.ccname.as_ref().map(|s| s.as_str()))
+        a.ccname
+            .as_ref()
+            .map(|s| s.as_str())
+            .cmp(&b.ccname.as_ref().map(|s| s.as_str()))
     });
     Ok(check)
 }
@@ -380,7 +392,9 @@ pub(crate) fn scan_pg_constraint_fkeys<'mcx>(
         let conkey_img = fk_array_image(smcx, req(td, tup, Anum_pg_constraint_conkey)?)?;
         let (ndim, hasnull, elemtype, dim0) = array_header(&conkey_img);
         if ndim != 1 || hasnull || elemtype != INT2OID {
-            return Err(constraint_decode_error("conkey is not a 1-D smallint array"));
+            return Err(constraint_decode_error(
+                "conkey is not a 1-D smallint array",
+            ));
         }
         if dim0 <= 0 || dim0 > INDEX_MAX_KEYS {
             return Err(constraint_decode_error(&format!(
@@ -392,7 +406,9 @@ pub(crate) fn scan_pg_constraint_fkeys<'mcx>(
         let confkey_img = fk_array_image(smcx, req(td, tup, Anum_pg_constraint_confkey)?)?;
         let (ndim, hasnull, elemtype, dim0) = array_header(&confkey_img);
         if ndim != 1 || dim0 as usize != nkeys || hasnull || elemtype != INT2OID {
-            return Err(constraint_decode_error("confkey is not a 1-D smallint array"));
+            return Err(constraint_decode_error(
+                "confkey is not a 1-D smallint array",
+            ));
         }
         let confkey =
             datum::array_build::deconstruct_array_image(smcx, &confkey_img, 2, true, b's')?;
@@ -449,7 +465,8 @@ fn fk_array_image<'s>(smcx: Mcx<'s>, d: Datum) -> PgResult<PgVec<'s, u8>> {
 // caller's 1-D check instead of reading out of bounds.
 fn array_header(full: &[u8]) -> (i32, bool, Oid, i32) {
     let rd = |off: usize| -> i32 {
-        full.get(off..off + 4).map_or(0, |b| i32::from_ne_bytes(b.try_into().unwrap()))
+        full.get(off..off + 4)
+            .map_or(0, |b| i32::from_ne_bytes(b.try_into().unwrap()))
     };
     (rd(4), rd(8) != 0, rd(12) as Oid, rd(16))
 }
@@ -474,7 +491,9 @@ fn extract_not_null_column(
     // analysis, so C's parser error-position context applies to it).
     let (ndim, hasnull, elemtype, dim0) = array_header(&full);
     if ndim != 1 || hasnull || elemtype != INT2OID || dim0 != 1 {
-        return Err(constraint_decode_error("conkey is not a 1-D smallint array"));
+        return Err(constraint_decode_error(
+            "conkey is not a 1-D smallint array",
+        ));
     }
     let elems = datum::array_build::deconstruct_array_image(smcx, &full, 2, true, b's')?;
     Ok(elems[0].as_i16())
@@ -510,7 +529,11 @@ fn attr_missing_fetch<'s>(
         a.attbyval,
         a.attalign as u8,
     )?;
-    assert!(elems.len() == 1, "attmissingval with {} entries", elems.len());
+    assert!(
+        elems.len() == 1,
+        "attmissingval with {} entries",
+        elems.len()
+    );
     let v = elems[0];
     if a.attbyval {
         return Ok(Some((v, None)));

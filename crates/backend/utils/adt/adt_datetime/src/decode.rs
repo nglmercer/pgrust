@@ -61,7 +61,11 @@ fn strtoi64(s: &[u8]) -> Strto<i64> {
         let d = (s[i] - b'0') as i64;
         if !erange {
             match acc.checked_mul(10).and_then(|v| {
-                if neg { v.checked_sub(d) } else { v.checked_add(d) }
+                if neg {
+                    v.checked_sub(d)
+                } else {
+                    v.checked_add(d)
+                }
             }) {
                 Some(v) => acc = v,
                 None => {
@@ -74,9 +78,17 @@ fn strtoi64(s: &[u8]) -> Strto<i64> {
     }
     if i == start {
         // no digits: C leaves *endptr = str and returns 0
-        return Strto { val: 0, end: 0, erange: false };
+        return Strto {
+            val: 0,
+            end: 0,
+            erange: false,
+        };
     }
-    Strto { val: acc, end: i, erange }
+    Strto {
+        val: acc,
+        end: i,
+        erange,
+    }
 }
 
 /// C `strtoint(str, &cp, 10)`: i32 with clamp+ERANGE on overflow.
@@ -84,9 +96,17 @@ fn strtoint(s: &[u8]) -> Strto<i32> {
     let r = strtoi64(s);
     if r.erange || r.val < i32::MIN as i64 || r.val > i32::MAX as i64 {
         let clamped = if r.val < 0 { i32::MIN } else { i32::MAX };
-        Strto { val: clamped, end: r.end, erange: true }
+        Strto {
+            val: clamped,
+            end: r.end,
+            erange: true,
+        }
     } else {
-        Strto { val: r.val as i32, end: r.end, erange: false }
+        Strto {
+            val: r.val as i32,
+            end: r.end,
+            erange: false,
+        }
     }
 }
 
@@ -166,8 +186,12 @@ struct TzAbbrevCache {
 }
 
 impl TzAbbrevCache {
-    const EMPTY: TzAbbrevCache =
-        TzAbbrevCache { abbrev: [0; TOKMAXLEN + 1], ftype: 0, offset: 0, tz: None };
+    const EMPTY: TzAbbrevCache = TzAbbrevCache {
+        abbrev: [0; TOKMAXLEN + 1],
+        ftype: 0,
+        offset: 0,
+        tz: None,
+    };
 }
 
 pub fn ClearTimeZoneAbbrevCache() {
@@ -239,8 +263,20 @@ pub fn DecodeTimezoneAbbrev<'a>(
         drop(tzc);
 
         if let Some((isfixed, off, isdst)) = session_tz_abbrev_probe(lowtoken) {
-            *ftype = if isfixed { if isdst != 0 { DTZ } else { TZ } } else { DYNTZ };
-            *tz = if isfixed { None } else { tz::session_timezone() };
+            *ftype = if isfixed {
+                if isdst != 0 {
+                    DTZ
+                } else {
+                    TZ
+                }
+            } else {
+                DYNTZ
+            };
+            *tz = if isfixed {
+                None
+            } else {
+                tz::session_timezone()
+            };
             *offset = -off;
             let mut ent = TzAbbrevCache::EMPTY;
             strlcpy_tok(&mut ent.abbrev, lowtoken);
@@ -345,7 +381,10 @@ pub fn ParseFraction(cp: &[u8], frac: &mut f64) -> i32 {
         return DTERR_BAD_FORMAT;
     }
     // all-ASCII digits + '.', so from_utf8 cannot fail
-    match core::str::from_utf8(cp).ok().and_then(|s| s.parse::<f64>().ok()) {
+    match core::str::from_utf8(cp)
+        .ok()
+        .and_then(|s| s.parse::<f64>().ok())
+    {
         Some(v) => {
             *frac = v;
             0
@@ -381,22 +420,21 @@ pub fn dt2time(jd: TimeOffset, hour: &mut i32, min: &mut i32, sec: &mut i32, fse
 
 /// `time_overflows` (date.c core; in-unit).
 pub fn time_overflows(hour: i32, min: i32, sec: i32, fsec: fsec_t) -> bool {
-    if !( 0..= HOURS_PER_DAY).contains(&hour)
-        || !( 0.. MINS_PER_HOUR).contains(&min)
-        || !( 0..= SECS_PER_MINUTE).contains(&sec)
+    if !(0..=HOURS_PER_DAY).contains(&hour)
+        || !(0..MINS_PER_HOUR).contains(&min)
+        || !(0..=SECS_PER_MINUTE).contains(&sec)
         || fsec < 0
         || fsec as i64 > USECS_PER_SEC
     {
         return true;
     }
-    (((hour * MINS_PER_HOUR + min) * SECS_PER_MINUTE + sec) as i64) * USECS_PER_SEC
-        + fsec as i64
+    (((hour * MINS_PER_HOUR + min) * SECS_PER_MINUTE + sec) as i64) * USECS_PER_SEC + fsec as i64
         > USECS_PER_DAY
 }
 
 /// `float_time_overflows` (date.c core; timestamp.c's make_* need it too).
 pub fn float_time_overflows(hour: i32, min: i32, sec: f64) -> bool {
-    if !( 0..= HOURS_PER_DAY).contains(&hour) || !( 0.. MINS_PER_HOUR).contains(&min) {
+    if !(0..=HOURS_PER_DAY).contains(&hour) || !(0..MINS_PER_HOUR).contains(&min) {
         return true;
     }
     if sec.is_nan() {
@@ -438,7 +476,11 @@ pub fn ParseDateTime<'w>(
     }
     macro_rules! peek {
         () => {
-            if cp < len { timestr[cp] } else { 0 }
+            if cp < len {
+                timestr[cp]
+            } else {
+                0
+            }
         };
     }
 
@@ -720,7 +762,9 @@ pub fn ValidateDate(fmask: i32, isjulian: bool, is2digits: bool, bc: bool, tm: &
         // "5874898-301"; fuzz witness p1-laney '5874898-201'::timestamptz,
         // real 18.3 answers 22008; same family as the date2j/j2date notes).
         j2date(
-            date2j(tm.tm_year, 1, 1).wrapping_add(tm.tm_yday).wrapping_sub(1),
+            date2j(tm.tm_year, 1, 1)
+                .wrapping_add(tm.tm_yday)
+                .wrapping_sub(1),
             &mut tm.tm_year,
             &mut tm.tm_mon,
             &mut tm.tm_mday,
@@ -743,7 +787,13 @@ pub fn ValidateDate(fmask: i32, isjulian: bool, is2digits: bool, bc: bool, tm: &
     0
 }
 
-fn DecodeTimeCommon(str_: &[u8], _fmask: i32, range: i32, tmask: &mut i32, itm: &mut pg_itm) -> i32 {
+fn DecodeTimeCommon(
+    str_: &[u8],
+    _fmask: i32,
+    range: i32,
+    tmask: &mut i32,
+    itm: &mut pg_itm,
+) -> i32 {
     let mut fsec: fsec_t = 0;
 
     *tmask = DTK_TIME_M;
@@ -1080,13 +1130,13 @@ pub fn DecodeTimezone(str_: &[u8], tzp: &mut i32) -> i32 {
         // we could, but don't, support a run-together hhmmss format
     }
 
-    if !( 0..= MAX_TZDISP_HOUR).contains(&hr) {
+    if !(0..=MAX_TZDISP_HOUR).contains(&hr) {
         return DTERR_TZDISP_OVERFLOW;
     }
-    if !( 0.. MINS_PER_HOUR).contains(&min) {
+    if !(0..MINS_PER_HOUR).contains(&min) {
         return DTERR_TZDISP_OVERFLOW;
     }
-    if !( 0.. SECS_PER_MINUTE).contains(&sec) {
+    if !(0..SECS_PER_MINUTE).contains(&sec) {
         return DTERR_TZDISP_OVERFLOW;
     }
 
@@ -1224,8 +1274,7 @@ pub fn DecodeDateTime<'a>(
                     }
                     ptype = 0;
                 }
-                let dterr =
-                    DecodeTime(field[i], fmask, INTERVAL_FULL_RANGE, &mut tmask, tm, fsec);
+                let dterr = DecodeTime(field[i], fmask, INTERVAL_FULL_RANGE, &mut tmask, tm, fsec);
                 if dterr != 0 {
                     return Ok(dterr);
                 }
@@ -1334,9 +1383,7 @@ pub fn DecodeDateTime<'a>(
                         if dterr < 0 {
                             return Ok(dterr);
                         }
-                    } else if flen >= 6
-                        && (fmask & DTK_DATE_M == 0 || fmask & DTK_TIME_M == 0)
-                    {
+                    } else if flen >= 6 && (fmask & DTK_DATE_M == 0 || fmask & DTK_TIME_M == 0) {
                         // YMD/HMS concatenation (6+ digits), or a long year
                         let dterr = DecodeNumberField(
                             flen,
@@ -1789,8 +1836,7 @@ pub fn DecodeTimeOnly<'a>(
                     if let Some(d) = dot {
                         // embedded decimal
                         if i == 0 && nf >= 2 && ftype[nf - 1] == DTK_DATE {
-                            let dterr =
-                                DecodeDate(field[i], fmask, &mut tmask, &mut is2digits, tm);
+                            let dterr = DecodeDate(field[i], fmask, &mut tmask, &mut is2digits, tm);
                             if dterr != 0 {
                                 return Ok(dterr);
                             }
@@ -2264,7 +2310,9 @@ pub fn DecodeInterval(
                     }
                     r if r == INTERVAL_MASK(MINUTE)
                         || r == INTERVAL_MASK(HOUR) | INTERVAL_MASK(MINUTE)
-                        || r == INTERVAL_MASK(DAY) | INTERVAL_MASK(HOUR) | INTERVAL_MASK(MINUTE) =>
+                        || r == INTERVAL_MASK(DAY)
+                            | INTERVAL_MASK(HOUR)
+                            | INTERVAL_MASK(MINUTE) =>
                     {
                         DTK_MINUTE
                     }
@@ -2284,7 +2332,7 @@ pub fn DecodeInterval(
                 // SQL "years-months" syntax
                 let r2 = strtoint(&field[i][cp + 1..]);
                 let mut val2 = r2.val;
-                if r2.erange || !( 0.. MONTHS_PER_YEAR).contains(&val2) {
+                if r2.erange || !(0..MONTHS_PER_YEAR).contains(&val2) {
                     return DTERR_FIELD_OVERFLOW;
                 }
                 cp = cp + 1 + r2.end;
@@ -2346,7 +2394,11 @@ pub fn DecodeInterval(
                     }
                     // if any subseconds were specified, this counts as micro-
                     // and millisecond input too
-                    tmask = if fval == 0.0 { DTK_M(SECOND) } else { DTK_ALL_SECS_M };
+                    tmask = if fval == 0.0 {
+                        DTK_M(SECOND)
+                    } else {
+                        DTK_ALL_SECS_M
+                    };
                 }
                 t if t == DTK_MINUTE => {
                     if !AdjustMicroseconds(val, fval, USECS_PER_MINUTE, itm_in) {
@@ -2531,7 +2583,11 @@ fn ParseISO8601Number(s: &[u8], end: &mut usize, ipart: &mut i64, fpart: &mut f6
         return DTERR_FIELD_OVERFLOW;
     }
     // be very sure we truncate towards zero (cf dtrunc())
-    *ipart = if val >= 0.0 { val.floor() as i64 } else { -((-val).floor() as i64) };
+    *ipart = if val >= 0.0 {
+        val.floor() as i64
+    } else {
+        -((-val).floor() as i64)
+    };
     *fpart = val - *ipart as f64;
     0
 }
@@ -2799,17 +2855,31 @@ mod adjust_overflow_tests {
     // On the add overflow C leaves the wrapped sum in the field.
     #[test]
     fn adjust_helpers_store_wrapped_sum_on_overflow() {
-        let base = pg_itm_in { tm_usec: 0, tm_mday: 0, tm_mon: 0, tm_year: 0 };
+        let base = pg_itm_in {
+            tm_usec: 0,
+            tm_mday: 0,
+            tm_mon: 0,
+            tm_year: 0,
+        };
 
-        let mut itm = pg_itm_in { tm_mday: i32::MAX, ..base };
+        let mut itm = pg_itm_in {
+            tm_mday: i32::MAX,
+            ..base
+        };
         assert!(!AdjustFractDays(1.0, 1, &mut itm));
         assert_eq!(itm.tm_mday, i32::MIN);
 
-        let mut itm = pg_itm_in { tm_usec: i64::MAX, ..base };
+        let mut itm = pg_itm_in {
+            tm_usec: i64::MAX,
+            ..base
+        };
         assert!(!AdjustMicroseconds(1, 0.0, 1, &mut itm));
         assert_eq!(itm.tm_usec, i64::MIN);
 
-        let mut itm = pg_itm_in { tm_usec: i64::MAX, ..base };
+        let mut itm = pg_itm_in {
+            tm_usec: i64::MAX,
+            ..base
+        };
         assert!(!AdjustFractMicroseconds(0.75, 1, &mut itm));
         assert_eq!(itm.tm_usec, i64::MIN);
 
@@ -2821,25 +2891,37 @@ mod adjust_overflow_tests {
         assert!(!int64_multiply_add(i64::MAX, 2, &mut sum));
         assert_eq!(sum, 5);
 
-        let mut itm = pg_itm_in { tm_mday: i32::MAX, ..base };
+        let mut itm = pg_itm_in {
+            tm_mday: i32::MAX,
+            ..base
+        };
         assert!(!AdjustDays(1, 1, &mut itm));
         assert_eq!(itm.tm_mday, i32::MIN);
         let mut itm = pg_itm_in { tm_mday: 7, ..base };
         assert!(!AdjustDays(i32::MAX as i64, 2, &mut itm));
         assert_eq!(itm.tm_mday, 7);
 
-        let mut itm = pg_itm_in { tm_mon: i32::MIN, ..base };
+        let mut itm = pg_itm_in {
+            tm_mon: i32::MIN,
+            ..base
+        };
         assert!(!AdjustMonths(-1, &mut itm));
         assert_eq!(itm.tm_mon, i32::MAX);
 
-        let mut itm = pg_itm_in { tm_year: i32::MAX, ..base };
+        let mut itm = pg_itm_in {
+            tm_year: i32::MAX,
+            ..base
+        };
         assert!(!AdjustYears(1, 1, &mut itm));
         assert_eq!(itm.tm_year, i32::MIN);
         let mut itm = pg_itm_in { tm_year: 7, ..base };
         assert!(!AdjustYears(i32::MAX as i64, 1000, &mut itm));
         assert_eq!(itm.tm_year, 7);
 
-        let mut itm = pg_itm_in { tm_mon: i32::MAX, ..base };
+        let mut itm = pg_itm_in {
+            tm_mon: i32::MAX,
+            ..base
+        };
         assert!(!AdjustFractYears(0.5, 1, &mut itm));
         assert_eq!(itm.tm_mon, i32::MIN + 5);
 
@@ -2847,7 +2929,15 @@ mod adjust_overflow_tests {
         let mut itm = base;
         assert!(AdjustDays(3, 7, &mut itm) && AdjustMonths(2, &mut itm));
         assert!(AdjustYears(1, 10, &mut itm) && AdjustMicroseconds(4, 0.5, 2, &mut itm));
-        assert_eq!(itm, pg_itm_in { tm_usec: 9, tm_mday: 21, tm_mon: 2, tm_year: 10 });
+        assert_eq!(
+            itm,
+            pg_itm_in {
+                tm_usec: 9,
+                tm_mday: 21,
+                tm_mon: 2,
+                tm_year: 10
+            }
+        );
     }
 }
 
@@ -2872,7 +2962,10 @@ mod atoi_tests {
             ("9223372036854775808", -1),
             ("99999999999999999999999999999999", -1),
             // the CI cluster divergence input's year segment: 62 '1' digits
-            ("11111111111111111111111111111111111111111111111111111111111111", -1),
+            (
+                "11111111111111111111111111111111111111111111111111111111111111",
+                -1,
+            ),
         ] {
             assert_eq!(atoi(input.as_bytes()), want, "atoi({input})");
         }

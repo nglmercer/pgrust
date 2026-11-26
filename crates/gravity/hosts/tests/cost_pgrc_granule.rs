@@ -1,7 +1,10 @@
 //! The cost home's pgrc granule (the run-time filter's set cap, JOIN-07) is the format's.
 #[test]
 fn granule_rows_match_the_format() {
-    assert_eq!(gravity_program::cost::PGRC_GRANULE_ROWS, pgrc_format::geom::GRANULE_ROWS as u64);
+    assert_eq!(
+        gravity_program::cost::PGRC_GRANULE_ROWS,
+        pgrc_format::geom::GRANULE_ROWS as u64
+    );
 }
 
 #[test]

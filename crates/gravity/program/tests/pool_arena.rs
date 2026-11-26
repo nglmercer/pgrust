@@ -26,8 +26,14 @@ fn serial() -> MutexGuard<'static, ()> {
         // the D4784 tests take their warm span untrimmed: PGRUST_POOL_SPAN_TRIM (default ON on the branch) is off here
         // whatever order the tests run in, and `Trim` turns it on for the D4787 test's turn alone
         pagepool::hooks::span_trim_switch(false);
-        assert!(pagepool::switches().gravity, "the switch, read at its first call");
-        assert!(pagepool::init(&pagepool::Config::from_policy()), "the pool reserves its zones");
+        assert!(
+            pagepool::switches().gravity,
+            "the switch, read at its first call"
+        );
+        assert!(
+            pagepool::init(&pagepool::Config::from_policy()),
+            "the pool reserves its zones"
+        );
     });
     TURN.lock().unwrap_or_else(|e| e.into_inner())
 }
@@ -97,7 +103,12 @@ fn exercise(arena: &Arena) {
     assert_eq!(a.mark(), m0);
     let q = a.alloc(24);
     assert_eq!(q, p);
-    assert!(unsafe { core::slice::from_raw_parts(q, 24) }.iter().all(|&b| b == 0), "reset_to re-zeroes");
+    assert!(
+        unsafe { core::slice::from_raw_parts(q, 24) }
+            .iter()
+            .all(|&b| b == 0),
+        "reset_to re-zeroes"
+    );
     a.reset_to(m0);
 }
 
@@ -109,11 +120,19 @@ fn an_arena_under_2_mib_is_a_pool_block_charged_whole_on_its_owner() {
         let arena = Arena::new(64 << 10);
         let held = pool_bytes(a) - q0;
         assert!(held >= 64 << 10, "the block, whole, on its owner: {held}");
-        assert_eq!(program_in_use() - u0, held as usize, "the pool's PROGRAM row holds what the owner holds");
+        assert_eq!(
+            program_in_use() - u0,
+            held as usize,
+            "the pool's PROGRAM row holds what the owner holds"
+        );
         assert_eq!(arena.ledger_bytes(), (held as u64, true));
         exercise(&arena);
         drop(arena);
-        assert_eq!((pool_bytes(a), program_in_use()), (q0, u0), "all of it back at the drop");
+        assert_eq!(
+            (pool_bytes(a), program_in_use()),
+            (q0, u0),
+            "all of it back at the drop"
+        );
     });
 }
 
@@ -124,7 +143,10 @@ fn an_arena_from_2_mib_under_the_lazy_min_is_a_pool_span_charged_whole() {
         let q0 = pool_bytes(a);
         let arena = Arena::new(4 * MIB);
         let held = pool_bytes(a) - q0;
-        assert!(held >= 4 * MIB as i64 && held % (2 * MIB as i64) == 0, "whole superpages: {held}");
+        assert!(
+            held >= 4 * MIB as i64 && held % (2 * MIB as i64) == 0,
+            "whole superpages: {held}"
+        );
         exercise(&arena);
         drop(arena);
         assert_eq!(pool_bytes(a), q0);
@@ -141,7 +163,10 @@ fn a_lazy_span_arena_gives_its_runs_past_the_kept_prefix_dead_and_reads_zero_aft
         let h = arena.handle();
         let first = h.alloc(8);
         assert!(pagepool::owns(first));
-        assert!(pool_bytes(a) - q0 <= 512 << 10, "a lazy span is charged as its bump passes");
+        assert!(
+            pool_bytes(a) - q0 <= 512 << 10,
+            "a lazy span is charged as its bump passes"
+        );
         exercise(&arena);
         let m = h.mark();
         for purge in [false, true] {
@@ -153,15 +178,33 @@ fn a_lazy_span_arena_gives_its_runs_past_the_kept_prefix_dead_and_reads_zero_aft
             let dead0 = pagepool::stats().dead;
             h.reset_to(m);
             let given = charged - (pool_bytes(a) - q0);
-            assert!(given >= 24 * MIB as i64, "the pages past KEEP_BYTES' step left the owner: {given}");
-            assert!(pagepool::stats().dead >= dead0 + 24 * MIB, "and are the pool's dead runs");
+            assert!(
+                given >= 24 * MIB as i64,
+                "the pages past KEEP_BYTES' step left the owner: {given}"
+            );
+            assert!(
+                pagepool::stats().dead >= dead0 + 24 * MIB,
+                "and are the pool's dead runs"
+            );
             if purge {
-                assert!(pagepool::purge_now(usize::MAX >> 1, None) > 0, "the purger released them");
+                assert!(
+                    pagepool::purge_now(usize::MAX >> 1, None) > 0,
+                    "the purger released them"
+                );
             }
             let q = h.alloc(n);
             assert_eq!(q, p);
-            assert!(unsafe { core::slice::from_raw_parts(q, n) }.iter().all(|&b| b == 0), "the regrowth reads zero (purged: {purge})");
-            assert_eq!(pool_bytes(a) - q0, charged, "charged again as the bump passed");
+            assert!(
+                unsafe { core::slice::from_raw_parts(q, n) }
+                    .iter()
+                    .all(|&b| b == 0),
+                "the regrowth reads zero (purged: {purge})"
+            );
+            assert_eq!(
+                pool_bytes(a) - q0,
+                charged,
+                "charged again as the bump passed"
+            );
             h.reset_to(m);
         }
         drop(arena);
@@ -170,7 +213,8 @@ fn a_lazy_span_arena_gives_its_runs_past_the_kept_prefix_dead_and_reads_zero_aft
 }
 
 #[test]
-fn a_warm_lazy_span_longer_than_its_new_arena_is_charged_its_committed_pages_past_the_capacity_too() {
+fn a_warm_lazy_span_longer_than_its_new_arena_is_charged_its_committed_pages_past_the_capacity_too()
+{
     let _t = serial();
     on(4804, |a| {
         let _purge = Purge::now();
@@ -188,18 +232,30 @@ fn a_warm_lazy_span_longer_than_its_new_arena_is_charged_its_committed_pages_pas
         let arena = Arena::new(cap);
         let in_use = program_in_use() - u0;
         let held = pool_bytes(a) - q0;
-        assert!(in_use > cap, "the reused warm span holds more committed pages than the arena's capacity: {in_use}");
+        assert!(
+            in_use > cap,
+            "the reused warm span holds more committed pages than the arena's capacity: {in_use}"
+        );
         assert_eq!(in_use - held as usize, 32, "the owner holds every committed page the pool's PROGRAM row holds, past the capacity too, but the arena's 4-word header (never charged)");
         assert_eq!(arena.ledger_bytes(), (held as u64, true));
         exercise(&arena);
-        assert_eq!(pool_bytes(a) - q0, held, "a reset inside the kept prefix leaves the charge as it was");
+        assert_eq!(
+            pool_bytes(a) - q0,
+            held,
+            "a reset inside the kept prefix leaves the charge as it was"
+        );
         drop(arena);
-        assert_eq!((pool_bytes(a), program_in_use()), (q0, u0), "all of it back at the drop");
+        assert_eq!(
+            (pool_bytes(a), program_in_use()),
+            (q0, u0),
+            "all of it back at the drop"
+        );
     });
 }
 
 #[test]
-fn a_warm_lazy_span_longer_than_its_new_arena_gives_its_runs_past_keep_off_the_charge_and_takes_them_back_on_regrowth() {
+fn a_warm_lazy_span_longer_than_its_new_arena_gives_its_runs_past_keep_off_the_charge_and_takes_them_back_on_regrowth(
+) {
     let _t = serial();
     on(4805, |a| {
         let _purge = Purge::now();
@@ -217,14 +273,25 @@ fn a_warm_lazy_span_longer_than_its_new_arena_gives_its_runs_past_keep_off_the_c
         let h = arena.handle();
         let cap = h.capacity();
         let held = pool_bytes(a) - q0;
-        assert!(held as usize > cap, "the reused warm span holds more committed pages than the arena's capacity: {held}");
-        assert_eq!(program_in_use() - u0 - held as usize, 32, "the owner holds all the PROGRAM row holds but the 4-word header");
+        assert!(
+            held as usize > cap,
+            "the reused warm span holds more committed pages than the arena's capacity: {held}"
+        );
+        assert_eq!(
+            program_in_use() - u0 - held as usize,
+            32,
+            "the owner holds all the PROGRAM row holds but the 4-word header"
+        );
         // the bump past KEEP_BYTES: the charged words are at the capacity already, so the charge does not move
         let m0 = h.mark();
         let past = KEEP_BYTES + 8 * MIB;
         let p = h.alloc(past);
         unsafe { core::ptr::write_bytes(p.add(KEEP_BYTES), 0xab, 8 * MIB) };
-        assert_eq!(pool_bytes(a) - q0, held, "a bump inside the capacity charges nothing more");
+        assert_eq!(
+            pool_bytes(a) - q0,
+            held,
+            "a bump inside the capacity charges nothing more"
+        );
         // the trim: pool_reset gives the words [keep, was) dead and off the charge. was = the capacity's words; keep = the
         // first page boundary past KEEP_BYTES of the data (which starts 32 bytes into the span), in CHARGE_WORDS steps
         let (dead0, u1) = (pagepool::stats().dead, program_in_use());
@@ -232,23 +299,54 @@ fn a_warm_lazy_span_longer_than_its_new_arena_gives_its_runs_past_keep_off_the_c
         let charge = pool_bytes(a) - q0;
         let step = memledger::DOOR_FOLD_BYTES as usize;
         let keep = ((KEEP_BYTES + 32).next_multiple_of(4096) - 32).next_multiple_of(step);
-        assert_eq!(charge, held - (cap - keep) as i64, "charge == held - (was - keep) * 8");
+        assert_eq!(
+            charge,
+            held - (cap - keep) as i64,
+            "charge == held - (was - keep) * 8"
+        );
         // the PROGRAM row drops by the whole runs given dead (the pool's stats().dead): the given range's partial runs at its
         // two ends stay in in_use, so in_use - charge = 32 + (was - keep) * 8 - the given runs' bytes
         let given = pagepool::stats().dead - dead0;
-        assert!(given > 0 && given <= cap - keep, "the runs given dead: {given} of {}", cap - keep);
-        assert_eq!(u1 - program_in_use(), given, "the PROGRAM row reads the given pages out of in_use, as dead runs");
-        assert_eq!(program_in_use() - u0 - charge as usize, 32 + (cap - keep - given), "in_use - charge after the trim");
+        assert!(
+            given > 0 && given <= cap - keep,
+            "the runs given dead: {given} of {}",
+            cap - keep
+        );
+        assert_eq!(
+            u1 - program_in_use(),
+            given,
+            "the PROGRAM row reads the given pages out of in_use, as dead runs"
+        );
+        assert_eq!(
+            program_in_use() - u0 - charge as usize,
+            32 + (cap - keep - given),
+            "in_use - charge after the trim"
+        );
         // the regrowth to the capacity takes the runs back: the charge is held again, and the pages past KEEP read zero
         let q = h.alloc(cap - h.used());
         assert_eq!(q, p);
-        assert_eq!(pool_bytes(a) - q0, held, "charged back to held as the bump passed");
-        assert_eq!(program_in_use() - u0 - held as usize, 32, "and the PROGRAM row with it");
+        assert_eq!(
+            pool_bytes(a) - q0,
+            held,
+            "charged back to held as the bump passed"
+        );
+        assert_eq!(
+            program_in_use() - u0 - held as usize,
+            32,
+            "and the PROGRAM row with it"
+        );
         let back = unsafe { core::slice::from_raw_parts(q.add(KEEP_BYTES), 8 * MIB) };
-        assert!(back.iter().all(|&b| b == 0), "the given pages read zero on the regrowth");
+        assert!(
+            back.iter().all(|&b| b == 0),
+            "the given pages read zero on the regrowth"
+        );
         h.reset_to(m0);
         drop(arena);
-        assert_eq!((pool_bytes(a), program_in_use()), (q0, u0), "all of it back at the drop");
+        assert_eq!(
+            (pool_bytes(a), program_in_use()),
+            (q0, u0),
+            "all of it back at the drop"
+        );
     });
 }
 
@@ -292,11 +390,23 @@ fn a_trimmed_warm_lazy_span_charges_its_new_arena_the_trimmed_commit() {
         let cut = (r1.trimmed - r0.trimmed) as usize;
         assert!(cut >= n - target, "its commit past the target went: {cut}");
         let held = pool_bytes(a) - q0;
-        assert_eq!(held, (target - 32) as i64, "held after a trimmed take == trim_target - 32 (the 4-word header)");
-        assert_eq!(program_in_use() - u0, target, "the PROGRAM row holds the trimmed commit, not the commit the span had");
+        assert_eq!(
+            held,
+            (target - 32) as i64,
+            "held after a trimmed take == trim_target - 32 (the 4-word header)"
+        );
+        assert_eq!(
+            program_in_use() - u0,
+            target,
+            "the PROGRAM row holds the trimmed commit, not the commit the span had"
+        );
         assert_eq!(arena.ledger_bytes(), (held as u64, true));
         exercise(&arena);
         drop(arena);
-        assert_eq!((pool_bytes(a), program_in_use()), (q0, u0), "all of it back at the drop");
+        assert_eq!(
+            (pool_bytes(a), program_in_use()),
+            (q0, u0),
+            "all of it back at the drop"
+        );
     });
 }

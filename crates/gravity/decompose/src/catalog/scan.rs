@@ -36,7 +36,10 @@ pub const fn tid_op(opno: u32) -> Option<TidOp> {
 /// Whether a by-value column of type `typid` is bool, float4 or float8 (pg_type.dat `BOOLOID` 16, `FLOAT4OID` 700,
 /// `FLOAT8OID` 701): a pgrc lane holds those as a fixed-width value, not an integer.
 pub const fn fixed_value_type(typid: u32) -> bool {
-    matches!(typid, types_core::BOOLOID | types_core::FLOAT4OID | types_core::FLOAT8OID)
+    matches!(
+        typid,
+        types_core::BOOLOID | types_core::FLOAT4OID | types_core::FLOAT8OID
+    )
 }
 
 #[cfg(test)]
@@ -59,6 +62,11 @@ mod tests {
     #[test]
     fn fixed_value_types() {
         assert!(fixed_value_type(16) && fixed_value_type(700) && fixed_value_type(701));
-        assert!(!fixed_value_type(20) && !fixed_value_type(21) && !fixed_value_type(23) && !fixed_value_type(1082));
+        assert!(
+            !fixed_value_type(20)
+                && !fixed_value_type(21)
+                && !fixed_value_type(23)
+                && !fixed_value_type(1082)
+        );
     }
 }

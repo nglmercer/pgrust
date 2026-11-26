@@ -73,7 +73,9 @@ fn setup() {
                 .map(|tags| tags.iter().any(|t| t.mode == FAILING_LOCK_MODE))
                 .unwrap_or(false);
             if fails {
-                Err(Box::new(PgError::error("injected LockReleaseCurrentOwner failure")))
+                Err(Box::new(PgError::error(
+                    "injected LockReleaseCurrentOwner failure",
+                )))
             } else {
                 Ok(())
             }
@@ -355,10 +357,16 @@ fn reparent_and_delete_recurse() {
 fn release_callbacks_run_most_recent_first() {
     setup();
     fn cb1(phase: ResourceReleasePhase, _c: bool, _t: bool, arg: Datum) {
-        RELEASED.with(|r| r.borrow_mut().push(("cb1", arg.as_usize() + phase as usize)));
+        RELEASED.with(|r| {
+            r.borrow_mut()
+                .push(("cb1", arg.as_usize() + phase as usize))
+        });
     }
     fn cb2(phase: ResourceReleasePhase, _c: bool, _t: bool, arg: Datum) {
-        RELEASED.with(|r| r.borrow_mut().push(("cb2", arg.as_usize() + phase as usize)));
+        RELEASED.with(|r| {
+            r.borrow_mut()
+                .push(("cb2", arg.as_usize() + phase as usize))
+        });
     }
     RegisterResourceReleaseCallback(cb1, Datum::from_usize(10)).unwrap();
     RegisterResourceReleaseCallback(cb2, Datum::from_usize(20)).unwrap();
@@ -719,15 +727,27 @@ fn release_callbacks_skipped_when_phase_action_errors() {
     // Release starts at BEFORE_LOCKS (resowner.c:720 Assert); that phase's
     // actions succeed, so its callback fires and is drained here.
     ResourceOwnerRelease(o, RESOURCE_RELEASE_BEFORE_LOCKS, false, false).unwrap();
-    assert_eq!(released(), vec![("cb", 30 + RESOURCE_RELEASE_BEFORE_LOCKS as usize)]);
+    assert_eq!(
+        released(),
+        vec![("cb", 30 + RESOURCE_RELEASE_BEFORE_LOCKS as usize)]
+    );
 
     let err = ResourceOwnerRelease(o, RESOURCE_RELEASE_LOCKS, false, false).unwrap_err();
-    assert!(err.message().contains("injected LockReleaseCurrentOwner failure"));
-    assert_eq!(released(), vec![], "callbacks ran although the LOCKS phase failed");
+    assert!(err
+        .message()
+        .contains("injected LockReleaseCurrentOwner failure"));
+    assert_eq!(
+        released(),
+        vec![],
+        "callbacks ran although the LOCKS phase failed"
+    );
 
     // The callback still runs for a phase whose actions succeed.
     ResourceOwnerRelease(o, RESOURCE_RELEASE_AFTER_LOCKS, false, false).unwrap();
-    assert_eq!(released(), vec![("cb", 30 + RESOURCE_RELEASE_AFTER_LOCKS as usize)]);
+    assert_eq!(
+        released(),
+        vec![("cb", 30 + RESOURCE_RELEASE_AFTER_LOCKS as usize)]
+    );
 
     UnregisterResourceReleaseCallback(cb, Datum::from_usize(30));
     ResourceOwnerForgetLock(o, tag).unwrap();
@@ -745,19 +765,38 @@ fn a_parked_empty_standing_owner_passes_the_boundary() {
             remember(standing, v, &PIN_DESC);
         }
         assert!(capacity(standing) > 0);
-        assert_eq!(ResourceOwnerStateIssue(), Some("resource-owner state is not empty"), "holding pins");
+        assert_eq!(
+            ResourceOwnerStateIssue(),
+            Some("resource-owner state is not empty"),
+            "holding pins"
+        );
         for v in 0..64usize {
             ResourceOwnerForget(standing, Datum::from_usize(v), &PIN_DESC).unwrap();
         }
-        assert_eq!(ResourceOwnerStateIssue(), None, "parked and empty, its grown hash included");
+        assert_eq!(
+            ResourceOwnerStateIssue(),
+            None,
+            "parked and empty, its grown hash included"
+        );
         SetCurrentResourceOwner(standing);
-        assert_eq!(ResourceOwnerStateIssue(), Some("current resource owner is still live"));
+        assert_eq!(
+            ResourceOwnerStateIssue(),
+            Some("current resource owner is still live")
+        );
         SetCurrentResourceOwner(ResourceOwner::NULL);
         let other = owner("other");
-        assert_eq!(ResourceOwnerStateIssue(), Some("resource-owner state is not empty"), "another owner is a live owner");
+        assert_eq!(
+            ResourceOwnerStateIssue(),
+            Some("resource-owner state is not empty"),
+            "another owner is a live owner"
+        );
         ResourceOwnerDelete(other);
         SetStandingResourceOwner(ResourceOwner::NULL);
-        assert_eq!(ResourceOwnerStateIssue(), Some("resource-owner state is not empty"), "unregistered, it is a live owner");
+        assert_eq!(
+            ResourceOwnerStateIssue(),
+            Some("resource-owner state is not empty"),
+            "unregistered, it is a live owner"
+        );
         ResourceOwnerDelete(standing);
         assert_eq!(ResourceOwnerStateIssue(), None);
     })
@@ -823,7 +862,13 @@ fn release_callback_registered_by_resource_release_runs_in_same_phase() {
     let o = owner("t");
     remember(o, 7, &REGISTERING_DESC);
     ResourceOwnerRelease(o, RESOURCE_RELEASE_BEFORE_LOCKS, false, false).unwrap();
-    assert_eq!(released(), vec![("reg", 7), ("cb", 40 + RESOURCE_RELEASE_BEFORE_LOCKS as usize)]);
+    assert_eq!(
+        released(),
+        vec![
+            ("reg", 7),
+            ("cb", 40 + RESOURCE_RELEASE_BEFORE_LOCKS as usize)
+        ]
+    );
     UnregisterResourceReleaseCallback(cb, Datum::from_usize(40));
     ResourceOwnerRelease(o, RESOURCE_RELEASE_LOCKS, false, true).unwrap();
     ResourceOwnerRelease(o, RESOURCE_RELEASE_AFTER_LOCKS, false, false).unwrap();
@@ -860,12 +905,19 @@ fn trim_returns_deep_stack_slots() {
     }
     trim_owner_arena();
     let (len, cap, free) = arena_census();
-    assert!(len <= ARENA_KEEP_SLOTS && cap <= ARENA_KEEP_SLOTS.max(len), "len {len} cap {cap}");
+    assert!(
+        len <= ARENA_KEEP_SLOTS && cap <= ARENA_KEEP_SLOTS.max(len),
+        "len {len} cap {cap}"
+    );
     assert!(free < len.max(1));
-    let again: Vec<ResourceOwner> =
-        (0..5000).map(|_| ResourceOwnerCreate(top, "SubTransaction").unwrap()).collect();
+    let again: Vec<ResourceOwner> = (0..5000)
+        .map(|_| ResourceOwnerCreate(top, "SubTransaction").unwrap())
+        .collect();
     for stale in &chain {
-        assert!(!again.contains(stale), "stale handle {stale:?} aliases a new owner");
+        assert!(
+            !again.contains(stale),
+            "stale handle {stale:?} aliases a new owner"
+        );
     }
     for o in again.iter().rev() {
         release_rest_and_delete(*o);

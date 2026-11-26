@@ -70,23 +70,41 @@ const GUC_POOL: &[(&str, &[&str])] = &[
     ("from_collapse_limit", &["1", "8"]),
     ("geqo", &["on", "off"]),
     ("geqo_threshold", &["2", "12"]),
-    ("application_name", &["'fz_cfgm'", "'fz cfgm two words'", "''"]),
+    (
+        "application_name",
+        &["'fz_cfgm'", "'fz cfgm two words'", "''"],
+    ),
     // debug2 added for the sitediff O-NOTICE plane (the bracketed form
     // here restores the level; the persistent form is cfgm:cmm / util:cmm).
-    ("client_min_messages", &["debug2", "debug1", "log", "notice", "warning", "error"]),
-    ("search_path", &["public", "'public, pg_catalog'", "'\"$user\", public'"]),
+    (
+        "client_min_messages",
+        &["debug2", "debug1", "log", "notice", "warning", "error"],
+    ),
+    (
+        "search_path",
+        &["public", "'public, pg_catalog'", "'\"$user\", public'"],
+    ),
     ("statement_timeout", &["0", "'10s'", "'2min'"]),
     ("lock_timeout", &["0", "'5s'"]),
     ("extra_float_digits", &["-15", "0", "1", "3"]),
     ("bytea_output", &["hex", "escape"]),
-    ("IntervalStyle", &["postgres", "postgres_verbose", "sql_standard", "iso_8601"]),
-    ("DateStyle", &["'ISO, MDY'", "'German'", "'Postgres, DMY'", "'SQL, YMD'"]),
+    (
+        "IntervalStyle",
+        &["postgres", "postgres_verbose", "sql_standard", "iso_8601"],
+    ),
+    (
+        "DateStyle",
+        &["'ISO, MDY'", "'German'", "'Postgres, DMY'", "'SQL, YMD'"],
+    ),
     ("gin_fuzzy_search_limit", &["0", "100"]),
     ("vacuum_cost_delay", &["0", "1"]),
     ("track_functions", &["none", "pl", "all"]),
     ("backslash_quote", &["safe_encoding", "on", "off"]),
     ("check_function_bodies", &["on", "off"]),
-    ("default_transaction_isolation", &["'read committed'", "'repeatable read'", "serializable"]),
+    (
+        "default_transaction_isolation",
+        &["'read committed'", "'repeatable read'", "serializable"],
+    ),
     ("default_transaction_read_only", &["on", "off"]),
     ("transform_null_equals", &["on", "off"]),
     ("array_nulls", &["on", "off"]),
@@ -141,27 +159,52 @@ const CONV_SWEEPS: &[(&str, &str, u16, u16)] = &[
 /// Unicode codepoint bands for the UTF8 -> target sweeps (LocalToUtf /
 /// UtfToLocal combined-map and segment-boundary branches).
 const UTF8_BANDS: &[(u32, u32)] = &[
-    (0x00a1, 0x0500),  // latin-1 sup .. cyrillic
-    (0x2010, 0x2600),  // punctuation, arrows, math, box drawing
-    (0x3041, 0x3400),  // kana + CJK punctuation + compat jamo
-    (0x4e00, 0x5200),  // CJK unified band
-    (0xac00, 0xb000),  // hangul syllables band
-    (0xff01, 0xfff0),  // full/half-width forms
+    (0x00a1, 0x0500),   // latin-1 sup .. cyrillic
+    (0x2010, 0x2600),   // punctuation, arrows, math, box drawing
+    (0x3041, 0x3400),   // kana + CJK punctuation + compat jamo
+    (0x4e00, 0x5200),   // CJK unified band
+    (0xac00, 0xb000),   // hangul syllables band
+    (0xff01, 0xfff0),   // full/half-width forms
     (0x20000, 0x20200), // SIP band (4-byte UTF8, gb18030/2004 planes)
 ];
 
 const UTF8_TARGETS: &[&str] = &[
-    "SJIS", "EUC_JP", "EUC_KR", "EUC_TW", "BIG5", "GBK", "UHC", "GB18030",
-    "JOHAB", "SHIFT_JIS_2004", "EUC_JIS_2004", "LATIN1", "LATIN2", "LATIN5",
-    "WIN1251", "WIN1252", "WIN1256", "KOI8R", "KOI8U", "ISO_8859_5",
+    "SJIS",
+    "EUC_JP",
+    "EUC_KR",
+    "EUC_TW",
+    "BIG5",
+    "GBK",
+    "UHC",
+    "GB18030",
+    "JOHAB",
+    "SHIFT_JIS_2004",
+    "EUC_JIS_2004",
+    "LATIN1",
+    "LATIN2",
+    "LATIN5",
+    "WIN1251",
+    "WIN1252",
+    "WIN1256",
+    "KOI8R",
+    "KOI8U",
+    "ISO_8859_5",
 ];
 
 /// client_encoding round-trip brackets: ASCII-safe projections only; the
 /// non-ASCII payload rides inside convert_to()/encode() so the client
 /// bytes stay ASCII hex on every client_encoding (hand-verified).
 const CLIENT_ENCODINGS: &[&str] = &[
-    "SJIS", "EUC_JP", "LATIN1", "WIN1252", "GB18030", "UHC", "KOI8R",
-    "BIG5", "ISO_2022_JP", "UTF8",
+    "SJIS",
+    "EUC_JP",
+    "LATIN1",
+    "WIN1252",
+    "GB18030",
+    "UHC",
+    "KOI8R",
+    "BIG5",
+    "ISO_2022_JP",
+    "UTF8",
 ];
 
 fn raw(s: impl Into<String>) -> StmtKind {
@@ -233,7 +276,11 @@ fn gen_local(g: &mut Gen) -> Vec<StmtKind> {
         out.push(raw("RELEASE SAVEPOINT fz_cfgm_sp;"));
     }
     out.push(raw(format!("SELECT current_setting('{n1}') IS NOT NULL;")));
-    out.push(raw(if g.rng.chance(1, 2) { "COMMIT;" } else { "ROLLBACK;" }));
+    out.push(raw(if g.rng.chance(1, 2) {
+        "COMMIT;"
+    } else {
+        "ROLLBACK;"
+    }));
     out
 }
 
@@ -253,7 +300,9 @@ fn gen_setcfg(g: &mut Gen) -> Vec<StmtKind> {
         1 => vec![raw(format!("SELECT set_config('{name}', '{v}', true);"))],
         2 => vec![
             raw("SELECT current_setting('fzcfgm.not_defined', true) IS NULL;"),
-            raw(format!("SELECT current_setting('{name}', false) IS NOT NULL;")),
+            raw(format!(
+                "SELECT current_setting('{name}', false) IS NOT NULL;"
+            )),
         ],
         _ => vec![
             raw("BEGIN;"),
@@ -479,8 +528,7 @@ mod tests {
                 assert!(crate::util::is_cmm_set(first), "{sqls:?}");
                 assert!(!sqls.iter().any(|s| s.starts_with("RESET")), "{sqls:?}");
             }
-            if let Some(name) = first.strip_prefix("SET ").and_then(|r| r.split(' ').next())
-            {
+            if let Some(name) = first.strip_prefix("SET ").and_then(|r| r.split(' ').next()) {
                 if !is_bad_single && !is_cmm && GUC_POOL.iter().any(|(n, _)| *n == name) {
                     let restored = sqls.iter().any(|s| {
                         s == &format!("RESET {name};")
@@ -495,8 +543,14 @@ mod tests {
         for p in SHAPES {
             assert!(prods_all.iter().any(|q| q == p), "{p} never fired");
         }
-        assert!(prods_all.iter().any(|q| q == "cfgm:err"), "err arm never fired");
-        assert!(prods_all.iter().any(|q| q == "cmm"), "cmm co-draw never fired via cfgm:cmm");
+        assert!(
+            prods_all.iter().any(|q| q == "cfgm:err"),
+            "err arm never fired"
+        );
+        assert!(
+            prods_all.iter().any(|q| q == "cmm"),
+            "cmm co-draw never fired via cfgm:cmm"
+        );
     }
 
     /// Same seed -> byte-identical statements.

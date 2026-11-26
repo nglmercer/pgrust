@@ -44,7 +44,11 @@ impl SiteTpl {
         let mut rows: TplVec<RowTpl> = raw::tpl_list(root);
         tpl_room(&mut rows, l.rows.len(), true, RECIPE_ROOT);
         for k in l.rows {
-            let row = RowTpl { key: k.key, members: filed(root, k.members), heap_attnos: filed(root, k.heap_attnos) };
+            let row = RowTpl {
+                key: k.key,
+                members: filed(root, k.members),
+                heap_attnos: filed(root, k.heap_attnos),
+            };
             tpl_push(&mut rows, row, RECIPE_ROOT);
         }
         SiteTpl {
@@ -61,7 +65,15 @@ impl SiteTpl {
 
     /// The bound runtime form (a bind's, the walk's for the execution): the recipe as admitted, its lists std copies.
     pub(crate) fn bind_copy(&self) -> SiteRecipe {
-        let rows = self.rows.iter().map(|k| RowKey { key: k.key, members: copied(&k.members), heap_attnos: copied(&k.heap_attnos) }).collect(); // alloc: Program
+        let rows = self
+            .rows
+            .iter()
+            .map(|k| RowKey {
+                key: k.key,
+                members: copied(&k.members),
+                heap_attnos: copied(&k.heap_attnos),
+            })
+            .collect(); // alloc: Program
         let lists = SiteLists {
             keys: copied(&self.keys),
             attnos: copied(&self.attnos),
@@ -145,14 +157,22 @@ mod tests {
     /// the list, and its bound copy is the list.
     #[test]
     fn a_filed_list_is_one_root_block_and_copies_back() {
-        let mut root = mcx::SendRoot::new_owned_small(RECIPE_ROOT, memledger::charge::statement_owner());
+        let mut root =
+            mcx::SendRoot::new_owned_small(RECIPE_ROOT, memledger::charge::statement_owner());
         let before = root.used();
         {
             let empty: Filed<i16> = filed(&mut root, Vec::new()); // alloc: Cold
-            assert_eq!((empty.len(), root.used()), (0, before), "an empty list takes no block");
+            assert_eq!(
+                (empty.len(), root.used()),
+                (0, before),
+                "an empty list takes no block"
+            );
             let l = filed(&mut root, vec![3i16, 1, 4, 1, 5]); // alloc: Cold
             assert_eq!(l.len(), 5);
-            assert!(root.used() >= before + 5 * size_of::<i16>(), "the block is the root's");
+            assert!(
+                root.used() >= before + 5 * size_of::<i16>(),
+                "the block is the root's"
+            );
             assert_eq!(copied(&l), [3, 1, 4, 1, 5]);
         }
         assert_eq!(root.used(), before, "the lists free into the root");
@@ -163,8 +183,23 @@ mod tests {
     #[test]
     fn a_filed_form_is_no_larger_than_its_recipe() {
         use super::super::{AdmitTpl, RecipeTpl};
-        assert!(size_of::<SiteTpl>() <= size_of::<SiteRecipe>(), "SiteTpl {} > SiteRecipe {}", size_of::<SiteTpl>(), size_of::<SiteRecipe>());
-        assert!(size_of::<GranuleTpl>() <= size_of::<SiteRecipe>(), "GranuleTpl {} > SiteRecipe {}", size_of::<GranuleTpl>(), size_of::<SiteRecipe>());
-        assert!(size_of::<RecipeTpl>() <= size_of::<AdmitTpl>(), "RecipeTpl {} > AdmitTpl {}", size_of::<RecipeTpl>(), size_of::<AdmitTpl>());
+        assert!(
+            size_of::<SiteTpl>() <= size_of::<SiteRecipe>(),
+            "SiteTpl {} > SiteRecipe {}",
+            size_of::<SiteTpl>(),
+            size_of::<SiteRecipe>()
+        );
+        assert!(
+            size_of::<GranuleTpl>() <= size_of::<SiteRecipe>(),
+            "GranuleTpl {} > SiteRecipe {}",
+            size_of::<GranuleTpl>(),
+            size_of::<SiteRecipe>()
+        );
+        assert!(
+            size_of::<RecipeTpl>() <= size_of::<AdmitTpl>(),
+            "RecipeTpl {} > AdmitTpl {}",
+            size_of::<RecipeTpl>(),
+            size_of::<AdmitTpl>()
+        );
     }
 }

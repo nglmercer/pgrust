@@ -1,4 +1,3 @@
-
 pub mod armor;
 pub mod cfb;
 pub mod compress;
@@ -100,11 +99,16 @@ pub fn sym_decrypt(
 ) -> Result<DecryptOutput, DecryptError> {
     let mut ctx = PgpContext::default();
     if let Some(a) = args {
-        ctx.parse_args(a)
-            .map_err(|e| DecryptError { message: e, notices: Vec::new() })?;
+        ctx.parse_args(a).map_err(|e| DecryptError {
+            message: e,
+            notices: Vec::new(),
+        })?;
     }
     ctx.text_mode = if need_text { 1 } else { 0 };
-    set_symkey(key).map_err(|e| DecryptError { message: e, notices: Vec::new() })?;
+    set_symkey(key).map_err(|e| DecryptError {
+        message: e,
+        notices: Vec::new(),
+    })?;
     ctx.mbuf_cap = decrypt_mbuf_cap(data.len());
 
     let exp = ctx.clone();
@@ -121,16 +125,26 @@ fn build_expect_notices(exp: &PgpContext, ctx: &PgpContext) -> Vec<String> {
     let mut out = Vec::new();
     let mut chk = |name: &str, e: i32, g: i32| {
         if e >= 0 && e != g {
-            out.push(format!("pgp_decrypt: unexpected {name}: expected {e} got {g}"));
+            out.push(format!(
+                "pgp_decrypt: unexpected {name}: expected {e} got {g}"
+            ));
         }
     };
     chk("cipher_algo", exp.exp_cipher_algo, ctx.cipher_algo);
     chk("s2k_mode", exp.exp_s2k_mode, ctx.s2k_mode);
     chk("s2k_count", exp.exp_s2k_count, ctx.s2k_count);
-    chk("s2k_digest_algo", exp.exp_s2k_digest_algo, ctx.s2k_digest_algo);
+    chk(
+        "s2k_digest_algo",
+        exp.exp_s2k_digest_algo,
+        ctx.s2k_digest_algo,
+    );
     chk("use_sess_key", exp.exp_use_sess_key, ctx.use_sess_key);
     if ctx.use_sess_key != 0 {
-        chk("s2k_cipher_algo", exp.exp_s2k_cipher_algo, ctx.s2k_cipher_algo);
+        chk(
+            "s2k_cipher_algo",
+            exp.exp_s2k_cipher_algo,
+            ctx.s2k_cipher_algo,
+        );
     }
     chk("disable_mdc", exp.exp_disable_mdc, ctx.disable_mdc);
     chk("compress_algo", exp.exp_compress_algo, ctx.compress_algo);
@@ -179,13 +193,17 @@ pub fn pub_decrypt(
 ) -> Result<DecryptOutput, DecryptError> {
     let mut ctx = PgpContext::default();
     if let Some(a) = args {
-        ctx.parse_args(a)
-            .map_err(|e| DecryptError { message: e, notices: Vec::new() })?;
+        ctx.parse_args(a).map_err(|e| DecryptError {
+            message: e,
+            notices: Vec::new(),
+        })?;
     }
     ctx.text_mode = if need_text { 1 } else { 0 };
 
-    let pk = pubkey::read_key(key, psw, 1, &mut ctx)
-        .map_err(|e| DecryptError { message: e, notices: ctx.debug_notices.clone() })?;
+    let pk = pubkey::read_key(key, psw, 1, &mut ctx).map_err(|e| DecryptError {
+        message: e,
+        notices: ctx.debug_notices.clone(),
+    })?;
     ctx.mbuf_cap = decrypt_mbuf_cap(data.len());
 
     let exp = ctx.clone();
@@ -311,8 +329,13 @@ mod tests {
     #[test]
     fn expect_notices_survive_decrypt_errors() {
         let ct = sym_encrypt(b"x", b"key", None, true).expect("encrypt");
-        let err = sym_decrypt(&ct, b"wrong", Some(b"expect-cipher-algo=aes256,expect-s2k-mode=1"), true)
-            .unwrap_err();
+        let err = sym_decrypt(
+            &ct,
+            b"wrong",
+            Some(b"expect-cipher-algo=aes256,expect-s2k-mode=1"),
+            true,
+        )
+        .unwrap_err();
         assert_eq!(err.message, "Wrong key or corrupt data");
         assert_eq!(
             err.notices,
@@ -322,9 +345,13 @@ mod tests {
             ]
         );
         let ct = sym_encrypt(b"x", b"key", Some(b"s2k-mode=0"), true).expect("encrypt");
-        let err = sym_decrypt(&ct[..6], b"key", Some(b"expect-cipher-algo=aes256"), true).unwrap_err();
+        let err =
+            sym_decrypt(&ct[..6], b"key", Some(b"expect-cipher-algo=aes256"), true).unwrap_err();
         assert_eq!(err.message, "Wrong key or corrupt data");
-        assert_eq!(err.notices, ["pgp_decrypt: unexpected cipher_algo: expected 9 got 7"]);
+        assert_eq!(
+            err.notices,
+            ["pgp_decrypt: unexpected cipher_algo: expected 9 got 7"]
+        );
     }
 
     // pgp-pgsql.c:537: the SQL wrapper converts from UTF-8 only for a 'u'
@@ -332,9 +359,17 @@ mod tests {
     #[test]
     fn unicode_literal_is_reported() {
         let ct = sym_encrypt(b"x", b"key", Some(b"unicode-mode=1"), true).expect("encrypt");
-        assert!(sym_decrypt(&ct, b"key", None, true).expect("decrypt").unicode);
+        assert!(
+            sym_decrypt(&ct, b"key", None, true)
+                .expect("decrypt")
+                .unicode
+        );
         let ct = sym_encrypt(b"x", b"key", None, true).expect("encrypt");
-        assert!(!sym_decrypt(&ct, b"key", None, true).expect("decrypt").unicode);
+        assert!(
+            !sym_decrypt(&ct, b"key", None, true)
+                .expect("decrypt")
+                .unicode
+        );
         assert!(args_unicode_mode(Some(b"unicode-mode=1")).unwrap());
         assert!(!args_unicode_mode(None).unwrap());
     }
@@ -350,14 +385,22 @@ mod tests {
             sym_decrypt(&c, b"key", Some(b"debug=1"), true).unwrap_err()
         };
         let err = flip(ct.len() - 1);
-        assert_eq!((err.message.as_str(), &err.notices[..]),
-            ("Wrong key or corrupt data", &["dbg: mdc_finish: mdc failed".to_string()][..]));
+        assert_eq!(
+            (err.message.as_str(), &err.notices[..]),
+            (
+                "Wrong key or corrupt data",
+                &["dbg: mdc_finish: mdc failed".to_string()][..]
+            )
+        );
         let err = flip(ct.len() - 22);
         assert_eq!(err.notices, ["dbg: pgp_parse_pkt_hdr: not pkt hdr"]);
         let mut c = ct.clone();
         c[ct.len() - 22] ^= 0x01;
         let err = sym_decrypt(&c, b"key", Some(b"debug=1"), true).unwrap_err();
-        assert_eq!(err.notices, ["dbg: process_data_packets: unexpected pkt tag=18"]);
+        assert_eq!(
+            err.notices,
+            ["dbg: process_data_packets: unexpected pkt tag=18"]
+        );
     }
 
     // pgp-pubdec.c:212 + openssl.c:541: a session key shorter than the AES
@@ -370,19 +413,38 @@ mod tests {
     const PUB_WRONG_KEY: &str = "c1c04c030000000000000000010800b5ec3f8251c8604106669724207eabdae25b849c45da7bd9675a1f3ebc4bc48e4684414b730bff8215501d67de2eb3c491279ced14f138b102215ca61e65495ae2ae3e02d1c63676d894af9e4b961f44d2657c6a0212bd2505a887733ffff086efe6122502641c817daff9c70fd3a1098141db6d6644b618a8ba0bb15904065a25db5c86e2ccf0e15b46df9652b2e0d6f9173a237a89cceb9fd77436897d6ff98cdcb49ed7fac3f1f3a836edd26dfd29d68f3a8afaa1acddf5c87cc05ed8a4adabd1d669a36d93eac2e08331f919e1de05698525381b580c4241223c7b1872a4ede5bc6170ffb732969d509cd7d1afacdc1dea7b844f1bb8b1efe8ba99f557f3d23a01ef1af3bf93c7b2d69442a7abd64857d0f412fde07955a0e69bdcd42c84c8b30ac6cad5c19332abb5641f6b4bbbc63f701f03a475684c4e2c78";
 
     fn unhex(s: &str) -> Vec<u8> {
-        (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
+        (0..s.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+            .collect()
     }
 
     #[test]
     fn pubenc_session_key_follows_c() {
         let seckey = armor::armor_decode(RSA_SECKEY.as_bytes()).expect("dearmor seckey");
-        let out = pub_decrypt(&unhex(PUB_SHORT_KEY), &seckey, None, None, false).expect("short key");
+        let out =
+            pub_decrypt(&unhex(PUB_SHORT_KEY), &seckey, None, None, false).expect("short key");
         assert_eq!(out.plaintext, b"short key text");
-        let err = pub_decrypt(&unhex(PUB_UNKNOWN_CIPHER), &seckey, None, Some(b"debug=1"), false)
-            .unwrap_err();
-        assert_eq!((err.message.as_str(), err.notices.len()), ("Wrong key or corrupt data", 0));
-        let err = pub_decrypt(&unhex(PUB_WRONG_KEY), &seckey, None, Some(b"debug=1"), false)
-            .unwrap_err();
+        let err = pub_decrypt(
+            &unhex(PUB_UNKNOWN_CIPHER),
+            &seckey,
+            None,
+            Some(b"debug=1"),
+            false,
+        )
+        .unwrap_err();
+        assert_eq!(
+            (err.message.as_str(), err.notices.len()),
+            ("Wrong key or corrupt data", 0)
+        );
+        let err = pub_decrypt(
+            &unhex(PUB_WRONG_KEY),
+            &seckey,
+            None,
+            Some(b"debug=1"),
+            false,
+        )
+        .unwrap_err();
         assert_eq!(err.message, "Wrong key");
         assert_eq!(err.notices, ["dbg: check_eme_pkcs1_v15 failed"]);
     }
@@ -394,33 +456,72 @@ mod tests {
         let pubkey = armor::armor_decode(RSA_PUBKEY.as_bytes()).expect("dearmor pubkey");
         let seckey = armor::armor_decode(RSA_SECKEY.as_bytes()).expect("dearmor seckey");
         let ct = pub_encrypt(b"m", &pubkey, Some(b"cipher-algo=aes256"), true).expect("encrypt");
-        let out = pub_decrypt(&ct, &seckey, None, Some(b"expect-cipher-algo=aes256"), true).unwrap();
+        let out =
+            pub_decrypt(&ct, &seckey, None, Some(b"expect-cipher-algo=aes256"), true).unwrap();
         assert!(out.notices.is_empty(), "{:?}", out.notices);
-        let out = pub_decrypt(&ct, &seckey, None, Some(b"expect-cipher-algo=aes128"), true).unwrap();
-        assert_eq!(out.notices, ["pgp_decrypt: unexpected cipher_algo: expected 7 got 9"]);
+        let out =
+            pub_decrypt(&ct, &seckey, None, Some(b"expect-cipher-algo=aes128"), true).unwrap();
+        assert_eq!(
+            out.notices,
+            ["pgp_decrypt: unexpected cipher_algo: expected 7 got 9"]
+        );
 
-        let err = sym_decrypt(&unhex("c30404070063"), b"k",
-            Some(b"expect-s2k-mode=3, expect-s2k-digest-algo=sha1"), true).unwrap_err();
-        assert_eq!(err.notices, [
-            "pgp_decrypt: unexpected s2k_mode: expected 3 got 0",
-            "pgp_decrypt: unexpected s2k_digest_algo: expected 2 got 99",
-        ]);
-        let err = sym_decrypt(&unhex("c3020507"), b"k",
-            Some(b"sess-key=1, expect-s2k-cipher-algo=aes256"), true).unwrap_err();
-        assert_eq!(err.notices, ["pgp_decrypt: unexpected s2k_cipher_algo: expected 9 got 7"]);
+        let err = sym_decrypt(
+            &unhex("c30404070063"),
+            b"k",
+            Some(b"expect-s2k-mode=3, expect-s2k-digest-algo=sha1"),
+            true,
+        )
+        .unwrap_err();
+        assert_eq!(
+            err.notices,
+            [
+                "pgp_decrypt: unexpected s2k_mode: expected 3 got 0",
+                "pgp_decrypt: unexpected s2k_digest_algo: expected 2 got 99",
+            ]
+        );
+        let err = sym_decrypt(
+            &unhex("c3020507"),
+            b"k",
+            Some(b"sess-key=1, expect-s2k-cipher-algo=aes256"),
+            true,
+        )
+        .unwrap_err();
+        assert_eq!(
+            err.notices,
+            ["pgp_decrypt: unexpected s2k_cipher_algo: expected 9 got 7"]
+        );
 
-        let err = pub_decrypt(&unhex("c10d03000000000000000001000101"),
-            &unhex("c715040000000001000000000000000000000000000000"), None, Some(b"debug=1"), false)
-            .unwrap_err();
-        assert_eq!((err.message.as_str(), &err.notices[..]),
-            ("Wrong key", &["dbg: check_eme_pkcs1_v15 failed".to_string()][..]));
-        let err = pub_decrypt(&unhex("c11003000000000000000010000201000101"),
-            &unhex("c715040000000010000201000202000101000001010002"), None, Some(b"debug=1"), false)
-            .unwrap_err();
-        assert_eq!(err.notices, [
-            "dbg: mpi_to_bn: bignum conversion failed: mpi=2, bn=1",
-            "dbg: mpi_to_bn: bignum conversion failed: mpi=2, bn=1",
-        ]);
+        let err = pub_decrypt(
+            &unhex("c10d03000000000000000001000101"),
+            &unhex("c715040000000001000000000000000000000000000000"),
+            None,
+            Some(b"debug=1"),
+            false,
+        )
+        .unwrap_err();
+        assert_eq!(
+            (err.message.as_str(), &err.notices[..]),
+            (
+                "Wrong key",
+                &["dbg: check_eme_pkcs1_v15 failed".to_string()][..]
+            )
+        );
+        let err = pub_decrypt(
+            &unhex("c11003000000000000000010000201000101"),
+            &unhex("c715040000000010000201000202000101000001010002"),
+            None,
+            Some(b"debug=1"),
+            false,
+        )
+        .unwrap_err();
+        assert_eq!(
+            err.notices,
+            [
+                "dbg: mpi_to_bn: bignum conversion failed: mpi=2, bn=1",
+                "dbg: mpi_to_bn: bignum conversion failed: mpi=2, bn=1",
+            ]
+        );
 
         let err = pub_encrypt(b"x", &[0x01], Some(b"debug=1"), true).unwrap_err();
         assert_eq!(err.notices, ["dbg: pgp_parse_pkt_hdr: not pkt hdr"]);
@@ -428,8 +529,13 @@ mod tests {
         key.extend_from_slice(&[0xff; 29]);
         key.extend_from_slice(&unhex("0011010001"));
         let err = pub_encrypt(b"x", &key, Some(b"debug=1"), true).unwrap_err();
-        assert_eq!((err.message.as_str(), &err.notices[..]), ("Math operation failed",
-            &["dbg: mpi_to_bn: bignum conversion failed: mpi=240, bn=232".to_string()][..]));
+        assert_eq!(
+            (err.message.as_str(), &err.notices[..]),
+            (
+                "Math operation failed",
+                &["dbg: mpi_to_bn: bignum conversion failed: mpi=240, bn=232".to_string()][..]
+            )
+        );
         let err = pub_encrypt(b"x", &unhex("c7e10000"), None, true).unwrap_err();
         assert_eq!(err.message, "Refusing to encrypt with secret key");
         let err = pub_encrypt(b"x", &unhex("d4e10000"), None, true).unwrap_err();
@@ -447,7 +553,8 @@ mod tests {
     fn decrypt_known_zip_message() {
         let armored = "\n-----BEGIN PGP MESSAGE-----\n\nww0ECQMCsci6AdHnELlh0kQB4jFcVwHMJg0Bulop7m3Mi36s15TAhBo0AnzIrRFrdLVCkKohsS6+\nDMcmR53SXfLoDJOv/M8uKj3QSq7oWNIp95pxfA==\n=tbSn\n-----END PGP MESSAGE-----\n";
         let bin = armor::armor_decode(armored.as_bytes()).expect("dearmor");
-        let out = sym_decrypt(&bin, b"key", Some(b"expect-compress-algo=1"), true).expect("decrypt");
+        let out =
+            sym_decrypt(&bin, b"key", Some(b"expect-compress-algo=1"), true).expect("decrypt");
         assert_eq!(out.plaintext, b"Secret message");
     }
 
@@ -460,18 +567,37 @@ mod tests {
         let armored = "\n-----BEGIN PGP MESSAGE-----\n\nww0EBAMC8wIKbtvzJtxi0jABUleCwFJWGCkYKcsNdABqdtXaU2VjcmV0LtMUlnPH3A2QBmZrcucm\n1GPb/s2Bkdg=\n=6aqD\n-----END PGP MESSAGE-----\n";
         let bin = armor::armor_decode(armored.as_bytes()).expect("dearmor");
         let err = |r: Result<DecryptOutput, DecryptError>| r.expect_err("must fail").message;
-        assert_eq!(err(sym_decrypt(&bin, b"wrong key", None, true)), "Wrong key or corrupt data");
         assert_eq!(
-            err(sym_decrypt(&bin, b"wrong key", Some(b"ignore-cipher-failure=1"), true)),
+            err(sym_decrypt(&bin, b"wrong key", None, true)),
+            "Wrong key or corrupt data"
+        );
+        assert_eq!(
+            err(sym_decrypt(
+                &bin,
+                b"wrong key",
+                Some(b"ignore-cipher-failure=1"),
+                true
+            )),
             "Wrong key or corrupt data"
         );
 
-        let ct = sym_encrypt(b"Secret.", b"key", Some(b"cipher-algo=bf, ignore-cipher-failure=1"), true)
-            .expect("encrypt accepts the option");
-        let out = sym_decrypt(&ct, b"key", Some(b"ignore-cipher-failure=1"), true).expect("decrypt");
+        let ct = sym_encrypt(
+            b"Secret.",
+            b"key",
+            Some(b"cipher-algo=bf, ignore-cipher-failure=1"),
+            true,
+        )
+        .expect("encrypt accepts the option");
+        let out =
+            sym_decrypt(&ct, b"key", Some(b"ignore-cipher-failure=1"), true).expect("decrypt");
         assert_eq!(out.plaintext, b"Secret.");
         assert_eq!(
-            err(sym_decrypt(&ct, b"nope", Some(b"ignore-cipher-failure=1"), true)),
+            err(sym_decrypt(
+                &ct,
+                b"nope",
+                Some(b"ignore-cipher-failure=1"),
+                true
+            )),
             "Wrong key or corrupt data"
         );
 
@@ -487,13 +613,25 @@ mod tests {
     // is reported ahead of a BZIP2 compress-algo.
     #[test]
     fn cipher_failure_precedes_compression_failure() {
-        let err = sym_encrypt(b"x", b"k", Some(b"s2k-cipher-algo=aes, cipher-algo=twofish, compress-algo=3"), true)
-            .unwrap_err();
+        let err = sym_encrypt(
+            b"x",
+            b"k",
+            Some(b"s2k-cipher-algo=aes, cipher-algo=twofish, compress-algo=3"),
+            true,
+        )
+        .unwrap_err();
         assert_eq!(err, "Unsupported cipher algorithm");
-        let err = sym_encrypt(b"x", b"k", Some(b"cipher-algo=aes, compress-algo=3"), true).unwrap_err();
+        let err =
+            sym_encrypt(b"x", b"k", Some(b"cipher-algo=aes, compress-algo=3"), true).unwrap_err();
         assert_eq!(err, "Unsupported compression algorithm");
         let pubkey = armor::armor_decode(RSA_PUBKEY.as_bytes()).expect("dearmor pubkey");
-        let err = pub_encrypt(b"x", &pubkey, Some(b"cipher-algo=twofish, compress-algo=3"), true).unwrap_err();
+        let err = pub_encrypt(
+            b"x",
+            &pubkey,
+            Some(b"cipher-algo=twofish, compress-algo=3"),
+            true,
+        )
+        .unwrap_err();
         assert_eq!(err.message, "Unsupported cipher algorithm");
     }
 
@@ -505,7 +643,10 @@ mod tests {
         let key = unhex("c715040000000010000101000202000101000001010002");
         let msg = unhex("c11003000000000000000010000101000101");
         let err = pub_decrypt(&msg, &key, None, Some(b"debug=1"), false).unwrap_err();
-        assert_eq!((err.message.as_str(), err.notices.len()), ("Math operation failed", 0));
+        assert_eq!(
+            (err.message.as_str(), err.notices.len()),
+            ("Math operation failed", 0)
+        );
     }
 
     // pgp.c:234 pgp_set_sess_key stores `use ? 1 : 0`; the public-key decrypt
@@ -515,9 +656,26 @@ mod tests {
         let pubkey = armor::armor_decode(RSA_PUBKEY.as_bytes()).expect("dearmor pubkey");
         let seckey = armor::armor_decode(RSA_SECKEY.as_bytes()).expect("dearmor seckey");
         let ct = pub_encrypt(b"x", &pubkey, None, true).expect("pub encrypt");
-        let out = pub_decrypt(&ct, &seckey, None, Some(b"sess-key=5, expect-sess-key=5"), true).expect("decrypt");
-        assert_eq!(out.notices, ["pgp_decrypt: unexpected use_sess_key: expected 5 got 1"]);
-        let out = pub_decrypt(&ct, &seckey, None, Some(b"sess-key=5, expect-sess-key=1"), true).expect("decrypt");
+        let out = pub_decrypt(
+            &ct,
+            &seckey,
+            None,
+            Some(b"sess-key=5, expect-sess-key=5"),
+            true,
+        )
+        .expect("decrypt");
+        assert_eq!(
+            out.notices,
+            ["pgp_decrypt: unexpected use_sess_key: expected 5 got 1"]
+        );
+        let out = pub_decrypt(
+            &ct,
+            &seckey,
+            None,
+            Some(b"sess-key=5, expect-sess-key=1"),
+            true,
+        )
+        .expect("decrypt");
         assert!(out.notices.is_empty(), "{:?}", out.notices);
     }
 }

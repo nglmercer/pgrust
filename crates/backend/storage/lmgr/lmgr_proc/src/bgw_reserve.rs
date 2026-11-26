@@ -1,4 +1,4 @@
-use super::{ProcGlobal, ProcStructLock, spin_acquire, INVALID_PROC_NUMBER};
+use super::{spin_acquire, ProcGlobal, ProcStructLock, INVALID_PROC_NUMBER};
 
 // Worker-pool claims of a bgworker PGPROC not yet popped by InitProcess;
 // guarded by ProcStructLock. C has no equivalent: every worker is a fresh

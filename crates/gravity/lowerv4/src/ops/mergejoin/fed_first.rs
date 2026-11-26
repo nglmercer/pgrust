@@ -15,15 +15,22 @@ use gravity_decompose::{Op, PipelineNode, Source};
 use mcx::{CollectIn, GrowIn, PgVec};
 use types_nodes::Node;
 
-use crate::ops::mergejoin::strategies::markable::pipe_quiet;
 use crate::graph::Gx;
+use crate::ops::mergejoin::strategies::markable::pipe_quiet;
 
 /// Pipeline `p` reads its whole input into its end (lazy_outer.rs `leaves`): a scan or its one breaker slot, filtered,
 /// projected or sorted, into a full Sort's run or a Materialize store (a CTE's).
 pub(crate) fn whole(p: &PipelineNode<'_>) -> bool {
-    let src = matches!(p.source, Source::Range { .. }) || matches!(p.source, Source::Breaker { slot } if p.desc.consumes.iter().all(|&s| s == slot));
-    let store = crate::frame::iface::breaker_of(&p.desc).is_some_and(|e| e.kind == BreakerKind::Materialize) && !p.ops.iter().any(|op| matches!(op, Op::Sort(_)));
-    src && p.ops.iter().all(|op| matches!(op, Op::Filter(_) | Op::Project(_) | Op::Sort(_))) && (crate::ops::mergejoin::lazy_outer::full(p) || store)
+    let src = matches!(p.source, Source::Range { .. })
+        || matches!(p.source, Source::Breaker { slot } if p.desc.consumes.iter().all(|&s| s == slot));
+    let store = crate::frame::iface::breaker_of(&p.desc)
+        .is_some_and(|e| e.kind == BreakerKind::Materialize)
+        && !p.ops.iter().any(|op| matches!(op, Op::Sort(_)));
+    src && p
+        .ops
+        .iter()
+        .all(|op| matches!(op, Op::Filter(_) | Op::Project(_) | Op::Sort(_)))
+        && (crate::ops::mergejoin::lazy_outer::full(p) || store)
 }
 
 /// D3374: pipeline `p` is a recursive union's driver (its `Iter` op first, its source the seed's table, the term's next
@@ -31,9 +38,14 @@ pub(crate) fn whole(p: &PipelineNode<'_>) -> bool {
 /// it to its end (`IterDesc::read_whole`, decompose ops/setop.rs `readers`): the outer's first fetch, reading the CTE whole,
 /// runs it to its end (PG's RecursiveUnion under the outer Sort's CTE Scan), its seed and term pipelines `whole` too.
 fn union_whole(p: &PipelineNode<'_>) -> bool {
-    let store = crate::frame::iface::breaker_of(&p.desc).is_some_and(|e| e.kind == BreakerKind::Materialize);
-    let plain = |ops: &[Op<'_>]| ops.iter().all(|op| matches!(op, Op::Filter(_) | Op::Project(_)));
-    store && matches!(p.ops.split_first(), Some((Op::SetOp(SetDesc::Iter(d)), rest)) if d.read_whole && plain(rest)
+    let store = crate::frame::iface::breaker_of(&p.desc)
+        .is_some_and(|e| e.kind == BreakerKind::Materialize);
+    let plain = |ops: &[Op<'_>]| {
+        ops.iter()
+            .all(|op| matches!(op, Op::Filter(_) | Op::Project(_)))
+    };
+    store
+        && matches!(p.ops.split_first(), Some((Op::SetOp(SetDesc::Iter(d)), rest)) if d.read_whole && plain(rest)
         && matches!(p.source, Source::Breaker { slot } if slot == d.work) && p.desc.consumes.iter().all(|&s| s == d.work || s == d.next))
 }
 
@@ -42,10 +54,24 @@ fn union_whole(p: &PipelineNode<'_>) -> bool {
 /// through filters and projections only, and every reader of the union reads it to its end (`IterDesc::read_whole`), so
 /// PG's RecursiveUnion pulls the term until it returns no row in each generation, as the lowering runs a generation whole.
 /// With the outer `lazy_outer::outer_form` takes, the fed-first road holds there as where `lazy_outer::reached` does.
-pub(crate) fn term(gx: &Gx<'_, '_>, (k, j): (usize, usize), before: &[usize], all: &[usize]) -> bool {
+pub(crate) fn term(
+    gx: &Gx<'_, '_>,
+    (k, j): (usize, usize),
+    before: &[usize],
+    all: &[usize],
+) -> bool {
     let ps = gx.pipelines();
-    let Some(e) = crate::frame::iface::breaker_of(&ps[k].desc).filter(|e| e.kind == BreakerKind::Materialize) else { return false };
-    let plain = ps[k].ops.get(j + 1..).unwrap_or(&[]).iter().all(|op| matches!(op, Op::Filter(_) | Op::Project(_)));
+    let Some(e) =
+        crate::frame::iface::breaker_of(&ps[k].desc).filter(|e| e.kind == BreakerKind::Materialize)
+    else {
+        return false;
+    };
+    let plain = ps[k]
+        .ops
+        .get(j + 1..)
+        .unwrap_or(&[])
+        .iter()
+        .all(|op| matches!(op, Op::Filter(_) | Op::Project(_)));
     let body = (0..ps.len()).any(|c| ps[c].ops.iter().any(|op| matches!(op, Op::SetOp(SetDesc::Iter(d)) if d.body as usize == k && d.next == e.slot && d.read_whole)));
     let ok = plain && body && crate::ops::mergejoin::lazy_outer::outer_form(gx, k, j, before, all);
     if ok {
@@ -57,21 +83,37 @@ pub(crate) fn term(gx: &Gx<'_, '_>, (k, j): (usize, usize), before: &[usize], al
 /// Merge inner `inner` acts only through `before` (the outer's feeders), each read whole: every pipeline its slots reach
 /// outside `before` is quiet (markable.rs `may_act`'s walk, `before` taken as run). `Some`: those
 /// quiet pipelines, the inner's own, which run unwaited (construct C2: they hold the no-effects licence, lower.rs `make`).
-pub(crate) fn fed_first<'g>(gx: &Gx<'g, '_>, inner: usize, before: &[usize]) -> Option<PgVec<'g, usize>> {
+pub(crate) fn fed_first<'g>(
+    gx: &Gx<'g, '_>,
+    inner: usize,
+    before: &[usize],
+) -> Option<PgVec<'g, usize>> {
     let (ps, mut seen): (_, PgVec<'g, usize>) = (gx.pipelines(), PgVec::new_in(gx.mcx));
-    let mut todo: PgVec<'_, usize> = gx.run_arms(inner).into_iter().chain([inner]).collect_in(gx.mcx); // (D2026: every arm)
+    let mut todo: PgVec<'_, usize> = gx
+        .run_arms(inner)
+        .into_iter()
+        .chain([inner])
+        .collect_in(gx.mcx); // (D2026: every arm)
     while let Some(k) = todo.pop() {
         if seen.contains(&k) || before.contains(&k) && k != inner {
             continue;
         }
         seen.push_in(k);
         let mut feeds = PgVec::new_in(gx.mcx);
-        if !pipe_quiet(gx, &ps[k], usize::MAX, &mut feeds) || crate::effects::visible::merge::user_sort(gx, &ps[k]) {
+        if !pipe_quiet(gx, &ps[k], usize::MAX, &mut feeds)
+            || crate::effects::visible::merge::user_sort(gx, &ps[k])
+        {
             return None;
         }
-        todo.extend_in(feeds.into_iter().flat_map(|s| crate::ops::mergejoin::lazy_outer::fillers(gx, k, s)).chain(crate::ops::mergejoin::lazy_outer::settled(gx, k)));
+        todo.extend_in(
+            feeds
+                .into_iter()
+                .flat_map(|s| crate::ops::mergejoin::lazy_outer::fillers(gx, k, s))
+                .chain(crate::ops::mergejoin::lazy_outer::settled(gx, k)),
+        );
     }
-    let fed = before.iter().all(|&x| whole(&ps[x]) || union_whole(&ps[x])) && !interleaves(gx, before);
+    let fed =
+        before.iter().all(|&x| whole(&ps[x]) || union_whole(&ps[x])) && !interleaves(gx, before);
     fed.then_some(seen)
 }
 
@@ -84,11 +126,17 @@ pub(crate) fn fed_first<'g>(gx: &Gx<'g, '_>, inner: usize, before: &[usize]) -> 
 fn interleaves(gx: &Gx<'_, '_>, before: &[usize]) -> bool {
     let ps = gx.pipelines();
     let acts_n = |n: Node<'_>| crate::effects::user_or_volatile(gx, n);
-    let acts = |k: usize| ps[k].ops.iter().any(|op| match op {
-        Op::Filter(n) | Op::Gate(n) => n.as_list().map_or_else(|| acts_n(*n), |l| l.iter().any(acts_n)),
-        Op::Project(l) => l.iter().any(acts_n),
-        _ => false,
-    });
+    let acts = |k: usize| {
+        ps[k].ops.iter().any(|op| match op {
+            Op::Filter(n) | Op::Gate(n) => n
+                .as_list()
+                .map_or_else(|| acts_n(*n), |l| l.iter().any(acts_n)),
+            Op::Project(l) => l.iter().any(acts_n),
+            _ => false,
+        })
+    };
     let quiet = |k: usize| pipe_quiet(gx, &ps[k], usize::MAX, &mut PgVec::new_in(gx.mcx));
-    before.iter().any(|&a| acts(a) && before.iter().any(|&b| b != a && !quiet(b)))
+    before
+        .iter()
+        .any(|&a| acts(a) && before.iter().any(|&b| b != a && !quiet(b)))
 }

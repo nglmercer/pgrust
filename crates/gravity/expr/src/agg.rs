@@ -16,11 +16,11 @@ use types_nodes::primnodes::Aggref;
 
 use crate::catalog::Catalog;
 use crate::emit::vec::{VecAcc, VecEmit, VecFinal, VecLowered};
-use gravity_ir::builder::FunctionBuilder;
 use crate::nodes::array::{elem_facts_of, facts_of_elem, with_scratch, ElemFacts};
 use crate::nodes::Kind;
 use crate::views::{copy_into, datum_of, image_view, no_space, payload_view};
 use crate::{CompileError, CompileResult};
+use gravity_ir::builder::FunctionBuilder;
 
 const INT8OID: Oid = 20;
 const FLOAT4OID: Oid = 700;
@@ -105,7 +105,11 @@ pub enum VecAgg {
 
 /// A bound call: a shim (arguments widened or viewed per `convs`) or the function manager.
 pub enum Callee {
-    Shim { shim: &'static Shim, convs: [(ArgKind, i16); 4], byref: bool },
+    Shim {
+        shim: &'static Shim,
+        convs: [(ArgKind, i16); 4],
+        byref: bool,
+    },
     Fmgr(FmgrCall),
 }
 
@@ -157,7 +161,11 @@ pub struct AggState {
 }
 
 impl AggState {
-    pub const EMPTY: AggState = AggState { value: NullableDatum::null(), count: 0, hi: 0 };
+    pub const EMPTY: AggState = AggState {
+        value: NullableDatum::null(),
+        count: 0,
+        hi: 0,
+    };
 }
 
 /// `avg(float)`'s state as PG's float8[3] {N, Sx, Sxx}: `count`, `value`, the bits of `hi` (all zero while empty).
@@ -165,7 +173,11 @@ fn f64_accum(st: &AggState) -> [f64; 3] {
     if st.count == 0 {
         return [0.0; 3];
     }
-    [st.count as f64, st.value.value.as_f64(), f64::from_bits(st.hi as u64)]
+    [
+        st.count as f64,
+        st.value.value.as_f64(),
+        f64::from_bits(st.hi as u64),
+    ]
 }
 
 fn set_f64_accum(st: &mut AggState, n: i64, sx: f64, sxx: f64) {
@@ -186,13 +198,37 @@ impl Agg {
     /// that folds every aggregate itself (the Builder's `folded`, lowerv4) runs only these (M6-FOLD R2).
     pub fn cell_gate(a: &Aggref<'_>, aggorder: bool) -> CompileResult<()> {
         if a.aggkind != AGGKIND_NORMAL || !a.aggdirectargs.is_nil() {
-            return Err(refuse(a.aggfnoid, "ordered-set / hypothetical-set aggregate"));
+            return Err(refuse(
+                a.aggfnoid,
+                "ordered-set / hypothetical-set aggregate",
+            ));
         }
-        let arg0 = if a.aggargtypes.len() > 0 { a.aggargtypes.nth(0) } else { 0 };
+        let arg0 = if a.aggargtypes.len() > 0 {
+            a.aggargtypes.nth(0)
+        } else {
+            0
+        };
         let native = native_form(a.aggfnoid, arg0);
         // `count / sum / avg / min / max(DISTINCT x)` are the pair record's cells (lower.md §6.12, M5 §4.5): bound like any cell, never folded at tier 0 (`no_distinct_fold`)
-        if (!aggorder && !a.aggorder.is_nil()) || (!a.aggdistinct.is_nil() && !matches!(native, Some((Transition::CountAny | Transition::SumInt | Transition::SumInt128 | Transition::AvgInt | Transition::MinMax, _, _)))) {
-            return Err(refuse(a.aggfnoid, "ORDER BY / DISTINCT inside the aggregate"));
+        if (!aggorder && !a.aggorder.is_nil())
+            || (!a.aggdistinct.is_nil()
+                && !matches!(
+                    native,
+                    Some((
+                        Transition::CountAny
+                            | Transition::SumInt
+                            | Transition::SumInt128
+                            | Transition::AvgInt
+                            | Transition::MinMax,
+                        _,
+                        _
+                    ))
+                ))
+        {
+            return Err(refuse(
+                a.aggfnoid,
+                "ORDER BY / DISTINCT inside the aggregate",
+            ));
         }
         Ok(())
     }
@@ -209,14 +245,21 @@ impl Agg {
             return Self::cell_gate(a, aggorder);
         }
         if a.aggkind != AGGKIND_NORMAL || !a.aggdirectargs.is_nil() {
-            return Err(refuse(a.aggfnoid, "ordered-set / hypothetical-set aggregate"));
+            return Err(refuse(
+                a.aggfnoid,
+                "ordered-set / hypothetical-set aggregate",
+            ));
         }
         Ok(())
     }
 
     /// `compile`, with `aggorder` lifting the ORDER BY gate (lowerv4 M3 decision 15, D346: the v4 Builder flag, off until
     /// every keyed end checks `mods.order`; the lowerer folds an ordered aggregate itself, `runs.group`).
-    pub fn compile_with<'mcx>(a: &Aggref<'mcx>, catalog: &dyn Catalog<'mcx>, aggorder: bool) -> CompileResult<AggPlan> {
+    pub fn compile_with<'mcx>(
+        a: &Aggref<'mcx>,
+        catalog: &dyn Catalog<'mcx>,
+        aggorder: bool,
+    ) -> CompileResult<AggPlan> {
         Self::cell_gate(a, aggorder)?;
         let distinct = !a.aggdistinct.is_nil();
         let nargs = a.aggargtypes.len();
@@ -250,7 +293,8 @@ impl Agg {
         };
         match transition {
             Transition::MinMax | Transition::Generic => {
-                let shape = syscache_seams::lookup_pg_aggregate_shape::call(a.aggfnoid)?.ok_or_else(|| refuse(a.aggfnoid, "no pg_aggregate row"))?;
+                let shape = syscache_seams::lookup_pg_aggregate_shape::call(a.aggfnoid)?
+                    .ok_or_else(|| refuse(a.aggfnoid, "no pg_aggregate row"))?;
                 let tf = catalog.type_facts(shape.aggtranstype)?;
                 plan.state_type = shape.aggtranstype;
                 plan.state_word = crate::nodes::func::word_type(catalog, plan.state_type);
@@ -265,21 +309,41 @@ impl Agg {
                     if shape.aggfinalextra || shape.aggmtransfn != 0 && shape.aggtransfn == 0 {
                         return Err(refuse(a.aggfnoid, "a final function with extra arguments"));
                     }
-                    if matches!(catalog.tier(shape.aggtransfn), gravity_fn::Tier::C) && context_bound(shape.aggtransfn) {
-                        return Err(refuse(a.aggfnoid, "a transition function that reads the aggregate context"));
+                    if matches!(catalog.tier(shape.aggtransfn), gravity_fn::Tier::C)
+                        && context_bound(shape.aggtransfn)
+                    {
+                        return Err(refuse(
+                            a.aggfnoid,
+                            "a transition function that reads the aggregate context",
+                        ));
                     }
                 }
                 let mut types = [plan.state_type; 4];
                 for i in 0..nargs.min(3) {
                     types[i + 1] = a.aggargtypes.nth(i);
                 }
-                plan.transfn = Some(bind(catalog, shape.aggtransfn, &types[..nargs + 1], a.inputcollid)?);
+                plan.transfn = Some(bind(
+                    catalog,
+                    shape.aggtransfn,
+                    &types[..nargs + 1],
+                    a.inputcollid,
+                )?);
                 if shape.aggcombinefn != 0 {
-                    plan.combinefn = Some(bind(catalog, shape.aggcombinefn, &[plan.state_type, plan.state_type], a.inputcollid)?);
+                    plan.combinefn = Some(bind(
+                        catalog,
+                        shape.aggcombinefn,
+                        &[plan.state_type, plan.state_type],
+                        a.inputcollid,
+                    )?);
                 }
                 if shape.aggfinalfn != 0 {
                     plan.final_ = Final::Call;
-                    plan.finalfn = Some(bind(catalog, shape.aggfinalfn, &[plan.state_type], a.inputcollid)?);
+                    plan.finalfn = Some(bind(
+                        catalog,
+                        shape.aggfinalfn,
+                        &[plan.state_type],
+                        a.inputcollid,
+                    )?);
                 }
                 if transition == Transition::Generic {
                     plan.load_initval(catalog)?;
@@ -322,18 +386,32 @@ pub fn native_form(aggfnoid: Oid, arg0: Oid) -> Option<(Transition, Final, Oid)>
 }
 
 fn name_of(aggfnoid: Oid) -> &'static str {
-    fmgr_core::CANONICAL.binary_search_by_key(&aggfnoid, |r| r.0).map(|i| fmgr_core::CANONICAL[i].1).unwrap_or("aggregate")
+    fmgr_core::CANONICAL
+        .binary_search_by_key(&aggfnoid, |r| r.0)
+        .map(|i| fmgr_core::CANONICAL[i].1)
+        .unwrap_or("aggregate")
 }
 
 /// A tier-C transition function that needs the aggregate's memory context (`fcinfo->context`).
 fn context_bound(funcid: Oid) -> bool {
-    gravity_fn::row_of(funcid).is_some_and(|r| r.reason.starts_with("context: fcinfo->context") || r.reason.starts_with("handler/internal"))
+    gravity_fn::row_of(funcid).is_some_and(|r| {
+        r.reason.starts_with("context: fcinfo->context") || r.reason.starts_with("handler/internal")
+    })
 }
 
-fn bind<'mcx>(catalog: &dyn Catalog<'mcx>, funcid: Oid, types: &[Oid], collation: Oid) -> CompileResult<Callee> {
+fn bind<'mcx>(
+    catalog: &dyn Catalog<'mcx>,
+    funcid: Oid,
+    types: &[Oid],
+    collation: Oid,
+) -> CompileResult<Callee> {
     let facts = catalog.func(funcid)?;
     if let Some(shim) = catalog.shim(funcid) {
-        if shim.nargs as usize == types.len() && shim.tyargs.is_empty() && facts.strict && types.len() <= 4 {
+        if shim.nargs as usize == types.len()
+            && shim.tyargs.is_empty()
+            && facts.strict
+            && types.len() <= 4
+        {
             let mut convs = [(ArgKind::V, 0i16); 4];
             for (i, &t) in types.iter().enumerate() {
                 let kind = shim.args[i];
@@ -343,21 +421,41 @@ fn bind<'mcx>(catalog: &dyn Catalog<'mcx>, funcid: Oid, types: &[Oid], collation
                 };
                 convs[i] = (kind, typlen);
             }
-            return Ok(Callee::Shim { shim, convs, byref: shim.region });
+            return Ok(Callee::Shim {
+                shim,
+                convs,
+                byref: shim.region,
+            });
         }
     }
-    Ok(Callee::Fmgr(FmgrCall::bind(funcid, types.len(), collation)?))
+    Ok(Callee::Fmgr(FmgrCall::bind(
+        funcid,
+        types.len(),
+        collation,
+    )?))
 }
 
 impl AggPlan {
     fn load_initval<'mcx>(&mut self, catalog: &dyn Catalog<'mcx>) -> CompileResult<()> {
         let cx = gravity_fn::session::root_context("gravity_expr agginitval"); // alloc: Program
-        let Some(Some(text)) = syscache_seams::pg_aggregate_agginitval::call(cx.mcx(), self.aggfnoid)? else { return Ok(()) };
+        let Some(Some(text)) =
+            syscache_seams::pg_aggregate_agginitval::call(cx.mcx(), self.aggfnoid)?
+        else {
+            return Ok(());
+        };
         let io = catalog.io(self.state_type)?;
         let mut call = FmgrCall::bind(io.input, 3, 0)?;
         let mut cstr = text.as_str().as_bytes().to_vec(); // alloc: Program
         cstr.push(0);
-        let v = call.call(cx.mcx(), &[Datum::from_usize(cstr.as_ptr() as usize), Datum::from_u32(io.ioparam), Datum::from_i32(-1)], &[false, false, false])?;
+        let v = call.call(
+            cx.mcx(),
+            &[
+                Datum::from_usize(cstr.as_ptr() as usize),
+                Datum::from_u32(io.ioparam),
+                Datum::from_i32(-1),
+            ],
+            &[false, false, false],
+        )?;
         if v.isnull || self.state_byval {
             self.init = v;
             return Ok(());
@@ -395,7 +493,12 @@ impl AggPlan {
         self.vec_agg()?.state_type(e, rows_bound)
     }
 
-    pub fn vec_transition(&self, b: &mut FunctionBuilder<'_>, acc: VecAcc, chunk: &VecLowered) -> Option<VecAcc> {
+    pub fn vec_transition(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        acc: VecAcc,
+        chunk: &VecLowered,
+    ) -> Option<VecAcc> {
         Some(self.vec_agg()?.transition(b, acc, chunk))
     }
 
@@ -407,8 +510,16 @@ impl AggPlan {
     #[inline]
     pub fn init(&self) -> AggState {
         match self.transition {
-            Transition::CountStar | Transition::CountAny => AggState { value: NullableDatum::value(Datum::from_i64(0)), count: 0, hi: 0 },
-            Transition::Generic => AggState { value: self.init, count: 0, hi: 0 },
+            Transition::CountStar | Transition::CountAny => AggState {
+                value: NullableDatum::value(Datum::from_i64(0)),
+                count: 0,
+                hi: 0,
+            },
+            Transition::Generic => AggState {
+                value: self.init,
+                count: 0,
+                hi: 0,
+            },
             _ => AggState::EMPTY,
         }
     }
@@ -416,7 +527,13 @@ impl AggPlan {
     /// One row into the state: `args` / `nulls` are the aggregate's arguments in order; a strict
     /// aggregate skips a row with a null argument (the caller may also skip it, this is the check).
     #[inline]
-    pub fn transition(&mut self, st: &mut AggState, args: &[Datum], nulls: &[bool], region: &mut Region) -> PgResult<()> {
+    pub fn transition(
+        &mut self,
+        st: &mut AggState,
+        args: &[Datum],
+        nulls: &[bool],
+        region: &mut Region,
+    ) -> PgResult<()> {
         if self.distinct {
             return Err(no_distinct_fold());
         }
@@ -432,8 +549,16 @@ impl AggPlan {
             }
             Transition::SumInt => {
                 if !nulls[0] {
-                    let x = if gravity_fn::typesem::expr::agg_int2_arg(self.aggfnoid) { args[0].as_i16() as i64 } else { args[0].as_i32() as i64 };
-                    st.value = NullableDatum::value(Datum::from_i64(if st.value.isnull { x } else { st.value.value.as_i64() + x }));
+                    let x = if gravity_fn::typesem::expr::agg_int2_arg(self.aggfnoid) {
+                        args[0].as_i16() as i64
+                    } else {
+                        args[0].as_i32() as i64
+                    };
+                    st.value = NullableDatum::value(Datum::from_i64(if st.value.isnull {
+                        x
+                    } else {
+                        st.value.value.as_i64() + x
+                    }));
                 }
             }
             Transition::SumInt128 => {
@@ -447,29 +572,48 @@ impl AggPlan {
             Transition::SumF32 => {
                 if !nulls[0] {
                     let x = args[0].as_f32();
-                    let s = if st.value.isnull { x } else { adt_float::float4_pl(st.value.value.as_f32(), x)? };
+                    let s = if st.value.isnull {
+                        x
+                    } else {
+                        adt_float::float4_pl(st.value.value.as_f32(), x)?
+                    };
                     st.value = NullableDatum::value(Datum::from_f32(s));
                 }
             }
             Transition::SumF64 => {
                 if !nulls[0] {
                     let x = args[0].as_f64();
-                    let s = if st.value.isnull { x } else { adt_float::float8_pl(st.value.value.as_f64(), x)? };
+                    let s = if st.value.isnull {
+                        x
+                    } else {
+                        adt_float::float8_pl(st.value.value.as_f64(), x)?
+                    };
                     st.value = NullableDatum::value(Datum::from_f64(s));
                 }
             }
             Transition::AvgInt => {
                 if !nulls[0] {
-                    let x = if gravity_fn::typesem::expr::agg_int2_arg(self.aggfnoid) { args[0].as_i16() as i64 } else { args[0].as_i32() as i64 };
+                    let x = if gravity_fn::typesem::expr::agg_int2_arg(self.aggfnoid) {
+                        args[0].as_i16() as i64
+                    } else {
+                        args[0].as_i32() as i64
+                    };
                     st.value = NullableDatum::value(Datum::from_i64(st.value.value.as_i64() + x));
                     st.count += 1;
                 }
             }
             Transition::AvgF64 => {
                 if !nulls[0] {
-                    let x = if gravity_fn::typesem::expr::agg_float4_arg(self.aggfnoid) { args[0].as_f32() as f64 } else { args[0].as_f64() };
+                    let x = if gravity_fn::typesem::expr::agg_float4_arg(self.aggfnoid) {
+                        args[0].as_f32() as f64
+                    } else {
+                        args[0].as_f64()
+                    };
                     // float8_accum's {N, Sx, Sxx} (D244): Sxx rides in `hi`, its overflow raised as PG raises it
-                    let ([_, sx, sxx], n) = (adt_float::aggregates::float8_accum(f64_accum(st), x)?, st.count + 1);
+                    let ([_, sx, sxx], n) = (
+                        adt_float::aggregates::float8_accum(f64_accum(st), x)?,
+                        st.count + 1,
+                    );
                     set_f64_accum(st, n, sx, sxx);
                 }
             }
@@ -480,7 +624,16 @@ impl AggPlan {
                         st.value = NullableDatum::value(copy_into(region, args[0], -1)?);
                     } else {
                         let s = payload_view(st.value.value, -1, region)?;
-                        st.value = NullableDatum::value(shim_call(gravity_fn::shim_of(1724).expect("numeric_add is a shim"), region, 0, &[Arg::R(s), Arg::R(x)], true)?.value);
+                        st.value = NullableDatum::value(
+                            shim_call(
+                                gravity_fn::shim_of(1724).expect("numeric_add is a shim"),
+                                region,
+                                0,
+                                &[Arg::R(s), Arg::R(x)],
+                                true,
+                            )?
+                            .value,
+                        );
                     }
                     st.count += 1;
                 }
@@ -498,7 +651,13 @@ impl AggPlan {
             Transition::BoolAnd | Transition::BoolOr => {
                 if !nulls[0] {
                     let x = args[0].as_bool();
-                    let s = if st.value.isnull { x } else if self.transition == Transition::BoolAnd { st.value.value.as_bool() && x } else { st.value.value.as_bool() || x };
+                    let s = if st.value.isnull {
+                        x
+                    } else if self.transition == Transition::BoolAnd {
+                        st.value.value.as_bool() && x
+                    } else {
+                        st.value.value.as_bool() || x
+                    };
                     st.value = NullableDatum::value(Datum::from_bool(s));
                 }
             }
@@ -516,10 +675,19 @@ impl AggPlan {
             }
             Transition::ArrayAgg => {
                 let elem = self.elem.expect("array_agg carries its element facts");
-                let kept = if nulls[0] { Datum::null() } else { keep_of(args[0], elem.len, elem.byval, region)? };
-                let cell = NullableDatum { value: kept, isnull: nulls[0] };
+                let kept = if nulls[0] {
+                    Datum::null()
+                } else {
+                    keep_of(args[0], elem.len, elem.byval, region)?
+                };
+                let cell = NullableDatum {
+                    value: kept,
+                    isnull: nulls[0],
+                };
                 // SAFETY: `NullableDatum` is plain data of 16 bytes.
-                buf_append(st, region, unsafe { core::slice::from_raw_parts((&cell as *const NullableDatum).cast::<u8>(), 16) })?;
+                buf_append(st, region, unsafe {
+                    core::slice::from_raw_parts((&cell as *const NullableDatum).cast::<u8>(), 16)
+                })?;
                 st.value.isnull = false;
             }
             Transition::Generic => {
@@ -531,50 +699,91 @@ impl AggPlan {
                     return Ok(());
                 }
                 let r = self.call_transfn(st.value.value, args, region)?;
-                st.value = if r.isnull { r } else { NullableDatum::value(self.keep(r.value, region)?) };
+                st.value = if r.isnull {
+                    r
+                } else {
+                    NullableDatum::value(self.keep(r.value, region)?)
+                };
             }
         }
         Ok(())
     }
 
     /// `st = st + other` (the combine form): the same word-wise forms over two states.
-    pub fn combine(&mut self, st: &mut AggState, other: &AggState, region: &mut Region) -> PgResult<()> {
+    pub fn combine(
+        &mut self,
+        st: &mut AggState,
+        other: &AggState,
+        region: &mut Region,
+    ) -> PgResult<()> {
         if self.distinct {
             return Err(no_distinct_fold());
         }
         match self.transition {
-            Transition::CountStar | Transition::CountAny => st.value.value = Datum::from_i64(st.value.value.as_i64() + other.value.value.as_i64()),
+            Transition::CountStar | Transition::CountAny => {
+                st.value.value =
+                    Datum::from_i64(st.value.value.as_i64() + other.value.value.as_i64())
+            }
             Transition::SumInt => {
                 if !other.value.isnull {
-                    let s = if st.value.isnull { other.value.value.as_i64() } else { shim_call(gravity_fn::shim_of(463).expect("int8pl is a shim"), region, 0, &[Arg::V(st.value.value.as_i64()), Arg::V(other.value.value.as_i64())], false)?.value.as_i64() };
+                    let s = if st.value.isnull {
+                        other.value.value.as_i64()
+                    } else {
+                        shim_call(
+                            gravity_fn::shim_of(463).expect("int8pl is a shim"),
+                            region,
+                            0,
+                            &[
+                                Arg::V(st.value.value.as_i64()),
+                                Arg::V(other.value.value.as_i64()),
+                            ],
+                            false,
+                        )?
+                        .value
+                        .as_i64()
+                    };
                     st.value = NullableDatum::value(Datum::from_i64(s));
                 }
             }
             Transition::SumInt128 => {
-                let s = i128_of(st.value.value.as_i64(), st.hi) + i128_of(other.value.value.as_i64(), other.hi);
+                let s = i128_of(st.value.value.as_i64(), st.hi)
+                    + i128_of(other.value.value.as_i64(), other.hi);
                 st.value = NullableDatum::value(Datum::from_i64(s as i64));
                 st.hi = (s >> 64) as i64;
                 st.count += other.count;
             }
             Transition::SumF32 => {
                 if !other.value.isnull {
-                    let s = if st.value.isnull { other.value.value.as_f32() } else { adt_float::float4_pl(st.value.value.as_f32(), other.value.value.as_f32())? };
+                    let s = if st.value.isnull {
+                        other.value.value.as_f32()
+                    } else {
+                        adt_float::float4_pl(st.value.value.as_f32(), other.value.value.as_f32())?
+                    };
                     st.value = NullableDatum::value(Datum::from_f32(s));
                 }
             }
             Transition::SumF64 => {
                 if !other.value.isnull {
-                    let s = if st.value.isnull { other.value.value.as_f64() } else { adt_float::float8_pl(st.value.value.as_f64(), other.value.value.as_f64())? };
+                    let s = if st.value.isnull {
+                        other.value.value.as_f64()
+                    } else {
+                        adt_float::float8_pl(st.value.value.as_f64(), other.value.value.as_f64())?
+                    };
                     st.value = NullableDatum::value(Datum::from_f64(s));
                 }
             }
             Transition::AvgInt => {
-                st.value = NullableDatum::value(Datum::from_i64(st.value.value.as_i64() + other.value.value.as_i64()));
+                st.value = NullableDatum::value(Datum::from_i64(
+                    st.value.value.as_i64() + other.value.value.as_i64(),
+                ));
                 st.count += other.count;
             }
             Transition::AvgF64 => {
                 if other.count > 0 {
-                    let ([_, sx, sxx], n) = (adt_float::aggregates::float8_combine(f64_accum(st), f64_accum(other))?, st.count + other.count);
+                    let ([_, sx, sxx], n) = (
+                        adt_float::aggregates::float8_combine(f64_accum(st), f64_accum(other))?,
+                        st.count + other.count,
+                    );
                     set_f64_accum(st, n, sx, sxx);
                 }
             }
@@ -599,15 +808,32 @@ impl AggPlan {
                     return Ok(());
                 }
                 let r = match self.combinefn.as_mut() {
-                    Some(c) => call(c, self.state_word, &[st.value.value, other.value.value], &[false, false], self.collation, region)?,
+                    Some(c) => call(
+                        c,
+                        self.state_word,
+                        &[st.value.value, other.value.value],
+                        &[false, false],
+                        self.collation,
+                        region,
+                    )?,
                     None => self.call_transfn(st.value.value, &[other.value.value], region)?,
                 };
-                st.value = if r.isnull { r } else { NullableDatum::value(self.keep(r.value, region)?) };
+                st.value = if r.isnull {
+                    r
+                } else {
+                    NullableDatum::value(self.keep(r.value, region)?)
+                };
             }
             Transition::BoolAnd | Transition::BoolOr => {
                 if !other.value.isnull {
                     let x = other.value.value.as_bool();
-                    let s = if st.value.isnull { x } else if self.transition == Transition::BoolAnd { st.value.value.as_bool() && x } else { st.value.value.as_bool() || x };
+                    let s = if st.value.isnull {
+                        x
+                    } else if self.transition == Transition::BoolAnd {
+                        st.value.value.as_bool() && x
+                    } else {
+                        st.value.value.as_bool() || x
+                    };
                     st.value = NullableDatum::value(Datum::from_bool(s));
                 }
             }
@@ -626,8 +852,12 @@ impl AggPlan {
         let mut e = ErrSlot::NONE;
         let r = match self.final_ {
             Final::Identity => return Ok(st.value),
-            Final::Int128Sum => agg_final::int8_sum(&mut e, region, st.value.value.as_i64(), st.hi, st.count),
-            Final::Int128Avg => agg_final::int8_avg(&mut e, region, st.value.value.as_i64(), st.hi, st.count),
+            Final::Int128Sum => {
+                agg_final::int8_sum(&mut e, region, st.value.value.as_i64(), st.hi, st.count)
+            }
+            Final::Int128Avg => {
+                agg_final::int8_avg(&mut e, region, st.value.value.as_i64(), st.hi, st.count)
+            }
             Final::IntAvg => agg_final::int_avg(&mut e, region, st.value.value.as_i64(), st.count),
             Final::F64Avg => agg_final::float8_avg(&mut e, st.count, st.value.value.as_f64()),
             Final::NumericAvg => {
@@ -636,7 +866,13 @@ impl AggPlan {
                 }
                 let n = adt_numeric::int64_to_numeric(st.count);
                 let s = payload_view(st.value.value, -1, region)?;
-                return shim_call(gravity_fn::shim_of(1727).expect("numeric_div is a shim"), region, 0, &[Arg::R(s), Arg::R(gravity_fn::View::of(&n.as_bytes()[4..]))], true);
+                return shim_call(
+                    gravity_fn::shim_of(1727).expect("numeric_div is a shim"),
+                    region,
+                    0,
+                    &[Arg::R(s), Arg::R(gravity_fn::View::of(&n.as_bytes()[4..]))],
+                    true,
+                );
             }
             Final::Text => {
                 if st.value.isnull {
@@ -653,7 +889,9 @@ impl AggPlan {
                 let cells = buf_bytes(st);
                 let n = cells.len() / 16;
                 // SAFETY: the buffer holds `n` `NullableDatum` cells written by `transition`.
-                let cells = unsafe { core::slice::from_raw_parts(cells.as_ptr().cast::<NullableDatum>(), n) };
+                let cells = unsafe {
+                    core::slice::from_raw_parts(cells.as_ptr().cast::<NullableDatum>(), n)
+                };
                 return with_scratch(|mcx| {
                     let mut values = mcx::vec_with_capacity_in(mcx, n)?;
                     let mut nulls = mcx::vec_with_capacity_in(mcx, n)?;
@@ -661,12 +899,26 @@ impl AggPlan {
                         values.push(c.value);
                         nulls.push(c.isnull);
                     }
-                    let img = arrayfuncs::construct_md_array(mcx, &values, Some(&nulls), 1, &[n as i32], &[1], elem.typ, elem.len as i32, elem.byval, elem.align as u8)?;
+                    let img = arrayfuncs::construct_md_array(
+                        mcx,
+                        &values,
+                        Some(&nulls),
+                        1,
+                        &[n as i32],
+                        &[1],
+                        elem.typ,
+                        elem.len as i32,
+                        elem.byval,
+                        elem.align as u8,
+                    )?;
                     copy_into(region, datum_of(img.as_ptr()), -1).map(NullableDatum::value)
                 });
             }
             Final::Call => {
-                let c = self.finalfn.as_mut().expect("Final::Call binds its function");
+                let c = self
+                    .finalfn
+                    .as_mut()
+                    .expect("Final::Call binds its function");
                 let strict = match c {
                     Callee::Fmgr(f) => f.strict(),
                     Callee::Shim { .. } => true,
@@ -674,18 +926,47 @@ impl AggPlan {
                 if st.value.isnull && strict {
                     return Ok(NullableDatum::null());
                 }
-                return call(c, self.result_word, &[st.value.value], &[st.value.isnull], self.collation, region);
+                return call(
+                    c,
+                    self.result_word,
+                    &[st.value.value],
+                    &[st.value.isnull],
+                    self.collation,
+                    region,
+                );
             }
         };
-        ret(r, &mut e, matches!(self.final_, Final::Int128Sum | Final::Int128Avg | Final::IntAvg))
+        ret(
+            r,
+            &mut e,
+            matches!(
+                self.final_,
+                Final::Int128Sum | Final::Int128Avg | Final::IntAvg
+            ),
+        )
     }
 
-    fn call_transfn(&mut self, state: Datum, args: &[Datum], region: &mut Region) -> PgResult<NullableDatum> {
+    fn call_transfn(
+        &mut self,
+        state: Datum,
+        args: &[Datum],
+        region: &mut Region,
+    ) -> PgResult<NullableDatum> {
         let mut a = [Datum::null(); 4];
         a[0] = state;
         a[1..1 + args.len()].copy_from_slice(args);
-        let c = self.transfn.as_mut().expect("MinMax / Generic bind their transition function");
-        call(c, self.state_word, &a[..1 + args.len()], &[false; 4][..1 + args.len()], self.collation, region)
+        let c = self
+            .transfn
+            .as_mut()
+            .expect("MinMax / Generic bind their transition function");
+        call(
+            c,
+            self.state_word,
+            &a[..1 + args.len()],
+            &[false; 4][..1 + args.len()],
+            self.collation,
+            region,
+        )
     }
 
     /// A state value made durable in the region (a by-value word as is; an image copied).
@@ -695,7 +976,14 @@ impl AggPlan {
     }
 
     pub fn reset_window(&mut self) {
-        for c in [self.transfn.as_mut(), self.combinefn.as_mut(), self.finalfn.as_mut()].into_iter().flatten() {
+        for c in [
+            self.transfn.as_mut(),
+            self.combinefn.as_mut(),
+            self.finalfn.as_mut(),
+        ]
+        .into_iter()
+        .flatten()
+        {
             if let Callee::Fmgr(f) = c {
                 f.reset_window();
             }
@@ -722,14 +1010,24 @@ fn i128_of(lo: i64, hi: i64) -> i128 {
 
 fn ret(r: gravity_fn::Ret, e: &mut ErrSlot, byref: bool) -> PgResult<NullableDatum> {
     match r.status {
-        gravity_fn::OK => Ok(NullableDatum::value(if byref { Datum::from_usize(r.val as usize) } else { Datum::from_i64(r.val) })),
+        gravity_fn::OK => Ok(NullableDatum::value(if byref {
+            Datum::from_usize(r.val as usize)
+        } else {
+            Datum::from_i64(r.val)
+        })),
         gravity_fn::NULL => Ok(NullableDatum::null()),
         gravity_fn::ERROR => Err(e.take().expect("a shim's ERROR carries its error")),
         _ => Err(no_space()),
     }
 }
 
-fn shim_call(shim: &'static Shim, region: &mut Region, coll: Oid, args: &[Arg], byref: bool) -> PgResult<NullableDatum> {
+fn shim_call(
+    shim: &'static Shim,
+    region: &mut Region,
+    coll: Oid,
+    args: &[Arg],
+    byref: bool,
+) -> PgResult<NullableDatum> {
     let mut e = ErrSlot::NONE;
     let r = (shim.call)(&mut e, region, coll, &[], args);
     ret(r, &mut e, byref)
@@ -737,9 +1035,18 @@ fn shim_call(shim: &'static Shim, region: &mut Region, coll: Oid, args: &[Arg], 
 
 /// `rettype` is the callee's result type: a function-manager word for an int2 / int4 result is sign-extended (D2337, as
 /// nodes/func.rs `invoke` does for a scalar call, D2311); a shim encodes its own word.
-fn call(c: &mut Callee, rettype: Oid, args: &[Datum], nulls: &[bool], coll: Oid, region: &mut Region) -> PgResult<NullableDatum> {
+fn call(
+    c: &mut Callee,
+    rettype: Oid,
+    args: &[Datum],
+    nulls: &[bool],
+    coll: Oid,
+    region: &mut Region,
+) -> PgResult<NullableDatum> {
     match c {
-        Callee::Fmgr(f) => f.call_site(args, nulls).map(|v| crate::nodes::func::int_result(rettype, v)),
+        Callee::Fmgr(f) => f
+            .call_site(args, nulls)
+            .map(|v| crate::nodes::func::int_result(rettype, v)),
         Callee::Shim { shim, convs, byref } => {
             let mut a = [Arg::V(0); 4];
             for i in 0..args.len() {
@@ -761,7 +1068,11 @@ fn buf_append(st: &mut AggState, region: &mut Region, bytes: &[u8]) -> PgResult<
     let len = st.count as usize;
     let cap = st.hi as usize;
     let need = len + bytes.len();
-    let base = if st.value.isnull && cap == 0 { core::ptr::null_mut() } else { st.value.value.as_usize() as *mut u8 };
+    let base = if st.value.isnull && cap == 0 {
+        core::ptr::null_mut()
+    } else {
+        st.value.value.as_usize() as *mut u8
+    };
     let base = if need <= cap {
         base
     } else {
@@ -769,7 +1080,11 @@ fn buf_append(st: &mut AggState, region: &mut Region, bytes: &[u8]) -> PgResult<
         // SAFETY: `base + cap` is the end of this buffer's reservation; when it is the region's
         // cursor the buffer extends in place.
         // D641: in place only when the reservation is the adjacent bytes (a spilled region moved elsewhere: copy)
-        let at = if !base.is_null() && unsafe { base.add(cap) } == gravity_abi::unword(region.cur) { Some(region.reserve(newcap - cap).ok_or_else(no_space)?) } else { None };
+        let at = if !base.is_null() && unsafe { base.add(cap) } == gravity_abi::unword(region.cur) {
+            Some(region.reserve(newcap - cap).ok_or_else(no_space)?)
+        } else {
+            None
+        };
         if at.is_some_and(|p| p == unsafe { base.add(cap) }) {
             base
         } else {
@@ -779,7 +1094,11 @@ fn buf_append(st: &mut AggState, region: &mut Region, bytes: &[u8]) -> PgResult<
             p
         }
     };
-    let cap = if need <= cap { cap } else { need.next_power_of_two().max(64) };
+    let cap = if need <= cap {
+        cap
+    } else {
+        need.next_power_of_two().max(64)
+    };
     // SAFETY: `need <= cap` bytes are reserved at `base`.
     unsafe { core::ptr::copy_nonoverlapping(bytes.as_ptr(), base.add(len), bytes.len()) };
     st.value.value = Datum::from_usize(base as usize);
@@ -793,15 +1112,29 @@ fn buf_bytes(st: &AggState) -> &'static [u8] {
         return &[];
     }
     // SAFETY: `count` bytes live at the buffer's address for the caller's window.
-    unsafe { core::slice::from_raw_parts(st.value.value.as_usize() as *const u8, st.count as usize) }
+    unsafe {
+        core::slice::from_raw_parts(st.value.value.as_usize() as *const u8, st.count as usize)
+    }
 }
 
 #[cold]
 #[inline(never)]
 fn no_distinct_fold() -> Box<PgError> {
-    Box::new(PgError::error("gravity_expr: count(DISTINCT x) has no tier-0 fold (the pair record, lower.md §6.12)".to_owned()).with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED)) // alloc: Cold
+    Box::new(
+        PgError::error(
+            "gravity_expr: count(DISTINCT x) has no tier-0 fold (the pair record, lower.md §6.12)"
+                .to_owned(),
+        )
+        .with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED),
+    ) // alloc: Cold
 }
 
 fn refuse(aggfnoid: Oid, why: &str) -> CompileError {
-    CompileError::Pg(Box::new(PgError::error(format!("gravity_expr: aggregate {} ({aggfnoid}) is not supported: {why}", name_of(aggfnoid))).with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED))) // alloc: Cold
+    CompileError::Pg(Box::new(
+        PgError::error(format!(
+            "gravity_expr: aggregate {} ({aggfnoid}) is not supported: {why}",
+            name_of(aggfnoid)
+        ))
+        .with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED),
+    )) // alloc: Cold
 }

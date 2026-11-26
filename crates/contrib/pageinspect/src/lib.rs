@@ -275,7 +275,9 @@ pub(crate) fn composite_tupdesc<'m>(
     if resolved.class != funcapi::TypeFuncClass::Composite {
         return Err(Box::new(PgError::error("return type must be a row type")));
     }
-    Ok(resolved.result_tuple_desc.expect("composite result has tupdesc"))
+    Ok(resolved
+        .result_tuple_desc
+        .expect("composite result has tupdesc"))
 }
 
 pub(crate) fn wrong_column_count() -> Box<PgError> {
@@ -304,7 +306,7 @@ pub(crate) fn tuple_image(
 ) -> PgResult<Vec<u8>> {
     check_declared_width(tupdesc, values)?;
     let tup = heaptuple::heap_form_tuple(mcx, tupdesc, values, nulls)?;
-    ::mcx::std_vec_from_slice("contrib",tup.image())
+    ::mcx::std_vec_from_slice("contrib", tup.image())
 }
 
 pub(crate) fn composite_result(
@@ -344,7 +346,9 @@ pub(crate) fn cstrings_tuple_image(
     let mut datums = ::mcx::std_vec_from_elem("contrib", Datum::null(), n)?;
     let mut nulls = ::mcx::std_vec_from_elem("contrib", true, n)?;
     for (i, meta) in attin.iter_mut().enumerate() {
-        let Some((flinfo, typioparam, typmod)) = meta else { continue };
+        let Some((flinfo, typioparam, typmod)) = meta else {
+            continue;
+        };
         let s = cstring_slot(values, i);
         let cstr =
             s.map(|s| std::ffi::CString::new(s).expect("cstrings_tuple_image: interior NUL"));
@@ -603,7 +607,10 @@ mod tests {
         let raw: u32 = 0x1f40 | (LP_NORMAL << 15) | (60 << 17);
         b.0[24..28].copy_from_slice(&raw.to_ne_bytes());
         let id = ItemIdData::new(0x1f40, LP_NORMAL, 60);
-        assert_eq!((id.lp_off(), id.lp_flags(), id.lp_len()), (0x1f40, LP_NORMAL, 60));
+        assert_eq!(
+            (id.lp_off(), id.lp_flags(), id.lp_len()),
+            (0x1f40, LP_NORMAL, 60)
+        );
         b
     }
 

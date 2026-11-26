@@ -98,7 +98,10 @@ impl PlannedParam {
     /// Encode for the wire per the planned format.
     pub fn to_wire(&self) -> WireParam {
         if self.binary {
-            WireParam { bytes: Some(encode_binary_param(self.kind, &self.value)), binary: true }
+            WireParam {
+                bytes: Some(encode_binary_param(self.kind, &self.value)),
+                binary: true,
+            }
         } else {
             WireParam::text(Some(&self.value))
         }
@@ -157,15 +160,13 @@ fn encode_numeric_binary(value: &str) -> Vec<u8> {
     }
     digits_str.push_str(int_part);
     digits_str.push_str(frac_part);
-    while ! digits_str.len().is_multiple_of( 4) {
+    while !digits_str.len().is_multiple_of(4) {
         digits_str.push('0');
     }
     let mut words: Vec<u16> = digits_str
         .as_bytes()
         .chunks(4)
-        .map(|c| {
-            c.iter().fold(0u16, |acc, b| acc * 10 + u16::from(b - b'0'))
-        })
+        .map(|c| c.iter().fold(0u16, |acc, b| acc * 10 + u16::from(b - b'0')))
         .collect();
     // weight: base-10000 exponent of the first word.
     let mut weight = ((int_part.len() + int_pad) / 4) as i16 - 1;
@@ -268,7 +269,9 @@ const WHERE_STOPS: &[&str] = &[
 /// liftable too — it is still a qual, with none of the ordinal/grouping/
 /// untypable hazards.
 fn liftable_region(sql: &str) -> (usize, usize) {
-    let Some(w) = sql.find(" WHERE ") else { return (0, 0) };
+    let Some(w) = sql.find(" WHERE ") else {
+        return (0, 0);
+    };
     let start = w + " WHERE ".len();
     let end = WHERE_STOPS
         .iter()
@@ -313,16 +316,17 @@ fn match_cast_string(b: &[u8], sql: &str, i: usize) -> Option<(usize, String, Pa
         j += ch_len;
     }
     // After the closing quote: `)::text` or `)::varchar`.
-    for (suffix, kind) in [(")::text", ParamKind::Text), (")::varchar", ParamKind::Varchar)] {
+    for (suffix, kind) in [
+        (")::text", ParamKind::Text),
+        (")::varchar", ParamKind::Varchar),
+    ] {
         if sql[j..].starts_with(suffix) {
             let end = j + suffix.len();
             // The cast must not continue: a longer identifier, an array
             // cast (`::text[]` — the value is an array literal, and a
             // binary-format "text" param would hit array_recv as
             // insufficient-data 08P01), or a chained cast (`::text::x`).
-            if end >= b.len()
-                || !(is_ident_char(b[end]) || b[end] == b'[' || b[end] == b':')
-            {
+            if end >= b.len() || !(is_ident_char(b[end]) || b[end] == b'[' || b[end] == b':') {
                 return Some((end, body, kind));
             }
         }
@@ -448,11 +452,7 @@ fn candidates(sql: &str) -> Vec<Candidate> {
 /// Lift up to `want` literals into $n parameters. None when the statement
 /// exposes no liftable literal. Each lifted parameter is independently
 /// text- or binary-format (seeded).
-fn lift_params(
-    sql: &str,
-    want: usize,
-    rng: &mut Rng,
-) -> Option<(String, Vec<PlannedParam>)> {
+fn lift_params(sql: &str, want: usize, rng: &mut Rng) -> Option<(String, Vec<PlannedParam>)> {
     let cands = candidates(sql);
     if cands.is_empty() || want == 0 {
         return None;
@@ -519,7 +519,12 @@ pub fn plan_mode(xseed: u64, sql: &str) -> Mode {
     };
     // X2: a third of extended statements request all-binary results.
     let result_binary = rng.chance(1, 3);
-    Mode::Extended(XPlan { sql: out_sql, params, row_limit, result_binary })
+    Mode::Extended(XPlan {
+        sql: out_sql,
+        params,
+        row_limit,
+        result_binary,
+    })
 }
 
 /// Short per-statement mode tag for findings JSONL (`"mode"` key):
@@ -577,8 +582,9 @@ mod tests {
         let sql = "SELECT t0.k_int FROM fz_scalar AS t0 WHERE t0.k_int > 5;";
         assert_eq!(plan_mode(7, sql), plan_mode(7, sql));
         // Some statement flips mode across seeds and across texts.
-        let texts: Vec<String> =
-            (0..64).map(|i| format!("SELECT {i} FROM fz_one AS t0;")).collect();
+        let texts: Vec<String> = (0..64)
+            .map(|i| format!("SELECT {i} FROM fz_one AS t0;"))
+            .collect();
         let modes: Vec<bool> = texts
             .iter()
             .map(|t| matches!(plan_mode(1, t), Mode::Simple))
@@ -630,12 +636,15 @@ mod tests {
         let sql = "SELECT t0.c FROM fz_one AS t0 WHERE t0.c > 9000000000;";
         let (out, params) = lift_params(sql, 1, &mut rng).unwrap();
         assert!(out.contains("$1::int8;"), "{out}");
-        assert_eq!(text_params(&XPlan {
-            sql: out,
-            params,
-            row_limit: 0,
-            result_binary: false
-        }), vec![("9000000000".to_string(), ParamKind::Int8)]);
+        assert_eq!(
+            text_params(&XPlan {
+                sql: out,
+                params,
+                row_limit: 0,
+                result_binary: false
+            }),
+            vec![("9000000000".to_string(), ParamKind::Int8)]
+        );
         // Wider than int8 -> numeric.
         let sql = "SELECT t0.c FROM fz_one AS t0 WHERE t0.c > 99999999999999999999;";
         let (out, params) = lift_params(sql, 1, &mut rng).unwrap();
@@ -692,7 +701,10 @@ mod tests {
         assert_eq!(params.len(), 1);
         assert_eq!(params[0].value, "3");
         assert!(out.contains("SELECT t0.k_int, 7 FROM"), "{out}");
-        assert!(out.contains("GROUP BY (7) ORDER BY 1, 2 LIMIT 5 OFFSET 1"), "{out}");
+        assert!(
+            out.contains("GROUP BY (7) ORDER BY 1, 2 LIMIT 5 OFFSET 1"),
+            "{out}"
+        );
         assert!(out.contains("WHERE t0.k_int > $1::int4"), "{out}");
         // No WHERE at all -> no candidates.
         assert!(lift_params(
@@ -763,9 +775,7 @@ mod tests {
         assert!(shapes.iter().any(|s| s.ends_with(":rb")));
         for s in &shapes {
             assert!(
-                s == "simple"
-                    || s == "extended"
-                    || s.starts_with("extended:"),
+                s == "simple" || s == "extended" || s.starts_with("extended:"),
                 "unexpected mode string {s}"
             );
         }
@@ -777,8 +787,14 @@ mod tests {
 
     #[test]
     fn int_and_text_encoders() {
-        assert_eq!(encode_binary_param(ParamKind::Int4, "42"), 42i32.to_be_bytes());
-        assert_eq!(encode_binary_param(ParamKind::Int4, "-1"), (-1i32).to_be_bytes());
+        assert_eq!(
+            encode_binary_param(ParamKind::Int4, "42"),
+            42i32.to_be_bytes()
+        );
+        assert_eq!(
+            encode_binary_param(ParamKind::Int4, "-1"),
+            (-1i32).to_be_bytes()
+        );
         assert_eq!(
             encode_binary_param(ParamKind::Int8, "9000000000"),
             9000000000i64.to_be_bytes()

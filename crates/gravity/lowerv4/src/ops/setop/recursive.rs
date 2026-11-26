@@ -54,8 +54,8 @@
 use core::cell::Cell as Once;
 
 use gravity_abi::status::raise;
-use gravity_decompose::ops::shared::setop::{IterDesc, SetDesc, RECURSIVE_SEED_SET, RECURSIVE_SET};
 use gravity_decompose::catalog::typefacts::{facts_of, KeyColl, TypeFacts};
+use gravity_decompose::ops::shared::setop::{IterDesc, SetDesc, RECURSIVE_SEED_SET, RECURSIVE_SET};
 use gravity_decompose::{Op, Source};
 use gravity_expr::emit::hash::emit_key_hash;
 use gravity_ir::builder::FunctionBuilder;
@@ -114,7 +114,8 @@ const S_ENDED: i64 = 2;
 const NO_SEED_SET: &str = "a recursive union whose pulled seed has no seed set (D2034)";
 
 const INEXACT: &str = "a recursive UNION over a key whose image is not its equality (a type with no exact image: an array, a composite, a range, ...)";
-const SET_FILL: &str = "an INTERSECT / EXCEPT whose rows fill a recursive union's table in its term is not built";
+const SET_FILL: &str =
+    "an INTERSECT / EXCEPT whose rows fill a recursive union's table in its term is not built";
 /// D3373 (D-e): an Append over the union under a reader that may stop, settled into its spool (`IterDesc::arms`).
 const ARMS_SETTLED: &str = "a recursive union read in an Append's arm under a reader that may stop, the Append settled into its spool (it fills from every arm before its first row, where PG may never start a later arm: D2223)";
 /// D3373 (:99): a later arm reading the union whose call does not close over an empty table (PG never starts it there).
@@ -143,10 +144,18 @@ enum Role {
 fn union_of<'g>(gx: &Gx<'g, '_>, life: Option<LifeId>) -> Option<(usize, &'g IterDesc, Role)> {
     gx.pipelines().iter().enumerate().find_map(|(q, p)| {
         p.ops.iter().find_map(|op| match op {
-            Op::SetOp(SetDesc::Iter(d)) if gx.life_of(q, d.work) == life => Some((q, d, Role::Work)),
-            Op::SetOp(SetDesc::Iter(d)) if gx.life_of(q, d.next) == life => Some((q, d, Role::Next)),
+            Op::SetOp(SetDesc::Iter(d)) if gx.life_of(q, d.work) == life => {
+                Some((q, d, Role::Work))
+            }
+            Op::SetOp(SetDesc::Iter(d)) if gx.life_of(q, d.next) == life => {
+                Some((q, d, Role::Next))
+            }
             // with#170 / #171: an earlier arm of a UNION ALL term fills `next` too (graph.rs `term_arm`)
-            Op::SetOp(SetDesc::Iter(d)) if life.is_some_and(|l| gx.term_arm(l.0 as usize) == Some(q)) => Some((q, d, Role::Next)),
+            Op::SetOp(SetDesc::Iter(d))
+                if life.is_some_and(|l| gx.term_arm(l.0 as usize) == Some(q)) =>
+            {
+                Some((q, d, Role::Next))
+            }
             _ => None,
         })
     })
@@ -156,7 +165,10 @@ fn union_of<'g>(gx: &Gx<'g, '_>, life: Option<LifeId>) -> Option<(usize, &'g Ite
 fn cols<'g, 'p>(gx: &Gx<'g, 'p>, k: usize, node: i32) -> &'g NodeList<'p> {
     match gx.pipelines()[k].ops.last() {
         Some(Op::Project(cols)) => cols,
-        _ => shape(node, "a recursive union's table row whose pipeline does not end in its projection"),
+        _ => shape(
+            node,
+            "a recursive union's table row whose pipeline does not end in its projection",
+        ),
     }
 }
 
@@ -184,7 +196,11 @@ fn srf_small(word: u64, args: &[u64; 4]) -> u64 {
 
 /// The term's rerun set in the graph (decompose declared it with the body).
 fn set_of(gx: &Gx<'_, '_>, d: &IterDesc, node: i32) -> usize {
-    gx.graph.reruns.iter().position(|r| r.plan_id == RECURSIVE_SET && r.pipelines.contains(&d.body)).unwrap_or_else(|| shape(node, NO_SET))
+    gx.graph
+        .reruns
+        .iter()
+        .position(|r| r.plan_id == RECURSIVE_SET && r.pipelines.contains(&d.body))
+        .unwrap_or_else(|| shape(node, NO_SET))
 }
 
 /// The union's shape every face checks, then its tables and generation object, declared once by the first face made (found
@@ -210,47 +226,117 @@ fn admit<'g>(px: &mut Px<'g, '_>, q: usize, d: &IterDesc) -> Gen<'g> {
     // D3373 (D-e): an Append over the union under a reader that may stop reads it through its streamed arms only; a settled
     // union's feed reading the union's store fills the union's spool from every arm first
     let store = |k: usize, p: &gravity_decompose::PipelineNode<'_>| matches!(p.source, Source::Breaker { slot } if gx.life_of(k, slot).is_some_and(|l| l.0 as usize == q));
-    if d.arms && gx.pipelines().iter().enumerate().any(|(k, p)| crate::rerun::union_arms::feed_of(p).is_some() && store(k, p)) {
+    if d.arms
+        && gx
+            .pipelines()
+            .iter()
+            .enumerate()
+            .any(|(k, p)| crate::rerun::union_arms::feed_of(p).is_some() && store(k, p))
+    {
         shape(node, ARMS_SETTLED);
     }
     // D3373 (:99, `IterDesc::arms_later`): the streamed arms reading the union's store, by arm index: each after the first
     // closes its call over the empty table that ends PG's join before it starts (frame/iface `later_arm_closes`)
     if d.arms_later {
-        let mut held: PgVec<'_, (u16, usize)> = gx.pipelines().iter().enumerate().filter(|&(k, p)| store(k, p)).filter_map(|(k, _)| crate::frame::iface::arm_index(gx, k).map(|i| (i, k))).collect_in(px.mcx());
+        let mut held: PgVec<'_, (u16, usize)> = gx
+            .pipelines()
+            .iter()
+            .enumerate()
+            .filter(|&(k, p)| store(k, p))
+            .filter_map(|(k, _)| crate::frame::iface::arm_index(gx, k).map(|i| (i, k)))
+            .collect_in(px.mcx());
         held.sort_unstable();
-        if held.len() < 2 || held.iter().skip(1).any(|&(_, k)| !crate::frame::iface::later_arm_closes(gx, k)) {
+        if held.len() < 2
+            || held
+                .iter()
+                .skip(1)
+                .any(|&(_, k)| !crate::frame::iface::later_arm_closes(gx, k))
+        {
             shape(node, ARMS_LATER);
         }
     }
     if gx.spool_kind(q) != KindId::NestCte {
         shape(node, "a recursive union whose rows are not a CTE's");
     }
-    let (Some(seed), Some(body)) = (gx.life_of(q, d.work), gx.life_of(q, d.next)) else { bug(node, "a recursive union without its two tables") };
-    let (sc, bc) = (cols(gx, seed.0 as usize, node), cols(gx, body.0 as usize, node));
-    if let Some(p) = px.protos.iter().find(|p| p.kind == ProtoKind::Generation && p.pipeline as usize == q) {
-        let (g, w, n) = (p.words.base, (p.arg & 0xffff) as u16, (p.arg >> ARG_NEXT_SHIFT & 0xffff) as u16);
-        let view = d.stream.then(|| Rec::by_words(px, (p.arg >> ARG_VIEW_SHIFT & 0xffff) as u16, node, sc));
-        return Gen { node, work: Rec::by_words(px, w, node, sc), next: Rec::by_words(px, n, node, bc), g, view };
+    let (Some(seed), Some(body)) = (gx.life_of(q, d.work), gx.life_of(q, d.next)) else {
+        bug(node, "a recursive union without its two tables")
+    };
+    let (sc, bc) = (
+        cols(gx, seed.0 as usize, node),
+        cols(gx, body.0 as usize, node),
+    );
+    if let Some(p) = px
+        .protos
+        .iter()
+        .find(|p| p.kind == ProtoKind::Generation && p.pipeline as usize == q)
+    {
+        let (g, w, n) = (
+            p.words.base,
+            (p.arg & 0xffff) as u16,
+            (p.arg >> ARG_NEXT_SHIFT & 0xffff) as u16,
+        );
+        let view = d
+            .stream
+            .then(|| Rec::by_words(px, (p.arg >> ARG_VIEW_SHIFT & 0xffff) as u16, node, sc));
+        return Gen {
+            node,
+            work: Rec::by_words(px, w, node, sc),
+            next: Rec::by_words(px, n, node, bc),
+            g,
+            view,
+        };
     }
     let layout = Rec::by_words(px, 0, node, sc);
-    if !layout.same(&Rec::by_words(px, 0, node, bc)) || !layout.same(&Rec::by_words(px, 0, node, cols(gx, q, node))) {
-        shape(node, "a recursive union whose seed and term rows differ in layout");
+    if !layout.same(&Rec::by_words(px, 0, node, bc))
+        || !layout.same(&Rec::by_words(px, 0, node, cols(gx, q, node)))
+    {
+        shape(
+            node,
+            "a recursive union whose seed and term rows differ in layout",
+        );
     }
     let (work, _) = Rec::declare(px, q, seed.0 as usize, node, sc, 0);
     let (next, _) = Rec::declare(px, q, body.0 as usize, node, bc, 0);
     rearm_resets(px, q, &[work.words().1, next.words().1], node);
     let g = px.proto_words(1);
-    let loud = if d.pull_loud { gravity_kernels::ops::setop::entries::GEN_ARG_LOUD } else { 0 };
+    let loud = if d.pull_loud {
+        gravity_kernels::ops::setop::entries::GEN_ARG_LOUD
+    } else {
+        0
+    };
     // D2230: a reader that may drop the union's rows: a counted pull asks for the rows it owes only (exec admission `thin_pull`)
-    let thin = if d.thin { gravity_kernels::ops::setop::entries::GEN_ARG_THIN } else { 0 };
+    let thin = if d.thin {
+        gravity_kernels::ops::setop::entries::GEN_ARG_THIN
+    } else {
+        0
+    };
     // D2034: the view's handle word and the count word after it (zeroed at bind; the driver stores the handle per window)
     let vw = if d.stream { px.proto_words(2) } else { 0 };
-    let arg = work.words().0 as u64 | (next.words().0 as u64) << ARG_NEXT_SHIFT | (vw as u64) << ARG_VIEW_SHIFT | loud | thin;
+    let arg = work.words().0 as u64
+        | (next.words().0 as u64) << ARG_NEXT_SHIFT
+        | (vw as u64) << ARG_VIEW_SHIFT
+        | loud
+        | thin;
     // D2230 / D2212: read through another CTE's plan the lowering runs whole first: a counted pull refuses (`peer`)
-    let through = if d.through { q as u16 } else { gravity_program::protos::NONE };
-    px.declare_proto(Proto::new(ProtoKind::Generation, q as u16).words(g, 1).arg(arg).peer(through));
+    let through = if d.through {
+        q as u16
+    } else {
+        gravity_program::protos::NONE
+    };
+    px.declare_proto(
+        Proto::new(ProtoKind::Generation, q as u16)
+            .words(g, 1)
+            .arg(arg)
+            .peer(through),
+    );
     let view = d.stream.then(|| Rec::by_words(px, vw, node, sc));
-    Gen { node, work, next, g, view }
+    Gen {
+        node,
+        work,
+        next,
+        g,
+        view,
+    }
 }
 
 /// K11.rec.l0 / .gl (`IterDesc::zero`): a Sort or an Agg under Limit `limit` (its count may be 0) reads the union whole, so
@@ -263,14 +349,44 @@ fn zero_checked(px: &mut Px<'_, '_>, q: usize, limit: i32, node: i32) {
     let gx = px.gx;
     let ps = gx.pipelines();
     let reads = |p: usize| {
-        let src = if let Source::Breaker { slot } = ps[p].source { Some(slot) } else { None };
-        ps[p].desc.consumes.iter().copied().chain(src).any(|s| gx.life_of(p, s) == Some(LifeId(q as u16)))
+        let src = if let Source::Breaker { slot } = ps[p].source {
+            Some(slot)
+        } else {
+            None
+        };
+        ps[p]
+            .desc
+            .consumes
+            .iter()
+            .copied()
+            .chain(src)
+            .any(|s| gx.life_of(p, s) == Some(LifeId(q as u16)))
     };
-    let readers: PgVec<'_, usize> = (0..ps.end()).filter(|&p| p != q && reads(p)).collect_in(px.mcx());
-    let node_of = |x: usize, j: usize| ps[x].node_ops.iter().rev().find(|n| n.first_op as usize <= j).map_or(ps[x].node_id, |n| n.node_id);
-    let checked = |op: &Op<'_>| matches!(crate::graph::step_kind(op), KindId::StepLimit | KindId::StepGate);
-    let at = (0..ps.len()).find_map(|x| (0..ps[x].ops.len()).find(|&j| checked(&ps[x].ops[j]) && node_of(x, j) == limit).map(|j| (x, j)));
-    let stopped = at.is_some_and(|(x, j)| !readers.is_empty() && crate::rerun::union_arms::stops(px, &readers[..], x, j));
+    let readers: PgVec<'_, usize> = (0..ps.end())
+        .filter(|&p| p != q && reads(p))
+        .collect_in(px.mcx());
+    let node_of = |x: usize, j: usize| {
+        ps[x]
+            .node_ops
+            .iter()
+            .rev()
+            .find(|n| n.first_op as usize <= j)
+            .map_or(ps[x].node_id, |n| n.node_id)
+    };
+    let checked = |op: &Op<'_>| {
+        matches!(
+            crate::graph::step_kind(op),
+            KindId::StepLimit | KindId::StepGate
+        )
+    };
+    let at = (0..ps.len()).find_map(|x| {
+        (0..ps[x].ops.len())
+            .find(|&j| checked(&ps[x].ops[j]) && node_of(x, j) == limit)
+            .map(|j| (x, j))
+    });
+    let stopped = at.is_some_and(|(x, j)| {
+        !readers.is_empty() && crate::rerun::union_arms::stops(px, &readers[..], x, j)
+    });
     if !stopped {
         shape(node, ZERO_UNCHECKED);
     }
@@ -285,10 +401,20 @@ const REARM_TABLES: &str = "a recursive union's table counts, emptied at each ru
 /// lifetime home's `Scope::OwnerRun`, as the CTE's store words, ops/ctescan/lower.rs `eager_resets`); the CTE's re-armed
 /// pull then runs the seed into an empty working table.
 fn rearm_resets(px: &mut Px<'_, '_>, q: usize, counts: &[u16], node: i32) {
-    let Some(set) = crate::rerun::sets::rearming_set(px.gx, q) else { return };
+    let Some(set) = crate::rerun::sets::rearming_set(px.gx, q) else {
+        return;
+    };
     for &w in counts {
-        let place = crate::lifetime::Place::Param { off: w as i32 * 8, ty: Type::I64, init: 0 };
-        let d = crate::lifetime::Declared { what: REARM_TABLES, scope: crate::lifetime::Scope::OwnerRun { set: set as u16 }, place };
+        let place = crate::lifetime::Place::Param {
+            off: w as i32 * 8,
+            ty: Type::I64,
+            init: 0,
+        };
+        let d = crate::lifetime::Declared {
+            what: REARM_TABLES,
+            scope: crate::lifetime::Scope::OwnerRun { set: set as u16 },
+            place,
+        };
         if px.lifetimes.declare(d).is_err() {
             bug(node, "a recursive union's table counts declared after its re-arming set's owner captured its run (setop_rec-0043)");
         }
@@ -312,7 +438,17 @@ fn set_word(b: &mut FunctionBuilder<'_>, env: &Env, w: u16, v: Value) {
 }
 
 fn host(b: &mut FunctionBuilder<'_>, name: &str, addr: usize) -> HostFn {
-    b.declare_host_once(name, &[Type::Ptr, Type::I64], Some(Type::I64), addr, HostFlags { touches_memory: true, may_error: true, ..HostFlags::default() })
+    b.declare_host_once(
+        name,
+        &[Type::Ptr, Type::I64],
+        Some(Type::I64),
+        addr,
+        HostFlags {
+            touches_memory: true,
+            may_error: true,
+            ..HostFlags::default()
+        },
+    )
 }
 
 /// The raise exit with the host's stashed error.
@@ -324,7 +460,13 @@ fn raise_host(b: &mut FunctionBuilder<'_>, env: &Env) {
 /// A table's filler or reader runs on the leader in the plan's order (the CTE's pull runs there).
 fn serial(d: Pipeline, reason: Why) -> Pipeline {
     match d.is_eligible() {
-        true => Pipeline { parallel: Parallel::Ineligible { site: d.driving_site, reason }, ..d },
+        true => Pipeline {
+            parallel: Parallel::Ineligible {
+                site: d.driving_site,
+                reason,
+            },
+            ..d
+        },
         false => d,
     }
 }
@@ -363,15 +505,37 @@ fn dedup_keys<'g>(gx: &Gx<'g, '_>, d: &IterDesc, node: i32) -> Option<Dedup<'g>>
         return None;
     }
     if d.dedup.len() != d.dedup_colls.len() {
-        bug(node, "a recursive UNION whose dedup keys and collations differ in number");
+        bug(
+            node,
+            "a recursive UNION whose dedup keys and collations differ in number",
+        );
     }
-    let keys = d.dedup.iter().zip(d.dedup_colls.iter()).enumerate().map(|(i, (k, &c))| {
-        let tf = facts_of(gx.facts, k.typid).unwrap_or_else(|| shape(node, "a recursive UNION key whose type the catalog does not know"));
-        // with#62 / #65 / #82 / #86: a record or record[] key over plan-known columns keys by its user key (record_eq / hash_record)
-        let tf = crate::rep::hosted::hash::user_record_tf(node, tf, k.opno, c, d.dedup_rows.get(i).map_or(&[][..], |r| &r[..]));
-        (k.resno, tf, gx.facts.coll(c))
-    });
-    Some(Dedup { node, keys: keys.collect_in(gx.mcx) })
+    let keys = d
+        .dedup
+        .iter()
+        .zip(d.dedup_colls.iter())
+        .enumerate()
+        .map(|(i, (k, &c))| {
+            let tf = facts_of(gx.facts, k.typid).unwrap_or_else(|| {
+                shape(
+                    node,
+                    "a recursive UNION key whose type the catalog does not know",
+                )
+            });
+            // with#62 / #65 / #82 / #86: a record or record[] key over plan-known columns keys by its user key (record_eq / hash_record)
+            let tf = crate::rep::hosted::hash::user_record_tf(
+                node,
+                tf,
+                k.opno,
+                c,
+                d.dedup_rows.get(i).map_or(&[][..], |r| &r[..]),
+            );
+            (k.resno, tf, gx.facts.coll(c))
+        });
+    Some(Dedup {
+        node,
+        keys: keys.collect_in(gx.mcx),
+    })
 }
 
 impl Dedup<'_> {
@@ -380,12 +544,43 @@ impl Dedup<'_> {
     fn fresh(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals, g: u16) -> Value {
         let node = self.node;
         // D3374 (e) (record keys E1): the per-row record keys (typesem PER_ROW), whose 42804 pairs the row's image keeps
-        let per_row: PgVec<'_, usize> = self.keys.iter().enumerate().filter(|(_, (_, tf, _))| tf.user != 0 && gravity_fn::typesem::keysem::user::per_row(tf.user)).map(|(i, _)| i).collect_in(env.mcx);
+        let per_row: PgVec<'_, usize> = self
+            .keys
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, tf, _))| {
+                tf.user != 0 && gravity_fn::typesem::keysem::user::per_row(tf.user)
+            })
+            .map(|(i, _)| i)
+            .collect_in(env.mcx);
         if !per_row.is_empty() {
-            let Some(keys) = crate::frame::env::user_keys(b, env.ctx) else { crate::refuse!(node, Reason::Bug { payload: crate::frame::env::NO_USER_KEYS }) };
-            let f = b.declare_host_once("m6_user_collide_clear", &[Type::Ptr, Type::I64], Some(Type::I64), gravity_kernels::contract::entry1::<UserCollideClear> as *const () as usize, HostFlags { touches_memory: true, may_error: true, ..HostFlags::default() });
-            let st = b.call_host(f, &[env.ctx, keys], Some(Type::I64)).unwrap_or(env.zero);
-            let (failed, l_bad, l_ok) = (b.icmp(IntCond::Slt, st, env.zero), b.create_block(&[]), b.create_block(&[]));
+            let Some(keys) = crate::frame::env::user_keys(b, env.ctx) else {
+                crate::refuse!(
+                    node,
+                    Reason::Bug {
+                        payload: crate::frame::env::NO_USER_KEYS
+                    }
+                )
+            };
+            let f = b.declare_host_once(
+                "m6_user_collide_clear",
+                &[Type::Ptr, Type::I64],
+                Some(Type::I64),
+                gravity_kernels::contract::entry1::<UserCollideClear> as *const () as usize,
+                HostFlags {
+                    touches_memory: true,
+                    may_error: true,
+                    ..HostFlags::default()
+                },
+            );
+            let st = b
+                .call_host(f, &[env.ctx, keys], Some(Type::I64))
+                .unwrap_or(env.zero);
+            let (failed, l_bad, l_ok) = (
+                b.icmp(IntCond::Slt, st, env.zero),
+                b.create_block(&[]),
+                b.create_block(&[]),
+            );
             b.mark_cold(l_bad);
             b.cond_br(failed, (l_bad, &[]), (l_ok, &[]));
             b.switch_to(l_bad);
@@ -393,13 +588,47 @@ impl Dedup<'_> {
             b.switch_to(l_ok);
         }
         let mut cx = env.lx(b, node);
-        let cells: PgVec<'_, (Cell, Value, Value)> = self.keys.iter().enumerate().map(|(i, (resno, tf, _))| {
-            let Some(cr) = row.col(*resno) else { shape(node, "a recursive UNION key past the table's row") };
-            let (v, null) = crate::rep::datum(&mut cx, cr, tf);
-            let life = CellLife { until: Until::Row, home: CellHome::FrameSlot };
-            (Cell { rep: Rep::of_storage(tf.typlen, tf.byval), typid: tf.typid, num: NumTypmod::NONE, life, at: At::Slot(i as u16), null: Nullable::Maybe }, v, null)
-        }).collect_in(env.mcx);
-        let kc: PgVec<'_, KeyCell<'_>> = cells.iter().zip(&self.keys).map(|((c, v, n), (_, tf, coll))| KeyCell { cell: CellRef { cell: c, val: *v, null: Some(*n) }, tf, scope: Scope::Program, coll: *coll }).collect_in(env.mcx);
+        let cells: PgVec<'_, (Cell, Value, Value)> = self
+            .keys
+            .iter()
+            .enumerate()
+            .map(|(i, (resno, tf, _))| {
+                let Some(cr) = row.col(*resno) else {
+                    shape(node, "a recursive UNION key past the table's row")
+                };
+                let (v, null) = crate::rep::datum(&mut cx, cr, tf);
+                let life = CellLife {
+                    until: Until::Row,
+                    home: CellHome::FrameSlot,
+                };
+                (
+                    Cell {
+                        rep: Rep::of_storage(tf.typlen, tf.byval),
+                        typid: tf.typid,
+                        num: NumTypmod::NONE,
+                        life,
+                        at: At::Slot(i as u16),
+                        null: Nullable::Maybe,
+                    },
+                    v,
+                    null,
+                )
+            })
+            .collect_in(env.mcx);
+        let kc: PgVec<'_, KeyCell<'_>> = cells
+            .iter()
+            .zip(&self.keys)
+            .map(|((c, v, n), (_, tf, coll))| KeyCell {
+                cell: CellRef {
+                    cell: c,
+                    val: *v,
+                    null: Some(*n),
+                },
+                tf,
+                scope: Scope::Program,
+                coll: *coll,
+            })
+            .collect_in(env.mcx);
         let img = keyimg::image(&mut cx, &kc[..]);
         env.memo = cx.memo;
         if !img.exact {
@@ -416,10 +645,26 @@ impl Dedup<'_> {
         if !per_row.is_empty() {
             self.collided(b, env, g, at, words.len(), &img.widths, &per_row[..]);
         }
-        let f = b.declare_host_once("m9_gen_seen", &[Type::Ptr, Type::I64, Type::Ptr, Type::I64], Some(Type::I64), gravity_kernels::contract::entry3::<GenSeen> as *const () as usize, HostFlags { touches_memory: true, may_error: true, ..HostFlags::default() });
+        let f = b.declare_host_once(
+            "m9_gen_seen",
+            &[Type::Ptr, Type::I64, Type::Ptr, Type::I64],
+            Some(Type::I64),
+            gravity_kernels::contract::entry3::<GenSeen> as *const () as usize,
+            HostFlags {
+                touches_memory: true,
+                may_error: true,
+                ..HostFlags::default()
+            },
+        );
         let (g, n) = (word(b, env, g), b.iconst(Type::I64, words.len() as i64));
-        let st = b.call_host(f, &[env.ctx, g, at, n], Some(Type::I64)).unwrap_or(env.zero);
-        let (failed, l_bad, l_ok) = (b.icmp(IntCond::Slt, st, env.zero), b.create_block(&[]), b.create_block(&[]));
+        let st = b
+            .call_host(f, &[env.ctx, g, at, n], Some(Type::I64))
+            .unwrap_or(env.zero);
+        let (failed, l_bad, l_ok) = (
+            b.icmp(IntCond::Slt, st, env.zero),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         b.mark_cold(l_bad);
         b.cond_br(failed, (l_bad, &[]), (l_ok, &[]));
         b.switch_to(l_bad);
@@ -432,19 +677,58 @@ impl Dedup<'_> {
     /// class a per-row key `per_row` collided with in its place (kernels typesem userfp.rs `UserCollideProbe`, its words at
     /// the offsets `widths` gives): PostgreSQL's table compares this row with such a held row and raises record_eq's
     /// 42804, so the row raises it too.
-    fn collided(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, g: u16, at: Value, n: usize, widths: &[u8], per_row: &[usize]) {
-        let offs: PgVec<'_, u64> = per_row.iter().map(|&i| widths[..i].iter().map(|&w| u64::from(w)).sum()).collect_in(env.mcx);
+    fn collided(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        g: u16,
+        at: Value,
+        n: usize,
+        widths: &[u8],
+        per_row: &[usize],
+    ) {
+        let offs: PgVec<'_, u64> = per_row
+            .iter()
+            .map(|&i| widths[..i].iter().map(|&w| u64::from(w)).sum())
+            .collect_in(env.mcx);
         let desc = b.declare_stack_slot(8 * (offs.len() as u32 + 2), 8);
         let desc = b.stack_addr(desc);
-        for (i, v) in [n as u64, offs.len() as u64].into_iter().chain(offs).enumerate() {
+        for (i, v) in [n as u64, offs.len() as u64]
+            .into_iter()
+            .chain(offs)
+            .enumerate()
+        {
             let v = b.iconst(Type::I64, v as i64);
             b.store(desc, 8 * i as i32, v);
         }
-        let Some(keys) = crate::frame::env::user_keys(b, env.ctx) else { crate::refuse!(self.node, Reason::Bug { payload: crate::frame::env::NO_USER_KEYS }) };
-        let f = b.declare_host_once("m6_user_collide_probe", &[Type::Ptr, Type::I64, Type::I64, Type::Ptr, Type::Ptr], Some(Type::I64), gravity_kernels::contract::entry4::<UserCollideProbe> as *const () as usize, HostFlags { touches_memory: true, may_error: true, ..HostFlags::default() });
+        let Some(keys) = crate::frame::env::user_keys(b, env.ctx) else {
+            crate::refuse!(
+                self.node,
+                Reason::Bug {
+                    payload: crate::frame::env::NO_USER_KEYS
+                }
+            )
+        };
+        let f = b.declare_host_once(
+            "m6_user_collide_probe",
+            &[Type::Ptr, Type::I64, Type::I64, Type::Ptr, Type::Ptr],
+            Some(Type::I64),
+            gravity_kernels::contract::entry4::<UserCollideProbe> as *const () as usize,
+            HostFlags {
+                touches_memory: true,
+                may_error: true,
+                ..HostFlags::default()
+            },
+        );
         let g = word(b, env, g);
-        let st = b.call_host(f, &[env.ctx, keys, g, at, desc], Some(Type::I64)).unwrap_or(env.zero);
-        let (failed, l_bad, l_ok) = (b.icmp(IntCond::Slt, st, env.zero), b.create_block(&[]), b.create_block(&[]));
+        let st = b
+            .call_host(f, &[env.ctx, keys, g, at, desc], Some(Type::I64))
+            .unwrap_or(env.zero);
+        let (failed, l_bad, l_ok) = (
+            b.icmp(IntCond::Slt, st, env.zero),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         b.mark_cold(l_bad);
         b.cond_br(failed, (l_bad, &[]), (l_ok, &[]));
         b.switch_to(l_bad);
@@ -455,7 +739,12 @@ impl Dedup<'_> {
 
 pub(super) fn make_end<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn EndMech + 'g> {
     let gx = px.gx;
-    let Some((q, d, role)) = union_of(gx, Some(LifeId(k as u16))) else { bug(gx.pipelines()[k].node_id, "a setop.recursive end that fills no table of a union") };
+    let Some((q, d, role)) = union_of(gx, Some(LifeId(k as u16))) else {
+        bug(
+            gx.pipelines()[k].node_id,
+            "a setop.recursive end that fills no table of a union",
+        )
+    };
     let g = admit(px, q, d);
     let rec = match role {
         Role::Work => g.work,
@@ -473,10 +762,20 @@ pub(super) fn make_end<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn EndMe
         // (D3377): a seed that may raise or call (`IterDesc::seed_exact`) after the row that reaches it
         Role::Work if d.seed.is_some() => {
             if d.seed != Some(k as u16) {
-                bug(g.node, "a pulled seed's table filled by another pipeline than its seed set's member");
+                bug(
+                    g.node,
+                    "a pulled seed's table filled by another pipeline than its seed set's member",
+                );
             }
             // D3373 (F-1): a seed SRF not known to end (`IterDesc::seed_row`) after the row too
-            Some((driver_word(px, q, W_SEED_WANT), if d.seed_exact || d.seed_row { WantAt::Row } else { WantAt::Window }))
+            Some((
+                driver_word(px, q, W_SEED_WANT),
+                if d.seed_exact || d.seed_row {
+                    WantAt::Row
+                } else {
+                    WantAt::Window
+                },
+            ))
         }
         _ => None,
     };
@@ -485,21 +784,46 @@ pub(super) fn make_end<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn EndMe
 
 /// Frame word `i` of driver `q`'s source (the cursor is `i` 0), as a byte offset.
 fn driver_word(px: &mut Px<'_, '_>, q: usize, i: u8) -> i32 {
-    px.frame_word(WordKey::Open { face: Face::Setop, k: q, j: u64::MAX, i }) as i32 * 8
+    px.frame_word(WordKey::Open {
+        face: Face::Setop,
+        k: q,
+        j: u64::MAX,
+        i,
+    }) as i32
+        * 8
 }
 
 impl TableEnd<'_> {
     /// D2034: the body's row stored, a resumable stop once `next` holds the driver's want (the pull that resumed the body
     /// has its rows), as a pulled run's end stops at its reader's want (face/slot_run.rs).
-    fn stop_at_want(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, carry: &Carry, row: &RowVals) {
-        let Some((w, WantAt::Row)) = self.want else { return };
+    fn stop_at_want(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        carry: &Carry,
+        row: &RowVals,
+    ) {
+        let Some((w, WantAt::Row)) = self.want else {
+            return;
+        };
         self.stop_if_full(b, env, w, carry, row.next);
     }
 
     /// The resumable stop at cursor `cur` once the table holds want word `w`'s rows; the builder is left where it goes on.
-    fn stop_if_full(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, w: i32, carry: &Carry, cur: Value) {
+    fn stop_if_full(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        w: i32,
+        carry: &Carry,
+        cur: Value,
+    ) {
         let (n, want) = (self.rec.count(b, env), env.load_word(b, w));
-        let (l_stop, l_on, full) = (b.create_block(&[]), b.create_block(&[]), b.icmp(IntCond::Sge, n, want));
+        let (l_stop, l_on, full) = (
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.icmp(IntCond::Sge, n, want),
+        );
         b.cond_br(full, (l_stop, &[]), (l_on, &[]));
         b.switch_to(l_stop);
         let st = b.iconst(Type::I64, gravity_abi::status::suspend(false));
@@ -510,11 +834,20 @@ impl TableEnd<'_> {
 
 impl EndMech for TableEnd<'_> {
     /// PG `tuplestore_puttupleslot` into the table; a UNION's row only when new to the union.
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, _x: &Exits) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        _x: &Exits,
+    ) -> Carry<'e> {
         let Some((dedup, g)) = &self.dedup else {
             self.rec.append(b, env, row);
             let out = b.int_bin(IntBinOp::Add, row.carry.out, env.one);
-            let carry = Carry { out, accs: mcx::to_vec_in(&row.carry.accs[..], env.mcx) };
+            let carry = Carry {
+                out,
+                accs: mcx::to_vec_in(&row.carry.accs[..], env.mcx),
+            };
             self.stop_at_want(b, env, &carry, row);
             return carry;
         };
@@ -528,7 +861,10 @@ impl EndMech for TableEnd<'_> {
         let out = b.int_bin(IntBinOp::Add, row.carry.out, env.one);
         b.br(l_join, &[out]);
         b.switch_to(l_join);
-        let carry = Carry { out: b.block_params(l_join)[0], accs: mcx::to_vec_in(&row.carry.accs[..], env.mcx) };
+        let carry = Carry {
+            out: b.block_params(l_join)[0],
+            accs: mcx::to_vec_in(&row.carry.accs[..], env.mcx),
+        };
         self.stop_at_want(b, env, &carry, row);
         carry
     }
@@ -537,8 +873,12 @@ impl EndMech for TableEnd<'_> {
     /// driver's want (`WantAt::Window`). Only in the row loop's window close: an input end's flush or a recheck's copy row
     /// has no window (`Env::win` is `None`) and its call ends there anyway.
     fn window_end(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, c: &Carry) {
-        let Some((w, WantAt::Window)) = self.want else { return };
-        let Some(end) = env.win.as_ref().map(|win| win.end) else { return };
+        let Some((w, WantAt::Window)) = self.want else {
+            return;
+        };
+        let Some(end) = env.win.as_ref().map(|win| win.end) else {
+            return;
+        };
         self.stop_if_full(b, env, w, c, end);
     }
 
@@ -567,11 +907,18 @@ struct Scan<'g> {
 pub(super) fn make_source<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
     let gx = px.gx;
     let p = &gx.pipelines()[k];
-    let &Source::Breaker { slot } = &p.source else { bug(p.node_id, "a setop.recursive source that reads no table") };
-    let Some((q, d, role)) = union_of(gx, gx.life_of(k, slot)) else { bug(p.node_id, "a setop.recursive source over no union's table") };
+    let &Source::Breaker { slot } = &p.source else {
+        bug(p.node_id, "a setop.recursive source that reads no table")
+    };
+    let Some((q, d, role)) = union_of(gx, gx.life_of(k, slot)) else {
+        bug(p.node_id, "a setop.recursive source over no union's table")
+    };
     let gen = admit(px, q, d);
     if role != Role::Work {
-        bug(gen.node, "a setop.recursive source over a union's intermediate table");
+        bug(
+            gen.node,
+            "a setop.recursive source over a union's intermediate table",
+        );
     }
     let rerun = (q == k).then(|| declare_set(px, k, d, gen.node));
     let cursor = driver_word(px, k, 0);
@@ -579,14 +926,33 @@ pub(super) fn make_source<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn So
         if !body_alone(px.gx, d, gen.node) {
             shape(gen.node, STREAM_SET);
         }
-        [driver_word(px, k, W_PHASE), driver_word(px, k, W_WANT), driver_word(px, k, W_ASK)]
+        [
+            driver_word(px, k, W_PHASE),
+            driver_word(px, k, W_WANT),
+            driver_word(px, k, W_ASK),
+        ]
     });
     let seed = (q == k && d.seed.is_some()).then(|| {
-        let set = px.gx.graph.reruns.iter().position(|r| r.node_id == gen.node && r.plan_id == RECURSIVE_SEED_SET);
-        let Some(set) = set else { shape(gen.node, NO_SEED_SET) };
+        let set = px
+            .gx
+            .graph
+            .reruns
+            .iter()
+            .position(|r| r.node_id == gen.node && r.plan_id == RECURSIVE_SEED_SET);
+        let Some(set) = set else {
+            shape(gen.node, NO_SEED_SET)
+        };
         let owner = px.gx.graph.reruns[set].node_id;
-        let r = crate::rerun::sets::declare(px, k, owner, RECURSIVE_SEED_SET).unwrap_or_else(|| shape(gen.node, NO_SEED_SET));
-        (r, [driver_word(px, k, W_SEED), driver_word(px, k, W_SEED_WANT), driver_word(px, k, W_SEED_ASK)])
+        let r = crate::rerun::sets::declare(px, k, owner, RECURSIVE_SEED_SET)
+            .unwrap_or_else(|| shape(gen.node, NO_SEED_SET));
+        (
+            r,
+            [
+                driver_word(px, k, W_SEED),
+                driver_word(px, k, W_SEED_WANT),
+                driver_word(px, k, W_SEED_ASK),
+            ],
+        )
     });
     mcx::pg_box_dyn!(px.mcx(), Scan { node: gen.node, gen, cursor, rerun, stream, seed, exact: d.seed_exact, win: Once::new(false) } => dyn SourceMech + 'g)
 }
@@ -595,7 +961,9 @@ pub(super) fn make_source<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn So
 /// pulled set, exec rerun's `run` list), the one form the set's pull (`OP_RERUN_PULL`) takes.
 fn body_alone(gx: &Gx<'_, '_>, d: &IterDesc, node: i32) -> bool {
     let ms = &gx.graph.reruns[set_of(gx, d, node)].pipelines;
-    ms.iter().all(|&q| q == d.body || crate::rerun::sets::rearm_only(gx, ms, q as usize)) && ms.contains(&d.body)
+    ms.iter()
+        .all(|&q| q == d.body || crate::rerun::sets::rearm_only(gx, ms, q as usize))
+        && ms.contains(&d.body)
 }
 
 impl Scan<'_> {
@@ -603,7 +971,14 @@ impl Scan<'_> {
     /// raises kept when `m9_gen_hold` keeps it, else raised now), the two tables' words swapped and the new generation's
     /// first window (`l_eof` when it is empty and nothing is kept). The generation's resets are the lifetime home's
     /// (lifetime/setop.rs).
-    fn generation(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, rerun: &Rerun, l_eof: Block, l_win: Block) {
+    fn generation(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        rerun: &Rerun,
+        l_eof: Block,
+        l_win: Block,
+    ) {
         let g = word(b, env, self.gen.g);
         let gp = b.conv(ConvOp::IntToPtr, Type::Ptr, g);
         let l_raise = b.create_block(&[]);
@@ -612,9 +987,19 @@ impl Scan<'_> {
         let (is_held, l_run) = (b.icmp(IntCond::Ne, held, env.zero), b.create_block(&[]));
         b.cond_br(is_held, (l_raise, &[]), (l_run, &[]));
         b.switch_to(l_run);
-        let f = host(b, "m9_gen_check", gravity_kernels::contract::entry1::<GenCheck> as *const () as usize);
-        let st = b.call_host(f, &[env.ctx, g], Some(Type::I64)).unwrap_or(env.zero);
-        let (stop, l_now, l_go) = (b.icmp(IntCond::Slt, st, env.zero), b.create_block(&[]), b.create_block(&[]));
+        let f = host(
+            b,
+            "m9_gen_check",
+            gravity_kernels::contract::entry1::<GenCheck> as *const () as usize,
+        );
+        let st = b
+            .call_host(f, &[env.ctx, g], Some(Type::I64))
+            .unwrap_or(env.zero);
+        let (stop, l_now, l_go) = (
+            b.icmp(IntCond::Slt, st, env.zero),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         b.mark_cold(l_now);
         b.cond_br(stop, (l_now, &[]), (l_go, &[]));
         b.switch_to(l_now);
@@ -623,13 +1008,27 @@ impl Scan<'_> {
         let (work, next) = (self.gen.work.words(), self.gen.next.words());
         crate::lifetime::setop::next_emptied(b, env, next.1);
         let st = rerun.status(b, env);
-        let (failed, l_hold, l_swap) = (b.icmp(IntCond::Slt, st, env.zero), b.create_block(&[]), b.create_block(&[]));
+        let (failed, l_hold, l_swap) = (
+            b.icmp(IntCond::Slt, st, env.zero),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         b.mark_cold(l_hold);
         b.cond_br(failed, (l_hold, &[]), (l_swap, &[]));
         b.switch_to(l_hold);
-        let f = host(b, "m9_gen_hold", gravity_abi::host_words!(m9::m9_gen_hold(ctx, h)));
-        let st = b.call_host(f, &[env.ctx, g], Some(Type::I64)).unwrap_or(env.zero);
-        let (passed, l_now, l_kept) = (b.icmp(IntCond::Slt, st, env.zero), b.create_block(&[]), b.create_block(&[]));
+        let f = host(
+            b,
+            "m9_gen_hold",
+            gravity_abi::host_words!(m9::m9_gen_hold(ctx, h)),
+        );
+        let st = b
+            .call_host(f, &[env.ctx, g], Some(Type::I64))
+            .unwrap_or(env.zero);
+        let (passed, l_now, l_kept) = (
+            b.icmp(IntCond::Slt, st, env.zero),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         b.mark_cold(l_now);
         b.cond_br(passed, (l_now, &[]), (l_kept, &[]));
         b.switch_to(l_now);
@@ -646,7 +1045,11 @@ impl Scan<'_> {
         b.cond_br(is_held, (l_raise, &[]), (l_eof, &[env.zero]));
         // the kept error, where PG's pull after the term's last good row raises it
         b.switch_to(l_raise);
-        let f = host(b, "m9_gen_raise", gravity_abi::host_words!(m9::m9_gen_raise(ctx, h)));
+        let f = host(
+            b,
+            "m9_gen_raise",
+            gravity_abi::host_words!(m9::m9_gen_raise(ctx, h)),
+        );
         b.call_host(f, &[env.ctx, g], Some(Type::I64));
         raise_host(b, env);
     }
@@ -660,7 +1063,16 @@ impl Scan<'_> {
     /// no row added the driver goes on to the first generation (`l_term`), which starts only once the seed ended. The seed
     /// is quiet (decompose `IterDesc::seed`): a pull that ran past PG's rows raises nothing and calls nothing PG would not,
     /// and an error from it is raised here.
-    fn seed_pull(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, seed: &Rerun, [w_state, w_want, w_ask]: [i32; 3], cursor: Value, l_term: Block, l_win: Block) {
+    fn seed_pull(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        seed: &Rerun,
+        [w_state, w_want, w_ask]: [i32; 3],
+        cursor: Value,
+        l_term: Block,
+        l_win: Block,
+    ) {
         let state = env.load_word(b, w_state);
         let ended_at = b.iconst(Type::I64, S_ENDED);
         let (ended, l_pull) = (b.icmp(IntCond::Eq, state, ended_at), b.create_block(&[]));
@@ -672,7 +1084,11 @@ impl Scan<'_> {
         let pull_at = b.iconst(Type::I64, S_PULL);
         env.store_word(b, w_state, pull_at);
         // D2732 (D3377): a seed that may raise or call is pulled a row at a time (`exact`), its end stopping after the row
-        let budget = if self.exact { env.one } else { env.load_word(b, w_ask) };
+        let budget = if self.exact {
+            env.one
+        } else {
+            env.load_word(b, w_ask)
+        };
         let have = self.gen.work.count(b, env);
         let want = b.int_bin(IntBinOp::Add, have, budget);
         env.store_word(b, w_want, want);
@@ -684,7 +1100,11 @@ impl Scan<'_> {
             env.store_word(b, w_ask, twice);
         }
         let st = seed.pull(b, env, budget, first);
-        let (failed, l_raise, l_ok) = (b.icmp(IntCond::Slt, st, env.zero), b.create_block(&[]), b.create_block(&[]));
+        let (failed, l_raise, l_ok) = (
+            b.icmp(IntCond::Slt, st, env.zero),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         b.mark_cold(l_raise);
         b.cond_br(failed, (l_raise, &[]), (l_ok, &[]));
         b.switch_to(l_raise);
@@ -710,15 +1130,31 @@ impl Scan<'_> {
     /// and the term set's first pull re-arms it. A term error is kept by the generation object (`m9_gen_hold`) and raised
     /// after the rows the term added before it, at the next generation's start. A window may be empty (a pull that ended
     /// the term with no new row): the frame asks again.
-    fn streamed(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, rerun: &Rerun, [w_phase, w_want, w_budget]: [i32; 3], l_eof: Block, l_win: Block) {
+    fn streamed(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        rerun: &Rerun,
+        [w_phase, w_want, w_budget]: [i32; 3],
+        l_eof: Block,
+        l_win: Block,
+    ) {
         let g = word(b, env, self.gen.g);
         let gp = b.conv(ConvOp::IntToPtr, Type::Ptr, g);
         let l_raise = b.create_block(&[]);
         b.mark_cold(l_raise);
         let phase = env.load_word(b, w_phase);
         // constants of every path below, made where each path starts
-        let (pull_on, ended_at) = (b.iconst(Type::I64, PHASE_PULL), b.iconst(Type::I64, PHASE_ENDED));
-        let (more, l_new, l_more, l_pull) = (b.icmp(IntCond::Eq, phase, pull_on), b.create_block(&[]), b.create_block(&[]), b.create_block(&[Type::I64]));
+        let (pull_on, ended_at) = (
+            b.iconst(Type::I64, PHASE_PULL),
+            b.iconst(Type::I64, PHASE_ENDED),
+        );
+        let (more, l_new, l_more, l_pull) = (
+            b.icmp(IntCond::Eq, phase, pull_on),
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[Type::I64]),
+        );
         b.cond_br(more, (l_more, &[]), (l_new, &[]));
         b.switch_to(l_more);
         b.br(l_pull, &[env.zero]);
@@ -730,21 +1166,40 @@ impl Scan<'_> {
         b.switch_to(l_go);
         let ((wh, wn), (nh, nn)) = (self.gen.work.words(), self.gen.next.words());
         let ended = b.icmp(IntCond::Eq, phase, ended_at);
-        let (w, n, wc, c) = (word(b, env, wh), word(b, env, nh), word(b, env, wn), word(b, env, nn));
+        let (w, n, wc, c) = (
+            word(b, env, wh),
+            word(b, env, nh),
+            word(b, env, wn),
+            word(b, env, nn),
+        );
         let empty = b.icmp(IntCond::Eq, c, env.zero);
         let (l_ended, l_swap) = (b.create_block(&[]), b.create_block(&[]));
         b.cond_br(ended, (l_ended, &[]), (l_swap, &[]));
         b.switch_to(l_ended);
         b.cond_br(empty, (l_eof, &[env.zero]), (l_swap, &[]));
         b.switch_to(l_swap);
-        let (nw, nwc, nn_h) = (b.select(ended, n, w), b.select(ended, c, wc), b.select(ended, w, n));
+        let (nw, nwc, nn_h) = (
+            b.select(ended, n, w),
+            b.select(ended, c, wc),
+            b.select(ended, w, n),
+        );
         set_word(b, env, wh, nw);
         set_word(b, env, wn, nwc);
         set_word(b, env, nh, nn_h);
         set_word(b, env, nn, env.zero);
-        let f = host(b, "m9_gen_check", gravity_kernels::contract::entry1::<GenCheck> as *const () as usize);
-        let st = b.call_host(f, &[env.ctx, g], Some(Type::I64)).unwrap_or(env.zero);
-        let (stop, l_now, l_first) = (b.icmp(IntCond::Slt, st, env.zero), b.create_block(&[]), b.create_block(&[]));
+        let f = host(
+            b,
+            "m9_gen_check",
+            gravity_kernels::contract::entry1::<GenCheck> as *const () as usize,
+        );
+        let st = b
+            .call_host(f, &[env.ctx, g], Some(Type::I64))
+            .unwrap_or(env.zero);
+        let (stop, l_now, l_first) = (
+            b.icmp(IntCond::Slt, st, env.zero),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         b.mark_cold(l_now);
         b.cond_br(stop, (l_now, &[]), (l_first, &[]));
         b.switch_to(l_now);
@@ -768,13 +1223,29 @@ impl Scan<'_> {
         let next_budget = b.select(past, cap, twice);
         env.store_word(b, w_budget, next_budget);
         let st = rerun.pull(b, env, budget, first);
-        let (failed, l_hold, l_ok, l_over, l_hand) = (b.icmp(IntCond::Slt, st, env.zero), b.create_block(&[]), b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));
+        let (failed, l_hold, l_ok, l_over, l_hand) = (
+            b.icmp(IntCond::Slt, st, env.zero),
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         b.mark_cold(l_hold);
         b.cond_br(failed, (l_hold, &[]), (l_ok, &[]));
         b.switch_to(l_hold);
-        let f = host(b, "m9_gen_hold", gravity_abi::host_words!(m9::m9_gen_hold(ctx, h)));
-        let kept = b.call_host(f, &[env.ctx, g], Some(Type::I64)).unwrap_or(env.zero);
-        let (passed, l_now, l_kept) = (b.icmp(IntCond::Slt, kept, env.zero), b.create_block(&[]), b.create_block(&[]));
+        let f = host(
+            b,
+            "m9_gen_hold",
+            gravity_abi::host_words!(m9::m9_gen_hold(ctx, h)),
+        );
+        let kept = b
+            .call_host(f, &[env.ctx, g], Some(Type::I64))
+            .unwrap_or(env.zero);
+        let (passed, l_now, l_kept) = (
+            b.icmp(IntCond::Slt, kept, env.zero),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         b.mark_cold(l_now);
         b.cond_br(passed, (l_now, &[]), (l_kept, &[]));
         b.switch_to(l_now);
@@ -792,7 +1263,11 @@ impl Scan<'_> {
         b.br(l_win, &[cur]);
         // the kept error, where PG's pull after the term's last good row raises it
         b.switch_to(l_raise);
-        let f = host(b, "m9_gen_raise", gravity_abi::host_words!(m9::m9_gen_raise(ctx, h)));
+        let f = host(
+            b,
+            "m9_gen_raise",
+            gravity_abi::host_words!(m9::m9_gen_raise(ctx, h)),
+        );
         b.call_host(f, &[env.ctx, g], Some(Type::I64));
         raise_host(b, env);
     }
@@ -800,11 +1275,16 @@ impl Scan<'_> {
     /// The table this window reads: `work` (the seed, and every generation unstreamed), or a streamed driver's `next` past
     /// the seed, through its view's handle word; and that table's row count.
     fn table(&self, b: &mut FunctionBuilder<'_>, env: &mut Env) -> Value {
-        let (Some(view), Some([w_phase, _, _])) = (&self.gen.view, self.stream) else { return self.gen.work.count(b, env) };
+        let (Some(view), Some([w_phase, _, _])) = (&self.gen.view, self.stream) else {
+            return self.gen.work.count(b, env);
+        };
         let phase = env.load_word(b, w_phase);
         let seed_at = b.iconst(Type::I64, PHASE_SEED);
         let seed = b.icmp(IntCond::Eq, phase, seed_at);
-        let (wh, nh) = (word(b, env, self.gen.work.words().0), word(b, env, self.gen.next.words().0));
+        let (wh, nh) = (
+            word(b, env, self.gen.work.words().0),
+            word(b, env, self.gen.next.words().0),
+        );
         let h = b.select(seed, wh, nh);
         set_word(b, env, view.words().0, h);
         let (wc, nc) = (self.gen.work.count(b, env), self.gen.next.count(b, env));
@@ -814,16 +1294,58 @@ impl Scan<'_> {
 
 impl SourceMech for Scan<'_> {
     fn open_words(&self, w: &mut OpenWords) {
-        w.declare(OpenWord::open("setop.recursive cursor", Base::Words, self.cursor, Type::I64, 0));
+        w.declare(OpenWord::open(
+            "setop.recursive cursor",
+            Base::Words,
+            self.cursor,
+            Type::I64,
+            0,
+        ));
         if let Some([phase, want, budget]) = self.stream {
-            w.declare(OpenWord::open("setop.recursive streamed phase", Base::Words, phase, Type::I64, PHASE_SEED));
-            w.declare(OpenWord::open("setop.recursive streamed want", Base::Words, want, Type::I64, 0));
-            w.declare(OpenWord::open("setop.recursive streamed budget", Base::Words, budget, Type::I64, FIRST_ASK));
+            w.declare(OpenWord::open(
+                "setop.recursive streamed phase",
+                Base::Words,
+                phase,
+                Type::I64,
+                PHASE_SEED,
+            ));
+            w.declare(OpenWord::open(
+                "setop.recursive streamed want",
+                Base::Words,
+                want,
+                Type::I64,
+                0,
+            ));
+            w.declare(OpenWord::open(
+                "setop.recursive streamed budget",
+                Base::Words,
+                budget,
+                Type::I64,
+                FIRST_ASK,
+            ));
         }
         if let Some((_, [state, want, ask])) = &self.seed {
-            w.declare(OpenWord::open("setop.recursive seed state", Base::Words, *state, Type::I64, S_START));
-            w.declare(OpenWord::open("setop.recursive seed want", Base::Words, *want, Type::I64, 0));
-            w.declare(OpenWord::open("setop.recursive seed budget", Base::Words, *ask, Type::I64, FIRST_ASK));
+            w.declare(OpenWord::open(
+                "setop.recursive seed state",
+                Base::Words,
+                *state,
+                Type::I64,
+                S_START,
+            ));
+            w.declare(OpenWord::open(
+                "setop.recursive seed want",
+                Base::Words,
+                *want,
+                Type::I64,
+                0,
+            ));
+            w.declare(OpenWord::open(
+                "setop.recursive seed budget",
+                Base::Words,
+                *ask,
+                Type::I64,
+                FIRST_ASK,
+            ));
         }
     }
 
@@ -834,7 +1356,10 @@ impl SourceMech for Scan<'_> {
     fn next_window(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, l_eof: Block) -> Win {
         let cursor = env.load_word(b, self.cursor);
         let total = self.table(b, env);
-        let (more, l_win) = (b.icmp(IntCond::Slt, cursor, total), b.create_block(&[Type::I64]));
+        let (more, l_win) = (
+            b.icmp(IntCond::Slt, cursor, total),
+            b.create_block(&[Type::I64]),
+        );
         match (&self.rerun, self.stream) {
             (None, _) => b.cond_br(more, (l_win, &[cursor]), (l_eof, &[env.zero])),
             (Some(r), stream) => {
@@ -860,11 +1385,23 @@ impl SourceMech for Scan<'_> {
         let far = b.int_bin(IntBinOp::Add, c, w);
         let past = b.icmp(IntCond::Sgt, far, total);
         let end = b.select(past, total, far);
-        Win { cursor: c, end, facts: WinConds::default() }
+        Win {
+            cursor: c,
+            end,
+            facts: WinConds::default(),
+        }
     }
 
     /// Record `j` of the working table (by reference: the table's copy, alive to the statement's end).
-    fn row<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e> {
+    fn row<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+        j: Value,
+        carry: Carry<'e>,
+        next: Value,
+    ) -> RowVals<'e> {
         if !self.win.get() {
             bug(self.node, "a work-table row before its window");
         }
@@ -887,7 +1424,11 @@ impl SourceMech for Scan<'_> {
 
 struct Iter;
 
-pub(super) fn make_step<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMech + 'g> {
+pub(super) fn make_step<'g>(
+    px: &mut Px<'g, '_>,
+    k: usize,
+    j: usize,
+) -> PgBox<'g, dyn StepMech + 'g> {
     let gx = px.gx;
     let p = &gx.pipelines()[k];
     match &p.ops[j] {
@@ -898,15 +1439,32 @@ pub(super) fn make_step<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g
         // run once (in no rerun set: the seed's INTERSECT / EXCEPT, setop_recurse :220 / :221) is setop.setop's own step,
         // its rows handed on into the union's table as into any end (lower.rs `make`); one the union's term reruns at each
         // generation keeps the refusal
-        Op::SetOp(SetDesc::Set { .. }) if !gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(k as u16))) => return super::lower::make(px, k, j),
+        Op::SetOp(SetDesc::Set { .. })
+            if !gx
+                .graph
+                .reruns
+                .iter()
+                .any(|r| r.pipelines.contains(&(k as u16))) =>
+        {
+            return super::lower::make(px, k, j)
+        }
         Op::SetOp(SetDesc::Set { .. }) => shape(p.node_id, SET_FILL),
-        _ => bug(p.node_id, "a setop.recursive step that is not its union's Iter"),
+        _ => bug(
+            p.node_id,
+            "a setop.recursive step that is not its union's Iter",
+        ),
     }
     mcx::pg_box_dyn!(px.mcx(), Iter => dyn StepMech + 'g)
 }
 
 impl StepMech for Iter {
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, next: Next<'_, 'e>) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        next: Next<'_, 'e>,
+    ) -> Carry<'e> {
         next(b, env, row)
     }
 }

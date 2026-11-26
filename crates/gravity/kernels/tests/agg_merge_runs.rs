@@ -8,11 +8,25 @@
 use gravity_abi::breaker::{KeyKind, RecordLayout, SlotKind, LAYOUT_WORDS, NUM_SENT_HI};
 use gravity_abi::program::PIN_STATEMENT;
 use gravity_abi::{Ctx, ProgramBlock};
-use gravity_kernels::host_abi::{agg_merge_runs, agg_merge_runs_part, agg_merge_runs_part_k, agg_runs_claim, agg_sort, RUNS_CLAIM_ALL, RUNS_CLAIM_NONE, RUNS_CLAIM_PARTS, merge_runs_into, EmitState, DESC_BYTES, DESC_FORM, DESC_LAYOUT, DESC_NSORT, DESC_SORT, FORM_BOUND_SHIFT, FORM_NULLKEY_SHIFT, PAR_MIN_RECORDS, RUNS_ENTRY_BYTES, RUNS_MAX, RUNS_STATE_OFF, RUNS_TABLE_WORDS, SK_DESC, SK_NULLS_FIRST, SK_SLOT};
+use gravity_kernels::host_abi::{
+    agg_merge_runs, agg_merge_runs_part, agg_merge_runs_part_k, agg_runs_claim, agg_sort,
+    merge_runs_into, EmitState, DESC_BYTES, DESC_FORM, DESC_LAYOUT, DESC_NSORT, DESC_SORT,
+    FORM_BOUND_SHIFT, FORM_NULLKEY_SHIFT, PAR_MIN_RECORDS, RUNS_CLAIM_ALL, RUNS_CLAIM_NONE,
+    RUNS_CLAIM_PARTS, RUNS_ENTRY_BYTES, RUNS_MAX, RUNS_STATE_OFF, RUNS_TABLE_WORDS, SK_DESC,
+    SK_NULLS_FIRST, SK_SLOT,
+};
 
 /// Keys: an int8 key (word 0), the NULL-flags word (word 1: its high bits the record's index, so the key rows are unique).
 /// Slots: 0 sum(numeric), 1 a wide sum(numeric), 2 sum(int8), 3 count.
-const LAYOUT: RecordLayout = RecordLayout::new(&[KeyKind::I64, KeyKind::I64], &[SlotKind::SumNum, SlotKind::SumNumWide, SlotKind::SumI128, SlotKind::Count]);
+const LAYOUT: RecordLayout = RecordLayout::new(
+    &[KeyKind::I64, KeyKind::I64],
+    &[
+        SlotKind::SumNum,
+        SlotKind::SumNumWide,
+        SlotKind::SumI128,
+        SlotKind::Count,
+    ],
+);
 
 struct Rng(u64);
 impl Rng {
@@ -63,7 +77,10 @@ fn records(rng: &mut Rng, m: usize, big: bool) -> Vec<Vec<u64>> {
             let c = pick(rng).unwrap_or(9);
             [r[slot(2)], r[slot(2) + 1]] = [c as u64, (c as u128 >> 64) as u64];
             r[slot(3)] = rng.below(3);
-            let bits = (0..3).fold(0b1000u8, |b, j| if rng.below(6) == 0 { b } else { b | 1 << j });
+            let bits = (0..3).fold(
+                0b1000u8,
+                |b, j| if rng.below(6) == 0 { b } else { b | 1 << j },
+            );
             let (o, _) = LAYOUT.valid_bit(0);
             // SAFETY: the validity byte lies inside the record's `size()` bytes.
             unsafe { *(r.as_mut_ptr() as *mut u8).add(o) = bits };
@@ -76,7 +93,8 @@ fn desc(words: &[u64], bound: Option<usize>) -> Vec<u64> {
     let mut d = vec![0u64; DESC_BYTES as usize / 8];
     let lw: [u64; LAYOUT_WORDS] = LAYOUT.words();
     d[DESC_LAYOUT / 8..DESC_LAYOUT / 8 + LAYOUT_WORDS].copy_from_slice(&lw);
-    d[DESC_FORM / 8] = 2 << FORM_NULLKEY_SHIFT | bound.map_or(0, |n| (n as u64 + 1) << FORM_BOUND_SHIFT);
+    d[DESC_FORM / 8] =
+        2 << FORM_NULLKEY_SHIFT | bound.map_or(0, |n| (n as u64 + 1) << FORM_BOUND_SHIFT);
     d[DESC_NSORT / 8] = words.len() as u64;
     d[DESC_SORT / 8..DESC_SORT / 8 + words.len()].copy_from_slice(words);
     d
@@ -85,21 +103,38 @@ fn desc(words: &[u64], bound: Option<usize>) -> Vec<u64> {
 /// `ptrs` in `agg_sort`'s order under `words` (the first `bound` of them under a bound).
 fn sort(ptrs: &mut [*const u8], words: &[u64], bound: Option<usize>) {
     let d = desc(words, bound);
-    let mut st = EmitState { ptrs: ptrs.as_mut_ptr(), len: ptrs.len() as u64, kept: ptrs.len() as u64 };
+    let mut st = EmitState {
+        ptrs: ptrs.as_mut_ptr(),
+        len: ptrs.len() as u64,
+        kept: ptrs.len() as u64,
+    };
     // SAFETY: a ctx is plain words; zero is its closed state (no text word reads a site).
     let mut ctx: Ctx = unsafe { core::mem::zeroed() };
     // SAFETY: `st` holds live records of `LAYOUT`, `d` a descriptor of it.
-    let r = unsafe { agg_sort(&mut ctx as *mut _ as u64, &mut st as *mut EmitState as u64, d.as_ptr() as u64) };
+    let r = unsafe {
+        agg_sort(
+            &mut ctx as *mut _ as u64,
+            &mut st as *mut EmitState as u64,
+            d.as_ptr() as u64,
+        )
+    };
     assert_eq!(r, 0);
 }
 
 fn word(rng: &mut Rng) -> u64 {
     let base = [SK_SLOT, SK_SLOT | 1, SK_SLOT | 2, SK_SLOT | 3, 0][rng.below(5) as usize];
-    base | if rng.below(2) == 0 { SK_DESC } else { 0 } | if rng.below(2) == 0 { SK_NULLS_FIRST } else { 0 }
+    base | if rng.below(2) == 0 { SK_DESC } else { 0 }
+        | if rng.below(2) == 0 { SK_NULLS_FIRST } else { 0 }
 }
 
 /// The records of `recs` cut into `k` runs at random (some empty), each sorted (under `bound`, keeping its first `bound`).
-fn runs(rng: &mut Rng, recs: &mut [Vec<u64>], k: usize, words: &[u64], bound: Option<usize>) -> Vec<Vec<*const u8>> {
+fn runs(
+    rng: &mut Rng,
+    recs: &mut [Vec<u64>],
+    k: usize,
+    words: &[u64],
+    bound: Option<usize>,
+) -> Vec<Vec<*const u8>> {
     let mut out: Vec<Vec<*const u8>> = vec![Vec::new(); k];
     for r in recs.iter_mut() {
         out[rng.below(k as u64) as usize].push(r.as_ptr() as *const u8);
@@ -135,12 +170,20 @@ fn merged_runs_are_the_union_sorted() {
         sort(&mut want, &words, None);
         let k = 1 + rng.below(RUNS_MAX as u64) as usize;
         let whole = runs(&mut rng, &mut recs, k, &words, None);
-        assert_eq!(merged(&whole, &words, m), want, "case {case}: {k} runs, words {words:x?}");
+        assert_eq!(
+            merged(&whole, &words, m),
+            want,
+            "case {case}: {k} runs, words {words:x?}"
+        );
         // each run cut at the bound, as a claim's top keeps its first n: the merge's first n are the union's
         for n in [1, 2, m / 3, m] {
             let cut = runs(&mut rng, &mut recs, k, &words, Some(n));
             let n = n.min(m);
-            assert_eq!(merged(&cut, &words, n), want[..n], "case {case}: {k} runs bound {n}, words {words:x?}");
+            assert_eq!(
+                merged(&cut, &words, n),
+                want[..n],
+                "case {case}: {k} runs bound {n}, words {words:x?}"
+            );
         }
     }
 }
@@ -161,7 +204,14 @@ fn run_table_one_run_is_its_own_array() {
     let call = |table: &mut Vec<u64>, ctx: &mut Ctx, n: u64| -> *const EmitState {
         table[RUNS_STATE_OFF / 8..].iter_mut().for_each(|w| *w = 0);
         // SAFETY: the table's entries name live arrays of live records of `LAYOUT`.
-        let r = unsafe { agg_merge_runs(ctx as *mut Ctx as u64, d.as_ptr() as u64, table.as_mut_ptr() as u64, n) };
+        let r = unsafe {
+            agg_merge_runs(
+                ctx as *mut Ctx as u64,
+                d.as_ptr() as u64,
+                table.as_mut_ptr() as u64,
+                n,
+            )
+        };
         assert_eq!(r as usize, table.as_ptr() as usize + RUNS_STATE_OFF);
         r as usize as *const EmitState
     };
@@ -176,7 +226,11 @@ fn run_table_one_run_is_its_own_array() {
         let st = call(&mut table, &mut ctx, n);
         // SAFETY: as above.
         unsafe {
-            assert_eq!((*st).ptrs as usize, run.as_ptr() as usize, "one run: no copy");
+            assert_eq!(
+                (*st).ptrs as usize,
+                run.as_ptr() as usize,
+                "one run: no copy"
+            );
             assert_eq!(((*st).len, (*st).kept), (k, k));
         }
     }
@@ -184,15 +238,29 @@ fn run_table_one_run_is_its_own_array() {
     let st = call(&mut table, &mut ctx, 7);
     (table[e], table[e + 1]) = (0, 0);
     // SAFETY: as above.
-    let again = unsafe { agg_merge_runs(&mut ctx as *mut Ctx as u64, d.as_ptr() as u64, table.as_mut_ptr() as u64, u64::MAX) };
+    let again = unsafe {
+        agg_merge_runs(
+            &mut ctx as *mut Ctx as u64,
+            d.as_ptr() as u64,
+            table.as_mut_ptr() as u64,
+            u64::MAX,
+        )
+    };
     assert_eq!(again as usize, st as usize);
     // SAFETY: as above.
-    unsafe { assert_eq!(((*st).ptrs as usize, (*st).kept), (run.as_ptr() as usize, 7)) };
+    unsafe {
+        assert_eq!(
+            ((*st).ptrs as usize, (*st).kept),
+            (run.as_ptr() as usize, 7)
+        )
+    };
 }
 
 /// The test's `Program.pin`: a zeroed region of its own (the statement bit dropped), leaked: kept to the process's end.
 unsafe extern "C" fn test_pin(_ctx: *mut Ctx, bytes: u64) -> *mut u8 {
-    vec![0u64; ((bytes & !PIN_STATEMENT) as usize).div_ceil(8)].leak().as_mut_ptr() as *mut u8
+    vec![0u64; ((bytes & !PIN_STATEMENT) as usize).div_ceil(8)]
+        .leak()
+        .as_mut_ptr() as *mut u8
 }
 
 /// A zeroed ctx whose program pins through `test_pin` (the merged array's statement pin), with its program block.
@@ -224,7 +292,9 @@ fn parts(table: &mut [u64], d: &[u64], threads: usize) {
             s.spawn(move || {
                 let (mut ctx, _program) = pin_ctx();
                 // SAFETY: the table's entries name live arrays of live records of `LAYOUT`; `dp` a descriptor of it.
-                let r = unsafe { agg_merge_runs_part(&mut *ctx as *mut Ctx as u64, dp as u64, tbl as u64) };
+                let r = unsafe {
+                    agg_merge_runs_part(&mut *ctx as *mut Ctx as u64, dp as u64, tbl as u64)
+                };
                 assert_eq!(r, 0);
             });
         }
@@ -236,7 +306,15 @@ fn parts(table: &mut [u64], d: &[u64], threads: usize) {
 #[test]
 fn parallel_parts_lay_the_reader_merge() {
     let mut rng = Rng(0xD333_6D33_36D3_336D);
-    for (case, (m, k, threads)) in [(PAR_MIN_RECORDS + 1000, RUNS_MAX, 8), (PAR_MIN_RECORDS * 3, 17, 3), (PAR_MIN_RECORDS + 5, 2, 1), (PAR_MIN_RECORDS * 2, RUNS_MAX, 5)].into_iter().enumerate() {
+    for (case, (m, k, threads)) in [
+        (PAR_MIN_RECORDS + 1000, RUNS_MAX, 8),
+        (PAR_MIN_RECORDS * 3, 17, 3),
+        (PAR_MIN_RECORDS + 5, 2, 1),
+        (PAR_MIN_RECORDS * 2, RUNS_MAX, 5),
+    ]
+    .into_iter()
+    .enumerate()
+    {
         let mut recs = records(&mut rng, m, case % 2 == 1);
         let nw = 1 + rng.below(3) as usize;
         let words: Vec<u64> = (0..nw).map(|_| word(&mut rng)).collect();
@@ -249,14 +327,31 @@ fn parallel_parts_lay_the_reader_merge() {
         let st = (table.as_ptr() as usize + RUNS_STATE_OFF) as *const EmitState;
         // SAFETY: the state the parts filed, inside the table: `len` records of the merged array.
         let got = unsafe {
-            assert_eq!(((*st).len, (*st).kept), (m as u64, m as u64), "case {case}: the parts filed every record");
+            assert_eq!(
+                ((*st).len, (*st).kept),
+                (m as u64, m as u64),
+                "case {case}: the parts filed every record"
+            );
             core::slice::from_raw_parts((*st).ptrs as *const *const u8, m)
         };
-        assert!(got == &want[..], "case {case}: {k} runs on {threads} threads, words {words:x?}");
+        assert!(
+            got == &want[..],
+            "case {case}: {k} runs on {threads} threads, words {words:x?}"
+        );
         let (mut ctx, _program) = pin_ctx();
         // SAFETY: as `parts`.
-        let r = unsafe { agg_merge_runs(&mut *ctx as *mut Ctx as u64, d.as_ptr() as u64, table.as_mut_ptr() as u64, u64::MAX) };
-        assert_eq!(r as usize, st as usize, "case {case}: the reader answers the parts' state");
+        let r = unsafe {
+            agg_merge_runs(
+                &mut *ctx as *mut Ctx as u64,
+                d.as_ptr() as u64,
+                table.as_mut_ptr() as u64,
+                u64::MAX,
+            )
+        };
+        assert_eq!(
+            r as usize, st as usize,
+            "case {case}: the reader answers the parts' state"
+        );
     }
 }
 
@@ -264,7 +359,15 @@ fn parallel_parts_lay_the_reader_merge() {
 #[test]
 fn parallel_parts_under_the_floor_leave_the_reader_merge() {
     let mut rng = Rng(0xD333_6000_0000_0002);
-    for (case, (m, k)) in [(PAR_MIN_RECORDS - 1, 9), (300, RUNS_MAX), (PAR_MIN_RECORDS + 10, 1), (0, 4)].into_iter().enumerate() {
+    for (case, (m, k)) in [
+        (PAR_MIN_RECORDS - 1, 9),
+        (300, RUNS_MAX),
+        (PAR_MIN_RECORDS + 10, 1),
+        (0, 4),
+    ]
+    .into_iter()
+    .enumerate()
+    {
         let mut recs = records(&mut rng, m, false);
         let words = [SK_SLOT | 2, 0];
         let mut want: Vec<*const u8> = recs.iter_mut().map(|r| r.as_ptr() as *const u8).collect();
@@ -275,14 +378,31 @@ fn parallel_parts_under_the_floor_leave_the_reader_merge() {
         parts(&mut table, &d, 4);
         let st = (table.as_ptr() as usize + RUNS_STATE_OFF) as *const EmitState;
         // SAFETY: the table's state words.
-        unsafe { assert!((*st).ptrs.is_null(), "case {case}: no state filed under the floor") };
+        unsafe {
+            assert!(
+                (*st).ptrs.is_null(),
+                "case {case}: no state filed under the floor"
+            )
+        };
         let (mut ctx, _program) = pin_ctx();
         // SAFETY: as `parts`.
-        let r = unsafe { agg_merge_runs(&mut *ctx as *mut Ctx as u64, d.as_ptr() as u64, table.as_mut_ptr() as u64, u64::MAX) };
+        let r = unsafe {
+            agg_merge_runs(
+                &mut *ctx as *mut Ctx as u64,
+                d.as_ptr() as u64,
+                table.as_mut_ptr() as u64,
+                u64::MAX,
+            )
+        };
         assert_eq!(r as usize, st as usize);
         // SAFETY: the reader's state: `len` records.
-        let got = unsafe { core::slice::from_raw_parts((*st).ptrs as *const *const u8, (*st).len as usize) };
-        assert!(got == &want[..], "case {case}: the reader's merge of {k} runs");
+        let got = unsafe {
+            core::slice::from_raw_parts((*st).ptrs as *const *const u8, (*st).len as usize)
+        };
+        assert!(
+            got == &want[..],
+            "case {case}: the reader's merge of {k} runs"
+        );
     }
 }
 
@@ -295,7 +415,14 @@ fn claim(table: &[u64], n: u64, lo: u64, hi: u64) -> (u64, u64, u64, i64) {
     ctx.claim = gravity_abi::ctx::MorselRange::new(lo, hi);
     let mut out = [7u64; 3];
     // SAFETY: a live run table, an object table of `n` handles, three words out.
-    let r = unsafe { agg_runs_claim(&mut ctx as *mut Ctx as u64, table.as_ptr() as u64, wtbl.as_ptr() as u64, out.as_mut_ptr() as u64) };
+    let r = unsafe {
+        agg_runs_claim(
+            &mut ctx as *mut Ctx as u64,
+            table.as_ptr() as u64,
+            wtbl.as_ptr() as u64,
+            out.as_mut_ptr() as u64,
+        )
+    };
     (out[0], out[1], out[2], r)
 }
 
@@ -306,7 +433,15 @@ fn claim(table: &[u64], n: u64, lo: u64, hi: u64) -> (u64, u64, u64, i64) {
 #[test]
 fn parts_cut_on_k_tile_the_merge_by_whole_values() {
     let mut rng = Rng(0xD333_6A1A_0000_0001);
-    for (case, (m, k, threads, vals)) in [(PAR_MIN_RECORDS * 3, RUNS_MAX, 8, 500u64), (PAR_MIN_RECORDS * 2, 9, 3, 7), (PAR_MIN_RECORDS + 7, 2, 1, 40_000), (PAR_MIN_RECORDS * 2, RUNS_MAX, 5, 1)].into_iter().enumerate() {
+    for (case, (m, k, threads, vals)) in [
+        (PAR_MIN_RECORDS * 3, RUNS_MAX, 8, 500u64),
+        (PAR_MIN_RECORDS * 2, 9, 3, 7),
+        (PAR_MIN_RECORDS + 7, 2, 1, 40_000),
+        (PAR_MIN_RECORDS * 2, RUNS_MAX, 5, 1),
+    ]
+    .into_iter()
+    .enumerate()
+    {
         let mut recs = records(&mut rng, m, false);
         for r in recs.iter_mut() {
             r[0] = rng.below(vals);
@@ -323,32 +458,66 @@ fn parts_cut_on_k_tile_the_merge_by_whole_values() {
                 s.spawn(move || {
                     let (mut ctx, _program) = pin_ctx();
                     // SAFETY: as `parts`.
-                    let r = unsafe { agg_merge_runs_part_k(&mut *ctx as *mut Ctx as u64, dp as u64, tbl as u64, 1) };
+                    let r = unsafe {
+                        agg_merge_runs_part_k(
+                            &mut *ctx as *mut Ctx as u64,
+                            dp as u64,
+                            tbl as u64,
+                            1,
+                        )
+                    };
                     assert_eq!(r, 0);
                 });
             }
         });
         let st = (table.as_ptr() as usize + RUNS_STATE_OFF) as *const EmitState;
         // SAFETY: the state the parts filed: `len` records of the merged array.
-        let got = unsafe { core::slice::from_raw_parts((*st).ptrs as *const *const u8, (*st).len as usize) };
-        assert!(got == &want[..], "case {case}: the K-cut parts are the one merge");
+        let got = unsafe {
+            core::slice::from_raw_parts((*st).ptrs as *const *const u8, (*st).len as usize)
+        };
+        assert!(
+            got == &want[..],
+            "case {case}: the K-cut parts are the one merge"
+        );
         // SAFETY: a merged record's first word (key 0).
         let key0 = |i: usize| unsafe { *(got[i] as *const u64) };
         for n in [1u64, 2, 7, 64, 300] {
             let mut at = 0u64;
             for i in 0..n {
                 let (lo, hi, obj, kind) = claim(&table, n, i, i + 1);
-                assert_eq!((kind, obj), (RUNS_CLAIM_PARTS, i + 1), "case {case}: claim {i} of {n} reads parts into its object");
-                assert!(lo == at && lo <= hi && hi <= m as u64, "case {case}: claim {i} of {n} at [{lo}, {hi}) after {at}");
+                assert_eq!(
+                    (kind, obj),
+                    (RUNS_CLAIM_PARTS, i + 1),
+                    "case {case}: claim {i} of {n} reads parts into its object"
+                );
+                assert!(
+                    lo == at && lo <= hi && hi <= m as u64,
+                    "case {case}: claim {i} of {n} at [{lo}, {hi}) after {at}"
+                );
                 if lo > 0 && lo < m as u64 {
-                    assert_ne!(key0(lo as usize - 1), key0(lo as usize), "case {case}: a value read by two claims ({n} objects)");
+                    assert_ne!(
+                        key0(lo as usize - 1),
+                        key0(lo as usize),
+                        "case {case}: a value read by two claims ({n} objects)"
+                    );
                 }
                 at = hi;
             }
-            assert_eq!(at, m as u64, "case {case}: the claims of {n} objects read every record");
+            assert_eq!(
+                at, m as u64,
+                "case {case}: the claims of {n} objects read every record"
+            );
         }
-        assert_eq!(claim(&table, 8, u64::MAX, u64::MAX).3, RUNS_CLAIM_NONE, "the section's end claim");
-        assert_eq!(claim(&table, 8, 0, u64::MAX), (0, u64::MAX, 0, RUNS_CLAIM_ALL), "the leader's whole claim");
+        assert_eq!(
+            claim(&table, 8, u64::MAX, u64::MAX).3,
+            RUNS_CLAIM_NONE,
+            "the section's end claim"
+        );
+        assert_eq!(
+            claim(&table, 8, 0, u64::MAX),
+            (0, u64::MAX, 0, RUNS_CLAIM_ALL),
+            "the leader's whole claim"
+        );
     }
     // under the floor: no cut, so claim 0 reads every record (dealt) and the others none
     let mut recs = records(&mut rng, 300, false);
@@ -358,7 +527,25 @@ fn parts_cut_on_k_tile_the_merge_by_whole_values() {
     let mut table = table_of(&rs);
     let (mut ctx, _program) = pin_ctx();
     // SAFETY: as `parts`.
-    assert_eq!(unsafe { agg_merge_runs_part_k(&mut *ctx as *mut Ctx as u64, d.as_ptr() as u64, table.as_mut_ptr() as u64, 1) }, 0);
-    assert_eq!(claim(&table, 4, 0, 1), (0, u64::MAX, 0, RUNS_CLAIM_ALL), "under the floor claim 0 reads every record");
-    assert_eq!(claim(&table, 4, 2, 3).3, RUNS_CLAIM_NONE, "under the floor another claim reads none");
+    assert_eq!(
+        unsafe {
+            agg_merge_runs_part_k(
+                &mut *ctx as *mut Ctx as u64,
+                d.as_ptr() as u64,
+                table.as_mut_ptr() as u64,
+                1,
+            )
+        },
+        0
+    );
+    assert_eq!(
+        claim(&table, 4, 0, 1),
+        (0, u64::MAX, 0, RUNS_CLAIM_ALL),
+        "under the floor claim 0 reads every record"
+    );
+    assert_eq!(
+        claim(&table, 4, 2, 3).3,
+        RUNS_CLAIM_NONE,
+        "under the floor another claim reads none"
+    );
 }

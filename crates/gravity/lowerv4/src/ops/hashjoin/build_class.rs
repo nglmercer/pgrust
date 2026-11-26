@@ -12,8 +12,10 @@ use types_nodes::Node;
 
 use crate::graph::Gx;
 
-pub(crate) use crate::effects::visible::hashjoin::{own_side, quiet_statement, shared_cte_raises, side, side_by, side_by_at};
 use crate::effects::visible::hashjoin::{keyed_side, own_side_by, own_side_nests, side_calls};
+pub(crate) use crate::effects::visible::hashjoin::{
+    own_side, quiet_statement, shared_cte_raises, side, side_by, side_by_at,
+};
 
 /// What PG's lazy paths could skip (D237): `Safe` when nothing it runs can raise or have an effect, `UserFn` when
 /// it calls a non-builtin function or a VOLATILE one (D1005: nextval, random; no deferral makes its effects exact:
@@ -38,16 +40,45 @@ fn between_safe(gx: &Gx<'_, '_>, x: usize) -> bool {
 }
 
 /// The pipelines that feed pipeline `k` through `slots`, transitively (each slot's producing life and all it consumes; a settled union's emit, `k` or one on the way: every arm; a streamed union's arm on the way: every arm of its run, `Gx::run_arms`, D2115).
-pub(crate) fn feed<'g>(gx: &Gx<'g, '_>, k: usize, slots: impl Iterator<Item = u8>) -> PgVec<'g, usize> {
-    let lives = |k: usize, s: u8| gx.life_of(k, s).map(|l| l.0 as usize).filter(|&l| l < gx.pipelines().len() && !gx.settled_work(k, s));
+pub(crate) fn feed<'g>(
+    gx: &Gx<'g, '_>,
+    k: usize,
+    slots: impl Iterator<Item = u8>,
+) -> PgVec<'g, usize> {
+    let lives = |k: usize, s: u8| {
+        gx.life_of(k, s)
+            .map(|l| l.0 as usize)
+            .filter(|&l| l < gx.pipelines().len() && !gx.settled_work(k, s))
+    };
     // D3897 (D3893's `arms_at`): a settled union's record a nest or SubPlan inner embedded in `k` reads names its nearest
     // arm alone (`life_of`); every arm feeds it, as `union_feeds` reads a graph emit's
-    let arms = |k: usize, s: u8| lives(k, s).filter(|&l| crate::rerun::union_arms::feed_of(&gx.pipelines()[l]) == Some(s)).map_or_else(|| PgVec::new_in(gx.mcx), |l| crate::rerun::union_join_arms::arms_upto(gx, l, s));
-    let (mut out, mut todo): (PgVec<'g, usize>, PgVec<'_, usize>) = (PgVec::new_in(gx.mcx), slots.flat_map(|s| lives(k, s).into_iter().chain(arms(k, s))).chain(gx.union_feeds(k)).collect_in(gx.mcx));
+    let arms = |k: usize, s: u8| {
+        lives(k, s)
+            .filter(|&l| crate::rerun::union_arms::feed_of(&gx.pipelines()[l]) == Some(s))
+            .map_or_else(
+                || PgVec::new_in(gx.mcx),
+                |l| crate::rerun::union_join_arms::arms_upto(gx, l, s),
+            )
+    };
+    let (mut out, mut todo): (PgVec<'g, usize>, PgVec<'_, usize>) = (
+        PgVec::new_in(gx.mcx),
+        slots
+            .flat_map(|s| lives(k, s).into_iter().chain(arms(k, s)))
+            .chain(gx.union_feeds(k))
+            .collect_in(gx.mcx),
+    );
     while let Some(p) = todo.pop() {
         if !out.contains(&p) {
             out.push_in(p);
-            todo.extend_in(gx.pipelines()[p].desc.consumes.iter().flat_map(|&s| lives(p, s).into_iter().chain(arms(p, s))).chain(gx.union_feeds(p)).chain(gx.run_arms(p)));
+            todo.extend_in(
+                gx.pipelines()[p]
+                    .desc
+                    .consumes
+                    .iter()
+                    .flat_map(|&s| lives(p, s).into_iter().chain(arms(p, s)))
+                    .chain(gx.union_feeds(p))
+                    .chain(gx.run_arms(p)),
+            );
         }
     }
     out
@@ -58,9 +89,17 @@ pub(crate) fn feed<'g>(gx: &Gx<'g, '_>, k: usize, slots: impl Iterator<Item = u8
 /// builds: RIGHT SEMI has no inner fill, M7-DRAIN under M7-PROBE's Owner-Ack).
 fn outer_first(gx: &Gx<'_, '_>, q: usize, j: usize) -> bool {
     match gx.pipelines()[q].ops.get(j) {
-        Some(Op::Join(JoinDesc::Probe { outer_first: true, jointype, catalog, .. })) => match *jointype {
+        Some(Op::Join(JoinDesc::Probe {
+            outer_first: true,
+            jointype,
+            catalog,
+            ..
+        })) => match *jointype {
             JoinType::JOIN_INNER => true,
-            JoinType::JOIN_LEFT | JoinType::JOIN_SEMI | JoinType::JOIN_ANTI | JoinType::JOIN_RIGHT_SEMI => !catalog,
+            JoinType::JOIN_LEFT
+            | JoinType::JOIN_SEMI
+            | JoinType::JOIN_ANTI
+            | JoinType::JOIN_RIGHT_SEMI => !catalog,
             _ => false,
         },
         _ => false,
@@ -96,13 +135,29 @@ fn outer_first(gx: &Gx<'_, '_>, q: usize, j: usize) -> bool {
 pub(crate) fn defers(gx: &Gx<'_, '_>, b: usize, q: usize, j: usize) -> bool {
     let p = &gx.pipelines()[b];
     let user = nonbuiltin_build(gx, q, j);
-    let keyed = if user { Side::UserFn } else { own_side_by(gx, b, &|n| side_calls(gx, n), None, usize::MAX) };
-    let (own, fed) = if user { (Side::UserFn, Side::UserFn) } else { (own_side(gx, b), side(gx, b)) };
-    let unfed = p.desc.consumes.is_empty() && !matches!(p.source, Source::Breaker { .. }) && (own == Side::Raises || keyed == Side::Raises);
+    let keyed = if user {
+        Side::UserFn
+    } else {
+        own_side_by(gx, b, &|n| side_calls(gx, n), None, usize::MAX)
+    };
+    let (own, fed) = if user {
+        (Side::UserFn, Side::UserFn)
+    } else {
+        (own_side(gx, b), side(gx, b))
+    };
+    let unfed = p.desc.consumes.is_empty()
+        && !matches!(p.source, Source::Breaker { .. })
+        && (own == Side::Raises || keyed == Side::Raises);
     let nest = || q >= gx.pipelines().len() && crate::ops::hashjoin::probe::nest_holds(gx, q, j, b);
     let lazy_endless = || q < gx.pipelines().len() && endless(gx, b, q);
-    let held = || crate::ops::hashjoin::strategies::rtfilter::held_feeders(gx, b) && !crate::effects::visible::hashjoin::loud_arms(gx, b);
-    outer_first(gx, q, j) && (unfed || ((fed == Side::Raises || fed.max(keyed) == Side::Raises) && held()) || nest()) && !crate::lifetime::hashjoin::kept_road(gx, q, j, b) && !lazy_endless()
+    let held = || {
+        crate::ops::hashjoin::strategies::rtfilter::held_feeders(gx, b)
+            && !crate::effects::visible::hashjoin::loud_arms(gx, b)
+    };
+    outer_first(gx, q, j)
+        && (unfed || ((fed == Side::Raises || fed.max(keyed) == Side::Raises) && held()) || nest())
+        && !crate::lifetime::hashjoin::kept_road(gx, q, j, b)
+        && !lazy_endless()
 }
 
 /// D4051: probe `j` of pipeline `q` reads a Hash whose build calls user code by the effects home's F5 walk over the Hash,
@@ -121,12 +176,27 @@ pub(crate) fn nonbuiltin_build(gx: &Gx<'_, '_>, q: usize, j: usize) -> bool {
 /// the same order.
 pub(crate) fn shared_cte(gx: &Gx<'_, '_>, b: usize, q: usize, j: usize) -> bool {
     let cte = |k: usize| match gx.pipelines()[k].source {
-        Source::Breaker { slot } => gx.life_of(k, slot).map(|l| l.0 as usize).filter(|&c| c < gx.pipelines().len() && gx.cte_write(c)),
+        Source::Breaker { slot } => gx
+            .life_of(k, slot)
+            .map(|l| l.0 as usize)
+            .filter(|&c| c < gx.pipelines().len() && gx.cte_write(c)),
         _ => None,
     };
     let Some(c) = cte(q) else { return false };
     let cp = &gx.pipelines()[c];
-    let mut its = feed(gx, c, cp.desc.consumes.iter().copied().chain(if let Source::Breaker { slot } = cp.source { Some(slot) } else { None }));
+    let mut its = feed(
+        gx,
+        c,
+        cp.desc
+            .consumes
+            .iter()
+            .copied()
+            .chain(if let Source::Breaker { slot } = cp.source {
+                Some(slot)
+            } else {
+                None
+            }),
+    );
     its.push_in(c);
     let fed = feed(gx, b, gx.pipelines()[b].desc.consumes.iter().copied());
     let uf = |n: Node<'_>| side_calls(gx, n);
@@ -136,16 +206,31 @@ pub(crate) fn shared_cte(gx: &Gx<'_, '_>, b: usize, q: usize, j: usize) -> bool 
     let ps = gx.pipelines();
     let quiet_plan = |x: usize| {
         x < ps.len() && {
-            let src = if let Source::Breaker { slot } = ps[x].source { Some(slot) } else { None };
-            feed(gx, x, ps[x].desc.consumes.iter().copied().chain(src)).into_iter().chain([x]).all(|y| its.contains(&y) || own_side(gx, y) == Side::Safe)
+            let src = if let Source::Breaker { slot } = ps[x].source {
+                Some(slot)
+            } else {
+                None
+            };
+            feed(gx, x, ps[x].desc.consumes.iter().copied().chain(src))
+                .into_iter()
+                .chain([x])
+                .all(|y| its.contains(&y) || own_side(gx, y) == Side::Safe)
         }
     };
-    let init = |id: i32| gx.graph.init_plans.iter().any(|i| i.params.iter().any(|p| p == id) && !gx.cte_write(i.pipeline as usize) && quiet_plan(i.pipeline as usize));
+    let init = |id: i32| {
+        gx.graph.init_plans.iter().any(|i| {
+            i.params.iter().any(|p| p == id)
+                && !gx.cte_write(i.pipeline as usize)
+                && quiet_plan(i.pipeline as usize)
+        })
+    };
     // D4661: `b`'s build keys and its feeding builds' too (`keyed_side`'s reading): the CTE runs whole in either order, but a
     // key runs only where its Hash does, which PG's outer-first join never runs when `q`'s quals leave no row
     cte(b) == Some(c)
         && own_side_by(gx, b, &uf, Some((&init, false)), usize::MAX) == Side::Safe
-        && fed.iter().all(|&x| its.contains(&x) || own_side_by(gx, x, &uf, None, usize::MAX) == Side::Safe)
+        && fed
+            .iter()
+            .all(|&x| its.contains(&x) || own_side_by(gx, x, &uf, None, usize::MAX) == Side::Safe)
         && own_side_by(gx, q, &uf, None, j) == Side::Safe
 }
 
@@ -157,11 +242,35 @@ pub(crate) fn shared_cte(gx: &Gx<'_, '_>, b: usize, q: usize, j: usize) -> bool 
 pub(crate) fn endless(gx: &Gx<'_, '_>, b: usize, q: usize) -> bool {
     let ps = gx.pipelines();
     let iters = |k: usize, slots: PgVec<'_, u8>| {
-        let runs = |x: &usize| *x < ps.len() && ps[*x].ops.iter().any(|op| crate::graph::step_kind(op) == crate::face::kinds::KindId::SetopRecursive);
-        feed(gx, k, slots.into_iter()).into_iter().chain([k]).filter(runs).collect_in(gx.mcx)
+        let runs = |x: &usize| {
+            *x < ps.len()
+                && ps[*x].ops.iter().any(|op| {
+                    crate::graph::step_kind(op) == crate::face::kinds::KindId::SetopRecursive
+                })
+        };
+        feed(gx, k, slots.into_iter())
+            .into_iter()
+            .chain([k])
+            .filter(runs)
+            .collect_in(gx.mcx)
     };
-    let src = |k: usize| if let Source::Breaker { slot } = ps[k].source { Some(slot) } else { None };
-    let mine = iters(b, ps[b].desc.consumes.iter().copied().chain(src(b)).collect_in(gx.mcx));
+    let src = |k: usize| {
+        if let Source::Breaker { slot } = ps[k].source {
+            Some(slot)
+        } else {
+            None
+        }
+    };
+    let mine = iters(
+        b,
+        ps[b]
+            .desc
+            .consumes
+            .iter()
+            .copied()
+            .chain(src(b))
+            .collect_in(gx.mcx),
+    );
     let theirs = iters(q, src(q).into_iter().collect_in(gx.mcx));
     mine.iter().any(|x| !theirs.contains(x))
 }
@@ -180,14 +289,29 @@ pub(crate) struct Outer<'g> {
 
 pub(crate) fn outer<'g>(gx: &Gx<'g, '_>, b: usize, q: usize, j: usize) -> Outer<'g> {
     let p = &gx.pipelines()[q];
-    let mut o = Outer { skip: 0, rest: Side::Safe, all: Side::Safe, raising: PgVec::new_in(gx.mcx) };
+    let mut o = Outer {
+        skip: 0,
+        rest: Side::Safe,
+        all: Side::Safe,
+        raising: PgVec::new_in(gx.mcx),
+    };
     // M7 L0-e: every build-first type but those that fill the outer (LEFT, ANTI, FULL: HJ_FILL_OUTER runs it whatever the
     // build holds, nodeHashjoin.c:351)
-    let fills = |jt: JoinType| matches!(jt, JoinType::JOIN_LEFT | JoinType::JOIN_ANTI | JoinType::JOIN_FULL);
-    if !matches!(p.ops.get(j), Some(Op::Join(JoinDesc::Probe { outer_first: false, jointype, .. })) if !fills(*jointype)) {
+    let fills = |jt: JoinType| {
+        matches!(
+            jt,
+            JoinType::JOIN_LEFT | JoinType::JOIN_ANTI | JoinType::JOIN_FULL
+        )
+    };
+    if !matches!(p.ops.get(j), Some(Op::Join(JoinDesc::Probe { outer_first: false, jointype, .. })) if !fills(*jointype))
+    {
         return o;
     }
-    let src = if let Source::Breaker { slot } = p.source { Some(slot) } else { None };
+    let src = if let Source::Breaker { slot } = p.source {
+        Some(slot)
+    } else {
+        None
+    };
     // D4195: a Drain before `j` hands on the rows of a lower RIGHT / FULL join: its build is `q`'s source, and the pipeline
     // that probes it fills the spool the Drain reads (`matches`); PostgreSQL never runs that lower join over an empty build
     // (nodeHashjoin.c returns before its first outer fetch), so its probe pipeline is outer side too
@@ -200,12 +324,31 @@ pub(crate) fn outer<'g>(gx: &Gx<'g, '_>, b: usize, q: usize, j: usize) -> Outer<
     // does (a feeder outside the build's set runs once, ahead of the set's first call: a LATERAL inner's HashAggregate over
     // a CTE, PG's outer of a build that is empty on every call). One re-run where the build is not (D1904's kept table)
     // runs after it in every call
-    let calls = |x: usize| gx.graph.reruns.iter().all(|r| !r.pipelines.contains(&(b as u16)) || r.pipelines.contains(&(x as u16)));
+    let calls = |x: usize| {
+        gx.graph
+            .reruns
+            .iter()
+            .all(|r| !r.pipelines.contains(&(b as u16)) || r.pipelines.contains(&(x as u16)))
+    };
     // M7 L0-b2: a source that may raise or call (a VALUES row, a function, an index key) is `q`'s own and runs
     // only after the build, so an empty build lets the runner skip `q` whole: PG never fetches its outer
     // a nest inner's own source the runner cannot skip, read quietly with the bound parameters (`own_side_by`: an initdb
     // btree index of quiet keys, regress create_table_like#464's pg_attribute walk), raises on no input
-    let own_quiet = || matches!(own_side_by(gx, q, &|n| side_calls(gx, n), Some((&|id| gx.graph.params.iter().any(|x| x.0 == id), quiet_statement(gx))), 0), Side::Safe);
+    let own_quiet = || {
+        matches!(
+            own_side_by(
+                gx,
+                q,
+                &|n| side_calls(gx, n),
+                Some((
+                    &|id| gx.graph.params.iter().any(|x| x.0 == id),
+                    quiet_statement(gx)
+                )),
+                0
+            ),
+            Side::Safe
+        )
+    };
     if src.is_none() && !matches!(p.source, Source::Range { .. }) {
         o.all = Side::Raises;
         match q < 40 && calls(q) {
@@ -219,19 +362,40 @@ pub(crate) fn outer<'g>(gx: &Gx<'g, '_>, b: usize, q: usize, j: usize) -> Outer<
     }
     // gen ct-0097: a `q` reading a CTE's store as its source pulls the CTE as it reads (ops/ctescan/lower.rs): the runner
     // skips it whole over an empty build (DRIVER's `run_empty`, a site-less pipeline's too), so it pulls no row
-    if q > b && q < 40 && calls(q) && src.and_then(|s| gx.life_of(q, s)).is_some_and(|l| (l.0 as usize) < gx.pipelines().len() && gx.cte_write(l.0 as usize)) {
+    if q > b
+        && q < 40
+        && calls(q)
+        && src
+            .and_then(|s| gx.life_of(q, s))
+            .is_some_and(|l| (l.0 as usize) < gx.pipelines().len() && gx.cte_write(l.0 as usize))
+    {
         o.skip |= 1 << q;
     }
     let f = feed(gx, q, src.into_iter().chain(probes));
-    let reads = |c: usize, x: usize| gx.pipelines()[c].desc.consumes.iter().any(|&s| gx.life_of(c, s).is_some_and(|l| l.0 as usize == x));
+    let reads = |c: usize, x: usize| {
+        gx.pipelines()[c]
+            .desc
+            .consumes
+            .iter()
+            .any(|&s| gx.life_of(c, s).is_some_and(|l| l.0 as usize == x))
+    };
     // gen dsx-0124 / shop-0445 (held-out M4): a pipeline that runs whatever the build holds counts what PG 18.6 would raise
     // there, `side_by`'s reading (W4b-RowX): an initdb btree index or bitmap of quiet keys (a Hash Right Join's build over a
     // date range) is quiet, as a heap scan is; a statement with a `loud` pipeline reads as before
-    let (bound, quiet) = (|id: i32| gx.graph.params.iter().any(|x| x.0 == id), quiet_statement(gx));
+    let (bound, quiet) = (
+        |id: i32| gx.graph.params.iter().any(|x| x.0 == id),
+        quiet_statement(gx),
+    );
     let uf = |n: Node<'_>| side_calls(gx, n);
     let ran = |x: usize| {
         let ops = &gx.pipelines()[x].ops;
-        own_side_by(gx, x, &uf, Some((&bound, quiet)), ops.len() - matches!(ops.last(), Some(Op::Join(JoinDesc::Build { .. }))) as usize)
+        own_side_by(
+            gx,
+            x,
+            &uf,
+            Some((&bound, quiet)),
+            ops.len() - matches!(ops.last(), Some(Op::Join(JoinDesc::Build { .. }))) as usize,
+        )
     };
     let mut kept = PgVec::new_in(gx.mcx);
     for &x in &f {
@@ -250,9 +414,15 @@ pub(crate) fn outer<'g>(gx: &Gx<'g, '_>, b: usize, q: usize, j: usize) -> Outer<
     let unpulled = loop {
         let unpulled = pulled_by_skipped(gx, &f, o.skip);
         let mut more = false;
-        for &c in f.iter().filter(|&&c| gx.cte_write(c) && !unpulled.contains(&c)) {
+        for &c in f
+            .iter()
+            .filter(|&&c| gx.cte_write(c) && !unpulled.contains(&c))
+        {
             let skip = o.skip;
-            for x in pulled_set(gx, c).into_iter().filter(|&x| x < 40 && skip >> x & 1 != 0) {
+            for x in pulled_set(gx, c)
+                .into_iter()
+                .filter(|&x| x < 40 && skip >> x & 1 != 0)
+            {
                 o.skip &= !(1 << x);
                 kept.push_in((x, ran(x)));
                 more = true;
@@ -263,7 +433,10 @@ pub(crate) fn outer<'g>(gx: &Gx<'g, '_>, b: usize, q: usize, j: usize) -> Outer<
         }
     };
     let whole = whole_at_build(gx, b);
-    for (x, s) in kept.into_iter().filter(|(x, _)| !whole.contains(x) && !unpulled.contains(x)) {
+    for (x, s) in kept
+        .into_iter()
+        .filter(|(x, _)| !whole.contains(x) && !unpulled.contains(x))
+    {
         o.rest = o.rest.max(s);
         if s == Side::Raises {
             o.raising.push_in(x);
@@ -274,13 +447,27 @@ pub(crate) fn outer<'g>(gx: &Gx<'g, '_>, b: usize, q: usize, j: usize) -> Outer<
 
 /// D3373: pipeline `k` is in a CTE's pulled set (`pulled_set`).
 pub(crate) fn in_pulled_set(gx: &Gx<'_, '_>, k: usize) -> bool {
-    (0..gx.pipelines().len()).filter(|&c| gx.cte_write(c)).any(|c| pulled_set(gx, c).contains(&k))
+    (0..gx.pipelines().len())
+        .filter(|&c| gx.cte_write(c))
+        .any(|c| pulled_set(gx, c).contains(&k))
 }
 
 /// A CTE's pulled set: its producer `c` and every pipeline feeding it (ops/ctescan/lower.rs: they run at its readers' pulls).
 fn pulled_set<'g>(gx: &Gx<'g, '_>, c: usize) -> PgVec<'g, usize> {
     let cp = &gx.pipelines()[c];
-    let mut its = feed(gx, c, cp.desc.consumes.iter().copied().chain(if let Source::Breaker { slot } = cp.source { Some(slot) } else { None }));
+    let mut its = feed(
+        gx,
+        c,
+        cp.desc
+            .consumes
+            .iter()
+            .copied()
+            .chain(if let Source::Breaker { slot } = cp.source {
+                Some(slot)
+            } else {
+                None
+            }),
+    );
     its.push_in(c);
     its
 }
@@ -293,18 +480,43 @@ fn pulled_set<'g>(gx: &Gx<'g, '_>, c: usize) -> PgVec<'g, usize> {
 fn pulled_by_skipped<'g>(gx: &Gx<'g, '_>, f: &[usize], skip: u64) -> PgVec<'g, usize> {
     let ps = gx.pipelines();
     let reads = |p: usize, x: usize| {
-        let src = if let Source::Breaker { slot } = ps[p].source { Some(slot) } else { None };
-        ps[p].desc.consumes.iter().copied().chain(src).any(|s| gx.life_of(p, s).is_some_and(|l| l.0 as usize == x))
+        let src = if let Source::Breaker { slot } = ps[p].source {
+            Some(slot)
+        } else {
+            None
+        };
+        ps[p]
+            .desc
+            .consumes
+            .iter()
+            .copied()
+            .chain(src)
+            .any(|s| gx.life_of(p, s).is_some_and(|l| l.0 as usize == x))
     };
     let mut out = PgVec::new_in(gx.mcx);
     for &c in f.iter().filter(|&&c| gx.cte_write(c)) {
         let set = pulled_set(gx, c);
-        let writes = set.iter().any(|&p| ps[p].ops.iter().any(|op| matches!(op, Op::Write(_))));
+        let writes = set
+            .iter()
+            .any(|&p| ps[p].ops.iter().any(|op| matches!(op, Op::Write(_))));
         // a set inside the pulled set (a recursive union's generations, setop P6) runs only at the CTE's pulls too
-        let rerun = gx.graph.reruns.iter().any(|r| set.iter().any(|&p| r.pipelines.contains(&(p as u16))) && !r.pipelines.iter().all(|&x| set.contains(&(x as usize))));
-        let inner = ps.inners().iter().any(|(_, x)| x.desc.consumes_from.iter().any(|l| l.0 as usize == c));
-        let readers = (0..ps.len()).filter(|&p| !set.contains(&p) && reads(p, c)).collect_in(gx.mcx);
-        if !writes && !rerun && !inner && !readers.is_empty() && readers.iter().all(|&p| p < 40 && skip & 1 << p != 0) {
+        let rerun = gx.graph.reruns.iter().any(|r| {
+            set.iter().any(|&p| r.pipelines.contains(&(p as u16)))
+                && !r.pipelines.iter().all(|&x| set.contains(&(x as usize)))
+        });
+        let inner = ps
+            .inners()
+            .iter()
+            .any(|(_, x)| x.desc.consumes_from.iter().any(|l| l.0 as usize == c));
+        let readers = (0..ps.len())
+            .filter(|&p| !set.contains(&p) && reads(p, c))
+            .collect_in(gx.mcx);
+        if !writes
+            && !rerun
+            && !inner
+            && !readers.is_empty()
+            && readers.iter().all(|&p| p < 40 && skip & 1 << p != 0)
+        {
             out.extend_in(set);
         }
     }
@@ -330,27 +542,62 @@ fn pulled_by_skipped<'g>(gx: &Gx<'g, '_>, f: &[usize], skip: u64) -> PgVec<'g, u
 fn whole_at_build<'g>(gx: &Gx<'g, '_>, b: usize) -> PgVec<'g, usize> {
     let ps = gx.pipelines();
     let uf = |n: Node<'_>| side_calls(gx, n);
-    let rows = |x: usize| ps[x].ops.iter().all(|op| matches!(op, Op::Filter(_) | Op::Project(_) | Op::Join(JoinDesc::Build { .. }))) && own_side_by(gx, x, &uf, None, ps[x].ops.len()) == Side::Safe;
+    let rows = |x: usize| {
+        ps[x].ops.iter().all(|op| {
+            matches!(
+                op,
+                Op::Filter(_) | Op::Project(_) | Op::Join(JoinDesc::Build { .. })
+            )
+        }) && own_side_by(gx, x, &uf, None, ps[x].ops.len()) == Side::Safe
+    };
     let capped = |x: usize| {
         use crate::frame::iface::{limit_settled, limit_stopping, limit_with_ties};
         let ops = &ps[x].ops;
-        let cap = |op: &Op<'_>| limit_settled(op) && limit_stopping(op).is_none() && !limit_with_ties(op);
-        let Some(j) = ops.iter().position(cap) else { return false };
-        let before = ops[..j].iter().all(|op| matches!(op, Op::Filter(_) | Op::Project(_)));
-        let after = ops[j + 1..].iter().all(|op| matches!(op, Op::Project(_) | Op::Join(JoinDesc::Build { .. })));
+        let cap =
+            |op: &Op<'_>| limit_settled(op) && limit_stopping(op).is_none() && !limit_with_ties(op);
+        let Some(j) = ops.iter().position(cap) else {
+            return false;
+        };
+        let before = ops[..j]
+            .iter()
+            .all(|op| matches!(op, Op::Filter(_) | Op::Project(_)));
+        let after = ops[j + 1..]
+            .iter()
+            .all(|op| matches!(op, Op::Project(_) | Op::Join(JoinDesc::Build { .. })));
         before && after && own_side_nests(gx, x, &uf, None, ops.len(), true) == Side::Safe
     };
     let from = |x: usize| match ps[x].source {
-        Source::Breaker { slot } => gx.life_of(x, slot).map(|l| l.0 as usize).filter(|&y| y < ps.len()),
+        Source::Breaker { slot } => gx
+            .life_of(x, slot)
+            .map(|l| l.0 as usize)
+            .filter(|&y| y < ps.len()),
         _ => None,
     };
     if crate::rerun::union_arms::union_reader(&ps[b]) {
-        let quiet = ps[b].ops[1..].iter().all(|op| matches!(op, Op::Filter(_) | Op::Project(_) | Op::Join(JoinDesc::Build { .. }))) && own_side_by(gx, b, &uf, None, ps[b].ops.len()) == Side::Safe;
+        let quiet = ps[b].ops[1..].iter().all(|op| {
+            matches!(
+                op,
+                Op::Filter(_) | Op::Project(_) | Op::Join(JoinDesc::Build { .. })
+            )
+        }) && own_side_by(gx, b, &uf, None, ps[b].ops.len()) == Side::Safe;
         let calls = |x: usize| own_side_by(gx, x, &uf, None, ps[x].ops.len()) == Side::UserFn;
-        let feed = |f: usize| ps[f].ops.iter().all(|op| matches!(op, Op::Filter(_) | Op::Project(_)) || crate::rerun::union_arms::feed_op(op));
+        let feed = |f: usize| {
+            ps[f].ops.iter().all(|op| {
+                matches!(op, Op::Filter(_) | Op::Project(_))
+                    || crate::rerun::union_arms::feed_op(op)
+            })
+        };
         let mut out = PgVec::new_in(gx.mcx);
-        for f in gx.union_feeds(b).into_iter().filter(|&f| quiet && feed(f) && !calls(f)) {
-            if let Some(set) = from(f).filter(|&c| gx.cte_write(c)).map(|c| pulled_set(gx, c)).filter(|set| !set.iter().any(|&x| calls(x))) {
+        for f in gx
+            .union_feeds(b)
+            .into_iter()
+            .filter(|&f| quiet && feed(f) && !calls(f))
+        {
+            if let Some(set) = from(f)
+                .filter(|&c| gx.cte_write(c))
+                .map(|c| pulled_set(gx, c))
+                .filter(|set| !set.iter().any(|&x| calls(x)))
+            {
                 out.extend_in(set);
             }
         }
@@ -358,10 +605,12 @@ fn whole_at_build<'g>(gx: &Gx<'g, '_>, b: usize) -> PgVec<'g, usize> {
     }
     let c = match from(b) {
         Some(c) if (rows(b) || capped(b)) && gx.cte_write(c) => c,
-        Some(x) if rows(b) && rows(x) && gx.group_at(x).is_none_or(|g| g.aggs.is_empty()) => match from(x) {
-            Some(c) if gx.cte_write(c) => c,
-            _ => return PgVec::new_in(gx.mcx),
-        },
+        Some(x) if rows(b) && rows(x) && gx.group_at(x).is_none_or(|g| g.aggs.is_empty()) => {
+            match from(x) {
+                Some(c) if gx.cte_write(c) => c,
+                _ => return PgVec::new_in(gx.mcx),
+            }
+        }
         _ => return PgVec::new_in(gx.mcx),
     };
     pulled_set(gx, c)
@@ -391,14 +640,28 @@ pub(crate) fn fed(gx: &Gx<'_, '_>, b: usize) -> bool {
 /// group, read by every arm (`lazy_group_by`), and a later arm waits on the pending slot when no earlier arm ran it
 /// (driver entry.rs `lazy_build`: a later reader of a lazy build's slot), as PostgreSQL builds the Hash at the first
 /// row its outer Append hands on, whichever leaf makes it.
-pub(crate) fn lazy<'g>(px: &crate::frame::px::Px<'g, '_>, b: usize, q: usize, j: usize, consumed: usize, slot: u8) -> Option<PgVec<'g, usize>> {
-    let probe = matches!(px.gx.pipelines()[q].ops.get(j), Some(Op::Join(JoinDesc::Probe { catalog: false, .. })));
+pub(crate) fn lazy<'g>(
+    px: &crate::frame::px::Px<'g, '_>,
+    b: usize,
+    q: usize,
+    j: usize,
+    consumed: usize,
+    slot: u8,
+) -> Option<PgVec<'g, usize>> {
+    let probe = matches!(
+        px.gx.pipelines()[q].ops.get(j),
+        Some(Op::Join(JoinDesc::Probe { catalog: false, .. }))
+    );
     if !(probe && outer_first(px.gx, q, j)) {
         return None;
     }
     if let Some(arms) = probe_arms(px.gx, b, q) {
         if arms[0] != q {
-            return px.lazy.iter().any(|&(x, r)| x == b && r == arms[0]).then(|| PgVec::new_in(px.mcx()));
+            return px
+                .lazy
+                .iter()
+                .any(|&(x, r)| x == b && r == arms[0])
+                .then(|| PgVec::new_in(px.mcx()));
         }
         return lazy_group_by(px, b, q, &arms[..], consumed, slot, &[]);
     }
@@ -410,17 +673,36 @@ pub(crate) fn lazy<'g>(px: &crate::frame::px::Px<'g, '_>, b: usize, q: usize, j:
 fn probe_arms<'g>(gx: &Gx<'g, '_>, b: usize, q: usize) -> Option<PgVec<'g, usize>> {
     let ps = gx.pipelines();
     let s = ps[b].desc.produces()?;
-    let readers = (b + 1..ps.len()).filter(|&r| ps[r].desc.consumes.contains(&s) && gx.life_of(r, s).is_some_and(|l| l.0 as usize == b)).collect_in(gx.mcx);
-    let probes = |r: usize| ps[r].ops.iter().enumerate().any(|(jr, o)| matches!(o, Op::Join(JoinDesc::Probe { slot, catalog: false, .. }) if *slot == s) && outer_first(gx, r, jr));
+    let readers = (b + 1..ps.len())
+        .filter(|&r| {
+            ps[r].desc.consumes.contains(&s) && gx.life_of(r, s).is_some_and(|l| l.0 as usize == b)
+        })
+        .collect_in(gx.mcx);
+    let probes = |r: usize| {
+        ps[r].ops.iter().enumerate().any(|(jr, o)| {
+            matches!(o, Op::Join(JoinDesc::Probe { slot, catalog: false, .. }) if *slot == s)
+                && outer_first(gx, r, jr)
+        })
+    };
     let arm = |r: usize| ps[r].ops.iter().any(crate::graph::is_arm);
-    (readers.len() >= 2 && readers.contains(&q) && readers.iter().all(|&r| probes(r) && arm(r))).then_some(readers)
+    (readers.len() >= 2 && readers.contains(&q) && readers.iter().all(|&r| probes(r) && arm(r)))
+        .then_some(readers)
 }
 
 /// D2717: `lazy` for probe `j` of `q`; in the spill pair pass's copy of it (spill/pair.rs `pair`, `JoinExt::pairing`) the
 /// original's reading: the original declared build `b`'s group (`px.lazy`), so the copy takes it as lazy and declares none
 /// (`lazy_group` would refuse a group already declared). The pass runs after `q`, so `b` has run before any kept row.
-pub(crate) fn lazy_or_copy<'g>(px: &crate::frame::px::Px<'g, '_>, b: usize, q: usize, j: usize, consumed: usize, slot: u8) -> Option<PgVec<'g, usize>> {
-    let pairing = px.ext::<crate::ops::hashjoin::build_side::JoinExt>(crate::face::kinds::Face::Join).and_then(|e| e.pairing);
+pub(crate) fn lazy_or_copy<'g>(
+    px: &crate::frame::px::Px<'g, '_>,
+    b: usize,
+    q: usize,
+    j: usize,
+    consumed: usize,
+    slot: u8,
+) -> Option<PgVec<'g, usize>> {
+    let pairing = px
+        .ext::<crate::ops::hashjoin::build_side::JoinExt>(crate::face::kinds::Face::Join)
+        .and_then(|e| e.pairing);
     if pairing == Some((q, px.ident(q))) && px.lazy.contains(&(b, q)) {
         return Some(PgVec::new_in(px.mcx()));
     }
@@ -429,28 +711,68 @@ pub(crate) fn lazy_or_copy<'g>(px: &crate::frame::px::Px<'g, '_>, b: usize, q: u
 
 /// D824's group and admission for build `b` read by pipeline `q` at its first row (`lazy`'s probe; merge.join's inner at
 /// INITIALIZE_INNER, MERGE R3 (ii), whose outer's feeders `before` PG runs first: not quiet, not in the group, W8-D1236).
-pub(crate) fn lazy_group<'g>(px: &crate::frame::px::Px<'g, '_>, b: usize, q: usize, consumed: usize, slot: u8, before: &[usize]) -> Option<PgVec<'g, usize>> {
+pub(crate) fn lazy_group<'g>(
+    px: &crate::frame::px::Px<'g, '_>,
+    b: usize,
+    q: usize,
+    consumed: usize,
+    slot: u8,
+    before: &[usize],
+) -> Option<PgVec<'g, usize>> {
     lazy_group_by(px, b, q, &[q], consumed, slot, before)
 }
 
 /// `lazy_group` with `readers` the pipelines that may read `b`, `q` the first (rowsecurity#343: a streamed write's arms
 /// whose nest copies read one Material, material's rerun/spool/lazy.rs).
-pub(crate) fn lazy_group_by<'g>(px: &crate::frame::px::Px<'g, '_>, b: usize, q: usize, readers: &[usize], consumed: usize, slot: u8, before: &[usize]) -> Option<PgVec<'g, usize>> {
+pub(crate) fn lazy_group_by<'g>(
+    px: &crate::frame::px::Px<'g, '_>,
+    b: usize,
+    q: usize,
+    readers: &[usize],
+    consumed: usize,
+    slot: u8,
+    before: &[usize],
+) -> Option<PgVec<'g, usize>> {
     lazy_group_with(px, b, q, readers, (consumed, slot), before, false)
 }
 
 /// D3897 (material's rerun/spool/lazy.rs `drain_wait`): `lazy_group` for the probe `b` that fills a RIGHT / FULL drain's
 /// spool nest `q`'s embedded inner reads: the build it probes is read by `q` too, through that inner's drain alone.
-pub(crate) fn lazy_group_drain<'g>(px: &crate::frame::px::Px<'g, '_>, b: usize, q: usize, consumed: usize, slot: u8, before: &[usize]) -> Option<PgVec<'g, usize>> {
+pub(crate) fn lazy_group_drain<'g>(
+    px: &crate::frame::px::Px<'g, '_>,
+    b: usize,
+    q: usize,
+    consumed: usize,
+    slot: u8,
+    before: &[usize],
+) -> Option<PgVec<'g, usize>> {
     lazy_group_with(px, b, q, &[q], (consumed, slot), before, true)
 }
 
 /// `lazy_group_by`; `inner`: a producer of `b` may be read by `readers` too (`lazy_group_drain`).
-fn lazy_group_with<'g>(px: &crate::frame::px::Px<'g, '_>, b: usize, q: usize, readers: &[usize], (consumed, slot): (usize, u8), before: &[usize], inner: bool) -> Option<PgVec<'g, usize>> {
+fn lazy_group_with<'g>(
+    px: &crate::frame::px::Px<'g, '_>,
+    b: usize,
+    q: usize,
+    readers: &[usize],
+    (consumed, slot): (usize, u8),
+    before: &[usize],
+    inner: bool,
+) -> Option<PgVec<'g, usize>> {
     let gx = px.gx;
     let bp = &gx.pipelines()[b];
-    let reads = |c: usize, x: usize| gx.pipelines()[c].desc.consumes.iter().any(|&s| gx.life_of(c, s).is_some_and(|l| l.0 as usize == x));
-    let src = if let Source::Breaker { slot } = bp.source { Some(slot) } else { None };
+    let reads = |c: usize, x: usize| {
+        gx.pipelines()[c]
+            .desc
+            .consumes
+            .iter()
+            .any(|&s| gx.life_of(c, s).is_some_and(|l| l.0 as usize == x))
+    };
+    let src = if let Source::Breaker { slot } = bp.source {
+        Some(slot)
+    } else {
+        None
+    };
     let mut all = feed(gx, b, bp.desc.consumes.iter().copied().chain(src));
     // D2340: a CTE's pulled set (its plan and its producers) runs only at its readers' pulls, never in this group: run here
     // too, the reader's pull ran its producers a second time over freed slots
@@ -460,26 +782,48 @@ fn lazy_group_with<'g>(px: &crate::frame::px::Px<'g, '_>, b: usize, q: usize, re
     // row: PostgreSQL never builds and returns its rows, the pull raised). They stay in the group, which the pull steps
     // past (driver `Entry::pull_nested`'s lazy members; exec ops/ctescan/proto.rs `members` for a term's probe) and the
     // probe's wait runs
-    let pulled = (0..gx.pipelines().len()).filter(|&c| gx.cte_write(c)).flat_map(|c| {
-        let cp = &gx.pipelines()[c];
-        let csrc = if let Source::Breaker { slot } = cp.source { Some(slot) } else { None };
-        let mut v = feed(gx, c, cp.desc.consumes.iter().copied().chain(csrc));
-        v.push_in(c);
-        if v.contains(&q) { PgVec::new_in(gx.mcx) } else { v }
-    }).collect_in(gx.mcx);
+    let pulled = (0..gx.pipelines().len())
+        .filter(|&c| gx.cte_write(c))
+        .flat_map(|c| {
+            let cp = &gx.pipelines()[c];
+            let csrc = if let Source::Breaker { slot } = cp.source {
+                Some(slot)
+            } else {
+                None
+            };
+            let mut v = feed(gx, c, cp.desc.consumes.iter().copied().chain(csrc));
+            v.push_in(c);
+            if v.contains(&q) {
+                PgVec::new_in(gx.mcx)
+            } else {
+                v
+            }
+        })
+        .collect_in(gx.mcx);
     all.retain(|x| !pulled.contains(x));
     all.push_in(b);
     // nested: a producer already lazy for one of these (an inner outer-first join's build) waits for that probe in turn
     let deep = |x: usize| px.lazy.iter().any(|&(y, z)| y == x && all.contains(&z));
-    let mut group: PgVec<'g, usize> = all.iter().copied().filter(|&x| !deep(x) && !before.contains(&x)).collect_in(gx.mcx);
+    let mut group: PgVec<'g, usize> = all
+        .iter()
+        .copied()
+        .filter(|&x| !deep(x) && !before.contains(&x))
+        .collect_in(gx.mcx);
     group.sort_unstable();
-    let only = |x: usize, by: &[usize]| (0..gx.pipelines().len()).all(|c| by.contains(&c) || !reads(c, x));
+    let only =
+        |x: usize, by: &[usize]| (0..gx.pipelines().len()).all(|c| by.contains(&c) || !reads(c, x));
     // D3374: the lazy build's probe in `q` (none for merge.join's inner): a pipeline between that is an earlier probe's
     // held build (`held_before`) raises only at that probe's first row, which every row reaching this one passes first
-    let jb = gx.pipelines()[q].ops.iter().position(|o| matches!(o, Op::Join(JoinDesc::Probe { slot: s, .. }) if *s == slot));
+    let jb = gx.pipelines()[q]
+        .ops
+        .iter()
+        .position(|o| matches!(o, Op::Join(JoinDesc::Probe { slot: s, .. }) if *s == slot));
     // D3749: a later nest's Material fill that waits for that nest's first outer row (rerun/spool/lazy.rs `waits_after`,
     // River's conflicts read from the window CTE this build hashes) runs after this build, not between
-    let later = jb.map_or_else(|| PgVec::new_in(gx.mcx), |jb| crate::rerun::spool::lazy::waits_after(gx, q, jb));
+    let later = jb.map_or_else(
+        || PgVec::new_in(gx.mcx),
+        |jb| crate::rerun::spool::lazy::waits_after(gx, q, jb),
+    );
     let held = |x: usize| jb.is_some_and(|jb| only(x, &[q]) && held_before(gx, x, q, jb));
     // D3601: or the set build of a hashed SubPlan step `q` runs on every row before that probe (`set_before`)
     let set = |x: usize| jb.is_some_and(|jb| only(x, &[q]) && set_before(gx, x, q, jb));
@@ -491,9 +835,21 @@ fn lazy_group_with<'g>(px: &crate::frame::px::Px<'g, '_>, b: usize, q: usize, re
     // raise but acts nowhere (`raise_only`): run before the build where PostgreSQL runs it after, only which error is
     // raised differs. Neither for a group a rerun set runs: a lazy build there is refused (rerun/sets.rs, D1654) where
     // the eager build runs ahead under the unchecked licence (`Px::ahead_unchecked`) and raises as PostgreSQL does
-    let rerun = group.iter().any(|&g| gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(g as u16))));
-    let filled = if rerun { PgVec::new_in(gx.mcx) } else { src_filled(gx, q) };
-    let quiet = !rerun && group.iter().all(|&g| keyed_side(gx, g) != Side::UserFn && !crate::effects::own_hides_user_code(gx, g));
+    let rerun = group.iter().any(|&g| {
+        gx.graph
+            .reruns
+            .iter()
+            .any(|r| r.pipelines.contains(&(g as u16)))
+    });
+    let filled = if rerun {
+        PgVec::new_in(gx.mcx)
+    } else {
+        src_filled(gx, q)
+    };
+    let quiet = !rerun
+        && group.iter().all(|&g| {
+            keyed_side(gx, g) != Side::UserFn && !crate::effects::own_hides_user_code(gx, g)
+        });
     let raises = |x: usize| quiet && raise_only(gx, x).is_some();
     let mut raised = PgVec::new_in(gx.mcx);
     let ok = b < q
@@ -502,24 +858,30 @@ fn lazy_group_with<'g>(px: &crate::frame::px::Px<'g, '_>, b: usize, q: usize, re
         && group.last() == Some(&b)
         && group.iter().all(|&x| !px.pass_after.contains(&x))
         && only(b, readers)
-        && group[..group.len() - 1].iter().all(|&x| only(x, &all) || inner && only(x, &mcx::concat_in(&[&all[..], readers], gx.mcx)[..]))
+        && group[..group.len() - 1].iter().all(|&x| {
+            only(x, &all) || inner && only(x, &mcx::concat_in(&[&all[..], readers], gx.mcx)[..])
+        })
         && !px.lazy.iter().any(|&(x, _)| group.contains(&x) || x == q)
-        && (group[0] + 1..q).filter(|&c| !all.contains(&c) && !before.contains(&c) && !later.contains(&c)).all(|x| {
-            own_side(gx, x) == Side::Safe
-                || between_safe(gx, x) && (fires::fire("lazy.between.nest"), true).1
-                || held(x) && (fires::fire("lazy.between.held"), true).1
-                || set(x) && (fires::fire("lazy.between.set"), true).1
-                || owned(x) && (fires::fire("lazy.between.owned"), true).1
-                || filled.contains(&x) && (fires::fire("lazy.between.filled"), true).1
-                || raises(x) && {
-                    fires::fire("lazy.between.raises");
-                    raised.push_in(x);
-                    true
-                }
-        });
+        && (group[0] + 1..q)
+            .filter(|&c| !all.contains(&c) && !before.contains(&c) && !later.contains(&c))
+            .all(|x| {
+                own_side(gx, x) == Side::Safe
+                    || between_safe(gx, x) && (fires::fire("lazy.between.nest"), true).1
+                    || held(x) && (fires::fire("lazy.between.held"), true).1
+                    || set(x) && (fires::fire("lazy.between.set"), true).1
+                    || owned(x) && (fires::fire("lazy.between.owned"), true).1
+                    || filled.contains(&x) && (fires::fire("lazy.between.filled"), true).1
+                    || raises(x) && {
+                        fires::fire("lazy.between.raises");
+                        raised.push_in(x);
+                        true
+                    }
+            });
     // `raise_only`'s pipelines run ahead of PostgreSQL's order unchecked: emit tags them once the group is declared
     if ok {
-        px.lazy_raises.borrow_mut().extend(raised.into_iter().map(|x| (b, q, x))); // alloc: Program
+        px.lazy_raises
+            .borrow_mut()
+            .extend(raised.into_iter().map(|x| (b, q, x))); // alloc: Program
     }
     ok.then_some(group)
 }
@@ -533,8 +895,13 @@ fn lazy_group_with<'g>(px: &crate::frame::px::Px<'g, '_>, b: usize, q: usize, re
 /// calls (an owner step before the probe runs it for the rows PostgreSQL's outer fetch passes first; one after it, for
 /// rows the probe returned, after the build).
 fn owned_by(gx: &Gx<'_, '_>, x: usize, q: usize) -> bool {
-    let sets = (0..gx.graph.reruns.len()).filter(|&s| gx.graph.reruns[s].pipelines.contains(&(x as u16))).collect_in(gx.mcx);
-    !sets.is_empty() && sets.iter().all(|&s| crate::rerun::sets::set_owner(gx, s) == Some(q))
+    let sets = (0..gx.graph.reruns.len())
+        .filter(|&s| gx.graph.reruns[s].pipelines.contains(&(x as u16)))
+        .collect_in(gx.mcx);
+    !sets.is_empty()
+        && sets
+            .iter()
+            .all(|&s| crate::rerun::sets::set_owner(gx, s) == Some(q))
 }
 
 /// D3788 (pgwatch's table stats: a NOT EXISTS over pg_locks on an anti join whose outer is a chain of RIGHT joins
@@ -550,10 +917,23 @@ fn src_filled<'g>(gx: &Gx<'g, '_>, q: usize) -> PgVec<'g, usize> {
     crate::stack_check();
     use gravity_abi::breaker::BreakerKind;
     let ps = gx.pipelines();
-    let Source::Breaker { slot } = ps[q].source else { return PgVec::new_in(gx.mcx) };
-    let Some(f) = gx.life_of(q, slot).map(|l| l.0 as usize).filter(|&f| f < q) else { return PgVec::new_in(gx.mcx) };
-    match crate::frame::iface::breaker_of(&ps[f].desc).filter(|b| b.slot == slot).map(|b| b.kind) {
-        Some(BreakerKind::Sort | BreakerKind::TopK | BreakerKind::HashAgg | BreakerKind::PlainAgg | BreakerKind::HashBuild) => feed(gx, q, core::iter::once(slot)),
+    let Source::Breaker { slot } = ps[q].source else {
+        return PgVec::new_in(gx.mcx);
+    };
+    let Some(f) = gx.life_of(q, slot).map(|l| l.0 as usize).filter(|&f| f < q) else {
+        return PgVec::new_in(gx.mcx);
+    };
+    match crate::frame::iface::breaker_of(&ps[f].desc)
+        .filter(|b| b.slot == slot)
+        .map(|b| b.kind)
+    {
+        Some(
+            BreakerKind::Sort
+            | BreakerKind::TopK
+            | BreakerKind::HashAgg
+            | BreakerKind::PlainAgg
+            | BreakerKind::HashBuild,
+        ) => feed(gx, q, core::iter::once(slot)),
         Some(BreakerKind::Materialize) => src_filled(gx, f),
         _ => PgVec::new_in(gx.mcx),
     }
@@ -575,12 +955,22 @@ fn src_filled<'g>(gx: &Gx<'g, '_>, q: usize) -> PgVec<'g, usize> {
 fn raise_only(gx: &Gx<'_, '_>, x: usize) -> Option<gravity_decompose::effects::Licence> {
     use gravity_decompose::effects::{licence_unchecked, Effects};
     use types_nodes::nodes_enums::CmdType;
-    let select = gx.graph.stmt.is_some_and(|s| s.commandType == CmdType::CMD_SELECT && s.rowMarks.iter().next().is_none() && !s.hasModifyingCTE);
+    let select = gx.graph.stmt.is_some_and(|s| {
+        s.commandType == CmdType::CMD_SELECT
+            && s.rowMarks.iter().next().is_none()
+            && !s.hasModifyingCTE
+    });
     #[allow(clippy::nonminimal_bool)]
-    if !(select && keyed_side(gx, x) == Side::Raises && !crate::effects::own_hides_user_code(gx, x) && !crate::effects::hashes_raising_key(gx, x)) {
+    if !(select
+        && keyed_side(gx, x) == Side::Raises
+        && !crate::effects::own_hides_user_code(gx, x)
+        && !crate::effects::hashes_raising_key(gx, x))
+    {
         return None;
     }
-    let l = licence_unchecked(Effects::RAISES, false).ok().filter(|l| l.tagged())?;
+    let l = licence_unchecked(Effects::RAISES, false)
+        .ok()
+        .filter(|l| l.tagged())?;
     crate::frame::px::ahead_tag(gx, x).is_some().then_some(l)
 }
 
@@ -594,9 +984,13 @@ fn raise_only(gx: &Gx<'_, '_>, x: usize) -> Option<gravity_decompose::effects::L
 fn set_before(gx: &Gx<'_, '_>, x: usize, q: usize, jb: usize) -> bool {
     use gravity_decompose::ops::shared::subplan::{SubForm, SubSite};
     let ps = gx.pipelines();
-    let (Some(Op::SubPlan(d)), Some(s)) = (ps[x].ops.last(), ps[x].desc.produces()) else { return false };
+    let (Some(Op::SubPlan(d)), Some(s)) = (ps[x].ops.last(), ps[x].desc.produces()) else {
+        return false;
+    };
     let step = |o: &Op<'_>| matches!(o, Op::SubPlan(e) if e.plan_id == d.plan_id && matches!(e.form, SubForm::Hashed { slot } if slot == s) && e.site == SubSite::Row && !e.conditional);
-    matches!(d.form, SubForm::Build) && gx.life_of(q, s).is_some_and(|l| l.0 as usize == x) && ps[q].ops[..jb].iter().any(step)
+    matches!(d.form, SubForm::Build)
+        && gx.life_of(q, s).is_some_and(|l| l.0 as usize == x)
+        && ps[q].ops[..jb].iter().any(step)
 }
 
 /// D3374 (hashjoin_cte_self_join_raise's earlier probe build): pipeline `x`, run in program order between a lazy group
@@ -617,8 +1011,8 @@ fn held_before(gx: &Gx<'_, '_>, x: usize, q: usize, jb: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use gravity_abi::breaker::{Breaker, BreakerKind};
-    use gravity_decompose::{Am, NoFacts, PipelineGraph, PipelineNode};
     use gravity_decompose::catalog::typefacts::FIRST_NORMAL_OID;
+    use gravity_decompose::{Am, NoFacts, PipelineGraph, PipelineNode};
     use gravity_expr::catalog::{DomainFacts, FuncFacts, IoFacts, Support, TextFacts, TypeFacts};
     use gravity_expr::PgCatalog;
     use gravity_fn::{Shim, Tier};
@@ -639,23 +1033,77 @@ mod tests {
             let arena = Arena::new(1 << 16);
             let a = arena.handle();
             let nil: &NodeList<'_> = Box::leak(Box::new(NodeList::nil()));
-            let scan = || Source::Range { site: SiteDesc::none_in(a), am: Am::Pgrcolumnar, scanrelid: 1, relid: 16384 };
-            let into = |kind, slot| Pipeline::serial(-1, End::Breaker(Breaker::sized(kind, 4096).in_slot(slot)), Reason::NoDrivingSite);
+            let scan = || Source::Range {
+                site: SiteDesc::none_in(a),
+                am: Am::Pgrcolumnar,
+                scanrelid: 1,
+                relid: 16384,
+            };
+            let into = |kind, slot| {
+                Pipeline::serial(
+                    -1,
+                    End::Breaker(Breaker::sized(kind, 4096).in_slot(slot)),
+                    Reason::NoDrivingSite,
+                )
+            };
             let build = PipelineNode::new(a, 1, scan(), into(BreakerKind::HashBuild, 0));
-            let producer = PipelineNode::new(a, 2, if quiet { scan() } else { Source::Values { scanrelid: 2, lists: nil } }, into(BreakerKind::HashAgg, 1));
+            let producer = PipelineNode::new(
+                a,
+                2,
+                if quiet {
+                    scan()
+                } else {
+                    Source::Values {
+                        scanrelid: 2,
+                        lists: nil,
+                    }
+                },
+                into(BreakerKind::HashAgg, 1),
+            );
             let mut g = PipelineGraph::new(a);
             let (b, x) = if build_first { (0, 1) } else { (1, 0) };
-            let [first, second] = if build_first { [build, producer] } else { [producer, build] };
+            let [first, second] = if build_first {
+                [build, producer]
+            } else {
+                [producer, build]
+            };
             g.pipelines.push(first);
             g.pipelines.push(second);
-            let mut p = PipelineNode::new(a, 3, Source::Breaker { slot: 1 }, Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite));
-            p.push(Op::Join(JoinDesc::Probe { slot: 0, jointype: JoinType::JOIN_INNER, clauses: nil, keys: nil, qual: nil, unique: false, marks: false, decls: ArenaVec::new_in(a), inner_node: 1, outer_first: false, catalog: false }));
+            let mut p = PipelineNode::new(
+                a,
+                3,
+                Source::Breaker { slot: 1 },
+                Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            );
+            p.push(Op::Join(JoinDesc::Probe {
+                slot: 0,
+                jointype: JoinType::JOIN_INNER,
+                clauses: nil,
+                keys: nil,
+                qual: nil,
+                unique: false,
+                marks: false,
+                decls: ArenaVec::new_in(a),
+                inner_node: 1,
+                outer_first: false,
+                catalog: false,
+            }));
             g.pipelines.push(p);
-            let gx = Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
+            let gx = Gx {
+                graph: &g,
+                facts: &NoFacts,
+                catalog: &gravity_expr::PgCatalog,
+                over: None,
+                mcx: rig.mcx(),
+            };
             assert_eq!(side(&gx, b), Side::Safe, "a scan's build is quiet");
             let o = outer(&gx, b, 2, 0);
             let s = if quiet { Side::Safe } else { Side::Raises };
-            assert_eq!((o.all, o.skip), (s, if build_first { 1 << x } else { 0 }), "quiet {quiet}, build first {build_first}");
+            assert_eq!(
+                (o.all, o.skip),
+                (s, if build_first { 1 << x } else { 0 }),
+                "quiet {quiet}, build first {build_first}"
+            );
             assert_eq!(o.rest, if build_first { Side::Safe } else { s });
         }
     }
@@ -671,30 +1119,105 @@ mod tests {
         use gravity_decompose::graph::{Bound, InitPlan};
         use gravity_decompose::ops::shared::subplan::SubLink;
         use types_nodes::list::IntList;
-        for (cte, limit, want) in [(true, None, Side::Safe), (false, None, Side::Raises), (true, Some(5), Side::Safe), (true, Some(0), Side::Raises)] {
+        for (cte, limit, want) in [
+            (true, None, Side::Safe),
+            (false, None, Side::Raises),
+            (true, Some(5), Side::Safe),
+            (true, Some(0), Side::Raises),
+        ] {
             let arena = Arena::new(1 << 16);
             let a = arena.handle();
             let nil: &NodeList<'_> = Box::leak(Box::new(NodeList::nil()));
-            let into = |kind, slot| Pipeline::serial(-1, End::Breaker(Breaker::sized(kind, 4096).in_slot(slot)), Reason::NoDrivingSite);
+            let into = |kind, slot| {
+                Pipeline::serial(
+                    -1,
+                    End::Breaker(Breaker::sized(kind, 4096).in_slot(slot)),
+                    Reason::NoDrivingSite,
+                )
+            };
             let mut g = PipelineGraph::new(a);
-            g.pipelines.push(PipelineNode::new(a, 1, Source::Values { scanrelid: 1, lists: nil }, into(BreakerKind::Materialize, 0)));
-            let mut b = PipelineNode::new(a, 2, Source::Breaker { slot: 0 }, into(BreakerKind::HashBuild, 1).consuming_one(0));
+            g.pipelines.push(PipelineNode::new(
+                a,
+                1,
+                Source::Values {
+                    scanrelid: 1,
+                    lists: nil,
+                },
+                into(BreakerKind::Materialize, 0),
+            ));
+            let mut b = PipelineNode::new(
+                a,
+                2,
+                Source::Breaker { slot: 0 },
+                into(BreakerKind::HashBuild, 1).consuming_one(0),
+            );
             if let Some(n) = limit {
-                b.push(Op::Limit { count: Bound::Const(n), offset: Bound::All, ties: None });
+                b.push(Op::Limit {
+                    count: Bound::Const(n),
+                    offset: Bound::All,
+                    ties: None,
+                });
             }
-            b.push(Op::Join(JoinDesc::Build { keys: nil, decls: ArenaVec::new_in(a), pg_tuple: u32::MAX }));
+            b.push(Op::Join(JoinDesc::Build {
+                keys: nil,
+                decls: ArenaVec::new_in(a),
+                pg_tuple: u32::MAX,
+            }));
             g.pipelines.push(b);
-            g.pipelines.push(PipelineNode::new(a, 3, Source::Breaker { slot: 0 }, into(BreakerKind::Materialize, 2).consuming_one(0)));
-            let mut q = PipelineNode::new(a, 4, Source::Breaker { slot: 2 }, Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming_one(2));
-            q.push(Op::Join(JoinDesc::Probe { slot: 1, jointype: JoinType::JOIN_INNER, clauses: nil, keys: nil, qual: nil, unique: false, marks: false, decls: ArenaVec::new_in(a), inner_node: 2, outer_first: false, catalog: false }));
+            g.pipelines.push(PipelineNode::new(
+                a,
+                3,
+                Source::Breaker { slot: 0 },
+                into(BreakerKind::Materialize, 2).consuming_one(0),
+            ));
+            let mut q = PipelineNode::new(
+                a,
+                4,
+                Source::Breaker { slot: 2 },
+                Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming_one(2),
+            );
+            q.push(Op::Join(JoinDesc::Probe {
+                slot: 1,
+                jointype: JoinType::JOIN_INNER,
+                clauses: nil,
+                keys: nil,
+                qual: nil,
+                unique: false,
+                marks: false,
+                decls: ArenaVec::new_in(a),
+                inner_node: 2,
+                outer_first: false,
+                catalog: false,
+            }));
             g.pipelines.push(q);
             if cte {
                 let params: &IntList<'_> = Box::leak(Box::new(IntList::nil()));
-                g.init_plans.push(InitPlan { plan_id: 1, pipeline: 0, link: SubLink::Cte, param: -1, params, slot: Some(0), volatility: Volatility::Immutable, raise_free: false, parallel_safe: true, attach: -1 });
+                g.init_plans.push(InitPlan {
+                    plan_id: 1,
+                    pipeline: 0,
+                    link: SubLink::Cte,
+                    param: -1,
+                    params,
+                    slot: Some(0),
+                    volatility: Volatility::Immutable,
+                    raise_free: false,
+                    parallel_safe: true,
+                    attach: -1,
+                });
             }
-            let gx = Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
+            let gx = Gx {
+                graph: &g,
+                facts: &NoFacts,
+                catalog: &gravity_expr::PgCatalog,
+                over: None,
+                mcx: rig.mcx(),
+            };
             let o = outer(&gx, 1, 3, 0);
-            assert_eq!((o.rest, o.all, o.skip), (want, Side::Raises, 1 << 2), "cte {cte}, limit {limit:?}");
+            assert_eq!(
+                (o.rest, o.all, o.skip),
+                (want, Side::Raises, 1 << 2),
+                "cte {cte}, limit {limit:?}"
+            );
         }
     }
 
@@ -712,37 +1235,119 @@ mod tests {
         use gravity_decompose::graph::{InitPlan, Rerun};
         use gravity_decompose::ops::shared::subplan::SubLink;
         use types_nodes::list::IntList;
-        let cases = [(true, true, 0, Side::Safe, 1 << 2), (false, true, 0, Side::Raises, 1 << 2), (true, false, 0, Side::Safe, 1 << 2), (false, false, 0, Side::Raises, 0), (true, true, 1, Side::Raises, 0), (true, true, 2, Side::Safe, 1 << 2)];
+        let cases = [
+            (true, true, 0, Side::Safe, 1 << 2),
+            (false, true, 0, Side::Raises, 1 << 2),
+            (true, false, 0, Side::Safe, 1 << 2),
+            (false, false, 0, Side::Raises, 0),
+            (true, true, 1, Side::Raises, 0),
+            (true, true, 2, Side::Safe, 1 << 2),
+        ];
         for (cte, agg, rerun, want, skip) in cases {
             let arena = Arena::new(1 << 16);
             let a = arena.handle();
             let nil: &NodeList<'_> = Box::leak(Box::new(NodeList::nil()));
-            let into = |kind, slot| Pipeline::serial(-1, End::Breaker(Breaker::sized(kind, 4096).in_slot(slot)), Reason::NoDrivingSite);
-            let scan = Source::Range { site: SiteDesc::none_in(a), am: Am::Pgrcolumnar, scanrelid: 1, relid: 16384 };
+            let into = |kind, slot| {
+                Pipeline::serial(
+                    -1,
+                    End::Breaker(Breaker::sized(kind, 4096).in_slot(slot)),
+                    Reason::NoDrivingSite,
+                )
+            };
+            let scan = Source::Range {
+                site: SiteDesc::none_in(a),
+                am: Am::Pgrcolumnar,
+                scanrelid: 1,
+                relid: 16384,
+            };
             let mut g = PipelineGraph::new(a);
-            g.pipelines.push(PipelineNode::new(a, 1, Source::Values { scanrelid: 1, lists: nil }, into(BreakerKind::Materialize, 0)));
+            g.pipelines.push(PipelineNode::new(
+                a,
+                1,
+                Source::Values {
+                    scanrelid: 1,
+                    lists: nil,
+                },
+                into(BreakerKind::Materialize, 0),
+            ));
             let mut b = PipelineNode::new(a, 2, scan, into(BreakerKind::HashBuild, 1));
-            b.push(Op::Join(JoinDesc::Build { keys: nil, decls: ArenaVec::new_in(a), pg_tuple: u32::MAX }));
+            b.push(Op::Join(JoinDesc::Build {
+                keys: nil,
+                decls: ArenaVec::new_in(a),
+                pg_tuple: u32::MAX,
+            }));
             g.pipelines.push(b);
             if agg {
-                g.pipelines.push(PipelineNode::new(a, 3, Source::Breaker { slot: 0 }, into(BreakerKind::HashAgg, 2).consuming_one(0)));
+                g.pipelines.push(PipelineNode::new(
+                    a,
+                    3,
+                    Source::Breaker { slot: 0 },
+                    into(BreakerKind::HashAgg, 2).consuming_one(0),
+                ));
             }
             let s = if agg { 2 } else { 0 };
-            let mut q = PipelineNode::new(a, 4, Source::Breaker { slot: s }, Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming_one(s));
-            q.push(Op::Join(JoinDesc::Probe { slot: 1, jointype: JoinType::JOIN_INNER, clauses: nil, keys: nil, qual: nil, unique: false, marks: false, decls: ArenaVec::new_in(a), inner_node: 2, outer_first: false, catalog: false }));
+            let mut q = PipelineNode::new(
+                a,
+                4,
+                Source::Breaker { slot: s },
+                Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming_one(s),
+            );
+            q.push(Op::Join(JoinDesc::Probe {
+                slot: 1,
+                jointype: JoinType::JOIN_INNER,
+                clauses: nil,
+                keys: nil,
+                qual: nil,
+                unique: false,
+                marks: false,
+                decls: ArenaVec::new_in(a),
+                inner_node: 2,
+                outer_first: false,
+                catalog: false,
+            }));
             g.pipelines.push(q);
             if cte {
                 let params: &IntList<'_> = Box::leak(Box::new(IntList::nil()));
-                g.init_plans.push(InitPlan { plan_id: 1, pipeline: 0, link: SubLink::Cte, param: -1, params, slot: Some(0), volatility: Volatility::Immutable, raise_free: false, parallel_safe: true, attach: -1 });
+                g.init_plans.push(InitPlan {
+                    plan_id: 1,
+                    pipeline: 0,
+                    link: SubLink::Cte,
+                    param: -1,
+                    params,
+                    slot: Some(0),
+                    volatility: Volatility::Immutable,
+                    raise_free: false,
+                    parallel_safe: true,
+                    attach: -1,
+                });
             }
             if rerun != 0 {
                 let mut pipelines = ArenaVec::new_in(a);
-                pipelines.extend_from_slice(if rerun == 1 { &[1u16, 3][..] } else { &[0u16][..] });
-                g.reruns.push(Rerun { node_id: 9, plan_id: 0, pipelines, slots: [0u64; 4] });
+                pipelines.extend_from_slice(if rerun == 1 {
+                    &[1u16, 3][..]
+                } else {
+                    &[0u16][..]
+                });
+                g.reruns.push(Rerun {
+                    node_id: 9,
+                    plan_id: 0,
+                    pipelines,
+                    slots: [0u64; 4],
+                });
             }
-            let gx = Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
+            let gx = Gx {
+                graph: &g,
+                facts: &NoFacts,
+                catalog: &gravity_expr::PgCatalog,
+                over: None,
+                mcx: rig.mcx(),
+            };
             let o = outer(&gx, 1, 2 + agg as usize, 0);
-            assert_eq!((o.rest, o.all, o.skip), (want, Side::Raises, skip), "cte {cte}, agg {agg}, rerun {rerun}");
+            assert_eq!(
+                (o.rest, o.all, o.skip),
+                (want, Side::Raises, skip),
+                "cte {cte}, agg {agg}, rerun {rerun}"
+            );
         }
     }
 
@@ -756,32 +1361,111 @@ mod tests {
         use gravity_decompose::graph::{Bound, InitPlan};
         use gravity_decompose::ops::shared::subplan::SubLink;
         use types_nodes::list::IntList;
-        for (cte, limit, want) in [(true, false, Side::Safe), (false, false, Side::Raises), (true, true, Side::Raises)] {
+        for (cte, limit, want) in [
+            (true, false, Side::Safe),
+            (false, false, Side::Raises),
+            (true, true, Side::Raises),
+        ] {
             let arena = Arena::new(1 << 16);
             let a = arena.handle();
             let nil: &NodeList<'_> = Box::leak(Box::new(NodeList::nil()));
-            let into = |kind, slot| Pipeline::serial(-1, End::Breaker(Breaker::sized(kind, 4096).in_slot(slot)), Reason::NoDrivingSite);
+            let into = |kind, slot| {
+                Pipeline::serial(
+                    -1,
+                    End::Breaker(Breaker::sized(kind, 4096).in_slot(slot)),
+                    Reason::NoDrivingSite,
+                )
+            };
             let mut g = PipelineGraph::new(a);
-            g.pipelines.push(PipelineNode::new(a, 1, Source::Values { scanrelid: 1, lists: nil }, into(BreakerKind::Materialize, 0)));
-            let mut x = PipelineNode::new(a, 2, Source::Breaker { slot: 0 }, into(BreakerKind::HashAgg, 3).consuming_one(0));
+            g.pipelines.push(PipelineNode::new(
+                a,
+                1,
+                Source::Values {
+                    scanrelid: 1,
+                    lists: nil,
+                },
+                into(BreakerKind::Materialize, 0),
+            ));
+            let mut x = PipelineNode::new(
+                a,
+                2,
+                Source::Breaker { slot: 0 },
+                into(BreakerKind::HashAgg, 3).consuming_one(0),
+            );
             if limit {
-                x.push(Op::Limit { count: Bound::Const(5), offset: Bound::All, ties: None });
+                x.push(Op::Limit {
+                    count: Bound::Const(5),
+                    offset: Bound::All,
+                    ties: None,
+                });
             }
             g.pipelines.push(x);
-            let mut b = PipelineNode::new(a, 3, Source::Breaker { slot: 3 }, into(BreakerKind::HashBuild, 1).consuming_one(3));
-            b.push(Op::Join(JoinDesc::Build { keys: nil, decls: ArenaVec::new_in(a), pg_tuple: u32::MAX }));
+            let mut b = PipelineNode::new(
+                a,
+                3,
+                Source::Breaker { slot: 3 },
+                into(BreakerKind::HashBuild, 1).consuming_one(3),
+            );
+            b.push(Op::Join(JoinDesc::Build {
+                keys: nil,
+                decls: ArenaVec::new_in(a),
+                pg_tuple: u32::MAX,
+            }));
             g.pipelines.push(b);
-            g.pipelines.push(PipelineNode::new(a, 4, Source::Breaker { slot: 0 }, into(BreakerKind::Materialize, 2).consuming_one(0)));
-            let mut q = PipelineNode::new(a, 5, Source::Breaker { slot: 2 }, Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming_one(2));
-            q.push(Op::Join(JoinDesc::Probe { slot: 1, jointype: JoinType::JOIN_INNER, clauses: nil, keys: nil, qual: nil, unique: false, marks: false, decls: ArenaVec::new_in(a), inner_node: 3, outer_first: false, catalog: false }));
+            g.pipelines.push(PipelineNode::new(
+                a,
+                4,
+                Source::Breaker { slot: 0 },
+                into(BreakerKind::Materialize, 2).consuming_one(0),
+            ));
+            let mut q = PipelineNode::new(
+                a,
+                5,
+                Source::Breaker { slot: 2 },
+                Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming_one(2),
+            );
+            q.push(Op::Join(JoinDesc::Probe {
+                slot: 1,
+                jointype: JoinType::JOIN_INNER,
+                clauses: nil,
+                keys: nil,
+                qual: nil,
+                unique: false,
+                marks: false,
+                decls: ArenaVec::new_in(a),
+                inner_node: 3,
+                outer_first: false,
+                catalog: false,
+            }));
             g.pipelines.push(q);
             if cte {
                 let params: &IntList<'_> = Box::leak(Box::new(IntList::nil()));
-                g.init_plans.push(InitPlan { plan_id: 1, pipeline: 0, link: SubLink::Cte, param: -1, params, slot: Some(0), volatility: Volatility::Immutable, raise_free: false, parallel_safe: true, attach: -1 });
+                g.init_plans.push(InitPlan {
+                    plan_id: 1,
+                    pipeline: 0,
+                    link: SubLink::Cte,
+                    param: -1,
+                    params,
+                    slot: Some(0),
+                    volatility: Volatility::Immutable,
+                    raise_free: false,
+                    parallel_safe: true,
+                    attach: -1,
+                });
             }
-            let gx = Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
+            let gx = Gx {
+                graph: &g,
+                facts: &NoFacts,
+                catalog: &gravity_expr::PgCatalog,
+                over: None,
+                mcx: rig.mcx(),
+            };
             let o = outer(&gx, 2, 4, 0);
-            assert_eq!((o.rest, o.all, o.skip), (want, Side::Raises, 1 << 3), "cte {cte}, limit {limit}");
+            assert_eq!(
+                (o.rest, o.all, o.skip),
+                (want, Side::Raises, 1 << 3),
+                "cte {cte}, limit {limit}"
+            );
         }
     }
 
@@ -802,25 +1486,125 @@ mod tests {
             let arena = Arena::new(1 << 16);
             let a = arena.handle();
             let nil: &NodeList<'_> = Box::leak(Box::new(NodeList::nil()));
-            let into = |kind, slot| Pipeline::serial(-1, End::Breaker(Breaker::sized(kind, 4096).in_slot(slot)), Reason::NoDrivingSite);
+            let into = |kind, slot| {
+                Pipeline::serial(
+                    -1,
+                    End::Breaker(Breaker::sized(kind, 4096).in_slot(slot)),
+                    Reason::NoDrivingSite,
+                )
+            };
             let mut g = PipelineGraph::new(a);
-            g.pipelines.push(PipelineNode::new(a, 1, Source::Values { scanrelid: 1, lists: nil }, into(BreakerKind::Materialize, 0)));
-            let plan = if loud { PipelineNode::new(a, 2, Source::Values { scanrelid: 2, lists: nil }, into(BreakerKind::Materialize, 2)) } else { PipelineNode::new(a, 2, Source::Breaker { slot: 0 }, into(BreakerKind::Materialize, 2).consuming_one(0)) };
+            g.pipelines.push(PipelineNode::new(
+                a,
+                1,
+                Source::Values {
+                    scanrelid: 1,
+                    lists: nil,
+                },
+                into(BreakerKind::Materialize, 0),
+            ));
+            let plan = if loud {
+                PipelineNode::new(
+                    a,
+                    2,
+                    Source::Values {
+                        scanrelid: 2,
+                        lists: nil,
+                    },
+                    into(BreakerKind::Materialize, 2),
+                )
+            } else {
+                PipelineNode::new(
+                    a,
+                    2,
+                    Source::Breaker { slot: 0 },
+                    into(BreakerKind::Materialize, 2).consuming_one(0),
+                )
+            };
             g.pipelines.push(plan);
-            let param = Node::mk(mcx, Param { paramkind: ParamKind::PARAM_EXEC, paramid: 7, paramtype: types_core::BOOLOID, paramtypmod: -1, paramcollid: 0, location: -1 }).unwrap();
-            let mut b = PipelineNode::new(a, 3, Source::Breaker { slot: 0 }, into(BreakerKind::HashBuild, 1).consuming_one(0));
+            let param = Node::mk(
+                mcx,
+                Param {
+                    paramkind: ParamKind::PARAM_EXEC,
+                    paramid: 7,
+                    paramtype: types_core::BOOLOID,
+                    paramtypmod: -1,
+                    paramcollid: 0,
+                    location: -1,
+                },
+            )
+            .unwrap();
+            let mut b = PipelineNode::new(
+                a,
+                3,
+                Source::Breaker { slot: 0 },
+                into(BreakerKind::HashBuild, 1).consuming_one(0),
+            );
             b.push(Op::Filter(param));
-            b.push(Op::Join(JoinDesc::Build { keys: nil, decls: ArenaVec::new_in(a), pg_tuple: u32::MAX }));
+            b.push(Op::Join(JoinDesc::Build {
+                keys: nil,
+                decls: ArenaVec::new_in(a),
+                pg_tuple: u32::MAX,
+            }));
             g.pipelines.push(b);
-            let mut q = PipelineNode::new(a, 4, Source::Breaker { slot: 0 }, Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming_one(0));
-            q.push(Op::Join(JoinDesc::Probe { slot: 1, jointype: JoinType::JOIN_INNER, clauses: nil, keys: nil, qual: nil, unique: false, marks: false, decls: ArenaVec::new_in(a), inner_node: 3, outer_first: true, catalog: false }));
+            let mut q = PipelineNode::new(
+                a,
+                4,
+                Source::Breaker { slot: 0 },
+                Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming_one(0),
+            );
+            q.push(Op::Join(JoinDesc::Probe {
+                slot: 1,
+                jointype: JoinType::JOIN_INNER,
+                clauses: nil,
+                keys: nil,
+                qual: nil,
+                unique: false,
+                marks: false,
+                decls: ArenaVec::new_in(a),
+                inner_node: 3,
+                outer_first: true,
+                catalog: false,
+            }));
             g.pipelines.push(q);
             let none: &IntList<'_> = Box::leak(Box::new(IntList::nil()));
             let params: &IntList<'_> = Box::leak(Box::new(IntList::make1(mcx, set).unwrap()));
-            g.init_plans.push(InitPlan { plan_id: 1, pipeline: 0, link: SubLink::Cte, param: -1, params: none, slot: Some(0), volatility: Volatility::Immutable, raise_free: false, parallel_safe: true, attach: -1 });
-            g.init_plans.push(InitPlan { plan_id: 2, pipeline: 1, link: SubLink::Expr, param: set, params, slot: Some(2), volatility: Volatility::Immutable, raise_free: false, parallel_safe: true, attach: -1 });
-            let gx = Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
-            assert_eq!(own_side(&gx, 2), Side::Raises, "a PARAM_EXEC alone reads as a raise");
+            g.init_plans.push(InitPlan {
+                plan_id: 1,
+                pipeline: 0,
+                link: SubLink::Cte,
+                param: -1,
+                params: none,
+                slot: Some(0),
+                volatility: Volatility::Immutable,
+                raise_free: false,
+                parallel_safe: true,
+                attach: -1,
+            });
+            g.init_plans.push(InitPlan {
+                plan_id: 2,
+                pipeline: 1,
+                link: SubLink::Expr,
+                param: set,
+                params,
+                slot: Some(2),
+                volatility: Volatility::Immutable,
+                raise_free: false,
+                parallel_safe: true,
+                attach: -1,
+            });
+            let gx = Gx {
+                graph: &g,
+                facts: &NoFacts,
+                catalog: &gravity_expr::PgCatalog,
+                over: None,
+                mcx: rig.mcx(),
+            };
+            assert_eq!(
+                own_side(&gx, 2),
+                Side::Raises,
+                "a PARAM_EXEC alone reads as a raise"
+            );
             assert_eq!(shared_cte(&gx, 2, 3, 0), want, "loud {loud}, set {set}");
         }
     }
@@ -836,37 +1620,108 @@ mod tests {
         let arena = Arena::new(1 << 17); // D3588: Pipeline 416 -> 424 bytes (source_of) passed 64 KiB
         let a = arena.handle();
         let nil: &NodeList<'_> = Box::leak(Box::new(NodeList::nil()));
-        let scan = || Source::Range { site: SiteDesc::none_in(a), am: Am::Pgrcolumnar, scanrelid: 1, relid: 16384 };
-        let into = |kind, slot| Pipeline::serial(-1, End::Breaker(Breaker::sized(kind, 4096).in_slot(slot)), Reason::NoDrivingSite);
+        let scan = || Source::Range {
+            site: SiteDesc::none_in(a),
+            am: Am::Pgrcolumnar,
+            scanrelid: 1,
+            relid: 16384,
+        };
+        let into = |kind, slot| {
+            Pipeline::serial(
+                -1,
+                End::Breaker(Breaker::sized(kind, 4096).in_slot(slot)),
+                Reason::NoDrivingSite,
+            )
+        };
         let arm = |quiet: bool| {
-            let mut p = PipelineNode::new(a, 2, if quiet { scan() } else { Source::Values { scanrelid: 2, lists: nil } }, into(BreakerKind::Materialize, 2));
-            p.push(Op::Append(AppendDesc::Feed { slot: 2, ordered: false }));
+            let mut p = PipelineNode::new(
+                a,
+                2,
+                if quiet {
+                    scan()
+                } else {
+                    Source::Values {
+                        scanrelid: 2,
+                        lists: nil,
+                    }
+                },
+                into(BreakerKind::Materialize, 2),
+            );
+            p.push(Op::Append(AppendDesc::Feed {
+                slot: 2,
+                ordered: false,
+            }));
             p
         };
         let emit = |d: Pipeline| {
             let mut p = PipelineNode::new(a, 3, Source::Breaker { slot: 2 }, d.consuming_one(2));
-            p.push(Op::Append(AppendDesc::Union { slot: 2, children: 2, prune: None }));
+            p.push(Op::Append(AppendDesc::Union {
+                slot: 2,
+                children: 2,
+                prune: None,
+            }));
             p
         };
-        for (first, last, want) in [(false, true, Side::Raises), (true, false, Side::Raises), (true, true, Side::Safe)] {
+        for (first, last, want) in [
+            (false, true, Side::Raises),
+            (true, false, Side::Raises),
+            (true, true, Side::Safe),
+        ] {
             let mut g = PipelineGraph::new(a);
             g.pipelines.push(arm(first));
             g.pipelines.push(arm(last));
             g.pipelines.push(emit(into(BreakerKind::HashBuild, 0)));
-            let gx = Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
-            assert_eq!(gx.life_of(2, 2).map(|l| l.0), Some(1), "the emit's nearest producer is the last arm");
+            let gx = Gx {
+                graph: &g,
+                facts: &NoFacts,
+                catalog: &gravity_expr::PgCatalog,
+                over: None,
+                mcx: rig.mcx(),
+            };
+            assert_eq!(
+                gx.life_of(2, 2).map(|l| l.0),
+                Some(1),
+                "the emit's nearest producer is the last arm"
+            );
             assert_eq!(side(&gx, 2), want, "arms quiet {first} / {last}");
         }
         let mut g = PipelineGraph::new(a);
-        g.pipelines.push(PipelineNode::new(a, 1, scan(), into(BreakerKind::HashBuild, 0)));
+        g.pipelines.push(PipelineNode::new(
+            a,
+            1,
+            scan(),
+            into(BreakerKind::HashBuild, 0),
+        ));
         g.pipelines.push(arm(true));
         g.pipelines.push(arm(true));
         let mut q = emit(Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite));
-        q.push(Op::Join(JoinDesc::Probe { slot: 0, jointype: JoinType::JOIN_INNER, clauses: nil, keys: nil, qual: nil, unique: false, marks: false, decls: ArenaVec::new_in(a), inner_node: 1, outer_first: false, catalog: false }));
+        q.push(Op::Join(JoinDesc::Probe {
+            slot: 0,
+            jointype: JoinType::JOIN_INNER,
+            clauses: nil,
+            keys: nil,
+            qual: nil,
+            unique: false,
+            marks: false,
+            decls: ArenaVec::new_in(a),
+            inner_node: 1,
+            outer_first: false,
+            catalog: false,
+        }));
         g.pipelines.push(q);
-        let gx = Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
+        let gx = Gx {
+            graph: &g,
+            facts: &NoFacts,
+            catalog: &gravity_expr::PgCatalog,
+            over: None,
+            mcx: rig.mcx(),
+        };
         let o = outer(&gx, 0, 3, 1);
-        assert_eq!((o.skip, o.rest, o.all), (1 << 1 | 1 << 2, Side::Safe, Side::Safe), "both arms skipped over an empty build");
+        assert_eq!(
+            (o.skip, o.rest, o.all),
+            (1 << 1 | 1 << 2, Side::Safe, Side::Safe),
+            "both arms skipped over an empty build"
+        );
     }
 
     /// D4195 (wfrefuse CE2): a build-first probe after a RIGHT drain (an upper Hash Right Join over a lower one). Over an
@@ -879,23 +1734,88 @@ mod tests {
         let arena = Arena::new(1 << 16);
         let a = arena.handle();
         let nil: &NodeList<'_> = Box::leak(Box::new(NodeList::nil()));
-        let scan = || Source::Range { site: SiteDesc::none_in(a), am: Am::Pgrcolumnar, scanrelid: 1, relid: 16384 };
-        let into = |kind, slot| Pipeline::serial(-1, End::Breaker(Breaker::sized(kind, 4096).in_slot(slot)), Reason::NoDrivingSite);
-        let probe = |slot| Op::Join(JoinDesc::Probe { slot, jointype: JoinType::JOIN_RIGHT, clauses: nil, keys: nil, qual: nil, unique: false, marks: true, decls: ArenaVec::new_in(a), inner_node: 1, outer_first: false, catalog: false });
+        let scan = || Source::Range {
+            site: SiteDesc::none_in(a),
+            am: Am::Pgrcolumnar,
+            scanrelid: 1,
+            relid: 16384,
+        };
+        let into = |kind, slot| {
+            Pipeline::serial(
+                -1,
+                End::Breaker(Breaker::sized(kind, 4096).in_slot(slot)),
+                Reason::NoDrivingSite,
+            )
+        };
+        let probe = |slot| {
+            Op::Join(JoinDesc::Probe {
+                slot,
+                jointype: JoinType::JOIN_RIGHT,
+                clauses: nil,
+                keys: nil,
+                qual: nil,
+                unique: false,
+                marks: true,
+                decls: ArenaVec::new_in(a),
+                inner_node: 1,
+                outer_first: false,
+                catalog: false,
+            })
+        };
         let mut g = PipelineGraph::new(a);
-        g.pipelines.push(PipelineNode::new(a, 1, scan(), into(BreakerKind::HashBuild, 0)));
-        g.pipelines.push(PipelineNode::new(a, 2, scan(), into(BreakerKind::HashBuild, 1)));
-        let mut fill = PipelineNode::new(a, 3, Source::Values { scanrelid: 3, lists: nil }, into(BreakerKind::Materialize, 2));
+        g.pipelines.push(PipelineNode::new(
+            a,
+            1,
+            scan(),
+            into(BreakerKind::HashBuild, 0),
+        ));
+        g.pipelines.push(PipelineNode::new(
+            a,
+            2,
+            scan(),
+            into(BreakerKind::HashBuild, 1),
+        ));
+        let mut fill = PipelineNode::new(
+            a,
+            3,
+            Source::Values {
+                scanrelid: 3,
+                lists: nil,
+            },
+            into(BreakerKind::Materialize, 2),
+        );
         fill.push(probe(1));
         g.pipelines.push(fill);
-        let mut q = PipelineNode::new(a, 4, Source::Breaker { slot: 1 }, Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming_one(2));
-        q.push(Op::Join(JoinDesc::Drain { matches: 2, jointype: JoinType::JOIN_RIGHT }));
+        let mut q = PipelineNode::new(
+            a,
+            4,
+            Source::Breaker { slot: 1 },
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming_one(2),
+        );
+        q.push(Op::Join(JoinDesc::Drain {
+            matches: 2,
+            jointype: JoinType::JOIN_RIGHT,
+        }));
         q.push(probe(0));
         g.pipelines.push(q);
-        let gx = Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
+        let gx = Gx {
+            graph: &g,
+            facts: &NoFacts,
+            catalog: &gravity_expr::PgCatalog,
+            over: None,
+            mcx: rig.mcx(),
+        };
         let o = outer(&gx, 0, 3, 1);
-        assert_eq!((o.skip, o.rest, o.all), (1 << 1 | 1 << 2, Side::Safe, Side::Raises), "the lower build and its probe pipeline skipped over an empty upper build");
-        assert!(o.raising.is_empty(), "nothing of the outer side runs ahead: {:?}", o.raising);
+        assert_eq!(
+            (o.skip, o.rest, o.all),
+            (1 << 1 | 1 << 2, Side::Safe, Side::Raises),
+            "the lower build and its probe pipeline skipped over an empty upper build"
+        );
+        assert!(
+            o.raising.is_empty(),
+            "nothing of the outer side runs ahead: {:?}",
+            o.raising
+        );
     }
 
     /// M7 L0-b2: a probe pipeline whose own source may raise (a VALUES) runs only after its build, so an empty build lets
@@ -904,21 +1824,70 @@ mod tests {
     #[test]
     fn a_raising_probe_source_is_skipped_over_an_empty_build() {
         let rig = mcx::MemoryContext::new("GravityPlanRig");
-        for jt in [JoinType::JOIN_INNER, JoinType::JOIN_SEMI, JoinType::JOIN_LEFT, JoinType::JOIN_ANTI] {
+        for jt in [
+            JoinType::JOIN_INNER,
+            JoinType::JOIN_SEMI,
+            JoinType::JOIN_LEFT,
+            JoinType::JOIN_ANTI,
+        ] {
             let arena = Arena::new(1 << 16);
             let a = arena.handle();
             let nil: &NodeList<'_> = Box::leak(Box::new(NodeList::nil()));
-            let scan = Source::Range { site: SiteDesc::none_in(a), am: Am::Pgrcolumnar, scanrelid: 1, relid: 16384 };
-            let build = PipelineNode::new(a, 1, scan, Pipeline::serial(-1, End::Breaker(Breaker::sized(BreakerKind::HashBuild, 4096).in_slot(0)), Reason::NoDrivingSite));
-            let mut p = PipelineNode::new(a, 3, Source::Values { scanrelid: 2, lists: nil }, Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite));
-            p.push(Op::Join(JoinDesc::Probe { slot: 0, jointype: jt, clauses: nil, keys: nil, qual: nil, unique: false, marks: false, decls: ArenaVec::new_in(a), inner_node: 1, outer_first: false, catalog: false }));
+            let scan = Source::Range {
+                site: SiteDesc::none_in(a),
+                am: Am::Pgrcolumnar,
+                scanrelid: 1,
+                relid: 16384,
+            };
+            let build = PipelineNode::new(
+                a,
+                1,
+                scan,
+                Pipeline::serial(
+                    -1,
+                    End::Breaker(Breaker::sized(BreakerKind::HashBuild, 4096).in_slot(0)),
+                    Reason::NoDrivingSite,
+                ),
+            );
+            let mut p = PipelineNode::new(
+                a,
+                3,
+                Source::Values {
+                    scanrelid: 2,
+                    lists: nil,
+                },
+                Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            );
+            p.push(Op::Join(JoinDesc::Probe {
+                slot: 0,
+                jointype: jt,
+                clauses: nil,
+                keys: nil,
+                qual: nil,
+                unique: false,
+                marks: false,
+                decls: ArenaVec::new_in(a),
+                inner_node: 1,
+                outer_first: false,
+                catalog: false,
+            }));
             let mut g = PipelineGraph::new(a);
             g.pipelines.push(build);
             g.pipelines.push(p);
-            let gx = Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
+            let gx = Gx {
+                graph: &g,
+                facts: &NoFacts,
+                catalog: &gravity_expr::PgCatalog,
+                over: None,
+                mcx: rig.mcx(),
+            };
             let o = outer(&gx, 0, 1, 0);
             let fills = matches!(jt, JoinType::JOIN_LEFT | JoinType::JOIN_ANTI);
-            assert_eq!((o.skip, o.rest), (if fills { 0 } else { 1 << 1 }, Side::Safe), "{jt:?}");
+            assert_eq!(
+                (o.skip, o.rest),
+                (if fills { 0 } else { 1 << 1 }, Side::Safe),
+                "{jt:?}"
+            );
         }
     }
 
@@ -928,17 +1897,59 @@ mod tests {
     #[test]
     fn a_held_build_of_an_earlier_probe_is_held_before_a_later_one() {
         let rig = mcx::MemoryContext::new("GravityPlanRig");
-        for (first, outer_first, want) in [(true, true, true), (false, true, false), (true, false, false)] {
+        for (first, outer_first, want) in [
+            (true, true, true),
+            (false, true, false),
+            (true, false, false),
+        ] {
             let arena = Arena::new(1 << 16);
             let a = arena.handle();
             let nil: &NodeList<'_> = Box::leak(Box::new(NodeList::nil()));
-            let scan = |r: u16| Source::Range { site: SiteDesc::none_in(a), am: Am::Pgrcolumnar, scanrelid: r, relid: 16384 };
-            let into = |slot| Pipeline::serial(-1, End::Breaker(Breaker::sized(BreakerKind::HashBuild, 4096).in_slot(slot)), Reason::NoDrivingSite);
-            let probe = |slot, of| Op::Join(JoinDesc::Probe { slot, jointype: JoinType::JOIN_INNER, clauses: nil, keys: nil, qual: nil, unique: false, marks: false, decls: ArenaVec::new_in(a), inner_node: 1, outer_first: of, catalog: false });
+            let scan = |r: u16| Source::Range {
+                site: SiteDesc::none_in(a),
+                am: Am::Pgrcolumnar,
+                scanrelid: r,
+                relid: 16384,
+            };
+            let into = |slot| {
+                Pipeline::serial(
+                    -1,
+                    End::Breaker(Breaker::sized(BreakerKind::HashBuild, 4096).in_slot(slot)),
+                    Reason::NoDrivingSite,
+                )
+            };
+            let probe = |slot, of| {
+                Op::Join(JoinDesc::Probe {
+                    slot,
+                    jointype: JoinType::JOIN_INNER,
+                    clauses: nil,
+                    keys: nil,
+                    qual: nil,
+                    unique: false,
+                    marks: false,
+                    decls: ArenaVec::new_in(a),
+                    inner_node: 1,
+                    outer_first: of,
+                    catalog: false,
+                })
+            };
             let mut g = PipelineGraph::new(a);
-            g.pipelines.push(PipelineNode::new(a, 1, Source::Values { scanrelid: 2, lists: nil }, into(0)));
+            g.pipelines.push(PipelineNode::new(
+                a,
+                1,
+                Source::Values {
+                    scanrelid: 2,
+                    lists: nil,
+                },
+                into(0),
+            ));
             g.pipelines.push(PipelineNode::new(a, 2, scan(1), into(1)));
-            let mut p = PipelineNode::new(a, 3, scan(3), Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite));
+            let mut p = PipelineNode::new(
+                a,
+                3,
+                scan(3),
+                Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            );
             let (lower, upper) = (probe(0, outer_first), probe(1, true));
             if first {
                 p.push(lower);
@@ -948,8 +1959,18 @@ mod tests {
                 p.push(lower);
             }
             g.pipelines.push(p);
-            let gx = Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
-            assert_eq!(held_before(&gx, 0, 2, if first { 1 } else { 0 }), want, "earlier {first}, outer-first {outer_first}");
+            let gx = Gx {
+                graph: &g,
+                facts: &NoFacts,
+                catalog: &gravity_expr::PgCatalog,
+                over: None,
+                mcx: rig.mcx(),
+            };
+            assert_eq!(
+                held_before(&gx, 0, 2, if first { 1 } else { 0 }),
+                want,
+                "earlier {first}, outer-first {outer_first}"
+            );
         }
     }
 
@@ -960,15 +1981,36 @@ mod tests {
     fn a_settled_limit_between_a_lazy_group_and_its_reader_is_quiet() {
         let rig = mcx::MemoryContext::new("GravityPlanRig");
         use gravity_decompose::graph::Bound;
-        for (count, want) in [(Bound::Const(2), true), (Bound::All, true), (Bound::Const(-1), false)] {
+        for (count, want) in [
+            (Bound::Const(2), true),
+            (Bound::All, true),
+            (Bound::Const(-1), false),
+        ] {
             let arena = Arena::new(1 << 16);
             let a = arena.handle();
             let mut g = PipelineGraph::new(a);
-            let into = |slot| Pipeline::serial(-1, End::Breaker(Breaker::sized(BreakerKind::Materialize, 4096).in_slot(slot)), Reason::NoDrivingSite);
-            let mut p = PipelineNode::new(a, 1, Source::Breaker { slot: 0 }, into(1).consuming_one(0));
-            p.push(Op::Limit { count, offset: Bound::All, ties: None });
+            let into = |slot| {
+                Pipeline::serial(
+                    -1,
+                    End::Breaker(Breaker::sized(BreakerKind::Materialize, 4096).in_slot(slot)),
+                    Reason::NoDrivingSite,
+                )
+            };
+            let mut p =
+                PipelineNode::new(a, 1, Source::Breaker { slot: 0 }, into(1).consuming_one(0));
+            p.push(Op::Limit {
+                count,
+                offset: Bound::All,
+                ties: None,
+            });
             g.pipelines.push(p);
-            let gx = Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
+            let gx = Gx {
+                graph: &g,
+                facts: &NoFacts,
+                catalog: &gravity_expr::PgCatalog,
+                over: None,
+                mcx: rig.mcx(),
+            };
             assert_eq!(own_side(&gx, 0), Side::Raises, "own_side, count {count:?}");
             assert_eq!(between_safe(&gx, 0), want, "between, count {count:?}");
         }
@@ -977,7 +2019,16 @@ mod tests {
     /// W4b-RowX (code review round 3): table_to_xml, table_to_xml_and_xmlschema, schema_to_xml, schema_to_xml_and_xmlschema,
     /// database_to_xml, database_to_xml_and_xmlschema (xml), then the controls table_to_xmlschema (xml) and
     /// pg_relation_is_publishable (bool): (pg_proc oid, prorettype).
-    const XML_ETC: [(u32, u32); 8] = [(2923, 142), (2929, 142), (2933, 142), (2935, 142), (2936, 142), (2938, 142), (2926, 142), (6121, 16)];
+    const XML_ETC: [(u32, u32); 8] = [
+        (2923, 142),
+        (2929, 142),
+        (2933, 142),
+        (2935, 142),
+        (2936, 142),
+        (2938, 142),
+        (2926, 142),
+        (6121, 16),
+    ];
 
     /// `rowx`'s catalog: PgCatalog's answers, except that a unit test has no syscache, so a user type a fixture names (an
     /// OID from FIRST_NORMAL_OID on) reads as pg_type has a plain base type: its own base, neither a range nor a multirange
@@ -1016,7 +2067,11 @@ mod tests {
             <PgCatalog as gravity_expr::Catalog<'mcx>>::type_cmp_proc(&PgCatalog, t)
         }
         fn base_type(&self, t: Oid, typmod: &mut i32) -> PgResult<Oid> {
-            if t >= FIRST_NORMAL_OID { Ok(t) } else { <PgCatalog as gravity_expr::Catalog<'mcx>>::base_type(&PgCatalog, t, typmod) }
+            if t >= FIRST_NORMAL_OID {
+                Ok(t)
+            } else {
+                <PgCatalog as gravity_expr::Catalog<'mcx>>::base_type(&PgCatalog, t, typmod)
+            }
         }
         fn domain(&self, t: Oid) -> PgResult<DomainFacts<'mcx>> {
             <PgCatalog as gravity_expr::Catalog<'mcx>>::domain(&PgCatalog, t)
@@ -1037,17 +2092,31 @@ mod tests {
             <PgCatalog as gravity_expr::Catalog<'mcx>>::enum_members(&PgCatalog, t)
         }
         fn regex_compiles(&self, pattern: &[u8], icase: bool, c: Oid) -> bool {
-            <PgCatalog as gravity_expr::Catalog<'mcx>>::regex_compiles(&PgCatalog, pattern, icase, c)
+            <PgCatalog as gravity_expr::Catalog<'mcx>>::regex_compiles(
+                &PgCatalog, pattern, icase, c,
+            )
         }
-        fn hash_key(&self, o: Oid, c: Oid) -> PgResult<Result<gravity_fn::typesem::KeySem, gravity_fn::typesem::TypeClass>> {
+        fn hash_key(
+            &self,
+            o: Oid,
+            c: Oid,
+        ) -> PgResult<Result<gravity_fn::typesem::KeySem, gravity_fn::typesem::TypeClass>> {
             <PgCatalog as gravity_expr::Catalog<'mcx>>::hash_key(&PgCatalog, o, c)
         }
-        fn hash_key_typed(&self, o: Oid, c: Oid, l: Oid, r: Oid) -> PgResult<Result<gravity_fn::typesem::KeySem, gravity_fn::typesem::TypeClass>> {
+        fn hash_key_typed(
+            &self,
+            o: Oid,
+            c: Oid,
+            l: Oid,
+            r: Oid,
+        ) -> PgResult<Result<gravity_fn::typesem::KeySem, gravity_fn::typesem::TypeClass>> {
             <PgCatalog as gravity_expr::Catalog<'mcx>>::hash_key_typed(&PgCatalog, o, c, l, r)
         }
         fn support(&self, q: Support) -> PgResult<Oid> {
             match q {
-                Support::RangeSub(t) | Support::MultirangeRange(t) if t >= FIRST_NORMAL_OID => Ok(0),
+                Support::RangeSub(t) | Support::MultirangeRange(t) if t >= FIRST_NORMAL_OID => {
+                    Ok(0)
+                }
                 q => <PgCatalog as gravity_expr::Catalog<'mcx>>::support(&PgCatalog, q),
             }
         }
@@ -1063,8 +2132,8 @@ mod tests {
     fn rowx(src: u8, funcid: u32, args: &[types_nodes::Node<'static>]) -> (Side, Side) {
         let rig = mcx::MemoryContext::new("GravityPlanRig");
         use gravity_decompose::graph::KeyForm;
-        use gravity_decompose::ops::srf::kind_of;
         use gravity_decompose::ops::shared::srf::{SrfDesc, SrfFn, SrfPlace};
+        use gravity_decompose::ops::srf::kind_of;
         use types_nodes::list::OidList;
         use types_nodes::primnodes::{FuncExpr, NullTest, NullTestType, OpExpr};
         use types_nodes::Node;
@@ -1076,57 +2145,237 @@ mod tests {
             0 | 4 | 6..=19 => Source::Const,
             _ => {
                 let v = Node::mk_var(m, 1, 1, 23, -1, 0, 0).unwrap();
-                let value = Node::mk(m, NullTest { arg: Some(v), nulltesttype: NullTestType::IS_NOT_NULL, argisrow: false, location: -1 }).unwrap();
+                let value = Node::mk(
+                    m,
+                    NullTest {
+                        arg: Some(v),
+                        nulltesttype: NullTestType::IS_NOT_NULL,
+                        argisrow: false,
+                        location: -1,
+                    },
+                )
+                .unwrap();
                 let mut keys = ArenaVec::new_in(a);
-                keys.push(gravity_decompose::IndexKey { attno: 1, col: 1, opno: 0, value, form: if src == 2 { KeyForm::Any } else { KeyForm::NotNull } });
-                Source::Index { site: SiteDesc::none_in(a), am: Am::Heap, scanrelid: 1, relid: 1249, indexid: if src == 5 { 16390 } else { 2659 }, keys, only: false, backward: false, recheck: nil, iam: if src == 3 { gravity_decompose::catalog::IndexAm::Gist } else { gravity_decompose::catalog::IndexAm::Btree } }
+                keys.push(gravity_decompose::IndexKey {
+                    attno: 1,
+                    col: 1,
+                    opno: 0,
+                    value,
+                    form: if src == 2 {
+                        KeyForm::Any
+                    } else {
+                        KeyForm::NotNull
+                    },
+                });
+                Source::Index {
+                    site: SiteDesc::none_in(a),
+                    am: Am::Heap,
+                    scanrelid: 1,
+                    relid: 1249,
+                    indexid: if src == 5 { 16390 } else { 2659 },
+                    keys,
+                    only: false,
+                    backward: false,
+                    recheck: nil,
+                    iam: if src == 3 {
+                        gravity_decompose::catalog::IndexAm::Gist
+                    } else {
+                        gravity_decompose::catalog::IndexAm::Btree
+                    },
+                }
             }
         };
-        let mut p = PipelineNode::new(a, 1, source, Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite));
+        let mut p = PipelineNode::new(
+            a,
+            1,
+            source,
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+        );
         if funcid != 0 {
             let mut l = NodeList::nil();
             args.iter().for_each(|&n| l.lappend(m, n).unwrap());
-            let node = Node::mk(m, FuncExpr { funcid, funcresulttype: 23, funcretset: true, args: l, ..Default::default() }).unwrap();
+            let node = Node::mk(
+                m,
+                FuncExpr {
+                    funcid,
+                    funcresulttype: 23,
+                    funcretset: true,
+                    args: l,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
             let coltypes: &OidList<'_> = Box::leak(Box::new(OidList::nil()));
             let mut functions = ArenaVec::new_in(a);
-            functions.push(SrfFn { resno: 1, node, funcid, args: &node.as_func_expr().unwrap().args, kind: kind_of(funcid, true), cols: 1, coltypes });
-            p.push(Op::Srf(SrfDesc { place: SrfPlace::From { scanrelid: 2, ordinality: false }, functions, tlist: nil }));
+            functions.push(SrfFn {
+                resno: 1,
+                node,
+                funcid,
+                args: &node.as_func_expr().unwrap().args,
+                kind: kind_of(funcid, true),
+                cols: 1,
+                coltypes,
+            });
+            p.push(Op::Srf(SrfDesc {
+                place: SrfPlace::From {
+                    scanrelid: 2,
+                    ordinality: false,
+                },
+                functions,
+                tlist: nil,
+            }));
         }
         if src == 18 || src == 19 {
-            let arr = Node::mk_var(m, 1, 1, if src == 18 { 16401 } else { 1007 }, -1, 0, 0).unwrap();
-            let one = Node::mk_const(m, 23, -1, 0, 4, datum::Datum::from_i32(1), false, true).unwrap();
-            let up = Node::mk(m, FuncExpr { funcid: 2092, funcresulttype: 23, args: NodeList::make2(m, arr, one).unwrap(), ..Default::default() }).unwrap();
-            p.push(Op::Filter(Node::mk(m, NullTest { arg: Some(up), nulltesttype: NullTestType::IS_NOT_NULL, argisrow: false, location: -1 }).unwrap()));
+            let arr =
+                Node::mk_var(m, 1, 1, if src == 18 { 16401 } else { 1007 }, -1, 0, 0).unwrap();
+            let one =
+                Node::mk_const(m, 23, -1, 0, 4, datum::Datum::from_i32(1), false, true).unwrap();
+            let up = Node::mk(
+                m,
+                FuncExpr {
+                    funcid: 2092,
+                    funcresulttype: 23,
+                    args: NodeList::make2(m, arr, one).unwrap(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            p.push(Op::Filter(
+                Node::mk(
+                    m,
+                    NullTest {
+                        arg: Some(up),
+                        nulltesttype: NullTestType::IS_NOT_NULL,
+                        argisrow: false,
+                        location: -1,
+                    },
+                )
+                .unwrap(),
+            ));
         }
         let mut g = PipelineGraph::new(a);
         g.pipelines.push(p);
         if src == 6 {
             let v = Node::mk_var(m, 1, 1, 23, -1, 0, 0).unwrap();
-            let value = Node::mk(m, NullTest { arg: Some(v), nulltesttype: NullTestType::IS_NOT_NULL, argisrow: false, location: -1 }).unwrap();
+            let value = Node::mk(
+                m,
+                NullTest {
+                    arg: Some(v),
+                    nulltesttype: NullTestType::IS_NOT_NULL,
+                    argisrow: false,
+                    location: -1,
+                },
+            )
+            .unwrap();
             let mut keys = ArenaVec::new_in(a);
-            keys.push(gravity_decompose::IndexKey { attno: 1, col: 1, opno: 0, value, form: KeyForm::NotNull });
-            let source = Source::Index { site: SiteDesc::none_in(a), am: Am::Heap, scanrelid: 2, relid: 16384, indexid: 16390, keys, only: false, backward: false, recheck: nil, iam: gravity_decompose::catalog::IndexAm::Btree };
-            g.pipelines.push(PipelineNode::new(a, 2, source, Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite)));
+            keys.push(gravity_decompose::IndexKey {
+                attno: 1,
+                col: 1,
+                opno: 0,
+                value,
+                form: KeyForm::NotNull,
+            });
+            let source = Source::Index {
+                site: SiteDesc::none_in(a),
+                am: Am::Heap,
+                scanrelid: 2,
+                relid: 16384,
+                indexid: 16390,
+                keys,
+                only: false,
+                backward: false,
+                recheck: nil,
+                iam: gravity_decompose::catalog::IndexAm::Btree,
+            };
+            g.pipelines.push(PipelineNode::new(
+                a,
+                2,
+                source,
+                Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            ));
         }
         if src == 4 {
             let v = |att| Node::mk_var(m, 1, att, 23, -1, 0, 0).unwrap();
-            let op = Node::mk(m, OpExpr { opno: 16401, opfuncid: 16400, opresulttype: 16, opretset: false, opcollid: 0, inputcollid: 0, args: NodeList::from_slice(m, &[v(1), v(2)]).unwrap(), location: -1 }).unwrap();
-            let clauses: &NodeList<'_> = Box::leak(Box::new(NodeList::from_slice(m, &[op]).unwrap()));
-            let mut q = PipelineNode::new(a, 2, Source::Const, Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite));
-            q.push(Op::Join(JoinDesc::Probe { slot: 0, jointype: JoinType::JOIN_INNER, clauses, keys: nil, qual: nil, unique: false, marks: false, decls: ArenaVec::new_in(a), inner_node: 1, outer_first: true, catalog: false }));
+            let op = Node::mk(
+                m,
+                OpExpr {
+                    opno: 16401,
+                    opfuncid: 16400,
+                    opresulttype: 16,
+                    opretset: false,
+                    opcollid: 0,
+                    inputcollid: 0,
+                    args: NodeList::from_slice(m, &[v(1), v(2)]).unwrap(),
+                    location: -1,
+                },
+            )
+            .unwrap();
+            let clauses: &NodeList<'_> =
+                Box::leak(Box::new(NodeList::from_slice(m, &[op]).unwrap()));
+            let mut q = PipelineNode::new(
+                a,
+                2,
+                Source::Const,
+                Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            );
+            q.push(Op::Join(JoinDesc::Probe {
+                slot: 0,
+                jointype: JoinType::JOIN_INNER,
+                clauses,
+                keys: nil,
+                qual: nil,
+                unique: false,
+                marks: false,
+                decls: ArenaVec::new_in(a),
+                inner_node: 1,
+                outer_first: true,
+                catalog: false,
+            }));
             g.pipelines.push(q);
         }
         if (7..=17).contains(&src) {
             let v = match src {
-                10..=17 => Node::mk(m, FuncExpr { funcid: XML_ETC[src as usize - 10].0, funcresulttype: XML_ETC[src as usize - 10].1, ..Default::default() }).unwrap(),
+                10..=17 => Node::mk(
+                    m,
+                    FuncExpr {
+                        funcid: XML_ETC[src as usize - 10].0,
+                        funcresulttype: XML_ETC[src as usize - 10].1,
+                        ..Default::default()
+                    },
+                )
+                .unwrap(),
                 _ => Node::mk_var(m, 1, 1, if src == 7 { 16400 } else { 23 }, -1, 0, 0).unwrap(),
             };
-            let t = Node::mk(m, NullTest { arg: Some(v), nulltesttype: NullTestType::IS_NOT_NULL, argisrow: false, location: -1 }).unwrap();
-            let mut q = PipelineNode::new(a, 2, Source::Const, Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite));
-            q.push(if src == 9 || src == 17 { Op::Gate(Node::mk_list(m, NodeList::from_slice(m, &[t]).unwrap()).unwrap()) } else { Op::Filter(t) });
+            let t = Node::mk(
+                m,
+                NullTest {
+                    arg: Some(v),
+                    nulltesttype: NullTestType::IS_NOT_NULL,
+                    argisrow: false,
+                    location: -1,
+                },
+            )
+            .unwrap();
+            let mut q = PipelineNode::new(
+                a,
+                2,
+                Source::Const,
+                Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            );
+            q.push(if src == 9 || src == 17 {
+                Op::Gate(Node::mk_list(m, NodeList::from_slice(m, &[t]).unwrap()).unwrap())
+            } else {
+                Op::Filter(t)
+            });
             g.pipelines.push(q);
         }
-        let gx = Gx { graph: &g, facts: &NoFacts, catalog: &Fixtures, over: None, mcx: rig.mcx() };
+        let gx = Gx {
+            graph: &g,
+            facts: &NoFacts,
+            catalog: &Fixtures,
+            over: None,
+            mcx: rig.mcx(),
+        };
         (side_by(&gx, 0, usize::MAX, false), own_side(&gx, 0))
     }
 
@@ -1144,35 +2393,107 @@ mod tests {
     fn side_by_reads_quiet_sources_and_series_quiet_and_own_side_reads_them_as_before() {
         use types_nodes::primnodes::FuncExpr;
         let m = Box::leak(Box::new(mcx::MemoryContext::new("rowx-args"))).mcx();
-        let int4 = |v: i32| types_nodes::Node::mk_const(m, 23, -1, 0, 4, datum::Datum::from_i32(v), false, true).unwrap();
+        let int4 = |v: i32| {
+            types_nodes::Node::mk_const(m, 23, -1, 0, 4, datum::Datum::from_i32(v), false, true)
+                .unwrap()
+        };
         let (one, ten) = (int4(1), int4(10));
-        let div = types_nodes::Node::mk(m, FuncExpr { funcid: 154, funcresulttype: 23, args: NodeList::make2(m, one, int4(0)).unwrap(), ..Default::default() }).unwrap();
+        let div = types_nodes::Node::mk(
+            m,
+            FuncExpr {
+                funcid: 154,
+                funcresulttype: 23,
+                args: NodeList::make2(m, one, int4(0)).unwrap(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let (safe, raises) = ((Side::Safe, Side::Raises), (Side::Raises, Side::Raises));
         assert_eq!(rowx(0, 0, &[]), safe, "a Result's one row");
-        assert_eq!(rowx(0, 1067, &[one, ten]), safe, "generate_series(int4, int4)");
-        assert_eq!(rowx(0, 1069, &[one, ten]), safe, "generate_series(int8, int8)");
-        assert_eq!(rowx(1, 0, &[]), safe, "an initdb btree index's key IS NOT NULL");
-        assert_eq!(rowx(1, 1067, &[one, ten]), safe, "an index scan under a series");
+        assert_eq!(
+            rowx(0, 1067, &[one, ten]),
+            safe,
+            "generate_series(int4, int4)"
+        );
+        assert_eq!(
+            rowx(0, 1069, &[one, ten]),
+            safe,
+            "generate_series(int8, int8)"
+        );
+        assert_eq!(
+            rowx(1, 0, &[]),
+            safe,
+            "an initdb btree index's key IS NOT NULL"
+        );
+        assert_eq!(
+            rowx(1, 1067, &[one, ten]),
+            safe,
+            "an index scan under a series"
+        );
         assert_eq!(rowx(0, 1066, &[one, ten, one]), raises, "the 3-arg series");
         assert_eq!(rowx(0, 3260, &[one, ten]), raises, "numeric's series");
         assert_eq!(rowx(0, 1067, &[one, div]), raises, "a raising argument");
-        assert_eq!(rowx(0, 16390, &[one, ten]), (Side::UserFn, Side::UserFn), "a user set function");
+        assert_eq!(
+            rowx(0, 16390, &[one, ten]),
+            (Side::UserFn, Side::UserFn),
+            "a user set function"
+        );
         assert_eq!(rowx(2, 0, &[]), raises, "a key under ANY");
-        assert_eq!(rowx(3, 0, &[]), raises, "a gist key IS NOT NULL (btree sources only)");
-        assert_eq!(rowx(5, 0, &[]), raises, "a user index's key IS NOT NULL (its opclass's order proc may be a user one)");
-        assert_eq!(rowx(5, 1067, &[one, ten]), raises, "a user index under a series");
-        assert_eq!(rowx(4, 0, &[]), raises, "a hash clause calls a user operator: v4 compares by type (D2036, in-row)");
+        assert_eq!(
+            rowx(3, 0, &[]),
+            raises,
+            "a gist key IS NOT NULL (btree sources only)"
+        );
+        assert_eq!(
+            rowx(5, 0, &[]),
+            raises,
+            "a user index's key IS NOT NULL (its opclass's order proc may be a user one)"
+        );
+        assert_eq!(
+            rowx(5, 1067, &[one, ten]),
+            raises,
+            "a user index under a series"
+        );
+        assert_eq!(
+            rowx(4, 0, &[]),
+            raises,
+            "a hash clause calls a user operator: v4 compares by type (D2036, in-row)"
+        );
         assert_eq!(rowx(6, 1067, &[one, ten]), raises, "the statement reads a user table's index (its opclass's FUNCTION 1 runs unseen in a kept build)");
         assert_eq!(rowx(7, 1067, &[one, ten]), safe, "another pipeline reads a value of a user type: per expression (main 10-03 22:21Z), not the statement");
         assert_eq!(rowx(18, 1067, &[one, ten]), raises, "its own array_upper over a user-typed array reads as trunk (a builtin over a user type may run its functions)");
-        assert_eq!(rowx(19, 1067, &[one, ten]), safe, "its own array_upper over an int4[] reads PG's quiet array read");
-        assert_eq!(rowx(8, 1067, &[one, ten]), safe, "the same filter over an int4 value");
-        assert_eq!(rowx(9, 1067, &[one, ten]), safe, "a one-time filter's implicit AND list over an int4 value (member by member)");
+        assert_eq!(
+            rowx(19, 1067, &[one, ten]),
+            safe,
+            "its own array_upper over an int4[] reads PG's quiet array read"
+        );
+        assert_eq!(
+            rowx(8, 1067, &[one, ten]),
+            safe,
+            "the same filter over an int4 value"
+        );
+        assert_eq!(
+            rowx(9, 1067, &[one, ten]),
+            safe,
+            "a one-time filter's implicit AND list over an int4 value (member by member)"
+        );
         for (i, (f, _)) in XML_ETC[..6].iter().enumerate() {
-            assert_eq!(rowx(10 + i as u8, 1067, &[one, ten]), safe, "another pipeline calls the row-reading xml mapping builtin {f}: per expression");
+            assert_eq!(
+                rowx(10 + i as u8, 1067, &[one, ten]),
+                safe,
+                "another pipeline calls the row-reading xml mapping builtin {f}: per expression"
+            );
         }
-        assert_eq!(rowx(16, 1067, &[one, ten]), safe, "table_to_xmlschema (it reads no rows)");
-        assert_eq!(rowx(17, 1067, &[one, ten]), safe, "pg_relation_is_publishable in a one-time filter's list (the describes' gate)");
+        assert_eq!(
+            rowx(16, 1067, &[one, ten]),
+            safe,
+            "table_to_xmlschema (it reads no rows)"
+        );
+        assert_eq!(
+            rowx(17, 1067, &[one, ten]),
+            safe,
+            "pg_relation_is_publishable in a one-time filter's list (the describes' gate)"
+        );
     }
 
     /// with#170 / #171 (hashjoin owner review 2026-10-04T22:54:16Z): `own_side` reads a VALUES list of quiet expressions
@@ -1183,8 +2504,8 @@ mod tests {
     #[test]
     fn a_quiet_values_list_and_a_quiet_window_read_safe() {
         let rig = mcx::MemoryContext::new("GravityPlanRig");
-        use gravity_decompose::ops::window::{WinFn, WinFnKind, WindowDesc};
         use gravity_decompose::ops::shared::window::{Exclude, FrameBound, FrameCursor, FrameMode};
+        use gravity_decompose::ops::window::{WinFn, WinFnKind, WindowDesc};
         use types_nodes::plannodes::WindowAgg;
         use types_nodes::primnodes::{FuncExpr, WindowFunc};
         let m = Box::leak(Box::new(mcx::MemoryContext::new("values-window"))).mcx(); // alloc: Cold
@@ -1193,35 +2514,147 @@ mod tests {
         let side = |p: PipelineNode<'static>| {
             let mut g = PipelineGraph::new(a);
             g.pipelines.push(p);
-            let gx = Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
+            let gx = Gx {
+                graph: &g,
+                facts: &NoFacts,
+                catalog: &gravity_expr::PgCatalog,
+                over: None,
+                mcx: rig.mcx(),
+            };
             own_side(&gx, 0)
         };
-        let int4 = |v: i32| Node::mk_const(m, 23, -1, 0, 4, datum::Datum::from_i32(v), false, true).unwrap();
-        let call = |funcid: u32, args: &[Node<'static>]| Node::mk(m, FuncExpr { funcid, funcresulttype: 23, args: if args.is_empty() { NodeList::nil() } else { NodeList::from_slice(m, args).unwrap() }, ..Default::default() }).unwrap();
+        let int4 = |v: i32| {
+            Node::mk_const(m, 23, -1, 0, 4, datum::Datum::from_i32(v), false, true).unwrap()
+        };
+        let call = |funcid: u32, args: &[Node<'static>]| {
+            Node::mk(
+                m,
+                FuncExpr {
+                    funcid,
+                    funcresulttype: 23,
+                    args: if args.is_empty() {
+                        NodeList::nil()
+                    } else {
+                        NodeList::from_slice(m, args).unwrap()
+                    },
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+        };
         let values = |x: Node<'static>| {
             let row = Node::mk_list(m, NodeList::from_slice(m, &[int4(1), x]).unwrap()).unwrap();
-            let lists: &'static NodeList<'static> = Box::leak(Box::new(NodeList::from_slice(m, &[row]).unwrap())); // alloc: Cold
-            side(PipelineNode::new(a, 1, Source::Values { scanrelid: 1, lists }, Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite)))
+            let lists: &'static NodeList<'static> =
+                Box::leak(Box::new(NodeList::from_slice(m, &[row]).unwrap())); // alloc: Cold
+            side(PipelineNode::new(
+                a,
+                1,
+                Source::Values {
+                    scanrelid: 1,
+                    lists,
+                },
+                Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            ))
         };
         assert_eq!(values(int4(2)), Side::Safe, "VALUES (1, 2)");
-        assert_eq!(values(call(16390, &[])), Side::UserFn, "VALUES (1, f()): a user function");
-        assert_eq!(values(call(154, &[int4(1), int4(0)])), Side::Raises, "VALUES (1, 1 / 0)");
-        let cursor = FrameCursor { mode: FrameMode::Rows, start: FrameBound::UnboundedPreceding, end: FrameBound::CurrentRow, exclude: Exclude::None, needs: 0 };
+        assert_eq!(
+            values(call(16390, &[])),
+            Side::UserFn,
+            "VALUES (1, f()): a user function"
+        );
+        assert_eq!(
+            values(call(154, &[int4(1), int4(0)])),
+            Side::Raises,
+            "VALUES (1, 1 / 0)"
+        );
+        let cursor = FrameCursor {
+            mode: FrameMode::Rows,
+            start: FrameBound::UnboundedPreceding,
+            end: FrameBound::CurrentRow,
+            exclude: Exclude::None,
+            needs: 0,
+        };
         // (the window function, its kind, partition =)
         let window = |winfnoid: u32, kind: WinFnKind, part: u32, volatile_args: bool| {
-            let f = Node::mk(m, WindowFunc { winfnoid, wintype: 20, ..Default::default() }).unwrap();
-            let plan: &'static WindowAgg<'static> = Box::leak(Box::new(WindowAgg { partNumCols: 1, partColIdx: &[1], partOperators: Box::leak(Box::new([part])), partCollations: &[0], ordNumCols: 1, ordColIdx: &[1], ordOperators: Box::leak(Box::new([97])), ordCollations: &[0], ..Default::default() })); // alloc: Cold
+            let f = Node::mk(
+                m,
+                WindowFunc {
+                    winfnoid,
+                    wintype: 20,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            let plan: &'static WindowAgg<'static> = Box::leak(Box::new(WindowAgg {
+                partNumCols: 1,
+                partColIdx: &[1],
+                partOperators: Box::leak(Box::new([part])),
+                partCollations: &[0],
+                ordNumCols: 1,
+                ordColIdx: &[1],
+                ordOperators: Box::leak(Box::new([97])),
+                ordCollations: &[0],
+                ..Default::default()
+            })); // alloc: Cold
             let mut functions = ArenaVec::new_in(a);
-            functions.push(WinFn { resno: 2, node: f, func: f.as_window_func().expect("a WindowFunc"), kind, cursor });
+            functions.push(WinFn {
+                resno: 2,
+                node: f,
+                func: f.as_window_func().expect("a WindowFunc"),
+                kind,
+                cursor,
+            });
             let run_condition: &'static NodeList<'static> = Box::leak(Box::new(NodeList::nil())); // alloc: Cold
-            let scan = Source::Range { site: SiteDesc::none_in(a), am: Am::Pgrcolumnar, scanrelid: 1, relid: 16384 };
-            let mut p = PipelineNode::new(a, 1, scan, Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite));
-            p.push(Op::Window(WindowDesc { winref: 1, partition: ArenaVec::new_in(a), order: ArenaVec::new_in(a), frame: cursor, functions, natts: 1, run_condition, top: true, tlist: &plan.plan.targetlist, plan, volatile_args, volatile_proj: false, whole: false, arms_capped: false, capped: None }));
+            let scan = Source::Range {
+                site: SiteDesc::none_in(a),
+                am: Am::Pgrcolumnar,
+                scanrelid: 1,
+                relid: 16384,
+            };
+            let mut p = PipelineNode::new(
+                a,
+                1,
+                scan,
+                Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            );
+            p.push(Op::Window(WindowDesc {
+                winref: 1,
+                partition: ArenaVec::new_in(a),
+                order: ArenaVec::new_in(a),
+                frame: cursor,
+                functions,
+                natts: 1,
+                run_condition,
+                top: true,
+                tlist: &plan.plan.targetlist,
+                plan,
+                volatile_args,
+                volatile_proj: false,
+                whole: false,
+                arms_capped: false,
+                capped: None,
+            }));
             side(p)
         };
-        assert_eq!(window(3100, WinFnKind::RowNumber, 96, false), Side::Safe, "row_number() OVER (PARTITION BY int4 ORDER BY int4)");
-        assert_eq!(window(3106, WinFnKind::Lag, 96, false), Side::Raises, "lag (its offset may raise): as before");
-        assert_eq!(window(3100, WinFnKind::RowNumber, 16602, false), Side::UserFn, "D4145: a user partition = runs user code (window_calls)");
-        assert_eq!(window(3106, WinFnKind::Lag, 96, true), Side::UserFn, "D4145: lag(nextval(..)): a VOLATILE argument calls");
+        assert_eq!(
+            window(3100, WinFnKind::RowNumber, 96, false),
+            Side::Safe,
+            "row_number() OVER (PARTITION BY int4 ORDER BY int4)"
+        );
+        assert_eq!(
+            window(3106, WinFnKind::Lag, 96, false),
+            Side::Raises,
+            "lag (its offset may raise): as before"
+        );
+        assert_eq!(
+            window(3100, WinFnKind::RowNumber, 16602, false),
+            Side::UserFn,
+            "D4145: a user partition = runs user code (window_calls)"
+        );
+        assert_eq!(
+            window(3106, WinFnKind::Lag, 96, true),
+            Side::UserFn,
+            "D4145: lag(nextval(..)): a VOLATILE argument calls"
+        );
     }
 }

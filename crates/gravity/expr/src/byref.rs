@@ -15,7 +15,10 @@ pub struct ByRef {
 
 /// `VARSIZE_ANY` of the image at `p` in IR (1-byte header, the 18-byte on-disk toast pointer, 4-byte header), or `typlen`.
 pub fn image_len(b: &mut FunctionBuilder<'_>, p: Value, typlen: i16) -> Value {
-    assert!(typlen == -1 || typlen > 0, "a by-reference output column's typlen is -1 or fixed, not {typlen}");
+    assert!(
+        typlen == -1 || typlen > 0,
+        "a by-reference output column's typlen is -1 or fixed, not {typlen}"
+    );
     if typlen > 0 {
         return b.iconst(Type::I64, typlen as i64);
     }
@@ -86,7 +89,15 @@ pub fn oversize(b: &mut FunctionBuilder<'_>, o: Value, total: Value) -> Value {
 
 /// Column `k` at `vp` / `np` (as `store_col`): the image copied to the region's end (`copy_image`, `copy_fixed`), the datum
 /// the copy's address, the null byte; a NULL stores 0. `fits` was checked.
-pub fn store(b: &mut FunctionBuilder<'_>, o: Value, vp: Value, np: Value, k: i32, c: ByRef, s: Size) {
+pub fn store(
+    b: &mut FunctionBuilder<'_>,
+    o: Value,
+    vp: Value,
+    np: Value,
+    k: i32,
+    c: ByRef,
+    s: Size,
+) {
     let t = b.bconst(true);
     let nv = b.int_bin(IntBinOp::Xor, c.valid, t);
     let byte = b.conv(ConvOp::Zext, Type::I8, nv);
@@ -118,12 +129,20 @@ pub fn store(b: &mut FunctionBuilder<'_>, o: Value, vp: Value, np: Value, k: i32
 /// 8-aligned (a 1-byte-header varlena), and one that ends a heap page in the pool's last buffer ends its mapping (D3661).
 /// On return the builder is in a fresh block.
 pub fn copy_image(b: &mut FunctionBuilder<'_>, dst: Value, src: Value, len: Value) {
-    let (zero, seven, eight) = (b.iconst(Type::I64, 0), b.iconst(Type::I64, 7), b.iconst(Type::I64, 8));
+    let (zero, seven, eight) = (
+        b.iconst(Type::I64, 0),
+        b.iconst(Type::I64, 7),
+        b.iconst(Type::I64, 8),
+    );
     let not7 = b.iconst(Type::I64, !7);
     let whole = b.int_bin(IntBinOp::And, len, not7);
     let k = b.int_bin(IntBinOp::And, len, seven);
     let l_loop = b.create_block(&[Type::I64]);
-    let (l_rest, l_tail, l_done) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));
+    let (l_rest, l_tail, l_done) = (
+        b.create_block(&[]),
+        b.create_block(&[]),
+        b.create_block(&[]),
+    );
     let any = b.icmp(IntCond::Ne, whole, zero);
     b.cond_br(any, (l_loop, &[zero]), (l_rest, &[]));
     b.switch_to(l_loop);
@@ -168,7 +187,15 @@ pub fn copy_fixed(b: &mut FunctionBuilder<'_>, dst: Value, off: i32, src: Value,
 /// that page), masked.
 fn tail(b: &mut FunctionBuilder<'_>, p: Value, off: i32, k: Value) -> Value {
     let c = |b: &mut FunctionBuilder<'_>, v: i64| b.iconst(Type::I64, v);
-    let (one, three, seven, eight, page, zero, ones) = (c(b, 1), c(b, 3), c(b, 7), c(b, 8), c(b, 4095), c(b, 0), c(b, -1));
+    let (one, three, seven, eight, page, zero, ones) = (
+        c(b, 1),
+        c(b, 3),
+        c(b, 7),
+        c(b, 8),
+        c(b, 4095),
+        c(b, 0),
+        c(b, -1),
+    );
     let qi = b.conv(ConvOp::PtrToInt, Type::I64, p);
     let qi = match off {
         0 => qi,

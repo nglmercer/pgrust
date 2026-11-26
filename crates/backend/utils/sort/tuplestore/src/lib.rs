@@ -28,7 +28,11 @@ pub fn init_seams() {
 const ALLOCSET_SEPARATE_THRESHOLD: usize = 8192;
 const INITIAL_MEMTUPSIZE: usize = {
     let (a, b) = (16384 / PTR_SIZE, ALLOCSET_SEPARATE_THRESHOLD / PTR_SIZE + 1);
-    if a > b { a } else { b }
+    if a > b {
+        a
+    } else {
+        b
+    }
 };
 
 #[inline]
@@ -130,8 +134,13 @@ fn cfi() -> PgResult<()> {
     Ok(())
 }
 
-const RP0: ReadPointer =
-    ReadPointer { eflags: 0, eof_reached: false, current: 0, file: 0, offset: 0 };
+const RP0: ReadPointer = ReadPointer {
+    eflags: 0,
+    eof_reached: false,
+    current: 0,
+    file: 0,
+    offset: 0,
+};
 
 #[track_caller]
 #[cold]
@@ -260,11 +269,7 @@ impl Tuplestore {
         Tuplestore(owned)
     }
 
-    pub fn puttupleslot<'q>(
-        &mut self,
-        slot: &mut SlotData<'q>,
-        slot_mcx: Mcx<'q>,
-    ) -> PgResult<()> {
+    pub fn puttupleslot<'q>(&mut self, slot: &mut SlotData<'q>, slot_mcx: Mcx<'q>) -> PgResult<()> {
         self.0.with_mut(|st| {
             let mtup =
                 exectuples::exec_copy_slot_minimal_tuple(slot, slot_mcx, st.tuplecontext.mcx(), 0)?;
@@ -278,8 +283,7 @@ impl Tuplestore {
 
     pub fn put_heap_tuple(&mut self, htup: &::types_tuple::HeapTupleData<'_>) -> PgResult<()> {
         self.0.with_mut(|st| {
-            let mtup =
-                heaptuple::minimal_tuple_from_heap_tuple(st.tuplecontext.mcx(), htup, 0)?;
+            let mtup = heaptuple::minimal_tuple_from_heap_tuple(st.tuplecontext.mcx(), htup, 0)?;
             let t_len = mtup.t_len() as usize;
             let tuple = mtup.as_ptr().cast_mut().cast::<MinimalTupleData>();
             mem::forget(mtup);
@@ -294,8 +298,13 @@ impl Tuplestore {
         isnull: &[bool],
     ) -> PgResult<()> {
         self.0.with_mut(|st| {
-            let mtup =
-                heaptuple::heap_form_minimal_tuple(st.tuplecontext.mcx(), tdesc, values, isnull, 0)?;
+            let mtup = heaptuple::heap_form_minimal_tuple(
+                st.tuplecontext.mcx(),
+                tdesc,
+                values,
+                isnull,
+                0,
+            )?;
             let t_len = mtup.t_len() as usize;
             let tuple = mtup.as_ptr().cast_mut().cast::<MinimalTupleData>();
             mem::forget(mtup);
@@ -483,7 +492,9 @@ impl Tuplestore {
     pub fn set_eflags(&mut self, eflags: i32) -> PgResult<()> {
         self.0.with_mut(|st| {
             if st.status != TupStoreStatus::InMem || !st.memtuples.is_empty() {
-                return Err(Box::new(PgError::error("too late to call tuplestore_set_eflags")));
+                return Err(Box::new(PgError::error(
+                    "too late to call tuplestore_set_eflags",
+                )));
             }
             st.readptrs[0].eflags = eflags;
             let mut all = eflags;
@@ -501,7 +512,9 @@ impl Tuplestore {
             if (st.status != TupStoreStatus::InMem || !st.memtuples.is_empty())
                 && (st.eflags | eflags) != st.eflags
             {
-                return Err(Box::new(PgError::error("too late to require new tuplestore eflags")));
+                return Err(Box::new(PgError::error(
+                    "too late to require new tuplestore eflags",
+                )));
             }
             let mut rp = st.readptrs[0];
             rp.eflags = eflags;
@@ -730,8 +743,8 @@ impl<'m> TuplestoreData<'m> {
                 self.status = TupStoreStatus::WriteFile;
                 self.dumptuples()?;
                 self.tuplecontext.reset();
-                self.avail_mem = self.allowed_mem
-                    - aset_chunk_space(self.memtuples.capacity() * PTR_SIZE);
+                self.avail_mem =
+                    self.allowed_mem - aset_chunk_space(self.memtuples.capacity() * PTR_SIZE);
                 Ok(())
             }
             TupStoreStatus::WriteFile => {
@@ -805,7 +818,10 @@ impl<'m> TuplestoreData<'m> {
         let (body, bodylen) = unsafe {
             let t_len = (*tuple).t_len as usize;
             (
-                tuple.cast_const().cast::<u8>().add(MINIMAL_TUPLE_DATA_OFFSET),
+                tuple
+                    .cast_const()
+                    .cast::<u8>()
+                    .add(MINIMAL_TUPLE_DATA_OFFSET),
                 t_len - MINIMAL_TUPLE_DATA_OFFSET,
             )
         };
@@ -849,7 +865,12 @@ impl<'m> TuplestoreData<'m> {
         while self.read_scratch.len() <= self.activeptr {
             self.read_scratch.push(PgVec::new_in(self.mcx));
         }
-        let TuplestoreData { myfile, read_scratch, activeptr, .. } = self;
+        let TuplestoreData {
+            myfile,
+            read_scratch,
+            activeptr,
+            ..
+        } = self;
         let read_scratch = &mut read_scratch[*activeptr];
         if read_scratch.len() < words {
             read_scratch
@@ -907,7 +928,10 @@ impl<'m> TuplestoreData<'m> {
         let add = newmemtupsize - self.memtuples.len();
         ::mcx::vec_reserve_huge(&mut self.memtuples, add)?;
         self.avail_mem -= aset_chunk_space(self.memtuples.capacity() * PTR_SIZE);
-        assert!(self.avail_mem >= 0, "unexpected out-of-memory situation in tuplestore");
+        assert!(
+            self.avail_mem >= 0,
+            "unexpected out-of-memory situation in tuplestore"
+        );
         Ok(true)
     }
 
@@ -928,9 +952,7 @@ impl<'m> TuplestoreData<'m> {
     }
 
     fn gettuple(&mut self, forward: bool) -> PgResult<StoreTuple> {
-        debug_assert!(
-            forward || self.readptrs[self.activeptr].eflags & EXEC_FLAG_BACKWARD != 0
-        );
+        debug_assert!(forward || self.readptrs[self.activeptr].eflags & EXEC_FLAG_BACKWARD != 0);
         match self.status {
             TupStoreStatus::InMem => {
                 let count = self.memtuples.len();

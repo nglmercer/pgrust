@@ -36,7 +36,15 @@ impl Demand<'_, '_> {
 /// `op`'s demand when it is a Limit (`Demand`), `None` for any other op.
 pub fn demand<'o, 'p>(op: &'o Op<'p>) -> Option<Demand<'o, 'p>> {
     match op {
-        Op::Limit { count, offset, ties } => Some(Demand { count, offset, ties: ties.is_some() }),
+        Op::Limit {
+            count,
+            offset,
+            ties,
+        } => Some(Demand {
+            count,
+            offset,
+            ties: ties.is_some(),
+        }),
         _ => None,
     }
 }
@@ -74,14 +82,21 @@ fn may(b: &PlanBound<'_>, zero: bool) -> bool {
 /// evaluates nothing and raises nothing (nodeLimit.c `recompute_limits` raises only at a negative bound, and computes
 /// only a parameter or an expression). `false` for any other op.
 pub fn limit_settled(op: &Op<'_>) -> bool {
-    let settled = |b: &PlanBound<'_>| matches!(*b, PlanBound::All) || matches!(*b, PlanBound::Const(v) if v >= 0);
+    let settled = |b: &PlanBound<'_>| {
+        matches!(*b, PlanBound::All) || matches!(*b, PlanBound::Const(v) if v >= 0)
+    };
     limit_bounds(op).is_some_and(|(count, offset)| settled(count) && settled(offset))
 }
 
 /// A Limit's bound as its own step evaluates it (ops/limit `Limit::bound`: its value this call, `None` when it is ALL or
 /// NULL, a negative one raising `which`, 0 OFFSET and 1 LIMIT), for a feeder that makes the Limit's check before the
 /// Limit runs (ops/result/gate.rs, as PostgreSQL's Limit evaluates its bounds before it pulls its subplan).
-pub(crate) fn limit_check_bound(b: &mut gravity_ir::builder::FunctionBuilder<'_>, env: &mut crate::frame::env::Env, l: crate::ops::shared::limit::Lim, which: u64) -> Option<gravity_ir::Value> {
+pub(crate) fn limit_check_bound(
+    b: &mut gravity_ir::builder::FunctionBuilder<'_>,
+    env: &mut crate::frame::env::Env,
+    l: crate::ops::shared::limit::Lim,
+    which: u64,
+) -> Option<gravity_ir::Value> {
     crate::ops::limit::lower::Limit::bound(b, env, l, which)
 }
 
@@ -100,8 +115,15 @@ mod tests {
     /// one of them is one.
     #[test]
     fn a_limits_bounds_and_position() {
-        let limit = Op::Limit { count: PlanBound::Const(5), offset: PlanBound::All, ties: None };
-        assert!(matches!(super::limit_bounds(&limit), Some((PlanBound::Const(5), PlanBound::All))));
+        let limit = Op::Limit {
+            count: PlanBound::Const(5),
+            offset: PlanBound::All,
+            ties: None,
+        };
+        assert!(matches!(
+            super::limit_bounds(&limit),
+            Some((PlanBound::Const(5), PlanBound::All))
+        ));
         assert!(super::limit_bounds(&Op::GroupRun(0)).is_none());
         assert!(super::holds_limit(&[Op::GroupRun(0), limit]));
         assert!(!super::holds_limit(&[Op::GroupRun(0)]));
@@ -112,12 +134,31 @@ mod tests {
     /// bound computed; a constant positive count, a zero offset and no bound at all may not, and ops with no Limit never do.
     #[test]
     fn a_limit_skips_by_run_time_bounds_only() {
-        let limit = |count, offset| Op::Limit { count, offset, ties: None };
-        assert!(super::limit_may_skip(&[limit(PlanBound::Const(0), PlanBound::All)]));
-        assert!(super::limit_may_skip(&[limit(PlanBound::Const(-1), PlanBound::All)]));
-        assert!(super::limit_may_skip(&[limit(PlanBound::All, PlanBound::Const(-1))]));
-        assert!(!super::limit_may_skip(&[limit(PlanBound::Const(5), PlanBound::Const(0))]));
-        assert!(!super::limit_may_skip(&[limit(PlanBound::All, PlanBound::All)]));
+        let limit = |count, offset| Op::Limit {
+            count,
+            offset,
+            ties: None,
+        };
+        assert!(super::limit_may_skip(&[limit(
+            PlanBound::Const(0),
+            PlanBound::All
+        )]));
+        assert!(super::limit_may_skip(&[limit(
+            PlanBound::Const(-1),
+            PlanBound::All
+        )]));
+        assert!(super::limit_may_skip(&[limit(
+            PlanBound::All,
+            PlanBound::Const(-1)
+        )]));
+        assert!(!super::limit_may_skip(&[limit(
+            PlanBound::Const(5),
+            PlanBound::Const(0)
+        )]));
+        assert!(!super::limit_may_skip(&[limit(
+            PlanBound::All,
+            PlanBound::All
+        )]));
         assert!(!super::limit_may_skip(&[Op::GroupRun(0)]));
     }
 
@@ -125,12 +166,31 @@ mod tests {
     /// raises nothing); a negative constant or a computed bound is not, and no other op is.
     #[test]
     fn a_limit_is_settled_by_constant_bounds_of_at_least_zero() {
-        let limit = |count, offset| Op::Limit { count, offset, ties: None };
-        assert!(super::limit_settled(&limit(PlanBound::Const(2), PlanBound::All)));
-        assert!(super::limit_settled(&limit(PlanBound::Const(0), PlanBound::Const(0))));
-        assert!(super::limit_settled(&limit(PlanBound::All, PlanBound::Const(3))));
-        assert!(!super::limit_settled(&limit(PlanBound::Const(-1), PlanBound::All)));
-        assert!(!super::limit_settled(&limit(PlanBound::Const(2), PlanBound::Const(-1))));
+        let limit = |count, offset| Op::Limit {
+            count,
+            offset,
+            ties: None,
+        };
+        assert!(super::limit_settled(&limit(
+            PlanBound::Const(2),
+            PlanBound::All
+        )));
+        assert!(super::limit_settled(&limit(
+            PlanBound::Const(0),
+            PlanBound::Const(0)
+        )));
+        assert!(super::limit_settled(&limit(
+            PlanBound::All,
+            PlanBound::Const(3)
+        )));
+        assert!(!super::limit_settled(&limit(
+            PlanBound::Const(-1),
+            PlanBound::All
+        )));
+        assert!(!super::limit_settled(&limit(
+            PlanBound::Const(2),
+            PlanBound::Const(-1)
+        )));
         assert!(!super::limit_settled(&Op::GroupRun(0)));
     }
 
@@ -138,19 +198,32 @@ mod tests {
     /// constants (count >= 0, offset >= 0 or none); any other op has none.
     #[test]
     fn a_limits_demand_is_its_one_reading() {
-        let limit = |count, offset| Op::Limit { count, offset, ties: None };
+        let limit = |count, offset| Op::Limit {
+            count,
+            offset,
+            ties: None,
+        };
         let rows = |count, offset| super::demand(&limit(count, offset)).and_then(|d| d.rows());
         assert_eq!(rows(PlanBound::Const(5), PlanBound::All), Some(5));
         assert_eq!(rows(PlanBound::Const(5), PlanBound::Const(3)), Some(8));
         assert_eq!(rows(PlanBound::Const(0), PlanBound::Const(3)), Some(3));
-        assert_eq!(rows(PlanBound::Const(i64::MAX), PlanBound::Const(i64::MAX)), Some(u64::MAX - 1));
+        assert_eq!(
+            rows(PlanBound::Const(i64::MAX), PlanBound::Const(i64::MAX)),
+            Some(u64::MAX - 1)
+        );
         assert_eq!(rows(PlanBound::All, PlanBound::Const(3)), None);
         assert_eq!(rows(PlanBound::Const(-1), PlanBound::All), None);
         assert_eq!(rows(PlanBound::Const(5), PlanBound::Const(-1)), None);
         let five = limit(PlanBound::Const(5), PlanBound::All);
         let d = super::demand(&five).expect("a Limit has a demand");
-        assert!(matches!((d.count, d.offset, d.ties), (PlanBound::Const(5), PlanBound::All, false)));
+        assert!(matches!(
+            (d.count, d.offset, d.ties),
+            (PlanBound::Const(5), PlanBound::All, false)
+        ));
         assert!(super::demand(&Op::GroupRun(0)).is_none());
-        assert!(!super::limit_with_ties(&limit(PlanBound::Const(5), PlanBound::All)));
+        assert!(!super::limit_with_ties(&limit(
+            PlanBound::Const(5),
+            PlanBound::All
+        )));
     }
 }

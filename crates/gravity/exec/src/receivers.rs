@@ -6,8 +6,8 @@ use gravity_driver::{BorrowedBatch, Flow, Result, Sink};
 use gravity_wire::WireNode;
 use mcx::Mcx;
 use tcop_dest::DestReceiver;
-use types_slot::{SlotData, TupleSlotKind};
 use types_portal::TuplestoreHandle;
+use types_slot::{SlotData, TupleSlotKind};
 use types_tuple::TupleDescData;
 
 mod raw;
@@ -47,18 +47,53 @@ enum Direct {
 }
 
 impl DestSink {
-    pub fn new(mcx: Mcx<'static>, desc: Rc<TupleDescData<'static>>, dest: &mut DestReceiver<'_>) -> DestSink {
+    pub fn new(
+        mcx: Mcx<'static>,
+        desc: Rc<TupleDescData<'static>>,
+        dest: &mut DestReceiver<'_>,
+    ) -> DestSink {
         let n = desc.natts as usize;
         let direct = match (dest.plain_tuplestore(), &*dest) {
             (Some(h), _) => Direct::Store(h),
-            (None, DestReceiver::SqlFunction(st)) if st.row_slot.is_none() && st.clean_map.len() == n && st.clean_map.iter().enumerate().all(|(i, &a)| a as usize == i + 1) => Direct::SqlFn,
-            (None, DestReceiver::SqlFunction(st)) if st.row_slot.is_some() && st.clean_map.iter().all(|&a| a >= 0 && a as usize <= n) => Direct::SqlFnRow,
+            (None, DestReceiver::SqlFunction(st))
+                if st.row_slot.is_none()
+                    && st.clean_map.len() == n
+                    && st
+                        .clean_map
+                        .iter()
+                        .enumerate()
+                        .all(|(i, &a)| a as usize == i + 1) =>
+            {
+                Direct::SqlFn
+            }
+            (None, DestReceiver::SqlFunction(st))
+                if st.row_slot.is_some()
+                    && st.clean_map.iter().all(|&a| a >= 0 && a as usize <= n) =>
+            {
+                Direct::SqlFnRow
+            }
             _ => Direct::Slot,
         };
-        let k = if matches!(direct, Direct::Slot | Direct::SqlFnRow) { 0 } else { n };
-        let (vals, nulls) = (vec![datum::Datum::null(); k].into_boxed_slice(), vec![false; k].into_boxed_slice()); // alloc: Exec
+        let k = if matches!(direct, Direct::Slot | Direct::SqlFnRow) {
+            0
+        } else {
+            n
+        };
+        let (vals, nulls) = (
+            vec![datum::Datum::null(); k].into_boxed_slice(),
+            vec![false; k].into_boxed_slice(),
+        ); // alloc: Exec
         #[allow(clippy::unnecessary_cast)]
-        DestSink { dest: dest as *mut DestReceiver<'_> as *mut DestReceiver<'static>, slot: None, desc, mcx, rows: 0, direct, vals, nulls }
+        DestSink {
+            dest: dest as *mut DestReceiver<'_> as *mut DestReceiver<'static>,
+            slot: None,
+            desc,
+            mcx,
+            rows: 0,
+            direct,
+            vals,
+            nulls,
+        }
     }
 }
 
@@ -79,7 +114,12 @@ impl DestSink {
                 Direct::SqlFn => {
                     self.fill(values, isnull);
                     if let DestReceiver::SqlFunction(st) = DestSink::dest_mut(&mut self.dest) {
-                        tuplestore::hold::putvalues(st.tstore, &st.clean_desc, &self.vals, &self.nulls)?;
+                        tuplestore::hold::putvalues(
+                            st.tstore,
+                            &st.clean_desc,
+                            &self.vals,
+                            &self.nulls,
+                        )?;
                         self.rows += 1;
                         return Ok(true);
                     }
@@ -93,7 +133,13 @@ impl DestSink {
             return Ok(true);
         }
         let (mcx, desc) = (self.mcx, &self.desc);
-        let slot = self.slot.get_or_insert_with(|| Box::new(exectuples::make_tuple_table_slot(mcx, TupleSlotKind::Virtual, Some(desc.clone())))); // alloc: Exec
+        let slot = self.slot.get_or_insert_with(|| {
+            Box::new(exectuples::make_tuple_table_slot(
+                mcx,
+                TupleSlotKind::Virtual,
+                Some(desc.clone()),
+            ))
+        }); // alloc: Exec
         exectuples::exec_clear_tuple(slot, mcx);
         {
             let base = slot.base_mut();
@@ -123,7 +169,10 @@ impl DestSink {
 impl Sink for DestSink {
     fn push(&mut self, batch: BorrowedBatch<'_>) -> Result<Flow> {
         for (values, isnull) in batch.iter() {
-            if !self.send_row(values, isnull).map_err(gravity_hosts::stash)? {
+            if !self
+                .send_row(values, isnull)
+                .map_err(gravity_hosts::stash)?
+            {
                 return Ok(Flow::Stop);
             }
         }
@@ -175,7 +224,8 @@ impl Sink for Receiver<'_> {
             Receiver::Dest(d) => d.push(batch),
             Receiver::Wire(w) => {
                 // the block framed whole when every column is an integer; PostgreSQL's own error otherwise (an output function's, e.g. oidvectorout), stashed for `glue::pg_error`
-                w.send_rows(batch.values, batch.isnull, batch.rows).map_err(gravity_hosts::stash)?;
+                w.send_rows(batch.values, batch.isnull, batch.rows)
+                    .map_err(gravity_hosts::stash)?;
                 Ok(Flow::Continue)
             }
             Receiver::Cell(c) => c.push(batch),
@@ -192,11 +242,20 @@ impl Sink for Receiver<'_> {
 
     fn push_wire(&mut self, bytes: &[u8], rows: u64) -> Result<Flow> {
         match self {
-            Receiver::Wire(w) => w.send_framed(bytes, rows).map(|_| Flow::Continue).map_err(gravity_hosts::stash),
+            Receiver::Wire(w) => w
+                .send_framed(bytes, rows)
+                .map(|_| Flow::Continue)
+                .map_err(gravity_hosts::stash),
             Receiver::Null => Ok(Flow::Continue),
-            Receiver::Dest(_) => Err(gravity_driver::Error::host("gravity: framed rows to a dest receiver")),
-            Receiver::Cell(_) => Err(gravity_driver::Error::host("gravity: framed rows to an InitPlan's cell")),
-            Receiver::Outer(_) => Err(gravity_driver::Error::host("gravity: framed rows to the entry's own sink")),
+            Receiver::Dest(_) => Err(gravity_driver::Error::host(
+                "gravity: framed rows to a dest receiver",
+            )),
+            Receiver::Cell(_) => Err(gravity_driver::Error::host(
+                "gravity: framed rows to an InitPlan's cell",
+            )),
+            Receiver::Outer(_) => Err(gravity_driver::Error::host(
+                "gravity: framed rows to the entry's own sink",
+            )),
         }
     }
 }

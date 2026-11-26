@@ -22,18 +22,36 @@ pub const NAMEDATALEN: usize = 64;
 /// set_indexonlyscan_references strips it, so the scan's output reads a later column on the same table column (btree_gist's
 /// gist_inet_ops beside inet_ops: GiST's image holds NULL for a column without a fetch function, gistFetchTuple). An empty
 /// `returnable` is every column (a btree walk: nbtree returns them all).
-pub fn index_attnums(index: &Relation<'_>, heap: &Relation<'_>, attnos: &[i16], returnable: &[bool]) -> PgResult<(Vec<i16>, Vec<bool>)> {
-    let indkey = &index.rd_index.as_ref().ok_or_else(|| crate::pg_err("gravity: index without a form"))?.indkey;
+pub fn index_attnums(
+    index: &Relation<'_>,
+    heap: &Relation<'_>,
+    attnos: &[i16],
+    returnable: &[bool],
+) -> PgResult<(Vec<i16>, Vec<bool>)> {
+    let indkey = &index
+        .rd_index
+        .as_ref()
+        .ok_or_else(|| crate::pg_err("gravity: index without a form"))?
+        .indkey;
     let mut v = Vec::with_capacity(attnos.len()); // alloc: Program
     let mut names = Vec::with_capacity(attnos.len()); // alloc: Program
-    // bounded("small-fixed: one index-only column found among at most INDEX_MAX_KEYS index keys")
+                                                      // bounded("small-fixed: one index-only column found among at most INDEX_MAX_KEYS index keys")
     for &a in attnos {
         let on = |j: usize| indkey[j] == a;
         let pos = (0..indkey.len())
             .find(|&j| on(j) && returnable.get(j).copied().unwrap_or(true))
-            .ok_or_else(|| crate::pg_err("gravity: an index-only column outside the index's returnable key columns"))?;
+            .ok_or_else(|| {
+                crate::pg_err(
+                    "gravity: an index-only column outside the index's returnable key columns",
+                )
+            })?;
         v.push(pos as i16 + 1);
-        names.push(heap.rd_att.attrs.get(a as usize - 1).is_some_and(|f| f.atttypid == NAMEOID));
+        names.push(
+            heap.rd_att
+                .attrs
+                .get(a as usize - 1)
+                .is_some_and(|f| f.atttypid == NAMEOID),
+        );
     }
     Ok((v, names))
 }
@@ -46,7 +64,9 @@ pub fn returnable(mcx: Mcx<'_>, index: &Relation<'_>, btree: bool) -> PgResult<V
     if btree {
         return Ok(vec![true; n]); // alloc: Program
     }
-    (0..n).map(|j| indexam_seams::index_can_return::call(mcx, index.rd_id, j as i32 + 1)).collect() // alloc: Program
+    (0..n)
+        .map(|j| indexam_seams::index_can_return::call(mcx, index.rd_id, j as i32 + 1))
+        .collect() // alloc: Program
 }
 
 /// D3453: per index column (by position), the column of the AM's index-only image that holds its value: itself where the AM
@@ -57,7 +77,9 @@ pub fn image_cols(index: &Relation<'_>, returnable: &[bool]) -> Vec<i16> {
     let ok = |j: usize| returnable.get(j).copied().unwrap_or(true);
     (0..indkey.len())
         .map(|j| {
-            let alt = (!ok(j) && indkey[j] > 0).then(|| (0..indkey.len()).find(|&i| indkey[i] == indkey[j] && ok(i))).flatten();
+            let alt = (!ok(j) && indkey[j] > 0)
+                .then(|| (0..indkey.len()).find(|&i| indkey[i] == indkey[j] && ok(i)))
+                .flatten();
             alt.unwrap_or(j) as i16 + 1
         })
         .collect() // alloc: Program
@@ -66,26 +88,51 @@ pub fn image_cols(index: &Relation<'_>, returnable: &[bool]) -> Vec<i16> {
 /// `step` is the caller's row walk's: an entry whose heap tuple the snapshot rejects ticks it (a run of them is as long
 /// as the index; IndexOnlyNext checks for interrupts per entry).
 #[allow(clippy::too_many_arguments)]
-pub fn next<'mcx>(step: &mut cancelpoll::Step, mcx: Mcx<'mcx>, scan: &mut IndexScanDescData<'mcx>, heap: &Relation<'mcx>, slot: &mut SlotData<'mcx>, snapshot: &SnapshotData<'mcx>, vm: &mut VmBuffer, dir: ScanDirection, index_attnums: &[i16], names: &[bool], name_bufs: &mut [u8], values: &mut [Word], isnull: &mut [u8], heap_fetches: &mut u64) -> PgResult<bool> {
+pub fn next<'mcx>(
+    step: &mut cancelpoll::Step,
+    mcx: Mcx<'mcx>,
+    scan: &mut IndexScanDescData<'mcx>,
+    heap: &Relation<'mcx>,
+    slot: &mut SlotData<'mcx>,
+    snapshot: &SnapshotData<'mcx>,
+    vm: &mut VmBuffer,
+    dir: ScanDirection,
+    index_attnums: &[i16],
+    names: &[bool],
+    name_bufs: &mut [u8],
+    values: &mut [Word],
+    isnull: &mut [u8],
+    heap_fetches: &mut u64,
+) -> PgResult<bool> {
     loop {
-        let Some(tid) = indexam::index_getnext_tid(scan, dir)? else { return Ok(false) };
+        let Some(tid) = indexam::index_getnext_tid(scan, dir)? else {
+            return Ok(false);
+        };
         let block = ItemPointerGetBlockNumber(&tid);
         let mut from_heap = false;
-        if !tableam::table_index_fetch_all_visible(heap, &tid, |b| visibilitymap::vm_all_visible(heap, b, vm))? {
+        if !tableam::table_index_fetch_all_visible(heap, &tid, |b| {
+            visibilitymap::vm_all_visible(heap, b, vm)
+        })? {
             // PostgreSQL's `InstrCountTuples2`: every heap visit counts, a tuple the snapshot then rejects too (D574). A plain
             // counter as PG's (D2900: no atomic per row); the source adds it to the recipe's shared count once a window
             *heap_fetches += 1;
             if !indexam::index_fetch_heap(mcx, scan, slot)? {
-                step.tick().map_err(|_| crate::pg_err("gravity: an index-only walk stopped for its statement's cancel"))?;
+                step.tick().map_err(|_| {
+                    crate::pg_err("gravity: an index-only walk stopped for its statement's cancel")
+                })?;
                 continue;
             }
             exectuples::exec_clear_tuple(slot, mcx);
             if scan.xs_heap_continue {
-                return Err(crate::pg_err("gravity: index-only scan under a non-MVCC snapshot"));
+                return Err(crate::pg_err(
+                    "gravity: index-only scan under a non-MVCC snapshot",
+                ));
             }
             from_heap = true;
         }
-        let Some(row) = crate::ops::scan::raw::OnlyRow::of(scan) else { return Err(crate::pg_err("gravity: the index returned no tuple image")) };
+        let Some(row) = crate::ops::scan::raw::OnlyRow::of(scan) else {
+            return Err(crate::pg_err("gravity: the index returned no tuple image"));
+        };
         // bounded("key-columns: one cell per output column read from the index tuple, at most INDEX_MAX_KEYS (32) columns")
         for (k, &attnum) in index_attnums.iter().enumerate() {
             let mut null = false;

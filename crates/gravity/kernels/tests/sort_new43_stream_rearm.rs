@@ -8,7 +8,9 @@ use common::*;
 use gravity_abi::breaker::{SortRun, TABLE_SORT};
 use gravity_abi::ctx::RESUME_NONE;
 use gravity_kernels::contract::entry2;
-use gravity_kernels::host_abi::{sort_begin, sort_full, sort_last, sort_next, sort_open, SORT_MODE_MEM, SORT_MODE_MERGE};
+use gravity_kernels::host_abi::{
+    sort_begin, sort_full, sort_last, sort_next, sort_open, SORT_MODE_MEM, SORT_MODE_MERGE,
+};
 use gravity_kernels::ops::sort::entries::SortStreamRearm;
 use gravity_program::hand::{self as programs, Oids};
 
@@ -17,7 +19,8 @@ const SORT_TBL: [u32; 6] = [ROW_BYTES, 2, 2, 0, 0, 0];
 
 unsafe fn push_row(run: *mut u8, key: i64) {
     let p = (*(run as *mut SortRun)).push() as *mut u64;
-    (*p, *p.add(1), *p.add(2), *p.add(3), *p.add(4)) = (1, (key ^ i64::MIN) as u64, key as u64, 0, 0);
+    (*p, *p.add(1), *p.add(2), *p.add(3), *p.add(4)) =
+        (1, (key ^ i64::MIN) as u64, key as u64, 0, 0);
 }
 
 /// Rows `keys` into the own run, a run put after each `per` rows.
@@ -58,19 +61,27 @@ fn a_merge_read_to_its_end_then_the_region_streams_again() {
         assert_eq!(sort_full(rig.ctx(), run, 2, 0), 0);
         assert_eq!(rig.host.runs.len(), 3, "three runs put");
         assert_eq!(begin(&mut rig), SORT_MODE_MERGE);
-        let got: Vec<i64> = (0..90).map(|i| row(&mut rig, SORT_MODE_MERGE, i).expect("a row")).collect(); // alloc: Cold
+        let got: Vec<i64> = (0..90)
+            .map(|i| row(&mut rig, SORT_MODE_MERGE, i).expect("a row"))
+            .collect(); // alloc: Cold
         assert_eq!(got, (0..90).collect::<Vec<i64>>());
         assert_eq!(rearm(&mut rig), 0);
         assert!(rig.host.runs.is_empty(), "the runs dropped");
         let r = &*(own as *const SortRun);
-        assert_eq!((r.cap, r.len, r.row_bytes, r.kind), (cap, 0, ROW_BYTES, TABLE_SORT), "an empty run of the same room");
+        assert_eq!(
+            (r.cap, r.len, r.row_bytes, r.kind),
+            (cap, 0, ROW_BYTES, TABLE_SORT),
+            "an empty run of the same room"
+        );
         // the producer streams on into the region: its last call seals the run in place (no runs left)
         let run = fill(&mut rig, (100..140).rev(), usize::MAX);
         assert_eq!(run, own);
         assert_eq!(sort_last(rig.ctx(), run, 2, 0), 0);
         assert!(rig.host.runs.is_empty(), "sealed in place, not put");
         assert_eq!(begin(&mut rig), SORT_MODE_MEM);
-        let got: Vec<i64> = (0..40).map(|i| row(&mut rig, SORT_MODE_MEM, i).expect("a row")).collect(); // alloc: Cold
+        let got: Vec<i64> = (0..40)
+            .map(|i| row(&mut rig, SORT_MODE_MEM, i).expect("a row"))
+            .collect(); // alloc: Cold
         assert_eq!(got, (100..140).collect::<Vec<i64>>());
     }
 }
@@ -90,7 +101,9 @@ fn a_merge_in_flight_is_given_up_and_a_second_fallback_merges_only_its_own_runs(
         assert_eq!(sort_full(rig.ctx(), run, 2, 0), 0);
         assert_eq!(rig.host.runs.len(), 2);
         assert_eq!(begin(&mut rig), SORT_MODE_MERGE);
-        let got: Vec<i64> = (0..50).map(|i| row(&mut rig, SORT_MODE_MERGE, i).expect("a row")).collect(); // alloc: Cold
+        let got: Vec<i64> = (0..50)
+            .map(|i| row(&mut rig, SORT_MODE_MERGE, i).expect("a row"))
+            .collect(); // alloc: Cold
         assert_eq!(got, (200..250).collect::<Vec<i64>>());
         assert_eq!(row(&mut rig, SORT_MODE_MERGE, 50), None);
     }
@@ -104,6 +117,10 @@ fn a_region_with_no_merge_is_a_bug() {
         let _ = gravity_fn::take_error();
         assert!(rearm(&mut rig) < 0);
         let msg = gravity_fn::take_error().map(|e| e.message().to_owned()); // alloc: Cold
-        assert!(msg.as_deref().is_some_and(|m| m.contains("re-armed with no merge")), "{msg:?}");
+        assert!(
+            msg.as_deref()
+                .is_some_and(|m| m.contains("re-armed with no merge")),
+            "{msg:?}"
+        );
     }
 }

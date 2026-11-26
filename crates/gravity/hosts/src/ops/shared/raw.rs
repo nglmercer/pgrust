@@ -11,14 +11,23 @@ use types_storage::lock::NoLock;
 
 use super::rel::repin;
 
-pub fn open_heap(mcx: Mcx<'static>, parked: &Option<Weak<RelationData<'static>>>, oid: Oid) -> PgResult<Relation<'static>> {
+pub fn open_heap(
+    mcx: Mcx<'static>,
+    parked: &Option<Weak<RelationData<'static>>>,
+    oid: Oid,
+) -> PgResult<Relation<'static>> {
     match repin(parked) {
         Some(h) => Ok(h),
         None => table::table_open(mcx, oid, NoLock),
     }
 }
 
-pub fn open_index(mcx: Mcx<'static>, parked: &Option<Weak<RelationData<'static>>>, oid: Oid, lockmode: LOCKMODE) -> PgResult<Relation<'static>> {
+pub fn open_index(
+    mcx: Mcx<'static>,
+    parked: &Option<Weak<RelationData<'static>>>,
+    oid: Oid,
+    lockmode: LOCKMODE,
+) -> PgResult<Relation<'static>> {
     if lockmode != NoLock {
         lmgr_seams::lock_relation_oid::call(oid, lockmode)?;
     }

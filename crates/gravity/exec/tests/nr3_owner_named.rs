@@ -12,12 +12,16 @@ use std::time::Duration;
 
 use common::*;
 use gravity_abi::breaker::ORDER_NONE;
-use gravity_driver::{footprint, Entry, Error, Grant, Reservation, SpillFactory, SpillSet, TempMap, POOL, REGIONS};
+use gravity_driver::{
+    footprint, Entry, Error, Grant, Reservation, SpillFactory, SpillSet, TempMap, POOL, REGIONS,
+};
 use gravity_kernels::table::params as par_hashagg;
 use gravity_kernels::table::params::DEFAULT_PARAMS;
 use gravity_parallel::{FixturePool, HashAggPartial};
 use gravity_program::spill::NoSpill;
-use gravity_program::{hand as programs, Code, End, OutCol, OwnerDesc, Pipeline, Program, Reason, SiteDesc, WritePlan};
+use gravity_program::{
+    hand as programs, Code, End, OutCol, OwnerDesc, Pipeline, Program, Reason, SiteDesc, WritePlan,
+};
 
 /// Spill sets in memory, and a temp-file road that maps nothing.
 struct NoFile;
@@ -54,12 +58,34 @@ impl gravity_parallel::Plan for Keyed {
 fn declared(rows: u64, d: OwnerDesc) -> Program {
     let st = gravity_program::Arena::new(1 << 12);
     let sites = [SiteDesc::range_source(st.handle(), T_KV, &[1, 2])];
-    let out = [OutCol::new("k", programs::INT4, -1, 4, true).origin(T_KV, 1), OutCol::new("sum", programs::INT8, -1, 8, true), OutCol::new("count", programs::INT8, -1, 8, true)];
-    let pipes = [
-        (Pipeline::eligible(0, End::Breaker(par_hashagg::breaker(0)), rows).owner(d), Code::hand(par_hashagg::par_hashagg)),
-        (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), Code::hand(par_hashagg::par_hashagg_emit)),
+    let out = [
+        OutCol::new("k", programs::INT4, -1, 4, true).origin(T_KV, 1),
+        OutCol::new("sum", programs::INT8, -1, 8, true),
+        OutCol::new("count", programs::INT8, -1, 8, true),
     ];
-    Program::with_pipelines(gravity_program::Layout { nsites: 1, out_natts: 3, out_rows: 16, scratch_bytes: 0, exec_bytes: 0 }, &sites, &out, WritePlan::SELECT, pipes)
+    let pipes = [
+        (
+            Pipeline::eligible(0, End::Breaker(par_hashagg::breaker(0)), rows).owner(d),
+            Code::hand(par_hashagg::par_hashagg),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            Code::hand(par_hashagg::par_hashagg_emit),
+        ),
+    ];
+    Program::with_pipelines(
+        gravity_program::Layout {
+            nsites: 1,
+            out_natts: 3,
+            out_rows: 16,
+            scratch_bytes: 0,
+            exec_bytes: 0,
+        },
+        &sites,
+        &out,
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
 fn gen_wide(r: u64) -> Option<[i64; 2]> {
@@ -67,10 +93,18 @@ fn gen_wide(r: u64) -> Option<[i64; 2]> {
 }
 
 /// One statement admitted at the program's footprint over a pool of exactly that many bytes (no headroom).
-fn admitted(program: &Arc<Program>, grant: Grant, w: u16, run: impl FnOnce(Rc<Reservation>) -> gravity_driver::Result<u64>) -> gravity_driver::Result<u64> {
+fn admitted(
+    program: &Arc<Program>,
+    grant: Grant,
+    w: u16,
+    run: impl FnOnce(Rc<Reservation>) -> gravity_driver::Result<u64>,
+) -> gravity_driver::Result<u64> {
     let need = footprint(grant, program, w);
     POOL.arm(need);
-    let a = Rc::new(POOL.admit_need(grant, &|g| footprint(g, program, w), Duration::from_secs(5)).unwrap());
+    let a = Rc::new(
+        POOL.admit_need(grant, &|g| footprint(g, program, w), Duration::from_secs(5))
+            .unwrap(),
+    );
     let r = run(a);
     POOL.arm(0);
     r
@@ -78,12 +112,18 @@ fn admitted(program: &Arc<Program>, grant: Grant, w: u16, run: impl FnOnce(Rc<Re
 
 #[test]
 fn an_owner_region_refused_on_every_road_names_its_row() {
-    assert!(gravity_driver::install_spill_factory(&NO_FILE), "this binary owns the process's spill factory");
+    assert!(
+        gravity_driver::install_spill_factory(&NO_FILE),
+        "this binary owns the process's spill factory"
+    );
     let table = FixtureTable::new(T_KV, 2000, 100, gen_wide);
     let mut derive = FixtureDerive::new(&[&table]);
     let pool = FixturePool::new(4);
     let mut entry = Entry::new(2);
-    let d = OwnerDesc { groups: 2000, ..OwnerDesc::generic(par_hashagg::LAYOUT, ORDER_NONE, 0) };
+    let d = OwnerDesc {
+        groups: 2000,
+        ..OwnerDesc::generic(par_hashagg::LAYOUT, ORDER_NONE, 0)
+    };
     let program = Arc::new(declared(2_000, d));
     let params = DEFAULT_PARAMS;
     let mut wrong = Vec::new();
@@ -92,11 +132,35 @@ fn an_owner_region_refused_on_every_road_names_its_row() {
         table.fresh();
         let mut sink = LegSink::new(true);
         let r = admitted(&program, Grant::of(1 << 20), w, |lease| {
-            let plan = Keyed { inner: FixturePlan::new(&program, &derive, w, 33), merge: HashAggPartial::new(0, Some(gravity_exec::table::owner::bind(&d, &mut params.clone(), 3, None))) };
-            run_planned_in(&mut entry, &program, &mut derive, &pool, &plan, lease, &params, &NO_ABORT, &mut sink)
+            let plan = Keyed {
+                inner: FixturePlan::new(&program, &derive, w, 33),
+                merge: HashAggPartial::new(
+                    0,
+                    Some(gravity_exec::table::owner::bind(
+                        &d,
+                        &mut params.clone(),
+                        3,
+                        None,
+                    )),
+                ),
+            };
+            run_planned_in(
+                &mut entry,
+                &program,
+                &mut derive,
+                &pool,
+                &plan,
+                lease,
+                &params,
+                &NO_ABORT,
+                &mut sink,
+            )
         });
         match r {
-            Err(Error::OutOfMemory { why: Some(NoSpill::AggOwnerAll), .. }) => {}
+            Err(Error::OutOfMemory {
+                why: Some(NoSpill::AggOwnerAll),
+                ..
+            }) => {}
             other => wrong.push(format!("W{w}: {other:?}")),
         }
     }

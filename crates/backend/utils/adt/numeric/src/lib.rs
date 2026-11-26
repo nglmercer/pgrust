@@ -17,9 +17,9 @@ pub mod sortsupport;
 pub mod var;
 
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
 mod float_cast_tests;
+#[cfg(test)]
+mod tests;
 
 use types_error::{
     PgError, ERRCODE_DATA_CORRUPTED, ERRCODE_DIVISION_BY_ZERO, ERRCODE_INVALID_TEXT_REPRESENTATION,
@@ -106,7 +106,7 @@ pub const NUMERIC_MIN_SIG_DIGITS: i32 = 16;
 #[inline]
 pub fn numeric_can_be_short(dscale: i32, weight: i32) -> bool {
     dscale <= NUMERIC_SHORT_DSCALE_MAX
-        && (NUMERIC_SHORT_WEIGHT_MIN..= NUMERIC_SHORT_WEIGHT_MAX).contains(& weight)
+        && (NUMERIC_SHORT_WEIGHT_MIN..=NUMERIC_SHORT_WEIGHT_MAX).contains(&weight)
 }
 
 /// Borrowed view of a packed numeric: the varlena payload (no varlena
@@ -257,7 +257,7 @@ impl<'a> Num<'a> {
         // SAFETY: from_payload's length check + header_size <= 4 keep the
         // range in bounds; alignment guarded below.
         let p = unsafe { self.ptr.add(off) };
-        if !( p as usize).is_multiple_of( 2) {
+        if !(p as usize).is_multiple_of(2) {
             unaligned_digits_panic();
         }
         // SAFETY: alignment checked above; n i16s lie within the payload.
@@ -321,9 +321,7 @@ pub fn division_by_zero_error() -> PgError {
 #[inline(never)]
 pub fn invalid_numeric_syntax(input: &[u8]) -> PgError {
     let err = match core::str::from_utf8(input) {
-        Ok(s) => PgError::error(format!(
-            "invalid input syntax for type numeric: \"{s}\""
-        )),
+        Ok(s) => PgError::error(format!("invalid input syntax for type numeric: \"{s}\"")),
         Err(_) => {
             let mut msg = Vec::new();
             msg.extend_from_slice(b"invalid input syntax for type numeric: \"");

@@ -4,7 +4,10 @@ use std::sync::Arc;
 
 use pgsync::Mutex;
 
-use gravity_driver::{BorrowedBatch, Error, Flow, Result, RunReader, Sink, SpillFile, SpillSet, MAX_RUNS, UNSUPPORTED_SPILL};
+use gravity_driver::{
+    BorrowedBatch, Error, Flow, Result, RunReader, Sink, SpillFile, SpillSet, MAX_RUNS,
+    UNSUPPORTED_SPILL,
+};
 
 /// A run closes at the first row that would pass this (a wider row is a run alone; the reader's buffer bounds a row).
 pub const RUN_BYTES: usize = 1 << 16;
@@ -28,11 +31,26 @@ impl ArmSpool {
 
     /// A spool held in memory (the rig's, and a union the entry knows to be small).
     pub fn in_memory(cols: &[Option<i16>]) -> ArmSpool {
-        ArmSpool::over(cols, None, Box::new(MemRuns(Arc::new(Mutex::new(Vec::new()))))) // alloc: Exec
+        ArmSpool::over(
+            cols,
+            None,
+            Box::new(MemRuns(Arc::new(Mutex::new(Vec::new())))),
+        ) // alloc: Exec
     }
 
-    fn over(cols: &[Option<i16>], set: Option<Box<dyn SpillSet>>, file: Box<dyn SpillFile>) -> ArmSpool {
-        ArmSpool { cols: cols.to_vec(), set, file, run: Vec::with_capacity(RUN_BYTES), nruns: 0, rows: 0 } // alloc: Exec
+    fn over(
+        cols: &[Option<i16>],
+        set: Option<Box<dyn SpillSet>>,
+        file: Box<dyn SpillFile>,
+    ) -> ArmSpool {
+        ArmSpool {
+            cols: cols.to_vec(),
+            set,
+            file,
+            run: Vec::with_capacity(RUN_BYTES),
+            nruns: 0,
+            rows: 0,
+        } // alloc: Exec
     }
 
     pub fn rows(&self) -> u64 {
@@ -46,7 +64,8 @@ impl ArmSpool {
         if self.nruns >= MAX_RUNS {
             return Err(Error::Unsupported(UNSUPPORTED_SPILL));
         }
-        self.file.write_epoch(&[(self.nruns, self.run.as_slice())])?;
+        self.file
+            .write_epoch(&[(self.nruns, self.run.as_slice())])?;
         self.nruns += 1;
         self.run.clear();
         Ok(())
@@ -63,7 +82,9 @@ impl Sink for ArmSpool {
     fn push(&mut self, b: BorrowedBatch<'_>) -> Result<Flow> {
         let natts = self.cols.len();
         if b.natts != natts {
-            return Err(Error::host("gravity: an arm's row width is not the spool's"));
+            return Err(Error::host(
+                "gravity: an arm's row width is not the spool's",
+            ));
         }
         self.push_rows(&b)?;
         Ok(Flow::Continue)
@@ -148,10 +169,22 @@ mod tests {
     fn by_value_rows_and_nulls_are_encode_rows() {
         let mut s = ArmSpool::in_memory(&[None, None, None]);
         let (values, nulls) = ([7u64, 0, u64::MAX, 1, 2, 3], [0u8, 1, 0, 0, 0, 1]);
-        s.push(BorrowedBatch { natts: 3, rows: 2, values: &values, isnull: &nulls, region: &[] }).unwrap();
+        s.push(BorrowedBatch {
+            natts: 3,
+            rows: 2,
+            values: &values,
+            isnull: &nulls,
+            region: &[],
+        })
+        .unwrap();
         assert_eq!(s.rows(), 2);
         let mut want: Vec<u8> = Vec::new(); // alloc: Cold
-        encode_row(&mut want, &[7, 0, u64::MAX], &[0, 1, 0], &[None, None, None]);
+        encode_row(
+            &mut want,
+            &[7, 0, u64::MAX],
+            &[0, 1, 0],
+            &[None, None, None],
+        );
         encode_row(&mut want, &[1, 2, 0], &[0, 0, 1], &[None, None, None]);
         let (runs, nruns) = runs_of(s);
         assert_eq!(nruns, 1);
@@ -167,12 +200,38 @@ mod tests {
         long[4..].copy_from_slice(b"123456789");
         let fixed = [9u8; 16];
         let mut s = ArmSpool::in_memory(&[Some(-1), None, Some(-1), Some(16)]);
-        let values = [short.as_ptr() as u64, 42, long.as_ptr() as u64, fixed.as_ptr() as u64, 0, 43, long.as_ptr() as u64, 0];
+        let values = [
+            short.as_ptr() as u64,
+            42,
+            long.as_ptr() as u64,
+            fixed.as_ptr() as u64,
+            0,
+            43,
+            long.as_ptr() as u64,
+            0,
+        ];
         let nulls = [0u8, 0, 0, 0, 1, 0, 0, 1];
-        s.push(BorrowedBatch { natts: 4, rows: 2, values: &values, isnull: &nulls, region: &[] }).unwrap();
+        s.push(BorrowedBatch {
+            natts: 4,
+            rows: 2,
+            values: &values,
+            isnull: &nulls,
+            region: &[],
+        })
+        .unwrap();
         let mut want: Vec<u8> = Vec::new(); // alloc: Cold
-        encode_row(&mut want, &[0, 42, 0, 0], &[0, 0, 0, 0], &[Some(&short[..]), None, Some(&long[..]), Some(&fixed[..])]);
-        encode_row(&mut want, &[0, 43, 0, 0], &[1, 0, 0, 1], &[None, None, Some(&long[..]), None]);
+        encode_row(
+            &mut want,
+            &[0, 42, 0, 0],
+            &[0, 0, 0, 0],
+            &[Some(&short[..]), None, Some(&long[..]), Some(&fixed[..])],
+        );
+        encode_row(
+            &mut want,
+            &[0, 43, 0, 0],
+            &[1, 0, 0, 1],
+            &[None, None, Some(&long[..]), None],
+        );
         let (runs, _) = runs_of(s);
         assert_eq!(runs[0], want);
     }
@@ -183,13 +242,24 @@ mod tests {
         let mut want: Vec<u8> = Vec::new(); // alloc: Cold
         let n = 3 * RUN_BYTES as u64 / 32;
         for r in 0..n {
-            s.push(BorrowedBatch { natts: 2, rows: 1, values: &[r, !r], isnull: &[0, 0], region: &[] }).unwrap();
+            s.push(BorrowedBatch {
+                natts: 2,
+                rows: 1,
+                values: &[r, !r],
+                isnull: &[0, 0],
+                region: &[],
+            })
+            .unwrap();
             encode_row(&mut want, &[r, !r], &[0, 0], &[None, None]);
         }
         let (runs, nruns) = runs_of(s);
         assert!(nruns >= 3, "{nruns} runs");
         for run in runs.iter() {
-            assert!(run.len() <= RUN_BYTES && run.len() % 32 == 0, "{}", run.len());
+            assert!(
+                run.len() <= RUN_BYTES && run.len() % 32 == 0,
+                "{}",
+                run.len()
+            );
         }
         assert_eq!(runs.concat(), want);
     }
@@ -197,7 +267,14 @@ mod tests {
     #[test]
     fn zero_column_rows_are_their_length_words() {
         let mut s = ArmSpool::in_memory(&[]);
-        s.push(BorrowedBatch { natts: 0, rows: 3, values: &[], isnull: &[], region: &[] }).unwrap();
+        s.push(BorrowedBatch {
+            natts: 0,
+            rows: 3,
+            values: &[],
+            isnull: &[],
+            region: &[],
+        })
+        .unwrap();
         let mut want: Vec<u8> = Vec::new(); // alloc: Cold
         for _ in 0..3 {
             encode_row(&mut want, &[], &[], &[]);
@@ -209,7 +286,15 @@ mod tests {
     #[test]
     fn a_wrong_width_is_an_error_and_an_empty_spool_has_no_runs() {
         let mut s = ArmSpool::in_memory(&[None]);
-        assert!(s.push(BorrowedBatch { natts: 2, rows: 1, values: &[1, 2], isnull: &[0, 0], region: &[] }).is_err());
+        assert!(s
+            .push(BorrowedBatch {
+                natts: 2,
+                rows: 1,
+                values: &[1, 2],
+                isnull: &[0, 0],
+                region: &[]
+            })
+            .is_err());
         assert_eq!(runs_of(s).1, 0);
     }
 }

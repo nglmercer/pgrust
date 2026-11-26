@@ -57,10 +57,7 @@ fn depth_check_trips_past_limit() {
 
 #[test]
 fn boot_source_matches_c() {
-    assert_eq!(
-        boot_limit_and_source(101),
-        (101, GucSource::PGC_S_ENV_VAR)
-    );
+    assert_eq!(boot_limit_and_source(101), (101, GucSource::PGC_S_ENV_VAR));
     assert_eq!(
         boot_limit_and_source(2047),
         (2047, GucSource::PGC_S_ENV_VAR)
@@ -136,7 +133,9 @@ fn rlimit_check_hook() {
         );
         assert_eq!(
             check.hint.as_deref(),
-            Some("Increase the platform's stack depth limit via \"ulimit -s\" or local equivalent.")
+            Some(
+                "Increase the platform's stack depth limit via \"ulimit -s\" or local equivalent."
+            )
         );
     }
 }

@@ -1,25 +1,24 @@
 use std::sync::atomic::Ordering::Relaxed;
 
 use mcx::{Mcx, PgVec};
-use types_core::{ProcNumber, VirtualTransactionId, InvalidLocalTransactionId};
+use types_core::{InvalidLocalTransactionId, ProcNumber, VirtualTransactionId};
 use types_error::{
     PgError, PgResult, ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE, ERRCODE_OUT_OF_MEMORY, ERROR, LOG,
 };
 use types_resowner::ResourceOwner;
 use types_storage::lock::{
-    AccessExclusiveLock, LOCALLOCKTAG, LOCK, LOCKBIT_ON, LOCKMASK, LOCKMETHODID,
-    LOCKMODE, LOCKTAG, LOCKTAG_OBJECT, LOCKTAG_RELATION,
+    AccessExclusiveLock, LockAcquireResult, RowExclusiveLock, LOCALLOCKTAG, LOCK,
     LOCKACQUIRE_ALREADY_CLEAR, LOCKACQUIRE_ALREADY_HELD, LOCKACQUIRE_NOT_AVAIL, LOCKACQUIRE_OK,
-    LockAcquireResult, RowExclusiveLock,
+    LOCKBIT_ON, LOCKMASK, LOCKMETHODID, LOCKMODE, LOCKTAG, LOCKTAG_OBJECT, LOCKTAG_RELATION,
 };
 use types_storage::storage::{
     NUM_LOCK_PARTITIONS, PROC_WAIT_STATUS_ERROR, PROC_WAIT_STATUS_OK, PROC_WAIT_STATUS_WAITING,
 };
 
 use crate::fastpath::{
-    fast_path_local_can_try, fp_info_lock, strong_lock_count, ConflictsWithRelationFastPath,
-    FastPathGrantRelationLock, FastPathStrongLockHashPartition, FastPathTransferRelationLocks,
-    FastPathUnGrantRelationLock, eligible_for_relation_fast_path, VirtualXactLockTableCleanup,
+    eligible_for_relation_fast_path, fast_path_local_can_try, fp_info_lock, strong_lock_count,
+    ConflictsWithRelationFastPath, FastPathGrantRelationLock, FastPathStrongLockHashPartition,
+    FastPathTransferRelationLocks, FastPathUnGrantRelationLock, VirtualXactLockTableCleanup,
 };
 use crate::locallock;
 use crate::locallock::{
@@ -183,9 +182,8 @@ pub fn LockAcquireExtended(
     lwlock::LWLockAcquire(partition_lock, lwlock::LW_EXCLUSIVE, my_procno())?;
 
     // SAFETY: partition lock held exclusive from here to its release.
-    let proclock = unsafe {
-        SetupLockInTable(lockMethodTable, my_procno(), locktag, hashcode, lockmode)?
-    };
+    let proclock =
+        unsafe { SetupLockInTable(lockMethodTable, my_procno(), locktag, hashcode, lockmode)? };
     if proclock.is_null() {
         AbortStrongLockAcquire();
         lwlock::LWLockRelease(partition_lock)?;
@@ -225,7 +223,10 @@ pub fn LockAcquireExtended(
                 let partition = LockHashPartition(hashcode) as usize;
                 let proc = lmgr_proc::GetPGProcByNumber(my_procno());
                 dlist_delete(&raw mut (*lock).procLocks, &raw mut (*proclock).lockLink);
-                dlist_delete(proc.myProcLocks[partition].ptr(), &raw mut (*proclock).procLink);
+                dlist_delete(
+                    proc.myProcLocks[partition].ptr(),
+                    &raw mut (*proclock).procLink,
+                );
                 let tag = (*proclock).tag;
                 let removed = dynahash::hash_search_with_hash_value(
                     crate::shared::shared().proclock_hash,
@@ -252,8 +253,7 @@ pub fn LockAcquireExtended(
                 let modename = crate::GetLockmodeName(lockmethodid, lockmode);
                 let tag_desc = lmgr_seams::describe_lock_tag::call(*locktag);
                 lwlock::LWLockAcquire(partition_lock, lwlock::LW_SHARED, my_procno())?;
-                let (holders, waiters, holders_num) =
-                    GetLockHoldersAndWaiters(&localtag, hashcode);
+                let (holders, waiters, holders_num) = GetLockHoldersAndWaiters(&localtag, hashcode);
                 lwlock::LWLockRelease(partition_lock)?;
                 let noun = if holders_num == 1 {
                     "Process holding the lock"
@@ -332,45 +332,62 @@ pub fn LockRelease(locktag: &LOCKTAG, lockmode: LOCKMODE, sessionLock: bool) -> 
     };
 
     // One probe: held check + owner bookkeeping (C's hash_search pointer).
-    let (owned, forget_owner, still_held, hashcode, mut lock, proclock) =
-        with_local(|state| {
-            let Some(ll) = state.table.get_mut(&localtag).filter(|ll| ll.nLocks > 0) else {
-                return (false, None, false, 0, std::ptr::null_mut(), std::ptr::null_mut());
-            };
-            let mut owned = false;
-            let mut forget = None;
-            for i in (0..ll.lockOwners.len()).rev() {
-                if ll.lockOwners[i].owner == owner {
-                    owned = true;
-                    debug_assert!(ll.lockOwners[i].nLocks > 0);
-                    ll.lockOwners[i].nLocks -= 1;
-                    if ll.lockOwners[i].nLocks == 0 {
-                        if !owner.is_null() {
-                            forget = Some(owner);
-                        }
-                        ll.lockOwners.swap_remove(i);
+    let (owned, forget_owner, still_held, hashcode, mut lock, proclock) = with_local(|state| {
+        let Some(ll) = state.table.get_mut(&localtag).filter(|ll| ll.nLocks > 0) else {
+            return (
+                false,
+                None,
+                false,
+                0,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            );
+        };
+        let mut owned = false;
+        let mut forget = None;
+        for i in (0..ll.lockOwners.len()).rev() {
+            if ll.lockOwners[i].owner == owner {
+                owned = true;
+                debug_assert!(ll.lockOwners[i].nLocks > 0);
+                ll.lockOwners[i].nLocks -= 1;
+                if ll.lockOwners[i].nLocks == 0 {
+                    if !owner.is_null() {
+                        forget = Some(owner);
                     }
-                    break;
+                    ll.lockOwners.swap_remove(i);
                 }
+                break;
             }
-            if !owned {
-                return (false, None, false, 0, std::ptr::null_mut(), std::ptr::null_mut());
-            }
-            ll.nLocks -= 1;
-            let still_held = ll.nLocks > 0;
-            if !still_held {
-                // We may error out before deleting the entry; don't keep
-                // claiming sinval clearance.
-                ll.lockCleared = false;
-            }
-            (true, forget, still_held, ll.hashcode, ll.lock, ll.proclock)
-        });
+        }
+        if !owned {
+            return (
+                false,
+                None,
+                false,
+                0,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            );
+        }
+        ll.nLocks -= 1;
+        let still_held = ll.nLocks > 0;
+        if !still_held {
+            // We may error out before deleting the entry; don't keep
+            // claiming sinval clearance.
+            ll.lockCleared = false;
+        }
+        (true, forget, still_held, ll.hashcode, ll.lock, ll.proclock)
+    });
     if let Some(o) = forget_owner {
         // lock.c:2137: an unowned reference is the elog(ERROR).
         resowner::ResourceOwnerForgetLock(o, localtag)?;
     }
     if !owned {
-        warn_not_owned(lockMethodTable.lockModeNames[lockmode as usize], 2110, "LockRelease")?;
+        warn_not_owned(
+            lockMethodTable.lockModeNames[lockmode as usize],
+            2110,
+            "LockRelease",
+        )?;
         return Ok(false);
     }
     if still_held {
@@ -385,8 +402,7 @@ pub fn LockRelease(locktag: &LOCKTAG, lockmode: LOCKMODE, sessionLock: bool) -> 
         let proc = lmgr_proc::GetPGProcByNumber(procno);
         lwlock::LWLockAcquire(fp_info_lock(proc), lwlock::LW_EXCLUSIVE, procno)?;
         // SAFETY: fpInfoLock held exclusive.
-        let released =
-            unsafe { FastPathUnGrantRelationLock(locktag.locktag_field2, lockmode) };
+        let released = unsafe { FastPathUnGrantRelationLock(locktag.locktag_field2, lockmode) };
         lwlock::LWLockRelease(fp_info_lock(proc))?;
         if released {
             RemoveLocalLock(&localtag)?;
@@ -431,7 +447,11 @@ pub fn LockRelease(locktag: &LOCKTAG, lockmode: LOCKMODE, sessionLock: bool) -> 
 
         if (*proclock).holdMask & LOCKBIT_ON(lockmode) == 0 {
             lwlock::LWLockRelease(partition_lock)?;
-            warn_not_owned(lockMethodTable.lockModeNames[lockmode as usize], 2149, "LockRelease")?;
+            warn_not_owned(
+                lockMethodTable.lockModeNames[lockmode as usize],
+                2149,
+                "LockRelease",
+            )?;
             RemoveLocalLock(&localtag)?;
             return Ok(false);
         }
@@ -719,11 +739,7 @@ fn LockReassignOwner(
     }
 }
 
-pub fn LockHasWaiters(
-    locktag: &LOCKTAG,
-    lockmode: LOCKMODE,
-    _sessionLock: bool,
-) -> PgResult<bool> {
+pub fn LockHasWaiters(locktag: &LOCKTAG, lockmode: LOCKMODE, _sessionLock: bool) -> PgResult<bool> {
     let lockmethodid = locktag.locktag_lockmethodid as LOCKMETHODID;
     let lockMethodTable = lock_method_checked(lockmethodid, lockmode)?;
 
@@ -739,7 +755,11 @@ pub fn LockHasWaiters(
             .map(|ll| (ll.hashcode, ll.lock, ll.proclock))
     });
     let Some((hashcode, lock, proclock)) = found else {
-        warn_not_owned(lockMethodTable.lockModeNames[lockmode as usize], 735, "LockHasWaiters")?;
+        warn_not_owned(
+            lockMethodTable.lockModeNames[lockmode as usize],
+            735,
+            "LockHasWaiters",
+        )?;
         return Ok(false);
     };
 
@@ -750,7 +770,11 @@ pub fn LockHasWaiters(
     let has_waiters = unsafe {
         if (*proclock).holdMask & LOCKBIT_ON(lockmode) == 0 {
             lwlock::LWLockRelease(partition_lock)?;
-            warn_not_owned(lockMethodTable.lockModeNames[lockmode as usize], 765, "LockHasWaiters")?;
+            warn_not_owned(
+                lockMethodTable.lockModeNames[lockmode as usize],
+                765,
+                "LockHasWaiters",
+            )?;
             RemoveLocalLock(&localtag)?;
             return Ok(false);
         }

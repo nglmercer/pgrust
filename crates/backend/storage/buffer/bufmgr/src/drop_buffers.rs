@@ -1,9 +1,9 @@
 // InvalidateBuffer / FindAndDropRelationBuffers / DropRelationsAllBuffers
 // (bufmgr.c); temp-relation arms divert to localbuf.
+use crate::pin::buffer_refcount;
 use types_core::{BlockNumber, ForkNumber, InvalidBlockNumber, MAX_FORKNUM};
 use types_error::PgResult;
 use types_storage::buf::{BM_TAG_VALID, BUF_FLAG_MASK, BUF_USAGECOUNT_MASK};
-use crate::pin::buffer_refcount;
 use types_storage::{RelFileLocator, RelFileLocatorBackend};
 
 /// D4635: told the relation files whose buffers `DropRelationsAllBuffers` drops (their storage about to be unlinked) and
@@ -121,7 +121,11 @@ fn InvalidateBuffer(desc: &BufferDesc, buf_state_in: u32) -> PgResult<()> {
     let old_partition_lock = BufMappingPartitionLock(old_hash);
 
     loop {
-        LWLockAcquire(old_partition_lock, LW_EXCLUSIVE, init_small::globals::MyProcNumber())?;
+        LWLockAcquire(
+            old_partition_lock,
+            LW_EXCLUSIVE,
+            init_small::globals::MyProcNumber(),
+        )?;
         let mut buf_state = LockBufHdr(desc);
 
         if desc.tag() != old_tag {
@@ -220,7 +224,11 @@ fn FindAndDropRelationBuffers(
         };
         let hash = BufTableHashCode(&tag);
         let partition_lock = BufMappingPartitionLock(hash);
-        LWLockAcquire(partition_lock, LW_SHARED, init_small::globals::MyProcNumber())?;
+        LWLockAcquire(
+            partition_lock,
+            LW_SHARED,
+            init_small::globals::MyProcNumber(),
+        )?;
         let buf_id = BufTableLookup(&tag, hash)?;
         LWLockRelease(partition_lock)?;
         if buf_id < 0 {
@@ -273,7 +281,8 @@ pub fn DropRelationsAllBuffers(smgr_reln: &[RelFileLocatorBackend]) -> PgResult<
         f(smgr_reln);
     }
     // bufmgr.c: palloc'd scratch arrays; failure is ERROR 53200, not an abort.
-    let mut rels: Vec<RelFileLocatorBackend> = ::mcx::std_vec_with_capacity("DropRelationsAllBuffers", smgr_reln.len())?;
+    let mut rels: Vec<RelFileLocatorBackend> =
+        ::mcx::std_vec_with_capacity("DropRelationsAllBuffers", smgr_reln.len())?;
     for r in smgr_reln {
         if r.backend != types_core::INVALID_PROC_NUMBER {
             if r.backend == init_small::globals::MyProcNumber() {
@@ -288,8 +297,11 @@ pub fn DropRelationsAllBuffers(smgr_reln: &[RelFileLocatorBackend]) -> PgResult<
     }
 
     let nforks = MAX_FORKNUM as usize + 1;
-    let mut block: Vec<[BlockNumber; 4]> =
-        ::mcx::std_vec_from_elem("DropRelationsAllBuffers", [InvalidBlockNumber; 4], rels.len())?;
+    let mut block: Vec<[BlockNumber; 4]> = ::mcx::std_vec_from_elem(
+        "DropRelationsAllBuffers",
+        [InvalidBlockNumber; 4],
+        rels.len(),
+    )?;
     debug_assert!(nforks == 4);
     let mut n_blocks_to_invalidate: u64 = 0;
     let mut cached = true;

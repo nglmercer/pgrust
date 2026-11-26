@@ -13,18 +13,35 @@ use crate::frame::px::Px;
 pub(crate) use crate::ops::sort::lower::Arm as SortArm;
 
 /// Sort's producer end over `keys` for pipeline `k` (ops/sort/lower.rs `make_end_over`).
-pub(crate) fn sort_end_over<'g>(px: &mut Px<'g, '_>, k: usize, keys: &[SortKey], cols: &NodeList<'_>, arm: SortArm) -> PgBox<'g, dyn EndMech + 'g> {
+pub(crate) fn sort_end_over<'g>(
+    px: &mut Px<'g, '_>,
+    k: usize,
+    keys: &[SortKey],
+    cols: &NodeList<'_>,
+    arm: SortArm,
+) -> PgBox<'g, dyn EndMech + 'g> {
     crate::ops::sort::lower::make_end_over(px, k, keys, cols, arm)
 }
 
 /// Sort's emit of the run over `keys` that pipeline `k` reads (ops/sort/lower.rs `make_emit_over`).
-pub(crate) fn sort_emit_over<'g>(px: &mut Px<'g, '_>, k: usize, keys: &[SortKey], cols: &NodeList<'_>) -> PgBox<'g, dyn SourceMech + 'g> {
+pub(crate) fn sort_emit_over<'g>(
+    px: &mut Px<'g, '_>,
+    k: usize,
+    keys: &[SortKey],
+    cols: &NodeList<'_>,
+) -> PgBox<'g, dyn SourceMech + 'g> {
     crate::ops::sort::lower::make_emit_over(px, k, keys, cols)
 }
 
 /// Sort's run of full sort `producer` into `slot`, read as a cursor by a pull merge's reader at its consumed index
 /// `i` (ops/sort/lower.rs `RunEmit::over_at`), its words keyed by the arm pipeline `arm`.
-pub(crate) fn sort_cursor<'g>(px: &mut Px<'g, '_>, arm: usize, producer: usize, slot: u8, i: usize) -> PgBox<'g, dyn SourceMech + 'g> {
+pub(crate) fn sort_cursor<'g>(
+    px: &mut Px<'g, '_>,
+    arm: usize,
+    producer: usize,
+    slot: u8,
+    i: usize,
+) -> PgBox<'g, dyn SourceMech + 'g> {
     mcx::pg_box_dyn!(px.mcx(), crate::ops::sort::lower::RunEmit::over_at(px, arm, producer, slot, i) => dyn SourceMech + 'g)
 }
 

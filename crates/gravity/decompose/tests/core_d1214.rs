@@ -15,7 +15,9 @@ use gravity_program::Arena;
 use mcx::MemoryContext;
 
 fn graph(name: &str) -> String {
-    let path = manifest_dir().join("tests/d1214").join(format!("{name}.plan"));
+    let path = manifest_dir()
+        .join("tests/d1214")
+        .join(format!("{name}.plan"));
     let text = fs::read_to_string(&path).unwrap();
     let ctx = MemoryContext::new("d1214");
     let fx = corpus::load(ctx.mcx(), &text).unwrap();
@@ -35,7 +37,10 @@ fn group_keys(dump: &str) -> Vec<Vec<u32>> {
             out.push(Vec::new());
             open = true;
         } else if open && line.starts_with("  key ") {
-            let resno = line.split_whitespace().find_map(|w| w.strip_prefix("resno=")).unwrap();
+            let resno = line
+                .split_whitespace()
+                .find_map(|w| w.strip_prefix("resno="))
+                .unwrap();
             out.last_mut().unwrap().push(resno.parse().unwrap());
         } else {
             open = false;
@@ -49,12 +54,24 @@ fn a_column_of_a_primary_key_every_arm_groups_becomes_a_key_of_each_arm() {
     // SELECT a, d, grouping(a, b, c) FROM gp GROUP BY GROUPING SETS ((a, b), (a, c)); gp PRIMARY KEY (a). The planner
     // groups each arm by a alone (remove_useless_groupby_columns); b, c and d ride as keys through the key.
     let sorted = graph("sets-sorted");
-    assert_eq!(group_keys(&sorted), vec![vec![1, 2, 3], vec![1, 2, 3]], "{sorted}");
+    assert_eq!(
+        group_keys(&sorted),
+        vec![vec![1, 2, 3], vec![1, 2, 3]],
+        "{sorted}"
+    );
     let hashed = graph("sets-hashed");
-    assert_eq!(group_keys(&hashed), vec![vec![1, 4, 2], vec![1, 4, 3]], "{hashed}");
+    assert_eq!(
+        group_keys(&hashed),
+        vec![vec![1, 4, 2], vec![1, 4, 3]],
+        "{hashed}"
+    );
     // PRIMARY KEY (x, y), both columns in every set: d (resno 4) is a key of each arm.
     let two = graph("sets-two-column-key");
-    assert_eq!(group_keys(&two), vec![vec![1, 2, 4], vec![1, 2, 4, 3]], "{two}");
+    assert_eq!(
+        group_keys(&two),
+        vec![vec![1, 2, 4], vec![1, 2, 4, 3]],
+        "{two}"
+    );
     // gp JOIN gr: gp.d through the join (varnosyn names gp's range entry), keyed beside gp.a.
     let join = graph("sets-join");
     let keys = group_keys(&join);
@@ -79,5 +96,9 @@ fn a_unique_key_or_a_key_one_set_leaves_out_keeps_the_bare_column() {
 /// env!()'s path baked in at compile time: a test binary reused from another checkout would read that checkout's files.
 fn manifest_dir() -> &'static std::path::Path {
     static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| std::env::var_os("CARGO_MANIFEST_DIR").map(Into::into).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)"))
+    DIR.get_or_init(|| {
+        std::env::var_os("CARGO_MANIFEST_DIR")
+            .map(Into::into)
+            .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+    })
 }

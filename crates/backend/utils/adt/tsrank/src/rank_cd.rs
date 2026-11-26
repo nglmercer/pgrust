@@ -6,8 +6,8 @@ use ::types_error::PgResult;
 
 use crate::rank::{cnt_length, find_wordentry, DEFAULT_WEIGHTS, NUM_WEIGHTS};
 use crate::rank::{
-    RANK_NORM_EXTDIST, RANK_NORM_LENGTH, RANK_NORM_LOGLENGTH, RANK_NORM_LOGUNIQ, RANK_NORM_RDIVRPLUS1,
-    RANK_NORM_UNIQ,
+    RANK_NORM_EXTDIST, RANK_NORM_LENGTH, RANK_NORM_LOGLENGTH, RANK_NORM_LOGUNIQ,
+    RANK_NORM_RDIVRPLUS1, RANK_NORM_UNIQ,
 };
 
 struct DocRep<'mcx> {
@@ -116,11 +116,12 @@ fn cover(
             qr.fill(&doc[ptr]);
             let matched = {
                 let q = qr.q;
-                let mut chk = |_idx: usize,
-                               val: &::adt_tsvector_core::query::Operand,
-                               data: Option<&mut ExecPhraseData<'_>>| {
-                    Ok(check_query_rep(qr, val.distance, data))
-                };
+                let mut chk =
+                    |_idx: usize,
+                     val: &::adt_tsvector_core::query::Operand,
+                     data: Option<&mut ExecPhraseData<'_>>| {
+                        Ok(check_query_rep(qr, val.distance, data))
+                    };
                 ts_execute(mcx, q, TS_EXEC_EMPTY, &mut chk)?
             };
             if matched {
@@ -145,11 +146,12 @@ fn cover(
             qr.fill(&doc[ptr as usize]);
             let matched = {
                 let q = qr.q;
-                let mut chk = |_idx: usize,
-                               val: &::adt_tsvector_core::query::Operand,
-                               data: Option<&mut ExecPhraseData<'_>>| {
-                    Ok(check_query_rep(qr, val.distance, data))
-                };
+                let mut chk =
+                    |_idx: usize,
+                     val: &::adt_tsvector_core::query::Operand,
+                     data: Option<&mut ExecPhraseData<'_>>| {
+                        Ok(check_query_rep(qr, val.distance, data))
+                    };
                 ts_execute(mcx, q, TS_EXEC_EMPTY, &mut chk)?
             };
             if matched {
@@ -185,7 +187,9 @@ fn get_docrep<'mcx>(
     let mut raw: PgVec<(WordEntryPos, usize, usize)> = mcx::vec_with_capacity_in(mcx, c_len)?;
 
     for i in 0..q.size() {
-        let Item::Val(curoperand) = q.item(i) else { continue };
+        let Item::Val(curoperand) = q.item(i) else {
+            continue;
+        };
         let Some((first, nitem)) = find_wordentry(txt, q, &curoperand) else {
             continue;
         };
@@ -200,12 +204,11 @@ fn get_docrep<'mcx>(
                     c_len *= 2;
                 }
                 mcx::check_alloc_size(DOCREPRESENTATION_SIZE * c_len)?;
-                raw.try_reserve_exact(c_len - raw.len()).map_err(|_| mcx.oom(c_len))?;
+                raw.try_reserve_exact(c_len - raw.len())
+                    .map_err(|_| mcx.oom(c_len))?;
             }
             for &p in txt.positions(e) {
-                if curoperand.weight == 0
-                    || curoperand.weight & (1 << wep_getweight(p)) != 0
-                {
+                if curoperand.weight == 0 || curoperand.weight & (1 << wep_getweight(p)) != 0 {
                     raw.push((p, entry, i));
                 }
             }
@@ -224,7 +227,10 @@ fn get_docrep<'mcx>(
     });
 
     // C joins the items in place; reserve one DocRep per (pos, entry) group.
-    let groups = 1 + raw.windows(2).filter(|w| w[0].0 != w[1].0 || w[0].1 != w[1].1).count();
+    let groups = 1 + raw
+        .windows(2)
+        .filter(|w| w[0].0 != w[1].0 || w[0].1 != w[1].1)
+        .count();
     mcx::check_alloc_size(groups.saturating_mul(core::mem::size_of::<DocRep>()))?;
     let mut doc: PgVec<DocRep> = PgVec::new_in(mcx);
     doc.try_reserve_exact(groups).map_err(|_| mcx.oom(groups))?;
@@ -240,7 +246,11 @@ fn get_docrep<'mcx>(
                 }
                 let mut items = PgVec::new_in(mcx);
                 items.push(item);
-                cur = Some(DocRep { pos: p, entry, items });
+                cur = Some(DocRep {
+                    pos: p,
+                    entry,
+                    items,
+                });
             }
         }
     }
@@ -261,7 +271,11 @@ pub fn calc_rank_cd(
 ) -> PgResult<f32> {
     let mut invws = [0f64; NUM_WEIGHTS];
     for i in 0..NUM_WEIGHTS {
-        let v = if arrdata[i] >= 0.0 { arrdata[i] } else { DEFAULT_WEIGHTS[i] };
+        let v = if arrdata[i] >= 0.0 {
+            arrdata[i]
+        } else {
+            DEFAULT_WEIGHTS[i]
+        };
         if v > 1.0 {
             return Err(::types_error::PgError::error("weight out of range")
                 .with_sqlstate(::types_error::ERRCODE_INVALID_PARAMETER_VALUE)
@@ -279,13 +293,21 @@ pub fn calc_rank_cd(
         .map_err(|_| mcx.oom(query.size()))?;
     let mut by_distance: PgVec<(usize, usize)> = PgVec::new_in(mcx);
     for i in 0..query.size() {
-        op_data.push(QrOperand { exists: false, reverseinsert: false, pos: PgVec::new_in(mcx) });
+        op_data.push(QrOperand {
+            exists: false,
+            reverseinsert: false,
+            pos: PgVec::new_in(mcx),
+        });
         if let Item::Val(op) = query.item(i) {
             by_distance.push((op.distance, i));
         }
     }
     by_distance.sort_by_key(|&(d, _)| d);
-    let mut qr = QueryRep { q: query, op_data, by_distance };
+    let mut qr = QueryRep {
+        q: query,
+        op_data,
+        by_distance,
+    };
 
     let Some(doc) = get_docrep(mcx, txt, &qr)? else {
         return Ok(0.0);
@@ -296,7 +318,13 @@ pub fn calc_rank_cd(
     let mut sumdist = 0.0f64;
     let mut prevextpos = 0.0f64;
     let mut nextent = 0i32;
-    let mut ext = CoverExt { pos: 0, p: 0, q: 0, begin: 0, end: 0 };
+    let mut ext = CoverExt {
+        pos: 0,
+        p: 0,
+        q: 0,
+        begin: 0,
+        end: 0,
+    };
 
     while cover(mcx, &doc[..doclen], &mut qr, &mut ext)? {
         let mut invsum = 0.0f64;

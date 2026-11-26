@@ -4,7 +4,10 @@
 use gravity_abi::status::ERROR;
 use gravity_abi::Ctx;
 
-use super::entries::{OP_ARGERR, OP_ASK, OP_OFFSETS, OP_OPEN, OP_PARAMS, OP_PUT, OP_READS, OP_REC, OP_ROW, OP_ROWS, OP_RUNFAIL, OP_SAMEPART, WIN_MAGIC};
+use super::entries::{
+    OP_ARGERR, OP_ASK, OP_OFFSETS, OP_OPEN, OP_PARAMS, OP_PUT, OP_READS, OP_REC, OP_ROW, OP_ROWS,
+    OP_RUNFAIL, OP_SAMEPART, WIN_MAGIC,
+};
 use crate::contract::Host;
 
 /// The first field of the window object a handle word points at.
@@ -31,7 +34,8 @@ pub(crate) unsafe fn call(ctx: *mut Ctx, h: u64, code: u64, a: u64, b: u64, entr
 #[cold]
 #[inline(never)]
 fn stale(entry: &str, h: u64) -> i64 {
-    crate::host_abi::bare(&format!("{entry}: a stale or foreign window handle {h:#x}")) // alloc: Cold
+    crate::host_abi::bare(&format!("{entry}: a stale or foreign window handle {h:#x}"))
+    // alloc: Cold
 }
 
 // The entries the lowered IR calls by name (entries.rs re-exports them): each runs the object's op with its code under the
@@ -114,7 +118,9 @@ crate::contract::host! {
 /// `ctx` is the calling pipeline's live context; `tbl` is null or the table exec laid, alive for the execution.
 unsafe fn part(ctx: *const Ctx, tbl: *const u64) -> i64 {
     if ctx.is_null() || tbl.is_null() {
-        return crate::table::fold_entries::bare("m10_win_part: a parted window with no object table (D3336)");
+        return crate::table::fold_entries::bare(
+            "m10_win_part: a parted window with no object table (D3336)",
+        );
     }
     let n = *tbl;
     let at = |i: u64| *tbl.add(1 + i as usize) as i64;
@@ -122,7 +128,11 @@ unsafe fn part(ctx: *const Ctx, tbl: *const u64) -> i64 {
     if lo >= hi {
         0
     } else if hi <= n {
-        if hi - lo == 1 { at(lo) } else { bad_part("a reader's claim of several objects from", lo, n) }
+        if hi - lo == 1 {
+            at(lo)
+        } else {
+            bad_part("a reader's claim of several objects from", lo, n)
+        }
     } else if n == 1 {
         at(0)
     } else {
@@ -135,13 +145,22 @@ unsafe fn part(ctx: *const Ctx, tbl: *const u64) -> i64 {
 /// As `m10_win_part`'s, the table writable by the one fill; `rec` the IR's record (`m10_win_put`'s).
 unsafe fn put_part(ctx: *mut Ctx, tbl: *mut u64, rec: *const u64) -> i64 {
     if tbl.is_null() || *tbl == 0 {
-        return crate::table::fold_entries::bare("m10_win_put_part: a parted window with no object table (D3336)");
+        return crate::table::fold_entries::bare(
+            "m10_win_put_part: a parted window with no object table (D3336)",
+        );
     }
     let n = *tbl;
     let turn = tbl.add(1 + n as usize);
     let mut i = *turn % n;
     if n > 1 {
-        let same = call(ctx, *tbl.add(1 + i as usize), OP_SAMEPART, rec as u64, 0, "m10_win_put_part");
+        let same = call(
+            ctx,
+            *tbl.add(1 + i as usize),
+            OP_SAMEPART,
+            rec as u64,
+            0,
+            "m10_win_put_part",
+        );
         if same < 0 {
             return same;
         }
@@ -150,13 +169,22 @@ unsafe fn put_part(ctx: *mut Ctx, tbl: *mut u64, rec: *const u64) -> i64 {
             *turn = i;
         }
     }
-    call(ctx, *tbl.add(1 + i as usize), OP_PUT, rec as u64, 0, "m10_win_put_part")
+    call(
+        ctx,
+        *tbl.add(1 + i as usize),
+        OP_PUT,
+        rec as u64,
+        0,
+        "m10_win_put_part",
+    )
 }
 
 #[cold]
 #[inline(never)]
 fn bad_part(what: &str, i: u64, n: u64) -> i64 {
-    crate::table::fold_entries::bare(&format!("window.agg: {what} {i} past a window read by claims over {n} objects (D3336)")) // alloc: Cold
+    crate::table::fold_entries::bare(&format!(
+        "window.agg: {what} {i} past a window read by claims over {n} objects (D3336)"
+    )) // alloc: Cold
 }
 
 /// `m10_win_open(h, fill)`: PG `ExecReScanWindowAgg` at a pipeline's open (D2346): object `h`'s walk starts again (run

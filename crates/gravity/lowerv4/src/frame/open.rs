@@ -39,18 +39,34 @@ pub struct OpenWords<'m> {
 impl OpenWord {
     /// A word written at every open of its function.
     pub const fn open(what: &'static str, base: Base, off: i32, ty: Type, init: i64) -> OpenWord {
-        OpenWord { what, base, off, ty, init, scope: Scope::Open }
+        OpenWord {
+            what,
+            base,
+            off,
+            ty,
+            init,
+            scope: Scope::Open,
+        }
     }
 
     /// A frame word written once per run of union `flag`, by the first of its arms to open (`lifetime::OpenAt::Union`).
     pub const fn union(what: &'static str, off: i32, ty: Type, init: i64, flag: u16) -> OpenWord {
-        OpenWord { what, base: Base::Words, off, ty, init, scope: crate::lifetime::OpenAt::Union { flag } }
+        OpenWord {
+            what,
+            base: Base::Words,
+            off,
+            ty,
+            init,
+            scope: crate::lifetime::OpenAt::Union { flag },
+        }
     }
 }
 
 impl<'m> OpenWords<'m> {
     pub fn new_in(mcx: Mcx<'m>) -> OpenWords<'m> {
-        OpenWords { words: PgVec::new_in(mcx) }
+        OpenWords {
+            words: PgVec::new_in(mcx),
+        }
     }
 
     pub fn declare(&mut self, w: OpenWord) {
@@ -59,23 +75,57 @@ impl<'m> OpenWords<'m> {
 
     /// Every declared word stored at the function's open, before any read; a union's words once per run of the union
     /// (`lifetime::union_run`: while its flag is clear).
-    pub fn write_all(&self, b: &mut FunctionBuilder<'_>, node: i32, ctx: Value, state: Option<Value>, words: Option<Value>) {
+    pub fn write_all(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        node: i32,
+        ctx: Value,
+        state: Option<Value>,
+        words: Option<Value>,
+    ) {
         let base = |b: Base| match (b, state, words) {
             (Base::Ctx, _, _) => ctx,
             (Base::State, Some(s), _) => s,
             (Base::Words, _, Some(w)) => w,
-            (Base::State, None, _) => crate::refuse!(node, crate::admit::refusal::Reason::Bug { payload: "a per-open state word without a state slot" }),
-            (Base::Words, _, None) => crate::refuse!(node, crate::admit::refusal::Reason::Bug { payload: "a frame word without the words site" }),
+            (Base::State, None, _) => crate::refuse!(
+                node,
+                crate::admit::refusal::Reason::Bug {
+                    payload: "a per-open state word without a state slot"
+                }
+            ),
+            (Base::Words, _, None) => crate::refuse!(
+                node,
+                crate::admit::refusal::Reason::Bug {
+                    payload: "a frame word without the words site"
+                }
+            ),
         };
         // D482: one word, two roles (a run reader's mode and a sort end's run) is a lowering bug, never a program
-        if self.words.iter().enumerate().any(|(i, a)| self.words[..i].iter().any(|b| (b.base, b.off) == (a.base, a.off) && b.what != a.what)) {
-            crate::refuse!(node, crate::admit::refusal::Reason::Bug { payload: "two roles declare one per-open word (D482)" });
+        if self.words.iter().enumerate().any(|(i, a)| {
+            self.words[..i]
+                .iter()
+                .any(|b| (b.base, b.off) == (a.base, a.off) && b.what != a.what)
+        }) {
+            crate::refuse!(
+                node,
+                crate::admit::refusal::Reason::Bug {
+                    payload: "two roles declare one per-open word (D482)"
+                }
+            );
         }
-        for w in self.words.iter().filter(|w| w.scope == crate::lifetime::OpenAt::Open) {
+        for w in self
+            .words
+            .iter()
+            .filter(|w| w.scope == crate::lifetime::OpenAt::Open)
+        {
             let v = b.iconst(w.ty, w.init);
             b.store(base(w.base), w.off, v);
         }
-        let mut flags: PgVec<'_, u16> = self.words.iter().filter_map(|w| w.scope.flag()).collect_in(*self.words.allocator());
+        let mut flags: PgVec<'_, u16> = self
+            .words
+            .iter()
+            .filter_map(|w| w.scope.flag())
+            .collect_in(*self.words.allocator());
         flags.sort_unstable();
         flags.dedup();
         for flag in flags {
@@ -118,11 +168,25 @@ mod tests {
     /// D482: two roles on one frame word refuse as a Bug at lowering; one role declared twice (a union's arms) does not.
     #[test]
     fn two_roles_on_one_word_refuse() {
-        let (run, mode) = (OpenWord::open("sort run", Base::Words, 8, Type::I64, 0), OpenWord::open("sort mode", Base::Words, 8, Type::I64, 0));
+        let (run, mode) = (
+            OpenWord::open("sort run", Base::Words, 8, Type::I64, 0),
+            OpenWord::open("sort mode", Base::Words, 8, Type::I64, 0),
+        );
         let r = lower(&[run, mode]).expect_err("a shared word lowers");
-        assert!(matches!(r.reason, crate::admit::refusal::Reason::Bug { payload } if payload.contains("D482")), "{:?}", r.reason);
-        assert!(lower(&[run, OpenWord::open("sort mode", Base::Words, 16, Type::I64, 0)]).is_ok());
+        assert!(
+            matches!(r.reason, crate::admit::refusal::Reason::Bug { payload } if payload.contains("D482")),
+            "{:?}",
+            r.reason
+        );
+        assert!(lower(&[
+            run,
+            OpenWord::open("sort mode", Base::Words, 16, Type::I64, 0)
+        ])
+        .is_ok());
         assert!(lower(&[run, run]).is_ok(), "one role declared twice");
-        assert!(lower(&[run, OpenWord::open("sort mode", Base::Ctx, 8, Type::I64, 0)]).is_ok(), "another base");
+        assert!(
+            lower(&[run, OpenWord::open("sort mode", Base::Ctx, 8, Type::I64, 0)]).is_ok(),
+            "another base"
+        );
     }
 }

@@ -52,7 +52,11 @@ fn every_declared_live_answers_exactly_the_questions_it_writes() {
             loop {
                 let t = lines[j];
                 if depth == 1 {
-                    if let Some(name) = t.trim_start().strip_prefix("fn ").and_then(|r| r.split('(').next()) {
+                    if let Some(name) = t
+                        .trim_start()
+                        .strip_prefix("fn ")
+                        .and_then(|r| r.split('(').next())
+                    {
                         if name == "answers" {
                             decl = lines.get(j + 1).map(|d| d.trim().to_string());
                         }
@@ -66,21 +70,53 @@ fn every_declared_live_answers_exactly_the_questions_it_writes() {
                 j += 1;
             }
             impls += 1;
-            let mut want: Vec<&str> = BITS.iter().filter(|(m, _)| fns.iter().any(|f| f == m)).map(|(_, b)| *b).collect();
-            let mut got: Vec<String> = decl.as_deref().map_or_else(Vec::new, |d| d.split('|').map(|x| x.trim().trim_start_matches("crate::ops::ask::").to_string()).filter(|x| x != "NONE").collect());
+            let mut want: Vec<&str> = BITS
+                .iter()
+                .filter(|(m, _)| fns.iter().any(|f| f == m))
+                .map(|(_, b)| *b)
+                .collect();
+            let mut got: Vec<String> = decl.as_deref().map_or_else(Vec::new, |d| {
+                d.split('|')
+                    .map(|x| x.trim().trim_start_matches("crate::ops::ask::").to_string())
+                    .filter(|x| x != "NONE")
+                    .collect()
+            });
             want.sort_unstable();
             got.sort_unstable();
             match decl {
-                None => undeclared.push(format!("{}:{}: {} (asked every question; it writes {:?})", f.display(), i + 1, l.trim(), want)),
-                Some(_) if want != got => bad.push(format!("{}:{}: {} declares {:?}, implements {:?}", f.display(), i + 1, l.trim(), decl, want)),
+                None => undeclared.push(format!(
+                    "{}:{}: {} (asked every question; it writes {:?})",
+                    f.display(),
+                    i + 1,
+                    l.trim(),
+                    want
+                )),
+                Some(_) if want != got => bad.push(format!(
+                    "{}:{}: {} declares {:?}, implements {:?}",
+                    f.display(),
+                    i + 1,
+                    l.trim(),
+                    decl,
+                    want
+                )),
                 Some(_) => {}
             }
             i = j + 1;
         }
     }
     if !undeclared.is_empty() {
-        eprintln!("lives with no `answers` (the default: asked every question):\n{}", undeclared.join("\n"));
+        eprintln!(
+            "lives with no `answers` (the default: asked every question):\n{}",
+            undeclared.join("\n")
+        );
     }
-    assert!(impls >= 32, "found {impls} impls of Live (the scan missed some)");
-    assert!(bad.is_empty(), "lives whose `answers` differs from their methods:\n{}", bad.join("\n"));
+    assert!(
+        impls >= 32,
+        "found {impls} impls of Live (the scan missed some)"
+    );
+    assert!(
+        bad.is_empty(),
+        "lives whose `answers` differs from their methods:\n{}",
+        bad.join("\n")
+    );
 }

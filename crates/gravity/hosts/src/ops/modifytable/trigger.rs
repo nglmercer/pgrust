@@ -1,29 +1,46 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use gravity_decompose::ops::modifytable::trig_facts::{TrigExt, TRIG_DELETE, TRIG_INSERT, TRIG_UPDATE};
+use gravity_decompose::ops::modifytable::trig_facts::{
+    TrigExt, TRIG_DELETE, TRIG_INSERT, TRIG_UPDATE,
+};
 use gravity_program::Cmd;
 use mcx::{Mcx, PgVec};
-use types_snapshot::SnapshotData;
 use trigger::{TriggerWhenCache, TriggerWhenEval};
 use types_core::Oid;
 use types_error::PgResult;
 use types_rel::{Relation, RELKIND_VIEW};
-use types_trigger::{TriggerDesc, TRIGGER_FOR_BEFORE, TRIGGER_FOR_DELETE, TRIGGER_FOR_INSERT, TRIGGER_FOR_INSTEAD, TRIGGER_FOR_ROW, TRIGGER_FOR_UPDATE};
+use types_snapshot::SnapshotData;
+use types_trigger::{
+    TriggerDesc, TRIGGER_FOR_BEFORE, TRIGGER_FOR_DELETE, TRIGGER_FOR_INSERT, TRIGGER_FOR_INSTEAD,
+    TRIGGER_FOR_ROW, TRIGGER_FOR_UPDATE,
+};
 use types_tuple::ItemPointerData;
 
-use crate::scratch::NodeScratch;
 use crate::ops::modifytable::trigger_before;
 use crate::ops::modifytable::trigger_before::BeforeRow;
 use crate::ops::modifytable::trigger_stmt::{MergeOps, StmtTriggers};
 use crate::ops::modifytable::write_constraints::ModifiedCols;
+use crate::scratch::NodeScratch;
 
 pub fn trig_ext(d: &TriggerDesc<'_>) -> TrigExt {
     let mut e = TrigExt::NONE;
     // bounded("catalog-sized: one per trigger of the relation (its pg_trigger rows), a few flag tests each")
     for t in d.triggers.iter() {
         let ty = t.tgtype;
-        let c = if TRIGGER_FOR_INSERT(ty) { TRIG_INSERT } else { 0 } | if TRIGGER_FOR_UPDATE(ty) { TRIG_UPDATE } else { 0 } | if TRIGGER_FOR_DELETE(ty) { TRIG_DELETE } else { 0 };
+        let c = if TRIGGER_FOR_INSERT(ty) {
+            TRIG_INSERT
+        } else {
+            0
+        } | if TRIGGER_FOR_UPDATE(ty) {
+            TRIG_UPDATE
+        } else {
+            0
+        } | if TRIGGER_FOR_DELETE(ty) {
+            TRIG_DELETE
+        } else {
+            0
+        };
         if !TRIGGER_FOR_ROW(ty) {
             e.statement |= c;
         } else if TRIGGER_FOR_INSTEAD(ty) {
@@ -64,8 +81,14 @@ pub fn trig_ext_of(relid: Oid) -> TrigExt {
 /// capture); V4R-313: BEFORE ROW triggers too, the actions' prologue (ExecUpdatePrologue / ExecDeletePrologue under
 /// ExecMergeMatched: GetTupleForTrigger without its own recheck, `BeforeRow::merge`).
 fn merge_refusal(ext: &TrigExt, merge: MergeOps, view: bool) -> Option<&'static str> {
-    let ops = [(merge.insert, Cmd::Insert), (merge.update, Cmd::Update), (merge.delete, Cmd::Delete)];
-    ops.iter().filter(|o| o.0).find_map(|o| ext.refusal_on(o.1, view))
+    let ops = [
+        (merge.insert, Cmd::Insert),
+        (merge.update, Cmd::Update),
+        (merge.delete, Cmd::Delete),
+    ];
+    ops.iter()
+        .filter(|o| o.0)
+        .find_map(|o| ext.refusal_on(o.1, view))
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -98,9 +121,16 @@ pub struct TriggerHost {
     scratch: NodeScratch,
 }
 
-fn child_to_root(mcx: Mcx<'static>, heap: &Relation<'static>, root: Option<&Relation<'static>>, captures: bool) -> PgResult<Option<PgVec<'static, i16>>> {
+fn child_to_root(
+    mcx: Mcx<'static>,
+    heap: &Relation<'static>,
+    root: Option<&Relation<'static>>,
+    captures: bool,
+) -> PgResult<Option<PgVec<'static, i16>>> {
     match root {
-        Some(r) if captures => tupdesc::build_attrmap_by_name_if_req(mcx, &heap.rd_att, &r.rd_att, false),
+        Some(r) if captures => {
+            tupdesc::build_attrmap_by_name_if_req(mcx, &heap.rd_att, &r.rd_att, false)
+        }
         _ => Ok(None),
     }
 }
@@ -110,23 +140,53 @@ impl TriggerHost {
     /// under its root) the root's, bound by the root's host (ExecInitModifyTable binds only the result relation's;
     /// the partition's own never fire under it; `write_route.rs`).
     /// `merge`: a MERGE's subcommands (H-f; `MergeOps::NONE` for any other command).
-    pub fn bind(heap: &Relation<'static>, cmd: Cmd, conflict_update: bool, merge: MergeOps, modified: Option<ModifiedCols>, snapshot: Option<Rc<SnapshotData<'static>>>, stmt_of: StmtOf<'_>) -> PgResult<Bound> {
-        Self::bind_moving(heap, cmd, conflict_update, merge, false, modified, snapshot, stmt_of)
+    pub fn bind(
+        heap: &Relation<'static>,
+        cmd: Cmd,
+        conflict_update: bool,
+        merge: MergeOps,
+        modified: Option<ModifiedCols>,
+        snapshot: Option<Rc<SnapshotData<'static>>>,
+        stmt_of: StmtOf<'_>,
+    ) -> PgResult<Bound> {
+        Self::bind_moving(
+            heap,
+            cmd,
+            conflict_update,
+            merge,
+            false,
+            modified,
+            snapshot,
+            stmt_of,
+        )
     }
 
     /// `moving` (H-e (c)): an UPDATE whose rows may move out of this leaf (`write_move.rs`): its DELETE row triggers fire
     /// too (ExecDelete with changingPart: BEFORE ROW DELETE, AFTER ROW DELETE of a moved row).
-    pub fn bind_moving(heap: &Relation<'static>, cmd: Cmd, conflict_update: bool, merge: MergeOps, moving: bool, modified: Option<ModifiedCols>, snapshot: Option<Rc<SnapshotData<'static>>>, stmt_of: StmtOf<'_>) -> PgResult<Bound> {
+    pub fn bind_moving(
+        heap: &Relation<'static>,
+        cmd: Cmd,
+        conflict_update: bool,
+        merge: MergeOps,
+        moving: bool,
+        modified: Option<ModifiedCols>,
+        snapshot: Option<Rc<SnapshotData<'static>>>,
+        stmt_of: StmtOf<'_>,
+    ) -> PgResult<Bound> {
         let (root_stmt, root) = match stmt_of {
             StmtOf::Own => (None, None),
             StmtOf::Root(s, r) => (Some(s), Some(r)),
         };
-        let root_captures = root_stmt.as_ref().is_some_and(|s| s.as_ref().is_some_and(|s| s.borrow().captures()));
+        let root_captures = root_stmt
+            .as_ref()
+            .is_some_and(|s| s.as_ref().is_some_and(|s| s.borrow().captures()));
         // relhastriggers outlives the last DROP TRIGGER (RemoveTriggerById): a relation without a descriptor has none
         let desc = if !heap.rd_hastriggers {
             None
         } else if !relcache_seams::relation_get_trigger_desc::is_installed() {
-            return Ok(Bound::Refused("a written relation with triggers (no trigger descriptor seam)"));
+            return Ok(Bound::Refused(
+                "a written relation with triggers (no trigger descriptor seam)",
+            ));
         } else {
             relcache_seams::relation_get_trigger_desc::call(heap.rd_id)?
         };
@@ -140,25 +200,59 @@ impl TriggerHost {
             }
             let scratch = NodeScratch::new("GravityTriggerHost");
             let to_root = child_to_root(scratch.mcx(), heap, root, true)?;
-            return Ok(Bound::Host(TriggerHost { desc: None, when: TriggerWhenCache::default(), modified, after: true, before: None, stmt: root_stmt.flatten(), to_root, scratch }));
+            return Ok(Bound::Host(TriggerHost {
+                desc: None,
+                when: TriggerWhenCache::default(),
+                modified,
+                after: true,
+                before: None,
+                stmt: root_stmt.flatten(),
+                to_root,
+                scratch,
+            }));
         };
         let ext = trig_ext(&desc);
-        let refusal = if cmd == Cmd::Merge { merge_refusal(&ext, merge, heap.rd_rel.relkind == RELKIND_VIEW) } else { ext.refusal_on(cmd, heap.rd_rel.relkind == RELKIND_VIEW) };
-        if let Some(what) = refusal.or_else(|| ext.refusal_on(Cmd::Delete, false).filter(|_| moving)) {
+        let refusal = if cmd == Cmd::Merge {
+            merge_refusal(&ext, merge, heap.rd_rel.relkind == RELKIND_VIEW)
+        } else {
+            ext.refusal_on(cmd, heap.rd_rel.relkind == RELKIND_VIEW)
+        };
+        if let Some(what) =
+            refusal.or_else(|| ext.refusal_on(Cmd::Delete, false).filter(|_| moving))
+        {
             return Ok(Bound::Refused(what));
         }
         // ON CONFLICT DO UPDATE's arm is an ExecUpdate: the UPDATE row kinds fire on the conflict row too
-        let before = trigger_before::fires(&desc, cmd) || (conflict_update && desc.trig_update_before_row) || (moving && desc.trig_delete_before_row);
-        if modified.is_none() && (cmd != Cmd::Insert || conflict_update) && desc.triggers.iter().any(|t| t.tgnattr > 0) {
-            return Ok(Bound::Refused("an UPDATE OF column trigger on a write without its modified columns"));
+        let before = trigger_before::fires(&desc, cmd)
+            || (conflict_update && desc.trig_update_before_row)
+            || (moving && desc.trig_delete_before_row);
+        if modified.is_none()
+            && (cmd != Cmd::Insert || conflict_update)
+            && desc.triggers.iter().any(|t| t.tgnattr > 0)
+        {
+            return Ok(Bound::Refused(
+                "an UPDATE OF column trigger on a write without its modified columns",
+            ));
         }
         let scratch = NodeScratch::new("GravityTriggerHost");
         // ExecGetAllUpdatedCols: `UPDATE OF b` on a generated `b` fires when a column its expression reads is updated
         let modified = match modified {
-            Some((ins, upd)) if (cmd == Cmd::Update || conflict_update || merge.update) && heap.rd_att.constr.as_deref().is_some_and(|c| c.has_generated_stored || c.has_generated_virtual) => {
+            Some((ins, upd))
+                if (cmd == Cmd::Update || conflict_update || merge.update)
+                    && heap
+                        .rd_att
+                        .constr
+                        .as_deref()
+                        .is_some_and(|c| c.has_generated_stored || c.has_generated_virtual) =>
+            {
                 let mcx = scratch.mcx();
                 let mut all = upd.union(&types_nodes::Bitmapset::empty(), mcx)?;
-                nodemodifytable::add_generated_extra_updated_cols(mcx, heap, desc.trig_update_before_row, &mut all)?;
+                nodemodifytable::add_generated_extra_updated_cols(
+                    mcx,
+                    heap,
+                    desc.trig_update_before_row,
+                    &mut all,
+                )?;
                 Some((ins, mcx::alloc_leak_in(mcx, all)?))
             }
             m => m,
@@ -168,23 +262,54 @@ impl TriggerHost {
             Some(s) => s,
         };
         let captures = stmt.as_ref().is_some_and(|s| s.borrow().captures());
-        let after = ext.fires(cmd) || (conflict_update && ext.fires(Cmd::Update)) || (moving && ext.fires(Cmd::Delete)) || captures;
+        let after = ext.fires(cmd)
+            || (conflict_update && ext.fires(Cmd::Update))
+            || (moving && ext.fires(Cmd::Delete))
+            || captures;
         if !after && !before && stmt.is_none() {
             return Ok(Bound::None);
         }
-        let before = if before { Some(BeforeRow::bind(heap, &desc, modified, snapshot)?.merge(cmd == Cmd::Merge)) } else { None };
+        let before = if before {
+            Some(BeforeRow::bind(heap, &desc, modified, snapshot)?.merge(cmd == Cmd::Merge))
+        } else {
+            None
+        };
         let to_root = child_to_root(scratch.mcx(), heap, root, captures)?;
-        Ok(Bound::Host(TriggerHost { desc: Some(desc), when: TriggerWhenCache::default(), modified, after, before, stmt, to_root, scratch }))
+        Ok(Bound::Host(TriggerHost {
+            desc: Some(desc),
+            when: TriggerWhenCache::default(),
+            modified,
+            after,
+            before,
+            stmt,
+            to_root,
+            scratch,
+        }))
     }
 
-    fn conv<'a>(to_root: &'a Option<PgVec<'static, i16>>, heap: &'a Relation<'static>, root: Option<&'a Relation<'static>>) -> Option<trigger::ChildToRoot<'a, 'static>> {
+    fn conv<'a>(
+        to_root: &'a Option<PgVec<'static, i16>>,
+        heap: &'a Relation<'static>,
+        root: Option<&'a Relation<'static>>,
+    ) -> Option<trigger::ChildToRoot<'a, 'static>> {
         let map = to_root.as_deref()?;
-        root.map(|r| trigger::ChildToRoot { map, child_desc: heap.rd_att.as_ref(), root_desc: r.rd_att.as_ref() })
+        root.map(|r| trigger::ChildToRoot {
+            map,
+            child_desc: heap.rd_att.as_ref(),
+            root_desc: r.rd_att.as_ref(),
+        })
     }
 
     /// `recheck`: ExecInsertIndexTuples' recheckIndexes (H-a2: the deferrable unique indexes with a possible conflict), whose
     /// unique_key_recheck events AfterTriggerSaveEvent queues.
-    pub fn after_insert(&mut self, mcx: Mcx<'static>, heap: &Relation<'static>, root: Option<&Relation<'static>>, tid: ItemPointerData, recheck: &[Oid]) -> PgResult<()> {
+    pub fn after_insert(
+        &mut self,
+        mcx: Mcx<'static>,
+        heap: &Relation<'static>,
+        root: Option<&Relation<'static>>,
+        tid: ItemPointerData,
+        recheck: &[Oid],
+    ) -> PgResult<()> {
         if !self.after {
             return Ok(());
         }
@@ -192,12 +317,34 @@ impl TriggerHost {
         let stmt = self.stmt.as_ref().map(|s| s.borrow());
         let capture = stmt.as_deref().and_then(|s| s.capture(false));
         let conv = Self::conv(&self.to_root, heap, root);
-        let mut when = TriggerWhenEval { mcx: self.scratch.mcx(), cache: &mut self.when, modified_cols: None };
-        trigger::ExecARInsertTriggers(mcx, heap, desc.as_ref(), tid, recheck, capture, Some(&mut when), conv.as_ref())
+        let mut when = TriggerWhenEval {
+            mcx: self.scratch.mcx(),
+            cache: &mut self.when,
+            modified_cols: None,
+        };
+        trigger::ExecARInsertTriggers(
+            mcx,
+            heap,
+            desc.as_ref(),
+            tid,
+            recheck,
+            capture,
+            Some(&mut when),
+            conv.as_ref(),
+        )
     }
 
     /// `conflict`: the row is ON CONFLICT DO UPDATE's (the INSERT statement's update arm, its own capture).
-    pub fn after_update(&mut self, mcx: Mcx<'static>, heap: &Relation<'static>, root: Option<&Relation<'static>>, old: ItemPointerData, new: ItemPointerData, conflict: bool, recheck: &[Oid]) -> PgResult<()> {
+    pub fn after_update(
+        &mut self,
+        mcx: Mcx<'static>,
+        heap: &Relation<'static>,
+        root: Option<&Relation<'static>>,
+        old: ItemPointerData,
+        new: ItemPointerData,
+        conflict: bool,
+        recheck: &[Oid],
+    ) -> PgResult<()> {
         if !self.after {
             return Ok(());
         }
@@ -206,11 +353,36 @@ impl TriggerHost {
         let stmt = self.stmt.as_ref().map(|s| s.borrow());
         let capture = stmt.as_deref().and_then(|s| s.capture(conflict));
         let conv = Self::conv(&self.to_root, heap, root);
-        let mut when = TriggerWhenEval { mcx: self.scratch.mcx(), cache: &mut self.when, modified_cols: modified };
-        trigger::ExecARUpdateTriggers(mcx, heap, desc.as_ref(), None, None, Some(old), Some(new), recheck, capture, Some(&mut when), false, conv.as_ref(), conv.as_ref(), modified)
+        let mut when = TriggerWhenEval {
+            mcx: self.scratch.mcx(),
+            cache: &mut self.when,
+            modified_cols: modified,
+        };
+        trigger::ExecARUpdateTriggers(
+            mcx,
+            heap,
+            desc.as_ref(),
+            None,
+            None,
+            Some(old),
+            Some(new),
+            recheck,
+            capture,
+            Some(&mut when),
+            false,
+            conv.as_ref(),
+            conv.as_ref(),
+            modified,
+        )
     }
 
-    pub fn after_delete(&mut self, mcx: Mcx<'static>, heap: &Relation<'static>, root: Option<&Relation<'static>>, old: ItemPointerData) -> PgResult<()> {
+    pub fn after_delete(
+        &mut self,
+        mcx: Mcx<'static>,
+        heap: &Relation<'static>,
+        root: Option<&Relation<'static>>,
+        old: ItemPointerData,
+    ) -> PgResult<()> {
         if !self.after {
             return Ok(());
         }
@@ -218,14 +390,33 @@ impl TriggerHost {
         let stmt = self.stmt.as_ref().map(|s| s.borrow());
         let capture = stmt.as_deref().and_then(|s| s.capture(false));
         let conv = Self::conv(&self.to_root, heap, root);
-        let mut when = TriggerWhenEval { mcx: self.scratch.mcx(), cache: &mut self.when, modified_cols: None };
-        trigger::ExecARDeleteTriggers(mcx, heap, desc.as_ref(), old, capture, Some(&mut when), false, conv.as_ref())
+        let mut when = TriggerWhenEval {
+            mcx: self.scratch.mcx(),
+            cache: &mut self.when,
+            modified_cols: None,
+        };
+        trigger::ExecARDeleteTriggers(
+            mcx,
+            heap,
+            desc.as_ref(),
+            old,
+            capture,
+            Some(&mut when),
+            false,
+            conv.as_ref(),
+        )
     }
 
     /// ExecDeleteEpilogue for a moved row (changingPart): the old row into the UPDATE's OLD transition table (old-only
     /// ExecARUpdateTriggers), then the AFTER ROW DELETE triggers as the source half of a move (cloned PK RI triggers
     /// skipped: the root's event is the foreign-key leg's), without the capture when it filed the row.
-    pub fn after_delete_moved(&mut self, mcx: Mcx<'static>, heap: &Relation<'static>, root: Option<&Relation<'static>>, old: ItemPointerData) -> PgResult<()> {
+    pub fn after_delete_moved(
+        &mut self,
+        mcx: Mcx<'static>,
+        heap: &Relation<'static>,
+        root: Option<&Relation<'static>>,
+        old: ItemPointerData,
+    ) -> PgResult<()> {
         if !self.after {
             return Ok(());
         }
@@ -233,18 +424,55 @@ impl TriggerHost {
         let stmt = self.stmt.as_ref().map(|s| s.borrow());
         let capture = stmt.as_deref().and_then(|s| s.capture(false));
         // MOVE: under a MERGE the old row is the DELETE's (ExecDelete's UPDATE capture is CMD_UPDATE's alone)
-        let moved = capture.filter(|c| c.tcs_update_old_table && !stmt.as_deref().is_some_and(StmtTriggers::merge));
+        let moved = capture.filter(|c| {
+            c.tcs_update_old_table && !stmt.as_deref().is_some_and(StmtTriggers::merge)
+        });
         let conv = Self::conv(&self.to_root, heap, root);
-        let mut when = TriggerWhenEval { mcx: self.scratch.mcx(), cache: &mut self.when, modified_cols: None };
+        let mut when = TriggerWhenEval {
+            mcx: self.scratch.mcx(),
+            cache: &mut self.when,
+            modified_cols: None,
+        };
         if moved.is_some() {
-            trigger::ExecARUpdateTriggers(mcx, heap, desc.as_ref(), None, None, Some(old), None, &[], moved, Some(&mut when), false, conv.as_ref(), None, None)?;
+            trigger::ExecARUpdateTriggers(
+                mcx,
+                heap,
+                desc.as_ref(),
+                None,
+                None,
+                Some(old),
+                None,
+                &[],
+                moved,
+                Some(&mut when),
+                false,
+                conv.as_ref(),
+                None,
+                None,
+            )?;
         }
-        trigger::ExecARDeleteTriggers(mcx, heap, desc.as_ref(), old, if moved.is_some() { None } else { capture }, Some(&mut when), true, conv.as_ref())
+        trigger::ExecARDeleteTriggers(
+            mcx,
+            heap,
+            desc.as_ref(),
+            old,
+            if moved.is_some() { None } else { capture },
+            Some(&mut when),
+            true,
+            conv.as_ref(),
+        )
     }
 
     /// ExecInsert's AFTER ROW half for a moved row (the INSERT half of a cross-partition UPDATE): the new row into the
     /// UPDATE's NEW transition table (new-only ExecARUpdateTriggers), then the AFTER ROW INSERT triggers without it.
-    pub fn after_insert_moved(&mut self, mcx: Mcx<'static>, heap: &Relation<'static>, root: Option<&Relation<'static>>, tid: ItemPointerData, recheck: &[Oid]) -> PgResult<()> {
+    pub fn after_insert_moved(
+        &mut self,
+        mcx: Mcx<'static>,
+        heap: &Relation<'static>,
+        root: Option<&Relation<'static>>,
+        tid: ItemPointerData,
+        recheck: &[Oid],
+    ) -> PgResult<()> {
         if !self.after {
             return Ok(());
         }
@@ -252,13 +480,43 @@ impl TriggerHost {
         let stmt = self.stmt.as_ref().map(|s| s.borrow());
         let capture = stmt.as_deref().and_then(|s| s.capture(false));
         // MOVE: under a MERGE the new row is the INSERT's (ExecInsert's UPDATE capture is CMD_UPDATE's alone)
-        let moved = capture.filter(|c| c.tcs_update_new_table && !stmt.as_deref().is_some_and(StmtTriggers::merge));
+        let moved = capture.filter(|c| {
+            c.tcs_update_new_table && !stmt.as_deref().is_some_and(StmtTriggers::merge)
+        });
         let conv = Self::conv(&self.to_root, heap, root);
-        let mut when = TriggerWhenEval { mcx: self.scratch.mcx(), cache: &mut self.when, modified_cols: None };
+        let mut when = TriggerWhenEval {
+            mcx: self.scratch.mcx(),
+            cache: &mut self.when,
+            modified_cols: None,
+        };
         if moved.is_some() {
-            trigger::ExecARUpdateTriggers(mcx, heap, desc.as_ref(), None, None, None, Some(tid), &[], moved, Some(&mut when), false, None, conv.as_ref(), None)?;
+            trigger::ExecARUpdateTriggers(
+                mcx,
+                heap,
+                desc.as_ref(),
+                None,
+                None,
+                None,
+                Some(tid),
+                &[],
+                moved,
+                Some(&mut when),
+                false,
+                None,
+                conv.as_ref(),
+                None,
+            )?;
         }
-        trigger::ExecARInsertTriggers(mcx, heap, desc.as_ref(), tid, recheck, if moved.is_some() { None } else { capture }, Some(&mut when), conv.as_ref())
+        trigger::ExecARInsertTriggers(
+            mcx,
+            heap,
+            desc.as_ref(),
+            tid,
+            recheck,
+            if moved.is_some() { None } else { capture },
+            Some(&mut when),
+            conv.as_ref(),
+        )
     }
 
     pub fn reads_rows(&self) -> bool {

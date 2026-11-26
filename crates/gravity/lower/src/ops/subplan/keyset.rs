@@ -1,6 +1,6 @@
 //! The hashed SubPlan's key set, its runtime face (`gravity_exec::subhash::KeySet`, PostgreSQL's `ExecHashSubPlan` verdict).
-use gravity_abi::Word;
 pub use super::raw::lookup;
+use gravity_abi::Word;
 
 pub const NONEMPTY: u64 = 1;
 pub const HAS_NULL: u64 = 2;

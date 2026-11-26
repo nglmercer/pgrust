@@ -11,7 +11,9 @@ use gravity_program::Arena;
 use mcx::MemoryContext;
 
 fn graph(name: &str) -> String {
-    let path = manifest_dir().join("tests/plans/regress-full").join(format!("{name}.plan"));
+    let path = manifest_dir()
+        .join("tests/plans/regress-full")
+        .join(format!("{name}.plan"));
     let text = fs::read_to_string(&path).unwrap();
     let ctx = MemoryContext::new("d1260");
     let fx = corpus::load(ctx.mcx(), &text).unwrap();
@@ -24,10 +26,22 @@ fn graph(name: &str) -> String {
 
 #[test]
 fn an_outer_grouping_passed_to_a_subplan_binds_its_folded_constant() {
-    for name in ["groupingsets-029", "groupingsets-032", "groupingsets-038", "groupingsets-039", "groupingsets-091"] {
+    for name in [
+        "groupingsets-029",
+        "groupingsets-032",
+        "groupingsets-038",
+        "groupingsets-039",
+        "groupingsets-091",
+    ] {
         let g = graph(name);
-        assert!(!g.contains("T_GroupingFunc"), "{name}: a parameter still reads the GroupingFunc\n{g}");
-        assert!(g.contains("params=($exec0=c23:0)"), "{name}: GROUPING() of fully grouped columns is 0\n{g}");
+        assert!(
+            !g.contains("T_GroupingFunc"),
+            "{name}: a parameter still reads the GroupingFunc\n{g}"
+        );
+        assert!(
+            g.contains("params=($exec0=c23:0)"),
+            "{name}: GROUPING() of fully grouped columns is 0\n{g}"
+        );
     }
 }
 
@@ -35,5 +49,9 @@ fn an_outer_grouping_passed_to_a_subplan_binds_its_folded_constant() {
 /// env!()'s path baked in at compile time: a test binary reused from another checkout would read that checkout's files.
 fn manifest_dir() -> &'static std::path::Path {
     static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| std::env::var_os("CARGO_MANIFEST_DIR").map(Into::into).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)"))
+    DIR.get_or_init(|| {
+        std::env::var_os("CARGO_MANIFEST_DIR")
+            .map(Into::into)
+            .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+    })
 }

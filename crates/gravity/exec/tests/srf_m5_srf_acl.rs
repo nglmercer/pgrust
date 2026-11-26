@@ -17,10 +17,18 @@ use types_nodes::NodeTag;
 fn funcs(rel: &str) -> (Vec<u32>, Vec<u32>) {
     let path = manifest_dir().join("../decompose/tests/plans").join(rel);
     let ctx = MemoryContext::new("m5 srf acl");
-    let fx = corpus::load(ctx.mcx(), &std::fs::read_to_string(&path).unwrap()).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let fx = corpus::load(ctx.mcx(), &std::fs::read_to_string(&path).unwrap())
+        .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     let arena = Arena::new(1 << 20);
-    let g = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx).unwrap_or_else(|r| panic!("{rel} refused: {r:?}"));
-    let srfs: Vec<u32> = g.pipelines.iter().flat_map(|p| p.ops.iter()).filter_map(|op| if let Op::Srf(d) = op { Some(d) } else { None }).flat_map(|d| d.functions.iter().map(|f| f.funcid)).collect();
+    let g = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx)
+        .unwrap_or_else(|r| panic!("{rel} refused: {r:?}"));
+    let srfs: Vec<u32> = g
+        .pipelines
+        .iter()
+        .flat_map(|p| p.ops.iter())
+        .filter_map(|op| if let Op::Srf(d) = op { Some(d) } else { None })
+        .flat_map(|d| d.functions.iter().map(|f| f.funcid))
+        .collect();
     let mut seen = Vec::new();
     gravity_lower::inputs::key::key_and_nodes(&g, &mut |n| {
         if n.node_tag() == NodeTag::T_FuncExpr {
@@ -33,7 +41,12 @@ fn funcs(rel: &str) -> (Vec<u32>, Vec<u32>) {
 #[test]
 fn every_set_returning_function_reaches_the_execute_recheck() {
     // srf-003: two ProjectSet entries; srf-018: ROWS FROM (generate_series, unnest); srf-023: a user function in FROM
-    for (rel, n) in [("srf-003.plan", 2), ("srf-018.plan", 2), ("srf-023.plan", 1), ("bench-089.plan", 1)] {
+    for (rel, n) in [
+        ("srf-003.plan", 2),
+        ("srf-018.plan", 2),
+        ("srf-023.plan", 1),
+        ("bench-089.plan", 1),
+    ] {
         let (srfs, seen) = funcs(rel);
         assert_eq!(srfs.len(), n, "{rel}: its set-returning functions {srfs:?}");
         for f in &srfs {
@@ -46,5 +59,9 @@ fn every_set_returning_function_reaches_the_execute_recheck() {
 /// env!()'s path baked in at compile time: a test binary reused from another checkout would read that checkout's files.
 fn manifest_dir() -> &'static std::path::Path {
     static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| std::env::var_os("CARGO_MANIFEST_DIR").map(Into::into).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)"))
+    DIR.get_or_init(|| {
+        std::env::var_os("CARGO_MANIFEST_DIR")
+            .map(Into::into)
+            .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+    })
 }

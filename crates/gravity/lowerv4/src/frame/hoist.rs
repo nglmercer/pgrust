@@ -12,17 +12,20 @@ use gravity_ir::{IntCond, Type, Value};
 use gravity_lower::Place;
 use mcx::{CollectIn, GrowIn, PgVec};
 
+use crate::admit::refusal::Reason;
 use crate::face::step::{Hoist, HoistAt, HoistImpl, HoistMech, Hoisted};
 use crate::frame::env::Env;
 use crate::frame::px::ExId;
-use crate::admit::refusal::Reason;
 
 crate::strategies! {
     /// Loop-invariant words hoisted (TPDE has no LICM).
     LOOP_HOIST = 7, "hoist", Loop;
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(LOOP_HOIST, &HoistImpl(&HOIST))], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(LOOP_HOIST, &HoistImpl(&HOIST))],
+    ..crate::ops::NONE
+};
 
 struct Words;
 static HOIST: Words = Words;
@@ -37,12 +40,27 @@ impl HoistMech for Words {
             // but an expression with late operands reads only nest parameters (`late_roots`), whose producer writes them
             // before the source (re-)opens, so they hold still across a window
             let late = at == HoistAt::Window && env.placed(e).late.is_some();
-            if !late && env.placed(e).places.iter().any(|p| matches!(p, Place::Exec(_))) {
+            if !late
+                && env
+                    .placed(e)
+                    .places
+                    .iter()
+                    .any(|p| matches!(p, Place::Exec(_)))
+            {
                 continue;
             }
             let (words, nulls) = load(b, env, env.node, e);
-            let late = if late { emit_late(b, env, e, &words, &nulls) } else { PgVec::new_in(env.mcx) };
-            env.hoisted.push_in(Hoisted { ex: e, words, nulls, late });
+            let late = if late {
+                emit_late(b, env, e, &words, &nulls)
+            } else {
+                PgVec::new_in(env.mcx)
+            };
+            env.hoisted.push_in(Hoisted {
+                ex: e,
+                words,
+                nulls,
+                late,
+            });
         }
     }
 }
@@ -52,12 +70,35 @@ impl HoistMech for Words {
 /// hoist scope over its words `(words, nulls)`. Each keeps its raise word: the row reads it where it reaches the operand
 /// (`RowRefs::late`), so PG's raise (an overflowing bound) surfaces at the first row that evaluates it, never on an empty
 /// input or past a guard. An operand the emitter refuses here is left to the row.
-fn emit_late<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, e: ExId, words: &[Value], nulls: &[Value]) -> PgVec<'e, (NodeId, [Value; 3])> {
+fn emit_late<'e>(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env<'e, '_>,
+    e: ExId,
+    words: &[Value],
+    nulls: &[Value],
+) -> PgVec<'e, (NodeId, [Value; 3])> {
     let mcx = env.mcx;
     let x = env.placed(e);
-    let refs = RowRefs::scan(ColsRef::Lanes { row: env.zero, lanes: &[] }, words, nulls, env.mcx);
+    let refs = RowRefs::scan(
+        ColsRef::Lanes {
+            row: env.zero,
+            lanes: &[],
+        },
+        words,
+        nulls,
+        env.mcx,
+    );
     let refs = env.hir.with_ex(b, x, refs);
-    let late: PgVec<'e, _> = x.late.iter().flat_map(|(_, roots)| roots.iter()).filter_map(|&n| x.c.emit_at(b, &refs, n).ok().map(|l| (n, [l.value, l.valid, l.err]))).collect_in(mcx);
+    let late: PgVec<'e, _> = x
+        .late
+        .iter()
+        .flat_map(|(_, roots)| roots.iter())
+        .filter_map(|&n| {
+            x.c.emit_at(b, &refs, n)
+                .ok()
+                .map(|l| (n, [l.value, l.valid, l.err]))
+        })
+        .collect_in(mcx);
     if late.iter().any(|&(n, _)| leaf_images(&x.c.prog, n)) {
         fires::fire("hoist.late.leaf_images"); // shapecheck fire signal (D3108)
     }
@@ -73,7 +114,8 @@ fn leaf_images(p: &gravity_expr::Program<'_>, n: NodeId) -> bool {
         ExprNode::Relabel(r) => leaf_images(p, r.arg),
         ExprNode::Func(f) | ExprNode::Op(f) => {
             let c = &p.sites[f.site.0 as usize];
-            gravity_expr::emit::host::leaf_images(p, c) && gravity_expr::emit::host::direct(p, c).is_none()
+            gravity_expr::emit::host::leaf_images(p, c)
+                && gravity_expr::emit::host::direct(p, c).is_none()
         }
         _ => false,
     }
@@ -88,37 +130,77 @@ fn leaf_images(p: &gravity_expr::Program<'_>, n: NodeId) -> bool {
 /// `effects::held_error`'s licence: every call passed `call_ok` (no VOLATILE call, none `of_call` reads as acting) and
 /// `Compiled::late_roots` admits built-in shims and primitives only (no user code), so the operands may raise and do
 /// nothing else. `None` with no late operand.
-pub(crate) fn late_roots(gx: &crate::graph::Gx<'_, '_>, e: &crate::hir::Ex<'_>) -> Option<(gravity_decompose::effects::Licence, Vec<NodeId>)> {
+pub(crate) fn late_roots(
+    gx: &crate::graph::Gx<'_, '_>,
+    e: &crate::hir::Ex<'_>,
+) -> Option<(gravity_decompose::effects::Licence, Vec<NodeId>)> {
     use gravity_expr::ExprNode;
     use types_nodes::primnodes::ParamKind;
     if e.volatile || e.ext.is_some() || !e.held.is_empty() {
         return None;
     }
-    let nest = |id: i32| matches!(crate::rerun::params::producer(gx, id), Some(crate::face::kinds::KindId::NestParam));
-    if e.c.prog.nodes.iter().any(|n| matches!(n, ExprNode::Param(q) if q.kind == ParamKind::PARAM_EXEC && !nest(q.id))) {
+    let nest = |id: i32| {
+        matches!(
+            crate::rerun::params::producer(gx, id),
+            Some(crate::face::kinds::KindId::NestParam)
+        )
+    };
+    if e.c
+        .prog
+        .nodes
+        .iter()
+        .any(|n| matches!(n, ExprNode::Param(q) if q.kind == ParamKind::PARAM_EXEC && !nest(q.id)))
+    {
         return None;
     }
-    let param_ok = |q: &gravity_expr::nodes::param::Param| q.kind == ParamKind::PARAM_EXTERN || q.kind == ParamKind::PARAM_EXEC && nest(q.id);
-    let call_ok = |c: &gravity_expr::nodes::func::Call| c.funcid != 0 && !c.volatile && !gravity_decompose::effects::of_call(gx.facts, c.funcid).acts;
+    let param_ok = |q: &gravity_expr::nodes::param::Param| {
+        q.kind == ParamKind::PARAM_EXTERN || q.kind == ParamKind::PARAM_EXEC && nest(q.id)
+    };
+    let call_ok = |c: &gravity_expr::nodes::func::Call| {
+        c.funcid != 0
+            && !c.volatile
+            && !gravity_decompose::effects::of_call(gx.facts, c.funcid).acts
+    };
     let roots = e.c.late_roots(&param_ok, &call_ok, gx.mcx);
     if roots.is_empty() {
         return None;
     }
-    Some((gravity_decompose::effects::held_error(gravity_decompose::effects::Effects::RAISES, false, None).ok()?, roots))
+    Some((
+        gravity_decompose::effects::held_error(
+            gravity_decompose::effects::Effects::RAISES,
+            false,
+            None,
+        )
+        .ok()?,
+        roots,
+    ))
 }
 
 /// Expression `id`'s constants `(words, nulls)` in need order (`load`): the hoisted ones when road `hoist` computed them,
 /// else emitted here.
-pub(crate) fn words<'e>(b: &mut FunctionBuilder<'_>, env: &Env<'e, '_>, node: i32, id: ExId) -> (PgVec<'e, Value>, PgVec<'e, Value>) {
+pub(crate) fn words<'e>(
+    b: &mut FunctionBuilder<'_>,
+    env: &Env<'e, '_>,
+    node: i32,
+    id: ExId,
+) -> (PgVec<'e, Value>, PgVec<'e, Value>) {
     match env.hoisted(id) {
-        Some(h) => (mcx::to_vec_in(&h.words[..], env.mcx), mcx::to_vec_in(&h.nulls[..], env.mcx)),
+        Some(h) => (
+            mcx::to_vec_in(&h.words[..], env.mcx),
+            mcx::to_vec_in(&h.nulls[..], env.mcx),
+        ),
         None => load(b, env, node, id),
     }
 }
 
 /// Expression `id`'s constants as cells: a placed word loaded from the bind image with its null byte, a folded literal as
 /// an immediate. `(values, nulls)` in need order.
-fn load<'e>(b: &mut FunctionBuilder<'_>, env: &Env<'e, '_>, node: i32, id: ExId) -> (PgVec<'e, Value>, PgVec<'e, Value>) {
+fn load<'e>(
+    b: &mut FunctionBuilder<'_>,
+    env: &Env<'e, '_>,
+    node: i32,
+    id: ExId,
+) -> (PgVec<'e, Value>, PgVec<'e, Value>) {
     let e = env.placed(id);
     let mut v = mcx::reserved_in(e.places.len(), env.mcx);
     let mut n = mcx::reserved_in(e.places.len(), env.mcx);
@@ -141,7 +223,12 @@ fn load<'e>(b: &mut FunctionBuilder<'_>, env: &Env<'e, '_>, node: i32, id: ExId)
                 v.push_in(x);
                 n.push_in(null);
             }
-            (_, ParamNeed::Exec { .. }) => crate::refuse!(node, Reason::Bug { payload: "an executor parameter placed outside its words" }),
+            (_, ParamNeed::Exec { .. }) => crate::refuse!(
+                node,
+                Reason::Bug {
+                    payload: "an executor parameter placed outside its words"
+                }
+            ),
             (_, ParamNeed::Const(d) | ParamNeed::Elem(d)) => {
                 // folded into the code: only a by-value literal's word (D684: step/consts.rs refuses a by-reference literal
                 // or element past the word budget, whose address the plan would free before the program)
@@ -151,7 +238,12 @@ fn load<'e>(b: &mut FunctionBuilder<'_>, env: &Env<'e, '_>, node: i32, id: ExId)
                 v.push_in(b.iconst(Type::I64, d.value.as_i64()));
                 n.push_in(b.bconst(d.isnull));
             }
-            _ => crate::refuse!(node, Reason::Bug { payload: "a folded need that is not a literal" }),
+            _ => crate::refuse!(
+                node,
+                Reason::Bug {
+                    payload: "a folded need that is not a literal"
+                }
+            ),
         }
     }
     (v, n)

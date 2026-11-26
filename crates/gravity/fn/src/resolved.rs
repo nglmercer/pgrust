@@ -32,8 +32,18 @@ impl Entry {
 /// A resolution's content: every field a call reads, and the body's address as its offset from this module's code (the
 /// same in every process of a build; ASLR moves the base only). Two resolutions with equal keys are one comparator.
 fn key(f: &FmgrInfo) -> (Oid, i64, u8, Oid, bool, i16, bool, u8) {
-    let at = (f.fn_addr() as *const () as usize as i64).wrapping_sub(resolve as *const () as usize as i64);
-    (f.fn_oid, at, f.fn_kind as u8, f.fn_body, f.fn_strict, f.fn_nargs, f.fn_retset, f.fn_stats)
+    let at = (f.fn_addr() as *const () as usize as i64)
+        .wrapping_sub(resolve as *const () as usize as i64);
+    (
+        f.fn_oid,
+        at,
+        f.fn_kind as u8,
+        f.fn_body,
+        f.fn_strict,
+        f.fn_nargs,
+        f.fn_retset,
+        f.fn_stats,
+    )
 }
 
 /// A resolution's id: the SipHash (fixed keys) of its catalog identity (oid, kind, body, strictness, arity: never the
@@ -44,7 +54,16 @@ fn id_of(f: &FmgrInfo, t: &[(u32, Entry)]) -> u32 {
     use core::hash::{Hash, Hasher};
     #[allow(deprecated)]
     let mut h = core::hash::SipHasher::new_with_keys(0x6d36_686f_7374_6564, 0x7265_736f_6c76_6564);
-    (f.fn_oid, f.fn_kind as u8, f.fn_body, f.fn_strict, f.fn_nargs, f.fn_retset, f.fn_stats).hash(&mut h);
+    (
+        f.fn_oid,
+        f.fn_kind as u8,
+        f.fn_body,
+        f.fn_strict,
+        f.fn_nargs,
+        f.fn_retset,
+        f.fn_stats,
+    )
+        .hash(&mut h);
     let x = h.finish();
     let mut id = (x ^ x >> 32) as u32;
     while id == 0 || t.iter().any(|(i, _)| *i == id) {
@@ -61,8 +80,16 @@ static RESOLVED: RwLock<Vec<(u32, Entry)>> = RwLock::new(Vec::new()); // alloc: 
 /// builtin, so `pool_safe` is false and its pipeline runs on the leader, which owns both (`native_key`).
 pub fn resolve(proc: Oid) -> PgResult<Result<u32, &'static str>> {
     let f = fmgr_core::fmgr_info(proc)?;
-    debug_assert!(f.fn_extra.is_none() && f.fn_expr.is_none(), "gravity_fn: a fresh resolution with a memo");
-    if let Some((id, _)) = RESOLVED.read().unwrap_or_else(|p| p.into_inner()).iter().find(|(_, e)| e.same(&f)) {
+    debug_assert!(
+        f.fn_extra.is_none() && f.fn_expr.is_none(),
+        "gravity_fn: a fresh resolution with a memo"
+    );
+    if let Some((id, _)) = RESOLVED
+        .read()
+        .unwrap_or_else(|p| p.into_inner())
+        .iter()
+        .find(|(_, e)| e.same(&f))
+    {
         return Ok(Ok(*id));
     }
     let mut t = RESOLVED.write().unwrap_or_else(|p| p.into_inner());
@@ -79,7 +106,8 @@ pub fn resolve(proc: Oid) -> PgResult<Result<u32, &'static str>> {
 pub const USER_CMP: &str = "a sort key ordered by a comparator that is not a C or internal function (it runs SQL through SPI, which a pool worker cannot)";
 
 /// The Shape of a sort key whose comparator does not resolve at lowering.
-pub const UNRESOLVED_CMP: &str = "a sort key ordered by a comparator the function manager cannot resolve";
+pub const UNRESOLVED_CMP: &str =
+    "a sort key ordered by a comparator the function manager cannot resolve";
 
 /// A comparator checked and resolved at lowering (rep.hosted.order's run tail, SK_CMP's group sort): its
 /// `pg_proc.prolang` (`prolang`, the caller's catalog read) is one the catalog gives (a language it cannot give refuses
@@ -106,7 +134,10 @@ pub fn pool_safe(typid: Oid, proc: Oid) -> bool {
     const CIDR: Oid = 650;
     const BIT: Oid = 1560;
     const VARBIT: Oid = 1562;
-    matches!((typid, proc), (NUMERIC, 1769) | (INET | CIDR, 926) | (BIT, 1596) | (VARBIT, 1672)) && fmgr_core::fmgr_info(proc).is_ok_and(|f| f.fn_kind == FnKind::Builtin && f.fn_body == proc)
+    matches!(
+        (typid, proc),
+        (NUMERIC, 1769) | (INET | CIDR, 926) | (BIT, 1596) | (VARBIT, 1672)
+    ) && fmgr_core::fmgr_info(proc).is_ok_and(|f| f.fn_kind == FnKind::Builtin && f.fn_body == proc)
 }
 
 leader_tls::leader_tls! {
@@ -189,7 +220,13 @@ mod tests {
         let other = std::thread::spawn(move || {
             let mut f = crate::FmgrCall::bind_resolved(id, 2, 0).unwrap();
             let cx = mcx::MemoryContext::new("resolved test");
-            let r = f.call(cx.mcx(), &[datum::Datum::from_i32(3), datum::Datum::from_i32(7)], &[false, false]).unwrap();
+            let r = f
+                .call(
+                    cx.mcx(),
+                    &[datum::Datum::from_i32(3), datum::Datum::from_i32(7)],
+                    &[false, false],
+                )
+                .unwrap();
             r.value.as_i32().cmp(&0)
         });
         assert_eq!(other.join().unwrap(), Ordering::Less);
@@ -201,16 +238,35 @@ mod tests {
     /// run serial.
     #[test]
     fn only_scalar_builtin_comparators_are_pool_safe() {
-        for (t, p) in [(1700, 1769), (869, 926), (650, 926), (1560, 1596), (1562, 1672)] {
+        for (t, p) in [
+            (1700, 1769),
+            (869, 926),
+            (650, 926),
+            (1560, 1596),
+            (1562, 1672),
+        ] {
             assert!(super::pool_safe(t, p), "scalar {t} / {p}");
         }
         // int4[] / text[] (btarraycmp), int4range (range_cmp), int4multirange (multirange_cmp), record (btrecordcmp),
         // an enum type oid over enum_cmp, a domain / user type oid over numeric_cmp, numeric_cmp over inet
-        for (t, p) in [(1007, 382), (1009, 382), (3904, 3870), (4451, 4273), (2249, 2987), (16384, 3514), (16390, 1769), (869, 1769)] {
+        for (t, p) in [
+            (1007, 382),
+            (1009, 382),
+            (3904, 3870),
+            (4451, 4273),
+            (2249, 2987),
+            (16384, 3514),
+            (16390, 1769),
+            (869, 1769),
+        ] {
             assert!(!super::pool_safe(t, p), "serial {t} / {p}");
         }
         let (id, serial) = super::pipeline_scope(|| super::native_key(Some(12), 1769, 1700));
-        assert_eq!((id, serial), (super::native(Some(12), 1769), false), "numeric stays parallel");
+        assert_eq!(
+            (id, serial),
+            (super::native(Some(12), 1769), false),
+            "numeric stays parallel"
+        );
         let (_, serial) = super::pipeline_scope(|| super::native_key(Some(12), 382, 1007));
         assert!(serial, "an array key's comparator runs serial");
     }
@@ -223,14 +279,23 @@ mod tests {
     fn a_sql_or_pl_comparator_runs_on_the_leader() {
         for lang in [14, 13000, 16384] {
             let (id, serial) = super::pipeline_scope(|| super::native_key(Some(lang), 1769, 1700));
-            assert_eq!((id, serial), (super::native(Some(12), 1769), true), "language {lang}");
+            assert_eq!(
+                (id, serial),
+                (super::native(Some(12), 1769), true),
+                "language {lang}"
+            );
         }
         assert_eq!(super::native(None, 1769), Err(super::USER_CMP));
         let (_, serial) = super::pipeline_scope(super::leader_only);
         assert!(serial, "leader_only marks the pipeline");
         let (_, after) = super::pipeline_scope(|| ());
         assert!(!after, "and only that one");
-        assert!(super::user_language(Some(14)) && super::user_language(None) && !super::user_language(Some(12)) && !super::user_language(Some(13)));
+        assert!(
+            super::user_language(Some(14))
+                && super::user_language(None)
+                && !super::user_language(Some(12))
+                && !super::user_language(Some(13))
+        );
     }
 
     /// Two pipelines of one graph, the first binding an array comparator (serial), the second a numeric one (parallel):
@@ -239,16 +304,22 @@ mod tests {
     #[test]
     fn the_serial_flag_is_one_pipelines() {
         let (_, first) = super::pipeline_scope(|| super::native_key(Some(12), 382, 1007).unwrap());
-        let (_, second) = super::pipeline_scope(|| super::native_key(Some(12), 1769, 1700).unwrap());
+        let (_, second) =
+            super::pipeline_scope(|| super::native_key(Some(12), 1769, 1700).unwrap());
         assert_eq!((first, second), (true, false));
         let (_, none) = super::pipeline_scope(|| ());
         assert!(!none, "a pipeline that binds no comparator is not serial");
-        let _ = std::panic::catch_unwind(|| super::pipeline_scope(|| {
-            super::native_key(Some(12), 382, 1007).unwrap();
-            panic!("a maker refuses");
-        }));
+        let _ = std::panic::catch_unwind(|| {
+            super::pipeline_scope(|| {
+                super::native_key(Some(12), 382, 1007).unwrap();
+                panic!("a maker refuses");
+            })
+        });
         let (_, after) = super::pipeline_scope(|| super::native_key(Some(12), 926, 869).unwrap());
-        assert!(!after, "a refused pipeline's flag does not reach the next lowering's");
+        assert!(
+            !after,
+            "a refused pipeline's flag does not reach the next lowering's"
+        );
         let (_, nested) = super::pipeline_scope(|| {
             super::native_key(Some(12), 3870, 3904).unwrap();
             let (_, inner) = super::pipeline_scope(|| ());

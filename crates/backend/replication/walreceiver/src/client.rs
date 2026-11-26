@@ -8,8 +8,8 @@ use types_error::{
     ERRCODE_SYNTAX_ERROR, ERROR,
 };
 
-pub use pgclient::{parse_conninfo, CopyData, ErrorFields, ExecStatus, PgConn, QueryResult};
 use pgclient::{opt, os_user_name, WaitEvents};
+pub use pgclient::{parse_conninfo, CopyData, ErrorFields, ExecStatus, PgConn, QueryResult};
 
 const WAIT_EVENT_LIBPQWALRECEIVER_CONNECT: u32 = 0x0600_0000 | 3;
 const WAIT_EVENT_LIBPQWALRECEIVER_RECEIVE: u32 = 0x0600_0000 | 4;
@@ -52,7 +52,9 @@ fn lsn_fmt(lsn: XLogRecPtr) -> String {
 fn logical_options(explicit: &[(String, String)]) -> String {
     format!(
         "{} -c datestyle=ISO -c intervalstyle=postgres -c extra_float_digits=3",
-        opt(explicit, "options").filter(|o| !o.is_empty()).unwrap_or("")
+        opt(explicit, "options")
+            .filter(|o| !o.is_empty())
+            .unwrap_or("")
     )
 }
 
@@ -99,7 +101,7 @@ pub fn connect_extended(
     debug_assert!(replication || !logical);
     let opts = check_conninfo(conninfo)?;
 
-    if must_use_password && opt(&opts, "password").is_none_or( |p| p.is_empty()) {
+    if must_use_password && opt(&opts, "password").is_none_or(|p| p.is_empty()) {
         return throw(
             ereport(ERROR)
                 .errcode(types_error::ERRCODE_S_R_E_PROHIBITED_SQL_STATEMENT_ATTEMPTED)
@@ -117,13 +119,21 @@ pub fn connect_extended(
         Ok(o) => o,
         Err(e) => return Ok(Err(e)),
     };
-    let user = opt(&opts, "user").map(|s| s.to_string()).unwrap_or_else(os_user_name);
+    let user = opt(&opts, "user")
+        .map(|s| s.to_string())
+        .unwrap_or_else(os_user_name);
     let fallback_appname = appname;
-    let appname = opt(&opts, "application_name").unwrap_or(appname).to_string();
+    let appname = opt(&opts, "application_name")
+        .unwrap_or(appname)
+        .to_string();
     let options = opt(&opts, "options").unwrap_or("").to_string();
     let dbname = opt(&opts, "dbname").unwrap_or("").to_string();
 
-    let database: &str = if replication && !logical { "replication" } else { dbname.as_str() };
+    let database: &str = if replication && !logical {
+        "replication"
+    } else {
+        dbname.as_str()
+    };
     let forced_options;
     let options_val: &str = if logical {
         logical_opts.as_str()
@@ -208,7 +218,10 @@ pub fn connect_extended(
         // libpqsrv_exec's own ereports (interrupts) propagate, as in C.
         let res = conn.exec("SELECT pg_catalog.set_config('search_path', '', false);")?;
         if res.status != ExecStatus::TuplesOk {
-            return Ok(Err(format!("could not clear search path: {}", pchomp(&res.err))));
+            return Ok(Err(format!(
+                "could not clear search path: {}",
+                pchomp(&res.err)
+            )));
         }
     }
 
@@ -251,10 +264,12 @@ pub fn identify_system(conn: &mut PgConn) -> PgResult<(String, TimeLineID, XLogR
     // Column 2 is the server's current WAL flush position.
     let xlogpos = text_col(&res, 0, 2);
     let Some(flush) = sscanf_lsn(&xlogpos) else {
-        return throw(ereport(ERROR)
-            .errcode(ERRCODE_PROTOCOL_VIOLATION)
-            .errmsg(format!("could not parse WAL location \"{xlogpos}\""))
-            .finish(loc("libpqrcv_identify_system")));
+        return throw(
+            ereport(ERROR)
+                .errcode(ERRCODE_PROTOCOL_VIOLATION)
+                .errmsg(format!("could not parse WAL location \"{xlogpos}\""))
+                .finish(loc("libpqrcv_identify_system")),
+        );
     };
     Ok((sysid, tli, flush))
 }
@@ -280,7 +295,9 @@ fn sscanf_lsn(s: &str) -> Option<XLogRecPtr> {
         let start = i;
         let mut v: u32 = 0;
         while i < b.len() && b[i].is_ascii_hexdigit() {
-            v = v.wrapping_mul(16).wrapping_add((b[i] as char).to_digit(16)?);
+            v = v
+                .wrapping_mul(16)
+                .wrapping_add((b[i] as char).to_digit(16)?);
             i += 1;
         }
         (i > start).then_some((if neg { v.wrapping_neg() } else { v }, i))
@@ -333,10 +350,15 @@ pub fn start_streaming(
     match res.status {
         ExecStatus::CommandOk => Ok(false),
         ExecStatus::CopyBoth => Ok(true),
-        _ => throw(ereport(ERROR)
-            .errcode(ERRCODE_PROTOCOL_VIOLATION)
-            .errmsg(format!("could not start WAL streaming: {}", pchomp(&res.err)))
-            .finish(loc("libpqrcv_startstreaming"))),
+        _ => throw(
+            ereport(ERROR)
+                .errcode(ERRCODE_PROTOCOL_VIOLATION)
+                .errmsg(format!(
+                    "could not start WAL streaming: {}",
+                    pchomp(&res.err)
+                ))
+                .finish(loc("libpqrcv_startstreaming")),
+        ),
     }
 }
 
@@ -381,13 +403,15 @@ pub fn create_slot_physical(conn: &mut PgConn, slotname: &str, temporary: bool) 
     let cmd = create_slot_physical_cmd(slotname, temporary);
     let res = conn.exec(&cmd)?;
     if res.status != ExecStatus::TuplesOk {
-        return throw(ereport(ERROR)
-            .errcode(ERRCODE_PROTOCOL_VIOLATION)
-            .errmsg(format!(
-                "could not create replication slot \"{slotname}\": {}",
-                pchomp(&res.err)
-            ))
-            .finish(loc("libpqrcv_create_slot")));
+        return throw(
+            ereport(ERROR)
+                .errcode(ERRCODE_PROTOCOL_VIOLATION)
+                .errmsg(format!(
+                    "could not create replication slot \"{slotname}\": {}",
+                    pchomp(&res.err)
+                ))
+                .finish(loc("libpqrcv_create_slot")),
+        );
     }
     // upstream a6a2eb9f6024 (18.6): Check CREATE_REPLICATION_SLOT response shape in libpqwalreceiver
     check_create_slot_result(&res, slotname)?;
@@ -397,13 +421,15 @@ pub fn create_slot_physical(conn: &mut PgConn, slotname: &str, temporary: bool) 
 /// libpqrcv_endstreaming. Returns the next timeline ID (0 if not reported).
 pub fn end_streaming(conn: &mut PgConn) -> PgResult<TimeLineID> {
     if conn.put_copy_end().is_err() {
-        return throw(ereport(ERROR)
-            .errcode(ERRCODE_CONNECTION_FAILURE)
-            .errmsg(format!(
-                "could not send end-of-streaming message to primary: {}",
-                pchomp(&conn.error_message())
-            ))
-            .finish(loc("libpqrcv_endstreaming")));
+        return throw(
+            ereport(ERROR)
+                .errcode(ERRCODE_CONNECTION_FAILURE)
+                .errmsg(format!(
+                    "could not send end-of-streaming message to primary: {}",
+                    pchomp(&conn.error_message())
+                ))
+                .finish(loc("libpqrcv_endstreaming")),
+        );
     }
 
     let mut next_tli: TimeLineID = 0;
@@ -411,10 +437,12 @@ pub fn end_streaming(conn: &mut PgConn) -> PgResult<TimeLineID> {
     if let Some(r) = &res {
         if r.status == ExecStatus::TuplesOk {
             if r.nfields < 2 || r.rows.len() != 1 {
-                return throw(ereport(ERROR)
-                    .errcode(ERRCODE_PROTOCOL_VIOLATION)
-                    .errmsg("unexpected result set after end-of-streaming")
-                    .finish(loc("libpqrcv_endstreaming")));
+                return throw(
+                    ereport(ERROR)
+                        .errcode(ERRCODE_PROTOCOL_VIOLATION)
+                        .errmsg("unexpected result set after end-of-streaming")
+                        .finish(loc("libpqrcv_endstreaming")),
+                );
             }
             // *next_tli = pg_strtoint32(PQgetvalue(res, 0, 0)) (libpqwalreceiver.c:718):
             // garbage is numutils' 22P02 ereport, not "no timeline reported".
@@ -430,23 +458,27 @@ pub fn end_streaming(conn: &mut PgConn) -> PgResult<TimeLineID> {
                     Ok(CopyData::Msg(_)) => {}
                     Ok(CopyData::Block) => {
                         if !conn.consume_input() {
-                            return throw(ereport(ERROR)
-                                .errcode(ERRCODE_CONNECTION_FAILURE)
-                                .errmsg(format!(
-                                    "error while shutting down streaming COPY: {}",
-                                    pchomp(&conn.error_message())
-                                ))
-                                .finish(loc("libpqrcv_endstreaming")));
+                            return throw(
+                                ereport(ERROR)
+                                    .errcode(ERRCODE_CONNECTION_FAILURE)
+                                    .errmsg(format!(
+                                        "error while shutting down streaming COPY: {}",
+                                        pchomp(&conn.error_message())
+                                    ))
+                                    .finish(loc("libpqrcv_endstreaming")),
+                            );
                         }
                     }
                     Err(e) => {
-                        return throw(ereport(ERROR)
-                            .errcode(ERRCODE_CONNECTION_FAILURE)
-                            .errmsg(format!(
-                                "error while shutting down streaming COPY: {}",
-                                pchomp(&e)
-                            ))
-                            .finish(loc("libpqrcv_endstreaming")));
+                        return throw(
+                            ereport(ERROR)
+                                .errcode(ERRCODE_CONNECTION_FAILURE)
+                                .errmsg(format!(
+                                    "error while shutting down streaming COPY: {}",
+                                    pchomp(&e)
+                                ))
+                                .finish(loc("libpqrcv_endstreaming")),
+                        );
                     }
                 }
             }
@@ -462,13 +494,15 @@ pub fn end_streaming(conn: &mut PgConn) -> PgResult<TimeLineID> {
             match conn.get_result()? {
                 Some(r) if r.status == ExecStatus::CommandOk => {}
                 _ => {
-                    return throw(ereport(ERROR)
-                        .errcode(ERRCODE_CONNECTION_FAILURE)
-                        .errmsg(format!(
-                            "error while shutting down streaming COPY: {}",
-                            pchomp(&conn.error_message())
-                        ))
-                        .finish(loc("libpqrcv_endstreaming")));
+                    return throw(
+                        ereport(ERROR)
+                            .errcode(ERRCODE_CONNECTION_FAILURE)
+                            .errmsg(format!(
+                                "error while shutting down streaming COPY: {}",
+                                pchomp(&conn.error_message())
+                            ))
+                            .finish(loc("libpqrcv_endstreaming")),
+                    );
                 }
             }
             res = conn.get_result()?;
@@ -477,23 +511,27 @@ pub fn end_streaming(conn: &mut PgConn) -> PgResult<TimeLineID> {
     match &res {
         Some(r) if r.status == ExecStatus::CommandOk => {}
         _ => {
-            return throw(ereport(ERROR)
-                .errcode(ERRCODE_PROTOCOL_VIOLATION)
-                .errmsg(format!(
-                    "error reading result of streaming command: {}",
-                    pchomp(&conn.error_message())
-                ))
-                .finish(loc("libpqrcv_endstreaming")));
+            return throw(
+                ereport(ERROR)
+                    .errcode(ERRCODE_PROTOCOL_VIOLATION)
+                    .errmsg(format!(
+                        "error reading result of streaming command: {}",
+                        pchomp(&conn.error_message())
+                    ))
+                    .finish(loc("libpqrcv_endstreaming")),
+            );
         }
     }
     if conn.get_result()?.is_some() {
-        return throw(ereport(ERROR)
-            .errcode(ERRCODE_PROTOCOL_VIOLATION)
-            .errmsg(format!(
-                "unexpected result after CommandComplete: {}",
-                pchomp(&conn.error_message())
-            ))
-            .finish(loc("libpqrcv_endstreaming")));
+        return throw(
+            ereport(ERROR)
+                .errcode(ERRCODE_PROTOCOL_VIOLATION)
+                .errmsg(format!(
+                    "unexpected result after CommandComplete: {}",
+                    pchomp(&conn.error_message())
+                ))
+                .finish(loc("libpqrcv_endstreaming")),
+        );
     }
     Ok(next_tli)
 }
@@ -505,24 +543,28 @@ pub fn read_timeline_history_file(
 ) -> PgResult<(String, Vec<u8>)> {
     let res = conn.exec(&format!("TIMELINE_HISTORY {tli}"))?;
     if res.status != ExecStatus::TuplesOk {
-        return throw(ereport(ERROR)
-            .errcode(ERRCODE_PROTOCOL_VIOLATION)
-            .errmsg(format!(
-                "could not receive timeline history file from the primary server: {}",
-                pchomp(&res.err)
-            ))
-            .finish(loc("libpqrcv_readtimelinehistoryfile")));
+        return throw(
+            ereport(ERROR)
+                .errcode(ERRCODE_PROTOCOL_VIOLATION)
+                .errmsg(format!(
+                    "could not receive timeline history file from the primary server: {}",
+                    pchomp(&res.err)
+                ))
+                .finish(loc("libpqrcv_readtimelinehistoryfile")),
+        );
     }
     if res.nfields != 2 || res.rows.len() != 1 {
-        return throw(ereport(ERROR)
-            .errcode(ERRCODE_PROTOCOL_VIOLATION)
-            .errmsg("invalid response from primary server")
-            .errdetail(format!(
-                "Expected 1 tuple with 2 fields, got {} tuples with {} fields.",
-                res.rows.len(),
-                res.nfields
-            ))
-            .finish(loc("libpqrcv_readtimelinehistoryfile")));
+        return throw(
+            ereport(ERROR)
+                .errcode(ERRCODE_PROTOCOL_VIOLATION)
+                .errmsg("invalid response from primary server")
+                .errdetail(format!(
+                    "Expected 1 tuple with 2 fields, got {} tuples with {} fields.",
+                    res.rows.len(),
+                    res.nfields
+                ))
+                .finish(loc("libpqrcv_readtimelinehistoryfile")),
+        );
     }
     let fname = text_col(&res, 0, 0);
     let content = res.rows[0][1].clone().unwrap_or_default();
@@ -565,13 +607,15 @@ pub fn receive(conn: &mut PgConn) -> PgResult<(i32, Vec<u8>, pgsocket)> {
                         if conn.connection_bad() {
                             return Ok((-1, Vec::new(), PGINVALID_SOCKET));
                         }
-                        return throw(ereport(ERROR)
-                            .errcode(ERRCODE_PROTOCOL_VIOLATION)
-                            .errmsg(format!(
-                                "unexpected result after CommandComplete: {}",
-                                conn.error_message()
-                            ))
-                            .finish(loc("libpqrcv_receive")));
+                        return throw(
+                            ereport(ERROR)
+                                .errcode(ERRCODE_PROTOCOL_VIOLATION)
+                                .errmsg(format!(
+                                    "unexpected result after CommandComplete: {}",
+                                    conn.error_message()
+                                ))
+                                .finish(loc("libpqrcv_receive")),
+                        );
                     }
                     Ok((-1, Vec::new(), PGINVALID_SOCKET))
                 }
@@ -590,7 +634,10 @@ fn receive_stream_error(
     throw(
         ereport(ERROR)
             .errcode(sqlstate)
-            .errmsg(format!("could not receive data from WAL stream: {}", pchomp(err)))
+            .errmsg(format!(
+                "could not receive data from WAL stream: {}",
+                pchomp(err)
+            ))
             .finish(loc("libpqrcv_receive")),
     )
 }
@@ -671,7 +718,10 @@ mod tests {
             "CREATE_REPLICATION_SLOT \"s\" PHYSICAL (RESERVE_WAL)"
         );
         // snprintf "pg_walreceiver_%lld" over the backend pid (walreceiver.c:359).
-        assert_eq!(format!("pg_walreceiver_{}", 42i32 as i64), "pg_walreceiver_42");
+        assert_eq!(
+            format!("pg_walreceiver_{}", 42i32 as i64),
+            "pg_walreceiver_42"
+        );
     }
 
     // upstream abb5825550a8 (18.5): embedded double quotes are doubled.
@@ -732,7 +782,12 @@ mod tests {
     // ErrorResponse (severity ERROR) with the given SQLSTATE and message.
     fn error_response(sqlstate: &str, message: &str) -> Vec<u8> {
         let mut body = Vec::new();
-        for (code, val) in [(b'S', "ERROR"), (b'V', "ERROR"), (b'C', sqlstate), (b'M', message)] {
+        for (code, val) in [
+            (b'S', "ERROR"),
+            (b'V', "ERROR"),
+            (b'C', sqlstate),
+            (b'M', message),
+        ] {
             body.push(code);
             body.extend_from_slice(val.as_bytes());
             body.push(0);
@@ -775,7 +830,11 @@ mod tests {
                 if s.read_exact(&mut t).is_err() {
                     break;
                 }
-                assert!(t[0] == b'Q' || t[0] == b'c', "unexpected client frame {}", t[0] as char);
+                assert!(
+                    t[0] == b'Q' || t[0] == b'c',
+                    "unexpected client frame {}",
+                    t[0] as char
+                );
                 s.read_exact(&mut len).unwrap();
                 let mut q = vec![0u8; u32::from_be_bytes(len) as usize - 4];
                 s.read_exact(&mut q).unwrap();
@@ -840,8 +899,11 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("walrcv-svc-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("pg_service.conf");
-        std::fs::write(&f, format!("[walrcv_test]\nhost=127.0.0.1\nport={port}\nuser=walrcv\n"))
-            .unwrap();
+        std::fs::write(
+            &f,
+            format!("[walrcv_test]\nhost=127.0.0.1\nport={port}\nuser=walrcv\n"),
+        )
+        .unwrap();
         std::env::set_var("PGSERVICEFILE", &f);
         client_env();
         let conn = match connect("service=walrcv_test", "t") {
@@ -854,8 +916,12 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    const CREATE_SLOT_FIELDS: [&str; 4] =
-        ["slot_name", "consistent_point", "snapshot_name", "output_plugin"];
+    const CREATE_SLOT_FIELDS: [&str; 4] = [
+        "slot_name",
+        "consistent_point",
+        "snapshot_name",
+        "output_plugin",
+    ];
 
     // upstream a6a2eb9f6024 (18.6): Check CREATE_REPLICATION_SLOT response shape in libpqwalreceiver
     // A TuplesOk reply without exactly one row of four fields is a protocol
@@ -970,8 +1036,14 @@ mod tests {
         )]);
         let mut conn = connect_scripted(port);
         let err = identify_system(&mut conn).unwrap_err();
-        assert_eq!(err.sqlstate(), types_error::ERRCODE_INVALID_TEXT_REPRESENTATION);
-        assert_eq!(err.message(), "invalid input syntax for type integer: \"abc\"");
+        assert_eq!(
+            err.sqlstate(),
+            types_error::ERRCODE_INVALID_TEXT_REPRESENTATION
+        );
+        assert_eq!(
+            err.message(),
+            "invalid input syntax for type integer: \"abc\""
+        );
         drop(conn);
         server.join().unwrap();
     }
@@ -1019,8 +1091,10 @@ mod tests {
 
     #[test]
     fn end_streaming_reads_the_next_timeline() {
-        let (port, server) =
-            scripted_server(vec![copy_both_then_server_copy_done(), end_of_streaming_reply("7")]);
+        let (port, server) = scripted_server(vec![
+            copy_both_then_server_copy_done(),
+            end_of_streaming_reply("7"),
+        ]);
         let mut conn = connect_scripted(port);
         assert!(start_streaming(&mut conn, None, 0x3000000, 1).unwrap());
         // The walsender ends the COPY first (CopyDone): the receive loop sees
@@ -1029,7 +1103,10 @@ mod tests {
         assert_eq!(receive(&mut conn).unwrap().0, -1);
         assert_eq!(end_streaming(&mut conn).unwrap(), 7);
         drop(conn);
-        assert_eq!(server.join().unwrap(), vec!["START_REPLICATION 0/3000000 TIMELINE 1"]);
+        assert_eq!(
+            server.join().unwrap(),
+            vec!["START_REPLICATION 0/3000000 TIMELINE 1"]
+        );
     }
 
     // libpqrcv_endstreaming's PGRES_COPY_OUT arm (libpqwalreceiver.c:693-701):
@@ -1049,19 +1126,30 @@ mod tests {
         // The connection is back to idle: nothing pending.
         assert!(conn.get_result().unwrap().is_none());
         drop(conn);
-        assert_eq!(server.join().unwrap(), vec!["START_REPLICATION 0/3000000 TIMELINE 1"]);
+        assert_eq!(
+            server.join().unwrap(),
+            vec!["START_REPLICATION 0/3000000 TIMELINE 1"]
+        );
     }
 
     #[test]
     fn end_streaming_rejects_a_non_integer_next_timeline_like_pg_strtoint32() {
-        let (port, server) =
-            scripted_server(vec![copy_both_then_server_copy_done(), end_of_streaming_reply("abc")]);
+        let (port, server) = scripted_server(vec![
+            copy_both_then_server_copy_done(),
+            end_of_streaming_reply("abc"),
+        ]);
         let mut conn = connect_scripted(port);
         assert!(start_streaming(&mut conn, None, 0x3000000, 1).unwrap());
         assert_eq!(receive(&mut conn).unwrap().0, -1);
         let err = end_streaming(&mut conn).unwrap_err();
-        assert_eq!(err.sqlstate(), types_error::ERRCODE_INVALID_TEXT_REPRESENTATION);
-        assert_eq!(err.message(), "invalid input syntax for type integer: \"abc\"");
+        assert_eq!(
+            err.sqlstate(),
+            types_error::ERRCODE_INVALID_TEXT_REPRESENTATION
+        );
+        assert_eq!(
+            err.message(),
+            "invalid input syntax for type integer: \"abc\""
+        );
         drop(conn);
         server.join().unwrap();
     }

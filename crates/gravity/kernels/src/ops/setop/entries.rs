@@ -76,18 +76,37 @@ mod tests {
     #[test]
     fn each_entry_runs_its_objects_op_and_a_foreign_or_null_handle_is_an_error_by_name() {
         let ctx: *mut Ctx = core::ptr::null_mut();
-        let gen = Box::new(Head { magic: GEN_MAGIC, op: record }); // alloc: Cold
+        let gen = Box::new(Head {
+            magic: GEN_MAGIC,
+            op: record,
+        }); // alloc: Cold
         let h = &*gen as *const Head as u64;
         // SAFETY: a live head whose op reads nothing.
-        assert_eq!(unsafe { (m9_gen_hold(ctx, h), m9_gen_raise(ctx, h)) }, (10, 20));
-        let other = Box::new(Head { magic: crate::ops::shared::object::entries::CTE_MAGIC, op: record }); // alloc: Cold
-        // SAFETY: a live head of another kind: only its magic is read.
-        assert_eq!(unsafe { m9_gen_hold(ctx, &*other as *const Head as u64) }, ERROR);
-        let msg = gravity_fn::take_error().map(|e| e.message().to_owned()).unwrap_or_default();
-        assert!(msg.starts_with("gravity: m9_gen_hold: a stale or foreign M9 handle 0x"), "{msg}");
+        assert_eq!(
+            unsafe { (m9_gen_hold(ctx, h), m9_gen_raise(ctx, h)) },
+            (10, 20)
+        );
+        let other = Box::new(Head {
+            magic: crate::ops::shared::object::entries::CTE_MAGIC,
+            op: record,
+        }); // alloc: Cold
+            // SAFETY: a live head of another kind: only its magic is read.
+        assert_eq!(
+            unsafe { m9_gen_hold(ctx, &*other as *const Head as u64) },
+            ERROR
+        );
+        let msg = gravity_fn::take_error()
+            .map(|e| e.message().to_owned())
+            .unwrap_or_default();
+        assert!(
+            msg.starts_with("gravity: m9_gen_hold: a stale or foreign M9 handle 0x"),
+            "{msg}"
+        );
         // SAFETY: a null handle: nothing is read.
         assert_eq!(unsafe { m9_gen_raise(ctx, 0) }, ERROR);
-        assert!(gravity_fn::take_error().is_some_and(|e| e.message().contains("m9_gen_raise: a stale or foreign M9 handle 0x0")));
+        assert!(gravity_fn::take_error().is_some_and(|e| e
+            .message()
+            .contains("m9_gen_raise: a stale or foreign M9 handle 0x0")));
     }
 
     #[test]

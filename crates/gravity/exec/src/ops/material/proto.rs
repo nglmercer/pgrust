@@ -49,7 +49,11 @@ impl Live for OwnedLive {
     }
 
     /// The fill pipeline completed (no worker runs): every owner's records sealed into the merged cell.
-    fn after_pipeline(&self, pipeline: usize, exec: &mut gravity_driver::Exec) -> Option<gravity_driver::Result<()>> {
+    fn after_pipeline(
+        &self,
+        pipeline: usize,
+        exec: &mut gravity_driver::Exec,
+    ) -> Option<gravity_driver::Result<()>> {
         if pipeline != self.fill {
             return None;
         }
@@ -63,13 +67,28 @@ impl Protocol for Spool {
     }
 
     fn prepare(&self, p: &Proto, cx: &mut Prepare<'_>) -> PgResult<Option<Box<dyn Live>>> {
-        lay(p, cx.words, cx.nulls, cx.nparams, gravity_driver::hostimpl::arena::object_region, cx.width).map(Some)
+        lay(
+            p,
+            cx.words,
+            cx.nulls,
+            cx.nparams,
+            gravity_driver::hostimpl::arena::object_region,
+            cx.width,
+        )
+        .map(Some)
     }
 }
 
 /// One Spool proto's cell laid in its handle word (the first of its words: the count and the readers' words follow,
 /// zeroed at bind); `width` the execution's (an owned spool's wide seal runs on that many threads).
-fn lay(p: &Proto, words: &mut [u64], nulls: &mut [u8], nparams: &mut usize, draw: Draw, width: u16) -> PgResult<Box<dyn Live>> {
+fn lay(
+    p: &Proto,
+    words: &mut [u64],
+    nulls: &mut [u8],
+    nparams: &mut usize,
+    draw: Draw,
+    width: u16,
+) -> PgResult<Box<dyn Live>> {
     let base = p.words.base as usize;
     if p.words.n == 0 || base + p.words.n as usize > words.len().min(nulls.len()) {
         return Err(glue::internal("gravity: nest.spool's declaration is not its spool cell's (a handle word, then its count and readers' words)"));
@@ -83,7 +102,11 @@ fn lay(p: &Proto, words: &mut [u64], nulls: &mut [u8], nparams: &mut usize, draw
         let obj = new_owned(rec, draw)?;
         words[base] = obj.handle();
         let wide = (p.arg & SPOOL_SEAL_WIDE != 0).then_some(width.max(1));
-        return Ok(Box::new(OwnedLive { obj, fill: p.peer as usize, wide })); // alloc: Exec
+        return Ok(Box::new(OwnedLive {
+            obj,
+            fill: p.peer as usize,
+            wide,
+        })); // alloc: Exec
     }
     let obj = new_obj(rec, draw)?;
     words[base] = obj.handle();
@@ -109,10 +132,20 @@ impl Protocol for SpoolChunks {
     fn prepare(&self, p: &Proto, cx: &mut Prepare<'_>) -> PgResult<Option<Box<dyn Live>>> {
         let h = cx.words.get(p.words.base as usize).copied().unwrap_or(0);
         if h == 0 {
-            return Err(glue::internal("gravity: nest.spool.chunks before its spool was laid"));
+            return Err(glue::internal(
+                "gravity: nest.spool.chunks before its spool was laid",
+            ));
         }
-        let claims = gravity_parallel::PartitionRange::new(0, gravity_program::cost::breaker::SPOOL_CLAIM_RECORDS);
-        Ok(Some(Box::new(ChunksLive { pipeline: p.pipeline as usize, fill: p.peer as usize, handle: h, claims }))) // alloc: Exec
+        let claims = gravity_parallel::PartitionRange::new(
+            0,
+            gravity_program::cost::breaker::SPOOL_CLAIM_RECORDS,
+        );
+        Ok(Some(Box::new(ChunksLive {
+            pipeline: p.pipeline as usize,
+            fill: p.peer as usize,
+            handle: h,
+            claims,
+        }))) // alloc: Exec
     }
 }
 
@@ -125,7 +158,11 @@ impl Live for ChunksLive {
         (pipeline == self.pipeline).then_some(&self.claims as &dyn gravity_parallel::MorselSource)
     }
     /// The fill ran and the Spool proto sealed it (declared first): the claims cover its records.
-    fn after_pipeline(&self, pipeline: usize, _exec: &mut gravity_driver::Exec) -> Option<gravity_driver::Result<()>> {
+    fn after_pipeline(
+        &self,
+        pipeline: usize,
+        _exec: &mut gravity_driver::Exec,
+    ) -> Option<gravity_driver::Result<()>> {
         if pipeline != self.fill {
             return None;
         }
@@ -141,7 +178,14 @@ impl Live for ChunksLive {
 /// are untouched; the object lives as long as the returned box (the recheck).
 pub fn fresh(p: &Proto, words: &mut [u64], nulls: &mut [u8]) -> PgResult<Box<dyn Live>> {
     let mut n = 0;
-    let live = lay(p, words, nulls, &mut n, gravity_driver::hostimpl::arena::object_region, 1)?;
+    let live = lay(
+        p,
+        words,
+        nulls,
+        &mut n,
+        gravity_driver::hostimpl::arena::object_region,
+        1,
+    )?;
     let base = p.words.base as usize;
     words[base + 1..base + p.words.n as usize].fill(0);
     Ok(live)
@@ -149,7 +193,13 @@ pub fn fresh(p: &Proto, words: &mut [u64], nulls: &mut [u8]) -> PgResult<Box<dyn
 
 /// The crate rig's lay (lowerv4 tests/common on_demand.rs, m8_init's `prepare_bare`): each Spool proto's cell, its regions
 /// from the grant pool outside any Node.
-pub fn prepare_bare(program: &gravity_program::Program, words: &mut [u64], nulls: &mut [u8], nparams: &mut usize, out: &mut crate::ops::LiveList) -> PgResult<()> {
+pub fn prepare_bare(
+    program: &gravity_program::Program,
+    words: &mut [u64],
+    nulls: &mut [u8],
+    nparams: &mut usize,
+    out: &mut crate::ops::LiveList,
+) -> PgResult<()> {
     let protos = program.v4.as_ref().map_or(&[][..], |d| &d.protos[..]);
     for p in protos.iter().filter(|p| p.kind == ProtoKind::Spool) {
         let l = lay(p, words, nulls, nparams, super::raw::pool, 1)?;
@@ -157,4 +207,3 @@ pub fn prepare_bare(program: &gravity_program::Program, words: &mut [u64], nulls
     }
     Ok(())
 }
-

@@ -18,11 +18,11 @@ use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{HostFlags, IntBinOp, IntCond, Type, Value};
 use mcx::{CollectIn, PgVec};
 
-use crate::table::face::TableDecl;
 use crate::frame::env::Env;
 use crate::frame::px::Px;
 use crate::frame::row::{Carry, RowVals};
 use crate::rep::{self, CellRef, Scope};
+use crate::table::face::TableDecl;
 
 use crate::ops::agg::hashagg::{Arg, GroupRec};
 
@@ -40,38 +40,97 @@ pub(crate) struct Skip {
 /// the group and the fold is raise-free. `off` is the end's state bytes before the bound word.
 pub(crate) fn plan(px: &Px<'_, '_>, k: usize, rec: &GroupRec<'_, '_>, off: u32) -> Option<Skip> {
     let (n, _) = crate::face::consts::walk_group(px, k, rec.g)?;
-    let Some(Some(Arg::Col(col))) = rec.ksrc.first() else { return None };
-    let flip = if crate::ops::shared::agg::group_desc(rec.g) { !0 } else { 0 };
-    crate::effects::visible::agg::raise_free(px.gx, rec).then_some(Skip { n, col: *col, off: off as i32, flip })
+    let Some(Some(Arg::Col(col))) = rec.ksrc.first() else {
+        return None;
+    };
+    let flip = if crate::ops::shared::agg::group_desc(rec.g) {
+        !0
+    } else {
+        0
+    };
+    crate::effects::visible::agg::raise_free(px.gx, rec).then_some(Skip {
+        n,
+        col: *col,
+        off: off as i32,
+        flip,
+    })
 }
 
 impl Skip {
     /// At the claim's open, after the table's: the bound into the end's state.
     pub(crate) fn open(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &TableDecl) {
         let st = crate::table::bypass::state(b, env, t);
-        let flags = HostFlags { touches_memory: true, ..HostFlags::default() };
+        let flags = HostFlags {
+            touches_memory: true,
+            ..HostFlags::default()
+        };
         // CONVERT (cvagg): the ctx names the breaker slot whose operator the host's scratch is charged to
-        let h = b.declare_host_once("walk_bound", &[Type::Ptr, Type::Ptr, Type::I64, Type::I64], Some(Type::I64), super::raw::walk_bound as *const () as usize, flags);
-        let (n, flip) = (b.iconst(Type::I64, self.n as i64), b.iconst(Type::I64, self.flip));
-        let bound = b.call_host(h, &[env.ctx, st, n, flip], Some(Type::I64)).expect("walk_bound returns the bound");
-        let base = env.state.expect("the end's state slot is laid before its open");
+        let h = b.declare_host_once(
+            "walk_bound",
+            &[Type::Ptr, Type::Ptr, Type::I64, Type::I64],
+            Some(Type::I64),
+            super::raw::walk_bound as *const () as usize,
+            flags,
+        );
+        let (n, flip) = (
+            b.iconst(Type::I64, self.n as i64),
+            b.iconst(Type::I64, self.flip),
+        );
+        let bound = b
+            .call_host(h, &[env.ctx, st, n, flip], Some(Type::I64))
+            .expect("walk_bound returns the bound");
+        let base = env
+            .state
+            .expect("the end's state slot is laid before its open");
         b.store(base, self.off, bound);
     }
 
     /// The row through `fold` unless its first key's image lies past the bound (signed, as `nth_smallest_key_held`
     /// orders the image words; GP-1b: the image XOR the flip); a skipped row leaves the carry as it was, like a filtered row.
-    pub(crate) fn row<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, rec: &GroupRec<'_, '_>, row: &RowVals, fold: impl FnOnce(&mut FunctionBuilder<'_>, &mut Env<'e, '_>) -> Carry<'e>) -> Carry<'e> {
-        let c = row.col(self.col).unwrap_or_else(|| crate::refuse!(rec.node, crate::admit::refusal::Reason::Bug { payload: "a walked group's first key the row does not carry" }));
+    pub(crate) fn row<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        rec: &GroupRec<'_, '_>,
+        row: &RowVals,
+        fold: impl FnOnce(&mut FunctionBuilder<'_>, &mut Env<'e, '_>) -> Carry<'e>,
+    ) -> Carry<'e> {
+        let c = row.col(self.col).unwrap_or_else(|| {
+            crate::refuse!(
+                rec.node,
+                crate::admit::refusal::Reason::Bug {
+                    payload: "a walked group's first key the row does not carry"
+                }
+            )
+        });
         let mut cx = env.lx(b, rec.node);
-        let w = rep::hash_image(&mut cx, CellRef { null: None, ..c }, &rec.tfs[0], Scope::Program).w[0];
+        let w = rep::hash_image(
+            &mut cx,
+            CellRef { null: None, ..c },
+            &rec.tfs[0],
+            Scope::Program,
+        )
+        .w[0];
         env.memo = cx.memo;
         let w: Value = w.expect("an integer key's image is one word");
-        let base = env.state.expect("the end's state slot is laid before its rows");
+        let base = env
+            .state
+            .expect("the end's state slot is laid before its rows");
         let bound = b.load(Type::I64, base, self.off);
         // GP-1b: a descending walk compares the NOT of the image (ascending emits nothing: its IR is unchanged)
-        let w = if self.flip != 0 { let f = b.iconst(Type::I64, self.flip); b.int_bin(IntBinOp::Xor, w, f) } else { w };
+        let w = if self.flip != 0 {
+            let f = b.iconst(Type::I64, self.flip);
+            b.int_bin(IntBinOp::Xor, w, f)
+        } else {
+            w
+        };
         let past = b.icmp(IntCond::Sgt, w, bound);
-        let types: PgVec<'_, Type> = row.carry.params().iter().map(|&v| b.value_type(v)).collect_in(env.mcx);
+        let types: PgVec<'_, Type> = row
+            .carry
+            .params()
+            .iter()
+            .map(|&v| b.value_type(v))
+            .collect_in(env.mcx);
         let (l_join, l_fold) = (b.create_block(&types[..]), b.create_block(&[]));
         b.cond_br(past, (l_join, &row.carry.params()), (l_fold, &[]));
         b.switch_to(l_fold);

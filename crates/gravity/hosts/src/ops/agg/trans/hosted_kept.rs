@@ -11,6 +11,9 @@ use crate::ops::agg::trans::hosted::AggArena;
 impl AggArena {
     /// Kept column `aggno`'s index, if it is one (D345).
     pub(crate) fn kept_of(&self, aggno: u32) -> Option<usize> {
-        aggno.checked_sub(self.naggs).map(|j| j as usize).filter(|&j| j < self.kept.len())
+        aggno
+            .checked_sub(self.naggs)
+            .map(|j| j as usize)
+            .filter(|&j| j < self.kept.len())
     }
 }

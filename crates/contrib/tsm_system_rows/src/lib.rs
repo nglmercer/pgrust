@@ -186,9 +186,16 @@ fn lookup(function: &str) -> Option<PGFunction> {
 
 dfmgr::builtin_library_seams!();
 
-mcx::forget_safe_struct!(
-    SystemRowsSampler { seed, ntuples, lt, doneblocks, lb, nblocks, firstblock, step },
-);
+mcx::forget_safe_struct!(SystemRowsSampler {
+    seed,
+    ntuples,
+    lt,
+    doneblocks,
+    lb,
+    nblocks,
+    firstblock,
+    step
+},);
 
 #[cfg(test)]
 mod tests;

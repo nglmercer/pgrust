@@ -33,7 +33,10 @@ fn a_claim_runs_under_its_leaders_transaction_xmin() {
         procarray::set_transaction_xmin(leader);
         let seen = xmins_seen(&pool, 3);
         assert!(!seen.is_empty(), "the section ran claims");
-        assert!(seen.iter().all(|&x| x == leader), "every claim reads its leader's TransactionXmin {leader}: {seen:?}");
+        assert!(
+            seen.iter().all(|&x| x == leader),
+            "every claim reads its leader's TransactionXmin {leader}: {seen:?}"
+        );
     }
 
     procarray::set_transaction_xmin(own);

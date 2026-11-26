@@ -18,9 +18,15 @@ use gravity_abi::site::{next_row, seek, site};
 use gravity_abi::status::{DONE, ERROR};
 use gravity_abi::Ctx;
 use gravity_driver::{Binding, Call, CurrentCell, Entry, Exec, Grant, MorselRange, Step};
-use gravity_program::{Arena, Code, End, Generation, Handle, Layout, OutCol, Pipeline, PlanKey, Program, Reason, SiteDesc, WritePlan};
+use gravity_program::{
+    Arena, Code, End, Generation, Handle, Layout, OutCol, Pipeline, PlanKey, Program, Reason,
+    SiteDesc, WritePlan,
+};
 
-const KEY: PlanKey = PlanKey { handle: Handle(43), generation: Generation(1) };
+const KEY: PlanKey = PlanKey {
+    handle: Handle(43),
+    generation: Generation(1),
+};
 const BLOCKS: u64 = 24;
 const PER_BLOCK: u64 = 10;
 /// The reader's claim: two of the member relation's 24 blocks.
@@ -38,7 +44,8 @@ static READER_HI: AtomicU64 = AtomicU64::new(0);
 /// A range source's open over site `i` (its claim as its keys, then the seek), then its rows counted to the end.
 unsafe fn scan(ctx: *mut Ctx, i: usize) -> i64 {
     let s = &mut *site_ptr(ctx, i);
-    (*s.keys, *s.keys.add(1), *s.keys_null, *s.keys_null.add(1)) = ((*ctx).claim.lo, (*ctx).claim.hi, 0, 0);
+    (*s.keys, *s.keys.add(1), *s.keys_null, *s.keys_null.add(1)) =
+        ((*ctx).claim.lo, (*ctx).claim.hi, 0, 0);
     seek(s);
     let mut n = 0;
     loop {
@@ -66,7 +73,12 @@ unsafe extern "C-unwind" fn k_member(ctx: *mut Ctx) -> i64 {
     DONE
 }
 
-fn run_whole(e: &mut Entry, x: &mut Exec, b: &mut Binding<'_>, p: usize) -> gravity_driver::Result<()> {
+fn run_whole(
+    e: &mut Entry,
+    x: &mut Exec,
+    b: &mut Binding<'_>,
+    p: usize,
+) -> gravity_driver::Result<()> {
     match e.run_pipeline(x, b, Call::batch(4))? {
         Step::Done => Ok(()),
         s => panic!("member {p} stopped with {s:?}"),
@@ -79,8 +91,13 @@ unsafe extern "C-unwind" fn k_reader(ctx: *mut Ctx) -> i64 {
     if scan(ctx, 1) < 0 {
         return ERROR;
     }
-    let Some(cur) = (*CELL.load(Relaxed)).get() else { return ERROR };
-    if (*cur.entry).run_nested(&mut *cur.exec, &mut *cur.binding, &[0], &mut run_whole).is_err() {
+    let Some(cur) = (*CELL.load(Relaxed)).get() else {
+        return ERROR;
+    };
+    if (*cur.entry)
+        .run_nested(&mut *cur.exec, &mut *cur.binding, &[0], &mut run_whole)
+        .is_err()
+    {
         return ERROR;
     }
     READER_LO.store((*ctx).claim.lo, Relaxed);
@@ -90,11 +107,29 @@ unsafe extern "C-unwind" fn k_reader(ctx: *mut Ctx) -> i64 {
 
 fn program() -> Program {
     let st = Arena::new(1 << 14);
-    let sites = [SiteDesc::range_source(st.handle(), 2001, &[1, 2]), SiteDesc::range_source(st.handle(), 2002, &[1, 2])];
+    let sites = [
+        SiteDesc::range_source(st.handle(), 2001, &[1, 2]),
+        SiteDesc::range_source(st.handle(), 2002, &[1, 2]),
+    ];
     let member = Pipeline::serial(0, End::Sink, Reason::Host);
     let reader = Pipeline::serial(1, End::Sink, Reason::Host);
     let cols: [OutCol; 1] = [OutCol::new("c0", 20, -1, 8, true)];
-    Program::with_pipelines(Layout { nsites: 2, out_natts: 1, out_rows: 4, scratch_bytes: 0, exec_bytes: 0 }, &sites, &cols, WritePlan::SELECT, [(member, Code::hand(k_member)), (reader, Code::hand(k_reader))])
+    Program::with_pipelines(
+        Layout {
+            nsites: 2,
+            out_natts: 1,
+            out_rows: 4,
+            scratch_bytes: 0,
+            exec_bytes: 0,
+        },
+        &sites,
+        &cols,
+        WritePlan::SELECT,
+        [
+            (member, Code::hand(k_member)),
+            (reader, Code::hand(k_reader)),
+        ],
+    )
 }
 
 #[test]
@@ -105,15 +140,35 @@ fn an_init_run_inside_a_readers_claim_scans_its_whole_relation_and_the_claim_com
     let flag = AtomicU8::new(0);
     let mut sink = LegSink::new();
     let mut b = binding(&[0], &[0], &mut sink, &flag);
-    let mut exec = entry.start(Some(KEY), &program, &mut derive, &mut b, lease(Grant::of(8 << 20))).unwrap();
+    let mut exec = entry
+        .start(
+            Some(KEY),
+            &program,
+            &mut derive,
+            &mut b,
+            lease(Grant::of(8 << 20)),
+        )
+        .unwrap();
     entry.skip_deferred(&mut exec);
     let cell: CurrentCell = Cell::new(None);
     CELL.store(&cell as *const CurrentCell as *mut CurrentCell, Relaxed);
     let step = entry.with_current_slot(&cell, |e| e.run_claim(&mut exec, &mut b, CLAIM));
     CELL.store(core::ptr::null_mut(), Relaxed);
     assert_eq!(step.unwrap(), Step::Done);
-    assert_eq!((MEMBER_LO.load(Relaxed), MEMBER_HI.load(Relaxed)), (MorselRange::ALL.lo, MorselRange::ALL.hi), "the member's call reads no claim of the reader's");
-    assert_eq!(MEMBER_ROWS.load(Relaxed), BLOCKS * PER_BLOCK, "the InitPlan's scan reads its whole relation, not the reader's two blocks");
-    assert_eq!((READER_LO.load(Relaxed), READER_HI.load(Relaxed)), (CLAIM.lo, CLAIM.hi), "the reader's claim is back after the run");
+    assert_eq!(
+        (MEMBER_LO.load(Relaxed), MEMBER_HI.load(Relaxed)),
+        (MorselRange::ALL.lo, MorselRange::ALL.hi),
+        "the member's call reads no claim of the reader's"
+    );
+    assert_eq!(
+        MEMBER_ROWS.load(Relaxed),
+        BLOCKS * PER_BLOCK,
+        "the InitPlan's scan reads its whole relation, not the reader's two blocks"
+    );
+    assert_eq!(
+        (READER_LO.load(Relaxed), READER_HI.load(Relaxed)),
+        (CLAIM.lo, CLAIM.hi),
+        "the reader's claim is back after the run"
+    );
     entry.end(exec, true);
 }

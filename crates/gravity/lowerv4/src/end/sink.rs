@@ -23,7 +23,10 @@ use crate::rep;
 use crate::end::output as end_output;
 use crate::end::output::Col;
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { kinds: &[(KindId::EndSink, &EndMaker(make))], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    kinds: &[(KindId::EndSink, &EndMaker(make))],
+    ..crate::ops::NONE
+};
 
 pub(crate) struct Sink<'g> {
     cols: PgVec<'g, Col>,
@@ -41,18 +44,31 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn EndMech + 'g> {
 /// The loops a helper emitted are bounded by their data (an image's length), not by a window: the cancel verifier
 /// accepts them.
 fn bounded_since(b: &FunctionBuilder<'_>, env: &mut Env, n0: usize) {
-    env.bounded.extend_in((n0..b.num_blocks()).map(|i| Block(i as u32)));
+    env.bounded
+        .extend_in((n0..b.num_blocks()).map(|i| Block(i as u32)));
 }
 
 impl Sink<'_> {
     /// Each out column's datum and validity, through the `datum` accessor.
-    fn datums<'g>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'g, '_>, row: &RowVals) -> PgVec<'g, (Value, Value)> {
+    fn datums<'g>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'g, '_>,
+        row: &RowVals,
+    ) -> PgVec<'g, (Value, Value)> {
         let t = b.bconst(true);
         let mcx = env.mcx;
         let mut cx = env.lx(b, self.node);
         let mut v = mcx::reserved_in(self.cols.len(), mcx);
         for c in self.cols.iter() {
-            let Some(cr) = row.cell(c.entry) else { crate::refuse!(self.node, crate::admit::refusal::Reason::Bug { payload: "an out column past the row" }) };
+            let Some(cr) = row.cell(c.entry) else {
+                crate::refuse!(
+                    self.node,
+                    crate::admit::refusal::Reason::Bug {
+                        payload: "an out column past the row"
+                    }
+                )
+            };
             let (d, null) = rep::datum(&mut cx, cr, &c.tf);
             let valid = cx.b.int_bin(IntBinOp::Xor, null, t);
             v.push_in((d, valid));
@@ -67,7 +83,15 @@ impl Sink<'_> {
     /// that push emptied, also when the receiver stops: the stop (returned, 0 for none) leaves after the row (D357: leaving
     /// before it re-read the row, twice under a probe's walk, whose next is its probe row). A failed push leaves at the row,
     /// uncounted.
-    fn place(&self, b: &mut FunctionBuilder<'_>, env: &Env, o: Value, refs: &[ByRef], row: &RowVals, x: &Exits) -> (Vec<byref::Size>, Value) {
+    fn place(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &Env,
+        o: Value,
+        refs: &[ByRef],
+        row: &RowVals,
+        x: &Exits,
+    ) -> (Vec<byref::Size>, Value) {
         let (per, total) = byref::sizes(b, refs);
         let over = byref::oversize(b, o, total);
         let (l_fit, l_over) = (b.create_block(&[]), b.create_block(&[]));
@@ -80,7 +104,9 @@ impl Sink<'_> {
         let (l_push, l_fail) = (b.create_block(&[]), b.create_block(&[]));
         b.cond_br(fits, (l_store, &[env.zero]), (l_push, &[]));
         b.switch_to(l_push);
-        let fl = b.call_host(env.core.push, &[env.ctx], Some(Type::I64)).unwrap_or(env.zero);
+        let fl = b
+            .call_host(env.core.push, &[env.ctx], Some(Type::I64))
+            .unwrap_or(env.zero);
         let bad = b.icmp(IntCond::Slt, fl, env.zero);
         b.cond_br(bad, (l_fail, &[]), (l_store, &[fl]));
         b.switch_to(l_fail);
@@ -93,23 +119,50 @@ impl Sink<'_> {
     /// there are any (a failed push leaves at the row, uncounted, as `place`'s); then the region regrown to hold `total`
     /// (`gravity_abi::program::out_grow`), its failure the host raise; on to `l_store` with the push's stop (0 when nothing
     /// was pushed).
-    fn grow(&self, b: &mut FunctionBuilder<'_>, env: &Env, o: Value, total: Value, row: &RowVals, x: &Exits, l_store: Block) {
+    fn grow(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &Env,
+        o: Value,
+        total: Value,
+        row: &RowVals,
+        x: &Exits,
+        l_store: Block,
+    ) {
         let count = b.load(Type::I64, o, out::COUNT as i32);
         let held = b.icmp(IntCond::Ne, count, env.zero);
-        let (l_flush, l_fail, l_grow) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[Type::I64]));
+        let (l_flush, l_fail, l_grow) = (
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[Type::I64]),
+        );
         b.cond_br(held, (l_flush, &[]), (l_grow, &[env.zero]));
         b.switch_to(l_flush);
-        let fl = b.call_host(env.core.push, &[env.ctx], Some(Type::I64)).unwrap_or(env.zero);
+        let fl = b
+            .call_host(env.core.push, &[env.ctx], Some(Type::I64))
+            .unwrap_or(env.zero);
         let bad = b.icmp(IntCond::Slt, fl, env.zero);
         b.cond_br(bad, (l_fail, &[]), (l_grow, &[fl]));
         b.switch_to(l_fail);
         b.br(x.l_stop_in, &[row.carry.out, row.at, fl]);
         b.switch_to(l_grow);
         let fl = b.block_params(l_grow)[0];
-        let flags = HostFlags { may_error: true, touches_memory: true, ..HostFlags::default() };
+        let flags = HostFlags {
+            may_error: true,
+            touches_memory: true,
+            ..HostFlags::default()
+        };
         let f = gravity_abi::host_words!(gravity_abi::program::out_grow(ctx, bytes));
-        let h = b.declare_host_once("out_grow", &[Type::Ptr, Type::I64], Some(Type::I64), f, flags);
-        let cap = b.call_host(h, &[env.ctx, total], Some(Type::I64)).expect("out_grow returns the new capacity");
+        let h = b.declare_host_once(
+            "out_grow",
+            &[Type::Ptr, Type::I64],
+            Some(Type::I64),
+            f,
+            flags,
+        );
+        let cap = b
+            .call_host(h, &[env.ctx, total], Some(Type::I64))
+            .expect("out_grow returns the new capacity");
         let failed = b.icmp(IntCond::Eq, cap, env.zero);
         let e = b.iconst(Type::I64, raise::bit(raise::HOST) as i64);
         b.cond_br(failed, (env.l_raise, &[e]), (l_store, &[fl]));
@@ -117,7 +170,13 @@ impl Sink<'_> {
 }
 
 impl EndMech for Sink<'_> {
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, x: &Exits) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        x: &Exits,
+    ) -> Carry<'e> {
         let ds = self.datums(b, env, row);
         let o = b.load(Type::Ptr, env.ctx, hdr::OUT as i32);
         let safe = b.conv(ConvOp::PtrToInt, Type::I64, o);
@@ -125,7 +184,11 @@ impl EndMech for Sink<'_> {
         for (c, &(d, valid)) in self.cols.iter().zip(ds.iter()) {
             if let Some(typlen) = c.byref {
                 let value = b.select(valid, d, safe);
-                refs.push_in(ByRef { value, valid, typlen });
+                refs.push_in(ByRef {
+                    value,
+                    valid,
+                    typlen,
+                });
             }
         }
         let (per, stop) = match refs.is_empty() {
@@ -164,7 +227,11 @@ impl EndMech for Sink<'_> {
             // the early push's stop, after the row (the block that push emptied holds it alone, below any cap: not full)
             let l_go = b.create_block(&[]);
             let stopped = b.icmp(IntCond::Ne, st, env.zero);
-            b.cond_br(stopped, (env.x.l_stop_in, &[out2, row.next, st]), (l_go, &[]));
+            b.cond_br(
+                stopped,
+                (env.x.l_stop_in, &[out2, row.next, st]),
+                (l_go, &[]),
+            );
             b.switch_to(l_go);
         }
         let cap = b.load(Type::I64, o, out::CAP as i32);
@@ -172,17 +239,30 @@ impl EndMech for Sink<'_> {
         let (l_push, l_on) = (b.create_block(&[]), b.create_block(&[]));
         b.cond_br(full, (l_push, &[]), (l_on, &[]));
         b.switch_to(l_push);
-        let fl = b.call_host(env.core.push, &[env.ctx], Some(Type::I64)).unwrap_or(env.zero);
+        let fl = b
+            .call_host(env.core.push, &[env.ctx], Some(Type::I64))
+            .unwrap_or(env.zero);
         let cont = b.icmp(IntCond::Eq, fl, env.zero);
-        let l_cont = if env.hir.hosted() { b.create_block(&[]) } else { l_on };
-        b.cond_br(cont, (l_cont, &[]), (env.x.l_stop_in, &[out2, row.next, fl]));
+        let l_cont = if env.hir.hosted() {
+            b.create_block(&[])
+        } else {
+            l_on
+        };
+        b.cond_br(
+            cont,
+            (l_cont, &[]),
+            (env.x.l_stop_in, &[out2, row.next, fl]),
+        );
         if l_cont != l_on {
             b.switch_to(l_cont);
             env.hir.rewind(b);
             b.br(l_on, &[]);
         }
         b.switch_to(l_on);
-        Carry { out: out2, accs: mcx::to_vec_in(&row.carry.accs[..], env.mcx) }
+        Carry {
+            out: out2,
+            accs: mcx::to_vec_in(&row.carry.accs[..], env.mcx),
+        }
     }
 
     fn sink(&self) -> SinkKind {

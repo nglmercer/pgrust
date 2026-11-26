@@ -6,7 +6,10 @@
 //! groups, one no row reached, sorted DESC NULLS FIRST and ASC NULLS LAST, against the order that rule gives.
 use gravity_abi::breaker::{KeyKind, RecordLayout, SlotKind, LAYOUT_WORDS};
 use gravity_abi::Ctx;
-use gravity_kernels::host_abi::{agg_sort, EmitState, DESC_BYTES, DESC_LAYOUT, DESC_NSORT, DESC_SORT, SK_DESC, SK_NULLS_FIRST, SK_SLOT};
+use gravity_kernels::host_abi::{
+    agg_sort, EmitState, DESC_BYTES, DESC_LAYOUT, DESC_NSORT, DESC_SORT, SK_DESC, SK_NULLS_FIRST,
+    SK_SLOT,
+};
 
 /// Two groups over `layout` (key word 0: 1 and 2): group 1 folded no row into slot 0 (zeroed, its validity bit unset; the sentinel
 /// counts one row in both);
@@ -14,12 +17,14 @@ use gravity_kernels::host_abi::{agg_sort, EmitState, DESC_BYTES, DESC_LAYOUT, DE
 fn sorted(layout: RecordLayout, desc: bool) -> Vec<u64> {
     let words = layout.size() as usize / 8;
     let sentinel = layout.sentinel_off() as usize / 8;
-    let mut recs: Vec<Vec<u64>> = (1..=2u64).map(|k| {
-        let mut r = vec![0u64; words];
-        r[0] = k;
-        r[sentinel] = 1; // every opened record counts a row in its sentinel
-        r
-    }).collect();
+    let mut recs: Vec<Vec<u64>> = (1..=2u64)
+        .map(|k| {
+            let mut r = vec![0u64; words];
+            r[0] = k;
+            r[sentinel] = 1; // every opened record counts a row in its sentinel
+            r
+        })
+        .collect();
     let off = layout.slot_off(0) as usize / 8;
     let r = &mut recs[1];
     match layout.slot_kind(0) {
@@ -33,7 +38,11 @@ fn sorted(layout: RecordLayout, desc: bool) -> Vec<u64> {
         unsafe { *bytes.add(o) |= 1 << bit };
     }
     let mut ptrs: Vec<*const u8> = recs.iter().map(|r| r.as_ptr() as *const u8).collect();
-    let mut st = EmitState { ptrs: ptrs.as_mut_ptr(), len: 2, kept: 2 };
+    let mut st = EmitState {
+        ptrs: ptrs.as_mut_ptr(),
+        len: 2,
+        kept: 2,
+    };
     let mut d = vec![0u64; DESC_BYTES as usize / 8];
     let lw: [u64; LAYOUT_WORDS] = layout.words();
     d[DESC_LAYOUT / 8..DESC_LAYOUT / 8 + LAYOUT_WORDS].copy_from_slice(&lw);
@@ -42,9 +51,20 @@ fn sorted(layout: RecordLayout, desc: bool) -> Vec<u64> {
     // SAFETY: a ctx is plain words; zero is its closed state (no text key renders).
     let mut ctx: Ctx = unsafe { core::mem::zeroed() };
     // SAFETY: `st` holds two live records of `layout`, `d` a descriptor of it.
-    assert_eq!(unsafe { agg_sort(&mut ctx as *mut _ as u64, (&mut st as *mut EmitState as *mut u8) as u64, (d.as_ptr() as *const u8) as u64) }, 0);
+    assert_eq!(
+        unsafe {
+            agg_sort(
+                &mut ctx as *mut _ as u64,
+                (&mut st as *mut EmitState as *mut u8) as u64,
+                (d.as_ptr() as *const u8) as u64,
+            )
+        },
+        0
+    );
     // SAFETY: every pointer is one of `recs`.
-    ptrs.iter().map(|&p| unsafe { *(p as *const u64) }).collect()
+    ptrs.iter()
+        .map(|&p| unsafe { *(p as *const u64) })
+        .collect()
 }
 
 /// The final of group 1 (no row reached slot 0): `None` where PostgreSQL's final is NULL. A count is 0; a sum the layout
@@ -60,23 +80,49 @@ fn expected(kind: SlotKind, validity: bool, desc: bool) -> Vec<u64> {
         None => desc,
         Some(v) => (v < 1) != desc,
     };
-    if empty_first { vec![1, 2] } else { vec![2, 1] }
+    if empty_first {
+        vec![1, 2]
+    } else {
+        vec![2, 1]
+    }
 }
 
 #[test]
 fn a_slot_sorts_null_exactly_where_its_final_is_null() {
     let keys = [KeyKind::I64];
     let mut bad = Vec::new();
-    for kind in [SlotKind::Count, SlotKind::SumI64, SlotKind::MinI64, SlotKind::MaxI64, SlotKind::AvgI128] {
-        let mut layouts = vec![RecordLayout::with_sentinel(&keys, &[kind, SlotKind::Count], true, Some(1))];
+    for kind in [
+        SlotKind::Count,
+        SlotKind::SumI64,
+        SlotKind::MinI64,
+        SlotKind::MaxI64,
+        SlotKind::AvgI128,
+    ] {
+        let mut layouts = vec![RecordLayout::with_sentinel(
+            &keys,
+            &[kind, SlotKind::Count],
+            true,
+            Some(1),
+        )];
         if !matches!(kind, SlotKind::MinI64 | SlotKind::MaxI64) {
-            layouts.push(RecordLayout::with_sentinel(&keys, &[kind, SlotKind::Count], false, Some(1)));
+            layouts.push(RecordLayout::with_sentinel(
+                &keys,
+                &[kind, SlotKind::Count],
+                false,
+                Some(1),
+            ));
         }
         for layout in layouts {
             for desc in [true, false] {
-                let (got, want) = (sorted(layout, desc), expected(kind, layout.has_validity(), desc));
+                let (got, want) = (
+                    sorted(layout, desc),
+                    expected(kind, layout.has_validity(), desc),
+                );
                 if got != want {
-                    bad.push(format!("{kind:?} validity={} desc={desc}: {got:?}, PostgreSQL {want:?}", layout.has_validity()));
+                    bad.push(format!(
+                        "{kind:?} validity={} desc={desc}: {got:?}, PostgreSQL {want:?}",
+                        layout.has_validity()
+                    ));
                 }
             }
         }

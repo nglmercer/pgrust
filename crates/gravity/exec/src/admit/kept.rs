@@ -91,7 +91,12 @@ pub(crate) fn keep_level(b: &mut Backend) {
             a.keep = Some(root.clone());
         }
         let bytes = if own { share } else { 0 } + own_bytes(&a, &nodes);
-        let x = Kept { key, nodes, a, bytes };
+        let x = Kept {
+            key,
+            nodes,
+            a,
+            bytes,
+        };
         if room(bytes, &mut gone) {
             charge(bytes);
             PUTS.set(PUTS.get() + 1);
@@ -110,7 +115,10 @@ pub(crate) fn keep_level(b: &mut Backend) {
 /// the newest shells.
 fn room(bytes: u64, gone: &mut Vec<Kept>) -> bool {
     while !mempolicy::keep::nested_kept_keeps(HELD.get(), bytes) {
-        if let Some(old) = KEPT.with(|k| { let mut k = k.borrow_mut(); (!k.is_empty()).then(|| k.remove(0)) }) {
+        if let Some(old) = KEPT.with(|k| {
+            let mut k = k.borrow_mut();
+            (!k.is_empty()).then(|| k.remove(0))
+        }) {
             discharge(old.bytes);
             gone.push(old); // alloc: Exec
         } else if let Some((shell, b)) = SHELLS.with(|s| s.borrow_mut().pop()) {
@@ -164,7 +172,11 @@ pub(crate) fn shell() -> Option<Box<Backend>> {
 fn own_bytes(a: &Admitted, nodes: &[(PlanKey, Box<Node>)]) -> u64 {
     use core::mem::{size_of, size_of_val};
     fn program(p: &Arc<Program>) -> usize {
-        if Arc::strong_count(p) == 1 { p.code_bytes() } else { 0 }
+        if Arc::strong_count(p) == 1 {
+            p.code_bytes()
+        } else {
+            0
+        }
     }
     fn recipes(r: &HostRegistry) -> usize {
         r.len() * size_of::<SiteRecipe>()
@@ -173,10 +185,21 @@ fn own_bytes(a: &Admitted, nodes: &[(PlanKey, Box<Node>)]) -> u64 {
     if let Some(g) = &a.graph {
         // the merge keys and guards are the template's (its root, on its owner), not the admission's
         n += size_of_val(&*g.words) + size_of_val(&*g.folded);
-        n += g.inits.iter().map(|i| size_of::<InitRun>() + program(&i.program) + recipes(&i.registry)).sum::<usize>();
-        n += g.arms.iter().map(|x| size_of::<ArmRun>() + program(&x.program) + recipes(&x.registry)).sum::<usize>();
+        n += g
+            .inits
+            .iter()
+            .map(|i| size_of::<InitRun>() + program(&i.program) + recipes(&i.registry))
+            .sum::<usize>();
+        n += g
+            .arms
+            .iter()
+            .map(|x| size_of::<ArmRun>() + program(&x.program) + recipes(&x.registry))
+            .sum::<usize>();
     }
-    (n + nodes.iter().map(|(_, x)| x.bytes() + size_of::<Node>()).sum::<usize>()) as u64
+    (n + nodes
+        .iter()
+        .map(|(_, x)| x.bytes() + size_of::<Node>())
+        .sum::<usize>()) as u64
 }
 
 /// The Nodes parked at the level for admission `a` of plan key `key`: under the plan key, and under its content park key.
@@ -227,7 +250,9 @@ pub(crate) fn drop_for(h: Handle) {
     }
     let gone = KEPT.with(|k| {
         let mut k = k.borrow_mut();
-        let (gone, live): (Vec<Kept>, Vec<Kept>) = core::mem::take(&mut **k).into_iter().partition(|x| x.key.handle == h); // alloc: Exec
+        let (gone, live): (Vec<Kept>, Vec<Kept>) = core::mem::take(&mut **k)
+            .into_iter()
+            .partition(|x| x.key.handle == h); // alloc: Exec
         **k = live;
         gone
     });
@@ -236,7 +261,13 @@ pub(crate) fn drop_for(h: Handle) {
 
 /// Every kept execution dropped (an abort, a plan-cache reset, the session's end).
 pub(crate) fn clear() {
-    let gone: Vec<Kept> = KEPT.try_with(|k| k.try_borrow_mut().map(|mut k| core::mem::take(&mut **k)).unwrap_or_default()).unwrap_or_default();
+    let gone: Vec<Kept> = KEPT
+        .try_with(|k| {
+            k.try_borrow_mut()
+                .map(|mut k| core::mem::take(&mut **k))
+                .unwrap_or_default()
+        })
+        .unwrap_or_default();
     give_back(gone);
 }
 
@@ -244,10 +275,17 @@ pub(crate) fn clear() {
 pub(crate) fn session_end() {
     let (peak, puts, takes) = (PEAK.replace(0), PUTS.replace(0), TAKES.replace(0));
     if puts > 0 && crate::inputs::knobs::seam::report_on() {
-        let _ = elog::ereport(types_error::LOG).errmsg(format!("gravity: kept executions at session end: peak {peak} bytes, kept {puts}, taken {takes}")).errhidestmt(true).errhidecontext(true).finish(types_error::ErrorLocation::new("gravity", 0, "kept")); // alloc: Cold
+        let _ = elog::ereport(types_error::LOG).errmsg(format!("gravity: kept executions at session end: peak {peak} bytes, kept {puts}, taken {takes}")).errhidestmt(true).errhidecontext(true).finish(types_error::ErrorLocation::new("gravity", 0, "kept"));
+        // alloc: Cold
     }
     clear();
-    let shells: Vec<(Box<Backend>, u64)> = SHELLS.try_with(|s| s.try_borrow_mut().map(|mut s| core::mem::take(&mut **s)).unwrap_or_default()).unwrap_or_default();
+    let shells: Vec<(Box<Backend>, u64)> = SHELLS
+        .try_with(|s| {
+            s.try_borrow_mut()
+                .map(|mut s| core::mem::take(&mut **s))
+                .unwrap_or_default()
+        })
+        .unwrap_or_default();
     shells.iter().for_each(|(_, b)| discharge(*b));
     drop(shells);
 }

@@ -4,7 +4,10 @@ use super::*;
 fn summary_allocations_use_wal_summarizer_context() {
     procsignal_seams::proc_signal_barrier_pending::set(|| true);
     procsignal_seams::process_proc_signal_barrier::set(|| {
-        Err(Box::new(PgError::new(ERROR, "stop after summary allocation")))
+        Err(Box::new(PgError::new(
+            ERROR,
+            "stop after summary allocation",
+        )))
     });
     let mut context = MemoryContext::new("Wal Summarizer");
     let err = SummarizeWAL(context.mcx(), 1, 0x1000000, true, 0, 0x1000000, &[]).unwrap_err();
@@ -16,7 +19,11 @@ fn summary_allocations_use_wal_summarizer_context() {
 
 #[test]
 fn wal_summary_filename_roundtrip() {
-    let ws = WalSummaryFile { tli: 1, start_lsn: 0x0000_0001_0428_0048, end_lsn: 0x0000_0001_0500_0000 };
+    let ws = WalSummaryFile {
+        tli: 1,
+        start_lsn: 0x0000_0001_0428_0048,
+        end_lsn: 0x0000_0001_0500_0000,
+    };
     let name = format!(
         "{:08X}{:08X}{:08X}{:08X}{:08X}.summary",
         ws.tli,
@@ -33,23 +40,36 @@ fn wal_summary_filename_roundtrip() {
 #[test]
 fn wal_summary_filename_rejects_noise() {
     assert!(parse_wal_summary_filename("temp.summary").is_none());
-    assert!(parse_wal_summary_filename("0000000100000001042800480000000105000000.partial").is_none());
-    assert!(parse_wal_summary_filename("000000010000000104280048000000010500000g.summary").is_none());
-    assert!(parse_wal_summary_filename("0000000100000001042800480000000105000000.summary.tmp").is_none());
+    assert!(
+        parse_wal_summary_filename("0000000100000001042800480000000105000000.partial").is_none()
+    );
+    assert!(
+        parse_wal_summary_filename("000000010000000104280048000000010500000g.summary").is_none()
+    );
+    assert!(
+        parse_wal_summary_filename("0000000100000001042800480000000105000000.summary.tmp")
+            .is_none()
+    );
 }
 
 #[test]
 fn require_record_len_rejects_short_payloads() {
     // A short/empty untrusted WAL payload must produce a catchable
     // ERRCODE_DATA_CORRUPTED error rather than a slice-OOB panic.
-    let err = require_record_len(&[], 4, "XLOG_CHECKPOINT_REDO", "test").err().unwrap();
+    let err = require_record_len(&[], 4, "XLOG_CHECKPOINT_REDO", "test")
+        .err()
+        .unwrap();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_DATA_CORRUPTED);
 
-    let err = require_record_len(&[0u8; 3], 4, "XLOG_CHECKPOINT_REDO", "test").err().unwrap();
+    let err = require_record_len(&[0u8; 3], 4, "XLOG_CHECKPOINT_REDO", "test")
+        .err()
+        .unwrap();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_DATA_CORRUPTED);
 
     // ntablespaces-driven size: 8-byte header claiming one tablespace needs 12.
-    let err = require_record_len(&[0u8; 8], 8 + 4, "XLOG_DBASE_DROP", "test").err().unwrap();
+    let err = require_record_len(&[0u8; 8], 8 + 4, "XLOG_DBASE_DROP", "test")
+        .err()
+        .unwrap();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_DATA_CORRUPTED);
 
     // Exactly enough, and more than enough, both pass.
@@ -73,7 +93,11 @@ fn diff_ms_rounds_up_and_clamps() {
 }
 
 // upstream 18f0de6b885a (18.6): Prevent walsummarizer from getting stuck at a timeline switch.
-fn tle(tli: TimeLineID, begin: XLogRecPtr, end: XLogRecPtr) -> timeline_seams::TimeLineHistoryEntry {
+fn tle(
+    tli: TimeLineID,
+    begin: XLogRecPtr,
+    end: XLogRecPtr,
+) -> timeline_seams::TimeLineHistoryEntry {
     timeline_seams::TimeLineHistoryEntry { tli, begin, end }
 }
 
@@ -95,48 +119,82 @@ fn switch_point_lists_descendant_timelines_oldest_first() {
 
 #[test]
 fn switch_point_rejects_timelines_without_a_successor() {
-    let tles = [tle(2, 0x1000, InvalidXLogRecPtr), tle(1, InvalidXLogRecPtr, 0x1000)];
+    let tles = [
+        tle(2, 0x1000, InvalidXLogRecPtr),
+        tle(1, InvalidXLogRecPtr, 0x1000),
+    ];
     let err = WalSummarizerSwitchPoint(7, &tles).err().unwrap();
-    assert_eq!(err.message(), "requested timeline 7 is not in this server's history");
+    assert_eq!(
+        err.message(),
+        "requested timeline 7 is not in this server's history"
+    );
     // The newest timeline has no end yet; C reports that the same way.
     let err = WalSummarizerSwitchPoint(2, &tles).err().unwrap();
-    assert_eq!(err.message(), "requested timeline 2 is not in this server's history");
+    assert_eq!(
+        err.message(),
+        "requested timeline 2 is not in this server's history"
+    );
     // First entry is the current TLI with an end recorded: no descendants.
     let odd = [tle(2, 0x1000, 0x2000), tle(1, InvalidXLogRecPtr, 0x1000)];
     let err = WalSummarizerSwitchPoint(2, &odd).err().unwrap();
-    assert_eq!(err.message(), "cannot compute switch point for current TLI 2");
+    assert_eq!(
+        err.message(),
+        "cannot compute switch point for current TLI 2"
+    );
 }
 
 fn ws(tli: TimeLineID, start_lsn: XLogRecPtr, end_lsn: XLogRecPtr) -> WalSummaryFile {
-    WalSummaryFile { tli, start_lsn, end_lsn }
+    WalSummaryFile {
+        tli,
+        start_lsn,
+        end_lsn,
+    }
 }
 
 #[test]
 fn summaries_complete_empty_list() {
     // C: empty list -> false with missing_lsn = InvalidXLogRecPtr.
-    assert_eq!(WalSummariesAreComplete(&[], 0x1000, 0x2000), (false, InvalidXLogRecPtr));
+    assert_eq!(
+        WalSummariesAreComplete(&[], 0x1000, 0x2000),
+        (false, InvalidXLogRecPtr)
+    );
 }
 
 #[test]
 fn summaries_complete_contiguous_chain() {
     let list = [ws(1, 0x1000, 0x1800), ws(1, 0x1800, 0x2000)];
-    assert_eq!(WalSummariesAreComplete(&list, 0x1000, 0x2000), (true, InvalidXLogRecPtr));
+    assert_eq!(
+        WalSummariesAreComplete(&list, 0x1000, 0x2000),
+        (true, InvalidXLogRecPtr)
+    );
     // Unsorted input: the function sorts a private copy.
     let rev = [ws(1, 0x1800, 0x2000), ws(1, 0x1000, 0x1800)];
-    assert_eq!(WalSummariesAreComplete(&rev, 0x1000, 0x2000), (true, InvalidXLogRecPtr));
+    assert_eq!(
+        WalSummariesAreComplete(&rev, 0x1000, 0x2000),
+        (true, InvalidXLogRecPtr)
+    );
 }
 
 #[test]
 fn summaries_complete_reports_first_gap() {
     // Gap between 0x1800 and 0x1900: missing_lsn = end of covered prefix.
     let list = [ws(1, 0x1000, 0x1800), ws(1, 0x1900, 0x2000)];
-    assert_eq!(WalSummariesAreComplete(&list, 0x1000, 0x2000), (false, 0x1800));
+    assert_eq!(
+        WalSummariesAreComplete(&list, 0x1000, 0x2000),
+        (false, 0x1800)
+    );
     // Runs out before end_lsn without a gap.
     let short = [ws(1, 0x1000, 0x1800)];
-    assert_eq!(WalSummariesAreComplete(&short, 0x1000, 0x2000), (false, 0x1800));
+    assert_eq!(
+        WalSummariesAreComplete(&short, 0x1000, 0x2000),
+        (false, 0x1800)
+    );
     // First summary starts after start_lsn: missing_lsn = start_lsn.
     let late = [ws(1, 0x1100, 0x2000)];
-    assert_eq!(WalSummariesAreComplete(&late, 0x1000, 0x2000), (false, 0x1000));
+    assert_eq!(
+        WalSummariesAreComplete(&late, 0x1000, 0x2000),
+        (false, 0x1000)
+    );
 }
 
 #[test]
@@ -144,20 +202,36 @@ fn summaries_complete_tolerates_overlap_and_containment() {
     // Overlapping ranges must still prove completeness (C comment: "intended
     // to be correct even in case of overlap").
     let list = [ws(1, 0x1000, 0x1a00), ws(1, 0x1400, 0x2000)];
-    assert_eq!(WalSummariesAreComplete(&list, 0x1000, 0x2000), (true, InvalidXLogRecPtr));
+    assert_eq!(
+        WalSummariesAreComplete(&list, 0x1000, 0x2000),
+        (true, InvalidXLogRecPtr)
+    );
     // A fully-contained range neither helps nor hurts.
-    let contained = [ws(1, 0x1000, 0x1800), ws(1, 0x1200, 0x1600), ws(1, 0x1800, 0x2000)];
-    assert_eq!(WalSummariesAreComplete(&contained, 0x1000, 0x2000), (true, InvalidXLogRecPtr));
+    let contained = [
+        ws(1, 0x1000, 0x1800),
+        ws(1, 0x1200, 0x1600),
+        ws(1, 0x1800, 0x2000),
+    ];
+    assert_eq!(
+        WalSummariesAreComplete(&contained, 0x1000, 0x2000),
+        (true, InvalidXLogRecPtr)
+    );
     // Coverage extending past end_lsn counts.
     let over = [ws(1, 0x0800, 0x2800)];
-    assert_eq!(WalSummariesAreComplete(&over, 0x1000, 0x2000), (true, InvalidXLogRecPtr));
+    assert_eq!(
+        WalSummariesAreComplete(&over, 0x1000, 0x2000),
+        (true, InvalidXLogRecPtr)
+    );
 }
 
 #[test]
 fn summaries_complete_is_timeline_blind() {
     // Documented C behavior: TLIs are ignored; callers filter first.
     let list = [ws(1, 0x1000, 0x1800), ws(2, 0x1800, 0x2000)];
-    assert_eq!(WalSummariesAreComplete(&list, 0x1000, 0x2000), (true, InvalidXLogRecPtr));
+    assert_eq!(
+        WalSummariesAreComplete(&list, 0x1000, 0x2000),
+        (true, InvalidXLogRecPtr)
+    );
 }
 
 #[test]
@@ -211,7 +285,10 @@ fn latest_lsn_prefers_further_ahead_flush() {
         (0x1000, 1)
     );
     // No walreceiver: invalid flush LSN reduces to the replay position.
-    assert_eq!(latest_lsn_from_flush_and_replay((0, 0), (0x1000, 1)), (0x1000, 1));
+    assert_eq!(
+        latest_lsn_from_flush_and_replay((0, 0), (0x1000, 1)),
+        (0x1000, 1)
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -290,7 +367,11 @@ mod contents_rows {
     }
 
     fn rl(spc: u32, db: u32, rel: u32) -> RelFileLocator {
-        RelFileLocator { spcOid: spc, dbOid: db, relNumber: rel }
+        RelFileLocator {
+            spcOid: spc,
+            dbOid: db,
+            relNumber: rel,
+        }
     }
 
     /// Serialize `tab` under the summary filename for (tli, start, end),
@@ -329,8 +410,10 @@ mod contents_rows {
         let mut tab = blkreftable::BlockRefTable::new(mcx);
         // Blocks marked out of order: reader order (array chunk insertion
         // order) is the SRF's row order, exactly like C — no sorting here.
-        tab.mark_block_modified(rl(1663, 5, 16384), ForkNumber::MAIN_FORKNUM, 3).unwrap();
-        tab.mark_block_modified(rl(1663, 5, 16384), ForkNumber::MAIN_FORKNUM, 1).unwrap();
+        tab.mark_block_modified(rl(1663, 5, 16384), ForkNumber::MAIN_FORKNUM, 3)
+            .unwrap();
+        tab.mark_block_modified(rl(1663, 5, 16384), ForkNumber::MAIN_FORKNUM, 1)
+            .unwrap();
         // A second fork with a valid limit block and no modified blocks.
         tab.set_limit_block(rl(1663, 5, 16385), ForkNumber::VISIBILITYMAP_FORKNUM, 12);
         write_summary_file(&dir, 1, 0x1000, 0x2000, &tab);
@@ -361,7 +444,9 @@ mod contents_rows {
     fn contents_rows_missing_file_is_c_open_error() {
         fd_setup();
         let dir = scratch_summaries_dir();
-        let err = wal_summary_contents_rows_in(&dir, 7, 0x7000, 0x8000).err().unwrap();
+        let err = wal_summary_contents_rows_in(&dir, 7, 0x7000, 0x8000)
+            .err()
+            .unwrap();
         assert!(
             err.message().starts_with("could not open file \""),
             "{}",
@@ -397,7 +482,7 @@ fn smgr_create_unknown_fork_is_an_error_not_a_panic() {
         (2, VISIBILITYMAP_FORKNUM),
         (3, ForkNumber::INIT_FORKNUM),
     ] {
-        data[12..16].copy_from_slice(& i32::to_ne_bytes(raw));
+        data[12..16].copy_from_slice(&i32::to_ne_bytes(raw));
         assert_eq!(smgr_create_forknum(&data).unwrap(), fork);
     }
 }
@@ -564,7 +649,11 @@ mod shutdown_lock {
              procno seen under the reader's shared hold={procno_while_reader_held}"
         );
         assert_eq!(d.summarizer_pgprocno.load(Relaxed), INVALID_PROC_NUMBER);
-        assert_eq!(lk.state.load(Relaxed) & lwlock::LW_LOCK_MASK, 0, "lock released");
+        assert_eq!(
+            lk.state.load(Relaxed) & lwlock::LW_LOCK_MASK,
+            0,
+            "lock released"
+        );
     }
 }
 
@@ -582,12 +671,20 @@ fn pre_epoch_summary_mtime_is_expired() {
 fn shutdown_closes_open_wal_segment() {
     if std::env::var_os("WAL_SUMMARIZER_SHUTDOWN_TEST").is_none() {
         let output = std::process::Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", "tests::shutdown_closes_open_wal_segment", "--nocapture"])
+            .args([
+                "--exact",
+                "tests::shutdown_closes_open_wal_segment",
+                "--nocapture",
+            ])
             .env("WAL_SUMMARIZER_SHUTDOWN_TEST", "1")
             .output()
             .unwrap();
-        assert!(output.status.success(), "{}{}",
-            String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        assert!(
+            output.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
         return;
     }
     file_seams::basic_open_file::set(|_, flags| fd::BasicOpenFile("/dev/null", flags).unwrap());
@@ -630,7 +727,14 @@ fn shutdown_closes_open_wal_segment() {
             if mode == "normal" {
                 assert!(exited.is_ok());
             } else {
-                assert_eq!(exited.unwrap_err().downcast_ref::<ipc::ProcExitThread>().unwrap().code, 0);
+                assert_eq!(
+                    exited
+                        .unwrap_err()
+                        .downcast_ref::<ipc::ProcExitThread>()
+                        .unwrap()
+                        .code,
+                    0
+                );
             }
             let result = fd::pg_fstat(raw.get(), &mut fd::FileInfo::default());
             if result == 0 {
@@ -640,6 +744,8 @@ fn shutdown_closes_open_wal_segment() {
             if mode != "normal" {
                 assert_eq!(fd::get_errno(), libc::EBADF);
             }
-        }).join().unwrap();
+        })
+        .join()
+        .unwrap();
     }
 }

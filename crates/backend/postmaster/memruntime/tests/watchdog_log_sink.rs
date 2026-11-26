@@ -30,7 +30,13 @@ const STALL_MS: u128 = 1000;
 fn resident() -> u64 {
     let s = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
     let kb = |key: &str| {
-        s.lines().find_map(|l| l.strip_prefix(key)).map_or(0, |v| v.trim().trim_end_matches("kB").trim().parse::<u64>().unwrap_or(0))
+        s.lines().find_map(|l| l.strip_prefix(key)).map_or(0, |v| {
+            v.trim()
+                .trim_end_matches("kB")
+                .trim()
+                .parse::<u64>()
+                .unwrap_or(0)
+        })
     };
     (kb("RssAnon:") + kb("RssShmem:")) * 1024
 }
@@ -45,7 +51,13 @@ fn sample(last: &mut u64, moved_at: &mut Instant, stall: &mut u128) {
 }
 
 /// The pipe's reader: it drains into `out` while `on`, and stops reading (`idle` set) once `on` is cleared.
-fn reader(fd: i32, on: Arc<AtomicBool>, idle: Arc<AtomicBool>, stop: Arc<AtomicBool>, out: Arc<Mutex<Vec<u8>>>) {
+fn reader(
+    fd: i32,
+    on: Arc<AtomicBool>,
+    idle: Arc<AtomicBool>,
+    stop: Arc<AtomicBool>,
+    out: Arc<Mutex<Vec<u8>>>,
+) {
     let mut buf = vec![0u8; 64 << 10];
     while !stop.load(SeqCst) {
         if !on.load(SeqCst) {
@@ -53,7 +65,11 @@ fn reader(fd: i32, on: Arc<AtomicBool>, idle: Arc<AtomicBool>, stop: Arc<AtomicB
             std::thread::sleep(Duration::from_millis(2));
             continue;
         }
-        let mut p = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+        let mut p = libc::pollfd {
+            fd,
+            events: libc::POLLIN,
+            revents: 0,
+        };
         // SAFETY: one pollfd on the stack.
         if unsafe { libc::poll(&mut p, 1, 5) } <= 0 || !on.load(SeqCst) {
             continue;
@@ -69,7 +85,12 @@ fn reader(fd: i32, on: Arc<AtomicBool>, idle: Arc<AtomicBool>, stop: Arc<AtomicB
 /// Fill the pipe behind fd 2 to its last byte through a non-blocking open of its own (fd 2 itself stays blocking).
 fn fill_fd2() {
     // SAFETY: a fresh descriptor on the pipe fd 2 names; closed below.
-    let fd = unsafe { libc::open(c"/proc/self/fd/2".as_ptr(), libc::O_WRONLY | libc::O_NONBLOCK | libc::O_CLOEXEC) };
+    let fd = unsafe {
+        libc::open(
+            c"/proc/self/fd/2".as_ptr(),
+            libc::O_WRONLY | libc::O_NONBLOCK | libc::O_CLOEXEC,
+        )
+    };
     assert!(fd >= 0, "reopen fd 2's pipe");
     let page = [0u8; 4096];
     for len in [page.len(), 1] {
@@ -93,7 +114,11 @@ fn the_ladder_pass_keeps_its_period_while_the_log_sink_blocks() {
         libc::close(p[1]);
         saved
     };
-    let (on, idle, stop) = (Arc::new(AtomicBool::new(true)), Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
+    let (on, idle, stop) = (
+        Arc::new(AtomicBool::new(true)),
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(AtomicBool::new(false)),
+    );
     let out = Arc::new(Mutex::new(Vec::new()));
     let r = {
         let (on, idle, stop, out) = (on.clone(), idle.clone(), stop.clone(), out.clone());
@@ -150,13 +175,19 @@ fn the_ladder_pass_keeps_its_period_while_the_log_sink_blocks() {
     // the sink drains again: the lines the watchdog logged while it blocked reach it
     on.store(true, SeqCst);
     let t1 = Instant::now();
-    let has = |needle: &str| out.lock().unwrap().windows(needle.len()).any(|w| w == needle.as_bytes());
+    let has = |needle: &str| {
+        out.lock()
+            .unwrap()
+            .windows(needle.len())
+            .any(|w| w == needle.as_bytes())
+    };
     while !has("ladder on episode") && t1.elapsed() < Duration::from_secs(10) {
         std::thread::sleep(Duration::from_millis(10));
     }
     let opened = has("ladder on episode");
     // the exit's drain: every queued write reaches the sink, then the ring closes (later writes are their threads' own)
-    let drained = memruntime::memlog::drain(Duration::from_millis(memruntime::memlog::SHUTDOWN_WAIT_MS));
+    let drained =
+        memruntime::memlog::drain(Duration::from_millis(memruntime::memlog::SHUTDOWN_WAIT_MS));
     let (queued, dropped, _) = memruntime::memlog::counts();
     drop(held);
     // SAFETY: fd 2 back to the saved descriptor before any assertion can print.
@@ -168,10 +199,21 @@ fn the_ladder_pass_keeps_its_period_while_the_log_sink_blocks() {
     let _ = r.join();
 
     assert_ne!(line, 0, "the watchdog published the ladder's line");
-    assert!(crossed.is_some(), "the grower crossed the line {} MB (resident {} MB)", line >> 20, resident() >> 20);
-    assert!(opened, "the episode's opening line was logged while the sink blocked");
+    assert!(
+        crossed.is_some(),
+        "the grower crossed the line {} MB (resident {} MB)",
+        line >> 20,
+        resident() >> 20
+    );
+    assert!(
+        opened,
+        "the episode's opening line was logged while the sink blocked"
+    );
     assert!(drained, "the drain emptied the ring");
-    assert!(queued > 0, "the watchdog's lines went through the ring ({queued} queued, {dropped} dropped)");
+    assert!(
+        queued > 0,
+        "the watchdog's lines went through the ring ({queued} queued, {dropped} dropped)"
+    );
     assert!(
         stall < STALL_MS,
         "the watchdog's samples stood still {stall} ms of the {blocked_ms} ms the log sink blocked (the ladder's pass waited \

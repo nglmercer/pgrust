@@ -12,7 +12,9 @@ use core::cell::RefCell;
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
-use localtime::{pg_tz_acceptable, tzload, tzparse, PgTz, PgTzRef, TzLoadError, TzState, TZ_STRLEN_MAX};
+use localtime::{
+    pg_tz_acceptable, tzload, tzparse, PgTz, PgTzRef, TzLoadError, TzState, TZ_STRLEN_MAX,
+};
 use pgstrcasecmp::pg_toupper;
 use types_core::primitive::MAXPGPATH;
 use types_error::{PgError, PgResult, ERROR, LOG};
@@ -26,10 +28,10 @@ const SECS_PER_MINUTE: i64 = 60;
 // The session/log timezone globals live in `localtime::globals` (below elog,
 // which formats log timestamps in log_timezone); re-exported here so callers
 // keep pgtz.c's names.
+use elog::PCT_M;
 pub use localtime::globals::{
     log_timezone, session_timezone, set_log_timezone, set_session_timezone, with_session_timezone,
 };
-use elog::PCT_M;
 
 // DIVERGENCE from pg_TZDIR: PGRUST_TZDIR (runtime) / PGRUST_PGSHAREDIR
 // (build) take precedence over C's get_share_path resolution (harness
@@ -183,7 +185,9 @@ fn cache_insert(uppername: &[u8], tz: PgTz) -> PgTzRef {
             mcx::register_session_cleanup(Box::new(release_session_cache));
             BTreeMap::new()
         });
-        map.entry(uppername.into()).or_insert_with(|| PgTzRef::new(tz)).clone()
+        map.entry(uppername.into())
+            .or_insert_with(|| PgTzRef::new(tz))
+            .clone()
     })
 }
 
@@ -240,7 +244,13 @@ pub fn pg_tzset(tzname: &[u8]) -> PgResult<Option<PgTzRef>> {
         }
     }
 
-    Ok(Some(cache_insert(uppername, PgTz { tzname: canonname, state: *tzstate })))
+    Ok(Some(cache_insert(
+        uppername,
+        PgTz {
+            tzname: canonname,
+            state: *tzstate,
+        },
+    )))
 }
 
 /// Fixed-GMT-offset zone: seconds, positive = west of Greenwich (POSIX sign
@@ -388,9 +398,7 @@ pub fn pg_tzenumerate_next(dir: &mut PgTzEnum) -> PgResult<Option<&PgTz>> {
         // pgtz.c:450 get_dirent_type(fullname, direntry, true, ERROR).
         if fd::get_dirent_type_path(&fullname, entry.d_type, true, ERROR)? == fd::PgFileType::Dir {
             if dir.depth >= (MAX_TZDIR_DEPTH - 1) as isize {
-                return Err(
-                    PgError::error("timezone directory stack overflow".to_string()).into(),
-                );
+                return Err(PgError::error("timezone directory stack overflow".to_string()).into());
             }
             let sub = fd::AllocateDirPath(&fullname)?;
             if sub.is_none() {

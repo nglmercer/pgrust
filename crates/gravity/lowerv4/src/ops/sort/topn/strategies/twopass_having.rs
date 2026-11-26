@@ -12,22 +12,22 @@
 //! (`count(*) > 1.5`, the count cast to numeric): the emit's keep reads its int8 floor once per execution (topn raw.rs
 //! `count_floor`); the two-pass forms, whose kernels read K's word as an int, take an integer K only. Budget 160 lines
 //! (files.tsv, +25 % gate). Owner M1-KEYED.
-use gravity_ir::builder::FunctionBuilder;
-use gravity_ir::{ConvOp, IntBinOp, IntCond, Type, Value};
-use gravity_lower::Place;
 use gravity_abi::breaker::SlotKind;
 use gravity_decompose::ops::shared::agg::{FinalForm, GroupForm, Register};
 use gravity_decompose::ops::shared::agg_class::Class;
 use gravity_decompose::Op;
+use gravity_ir::builder::FunctionBuilder;
+use gravity_ir::{ConvOp, IntBinOp, IntCond, Type, Value};
+use gravity_lower::Place;
 use types_core::catalog::{INT2OID, INT4OID, INT8OID};
 use types_nodes::Node;
 
 use mcx::{CollectIn, PgVec};
 
-use crate::table::face::CrossPass;
 use crate::frame::cancel;
 use crate::frame::env::Env;
 use crate::frame::px::Px;
+use crate::table::face::CrossPass;
 
 use crate::table::rec::GroupRec;
 
@@ -36,7 +36,10 @@ crate::strategies! {
     TWOPASS_HAVING = 48, "twopass.having", HavingKeyed;
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(TWOPASS_HAVING, &Having)], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(TWOPASS_HAVING, &Having)],
+    ..crate::ops::NONE
+};
 
 /// `twopass.having`'s registry value: the floor is this file's functions (the emit and the two-pass end call them).
 pub(crate) struct Having;
@@ -75,7 +78,9 @@ fn whole(rec: &GroupRec<'_, '_>, x: &crate::table::rec::Agg<'_>) -> bool {
     }
     match (rec.layout.slot_kind(j), x.d.reg) {
         (SlotKind::Count, _) => matches!(x.d.class, Class::CountStar | Class::CountAny),
-        (SlotKind::MinI64, Register::MinInt) | (SlotKind::MaxI64, Register::MaxInt) | (SlotKind::SumI64, Register::SumInt) => x.d.final_ == FinalForm::Identity,
+        (SlotKind::MinI64, Register::MinInt)
+        | (SlotKind::MaxI64, Register::MaxInt)
+        | (SlotKind::SumI64, Register::SumInt) => x.d.final_ == FinalForm::Identity,
         _ => false,
     }
 }
@@ -89,7 +94,11 @@ fn whole(rec: &GroupRec<'_, '_>, x: &crate::table::rec::Agg<'_>) -> bool {
 /// occurrence's word the floor claims ahead of the HAVING filter's compile (one word per occurrence, exec admit's
 /// template). PSP2-43: or a numeric btree `>`, `>=` or `=` of a count cast to numeric (`numeric(int8)`) and a numeric K
 /// (a parameter, or a literal's word, its pointer).
-fn qual_floor<'p>(px: &mut Px<'_, 'p>, rec: &GroupRec<'_, '_>, q: Node<'p>) -> Option<(Floor, Node<'p>)> {
+fn qual_floor<'p>(
+    px: &mut Px<'_, 'p>,
+    rec: &GroupRec<'_, '_>,
+    q: Node<'p>,
+) -> Option<(Floor, Node<'p>)> {
     let o = q.as_op_expr()?;
     let (family, left, right, strategy) = gravity_decompose::effects::builtin_btree_member(o.opno)?;
     let (int4, num) = match (family, left, right) {
@@ -103,14 +112,26 @@ fn qual_floor<'p>(px: &mut Px<'_, 'p>, rec: &GroupRec<'_, '_>, q: Node<'p>) -> O
     }
     let (gt, below) = (matches!(strategy, BT_LT | BT_GT), strategy < BT_EQ);
     let a = match num {
-        true => o.args.nth(0).as_func_expr().filter(|f| gravity_decompose::catalog::casts::int_numeric(f.funcid) && f.args.len() == 1)?.args.nth(0).as_aggref()?,
+        true => o
+            .args
+            .nth(0)
+            .as_func_expr()
+            .filter(|f| {
+                gravity_decompose::catalog::casts::int_numeric(f.funcid) && f.args.len() == 1
+            })?
+            .args
+            .nth(0)
+            .as_aggref()?,
         false => o.args.nth(0).as_aggref()?,
     };
     let k = o.args.nth(1);
     if k.as_param().is_none() && k.as_const().is_none() {
         return None;
     }
-    let agg = rec.aggs.iter().find(|x| x.d.aggno as i32 == a.aggno && whole(rec, x))?;
+    let agg = rec
+        .aggs
+        .iter()
+        .find(|x| x.d.aggno as i32 == a.aggno && whole(rec, x))?;
     let count = rec.layout.slot_kind(agg.d.slot as usize) == SlotKind::Count;
     // `count_floor` rounds a numeric K to a count's least kept value
     if num && (below || !count) {
@@ -118,14 +139,31 @@ fn qual_floor<'p>(px: &mut Px<'_, 'p>, rec: &GroupRec<'_, '_>, q: Node<'p>) -> O
     }
     let place = match k.as_param() {
         Some(_) => {
-            let (q, node) = (px.making.0, px.gx.pipelines().get(px.making.0).map_or(0, |p| p.node_id));
+            let (q, node) = (
+                px.making.0,
+                px.gx.pipelines().get(px.making.0).map_or(0, |p| p.node_id),
+            );
             crate::lifetime::bound::word(px, crate::lifetime::bound::Feed::Qual, q, k, node)
         }
         None if num => px.claim_ref_const(k)?,
         None => px.claim_const(k)?,
     };
-    let Place::Word(word) = place else { return None };
-    Some((Floor { off: rec.layout.slot_off(agg.d.slot as usize) as i32, slot: agg.d.slot, word, gt, int4, num, below, count }, k))
+    let Place::Word(word) = place else {
+        return None;
+    };
+    Some((
+        Floor {
+            off: rec.layout.slot_off(agg.d.slot as usize) as i32,
+            slot: agg.d.slot,
+            word,
+            gt,
+            int4,
+            num,
+            below,
+            count,
+        },
+        k,
+    ))
 }
 
 /// The bound pipeline `k`'s leading HAVING filters require (their first bounding qual's), when `twopass.having` is on.
@@ -134,7 +172,11 @@ pub(crate) fn floor<'p>(px: &mut Px<'_, 'p>, k: usize, rec: &GroupRec<'_, '_>) -
 }
 
 /// `floor` with its qual's K (a parameter or a literal).
-pub(crate) fn floor_at<'p>(px: &mut Px<'_, 'p>, k: usize, rec: &GroupRec<'_, '_>) -> Option<(Floor, Node<'p>)> {
+pub(crate) fn floor_at<'p>(
+    px: &mut Px<'_, 'p>,
+    k: usize,
+    rec: &GroupRec<'_, '_>,
+) -> Option<(Floor, Node<'p>)> {
     let f = find(px, k, rec)?;
     fires::fire("twopass.having"); // shapecheck fire signal (REGISTRY KEYED-01 / NEW-lowerv4-a2-281..284)
     Some(f)
@@ -147,20 +189,39 @@ pub(crate) fn floor_at<'p>(px: &mut Px<'_, 'p>, k: usize, rec: &GroupRec<'_, '_>
 /// group is laid, gathered and tested). A group more than one pipeline reads, or a rerun set's, keeps all.
 /// Only a hashed group's records are the HAVING's groups: a DISTINCT's records are its argument's (keyed.distinct_plain's
 /// pair form under a plain aggregate, a grouped DISTINCT's (key, argument) pairs), whose counts are parts of one row's.
-pub(crate) fn owner_floor<'p>(px: &mut Px<'_, 'p>, k: usize, rec: &GroupRec<'_, '_>) -> Option<i64> {
+pub(crate) fn owner_floor<'p>(
+    px: &mut Px<'_, 'p>,
+    k: usize,
+    rec: &GroupRec<'_, '_>,
+) -> Option<i64> {
     let g = rec.g;
-    if g.form != GroupForm::Hashed || g.two_pass.is_some() || g.set.is_some() || !crate::graph::grouped(g) {
+    if g.form != GroupForm::Hashed
+        || g.two_pass.is_some()
+        || g.set.is_some()
+        || !crate::graph::grouped(g)
+    {
         return None;
     }
     let gx = px.gx;
     let reads = gx.drainers(rec.g);
-    let rerun = |q: usize| gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(q as u16)));
+    let rerun = |q: usize| {
+        gx.graph
+            .reruns
+            .iter()
+            .any(|r| r.pipelines.contains(&(q as u16)))
+    };
     let &[q] = &reads[..] else { return None };
     if rerun(q) || rerun(k) {
         return None;
     }
     let f = find(px, q, rec).map(|f| f.0).filter(|f| !f.num)?;
-    Some(gravity_program::OwnerDesc::runs_floor(f.word, f.gt, f.int4, f.below, u8::try_from(f.slot).ok()?))
+    Some(gravity_program::OwnerDesc::runs_floor(
+        f.word,
+        f.gt,
+        f.int4,
+        f.below,
+        u8::try_from(f.slot).ok()?,
+    ))
 }
 
 fn find<'p>(px: &mut Px<'_, 'p>, k: usize, rec: &GroupRec<'_, '_>) -> Option<(Floor, Node<'p>)> {
@@ -169,7 +230,11 @@ fn find<'p>(px: &mut Px<'_, 'p>, k: usize, rec: &GroupRec<'_, '_>) -> Option<(Fl
     }
     // D453: PG takes every group's finals before its HAVING, and runs the HAVING's quals in order: a final that can
     // raise, or a qual before the count floor that can, keeps every group
-    if !rec.aggs.iter().all(|a| crate::effects::visible::topn::fold_quiet(&a.d, false)) {
+    if !rec
+        .aggs
+        .iter()
+        .all(|a| crate::effects::visible::topn::fold_quiet(&a.d, false))
+    {
         return None;
     }
     let gx = px.gx;
@@ -199,9 +264,19 @@ fn numeric_bound(b: &mut FunctionBuilder<'_>, env: &Env, f: &Floor) -> Value {
     let p = b.load(Type::I64, env.params, 8 * f.word as i32);
     let p = b.select(set, p, env.zero);
     let gt = b.iconst(Type::I64, f.gt as i64);
-    let flags = gravity_ir::HostFlags { may_error: true, ..gravity_ir::HostFlags::default() };
-    let h = b.declare_host_once("count_floor", &[Type::I64, Type::I64], Some(Type::I64), crate::ops::sort::topn::raw::count_floor as *const () as usize, flags);
-    b.call_host(h, &[p, gt], Some(Type::I64)).expect("returns the floor")
+    let flags = gravity_ir::HostFlags {
+        may_error: true,
+        ..gravity_ir::HostFlags::default()
+    };
+    let h = b.declare_host_once(
+        "count_floor",
+        &[Type::I64, Type::I64],
+        Some(Type::I64),
+        crate::ops::sort::topn::raw::count_floor as *const () as usize,
+        flags,
+    );
+    b.call_host(h, &[p, gt], Some(Type::I64))
+        .expect("returns the floor")
 }
 
 /// Whether the final `n` passes the bound: over / at least K, or under / at most K `below`, this execution (`params` its
@@ -228,7 +303,13 @@ fn passes(b: &mut FunctionBuilder<'_>, env: &Env, n: Value, f: &Floor, nk: Optio
 }
 
 /// The records of `ptrs[0 .. len)` whose final passes the bound, compacted in order to the front: their number.
-pub(crate) fn keep(b: &mut FunctionBuilder<'_>, env: &mut Env, ptrs: Value, len: Value, f: &Floor) -> Value {
+pub(crate) fn keep(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    ptrs: Value,
+    len: Value,
+    f: &Floor,
+) -> Value {
     let nk = f.num.then(|| numeric_bound(b, env, f));
     let (h, body) = cancel::header(b, env.ctx, env.l_cancel, &[Type::I64, Type::I64], env.mcx);
     let l_done = b.create_block(&[Type::I64]);
@@ -263,9 +344,9 @@ mod tests {
     use mcx::MemoryContext;
     use types_nodes::Node;
 
+    use crate::admit::refusal::Reason;
     use crate::frame::px::Px;
     use crate::graph::Gx;
-    use crate::admit::refusal::Reason;
 
     /// A literal K (int8 100000): the split's floor and the emit's keep share one claimed word, which the HAVING
     /// filter's compile takes once (no second word); a claim no compile took refuses the program.
@@ -276,19 +357,57 @@ mod tests {
         let arena = Arena::new(1 << 16);
         let a = arena.handle();
         let mut g = PipelineGraph::new(a);
-        g.pipelines.push(PipelineNode::new(a, 7, Source::Const, Pipeline::serial(-1, End::Sink, gravity_program::Reason::NoDrivingSite)));
-        let gx = Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
+        g.pipelines.push(PipelineNode::new(
+            a,
+            7,
+            Source::Const,
+            Pipeline::serial(-1, End::Sink, gravity_program::Reason::NoDrivingSite),
+        ));
+        let gx = Gx {
+            graph: &g,
+            facts: &NoFacts,
+            catalog: &gravity_expr::PgCatalog,
+            over: None,
+            mcx: rig.mcx(),
+        };
         let mut plan = Sequential::new(a);
         let mut px = Px::new(a, &gx, &mut plan);
-        let k: Node<'_> = Node::mk_const(cx.mcx(), 20, -1, 0, 8, Datum::from_i64(100_000), false, true).expect("a const node");
+        let k: Node<'_> = Node::mk_const(
+            cx.mcx(),
+            20,
+            -1,
+            0,
+            8,
+            Datum::from_i64(100_000),
+            false,
+            true,
+        )
+        .expect("a const node");
         let w = px.claim_const(k);
         assert!(matches!(w, Some(Place::Word(_))), "{w:?}");
-        assert_eq!(px.claim_const(k), w, "the emit's keep reads the split's claim");
+        assert_eq!(
+            px.claim_const(k),
+            w,
+            "the emit's keep reads the split's claim"
+        );
         let n = px.plan.nwords();
-        assert_eq!(px.take_claim(k), w, "the filter's compile takes the claimed word");
-        assert_eq!((px.take_claim(k), px.plan.nwords()), (None, n), "taken once, no second word");
+        assert_eq!(
+            px.take_claim(k),
+            w,
+            "the filter's compile takes the claimed word"
+        );
+        assert_eq!(
+            (px.take_claim(k), px.plan.nwords()),
+            (None, n),
+            "taken once, no second word"
+        );
         let _ = px.claim_const(k);
         let r = crate::catch(0, || drop(px.take_exs()));
-        assert_eq!(r.map_err(|r| r.reason), Err(Reason::Bug { payload: "an unconsumed literal claim" }));
+        assert_eq!(
+            r.map_err(|r| r.reason),
+            Err(Reason::Bug {
+                payload: "an unconsumed literal claim"
+            })
+        );
     }
 }

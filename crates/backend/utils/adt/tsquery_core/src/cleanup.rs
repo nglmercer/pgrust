@@ -27,7 +27,11 @@ fn maketree(items: &[Item], pos: &mut usize) -> PgResult<Box<Node>> {
                 None
             };
             // NODE.left/right mirror C: right = in+1, left = in+left.
-            Box::new(Node::Op { item: opr, left, right })
+            Box::new(Node::Op {
+                item: opr,
+                left,
+                right,
+            })
         }
         other => Box::new(Node::Leaf(other)),
     })
@@ -79,8 +83,14 @@ fn clean_not_intree(node: Box<Node>) -> PgResult<Option<Box<Node>>> {
                 let Some(l) = clean_not_intree(left.expect("OR has left"))? else {
                     return Ok(None);
                 };
-                let Some(r) = clean_not_intree(right)? else { return Ok(None) };
-                Some(Box::new(Node::Op { item, left: Some(l), right: r }))
+                let Some(r) = clean_not_intree(right)? else {
+                    return Ok(None);
+                };
+                Some(Box::new(Node::Op {
+                    item,
+                    left: Some(l),
+                    right: r,
+                }))
             } else {
                 let l = match left {
                     Some(l) => clean_not_intree(l)?,
@@ -91,9 +101,11 @@ fn clean_not_intree(node: Box<Node>) -> PgResult<Option<Box<Node>>> {
                     (None, None) => None,
                     (Some(l), None) => Some(l),
                     (None, Some(r)) => Some(r),
-                    (Some(l), Some(r)) => {
-                        Some(Box::new(Node::Op { item, left: Some(l), right: r }))
-                    }
+                    (Some(l), Some(r)) => Some(Box::new(Node::Op {
+                        item,
+                        left: Some(l),
+                        right: r,
+                    })),
                 }
             }
         }
@@ -101,10 +113,7 @@ fn clean_not_intree(node: Box<Node>) -> PgResult<Option<Box<Node>>> {
 }
 
 // clean_NOT: strip NOT subtrees; None = query degenerates to nothing.
-pub fn clean_not<'mcx>(
-    mcx: Mcx<'mcx>,
-    q: TsQueryRef<'_>,
-) -> PgResult<Option<PgVec<'mcx, Item>>> {
+pub fn clean_not<'mcx>(mcx: Mcx<'mcx>, q: TsQueryRef<'_>) -> PgResult<Option<PgVec<'mcx, Item>>> {
     let mut items: PgVec<Item> = vec_with_capacity_in(mcx, q.size())?;
     for i in 0..q.size() {
         items.push(q.item(i));
@@ -130,12 +139,20 @@ fn clean_stopword_intree(
         Node::Leaf(Item::Val(_)) => Some(node),
         Node::Leaf(Item::ValStop) => None,
         Node::Leaf(Item::Opr(_)) => unreachable!("operator leaf"),
-        Node::Op { mut item, left, right } => {
+        Node::Op {
+            mut item,
+            left,
+            right,
+        } => {
             if item.oper == OP_NOT {
                 let Some(r) = clean_stopword_intree(right, ladd, radd)? else {
                     return Ok(None);
                 };
-                Some(Box::new(Node::Op { item, left: None, right: r }))
+                Some(Box::new(Node::Op {
+                    item,
+                    left: None,
+                    right: r,
+                }))
             } else {
                 let (mut lladd, mut lradd, mut rladd, mut rradd) = (0, 0, 0, 0);
                 let l = left
@@ -179,12 +196,15 @@ fn clean_stopword_intree(
                     }
                     (Some(l), Some(r)) => {
                         if isphrase {
-                            item.distance =
-                                (item.distance as i32 + lradd + rladd) as i16;
+                            item.distance = (item.distance as i32 + lradd + rladd) as i16;
                             *ladd = lladd;
                             *radd = rradd;
                         }
-                        Some(Box::new(Node::Op { item, left: Some(l), right: r }))
+                        Some(Box::new(Node::Op {
+                            item,
+                            left: Some(l),
+                            right: r,
+                        }))
                     }
                 }
             }
@@ -193,11 +213,7 @@ fn clean_stopword_intree(
 }
 
 impl Node {
-    fn into_clean(
-        self: Box<Self>,
-        ladd: &mut i32,
-        radd: &mut i32,
-    ) -> PgResult<Option<Box<Node>>> {
+    fn into_clean(self: Box<Self>, ladd: &mut i32, radd: &mut i32) -> PgResult<Option<Box<Node>>> {
         clean_stopword_intree(self, ladd, radd)
     }
 }

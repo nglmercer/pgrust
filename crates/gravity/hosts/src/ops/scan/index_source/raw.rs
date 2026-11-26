@@ -20,11 +20,15 @@ pub(super) fn array_image(p: *const u8) -> Vec<u8> {
         let b0 = *p;
         if b0 & 0x01 == 0x01 {
             let total = ((b0 >> 1) & 0x7F) as usize;
-            let mut v = ((total - 1 + 4) as u32).wrapping_shl(2).to_le_bytes().to_vec(); // alloc: Exec
+            let mut v = ((total - 1 + 4) as u32)
+                .wrapping_shl(2)
+                .to_le_bytes()
+                .to_vec(); // alloc: Exec
             v.extend_from_slice(core::slice::from_raw_parts(p.add(1), total - 1));
             v
         } else {
-            core::slice::from_raw_parts(p, arrayfuncs::arr_size(core::slice::from_raw_parts(p, 4))).to_vec() // alloc: Exec
+            core::slice::from_raw_parts(p, arrayfuncs::arr_size(core::slice::from_raw_parts(p, 4)))
+                .to_vec() // alloc: Exec
         }
     }
 }
@@ -36,7 +40,6 @@ pub(super) fn plain_image(d: datum::Datum) -> bool {
     let b0 = unsafe { *p };
     (b0 & 0x01 == 0x01 && b0 != 0x01) || b0 & 0x03 == 0
 }
-
 
 /// A varlena datum's whole image (4-byte or 1-byte header), copied; `None` on a toast pointer.
 pub(super) fn varlena_image(p: *const u8) -> Option<Arc<[u8]>> {
@@ -54,5 +57,3 @@ pub(super) fn varlena_image(p: *const u8) -> Option<Arc<[u8]>> {
         Some(Arc::from(core::slice::from_raw_parts(p, len))) // alloc: Program
     }
 }
-
-

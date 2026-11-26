@@ -28,7 +28,12 @@ pub fn find<'p>(stmt: &'p PlannedStmt<'p>) -> Option<Removed> {
             found = node(stmt, n);
         }
     });
-    found.or_else(|| stmt.resultRelations.iter().find_map(|rti| rte(stmt, rti).filter(|r| foreign(r))).map(|r| Removed::ForeignTarget { relid: r.relid }))
+    found.or_else(|| {
+        stmt.resultRelations
+            .iter()
+            .find_map(|rti| rte(stmt, rti).filter(|r| foreign(r)))
+            .map(|r| Removed::ForeignTarget { relid: r.relid })
+    })
 }
 
 fn node<'p>(stmt: &'p PlannedStmt<'p>, n: Node<'p>) -> Option<Removed> {
@@ -36,8 +41,18 @@ fn node<'p>(stmt: &'p PlannedStmt<'p>, n: Node<'p>) -> Option<Removed> {
         NodeTag::T_ForeignScan => {
             let f = n.as_foreign_scan()?;
             // a join pushed down to the server scans no one relation (scanrelid 0): the range table's first foreign table
-            let rel = rte(stmt, f.scan.scanrelid as i32).filter(|r| foreign(r)).or_else(|| stmt.rtable.iter().filter_map(|x| x.as_range_tbl_entry()).find(|r| foreign(r)));
-            Some(Removed::ForeignScan { relid: rel.map_or(0, |r| r.relid), writes: f.operation != CmdType::CMD_SELECT })
+            let rel = rte(stmt, f.scan.scanrelid as i32)
+                .filter(|r| foreign(r))
+                .or_else(|| {
+                    stmt.rtable
+                        .iter()
+                        .filter_map(|x| x.as_range_tbl_entry())
+                        .find(|r| foreign(r))
+                });
+            Some(Removed::ForeignScan {
+                relid: rel.map_or(0, |r| r.relid),
+                writes: f.operation != CmdType::CMD_SELECT,
+            })
         }
         NodeTag::T_CustomScan => Some(Removed::CustomScan),
         _ => None,
@@ -46,7 +61,9 @@ fn node<'p>(stmt: &'p PlannedStmt<'p>, n: Node<'p>) -> Option<Removed> {
 
 fn rte<'p>(stmt: &'p PlannedStmt<'p>, rti: i32) -> Option<&'p RangeTblEntry<'p>> {
     let i = usize::try_from(rti).ok()?.checked_sub(1)?;
-    (i < stmt.rtable.len()).then(|| stmt.rtable.nth(i).as_range_tbl_entry()).flatten()
+    (i < stmt.rtable.len())
+        .then(|| stmt.rtable.nth(i).as_range_tbl_entry())
+        .flatten()
 }
 
 /// pg_class.h `RELKIND_FOREIGN_TABLE`.
@@ -64,12 +81,44 @@ mod tests {
     use types_nodes::plannodes::{ForeignScan, Plan, Scan, SeqScan};
 
     /// A statement over range table [heap 16400, foreign 16401]: `plan`, `subplans`, result relations `results`.
-    fn stmt<'a>(m: Mcx<'a>, plan: Node<'a>, subplans: &[Node<'a>], results: &[i32]) -> PlannedStmt<'a> {
-        let heap = RangeTblEntry { rtekind: RTEKind::RTE_RELATION, relid: 16400, relkind: b'r', ..Default::default() };
-        let ft = RangeTblEntry { rtekind: RTEKind::RTE_RELATION, relid: 16401, relkind: RELKIND_FOREIGN_TABLE, ..Default::default() };
-        let rtable = NodeList::from_slice(m, &[Node::mk(m, heap).unwrap(), Node::mk(m, ft).unwrap()]).unwrap();
-        let cmd = if results.is_empty() { CmdType::CMD_SELECT } else { CmdType::CMD_INSERT };
-        PlannedStmt { planTree: Some(plan), rtable, subplans: OptNodeList::from_slice(m, &subplans.iter().map(|&n| Some(n)).collect::<Vec<_>>()).unwrap(), resultRelations: IntList::from_slice(m, results).unwrap(), commandType: cmd, ..Default::default() }
+    fn stmt<'a>(
+        m: Mcx<'a>,
+        plan: Node<'a>,
+        subplans: &[Node<'a>],
+        results: &[i32],
+    ) -> PlannedStmt<'a> {
+        let heap = RangeTblEntry {
+            rtekind: RTEKind::RTE_RELATION,
+            relid: 16400,
+            relkind: b'r',
+            ..Default::default()
+        };
+        let ft = RangeTblEntry {
+            rtekind: RTEKind::RTE_RELATION,
+            relid: 16401,
+            relkind: RELKIND_FOREIGN_TABLE,
+            ..Default::default()
+        };
+        let rtable =
+            NodeList::from_slice(m, &[Node::mk(m, heap).unwrap(), Node::mk(m, ft).unwrap()])
+                .unwrap();
+        let cmd = if results.is_empty() {
+            CmdType::CMD_SELECT
+        } else {
+            CmdType::CMD_INSERT
+        };
+        PlannedStmt {
+            planTree: Some(plan),
+            rtable,
+            subplans: OptNodeList::from_slice(
+                m,
+                &subplans.iter().map(|&n| Some(n)).collect::<Vec<_>>(),
+            )
+            .unwrap(),
+            resultRelations: IntList::from_slice(m, results).unwrap(),
+            commandType: cmd,
+            ..Default::default()
+        }
     }
 
     /// `find` over `s`, borrowed for its own lifetime (the statement leaks: a test's few bytes).
@@ -78,7 +127,13 @@ mod tests {
     }
 
     fn scan<'a>(id: i32, scanrelid: u32) -> Scan<'a> {
-        Scan { plan: Plan { plan_node_id: id, ..Default::default() }, scanrelid }
+        Scan {
+            plan: Plan {
+                plan_node_id: id,
+                ..Default::default()
+            },
+            scanrelid,
+        }
     }
 
     /// A Foreign Scan in the plan tree or a subplan's, and a foreign result relation, are named; heap scans over a range
@@ -87,12 +142,56 @@ mod tests {
     fn foreign_scans_and_foreign_targets() {
         let ctx = mcx::MemoryContext::new("removed-test");
         let m = ctx.mcx();
-        let seq = || Node::mk(m, SeqScan { scan: scan(1, 1), ..Default::default() }).unwrap();
-        let fs = |op| Node::mk(m, ForeignScan { scan: scan(2, 2), operation: op, ..Default::default() }).unwrap();
-        assert_eq!(run(stmt(m, seq(), &[], &[])), None, "a heap scan beside a pruned foreign leaf");
-        assert_eq!(run(stmt(m, fs(CmdType::CMD_SELECT), &[], &[])), Some(Removed::ForeignScan { relid: 16401, writes: false }));
-        assert_eq!(run(stmt(m, seq(), &[fs(CmdType::CMD_UPDATE)], &[])), Some(Removed::ForeignScan { relid: 16401, writes: true }), "a subplan's tree");
-        assert_eq!(run(stmt(m, seq(), &[], &[2])), Some(Removed::ForeignTarget { relid: 16401 }), "an INSERT into a foreign table");
-        assert_eq!(run(stmt(m, seq(), &[], &[1])), None, "an INSERT into a heap table");
+        let seq = || {
+            Node::mk(
+                m,
+                SeqScan {
+                    scan: scan(1, 1),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+        };
+        let fs = |op| {
+            Node::mk(
+                m,
+                ForeignScan {
+                    scan: scan(2, 2),
+                    operation: op,
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+        };
+        assert_eq!(
+            run(stmt(m, seq(), &[], &[])),
+            None,
+            "a heap scan beside a pruned foreign leaf"
+        );
+        assert_eq!(
+            run(stmt(m, fs(CmdType::CMD_SELECT), &[], &[])),
+            Some(Removed::ForeignScan {
+                relid: 16401,
+                writes: false
+            })
+        );
+        assert_eq!(
+            run(stmt(m, seq(), &[fs(CmdType::CMD_UPDATE)], &[])),
+            Some(Removed::ForeignScan {
+                relid: 16401,
+                writes: true
+            }),
+            "a subplan's tree"
+        );
+        assert_eq!(
+            run(stmt(m, seq(), &[], &[2])),
+            Some(Removed::ForeignTarget { relid: 16401 }),
+            "an INSERT into a foreign table"
+        );
+        assert_eq!(
+            run(stmt(m, seq(), &[], &[1])),
+            None,
+            "an INSERT into a heap table"
+        );
     }
 }

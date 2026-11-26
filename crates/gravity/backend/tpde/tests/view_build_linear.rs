@@ -23,7 +23,10 @@ use gravity_tpde::view::{FnView, NoImm};
 const BOUND: Duration = Duration::from_millis(if cfg!(debug_assertions) { 10_000 } else { 2000 });
 
 fn size(default: usize) -> usize {
-    std::env::var("D3698_N").ok().and_then(|s| s.parse().ok()).unwrap_or(default)
+    std::env::var("D3698_N")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(default)
 }
 
 /// One row loop over `n` checks: check `k` loads a cell and branches to a cold detour (a store) when it is zero, the
@@ -144,7 +147,10 @@ fn a_row_loop_of_many_cold_detours_builds_in_linear_time() {
     let n = size(48_000);
     let p = detour_loop(n);
     let (t, loops) = build(&p);
-    eprintln!("detour_loop n {n}: {} blocks, {loops} loop(s), view build {t:?}", p.funcs[0].blocks.len());
+    eprintln!(
+        "detour_loop n {n}: {} blocks, {loops} loop(s), view build {t:?}",
+        p.funcs[0].blocks.len()
+    );
     assert_eq!(loops, 1);
     assert!(t < BOUND, "the view build of {n} cold detours took {t:?} (bound {BOUND:?}): a hint lookup scans its list");
 }
@@ -154,7 +160,13 @@ fn a_chain_of_many_sibling_loops_builds_in_linear_time() {
     let n = size(16_000);
     let p = sibling_loops(n);
     let (t, loops) = build(&p);
-    eprintln!("sibling_loops n {n}: {} blocks, {loops} loops, view build {t:?}", p.funcs[0].blocks.len());
+    eprintln!(
+        "sibling_loops n {n}: {} blocks, {loops} loops, view build {t:?}",
+        p.funcs[0].blocks.len()
+    );
     assert_eq!(loops, n);
-    assert!(t < BOUND, "the view build of {n} sibling loops took {t:?} (bound {BOUND:?}): a test scans every loop");
+    assert!(
+        t < BOUND,
+        "the view build of {n} sibling loops took {t:?} (bound {BOUND:?}): a test scans every loop"
+    );
 }

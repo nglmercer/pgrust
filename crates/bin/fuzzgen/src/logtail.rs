@@ -39,8 +39,24 @@ use crate::contracts::{json, Bytes, LogLine, Panic};
 /// `STATEMENT`, `DETAIL`, `HINT`, `CONTEXT`, `QUERY`, `LOCATION` are the
 /// auxiliary lines both engines print with the same prefix.
 pub const LEVELS: &[&str] = &[
-    "DEBUG5", "DEBUG4", "DEBUG3", "DEBUG2", "DEBUG1", "LOG", "INFO", "NOTICE", "WARNING", "ERROR", "FATAL",
-    "PANIC", "STATEMENT", "DETAIL", "HINT", "CONTEXT", "QUERY", "LOCATION",
+    "DEBUG5",
+    "DEBUG4",
+    "DEBUG3",
+    "DEBUG2",
+    "DEBUG1",
+    "LOG",
+    "INFO",
+    "NOTICE",
+    "WARNING",
+    "ERROR",
+    "FATAL",
+    "PANIC",
+    "STATEMENT",
+    "DETAIL",
+    "HINT",
+    "CONTEXT",
+    "QUERY",
+    "LOCATION",
 ];
 
 /// One `log_line_prefix` escape.
@@ -146,7 +162,10 @@ impl PrefixSpec {
         if !lit.is_empty() {
             tokens.push(Token::Lit(lit));
         }
-        PrefixSpec { template: template.to_string(), tokens }
+        PrefixSpec {
+            template: template.to_string(),
+            tokens,
+        }
     }
 
     pub fn template(&self) -> &str {
@@ -172,7 +191,11 @@ impl PrefixSpec {
     fn walk(&self, ti: usize, line: &str, pos: usize, caps: &mut Caps) -> Option<usize> {
         if ti == self.tokens.len() {
             // The prefix ended: the body must start with a level.
-            return if body_level(&line[pos..]).is_some() { Some(pos) } else { None };
+            return if body_level(&line[pos..]).is_some() {
+                Some(pos)
+            } else {
+                None
+            };
         }
         let rest = &line[pos..];
         match &self.tokens[ti] {
@@ -242,7 +265,11 @@ impl PrefixSpec {
                         self.walk(ti + 1, line, pos + n, caps)
                     }
                     Field::SqlState => {
-                        if rest.len() < 5 || !rest.as_bytes()[..5].iter().all(|b| b.is_ascii_alphanumeric()) {
+                        if rest.len() < 5
+                            || !rest.as_bytes()[..5]
+                                .iter()
+                                .all(|b| b.is_ascii_alphanumeric())
+                        {
                             return None;
                         }
                         let saved = caps.sqlstate.take();
@@ -292,7 +319,11 @@ impl PrefixSpec {
 /// `YYYY-MM-DD HH:MM:SS[.mmm] ZONE` length, if `s` starts with one.
 fn timestamp_len(s: &str, millis: bool) -> Option<usize> {
     let b = s.as_bytes();
-    let pat: &[u8] = if millis { b"dddd-dd-dd dd:dd:dd.ddd " } else { b"dddd-dd-dd dd:dd:dd " };
+    let pat: &[u8] = if millis {
+        b"dddd-dd-dd dd:dd:dd.ddd "
+    } else {
+        b"dddd-dd-dd dd:dd:dd "
+    };
     if b.len() < pat.len() {
         return None;
     }
@@ -305,7 +336,10 @@ fn timestamp_len(s: &str, millis: bool) -> Option<usize> {
             return None;
         }
     }
-    let zone = s[pat.len()..].bytes().take_while(|c| !c.is_ascii_whitespace()).count();
+    let zone = s[pat.len()..]
+        .bytes()
+        .take_while(|c| !c.is_ascii_whitespace())
+        .count();
     if zone == 0 {
         return None;
     }
@@ -318,7 +352,10 @@ fn epoch_len(s: &str) -> Option<usize> {
     if secs == 0 || !s[secs..].starts_with('.') {
         return None;
     }
-    let ms = s[secs + 1..].bytes().take_while(|b| b.is_ascii_digit()).count();
+    let ms = s[secs + 1..]
+        .bytes()
+        .take_while(|b| b.is_ascii_digit())
+        .count();
     if ms == 0 {
         return None;
     }
@@ -364,10 +401,15 @@ pub struct TailLine {
 enum PanicState {
     Idle,
     /// Saw `panicked at <site>:`; the next line is the message.
-    WantMessage { site: String },
+    WantMessage {
+        site: String,
+    },
     /// Have site + message; waiting for `panicking backend query:` or the
     /// backtrace / note lines that end the block.
-    WantQuery { site: String, message: Vec<u8> },
+    WantQuery {
+        site: String,
+        message: Vec<u8>,
+    },
     /// Inside a backtrace (`stack backtrace:` seen); ends at the first
     /// non-indented line.
     Backtrace,
@@ -441,7 +483,11 @@ impl LogParser {
         }
 
         if text.is_empty() {
-            self.lines.push(TailLine { line_no, kind: LineKind::Blank, rec });
+            self.lines.push(TailLine {
+                line_no,
+                kind: LineKind::Blank,
+                rec,
+            });
             return;
         }
 
@@ -460,7 +506,11 @@ impl LogParser {
                 rec.location = Some(String::from_utf8_lossy(msg).into_owned());
             }
             self.last_caps = Some(caps);
-            self.lines.push(TailLine { line_no, kind: LineKind::Prefixed, rec });
+            self.lines.push(TailLine {
+                line_no,
+                kind: LineKind::Prefixed,
+                rec,
+            });
             return;
         }
 
@@ -469,7 +519,11 @@ impl LogParser {
             if let Some((level, msg_at)) = body_level(&text) {
                 rec.level = Some(level.to_string());
                 rec.message = Some(Bytes(raw[msg_at..].to_vec()));
-                self.lines.push(TailLine { line_no, kind: LineKind::Prefixed, rec });
+                self.lines.push(TailLine {
+                    line_no,
+                    kind: LineKind::Prefixed,
+                    rec,
+                });
                 return;
             }
         }
@@ -482,11 +536,19 @@ impl LogParser {
                 rec.app = caps.app.clone();
             }
             rec.message = Some(Bytes(raw[1..].to_vec()));
-            self.lines.push(TailLine { line_no, kind: LineKind::Continuation, rec });
+            self.lines.push(TailLine {
+                line_no,
+                kind: LineKind::Continuation,
+                rec,
+            });
             return;
         }
 
-        self.lines.push(TailLine { line_no, kind: LineKind::Unparsed, rec });
+        self.lines.push(TailLine {
+            line_no,
+            kind: LineKind::Unparsed,
+            rec,
+        });
     }
 
     /// Advance the panic state machine; Some(kind) when the line belongs
@@ -502,8 +564,10 @@ impl LogParser {
                         }
                         PanickedAt::Legacy { site, message } => {
                             // Pre-1.73 one-line form: message is inline.
-                            self.panic_state =
-                                PanicState::WantQuery { site, message: message.into_bytes() };
+                            self.panic_state = PanicState::WantQuery {
+                                site,
+                                message: message.into_bytes(),
+                            };
                         }
                     }
                     self.pending_panic_line = Some(line_no);
@@ -515,7 +579,11 @@ impl LogParser {
                     // member — record with an unknown site.
                     self.panics.push((
                         line_no,
-                        Panic { site: String::new(), message: Bytes::default(), query: Some(Bytes::text(q)) },
+                        Panic {
+                            site: String::new(),
+                            message: Bytes::default(),
+                            query: Some(Bytes::text(q)),
+                        },
                     ));
                     return Some(LineKind::PanicBlock);
                 }
@@ -529,18 +597,35 @@ impl LogParser {
                 None
             }
             PanicState::WantMessage { site } => {
-                self.panic_state = PanicState::WantQuery { site, message: raw.to_vec() };
+                self.panic_state = PanicState::WantQuery {
+                    site,
+                    message: raw.to_vec(),
+                };
                 Some(LineKind::PanicBlock)
             }
             PanicState::WantQuery { site, message } => {
                 let start = self.pending_panic_line.take().unwrap_or(line_no);
                 if let Some(q) = text.strip_prefix("panicking backend query: ") {
-                    self.panics.push((start, Panic { site, message: Bytes(message), query: Some(Bytes::text(q)) }));
+                    self.panics.push((
+                        start,
+                        Panic {
+                            site,
+                            message: Bytes(message),
+                            query: Some(Bytes::text(q)),
+                        },
+                    ));
                     return Some(LineKind::PanicBlock);
                 }
                 // The block ended without a query line: close the pair
                 // with query = None, then re-dispatch this line.
-                self.panics.push((start, Panic { site, message: Bytes(message), query: None }));
+                self.panics.push((
+                    start,
+                    Panic {
+                        site,
+                        message: Bytes(message),
+                        query: None,
+                    },
+                ));
                 if text.starts_with("note: run with") {
                     return Some(LineKind::PanicBlock);
                 }
@@ -553,7 +638,10 @@ impl LogParser {
                 self.feed_panic_idle_retry(line_no, text)
             }
             PanicState::Backtrace => {
-                if text.starts_with(' ') || text.starts_with('\t') || text.starts_with("note: run with") {
+                if text.starts_with(' ')
+                    || text.starts_with('\t')
+                    || text.starts_with("note: run with")
+                {
                     self.panic_state = PanicState::Backtrace;
                     return Some(LineKind::PanicBlock);
                 }
@@ -570,7 +658,10 @@ impl LogParser {
             match p {
                 PanickedAt::Modern { site } => self.panic_state = PanicState::WantMessage { site },
                 PanickedAt::Legacy { site, message } => {
-                    self.panic_state = PanicState::WantQuery { site, message: message.into_bytes() }
+                    self.panic_state = PanicState::WantQuery {
+                        site,
+                        message: message.into_bytes(),
+                    }
                 }
             }
             self.pending_panic_line = Some(line_no);
@@ -583,7 +674,11 @@ impl LogParser {
         if let Some(q) = text.strip_prefix("panicking backend query: ") {
             self.panics.push((
                 line_no,
-                Panic { site: String::new(), message: Bytes::default(), query: Some(Bytes::text(q)) },
+                Panic {
+                    site: String::new(),
+                    message: Bytes::default(),
+                    query: Some(Bytes::text(q)),
+                },
             ));
             return Some(LineKind::PanicBlock);
         }
@@ -595,8 +690,18 @@ impl LogParser {
     pub fn finish(&mut self) {
         let state = std::mem::replace(&mut self.panic_state, PanicState::Idle);
         if let PanicState::WantQuery { site, message } = state {
-            let start = self.pending_panic_line.take().unwrap_or(self.lines.len() as u64);
-            self.panics.push((start, Panic { site, message: Bytes(message), query: None }));
+            let start = self
+                .pending_panic_line
+                .take()
+                .unwrap_or(self.lines.len() as u64);
+            self.panics.push((
+                start,
+                Panic {
+                    site,
+                    message: Bytes(message),
+                    query: None,
+                },
+            ));
         }
     }
 }
@@ -635,10 +740,32 @@ fn parse_panicked_at(text: &str) -> Option<PanickedAt> {
 
 /// PostgreSQL 18 csvlog column order (`log_destination = csvlog`).
 pub const CSV_COLUMNS: &[&str] = &[
-    "log_time", "user_name", "database_name", "process_id", "connection_from", "session_id", "session_line_num",
-    "command_tag", "session_start_time", "virtual_transaction_id", "transaction_id", "error_severity",
-    "sql_state_code", "message", "detail", "hint", "internal_query", "internal_query_pos", "context", "query",
-    "query_pos", "location", "application_name", "backend_type", "leader_pid", "query_id",
+    "log_time",
+    "user_name",
+    "database_name",
+    "process_id",
+    "connection_from",
+    "session_id",
+    "session_line_num",
+    "command_tag",
+    "session_start_time",
+    "virtual_transaction_id",
+    "transaction_id",
+    "error_severity",
+    "sql_state_code",
+    "message",
+    "detail",
+    "hint",
+    "internal_query",
+    "internal_query_pos",
+    "context",
+    "query",
+    "query_pos",
+    "location",
+    "application_name",
+    "backend_type",
+    "leader_pid",
+    "query_id",
 ];
 
 /// Split one CSV record (which may span physical lines inside quotes)
@@ -698,7 +825,9 @@ pub fn parse_csv_record(rec: &str) -> LogLine {
         message: None,
         location: None,
     };
-    let Some(fields) = split_csv_record(rec) else { return out };
+    let Some(fields) = split_csv_record(rec) else {
+        return out;
+    };
     let col = |name: &str| -> Option<&str> {
         let i = CSV_COLUMNS.iter().position(|c| *c == name)?;
         fields.get(i).map(String::as_str)
@@ -706,14 +835,26 @@ pub fn parse_csv_record(rec: &str) -> LogLine {
     if fields.len() < 14 {
         return out;
     }
-    out.ts = col("log_time").filter(|s| !s.is_empty()).map(str::to_string);
+    out.ts = col("log_time")
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
     out.pid = col("process_id").and_then(|s| s.parse().ok());
-    out.level = col("error_severity").filter(|s| !s.is_empty()).map(str::to_string);
-    out.sqlstate = col("sql_state_code").filter(|s| !s.is_empty()).map(str::to_string);
+    out.level = col("error_severity")
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    out.sqlstate = col("sql_state_code")
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
     out.message = col("message").map(Bytes::text);
-    out.location = col("location").filter(|s| !s.is_empty()).map(str::to_string);
-    out.app = col("application_name").filter(|s| !s.is_empty()).map(str::to_string);
-    out.backend_type = col("backend_type").filter(|s| !s.is_empty()).map(str::to_string);
+    out.location = col("location")
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    out.app = col("application_name")
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    out.backend_type = col("backend_type")
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
     out
 }
 
@@ -781,7 +922,10 @@ pub fn prefix_violations(prefix: &PrefixSpec, lines: &[TailLine]) -> Vec<PrefixV
     lines
         .iter()
         .filter(|l| l.kind == LineKind::Unparsed)
-        .map(|l| PrefixViolation { line_no: l.line_no, raw: l.rec.raw.clone() })
+        .map(|l| PrefixViolation {
+            line_no: l.line_no,
+            raw: l.rec.raw.clone(),
+        })
         .collect()
 }
 
@@ -816,17 +960,30 @@ pub fn slice_for_pids(lines: &[TailLine], from: Mark, to: Mark, pids: &[u32]) ->
 /// for the auth phase of a connect step (no BackendKeyData yet) and for
 /// restarts.
 pub fn slice_all(lines: &[TailLine], from: Mark, to: Mark) -> Vec<LogLine> {
-    lines.iter().filter(|l| l.line_no > from.0 && l.line_no <= to.0).map(|l| l.rec.clone()).collect()
+    lines
+        .iter()
+        .filter(|l| l.line_no > from.0 && l.line_no <= to.0)
+        .map(|l| l.rec.clone())
+        .collect()
 }
 
 /// Panic pairs whose marker line falls in `(from, to]`.
 pub fn panics_in(parser: &LogParser, from: Mark, to: Mark) -> Vec<Panic> {
-    parser.panics().iter().filter(|(n, _)| *n > from.0 && *n <= to.0).map(|(_, p)| p.clone()).collect()
+    parser
+        .panics()
+        .iter()
+        .filter(|(n, _)| *n > from.0 && *n <= to.0)
+        .map(|(_, p)| p.clone())
+        .collect()
 }
 
 /// Pids seen in `(from, to]` (which backends wrote in the window).
 pub fn pids_in(lines: &[TailLine], from: Mark, to: Mark) -> BTreeSet<u32> {
-    lines.iter().filter(|l| l.line_no > from.0 && l.line_no <= to.0).filter_map(|l| l.rec.pid).collect()
+    lines
+        .iter()
+        .filter(|l| l.line_no > from.0 && l.line_no <= to.0)
+        .filter_map(|l| l.rec.pid)
+        .collect()
 }
 
 // ---------------------------------------------------------------------
@@ -864,7 +1021,9 @@ pub fn witness_of(text: &str) -> Option<Witness> {
             let n: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
             n.parse().ok()
         });
-        let sig = text[i + "was terminated by signal ".len()..].trim().to_string();
+        let sig = text[i + "was terminated by signal ".len()..]
+            .trim()
+            .to_string();
         if text.starts_with("pgrust: FATAL") || text.contains("pgrust: FATAL: server process") {
             return Some(Witness::CrashHandler(sig));
         }
@@ -877,7 +1036,10 @@ pub fn witness_of(text: &str) -> Option<Witness> {
         return Some(Witness::RecoveryInProgress);
     }
     if let Some(i) = text.find("redo starts at ") {
-        let lsn: String = text[i + "redo starts at ".len()..].chars().take_while(|c| !c.is_whitespace()).collect();
+        let lsn: String = text[i + "redo starts at ".len()..]
+            .chars()
+            .take_while(|c| !c.is_whitespace())
+            .collect();
         return Some(Witness::RedoStartsAt(lsn));
     }
     if text.contains("database system is ready to accept connections") {
@@ -940,17 +1102,27 @@ pub fn self_test_verdict(parser: &LogParser, from: Mark, to: Mark, vpid: u32) ->
     let lines = parser.lines();
     let mut witness_lines = Vec::new();
     let mut pid_attributed = false;
-    for l in lines.iter().filter(|l| l.line_no > from.0 && l.line_no <= to.0) {
+    for l in lines
+        .iter()
+        .filter(|l| l.line_no > from.0 && l.line_no <= to.0)
+    {
         let text = String::from_utf8_lossy(&l.rec.raw.0);
         if witness_of(&text).is_some() {
             witness_lines.push(l.rec.raw.clone());
         }
-        if l.rec.pid == Some(vpid) || text.contains(&format!("(PID {vpid})")) || text.contains(&format!("[{vpid}]")) {
+        if l.rec.pid == Some(vpid)
+            || text.contains(&format!("(PID {vpid})"))
+            || text.contains(&format!("[{vpid}]"))
+        {
             pid_attributed = true;
         }
     }
     let panicked = !panics_in(parser, from, to).is_empty();
-    SelfTest { witnessed: !witness_lines.is_empty() || panicked, witness_lines, pid_attributed }
+    SelfTest {
+        witnessed: !witness_lines.is_empty() || panicked,
+        witness_lines,
+        pid_attributed,
+    }
 }
 
 // ---------------------------------------------------------------------
@@ -1098,7 +1270,11 @@ impl LogParser {
     /// prefix's equivalent, and they never enter the prefix invariant.
     pub fn push_collector(&mut self, rec: LogLine) {
         let line_no = self.lines.len() as u64 + 1;
-        self.lines.push(TailLine { line_no, kind: LineKind::Prefixed, rec });
+        self.lines.push(TailLine {
+            line_no,
+            kind: LineKind::Prefixed,
+            rec,
+        });
     }
 }
 
@@ -1106,7 +1282,9 @@ impl LogParser {
 /// `log_destination = 'stderr,csvlog,jsonlog'`), sorted by name.
 pub fn collector_files(log_dir: &Path) -> Vec<(PathBuf, Source)> {
     let mut out = Vec::new();
-    let Ok(rd) = std::fs::read_dir(log_dir) else { return out };
+    let Ok(rd) = std::fs::read_dir(log_dir) else {
+        return out;
+    };
     for e in rd.flatten() {
         let p = e.path();
         let src = match p.extension().and_then(|x| x.to_str()) {
@@ -1172,7 +1350,9 @@ mod tests {
         assert_eq!(l.rec.level.as_deref(), Some("ERROR"));
         assert_eq!(
             l.rec.message,
-            Some(Bytes::text("relation \"nope\" does not exist at character 15"))
+            Some(Bytes::text(
+                "relation \"nope\" does not exist at character 15"
+            ))
         );
         assert!(l.rec.location.is_none());
     }
@@ -1185,7 +1365,10 @@ mod tests {
         );
         assert_eq!(p.lines()[0].rec.app.as_deref(), Some("my app name"));
         assert_eq!(p.lines()[0].rec.level.as_deref(), Some("STATEMENT"));
-        assert_eq!(p.lines()[1].rec.location.as_deref(), Some("exec_simple_query, postgres.c:1234"));
+        assert_eq!(
+            p.lines()[1].rec.location.as_deref(),
+            Some("exec_simple_query, postgres.c:1234")
+        );
     }
 
     #[test]
@@ -1216,11 +1399,24 @@ mod tests {
              2026-09-02 10:20:41.902 America/Los_Angeles not initialized[0] LOG:  boot line",
         );
         assert_eq!(p.lines()[0].rec.pid, Some(19));
-        assert_eq!(p.lines()[0].rec.ts.as_deref(), Some("2026-09-02 10:20:41.902 America/Los_Angeles"));
+        assert_eq!(
+            p.lines()[0].rec.ts.as_deref(),
+            Some("2026-09-02 10:20:41.902 America/Los_Angeles")
+        );
         assert_eq!(p.lines()[1].kind, LineKind::Continuation);
-        assert_eq!(p.lines()[1].rec.pid, Some(19), "continuation inherits attribution");
-        assert_eq!(p.lines()[1].rec.message, Some(Bytes::text("continuation of the warning")));
-        assert_eq!(p.lines()[2].rec.backend_type.as_deref(), Some("not initialized"));
+        assert_eq!(
+            p.lines()[1].rec.pid,
+            Some(19),
+            "continuation inherits attribution"
+        );
+        assert_eq!(
+            p.lines()[1].rec.message,
+            Some(Bytes::text("continuation of the warning"))
+        );
+        assert_eq!(
+            p.lines()[2].rec.backend_type.as_deref(),
+            Some("not initialized")
+        );
     }
 
     #[test]
@@ -1250,11 +1446,17 @@ mod tests {
         // The panic block never counts as a prefix violation.
         assert!(prefix_violations(p.prefix(), p.lines()).is_empty());
         // Fixture parity: the ObservationRecord panic object.
-        let v = crate::contracts::json::parse(include_str!("../fixtures/contracts/observation-crash.json")).unwrap();
+        let v = crate::contracts::json::parse(include_str!(
+            "../fixtures/contracts/observation-crash.json"
+        ))
+        .unwrap();
         let fp = v.get("panic").unwrap();
         assert_eq!(fp.get("site").unwrap().as_str(), Some(panic.site.as_str()));
         assert_eq!(fp.get("query").unwrap().as_str(), Some("ANALYZE t"));
-        assert_eq!(fp.get("message").unwrap().as_str(), Some("index has 2 expressions but indexprs lists 1"));
+        assert_eq!(
+            fp.get("message").unwrap().as_str(),
+            Some("index has 2 expressions but indexprs lists 1")
+        );
     }
 
     #[test]
@@ -1312,7 +1514,11 @@ mod tests {
 
     #[test]
     fn marks_slice_by_pid_and_keep_unattributed_lines() {
-        let mut t = Tail::new(Path::new("/nonexistent/b.log"), Source::Stderr, &PrefixSpec::compile(PREFIX));
+        let mut t = Tail::new(
+            Path::new("/nonexistent/b.log"),
+            Source::Stderr,
+            &PrefixSpec::compile(PREFIX),
+        );
         t.feed_bytes(b"2026-09-02 10:20:41.902 PDT postmaster[1] LOG:  boot\n");
         let m0 = t.mark();
         t.feed_bytes(
@@ -1324,20 +1530,33 @@ mod tests {
         let m1 = t.mark();
         t.feed_bytes(b"2026-09-02 10:20:41.902 PDT client backend[19] [unknown] LOG:  after\n");
         let s19 = slice_for_pid(t.parser().lines(), m0, m1, Some(19));
-        let raws: Vec<String> = s19.iter().map(|l| String::from_utf8_lossy(&l.raw.0).into_owned()).collect();
+        let raws: Vec<String> = s19
+            .iter()
+            .map(|l| String::from_utf8_lossy(&l.raw.0).into_owned())
+            .collect();
         assert_eq!(raws.len(), 5, "{raws:?}");
-        assert!(raws.iter().all(|r| !r.contains("w2") && !r.contains("after")));
+        assert!(raws
+            .iter()
+            .all(|r| !r.contains("w2") && !r.contains("after")));
         assert!(raws[1].starts_with("thread 'backend-19' panicked"));
         assert_eq!(slice_all(t.parser().lines(), m0, m1).len(), 6);
         assert_eq!(panics_in(t.parser(), m0, m1).len(), 1);
         assert!(panics_in(t.parser(), m1, t.mark()).is_empty());
-        assert_eq!(pids_in(t.parser().lines(), m0, m1).into_iter().collect::<Vec<_>>(), vec![19, 20]);
+        assert_eq!(
+            pids_in(t.parser().lines(), m0, m1)
+                .into_iter()
+                .collect::<Vec<_>>(),
+            vec![19, 20]
+        );
         // A partial trailing line waits for its newline.
         t.feed_bytes(b"2026-09-02 10:20:41.902 PDT client backend[19] [unknown] LOG:  part");
         assert_eq!(t.mark(), Mark(8));
         t.feed_bytes(b"ial\n");
         assert_eq!(t.mark(), Mark(9));
-        assert_eq!(t.parser().lines()[8].rec.message, Some(Bytes::text("partial")));
+        assert_eq!(
+            t.parser().lines()[8].rec.message,
+            Some(Bytes::text("partial"))
+        );
     }
 
     #[test]
@@ -1348,14 +1567,23 @@ mod tests {
         assert_eq!(l.pid, Some(41233));
         assert_eq!(l.level.as_deref(), Some("ERROR"));
         assert_eq!(l.sqlstate.as_deref(), Some("42P01"));
-        assert_eq!(l.message, Some(Bytes::text("relation \"nope\" does not exist")));
-        assert_eq!(l.location.as_deref(), Some("parserOpenTable, parse_relation.c:1449"));
+        assert_eq!(
+            l.message,
+            Some(Bytes::text("relation \"nope\" does not exist"))
+        );
+        assert_eq!(
+            l.location.as_deref(),
+            Some("parserOpenTable, parse_relation.c:1449")
+        );
         assert_eq!(l.app.as_deref(), Some("psql"));
         assert_eq!(l.backend_type.as_deref(), Some("client backend"));
         assert_eq!(l.ts.as_deref(), Some("2026-09-02 10:20:41.902 PDT"));
         // Unterminated quote: the record spans lines.
         assert!(split_csv_record("a,\"multi\nline").is_none());
-        assert_eq!(split_csv_record("a,\"multi\nline\",c").unwrap(), vec!["a", "multi\nline", "c"]);
+        assert_eq!(
+            split_csv_record("a,\"multi\nline\",c").unwrap(),
+            vec!["a", "multi\nline", "c"]
+        );
         // A short record keeps raw only.
         let short = parse_csv_record("a,b,c");
         assert!(short.pid.is_none() && short.level.is_none());
@@ -1364,10 +1592,17 @@ mod tests {
 
     #[test]
     fn csv_tail_buffers_multiline_records() {
-        let mut t = Tail::new(Path::new("/nonexistent/x.csv"), Source::CsvLog, &PrefixSpec::compile(PREFIX));
+        let mut t = Tail::new(
+            Path::new("/nonexistent/x.csv"),
+            Source::CsvLog,
+            &PrefixSpec::compile(PREFIX),
+        );
         t.feed_bytes(b"2026-09-02 10:20:41.902 PDT,\"fuzz\",\"fuzz\",5,\"[local]\",x.y,3,\"SELECT\",2026-09-02 10:20:40 PDT,3/12,0,LOG,00000,\"line one\nline two\",,,,,,,,,\"psql\",\"client backend\",,0\n");
         assert_eq!(t.mark(), Mark(1));
-        assert_eq!(t.parser().lines()[0].rec.message, Some(Bytes::text("line one\nline two")));
+        assert_eq!(
+            t.parser().lines()[0].rec.message,
+            Some(Bytes::text("line one\nline two"))
+        );
         assert_eq!(t.parser().lines()[0].rec.pid, Some(5));
     }
 
@@ -1379,8 +1614,14 @@ mod tests {
         assert_eq!(l.pid, Some(41233));
         assert_eq!(l.level.as_deref(), Some("ERROR"));
         assert_eq!(l.sqlstate.as_deref(), Some("42P01"));
-        assert_eq!(l.message, Some(Bytes::text("relation \"nope\" does not exist")));
-        assert_eq!(l.location.as_deref(), Some("parserOpenTable, parse_relation.c:1449"));
+        assert_eq!(
+            l.message,
+            Some(Bytes::text("relation \"nope\" does not exist"))
+        );
+        assert_eq!(
+            l.location.as_deref(),
+            Some("parserOpenTable, parse_relation.c:1449")
+        );
         assert_eq!(l.backend_type.as_deref(), Some("client backend"));
         let bad = parse_json_record("not json");
         assert!(bad.pid.is_none());
@@ -1391,11 +1632,23 @@ mod tests {
     fn witnesses_and_signal_names() {
         assert_eq!(
             witness_of("server process (PID 41233) was terminated by signal 6: Abort trap"),
-            Some(Witness::TerminatedBySignal { pid: Some(41233), signal: "6: Abort trap".into() })
+            Some(Witness::TerminatedBySignal {
+                pid: Some(41233),
+                signal: "6: Abort trap".into()
+            })
         );
-        assert_eq!(witness_of("all server processes terminated; reinitializing"), Some(Witness::Reinitializing));
-        assert_eq!(witness_of("redo starts at 0/1A2B3C4"), Some(Witness::RedoStartsAt("0/1A2B3C4".into())));
-        assert_eq!(witness_of("database system is ready to accept connections"), Some(Witness::ReadyToAccept));
+        assert_eq!(
+            witness_of("all server processes terminated; reinitializing"),
+            Some(Witness::Reinitializing)
+        );
+        assert_eq!(
+            witness_of("redo starts at 0/1A2B3C4"),
+            Some(Witness::RedoStartsAt("0/1A2B3C4".into()))
+        );
+        assert_eq!(
+            witness_of("database system is ready to accept connections"),
+            Some(Witness::ReadyToAccept)
+        );
         assert_eq!(
             witness_of("pgrust: FATAL: server process was terminated by signal 11"),
             Some(Witness::CrashHandler("11".into()))
@@ -1408,7 +1661,11 @@ mod tests {
 
     #[test]
     fn self_test_sees_the_backend_death() {
-        let mut t = Tail::new(Path::new("/nonexistent/b.log"), Source::Stderr, &PrefixSpec::compile(PREFIX));
+        let mut t = Tail::new(
+            Path::new("/nonexistent/b.log"),
+            Source::Stderr,
+            &PrefixSpec::compile(PREFIX),
+        );
         t.feed_bytes(b"2026-09-02 10:20:41.902 PDT postmaster[1] LOG:  ready\n");
         let m0 = t.mark();
         assert_eq!(self_test_sql(27), "pgrust: crash backend 27 quit");
@@ -1429,7 +1686,11 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("fuzzgen-logtail-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("b.log");
-        std::fs::write(&path, "2026-09-02 10:20:41.902 PDT postmaster[1] LOG:  one\n").unwrap();
+        std::fs::write(
+            &path,
+            "2026-09-02 10:20:41.902 PDT postmaster[1] LOG:  one\n",
+        )
+        .unwrap();
         let mut t = Tail::new(&path, Source::Stderr, &PrefixSpec::compile(PREFIX));
         assert_eq!(t.poll().unwrap(), 1);
         assert_eq!(t.poll().unwrap(), 0);
@@ -1440,10 +1701,18 @@ mod tests {
             .write_all(b"2026-09-02 10:20:41.902 PDT postmaster[1] LOG:  two\n")
             .unwrap();
         assert_eq!(t.poll().unwrap(), 1);
-        std::fs::write(&path, "2026-09-02 10:20:41.902 PDT postmaster[1] LOG:  rotated\n").unwrap();
+        std::fs::write(
+            &path,
+            "2026-09-02 10:20:41.902 PDT postmaster[1] LOG:  rotated\n",
+        )
+        .unwrap();
         assert_eq!(t.poll().unwrap(), 1);
         assert_eq!(t.parser().lines().len(), 3);
-        let missing = Tail::new(&dir.join("absent.log"), Source::Stderr, &PrefixSpec::compile(PREFIX));
+        let missing = Tail::new(
+            &dir.join("absent.log"),
+            Source::Stderr,
+            &PrefixSpec::compile(PREFIX),
+        );
         let mut missing = missing;
         assert_eq!(missing.poll().unwrap(), 0);
         let _ = std::fs::remove_dir_all(&dir);

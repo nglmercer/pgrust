@@ -5,7 +5,11 @@ use crate::shapes::Admitted;
 
 /// ExecutorStart's `es_output_cid`, taken once at the statement's start (a cursor's DECLARE) and carried in the binding.
 pub fn output_cid(a: &Admitted) -> PgResult<u32> {
-    if a.cmd == Cmd::Select && a.program.write.lock == LockKind::None { Ok(0) } else { xact::GetCurrentCommandId(true) }
+    if a.cmd == Cmd::Select && a.program.write.lock == LockKind::None {
+        Ok(0)
+    } else {
+        xact::GetCurrentCommandId(true)
+    }
 }
 
 pub fn side_program_refusal(w: &WritePlan) -> Option<&'static str> {

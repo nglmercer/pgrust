@@ -36,6 +36,7 @@ use gravity_program::{ExprLife, ExprOut, Pipeline, Rep};
 use mcx::{CollectIn, GrowIn, PgBox, PgVec};
 use types_nodes::list::NodeList;
 
+use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::face::end::EndMech;
 use crate::face::kinds::{Face, KindId};
 use crate::face::runs::{RunReader, SlotRun, SlotRunImpl, SlotRunMech};
@@ -45,14 +46,16 @@ use crate::frame::open::OpenWords;
 use crate::frame::px::{runs_word, Px, WordKey};
 use crate::frame::row::{Carry, RowVals};
 use crate::frame::stop::Exits;
-use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::ops::Table;
 
-use crate::ops::sort::strategies::resident as res;
-use crate::ops::sort::lower::{sort_of, Arm, RunEmit, RunEnd};
 use crate::face::runs::Shape;
+use crate::ops::sort::lower::{sort_of, Arm, RunEmit, RunEnd};
+use crate::ops::sort::strategies::resident as res;
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::RunsSort, &SlotRunImpl(&SLOT))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::RunsSort, &SlotRunImpl(&SLOT))],
+    ..crate::ops::NONE
+};
 
 static SLOT: Slot = Slot;
 struct Slot;
@@ -64,7 +67,17 @@ fn shape(node: i32, why: &'static str) -> ! {
 /// Pipeline `k`'s last projection: the row a keyless run holds.
 fn cols<'g, 'p>(px: &Px<'g, 'p>, k: usize) -> &'g NodeList<'p> {
     let p = &px.gx.pipelines()[k];
-    p.ops.iter().rev().find_map(|op| if let Op::Project(l) = op { Some(*l) } else { None }).unwrap_or_else(|| shape(p.node_id, "a spooled merge inner with no projection"))
+    p.ops
+        .iter()
+        .rev()
+        .find_map(|op| {
+            if let Op::Project(l) = op {
+                Some(*l)
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| shape(p.node_id, "a spooled merge inner with no projection"))
 }
 
 /// The run a merge inner reads: its producer is a Sort or a Material (`shape_of` refuses any other by Shape), so no
@@ -83,7 +96,9 @@ impl RunKind {
     /// arm's, whose run carries its table copy (D2160) and grows resident (`m11_run_grow`: D1235).
     fn put_road(self, px: &Px<'_, '_>, k: usize) -> bool {
         match self {
-            RunKind::Sort | RunKind::Material => crate::ops::sort::lower::union_arm(&px.gx.pipelines()[k]).is_none(),
+            RunKind::Sort | RunKind::Material => {
+                crate::ops::sort::lower::union_arm(&px.gx.pipelines()[k]).is_none()
+            }
         }
     }
 }
@@ -94,13 +109,25 @@ fn shape_of(px: &Px<'_, '_>, q: usize) -> (RunKind, Shape) {
     match iface::end_breaker(px.gx, q) {
         Some(BreakerKind::Sort) => {
             let (sd, cols) = sort_of(px, q);
-            if !matches!(sd.form, SortForm::Runs) || sd.presorted > 0 || !iface::run_holds_rows(px.gx, q) {
+            if !matches!(sd.form, SortForm::Runs)
+                || sd.presorted > 0
+                || !iface::run_holds_rows(px.gx, q)
+            {
                 shape(p.node_id, "a merge inner sorted by a top, an incremental or a group sort (not one sealed run of its rows)");
             }
-            (RunKind::Sort, Shape::plan(px, p.node_id, &sd.keys, Some(sd.tlist), cols))
+            (
+                RunKind::Sort,
+                Shape::plan(px, p.node_id, &sd.keys, Some(sd.tlist), cols),
+            )
         }
-        Some(BreakerKind::Materialize) => (RunKind::Material, Shape::plan(px, p.node_id, &[], None, cols(px, q))),
-        _ => shape(p.node_id, "a merge inner that is neither a sort's run nor a spool"),
+        Some(BreakerKind::Materialize) => (
+            RunKind::Material,
+            Shape::plan(px, p.node_id, &[], None, cols(px, q)),
+        ),
+        _ => shape(
+            p.node_id,
+            "a merge inner that is neither a sort's run nor a spool",
+        ),
     }
 }
 
@@ -108,16 +135,31 @@ fn shape_of(px: &Px<'_, '_>, q: usize) -> (RunKind, Shape) {
 const PULLED_SORT: &str = "a pulled merge inner that is a Sort's run (its input read whole before its first row: no row-at-a-time fill)";
 
 /// `pulled_end`'s name for a union arm's run asked to fill as read (its arms' runs share the one slot).
-const PULLED_UNION: &str = "a pulled merge inner that is a union arm's run (its arms fill one slot)";
+const PULLED_UNION: &str =
+    "a pulled merge inner that is a union arm's run (its arms fill one slot)";
 
 /// Producer `k`'s end, its rows filled as read (`pulled`) or whole.
 fn make_end<'g>(px: &mut Px<'g, '_>, k: usize, pulled: bool) -> PgBox<'g, dyn EndMech + 'g> {
     let resident = crate::ops::sort::lower::union_arm(&px.gx.pipelines()[k]).is_some(); // D2160: a union arm's run carries its table copy
-    // D3336 (road merge.wideemit): over a wide group emit (`emit_fill`, `Px::wide`) each claim thread fills and seals its own run
+                                                                                        // D3336 (road merge.wideemit): over a wide group emit (`emit_fill`, `Px::wide`) each claim thread fills and seals its own run
     let emit = !pulled && px.wide.contains(&k);
     let wide = !pulled && (wide_fill(px, k) || emit);
-    let (arm, (run, sh)) = (Arm { keylane: false, natural: false, resident: resident || wide, finish: emit }, shape_of(px, k));
-    let w_run = px.frame_word(WordKey::Open { face: Face::Runs, k, j: u64::MAX, i: runs_word::END_RUN }) as i32 * 8; // RunEnd's own
+    let (arm, (run, sh)) = (
+        Arm {
+            keylane: false,
+            natural: false,
+            resident: resident || wide,
+            finish: emit,
+        },
+        shape_of(px, k),
+    );
+    let w_run = px.frame_word(WordKey::Open {
+        face: Face::Runs,
+        k,
+        j: u64::MAX,
+        i: runs_word::END_RUN,
+    }) as i32
+        * 8; // RunEnd's own
     let mut end = match run {
         // a Sort a merge join reads (graph.rs end_need): runs.sort's run over the sort's keys, sealed sorted at the end
         RunKind::Sort => {
@@ -135,7 +177,12 @@ fn make_end<'g>(px: &mut Px<'g, '_>, k: usize, pulled: bool) -> PgBox<'g, dyn En
     // D3190 (road merge.ksort): the sort's merge protocol lays the workers' runs as one sealed run at the close
     let wide = match (wide, iface::breaker_of(&px.gx.pipelines()[k].desc)) {
         (true, Some(br)) if end.resident => {
-            res::declare(px, k, br.slot, (!end.shape.var()).then_some((end.shape.spec, 2 * end.shape.keys.len() as u16)));
+            res::declare(
+                px,
+                k,
+                br.slot,
+                (!end.shape.var()).then_some((end.shape.spec, 2 * end.shape.keys.len() as u16)),
+            );
             fires::fire("lower.merge.ksort"); // shapecheck fire signal (D3190): a merge join's inner Sort filled wide
             if emit {
                 fires::fire("lower.merge.wideemit"); // shapecheck fire signal (D3336): ... by a group emit's claims
@@ -146,7 +193,14 @@ fn make_end<'g>(px: &mut Px<'g, '_>, k: usize, pulled: bool) -> PgBox<'g, dyn En
     };
     let outs = absent_outs(px, k);
     // a pulled end stops at its reader's want word (face/pull.rs: a merge join's, MJ-AHEAD, or a streamed set operation's)
-    let want = pulled.then(|| crate::face::pull::want_word(px, k).unwrap_or_else(|| shape(px.gx.pipelines()[k].node_id, "a pulled run with no step pulling it")));
+    let want = pulled.then(|| {
+        crate::face::pull::want_word(px, k).unwrap_or_else(|| {
+            shape(
+                px.gx.pipelines()[k].node_id,
+                "a pulled run with no step pulling it",
+            )
+        })
+    });
     let put = !pulled && !wide && run.put_road(px, k);
     // C10: a run neither put nor laid wide grows resident past its grant (`m11_run_grow`): a pulled fill's, else a union
     // arm's (`put_road` puts every other run of either kind)
@@ -211,14 +265,30 @@ impl SlotRunMech for Slot {
         make_end(px, k, true)
     }
 
-    fn pulled_reader<'g>(&self, px: &mut Px<'g, '_>, k: usize, slot: u8) -> PgBox<'g, dyn SlotRun + 'g> {
+    fn pulled_reader<'g>(
+        &self,
+        px: &mut Px<'g, '_>,
+        k: usize,
+        slot: u8,
+    ) -> PgBox<'g, dyn SlotRun + 'g> {
         let node = px.gx.pipelines()[k].node_id;
         let (Some(life), Some(i)) = (px.gx.life_of(k, slot), px.consumed(k, slot)) else {
-            crate::refuse!(node, Reason::Bug { payload: "a pulled slot run reader of a slot its pipeline does not consume" })
+            crate::refuse!(
+                node,
+                Reason::Bug {
+                    payload: "a pulled slot run reader of a slot its pipeline does not consume"
+                }
+            )
         };
         let q = life.0 as usize; // its end is `pulled_end`'s (a Sort's run refused there)
         let emit = RunEmit::over(px, k, shape_of(px, q).1);
-        let w_base = px.frame_word(WordKey::Open { face: Face::Runs, k, j: crate::frame::px::key_j(usize::MAX - 1 - slot as usize), i: runs_word::SLOT_BASE }) as i32 * 8;
+        let w_base = px.frame_word(WordKey::Open {
+            face: Face::Runs,
+            k,
+            j: crate::frame::px::key_j(usize::MAX - 1 - slot as usize),
+            i: runs_word::SLOT_BASE,
+        }) as i32
+            * 8;
         let lean = crate::ops::mergejoin::exact_inner::lean_view(px, q);
         let sh = shape_of(px, q).1;
         mcx::pg_box_dyn!(px.mcx(), Pulled { sh, emit, i: i as u64, w_base, lean } => dyn SlotRun + 'g)
@@ -227,7 +297,12 @@ impl SlotRunMech for Slot {
     fn reader<'g>(&self, px: &mut Px<'g, '_>, k: usize, slot: u8) -> PgBox<'g, dyn SlotRun + 'g> {
         let node = px.gx.pipelines()[k].node_id;
         let (Some(life), Some(i)) = (px.gx.life_of(k, slot), px.consumed(k, slot)) else {
-            crate::refuse!(node, Reason::Bug { payload: "a slot run reader of a slot its pipeline does not consume" })
+            crate::refuse!(
+                node,
+                Reason::Bug {
+                    payload: "a slot run reader of a slot its pipeline does not consume"
+                }
+            )
         };
         // the emit's cell mapping over the same shape (its words are the emit's own and stay unread here)
         let (run, emit_sh) = shape_of(px, life.0 as usize);
@@ -236,7 +311,11 @@ impl SlotRunMech for Slot {
         let put = run.put_road(px, life.0 as usize);
         let cosplit = crate::face::cosplit::of(px, k); // D3190: a co-split claim reads its slice of the run
         let sh = shape_of(px, life.0 as usize).1;
-        crate::ops::sort::sort_noproc::wrap(px.gx, life.0 as usize, mcx::pg_box_dyn!(px.mcx(), Reader { sh, emit, i: i as u64, slot, base: Once::new(None), lean, put, opened: Once::new(None), cosplit } => dyn SlotRun + 'g))
+        crate::ops::sort::sort_noproc::wrap(
+            px.gx,
+            life.0 as usize,
+            mcx::pg_box_dyn!(px.mcx(), Reader { sh, emit, i: i as u64, slot, base: Once::new(None), lean, put, opened: Once::new(None), cosplit } => dyn SlotRun + 'g),
+        )
     }
 }
 
@@ -244,7 +323,16 @@ impl SlotRunMech for Slot {
 /// pulled (jmerge-0012): each row pointed as stored and a resumable stop once the run holds the merge's want (its word);
 /// a Sort's or a Material's (`RunKind::put_road`, D3105 (b)): grown within its owner's limit, else put; a wide Sort's
 /// (`wide_fill`, D3190): runs.sort's own end on every worker, a full share put.
-struct Spool<'g>(RunEnd, i32, Shape, PgVec<'g, ExprOut>, Option<i32>, bool, bool, Option<NoSpill>);
+struct Spool<'g>(
+    RunEnd,
+    i32,
+    Shape,
+    PgVec<'g, ExprOut>,
+    Option<i32>,
+    bool,
+    bool,
+    Option<NoSpill>,
+);
 
 /// D1521: each run column's cell facts, for a column the pipeline never loaded. A Materialize keeps its scan's physical
 /// target list, so a column no reader of the run reads has no lane (the site loads what is read): the run holds it NULL.
@@ -253,28 +341,63 @@ fn absent_outs<'g>(px: &Px<'g, '_>, k: usize) -> PgVec<'g, ExprOut> {
         Some(BreakerKind::Sort) => sort_of(px, k).1,
         _ => cols(px, k),
     };
-    cols.iter().filter_map(|n| n.as_target_entry()).map(|te| {
-        let typ = gravity_decompose::catalog::expr_type::type_of(te.expr).unwrap_or_else(|| gravity_decompose::catalog::expr_type::result_type(te.expr));
-        let tf = gravity_decompose::catalog::typefacts::facts_of(px.gx.facts, typ).unwrap_or_else(|| shape(px.gx.pipelines()[k].node_id, "a spooled column whose type the catalog does not know"));
-        ExprOut { rep: gravity_program::OutCol::new("", typ, -1, tf.typlen, tf.byval).rep, typid: typ, life: ExprLife::Row }
-    }).collect_in(px.mcx())
+    cols.iter()
+        .filter_map(|n| n.as_target_entry())
+        .map(|te| {
+            let typ = gravity_decompose::catalog::expr_type::type_of(te.expr)
+                .unwrap_or_else(|| gravity_decompose::catalog::expr_type::result_type(te.expr));
+            let tf = gravity_decompose::catalog::typefacts::facts_of(px.gx.facts, typ)
+                .unwrap_or_else(|| {
+                    shape(
+                        px.gx.pipelines()[k].node_id,
+                        "a spooled column whose type the catalog does not know",
+                    )
+                });
+            ExprOut {
+                rep: gravity_program::OutCol::new("", typ, -1, tf.typlen, tf.byval).rep,
+                typid: typ,
+                life: ExprLife::Row,
+            }
+        })
+        .collect_in(px.mcx())
 }
 
 /// `row` with each run column it lacks as a NULL cell of its own (D1521: never read, so any word stands for it).
-fn with_absent<'r>(b: &mut FunctionBuilder<'_>, row: &RowVals<'r>, outs: &[ExprOut]) -> Option<RowVals<'r>> {
+fn with_absent<'r>(
+    b: &mut FunctionBuilder<'_>,
+    row: &RowVals<'r>,
+    outs: &[ExprOut],
+) -> Option<RowVals<'r>> {
     if !(0..outs.len()).any(|c| row.col(c as i16 + 1).is_none()) {
         return None;
     }
-    let (mut cells, mut vals, mut cols) = (row.row.cells.clone(), row.vals.clone(), row.cols.clone());
+    let (mut cells, mut vals, mut cols) =
+        (row.row.cells.clone(), row.vals.clone(), row.cols.clone());
     cols.resize_in(outs.len().max(cols.len()), None);
     let t = b.bconst(true);
     for c in (0..outs.len()).filter(|&c| row.col(c as i16 + 1).is_none()) {
-        let ty = if matches!(outs[c].rep, Rep::Word { .. }) { Type::I64 } else { Type::Ptr };
+        let ty = if matches!(outs[c].rep, Rep::Word { .. }) {
+            Type::I64
+        } else {
+            Type::Ptr
+        };
         cols[c] = Some(cells.len() as u16);
-        cells.push_in(crate::cell::Cell::of_expr(outs[c], 0, 0, crate::cell::Nullable::Maybe));
+        cells.push_in(crate::cell::Cell::of_expr(
+            outs[c],
+            0,
+            0,
+            crate::cell::Nullable::Maybe,
+        ));
         vals.push_in((b.const_raw(ty, 0), Some(t)));
     }
-    Some(RowVals { row: crate::cell::Row { cells }, vals, cols, carry: row.carry.copy_in(*row.vals.allocator()), next: row.next, at: row.at })
+    Some(RowVals {
+        row: crate::cell::Row { cells },
+        vals,
+        cols,
+        carry: row.carry.copy_in(*row.vals.allocator()),
+        next: row.next,
+        at: row.at,
+    })
 }
 
 impl<'g> EndMech for Spool<'g> {
@@ -288,37 +411,61 @@ impl<'g> EndMech for Spool<'g> {
     /// resident (`m11_run_grow`, the driver's D254 region_grow) and the row is written again at the new base. D3105 (b): a
     /// Sort's or a Material's run grows only within its owner's limit, else it is put (face/slot_window.rs `full`), the
     /// merge reading the runs merged.
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, _x: &Exits) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        _x: &Exits,
+    ) -> Carry<'e> {
         let filled = with_absent(b, row, &self.3[..]);
         let pulled = self.4.is_some();
-        let carry = self.0.append(b, env, filled.as_ref().unwrap_or(row), &mut |b, env, _| {
-            if self.6 {
-                return self.0.put(b, env, false);
-            }
-            if self.5 {
-                let tbl = self.2.table(b);
-                return crate::face::slot_window::full(b, env, &self.0, self.1, tbl);
-            }
-            let (run, tbl) = (self.0.run(b, env), self.2.table(b));
-            let h = res::host(b, "m11_run_grow", &[Type::Ptr, Type::Ptr, Type::Ptr], Type::I64, gravity_abi::host_words!(h11::m11_run_grow(ctx, run, tbl)));
-            let nb = b.call_host(h, &[env.ctx, run, tbl], Some(Type::I64)).expect("m11_run_grow returns the base");
-            let (l_ok, l_bad, l_oom) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));
-            let grown = b.icmp(IntCond::Sgt, nb, env.zero);
-            b.cond_br(grown, (l_ok, &[]), (l_bad, &[]));
-            b.switch_to(l_bad);
-            let oom = b.icmp(IntCond::Eq, nb, env.zero);
-            b.cond_br(oom, (l_oom, &[]), (env.x.l_exit, &[nb]));
-            b.switch_to(l_oom);
-            let e = b.iconst(Type::I64, raise::bit(raise::HOST) as i64);
-            b.br(env.l_raise, &[e]);
-            b.switch_to(l_ok);
-            env.store_word(b, self.1, nb);
-            if pulled {
-                // the rows and the var copies moved: every stored row pointed again where it lies now
-                let (run, tbl, from) = (b.conv(ConvOp::IntToPtr, Type::Ptr, nb), self.2.table(b), env.zero);
-                point(b, env, run, tbl, from);
-            }
-        });
+        let carry = self
+            .0
+            .append(b, env, filled.as_ref().unwrap_or(row), &mut |b, env, _| {
+                if self.6 {
+                    return self.0.put(b, env, false);
+                }
+                if self.5 {
+                    let tbl = self.2.table(b);
+                    return crate::face::slot_window::full(b, env, &self.0, self.1, tbl);
+                }
+                let (run, tbl) = (self.0.run(b, env), self.2.table(b));
+                let h = res::host(
+                    b,
+                    "m11_run_grow",
+                    &[Type::Ptr, Type::Ptr, Type::Ptr],
+                    Type::I64,
+                    gravity_abi::host_words!(h11::m11_run_grow(ctx, run, tbl)),
+                );
+                let nb = b
+                    .call_host(h, &[env.ctx, run, tbl], Some(Type::I64))
+                    .expect("m11_run_grow returns the base");
+                let (l_ok, l_bad, l_oom) = (
+                    b.create_block(&[]),
+                    b.create_block(&[]),
+                    b.create_block(&[]),
+                );
+                let grown = b.icmp(IntCond::Sgt, nb, env.zero);
+                b.cond_br(grown, (l_ok, &[]), (l_bad, &[]));
+                b.switch_to(l_bad);
+                let oom = b.icmp(IntCond::Eq, nb, env.zero);
+                b.cond_br(oom, (l_oom, &[]), (env.x.l_exit, &[nb]));
+                b.switch_to(l_oom);
+                let e = b.iconst(Type::I64, raise::bit(raise::HOST) as i64);
+                b.br(env.l_raise, &[e]);
+                b.switch_to(l_ok);
+                env.store_word(b, self.1, nb);
+                if pulled {
+                    // the rows and the var copies moved: every stored row pointed again where it lies now
+                    let (run, tbl, from) = (
+                        b.conv(ConvOp::IntToPtr, Type::Ptr, nb),
+                        self.2.table(b),
+                        env.zero,
+                    );
+                    point(b, env, run, tbl, from);
+                }
+            });
         if let Some(w_want) = self.4 {
             // jmerge-0012: the row just stored pointed (its reader reads it before any seal), then a resumable stop once the
             // run holds the merge's want: the pull that resumed the fill has its rows (MJ-AHEAD: a budget's)
@@ -327,7 +474,11 @@ impl<'g> EndMech for Spool<'g> {
             let last = b.int_bin(IntBinOp::Sub, len, env.one);
             point(b, env, run, tbl, last);
             let want = env.load_word(b, w_want);
-            let (l_stop, l_on, full) = (b.create_block(&[]), b.create_block(&[]), b.icmp(IntCond::Sge, len, want));
+            let (l_stop, l_on, full) = (
+                b.create_block(&[]),
+                b.create_block(&[]),
+                b.icmp(IntCond::Sge, len, want),
+            );
             b.cond_br(full, (l_stop, &[]), (l_on, &[]));
             b.switch_to(l_stop);
             let st = b.iconst(Type::I64, gravity_abi::status::suspend(false));
@@ -342,9 +493,19 @@ impl<'g> EndMech for Spool<'g> {
     /// One worker fills the run, so its last run is sealed in place in arrival order; a wide Sort's (D3190, merge.ksort)
     /// runs on every worker, its pipeline runs.sort's.
     fn pipeline_desc(&self, px: &Px<'_, '_>, k: usize, d: Pipeline) -> Pipeline {
-        let shape = if self.6 { gravity_program::StepShape::MergeInnerWide } else { gravity_program::StepShape::MergeInnerRun };
+        let shape = if self.6 {
+            gravity_program::StepShape::MergeInnerWide
+        } else {
+            gravity_program::StepShape::MergeInnerRun
+        };
         let d = match gravity_program::step_serial(&shape) {
-            Some(reason) if d.is_eligible() => Pipeline { parallel: gravity_program::Parallel::Ineligible { site: d.driving_site, reason }, ..d },
+            Some(reason) if d.is_eligible() => Pipeline {
+                parallel: gravity_program::Parallel::Ineligible {
+                    site: d.driving_site,
+                    reason,
+                },
+                ..d
+            },
             _ if self.6 => self.0.pipeline_desc(px, k, d),
             _ => d,
         };
@@ -374,14 +535,29 @@ impl SlotRun for Reader {
     fn open(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, x: &Exits) -> Value {
         if self.put || self.cosplit.is_some() {
             let full = self.sh.table(b);
-            let view = if self.lean { view_table(b, &self.sh, true) } else { full };
+            let view = if self.lean {
+                view_table(b, &self.sh, true)
+            } else {
+                full
+            };
             let (o, rows) = match self.cosplit {
                 Some(w) => {
-                    let r = crate::face::cosplit::range(b, env, w, crate::face::cosplit::Side::Inner);
-                    crate::face::slot_window::open_slice(b, env, x, self.i, (view, full), !self.lean, r, self.sh.row_bytes)
+                    let r =
+                        crate::face::cosplit::range(b, env, w, crate::face::cosplit::Side::Inner);
+                    crate::face::slot_window::open_slice(
+                        b,
+                        env,
+                        x,
+                        self.i,
+                        (view, full),
+                        !self.lean,
+                        r,
+                        self.sh.row_bytes,
+                    )
                 }
                 None => {
-                    let o = crate::face::slot_window::open(b, env, x, self.i, (view, full), !self.lean);
+                    let o =
+                        crate::face::slot_window::open(b, env, x, self.i, (view, full), !self.lean);
                     (o, b.load_zext(Type::I32, o.run, 4)) // SortRun::len, the window's rows
                 }
             };
@@ -389,9 +565,20 @@ impl SlotRun for Reader {
             return rows;
         }
         let tbl = view_table(b, &self.sh, self.lean);
-        let h = res::host(b, "m11_run_view", &[Type::Ptr, Type::I64, Type::Ptr, Type::I64], Type::Ptr, gravity_abi::host_words!(h11::m11_run_view(ctx, k, tbl, slot)));
-        let (i, slot) = (b.iconst(Type::I64, self.i as i64), b.iconst(Type::I64, self.slot as i64));
-        let run = b.call_host(h, &[env.ctx, i, tbl, slot], Some(Type::Ptr)).expect("m11_run_view returns the run");
+        let h = res::host(
+            b,
+            "m11_run_view",
+            &[Type::Ptr, Type::I64, Type::Ptr, Type::I64],
+            Type::Ptr,
+            gravity_abi::host_words!(h11::m11_run_view(ctx, k, tbl, slot)),
+        );
+        let (i, slot) = (
+            b.iconst(Type::I64, self.i as i64),
+            b.iconst(Type::I64, self.slot as i64),
+        );
+        let run = b
+            .call_host(h, &[env.ctx, i, tbl, slot], Some(Type::Ptr))
+            .expect("m11_run_view returns the run");
         let ri = b.conv(ConvOp::PtrToInt, Type::I64, run);
         let (bad, l_ok) = (b.icmp(IntCond::Slt, ri, env.zero), b.create_block(&[]));
         b.cond_br(bad, (x.l_exit, &[ri]), (l_ok, &[]));
@@ -402,16 +589,38 @@ impl SlotRun for Reader {
 
     fn fetch(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, j: Value) -> Value {
         if self.put || self.cosplit.is_some() {
-            let Some(o) = self.opened.get() else { crate::refuse!(env.node, Reason::Bug { payload: "a slot run row before its open" }) };
+            let Some(o) = self.opened.get() else {
+                crate::refuse!(
+                    env.node,
+                    Reason::Bug {
+                        payload: "a slot run row before its open"
+                    }
+                )
+            };
             return crate::face::slot_window::fetch(b, env, o, self.sh.row_bytes, j);
         }
-        let Some(base) = self.base.get() else { crate::refuse!(env.node, Reason::Bug { payload: "a slot run row before its open" }) };
+        let Some(base) = self.base.get() else {
+            crate::refuse!(
+                env.node,
+                Reason::Bug {
+                    payload: "a slot run row before its open"
+                }
+            )
+        };
         let rb = b.iconst(Type::I64, self.sh.row_bytes as i64);
         let off = b.int_bin(IntBinOp::Mul, j, rb);
         b.ptr_add(base, off, 1, SORTRUN_HDR as i32)
     }
 
-    fn vals<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, p: Value, carry: Carry<'e>, next: Value, at: Value) -> RowVals<'e> {
+    fn vals<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        p: Value,
+        carry: Carry<'e>,
+        next: Value,
+        at: Value,
+    ) -> RowVals<'e> {
         RunReader::vals(&self.emit, b, env, p, carry, next, at)
     }
 
@@ -431,12 +640,28 @@ fn view_table(b: &mut FunctionBuilder<'_>, sh: &Shape, lean: bool) -> Value {
     if !lean {
         return sh.table(b);
     }
-    crate::face::runs::stack_words(b, &[sh.row_bytes, 2 * sh.keys.len() as u32, sh.cols.len() as u32, 0, sh.spec as u32, (sh.spec >> 32) as u32])
+    crate::face::runs::stack_words(
+        b,
+        &[
+            sh.row_bytes,
+            2 * sh.keys.len() as u32,
+            sh.cols.len() as u32,
+            0,
+            sh.spec as u32,
+            (sh.spec >> 32) as u32,
+        ],
+    )
 }
 
 /// `SpoolPoint(ctx, run, tbl, from)`: rows `[from, len)` of a pulled run pointed at their images.
 fn point(b: &mut FunctionBuilder<'_>, env: &Env, run: Value, tbl: Value, from: Value) {
-    let h = res::host(b, "spool_point", &[Type::Ptr, Type::Ptr, Type::Ptr, Type::I64], Type::I64, gravity_kernels::contract::entry3::<h3::SpoolPoint> as *const () as usize);
+    let h = res::host(
+        b,
+        "spool_point",
+        &[Type::Ptr, Type::Ptr, Type::Ptr, Type::I64],
+        Type::I64,
+        gravity_kernels::contract::entry3::<h3::SpoolPoint> as *const () as usize,
+    );
     let _ = b.call_host(h, &[env.ctx, run, tbl, from], Some(Type::I64));
 }
 
@@ -453,9 +678,17 @@ impl SlotRun for Pulled {
     /// `SpoolLive(ctx, i, tbl)`: the run as stored now (an error leaves by `x.l_exit`), its base kept, its row count.
     fn open(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, x: &Exits) -> Value {
         let tbl = view_table(b, &self.sh, self.lean);
-        let h = res::host(b, "spool_live", &[Type::Ptr, Type::I64, Type::Ptr], Type::Ptr, gravity_kernels::contract::entry2::<h3::SpoolLive> as *const () as usize);
+        let h = res::host(
+            b,
+            "spool_live",
+            &[Type::Ptr, Type::I64, Type::Ptr],
+            Type::Ptr,
+            gravity_kernels::contract::entry2::<h3::SpoolLive> as *const () as usize,
+        );
         let i = b.iconst(Type::I64, self.i as i64);
-        let run = b.call_host(h, &[env.ctx, i, tbl], Some(Type::Ptr)).expect("spool_live returns the run");
+        let run = b
+            .call_host(h, &[env.ctx, i, tbl], Some(Type::Ptr))
+            .expect("spool_live returns the run");
         let ri = b.conv(ConvOp::PtrToInt, Type::I64, run);
         let (bad, l_ok) = (b.icmp(IntCond::Slt, ri, env.zero), b.create_block(&[]));
         b.cond_br(bad, (x.l_exit, &[ri]), (l_ok, &[]));
@@ -473,7 +706,15 @@ impl SlotRun for Pulled {
         b.ptr_add(base, off, 1, SORTRUN_HDR as i32)
     }
 
-    fn vals<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, p: Value, carry: Carry<'e>, next: Value, at: Value) -> RowVals<'e> {
+    fn vals<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        p: Value,
+        carry: Carry<'e>,
+        next: Value,
+        at: Value,
+    ) -> RowVals<'e> {
         RunReader::vals(&self.emit, b, env, p, carry, next, at)
     }
 }

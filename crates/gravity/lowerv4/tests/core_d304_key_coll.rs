@@ -17,7 +17,9 @@ fn fixture(name: &str) -> String {
 fn strnxfrm(name: &str, text: &str) -> bool {
     match common::lower_fixture(text) {
         Some(Ok(l)) => l.l.ir.host_fns.iter().any(|h| h.name == "text_strnxfrm"),
-        Some(Err(e)) => panic!("{name} refused {e}: a nondeterministic key is key.coll's image (D823)"),
+        Some(Err(e)) => {
+            panic!("{name} refused {e}: a nondeterministic key is key.coll's image (D823)")
+        }
         None => panic!("{name}: decompose declined the fixture"),
     }
 }
@@ -27,21 +29,34 @@ fn strnxfrm(name: &str, text: &str) -> bool {
 fn keys_by_sort_key(cases: &[(&str, &str, &str)]) {
     for &(name, from, to) in cases {
         let text = fixture(name);
-        assert!(!strnxfrm(name, &text), "{name} under its own collation keys by its bytes");
+        assert!(
+            !strnxfrm(name, &text),
+            "{name} under its own collation keys by its bytes"
+        );
         let ci = text.replace(from, to);
         assert_ne!(ci, text, "{name}: no {from:?} to swap");
-        assert!(strnxfrm(name, &ci), "{name} under a nondeterministic collation is keyed by its bytes (D304)");
+        assert!(
+            strnxfrm(name, &ci),
+            "{name} under a nondeterministic collation is keyed by its bytes (D304)"
+        );
     }
 }
 
 /// keyed.distinct_plain: count(DISTINCT <text column>) (aggs-041 under the database default, fieldobs-010 under "C").
 #[test]
 fn a_distinct_key_under_a_nondeterministic_collation_keys_by_its_sort_key() {
-    keys_by_sort_key(&[("aggs-041", ":inputcollid 100", ":inputcollid 16390"), ("fieldobs-010", ":inputcollid 950", ":inputcollid 16390")]);
+    keys_by_sort_key(&[
+        ("aggs-041", ":inputcollid 100", ":inputcollid 16390"),
+        ("fieldobs-010", ":inputcollid 950", ":inputcollid 16390"),
+    ]);
 }
 
 /// keyed.hashagg's record (GroupRec::new, every keyed end's) over a group key: fieldobs-044's derived text key (a regexp host), under "C".
 #[test]
 fn a_group_key_under_a_nondeterministic_collation_keys_by_its_sort_key() {
-    keys_by_sort_key(&[("fieldobs-044", ":grpCollations ( 950)", ":grpCollations ( 16390)")]);
+    keys_by_sort_key(&[(
+        "fieldobs-044",
+        ":grpCollations ( 950)",
+        ":grpCollations ( 16390)",
+    )]);
 }

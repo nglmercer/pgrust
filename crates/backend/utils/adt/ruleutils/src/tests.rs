@@ -169,21 +169,21 @@ fn install() {
                 attisdropped: false,
             }))
         });
-        s::pg_class_relname::set(|relid| {
-            Ok((relid == REL_OID).then(|| name("orders")))
-        });
+        s::pg_class_relname::set(|relid| Ok((relid == REL_OID).then(|| name("orders"))));
         s::lookup_pg_class_ls_shape::set(|relid| {
-            Ok((relid == REL_OID).then_some( syscache_seams::PgClassLsShape {
-                relnamespace: 2200,
-                reltype: 0,
-                relam: 0,
-                reltablespace: 0,
-                relnatts: 2,
-                relkind: b'r' as i8,
-                relpersistence: b'p' as i8,
-                relispartition: false,
-                relhassubclass: false,
-            }))
+            Ok(
+                (relid == REL_OID).then_some(syscache_seams::PgClassLsShape {
+                    relnamespace: 2200,
+                    reltype: 0,
+                    relam: 0,
+                    reltablespace: 0,
+                    relnatts: 2,
+                    relkind: b'r' as i8,
+                    relpersistence: b'p' as i8,
+                    relispartition: false,
+                    relhassubclass: false,
+                }),
+            )
         });
         namespace_seams::type_is_visible::set(|_| Ok(true));
         // AcquireRewriteLocks (rewriteHandler.c) as the deparser reaches it:
@@ -193,7 +193,8 @@ fn install() {
             assert_eq!(lockmode, types_rel::AccessShareLock);
             if relid != REL_OID {
                 return Err(PgError::error("canceling statement due to lock timeout")
-                    .with_sqlstate(types_error::ERRCODE_LOCK_NOT_AVAILABLE).into());
+                    .with_sqlstate(types_error::ERRCODE_LOCK_NOT_AVAILABLE)
+                    .into());
             }
             Ok(test_relation(mcx, relid))
         });
@@ -282,25 +283,40 @@ const CONST_TEXT_YEAR: &str = "{CONST :consttype 25 :consttypmod -1 :constcollid
 const CONST_TEXT_YEAR_MIXED: &str = "{CONST :consttype 25 :consttypmod -1 :constcollid 100 \
      :constlen -1 :constbyval false :constisnull false :location -1 \
      :constvalue 8 [ 32 0 0 0 89 101 97 114 ]}";
-const CONST_TEXT_INJECT: &str = "{CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 \
+const CONST_TEXT_INJECT: &str =
+    "{CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 \
      :constbyval false :constisnull false :location -1 \
      :constvalue 19 [ 76 0 0 0 121 101 97 114 32 70 82 79 77 32 120 41 32 45 45 ]}";
-const CONST_TEXT_DQUOTE: &str = "{CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 \
+const CONST_TEXT_DQUOTE: &str =
+    "{CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 \
      :constbyval false :constisnull false :location -1 :constvalue 7 [ 28 0 0 0 97 34 98 ]}";
 
 fn extract_expr(field: &str) -> String {
-    expr(&format!("{EXTRACT_FUNCEXPR_HEAD}{field} {CONST_NEG5}) :location -1}}"), 0, false)
+    expr(
+        &format!("{EXTRACT_FUNCEXPR_HEAD}{field} {CONST_NEG5}) :location -1}}"),
+        0,
+        false,
+    )
 }
 
 #[test]
 fn extract_field_name_deparses_as_quoted_identifier() {
-    assert_eq!(extract_expr(CONST_TEXT_YEAR), "EXTRACT(year FROM '-5'::integer)");
-    assert_eq!(extract_expr(CONST_TEXT_YEAR_MIXED), "EXTRACT(\"Year\" FROM '-5'::integer)");
+    assert_eq!(
+        extract_expr(CONST_TEXT_YEAR),
+        "EXTRACT(year FROM '-5'::integer)"
+    );
+    assert_eq!(
+        extract_expr(CONST_TEXT_YEAR_MIXED),
+        "EXTRACT(\"Year\" FROM '-5'::integer)"
+    );
     assert_eq!(
         extract_expr(CONST_TEXT_INJECT),
         "EXTRACT(\"year FROM x) --\" FROM '-5'::integer)"
     );
-    assert_eq!(extract_expr(CONST_TEXT_DQUOTE), "EXTRACT(\"a\"\"b\" FROM '-5'::integer)");
+    assert_eq!(
+        extract_expr(CONST_TEXT_DQUOTE),
+        "EXTRACT(\"a\"\"b\" FROM '-5'::integer)"
+    );
 }
 
 // deparse_expression_pretty directly: pg_get_expr_worker's relation probe
@@ -314,29 +330,43 @@ fn expr_with_rel(nodetree: &str, pretty: bool) -> String {
 
 #[test]
 fn booltest_nulltest_deparse_matches_c() {
-    assert_eq!(expr_with_rel(BOOL_NULLTEST, false), "((id IS NOT NULL) AND (NOT (qty IS NULL)))");
-    assert_eq!(expr_with_rel(BOOL_NULLTEST, true), "id IS NOT NULL AND NOT qty IS NULL");
+    assert_eq!(
+        expr_with_rel(BOOL_NULLTEST, false),
+        "((id IS NOT NULL) AND (NOT (qty IS NULL)))"
+    );
+    assert_eq!(
+        expr_with_rel(BOOL_NULLTEST, true),
+        "id IS NOT NULL AND NOT qty IS NULL"
+    );
 }
 
 #[test]
 fn expr_with_var_and_no_relation_errors() {
     install();
     let ctx = MemoryContext::new("ruleutils test");
-    let err = pg_get_expr_worker(ctx.mcx(), BOOL_NULLTEST, 0, PRETTYFLAG_INDENT).err().unwrap();
+    let err = pg_get_expr_worker(ctx.mcx(), BOOL_NULLTEST, 0, PRETTYFLAG_INDENT)
+        .err()
+        .unwrap();
     assert_eq!(err.sqlstate(), ERRCODE_INVALID_PARAMETER_VALUE);
 }
 
 #[test]
 fn pretty_flags_match_c() {
     assert_eq!(get_pretty_flags(false), PRETTYFLAG_INDENT);
-    assert_eq!(get_pretty_flags(true), PRETTYFLAG_PAREN | PRETTYFLAG_INDENT | PRETTYFLAG_SCHEMA);
+    assert_eq!(
+        get_pretty_flags(true),
+        PRETTYFLAG_PAREN | PRETTYFLAG_INDENT | PRETTYFLAG_SCHEMA
+    );
 }
 
 #[test]
 fn quote_qualified() {
     assert_eq!(quote_qualified_identifier(None, "foo"), "foo");
     assert_eq!(quote_qualified_identifier(Some("public"), "t"), "public.t");
-    assert_eq!(quote_qualified_identifier(Some("Wei rd"), "a\"b"), "\"Wei rd\".\"a\"\"b\"");
+    assert_eq!(
+        quote_qualified_identifier(Some("Wei rd"), "a\"b"),
+        "\"Wei rd\".\"a\"\"b\""
+    );
     assert_eq!(quote_qualified_identifier(None, "select"), "\"select\"");
 }
 
@@ -403,7 +433,10 @@ fn deparse_view_action(action: &str, attnames: &[&str]) -> String {
 #[test]
 fn viewdef_select_1_matches_c() {
     let action = include_str!("fixtures/v1_action.txt");
-    assert_eq!(deparse_view_action(action, &["?column?"]), " SELECT 1 AS \"?column?\";");
+    assert_eq!(
+        deparse_view_action(action, &["?column?"]),
+        " SELECT 1 AS \"?column?\";"
+    );
 }
 
 #[test]
@@ -459,7 +492,9 @@ fn unsupported_rule_event_type_is_ereport_0a000() {
 #[test]
 fn deparse_too_many_arguments_is_ereport_54023() {
     super::deparse::check_deparse_nargs(FUNC_MAX_ARGS).unwrap();
-    let err = super::deparse::check_deparse_nargs(FUNC_MAX_ARGS + 1).err().unwrap();
+    let err = super::deparse::check_deparse_nargs(FUNC_MAX_ARGS + 1)
+        .err()
+        .unwrap();
     assert_eq!(err.sqlstate(), ERRCODE_TOO_MANY_ARGUMENTS);
     assert_eq!(err.message(), "too many arguments");
 }
@@ -494,7 +529,10 @@ fn agg_deparse_with_too_many_arguments_is_ereport_54023() {
     };
     let err = deparse_err(FUNC_MAX_ARGS);
     assert_eq!(err.sqlstate(), ERRCODE_TOO_MANY_ARGUMENTS);
-    assert_eq!(err.message(), "aggregates cannot have more than 99 arguments");
+    assert_eq!(
+        err.message(),
+        "aggregates cannot have more than 99 arguments"
+    );
     // FUNC_MAX_ARGS-1 passes the guard and reaches the function-name lookup.
     let err = deparse_err(FUNC_MAX_ARGS - 1);
     assert_eq!(err.message(), "cache lookup failed for function 5002");
@@ -509,8 +547,16 @@ fn agg_deparse_with_too_many_arguments_is_ereport_54023() {
 #[test]
 fn ruleutils_cache_lookup_failures_are_catchable_xx000() {
     for (what, oid, expected) in [
-        ("tablespace", 1663u32, "cache lookup failed for tablespace 1663"),
-        ("constraint", 16384, "cache lookup failed for constraint 16384"),
+        (
+            "tablespace",
+            1663u32,
+            "cache lookup failed for tablespace 1663",
+        ),
+        (
+            "constraint",
+            16384,
+            "cache lookup failed for constraint 16384",
+        ),
     ] {
         let e = cache_lookup_failed(what, oid);
         assert_eq!(e.message(), expected);
@@ -532,7 +578,11 @@ mod serial_sequence {
             miscinit_seams::get_user_id::set(|| 10);
             aclchk_seams::object_aclcheck::set(|_classid, _objid, _roleid, _mode| Ok(0));
             syscache_seams::lookup_pg_namespace_oid_by_name::set(|nspname| {
-                Ok(if nspname == "public" { NS_PUBLIC } else { InvalidOid })
+                Ok(if nspname == "public" {
+                    NS_PUBLIC
+                } else {
+                    InvalidOid
+                })
             });
             syscache_seams::lookup_pg_class_relid_by_name::set(|relname, nsp| {
                 Ok(match (relname, nsp) {
@@ -552,11 +602,31 @@ mod serial_sequence {
         install_name_lookups();
         let ctx = MemoryContext::new("t");
         let cases: [(&[u8], &[u8], &str); 5] = [
-            (b"public.t_ser", b"nope", "column \"nope\" of relation \"t_ser\" does not exist"),
-            (b" public . t_ser ", b"nope", "column \"nope\" of relation \"t_ser\" does not exist"),
-            (b"PUBLIC.T_SER", b"nope", "column \"nope\" of relation \"t_ser\" does not exist"),
-            (b"public.\"T_Ser\"", b"nope", "column \"nope\" of relation \"T_Ser\" does not exist"),
-            (b"public.t_ser", b"\xE9", "column \"\u{FFFD}\" of relation \"t_ser\" does not exist"),
+            (
+                b"public.t_ser",
+                b"nope",
+                "column \"nope\" of relation \"t_ser\" does not exist",
+            ),
+            (
+                b" public . t_ser ",
+                b"nope",
+                "column \"nope\" of relation \"t_ser\" does not exist",
+            ),
+            (
+                b"PUBLIC.T_SER",
+                b"nope",
+                "column \"nope\" of relation \"t_ser\" does not exist",
+            ),
+            (
+                b"public.\"T_Ser\"",
+                b"nope",
+                "column \"nope\" of relation \"T_Ser\" does not exist",
+            ),
+            (
+                b"public.t_ser",
+                b"\xE9",
+                "column \"\u{FFFD}\" of relation \"t_ser\" does not exist",
+            ),
         ];
         for (table, column, msg) in cases {
             let err = pg_get_serial_sequence_worker(ctx.mcx(), table, column).unwrap_err();
@@ -664,8 +734,11 @@ fn lcs_none_and_setop_none_are_elog_errors() {
     assert_eq!(err.message(), "unrecognized LockClauseStrength 0");
     assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
 
-    let action = include_str!("fixtures/v11_action.txt")
-        .replacen("SETOPERATIONSTMT :op 1", "SETOPERATIONSTMT :op 0", 1);
+    let action = include_str!("fixtures/v11_action.txt").replacen(
+        "SETOPERATIONSTMT :op 1",
+        "SETOPERATIONSTMT :op 0",
+        1,
+    );
     let err = query_def_err(&action);
     assert_eq!(err.message(), "unrecognized set op: 0");
     assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
@@ -677,9 +750,15 @@ fn lcs_none_and_setop_none_are_elog_errors() {
 // never a panic. T_Const = 7 in nodetags.h.
 #[test]
 fn unexpected_jointree_node_is_elog_error() {
-    let action = include_str!("fixtures/v1_action.txt")
-        .replacen(":jointree {FROMEXPR :fromlist <>", &format!(":jointree {{FROMEXPR :fromlist ({CONST_NEG5})"), 1);
-    assert!(action.contains(":fromlist ({CONST"), "fixture jointree not rewritten");
+    let action = include_str!("fixtures/v1_action.txt").replacen(
+        ":jointree {FROMEXPR :fromlist <>",
+        &format!(":jointree {{FROMEXPR :fromlist ({CONST_NEG5})"),
+        1,
+    );
+    assert!(
+        action.contains(":fromlist ({CONST"),
+        "fixture jointree not rewritten"
+    );
     let err = query_def_err(&action);
     assert_eq!(err.message(), "unrecognized node type in jointree: 7");
     assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
@@ -713,7 +792,10 @@ fn pg_get_expr_opens_relation_with_access_share_lock() {
     install();
     let ctx = MemoryContext::new("ruleutils lock test");
     let err = pg_get_expr_worker(ctx.mcx(), "<>", REL_OID, PRETTYFLAG_INDENT).unwrap_err();
-    assert_eq!(err.message(), format!("open {REL_OID} lockmode {}", types_rel::AccessShareLock));
+    assert_eq!(
+        err.message(),
+        format!("open {REL_OID} lockmode {}", types_rel::AccessShareLock)
+    );
 }
 
 // ruleutils.c:5598 make_viewdef table_open(ev_class, AccessShareLock).
@@ -737,7 +819,10 @@ fn deparse_with_vanished_relation_is_catchable() {
     let ctx = MemoryContext::new("ruleutils test");
     let node = readfuncs::stringToNode(ctx.mcx(), BOOL_NULLTEST).unwrap();
     let err = deparse_expression_pretty(ctx.mcx(), node, REL_OID + 1, false, 0).unwrap_err();
-    assert_eq!(err.message(), format!("cache lookup failed for relation {}", REL_OID + 1));
+    assert_eq!(
+        err.message(),
+        format!("cache lookup failed for relation {}", REL_OID + 1)
+    );
     assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
 }
 
@@ -826,10 +911,13 @@ fn test_relation(mcx: Mcx<'_>, oid: Oid) -> types_rel::Relation<'_> {
         rd_hastriggers: false,
         rd_hasrules: false,
     };
-    Relation::open(data, Some(|_, lockmode| {
-        assert_eq!(lockmode, types_rel::AccessShareLock);
-        Ok(())
-    }))
+    Relation::open(
+        data,
+        Some(|_, lockmode| {
+            assert_eq!(lockmode, types_rel::AccessShareLock);
+            Ok(())
+        }),
+    )
 }
 
 #[test]
@@ -837,7 +925,8 @@ fn deparse_context_propagates_relation_lock_timeout() {
     install();
     let ctx = MemoryContext::new("ruleutils relation lock");
     let err = query::deparse_context_for(ctx.mcx(), "locked", REL_OID + 2)
-        .err().expect("relation lock must be acquired");
+        .err()
+        .expect("relation lock must be acquired");
     assert_eq!(err.sqlstate(), types_error::ERRCODE_LOCK_NOT_AVAILABLE);
     assert_eq!(err.message(), "canceling statement due to lock timeout");
 }

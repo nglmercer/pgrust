@@ -22,7 +22,11 @@ fn staged_debug_report_matches_c() {
         assert!(error.hide_context);
         assert_eq!(
             error.location,
-            Some(types_error::ErrorLocation::new("aio.c", 459, "pgaio_io_stage")),
+            Some(types_error::ErrorLocation::new(
+                "aio.c",
+                459,
+                "pgaio_io_stage"
+            )),
         );
         *output = false;
     }
@@ -56,7 +60,10 @@ fn staged_debug_report_matches_c() {
 #[test]
 fn check_io_method_accepts_sync_and_worker_refuses_others() {
     let mut extra = None;
-    for v in [guc_tables::consts::IOMETHOD_SYNC, guc_tables::consts::IOMETHOD_WORKER] {
+    for v in [
+        guc_tables::consts::IOMETHOD_SYNC,
+        guc_tables::consts::IOMETHOD_WORKER,
+    ] {
         let mut v = v;
         assert!(check_io_method(&mut v, &mut extra, types_guc::GucSource::PGC_S_TEST).unwrap());
     }
@@ -68,11 +75,17 @@ fn check_io_method_accepts_sync_and_worker_refuses_others() {
 fn check_io_max_concurrency_bounds() {
     let mut extra = None;
     let mut v = -1;
-    assert!(check_io_max_concurrency(&mut v, &mut extra, types_guc::GucSource::PGC_S_TEST).unwrap());
+    assert!(
+        check_io_max_concurrency(&mut v, &mut extra, types_guc::GucSource::PGC_S_TEST).unwrap()
+    );
     let mut v = 0;
-    assert!(!check_io_max_concurrency(&mut v, &mut extra, types_guc::GucSource::PGC_S_TEST).unwrap());
+    assert!(
+        !check_io_max_concurrency(&mut v, &mut extra, types_guc::GucSource::PGC_S_TEST).unwrap()
+    );
     let mut v = 7;
-    assert!(check_io_max_concurrency(&mut v, &mut extra, types_guc::GucSource::PGC_S_TEST).unwrap());
+    assert!(
+        check_io_max_concurrency(&mut v, &mut extra, types_guc::GucSource::PGC_S_TEST).unwrap()
+    );
 }
 
 #[test]
@@ -126,7 +139,10 @@ pub(super) fn test_ctl() {
             io_handle_off += TEST_IMC as u32;
         }
         let iovecs = vec![
-            libc::iovec { iov_base: std::ptr::null_mut(), iov_len: 0 };
+            libc::iovec {
+                iov_base: std::ptr::null_mut(),
+                iov_len: 0
+            };
             TEST_PROCS * per_backend_iovecs
         ];
         let handle_data = vec![0u64; TEST_PROCS * per_backend_iovecs];
@@ -173,7 +189,7 @@ fn pgaio_io_snapshot_renders_a_non_idle_handle_of_another_backend() {
     test_ctl();
     // No PGPROC table in this harness: inject the owner-pid read.
     let snap = |index: u32| pgaio_io_snapshot_with(index, |_| 0);
-    let index: u32 = ( TEST_IMC + 5) as u32; // procno 1, its 6th handle
+    let index: u32 = (TEST_IMC + 5) as u32; // procno 1, its 6th handle
     let h = ioh(index);
     assert_eq!(h.owner_procno, 1);
     assert!(snap(index).is_none(), "IDLE handles are not displayed");
@@ -204,7 +220,11 @@ fn pgaio_io_snapshot_renders_a_non_idle_handle_of_another_backend() {
     assert_eq!(s.owner_procno, 1);
     assert_eq!(pgaio_io_op_name(s.op), "readv");
     assert_eq!(s.op_offset, 8192);
-    assert_eq!(s.iov_bytes, 8192 + 16384, "iov_byte_length over iov_length entries");
+    assert_eq!(
+        s.iov_bytes,
+        8192 + 16384,
+        "iov_byte_length over iov_length entries"
+    );
     assert_eq!(pgaio_io_target_name(s.target), "smgr");
     assert_eq!(s.handle_data_len, 2);
     assert_eq!(pgaio_result_status_string(s.distilled_status), "UNKNOWN");
@@ -249,8 +269,7 @@ static LOCAL_COMPLETE_SEEN_CRIT: AtomicU32 = AtomicU32::new(u32::MAX);
 fn complete_local_runs_its_callbacks_inside_a_critical_section() {
     test_ctl();
     bufmgr_seams::aio_local_buffer_readv_complete::set(|_ioh, result, _cb_data| {
-        LOCAL_COMPLETE_SEEN_CRIT
-            .store(init_small::globals::CritSectionCount(), Ordering::Relaxed);
+        LOCAL_COMPLETE_SEEN_CRIT.store(init_small::globals::CritSectionCount(), Ordering::Relaxed);
         result
     });
 
@@ -274,12 +293,20 @@ fn complete_local_runs_its_callbacks_inside_a_critical_section() {
     assert_eq!(init_small::globals::CritSectionCount(), 0);
     let r = callback::pgaio_io_call_complete_local(index);
     assert_eq!(r.status, PgAioResultStatus::Ok);
-    assert_ne!(LOCAL_COMPLETE_SEEN_CRIT.load(Ordering::Relaxed), u32::MAX, "callback ran");
+    assert_ne!(
+        LOCAL_COMPLETE_SEEN_CRIT.load(Ordering::Relaxed),
+        u32::MAX,
+        "callback ran"
+    );
     assert!(
         LOCAL_COMPLETE_SEEN_CRIT.load(Ordering::Relaxed) > 0,
         "complete_local callback must run with CritSectionCount > 0 (START_CRIT_SECTION)"
     );
-    assert_eq!(init_small::globals::CritSectionCount(), 0, "END_CRIT_SECTION restores");
+    assert_eq!(
+        init_small::globals::CritSectionCount(),
+        0,
+        "END_CRIT_SECTION restores"
+    );
 
     h.set_state(PGAIO_HS_IDLE);
 }
@@ -298,7 +325,10 @@ fn result_report_without_report_callback_names_the_callback_like_c() {
         types_error::ERROR,
     )
     .expect_err("no report callback");
-    assert_eq!(err.message, "callback 0/aio_invalid_cb does not have report callback");
+    assert_eq!(
+        err.message,
+        "callback 0/aio_invalid_cb does not have report callback"
+    );
 }
 
 // method_worker.c:120-158: the worker method reserves and registers its
@@ -330,18 +360,45 @@ fn name_tables_match_c() {
     assert_eq!(pgaio_io_state_name(PGAIO_HS_STAGED), "STAGED");
     assert_eq!(pgaio_io_state_name(PGAIO_HS_SUBMITTED), "SUBMITTED");
     assert_eq!(pgaio_io_state_name(PGAIO_HS_COMPLETED_IO), "COMPLETED_IO");
-    assert_eq!(pgaio_io_state_name(PGAIO_HS_COMPLETED_SHARED), "COMPLETED_SHARED");
-    assert_eq!(pgaio_io_state_name(PGAIO_HS_COMPLETED_LOCAL), "COMPLETED_LOCAL");
-    assert_eq!(pgaio_io_op_name(types_storage::aio::PGAIO_OP_INVALID), "invalid");
+    assert_eq!(
+        pgaio_io_state_name(PGAIO_HS_COMPLETED_SHARED),
+        "COMPLETED_SHARED"
+    );
+    assert_eq!(
+        pgaio_io_state_name(PGAIO_HS_COMPLETED_LOCAL),
+        "COMPLETED_LOCAL"
+    );
+    assert_eq!(
+        pgaio_io_op_name(types_storage::aio::PGAIO_OP_INVALID),
+        "invalid"
+    );
     assert_eq!(pgaio_io_op_name(PGAIO_OP_READV), "readv");
-    assert_eq!(pgaio_io_op_name(types_storage::aio::PGAIO_OP_WRITEV), "writev");
-    assert_eq!(pgaio_io_target_name(types_storage::aio::PGAIO_TID_INVALID), "invalid");
+    assert_eq!(
+        pgaio_io_op_name(types_storage::aio::PGAIO_OP_WRITEV),
+        "writev"
+    );
+    assert_eq!(
+        pgaio_io_target_name(types_storage::aio::PGAIO_TID_INVALID),
+        "invalid"
+    );
     assert_eq!(pgaio_io_target_name(PGAIO_TID_SMGR), "smgr");
-    assert_eq!(pgaio_result_status_string(PgAioResultStatus::Unknown), "UNKNOWN");
+    assert_eq!(
+        pgaio_result_status_string(PgAioResultStatus::Unknown),
+        "UNKNOWN"
+    );
     assert_eq!(pgaio_result_status_string(PgAioResultStatus::Ok), "OK");
-    assert_eq!(pgaio_result_status_string(PgAioResultStatus::Warning), "WARNING");
-    assert_eq!(pgaio_result_status_string(PgAioResultStatus::Partial), "PARTIAL");
-    assert_eq!(pgaio_result_status_string(PgAioResultStatus::Error), "ERROR");
+    assert_eq!(
+        pgaio_result_status_string(PgAioResultStatus::Warning),
+        "WARNING"
+    );
+    assert_eq!(
+        pgaio_result_status_string(PgAioResultStatus::Partial),
+        "PARTIAL"
+    );
+    assert_eq!(
+        pgaio_result_status_string(PgAioResultStatus::Error),
+        "ERROR"
+    );
 }
 
 // aio_init.c:227: elog(ERROR, "aio requires a normal PGPROC") — a catchable
@@ -466,7 +523,11 @@ fn update_state_debug_report_matches_c() {
     assert!(seen[0].hide_statement() && seen[0].hide_context());
     assert_eq!(
         seen[0].location,
-        Some(types_error::ErrorLocation::new("aio.c", 395, "pgaio_io_update_state"))
+        Some(types_error::ErrorLocation::new(
+            "aio.c",
+            395,
+            "pgaio_io_update_state"
+        ))
     );
     assert_eq!(seen[1].message(), "aio: submitted 1 IOs");
     assert_eq!(h.state(), PGAIO_HS_IDLE);

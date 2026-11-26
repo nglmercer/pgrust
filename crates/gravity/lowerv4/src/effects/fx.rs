@@ -14,9 +14,9 @@
 use gravity_decompose::catalog::expr_type::type_of;
 use gravity_decompose::catalog::typefacts::FIRST_NORMAL_OID;
 use gravity_decompose::expr::kids;
+use gravity_decompose::{Op, PipelineNode};
 use gravity_expr::catalog::Support;
 use gravity_expr::Catalog;
-use gravity_decompose::{Op, PipelineNode};
 use types_core::quiet::{Reach, Via};
 use types_nodes::primnodes::ParamKind;
 use types_nodes::Node;
@@ -57,7 +57,10 @@ enum Ask<'q, 'r> {
     UserTyped,
     /// D237 / D1902: raises nothing on any input (`raise_free::Reading::rtfilter`), the PARAM_EXEC ids `bound` names read
     /// as bound words, under `arr` PG 18.6's quiet array reads; a hash key whose hash raises (D2849) never.
-    Quiet { bound: &'q dyn Fn(i32) -> bool, arr: bool },
+    Quiet {
+        bound: &'q dyn Fn(i32) -> bool,
+        arr: bool,
+    },
     /// `Quiet` per expression, a list member by member, `arr` where the member holds no user type (`each`).
     QuietEach { bound: &'q dyn Fn(i32) -> bool },
     /// D449's rule (props merge.rs `ops_can_raise`): raises nothing on any input and calls no user or VOLATILE function.
@@ -112,9 +115,14 @@ impl<'a, 'g, 'p, 'n> Fx<'a, 'g, 'p, 'n> {
             Ask::RangeUserCmp => range_cmp(gx, n),
             Ask::UserCalls => user_fn::walk(gx.facts, n, &user_fn::Reading::calls()),
             Ask::UserTyped => typed(gx, n),
-            Ask::Quiet { bound, arr } => !super::raising_key(gx, n) && raise_free::walk(gx, n, &raise_free::Reading::rtfilter(bound, arr)),
+            Ask::Quiet { bound, arr } => {
+                !super::raising_key(gx, n)
+                    && raise_free::walk(gx, n, &raise_free::Reading::rtfilter(bound, arr))
+            }
             Ask::QuietEach { bound } => each(gx, n, bound),
-            Ask::QuietCalm => !super::raising_key(gx, n) && !crate::props::ops_can_raise(gx, &[Op::Filter(n)]),
+            Ask::QuietCalm => {
+                !super::raising_key(gx, n) && !crate::props::ops_can_raise(gx, &[Op::Filter(n)])
+            }
             Ask::VolatileBy(r) => volatile::walk(gx, n, r),
             Ask::UserBy(r) => user_fn::walk(gx.facts, n, r),
             Ask::QuietIn(r) => raise_free::walk(gx, n, r),
@@ -127,13 +135,27 @@ impl<'a, 'g, 'p, 'n> Fx<'a, 'g, 'p, 'n> {
                 column
             }
             Ask::NoticeFree => {
-                let notice = |x: Node<'_>| x.as_func_expr().map(|f| f.funcid).or_else(|| x.as_op_expr().map(|o| o.opfuncid)).is_some_and(super::may_notice);
+                let notice = |x: Node<'_>| {
+                    x.as_func_expr()
+                        .map(|f| f.funcid)
+                        .or_else(|| x.as_op_expr().map(|o| o.opfuncid))
+                        .is_some_and(super::may_notice)
+                };
                 gravity_decompose::expr::walk(n, &mut |x| !notice(x))
             }
             Ask::RaiseOnly { bound } => gravity_decompose::expr::walk(n, &mut |x| {
-                let notice = x.as_func_expr().is_some_and(|f| super::may_notice(f.funcid)) || x.as_op_expr().is_some_and(|o| super::may_notice(o.opfuncid));
-                let unbound = x.as_param().is_some_and(|p| p.paramkind == ParamKind::PARAM_EXEC && !bound(p.paramid));
-                x.as_sub_plan().is_none() && x.as_coerce_to_domain().is_none() && !notice && !unbound
+                let notice = x
+                    .as_func_expr()
+                    .is_some_and(|f| super::may_notice(f.funcid))
+                    || x.as_op_expr()
+                        .is_some_and(|o| super::may_notice(o.opfuncid));
+                let unbound = x
+                    .as_param()
+                    .is_some_and(|p| p.paramkind == ParamKind::PARAM_EXEC && !bound(p.paramid));
+                x.as_sub_plan().is_none()
+                    && x.as_coerce_to_domain().is_none()
+                    && !notice
+                    && !unbound
             }),
             Ask::DomainCast => {
                 let mut dom = false;
@@ -148,18 +170,31 @@ impl<'a, 'g, 'p, 'n> Fx<'a, 'g, 'p, 'n> {
             Ask::HashBuiltin => n
                 .as_op_expr()
                 .filter(|o| o.args.len() == 2)
-                .and_then(|o| Some(super::Key { op: o.opno, lefttype: type_of(o.args.nth(0))?, righttype: type_of(o.args.nth(1))?, family: 0, coll: 0 }))
+                .and_then(|o| {
+                    Some(super::Key {
+                        op: o.opno,
+                        lefttype: type_of(o.args.nth(0))?,
+                        righttype: type_of(o.args.nth(1))?,
+                        family: 0,
+                        coll: 0,
+                    })
+                })
                 .is_some_and(|k| super::support(gx, super::KeyUse::Hash, &[k], &[]).is_ok()),
             Ask::QuietCmp { bound } => cmp(gx, n, bound),
             Ask::Comparand { bound } => comparand(gx, n, bound),
             Ask::UserClause => hash_reach(gx, n),
-            Ask::BuiltinOp => n.as_op_expr().is_some_and(|o| o.opno < FIRST_NORMAL_OID && o.opfuncid != 0 && o.opfuncid < FIRST_NORMAL_OID),
+            Ask::BuiltinOp => n.as_op_expr().is_some_and(|o| {
+                o.opno < FIRST_NORMAL_OID && o.opfuncid != 0 && o.opfuncid < FIRST_NORMAL_OID
+            }),
         }
     }
 
     /// decompose's effects of the node read plainly (`effects::of_expr` under `PLAIN`): the planning half's one answer.
     #[inline(always)]
-    fn effects(&self, cx: &gravity_decompose::effects::Cx<'_, 'n>) -> gravity_decompose::effects::Effects {
+    fn effects(
+        &self,
+        cx: &gravity_decompose::effects::Cx<'_, 'n>,
+    ) -> gravity_decompose::effects::Effects {
         gravity_decompose::effects::of_expr(cx, self.n, &gravity_decompose::effects::PLAIN)
     }
 
@@ -203,7 +238,10 @@ impl<'a, 'g, 'p, 'n> Fx<'a, 'g, 'p, 'n> {
     /// D237: the node raises nothing on any input (effects.rs `raise_free`).
     #[inline]
     pub(crate) fn quiet(&self) -> bool {
-        self.ask(Ask::Quiet { bound: &|_| false, arr: false })
+        self.ask(Ask::Quiet {
+            bound: &|_| false,
+            arr: false,
+        })
     }
 
     /// D1902: `quiet` with the PARAM_EXEC ids `bound` names read as bound words, under `arr` PG 18.6's quiet array reads
@@ -329,7 +367,11 @@ impl<'a, 'g, 'p, 'n> Fx<'a, 'g, 'p, 'n> {
     /// `window_fill_exact`: the node calm (raise-free, nothing VOLATILE or user-defined: `ordered_fed_acting`'s reading)
     /// outside the SubPlans `placed` names, which the fill's own step evaluates with their arguments; a node above one is
     /// read alone (decompose `of_node`), its other children whole.
-    pub(crate) fn calm_outside(&self, arena: gravity_program::ArenaRef, placed: &dyn Fn(i32) -> bool) -> bool {
+    pub(crate) fn calm_outside(
+        &self,
+        arena: gravity_program::ArenaRef,
+        placed: &dyn Fn(i32) -> bool,
+    ) -> bool {
         outside(self.gx, arena, self.n, placed)
     }
 }
@@ -357,13 +399,22 @@ fn range_cmp(gx: &Gx<'_, '_>, n: Node<'_>) -> bool {
         if t < FIRST_NORMAL_OID {
             return false;
         }
-        let Ok(b) = c.base_type(t, &mut -1) else { return true };
+        let Ok(b) = c.base_type(t, &mut -1) else {
+            return true;
+        };
         let multi = q(Support::MultirangeRange(b)).is_some();
-        (multi || q(Support::RangeSub(b)).is_some()) && !super::reach(c, Reach::Range(Via::Cmp, multi), b, 0)
+        (multi || q(Support::RangeSub(b)).is_some())
+            && !super::reach(c, Reach::Range(Via::Cmp, multi), b, 0)
     };
     let mut any = false;
     gravity_decompose::expr::walk(n, &mut |x| {
-        let args = x.as_func_expr().map(|f| &f.args).or_else(|| x.as_op_expr().map(|o| &o.args)).or_else(|| x.as_scalar_array_op_expr().map(|o| &o.args)).or_else(|| x.as_distinct_expr().map(|o| &o.args)).or_else(|| x.as_null_if_expr().map(|o| &o.args));
+        let args = x
+            .as_func_expr()
+            .map(|f| &f.args)
+            .or_else(|| x.as_op_expr().map(|o| &o.args))
+            .or_else(|| x.as_scalar_array_op_expr().map(|o| &o.args))
+            .or_else(|| x.as_distinct_expr().map(|o| &o.args))
+            .or_else(|| x.as_null_if_expr().map(|o| &o.args));
         any |= args.is_some_and(|a| a.iter().any(|v| type_of(v).is_some_and(user)));
         !any
     });
@@ -385,12 +436,28 @@ fn typed(gx: &Gx<'_, '_>, n: Node<'_>) -> bool {
     if let Some(l) = n.as_list() {
         return l.iter().any(|c| typed(gx, c));
     }
-    let ty = type_of(n).or_else(|| n.as_row_expr().map(|r| r.row_typeid)).or_else(|| n.as_array_coerce_expr().map(|a| a.resulttype));
-    let mut any = ty.is_some_and(|t| t >= FIRST_NORMAL_OID && !(gx.facts.type_row(t).is_some() && super::type_free(gx.catalog, t, 0))) || n.as_func_expr().is_some_and(|f| gravity_decompose::effects::runs_own_query(f.funcid));
+    let ty = type_of(n)
+        .or_else(|| n.as_row_expr().map(|r| r.row_typeid))
+        .or_else(|| n.as_array_coerce_expr().map(|a| a.resulttype));
+    let mut any = ty.is_some_and(|t| {
+        t >= FIRST_NORMAL_OID
+            && !(gx.facts.type_row(t).is_some() && super::type_free(gx.catalog, t, 0))
+    }) || n
+        .as_func_expr()
+        .is_some_and(|f| gravity_decompose::effects::runs_own_query(f.funcid));
     let known = match n.as_aggref() {
         Some(a) => {
-            let clause = |c: Node<'_>| c.as_sort_group_clause().is_none_or(|s| s.sortop >= FIRST_NORMAL_OID || s.eqop >= FIRST_NORMAL_OID);
-            any |= a.aggdirectargs.iter().chain(a.args.iter()).chain(a.aggfilter).any(|c| typed(gx, c)) || a.aggorder.iter().chain(a.aggdistinct.iter()).any(clause);
+            let clause = |c: Node<'_>| {
+                c.as_sort_group_clause()
+                    .is_none_or(|s| s.sortop >= FIRST_NORMAL_OID || s.eqop >= FIRST_NORMAL_OID)
+            };
+            any |= a
+                .aggdirectargs
+                .iter()
+                .chain(a.args.iter())
+                .chain(a.aggfilter)
+                .any(|c| typed(gx, c))
+                || a.aggorder.iter().chain(a.aggdistinct.iter()).any(clause);
             true
         }
         None => kids(n, &mut |c| any |= typed(gx, c)),
@@ -413,18 +480,33 @@ fn each(gx: &Gx<'_, '_>, n: Node<'_>, bound: &dyn Fn(i32) -> bool) -> bool {
 
 /// `Fx::check_acts`' walk: each CoerceToDomain of `n` whose domain holds a CHECK that acts (`domain_checks`), a CHECK read
 /// by effects' reader and by this walk again (a nested domain).
-fn casts<'p>(gx: &Gx<'_, 'p>, cx: &gravity_decompose::effects::Cx<'_, 'p>, n: Node<'p>, doms: &mut mcx::PgVec<'_, u32>) -> bool {
+fn casts<'p>(
+    gx: &Gx<'_, 'p>,
+    cx: &gravity_decompose::effects::Cx<'_, 'p>,
+    n: Node<'p>,
+    doms: &mut mcx::PgVec<'_, u32>,
+) -> bool {
     crate::stack_check();
     let mut any = false;
     gravity_decompose::expr::walk(n, &mut |x| {
-        any |= x.as_coerce_to_domain().is_some_and(|d| super::domain_checks(gx, d.resulttype, doms, &mut |e, doms| gravity_decompose::effects::of_expr(cx, e, &gravity_decompose::effects::PLAIN).acts || casts(gx, cx, e, doms)));
+        any |= x.as_coerce_to_domain().is_some_and(|d| {
+            super::domain_checks(gx, d.resulttype, doms, &mut |e, doms| {
+                gravity_decompose::effects::of_expr(cx, e, &gravity_decompose::effects::PLAIN).acts
+                    || casts(gx, cx, e, doms)
+            })
+        });
         !any
     });
     any
 }
 
 /// `Fx::calm_outside`' walk.
-fn outside(gx: &Gx<'_, '_>, arena: gravity_program::ArenaRef, n: Node<'_>, placed: &dyn Fn(i32) -> bool) -> bool {
+fn outside(
+    gx: &Gx<'_, '_>,
+    arena: gravity_program::ArenaRef,
+    n: Node<'_>,
+    placed: &dyn Fn(i32) -> bool,
+) -> bool {
     crate::stack_check();
     if n.as_sub_plan().is_some_and(|s| placed(s.plan_id)) {
         return true;
@@ -438,7 +520,10 @@ fn outside(gx: &Gx<'_, '_>, arena: gravity_program::ArenaRef, n: Node<'_>, place
         let fx = gx.fx(n);
         return fx.quiet() && !fx.user_or_volatile() && !fx.user_typed();
     }
-    let e = gravity_decompose::effects::of_node(&gravity_decompose::effects::Cx::without_stmt(gx.facts, arena), n);
+    let e = gravity_decompose::effects::of_node(
+        &gravity_decompose::effects::Cx::without_stmt(gx.facts, arena),
+        n,
+    );
     let mut ok = !e.acts && !e.may_raise;
     let known = kids(n, &mut |c| ok &= outside(gx, arena, c, placed));
     ok && known
@@ -484,21 +569,62 @@ fn heard_at(gx: &Gx<'_, '_>, p: &PipelineNode<'_>, n: Node<'_>) -> bool {
         let e = gravity_decompose::effects::of_call(gx.facts, f);
         e.acts || e.may_raise
     };
-    let opfn = |o: u32, c: u32| if c != 0 { c } else { gx.facts.oper(o).map_or(0, |x| x.code) };
+    let opfn = |o: u32, c: u32| {
+        if c != 0 {
+            c
+        } else {
+            gx.facts.oper(o).map_or(0, |x| x.code)
+        }
+    };
     let op = |o: u32, c: u32| call(opfn(o, c));
     // D3954: a call over arguments of different implicit collations has none (its input collation is indeterminate), and a
     // collation-aware builtin then raises at its first input (varlena.c check_collation_set): the effects home's
     // `collation_set` rule, as its quiet_node reads it (a builtin that reads no collation needs none)
-    let unset = |f: u32, c: u32, a: &types_nodes::list::NodeList<'_>| !gravity_decompose::effects::collation_set(f, c, a);
-    n.as_func_expr().map(|e| call(e.funcid) || unset(e.funcid, e.inputcollid, &e.args))
-        .or_else(|| n.as_op_expr().map(|o| op(o.opno, o.opfuncid) || unset(opfn(o.opno, o.opfuncid), o.inputcollid, &o.args)))
-        .or_else(|| n.as_sub_plan().map(|s| !p.ops.iter().any(|o| matches!(o, Op::SubPlan(t) if t.plan_id == s.plan_id && !step_loud(t)))))
-        .or_else(|| n.as_param().map(|q| q.paramkind == ParamKind::PARAM_EXEC && crate::rerun::params::producer(gx, q.paramid) == Some(KindId::NestInitplan)))
-        .unwrap_or(!matches!(n.node_tag(), T::T_Var | T::T_Const | T::T_TargetEntry | T::T_RelabelType | T::T_BoolExpr | T::T_NullTest | T::T_BooleanTest | T::T_CaseExpr | T::T_CaseWhen | T::T_CaseTestExpr | T::T_CoalesceExpr | T::T_RowExpr | T::T_CollateExpr))
+    let unset = |f: u32, c: u32, a: &types_nodes::list::NodeList<'_>| {
+        !gravity_decompose::effects::collation_set(f, c, a)
+    };
+    n.as_func_expr()
+        .map(|e| call(e.funcid) || unset(e.funcid, e.inputcollid, &e.args))
+        .or_else(|| {
+            n.as_op_expr().map(|o| {
+                op(o.opno, o.opfuncid) || unset(opfn(o.opno, o.opfuncid), o.inputcollid, &o.args)
+            })
+        })
+        .or_else(|| {
+            n.as_sub_plan().map(|s| {
+                !p.ops
+                    .iter()
+                    .any(|o| matches!(o, Op::SubPlan(t) if t.plan_id == s.plan_id && !step_loud(t)))
+            })
+        })
+        .or_else(|| {
+            n.as_param().map(|q| {
+                q.paramkind == ParamKind::PARAM_EXEC
+                    && crate::rerun::params::producer(gx, q.paramid) == Some(KindId::NestInitplan)
+            })
+        })
+        .unwrap_or(!matches!(
+            n.node_tag(),
+            T::T_Var
+                | T::T_Const
+                | T::T_TargetEntry
+                | T::T_RelabelType
+                | T::T_BoolExpr
+                | T::T_NullTest
+                | T::T_BooleanTest
+                | T::T_CaseExpr
+                | T::T_CaseWhen
+                | T::T_CaseTestExpr
+                | T::T_CoalesceExpr
+                | T::T_RowExpr
+                | T::T_CollateExpr
+        ))
 }
 
 /// A SubPlan step whose plan, test or arguments act or may raise (`Effects::of_sub_plan` over its desc's F5 facts).
-pub(in crate::effects) fn step_loud(d: &gravity_decompose::ops::shared::subplan::SubPlanDesc<'_>) -> bool {
+pub(in crate::effects) fn step_loud(
+    d: &gravity_decompose::ops::shared::subplan::SubPlanDesc<'_>,
+) -> bool {
     let e = gravity_decompose::effects::Effects::of_sub_plan(d);
     e.acts || e.may_raise
 }
@@ -512,7 +638,9 @@ fn cmp(gx: &Gx<'_, '_>, n: Node<'_>, bound: &dyn Fn(i32) -> bool) -> bool {
     n.as_op_expr().is_some_and(|o| {
         gravity_decompose::effects::collation_set(o.opfuncid, o.inputcollid, &o.args)
             && gravity_decompose::effects::quiet_call(gx.facts, o.opfuncid)
-            && o.args.iter().all(|a| gx.fx(a).quiet_by(bound, false) || cmp(gx, a, bound))
+            && o.args
+                .iter()
+                .all(|a| gx.fx(a).quiet_by(bound, false) || cmp(gx, a, bound))
     })
 }
 
@@ -526,7 +654,12 @@ fn comparand(gx: &Gx<'_, '_>, n: Node<'_>, bound: &dyn Fn(i32) -> bool) -> bool 
             true
         }) && !col
     };
-    n.as_op_expr().is_some_and(|o| gravity_decompose::effects::quiet_call(gx.facts, o.opfuncid) && o.args.iter().all(|a| gx.fx(a).quiet_by(bound, false) || columnless(a)))
+    n.as_op_expr().is_some_and(|o| {
+        gravity_decompose::effects::quiet_call(gx.facts, o.opfuncid)
+            && o.args
+                .iter()
+                .all(|a| gx.fx(a).quiet_by(bound, false) || columnless(a))
+    })
 }
 
 /// `Ask::UserClause` (visible/drain.rs `user_clause` says what it reads): no operator clause, an operator or function past
@@ -537,7 +670,10 @@ fn hash_reach(gx: &Gx<'_, '_>, c: Node<'_>) -> bool {
     let props = gravity_decompose::effects::builtin_oper(o.opno);
     let free = |n: Node<'_>| type_of(n).is_some_and(|t| super::type_free(gx.catalog, t, 0));
     let poly_free = || o.args.len() == 2 && o.args.iter().all(free);
-    o.opno >= FIRST_NORMAL_OID || o.opfuncid >= FIRST_NORMAL_OID || props.is_none_or(|p| p.hash_family == 0 || (p.poly && !poly_free()) || p.code != o.opfuncid)
+    o.opno >= FIRST_NORMAL_OID
+        || o.opfuncid >= FIRST_NORMAL_OID
+        || props
+            .is_none_or(|p| p.hash_family == 0 || (p.poly && !poly_free()) || p.code != o.opfuncid)
 }
 
 /// Expression `n` of a PlannedStmt's tree, read in admit before any `Gx` exists (a Catalog; the statement's subplans
@@ -594,7 +730,11 @@ impl<'c, 'a> PlanFx<'c, 'a> {
 fn steady<'a>(cat: &dyn Catalog<'a>, n: Node<'a>) -> bool {
     crate::stack_check();
     use types_nodes::NodeTag as T;
-    let immutable = |f: u32| f != 0 && f < types_core::catalog::FirstNormalObjectId && cat.func(f).is_ok_and(|x| x.volatility == Some(b'i'));
+    let immutable = |f: u32| {
+        f != 0
+            && f < types_core::catalog::FirstNormalObjectId
+            && cat.func(f).is_ok_and(|x| x.volatility == Some(b'i'))
+    };
     let own = match n.node_tag() {
         T::T_Var
         | T::T_Const
@@ -611,12 +751,21 @@ fn steady<'a>(cat: &dyn Catalog<'a>, n: Node<'a>) -> bool {
         | T::T_RowExpr
         | T::T_ArrayExpr
         | T::T_FieldSelect => true,
-        T::T_List => return n.as_list().is_some_and(|l| l.iter().all(|c| steady(cat, c))),
+        T::T_List => {
+            return n
+                .as_list()
+                .is_some_and(|l| l.iter().all(|c| steady(cat, c)))
+        }
         T::T_FuncExpr => n.as_func_expr().is_some_and(|f| immutable(f.funcid)),
         T::T_OpExpr => n.as_op_expr().is_some_and(|o| immutable(o.opfuncid)),
         T::T_DistinctExpr => n.as_distinct_expr().is_some_and(|o| immutable(o.opfuncid)),
         T::T_NullIfExpr => n.as_null_if_expr().is_some_and(|o| immutable(o.opfuncid)),
-        T::T_ScalarArrayOpExpr => n.as_scalar_array_op_expr().is_some_and(|s| immutable(s.opfuncid) && [s.hashfuncid, s.negfuncid].into_iter().all(|f| f == 0 || immutable(f))),
+        T::T_ScalarArrayOpExpr => n.as_scalar_array_op_expr().is_some_and(|s| {
+            immutable(s.opfuncid)
+                && [s.hashfuncid, s.negfuncid]
+                    .into_iter()
+                    .all(|f| f == 0 || immutable(f))
+        }),
         _ => false,
     };
     if !own {
@@ -632,7 +781,13 @@ fn steady<'a>(cat: &dyn Catalog<'a>, n: Node<'a>) -> bool {
 fn again<'a>(sp: &types_nodes::list::OptNodeList<'a>, cat: &dyn Catalog<'a>, n: Node<'a>) -> bool {
     crate::stack_check();
     use types_nodes::NodeTag as T;
-    let builtin = |f: u32| f != 0 && f < types_core::catalog::FirstNormalObjectId && cat.func(f).is_ok_and(|x| x.volatility.is_some_and(|v| v != b'v'));
+    let builtin = |f: u32| {
+        f != 0
+            && f < types_core::catalog::FirstNormalObjectId
+            && cat
+                .func(f)
+                .is_ok_and(|x| x.volatility.is_some_and(|v| v != b'v'))
+    };
     let own = match n.node_tag() {
         T::T_Var
         | T::T_Const
@@ -650,18 +805,34 @@ fn again<'a>(sp: &types_nodes::list::OptNodeList<'a>, cat: &dyn Catalog<'a>, n: 
         | T::T_RowExpr
         | T::T_ArrayExpr
         | T::T_FieldSelect => true,
-        T::T_List => return n.as_list().is_some_and(|l| l.iter().all(|c| again(sp, cat, c))),
+        T::T_List => {
+            return n
+                .as_list()
+                .is_some_and(|l| l.iter().all(|c| again(sp, cat, c)))
+        }
         T::T_FuncExpr => n.as_func_expr().is_some_and(|f| builtin(f.funcid)),
         T::T_OpExpr => n.as_op_expr().is_some_and(|o| builtin(o.opfuncid)),
         T::T_DistinctExpr => n.as_distinct_expr().is_some_and(|o| builtin(o.opfuncid)),
         T::T_NullIfExpr => n.as_null_if_expr().is_some_and(|o| builtin(o.opfuncid)),
-        T::T_ScalarArrayOpExpr => n.as_scalar_array_op_expr().is_some_and(|s| builtin(s.opfuncid) && [s.hashfuncid, s.negfuncid].into_iter().all(|f| f == 0 || builtin(f))),
+        T::T_ScalarArrayOpExpr => n.as_scalar_array_op_expr().is_some_and(|s| {
+            builtin(s.opfuncid)
+                && [s.hashfuncid, s.negfuncid]
+                    .into_iter()
+                    .all(|f| f == 0 || builtin(f))
+        }),
         // a built-in aggregate (no user transition code) without ORDER BY / DISTINCT comparisons
-        T::T_Aggref => n.as_aggref().is_some_and(|a| a.aggfnoid != 0 && a.aggfnoid < types_core::catalog::FirstNormalObjectId && a.aggorder.len() == 0 && a.aggdistinct.len() == 0),
+        T::T_Aggref => n.as_aggref().is_some_and(|a| {
+            a.aggfnoid != 0
+                && a.aggfnoid < types_core::catalog::FirstNormalObjectId
+                && a.aggorder.len() == 0
+                && a.aggdistinct.len() == 0
+        }),
         // an uncorrelated hashed SubPlan keeps its table at a rescan that changes no param (ExecHashSubPlan builds again
         // only under chgParam): only its test, walked below, runs again; any other runs its plan again per call
         T::T_SubPlan => n.as_sub_plan().is_some_and(|s| {
-            (s.useHashTable && s.args.len() == 0 && s.parParam.len() == 0) || (s.plan_id >= 1 && super::visible::per_call_quiet(sp, cat, sp.nth((s.plan_id - 1) as usize)))
+            (s.useHashTable && s.args.len() == 0 && s.parParam.len() == 0)
+                || (s.plan_id >= 1
+                    && super::visible::per_call_quiet(sp, cat, sp.nth((s.plan_id - 1) as usize)))
         }),
         _ => false,
     };

@@ -18,10 +18,19 @@ pub(crate) unsafe fn lay(t: &Rt) -> gravity_driver::Result<(u8, usize)> {
     core::ptr::write_bytes(heads, 0, 1 << bits);
     // D3194: the probe's Bloom words past the heads, each record's bits set below (rowfilter.rs)
     let rf = crate::ops::hashjoin::strategies::rowfilter::open(t, dir + (8 << bits));
-    let (tags, mult) = (rd::<u8>(t.d, ALLOW) & A_TAGS != 0, rd::<u8>(t.d, ALLOW) & A_MULT != 0);
+    let (tags, mult) = (
+        rd::<u8>(t.d, ALLOW) & A_TAGS != 0,
+        rd::<u8>(t.d, ALLOW) & A_MULT != 0,
+    );
     let fifo = rd::<u8>(t.d, ALLOW) & crate::ops::hashjoin::build::A_FIFO != 0; // pushed last to first: chains in record order
-    // join.dedup: a copy of a record its chain holds stays unchained (dedup.rs)
-    let (dedup, mut dropped) = (rd::<u8>(t.d, crate::ops::hashjoin::build::FLAGS) & crate::ops::hashjoin::build::F_DEDUP != 0 && !t.compact && !mult, 0usize);
+                                                                                // join.dedup: a copy of a record its chain holds stays unchained (dedup.rs)
+    let (dedup, mut dropped) = (
+        rd::<u8>(t.d, crate::ops::hashjoin::build::FLAGS) & crate::ops::hashjoin::build::F_DEDUP
+            != 0
+            && !t.compact
+            && !mult,
+        0usize,
+    );
     for n in 0..t.n {
         let i = if fifo { t.n - 1 - n } else { n };
         let h = t.hash(i);
@@ -29,7 +38,9 @@ pub(crate) unsafe fn lay(t: &Rt) -> gravity_driver::Result<(u8, usize)> {
             w.set(h);
         }
         let s = heads.add(h.home(bits, Depth::TOP));
-        if mult && crate::ops::hashjoin::strategies::multiplicity::collapse(t, *s & IDX, i).is_some() {
+        if mult
+            && crate::ops::hashjoin::strategies::multiplicity::collapse(t, *s & IDX, i).is_some()
+        {
             continue;
         }
         if dedup && crate::ops::hashjoin::strategies::dedup::seen(t, *s & IDX, i) {
@@ -55,12 +66,23 @@ pub(crate) unsafe fn lay(t: &Rt) -> gravity_driver::Result<(u8, usize)> {
 /// # Safety
 /// `t` is the leader's region under a partitioned merge; record `i` is this job's.
 #[inline]
-pub(crate) unsafe fn put(t: &Rt, i: usize, rf: Option<&crate::ops::hashjoin::strategies::rowfilter::Words>) {
-    let (h, bits, tags) = (t.hash(i), rd::<u32>(t.d, BITS), rd::<u8>(t.d, ALLOW) & A_TAGS != 0);
+pub(crate) unsafe fn put(
+    t: &Rt,
+    i: usize,
+    rf: Option<&crate::ops::hashjoin::strategies::rowfilter::Words>,
+) {
+    let (h, bits, tags) = (
+        t.hash(i),
+        rd::<u32>(t.d, BITS),
+        rd::<u8>(t.d, ALLOW) & A_TAGS != 0,
+    );
     if let Some(w) = rf {
         w.put(h);
     }
-    let s = &*(t.d.add(rd::<u64>(t.d, DIR) as usize + 8 * h.home(bits, Depth::TOP)) as *const AtomicU64);
+    let s = &*(t
+        .d
+        .add(rd::<u64>(t.d, DIR) as usize + 8 * h.home(bits, Depth::TOP))
+        as *const AtomicU64);
     let (l, tag) = (t.link(i), if tags { bit(h) } else { 0 });
     let mut old = s.load(Relaxed);
     loop {

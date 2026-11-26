@@ -64,7 +64,10 @@ pub fn LogLogicalMessage(
 /// WAL stream rather than through redo. An unknown opcode is
 /// elog(PANIC, ...) (message.c:92), a structured PANIC-level error.
 pub fn logicalmsg_redo(record: &mut XLogReaderState) -> PgResult<()> {
-    let rec = record.record.as_ref().expect("logicalmsg_redo with no decoded record");
+    let rec = record
+        .record
+        .as_ref()
+        .expect("logicalmsg_redo with no decoded record");
     let info = rec.xl_info & !XLR_INFO_MASK;
     if info != XLOG_LOGICAL_MESSAGE {
         return Err(Box::new(PgError::new(

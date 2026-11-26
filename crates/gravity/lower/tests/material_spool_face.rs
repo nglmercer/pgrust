@@ -17,7 +17,13 @@ use gravity_lower::rerun::spool::Col;
 use gravity_lower::{assemble, compile, Backend, Descs, Lowered};
 use gravity_program::{Arena, ArenaVec, End, Layout, OutCol, Pipeline, Program, Reason, WritePlan};
 
-const SPOOL: Breaker = Breaker { kind: BreakerKind::Materialize, slot: 0, bytes: 0, budget: Budget::Share, spill: Spill::Runs };
+const SPOOL: Breaker = Breaker {
+    kind: BreakerKind::Materialize,
+    slot: 0,
+    bytes: 0,
+    budget: Budget::Share,
+    spill: Spill::Runs,
+};
 const P_N: i32 = 0;
 const P_MARK: i32 = 8;
 const P_RESTORE: i32 = 16;
@@ -59,7 +65,18 @@ fn producer_ir(pb: &mut ProgramBuilder, by_ref: bool) -> Func {
     let low = b.int_bin(IntBinOp::And, r, three);
     let valid1 = b.icmp(IntCond::Ne, low, zero);
     let t = b.bconst(true);
-    let mut cols = vec![Col { value: v0, valid: t, typlen: None }, Col { value: r, valid: valid1, typlen: None }];
+    let mut cols = vec![
+        Col {
+            value: v0,
+            valid: t,
+            typlen: None,
+        },
+        Col {
+            value: r,
+            valid: valid1,
+            typlen: None,
+        },
+    ];
     if by_ref {
         let half = b.int_bin(IntBinOp::Ushr, r, one);
         let idx = b.int_bin(IntBinOp::And, half, three);
@@ -67,7 +84,11 @@ fn producer_ir(pb: &mut ProgramBuilder, by_ref: bool) -> Func {
         let img = b.load(Type::I64, ip, 0);
         let low7 = b.int_bin(IntBinOp::And, r, seven);
         let valid2 = b.icmp(IntCond::Ne, low7, zero);
-        cols.push(Col { value: img, valid: valid2, typlen: Some(-1) });
+        cols.push(Col {
+            value: img,
+            valid: valid2,
+            typlen: Some(-1),
+        });
     }
     spool::push(&mut b, &p, ctx, run, &cols, l_exit);
     let r1 = b.int_bin(IntBinOp::Add, r, one);
@@ -173,7 +194,9 @@ fn consumer_ir(pb: &mut ProgramBuilder, by_ref: bool) -> Func {
         b.store(on, 3, nb8);
     }
     let nc = b.iconst(Type::I64, nout as i64);
-    let fl = b.call_host(sink.emit, &[ctx, ov, on, nc], Some(Type::I64)).unwrap();
+    let fl = b
+        .call_host(sink.emit, &[ctx, ov, on, nc], Some(Type::I64))
+        .unwrap();
     let cont = b.icmp(IntCond::Eq, fl, zero);
     b.cond_br(cont, (l_row, &[]), (l_stop, &[fl]));
 
@@ -205,34 +228,85 @@ fn lowered(arena: &Arena, by_ref: bool) -> Lowered {
     funcs.push(fp);
     funcs.push(fc);
     let mut out = ArenaVec::with_capacity_in(4, a);
-    for name in ["a", "b", "len", "last"].iter().take(if by_ref { 4 } else { 2 }) {
+    for name in ["a", "b", "len", "last"]
+        .iter()
+        .take(if by_ref { 4 } else { 2 })
+    {
         out.push(OutCol::new(name, 20, -1, 8, true));
     }
     let mut pipelines = ArenaVec::with_capacity_in(2, a);
-    pipelines.push(Pipeline::serial(-1, End::Breaker(SPOOL), Reason::NoDrivingSite));
+    pipelines.push(Pipeline::serial(
+        -1,
+        End::Breaker(SPOOL),
+        Reason::NoDrivingSite,
+    ));
     pipelines.push(Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming_one(0));
-    let layout = Layout { nsites: 0, out_natts: out.len() as u16, out_rows: 16, scratch_bytes: 0, exec_bytes: 0 };
-    Lowered { ir: pb.finish(), funcs, tagged: Vec::new(), staged: gravity_fn::arena::ChargedVec::none(), descs: Descs { layout, sites: ArenaVec::with_capacity_in(0, a), out, write: WritePlan::SELECT, pipelines, out_region: 0, owner: gravity_lower::no_owner(), no_cache: false, no_cache_why: "", instr: Vec::new(), v4: Default::default(), used: 0, locks: Vec::new(), writes: Vec::new(), write_end: gravity_program::program::END_STATEMENT }, key: None }
+    let layout = Layout {
+        nsites: 0,
+        out_natts: out.len() as u16,
+        out_rows: 16,
+        scratch_bytes: 0,
+        exec_bytes: 0,
+    };
+    Lowered {
+        ir: pb.finish(),
+        funcs,
+        tagged: Vec::new(),
+        staged: gravity_fn::arena::ChargedVec::none(),
+        descs: Descs {
+            layout,
+            sites: ArenaVec::with_capacity_in(0, a),
+            out,
+            write: WritePlan::SELECT,
+            pipelines,
+            out_region: 0,
+            owner: gravity_lower::no_owner(),
+            no_cache: false,
+            no_cache_why: "",
+            instr: Vec::new(),
+            v4: Default::default(),
+            used: 0,
+            locks: Vec::new(),
+            writes: Vec::new(),
+            write_end: gravity_program::program::END_STATEMENT,
+        },
+        key: None,
+    }
 }
 
 fn program(arena: &Arena, by_ref: bool, backend: Backend) -> Program {
     let l = lowered(arena, by_ref);
-    gravity_ir::verify::verify(&l.ir).unwrap_or_else(|e| panic!("{e:?}\n{}", gravity_ir::text::print_program(&l.ir)));
-    gravity_ir::verify::verify_dominance(&l.ir).unwrap_or_else(|e| panic!("{e:?}\n{}", gravity_ir::text::print_program(&l.ir)));
+    gravity_ir::verify::verify(&l.ir)
+        .unwrap_or_else(|e| panic!("{e:?}\n{}", gravity_ir::text::print_program(&l.ir)));
+    gravity_ir::verify::verify_dominance(&l.ir)
+        .unwrap_or_else(|e| panic!("{e:?}\n{}", gravity_ir::text::print_program(&l.ir)));
     let codes = compile(&l, backend).unwrap_or_else(|e| panic!("backend: {}", e.message()));
     assemble(&l, codes)
 }
 
 /// Four varlena images in 8-aligned storage: 1-byte headers of 4, 9 and 21 bytes, a 4-byte header of 40.
 fn images() -> Vec<Vec<u64>> {
-    [(4usize, true), (9, true), (40, false), (21, true)].iter().enumerate().map(|(i, &(len, short))| {
-        let mut bytes = vec![0u8; len.div_ceil(8) * 8 + 8];
-        let hdr = if short { bytes[0] = ((len as u8) << 1) | 1; 1 } else { bytes[..4].copy_from_slice(&((len as u32) << 2).to_le_bytes()); 4 };
-        for (j, x) in bytes[hdr..len].iter_mut().enumerate() {
-            *x = (i * 50 + j + 1) as u8;
-        }
-        bytes.chunks(8).map(|c| u64::from_ne_bytes(c.try_into().unwrap())).collect()
-    }).collect()
+    [(4usize, true), (9, true), (40, false), (21, true)]
+        .iter()
+        .enumerate()
+        .map(|(i, &(len, short))| {
+            let mut bytes = vec![0u8; len.div_ceil(8) * 8 + 8];
+            let hdr = if short {
+                bytes[0] = ((len as u8) << 1) | 1;
+                1
+            } else {
+                bytes[..4].copy_from_slice(&((len as u32) << 2).to_le_bytes());
+                4
+            };
+            for (j, x) in bytes[hdr..len].iter_mut().enumerate() {
+                *x = (i * 50 + j + 1) as u8;
+            }
+            bytes
+                .chunks(8)
+                .map(|c| u64::from_ne_bytes(c.try_into().unwrap()))
+                .collect()
+        })
+        .collect()
 }
 
 const IMG_LEN: [usize; 4] = [4, 9, 40, 21];
@@ -246,7 +320,7 @@ fn image_bytes(imgs: &[Vec<u64>], i: usize) -> &[u8] {
 fn source_row(r: u64, by_ref: bool) -> (Vec<u64>, Vec<u8>, Option<usize>) {
     let mut v = vec![(r as i64 * 3 - 7) as u64, r];
     let mut n = vec![0u8, (r & 3 == 0) as u8];
-    let img = by_ref.then_some( ((r >> 1) & 3) as usize);
+    let img = by_ref.then_some(((r >> 1) & 3) as usize);
     if by_ref {
         v.push(0);
         n.push((r & 7 == 0) as u8);
@@ -261,7 +335,11 @@ fn want_row(r: u64, by_ref: bool, imgs: &[Vec<u64>]) -> (Vec<u64>, Vec<u8>) {
     if let Some(i) = img {
         let null = n[2] != 0;
         let b = image_bytes(imgs, i);
-        ov.extend(if null { [0, 0] } else { [b.len() as u64, *b.last().unwrap() as u64] });
+        ov.extend(if null {
+            [0, 0]
+        } else {
+            [b.len() as u64, *b.last().unwrap() as u64]
+        });
         on.extend([n[2], n[2]]);
     }
     (ov, on)
@@ -294,7 +372,11 @@ fn guarded(imgs: &[Vec<u64>]) -> (Vec<u64>, Vec<(*mut u8, usize)>) {
         // first page's last byte. Unmapped by the caller.
         unsafe {
             let page = getpagesize() as usize;
-            let map_anon = if cfg!(target_os = "macos") { 0x1000 } else { 0x20 };
+            let map_anon = if cfg!(target_os = "macos") {
+                0x1000
+            } else {
+                0x20
+            };
             let base = mmap(core::ptr::null_mut(), 2 * page, 3, 0x02 | map_anon, -1, 0);
             assert!(!base.is_null() && base as isize != -1, "mmap");
             assert_eq!(mprotect(base.add(page), page, 0), 0, "mprotect");
@@ -311,16 +393,33 @@ fn run_case(c: &Case, backend: Backend) -> krig::Rig {
     let arena = Arena::new(1 << 22);
     let imgs = images();
     let mut params = vec![c.n, c.mark, c.restore];
-    let (at, maps) = if c.guard { guarded(&imgs) } else { (imgs.iter().map(|i| i.as_ptr() as u64).collect(), Vec::new()) };
+    let (at, maps) = if c.guard {
+        guarded(&imgs)
+    } else {
+        (imgs.iter().map(|i| i.as_ptr() as u64).collect(), Vec::new())
+    };
     params.extend(at);
     let mut rig = krig::Rig::new(program(&arena, c.by_ref, backend), params);
     rig.host.stop_after_rows = c.stop.then_some(1);
     let (rows, rets) = rig.run_pipelines();
-    let tag = format!("n {} by_ref {} stop {} mark {} restore {}", c.n, c.by_ref, c.stop, c.mark, c.restore);
-    assert!(rets.iter().all(|r| matches!(r, krig::Ret::Done | krig::Ret::Suspended { .. })), "{tag}: {rets:?}");
+    let tag = format!(
+        "n {} by_ref {} stop {} mark {} restore {}",
+        c.n, c.by_ref, c.stop, c.mark, c.restore
+    );
+    assert!(
+        rets.iter()
+            .all(|r| matches!(r, krig::Ret::Done | krig::Ret::Suspended { .. })),
+        "{tag}: {rets:?}"
+    );
     assert_eq!(rets.last(), Some(&krig::Ret::Done), "{tag}");
     if c.stop && c.n > 16 {
-        assert!(rets.iter().filter(|r| matches!(r, krig::Ret::Suspended { .. })).count() as u64 >= c.n / 16 - 1, "{tag}: the sink stopped every block");
+        assert!(
+            rets.iter()
+                .filter(|r| matches!(r, krig::Ret::Suspended { .. }))
+                .count() as u64
+                >= c.n / 16 - 1,
+            "{tag}: the sink stopped every block"
+        );
     }
     // the runs are the rows in `encode_row`'s format, in order, position-independent
     let mut oracle = Vec::new();
@@ -333,12 +432,26 @@ fn run_case(c: &Case, backend: Backend) -> krig::Rig {
         spool::encode_row(&mut oracle, &v, &n, &im);
     }
     let put: Vec<u8> = rig.host.runs.concat();
-    assert!(put == oracle, "{tag}: the runs' bytes ({} in {} runs) are not the encoded rows ({})", put.len(), rig.host.runs.len(), oracle.len());
-    let order: Vec<u64> = if c.restore < c.n { (0..c.restore).chain(c.mark..c.n).collect() } else { (0..c.n).collect() };
+    assert!(
+        put == oracle,
+        "{tag}: the runs' bytes ({} in {} runs) are not the encoded rows ({})",
+        put.len(),
+        rig.host.runs.len(),
+        oracle.len()
+    );
+    let order: Vec<u64> = if c.restore < c.n {
+        (0..c.restore).chain(c.mark..c.n).collect()
+    } else {
+        (0..c.n).collect()
+    };
     assert_eq!(rows.len(), order.len(), "{tag}");
     for (i, &r) in order.iter().enumerate() {
         let (wv, wn) = want_row(r, c.by_ref, &imgs);
-        assert_eq!((&rows[i], &rig.host.pushed_nulls[i]), (&wv, &wn), "{tag}: out row {i} (source row {r})");
+        assert_eq!(
+            (&rows[i], &rig.host.pushed_nulls[i]),
+            (&wv, &wn),
+            "{tag}: out row {i} (source row {r})"
+        );
     }
     for (base, len) in maps {
         // SAFETY: a mapping `guarded` made; the run is done with its images.
@@ -355,8 +468,22 @@ fn a_spool_reads_back_what_was_pushed_at_every_shape() {
         for by_ref in [false, true] {
             for n in [0u64, 1, 16, 17, 1000] {
                 for stop in [false, true] {
-                    let rig = run_case(&Case { n, by_ref, stop, mark: NONE, restore: NONE, guard: false }, backend);
-                    assert_eq!(rig.host.runs.len(), (n > 0) as usize, "one run without a full buffer");
+                    let rig = run_case(
+                        &Case {
+                            n,
+                            by_ref,
+                            stop,
+                            mark: NONE,
+                            restore: NONE,
+                            guard: false,
+                        },
+                        backend,
+                    );
+                    assert_eq!(
+                        rig.host.runs.len(),
+                        (n > 0) as usize,
+                        "one run without a full buffer"
+                    );
                 }
             }
         }
@@ -368,7 +495,17 @@ fn a_spool_reads_back_what_was_pushed_at_every_shape() {
 #[test]
 fn an_image_ending_its_mapping_is_spooled_without_reading_past_it() {
     for backend in [Backend::Interp, Backend::Tpde] {
-        run_case(&Case { n: 64, by_ref: true, stop: false, mark: NONE, restore: NONE, guard: true }, backend);
+        run_case(
+            &Case {
+                n: 64,
+                by_ref: true,
+                stop: false,
+                mark: NONE,
+                restore: NONE,
+                guard: true,
+            },
+            backend,
+        );
     }
 }
 
@@ -377,11 +514,34 @@ fn a_full_run_is_put_and_the_reader_crosses_runs_with_one_host_call_per_buffer()
     for backend in [Backend::Interp, Backend::Tpde] {
         for (by_ref, stop) in [(false, false), (true, false), (true, true)] {
             let n = 60_000;
-            let rig = run_case(&Case { n, by_ref, stop, mark: NONE, restore: NONE, guard: false }, backend);
+            let rig = run_case(
+                &Case {
+                    n,
+                    by_ref,
+                    stop,
+                    mark: NONE,
+                    restore: NONE,
+                    guard: false,
+                },
+                backend,
+            );
             let bytes: usize = rig.host.runs.iter().map(Vec::len).sum();
-            assert!(rig.host.runs.len() >= 2 && rig.host.runs.len() == bytes.div_ceil(krig::RIG_SHARE as usize - 16), "{} runs for {bytes} bytes: a put per full run", rig.host.runs.len());
-            assert_eq!(rig.host.run_ops.0, rig.host.runs.len(), "each run opened once");
-            assert!(rig.host.run_ops.1 <= bytes / 0xfff8 + 2 * rig.host.runs.len() + 2, "{} fills for {bytes} bytes: per buffer, never per row", rig.host.run_ops.1);
+            assert!(
+                rig.host.runs.len() >= 2
+                    && rig.host.runs.len() == bytes.div_ceil(krig::RIG_SHARE as usize - 16),
+                "{} runs for {bytes} bytes: a put per full run",
+                rig.host.runs.len()
+            );
+            assert_eq!(
+                rig.host.run_ops.0,
+                rig.host.runs.len(),
+                "each run opened once"
+            );
+            assert!(
+                rig.host.run_ops.1 <= bytes / 0xfff8 + 2 * rig.host.runs.len() + 2,
+                "{} fills for {bytes} bytes: per buffer, never per row",
+                rig.host.run_ops.1
+            );
         }
     }
 }
@@ -391,11 +551,37 @@ fn mark_and_restore_inside_the_buffer_and_across_runs() {
     for backend in [Backend::Interp, Backend::Tpde] {
         for by_ref in [false, true] {
             // an equal-key group read twice inside the buffer: no reopen
-            let rig = run_case(&Case { n: 100, by_ref, stop: false, mark: 10, restore: 20, guard: false }, backend);
-            assert_eq!(rig.host.run_ops.0, 1, "an in-buffer restore moves the cursor only");
+            let rig = run_case(
+                &Case {
+                    n: 100,
+                    by_ref,
+                    stop: false,
+                    mark: 10,
+                    restore: 20,
+                    guard: false,
+                },
+                backend,
+            );
+            assert_eq!(
+                rig.host.run_ops.0, 1,
+                "an in-buffer restore moves the cursor only"
+            );
             // back to the first run from the last: the run reopened and read forward
-            let rig = run_case(&Case { n: 60_000, by_ref, stop: false, mark: 5, restore: 59_990, guard: false }, backend);
-            assert!(rig.host.run_ops.0 > rig.host.runs.len(), "a restore across runs reopens");
+            let rig = run_case(
+                &Case {
+                    n: 60_000,
+                    by_ref,
+                    stop: false,
+                    mark: 5,
+                    restore: 59_990,
+                    guard: false,
+                },
+                backend,
+            );
+            assert!(
+                rig.host.run_ops.0 > rig.host.runs.len(),
+                "a restore across runs reopens"
+            );
         }
     }
 }
@@ -405,6 +591,9 @@ fn the_ir_text_is_stable_across_builds() {
     let (a1, a2) = (Arena::new(1 << 22), Arena::new(1 << 22));
     for by_ref in [false, true] {
         let (x, y) = (lowered(&a1, by_ref), lowered(&a2, by_ref));
-        assert_eq!(gravity_ir::text::print_program(&x.ir), gravity_ir::text::print_program(&y.ir));
+        assert_eq!(
+            gravity_ir::text::print_program(&x.ir),
+            gravity_ir::text::print_program(&y.ir)
+        );
     }
 }

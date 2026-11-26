@@ -33,13 +33,23 @@ use crate::walk::Builder;
 
 /// SetOp `so`'s streamed form over left plan `lp`, its compared columns' `keys` (ops/setop.rs `eq_keys`) and right input
 /// `rn` with `n` compared columns, when served (module header).
-pub(super) fn form<'p>(b: &Builder<'p, '_>, so: &'p SetOp<'p>, lp: &'p types_nodes::plannodes::Plan<'p>, keys: &[EqKey], rn: Node<'p>, n: usize) -> Option<SetForm> {
+pub(super) fn form<'p>(
+    b: &Builder<'p, '_>,
+    so: &'p SetOp<'p>,
+    lp: &'p types_nodes::plannodes::Plan<'p>,
+    keys: &[EqKey],
+    rn: Node<'p>,
+    n: usize,
+) -> Option<SetForm> {
     if so.strategy == 1 || n == 0 || n > 64 || !(scan(rn) || sorted_scan(b, rn).is_some()) {
         return None;
     }
     let cols = so.cmpColIdx.get(..n)?;
     // every output column compared, each once
-    if lp.targetlist.len() != n || keys.len() != n || !(1..=n as i16).all(|r| cols.iter().filter(|&&c| c == r).count() == 1) {
+    if lp.targetlist.len() != n
+        || keys.len() != n
+        || !(1..=n as i16).all(|r| cols.iter().filter(|&&c| c == r).count() == 1)
+    {
         return None;
     }
     let mut coll = 0;
@@ -65,14 +75,19 @@ pub(super) fn form<'p>(b: &Builder<'p, '_>, so: &'p SetOp<'p>, lp: &'p types_nod
         }
         coll = c;
     }
-    let nulls_first = (0..n).filter(|&i| so.cmpNullsFirst.get(i).copied().unwrap_or(false)).fold(0u64, |m, i| m | 1 << i);
+    let nulls_first = (0..n)
+        .filter(|&i| so.cmpNullsFirst.get(i).copied().unwrap_or(false))
+        .fold(0u64, |m, i| m | 1 << i);
     Some(SetForm::Stream { nulls_first, coll })
 }
 
 /// AGA-30: a key the step compares by its type's built-in btree comparator over the value (lowerv4 ops/setop/stream.rs
 /// `key`, ops/setop/raw.rs `StreamHostedCmp`): one the effects home names, a built-in base type's by-reference value
 /// whose comparator reaches no user code (`effects::setop::builtin_cmp_key`).
-pub fn hosted_key(f: &dyn crate::catalog::Facts, tf: &crate::catalog::typefacts::TypeFacts) -> bool {
+pub fn hosted_key(
+    f: &dyn crate::catalog::Facts,
+    tf: &crate::catalog::typefacts::TypeFacts,
+) -> bool {
     crate::effects::setop::builtin_cmp_key(f, tf)
 }
 
@@ -81,16 +96,30 @@ pub fn hosted_key(f: &dyn crate::catalog::Facts, tf: &crate::catalog::typefacts:
 /// pulled set, run at the first pull: PG's ExecSort sorts its whole input at the SetOp's first right fetch). The map keeps
 /// the grouped form for a whole reader; a partial reader over a left that may raise takes this one (ops/setop.rs). The
 /// licence of the fill's run ahead comes back (ops/setop.rs `quiet_ahead`).
-pub(super) fn sorted_scan<'p>(b: &Builder<'p, '_>, rn: Node<'p>) -> Option<crate::effects::Licence> {
+pub(super) fn sorted_scan<'p>(
+    b: &Builder<'p, '_>,
+    rn: Node<'p>,
+) -> Option<crate::effects::Licence> {
     let s = rn.as_sort()?;
-    (s.plan.initPlan.len() == 0 && s.plan.lefttree.is_some_and(scan)).then(|| super::quiet_ahead(b, rn)).flatten()
+    (s.plan.initPlan.len() == 0 && s.plan.lefttree.is_some_and(scan))
+        .then(|| super::quiet_ahead(b, rn))
+        .flatten()
 }
 
 /// A relation scan with filters and a projection only: no InitPlan, no executor parameter (a correlated or InitPlan
 /// value), no SubPlan in its quals or target list.
 fn scan(rn: Node<'_>) -> bool {
     let Some(p) = rn.as_plan() else { return false };
-    let kind = matches!(rn.node_tag(), NodeTag::T_SeqScan | NodeTag::T_IndexScan | NodeTag::T_IndexOnlyScan | NodeTag::T_BitmapHeapScan);
-    let plain = |l: &types_nodes::list::NodeList<'_>| l.iter().all(|e| crate::expr::walk(e, &mut |x| x.as_sub_plan().is_none()));
+    let kind = matches!(
+        rn.node_tag(),
+        NodeTag::T_SeqScan
+            | NodeTag::T_IndexScan
+            | NodeTag::T_IndexOnlyScan
+            | NodeTag::T_BitmapHeapScan
+    );
+    let plain = |l: &types_nodes::list::NodeList<'_>| {
+        l.iter()
+            .all(|e| crate::expr::walk(e, &mut |x| x.as_sub_plan().is_none()))
+    };
     kind && p.initPlan.len() == 0 && p.allParam.is_empty() && plain(&p.qual) && plain(&p.targetlist)
 }

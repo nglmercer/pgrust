@@ -79,8 +79,10 @@ thread_local! {
 /// C: remember_to_cleanup_directory.
 pub fn remember_to_cleanup_directory(target_path: &std::path::Path, rmtopdir: bool) {
     CLEANUP_DIRS.with(|d| {
-        d.borrow_mut()
-            .push(CleanupDir { target_path: target_path.to_path_buf(), rmtopdir })
+        d.borrow_mut().push(CleanupDir {
+            target_path: target_path.to_path_buf(),
+            rmtopdir,
+        })
     });
 }
 
@@ -124,7 +126,11 @@ fn remove_dir_contents(path: &std::path::Path) -> bool {
     for entry in entries.flatten() {
         let p = entry.path();
         let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
-        let r = if is_dir { std::fs::remove_dir_all(&p) } else { std::fs::remove_file(&p) };
+        let r = if is_dir {
+            std::fs::remove_dir_all(&p)
+        } else {
+            std::fs::remove_file(&p)
+        };
         if r.is_err() {
             ok = false;
         }

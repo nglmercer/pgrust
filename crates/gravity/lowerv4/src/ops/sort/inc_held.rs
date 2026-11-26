@@ -35,7 +35,11 @@ use crate::graph::Gx;
 
 /// Whether graph pipeline `k`'s Incremental Sort is marked for the held form (decompose `held_incs`).
 fn marked(gx: &Gx<'_, '_>, k: usize) -> bool {
-    k < gx.pipelines().len() && gx.pipelines()[k].node_ops.iter().any(|o| gx.graph.held_incs.contains(&o.node_id))
+    k < gx.pipelines().len()
+        && gx.pipelines()[k]
+            .node_ops
+            .iter()
+            .any(|o| gx.graph.held_incs.contains(&o.node_id))
 }
 
 /// The one pipeline reading producer `k`'s run when `k` takes the held form (the module's rule, its shape aside:
@@ -46,55 +50,118 @@ pub(crate) fn reader(gx: &Gx<'_, '_>, k: usize) -> Option<usize> {
     }
     let ps = gx.pipelines();
     let p = &ps[k];
-    let (Op::Sort(sd), before) = p.ops.split_last()? else { return None };
-    if !matches!(sd.form, SortForm::Runs) || sd.presorted == 0 || p.desc.finish || !before.iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_))) {
+    let (Op::Sort(sd), before) = p.ops.split_last()? else {
+        return None;
+    };
+    if !matches!(sd.form, SortForm::Runs)
+        || sd.presorted == 0
+        || p.desc.finish
+        || !before
+            .iter()
+            .all(|o| matches!(o, Op::Filter(_) | Op::Project(_)))
+    {
         return None;
     }
-    let stopped = gx.graph.stops.iter().any(|s| p.node_ops.iter().any(|o| o.node_id == s.sort));
-    if stopped || ps.iter().any(crate::lifetime::material::locks) || !crate::frame::iface::run_holds_rows(gx, k) {
+    let stopped = gx
+        .graph
+        .stops
+        .iter()
+        .any(|s| p.node_ops.iter().any(|o| o.node_id == s.sort));
+    if stopped
+        || ps.iter().any(crate::lifetime::material::locks)
+        || !crate::frame::iface::run_holds_rows(gx, k)
+    {
         return None;
     }
-    if !crate::rerun::spool::form::lazy_exact(gx, &p.source,p.desc.consumes, before) {
+    if !crate::rerun::spool::form::lazy_exact(gx, &p.source, p.desc.consumes, before) {
         return None;
     }
     // the run's one reader: a graph pipeline reading it as its source (no other pipeline, no embedded inner, reads it)
     let life = Some(LifeId(k as u16));
     let reads = |q: usize| {
-        let src = if let Source::Breaker { slot } = ps[q].source { Some(slot) } else { None };
-        ps[q].desc.consumes.iter().copied().chain(src).any(|s| gx.life_of(q, s) == life)
+        let src = if let Source::Breaker { slot } = ps[q].source {
+            Some(slot)
+        } else {
+            None
+        };
+        ps[q]
+            .desc
+            .consumes
+            .iter()
+            .copied()
+            .chain(src)
+            .any(|s| gx.life_of(q, s) == life)
     };
-    let readers: PgVec<'_, usize> = (0..ps.len() + ps.inners().len()).filter(|&q| q != k && reads(q)).collect_in(gx.mcx);
+    let readers: PgVec<'_, usize> = (0..ps.len() + ps.inners().len())
+        .filter(|&q| q != k && reads(q))
+        .collect_in(gx.mcx);
     let &[r] = &readers[..] else { return None };
-    if r >= ps.len() || !matches!(ps[r].source, Source::Breaker { slot } if gx.life_of(r, slot) == life) {
+    if r >= ps.len()
+        || !matches!(ps[r].source, Source::Breaker { slot } if gx.life_of(r, slot) == life)
+    {
         return None;
     }
     let ops = &ps[r].ops;
-    let m = ops.iter().position(|op| matches!(op, Op::Join(JoinDesc::Merge { .. })))?;
-    let rerun = |x: usize| gx.graph.reruns.iter().any(|s| s.pipelines.contains(&(x as u16)));
+    let m = ops
+        .iter()
+        .position(|op| matches!(op, Op::Join(JoinDesc::Merge { .. })))?;
+    let rerun = |x: usize| {
+        gx.graph
+            .reruns
+            .iter()
+            .any(|s| s.pipelines.contains(&(x as u16)))
+    };
     let init = |x: usize| gx.graph.init_plans.iter().any(|i| i.pipeline as usize == x);
-    let plain = ops[..m].iter().all(|op| matches!(op, Op::Filter(_) | Op::Project(_)));
-    (plain && !rerun(k) && !rerun(r) && !init(k) && !init(r) && crate::frame::iface::rows_reached(gx, r, m + 1)).then_some(r)
+    let plain = ops[..m]
+        .iter()
+        .all(|op| matches!(op, Op::Filter(_) | Op::Project(_)));
+    (plain
+        && !rerun(k)
+        && !rerun(r)
+        && !init(k)
+        && !init(r)
+        && crate::frame::iface::rows_reached(gx, r, m + 1))
+    .then_some(r)
 }
 
 /// Producer `k`'s held form over its run of `shape` (`pre` prefix keys; `stopped`: a stop is handed to the sort): the held
 /// error's licence when taken (the pipeline marked `held_sort` and `held_at`, run on the leader: the fill reads its whole
 /// input before the batches, its error held to the batch PostgreSQL would raise it in); a marked sort that cannot take it
 /// refuses by D2316's name; None for an unmarked one.
-pub(crate) fn producer(px: &mut Px<'_, '_>, k: usize, shape: &Shape, pre: usize, stopped: bool) -> Option<gravity_decompose::effects::Licence> {
+pub(crate) fn producer(
+    px: &mut Px<'_, '_>,
+    k: usize,
+    shape: &Shape,
+    pre: usize,
+    stopped: bool,
+) -> Option<gravity_decompose::effects::Licence> {
     if !marked(px.gx, k) {
         return None;
     }
     // a prefix group closes where PostgreSQL's prefix compare closes it: one exact order word per key (no float word,
     // whose -0 and 0 PostgreSQL's equality joins), fixed rows
-    let exact = pre > 0 && pre <= shape.keys.len() && !shape.var() && shape.keys[..pre].iter().all(|key| {
-        let tf = &shape.cols[key.col as usize].tf;
-        tf.base != crate::rep::keylane::NAME && tf.image.is_word()
-    });
+    let exact = pre > 0
+        && pre <= shape.keys.len()
+        && !shape.var()
+        && shape.keys[..pre].iter().all(|key| {
+            let tf = &shape.cols[key.col as usize].tf;
+            tf.base != crate::rep::keylane::NAME && tf.image.is_word()
+        });
     // `reader`: the statement acts nowhere and the fill's code calls no user or VOLATILE function, so it may raise and does
     // nothing else
-    let held = gravity_decompose::effects::held_error(gravity_decompose::effects::Effects::RAISES, false, None).ok();
+    let held = gravity_decompose::effects::held_error(
+        gravity_decompose::effects::Effects::RAISES,
+        false,
+        None,
+    )
+    .ok();
     let Some(held) = held.filter(|_| !stopped && exact && reader(px.gx, k).is_some()) else {
-        crate::refuse!(px.gx.pipelines()[k].node_id, Reason::Shape { why: ShapeWhy(gravity_decompose::ops::sort::LAZY_AHEAD) })
+        crate::refuse!(
+            px.gx.pipelines()[k].node_id,
+            Reason::Shape {
+                why: ShapeWhy(gravity_decompose::ops::sort::LAZY_AHEAD)
+            }
+        )
     };
     for v in [&mut px.held_sort, &mut px.held_at, &mut px.serial] {
         if !v.contains(&k) {
@@ -117,15 +184,29 @@ pub(crate) struct Read {
 
 /// Pipeline `k`'s emit over producer `producer`'s run (read at consumed index `at`, or its own region) as the held
 /// reader, run on the leader; None when `producer` does not take the held form for `k`.
-pub(crate) fn read(px: &mut Px<'_, '_>, k: usize, producer: usize, at: Option<u64>) -> Option<Read> {
+pub(crate) fn read(
+    px: &mut Px<'_, '_>,
+    k: usize,
+    producer: usize,
+    at: Option<u64>,
+) -> Option<Read> {
     if reader(px.gx, producer) != Some(k) {
         return None;
     }
     if !px.serial.contains(&k) {
         px.serial.push(k); // alloc: Program
     }
-    let w_out = px.frame_word(WordKey::Open { face: Face::Runs, k: producer, j: u64::MAX, i: runs_word::INC_OUT }) as i32 * 8;
-    Some(Read { w_out, at: at.unwrap_or(u64::MAX) })
+    let w_out = px.frame_word(WordKey::Open {
+        face: Face::Runs,
+        k: producer,
+        j: u64::MAX,
+        i: runs_word::INC_OUT,
+    }) as i32
+        * 8;
+    Some(Read {
+        w_out,
+        at: at.unwrap_or(u64::MAX),
+    })
 }
 
 impl Read {
@@ -141,11 +222,26 @@ impl Read {
     /// merge.join's held inner does), where PostgreSQL's next batch load reads the raising row; a run whose fill ended
     /// answers 0 and the reader ends.
     pub(crate) fn end(&self, b: &mut FunctionBuilder<'_>, env: &mut Env) {
-        let flags = HostFlags { may_error: true, ..HostFlags::default() };
-        let h = b.declare_host_once("sort_held_end", &[Type::Ptr, Type::I64], Some(Type::I64), gravity_abi::host_words!(gravity_kernels::host_abi::sort_held_end(ctx, k)), flags);
+        let flags = HostFlags {
+            may_error: true,
+            ..HostFlags::default()
+        };
+        let h = b.declare_host_once(
+            "sort_held_end",
+            &[Type::Ptr, Type::I64],
+            Some(Type::I64),
+            gravity_abi::host_words!(gravity_kernels::host_abi::sort_held_end(ctx, k)),
+            flags,
+        );
         let at = b.iconst(Type::I64, self.at as i64);
-        let st = b.call_host(h, &[env.ctx, at], Some(Type::I64)).expect("sort_held_end returns its answer");
-        let (held, l_raise, l_on) = (b.icmp(IntCond::Ne, st, env.zero), b.create_block(&[]), b.create_block(&[]));
+        let st = b
+            .call_host(h, &[env.ctx, at], Some(Type::I64))
+            .expect("sort_held_end returns its answer");
+        let (held, l_raise, l_on) = (
+            b.icmp(IntCond::Ne, st, env.zero),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         b.cond_br(held, (l_raise, &[]), (l_on, &[]));
         b.switch_to(l_raise);
         b.mark_cold(l_raise);

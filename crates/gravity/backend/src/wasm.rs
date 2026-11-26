@@ -11,9 +11,9 @@
 //! the JIT host (`NoHost`: wasmtime's stub, an old page) turns the path off for the process, silently.
 
 use super::*;
+use pgsync::Mutex;
 use raw::wasm::{install, stack_guard, InstallError, Installed};
 use std::collections::{HashMap, HashSet};
-use pgsync::Mutex;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -47,7 +47,14 @@ pub struct WasmStats {
     pub filed_bytes: usize,
 }
 
-static STATS: Mutex<WasmStats> = Mutex::new(WasmStats { installs: 0, hits: 0, evictions: 0, fallbacks: 0, filed: 0, filed_bytes: 0 });
+static STATS: Mutex<WasmStats> = Mutex::new(WasmStats {
+    installs: 0,
+    hits: 0,
+    evictions: 0,
+    fallbacks: 0,
+    filed: 0,
+    filed_bytes: 0,
+});
 
 pub fn stats() -> WasmStats {
     let mut s = *STATS.lock().unwrap_or_else(|e| e.into_inner());
@@ -65,7 +72,11 @@ fn bump(f: impl FnOnce(&mut WasmStats)) {
 fn codes_of(installed: &Arc<Installed>, bytes: usize, n: usize) -> Vec<Code> {
     // D3615: every entry names the one module, so a program is charged its bytes once (`Program::code_bytes`)
     let mapping = Arc::as_ptr(installed) as usize;
-    (0..n).map(|i| Code::mapped(installed.entry(i), bytes, Box::new(installed.clone())).of_mapping(mapping)).collect() // alloc: Program
+    (0..n)
+        .map(|i| {
+            Code::mapped(installed.entry(i), bytes, Box::new(installed.clone())).of_mapping(mapping)
+        })
+        .collect() // alloc: Program
 }
 
 /// `compiled_all` on wasm: the installed module's codes, or the interpreter's (`fallback`).
@@ -83,24 +94,60 @@ pub(super) fn compiled_all(program: &Program, entries: &[Func]) -> PgResult<(Vec
             let bytes = f.bytes;
             drop(g);
             bump(|s| s.hits += 1);
-            return Ok((codes, Outcome { lookup: Lookup::Hit, key, bytes, timing: Default::default(), ns: t0.elapsed().as_nanos() as u64 }));
+            return Ok((
+                codes,
+                Outcome {
+                    lookup: Lookup::Hit,
+                    key,
+                    bytes,
+                    timing: Default::default(),
+                    ns: t0.elapsed().as_nanos() as u64,
+                },
+            ));
         }
         if st.no_host {
             drop(g);
             return fallback(program, entries, key, None);
         }
     }
-    let module = match gravity_deps::catalog_free(|| gravity_wasm::compile_entries(program, entries, gravity_wasm::Options { stack_guard: Some(stack_guard()), import_hosts: true })) {
+    let module = match gravity_deps::catalog_free(|| {
+        gravity_wasm::compile_entries(
+            program,
+            entries,
+            gravity_wasm::Options {
+                stack_guard: Some(stack_guard()),
+                import_hosts: true,
+            },
+        )
+    }) {
         Ok(m) => m,
-        Err(r) => return fallback(program, entries, key, Some(format!("the wasm code generator refused: {r}"))),
+        Err(r) => {
+            return fallback(
+                program,
+                entries,
+                key,
+                Some(format!("the wasm code generator refused: {r}")),
+            )
+        }
     };
     let installed = match install(&module, entries.len()) {
         Ok(i) => Arc::new(i), // alloc: Cold
         Err(InstallError::NoHost) => {
-            STATE.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(State::default).no_host = true;
+            STATE
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get_or_insert_with(State::default)
+                .no_host = true;
             return fallback(program, entries, key, None);
         }
-        Err(InstallError::Failed(m)) => return fallback(program, entries, key, Some(format!("the embedder could not install the module: {m}"))),
+        Err(InstallError::Failed(m)) => {
+            return fallback(
+                program,
+                entries,
+                key,
+                Some(format!("the embedder could not install the module: {m}")),
+            )
+        }
     };
     bump(|s| s.installs += 1);
     let bytes = module.len();
@@ -112,32 +159,85 @@ pub(super) fn compiled_all(program: &Program, entries: &[Func]) -> PgResult<(Vec
         st.clock += 1;
         let now = st.clock;
         st.bytes += bytes;
-        st.map.insert(key, Filed { installed, bytes, last_use: now }); // alloc: Cold
+        st.map.insert(
+            key,
+            Filed {
+                installed,
+                bytes,
+                last_use: now,
+            },
+        ); // alloc: Cold
         while st.bytes > budget && st.map.len() > 1 {
-            let Some(k) = st.map.iter().filter(|(k, _)| **k != key).min_by_key(|(_, f)| f.last_use).map(|(k, _)| *k) else { break };
+            let Some(k) = st
+                .map
+                .iter()
+                .filter(|(k, _)| **k != key)
+                .min_by_key(|(_, f)| f.last_use)
+                .map(|(k, _)| *k)
+            else {
+                break;
+            };
             let f = st.map.remove(&k).expect("victim present");
             st.bytes -= f.bytes;
             bump(|s| s.evictions += 1);
         }
     }
-    Ok((codes, Outcome { lookup: Lookup::Miss, key, bytes, timing: Default::default(), ns: t0.elapsed().as_nanos() as u64 }))
+    Ok((
+        codes,
+        Outcome {
+            lookup: Lookup::Miss,
+            key,
+            bytes,
+            timing: Default::default(),
+            ns: t0.elapsed().as_nanos() as u64,
+        },
+    ))
 }
 
 /// The interpreter's codes for `program` (one shared copy of the IR), with `why` logged once per fingerprint; the
 /// interpreter's own refusal (`tier0_ok`) is the statement's admission refusal, as a compile error is natively.
-fn fallback(program: &Program, entries: &[Func], key: cache::CodeKey, why: Option<String>) -> PgResult<(Vec<Code>, Outcome)> {
+fn fallback(
+    program: &Program,
+    entries: &[Func],
+    key: cache::CodeKey,
+    why: Option<String>,
+) -> PgResult<(Vec<Code>, Outcome)> {
     bump(|s| s.fallbacks += 1);
     if let Some(why) = why {
-        let first = STATE.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(State::default).logged.insert(key);
+        let first = STATE
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get_or_insert_with(State::default)
+            .logged
+            .insert(key);
         if first {
-            eprintln!("gravity backend: program {:032x} runs interpreted: {why}", key.0);
+            eprintln!(
+                "gravity backend: program {:032x} runs interpreted: {why}",
+                key.0
+            );
         }
     }
-    tier0_ok(program).map_err(|m| Box::new(PgError::error(format!("gravity backend: no wasm code and the interpreter refuses: {m}")).with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE)))?;
+    tier0_ok(program).map_err(|m| {
+        Box::new(
+            PgError::error(format!(
+                "gravity backend: no wasm code and the interpreter refuses: {m}"
+            ))
+            .with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE),
+        )
+    })?;
     let shared = std::sync::Arc::new(program.clone_owned(Some(cache::PROGRAM_CACHES))); // alloc: Program
     let mut out = Vec::with_capacity(entries.len()); // alloc: Program
     for &f in entries {
         out.push(interp_shared(shared.clone(), f, key.0).map_err(|e| Box::new(PgError::error(e)))?);
     }
-    Ok((out, Outcome { lookup: Lookup::Miss, key, bytes: 0, timing: Default::default(), ns: 0 }))
+    Ok((
+        out,
+        Outcome {
+            lookup: Lookup::Miss,
+            key,
+            bytes: 0,
+            timing: Default::default(),
+            ns: 0,
+        },
+    ))
 }

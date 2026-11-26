@@ -24,9 +24,12 @@
 
 use core::cell::Cell;
 use core::hash::Hash;
+use gravity_ir::{
+    Block, ConvOp, Edge, FloatCond, Function, IntBinOp, IntCond, IntOvfOp, Op, Program, Terminator,
+    Type, Value,
+};
 use mcx::{pg_vec, reserved_in, GrowIn, Mcx, PgFxHashMap, PgVec};
 use tpde_core::ir_adaptor::BlockCalls;
-use gravity_ir::{Block, ConvOp, Edge, IntOvfOp, FloatCond, Function, IntBinOp, IntCond, Op, Program, Terminator, Type, Value};
 
 /// One instruction in the flattened list.
 #[derive(Clone, Copy, Debug)]
@@ -114,7 +117,27 @@ pub struct Phi<'s> {
 }
 
 /// The passes of `FnView::build_in`, in order, for `FnView::pass_ns`.
-pub const PASS_NAMES: [&str; 19] = ["blocks", "loop_bodies", "insts_edges", "layout_succs", "block_freqs", "consts", "propagate_copies", "forward_phis", "eliminate_dead", "fuse_compares", "fuse_immediates", "fuse_narrow_ops", "fuse_narrow_moves", "fuse_addresses", "fuse_stores", "fuse_flags", "pick_fixed", "compute_weights", "pick_phi_reuse"];
+pub const PASS_NAMES: [&str; 19] = [
+    "blocks",
+    "loop_bodies",
+    "insts_edges",
+    "layout_succs",
+    "block_freqs",
+    "consts",
+    "propagate_copies",
+    "forward_phis",
+    "eliminate_dead",
+    "fuse_compares",
+    "fuse_immediates",
+    "fuse_narrow_ops",
+    "fuse_narrow_moves",
+    "fuse_addresses",
+    "fuse_stores",
+    "fuse_flags",
+    "pick_fixed",
+    "compute_weights",
+    "pick_phi_reuse",
+];
 
 #[derive(Debug)]
 pub struct FnView<'s> {
@@ -248,7 +271,15 @@ pub struct FnView<'s> {
 }
 
 /// shapecheck fire names of `FnView::fusions`' bits (REGISTRY CR2-19..25), in bit order.
-pub const FUSION_NAMES: [&str; 7] = ["tpde.cmp_branch", "tpde.imm", "tpde.narrow_op", "tpde.narrow_move", "tpde.addr", "tpde.store_pair", "tpde.flag_reuse"];
+pub const FUSION_NAMES: [&str; 7] = [
+    "tpde.cmp_branch",
+    "tpde.imm",
+    "tpde.narrow_op",
+    "tpde.narrow_move",
+    "tpde.addr",
+    "tpde.store_pair",
+    "tpde.flag_reuse",
+];
 
 /// `v` holding `n` copies of `x`, its capacity kept.
 /// D1939: the representative of value `v` in a rename table read as a union-find (a value past the table, or one that names
@@ -258,7 +289,11 @@ fn find_rep(rename: &mut [u32], v: usize) -> usize {
     let mut x = v;
     while x < rename.len() && rename[x] as usize != x {
         let p = rename[x] as usize;
-        let gp = if p < rename.len() { rename[p] } else { p as u32 };
+        let gp = if p < rename.len() {
+            rename[p]
+        } else {
+            p as u32
+        };
         rename[x] = gp;
         x = gp as usize;
     }
@@ -293,8 +328,16 @@ impl<'s> Body<'s> {
 
     /// Whether block `b` is in the body.
     pub fn contains(&self, b: usize) -> bool {
-        assert!(b < self.n, "block {b} past the function's {} blocks", self.n);
-        b >= self.lo && self.words.get((b - self.lo) / 64).is_some_and(|w| (w >> ((b - self.lo) % 64)) & 1 != 0)
+        assert!(
+            b < self.n,
+            "block {b} past the function's {} blocks",
+            self.n
+        );
+        b >= self.lo
+            && self
+                .words
+                .get((b - self.lo) / 64)
+                .is_some_and(|w| (w >> ((b - self.lo) % 64)) & 1 != 0)
     }
 
     /// The number of blocks in the body.
@@ -321,7 +364,11 @@ impl<'s> Body<'s> {
 impl core::ops::Index<usize> for Body<'_> {
     type Output = bool;
     fn index(&self, b: usize) -> &bool {
-        if self.contains(b) { &true } else { &false }
+        if self.contains(b) {
+            &true
+        } else {
+            &false
+        }
     }
 }
 
@@ -343,7 +390,10 @@ pub(crate) fn room<T>(v: &mut PgVec<'_, T>, n: usize) {
 #[inline(never)]
 fn grow<T>(v: &mut PgVec<'_, T>, n: usize) {
     if v.try_reserve(n).is_err() {
-        mcx::raise(v.allocator().oom_boxed(n.saturating_mul(core::mem::size_of::<T>())));
+        mcx::raise(
+            v.allocator()
+                .oom_boxed(n.saturating_mul(core::mem::size_of::<T>())),
+        );
     }
 }
 
@@ -461,7 +511,11 @@ impl<'s, K: Hash + Eq, V> VMap<'s, K, V> {
 
     #[inline(always)]
     pub fn get(&self, k: &K) -> Option<&V> {
-        if self.0.is_empty() { None } else { self.0.get(k) }
+        if self.0.is_empty() {
+            None
+        } else {
+            self.0.get(k)
+        }
     }
 
     #[inline(always)]
@@ -471,12 +525,20 @@ impl<'s, K: Hash + Eq, V> VMap<'s, K, V> {
 
     #[inline(always)]
     pub fn get_mut(&mut self, k: &K) -> Option<&mut V> {
-        if self.0.is_empty() { None } else { self.0.get_mut(k) }
+        if self.0.is_empty() {
+            None
+        } else {
+            self.0.get_mut(k)
+        }
     }
 
     #[inline(always)]
     pub fn remove(&mut self, k: &K) -> Option<V> {
-        if self.0.is_empty() { None } else { self.0.remove(k) }
+        if self.0.is_empty() {
+            None
+        } else {
+            self.0.remove(k)
+        }
     }
 }
 
@@ -508,10 +570,20 @@ pub fn check_edge_arity(program: &Program) -> Result<(), alloc::string::String> 
         for (bi, b) in f.blocks.iter().enumerate() {
             for e in b.term.edges() {
                 let Some(tb) = f.blocks.get(e.target.index()) else {
-                    return Err(alloc::format!("fn {}: b{bi} branches to b{} which does not exist", f.name, e.target.0));
+                    return Err(alloc::format!(
+                        "fn {}: b{bi} branches to b{} which does not exist",
+                        f.name,
+                        e.target.0
+                    ));
                 };
                 if tb.params.len() != e.args.len() {
-                    return Err(alloc::format!("fn {}: edge b{bi} -> b{} has {} args, block has {} params", f.name, e.target.0, e.args.len(), tb.params.len()));
+                    return Err(alloc::format!(
+                        "fn {}: edge b{bi} -> b{} has {} args, block has {} params",
+                        f.name,
+                        e.target.0,
+                        e.args.len(),
+                        tb.params.len()
+                    ));
                 }
             }
         }
@@ -585,7 +657,53 @@ impl<'s> FnView<'s> {
     /// function (or the next compile, through `crate::Scratch`) reuses
     /// the allocations.
     pub fn clear(&mut self) {
-        let FnView { mcx: _, pass_ns: _, direct_uses, uses, def_inst, blocks, insts, splits, operands, ops_begin, ops_end, results, phis, num_values, num_slots, entry, has_calls, fused, term_fuse, term_const, force_fixed, no_fixed, block_freq, loops, preds, block_calls, rename, weight, const_of, nowrap, const_fused, phi_reuse, icmp_self_ext, shifted, trunc_sbfx, no_canon, ptr_add_override, load_override, store_override, icmp_flags, load_zext, store_pair, store_zero_wide, fusions: _, sink } = self;
+        let FnView {
+            mcx: _,
+            pass_ns: _,
+            direct_uses,
+            uses,
+            def_inst,
+            blocks,
+            insts,
+            splits,
+            operands,
+            ops_begin,
+            ops_end,
+            results,
+            phis,
+            num_values,
+            num_slots,
+            entry,
+            has_calls,
+            fused,
+            term_fuse,
+            term_const,
+            force_fixed,
+            no_fixed,
+            block_freq,
+            loops,
+            preds,
+            block_calls,
+            rename,
+            weight,
+            const_of,
+            nowrap,
+            const_fused,
+            phi_reuse,
+            icmp_self_ext,
+            shifted,
+            trunc_sbfx,
+            no_canon,
+            ptr_add_override,
+            load_override,
+            store_override,
+            icmp_flags,
+            load_zext,
+            store_pair,
+            store_zero_wide,
+            fusions: _,
+            sink,
+        } = self;
         direct_uses.clear();
         uses.clear();
         def_inst.clear();
@@ -644,18 +762,40 @@ impl<'s> FnView<'s> {
         let mut any = false;
         // D3698: the headers per block, from one walk of the hints and the loops (a scan of both per cold block)
         let mut headers = filled_in(m, false, func.blocks.len());
-        for h in func.hints.loop_headers.iter().map(|h| h.index()).chain(self.loops.iter().map(|(h, _)| *h)) {
+        for h in func
+            .hints
+            .loop_headers
+            .iter()
+            .map(|h| h.index())
+            .chain(self.loops.iter().map(|(h, _)| *h))
+        {
             if let Some(x) = headers.get_mut(h) {
                 *x = true;
             }
         }
         for b in &func.hints.cold_blocks {
             let bi = b.index();
-            let Some(block) = func.blocks.get(bi) else { continue };
-            let calls_poll = block.insts.iter().any(|i| matches!(&i.op, Op::CallHost { callee, .. } if *callee == poll));
+            let Some(block) = func.blocks.get(bi) else {
+                continue;
+            };
+            let calls_poll = block
+                .insts
+                .iter()
+                .any(|i| matches!(&i.op, Op::CallHost { callee, .. } if *callee == poll));
             let header = headers[bi];
-            let plain_succs = block.term.edges().all(|e| e.args.is_empty() && func.blocks.get(e.target.index()).is_some_and(|t| t.params.is_empty()));
-            if calls_poll && !header && plain_succs && block.params.is_empty() && bi < self.sink.len() {
+            let plain_succs = block.term.edges().all(|e| {
+                e.args.is_empty()
+                    && func
+                        .blocks
+                        .get(e.target.index())
+                        .is_some_and(|t| t.params.is_empty())
+            });
+            if calls_poll
+                && !header
+                && plain_succs
+                && block.params.is_empty()
+                && bi < self.sink.len()
+            {
                 self.sink[bi] = true;
                 any = true;
             }
@@ -696,10 +836,16 @@ impl<'s> FnView<'s> {
     /// shapecheck: the `FUSION_NAMES` bits this function's fusion passes took (narrow moves are marked at their sites).
     fn fusion_bits(&self) -> u8 {
         let mut b = 0u8;
-        b |=self.term_fuse.iter().any(|t| t.is_some()) as u8;
+        b |= self.term_fuse.iter().any(|t| t.is_some()) as u8;
         b |= (self.const_fused.iter().any(|&c| c) as u8) << 1;
-        b |= ((!self.icmp_self_ext.is_empty() || !self.shifted.is_empty() || !self.trunc_sbfx.is_empty()) as u8) << 2;
-        b |= ((!self.load_override.is_empty() || !self.ptr_add_override.is_empty() || !self.store_override.is_empty()) as u8) << 4;
+        b |= ((!self.icmp_self_ext.is_empty()
+            || !self.shifted.is_empty()
+            || !self.trunc_sbfx.is_empty()) as u8)
+            << 2;
+        b |= ((!self.load_override.is_empty()
+            || !self.ptr_add_override.is_empty()
+            || !self.store_override.is_empty()) as u8)
+            << 4;
         b |= ((!self.store_pair.is_empty() || !self.store_zero_wide.is_empty()) as u8) << 5;
         b |= (self.icmp_flags.iter().any(|&f| f) as u8) << 6;
         b
@@ -735,12 +881,18 @@ impl<'s> FnView<'s> {
             let is_entry = bi as u32 == func.entry.0;
             if !is_entry {
                 for &p in &b.params {
-                    view.phis[p.index()] = Some(Phi { incoming: reserved_in(npred[bi] as usize, m) });
+                    view.phis[p.index()] = Some(Phi {
+                        incoming: reserved_in(npred[bi] as usize, m),
+                    });
                 }
             }
             view.blocks.push_hot(VBlock {
                 orig: Some(bi as u32),
-                phis: if is_entry { PgVec::new_in(m) } else { copied_in(&b.params, m) },
+                phis: if is_entry {
+                    PgVec::new_in(m)
+                } else {
+                    copied_in(&b.params, m)
+                },
                 inst_begin: 0,
                 inst_end: 0,
                 succs: PgVec::new_in(m),
@@ -760,7 +912,8 @@ impl<'s> FnView<'s> {
         // instruction per IR instruction plus one terminator per block plus
         // the allocas; the operand arena grows by the fusion passes'
         // rewrites only.
-        let n_insts = func.blocks.iter().map(|b| b.insts.len() + 1).sum::<usize>() + func.stack_slots.len();
+        let n_insts =
+            func.blocks.iter().map(|b| b.insts.len() + 1).sum::<usize>() + func.stack_slots.len();
         room(&mut view.insts, n_insts);
         room(&mut view.results, n_insts);
         room(&mut view.ops_begin, n_insts);
@@ -777,12 +930,19 @@ impl<'s> FnView<'s> {
             let begin = view.insts.len() as u32;
             if bi as u32 == func.entry.0 {
                 for s in 0..func.stack_slots.len() {
-                    view.push_inst(VInst::Alloca { slot: s as u32 }, &[], Some(view.num_values + s as u32));
+                    view.push_inst(
+                        VInst::Alloca { slot: s as u32 },
+                        &[],
+                        Some(view.num_values + s as u32),
+                    );
                 }
             }
             let mut block_calls = false;
             let folded_cmp = view.term_const[bi].and_then(|_| match &b.term {
-                Terminator::CondBr { cond, .. } => b.insts.iter().rposition(|i| i.result == Some(*cond) && matches!(i.op, Op::Icmp { .. })),
+                Terminator::CondBr { cond, .. } => b
+                    .insts
+                    .iter()
+                    .rposition(|i| i.result == Some(*cond) && matches!(i.op, Op::Icmp { .. })),
                 _ => None,
             });
             for (ii, inst) in b.insts.iter().enumerate() {
@@ -794,7 +954,14 @@ impl<'s> FnView<'s> {
                     view.has_calls = true;
                     block_calls = true;
                 }
-                view.push_inst(VInst::Op { block: bi as u32, idx: ii as u32 }, &ops, inst.result.map(|v| v.0));
+                view.push_inst(
+                    VInst::Op {
+                        block: bi as u32,
+                        idx: ii as u32,
+                    },
+                    &ops,
+                    inst.result.map(|v| v.0),
+                );
             }
             ops.clear();
             match &b.term {
@@ -808,14 +975,21 @@ impl<'s> FnView<'s> {
             let end = view.insts.len() as u32;
             view.blocks[bi].inst_begin = begin;
             view.blocks[bi].inst_end = end;
-            view.block_calls.push_hot(BlockCalls { hot: block_calls, cold: false });
+            view.block_calls.push_hot(BlockCalls {
+                hot: block_calls,
+                cold: false,
+            });
 
             let mut succs = reserved_in(b.term.edges().count(), m);
             for (ei, e) in b.term.edges().enumerate() {
                 if view.term_const[bi].is_some_and(|t| t != ei) {
                     continue;
                 }
-                let dup = b.term.edges().enumerate().any(|(oi, o)| oi != ei && o.target == e.target);
+                let dup = b
+                    .term
+                    .edges()
+                    .enumerate()
+                    .any(|(oi, o)| oi != ei && o.target == e.target);
                 let target_has_params = !func.blocks[e.target.index()].params.is_empty();
                 // A loop's entry edge gets its own block, laid out right
                 // before the header: the header's phis are pinned at their
@@ -824,7 +998,9 @@ impl<'s> FnView<'s> {
                 // dispatch would hold them through every loop laid out
                 // between (a two-key group-by: five loops of six parameters dispatched
                 // from one region, 30 pinned registers wanted at once).
-                let entry = of_header[e.target.index()].iter().any(|&li| !view.loops[li as usize].1[bi]);
+                let entry = of_header[e.target.index()]
+                    .iter()
+                    .any(|&li| !view.loops[li as usize].1[bi]);
                 if target_has_params && (dup || entry) {
                     let sb = view.add_split(bi as u32, ei, e);
                     succs.push_hot(sb);
@@ -837,7 +1013,11 @@ impl<'s> FnView<'s> {
         }
         view.build_direct_uses(func);
         marks[3] = pass_end();
-        refill(&mut view.nowrap, func.values.len() + view.num_slots as usize, false);
+        refill(
+            &mut view.nowrap,
+            func.values.len() + view.num_slots as usize,
+            false,
+        );
         for v in &func.hints.nowrap {
             view.nowrap[v.index()] = true;
         }
@@ -848,15 +1028,27 @@ impl<'s> FnView<'s> {
         view.block_freq.extend_copy(&freq);
         for bi in 0..nb {
             if view.block_calls[bi].hot && freq[bi] < 1.0 {
-                view.block_calls[bi] = BlockCalls { hot: false, cold: true };
+                view.block_calls[bi] = BlockCalls {
+                    hot: false,
+                    cold: true,
+                };
             }
         }
-        view.block_calls.resize_in(view.blocks.len(), BlockCalls::default());
+        view.block_calls
+            .resize_in(view.blocks.len(), BlockCalls::default());
         marks[5] = pass_end();
         refill(&mut view.fused, view.insts.len(), false);
         resize_with_in(&mut view.term_fuse, nb, || None);
-        refill(&mut view.const_of, func.values.len() + view.num_slots as usize, None);
-        refill(&mut view.const_fused, func.values.len() + view.num_slots as usize, false);
+        refill(
+            &mut view.const_of,
+            func.values.len() + view.num_slots as usize,
+            None,
+        );
+        refill(
+            &mut view.const_fused,
+            func.values.len() + view.num_slots as usize,
+            false,
+        );
         for b in &func.blocks {
             for i in &b.insts {
                 if let (Some(r), Op::Const { ty, bits }) = (i.result, &i.op) {
@@ -924,7 +1116,8 @@ impl<'s> FnView<'s> {
                 for &v in self.inst_operands(i) {
                     let v = rn(v as usize);
                     let d = def_inst[v];
-                    let same = d != u32::MAX && matches!(self.insts[d as usize], VInst::Op { block, .. } if block as usize == bi);
+                    let same = d != u32::MAX
+                        && matches!(self.insts[d as usize], VInst::Op { block, .. } if block as usize == bi);
                     if !same {
                         outside[v] += 1;
                     }
@@ -943,9 +1136,16 @@ impl<'s> FnView<'s> {
             for (ei, e) in b.term.edges().enumerate() {
                 for (i, a) in e.args.iter().enumerate() {
                     let v = rn(a.index());
-                    let split = self.blocks[bi].succs.get(ei).is_none_or( |&s| s != e.target.0);
+                    let split = self.blocks[bi]
+                        .succs
+                        .get(ei)
+                        .is_none_or(|&s| s != e.target.0);
                     let (n, t, pi) = edge[v];
-                    edge[v] = if split || (n != 0 && (t, pi) != (e.target.0, i as u32)) { (n + 1, u32::MAX, u32::MAX) } else { (n + 1, e.target.0, i as u32) };
+                    edge[v] = if split || (n != 0 && (t, pi) != (e.target.0, i as u32)) {
+                        (n + 1, u32::MAX, u32::MAX)
+                    } else {
+                        (n + 1, e.target.0, i as u32)
+                    };
                 }
             }
         }
@@ -956,27 +1156,51 @@ impl<'s> FnView<'s> {
         // sources (all at (target, i), so each must be `X` or in the region).
         let mut cands: PgVec<(u32, u32, u32, u32, u32, u32)> = PgVec::new_in(m);
         for r in 0..nv {
-            if rn(r) != r || func.values[r].is_float() || outside[r] != 0 || edge[r].0 == 0 || edge[r].1 == u32::MAX {
+            if rn(r) != r
+                || func.values[r].is_float()
+                || outside[r] != 0
+                || edge[r].0 == 0
+                || edge[r].1 == u32::MAX
+            {
                 continue;
             }
             let d = def_inst[r];
             if d == u32::MAX {
                 continue;
             }
-            let VInst::Op { block, idx } = self.insts[d as usize] else { continue };
+            let VInst::Op { block, idx } = self.insts[d as usize] else {
+                continue;
+            };
             let (_, target, i) = edge[r];
             let inst = &func.blocks[block as usize].insts[idx as usize];
             // Result written after the last operand read (one instruction,
             // or a sequence that reads its operands first). The remainders
             // and unsigned division write the result before reading the
             // operands again (`sdiv d; msub d, d, r, n`).
-            if !matches!(inst.op, Op::IntBin { .. } | Op::Icmp { .. } | Op::Select { .. } | Op::Conv { .. } | Op::Load { .. } | Op::LoadZext { .. } | Op::PtrAdd { .. }) {
+            if !matches!(
+                inst.op,
+                Op::IntBin { .. }
+                    | Op::Icmp { .. }
+                    | Op::Select { .. }
+                    | Op::Conv { .. }
+                    | Op::Load { .. }
+                    | Op::LoadZext { .. }
+                    | Op::PtrAdd { .. }
+            ) {
                 continue;
             }
-            if matches!(inst.op, Op::IntBin { op: IntBinOp::Srem | IntBinOp::Udiv | IntBinOp::Urem, .. }) {
+            if matches!(
+                inst.op,
+                Op::IntBin {
+                    op: IntBinOp::Srem | IntBinOp::Udiv | IntBinOp::Urem,
+                    ..
+                }
+            ) {
                 continue;
             }
-            let Some(&p) = func.blocks[target as usize].params.get(i as usize) else { continue };
+            let Some(&p) = func.blocks[target as usize].params.get(i as usize) else {
+                continue;
+            };
             // A forwarded parameter (`forward_phis`) is the successor's phi.
             let p = rn(p.index());
             if self.phis[p].is_none() || func.values[p].is_float() {
@@ -1012,13 +1236,20 @@ impl<'s> FnView<'s> {
                     }
                 }
                 match self.blocks[b].orig {
-                    Some(o) => func.blocks[o as usize].term.edges().for_each(|e| e.args.iter().for_each(|a| mark(a.index()))),
+                    Some(o) => func.blocks[o as usize]
+                        .term
+                        .edges()
+                        .for_each(|e| e.args.iter().for_each(|a| mark(a.index()))),
                     None => {
                         let sp = &self.splits[match self.insts[self.blocks[b].inst_begin as usize] {
                             VInst::SplitBr { split } => split as usize,
                             _ => unreachable!(),
                         }];
-                        let e = func.blocks[sp.from as usize].term.edges().nth(sp.edge as usize).expect("a split's edge");
+                        let e = func.blocks[sp.from as usize]
+                            .term
+                            .edges()
+                            .nth(sp.edge as usize)
+                            .expect("a split's edge");
                         e.args.iter().for_each(|a| mark(a.index()));
                     }
                 }
@@ -1091,14 +1322,19 @@ impl<'s> FnView<'s> {
                 if seen[x] != epoch {
                     for &(_, _, r, _, p, d) in &cands[g..end] {
                         let k = pidx[p as usize] as usize;
-                        let in_region = reads[reads_begin[k] as usize..reads_begin[k + 1] as usize].iter().any(|&(_, b)| seen[b as usize] == epoch);
+                        let in_region = reads[reads_begin[k] as usize..reads_begin[k + 1] as usize]
+                            .iter()
+                            .any(|&(_, b)| seen[b as usize] == epoch);
                         let after_d = in_x[p as usize].0 == x_epoch && in_x[p as usize].1 > d;
                         if in_region || after_d {
                             continue;
                         }
                         let lo = sources.partition_point(|s| s.0 < r);
                         let hi = sources.partition_point(|s| s.0 <= r);
-                        let found = sources[lo..hi].iter().filter(|s| s.1 as usize == x || seen[s.1 as usize] == epoch).count() as u32;
+                        let found = sources[lo..hi]
+                            .iter()
+                            .filter(|s| s.1 as usize == x || seen[s.1 as usize] == epoch)
+                            .count() as u32;
                         if found == edge[r as usize].0 {
                             self.phi_reuse[r as usize] = p;
                         }
@@ -1137,7 +1373,9 @@ impl<'s> FnView<'s> {
             if j == func.entry.index() || self.blocks[j].phis.is_empty() {
                 continue;
             }
-            let Terminator::Br(e) = &func.blocks[j].term else { continue };
+            let Terminator::Br(e) = &func.blocks[j].term else {
+                continue;
+            };
             let h = e.target.index();
             if h == j {
                 continue;
@@ -1151,17 +1389,35 @@ impl<'s> FnView<'s> {
                 if pr != p.index() || uses[pr] != 1 {
                     continue;
                 }
-                let Some(i) = e.args.iter().position(|a| rn(&mut rename, a.index()) == pr) else { continue };
-                let Some(&ph) = func.blocks[h].params.get(i) else { continue };
+                let Some(i) = e.args.iter().position(|a| rn(&mut rename, a.index()) == pr) else {
+                    continue;
+                };
+                let Some(&ph) = func.blocks[h].params.get(i) else {
+                    continue;
+                };
                 let ph = rn(&mut rename, ph.index());
-                if ph >= nv || ph == pr || self.phis[ph].is_none() || func.values[ph] != func.values[pr] {
+                if ph >= nv
+                    || ph == pr
+                    || self.phis[ph].is_none()
+                    || func.values[ph] != func.values[pr]
+                {
                     continue;
                 }
                 // `Ph` read in `J`: by an instruction, or by another edge argument.
                 let b = &self.blocks[j];
-                let read = (b.inst_begin..b.inst_end).any(|ii| self.inst_operands(ii).iter().any(|&v| rn(&mut rename, v as usize) == ph))
-                    || e.args.iter().enumerate().any(|(m, a)| m != i && rn(&mut rename, a.index()) == ph)
-                    || self.blocks[j].phis.iter().any(|q| rn(&mut rename, q.index()) == ph);
+                let read = (b.inst_begin..b.inst_end).any(|ii| {
+                    self.inst_operands(ii)
+                        .iter()
+                        .any(|&v| rn(&mut rename, v as usize) == ph)
+                }) || e
+                    .args
+                    .iter()
+                    .enumerate()
+                    .any(|(m, a)| m != i && rn(&mut rename, a.index()) == ph)
+                    || self.blocks[j]
+                        .phis
+                        .iter()
+                        .any(|q| rn(&mut rename, q.index()) == ph);
                 if read {
                     continue;
                 }
@@ -1204,11 +1460,17 @@ impl<'s> FnView<'s> {
         let m = self.mcx;
         let nv = func.values.len();
         let mut rename = core::mem::replace(&mut self.rename, PgVec::new_in(m));
-        let rn = |rename: &PgVec<u32>, v: Value| rename.get(v.index()).map_or(v.index(), |r| *r as usize) as u32;
+        let rn = |rename: &PgVec<u32>, v: Value| {
+            rename.get(v.index()).map_or(v.index(), |r| *r as usize) as u32
+        };
         let mut is_stack = filled_in(m, false, nv);
         for (ii, vi) in self.insts.iter().enumerate() {
             if let VInst::Op { block, idx } = *vi {
-                if matches!(func.blocks[block as usize].insts[idx as usize].op, Op::StackAddr { .. }) && self.results[ii] != u32::MAX {
+                if matches!(
+                    func.blocks[block as usize].insts[idx as usize].op,
+                    Op::StackAddr { .. }
+                ) && self.results[ii] != u32::MAX
+                {
                     is_stack[self.results[ii] as usize] = true;
                 }
             }
@@ -1226,34 +1488,74 @@ impl<'s> FnView<'s> {
                 if self.fused[ii as usize] {
                     continue;
                 }
-                let VInst::Op { block, idx } = self.insts[ii as usize] else { continue };
+                let VInst::Op { block, idx } = self.insts[ii as usize] else {
+                    continue;
+                };
                 let op = &func.blocks[block as usize].insts[idx as usize].op;
                 let r = self.results[ii as usize];
                 let key = match op {
-                    Op::Store { ptr, offset, value, .. } => {
+                    Op::Store {
+                        ptr, offset, value, ..
+                    } => {
                         loads.clear();
                         let p = rn(&rename, *ptr);
                         if (p as usize) >= nv || is_stack[p as usize] {
                             let ty = func.values[value.index()];
                             let new = ty.bytes() as i32;
-                            stored.retain(|(q, o, _, t)| *q != p || *o + t.bytes() as i32 <= *offset || *offset + new <= *o);
+                            stored.retain(|(q, o, _, t)| {
+                                *q != p || *o + t.bytes() as i32 <= *offset || *offset + new <= *o
+                            });
                             stored.push_hot((p, *offset, rn(&rename, *value), ty));
                         } else {
                             stored.clear();
                         }
                         continue;
                     }
-                    Op::Const { .. } | Op::StackAddr { .. } | Op::Prefetch { .. } | Op::IntUn { .. } | Op::IntOvf { .. } | Op::Crc32c { .. } | Op::AddHi { .. } | Op::FloatBin { .. } | Op::FloatUn { .. } | Op::Fcmp { .. } => continue,
-                    Op::IntBin { op, a, b } => Key::Bin(*op as u8, rn(&rename, *a), rn(&rename, *b)),
-                    Op::Icmp { cond, a, b } => Key::Cmp(*cond as u8, rn(&rename, *a), rn(&rename, *b)),
+                    Op::Const { .. }
+                    | Op::StackAddr { .. }
+                    | Op::Prefetch { .. }
+                    | Op::IntUn { .. }
+                    | Op::IntOvf { .. }
+                    | Op::Crc32c { .. }
+                    | Op::AddHi { .. }
+                    | Op::FloatBin { .. }
+                    | Op::FloatUn { .. }
+                    | Op::Fcmp { .. } => continue,
+                    Op::IntBin { op, a, b } => {
+                        Key::Bin(*op as u8, rn(&rename, *a), rn(&rename, *b))
+                    }
+                    Op::Icmp { cond, a, b } => {
+                        Key::Cmp(*cond as u8, rn(&rename, *a), rn(&rename, *b))
+                    }
                     Op::Conv { op, to, a } => Key::Conv(*op as u8, *to as u8, rn(&rename, *a)),
-                    Op::Select { cond, a, b } => Key::Sel(rn(&rename, *cond), rn(&rename, *a), rn(&rename, *b)),
-                    Op::PtrAdd { base, index, scale, offset } => Key::Ptr(rn(&rename, *base), rn(&rename, *index), *scale, *offset),
-                    Op::Load { ty, ptr, offset, unaligned } | Op::LoadZext { ty, ptr, offset, unaligned } => {
+                    Op::Select { cond, a, b } => {
+                        Key::Sel(rn(&rename, *cond), rn(&rename, *a), rn(&rename, *b))
+                    }
+                    Op::PtrAdd {
+                        base,
+                        index,
+                        scale,
+                        offset,
+                    } => Key::Ptr(rn(&rename, *base), rn(&rename, *index), *scale, *offset),
+                    Op::Load {
+                        ty,
+                        ptr,
+                        offset,
+                        unaligned,
+                    }
+                    | Op::LoadZext {
+                        ty,
+                        ptr,
+                        offset,
+                        unaligned,
+                    } => {
                         let p = rn(&rename, *ptr);
                         let zext = matches!(op, Op::LoadZext { .. });
                         if !zext && r != u32::MAX {
-                            if let Some(&(_, _, v, _)) = stored.iter().find(|(q, o, _, t)| *q == p && *o == *offset && *t == *ty) {
+                            if let Some(&(_, _, v, _)) = stored
+                                .iter()
+                                .find(|(q, o, _, t)| *q == p && *o == *offset && *t == *ty)
+                            {
                                 alias.push_hot((ii, r as usize, v as usize));
                                 continue;
                             }
@@ -1267,14 +1569,24 @@ impl<'s> FnView<'s> {
                         continue;
                     }
                 };
-                if r == u32::MAX || (r as usize) >= nv || rename.get(r as usize).is_some_and(|x| *x != r) {
+                if r == u32::MAX
+                    || (r as usize) >= nv
+                    || rename.get(r as usize).is_some_and(|x| *x != r)
+                {
                     continue;
                 }
-                let map = if matches!(key, Key::Load(..)) { &mut loads } else { &mut avail };
+                let map = if matches!(key, Key::Load(..)) {
+                    &mut loads
+                } else {
+                    &mut avail
+                };
                 // one hash per key: the first result under it, or `r` put there
                 let had = map.len();
                 let first = *put_or_get(map, key, r);
-                if map.len() == had && (first as usize) < nv && func.values[first as usize] == func.values[r as usize] {
+                if map.len() == had
+                    && (first as usize) < nv
+                    && func.values[first as usize] == func.values[r as usize]
+                {
                     rename[r as usize] = first;
                     alias.push_hot((ii, r as usize, first as usize));
                     continue;
@@ -1320,7 +1632,7 @@ impl<'s> FnView<'s> {
                 param_block[p.index()] = bi as u32;
             }
         }
-        let live_edge = |bi: usize, ei: usize|self.term_const[bi].is_none_or(|t| t == ei);
+        let live_edge = |bi: usize, ei: usize| self.term_const[bi].is_none_or(|t| t == ei);
         // Reads the compiler emits: operands of the view's instructions
         // and the arguments of live edges (a folded `condbr`'s dead arm
         // names values it never moves).
@@ -1362,7 +1674,11 @@ impl<'s> FnView<'s> {
                 for &li in &of_header[e.target.index()] {
                     if !self.loops[li as usize].1[bi] {
                         entries[li as usize].push_hot(e);
-                        entry_src.extend_hot(e.args.iter().map(|a| (rn(rename, a.index()) as u32, bi as u32)));
+                        entry_src.extend_hot(
+                            e.args
+                                .iter()
+                                .map(|a| (rn(rename, a.index()) as u32, bi as u32)),
+                        );
                     }
                 }
             }
@@ -1373,7 +1689,11 @@ impl<'s> FnView<'s> {
         // phi initialised once per entry, after `q`'s own header ran).
         let entry_reads = |q: usize, dbody: &Body| -> u32 {
             let lo = entry_src.partition_point(|&(v, _)| (v as usize) < q);
-            entry_src[lo..].iter().take_while(|&&(v, _)| v as usize == q).filter(|&&(_, bi)| dbody[bi as usize]).count() as u32
+            entry_src[lo..]
+                .iter()
+                .take_while(|&&(v, _)| v as usize == q)
+                .filter(|&&(_, bi)| dbody[bi as usize])
+                .count() as u32
         };
         // D3698: per value, the original blocks reading it (operands of their instructions and the arguments of all their
         // edges, after renaming), so a candidate's "read inside the body" test reads its readers, not the whole body: a
@@ -1396,7 +1716,10 @@ impl<'s> FnView<'s> {
         read_at.sort_unstable();
         let read_in = |q: usize, body: &Body| {
             let lo = read_at.partition_point(|&(v, _)| (v as usize) < q);
-            read_at[lo..].iter().take_while(|&&(v, _)| v as usize == q).any(|&(_, bi)| body[bi as usize])
+            read_at[lo..]
+                .iter()
+                .take_while(|&&(v, _)| v as usize == q)
+                .any(|&(_, bi)| body[bi as usize])
         };
         let mut pairs: PgVec<(usize, usize)> = PgVec::new_in(m);
         for (li, (h, body)) in self.loops.iter().enumerate() {
@@ -1422,7 +1745,15 @@ impl<'s> FnView<'s> {
             for (i, &p) in func.blocks[*h].params.iter().enumerate() {
                 let p = p.index();
                 let Some(q) = args[i] else { continue };
-                if q == usize::MAX || q >= nv || q == p || rn(rename, p) != p || self.phis[p].is_none() || self.phis[q].is_none() || func.values[p] != func.values[q] || read_in(q, body) {
+                if q == usize::MAX
+                    || q >= nv
+                    || q == p
+                    || rn(rename, p) != p
+                    || self.phis[p].is_none()
+                    || self.phis[q].is_none()
+                    || func.values[p] != func.values[q]
+                    || read_in(q, body)
+                {
                     continue;
                 }
                 let d = param_block[q];
@@ -1430,7 +1761,13 @@ impl<'s> FnView<'s> {
                     continue;
                 }
                 // `Q`'s block heads a loop around this one, left only through it.
-                let Some(dbody) = of_header[d as usize].iter().map(|&dl| &self.loops[dl as usize].1).find(|db| db[*h]) else { continue };
+                let Some(dbody) = of_header[d as usize]
+                    .iter()
+                    .map(|&dl| &self.loops[dl as usize].1)
+                    .find(|db| db[*h])
+                else {
+                    continue;
+                };
                 if uses[q] != entry_reads(q, dbody) {
                     continue;
                 }
@@ -1485,7 +1822,9 @@ impl<'s> FnView<'s> {
                 while k < self.blocks[b].phis.len() {
                     let p = self.blocks[b].phis[k];
                     k += 1;
-                    let Some(phi) = &self.phis[p.index()] else { continue };
+                    let Some(phi) = &self.phis[p.index()] else {
+                        continue;
+                    };
                     let mut src: Option<u32> = None;
                     let mut ok = !phi.incoming.is_empty();
                     for &(_, a) in &phi.incoming {
@@ -1522,14 +1861,21 @@ impl<'s> FnView<'s> {
         // and the renamed result's uses would not fold. Not for a bool
         // (0/1, not sign-extended).
         for ii in 0..self.insts.len() {
-            let VInst::Op { block, idx } = self.insts[ii] else { continue };
+            let VInst::Op { block, idx } = self.insts[ii] else {
+                continue;
+            };
             let inst = &func.blocks[block as usize].insts[idx as usize];
             let (Some(r), Op::Conv { op, a, .. }) = (inst.result, &inst.op) else {
                 continue;
             };
             let copy = match op {
                 ConvOp::PtrToInt | ConvOp::IntToPtr => true,
-                ConvOp::Sext => rules.sext_copy() && func.values[a.index()].is_int() && func.values[a.index()] != Type::Bool && func.values[r.index()].is_int(),
+                ConvOp::Sext => {
+                    rules.sext_copy()
+                        && func.values[a.index()].is_int()
+                        && func.values[a.index()] != Type::Bool
+                        && func.values[r.index()].is_int()
+                }
                 _ => false,
             };
             if !copy || self.const_of[a.index()].is_some() {
@@ -1551,16 +1897,43 @@ impl<'s> FnView<'s> {
         let mut boolish: PgVec<bool> = func.values.iter().map(|t| *t == Type::Bool).collect_hot(m);
         boolish.resize_in(total, false);
         for ii in 0..self.insts.len() {
-            let VInst::Op { block, idx } = self.insts[ii] else { continue };
+            let VInst::Op { block, idx } = self.insts[ii] else {
+                continue;
+            };
             let inst = &func.blocks[block as usize].insts[idx as usize];
             let Some(r) = inst.result else { continue };
-            let is_one = |v: Value| self.const_of[v.index()].is_some_and(|(t, bits)| const_canon(t, bits) == 1);
-            let is_zero = |v: Value| self.const_of[v.index()].is_some_and(|(t, bits)| const_canon(t, bits) == 0);
+            let is_one = |v: Value| {
+                self.const_of[v.index()].is_some_and(|(t, bits)| const_canon(t, bits) == 1)
+            };
+            let is_zero = |v: Value| {
+                self.const_of[v.index()].is_some_and(|(t, bits)| const_canon(t, bits) == 0)
+            };
             let src = match inst.op {
-                Op::Conv { op: ConvOp::Zext, a, .. } if boolish[a.index()] && self.const_of[a.index()].is_none() => Some(a),
-                Op::Select { cond, a, b } if boolish[cond.index()] && is_one(a) && is_zero(b) && self.const_of[cond.index()].is_none() => Some(cond),
-                Op::Icmp { cond: IntCond::Ne, a, b } if boolish[a.index()] && is_zero(b) && self.const_of[a.index()].is_none() => Some(a),
-                Op::IntBin { op: IntBinOp::And | IntBinOp::Or | IntBinOp::Xor, a, b } if boolish[a.index()] && boolish[b.index()] => {
+                Op::Conv {
+                    op: ConvOp::Zext,
+                    a,
+                    ..
+                } if boolish[a.index()] && self.const_of[a.index()].is_none() => Some(a),
+                Op::Select { cond, a, b }
+                    if boolish[cond.index()]
+                        && is_one(a)
+                        && is_zero(b)
+                        && self.const_of[cond.index()].is_none() =>
+                {
+                    Some(cond)
+                }
+                Op::Icmp {
+                    cond: IntCond::Ne,
+                    a,
+                    b,
+                } if boolish[a.index()] && is_zero(b) && self.const_of[a.index()].is_none() => {
+                    Some(a)
+                }
+                Op::IntBin {
+                    op: IntBinOp::And | IntBinOp::Or | IntBinOp::Xor,
+                    a,
+                    b,
+                } if boolish[a.index()] && boolish[b.index()] => {
                     boolish[r.index()] = true;
                     None
                 }
@@ -1588,23 +1961,39 @@ impl<'s> FnView<'s> {
             }
         }
         for ii in 0..self.insts.len() {
-            let VInst::Op { block, idx } = self.insts[ii] else { continue };
+            let VInst::Op { block, idx } = self.insts[ii] else {
+                continue;
+            };
             let inst = &func.blocks[block as usize].insts[idx as usize];
             let (Some(r), Op::IntBin { op, a, b }) = (inst.result, &inst.op) else {
                 continue;
             };
-            let zero = |v: Value| self.const_of[v.index()].is_some_and(|(t, bits)| const_canon(t, bits) == 0);
-            let one = |v: Value| self.const_of[v.index()].is_some_and(|(t, bits)| const_canon(t, bits) == 1);
+            let zero = |v: Value| {
+                self.const_of[v.index()].is_some_and(|(t, bits)| const_canon(t, bits) == 0)
+            };
+            let one = |v: Value| {
+                self.const_of[v.index()].is_some_and(|(t, bits)| const_canon(t, bits) == 1)
+            };
             // `not (not y)`: a Bool `xor _, true` of a Bool `xor y, true` is `y`
             let not = |v: Value| match not_of[v.index()] {
                 u32::MAX => None,
                 d => match self.insts[d as usize] {
-                    VInst::Op { block, idx } => Some(&func.blocks[block as usize].insts[idx as usize].op),
+                    VInst::Op { block, idx } => {
+                        Some(&func.blocks[block as usize].insts[idx as usize].op)
+                    }
                     _ => None,
                 }
                 .and_then(|op| match *op {
-                    Op::IntBin { op: IntBinOp::Xor, a, b } if one(b) && self.const_of[a.index()].is_none() => Some(a),
-                    Op::IntBin { op: IntBinOp::Xor, a, b } if one(a) && self.const_of[b.index()].is_none() => Some(b),
+                    Op::IntBin {
+                        op: IntBinOp::Xor,
+                        a,
+                        b,
+                    } if one(b) && self.const_of[a.index()].is_none() => Some(a),
+                    Op::IntBin {
+                        op: IntBinOp::Xor,
+                        a,
+                        b,
+                    } if one(a) && self.const_of[b.index()].is_none() => Some(b),
                     _ => None,
                 }),
             };
@@ -1619,7 +2008,9 @@ impl<'s> FnView<'s> {
                 IntBinOp::Xor if bool_ty && one(*a) && not(*b).is_some() => not(*b).unwrap(),
                 _ => continue,
             };
-            if self.const_of[src.index()].is_some() || func.values[src.index()] != func.values[r.index()] {
+            if self.const_of[src.index()].is_some()
+                || func.values[src.index()] != func.values[r.index()]
+            {
                 continue;
             }
             rename[r.index()] = rename[src.index()];
@@ -1630,13 +2021,31 @@ impl<'s> FnView<'s> {
         // A `ptr_add` whose constant index and offset sum to zero (`base + 0 * s + 0`: the lowerer's state pointer
         // spelled from a stack slot) is its base.
         for ii in 0..self.insts.len() {
-            let VInst::Op { block, idx } = self.insts[ii] else { continue };
-            let inst = &func.blocks[block as usize].insts[idx as usize];
-            let (Some(r), Op::PtrAdd { base, index, scale, offset }) = (inst.result, &inst.op) else {
+            let VInst::Op { block, idx } = self.insts[ii] else {
                 continue;
             };
-            let Some((t, bits)) = self.const_of[index.index()] else { continue };
-            if self.const_of[base.index()].is_some() || const_canon(t, bits).wrapping_mul(*scale as i64).wrapping_add(*offset as i64) != 0 {
+            let inst = &func.blocks[block as usize].insts[idx as usize];
+            let (
+                Some(r),
+                Op::PtrAdd {
+                    base,
+                    index,
+                    scale,
+                    offset,
+                },
+            ) = (inst.result, &inst.op)
+            else {
+                continue;
+            };
+            let Some((t, bits)) = self.const_of[index.index()] else {
+                continue;
+            };
+            if self.const_of[base.index()].is_some()
+                || const_canon(t, bits)
+                    .wrapping_mul(*scale as i64)
+                    .wrapping_add(*offset as i64)
+                    != 0
+            {
                 continue;
             }
             rename[r.index()] = rename[base.index()];
@@ -1658,7 +2067,11 @@ impl<'s> FnView<'s> {
     /// `direct_uses` from the instructions' current operand ranges and the
     /// edge arguments (built once; `set_operands` keeps it exact).
     fn build_direct_uses(&mut self, func: &Function) {
-        refill(&mut self.direct_uses, self.num_values as usize + self.num_slots as usize, 0);
+        refill(
+            &mut self.direct_uses,
+            self.num_values as usize + self.num_slots as usize,
+            0,
+        );
         for i in 0..self.insts.len() as u32 {
             for k in self.ops_begin[i as usize]..self.ops_end[i as usize] {
                 self.direct_uses[self.operands[k as usize] as usize] += 1;
@@ -1690,7 +2103,11 @@ impl<'s> FnView<'s> {
     /// put back like `uses_snapshot`.
     fn defs_snapshot(&mut self, live_only: bool) -> PgVec<'s, u32> {
         let mut def_inst = core::mem::replace(&mut self.def_inst, PgVec::new_in(self.mcx));
-        refill(&mut def_inst, self.num_values as usize + self.num_slots as usize, u32::MAX);
+        refill(
+            &mut def_inst,
+            self.num_values as usize + self.num_slots as usize,
+            u32::MAX,
+        );
         for (i, &r) in self.results.iter().enumerate() {
             if r != u32::MAX && !(live_only && self.fused[i]) {
                 def_inst[r as usize] = i as u32;
@@ -1712,15 +2129,43 @@ impl<'s> FnView<'s> {
                 if self.fused[ii] {
                     continue;
                 }
-                let VInst::Op { block, idx } = *vi else { continue };
+                let VInst::Op { block, idx } = *vi else {
+                    continue;
+                };
                 let r = self.results[ii];
                 if r == u32::MAX || uses[r as usize] != 0 {
                     continue;
                 }
                 let pure = matches!(
                     func.blocks[block as usize].insts[idx as usize].op,
-                    Op::Const { .. } | Op::IntBin { .. } | Op::IntOvf { .. } | Op::IntUn { .. } | Op::Icmp { .. } | Op::FloatBin { .. } | Op::FloatUn { .. } | Op::Fcmp { .. } | Op::Conv { .. } | Op::Select { .. } | Op::Load { .. } | Op::LoadZext { .. } | Op::StackAddr { .. } | Op::PtrAdd { .. } | Op::Crc32c { .. } | Op::AddHi { .. }
-                        | Op::VecLoad { .. } | Op::VecBin { .. } | Op::VecShift { .. } | Op::VecCmp { .. } | Op::VecSelect { .. } | Op::VecReduceAdd { .. } | Op::VecMovmask { .. } | Op::VecSplat { .. } | Op::VecExtract { .. } | Op::VecInsert { .. } | Op::VecWiden { .. } | Op::VecNarrow { .. }
+                    Op::Const { .. }
+                        | Op::IntBin { .. }
+                        | Op::IntOvf { .. }
+                        | Op::IntUn { .. }
+                        | Op::Icmp { .. }
+                        | Op::FloatBin { .. }
+                        | Op::FloatUn { .. }
+                        | Op::Fcmp { .. }
+                        | Op::Conv { .. }
+                        | Op::Select { .. }
+                        | Op::Load { .. }
+                        | Op::LoadZext { .. }
+                        | Op::StackAddr { .. }
+                        | Op::PtrAdd { .. }
+                        | Op::Crc32c { .. }
+                        | Op::AddHi { .. }
+                        | Op::VecLoad { .. }
+                        | Op::VecBin { .. }
+                        | Op::VecShift { .. }
+                        | Op::VecCmp { .. }
+                        | Op::VecSelect { .. }
+                        | Op::VecReduceAdd { .. }
+                        | Op::VecMovmask { .. }
+                        | Op::VecSplat { .. }
+                        | Op::VecExtract { .. }
+                        | Op::VecInsert { .. }
+                        | Op::VecWiden { .. }
+                        | Op::VecNarrow { .. }
                 );
                 if pure {
                     dead.push_hot(ii as u32);
@@ -1754,15 +2199,21 @@ impl<'s> FnView<'s> {
             if ci == u32::MAX {
                 return None;
             }
-            let VInst::Op { block, idx } = this.insts[ci as usize] else { return None };
+            let VInst::Op { block, idx } = this.insts[ci as usize] else {
+                return None;
+            };
             (block as usize == bi).then_some((ci, idx))
         };
         for (bi, b) in func.blocks.iter().enumerate() {
-            let Terminator::CondBr { cond, .. } = &b.term else { continue };
+            let Terminator::CondBr { cond, .. } = &b.term else {
+                continue;
+            };
             // The condition and the operands below may be copies
             // (`propagate_copies`): the fusion looks at what they stand for.
             let cond = Value(rn(cond.index()) as u32);
-            let Some((ci, idx)) = single_def(self, bi, cond) else { continue };
+            let Some((ci, idx)) = single_def(self, bi, cond) else {
+                continue;
+            };
             // `condbr (iand x y)` / `condbr (ior x y)` on a target with
             // conditional compares: `x` (or `y`) a compare of this block
             // used once becomes the flag-setting compare, the other side a
@@ -1770,14 +2221,26 @@ impl<'s> FnView<'s> {
             // once, or a `Bool` register tested against zero), and the
             // branch reads the flags once.
             if rules.ccmp() {
-                if let Op::IntBin { op: bop @ (IntBinOp::And | IntBinOp::Or), a, b: bb } = b.insts[idx as usize].op {
+                if let Op::IntBin {
+                    op: bop @ (IntBinOp::And | IntBinOp::Or),
+                    a,
+                    b: bb,
+                } = b.insts[idx as usize].op
+                {
                     let (a, bb) = (Value(rn(a.index()) as u32), Value(rn(bb.index()) as u32));
-                    if func.values[a.index()] == Type::Bool && func.values[bb.index()] == Type::Bool {
+                    if func.values[a.index()] == Type::Bool && func.values[bb.index()] == Type::Bool
+                    {
                         let is_cmp = |this: &Self, v: Value| -> bool {
-                            single_def(this, bi, v).is_some_and(|(_, i)| match b.insts[i as usize].op {
-                                Op::Icmp { .. } | Op::Fcmp { .. } => true,
-                                Op::IntOvf { op: IntOvfOp::SaddOvf | IntOvfOp::SsubOvf, a, .. } => matches!(func.values[a.index()], Type::I32 | Type::I64),
-                                _ => false,
+                            single_def(this, bi, v).is_some_and(|(_, i)| {
+                                match b.insts[i as usize].op {
+                                    Op::Icmp { .. } | Op::Fcmp { .. } => true,
+                                    Op::IntOvf {
+                                        op: IntOvfOp::SaddOvf | IntOvfOp::SsubOvf,
+                                        a,
+                                        ..
+                                    } => matches!(func.values[a.index()], Type::I32 | Type::I64),
+                                    _ => false,
+                                }
                             })
                         };
                         // A plain integer `icmp` (register right operand, or
@@ -1786,34 +2249,46 @@ impl<'s> FnView<'s> {
                         // keeps the richer forms (self-extension, overflow,
                         // float).
                         let ccmp_able = |this: &Self, v: Value| -> bool {
-                            single_def(this, bi, v).is_some_and(|(_, i)| match b.insts[i as usize].op {
-                                Op::Icmp { a, b: r, .. } => {
-                                    func.values[a.index()] != Type::Bool
-                                        && match this.const_of[r.index()] {
-                                            Some((t, bits)) => rules.ccmp_imm(const_canon(t, bits)),
-                                            None => true,
-                                        }
+                            single_def(this, bi, v).is_some_and(|(_, i)| {
+                                match b.insts[i as usize].op {
+                                    Op::Icmp { a, b: r, .. } => {
+                                        func.values[a.index()] != Type::Bool
+                                            && match this.const_of[r.index()] {
+                                                Some((t, bits)) => {
+                                                    rules.ccmp_imm(const_canon(t, bits))
+                                                }
+                                                None => true,
+                                            }
+                                    }
+                                    _ => false,
                                 }
-                                _ => false,
                             })
                         };
                         // A nested `iand (iand x y) z` / `ior (ior x y) z` on
                         // either side (the inner one of this block, used once):
                         // three conditions, one compare and two `ccmp`s.
                         let inner = |this: &Self, v: Value| -> Option<(u32, Value, Value)> {
-                            single_def(this, bi, v).and_then(|(ii, i)| match b.insts[i as usize].op {
-                                Op::IntBin { op, a: x, b: y } if op == bop => {
-                                    let (x, y) = (Value(rn(x.index()) as u32), Value(rn(y.index()) as u32));
-                                    (func.values[x.index()] == Type::Bool && func.values[y.index()] == Type::Bool).then_some((ii, x, y))
+                            single_def(this, bi, v).and_then(|(ii, i)| {
+                                match b.insts[i as usize].op {
+                                    Op::IntBin { op, a: x, b: y } if op == bop => {
+                                        let (x, y) = (
+                                            Value(rn(x.index()) as u32),
+                                            Value(rn(y.index()) as u32),
+                                        );
+                                        (func.values[x.index()] == Type::Bool
+                                            && func.values[y.index()] == Type::Bool)
+                                            .then_some((ii, x, y))
+                                    }
+                                    _ => None,
                                 }
-                                _ => None,
                             })
                         };
-                        let (inner_inst, leaves): (Option<u32>, PgVec<Value>) = match (inner(self, a), inner(self, bb)) {
-                            (Some((ii, x, y)), _) => (Some(ii), pg_vec![in m; x, y, bb]),
-                            (None, Some((ii, x, y))) => (Some(ii), pg_vec![in m; a, x, y]),
-                            _ => (None, pg_vec![in m; a, bb]),
-                        };
+                        let (inner_inst, leaves): (Option<u32>, PgVec<Value>) =
+                            match (inner(self, a), inner(self, bb)) {
+                                (Some((ii, x, y)), _) => (Some(ii), pg_vec![in m; x, y, bb]),
+                                (None, Some((ii, x, y))) => (Some(ii), pg_vec![in m; a, x, y]),
+                                _ => (None, pg_vec![in m; a, bb]),
+                            };
                         // The flag-setting compare: a compare leaf, preferring
                         // one the `ccmp` cannot take (self-extension, overflow,
                         // float); every other leaf a `ccmp`-able compare or a
@@ -1822,12 +2297,18 @@ impl<'s> FnView<'s> {
                             .find(|&k| is_cmp(self, leaves[k]) && !ccmp_able(self, leaves[k]))
                             .or_else(|| (0..leaves.len()).find(|&k| is_cmp(self, leaves[k])));
                         let pick = first_at.and_then(|k| {
-                            let rest: PgVec<Value> = (0..leaves.len()).filter(|&j| j != k).map(|j| leaves[j]).collect_hot(m);
-                            rest.iter().all(|&v| ccmp_able(self, v) || !is_cmp(self, v)).then_some((leaves[k], rest))
+                            let rest: PgVec<Value> = (0..leaves.len())
+                                .filter(|&j| j != k)
+                                .map(|j| leaves[j])
+                                .collect_hot(m);
+                            rest.iter()
+                                .all(|&v| ccmp_able(self, v) || !is_cmp(self, v))
+                                .then_some((leaves[k], rest))
                         });
                         if let Some((first, rest)) = pick {
                             let (fi, fidx) = single_def(self, bi, first).unwrap();
-                            let mut fuse = self.fuse_one_compare(func, rules, &uses, &def_inst, &rn, bi, fi, fidx);
+                            let mut fuse = self
+                                .fuse_one_compare(func, rules, &uses, &def_inst, &rn, bi, fi, fidx);
                             let mut ops = pg_vec![in m; fuse.a.0];
                             if let Some(b) = fuse.b {
                                 ops.push_hot(b.0);
@@ -1835,8 +2316,21 @@ impl<'s> FnView<'s> {
                             for (n, &second) in rest.iter().enumerate() {
                                 let sec = match single_def(self, bi, second) {
                                     Some((si, sidx)) if ccmp_able(self, second) => {
-                                        let Op::Icmp { cond: c, a: sa, b: sb } = b.insts[sidx as usize].op else { unreachable!() };
-                                        let mut cc = Ccmp { a: sa, b: Some(sb), imm: 0, icond: c, or: bop == IntBinOp::Or };
+                                        let Op::Icmp {
+                                            cond: c,
+                                            a: sa,
+                                            b: sb,
+                                        } = b.insts[sidx as usize].op
+                                        else {
+                                            unreachable!()
+                                        };
+                                        let mut cc = Ccmp {
+                                            a: sa,
+                                            b: Some(sb),
+                                            imm: 0,
+                                            icond: c,
+                                            or: bop == IntBinOp::Or,
+                                        };
                                         if let Some((t, bits)) = self.const_of[sb.index()] {
                                             // `ccmp_able` checked the range; the
                                             // constant's fate is `fuse_immediates`'.
@@ -1849,7 +2343,13 @@ impl<'s> FnView<'s> {
                                         cc
                                     }
                                     // Any Bool value: `ccmp y, #0, nzcv, cond; b.ne`.
-                                    _ => Ccmp { a: second, b: None, imm: 0, icond: IntCond::Ne, or: bop == IntBinOp::Or },
+                                    _ => Ccmp {
+                                        a: second,
+                                        b: None,
+                                        imm: 0,
+                                        icond: IntCond::Ne,
+                                        or: bop == IntBinOp::Or,
+                                    },
                                 };
                                 if n == 0 {
                                     fuse.second = Some(sec);
@@ -1877,7 +2377,11 @@ impl<'s> FnView<'s> {
             }
             match b.insts[idx as usize].op {
                 Op::Icmp { .. } | Op::Fcmp { .. } => {}
-                Op::IntOvf { op: IntOvfOp::SaddOvf | IntOvfOp::SsubOvf, a, .. } if matches!(func.values[a.index()], Type::I32 | Type::I64) => {}
+                Op::IntOvf {
+                    op: IntOvfOp::SaddOvf | IntOvfOp::SsubOvf,
+                    a,
+                    ..
+                } if matches!(func.values[a.index()], Type::I32 | Type::I64) => {}
                 _ => continue,
             }
             let fuse = self.fuse_one_compare(func, rules, &uses, &def_inst, &rn, bi, ci, idx);
@@ -1901,40 +2405,104 @@ impl<'s> FnView<'s> {
     /// operand folds into the immediate, and `icmp a, sext(trunc(a))` into
     /// the self-extension form. The caller wires the terminator.
     #[allow(clippy::too_many_arguments)]
-    fn fuse_one_compare(&mut self, func: &Function, rules: &dyn ImmRules, uses: &[u32], def_inst: &[u32], rn: &dyn Fn(usize) -> usize, bi: usize, ci: u32, idx: u32) -> FusedCmp {
+    fn fuse_one_compare(
+        &mut self,
+        func: &Function,
+        rules: &dyn ImmRules,
+        uses: &[u32],
+        def_inst: &[u32],
+        rn: &dyn Fn(usize) -> usize,
+        bi: usize,
+        ci: u32,
+        idx: u32,
+    ) -> FusedCmp {
         let b = &func.blocks[bi];
         let inst = &b.insts[idx as usize];
         let (a, bv, icond, fcond, is_f64, ovf) = match inst.op {
             Op::Icmp { cond, a, b } => (a, b, Some(cond), None, false, None),
-            Op::Fcmp { cond, a, b } => (a, b, None, Some(cond), func.values[a.index()] == Type::F64, None),
+            Op::Fcmp { cond, a, b } => (
+                a,
+                b,
+                None,
+                Some(cond),
+                func.values[a.index()] == Type::F64,
+                None,
+            ),
             // Signed add/sub overflow at 32/64 bits: the flag-setting op
             // feeds the branch directly (adds + b.vs / add + jo).
-            Op::IntOvf { op: op @ (IntOvfOp::SaddOvf | IntOvfOp::SsubOvf), a, b } => (a, b, None, None, false, Some((op, func.values[a.index()].bytes() * 8))),
+            Op::IntOvf {
+                op: op @ (IntOvfOp::SaddOvf | IntOvfOp::SsubOvf),
+                a,
+                b,
+            } => (
+                a,
+                b,
+                None,
+                None,
+                false,
+                Some((op, func.values[a.index()].bytes() * 8)),
+            ),
             _ => unreachable!("fuse_one_compare on a non-compare"),
         };
         // Fold a constant right operand into the compare immediate.
-        let mut fuse = FusedCmp { a, b: Some(bv), imm: 0, icond, fcond, is_f64, ovf, self_ext: None, second: None, third: None };
+        let mut fuse = FusedCmp {
+            a,
+            b: Some(bv),
+            imm: 0,
+            icond,
+            fcond,
+            is_f64,
+            ovf,
+            self_ext: None,
+            second: None,
+            third: None,
+        };
         // `icmp a, sext(trunc(a))`: the narrow-overflow test. Fold the two
         // conversions into a sign-extending compare. With `sext_copy`
         // the `sext` was renamed to the truncation already, so the
         // compare's right operand is the `trunc` itself.
-        if matches!(icond, Some(IntCond::Eq | IntCond::Ne)) && uses[rn(bv.index())] == 1 && func.values[a.index()] == Type::I64 {
+        if matches!(icond, Some(IntCond::Eq | IntCond::Ne))
+            && uses[rn(bv.index())] == 1
+            && func.values[a.index()] == Type::I64
+        {
             let bvr = rn(bv.index());
             let si = def_inst[bvr];
             // (sext instruction, trunc instruction)
             let mut pair: Option<(Option<u32>, u32)> = None;
             if si != u32::MAX {
-                if let VInst::Op { block: sb, idx: sidx } = self.insts[si as usize] {
+                if let VInst::Op {
+                    block: sb,
+                    idx: sidx,
+                } = self.insts[si as usize]
+                {
                     if sb as usize == bi {
                         match func.blocks[bi].insts[sidx as usize].op {
-                            Op::Conv { op: ConvOp::Sext, to: Type::I64, a: narrow } => {
+                            Op::Conv {
+                                op: ConvOp::Sext,
+                                to: Type::I64,
+                                a: narrow,
+                            } => {
                                 if uses[narrow.index()] == 1 {
                                     let ti = def_inst[narrow.index()];
                                     if ti != u32::MAX {
-                                        if let VInst::Op { block: tb, idx: tidx } = self.insts[ti as usize] {
+                                        if let VInst::Op {
+                                            block: tb,
+                                            idx: tidx,
+                                        } = self.insts[ti as usize]
+                                        {
                                             if tb as usize == bi {
-                                                if let Op::Conv { op: ConvOp::Trunc, to, a: src } = func.blocks[bi].insts[tidx as usize].op {
-                                                    if rn(src.index()) == rn(a.index()) && matches!(to, Type::I8 | Type::I16 | Type::I32) {
+                                                if let Op::Conv {
+                                                    op: ConvOp::Trunc,
+                                                    to,
+                                                    a: src,
+                                                } = func.blocks[bi].insts[tidx as usize].op
+                                                {
+                                                    if rn(src.index()) == rn(a.index())
+                                                        && matches!(
+                                                            to,
+                                                            Type::I8 | Type::I16 | Type::I32
+                                                        )
+                                                    {
                                                         pair = Some((Some(si), ti));
                                                         fuse.self_ext = Some(to.bytes() * 8);
                                                     }
@@ -1944,11 +2512,16 @@ impl<'s> FnView<'s> {
                                     }
                                 }
                             }
-                            Op::Conv { op: ConvOp::Trunc, to, a: src }
-                                if rn(src.index()) == rn(a.index()) && matches!(to, Type::I8 | Type::I16 | Type::I32) => {
-                                    pair = Some((None, si));
-                                    fuse.self_ext = Some(to.bytes() * 8);
-                                }
+                            Op::Conv {
+                                op: ConvOp::Trunc,
+                                to,
+                                a: src,
+                            } if rn(src.index()) == rn(a.index())
+                                && matches!(to, Type::I8 | Type::I16 | Type::I32) =>
+                            {
+                                pair = Some((None, si));
+                                fuse.self_ext = Some(to.bytes() * 8);
+                            }
                             _ => {}
                         }
                     }
@@ -1992,7 +2565,9 @@ impl<'s> FnView<'s> {
             if self.fused[ii] {
                 continue;
             }
-            let VInst::Op { block, idx } = *vi else { continue };
+            let VInst::Op { block, idx } = *vi else {
+                continue;
+            };
             let inst = &func.blocks[block as usize].insts[idx as usize];
             if let Some(c) = imm_operand(func, &self.const_of, &inst.op, rules) {
                 foldable[c.index()] += 1;
@@ -2013,7 +2588,9 @@ impl<'s> FnView<'s> {
             }
         }
         for (ii, vi) in self.insts.iter().enumerate() {
-            let VInst::Op { block, idx } = *vi else { continue };
+            let VInst::Op { block, idx } = *vi else {
+                continue;
+            };
             let inst = &func.blocks[block as usize].insts[idx as usize];
             if let (Some(r), Op::Const { .. }) = (inst.result, &inst.op) {
                 if foldable[r.index()] == uses[r.index()] {
@@ -2053,24 +2630,50 @@ impl<'s> FnView<'s> {
             if self.fused[ii] {
                 continue;
             }
-            let VInst::Op { block, idx } = self.insts[ii] else { continue };
+            let VInst::Op { block, idx } = self.insts[ii] else {
+                continue;
+            };
             let inst = &func.blocks[block as usize].insts[idx as usize];
             match inst.op {
-                Op::Icmp { cond: IntCond::Eq | IntCond::Ne, a, b } if rules.self_ext_cmp() => {
+                Op::Icmp {
+                    cond: IntCond::Eq | IntCond::Ne,
+                    a,
+                    b,
+                } if rules.self_ext_cmp() => {
                     let (a, b) = (rn(a.index()), rn(b.index()));
                     if a >= nv || b >= nv || uses[b] != 1 || def_inst[b] == u32::MAX {
                         continue;
                     }
                     let db = def_inst[b];
-                    let VInst::Op { block: tb, idx: tidx } = self.insts[db as usize] else { continue };
-                    let Op::Conv { op: ConvOp::Trunc, to, a: src } = func.blocks[tb as usize].insts[tidx as usize].op else { continue };
-                    if rn(src.index()) != a || !matches!(to, Type::I8 | Type::I16 | Type::I32) || !matches!(func.values[a], Type::I64) {
+                    let VInst::Op {
+                        block: tb,
+                        idx: tidx,
+                    } = self.insts[db as usize]
+                    else {
+                        continue;
+                    };
+                    let Op::Conv {
+                        op: ConvOp::Trunc,
+                        to,
+                        a: src,
+                    } = func.blocks[tb as usize].insts[tidx as usize].op
+                    else {
+                        continue;
+                    };
+                    if rn(src.index()) != a
+                        || !matches!(to, Type::I8 | Type::I16 | Type::I32)
+                        || !matches!(func.values[a], Type::I64)
+                    {
                         continue;
                     }
                     self_ext.push_hot((ii as u32, to.bytes() * 8));
                     fuse_away.push_hot(db);
                 }
-                Op::Conv { op: ConvOp::Trunc, to, a: s } if rules.bitfield_extract() => {
+                Op::Conv {
+                    op: ConvOp::Trunc,
+                    to,
+                    a: s,
+                } if rules.bitfield_extract() => {
                     // `trunc (ushr x k)`: the field `x[k .. k + w)` sign-extended,
                     // one `sbfx` for the shift, the move and the extension.
                     let s = rn(s.index());
@@ -2079,35 +2682,89 @@ impl<'s> FnView<'s> {
                         continue;
                     }
                     let ds = def_inst[s];
-                    let VInst::Op { block: sb, idx: sidx } = self.insts[ds as usize] else { continue };
-                    let Op::IntBin { op: IntBinOp::Ushr, a: x, b: k } = func.blocks[sb as usize].insts[sidx as usize].op else { continue };
-                    let Some((kt, kb)) = self.const_of[k.index()] else { continue };
+                    let VInst::Op {
+                        block: sb,
+                        idx: sidx,
+                    } = self.insts[ds as usize]
+                    else {
+                        continue;
+                    };
+                    let Op::IntBin {
+                        op: IntBinOp::Ushr,
+                        a: x,
+                        b: k,
+                    } = func.blocks[sb as usize].insts[sidx as usize].op
+                    else {
+                        continue;
+                    };
+                    let Some((kt, kb)) = self.const_of[k.index()] else {
+                        continue;
+                    };
                     let k = const_canon(kt, kb);
-                    if !(1..64).contains(&k) || k as u32 + w > 64 || func.values[x.index()] != Type::I64 {
+                    if !(1..64).contains(&k)
+                        || k as u32 + w > 64
+                        || func.values[x.index()] != Type::I64
+                    {
                         continue;
                     }
                     sbfx.push_hot((ii as u32, rn(x.index()) as u32, k as u32));
                     fuse_away.push_hot(ds);
                 }
-                Op::IntBin { op: op @ (IntBinOp::Or | IntBinOp::And | IntBinOp::Xor | IntBinOp::Add | IntBinOp::Sub), a, b } if rules.shifted_operands() => {
-                    if func.values[a.index()] != Type::I64 || imm_operand(func, &self.const_of, &inst.op, rules).is_some() {
+                Op::IntBin {
+                    op:
+                        op @ (IntBinOp::Or
+                        | IntBinOp::And
+                        | IntBinOp::Xor
+                        | IntBinOp::Add
+                        | IntBinOp::Sub),
+                    a,
+                    b,
+                } if rules.shifted_operands() => {
+                    if func.values[a.index()] != Type::I64
+                        || imm_operand(func, &self.const_of, &inst.op, rules).is_some()
+                    {
                         continue;
                     }
-                    let candidates: &[(Value, Value)] = if op == IntBinOp::Sub { &[(b, a)] } else { &[(b, a), (a, b)] };
+                    let candidates: &[(Value, Value)] = if op == IntBinOp::Sub {
+                        &[(b, a)]
+                    } else {
+                        &[(b, a), (a, b)]
+                    };
                     for &(c, other) in candidates {
                         let c = rn(c.index());
                         if c >= nv || uses[c] != 1 || def_inst[c] == u32::MAX {
                             continue;
                         }
                         let dc = def_inst[c];
-                        let VInst::Op { block: sb, idx: sidx } = self.insts[dc as usize] else { continue };
-                        let Op::IntBin { op: IntBinOp::Shl, a: x, b: k } = func.blocks[sb as usize].insts[sidx as usize].op else { continue };
-                        let Some((kt, kb)) = self.const_of[k.index()] else { continue };
+                        let VInst::Op {
+                            block: sb,
+                            idx: sidx,
+                        } = self.insts[dc as usize]
+                        else {
+                            continue;
+                        };
+                        let Op::IntBin {
+                            op: IntBinOp::Shl,
+                            a: x,
+                            b: k,
+                        } = func.blocks[sb as usize].insts[sidx as usize].op
+                        else {
+                            continue;
+                        };
+                        let Some((kt, kb)) = self.const_of[k.index()] else {
+                            continue;
+                        };
                         let k = const_canon(kt, kb);
                         if !(1..64).contains(&k) || func.values[x.index()] != Type::I64 {
                             continue;
                         }
-                        shifted.push_hot((ii as u32, rn(other.index()) as u32, rn(x.index()) as u32, k as u32, op as u32));
+                        shifted.push_hot((
+                            ii as u32,
+                            rn(other.index()) as u32,
+                            rn(x.index()) as u32,
+                            k as u32,
+                            op as u32,
+                        ));
                         fuse_away.push_hot(dc);
                         break;
                     }
@@ -2158,7 +2815,9 @@ impl<'s> FnView<'s> {
             if self.fused[ii] {
                 continue;
             }
-            let VInst::Op { block, idx } = self.insts[ii] else { continue };
+            let VInst::Op { block, idx } = self.insts[ii] else {
+                continue;
+            };
             if let Op::Store { value, .. } = func.blocks[block as usize].insts[idx as usize].op {
                 store_uses[self.rename[value.index()] as usize] += 1;
             }
@@ -2167,21 +2826,45 @@ impl<'s> FnView<'s> {
             if self.fused[ii] {
                 continue;
             }
-            let VInst::Op { block, idx } = self.insts[ii] else { continue };
+            let VInst::Op { block, idx } = self.insts[ii] else {
+                continue;
+            };
             let inst = &func.blocks[block as usize].insts[idx as usize];
             let Some(r) = inst.result else { continue };
             let r = r.index();
             match inst.op {
-                Op::IntBin { op: IntBinOp::Add | IntBinOp::Sub | IntBinOp::Mul | IntBinOp::And | IntBinOp::Or | IntBinOp::Xor | IntBinOp::Shl, .. } => {
+                Op::IntBin {
+                    op:
+                        IntBinOp::Add
+                        | IntBinOp::Sub
+                        | IntBinOp::Mul
+                        | IntBinOp::And
+                        | IntBinOp::Or
+                        | IntBinOp::Xor
+                        | IntBinOp::Shl,
+                    ..
+                } => {
                     // A narrow result read only by stores: its low bytes are
                     // the same with or without the sign extension.
-                    if matches!(func.values[r], Type::I8 | Type::I16 | Type::I32) && self.rename[r] as usize == r && uses[r] != 0 && store_uses[r] == uses[r] {
+                    if matches!(func.values[r], Type::I8 | Type::I16 | Type::I32)
+                        && self.rename[r] as usize == r
+                        && uses[r] != 0
+                        && store_uses[r] == uses[r]
+                    {
                         self.no_canon[ii] = true;
                     }
                 }
-                Op::Conv { op: ConvOp::Trunc, a, .. } => {
+                Op::Conv {
+                    op: ConvOp::Trunc,
+                    a,
+                    ..
+                } => {
                     let a = self.rename[a.index()] as usize;
-                    if self.rename[r] as usize != r || self.const_of[a].is_some() || uses[r] == 0 || store_uses[r] != uses[r] {
+                    if self.rename[r] as usize != r
+                        || self.const_of[a].is_some()
+                        || uses[r] == 0
+                        || store_uses[r] != uses[r]
+                    {
                         continue;
                     }
                     self.rename[r] = a as u32;
@@ -2190,14 +2873,32 @@ impl<'s> FnView<'s> {
                     self.clear_operands(ii as u32);
                     self.results[ii] = u32::MAX;
                 }
-                Op::Conv { op: ConvOp::Zext, to: Type::I64, a } => {
+                Op::Conv {
+                    op: ConvOp::Zext,
+                    to: Type::I64,
+                    a,
+                } => {
                     let a = self.rename[a.index()] as usize;
-                    if a >= nv || self.rename[r] as usize != r || uses[a] != 1 || def_inst[a] == u32::MAX || !matches!(func.values[a], Type::I8 | Type::I16 | Type::I32) {
+                    if a >= nv
+                        || self.rename[r] as usize != r
+                        || uses[a] != 1
+                        || def_inst[a] == u32::MAX
+                        || !matches!(func.values[a], Type::I8 | Type::I16 | Type::I32)
+                    {
                         continue;
                     }
                     let li = def_inst[a];
-                    let VInst::Op { block: lb, idx: lidx } = self.insts[li as usize] else { continue };
-                    if !matches!(func.blocks[lb as usize].insts[lidx as usize].op, Op::Load { .. }) {
+                    let VInst::Op {
+                        block: lb,
+                        idx: lidx,
+                    } = self.insts[li as usize]
+                    else {
+                        continue;
+                    };
+                    if !matches!(
+                        func.blocks[lb as usize].insts[lidx as usize].op,
+                        Op::Load { .. }
+                    ) {
                         continue;
                     }
                     self.load_zext[li as usize] = true;
@@ -2244,7 +2945,12 @@ impl<'s> FnView<'s> {
         let rename = copied_in(&self.rename, self.mcx);
         let rn = |v: usize| rename.get(v).map_or(v, |r| *r as usize);
         let nv = func.values.len();
-        let is_zero = |this: &Self, v: Value| -> bool { v.index() < nv && this.const_fused[v.index()] && this.const_of[v.index()].is_some_and(|(t, b)| !t.is_float() && const_canon(t, b) == 0) };
+        let is_zero = |this: &Self, v: Value| -> bool {
+            v.index() < nv
+                && this.const_fused[v.index()]
+                && this.const_of[v.index()]
+                    .is_some_and(|(t, b)| !t.is_float() && const_canon(t, b) == 0)
+        };
         let def_inst = self.defs_snapshot(false);
         for bi in 0..self.blocks.len() {
             let (begin, end) = (self.blocks[bi].inst_begin, self.blocks[bi].inst_end);
@@ -2263,7 +2969,13 @@ impl<'s> FnView<'s> {
                         i += 1;
                         continue;
                     };
-                    let Op::Store { ptr, offset, value, unaligned: false } = func.blocks[block as usize].insts[idx as usize].op else {
+                    let Op::Store {
+                        ptr,
+                        offset,
+                        value,
+                        unaligned: false,
+                    } = func.blocks[block as usize].insts[idx as usize].op
+                    else {
                         i += 1;
                         continue;
                     };
@@ -2271,7 +2983,11 @@ impl<'s> FnView<'s> {
                         i += 1;
                         continue;
                     }
-                    let ty = self.store_zero_wide.get(&i).copied().unwrap_or(func.values[value.index()]);
+                    let ty = self
+                        .store_zero_wide
+                        .get(&i)
+                        .copied()
+                        .unwrap_or(func.values[value.index()]);
                     let size = ty.bytes() as i32;
                     let offset = offset as i64;
                     // The next store, past non-memory instructions only.
@@ -2282,13 +2998,28 @@ impl<'s> FnView<'s> {
                             j += 1;
                             continue;
                         }
-                        let VInst::Op { block: jb, idx: jidx } = self.insts[j as usize] else { break };
+                        let VInst::Op {
+                            block: jb,
+                            idx: jidx,
+                        } = self.insts[j as usize]
+                        else {
+                            break;
+                        };
                         match func.blocks[jb as usize].insts[jidx as usize].op {
-                            Op::Store { ptr: p2, offset: o2, value: v2, unaligned: false } => {
+                            Op::Store {
+                                ptr: p2,
+                                offset: o2,
+                                value: v2,
+                                unaligned: false,
+                            } => {
                                 next = Some((p2, o2 as i64, v2));
                                 break;
                             }
-                            Op::Store { .. } | Op::Load { .. } | Op::LoadZext { .. } | Op::Call { .. } | Op::CallHost { .. } => break,
+                            Op::Store { .. }
+                            | Op::Load { .. }
+                            | Op::LoadZext { .. }
+                            | Op::Call { .. }
+                            | Op::CallHost { .. } => break,
                             _ => j += 1,
                         }
                     }
@@ -2296,11 +3027,18 @@ impl<'s> FnView<'s> {
                         i += 1;
                         continue;
                     };
-                    if rn(p2.index()) != rn(ptr.index()) || self.store_pair.contains_key(&j) || self.store_override.contains_key(&j) {
+                    if rn(p2.index()) != rn(ptr.index())
+                        || self.store_pair.contains_key(&j)
+                        || self.store_override.contains_key(&j)
+                    {
                         i += 1;
                         continue;
                     }
-                    let ty2 = self.store_zero_wide.get(&j).copied().unwrap_or(func.values[v2.index()]);
+                    let ty2 = self
+                        .store_zero_wide
+                        .get(&j)
+                        .copied()
+                        .unwrap_or(func.values[v2.index()]);
                     if ty2 != ty || o2 != offset + size as i64 {
                         i += 1;
                         continue;
@@ -2308,10 +3046,13 @@ impl<'s> FnView<'s> {
                     let z1 = is_zero(self, value);
                     let z2 = is_zero(self, v2);
                     let both_zero = z1 && z2 && ty.is_int();
-                    let pairable = matches!(ty, Type::I64 | Type::Ptr) && offset % 8 == 0 && (-512..=504).contains(&offset);
+                    let pairable = matches!(ty, Type::I64 | Type::Ptr)
+                        && offset % 8 == 0
+                        && (-512..=504).contains(&offset);
                     // The second value must be available at the first store.
                     let v2r = rn(v2.index());
-                    let v2_ready = z2 || v2r >= nv || def_inst[v2r] == u32::MAX || def_inst[v2r] < i;
+                    let v2_ready =
+                        z2 || v2r >= nv || def_inst[v2r] == u32::MAX || def_inst[v2r] < i;
                     if both_zero && size < 8 && offset % (2 * size as i64) == 0 {
                         let wide = match ty {
                             Type::I8 => Type::I16,
@@ -2390,7 +3131,9 @@ impl<'s> FnView<'s> {
         }
         let op_of = |view: &FnView<'s>, ii: u32| -> Option<&Op> {
             match view.insts[ii as usize] {
-                VInst::Op { block, idx } => Some(&func.blocks[block as usize].insts[idx as usize].op),
+                VInst::Op { block, idx } => {
+                    Some(&func.blocks[block as usize].insts[idx as usize].op)
+                }
                 _ => None,
             }
         };
@@ -2399,12 +3142,24 @@ impl<'s> FnView<'s> {
             if self.fused[ii as usize] {
                 continue;
             }
-            let Some(&Op::IntBin { op: IntBinOp::Shl, a: x, b: k }) = op_of(self, ii) else { continue };
+            let Some(&Op::IntBin {
+                op: IntBinOp::Shl,
+                a: x,
+                b: k,
+            }) = op_of(self, ii)
+            else {
+                continue;
+            };
             let s = self.results[ii as usize];
-            if s == u32::MAX || func.values[s as usize] != Type::I64 || func.values[x.index()] != Type::I64 {
+            if s == u32::MAX
+                || func.values[s as usize] != Type::I64
+                || func.values[x.index()] != Type::I64
+            {
                 continue;
             }
-            let Some((kt, kb)) = self.const_of[k.index()] else { continue };
+            let Some((kt, kb)) = self.const_of[k.index()] else {
+                continue;
+            };
             let k = const_canon(kt, kb);
             if !(1..64).contains(&k) {
                 continue;
@@ -2420,14 +3175,22 @@ impl<'s> FnView<'s> {
                 let (index, scale, offset) = match self.ptr_add_override.get(&u) {
                     Some(&(i, sc, off)) => (i, sc, off),
                     None => match op_of(self, u) {
-                        Some(&Op::PtrAdd { index, scale, offset, .. }) => (index.0, scale as u64, offset as i64),
+                        Some(&Op::PtrAdd {
+                            index,
+                            scale,
+                            offset,
+                            ..
+                        }) => (index.0, scale as u64, offset as i64),
                         _ => {
                             ok = false;
                             break;
                         }
                     },
                 };
-                if rn(index as usize) != s || !scale.is_power_of_two() || scale.trailing_zeros() as i64 + k >= 64 {
+                if rn(index as usize) != s
+                    || !scale.is_power_of_two()
+                    || scale.trailing_zeros() as i64 + k >= 64
+                {
                     ok = false;
                     break;
                 }
@@ -2444,7 +3207,11 @@ impl<'s> FnView<'s> {
                 continue;
             }
             for (u, scale, offset) in plan {
-                put(&mut self.ptr_add_override, u, (rn(x.index()) as u32, scale, offset));
+                put(
+                    &mut self.ptr_add_override,
+                    u,
+                    (rn(x.index()) as u32, scale, offset),
+                );
                 let base = self.inst_operands(u)[0];
                 self.set_operands(u, &[base, rn(x.index()) as u32]);
             }
@@ -2465,12 +3232,25 @@ impl<'s> FnView<'s> {
                     _ => continue,
                 },
                 None => match op_of(self, pa) {
-                    Some(&Op::PtrAdd { base, index, scale, offset }) => (rn(base.index()) as u32, rn(index.index()) as u32, scale as u64, offset as i64),
+                    Some(&Op::PtrAdd {
+                        base,
+                        index,
+                        scale,
+                        offset,
+                    }) => (
+                        rn(base.index()) as u32,
+                        rn(index.index()) as u32,
+                        scale as u64,
+                        offset as i64,
+                    ),
                     _ => continue,
                 },
             };
             let p = self.results[pa as usize];
-            if p == u32::MAX || off_p != 0 || (index as usize) < nv && self.const_of[index as usize].is_some() {
+            if p == u32::MAX
+                || off_p != 0
+                || (index as usize) < nv && self.const_of[index as usize].is_some()
+            {
                 continue;
             }
             let p = rn(p as usize);
@@ -2481,24 +3261,45 @@ impl<'s> FnView<'s> {
             let mut ok = true;
             for &u in us {
                 let size = match op_of(self, u) {
-                    Some(&Op::Load { ty, ptr, offset, .. }) | Some(&Op::LoadZext { ty, ptr, offset, .. }) if rn(ptr.index()) == p && offset == 0 && self.load_override.get(&u).is_none() => ty.bytes(),
-                    Some(&Op::Store { ptr, offset, value, unaligned: false }) if rn(ptr.index()) == p && offset == 0 && rn(value.index()) != p => {
-                        self.store_zero_wide.get(&u).copied().unwrap_or(func.values[value.index()]).bytes()
+                    Some(&Op::Load {
+                        ty, ptr, offset, ..
+                    })
+                    | Some(&Op::LoadZext {
+                        ty, ptr, offset, ..
+                    }) if rn(ptr.index()) == p
+                        && offset == 0
+                        && self.load_override.get(&u).is_none() =>
+                    {
+                        ty.bytes()
                     }
+                    Some(&Op::Store {
+                        ptr,
+                        offset,
+                        value,
+                        unaligned: false,
+                    }) if rn(ptr.index()) == p && offset == 0 && rn(value.index()) != p => self
+                        .store_zero_wide
+                        .get(&u)
+                        .copied()
+                        .unwrap_or(func.values[value.index()])
+                        .bytes(),
                     _ => 0,
                 };
                 if size == 0 || !(scale == 1 || scale == size as u64) || size > 8 {
                     ok = false;
                     break;
                 }
-                if let Some(&Op::Load { ty, .. }) | Some(&Op::LoadZext { ty, .. }) = op_of(self, u) {
+                if let Some(&Op::Load { ty, .. }) | Some(&Op::LoadZext { ty, .. }) = op_of(self, u)
+                {
                     if ty.is_float() || ty.is_vector() {
                         ok = false;
                         break;
                     }
                 }
                 if let Some(&Op::Store { value, .. }) = op_of(self, u) {
-                    if func.values[value.index()].is_float() || func.values[value.index()].is_vector() {
+                    if func.values[value.index()].is_float()
+                        || func.values[value.index()].is_vector()
+                    {
                         ok = false;
                         break;
                     }
@@ -2510,12 +3311,21 @@ impl<'s> FnView<'s> {
             for &u in us {
                 match op_of(self, u) {
                     Some(&Op::Load { ty, .. }) | Some(&Op::LoadZext { ty, .. }) => {
-                        let shift = if scale == 1 { 0 } else { ty.bytes().trailing_zeros() };
+                        let shift = if scale == 1 {
+                            0
+                        } else {
+                            ty.bytes().trailing_zeros()
+                        };
                         put(&mut self.load_override, u, (base, Some((index, shift)), 0));
                         self.set_operands(u, &[base, index]);
                     }
                     Some(&Op::Store { value, .. }) => {
-                        let size = self.store_zero_wide.get(&u).copied().unwrap_or(func.values[value.index()]).bytes();
+                        let size = self
+                            .store_zero_wide
+                            .get(&u)
+                            .copied()
+                            .unwrap_or(func.values[value.index()])
+                            .bytes();
                         let shift = if scale == 1 { 0 } else { size.trailing_zeros() };
                         put(&mut self.store_override, u, (base, index, shift));
                         self.set_operands(u, &[base, index, value.0]);
@@ -2534,10 +3344,17 @@ impl<'s> FnView<'s> {
                 continue;
             }
             let (ptr, off_l, size, r) = match op_of(self, ii) {
-                Some(&Op::Load { ty, ptr, offset, .. }) | Some(&Op::LoadZext { ty, ptr, offset, .. }) => (ptr, offset, ty.bytes(), self.results[ii as usize]),
+                Some(&Op::Load {
+                    ty, ptr, offset, ..
+                })
+                | Some(&Op::LoadZext {
+                    ty, ptr, offset, ..
+                }) => (ptr, offset, ty.bytes(), self.results[ii as usize]),
                 _ => continue,
             };
-            if r == u32::MAX || !(func.values[r as usize].is_int() || func.values[r as usize] == Type::Ptr) {
+            if r == u32::MAX
+                || !(func.values[r as usize].is_int() || func.values[r as usize] == Type::Ptr)
+            {
                 continue;
             }
             let p = rn(ptr.index());
@@ -2551,7 +3368,17 @@ impl<'s> FnView<'s> {
                     _ => continue,
                 },
                 None => match op_of(self, pa) {
-                    Some(&Op::PtrAdd { base, index, scale, offset }) => (rn(base.index()) as u32, rn(index.index()) as u32, scale as u64, offset as i64),
+                    Some(&Op::PtrAdd {
+                        base,
+                        index,
+                        scale,
+                        offset,
+                    }) => (
+                        rn(base.index()) as u32,
+                        rn(index.index()) as u32,
+                        scale as u64,
+                        offset as i64,
+                    ),
                     _ => continue,
                 },
             };
@@ -2562,7 +3389,11 @@ impl<'s> FnView<'s> {
                 let (kt, kb) = self.const_of[index as usize].unwrap();
                 let k = const_canon(kt, kb);
                 let off = off_p + k.wrapping_mul(scale as i64) + off_l as i64;
-                if off >= 0 && ( off as u64).is_multiple_of( size as u64) && (off as u64 / size as u64) < 4096 && self.ptr_add_override.get(&pa).is_none() {
+                if off >= 0
+                    && (off as u64).is_multiple_of(size as u64)
+                    && (off as u64 / size as u64) < 4096
+                    && self.ptr_add_override.get(&pa).is_none()
+                {
                     put(&mut self.load_override, ii, (base, None, off));
                     self.set_operands(ii, &[base]);
                     self.fused[pa as usize] = true;
@@ -2580,7 +3411,11 @@ impl<'s> FnView<'s> {
                 self.clear_operands(pa);
                 self.results[pa as usize] = u32::MAX;
                 self.ptr_add_override.remove(&pa);
-            } else if off_p != 0 && off >= 0 && ( off as u64).is_multiple_of( size as u64) && (off as u64 / size as u64) < 4096 {
+            } else if off_p != 0
+                && off >= 0
+                && (off as u64).is_multiple_of(size as u64)
+                && (off as u64 / size as u64) < 4096
+            {
                 put(&mut self.ptr_add_override, pa, (index, scale, 0));
                 put(&mut self.load_override, ii, (p as u32, None, off));
             }
@@ -2609,13 +3444,23 @@ impl<'s> FnView<'s> {
                 if self.fused[ii as usize] {
                     continue;
                 }
-                let VInst::Op { block, idx } = self.insts[ii as usize] else { continue };
+                let VInst::Op { block, idx } = self.insts[ii as usize] else {
+                    continue;
+                };
                 let op = &func.blocks[block as usize].insts[idx as usize].op;
                 match *op {
-                    Op::IntBin { op: IntBinOp::Smin | IntBinOp::Smax | IntBinOp::Umin | IntBinOp::Umax, a, b } => {
+                    Op::IntBin {
+                        op: IntBinOp::Smin | IntBinOp::Smax | IntBinOp::Umin | IntBinOp::Umax,
+                        a,
+                        b,
+                    } => {
                         flags = Some((rn(a.index()), rn(b.index())));
                     }
-                    Op::Icmp { a, b, .. } if func.values[a.index()] != Type::Bool && !func.values[a.index()].is_float() && self.icmp_self_ext.get(&ii).is_none() => {
+                    Op::Icmp { a, b, .. }
+                        if func.values[a.index()] != Type::Bool
+                            && !func.values[a.index()].is_float()
+                            && self.icmp_self_ext.get(&ii).is_none() =>
+                    {
                         let pair = (rn(a.index()), rn(b.index()));
                         if flags == Some(pair) {
                             self.icmp_flags[ii as usize] = true;
@@ -2624,7 +3469,19 @@ impl<'s> FnView<'s> {
                             flags = Some(pair);
                         }
                     }
-                    Op::Load { .. } | Op::LoadZext { .. } | Op::Store { .. } | Op::PtrAdd { .. } | Op::Conv { .. } | Op::Const { .. } | Op::StackAddr { .. } | Op::IntBin { .. } | Op::IntUn { .. } | Op::FloatBin { .. } | Op::FloatUn { .. } | Op::Prefetch { .. } | Op::Crc32c { .. } => {}
+                    Op::Load { .. }
+                    | Op::LoadZext { .. }
+                    | Op::Store { .. }
+                    | Op::PtrAdd { .. }
+                    | Op::Conv { .. }
+                    | Op::Const { .. }
+                    | Op::StackAddr { .. }
+                    | Op::IntBin { .. }
+                    | Op::IntUn { .. }
+                    | Op::FloatBin { .. }
+                    | Op::FloatUn { .. }
+                    | Op::Prefetch { .. }
+                    | Op::Crc32c { .. } => {}
                     _ => flags = None,
                 }
             }
@@ -2862,7 +3719,10 @@ impl<'s> FnView<'s> {
                 // registers through every loop laid out before the join.
                 // D3698: a loop holds `p` and not `bi` exactly when `p`'s innermost loop does not hold `bi` (the loops
                 // holding `p` are the chain around its innermost one; a scan of every loop per predecessor)
-                let exit_join = self.preds[bi].iter().any(|&p| innermost[p as usize] != u32::MAX && !bodies[innermost[p as usize] as usize].1[bi]);
+                let exit_join = self.preds[bi].iter().any(|&p| {
+                    innermost[p as usize] != u32::MAX
+                        && !bodies[innermost[p as usize] as usize].1[bi]
+                });
                 if !in_loop[bi] || exit_join {
                     for &p in &b.params {
                         slot_phi[p.index()] = true;
@@ -2890,7 +3750,9 @@ impl<'s> FnView<'s> {
             for (h, body) in &bodies {
                 crate::stop_point(); // D3552: each loop reads its body's headers
                 let inner = body.ones().filter(|&h2| heads_at[h2]).any(|h2| {
-                    of_header[h2].iter().any(|&l2| h2 != *h && !bodies[l2 as usize].1[*h] && !func.blocks[h2].params.is_empty())
+                    of_header[h2].iter().any(|&l2| {
+                        h2 != *h && !bodies[l2 as usize].1[*h] && !func.blocks[h2].params.is_empty()
+                    })
                 });
                 if !inner {
                     continue;
@@ -2920,14 +3782,23 @@ impl<'s> FnView<'s> {
                 }
             }
         }
-        let entry_param = |v: usize| func.blocks[func.entry.index()].params.iter().any(|p| p.index() == v);
+        let entry_param = |v: usize| {
+            func.blocks[func.entry.index()]
+                .params
+                .iter()
+                .any(|p| p.index() == v)
+        };
         // D3698: the loop headers sorted, for `across` (a scan of every loop per value)
         let mut heads: PgVec<u32> = bodies.iter().map(|(h, _)| *h as u32).collect_hot(m);
         heads.sort_unstable();
         let mut invariant: PgVec<(u32, u32)> = PgVec::new_in(m);
         refill(&mut self.no_fixed, nv + self.num_slots as usize, false);
         for v in 0..nv {
-            if func.values[v].is_float() || self.const_of[v].is_some() || rn(v) != v || header_phi[v] {
+            if func.values[v].is_float()
+                || self.const_of[v].is_some()
+                || rn(v) != v
+                || header_phi[v]
+            {
                 continue;
             }
             let d = def_block[v];
@@ -2956,7 +3827,10 @@ impl<'s> FnView<'s> {
             // keeps the rule (a fixed register is what carries it across
             // a join).
             let def = if d == u32::MAX { 0 } else { d };
-            let across = used_loops[v] != 0 || heads.get(heads.partition_point(|&h| h <= def)).is_some_and(|&h| h <= last_use[v]);
+            let across = used_loops[v] != 0
+                || heads
+                    .get(heads.partition_point(|&h| h <= def))
+                    .is_some_and(|&h| h <= last_use[v]);
             if !entry_param(v) && across {
                 self.no_fixed[v] = true;
             }
@@ -2973,7 +3847,11 @@ impl<'s> FnView<'s> {
         // the budget lasts: forcing a cold path's values would take the
         // registers from the hot path's.
         let mut cands: PgVec<(bool, usize, u32)> = (0..nv)
-            .filter(|&v| (header_phi[v] || blocks_using[v] >= 4) && !func.values[v].is_float() && self.const_of[v].is_none())
+            .filter(|&v| {
+                (header_phi[v] || blocks_using[v] >= 4)
+                    && !func.values[v].is_float()
+                    && self.const_of[v].is_none()
+            })
             .map(|v| (header_phi[v], blocks_using[v] as usize, v as u32))
             .collect_hot(m);
         // descending; the values are distinct, so the order is the stable sort's
@@ -3023,7 +3901,7 @@ impl<'s> FnView<'s> {
         resize_with_in(&mut self.preds, nb, || PgVec::new_in(m));
         for (bi, b) in func.blocks.iter().enumerate() {
             for (ei, e) in b.term.edges().enumerate() {
-                if e.target.index() < nb &&self.term_const[bi].is_none_or(|t| t == ei) {
+                if e.target.index() < nb && self.term_const[bi].is_none_or(|t| t == ei) {
                     self.preds[e.target.index()].push_hot(bi as u32);
                 }
             }
@@ -3040,7 +3918,7 @@ impl<'s> FnView<'s> {
         while let Some(x) = work.pop() {
             for (ei, e) in func.blocks[x].term.edges().enumerate() {
                 let t = e.target.index();
-                if t < nb && !reach[t] &&self.term_const[x].is_none_or(|c| c == ei) {
+                if t < nb && !reach[t] && self.term_const[x].is_none_or(|c| c == ei) {
                     reach[t] = true;
                     work.push_hot(t);
                 }
@@ -3104,7 +3982,11 @@ impl<'s> FnView<'s> {
                     if idom[p as usize] == u32::MAX {
                         continue;
                     }
-                    new = if new == u32::MAX { p } else { intersect(&idom, p, new) };
+                    new = if new == u32::MAX {
+                        p
+                    } else {
+                        intersect(&idom, p, new)
+                    };
                 }
                 if new != u32::MAX && idom[b as usize] != new {
                     idom[b as usize] = new;
@@ -3164,7 +4046,12 @@ impl<'s> FnView<'s> {
             mark[h] = stamp;
             members.push_hot(h as u32);
             stack.clear();
-            stack.extend_hot(preds[h].iter().copied().filter(|&p| dominates(h, p as usize)));
+            stack.extend_hot(
+                preds[h]
+                    .iter()
+                    .copied()
+                    .filter(|&p| dominates(h, p as usize)),
+            );
             while let Some(p) = stack.pop() {
                 let p = p as usize;
                 if mark[p] == stamp {
@@ -3223,14 +4110,27 @@ impl<'s> FnView<'s> {
             let b = &func.blocks[bi];
             let n = b.term.edges().count();
             match &b.term {
-                Terminator::CondBr { .. } if self.term_const[bi].is_some() => f32::from(u8::from(self.term_const[bi] == Some(ei))),
+                Terminator::CondBr { .. } if self.term_const[bi].is_some() => {
+                    f32::from(u8::from(self.term_const[bi] == Some(ei)))
+                }
                 Terminator::CondBr { .. } => {
-                    let leaves = |t: usize| innermost[bi].is_some_and(|h| !in_range(h, t)) || is_cold(t);
-                    let other = b.term.edges().nth(1 - ei).map_or(target, |e| e.target.index());
+                    let leaves =
+                        |t: usize| innermost[bi].is_some_and(|h| !in_range(h, t)) || is_cold(t);
+                    let other = b
+                        .term
+                        .edges()
+                        .nth(1 - ei)
+                        .map_or(target, |e| e.target.index());
                     match (leaves(target), leaves(other), likely_of(bi)) {
                         (true, false, _) => 0.01,
                         (false, true, _) => 0.99,
-                        (_, _, Some(l)) => if (ei == 0) == l { 0.9 } else { 0.1 },
+                        (_, _, Some(l)) => {
+                            if (ei == 0) == l {
+                                0.9
+                            } else {
+                                0.1
+                            }
+                        }
                         _ => 0.5,
                     }
                 }
@@ -3253,7 +4153,11 @@ impl<'s> FnView<'s> {
                         // the loop's own), a body block its in-range
                         // predecessors (a nested loop's exit carries 1/100
                         // of its scaled frequency: the outer's again).
-                        let counts = if b == h { !in_range(li, pi) } else { in_range(li, pi) };
+                        let counts = if b == h {
+                            !in_range(li, pi)
+                        } else {
+                            in_range(li, pi)
+                        };
                         if counts {
                             sum += freq[pi] * weight(pi, ei, b);
                         }
@@ -3292,7 +4196,13 @@ impl<'s> FnView<'s> {
         let m = self.mcx;
         let nb = func.blocks.len();
         if !func.hints.loop_headers.is_empty() {
-            return func.hints.loop_headers.iter().map(|h| h.index()).filter(|h| *h < nb).collect_hot(m);
+            return func
+                .hints
+                .loop_headers
+                .iter()
+                .map(|h| h.index())
+                .filter(|h| *h < nb)
+                .collect_hot(m);
         }
         let mut heads = filled_in(m, false, nb);
         for (bi, b) in func.blocks.iter().enumerate() {
@@ -3356,7 +4266,7 @@ impl<'s> FnView<'s> {
         self.weight.extend_hot(
             w.iter()
                 .map(|x| ((x * 64.0).max(1.0)).min(u32::MAX as f32 / 2.0) as u32)
-                .chain(core::iter::repeat_n(1,self.num_slots as usize)),
+                .chain(core::iter::repeat_n(1, self.num_slots as usize)),
         );
     }
 
@@ -3372,10 +4282,19 @@ impl<'s> FnView<'s> {
     fn bind_args(&mut self, pred: u32, e: &Edge) {
         let t = e.target.index();
         // `check_edge_arity` rejects a mismatch before any view is built.
-        debug_assert_eq!(self.blocks[t].phis.len(), e.args.len(), "edge to b{} of a function `compile` did not check", e.target.0);
+        debug_assert_eq!(
+            self.blocks[t].phis.len(),
+            e.args.len(),
+            "edge to b{} of a function `compile` did not check",
+            e.target.0
+        );
         for (k, a) in e.args.iter().enumerate() {
             let p = self.blocks[t].phis[k];
-            self.phis[p.index()].as_mut().unwrap().incoming.push_hot((pred, *a));
+            self.phis[p.index()]
+                .as_mut()
+                .unwrap()
+                .incoming
+                .push_hot((pred, *a));
         }
     }
 
@@ -3383,7 +4302,11 @@ impl<'s> FnView<'s> {
         let sb = self.blocks.len() as u32;
         let si = self.splits.len() as u32;
         let m = self.mcx;
-        self.splits.push_hot(Split { target: e.target.0, from: pred, edge: ei as u32 });
+        self.splits.push_hot(Split {
+            target: e.target.0,
+            from: pred,
+            edge: ei as u32,
+        });
         let begin = self.insts.len() as u32;
         self.push_inst(VInst::SplitBr { split: si }, &[], None);
         self.blocks.push_hot(VBlock {
@@ -3451,14 +4374,20 @@ fn const_terms<'s>(func: &Function, m: Mcx<'s>) -> PgVec<'s, Option<usize>> {
     func.blocks
         .iter()
         .map(|b| {
-            let Terminator::CondBr { cond, .. } = &b.term else { return None };
+            let Terminator::CondBr { cond, .. } = &b.term else {
+                return None;
+            };
             if let Some((_, bits)) = consts[cond.index()] {
                 return taken(bits & 1 != 0);
             }
             if uses[cond.index()] != 1 {
                 return None;
             }
-            let Op::Icmp { cond: c, a, b: rhs } = &b.insts.iter().rev().find(|i| i.result == Some(*cond))?.op else { return None };
+            let Op::Icmp { cond: c, a, b: rhs } =
+                &b.insts.iter().rev().find(|i| i.result == Some(*cond))?.op
+            else {
+                return None;
+            };
             let (ta, x) = consts[a.index()]?;
             let (tb, y) = consts[rhs.index()]?;
             let (x, y) = (const_canon(ta, x), const_canon(tb, y));
@@ -3584,8 +4513,19 @@ impl ImmRules for NoImm {
 
 /// The operand of `op` that the frontend folds into an immediate, if any.
 /// The frontend must apply exactly the same rule.
-pub fn imm_operand(func: &Function, consts: &[Option<(Type, u64)>], op: &Op, rules: &dyn ImmRules) -> Option<Value> {
-    let c = |v: Value| consts.get(v.index()).copied().flatten().map(|(t, b)| const_canon(t, b));
+pub fn imm_operand(
+    func: &Function,
+    consts: &[Option<(Type, u64)>],
+    op: &Op,
+    rules: &dyn ImmRules,
+) -> Option<Value> {
+    let c = |v: Value| {
+        consts
+            .get(v.index())
+            .copied()
+            .flatten()
+            .map(|(t, b)| const_canon(t, b))
+    };
     match *op {
         Op::IntBin { op, a, b } => {
             let ty = func.values[a.index()];
@@ -3595,7 +4535,9 @@ pub fn imm_operand(func: &Function, consts: &[Option<(Type, u64)>], op: &Op, rul
             let fold = |k: i64, v: Value| match op {
                 IntBinOp::Add | IntBinOp::Sub => rules.add_imm(k).then_some(v),
                 IntBinOp::And | IntBinOp::Or | IntBinOp::Xor => rules.logical_imm(k).then_some(v),
-                IntBinOp::Shl | IntBinOp::Ushr | IntBinOp::Sshr | IntBinOp::Rotl => (k >= 0 && k < ty.bytes() as i64 * 8).then_some(v),
+                IntBinOp::Shl | IntBinOp::Ushr | IntBinOp::Sshr | IntBinOp::Rotl => {
+                    (k >= 0 && k < ty.bytes() as i64 * 8).then_some(v)
+                }
                 _ => None,
             };
             if let Some(k) = c(b) {
@@ -3605,14 +4547,22 @@ pub fn imm_operand(func: &Function, consts: &[Option<(Type, u64)>], op: &Op, rul
             // way (`k + x`: the lowerer's running offsets start from a
             // constant); the frontend takes the other operand as the
             // register source.
-            if matches!(op, IntBinOp::Add | IntBinOp::And | IntBinOp::Or | IntBinOp::Xor) {
+            if matches!(
+                op,
+                IntBinOp::Add | IntBinOp::And | IntBinOp::Or | IntBinOp::Xor
+            ) {
                 if let Some(k) = c(a) {
                     return fold(k, a);
                 }
             }
             None
         }
-        Op::PtrAdd { index, scale, offset, .. } => {
+        Op::PtrAdd {
+            index,
+            scale,
+            offset,
+            ..
+        } => {
             // A constant index is one immediate: `base + k * scale +
             // offset` (a zero total is a copy). `fuse_addresses` folds the
             // same sum into a load that is the pointer's only use.
@@ -3627,7 +4577,8 @@ pub fn imm_operand(func: &Function, consts: &[Option<(Type, u64)>], op: &Op, rul
         }
         Op::Store { value, .. } => {
             // A stored integer zero comes from the zero register.
-            (rules.select_zero() && c(value) == Some(0) && !func.values[value.index()].is_float()).then_some(value)
+            (rules.select_zero() && c(value) == Some(0) && !func.values[value.index()].is_float())
+                .then_some(value)
         }
         Op::Select { cond, a, b } => {
             let _ = cond;
@@ -3654,7 +4605,11 @@ pub fn op_operands_into(op: &Op, out: &mut PgVec<'_, u32>) {
     out.clear();
     match op {
         Op::Const { .. } | Op::StackAddr { .. } => {}
-        Op::IntBin { a, b, .. } | Op::IntOvf { a, b, .. } | Op::Icmp { a, b, .. } | Op::FloatBin { a, b, .. } | Op::Fcmp { a, b, .. } => {
+        Op::IntBin { a, b, .. }
+        | Op::IntOvf { a, b, .. }
+        | Op::Icmp { a, b, .. }
+        | Op::FloatBin { a, b, .. }
+        | Op::Fcmp { a, b, .. } => {
             out.extend_copy(&[a.0, b.0]);
         }
         Op::IntUn { a, .. } | Op::FloatUn { a, .. } | Op::Conv { a, .. } => out.push_hot(a.0),
@@ -3665,12 +4620,21 @@ pub fn op_operands_into(op: &Op, out: &mut PgVec<'_, u32>) {
         Op::Prefetch { ptr, .. } => out.push_hot(ptr.0),
         Op::Crc32c { acc, data } => out.extend_copy(&[acc.0, data.0]),
         Op::AddHi { alo, blo, ahi, bhi } => out.extend_copy(&[alo.0, blo.0, ahi.0, bhi.0]),
-        Op::Call { args, .. } | Op::CallHost { args, .. } => out.extend_hot(args.iter().map(|v| v.0)),
+        Op::Call { args, .. } | Op::CallHost { args, .. } => {
+            out.extend_hot(args.iter().map(|v| v.0))
+        }
         // Vectors (simd.md).
         Op::VecLoad { ptr, .. } => out.push_hot(ptr.0),
         Op::VecStore { ptr, value, .. } => out.extend_copy(&[ptr.0, value.0]),
-        Op::VecBin { a, b, .. } | Op::VecCmp { a, b, .. } | Op::VecNarrow { a, b } => out.extend_copy(&[a.0, b.0]),
-        Op::VecShift { a, .. } | Op::VecReduceAdd { a } | Op::VecMovmask { a } | Op::VecSplat { a, .. } | Op::VecExtract { a, .. } | Op::VecWiden { a, .. } => out.push_hot(a.0),
+        Op::VecBin { a, b, .. } | Op::VecCmp { a, b, .. } | Op::VecNarrow { a, b } => {
+            out.extend_copy(&[a.0, b.0])
+        }
+        Op::VecShift { a, .. }
+        | Op::VecReduceAdd { a }
+        | Op::VecMovmask { a }
+        | Op::VecSplat { a, .. }
+        | Op::VecExtract { a, .. }
+        | Op::VecWiden { a, .. } => out.push_hot(a.0),
         Op::VecSelect { mask, a, b } => out.extend_copy(&[mask.0, a.0, b.0]),
         Op::VecInsert { a, value, .. } => out.extend_copy(&[a.0, value.0]),
     }
@@ -3709,7 +4673,11 @@ fn hint_tables<'s>(func: &Function, m: Mcx<'s>) -> (PgVec<'s, bool>, PgVec<'s, O
 }
 
 /// D3698: per original block, the indexes into `loops` of the loops it heads, in `loops` order.
-fn loops_by_header<'s>(loops: &[(usize, Body<'_>)], nb: usize, m: Mcx<'s>) -> PgVec<'s, PgVec<'s, u32>> {
+fn loops_by_header<'s>(
+    loops: &[(usize, Body<'_>)],
+    nb: usize,
+    m: Mcx<'s>,
+) -> PgVec<'s, PgVec<'s, u32>> {
     let mut of_header: PgVec<PgVec<u32>> = filled_in(m, PgVec::new_in(m), nb);
     for (li, (h, _)) in loops.iter().enumerate() {
         if let Some(l) = of_header.get_mut(*h) {

@@ -13,7 +13,9 @@ use gravity_abi::ctx::{lane, Lane, ScanPos};
 use gravity_abi::limits::HEAP_FETCH_ARENA_MIN;
 use gravity_abi::site::MAX_FETCH_ROWS;
 use gravity_abi::Datum as Word;
-use gravity_driver::{box_source, ArenaRef, BindingRef, Cursor, Error, Result, Source, SourceBox, Window};
+use gravity_driver::{
+    box_source, ArenaRef, BindingRef, Cursor, Error, Result, Source, SourceBox, Window,
+};
 use gravity_program::SiteDesc;
 use types_core::Oid;
 use types_error::PgResult;
@@ -45,21 +47,38 @@ pub struct HeapFetchRecipe {
 impl HeapFetchRecipe {
     pub fn from_plan(heap: &Relation<'_>, attnos: &[i16]) -> PgResult<HeapFetchRecipe> {
         use tableam_vocab::TableAm;
-        if !matches!(heap.rd_rel.relkind, RELKIND_RELATION | RELKIND_MATVIEW) || TableAm::of(heap) != Some(TableAm::Heap) || attnos.is_empty() {
-            return Err(crate::pg_err("gravity: a heap fetch site needs a heap relation and its columns"));
+        if !matches!(heap.rd_rel.relkind, RELKIND_RELATION | RELKIND_MATVIEW)
+            || TableAm::of(heap) != Some(TableAm::Heap)
+            || attnos.is_empty()
+        {
+            return Err(crate::pg_err(
+                "gravity: a heap fetch site needs a heap relation and its columns",
+            ));
         }
         let mut lens = Vec::with_capacity(attnos.len()); // alloc: Program
-        // bounded("key-columns: one attribute test per fetched column, at plan time, at most MaxTupleAttributeNumber (1664) columns")
+                                                         // bounded("key-columns: one attribute test per fetched column, at plan time, at most MaxTupleAttributeNumber (1664) columns")
         for &a in attnos {
-            let Some(att) = heap.rd_att.attrs.get((a as usize).wrapping_sub(1)).filter(|t| a > 0 && !t.attisdropped) else {
+            let Some(att) = heap
+                .rd_att
+                .attrs
+                .get((a as usize).wrapping_sub(1))
+                .filter(|t| a > 0 && !t.attisdropped)
+            else {
                 return Err(crate::pg_err("gravity: heap fetch attno"));
             };
             if !att.attbyval && att.attlen != -1 {
-                return Err(crate::pg_err("gravity: a heap fetch reads no fixed-length by-reference column"));
+                return Err(crate::pg_err(
+                    "gravity: a heap fetch reads no fixed-length by-reference column",
+                ));
             }
             lens.push(att.attlen); // alloc: Program
         }
-        Ok(HeapFetchRecipe { heap: heap.rd_id, heap_natts: heap.rd_att.natts, attnos: Arc::from(attnos), lens: Arc::from(lens) }) // alloc: Program
+        Ok(HeapFetchRecipe {
+            heap: heap.rd_id,
+            heap_natts: heap.rd_att.natts,
+            attnos: Arc::from(attnos),
+            lens: Arc::from(lens),
+        }) // alloc: Program
     }
 }
 
@@ -71,7 +90,10 @@ impl HostRecipe for HeapFetchRecipe {
         core::mem::size_of::<HeapFetchSource>()
     }
     fn derive(&self, desc: &SiteDesc, a: ArenaRef) -> SourceBox {
-        assert!(self.heap == desc.relation, "gravity: heap fetch recipe does not match its site descriptor");
+        assert!(
+            self.heap == desc.relation,
+            "gravity: heap fetch recipe does not match its site descriptor"
+        );
         box_source(HeapFetchSource::new(self.clone()), a) // alloc: Node
     }
     fn clone_box(&self) -> Box<dyn HostRecipe> {
@@ -108,7 +130,24 @@ impl HeapFetchSource {
         let natts = recipe.attnos.len();
         let scratch = NodeScratch::new("GravityHeapFetch");
         let order = mcx::PgVec::new_in(scratch.mcx());
-        HeapFetchSource { recipe, heap: None, parked: None, snapshot: None, slot: None, datums: Vec::new(), valid: Vec::new(), arena: Vec::new(), used: 0, spent: Vec::new(), order, row: vec![0; natts], nulls: vec![0; natts], bound: false, cur: Cursor::new(), scratch } // alloc: Node
+        HeapFetchSource {
+            recipe,
+            heap: None,
+            parked: None,
+            snapshot: None,
+            slot: None,
+            datums: Vec::new(),
+            valid: Vec::new(),
+            arena: Vec::new(),
+            used: 0,
+            spent: Vec::new(),
+            order,
+            row: vec![0; natts],
+            nulls: vec![0; natts],
+            bound: false,
+            cur: Cursor::new(),
+            scratch,
+        } // alloc: Node
     }
 
     fn bind_pg(&mut self, snapshot: Rc<SnapshotData<'static>>) -> PgResult<()> {
@@ -116,7 +155,9 @@ impl HeapFetchSource {
         let heap = open_heap(mcx, &self.parked, self.recipe.heap)?;
         if heap.rd_att.natts != self.recipe.heap_natts {
             heap.close(NoLock)?;
-            return Err(crate::pg_err("gravity: relation changed under the parked plan"));
+            return Err(crate::pg_err(
+                "gravity: relation changed under the parked plan",
+            ));
         }
         if self.slot.is_none() {
             self.slot = Some(tableam::table_slot_create(mcx, &heap)?);
@@ -148,12 +189,29 @@ impl HeapFetchSource {
 
     /// Request entry `i`: the row at TID word `w`, its columns into entry `i` of each lane.
     fn row_at(&mut self, w: u64, i: usize) -> Result<()> {
-        let (Some(heap), Some(slot), Some(snapshot)) = (self.heap.as_ref(), self.slot.as_mut(), self.snapshot.as_ref()) else {
+        let (Some(heap), Some(slot), Some(snapshot)) = (
+            self.heap.as_ref(),
+            self.slot.as_mut(),
+            self.snapshot.as_ref(),
+        ) else {
             return Err(Error::host("gravity: heap fetch on an unbound source"));
         };
         let tid = ItemPointerData::new((w >> 16) as u32, w as u16);
-        if !fetch_by_tid(self.scratch.exec_mcx(), heap, &tid, snapshot, slot, &self.recipe.attnos, &mut self.row, &mut self.nulls).map_err(crate::stash)? {
-            return Err(Error::host("gravity: a fetched heap row is not visible under the statement's snapshot"));
+        if !fetch_by_tid(
+            self.scratch.exec_mcx(),
+            heap,
+            &tid,
+            snapshot,
+            slot,
+            &self.recipe.attnos,
+            &mut self.row,
+            &mut self.nulls,
+        )
+        .map_err(crate::stash)?
+        {
+            return Err(Error::host(
+                "gravity: a fetched heap row is not visible under the statement's snapshot",
+            ));
         }
         // bounded("key-columns: one cell per fetched column of a row, at most MaxTupleAttributeNumber (1664) columns")
         for k in 0..self.recipe.attnos.len() {
@@ -162,7 +220,11 @@ impl HeapFetchSource {
                 self.datums[at] = 0;
                 continue;
             }
-            self.datums[at] = if self.recipe.lens[k] == -1 { self.copy_image(self.row[k]) } else { self.row[k] };
+            self.datums[at] = if self.recipe.lens[k] == -1 {
+                self.copy_image(self.row[k])
+            } else {
+                self.row[k]
+            };
             self.valid[k * VALID_WORDS + i / 64] |= 1 << (i % 64);
         }
         Ok(())
@@ -173,7 +235,12 @@ impl HeapFetchSource {
         let img = raw::varlena_bytes(d as usize as *const u8);
         let len = img.len();
         if self.used + len > self.arena.len() * 8 {
-            let fresh = vec![0u64; (len + HEAP_FETCH_ARENA_MIN).div_ceil(8).max(self.arena.len())]; // alloc: Node
+            let fresh = vec![
+                0u64;
+                (len + HEAP_FETCH_ARENA_MIN)
+                    .div_ceil(8)
+                    .max(self.arena.len())
+            ]; // alloc: Node
             self.spent.push(core::mem::replace(&mut self.arena, fresh)); // alloc: Node
             self.used = 0;
         }
@@ -231,9 +298,21 @@ impl Source for HeapFetchSource {
         #[allow(clippy::needless_range_loop)]
         for k in 0..natts {
             let v = &self.valid[k * VALID_WORDS..][..words];
-            let all = v.iter().enumerate().all(|(w, &x)| x == if w + 1 == words && n % 64 != 0 { (1u64 << (n % 64)) - 1 } else { !0 });
+            let all = v.iter().enumerate().all(|(w, &x)| {
+                x == if w + 1 == words && n % 64 != 0 {
+                    (1u64 << (n % 64)) - 1
+                } else {
+                    !0
+                }
+            });
             let valid = if all { core::ptr::null() } else { v.as_ptr() };
-            let mut l = Lane::byval(self.datums[k * MAX_FETCH_ROWS..].as_ptr() as *const u8, valid, 8, lane::REGION_ARENA, lane::id(lane::ID_ATTR, self.recipe.attnos[k] as u32));
+            let mut l = Lane::byval(
+                self.datums[k * MAX_FETCH_ROWS..].as_ptr() as *const u8,
+                valid,
+                8,
+                lane::REGION_ARENA,
+                lane::id(lane::ID_ATTR, self.recipe.attnos[k] as u32),
+            );
             if self.recipe.lens[k] == -1 {
                 l.kind = lane::KIND_BYREF;
             }
@@ -273,7 +352,14 @@ impl Source for HeapFetchSource {
     /// D3213: the published cells and the image arena, kept between statements.
     fn kept_bytes(&self) -> usize {
         use gravity_driver::vec_bytes as v;
-        v(&self.datums) + v(&self.valid) + v(&self.arena) + v(&self.spent) + self.spent.iter().map(v).sum::<usize>() + self.order.capacity() * core::mem::size_of::<u32>() + v(&self.row) + v(&self.nulls)
+        v(&self.datums)
+            + v(&self.valid)
+            + v(&self.arena)
+            + v(&self.spent)
+            + self.spent.iter().map(v).sum::<usize>()
+            + self.order.capacity() * core::mem::size_of::<u32>()
+            + v(&self.row)
+            + v(&self.nulls)
     }
 }
 

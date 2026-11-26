@@ -7,7 +7,10 @@
 use init_small::oom::Rescue;
 use memledger::arena::{cache_scope_for, set_cache_heap_ready};
 use memledger::charge::{owner_row, Door};
-use memledger::{account_row, bind_backend, fold, unbind_backend, Acct, Charge, Consumer, Holder, Kind, Owner, Release};
+use memledger::{
+    account_row, bind_backend, fold, unbind_backend, Acct, Charge, Consumer, Holder, Kind, Owner,
+    Release,
+};
 
 #[global_allocator]
 static A: Rescue<pagepool::PoolAlloc> = Rescue(pagepool::PoolAlloc);
@@ -38,12 +41,30 @@ fn a_cache_image_on_the_pool_is_its_holders_and_nets_out_where_it_is_evicted() {
         }
         let small: Vec<Box<[u8; 48]>> = (0..2000).map(|_| Box::new([5u8; 48])).collect();
         let cap = img.capacity() + small.capacity() * 8 + small.len() * 48;
-        assert!(pagepool::is_cache(img.as_ptr(), img.capacity(), 1), "the image is the cache class's");
-        assert!(small.iter().all(|b| pagepool::is_cache(b.as_ptr(), 48, 1)), "small images too, on cache-only runs");
+        assert!(
+            pagepool::is_cache(img.as_ptr(), img.capacity(), 1),
+            "the image is the cache class's"
+        );
+        assert!(
+            small.iter().all(|b| pagepool::is_cache(b.as_ptr(), 48, 1)),
+            "small images too, on cache-only runs"
+        );
         let taken = scope.finish().expect("a holder scope's charge");
-        assert_eq!(taken.committed() as usize, cap, "the image's blocks alone (the growth's transient blocks netted)");
-        assert_eq!((owner_row(H).committed - h0) as usize, cap, "the holder holds the image while it lives");
-        assert!((account(a) - a0).abs() < SLACK, "none of it on the building backend: {}", account(a) - a0);
+        assert_eq!(
+            taken.committed() as usize,
+            cap,
+            "the image's blocks alone (the growth's transient blocks netted)"
+        );
+        assert_eq!(
+            (owner_row(H).committed - h0) as usize,
+            cap,
+            "the holder holds the image while it lives"
+        );
+        assert!(
+            (account(a) - a0).abs() < SLACK,
+            "none of it on the building backend: {}",
+            account(a) - a0
+        );
         let mut held = Charge::open(H, Release::Evict, Kind::Region, Door::Heap, 0);
         assert_eq!(held.absorb(taken) as usize, cap);
         let moved = std::thread::spawn(move || {
@@ -60,9 +81,16 @@ fn a_cache_image_on_the_pool_is_its_holders_and_nets_out_where_it_is_evicted() {
         })
         .join()
         .unwrap();
-        assert!(moved.abs() < SLACK, "the evicting backend's account nets to 0: {moved}");
+        assert!(
+            moved.abs() < SLACK,
+            "the evicting backend's account nets to 0: {moved}"
+        );
         assert_eq!(owner_row(H).committed, h0, "the holder holds nothing after");
-        assert!((account(a) - a0).abs() < SLACK, "the building backend's account is back: {}", account(a) - a0);
+        assert!(
+            (account(a) - a0).abs() < SLACK,
+            "the building backend's account is back: {}",
+            account(a) - a0
+        );
         unbind_backend();
     })
     .join()

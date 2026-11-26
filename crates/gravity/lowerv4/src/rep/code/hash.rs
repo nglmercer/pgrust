@@ -14,13 +14,16 @@ use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{ConvOp, IntBinOp, IntCond, Type, Value};
 use gravity_program::{DictRef, Rep, Until};
 
+use crate::admit::refusal::Reason;
 use crate::cell::{At, Cell, CellHome, CellLife};
 use crate::face::kinds::KindId;
-use crate::admit::refusal::Reason;
 use crate::ops::Table;
 use crate::rep::{CellRef, HashArm, Lx, Scope, StoredRef, Words};
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::RepCodeHash, &ARM)], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::RepCodeHash, &ARM)],
+    ..crate::ops::NONE
+};
 
 pub(crate) const ARM: HashArm = HashArm { image, eq };
 
@@ -37,14 +40,25 @@ fn image(cx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, tf: &TypeFacts, scope: Scope) 
     let fp = linked(cx, c).filter(|_| !matches!(scope, Scope::SameDict(d) if same_dict(c.cell, d)));
     if let Some([lo, hi]) = fp {
         fires::fire("key.payload_fp"); // shapecheck fire signal (join.payload_fp): a record code keyed by its record's Fp128 words
-        return Words { w: [Some(lo), Some(hi)], exact: true };
+        return Words {
+            w: [Some(lo), Some(hi)],
+            exact: true,
+        };
     }
     match scope {
-        Scope::SameDict(d) if same_dict(c.cell, d) => Words { w: [Some(crate::rep::code::datum::code(cx, c)), None], exact: true },
-        _ if matches!(c.cell.rep, Rep::Code { dict } if dict.fp_table == DictRef::NO_TABLE) => rendered(cx, c, tf),
+        Scope::SameDict(d) if same_dict(c.cell, d) => Words {
+            w: [Some(crate::rep::code::datum::code(cx, c)), None],
+            exact: true,
+        },
+        _ if matches!(c.cell.rep, Rep::Code { dict } if dict.fp_table == DictRef::NO_TABLE) => {
+            rendered(cx, c, tf)
+        }
         _ => {
             let [lo, hi] = table_fp(cx, c);
-            Words { w: [Some(lo), Some(hi)], exact: true }
+            Words {
+                w: [Some(lo), Some(hi)],
+                exact: true,
+            }
         }
     }
 }
@@ -53,9 +67,26 @@ fn image(cx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, tf: &TypeFacts, scope: Scope) 
 /// image of the rendered bytes (bpchar trimmed), the Fp128 its entry would hold (M6 Decision 3a); `NotBuilt` until M6.
 fn rendered(cx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, tf: &TypeFacts) -> Words {
     let (p, null) = crate::rep::datum(cx, c, tf);
-    let cell = Cell { rep: Rep::VarlenaPtr, life: CellLife { until: Until::Row, home: CellHome::RowCx }, at: At::Value(0), ..*c.cell };
+    let cell = Cell {
+        rep: Rep::VarlenaPtr,
+        life: CellLife {
+            until: Until::Row,
+            home: CellHome::RowCx,
+        },
+        at: At::Value(0),
+        ..*c.cell
+    };
     let f = crate::rep::arm::<HashArm>(cx, KindId::RepVarlenaHash).image;
-    f(cx, CellRef { cell: &cell, val: p, null: Some(null) }, tf, Scope::Program)
+    f(
+        cx,
+        CellRef {
+            cell: &cell,
+            val: p,
+            null: Some(null),
+        },
+        tf,
+        Scope::Program,
+    )
 }
 
 /// Equality against a stored image: a same-dictionary code as one word, else the two Fp128 words.
@@ -69,8 +100,14 @@ fn eq(cx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, stored: StoredRef, _tf: &TypeFact
         }
     }
     let [lo, hi] = linked(cx, c).unwrap_or_else(|| table_fp(cx, c));
-    let (slo, shi) = (cx.b.load(Type::I64, p, stored.off), cx.b.load(Type::I64, p, stored.off + 8));
-    let (a, b) = (cx.b.int_bin(IntBinOp::Xor, lo, slo), cx.b.int_bin(IntBinOp::Xor, hi, shi));
+    let (slo, shi) = (
+        cx.b.load(Type::I64, p, stored.off),
+        cx.b.load(Type::I64, p, stored.off + 8),
+    );
+    let (a, b) = (
+        cx.b.int_bin(IntBinOp::Xor, lo, slo),
+        cx.b.int_bin(IntBinOp::Xor, hi, shi),
+    );
     let d = cx.b.int_bin(IntBinOp::Or, a, b);
     let zero = cx.b.iconst(Type::I64, 0);
     cx.b.icmp(IntCond::Eq, d, zero)
@@ -87,7 +124,11 @@ fn linked(cx: &Lx<'_, '_, '_>, c: CellRef<'_>) -> Option<[Value; 2]> {
 }
 
 fn ptr(b: &mut FunctionBuilder<'_>, v: Value) -> Value {
-    if b.value_type(v) == Type::Ptr { v } else { b.conv(ConvOp::IntToPtr, Type::Ptr, v) }
+    if b.value_type(v) == Type::Ptr {
+        v
+    } else {
+        b.conv(ConvOp::IntToPtr, Type::Ptr, v)
+    }
 }
 
 /// The address of `code`'s Fp128 entry in table `t` of the window's table words (prefetch.fp prefetches rows ahead by it).
@@ -102,16 +143,34 @@ pub(crate) fn fp_entry(b: &mut FunctionBuilder<'_>, tables: Value, t: u8, code: 
 fn table_fp(cx: &mut Lx<'_, '_, '_>, c: CellRef<'_>) -> [Value; 2] {
     let t = match c.cell.rep {
         Rep::Code { dict } if dict.fp_table != DictRef::NO_TABLE => dict.fp_table,
-        _ => crate::refuse!(cx, Reason::Bug { payload: "a code key whose lane declares no Fp128 table" }),
+        _ => crate::refuse!(
+            cx,
+            Reason::Bug {
+                payload: "a code key whose lane declares no Fp128 table"
+            }
+        ),
     };
     let Some(tables) = cx.at.and_then(|f| f.tables) else {
-        crate::refuse!(cx, Reason::Bug { payload: "a code key image with no table words bound" })
+        crate::refuse!(
+            cx,
+            Reason::Bug {
+                payload: "a code key image with no table words bound"
+            }
+        )
     };
     if !matches!(c.cell.at, At::Lane(_)) {
-        crate::refuse!(cx, Reason::Bug { payload: "a code key image past its window (keep the image, not the code)" });
+        crate::refuse!(
+            cx,
+            Reason::Bug {
+                payload: "a code key image past its window (keep the image, not the code)"
+            }
+        );
     }
     let zero = cx.b.iconst(Type::I64, 0);
-    let (l_load, l_out) = (cx.b.create_block(&[]), cx.b.create_block(&[Type::I64, Type::I64]));
+    let (l_load, l_out) = (
+        cx.b.create_block(&[]),
+        cx.b.create_block(&[Type::I64, Type::I64]),
+    );
     match c.null {
         Some(n) => cx.b.cond_br(n, (l_out, &[zero, zero]), (l_load, &[])),
         None => cx.b.br(l_load, &[]),
@@ -136,21 +195,55 @@ mod tests {
     use gravity_ir::builder::ProgramBuilder;
     use gravity_program::{LaneLife, NumTypmod};
 
-    const DICT: DictRef = DictRef { lane: 1, fp_table: 2 };
+    const DICT: DictRef = DictRef {
+        lane: 1,
+        fp_table: 2,
+    };
 
     /// The image of code `code` under `scope` with table 2's data at `fps`: its words.
     fn img(scope: Scope, code: u32, fps: &[[u64; 2]]) -> Vec<u64> {
         let rig = mcx::MemoryContext::new("GravityPlanRig");
-        let c = Cell { rep: Rep::Code { dict: DICT }, typid: 25, num: NumTypmod::NONE, life: CellLife::of_lane(LaneLife::DICTIONARY), at: At::Lane(LaneId::col(1)), null: Nullable::Maybe };
+        let c = Cell {
+            rep: Rep::Code { dict: DICT },
+            typid: 25,
+            num: NumTypmod::NONE,
+            life: CellLife::of_lane(LaneLife::DICTIONARY),
+            at: At::Lane(LaneId::col(1)),
+            null: Nullable::Maybe,
+        };
         let mut pb = ProgramBuilder::new();
-        let render = pb.declare_host("agg_render", &[Type::Ptr, Type::I64, Type::I64, Type::I64], Some(Type::Ptr), 0, Default::default());
-        let f = pb.declare_func("h", &[Type::Ptr, Type::Ptr, Type::Ptr], &[Type::I64, Type::I64]);
+        let render = pb.declare_host(
+            "agg_render",
+            &[Type::Ptr, Type::I64, Type::I64, Type::I64],
+            Some(Type::Ptr),
+            0,
+            Default::default(),
+        );
+        let f = pb.declare_func(
+            "h",
+            &[Type::Ptr, Type::Ptr, Type::Ptr],
+            &[Type::I64, Type::I64],
+        );
         let mut b = pb.define(f);
         let (ctx, elem, tables) = (b.params()[0], b.params()[1], b.params()[2]);
         let w = {
             let mut cx = Lx::new(&mut b, 1, rig.mcx());
-            cx.at = Some(Frame { ctx, site: Some(0), hosts: RepHosts { render }, tables: Some(tables) });
-            let w = image(&mut cx, CellRef { cell: &c, val: elem, null: None }, row_of(25).unwrap(), scope);
+            cx.at = Some(Frame {
+                ctx,
+                site: Some(0),
+                hosts: RepHosts { render },
+                tables: Some(tables),
+            });
+            let w = image(
+                &mut cx,
+                CellRef {
+                    cell: &c,
+                    val: elem,
+                    null: None,
+                },
+                row_of(25).unwrap(),
+                scope,
+            );
             assert!(w.exact);
             w.w
         };
@@ -160,7 +253,9 @@ mod tests {
         let mut words = [0u64; 9];
         words[2 * 3] = fps.as_ptr() as u64;
         let cw = [code];
-        Interp::new(&prog).run(f, &[0, cw.as_ptr() as u64, words.as_ptr() as u64]).expect("runs")
+        Interp::new(&prog)
+            .run(f, &[0, cw.as_ptr() as u64, words.as_ptr() as u64])
+            .expect("runs")
     }
 
     #[test]
@@ -168,19 +263,52 @@ mod tests {
         let fps = [[1, 2], [0xAAAA, 0xBBBB], [5, 6]];
         assert_eq!(img(Scope::Program, 1, &fps), vec![0xAAAA, 0xBBBB]);
         assert_eq!(img(Scope::SameDict(DICT), 2, &fps), vec![2, 0]);
-        assert_eq!(img(Scope::SameDict(DictRef { lane: 1, fp_table: 3 }), 2, &fps), vec![5, 6], "another dictionary keys by Fp128");
+        assert_eq!(
+            img(
+                Scope::SameDict(DictRef {
+                    lane: 1,
+                    fp_table: 3
+                }),
+                2,
+                &fps
+            ),
+            vec![5, 6],
+            "another dictionary keys by Fp128"
+        );
     }
 
     #[test]
     fn a_record_code_has_no_program_image() {
         let rig = mcx::MemoryContext::new("GravityPlanRig");
-        let c = Cell { rep: Rep::Code { dict: DICT }, typid: 25, num: NumTypmod::NONE, life: CellLife { until: gravity_program::Until::Life, home: CellHome::FrameSlot }, at: At::Slot(0), null: Nullable::Maybe };
+        let c = Cell {
+            rep: Rep::Code { dict: DICT },
+            typid: 25,
+            num: NumTypmod::NONE,
+            life: CellLife {
+                until: gravity_program::Until::Life,
+                home: CellHome::FrameSlot,
+            },
+            at: At::Slot(0),
+            null: Nullable::Maybe,
+        };
         let mut pb = ProgramBuilder::new();
         let f = pb.declare_func("h", &[Type::Ptr], &[]);
         let mut b = pb.define(f);
         let p = b.params()[0];
         let mut cx = Lx::new(&mut b, 4, rig.mcx());
-        let r = crate::catch(4, || image(&mut cx, CellRef { cell: &c, val: p, null: None }, row_of(25).unwrap(), Scope::Program)).expect_err("refused");
+        let r = crate::catch(4, || {
+            image(
+                &mut cx,
+                CellRef {
+                    cell: &c,
+                    val: p,
+                    null: None,
+                },
+                row_of(25).unwrap(),
+                Scope::Program,
+            )
+        })
+        .expect_err("refused");
         assert!(matches!(r.reason, Reason::Bug { .. }));
     }
 }

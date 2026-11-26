@@ -2,9 +2,7 @@
 
 extern crate alloc;
 
-use types_error::{
-    ereturn, PgError, PgResult, SoftErrorContext, ERRCODE_PROGRAM_LIMIT_EXCEEDED,
-};
+use types_error::{ereturn, PgError, PgResult, SoftErrorContext, ERRCODE_PROGRAM_LIMIT_EXCEEDED};
 
 pub const MAXDIM: i32 = 6;
 pub const MAX_ALLOC_SIZE: usize = 0x3FFF_FFFF;
@@ -80,11 +78,7 @@ pub fn array_get_n_items_safe(
     // for any constructible array -- ArrayCheckBounds caps ndim at MAXDIM.
     // Bonus: it is what lets LLVM drop the per-iteration dims[i] bounds check.
     if ndim as usize > dims.len() {
-        return ereturn(
-            escontext.take(),
-            -1,
-            ndims_exceeded(ndim, dims.len()),
-        );
+        return ereturn(escontext.take(), -1, ndims_exceeded(ndim, dims.len()));
     }
     let mut ret: i32 = 1;
     #[allow(clippy::needless_range_loop)]

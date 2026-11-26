@@ -68,7 +68,9 @@ use crate::stmt::{Gen, StmtKind};
 const MAX_LIVE_PARENTS: usize = 4;
 
 /// Split-point ladder for range bounds and pruning literals.
-const SPLITS: &[i64] = &[-1000, -100, -10, 0, 5, 10, 25, 50, 100, 250, 500, 1000, 100000];
+const SPLITS: &[i64] = &[
+    -1000, -100, -10, 0, 5, 10, 25, 50, 100, 250, 500, 1000, 100000,
+];
 
 /// LIST (k_text) vocabulary (matches the fixture seed flavor: short,
 /// quote-free, includes the empty string).
@@ -205,7 +207,9 @@ pub fn gen_part_module(g: &mut Gen) -> Vec<StmtKind> {
 /// Ascending distinct split points: n draws from the ladder, sorted,
 /// deduplicated (fewer splits than asked just means wider partitions).
 fn draw_splits(g: &mut Gen, n: usize) -> Vec<i64> {
-    let mut s: Vec<i64> = (0..n).map(|_| SPLITS[g.rng.below_usize(SPLITS.len())]).collect();
+    let mut s: Vec<i64> = (0..n)
+        .map(|_| SPLITS[g.rng.below_usize(SPLITS.len())])
+        .collect();
     s.sort_unstable();
     s.dedup();
     s
@@ -236,7 +240,10 @@ fn gen_create_parent(g: &mut Gen) -> Vec<StmtKind> {
         _ => PartKind::HashPk,
     };
     g.fire(kind.prod());
-    let nparts = match g.weights.pick(g.rng, &["part:parts:2", "part:parts:3", "part:parts:4"]) {
+    let nparts = match g
+        .weights
+        .pick(g.rng, &["part:parts:2", "part:parts:3", "part:parts:4"])
+    {
         "part:parts:2" => 2,
         "part:parts:3" => 3,
         _ => 4,
@@ -251,12 +258,32 @@ fn gen_create_parent(g: &mut Gen) -> Vec<StmtKind> {
     // it is NOT NULL and unique-by-construction otherwise (fresh-only
     // allocation — see pk_unique below).
     let mut columns = vec![
-        Column { name: "pk".to_string(), ty: SqlType::Int4, nullable: false, ddl_type: None },
-        Column { name: "k_int".to_string(), ty: SqlType::Int4, nullable: true, ddl_type: None },
-        Column { name: "k_text".to_string(), ty: SqlType::Text, nullable: true, ddl_type: None },
+        Column {
+            name: "pk".to_string(),
+            ty: SqlType::Int4,
+            nullable: false,
+            ddl_type: None,
+        },
+        Column {
+            name: "k_int".to_string(),
+            ty: SqlType::Int4,
+            nullable: true,
+            ddl_type: None,
+        },
+        Column {
+            name: "k_text".to_string(),
+            ty: SqlType::Text,
+            nullable: true,
+            ddl_type: None,
+        },
     ];
     let mut defs = vec![
-        if kind.pk_keyed() { "pk int4 PRIMARY KEY" } else { "pk int4 NOT NULL" }.to_string(),
+        if kind.pk_keyed() {
+            "pk int4 PRIMARY KEY"
+        } else {
+            "pk int4 NOT NULL"
+        }
+        .to_string(),
         "k_int int4".to_string(),
         "k_text text".to_string(),
     ];
@@ -266,7 +293,12 @@ fn gen_create_parent(g: &mut Gen) -> Vec<StmtKind> {
         g.part.next_col += 1;
         let ty = ALL_TYPES[g.rng.below_usize(ALL_TYPES.len())];
         defs.push(format!("{} {}", cname, ty.name()));
-        columns.push(Column { name: cname, ty, nullable: true, ddl_type: None });
+        columns.push(Column {
+            name: cname,
+            ty,
+            nullable: true,
+            ddl_type: None,
+        });
     }
 
     let key_sql = match kind {
@@ -445,7 +477,10 @@ fn gen_create_parent(g: &mut Gen) -> Vec<StmtKind> {
         name: name.clone(),
         columns,
         at_most_one_row: false,
-        pk: Some(Pk { column: "pk".to_string(), seeded_max: 0 }),
+        pk: Some(Pk {
+            column: "pk".to_string(),
+            seeded_max: 0,
+        }),
         // No unique-key hint without a real constraint: order-sensitive
         // window functions then take the fallback path (fz_scalar-style).
         unique_key: pk_keyed.then(|| "pk".to_string()),
@@ -508,7 +543,10 @@ fn parents_with_children(g: &Gen, min_nondefault: usize) -> Vec<usize> {
         .enumerate()
         .filter(|(_, p)| {
             p.live
-                && p.children.iter().filter(|c| c.live && !c.is_default).count()
+                && p.children
+                    .iter()
+                    .filter(|c| c.live && !c.is_default)
+                    .count()
                     >= min_nondefault
         })
         .map(|(i, _)| i)
@@ -541,7 +579,8 @@ fn gen_detach_attach(g: &mut Gen) -> Vec<StmtKind> {
     let bound = g.part.parents[pi].children[ci].bound.clone();
     // CONCURRENTLY is forbidden while a DEFAULT partition exists.
     let concurrent = !has_default
-        && g.weights.pick(g.rng, &["part:detach:concurrent", "part:detach:plain"])
+        && g.weights
+            .pick(g.rng, &["part:detach:concurrent", "part:detach:plain"])
             == "part:detach:concurrent";
     if concurrent {
         g.fire("part:detach:concurrent");
@@ -587,7 +626,10 @@ fn gen_detach_drop(g: &mut Gen) -> Vec<StmtKind> {
     g.part.parents[pi].children[ci].live = false;
     let child = g.part.parents[pi].children[ci].name.clone();
     vec![
-        StmtKind::Raw(format!("ALTER TABLE {} DETACH PARTITION {};", parent, child)),
+        StmtKind::Raw(format!(
+            "ALTER TABLE {} DETACH PARTITION {};",
+            parent, child
+        )),
         StmtKind::Raw(format!("DROP TABLE {};", child)),
     ]
 }
@@ -623,8 +665,10 @@ fn prune_pred(g: &mut Gen, pi: usize) -> String {
                 format!("'{}'", TEXT_VOCAB[g.rng.below_usize(TEXT_VOCAB.len())])
             }
         };
-        return match g.weights.pick(g.rng, &["part:prune:eq", "part:prune:in", "part:prune:null"])
-        {
+        return match g.weights.pick(
+            g.rng,
+            &["part:prune:eq", "part:prune:in", "part:prune:null"],
+        ) {
             "part:prune:in" => {
                 g.fire("part:prune:in");
                 let a = lit(g);
@@ -691,7 +735,11 @@ fn gen_prune_select(g: &mut Gen) -> Vec<StmtKind> {
     let pred = prune_pred(g, pi);
     let shape = g.weights.pick(
         g.rng,
-        &["part:prune:select", "part:prune:count", "part:prune:explain"],
+        &[
+            "part:prune:select",
+            "part:prune:count",
+            "part:prune:explain",
+        ],
     );
     g.fire(shape);
     vec![StmtKind::Raw(match shape {
@@ -883,7 +931,11 @@ mod tests {
                 if let Some((child_part, tail)) = rest.split_once(" PARTITION OF ") {
                     let child = child_part.trim().to_string();
                     let parent = tail.split(' ').next().unwrap().trim_end_matches(';');
-                    assert_eq!(live.get(parent), Some(&true), "partition of dead parent: {sql}");
+                    assert_eq!(
+                        live.get(parent),
+                        Some(&true),
+                        "partition of dead parent: {sql}"
+                    );
                     let bound = tail
                         .split_once(' ')
                         .map(|(_, b)| {
@@ -965,7 +1017,11 @@ mod tests {
                 attached.insert(child, true);
             } else if let Some(rest) = sql.strip_prefix("SELECT count(*) FROM ") {
                 let name = rest.split([' ', ';']).next().unwrap();
-                assert_eq!(live.get(name), Some(&true), "select from dead relation: {sql}");
+                assert_eq!(
+                    live.get(name),
+                    Some(&true),
+                    "select from dead relation: {sql}"
+                );
             } else if let Some(rest) = sql
                 .strip_prefix("SELECT * FROM ")
                 .or_else(|| sql.strip_prefix("EXPLAIN (COSTS OFF) SELECT count(*) FROM "))
@@ -988,14 +1044,21 @@ mod tests {
         for p in state.parents.iter().filter(|p| p.live) {
             let t = &p.table;
             // DML-eligible (routed INSERTs, key-moving UPDATEs, probes).
-            assert!(t.pk.as_ref().is_some_and(|k| k.column == "pk" && k.seeded_max == 0));
+            assert!(t
+                .pk
+                .as_ref()
+                .is_some_and(|k| k.column == "pk" && k.seeded_max == 0));
             assert!(!t.at_most_one_row);
             // ON CONFLICT / pk collisions only where a real unique
             // constraint exists (partition key == pk).
             assert_eq!(t.pk_unique, p.kind.pk_keyed(), "{}", t.name);
             assert_eq!(t.unique_key.is_some(), p.kind.pk_keyed(), "{}", t.name);
             for key in ["pk", "k_int", "k_text"] {
-                assert!(t.columns.iter().any(|c| c.name == key), "{} missing {key}", t.name);
+                assert!(
+                    t.columns.iter().any(|c| c.name == key),
+                    "{} missing {key}",
+                    t.name
+                );
             }
         }
     }
@@ -1013,14 +1076,25 @@ mod tests {
                 _ => assert_eq!(n_default, 1, "{:?}", p.table.name),
             }
             if p.kind == PartKind::RangePk {
-                let bounds: Vec<&str> =
-                    p.children.iter().map(|c| c.bound.as_str()).collect();
+                let bounds: Vec<&str> = p.children.iter().map(|c| c.bound.as_str()).collect();
                 assert!(bounds.first().unwrap().contains("FROM (MINVALUE)"));
                 assert!(bounds.last().unwrap().ends_with("TO (MAXVALUE)"));
                 // Adjacent partitions share their edge.
                 for w in p.children.windows(2) {
-                    let hi = w[0].bound.split(" TO (").nth(1).unwrap().trim_end_matches(')');
-                    let lo = w[1].bound.split("FROM (").nth(1).unwrap().split(')').next().unwrap();
+                    let hi = w[0]
+                        .bound
+                        .split(" TO (")
+                        .nth(1)
+                        .unwrap()
+                        .trim_end_matches(')');
+                    let lo = w[1]
+                        .bound
+                        .split("FROM (")
+                        .nth(1)
+                        .unwrap()
+                        .split(')')
+                        .next()
+                        .unwrap();
                     assert_eq!(hi, lo, "{:?}", p.table.name);
                 }
             }

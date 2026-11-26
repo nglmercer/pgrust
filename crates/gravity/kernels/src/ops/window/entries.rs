@@ -15,7 +15,10 @@
 //! Created by M10-WINDOW.
 // The handle's head and the entries the IR calls by name live in the family's raw half (rules R6 / R8, contract::host);
 // their paths here are unchanged, so the lowerers' addresses and the IR's host names stay as they were.
-pub use super::raw::{m10_win_argerr, m10_win_offsets, m10_win_part, m10_win_put, m10_win_put_part, m10_win_rec, m10_win_row, m10_win_rows, m10_win_runfail, Head};
+pub use super::raw::{
+    m10_win_argerr, m10_win_offsets, m10_win_part, m10_win_put, m10_win_put_part, m10_win_rec,
+    m10_win_row, m10_win_rows, m10_win_runfail, Head,
+};
 
 /// `window.agg`: a WindowAgg's window object.
 pub const WIN_MAGIC: u64 = 0x8a11_7e11_0000_0a01;
@@ -102,19 +105,31 @@ mod tests {
     static SEEN: [AtomicU64; 3] = [AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0)];
 
     unsafe fn record(_h: *mut Head, _ctx: *mut Ctx, code: u64, a: u64, b: u64) -> i64 {
-        SEEN.iter().zip([code, a, b]).for_each(|(s, v)| s.store(v, Relaxed));
+        SEEN.iter()
+            .zip([code, a, b])
+            .for_each(|(s, v)| s.store(v, Relaxed));
         (code * 100 + a + b) as i64
     }
 
     #[test]
     fn each_entry_runs_the_objects_op_with_its_code_and_arguments() {
         let ctx: *mut Ctx = core::ptr::null_mut();
-        let h = Box::into_raw(Box::new(Head { magic: WIN_MAGIC, op: record })) as u64; // alloc: Cold
+        let h = Box::into_raw(Box::new(Head {
+            magic: WIN_MAGIC,
+            op: record,
+        })) as u64; // alloc: Cold
         let v = [0u64; 4];
         let vp = v.as_ptr() as u64;
         let check = |got: i64, (code, a, b): (u64, u64, u64)| {
             assert_eq!(got, (code * 100 + a + b) as i64);
-            assert_eq!([SEEN[0].load(Relaxed), SEEN[1].load(Relaxed), SEEN[2].load(Relaxed)], [code, a, b]);
+            assert_eq!(
+                [
+                    SEEN[0].load(Relaxed),
+                    SEEN[1].load(Relaxed),
+                    SEEN[2].load(Relaxed)
+                ],
+                [code, a, b]
+            );
         };
         // SAFETY: the handle is a live `Head` whose op reads no pointer; each call is checked before the next one
         unsafe {
@@ -125,9 +140,18 @@ mod tests {
             check(m10_win_row(ctx, h, 6), (OP_ROW, 6, 0));
             check(m10_win_runfail(ctx, h), (OP_RUNFAIL, 0, 0));
             check(m10_win_offsets(ctx, h, v.as_ptr()), (OP_OFFSETS, vp, 0));
-            check(crate::contract::entry2::<super::super::raw::WinOpen>(ctx as u64, h, 1) as i64, (OP_OPEN, 1, 0));
-            check(crate::contract::entry3::<super::super::raw::WinReads>(ctx as u64, h, 4, 3) as i64, (OP_READS, 4, 3));
-            check(crate::contract::entry3::<super::super::raw::WinParams>(ctx as u64, h, 1, 2) as i64, (OP_PARAMS, 1, 2));
+            check(
+                crate::contract::entry2::<super::super::raw::WinOpen>(ctx as u64, h, 1) as i64,
+                (OP_OPEN, 1, 0),
+            );
+            check(
+                crate::contract::entry3::<super::super::raw::WinReads>(ctx as u64, h, 4, 3) as i64,
+                (OP_READS, 4, 3),
+            );
+            check(
+                crate::contract::entry3::<super::super::raw::WinParams>(ctx as u64, h, 1, 2) as i64,
+                (OP_PARAMS, 1, 2),
+            );
         }
         // SAFETY: made by Box::into_raw above.
         drop(unsafe { Box::from_raw(h as *mut Head) });
@@ -135,12 +159,20 @@ mod tests {
 
     #[test]
     fn a_foreign_handle_is_an_error_by_the_entrys_name() {
-        let other = Box::into_raw(Box::new(Head { magic: 1, op: record })) as u64; // alloc: Cold
-        // SAFETY: a live Head of another kind: `call` reads only its magic.
+        let other = Box::into_raw(Box::new(Head {
+            magic: 1,
+            op: record,
+        })) as u64; // alloc: Cold
+                    // SAFETY: a live Head of another kind: `call` reads only its magic.
         let st = unsafe { m10_win_row(core::ptr::null_mut(), other, 0) };
         assert_eq!(st, ERROR);
-        let msg = gravity_fn::take_error().map(|e| e.message().to_owned()).unwrap_or_default();
-        assert!(msg.contains("m10_win_row: a stale or foreign window handle"), "{msg}");
+        let msg = gravity_fn::take_error()
+            .map(|e| e.message().to_owned())
+            .unwrap_or_default();
+        assert!(
+            msg.contains("m10_win_row: a stale or foreign window handle"),
+            "{msg}"
+        );
         // SAFETY: made by Box::into_raw above.
         drop(unsafe { Box::from_raw(other as *mut Head) });
     }

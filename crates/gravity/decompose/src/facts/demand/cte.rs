@@ -40,9 +40,24 @@ pub fn cte_cols<'p>(b: &mut Builder<'p, '_>, plan_id: i32) -> Option<&'p [i16]> 
     }
     cols.sort_unstable();
     #[cfg(debug_assertions)]
-    if let Some(root) = (plan_id as usize).checked_sub(1).and_then(|n| b.stmt.subplans.nth(n)).and_then(|n| n.as_plan()) {
-        for t in root.targetlist.iter().filter_map(|n| n.as_target_entry()).filter(|t| !cols.contains(&t.resno)) {
-            super::census::log(b, root, t.resno, super::Read::No, super::census::Site::Store);
+    if let Some(root) = (plan_id as usize)
+        .checked_sub(1)
+        .and_then(|n| b.stmt.subplans.nth(n))
+        .and_then(|n| n.as_plan())
+    {
+        for t in root
+            .targetlist
+            .iter()
+            .filter_map(|n| n.as_target_entry())
+            .filter(|t| !cols.contains(&t.resno))
+        {
+            super::census::log(
+                b,
+                root,
+                t.resno,
+                super::Read::No,
+                super::census::Site::Store,
+            );
         }
     }
     Some(cols.leak())
@@ -51,8 +66,19 @@ pub fn cte_cols<'p>(b: &mut Builder<'p, '_>, plan_id: i32) -> Option<&'p [i16]> 
 /// D2633 (facts::demand `entries_read`): when `plan` is the root of a CTE's plan whose CteScans read only some columns,
 /// which of its target entries they read (by resno: a CTE's column is its root's entry).
 pub fn cte_root<'p>(b: &Builder<'p, '_>, plan: &Plan<'p>) -> Option<ArenaVec<bool>> {
-    let root = |id: i32| (id as usize).checked_sub(1).filter(|&n| n < b.stmt.subplans.len()).and_then(|n| b.stmt.subplans.nth(n)).and_then(|n| n.as_plan());
-    let cols = b.graph.cte_reads.iter().find(|r| root(r.plan_id).is_some_and(|p| core::ptr::eq(p, plan)))?.cols?;
+    let root = |id: i32| {
+        (id as usize)
+            .checked_sub(1)
+            .filter(|&n| n < b.stmt.subplans.len())
+            .and_then(|n| b.stmt.subplans.nth(n))
+            .and_then(|n| n.as_plan())
+    };
+    let cols = b
+        .graph
+        .cte_reads
+        .iter()
+        .find(|r| root(r.plan_id).is_some_and(|p| core::ptr::eq(p, plan)))?
+        .cols?;
     let mut hit = ArenaVec::new_in(b.arena); // alloc: Cold
     for t in plan.targetlist.iter() {
         hit.push(t.as_target_entry().is_none_or(|t| cols.contains(&t.resno)));
@@ -71,7 +97,10 @@ fn cte_read<'p>(b: &mut Builder<'p, '_>, cs: &'p CteScan<'p>) -> Option<&'p [i16
     for n in entries.iter().copied().chain(plan.qual.iter()) {
         let mut ok = true;
         let known = expr::walk(n, &mut |x| {
-            if let Some(v) = x.as_var().filter(|v| v.varno == varno && v.varlevelsup == 0) {
+            if let Some(v) = x
+                .as_var()
+                .filter(|v| v.varno == varno && v.varlevelsup == 0)
+            {
                 match v.varattno {
                     a if a <= 0 => ok = false,
                     a if !cols.contains(&a) => cols.push(a),

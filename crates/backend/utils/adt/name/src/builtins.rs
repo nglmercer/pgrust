@@ -102,7 +102,11 @@ pub fn fc_namein(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult
 
 pub fn fc_nameout(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let s = arg_name(fcinfo, 0);
-    Ok(::types_fmgr::cstring_scratch(flinfo, "nameout", s.name_str()))
+    Ok(::types_fmgr::cstring_scratch(
+        flinfo,
+        "nameout",
+        s.name_str(),
+    ))
 }
 
 // C text_name (name.c): namein over the text body (mbcliplen truncation).
@@ -186,7 +190,10 @@ pub fn fc_hashname(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRes
 pub fn fc_hashnameextended(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let a = arg_name(fcinfo, 0);
     let seed = fcinfo.arg_i64(1) as u64;
-    Ok(Datum::from_u64(::hashfn::hash_bytes_extended(a.name_str(), seed)))
+    Ok(Datum::from_u64(::hashfn::hash_bytes_extended(
+        a.name_str(),
+        seed,
+    )))
 }
 
 pub fn fc_namerecv(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -249,6 +256,11 @@ pub const NAME_BUILTINS: &[FmgrBuiltin] = &[
     b(2422, "namerecv", 1, fc_namerecv),
     b(2423, "namesend", 1, fc_namesend),
     // sortsupport: native comparator resolution; fmgr-lookup parity row.
-    b(3135, "btnamesortsupport", 1, ::types_fmgr::fc_internal_dispatch_only),
+    b(
+        3135,
+        "btnamesortsupport",
+        1,
+        ::types_fmgr::fc_internal_dispatch_only,
+    ),
     b(6311, "system_user", 0, fc_system_user),
 ];

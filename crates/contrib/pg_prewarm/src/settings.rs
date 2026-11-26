@@ -2,8 +2,34 @@ use guc_tables::*;
 use types_guc::*;
 
 pub(super) static SETTINGS: &[GucSetting] = &[
-    GucSetting::Int(GucIntSetting { name: "pg_prewarm.autoprewarm_interval", context: PGC_SIGHUP, group: CUSTOM_OPTIONS, short_desc: Some("Sets the interval between dumps of shared buffers"), long_desc: Some("If set to zero, time-based dumping is disabled."), flags: GUC_UNIT_S, variable: &vars::autoprewarm_interval, boot_val: GucDefaultValue::Int(300), min: 0, max: i32::MAX / 1000, check_hook: None, assign_hook: None, show_hook: None }),
-    GucSetting::Bool(GucBoolSetting { name: "pg_prewarm.autoprewarm", context: PGC_POSTMASTER, group: CUSTOM_OPTIONS, short_desc: Some("Starts the autoprewarm worker."), long_desc: None, flags: 0, variable: &vars::autoprewarm, boot_val: GucDefaultValue::Bool(true), check_hook: None, assign_hook: None, show_hook: None }),
+    GucSetting::Int(GucIntSetting {
+        name: "pg_prewarm.autoprewarm_interval",
+        context: PGC_SIGHUP,
+        group: CUSTOM_OPTIONS,
+        short_desc: Some("Sets the interval between dumps of shared buffers"),
+        long_desc: Some("If set to zero, time-based dumping is disabled."),
+        flags: GUC_UNIT_S,
+        variable: &vars::autoprewarm_interval,
+        boot_val: GucDefaultValue::Int(300),
+        min: 0,
+        max: i32::MAX / 1000,
+        check_hook: None,
+        assign_hook: None,
+        show_hook: None,
+    }),
+    GucSetting::Bool(GucBoolSetting {
+        name: "pg_prewarm.autoprewarm",
+        context: PGC_POSTMASTER,
+        group: CUSTOM_OPTIONS,
+        short_desc: Some("Starts the autoprewarm worker."),
+        long_desc: None,
+        flags: 0,
+        variable: &vars::autoprewarm,
+        boot_val: GucDefaultValue::Bool(true),
+        check_hook: None,
+        assign_hook: None,
+        show_hook: None,
+    }),
 ];
 
 #[cfg(test)]
@@ -50,5 +76,9 @@ fn pg_prewarm_autoprewarm_matches_autoprewarm_c() {
 }
 #[cfg(test)]
 fn find(name: &str) -> GucSetting {
-    SETTINGS.iter().copied().find(|setting| setting.name() == name).unwrap()
+    SETTINGS
+        .iter()
+        .copied()
+        .find(|setting| setting.name() == name)
+        .unwrap()
 }

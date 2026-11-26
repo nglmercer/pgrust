@@ -5,8 +5,8 @@ use std::sync::Arc;
 use common::*;
 use gravity_driver::Entry;
 use gravity_kernels::par_sort;
-use gravity_program::hand as programs;
 use gravity_parallel::FixturePool;
+use gravity_program::hand as programs;
 
 /// `(k, v)` rows with every value of `k` three times over, a NULL key every 11th row and a NULL
 /// payload every 7th: the sort's direction and null placement have work to do.
@@ -31,7 +31,9 @@ fn the_sort_breaker_orders_every_row_through_runs_at_every_width_and_both_direct
             } else {
                 rows.sort_by(|a, b| a[0].cmp(&b[0]).then(a[1].cmp(&b[1])));
             }
-            rows.iter().map(|r| vec![r[0] as u64, r[1] as u64]).collect()
+            rows.iter()
+                .map(|r| vec![r[0] as u64, r[1] as u64])
+                .collect()
         };
         let _ = nulls_first;
         for (grant, small) in [(64u64 << 20, false), (1, true)] {
@@ -39,11 +41,30 @@ fn the_sort_breaker_orders_every_row_through_runs_at_every_width_and_both_direct
                 table.fresh();
                 let plan = FixturePlan::new(&program, &derive, w, 16);
                 let mut sink = LegSink::new(true);
-                let (n, spilled, _, _) = run_spilling(&mut entry, &program, &mut derive, &pool, &plan, gravity_driver::Grant::of(grant), &params, &NO_ABORT, &mut sink).unwrap();
-                assert_eq!((n as usize, spilled), (expect.len(), true), "grant {grant} width {w} desc {desc}: every claim's rows go to runs");
+                let (n, spilled, _, _) = run_spilling(
+                    &mut entry,
+                    &program,
+                    &mut derive,
+                    &pool,
+                    &plan,
+                    gravity_driver::Grant::of(grant),
+                    &params,
+                    &NO_ABORT,
+                    &mut sink,
+                )
+                .unwrap();
+                assert_eq!(
+                    (n as usize, spilled),
+                    (expect.len(), true),
+                    "grant {grant} width {w} desc {desc}: every claim's rows go to runs"
+                );
                 let got = sink.rows();
                 // ties on the key keep no promised order: compare the key sequence, then the multiset
-                assert_eq!(got.iter().map(|r| r[0] as i64).collect::<Vec<_>>(), expect.iter().map(|r| r[0] as i64).collect::<Vec<_>>(), "grant {grant} width {w} desc {desc}: the keys in order");
+                assert_eq!(
+                    got.iter().map(|r| r[0] as i64).collect::<Vec<_>>(),
+                    expect.iter().map(|r| r[0] as i64).collect::<Vec<_>>(),
+                    "grant {grant} width {w} desc {desc}: the keys in order"
+                );
                 let (mut a, mut b) = (got.clone(), expect.clone());
                 a.sort();
                 b.sort();

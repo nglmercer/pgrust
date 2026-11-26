@@ -41,7 +41,10 @@ pub(crate) fn and3(b: &mut FunctionBuilder<'_>, x: Value, y: Value, z: Value) ->
 
 /// Raises 22003 "value out of range: overflow" where `bad` holds.
 pub(crate) fn raise_ovf(b: &mut FunctionBuilder<'_>, env: &Env, bad: Value) {
-    let e = b.iconst(Type::I64, gravity_abi::status::raise::bit(gravity_abi::status::raise::FLOAT_OVF) as i64);
+    let e = b.iconst(
+        Type::I64,
+        gravity_abi::status::raise::bit(gravity_abi::status::raise::FLOAT_OVF) as i64,
+    );
     let l_ok = b.create_block(&[]);
     b.cond_br(bad, (env.l_raise, &[e]), (l_ok, &[]));
     b.switch_to(l_ok);
@@ -51,7 +54,10 @@ pub(crate) fn raise_ovf(b: &mut FunctionBuilder<'_>, env: &Env, bad: Value) {
 pub(crate) fn pl(b: &mut FunctionBuilder<'_>, f32: bool, s: Value, x: Value) -> (Value, Value) {
     let (fs, fx) = (fl(b, s), fl(b, x));
     let r = if f32 {
-        let (s4, x4) = (b.conv(ConvOp::Fdemote, Type::F32, fs), b.conv(ConvOp::Fdemote, Type::F32, fx));
+        let (s4, x4) = (
+            b.conv(ConvOp::Fdemote, Type::F32, fs),
+            b.conv(ConvOp::Fdemote, Type::F32, fx),
+        );
         let r4 = b.float_bin(Fo::Add, s4, x4);
         b.conv(ConvOp::Fpromote, Type::F64, r4)
     } else {
@@ -67,7 +73,12 @@ pub(crate) fn pl(b: &mut FunctionBuilder<'_>, f32: bool, s: Value, x: Value) -> 
 /// overflow is deferred (D432): PG raises it at the row, which makes it depend on the scan order (`{NaN, 0.5, 1e300}` is
 /// NaN, `{0.5, 1e300, NaN}` raises), so the state keeps it as Sxx = +Inf (`TAINT`: PG's Sxx is never infinite) until
 /// the final, where a NaN Sx wins (`tainted`); in PG's order the caller raises the row's (D2597).
-pub(crate) fn accum<'m>(b: &mut FunctionBuilder<'_>, s: &[Value], x: Value, mcx: Mcx<'m>) -> (PgVec<'m, Value>, Value) {
+pub(crate) fn accum<'m>(
+    b: &mut FunctionBuilder<'_>,
+    s: &[Value],
+    x: Value,
+    mcx: Mcx<'m>,
+) -> (PgVec<'m, Value>, Value) {
     let [n0, sx0, sxx0, fx] = [s[0], s[1], s[2], x].map(|v| fl(b, v));
     let one = b.f64const(1.0);
     let n1 = b.float_bin(Fo::Add, n0, one);
@@ -79,7 +90,12 @@ pub(crate) fn accum<'m>(b: &mut FunctionBuilder<'_>, s: &[Value], x: Value, mcx:
     let q = b.float_bin(Fo::Div, q, d);
     let sxx1 = b.float_bin(Fo::Add, sxx0, q);
     let (n1, sx1, sxx1) = (bits(b, n1), bits(b, sx1), bits(b, sxx1));
-    let (si, xi, sxi, xin) = (inf(b, sx1, false), inf(b, sxx1, false), inf(b, s[1], false), inf(b, x, false));
+    let (si, xi, sxi, xin) = (
+        inf(b, sx1, false),
+        inf(b, sxx1, false),
+        inf(b, s[1], false),
+        inf(b, x, false),
+    );
     let bad = b.int_bin(IntBinOp::Or, si, xi);
     let (nsx, nx) = (not(b, sxi), not(b, xin));
     let zero = b.f64const(0.0);
@@ -96,15 +112,24 @@ pub(crate) fn accum<'m>(b: &mut FunctionBuilder<'_>, s: &[Value], x: Value, mcx:
     let one_i = b.iconst(Type::I64, 1);
     let row = and3(b, later, bad, nsx);
     let row = b.int_bin(IntBinOp::And, row, nx);
-    (mcx::pg_vec![in mcx; n1, sx1, sxx, b.int_bin(IntBinOp::Add, s[3], one_i)], row)
+    (
+        mcx::pg_vec![in mcx; n1, sx1, sxx, b.int_bin(IntBinOp::Add, s[3], one_i)],
+        row,
+    )
 }
 
 /// D2597: `x` is finite and at least `2^e` in magnitude, the least at which some input order of a fold's rows could
 /// overflow (class_float's `risk`): its rows then raise where a raise re-runs the statement in plan order.
 pub(crate) fn big(b: &mut FunctionBuilder<'_>, x: Value, e: i64) -> Value {
-    let (m, lo) = (b.iconst(Type::I64, MAG), b.iconst(Type::I64, (1023 + e) << 52));
+    let (m, lo) = (
+        b.iconst(Type::I64, MAG),
+        b.iconst(Type::I64, (1023 + e) << 52),
+    );
     let a = b.int_bin(IntBinOp::And, x, m);
-    let (d, span) = (b.int_bin(IntBinOp::Sub, a, lo), b.iconst(Type::I64, INF - ((1023 + e) << 52)));
+    let (d, span) = (
+        b.int_bin(IntBinOp::Sub, a, lo),
+        b.iconst(Type::I64, INF - ((1023 + e) << 52)),
+    );
     b.icmp(IntCond::Ult, d, span)
 }
 
@@ -128,7 +153,9 @@ pub(crate) fn final_ovf(b: &mut FunctionBuilder<'_>, sx: Value, sxx: Value) -> V
 /// catalog table's row), the cell's own type only when the table has no row. A column typed by a domain over float4 carries
 /// the domain's oid, and PG's float4pl / float4_accum read a float4 datum whatever the call passed.
 pub(crate) fn arg_type(a: &AggDecl<'_>, i: usize, cell: u32) -> u32 {
-    gravity_decompose::ops::agg::trans::table::row(a.fnoid).and_then(|r| r.args.get(i).copied()).unwrap_or(cell)
+    gravity_decompose::ops::agg::trans::table::row(a.fnoid)
+        .and_then(|r| r.args.get(i).copied())
+        .unwrap_or(cell)
 }
 
 /// A float datum's f64 bits: float4's low 32 bits promoted (exact).

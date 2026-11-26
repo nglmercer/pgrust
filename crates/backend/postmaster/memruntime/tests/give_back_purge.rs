@@ -15,7 +15,8 @@
 #![cfg(target_os = "linux")]
 
 #[global_allocator]
-static GLOBAL: init_small::oom::Rescue<mimalloc::MiMalloc> = init_small::oom::Rescue(mimalloc::MiMalloc);
+static GLOBAL: init_small::oom::Rescue<mimalloc::MiMalloc> =
+    init_small::oom::Rescue(mimalloc::MiMalloc);
 
 use std::time::{Duration, Instant};
 
@@ -47,11 +48,18 @@ const SIZE: usize = 16 << 20;
 fn freed_general_range() -> usize {
     let b = std::hint::black_box(vec![3u8; SIZE]);
     let p = b.as_ptr() as usize;
-    assert!(allocarena::in_arenas(b.as_ptr()) && !allocarena::in_cache_arena(b.as_ptr()), "the block is on a general arena");
+    assert!(
+        allocarena::in_arenas(b.as_ptr()) && !allocarena::in_cache_arena(b.as_ptr()),
+        "the block is on a general arena"
+    );
     drop(b);
     // SAFETY: mimalloc's collect on this thread (its pages back to the arena; no forced purge).
     unsafe { libmimalloc_sys::mi_collect(false) };
-    assert!(resident(p, SIZE) >= SIZE * 9 / 10, "freed and pending: {} resident", resident(p, SIZE));
+    assert!(
+        resident(p, SIZE) >= SIZE * 9 / 10,
+        "freed and pending: {} resident",
+        resident(p, SIZE)
+    );
     p
 }
 
@@ -64,7 +72,11 @@ fn setup() {
     static DONE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
     DONE.get_or_init(|| {
         init_small::oom::set_cache_alloc(allocarena::cache_alloc, allocarena::cache_realloc);
-        init_small::oom::set_own_pages(allocarena::own::range(), allocarena::own_free, allocarena::own_resize);
+        init_small::oom::set_own_pages(
+            allocarena::own::range(),
+            allocarena::own_free,
+            allocarena::own_resize,
+        );
         assert!(allocarena::start_cache_heap(), "the cache heap");
         mcx::set_allocator_release(allocarena::release);
         mcx::set_cache_give_back(|| {
@@ -73,7 +85,11 @@ fn setup() {
         allocarena::set_cancel_line_probe(mcx::ladder::past_cancel_line);
         mempolicy::consts::set(mempolicy::consts::K::GiveBackService, 1);
         assert!(memruntime::release::start(), "the knob starts the service");
-        assert_eq!(allocarena::purge_owner_counts().1, 0, "no take refused (no purger here)");
+        assert_eq!(
+            allocarena::purge_owner_counts().1,
+            0,
+            "no take refused (no purger here)"
+        );
     });
 }
 
@@ -107,13 +123,26 @@ fn within_2s(done: impl Fn() -> bool) -> bool {
 fn routed(name: &str, call: fn()) {
     let s0 = memruntime::service::counts().purged_calls;
     let (p, here) = on_a_thread(call);
-    assert_eq!(here, 0, "{name}: the calling thread made {here} decommits; the service owns {} arenas' purge", allocarena::purge_owner_counts().0);
-    assert!(within_2s(|| gone(p)), "{name}: the service gave the range back: {} resident", resident(p, SIZE));
-    assert!(within_2s(|| memruntime::service::counts().purged_calls > s0), "{name}: the service thread made the decommits");
+    assert_eq!(
+        here,
+        0,
+        "{name}: the calling thread made {here} decommits; the service owns {} arenas' purge",
+        allocarena::purge_owner_counts().0
+    );
+    assert!(
+        within_2s(|| gone(p)),
+        "{name}: the service gave the range back: {} resident",
+        resident(p, SIZE)
+    );
+    assert!(
+        within_2s(|| memruntime::service::counts().purged_calls > s0),
+        "{name}: the service thread made the decommits"
+    );
 }
 
 #[test]
-fn h3_each_routed_release_leaves_its_decommits_to_the_service_and_past_the_cancel_line_runs_inline() {
+fn h3_each_routed_release_leaves_its_decommits_to_the_service_and_past_the_cancel_line_runs_inline()
+{
     setup();
     routed("give_back_caches (A1a)", mcx::give_back_caches);
     routed("release_retained (A1b, A1d)", || {
@@ -147,22 +176,51 @@ fn h3_each_routed_release_leaves_its_decommits_to_the_service_and_past_the_cance
     let (p, here) = on_a_thread(|| {
         let _ = mcx::release_retained();
     });
-    assert!(here > 0 && gone(p), "C2: past the cancel line the caller made the decommit ({here}), as today");
-    assert_eq!(allocarena::purge_owner_counts().3, inline0 + 1, "counted as a forced purge run past the cancel line");
+    assert!(
+        here > 0 && gone(p),
+        "C2: past the cancel line the caller made the decommit ({here}), as today"
+    );
+    assert_eq!(
+        allocarena::purge_owner_counts().3,
+        inline0 + 1,
+        "counted as a forced purge run past the cancel line"
+    );
     // past the line with mimalloc's purge guard held (the service or another thread purging just then): the caller's
     // forced purge purges nothing, is counted, and the service's next pass gives the range back
     let c0 = memruntime::service::counts();
-    let (busy0, s0, f0) = (allocarena::forced_guard_busy(), c0.purged_calls, c0.forced_passes);
+    let (busy0, s0, f0) = (
+        allocarena::forced_guard_busy(),
+        c0.purged_calls,
+        c0.forced_passes,
+    );
     allocarena::test_guard_busy_next_inline();
     let (p, here) = on_a_thread(|| {
         let _ = mcx::release_retained();
     });
-    assert_eq!((here, allocarena::forced_guard_busy() - busy0), (0, 1), "the guard was held: nothing purged on the caller, counted once");
-    assert!(within_2s(|| memruntime::service::counts().forced_passes > f0), "the refused forced purge went to the service (a forced pass)");
-    assert!(within_2s(|| gone(p)), "the service's forced pass gave the range back: {} resident", resident(p, SIZE));
-    assert!(within_2s(|| memruntime::service::counts().purged_calls > s0), "on the service's thread");
+    assert_eq!(
+        (here, allocarena::forced_guard_busy() - busy0),
+        (0, 1),
+        "the guard was held: nothing purged on the caller, counted once"
+    );
+    assert!(
+        within_2s(|| memruntime::service::counts().forced_passes > f0),
+        "the refused forced purge went to the service (a forced pass)"
+    );
+    assert!(
+        within_2s(|| gone(p)),
+        "the service's forced pass gave the range back: {} resident",
+        resident(p, SIZE)
+    );
+    assert!(
+        within_2s(|| memruntime::service::counts().purged_calls > s0),
+        "on the service's thread"
+    );
     let c = memruntime::service::counts();
-    assert!(c.forced_handoffs > c0.forced_handoffs && c.forced_handoff_max_us > 0, "C2's measure: the hand-off timed to its forced pass ({} us)", c.forced_handoff_max_us);
+    assert!(
+        c.forced_handoffs > c0.forced_handoffs && c.forced_handoff_max_us > 0,
+        "C2's measure: the hand-off timed to its forced pass ({} us)",
+        c.forced_handoff_max_us
+    );
     // under it, the service
     mcx::ladder::publish_read(500);
     assert!(!mcx::ladder::past_cancel_line());
@@ -171,5 +229,9 @@ fn h3_each_routed_release_leaves_its_decommits_to_the_service_and_past_the_cance
     });
     mcx::ladder::publish_cancel_line(0);
     mcx::ladder::publish_read(0);
-    assert_eq!(allocarena::purge_owner_counts().1, 0, "no take refused: the service is the arenas' one owner");
+    assert_eq!(
+        allocarena::purge_owner_counts().1,
+        0,
+        "no take refused: the service is the arenas' one owner"
+    );
 }

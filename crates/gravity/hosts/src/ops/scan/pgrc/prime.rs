@@ -47,7 +47,10 @@ pub fn kick_off(spawn: &dyn Fn(Box<dyn FnOnce() + Send>) -> bool) -> bool {
 }
 
 fn load(p: PgResult<Primed>) {
-    let p = p.unwrap_or_else(|_| Primed { errors: 1, ..Primed::default() });
+    let p = p.unwrap_or_else(|_| Primed {
+        errors: 1,
+        ..Primed::default()
+    });
     RELATIONS.store(p.relations as u64, Ordering::Relaxed);
     GENERATIONS.store(p.generations as u64, Ordering::Relaxed);
     PARTS.store(p.parts as u64, Ordering::Relaxed);
@@ -115,8 +118,17 @@ pub fn parse_table_dir(name: &str) -> Option<u32> {
 /// The entry names of the data-directory path `dir` through the VFS (the fd layer's syscall choke:
 /// the sim namespace under DST), "." and ".." elided; none when it cannot be read.
 fn dir_names(dir: &str) -> Vec<String> {
-    let Ok(c) = std::ffi::CString::new(dir) else { return Vec::new() }; // alloc: Cold
-    vfs::read_dir(&c).map_or_else(|_| Vec::new(), |it| it.flatten().map(|p| String::from_utf8_lossy(p.as_bytes()).into_owned()).collect()) // alloc: Cold
+    let Ok(c) = std::ffi::CString::new(dir) else {
+        return Vec::new();
+    }; // alloc: Cold
+    vfs::read_dir(&c).map_or_else(
+        |_| Vec::new(),
+        |it| {
+            it.flatten()
+                .map(|p| String::from_utf8_lossy(p.as_bytes()).into_owned())
+                .collect()
+        },
+    ) // alloc: Cold
 }
 
 /// The columnar table directories of the cluster (relative to the data directory, the server's
@@ -127,7 +139,14 @@ pub fn columnar_dirs() -> Vec<(RelFileLocator, String)> {
         // bounded("other: server start's columnar load, before the postmaster accepts a connection: no statement runs, so no statement's cancel applies")
         for name in dir_names(db_path) {
             if let Some(rel) = parse_table_dir(&name) {
-                out.push((RelFileLocator { spcOid: spc, dbOid: db, relNumber: rel }, format!("{db_path}/{name}"))); // alloc: Cold
+                out.push((
+                    RelFileLocator {
+                        spcOid: spc,
+                        dbOid: db,
+                        relNumber: rel,
+                    },
+                    format!("{db_path}/{name}"),
+                )); // alloc: Cold
             }
         }
     };
@@ -139,12 +158,14 @@ pub fn columnar_dirs() -> Vec<(RelFileLocator, String)> {
     }
     // bounded("other: server start's columnar load, before the postmaster accepts a connection: no statement runs, so no statement's cancel applies")
     for spc in dir_names("pg_tblspc") {
-        let Ok(spc_oid) = spc.parse::<u32>() else { continue };
+        let Ok(spc_oid) = spc.parse::<u32>() else {
+            continue;
+        };
         let spc_path = format!("pg_tblspc/{spc}"); // alloc: Cold
-        // bounded("other: server start's columnar load, before the postmaster accepts a connection: no statement runs, so no statement's cancel applies")
+                                                   // bounded("other: server start's columnar load, before the postmaster accepts a connection: no statement runs, so no statement's cancel applies")
         for v in dir_names(&spc_path) {
             let v_path = format!("{spc_path}/{v}"); // alloc: Cold
-            // bounded("other: server start's columnar load, before the postmaster accepts a connection: no statement runs, so no statement's cancel applies")
+                                                    // bounded("other: server start's columnar load, before the postmaster accepts a connection: no statement runs, so no statement's cancel applies")
             for db in dir_names(&v_path) {
                 if let Ok(oid) = db.parse::<u32>() {
                     scan_db(spc_oid, &format!("{v_path}/{db}"), oid); // alloc: Cold
@@ -172,7 +193,12 @@ fn prime_dirs(dirs: Vec<(RelFileLocator, String)>) -> PgResult<Primed> {
     for (locator, dir) in dirs {
         let slot = (locator.spcOid, locator.dbOid, locator.relNumber as u64);
         let crc_before = pgrc_am::crc_mismatches();
-        match pgrc_am::catalog::load_dir(slot, &dir, &|g| pgrc_am::footer::fold_generation(g), &|g| pgrc_am::footer::serve_generation_without_catalog(g)) {
+        match pgrc_am::catalog::load_dir(
+            slot,
+            &dir,
+            &|g| pgrc_am::footer::fold_generation(g),
+            &|g| pgrc_am::footer::serve_generation_without_catalog(g),
+        ) {
             Ok(l) => {
                 p.relations += 1;
                 p.generations += l.gens;
@@ -185,13 +211,16 @@ fn prime_dirs(dirs: Vec<(RelFileLocator, String)>) -> PgResult<Primed> {
             Err(e) => {
                 p.errors += 1;
                 pgrc_am::catalog::log(true, format!("gravity: columnar catalog: {dir}: {e}")); // alloc: Cold
-                // a statement that reads the relation reports this refusal (XX001 for damage, counted as a checksum
-                // failure for a CRC mismatch), not an internal "not in the catalog" error
-                pgrc_am::catalog::note_load_failed(&dir, &e, pgrc_am::crc_mismatches() != crc_before);
+                                                                                               // a statement that reads the relation reports this refusal (XX001 for damage, counted as a checksum
+                                                                                               // failure for a CRC mismatch), not an internal "not in the catalog" error
+                pgrc_am::catalog::note_load_failed(
+                    &dir,
+                    &e,
+                    pgrc_am::crc_mismatches() != crc_before,
+                );
             }
         }
     }
     p.micros = start.elapsed().as_micros() as u64;
     Ok(p)
 }
-

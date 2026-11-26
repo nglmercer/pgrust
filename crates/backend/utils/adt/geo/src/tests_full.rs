@@ -36,7 +36,14 @@ fn lseg_io() {
 #[test]
 fn line_io() {
     let l = io::line_in("{1,2,3}", None).unwrap();
-    assert_eq!(l, LINE { A: 1.0, B: 2.0, C: 3.0 });
+    assert_eq!(
+        l,
+        LINE {
+            A: 1.0,
+            B: 2.0,
+            C: 3.0
+        }
+    );
     assert_eq!(out_str(|o| io::line_out(&l, o)), "{1,2,3}");
 
     let err = io::line_in("{0,0,5}", None).unwrap_err();
@@ -47,7 +54,14 @@ fn line_io() {
     assert_eq!(err.sqlstate(), ERRCODE_INVALID_TEXT_REPRESENTATION);
 
     let l2 = io::line_in("[(0,0),(1,0)]", None).unwrap();
-    assert_eq!(l2, LINE { A: 0.0, B: -1.0, C: 0.0 });
+    assert_eq!(
+        l2,
+        LINE {
+            A: 0.0,
+            B: -1.0,
+            C: 0.0
+        }
+    );
     let err = io::line_in("[(0,0),(0,0)]", None).unwrap_err();
     assert_eq!(
         err.message(),
@@ -84,11 +98,14 @@ fn path_io() {
 
     let v = io::path_in(ctx.mcx(), "((0,0),(1,0),(1,1))", None).unwrap();
     let r = PathRef::from_payload(v.data());
-    assert_eq!(out_str(|o| io::path_out(&r, o).unwrap()), "((0,0),(1,0),(1,1))");
+    assert_eq!(
+        out_str(|o| io::path_out(&r, o).unwrap()),
+        "((0,0),(1,0),(1,1))"
+    );
 
     assert!(io::path_in(ctx.mcx(), "(0,0),(1,1)x", None).is_err());
     assert!(io::path_in(ctx.mcx(), "", None).is_err());
-    assert!(io::path_in(ctx.mcx(), "(0,0",  None).is_err());
+    assert!(io::path_in(ctx.mcx(), "(0,0", None).is_err());
 }
 
 #[test]
@@ -337,7 +354,10 @@ fn path_poly_out_over_ceiling_raise_stringinfo_error() {
     };
 
     // polygon
-    let boundbox = ::types_core::geo::BOX { high: p(x, x), low: p(x, x) };
+    let boundbox = ::types_core::geo::BOX {
+        high: p(x, x),
+        low: p(x, x),
+    };
     let pr = PolyRef::from_parts(boundbox, npts, &pts_bytes);
     let mut out = Vec::new();
     expect_ceiling(io::poly_out(&pr, &mut out));
@@ -371,7 +391,10 @@ fn point_count_overflow_is_soft_and_full_size_is_admitted_first() {
     let s = ",".repeat(134_217_723);
     let mut esc = ::types_error::SoftErrorContext::new(true);
     let err = io::poly_in(ctx.mcx(), &s, Some(&mut esc)).unwrap_err();
-    assert_eq!(err.message(), "invalid memory alloc request size 1073741832");
+    assert_eq!(
+        err.message(),
+        "invalid memory alloc request size 1073741832"
+    );
 }
 
 // geo_ops.c hands the raw cstring to pair_decode / float8in_internal, whose

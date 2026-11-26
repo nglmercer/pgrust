@@ -3,8 +3,8 @@ use std::collections::HashMap;
 
 use crate::store::{entry_alloc, entry_dealloc, read_dump, write_dump, PGSS_ENTRY_SIZE};
 use crate::{
-    Counters, PgssGlobalStats, PgssHashKey, PgssShared, ASSUMED_LENGTH_INIT,
-    ASSUMED_MEDIAN_INIT, PGSS_EXEC, USAGE_INIT,
+    Counters, PgssGlobalStats, PgssHashKey, PgssShared, ASSUMED_LENGTH_INIT, ASSUMED_MEDIAN_INIT,
+    PGSS_EXEC, USAGE_INIT,
 };
 
 fn shared(max: usize) -> PgssShared {
@@ -18,7 +18,12 @@ fn shared(max: usize) -> PgssShared {
 }
 
 fn key(q: i64) -> PgssHashKey {
-    PgssHashKey { userid: 10, dbid: 5, queryid: q, toplevel: true }
+    PgssHashKey {
+        userid: 10,
+        dbid: 5,
+        queryid: q,
+        toplevel: true,
+    }
 }
 
 #[test]
@@ -35,7 +40,10 @@ fn sticky_entries_evicted_first() {
     assert_eq!(s.hash.len(), 91);
     assert_eq!(s.stats.dealloc, 1);
     for q in 0..10 {
-        assert!(!s.hash.contains_key(&key(q)), "lowest-usage entry {q} survived");
+        assert!(
+            !s.hash.contains_key(&key(q)),
+            "lowest-usage entry {q} survived"
+        );
     }
     assert!(s.hash.contains_key(&key(1000)));
 }
@@ -68,7 +76,10 @@ fn dealloc_decays_usage_and_tracks_mean_len() {
 
 #[test]
 fn counters_dump_roundtrip() {
-    let mut c = Counters { usage: 3.5, ..Counters::default() };
+    let mut c = Counters {
+        usage: 3.5,
+        ..Counters::default()
+    };
     c.calls[0] = 7;
     c.calls[1] = 9;
     c.total_time[1] = 1.25;
@@ -85,7 +96,10 @@ fn counters_dump_roundtrip() {
     let words = crate::store::counters_to_words(&c);
     let arr: [u64; crate::store::COUNTER_WORDS] = words.try_into().unwrap();
     let back = crate::store::counters_from_words(&arr);
-    assert_eq!(crate::store::counters_to_words(&back), crate::store::counters_to_words(&c));
+    assert_eq!(
+        crate::store::counters_to_words(&back),
+        crate::store::counters_to_words(&c)
+    );
     assert_eq!(back.calls, c.calls);
     assert_eq!(back.wal_bytes, c.wal_bytes);
     assert_eq!(back.rows, c.rows);
@@ -105,7 +119,12 @@ fn dump_record_is_the_c_struct_layout() {
     let mut s = shared(10);
     s.stats.dealloc = 3;
     s.stats.stats_reset = 0x0102_0304_0506_0708;
-    let k = PgssHashKey { userid: 10, dbid: 5, queryid: -77, toplevel: true };
+    let k = PgssHashKey {
+        userid: 10,
+        dbid: 5,
+        queryid: -77,
+        toplevel: true,
+    };
     entry_alloc(&mut s, k, b"select $1 as dumpprobe", 6, false).unwrap();
     let e = s.hash.get_mut(&k).unwrap();
     e.counters.calls[PGSS_EXEC] = 9;
@@ -165,7 +184,12 @@ fn dump_roundtrip_keeps_stats_and_skips_sticky() {
     e.stats_since = 1000;
     e.minmax_stats_since = 2000;
     // Non-UTF8 bytes in a LATIN1 (8) entry load verbatim, as C's fread does.
-    let k2 = PgssHashKey { userid: 10, dbid: 7, queryid: 2, toplevel: false };
+    let k2 = PgssHashKey {
+        userid: 10,
+        dbid: 7,
+        queryid: 2,
+        toplevel: false,
+    };
     entry_alloc(&mut s, k2, b"select $1 as caf\xe9", 8, false).unwrap();
     s.hash.get_mut(&k2).unwrap().counters.calls[PGSS_EXEC] = 1;
     // Sticky (never executed): written, skipped on load.
@@ -232,12 +256,18 @@ fn shmem_startup_registers_state_and_hash_rows() {
     shmem::init_seams();
     crate::pgss_shmem_register().unwrap();
     let (_, found) = shmem::ShmemInitStruct("pg_stat_statements", 64).unwrap();
-    assert!(found, "pg_stat_statements state row missing from the ShmemIndex");
+    assert!(
+        found,
+        "pg_stat_statements state row missing from the ShmemIndex"
+    );
     let mut info = types_hash::hsearch::HASHCTL::default();
     info.dsize = dynahash::hash_select_dirsize(5000);
     info.max_dsize = info.dsize;
     let size = dynahash::hash_get_shared_size(&info, types_hash::hsearch::HASH_DIRSIZE);
     let (_, found) = shmem::ShmemInitStruct("pg_stat_statements hash", size).unwrap();
-    assert!(found, "pg_stat_statements hash row missing from the ShmemIndex");
+    assert!(
+        found,
+        "pg_stat_statements hash row missing from the ShmemIndex"
+    );
     crate::pgss_shmem_register().unwrap();
 }

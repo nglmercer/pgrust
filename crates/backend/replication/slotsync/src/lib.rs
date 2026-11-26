@@ -14,13 +14,13 @@ use pgsync::Mutex;
 
 use elog::{elog, ereport};
 use types_core::{Oid, TransactionId, XLogRecPtr};
-use types_tuple::NameData;
 use types_error::{
     ErrorLocation, PgResult, DEBUG1, ERRCODE_CONNECTION_FAILURE, ERRCODE_FEATURE_NOT_SUPPORTED,
     ERRCODE_INVALID_PARAMETER_VALUE, ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE,
     ERRCODE_PROTOCOL_VIOLATION, ERROR, LOG,
 };
 use types_storage::waiteventset::{WL_EXIT_ON_PM_DEATH, WL_LATCH_SET, WL_TIMEOUT};
+use types_tuple::NameData;
 
 use slot::{
     GetSlotInvalidationCause, MyReplicationSlot, ReplicationSlot, ReplicationSlotAcquire,
@@ -307,7 +307,9 @@ fn update_local_synced_slot(
         });
         updated_config = true;
 
-        debug_assert!(unsafe { slot.data.get() }.two_phase_at <= unsafe { slot.data.get() }.confirmed_flush);
+        debug_assert!(
+            unsafe { slot.data.get() }.two_phase_at <= unsafe { slot.data.get() }.confirmed_flush
+        );
     }
 
     // Write the changed xmin to disk *before* the in-memory value advances.
@@ -332,7 +334,7 @@ fn transaction_id_precedes(a: TransactionId, b: TransactionId) -> bool {
         return false;
     }
     // TransactionIdPrecedes: modulo-2^31 comparison for normal xids.
-    if(a < 3) ||(b < 3) {
+    if (a < 3) || (b < 3) {
         return a < b;
     }
     ((a.wrapping_sub(b)) as i32) < 0
@@ -342,7 +344,7 @@ fn transaction_id_follows(a: TransactionId, b: TransactionId) -> bool {
     if a == b {
         return false;
     }
-    if(a < 3) ||(b < 3) {
+    if (a < 3) || (b < 3) {
         return a > b;
     }
     ((a.wrapping_sub(b)) as i32) > 0
@@ -399,8 +401,9 @@ fn drop_local_obsolete_slots(remote_slot_list: &[RemoteSlot]) -> PgResult<()> {
         // during a concurrent drop-database.
         lmgr::LockSharedObject(DatabaseRelationId, dboid, 0, AccessShareLock)?;
 
-        let synced_slot =
-            local_slot.with_mutex(|| unsafe { local_slot.in_use.get() } && unsafe { local_slot.data.get() }.synced != 0);
+        let synced_slot = local_slot.with_mutex(
+            || unsafe { local_slot.in_use.get() } && unsafe { local_slot.data.get() }.synced != 0,
+        );
 
         // upstream 08458bcaea5b (18.6): Avoid stale slot access after dropping obsolete synced slots.
         // Once dropped, the entry is another backend's to reuse: log from the
@@ -433,9 +436,10 @@ fn reserve_wal_for_local_slot(restart_lsn: XLogRecPtr) -> PgResult<()> {
     slot::with_allocation_lock_exclusive(|| -> PgResult<()> {
         let mut min_safe_lsn = transam_xlog::GetRedoRecPtr();
         let ctl = transam_xlog::ctl::XLogCtl();
-        let slot_min_lsn = ctl
-            .info_lck
-            .with(|| ctl.replicationSlotMinLSN.load(std::sync::atomic::Ordering::Relaxed));
+        let slot_min_lsn = ctl.info_lck.with(|| {
+            ctl.replicationSlotMinLSN
+                .load(std::sync::atomic::Ordering::Relaxed)
+        });
 
         if slot_min_lsn != InvalidXLogRecPtr && min_safe_lsn > slot_min_lsn {
             min_safe_lsn = slot_min_lsn;
@@ -449,10 +453,12 @@ fn reserve_wal_for_local_slot(restart_lsn: XLogRecPtr) -> PgResult<()> {
 
         ReplicationSlotsComputeRequiredLSN()?;
 
-        let segno = unsafe { slot.data.get() }.restart_lsn / transam_xlog::wal_segment_size() as u64;
-        let last_removed = ctl
-            .info_lck
-            .with(|| ctl.lastRemovedSegNo.load(std::sync::atomic::Ordering::Relaxed));
+        let segno =
+            unsafe { slot.data.get() }.restart_lsn / transam_xlog::wal_segment_size() as u64;
+        let last_removed = ctl.info_lck.with(|| {
+            ctl.lastRemovedSegNo
+                .load(std::sync::atomic::Ordering::Relaxed)
+        });
         if last_removed >= segno {
             elog(
                 ERROR,
@@ -760,7 +766,9 @@ fn synchronize_slots(conn: &mut PgConn) -> PgResult<bool> {
 // reads isnull (the LSNs, xmin and invalidation_reason).
 fn remote_slot_from_row(row: &[Option<Vec<u8>>]) -> PgResult<Option<RemoteSlot>> {
     let text = |i: usize| -> Option<String> {
-        row[i].as_ref().map(|v| String::from_utf8_lossy(v).into_owned())
+        row[i]
+            .as_ref()
+            .map(|v| String::from_utf8_lossy(v).into_owned())
     };
     let lsn = |i: usize| -> PgResult<XLogRecPtr> {
         match row[i].as_ref() {
@@ -926,8 +934,7 @@ pub fn ValidateSlotSyncParams(elevel_error: bool) -> PgResult<bool> {
     let primary_slot_name = guc_tables::vars::PrimarySlotName.read().unwrap_or_default();
     if primary_slot_name.is_empty() {
         return fail(
-            "replication slot synchronization requires \"primary_slot_name\" to be set"
-                .to_string(),
+            "replication slot synchronization requires \"primary_slot_name\" to be set".to_string(),
         );
     }
 
@@ -1257,7 +1264,15 @@ fn repl_slot_sync_worker_inner() -> PgResult<()> {
 
     // Database connection: walrcv_exec-equivalent queries need syscache.
     let top = mcx::MemoryContext::new("SlotSyncWorkerInit");
-    postinit::InitPostgres(top.mcx(), Some(&dbname), InvalidOid, None, InvalidOid, 0, None)?;
+    postinit::InitPostgres(
+        top.mcx(),
+        Some(&dbname),
+        InvalidOid,
+        None,
+        InvalidOid,
+        0,
+        None,
+    )?;
     miscinit::SetProcessingMode(types_core::ProcessingMode::NormalProcessing);
 
     let cluster_name = guc_tables::vars::cluster_name.read().unwrap_or_default();

@@ -66,19 +66,30 @@ fn deep_regex_nesting_reports_etoobig_and_does_not_abort() {
     let exe = std::env::current_exe().unwrap();
     for depth in DEPTHS {
         let out = std::process::Command::new(&exe)
-            .args(["--exact", "--nocapture", "deep_regex_nesting_reports_etoobig_and_does_not_abort"])
+            .args([
+                "--exact",
+                "--nocapture",
+                "deep_regex_nesting_reports_etoobig_and_does_not_abort",
+            ])
             .env("RE_STACK_PROBE_DEPTH", depth.to_string())
             .output()
             .unwrap();
         let se = String::from_utf8_lossy(&out.stderr);
-        let line = se.lines().find(|l| l.starts_with("PROBE")).unwrap_or_else(|| {
-            panic!("depth {depth}: process died without a verdict (stack overflow): {se}")
-        });
+        let line = se
+            .lines()
+            .find(|l| l.starts_with("PROBE"))
+            .unwrap_or_else(|| {
+                panic!("depth {depth}: process died without a verdict (stack overflow): {se}")
+            });
         // The trip depth is a function of frame size and is NOT a comparison
         // surface against C. That the process SURVIVES and reports REG_ETOOBIG
         // -- which regexp_* surfaces as "regular expression is too complex" --
         // rather than aborting is.
-        assert_eq!(line, format!("PROBE ERR {REG_ETOOBIG}"), "depth {depth}: got {line:?}");
+        assert_eq!(
+            line,
+            format!("PROBE ERR {REG_ETOOBIG}"),
+            "depth {depth}: got {line:?}"
+        );
     }
 }
 
@@ -122,7 +133,11 @@ fn traverse_lacons_stack_guard_raises_54001() {
                     .expect("stack guard must panic with the Box<PgError> payload");
                 assert_eq!(e.sqlstate(), ERRCODE_STATEMENT_TOO_COMPLEX);
                 assert_eq!(e.message(), "stack depth limit exceeded");
-                assert!(e.hint().is_some_and(|h| h.contains("max_stack_depth")), "{:?}", e.hint());
+                assert!(
+                    e.hint().is_some_and(|h| h.contains("max_stack_depth")),
+                    "{:?}",
+                    e.hint()
+                );
                 fired += 1;
             }
             assert!(fired > 0, "the 64 kB budget must trip the walk");

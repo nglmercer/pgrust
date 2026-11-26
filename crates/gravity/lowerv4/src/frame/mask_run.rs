@@ -16,7 +16,10 @@ crate::strategies! {
     MASK_RUN = 2, "mask.run", ScanFilter;
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(MASK_RUN, &MaskRunImpl(&RUN))], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(MASK_RUN, &MaskRunImpl(&RUN))],
+    ..crate::ops::NONE
+};
 
 struct Run;
 static RUN: Run = Run;
@@ -27,12 +30,32 @@ fn to_next<'g>(next: Value, c: &Carry, mcx: Mcx<'g>) -> PgVec<'g, Value> {
 }
 
 impl MaskRunMech for Run {
-    fn walk<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, base: Value, m: Mask, carry: &Carry, (l_next, next): (Block, Value), row: RowWalk<'_, 'e>) {
-        let ctypes: PgVec<'_, Type> = carry.params().iter().map(|&v| b.value_type(v)).collect_in(env.mcx);
-        let it_types: PgVec<'_, Type> = [Type::I64, Type::I64].into_iter().chain(ctypes.iter().copied()).collect_in(env.mcx);
+    fn walk<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        base: Value,
+        m: Mask,
+        carry: &Carry,
+        (l_next, next): (Block, Value),
+        row: RowWalk<'_, 'e>,
+    ) {
+        let ctypes: PgVec<'_, Type> = carry
+            .params()
+            .iter()
+            .map(|&v| b.value_type(v))
+            .collect_in(env.mcx);
+        let it_types: PgVec<'_, Type> = [Type::I64, Type::I64]
+            .into_iter()
+            .chain(ctypes.iter().copied())
+            .collect_in(env.mcx);
         let l_first = b.create_block(&[]);
         let any = b.icmp(IntCond::Ne, m.0, env.zero);
-        b.cond_br(any, (l_first, &[]), (l_next, &to_next(next, carry, env.mcx)[..]));
+        b.cond_br(
+            any,
+            (l_first, &[]),
+            (l_next, &to_next(next, carry, env.mcx)[..]),
+        );
         b.switch_to(l_first);
         let all = b.iconst(Type::I64, -1);
         let full = b.icmp(IntCond::Eq, m.0, all);
@@ -49,7 +72,11 @@ impl MaskRunMech for Run {
         let p = mcx::to_vec_in(b.block_params(l_it), env.mcx);
         let (i, rest) = (p[0], p[1]);
         let c = row(b, env, i, Carry::from_params(&p[2..], env.mcx));
-        let (l_inc, l_ctz, l_step) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));
+        let (l_inc, l_ctz, l_step) = (
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         b.cond_br(full, (l_inc, &[]), (l_ctz, &[]));
         // the straight run: the next row is `i + 1`, to the block's end
         b.switch_to(l_inc);
@@ -57,11 +84,19 @@ impl MaskRunMech for Run {
         let more = b.icmp(IntCond::Slt, i1, end);
         let mut on = mcx::pg_vec![in env.mcx; i1, rest];
         on.extend_in(c.params());
-        b.cond_br(more, (l_it, &on[..]), (l_next, &to_next(next, &c, env.mcx)[..]));
+        b.cond_br(
+            more,
+            (l_it, &on[..]),
+            (l_next, &to_next(next, &c, env.mcx)[..]),
+        );
         // the ctz walk: the next row is the lowest bit left
         b.switch_to(l_ctz);
         let empty = b.icmp(IntCond::Eq, rest, env.zero);
-        b.cond_br(empty, (l_next, &to_next(next, &c, env.mcx)[..]), (l_step, &[]));
+        b.cond_br(
+            empty,
+            (l_next, &to_next(next, &c, env.mcx)[..]),
+            (l_step, &[]),
+        );
         b.switch_to(l_step);
         let (i2, rest2) = lowest(b, env, base, rest);
         let mut on = mcx::pg_vec![in env.mcx; i2, rest2];

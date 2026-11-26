@@ -12,12 +12,18 @@ fn build(_depth: usize) -> Box<Backend> {
 
 /// Whether an address lies in a mapping of this process (`/proc/self/maps`).
 fn mapped(addr: usize) -> bool {
-    std::fs::read_to_string("/proc/self/maps").expect("/proc/self/maps").lines().any(|l| {
-        let r = l.split_whitespace().next().unwrap_or("");
-        let (a, b) = r.split_once('-').unwrap_or(("0", "0"));
-        let (a, b) = (usize::from_str_radix(a, 16).unwrap_or(0), usize::from_str_radix(b, 16).unwrap_or(0));
-        (a..b).contains(&addr)
-    })
+    std::fs::read_to_string("/proc/self/maps")
+        .expect("/proc/self/maps")
+        .lines()
+        .any(|l| {
+            let r = l.split_whitespace().next().unwrap_or("");
+            let (a, b) = r.split_once('-').unwrap_or(("0", "0"));
+            let (a, b) = (
+                usize::from_str_radix(a, 16).unwrap_or(0),
+                usize::from_str_radix(b, 16).unwrap_or(0),
+            );
+            (a..b).contains(&addr)
+        })
 }
 
 /// A level's arena address, taken on a thread that maps it (a top-level statement and one nested under it) and then ends
@@ -26,7 +32,9 @@ fn arenas_of_a_killed_thread() -> Vec<usize> {
     std::thread::spawn(|| {
         let r = reentry::enter(Some(build), None, false, |b, _| {
             let top = b.graph_arena().expect("the arena maps").alloc(64) as usize;
-            let nested = reentry::enter(Some(build), None, false, |b, _| b.graph_arena().expect("the arena maps").alloc(64) as usize);
+            let nested = reentry::enter(Some(build), None, false, |b, _| {
+                b.graph_arena().expect("the arena maps").alloc(64) as usize
+            });
             vec![top, nested.expect("level 1").expect("built")]
         });
         let addrs = r.expect("level 0").expect("built");
@@ -44,11 +52,16 @@ fn arenas_of_a_killed_thread() -> Vec<usize> {
 #[test]
 fn d656_a_thread_that_ends_without_its_teardown_unmaps_its_admission_arenas() {
     for addr in arenas_of_a_killed_thread() {
-        assert!(!mapped(addr), "an admission arena outlived its thread ({addr:#x}): leaked at every crash-restart");
+        assert!(
+            !mapped(addr),
+            "an admission arena outlived its thread ({addr:#x}): leaked at every crash-restart"
+        );
     }
     // a clean session end unmaps them itself, and the thread's end finds nothing left to release
     let addr = std::thread::spawn(|| {
-        let a = reentry::enter(Some(build), None, false, |b, _| b.graph_arena().expect("the arena maps").alloc(64) as usize);
+        let a = reentry::enter(Some(build), None, false, |b, _| {
+            b.graph_arena().expect("the arena maps").alloc(64) as usize
+        });
         let a = a.expect("level 0").expect("built");
         reentry::teardown();
         assert!(!mapped(a), "the session teardown unmaps it");

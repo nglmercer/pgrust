@@ -63,7 +63,9 @@ pub fn setup_regexp_matches<'a, 'mcx>(
     .filter(|re| re.capture_safe() || !use_subpatterns || re.ngroups() == 0)
     {
         // regexp.c:1515: the wide_str palloc of (orig_len + 1) pg_wchars.
-        ::mcx::check_alloc_size((orig_str.len() + 1) * core::mem::size_of::<::types_core::PgWChar>())?;
+        ::mcx::check_alloc_size(
+            (orig_str.len() + 1) * core::mem::size_of::<::types_core::PgWChar>(),
+        )?;
         return setup_regexp_matches_re2(
             mcx,
             orig_str,
@@ -300,7 +302,13 @@ pub fn build_regexp_match_result<'mcx>(
         if so < 0 || eo < 0 {
             push(None)?;
         } else {
-            push(Some(fetch_chars(mcx, matchctx.orig_str, &matchctx.wide_str, so, eo)?))?;
+            push(Some(fetch_chars(
+                mcx,
+                matchctx.orig_str,
+                &matchctx.wide_str,
+                so,
+                eo,
+            )?))?;
         }
     }
     Ok(())
@@ -324,7 +332,8 @@ enum OwnedText {
 
 fn owned_vec<T: Copy>(name: &str, src: &[T]) -> PgResult<Vec<T>> {
     let mut v = Vec::new();
-    v.try_reserve_exact(src.len()).map_err(|_| ::mcx::oom_named(name, src.len()))?;
+    v.try_reserve_exact(src.len())
+        .map_err(|_| ::mcx::oom_named(name, src.len()))?;
     v.extend_from_slice(src);
     Ok(v)
 }
@@ -347,7 +356,9 @@ impl RegexpMatchesCtx<'_, '_> {
 impl OwnedMatches {
     fn fetch<'mcx>(&self, mcx: Mcx<'mcx>, so: i32, eo: i32) -> PgResult<PgVec<'mcx, u8>> {
         match &self.text {
-            OwnedText::Wide(wide) => mbutils::pg_wchar2mb_with_len(mcx, &wide[so as usize..eo as usize]),
+            OwnedText::Wide(wide) => {
+                mbutils::pg_wchar2mb_with_len(mcx, &wide[so as usize..eo as usize])
+            }
             OwnedText::Bytes(orig) => slice_in(mcx, &orig[so as usize..eo as usize]),
         }
     }
@@ -375,7 +386,11 @@ impl OwnedMatches {
 
     // build_regexp_split_result for piece `idx`.
     pub fn split_piece<'mcx>(&self, mcx: Mcx<'mcx>, idx: i32) -> PgResult<PgVec<'mcx, u8>> {
-        let startpos = if idx > 0 { self.match_locs[(idx * 2 - 1) as usize] } else { 0 };
+        let startpos = if idx > 0 {
+            self.match_locs[(idx * 2 - 1) as usize]
+        } else {
+            0
+        };
         if startpos < 0 {
             return Err(PgError::error("invalid match ending position").into());
         }
@@ -404,7 +419,13 @@ pub fn build_regexp_split_result<'mcx>(
         return Err(PgError::error("invalid match starting position").into());
     }
 
-    fetch_chars(splitctx.mcx, splitctx.orig_str, &splitctx.wide_str, startpos, endpos)
+    fetch_chars(
+        splitctx.mcx,
+        splitctx.orig_str,
+        &splitctx.wide_str,
+        startpos,
+        endpos,
+    )
 }
 
 pub fn regexp_count(
@@ -423,8 +444,16 @@ pub fn regexp_count(
     }
     re_flags.glob = true;
 
-    let matchctx =
-        setup_regexp_matches(mcx, str, pattern, &re_flags, start - 1, collation, false, false)?;
+    let matchctx = setup_regexp_matches(
+        mcx,
+        str,
+        pattern,
+        &re_flags,
+        start - 1,
+        collation,
+        false,
+        false,
+    )?;
 
     Ok(matchctx.nmatches)
 }

@@ -1,11 +1,11 @@
 //! fmgr wrappers (`fc_*`) + `DBSIZE_BUILTINS` for fmgr-core.
 
 use ::datum::Datum;
+use ::elog::PCT_M;
 use ::types_core::Oid;
 use ::types_error::PgResult;
-use std::path::Path;
 use ::types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
-use ::elog::PCT_M;
+use std::path::Path;
 
 pub fn fc_pg_size_bytes(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     // SAFETY: catalog arg 0 is a non-null text varlena (strict fn).
@@ -89,15 +89,15 @@ pub(crate) fn forkname_to_number(forkname: &str) -> PgResult<types_core::ForkNum
     }
 }
 
-pub fn fc_pg_relation_size(
-    _flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut Fcinfo,
-) -> PgResult<Datum> {
+pub fn fc_pg_relation_size(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let rel_oid = fcinfo.arg_oid(0);
     // SAFETY: catalog arg 1 is a non-null text varlena (strict fn).
     let forkname_b = unsafe { fcinfo.arg_varlena_packed(1)? };
     let forkname_b = forkname_b.data();
-    let end = forkname_b.iter().position(|&b| b == 0).unwrap_or(forkname_b.len());
+    let end = forkname_b
+        .iter()
+        .position(|&b| b == 0)
+        .unwrap_or(forkname_b.len());
     let forkname = String::from_utf8_lossy(&forkname_b[..end]).into_owned();
     let mcx = fcinfo.result_mcx();
     let Some(rel) =
@@ -122,7 +122,12 @@ pub const DBSIZE_BUILTINS: &[FmgrBuiltin] = &[
     b(2324, "pg_database_size_oid", 1, fc_pg_database_size_oid),
     b(3166, "pg_size_pretty_numeric", 1, fc_pg_size_pretty_numeric),
     b(2322, "pg_tablespace_size_oid", 1, fc_pg_tablespace_size_oid),
-    b(2323, "pg_tablespace_size_name", 1, fc_pg_tablespace_size_name),
+    b(
+        2323,
+        "pg_tablespace_size_name",
+        1,
+        fc_pg_tablespace_size_name,
+    ),
     b(2997, "pg_table_size", 1, fc_pg_table_size),
     b(2998, "pg_indexes_size", 1, fc_pg_indexes_size),
     b(2286, "pg_total_relation_size", 1, fc_pg_total_relation_size),
@@ -146,7 +151,10 @@ fn half_rounded(x: i64) -> i64 {
 }
 
 fn text_result(fcinfo: &Fcinfo, s: &str) -> PgResult<Datum> {
-    Ok(types_fmgr::varlena_result(varlena::cstring_to_text(fcinfo.result_mcx(), s.as_bytes())?))
+    Ok(types_fmgr::varlena_result(varlena::cstring_to_text(
+        fcinfo.result_mcx(),
+        s.as_bytes(),
+    )?))
 }
 
 pub fn fc_pg_size_pretty(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -154,8 +162,11 @@ pub fn fc_pg_size_pretty(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) ->
     let mut buf = String::new();
     for (i, &(name, limit, round, unitbits)) in SIZE_PRETTY_UNITS.iter().enumerate() {
         let next = SIZE_PRETTY_UNITS.get(i + 1);
-        let abs_size: u64 =
-            if size < 0 { 0u64.wrapping_sub(size as u64) } else { size as u64 };
+        let abs_size: u64 = if size < 0 {
+            0u64.wrapping_sub(size as u64)
+        } else {
+            size as u64
+        };
         if next.is_none() || abs_size < limit as u64 {
             if round {
                 size = half_rounded(size);
@@ -177,10 +188,12 @@ pub fn fc_pg_size_pretty_numeric(
     use adt_numeric::ops;
     // SAFETY: catalog arg 0 is a non-null numeric varlena (strict fn).
     let v = unsafe { fcinfo.arg_varlena_packed(0)? };
-    let payload =
-        if v.is_short() { v.data_expanded(fcinfo.result_mcx())? } else { v.data() };
-    let mut size =
-        adt_numeric::NumericImage::from_num(adt_numeric::Num::from_payload(payload));
+    let payload = if v.is_short() {
+        v.data_expanded(fcinfo.result_mcx())?
+    } else {
+        v.data()
+    };
+    let mut size = adt_numeric::NumericImage::from_num(adt_numeric::Num::from_payload(payload));
     let mut result = String::new();
     for (i, &(name, limit, round, unitbits)) in SIZE_PRETTY_UNITS.iter().enumerate() {
         let next = SIZE_PRETTY_UNITS.get(i + 1);
@@ -240,7 +253,12 @@ fn file_access_error(e: &std::io::Error, message: String) -> Box<::types_error::
     if let Some(errno) = e.raw_os_error() {
         builder = builder.with_saved_errno(errno);
     }
-    Box::new(builder.errcode_for_file_access().errmsg(message).into_error())
+    Box::new(
+        builder
+            .errcode_for_file_access()
+            .errmsg(message)
+            .into_error(),
+    )
 }
 
 // stat(2): (is_dir, st_size); the crate's one raw fs stat site.
@@ -298,9 +316,9 @@ const DATABASE_RELATION_ID: Oid = 1262;
 
 fn calculate_database_size(db_oid: Oid) -> PgResult<i64> {
     let uid = miscinit_seams::get_user_id::call();
-    let aclresult = aclchk_seams::object_aclcheck::call(DATABASE_RELATION_ID, db_oid, uid, ACL_CONNECT)?;
-    if aclresult != ACLCHECK_OK
-        && !acl_seams::has_privs_of_role::call(uid, ROLE_PG_READ_ALL_STATS)?
+    let aclresult =
+        aclchk_seams::object_aclcheck::call(DATABASE_RELATION_ID, db_oid, uid, ACL_CONNECT)?;
+    if aclresult != ACLCHECK_OK && !acl_seams::has_privs_of_role::call(uid, ROLE_PG_READ_ALL_STATS)?
     {
         let datname = dbcommands_seams::get_database_name::call(db_oid)?.unwrap_or_default();
         aclchk_seams::aclcheck_error::call(
@@ -320,7 +338,7 @@ fn calculate_database_size(db_oid: Oid) -> PgResult<i64> {
             return Err(file_access_error(
                 &e,
                 format!("could not open directory \"pg_tblspc\": {PCT_M}"),
-            ))
+            ));
         }
     };
     for entry in tblspc {
@@ -341,7 +359,11 @@ fn calculate_database_size(db_oid: Oid) -> PgResult<i64> {
 // get_tablespace_oid, whose not-found message carries them verbatim; a name
 // that is not UTF-8 cannot match any pgrust catalog row, so the lookup
 // failure is reported directly with C's bytes.
-fn undefined_name_raw(kind: &str, name: &[u8], sqlstate: ::types_error::SqlState) -> ::types_error::PgError {
+fn undefined_name_raw(
+    kind: &str,
+    name: &[u8],
+    sqlstate: ::types_error::SqlState,
+) -> ::types_error::PgError {
     let mut msg = format!("{kind} \"").into_bytes();
     msg.extend_from_slice(name);
     msg.extend_from_slice(b"\" does not exist");
@@ -411,8 +433,12 @@ fn calculate_tablespace_size(mcx: ::mcx::Mcx<'_>, tblspc_oid: Oid) -> PgResult<i
     if tblspc_oid != init_small::globals::MyDatabaseTableSpace()
         && !acl_seams::has_privs_of_role::call(uid, ROLE_PG_READ_ALL_STATS)?
     {
-        let aclresult =
-            aclchk_seams::object_aclcheck::call(TABLESPACE_RELATION_ID, tblspc_oid, uid, ACL_CREATE)?;
+        let aclresult = aclchk_seams::object_aclcheck::call(
+            TABLESPACE_RELATION_ID,
+            tblspc_oid,
+            uid,
+            ACL_CREATE,
+        )?;
         if aclresult != ACLCHECK_OK {
             let spcname = tablespace_seams::get_tablespace_name::call(mcx, tblspc_oid)?;
             let spcname = spcname
@@ -674,9 +700,8 @@ pub fn fc_pg_relation_filepath(
             if namespace_seams::is_temp_or_temp_toast_namespace::call(relform.relnamespace) {
                 init_small::globals::ProcNumberForTempRelations()
             } else {
-                let backend = namespace_seams::get_temp_namespace_proc_number::call(
-                    relform.relnamespace,
-                )?;
+                let backend =
+                    namespace_seams::get_temp_namespace_proc_number::call(relform.relnamespace)?;
                 debug_assert!(backend != types_core::INVALID_PROC_NUMBER);
                 backend
             }

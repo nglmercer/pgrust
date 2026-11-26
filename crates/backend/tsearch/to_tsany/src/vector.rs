@@ -40,7 +40,10 @@ pub fn unique_words<'mcx>(mcx: Mcx<'mcx>, prs: &mut ParsedText<'mcx>) -> PgResul
 }
 
 // make_tsvector: dedup + flat image build (4-byte zero header for stamping).
-pub fn make_tsvector<'mcx>(mcx: Mcx<'mcx>, prs: &mut ParsedText<'mcx>) -> PgResult<PgVec<'mcx, u8>> {
+pub fn make_tsvector<'mcx>(
+    mcx: Mcx<'mcx>,
+    prs: &mut ParsedText<'mcx>,
+) -> PgResult<PgVec<'mcx, u8>> {
     unique_words(mcx, prs)?;
 
     let mut lenstr = 0usize;

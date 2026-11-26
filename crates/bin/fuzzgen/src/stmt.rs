@@ -22,29 +22,30 @@
 use crate::aclrls::gen_aclrls_module;
 use crate::admin::gen_admin_module;
 use crate::adtmisc::gen_adtmisc_module;
-use crate::altertable::{gen_altertable_module, AltState};
 use crate::agg::gen_agg_stmt;
 use crate::aggwin::gen_aggwin_module;
+use crate::altertable::{gen_altertable_module, AltState};
 use crate::arrayops::gen_arrayops_module;
-use crate::castcoerce::gen_castcoerce_module;
 use crate::bitstring::gen_bitstring_module;
-use crate::catalog::{Catalog, Table};
 use crate::btbrin::gen_btbrin_module;
 use crate::byteaenc::gen_byteaenc_module;
+use crate::castcoerce::gen_castcoerce_module;
+use crate::catalog::{Catalog, Table};
+use crate::cfgm::gen_cfgm_module;
 use crate::coll::{gen_coll_module, CollState};
 use crate::cterec::gen_cterec_module;
 use crate::cursor::{gen_cursor_module, CursorState};
 use crate::ddl::{gen_ddl_module, DdlState};
+use crate::ddldeep::gen_ddldeep_module;
 use crate::dml::{gen_dml_module, DmlState};
 use crate::dtm::gen_dtm_module;
 use crate::dtx::gen_dtx_module;
-use crate::einterp::gen_einterp_module;
-use crate::exd::gen_exd_module;
 use crate::earm::gen_earm_module;
-use crate::ddldeep::gen_ddldeep_module;
 use crate::earm2::gen_earm2_module;
 use crate::earm3::gen_earm3_module;
 use crate::earm4::gen_earm4_module;
+use crate::einterp::gen_einterp_module;
+use crate::exd::gen_exd_module;
 use crate::explain::gen_explain_module;
 use crate::expreval::gen_expreval_module;
 use crate::exr::{gen_exr_module, ExrState};
@@ -54,58 +55,57 @@ use crate::geo::{gen_geo_module, GeoState};
 use crate::gramwalk::gen_gramwalk_module;
 use crate::groupingsets::gen_groupingsets_module;
 use crate::heap::{gen_heap_module, HeapState};
-use crate::like::gen_like_module;
 use crate::idx::{gen_idx_module, IdxState};
 use crate::indexam::gen_indexam_module;
-use crate::intops::gen_intops_module;
 use crate::inherit::{gen_inherit_module, InheritState};
+use crate::intops::gen_intops_module;
 use crate::join::gen_join_stmt;
-use crate::jsonpath::gen_jsonpath_module;
-use crate::lockcursor::gen_lockcursor_module;
-use crate::largeobj::{gen_largeobj_module, LargeObjState};
 use crate::jsonfuncs::gen_jsonfuncs_module;
+use crate::jsonpath::gen_jsonpath_module;
+use crate::largeobj::{gen_largeobj_module, LargeObjState};
+use crate::like::gen_like_module;
+use crate::lockcursor::gen_lockcursor_module;
 use crate::matview::{gen_matview_module, MatviewState};
 use crate::mbconv::gen_mbconv_module;
 use crate::merge::gen_merge_module;
 use crate::mergex::gen_mergex_module;
 use crate::nodes::gen_nodes_module;
-use crate::objddl::{gen_objddl_module, ObjState};
 use crate::numeric::gen_numeric_module;
 use crate::numx::gen_numx_module;
-use crate::scalartypes::gen_scalartypes_module;
+use crate::objddl::{gen_objddl_module, ObjState};
 use crate::objid::gen_objid_module;
 use crate::obs::gen_obs_module;
-use crate::cfgm::gen_cfgm_module;
 use crate::opt2::gen_opt2_module;
 use crate::opt3::gen_opt3_module;
 use crate::par::{gen_par_module, ParState};
 use crate::part::{gen_part_module, PartState};
 use crate::partalt::gen_partalt_module;
-use crate::pgram::gen_pgram_module;
 use crate::partition::gen_partition_module;
+use crate::pgram::gen_pgram_module;
 use crate::plancache::{gen_plancache_module, PlanCacheState};
-use crate::plansel::{gen_plansel_module, PlanState};
 use crate::planner::gen_planner_module;
+use crate::plansel::{gen_plansel_module, PlanState};
 use crate::plpg::{gen_plpg_module, PlpgState};
 use crate::plpg2::gen_plpg2_module;
 use crate::pubsub::gen_pubsub_module;
-use crate::regex::gen_regex_module;
 use crate::rangeops::{gen_rangeops_module, RangeopsState};
+use crate::regex::gen_regex_module;
 use crate::render::{FromItem, OrderKey, SelectItem, SelectStmt};
 use crate::ritrig::{gen_ritrig_module, RiState};
 use crate::rng::Rng;
 use crate::ruleutils::gen_ruleutils_module;
+use crate::scalartypes::gen_scalartypes_module;
 use crate::scope::{Scope, ScopeRel};
 use crate::seqident::{gen_seqident_module, SeqState};
 use crate::spill::{gen_spill_module, SpillState};
-use crate::stats::gen_stats_module;
-use crate::srf::gen_srf_module;
 use crate::sqljson::gen_sqljson_module;
+use crate::srf::gen_srf_module;
+use crate::stats::gen_stats_module;
 use crate::stringfunc::gen_stringfunc_module;
 use crate::subplan::gen_subplan_module;
 use crate::subq::gen_subq_stmt;
-use crate::triggers::gen_triggers_module;
 use crate::tablesample::{gen_tablesample_module, TablesampleState};
+use crate::triggers::gen_triggers_module;
 use crate::tsdl::{gen_tsdl_module, TsState};
 use crate::tsrank::gen_tsrank_module;
 use crate::txn::gen_txn_module;
@@ -333,102 +333,390 @@ pub struct StmtModuleDef {
 
 /// All statement modules, parallel in names to `toggles::REGISTRY`.
 pub const STMT_MODULES: &[StmtModuleDef] = &[
-    StmtModuleDef { name: "expr", generate: gen_expr_module },
-    StmtModuleDef { name: "joins", generate: gen_join_module },
-    StmtModuleDef { name: "subq", generate: gen_subq_module },
-    StmtModuleDef { name: "agg", generate: gen_agg_module },
-    StmtModuleDef { name: "win", generate: gen_win_module },
-    StmtModuleDef { name: "winfunc", generate: gen_winfunc_module },
-    StmtModuleDef { name: "dml", generate: gen_dml_module },
-    StmtModuleDef { name: "merge", generate: gen_merge_module },
-    StmtModuleDef { name: "txn", generate: gen_txn_module },
-    StmtModuleDef { name: "ddl", generate: gen_ddl_module },
-    StmtModuleDef { name: "types", generate: gen_types_module },
-    StmtModuleDef { name: "explain", generate: gen_explain_module },
-    StmtModuleDef { name: "util", generate: gen_util_module },
-    StmtModuleDef { name: "part", generate: gen_part_module },
-    StmtModuleDef { name: "partalt", generate: gen_partalt_module },
-    StmtModuleDef { name: "objddl", generate: gen_objddl_module },
-    StmtModuleDef { name: "idx", generate: gen_idx_module },
-    StmtModuleDef { name: "par", generate: gen_par_module },
-    StmtModuleDef { name: "tsdl", generate: gen_tsdl_module },
-    StmtModuleDef { name: "cursor", generate: gen_cursor_module },
-    StmtModuleDef { name: "views", generate: gen_views_module },
-    StmtModuleDef { name: "matview", generate: gen_matview_module },
-    StmtModuleDef { name: "geo", generate: gen_geo_module },
-    StmtModuleDef { name: "dtm", generate: gen_dtm_module },
-    StmtModuleDef { name: "dtx", generate: gen_dtx_module },
-    StmtModuleDef { name: "adtmisc", generate: gen_adtmisc_module },
-    StmtModuleDef { name: "sqljson", generate: gen_sqljson_module },
-    StmtModuleDef { name: "jsonpath", generate: gen_jsonpath_module },
-    StmtModuleDef { name: "jsonfuncs", generate: gen_jsonfuncs_module },
-    StmtModuleDef { name: "plpg", generate: gen_plpg_module },
-    StmtModuleDef { name: "coll", generate: gen_coll_module },
-    StmtModuleDef { name: "mbconv", generate: gen_mbconv_module },
-    StmtModuleDef { name: "xnum", generate: gen_xnum_module },
-    StmtModuleDef { name: "nodes", generate: gen_nodes_module },
-    StmtModuleDef { name: "obs", generate: gen_obs_module },
-    StmtModuleDef { name: "admin", generate: gen_admin_module },
-    StmtModuleDef { name: "objid", generate: gen_objid_module },
-    StmtModuleDef { name: "einterp", generate: gen_einterp_module },
-    StmtModuleDef { name: "exd", generate: gen_exd_module },
-    StmtModuleDef { name: "spill", generate: gen_spill_module },
-    StmtModuleDef { name: "earm", generate: gen_earm_module },
-    StmtModuleDef { name: "plansel", generate: gen_plansel_module },
-    StmtModuleDef { name: "earm2", generate: gen_earm2_module },
-    StmtModuleDef { name: "earm3", generate: gen_earm3_module },
-    StmtModuleDef { name: "earm4", generate: gen_earm4_module },
-    StmtModuleDef { name: "exr", generate: gen_exr_module },
-    StmtModuleDef { name: "exr2", generate: gen_exr2_module },
-    StmtModuleDef { name: "numx", generate: gen_numx_module },
-    StmtModuleDef { name: "pubsub", generate: gen_pubsub_module },
-    StmtModuleDef { name: "ddldeep", generate: gen_ddldeep_module },
-    StmtModuleDef { name: "pgram", generate: gen_pgram_module },
-    StmtModuleDef { name: "opt2", generate: gen_opt2_module },
-    StmtModuleDef { name: "opt3", generate: gen_opt3_module },
-    StmtModuleDef { name: "cfgm", generate: gen_cfgm_module },
-    StmtModuleDef { name: "btbrin", generate: gen_btbrin_module },
-    StmtModuleDef { name: "heap", generate: gen_heap_module },
-    StmtModuleDef { name: "stats", generate: gen_stats_module },
-    StmtModuleDef { name: "tsrank", generate: gen_tsrank_module },
-    StmtModuleDef { name: "planner", generate: gen_planner_module },
-    StmtModuleDef { name: "partition", generate: gen_partition_module },
-    StmtModuleDef { name: "triggers", generate: gen_triggers_module },
-    StmtModuleDef { name: "plpgsql", generate: gen_plpg2_module },
-    StmtModuleDef { name: "regex", generate: gen_regex_module },
-    StmtModuleDef { name: "mergex", generate: gen_mergex_module },
-    StmtModuleDef { name: "aggwin", generate: gen_aggwin_module },
-    StmtModuleDef { name: "indexam", generate: gen_indexam_module },
-    StmtModuleDef { name: "typeio", generate: gen_typeio_module },
-    StmtModuleDef { name: "aclrls", generate: gen_aclrls_module },
-    StmtModuleDef { name: "lockcursor", generate: gen_lockcursor_module },
-    StmtModuleDef { name: "largeobj", generate: gen_largeobj_module },
-    StmtModuleDef { name: "plancache", generate: gen_plancache_module },
-    StmtModuleDef { name: "vacuum", generate: gen_vacuum_module },
-    StmtModuleDef { name: "seqident", generate: gen_seqident_module },
-    StmtModuleDef { name: "ritrig", generate: gen_ritrig_module },
-    StmtModuleDef { name: "rangeops", generate: gen_rangeops_module },
-    StmtModuleDef { name: "udt", generate: gen_udt_module },
-    StmtModuleDef { name: "arrayops", generate: gen_arrayops_module },
-    StmtModuleDef { name: "altertable", generate: gen_altertable_module },
-    StmtModuleDef { name: "byteaenc", generate: gen_byteaenc_module },
-    StmtModuleDef { name: "srf", generate: gen_srf_module },
-    StmtModuleDef { name: "stringfunc", generate: gen_stringfunc_module },
-    StmtModuleDef { name: "floatmath", generate: gen_floatmath_module },
-    StmtModuleDef { name: "numeric", generate: gen_numeric_module },
-    StmtModuleDef { name: "ruleutils", generate: gen_ruleutils_module },
-    StmtModuleDef { name: "cterec", generate: gen_cterec_module },
-    StmtModuleDef { name: "castcoerce", generate: gen_castcoerce_module },
-    StmtModuleDef { name: "intops", generate: gen_intops_module },
-    StmtModuleDef { name: "expreval", generate: gen_expreval_module },
-    StmtModuleDef { name: "like", generate: gen_like_module },
-    StmtModuleDef { name: "subplan", generate: gen_subplan_module },
-    StmtModuleDef { name: "scalartypes", generate: gen_scalartypes_module },
-    StmtModuleDef { name: "inherit", generate: gen_inherit_module },
-    StmtModuleDef { name: "bitstring", generate: gen_bitstring_module },
-    StmtModuleDef { name: "groupingsets", generate: gen_groupingsets_module },
-    StmtModuleDef { name: "tablesample", generate: gen_tablesample_module },
-    StmtModuleDef { name: "gramwalk", generate: gen_gramwalk_module },
+    StmtModuleDef {
+        name: "expr",
+        generate: gen_expr_module,
+    },
+    StmtModuleDef {
+        name: "joins",
+        generate: gen_join_module,
+    },
+    StmtModuleDef {
+        name: "subq",
+        generate: gen_subq_module,
+    },
+    StmtModuleDef {
+        name: "agg",
+        generate: gen_agg_module,
+    },
+    StmtModuleDef {
+        name: "win",
+        generate: gen_win_module,
+    },
+    StmtModuleDef {
+        name: "winfunc",
+        generate: gen_winfunc_module,
+    },
+    StmtModuleDef {
+        name: "dml",
+        generate: gen_dml_module,
+    },
+    StmtModuleDef {
+        name: "merge",
+        generate: gen_merge_module,
+    },
+    StmtModuleDef {
+        name: "txn",
+        generate: gen_txn_module,
+    },
+    StmtModuleDef {
+        name: "ddl",
+        generate: gen_ddl_module,
+    },
+    StmtModuleDef {
+        name: "types",
+        generate: gen_types_module,
+    },
+    StmtModuleDef {
+        name: "explain",
+        generate: gen_explain_module,
+    },
+    StmtModuleDef {
+        name: "util",
+        generate: gen_util_module,
+    },
+    StmtModuleDef {
+        name: "part",
+        generate: gen_part_module,
+    },
+    StmtModuleDef {
+        name: "partalt",
+        generate: gen_partalt_module,
+    },
+    StmtModuleDef {
+        name: "objddl",
+        generate: gen_objddl_module,
+    },
+    StmtModuleDef {
+        name: "idx",
+        generate: gen_idx_module,
+    },
+    StmtModuleDef {
+        name: "par",
+        generate: gen_par_module,
+    },
+    StmtModuleDef {
+        name: "tsdl",
+        generate: gen_tsdl_module,
+    },
+    StmtModuleDef {
+        name: "cursor",
+        generate: gen_cursor_module,
+    },
+    StmtModuleDef {
+        name: "views",
+        generate: gen_views_module,
+    },
+    StmtModuleDef {
+        name: "matview",
+        generate: gen_matview_module,
+    },
+    StmtModuleDef {
+        name: "geo",
+        generate: gen_geo_module,
+    },
+    StmtModuleDef {
+        name: "dtm",
+        generate: gen_dtm_module,
+    },
+    StmtModuleDef {
+        name: "dtx",
+        generate: gen_dtx_module,
+    },
+    StmtModuleDef {
+        name: "adtmisc",
+        generate: gen_adtmisc_module,
+    },
+    StmtModuleDef {
+        name: "sqljson",
+        generate: gen_sqljson_module,
+    },
+    StmtModuleDef {
+        name: "jsonpath",
+        generate: gen_jsonpath_module,
+    },
+    StmtModuleDef {
+        name: "jsonfuncs",
+        generate: gen_jsonfuncs_module,
+    },
+    StmtModuleDef {
+        name: "plpg",
+        generate: gen_plpg_module,
+    },
+    StmtModuleDef {
+        name: "coll",
+        generate: gen_coll_module,
+    },
+    StmtModuleDef {
+        name: "mbconv",
+        generate: gen_mbconv_module,
+    },
+    StmtModuleDef {
+        name: "xnum",
+        generate: gen_xnum_module,
+    },
+    StmtModuleDef {
+        name: "nodes",
+        generate: gen_nodes_module,
+    },
+    StmtModuleDef {
+        name: "obs",
+        generate: gen_obs_module,
+    },
+    StmtModuleDef {
+        name: "admin",
+        generate: gen_admin_module,
+    },
+    StmtModuleDef {
+        name: "objid",
+        generate: gen_objid_module,
+    },
+    StmtModuleDef {
+        name: "einterp",
+        generate: gen_einterp_module,
+    },
+    StmtModuleDef {
+        name: "exd",
+        generate: gen_exd_module,
+    },
+    StmtModuleDef {
+        name: "spill",
+        generate: gen_spill_module,
+    },
+    StmtModuleDef {
+        name: "earm",
+        generate: gen_earm_module,
+    },
+    StmtModuleDef {
+        name: "plansel",
+        generate: gen_plansel_module,
+    },
+    StmtModuleDef {
+        name: "earm2",
+        generate: gen_earm2_module,
+    },
+    StmtModuleDef {
+        name: "earm3",
+        generate: gen_earm3_module,
+    },
+    StmtModuleDef {
+        name: "earm4",
+        generate: gen_earm4_module,
+    },
+    StmtModuleDef {
+        name: "exr",
+        generate: gen_exr_module,
+    },
+    StmtModuleDef {
+        name: "exr2",
+        generate: gen_exr2_module,
+    },
+    StmtModuleDef {
+        name: "numx",
+        generate: gen_numx_module,
+    },
+    StmtModuleDef {
+        name: "pubsub",
+        generate: gen_pubsub_module,
+    },
+    StmtModuleDef {
+        name: "ddldeep",
+        generate: gen_ddldeep_module,
+    },
+    StmtModuleDef {
+        name: "pgram",
+        generate: gen_pgram_module,
+    },
+    StmtModuleDef {
+        name: "opt2",
+        generate: gen_opt2_module,
+    },
+    StmtModuleDef {
+        name: "opt3",
+        generate: gen_opt3_module,
+    },
+    StmtModuleDef {
+        name: "cfgm",
+        generate: gen_cfgm_module,
+    },
+    StmtModuleDef {
+        name: "btbrin",
+        generate: gen_btbrin_module,
+    },
+    StmtModuleDef {
+        name: "heap",
+        generate: gen_heap_module,
+    },
+    StmtModuleDef {
+        name: "stats",
+        generate: gen_stats_module,
+    },
+    StmtModuleDef {
+        name: "tsrank",
+        generate: gen_tsrank_module,
+    },
+    StmtModuleDef {
+        name: "planner",
+        generate: gen_planner_module,
+    },
+    StmtModuleDef {
+        name: "partition",
+        generate: gen_partition_module,
+    },
+    StmtModuleDef {
+        name: "triggers",
+        generate: gen_triggers_module,
+    },
+    StmtModuleDef {
+        name: "plpgsql",
+        generate: gen_plpg2_module,
+    },
+    StmtModuleDef {
+        name: "regex",
+        generate: gen_regex_module,
+    },
+    StmtModuleDef {
+        name: "mergex",
+        generate: gen_mergex_module,
+    },
+    StmtModuleDef {
+        name: "aggwin",
+        generate: gen_aggwin_module,
+    },
+    StmtModuleDef {
+        name: "indexam",
+        generate: gen_indexam_module,
+    },
+    StmtModuleDef {
+        name: "typeio",
+        generate: gen_typeio_module,
+    },
+    StmtModuleDef {
+        name: "aclrls",
+        generate: gen_aclrls_module,
+    },
+    StmtModuleDef {
+        name: "lockcursor",
+        generate: gen_lockcursor_module,
+    },
+    StmtModuleDef {
+        name: "largeobj",
+        generate: gen_largeobj_module,
+    },
+    StmtModuleDef {
+        name: "plancache",
+        generate: gen_plancache_module,
+    },
+    StmtModuleDef {
+        name: "vacuum",
+        generate: gen_vacuum_module,
+    },
+    StmtModuleDef {
+        name: "seqident",
+        generate: gen_seqident_module,
+    },
+    StmtModuleDef {
+        name: "ritrig",
+        generate: gen_ritrig_module,
+    },
+    StmtModuleDef {
+        name: "rangeops",
+        generate: gen_rangeops_module,
+    },
+    StmtModuleDef {
+        name: "udt",
+        generate: gen_udt_module,
+    },
+    StmtModuleDef {
+        name: "arrayops",
+        generate: gen_arrayops_module,
+    },
+    StmtModuleDef {
+        name: "altertable",
+        generate: gen_altertable_module,
+    },
+    StmtModuleDef {
+        name: "byteaenc",
+        generate: gen_byteaenc_module,
+    },
+    StmtModuleDef {
+        name: "srf",
+        generate: gen_srf_module,
+    },
+    StmtModuleDef {
+        name: "stringfunc",
+        generate: gen_stringfunc_module,
+    },
+    StmtModuleDef {
+        name: "floatmath",
+        generate: gen_floatmath_module,
+    },
+    StmtModuleDef {
+        name: "numeric",
+        generate: gen_numeric_module,
+    },
+    StmtModuleDef {
+        name: "ruleutils",
+        generate: gen_ruleutils_module,
+    },
+    StmtModuleDef {
+        name: "cterec",
+        generate: gen_cterec_module,
+    },
+    StmtModuleDef {
+        name: "castcoerce",
+        generate: gen_castcoerce_module,
+    },
+    StmtModuleDef {
+        name: "intops",
+        generate: gen_intops_module,
+    },
+    StmtModuleDef {
+        name: "expreval",
+        generate: gen_expreval_module,
+    },
+    StmtModuleDef {
+        name: "like",
+        generate: gen_like_module,
+    },
+    StmtModuleDef {
+        name: "subplan",
+        generate: gen_subplan_module,
+    },
+    StmtModuleDef {
+        name: "scalartypes",
+        generate: gen_scalartypes_module,
+    },
+    StmtModuleDef {
+        name: "inherit",
+        generate: gen_inherit_module,
+    },
+    StmtModuleDef {
+        name: "bitstring",
+        generate: gen_bitstring_module,
+    },
+    StmtModuleDef {
+        name: "groupingsets",
+        generate: gen_groupingsets_module,
+    },
+    StmtModuleDef {
+        name: "tablesample",
+        generate: gen_tablesample_module,
+    },
+    StmtModuleDef {
+        name: "gramwalk",
+        generate: gen_gramwalk_module,
+    },
 ];
 
 /// Produce one statement group from the named module (the toggle vector
@@ -487,7 +775,10 @@ pub(crate) fn gen_expr_stmt(g: &mut Gen) -> SelectStmt {
     let table = g.pick_table();
     let alias = g.next_alias();
     let rels = vec![ScopeRel::from_table(table, alias.clone())];
-    let from = FromItem::Table { name: table.name.clone(), alias };
+    let from = FromItem::Table {
+        name: table.name.clone(),
+        alias,
+    };
     finish_select(g, &rels, from, Vec::new())
 }
 
@@ -508,7 +799,11 @@ pub fn finish_select(
     for _ in 0..ncols {
         let ty = g.any_type(&scope);
         let expr = g.gen_typed(&scope, ty, g.max_depth);
-        items.push(SelectItem { expr, alias: None, ty });
+        items.push(SelectItem {
+            expr,
+            alias: None,
+            ty,
+        });
     }
     let where_clause = if g.rng.chance(1, 2) {
         g.fire("where");
@@ -516,7 +811,13 @@ pub fn finish_select(
     } else {
         None
     };
-    let mut stmt = SelectStmt { ctes, items, from: Some(from), where_clause, ..Default::default() };
+    let mut stmt = SelectStmt {
+        ctes,
+        items,
+        from: Some(from),
+        where_clause,
+        ..Default::default()
+    };
     order_limit_suffix(g, &mut stmt);
     stmt
 }
@@ -567,7 +868,11 @@ pub(crate) fn order_limit_suffix(g: &mut Gen, stmt: &mut SelectStmt) {
         };
         let nulls_first = match g.weights.pick(
             g.rng,
-            &["orderby:nulls_default", "orderby:nulls_first", "orderby:nulls_last"],
+            &[
+                "orderby:nulls_default",
+                "orderby:nulls_first",
+                "orderby:nulls_last",
+            ],
         ) {
             "orderby:nulls_first" => {
                 g.fire("orderby:nulls_first");
@@ -579,7 +884,11 @@ pub(crate) fn order_limit_suffix(g: &mut Gen, stmt: &mut SelectStmt) {
             }
             _ => None,
         };
-        stmt.order_by.push(OrderKey { position, desc, nulls_first });
+        stmt.order_by.push(OrderKey {
+            position,
+            desc,
+            nulls_first,
+        });
     }
     // LIMIT/OFFSET: total ORDER BY + float-free output only (see above).
     let has_float = stmt.items.iter().any(|i| i.ty.is_float());
@@ -638,7 +947,11 @@ mod tests {
                 let mut prods = Vec::new();
                 let mut g = Gen::new(&mut rng, &cat, &w, &mut prods, 4);
                 let stmts = (module.generate)(&mut g);
-                assert!(!stmts.is_empty(), "module {} produced no statements", module.name);
+                assert!(
+                    !stmts.is_empty(),
+                    "module {} produced no statements",
+                    module.name
+                );
                 for stmt in &stmts {
                     match stmt {
                         StmtKind::Select(s) => {
@@ -687,7 +1000,9 @@ mod tests {
                 let mut g = Gen::new(&mut rng, &cat, &w, &mut prods, 3);
                 let stmts = (module.generate)(&mut g);
                 for kind in &stmts {
-                    let StmtKind::Select(stmt) = kind else { continue };
+                    let StmtKind::Select(stmt) = kind else {
+                        continue;
+                    };
                     if stmt.limit.is_some() || stmt.offset.is_some() {
                         saw_limit = true;
                         let positions: Vec<usize> =

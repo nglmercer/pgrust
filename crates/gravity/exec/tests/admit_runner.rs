@@ -4,7 +4,10 @@ use gravity_exec::{Backend, Verdict, MAX_EXECS, MAX_PLANS};
 use gravity_program::{Generation, Handle, PlanKey};
 
 fn key(handle: u64, stmt: u32) -> PlanKey {
-    PlanKey { handle: Handle(handle), generation: Generation(7 | stmt << 24) }
+    PlanKey {
+        handle: Handle(handle),
+        generation: Generation(7 | stmt << 24),
+    }
 }
 
 #[test]
@@ -100,14 +103,32 @@ fn a_refusal_is_kept_with_its_reason() {
 #[test]
 fn whole_part_claims_split_inside_a_part_below_the_width() {
     use gravity_exec::runner::whole_part_claims as law;
-    assert!(law(false, false, false, 8, 8), "8 live parts at W8: one claim per part");
-    assert!(law(false, false, false, 40, 8), "more parts than workers: whole parts");
-    assert!(!law(false, false, false, 2, 8), "2 parts at W8: the sizer cuts claims inside the parts");
+    assert!(
+        law(false, false, false, 8, 8),
+        "8 live parts at W8: one claim per part"
+    );
+    assert!(
+        law(false, false, false, 40, 8),
+        "more parts than workers: whole parts"
+    );
+    assert!(
+        !law(false, false, false, 2, 8),
+        "2 parts at W8: the sizer cuts claims inside the parts"
+    );
     assert!(law(false, false, false, 2, 2), "2 parts at W2: whole parts");
     assert!(law(false, false, false, 2, 1), "serial: one part per claim");
-    assert!(law(true, false, true, 1, 8), "per-part code groups (the text-groups fold) run whole parts, sparse or not");
-    assert!(law(false, true, false, 1, 8), "an answerable site answers per part");
-    assert!(!law(false, true, true, 1, 8), "a sparse survivor set is cut one granule per claim (no code lane)");
+    assert!(
+        law(true, false, true, 1, 8),
+        "per-part code groups (the text-groups fold) run whole parts, sparse or not"
+    );
+    assert!(
+        law(false, true, false, 1, 8),
+        "an answerable site answers per part"
+    );
+    assert!(
+        !law(false, true, true, 1, 8),
+        "a sparse survivor set is cut one granule per claim (no code lane)"
+    );
 }
 
 /// The tail rule over the law's whole parts: the first ⌊P/W⌋·W live parts whole, the last P mod W cut inside each part.
@@ -115,15 +136,31 @@ fn whole_part_claims_split_inside_a_part_below_the_width() {
 #[test]
 fn whole_part_claims_cut_only_the_last_p_mod_w_parts() {
     use gravity_exec::runner::tail_from_part as tail;
-    assert_eq!(tail(10, 8), Some(8), "claims kit: 10 parts at W8, the last 2 cut");
-    assert_eq!(tail(10, 4), Some(8), "10 parts at W4: two full waves, the last 2 cut");
+    assert_eq!(
+        tail(10, 8),
+        Some(8),
+        "claims kit: 10 parts at W8, the last 2 cut"
+    );
+    assert_eq!(
+        tail(10, 4),
+        Some(8),
+        "10 parts at W4: two full waves, the last 2 cut"
+    );
     assert_eq!(tail(15, 8), Some(8), "TPC-H orders at W8: the last 7 cut");
-    assert_eq!(tail(60, 8), Some(56), "TPC-H lineitem at W8: the last 4 cut");
+    assert_eq!(
+        tail(60, 8),
+        Some(56),
+        "TPC-H lineitem at W8: the last 4 cut"
+    );
     assert_eq!(tail(511, 8), Some(504), "511 parts at W8: the last 7 cut");
     assert_eq!(tail(16, 8), None, "two full waves: nothing cut");
     assert_eq!(tail(8, 8), None, "one full wave: nothing cut");
     assert_eq!(tail(60, 4), None, "TPC-H lineitem at W4: every wave full");
-    assert_eq!(tail(2, 8), None, "fewer parts than workers: the law cuts every part already");
+    assert_eq!(
+        tail(2, 8),
+        None,
+        "fewer parts than workers: the law cuts every part already"
+    );
     assert_eq!(tail(10, 1), None, "serial");
     assert_eq!(tail(10, 0), None, "no section");
 }
@@ -144,7 +181,12 @@ fn the_admission_arena_is_mapped_at_first_use_once() {
 fn the_pool_out_of_memory_is_the_statements_error() {
     use gravity_exec::runner::{refusal_of, refused};
     use types_error::ERRCODE_OUT_OF_MEMORY;
-    let pool = gravity_exec::glue::pg_error(gravity_driver::Error::OutOfMemory { bytes: 160 << 20, held: 2048 << 20, capacity: 2112 << 20, why: None });
+    let pool = gravity_exec::glue::pg_error(gravity_driver::Error::OutOfMemory {
+        bytes: 160 << 20,
+        held: 2048 << 20,
+        capacity: 2112 << 20,
+        why: None,
+    });
     assert_eq!(pool.sqlstate(), ERRCODE_OUT_OF_MEMORY);
     assert_eq!(refusal_of(&pool), None);
     assert_eq!(refusal_of(&refused("hosts: x")), Some("hosts: x"));
@@ -156,13 +198,19 @@ fn the_pool_out_of_memory_is_the_statements_error() {
 /// of a graph that took no licence, and one inside the plan-order run are not admitted again.
 #[test]
 fn a_licensed_shape_refusal_is_admitted_again_in_plan_order() {
-    use gravity_decompose::effects::{deny_all, denying, denying_bounded, licence, lowering, Departure, Effects};
+    use gravity_decompose::effects::{
+        deny_all, denying, denying_bounded, licence, lowering, Departure, Effects,
+    };
     use gravity_exec::admit::Refused;
     use gravity_exec::runner::{or_plan_order, relowers};
     use types_error::PgResult;
-    let shape = |n: u32| Refused { stage: "lower", what: format!("lowerv4: Shape: a keyed groups emit re-read under a rerun set whose owner runs inside a CTE's pulled plan (node {n})") };
+    let shape = |n: u32| {
+        Refused { stage: "lower", what: format!("lowerv4: Shape: a keyed groups emit re-read under a rerun set whose owner runs inside a CTE's pulled plan (node {n})") }
+    };
     // a family whose departure needs a licence, the licensed form refused by its lowering; `plan` answers its PostgreSQL form
-    let family = |runs: &mut Vec<(bool, bool)>, plan: Result<u32, Refused>| -> PgResult<Result<u32, Refused>> {
+    let family = |runs: &mut Vec<(bool, bool)>,
+                  plan: Result<u32, Refused>|
+     -> PgResult<Result<u32, Refused>> {
         runs.push((denying(), denying_bounded()));
         Ok(match licence(Effects::RAISES, Departure::Ahead) {
             Ok(_) => Err(shape(1)),
@@ -172,14 +220,24 @@ fn a_licensed_shape_refusal_is_admitted_again_in_plan_order() {
     let mut runs = Vec::new();
     let (r, again) = or_plan_order(true, || family(&mut runs, Ok(7))).unwrap();
     assert!(again && matches!(r, Ok(7)), "served in plan order");
-    assert_eq!(runs, [(false, false), (true, false)], "the licensed run, then the plan-order run");
+    assert_eq!(
+        runs,
+        [(false, false), (true, false)],
+        "the licensed run, then the plan-order run"
+    );
     assert!(!denying(), "restored");
     runs.clear();
     let (r, again) = or_plan_order(false, || family(&mut runs, Ok(7))).unwrap();
-    assert!(again && matches!(r, Ok(7)) && runs == [(false, false), (true, true)], "a counted read: the bounded run");
+    assert!(
+        again && matches!(r, Ok(7)) && runs == [(false, false), (true, true)],
+        "a counted read: the bounded run"
+    );
     runs.clear();
     let (r, again) = or_plan_order(true, || family(&mut runs, Err(shape(2)))).unwrap();
-    assert!(again && runs.len() == 2 && r.is_err_and(|w| w.what.ends_with("(node 1)")), "both refuse: the first reason");
+    assert!(
+        again && runs.len() == 2 && r.is_err_and(|w| w.what.ends_with("(node 1)")),
+        "both refuse: the first reason"
+    );
     // no licence taken: refused once
     let mut n = 0;
     let (r, again) = or_plan_order(true, || {
@@ -191,16 +249,54 @@ fn a_licensed_shape_refusal_is_admitted_again_in_plan_order() {
     // inside the plan-order run (the errorhold re-run): never again
     assert!(!deny_all(|| relowers(&shape(4), true, false)));
     assert!(relowers(&shape(4), true, false) && !relowers(&shape(4), false, false));
-    assert!(!relowers(&shape(4), true, true), "a statement that acts: no plan-order form (D3540)");
-    assert!(!relowers(&Refused { stage: "lower", what: "lowerv4: NotBuilt M9: hook Variant (node 5)".into() }, true, false), "not a Shape");
-    assert!(!relowers(&Refused { stage: "lower", what: "an InitPlan without its exec word".into() }, true, false));
-    assert!(!relowers(&Refused { stage: "decompose", what: "lowerv4: Shape: x".into() }, true, false), "the lowering's only");
+    assert!(
+        !relowers(&shape(4), true, true),
+        "a statement that acts: no plan-order form (D3540)"
+    );
+    assert!(
+        !relowers(
+            &Refused {
+                stage: "lower",
+                what: "lowerv4: NotBuilt M9: hook Variant (node 5)".into()
+            },
+            true,
+            false
+        ),
+        "not a Shape"
+    );
+    assert!(!relowers(
+        &Refused {
+            stage: "lower",
+            what: "an InitPlan without its exec word".into()
+        },
+        true,
+        false
+    ));
+    assert!(
+        !relowers(
+            &Refused {
+                stage: "decompose",
+                what: "lowerv4: Shape: x".into()
+            },
+            true,
+            false
+        ),
+        "the lowering's only"
+    );
     // a statement that acts (its lowering entered with `acts`): the licensed form's refusal stands, lowered once
     runs.clear();
-    let (r, again) = or_plan_order(true, || lowering(true, false, || family(&mut runs, Ok(7)))).unwrap();
-    assert!(!again && runs.len() == 1 && r.is_err(), "a statement that acts is not lowered again");
-    let (r, again) = or_plan_order(true, || lowering(false, false, || family(&mut runs, Ok(7)))).unwrap();
-    assert!(again && matches!(r, Ok(7)), "one that does not act is: the flag was taken");
+    let (r, again) =
+        or_plan_order(true, || lowering(true, false, || family(&mut runs, Ok(7)))).unwrap();
+    assert!(
+        !again && runs.len() == 1 && r.is_err(),
+        "a statement that acts is not lowered again"
+    );
+    let (r, again) =
+        or_plan_order(true, || lowering(false, false, || family(&mut runs, Ok(7)))).unwrap();
+    assert!(
+        again && matches!(r, Ok(7)),
+        "one that does not act is: the flag was taken"
+    );
     // the graph path's admissions counter is the backend's
     assert_eq!(Backend::new_for_test().relowered, 0);
 }

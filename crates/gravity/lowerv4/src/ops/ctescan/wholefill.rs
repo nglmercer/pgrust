@@ -47,7 +47,10 @@ crate::strategies! {
     CTE_WHOLEFILL = 161, "cte.wholefill", Cte; // a3-strategy-bits.tsv row 161
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(CTE_WHOLEFILL, &())], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(CTE_WHOLEFILL, &())],
+    ..crate::ops::NONE
+};
 
 /// The Shape of a whole fill whose licence the lowering was refused after `licensable` granted it (the two read the
 /// same facts: a refusal by name, never a fill without its licence).
@@ -55,11 +58,15 @@ pub(crate) const UNLICENSED: &str = "a CTE filled whole ahead under cte.wholefil
 
 /// The road on for this statement (default off: road_off.rs `DEFAULT_OFF`).
 pub(crate) fn road_on(px: &Px<'_, '_>) -> bool {
-    px.strategies.has(CTE_WHOLEFILL) && crate::face::source::on(crate::admit::refusal::Variant::Strategy(CTE_WHOLEFILL))
+    px.strategies.has(CTE_WHOLEFILL)
+        && crate::face::source::on(crate::admit::refusal::Variant::Strategy(CTE_WHOLEFILL))
 }
 
 fn init_plan<'g, 'p>(gx: &Gx<'g, 'p>, k: usize) -> Option<&'g InitPlan<'p>> {
-    gx.graph.init_plans.iter().find(|i| i.pipeline as usize == k && matches!(i.link, SubLink::Cte))
+    gx.graph
+        .init_plans
+        .iter()
+        .find(|i| i.pipeline as usize == k && matches!(i.link, SubLink::Cte))
 }
 
 /// Whether CTE `k`'s plan, which may raise, may run whole ahead of its readers under v5 errorhold's licence: the road is
@@ -72,10 +79,14 @@ pub(crate) fn licensable(px: &Px<'_, '_>, k: usize) -> bool {
     if !road_on(px) {
         return false;
     }
-    let Some(i) = init_plan(gx, k) else { return false };
+    let Some(i) = init_plan(gx, k) else {
+        return false;
+    };
     let own = Effects::of_init_plan(i);
     let lock = || crate::ops::ctescan::lower::feeds(gx, k, |op| matches!(op, Op::Lock(_)));
-    let hides = || crate::effects::hides_user_code(gx, k) && crate::effects::statement_user_code(gx, px.arena);
+    let hides = || {
+        crate::effects::hides_user_code(gx, k) && crate::effects::statement_user_code(gx, px.arena)
+    };
     own.may_raise
         && !own.acts
         && !lock()
@@ -91,7 +102,11 @@ pub(crate) fn licensable(px: &Px<'_, '_>, k: usize) -> bool {
 /// ruling's eligibility: such a reader keeps the pull). An embedded inner (past the graph's pipelines) always does.
 pub(crate) fn stops_early(gx: &Gx<'_, '_>, p: usize) -> bool {
     let ps = gx.pipelines();
-    p >= ps.len() || ps[p].ops.iter().any(|op| crate::frame::iface::limit_bounds(op).is_some())
+    p >= ps.len()
+        || ps[p]
+            .ops
+            .iter()
+            .any(|op| crate::frame::iface::limit_bounds(op).is_some())
 }
 
 /// The licence of CTE `k`'s whole fill (`licensable` held when the fill was chosen): its pipeline runs ahead under
@@ -99,7 +114,12 @@ pub(crate) fn stops_early(gx: &Gx<'_, '_>, p: usize) -> bool {
 /// left it), held on what feeds it too. Refused by name (`UNLICENSED`) if the grant is denied.
 pub(crate) fn license(px: &mut Px<'_, '_>, k: usize, node: i32) {
     if px.run_ahead(k, Effects::RAISES).is_none() {
-        crate::refuse!(node, crate::admit::refusal::Reason::Shape { why: crate::admit::refusal::ShapeWhy(UNLICENSED) });
+        crate::refuse!(
+            node,
+            crate::admit::refusal::Reason::Shape {
+                why: crate::admit::refusal::ShapeWhy(UNLICENSED)
+            }
+        );
     }
     fires::fire("lower.cte.wholefill"); // shapecheck fire signal (D3336 A2 (iii)): a CTE that may raise filled whole ahead
 }
@@ -115,8 +135,18 @@ pub(crate) fn sort_reader(px: &Px<'_, '_>, k: usize) -> bool {
     if !road_on(px) || crate::frame::iface::end_breaker(gx, k) != Some(BreakerKind::Sort) {
         return false;
     }
-    let plain = gx.pipelines()[k].ops.iter().all(|op| matches!(op, Op::Filter(_) | Op::Gate(_) | Op::Project(_) | Op::Sort(_)));
-    let full = gx.end_need(k) == KindId::RunsSort && crate::frame::iface::run_holds_rows(gx, k) && crate::frame::iface::wide_row_end(gx, k) && crate::effects::visible::wide_visible(gx, k).is_none();
-    let merge = gx.end_need(k) == KindId::MergeJoin && crate::face::slot_run::emit_fill(px, k) && crate::effects::visible::calls_visible(gx, k).is_none();
+    let plain = gx.pipelines()[k].ops.iter().all(|op| {
+        matches!(
+            op,
+            Op::Filter(_) | Op::Gate(_) | Op::Project(_) | Op::Sort(_)
+        )
+    });
+    let full = gx.end_need(k) == KindId::RunsSort
+        && crate::frame::iface::run_holds_rows(gx, k)
+        && crate::frame::iface::wide_row_end(gx, k)
+        && crate::effects::visible::wide_visible(gx, k).is_none();
+    let merge = gx.end_need(k) == KindId::MergeJoin
+        && crate::face::slot_run::emit_fill(px, k)
+        && crate::effects::visible::calls_visible(gx, k).is_none();
     plain && (full || merge)
 }

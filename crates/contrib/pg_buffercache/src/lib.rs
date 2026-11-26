@@ -75,7 +75,9 @@ fn composite_result(
     if resolved.class != funcapi::TypeFuncClass::Composite {
         return Err(Box::new(PgError::error("return type must be a row type")));
     }
-    let tupdesc = resolved.result_tuple_desc.expect("composite result carries a tupdesc");
+    let tupdesc = resolved
+        .result_tuple_desc
+        .expect("composite result carries a tupdesc");
     let tup = heaptuple::heap_form_tuple(mcx, &tupdesc, values, nulls)?;
     let d = Datum::from_usize(tup.header_ptr() as usize);
     core::mem::forget(tup);
@@ -85,10 +87,7 @@ fn composite_result(
 /// `pg_buffercache_pages`: one row per shared buffer. Each header is
 /// inspected under its own header lock, exactly C's discipline (no partition
 /// locks, so no cross-buffer consistency; each row is self-consistent).
-fn fc_pg_buffercache_pages(
-    flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut Fcinfo,
-) -> PgResult<Datum> {
+fn fc_pg_buffercache_pages(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let flinfo = resolved_flinfo(flinfo, "pg_buffercache_pages");
 
     // SAFETY: executor arms es_query_cxt pre-call; it outlives this frame.
@@ -98,14 +97,22 @@ fn fc_pg_buffercache_pages(
     // The v1.0-compat natts window: 8 columns (no pinning_backends) or 9.
     let natts = srf.tupdesc.natts;
     if !(NUM_BUFFERCACHE_PAGES_MIN_ELEM..=NUM_BUFFERCACHE_PAGES_ELEM).contains(&natts) {
-        return Err(Box::new(PgError::error("incorrect number of output arguments")));
+        return Err(Box::new(PgError::error(
+            "incorrect number of output arguments",
+        )));
     }
     // C builds its own fixed-type tupdesc and the executor's tupledesc_match
     // rejects a disagreeing column definition list; forming rows of these
     // by-value datums under a caller-declared by-ref type would fault.
     const COLTYPES: [types_core::Oid; NUM_BUFFERCACHE_PAGES_ELEM as usize] = [
-        types_core::INT4OID, types_core::OIDOID, types_core::OIDOID, types_core::OIDOID,
-        types_core::INT2OID, types_core::INT8OID, types_core::BOOLOID, types_core::INT2OID,
+        types_core::INT4OID,
+        types_core::OIDOID,
+        types_core::OIDOID,
+        types_core::OIDOID,
+        types_core::INT2OID,
+        types_core::INT8OID,
+        types_core::BOOLOID,
+        types_core::INT2OID,
         types_core::INT4OID,
     ];
     #[allow(clippy::needless_range_loop)]
@@ -114,7 +121,10 @@ fn fc_pg_buffercache_pages(
             return Err(Box::new(
                 PgError::error("function return row and query-specified return row do not match")
                     .with_sqlstate(types_error::ERRCODE_DATATYPE_MISMATCH)
-                    .with_detail(format!("Returned type does not match expected type in column {}.", i + 1)),
+                    .with_detail(format!(
+                        "Returned type does not match expected type in column {}.",
+                        i + 1
+                    )),
             ));
         }
     }
@@ -268,10 +278,7 @@ fn fc_pg_buffercache_usage_counts(
 }
 
 /// `pg_buffercache_evict` (STRICT in SQL; fmgr handles the NULL arg).
-fn fc_pg_buffercache_evict(
-    flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut Fcinfo,
-) -> PgResult<Datum> {
+fn fc_pg_buffercache_evict(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let flinfo = resolved_flinfo(flinfo, "pg_buffercache_evict");
     superuser_check("pg_buffercache_evict")?;
 

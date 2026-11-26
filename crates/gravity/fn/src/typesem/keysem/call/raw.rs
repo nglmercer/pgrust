@@ -9,7 +9,8 @@ use super::{Bound, BOUND};
 use crate::FmgrCall;
 
 /// D3402: the effects home's alias verdict (`alias::set_alias_verdict`), stored as its fn pointer; null until installed.
-static VERDICT: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static VERDICT: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 pub(super) fn set_verdict(v: AliasVerdict) {
     VERDICT.store(v as *mut (), core::sync::atomic::Ordering::Release);
@@ -44,7 +45,7 @@ impl Slot {
     /// The binding, when no call of it runs.
     pub(super) fn idle(&self) -> Option<&Bound> {
         // SAFETY: an idle binding is referenced by no running call.
-        (!self.busy()).then_some( unsafe { self.0.as_ref() })
+        (!self.busy()).then_some(unsafe { self.0.as_ref() })
     }
 
     pub(super) fn idle_mut(&mut self) -> Option<&mut Bound> {
@@ -54,7 +55,9 @@ impl Slot {
 
     /// A call of this (idle) binding starts: busy until the `Running` drops.
     pub(super) fn run(&mut self) -> Running {
-        let b = self.idle_mut().expect("gravity: a support function's binding run while its call runs");
+        let b = self
+            .idle_mut()
+            .expect("gravity: a support function's binding run while its call runs");
         b.busy = true;
         Running(self.0)
     }
@@ -68,7 +71,10 @@ impl Slot {
 
 impl Drop for Slot {
     fn drop(&mut self) {
-        debug_assert!(!self.busy(), "gravity: a support function's binding dropped while its call runs");
+        debug_assert!(
+            !self.busy(),
+            "gravity: a support function's binding dropped while its call runs"
+        );
         // SAFETY: `Slot::new`'s box, dropped once; `find` and `sweep` keep a busy slot, so no call runs it.
         drop(unsafe { Box::from_raw(self.0.as_ptr()) });
     }
@@ -108,7 +114,11 @@ impl Drop for Running {
             (*p).stale
         };
         if stale {
-            let gone = BOUND.try_with(|h| h.try_borrow_mut().ok().and_then(|mut v| v.iter().position(|s| s.0 == self.0).map(|i| v.remove(i))));
+            let gone = BOUND.try_with(|h| {
+                h.try_borrow_mut()
+                    .ok()
+                    .and_then(|mut v| v.iter().position(|s| s.0 == self.0).map(|i| v.remove(i)))
+            });
             drop(gone);
         }
     }

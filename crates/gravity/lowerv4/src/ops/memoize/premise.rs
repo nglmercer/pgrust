@@ -10,7 +10,9 @@ use crate::rep::{key_kind, Accessor};
 impl<'p> Walk<'_, '_, 'p> {
     /// One Op::Join(JoinDesc::Memo).
     pub(crate) fn memoize(&mut self, j: &JoinDesc<'p>) {
-        let JoinDesc::Memo { keys, .. } = j else { return };
+        let JoinDesc::Memo { keys, .. } = j else {
+            return;
+        };
         let packed = self.p.has(Prop::Packed);
         self.add(key_kind(KeyKind::I64, None, packed, Accessor::Hash));
         self.list(keys);

@@ -15,14 +15,32 @@ use gravity_program::WordsDesc;
 fn no_v4_pipeline_carries_a_legacy_words_desc() {
     let (mut lowered, mut bad) = (0, Vec::new());
     for off in ["", "table.sized"] {
-        strategy::set_off(StrategySet::parse(off).unwrap_or_else(|e| panic!("road_off {off:?}: {e}")));
+        strategy::set_off(
+            StrategySet::parse(off).unwrap_or_else(|e| panic!("road_off {off:?}: {e}")),
+        );
         for (name, text) in common::files(&common::plans_dir(), "plan") {
-            let Some(Ok(l)) = common::lower_fixture(&text) else { continue };
+            let Some(Ok(l)) = common::lower_fixture(&text) else {
+                continue;
+            };
             lowered += 1;
             for (i, p) in l.descs.pipelines.iter().enumerate() {
-                let facts = |s: u16| l.descs.v4.protos.iter().any(|q| q.kind == ProtoKind::Facts && q.pipeline as usize == i && (q.words.base..q.words.base + q.words.n).contains(&s));
-                if let Some(w) = p.words.filter(|w| !w.slots().into_iter().filter(|&s| s != WordsDesc::NONE).all(facts)) {
-                    bad.push(format!("{name} (road_off {off:?}): pipeline {i} ending {:?} keeps {w:?}", p.ends_in));
+                let facts = |s: u16| {
+                    l.descs.v4.protos.iter().any(|q| {
+                        q.kind == ProtoKind::Facts
+                            && q.pipeline as usize == i
+                            && (q.words.base..q.words.base + q.words.n).contains(&s)
+                    })
+                };
+                if let Some(w) = p.words.filter(|w| {
+                    !w.slots()
+                        .into_iter()
+                        .filter(|&s| s != WordsDesc::NONE)
+                        .all(facts)
+                }) {
+                    bad.push(format!(
+                        "{name} (road_off {off:?}): pipeline {i} ending {:?} keeps {w:?}",
+                        p.ends_in
+                    ));
                 }
             }
         }

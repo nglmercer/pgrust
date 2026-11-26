@@ -5,19 +5,44 @@
 use types_core::Oid;
 use types_tuple::{HeapTupleData, TupleDescData};
 
-use crate::{ANUM_PG_CLASS_OID, ANUM_PG_CLASS_RELKIND, ANUM_PG_CLASS_RELNAMESPACE, ANUM_PG_CLASS_RELTOASTRELID};
+use crate::{
+    ANUM_PG_CLASS_OID, ANUM_PG_CLASS_RELKIND, ANUM_PG_CLASS_RELNAMESPACE,
+    ANUM_PG_CLASS_RELTOASTRELID,
+};
 
 /// A pg_database row's (oid, datallowconn, datistemplate, datconnlimit); `tup` comes from a scan of pg_database and
 /// `desc` is that relation's descriptor.
-pub(crate) fn database_row(tup: &HeapTupleData<'_>, desc: &TupleDescData<'_>) -> (Oid, bool, bool, i32) {
+pub(crate) fn database_row(
+    tup: &HeapTupleData<'_>,
+    desc: &TupleDescData<'_>,
+) -> (Oid, bool, bool, i32) {
     let mut isnull = false;
     // SAFETY: fixed NOT NULL pg_database columns under its descriptor.
     unsafe {
         (
-            types_tuple::heap_getattr(tup, pg_database::Anum_pg_database_oid, desc, &mut isnull).as_oid(),
-            types_tuple::heap_getattr(tup, pg_database::Anum_pg_database_datallowconn, desc, &mut isnull).as_bool(),
-            types_tuple::heap_getattr(tup, pg_database::Anum_pg_database_datistemplate, desc, &mut isnull).as_bool(),
-            types_tuple::heap_getattr(tup, pg_database::Anum_pg_database_datconnlimit, desc, &mut isnull).as_i32(),
+            types_tuple::heap_getattr(tup, pg_database::Anum_pg_database_oid, desc, &mut isnull)
+                .as_oid(),
+            types_tuple::heap_getattr(
+                tup,
+                pg_database::Anum_pg_database_datallowconn,
+                desc,
+                &mut isnull,
+            )
+            .as_bool(),
+            types_tuple::heap_getattr(
+                tup,
+                pg_database::Anum_pg_database_datistemplate,
+                desc,
+                &mut isnull,
+            )
+            .as_bool(),
+            types_tuple::heap_getattr(
+                tup,
+                pg_database::Anum_pg_database_datconnlimit,
+                desc,
+                &mut isnull,
+            )
+            .as_i32(),
         )
     }
 }

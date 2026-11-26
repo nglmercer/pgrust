@@ -13,8 +13,7 @@ use types_storage::aio::{
 };
 
 use aio_core::{
-    PGAIO_HS_COMPLETED_IO, PGAIO_HS_COMPLETED_LOCAL, PGAIO_HS_COMPLETED_SHARED,
-    PGAIO_HS_HANDED_OUT,
+    PGAIO_HS_COMPLETED_IO, PGAIO_HS_COMPLETED_LOCAL, PGAIO_HS_COMPLETED_SHARED, PGAIO_HS_HANDED_OUT,
 };
 
 const PG_GET_AIOS_COLS: usize = 15;
@@ -127,8 +126,10 @@ pub fn fc_pg_get_aios(
 
         // column: result in the higher level representation (unknown if not
         // finished)
-        values[10] =
-            text_datum(mcx, aio_core::pgaio_result_status_string(ioh.distilled_status))?;
+        values[10] = text_datum(
+            mcx,
+            aio_core::pgaio_result_status_string(ioh.distilled_status),
+        )?;
 
         // column: target description (aio_target.c pgaio_io_get_target_description)
         if ioh.target == PGAIO_TID_SMGR {

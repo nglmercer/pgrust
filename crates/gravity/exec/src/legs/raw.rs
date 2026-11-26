@@ -12,7 +12,10 @@ pub(super) unsafe fn image_len(p: *const u8, typlen: i16) -> usize {
         return typlen as usize;
     }
     if typlen == -2 {
-        return core::ffi::CStr::from_ptr(p as *const core::ffi::c_char).to_bytes().len() + 1;
+        return core::ffi::CStr::from_ptr(p as *const core::ffi::c_char)
+            .to_bytes()
+            .len()
+            + 1;
     }
     let b0 = *p;
     if b0 & 1 != 0 {

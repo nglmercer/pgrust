@@ -30,4 +30,3 @@ fn xseg_conversions() {
     assert_eq!(crate::convert_to_xsegs(1024, 16 * 1024 * 1024), 64);
     assert_eq!(crate::convert_to_xsegs(0, 16 * 1024 * 1024), 0);
 }
-

@@ -20,8 +20,8 @@ pub use pgtz::{
     set_log_timezone, set_session_timezone, with_session_timezone,
 };
 
-pub use localtime::TZ_STRLEN_MAX;
 use localtime::NextDstBoundary;
+pub use localtime::TZ_STRLEN_MAX;
 use types_error::PgResult;
 
 /// [`with_session_timezone`] for a reader that needs a zone (every backend has one after `pg_timezone_initialize`):
@@ -328,7 +328,11 @@ pub fn ConvertTimeZoneAbbrevs(abbrevs: &[TzEntry<'_>]) -> &'static ZoneAbbrevTab
             }
             None => (if abbr.is_dst { DTZ } else { TZ }, abbr.offset),
         };
-        tokens.push(DateTkn { token, typ: typ as i8, value });
+        tokens.push(DateTkn {
+            token,
+            typ: typ as i8,
+            value,
+        });
     }
     debug_assert!(crate::decode::CheckDateTokenTable(&tokens));
     Box::leak(Box::new(ZoneAbbrevTable {

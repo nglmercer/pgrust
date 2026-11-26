@@ -363,7 +363,9 @@ impl<'m, 'id, A: CompilerAdaptor, T: CompilerTarget<A, N>, const N: usize>
                             assigner: RefCell::new(None),
                             fed: Cell::new(INVALID_VALUE),
                             borrow_inst: Cell::new(None),
-                            borrowed: RefCell::new([(Reg::make_invalid(), INVALID_VALUE, 0, 0, 0); 4]),
+                            borrowed: RefCell::new(
+                                [(Reg::make_invalid(), INVALID_VALUE, 0, 0, 0); 4],
+                            ),
                             nborrowed: Cell::new(0),
                             current: Cell::new(
                                 self.analyzer
@@ -374,8 +376,7 @@ impl<'m, 'id, A: CompilerAdaptor, T: CompilerTarget<A, N>, const N: usize>
                             failure: RefCell::new(None),
                         };
                         session.begin_function(index as u32)?;
-                        let
-                        info = self.target.borrow().cc_info(&self.adaptor);
+                        let info = self.target.borrow().cc_info(&self.adaptor);
                         let policy = self.target.borrow().new_cc_policy(&self.adaptor);
                         *session.assigner.borrow_mut() = Some(CCAssigner::new(&info, policy));
                         session.compile_function(index as u32, &mut self.dynamic_allocas)
@@ -611,7 +612,8 @@ impl<
     /// invariant.
     fn feed_phi(&self, local: ValLocalIdx, bank: RegBank, phi: A::ValueRef) -> bool {
         let phi_local = self.adaptor.val_local_idx(phi);
-        if self.assignment_exists(phi_local) || self.nborrowed.get() != 0 || !self.fixed_room(bank) {
+        if self.assignment_exists(phi_local) || self.nborrowed.get() != 0 || !self.fixed_room(bank)
+        {
             return false;
         }
         if self.pinned.borrow()[bank.id() as usize] >= T::PINNED_ASSIGNMENTS[bank.id() as usize] {
@@ -662,17 +664,16 @@ impl<
         if parts != 1 || variable {
             return false;
         }
-        let (fixed, valid, reg, pinned, phi_bank, phi_size) =
-            self.with_part(phi_local, 0, |ap| {
-                (
-                    ap.fixed_assignment(),
-                    ap.register_valid(),
-                    ap.get_reg(),
-                    ap.pinned(),
-                    ap.bank(),
-                    ap.part_size(),
-                )
-            });
+        let (fixed, valid, reg, pinned, phi_bank, phi_size) = self.with_part(phi_local, 0, |ap| {
+            (
+                ap.fixed_assignment(),
+                ap.register_valid(),
+                ap.get_reg(),
+                ap.pinned(),
+                ap.bank(),
+                ap.part_size(),
+            )
+        });
         let size = self.with_part(local, 0, |ap| ap.part_size());
         if !fixed || !valid || phi_bank != bank || phi_size > 8 || size > phi_size {
             return false;
@@ -708,7 +709,9 @@ impl<
             return Ok(false);
         }
         let bank = parts.reg_bank(0);
-        if self.pinned.borrow()[bank.id() as usize] >= T::PINNED_ASSIGNMENTS[bank.id() as usize] || !self.fixed_room(bank) {
+        if self.pinned.borrow()[bank.id() as usize] >= T::PINNED_ASSIGNMENTS[bank.id() as usize]
+            || !self.fixed_room(bank)
+        {
             return Ok(false);
         }
         let live = self.liveness(local);
@@ -755,16 +758,15 @@ impl<
                 (a.variable_ref(), a.part_count(), a.references_left())
             });
             if !variable && count == 1 {
-                let (valid, reg, stack_valid, fixed, pinned) =
-                    self.with_part(in_local, 0, |ap| {
-                        (
-                            ap.register_valid(),
-                            ap.get_reg(),
-                            ap.stack_valid(),
-                            ap.fixed_assignment(),
-                            ap.pinned(),
-                        )
-                    });
+                let (valid, reg, stack_valid, fixed, pinned) = self.with_part(in_local, 0, |ap| {
+                    (
+                        ap.register_valid(),
+                        ap.get_reg(),
+                        ap.stack_valid(),
+                        ap.fixed_assignment(),
+                        ap.pinned(),
+                    )
+                });
                 let dies = refs_left == 1 && self.liveness(in_local).last == self.current.get();
                 if valid
                     && mask & (1u64 << reg.id()) != 0
@@ -1095,7 +1097,7 @@ impl<
             // no slot, no store.
             if self.adaptor.local_const(local).is_some() {
                 return {
-                    let _:() =self.with_part(local, part, |ap| ap.set_stack_valid());
+                    let _: () = self.with_part(local, part, |ap| ap.set_stack_valid());
                     Ok(())
                 };
             }
@@ -1165,8 +1167,10 @@ impl<
     /// fused compare's operands, a phi cycle's temporary) cannot borrow.
     fn fixed_room(&self, bank: RegBank) -> bool {
         const SCRATCH_RESERVE: u32 = 4;
-        let held = self.fixed.borrow()[bank.id() as usize] + self.pinned.borrow()[bank.id() as usize];
-        let regs = (self.registers.allocatable.get() & RegisterFile::<N, 32>::bank_regs(bank)).count_ones();
+        let held =
+            self.fixed.borrow()[bank.id() as usize] + self.pinned.borrow()[bank.id() as usize];
+        let regs = (self.registers.allocatable.get() & RegisterFile::<N, 32>::bank_regs(bank))
+            .count_ones();
         held + SCRATCH_RESERVE < regs
     }
     /// D398: every register of `bank` is locked (fixed and pinned
@@ -1178,7 +1182,9 @@ impl<
     /// before. Not inside a terminator (its code ends in the jump) nor a
     /// branch region.
     fn borrow_fixed(&self, bank: RegBank) -> PgResult<Option<Reg>> {
-        let Some(inst) = self.borrow_inst.get() else { return Ok(None) };
+        let Some(inst) = self.borrow_inst.get() else {
+            return Ok(None);
+        };
         let n = self.nborrowed.get() as usize;
         if n >= 4 || !self.may_change_value_state() {
             return Ok(None);
@@ -1204,26 +1210,43 @@ impl<
         for v in self.adaptor.inst_results(inst) {
             mark(self.adaptor.val_local_idx(v));
         }
-        let cands = self.registers.used.get() & self.registers.allocatable.get() & RegisterFile::<N, 32>::bank_regs(bank) & !busy;
+        let cands = self.registers.used.get()
+            & self.registers.allocatable.get()
+            & RegisterFile::<N, 32>::bank_regs(bank)
+            & !busy;
         let mut pick = None;
         for index in BitSetIterator::<false>::new(cands) {
             let reg = Reg::new(index);
             if self.registers.reg_lock_count(reg) != 1 {
                 continue;
             }
-            let (local, part) = (self.registers.reg_local_idx(reg), self.registers.reg_part(reg));
+            let (local, part) = (
+                self.registers.reg_local_idx(reg),
+                self.registers.reg_part(reg),
+            );
             if local == INVALID_VALUE || local == self.fed.get() {
                 continue;
             }
-            let ok = self.with_part(local, part, |ap| ap.fixed_assignment() && ap.register_valid() && ap.get_reg() == reg && !ap.variable_ref() && ap.part_size() <= 8);
+            let ok = self.with_part(local, part, |ap| {
+                ap.fixed_assignment()
+                    && ap.register_valid()
+                    && ap.get_reg() == reg
+                    && !ap.variable_ref()
+                    && ap.part_size() <= 8
+            });
             if ok {
                 pick = Some((reg, local, part));
                 break;
             }
         }
-        let Some((reg, local, part)) = pick else { return Ok(None) };
+        let Some((reg, local, part)) = pick else {
+            return Ok(None);
+        };
         let size = self.with_part(local, part, |ap| ap.part_size());
-        let slot = self.frame.borrow_mut().allocate(size.max(8), T::FRAME_INDEXING_NEGATIVE)?;
+        let slot = self
+            .frame
+            .borrow_mut()
+            .allocate(size.max(8), T::FRAME_INDEXING_NEGATIVE)?;
         T::spill_reg(self, reg, slot, size)?;
         GuardMachine::regalloc_event(self, RegallocEvent::Lend);
         self.with_registers(|r| {
@@ -1245,7 +1268,9 @@ impl<
             let (reg, local, part, slot, size) = self.borrowed.borrow()[i];
             if self.with_registers(|r| r.is_used(reg)) {
                 if self.with_registers(|r| r.is_fixed(reg)) {
-                    return Err(invalid("tpde: a lent fixed register was fixed again before its return (D398)"));
+                    return Err(invalid(
+                        "tpde: a lent fixed register was fixed again before its return (D398)",
+                    ));
                 }
                 self.evict_reg(reg)?;
             }
@@ -1261,9 +1286,10 @@ impl<
         Ok(())
     }
     fn begin_function(&self, index: u32) -> PgResult<()> {
-        self.output
-            .borrow_mut()
-            .begin_func(self.adaptor.func_align(), self.analyzer.num_insts.wrapping_mul(8).wrapping_add(64))?;
+        self.output.borrow_mut().begin_func(
+            self.adaptor.func_align(),
+            self.analyzer.num_insts.wrapping_mul(8).wrapping_add(64),
+        )?;
         T::start_func(self, index)?;
         {
             let mut labels = self.labels.borrow_mut();
@@ -1365,14 +1391,26 @@ impl<
         self.current.set(BlockIndex(index));
         self.label_place(self.block_label(BlockIndex(index)))?;
         // D117's verifier: the linear state holds only when this block is the only-entry successor of the one laid out before it
-        let linear = index > 0 && !self.block_has_multiple_incoming(block) && self.adaptor.block_succs(self.block_ref(BlockIndex(index - 1))).into_iter().any(|b| b == block);
+        let linear = index > 0
+            && !self.block_has_multiple_incoming(block)
+            && self
+                .adaptor
+                .block_succs(self.block_ref(BlockIndex(index - 1)))
+                .into_iter()
+                .any(|b| b == block);
         if !linear {
             let used = self.with_registers(|r| r.used.get());
             for id in tpde_util::misc::BitSetIterator::<false>::new(used) {
                 let reg = Reg::new(id);
                 let local = self.with_registers(|r| r.reg_local_idx(reg));
                 // a dead value's register awaits its delayed free and is never read: only a value live into this block counts
-                if local != INVALID_VALUE && self.liveness(local).first.0 < index && self.liveness(local).last.0 >= index && !self.with_part(local, self.with_registers(|r| r.reg_part(reg)), |ap| ap.fixed_assignment() || ap.variable_ref()) {
+                if local != INVALID_VALUE
+                    && self.liveness(local).first.0 < index
+                    && self.liveness(local).last.0 >= index
+                    && !self.with_part(local, self.with_registers(|r| r.reg_part(reg)), |ap| {
+                        ap.fixed_assignment() || ap.variable_ref()
+                    })
+                {
                     GuardMachine::regalloc_event(self, RegallocEvent::StaleEntry);
                 }
             }
@@ -1383,7 +1421,8 @@ impl<
                 continue;
             }
             self.fed.set(INVALID_VALUE);
-            self.borrow_inst.set(instructions.clone().next().map(|_| instruction));
+            self.borrow_inst
+                .set(instructions.clone().next().map(|_| instruction));
             if !T::compile_inst(self, instruction, instructions.clone())? {
                 return Ok(false);
             }
@@ -1526,7 +1565,11 @@ impl<
         // The target is borrowed mutably only between functions (analysis,
         // prologue/epilogue), never while an instruction emits.
         if let Ok(target) = self.target.try_borrow() {
-            target.regalloc_event(self.adaptor, event, self.analyzer.block_ref(self.current.get()));
+            target.regalloc_event(
+                self.adaptor,
+                event,
+                self.analyzer.block_ref(self.current.get()),
+            );
         }
     }
     fn current_block(&self) -> BlockIndex {
@@ -1609,10 +1652,10 @@ impl<
                     // scaled by the references left.
                     refs = ((u64::from(info.weight) * u64::from(references))
                         / u64::from(info.ref_count))
-                        .min(0xffff) as u32;
+                    .min(0xffff) as u32;
                 }
                 let score = (u32::from(spilled) << 31)
-                    | (0x8000_u32.saturating_sub( distance) << 16)
+                    | (0x8000_u32.saturating_sub(distance) << 16)
                     | if refs < 0xffff { 0x10000 - refs } else { 1 };
                 tpde_assert_ne!(score, 0);
                 if score > maximum {
@@ -1628,7 +1671,11 @@ impl<
             let fed = self.fed.get();
             if fed != INVALID_VALUE {
                 let reg = self.with_part(fed, 0, |ap| {
-                    if ap.register_valid() && ap.bank() == bank { ap.get_reg() } else { Reg::make_invalid() }
+                    if ap.register_valid() && ap.bank() == bank {
+                        ap.get_reg()
+                    } else {
+                        Reg::make_invalid()
+                    }
                 });
                 if reg.valid() && !self.with_registers(|r| r.is_fixed(reg)) {
                     self.with_part(fed, 0, |ap| ap.set_register_valid(false));
@@ -1939,7 +1986,7 @@ impl<
         if self.adaptor.local_const(local).is_some() {
             // Rematerialized after the call (`reload_to_reg`).
             return {
-                let _:() =self.with_part(local, part, |ap| ap.set_stack_valid());
+                let _: () = self.with_part(local, part, |ap| ap.set_stack_valid());
                 Ok(())
             };
         }

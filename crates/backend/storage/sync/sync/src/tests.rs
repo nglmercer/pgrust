@@ -96,7 +96,11 @@ fn a_run_leaves_nothing_behind() {
         return;
     }
     let child = std::process::Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "tests::a_run_leaves_nothing_behind", "--nocapture"])
+        .args([
+            "--exact",
+            "tests::a_run_leaves_nothing_behind",
+            "--nocapture",
+        ])
         .env(CHILD, "1")
         .stdout(std::process::Stdio::piped())
         .spawn()
@@ -114,7 +118,11 @@ fn a_run_leaves_nothing_behind() {
 
 fn key(rel: u32) -> RelFileLocatorBackend {
     RelFileLocatorBackend {
-        locator: RelFileLocator { spcOid: 1663, dbOid: 5, relNumber: rel },
+        locator: RelFileLocator {
+            spcOid: 1663,
+            dbOid: 5,
+            relNumber: rel,
+        },
         backend: INVALID_PROC_NUMBER,
     }
 }
@@ -201,9 +209,12 @@ fn missing_file_logs_debug1_retry_notice() {
     setup();
     fd::vfd::set_data_sync_retry(true);
 
-    static SEEN: std::sync::Mutex<Vec<(elog::ErrorLevel, String)>> = std::sync::Mutex::new(Vec::new());
+    static SEEN: std::sync::Mutex<Vec<(elog::ErrorLevel, String)>> =
+        std::sync::Mutex::new(Vec::new());
     fn hook(error: &elog::PgError, _output_to_server: &mut bool) {
-        SEEN.lock().unwrap().push((error.level, error.message.clone()));
+        SEEN.lock()
+            .unwrap()
+            .push((error.level, error.message.clone()));
     }
     SEEN.lock().unwrap().clear();
     let prev_min = elog::config::log_min_messages();
@@ -218,18 +229,20 @@ fn missing_file_logs_debug1_retry_notice() {
     elog::config::set_log_min_messages(prev_min);
 
     assert_eq!(
-        err.message,
-        "could not fsync file \"base/5/20009\": No such file or directory",
+        err.message, "could not fsync file \"base/5/20009\": No such file or directory",
         "got: {err:?}"
     );
     let seen = SEEN.lock().unwrap();
-    let retries: Vec<&(elog::ErrorLevel, String)> =
-        seen.iter().filter(|(_, m)| m.contains("but retrying")).collect();
+    let retries: Vec<&(elog::ErrorLevel, String)> = seen
+        .iter()
+        .filter(|(_, m)| m.contains("but retrying"))
+        .collect();
     assert_eq!(
         retries,
         [&(
             DEBUG1,
-            "could not fsync file \"base/5/20009\" but retrying: No such file or directory".to_owned()
+            "could not fsync file \"base/5/20009\" but retrying: No such file or directory"
+                .to_owned()
         )],
         "seen: {seen:?}"
     );
@@ -252,7 +265,10 @@ fn filter_leaves_other_database() {
     fd::vfd::set_data_sync_retry(true);
     RegisterSyncRequest(md_tag(20006), SyncRequestType::SYNC_REQUEST, false).unwrap();
     smgr::ForgetDatabaseSyncRequests(999).unwrap();
-    assert!(ProcessSyncRequests().is_err(), "uncanceled missing file still fsyncs");
+    assert!(
+        ProcessSyncRequests().is_err(),
+        "uncanceled missing file still fsyncs"
+    );
 }
 
 #[test]
@@ -284,7 +300,7 @@ fn fsync_failure_abort_child() {
     // (fsyncgate); elog PANIC unwinds PanicExitThread under the thread model
     // (notes/crash-restart-design.md) and the postmaster maps it to
     // WTERMSIG(SIGABRT).
-    let r = std::panic::catch_unwind( ProcessSyncRequests);
+    let r = std::panic::catch_unwind(ProcessSyncRequests);
     match r {
         Err(payload) if payload.is::<types_error::PanicExitThread>() => std::process::exit(42),
         _ => std::process::exit(0),
@@ -294,17 +310,38 @@ fn fsync_failure_abort_child() {
 #[test]
 fn fsync_failure_aborts_process() {
     let out = std::process::Command::new(std::env::current_exe().unwrap())
-        .args(["tests::fsync_failure_abort_child", "--exact", "--ignored", "--test-threads=1"])
+        .args([
+            "tests::fsync_failure_abort_child",
+            "--exact",
+            "--ignored",
+            "--test-threads=1",
+        ])
         .output()
         .unwrap();
-    assert_eq!(out.status.code(), Some(42), "child must unwind PanicExitThread: {out:?}");
+    assert_eq!(
+        out.status.code(),
+        Some(42),
+        "child must unwind PanicExitThread: {out:?}"
+    );
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("PANIC:  could not fsync file"), "missing PANIC report: {stderr}");
+    assert!(
+        stderr.contains("PANIC:  could not fsync file"),
+        "missing PANIC report: {stderr}"
+    );
 }
 
 fn pgrc_tag(db: u32, rel: u32) -> FileTag {
-    let locator = RelFileLocator { spcOid: 1663, dbOid: db, relNumber: rel };
-    FileTag::new(SyncRequestHandler::SYNC_HANDLER_PGRC, ForkNumber::MAIN_FORKNUM, locator, 0)
+    let locator = RelFileLocator {
+        spcOid: 1663,
+        dbOid: db,
+        relNumber: rel,
+    };
+    FileTag::new(
+        SyncRequestHandler::SYNC_HANDLER_PGRC,
+        ForkNumber::MAIN_FORKNUM,
+        locator,
+        0,
+    )
 }
 
 #[test]
@@ -313,7 +350,11 @@ fn pgrc_one_request_per_directory_syncs_its_names() {
     std::fs::create_dir_all("base/5/pgrc_20010").unwrap();
     std::fs::write("base/5/pgrc_20010/part-0.pgrc", b"pgrc").unwrap();
     let loc = pgrc_wal::dir_loc(key(20010).locator);
-    pgrc_wal::sync::register(loc, ["part-0.pgrc".to_string(), "tmp-1-0.pgrct".to_string()]).unwrap();
+    pgrc_wal::sync::register(
+        loc,
+        ["part-0.pgrc".to_string(), "tmp-1-0.pgrct".to_string()],
+    )
+    .unwrap();
     pgrc_wal::sync::register(loc, ["manifest-1.pgrcm".to_string()]).unwrap();
     assert_eq!(pending_counts().0, 1, "one request per directory");
     // The renamed-away tmp and the never-written manifest count as done.
@@ -327,7 +368,13 @@ fn pgrc_filter_cancels_its_database_only() {
     RegisterSyncRequest(pgrc_tag(5, 20011), SyncRequestType::SYNC_REQUEST, false).unwrap();
     RegisterSyncRequest(pgrc_tag(6, 20011), SyncRequestType::SYNC_REQUEST, false).unwrap();
     RegisterSyncRequest(pgrc_tag(5, 0), SyncRequestType::SYNC_FILTER_REQUEST, true).unwrap();
-    let canceled = with_pending(|p| p.ops.iter().filter(|(_, e)| e.canceled).map(|(t, _)| t.rlocator.dbOid).collect::<Vec<_>>());
+    let canceled = with_pending(|p| {
+        p.ops
+            .iter()
+            .filter(|(_, e)| e.canceled)
+            .map(|(t, _)| t.rlocator.dbOid)
+            .collect::<Vec<_>>()
+    });
     assert_eq!(canceled, Some(vec![5]));
     ProcessSyncRequests().unwrap();
     assert_eq!(pending_counts().0, 0);

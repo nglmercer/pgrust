@@ -2,8 +2,8 @@
 //! site's pointer, a cursor's selection / offset-lane / lane reads, the bound node's sources by ctx, and the blank site.
 #![allow(unsafe_code)]
 
-use gravity_abi::PtrWord;
 use gravity_abi::site::Site;
+use gravity_abi::PtrWord;
 use gravity_abi::{Datum, Lane, ScanPos};
 
 use super::{Cursor, Source, Window};
@@ -34,7 +34,11 @@ impl Window<'_> {
         let env = self.s.env.ptr() as *const crate::node::Inner;
         // SAFETY: a bound site's env is the `Inner` its block was bound with (bind.rs), live while a host call runs; one
         // Copy field read through the raw pointer (no reference to the whole `Inner` made)
-        if env.is_null() { None } else { unsafe { (*env).feed_owner } }
+        if env.is_null() {
+            None
+        } else {
+            unsafe { (*env).feed_owner }
+        }
     }
 
     /// CONVERT wave 2 (R3): the statement's (or the portal's) ledger owner and release, as the site's Node captured it at its
@@ -42,7 +46,11 @@ impl Window<'_> {
     pub fn stmt_owner(&self) -> Option<(memledger::Owner, memledger::Release)> {
         let env = self.s.env.ptr() as *const crate::node::Inner;
         // SAFETY: as `op_owner`
-        if env.is_null() { None } else { unsafe { (*env).stmt_owner } }
+        if env.is_null() {
+            None
+        } else {
+            unsafe { (*env).stmt_owner }
+        }
     }
 }
 
@@ -66,7 +74,11 @@ impl Cursor {
         if b.is_row() {
             return b;
         }
-        let off = if self.offset_lane >= 0 { unsafe { *(self.lanes[self.offset_lane as usize].ptr.ptr() as *const u16).add(i) } } else { b.off + i as u16 + 1 };
+        let off = if self.offset_lane >= 0 {
+            unsafe { *(self.lanes[self.offset_lane as usize].ptr.ptr() as *const u16).add(i) }
+        } else {
+            b.off + i as u16 + 1
+        };
         ScanPos::new(b.rel, b.block, off)
     }
 
@@ -89,15 +101,24 @@ impl Cursor {
 /// Site `site`'s source on `ctx` (the node its program was bound with), shared; `None` for a site with no source.
 /// # Safety
 /// `ctx` is bound, and nothing writes that source while the result is live.
-pub unsafe fn site_source<'a>(ctx: *mut gravity_abi::Ctx, site: usize) -> Option<&'a (dyn Source + 'static)> {
+pub unsafe fn site_source<'a>(
+    ctx: *mut gravity_abi::Ctx,
+    site: usize,
+) -> Option<&'a (dyn Source + 'static)> {
     crate::hostimpl::inner_of(ctx).sources.get(site)?.as_deref()
 }
 
 /// `site_source` for the table open's offer (`entry_runs_offer`), on the claim's own thread.
 /// # Safety
 /// `ctx` is the bound ctx of the running claim, and no other reference to that source is live while the result is.
-pub unsafe fn site_source_mut<'a>(ctx: *mut gravity_abi::Ctx, site: usize) -> Option<&'a mut (dyn Source + 'static)> {
-    crate::hostimpl::inner_of(ctx).sources.get_mut(site)?.as_deref_mut()
+pub unsafe fn site_source_mut<'a>(
+    ctx: *mut gravity_abi::Ctx,
+    site: usize,
+) -> Option<&'a mut (dyn Source + 'static)> {
+    crate::hostimpl::inner_of(ctx)
+        .sources
+        .get_mut(site)?
+        .as_deref_mut()
 }
 
 /// A stack `Site` for the row protocol's default `next()`: only `lanes` is set.

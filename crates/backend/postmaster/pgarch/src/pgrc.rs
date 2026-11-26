@@ -20,7 +20,11 @@ thread_local! {
 
 pub(crate) fn segment_of(xlog: &str, seg_size: u64) -> Option<(&str, u64)> {
     let seg = xlog.strip_suffix(".partial").unwrap_or(xlog);
-    if seg.len() != 24 || !seg.bytes().all(|b| b.is_ascii_digit() || (b'A'..=b'F').contains(&b)) {
+    if seg.len() != 24
+        || !seg
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'A'..=b'F').contains(&b))
+    {
         return None;
     }
     let log = u64::from_str_radix(&seg[8..16], 16).ok()?;
@@ -35,7 +39,9 @@ pub(crate) fn archive_segment_files_in(
     seg_size: u64,
     archive: &mut dyn FnMut(&str, &str) -> PgResult<bool>,
 ) -> PgResult<bool> {
-    let Some((seg, from)) = segment_of(xlog, seg_size) else { return Ok(true) };
+    let Some((seg, from)) = segment_of(xlog, seg_size) else {
+        return Ok(true);
+    };
     // The segment is complete: every reference in it began before this call, so after settle it is named.
     pgrc_spool::settle();
     let entries = match spool.list(from, from + seg_size) {
@@ -68,8 +74,16 @@ pub(crate) fn archive_segment_files_in(
     Ok(true)
 }
 
-pub(crate) fn archive_segment_files(xlog: &str, archive: &mut dyn FnMut(&str, &str) -> PgResult<bool>) -> PgResult<bool> {
-    archive_segment_files_in(&Spool::data(), xlog, transam_xlog::wal_segment_size() as u64, archive)
+pub(crate) fn archive_segment_files(
+    xlog: &str,
+    archive: &mut dyn FnMut(&str, &str) -> PgResult<bool>,
+) -> PgResult<bool> {
+    archive_segment_files_in(
+        &Spool::data(),
+        xlog,
+        transam_xlog::wal_segment_size() as u64,
+        archive,
+    )
 }
 
 #[cfg(test)]
@@ -88,10 +102,19 @@ mod tests {
 
     #[test]
     fn segment_names_map_to_their_lsn_range() {
-        assert_eq!(segment_of("000000010000000000000003", SEG), Some(("000000010000000000000003", 3 * SEG)));
-        assert_eq!(segment_of("000000020000000100000002.partial", SEG), Some(("000000020000000100000002", 0x1_0000_0000 + 2 * SEG)));
+        assert_eq!(
+            segment_of("000000010000000000000003", SEG),
+            Some(("000000010000000000000003", 3 * SEG))
+        );
+        assert_eq!(
+            segment_of("000000020000000100000002.partial", SEG),
+            Some(("000000020000000100000002", 0x1_0000_0000 + 2 * SEG))
+        );
         assert_eq!(segment_of("00000002.history", SEG), None);
-        assert_eq!(segment_of("000000010000000000000003.00000028.backup", SEG), None);
+        assert_eq!(
+            segment_of("000000010000000000000003.00000028.backup", SEG),
+            None
+        );
     }
 
     #[test]
@@ -111,12 +134,26 @@ mod tests {
             Ok(true)
         };
         let seg = "000000010000000000000003";
-        assert!(!archive_segment_files_in(&sp, seg, SEG, &mut archive).unwrap(), "the second entry failed");
+        assert!(
+            !archive_segment_files_in(&sp, seg, SEG, &mut archive).unwrap(),
+            "the second entry failed"
+        );
         assert!(archive_segment_files_in(&sp, seg, SEG, &mut archive).unwrap());
         let names: Vec<&str> = sent.iter().map(|(f, _)| f.as_str()).collect();
-        assert_eq!(names, ["000000010000000000000003.00000028.pgrc", "000000010000000000000003.00009000.pgrc"]);
+        assert_eq!(
+            names,
+            [
+                "000000010000000000000003.00000028.pgrc",
+                "000000010000000000000003.00009000.pgrc"
+            ]
+        );
         assert!(sent[0].1.ends_with("/pg_pgrc_spool/0000000003000028"));
-        assert!(archive_segment_files_in(&sp, "00000001.history", SEG, &mut |_, _| panic!("no entries")).unwrap());
+        assert!(
+            archive_segment_files_in(&sp, "00000001.history", SEG, &mut |_, _| panic!(
+                "no entries"
+            ))
+            .unwrap()
+        );
         let _ = std::fs::remove_dir_all(base);
     }
 }

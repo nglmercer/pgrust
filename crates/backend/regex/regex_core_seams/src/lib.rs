@@ -1,7 +1,7 @@
 use ::mcx::Mcx;
+use ::regex::{RegMatch, RegcompResult, RegexCompiled, RegexecResult, RegprefixResult};
 use ::types_core::{Oid, PgWChar};
 use ::types_error::PgResult;
-use ::regex::{RegMatch, RegcompResult, RegexCompiled, RegexecResult, RegprefixResult};
 
 seam_core::seam!(
     pub fn pg_set_regex_collation<'mcx>(

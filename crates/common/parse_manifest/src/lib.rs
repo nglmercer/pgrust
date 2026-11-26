@@ -555,7 +555,11 @@ impl<C: JsonManifestParseContext> JsonManifestParseIncrementalState<C> {
             let mut ch = self.lex.chunk(mcx, chunk, is_last);
             let res = ch.parse(&mut self.parse)?;
 
-            let expected = if is_last { JsonError::Success } else { JsonError::Incomplete };
+            let expected = if is_last {
+                JsonError::Success
+            } else {
+                JsonError::Incomplete
+            };
 
             if res != expected {
                 let detail = ch.errdetail(res);
@@ -615,7 +619,12 @@ pub fn json_parse_manifest<C: JsonManifestParseContext + ?Sized>(
     }
 
     /* Verify the manifest checksum. */
-    verify_manifest_checksum(parse.manifest_checksum.as_deref(), parse.context, buffer, None)
+    verify_manifest_checksum(
+        parse.manifest_checksum.as_deref(),
+        parse.context,
+        buffer,
+        None,
+    )
 }
 
 /// C: verify_manifest_checksum. The last line of the manifest file is
@@ -697,7 +706,7 @@ fn hexdecode_char(c: u8) -> Option<u8> {
 
 /// C: hexdecode_string, plus the callers' `length % 2 != 0` pre-check.
 fn hexdecode_string(input: &[u8]) -> Option<Vec<u8>> {
-    if ! input.len().is_multiple_of( 2) {
+    if !input.len().is_multiple_of(2) {
         return None;
     }
     let mut result = Vec::with_capacity(input.len() / 2);
@@ -956,7 +965,11 @@ impl ParsedManifest {
                 start_lsn: XLogRecPtr,
                 end_lsn: XLogRecPtr,
             ) -> PgResult<()> {
-                self.0.wal_ranges.push(ManifestWalRange { tli, start_lsn, end_lsn });
+                self.0.wal_ranges.push(ManifestWalRange {
+                    tli,
+                    start_lsn,
+                    end_lsn,
+                });
                 Ok(())
             }
         }

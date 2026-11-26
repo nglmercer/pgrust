@@ -19,11 +19,7 @@ fn error_text(f: &crate::proto::ErrorFields) -> String {
     out
 }
 
-pub(crate) fn handshake(
-    conn: &mut Conn,
-    user: &str,
-    password: Option<&str>,
-) -> Result<(), String> {
+pub(crate) fn handshake(conn: &mut Conn, user: &str, password: Option<&str>) -> Result<(), String> {
     loop {
         let (t, mbody) = conn.read_message()?;
         match t {
@@ -80,9 +76,7 @@ pub(crate) fn handshake(
                         }
                         scram_exchange(conn, pw)?;
                     }
-                    other => {
-                        return Err(format!("authentication method {other} not supported"))
-                    }
+                    other => return Err(format!("authentication method {other} not supported")),
                 }
             }
             b'S' | b'K' | b'N' | b'A' => conn.note_async(t, &mbody),

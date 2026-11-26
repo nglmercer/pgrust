@@ -98,13 +98,20 @@ fn worker_bind_never_publishes_boot_value_the_capture_reapplies() {
         !writes.contains(&true),
         "worker bind published autovacuum's boot value (on) process-wide: writes {writes:?}"
     );
-    assert!(!autovacuum_get(), "autovacuum must end off, as the leader has it");
+    assert!(
+        !autovacuum_get(),
+        "autovacuum must end off, as the leader has it"
+    );
 
     // (2) The leader holds autovacuum at its default (it has re-read a config
     // without the line): the worker's reset to boot is the final value, and
     // its backing must say so.
     let writes = bind_on_worker(snapshot(), caps_default);
-    assert_eq!(writes, vec![true], "the worker's boot value must still be published");
+    assert_eq!(
+        writes,
+        vec![true],
+        "the worker's boot value must still be published"
+    );
     assert!(autovacuum_get());
 
     // (3) The string-capture path (PGRUST_NO_GUC_BIND): the same reset, then

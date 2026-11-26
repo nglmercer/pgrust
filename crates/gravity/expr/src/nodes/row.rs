@@ -1,8 +1,10 @@
 //! `RowExpr` / `ConvertRowtypeExpr` through the tail lane's tuple face (`tuple.rs`); the emitted `RowExpr` is a NON-strict
 //! synthetic site per node (`ROW_SITE`: the descriptor word from the owner's cell, the null mask, then the arguments by value).
 
+use gravity_fn::{
+    Addr, Arg, ArgKind, Datum, ErrSlot, Family, NullableDatum, Region, Ret, Shim, ERROR, NULL, OK,
+};
 use mcx::GrowIn;
-use gravity_fn::{Addr, Arg, ArgKind, Datum, ErrSlot, Family, NullableDatum, Region, Ret, Shim, ERROR, NULL, OK};
 use types_core::Oid;
 use types_error::PgResult;
 use types_nodes::primnodes::{ConvertRowtypeExpr, RowExpr as RowExprTree};
@@ -63,10 +65,30 @@ pub fn continuation_sites(b: &mut Builder<'_, '_>, site: SiteId, nargs: usize) {
         let n = (words - k * crate::nodes::func::MAX_ARGS).min(crate::nodes::func::MAX_ARGS);
         let convs = b.prog.convs.len() as u32;
         for _ in 0..n {
-            b.prog.convs.push_in(ArgConv { kind: ArgKind::V, typlen: 0 });
+            b.prog.convs.push_in(ArgConv {
+                kind: ArgKind::V,
+                typlen: 0,
+            });
         }
-        let more = b.site(Call { funcid: 0, args: Kids::NONE, nargs: n as u8, strict: false, collation: 0, how: How::Shim { shim: &MORE_SITE, convs, byref: false }, rettype: 0, volatile: false });
-        debug_assert_eq!(more.0 as usize, site.0 as usize + 1 + k, "a wide site's continuation sites follow it");
+        let more = b.site(Call {
+            funcid: 0,
+            args: Kids::NONE,
+            nargs: n as u8,
+            strict: false,
+            collation: 0,
+            how: How::Shim {
+                shim: &MORE_SITE,
+                convs,
+                byref: false,
+            },
+            rettype: 0,
+            volatile: false,
+        });
+        debug_assert_eq!(
+            more.0 as usize,
+            site.0 as usize + 1 + k,
+            "a wide site's continuation sites follow it"
+        );
     }
 }
 
@@ -83,8 +105,14 @@ pub unsafe fn continued_word(cell: *const crate::emit::host::Cell, w: usize) -> 
     use crate::nodes::func::MAX_ARGS;
     // SAFETY: the caller's: the cells are `MAX_ARGS` wide and the continuation cell is in the same state's buffer.
     unsafe {
-        debug_assert_eq!((*cell).width as usize, MAX_ARGS, "a wide site's cells are MAX_ARGS wide");
-        let more = cell.cast::<u8>().add((1 + w / MAX_ARGS) * cell_size(MAX_ARGS)) as *mut Cell;
+        debug_assert_eq!(
+            (*cell).width as usize,
+            MAX_ARGS,
+            "a wide site's cells are MAX_ARGS wide"
+        );
+        let more = cell
+            .cast::<u8>()
+            .add((1 + w / MAX_ARGS) * cell_size(MAX_ARGS)) as *mut Cell;
         Cell::args(more)[w % MAX_ARGS]
     }
 }
@@ -107,20 +135,52 @@ fn site_of(b: &mut Builder<'_, '_>, nargs: usize, image: bool) -> SiteId {
     if wide(nargs) {
         let convs = b.prog.convs.len() as u32;
         for _ in 0..WIDE_HEAD {
-            b.prog.convs.push_in(ArgConv { kind: ArgKind::V, typlen: 0 });
+            b.prog.convs.push_in(ArgConv {
+                kind: ArgKind::V,
+                typlen: 0,
+            });
         }
         let shim = if image { &ROW_WIDE_IMAGE } else { &ROW_WIDE };
-        let site = b.site(Call { funcid: 0, args: Kids::NONE, nargs: WIDE_HEAD as u8, strict: false, collation: 0, how: How::Shim { shim, convs, byref: true }, rettype: 0, volatile: false });
+        let site = b.site(Call {
+            funcid: 0,
+            args: Kids::NONE,
+            nargs: WIDE_HEAD as u8,
+            strict: false,
+            collation: 0,
+            how: How::Shim {
+                shim,
+                convs,
+                byref: true,
+            },
+            rettype: 0,
+            volatile: false,
+        });
         continuation_sites(b, site, nargs);
         return site;
     }
     let n = 1 + crate::nodes::func::mask_words(nargs) + nargs;
     let convs = b.prog.convs.len() as u32;
     for _ in 0..n {
-        b.prog.convs.push_in(ArgConv { kind: ArgKind::V, typlen: 0 });
+        b.prog.convs.push_in(ArgConv {
+            kind: ArgKind::V,
+            typlen: 0,
+        });
     }
     let shim = if image { &ROW_IMAGE } else { &ROW_SITE };
-    b.site(Call { funcid: 0, args: Kids::NONE, nargs: n as u8, strict: false, collation: 0, how: How::Shim { shim, convs, byref: true }, rettype: 0, volatile: false })
+    b.site(Call {
+        funcid: 0,
+        args: Kids::NONE,
+        nargs: n as u8,
+        strict: false,
+        collation: 0,
+        how: How::Shim {
+            shim,
+            convs,
+            byref: true,
+        },
+        rettype: 0,
+        volatile: false,
+    })
 }
 
 gravity_abi::host! {
@@ -128,14 +188,36 @@ gravity_abi::host! {
     unsafe fn no_addr() {}
 }
 
-pub static ROW_SITE: Shim = Shim { oid: 0, name: "row form", family: Family::None, nargs: HEAD as u8, coll: false, region: true, args: &[ArgKind::V, ArgKind::V], tyargs: &[], addr: Addr(no_addr), call: row_shim };
+pub static ROW_SITE: Shim = Shim {
+    oid: 0,
+    name: "row form",
+    family: Family::None,
+    nargs: HEAD as u8,
+    coll: false,
+    region: true,
+    args: &[ArgKind::V, ArgKind::V],
+    tyargs: &[],
+    addr: Addr(no_addr),
+    call: row_shim,
+};
 
 fn row_shim(e: *mut ErrSlot, region: *mut Region, _coll: u32, _ty: &[u32], a: &[Arg]) -> Ret {
     row_call(e, region, a, false)
 }
 
 /// D2789: `ROW_SITE` for a whole row (`image_site`).
-pub static ROW_IMAGE: Shim = Shim { oid: 0, name: "row image", family: Family::None, nargs: HEAD as u8, coll: false, region: true, args: &[ArgKind::V, ArgKind::V], tyargs: &[], addr: Addr(no_addr), call: image_shim };
+pub static ROW_IMAGE: Shim = Shim {
+    oid: 0,
+    name: "row image",
+    family: Family::None,
+    nargs: HEAD as u8,
+    coll: false,
+    region: true,
+    args: &[ArgKind::V, ArgKind::V],
+    tyargs: &[],
+    addr: Addr(no_addr),
+    call: image_shim,
+};
 
 fn image_shim(e: *mut ErrSlot, region: *mut Region, _coll: u32, _ty: &[u32], a: &[Arg]) -> Ret {
     row_call(e, region, a, true)
@@ -144,21 +226,68 @@ fn image_shim(e: *mut ErrSlot, region: *mut Region, _coll: u32, _ty: &[u32], a: 
 fn row_call(e: *mut ErrSlot, region: *mut Region, a: &[Arg], image: bool) -> Ret {
     let (masks, vals) = crate::nodes::func::masked(a);
     // SAFETY: the host passes the cell's live region; `a[0]` is the owner's descriptor pointer (`Cell::aux`), program-long.
-    ret_of(e, unsafe { form_row(&*(a[0].v() as *const TupleDescData<'static>), masks, vals, image, &mut *region) })
+    ret_of(e, unsafe {
+        form_row(
+            &*(a[0].v() as *const TupleDescData<'static>),
+            masks,
+            vals,
+            image,
+            &mut *region,
+        )
+    })
 }
 
-pub static ROW_WIDE: Shim = Shim { oid: 0, name: "row form wide", family: Family::None, nargs: WIDE_HEAD as u8, coll: false, region: true, args: &[ArgKind::V, ArgKind::V], tyargs: &[], addr: Addr(no_addr), call: wide_shim };
+pub static ROW_WIDE: Shim = Shim {
+    oid: 0,
+    name: "row form wide",
+    family: Family::None,
+    nargs: WIDE_HEAD as u8,
+    coll: false,
+    region: true,
+    args: &[ArgKind::V, ArgKind::V],
+    tyargs: &[],
+    addr: Addr(no_addr),
+    call: wide_shim,
+};
 
 /// D2789: `ROW_WIDE` for a whole row (`image_site`).
-pub static ROW_WIDE_IMAGE: Shim = Shim { oid: 0, name: "row image wide", family: Family::None, nargs: WIDE_HEAD as u8, coll: false, region: true, args: &[ArgKind::V, ArgKind::V], tyargs: &[], addr: Addr(no_addr), call: wide_image_shim };
+pub static ROW_WIDE_IMAGE: Shim = Shim {
+    oid: 0,
+    name: "row image wide",
+    family: Family::None,
+    nargs: WIDE_HEAD as u8,
+    coll: false,
+    region: true,
+    args: &[ArgKind::V, ArgKind::V],
+    tyargs: &[],
+    addr: Addr(no_addr),
+    call: wide_image_shim,
+};
 
-pub static MORE_SITE: Shim = Shim { oid: 0, name: "continuation words", family: Family::None, nargs: 0, coll: false, region: false, args: &[], tyargs: &[], addr: Addr(no_addr), call: more_shim };
+pub static MORE_SITE: Shim = Shim {
+    oid: 0,
+    name: "continuation words",
+    family: Family::None,
+    nargs: 0,
+    coll: false,
+    region: false,
+    args: &[],
+    tyargs: &[],
+    addr: Addr(no_addr),
+    call: more_shim,
+};
 
 fn wide_shim(e: *mut ErrSlot, region: *mut Region, _coll: u32, _ty: &[u32], a: &[Arg]) -> Ret {
     wide_call(e, region, a, false)
 }
 
-fn wide_image_shim(e: *mut ErrSlot, region: *mut Region, _coll: u32, _ty: &[u32], a: &[Arg]) -> Ret {
+fn wide_image_shim(
+    e: *mut ErrSlot,
+    region: *mut Region,
+    _coll: u32,
+    _ty: &[u32],
+    a: &[Arg],
+) -> Ret {
     wide_call(e, region, a, true)
 }
 
@@ -177,11 +306,22 @@ fn wide_call(e: *mut ErrSlot, region: *mut Region, a: &[Arg], image: bool) -> Re
 
 /// Never called (the emitted code only stores into a continuation site's cell): a call is the emitter's bug, an error.
 fn more_shim(e: *mut ErrSlot, _region: *mut Region, _coll: u32, _ty: &[u32], _a: &[Arg]) -> Ret {
-    ret_of(e, Err(Box::new(types_error::PgError::error("gravity: a continuation site was called".to_string())))) // alloc: Cold
+    ret_of(
+        e,
+        Err(Box::new(types_error::PgError::error(
+            "gravity: a continuation site was called".to_string(),
+        ))),
+    ) // alloc: Cold
 }
 
 /// `form_row` over a wide row's words: word `w / 64` of the mask says value `w` is NULL; value `i` is word `mask_words(n) + i`.
-fn form_wide(desc: &TupleDescData<'_>, n: usize, word: &dyn Fn(usize) -> i64, image: bool, region: &mut Region) -> PgResult<NullableDatum> {
+fn form_wide(
+    desc: &TupleDescData<'_>,
+    n: usize,
+    word: &dyn Fn(usize) -> i64,
+    image: bool,
+    region: &mut Region,
+) -> PgResult<NullableDatum> {
     let natts = desc.natts as usize;
     let masks = crate::nodes::func::mask_words(n);
     let (vals, nls) = crate::nodes::tuple::row_cells(region, natts)?;
@@ -200,15 +340,24 @@ fn form_wide(desc: &TupleDescData<'_>, n: usize, word: &dyn Fn(usize) -> i64, im
 /// A composite site's return: the image, NULL, or its error into the cell's slot.
 fn ret_of(e: *mut ErrSlot, r: PgResult<NullableDatum>) -> Ret {
     match r {
-        Ok(v) if v.isnull => Ret { val: 0, status: NULL },
-        Ok(v) => Ret { val: v.value.as_i64(), status: OK },
+        Ok(v) if v.isnull => Ret {
+            val: 0,
+            status: NULL,
+        },
+        Ok(v) => Ret {
+            val: v.value.as_i64(),
+            status: OK,
+        },
         Err(err) => {
             // SAFETY: the host passes the cell's live slot; a previous error in it is dropped through `take`.
             unsafe {
                 drop((*e).take());
                 (*e).err = gravity_abi::word(Box::into_raw(err));
             }
-            Ret { val: 0, status: ERROR }
+            Ret {
+                val: 0,
+                status: ERROR,
+            }
         }
     }
 }
@@ -220,14 +369,39 @@ pub const CONVERT_HEAD: usize = 3;
 
 pub fn convert_site(b: &mut Builder<'_, '_>, nmap: usize) -> SiteId {
     let convs = b.prog.convs.len() as u32;
-    b.prog.convs.push_in(ArgConv { kind: ArgKind::V, typlen: 0 });
-    b.prog.convs.push_in(ArgConv { kind: ArgKind::V, typlen: 0 });
-    b.prog.convs.push_in(ArgConv { kind: ArgKind::I, typlen: -1 });
+    b.prog.convs.push_in(ArgConv {
+        kind: ArgKind::V,
+        typlen: 0,
+    });
+    b.prog.convs.push_in(ArgConv {
+        kind: ArgKind::V,
+        typlen: 0,
+    });
+    b.prog.convs.push_in(ArgConv {
+        kind: ArgKind::I,
+        typlen: -1,
+    });
     for _ in 0..nmap {
-        b.prog.convs.push_in(ArgConv { kind: ArgKind::V, typlen: 0 });
+        b.prog.convs.push_in(ArgConv {
+            kind: ArgKind::V,
+            typlen: 0,
+        });
     }
     let nargs = (CONVERT_HEAD + nmap) as u8;
-    b.site(Call { funcid: 0, args: Kids::NONE, nargs, strict: true, collation: 0, how: How::Shim { shim: &CONVERT_SITE, convs, byref: true }, rettype: 0, volatile: false })
+    b.site(Call {
+        funcid: 0,
+        args: Kids::NONE,
+        nargs,
+        strict: true,
+        collation: 0,
+        how: How::Shim {
+            shim: &CONVERT_SITE,
+            convs,
+            byref: true,
+        },
+        rettype: 0,
+        volatile: false,
+    })
 }
 
 /// The out descriptor's index, and the in descriptor's above it (`u32::MAX`: the rows convert by a header relabel).
@@ -235,7 +409,18 @@ pub fn convert_word(n: &ConvertRowtype) -> i64 {
     (n.outdesc as u64 | (n.map.map_or(u32::MAX, |_| n.indesc) as u64) << 32) as i64
 }
 
-pub static CONVERT_SITE: Shim = Shim { oid: 0, name: "row convert", family: Family::None, nargs: CONVERT_HEAD as u8, coll: false, region: true, args: &[ArgKind::V, ArgKind::V, ArgKind::I], tyargs: &[], addr: Addr(no_addr), call: convert_shim };
+pub static CONVERT_SITE: Shim = Shim {
+    oid: 0,
+    name: "row convert",
+    family: Family::None,
+    nargs: CONVERT_HEAD as u8,
+    coll: false,
+    region: true,
+    args: &[ArgKind::V, ArgKind::V, ArgKind::I],
+    tyargs: &[],
+    addr: Addr(no_addr),
+    call: convert_shim,
+};
 
 fn convert_shim(e: *mut ErrSlot, region: *mut Region, _coll: u32, _ty: &[u32], a: &[Arg]) -> Ret {
     let descs = a[0].v() as *const crate::nodes::tuple::Desc;
@@ -243,7 +428,12 @@ fn convert_shim(e: *mut ErrSlot, region: *mut Region, _coll: u32, _ty: &[u32], a
     // SAFETY: `a[0]` is the program's descriptor table (`Cell::aux`: `State::descs`, filled before the emit and
     // program-long); the word's indices are the compiled node's.
     let entry = |ix: u32| unsafe { &*descs.add(ix as usize) };
-    let desc = |ix: u32| entry(ix).desc.as_ref().expect("a compiled node's descriptor");
+    let desc = |ix: u32| {
+        entry(ix)
+            .desc
+            .as_ref()
+            .expect("a compiled node's descriptor")
+    };
     let ind = ((w >> 32) as u32 != u32::MAX).then(|| desc((w >> 32) as u32));
     let map = |i: usize| a[CONVERT_HEAD + i].v() as usize;
     // SAFETY: the host passes the cell's live region.
@@ -251,17 +441,33 @@ fn convert_shim(e: *mut ErrSlot, region: *mut Region, _coll: u32, _ty: &[u32], a
     // D2803: either rowtype changed inside the statement: the current descriptors and their map (a relabel's in
     // descriptor is its out descriptor's `conv_in`)
     let conv_in = entry(w as u32).conv_in;
-    let fresh = if conv_in == u32::MAX { Ok(None) } else { crate::nodes::tuple::refreshed(desc(conv_in), desc(w as u32)) };
+    let fresh = if conv_in == u32::MAX {
+        Ok(None)
+    } else {
+        crate::nodes::tuple::refreshed(desc(conv_in), desc(w as u32))
+    };
     match fresh {
-        Ok(None) => ret_of(e, crate::nodes::tuple::convert_image(a[2].r().ptr, ind, desc(w as u32), map, region)),
-        Ok(Some(f)) => ret_of(e, crate::nodes::tuple::convert_fresh(a[2].r().ptr, &f, region)),
+        Ok(None) => ret_of(
+            e,
+            crate::nodes::tuple::convert_image(a[2].r().ptr, ind, desc(w as u32), map, region),
+        ),
+        Ok(Some(f)) => ret_of(
+            e,
+            crate::nodes::tuple::convert_fresh(a[2].r().ptr, &f, region),
+        ),
         Err(err) => ret_of(e, Err(err)),
     }
 }
 
 /// The interpreter's `eval_row_expr` over evaluated arguments: a dropped attribute (unless the row is a whole row's
 /// `image`) or an argument past the list null.
-fn form_row(desc: &TupleDescData<'_>, masks: &[Arg], args: &[Arg], image: bool, region: &mut Region) -> PgResult<NullableDatum> {
+fn form_row(
+    desc: &TupleDescData<'_>,
+    masks: &[Arg],
+    args: &[Arg],
+    image: bool,
+    region: &mut Region,
+) -> PgResult<NullableDatum> {
     let natts = desc.natts as usize;
     let (vals, nls) = crate::nodes::tuple::row_cells(region, natts)?;
     vals.fill(Datum::null());
@@ -289,18 +495,34 @@ pub struct ConvertRowtype {
     pub wide: bool,
 }
 
-pub fn compile_row_expr<'mcx>(b: &mut Builder<'_, 'mcx>, r: &RowExprTree<'mcx>) -> CompileResult<NodeId> {
+pub fn compile_row_expr<'mcx>(
+    b: &mut Builder<'_, 'mcx>,
+    r: &RowExprTree<'mcx>,
+) -> CompileResult<NodeId> {
     crate::nodes::tuple::compile_row_expr(b, r)
 }
 
-pub fn compile_convert_rowtype<'mcx>(b: &mut Builder<'_, 'mcx>, c: &ConvertRowtypeExpr<'mcx>) -> CompileResult<NodeId> {
+pub fn compile_convert_rowtype<'mcx>(
+    b: &mut Builder<'_, 'mcx>,
+    c: &ConvertRowtypeExpr<'mcx>,
+) -> CompileResult<NodeId> {
     crate::nodes::tuple::compile_convert_rowtype(b, c)
 }
 
-pub fn eval_row_expr(p: &Prog<'_, '_>, st: &mut St<'_>, n: &RowExpr, cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
+pub fn eval_row_expr(
+    p: &Prog<'_, '_>,
+    st: &mut St<'_>,
+    n: &RowExpr,
+    cx: &mut Cx<'_, '_>,
+) -> PgResult<NullableDatum> {
     crate::nodes::tuple::eval_row_expr(p, st, n, cx)
 }
 
-pub fn eval_convert_rowtype(p: &Prog<'_, '_>, st: &mut St<'_>, n: &ConvertRowtype, cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
+pub fn eval_convert_rowtype(
+    p: &Prog<'_, '_>,
+    st: &mut St<'_>,
+    n: &ConvertRowtype,
+    cx: &mut Cx<'_, '_>,
+) -> PgResult<NullableDatum> {
     crate::nodes::tuple::eval_convert_rowtype(p, st, n, cx)
 }

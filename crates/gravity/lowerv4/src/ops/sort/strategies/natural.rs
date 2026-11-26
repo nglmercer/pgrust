@@ -17,7 +17,10 @@ crate::strategies! {
     SORT_NATURAL = 69, "sort.natural", Sort;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(SORT_NATURAL, &())], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(SORT_NATURAL, &())],
+    ..crate::ops::NONE
+};
 
 /// The byte offset of `SortRun::pad[2]`.
 pub(crate) const PAD2: i32 = 14;
@@ -25,12 +28,27 @@ pub(crate) const PAD2: i32 = 14;
 /// The run's `pad[2]` bits at the row being stored at `at` (row `len` of `run`, `rb` bytes a row, `pairs` its key pairs):
 /// set at the first row, `RUN_ORDERED` cleared at a row out of order. `tails[i]`: key `i` has an image tail.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn mark(b: &mut FunctionBuilder<'_>, env: &Env, run: Value, at: Value, len: Value, rb: Value, pairs: &[[Value; 2]], tails: &[bool], keylane: bool, natural: bool) {
+pub(crate) fn mark(
+    b: &mut FunctionBuilder<'_>,
+    env: &Env,
+    run: Value,
+    at: Value,
+    len: Value,
+    rb: Value,
+    pairs: &[[Value; 2]],
+    tails: &[bool],
+    keylane: bool,
+    natural: bool,
+) {
     let bits = if keylane { RUN_KEYLANE } else { 0 } | if natural { RUN_ORDERED } else { 0 };
     if bits == 0 {
         return;
     }
-    let (l_first, l_later, l_done) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));
+    let (l_first, l_later, l_done) = (
+        b.create_block(&[]),
+        b.create_block(&[]),
+        b.create_block(&[]),
+    );
     let first = b.icmp(IntCond::Eq, len, env.zero);
     b.cond_br(first, (l_first, &[]), (l_later, &[]));
     b.switch_to(l_first);
@@ -63,7 +81,10 @@ pub(crate) fn mark(b: &mut FunctionBuilder<'_>, env: &Env, run: Value, at: Value
             }
         }
         let out = out.map_or(less, |t| b.int_bin(IntBinOp::Or, less, t));
-        let (l_clear, keep) = (b.create_block(&[]), b.iconst(Type::I64, !(RUN_ORDERED as i64) & 0xff));
+        let (l_clear, keep) = (
+            b.create_block(&[]),
+            b.iconst(Type::I64, !(RUN_ORDERED as i64) & 0xff),
+        );
         b.cond_br(out, (l_clear, &[]), (l_done, &[]));
         b.switch_to(l_clear);
         let cleared = b.int_bin(IntBinOp::And, p2, keep);

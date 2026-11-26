@@ -7,11 +7,18 @@
 fn handle_seams(src: &str) -> Vec<String> {
     let mut out = Vec::new();
     for chunk in src.split("seam_core::seam!(").skip(1) {
-        let Some(at) = chunk.find("pub fn ") else { continue };
+        let Some(at) = chunk.find("pub fn ") else {
+            continue;
+        };
         let rest = &chunk[at + "pub fn ".len()..];
-        let name: String = rest.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+        let name: String = rest
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+            .collect();
         let after = &rest[name.len()..];
-        let Some(open) = after.find('(') else { continue };
+        let Some(open) = after.find('(') else {
+            continue;
+        };
         let (mut depth, mut end) = (0usize, None);
         for (i, c) in after[open..].char_indices() {
             match c {
@@ -38,16 +45,26 @@ fn handle_seams(src: &str) -> Vec<String> {
 /// env!()'s path baked in at compile time: a test binary reused from another checkout would read that checkout's files.
 fn manifest_dir() -> &'static std::path::Path {
     static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| std::env::var_os("CARGO_MANIFEST_DIR").map(Into::into).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)"))
+    DIR.get_or_init(|| {
+        std::env::var_os("CARGO_MANIFEST_DIR")
+            .map(Into::into)
+            .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+    })
 }
 
 #[test]
 fn the_entry_routes_every_query_desc_handle_seam() {
     let root = manifest_dir();
-    let seams = std::fs::read_to_string(root.join("../../backend/executor/execmain_seams/src/lib.rs")).unwrap();
+    let seams =
+        std::fs::read_to_string(root.join("../../backend/executor/execmain_seams/src/lib.rs"))
+            .unwrap();
     let entry = std::fs::read_to_string(root.join("src/admit/entry/mod.rs")).unwrap();
     let names = handle_seams(&seams);
-    assert!(names.len() >= 40, "the seam scan found only {} handle seams", names.len());
+    assert!(
+        names.len() >= 40,
+        "the seam scan found only {} handle seams",
+        names.len()
+    );
     let missing: Vec<_> = names
         .iter()
         .filter(|n| !entry.contains(&format!("es::{n}::set(")))

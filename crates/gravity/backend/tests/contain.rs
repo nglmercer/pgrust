@@ -38,7 +38,11 @@ fn use_before_def() -> (Program, Func) {
     let f = pb.declare_func("f", &[Type::Ptr], &[Type::I64]);
     let mut b = pb.define(f);
     let ctx = b.params()[0];
-    let (one, other, join) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));
+    let (one, other, join) = (
+        b.create_block(&[]),
+        b.create_block(&[]),
+        b.create_block(&[]),
+    );
     let x = b.load(Type::I64, ctx, 0);
     let z = b.iconst(Type::I64, 0);
     let c = b.icmp(IntCond::Eq, x, z);
@@ -58,25 +62,49 @@ fn use_before_def() -> (Program, Func) {
 #[test]
 fn a_code_generator_panic_is_the_compiles_error() {
     let mut panicked = Vec::new();
-    for (name, (p, f)) in [("entry edge", entry_edge()), ("use before def", use_before_def())] {
+    for (name, (p, f)) in [
+        ("entry edge", entry_edge()),
+        ("use before def", use_before_def()),
+    ] {
         // the first line: the verifier names it (F2) ...
-        let refused = gravity_ir::verify::verify(&p).expect_err("the IR verifier refuses the module");
-        let why = if name == "entry edge" { "the entry block" } else { "does not dominate the use" };
-        assert!(refused.message.contains(why), "{name}: verify says {:?}", refused.message);
+        let refused =
+            gravity_ir::verify::verify(&p).expect_err("the IR verifier refuses the module");
+        let why = if name == "entry edge" {
+            "the entry block"
+        } else {
+            "does not dominate the use"
+        };
+        assert!(
+            refused.message.contains(why),
+            "{name}: verify says {:?}",
+            refused.message
+        );
         // ... the second: the backend, handed it past the verifier, contains its own panic
         let ctx = mcx::MemoryContext::new("contain raw");
-        let raw = catch_unwind(AssertUnwindSafe(|| gravity_tpde::compile(ctx.mcx(), &p).map(|_| ())));
+        let raw = catch_unwind(AssertUnwindSafe(|| {
+            gravity_tpde::compile(ctx.mcx(), &p).map(|_| ())
+        }));
         drop(ctx);
-        let cached = catch_unwind(AssertUnwindSafe(|| gravity_backend::mapped_cached_all(&p, &[f]).map(|_| ())));
-        let cached = cached.unwrap_or_else(|_| panic!("{name}: a panic came out of mapped_cached_all"));
+        let cached = catch_unwind(AssertUnwindSafe(|| {
+            gravity_backend::mapped_cached_all(&p, &[f]).map(|_| ())
+        }));
+        let cached =
+            cached.unwrap_or_else(|_| panic!("{name}: a panic came out of mapped_cached_all"));
         if raw.is_err() {
             let e = cached.expect_err("a panicking compile is an error");
-            assert!(e.message().contains("the code generator panicked"), "{name}: {}", e.message());
+            assert!(
+                e.message().contains("the code generator panicked"),
+                "{name}: {}",
+                e.message()
+            );
             panicked.push(name);
         }
     }
     eprintln!("--stats the code generator panicked on: {panicked:?}");
-    assert!(!panicked.is_empty(), "neither module reaches a code-generator assert: the test would prove nothing");
+    assert!(
+        !panicked.is_empty(),
+        "neither module reaches a code-generator assert: the test would prove nothing"
+    );
     // the cache still compiles and hits after a contained panic
     let mut pb = ProgramBuilder::new();
     let f = pb.declare_func("ok", &[Type::Ptr], &[Type::I64]);

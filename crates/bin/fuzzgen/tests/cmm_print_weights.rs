@@ -21,7 +21,14 @@ fn fuzzgen(args: &[&str]) -> String {
 #[test]
 fn print_weights_lists_cmm_productions() {
     let dump = fuzzgen(&["--print-weights"]);
-    for name in ["util:cmm", "cfgm:cmm", "cmm:notice", "cmm:log", "cmm:debug1", "cmm:debug2"] {
+    for name in [
+        "util:cmm",
+        "cfgm:cmm",
+        "cmm:notice",
+        "cmm:log",
+        "cmm:debug1",
+        "cmm:debug2",
+    ] {
         assert!(
             dump.lines().any(|l| l.starts_with(&format!("{name}="))),
             "--print-weights lacks {name}"
@@ -33,7 +40,12 @@ fn print_weights_lists_cmm_productions() {
 fn seeded_stream_contains_cmm_codraw() {
     // util pinned to the cmm shape only; seed fixed -> deterministic stream.
     let sql = fuzzgen(&[
-        "--seed", "7", "--count", "2000", "--modules", "util=on:500",
+        "--seed",
+        "7",
+        "--count",
+        "2000",
+        "--modules",
+        "util=on:500",
         "--weight",
         "util:set=0,util:reset=0,util:reset_all=0,util:show=0,util:discard:plans=0,\
          util:discard:sequences=0,util:vacuum=0,util:analyze=0,util:checkpoint=0,\
@@ -65,7 +77,20 @@ fn seeded_stream_contains_cmm_codraw() {
     }
     assert!(saw_log, "cmm:log never fired in 2000 statements at seed 7");
     // The jsonl mode carries the production names for the witness.
-    let jsonl = fuzzgen(&["--seed", "7", "--count", "400", "--format", "jsonl", "--modules", "util=on:500",
-                          "--weight", "util:cmm=50"]);
-    assert!(jsonl.contains("\"cmm\""), "jsonl productions lack cmm:\n{jsonl}");
+    let jsonl = fuzzgen(&[
+        "--seed",
+        "7",
+        "--count",
+        "400",
+        "--format",
+        "jsonl",
+        "--modules",
+        "util=on:500",
+        "--weight",
+        "util:cmm=50",
+    ]);
+    assert!(
+        jsonl.contains("\"cmm\""),
+        "jsonl productions lack cmm:\n{jsonl}"
+    );
 }

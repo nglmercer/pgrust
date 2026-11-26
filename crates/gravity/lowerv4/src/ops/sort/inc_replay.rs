@@ -90,7 +90,7 @@ pub(crate) struct Replay {
 
 /// The state's words.
 pub(crate) const WORDS: usize = core::mem::size_of::<Replay>() / 8;
-const _: () = assert!(core::mem::size_of::<Replay>().is_multiple_of( 8) && WORDS < 256);
+const _: () = assert!(core::mem::size_of::<Replay>().is_multiple_of(8) && WORDS < 256);
 /// The words the top's finish adds into its cells: `agg`, then `need` and `bad`.
 pub(crate) const AGG_WORD: usize = core::mem::offset_of!(Replay, agg) / 8;
 pub(crate) const STAT_WORDS: usize = 10;
@@ -102,7 +102,11 @@ fn maxalign(n: u64) -> u64 {
 
 /// GetMemoryChunkSpace of a palloc of `size` bytes in an AllocSet of the default sizes.
 fn allocset_space(size: u64) -> u64 {
-    (if size <= 8192 { size.max(8).next_power_of_two() } else { maxalign(size) }) + 8
+    (if size <= 8192 {
+        size.max(8).next_power_of_two()
+    } else {
+        maxalign(size)
+    }) + 8
 }
 
 fn array(size: u64) -> i64 {
@@ -116,7 +120,11 @@ impl Replay {
 
     /// A tuple's charge: its AllocSet chunk under a bound (TUPLESORT_ALLOWBOUNDED), else its MAXALIGNed length (bump).
     fn charge(&self) -> i64 {
-        (if self.bounded() { allocset_space(self.t_len) } else { maxalign(self.t_len) }) as i64
+        (if self.bounded() {
+            allocset_space(self.t_len)
+        } else {
+            maxalign(self.t_len)
+        }) as i64
     }
 
     fn left(&self) -> u64 {
@@ -158,9 +166,17 @@ impl Replay {
     fn begin_full(&mut self) {
         self.begin(0);
         let left = self.left();
-        self.fbound = if self.bounded() && left < PIVOT { left } else { 0 };
+        self.fbound = if self.bounded() && left < PIVOT {
+            left
+        } else {
+            0
+        };
         self.set_bound(0, self.fbound);
-        self.m = if self.bounded() { PIVOT.min(left) } else { PIVOT };
+        self.m = if self.bounded() {
+            PIVOT.min(left)
+        } else {
+            PIVOT
+        };
         self.n = 0;
         self.head = 0;
         self.ngroups = 0;
@@ -232,7 +248,10 @@ impl Replay {
             self.begin(1);
             self.pbound = if self.bounded() { self.left() } else { 0 };
             self.set_bound(1, self.pbound);
-            let g = self.glist.get(self.head as usize).map_or(0, |&g| u64::from(g));
+            let g = self
+                .glist
+                .get(self.head as usize)
+                .map_or(0, |&g| u64::from(g));
             self.head += 1;
             self.ngroups -= 1;
             for _ in 0..g {
@@ -280,7 +299,15 @@ impl Replay {
     fn begin(&mut self, i: usize) {
         let t = &mut self.ts[i];
         if t.made == 0 {
-            *t = Ts { made: 1, size: ARRAY, used: array(ARRAY), count: 0, bound: 0, heap: 0, max: 0 };
+            *t = Ts {
+                made: 1,
+                size: ARRAY,
+                used: array(ARRAY),
+                count: 0,
+                bound: 0,
+                heap: 0,
+                max: 0,
+            };
             return;
         }
         t.used = 0;
@@ -344,7 +371,26 @@ mod tests {
 
     fn replay(bound: u64, groups: &[u64], stop: bool) -> Replay {
         // the open's state: every word 0 but the bound and the tuple length ((int4, int4): 24)
-        let mut r = Replay { bound, t_len: 24, phase: 0, done: 0, returned: 0, n: 0, m: 0, fbound: 0, pn: 0, local: 0, pbound: 0, head: 0, ngroups: 0, ts: [Ts::default(); 2], agg: [Agg::default(); 2], need: 0, bad: 0, glist: [0; 72] };
+        let mut r = Replay {
+            bound,
+            t_len: 24,
+            phase: 0,
+            done: 0,
+            returned: 0,
+            n: 0,
+            m: 0,
+            fbound: 0,
+            pn: 0,
+            local: 0,
+            pbound: 0,
+            head: 0,
+            ngroups: 0,
+            ts: [Ts::default(); 2],
+            agg: [Agg::default(); 2],
+            need: 0,
+            bad: 0,
+            glist: [0; 72],
+        };
         let mut first = true;
         for &g in groups {
             for j in 0..g {
@@ -365,7 +411,15 @@ mod tests {
     fn two_full_sort_groups() {
         let r = replay(55, &[50, 50], true);
         assert_eq!(r.bad, 0);
-        assert_eq!((r.agg[0].groups, r.agg[0].methods, r.agg[0].total / r.agg[0].groups, r.agg[0].peak), (2, TOP_N | QUICK, 26, 26));
+        assert_eq!(
+            (
+                r.agg[0].groups,
+                r.agg[0].methods,
+                r.agg[0].total / r.agg[0].groups,
+                r.agg[0].peak
+            ),
+            (2, TOP_N | QUICK, 26, 26)
+        );
         assert_eq!(r.agg[1].groups, 0);
     }
 
@@ -375,8 +429,24 @@ mod tests {
     fn presorted_groups() {
         let r = replay(70, &[1, 1, 1, 1, 996], false);
         assert_eq!(r.bad, 0);
-        assert_eq!((r.agg[0].groups, r.agg[0].methods, r.agg[0].total, r.agg[0].peak), (1, QUICK, 27, 27));
-        assert_eq!((r.agg[1].groups, r.agg[1].methods, r.agg[1].total / r.agg[1].groups, r.agg[1].peak), (5, TOP_N | QUICK, 25, 25));
+        assert_eq!(
+            (
+                r.agg[0].groups,
+                r.agg[0].methods,
+                r.agg[0].total,
+                r.agg[0].peak
+            ),
+            (1, QUICK, 27, 27)
+        );
+        assert_eq!(
+            (
+                r.agg[1].groups,
+                r.agg[1].methods,
+                r.agg[1].total / r.agg[1].groups,
+                r.agg[1].peak
+            ),
+            (5, TOP_N | QUICK, 25, 25)
+        );
     }
 
     /// An input that ends before the bound: the last load meets the end of input.

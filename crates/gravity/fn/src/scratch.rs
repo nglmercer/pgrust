@@ -16,7 +16,11 @@ pub struct ScratchSlot {
 impl ScratchSlot {
     /// A slot whose retained context is `name`; a re-entered call's context is `nested`.
     pub fn new(name: &'static str, nested: &'static str) -> Self {
-        Self { cx: RefCell::new(MemoryContext::new_bump(name)), dirty: Cell::new(false), nested } // alloc: Node
+        Self {
+            cx: RefCell::new(MemoryContext::new_bump(name)),
+            dirty: Cell::new(false),
+            nested,
+        } // alloc: Node
     }
 
     /// `f` against the retained context, reset after `f` (which copies its result out).

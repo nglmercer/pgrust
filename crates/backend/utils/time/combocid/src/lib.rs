@@ -28,7 +28,9 @@ pub fn HeapTupleHeaderGetCmin(tup: &HeapTupleHeaderData) -> CommandId {
     let cid = tup.raw_command_id();
 
     debug_assert!((tup.t_infomask & HEAP_MOVED) == 0);
-    debug_assert!(xact_seams::transaction_id_is_current_transaction_id::call(tup.xmin()));
+    debug_assert!(xact_seams::transaction_id_is_current_transaction_id::call(
+        tup.xmin()
+    ));
 
     if (tup.t_infomask & HEAP_COMBOCID) != 0 {
         GetRealCmin(cid)
@@ -88,18 +90,27 @@ pub fn AtEOXact_ComboCid() {
 fn GetComboCommandId(cmin: CommandId, cmax: CommandId) -> PgResult<CommandId> {
     STATE.with(|s| {
         let mut s = s.borrow_mut();
-        let ComboCidState { comboCids, comboHash } = &mut *s;
+        let ComboCidState {
+            comboCids,
+            comboHash,
+        } = &mut *s;
         let next = comboCids.len() as CommandId;
         if let Some(&existing) = comboHash.get(&(cmin, cmax)) {
             return Ok(existing);
         }
         // Reserve both BEFORE inserting so the pair stays consistent.
-        comboCids
-            .try_reserve(1)
-            .map_err(|_| ::mcx::oom_named("TopTransactionContext", core::mem::size_of::<(CommandId, CommandId)>()))?;
-        comboHash
-            .try_reserve(1)
-            .map_err(|_| ::mcx::oom_named("TopTransactionContext", core::mem::size_of::<((CommandId, CommandId), CommandId)>()))?;
+        comboCids.try_reserve(1).map_err(|_| {
+            ::mcx::oom_named(
+                "TopTransactionContext",
+                core::mem::size_of::<(CommandId, CommandId)>(),
+            )
+        })?;
+        comboHash.try_reserve(1).map_err(|_| {
+            ::mcx::oom_named(
+                "TopTransactionContext",
+                core::mem::size_of::<((CommandId, CommandId), CommandId)>(),
+            )
+        })?;
         comboHash.insert((cmin, cmax), next);
         comboCids.push((cmin, cmax));
         Ok(next)
@@ -134,8 +145,12 @@ pub fn RestoreComboCIDState(state: &Arc<[(CommandId, CommandId)]>) {
         let mut s = s.borrow_mut();
         debug_assert!(s.comboCids.is_empty() && s.comboHash.is_empty());
         s.comboCids.extend_from_slice(state);
-        s.comboHash
-            .extend(state.iter().enumerate().map(|(i, &key)| (key, i as CommandId)));
+        s.comboHash.extend(
+            state
+                .iter()
+                .enumerate()
+                .map(|(i, &key)| (key, i as CommandId)),
+        );
     });
 }
 

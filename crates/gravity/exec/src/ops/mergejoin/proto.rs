@@ -56,18 +56,33 @@ impl Protocol for Markable {
             return Err(glue::internal("gravity: merge.markable declared without its pulled inner (no other form has landed)"));
         }
         let (base, k) = (p.words.base as usize, p.pipeline as usize);
-        if p.words.n != 1 || base >= cx.words.len() || base >= cx.nulls.len() || k >= cx.program.pipelines.len() {
+        if p.words.n != 1
+            || base >= cx.words.len()
+            || base >= cx.nulls.len()
+            || k >= cx.program.pipelines.len()
+        {
             return Err(glue::internal("gravity: merge.join's pulled inner is not one handle word over one of the program's pipelines"));
         }
-        let pull = Rc::new(Pull::new(cx.program, k, "merge.join's pulled inner", super::raw::pull)?); // alloc: Exec
+        let pull = Rc::new(Pull::new(
+            cx.program,
+            k,
+            "merge.join's pulled inner",
+            super::raw::pull,
+        )?); // alloc: Exec
         let p2 = pull.clone();
         let cell = super::raw::PullCell::new(Box::new(move || p2.pull())); // alloc: Exec
         cx.words[base] = cell.handle();
         cx.nulls[base] = 0;
         *cx.nparams = (*cx.nparams).max(base + 1);
         let mut readers = cx.charged_vec();
-        readers.with_vec(|v| v.extend(cx.program.consumers_of(gravity_program::LifeId(p.pipeline)))); // alloc: Exec charged cx.owner
-        Ok(Some(Box::new(MergeLive { _cell: cell, pull, k, readers }))) // alloc: Exec
+        readers
+            .with_vec(|v| v.extend(cx.program.consumers_of(gravity_program::LifeId(p.pipeline)))); // alloc: Exec charged cx.owner
+        Ok(Some(Box::new(MergeLive {
+            _cell: cell,
+            pull,
+            k,
+            readers,
+        }))) // alloc: Exec
     }
 }
 
@@ -75,9 +90,19 @@ impl Protocol for Markable {
 /// code raised it, which a budgeted pull reads ahead of the merge: not a cancel, a resource, system or internal error, nor
 /// a refusal, which the statement raises wherever it meets them.
 pub(super) fn holdable(e: &PgError) -> bool {
-    use types_error::{errcode_to_category as class, ERRCODE_INSUFFICIENT_RESOURCES, ERRCODE_INTERNAL_ERROR, ERRCODE_QUERY_CANCELED, ERRCODE_SYSTEM_ERROR};
+    use types_error::{
+        errcode_to_category as class, ERRCODE_INSUFFICIENT_RESOURCES, ERRCODE_INTERNAL_ERROR,
+        ERRCODE_QUERY_CANCELED, ERRCODE_SYSTEM_ERROR,
+    };
     let c = class(e.sqlstate());
     e.level() == types_error::ERROR
-        && ![ERRCODE_QUERY_CANCELED, ERRCODE_SYSTEM_ERROR, ERRCODE_INSUFFICIENT_RESOURCES, ERRCODE_INTERNAL_ERROR].iter().any(|&k| class(k) == c)
+        && ![
+            ERRCODE_QUERY_CANCELED,
+            ERRCODE_SYSTEM_ERROR,
+            ERRCODE_INSUFFICIENT_RESOURCES,
+            ERRCODE_INTERNAL_ERROR,
+        ]
+        .iter()
+        .any(|&k| class(k) == c)
         && crate::runner::refusal_of(e).is_none()
 }

@@ -231,7 +231,11 @@ pub const CODE_CACHE_RAM_DIV: u64 = 512;
 /// The code cache's budget on a machine of `ram` bytes: its `CODE_CACHE_RAM_DIV` share, never under the reference box's
 /// (`reference_ram`): a smaller machine keeps the reference's budget, so no machine compiles again what the reference keeps.
 pub const fn code_cache_bytes(ram: u64, reference_ram: u64) -> u64 {
-    (if ram > reference_ram { ram } else { reference_ram }) / CODE_CACHE_RAM_DIV
+    (if ram > reference_ram {
+        ram
+    } else {
+        reference_ram
+    }) / CODE_CACHE_RAM_DIV
 }
 
 /// D3203: the spilled bytes from which a statement's end deletes its spill files across the pool's idle workers
@@ -263,19 +267,39 @@ mod tests {
     #[test]
     fn the_code_cache_is_a_share_of_ram_never_under_the_reference() {
         const REF: u64 = 32 << 30;
-        assert_eq!(code_cache_bytes(REF, REF), 64 << 20, "the reference box keeps the 64 MiB it had");
+        assert_eq!(
+            code_cache_bytes(REF, REF),
+            64 << 20,
+            "the reference box keeps the 64 MiB it had"
+        );
         assert_eq!(code_cache_bytes(128 << 30, REF), 256 << 20);
-        assert_eq!(code_cache_bytes(4 << 30, REF), 64 << 20, "a smaller machine keeps the reference's budget");
+        assert_eq!(
+            code_cache_bytes(4 << 30, REF),
+            64 << 20,
+            "a smaller machine keeps the reference's budget"
+        );
     }
 
     #[test]
     fn a_dense_span_pays_from_two_rows_per_slot_per_worker() {
         use super::dense_span_pays;
-        assert!(dense_span_pays(5000, 1_000_000, 0), "1M rows over 5000 slots, serial");
-        assert!(dense_span_pays(5000, 10_000, 1), "2 rows a slot, the k22p neutral point");
+        assert!(
+            dense_span_pays(5000, 1_000_000, 0),
+            "1M rows over 5000 slots, serial"
+        );
+        assert!(
+            dense_span_pays(5000, 10_000, 1),
+            "2 rows a slot, the k22p neutral point"
+        );
         assert!(!dense_span_pays(5000, 9_999, 1));
-        assert!(!dense_span_pays(5000, 10_000, 8), "1250 rows a worker over 5000 slots");
-        assert!(dense_span_pays(14001, 1_000_000, 8), "125000 a worker over 14001");
+        assert!(
+            !dense_span_pays(5000, 10_000, 8),
+            "1250 rows a worker over 5000 slots"
+        );
+        assert!(
+            dense_span_pays(14001, 1_000_000, 8),
+            "125000 a worker over 14001"
+        );
         assert!(!dense_span_pays(5000, 1000, 1), "a filter left 1000 rows");
         assert!(!dense_span_pays(0, u64::MAX, 1), "no domain");
     }

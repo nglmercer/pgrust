@@ -85,7 +85,14 @@ fn truncate_rejects_lying_relid_count_without_huge_alloc() {
 #[test]
 fn message_wire_layout() {
     let mut out = Vec::new();
-    logicalrep_write_message(&mut out, InvalidTransactionId, 0x10, true, b"pfx", b"payload");
+    logicalrep_write_message(
+        &mut out,
+        InvalidTransactionId,
+        0x10,
+        true,
+        b"pfx",
+        b"payload",
+    );
     assert_eq!(out[0], LOGICAL_REP_MSG_MESSAGE);
     let mut r = Reader::new(&out[1..]);
     assert_eq!(r.get_byte().unwrap(), MESSAGE_TRANSACTIONAL);
@@ -156,7 +163,10 @@ fn update_read_side() {
     let u = logicalrep_read_update(&mut r).unwrap();
     assert_eq!(u.relid, 16391);
     assert!(u.has_oldtuple);
-    assert_eq!(u.oldtup.unwrap().colvalues[0].as_deref(), Some(b"1".as_slice()));
+    assert_eq!(
+        u.oldtup.unwrap().colvalues[0].as_deref(),
+        Some(b"1".as_slice())
+    );
     assert_eq!(u.newtup.colvalues[0].as_deref(), Some(b"2".as_slice()));
 }
 
@@ -242,7 +252,10 @@ fn typ_read_side() {
 #[test]
 fn message_type_names() {
     assert_eq!(logicalrep_message_type(LOGICAL_REP_MSG_INSERT), "INSERT");
-    assert_eq!(logicalrep_message_type(LOGICAL_REP_MSG_STREAM_PREPARE), "STREAM PREPARE");
+    assert_eq!(
+        logicalrep_message_type(LOGICAL_REP_MSG_STREAM_PREPARE),
+        "STREAM PREPARE"
+    );
     assert_eq!(logicalrep_message_type(0xFF), "??? (255)");
 }
 
@@ -260,7 +273,14 @@ fn truncated_message_errors_not_panics() {
 #[test]
 fn begin_prepare_roundtrip_and_layout() {
     let mut out = Vec::new();
-    logicalrep_write_begin_prepare(&mut out, 0x0102030405060708, 0x0102030405060710, 987654321, 42, "gid_1");
+    logicalrep_write_begin_prepare(
+        &mut out,
+        0x0102030405060708,
+        0x0102030405060710,
+        987654321,
+        42,
+        "gid_1",
+    );
     // Byte layout per proto.c logicalrep_write_begin_prepare: type byte,
     // prepare_lsn, end_lsn, prepare_time, xid, gid + NUL.
     assert_eq!(out[0], LOGICAL_REP_MSG_BEGIN_PREPARE);
@@ -462,7 +482,10 @@ fn stream_abort_roundtrip_with_and_without_abort_info() {
     assert_eq!(out2.len(), 1 + 4 + 4 + 16);
     let mut r2 = Reader::new(&out2[1..]);
     let a2 = logicalrep_read_stream_abort(&mut r2, true).unwrap();
-    assert_eq!((a2.xid, a2.subxid, a2.abort_lsn, a2.abort_time), (756, 757, 0x99, 555));
+    assert_eq!(
+        (a2.xid, a2.subxid, a2.abort_lsn, a2.abort_time),
+        (756, 757, 0x99, 555)
+    );
 }
 
 // pq_sendstring / pq_sendcountedtext (pqformat.c:191/71) convert to the
@@ -548,13 +571,24 @@ fn wire_strings_are_verified_against_utf8_database_encoding() {
     send_byte(&mut body, b'd');
     send_int16(&mut body, 0);
     let mut r = Reader::new(&body);
-    let e = logicalrep_read_rel(&mut r).err().expect("bad UTF8 relname rejected");
-    assert_eq!(e.message(), "invalid byte sequence for encoding \"UTF8\": 0xff");
-    assert_eq!(e.sqlstate(), types_error::ERRCODE_CHARACTER_NOT_IN_REPERTOIRE);
+    let e = logicalrep_read_rel(&mut r)
+        .err()
+        .expect("bad UTF8 relname rejected");
+    assert_eq!(
+        e.message(),
+        "invalid byte sequence for encoding \"UTF8\": 0xff"
+    );
+    assert_eq!(
+        e.sqlstate(),
+        types_error::ERRCODE_CHARACTER_NOT_IN_REPERTOIRE
+    );
 
     let mut r = Reader::new(&[0xe9, b'a', b'b', 0]);
     let e = r.get_string().unwrap_err();
-    assert_eq!(e.message(), "invalid byte sequence for encoding \"UTF8\": 0xe9 0x61 0x62");
+    assert_eq!(
+        e.message(),
+        "invalid byte sequence for encoding \"UTF8\": 0xe9 0x61 0x62"
+    );
 
     let mut r = Reader::new("caf\u{e9}\0".as_bytes());
     assert_eq!(r.get_string().unwrap(), "caf\u{e9}");
@@ -578,7 +612,10 @@ fn tuple_column_length_is_checked_as_palloc_size_first() {
     body.extend_from_slice(&0x8000_0000u32.to_be_bytes());
     let mut r = Reader::new(&body);
     let e = logicalrep_read_tuple(&mut r).err().unwrap();
-    assert_eq!(e.message(), "invalid memory alloc request size 18446744071562067969");
+    assert_eq!(
+        e.message(),
+        "invalid memory alloc request size 18446744071562067969"
+    );
 
     let mut body = vec![0, 1, LOGICALREP_COLUMN_TEXT];
     body.extend_from_slice(&0xffff_ffffu32.to_be_bytes());
@@ -609,16 +646,30 @@ fn truncate_missing_flags_is_pq_copymsgbytes_short_data() {
     body.push(TRUNCATE_CASCADE | TRUNCATE_RESTART_SEQS);
     body.extend_from_slice(&42u32.to_be_bytes());
     let mut r = Reader::new(&body);
-    assert_eq!(logicalrep_read_truncate(&mut r).unwrap(), (vec![42], true, true));
+    assert_eq!(
+        logicalrep_read_truncate(&mut r).unwrap(),
+        (vec![42], true, true)
+    );
 }
 
 #[test]
 fn insert_unknown_representation_preserves_message_bytes() {
     for kind in [0x80, 0xff, b'?', 0] {
         let body = [0, 0, 0, 1, b'N', 0, 1, kind];
-        let error = logicalrep_read_insert(&mut Reader::new(&body)).err().unwrap();
-        let actual = error.message_raw.as_deref().unwrap_or(error.message().as_bytes());
-        println!("kind={kind:02x} message_hex={}", actual.iter().map(|b| format!("{b:02x}")).collect::<String>());
+        let error = logicalrep_read_insert(&mut Reader::new(&body))
+            .err()
+            .unwrap();
+        let actual = error
+            .message_raw
+            .as_deref()
+            .unwrap_or(error.message().as_bytes());
+        println!(
+            "kind={kind:02x} message_hex={}",
+            actual
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        );
         let mut expected = b"unrecognized data representation type '".to_vec();
         if kind != 0 {
             expected.extend_from_slice(&[kind, b'\'']);

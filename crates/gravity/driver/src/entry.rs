@@ -29,11 +29,17 @@ pub enum ExecState {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Step {
-    Suspended { out_full: bool },
-    Recheck { site: u8 },
+    Suspended {
+        out_full: bool,
+    },
+    Recheck {
+        site: u8,
+    },
     /// D824 (V4R-298): the pipeline stopped at its outer-first probe's first row; its lazy build `pipeline` runs now
     /// (`Entry::build_wait`), then the same call resumes (`Call::resume` / `Entry::resume_claim`).
-    BuildWait { pipeline: usize },
+    BuildWait {
+        pipeline: usize,
+    },
     Done,
 }
 
@@ -197,7 +203,9 @@ impl Exec {
     /// pipeline 63, which a u64 mask cannot name (PG's SetOp never reads its inner after an empty outer). A bit past the
     /// program's pipelines is dropped.
     pub fn run_empty_words(&mut self, mask: &[u64]) {
-        let Some((&first, past)) = mask.split_first() else { return };
+        let Some((&first, past)) = mask.split_first() else {
+            return;
+        };
         self.run_empty(first);
         let next = self.next_pipeline;
         for (w, (e, &m)) in self.empty_past.iter_mut().zip(past).enumerate() {
@@ -228,7 +236,10 @@ impl Exec {
     pub fn runs_empty(&self, p: usize) -> bool {
         match p.checked_sub(64) {
             None => self.empty >> p & 1 != 0,
-            Some(q) => self.empty_past.get(q / 64).is_some_and(|e| e >> (q % 64) & 1 != 0),
+            Some(q) => self
+                .empty_past
+                .get(q / 64)
+                .is_some_and(|e| e >> (q % 64) & 1 != 0),
         }
     }
 
@@ -283,12 +294,20 @@ impl Sink for Capture<'_> {
             // D470: the images copied out of the node's region, which it reuses (and poisons, debug / SCRIBBLE) at its release
             self.out.region.clear();
             self.out.region.extend_from_slice(batch.region); // alloc: Cold
-            crate::pull::relocate(&mut self.out.values[..v.len()], &self.out.isnull[..n.len()], self.out.byref, (batch.region.as_ptr() as u64, batch.region.len()), self.out.region.as_ptr());
+            crate::pull::relocate(
+                &mut self.out.values[..v.len()],
+                &self.out.isnull[..n.len()],
+                self.out.byref,
+                (batch.region.as_ptr() as u64, batch.region.len()),
+                self.out.region.as_ptr(),
+            );
             self.got = true;
         }
         // D2744: the next row into the pending buffer, then stop (no buffer: stop at the first row, as before)
         let byref = self.out.byref;
-        let Some(p) = self.pending.as_deref_mut() else { return Ok(Flow::Stop) };
+        let Some(p) = self.pending.as_deref_mut() else {
+            return Ok(Flow::Stop);
+        };
         let r = usize::from(first && batch.rows > 0);
         if r < batch.rows && self.got && !p.got {
             let (v, n) = batch.row(r);
@@ -298,7 +317,13 @@ impl Sink for Capture<'_> {
             p.isnull.extend_from_slice(n); // alloc: Cold
             p.region.clear();
             p.region.extend_from_slice(batch.region); // alloc: Cold
-            crate::pull::relocate(&mut p.values[..], &p.isnull[..], byref, (batch.region.as_ptr() as u64, batch.region.len()), p.region.as_ptr());
+            crate::pull::relocate(
+                &mut p.values[..],
+                &p.isnull[..],
+                byref,
+                (batch.region.as_ptr() as u64, batch.region.len()),
+                p.region.as_ptr(),
+            );
             p.got = true;
         }
         Ok(if p.got { Flow::Stop } else { Flow::Continue })
@@ -310,7 +335,10 @@ impl Sink for Capture<'_> {
 #[inline(never)]
 fn open_first(exec: &mut Exec, p: usize) -> Result<()> {
     let split = exec.node.share(p, exec.grant(), 1);
-    if let Err(e) = exec.node.open_pipeline(p, split.breaker, split.images.bytes) {
+    if let Err(e) = exec
+        .node
+        .open_pipeline(p, split.breaker, split.images.bytes)
+    {
         exec.state = ExecState::Failed;
         return Err(e);
     }
@@ -321,11 +349,23 @@ fn open_first(exec: &mut Exec, p: usize) -> Result<()> {
 
 /// D824: the lazy build pipeline `q`'s `consumed`-th slot names (its producer with `lazy_for == q`).
 fn lazy_build(program: &Program, q: usize, consumed: u8) -> Result<usize> {
-    let slot = program.pipelines[q].consumes.get(consumed as usize).copied();
-    let b = (0..q).rev().find(|&b| program.pipelines[b].lazy_for as usize == q && program.pipelines[b].produces() == slot && slot.is_some());
+    let slot = program.pipelines[q]
+        .consumes
+        .get(consumed as usize)
+        .copied();
+    let b = (0..q).rev().find(|&b| {
+        program.pipelines[b].lazy_for as usize == q
+            && program.pipelines[b].produces() == slot
+            && slot.is_some()
+    });
     // rowsecurity#343 (lowerv4 rerun/spool/arm_fill.rs): a later reader of a lazy build's slot (a streamed write's later
     // arm, its nest copy over the same Material) waits on it when no earlier reader ran it
-    let b = b.or_else(|| slot.and_then(|s| program.producer_of_slot(q, s)).filter(|&b| program.pipelines[b].lazy_for >= 0 && (program.pipelines[b].lazy_for as usize) < q));
+    let b = b.or_else(|| {
+        slot.and_then(|s| program.producer_of_slot(q, s))
+            .filter(|&b| {
+                program.pipelines[b].lazy_for >= 0 && (program.pipelines[b].lazy_for as usize) < q
+            })
+    });
     b.ok_or_else(|| Error::BadReturn(gravity_abi::status::build_wait(consumed)))
 }
 
@@ -338,7 +378,14 @@ fn lazy_build(program: &Program, q: usize, consumed: u8) -> Result<usize> {
 /// D2652 (material): so is a settled union's earlier feed (`feed_mate`), whose slot names no reader at all.
 fn fed_lazy(program: &Program, p: usize, b: usize, q: usize) -> bool {
     stack_depth_core::check_stack_depth_or_panic();
-    p == b || program.pipelines[p].lazy_for as usize == q && (p + 1..=b).any(|m| (program.producers_of(m).any(|x| x == p) || run_mate(program, p, m) || feed_mate(program, p, m)) && fed_lazy(program, m, b, q))
+    p == b
+        || program.pipelines[p].lazy_for as usize == q
+            && (p + 1..=b).any(|m| {
+                (program.producers_of(m).any(|x| x == p)
+                    || run_mate(program, p, m)
+                    || feed_mate(program, p, m))
+                    && fed_lazy(program, m, b, q)
+            })
 }
 
 /// D2652: pipeline `p` is a deferred producer whose production no pipeline reads (`last_consumer`): a settled union's feed
@@ -348,15 +395,30 @@ fn fed_lazy(program: &Program, p: usize, b: usize, q: usize) -> bool {
 /// it runs in exactly one wait: a lazy Hash over `Result(f(x)) <- Append(scan, scan)` lost every feed but the last.
 fn feed_mate(program: &Program, p: usize, m: usize) -> bool {
     let ps = &program.pipelines;
-    ps[p].produces().is_some() && program.last_consumer(p) == p && (p + 1..ps.len()).find(|&x| ps[x].lazy_for == ps[p].lazy_for) == Some(m)
+    ps[p].produces().is_some()
+        && program.last_consumer(p) == p
+        && (p + 1..ps.len()).find(|&x| ps[x].lazy_for == ps[p].lazy_for) == Some(m)
 }
 
 /// D2622: pipeline `p` is an earlier arm of the append.arms run holding pipeline `m` (D393: consecutive pipelines producing
 /// one slot as one production, the run's `Arms` proto; the driver opens the slot at the run's first arm, `Node::arms_of`).
 fn run_mate(program: &Program, p: usize, m: usize) -> bool {
-    let Some(s) = program.pipelines[p].produces() else { return false };
-    let run = |a: &gravity_program::protos::Proto| a.pipeline as usize..a.pipeline as usize + a.arg as usize;
-    p < m && program.pipelines[m].produces() == Some(s) && program.v4.as_deref().is_some_and(|v4| v4.protos.iter().any(|a| a.kind == gravity_program::protos::ProtoKind::Arms && a.slot == s && run(a).contains(&p) && run(a).contains(&m)))
+    let Some(s) = program.pipelines[p].produces() else {
+        return false;
+    };
+    let run = |a: &gravity_program::protos::Proto| {
+        a.pipeline as usize..a.pipeline as usize + a.arg as usize
+    };
+    p < m
+        && program.pipelines[m].produces() == Some(s)
+        && program.v4.as_deref().is_some_and(|v4| {
+            v4.protos.iter().any(|a| {
+                a.kind == gravity_program::protos::ProtoKind::Arms
+                    && a.slot == s
+                    && run(a).contains(&p)
+                    && run(a).contains(&m)
+            })
+        })
 }
 
 /// D1876: the rows the outer call left in the out block (its count and region fill), set aside while a nested run's members
@@ -376,25 +438,34 @@ pub trait OnDemand {
     /// member's kept slot reset in place, then the run nested as `run_members` (`Entry::rerun_nested`). A frame that runs
     /// no rerun refuses by name.
     fn rerun_members(&mut self, _members: &[u16]) -> Result<()> {
-        Err(Error::Refused("gravity: Bug: a rerun through a frame that runs none (M8 RT-2e)".into()))
+        Err(Error::Refused(
+            "gravity: Bug: a rerun through a frame that runs none (M8 RT-2e)".into(),
+        ))
     }
     /// D4120: `rerun_members` whose kept members fill again (an enclosing owner changed a param their fill reads): their
     /// kept slots reset in place as every member's (`Entry::rerun_nested`'s `refill`). A frame that runs no rerun refuses
     /// by name.
     fn refill_members(&mut self, _members: &[u16]) -> Result<()> {
-        Err(Error::Refused("gravity: Bug: a refill through a frame that runs none (D4120)".into()))
+        Err(Error::Refused(
+            "gravity: Bug: a refill through a frame that runs none (D4120)".into(),
+        ))
     }
     /// M8 (RT-2f): a pulled set's `members` (program order; the last one the pulled pipeline, PG's CTE plan under
     /// CteScanNext) run on until the last one stops resumably after the rows its host's budget word allows, or ends
     /// (`Entry::pull_nested`). `budget` is the protocol's (the driver never reads it). A frame that pulls none refuses by name.
     fn pull_members(&mut self, _members: &[u16], _budget: u64) -> Result<Pulled> {
-        Err(Error::Refused("gravity: Bug: a pull through a frame that pulls none (M8 RT-2f)".into()))
+        Err(Error::Refused(
+            "gravity: Bug: a pull through a frame that pulls none (M8 RT-2f)".into(),
+        ))
     }
     /// setop_rec-0043 (PG's ExecReScanCteScan): a pulled set's `members` (program order, the pulled pipeline last) re-armed
     /// by a rerun set's run, so its next pull starts the set again (`Entry::rearm_pulled`). A frame that pulls none refuses
     /// by name.
     fn rearm_pulled(&mut self, _members: &[u16]) -> Result<()> {
-        Err(Error::Refused("gravity: Bug: a pulled set re-armed through a frame that pulls none (setop_rec-0043)".into()))
+        Err(Error::Refused(
+            "gravity: Bug: a pulled set re-armed through a frame that pulls none (setop_rec-0043)"
+                .into(),
+        ))
     }
     /// D1035 step 2 (V4R-444): `reader` (the next pipeline, not opened yet: its late step) is about to start. When it runs
     /// on workers (a section at width >= 2), the frame runs the Init's `members` now, out of order at their own widths
@@ -477,13 +548,24 @@ fn settle_tier(program: &Program, widths: Widths<'_>) {
     for i in 0..program.pipelines.len() {
         if let Some(t) = program.code_of(i).tier0().filter(|t| !t.settled()) {
             let (first, cap, bound) = pending.unwrap_or((true, u64::MAX, 0));
-            pending = Some((first && t.runs() == 0, cap.min(t.cap()), bound.max(t.bound())));
+            pending = Some((
+                first && t.runs() == 0,
+                cap.min(t.cap()),
+                bound.max(t.bound()),
+            ));
         }
     }
-    let Some((first, cap, bound)) = pending else { return };
+    let Some((first, cap, bound)) = pending else {
+        return;
+    };
     // D3867: a pipeline's prediction held to the statement's bound (a relation's counted line pointers under PostgreSQL's
     // 10-block guess for a never-analyzed one)
-    let interpret = first && program.pipelines.iter().enumerate().all(|(i, p)| widths.serial(i, p) && p.predicted_rows.min(bound) <= cap);
+    let interpret = first
+        && program
+            .pipelines
+            .iter()
+            .enumerate()
+            .all(|(i, p)| widths.serial(i, p) && p.predicted_rows.min(bound) <= cap);
     for i in 0..program.pipelines.len() {
         if let Some(t) = program.code_of(i).tier0() {
             // a failed compile interprets this execution and every later one (never the statement's error)
@@ -520,13 +602,33 @@ impl Widths<'_> {
 
 impl Entry {
     pub fn new(park_capacity: usize) -> Entry {
-        Entry { park: Park::new(park_capacity), stats: EntryStats::default(), recheck_pipeline: 0, released_seen: crate::slots::park_released_current(), current: core::ptr::null(), epq_outer: None, recheck_instr: core::ptr::null_mut(), rerun_seen: false, record: None }
+        Entry {
+            park: Park::new(park_capacity),
+            stats: EntryStats::default(),
+            recheck_pipeline: 0,
+            released_seen: crate::slots::park_released_current(),
+            current: core::ptr::null(),
+            epq_outer: None,
+            recheck_instr: core::ptr::null_mut(),
+            rerun_seen: false,
+            record: None,
+        }
     }
 
     /// D3881: this entry as `new` makes it, its park's slots kept (a freed statement level's state, emptied for the next
     /// level built): its parked Nodes drop first.
     pub fn empty(&mut self) {
-        let Entry { park, stats, recheck_pipeline, released_seen, current, epq_outer, recheck_instr, rerun_seen, record } = self;
+        let Entry {
+            park,
+            stats,
+            recheck_pipeline,
+            released_seen,
+            current,
+            epq_outer,
+            recheck_instr,
+            rerun_seen,
+            record,
+        } = self;
         park.clear();
         *stats = EntryStats::default();
         *recheck_pipeline = 0;
@@ -547,7 +649,11 @@ impl Entry {
     /// back on every exit of `f`, an unwind included. D1709: the slot is stored only while `cell` is borrowed here.
     /// D3620: inlined, so a nested statement's stack path holds no frame of its own for it.
     #[inline(always)]
-    pub fn with_current_slot<R>(&mut self, cell: &CurrentCell, f: impl FnOnce(&mut Entry) -> R) -> R {
+    pub fn with_current_slot<R>(
+        &mut self,
+        cell: &CurrentCell,
+        f: impl FnOnce(&mut Entry) -> R,
+    ) -> R {
         struct Back<'e>(&'e mut Entry, *const CurrentCell);
         impl Drop for Back<'_> {
             fn drop(&mut self) {
@@ -585,7 +691,12 @@ impl Entry {
         }
     }
 
-    fn acquire(&mut self, key: Option<PlanKey>, program: &Arc<Program>, derive: &mut dyn Derive) -> Result<Box<Node>> {
+    fn acquire(
+        &mut self,
+        key: Option<PlanKey>,
+        program: &Arc<Program>,
+        derive: &mut dyn Derive,
+    ) -> Result<Box<Node>> {
         self.release_recorded();
         let parked = match key.and_then(|k| self.park.take(k, program.key)) {
             // C3 S4c: a Node serves only the program it was built over (the same `Arc`): a content key names a program's shape
@@ -679,12 +790,27 @@ impl Entry {
     }
 
     /// A statement's execution under its admission `lease` (the runner's `admit_grant`; `Reservation::unadmitted` outside the pool).
-    pub fn start(&mut self, key: Option<PlanKey>, program: &Arc<Program>, derive: &mut dyn Derive, binding: &mut Binding<'_>, lease: std::rc::Rc<Reservation>) -> Result<Exec> {
+    pub fn start(
+        &mut self,
+        key: Option<PlanKey>,
+        program: &Arc<Program>,
+        derive: &mut dyn Derive,
+        binding: &mut Binding<'_>,
+        lease: std::rc::Rc<Reservation>,
+    ) -> Result<Exec> {
         self.start_at(key, program, derive, binding, lease, Widths::Declared)
     }
 
     /// `start` with the execution's pipeline widths (`Widths`), which tier 0's settle reads.
-    pub fn start_at(&mut self, key: Option<PlanKey>, program: &Arc<Program>, derive: &mut dyn Derive, binding: &mut Binding<'_>, lease: std::rc::Rc<Reservation>, widths: Widths<'_>) -> Result<Exec> {
+    pub fn start_at(
+        &mut self,
+        key: Option<PlanKey>,
+        program: &Arc<Program>,
+        derive: &mut dyn Derive,
+        binding: &mut Binding<'_>,
+        lease: std::rc::Rc<Reservation>,
+        widths: Widths<'_>,
+    ) -> Result<Exec> {
         settle_tier(program, widths);
         let mut node = self.acquire(key, program, derive)?;
         node.set_stmt(&*lease);
@@ -698,12 +824,28 @@ impl Entry {
             return Err(e);
         }
         let empty_past = past_words(program.pipelines.len());
-        Ok(Exec { node, key, state: ExecState::Ready, calls: 0, next_pipeline: 0, binding_id: binding as *const Binding<'_> as *const (), slot_salt: None, lease, empty: 0, empty_past, resume_next: false, nest_owner: NO_OWNER })
+        Ok(Exec {
+            node,
+            key,
+            state: ExecState::Ready,
+            calls: 0,
+            next_pipeline: 0,
+            binding_id: binding as *const Binding<'_> as *const (),
+            slot_salt: None,
+            lease,
+            empty: 0,
+            empty_past,
+            resume_next: false,
+            nest_owner: NO_OWNER,
+        })
     }
 
     pub fn run(&mut self, exec: &mut Exec, binding: &mut Binding<'_>, call: Call) -> Result<Step> {
         loop {
-            let (p, last) = (exec.next_pipeline, exec.next_pipeline + 1 >= exec.node.program().pipelines.len());
+            let (p, last) = (
+                exec.next_pipeline,
+                exec.next_pipeline + 1 >= exec.node.program().pipelines.len(),
+            );
             let step = self.run_pipeline(exec, binding, call).inspect_err(|e| {
                 crate::note_unsupported(Some(p), e, false);
                 crate::note_ahead(exec.node.program(), p, e);
@@ -714,13 +856,31 @@ impl Entry {
         }
     }
 
-    pub fn run_pipeline(&mut self, exec: &mut Exec, binding: &mut Binding<'_>, call: Call) -> Result<Step> {
-        self.run_pipeline_at(exec, binding, call).map_err(|e| pool_refused(exec.reservation(), e))
+    pub fn run_pipeline(
+        &mut self,
+        exec: &mut Exec,
+        binding: &mut Binding<'_>,
+        call: Call,
+    ) -> Result<Step> {
+        self.run_pipeline_at(exec, binding, call)
+            .map_err(|e| pool_refused(exec.reservation(), e))
     }
 
-    fn run_pipeline_at(&mut self, exec: &mut Exec, binding: &mut Binding<'_>, call: Call) -> Result<Step> {
-        assert!(matches!(exec.state, ExecState::Ready | ExecState::Running), "run on a {:?} exec", exec.state);
-        assert!(core::ptr::eq(exec.binding_id, binding as *const Binding<'_> as *const ()), "run with a binding other than start's");
+    fn run_pipeline_at(
+        &mut self,
+        exec: &mut Exec,
+        binding: &mut Binding<'_>,
+        call: Call,
+    ) -> Result<Step> {
+        assert!(
+            matches!(exec.state, ExecState::Ready | ExecState::Running),
+            "run on a {:?} exec",
+            exec.state
+        );
+        assert!(
+            core::ptr::eq(exec.binding_id, binding as *const Binding<'_> as *const ()),
+            "run with a binding other than start's"
+        );
         let n = exec.node.program().pipelines.len();
         let out_rows = exec.node.program().layout.out_rows;
         let p = exec.next_pipeline;
@@ -731,10 +891,15 @@ impl Entry {
         exec.calls += 1;
         // D2584: an emit over a source marked to run empty before it opened (`run_empty`) ends unopened: no call, no row,
         // the slots it was the last reader of freed as at any end
-        if emit && first && exec.runs_empty(p) && exec.node.program().pipelines[p].driving_site >= 0 {
+        if emit && first && exec.runs_empty(p) && exec.node.program().pipelines[p].driving_site >= 0
+        {
             exec.node.free_after(p);
             exec.next_pipeline += 1;
-            exec.state = if last { ExecState::Done } else { ExecState::Running };
+            exec.state = if last {
+                ExecState::Done
+            } else {
+                ExecState::Running
+            };
             return Ok(Step::Done);
         }
         // sort give-back: as `claim_at`'s, before the open reads the regions it consumes
@@ -747,7 +912,15 @@ impl Entry {
         }
         // an emit's first call is a batch (the caller's `call` resumes the arm before it); a producer runs whole batches
         let resumed = core::mem::take(&mut exec.resume_next);
-        let call = if resumed { Call::resume(if emit { call.out_cap } else { out_rows }) } else if !emit { Call::batch(out_rows) } else if first { Call::batch(call.out_cap) } else { call };
+        let call = if resumed {
+            Call::resume(if emit { call.out_cap } else { out_rows })
+        } else if !emit {
+            Call::batch(out_rows)
+        } else if first {
+            Call::batch(call.out_cap)
+        } else {
+            call
+        };
         // D276 (gen ct-0097): a site-less pipeline an empty build masked (`run_empty`) ends at its first call, opened, its
         // program never called: its end holds what its open laid (no row), it pulls no CTE store and raises nothing, as a
         // claim-driven producer run with no claim. Once opened it runs on (a mask set mid-run is that run's no longer)
@@ -764,12 +937,14 @@ impl Entry {
             }
             // decision 9: a suspend is legal for an emit, or for any pipeline whose resume word says it
             // is emitting over a finished breaker (`resume::resumable`); the next call resumes the same pipeline
-            let resumable = emit || gravity_abi::ctx::resume::resumable(raw::resume_of(exec.node.ctx()));
+            let resumable =
+                emit || gravity_abi::ctx::resume::resumable(raw::resume_of(exec.node.ctx()));
             match ret {
                 Ret::Done => Ok(Step::Done),
                 Ret::Suspended { out_full } if resumable => Ok(Step::Suspended { out_full }),
                 Ret::Suspended { .. } => Err(Error::BadReturn(gravity_abi::status::SUSPEND)),
-                Ret::BuildWait { consumed } => lazy_build(exec.node.program(), p, consumed).map(|b| Step::BuildWait { pipeline: b }),
+                Ret::BuildWait { consumed } => lazy_build(exec.node.program(), p, consumed)
+                    .map(|b| Step::BuildWait { pipeline: b }),
                 // D610: any pipeline the leader runs stops on a recheck (run_parallel's emit arm and the producers resume it too)
                 Ret::Recheck { site } => {
                     self.recheck_pipeline = p;
@@ -802,19 +977,42 @@ impl Entry {
     /// The width-1 arm of a producer, one claim at a time on the leader (decision 13; a serial source: one `ALL` claim):
     /// opens the pipeline's slot at the first claim; `Done` for a finished claim, `Suspended` when
     /// the sink said stop; the caller ends the pipeline with `end_claims`.
-    pub fn run_claim(&mut self, exec: &mut Exec, binding: &mut Binding<'_>, claim: MorselRange) -> Result<Step> {
+    pub fn run_claim(
+        &mut self,
+        exec: &mut Exec,
+        binding: &mut Binding<'_>,
+        claim: MorselRange,
+    ) -> Result<Step> {
         self.claim_at(exec, binding, claim, false)
     }
 
     /// D824: the claim a `BuildWait` stopped, re-entered at its row after the lazy build ran (`build_wait`).
-    pub fn resume_claim(&mut self, exec: &mut Exec, binding: &mut Binding<'_>, claim: MorselRange) -> Result<Step> {
+    pub fn resume_claim(
+        &mut self,
+        exec: &mut Exec,
+        binding: &mut Binding<'_>,
+        claim: MorselRange,
+    ) -> Result<Step> {
         self.claim_at(exec, binding, claim, true)
     }
 
-    fn claim_at(&mut self, exec: &mut Exec, binding: &mut Binding<'_>, claim: MorselRange, resume: bool) -> Result<Step> {
+    fn claim_at(
+        &mut self,
+        exec: &mut Exec,
+        binding: &mut Binding<'_>,
+        claim: MorselRange,
+        resume: bool,
+    ) -> Result<Step> {
         exec.resume_next = false;
-        assert!(matches!(exec.state, ExecState::Ready | ExecState::Running), "run on a {:?} exec", exec.state);
-        assert!(core::ptr::eq(exec.binding_id, binding as *const Binding<'_> as *const ()), "run with a binding other than start's");
+        assert!(
+            matches!(exec.state, ExecState::Ready | ExecState::Running),
+            "run on a {:?} exec",
+            exec.state
+        );
+        assert!(
+            core::ptr::eq(exec.binding_id, binding as *const Binding<'_> as *const ()),
+            "run with a binding other than start's"
+        );
         let p = exec.next_pipeline;
         exec.calls += 1;
         // D2881: a claim after the run's first opens the pipeline again but is no new EXPLAIN ANALYZE loop (`FLAG_LATER_CLAIM`)
@@ -827,7 +1025,10 @@ impl Entry {
         }
         if !exec.node.is_opened(p) {
             let split = exec.node.share(p, exec.grant(), 1);
-            if let Err(e) = exec.node.open_pipeline(p, split.breaker, split.images.bytes) {
+            if let Err(e) = exec
+                .node
+                .open_pipeline(p, split.breaker, split.images.bytes)
+            {
                 exec.state = ExecState::Failed;
                 return Err(e);
             }
@@ -846,7 +1047,8 @@ impl Entry {
             match ret {
                 Ret::Done => Ok(Step::Done),
                 Ret::Suspended { out_full } => Ok(Step::Suspended { out_full }),
-                Ret::BuildWait { consumed } => lazy_build(exec.node.program(), p, consumed).map(|b| Step::BuildWait { pipeline: b }),
+                Ret::BuildWait { consumed } => lazy_build(exec.node.program(), p, consumed)
+                    .map(|b| Step::BuildWait { pipeline: b }),
                 // D655: a claim's stop names its pipeline too (lowerv4 marks.rs refuses a rechecking producer by name)
                 Ret::Recheck { site } => {
                     self.recheck_pipeline = p;
@@ -869,8 +1071,17 @@ impl Entry {
     pub fn skip_lazy(&mut self, exec: &mut Exec) -> Result<bool> {
         let p = exec.next_pipeline;
         let program = exec.node.program();
-        let Some(q) = program.pipelines.get(p).and_then(|x| usize::try_from(x.lazy_for).ok()) else { return Ok(false) };
-        if program.pipelines[p].produces().is_some_and(|s| program.producer_of_slot(q, s) == Some(p)) {
+        let Some(q) = program
+            .pipelines
+            .get(p)
+            .and_then(|x| usize::try_from(x.lazy_for).ok())
+        else {
+            return Ok(false);
+        };
+        if program.pipelines[p]
+            .produces()
+            .is_some_and(|s| program.producer_of_slot(q, s) == Some(p))
+        {
             let split = exec.node.share(p, exec.grant(), 1);
             if let Err(e) = exec.node.open_pending(p, split.breaker, split.images.bytes) {
                 exec.state = ExecState::Failed;
@@ -888,14 +1099,26 @@ impl Entry {
     /// after its grows) as the next pipeline again, for the caller's resume. D1005: a fed build's producers (`fed_lazy`) run
     /// first, in program order, `b` last; a lazy build of theirs waits in turn (nested, `Node::hold` stacks). A failed or
     /// cancelled build releases `q`'s sources' holds and fails the execution.
-    pub fn build_wait(&mut self, exec: &mut Exec, binding: &mut Binding<'_>, b: usize, run: &mut dyn FnMut(&mut Entry, &mut Exec, &mut Binding<'_>, usize) -> Result<()>) -> Result<()> {
+    pub fn build_wait(
+        &mut self,
+        exec: &mut Exec,
+        binding: &mut Binding<'_>,
+        b: usize,
+        run: &mut dyn FnMut(&mut Entry, &mut Exec, &mut Binding<'_>, usize) -> Result<()>,
+    ) -> Result<()> {
         let q = exec.next_pipeline;
         // the reader the build is lazy for (`lazy_build`: a later reader may wait on it too)
         let q0 = exec.node.program().pipelines[b].lazy_for as usize;
         debug_assert!(q0 <= q, "a build wait for a later pipeline's lazy build");
         let program = exec.node.program().clone();
-        let _demand = crate::ahead_trace::demand(crate::ahead_trace::Origin::BuildWait, &program, b);
-        let r = self.out_of_order(exec, binding, &mut (0..q).filter(|&p| fed_lazy(&program, p, b, q0)), run);
+        let _demand =
+            crate::ahead_trace::demand(crate::ahead_trace::Origin::BuildWait, &program, b);
+        let r = self.out_of_order(
+            exec,
+            binding,
+            &mut (0..q).filter(|&p| fed_lazy(&program, p, b, q0)),
+            run,
+        );
         match r {
             Ok(()) => {
                 exec.node.built_pending(b);
@@ -918,7 +1141,13 @@ impl Entry {
     /// of its own (D1036, `Node::nested_lane`), `q`'s ordinal back after it. D4101: `q` is the run's owner meanwhile
     /// (`Exec::nest_owner`), and a pipeline a hold passed (`hold_and_pass`: op 14's fed build and its feeders, the next
     /// pipeline left past them) is stepped past, as the top level's runner steps past it.
-    fn out_of_order(&mut self, exec: &mut Exec, binding: &mut Binding<'_>, pipelines: &mut dyn Iterator<Item = usize>, run: &mut dyn FnMut(&mut Entry, &mut Exec, &mut Binding<'_>, usize) -> Result<()>) -> Result<()> {
+    fn out_of_order(
+        &mut self,
+        exec: &mut Exec,
+        binding: &mut Binding<'_>,
+        pipelines: &mut dyn Iterator<Item = usize>,
+        run: &mut dyn FnMut(&mut Entry, &mut Exec, &mut Binding<'_>, usize) -> Result<()>,
+    ) -> Result<()> {
         let q = exec.next_pipeline;
         // M8 (D1036): the run's hosted calls on a lane of their own (the outer row's pending results stay whole)
         let outer = exec.node.nested_lane()?;
@@ -932,7 +1161,13 @@ impl Entry {
                 continue;
             }
             exec.next_pipeline = p;
-            r = run(self, exec, binding, p).and_then(|()| if gravity_abi::ctx::abort_set(binding.abort_flag) { Err(Error::Cancelled) } else { Ok(()) });
+            r = run(self, exec, binding, p).and_then(|()| {
+                if gravity_abi::ctx::abort_set(binding.abort_flag) {
+                    Err(Error::Cancelled)
+                } else {
+                    Ok(())
+                }
+            });
             if r.is_err() {
                 break;
             }
@@ -957,15 +1192,42 @@ impl Entry {
     /// row still reads. `q`'s call goes on after it; an error is `q`'s host's to raise (the execution fails with it there).
     /// Each member's slot is one no other pipeline holds (lowerv4's renumbering, exec's prepare wall), so a member's opens
     /// and frees touch nothing `q` reads.
-    pub fn run_nested(&mut self, exec: &mut Exec, binding: &mut Binding<'_>, members: &[u16], run: &mut dyn FnMut(&mut Entry, &mut Exec, &mut Binding<'_>, usize) -> Result<()>) -> Result<()> {
+    pub fn run_nested(
+        &mut self,
+        exec: &mut Exec,
+        binding: &mut Binding<'_>,
+        members: &[u16],
+        run: &mut dyn FnMut(&mut Entry, &mut Exec, &mut Binding<'_>, usize) -> Result<()>,
+    ) -> Result<()> {
         // an Init's members run once per execution: a lazy build of a member probe (its `lazy_for`) opens pending before it
-        let _demand = crate::ahead_trace::demand(crate::ahead_trace::Origin::Nested, exec.node.program(), members.last().map_or(usize::MAX, |&m| m as usize));
-        self.run_nested_with(exec, binding, members, Some(&|p: &Program, m: u16| u16::try_from(p.pipelines[m as usize].lazy_for).ok().filter(|q| members.contains(q))), run)
+        let _demand = crate::ahead_trace::demand(
+            crate::ahead_trace::Origin::Nested,
+            exec.node.program(),
+            members.last().map_or(usize::MAX, |&m| m as usize),
+        );
+        self.run_nested_with(
+            exec,
+            binding,
+            members,
+            Some(&|p: &Program, m: u16| {
+                u16::try_from(p.pipelines[m as usize].lazy_for)
+                    .ok()
+                    .filter(|q| members.contains(q))
+            }),
+            run,
+        )
     }
 
     /// `run_nested`, with `lazy_of` naming each member that is the lazy build (D824) of a member probe: that probe (`None`:
     /// no member is one).
-    fn run_nested_with(&mut self, exec: &mut Exec, binding: &mut Binding<'_>, members: &[u16], lazy_of: Option<&dyn Fn(&Program, u16) -> Option<u16>>, run: &mut dyn FnMut(&mut Entry, &mut Exec, &mut Binding<'_>, usize) -> Result<()>) -> Result<()> {
+    fn run_nested_with(
+        &mut self,
+        exec: &mut Exec,
+        binding: &mut Binding<'_>,
+        members: &[u16],
+        lazy_of: Option<&dyn Fn(&Program, u16) -> Option<u16>>,
+        run: &mut dyn FnMut(&mut Entry, &mut Exec, &mut Binding<'_>, usize) -> Result<()>,
+    ) -> Result<()> {
         exec.node.rerun_without_reset(members)?;
         // D1700 (D1654): a member that is the lazy build (D824) of a member probe, or a producer fed into it (D1005), runs
         // only at the probe's first row (`build_wait`), as the top level's `skip_lazy`: PG's rescan of a LEFT / ANTI hash
@@ -974,21 +1236,34 @@ impl Entry {
         // `rerun_nested` reset in place adopted so (the build ran first, then again at the probe's wait, over its own table).
         // D2086: the program's Arc is cloned (two atomic counts per nested run) only when a member is a lazy build here
         let lazy_in = |p: &Program, m: u16| lazy_of.is_some_and(|f| f(p, m).is_some());
-        let program = (lazy_of.is_some() && members.iter().any(|&m| lazy_in(exec.node.program(), m))).then(|| exec.node.program().clone());
+        let program = (lazy_of.is_some()
+            && members.iter().any(|&m| lazy_in(exec.node.program(), m)))
+        .then(|| exec.node.program().clone());
         let lazy = |m: &u16| program.as_deref().is_some_and(|p| lazy_in(p, *m));
         if let Some(program) = program.as_deref() {
             for &b in members.iter().filter(|&m| lazy_in(program, *m)) {
-                let Some(q) = lazy_of.and_then(|f| f(program, b)) else { continue };
+                let Some(q) = lazy_of.and_then(|f| f(program, b)) else {
+                    continue;
+                };
                 let (b, q) = (b as usize, q as usize);
-                if program.pipelines[b].produces().is_some_and(|s| program.producer_of_slot(q, s) == Some(b)) {
+                if program.pipelines[b]
+                    .produces()
+                    .is_some_and(|s| program.producer_of_slot(q, s) == Some(b))
+                {
                     let split = exec.node.share(b, exec.grant(), 1);
-                    exec.node.open_pending(b, split.breaker, split.images.bytes)?;
+                    exec.node
+                        .open_pending(b, split.breaker, split.images.bytes)?;
                 }
             }
         }
         let (nest, resume_next, state) = (exec.node.nest(), exec.resume_next, exec.state);
         let rows = OutRows::hold(exec);
-        let r = self.out_of_order(exec, binding, &mut members.iter().filter(|&m| !lazy(m)).map(|&m| m as usize), run);
+        let r = self.out_of_order(
+            exec,
+            binding,
+            &mut members.iter().filter(|&m| !lazy(m)).map(|&m| m as usize),
+            run,
+        );
         let back = rows.put_back(exec);
         exec.node.unnest(nest);
         (exec.resume_next, exec.state) = (resume_next, state);
@@ -999,10 +1274,17 @@ impl Entry {
     /// Init's reader), at its start: `q` is not opened and no call is on the stack, so the members run as any producer does
     /// (the caller's `run`, sections at their widths, drawn on the statement's grant), with no nested lane and nothing to
     /// hold; a cancel is checked after each. `q` is the next pipeline again after it, Ok or Err; an error is the caller's.
-    pub fn run_ahead(&mut self, exec: &mut Exec, binding: &mut Binding<'_>, members: &[u16], run: &mut dyn FnMut(&mut Entry, &mut Exec, &mut Binding<'_>, usize) -> Result<()>) -> Result<()> {
+    pub fn run_ahead(
+        &mut self,
+        exec: &mut Exec,
+        binding: &mut Binding<'_>,
+        members: &[u16],
+        run: &mut dyn FnMut(&mut Entry, &mut Exec, &mut Binding<'_>, usize) -> Result<()>,
+    ) -> Result<()> {
         let q = exec.next_pipeline;
         if exec.node.is_opened(q) {
-            return Err(Error::Refused(format!("gravity: Bug: an Init run ahead of pipeline {q}, already opened (D1035 step 2)").into())); // alloc: Cold
+            return Err(Error::Refused(format!("gravity: Bug: an Init run ahead of pipeline {q}, already opened (D1035 step 2)").into()));
+            // alloc: Cold
         }
         exec.node.rerun_without_reset(members)?;
         let (resume_next, state) = (exec.resume_next, exec.state);
@@ -1011,7 +1293,13 @@ impl Entry {
         let mut r = Ok(());
         for &m in members {
             exec.next_pipeline = m as usize;
-            r = run(self, exec, binding, m as usize).and_then(|()| if gravity_abi::ctx::abort_set(binding.abort_flag) { Err(Error::Cancelled) } else { Ok(()) });
+            r = run(self, exec, binding, m as usize).and_then(|()| {
+                if gravity_abi::ctx::abort_set(binding.abort_flag) {
+                    Err(Error::Cancelled)
+                } else {
+                    Ok(())
+                }
+            });
             if r.is_err() {
                 break;
             }
@@ -1028,17 +1316,36 @@ impl Entry {
     /// adopts it instead of refusing a live slot produced again (L3). A slot of a later member that is no member keeps its
     /// rows. The first run opens a member's slot as any open does. A member the program does not declare, or members of two
     /// runners, are a Bug by name before anything is reset or run.
-    pub fn rerun_nested(&mut self, exec: &mut Exec, binding: &mut Binding<'_>, members: &[u16], run: &mut dyn FnMut(&mut Entry, &mut Exec, &mut Binding<'_>, usize) -> Result<()>) -> Result<()> {
+    pub fn rerun_nested(
+        &mut self,
+        exec: &mut Exec,
+        binding: &mut Binding<'_>,
+        members: &[u16],
+        run: &mut dyn FnMut(&mut Entry, &mut Exec, &mut Binding<'_>, usize) -> Result<()>,
+    ) -> Result<()> {
         self.rerun_nested_as(exec, binding, members, false, run)
     }
 
     /// D4120: `rerun_nested` of a set whose kept members fill again (an enclosing owner changed a param their fill reads,
     /// PG's ExecReScanAgg rebuilding a kept table): a kept member's produced slot is reset in place as every member's.
-    pub fn refill_nested(&mut self, exec: &mut Exec, binding: &mut Binding<'_>, members: &[u16], run: &mut dyn FnMut(&mut Entry, &mut Exec, &mut Binding<'_>, usize) -> Result<()>) -> Result<()> {
+    pub fn refill_nested(
+        &mut self,
+        exec: &mut Exec,
+        binding: &mut Binding<'_>,
+        members: &[u16],
+        run: &mut dyn FnMut(&mut Entry, &mut Exec, &mut Binding<'_>, usize) -> Result<()>,
+    ) -> Result<()> {
         self.rerun_nested_as(exec, binding, members, true, run)
     }
 
-    fn rerun_nested_as(&mut self, exec: &mut Exec, binding: &mut Binding<'_>, members: &[u16], refill: bool, run: &mut dyn FnMut(&mut Entry, &mut Exec, &mut Binding<'_>, usize) -> Result<()>) -> Result<()> {
+    fn rerun_nested_as(
+        &mut self,
+        exec: &mut Exec,
+        binding: &mut Binding<'_>,
+        members: &[u16],
+        refill: bool,
+        run: &mut dyn FnMut(&mut Entry, &mut Exec, &mut Binding<'_>, usize) -> Result<()>,
+    ) -> Result<()> {
         // one look at each member's declaration: one runner's, and whether one is kept or a member probe's lazy build
         let needs = match exec.node.program().v4.as_deref().and_then(|d| d.lifetimes.run_of(members)) {
             Some(needs) => needs,
@@ -1046,10 +1353,23 @@ impl Entry {
             None => return Err(Error::Refused(format!("gravity: Bug: a run again of pipelines {members:?} the program's lifetimes do not declare as one runner's (gravity_program lifetime)").into())), // alloc: Cold
         };
         // D1339 row C (ported, proto4): the set's last pins unpinned, this run's kept past the owner's reattach (`Node::rerun_keep_begin`)
-        let keep = exec.node.rerun_keep_begin(members.first().copied().unwrap_or(u16::MAX));
+        let keep = exec
+            .node
+            .rerun_keep_begin(members.first().copied().unwrap_or(u16::MAX));
         for &m in members {
-            let kept = |p: &Program| p.v4.as_deref().and_then(|d| d.lifetimes.member(m)).is_some_and(|x| x.life == gravity_program::lifetime::RunLife::FirstRun);
-            let (product, kept) = (exec.node.program().pipelines.get(m as usize).map(|x| x.produces()), needs.kept && kept(exec.node.program()));
+            let kept = |p: &Program| {
+                p.v4.as_deref()
+                    .and_then(|d| d.lifetimes.member(m))
+                    .is_some_and(|x| x.life == gravity_program::lifetime::RunLife::FirstRun)
+            };
+            let (product, kept) = (
+                exec.node
+                    .program()
+                    .pipelines
+                    .get(m as usize)
+                    .map(|x| x.produces()),
+                needs.kept && kept(exec.node.program()),
+            );
             match product {
                 // a member PG keeps (lifetime::RunLife::FirstRun) is reset only before a run produced it: the set's first run
                 // adopts its slot; after that its open over the live slot refuses by name (`Node::rerun_without_reset`, L3),
@@ -1073,11 +1393,30 @@ impl Entry {
         }
         // D1902 (errorhold): the call's held errors are its own (a member build's, raised by a member probe at the call's
         // first row, PG's rebuild per rescan); one an earlier call held for a member's region, reset above, is dropped
-        exec.node.spill.call_begin(&|b| members.iter().any(|&m| m as usize == b));
+        exec.node
+            .spill
+            .call_begin(&|b| members.iter().any(|&m| m as usize == b));
         // a member lazy build runs at its declared probe's first row, at every run (D1700)
-        let lazy_of = |p: &Program, m: u16| p.v4.as_deref().and_then(|d| d.lifetimes.member(m)).and_then(|x| x.lazy_probe()).filter(|q| members.contains(q));
-        let _demand = crate::ahead_trace::demand(crate::ahead_trace::Origin::Rerun, exec.node.program(), members.last().map_or(usize::MAX, |&m| m as usize));
-        let r = self.run_nested_with(exec, binding, members, needs.lazy.then_some(&lazy_of as &dyn Fn(&Program, u16) -> Option<u16>), run);
+        let lazy_of = |p: &Program, m: u16| {
+            p.v4.as_deref()
+                .and_then(|d| d.lifetimes.member(m))
+                .and_then(|x| x.lazy_probe())
+                .filter(|q| members.contains(q))
+        };
+        let _demand = crate::ahead_trace::demand(
+            crate::ahead_trace::Origin::Rerun,
+            exec.node.program(),
+            members.last().map_or(usize::MAX, |&m| m as usize),
+        );
+        let r = self.run_nested_with(
+            exec,
+            binding,
+            members,
+            needs
+                .lazy
+                .then_some(&lazy_of as &dyn Fn(&Program, u16) -> Option<u16>),
+            run,
+        );
         exec.node.spill.call_end();
         exec.node.rerun_keep_end(keep);
         exec.node.rerun_done(members);
@@ -1094,14 +1433,38 @@ impl Entry {
     /// the CTE's rows), a slot its readers consume: the runner steps it past as a kept slot (`skip_rerun`, its reader the
     /// owner), so the slot is live, zeroed, at the reader's open and adopted by the first pull; its end runs no merge
     /// finish (a width-1 append the reader reads as it stands).
-    pub fn pull_nested(&mut self, exec: &mut Exec, binding: &mut Binding<'_>, members: &[u16], run: &mut dyn FnMut(&mut Entry, &mut Exec, &mut Binding<'_>, usize) -> Result<()>) -> Result<Pulled> {
-        let Some((&last, producers)) = members.split_last() else { return Err(Error::Refused("gravity: Bug: a pull of no member (M8 RT-2f)".into())) };
-        if exec.node.program().pipelines.get(last as usize).is_none_or(|x| crate::pull::is_emit(exec.node.program(), last as usize) || x.produces().is_none()) {
-            return Err(Error::Refused(format!("gravity: Bug: pulled pipeline {last} does not end in a breaker (its store; M8 RT-2f)").into())); // alloc: Cold
+    pub fn pull_nested(
+        &mut self,
+        exec: &mut Exec,
+        binding: &mut Binding<'_>,
+        members: &[u16],
+        run: &mut dyn FnMut(&mut Entry, &mut Exec, &mut Binding<'_>, usize) -> Result<()>,
+    ) -> Result<Pulled> {
+        let Some((&last, producers)) = members.split_last() else {
+            return Err(Error::Refused(
+                "gravity: Bug: a pull of no member (M8 RT-2f)".into(),
+            ));
+        };
+        if exec
+            .node
+            .program()
+            .pipelines
+            .get(last as usize)
+            .is_none_or(|x| {
+                crate::pull::is_emit(exec.node.program(), last as usize) || x.produces().is_none()
+            })
+        {
+            return Err(Error::Refused(format!("gravity: Bug: pulled pipeline {last} does not end in a breaker (its store; M8 RT-2f)").into()));
+            // alloc: Cold
         }
         match exec.node.pull_phase(last) {
             1 => return Ok(Pulled::Done),
-            2 => return Err(Error::Refused(format!("gravity: a pulled set (pipeline {last}) read again after its error (M8 RT-2f)").into())), // alloc: Cold
+            2 => return Err(Error::Refused(
+                format!(
+                    "gravity: a pulled set (pipeline {last}) read again after its error (M8 RT-2f)"
+                )
+                .into(),
+            )), // alloc: Cold
             _ => {}
         }
         // D2605: a data-modifying CTE's writer binds at its set's first pull (PG's fireBSTriggers at its ModifyTable's first
@@ -1110,14 +1473,21 @@ impl Entry {
         let (nest, resume_next, state) = (exec.node.nest(), exec.resume_next, exec.state);
         let rows = OutRows::hold(exec);
         let q = exec.next_pipeline;
-        let _demand = crate::ahead_trace::demand(crate::ahead_trace::Origin::Pull, exec.node.program(), last as usize);
+        let _demand = crate::ahead_trace::demand(
+            crate::ahead_trace::Origin::Pull,
+            exec.node.program(),
+            last as usize,
+        );
         let r = match exec.node.nested_lane() {
             Err(e) => Err(e),
             Ok(outer) => {
                 let h = exec.node.is_opened(q).then(|| exec.node.hold(q));
                 exec.state = ExecState::Running;
                 let program = exec.node.program().clone();
-                let lazy = |m: u16| u16::try_from(program.pipelines[m as usize].lazy_for).is_ok_and(|q| members.contains(&q));
+                let lazy = |m: u16| {
+                    u16::try_from(program.pipelines[m as usize].lazy_for)
+                        .is_ok_and(|q| members.contains(&q))
+                };
                 let mut r: Result<Pulled> = 'pull: {
                     for &m in producers {
                         if exec.node.pull_ran(last, m) {
@@ -1129,9 +1499,16 @@ impl Entry {
                         // only when its outer has a row
                         if lazy(m) {
                             let q = program.pipelines[m as usize].lazy_for as usize;
-                            if program.pipelines[m as usize].produces().is_some_and(|s| program.producer_of_slot(q, s) == Some(m as usize)) {
+                            if program.pipelines[m as usize]
+                                .produces()
+                                .is_some_and(|s| program.producer_of_slot(q, s) == Some(m as usize))
+                            {
                                 let split = exec.node.share(m as usize, exec.grant(), 1);
-                                if let Err(e) = exec.node.open_pending(m as usize, split.breaker, split.images.bytes) {
+                                if let Err(e) = exec.node.open_pending(
+                                    m as usize,
+                                    split.breaker,
+                                    split.images.bytes,
+                                ) {
                                     break 'pull Err(e);
                                 }
                             }
@@ -1187,7 +1564,9 @@ impl Entry {
                 if let Some(h) = h {
                     // D2344 (b): a parked member's scratch is its resume's (agg_gather's pointer array): kept past the reader
                     // setop_rec-0043: the pins it keeps past the reader filed as the pull's (a re-arm unpins them)
-                    let back = exec.node.reattach_pull(q, h, matches!(r, Ok(Pulled::Stopped)), last);
+                    let back =
+                        exec.node
+                            .reattach_pull(q, h, matches!(r, Ok(Pulled::Stopped)), last);
                     r = r.and_then(|pulled| back.map(|()| pulled));
                 }
                 exec.node.outer_lane(outer);
@@ -1212,13 +1591,21 @@ impl Entry {
     /// adopting its slot, and calls the pulled pipeline from its start. Its store's words are the owner run's (lowerv4
     /// ops/ctescan/lower.rs `eager_resets`).
     pub fn rearm_pulled(&mut self, exec: &mut Exec, members: &[u16]) -> Result<()> {
-        let Some(&last) = members.last() else { return Ok(()) };
+        let Some(&last) = members.last() else {
+            return Ok(());
+        };
         exec.node.pull_rearm(last, members);
         // D3670: a recursive union's term set re-armed at a generation's first pull: the pulled pipeline (never a producer
         // run, `count_scan`'s other caller) runs again from its start, as PG's ExecRecursiveUnion rescans its term
         exec.node.count_scan(last as usize);
         for &m in members {
-            if let Some(Some(slot)) = exec.node.program().pipelines.get(m as usize).map(|x| x.produces()) {
+            if let Some(Some(slot)) = exec
+                .node
+                .program()
+                .pipelines
+                .get(m as usize)
+                .map(|x| x.produces())
+            {
                 exec.node.reset_in_place(slot);
             }
         }
@@ -1251,7 +1638,10 @@ impl Entry {
         let program = exec.node.program();
         let emits = rewound_emits(program);
         if emits.is_empty() || (0..emits.start).any(|q| crate::pull::is_emit(program, q)) {
-            return Err(Error::Refused("gravity: Bug: a rewind of emits that are not the program's last pipelines (D2701)".into()));
+            return Err(Error::Refused(
+                "gravity: Bug: a rewind of emits that are not the program's last pipelines (D2701)"
+                    .into(),
+            ));
         }
         exec.node.release_hosts();
         for p in emits.clone() {
@@ -1277,14 +1667,19 @@ impl Entry {
     /// `rearm_pulled`) and opened zeroed now for the owner and every reader, each of which may open over it before the CTE's
     /// next pull fills it (the reader pulls before it reads, as `skip_pulled`'s).
     pub fn skip_rearmed(&mut self, exec: &mut Exec, owner: usize, readers: &[usize]) -> Result<()> {
-        let owners: Vec<usize> = core::iter::once(owner).chain(readers.iter().copied()).collect(); // alloc: Exec
+        let owners: Vec<usize> = core::iter::once(owner)
+            .chain(readers.iter().copied())
+            .collect(); // alloc: Exec
         self.skip_kept(exec, &owners, true)
     }
 
     fn skip_kept(&mut self, exec: &mut Exec, owners: &[usize], every: bool) -> Result<()> {
         let p = exec.next_pipeline;
         let split = exec.node.share(p, exec.grant(), 1);
-        if let Err(e) = exec.node.defer_rerun(p, owners, every, split.breaker, split.images.bytes) {
+        if let Err(e) = exec
+            .node
+            .defer_rerun(p, owners, every, split.breaker, split.images.bytes)
+        {
             exec.state = ExecState::Failed;
             return Err(e);
         }
@@ -1311,8 +1706,16 @@ impl Entry {
     }
 
     /// `own_single` of pipeline `p`: a site-less producer's `run_pipeline` has already advanced past it on `Done` (D109).
-    pub fn own_single_of(&mut self, exec: &mut Exec, p: usize, merge: &dyn Merge, pbits: u8) -> Result<()> {
-        let Some(slot) = exec.node.program().pipelines[p].produces() else { return Ok(()) };
+    pub fn own_single_of(
+        &mut self,
+        exec: &mut Exec,
+        p: usize,
+        merge: &dyn Merge,
+        pbits: u8,
+    ) -> Result<()> {
+        let Some(slot) = exec.node.program().pipelines[p].produces() else {
+            return Ok(());
+        };
         // D393b: once the stream spilled its files are at the stream's partition count; an arm run's last arm may hold an
         // empty, unlaid region whose own rule differs
         let pbits = match exec.node.run_stream_bits(p) {
@@ -1335,23 +1738,54 @@ impl Entry {
             #[allow(clippy::unnecessary_cast)]
             (r.as_ptr() as *const u8, r.len())
         };
-        let partial = Partial { ordinal: 0, bytes: raw::slot_bytes(src, src_len), rows_processed: 0 };
+        let partial = Partial {
+            ordinal: 0,
+            bytes: raw::slot_bytes(src, src_len),
+            rows_processed: 0,
+        };
         let ctx = exec.node.ctx();
         // the pipeline's driving site renders (a two-pass form's second pass runs over site 1)
-        let site = raw::site_of(ctx, exec.node.program().pipelines[p].driving_site.max(0) as usize);
+        let site = raw::site_of(
+            ctx,
+            exec.node.program().pipelines[p].driving_site.max(0) as usize,
+        );
         // road dict.entries' runs (hosts granule_source/entry_runs.rs): the parts this source published as resident runs, after the files
-        let runs = usize::try_from(exec.node.program().pipelines[p].driving_site).ok().and_then(|i| raw::source_of(ctx, i)).and_then(|s| s.owner_input(pbits));
+        let runs = usize::try_from(exec.node.program().pipelines[p].driving_site)
+            .ok()
+            .and_then(|i| raw::source_of(ctx, i))
+            .and_then(|s| s.owner_input(pbits));
         // D3075: one array, filled in place (a rescanned owner phase built two of 66 entries each)
         let mut files: [&dyn crate::SpillFile; 66] = [&crate::section::NO_FILE; 66];
         let mut nf = 0usize;
-        for f in exec.node.spill.stream(slot).files.iter().flatten().map(|f| f.as_ref()).chain(runs) {
+        for f in exec
+            .node
+            .spill
+            .stream(slot)
+            .files
+            .iter()
+            .flatten()
+            .map(|f| f.as_ref())
+            .chain(runs)
+        {
             if nf < files.len() {
                 files[nf] = f;
                 nf += 1;
             }
         }
         let gate = || exec.node.owner_refuses(Some(slot));
-        let region = crate::section::own_all(merge, ctx, &exec.node.spill, Some(slot), &[partial], &files[..nf], site, pbits, &mut [], &gate, exec.node.owner_give_floor())?;
+        let region = crate::section::own_all(
+            merge,
+            ctx,
+            &exec.node.spill,
+            Some(slot),
+            &[partial],
+            &files[..nf],
+            site,
+            pbits,
+            &mut [],
+            &gate,
+            exec.node.owner_give_floor(),
+        )?;
         let dst = exec.node.slot_region(slot);
         crate::section::owned_header(dst, region)
     }
@@ -1359,20 +1793,47 @@ impl Entry {
     /// C10 2b (D3582): the width-1 arm's batched road, when producer `p`'s slot takes it (`mem::batch::fold_for`): the
     /// leader's phase-1 table scattered to the slot's files (`spill_leader`), then `mem::batch::lay` (the first batch
     /// folded, the slot's region its one owner's header). `false`: the one owner over every partition, as before.
-    fn own_batched_of(exec: &mut Exec, p: usize, merge: &dyn Merge, slot: u8, pbits: u8) -> Result<bool> {
+    fn own_batched_of(
+        exec: &mut Exec,
+        p: usize,
+        merge: &dyn Merge,
+        slot: u8,
+        pbits: u8,
+    ) -> Result<bool> {
         let node = &mut exec.node;
         let ctx = node.ctx();
         let driving = node.program().pipelines[p].driving_site;
         // D393b: an arm run's last arm folds every arm's records; road dict.entries' runs are its source's, read in place
-        if node.in_arm_run(p) || usize::try_from(driving).ok().and_then(|i| raw::source_of(ctx, i)).is_some_and(|s| s.has_owner_input()) {
+        if node.in_arm_run(p)
+            || usize::try_from(driving)
+                .ok()
+                .and_then(|i| raw::source_of(ctx, i))
+                .is_some_and(|s| s.has_owner_input())
+        {
             return Ok(false);
         }
         let room = crate::mem::batch::room(ctx);
         let fold = {
             let r = node.slot_region(slot);
-            let partial = Partial { ordinal: 0, bytes: raw::slot_bytes(r.as_ptr(), r.len()), rows_processed: 0 };
+            let partial = Partial {
+                ordinal: 0,
+                bytes: raw::slot_bytes(r.as_ptr(), r.len()),
+                rows_processed: 0,
+            };
             let (held, rec) = crate::mem::batch::held_of(&[partial], node.spill.stream(slot));
-            crate::mem::batch::fold_for(node.program(), p, slot, node.spill.stream(slot), merge, &[partial], held, rec, room, 0, &mut || crate::section::kept_run(merge))
+            crate::mem::batch::fold_for(
+                node.program(),
+                p,
+                slot,
+                node.spill.stream(slot),
+                merge,
+                &[partial],
+                held,
+                rec,
+                room,
+                0,
+                &mut || crate::section::kept_run(merge),
+            )
         };
         let Some(fold) = fold else { return Ok(false) };
         node.spill_leader(p)?;
@@ -1415,17 +1876,29 @@ impl Entry {
     /// passes as done (nothing sealed: a failed region is never read past its mark) and the statement runs on: `Ok(())`.
     /// Otherwise `Err(e)`, unchanged: so too for a deferring build that is lazy (`waited`, D4800). A held run's fill (exec
     /// ops/sort/held.rs, D1108's plan Material) holds its error over a lazy fill too: its reader raises it at its record.
-    pub fn defer_failed(&mut self, exec: &mut Exec, binding: &mut Binding<'_>, merge: &dyn Merge, p: usize, e: Error) -> Result<()> {
+    pub fn defer_failed(
+        &mut self,
+        exec: &mut Exec,
+        binding: &mut Binding<'_>,
+        merge: &dyn Merge,
+        p: usize,
+        e: Error,
+    ) -> Result<()> {
         crate::note_unsupported(Some(p), &e, false);
         crate::note_ahead(exec.node.program(), p, &e);
         if !crate::mem::spill::holdable(&e) || exec.next_pipeline != p {
             return Err(e);
         }
-        let Some(slot) = exec.node.program().pipelines[p].produces() else { return Err(e) };
+        let Some(slot) = exec.node.program().pipelines[p].produces() else {
+            return Err(e);
+        };
         if exec.node.slot_region(slot).is_empty() || Self::waited(exec, merge, slot) {
             return Err(e);
         }
-        if !matches!(merge.defer_error(&mut exec.node.leader_state(slot, binding.sink)), Ok(true)) {
+        if !matches!(
+            merge.defer_error(&mut exec.node.leader_state(slot, binding.sink)),
+            Ok(true)
+        ) {
             return Err(e);
         }
         Self::hold_and_pass(exec, p, p, p, e);
@@ -1447,7 +1920,14 @@ impl Entry {
     /// lists its members' slots among those it consumes, kept for the statement (D3515), and reads none of their rows: the
     /// walk and the read-by-nothing-past-`b` test pass it by. A top-level run has no owner, and the walk is as before.
     /// D4800: never a lazy build `b` (`waited`): its feeders' error is the wait's, `Err(e)`.
-    pub fn defer_fed<'m>(&mut self, exec: &mut Exec, binding: &mut Binding<'_>, merge_for: &dyn Fn(usize) -> &'m dyn Merge, p: usize, e: Error) -> Result<()> {
+    pub fn defer_fed<'m>(
+        &mut self,
+        exec: &mut Exec,
+        binding: &mut Binding<'_>,
+        merge_for: &dyn Fn(usize) -> &'m dyn Merge,
+        p: usize,
+        e: Error,
+    ) -> Result<()> {
         crate::note_ahead(exec.node.program(), p, &e);
         let n = exec.node.program().pipelines.len();
         if !crate::mem::spill::holdable(&e) || exec.next_pipeline != p {
@@ -1458,7 +1938,13 @@ impl Entry {
         let last = |y: usize| {
             let program = exec.node.program();
             match program.pipelines[y].produces() {
-                Some(s) if owner != NO_OWNER => (y + 1..n).rfind(|&c| c != owner && program.pipelines[c].consumes.contains(&s) && program.producer_of_slot(c, s) == Some(y)).unwrap_or(y),
+                Some(s) if owner != NO_OWNER => (y + 1..n)
+                    .rfind(|&c| {
+                        c != owner
+                            && program.pipelines[c].consumes.contains(&s)
+                            && program.producer_of_slot(c, s) == Some(y)
+                    })
+                    .unwrap_or(y),
                 _ => program.last_consumer(y),
             }
         };
@@ -1477,7 +1963,9 @@ impl Entry {
         if (p..b).any(|y| last(y) > b) {
             return Err(e);
         }
-        let Some(slot) = exec.node.program().pipelines[b].produces() else { return Err(e) };
+        let Some(slot) = exec.node.program().pipelines[b].produces() else {
+            return Err(e);
+        };
         if Self::waited(exec, merge_for(b), slot) {
             return Err(e);
         }
@@ -1488,7 +1976,10 @@ impl Entry {
         }
         exec.next_pipeline = b;
         Self::open_held(exec, b)?;
-        if !matches!(merge_for(b).defer_error(&mut exec.node.leader_state(slot, binding.sink)), Ok(true)) {
+        if !matches!(
+            merge_for(b).defer_error(&mut exec.node.leader_state(slot, binding.sink)),
+            Ok(true)
+        ) {
             return Err(e);
         }
         Self::hold_and_pass(exec, p, b, b, e);
@@ -1513,14 +2004,25 @@ impl Entry {
     /// closed, and pipelines `p..=b` passed as done (`free_after` from `freed` on: the caller ran it for those before).
     fn hold_and_pass(exec: &mut Exec, p: usize, b: usize, freed: usize, e: Error) {
         let payload = crate::mem::spill::HELD_HOOKS.get().and_then(|h| (h.take)());
-        exec.node.spill.hold_for(crate::mem::spill::HeldError { err: e, payload }, b);
+        exec.node
+            .spill
+            .hold_for(crate::mem::spill::HeldError { err: e, payload }, b);
         // the failed run's driving site left open mid-claim closes (a later pipeline's open finds it clean: L8). D1018
         // (hashjoin, regress join#346 / #347): never a site a held call keeps (`Node::kept_site`, as an open's sweep skips
         // it): a member with no driving site (a Result's build) failing inside a nested rerun call closed the owner's,
         // open mid-claim, and the owner's scan started over at every call (an endless statement)
-        let (nsites, d) = (exec.node.program().sites.len(), exec.node.program().pipelines[p].driving_site);
+        let (nsites, d) = (
+            exec.node.program().sites.len(),
+            exec.node.program().pipelines[p].driving_site,
+        );
         let ctx = exec.node.ctx();
-        for i in (if d >= 0 { d as usize..(d as usize + 1).min(nsites) } else { 0..nsites }).filter(|&i| !exec.node.kept_site(i)) {
+        for i in (if d >= 0 {
+            d as usize..(d as usize + 1).min(nsites)
+        } else {
+            0..nsites
+        })
+        .filter(|&i| !exec.node.kept_site(i))
+        {
             // `i` is one of the program's sites, laid out in the Node's ctx; the leader thread, between pipelines
             let s = raw::site_mut(ctx, i);
             (s.state, s.cont) = (gravity_abi::site::site::STATE_CLOSED, 0);
@@ -1533,7 +2035,11 @@ impl Entry {
             exec.node.mark_opened(y);
         }
         exec.next_pipeline = b + 1;
-        exec.state = if last { ExecState::Done } else { ExecState::Running };
+        exec.state = if last {
+            ExecState::Done
+        } else {
+            ExecState::Running
+        };
     }
 
     /// After the last claim of a claim-driven pipeline: the pipeline is done, its remainder
@@ -1551,7 +2057,11 @@ impl Entry {
         exec.node.ended_site_words(p);
         exec.node.free_after(p);
         exec.next_pipeline += 1;
-        exec.state = if last { ExecState::Done } else { ExecState::Running };
+        exec.state = if last {
+            ExecState::Done
+        } else {
+            ExecState::Running
+        };
         Ok(())
     }
 
@@ -1566,7 +2076,11 @@ impl Entry {
         exec.node.ended_site_words(p);
         exec.node.free_after(p);
         exec.next_pipeline += 1;
-        exec.state = if p + 1 >= exec.node.program().pipelines.len() { ExecState::Done } else { ExecState::Running };
+        exec.state = if p + 1 >= exec.node.program().pipelines.len() {
+            ExecState::Done
+        } else {
+            ExecState::Running
+        };
         Ok(true)
     }
 
@@ -1585,7 +2099,10 @@ impl Entry {
     fn open_held(exec: &mut Exec, b: usize) -> Result<()> {
         if !exec.node.is_opened(b) {
             let split = exec.node.share(b, exec.grant(), 1);
-            if let Err(e) = exec.node.open_produced(b, split.breaker, split.images.bytes) {
+            if let Err(e) = exec
+                .node
+                .open_produced(b, split.breaker, split.images.bytes)
+            {
                 exec.state = ExecState::Failed;
                 return Err(e);
             }
@@ -1598,7 +2115,10 @@ impl Entry {
     fn open_unclaimed(exec: &mut Exec, p: usize) -> Result<()> {
         if !exec.node.is_opened(p) {
             let split = exec.node.share(p, exec.grant(), 1);
-            if let Err(e) = exec.node.open_pipeline(p, split.breaker, split.images.bytes) {
+            if let Err(e) = exec
+                .node
+                .open_pipeline(p, split.breaker, split.images.bytes)
+            {
                 exec.state = ExecState::Failed;
                 return Err(e);
             }
@@ -1624,7 +2144,9 @@ impl Entry {
 
     /// D3140: the record bytes pipeline `p`'s owners fold: its slot's phase-1 table's and its stream's files'.
     pub fn owner_held_of(&self, exec: &Exec, p: usize) -> u64 {
-        exec.node.program().pipelines[p].produces().map_or(0, |slot| exec.node.owner_held(slot))
+        exec.node.program().pipelines[p]
+            .produces()
+            .map_or(0, |slot| exec.node.owner_held(slot))
     }
 
     pub fn leader_partial_of<'a>(&self, exec: &'a Exec, p: usize) -> Partial<'a> {
@@ -1632,7 +2154,11 @@ impl Entry {
             Some(slot) => &*exec.node.slot_region(slot),
             None => &[],
         };
-        Partial { ordinal: 0, bytes, rows_processed: 0 }
+        Partial {
+            ordinal: 0,
+            bytes,
+            rows_processed: 0,
+        }
     }
 
     pub fn run_to_end(&mut self, exec: &mut Exec, binding: &mut Binding<'_>) -> Result<u64> {
@@ -1696,7 +2222,11 @@ impl Entry {
         }
         // D2744: room for a MERGE recheck's two rows in the stopped pipeline's one call
         let out_cap = if pending.is_some() { 2 } else { 1 };
-        let mut cap = Capture { out, got: false, pending };
+        let mut cap = Capture {
+            out,
+            got: false,
+            pending,
+        };
         let mut b = Binding::new(binding.parts, &mut cap);
         if let Err(e) = node.apply(&mut b) {
             self.release(key, node);
@@ -1710,7 +2240,10 @@ impl Entry {
         });
         // D655: a stop past producers (a write or lock over a join) reruns them first on this node, every site substituted
         let stopped = core::mem::take(&mut self.recheck_pipeline);
-        let (mut node, called) = match program.pipelines[..stopped].iter().any(|p| p.produces().is_some()) {
+        let (mut node, called) = match program.pipelines[..stopped]
+            .iter()
+            .any(|p| p.produces().is_some())
+        {
             false => {
                 // mergecmd 9 (COPYROW): a COPY mark's scan in the stopped pipeline itself (a MERGE nest's VALUES outer, a
                 // subquery's copy entry) emits the stopped row's stored datum alone, as `rerun` sets a producer's (D732)
@@ -1735,7 +2268,14 @@ impl Entry {
         }
         let r = match called {
             Ok(Ret::Recheck { site }) => Err(Error::Recheck(site)),
-            Ok(_) => Ok((if cap.got || written > 0 { Recheck::Pass } else { Recheck::Skip }, written)),
+            Ok(_) => Ok((
+                if cap.got || written > 0 {
+                    Recheck::Pass
+                } else {
+                    Recheck::Skip
+                },
+                written,
+            )),
             Err(e) => Err(e),
         };
         self.release(key, node);
@@ -1746,12 +2286,32 @@ impl Entry {
     /// runner's width-1 arm), then one call of the stopped pipeline; an emit before it (a sibling Append arm) is stepped
     /// over. Without `rerun` (a caller with no runner plan) the recheck refuses: the stopped pipeline would probe an
     /// empty product.
-    fn rerun(&mut self, key: Option<PlanKey>, node: Box<Node>, b: &mut Binding<'_>, stopped: usize, rerun: Option<Rerun<'_>>, out_cap: u32) -> (Box<Node>, Result<Ret>) {
-        let Some(r) = rerun else { return (node, Err(Error::host("gravity: a recheck past producers without the runner's plan (D655)"))) };
+    fn rerun(
+        &mut self,
+        key: Option<PlanKey>,
+        node: Box<Node>,
+        b: &mut Binding<'_>,
+        stopped: usize,
+        rerun: Option<Rerun<'_>>,
+        out_cap: u32,
+    ) -> (Box<Node>, Result<Ret>) {
+        let Some(r) = rerun else {
+            return (
+                node,
+                Err(Error::host(
+                    "gravity: a recheck past producers without the runner's plan (D655)",
+                )),
+            );
+        };
         let _demand = crate::ahead_trace::scope(crate::ahead_trace::Origin::Recheck);
         let binding_id = b as *const Binding<'_> as *const ();
         // D2050: the last called recheck of this statement set the stopped pipeline's probe record (PG's flag is set)
-        let seen = stopped < 64 && self.epq_outer.as_ref().is_some_and(|(w, mask)| mask >> stopped & 1 != 0 && w.upgrade().is_some_and(|l| std::rc::Rc::ptr_eq(&l, &r.lease)));
+        let seen = stopped < 64
+            && self.epq_outer.as_ref().is_some_and(|(w, mask)| {
+                mask >> stopped & 1 != 0
+                    && w.upgrade()
+                        .is_some_and(|l| std::rc::Rc::ptr_eq(&l, &r.lease))
+            });
         self.rerun_seen = seen;
         let lease = std::rc::Rc::downgrade(&r.lease);
         // its breakers draw from the statement's admission (released with the node: `release` clears it)
@@ -1760,7 +2320,20 @@ impl Entry {
         // D732: a COPY mark's scan emits the stopped row's stored datum alone
         node.set_copies(Some(r.positions));
         let empty_past = past_words(node.program().pipelines.len());
-        let mut exec = Exec { node, key, state: ExecState::Ready, calls: 0, next_pipeline: 0, binding_id, slot_salt: None, lease: r.lease, empty: 0, empty_past, resume_next: false, nest_owner: NO_OWNER };
+        let mut exec = Exec {
+            node,
+            key,
+            state: ExecState::Ready,
+            calls: 0,
+            next_pipeline: 0,
+            binding_id,
+            slot_salt: None,
+            lease: r.lease,
+            empty: 0,
+            empty_past,
+            resume_next: false,
+            nest_owner: NO_OWNER,
+        };
         let mut ran = Ok(());
         while exec.next_pipeline < stopped && ran.is_ok() {
             let q = exec.next_pipeline;
@@ -1779,7 +2352,9 @@ impl Entry {
             if exec.node.program().pipelines[q].recheck_skip {
                 if read_by_recheck(exec.node.program(), q) {
                     let split = exec.node.share(q, exec.grant(), 1);
-                    ran = exec.node.open_pipeline(q, split.breaker, split.images.bytes);
+                    ran = exec
+                        .node
+                        .open_pipeline(q, split.breaker, split.images.bytes);
                 } else {
                     exec.node.defer(q);
                 }
@@ -1798,12 +2373,16 @@ impl Entry {
             // rerun.rs `first_held`, the first probe's under the epq probe) is stepped past even then: PG builds it only when
             // its join is asked for a row, after the epq probe's build
             let pipe = &exec.node.program().pipelines[q];
-            if (!seen || pipe.recheck_hold) && usize::try_from(pipe.lazy_for).is_ok_and(|l| l == stopped) {
+            if (!seen || pipe.recheck_hold)
+                && usize::try_from(pipe.lazy_for).is_ok_and(|l| l == stopped)
+            {
                 ran = self.skip_lazy(&mut exec).map(|_| ());
                 continue;
             }
             ran = (r.run)(self, &mut exec, b).and_then(|()| match exec.next_pipeline == q {
-                true => Err(Error::host("gravity: a recheck producer ran without advancing past its pipeline")),
+                true => Err(Error::host(
+                    "gravity: a recheck producer ran without advancing past its pipeline",
+                )),
                 false => Ok(()),
             });
         }
@@ -1827,7 +2406,9 @@ impl Entry {
         // them back after (`out_of_order`'s hold / reattach): a rerun member's open rewrites the node's partials
         let opened = ran.and_then(|()| {
             let split = exec.node.share(stopped, exec.grant(), 1);
-            exec.node.open_pipeline(stopped, split.breaker, split.images.bytes).map(|()| exec.node.mark_opened(stopped))
+            exec.node
+                .open_pipeline(stopped, split.breaker, split.images.bytes)
+                .map(|()| exec.node.mark_opened(stopped))
         });
         // D1706: the stopped pipeline's call attached to its own pointer to `b` (the producers' calls put `apply`'s back).
         // writesubplan: published as the current execution (D1702), so a nested run the call makes (a MERGE action's SubPlan
@@ -1836,19 +2417,24 @@ impl Entry {
         // (`build_wait`, the producers fed into it first), then the call resumes at that row
         let mut call = Call::batch(out_cap);
         let called = opened.and_then(|()| loop {
-            let (ep, xp, bp): (*mut Entry, *mut Exec, *mut Binding<'_>) = (&mut *self, &mut exec, &mut *b);
+            let (ep, xp, bp): (*mut Entry, *mut Exec, *mut Binding<'_>) =
+                (&mut *self, &mut exec, &mut *b);
             match raw::call_stopped_published(ep, xp, bp, stopped, call) {
                 Ok(Ret::BuildWait { consumed }) => {
-                    let waited = lazy_build(exec.node.program(), stopped, consumed).and_then(|lb| {
-                        exec.next_pipeline = stopped;
-                        // a producer the recheck steps past (`recheck_skip`: a COPY-marked subquery's, D732-rest / D2636 /
-                        // D3285) was stepped in the loop above, its slot opened or deferred there: never run here
-                        let program = exec.node.program().clone();
-                        self.build_wait(&mut exec, b, lb, &mut |e, x, bb, p| match program.pipelines[p].recheck_skip {
-                            true => Ok(()),
-                            false => (r.run)(e, x, bb),
-                        })
-                    });
+                    let waited =
+                        lazy_build(exec.node.program(), stopped, consumed).and_then(|lb| {
+                            exec.next_pipeline = stopped;
+                            // a producer the recheck steps past (`recheck_skip`: a COPY-marked subquery's, D732-rest / D2636 /
+                            // D3285) was stepped in the loop above, its slot opened or deferred there: never run here
+                            let program = exec.node.program().clone();
+                            self.build_wait(&mut exec, b, lb, &mut |e, x, bb, p| match program
+                                .pipelines[p]
+                                .recheck_skip
+                            {
+                                true => Ok(()),
+                                false => (r.run)(e, x, bb),
+                            })
+                        });
                     if let Err(e) = waited {
                         break Err(e);
                     }
@@ -1875,7 +2461,9 @@ impl Entry {
             return;
         }
         match &mut self.epq_outer {
-            Some((had, mask)) if had.ptr_eq(&lease) => *mask = (*mask & !(1 << stopped)) | ((set as u64) << stopped),
+            Some((had, mask)) if had.ptr_eq(&lease) => {
+                *mask = (*mask & !(1 << stopped)) | ((set as u64) << stopped)
+            }
             _ if set => self.epq_outer = Some((lease, 1 << stopped)),
             _ => {}
         }
@@ -1891,7 +2479,11 @@ impl Entry {
 /// is: `pull::is_emit`), in pipeline order.
 fn rewound_emits(program: &Program) -> core::ops::Range<usize> {
     let n = program.pipelines.len();
-    let first = (0..n).rev().take_while(|&p| crate::pull::is_emit(program, p)).last().unwrap_or(n);
+    let first = (0..n)
+        .rev()
+        .take_while(|&p| crate::pull::is_emit(program, p))
+        .last()
+        .unwrap_or(n);
     first..n
 }
 
@@ -1899,7 +2491,12 @@ fn pool_refused(stmt: &Reservation, e: Error) -> Error {
     match e {
         Error::Unsupported(gravity_abi::status::UNSUPPORTED_SCRATCH) if stmt.refused() != 0 => {
             let pool = &crate::mem::grant::POOL;
-            Error::OutOfMemory { bytes: stmt.refused(), held: pool.held(), capacity: pool.capacity(), why: None }
+            Error::OutOfMemory {
+                bytes: stmt.refused(),
+                held: pool.held(),
+                capacity: pool.capacity(),
+                why: None,
+            }
         }
         e => e,
     }
@@ -1910,7 +2507,9 @@ fn pool_refused(stmt: &Reservation, e: Error) -> Error {
 /// slot it consumes live).
 fn read_by_recheck(program: &Program, q: usize) -> bool {
     stack_depth_core::check_stack_depth_or_panic();
-    program.consumers_of(gravity_program::LifeId(q as u16)).any(|r| !program.pipelines[r].recheck_skip || read_by_recheck(program, r))
+    program
+        .consumers_of(gravity_program::LifeId(q as u16))
+        .any(|r| !program.pipelines[r].recheck_skip || read_by_recheck(program, r))
 }
 
 /// D2050: the build of pipeline `stopped`'s marked probe (`marked`), rerun by the recheck and unspilled, came out empty:
@@ -1919,8 +2518,13 @@ fn read_by_recheck(program: &Program, q: usize) -> bool {
 fn build_first_empty(node: &Node, stopped: usize) -> bool {
     let program = node.program();
     marked(node, stopped).any(|p| {
-        let rerun = program.pipelines.get(p.pipeline as usize).is_some_and(|q| !q.recheck_skip && q.produces() == Some(p.slot));
-        rerun && node.spill_parts_of(p.slot) == 0 && p.read_rows(0, node.slot_region(p.slot)) == Some(0)
+        let rerun = program
+            .pipelines
+            .get(p.pipeline as usize)
+            .is_some_and(|q| !q.recheck_skip && q.produces() == Some(p.slot));
+        rerun
+            && node.spill_parts_of(p.slot) == 0
+            && p.read_rows(0, node.slot_region(p.slot)) == Some(0)
     })
 }
 
@@ -1932,8 +2536,14 @@ fn epq_word(node: &Node, stopped: usize) -> Option<u16> {
 /// D2050 / D2674: the BuildSide protos of pipeline `stopped`'s marked probe (`BUILDSIDE_EPQ_FIRST` with its frame word,
 /// lowerv4 rerun/epq/marks.rs `epq_first`).
 fn marked(node: &Node, stopped: usize) -> impl Iterator<Item = &gravity_program::protos::Proto> {
-    let protos = node.program().v4.as_ref().map_or(&[][..], |v4| &v4.protos[..]);
-    protos.iter().filter(move |p| p.peer as usize == stopped && p.epq_word().is_some())
+    let protos = node
+        .program()
+        .v4
+        .as_ref()
+        .map_or(&[][..], |v4| &v4.protos[..]);
+    protos
+        .iter()
+        .filter(move |p| p.peer as usize == stopped && p.epq_word().is_some())
 }
 
 /// D655: what `Entry::recheck` reruns a stopped pipeline's producers with: the statement's admission (the recheck node's
@@ -1954,9 +2564,23 @@ mod tests {
     /// bits are those of its 64 pipelines before `next`.
     #[test]
     fn the_run_empty_words_past_63_are_sized_by_the_program() {
-        assert_eq!([0, 1, 64, 65, 128, 129, 200].map(|n| past_words(n).len()), [0, 0, 0, 1, 1, 2, 3]);
-        assert_eq!((ran_of(0, 0), ran_of(3, 0), ran_of(64, 0), ran_of(99, 0)), (0, 0b111, u64::MAX, u64::MAX));
-        assert_eq!((ran_of(10, 64), ran_of(70, 64), ran_of(128, 64), ran_of(200, 64)), (0, 0b11_1111, u64::MAX, u64::MAX));
+        assert_eq!(
+            [0, 1, 64, 65, 128, 129, 200].map(|n| past_words(n).len()),
+            [0, 0, 0, 1, 1, 2, 3]
+        );
+        assert_eq!(
+            (ran_of(0, 0), ran_of(3, 0), ran_of(64, 0), ran_of(99, 0)),
+            (0, 0b111, u64::MAX, u64::MAX)
+        );
+        assert_eq!(
+            (
+                ran_of(10, 64),
+                ran_of(70, 64),
+                ran_of(128, 64),
+                ran_of(200, 64)
+            ),
+            (0, 0b11_1111, u64::MAX, u64::MAX)
+        );
     }
 
     /// D2652: two lazy builds of probe 6, each over a settled union (p0 / p1 feed the record p2 reads; p3 / p4 the record
@@ -1973,10 +2597,15 @@ mod tests {
         let a = arena.handle();
         let end = |kind, slot: u8| End::Breaker(Breaker::sized(kind, 4096).in_slot(slot));
         let lazy = |kind, slot: u8, reads: Option<u8>| {
-            let p = Pipeline { lazy_for: 6, ..Pipeline::serial(-1, end(kind, slot), Reason::NoDrivingSite) };
+            let p = Pipeline {
+                lazy_for: 6,
+                ..Pipeline::serial(-1, end(kind, slot), Reason::NoDrivingSite)
+            };
             reads.map_or(p, |s| p.consuming_in(a, s))
         };
-        let probe = Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming_in(a, 0).consuming_in(a, 1);
+        let probe = Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite)
+            .consuming_in(a, 0)
+            .consuming_in(a, 1);
         let ps = [
             lazy(BreakerKind::Materialize, 3, None),
             lazy(BreakerKind::Materialize, 2, None),
@@ -1986,10 +2615,34 @@ mod tests {
             lazy(BreakerKind::HashBuild, 1, Some(4)),
             probe,
         ];
-        let program = Program::with_declared_pipelines(Layout { nsites: 0, out_natts: 0, out_rows: 64, scratch_bytes: 0, exec_bytes: 0 }, &[], &[], WritePlan::SELECT, ps.into_iter().map(|p| (p, Code::hand(noop))));
-        let run = |b: usize| (0..6).filter(|&p| fed_lazy(&program, p, b, 6)).collect::<Vec<_>>(); // alloc: Cold
-        assert_eq!(run(2), [0, 1, 2], "the first build's wait: both feeds of its union, in order");
-        assert_eq!(run(5), [3, 4, 5], "the second build's wait: its own union only");
+        let program = Program::with_declared_pipelines(
+            Layout {
+                nsites: 0,
+                out_natts: 0,
+                out_rows: 64,
+                scratch_bytes: 0,
+                exec_bytes: 0,
+            },
+            &[],
+            &[],
+            WritePlan::SELECT,
+            ps.into_iter().map(|p| (p, Code::hand(noop))),
+        );
+        let run = |b: usize| {
+            (0..6)
+                .filter(|&p| fed_lazy(&program, p, b, 6))
+                .collect::<Vec<_>>()
+        }; // alloc: Cold
+        assert_eq!(
+            run(2),
+            [0, 1, 2],
+            "the first build's wait: both feeds of its union, in order"
+        );
+        assert_eq!(
+            run(5),
+            [3, 4, 5],
+            "the second build's wait: its own union only"
+        );
     }
 
     /// D3285: a `recheck_skip` producer's slot opens at the recheck only when a pipeline the recheck opens reads it: a rerun
@@ -2005,7 +2658,14 @@ mod tests {
         let arena = Arena::new(1 << 14);
         let a = arena.handle();
         let skip = |kind, slot: u8, reads: Option<u8>| {
-            let p = Pipeline { recheck_skip: true, ..Pipeline::serial(-1, End::Breaker(Breaker::sized(kind, 4096).in_slot(slot)), Reason::NoDrivingSite) };
+            let p = Pipeline {
+                recheck_skip: true,
+                ..Pipeline::serial(
+                    -1,
+                    End::Breaker(Breaker::sized(kind, 4096).in_slot(slot)),
+                    Reason::NoDrivingSite,
+                )
+            };
             reads.map_or(p, |s| p.consuming_in(a, s))
         };
         let ps = [
@@ -2015,8 +2675,22 @@ mod tests {
             skip(BreakerKind::Materialize, 3, None),
             Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming_in(a, 2),
         ];
-        let program = Program::with_declared_pipelines(Layout { nsites: 0, out_natts: 0, out_rows: 64, scratch_bytes: 0, exec_bytes: 0 }, &[], &[], WritePlan::SELECT, ps.into_iter().map(|p| (p, Code::hand(noop))));
-        let opened = (0..4).filter(|&q| read_by_recheck(&program, q)).collect::<Vec<_>>(); // alloc: Cold
+        let program = Program::with_declared_pipelines(
+            Layout {
+                nsites: 0,
+                out_natts: 0,
+                out_rows: 64,
+                scratch_bytes: 0,
+                exec_bytes: 0,
+            },
+            &[],
+            &[],
+            WritePlan::SELECT,
+            ps.into_iter().map(|p| (p, Code::hand(noop))),
+        );
+        let opened = (0..4)
+            .filter(|&q| read_by_recheck(&program, q))
+            .collect::<Vec<_>>(); // alloc: Cold
         assert_eq!(opened, [1, 2], "the chain the rerun reader reads opens; the unconsumed build and the unread one step past");
     }
 
@@ -2027,14 +2701,39 @@ mod tests {
         let (mut values, mut isnull, mut region) = ([0u64; 3], [0u8; 3], Vec::new()); // alloc: Cold
         let mut node_region = *b"imageone";
         {
-            let mut cap = Capture { out: RowBuf { values: &mut values, isnull: &mut isnull, region: &mut region, byref: &[false, true, true] }, got: false, pending: None };
+            let mut cap = Capture {
+                out: RowBuf {
+                    values: &mut values,
+                    isnull: &mut isnull,
+                    region: &mut region,
+                    byref: &[false, true, true],
+                },
+                got: false,
+                pending: None,
+            };
             let v = [7u64, node_region.as_ptr() as u64, 0];
-            assert_eq!(cap.push(BorrowedBatch { natts: 3, rows: 1, values: &v, isnull: &[0, 0, 1], region: &node_region }).unwrap(), Flow::Stop);
+            assert_eq!(
+                cap.push(BorrowedBatch {
+                    natts: 3,
+                    rows: 1,
+                    values: &v,
+                    isnull: &[0, 0, 1],
+                    region: &node_region
+                })
+                .unwrap(),
+                Flow::Stop
+            );
             assert!(cap.got);
         }
         node_region.fill(b'!');
-        assert_eq!((values[0], values[1], isnull), (7, region.as_ptr() as u64, [0, 0, 1]));
-        assert_eq!(unsafe { core::slice::from_raw_parts(values[1] as *const u8, 8) }, b"imageone");
+        assert_eq!(
+            (values[0], values[1], isnull),
+            (7, region.as_ptr() as u64, [0, 0, 1])
+        );
+        assert_eq!(
+            unsafe { core::slice::from_raw_parts(values[1] as *const u8, 8) },
+            b"imageone"
+        );
     }
 
     /// D2744: with a `Pending`, a MERGE recheck's sink takes the first row into `out` and the next into the pending buffer
@@ -2047,21 +2746,67 @@ mod tests {
             let mut pending = Pending::default();
             let mut node_region = *b"by-sourceinserted";
             {
-                let mut cap = Capture { out: RowBuf { values: &mut values, isnull: &mut isnull, region: &mut region, byref: &[false, true] }, got: false, pending: Some(&mut pending) };
+                let mut cap = Capture {
+                    out: RowBuf {
+                        values: &mut values,
+                        isnull: &mut isnull,
+                        region: &mut region,
+                        byref: &[false, true],
+                    },
+                    got: false,
+                    pending: Some(&mut pending),
+                };
                 let base = node_region.as_ptr() as u64;
                 let v = [1u64, base, 2, base + 9];
                 if split {
-                    assert_eq!(cap.push(BorrowedBatch { natts: 2, rows: 1, values: &v[..2], isnull: &[0, 0], region: &node_region }).unwrap(), Flow::Continue, "one row: the pending one may come");
-                    assert_eq!(cap.push(BorrowedBatch { natts: 2, rows: 1, values: &v[2..], isnull: &[0, 0], region: &node_region }).unwrap(), Flow::Stop);
+                    assert_eq!(
+                        cap.push(BorrowedBatch {
+                            natts: 2,
+                            rows: 1,
+                            values: &v[..2],
+                            isnull: &[0, 0],
+                            region: &node_region
+                        })
+                        .unwrap(),
+                        Flow::Continue,
+                        "one row: the pending one may come"
+                    );
+                    assert_eq!(
+                        cap.push(BorrowedBatch {
+                            natts: 2,
+                            rows: 1,
+                            values: &v[2..],
+                            isnull: &[0, 0],
+                            region: &node_region
+                        })
+                        .unwrap(),
+                        Flow::Stop
+                    );
                 } else {
-                    assert_eq!(cap.push(BorrowedBatch { natts: 2, rows: 2, values: &v, isnull: &[0, 0, 0, 0], region: &node_region }).unwrap(), Flow::Stop);
+                    assert_eq!(
+                        cap.push(BorrowedBatch {
+                            natts: 2,
+                            rows: 2,
+                            values: &v,
+                            isnull: &[0, 0, 0, 0],
+                            region: &node_region
+                        })
+                        .unwrap(),
+                        Flow::Stop
+                    );
                 }
             }
             node_region.fill(b'!');
             assert!(pending.got);
             assert_eq!((values[0], pending.values[0]), (1, 2));
-            assert_eq!(unsafe { core::slice::from_raw_parts(values[1] as *const u8, 9) }, b"by-source");
-            assert_eq!(unsafe { core::slice::from_raw_parts(pending.values[1] as *const u8, 8) }, b"inserted");
+            assert_eq!(
+                unsafe { core::slice::from_raw_parts(values[1] as *const u8, 9) },
+                b"by-source"
+            );
+            assert_eq!(
+                unsafe { core::slice::from_raw_parts(pending.values[1] as *const u8, 8) },
+                b"inserted"
+            );
         }
     }
 
@@ -2078,10 +2823,22 @@ mod tests {
             let inner = outer.wrapping_add(1);
             let b: *mut Binding<'static> = core::ptr::NonNull::dangling().as_ptr();
             let this: *mut Entry = e;
-            cell.set(Some(Current { entry: this, exec: outer, binding: b }));
+            cell.set(Some(Current {
+                entry: this,
+                exec: outer,
+                binding: b,
+            }));
             let exec_now = || cell.get().map(|c| c.exec);
-            assert_eq!(unsafe { Entry::publish_current(this, inner, b, exec_now) }, Some(inner), "the call's own");
-            assert_eq!(exec_now(), Some(outer), "the one before, back after a return");
+            assert_eq!(
+                unsafe { Entry::publish_current(this, inner, b, exec_now) },
+                Some(inner),
+                "the call's own"
+            );
+            assert_eq!(
+                exec_now(),
+                Some(outer),
+                "the one before, back after a return"
+            );
             let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
                 Entry::publish_current(this, inner, b, || {
                     assert_eq!(exec_now(), Some(inner));
@@ -2089,9 +2846,16 @@ mod tests {
                 })
             }));
             assert!(r.is_err());
-            assert_eq!(exec_now(), Some(outer), "the one before, back after an unwind");
+            assert_eq!(
+                exec_now(),
+                Some(outer),
+                "the one before, back after an unwind"
+            );
         });
-        assert!(!e.has_current_slot(), "the slot is off the entry after the run");
+        assert!(
+            !e.has_current_slot(),
+            "the slot is off the entry after the run"
+        );
     }
 
     /// D1709: a run's slot comes off the entry when the run unwinds, and a nested run's slot gives back the outer one.
@@ -2100,11 +2864,21 @@ mod tests {
         let mut e = Entry::new(1);
         let (outer, inner) = (CurrentCell::new(None), CurrentCell::new(None));
         e.with_current_slot(&outer, |e| {
-            e.with_current_slot(&inner, |e| assert_eq!(e.current, &inner as *const CurrentCell));
-            assert_eq!(e.current, &outer as *const CurrentCell, "the outer run's slot, back");
+            e.with_current_slot(&inner, |e| {
+                assert_eq!(e.current, &inner as *const CurrentCell)
+            });
+            assert_eq!(
+                e.current, &outer as *const CurrentCell,
+                "the outer run's slot, back"
+            );
         });
-        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| e.with_current_slot(&outer, |_| std::panic::resume_unwind(Box::new(()))))); // alloc: Cold
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            e.with_current_slot(&outer, |_| std::panic::resume_unwind(Box::new(())))
+        })); // alloc: Cold
         assert!(r.is_err());
-        assert!(!e.has_current_slot(), "the slot is off the entry after the unwind");
+        assert!(
+            !e.has_current_slot(),
+            "the slot is off the entry after the unwind"
+        );
     }
 }

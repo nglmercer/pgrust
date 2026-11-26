@@ -14,13 +14,19 @@ fn text(rel: &str) -> String {
 
 /// `name`'s rows in every mode equal `want` (a cancel either ends with PG's cancel error or finishes first).
 fn rows_in_every_mode(name: &str, want: &[&[Option<&str>]]) {
-    let want: Vec<Vec<Option<String>>> = want.iter().map(|r| r.iter().map(|c| c.map(str::to_owned)).collect()).collect();
+    let want: Vec<Vec<Option<String>>> = want
+        .iter()
+        .map(|r| r.iter().map(|c| c.map(str::to_owned)).collect())
+        .collect();
     let t = text(&format!("{name}.plan"));
     for mode in MODES.into_iter().chain([Mode::Stop(2), Mode::Stop(3)]) {
-        let got = run_fixture(&t, mode).unwrap_or_else(|| panic!("{name}: the fixture does not decompose"));
+        let got = run_fixture(&t, mode)
+            .unwrap_or_else(|| panic!("{name}: the fixture does not decompose"));
         match (mode, got) {
             (_, Ok(Outcome::Rows(r))) => assert_eq!(r, want, "{name} {}", common::mode_name(mode)),
-            (Mode::Cancel(_), Ok(Outcome::Error { sqlstate, .. })) => assert_eq!(sqlstate, "57014", "{name}: cancel"),
+            (Mode::Cancel(_), Ok(Outcome::Error { sqlstate, .. })) => {
+                assert_eq!(sqlstate, "57014", "{name}: cancel")
+            }
             (_, other) => panic!("{name} {}: {other:?}", common::mode_name(mode)),
         }
     }
@@ -35,7 +41,14 @@ fn one_series() {
 /// srf-003 `SELECT generate_series(1, 3), generate_series(1, 2)`: lockstep, the shorter set NULL-padded (M5 L0-c (1)).
 #[test]
 fn two_series_in_lockstep() {
-    rows_in_every_mode("srf-003", &[&[Some("1"), Some("1")], &[Some("2"), Some("2")], &[Some("3"), None]]);
+    rows_in_every_mode(
+        "srf-003",
+        &[
+            &[Some("1"), Some("1")],
+            &[Some("2"), Some("2")],
+            &[Some("3"), None],
+        ],
+    );
 }
 
 /// srf-013 `SELECT generate_series(1, 5) OFFSET 2`: the OFFSET rows are produced and skipped after the set loop.
@@ -49,8 +62,11 @@ fn offset_rows_are_produced_then_skipped() {
 /// plain Project) is not this kind.
 #[test]
 fn projectset_goldens_take_the_kind_and_a_plain_project_does_not() {
-    for name in ["srf-002", "srf-003", "srf-004", "srf-005", "srf-012", "srf-013"] {
-        let (kinds, _) = common::props_fixture(&text(&format!("{name}.plan"))).unwrap_or_else(|| panic!("{name}: no props"));
+    for name in [
+        "srf-002", "srf-003", "srf-004", "srf-005", "srf-012", "srf-013",
+    ] {
+        let (kinds, _) = common::props_fixture(&text(&format!("{name}.plan")))
+            .unwrap_or_else(|| panic!("{name}: no props"));
         assert!(kinds.contains("srf.projectset"), "{name}: {kinds:?}");
     }
     let (kinds, _) = common::props_fixture(&text("srf-009.1.plan")).expect("srf-009.1 props");
@@ -64,8 +80,16 @@ fn projectset_goldens_take_the_kind_and_a_plain_project_does_not() {
 #[test]
 fn host_sets_declare_their_setfn_protocol() {
     for name in ["srf-011", "srf-008"] {
-        let l = common::lower_fixture(&text(&format!("{name}.plan"))).expect("decomposes").unwrap_or_else(|r| panic!("{name}: {r}"));
-        let n = l.descs.v4.protos.iter().filter(|p| p.kind == gravity_program::protos::ProtoKind::SetFn).count();
+        let l = common::lower_fixture(&text(&format!("{name}.plan")))
+            .expect("decomposes")
+            .unwrap_or_else(|r| panic!("{name}: {r}"));
+        let n = l
+            .descs
+            .v4
+            .protos
+            .iter()
+            .filter(|p| p.kind == gravity_program::protos::ProtoKind::SetFn)
+            .count();
         assert_eq!(n, 1, "{name}: one SetFn protocol");
     }
 }
@@ -88,21 +112,60 @@ fn a_function_manager_set_is_marked_private_and_a_library_entry_is_not() {
             _ => return Ok(None),
         };
         Ok(Some(syscache_seams::PgProcShape {
-            pronamespace: 11, prorettype, provariadic: 0, prosupport: 0, prolang, pronargs, prokind: b'f' as i8,
-            provolatile: provolatile as i8, proparallel: b's' as i8, proretset: true, proisstrict: true, proleakproof: false,
-            prosecdef: false, proconfig_isnull: true,
+            pronamespace: 11,
+            prorettype,
+            provariadic: 0,
+            prosupport: 0,
+            prolang,
+            pronargs,
+            prokind: b'f' as i8,
+            provolatile: provolatile as i8,
+            proparallel: b's' as i8,
+            proretset: true,
+            proisstrict: true,
+            proleakproof: false,
+            prosecdef: false,
+            proconfig_isnull: true,
         }))
     });
     // FmgrSet::check resolves the result row as ExecInitFunctionScan does: jsonb's and int4's pg_type rows (their shapes from the
     // rig's install_seams, pg_type.dat, D1191)
     syscache_seams::pg_type_typtype::set(|t| Ok(matches!(t, 3802 | 23).then_some(b'b' as i8)));
     let lib = text("srf-011.plan");
-    for (t, private) in [(lib.replace(":funcid 3219 ", ":funcid 9999 "), true), (lib, false)] {
-        let l = common::lower_fixture(&t).expect("decomposes").unwrap_or_else(|r| panic!("private {private}: {r}"));
-        let arg = l.descs.v4.protos.iter().find(|p| p.kind == gravity_program::protos::ProtoKind::SetFn).expect("a SetFn protocol").arg;
-        assert_eq!(arg & SETFN_PRIVATE != 0, private, "srf-011, fmgr {private}: SETFN_PRIVATE");
+    for (t, private) in [
+        (lib.replace(":funcid 3219 ", ":funcid 9999 "), true),
+        (lib, false),
+    ] {
+        let l = common::lower_fixture(&t)
+            .expect("decomposes")
+            .unwrap_or_else(|r| panic!("private {private}: {r}"));
+        let arg = l
+            .descs
+            .v4
+            .protos
+            .iter()
+            .find(|p| p.kind == gravity_program::protos::ProtoKind::SetFn)
+            .expect("a SetFn protocol")
+            .arg;
+        assert_eq!(
+            arg & SETFN_PRIVATE != 0,
+            private,
+            "srf-011, fmgr {private}: SETFN_PRIVATE"
+        );
     }
-    let l = common::lower_fixture(&text("srf-009.plan")).expect("decomposes").unwrap_or_else(|r| panic!("srf-009: {r}"));
-    let arg = l.descs.v4.protos.iter().find(|p| p.kind == gravity_program::protos::ProtoKind::SetFn).expect("srf-009: a SetFn protocol").arg;
-    assert!(arg & SETFN_PRIVATE != 0, "srf-009: a SQL-language set is SETFN_PRIVATE");
+    let l = common::lower_fixture(&text("srf-009.plan"))
+        .expect("decomposes")
+        .unwrap_or_else(|r| panic!("srf-009: {r}"));
+    let arg = l
+        .descs
+        .v4
+        .protos
+        .iter()
+        .find(|p| p.kind == gravity_program::protos::ProtoKind::SetFn)
+        .expect("srf-009: a SetFn protocol")
+        .arg;
+    assert!(
+        arg & SETFN_PRIVATE != 0,
+        "srf-009: a SQL-language set is SETFN_PRIVATE"
+    );
 }

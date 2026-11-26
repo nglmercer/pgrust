@@ -6,17 +6,15 @@ use mcx::{Mcx, PgString, PgVec};
 use nodes_core::{expr_type, expr_typmod, strip_implicit_coercions};
 use types_core::{
     catalog::{
-        BITOID, BOOLOID, FLOAT4OID, FLOAT8OID, INT2OID, INT4OID, INT8OID, NUMERICOID,
-        OIDOID, OPERATOR_FAMILY_RELATION_ID, PG_CATALOG_NAMESPACE, UNKNOWNOID, VARBITOID,
+        BITOID, BOOLOID, FLOAT4OID, FLOAT8OID, INT2OID, INT4OID, INT8OID, NUMERICOID, OIDOID,
+        OPERATOR_FAMILY_RELATION_ID, PG_CATALOG_NAMESPACE, UNKNOWNOID, VARBITOID,
     },
     Oid,
 };
 use types_error::{PgError, PgResult};
 use types_nodes::equal::equal;
 use types_nodes::list::NodeList;
-use types_nodes::{
-    BoolExprType, CoercionForm, Const, JoinType, Node, NodeTag, NullTestType,
-};
+use types_nodes::{BoolExprType, CoercionForm, Const, JoinType, Node, NodeTag, NullTestType};
 use types_pathnodes::run::PlannerRun;
 use types_pathnodes::RelId;
 
@@ -52,8 +50,7 @@ const TS_DICT_RELATION_ID: Oid = 3600;
 
 const SELF_ITEM_POINTER_ATTNUM: i16 = -1;
 const TABLE_OID_ATTNUM: i16 = types_tuple::htup::TableOidAttributeNumber as i16;
-const FIRST_LOW_INVALID_HEAP_ATTNUM: i32 =
-    types_tuple::htup::FirstLowInvalidHeapAttributeNumber;
+const FIRST_LOW_INVALID_HEAP_ATTNUM: i32 = types_tuple::htup::FirstLowInvalidHeapAttributeNumber;
 
 const REL_ALIAS_PREFIX: &str = "r";
 const SUBQUERY_REL_ALIAS_PREFIX: &str = "s";
@@ -96,7 +93,10 @@ struct LocCxt {
 
 impl LocCxt {
     fn empty() -> Self {
-        LocCxt { collation: types_core::InvalidOid, state: FdwCollateState::None }
+        LocCxt {
+            collation: types_core::InvalidOid,
+            state: FdwCollateState::None,
+        }
     }
 }
 
@@ -116,7 +116,13 @@ impl<'mcx> GlobCxt<'_, 'mcx> {
 }
 
 fn is_shippable_obj(glob: &GlobCxt<'_, '_>, oid: Oid, class_id: Oid) -> PgResult<bool> {
-    shippable::is_shippable(glob.mcx, oid, class_id, glob.serverid, glob.shippable_extensions)
+    shippable::is_shippable(
+        glob.mcx,
+        oid,
+        class_id,
+        glob.serverid,
+        glob.shippable_extensions,
+    )
 }
 
 /// classifyConditions: split RestrictInfos into remote-safe and local subsets.
@@ -242,8 +248,7 @@ fn foreign_expr_walker<'mcx>(
                 };
             } else {
                 collation = var.varcollid;
-                state = if collation == types_core::InvalidOid
-                    || collation == DEFAULT_COLLATION_OID
+                state = if collation == types_core::InvalidOid || collation == DEFAULT_COLLATION_OID
                 {
                     FdwCollateState::None
                 } else {
@@ -565,10 +570,10 @@ fn walk_opt_list<'mcx>(
     case_arg_cxt: Option<&LocCxt>,
 ) -> PgResult<bool> {
     for n in list.iter().flatten() {
-            if !foreign_expr_walker(glob, n, inner, case_arg_cxt)? {
-                return Ok(false);
-            }
+        if !foreign_expr_walker(glob, n, inner, case_arg_cxt)? {
+            return Ok(false);
         }
+    }
     Ok(true)
 }
 
@@ -631,8 +636,7 @@ pub fn is_foreign_param<'mcx>(run: &PlannerRun<'mcx>, baserel: RelId, expr: Node
                 }
             };
             let relids = &run.root.rel(relids_rel).relids;
-            !(types_pathnodes::relids::relids_is_member(var.varno, relids)
-                && var.varlevelsup == 0)
+            !(types_pathnodes::relids::relids_is_member(var.varno, relids) && var.varlevelsup == 0)
         }
         NodeTag::T_Param => true,
         _ => false,
@@ -796,18 +800,26 @@ fn is_subquery_var(
     if !in_lower {
         return Ok(None);
     }
-    let (side, make_subquery) = if types_pathnodes::relids::relids_is_member(
-        var.varno,
-        &run.root.rel(outerrel).relids,
-    ) {
-        (outerrel, fpinfo(run.root.rel(foreignrel)).borrow().make_outerrel_subquery)
-    } else {
-        debug_assert!(types_pathnodes::relids::relids_is_member(
-            var.varno,
-            &run.root.rel(innerrel).relids
-        ));
-        (innerrel, fpinfo(run.root.rel(foreignrel)).borrow().make_innerrel_subquery)
-    };
+    let (side, make_subquery) =
+        if types_pathnodes::relids::relids_is_member(var.varno, &run.root.rel(outerrel).relids) {
+            (
+                outerrel,
+                fpinfo(run.root.rel(foreignrel))
+                    .borrow()
+                    .make_outerrel_subquery,
+            )
+        } else {
+            debug_assert!(types_pathnodes::relids::relids_is_member(
+                var.varno,
+                &run.root.rel(innerrel).relids
+            ));
+            (
+                innerrel,
+                fpinfo(run.root.rel(foreignrel))
+                    .borrow()
+                    .make_innerrel_subquery,
+            )
+        };
     if make_subquery {
         Ok(Some(get_relation_column_alias_ids(run, side, var)?))
     } else {
@@ -822,7 +834,9 @@ fn get_relation_column_alias_ids(
 ) -> PgResult<(i32, i32)> {
     let relno = fpinfo(run.root.rel(foreignrel)).borrow().relation_index;
     let rel = run.root.rel(foreignrel);
-    let exprs = &run.pathtarget(rel.pathtarget_id.expect("rel has reltarget")).exprs;
+    let exprs = &run
+        .pathtarget(rel.pathtarget_id.expect("rel has reltarget"))
+        .exprs;
     for (i, &id) in exprs.iter().enumerate() {
         let node = *run.root.expr_node(id);
         if let Some(tlvar) = node.as_var() {
@@ -832,11 +846,16 @@ fn get_relation_column_alias_ids(
         }
     }
     // Shouldn't get here (deparse.c:4205).
-    Err(Box::new(PgError::error("unexpected expression in subquery output")))
+    Err(Box::new(PgError::error(
+        "unexpected expression in subquery output",
+    )))
 }
 
 fn param_index<'mcx>(ctx: &mut DeparseCtx<'_, 'mcx>, node: Node<'mcx>) -> PgResult<usize> {
-    let list = ctx.params_list.as_mut().expect("param_index only with params_list");
+    let list = ctx
+        .params_list
+        .as_mut()
+        .expect("param_index only with params_list");
     for (i, existing) in list.iter().enumerate() {
         if equal(node, *existing) {
             return Ok(i + 1);
@@ -882,7 +901,8 @@ fn deparse_const(ctx: &mut DeparseCtx<'_, '_>, node: &Const, showtype: i32) -> P
             let _ = write!(ctx.buf, "B'{extval}'");
         }
         BOOLOID => {
-            ctx.buf.push_str(if extval == "t" { "true" } else { "false" });
+            ctx.buf
+                .push_str(if extval == "t" { "true" } else { "false" });
         }
         _ => {
             deparse_string_literal(&mut ctx.buf, extval);
@@ -1122,7 +1142,11 @@ fn deparse_null_test<'mcx>(
     deparse_expr(ctx, arg)?;
     let is_null = node.nulltesttype == NullTestType::IS_NULL;
     if node.argisrow || !lsyscache::type_is_rowtype(expr_type(arg))? {
-        ctx.buf.push_str(if is_null { " IS NULL)" } else { " IS NOT NULL)" });
+        ctx.buf.push_str(if is_null {
+            " IS NULL)"
+        } else {
+            " IS NOT NULL)"
+        });
     } else {
         ctx.buf.push_str(if is_null {
             " IS NOT DISTINCT FROM NULL)"
@@ -1275,7 +1299,11 @@ fn append_order_by_suffix<'mcx>(
         let (oprname, oprnamespace) = operator_name_nsp(sortop)?;
         deparse_operator_name(&mut ctx.buf, ctx.mcx, &oprname, oprnamespace)?;
     }
-    ctx.buf.push_str(if nulls_first { " NULLS FIRST" } else { " NULLS LAST" });
+    ctx.buf.push_str(if nulls_first {
+        " NULLS FIRST"
+    } else {
+        " NULLS LAST"
+    });
     Ok(())
 }
 
@@ -1309,8 +1337,8 @@ fn deparse_operator_name(
     oprnamespace: Oid,
 ) -> PgResult<()> {
     if oprnamespace != PG_CATALOG_NAMESPACE {
-        let nsp = lsyscache::get_namespace_name(mcx, oprnamespace)?
-            .expect("operator namespace exists");
+        let nsp =
+            lsyscache::get_namespace_name(mcx, oprnamespace)?.expect("operator namespace exists");
         buf.push_str("OPERATOR(");
         append_quoted_identifier(buf, mcx, nsp.as_str())?;
         let _ = write!(buf, ".{oprname})");
@@ -1344,8 +1372,7 @@ fn print_remote_placeholder<'mcx>(
 fn append_function_name<'mcx>(ctx: &mut DeparseCtx<'_, 'mcx>, funcid: Oid) -> PgResult<()> {
     let pronamespace = lsyscache::function::get_func_namespace(funcid)?;
     if pronamespace != PG_CATALOG_NAMESPACE {
-        let schema =
-            lsyscache::get_namespace_name(ctx.mcx, pronamespace)?.expect("func namespace");
+        let schema = lsyscache::get_namespace_name(ctx.mcx, pronamespace)?.expect("func namespace");
         append_quoted_identifier(&mut ctx.buf, ctx.mcx, schema.as_str())?;
         ctx.buf.push('.');
     }
@@ -1355,11 +1382,13 @@ fn append_function_name<'mcx>(ctx: &mut DeparseCtx<'_, 'mcx>, funcid: Oid) -> Pg
 }
 
 fn operator_name_nsp(opno: Oid) -> PgResult<(String, Oid)> {
-    let (name, nsp) = syscache_seams::pg_operator_oprnamensp::call(opno)?
-        .expect("cache lookup for operator");
+    let (name, nsp) =
+        syscache_seams::pg_operator_oprnamensp::call(opno)?.expect("cache lookup for operator");
     // SAFETY: NameData is a NUL-padded server-encoding cstring.
     let s = name.name_str();
-    let s = core::str::from_utf8(s).expect("operator name is UTF-8").to_string();
+    let s = core::str::from_utf8(s)
+        .expect("operator name is UTF-8")
+        .to_string();
     Ok((s, nsp))
 }
 
@@ -1415,7 +1444,11 @@ fn deparse_column_ref<'mcx>(
         }
         ctx.buf.push_str("ctid");
     } else if varattno < 0 {
-        let fetchval = if varattno == TABLE_OID_ATTNUM { rte.relid } else { 0 };
+        let fetchval = if varattno == TABLE_OID_ATTNUM {
+            rte.relid
+        } else {
+            0
+        };
         if qualify_col {
             ctx.buf.push_str("CASE WHEN (");
             add_rel_qualifier(&mut ctx.buf, varno);
@@ -1454,7 +1487,8 @@ fn deparse_column_ref<'mcx>(
         table::table_close(rel, types_rel::lock::NoLock)?;
     } else {
         let mut colname: Option<String> = None;
-        for opt in foreigncmds::foreign::GetForeignColumnOptions(ctx.mcx, rte.relid, varattno)?.iter()
+        for opt in
+            foreigncmds::foreign::GetForeignColumnOptions(ctx.mcx, rte.relid, varattno)?.iter()
         {
             if opt.name == "column_name" {
                 colname = Some(opt.require_value()?.to_string());
@@ -1525,7 +1559,11 @@ pub(crate) fn deparse_truncate_sql<'mcx>(
         }
         deparse_relation(buf, mcx, rel)?;
     }
-    buf.push_str(if restart_seqs { " RESTART IDENTITY" } else { " CONTINUE IDENTITY" });
+    buf.push_str(if restart_seqs {
+        " RESTART IDENTITY"
+    } else {
+        " CONTINUE IDENTITY"
+    });
     match behavior {
         types_nodes::parsenodes::DropBehavior::DROP_RESTRICT => buf.push_str(" RESTRICT"),
         types_nodes::parsenodes::DropBehavior::DROP_CASCADE => buf.push_str(" CASCADE"),
@@ -1592,7 +1630,8 @@ pub(crate) fn deparse_analyze_sql<'mcx>(
 
         // Use attribute name or column_name option.
         let mut colname: Option<String> = None;
-        for opt in foreigncmds::foreign::GetForeignColumnOptions(mcx, relid, (i + 1) as i16)?.iter() {
+        for opt in foreigncmds::foreign::GetForeignColumnOptions(mcx, relid, (i + 1) as i16)?.iter()
+        {
             if opt.name == "column_name" {
                 colname = Some(opt.require_value()?.to_string());
                 break;
@@ -1622,7 +1661,10 @@ pub(crate) fn deparse_analyze_sql<'mcx>(
             buf.push_str(&format!(" TABLESAMPLE SYSTEM({:.6})", 100.0 * sample_frac));
         }
         SamplingMethod::Bernoulli => {
-            buf.push_str(&format!(" TABLESAMPLE BERNOULLI({:.6})", 100.0 * sample_frac));
+            buf.push_str(&format!(
+                " TABLESAMPLE BERNOULLI({:.6})",
+                100.0 * sample_frac
+            ));
         }
         SamplingMethod::Auto => {
             // should have been resolved into actual method
@@ -1740,7 +1782,11 @@ pub fn deparse_select_stmt_for_rel<'mcx>(
     has_final_sort: bool,
     has_limit: bool,
     params_list: Option<PgVec<'mcx, Node<'mcx>>>,
-) -> PgResult<(PgString<'mcx>, PgVec<'mcx, i32>, Option<PgVec<'mcx, Node<'mcx>>>)> {
+) -> PgResult<(
+    PgString<'mcx>,
+    PgVec<'mcx, i32>,
+    Option<PgVec<'mcx, Node<'mcx>>>,
+)> {
     let mcx = run.mcx;
     let mut ctx = DeparseCtx {
         run,
@@ -1790,7 +1836,10 @@ fn deparse_select_stmt_inner<'mcx>(
     let is_upper = is_upper_rel(run, rel);
     ctx.foreignrel = rel;
     ctx.scanrel = if is_upper {
-        fpinfo(run.root.rel(rel)).borrow().outerrel.expect("upperrel has outerrel")
+        fpinfo(run.root.rel(rel))
+            .borrow()
+            .outerrel
+            .expect("upperrel has outerrel")
     } else {
         rel
     };
@@ -1807,8 +1856,16 @@ fn deparse_select_stmt_inner<'mcx>(
         let opened = table::table_open(mcx, rte.relid, types_rel::lock::NoLock)?;
         let mut buf = core::mem::replace(&mut ctx.buf, PgString::new_in(mcx));
         deparse_target_list(
-            &mut buf, mcx, Some(run), run.root.rel(rel).relid as i32, &opened, rte, false,
-            &fp.attrs_used, false, retrieved_attrs,
+            &mut buf,
+            mcx,
+            Some(run),
+            run.root.rel(rel).relid as i32,
+            &opened,
+            rte,
+            false,
+            &fp.attrs_used,
+            false,
+            retrieved_attrs,
         )?;
         drop(fp);
         ctx.buf = buf;
@@ -1818,16 +1875,20 @@ fn deparse_select_stmt_inner<'mcx>(
     // For upper rels the WHERE clause comes from the underlying scan rel's
     // remote conds; the given conds become HAVING.
     let where_conds: Vec<types_pathnodes::RinfoId> = if is_upper {
-        fpinfo(run.root.rel(ctx.scanrel)).borrow().remote_conds.iter().copied().collect()
+        fpinfo(run.root.rel(ctx.scanrel))
+            .borrow()
+            .remote_conds
+            .iter()
+            .copied()
+            .collect()
     } else {
-        ::mcx::std_vec_from_slice("postgres_fdw",remote_conds)?
+        ::mcx::std_vec_from_slice("postgres_fdw", remote_conds)?
     };
 
     // FROM + WHERE.
     ctx.buf.push_str(" FROM ");
     let scanrel = ctx.scanrel;
-    let use_alias =
-        types_pathnodes::relids::relids_num_members(&run.root.rel(scanrel).relids) > 1;
+    let use_alias = types_pathnodes::relids::relids_num_members(&run.root.rel(scanrel).relids) > 1;
     let mut additional_conds: Vec<String> = Vec::new();
     deparse_from_expr_for_rel(ctx, scanrel, use_alias, &mut additional_conds)?;
     append_where_clause(ctx, &where_conds, &additional_conds)?;
@@ -1882,8 +1943,7 @@ fn deparse_locking_clause<'mcx>(ctx: &mut DeparseCtx<'_, 'mcx>) -> PgResult<()> 
         }
         let cmd = run.parse().commandType;
         if types_pathnodes::relids::relids_is_member(relid, &run.root.all_result_relids)
-            && (cmd == types_nodes::CmdType::CMD_UPDATE
-                || cmd == types_nodes::CmdType::CMD_DELETE)
+            && (cmd == types_nodes::CmdType::CMD_UPDATE || cmd == types_nodes::CmdType::CMD_DELETE)
         {
             ctx.buf.push_str(" FOR UPDATE");
             if is_join {
@@ -1896,8 +1956,7 @@ fn deparse_locking_clause<'mcx>(ctx: &mut DeparseCtx<'_, 'mcx>) -> PgResult<()> 
                 LockClauseStrength::LCS_FORKEYSHARE | LockClauseStrength::LCS_FORSHARE => {
                     ctx.buf.push_str(" FOR SHARE");
                 }
-                LockClauseStrength::LCS_FORNOKEYUPDATE
-                | LockClauseStrength::LCS_FORUPDATE => {
+                LockClauseStrength::LCS_FORNOKEYUPDATE | LockClauseStrength::LCS_FORUPDATE => {
                     ctx.buf.push_str(" FOR UPDATE");
                 }
             }
@@ -1915,7 +1974,10 @@ fn get_plan_rowmark<'a>(
     store: &'a [types_nodes::plannodes::PlanRowMark],
     rti: i32,
 ) -> Option<&'a types_nodes::plannodes::PlanRowMark> {
-    level_marks.iter().map(|id| &store[id.0 as usize]).find(|rc| rc.rti as i32 == rti)
+    level_marks
+        .iter()
+        .map(|id| &store[id.0 as usize])
+        .find(|rc| rc.rti as i32 == rti)
 }
 
 // appendGroupByClause: ship the whole groupClause, by column number.
@@ -1979,7 +2041,9 @@ fn append_order_by_clause_body<'mcx>(
         // wasn't verified earlier. For the same reason, we don't recheck
         // shippability of the sort operator.
         let Some(em) = em else {
-            return Err(Box::new(PgError::error("could not find pathkey item to sort")));
+            return Err(Box::new(PgError::error(
+                "could not find pathkey item to sort",
+            )));
         };
         let (em_expr_id, em_datatype) = {
             let m = run.root.em(em);
@@ -2089,7 +2153,12 @@ fn deparse_explicit_target_list<'mcx>(
 fn deparse_subquery_target_list<'mcx>(ctx: &mut DeparseCtx<'_, 'mcx>) -> PgResult<()> {
     let exprs: Vec<types_pathnodes::NodeId> = {
         let rel = ctx.run.root.rel(ctx.foreignrel);
-        ctx.run.pathtarget(rel.pathtarget_id.expect("rel has reltarget")).exprs.iter().copied().collect()
+        ctx.run
+            .pathtarget(rel.pathtarget_id.expect("rel has reltarget"))
+            .exprs
+            .iter()
+            .copied()
+            .collect()
     };
     let mut first = true;
     for id in exprs {
@@ -2117,7 +2186,14 @@ fn deparse_from_expr_for_rel<'mcx>(
     use_alias: bool,
     additional_conds: &mut Vec<String>,
 ) -> PgResult<()> {
-    deparse_from_expr_for_rel_ignoring(ctx, foreignrel, use_alias, 0, &mut Vec::new(), additional_conds)
+    deparse_from_expr_for_rel_ignoring(
+        ctx,
+        foreignrel,
+        use_alias,
+        0,
+        &mut Vec::new(),
+        additional_conds,
+    )
 }
 
 fn deparse_from_expr_for_rel_ignoring<'mcx>(
@@ -2152,7 +2228,10 @@ fn deparse_from_expr_for_rel_ignoring<'mcx>(
         let mut outerrel_is_target = false;
         let mut innerrel_is_target = false;
         if ignore_rel > 0
-            && types_pathnodes::relids::relids_is_member(ignore_rel, &run.root.rel(foreignrel).relids)
+            && types_pathnodes::relids::relids_is_member(
+                ignore_rel,
+                &run.root.rel(foreignrel).relids,
+            )
         {
             if jointype == types_pathnodes::JOIN_INNER {
                 ignore_conds.append(&mut joinclauses);
@@ -2169,7 +2248,14 @@ fn deparse_from_expr_for_rel_ignoring<'mcx>(
         let mut join_sql_o = PgString::new_in(mcx);
         if !outerrel_is_target {
             let saved = core::mem::replace(&mut ctx.buf, PgString::new_in(mcx));
-            deparse_range_tbl_ref(ctx, outerrel, make_o_sub, ignore_rel, ignore_conds, &mut conds_o)?;
+            deparse_range_tbl_ref(
+                ctx,
+                outerrel,
+                make_o_sub,
+                ignore_rel,
+                ignore_conds,
+                &mut conds_o,
+            )?;
             join_sql_o = core::mem::replace(&mut ctx.buf, saved);
             if innerrel_is_target {
                 ctx.buf.push_str(join_sql_o.as_str());
@@ -2180,7 +2266,14 @@ fn deparse_from_expr_for_rel_ignoring<'mcx>(
         let mut join_sql_i = PgString::new_in(mcx);
         if !innerrel_is_target {
             let saved = core::mem::replace(&mut ctx.buf, PgString::new_in(mcx));
-            deparse_range_tbl_ref(ctx, innerrel, make_i_sub, ignore_rel, ignore_conds, &mut conds_i)?;
+            deparse_range_tbl_ref(
+                ctx,
+                innerrel,
+                make_i_sub,
+                ignore_rel,
+                ignore_conds,
+                &mut conds_i,
+            )?;
             join_sql_i = core::mem::replace(&mut ctx.buf, saved);
             if jointype == types_pathnodes::JOIN_SEMI {
                 // EXISTS (SELECT NULL FROM <inner> WHERE <joinclauses AND lower conds>)
@@ -2240,7 +2333,12 @@ fn deparse_from_expr_for_rel_ignoring<'mcx>(
         ctx.buf = buf;
         table::table_close(opened, types_rel::lock::NoLock)?;
         if use_alias {
-            let _ = write!(ctx.buf, " {}{}", REL_ALIAS_PREFIX, run.root.rel(foreignrel).relid);
+            let _ = write!(
+                ctx.buf,
+                " {}{}",
+                REL_ALIAS_PREFIX,
+                run.root.rel(foreignrel).relid
+            );
         }
     }
     Ok(())
@@ -2257,7 +2355,10 @@ fn deparse_range_tbl_ref<'mcx>(
     additional_conds: &mut Vec<String>,
 ) -> PgResult<()> {
     let run = ctx.run;
-    debug_assert!(fpinfo(run.root.rel(foreignrel)).borrow().local_conds.is_empty());
+    debug_assert!(fpinfo(run.root.rel(foreignrel))
+        .borrow()
+        .local_conds
+        .is_empty());
     if make_subquery {
         let (remote_conds, relation_index, ncols): (Vec<types_pathnodes::RinfoId>, i32, usize) = {
             let fp = fpinfo(run.root.rel(foreignrel)).borrow();
@@ -2265,7 +2366,9 @@ fn deparse_range_tbl_ref<'mcx>(
             (
                 fp.remote_conds.iter().copied().collect(),
                 fp.relation_index,
-                run.pathtarget(rel.pathtarget_id.expect("rel has reltarget")).exprs.len(),
+                run.pathtarget(rel.pathtarget_id.expect("rel has reltarget"))
+                    .exprs
+                    .len(),
             )
         };
         ctx.buf.push('(');
@@ -2295,7 +2398,14 @@ fn deparse_range_tbl_ref<'mcx>(
         }
         Ok(())
     } else {
-        deparse_from_expr_for_rel_ignoring(ctx, foreignrel, true, ignore_rel, ignore_conds, additional_conds)
+        deparse_from_expr_for_rel_ignoring(
+            ctx,
+            foreignrel,
+            true,
+            ignore_rel,
+            ignore_conds,
+            additional_conds,
+        )
     }
 }
 
@@ -2397,7 +2507,16 @@ pub fn deparse_returning_list<'mcx>(
     }
     if !attrs_used.is_empty() {
         deparse_target_list(
-            buf, mcx, run, rtindex, rel, rte, true, &attrs_used, false, retrieved_attrs,
+            buf,
+            mcx,
+            run,
+            rtindex,
+            rel,
+            rte,
+            true,
+            &attrs_used,
+            false,
+            retrieved_attrs,
         )?;
     }
     // else: *retrieved_attrs stays NIL (empty), matching C.
@@ -2467,7 +2586,15 @@ pub fn deparse_insert_sql<'mcx>(
     }
 
     deparse_returning_list(
-        buf, mcx, run, rte, rtindex, rel, trig_after_row, wco_list, returning_list,
+        buf,
+        mcx,
+        run,
+        rte,
+        rtindex,
+        rel,
+        trig_after_row,
+        wco_list,
+        returning_list,
         retrieved_attrs,
     )?;
     Ok(values_end_len)
@@ -2552,7 +2679,15 @@ pub fn deparse_update_sql<'mcx>(
     buf.push_str(" WHERE ctid = $1");
 
     deparse_returning_list(
-        buf, mcx, Some(run), rte, rtindex, rel, trig_after_row, wco_list, returning_list,
+        buf,
+        mcx,
+        Some(run),
+        rte,
+        rtindex,
+        rel,
+        trig_after_row,
+        wco_list,
+        returning_list,
         retrieved_attrs,
     )
 }
@@ -2575,7 +2710,16 @@ pub fn deparse_delete_sql<'mcx>(
     buf.push_str(" WHERE ctid = $1");
 
     deparse_returning_list(
-        buf, mcx, Some(run), rte, rtindex, rel, trig_after_row, &[], returning_list, retrieved_attrs,
+        buf,
+        mcx,
+        Some(run),
+        rte,
+        rtindex,
+        rel,
+        trig_after_row,
+        &[],
+        returning_list,
+        retrieved_attrs,
     )
 }
 
@@ -2607,7 +2751,9 @@ pub fn deparse_direct_update_sql<'mcx>(
     let nestlevel = crate::transmission::set_transmission_modes();
     let mut first = true;
     for (i, &tle_node) in targetlist.iter().enumerate() {
-        let tle = tle_node.as_target_entry().expect("direct-update tlist is TargetEntry");
+        let tle = tle_node
+            .as_target_entry()
+            .expect("direct-update tlist is TargetEntry");
         let attnum = target_attrs[i];
         debug_assert!(!tle.resjunk);
         if !first {
@@ -2620,7 +2766,16 @@ pub fn deparse_direct_update_sql<'mcx>(
     }
     crate::transmission::reset_transmission_modes(nestlevel);
 
-    deparse_direct_modify_tail(ctx, " FROM ", rtindex, rel, rte, remote_conds, returning_list, retrieved_attrs)
+    deparse_direct_modify_tail(
+        ctx,
+        " FROM ",
+        rtindex,
+        rel,
+        rte,
+        remote_conds,
+        returning_list,
+        retrieved_attrs,
+    )
 }
 
 /// deparseDirectDeleteSql; a join `foreignrel` becomes the USING clause.
@@ -2641,7 +2796,16 @@ pub fn deparse_direct_delete_sql<'mcx>(
     if is_join {
         let _ = write!(ctx.buf, " {REL_ALIAS_PREFIX}{rtindex}");
     }
-    deparse_direct_modify_tail(ctx, " USING ", rtindex, rel, rte, remote_conds, returning_list, retrieved_attrs)
+    deparse_direct_modify_tail(
+        ctx,
+        " USING ",
+        rtindex,
+        rel,
+        rte,
+        remote_conds,
+        returning_list,
+        retrieved_attrs,
+    )
 }
 
 // The FROM/USING, WHERE and RETURNING shared by deparseDirectUpdateSql and
@@ -2701,7 +2865,15 @@ fn deparse_direct_modify_tail<'mcx>(
     } else {
         let returning: Vec<Node<'mcx>> = returning_list.iter().collect();
         deparse_returning_list(
-            &mut ctx.buf, mcx, Some(ctx.run), rte, rtindex, rel, false, &[], &returning,
+            &mut ctx.buf,
+            mcx,
+            Some(ctx.run),
+            rte,
+            rtindex,
+            rel,
+            false,
+            &[],
+            &returning,
             retrieved_attrs,
         )
     }
@@ -2721,7 +2893,10 @@ mod tests {
         }];
         assert!(get_plan_rowmark(&[], &store, 1).is_none());
         let outer = [types_pathnodes::PlanRowMarkId(0)];
-        assert_eq!(get_plan_rowmark(&outer, &store, 1).map(|rc| rc.rti), Some(1));
+        assert_eq!(
+            get_plan_rowmark(&outer, &store, 1).map(|rc| rc.rti),
+            Some(1)
+        );
         assert!(get_plan_rowmark(&outer, &store, 2).is_none());
     }
 
@@ -2756,7 +2931,10 @@ mod tests {
             Ok(_) => panic!("ref 7 is absent: expected an error"),
             Err(e) => e,
         };
-        assert_eq!(err.message(), "ORDER/GROUP BY expression not found in targetlist");
+        assert_eq!(
+            err.message(),
+            "ORDER/GROUP BY expression not found in targetlist"
+        );
         assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
     }
 
@@ -2770,7 +2948,9 @@ mod tests {
         let e = get_jointype_name(JoinType::JOIN_ANTI).err().unwrap();
         assert_eq!(e.message(), "unsupported join type 5");
         assert_eq!(e.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
-        let e = jointype_name(types_pathnodes::JOIN_RIGHT_ANTI).err().unwrap();
+        let e = jointype_name(types_pathnodes::JOIN_RIGHT_ANTI)
+            .err()
+            .unwrap();
         assert_eq!(e.message(), "unsupported join type 7");
     }
 
@@ -2810,7 +2990,10 @@ mod tests {
     // (sysattr.h: -6), not -7; a -7 fallback silently deparsed tableoid as 0.
     #[test]
     fn table_oid_attnum_matches_sysattr() {
-        assert_eq!(TABLE_OID_ATTNUM, types_tuple::htup::TableOidAttributeNumber as i16);
+        assert_eq!(
+            TABLE_OID_ATTNUM,
+            types_tuple::htup::TableOidAttributeNumber as i16
+        );
         assert_eq!(TABLE_OID_ATTNUM, -6);
     }
 }

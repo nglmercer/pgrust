@@ -23,15 +23,15 @@ mod userid;
 
 pub use datadir::{checkDataDir, make_absolute_path, SetDataDir};
 pub use guard::SecContextGuard;
+pub use lockfile::{
+    AddToDataDirLockFile, CreateDataDirLockFile, CreateSocketLockFile, RecheckDataDirLockFile,
+    TouchSocketLockFiles, UnlinkLockFiles,
+};
 pub use preload::{
     process_shared_preload_libraries, process_shared_preload_libraries_done,
     process_shared_preload_libraries_in_progress, process_shmem_requests,
     process_shmem_requests_in_progress, register_shmem_request_hook,
     set_process_shared_preload_libraries_in_progress, ShmemRequestHook,
-};
-pub use lockfile::{
-    AddToDataDirLockFile, CreateDataDirLockFile, CreateSocketLockFile, RecheckDataDirLockFile,
-    TouchSocketLockFiles, UnlinkLockFiles,
 };
 pub use process::{
     ChangeToDataDir, InitPostmasterChild, InitProcessGlobals, InitProcessLocalLatch,

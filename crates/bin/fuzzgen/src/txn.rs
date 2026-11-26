@@ -32,8 +32,8 @@ pub fn gen_txn_module(g: &mut Gen) -> Vec<StmtKind> {
 
     // Optional savepoint window: k1 statements, SAVEPOINT, k2 (>= 1)
     // statements, ROLLBACK TO / RELEASE, k3 statements.
-    let savepoint = len >= 3
-        && g.weights.pick(g.rng, &["txn:plain", "txn:savepoint"]) == "txn:savepoint";
+    let savepoint =
+        len >= 3 && g.weights.pick(g.rng, &["txn:plain", "txn:savepoint"]) == "txn:savepoint";
     if savepoint {
         g.fire("txn:savepoint");
         let k1 = g.rng.below_usize(len - 1);
@@ -46,7 +46,9 @@ pub fn gen_txn_module(g: &mut Gen) -> Vec<StmtKind> {
         for _ in 0..k2 {
             out.push(gen_inner(g));
         }
-        let end = g.weights.pick(g.rng, &["txn:sp:rollback", "txn:sp:release"]);
+        let end = g
+            .weights
+            .pick(g.rng, &["txn:sp:rollback", "txn:sp:release"]);
         g.fire(end);
         out.push(StmtKind::Raw(
             if end == "txn:sp:rollback" {
@@ -68,7 +70,12 @@ pub fn gen_txn_module(g: &mut Gen) -> Vec<StmtKind> {
     let end = g.weights.pick(g.rng, &["txn:commit", "txn:rollback"]);
     g.fire(end);
     out.push(StmtKind::Raw(
-        if end == "txn:commit" { "COMMIT;" } else { "ROLLBACK;" }.to_string(),
+        if end == "txn:commit" {
+            "COMMIT;"
+        } else {
+            "ROLLBACK;"
+        }
+        .to_string(),
     ));
     out
 }
@@ -76,7 +83,10 @@ pub fn gen_txn_module(g: &mut Gen) -> Vec<StmtKind> {
 /// One statement inside the bracket: a write (when the catalog has DML
 /// targets) or a plain read.
 fn gen_inner(g: &mut Gen) -> StmtKind {
-    if g.weights.pick(g.rng, &["txn:inner:dml", "txn:inner:select"]) == "txn:inner:dml" {
+    if g.weights
+        .pick(g.rng, &["txn:inner:dml", "txn:inner:select"])
+        == "txn:inner:dml"
+    {
         if let Some(sql) = gen_dml_sql(g) {
             g.fire("txn:inner:dml");
             return StmtKind::Raw(sql);
@@ -106,8 +116,7 @@ mod tests {
         for _ in 0..300 {
             let mut prods = Vec::new();
             let mut g = Gen::new(&mut rng, &cat, &w, &mut prods, 3);
-            let stmts: Vec<String> =
-                gen_txn_module(&mut g).iter().map(|s| s.to_sql()).collect();
+            let stmts: Vec<String> = gen_txn_module(&mut g).iter().map(|s| s.to_sql()).collect();
             assert_eq!(stmts.first().unwrap(), "BEGIN;");
             assert!(is_end(stmts.last().unwrap()), "{stmts:?}");
             // Exactly one BEGIN and one COMMIT/ROLLBACK terminator.
@@ -141,7 +150,10 @@ mod tests {
             "txn:inner:dml",
             "txn:inner:select",
         ] {
-            assert!(prods_all.iter().any(|q| q == p), "production {p} never fired");
+            assert!(
+                prods_all.iter().any(|q| q == p),
+                "production {p} never fired"
+            );
         }
     }
 

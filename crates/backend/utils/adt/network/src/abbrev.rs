@@ -116,7 +116,11 @@ fn trace_sort() -> bool {
 fn trace_log(message: String) {
     let _ = elog::ereport(types_error::LOG)
         .errmsg_internal(message)
-        .finish(types_error::ErrorLocation::new(file!(), line!() as i32, "network_abbrev_abort"));
+        .finish(types_error::ErrorLocation::new(
+            file!(),
+            line!() as i32,
+            "network_abbrev_abort",
+        ));
 }
 
 impl Default for NetworkAbbrevState {
@@ -147,7 +151,9 @@ mod tests {
         let mut st = NetworkAbbrevState::new();
         let mut x: u64 = 3;
         let mut next = |limit: u64| {
-            x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            x = x
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             (x >> 33) % limit
         };
         let mut vals: Vec<Vec<u8>> = Vec::new();

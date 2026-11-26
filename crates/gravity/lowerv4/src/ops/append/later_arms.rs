@@ -36,26 +36,53 @@ pub(crate) const LATER_FEEDERS: &str = "a streamed union's later arm fed by a pi
 /// arm (`full_fed`). `Ok` otherwise, with the whole-read licence where, with no bound asked, such a feeder still runs
 /// early for a reader that reads whole (D2697, `shared::whole::read`), or the accepted class's (`Px::accept`) where it
 /// runs early for an end that is not the sink; `None`: none runs early, or its acts are not call-local.
-pub(crate) fn fenced(px: &mut Px<'_, '_>, k: usize, j: usize, node: i32, i: u16) -> Result<Option<Licence>, &'static str> {
+pub(crate) fn fenced(
+    px: &mut Px<'_, '_>,
+    k: usize,
+    j: usize,
+    node: i32,
+    i: u16,
+) -> Result<Option<Licence>, &'static str> {
     let gx = px.gx;
     let mcx = px.mcx();
     if i == 0 || k >= gx.graph.pipelines.len() {
         return Ok(None);
     }
     let p = &gx.pipelines()[k];
-    let above = core::iter::once(node).chain(p.node_ops.iter().filter(|n| n.first_op as usize > j).map(|n| n.node_id));
+    let above = core::iter::once(node).chain(
+        p.node_ops
+            .iter()
+            .filter(|n| n.first_op as usize > j)
+            .map(|n| n.node_id),
+    );
     let bounds: PgVec<'_, Bound> = above.map(|n| px.request(n).bound).collect_in(mcx);
     if bounds.contains(&Bound::Rows(0)) {
         return Ok(None);
     }
     // D3585: the earlier arms' feeders are gathered only for a feeder of this arm that makes a visible call: for every arm
     // of a union whose feeders call nothing (a partitioned table's scans) that walk of every pipeline was quadratic
-    let visible: PgVec<'_, usize> = feeders(gx, k, j).into_iter().filter(|&x| crate::effects::visible::calls_visible(gx, x).is_some()).collect_in(mcx);
+    let visible: PgVec<'_, usize> = feeders(gx, k, j)
+        .into_iter()
+        .filter(|&x| crate::effects::visible::calls_visible(gx, x).is_some())
+        .collect_in(mcx);
     let (loud, earlier): (PgVec<'_, usize>, PgVec<'_, usize>) = if visible.is_empty() {
         (visible, PgVec::new_in(mcx))
     } else {
-        let earlier: PgVec<'_, usize> = (0..gx.graph.pipelines.len()).filter_map(|q| marker(gx, q, node).filter(|&(_, a)| a < i).map(|(jq, _)| (q, jq))).flat_map(|(q, jq)| feeders(gx, q, jq).into_iter().chain([q])).collect_in(mcx);
-        (visible.into_iter().filter(|x| !earlier.contains(x)).collect_in(mcx), earlier)
+        let earlier: PgVec<'_, usize> = (0..gx.graph.pipelines.len())
+            .filter_map(|q| {
+                marker(gx, q, node)
+                    .filter(|&(_, a)| a < i)
+                    .map(|(jq, _)| (q, jq))
+            })
+            .flat_map(|(q, jq)| feeders(gx, q, jq).into_iter().chain([q]))
+            .collect_in(mcx);
+        (
+            visible
+                .into_iter()
+                .filter(|x| !earlier.contains(x))
+                .collect_in(mcx),
+            earlier,
+        )
     };
     if runs_before_earlier(gx, &loud[..], &earlier[..]) {
         return Err(FEEDER_BEFORE_EARLIER);
@@ -68,7 +95,11 @@ pub(crate) fn fenced(px: &mut Px<'_, '_>, k: usize, j: usize, node: i32, i: u16)
         // would run where PG never starts the arm, so the program is served to a reader that takes every row alone
         // (`Px::whole_read`, the portal-kind fact: the entry delegates the others). A loud feeder makes a visible
         // VOLATILE call: it acts (its raise is not read here), so the licence asks whether every act is call-local
-        let early: PgVec<'_, usize> = loud.iter().copied().filter(|&x| crate::rerun::union_arms::arm_child(gx, node, x) != Some(i as usize)).collect_in(mcx);
+        let early: PgVec<'_, usize> = loud
+            .iter()
+            .copied()
+            .filter(|&x| crate::rerun::union_arms::arm_child(gx, node, x) != Some(i as usize))
+            .collect_in(mcx);
         if !early.is_empty() && gx.end_kind(k) == EndKind::Sink {
             return Ok(crate::ops::shared::whole::read(px, k, Effects::UNKNOWN));
         }
@@ -76,10 +107,20 @@ pub(crate) fn fenced(px: &mut Px<'_, '_>, k: usize, j: usize, node: i32, i: u16)
         // `Px::accept`'s licence (its extra VOLATILE calls, call-local builtins' alone, and what it may raise); the arm's
         // licence where every such feeder holds one
         let arena = px.arena;
-        let held: PgVec<'_, Option<Licence>> = early.iter().map(|&x| px.accept(x, crate::effects::pipeline_effects(gx, arena, x, true))).collect_in(mcx);
-        return Ok(held.iter().all(Option::is_some).then(|| held.first().copied().flatten()).flatten());
+        let held: PgVec<'_, Option<Licence>> = early
+            .iter()
+            .map(|&x| px.accept(x, crate::effects::pipeline_effects(gx, arena, x, true)))
+            .collect_in(mcx);
+        return Ok(held
+            .iter()
+            .all(Option::is_some)
+            .then(|| held.first().copied().flatten())
+            .flatten());
     }
-    if loud.into_iter().any(|x| !crate::rerun::union_arms::full_fed(px, x, node)) {
+    if loud
+        .into_iter()
+        .any(|x| !crate::rerun::union_arms::full_fed(px, x, node))
+    {
         return Err(LATER_FEEDERS);
     }
     Ok(None)
@@ -93,21 +134,38 @@ pub(crate) fn fenced(px: &mut Px<'_, '_>, k: usize, j: usize, node: i32, i: u16)
 /// state such as pg_lock_status).
 fn runs_before_earlier(gx: &Gx<'_, '_>, loud: &[usize], earlier: &[usize]) -> bool {
     let shown = |k: usize| crate::effects::visible::order_shown(gx, k);
-    let loud: PgVec<'_, usize> = loud.iter().copied().filter(|&x| shown(x)).collect_in(gx.mcx);
+    let loud: PgVec<'_, usize> = loud
+        .iter()
+        .copied()
+        .filter(|&x| shown(x))
+        .collect_in(gx.mcx);
     if loud.is_empty() {
         return false;
     }
     let order = crate::frame::mechs::arm_order(gx.pipelines().len(), &gx.arm_runs(), gx.mcx);
     let at = |k: usize| order.iter().position(|&q| q == k);
-    let Some(first) = loud.iter().filter_map(|&x| at(x)).min() else { return false };
-    earlier.iter().any(|&e| at(e).is_some_and(|a| a > first) && shown(e))
+    let Some(first) = loud.iter().filter_map(|&x| at(x)).min() else {
+        return false;
+    };
+    earlier
+        .iter()
+        .any(|&e| at(e).is_some_and(|a| a > first) && shown(e))
 }
 
 /// Pipeline `q`'s arm marker of the Append at plan node `node`: its op index and arm.
 fn marker(gx: &Gx<'_, '_>, q: usize, node: i32) -> Option<(usize, u16)> {
     let p = &gx.pipelines()[q];
     p.ops.iter().enumerate().find_map(|(j, o)| match o {
-        Op::Append(AppendDesc::Arm { i, .. }) if p.node_ops.iter().rev().find(|n| n.first_op as usize <= j).map_or(p.node_id, |n| n.node_id) == node => Some((j, *i)),
+        Op::Append(AppendDesc::Arm { i, .. })
+            if p.node_ops
+                .iter()
+                .rev()
+                .find(|n| n.first_op as usize <= j)
+                .map_or(p.node_id, |n| n.node_id)
+                == node =>
+        {
+            Some((j, *i))
+        }
         _ => None,
     })
 }
@@ -117,18 +175,45 @@ fn marker(gx: &Gx<'_, '_>, q: usize, node: i32) -> Option<(usize, u16)> {
 /// as join/build_class.rs `feed` walks them.
 fn feeders<'g>(gx: &Gx<'g, '_>, q: usize, j: usize) -> PgVec<'g, usize> {
     let p = &gx.pipelines()[q];
-    let src = if let Source::Breaker { slot } = p.source { Some(slot) } else { None };
+    let src = if let Source::Breaker { slot } = p.source {
+        Some(slot)
+    } else {
+        None
+    };
     let joins = p.ops[..j].iter().filter_map(|op| match op {
-        Op::Join(JoinDesc::Probe { slot, .. } | JoinDesc::Merge { slot, .. } | JoinDesc::Drain { matches: slot, .. }) => Some(*slot),
+        Op::Join(
+            JoinDesc::Probe { slot, .. }
+            | JoinDesc::Merge { slot, .. }
+            | JoinDesc::Drain { matches: slot, .. },
+        ) => Some(*slot),
         _ => None,
     });
     let n = gx.pipelines().len();
-    let lives = |k: usize, s: u8| gx.life_of(k, s).map(|l| l.0 as usize).filter(|&l| l < n && !gx.settled_work(k, s));
-    let (mut out, mut todo): (PgVec<'_, usize>, PgVec<'_, usize>) = (PgVec::new_in(gx.mcx), src.into_iter().chain(joins).filter_map(|s| lives(q, s)).chain(gx.union_feeds(q)).collect_in(gx.mcx));
+    let lives = |k: usize, s: u8| {
+        gx.life_of(k, s)
+            .map(|l| l.0 as usize)
+            .filter(|&l| l < n && !gx.settled_work(k, s))
+    };
+    let (mut out, mut todo): (PgVec<'_, usize>, PgVec<'_, usize>) = (
+        PgVec::new_in(gx.mcx),
+        src.into_iter()
+            .chain(joins)
+            .filter_map(|s| lives(q, s))
+            .chain(gx.union_feeds(q))
+            .collect_in(gx.mcx),
+    );
     while let Some(x) = todo.pop() {
         if !out.contains(&x) {
             out.push_in(x);
-            todo.extend_in(gx.pipelines()[x].desc.consumes.iter().filter_map(|&s| lives(x, s)).chain(gx.union_feeds(x)).chain(gx.run_arms(x)));
+            todo.extend_in(
+                gx.pipelines()[x]
+                    .desc
+                    .consumes
+                    .iter()
+                    .filter_map(|&s| lives(x, s))
+                    .chain(gx.union_feeds(x))
+                    .chain(gx.run_arms(x)),
+            );
         }
     }
     out

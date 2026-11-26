@@ -35,14 +35,30 @@ fn fire(byte: *const AtomicU8) {
 
 /// `(k, x)` with 600 groups and a pseudo-random `x` from 400 values: about 140,000 distinct pairs.
 fn gen_pairs(r: u64) -> Option<[i64; 2]> {
-    Some([(r % 600) as i64, ((r.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 40) % 400) as i64])
+    Some([
+        (r % 600) as i64,
+        ((r.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 40) % 400) as i64,
+    ])
 }
 
 /// One statement admitted at the program's footprint over a pool of that many bytes and `room` more, its pool part whole.
-fn admitted(program: &Arc<Program>, grant: Grant, w: u16, room: u64, run: impl FnOnce(Rc<Reservation>) -> gravity_driver::Result<u64>) -> gravity_driver::Result<u64> {
+fn admitted(
+    program: &Arc<Program>,
+    grant: Grant,
+    w: u16,
+    room: u64,
+    run: impl FnOnce(Rc<Reservation>) -> gravity_driver::Result<u64>,
+) -> gravity_driver::Result<u64> {
     let need = footprint(grant, program, w);
     POOL.arm(need + room);
-    let a = Rc::new(POOL.admit_need(grant, &|g| footprint(g, program, w), Duration::from_millis(10)).unwrap());
+    let a = Rc::new(
+        POOL.admit_need(
+            grant,
+            &|g| footprint(g, program, w),
+            Duration::from_millis(10),
+        )
+        .unwrap(),
+    );
     a.set_pool_fraction(gravity_driver::POOL_FRACTION_WHOLE);
     let r = run(a);
     POOL.arm(0);
@@ -63,7 +79,10 @@ fn a_cancel_inside_the_past_grant_owners_zero_fill_ends_the_statement() {
     for [k, x] in table.rows() {
         sets.entry(k).or_default().insert(x);
     }
-    let expect: Vec<Vec<u64>> = sets.iter().map(|(k, s)| vec![*k as u64, s.len() as u64]).collect();
+    let expect: Vec<Vec<u64>> = sets
+        .iter()
+        .map(|(k, s)| vec![*k as u64, s.len() as u64])
+        .collect();
     let abort = AtomicU8::new(0);
     let mut run = |armed: bool| {
         ARMED.store(armed, Relaxed);
@@ -73,20 +92,50 @@ fn a_cancel_inside_the_past_grant_owners_zero_fill_ends_the_statement() {
         let mut sink = LegSink::new(true);
         let r = admitted(&program, Grant::of(1 << 20), 4, 512 << 20, |lease| {
             let plan = FixturePlan::new(&program, &derive, 4, 16);
-            run_planned_in(&mut entry, &program, &mut derive, &pool, &plan, lease, &words, &abort, &mut sink)
+            run_planned_in(
+                &mut entry,
+                &program,
+                &mut derive,
+                &pool,
+                &plan,
+                lease,
+                &words,
+                &abort,
+                &mut sink,
+            )
         });
-        (r, sink, OPENED.load(Relaxed) - opened, OWN_PAST_GRANT.load(Relaxed) - past)
+        (
+            r,
+            sink,
+            OPENED.load(Relaxed) - opened,
+            OWN_PAST_GRANT.load(Relaxed) - past,
+        )
     };
 
     // a 1 MiB grant's owner cut misses the two-round floor: four owners sized from the records are pinned past it in one
     // chunk, zeroed whole, the fill a step on the statement's lent byte (trunk: on none, so the lever never fired)
     let (r, sink, opened, past) = run(false);
     assert_eq!(r.unwrap_or_else(|e| panic!("{e:?}")), expect.len() as u64);
-    assert_eq!(sink.rows(), expect, "every group's distinct count, in key order");
-    assert_eq!((past, opened), (1, 1), "one past-grant chunk, its zero fill the statement's one fill on a lent byte");
+    assert_eq!(
+        sink.rows(),
+        expect,
+        "every group's distinct count, in key order"
+    );
+    assert_eq!(
+        (past, opened),
+        (1, 1),
+        "one past-grant chunk, its zero fill the statement's one fill on a lent byte"
+    );
 
     // the abort bit set as that fill opens: the statement ends as its cancel, the chunk not taken
     let (r, _, opened, past) = run(true);
-    assert!(matches!(r, Err(Error::Cancelled)), "the cancel inside the fill: {r:?}");
-    assert_eq!((past, opened), (0, 1), "the cancel landed in the past-grant chunk's fill");
+    assert!(
+        matches!(r, Err(Error::Cancelled)),
+        "the cancel inside the fill: {r:?}"
+    );
+    assert_eq!(
+        (past, opened),
+        (0, 1),
+        "the cancel landed in the past-grant chunk's fill"
+    );
 }

@@ -3,5 +3,5 @@ pub(crate) mod lower;
 pub(crate) mod premise;
 pub(crate) mod raw;
 pub(crate) mod recursive;
-pub(crate) mod stream;
 pub mod strategies;
+pub(crate) mod stream;

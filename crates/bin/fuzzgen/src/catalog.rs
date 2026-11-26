@@ -304,16 +304,29 @@ pub trait CatalogSource {
 pub struct FixtureCatalog;
 
 fn col(name: &str, ty: SqlType, nullable: bool) -> Column {
-    Column { name: name.to_string(), ty, nullable, ddl_type: None }
+    Column {
+        name: name.to_string(),
+        ty,
+        nullable,
+        ddl_type: None,
+    }
 }
 
 /// Column with a DDL type-spelling override (the typmod surface).
 fn colm(name: &str, ty: SqlType, nullable: bool, ddl: &str) -> Column {
-    Column { name: name.to_string(), ty, nullable, ddl_type: Some(ddl.to_string()) }
+    Column {
+        name: name.to_string(),
+        ty,
+        nullable,
+        ddl_type: Some(ddl.to_string()),
+    }
 }
 
 fn pk(column: &str, seeded_max: i64) -> Option<Pk> {
-    Some(Pk { column: column.to_string(), seeded_max })
+    Some(Pk {
+        column: column.to_string(),
+        seeded_max,
+    })
 }
 
 impl CatalogSource for FixtureCatalog {
@@ -575,9 +588,7 @@ pub fn fixture_seed_sql() -> Vec<String> {
         out.push(format!("INSERT INTO fz_rich VALUES {r};"));
     }
     // fz_empty: intentionally no rows. fz_one: exactly one row.
-    out.push(
-        "INSERT INTO fz_one VALUES (1, 'a', 42.5, '2020-06-01 12:00:00');".to_string(),
-    );
+    out.push("INSERT INTO fz_one VALUES (1, 'a', 42.5, '2020-06-01 12:00:00');".to_string());
     out
 }
 
@@ -602,7 +613,9 @@ mod tests {
         // fz_empty stays empty; fz_one holds exactly one row.
         assert!(!sql.iter().any(|s| s.contains("fz_empty")));
         assert_eq!(sql.iter().filter(|s| s.contains("fz_one")).count(), 1);
-        assert!(sql.iter().all(|s| s.starts_with("INSERT INTO ") && s.ends_with(';')));
+        assert!(sql
+            .iter()
+            .all(|s| s.starts_with("INSERT INTO ") && s.ends_with(';')));
         // Every INSERT lists exactly as many values as its table has
         // columns (top-level comma count check, no parens inside values
         // other than none — literals here are paren-free).
@@ -685,8 +698,14 @@ mod tests {
             2,
             "fz_empty and fz_one carry the at-most-one-row hint"
         );
-        assert!(cat.tables.iter().any(|t| t.columns.iter().any(|c| c.nullable)));
-        assert!(cat.tables.iter().any(|t| t.columns.iter().any(|c| !c.nullable)));
+        assert!(cat
+            .tables
+            .iter()
+            .any(|t| t.columns.iter().any(|c| c.nullable)));
+        assert!(cat
+            .tables
+            .iter()
+            .any(|t| t.columns.iter().any(|c| !c.nullable)));
         // Every table has an int4 NOT NULL pk column; exactly the three
         // multi-row tables are DML targets.
         for t in &cat.tables {
@@ -700,7 +719,10 @@ mod tests {
             assert!(!c.nullable, "{}: pk must be NOT NULL", t.name);
         }
         assert_eq!(
-            cat.tables.iter().filter(|t| t.pk.is_some() && !t.at_most_one_row).count(),
+            cat.tables
+                .iter()
+                .filter(|t| t.pk.is_some() && !t.at_most_one_row)
+                .count(),
             4,
             "fz_scalar, fz_mixed, fz_wide, fz_rich are the DML targets"
         );

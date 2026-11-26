@@ -12,9 +12,9 @@ pub mod domain;
 pub mod field;
 pub mod func;
 pub mod hostcall;
-pub mod konst;
 pub mod json;
 pub mod kindname;
+pub mod konst;
 pub mod misc;
 pub mod null;
 pub mod op;
@@ -27,14 +27,13 @@ pub mod tuple;
 pub mod var;
 pub mod xml;
 
-
 use gravity_fn::{Datum, FmgrCall, NullableDatum};
 use types_core::Oid;
 use types_nodes::{Node, NodeList, NodeTag};
 
 use crate::catalog::Catalog;
-use mcx::GrowIn;
 use crate::{CompileError, CompileResult};
+use mcx::GrowIn;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct NodeId(pub u32);
@@ -302,7 +301,18 @@ pub struct Once {
 impl<'mcx> Program<'mcx> {
     /// An empty program whose lists grow in `m` (memsig E-prog: built in place, never moved after).
     pub fn empty_in(m: mcx::Mcx<'mcx>) -> Self {
-        Program { nodes: mcx::PgVec::new_in(m), kids: mcx::PgVec::new_in(m), sites: mcx::PgVec::new_in(m), convs: mcx::PgVec::new_in(m), names: mcx::PgVec::new_in(m), oids: mcx::PgVec::new_in(m), json_vars: mcx::PgVec::new_in(m), owned: mcx::PgVec::new_in(m), naggs: 0, islands: mcx::PgVec::new_in(m) }
+        Program {
+            nodes: mcx::PgVec::new_in(m),
+            kids: mcx::PgVec::new_in(m),
+            sites: mcx::PgVec::new_in(m),
+            convs: mcx::PgVec::new_in(m),
+            names: mcx::PgVec::new_in(m),
+            oids: mcx::PgVec::new_in(m),
+            json_vars: mcx::PgVec::new_in(m),
+            owned: mcx::PgVec::new_in(m),
+            naggs: 0,
+            islands: mcx::PgVec::new_in(m),
+        }
     }
 }
 
@@ -319,7 +329,12 @@ pub struct State {
 
 impl State {
     pub const fn empty() -> Self {
-        State { calls: Vec::new(), call_facts: Vec::new(), json: Vec::new(), descs: Vec::new() } // alloc: Program
+        State {
+            calls: Vec::new(),
+            call_facts: Vec::new(),
+            json: Vec::new(),
+            descs: Vec::new(),
+        } // alloc: Program
     }
 
     pub fn reset_window(&mut self) {
@@ -357,13 +372,29 @@ pub struct St<'a> {
 impl<'mcx> Program<'mcx> {
     pub fn view(&self) -> Prog<'_, 'mcx> {
         let p = self;
-        Prog { nodes: &p.nodes, kids: &p.kids, sites: &p.sites, convs: &p.convs, names: &p.names, oids: &p.oids, json_vars: &p.json_vars, owned: &p.owned, naggs: p.naggs, islands: &p.islands }
+        Prog {
+            nodes: &p.nodes,
+            kids: &p.kids,
+            sites: &p.sites,
+            convs: &p.convs,
+            names: &p.names,
+            oids: &p.oids,
+            json_vars: &p.json_vars,
+            owned: &p.owned,
+            naggs: p.naggs,
+            islands: &p.islands,
+        }
     }
 }
 
 impl State {
     pub fn view(&mut self) -> St<'_> {
-        St { calls: &mut self.calls, call_facts: &mut self.call_facts, json: &mut self.json, descs: &mut self.descs }
+        St {
+            calls: &mut self.calls,
+            call_facts: &mut self.call_facts,
+            json: &mut self.json,
+            descs: &mut self.descs,
+        }
     }
 }
 
@@ -382,7 +413,12 @@ pub struct HostedState {
 
 impl HostedState {
     pub fn view(&mut self) -> St<'_> {
-        St { calls: &mut self.calls, call_facts: &mut self.call_facts, json: &mut self.json, descs: &mut self.descs }
+        St {
+            calls: &mut self.calls,
+            call_facts: &mut self.call_facts,
+            json: &mut self.json,
+            descs: &mut self.descs,
+        }
     }
 }
 
@@ -454,47 +490,79 @@ impl<'b, 'mcx> Builder<'b, 'mcx> {
             Kind::Var => var::compile(self, n.as_var().unwrap()),
             Kind::Const => {
                 let c = n.as_const().unwrap();
-                let value = if c.constisnull { NullableDatum::null() } else { NullableDatum::value(c.constvalue) };
-                Ok(self.push(ExprNode::Const(ConstNode::new(value, c.consttype, c.constlen as i16, c.constbyval))))
+                let value = if c.constisnull {
+                    NullableDatum::null()
+                } else {
+                    NullableDatum::value(c.constvalue)
+                };
+                Ok(self.push(ExprNode::Const(ConstNode::new(
+                    value,
+                    c.consttype,
+                    c.constlen as i16,
+                    c.constbyval,
+                ))))
             }
             Kind::Param => param::compile(self, n.as_param().unwrap()),
             Kind::FuncExpr => func::compile_func(self, n.as_func_expr().unwrap(), n),
             Kind::OpExpr => func::compile_op(self, n.as_op_expr().unwrap(), n),
             Kind::DistinctExpr => op::compile_distinct(self, n.as_distinct_expr().unwrap(), n),
             Kind::NullIfExpr => op::compile_nullif(self, n.as_null_if_expr().unwrap(), n),
-            Kind::ScalarArrayOpExpr => op::compile_scalar_array_op(self, n.as_scalar_array_op_expr().unwrap(), n),
+            Kind::ScalarArrayOpExpr => {
+                op::compile_scalar_array_op(self, n.as_scalar_array_op_expr().unwrap(), n)
+            }
             Kind::BoolExpr => bool::compile(self, n.as_bool_expr().unwrap()),
-            Kind::NullTest => self.covered(n, |b| null::compile_null_test(b, n.as_null_test().unwrap())),
+            Kind::NullTest => {
+                self.covered(n, |b| null::compile_null_test(b, n.as_null_test().unwrap()))
+            }
             Kind::BooleanTest => null::compile_boolean_test(self, n.as_boolean_test().unwrap()),
             Kind::CaseExpr => case::compile_case(self, n.as_case_expr().unwrap()),
             Kind::CaseTestExpr => Ok(self.push(ExprNode::CaseTest)),
             Kind::CoalesceExpr => case::compile_coalesce(self, n.as_coalesce_expr().unwrap()),
-            Kind::MinMaxExpr => self.covered(n, |b| case::compile_minmax(b, n.as_min_max_expr().unwrap())),
+            Kind::MinMaxExpr => {
+                self.covered(n, |b| case::compile_minmax(b, n.as_min_max_expr().unwrap()))
+            }
             Kind::RelabelType => cast::compile_relabel(self, n.as_relabel_type().unwrap()),
             Kind::CoerceViaIO => cast::compile_coerce_via_io(self, n.as_coerce_via_io().unwrap()),
-            Kind::CoerceToDomain => cast::compile_coerce_to_domain(self, n.as_coerce_to_domain().unwrap()),
+            Kind::CoerceToDomain => {
+                cast::compile_coerce_to_domain(self, n.as_coerce_to_domain().unwrap())
+            }
             Kind::CoerceToDomainValue => Ok(self.push(ExprNode::CoerceToDomainValue)),
-            Kind::RowCompareExpr => self.covered(n, |b| rowcmp::compile(b, n.as_row_compare_expr().unwrap())),
+            Kind::RowCompareExpr => {
+                self.covered(n, |b| rowcmp::compile(b, n.as_row_compare_expr().unwrap()))
+            }
             Kind::FieldSelect => field::compile_field_select(self, n.as_field_select().unwrap()),
             Kind::FieldStore => field::compile_field_store(self, n.as_field_store().unwrap()),
             Kind::SubscriptingRef => subscript::compile(self, n.as_subscripting_ref().unwrap()),
             Kind::ArrayExpr => array::compile_array_expr(self, n.as_array_expr().unwrap()),
-            Kind::ArrayCoerceExpr => self.covered(n, |b| array::compile_array_coerce(b, n.as_array_coerce_expr().unwrap())),
+            Kind::ArrayCoerceExpr => self.covered(n, |b| {
+                array::compile_array_coerce(b, n.as_array_coerce_expr().unwrap())
+            }),
             Kind::RowExpr => row::compile_row_expr(self, n.as_row_expr().unwrap()),
-            Kind::ConvertRowtypeExpr => row::compile_convert_rowtype(self, n.as_convert_rowtype_expr().unwrap()),
+            Kind::ConvertRowtypeExpr => {
+                row::compile_convert_rowtype(self, n.as_convert_rowtype_expr().unwrap())
+            }
             Kind::CollateExpr => collate::compile(self, n.as_collate_expr().unwrap()),
-            Kind::SQLValueFunction => self.covered(n, |b| misc::compile_sql_value_function(b, n.as_sql_value_function().unwrap())),
+            Kind::SQLValueFunction => self.covered(n, |b| {
+                misc::compile_sql_value_function(b, n.as_sql_value_function().unwrap())
+            }),
             Kind::XmlExpr => {
                 let (first, sites) = (self.prog.nodes.len(), self.prog.sites.len());
                 let root = misc::compile_xml(self, n.as_xml_expr().unwrap())?;
                 Ok(self.island(first, sites, root, n))
             }
-            Kind::JsonValueExpr | Kind::JsonConstructorExpr | Kind::JsonIsPredicate | Kind::JsonExpr => {
+            Kind::JsonValueExpr
+            | Kind::JsonConstructorExpr
+            | Kind::JsonIsPredicate
+            | Kind::JsonExpr => {
                 let (first, sites) = (self.prog.nodes.len(), self.prog.sites.len());
                 let root = misc::compile_json(self, n, kind)?;
                 Ok(self.island(first, sites, root, n))
             }
-            Kind::NextValueExpr => misc::compile_next_value(self, n.as_variant::<types_nodes::primnodes::NextValueExpr>().unwrap()),
+            Kind::NextValueExpr => misc::compile_next_value(
+                self,
+                n.as_variant::<types_nodes::primnodes::NextValueExpr>()
+                    .unwrap(),
+            ),
             Kind::CurrentOfExpr => misc::compile_current_of(self, n.as_current_of_expr().unwrap()),
             Kind::Aggref => agg::compile_aggref(self, n.as_aggref().unwrap()),
             Kind::WindowFunc => agg::compile_window_func(self, n.as_window_func().unwrap()),
@@ -504,7 +572,12 @@ impl<'b, 'mcx> Builder<'b, 'mcx> {
             Kind::TargetEntry => self.compile(n.as_target_entry().unwrap().expr),
             // D789: MERGE .. RETURNING merge_action(), the action's text cell the lowerer lays beside the images
             Kind::MergeSupportFunc => match self.returning.and_then(|r| r.action) {
-                Some((src, attno)) => Ok(self.push(ExprNode::Var(var::Var { src, attno, typ: 25, desc: 0 }))),
+                Some((src, attno)) => Ok(self.push(ExprNode::Var(var::Var {
+                    src,
+                    attno,
+                    typ: 25,
+                    desc: 0,
+                }))),
                 None => Err(CompileError::Unsupported(kind)),
             },
             Kind::AlternativeSubPlan | Kind::SetToDefault => Err(CompileError::Unsupported(kind)),
@@ -521,7 +594,11 @@ impl<'b, 'mcx> Builder<'b, 'mcx> {
     /// (`emit::scalar::check_node`, the emitter's own capability): the coverage kinds (a role `SQLValueFunction`, a
     /// by-reference `MinMax` / `RowCompare`, an `ArrayCoerceExpr`; M1-STEP, main 09-24; a row-valued `NullTest` was one
     /// until the emitter served it, emit/scalar.rs `row_null_test`).
-    fn covered<'n>(&mut self, n: Node<'n>, f: impl FnOnce(&mut Self) -> CompileResult<NodeId>) -> CompileResult<NodeId> {
+    fn covered<'n>(
+        &mut self,
+        n: Node<'n>,
+        f: impl FnOnce(&mut Self) -> CompileResult<NodeId>,
+    ) -> CompileResult<NodeId> {
         let (first, sites) = (self.prog.nodes.len(), self.prog.sites.len());
         let root = f(self)?;
         if crate::emit::scalar::check_node(self.prog, root, false).is_ok() {
@@ -553,8 +630,17 @@ impl<'b, 'mcx> Builder<'b, 'mcx> {
         // the island's arguments, in this order: each column read (by source and attno), each aggregate or SubPlan cell, each
         // parameter, the first node of each; written straight into the program's `kids` (one pass per kind)
         for n in self.prog.nodes[first..].iter() {
-            if matches!(n, ExprNode::Var(_) | ExprNode::Param(_) | ExprNode::WindowFunc(_) | ExprNode::GroupingFunc(_) | ExprNode::Srf(_) | ExprNode::CurrentOf(_) | ExprNode::NextValue(_) | ExprNode::Returning(_))
-                && !matches!(n, ExprNode::Param(q) if matches!(q.kind, types_nodes::primnodes::ParamKind::PARAM_EXTERN | types_nodes::primnodes::ParamKind::PARAM_EXEC))
+            if matches!(
+                n,
+                ExprNode::Var(_)
+                    | ExprNode::Param(_)
+                    | ExprNode::WindowFunc(_)
+                    | ExprNode::GroupingFunc(_)
+                    | ExprNode::Srf(_)
+                    | ExprNode::CurrentOf(_)
+                    | ExprNode::NextValue(_)
+                    | ExprNode::Returning(_)
+            ) && !matches!(n, ExprNode::Param(q) if matches!(q.kind, types_nodes::primnodes::ParamKind::PARAM_EXTERN | types_nodes::primnodes::ParamKind::PARAM_EXEC))
                 && !matches!(n, ExprNode::Var(v) if v.attno > 0)
             {
                 return root;
@@ -578,7 +664,10 @@ impl<'b, 'mcx> Builder<'b, 'mcx> {
             }
         }
         let nvars = self.prog.kids.len() - start;
-        let columns = nvars > 0 && self.prog.kids[start..].iter().any(|&k| !matches!(self.prog.nodes[k.0 as usize], ExprNode::Param(_)));
+        let columns = nvars > 0
+            && self.prog.kids[start..]
+                .iter()
+                .any(|&k| !matches!(self.prog.nodes[k.0 as usize], ExprNode::Param(_)));
         if nvars > func::MAX_ARGS {
             self.prog.kids.truncate(start);
             return root;
@@ -601,11 +690,33 @@ impl<'b, 'mcx> Builder<'b, 'mcx> {
             }
         }
         let volatile = self.prog.sites[sites..].iter().any(|s| s.volatile);
-        let args = Kids { start: start as u32, len: nvars as u32 };
+        let args = Kids {
+            start: start as u32,
+            len: nvars as u32,
+        };
         let rettype = nodes_core::expr_type(n);
-        let once = if columns || volatile { None } else { self.once(first, sites, &self.prog.kids[start..], rettype) };
-        let site = self.site(func::Call { funcid: 0, args, nargs: nvars as u8, strict: false, collation: 0, how: func::How::Island { root }, rettype, volatile });
-        self.prog.islands.push_in(Island { root, first: NodeId(first as u32), site, src: n.as_raw().as_ptr() as usize, once });
+        let once = if columns || volatile {
+            None
+        } else {
+            self.once(first, sites, &self.prog.kids[start..], rettype)
+        };
+        let site = self.site(func::Call {
+            funcid: 0,
+            args,
+            nargs: nvars as u8,
+            strict: false,
+            collation: 0,
+            how: func::How::Island { root },
+            rettype,
+            volatile,
+        });
+        self.prog.islands.push_in(Island {
+            root,
+            first: NodeId(first as u32),
+            site,
+            src: n.as_raw().as_ptr() as usize,
+            once,
+        });
         root
     }
 
@@ -614,25 +725,59 @@ impl<'b, 'mcx> Builder<'b, 'mcx> {
     /// varlena (a fixed-length by-reference image, a cstring): the island stays per row.
     fn once(&self, first: usize, sites: usize, args: &[NodeId], rettype: Oid) -> Option<Once> {
         let pure = self.prog.nodes[first..].iter().all(|n| {
-            matches!(n, ExprNode::Const(_) | ExprNode::Param(_) | ExprNode::CaseTest | ExprNode::Relabel(_) | ExprNode::ArrayCoerce(_) | ExprNode::Func(_) | ExprNode::Op(_) | ExprNode::Coalesce(_) | ExprNode::Collate(_))
+            matches!(
+                n,
+                ExprNode::Const(_)
+                    | ExprNode::Param(_)
+                    | ExprNode::CaseTest
+                    | ExprNode::Relabel(_)
+                    | ExprNode::ArrayCoerce(_)
+                    | ExprNode::Func(_)
+                    | ExprNode::Op(_)
+                    | ExprNode::Coalesce(_)
+                    | ExprNode::Collate(_)
+            )
         });
-        let builtin = |s: &func::Call| crate::catalog::FuncFacts::builtin(s.funcid) && self.catalog.func(s.funcid).is_ok_and(|f| f.immutable());
+        let builtin = |s: &func::Call| {
+            crate::catalog::FuncFacts::builtin(s.funcid)
+                && self.catalog.func(s.funcid).is_ok_and(|f| f.immutable())
+        };
         // a nested island's own site is no call: its nodes and sites lie in this range, checked above and here as this one's
-        let nested = |k: usize| self.prog.islands.iter().any(|i| i.site.0 as usize == k && i.first.0 as usize >= first && i.root.0 as usize >= first);
-        if !pure || args.len() > u32::BITS as usize || !self.prog.sites[sites..].iter().enumerate().all(|(k, s)| builtin(s) || nested(sites + k)) {
+        let nested = |k: usize| {
+            self.prog.islands.iter().any(|i| {
+                i.site.0 as usize == k && i.first.0 as usize >= first && i.root.0 as usize >= first
+            })
+        };
+        if !pure
+            || args.len() > u32::BITS as usize
+            || !self.prog.sites[sites..]
+                .iter()
+                .enumerate()
+                .all(|(k, s)| builtin(s) || nested(sites + k))
+        {
             return None;
         }
-        let word = |typ: Oid| self.catalog.type_facts(typ).ok().and_then(|t| match (t.byval, t.len) {
-            (true, _) => Some(false),
-            (false, -1) => Some(true),
-            _ => None,
-        });
+        let word = |typ: Oid| {
+            self.catalog
+                .type_facts(typ)
+                .ok()
+                .and_then(|t| match (t.byval, t.len) {
+                    (true, _) => Some(false),
+                    (false, -1) => Some(true),
+                    _ => None,
+                })
+        };
         let mut varlena = 0u32;
         for (i, k) in args.iter().enumerate() {
-            let ExprNode::Param(q) = &self.prog.nodes[k.0 as usize] else { return None };
+            let ExprNode::Param(q) = &self.prog.nodes[k.0 as usize] else {
+                return None;
+            };
             varlena |= (word(q.typ)? as u32) << i;
         }
-        Some(Once { varlena, ret_byval: !word(rettype)? })
+        Some(Once {
+            varlena,
+            ret_byval: !word(rettype)?,
+        })
     }
 
     /// Compile every element of `list` and record the ids as one contiguous child range.
@@ -654,13 +799,19 @@ impl<'b, 'mcx> Builder<'b, 'mcx> {
         for _ in 0..n {
             self.prog.kids.push_in(NodeId::NONE);
         }
-        Kids { start, len: n as u32 }
+        Kids {
+            start,
+            len: n as u32,
+        }
     }
 
     pub fn kids_of(&mut self, ids: &[NodeId]) -> Kids {
         let start = self.prog.kids.len() as u32;
         self.prog.kids.extend_from_slice_in(ids);
-        Kids { start, len: ids.len() as u32 }
+        Kids {
+            start,
+            len: ids.len() as u32,
+        }
     }
 
     pub fn site(&mut self, mut call: func::Call) -> SiteId {
@@ -675,7 +826,13 @@ impl<'b, 'mcx> Builder<'b, 'mcx> {
     pub fn fmgr(&mut self, call: FmgrCall, argtypes: &[Oid], node_arg: bool) -> u32 {
         let id = self.state.calls.len() as u32;
         self.state.calls.push(call);
-        self.state.call_facts.push(CallFacts { rettype: 0, variadic: false, node_arg, argtypes: argtypes.to_vec(), stable: 0 }); // alloc: Program
+        self.state.call_facts.push(CallFacts {
+            rettype: 0,
+            variadic: false,
+            node_arg,
+            argtypes: argtypes.to_vec(),
+            stable: 0,
+        }); // alloc: Program
         id
     }
 
@@ -698,7 +855,9 @@ impl<'b, 'mcx> Builder<'b, 'mcx> {
         // SAFETY: a non-null by-reference constant points at a live image of its type for the compile.
         let len = unsafe {
             match typlen {
-                -1 if types_tuple::varatt::varatt_is_1b_e(p) => return Err(crate::CompileError::Unsupported(Kind::Const)),
+                -1 if types_tuple::varatt::varatt_is_1b_e(p) => {
+                    return Err(crate::CompileError::Unsupported(Kind::Const))
+                }
                 -1 => types_tuple::varatt::varsize_any(p),
                 -2 => core::ffi::CStr::from_ptr(p.cast()).to_bytes().len() + 1,
                 n => n as usize,
@@ -749,7 +908,9 @@ fn cell_of(n: &ExprNode<'_>) -> Option<i32> {
 pub fn island_capable(n: Node<'_>) -> bool {
     let tag = n.node_tag();
     let t = tag as u16;
-    t < 64 && (ISLAND_MASK >> t) & 1 != 0 && (tag != NodeTag::T_NullTest || n.as_null_test().is_some_and(|t| t.argisrow))
+    t < 64
+        && (ISLAND_MASK >> t) & 1 != 0
+        && (tag != NodeTag::T_NullTest || n.as_null_test().is_some_and(|t| t.argisrow))
 }
 
 /// `ISLAND_TAGS` as one word, bit `tag` per kind (the key walks ask `island_capable` of every expression node: one test
@@ -779,6 +940,9 @@ mod island_mask_tests {
         for tag in super::ISLAND_TAGS {
             assert!((super::ISLAND_MASK >> (tag as u16)) & 1 != 0, "{tag:?}");
         }
-        assert_eq!(super::ISLAND_MASK.count_ones() as usize, super::ISLAND_TAGS.len());
+        assert_eq!(
+            super::ISLAND_MASK.count_ones() as usize,
+            super::ISLAND_TAGS.len()
+        );
     }
 }

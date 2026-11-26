@@ -5,8 +5,8 @@ use mcx::{Mcx, MemoryContext, PgFxHashMap, PgVec};
 use types_error::PgResult;
 use types_resowner::ResourceOwner;
 use types_storage::lock::{
-    LOCALLOCKTAG, LOCK, LOCKBIT_ON, LOCKMETHODID, LOCKMODE, LOCKTAG, LOCKTAG_RELATION_EXTEND,
-    MaxLockMode, PROCLOCK,
+    MaxLockMode, LOCALLOCKTAG, LOCK, LOCKBIT_ON, LOCKMETHODID, LOCKMODE, LOCKTAG,
+    LOCKTAG_RELATION_EXTEND, PROCLOCK,
 };
 
 use crate::fastpath::{decrement_strong_lock_count, FastPathStrongLockHashPartition};
@@ -182,15 +182,24 @@ impl LocalLockPtr {
 }
 
 pub(crate) enum LocalGrant {
-    Held { cleared: bool, new_slot: bool, ll: LocalLockPtr },
-    NotHeld { hashcode: u32, ll: LocalLockPtr },
+    Held {
+        cleared: bool,
+        new_slot: bool,
+        ll: LocalLockPtr,
+    },
+    NotHeld {
+        hashcode: u32,
+        ll: LocalLockPtr,
+    },
 }
 
 /// One probe: find-or-create the LOCALLOCK and, when already held, grant it
 /// locally in the same table access (C works on the hash_search pointer).
 pub(crate) fn prepare_or_grant_locallock(tag: &LOCALLOCKTAG, owner: ResourceOwner) -> LocalGrant {
     let out = with_local(|state| {
-        let LocalState { mcx, table, gen, .. } = state;
+        let LocalState {
+            mcx, table, gen, ..
+        } = state;
         let mcx = *mcx;
         let mut inserted = false;
         let entry = table.entry(*tag).or_insert_with(|| {
@@ -206,13 +215,19 @@ pub(crate) fn prepare_or_grant_locallock(tag: &LOCALLOCKTAG, owner: ResourceOwne
             LocalGrant::Held {
                 cleared: entry.lockCleared,
                 new_slot,
-                ll: LocalLockPtr { ptr: std::ptr::NonNull::from(entry), gen: *gen },
+                ll: LocalLockPtr {
+                    ptr: std::ptr::NonNull::from(entry),
+                    gen: *gen,
+                },
             }
         } else {
             entry.lockOwners.reserve(1);
             LocalGrant::NotHeld {
                 hashcode: entry.hashcode,
-                ll: LocalLockPtr { ptr: std::ptr::NonNull::from(entry), gen: *gen },
+                ll: LocalLockPtr {
+                    ptr: std::ptr::NonNull::from(entry),
+                    gen: *gen,
+                },
             }
         }
     });
@@ -265,7 +280,10 @@ pub(crate) fn set_locallock_shared(
         Some(p) => {
             // SAFETY: the generation is unchanged, so `p` is still `tag`'s entry; no LocalState borrow is live.
             let e = unsafe { &mut *p.as_ptr() };
-            debug_assert!(with_local(|state| state.table.get(tag).is_some_and(|x| core::ptr::eq(x, p.as_ptr()))));
+            debug_assert!(with_local(|state| state
+                .table
+                .get(tag)
+                .is_some_and(|x| core::ptr::eq(x, p.as_ptr()))));
             e.proclock = proclock;
             e.lock = lock;
         }
@@ -287,7 +305,10 @@ pub(crate) fn grant_locallock_ptr(tag: &LOCALLOCKTAG, owner: ResourceOwner, ll: 
     let new_slot = {
         // SAFETY: the generation is unchanged, so `p` is still `tag`'s entry; no LocalState borrow is live.
         let e = unsafe { &mut *p.as_ptr() };
-        debug_assert!(with_local(|state| state.table.get(tag).is_some_and(|x| core::ptr::eq(x, p.as_ptr()))));
+        debug_assert!(with_local(|state| state
+            .table
+            .get(tag)
+            .is_some_and(|x| core::ptr::eq(x, p.as_ptr()))));
         e.nLocks += 1;
         grant_owner_slot(&mut e.lockOwners, owner)
     };
@@ -477,10 +498,11 @@ pub fn MarkLockClear(locktag: &LOCKTAG, lockmode: LOCKMODE) {
 /// utility command).
 pub fn HoldsSessionLock() -> bool {
     with_local(|state| {
-        state
-            .table
-            .values()
-            .any(|ll| ll.lockOwners.iter().any(|o| o.owner.is_null() && o.nLocks > 0))
+        state.table.values().any(|ll| {
+            ll.lockOwners
+                .iter()
+                .any(|o| o.owner.is_null() && o.nLocks > 0)
+        })
     })
 }
 

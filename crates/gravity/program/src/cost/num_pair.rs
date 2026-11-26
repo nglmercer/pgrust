@@ -19,7 +19,12 @@ const CORPUS: &str = "F4 pair cells (nt_q / nt_px / nt_pw: 6 M heap rows, text k
 
 // One anchor (update): both prices are the hashed path's, so the rule's 15 groups hold on every host.
 const fn fitted(ns: f64) -> Fitted {
-    Fitted { ns, machine: MACHINE, corpus: CORPUS, anchor: Anchor::Update }
+    Fitted {
+        ns,
+        machine: MACHINE,
+        corpus: CORPUS,
+        anchor: Anchor::Update,
+    }
 }
 
 /// A row whose image holds its pair block: the hashed path's cost it skips (a hashed probe of the L1-resident blocks).
@@ -54,7 +59,10 @@ mod tests {
     #[test]
     fn the_displaced_share_climbs_with_the_groups() {
         assert!(displaced(1.0, 64.0).abs() < 1e-12);
-        assert!((displaced(8.0, 64.0) - 0.053).abs() < 0.001 && (displaced(64.0, 64.0) - 0.365).abs() < 0.001);
+        assert!(
+            (displaced(8.0, 64.0) - 0.053).abs() < 0.001
+                && (displaced(64.0, 64.0) - 0.365).abs() < 0.001
+        );
         assert!((1..128).all(|g| displaced(g as f64 + 1.0, 64.0) > displaced(g as f64, 64.0)));
     }
 
@@ -63,6 +71,8 @@ mod tests {
     #[test]
     fn the_pair_pays_up_to_a_quarter_of_the_blocks() {
         assert!(pair_pays(8, 64) && pair_pays(15, 64));
-        assert!(!pair_pays(16, 64) && !pair_pays(24, 64) && !pair_pays(64, 64) && !pair_pays(0, 64));
+        assert!(
+            !pair_pays(16, 64) && !pair_pays(24, 64) && !pair_pays(64, 64) && !pair_pays(0, 64)
+        );
     }
 }

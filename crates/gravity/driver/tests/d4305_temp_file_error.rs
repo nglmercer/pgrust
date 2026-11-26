@@ -12,7 +12,9 @@ use std::time::Duration;
 
 use common::*;
 use gravity_abi::status::{unsupported, UNSUPPORTED_SCRATCH};
-use gravity_driver::{install_spill_factory, Entry, Error, Grant, SpillFactory, SpillSet, TempMap, POOL, REGIONS};
+use gravity_driver::{
+    install_spill_factory, Entry, Error, Grant, SpillFactory, SpillSet, TempMap, POOL, REGIONS,
+};
 use gravity_program::Code;
 
 const MIB: u64 = 1 << 20;
@@ -47,25 +49,37 @@ type Kernel = unsafe extern "C-unwind" fn(*mut gravity_abi::Ctx) -> i64;
 
 unsafe extern "C-unwind" fn k_grow(ctx: *mut gravity_abi::Ctx) -> i64 {
     // SAFETY: the driver binds `ctx` for the call
-    GOT.store(unsafe { gravity_abi::program::arena_grow(ctx, ASK) } != 0, Ordering::Relaxed);
+    GOT.store(
+        unsafe { gravity_abi::program::arena_grow(ctx, ASK) } != 0,
+        Ordering::Relaxed,
+    );
     unsupported(UNSUPPORTED_SCRATCH)
 }
 
 unsafe extern "C-unwind" fn k_pin(ctx: *mut gravity_abi::Ctx) -> i64 {
     // SAFETY: as `k_grow`
-    GOT.store(!unsafe { gravity_abi::program::pin(ctx, ASK) }.is_null(), Ordering::Relaxed);
+    GOT.store(
+        !unsafe { gravity_abi::program::pin(ctx, ASK) }.is_null(),
+        Ordering::Relaxed,
+    );
     unsupported(UNSUPPORTED_SCRATCH)
 }
 
 unsafe extern "C-unwind" fn k_take(ctx: *mut gravity_abi::Ctx) -> i64 {
     // SAFETY: as `k_grow`
-    GOT.store(!unsafe { gravity_driver::mem::spill_host::v4::take(ctx, ASK as usize) }.is_null(), Ordering::Relaxed);
+    GOT.store(
+        !unsafe { gravity_driver::mem::spill_host::v4::take(ctx, ASK as usize) }.is_null(),
+        Ordering::Relaxed,
+    );
     unsupported(UNSUPPORTED_SCRATCH)
 }
 
 #[test]
 fn a_refused_temp_file_raises_its_own_error() {
-    assert!(install_spill_factory(&FULL_DISK), "this binary owns the process's spill factory");
+    assert!(
+        install_spill_factory(&FULL_DISK),
+        "this binary owns the process's spill factory"
+    );
     POOL.gate(0);
     REGIONS.trim();
     gravity_driver::DEPOT.trim();
@@ -78,10 +92,19 @@ fn a_refused_temp_file_raises_its_own_error() {
     let mut derive = FakeDerive::new([no_rows; 4]);
     let mut entry = Entry::new(2);
     let mut wrong = Vec::new();
-    for (road, k) in [("arena grow", k_grow as Kernel), ("kernel pin", k_pin), ("spill take", k_take)] {
+    for (road, k) in [
+        ("arena grow", k_grow as Kernel),
+        ("kernel pin", k_pin),
+        ("spill take", k_take),
+    ] {
         let program = Arc::new(p_code(Code::hand(k), 1, 0));
-        let a = std::rc::Rc::new(POOL.admit(Grant::of(MIB), 1, 1, Duration::from_millis(10)).unwrap());
-        let mut exec = entry.start(None, &program, &mut derive, &mut b, a.clone()).unwrap();
+        let a = std::rc::Rc::new(
+            POOL.admit(Grant::of(MIB), 1, 1, Duration::from_millis(10))
+                .unwrap(),
+        );
+        let mut exec = entry
+            .start(None, &program, &mut derive, &mut b, a.clone())
+            .unwrap();
         let r = entry.run(&mut exec, &mut b, gravity_driver::Call::batch(1));
         let got = GOT.load(Ordering::Relaxed);
         if got || r != Err(Error::host(FILE_ERROR)) {
@@ -90,7 +113,11 @@ fn a_refused_temp_file_raises_its_own_error() {
         entry.end(exec, false);
         drop(a);
     }
-    assert!(wrong.is_empty(), "the refused temp file's own error, never the pool's refusal:\n{}", wrong.join("\n"));
+    assert!(
+        wrong.is_empty(),
+        "the refused temp file's own error, never the pool's refusal:\n{}",
+        wrong.join("\n")
+    );
     drop(entry);
     REGIONS.trim();
     gravity_driver::DEPOT.trim();

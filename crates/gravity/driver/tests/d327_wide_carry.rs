@@ -14,7 +14,11 @@ impl SpillFile for Chunks {
         unreachable!("a read-only fixture")
     }
 
-    fn read_part(&self, _part: u32, sink: &mut dyn FnMut(&[u8]) -> Result<(), Error>) -> Result<(), Error> {
+    fn read_part(
+        &self,
+        _part: u32,
+        sink: &mut dyn FnMut(&[u8]) -> Result<(), Error>,
+    ) -> Result<(), Error> {
         for c in self.bytes.chunks(self.chunk) {
             sink(c)?;
         }
@@ -35,31 +39,52 @@ const WIDE: usize = 1008;
 
 /// `n` records of `rec` bytes, every byte its record's and its offset's.
 fn records(n: usize, rec: usize) -> Vec<u8> {
-    (0..n * rec).map(|i| ((i / rec) as u8).wrapping_mul(31) ^ (i % rec) as u8 ^ ((i % rec) >> 8) as u8).collect()
+    (0..n * rec)
+        .map(|i| ((i / rec) as u8).wrapping_mul(31) ^ (i % rec) as u8 ^ ((i % rec) >> 8) as u8)
+        .collect()
 }
 
 #[test]
 fn d327_a_wide_record_straddling_two_chunks_streams_whole() {
     for rec in [WIDE, 257, 4096, 24] {
         for chunk in [1000, 777, 4096, 8192, 65536] {
-            let file = Chunks { bytes: records(40, rec), chunk };
+            let file = Chunks {
+                bytes: records(40, rec),
+                chunk,
+            };
             let mut seen = 0usize;
             let n = stream_records(&file, 0, rec, &mut |r: &[u8]| {
-                assert_eq!(r, &file.bytes[seen * rec..(seen + 1) * rec], "record {seen} of {rec} B in chunks of {chunk}");
+                assert_eq!(
+                    r,
+                    &file.bytes[seen * rec..(seen + 1) * rec],
+                    "record {seen} of {rec} B in chunks of {chunk}"
+                );
                 seen += 1;
                 Ok(())
             })
             .expect("streamed");
-            assert_eq!((n, seen), (40, 40), "records of {rec} B in chunks of {chunk}");
+            assert_eq!(
+                (n, seen),
+                (40, 40),
+                "records of {rec} B in chunks of {chunk}"
+            );
         }
     }
 }
 
 #[test]
 fn d327_a_carry_the_allocator_refuses_is_the_statements_out_of_memory() {
-    let file = Chunks { bytes: vec![7u8; 3000], chunk: 1000 };
+    let file = Chunks {
+        bytes: vec![7u8; 3000],
+        chunk: 1000,
+    };
     // past isize::MAX: the reservation's capacity overflow, the refusal path without exhausting the machine
     let rec = isize::MAX as usize + 1;
-    let got = stream_runs(&file, 0, rec, &mut |_, _| panic!("no whole record of {rec} B"));
-    assert!(matches!(got, Err(Error::OutOfMemory { bytes, .. }) if bytes == rec as u64), "{got:?}");
+    let got = stream_runs(&file, 0, rec, &mut |_, _| {
+        panic!("no whole record of {rec} B")
+    });
+    assert!(
+        matches!(got, Err(Error::OutOfMemory { bytes, .. }) if bytes == rec as u64),
+        "{got:?}"
+    );
 }

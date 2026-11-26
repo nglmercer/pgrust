@@ -13,7 +13,10 @@ mod common;
 use std::collections::HashMap;
 
 use datum::Datum;
-use fmgr::{ExprDoneCond, FmgrInfo, LocalFcinfo, ReturnSetInfo, SetFunctionReturnMode, SFRM_Materialize, SFRM_ValuePerCall};
+use fmgr::{
+    ExprDoneCond, FmgrInfo, LocalFcinfo, ReturnSetInfo, SFRM_Materialize, SFRM_ValuePerCall,
+    SetFunctionReturnMode,
+};
 use gravity_abi::Ctx;
 use gravity_fn::srf::{Entry, ENTRIES, OUT_WORDS, STATE_BYTES};
 use gravity_fn::ErrSlot;
@@ -50,24 +53,33 @@ impl Lits {
             return common::image_datum(self.keep.last().unwrap());
         }
         let ty = &self.types[t];
-        let proc_ = self.procs.values().find(|p| p.prosrc == ty.input || p.name == ty.input).unwrap_or_else(|| panic!("no input function for {t}"));
+        let proc_ = self
+            .procs
+            .values()
+            .find(|p| p.prosrc == ty.input || p.name == ty.input)
+            .unwrap_or_else(|| panic!("no input function for {t}"));
         let nargs = proc_.args.len();
         let mut call = gravity_fn::FmgrCall::bind(proc_.oid, nargs, 0).unwrap();
         let mut c = lit.as_bytes().to_vec();
         c.push(0);
         let mut args = vec![Datum::from_usize(c.as_ptr() as usize)];
         if nargs == 3 {
-            args.push(Datum::from_u32(self.types.get(&ty.elem).map_or(0, |e| e.oid)));
+            args.push(Datum::from_u32(
+                self.types.get(&ty.elem).map_or(0, |e| e.oid),
+            ));
             args.push(Datum::from_i32(-1));
         }
-        let v = call.call_site(&args, &vec![false; nargs]).unwrap_or_else(|e| panic!("{t} input of {lit:?}: {}", e.message()));
+        let v = call
+            .call_site(&args, &vec![false; nargs])
+            .unwrap_or_else(|e| panic!("{t} input of {lit:?}: {}", e.message()));
         if common::ret_byval(t, &self.types) {
             return v.value;
         }
         let p = v.value.as_usize() as *const u8;
         // SAFETY: the input function's result is a live image of its type.
         let n = unsafe { common::result_len(p, t, &self.types) };
-        self.keep.push(unsafe { std::slice::from_raw_parts(p, n) }.to_vec());
+        self.keep
+            .push(unsafe { std::slice::from_raw_parts(p, n) }.to_vec());
         common::image_datum(self.keep.last().unwrap())
     }
 
@@ -82,10 +94,26 @@ impl Lits {
     }
 
     fn int4_array(&mut self, elems: &[Option<i32>]) -> Datum {
-        let cx: &'static mut mcx::MemoryContext = Box::leak(Box::new(mcx::MemoryContext::new_bump("srf arrays")));
-        let vals: Vec<Datum> = elems.iter().map(|e| Datum::from_i32(e.unwrap_or(0))).collect();
+        let cx: &'static mut mcx::MemoryContext =
+            Box::leak(Box::new(mcx::MemoryContext::new_bump("srf arrays")));
+        let vals: Vec<Datum> = elems
+            .iter()
+            .map(|e| Datum::from_i32(e.unwrap_or(0)))
+            .collect();
         let nulls: Vec<bool> = elems.iter().map(|e| e.is_none()).collect();
-        let img = arrayfuncs::construct_md_array(cx.mcx(), &vals, Some(&nulls), 1, &[elems.len() as i32], &[1], INT4OID, 4, true, b'i').unwrap();
+        let img = arrayfuncs::construct_md_array(
+            cx.mcx(),
+            &vals,
+            Some(&nulls),
+            1,
+            &[elems.len() as i32],
+            &[1],
+            INT4OID,
+            4,
+            true,
+            b'i',
+        )
+        .unwrap();
         self.keep.push(img.to_vec());
         common::image_datum(self.keep.last().unwrap())
     }
@@ -105,7 +133,10 @@ unsafe fn payload(p: *const u8) -> Vec<u8> {
 
 /// The by-value output columns per entry (a timestamp series); every other column is a varlena.
 fn byval_cols(oid: u32) -> bool {
-    matches!(oid, 938 | 939 | 6274 | 1066 | 1067 | 1068 | 1069 | 1191 | 1192)
+    matches!(
+        oid,
+        938 | 939 | 6274 | 1066 | 1067 | 1068 | 1069 | 1191 | 1192
+    )
 }
 
 fn cell(d: i64, byval: bool) -> Vec<u8> {
@@ -182,7 +213,13 @@ impl Oracle {
         fc.nargs = nargs as i16;
         // SAFETY: the context outlives the frame (drop order).
         unsafe { fc.set_result_mcx(cx.mcx()) };
-        Oracle { oid, flinfo, fc, rs: Box::new(ReturnSetInfo::new(SFRM_ValuePerCall)), cx }
+        Oracle {
+            oid,
+            flinfo,
+            fc,
+            rs: Box::new(ReturnSetInfo::new(SFRM_ValuePerCall)),
+            cx,
+        }
     }
 
     fn rows(&mut self, args: &[Option<Datum>], cols: usize, byval: bool) -> Rows {
@@ -211,7 +248,10 @@ impl Oracle {
                     return Err(err_of(&e));
                 }
             };
-            assert!(matches!(self.rs.returnMode, SetFunctionReturnMode::ValuePerCall), "the oracle drives ValuePerCall only");
+            assert!(
+                matches!(self.rs.returnMode, SetFunctionReturnMode::ValuePerCall),
+                "the oracle drives ValuePerCall only"
+            );
             if self.rs.isDone == ExprDoneCond::ExprEndResult {
                 break;
             }
@@ -261,15 +301,30 @@ impl Oracle {
         if let Err(e) = r {
             return Err(err_of(&e));
         }
-        assert!(matches!(self.rs.returnMode, SetFunctionReturnMode::Materialize), "a materializing SRF answered ValuePerCall");
+        assert!(
+            matches!(self.rs.returnMode, SetFunctionReturnMode::Materialize),
+            "a materializing SRF answered ValuePerCall"
+        );
         let mut out = Vec::new();
         if let Some(store) = self.rs.setResult.take() {
-            let mut store = *store.downcast::<tuplestore::Tuplestore>().expect("setResult is a Tuplestore");
-            let mut slot = exectuples::make_tuple_table_slot(m, types_slot::TupleSlotKind::MinimalTuple, Some(desc.clone()));
+            let mut store = *store
+                .downcast::<tuplestore::Tuplestore>()
+                .expect("setResult is a Tuplestore");
+            let mut slot = exectuples::make_tuple_table_slot(
+                m,
+                types_slot::TupleSlotKind::MinimalTuple,
+                Some(desc.clone()),
+            );
             while store.gettupleslot(true, true, &mut slot, m).unwrap() {
                 exectuples::slot_getallattrs(&mut slot);
                 let base = slot.base();
-                out.push((0..types.len()).map(|i| (!base.tts_isnull[i]).then(|| cell(base.tts_values[i].as_i64(), false))).collect());
+                out.push(
+                    (0..types.len())
+                        .map(|i| {
+                            (!base.tts_isnull[i]).then(|| cell(base.tts_values[i].as_i64(), false))
+                        })
+                        .collect(),
+                );
                 if out.len() > CAP {
                     return Err(("row cap".to_owned(), 0));
                 }
@@ -314,7 +369,15 @@ impl Lib {
         let ctx: *mut Ctx = &mut *self.ctx;
         // SAFETY: the library's contract — a bound ctx, the state cell and buffers this frame's.
         unsafe {
-            let st = (e.open)(&mut err, ctx, state.as_mut_ptr(), av.as_ptr(), an.as_ptr(), av.len() as i64, aux);
+            let st = (e.open)(
+                &mut err,
+                ctx,
+                state.as_mut_ptr(),
+                av.as_ptr(),
+                an.as_ptr(),
+                av.len() as i64,
+                aux,
+            );
             if st < 0 {
                 return Err(err_of(&err.take().expect("ERROR without an error")));
             }
@@ -328,7 +391,15 @@ impl Lib {
                 if r == 0 {
                     break;
                 }
-                let row: Row = (0..e.cols as usize).map(|c| if o[2 * c + 1] != 0 { None } else { Some(cell(o[2 * c], byval)) }).collect();
+                let row: Row = (0..e.cols as usize)
+                    .map(|c| {
+                        if o[2 * c + 1] != 0 {
+                            None
+                        } else {
+                            Some(cell(o[2 * c], byval))
+                        }
+                    })
+                    .collect();
                 out.push(row);
                 if out.len() > CAP {
                     return Err(("row cap".to_owned(), 0));
@@ -347,13 +418,20 @@ fn model(oid: u32, args: &[Option<Datum>]) -> Rows {
     let w: Vec<i64> = args.iter().map(|a| a.unwrap().as_i64()).collect();
     let series = |mut cur: i64, fin: i64, mut step: i64, width: u8| -> Rows {
         if step == 0 {
-            return Err(("step size cannot equal zero".to_owned(), types_error::ERRCODE_INVALID_PARAMETER_VALUE.0));
+            return Err((
+                "step size cannot equal zero".to_owned(),
+                types_error::ERRCODE_INVALID_PARAMETER_VALUE.0,
+            ));
         }
         let mut out = Vec::new();
         while (step > 0 && cur <= fin) || (step < 0 && cur >= fin) {
             out.push(vec![Some(cur.to_ne_bytes().to_vec())]);
             let next = cur.wrapping_add(step);
-            let ovf = if width == 8 { cur.checked_add(step).is_none() } else { next != next as i32 as i64 };
+            let ovf = if width == 8 {
+                cur.checked_add(step).is_none()
+            } else {
+                next != next as i32 as i64
+            };
             if ovf {
                 step = 0;
             } else {
@@ -370,14 +448,24 @@ fn model(oid: u32, args: &[Option<Datum>]) -> Rows {
         1191 | 1192 => {
             let p = w[0] as usize as *const u8;
             // SAFETY: a 1-D int4[] image the test built.
-            let (ndim, n, lb) = unsafe { (p.add(4).cast::<i32>().read_unaligned(), p.add(16).cast::<i32>().read_unaligned(), p.add(20).cast::<i32>().read_unaligned()) };
+            let (ndim, n, lb) = unsafe {
+                (
+                    p.add(4).cast::<i32>().read_unaligned(),
+                    p.add(16).cast::<i32>().read_unaligned(),
+                    p.add(20).cast::<i32>().read_unaligned(),
+                )
+            };
             let dim = w[1];
             if ndim == 0 || dim < 1 || dim > ndim as i64 {
                 return Ok(Vec::new());
             }
             let reverse = oid == 1192 && w[2] != 0;
             let (lo, hi) = (lb as i64, lb as i64 + n as i64 - 1);
-            if reverse { series(hi, lo, -1, 4) } else { series(lo, hi, 1, 4) }
+            if reverse {
+                series(hi, lo, -1, 4)
+            } else {
+                series(lo, hi, 1, 4)
+            }
         }
         _ => unreachable!(),
     }
@@ -407,41 +495,200 @@ fn cases(oid: u32) -> Vec<Vec<A>> {
             vec![N, ts("2024-01-02"), iv("1 day")],
             vec![ts("2024-01-01"), N, iv("1 day")],
             vec![ts("2024-01-01"), ts("2024-01-02"), N],
-            vec![ts("294276-12-31 23:00"), ts("294276-12-31 23:59:59"), iv("30 min")],
+            vec![
+                ts("294276-12-31 23:00"),
+                ts("294276-12-31 23:59:59"),
+                iv("30 min"),
+            ],
         ],
         939 => vec![
-            vec![tz("2024-01-01 00:00+00"), tz("2024-01-03 00:00+00"), iv("1 day")],
-            vec![tz("2024-03-09 12:00+00"), tz("2024-03-11 12:00+00"), iv("1 day")],
-            vec![tz("2024-01-03 00:00+00"), tz("2024-01-01 00:00+00"), iv("-12 hours")],
-            vec![tz("2024-01-01 00:00+00"), tz("2024-01-02 00:00+00"), iv("0")],
+            vec![
+                tz("2024-01-01 00:00+00"),
+                tz("2024-01-03 00:00+00"),
+                iv("1 day"),
+            ],
+            vec![
+                tz("2024-03-09 12:00+00"),
+                tz("2024-03-11 12:00+00"),
+                iv("1 day"),
+            ],
+            vec![
+                tz("2024-01-03 00:00+00"),
+                tz("2024-01-01 00:00+00"),
+                iv("-12 hours"),
+            ],
+            vec![
+                tz("2024-01-01 00:00+00"),
+                tz("2024-01-02 00:00+00"),
+                iv("0"),
+            ],
             vec![N, tz("2024-01-02 00:00+00"), iv("1 day")],
         ],
         6274 => vec![
-            vec![tz("2024-03-09 12:00+00"), tz("2024-03-11 12:00+00"), iv("1 day"), tx("UTC")],
-            vec![tz("2024-03-09 12:00+00"), tz("2024-03-11 12:00+00"), iv("1 day"), tx("America/New_York")],
-            vec![tz("2024-03-09 12:00+00"), tz("2024-03-11 12:00+00"), iv("1 day"), tx("Nowhere/Land")],
-            vec![tz("2024-03-09 12:00+00"), tz("2024-03-11 12:00+00"), iv("1 day"), N],
+            vec![
+                tz("2024-03-09 12:00+00"),
+                tz("2024-03-11 12:00+00"),
+                iv("1 day"),
+                tx("UTC"),
+            ],
+            vec![
+                tz("2024-03-09 12:00+00"),
+                tz("2024-03-11 12:00+00"),
+                iv("1 day"),
+                tx("America/New_York"),
+            ],
+            vec![
+                tz("2024-03-09 12:00+00"),
+                tz("2024-03-11 12:00+00"),
+                iv("1 day"),
+                tx("Nowhere/Land"),
+            ],
+            vec![
+                tz("2024-03-09 12:00+00"),
+                tz("2024-03-11 12:00+00"),
+                iv("1 day"),
+                N,
+            ],
         ],
-        3259 => vec![vec![nu("1"), nu("3")], vec![nu("3"), nu("1")], vec![nu("1.5"), nu("1.5")], vec![nu("NaN"), nu("3")], vec![nu("1"), nu("NaN")], vec![nu("1"), nu("Infinity")], vec![N, nu("3")], vec![nu("1"), N]],
-        3260 => vec![vec![nu("1"), nu("3"), nu("0.5")], vec![nu("3"), nu("1"), nu("-1")], vec![nu("1"), nu("3"), nu("0")], vec![nu("1"), nu("3"), nu("NaN")], vec![nu("1"), nu("3"), nu("-Infinity")], vec![nu("1"), nu("3"), nu("-1")], vec![nu("1"), nu("3"), N], vec![nu("0.1"), nu("0.35"), nu("0.05")]],
-        2763 => vec![vec![tx("abcabc"), tx("b")], vec![tx("abc"), tx("(x)")], vec![tx("abc"), tx("(")], vec![tx(""), tx("")], vec![tx("abc"), tx("(a)(b)?(z)?")], vec![tx("naïve café"), tx("(é)")], vec![N, tx("b")], vec![tx("abc"), N]],
-        2764 => vec![vec![tx("abcabc"), tx("b"), tx("g")], vec![tx("aXbXc"), tx("x"), tx("gi")], vec![tx("abc"), tx("(a)(b)?(z)?"), tx("g")], vec![tx("abc"), tx("b"), tx("z")], vec![tx("a1b22c333"), tx("\\d+"), tx("g")], vec![tx("abc"), tx(""), tx("g")], vec![tx("abc"), tx("b"), N]],
-        2765 => vec![vec![tx("a,b,c"), tx(",")], vec![tx("abc"), tx("")], vec![tx(""), tx(",")], vec![tx("a1b2"), tx("\\d")], vec![tx("abc"), tx("(")], vec![tx(",a,"), tx(",")], vec![N, tx(",")]],
-        2766 => vec![vec![tx("a1b2"), tx("\\d"), tx("i")], vec![tx("a,b"), tx(","), tx("g")], vec![tx("aXbxc"), tx("x"), tx("i")], vec![tx("a b"), tx(" "), tx("q")], vec![tx("a b"), tx(" "), N]],
-        6160 => vec![vec![tx("a b c"), tx(" ")], vec![tx("abc"), N], vec![tx("abc"), tx("")], vec![tx(""), tx(" ")], vec![N, tx(" ")], vec![tx("a,b,,c"), tx(",")], vec![tx("naïve café"), N], vec![tx("a||b"), tx("||")]],
-        6161 => vec![vec![tx("a,b,,c"), tx(","), tx("")], vec![tx("a,b"), tx(","), tx("b")], vec![tx("a b"), tx(" "), N], vec![tx("abc"), N, tx("b")], vec![N, tx(","), tx("")], vec![tx("a,b"), tx(","), N]],
-        3219 | 3465 => vec![vec![jb("[1, \"a\", null, {\"b\": 2}, [3], true, 1.50]")], vec![jb("[]")], vec![jb("{\"a\": 1}")], vec![jb("1")], vec![jb("\"x\"")], vec![jb("null")], vec![N]],
-        3208 | 3932 => vec![vec![jb("{\"a\": 1, \"b\": \"x\", \"c\": null, \"d\": {\"e\": [1]}, \"f\": true}")], vec![jb("{}")], vec![jb("[1]")], vec![jb("1")], vec![jb("{\"k\": \"naïve\"}")], vec![N]],
-        3931 => vec![vec![jb("{\"b\": 1, \"a\": 2, \"aa\": 3}")], vec![jb("{}")], vec![jb("[1]")], vec![jb("1")], vec![N]],
-        3955 | 3969 => vec![vec![js("[1, \"a\", null, {\"b\": 2}, [3], true, 1.50]")], vec![js("[]")], vec![js("{\"a\": 1}")], vec![js("1")], vec![js("\"x\"")], vec![N]],
-        3958 | 3959 => vec![vec![js("{\"a\": 1, \"b\": \"x\", \"c\": null, \"d\": {\"e\": [1]}}")], vec![js("{}")], vec![js("[1]")], vec![js("1")], vec![N]],
-        3957 => vec![vec![js("{\"b\": 1, \"a\": 2}")], vec![js("{}")], vec![js("[1]")], vec![js("1")], vec![N]],
+        3259 => vec![
+            vec![nu("1"), nu("3")],
+            vec![nu("3"), nu("1")],
+            vec![nu("1.5"), nu("1.5")],
+            vec![nu("NaN"), nu("3")],
+            vec![nu("1"), nu("NaN")],
+            vec![nu("1"), nu("Infinity")],
+            vec![N, nu("3")],
+            vec![nu("1"), N],
+        ],
+        3260 => vec![
+            vec![nu("1"), nu("3"), nu("0.5")],
+            vec![nu("3"), nu("1"), nu("-1")],
+            vec![nu("1"), nu("3"), nu("0")],
+            vec![nu("1"), nu("3"), nu("NaN")],
+            vec![nu("1"), nu("3"), nu("-Infinity")],
+            vec![nu("1"), nu("3"), nu("-1")],
+            vec![nu("1"), nu("3"), N],
+            vec![nu("0.1"), nu("0.35"), nu("0.05")],
+        ],
+        2763 => vec![
+            vec![tx("abcabc"), tx("b")],
+            vec![tx("abc"), tx("(x)")],
+            vec![tx("abc"), tx("(")],
+            vec![tx(""), tx("")],
+            vec![tx("abc"), tx("(a)(b)?(z)?")],
+            vec![tx("naïve café"), tx("(é)")],
+            vec![N, tx("b")],
+            vec![tx("abc"), N],
+        ],
+        2764 => vec![
+            vec![tx("abcabc"), tx("b"), tx("g")],
+            vec![tx("aXbXc"), tx("x"), tx("gi")],
+            vec![tx("abc"), tx("(a)(b)?(z)?"), tx("g")],
+            vec![tx("abc"), tx("b"), tx("z")],
+            vec![tx("a1b22c333"), tx("\\d+"), tx("g")],
+            vec![tx("abc"), tx(""), tx("g")],
+            vec![tx("abc"), tx("b"), N],
+        ],
+        2765 => vec![
+            vec![tx("a,b,c"), tx(",")],
+            vec![tx("abc"), tx("")],
+            vec![tx(""), tx(",")],
+            vec![tx("a1b2"), tx("\\d")],
+            vec![tx("abc"), tx("(")],
+            vec![tx(",a,"), tx(",")],
+            vec![N, tx(",")],
+        ],
+        2766 => vec![
+            vec![tx("a1b2"), tx("\\d"), tx("i")],
+            vec![tx("a,b"), tx(","), tx("g")],
+            vec![tx("aXbxc"), tx("x"), tx("i")],
+            vec![tx("a b"), tx(" "), tx("q")],
+            vec![tx("a b"), tx(" "), N],
+        ],
+        6160 => vec![
+            vec![tx("a b c"), tx(" ")],
+            vec![tx("abc"), N],
+            vec![tx("abc"), tx("")],
+            vec![tx(""), tx(" ")],
+            vec![N, tx(" ")],
+            vec![tx("a,b,,c"), tx(",")],
+            vec![tx("naïve café"), N],
+            vec![tx("a||b"), tx("||")],
+        ],
+        6161 => vec![
+            vec![tx("a,b,,c"), tx(","), tx("")],
+            vec![tx("a,b"), tx(","), tx("b")],
+            vec![tx("a b"), tx(" "), N],
+            vec![tx("abc"), N, tx("b")],
+            vec![N, tx(","), tx("")],
+            vec![tx("a,b"), tx(","), N],
+        ],
+        3219 | 3465 => vec![
+            vec![jb("[1, \"a\", null, {\"b\": 2}, [3], true, 1.50]")],
+            vec![jb("[]")],
+            vec![jb("{\"a\": 1}")],
+            vec![jb("1")],
+            vec![jb("\"x\"")],
+            vec![jb("null")],
+            vec![N],
+        ],
+        3208 | 3932 => vec![
+            vec![jb(
+                "{\"a\": 1, \"b\": \"x\", \"c\": null, \"d\": {\"e\": [1]}, \"f\": true}",
+            )],
+            vec![jb("{}")],
+            vec![jb("[1]")],
+            vec![jb("1")],
+            vec![jb("{\"k\": \"naïve\"}")],
+            vec![N],
+        ],
+        3931 => vec![
+            vec![jb("{\"b\": 1, \"a\": 2, \"aa\": 3}")],
+            vec![jb("{}")],
+            vec![jb("[1]")],
+            vec![jb("1")],
+            vec![N],
+        ],
+        3955 | 3969 => vec![
+            vec![js("[1, \"a\", null, {\"b\": 2}, [3], true, 1.50]")],
+            vec![js("[]")],
+            vec![js("{\"a\": 1}")],
+            vec![js("1")],
+            vec![js("\"x\"")],
+            vec![N],
+        ],
+        3958 | 3959 => vec![
+            vec![js(
+                "{\"a\": 1, \"b\": \"x\", \"c\": null, \"d\": {\"e\": [1]}}",
+            )],
+            vec![js("{}")],
+            vec![js("[1]")],
+            vec![js("1")],
+            vec![N],
+        ],
+        3957 => vec![
+            vec![js("{\"b\": 1, \"a\": 2}")],
+            vec![js("{}")],
+            vec![js("[1]")],
+            vec![js("1")],
+            vec![N],
+        ],
         4006 | 1179 => vec![
             vec![jb("[1, 2, 3]"), jp("$[*]"), jb("{}"), I(0)],
-            vec![jb("{\"a\": [1, 2]}"), jp("$.a[*] ? (@ > 1)"), jb("{}"), I(0)],
+            vec![
+                jb("{\"a\": [1, 2]}"),
+                jp("$.a[*] ? (@ > 1)"),
+                jb("{}"),
+                I(0),
+            ],
             vec![jb("{\"a\": 1}"), jp("$.b"), jb("{}"), I(0)],
             vec![jb("{\"a\": 1}"), jp("strict $.b"), jb("{}"), I(0)],
-            vec![jb("[1, 2, 3]"), jp("$[*] ? (@ > $x)"), jb("{\"x\": 1}"), I(0)],
+            vec![
+                jb("[1, 2, 3]"),
+                jp("$[*] ? (@ > $x)"),
+                jb("{\"x\": 1}"),
+                I(0),
+            ],
             vec![jb("1"), jp("strict $.a"), jb("{}"), I(1)],
             vec![jb("1"), jp("strict $.a"), jb("{}"), I(0)],
             vec![jb("\"2024-01-01\""), jp("$.datetime()"), jb("{}"), I(0)],
@@ -458,7 +705,17 @@ static SEAMS: std::sync::Once = std::sync::Once::new();
 static TYPES: std::sync::OnceLock<HashMap<u32, common::Ty>> = std::sync::OnceLock::new();
 
 fn type_shape(typid: u32) -> types_error::PgResult<Option<types_tuple::PgTypeShape>> {
-    Ok(TYPES.get().unwrap().get(&typid).map(|t| types_tuple::PgTypeShape { typlen: t.len as i16, typbyval: t.byval, typalign: t.align as i8, typstorage: if t.len == -1 { b'x' as i8 } else { b'p' as i8 }, typcollation: if t.collation { 100 } else { 0 } }))
+    Ok(TYPES
+        .get()
+        .unwrap()
+        .get(&typid)
+        .map(|t| types_tuple::PgTypeShape {
+            typlen: t.len as i16,
+            typbyval: t.byval,
+            typalign: t.align as i8,
+            typstorage: if t.len == -1 { b'x' as i8 } else { b'p' as i8 },
+            typcollation: if t.collation { 100 } else { 0 },
+        }))
 }
 
 /// The typed bodies' seams, plus the record registry a composite row's rowtype is stamped by.
@@ -493,20 +750,32 @@ fn install() {
             }))
         });
         syscache_seams::lookup_pg_proc_signature::set(|mcx, funcid| {
-            let Some(all) = each_out_args(funcid) else { return Ok(None) };
+            let Some(all) = each_out_args(funcid) else {
+                return Ok(None);
+            };
             let mut args = mcx::PgVec::new_in(mcx);
             args.push(all[0]);
             Ok(Some((2249, args)))
         });
         syscache_seams::pg_proc_result_arrays::set(|mcx, funcid| {
-            let Some(all) = each_out_args(funcid) else { return Ok(None) };
-            let (mut types, mut modes, mut names) = (mcx::PgVec::new_in(mcx), mcx::PgVec::new_in(mcx), mcx::PgVec::new_in(mcx));
+            let Some(all) = each_out_args(funcid) else {
+                return Ok(None);
+            };
+            let (mut types, mut modes, mut names) = (
+                mcx::PgVec::new_in(mcx),
+                mcx::PgVec::new_in(mcx),
+                mcx::PgVec::new_in(mcx),
+            );
             for (i, (&t, n)) in all.iter().zip(["from_json", "key", "value"]).enumerate() {
                 types.push(t);
                 modes.push(if i == 0 { b'i' as i8 } else { b'o' as i8 });
                 names.push(mcx::PgString::from_str_in(n, mcx)?);
             }
-            Ok(Some(syscache_seams::PgProcResultArraysShape { proallargtypes: Some(types), proargmodes: Some(modes), proargnames: Some(names) }))
+            Ok(Some(syscache_seams::PgProcResultArraysShape {
+                proallargtypes: Some(types),
+                proargmodes: Some(modes),
+                proargnames: Some(names),
+            }))
         });
     });
 }
@@ -533,7 +802,11 @@ fn srf_library_differential() {
 
 fn library_entries_match_the_fmgr_set_protocol() {
     install();
-    let mut lits = Lits { types: common::types(), procs: common::procs(), keep: Vec::new() };
+    let mut lits = Lits {
+        types: common::types(),
+        procs: common::procs(),
+        keep: Vec::new(),
+    };
     let mut lib = Lib::new();
     let mut n = 0;
     let mut diffs = Vec::new();
@@ -542,7 +815,18 @@ fn library_entries_match_the_fmgr_set_protocol() {
         assert!(!cs.is_empty(), "no cases for {} ({})", e.name, e.oid);
         for c in &cs {
             if std::env::var_os("SRF_TRACE").is_some() {
-                eprintln!("{} ({}) {:?}", e.name, e.oid, c.iter().map(|a| match a { A::N => "NULL".to_owned(), A::I(v) => v.to_string(), A::T(_, l) => l.to_string() }).collect::<Vec<_>>());
+                eprintln!(
+                    "{} ({}) {:?}",
+                    e.name,
+                    e.oid,
+                    c.iter()
+                        .map(|a| match a {
+                            A::N => "NULL".to_owned(),
+                            A::I(v) => v.to_string(),
+                            A::T(_, l) => l.to_string(),
+                        })
+                        .collect::<Vec<_>>()
+                );
             }
             let args = lits.args(c);
             let mut oracle = Oracle::new(e.oid, args.len(), DEFAULT_COLLATION);
@@ -550,16 +834,38 @@ fn library_entries_match_the_fmgr_set_protocol() {
             let got = lib.rows(e, &args, DEFAULT_COLLATION);
             n += 1;
             if want != got {
-                diffs.push(format!("{} ({}) case {:?}:\n  fmgr {:?}\n  lib  {:?}", e.name, e.oid, c.iter().map(|a| match a { A::N => "NULL".to_owned(), A::I(v) => v.to_string(), A::T(_, l) => l.to_string() }).collect::<Vec<_>>(), want, got));
+                diffs.push(format!(
+                    "{} ({}) case {:?}:\n  fmgr {:?}\n  lib  {:?}",
+                    e.name,
+                    e.oid,
+                    c.iter()
+                        .map(|a| match a {
+                            A::N => "NULL".to_owned(),
+                            A::I(v) => v.to_string(),
+                            A::T(_, l) => l.to_string(),
+                        })
+                        .collect::<Vec<_>>(),
+                    want,
+                    got
+                ));
             }
         }
     }
     println!("{n} cases over {} entries", ENTRIES.len());
-    assert!(diffs.is_empty(), "{} differences:\n{}", diffs.len(), diffs.join("\n"));
+    assert!(
+        diffs.is_empty(),
+        "{} differences:\n{}",
+        diffs.len(),
+        diffs.join("\n")
+    );
 }
 
 fn emitted_kinds_model_matches_the_fmgr() {
-    let mut lits = Lits { types: common::types(), procs: common::procs(), keep: Vec::new() };
+    let mut lits = Lits {
+        types: common::types(),
+        procs: common::procs(),
+        keep: Vec::new(),
+    };
     let arr = lits.int4_array(&[Some(1), None, Some(3)]);
     let empty = lits.int4_array(&[]);
     let s = |v: i64| Some(Datum::from_i64(v));
@@ -571,7 +877,10 @@ fn emitted_kinds_model_matches_the_fmgr() {
         (1067, vec![s(1), s(10), s(3)]),
         (1067, vec![s(10), s(1), s(-3)]),
         (1067, vec![s(1), s(3), s(0)]),
-        (1067, vec![s(i32::MIN as i64 + 1), s(i32::MIN as i64), s(-1)]),
+        (
+            1067,
+            vec![s(i32::MIN as i64 + 1), s(i32::MIN as i64), s(-1)],
+        ),
         (1068, vec![s(1), s(3)]),
         (1068, vec![s(i64::MAX - 1), s(i64::MAX)]),
         (1069, vec![s(1), s(10), s(4)]),
@@ -590,8 +899,18 @@ fn emitted_kinds_model_matches_the_fmgr() {
         let want = oracle.rows(args, 1, true);
         let got = model(*oid, args);
         if want != got {
-            diffs.push(format!("{oid} {:?}:\n  fmgr {want:?}\n  model {got:?}", args.iter().map(|a| a.map(|d| d.as_i64())).collect::<Vec<_>>()));
+            diffs.push(format!(
+                "{oid} {:?}:\n  fmgr {want:?}\n  model {got:?}",
+                args.iter()
+                    .map(|a| a.map(|d| d.as_i64()))
+                    .collect::<Vec<_>>()
+            ));
         }
     }
-    assert!(diffs.is_empty(), "{} differences:\n{}", diffs.len(), diffs.join("\n"));
+    assert!(
+        diffs.is_empty(),
+        "{} differences:\n{}",
+        diffs.len(),
+        diffs.join("\n")
+    );
 }

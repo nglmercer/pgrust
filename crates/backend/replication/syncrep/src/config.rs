@@ -53,7 +53,9 @@ fn scan(input: &str) -> Result<Vec<Tok>, String> {
                     if j >= b.len() {
                         // <xd><<EOF>> (syncrep_scanner.l:113): JUNK carrying the message.
                         toks.push(Tok {
-                            kind: Token::LexError("unterminated quoted identifier at end of input".into()),
+                            kind: Token::LexError(
+                                "unterminated quoted identifier at end of input".into(),
+                            ),
                             yytext: String::new(),
                         });
                         return Ok(toks);
@@ -74,7 +76,10 @@ fn scan(input: &str) -> Result<Vec<Tok>, String> {
                         name.push_str(&input[start..j]);
                     }
                 }
-                toks.push(Tok { kind: Token::Name(name), yytext: "\"".into() });
+                toks.push(Tok {
+                    kind: Token::Name(name),
+                    yytext: "\"".into(),
+                });
                 i = j;
             }
             b'0'..=b'9' => {
@@ -83,22 +88,37 @@ fn scan(input: &str) -> Result<Vec<Tok>, String> {
                     i += 1;
                 }
                 let text = input[start..i].to_string();
-                toks.push(Tok { kind: Token::Num(text.clone()), yytext: text });
+                toks.push(Tok {
+                    kind: Token::Num(text.clone()),
+                    yytext: text,
+                });
             }
             b'*' => {
-                toks.push(Tok { kind: Token::Name("*".into()), yytext: "*".into() });
+                toks.push(Tok {
+                    kind: Token::Name("*".into()),
+                    yytext: "*".into(),
+                });
                 i += 1;
             }
             b',' => {
-                toks.push(Tok { kind: Token::Comma, yytext: ",".into() });
+                toks.push(Tok {
+                    kind: Token::Comma,
+                    yytext: ",".into(),
+                });
                 i += 1;
             }
             b'(' => {
-                toks.push(Tok { kind: Token::LParen, yytext: "(".into() });
+                toks.push(Tok {
+                    kind: Token::LParen,
+                    yytext: "(".into(),
+                });
                 i += 1;
             }
             b')' => {
-                toks.push(Tok { kind: Token::RParen, yytext: ")".into() });
+                toks.push(Tok {
+                    kind: Token::RParen,
+                    yytext: ")".into(),
+                });
                 i += 1;
             }
             c if c.is_ascii_alphabetic() || c == b'_' || c >= 0x80 => {
@@ -120,13 +140,19 @@ fn scan(input: &str) -> Result<Vec<Tok>, String> {
                 } else {
                     Token::Name(word.to_string())
                 };
-                toks.push(Tok { kind, yytext: word.to_string() });
+                toks.push(Tok {
+                    kind,
+                    yytext: word.to_string(),
+                });
             }
             _ => {
                 // Bytes >= 0x80 are ident_start, so junk is always one ASCII byte.
                 let text = input[i..].chars().next().unwrap().to_string();
                 i += text.len();
-                toks.push(Tok { kind: Token::Junk, yytext: text });
+                toks.push(Tok {
+                    kind: Token::Junk,
+                    yytext: text,
+                });
             }
         }
     }
@@ -137,7 +163,10 @@ fn syntax_error(toks: &[Tok], pos: usize) -> String {
     // syncrep_yyerror (syncrep_scanner.l:165): "%s at or near \"%s\"" with
     // yytext of the offending lookahead token, or "%s at end of input".
     match toks.get(pos) {
-        Some(Tok { kind: Token::LexError(msg), .. }) => msg.clone(),
+        Some(Tok {
+            kind: Token::LexError(msg),
+            ..
+        }) => msg.clone(),
         Some(t) => format!("syntax error at or near \"{}\"", t.yytext),
         None => "syntax error at end of input".into(),
     }
@@ -165,7 +194,11 @@ pub fn parse_synchronous_standby_names(input: &str) -> Result<SyncRepConfigData,
 
     let (num_sync_str, method, parenthesized) = match kind(0) {
         Some(Token::Any) | Some(Token::First) => {
-            let method = if kind(0) == Some(&Token::Any) { SYNC_REP_QUORUM } else { SYNC_REP_PRIORITY };
+            let method = if kind(0) == Some(&Token::Any) {
+                SYNC_REP_QUORUM
+            } else {
+                SYNC_REP_PRIORITY
+            };
             pos = 1;
             let Some(Token::Num(n)) = kind(pos) else {
                 return Err(syntax_error(&toks, pos));
@@ -215,5 +248,9 @@ pub fn parse_synchronous_standby_names(input: &str) -> Result<SyncRepConfigData,
 
     let num_sync = c_atoi(&num_sync_str);
 
-    Ok(SyncRepConfigData { num_sync, syncrep_method: method, members })
+    Ok(SyncRepConfigData {
+        num_sync,
+        syncrep_method: method,
+        members,
+    })
 }

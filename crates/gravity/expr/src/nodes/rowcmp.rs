@@ -27,7 +27,12 @@ pub struct RowCompare {
 pub fn compile<'mcx>(b: &mut Builder<'_, 'mcx>, r: &RowCompareExpr<'mcx>) -> CompileResult<NodeId> {
     let n = r.largs.len();
     let planner_cmptype = matches!(r.cmptype, COMPARE_LT | COMPARE_LE | COMPARE_GE | COMPARE_GT);
-    if !planner_cmptype || n == 0 || r.rargs.len() != n || r.opnos.len() != n || r.opfamilies.len() != n {
+    if !planner_cmptype
+        || n == 0
+        || r.rargs.len() != n
+        || r.opnos.len() != n
+        || r.opfamilies.len() != n
+    {
         return unsupported(Kind::RowCompareExpr);
     }
     let largs = b.kids(&r.largs)?;
@@ -40,14 +45,28 @@ pub fn compile<'mcx>(b: &mut Builder<'_, 'mcx>, r: &RowCompareExpr<'mcx>) -> Com
         if proc_oid == 0 {
             return unsupported(Kind::RowCompareExpr);
         }
-        let coll = if r.inputcollids.len() > i { r.inputcollids.nth(i) } else { 0 };
+        let coll = if r.inputcollids.len() > i {
+            r.inputcollids.nth(i)
+        } else {
+            0
+        };
         let call = bind_typed(b, proc_oid, Kids::NONE, &[lt, rt], coll)?;
         b.site(call);
     }
-    Ok(b.push(ExprNode::RowCompare(RowCompare { cmptype: r.cmptype, largs, rargs, sites })))
+    Ok(b.push(ExprNode::RowCompare(RowCompare {
+        cmptype: r.cmptype,
+        largs,
+        rargs,
+        sites,
+    })))
 }
 
-pub fn eval_row_compare(p: &Prog<'_, '_>, st: &mut St<'_>, n: &RowCompare, cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
+pub fn eval_row_compare(
+    p: &Prog<'_, '_>,
+    st: &mut St<'_>,
+    n: &RowCompare,
+    cx: &mut Cx<'_, '_>,
+) -> PgResult<NullableDatum> {
     let mut args = [Datum::null(); MAX_ARGS];
     let nulls = [false; MAX_ARGS];
     let mut cmp = 0i32;
@@ -59,7 +78,17 @@ pub fn eval_row_compare(p: &Prog<'_, '_>, st: &mut St<'_>, n: &RowCompare, cx: &
         }
         args[0] = l.value;
         args[1] = r.value;
-        cmp = invoke(p, st, &p.sites[n.sites as usize + i], cx, &args, &nulls, false)?.value.as_i32();
+        cmp = invoke(
+            p,
+            st,
+            &p.sites[n.sites as usize + i],
+            cx,
+            &args,
+            &nulls,
+            false,
+        )?
+        .value
+        .as_i32();
         if cmp != 0 {
             break;
         }
@@ -72,4 +101,3 @@ pub fn eval_row_compare(p: &Prog<'_, '_>, st: &mut St<'_>, n: &RowCompare, cx: &
     };
     Ok(NullableDatum::value(Datum::from_bool(r)))
 }
-

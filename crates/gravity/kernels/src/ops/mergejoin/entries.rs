@@ -4,7 +4,10 @@
 //! the run's growth (`m11_run_grow` resident, `m11_run_full` within the owner's limit, else put). The entries live in the
 //! family's raw half (raw.rs, rules R6 / R8); the errors' texts are here.
 pub use super::raw::window::{MJ_WINDOW_KIND, W_CNT, W_IDX, W_J0, W_KIND, W_MARK};
-pub use super::raw::{m11_raise, m11_raise_no_proc, m11_run_full, m11_run_grow, m11_run_held, m11_run_open, m11_run_slice, m11_run_view, m11_window};
+pub use super::raw::{
+    m11_raise, m11_raise_no_proc, m11_run_full, m11_run_grow, m11_run_held, m11_run_open,
+    m11_run_slice, m11_run_view, m11_window,
+};
 
 /// `m11_raise` code 0 (PG `ExecMergeJoin`'s EXEC_MJ_NEXTINNER / EXEC_MJ_TESTOUTER): the inputs are not in the merge order.
 pub const RAISE_OUT_OF_ORDER: u64 = 0;
@@ -12,7 +15,11 @@ pub const RAISE_OUT_OF_ORDER: u64 = 0;
 #[cold]
 #[inline(never)]
 pub(super) fn raise_no_proc(typ: u64, family: u64) -> i64 {
-    crate::contract::raise(format!("missing support function 1({typ},{typ}) in opfamily {family}"), None, *b"XX000") // alloc: Cold
+    crate::contract::raise(
+        format!("missing support function 1({typ},{typ}) in opfamily {family}"),
+        None,
+        *b"XX000",
+    ) // alloc: Cold
 }
 
 #[cold]
@@ -52,11 +59,17 @@ mod tests {
             let mut r = REGIONS.lock().expect("regions");
             let old = r.last().expect("a region");
             let len = old.len() * 8;
-            let new = (2 * len).max((head + tail + need) as usize).next_multiple_of(8);
+            let new = (2 * len)
+                .max((head + tail + need) as usize)
+                .next_multiple_of(8);
             let mut buf = vec![0u64; new / 8]; // alloc: Cold
             let (src, dst) = (old.as_ptr() as *const u8, buf.as_mut_ptr() as *mut u8);
             core::ptr::copy_nonoverlapping(src, dst, head as usize);
-            core::ptr::copy_nonoverlapping(src.add(len - tail as usize), dst.add(new - tail as usize), tail as usize);
+            core::ptr::copy_nonoverlapping(
+                src.add(len - tail as usize),
+                dst.add(new - tail as usize),
+                tail as usize,
+            );
             (dst.add(8) as *mut u32).write(new as u32);
             r.push(buf);
             dst as i64
@@ -66,9 +79,9 @@ mod tests {
     /// Row `i`'s value: NULL every 5th, a long one every 7th, else short.
     fn value(i: usize) -> Option<Vec<u8>> {
         match i {
-            _ if i.is_multiple_of( 5) => None,
-            _ if i.is_multiple_of( 7) => Some(format!("{i:0>3000}").into_bytes()), // alloc: Cold
-            _ => Some(format!("v{i}").into_bytes()), // alloc: Cold
+            _ if i.is_multiple_of(5) => None,
+            _ if i.is_multiple_of(7) => Some(format!("{i:0>3000}").into_bytes()), // alloc: Cold
+            _ => Some(format!("v{i}").into_bytes()),                              // alloc: Cold
         }
     }
 
@@ -81,7 +94,11 @@ mod tests {
                 None => assert_eq!(size, 0, "row {i}: NULL's slot"),
                 Some(v) => {
                     let off = (slot.add(4) as *const u32).read_unaligned() as usize;
-                    assert_eq!(core::slice::from_raw_parts(slot.add(off), size), &v[..], "row {i}: the copy its slot reaches");
+                    assert_eq!(
+                        core::slice::from_raw_parts(slot.add(off), size),
+                        &v[..],
+                        "row {i}: the copy its slot reaches"
+                    );
                 }
             }
         }
@@ -92,7 +109,10 @@ mod tests {
     fn the_no_order_proc_raise_is_pgs() {
         assert_eq!(unsafe { m11_raise_no_proc(0, 16562, 1976) }, ERROR);
         let e = gravity_fn::take_error().expect("the raise stashes its error");
-        assert_eq!(e.message(), "missing support function 1(16562,16562) in opfamily 1976");
+        assert_eq!(
+            e.message(),
+            "missing support function 1(16562,16562) in opfamily 1976"
+        );
         assert_eq!(e.sqlstate().0, sqlstate(*b"XX000"));
     }
 
@@ -124,16 +144,28 @@ mod tests {
         for i in 0..n {
             loop {
                 let r = unsafe { &mut *(run as *mut SortRun) };
-                let fits = r.len < r.cap && match value(i) {
-                    None => true,
-                    Some(v) => unsafe {
-                        core::ptr::write_bytes(run.add(SORTRUN_HDR + r.len as usize * rb), 0, rb);
-                        crate::host_abi::sort_image_raw(run, v.as_ptr(), v.len() as u64, 24, 16) == 0
-                    },
-                };
+                let fits = r.len < r.cap
+                    && match value(i) {
+                        None => true,
+                        Some(v) => unsafe {
+                            core::ptr::write_bytes(
+                                run.add(SORTRUN_HDR + r.len as usize * rb),
+                                0,
+                                rb,
+                            );
+                            crate::host_abi::sort_image_raw(run, v.as_ptr(), v.len() as u64, 24, 16)
+                                == 0
+                        },
+                    };
                 if fits {
                     if value(i).is_none() {
-                        unsafe { core::ptr::write_bytes(run.add(SORTRUN_HDR + r.len as usize * rb), 0, rb) };
+                        unsafe {
+                            core::ptr::write_bytes(
+                                run.add(SORTRUN_HDR + r.len as usize * rb),
+                                0,
+                                rb,
+                            )
+                        };
                     }
                     r.push();
                     break;
@@ -143,7 +175,10 @@ mod tests {
                 assert!(nb > 0, "grow {grows}: {nb}");
                 run = nb as usize as *mut u8;
                 let g = unsafe { &*(run as *const SortRun) };
-                assert_eq!(g.row_bytes as usize, rb, "grow {grows}: row_bytes restored after the re-arm");
+                assert_eq!(
+                    g.row_bytes as usize, rb,
+                    "grow {grows}: row_bytes restored after the re-arm"
+                );
                 assert!(g.cap > before, "grow {grows}: the capacity grew");
                 assert_eq!(g.len as usize, i, "grow {grows}: the rows kept");
                 unsafe { check(run, i, rb) };

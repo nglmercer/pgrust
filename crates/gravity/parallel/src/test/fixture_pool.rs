@@ -37,10 +37,16 @@ const STOP: u64 = u64::MAX;
 
 impl FixturePool {
     pub fn new(threads: u16) -> FixturePool {
-        let shared = Arc::new(Shared { // alloc: Cold
+        let shared = Arc::new(Shared {
+            // alloc: Cold
             generation: Mutex::new(0),
             wake: Condvar::new(),
-            posted: UnsafeCell::new(Posted { claims: core::ptr::null::<NoClaims>() as *const dyn MorselSource, job: &noop_job as *const Job<'static>, width: 0, leader: None }),
+            posted: UnsafeCell::new(Posted {
+                claims: core::ptr::null::<NoClaims>() as *const dyn MorselSource,
+                job: &noop_job as *const Job<'static>,
+                width: 0,
+                leader: None,
+            }),
             pending: AtomicUsize::new(0),
             claims_run: AtomicU64::new(0),
             funnel: ErrorFunnel::new(),
@@ -98,7 +104,13 @@ fn serve(s: Arc<Shared>, ordinal: u16) {
                 g = s.wake.wait(g).unwrap_or_else(|e| e.into_inner());
             }
             let posted = unsafe { &*s.posted.get() };
-            (*g, posted.width, posted.claims, posted.job, posted.leader.clone())
+            (
+                *g,
+                posted.width,
+                posted.claims,
+                posted.job,
+                posted.leader.clone(),
+            )
         };
         if generation == STOP {
             return;
@@ -129,7 +141,11 @@ impl Pool for FixturePool {
         FixturePool::threads(self)
     }
     fn run(&self, width: u16, claims: &dyn MorselSource, job: &Job<'_>) -> Result<(), FirstError> {
-        assert!(width >= 1 && width <= self.threads(), "width {width} on a pool of {}", self.threads());
+        assert!(
+            width >= 1 && width <= self.threads(),
+            "width {width} on a pool of {}",
+            self.threads()
+        );
         let s = &*self.shared;
         // the posting, the count and the generation change under one lock: the workers snapshot the
         // posting under the same lock (`serve`), so no worker can pair a generation with another's posting
@@ -137,8 +153,13 @@ impl Pool for FixturePool {
             let mut g = s.generation.lock().unwrap_or_else(|e| e.into_inner());
             unsafe {
                 let p = &mut *s.posted.get();
-                p.claims = core::mem::transmute::<*const (dyn MorselSource + '_), *const (dyn MorselSource + 'static)>(claims as *const dyn MorselSource);
-                p.job = core::mem::transmute::<*const Job<'_>, *const Job<'static>>(job as *const Job<'_>);
+                p.claims = core::mem::transmute::<
+                    *const (dyn MorselSource + '_),
+                    *const (dyn MorselSource + 'static),
+                >(claims as *const dyn MorselSource);
+                p.job = core::mem::transmute::<*const Job<'_>, *const Job<'static>>(
+                    job as *const Job<'_>,
+                );
                 p.width = width;
                 p.leader = Some(thread::current());
             }
@@ -171,7 +192,11 @@ impl Pool for FixturePool {
 impl Drop for FixturePool {
     fn drop(&mut self) {
         {
-            let mut g = self.shared.generation.lock().unwrap_or_else(|e| e.into_inner());
+            let mut g = self
+                .shared
+                .generation
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             *g = STOP;
             self.shared.wake.notify_all();
         }

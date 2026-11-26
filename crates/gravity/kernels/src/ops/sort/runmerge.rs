@@ -2,7 +2,10 @@
 //! kernel's own region.
 use gravity_abi::limits::{MAXORDER, SORT_VAR_MIN_BUF};
 
-pub use super::raw::runmerge::{drain, drain_by, drain_words, open, open_by, open_slices, open_var_by, open_var_in, open_words, open_words_in, EmitRow, KeyOf};
+pub use super::raw::runmerge::{
+    drain, drain_by, drain_words, open, open_by, open_slices, open_var_by, open_var_in, open_words,
+    open_words_in, EmitRow, KeyOf,
+};
 
 /// Bit 47 of an `EMIT` position: the merge is in flight (its state is in the region).
 pub const MERGING: u64 = 1 << 47;
@@ -56,7 +59,9 @@ pub type Cmp<'a> = &'a dyn Fn(*const u8, *const u8) -> core::cmp::Ordering;
 
 /// The merge's fixed bytes over `nruns` runs: the header, the cursors, the tree.
 pub fn fixed_bytes(nruns: usize) -> usize {
-    core::mem::size_of::<RunMerge>() + nruns * core::mem::size_of::<RunCur>() + ((nruns * 4 + 7) & !7)
+    core::mem::size_of::<RunMerge>()
+        + nruns * core::mem::size_of::<RunCur>()
+        + ((nruns * 4 + 7) & !7)
 }
 
 /// A var sort emit's stash over a `usable`-byte region merging `nruns` runs (host_abi `begin_in`): the hold word, a run
@@ -82,7 +87,11 @@ pub(crate) fn key_words(m: &RunMerge) -> usize {
 /// D1327: a run's least buffer: a fixed record's width; a variable record's fixed head, at least `SORT_VAR_MIN_BUF` bytes
 /// (the cost home's; a longer record grows its run's buffer past the region, `grow`).
 pub(crate) fn min_buf(rec: usize, var: bool) -> usize {
-    if var { rec.max(SORT_VAR_MIN_BUF) } else { rec }
+    if var {
+        rec.max(SORT_VAR_MIN_BUF)
+    } else {
+        rec
+    }
 }
 
 /// D1327: the most runs one merge over `usable` bytes reads, each buffer at least `min` bytes, `out` bytes kept beside
@@ -109,7 +118,11 @@ pub fn var_emit_fan_in(usable: usize, rec: usize, nruns: usize) -> usize {
 /// D2572: the runs a pass of `n` merges away: `n - last` when one pass can end the merge (its groups of `fan` leave at
 /// most `last`), else as many as it can (every run in a group).
 pub(crate) fn pass_cut(n: usize, fan: usize, last: usize) -> usize {
-    if n.div_ceil(fan) <= last { n - last } else { usize::MAX }
+    if n.div_ceil(fan) <= last {
+        n - last
+    } else {
+        usize::MAX
+    }
 }
 
 /// D2572: a pass's next group over `left` runs still unread: at most `fan`, and one more than the runs it still merges
@@ -157,18 +170,36 @@ mod pass_tests {
             for last in fan..fan + 3 {
                 for nruns in 1..(fan * last * 3).min(5000) {
                     let (passes, n) = plan(nruns, fan, last);
-                    assert!(n <= last, "{nruns} runs, fan {fan}, last {last}: {n} final runs");
+                    assert!(
+                        n <= last,
+                        "{nruns} runs, fan {fan}, last {last}: {n} final runs"
+                    );
                     if let Some((end, full)) = passes.split_last() {
-                        assert!(end.iter().all(|&k| (2..=fan).contains(&k)), "{nruns}/{fan}/{last}: {passes:?}");
-                        assert!(full.iter().all(|g| g.iter().rev().skip(1).all(|&k| k == fan) && (1..=fan).contains(g.last().unwrap())), "{nruns}/{fan}/{last}: {passes:?}");
+                        assert!(
+                            end.iter().all(|&k| (2..=fan).contains(&k)),
+                            "{nruns}/{fan}/{last}: {passes:?}"
+                        );
+                        assert!(
+                            full.iter()
+                                .all(|g| g.iter().rev().skip(1).all(|&k| k == fan)
+                                    && (1..=fan).contains(g.last().unwrap())),
+                            "{nruns}/{fan}/{last}: {passes:?}"
+                        );
                     }
                     if nruns > last {
-                        assert_eq!(n, last, "{nruns}/{fan}/{last}: the final merge reads the most it can");
+                        assert_eq!(
+                            n, last,
+                            "{nruns}/{fan}/{last}: the final merge reads the most it can"
+                        );
                     }
                     if nruns > last && nruns.div_ceil(fan) <= last {
                         let merged: usize = passes[0].iter().sum();
                         assert_eq!(passes.len(), 1);
-                        assert_eq!(merged - passes[0].len(), nruns - last, "{nruns}/{fan}/{last}: only the excess merged away");
+                        assert_eq!(
+                            merged - passes[0].len(),
+                            nruns - last,
+                            "{nruns}/{fan}/{last}: only the excess merged away"
+                        );
                     }
                 }
             }
@@ -187,7 +218,25 @@ mod key_words_tests {
     #[test]
     fn key_words_past_a_byte_round_trip() {
         for nkey in [0u16, 2, 254, 256, 282, 3328] {
-            let m = RunMerge { nruns: 1, rec: 8, buf: 8, heap_len: 0, emitted: 0, _pad: [nkey as u8, 1, 0, 0, 0, (nkey >> 8) as u8, 0], kind: RUNMERGE_KIND, region: 0, active: 0, tag: 0, _pad2: [0; 2], big_stash: 0, big_cap: 0, big_last: 0, big_seen: 0, _pad3: [0; 2], reader: 0 };
+            let m = RunMerge {
+                nruns: 1,
+                rec: 8,
+                buf: 8,
+                heap_len: 0,
+                emitted: 0,
+                _pad: [nkey as u8, 1, 0, 0, 0, (nkey >> 8) as u8, 0],
+                kind: RUNMERGE_KIND,
+                region: 0,
+                active: 0,
+                tag: 0,
+                _pad2: [0; 2],
+                big_stash: 0,
+                big_cap: 0,
+                big_last: 0,
+                big_seen: 0,
+                _pad3: [0; 2],
+                reader: 0,
+            };
             assert_eq!(key_words(&m), nkey as usize);
         }
     }

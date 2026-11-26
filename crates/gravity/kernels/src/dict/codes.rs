@@ -1,5 +1,5 @@
-use gravity_abi::PtrWord;
 use crate::host_abi::*;
+use gravity_abi::PtrWord;
 
 // ---- the per-code tables' entries (lowerv2 text/codes.rs, text/render.rs): the per-part bind and the dictionary render ----
 
@@ -241,7 +241,10 @@ crate::contract::host! {
 mod tests {
     /// The bitmap's first and last word, read through its address as a bound kernel reads it (base and tip alike).
     fn words() -> (*const u64, usize) {
-        (core::ptr::addr_of!(super::ZERO_FAULTS) as *const u64, 1 << (gravity_abi::status::FAULT_CODE_BITS - 6))
+        (
+            core::ptr::addr_of!(super::ZERO_FAULTS) as *const u64,
+            1 << (gravity_abi::status::FAULT_CODE_BITS - 6),
+        )
     }
 
     #[test]
@@ -269,11 +272,15 @@ mod tests {
                 .lines()
                 .find(|l| {
                     let (a, b) = l.split(' ').next().unwrap().split_once('-').unwrap();
-                    (usize::from_str_radix(a, 16).unwrap()..usize::from_str_radix(b, 16).unwrap()).contains(&at)
+                    (usize::from_str_radix(a, 16).unwrap()..usize::from_str_radix(b, 16).unwrap())
+                        .contains(&at)
                 })
                 .unwrap_or_else(|| panic!("no mapping holds {at:#x}"));
             let perms = line.split(' ').nth(1).unwrap();
-            assert!(perms.starts_with("rw"), "the zero fault bitmap at {at:#x} is in a read-only mapping (.rodata): {line}");
+            assert!(
+                perms.starts_with("rw"),
+                "the zero fault bitmap at {at:#x} is in a read-only mapping (.rodata): {line}"
+            );
         }
     }
 }

@@ -306,7 +306,11 @@ pub fn expr_lists<'p>(mt: &'p ModifyTable<'p>, f: &mut dyn FnMut(&'p NodeList<'p
     // D1112: each check option's qual (its implicit-AND list), not the WithCheckOption nodes `expr::walk` does not enter
     for l in mt.withCheckOptionLists.iter() {
         for w in l.as_list().map_or(NodeList::nil().iter(), |l| l.iter()) {
-            if let Some(q) = w.as_with_check_option().and_then(|w| w.qual).and_then(|q| q.as_list()) {
+            if let Some(q) = w
+                .as_with_check_option()
+                .and_then(|w| w.qual)
+                .and_then(|q| q.as_list())
+            {
                 f(q);
             }
         }
@@ -330,13 +334,22 @@ pub fn expr_lists<'p>(mt: &'p ModifyTable<'p>, f: &mut dyn FnMut(&'p NodeList<'p
 
 /// Whether one of the write's pre-write expressions reads SubPlan `plan_id` (subplan.rs `place`).
 pub fn refers(d: &WriteDesc<'_>, plan_id: i32) -> bool {
-    let mut lists = d.checks.iter().map(|c| c.qual).any(|q| crate::ops::shared::subplan::refers(q, plan_id));
+    let mut lists = d
+        .checks
+        .iter()
+        .map(|c| c.qual)
+        .any(|q| crate::ops::shared::subplan::refers(q, plan_id));
     if let Some(oc) = &d.on_conflict {
-        lists |= crate::ops::shared::subplan::refers_list(oc.set, plan_id) || oc.filter.is_some_and(|f| crate::ops::shared::subplan::refers(f, plan_id));
+        lists |= crate::ops::shared::subplan::refers_list(oc.set, plan_id)
+            || oc
+                .filter
+                .is_some_and(|f| crate::ops::shared::subplan::refers(f, plan_id));
     }
     if let Some(m) = &d.merge {
         for a in m.actions.iter() {
-            lists |= crate::ops::shared::subplan::refers_list(a.tlist, plan_id) || a.quals.is_some_and(|q| crate::ops::shared::subplan::refers_list(q, plan_id));
+            lists |= crate::ops::shared::subplan::refers_list(a.tlist, plan_id)
+                || a.quals
+                    .is_some_and(|q| crate::ops::shared::subplan::refers_list(q, plan_id));
         }
     }
     lists
@@ -374,7 +387,13 @@ impl Clone for WriteDesc<'_> {
 
 impl Clone for MergeDesc<'_> {
     fn clone(&self) -> Self {
-        MergeDesc { join_cond: self.join_cond, actions: self.actions.clone(), rowid_col: self.rowid_col, target_cols: self.target_cols.clone(), returning_action: self.returning_action }
+        MergeDesc {
+            join_cond: self.join_cond,
+            actions: self.actions.clone(),
+            rowid_col: self.rowid_col,
+            target_cols: self.target_cols.clone(),
+            returning_action: self.returning_action,
+        }
     }
 }
 
@@ -401,6 +420,9 @@ impl Clone for Target<'_> {
 
 impl Clone for MergeActions<'_> {
     fn clone(&self) -> Self {
-        MergeActions { join_cond: self.join_cond, actions: self.actions.clone() }
+        MergeActions {
+            join_cond: self.join_cond,
+            actions: self.actions.clone(),
+        }
     }
 }

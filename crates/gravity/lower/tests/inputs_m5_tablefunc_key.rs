@@ -26,7 +26,11 @@ fn fixture(rel: &str) -> String {
 }
 
 fn edit(text: &str, from: &str, to: &str) -> String {
-    assert_eq!(text.matches(from).count(), 1, "the fixture holds {from} once");
+    assert_eq!(
+        text.matches(from).count(),
+        1,
+        "the fixture holds {from} once"
+    );
     text.replacen(from, to, 1)
 }
 
@@ -35,8 +39,14 @@ fn key_of(text: &str) -> ContentKey {
     let ctx = MemoryContext::new("tablefunc key");
     let fx = corpus::load(ctx.mcx(), text).unwrap_or_else(|e| panic!("fixture: {e}"));
     let arena = Arena::new(1 << 20);
-    let g = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx).unwrap_or_else(|r| panic!("decompose: {r}"));
-    assert!(g.pipelines.iter().any(|p| matches!(p.source, Source::TableFunc { .. })), "a TableFunc source");
+    let g = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx)
+        .unwrap_or_else(|r| panic!("decompose: {r}"));
+    assert!(
+        g.pipelines
+            .iter()
+            .any(|p| matches!(p.source, Source::TableFunc { .. })),
+        "a TableFunc source"
+    );
     key(&g)
 }
 
@@ -45,9 +55,21 @@ fn two_xmltables_of_one_rti_and_width_key_apart() {
     let base = fixture(XML);
     let k = key_of(&base);
     // '/r/e' -> '/r/x': the row path
-    assert_ne!(key_of(&edit(&base, ROW_PATH, ":constvalue 8 [ 32 0 0 0 47 114 47 120 ]")), k, "another row path");
+    assert_ne!(
+        key_of(&edit(
+            &base,
+            ROW_PATH,
+            ":constvalue 8 [ 32 0 0 0 47 114 47 120 ]"
+        )),
+        k,
+        "another row path"
+    );
     // '.' -> '*': a column's path
-    assert_ne!(key_of(&edit(&base, COL_PATH, ":constvalue 5 [ 20 0 0 0 42 ]")), k, "another column path");
+    assert_ne!(
+        key_of(&edit(&base, COL_PATH, ":constvalue 5 [ 20 0 0 0 42 ]")),
+        k,
+        "another column path"
+    );
 }
 
 #[test]
@@ -63,7 +85,15 @@ fn a_json_table_column_path_keys_apart() {
 fn the_same_xmltable_keys_the_same() {
     let base = fixture(XML);
     assert_eq!(key_of(&base), key_of(&base));
-    assert_eq!(key_of(&edit(&base, ":location 75 :constvalue 5", ":location 76 :constvalue 5")), key_of(&base), "a location is not the key");
+    assert_eq!(
+        key_of(&edit(
+            &base,
+            ":location 75 :constvalue 5",
+            ":location 76 :constvalue 5"
+        )),
+        key_of(&base),
+        "a location is not the key"
+    );
 }
 
 /// D715: the document is the incumbent TableFuncScan's to evaluate (the IR only deforms its store), so it is keyed by its
@@ -75,12 +105,32 @@ fn another_document_keys_the_same() {
     // XMLTABLE: '<r><e>1</e></r>' -> '<r><e>2</e></r>'
     let xml = fixture(XML);
     let doc = "60 114 62 60 101 62 49 60 47 101 62 60 47 114 62 ]";
-    assert_eq!(key_of(&edit(&xml, doc, "60 114 62 60 101 62 50 60 47 101 62 60 47 114 62 ]")), key_of(&xml), "another XML document");
+    assert_eq!(
+        key_of(&edit(
+            &xml,
+            doc,
+            "60 114 62 60 101 62 50 60 47 101 62 60 47 114 62 ]"
+        )),
+        key_of(&xml),
+        "another XML document"
+    );
     // JSON_TABLE: '[{"a": 1}, {"a": 2}]' -> '[{"a": 1}, {"a": 3}]' (the jsonb image's last numeric digit)
     let json = fixture(JSON);
-    assert_eq!(key_of(&edit(&json, "0 0 0 0 128 2 0 ]", "0 0 0 0 128 3 0 ]")), key_of(&json), "another JSON document");
+    assert_eq!(
+        key_of(&edit(&json, "0 0 0 0 128 2 0 ]", "0 0 0 0 128 3 0 ]")),
+        key_of(&json),
+        "another JSON document"
+    );
     // the row path still keys apart (the document's class rule reaches only the document and the PASSING values)
-    assert_ne!(key_of(&edit(&xml, ROW_PATH, ":constvalue 8 [ 32 0 0 0 47 114 47 120 ]")), key_of(&xml), "another row path");
+    assert_ne!(
+        key_of(&edit(
+            &xml,
+            ROW_PATH,
+            ":constvalue 8 [ 32 0 0 0 47 114 47 120 ]"
+        )),
+        key_of(&xml),
+        "another row path"
+    );
 }
 
 /// D715: the class-keyed document is logged with the lists (`class_keyed_lists`), the safety net's input.
@@ -90,8 +140,12 @@ fn the_document_is_class_keyed() {
         let ctx = MemoryContext::new("tablefunc key");
         let fx = corpus::load(ctx.mcx(), &fixture(rel)).unwrap_or_else(|e| panic!("fixture: {e}"));
         let arena = Arena::new(1 << 20);
-        let g = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx).unwrap_or_else(|r| panic!("decompose: {r}"));
-        assert!(!gravity_lower::inputs::key::class_keyed_lists(&g).is_empty(), "{rel}: the document is class-keyed");
+        let g = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx)
+            .unwrap_or_else(|r| panic!("decompose: {r}"));
+        assert!(
+            !gravity_lower::inputs::key::class_keyed_lists(&g).is_empty(),
+            "{rel}: the document is class-keyed"
+        );
     }
 }
 
@@ -99,5 +153,9 @@ fn the_document_is_class_keyed() {
 /// env!()'s path baked in at compile time: a test binary reused from another checkout would read that checkout's files.
 fn manifest_dir() -> &'static std::path::Path {
     static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| std::env::var_os("CARGO_MANIFEST_DIR").map(Into::into).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)"))
+    DIR.get_or_init(|| {
+        std::env::var_os("CARGO_MANIFEST_DIR")
+            .map(Into::into)
+            .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+    })
 }

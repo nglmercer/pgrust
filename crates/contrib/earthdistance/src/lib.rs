@@ -72,11 +72,21 @@ mod tests {
     fn known_distances_match_c() {
         // London (lon -0.1257, lat 51.508) to Paris (lon 2.3522, lat 48.8566):
         // roughly 213 miles.
-        let london = Point { x: -0.1257, y: 51.508 };
-        let paris = Point { x: 2.3522, y: 48.8566 };
+        let london = Point {
+            x: -0.1257,
+            y: 51.508,
+        };
+        let paris = Point {
+            x: 2.3522,
+            y: 48.8566,
+        };
         let d = geo_distance_internal(&london, &paris);
         assert!((d - 213.0).abs() < 2.0, "got {d}");
-        let same = if cfg!(target_arch = "aarch64") { 1.0651112734535068e-16 } else { 0.0 };
+        let same = if cfg!(target_arch = "aarch64") {
+            1.0651112734535068e-16
+        } else {
+            0.0
+        };
         assert_eq!(geo_distance_internal(&london, &london), same);
         // Longitude wrap: 179.9W to 179.9E stays short.
         let a = Point { x: -179.9, y: 0.0 };
@@ -90,11 +100,25 @@ mod tests {
     fn d400_fma_sites_match_platform_pg() {
         let arm = cfg!(target_arch = "aarch64");
         let pick = |a: f64, x: f64| if arm { a } else { x };
-        let d = |x1, y1, x2, y2| geo_distance_internal(&Point { x: x1, y: y1 }, &Point { x: x2, y: y2 });
-        assert_eq!(d(82.5, 4.0, -52.8, 67.6), pick(7038.6030550144615, 7038.603055014461));
-        assert_eq!(d(132.2, -21.8, -0.1, -31.1), pick(7605.400875593729, 7605.400875593726));
-        assert_eq!(d(-179.9, 36.4, -174.2, -17.6), pick(3749.5628066551703, 3749.5628066551712));
-        assert_eq!(d(-33.6, -12.5, -59.9, 79.5), pick(6429.551872116938, 6429.551872116937));
+        let d = |x1, y1, x2, y2| {
+            geo_distance_internal(&Point { x: x1, y: y1 }, &Point { x: x2, y: y2 })
+        };
+        assert_eq!(
+            d(82.5, 4.0, -52.8, 67.6),
+            pick(7038.6030550144615, 7038.603055014461)
+        );
+        assert_eq!(
+            d(132.2, -21.8, -0.1, -31.1),
+            pick(7605.400875593729, 7605.400875593726)
+        );
+        assert_eq!(
+            d(-179.9, 36.4, -174.2, -17.6),
+            pick(3749.5628066551703, 3749.5628066551712)
+        );
+        assert_eq!(
+            d(-33.6, -12.5, -59.9, 79.5),
+            pick(6429.551872116938, 6429.551872116937)
+        );
         assert_eq!(d(1.1, 2.0, 1.1, 2.0), pick(6.417077911064611e-15, 0.0));
     }
 }

@@ -80,7 +80,13 @@ pub struct SpNodeData {
 
 impl SpNodeData {
     fn empty() -> Self {
-        SpNodeData { val: 0, isword: false, compoundflag: 0, affix: 0, node: None }
+        SpNodeData {
+            val: 0,
+            isword: false,
+            compoundflag: 0,
+            affix: 0,
+            node: None,
+        }
     }
 }
 
@@ -96,7 +102,11 @@ pub struct AffixNodeData<'mcx> {
 
 impl<'mcx> AffixNodeData<'mcx> {
     fn empty(mcx: Mcx<'mcx>) -> Self {
-        AffixNodeData { val: 0, aff: PgVec::new_in(mcx), node: None }
+        AffixNodeData {
+            val: 0,
+            aff: PgVec::new_in(mcx),
+            node: None,
+        }
     }
     #[inline]
     fn naff(&self) -> usize {
@@ -216,7 +226,7 @@ fn t_iseq(s: &[u8], x: u8) -> bool {
 #[inline]
 fn str_tolower(mcx: Mcx<'_>, src: &[u8]) -> PgResult<Vec<u8>> {
     let folded = ::ts_locale::lowerstr(mcx, src)?;
-    ::mcx::std_vec_from_slice("tsearch",folded.as_slice())
+    ::mcx::std_vec_from_slice("tsearch", folded.as_slice())
 }
 
 #[inline]

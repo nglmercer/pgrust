@@ -20,11 +20,21 @@ pub enum Place {
 /// expression over them evaluated once at bind (an index key, a LIMIT bound).
 #[derive(Clone, Copy, Debug)]
 pub enum WordSrc<'p> {
-    Const { value: NullableDatum, typ: Oid },
+    Const {
+        value: NullableDatum,
+        typ: Oid,
+    },
     /// Element `index` of the array literal at the word's node (an `IN` list's member): the server materializes it
     /// from the plan's array node per execution (`admit::WordTpl::Elem`), the rig from `value`.
-    Elem { value: NullableDatum, typ: Oid, index: u32 },
-    Extern { id: i32, typ: Oid },
+    Elem {
+        value: NullableDatum,
+        typ: Oid,
+        index: u32,
+    },
+    Extern {
+        id: i32,
+        typ: Oid,
+    },
     Expr(Node<'p>),
     /// D899: an index key's expression, PostgreSQL's runtime key (evaluated at its scan's first pull: ExecIndexScan ->
     /// ExecReScan -> ExecIndexEvalRuntimeKeys): bound when the pipeline whose site reads it starts (the runner's late
@@ -36,14 +46,23 @@ pub enum WordSrc<'p> {
     /// D422: `WHERE CURRENT OF name`'s cursor, bound per execution as the address of this execution's `CurrentOfExpr`
     /// (`admit::WordTpl::Cursor`): the name is never the program's, so one program serves every cursor.
     Cursor(Node<'p>),
-    Exec { id: i32, typ: Oid },
+    Exec {
+        id: i32,
+        typ: Oid,
+    },
     /// V4R-122: the element set of a hashed `= ANY` constant array at `node`, built once per execution at bind for the
     /// program's owned object `desc` (`admit::WordTpl::Set`, lowerv4 step/expr_saop_set.rs `bound`): the word is its address.
-    Set { node: Node<'p>, desc: u32 },
+    Set {
+        node: Node<'p>,
+        desc: u32,
+    },
     /// D2834: a deferred extern parameter `$id` (gravity_program::externs `deferred`), read where its expression evaluates
     /// it: the word is the execution's parameter list (`admit::WordTpl::Deferred`), which the emitted fetch reads the slot
     /// from (gravity_expr emit/host.rs `param_deferred`), never the slot's value.
-    Deferred { id: i32, typ: Oid },
+    Deferred {
+        id: i32,
+        typ: Oid,
+    },
 }
 
 pub trait WordPlan<'p> {
@@ -55,7 +74,14 @@ pub trait WordPlan<'p> {
         self.need(need, typ, byval)
     }
     /// `need_at` for element `index` of the array literal `node` (an `IN` list's member, `ParamNeed::Elem`).
-    fn need_elem_at(&mut self, need: &ParamNeed, typ: Oid, byval: bool, node: Node<'p>, index: u32) -> Place {
+    fn need_elem_at(
+        &mut self,
+        need: &ParamNeed,
+        typ: Oid,
+        byval: bool,
+        node: Node<'p>,
+        index: u32,
+    ) -> Place {
         let _ = index;
         self.need_at(need, typ, byval, node)
     }
@@ -120,7 +146,9 @@ pub const DEFERRED_AHEAD: &str = "D2834: a PL parameter left to evaluation time 
 pub fn reads_deferred(n: Node<'_>) -> bool {
     let mut found = false;
     gravity_decompose::expr::walk(n, &mut |x| {
-        found |= x.as_param().is_some_and(|p| p.paramkind == ParamKind::PARAM_EXTERN && gravity_program::externs::deferred(p.paramid));
+        found |= x.as_param().is_some_and(|p| {
+            p.paramkind == ParamKind::PARAM_EXTERN && gravity_program::externs::deferred(p.paramid)
+        });
         !found
     });
     found
@@ -128,7 +156,12 @@ pub fn reads_deferred(n: Node<'_>) -> bool {
 
 impl<'p> Sequential<'p> {
     pub fn new(arena: ArenaRef) -> Sequential<'p> {
-        Sequential { words: ArenaVec::new_in(arena), overflow: false, nested: ArenaVec::new_in(arena), ahead: false }
+        Sequential {
+            words: ArenaVec::new_in(arena),
+            overflow: false,
+            nested: ArenaVec::new_in(arena),
+            ahead: false,
+        }
     }
 
     fn push(&mut self, w: WordSrc<'p>) -> Place {
@@ -145,16 +178,34 @@ impl<'p> Sequential<'p> {
     fn key_word(&mut self, value: Node<'p>, late: bool) -> Place {
         if let Some(c) = value.as_const() {
             if c.constbyval || c.constisnull {
-                let nd = if c.constisnull { NullableDatum::null() } else { NullableDatum::value(c.constvalue) };
+                let nd = if c.constisnull {
+                    NullableDatum::null()
+                } else {
+                    NullableDatum::value(c.constvalue)
+                };
                 return self.need(&ParamNeed::Const(nd), c.consttype, true);
             }
         }
         if let Some(p) = value.as_param() {
             if p.paramkind == ParamKind::PARAM_EXTERN {
-                return self.need(&ParamNeed::Extern { id: p.paramid, typ: p.paramtype }, p.paramtype, true);
+                return self.need(
+                    &ParamNeed::Extern {
+                        id: p.paramid,
+                        typ: p.paramtype,
+                    },
+                    p.paramtype,
+                    true,
+                );
             }
             if p.paramkind == ParamKind::PARAM_EXEC {
-                return self.need(&ParamNeed::Exec { id: p.paramid, typ: p.paramtype }, p.paramtype, true);
+                return self.need(
+                    &ParamNeed::Exec {
+                        id: p.paramid,
+                        typ: p.paramtype,
+                    },
+                    p.paramtype,
+                    true,
+                );
             }
         }
         if has_exec(value) {
@@ -174,19 +225,32 @@ impl<'p> Sequential<'p> {
         if let Some(i) = self.words.iter().position(same) {
             return Place::Word(i as u16);
         }
-        self.push(if late && value.as_const().is_none() { WordSrc::Late(value) } else { WordSrc::Expr(value) })
+        self.push(if late && value.as_const().is_none() {
+            WordSrc::Late(value)
+        } else {
+            WordSrc::Expr(value)
+        })
     }
 
     /// Element `index` of an array literal as its own word (`WordSrc::Elem`), like a literal: a by-reference
     /// element's word is its pointer, bound per execution (folded, the IR's content differed per backend).
     pub fn need_elem(&mut self, need: &ParamNeed, typ: Oid, index: u32) -> Place {
-        let ParamNeed::Elem(value) = *need else { return self.need(need, typ, false) };
+        let ParamNeed::Elem(value) = *need else {
+            return self.need(need, typ, false);
+        };
         self.push(WordSrc::Elem { value, typ, index })
     }
 }
 
 impl<'p> WordPlan<'p> for Sequential<'p> {
-    fn need_elem_at(&mut self, need: &ParamNeed, typ: Oid, byval: bool, node: Node<'p>, index: u32) -> Place {
+    fn need_elem_at(
+        &mut self,
+        need: &ParamNeed,
+        typ: Oid,
+        byval: bool,
+        node: Node<'p>,
+        index: u32,
+    ) -> Place {
         let _ = (node, byval);
         self.need_elem(need, typ, index)
     }
@@ -202,18 +266,29 @@ impl<'p> WordPlan<'p> for Sequential<'p> {
                 if gravity_program::externs::deferred(id) {
                     self.ahead = true;
                 }
-                let same = self.words.iter().position(|w| matches!(w, WordSrc::Extern { id: i, .. } if *i == id));
+                let same = self
+                    .words
+                    .iter()
+                    .position(|w| matches!(w, WordSrc::Extern { id: i, .. } if *i == id));
                 match same {
                     Some(i) => Place::Word(i as u16),
                     None => self.push(WordSrc::Extern { id, typ }),
                 }
             }
             // D2834: one word, the execution's list, for every read of a deferred parameter
-            ParamNeed::Deferred { id, typ } => match self.words.iter().position(|w| matches!(w, WordSrc::Deferred { .. })) {
+            ParamNeed::Deferred { id, typ } => match self
+                .words
+                .iter()
+                .position(|w| matches!(w, WordSrc::Deferred { .. }))
+            {
                 Some(i) => Place::Word(i as u16),
                 None => self.push(WordSrc::Deferred { id, typ }),
             },
-            ParamNeed::Exec { id, .. } => match self.words.iter().position(|w| matches!(w, WordSrc::Exec { id: i, .. } if *i == id)) {
+            ParamNeed::Exec { id, .. } => match self
+                .words
+                .iter()
+                .position(|w| matches!(w, WordSrc::Exec { id: i, .. } if *i == id))
+            {
                 Some(i) => Place::Word(i as u16),
                 None if self.nested.contains(&id) => Place::Exec(id),
                 None => Place::Fold,
@@ -222,7 +297,11 @@ impl<'p> WordPlan<'p> for Sequential<'p> {
     }
 
     fn init_param(&mut self, id: i32, typ: Oid) -> Place {
-        match self.words.iter().position(|w| matches!(w, WordSrc::Exec { id: i, .. } if *i == id)) {
+        match self
+            .words
+            .iter()
+            .position(|w| matches!(w, WordSrc::Exec { id: i, .. } if *i == id))
+        {
             Some(i) => Place::Word(i as u16),
             None => self.push(WordSrc::Exec { id, typ }),
         }
@@ -248,7 +327,14 @@ impl<'p> WordPlan<'p> for Sequential<'p> {
 
     fn cursor(&mut self, node: Node<'p>) -> Place {
         match node.as_current_of_expr() {
-            Some(c) if c.cursor_name.is_none() => self.need(&ParamNeed::Extern { id: c.cursor_param, typ: REFCURSOROID }, REFCURSOROID, false),
+            Some(c) if c.cursor_name.is_none() => self.need(
+                &ParamNeed::Extern {
+                    id: c.cursor_param,
+                    typ: REFCURSOROID,
+                },
+                REFCURSOROID,
+                false,
+            ),
             Some(_) => self.push(WordSrc::Cursor(node)),
             None => Place::Fold,
         }
@@ -268,7 +354,9 @@ impl<'p> WordPlan<'p> for Sequential<'p> {
 pub fn has_exec(n: Node<'_>) -> bool {
     let mut found = false;
     gravity_decompose::expr::walk(n, &mut |x| {
-        found |= x.as_param().is_some_and(|p| p.paramkind == ParamKind::PARAM_EXEC);
+        found |= x
+            .as_param()
+            .is_some_and(|p| p.paramkind == ParamKind::PARAM_EXEC);
         !found
     });
     found
@@ -286,8 +374,16 @@ pub struct Fixed<'a> {
 impl<'p> WordPlan<'p> for Fixed<'_> {
     fn need(&mut self, need: &ParamNeed, _typ: Oid, byval: bool) -> Place {
         match *need {
-            ParamNeed::Const(v) | ParamNeed::Elem(v) if byval && !v.isnull => self.consts.iter().find(|(c, _)| *c == v.value.as_u64()).map_or(Place::Fold, |&(_, s)| Place::Word(s as u16)),
-            ParamNeed::Extern { id, .. } => self.externs.iter().find(|(i, _)| *i == id).map_or(Place::Fold, |&(_, s)| Place::Word(s as u16)),
+            ParamNeed::Const(v) | ParamNeed::Elem(v) if byval && !v.isnull => self
+                .consts
+                .iter()
+                .find(|(c, _)| *c == v.value.as_u64())
+                .map_or(Place::Fold, |&(_, s)| Place::Word(s as u16)),
+            ParamNeed::Extern { id, .. } => self
+                .externs
+                .iter()
+                .find(|(i, _)| *i == id)
+                .map_or(Place::Fold, |&(_, s)| Place::Word(s as u16)),
             _ => Place::Fold,
         }
     }
@@ -318,7 +414,11 @@ pub struct Located<'p> {
 
 impl<'p> Located<'p> {
     pub fn new(arena: ArenaRef) -> Located<'p> {
-        Located { seq: Sequential::new(arena), nodes: ArenaVec::new_in(arena), followers: ArenaVec::new_in(arena) }
+        Located {
+            seq: Sequential::new(arena),
+            nodes: ArenaVec::new_in(arena),
+            followers: ArenaVec::new_in(arena),
+        }
     }
 
     fn grown(&mut self, at: Option<Node<'p>>) {
@@ -344,7 +444,14 @@ impl<'p> WordPlan<'p> for Located<'p> {
         p
     }
 
-    fn need_elem_at(&mut self, need: &ParamNeed, typ: Oid, byval: bool, node: Node<'p>, index: u32) -> Place {
+    fn need_elem_at(
+        &mut self,
+        need: &ParamNeed,
+        typ: Oid,
+        byval: bool,
+        node: Node<'p>,
+        index: u32,
+    ) -> Place {
         let _ = byval;
         let p = self.seq.need_elem(need, typ, index);
         self.grown(Some(node));
@@ -354,7 +461,14 @@ impl<'p> WordPlan<'p> for Located<'p> {
     fn key(&mut self, value: Node<'p>) -> Place {
         if let Some(c) = value.as_const() {
             if c.constbyval || c.constisnull {
-                let nd = if c.constisnull { NullableDatum::null() } else { NullableDatum::value(gravity_expr::nodes::konst::word_canon(c.consttype, c.constvalue)) };
+                let nd = if c.constisnull {
+                    NullableDatum::null()
+                } else {
+                    NullableDatum::value(gravity_expr::nodes::konst::word_canon(
+                        c.consttype,
+                        c.constvalue,
+                    ))
+                };
                 return self.need_at(&ParamNeed::Const(nd), c.consttype, true, value);
             }
         }

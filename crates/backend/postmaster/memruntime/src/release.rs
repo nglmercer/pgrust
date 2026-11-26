@@ -69,22 +69,28 @@ pub fn start() -> bool {
         return false;
     }
     // H3 step (1): the service's log lines carry the postmaster's prefix and time zone, as the watchdog's do
-    let (prefix, tz) = (elog::config::log_line_prefix_format(), localtime::globals::log_timezone());
+    let (prefix, tz) = (
+        elog::config::log_line_prefix_format(),
+        localtime::globals::log_timezone(),
+    );
     // at the spawning thread's priority (nice 0): a nice-10 purger starved past its dead-man stretch (purge.rs)
-    let spawned = std::thread::Builder::new().name("pg:memrelease".into()).stack_size(STACK).spawn(pagegive::pinned(move || {
-        allocarena::own::mark_inline_release_ok();
-        // D4812: a memory thread: its lines never wait on the server log's sink
-        crate::memlog::defer_here();
-        if service {
-            elog::config::set_log_line_prefix(prefix);
-            localtime::globals::set_log_timezone(tz);
-        }
-        let body: fn() = if service { run_service } else { run };
-        // unwind-ok: log-then-die
-        if std::panic::catch_unwind(body).is_err() && service {
-            crate::service::log_stopped();
-        }
-    }));
+    let spawned = std::thread::Builder::new()
+        .name("pg:memrelease".into())
+        .stack_size(STACK)
+        .spawn(pagegive::pinned(move || {
+            allocarena::own::mark_inline_release_ok();
+            // D4812: a memory thread: its lines never wait on the server log's sink
+            crate::memlog::defer_here();
+            if service {
+                elog::config::set_log_line_prefix(prefix);
+                localtime::globals::set_log_timezone(tz);
+            }
+            let body: fn() = if service { run_service } else { run };
+            // unwind-ok: log-then-die
+            if std::panic::catch_unwind(body).is_err() && service {
+                crate::service::log_stopped();
+            }
+        }));
     match spawned {
         Ok(h) => {
             let _ = THREAD.set(h.thread().clone());
@@ -109,7 +115,11 @@ pub fn start() -> bool {
 fn run() {
     loop {
         wait_wake(TICK_MS);
-        drain_until_empty(&mut allocarena::own::drain_landing_upto, &|| allocarena::own::landing_bytes(), &mut nap);
+        drain_until_empty(
+            &mut allocarena::own::drain_landing_upto,
+            &|| allocarena::own::landing_bytes(),
+            &mut nap,
+        );
     }
 }
 
@@ -134,10 +144,14 @@ fn run_service() {
                 })
             },
             &mut || {
-                drain_until_empty(&mut crate::service::drain_upto, &|| crate::service::landing() as usize, &mut |d: Duration| {
-                    crate::service::alive();
-                    nap(d);
-                });
+                drain_until_empty(
+                    &mut crate::service::drain_upto,
+                    &|| crate::service::landing() as usize,
+                    &mut |d: Duration| {
+                        crate::service::alive();
+                        nap(d);
+                    },
+                );
             },
         );
         crate::service::log(&mut log);
@@ -169,7 +183,11 @@ fn nap(d: Duration) {
 /// a drain is given back by this one, not after the tick. Batches of at most `BATCH_BYTES`, `BATCH_PAUSE_US` apart.
 /// `drain(max)` gives back waiting runs (at most `max` bytes, a run never split) and returns the bytes; `left()` is the
 /// landing count; `nap` pauses. The bytes given back.
-fn drain_until_empty(drain: &mut dyn FnMut(usize) -> usize, left: &dyn Fn() -> usize, nap: &mut dyn FnMut(Duration)) -> usize {
+fn drain_until_empty(
+    drain: &mut dyn FnMut(usize) -> usize,
+    left: &dyn Fn() -> usize,
+    nap: &mut dyn FnMut(Duration),
+) -> usize {
     let mut all = 0;
     loop {
         let n = drain(BATCH_BYTES);
@@ -182,7 +200,11 @@ fn drain_until_empty(drain: &mut dyn FnMut(usize) -> usize, left: &dyn Fn() -> u
             return all;
         }
         // a batch given back: the lock's waiters first; nothing found: the counted run is still on its way to the stack
-        nap(if n > 0 { Duration::from_micros(BATCH_PAUSE_US) } else { Duration::from_millis(BEHIND_MS) });
+        nap(if n > 0 {
+            Duration::from_micros(BATCH_PAUSE_US)
+        } else {
+            Duration::from_millis(BEHIND_MS)
+        });
     }
 }
 
@@ -196,7 +218,9 @@ mod tests {
     #[test]
     fn a_service_pass_drains_the_lanes_before_it_purges_the_arenas() {
         let log = RefCell::new(Vec::new());
-        super::service_pass(&mut || log.borrow_mut().push("purge"), &mut || log.borrow_mut().push("drain"));
+        super::service_pass(&mut || log.borrow_mut().push("purge"), &mut || {
+            log.borrow_mut().push("drain")
+        });
         assert_eq!(log.into_inner(), ["drain", "purge"], "the lanes first");
     }
 
@@ -227,19 +251,37 @@ mod tests {
         let left = || waiting.get() * RUN;
         let mut nap = |d: Duration| log.borrow_mut().push(format!("nap {}", d.as_micros()));
         let all = super::drain_until_empty(&mut drain, &left, &mut nap);
-        assert_eq!((all, waiting.get()), (20 * RUN, 0), "the drain ends with nothing waiting");
+        assert_eq!(
+            (all, waiting.get()),
+            (20 * RUN, 0),
+            "the drain ends with nothing waiting"
+        );
         let log = log.into_inner();
         let batch = super::BATCH_BYTES;
         for e in &log {
             if let Some(n) = e.strip_prefix("drain ") {
                 let n: usize = n.parse().unwrap();
-                assert!(n <= batch, "a batch gave back {} MiB in one burst, at most {} MiB: {log:?}", n >> 20, batch >> 20);
+                assert!(
+                    n <= batch,
+                    "a batch gave back {} MiB in one burst, at most {} MiB: {log:?}",
+                    n >> 20,
+                    batch >> 20
+                );
             }
         }
-        let drains: Vec<usize> = log.iter().enumerate().filter(|(_, e)| e.starts_with("drain ")).map(|(i, _)| i).collect();
+        let drains: Vec<usize> = log
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| e.starts_with("drain "))
+            .map(|(i, _)| i)
+            .collect();
         for w in drains.windows(2) {
             let pause = format!("nap {}", super::BATCH_PAUSE_US);
-            assert!(log[w[0] + 1..w[1]].contains(&pause), "no pause of {} us between two batches: {log:?}", super::BATCH_PAUSE_US);
+            assert!(
+                log[w[0] + 1..w[1]].contains(&pause),
+                "no pause of {} us between two batches: {log:?}",
+                super::BATCH_PAUSE_US
+            );
         }
     }
 }

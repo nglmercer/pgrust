@@ -3,8 +3,7 @@
 
 use datum::Datum;
 use types_error::PgResult;
-use types_fmgr::{
-    varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, };
+use types_fmgr::{varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 
 pub fn fc_ascii(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     // SAFETY: catalog arg 0 of ascii is a non-null text varlena (strict fn).
@@ -154,7 +153,9 @@ pub fn fc_text_left(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRe
     if n >= 0 && unsafe { fcinfo.arg_varlena_is_extended(0) } {
         // SAFETY: as above.
         let raw = unsafe { fcinfo.arg_varlena_raw(0) };
-        return Ok(varlena_result(::varlena::text_substring(mcx, raw, 1, n, false)?));
+        return Ok(varlena_result(::varlena::text_substring(
+            mcx, raw, 1, n, false,
+        )?));
     }
     // SAFETY: as above.
     let s = unsafe { fcinfo.arg_varlena_packed(0)? }.data();

@@ -42,9 +42,14 @@ fn verbatim_part() -> BuiltFixture {
         db: 5,
         relfilenumber: 4533,
         schema: vec![text_col(1)],
-        oracle: vec![(0..ROWS).map(|i| Some(OracleVal::Bytes(value(i)))).collect()],
+        oracle: vec![(0..ROWS)
+            .map(|i| Some(OracleVal::Bytes(value(i))))
+            .collect()],
         plans: vec![],
-        policy: PartCutPolicy { max_rows: ROWS, ..PartCutPolicy::default() },
+        policy: PartCutPolicy {
+            max_rows: ROWS,
+            ..PartCutPolicy::default()
+        },
     };
     let cands = CodecCandidates::new(ColumnPosture::default());
     let sources: [&dyn CandidateSource; 2] = [&cands, &ReferenceCandidates];
@@ -59,8 +64,14 @@ fn verbatim_part() -> BuiltFixture {
     w.publish(&mut vfs, &probe).expect("publish");
     probe.mark(fxid, TxnVerdict::Committed);
     let files = vfs.snapshot_dir(&fx.dir);
-    let manifest = effective_manifest(&mut vfs, &fx.dir, &probe, None).expect("effective").expect("committed generation");
-    BuiltFixture { fx, files, manifest }
+    let manifest = effective_manifest(&mut vfs, &fx.dir, &probe, None)
+        .expect("effective")
+        .expect("committed generation");
+    BuiltFixture {
+        fx,
+        files,
+        manifest,
+    }
 }
 
 /// One statement's read of the whole part as code lanes with a LIKE table over the lane, in one claim (a W8 worker's
@@ -69,8 +80,16 @@ fn verbatim_part() -> BuiltFixture {
 fn scan(bf: &BuiltFixture, ino: u64, registry: &Arc<PartRegistry>) -> u64 {
     let list = part_list_at(bf, ino);
     assert_eq!(list.len(), 1, "the fixture is one part");
-    let like = TableSpec { over: 0, func: TableFn::Like { pattern: b"%0042%".to_vec(), ilike: false, negated: false } };
-    let recipe = GranuleRecipe::for_test_codes(REL, &[1], &[1], Arc::clone(registry)).with_tables(vec![like]);
+    let like = TableSpec {
+        over: 0,
+        func: TableFn::Like {
+            pattern: b"%0042%".to_vec(),
+            ilike: false,
+            negated: false,
+        },
+    };
+    let recipe = GranuleRecipe::for_test_codes(REL, &[1], &[1], Arc::clone(registry))
+        .with_tables(vec![like]);
     let mut resolved = Resolved::new();
     resolved.set_part_uses_release(true);
     resolved.set_part_release_at(None);
@@ -115,7 +134,10 @@ fn a_column_walked_twice_is_read_once() {
     pgrc_read::partcache::set_budget(u64::MAX);
     let once = scan(&bf, 4_347_000, &registry);
     let whole = pgrc_read::partcache::bytes();
-    assert!(whole >= 8 << 20 && once >= whole, "the part's images faulted once: {once} bytes, {whole} cached");
+    assert!(
+        whole >= 8 << 20 && once >= whole,
+        "the part's images faulted once: {once} bytes, {whole} cached"
+    );
 
     // cold, past the level: a fresh part identity walks twice again; the second walk reads what the first left cached
     registry.trim_contents(0);

@@ -96,7 +96,10 @@ pub struct ElectionReport {
 impl ElectionReport {
     /// Granules elected under `scheme`.
     pub fn granules_using(&self, scheme: Scheme) -> usize {
-        self.granule_schemes.iter().filter(|&&s| s == scheme).count()
+        self.granule_schemes
+            .iter()
+            .filter(|&&s| s == scheme)
+            .count()
     }
 
     /// The chunk writer's deterministic election discipline
@@ -167,10 +170,11 @@ fn run(values: &[f64], emit: bool) -> GranuleEncoded {
                 classic::encode_vector(c, e, f)
             })
             .collect();
-        let alp_size =
-            FRAME_HEADER_BYTES + alp_vecs.iter().map(|v| v.size_bytes()).sum::<usize>();
-        let rd_vecs: Vec<RdVector> =
-            g.chunks(VECTOR_SIZE).map(|c| rd::encode_rd_vector(c, &dict)).collect();
+        let alp_size = FRAME_HEADER_BYTES + alp_vecs.iter().map(|v| v.size_bytes()).sum::<usize>();
+        let rd_vecs: Vec<RdVector> = g
+            .chunks(VECTOR_SIZE)
+            .map(|c| rd::encode_rd_vector(c, &dict))
+            .collect();
         let rd_size = FRAME_HEADER_BYTES
             + dict.size_bytes()
             + rd_vecs.iter().map(|v| v.size_bytes()).sum::<usize>();
@@ -224,7 +228,11 @@ fn run(values: &[f64], emit: bool) -> GranuleEncoded {
                     }
                 }
             }
-            debug_assert_eq!(frame.len(), size, "frame image drifted from size accounting");
+            debug_assert_eq!(
+                frame.len(),
+                size,
+                "frame image drifted from size accounting"
+            );
             enc.frames.push(frame);
         }
     }

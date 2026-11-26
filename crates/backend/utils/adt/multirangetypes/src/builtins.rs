@@ -14,9 +14,9 @@ use ::types_fmgr::{
 
 use crate::io::cached_multirange_io_data;
 use crate::{
-    cached_multirange_info, leak_image, make_multirange, multirange_count,
-    multirange_deserialize, multirange_get_bounds, multirange_get_range, multirange_is_empty,
-    multirange_type_oid, MultirangeInfo,
+    cached_multirange_info, leak_image, make_multirange, multirange_count, multirange_deserialize,
+    multirange_get_bounds, multirange_get_range, multirange_is_empty, multirange_type_oid,
+    MultirangeInfo,
 };
 
 // PG_GETARG_MULTIRANGE_P: same detoast contract as ranges.
@@ -31,10 +31,7 @@ std::thread_local! {
         const { core::cell::UnsafeCell::new(None) };
 }
 
-fn flinfo_mi(
-    flinfo: Option<& mut FmgrInfo>,
-    mltrngtypid: Oid,
-) -> PgResult<& mut MultirangeInfo> {
+fn flinfo_mi(flinfo: Option<&mut FmgrInfo>, mltrngtypid: Oid) -> PgResult<&mut MultirangeInfo> {
     if let Some(fl) = flinfo {
         return cached_multirange_info(fl, mltrngtypid);
     }
@@ -89,7 +86,9 @@ pub fn fc_multirange_out(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> 
         multirange_type_oid(&mr),
         IOFuncSelector::IOFunc_output,
     )?;
-    Ok(::types_fmgr::cstring_result(crate::io::multirange_out(mcx, cache, &mr)?))
+    Ok(::types_fmgr::cstring_result(crate::io::multirange_out(
+        mcx, cache, &mr,
+    )?))
 }
 
 pub fn fc_multirange_recv(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -130,7 +129,9 @@ fn null_member() -> Box<PgError> {
 #[track_caller]
 #[cold]
 fn null_member_elog() -> Box<PgError> {
-    Box::new(PgError::error("multirange values cannot contain null members"))
+    Box::new(PgError::error(
+        "multirange values cannot contain null members",
+    ))
 }
 
 pub fn fc_multirange_constructor0(
@@ -174,7 +175,9 @@ pub fn fc_multirange_constructor1(
 #[track_caller]
 #[cold]
 fn constructor_type_mismatch(rngtypid: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!("type {rngtypid} does not match constructor type")))
+    Box::new(PgError::error(format!(
+        "type {rngtypid} does not match constructor type"
+    )))
 }
 
 #[track_caller]
@@ -331,7 +334,9 @@ pub(crate) fn range_type_lookup_failed(rngtypid: Oid) -> Box<PgError> {
 #[track_caller]
 #[cold]
 fn non_aggregate_context(what: &str) -> Box<PgError> {
-    Box::new(PgError::error(format!("{what} called in non-aggregate context")))
+    Box::new(PgError::error(format!(
+        "{what} called in non-aggregate context"
+    )))
 }
 
 pub fn fc_multirange_intersect_agg_transfn(
@@ -370,8 +375,8 @@ fn agg_state_slot<'a>(
     if fcinfo.argisnull(0) {
         let st = ::arrayfuncs::init_array_result(aggmcx, element_type, false)?;
         let layout = core::alloc::Layout::new::<::datum::array_build::ArrayBuildState<'a>>();
-        let raw = ::mcx::Allocator::allocate(&aggmcx, layout)
-            .map_err(|_| aggmcx.oom(layout.size()))?;
+        let raw =
+            ::mcx::Allocator::allocate(&aggmcx, layout).map_err(|_| aggmcx.oom(layout.size()))?;
         let p: *mut ::datum::array_build::ArrayBuildState<'a> = raw.cast().as_ptr();
         // SAFETY: fresh aggcontext allocation of the exact layout; no drop
         // glue runs (PgVec fields are arena-plain).
@@ -390,15 +395,22 @@ pub fn fc_range_agg_transfn(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) 
     let flinfo = flinfo.expect("range_agg_transfn: NULL flinfo");
     let rngtypoid = ::funcapi::get_fn_expr_argtype(Some(flinfo), 1);
     if !::lsyscache::type_is_range(rngtypoid)? {
-        return Err(Box::new(PgError::error("range_agg must be called with a range")));
+        return Err(Box::new(PgError::error(
+            "range_agg must be called with a range",
+        )));
     }
     let stp = agg_state_slot(fcinfo, aggmcx, rngtypoid)?;
     if !fcinfo.argisnull(1) {
         // SAFETY: stp is the aggcontext-owned state; plain-data move in/out.
         unsafe {
             let st = stp.read();
-            let st =
-                ::arrayfuncs::accum_array_result(aggmcx, Some(st), fcinfo.arg(1), false, rngtypoid)?;
+            let st = ::arrayfuncs::accum_array_result(
+                aggmcx,
+                Some(st),
+                fcinfo.arg(1),
+                false,
+                rngtypoid,
+            )?;
             stp.write(st);
         }
     }
@@ -464,7 +476,9 @@ pub fn fc_multirange_agg_transfn(
     let flinfo = flinfo.expect("multirange_agg_transfn: NULL flinfo");
     let mltrngtypoid = ::funcapi::get_fn_expr_argtype(Some(flinfo), 1);
     if !::lsyscache::type_is_multirange(mltrngtypoid)? {
-        return Err(Box::new(PgError::error("range_agg must be called with a multirange")));
+        return Err(Box::new(PgError::error(
+            "range_agg must be called with a multirange",
+        )));
     }
     let mi = cached_multirange_info(flinfo, mltrngtypoid)?;
     let rngtypoid = mi.rng.rngtypid;
@@ -476,8 +490,7 @@ pub fn fc_multirange_agg_transfn(
             // SAFETY: stp is the aggcontext-owned state; plain-data move in/out.
             unsafe {
                 let st = stp.read();
-                let st =
-                    ::arrayfuncs::accum_array_result(aggmcx, Some(st), d, false, rngtypoid)?;
+                let st = ::arrayfuncs::accum_array_result(aggmcx, Some(st), d, false, rngtypoid)?;
                 stp.write(st);
             }
             Ok(())
@@ -547,7 +560,9 @@ fn bound_datum_result(fcinfo: &Fcinfo, mi: &MultirangeInfo, val: Datum) -> PgRes
         mi.rng.elem.typlen as usize
     };
     // SAFETY: live bound value of n bytes inside the argument image.
-    byref_result(fcinfo.result_mcx(), unsafe { core::slice::from_raw_parts(p, n) })
+    byref_result(fcinfo.result_mcx(), unsafe {
+        core::slice::from_raw_parts(p, n)
+    })
 }
 
 pub fn fc_multirange_empty(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -588,7 +603,12 @@ pub fn fc_multirange_contains_elem(
     let mr = arg_multirange(fcinfo, 0, mcx)?;
     let val = fcinfo.arg(1);
     let mi = flinfo_mi(flinfo, multirange_type_oid(&mr))?;
-    Ok(Datum::from_bool(crate::multirange_contains_elem_internal(mcx, &mut mi.rng, &mr, val)?))
+    Ok(Datum::from_bool(crate::multirange_contains_elem_internal(
+        mcx,
+        &mut mi.rng,
+        &mr,
+        val,
+    )?))
 }
 
 pub fn fc_elem_contained_by_multirange(
@@ -599,7 +619,12 @@ pub fn fc_elem_contained_by_multirange(
     let val = fcinfo.arg(0);
     let mr = arg_multirange(fcinfo, 1, mcx)?;
     let mi = flinfo_mi(flinfo, multirange_type_oid(&mr))?;
-    Ok(Datum::from_bool(crate::multirange_contains_elem_internal(mcx, &mut mi.rng, &mr, val)?))
+    Ok(Datum::from_bool(crate::multirange_contains_elem_internal(
+        mcx,
+        &mut mi.rng,
+        &mr,
+        val,
+    )?))
 }
 
 // (multirange, range) and (range, multirange) argument shapes.
@@ -654,7 +679,9 @@ pub fn fc_multirange_overleft_range(
     let rng = &mut mi.rng;
     let (_l1, upper1) = multirange_get_bounds(rng, &mr, multirange_count(&mr) as usize - 1);
     let (_l2, upper2, _e) = ::adt_rangetypes::range_deserialize(&rng.elem, &r);
-    Ok(Datum::from_bool(::adt_rangetypes::range_cmp_bounds(mcx, rng, &upper1, &upper2)? <= 0))
+    Ok(Datum::from_bool(
+        ::adt_rangetypes::range_cmp_bounds(mcx, rng, &upper1, &upper2)? <= 0,
+    ))
 }
 
 pub fn fc_multirange_overright_range(
@@ -671,7 +698,9 @@ pub fn fc_multirange_overright_range(
     let rng = &mut mi.rng;
     let (lower1, _u1) = multirange_get_bounds(rng, &mr, 0);
     let (lower2, _u2, _e) = ::adt_rangetypes::range_deserialize(&rng.elem, &r);
-    Ok(Datum::from_bool(::adt_rangetypes::range_cmp_bounds(mcx, rng, &lower1, &lower2)? >= 0))
+    Ok(Datum::from_bool(
+        ::adt_rangetypes::range_cmp_bounds(mcx, rng, &lower1, &lower2)? >= 0,
+    ))
 }
 
 macro_rules! fc_mr_mr_bool {
@@ -724,7 +753,9 @@ pub fn fc_multirange_overleft_multirange(
     let rng = &mut mi.rng;
     let (_l1, upper1) = multirange_get_bounds(rng, &mr1, multirange_count(&mr1) as usize - 1);
     let (_l2, upper2) = multirange_get_bounds(rng, &mr2, multirange_count(&mr2) as usize - 1);
-    Ok(Datum::from_bool(::adt_rangetypes::range_cmp_bounds(mcx, rng, &upper1, &upper2)? <= 0))
+    Ok(Datum::from_bool(
+        ::adt_rangetypes::range_cmp_bounds(mcx, rng, &upper1, &upper2)? <= 0,
+    ))
 }
 
 pub fn fc_multirange_overright_multirange(
@@ -741,7 +772,9 @@ pub fn fc_multirange_overright_multirange(
     let rng = &mut mi.rng;
     let (lower1, _u1) = multirange_get_bounds(rng, &mr1, 0);
     let (lower2, _u2) = multirange_get_bounds(rng, &mr2, 0);
-    Ok(Datum::from_bool(::adt_rangetypes::range_cmp_bounds(mcx, rng, &lower1, &lower2)? >= 0))
+    Ok(Datum::from_bool(
+        ::adt_rangetypes::range_cmp_bounds(mcx, rng, &lower1, &lower2)? >= 0,
+    ))
 }
 
 pub fn fc_range_adjacent_multirange(
@@ -752,7 +785,12 @@ pub fn fc_range_adjacent_multirange(
     let r = arg_range(fcinfo, 0, mcx)?;
     let mr = arg_multirange(fcinfo, 1, mcx)?;
     let mi = flinfo_mi(flinfo, multirange_type_oid(&mr))?;
-    Ok(Datum::from_bool(crate::range_adjacent_multirange_internal(mcx, &mut mi.rng, &r, &mr)?))
+    Ok(Datum::from_bool(crate::range_adjacent_multirange_internal(
+        mcx,
+        &mut mi.rng,
+        &r,
+        &mr,
+    )?))
 }
 
 pub fn fc_multirange_adjacent_range(
@@ -766,7 +804,12 @@ pub fn fc_multirange_adjacent_range(
         return Ok(Datum::from_bool(false));
     }
     let mi = flinfo_mi(flinfo, multirange_type_oid(&mr))?;
-    Ok(Datum::from_bool(crate::range_adjacent_multirange_internal(mcx, &mut mi.rng, &r, &mr)?))
+    Ok(Datum::from_bool(crate::range_adjacent_multirange_internal(
+        mcx,
+        &mut mi.rng,
+        &r,
+        &mr,
+    )?))
 }
 
 pub fn fc_multirange_adjacent_multirange(
@@ -806,7 +849,12 @@ pub fn fc_multirange_cmp(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> 
     let mr1 = arg_multirange(fcinfo, 0, mcx)?;
     let mr2 = arg_multirange(fcinfo, 1, mcx)?;
     let mi = flinfo_mi(flinfo, multirange_type_oid(&mr1))?;
-    Ok(Datum::from_i32(crate::multirange_cmp_internal(mcx, &mut mi.rng, &mr1, &mr2)?))
+    Ok(Datum::from_i32(crate::multirange_cmp_internal(
+        mcx,
+        &mut mi.rng,
+        &mr1,
+        &mr2,
+    )?))
 }
 
 macro_rules! fc_mr_cmp_op {
@@ -860,7 +908,11 @@ pub fn fc_multirange_unnest(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) 
             let mcx = fcinfo.result_mcx();
             let mr = arg_multirange(fcinfo, 0, mcx)?;
             let mi = MultirangeInfo::lookup(multirange_type_oid(&mr))?;
-            UnnestState { mr: ::mcx::std_vec_from_slice("adt", &mr)?, rng: mi.rng, index: 0 }
+            UnnestState {
+                mr: ::mcx::std_vec_from_slice("adt", &mr)?,
+                rng: mi.rng,
+                index: 0,
+            }
         };
         let fctx = ::funcapi::init_MultiFuncCall(flinfo, fcinfo)?;
         fctx.user_fctx = Some(Box::new(state));
@@ -888,7 +940,9 @@ pub fn fc_hash_multirange(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) ->
     let mcx = fcinfo.result_mcx();
     let mr = arg_multirange(fcinfo, 0, mcx)?;
     let mi = flinfo_mi(flinfo, multirange_type_oid(&mr))?;
-    Ok(Datum::from_u32(crate::hash_multirange_internal(mcx, mi, &mr)?))
+    Ok(Datum::from_u32(crate::hash_multirange_internal(
+        mcx, mi, &mr,
+    )?))
 }
 
 pub fn fc_hash_multirange_extended(
@@ -899,21 +953,44 @@ pub fn fc_hash_multirange_extended(
     let mr = arg_multirange(fcinfo, 0, mcx)?;
     let seed = fcinfo.arg(1);
     let mi = flinfo_mi(flinfo, multirange_type_oid(&mr))?;
-    Ok(Datum::from_u64(crate::hash_multirange_extended_internal(mcx, mi, &mr, seed)?))
+    Ok(Datum::from_u64(crate::hash_multirange_extended_internal(
+        mcx, mi, &mr, seed,
+    )?))
 }
 
 // pg_proc.dat rows for multirangetypes.c, OID-ascending.
 pub const MULTIRANGETYPES_BUILTINS: &[FmgrBuiltin] = &[
     // rangetypes_typanalyze.c hook: ANALYZE dispatches natively; parity row.
-    builtin(4242, "multirange_typanalyze", 1, true, false, ::types_fmgr::fc_internal_dispatch_only),
+    builtin(
+        4242,
+        "multirange_typanalyze",
+        1,
+        true,
+        false,
+        ::types_fmgr::fc_internal_dispatch_only,
+    ),
     builtin(1293, "unnest", 1, true, true, fc_multirange_unnest),
-    builtin(4228, "range_merge", 1, true, false, fc_range_merge_from_multirange),
+    builtin(
+        4228,
+        "range_merge",
+        1,
+        true,
+        false,
+        fc_range_merge_from_multirange,
+    ),
     builtin(4231, "multirange_in", 3, true, false, fc_multirange_in),
     builtin(4232, "multirange_out", 1, true, false, fc_multirange_out),
     // anymultirange_out / anycompatiblemultirange_out (pseudotypes.c) are
     // `return multirange_out(fcinfo)`.
     builtin(4230, "anymultirange_out", 1, true, false, fc_multirange_out),
-    builtin(4227, "anycompatiblemultirange_out", 1, true, false, fc_multirange_out),
+    builtin(
+        4227,
+        "anycompatiblemultirange_out",
+        1,
+        true,
+        false,
+        fc_multirange_out,
+    ),
     builtin(4233, "multirange_recv", 3, true, false, fc_multirange_recv),
     builtin(4234, "multirange_send", 1, true, false, fc_multirange_send),
     builtin(4235, "lower", 1, true, false, fc_multirange_lower),
@@ -925,64 +1002,442 @@ pub const MULTIRANGETYPES_BUILTINS: &[FmgrBuiltin] = &[
     builtin(4241, "upper_inf", 1, true, false, fc_multirange_upper_inf),
     builtin(4244, "multirange_eq", 2, true, false, fc_multirange_eq),
     builtin(4245, "multirange_ne", 2, true, false, fc_multirange_ne),
-    builtin(4246, "range_overlaps_multirange", 2, true, false, fc_range_overlaps_multirange),
-    builtin(4247, "multirange_overlaps_range", 2, true, false, fc_multirange_overlaps_range),
-    builtin(4248, "multirange_overlaps_multirange", 2, true, false, fc_multirange_overlaps_multirange),
-    builtin(4249, "multirange_contains_elem", 2, true, false, fc_multirange_contains_elem),
-    builtin(4250, "multirange_contains_range", 2, true, false, fc_multirange_contains_range),
-    builtin(4251, "multirange_contains_multirange", 2, true, false, fc_multirange_contains_multirange),
-    builtin(4252, "elem_contained_by_multirange", 2, true, false, fc_elem_contained_by_multirange),
-    builtin(4253, "range_contained_by_multirange", 2, true, false, fc_range_contained_by_multirange),
-    builtin(4254, "multirange_contained_by_multirange", 2, true, false, fc_multirange_contained_by_multirange),
-    builtin(4255, "range_adjacent_multirange", 2, true, false, fc_range_adjacent_multirange),
-    builtin(4256, "multirange_adjacent_multirange", 2, true, false, fc_multirange_adjacent_multirange),
-    builtin(4257, "multirange_adjacent_range", 2, true, false, fc_multirange_adjacent_range),
-    builtin(4258, "range_before_multirange", 2, true, false, fc_range_before_multirange),
-    builtin(4259, "multirange_before_range", 2, true, false, fc_multirange_before_range),
-    builtin(4260, "multirange_before_multirange", 2, true, false, fc_multirange_before_multirange),
-    builtin(4261, "range_after_multirange", 2, true, false, fc_range_after_multirange),
-    builtin(4262, "multirange_after_range", 2, true, false, fc_multirange_after_range),
-    builtin(4263, "multirange_after_multirange", 2, true, false, fc_multirange_after_multirange),
-    builtin(4264, "range_overleft_multirange", 2, true, false, fc_range_overleft_multirange),
-    builtin(4265, "multirange_overleft_range", 2, true, false, fc_multirange_overleft_range),
-    builtin(4266, "multirange_overleft_multirange", 2, true, false, fc_multirange_overleft_multirange),
-    builtin(4267, "range_overright_multirange", 2, true, false, fc_range_overright_multirange),
-    builtin(4268, "multirange_overright_range", 2, true, false, fc_multirange_overright_range),
-    builtin(4269, "multirange_overright_multirange", 2, true, false, fc_multirange_overright_multirange),
-    builtin(4270, "multirange_union", 2, true, false, fc_multirange_union),
-    builtin(4271, "multirange_minus", 2, true, false, fc_multirange_minus),
-    builtin(4272, "multirange_intersect", 2, true, false, fc_multirange_intersect),
+    builtin(
+        4246,
+        "range_overlaps_multirange",
+        2,
+        true,
+        false,
+        fc_range_overlaps_multirange,
+    ),
+    builtin(
+        4247,
+        "multirange_overlaps_range",
+        2,
+        true,
+        false,
+        fc_multirange_overlaps_range,
+    ),
+    builtin(
+        4248,
+        "multirange_overlaps_multirange",
+        2,
+        true,
+        false,
+        fc_multirange_overlaps_multirange,
+    ),
+    builtin(
+        4249,
+        "multirange_contains_elem",
+        2,
+        true,
+        false,
+        fc_multirange_contains_elem,
+    ),
+    builtin(
+        4250,
+        "multirange_contains_range",
+        2,
+        true,
+        false,
+        fc_multirange_contains_range,
+    ),
+    builtin(
+        4251,
+        "multirange_contains_multirange",
+        2,
+        true,
+        false,
+        fc_multirange_contains_multirange,
+    ),
+    builtin(
+        4252,
+        "elem_contained_by_multirange",
+        2,
+        true,
+        false,
+        fc_elem_contained_by_multirange,
+    ),
+    builtin(
+        4253,
+        "range_contained_by_multirange",
+        2,
+        true,
+        false,
+        fc_range_contained_by_multirange,
+    ),
+    builtin(
+        4254,
+        "multirange_contained_by_multirange",
+        2,
+        true,
+        false,
+        fc_multirange_contained_by_multirange,
+    ),
+    builtin(
+        4255,
+        "range_adjacent_multirange",
+        2,
+        true,
+        false,
+        fc_range_adjacent_multirange,
+    ),
+    builtin(
+        4256,
+        "multirange_adjacent_multirange",
+        2,
+        true,
+        false,
+        fc_multirange_adjacent_multirange,
+    ),
+    builtin(
+        4257,
+        "multirange_adjacent_range",
+        2,
+        true,
+        false,
+        fc_multirange_adjacent_range,
+    ),
+    builtin(
+        4258,
+        "range_before_multirange",
+        2,
+        true,
+        false,
+        fc_range_before_multirange,
+    ),
+    builtin(
+        4259,
+        "multirange_before_range",
+        2,
+        true,
+        false,
+        fc_multirange_before_range,
+    ),
+    builtin(
+        4260,
+        "multirange_before_multirange",
+        2,
+        true,
+        false,
+        fc_multirange_before_multirange,
+    ),
+    builtin(
+        4261,
+        "range_after_multirange",
+        2,
+        true,
+        false,
+        fc_range_after_multirange,
+    ),
+    builtin(
+        4262,
+        "multirange_after_range",
+        2,
+        true,
+        false,
+        fc_multirange_after_range,
+    ),
+    builtin(
+        4263,
+        "multirange_after_multirange",
+        2,
+        true,
+        false,
+        fc_multirange_after_multirange,
+    ),
+    builtin(
+        4264,
+        "range_overleft_multirange",
+        2,
+        true,
+        false,
+        fc_range_overleft_multirange,
+    ),
+    builtin(
+        4265,
+        "multirange_overleft_range",
+        2,
+        true,
+        false,
+        fc_multirange_overleft_range,
+    ),
+    builtin(
+        4266,
+        "multirange_overleft_multirange",
+        2,
+        true,
+        false,
+        fc_multirange_overleft_multirange,
+    ),
+    builtin(
+        4267,
+        "range_overright_multirange",
+        2,
+        true,
+        false,
+        fc_range_overright_multirange,
+    ),
+    builtin(
+        4268,
+        "multirange_overright_range",
+        2,
+        true,
+        false,
+        fc_multirange_overright_range,
+    ),
+    builtin(
+        4269,
+        "multirange_overright_multirange",
+        2,
+        true,
+        false,
+        fc_multirange_overright_multirange,
+    ),
+    builtin(
+        4270,
+        "multirange_union",
+        2,
+        true,
+        false,
+        fc_multirange_union,
+    ),
+    builtin(
+        4271,
+        "multirange_minus",
+        2,
+        true,
+        false,
+        fc_multirange_minus,
+    ),
+    builtin(
+        4272,
+        "multirange_intersect",
+        2,
+        true,
+        false,
+        fc_multirange_intersect,
+    ),
     builtin(4273, "multirange_cmp", 2, true, false, fc_multirange_cmp),
     builtin(4274, "multirange_lt", 2, true, false, fc_multirange_lt),
     builtin(4275, "multirange_le", 2, true, false, fc_multirange_le),
     builtin(4276, "multirange_ge", 2, true, false, fc_multirange_ge),
     builtin(4277, "multirange_gt", 2, true, false, fc_multirange_gt),
     builtin(4278, "hash_multirange", 1, true, false, fc_hash_multirange),
-    builtin(4279, "hash_multirange_extended", 2, true, false, fc_hash_multirange_extended),
-    builtin(4280, "int4multirange", 0, true, false, fc_multirange_constructor0),
-    builtin(4281, "int4multirange", 1, true, false, fc_multirange_constructor1),
-    builtin(4282, "int4multirange", 1, true, false, fc_multirange_constructor2),
-    builtin(4283, "nummultirange", 0, true, false, fc_multirange_constructor0),
-    builtin(4284, "nummultirange", 1, true, false, fc_multirange_constructor1),
-    builtin(4285, "nummultirange", 1, true, false, fc_multirange_constructor2),
-    builtin(4286, "tsmultirange", 0, true, false, fc_multirange_constructor0),
-    builtin(4287, "tsmultirange", 1, true, false, fc_multirange_constructor1),
-    builtin(4288, "tsmultirange", 1, true, false, fc_multirange_constructor2),
-    builtin(4289, "tstzmultirange", 0, true, false, fc_multirange_constructor0),
-    builtin(4290, "tstzmultirange", 1, true, false, fc_multirange_constructor1),
-    builtin(4291, "tstzmultirange", 1, true, false, fc_multirange_constructor2),
-    builtin(4292, "datemultirange", 0, true, false, fc_multirange_constructor0),
-    builtin(4293, "datemultirange", 1, true, false, fc_multirange_constructor1),
-    builtin(4294, "datemultirange", 1, true, false, fc_multirange_constructor2),
-    builtin(4295, "int8multirange", 0, true, false, fc_multirange_constructor0),
-    builtin(4296, "int8multirange", 1, true, false, fc_multirange_constructor1),
-    builtin(4297, "int8multirange", 1, true, false, fc_multirange_constructor2),
-    builtin(4298, "multirange", 1, true, false, fc_multirange_constructor1),
-    builtin(4299, "range_agg_transfn", 2, false, false, fc_range_agg_transfn),
-    builtin(4300, "range_agg_finalfn", 2, false, false, fc_range_agg_finalfn),
-    builtin(4388, "multirange_intersect_agg_transfn", 2, true, false, fc_multirange_intersect_agg_transfn),
-    builtin(4541, "range_contains_multirange", 2, true, false, fc_range_contains_multirange),
-    builtin(4542, "multirange_contained_by_range", 2, true, false, fc_multirange_contained_by_range),
-    builtin(6225, "multirange_agg_transfn", 2, false, false, fc_multirange_agg_transfn),
-    builtin(6226, "multirange_agg_finalfn", 2, false, false, fc_range_agg_finalfn),
+    builtin(
+        4279,
+        "hash_multirange_extended",
+        2,
+        true,
+        false,
+        fc_hash_multirange_extended,
+    ),
+    builtin(
+        4280,
+        "int4multirange",
+        0,
+        true,
+        false,
+        fc_multirange_constructor0,
+    ),
+    builtin(
+        4281,
+        "int4multirange",
+        1,
+        true,
+        false,
+        fc_multirange_constructor1,
+    ),
+    builtin(
+        4282,
+        "int4multirange",
+        1,
+        true,
+        false,
+        fc_multirange_constructor2,
+    ),
+    builtin(
+        4283,
+        "nummultirange",
+        0,
+        true,
+        false,
+        fc_multirange_constructor0,
+    ),
+    builtin(
+        4284,
+        "nummultirange",
+        1,
+        true,
+        false,
+        fc_multirange_constructor1,
+    ),
+    builtin(
+        4285,
+        "nummultirange",
+        1,
+        true,
+        false,
+        fc_multirange_constructor2,
+    ),
+    builtin(
+        4286,
+        "tsmultirange",
+        0,
+        true,
+        false,
+        fc_multirange_constructor0,
+    ),
+    builtin(
+        4287,
+        "tsmultirange",
+        1,
+        true,
+        false,
+        fc_multirange_constructor1,
+    ),
+    builtin(
+        4288,
+        "tsmultirange",
+        1,
+        true,
+        false,
+        fc_multirange_constructor2,
+    ),
+    builtin(
+        4289,
+        "tstzmultirange",
+        0,
+        true,
+        false,
+        fc_multirange_constructor0,
+    ),
+    builtin(
+        4290,
+        "tstzmultirange",
+        1,
+        true,
+        false,
+        fc_multirange_constructor1,
+    ),
+    builtin(
+        4291,
+        "tstzmultirange",
+        1,
+        true,
+        false,
+        fc_multirange_constructor2,
+    ),
+    builtin(
+        4292,
+        "datemultirange",
+        0,
+        true,
+        false,
+        fc_multirange_constructor0,
+    ),
+    builtin(
+        4293,
+        "datemultirange",
+        1,
+        true,
+        false,
+        fc_multirange_constructor1,
+    ),
+    builtin(
+        4294,
+        "datemultirange",
+        1,
+        true,
+        false,
+        fc_multirange_constructor2,
+    ),
+    builtin(
+        4295,
+        "int8multirange",
+        0,
+        true,
+        false,
+        fc_multirange_constructor0,
+    ),
+    builtin(
+        4296,
+        "int8multirange",
+        1,
+        true,
+        false,
+        fc_multirange_constructor1,
+    ),
+    builtin(
+        4297,
+        "int8multirange",
+        1,
+        true,
+        false,
+        fc_multirange_constructor2,
+    ),
+    builtin(
+        4298,
+        "multirange",
+        1,
+        true,
+        false,
+        fc_multirange_constructor1,
+    ),
+    builtin(
+        4299,
+        "range_agg_transfn",
+        2,
+        false,
+        false,
+        fc_range_agg_transfn,
+    ),
+    builtin(
+        4300,
+        "range_agg_finalfn",
+        2,
+        false,
+        false,
+        fc_range_agg_finalfn,
+    ),
+    builtin(
+        4388,
+        "multirange_intersect_agg_transfn",
+        2,
+        true,
+        false,
+        fc_multirange_intersect_agg_transfn,
+    ),
+    builtin(
+        4541,
+        "range_contains_multirange",
+        2,
+        true,
+        false,
+        fc_range_contains_multirange,
+    ),
+    builtin(
+        4542,
+        "multirange_contained_by_range",
+        2,
+        true,
+        false,
+        fc_multirange_contained_by_range,
+    ),
+    builtin(
+        6225,
+        "multirange_agg_transfn",
+        2,
+        false,
+        false,
+        fc_multirange_agg_transfn,
+    ),
+    builtin(
+        6226,
+        "multirange_agg_finalfn",
+        2,
+        false,
+        false,
+        fc_range_agg_finalfn,
+    ),
 ];

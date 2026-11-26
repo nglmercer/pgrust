@@ -1,4 +1,5 @@
-#![cfg(feature = "wasmtime-oracle")]//! Diagnostic only (the bar for wasm speed is a later stage): the corpus
+#![cfg(feature = "wasmtime-oracle")]
+//! Diagnostic only (the bar for wasm speed is a later stage): the corpus
 //! loops under wasmtime against the interpreter, and the compiler's own
 //! latency per program; printed with `--nocapture`.
 
@@ -68,11 +69,25 @@ fn corpus_loops_wasmtime_vs_interpreter() {
     let mut rig = Rig::new();
     let mut lines = Vec::new();
     for (name, src, args_native, args_guest, setup) in [
-        ("collatz(837799)", COLLATZ, vec![837_799u64], vec![837_799u64], None),
-        ("fnv(64 KiB)", FNV, vec![0, 65_536], vec![DATA as u64, 65_536], Some(65_536usize)),
+        (
+            "collatz(837799)",
+            COLLATZ,
+            vec![837_799u64],
+            vec![837_799u64],
+            None,
+        ),
+        (
+            "fnv(64 KiB)",
+            FNV,
+            vec![0, 65_536],
+            vec![DATA as u64, 65_536],
+            Some(65_536usize),
+        ),
     ] {
         let p = parse_program(src, &|_| None).unwrap();
-        let buf: Vec<u8> = (0..setup.unwrap_or(0)).map(|k| (k * 31 % 251) as u8).collect();
+        let buf: Vec<u8> = (0..setup.unwrap_or(0))
+            .map(|k| (k * 31 % 251) as u8)
+            .collect();
         let mut args_native = args_native;
         if setup.is_some() {
             args_native[0] = buf.as_ptr() as u64;

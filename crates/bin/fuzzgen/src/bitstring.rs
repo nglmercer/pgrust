@@ -34,19 +34,19 @@ use crate::stmt::{Gen, StmtKind};
 /// Top-level statement shapes (weighted pick; all registered in
 /// `weights::PROD_WEIGHTS`).
 const SHAPES: &[&str] = &[
-    "bitstr:io",       // bit_in / varbit_in / bits_out: binary + hex + empty
-    "bitstr:typmod",   // bit(n) truncate/pad + length-mismatch; varbit(n)
-    "bitstr:cast",     // bit <-> int4/int8 sign-fill widths + overflow
-    "bitstr:cat",      // concatenation || incl. unaligned first operand
-    "bitstr:logic",    // & | # ~ incl. different-size error
-    "bitstr:shift",    // << >> fill / over-length / negative / byte-aligned
-    "bitstr:sub",      // substring(bit FROM FOR) incl. no-len / neg / overflow
-    "bitstr:overlay",  // overlay(bit placing bit) incl. no-len / bounds
-    "bitstr:pos",      // position(bit IN bit) empty / longer / offsets
-    "bitstr:getset",   // get_bit / set_bit incl. range + new-bit errors
-    "bitstr:len",      // length / octet_length / bit_length / bit_count
-    "bitstr:cmp",      // comparison operators over unequal-length pairs
-    "bitstr:order",    // ORDER BY / DISTINCT / GROUP BY / min/max over VALUES
+    "bitstr:io",      // bit_in / varbit_in / bits_out: binary + hex + empty
+    "bitstr:typmod",  // bit(n) truncate/pad + length-mismatch; varbit(n)
+    "bitstr:cast",    // bit <-> int4/int8 sign-fill widths + overflow
+    "bitstr:cat",     // concatenation || incl. unaligned first operand
+    "bitstr:logic",   // & | # ~ incl. different-size error
+    "bitstr:shift",   // << >> fill / over-length / negative / byte-aligned
+    "bitstr:sub",     // substring(bit FROM FOR) incl. no-len / neg / overflow
+    "bitstr:overlay", // overlay(bit placing bit) incl. no-len / bounds
+    "bitstr:pos",     // position(bit IN bit) empty / longer / offsets
+    "bitstr:getset",  // get_bit / set_bit incl. range + new-bit errors
+    "bitstr:len",     // length / octet_length / bit_length / bit_count
+    "bitstr:cmp",     // comparison operators over unequal-length pairs
+    "bitstr:order",   // ORDER BY / DISTINCT / GROUP BY / min/max over VALUES
 ];
 
 pub fn gen_bitstring_module(g: &mut Gen) -> Vec<StmtKind> {
@@ -118,9 +118,9 @@ fn gen_io(g: &mut Gen) -> Vec<StmtKind> {
     let err = err_arm(g);
     let sql = if err {
         match g.rng.below(3) {
-            0 => "SELECT B'1012'::text;".to_string(),        // bad binary digit
-            1 => "SELECT X'1G'::text;".to_string(),          // bad hex digit
-            _ => "SELECT B'abc'::text;".to_string(),         // letters in binary
+            0 => "SELECT B'1012'::text;".to_string(), // bad binary digit
+            1 => "SELECT X'1G'::text;".to_string(),   // bad hex digit
+            _ => "SELECT B'abc'::text;".to_string(),  // letters in binary
         }
     } else {
         match g.rng.below(7) {
@@ -146,8 +146,9 @@ fn gen_io(g: &mut Gen) -> Vec<StmtKind> {
             // A wide hex literal exercising the multi-byte out loop.
             5 => "SELECT X'0123456789abcdef'::text, length(X'0123456789abcdef');".to_string(),
             // Mixed: cast text through bit and back.
-            _ => "SELECT '10110'::bit(5)::text, '1010'::varbit::text, ''::varbit::text;"
-                .to_string(),
+            _ => {
+                "SELECT '10110'::bit(5)::text, '1010'::varbit::text, ''::varbit::text;".to_string()
+            }
         }
     };
     raw(sql)
@@ -271,8 +272,7 @@ fn gen_cat(g: &mut Gen) -> Vec<StmtKind> {
         // Unaligned: 3-bit first operand -> bit-shift merge branch.
         1 => "SELECT (B'101' || B'110')::text, (B'1' || B'1111111')::text;".to_string(),
         // Empty on the left / right / both (bitlen2 == 0 short-circuit).
-        2 => "SELECT (B'' || B'101')::text, (B'101' || B'')::text, (B'' || B'')::text;"
-            .to_string(),
+        2 => "SELECT (B'' || B'101')::text, (B'101' || B'')::text, (B'' || B'')::text;".to_string(),
         // Unaligned with a long right operand crossing byte boundaries.
         3 => "SELECT (B'10101' || B'0101010101')::text;".to_string(),
         // Hex + binary mixed concatenation.
@@ -381,8 +381,9 @@ fn gen_sub(g: &mut Gen) -> Vec<StmtKind> {
             // S + L overflow runs to end (checked_add None branch).
             4 => "SELECT substring(B'11010111' from 2 for 2147483647)::text;".to_string(),
             // Substring of the empty string.
-            _ => "SELECT substring(B'' from 1 for 3)::text, substring(B'' from 1)::text;"
-                .to_string(),
+            _ => {
+                "SELECT substring(B'' from 1 for 3)::text, substring(B'' from 1)::text;".to_string()
+            }
         }
     };
     raw(sql)
@@ -485,8 +486,7 @@ fn gen_getset(g: &mut Gen) -> Vec<StmtKind> {
 fn gen_len(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("bitstr:len");
     let sql = match g.rng.below(4) {
-        0 => "SELECT length(B''), octet_length(B''), bit_length(B''), bit_count(B'');"
-            .to_string(),
+        0 => "SELECT length(B''), octet_length(B''), bit_length(B''), bit_count(B'');".to_string(),
         1 => "SELECT length(B'1'), octet_length(B'1'), bit_length(B'1'), bit_count(B'1');"
             .to_string(),
         2 => "SELECT length(B'101010101'), octet_length(B'101010101'), \
@@ -530,13 +530,9 @@ fn gen_order(g: &mut Gen) -> Vec<StmtKind> {
     let pool = "(B'101'), (B'01'), (B'101'), (B''), (B'1100'), (B'0'), (B'1'), (B'11')";
     let sql = match g.rng.below(5) {
         // Total ORDER BY over the raw values (ordered-compare, ::text).
-        0 => format!(
-            "SELECT v::text FROM (VALUES {pool}) t(v) ORDER BY v, v::text;"
-        ),
+        0 => format!("SELECT v::text FROM (VALUES {pool}) t(v) ORDER BY v, v::text;"),
         // DISTINCT folds the duplicate (hashing), ordered for compare.
-        1 => format!(
-            "SELECT DISTINCT v::text FROM (VALUES {pool}) t(v) ORDER BY v::text;"
-        ),
+        1 => format!("SELECT DISTINCT v::text FROM (VALUES {pool}) t(v) ORDER BY v::text;"),
         // GROUP BY + count (hash aggregate over bit), ordered for compare.
         2 => format!(
             "SELECT v::text, count(*) FROM (VALUES {pool}) t(v) \
@@ -584,8 +580,13 @@ mod tests {
             for sql in group {
                 assert!(sql.ends_with(';'), "unterminated: {sql}");
                 assert!(!sql.contains('\n'), "multi-line: {sql}");
-                assert!(sql.starts_with("SELECT ") || sql.starts_with("DROP ")
-                    || sql.starts_with("CREATE ") || sql.starts_with("INSERT "), "{sql}");
+                assert!(
+                    sql.starts_with("SELECT ")
+                        || sql.starts_with("DROP ")
+                        || sql.starts_with("CREATE ")
+                        || sql.starts_with("INSERT "),
+                    "{sql}"
+                );
                 assert_eq!(
                     sql.matches('(').count(),
                     sql.matches(')').count(),
@@ -598,10 +599,16 @@ mod tests {
         }
         // Every top-level shape and the ok/err bias fired at least once.
         for shape in SHAPES {
-            assert!(prods.iter().any(|p| p == shape), "shape never fired: {shape}");
+            assert!(
+                prods.iter().any(|p| p == shape),
+                "shape never fired: {shape}"
+            );
         }
         assert!(prods.iter().any(|p| p == "bitstring"));
-        assert!(prods.iter().any(|p| p == "bitstr:err"), "error arm never fired");
+        assert!(
+            prods.iter().any(|p| p == "bitstr:err"),
+            "error arm never fired"
+        );
     }
 
     /// The TEMP-table error bracket always creates and drops its fixture in
@@ -610,11 +617,16 @@ mod tests {
     fn typmod_error_bracket_is_self_contained() {
         let (groups, _) = gen_groups(0xB176, 5000);
         for group in &groups {
-            let creates = group.iter().filter(|s| s.starts_with("CREATE TEMP TABLE")).count();
+            let creates = group
+                .iter()
+                .filter(|s| s.starts_with("CREATE TEMP TABLE"))
+                .count();
             if creates > 0 {
                 assert_eq!(creates, 1, "more than one temp table per group: {group:?}");
-                assert!(group.iter().any(|s| s == "DROP TABLE fz_bs_tm;"),
-                    "temp table not dropped: {group:?}");
+                assert!(
+                    group.iter().any(|s| s == "DROP TABLE fz_bs_tm;"),
+                    "temp table not dropped: {group:?}"
+                );
             }
         }
     }

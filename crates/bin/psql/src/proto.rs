@@ -86,9 +86,7 @@ impl Transport for FdTransport {
     fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
         let mut off = 0;
         while off < buf.len() {
-            let n = unsafe {
-                libc::write(self.wfd, buf[off..].as_ptr().cast(), buf.len() - off)
-            };
+            let n = unsafe { libc::write(self.wfd, buf[off..].as_ptr().cast(), buf.len() - off) };
             if n >= 0 {
                 off += n as usize;
                 continue;
@@ -126,7 +124,11 @@ pub(crate) fn cstr_at(b: &[u8], pos: usize) -> (String, usize) {
     // without a NUL hands us pos == b.len() + 1; clamp instead of slicing
     // out of range.
     let pos = pos.min(b.len());
-    let end = b[pos..].iter().position(|&c| c == 0).map(|e| pos + e).unwrap_or(b.len());
+    let end = b[pos..]
+        .iter()
+        .position(|&c| c == 0)
+        .map(|e| pos + e)
+        .unwrap_or(b.len());
     (String::from_utf8_lossy(&b[pos..end]).into_owned(), end + 1)
 }
 
@@ -147,7 +149,10 @@ pub struct ErrorFields {
 }
 
 pub(crate) fn parse_diag(body: &[u8]) -> ErrorFields {
-    let mut f = ErrorFields { severity: "ERROR".into(), ..Default::default() };
+    let mut f = ErrorFields {
+        severity: "ERROR".into(),
+        ..Default::default()
+    };
     let mut i = 0;
     while i < body.len() && body[i] != 0 {
         let code = body[i];
@@ -213,7 +218,10 @@ impl QueryResult {
     }
 
     pub fn conn_error(err: String) -> Self {
-        QueryResult { conn_err: err, ..QueryResult::status_only(ExecStatus::Error) }
+        QueryResult {
+            conn_err: err,
+            ..QueryResult::status_only(ExecStatus::Error)
+        }
     }
 }
 
@@ -276,13 +284,18 @@ impl Conn {
     }
 
     pub fn parameter_status(&self, name: &str) -> Option<&str> {
-        self.params.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
+        self.params
+            .iter()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.as_str())
     }
 
     pub fn server_version_num(&self) -> i32 {
         // Derive a version number from server_version ("18.3", "18beta1", ...).
         let v = self.parameter_status("server_version").unwrap_or("");
-        let mut it = v.split(|c: char| !c.is_ascii_digit()).filter(|s| !s.is_empty());
+        let mut it = v
+            .split(|c: char| !c.is_ascii_digit())
+            .filter(|s| !s.is_empty());
         let major: i32 = it.next().and_then(|s| s.parse().ok()).unwrap_or(0);
         let minor: i32 = it.next().and_then(|s| s.parse().ok()).unwrap_or(0);
         major * 10000 + minor
@@ -391,7 +404,11 @@ impl Conn {
                 let be_pid = be_i32(pid_bytes);
                 let (channel, next) = cstr_at(body, 4);
                 let (extra, _) = cstr_at(body, next);
-                self.notifies.push_back(Notify { channel, be_pid, extra });
+                self.notifies.push_back(Notify {
+                    channel,
+                    be_pid,
+                    extra,
+                });
             }
             b'K' => {
                 // BackendKeyData shorter than its 4-byte pid is malformed;
@@ -483,7 +500,11 @@ impl Conn {
                     Err(e) => return Err(self.proto_error(e)),
                 },
                 b'C' | b's' => {
-                    let tag = if t == b'C' { cstr_at(&body, 0).0 } else { String::new() };
+                    let tag = if t == b'C' {
+                        cstr_at(&body, 0).0
+                    } else {
+                        String::new()
+                    };
                     // A zero-column SELECT is still a tuples result: key off
                     // RowDescription, not the field count.
                     let status = if got_desc {
@@ -655,7 +676,12 @@ fn parse_row_description(body: &[u8]) -> Result<Vec<Field>, String> {
         let typmod = be_i32(&fixed[12..16]);
         let format = be_i16(&fixed[16..18]);
         p += 18;
-        fields.push(Field { name, type_oid, typmod, format });
+        fields.push(Field {
+            name,
+            type_oid,
+            typmod,
+            format,
+        });
     }
     Ok(fields)
 }
@@ -774,7 +800,10 @@ mod tests {
     }
 
     fn conn_with(stream: Vec<u8>) -> Conn {
-        Conn::new(Box::new(MockTransport { data: stream, pos: 0 }))
+        Conn::new(Box::new(MockTransport {
+            data: stream,
+            pos: 0,
+        }))
     }
 
     /// Wire message: type byte + self-inclusive length + body.
@@ -798,7 +827,10 @@ mod tests {
 
     #[test]
     fn data_row_zero_columns() {
-        assert_eq!(parse_data_row(&[0, 0]).unwrap(), Vec::<Option<Vec<u8>>>::new());
+        assert_eq!(
+            parse_data_row(&[0, 0]).unwrap(),
+            Vec::<Option<Vec<u8>>>::new()
+        );
     }
 
     #[test]
@@ -892,7 +924,9 @@ mod tests {
     #[test]
     fn row_description_field_count_lies() {
         // Claims 2 fields, carries 0 bytes of them.
-        let e = parse_row_description(&[0, 2]).err().expect("expected error");
+        let e = parse_row_description(&[0, 2])
+            .err()
+            .expect("expected error");
         assert!(e.contains("insufficient data"), "{e}");
     }
 

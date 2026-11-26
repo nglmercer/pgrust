@@ -17,11 +17,25 @@ pub(crate) const BASE: Pipeline = Pipeline::serial(-1, End::Sink, Reason::NoDriv
 /// Whether the union streams into `c`'s ops and end: every op copies per arm, `c`'s desc is the base one past what an
 /// end sets, and no arm (an inner union's arms included) reads a slot `c` reads. `held`: the check option SubPlans whose
 /// per-arm copies are mapped (nested_arms.rs `copy_sets`).
-pub(crate) fn streams<'p>(g: &PipelineGraph<'p>, c: &Open<'p>, arms: &[Open<'p>], ordered: bool, held: &dyn Fn(i32) -> bool) -> bool {
+pub(crate) fn streams<'p>(
+    g: &PipelineGraph<'p>,
+    c: &Open<'p>,
+    arms: &[Open<'p>],
+    ordered: bool,
+    held: &dyn Fn(i32) -> bool,
+) -> bool {
     let d = &c.desc;
-    let serial = d.parallel == BASE.parallel || owner(c).is_some_and(|r| d.parallel == owned(r).parallel);
-    let base = serial && d.driving_site == BASE.driving_site && d.predicted_rows == BASE.predicted_rows && !d.finish;
-    base && c.ops.iter().all(|op| copies(op, ordered, arms.len()) || crate::nested_arms::per_arm(g, op, &c.ops, held) || crate::arm_nests::per_arm(g, op, &c.ops, arms)) && !arms.iter().any(|a| reads_any(g, a, d.consumes))
+    let serial =
+        d.parallel == BASE.parallel || owner(c).is_some_and(|r| d.parallel == owned(r).parallel);
+    let base = serial
+        && d.driving_site == BASE.driving_site
+        && d.predicted_rows == BASE.predicted_rows
+        && !d.finish;
+    base && c.ops.iter().all(|op| {
+        copies(op, ordered, arms.len())
+            || crate::nested_arms::per_arm(g, op, &c.ops, held)
+            || crate::arm_nests::per_arm(g, op, &c.ops, arms)
+    }) && !arms.iter().any(|a| reads_any(g, a, d.consumes))
 }
 
 /// A row-owning op's open over its union once `write.rs` made it serial (`serial_after`, no driving site): the op owns
@@ -53,13 +67,25 @@ fn owner(c: &Open<'_>) -> Option<Reason> {
 fn streamed_write(op: &Op<'_>) -> bool {
     use gravity_program::Cmd;
     let Op::Write(w) = op else { return false };
-    let merge = w.merge.as_ref().is_some_and(|m| m.actions.iter().any(|a| matches!(a.cmd, Some(Cmd::Update | Cmd::Delete))) && m.actions.iter().all(|a| a.cmd != Some(Cmd::Insert)));
-    w.targets.len() > 1 && (matches!(w.cmd, Cmd::Update | Cmd::Delete) || w.cmd == Cmd::Merge && merge)
+    let merge = w.merge.as_ref().is_some_and(|m| {
+        m.actions
+            .iter()
+            .any(|a| matches!(a.cmd, Some(Cmd::Update | Cmd::Delete)))
+            && m.actions.iter().all(|a| a.cmd != Some(Cmd::Insert))
+    });
+    w.targets.len() > 1
+        && (matches!(w.cmd, Cmd::Update | Cmd::Delete) || w.cmd == Cmd::Merge && merge)
 }
 
 fn reads_any<'p>(g: &PipelineGraph<'p>, a: &Open<'p>, slots: &[u8]) -> bool {
     crate::walk::stack_check(); // D3748
-    a.desc.consumes.iter().any(|s| slots.contains(s)) || a.union.is_some_and(|u| g.unions[u as usize].arms.iter().any(|x| reads_any(g, x, slots)))
+    a.desc.consumes.iter().any(|s| slots.contains(s))
+        || a.union.is_some_and(|u| {
+            g.unions[u as usize]
+                .arms
+                .iter()
+                .any(|x| reads_any(g, x, slots))
+        })
 }
 
 /// `d` reading every slot `c` reads, the lives named when both name theirs.
@@ -91,7 +117,12 @@ fn copies(op: &Op<'_>, ordered: bool, arms: usize) -> bool {
     use crate::ops::shared::subplan::SubForm;
     use gravity_program::cost::UNION_TOP_ARMS_MIN;
     match op {
-        Op::Filter(_) | Op::Gate(_) | Op::Project(_) | Op::Limit { .. } | Op::Srf(_) | Op::Lock(_) => true,
+        Op::Filter(_)
+        | Op::Gate(_)
+        | Op::Project(_)
+        | Op::Limit { .. }
+        | Op::Srf(_)
+        | Op::Lock(_) => true,
         Op::Join(JoinDesc::Probe { .. }) => true,
         Op::SubPlan(d) => matches!(d.form, SubForm::Hashed { .. }),
         Op::Append(AppendDesc::Arm { .. }) => true,
@@ -112,12 +143,22 @@ fn copies(op: &Op<'_>, ordered: bool, arms: usize) -> bool {
 
 /// The union's Materialize form (a nest's or nested subplan's inner, a spool, an InitPlan, an op no arm can copy):
 /// each arm feeds one slot, the returned emit over it carries `Union` and `c`'s ops and end.
-pub(crate) fn settle_arms<'p>(g: &mut PipelineGraph<'p>, mut c: Open<'p>, arms: ArenaVec<Open<'p>>, order: Order, prune: Option<PruneDesc<'p>>) -> Open<'p> {
+pub(crate) fn settle_arms<'p>(
+    g: &mut PipelineGraph<'p>,
+    mut c: Open<'p>,
+    arms: ArenaVec<Open<'p>>,
+    order: Order,
+    prune: Option<PruneDesc<'p>>,
+) -> Open<'p> {
     crate::walk::stack_check();
     let arena = *g.pipelines.allocator();
     // D2369 (CAP-33): a checked count as wide as the Append's (map_append refuses past u16::MAX children), not a u8
     let n = u16::try_from(arms.len()).unwrap_or_else(|_| {
-        g.fault.get_or_insert(Refusal::shape(Kind::Append, c.node_id, "more than 65535 children of a union kept in its Materialize form"));
+        g.fault.get_or_insert(Refusal::shape(
+            Kind::Append,
+            c.node_id,
+            "more than 65535 children of a union kept in its Materialize form",
+        ));
         u16::MAX
     });
     let mut slot = None;
@@ -125,20 +166,49 @@ pub(crate) fn settle_arms<'p>(g: &mut PipelineGraph<'p>, mut c: Open<'p>, arms: 
         // an inner union settles first and the slot is the lowest free at the first feed, as the child-by-child form chose
         let mut a = settle(g, a);
         let s = *slot.get_or_insert_with(|| feed_slot(g, &a, &c));
-        a.node_ops.push(NodeOps { node_id: c.node_id, first_op: a.ops.len() as u16, producer_top: true });
-        a.push(Op::Append(AppendDesc::Feed { slot: s, ordered: order.is_known() }));
-        let breaker = Breaker { kind: BreakerKind::Materialize, slot: s, bytes: 0, budget: Budget::Share, spill: Spill::Runs };
+        a.node_ops.push(NodeOps {
+            node_id: c.node_id,
+            first_op: a.ops.len() as u16,
+            producer_top: true,
+        });
+        a.push(Op::Append(AppendDesc::Feed {
+            slot: s,
+            ordered: order.is_known(),
+        }));
+        let breaker = Breaker {
+            kind: BreakerKind::Materialize,
+            slot: s,
+            bytes: 0,
+            budget: Budget::Share,
+            spill: Spill::Runs,
+        };
         breakers::declare_producers(g, a, breaker, ROW_LAYOUT, order);
     }
     let slot = slot.unwrap_or(0);
     g.reads[slot as usize] += 1; // the emit's read (`consuming`)
     let life = breakers::decl_of(g, slot).map_or(0, |d| d.producer);
-    let reads = consume_all(arena, BASE.consuming_from_in(arena, slot, LifeId(life)), &c.desc);
-    let desc = Pipeline { consumes: reads.consumes, consumes_from: reads.consumes_from, ..c.desc };
+    let reads = consume_all(
+        arena,
+        BASE.consuming_from_in(arena, slot, LifeId(life)),
+        &c.desc,
+    );
+    let desc = Pipeline {
+        consumes: reads.consumes,
+        consumes_from: reads.consumes_from,
+        ..c.desc
+    };
     let mut emit = Open::new(arena, c.node_id, Source::Breaker { slot }, desc);
-    emit.push(Op::Append(AppendDesc::Union { slot, children: n, prune }));
+    emit.push(Op::Append(AppendDesc::Union {
+        slot,
+        children: n,
+        prune,
+    }));
     emit.ops.extend(c.ops.drain(..));
-    emit.node_ops.extend(c.node_ops.iter().enumerate().map(|(k, x)| NodeOps { first_op: if k == 0 { 0 } else { x.first_op + 1 }, ..*x }));
+    emit.node_ops
+        .extend(c.node_ops.iter().enumerate().map(|(k, x)| NodeOps {
+            first_op: if k == 0 { 0 } else { x.first_op + 1 },
+            ..*x
+        }));
     emit.mark = c.mark + 1;
     emit
 }
@@ -154,7 +224,11 @@ fn feed_slot<'p>(g: &mut PipelineGraph<'p>, first: &Open<'p>, c: &Open<'p>) -> u
         g.reads[s as usize] -= 1;
     }
     free.unwrap_or_else(|| {
-        g.fault.get_or_insert(Refusal::shape(Kind::Append, c.node_id, "more than 256 live breaker slots (the u8 breaker slot id, limits::BREAKERS)"));
+        g.fault.get_or_insert(Refusal::shape(
+            Kind::Append,
+            c.node_id,
+            "more than 256 live breaker slots (the u8 breaker slot id, limits::BREAKERS)",
+        ));
         0
     })
 }
@@ -163,7 +237,17 @@ fn feed_slot<'p>(g: &mut PipelineGraph<'p>, first: &Open<'p>, c: &Open<'p>) -> u
 /// the lowest free slot, as the Materialize form did).
 pub fn resolve<'p>(g: &mut PipelineGraph<'p>, open: Open<'p>) -> Open<'p> {
     match open.union {
-        Some(u) if !streams(g, &open, &g.unions[u as usize].arms, g.unions[u as usize].order.is_known(), &|id| g.arm_subs.iter().any(|s| s.union == u && s.plan_id == id)) => settle(g, open),
+        Some(u)
+            if !streams(
+                g,
+                &open,
+                &g.unions[u as usize].arms,
+                g.unions[u as usize].order.is_known(),
+                &|id| g.arm_subs.iter().any(|s| s.union == u && s.plan_id == id),
+            ) =>
+        {
+            settle(g, open)
+        }
         _ => open,
     }
 }
@@ -171,7 +255,9 @@ pub fn resolve<'p>(g: &mut PipelineGraph<'p>, open: Open<'p>) -> Open<'p> {
 /// `open` with its union kept in the Materialize form: an open that is embedded (a nest's or nested subplan's inner),
 /// spooled or pushed as an InitPlan is one pipeline.
 pub fn settle<'p>(g: &mut PipelineGraph<'p>, mut open: Open<'p>) -> Open<'p> {
-    let Some(u) = open.union.take() else { return open };
+    let Some(u) = open.union.take() else {
+        return open;
+    };
     let arena = *g.pipelines.allocator();
     let arms = core::mem::replace(&mut g.unions[u as usize].arms, ArenaVec::new_in(arena));
     let (order, prune) = (g.unions[u as usize].order, g.unions[u as usize].prune);

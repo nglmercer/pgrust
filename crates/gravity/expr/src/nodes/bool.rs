@@ -19,12 +19,21 @@ pub fn compile<'mcx>(b: &mut Builder<'_, 'mcx>, e: &BoolExpr<'mcx>) -> CompileRe
     Ok(b.push(ExprNode::Bool(BoolNode { op: e.boolop, args })))
 }
 
-pub fn eval_bool(p: &Prog<'_, '_>, st: &mut St<'_>, n: &BoolNode, cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
+pub fn eval_bool(
+    p: &Prog<'_, '_>,
+    st: &mut St<'_>,
+    n: &BoolNode,
+    cx: &mut Cx<'_, '_>,
+) -> PgResult<NullableDatum> {
     let kids = &p.kids[n.args.start as usize..n.args.start as usize + n.args.len as usize];
     match n.op {
         BoolExprType::NOT_EXPR => {
             let v = eval(p, st, kids[0], cx)?;
-            Ok(if v.isnull { NullableDatum::null() } else { NullableDatum::value(Datum::from_bool(!v.value.as_bool())) })
+            Ok(if v.isnull {
+                NullableDatum::null()
+            } else {
+                NullableDatum::value(Datum::from_bool(!v.value.as_bool()))
+            })
         }
         BoolExprType::AND_EXPR => {
             let mut any_null = false;
@@ -36,7 +45,11 @@ pub fn eval_bool(p: &Prog<'_, '_>, st: &mut St<'_>, n: &BoolNode, cx: &mut Cx<'_
                     return Ok(NullableDatum::value(Datum::from_bool(false)));
                 }
             }
-            Ok(if any_null { NullableDatum::null() } else { NullableDatum::value(Datum::from_bool(true)) })
+            Ok(if any_null {
+                NullableDatum::null()
+            } else {
+                NullableDatum::value(Datum::from_bool(true))
+            })
         }
         BoolExprType::OR_EXPR => {
             let mut any_null = false;
@@ -48,8 +61,11 @@ pub fn eval_bool(p: &Prog<'_, '_>, st: &mut St<'_>, n: &BoolNode, cx: &mut Cx<'_
                     return Ok(NullableDatum::value(Datum::from_bool(true)));
                 }
             }
-            Ok(if any_null { NullableDatum::null() } else { NullableDatum::value(Datum::from_bool(false)) })
+            Ok(if any_null {
+                NullableDatum::null()
+            } else {
+                NullableDatum::value(Datum::from_bool(false))
+            })
         }
     }
 }
-

@@ -63,7 +63,10 @@ pub(crate) unsafe fn open(t: &Rt, end: usize) -> Option<Words> {
     let fb = fb?;
     core::ptr::write_bytes(t.d.add(end), 0, bytes(fb));
     fires::fire_shared("rowfilter.laid"); // shapecheck fire signal (D3194): a build lays the Bloom words its probe tests
-    Some(Words { at: t.d.add(end + STATE) as *mut u64, fb })
+    Some(Words {
+        at: t.d.add(end + STATE) as *mut u64,
+        fb,
+    })
 }
 
 /// The words a partitioned merge's prepare opened (`open`), for its jobs: `None` when it opened none.
@@ -73,7 +76,10 @@ pub(crate) unsafe fn open(t: &Rt, end: usize) -> Option<Words> {
 pub(crate) unsafe fn shared(t: &Rt) -> Option<Words> {
     let fb = rd::<u8>(t.d, RF_BITS) as u32;
     let end = rd::<u64>(t.d, DIR) as usize + (8usize << rd::<u32>(t.d, BITS));
-    (fb != 0).then(|| Words { at: t.d.add(end + STATE) as *mut u64, fb })
+    (fb != 0).then(|| Words {
+        at: t.d.add(end + STATE) as *mut u64,
+        fb,
+    })
 }
 
 gravity_abi::host! {
@@ -89,7 +95,10 @@ gravity_abi::host! {
 #[cfg(test)]
 mod tests {
     use super::{shared, Words};
-    use crate::ops::hashjoin::build::{ALLOW, A_RF, A_TAGS, END, FLAGS, FORM, F_RANGE, HASH, HDR, HI, KIND, LO, N, PHASE, REC, RF_BITS, TOP, WORDS};
+    use crate::ops::hashjoin::build::{
+        ALLOW, A_RF, A_TAGS, END, FLAGS, FORM, F_RANGE, HASH, HDR, HI, KIND, LO, N, PHASE, REC,
+        RF_BITS, TOP, WORDS,
+    };
     use crate::ops::hashjoin::rt::{rd, wr, Rt};
     use crate::ops::hashjoin::strategies::rowfilter::{bits_for, place};
     use gravity_abi::hash::KeyHash;
@@ -99,12 +108,23 @@ mod tests {
         let mut buf = vec![0u64; len / 8];
         let d = buf.as_mut_ptr() as *mut u8;
         // SAFETY: `buf` is the region, `len` bytes, the records within it.
-        unsafe {wr::<u8>(d, 15, KIND); wr::<u8>(d, PHASE, 1); wr::<u8>(d, WORDS, 1); wr::<u32>(d, REC, 16); wr::<u8>(d, ALLOW, allow); wr::<u8>(d, FLAGS, F_RANGE);
+        unsafe {
+            wr::<u8>(d, 15, KIND);
+            wr::<u8>(d, PHASE, 1);
+            wr::<u8>(d, WORDS, 1);
+            wr::<u32>(d, REC, 16);
+            wr::<u8>(d, ALLOW, allow);
+            wr::<u8>(d, FLAGS, F_RANGE);
             crate::ops::hashjoin::layout::set_pay(d, 0);
-            wr::<u64>(d, N, keys.len() as u64); wr::<u64>(d, TOP, len as u64); wr::<u64>(d, END, len as u64);
-wr::<i64>(d, LO, keys.iter().copied().min().unwrap_or(0)); wr::<i64>(d, HI, keys.iter().copied().max().unwrap_or(0));
+            wr::<u64>(d, N, keys.len() as u64);
+            wr::<u64>(d, TOP, len as u64);
+            wr::<u64>(d, END, len as u64);
+            wr::<i64>(d, LO, keys.iter().copied().min().unwrap_or(0));
+            wr::<i64>(d, HI, keys.iter().copied().max().unwrap_or(0));
             wr::<u8>(d, RF_BITS, 0xAA); // garbage, as a worker's header carries past the 64 bytes the driver zeroes
-            keys.iter().enumerate().for_each(|(i, &k)| wr::<i64>(d, HDR + 16 * i, k));
+            keys.iter()
+                .enumerate()
+                .for_each(|(i, &k)| wr::<i64>(d, HDR + 16 * i, k));
         }
         buf
     }
@@ -121,10 +141,17 @@ wr::<i64>(d, LO, keys.iter().copied().min().unwrap_or(0)); wr::<i64>(d, HI, keys
     /// writes RF_BITS; one whose probe reads none, or without the room, writes RF_BITS 0 over the header's garbage.
     #[test]
     fn a_hash_lay_out_lays_the_words_only_where_its_probe_reads_them() {
-        let keys: Vec<i64> = (0..3000).map(|i| i * 7919 % 1_000_003 + 1_000_000_000).collect();
+        let keys: Vec<i64> = (0..3000)
+            .map(|i| i * 7919 % 1_000_003 + 1_000_000_000)
+            .collect();
         // room for the directory alone: the records, then the heads a cache line up
-        let tight = (HDR + 16 * 3000).next_multiple_of(64) + (8 << crate::ops::hashjoin::rt::dir_bits(3000));
-        for (allow, len, want) in [(A_TAGS | A_RF, 1 << 20, true), (A_TAGS, 1 << 20, false), (A_TAGS | A_RF, tight, false)] {
+        let tight = (HDR + 16 * 3000).next_multiple_of(64)
+            + (8 << crate::ops::hashjoin::rt::dir_bits(3000));
+        for (allow, len, want) in [
+            (A_TAGS | A_RF, 1 << 20, true),
+            (A_TAGS, 1 << 20, false),
+            (A_TAGS | A_RF, tight, false),
+        ] {
             let mut buf = region(&keys, allow, len);
             let d = buf.as_mut_ptr() as *mut u8;
             // SAFETY: `buf` is a phase-1 build region with every record in.

@@ -19,7 +19,10 @@ use crate::face::runs::{DistinctSetImpl, DistinctSetMech};
 use crate::frame::env::Env;
 use crate::ops::Table;
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::RunsGroupDistinct, &DistinctSetImpl(&SET))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::RunsGroupDistinct, &DistinctSetImpl(&SET))],
+    ..crate::ops::NONE
+};
 
 /// The set's frame words (byte offsets): the table's address (0), its capacity (8: entries, a power of two), its length
 /// and its generation.
@@ -42,15 +45,33 @@ impl DistinctSetMech for Set {
         b.store(set, W_LEN, env.zero);
     }
 
-    fn insert(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, set: Value, img: &[Value]) -> Value {
+    fn insert(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        set: Value,
+        img: &[Value],
+    ) -> Value {
         let slot = b.declare_stack_slot(8 * img.len() as u32, 8);
         let key = b.stack_addr(slot);
         for (i, &w) in img.iter().enumerate() {
             b.store(key, 8 * i as i32, w);
         }
-        let h = b.declare_host_once("dset_insert", &[Type::Ptr, Type::Ptr, Type::Ptr, Type::I64], Some(Type::I64), super::raw::dset_insert as *const () as usize, HostFlags { may_error: true, touches_memory: true, ..HostFlags::default() });
+        let h = b.declare_host_once(
+            "dset_insert",
+            &[Type::Ptr, Type::Ptr, Type::Ptr, Type::I64],
+            Some(Type::I64),
+            super::raw::dset_insert as *const () as usize,
+            HostFlags {
+                may_error: true,
+                touches_memory: true,
+                ..HostFlags::default()
+            },
+        );
         let n = b.iconst(Type::I64, img.len() as i64);
-        let r = b.call_host(h, &[env.ctx, set, key, n], Some(Type::I64)).expect("dset_insert returns its status");
+        let r = b
+            .call_host(h, &[env.ctx, set, key, n], Some(Type::I64))
+            .expect("dset_insert returns its status");
         let (failed, l_ok) = (b.icmp(IntCond::Slt, r, env.zero), b.create_block(&[]));
         let e = b.iconst(Type::I64, raise::bit(raise::HOST) as i64);
         b.cond_br(failed, (env.l_raise, &[e]), (l_ok, &[]));
@@ -61,7 +82,13 @@ impl DistinctSetMech for Set {
     /// RUNS-33: equal arguments adjacent, a value is new when it differs from the last one kept. An image of up to two
     /// words is kept in the table's and the capacity's words (no table is pinned: the statement offers sorted only), the
     /// length word saying whether the group kept one; a wider image takes the set.
-    fn insert_sorted(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, set: Value, img: &[Value]) -> Value {
+    fn insert_sorted(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        set: Value,
+        img: &[Value],
+    ) -> Value {
         if img.len() > 2 {
             return self.insert(b, env, set, img);
         }

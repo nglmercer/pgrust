@@ -44,7 +44,13 @@ pub(crate) const MORSEL: u64 = GRANULE_C0;
 /// gap-optoverfit EX-11, keep: the law's one premise is a worker per live part, no tuned constant (the part-claims kill
 /// switch went in c0572469384); its does-not-apply test is tests/admit_runner.rs `whole_part_claims_split_inside_a_part_below_the_width`.
 /// The whole-part claim law: a claim whose end groups by code per part runs its whole part (`code_groups`: the runner's text-groups fold, the two-level code aggregation, appends per part); an answerable site's too (one answer per part, no read: a site some part of which the catalog's records skip or answer, granule_source::answered_parts); every other non-sparse pipeline runs whole parts for the cold I/O (one run read per lane per part, W parts' reads in flight) only while every worker gets a part — fewer live parts than the width would leave `width - live_parts` workers idle, so the sizer cuts claims inside the parts instead. V4R-10: a site that only reads or filters code lanes is cut like int lanes (a v4 program keeps its code state per window: a window reads one part's dictionary).
-pub fn whole_part_claims(code_groups: bool, answerable: bool, sparse: bool, live_parts: u64, width: u16) -> bool {
+pub fn whole_part_claims(
+    code_groups: bool,
+    answerable: bool,
+    sparse: bool,
+    live_parts: u64,
+    width: u16,
+) -> bool {
     code_groups || (!sparse && (answerable || live_parts >= width as u64))
 }
 
@@ -57,7 +63,7 @@ pub fn whole_part_claims(code_groups: bool, answerable: bool, sparse: bool, live
 /// and what its extra claims cost are both per tail part).
 pub fn tail_from_part(live_parts: u64, width: u16) -> Option<u64> {
     let w = width as u64;
-    (w >= 2 && live_parts > w && ! live_parts.is_multiple_of( w)).then(|| live_parts / w * w)
+    (w >= 2 && live_parts > w && !live_parts.is_multiple_of(w)).then(|| live_parts / w * w)
 }
 
 pub(crate) fn forced_width() -> Option<u16> {
@@ -153,7 +159,10 @@ pub fn by_work(claimed: u16, arg: u64, blocks: Option<u64>, answered: bool) -> u
 /// `by_work` over one declared `ProtoKind::Width` (exec/src/v4/m1.rs's Protocol::prepare): the pipeline's claimed width in
 /// `cx.widths`, the proto's `arg`, and the heap's blocks when a heap range recipe drives the pipeline (one smgr size read,
 /// the one `claims_of` made), or whether the leader answers a pgrc site whole (`answered_whole`).
-pub(crate) fn pipeline_width(cx: &crate::ops::Prepare<'_>, p: &gravity_program::protos::Proto) -> types_error::PgResult<u16> {
+pub(crate) fn pipeline_width(
+    cx: &crate::ops::Prepare<'_>,
+    p: &gravity_program::protos::Proto,
+) -> types_error::PgResult<u16> {
     let i = p.pipeline as usize;
     // pglfast C6(ii): `by_work` answers the leader alone before it reads the blocks or the answered test (leader-only, or
     // claims under two workers: every width-0/1 statement), so neither is worked out: no smgr size read per pipeline
@@ -161,20 +170,37 @@ pub(crate) fn pipeline_width(cx: &crate::ops::Prepare<'_>, p: &gravity_program::
         return Ok(by_work(cx.widths[i], p.arg, None, false));
     }
     let site = cx.program.pipelines[i].driving_site;
-    let blocks = match (site >= 0).then(|| cx.admitted.registry.range_recipe(site as usize)).flatten() {
+    let blocks = match (site >= 0)
+        .then(|| cx.admitted.registry.range_recipe(site as usize))
+        .flatten()
+    {
         // D3586: an arm the initial pruning removed runs empty, sized as no blocks (runner plan.rs `claims_of`), unopened
         Some(r) if r.set.is_none() && cx.initial.is_some_and(|x| x.pruned(i)) => Some(0),
         // D3585: a relation set's blocks are its every relation's, (D3663) its initial pruning's survivors' when it prunes
         Some(r) => match r.set.as_deref() {
             Some(set) => {
-                let kept = |i: usize| cx.initial.and_then(|x| x.set_kept(site as usize)).is_none_or(|v| crate::ops::append::prune::member(v, i));
-                Some(set.iter().enumerate().filter(|&(i, _)| kept(i)).try_fold(0u64, |n, (_, &rel)| Ok::<u64, Box<types_error::PgError>>(n + gravity_hosts::ops::scan::heap_source::nblocks(cx.mcx, rel)?))?)
+                let kept = |i: usize| {
+                    cx.initial
+                        .and_then(|x| x.set_kept(site as usize))
+                        .is_none_or(|v| crate::ops::append::prune::member(v, i))
+                };
+                Some(set.iter().enumerate().filter(|&(i, _)| kept(i)).try_fold(
+                    0u64,
+                    |n, (_, &rel)| {
+                        Ok::<u64, Box<types_error::PgError>>(
+                            n + gravity_hosts::ops::scan::heap_source::nblocks(cx.mcx, rel)?,
+                        )
+                    },
+                )?)
             }
             None => Some(gravity_hosts::ops::scan::heap_source::nblocks(cx.mcx, r.heap)? as u64),
         },
         None => None,
     };
-    let answered = cx.widths[i] >= 2 && p.arg & WIDTH_LEADER_ONLY == 0 && site >= 0 && answered_whole(cx, i, site as usize)?;
+    let answered = cx.widths[i] >= 2
+        && p.arg & WIDTH_LEADER_ONLY == 0
+        && site >= 0
+        && answered_whole(cx, i, site as usize)?;
     Ok(by_work(cx.widths[i], p.arg, blocks, answered))
 }
 
@@ -182,27 +208,53 @@ pub(crate) fn pipeline_width(cx: &crate::ops::Prepare<'_>, p: &gravity_program::
 /// top-k, no word-valued zone predicate (bound after this protocol, by src.verdicts), the zone verdicts on, every
 /// attribute lane a filter or an answer lane, and every part answered from the catalog's records
 /// (`granule_source::answered_whole` over the site's static zone predicates).
-fn answered_whole(cx: &crate::ops::Prepare<'_>, i: usize, site: usize) -> types_error::PgResult<bool> {
+fn answered_whole(
+    cx: &crate::ops::Prepare<'_>,
+    i: usize,
+    site: usize,
+) -> types_error::PgResult<bool> {
     use gravity_program::protos::{ProtoKind, VERDICT_ZONE};
-    let Some(r) = cx.admitted.registry.granule_recipe(site) else { return Ok(false) };
+    let Some(r) = cx.admitted.registry.granule_recipe(site) else {
+        return Ok(false);
+    };
     let (desc, pipe) = (&cx.program.sites[site], &cx.program.pipelines[i]);
     let protos = cx.program.v4.as_ref().map_or(&[][..], |d| &d.protos[..]);
-    let verdicts = |slot: fn(u8) -> bool| protos.iter().filter(move |q| q.kind == ProtoKind::Verdicts && q.site as i64 == site as i64 && slot(q.slot));
+    let verdicts = |slot: fn(u8) -> bool| {
+        protos.iter().filter(move |q| {
+            q.kind == ProtoKind::Verdicts && q.site as i64 == site as i64 && slot(q.slot)
+        })
+    };
     let zone_on = verdicts(|s| s == 0).all(|q| q.arg & VERDICT_ZONE != 0);
     // NEW-72: a bound literal's or an IN list's slot binds before this read (`site_zone`); a generic plan's or an open-time
     // one does not
-    let late = |arg: u64| gravity_program::protos::word_zone_at_of(arg).is_none() && gravity_program::protos::word_zone_list_of(arg).is_none();
+    let late = |arg: u64| {
+        gravity_program::protos::word_zone_at_of(arg).is_none()
+            && gravity_program::protos::word_zone_list_of(arg).is_none()
+    };
     let words = verdicts(|s| s >= gravity_program::protos::VERDICT_WORD_ZONE).any(|q| late(q.arg));
-    let lanes = (0..desc.natts()).all(|k| desc.filter_lanes.contains(k) || desc.answer_lanes.contains(k));
-    let zone = crate::ops::scan::pgrc::verdicts::site_zone(cx.program, site, &cx.words[..], &cx.nulls[..]).unwrap_or_default();
-    if cx.admitted.walk.is_some() || pipe.topk.is_some() || !zone_on || words || !lanes || zone.is_empty() {
+    let lanes =
+        (0..desc.natts()).all(|k| desc.filter_lanes.contains(k) || desc.answer_lanes.contains(k));
+    let zone =
+        crate::ops::scan::pgrc::verdicts::site_zone(cx.program, site, &cx.words[..], &cx.nulls[..])
+            .unwrap_or_default();
+    if cx.admitted.walk.is_some()
+        || pipe.topk.is_some()
+        || !zone_on
+        || words
+        || !lanes
+        || zone.is_empty()
+    {
         return Ok(false);
     }
     let rel = table::table_open(cx.mcx, r.rel, types_storage::lock::NoLock)?;
     let list = gravity_hosts::ops::scan::pgrc::granule_source::resolve(&rel, Some(cx.snap));
     rel.close(types_storage::lock::NoLock)?;
-    let answer: Vec<usize> = (0..desc.natts()).filter(|&k| desc.answer_lanes.contains(k)).collect(); // alloc: Exec
-    Ok(list.is_ok_and(|l| gravity_hosts::ops::scan::pgrc::granule_source::answered_whole(&l, r, &zone, &answer)))
+    let answer: Vec<usize> = (0..desc.natts())
+        .filter(|&k| desc.answer_lanes.contains(k))
+        .collect(); // alloc: Exec
+    Ok(list.is_ok_and(|l| {
+        gravity_hosts::ops::scan::pgrc::granule_source::answered_whole(&l, r, &zone, &answer)
+    }))
 }
 
 #[cfg(test)]
@@ -214,15 +266,35 @@ mod width_of_tests {
     #[test]
     fn the_width_is_the_census_over_the_grant() {
         assert_eq!(width_of(1 << 30, 0, None), 0, "no pool: the leader alone");
-        assert_eq!(width_of(1 << 30, 0, Some(8)), 0, "a forced width needs a pool too");
-        assert_eq!(width_of(0, 8, None), 1, "an empty census still runs one claim");
+        assert_eq!(
+            width_of(1 << 30, 0, Some(8)),
+            0,
+            "a forced width needs a pool too"
+        );
+        assert_eq!(
+            width_of(0, 8, None),
+            1,
+            "an empty census still runs one claim"
+        );
         assert_eq!(width_of(MORSEL - 1, 8, None), 1);
-        assert_eq!(width_of(3 * MORSEL, 8, None), 3, "one worker per MORSEL surviving granules");
+        assert_eq!(
+            width_of(3 * MORSEL, 8, None),
+            3,
+            "one worker per MORSEL surviving granules"
+        );
         assert_eq!(width_of(3 * MORSEL + MORSEL - 1, 8, None), 3);
         assert_eq!(width_of(100 * MORSEL, 8, None), 8, "never past the grant");
         assert_eq!(width_of(100 * MORSEL, 16, None), 16);
-        assert_eq!(width_of(0, 8, Some(4)), 4, "a forced width (a measurement) ignores the census");
-        assert_eq!(width_of(1 << 30, 8, Some(32)), 8, "a forced width is capped by the grant");
+        assert_eq!(
+            width_of(0, 8, Some(4)),
+            4,
+            "a forced width (a measurement) ignores the census"
+        );
+        assert_eq!(
+            width_of(1 << 30, 8, Some(32)),
+            8,
+            "a forced width is capped by the grant"
+        );
     }
 }
 
@@ -237,7 +309,11 @@ mod by_work_tests {
         assert_eq!(by_work(1, 0, None, false), 0);
         assert_eq!(by_work(0, 0, None, false), 0);
         assert_eq!(by_work(9, 0, None, false), 9, "a pgrc census width stands");
-        assert_eq!(by_work(16, 0, None, true), 0, "a site the leader answers whole: no pool wake (L1)");
+        assert_eq!(
+            by_work(16, 0, None, true),
+            0,
+            "a site the leader answers whole: no pool wake (L1)"
+        );
     }
 
     /// gap-optoverfit EX-10 / EX-19 (keep, does not apply): the catalog's premise (a worker count from PostgreSQL's
@@ -248,10 +324,18 @@ mod by_work_tests {
     #[test]
     fn a_heap_runs_one_worker_per_startup_claim_of_blocks() {
         assert_eq!(by_work(16, 0, Some(0), false), 0);
-        assert_eq!(by_work(16, 0, Some(2 * BLOCK_C0 - 1), false), 0, "fewer blocks than two startup claims: the leader");
+        assert_eq!(
+            by_work(16, 0, Some(2 * BLOCK_C0 - 1), false),
+            0,
+            "fewer blocks than two startup claims: the leader"
+        );
         assert_eq!(by_work(16, 0, Some(2 * BLOCK_C0), false), 2);
         assert_eq!(by_work(16, 0, Some(5 * BLOCK_C0 + 7), false), 5);
-        assert_eq!(by_work(16, 0, Some(1 << 30), false), 16, "never past the claimed width");
+        assert_eq!(
+            by_work(16, 0, Some(1 << 30), false),
+            16,
+            "never past the claimed width"
+        );
     }
 }
 

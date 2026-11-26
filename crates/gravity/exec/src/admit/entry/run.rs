@@ -3,11 +3,11 @@
 use std::rc::Rc;
 use std::time::Instant;
 
-use gravity_driver::mem::root::Root;
-use gravity_driver::{Error, PullAdapter};
 use crate::receivers::DestSink;
 use crate::runner::{desc_of, eval_keys, run_inits};
 use crate::{glue, Admitted};
+use gravity_driver::mem::root::Root;
+use gravity_driver::{Error, PullAdapter};
 use gravity_program::Cmd;
 use mcx::Mcx;
 use tcop_dest::DestReceiver;
@@ -169,12 +169,17 @@ fn desc_mcx() -> PgResult<Mcx<'static>> {
     let mut m = DESC_CTX.get();
     if m.is_null() {
         if DESC_GONE.get() {
-            return Err(glue::internal("gravity_entry: a result descriptor after the session's teardown (D1506)"));
+            return Err(glue::internal(
+                "gravity_entry: a result descriptor after the session's teardown (D1506)",
+            ));
         }
         m = Box::into_raw(Box::new(Root::new("GravityEntryDescs"))); // alloc: Cold
         DESC_CTX.set(m);
-        mcx::register_session_cleanup_phase(mcx::SessionCleanupPhase::Roots, Box::new(retire_descs)); // alloc: Cold
-        // D4682: a reused client backend thread's next session may make descs again
+        mcx::register_session_cleanup_phase(
+            mcx::SessionCleanupPhase::Roots,
+            Box::new(retire_descs),
+        ); // alloc: Cold
+           // D4682: a reused client backend thread's next session may make descs again
         mcx::register_thread_reuse_hook(rearm_descs);
     }
     Ok(super::raw::descs_mcx(m))
@@ -197,20 +202,94 @@ impl Serve {
     pub fn new(a: Box<Admitted>, ctx: Root) -> PgResult<Box<Serve>> {
         let cid = crate::output_cid::output_cid(&a)?;
         // a SELECT's columns, or a RETURNING write's (the runner's `emits_rows`): the receiver gets rows either way
-        let tupdesc = (a.cmd == Cmd::Select || a.out_natts > 0).then(|| desc_mcx().map(|m| desc_of(m, &a))).transpose()?;
+        let tupdesc = (a.cmd == Cmd::Select || a.out_natts > 0)
+            .then(|| desc_mcx().map(|m| desc_of(m, &a)))
+            .transpose()?;
         let natts = a.program.out.len();
         let cap = a.program.layout.out_rows as usize;
-        let fetch_base = (0..a.program.sites.len()).map(|i| a.registry.recipe(i).map_or(0, |r| r.heap_fetches())).collect(); // alloc: Exec
-        let bitmap_base = (0..a.program.sites.len()).map(|i| a.registry.bitmap_recipe(i).or_else(|| a.registry.recipe(i)).map_or([0; 5], |r| r.bitmap().load())).collect(); // alloc: Exec
+        let fetch_base = (0..a.program.sites.len())
+            .map(|i| a.registry.recipe(i).map_or(0, |r| r.heap_fetches()))
+            .collect(); // alloc: Exec
+        let bitmap_base = (0..a.program.sites.len())
+            .map(|i| {
+                a.registry
+                    .bitmap_recipe(i)
+                    .or_else(|| a.registry.recipe(i))
+                    .map_or([0; 5], |r| r.bitmap().load())
+            })
+            .collect(); // alloc: Exec
         let nw = crate::runner::key_words(&a);
-        let hosted = a.program.owner.is_some() || a.registry.owner_of().is_some() || a.graph.as_ref().is_some_and(|g| g.arms.iter().any(|x| x.program.owner.is_some()) || g.inits.iter().any(|x| x.program.owner.is_some()));
-        Ok(Box::new(Serve { sent: 0, started: false, home: 0, key: None, completion: false, fill_rows: false, nested: None, producers: None, pulled: None, serial: None, limited: false, rechecked: 0, via: VIA, hosted, cmd: a.cmd, shape: a.shape, run: PullAdapter::new(natts, cap), a, kparams: vec![0; nw], knulls: vec![0; nw], keys_done: false, arm: 0, snap: core::ptr::null(), cid, tupdesc, ctx, es_processed: 0, rows: 0, entries: 0, done: false, elapsed_ns: 0, site_rows: Vec::new(), site_rels: Vec::new(), site_fetches: Vec::new(), site_skipped: Vec::new(), fetch_base, workers: 0, site_bitmap: Vec::new(), bitmap_base, instr: Vec::new(), bufusage: Default::default(), report: None, ident: false, last_tid: None, fetched: i64::MIN, rearmed: false, run_rows: None, root_bound: false, named_cursor: false, fetch_portal: false, images: Vec::new(), held: Default::default(), inits: Default::default(), soft: false, pin: crate::admit::reentry::Pin::NONE })) // alloc: Exec
+        let hosted = a.program.owner.is_some()
+            || a.registry.owner_of().is_some()
+            || a.graph.as_ref().is_some_and(|g| {
+                g.arms.iter().any(|x| x.program.owner.is_some())
+                    || g.inits.iter().any(|x| x.program.owner.is_some())
+            });
+        Ok(Box::new(Serve {
+            sent: 0,
+            started: false,
+            home: 0,
+            key: None,
+            completion: false,
+            fill_rows: false,
+            nested: None,
+            producers: None,
+            pulled: None,
+            serial: None,
+            limited: false,
+            rechecked: 0,
+            via: VIA,
+            hosted,
+            cmd: a.cmd,
+            shape: a.shape,
+            run: PullAdapter::new(natts, cap),
+            a,
+            kparams: vec![0; nw],
+            knulls: vec![0; nw],
+            keys_done: false,
+            arm: 0,
+            snap: core::ptr::null(),
+            cid,
+            tupdesc,
+            ctx,
+            es_processed: 0,
+            rows: 0,
+            entries: 0,
+            done: false,
+            elapsed_ns: 0,
+            site_rows: Vec::new(),
+            site_rels: Vec::new(),
+            site_fetches: Vec::new(),
+            site_skipped: Vec::new(),
+            fetch_base,
+            workers: 0,
+            site_bitmap: Vec::new(),
+            bitmap_base,
+            instr: Vec::new(),
+            bufusage: Default::default(),
+            report: None,
+            ident: false,
+            last_tid: None,
+            fetched: i64::MIN,
+            rearmed: false,
+            run_rows: None,
+            root_bound: false,
+            named_cursor: false,
+            fetch_portal: false,
+            images: Vec::new(),
+            held: Default::default(),
+            inits: Default::default(),
+            soft: false,
+            pin: crate::admit::reentry::Pin::NONE,
+        })) // alloc: Exec
     }
 
     /// D761: the relations the plan's ExecutorStart opens, held from the served ExecutorStart on (before any key
     /// expression, InitPlan or pipeline runs), as PostgreSQL's executor holds them.
     pub fn hold(&mut self, params: types_portal::ParamListHandle) -> PgResult<()> {
-        let (Some(pstmt), Some(g)) = (self.a.pstmt, self.a.graph.as_ref()) else { return Ok(()) };
+        let (Some(pstmt), Some(g)) = (self.a.pstmt, self.a.graph.as_ref()) else {
+            return Ok(());
+        };
         self.held = crate::runner::held::take(self.mcx(), pstmt, &g.held, params, None)?;
         Ok(())
     }
@@ -226,9 +305,17 @@ impl Serve {
     /// the state with the running statement. A hosted program whose state no running call holds runs away from a running
     /// home as an unhosted one does.
     pub(crate) fn host_busy(&self) -> bool {
-        let running = |o: &dyn core::any::Any| gravity_driver::node::owner_running(o as *const dyn core::any::Any as *const u8);
+        let running = |o: &dyn core::any::Any| {
+            gravity_driver::node::owner_running(o as *const dyn core::any::Any as *const u8)
+        };
         let busy = |p: &gravity_program::Program| p.owner.as_deref().is_some_and(running);
-        self.hosted && (busy(&self.a.program) || self.a.registry.owner_of().is_some_and(running) || self.a.graph.as_ref().is_some_and(|g| g.arms.iter().any(|x| busy(&x.program)) || g.inits.iter().any(|x| busy(&x.program))))
+        self.hosted
+            && (busy(&self.a.program)
+                || self.a.registry.owner_of().is_some_and(running)
+                || self.a.graph.as_ref().is_some_and(|g| {
+                    g.arms.iter().any(|x| busy(&x.program))
+                        || g.inits.iter().any(|x| busy(&x.program))
+                }))
     }
 
     pub(crate) fn cid(&self) -> u32 {
@@ -299,36 +386,96 @@ impl Serve {
 
     // D3620: out of line, so `run_step`'s frame (on every nested statement's stack path) does not hold its locals
     #[inline(never)]
-    fn open(&mut self, entry: &mut gravity_driver::Entry, snapshot: &Rc<types_snapshot::SnapshotData<'static>>, params: types_portal::ParamListHandle, amcx: Mcx<'static>) -> PgResult<()> {
+    fn open(
+        &mut self,
+        entry: &mut gravity_driver::Entry,
+        snapshot: &Rc<types_snapshot::SnapshotData<'static>>,
+        params: types_portal::ParamListHandle,
+        amcx: Mcx<'static>,
+    ) -> PgResult<()> {
         let cid = self.cid;
         let nk = self.a.nkparams;
         if !self.keys_done {
-            if !eval_keys(&mut self.a, params, &mut self.kparams, &mut self.knulls, amcx, false)? {
+            if !eval_keys(
+                &mut self.a,
+                params,
+                &mut self.kparams,
+                &mut self.knulls,
+                amcx,
+                false,
+            )? {
                 return Err(glue::internal("gravity_entry: key parameters"));
             }
             // a composed statement's InitPlans once, at the first execution (a cursor's rewind keeps them)
             // M8 (RT-1): a program declaring nest.initplan's Init runs its InitPlans itself, each at its param's first read
             if !init_protos(&self.a.program) {
-                run_inits(amcx, entry, &mut self.a, snapshot, cid, &mut self.kparams[..nk], &mut self.knulls[..nk])?;
+                run_inits(
+                    amcx,
+                    entry,
+                    &mut self.a,
+                    snapshot,
+                    cid,
+                    &mut self.kparams[..nk],
+                    &mut self.knulls[..nk],
+                )?;
             }
             // exec pruning over the InitPlans' words (rung 12 need 13): the arms decided again, once per execution
-            crate::ops::append::prune::exec_skip(&mut self.a, &self.kparams[..nk], &self.knulls[..nk])?;
+            crate::ops::append::prune::exec_skip(
+                &mut self.a,
+                &self.kparams[..nk],
+                &self.knulls[..nk],
+            )?;
             self.keys_done = true;
         }
         let s: &'static mut Serve = super::raw::serve_for_run(self);
-        let snap: &'static Rc<types_snapshot::SnapshotData<'static>> = super::raw::snapshot(snapshot);
+        let snap: &'static Rc<types_snapshot::SnapshotData<'static>> =
+            super::raw::snapshot(snapshot);
         // a multi-pipeline (or eligible) program: its producers run to completion after the open, the pull takes the emit (chore C1)
-        s.producers = if s.a.is_parallel() { Some(crate::runner::Producers::prepare(s.mcx(), &mut s.a, snap, &s.kparams[..nk], &s.knulls[..nk])?) } else { None };
+        s.producers = if s.a.is_parallel() {
+            Some(crate::runner::Producers::prepare(
+                s.mcx(),
+                &mut s.a,
+                snap,
+                &s.kparams[..nk],
+                &s.knulls[..nk],
+            )?)
+        } else {
+            None
+        };
         // D264: a pull no producers resolve (a serial program over a granule relation) resolves its own, kept as they are
-        s.pulled = if s.producers.is_none() { crate::runner::resolve_pull(s.mcx(), &s.a.registry, snap)? } else { None };
+        s.pulled = if s.producers.is_none() {
+            crate::runner::resolve_pull(s.mcx(), &s.a.registry, snap)?
+        } else {
+            None
+        };
         // D3663: the relation sets its Appends prune at the start, their survivors filed for the bind
-        crate::runner::file_pull_sets(s.mcx(), &s.a.program, &s.a.registry, s.a.pstmt, crate::ops::append::proto::Initial::params_of(&s.a), s.pulled.as_deref_mut())?;
+        crate::runner::file_pull_sets(
+            s.mcx(),
+            &s.a.program,
+            &s.a.registry,
+            s.a.pstmt,
+            crate::ops::append::proto::Initial::params_of(&s.a),
+            s.pulled.as_deref_mut(),
+        )?;
         // D280: its v4 protocols too (a serial pgrc program's src.verdicts), their words bound below
-        s.serial = if s.producers.is_none() { crate::runner::pull_words(s.mcx(), &s.a, snap, &s.kparams[..nk], &s.knulls[..nk])? } else { None };
-        let resolved: Option<&'static (dyn core::any::Any + Send + Sync)> = s.producers.as_deref().map(|p| super::raw::resolved(p.resolved())).or(s.pulled.as_deref());
+        s.serial = if s.producers.is_none() {
+            crate::runner::pull_words(s.mcx(), &s.a, snap, &s.kparams[..nk], &s.knulls[..nk])?
+        } else {
+            None
+        };
+        let resolved: Option<&'static (dyn core::any::Any + Send + Sync)> = s
+            .producers
+            .as_deref()
+            .map(|p| super::raw::resolved(p.resolved()))
+            .or(s.pulled.as_deref());
         // D274 / D280: the words the producers' plan or the serial protocols bound (the facts and protocol words past the
         // key params), as drive's, held as `resolved` is (raw.rs `bound_words`).
-        let (kp, kn) = match s.producers.as_deref().map(|p| p.words()).or(s.serial.as_deref().map(|w| w.words())) {
+        let (kp, kn) = match s
+            .producers
+            .as_deref()
+            .map(|p| p.words())
+            .or(s.serial.as_deref().map(|w| w.words()))
+        {
             Some((w, n)) => super::raw::bound_words(w, n),
             None => (&s.kparams[..nk], &s.knulls[..nk]),
         };
@@ -343,17 +490,27 @@ impl Serve {
         // statement Parsed again for each execution (a new plan key every time) take the Node the last one parked; else under
         // its plan key. The identity copy and a completion run keep the plan key alone (unkeyed: built and
         // torn down)
-        let key = if s.ident || s.completion { s.key } else { crate::runner::park_key(s.mcx(), &s.a).or(s.key) };
+        let key = if s.ident || s.completion {
+            s.key
+        } else {
+            crate::runner::park_key(s.mcx(), &s.a).or(s.key)
+        };
         let run = &mut s.run;
-        let lease = s.producers.as_deref().map_or_else(|| crate::runner::unadmitted(1), |p| p.reservation());
-        run.open(entry, key, &s.a.program, &mut s.a.registry, parts, lease).map_err(glue::pg_error)?;
+        let lease = s
+            .producers
+            .as_deref()
+            .map_or_else(|| crate::runner::unadmitted(1), |p| p.reservation());
+        run.open(entry, key, &s.a.program, &mut s.a.registry, parts, lease)
+            .map_err(glue::pg_error)?;
         self.bind_runs(params);
         if self.producers.is_some() {
             self.run.set_external_producers(true);
             // M8 (L0-k): an Init program's emits each take their late step before their first call (`emit_late`); so does a
             // program with a bitmap morsel site, whose late step builds the bitmap an emit's claims walk (D3051)
-            let morsel = (0..self.a.program.sites.len()).any(|i| self.a.registry.bitmap_morsel(i).is_some());
-            self.run.set_stepwise(init_protos(&self.a.program) || morsel);
+            let morsel =
+                (0..self.a.program.sites.len()).any(|i| self.a.registry.bitmap_morsel(i).is_some());
+            self.run
+                .set_stepwise(init_protos(&self.a.program) || morsel);
             if let Err(e) = self.run_producers(entry) {
                 self.run.close(entry, false);
                 self.images.clear();
@@ -371,13 +528,20 @@ impl Serve {
             if params.is_null() {
                 return None;
             }
-            types_portal::params::with(params, |ps| ps.get(id as usize - 1).map(|p| (p.value.as_u64(), p.isnull)))
+            types_portal::params::with(params, |ps| {
+                ps.get(id as usize - 1)
+                    .map(|p| (p.value.as_u64(), p.isnull))
+            })
         };
         let (mut rows, mut root) = (None::<u64>, false);
         for i in 0..self.a.program.sites.len() {
-            let Some(r) = self.a.registry.recipe(i) else { continue };
+            let Some(r) = self.a.registry.recipe(i) else {
+                continue;
+            };
             let b = r.run_bound();
-            let n = b.limit.and_then(|(c, o)| Some(c.value(param)?.max(0) as u64 + o.value(param).unwrap_or(0).max(0) as u64));
+            let n = b.limit.and_then(|(c, o)| {
+                Some(c.value(param)?.max(0) as u64 + o.value(param).unwrap_or(0).max(0) as u64)
+            });
             r.set_run(n);
             rows = match (rows, n) {
                 (Some(a), Some(b)) => Some(a.min(b)),
@@ -392,7 +556,8 @@ impl Serve {
         // between two runs (TimeZone, DateStyle) reaches the rows after it. A run that reads every row (count 0) is unchanged.
         // D2230: so does every run of a program holding a recursive union a qual or a join may drop rows of (an SPI count, a
         // SQL function's lazy row): a block it asks for may never fill over a non-terminating union (`runner::thin_pull`)
-        self.run.set_owed_cap(root || self.fetch_portal || crate::runner::thin_pull(&self.a));
+        self.run
+            .set_owed_cap(root || self.fetch_portal || crate::runner::thin_pull(&self.a));
     }
 
     /// D588: a root-bound walk's run cell at a step of `count` rows (0 = all: nothing new), no more than the parameter Limit's.
@@ -411,9 +576,25 @@ impl Serve {
     /// One executor_run step inside the statement's level (`reentry::enter`): the open at the first, the pull, the close at
     /// the end (D622: split out so a nested statement's step runs with its grants handed, `runner::hand`).
     #[allow(clippy::too_many_arguments)]
-    fn run_step(&mut self, b: &mut crate::Backend, depth: usize, count: u64, dest: &mut DestReceiver<'_>, snap_ptr: *const Rc<types_snapshot::SnapshotData<'static>>, params: types_portal::ParamListHandle, instrumented: bool, rewindable: bool) -> PgResult<()> {
+    fn run_step(
+        &mut self,
+        b: &mut crate::Backend,
+        depth: usize,
+        count: u64,
+        dest: &mut DestReceiver<'_>,
+        snap_ptr: *const Rc<types_snapshot::SnapshotData<'static>>,
+        params: types_portal::ParamListHandle,
+        instrumented: bool,
+        rewindable: bool,
+    ) -> PgResult<()> {
         let amcx = b.admit_mcx();
-        self.via = if depth > 0 { VIA_NESTED } else if self.rearmed { VIA_REARMED } else { VIA };
+        self.via = if depth > 0 {
+            VIA_NESTED
+        } else if self.rearmed {
+            VIA_REARMED
+        } else {
+            VIA
+        };
         if !self.run.is_open() {
             self.open(&mut b.entry, super::raw::snapshot(snap_ptr), params, amcx)?;
             // D2701: a rewindable run of a program marked `soft_rewind` keeps the emit's input slots for its rewind
@@ -443,7 +624,12 @@ impl Serve {
     /// `run_step`'s end of a run that completed. D3620: out of line, so `run_step`'s frame (on every nested statement's
     /// stack path) does not hold its locals.
     #[inline(never)]
-    fn complete_step(&mut self, b: &mut crate::Backend, instrumented: bool, rewindable: bool) -> PgResult<()> {
+    fn complete_step(
+        &mut self,
+        b: &mut crate::Backend,
+        instrumented: bool,
+        rewindable: bool,
+    ) -> PgResult<()> {
         // D2647: only a portal with EXEC_FLAG_REWIND is ever rewound (pquery DoPortalRewind, a SCROLL hold's persist)
         if rewindable {
             self.keep_inits();
@@ -455,7 +641,11 @@ impl Serve {
         if self.soft {
             self.lease_slot(true);
             self.done = true;
-            let admit = if self.a.graph.is_some() { "graph" } else { "shape" };
+            let admit = if self.a.graph.is_some() {
+                "graph"
+            } else {
+                "shape"
+            };
             b.note_served_via(self.shape, self.rows, admit, self.code(), self.via);
             b.note_mechs(self.a.program.key.0, self.a.program.used);
             return Ok(());
@@ -474,11 +664,17 @@ impl Serve {
         let ok = pre.is_ok();
         let ended = pre.and(self.close_run(&mut b.entry, ok));
         if let Some(p) = kept {
-            self.nested = Some(Rc::new(core::cell::RefCell::new(p.into_kept(&self.a.program))));
+            self.nested = Some(Rc::new(core::cell::RefCell::new(
+                p.into_kept(&self.a.program),
+            )));
         }
         self.done = true;
         ended?;
-        let admit = if self.a.graph.is_some() { "graph" } else { "shape" };
+        let admit = if self.a.graph.is_some() {
+            "graph"
+        } else {
+            "shape"
+        };
         b.note_served_via(self.shape, self.rows, admit, self.code(), self.via);
         b.note_mechs(self.a.program.key.0, self.a.program.used);
         // D376: an interrupt the teardown's spill walk left pending (held there) ends the statement
@@ -510,7 +706,8 @@ impl Serve {
             let registry: *mut _ = &mut self.a.registry;
             let images = &mut self.images;
             self.run.with_open(|exec, binding| {
-                p.emit_image(entry, exec, binding, registry).map(|i| images.extend(i)) // alloc: Exec
+                p.emit_image(entry, exec, binding, registry)
+                    .map(|i| images.extend(i)) // alloc: Exec
             })?;
         }
         self.run.set_ready();
@@ -520,15 +717,23 @@ impl Serve {
     /// The producers before the adapter's next emit (multi-emit: each arm's own producers run before it).
     #[inline(never)]
     fn run_producers(&mut self, entry: &mut gravity_driver::Entry) -> PgResult<()> {
-        let Some(p) = self.producers.as_deref() else { return Ok(()) };
+        let Some(p) = self.producers.as_deref() else {
+            return Ok(());
+        };
         let registry = &mut self.a.registry;
-        self.run.with_open(|exec, binding| p.run(entry, exec, binding, registry))
+        self.run
+            .with_open(|exec, binding| p.run(entry, exec, binding, registry))
     }
 
     /// D2647: the InitPlan values of the run about to close, from its live protocols' words, for a rewind's reopen (a
     /// WITH HOLD cursor's persist rewinds a run that ran to its end too); a run that ran none keeps nothing.
     fn keep_inits(&mut self) {
-        if let Some(w) = self.producers.as_deref().map(|p| p.words().0).or(self.serial.as_deref().map(|w| w.words().0)) {
+        if let Some(w) = self
+            .producers
+            .as_deref()
+            .map(|p| p.words().0)
+            .or(self.serial.as_deref().map(|w| w.words().0))
+        {
             self.inits = crate::ops::subplan::initplan::init::carry_out(&self.a.program, w);
         }
     }
@@ -541,14 +746,19 @@ impl Serve {
         let drained = match self.producers.as_deref().filter(|_| ok) {
             Some(p) => {
                 let registry: *mut _ = &mut self.a.registry;
-                self.run.with_open(|x, b| p.drain_pulled(entry, x, b, registry))
+                self.run
+                    .with_open(|x, b| p.drain_pulled(entry, x, b, registry))
             }
             None => Ok(()),
         };
         let ended = match drained {
             Err(e) => Err(e),
             Ok(()) if !ok => Ok(()),
-            Ok(()) => self.serial.as_deref().map_or(Ok(()), |w| w.end()).and_then(|()| self.producers.as_deref().map_or(Ok(()), |p| p.end())),
+            Ok(()) => self
+                .serial
+                .as_deref()
+                .map_or(Ok(()), |w| w.end())
+                .and_then(|()| self.producers.as_deref().map_or(Ok(()), |p| p.end())),
         };
         self.run.close(entry, ended.is_ok() && ok);
         self.images.clear();
@@ -570,22 +780,49 @@ impl Serve {
         let s: &'static mut Serve = super::raw::serve_for_run(self);
         let nk = s.a.nkparams;
         let mcx = s.mcx();
-        let (pstmt, params) = (s.a.pstmt, crate::ops::append::proto::Initial::params_of(&s.a));
+        let (pstmt, params) = (
+            s.a.pstmt,
+            crate::ops::append::proto::Initial::params_of(&s.a),
+        );
         let Some(arm) = s.a.graph.as_mut().and_then(|g| {
             while g.arms.get(s.arm).is_some_and(|x| x.skip) {
                 s.arm += 1; // a pruned arm (initial partition pruning at bind) is stepped over
             }
             g.arms.get_mut(s.arm)
-        }) else { return Ok(false) };
+        }) else {
+            return Ok(false);
+        };
         s.run.close(entry, true);
         crate::runner::check_after_teardown()?; // D376: a cancel or timeout landing between the Append arms ends the statement
-        // `snap` is the desc's boxed snapshot set at `open`, alive while the Serve is
+                                                // `snap` is the desc's boxed snapshot set at `open`, alive while the Serve is
         s.pulled = crate::runner::resolve_pull(mcx, &arm.registry, super::raw::snapshot(s.snap))?;
-        crate::runner::file_pull_sets(mcx, &arm.program, &arm.registry, pstmt, params, s.pulled.as_deref_mut())?;
+        crate::runner::file_pull_sets(
+            mcx,
+            &arm.program,
+            &arm.registry,
+            pstmt,
+            params,
+            s.pulled.as_deref_mut(),
+        )?;
         s.serial = None;
-        let parts = glue::binding_parts(super::raw::snapshot(s.snap), s.cid, &s.kparams[..nk], &s.knulls[..nk], s.pulled.as_deref());
+        let parts = glue::binding_parts(
+            super::raw::snapshot(s.snap),
+            s.cid,
+            &s.kparams[..nk],
+            &s.knulls[..nk],
+            s.pulled.as_deref(),
+        );
         arm.registry.rewind();
-        s.run.open(entry, None, &arm.program, &mut arm.registry, parts, crate::runner::unadmitted(1)).map_err(glue::pg_error)?;
+        s.run
+            .open(
+                entry,
+                None,
+                &arm.program,
+                &mut arm.registry,
+                parts,
+                crate::runner::unadmitted(1),
+            )
+            .map_err(glue::pg_error)?;
         s.arm += 1;
         Ok(true)
     }
@@ -597,22 +834,39 @@ impl Serve {
     pub(crate) fn published(&self) -> Option<(u32, u64)> {
         let e = self.run.exec()?;
         let n = e.node();
-        let i = n.program().sites.iter().position(|d| matches!(d.kind, gravity_program::SiteKind::RowOf { .. }))?;
+        let i = n
+            .program()
+            .sites
+            .iter()
+            .position(|d| matches!(d.kind, gravity_program::SiteKind::RowOf { .. }))?;
         let p = n.site_pos(i);
-        (p.is_valid() && p.off != 0).then_some( (p.rel, ((p.block as u64) << 16) | p.off as u64))
+        (p.is_valid() && p.off != 0).then_some((p.rel, ((p.block as u64) << 16) | p.off as u64))
     }
 
     /// D421: the program emits the row identity after the statement's columns: the descriptor keeps the statement's.
     pub(crate) fn identity(&mut self) -> PgResult<()> {
-        let Some(td) = self.tupdesc.as_deref() else { return Err(glue::internal("gravity_entry: an identity program without rows")) };
+        let Some(td) = self.tupdesc.as_deref() else {
+            return Err(glue::internal(
+                "gravity_entry: an identity program without rows",
+            ));
+        };
         let n = td.natts - crate::admit::entry::current_of::IDENTITY as i32;
-        self.tupdesc = Some(Rc::new(tupdesc::CreateTupleDescTruncatedCopy(desc_mcx()?, td, n)?)); // alloc: Cold
+        self.tupdesc = Some(Rc::new(tupdesc::CreateTupleDescTruncatedCopy(
+            desc_mcx()?,
+            td,
+            n,
+        )?)); // alloc: Cold
         self.ident = true;
         Ok(())
     }
 
     /// Up to `count` rows (0 = all) to the receiver; `true` when the statement completed.
-    fn step(&mut self, entry: &mut gravity_driver::Entry, count: u64, dest: &mut DestReceiver<'_>) -> PgResult<bool> {
+    fn step(
+        &mut self,
+        entry: &mut gravity_driver::Entry,
+        count: u64,
+        dest: &mut DestReceiver<'_>,
+    ) -> PgResult<bool> {
         let sent = core::cell::Cell::new(0u64);
         let last = core::cell::Cell::new(None);
         let r = self.step_counted(entry, count, dest, &sent, &last);
@@ -637,23 +891,57 @@ impl Serve {
         }
     }
 
-    fn step_counted(&mut self, entry: &mut gravity_driver::Entry, count: u64, dest: &mut DestReceiver<'_>, sent: &core::cell::Cell<u64>, last: &core::cell::Cell<Option<(u32, u64)>>) -> PgResult<bool> {
+    fn step_counted(
+        &mut self,
+        entry: &mut gravity_driver::Entry,
+        count: u64,
+        dest: &mut DestReceiver<'_>,
+        sent: &core::cell::Cell<u64>,
+        last: &core::cell::Cell<Option<(u32, u64)>>,
+    ) -> PgResult<bool> {
         let cmd = self.cmd;
         // PORTAL_ONE_RETURNING: a RETURNING write runs to completion before its rows (a count never suspends it)
-        let want = if count == 0 || cmd != Cmd::Select { usize::MAX } else { count as usize };
+        let want = if count == 0 || cmd != Cmd::Select {
+            usize::MAX
+        } else {
+            count as usize
+        };
         // D2297: a SELECT over a data-modifying CTE (SPI's tcount) runs its write to completion as PG's ExecutorFinish does,
         // but hands the receiver and counts (es_processed) only the first `count` rows, as PG's ExecutePlan stops there
-        let cap = if count != 0 && cmd != Cmd::Select && self.a.tag() == Cmd::Select { count } else { u64::MAX };
+        let cap = if count != 0 && cmd != Cmd::Select && self.a.tag() == Cmd::Select {
+            count
+        } else {
+            u64::MAX
+        };
         // D421: an identity program's rows leave their last two columns in the receiver's tid sidecar (D2281: without a
         // store, the last row's in `last`)
-        let (strip, sidecar) = if self.ident { (crate::admit::entry::current_of::IDENTITY, dest.tuplestore_capture_sidecar()) } else { (0, None) };
+        let (strip, sidecar) = if self.ident {
+            (
+                crate::admit::entry::current_of::IDENTITY,
+                dest.tuplestore_capture_sidecar(),
+            )
+        } else {
+            (0, None)
+        };
         // D2044: user code's raise can leave state the statement cannot hold (runner `PlState`: PL/pgSQL returns its error
         // before its SPI_finish, its SPI connection still pushed), while the adapter holds the program's error behind the
         // rows it completed (pull.rs `failed`). Once that state moved, an SPI receiver takes none of those rows (spi_printtup
         // would meet the callee's connection: improper call to spi_printtup) and the fetch ends in the held error: PG's
         // abort frees what a failed fetch sent SPI, so no caller saw them
         let pl = crate::runner::PlState::now();
-        let mut rows = RowSend { sent, last, cap, strip, sidecar, pl, spi: matches!(*dest, DestReceiver::SpiPrintTup), sink: self.tupdesc.clone().map(|td| DestSink::new(self.mcx(), td, dest)) };
+        let mut rows = RowSend {
+            sent,
+            last,
+            cap,
+            strip,
+            sidecar,
+            pl,
+            spi: matches!(*dest, DestReceiver::SpiPrintTup),
+            sink: self
+                .tupdesc
+                .clone()
+                .map(|td| DestSink::new(self.mcx(), td, dest)),
+        };
         let mut consume = |v: &[u64], n: &[u8]| rows.row(v, n);
         let mut total = 0usize;
         self.limited = false;
@@ -662,16 +950,25 @@ impl Serve {
         }
         let served = loop {
             let n = if self.fill_rows { 1 } else { want - total };
-            let fetched = match self.producers.as_deref().filter(|_| on_demand_protos(&self.a.program)) {
+            let fetched = match self
+                .producers
+                .as_deref()
+                .filter(|_| on_demand_protos(&self.a.program))
+            {
                 // M8 (RT-1, D1401): the producers' frame while the adapter pulls an emit, for an on-demand run in its calls
                 Some(p) => {
                     let mut open = None;
                     let _ = self.run.with_open(|x, b| {
-                        let _: () =open = Some((x as *mut gravity_driver::Exec, b as *mut gravity_driver::Binding<'_>));
+                        let _: () = open = Some((
+                            x as *mut gravity_driver::Exec,
+                            b as *mut gravity_driver::Binding<'_>,
+                        ));
                         Ok::<(), ()>(())
                     });
                     match open {
-                        Some((x, b)) => p.with_frame(entry, x, b, &mut self.a.registry, |entry| self.run.fetch(entry, n, &mut consume)),
+                        Some((x, b)) => p.with_frame(entry, x, b, &mut self.a.registry, |entry| {
+                            self.run.fetch(entry, n, &mut consume)
+                        }),
                         None => self.run.fetch(entry, n, &mut consume),
                     }
                 }
@@ -703,13 +1000,15 @@ impl Serve {
                     total += self.build_wait(entry, b)?;
                     continue;
                 }
-                Err(Error::Recheck(site)) => match self.recheck_stop(entry, site, cap, &mut consume)? {
-                    Some(partial) => {
-                        total += partial;
-                        continue;
+                Err(Error::Recheck(site)) => {
+                    match self.recheck_stop(entry, site, cap, &mut consume)? {
+                        Some(partial) => {
+                            total += partial;
+                            continue;
+                        }
+                        None => return Ok(true),
                     }
-                    None => return Ok(true),
-                },
+                }
                 Err(e) => return Err(self.ended(e)),
             }
         };
@@ -739,9 +1038,12 @@ impl Serve {
     #[inline(never)]
     fn build_wait(&mut self, entry: &mut gravity_driver::Entry, b: usize) -> PgResult<usize> {
         let partial = self.run.take_partial();
-        let Some(p) = self.producers.as_deref() else { return Err(glue::pg_error(Error::BuildWait(b))) };
+        let Some(p) = self.producers.as_deref() else {
+            return Err(glue::pg_error(Error::BuildWait(b)));
+        };
         let registry = &mut self.a.registry;
-        self.run.with_open(|exec, binding| p.build_wait(entry, exec, binding, registry, b))?;
+        self.run
+            .with_open(|exec, binding| p.build_wait(entry, exec, binding, registry, b))?;
         Ok(partial)
     }
 
@@ -753,7 +1055,13 @@ impl Serve {
     /// the same way (ExecLockRows goes on after EvalPlanQual): its surviving row, buffered in the run's sink, is the next
     /// fetch's first row. D3620: out of line (the fetch loop's frame is on every nested statement's stack path).
     #[inline(never)]
-    fn recheck_stop(&mut self, entry: &mut gravity_driver::Entry, site: u8, cap: u64, consume: &mut impl FnMut(&[u64], &[u8]) -> Result<(), Error>) -> PgResult<Option<usize>> {
+    fn recheck_stop(
+        &mut self,
+        entry: &mut gravity_driver::Entry,
+        site: u8,
+        cap: u64,
+        consume: &mut impl FnMut(&[u64], &[u8]) -> Result<(), Error>,
+    ) -> PgResult<Option<usize>> {
         let more = self.recheck_run(entry, site)?;
         if resumes(&self.run) {
             if self.cmd != Cmd::Select {
@@ -765,7 +1073,11 @@ impl Serve {
             Ok(n) => n as u64,
             Err(e) => return Err(self.ended(e)),
         };
-        self.es_processed = if self.cmd == Cmd::Select { drained } else { (self.rechecked + more + self.run.rows_processed()).min(cap) };
+        self.es_processed = if self.cmd == Cmd::Select {
+            drained
+        } else {
+            (self.rechecked + more + self.run.rows_processed()).min(cap)
+        };
         self.rows += self.es_processed;
         Ok(None)
     }
@@ -777,17 +1089,25 @@ impl Serve {
     fn recheck_run(&mut self, entry: &mut gravity_driver::Entry, site: u8) -> PgResult<u64> {
         let pos = self.run.recheck_pos();
         let positions: Vec<gravity_abi::ScanPos> = self.run.positions().to_vec(); // alloc: Cold
-        // D2112 phase B: the pending InitPlans the recheck plan reads run first, in this execution, under the producers'
-        // frame (epq.rs `forced`: PostgreSQL's EvalPlanQualStart forces them before the recheck)
+                                                                                  // D2112 phase B: the pending InitPlans the recheck plan reads run first, in this execution, under the producers'
+                                                                                  // frame (epq.rs `forced`: PostgreSQL's EvalPlanQualStart forces them before the recheck)
         if let Some(p) = self.producers.as_deref() {
             let registry: *mut gravity_hosts::HostRegistry = &mut self.a.registry;
-            self.run.with_open(|x, b| match crate::rerun::epq::forced(x.node().program(), b.parts.params) {
-                cells if cells.is_empty() => Ok(()),
-                cells => p.with_frame(entry, x, b, registry, |_| crate::rerun::epq::force(&cells)),
+            self.run.with_open(|x, b| {
+                match crate::rerun::epq::forced(x.node().program(), b.parts.params) {
+                    cells if cells.is_empty() => Ok(()),
+                    cells => {
+                        p.with_frame(entry, x, b, registry, |_| crate::rerun::epq::force(&cells))
+                    }
+                }
             })?;
         }
         // D655: a program of several pipelines reruns the producers the stopped pipeline reads by its plan
-        let plan = self.producers.as_deref().zip(self.run.exec().map(|x| x.lease())).map(|(p, lease)| (p.plan(), lease));
+        let plan = self
+            .producers
+            .as_deref()
+            .zip(self.run.exec().map(|x| x.lease()))
+            .map(|(p, lease)| (p.plan(), lease));
         // writesubplan (D652's rest): the producers' frame over the recheck too, as the runner's own recheck runs
         // under its Leader's publish (gravity_parallel run_slotted): a rerun set read after the write on the recheck
         // node (a RETURNING-only SubPlan step) reruns through it, re-entering that node (driver Entry::rerun's
@@ -795,7 +1115,10 @@ impl Serve {
         let mut open = None;
         if self.producers.is_some() && on_demand_protos(&self.a.program) {
             let _ = self.run.with_open(|x, b| {
-                let _: () =open = Some((x as *mut gravity_driver::Exec, b as *mut gravity_driver::Binding<'_>));
+                let _: () = open = Some((
+                    x as *mut gravity_driver::Exec,
+                    b as *mut gravity_driver::Binding<'_>,
+                ));
                 Ok::<(), ()>(())
             });
         }
@@ -803,11 +1126,31 @@ impl Serve {
             (Some(p), Some((x, b))) => {
                 let (a, run) = (&mut self.a, &mut self.run);
                 let registry: *mut _ = &mut a.registry;
-                p.with_frame(entry, x, b, registry, |entry| crate::rerun::epq::recheck_with(entry, a, None, run.binding_mut().expect("open"), &positions, site as usize, pos, plan))
+                p.with_frame(entry, x, b, registry, |entry| {
+                    crate::rerun::epq::recheck_with(
+                        entry,
+                        a,
+                        None,
+                        run.binding_mut().expect("open"),
+                        &positions,
+                        site as usize,
+                        pos,
+                        plan,
+                    )
+                })
             }
             _ => {
                 let binding = self.run.binding_mut().expect("open");
-                crate::rerun::epq::recheck_with(entry, &mut self.a, None, binding, &positions, site as usize, pos, plan)
+                crate::rerun::epq::recheck_with(
+                    entry,
+                    &mut self.a,
+                    None,
+                    binding,
+                    &positions,
+                    site as usize,
+                    pos,
+                    plan,
+                )
             }
         }
     }
@@ -834,12 +1177,31 @@ impl Serve {
         self.site_skipped.clear();
         for i in 0..self.a.program.sites.len() {
             let r = &self.a.registry;
-            let rel = r.recipe(i).map(|s| s.heap).or_else(|| r.range_recipe(i).map(|s| s.heap)).or_else(|| r.granule_recipe(i).map(|s| s.rel)).unwrap_or(0);
+            let rel = r
+                .recipe(i)
+                .map(|s| s.heap)
+                .or_else(|| r.range_recipe(i).map(|s| s.heap))
+                .or_else(|| r.granule_recipe(i).map(|s| s.rel))
+                .unwrap_or(0);
             self.site_rels.push(rel); // alloc: Exec
-            self.site_skipped.push(r.granule_recipe(i).and_then(|g| g.skipped_rows()).unwrap_or(0)); // alloc: Exec
+            self.site_skipped.push(
+                r.granule_recipe(i)
+                    .and_then(|g| g.skipped_rows())
+                    .unwrap_or(0),
+            ); // alloc: Exec
             let base = self.bitmap_base.get(i).copied().unwrap_or([0; 5]);
-            self.site_bitmap.push(self.a.registry.bitmap_recipe(i).or_else(|| self.a.registry.recipe(i)).map(|s| s.bitmap().load()).map(|c| core::array::from_fn(|j| c[j].saturating_sub(base[j])))); // alloc: Exec
-            let fetched = self.a.registry.recipe(i).filter(|s| s.only).map(|s| s.heap_fetches().saturating_sub(self.fetch_base.get(i).copied().unwrap_or(0)));
+            self.site_bitmap.push(
+                self.a
+                    .registry
+                    .bitmap_recipe(i)
+                    .or_else(|| self.a.registry.recipe(i))
+                    .map(|s| s.bitmap().load())
+                    .map(|c| core::array::from_fn(|j| c[j].saturating_sub(base[j]))),
+            ); // alloc: Exec
+            let fetched = self.a.registry.recipe(i).filter(|s| s.only).map(|s| {
+                s.heap_fetches()
+                    .saturating_sub(self.fetch_base.get(i).copied().unwrap_or(0))
+            });
             self.site_fetches.push(fetched); // alloc: Exec
         }
     }
@@ -858,7 +1220,12 @@ impl Serve {
     /// named cursor's admission converts nothing (front.rs `ZONE.active`); one filed by another portal of the plan, or by
     /// the runner's Bind, reaches here.
     pub(crate) fn zone_elsewhere(&self, count: u64) -> bool {
-        !self.keys_done && !self.done && self.a.timezone.is_some() && (self.named_cursor || (count > 0 && self.fetch_portal) || gravity_decompose::normalize::zone_moved(self.a.timezone))
+        !self.keys_done
+            && !self.done
+            && self.a.timezone.is_some()
+            && (self.named_cursor
+                || (count > 0 && self.fetch_portal)
+                || gravity_decompose::normalize::zone_moved(self.a.timezone))
     }
 }
 
@@ -886,16 +1253,24 @@ impl RowSend<'_> {
         }
         self.sent.set(self.sent.get() + 1);
         match self.sink.as_mut() {
-            Some(d) if self.strip == 0 => d.send_row(v, n).map(|_| ()).map_err(gravity_hosts::stash),
+            Some(d) if self.strip == 0 => {
+                d.send_row(v, n).map(|_| ()).map_err(gravity_hosts::stash)
+            }
             Some(d) => {
                 let k = v.len() - self.strip;
                 d.send_row(&v[..k], &n[..k]).map_err(gravity_hosts::stash)?;
-                let (oid, tid) = crate::admit::entry::current_of::pack(if n[k] != 0 { 0 } else { v[k] }, v[k + 1]);
+                let (oid, tid) = crate::admit::entry::current_of::pack(
+                    if n[k] != 0 { 0 } else { v[k] },
+                    v[k + 1],
+                );
                 match self.sidecar {
-                    Some(h) => tuplestore::hold::tidstore_put(h, oid, tid).map_err(gravity_hosts::stash),
-                    None => {self.last.set(Some((oid, tid)));
+                    Some(h) => {
+                        tuplestore::hold::tidstore_put(h, oid, tid).map_err(gravity_hosts::stash)
+                    }
+                    None => {
+                        self.last.set(Some((oid, tid)));
                         Ok(())
-                    },
+                    }
                 }
             }
             None => Ok(()),
@@ -903,26 +1278,45 @@ impl RowSend<'_> {
     }
 }
 
-pub fn executor_run(qd: &mut QueryDesc, direction: ScanDirection, count: u64, dest: &mut DestReceiver<'_>) -> PgResult<()> {
+pub fn executor_run(
+    qd: &mut QueryDesc,
+    direction: ScanDirection,
+    count: u64,
+    dest: &mut DestReceiver<'_>,
+) -> PgResult<()> {
     // D3361: the write hosts this run binds take the desc's crosscheck snapshot (PG's es_crosscheck_snapshot)
-    let _crosscheck = gravity_hosts::ops::modifytable::write::Crosscheck::set(qd.crosscheck.clone());
+    let _crosscheck =
+        gravity_hosts::ops::modifytable::write::Crosscheck::set(qd.crosscheck.clone());
     // the binding borrows the desc's snapshot for as long as the adapter is open (a cursor's
     // fetches): the desc is boxed and keeps it until free, so the pointer is stable
-    let snap_ptr: *const Rc<types_snapshot::SnapshotData<'static>> = qd.snapshot.as_ref().expect("a served statement has a snapshot");
-    let (params, instrumented, rewindable) = (qd.params, qd.instrument_options != 0, qd.eflags & EXEC_FLAG_REWIND != 0);
+    let snap_ptr: *const Rc<types_snapshot::SnapshotData<'static>> = qd
+        .snapshot
+        .as_ref()
+        .expect("a served statement has a snapshot");
+    let (params, instrumented, rewindable) = (
+        qd.params,
+        qd.instrument_options != 0,
+        qd.eflags & EXEC_FLAG_REWIND != 0,
+    );
     let operation = qd.plannedstmt().commandType as i32;
     let started = core::mem::take(&mut qd.started);
     let serve = qd.serve.as_mut().expect("serving");
     serve.es_processed = 0;
     let _sent = gravity_driver::ahead_trace::statement(serve.sent > 0); // construct C2 R3: a portal's earlier fetch sent rows
     if ScanDirectionIsBackward(direction) {
-        return Err(glue::internal("gravity_entry: backward scan on a served statement"));
+        return Err(glue::internal(
+            "gravity_entry: backward scan on a served statement",
+        ));
     }
     // D2355: a hosted program whose home level is running (a cursor opened at the top level FETCHed inside a PL/pgSQL
     // call of a running top-level statement) runs away from it unless the running statement's pipeline calls hold its
     // host state (`host_busy`: the same program instance); that one is refused before its receiver starts
     serve.started = false;
-    if !ScanDirectionIsNoMovement(direction) && !serve.done && crate::admit::reentry::running(serve.home) && serve.host_busy() {
+    if !ScanDirectionIsNoMovement(direction)
+        && !serve.done
+        && crate::admit::reentry::running(serve.home)
+        && serve.host_busy()
+    {
         return Err(crate::runner::refused(crate::admit::reentry::AWAY_REFUSAL));
     }
     // B2-31: a zoned admission whose rows may come over several runs, or run first in another zone
@@ -932,7 +1326,16 @@ pub fn executor_run(qd: &mut QueryDesc, direction: ScanDirection, count: u64, de
     }
     // D3382: EXECUTE's portal (CREATE TABLE AS EXECUTE) started this desc with no receiver and hands it the table's at its
     // first run, so D866's fill a row at a time is decided here
-    if !serve.fill_rows && !serve.run.is_open() && !serve.done && serve.sent == 0 && matches!(dest.mydest(), types_dest::CommandDest::IntoRel | types_dest::CommandDest::TransientRel) && gravity_driver::pull::pull_exact(&serve.a.program) {
+    if !serve.fill_rows
+        && !serve.run.is_open()
+        && !serve.done
+        && serve.sent == 0
+        && matches!(
+            dest.mydest(),
+            types_dest::CommandDest::IntoRel | types_dest::CommandDest::TransientRel
+        )
+        && gravity_driver::pull::pull_exact(&serve.a.program)
+    {
         serve.fill_rows = true;
     }
     let send = serve.tupdesc.is_some();
@@ -947,8 +1350,19 @@ pub fn executor_run(qd: &mut QueryDesc, direction: ScanDirection, count: u64, de
     // into a protocol destination (a Bind / Execute portal's RemoteExecute): the driver sends there through the simple
     // protocol's wire node, which the portal path does not hold (its rows go through the destination); EXECUTE's
     // utility path fills the portal's store, a destination the driver writes to
-    let local = !matches!(dest.mydest(), types_dest::CommandDest::Remote | types_dest::CommandDest::RemoteExecute | types_dest::CommandDest::RemoteSimple);
-    let whole_first = count == 0 && local && !serve.run.is_open() && !serve.done && !serve.named_cursor && !rewindable && serve.nested.is_none();
+    let local = !matches!(
+        dest.mydest(),
+        types_dest::CommandDest::Remote
+            | types_dest::CommandDest::RemoteExecute
+            | types_dest::CommandDest::RemoteSimple
+    );
+    let whole_first = count == 0
+        && local
+        && !serve.run.is_open()
+        && !serve.done
+        && !serve.named_cursor
+        && !rewindable
+        && serve.nested.is_none();
     // D3490: a run that moves nothing (NoMovementScanDirection: PortalRunSelect's count 0, as CREATE TABLE AS EXECUTE ..
     // WITH NO DATA asks through ExecuteQuery) runs no pipeline, as standard_ExecutorRun skips ExecutePlan; its count 0 is
     // no whole-first run (the receiver's startup and shutdown still bracket it below)
@@ -966,7 +1380,16 @@ pub fn executor_run(qd: &mut QueryDesc, direction: ScanDirection, count: u64, de
         // D3620: an instrumented or recorded run (EXPLAIN ANALYZE) out of line, so a plain run's frame (on every nested
         // statement's stack path) holds none of its clock, counters or recording
         let r = if instrumented || serve.report.is_some() {
-            run_measured(serve, (home, hosted), count, dest, snap_ptr, params, instrumented, rewindable)
+            run_measured(
+                serve,
+                (home, hosted),
+                count,
+                dest,
+                snap_ptr,
+                params,
+                instrumented,
+                rewindable,
+            )
         } else {
             let nested = serve.nested.clone();
             // D3620: the step goes down the reentry layers by reference: each layer's frame (on every nested statement's
@@ -974,12 +1397,28 @@ pub fn executor_run(qd: &mut QueryDesc, direction: ScanDirection, count: u64, de
             let mut step = |b: &mut crate::Backend, depth: usize| -> PgResult<()> {
                 // D622: a nested statement's sites take the grants it reserved at its start (a rewound one's, the grant it
                 // kept)
-                crate::runner::hand(depth, nested.as_ref(), &mut || serve.run_step(b, depth, count, dest, snap_ptr, params, false, rewindable))
+                crate::runner::hand(depth, nested.as_ref(), &mut || {
+                    serve.run_step(b, depth, count, dest, snap_ptr, params, false, rewindable)
+                })
             };
-            crate::admit::reentry::enter(Some(crate::admit::reentry::built), Some(home), hosted, &mut step)
+            crate::admit::reentry::enter(
+                Some(crate::admit::reentry::built),
+                Some(home),
+                hosted,
+                &mut step,
+            )
         };
         match r {
-            Ok(Some(Ok(()))) => crate::admit::entry::current_of::fetch_served(&mut serve.fetched, serve.shape, serve.es_processed, if serve.a.graph.is_some() { "graph" } else { "shape" }),
+            Ok(Some(Ok(()))) => crate::admit::entry::current_of::fetch_served(
+                &mut serve.fetched,
+                serve.shape,
+                serve.es_processed,
+                if serve.a.graph.is_some() {
+                    "graph"
+                } else {
+                    "shape"
+                },
+            ),
             Ok(Some(Err(e))) => return Err(crate::runner::run_error(&serve.a, e)),
             Ok(None) => return Err(glue::internal("gravity_entry: no backend state")),
             Err(why) => return Err(crate::runner::refused(why)),
@@ -996,7 +1435,16 @@ pub fn executor_run(qd: &mut QueryDesc, direction: ScanDirection, count: u64, de
 /// entry/record.rs, closed on every exit). D3620: out of line, so a plain run's frame holds none of it.
 #[inline(never)]
 #[allow(clippy::too_many_arguments)]
-fn run_measured(serve: &mut Serve, (home, hosted): (usize, bool), count: u64, dest: &mut DestReceiver<'_>, snap_ptr: *const Rc<types_snapshot::SnapshotData<'static>>, params: types_portal::ParamListHandle, instrumented: bool, rewindable: bool) -> Result<Option<PgResult<()>>, &'static str> {
+fn run_measured(
+    serve: &mut Serve,
+    (home, hosted): (usize, bool),
+    count: u64,
+    dest: &mut DestReceiver<'_>,
+    snap_ptr: *const Rc<types_snapshot::SnapshotData<'static>>,
+    params: types_portal::ParamListHandle,
+    instrumented: bool,
+    rewindable: bool,
+) -> Result<Option<PgResult<()>>, &'static str> {
     let t0 = instrumented.then(Instant::now);
     // D3620: boxed, the counters out of this frame
     let b0 = instrumented.then(buffer_snapshot);
@@ -1005,11 +1453,45 @@ fn run_measured(serve: &mut Serve, (home, hosted): (usize, bool), count: u64, de
     let nested = serve.nested.clone();
     let mut step = |b: &mut crate::Backend, depth: usize| -> PgResult<()> {
         if recording {
-            return step_recorded(serve, b, depth, nested.as_ref(), &mut runs, &mut |serve: &mut Serve, b: &mut crate::Backend| serve.run_step(b, depth, count, dest, snap_ptr, params, instrumented, rewindable));
+            return step_recorded(
+                serve,
+                b,
+                depth,
+                nested.as_ref(),
+                &mut runs,
+                &mut |serve: &mut Serve, b: &mut crate::Backend| {
+                    serve.run_step(
+                        b,
+                        depth,
+                        count,
+                        dest,
+                        snap_ptr,
+                        params,
+                        instrumented,
+                        rewindable,
+                    )
+                },
+            );
         }
-        crate::runner::hand(depth, nested.as_ref(), &mut || serve.run_step(b, depth, count, dest, snap_ptr, params, instrumented, rewindable))
+        crate::runner::hand(depth, nested.as_ref(), &mut || {
+            serve.run_step(
+                b,
+                depth,
+                count,
+                dest,
+                snap_ptr,
+                params,
+                instrumented,
+                rewindable,
+            )
+        })
     };
-    let r = crate::admit::reentry::enter(Some(crate::admit::reentry::built), Some(home), hosted, &mut step);
+    let r = crate::admit::reentry::enter(
+        Some(crate::admit::reentry::built),
+        Some(home),
+        hosted,
+        &mut step,
+    );
     if let Some(t0) = t0 {
         serve.elapsed_ns += t0.elapsed().as_nanos() as u64;
     }
@@ -1026,8 +1508,16 @@ fn run_measured(serve: &mut Serve, (home, hosted): (usize, bool), count: u64, de
 /// entry/record.rs, closed on every exit) around the step `run` (`hand`'s, D622). D3620: out of line, so a plain run's step
 /// (every level of a nested statement's stack path) holds none of the recording's frame.
 #[inline(never)]
-fn step_recorded(serve: &mut Serve, b: &mut crate::Backend, depth: usize, nested: Option<&Rc<core::cell::RefCell<crate::runner::NestedGrants>>>, runs: &mut Option<(Vec<gravity_driver::entry::record::PipeRun>, u64, Vec<u64>)>, run: &mut dyn FnMut(&mut Serve, &mut crate::Backend) -> PgResult<()>) -> PgResult<()> {
-    let probe = Some(super::instrument::buffer_probe as fn() -> gravity_driver::entry::record::Bufs);
+fn step_recorded(
+    serve: &mut Serve,
+    b: &mut crate::Backend,
+    depth: usize,
+    nested: Option<&Rc<core::cell::RefCell<crate::runner::NestedGrants>>>,
+    runs: &mut Option<(Vec<gravity_driver::entry::record::PipeRun>, u64, Vec<u64>)>,
+    run: &mut dyn FnMut(&mut Serve, &mut crate::Backend) -> PgResult<()>,
+) -> PgResult<()> {
+    let probe =
+        Some(super::instrument::buffer_probe as fn() -> gravity_driver::entry::record::Bufs);
     let token = b.entry.record_open_probed(&serve.a.program, probe);
     let r = crate::runner::hand(depth, nested, &mut || run(serve, b));
     *runs = Some(b.entry.record_close(token));
@@ -1037,7 +1527,10 @@ fn step_recorded(serve: &mut Serve, b: &mut crate::Backend, depth: usize, nested
 /// D3620: EXPLAIN ANALYZE's buffer counters since `b0` added to the run's, out of line (the counters now are a temporary
 /// `executor_run`'s frame would hold).
 #[inline(never)]
-fn buffer_accum(acc: &mut types_core::instrument::BufferUsage, b0: &types_core::instrument::BufferUsage) {
+fn buffer_accum(
+    acc: &mut types_core::instrument::BufferUsage,
+    b0: &types_core::instrument::BufferUsage,
+) {
     instrument::buffer_usage_accum_diff(acc, &instrument::pg_buffer_usage(), b0);
 }
 
@@ -1051,11 +1544,17 @@ fn buffer_snapshot() -> Box<types_core::instrument::BufferUsage> {
 /// End the execution: the adapter's node is unbound and parked (or torn down: an unkeyed exec). A run the caller's
 /// count stopped with the pipeline suspended (a one-row emit suspends `out_full` at its row) is served here.
 pub fn close(qd: &mut QueryDesc, ok: bool) -> PgResult<()> {
-    let Some(serve) = qd.serve.as_mut() else { return Ok(()) };
+    let Some(serve) = qd.serve.as_mut() else {
+        return Ok(());
+    };
     let mut ended = Ok(());
     if serve.run.is_open() {
         let limited = ok && serve.limited;
-        let admit = if serve.a.graph.is_some() { "graph" } else { "shape" };
+        let admit = if serve.a.graph.is_some() {
+            "graph"
+        } else {
+            "shape"
+        };
         let _ = crate::with_backend(|b| {
             ended = serve.close_run(&mut b.entry, ok);
             if limited {
@@ -1111,7 +1610,9 @@ pub fn rewind(qd: &mut QueryDesc) -> PgResult<()> {
         serve.rows = 0;
         serve.entries = 0;
         if let Some(p) = kept {
-            serve.nested = Some(Rc::new(core::cell::RefCell::new(p.into_kept(&serve.a.program))));
+            serve.nested = Some(Rc::new(core::cell::RefCell::new(
+                p.into_kept(&serve.a.program),
+            )));
         }
     }
     closed.and(ended)
@@ -1120,7 +1621,8 @@ pub fn rewind(qd: &mut QueryDesc) -> PgResult<()> {
 /// D682: the run's kernel left with its resume word set (the next call continues past the rechecked row), as the runner's
 /// `resumes`.
 fn resumes(run: &PullAdapter<'static>) -> bool {
-    run.exec().is_some_and(|e| super::raw::resume(e.node().ctx()) != gravity_abi::ctx::RESUME_NONE)
+    run.exec()
+        .is_some_and(|e| super::raw::resume(e.node().ctx()) != gravity_abi::ctx::RESUME_NONE)
 }
 
 /// D2701: lowering marked the program `soft_rewind` (lowerv4 effects/visible.rs), it is the statement's one program (no
@@ -1128,12 +1630,18 @@ fn resumes(run: &PullAdapter<'static>) -> bool {
 /// and no pulled set may sit parked mid-pull at the rewind (a CTE, a pulled WindowAgg or merge input).
 pub(super) fn soft_rewind(a: &crate::Admitted) -> bool {
     let v4 = a.program.v4.as_ref();
-    v4.is_some_and(|d| d.soft_rewind && !d.protos.iter().any(gravity_program::protos::pulled)) && a.graph.as_ref().is_none_or(|g| g.arms.is_empty()) && !init_protos(&a.program)
+    v4.is_some_and(|d| d.soft_rewind && !d.protos.iter().any(gravity_program::protos::pulled))
+        && a.graph.as_ref().is_none_or(|g| g.arms.is_empty())
+        && !init_protos(&a.program)
 }
 
 /// M8 (RT-1): the program declares nest.initplan's Init (its InitPlans are its own pipelines, run on demand).
 fn init_protos(program: &gravity_program::Program) -> bool {
-    program.v4.as_ref().is_some_and(|d| d.protos.iter().any(|x| x.kind == gravity_program::protos::ProtoKind::Init))
+    program.v4.as_ref().is_some_and(|d| {
+        d.protos
+            .iter()
+            .any(|x| x.kind == gravity_program::protos::ProtoKind::Init)
+    })
 }
 
 /// D1401: the program declares a protocol whose host runs pipelines on demand through the runner's frame (`m8_init_run`,
@@ -1141,7 +1649,11 @@ fn init_protos(program: &gravity_program::Program) -> bool {
 /// object's `m10_win_ask`), which an emit's call reaches as well as a producer's.
 fn on_demand_protos(program: &gravity_program::Program) -> bool {
     use gravity_program::protos::ProtoKind as K;
-    program.v4.as_ref().is_some_and(|d| d.protos.iter().any(|x| matches!(x.kind, K::Init | K::Rerun | K::SubHash) || gravity_program::protos::pulled(x)))
+    program.v4.as_ref().is_some_and(|d| {
+        d.protos.iter().any(|x| {
+            matches!(x.kind, K::Init | K::Rerun | K::SubHash) || gravity_program::protos::pulled(x)
+        })
+    })
 }
 
 #[cfg(test)]
@@ -1149,8 +1661,8 @@ fn on_demand_protos(program: &gravity_program::Program) -> bool {
 mod d1506 {
     use super::desc_mcx;
     use mcx::{Mcx, SessionCleanupPhase};
-    use std::collections::HashMap;
     use pgsync::Mutex;
+    use std::collections::HashMap;
     use std::thread::ThreadId;
     use types_error::PgResult;
 
@@ -1165,14 +1677,22 @@ mod d1506 {
 
     fn sink(p: SessionCleanupPhase, f: Cleanup) {
         let mut l = pgsync::lock(&LISTS);
-        l.get_or_insert_with(|| Lists(HashMap::new())).0.entry(std::thread::current().id()).or_default().push((p, f)); // alloc: Cold
+        l.get_or_insert_with(|| Lists(HashMap::new()))
+            .0
+            .entry(std::thread::current().id())
+            .or_default()
+            .push((p, f)); // alloc: Cold
     }
 
     /// This thread's session teardown, as mcxt_stats drains it: Portals, then State, then Roots, LIFO within a phase (each
     /// cleanup runs outside the lock: it may register another).
     fn teardown() {
         let me = std::thread::current().id();
-        for phase in [SessionCleanupPhase::Portals, SessionCleanupPhase::State, SessionCleanupPhase::Roots] {
+        for phase in [
+            SessionCleanupPhase::Portals,
+            SessionCleanupPhase::State,
+            SessionCleanupPhase::Roots,
+        ] {
             while let Some(f) = {
                 let mut l = pgsync::lock(&LISTS);
                 l.as_mut().and_then(|l| l.0.get_mut(&me)).and_then(|v| {
@@ -1209,17 +1729,23 @@ mod d1506 {
     }
 
     #[test]
-    fn d1506_the_descs_context_ends_at_the_sessions_roots_phase_and_a_later_desc_is_a_named_error() {
+    fn d1506_the_descs_context_ends_at_the_sessions_roots_phase_and_a_later_desc_is_a_named_error()
+    {
         mcx::set_session_cleanup_sink(sink);
         let _ = desc_mcx();
         teardown();
-        assert!(desc_mcx().named(), "a desc after the session's teardown must be refused by name (D1506)");
+        assert!(
+            desc_mcx().named(),
+            "a desc after the session's teardown must be refused by name (D1506)"
+        );
     }
 
     #[test]
     fn d1506_a_desc_still_held_at_the_roots_phase_keeps_its_context() {
         mcx::set_session_cleanup_sink(sink);
-        let td = std::rc::Rc::new(tupdesc::CreateTemplateTupleDesc(desc_mcx().ctx(), 3).expect("a template desc"));
+        let td = std::rc::Rc::new(
+            tupdesc::CreateTemplateTupleDesc(desc_mcx().ctx(), 3).expect("a template desc"),
+        );
         teardown();
         // the context was left allocated: the held desc stays readable and its drop returns its bytes to it
         assert_eq!(td.natts, 3);

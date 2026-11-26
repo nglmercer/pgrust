@@ -35,10 +35,10 @@ fn no_binary_io(recv: bool, rngtypid: Oid) -> Box<PgError> {
 }
 
 pub fn cached_multirange_io_data(
-    flinfo: & mut FmgrInfo,
+    flinfo: &mut FmgrInfo,
     mltrngtypid: Oid,
     func: IOFuncSelector,
-) -> PgResult<& mut MultirangeIOData> {
+) -> PgResult<&mut MultirangeIOData> {
     let need = match flinfo.fn_extra_ref::<MultirangeIOData>() {
         Some(c) => c.mi.mltrngtypid != mltrngtypid,
         None => true,
@@ -47,10 +47,17 @@ pub fn cached_multirange_io_data(
         let mi = MultirangeInfo::lookup(mltrngtypid)?;
         let io = get_type_io_data(mi.rng.rngtypid, func)?;
         if io.func == 0 {
-            return Err(no_binary_io(matches!(func, IOFuncSelector::IOFunc_receive), mi.rng.rngtypid));
+            return Err(no_binary_io(
+                matches!(func, IOFuncSelector::IOFunc_receive),
+                mi.rng.rngtypid,
+            ));
         }
         let typioproc = ::fmgr_seams::fmgr_info::call(io.func)?;
-        flinfo.set_fn_extra(MultirangeIOData { mi, typioproc, typioparam: io.typioparam });
+        flinfo.set_fn_extra(MultirangeIOData {
+            mi,
+            typioproc,
+            typioparam: io.typioparam,
+        });
     }
     Ok(flinfo.fn_extra_mut::<MultirangeIOData>().unwrap())
 }
@@ -207,10 +214,19 @@ pub fn multirange_in<'m>(
     }
     if pos != input.len() {
         let ctx = esc.map(|n| &mut n.ctx);
-        return ereturn(ctx, None, malformed(input, "Junk after closing right brace."));
+        return ereturn(
+            ctx,
+            None,
+            malformed(input, "Junk after closing right brace."),
+        );
     }
 
-    Ok(Some(make_multirange(mcx, mltrngtypid, &mut cache.mi.rng, &mut ranges)?))
+    Ok(Some(make_multirange(
+        mcx,
+        mltrngtypid,
+        &mut cache.mi.rng,
+        &mut ranges,
+    )?))
 }
 
 // A range input/receive result datum is a fresh 4-byte-header image in mcx.
@@ -273,7 +289,10 @@ pub fn multirange_recv<'m>(
     // palloc_array (mul_size), so a negative count is the overflow error and an
     // oversized one the MaxAllocSize error, both before anything is allocated.
     let range_count = ::pqformat::pq_getmsgint(buf, 4)? as i32;
-    let req = ::mcx::mul_size(core::mem::size_of::<*const u8>(), range_count as isize as usize)?;
+    let req = ::mcx::mul_size(
+        core::mem::size_of::<*const u8>(),
+        range_count as isize as usize,
+    )?;
     ::mcx::check_alloc_size(req)?;
     let range_count = range_count as usize;
     // C's array is 8 bytes per pointer; a 16-byte slice per entry would trip

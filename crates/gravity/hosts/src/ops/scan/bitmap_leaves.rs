@@ -30,21 +30,61 @@ impl SharedScanKey {
         if k.sk_flags & (SK_ROW_HEADER | SK_ROW_MEMBER) != 0 {
             return None;
         }
-        Some(SharedScanKey { flags: k.sk_flags, attno: k.sk_attno, strategy: k.sk_strategy, subtype: k.sk_subtype, collation: k.sk_collation, func: k.sk_func.fn_oid, arg: k.sk_argument })
+        Some(SharedScanKey {
+            flags: k.sk_flags,
+            attno: k.sk_attno,
+            strategy: k.sk_strategy,
+            subtype: k.sk_subtype,
+            collation: k.sk_collation,
+            func: k.sk_func.fn_oid,
+            arg: k.sk_argument,
+        })
     }
 
     /// A key the walk adds itself (index_ranges.rs: a range's bounds, its NULL test): `flags` on column `attno`, strategy
     /// `strategy` of function `func` (0: none) against `arg`, `subtype` its right-hand type, under `collation`.
-    pub(crate) const fn bound(flags: i32, attno: types_core::AttrNumber, strategy: types_scan::scankey::StrategyNumber, subtype: types_core::Oid, collation: types_core::Oid, func: types_core::Oid, arg: datum::Datum) -> SharedScanKey {
-        SharedScanKey { flags, attno, strategy, subtype, collation, func, arg }
+    pub(crate) const fn bound(
+        flags: i32,
+        attno: types_core::AttrNumber,
+        strategy: types_scan::scankey::StrategyNumber,
+        subtype: types_core::Oid,
+        collation: types_core::Oid,
+        func: types_core::Oid,
+        arg: datum::Datum,
+    ) -> SharedScanKey {
+        SharedScanKey {
+            flags,
+            attno,
+            strategy,
+            subtype,
+            collation,
+            func,
+            arg,
+        }
     }
 
     pub(crate) fn key(&self) -> PgResult<ScanKeyData> {
         let mut k = ScanKeyData::empty();
-        (k.sk_flags, k.sk_attno, k.sk_strategy, k.sk_subtype, k.sk_collation, k.sk_argument) = (self.flags, self.attno, self.strategy, self.subtype, self.collation, self.arg);
+        (
+            k.sk_flags,
+            k.sk_attno,
+            k.sk_strategy,
+            k.sk_subtype,
+            k.sk_collation,
+            k.sk_argument,
+        ) = (
+            self.flags,
+            self.attno,
+            self.strategy,
+            self.subtype,
+            self.collation,
+            self.arg,
+        );
         if self.func != 0 {
             let Some(b) = fmgr_core::fmgr_isbuiltin(self.func) else {
-                return Err(Box::new(types_error::PgError::error("gravity: index leaf walk: a key function is not built in"))); // alloc: Cold
+                return Err(Box::new(types_error::PgError::error(
+                    "gravity: index leaf walk: a key function is not built in",
+                ))); // alloc: Cold
             };
             fmgr_core::fmgr_info_from_builtin_into(b, self.func, &mut k.sk_func);
         }
@@ -80,26 +120,45 @@ impl Drop for AbortOnExit<'_> {
 /// visibility. An error or an unwind ends the shared scan for all (`AbortOnExit`). `fault` (testing,
 /// PGRUST_GRAVITY_LEAF_FAULT): raise once the scan is started, as a failure mid-walk would.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn walk(img: &nbtree::IndexImage, shared: &Arc<types_relscan::ParallelIndexScanDescShared>, bt: &types_relscan::BTParallelScanShared, images: &[SharedScanKey], in_recovery: bool, maxbytes: usize, fault: bool) -> PgResult<Walked> {
+pub(crate) fn walk(
+    img: &nbtree::IndexImage,
+    shared: &Arc<types_relscan::ParallelIndexScanDescShared>,
+    bt: &types_relscan::BTParallelScanShared,
+    images: &[SharedScanKey],
+    in_recovery: bool,
+    maxbytes: usize,
+    fault: bool,
+) -> PgResult<Walked> {
     let mut guard = AbortOnExit(bt, false);
     let cx = gravity_driver::mem::root::Root::new("index leaves");
     let wm = cx.mcx();
     let r = nbtree::ImageRel::new(img, wm)?;
     let mut scan = r.begin_scan(wm, images.len() as i32, in_recovery)?;
     scan.parallel_scan = Some(shared.clone());
-    let ks = images.iter().map(SharedScanKey::key).collect::<PgResult<Vec<ScanKeyData>>>()?; // alloc: Cold
+    let ks = images
+        .iter()
+        .map(SharedScanKey::key)
+        .collect::<PgResult<Vec<ScanKeyData>>>()?; // alloc: Cold
     let mut mine = tidbitmap::TIDBitmap::new(wm, maxbytes);
     let walked = (|| -> PgResult<i64> {
         nbtree::btrescan(&mut scan, if ks.is_empty() { None } else { Some(&ks) })?;
         if fault {
-            return Err(Box::new(types_error::PgError::error("gravity: injected parallel leaf walk fault (PGRUST_GRAVITY_LEAF_FAULT)"))); // alloc: Cold
+            return Err(Box::new(types_error::PgError::error(
+                "gravity: injected parallel leaf walk fault (PGRUST_GRAVITY_LEAF_FAULT)",
+            ))); // alloc: Cold
         }
         nbtree::btgetbitmap_over(&mut scan, &r, &mut mine)
     })();
     let ended = nbtree::btendscan(&mut scan);
     let tids = walked?;
     ended?;
-    let w = Walked { frozen: mine.prepare_shared_iterate()?, tids, fetched: r.blocks_fetched(), hit: r.blocks_hit(), scans: scan.xs_pgstat.take_detached_scans() };
+    let w = Walked {
+        frozen: mine.prepare_shared_iterate()?,
+        tids,
+        fetched: r.blocks_fetched(),
+        hit: r.blocks_hit(),
+        scans: scan.xs_pgstat.take_detached_scans(),
+    };
     guard.1 = true;
     Ok(w)
 }

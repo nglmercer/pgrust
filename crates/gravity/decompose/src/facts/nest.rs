@@ -56,7 +56,10 @@ pub struct EqConjunct<'p> {
 }
 
 /// F2 (`EqConjunct`): the first hashable equality of `qual`, when every conjunct before it is non-volatile and raise-free.
-pub(crate) fn eq_conjunct<'p>(b: &Builder<'p, '_>, qual: &'p NodeList<'p>) -> Option<EqConjunct<'p>> {
+pub(crate) fn eq_conjunct<'p>(
+    b: &Builder<'p, '_>,
+    qual: &'p NodeList<'p>,
+) -> Option<EqConjunct<'p>> {
     eq_by(b, qual, false)
 }
 
@@ -69,12 +72,17 @@ pub(crate) fn eq_keyed<'p>(b: &Builder<'p, '_>, qual: &'p NodeList<'p>) -> Optio
     eq_by(b, qual, true)
 }
 
-fn eq_by<'p>(b: &Builder<'p, '_>, qual: &'p NodeList<'p>, computed: bool) -> Option<EqConjunct<'p>> {
+fn eq_by<'p>(
+    b: &Builder<'p, '_>,
+    qual: &'p NodeList<'p>,
+    computed: bool,
+) -> Option<EqConjunct<'p>> {
     for (i, c) in qual.iter().enumerate() {
         if let Some(e) = eq_of(b, c, i, computed) {
             return Some(e);
         }
-        let e = crate::effects::Effects::of_found(crate::rerun::of_expr(b.stmt, b.facts, b.arena, c));
+        let e =
+            crate::effects::Effects::of_found(crate::rerun::of_expr(b.stmt, b.facts, b.arena, c));
         if e.acts || e.may_raise {
             return None;
         }
@@ -82,13 +90,24 @@ fn eq_by<'p>(b: &Builder<'p, '_>, qual: &'p NodeList<'p>, computed: bool) -> Opt
     None
 }
 
-fn eq_of<'p>(b: &Builder<'p, '_>, c: Node<'p>, pos: usize, computed: bool) -> Option<EqConjunct<'p>> {
+fn eq_of<'p>(
+    b: &Builder<'p, '_>,
+    c: Node<'p>,
+    pos: usize,
+    computed: bool,
+) -> Option<EqConjunct<'p>> {
     let o = c.as_op_expr()?;
     let op = b.facts.oper(o.opno)?;
     if o.args.len() != 2 || !op.canhash || op.hash_family == 0 || op.poly {
         return None;
     }
-    let inner_col = |n: Node<'p>| expr::through_relabel(n).unwrap_or(n).as_var().filter(|v| v.varno == INNER_VAR && v.varlevelsup == 0 && v.varattno > 0).map(|v| v.varattno);
+    let inner_col = |n: Node<'p>| {
+        expr::through_relabel(n)
+            .unwrap_or(n)
+            .as_var()
+            .filter(|v| v.varno == INNER_VAR && v.varlevelsup == 0 && v.varattno > 0)
+            .map(|v| v.varattno)
+    };
     let (l, r) = (o.args.nth(0), o.args.nth(1));
     let (outer, inner, attno, outer_left) = match (inner_col(l), inner_col(r)) {
         (None, Some(a)) => (l, r, a, true),
@@ -102,12 +121,27 @@ fn eq_of<'p>(b: &Builder<'p, '_>, c: Node<'p>, pos: usize, computed: bool) -> Op
         reads_inner |= x.as_var().is_some_and(|v| v.varno == INNER_VAR);
         !reads_inner
     });
-    let e = crate::effects::Effects::of_found(crate::rerun::of_expr(b.stmt, b.facts, b.arena, outer));
+    let e =
+        crate::effects::Effects::of_found(crate::rerun::of_expr(b.stmt, b.facts, b.arena, outer));
     if reads_inner || e.acts {
         return None;
     }
-    let types = (crate::catalog::expr_type::type_of(outer).unwrap_or(0), crate::catalog::expr_type::type_of(inner).unwrap_or(0));
-    Some(EqConjunct { pos: pos as u16, outer, inner_attno: attno, inner, opno: o.opno, opfamily: op.hash_family, types, coll: o.inputcollid, outer_left, outer_raise_free: !e.may_raise })
+    let types = (
+        crate::catalog::expr_type::type_of(outer).unwrap_or(0),
+        crate::catalog::expr_type::type_of(inner).unwrap_or(0),
+    );
+    Some(EqConjunct {
+        pos: pos as u16,
+        outer,
+        inner_attno: attno,
+        inner,
+        opno: o.opno,
+        opfamily: op.hash_family,
+        types,
+        coll: o.inputcollid,
+        outer_left,
+        outer_raise_free: !e.may_raise,
+    })
 }
 
 /// `eq_keyed`'s computed inner side: expression `n` reads inner columns (`INNER_VAR`, this level) and no other Var, no
@@ -118,9 +152,16 @@ fn inner_only<'p>(b: &Builder<'p, '_>, n: Node<'p>) -> bool {
     let (mut cols, mut other) = (0usize, false);
     expr::walk(n, &mut |x| {
         if let Some(v) = x.as_var() {
-            if v.varno == INNER_VAR && v.varlevelsup == 0 && v.varattno > 0 { cols += 1 } else { other = true }
+            if v.varno == INNER_VAR && v.varlevelsup == 0 && v.varattno > 0 {
+                cols += 1
+            } else {
+                other = true
+            }
         }
-        other |= x.as_param().is_some_and(|p| p.paramkind != ParamKind::PARAM_EXTERN) || x.as_sub_plan().is_some();
+        other |= x
+            .as_param()
+            .is_some_and(|p| p.paramkind != ParamKind::PARAM_EXTERN)
+            || x.as_sub_plan().is_some();
         !other
     });
     if cols == 0 || other || expr::has_subplan(n) {
@@ -140,11 +181,20 @@ impl NestFacts<'_> {
         }
         crate::rerun::dump_f5(out, self.volatility, self.raise_free)?;
         if let Some(e) = &self.eq {
-            write!(out, " eq=#{}:op{}:fam{}:{}/{}", e.pos, e.opno, e.opfamily, e.types.0, e.types.1)?;
+            write!(
+                out,
+                " eq=#{}:op{}:fam{}:{}/{}",
+                e.pos, e.opno, e.opfamily, e.types.0, e.types.1
+            )?;
             if e.coll != 0 {
                 write!(out, "@{}", e.coll)?;
             }
-            write!(out, ":{}{}", if e.outer_left { "L" } else { "R" }, if e.outer_raise_free { "" } else { ":raises" })?;
+            write!(
+                out,
+                ":{}{}",
+                if e.outer_left { "L" } else { "R" },
+                if e.outer_raise_free { "" } else { ":raises" }
+            )?;
         }
         Ok(())
     }

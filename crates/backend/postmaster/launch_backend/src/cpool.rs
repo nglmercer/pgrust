@@ -340,7 +340,9 @@ fn wait(id: u64, rx: &Receiver<ClientTask>) -> Option<ClientTask> {
 }
 
 fn rekey(old_pid: pid_t, new_pid: pid_t) {
-    let mut t = super::CHILD_THREADS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut t = super::CHILD_THREADS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     if let Some(entry) = t.iter_mut().find(|(p, _)| *p == old_pid) {
         entry.0 = new_pid;
         super::release_reserved_pid(old_pid);
@@ -411,8 +413,14 @@ mod tests {
     fn a_thread_over_the_retained_bound_exits_and_no_reading_or_no_bound_parks() {
         assert!(over_bound(Some((64 << 20) + 1), 64));
         assert!(!over_bound(Some(64 << 20), 64));
-        assert!(!over_bound(Some(11 << 20), 64), "a sort-heavy statement's thread reading (~10.5 MiB) parks");
-        assert!(!over_bound(None, 64), "no hook (wasm, unit rigs): no reading, the bound does not apply");
+        assert!(
+            !over_bound(Some(11 << 20), 64),
+            "a sort-heavy statement's thread reading (~10.5 MiB) parks"
+        );
+        assert!(
+            !over_bound(None, 64),
+            "no hook (wasm, unit rigs): no reading, the bound does not apply"
+        );
         assert!(!over_bound(Some(usize::MAX), 0), "0 = no bound");
     }
 }

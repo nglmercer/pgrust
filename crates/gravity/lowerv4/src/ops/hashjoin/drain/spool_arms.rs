@@ -21,8 +21,18 @@ pub(crate) fn bare_arm(o: &Op<'_>) -> bool {
 pub(crate) fn arm_whole(gx: &Gx<'_, '_>, d: usize, o: &Op<'_>, tail: &[Op<'_>]) -> bool {
     feed_whole(gx, o)
         || (bare_arm(o)
-            && !tail.iter().any(|o| crate::graph::step_kind(o) == KindId::StepLimit)
-            && matches!(gx.end_kind(d), EndKind::Breaker(BreakerKind::Sort | BreakerKind::TopK | BreakerKind::PlainAgg | BreakerKind::HashAgg)))
+            && !tail
+                .iter()
+                .any(|o| crate::graph::step_kind(o) == KindId::StepLimit)
+            && matches!(
+                gx.end_kind(d),
+                EndKind::Breaker(
+                    BreakerKind::Sort
+                        | BreakerKind::TopK
+                        | BreakerKind::PlainAgg
+                        | BreakerKind::HashAgg
+                )
+            ))
 }
 
 /// drain (regress domain#507): op `o` is a Feed into a settled union's record (decompose `settle_arms` / the child-by-child
@@ -34,8 +44,14 @@ pub(crate) fn arm_whole(gx: &Gx<'_, '_>, d: usize, o: &Op<'_>, tail: &[Op<'_>]) 
 /// arm order either way. What a later arm's own pipelines run before the drain is N1's (the pipelines between).
 pub(crate) fn feed_whole(gx: &Gx<'_, '_>, o: &Op<'_>) -> bool {
     let ps = gx.pipelines();
-    let plain = |x: &Op<'_>| crate::graph::step_kind(x) == KindId::SrcAppend && crate::graph::append_without_exprs(x);
-    plain(o) && !crate::graph::is_arm(o) && (0..ps.end()).flat_map(|k| ps[k].ops.iter()).all(|x| !matches!(x, Op::Append(_)) || plain(x))
+    let plain = |x: &Op<'_>| {
+        crate::graph::step_kind(x) == KindId::SrcAppend && crate::graph::append_without_exprs(x)
+    };
+    plain(o)
+        && !crate::graph::is_arm(o)
+        && (0..ps.end())
+            .flat_map(|k| ps[k].ops.iter())
+            .all(|x| !matches!(x, Op::Append(_)) || plain(x))
 }
 
 /// drain (regress domain#507: information_schema.check_constraints' arm, a Hash Right Join's unmatched pg_constraint rows

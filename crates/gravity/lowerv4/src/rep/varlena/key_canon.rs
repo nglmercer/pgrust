@@ -30,7 +30,10 @@ crate::strategies! {
     KEY_CANON = 160, "key.canon", VarlenaKeyCanon;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(KEY_CANON, &IMPL)], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(KEY_CANON, &IMPL)],
+    ..crate::ops::NONE
+};
 
 const IMPL: VarKeyImpl = VarKeyImpl(&Canon);
 
@@ -43,24 +46,43 @@ pub(crate) fn engaged(s: crate::face::strategy::StrategySet) -> bool {
 struct Canon;
 
 impl VarKeyMech for Canon {
-    fn hash(&self, lx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, tf: &TypeFacts, _: KeyColl, _: Scope) -> Option<Words> {
+    fn hash(
+        &self,
+        lx: &mut Lx<'_, '_, '_>,
+        c: CellRef<'_>,
+        tf: &TypeFacts,
+        _: KeyColl,
+        _: Scope,
+    ) -> Option<Words> {
         if !lx.strategies.has(KEY_CANON) || !tf.image.is_bytes() {
             return None;
         }
         fires::fire("key.canon"); // textkeys witness signal: a datum key imaged canonically
         let (p, null) = rep::datum(lx, c, tf);
         let zero = lx.b.iconst(Type::I64, 0);
-        let (l_val, l_out) = (lx.b.create_block(&[]), lx.b.create_block(&[Type::I64, Type::I64]));
+        let (l_val, l_out) = (
+            lx.b.create_block(&[]),
+            lx.b.create_block(&[Type::I64, Type::I64]),
+        );
         lx.b.cond_br(null, (l_out, &[zero, zero]), (l_val, &[]));
         lx.b.switch_to(l_val);
         let (w0, w1) = of_datum(lx, p, tf);
         lx.b.br(l_out, &[w0, w1]);
         lx.b.switch_to(l_out);
         let o = lx.b.block_params(l_out);
-        Some(Words { w: [Some(o[0]), Some(o[1])], exact: true })
+        Some(Words {
+            w: [Some(o[0]), Some(o[1])],
+            exact: true,
+        })
     }
 
-    fn order(&self, _: &mut Lx<'_, '_, '_>, _: CellRef<'_>, _: &TypeFacts, _: KeyColl) -> Option<(Value, TailForm)> {
+    fn order(
+        &self,
+        _: &mut Lx<'_, '_, '_>,
+        _: CellRef<'_>,
+        _: &TypeFacts,
+        _: KeyColl,
+    ) -> Option<(Value, TailForm)> {
         None
     }
 }
@@ -83,16 +105,39 @@ pub(crate) fn of_datum(lx: &mut Lx<'_, '_, '_>, p: Value, tf: &TypeFacts) -> (Va
 /// (text, varchar, bytea: a bpchar's image is its trimmed bytes, so it keeps its copy) under a byte-equal collation and
 /// no user `=`, in two words. 0 for every other group.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn bare_keys(px: &crate::frame::px::Px<'_, '_>, g: &gravity_decompose::ops::shared::agg::GroupDecl<'_>, reps: &[Option<crate::table::emit_group::RepSrc>], tfs: &[TypeFacts], colls: &[KeyColl], wpk: &[u8], home: gravity_program::LifeId) -> u64 {
+pub(crate) fn bare_keys(
+    px: &crate::frame::px::Px<'_, '_>,
+    g: &gravity_decompose::ops::shared::agg::GroupDecl<'_>,
+    reps: &[Option<crate::table::emit_group::RepSrc>],
+    tfs: &[TypeFacts],
+    colls: &[KeyColl],
+    wpk: &[u8],
+    home: gravity_program::LifeId,
+) -> u64 {
     use gravity_decompose::ops::shared::agg::GroupForm;
-    if !engaged(px.strategies) || g.form != GroupForm::Hashed || g.two_pass.is_some() || home != g.producer || g.keys.len() > 64 || sorted_at_emit(px.gx, g) {
+    if !engaged(px.strategies)
+        || g.form != GroupForm::Hashed
+        || g.two_pass.is_some()
+        || home != g.producer
+        || g.keys.len() > 64
+        || sorted_at_emit(px.gx, g)
+    {
         return 0;
     }
     let mut m = 0u64;
     for (i, k) in g.keys.iter().enumerate() {
         let tf = &tfs[i];
         let datum = reps[i].is_some_and(|r| r.datum && !r.nocode && !r.derived && !r.imaged);
-        if datum && k.resno != 0 && !k.image.is_float() && tf.image.is_bytes() && !tf.image.is_bpchar() && tf.user == 0 && tf.typlen == -1 && colls[i].bytes_eq && wpk[i] == 2 {
+        if datum
+            && k.resno != 0
+            && !k.image.is_float()
+            && tf.image.is_bytes()
+            && !tf.image.is_bpchar()
+            && tf.user == 0
+            && tf.typlen == -1
+            && colls[i].bytes_eq
+            && wpk[i] == 2
+        {
             m |= 1 << i;
         }
     }
@@ -101,10 +146,16 @@ pub(crate) fn bare_keys(px: &crate::frame::px::Px<'_, '_>, g: &gravity_decompose
 
 /// Whether group `g`'s emit orders its records by the keys' copies (table/emit_group.rs's `sort`: a top over the groups,
 /// an in-place group sort, a sorted group read in key order, a grouped DISTINCT's key order), or no pipeline drains it.
-fn sorted_at_emit(gx: &crate::graph::Gx<'_, '_>, g: &gravity_decompose::ops::shared::agg::GroupDecl<'_>) -> bool {
+fn sorted_at_emit(
+    gx: &crate::graph::Gx<'_, '_>,
+    g: &gravity_decompose::ops::shared::agg::GroupDecl<'_>,
+) -> bool {
     let end = g.producer.0 as usize;
     let Some(q) = (end + 1..gx.pipelines().len()).find(|&q| matches!(gx.pipelines()[q].source, gravity_decompose::Source::Breaker { slot } if slot == g.slot)) else { return true };
-    gx.end_need(q) == crate::face::kinds::KindId::RunsTopkGroups || crate::frame::iface::sorts_group_in_place(gx, q) || crate::frame::iface::order_read(gx, g) || crate::frame::iface::key_ordered(gx, g)
+    gx.end_need(q) == crate::face::kinds::KindId::RunsTopkGroups
+        || crate::frame::iface::sorts_group_in_place(gx, q)
+        || crate::frame::iface::order_read(gx, g)
+        || crate::frame::iface::key_ordered(gx, g)
 }
 
 /// Whether the non-NULL varlena at `p` (an `I64` address) has an inline (1-byte or uncompressed 4-byte) header and at most
@@ -112,7 +163,10 @@ fn sorted_at_emit(gx: &crate::graph::Gx<'_, '_>, g: &gravity_decompose::ops::sha
 pub(crate) fn small(b: &mut FunctionBuilder<'_>, p: Value) -> Value {
     let ptr = b.conv(ConvOp::IntToPtr, Type::Ptr, p);
     let v = gravity_expr::siphash::varlena(b, ptr);
-    let (zero, max) = (b.iconst(Type::I64, 0), b.iconst(Type::I64, super::hash_tagged::INLINE));
+    let (zero, max) = (
+        b.iconst(Type::I64, 0),
+        b.iconst(Type::I64, super::hash_tagged::INLINE),
+    );
     let good = b.icmp(IntCond::Eq, v.bad, zero);
     let short = b.icmp(IntCond::Sle, v.len, max);
     b.int_bin(IntBinOp::And, good, short)
@@ -123,7 +177,11 @@ pub(crate) fn small(b: &mut FunctionBuilder<'_>, p: Value) -> Value {
 pub(crate) fn render(b: &mut FunctionBuilder<'_>, w0: Value, w1: Value) -> Value {
     let slot = b.declare_stack_slot(24, 8);
     let out = b.stack_addr(slot);
-    let (s56, two, four) = (b.iconst(Type::I64, 56), b.iconst(Type::I64, 2), b.iconst(Type::I64, 4));
+    let (s56, two, four) = (
+        b.iconst(Type::I64, 56),
+        b.iconst(Type::I64, 2),
+        b.iconst(Type::I64, 4),
+    );
     let len = b.int_bin(IntBinOp::Ushr, w1, s56);
     let size = b.int_bin(IntBinOp::Add, len, four);
     let head = b.int_bin(IntBinOp::Shl, size, two); // SET_VARSIZE: the 4-byte uncompressed header's size << 2
@@ -147,7 +205,10 @@ mod tests {
         let mut b = pb.define(f);
         let (w0, w1, o) = (b.params()[0], b.params()[1], b.params()[2]);
         let r = render(&mut b, w0, w1);
-        let (r, o) = (b.conv(ConvOp::IntToPtr, Type::Ptr, r), b.conv(ConvOp::IntToPtr, Type::Ptr, o));
+        let (r, o) = (
+            b.conv(ConvOp::IntToPtr, Type::Ptr, r),
+            b.conv(ConvOp::IntToPtr, Type::Ptr, o),
+        );
         for i in 0..3 {
             let v = b.load(Type::I64, r, 8 * i);
             b.store_unaligned(o, 8 * i, v);
@@ -155,7 +216,9 @@ mod tests {
         let z = b.iconst(Type::I64, 0);
         b.ret(&[z]);
         let prog = pb.finish();
-        Interp::new(&prog).run(f, &[w[0], w[1], out.as_mut_ptr() as u64]).expect("runs");
+        Interp::new(&prog)
+            .run(f, &[w[0], w[1], out.as_mut_ptr() as u64])
+            .expect("runs");
     }
 
     /// `small` over the varlena at `p`, as 0 / 1.
@@ -176,11 +239,18 @@ mod tests {
     #[test]
     fn key_canon_is_asked_before_the_other_text_key_images() {
         let src = include_str!("../varkey.rs");
-        let loops: Vec<&str> = src.lines().filter(|l| l.contains("for form in [")).collect();
+        let loops: Vec<&str> = src
+            .lines()
+            .filter(|l| l.contains("for form in ["))
+            .collect();
         assert_eq!(loops.len(), 2, "varkey.rs asks the forms in two loops");
         for l in loops {
             let at = |f: &str| l.find(f).unwrap_or_else(|| panic!("{f} asked in {l:?}"));
-            assert!(at("ImageForm::Canon") < at("ImageForm::Tagged") && at("ImageForm::Canon") < at("ImageForm::Coll"), "{l:?}");
+            assert!(
+                at("ImageForm::Canon") < at("ImageForm::Tagged")
+                    && at("ImageForm::Canon") < at("ImageForm::Coll"),
+                "{l:?}"
+            );
         }
     }
 
@@ -188,7 +258,15 @@ mod tests {
     /// value's varlena: a 4-byte uncompressed header of `4 + len` and the bytes, for every length 0..=15, multibyte too.
     #[test]
     fn an_inline_image_renders_back_to_its_value() {
-        for s in ["", "a", "abcdefgh", "abcdefghi", "abcdefghijklmno", "Ä-Öü €", "ab  "] {
+        for s in [
+            "",
+            "a",
+            "abcdefgh",
+            "abcdefghi",
+            "abcdefghijklmno",
+            "Ä-Öü €",
+            "ab  ",
+        ] {
             let b = s.as_bytes();
             let mut out = [0u8; 24];
             run_render(gravity_dict::fp::canon_inline(b), &mut out);
@@ -205,15 +283,25 @@ mod tests {
         for len in 0..=20usize {
             let mut one = vec![((len as u8 + 1) << 1) | 1];
             one.extend(std::iter::repeat_n(b'x', len));
-            assert_eq!(run_small(one.as_ptr()), u64::from(len <= 15), "1-byte header, {len}");
+            assert_eq!(
+                run_small(one.as_ptr()),
+                u64::from(len <= 15),
+                "1-byte header, {len}"
+            );
             let mut four = (((len as u32) + 4) << 2).to_le_bytes().to_vec();
             four.extend(std::iter::repeat_n(b'y', len));
-            assert_eq!(run_small(four.as_ptr()), u64::from(len <= 15), "4-byte header, {len}");
+            assert_eq!(
+                run_small(four.as_ptr()),
+                u64::from(len <= 15),
+                "4-byte header, {len}"
+            );
             let mut packed = ((((len as u32) + 4) << 2) | 2).to_le_bytes().to_vec();
             packed.extend(std::iter::repeat_n(b'z', len + 4));
             assert_eq!(run_small(packed.as_ptr()), 0, "compressed, {len}");
         }
-        let toast = [1u8, 18, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        let toast = [
+            1u8, 18, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
         assert_eq!(run_small(toast.as_ptr()), 0, "a TOAST pointer");
     }
 }

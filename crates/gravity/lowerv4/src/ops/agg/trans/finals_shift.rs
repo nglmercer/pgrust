@@ -14,7 +14,10 @@ crate::strategies! {
     FINALS_SHIFT = 28, "finals.shift", Fold;
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(FINALS_SHIFT, &Road)], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(FINALS_SHIFT, &Road)],
+    ..crate::ops::NONE
+};
 
 /// The road's registration value.
 struct Road;

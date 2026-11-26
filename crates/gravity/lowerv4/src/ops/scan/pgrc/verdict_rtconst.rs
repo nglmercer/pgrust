@@ -19,7 +19,10 @@ crate::strategies! {
     VERDICT_RTCONST = 15, "verdict.rtconst", PgrcJoinOrBound;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(VERDICT_RTCONST, &VerdictImpl(&RtConst))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(VERDICT_RTCONST, &VerdictImpl(&RtConst))],
+    ..crate::ops::NONE
+};
 
 struct RtConst;
 

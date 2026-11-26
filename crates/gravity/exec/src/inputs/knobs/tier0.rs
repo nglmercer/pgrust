@@ -41,7 +41,13 @@ pub static KNOBS: &[Knob] = &[
 pub(crate) fn rows_read(pstmt: &PlannedStmt<'_>, mcx: Mcx<'_>) -> (u64, u64) {
     let w = Walk { pstmt, mcx };
     let top = w.rows(pstmt.planTree, u64::MAX);
-    pstmt.subplans.iter().map(|s| w.rows(s, u64::MAX)).fold((top.most, top.all), |(m, a), r| (m.max(r.most), a.max(r.all)))
+    pstmt
+        .subplans
+        .iter()
+        .map(|s| w.rows(s, u64::MAX))
+        .fold((top.most, top.all), |(m, a), r| {
+            (m.max(r.most), a.max(r.all))
+        })
 }
 
 /// D4005: each tagged plan node's lines (`gravity_lower::Lowered::tagged`: a projection's entries) with the rows that run
@@ -54,7 +60,11 @@ pub(crate) fn site_rows(pstmt: &PlannedStmt<'_>, tagged: &[(i32, u32)]) -> Vec<(
         gravity_decompose::walk::stack_check();
         let Some(p) = n.as_plan() else { return };
         if let Some(&(_, lines)) = tagged.iter().find(|t| t.0 == p.plan_node_id) {
-            let planned = if p.plan_rows.is_finite() && p.plan_rows >= 0.0 { p.plan_rows.ceil() as u64 } else { u64::MAX };
+            let planned = if p.plan_rows.is_finite() && p.plan_rows >= 0.0 {
+                p.plan_rows.ceil() as u64
+            } else {
+                u64::MAX
+            };
             out.push((lines, if again { u64::MAX } else { planned })); // alloc: Cold
         }
         let rescans = n.as_nest_loop().is_some() || n.as_recursive_union().is_some();
@@ -64,7 +74,10 @@ pub(crate) fn site_rows(pstmt: &PlannedStmt<'_>, tagged: &[(i32, u32)]) -> Vec<(
         if let Some(r) = p.righttree {
             once(r, again || rescans, tagged, out);
         }
-        let lists = [n.as_append().map(|a| &a.appendplans), n.as_merge_append().map(|a| &a.mergeplans)];
+        let lists = [
+            n.as_append().map(|a| &a.appendplans),
+            n.as_merge_append().map(|a| &a.mergeplans),
+        ];
         for c in lists.into_iter().flatten().flat_map(|l| l.iter()) {
             once(c, again, tagged, out);
         }
@@ -115,14 +128,36 @@ impl Walk<'_, '_, '_> {
     /// the TIDs a bitmap subtree yields, its heap scan's (an index entry names one heap tuple's line pointer).
     fn rows(&self, root: Option<Node<'_>>, tids: u64) -> Rows {
         stack_depth_core::check_stack_depth_or_panic();
-        let Some(n) = root else { return Rows { most: 0, emits: 0, all: 0 } };
-        let Some(p) = n.as_plan() else { return Rows { most: 0, emits: u64::MAX, all: u64::MAX } };
+        let Some(n) = root else {
+            return Rows {
+                most: 0,
+                emits: 0,
+                all: 0,
+            };
+        };
+        let Some(p) = n.as_plan() else {
+            return Rows {
+                most: 0,
+                emits: u64::MAX,
+                all: u64::MAX,
+            };
+        };
         if unbounded_srf(n) {
-            return Rows { most: u64::MAX, emits: u64::MAX, all: u64::MAX };
+            return Rows {
+                most: u64::MAX,
+                emits: u64::MAX,
+                all: u64::MAX,
+            };
         }
-        let planned = if p.plan_rows.is_finite() && p.plan_rows > 0.0 { p.plan_rows as u64 } else { 0 };
+        let planned = if p.plan_rows.is_finite() && p.plan_rows > 0.0 {
+            p.plan_rows as u64
+        } else {
+            0
+        };
         let scan = scan_of(n).map(|s| self.scan_rows(s.scanrelid));
-        let bitmap = n.as_bitmap_index_scan().is_some() || n.as_bitmap_and().is_some() || n.as_bitmap_or().is_some();
+        let bitmap = n.as_bitmap_index_scan().is_some()
+            || n.as_bitmap_and().is_some()
+            || n.as_bitmap_or().is_some();
         let under = match (scan, bitmap) {
             (Some((_, b)), _) => b,
             (None, true) => tids,
@@ -134,9 +169,15 @@ impl Walk<'_, '_, '_> {
             (Some((_, b)), _) => b,
             (None, _) if bitmap => tids,
             (None, Some(j)) => join_rows(j, l.emits, r.emits),
-            (None, None) if p.lefttree.is_some() && p.righttree.is_none() && passes_rows(n) => l.emits.max(1),
+            (None, None) if p.lefttree.is_some() && p.righttree.is_none() && passes_rows(n) => {
+                l.emits.max(1)
+            }
             // a Result over no input: one row (none when its constant qual fails)
-            (None, None) if p.lefttree.is_none() && p.righttree.is_none() && n.as_result().is_some() => 1,
+            (None, None)
+                if p.lefttree.is_none() && p.righttree.is_none() && n.as_result().is_some() =>
+            {
+                1
+            }
             (None, None) => u64::MAX,
         };
         let mut kids = |c: Rows| {
@@ -144,10 +185,20 @@ impl Walk<'_, '_, '_> {
             all = all.max(c.all);
             c.emits
         };
-        if let Some(list) = n.as_append().map(|a| &a.appendplans).or_else(|| n.as_merge_append().map(|a| &a.mergeplans)) {
-            emits = list.iter().fold(0u64, |e, c| e.saturating_add(kids(self.rows(Some(c), u64::MAX))));
+        if let Some(list) = n
+            .as_append()
+            .map(|a| &a.appendplans)
+            .or_else(|| n.as_merge_append().map(|a| &a.mergeplans))
+        {
+            emits = list.iter().fold(0u64, |e, c| {
+                e.saturating_add(kids(self.rows(Some(c), u64::MAX)))
+            });
         }
-        if let Some(list) = n.as_bitmap_and().map(|a| &a.bitmapplans).or_else(|| n.as_bitmap_or().map(|o| &o.bitmapplans)) {
+        if let Some(list) = n
+            .as_bitmap_and()
+            .map(|a| &a.bitmapplans)
+            .or_else(|| n.as_bitmap_or().map(|o| &o.bitmapplans))
+        {
             for c in list.iter() {
                 kids(self.rows(Some(c), tids));
             }
@@ -158,9 +209,14 @@ impl Walk<'_, '_, '_> {
         most = most.max(planned.min(emits));
         if let (Some((tuples, _)), false) = (scan, p.qual.is_nil()) {
             let facts = gravity_hosts::facts::RelcacheFacts::new(self.mcx);
-            most = most.max(gravity_decompose::catalog::rows::probe_rows(&facts, n).unwrap_or(tuples));
+            most =
+                most.max(gravity_decompose::catalog::rows::probe_rows(&facts, n).unwrap_or(tuples));
         }
-        Rows { most, emits, all: all.max(emits) }
+        Rows {
+            most,
+            emits,
+            all: all.max(emits),
+        }
     }
 
     /// The scanned relation's tuples now, and an upper bound on the rows a scan of it returns (`u64::MAX` = none).
@@ -170,14 +226,29 @@ impl Walk<'_, '_, '_> {
     /// counted (never analyzed, or grown from no pages) reads its line pointers while it holds at most `UNCOUNTED_BLOCKS`
     /// blocks, which is also the bound; `u64::MAX` past that, or when it does not open.
     fn scan_rows(&self, scanrelid: u32) -> (u64, u64) {
-        let Some(relid) = (scanrelid as usize).checked_sub(1).filter(|&i| i < self.pstmt.rtable.len()).and_then(|i| self.pstmt.rtable.nth(i).as_range_tbl_entry()).map(|r| r.relid) else { return (u64::MAX, u64::MAX) };
-        let Ok(r) = table::table_open(self.mcx, relid, NoLock) else { return (u64::MAX, u64::MAX) };
+        let Some(relid) = (scanrelid as usize)
+            .checked_sub(1)
+            .filter(|&i| i < self.pstmt.rtable.len())
+            .and_then(|i| self.pstmt.rtable.nth(i).as_range_tbl_entry())
+            .map(|r| r.relid)
+        else {
+            return (u64::MAX, u64::MAX);
+        };
+        let Ok(r) = table::table_open(self.mcx, relid, NoLock) else {
+            return (u64::MAX, u64::MAX);
+        };
         // C3 S5 (D3889): size statistics (a TRUNCATE's storage-scoped message moves them, not the entry)
         gravity_deps::note_stats(relid);
-        let (t, pages, heap) = (r.rd_rel.reltuples, r.rd_rel.relpages, r.rd_rel.relam == HEAP_TABLE_AM_OID);
+        let (t, pages, heap) = (
+            r.rd_rel.reltuples,
+            r.rd_rel.relpages,
+            r.rd_rel.relam == HEAP_TABLE_AM_OID,
+        );
         let _ = r.close(NoLock);
         if t.is_finite() && t >= 0.0 {
-            let Ok(now) = gravity_hosts::ops::scan::heap_source::nblocks(self.mcx, relid) else { return (u64::MAX, u64::MAX) };
+            let Ok(now) = gravity_hosts::ops::scan::heap_source::nblocks(self.mcx, relid) else {
+                return (u64::MAX, u64::MAX);
+            };
             let grown = grown_tuples(t as f64, pages.max(0) as u64, now);
             if grown != u64::MAX {
                 return (grown, u64::MAX);
@@ -186,7 +257,11 @@ impl Walk<'_, '_, '_> {
         if !heap {
             return (u64::MAX, u64::MAX);
         }
-        match gravity_hosts::ops::scan::heap_source::small_line_pointers(self.mcx, relid, UNCOUNTED_BLOCKS) {
+        match gravity_hosts::ops::scan::heap_source::small_line_pointers(
+            self.mcx,
+            relid,
+            UNCOUNTED_BLOCKS,
+        ) {
             Ok(Some(lines)) => (lines, lines),
             _ => (u64::MAX, u64::MAX),
         }
@@ -195,7 +270,10 @@ impl Walk<'_, '_, '_> {
 
 /// The join node's `Join` (its type and the planner's uniqueness proof).
 fn join_of<'n>(n: Node<'n>) -> Option<&'n types_nodes::plannodes::Join<'n>> {
-    n.as_nest_loop().map(|j| &j.join).or_else(|| n.as_hash_join().map(|j| &j.join)).or_else(|| n.as_merge_join().map(|j| &j.join))
+    n.as_nest_loop()
+        .map(|j| &j.join)
+        .or_else(|| n.as_hash_join().map(|j| &j.join))
+        .or_else(|| n.as_merge_join().map(|j| &j.join))
 }
 
 /// D3867: a bound on the rows a join of sides bounded by `l` (outer) and `r` (inner) rows emits: each outer row once per
@@ -205,7 +283,11 @@ fn join_of<'n>(n: Node<'n>) -> Option<&'n types_nodes::plannodes::Join<'n>> {
 fn join_rows(j: &types_nodes::plannodes::Join<'_>, l: u64, r: u64) -> u64 {
     use types_nodes::jointype::JoinType::{JOIN_ANTI, JOIN_RIGHT_ANTI, JOIN_RIGHT_SEMI, JOIN_SEMI};
     let sides = l.saturating_add(r);
-    match j.inner_unique || matches!(j.jointype, JOIN_SEMI | JOIN_ANTI | JOIN_RIGHT_SEMI | JOIN_RIGHT_ANTI) {
+    match j.inner_unique
+        || matches!(
+            j.jointype,
+            JOIN_SEMI | JOIN_ANTI | JOIN_RIGHT_SEMI | JOIN_RIGHT_ANTI
+        ) {
         true => sides,
         false => l.saturating_mul(r).saturating_add(sides),
     }
@@ -243,7 +325,11 @@ fn unbounded_srf(n: Node<'_>) -> bool {
     if let Some(ps) = n.as_project_set() {
         exprs.extend(ps.plan.targetlist.iter());
     } else if let Some(fs) = n.as_function_scan() {
-        exprs.extend(fs.functions.iter().filter_map(|f| f.as_range_tbl_function().and_then(|r| r.funcexpr)));
+        exprs.extend(
+            fs.functions
+                .iter()
+                .filter_map(|f| f.as_range_tbl_function().and_then(|r| r.funcexpr)),
+        );
     } else {
         return false;
     }
@@ -278,7 +364,13 @@ fn strip(n: Node<'_>) -> Node<'_> {
 
 /// The scan node's `Scan` (its relation): the heap / index / bitmap / tid scans.
 fn scan_of<'n>(n: Node<'n>) -> Option<&'n types_nodes::plannodes::Scan<'n>> {
-    n.as_seq_scan().map(|s| &s.scan).or_else(|| n.as_index_scan().map(|s| &s.scan)).or_else(|| n.as_index_only_scan().map(|s| &s.scan)).or_else(|| n.as_bitmap_heap_scan().map(|s| &s.scan)).or_else(|| n.as_tid_range_scan().map(|s| &s.scan)).or_else(|| n.as_tid_scan().map(|s| &s.scan))
+    n.as_seq_scan()
+        .map(|s| &s.scan)
+        .or_else(|| n.as_index_scan().map(|s| &s.scan))
+        .or_else(|| n.as_index_only_scan().map(|s| &s.scan))
+        .or_else(|| n.as_bitmap_heap_scan().map(|s| &s.scan))
+        .or_else(|| n.as_tid_range_scan().map(|s| &s.scan))
+        .or_else(|| n.as_tid_scan().map(|s| &s.scan))
 }
 
 #[cfg(test)]
@@ -295,10 +387,26 @@ mod tests {
     #[test]
     fn a_grown_relation_reads_its_density_over_its_blocks_now() {
         use super::grown_tuples;
-        assert_eq!(grown_tuples(600.0, 5, 5), 600, "not grown: the catalog's count");
-        assert_eq!(grown_tuples(600.0, 5, 3), 600, "shrunk (truncated pages not yet counted): the catalog's count");
-        assert_eq!(grown_tuples(600.0, 5, 2_500), 300_000, "analyzed at 600 rows, 2,500 blocks now");
+        assert_eq!(
+            grown_tuples(600.0, 5, 5),
+            600,
+            "not grown: the catalog's count"
+        );
+        assert_eq!(
+            grown_tuples(600.0, 5, 3),
+            600,
+            "shrunk (truncated pages not yet counted): the catalog's count"
+        );
+        assert_eq!(
+            grown_tuples(600.0, 5, 2_500),
+            300_000,
+            "analyzed at 600 rows, 2,500 blocks now"
+        );
         assert_eq!(grown_tuples(0.0, 0, 0), 0, "analyzed empty, still empty");
-        assert_eq!(grown_tuples(0.0, 0, 40), u64::MAX, "analyzed empty, grown since: unknown");
+        assert_eq!(
+            grown_tuples(0.0, 0, 40),
+            u64::MAX,
+            "analyzed empty, grown since: unknown"
+        );
     }
 }

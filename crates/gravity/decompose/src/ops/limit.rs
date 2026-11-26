@@ -29,7 +29,13 @@ pub const AHEAD: &str = "a LIMIT over a node PostgreSQL runs a row at a time (a 
 /// Whether the Limit over `open` (its child's pipeline; `child`, its child's plan node) with count `count` would evaluate,
 /// through a breaker below it, code PostgreSQL's stop never reaches that may raise or acts. No count (`LIMIT ALL`, an
 /// OFFSET alone): nothing stops.
-pub fn ahead<'p>(b: &mut Builder<'p, '_>, child: Option<Node<'p>>, open: &Open<'p>, count: Bound<'p>, kept: Option<i32>) -> bool {
+pub fn ahead<'p>(
+    b: &mut Builder<'p, '_>,
+    child: Option<Node<'p>>,
+    open: &Open<'p>,
+    count: Bound<'p>,
+    kept: Option<i32>,
+) -> bool {
     if matches!(count, Bound::All) {
         return false;
     }
@@ -37,8 +43,12 @@ pub fn ahead<'p>(b: &mut Builder<'p, '_>, child: Option<Node<'p>>, open: &Open<'
     // a window op in the Limit's own pipeline holds its partition's rows before it hands one on: the filters and
     // projections its pipeline runs before it (another op there is its own family's to stop)
     if let Some(w) = open.ops.iter().position(|o| matches!(o, Op::Window(_))) {
-        let exprs = open.ops[..w].iter().filter(|o| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_)));
-        let e = exprs.fold(Effects::NONE, |e, o| e.and(of_ops(&cx, core::slice::from_ref(o), &PLAIN)));
+        let exprs = open.ops[..w]
+            .iter()
+            .filter(|o| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_)));
+        let e = exprs.fold(Effects::NONE, |e, o| {
+            e.and(of_ops(&cx, core::slice::from_ref(o), &PLAIN))
+        });
         if e.may_raise || e.acts {
             return true;
         }
@@ -53,25 +63,39 @@ pub fn ahead<'p>(b: &mut Builder<'p, '_>, child: Option<Node<'p>>, open: &Open<'
     // it reads its input ahead here, so a window below it cannot keep the stop by its own Exact
     let mut through = false;
     while let Source::Breaker { slot } = reader.source {
-        let Some(p) = producer(b, reader, slot) else { return false };
+        let Some(p) = producer(b, reader, slot) else {
+            return false;
+        };
         if seen > b.graph.pipelines.len() {
             return false;
         }
         let ahead = &b.graph.pipelines[p];
         let closer = b.closers.get(p).copied();
         let mut e = Effects::NONE;
-        for n in ahead.node_ops.iter().filter_map(|o| node(b, o.node_id)).chain(closer) {
-            if n.as_plan().is_some_and(|p| pulled(child, true, p.plan_node_id, kept)) {
+        for n in ahead
+            .node_ops
+            .iter()
+            .filter_map(|o| node(b, o.node_id))
+            .chain(closer)
+        {
+            if n.as_plan()
+                .is_some_and(|p| pulled(child, true, p.plan_node_id, kept))
+            {
                 e = e.and(evaluated(&cx, n));
             }
         }
         // v5 errorhold (D1814): a sorted group whose fold ahead holds a granted licence (`gsets::fold_ahead`, which asks
         // with everything below it): an error before any row left re-runs the statement in plan order, where the group
         // streams to the stop; code that acts is never licensed
-        let licensed = closer.and_then(|n| n.as_plan()).is_some_and(|c| b.ahead_licensed.contains(&c.plan_node_id));
+        let licensed = closer
+            .and_then(|n| n.as_plan())
+            .is_some_and(|c| b.ahead_licensed.contains(&c.plan_node_id));
         // the exact request (PLAN-v5 §2.5, window W4): a WindowAgg spools its fill only as far as its rows need, as PG's
         // spool_tuples, under a recheck licence or Exact (`window_keeps_stop`, after the walk)
-        let window = closer.filter(|n| n.as_window_agg().is_some()).and_then(|n| n.as_plan()).map(|p| p.plan_node_id);
+        let window = closer
+            .filter(|n| n.as_window_agg().is_some())
+            .and_then(|n| n.as_plan())
+            .map(|p| p.plan_node_id);
         match window {
             Some(_) if (e.acts || e.may_raise && !licensed) && through => return true,
             Some(w) if e.acts || e.may_raise && !licensed => windows.push_in((path.len(), w, e)),
@@ -80,12 +104,18 @@ pub fn ahead<'p>(b: &mut Builder<'p, '_>, child: Option<Node<'p>>, open: &Open<'
             _ if e.may_raise && !licensed => breakers.push_in((closer, e)),
             _ => {}
         }
-        through |= window.is_none() && closer.and_then(|n| n.as_plan()).is_some_and(|c| pulled(child, true, c.plan_node_id, kept));
+        through |= window.is_none()
+            && closer
+                .and_then(|n| n.as_plan())
+                .is_some_and(|c| pulled(child, true, c.plan_node_id, kept));
         path.extend_in(window);
         reader = ahead;
         seen += 1;
     }
-    if !breakers.into_iter().all(|(closer, e)| breaker_keeps_stop(b, closer, e)) {
+    if !breakers
+        .into_iter()
+        .all(|(closer, e)| breaker_keeps_stop(b, closer, e))
+    {
         return true;
     }
     // a window asked Exact stops only if every window between it and the Limit stops too: each spools its own fill (the
@@ -108,8 +138,22 @@ pub fn ahead<'p>(b: &mut Builder<'p, '_>, child: Option<Node<'p>>, open: &Open<'
 /// error before any row left re-runs the statement in plan order); otherwise (code that acts, or inside the plan-order run)
 /// the Limit asks Exact of the window (`PipelineGraph::exact`), whose fill then evaluates nothing ahead of its spool.
 /// The licence the fill reads ahead under; `None` when it asked Exact (construct C2: the read ahead holds a `Licence`).
-fn window_keeps_stop<'p>(b: &mut Builder<'p, '_>, id: i32, e: Effects) -> Option<crate::effects::Licence> {
-    let ask = if e.may_raise { e.and(Effects { acts: crate::effects::of_statement_acts(&crate::effects::Cx::new(b.stmt, b.facts, b.arena), &mut b.graph.acts_read), ..Effects::NONE }) } else { e };
+fn window_keeps_stop<'p>(
+    b: &mut Builder<'p, '_>,
+    id: i32,
+    e: Effects,
+) -> Option<crate::effects::Licence> {
+    let ask = if e.may_raise {
+        e.and(Effects {
+            acts: crate::effects::of_statement_acts(
+                &crate::effects::Cx::new(b.stmt, b.facts, b.arena),
+                &mut b.graph.acts_read,
+            ),
+            ..Effects::NONE
+        })
+    } else {
+        e
+    };
     match crate::effects::licence(ask, crate::effects::Departure::Ahead) {
         Ok(l) => {
             b.graph.licensed(&l);
@@ -135,11 +179,19 @@ fn window_keeps_stop<'p>(b: &mut Builder<'p, '_>, id: i32, e: Effects) -> Option
 /// none where the breaker may run after a row left (rerun.rs `runs_late`: no plan-order run answers its error there).
 /// Whether it reads ahead under one.
 fn breaker_keeps_stop<'p>(b: &mut Builder<'p, '_>, closer: Option<Node<'p>>, e: Effects) -> bool {
-    let Some(c) = closer.and_then(|n| n.as_plan()) else { return false };
+    let Some(c) = closer.and_then(|n| n.as_plan()) else {
+        return false;
+    };
     if crate::rerun::runs_late(b.stmt, b.arena, c) {
         return false;
     }
-    let ask = e.and(Effects { acts: crate::effects::of_statement_acts(&crate::effects::Cx::new(b.stmt, b.facts, b.arena), &mut b.graph.acts_read), ..Effects::NONE });
+    let ask = e.and(Effects {
+        acts: crate::effects::of_statement_acts(
+            &crate::effects::Cx::new(b.stmt, b.facts, b.arena),
+            &mut b.graph.acts_read,
+        ),
+        ..Effects::NONE
+    });
     match crate::effects::licence(ask, crate::effects::Departure::Ahead) {
         Ok(l) => {
             b.graph.licensed(&l);
@@ -160,20 +212,32 @@ fn breaker_keeps_stop<'p>(b: &mut Builder<'p, '_>, closer: Option<Node<'p>>, e: 
 fn pulled(n: Option<Node<'_>>, top: bool, id: i32, kept: Option<i32>) -> bool {
     crate::walk::stack_check(); // D3748
     let Some(node) = n else { return false };
-    let Some(plan) = node.as_plan() else { return false };
+    let Some(plan) = node.as_plan() else {
+        return false;
+    };
     let whole = node.as_sort().is_some()
         || node.as_agg().is_some_and(|a| a.aggstrategy != AGG_SORTED)
         || node.as_hash().is_some()
         || node.as_set_op().is_some_and(|s| s.strategy == SETOP_HASHED);
-    let keeps = (top && (node.as_incremental_sort().is_some() || node.as_merge_append().is_some())) || kept == Some(plan.plan_node_id);
+    let keeps = (top && (node.as_incremental_sort().is_some() || node.as_merge_append().is_some()))
+        || kept == Some(plan.plan_node_id);
     if whole || keeps {
         return false;
     }
     plan.plan_node_id == id
         || pulled(plan.lefttree, false, id, kept)
         || pulled(plan.righttree, false, id, kept)
-        || node.as_append().is_some_and(|a| a.appendplans.iter().any(|arm| pulled(Some(arm), false, id, kept)))
-        || pulled(node.as_subquery_scan().and_then(|s| s.subplan), false, id, kept)
+        || node.as_append().is_some_and(|a| {
+            a.appendplans
+                .iter()
+                .any(|arm| pulled(Some(arm), false, id, kept))
+        })
+        || pulled(
+            node.as_subquery_scan().and_then(|s| s.subplan),
+            false,
+            id,
+            kept,
+        )
 }
 
 /// The pipeline producing breaker `slot` for `reader`: its declared life, else the slot's latest producer.
@@ -201,12 +265,24 @@ fn node<'p>(b: &Builder<'p, '_>, id: i32) -> Option<Node<'p>> {
 /// or per window row, after the breaker, as far as the Limit pulls, and an aggregate's arguments, FILTER and transitions,
 /// folded per input row, are the agg family's stop to keep (D1071's stream; FOR MAIN: arguments that may raise).
 fn evaluated<'p>(cx: &Cx<'_, 'p>, n: Node<'p>) -> Effects {
-    let Some(plan) = n.as_plan() else { return Effects::NONE };
+    let Some(plan) = n.as_plan() else {
+        return Effects::NONE;
+    };
     let of = |l: &'p NodeList<'p>| of_list(cx, l, &PLAIN);
-    let joinqual = n.as_nest_loop().map(|j| &j.join.joinqual).or_else(|| n.as_hash_join().map(|j| &j.join.joinqual)).or_else(|| n.as_merge_join().map(|j| &j.join.joinqual));
-    let own = n.as_agg().is_some() || n.as_window_agg().is_some() || n.as_group().is_some() || n.as_unique().is_some();
+    let joinqual = n
+        .as_nest_loop()
+        .map(|j| &j.join.joinqual)
+        .or_else(|| n.as_hash_join().map(|j| &j.join.joinqual))
+        .or_else(|| n.as_merge_join().map(|j| &j.join.joinqual));
+    let own = n.as_agg().is_some()
+        || n.as_window_agg().is_some()
+        || n.as_group().is_some()
+        || n.as_unique().is_some();
     if own {
         return Effects::NONE;
     }
-    joinqual.map_or(Effects::NONE, of).and(of(&plan.targetlist)).and(of(&plan.qual))
+    joinqual
+        .map_or(Effects::NONE, of)
+        .and(of(&plan.targetlist))
+        .and(of(&plan.qual))
 }

@@ -1,8 +1,8 @@
 //! agg's raw half (rules R6 / R8: the family's unsafe code lives here): the aggregate slice's host entries, written
 //! through the contract's `host!`, and `like_frame`'s body. entries.rs re-exports the entries under their
 //! old path, so the lowerers' addresses and the IR's host names are unchanged.
-use gravity_abi::PtrWord;
 use gravity_abi::Ctx;
+use gravity_abi::PtrWord;
 
 crate::contract::host! {
     /// Road `text.frame` (step/text_frame.rs, M1-STEP): LIKE `pattern` (a varlena pointer; 0 = a NULL pattern) over rows
@@ -20,7 +20,15 @@ crate::contract::host! {
 }
 
 /// `like_frame`'s body, run under `guard!` (V4R-16): a panic in it declines (1) and the program's caller raises it.
-unsafe fn like_frame_in(ctx: *mut Ctx, site: u64, lane: u64, pattern: u64, negated: u64, out: *mut u64, cap: u64) -> u64 {
+unsafe fn like_frame_in(
+    ctx: *mut Ctx,
+    site: u64,
+    lane: u64,
+    pattern: u64,
+    negated: u64,
+    out: *mut u64,
+    cap: u64,
+) -> u64 {
     use gravity_dict::like::{Class, Matcher, Mode};
     const DECLINED: u64 = 1;
     let s = gravity_abi::ctx::site_ptr(ctx, site as usize);
@@ -29,7 +37,10 @@ unsafe fn like_frame_in(ctx: *mut Ctx, site: u64, lane: u64, pattern: u64, negat
         return DECLINED;
     }
     let l = gravity_abi::site::lane(s, lane as usize);
-    if l.kind != gravity_abi::ctx::lane::KIND_BYREF || l.width != 8 || (l.ptr.ptr().is_null() && rows > 0) {
+    if l.kind != gravity_abi::ctx::lane::KIND_BYREF
+        || l.width != 8
+        || (l.ptr.ptr().is_null() && rows > 0)
+    {
         return DECLINED;
     }
     let bits = core::slice::from_raw_parts_mut(out, words);
@@ -37,17 +48,28 @@ unsafe fn like_frame_in(ctx: *mut Ctx, site: u64, lane: u64, pattern: u64, negat
     if pattern == 0 {
         return 0;
     }
-    let Some((ps, pe)) = plain_image(pattern as *const u8) else { return DECLINED };
+    let Some((ps, pe)) = plain_image(pattern as *const u8) else {
+        return DECLINED;
+    };
     let pat = core::slice::from_raw_parts(ps, pe.offset_from(ps) as usize);
-    let lit = pat.split(|&c| matches!(c, b'%' | b'_' | b'\\')).max_by_key(|r| r.len()).unwrap_or(&[]);
+    let lit = pat
+        .split(|&c| matches!(c, b'%' | b'_' | b'\\'))
+        .max_by_key(|r| r.len())
+        .unwrap_or(&[]);
     let mut scratch = [0u64; 32];
     let mut region = gravity_dict::Region::new(scratch.as_mut_ptr() as *mut u8, 256);
-    let (true, Ok(m)) = (!lit.is_empty(), Matcher::new(pat, Mode::Like, &mut region)) else { return DECLINED };
+    let (true, Ok(m)) = (!lit.is_empty(), Matcher::new(pat, Mode::Like, &mut region)) else {
+        return DECLINED;
+    };
     let whole = m.class() == Class::Contains && m.literal() == lit;
     let pair = gravity_dict::substr::RarePair::new(lit);
     let find = |hay: &[u8], from: usize| match &pair {
         Some(p) => p.find(lit, hay, from),
-        None => hay.get(from..)?.iter().position(|&b| b == lit[0]).map(|o| o + from),
+        None => hay
+            .get(from..)?
+            .iter()
+            .position(|&b| b == lit[0])
+            .map(|o| o + from),
     };
     let ptrs = core::slice::from_raw_parts(l.ptr.ptr() as *const u64, rows);
     let data = |i: usize| plain_image(ptrs[i] as *const u8);
@@ -55,7 +77,9 @@ unsafe fn like_frame_in(ctx: *mut Ctx, site: u64, lane: u64, pattern: u64, negat
     // the images plus alignment, so the scan never reads past them)
     let (mut tiled, mut lo, mut hi, mut bytes) = (true, None, 0usize, 0usize);
     for i in (0..rows).filter(|&i| l.is_valid(i)) {
-        let Some((ds, de)) = data(i) else { return DECLINED };
+        let Some((ds, de)) = data(i) else {
+            return DECLINED;
+        };
         tiled &= ptrs[i] as usize >= hi;
         lo = lo.or(Some(ds as usize));
         hi = de as usize;
@@ -79,9 +103,16 @@ unsafe fn like_frame_in(ctx: *mut Ctx, site: u64, lane: u64, pattern: u64, negat
             if i >= rows {
                 break;
             }
-            let Some((ds, de)) = data(i) else { return DECLINED };
+            let Some((ds, de)) = data(i) else {
+                return DECLINED;
+            };
             if (ds as usize) <= h && h + lit.len() <= de as usize {
-                if row(i, core::slice::from_raw_parts(ds, de.offset_from(ds) as usize)).is_err() {
+                if row(
+                    i,
+                    core::slice::from_raw_parts(ds, de.offset_from(ds) as usize),
+                )
+                .is_err()
+                {
                     return DECLINED;
                 }
                 from = de as usize - lo;
@@ -92,7 +123,9 @@ unsafe fn like_frame_in(ctx: *mut Ctx, site: u64, lane: u64, pattern: u64, negat
         }
     } else {
         for i in (0..rows).filter(|&i| l.is_valid(i)) {
-            let Some((ds, de)) = data(i) else { return DECLINED };
+            let Some((ds, de)) = data(i) else {
+                return DECLINED;
+            };
             let d = core::slice::from_raw_parts(ds, de.offset_from(ds) as usize);
             if find(d, 0).is_some() && row(i, d).is_err() {
                 return DECLINED;
@@ -101,8 +134,18 @@ unsafe fn like_frame_in(ctx: *mut Ctx, site: u64, lane: u64, pattern: u64, negat
     }
     if negated != 0 {
         for (w, b) in bits.iter_mut().enumerate() {
-            let valid = if l.valid.ptr().is_null() { !0 } else if w * 64 < rows { *l.valid.ptr().add(w) } else { 0 };
-            let live = if (w + 1) * 64 <= rows { !0 } else { (1u64 << (rows - (w * 64).min(rows))) - 1 };
+            let valid = if l.valid.ptr().is_null() {
+                !0
+            } else if w * 64 < rows {
+                *l.valid.ptr().add(w)
+            } else {
+                0
+            };
+            let live = if (w + 1) * 64 <= rows {
+                !0
+            } else {
+                (1u64 << (rows - (w * 64).min(rows))) - 1
+            };
             *b = !*b & valid & live;
         }
     }

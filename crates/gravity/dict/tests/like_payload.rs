@@ -46,15 +46,53 @@ fn bits_of(b: &Bits) -> Vec<bool> {
 #[test]
 fn the_payload_build_equals_the_per_entry_build_and_like_match_c() {
     let mut entries = url_corpus(5000, 3);
-    for extra in ["", "g", "gg", "garden", "garde", "arden", "%garden%", "xgardenx", "gardengarden", "gar\u{0}den", "日本garden", "GARDEN", "Garden"] {
+    for extra in [
+        "",
+        "g",
+        "gg",
+        "garden",
+        "garde",
+        "arden",
+        "%garden%",
+        "xgardenx",
+        "gardengarden",
+        "gar\u{0}den",
+        "日本garden",
+        "GARDEN",
+        "Garden",
+    ] {
         entries.push(extra.as_bytes().to_vec());
     }
     entries.sort();
     entries.dedup();
     let payload = Payload::of(&entries);
-    let dict = common::VecDict { entries: entries.clone(), null: None };
+    let dict = common::VecDict {
+        entries: entries.clone(),
+        null: None,
+    };
     let mut buf = Buf::new(1 << 20);
-    let patterns = ["%garden%", "%Garden%", "%.garden.%", "%e%", "%%", "%", "", "%日本%", "%.рф%", "http://%", "%/", "http://example.com/", "%ar%", "%en%en%", "%gar_en%", "%\\%%", "%post-1%", "%/index.html", "%a.b.c.d%", "%rde%"];
+    let patterns = [
+        "%garden%",
+        "%Garden%",
+        "%.garden.%",
+        "%e%",
+        "%%",
+        "%",
+        "",
+        "%日本%",
+        "%.рф%",
+        "http://%",
+        "%/",
+        "http://example.com/",
+        "%ar%",
+        "%en%en%",
+        "%gar_en%",
+        "%\\%%",
+        "%post-1%",
+        "%/index.html",
+        "%a.b.c.d%",
+        "%rde%",
+    ];
     let mut streamed = 0;
     for p in patterns {
         for negated in [false, true] {
@@ -67,8 +105,14 @@ fn the_payload_build_equals_the_per_entry_build_and_like_match_c() {
             let per = m.build_bits(&dict, &mut r).unwrap();
             let (got, want) = (bits_of(&over), bits_of(&per));
             for (c, e) in entries.iter().enumerate() {
-                let oracle = adt_like::utf8_match_text(e, p.as_bytes(), None).unwrap() == adt_like::LIKE_TRUE;
-                assert_eq!(got[c], oracle != negated, "{p:?} negated={negated} on {:?}", String::from_utf8_lossy(e));
+                let oracle = adt_like::utf8_match_text(e, p.as_bytes(), None).unwrap()
+                    == adt_like::LIKE_TRUE;
+                assert_eq!(
+                    got[c],
+                    oracle != negated,
+                    "{p:?} negated={negated} on {:?}",
+                    String::from_utf8_lossy(e)
+                );
             }
             assert_eq!(got, want, "{p:?} negated={negated}");
             if m.class() == gravity_dict::like::Class::Contains {
@@ -76,7 +120,12 @@ fn the_payload_build_equals_the_per_entry_build_and_like_match_c() {
             }
         }
     }
-    println!("{} patterns, {streamed} contains builds streamed over a {} B payload of {} entries", patterns.len(), payload.bytes.len(), entries.len());
+    println!(
+        "{} patterns, {streamed} contains builds streamed over a {} B payload of {} entries",
+        patterns.len(),
+        payload.bytes.len(),
+        entries.len()
+    );
     assert!(streamed >= 20);
 }
 
@@ -92,24 +141,41 @@ fn the_rare_pair_scan_finds_every_first_occurrence() {
     let alphabet = b"aaaaabbbcgg.//e\x80\xC3\xA9";
     for needle_len in 2..=9usize {
         for _ in 0..40 {
-            let needle: Vec<u8> = (0..needle_len).map(|_| alphabet[(next() % alphabet.len() as u64) as usize]).collect();
+            let needle: Vec<u8> = (0..needle_len)
+                .map(|_| alphabet[(next() % alphabet.len() as u64) as usize])
+                .collect();
             let pair = RarePair::new(&needle).unwrap();
             for hay_len in [0usize, 1, 5, 15, 16, 17, 31, 32, 33, 47, 48, 64, 100, 257] {
-                let mut hay: Vec<u8> = (0..hay_len).map(|_| alphabet[(next() % alphabet.len() as u64) as usize]).collect();
+                let mut hay: Vec<u8> = (0..hay_len)
+                    .map(|_| alphabet[(next() % alphabet.len() as u64) as usize])
+                    .collect();
                 if hay_len > needle_len && next() % 2 == 0 {
                     let at = (next() % (hay_len - needle_len) as u64) as usize;
                     hay[at..at + needle_len].copy_from_slice(&needle);
                 }
                 for from in [0usize, 1, 3, hay_len / 2, hay_len] {
-                    let want = (from..=hay_len.saturating_sub(needle_len)).find(|&i| i + needle_len <= hay_len && hay[i..i + needle_len] == needle[..]);
-                    let want = if from + needle_len > hay_len { None } else { want };
-                    assert_eq!(pair.find(&needle, &hay, from), want, "needle {needle:?} hay {hay:?} from {from}");
+                    let want = (from..=hay_len.saturating_sub(needle_len)).find(|&i| {
+                        i + needle_len <= hay_len && hay[i..i + needle_len] == needle[..]
+                    });
+                    let want = if from + needle_len > hay_len {
+                        None
+                    } else {
+                        want
+                    };
+                    assert_eq!(
+                        pair.find(&needle, &hay, from),
+                        want,
+                        "needle {needle:?} hay {hay:?} from {from}"
+                    );
                 }
             }
         }
     }
     let (o1, o2) = RarePair::new(b"garden").unwrap().offsets();
-    assert!(o1 != o2 && b"garden"[o1] == b'g', "garden's rare pair {o1} {o2}");
+    assert!(
+        o1 != o2 && b"garden"[o1] == b'g',
+        "garden's rare pair {o1} {o2}"
+    );
 }
 
 /// Item 18 (B2-01): the payload scan's pair is re-ranked from the payload's own byte counts. Over data where the
@@ -119,7 +185,9 @@ fn the_rare_pair_scan_finds_every_first_occurrence() {
 #[test]
 fn the_rechecked_pair_takes_the_payloads_rare_bytes() {
     use gravity_dict::substr::{count_bytes, Step};
-    let hay: Vec<u8> = (0..(1u32 << 16)).map(|i| b"qzqxzjqzxqjzu"[(i as usize * 7) % 13]).collect();
+    let hay: Vec<u8> = (0..(1u32 << 16))
+        .map(|i| b"qzqxzjqzxqjzu"[(i as usize * 7) % 13])
+        .collect();
     let mut counts = [0u64; 256];
     count_bytes(&hay, &mut counts);
     assert_eq!(counts.iter().sum::<u64>(), hay.len() as u64);
@@ -131,12 +199,29 @@ fn the_rechecked_pair_takes_the_payloads_rare_bytes() {
         v.sort();
         v
     };
-    assert_eq!(pick(s1, s2), *b"qz", "the static rank: q and z are rare in English");
-    assert_eq!(pick(d1, d2), *b"iu", "the counts: i never occurs, u is the rarest of the rest");
+    assert_eq!(
+        pick(s1, s2),
+        *b"qz",
+        "the static rank: q and z are rare in English"
+    );
+    assert_eq!(
+        pick(d1, d2),
+        *b"iu",
+        "the counts: i never occurs, u is the rarest of the rest"
+    );
     let mut hay2 = hay.clone();
     hay2.extend_from_slice(b"..quiz..quiz");
-    let (a, b) = (RarePair::new(needle).unwrap(), RarePair::sampled(needle, &counts).unwrap());
-    let near: Vec<u8> = b"qzqz quz quiq qqzz ".iter().cycle().take(4096).copied().chain(*b"..quiz..").collect();
+    let (a, b) = (
+        RarePair::new(needle).unwrap(),
+        RarePair::sampled(needle, &counts).unwrap(),
+    );
+    let near: Vec<u8> = b"qzqz quz quiq qqzz "
+        .iter()
+        .cycle()
+        .take(4096)
+        .copied()
+        .chain(*b"..quiz..")
+        .collect();
     for h in [&hay2, &near] {
         for from in [0usize, 7, h.len() / 2, h.len() - 8, h.len() - 4] {
             let want = a.find(needle, h, from);
@@ -146,7 +231,10 @@ fn the_rechecked_pair_takes_the_payloads_rare_bytes() {
                 Step::Hit(j) => Some(j),
                 Step::End => None,
                 Step::Recheck(at) => {
-                    assert!(rejected >= 3 && at > from && want.is_none_or( |w| w >= at), "recheck at {at} from {from} want {want:?}");
+                    assert!(
+                        rejected >= 3 && at > from && want.is_none_or(|w| w >= at),
+                        "recheck at {at} from {from} want {want:?}"
+                    );
                     b.find(needle, h, at)
                 }
             };
@@ -168,28 +256,61 @@ fn the_recounting_payload_build_equals_the_per_entry_build() {
         x
     };
     let letters = b"qzxjqzxjkvqu iz";
-    let mut entries: Vec<Vec<u8>> = (0..4000).map(|_| (0..(4 + next() % 40)).map(|_| letters[(next() % letters.len() as u64) as usize]).collect()).collect();
+    let mut entries: Vec<Vec<u8>> = (0..4000)
+        .map(|_| {
+            (0..(4 + next() % 40))
+                .map(|_| letters[(next() % letters.len() as u64) as usize])
+                .collect()
+        })
+        .collect();
     for e in ["quiz", "xquizx", "qu iz", "zzquizquiz", "jinx", "jazz"] {
         entries.push(e.as_bytes().to_vec());
     }
     entries.sort();
     entries.dedup();
     let payload = Payload::of(&entries);
-    let dict = common::VecDict { entries: entries.clone(), null: None };
+    let dict = common::VecDict {
+        entries: entries.clone(),
+        null: None,
+    };
     let mut buf = Buf::new(1 << 20);
-    for p in ["%quiz%", "%qz%", "%zq%", "%jinx%", "%u iz%", "%xjqz%", "%qu%iz%", "%zq%zq%", "q%z%x", "%jinx%jazz", "%z%q%u%i%"] {
+    for p in [
+        "%quiz%",
+        "%qz%",
+        "%zq%",
+        "%jinx%",
+        "%u iz%",
+        "%xjqz%",
+        "%qu%iz%",
+        "%zq%zq%",
+        "q%z%x",
+        "%jinx%jazz",
+        "%z%q%u%i%",
+    ] {
         for negated in [false, true] {
-            for rule in [(|_, r, _, _| r > 0) as fn(u64, u64, u64, u64) -> bool, |_, _, _, _| false, |_, _, _, _| true] {
+            for rule in [
+                (|_, r, _, _| r > 0) as fn(u64, u64, u64, u64) -> bool,
+                |_, _, _, _| false,
+                |_, _, _, _| true,
+            ] {
                 let mut r = buf.region();
-                let mut m = Matcher::new(p.as_bytes(), Mode::Like, &mut r).unwrap().recounting(rule);
+                let mut m = Matcher::new(p.as_bytes(), Mode::Like, &mut r)
+                    .unwrap()
+                    .recounting(rule);
                 if negated {
                     m = m.negated();
                 }
                 let over = bits_of(&m.build_bits_over(&payload, &payload.bytes, &mut r).unwrap());
                 let per = bits_of(&m.build_bits(&dict, &mut r).unwrap());
                 for (c, e) in entries.iter().enumerate() {
-                    let oracle = adt_like::utf8_match_text(e, p.as_bytes(), None).unwrap() == adt_like::LIKE_TRUE;
-                    assert_eq!(over[c], oracle != negated, "{p:?} negated={negated} on {:?}", String::from_utf8_lossy(e));
+                    let oracle = adt_like::utf8_match_text(e, p.as_bytes(), None).unwrap()
+                        == adt_like::LIKE_TRUE;
+                    assert_eq!(
+                        over[c],
+                        oracle != negated,
+                        "{p:?} negated={negated} on {:?}",
+                        String::from_utf8_lossy(e)
+                    );
                 }
                 assert_eq!(over, per, "{p:?} negated={negated}");
             }
@@ -211,21 +332,70 @@ fn segments_stream_over_the_payload_like_the_per_entry_build() {
         x
     };
     let alphabet: [&str; 9] = ["a", "b", "ab", "ba", "%", "_", "é", "日", " special "];
-    let mut entries: Vec<Vec<u8>> = (0..6000).map(|_| (0..(next() % 9)).flat_map(|_| alphabet[(next() % alphabet.len() as u64) as usize].bytes()).collect()).collect();
-    for e in ["", "a", "ab", "aba", "abab", "aaa", "special requests", "requests special", "specialrequests", " special  special ", "a%b", "a_b", "é日é", "日é日"] {
+    let mut entries: Vec<Vec<u8>> = (0..6000)
+        .map(|_| {
+            (0..(next() % 9))
+                .flat_map(|_| alphabet[(next() % alphabet.len() as u64) as usize].bytes())
+                .collect()
+        })
+        .collect();
+    for e in [
+        "",
+        "a",
+        "ab",
+        "aba",
+        "abab",
+        "aaa",
+        "special requests",
+        "requests special",
+        "specialrequests",
+        " special  special ",
+        "a%b",
+        "a_b",
+        "é日é",
+        "日é日",
+    ] {
         entries.push(e.as_bytes().to_vec());
     }
     entries.sort();
     entries.dedup();
     let payload = Payload::of(&entries);
-    let dict = common::VecDict { entries: entries.clone(), null: None };
+    let dict = common::VecDict {
+        entries: entries.clone(),
+        null: None,
+    };
     let mut buf = Buf::new(1 << 20);
-    let segs = ["%a%b%", "%ab%ab%", "%ba%ab%", "%a%a%a%", "a%b", "a%b%", "%a%b", "ab%ba", "%special%requests%", "%requests%special%", "%é%日%", "%日%é", "é%日", "%a\\%%b%", "%\\_%a%", "%%a%%b%%", "%sp%al%"];
+    let segs = [
+        "%a%b%",
+        "%ab%ab%",
+        "%ba%ab%",
+        "%a%a%a%",
+        "a%b",
+        "a%b%",
+        "%a%b",
+        "ab%ba",
+        "%special%requests%",
+        "%requests%special%",
+        "%é%日%",
+        "%日%é",
+        "é%日",
+        "%a\\%%b%",
+        "%\\_%a%",
+        "%%a%%b%%",
+        "%sp%al%",
+    ];
     let general = ["%a_b%", "%a%_%"];
     let mut streamed = 0;
-    for p in segs.iter().map(|p| p.as_bytes().to_vec()).chain(general.iter().map(|p| p.as_bytes().to_vec())) {
+    for p in segs
+        .iter()
+        .map(|p| p.as_bytes().to_vec())
+        .chain(general.iter().map(|p| p.as_bytes().to_vec()))
+    {
         for negated in [false, true] {
-            for rule in [None, Some((|_, r, _, _| r > 0) as fn(u64, u64, u64, u64) -> bool)] {
+            for rule in [
+                None,
+                Some((|_, r, _, _| r > 0) as fn(u64, u64, u64, u64) -> bool),
+            ] {
                 let mut r = buf.region();
                 let mut m = Matcher::new(&p, Mode::Like, &mut r).unwrap();
                 if let Some(rule) = rule {
@@ -237,13 +407,29 @@ fn segments_stream_over_the_payload_like_the_per_entry_build() {
                 let over = bits_of(&m.build_bits_over(&payload, &payload.bytes, &mut r).unwrap());
                 let per = bits_of(&m.build_bits(&dict, &mut r).unwrap());
                 for (c, e) in entries.iter().enumerate() {
-                    let oracle = adt_like::utf8_match_text(e, &p, None).unwrap() == adt_like::LIKE_TRUE;
-                    assert_eq!(over[c], oracle != negated, "{:?} negated={negated} on {:?}", String::from_utf8_lossy(&p), String::from_utf8_lossy(e));
+                    let oracle =
+                        adt_like::utf8_match_text(e, &p, None).unwrap() == adt_like::LIKE_TRUE;
+                    assert_eq!(
+                        over[c],
+                        oracle != negated,
+                        "{:?} negated={negated} on {:?}",
+                        String::from_utf8_lossy(&p),
+                        String::from_utf8_lossy(e)
+                    );
                 }
-                assert_eq!(over, per, "{:?} negated={negated}", String::from_utf8_lossy(&p));
+                assert_eq!(
+                    over,
+                    per,
+                    "{:?} negated={negated}",
+                    String::from_utf8_lossy(&p)
+                );
                 streamed += (m.class() == Class::Segments) as usize;
             }
         }
     }
-    assert_eq!(streamed, segs.len() * 4, "every Segments pattern classifies as Segments; the general ones do not");
+    assert_eq!(
+        streamed,
+        segs.len() * 4,
+        "every Segments pattern classifies as Segments; the general ones do not"
+    );
 }

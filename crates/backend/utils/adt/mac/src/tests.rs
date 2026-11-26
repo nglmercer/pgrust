@@ -69,8 +69,14 @@ fn in_sscanf_quirks_match_c() {
 #[test]
 fn in_hex_accumulator_overflows_like_sscanf() {
     let zero = macaddr_in("00:00:00:00:00:00", None).unwrap();
-    assert_eq!(macaddr_in("-8000000000000000:0:0:0:0:0", None).unwrap(), zero);
-    assert_eq!(macaddr_in("-0x8000000000000000:0:0:0:0:0", None).unwrap(), zero);
+    assert_eq!(
+        macaddr_in("-8000000000000000:0:0:0:0:0", None).unwrap(),
+        zero
+    );
+    assert_eq!(
+        macaddr_in("-0x8000000000000000:0:0:0:0:0", None).unwrap(),
+        zero
+    );
     assert_eq!(macaddr_in("100000000:00:00:00:00:00", None).unwrap(), zero);
     assert_eq!(
         macaddr_in("-fffffffe:00:00:00:00:00", None).unwrap(),
@@ -212,7 +218,11 @@ fn fc_wrappers() {
     let d1 = f1.invoke(&mut fcinfo).unwrap();
     fcinfo.set_arg(0, mac_datum(&b));
     let d2 = f2.invoke(&mut fcinfo).unwrap();
-    let cs = |d: ::datum::Datum| unsafe { core::ffi::CStr::from_ptr(d.as_usize() as *const core::ffi::c_char) }.to_bytes().to_vec();
+    let cs = |d: ::datum::Datum| {
+        unsafe { core::ffi::CStr::from_ptr(d.as_usize() as *const core::ffi::c_char) }
+            .to_bytes()
+            .to_vec()
+    };
     assert_eq!(cs(d1), b"08:00:2b:01:02:03");
     assert_ne!(cs(d2), b"08:00:2b:01:02:03");
 

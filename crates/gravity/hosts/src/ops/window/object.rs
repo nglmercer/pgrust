@@ -20,7 +20,6 @@ use types_nodes::primnodes::WindowFunc;
 
 use crate::ops::Recipe;
 
-
 /// No recipe kind of M10's own: M10 derives nothing.
 pub fn derive(_r: &Recipe, _i: usize, _desc: &SiteDesc, _a: ArenaRef) -> Option<SourceBox> {
     None
@@ -111,8 +110,15 @@ const POOL_FINALS: &[Oid] = &[3178, 1837, 3388, 3389];
 /// set when initialize_peragg would take it, aggs.rs `Agg::new`'s reading) are catalog-free (`pool_hosted`,
 /// `POOL_TRANS`, `POOL_FINALS`), over `PLAIN_TYPES` (its state `internal` too). Read once at prepare, on the leader; false
 /// sends the window's claims to one object (its serial form).
-pub fn pool_safe(plan: &WindowAgg<'_>, funcs: &[&WindowFunc<'_>], argtypes: &[memledger::ChargedVec<Oid>], moving_ok: &[bool]) -> PgResult<bool> {
-    use types_nodes::rawnodes::{FRAMEOPTION_END_OFFSET, FRAMEOPTION_START_OFFSET, FRAMEOPTION_START_UNBOUNDED_PRECEDING};
+pub fn pool_safe(
+    plan: &WindowAgg<'_>,
+    funcs: &[&WindowFunc<'_>],
+    argtypes: &[memledger::ChargedVec<Oid>],
+    moving_ok: &[bool],
+) -> PgResult<bool> {
+    use types_nodes::rawnodes::{
+        FRAMEOPTION_END_OFFSET, FRAMEOPTION_START_OFFSET, FRAMEOPTION_START_UNBOUNDED_PRECEDING,
+    };
     if plan.frameOptions & (FRAMEOPTION_START_OFFSET | FRAMEOPTION_END_OFFSET) != 0 {
         return Ok(false);
     }
@@ -125,7 +131,9 @@ pub fn pool_safe(plan: &WindowAgg<'_>, funcs: &[&WindowFunc<'_>], argtypes: &[me
         }
         Ok(ok)
     };
-    if !keys_ok(plan.partNumCols, plan.partOperators)? || !keys_ok(plan.ordNumCols, plan.ordOperators)? {
+    if !keys_ok(plan.partNumCols, plan.partOperators)?
+        || !keys_ok(plan.ordNumCols, plan.ordOperators)?
+    {
         return Ok(false);
     }
     let trans_ok = |f: Oid| f == 0 || POOL_TRANS.contains(&f) || pool(f);
@@ -135,20 +143,35 @@ pub fn pool_safe(plan: &WindowAgg<'_>, funcs: &[&WindowFunc<'_>], argtypes: &[me
     let mut ok = true;
     // bounded("other: the WindowAgg's window functions, one catalog read each at prepare: the query text bounds them, as ExecInitWindowAgg's walk")
     for (i, w) in funcs.iter().enumerate() {
-        ok &= argtypes.get(i).is_some_and(|ts| ts.iter().all(|t| PLAIN_TYPES.contains(t)));
+        ok &= argtypes
+            .get(i)
+            .is_some_and(|ts| ts.iter().all(|t| PLAIN_TYPES.contains(t)));
         if !w.winagg {
             ok &= (3100..=3114).contains(&w.winfnoid);
             continue;
         }
-        let Some(a) = syscache_seams::lookup_pg_aggregate_shape::call(w.winfnoid)? else { return Ok(false) };
+        let Some(a) = syscache_seams::lookup_pg_aggregate_shape::call(w.winfnoid)? else {
+            return Ok(false);
+        };
         // initialize_peragg's choice of the moving set (aggs.rs `Agg::new`)
         let moving = a.aggminvtransfn != 0
-            && (a.aggmfinalmodify == read_only && a.aggfinalmodify != read_only || plan.frameOptions & FRAMEOPTION_START_UNBOUNDED_PRECEDING == 0 && moving_ok.get(i).copied().unwrap_or(true));
+            && (a.aggmfinalmodify == read_only && a.aggfinalmodify != read_only
+                || plan.frameOptions & FRAMEOPTION_START_UNBOUNDED_PRECEDING == 0
+                    && moving_ok.get(i).copied().unwrap_or(true));
         let (trans, inv, fin, st) = match moving {
-            true => (a.aggmtransfn, a.aggminvtransfn, a.aggmfinalfn, a.aggmtranstype),
+            true => (
+                a.aggmtransfn,
+                a.aggminvtransfn,
+                a.aggmfinalfn,
+                a.aggmtranstype,
+            ),
             false => (a.aggtransfn, 0, a.aggfinalfn, a.aggtranstype),
         };
-        ok &= PLAIN_TYPES.contains(&w.wintype) && state(st) && trans_ok(trans) && trans_ok(inv) && final_ok(fin);
+        ok &= PLAIN_TYPES.contains(&w.wintype)
+            && state(st)
+            && trans_ok(trans)
+            && trans_ok(inv)
+            && final_ok(fin);
     }
     Ok(ok)
 }
@@ -208,8 +231,15 @@ impl WinObj {
     /// EXECUTE checks made (ExecInitWindowAgg's order: the functions, then the frame's), an error by PG's text else.
     pub fn new(spec: WinSpec) -> PgResult<Box<WinObj>> {
         let ncols = spec.cols.len();
-        if spec.args.len() != spec.funcs.len() || spec.argtypes.len() != spec.funcs.len() || spec.moving_ok.len() != spec.funcs.len() || spec.builtins.len() != spec.funcs.len() || spec.natts > ncols {
-            return Err(bad("window.agg: a window object whose layout disagrees with its functions"));
+        if spec.args.len() != spec.funcs.len()
+            || spec.argtypes.len() != spec.funcs.len()
+            || spec.moving_ok.len() != spec.funcs.len()
+            || spec.builtins.len() != spec.funcs.len()
+            || spec.natts > ncols
+        {
+            return Err(bad(
+                "window.agg: a window object whose layout disagrees with its functions",
+            ));
         }
         let nf = spec.funcs.len();
         let root = gravity_driver::mem::root::Root::new("gravity window");
@@ -219,13 +249,27 @@ impl WinObj {
         let f = crate::ops::window::frame::Frame::new(&spec, rcx)?;
         let lazy = crate::ops::window::lazy::Lazy::of(&spec, rcx)?;
         let mut res = vec![0u64; nf + nf.div_ceil(8)].into_boxed_slice(); // alloc: Exec
-        let cell = abi::WinCell { head: abi::Head { magic: abi::WIN_MAGIC, op: crate::ops::window::raw::op }, res: res.as_mut_ptr() as u64, nfuncs: nf as u64, ncols: ncols as u64 };
+        let cell = abi::WinCell {
+            head: abi::Head {
+                magic: abi::WIN_MAGIC,
+                op: crate::ops::window::raw::op,
+            },
+            res: res.as_mut_ptr() as u64,
+            nfuncs: nf as u64,
+            ncols: ncols as u64,
+        };
         // E-kern: the store's own copies of the cell layout, charged as the spec's are (its prepare owner)
-        let mut cols = memledger::ChargedVec::<(i16, bool)>::new(spec.cols.owner(), memledger::Kind::Region);
+        let mut cols =
+            memledger::ChargedVec::<(i16, bool)>::new(spec.cols.owner(), memledger::Kind::Region);
         cols.with_vec(|v| v.extend_from_slice(&spec.cols)); // alloc: Exec charged spec.cols.owner()
-        let mut defer = memledger::ChargedVec::<bool>::new(spec.lazy_cells.owner(), memledger::Kind::Region);
+        let mut defer =
+            memledger::ChargedVec::<bool>::new(spec.lazy_cells.owner(), memledger::Kind::Region);
         defer.with_vec(|v| v.extend_from_slice(&spec.lazy_cells)); // alloc: Exec charged spec.lazy_cells.owner()
-        let store = Rc::new(RefCell::new(crate::ops::window::store::Store::new(cols, defer, rcx.new_child_wholesale("gravity window rows")))); // alloc: Exec
+        let store = Rc::new(RefCell::new(crate::ops::window::store::Store::new(
+            cols,
+            defer,
+            rcx.new_child_wholesale("gravity window rows"),
+        ))); // alloc: Exec
         let ended = spec.pull.is_none();
         let rt = Rt {
             spec,
@@ -244,7 +288,11 @@ impl WinObj {
             lazy,
             _root: root,
         };
-        Ok(Box::new(WinObj { cell, store, rt: RefCell::new(rt) })) // alloc: Exec
+        Ok(Box::new(WinObj {
+            cell,
+            store,
+            rt: RefCell::new(rt),
+        })) // alloc: Exec
     }
 
     /// The handle word the program reads: the cell's address.
@@ -259,7 +307,9 @@ impl WinObj {
     /// eager fill, a Bug by name.
     pub(crate) fn rearm(&self) -> PgResult<()> {
         let Ok(mut rt) = self.rt.try_borrow_mut() else {
-            return Err(bad("window.agg: a window re-armed inside its own call (D4237)"));
+            return Err(bad(
+                "window.agg: a window re-armed inside its own call (D4237)",
+            ));
         };
         if rt.spec.pull.is_none() {
             return Err(bad("window.agg: an eager window's fill re-armed (D4237)"));
@@ -283,5 +333,8 @@ impl Drop for WinObj {
 #[cold]
 #[inline(never)]
 pub(crate) fn bad(what: &str) -> Box<PgError> {
-    Box::new(PgError::error(format!("gravity: {what}")).with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR)) // alloc: Cold
+    Box::new(
+        PgError::error(format!("gravity: {what}"))
+            .with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR),
+    ) // alloc: Cold
 }

@@ -6,6 +6,8 @@ pub mod builtins;
 
 use datum::Datum;
 use mcx::{Mcx, PgVec};
+use pg_enum_seams::EnumSortedRow;
+use syscache_seams::PgEnumShape;
 use types_core::{InvalidOid, Oid, NAMEDATALEN};
 use types_error::{
     ereturn, PgError, PgResult, SoftErrorContext, ERRCODE_FEATURE_NOT_SUPPORTED,
@@ -13,8 +15,6 @@ use types_error::{
     ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE, ERRCODE_UNSAFE_NEW_ENUM_VALUE_USAGE, ERROR,
 };
 use types_fmgr::FmgrInfo;
-use pg_enum_seams::EnumSortedRow;
-use syscache_seams::PgEnumShape;
 
 const TYPALIGN_INT: u8 = b'i';
 
@@ -42,7 +42,13 @@ fn check_safe_enum_use(
 }
 
 fn shape_safe(en: &PgEnumShape) -> PgResult<()> {
-    check_safe_enum_use(en.oid, en.enumtypid, en.enumlabel.name_str(), en.xmin, en.xmin_committed)
+    check_safe_enum_use(
+        en.oid,
+        en.enumtypid,
+        en.enumlabel.name_str(),
+        en.xmin,
+        en.xmin_committed,
+    )
 }
 
 fn row_safe(row: &EnumSortedRow) -> PgResult<()> {
@@ -96,11 +102,7 @@ pub fn enum_out(enumval: Oid) -> PgResult<PgEnumShape> {
 // again from arg1 and the memo replaced; enum OIDs are unique across enum
 // types, so the wrong type's cache never holds either value and never answers
 // for them (its sorted-OID bitmap marks only its own values).
-fn enum_cmp_internal(
-    arg1: Oid,
-    arg2: Oid,
-    flinfo: Option<&mut FmgrInfo>,
-) -> PgResult<i32> {
+fn enum_cmp_internal(arg1: Oid, arg2: Oid, flinfo: Option<&mut FmgrInfo>) -> PgResult<i32> {
     if arg1 == arg2 {
         return Ok(0);
     }
@@ -108,7 +110,9 @@ fn enum_cmp_internal(
         return Ok(if arg1 < arg2 { -1 } else { 1 });
     }
 
-    let memo = flinfo.as_ref().and_then(|f| f.fn_extra_ref::<Oid>().copied());
+    let memo = flinfo
+        .as_ref()
+        .and_then(|f| f.fn_extra_ref::<Oid>().copied());
     if let Some(t) = memo {
         match typcache_seams::compare_values_of_enum::call(t, arg1, arg2) {
             Ok(r) => return Ok(r),
@@ -139,11 +143,7 @@ fn enum_type_of(arg: Oid) -> PgResult<Oid> {
 
 // btree_gist's CallerFInfoFunctionCall2(enum_cmp, ...) surface: same
 // engine, caller-owned flinfo carries the fn_extra type-OID memo.
-pub fn enum_cmp_with_flinfo(
-    arg1: Oid,
-    arg2: Oid,
-    flinfo: Option<&mut FmgrInfo>,
-) -> PgResult<i32> {
+pub fn enum_cmp_with_flinfo(arg1: Oid, arg2: Oid, flinfo: Option<&mut FmgrInfo>) -> PgResult<i32> {
     enum_cmp_internal(arg1, arg2, flinfo)
 }
 
@@ -239,7 +239,10 @@ pub fn init_seams() {}
 fn invalid_input(enumtypoid: Oid, name: &[u8]) -> PgResult<Box<PgError>> {
     let ty = format_type::format_type_be(enumtypoid)?;
     let e = match core::str::from_utf8(name) {
-        Ok(name) => PgError::new(ERROR, format!("invalid input value for enum {ty}: \"{name}\"")),
+        Ok(name) => PgError::new(
+            ERROR,
+            format!("invalid input value for enum {ty}: \"{name}\""),
+        ),
         Err(_) => {
             let mut msg = format!("invalid input value for enum {ty}: \"").into_bytes();
             msg.extend_from_slice(name);
@@ -247,7 +250,9 @@ fn invalid_input(enumtypoid: Oid, name: &[u8]) -> PgResult<Box<PgError>> {
             PgError::error_raw_message(msg)
         }
     };
-    Ok(Box::new(e.with_sqlstate(ERRCODE_INVALID_TEXT_REPRESENTATION)))
+    Ok(Box::new(
+        e.with_sqlstate(ERRCODE_INVALID_TEXT_REPRESENTATION),
+    ))
 }
 
 #[track_caller]
@@ -266,9 +271,12 @@ fn unsafe_new_value(label: &[u8], enumtypid: Oid) -> PgResult<Box<PgError>> {
     let ty = format_type::format_type_be(enumtypid)?;
     let label = core::str::from_utf8(label).unwrap_or("");
     Ok(Box::new(
-        PgError::new(ERROR, format!("unsafe use of new value \"{label}\" of enum type {ty}"))
-            .with_sqlstate(ERRCODE_UNSAFE_NEW_ENUM_VALUE_USAGE)
-            .with_hint("New enum values must be committed before they can be used."),
+        PgError::new(
+            ERROR,
+            format!("unsafe use of new value \"{label}\" of enum type {ty}"),
+        )
+        .with_sqlstate(ERRCODE_UNSAFE_NEW_ENUM_VALUE_USAGE)
+        .with_hint("New enum values must be committed before they can be used."),
     ))
 }
 
@@ -329,20 +337,22 @@ mod tests {
     fn non_utf8_label_is_invalid_input_not_empty_label() {
         use types_core::catalog::INT4OID;
         syscache_seams::lookup_pg_type_typcache_shape::set(|typid| {
-            Ok((typid == INT4OID).then(|| syscache_seams::PgTypeTypcacheShape {
-                typname: Default::default(),
-                typlen: 4,
-                typbyval: true,
-                typalign: b'i' as i8,
-                typstorage: b'p' as i8,
-                typtype: b'b' as i8,
-                typisdefined: true,
-                typrelid: InvalidOid,
-                typsubscript: InvalidOid,
-                typelem: InvalidOid,
-                typarray: InvalidOid,
-                typcollation: InvalidOid,
-            }))
+            Ok(
+                (typid == INT4OID).then(|| syscache_seams::PgTypeTypcacheShape {
+                    typname: Default::default(),
+                    typlen: 4,
+                    typbyval: true,
+                    typalign: b'i' as i8,
+                    typstorage: b'p' as i8,
+                    typtype: b'b' as i8,
+                    typisdefined: true,
+                    typrelid: InvalidOid,
+                    typsubscript: InvalidOid,
+                    typelem: InvalidOid,
+                    typarray: InvalidOid,
+                    typcollation: InvalidOid,
+                }),
+            )
         });
         syscache_seams::lookup_pg_enum_by_typid_label::set(|_, label| {
             panic!("catalog consulted for non-UTF-8 label {label:?}")
@@ -436,7 +446,10 @@ mod pseudotype_alias_tests {
                 .find(|b| b.foid == oid)
                 .unwrap_or_else(|| panic!("oid {oid} not registered"))
         };
-        assert_eq!(by_oid(3505).func as usize, crate::builtins::fc_enum_out as *const () as usize);
+        assert_eq!(
+            by_oid(3505).func as usize,
+            crate::builtins::fc_enum_out as *const () as usize
+        );
         assert_eq!(by_oid(3505).name, "anyenum_out");
     }
 }

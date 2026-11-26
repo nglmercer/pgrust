@@ -282,7 +282,11 @@ fn decode_pg_attribute_null_in_fixed_part_is_an_error() {
 
     let tup = heaptuple::heap_form_tuple(mcx, &td, &values, &nulls).unwrap();
     let err = attrs::decode(&td, tup.as_tuple(), 1259).unwrap_err();
-    assert!(err.to_string().contains("unexpected null in catalog column 17"), "{err}");
+    assert!(
+        err.to_string()
+            .contains("unexpected null in catalog column 17"),
+        "{err}"
+    );
 }
 
 #[repr(C)]
@@ -357,7 +361,11 @@ fn vector_decoders_clamp_forged_dim1() {
     // SAFETY: image is valid; only dim1 is forged. The decoder must not read
     // past the image.
     let got = unsafe { oidvector_values(d) };
-    assert!(got.len() <= 3, "forged dim1 must be clamped, got {}", got.len());
+    assert!(
+        got.len() <= 3,
+        "forged dim1 must be clamped, got {}",
+        got.len()
+    );
 
     // Negative dim1 (sign-extends to a huge usize in the naive path) -> empty.
     let iv = FakeInt2Vector {
@@ -398,8 +406,14 @@ fn trigger_null_field_message_quotes_relation_name() {
     // relation \"%s\"", RelationGetRelationName(relation)) -- the quoted
     // name, not the OID (audit-18.6 b242 commands-trigger-p1-2ffbac76).
     let err = crate::triggers::corrupt("my_table", "tgargs");
-    assert_eq!(err.message(), "tgargs is null in trigger for relation \"my_table\"");
+    assert_eq!(
+        err.message(),
+        "tgargs is null in trigger for relation \"my_table\""
+    );
     assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
     let err = crate::triggers::corrupt("t", "tgattr");
-    assert_eq!(err.message(), "tgattr is null in trigger for relation \"t\"");
+    assert_eq!(
+        err.message(),
+        "tgattr is null in trigger for relation \"t\""
+    );
 }

@@ -23,7 +23,11 @@ pub struct ExecPhraseData<'mcx> {
 
 impl<'mcx> ExecPhraseData<'mcx> {
     pub fn new(mcx: Mcx<'mcx>) -> Self {
-        ExecPhraseData { pos: PgVec::new_in(mcx), negate: false, width: 0 }
+        ExecPhraseData {
+            pos: PgVec::new_in(mcx),
+            negate: false,
+            width: 0,
+        }
     }
 
     #[inline]
@@ -163,8 +167,7 @@ pub fn ts_phrase_execute<'mcx>(
                 if lmatch == Ternary::No {
                     return Ok(Ternary::No);
                 }
-                let rmatch =
-                    ts_phrase_execute(mcx, q, idx + 1, flags, chkcond, Some(&mut rdata))?;
+                let rmatch = ts_phrase_execute(mcx, q, idx + 1, flags, chkcond, Some(&mut rdata))?;
                 if rmatch == Ternary::No {
                     return Ok(Ternary::No);
                 }
@@ -202,11 +205,27 @@ pub fn ts_phrase_execute<'mcx>(
                     }
                     Ok(Ternary::Yes)
                 } else if ldata.negate {
-                    Ok(ts_phrase_output(data, &ldata, &rdata, TSPO_R_ONLY, loffset, roffset))
+                    Ok(ts_phrase_output(
+                        data,
+                        &ldata,
+                        &rdata,
+                        TSPO_R_ONLY,
+                        loffset,
+                        roffset,
+                    ))
                 } else if rdata.negate {
-                    Ok(ts_phrase_output(data, &ldata, &rdata, TSPO_L_ONLY, loffset, roffset))
+                    Ok(ts_phrase_output(
+                        data,
+                        &ldata,
+                        &rdata,
+                        TSPO_L_ONLY,
+                        loffset,
+                        roffset,
+                    ))
                 } else {
-                    Ok(ts_phrase_output(data, &ldata, &rdata, TSPO_BOTH, loffset, roffset))
+                    Ok(ts_phrase_output(
+                        data, &ldata, &rdata, TSPO_BOTH, loffset, roffset,
+                    ))
                 }
             }
             OP_OR => {
@@ -220,8 +239,7 @@ pub fn ts_phrase_execute<'mcx>(
                     chkcond,
                     Some(&mut ldata),
                 )?;
-                let rmatch =
-                    ts_phrase_execute(mcx, q, idx + 1, flags, chkcond, Some(&mut rdata))?;
+                let rmatch = ts_phrase_execute(mcx, q, idx + 1, flags, chkcond, Some(&mut rdata))?;
                 if lmatch == Ternary::No && rmatch == Ternary::No {
                     return Ok(Ternary::No);
                 }
@@ -295,8 +313,7 @@ fn ts_execute_recurse<'mcx>(
                 })
             }
             OP_AND => {
-                let lmatch =
-                    ts_execute_recurse(mcx, q, idx + opr.left as usize, flags, chkcond)?;
+                let lmatch = ts_execute_recurse(mcx, q, idx + opr.left as usize, flags, chkcond)?;
                 if lmatch == Ternary::No {
                     return Ok(Ternary::No);
                 }
@@ -307,8 +324,7 @@ fn ts_execute_recurse<'mcx>(
                 })
             }
             OP_OR => {
-                let lmatch =
-                    ts_execute_recurse(mcx, q, idx + opr.left as usize, flags, chkcond)?;
+                let lmatch = ts_execute_recurse(mcx, q, idx + opr.left as usize, flags, chkcond)?;
                 if lmatch == Ternary::Yes {
                     return Ok(Ternary::Yes);
                 }
@@ -318,17 +334,19 @@ fn ts_execute_recurse<'mcx>(
                     Ternary::Maybe => Ternary::Maybe,
                 })
             }
-            OP_PHRASE => Ok(match ts_phrase_execute(mcx, q, idx, flags, chkcond, None)? {
-                Ternary::No => Ternary::No,
-                Ternary::Yes => Ternary::Yes,
-                Ternary::Maybe => {
-                    if flags & TS_EXEC_PHRASE_NO_POS != 0 {
-                        Ternary::Maybe
-                    } else {
-                        Ternary::No
+            OP_PHRASE => Ok(
+                match ts_phrase_execute(mcx, q, idx, flags, chkcond, None)? {
+                    Ternary::No => Ternary::No,
+                    Ternary::Yes => Ternary::Yes,
+                    Ternary::Maybe => {
+                        if flags & TS_EXEC_PHRASE_NO_POS != 0 {
+                            Ternary::Maybe
+                        } else {
+                            Ternary::No
+                        }
                     }
-                }
-            }),
+                },
+            ),
             other => panic!("unrecognized operator: {other}"),
         },
     }
@@ -396,17 +414,18 @@ fn ts_execute_locations_recurse<'mcx>(
             OP_NOT => {
                 let mut l = PgVec::new_in(mcx);
                 // A failed NOT-arm matches; we pass back no locations.
-                Ok(!ts_execute_locations_recurse(mcx, q, idx + 1, chkcond, &mut l)?)
+                Ok(!ts_execute_locations_recurse(
+                    mcx,
+                    q,
+                    idx + 1,
+                    chkcond,
+                    &mut l,
+                )?)
             }
             OP_AND => {
                 let mut l = PgVec::new_in(mcx);
-                if !ts_execute_locations_recurse(
-                    mcx,
-                    q,
-                    idx + opr.left as usize,
-                    chkcond,
-                    &mut l,
-                )? {
+                if !ts_execute_locations_recurse(mcx, q, idx + opr.left as usize, chkcond, &mut l)?
+                {
                     return Ok(false);
                 }
                 let mut r = PgVec::new_in(mcx);

@@ -12,7 +12,10 @@ use crate::frame::env::Env;
 /// The resume word's position: 0 at a fresh call (the open marked `RESUME_OPEN`), else the row the stop wrote back. A
 /// nest inner's source keeps it in the inner's own position word (`Env::pos`, M8 B1b), written `RESUME_OPEN` per re-open.
 pub(crate) fn resume_pos(b: &mut FunctionBuilder<'_>, env: &Env) -> Value {
-    let w = match env.pos { Some(o) => env.load_word(b, o), None => b.load(Type::I64, env.ctx, hdr::RESUME as i32) };
+    let w = match env.pos {
+        Some(o) => env.load_word(b, o),
+        None => b.load(Type::I64, env.ctx, hdr::RESUME as i32),
+    };
     let open = b.iconst(Type::I64, RESUME_OPEN);
     b.int_bin(IntBinOp::Sub, w, open)
 }

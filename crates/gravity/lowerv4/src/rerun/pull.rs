@@ -10,8 +10,19 @@ use crate::frame::env::Env;
 /// Pull the set behind handle word `h` (a param word) for `want` rows: the call's status. Below zero the producer raised;
 /// the host stashed its error and the caller raises it inside its own read, where PostgreSQL raises it.
 pub(crate) fn pull(b: &mut FunctionBuilder<'_>, env: &Env, h: u16, want: Value) -> Value {
-    let flags = HostFlags { touches_memory: true, may_error: true, ..HostFlags::default() };
-    let f = b.declare_host_once("m8_cte_pull", &[Type::Ptr, Type::I64, Type::I64], Some(Type::I64), m8::m8_cte_pull as *const () as usize, flags);
+    let flags = HostFlags {
+        touches_memory: true,
+        may_error: true,
+        ..HostFlags::default()
+    };
+    let f = b.declare_host_once(
+        "m8_cte_pull",
+        &[Type::Ptr, Type::I64, Type::I64],
+        Some(Type::I64),
+        m8::m8_cte_pull as *const () as usize,
+        flags,
+    );
     let hv = b.load(Type::I64, env.params, h as i32 * 8);
-    b.call_host(f, &[env.ctx, hv, want], Some(Type::I64)).expect("m8_cte_pull returns its status")
+    b.call_host(f, &[env.ctx, hv, want], Some(Type::I64))
+        .expect("m8_cte_pull returns its status")
 }

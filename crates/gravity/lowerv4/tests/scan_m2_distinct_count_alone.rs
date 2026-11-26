@@ -5,7 +5,8 @@
 use gravity_lowerv4_it as common;
 
 fn plan(name: &str) -> String {
-    std::fs::read_to_string(common::plans_dir().join(format!("{name}.plan"))).unwrap_or_else(|e| panic!("{name}: {e}"))
+    std::fs::read_to_string(common::plans_dir().join(format!("{name}.plan")))
+        .unwrap_or_else(|e| panic!("{name}: {e}"))
 }
 
 /// Whether fixture `name` lowers and its program declares the window host.
@@ -15,13 +16,18 @@ fn window_host(name: &str) -> bool {
         Some(Err(e)) => panic!("{name} lowers: {e:?}"),
         None => panic!("{name}: decompose refused"),
     };
-    l.ir.host_fns.iter().any(|h| h.name == "agg_distinct_window")
+    l.ir.host_fns
+        .iter()
+        .any(|h| h.name == "agg_distinct_window")
 }
 
 #[test]
 fn a_plain_count_distinct_of_a_pgrc_integer_column_takes_windows_whole() {
     for f in ["fieldobs-009", "aggs-040"] {
-        assert!(window_host(f), "{f}: count(DISTINCT int8 column) over pgrc declares agg_distinct_window");
+        assert!(
+            window_host(f),
+            "{f}: count(DISTINCT int8 column) over pgrc declares agg_distinct_window"
+        );
     }
 }
 
@@ -32,6 +38,9 @@ fn g4_the_shapes_the_window_host_leaves_to_the_rows() {
         ("aggs-039", "an expression argument"),
         ("aggs-041", "a text column"),
     ] {
-        assert!(!window_host(f), "{f}: {why} must not declare the window host");
+        assert!(
+            !window_host(f),
+            "{f}: {why} must not declare the window host"
+        );
     }
 }

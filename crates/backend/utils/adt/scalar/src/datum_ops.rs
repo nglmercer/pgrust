@@ -11,8 +11,8 @@ use datum::Datum;
 use mcx::{check_alloc_size, vec_append_bytes, Allocator, Mcx, PgVec};
 use types_error::{PgError, PgResult, ERRCODE_DATA_CORRUPTED, ERRCODE_DATA_EXCEPTION};
 use types_tuple::varatt::{
-    varatt_is_1b, varatt_is_1b_e, varatt_is_external_expanded, varsize_any, vartag_external, VARHDRSZ,
-    VARTAG_EXPANDED_RW,
+    varatt_is_1b, varatt_is_1b_e, varatt_is_external_expanded, varsize_any, vartag_external,
+    VARHDRSZ, VARTAG_EXPANDED_RW,
 };
 
 #[track_caller]
@@ -29,8 +29,10 @@ fn invalid_datum_pointer() -> Box<PgError> {
 #[inline(never)]
 fn varsize_under_header(n: usize) -> Box<PgError> {
     Box::new(
-        PgError::error(format!("invalid varlena size {n}: less than its {VARHDRSZ}-byte header"))
-            .with_sqlstate(ERRCODE_DATA_CORRUPTED),
+        PgError::error(format!(
+            "invalid varlena size {n}: less than its {VARHDRSZ}-byte header"
+        ))
+        .with_sqlstate(ERRCODE_DATA_CORRUPTED),
     )
 }
 
@@ -42,7 +44,9 @@ fn alloc_bytes<'mcx>(mcx: Mcx<'mcx>, n: usize) -> PgResult<NonNull<u8>> {
     check_alloc_size(n)?;
     // C palloc is maxaligned; varlena/EOH consumers rely on it.
     let layout = Layout::from_size_align(n, 8).map_err(|_| mcx.oom(n))?;
-    Ok(Allocator::allocate(&mcx, layout).map_err(|_| mcx.oom(n))?.cast())
+    Ok(Allocator::allocate(&mcx, layout)
+        .map_err(|_| mcx.oom(n))?
+        .cast())
 }
 
 /// `datumGetSize`. The datum must be live for by-ref types.
@@ -68,9 +72,11 @@ pub fn datum_get_size(value: Datum, typbyval: bool, typlen: i16) -> PgResult<usi
                 return Err(invalid_datum_pointer());
             }
             // SAFETY: non-null by-ref datum points at a NUL-terminated cstring.
-            Ok(unsafe { core::ffi::CStr::from_ptr(p as *const core::ffi::c_char) }
-                .to_bytes_with_nul()
-                .len())
+            Ok(
+                unsafe { core::ffi::CStr::from_ptr(p as *const core::ffi::c_char) }
+                    .to_bytes_with_nul()
+                    .len(),
+            )
         }
         _ => Err(invalid_typlen(typlen)),
     }
@@ -238,7 +244,9 @@ pub fn datum_restore<'mcx>(mcx: Mcx<'mcx>, cursor: &mut &[u8]) -> PgResult<(Datu
         -2 => Ok((Datum::null(), true)),
         -1 => {
             let raw = u64::from_ne_bytes(
-                cursor[..8].try_into().expect("datum_restore: short by-val payload"),
+                cursor[..8]
+                    .try_into()
+                    .expect("datum_restore: short by-val payload"),
             );
             *cursor = &cursor[8..];
             // from_u64: `raw as usize` would truncate the word on wasm32.

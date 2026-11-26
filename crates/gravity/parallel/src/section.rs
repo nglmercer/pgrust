@@ -11,15 +11,29 @@ pub struct Section {
 }
 
 impl Section {
-    pub fn plan(program: &Program, pipeline: usize, granted: u16, sink_has_legs: bool) -> Option<Section> {
+    pub fn plan(
+        program: &Program,
+        pipeline: usize,
+        granted: u16,
+        sink_has_legs: bool,
+    ) -> Option<Section> {
         let p = program.pipelines[pipeline];
         if granted < 2 || p.parallel != Parallel::Eligible || p.driving_site < 0 {
             return None;
         }
         // D2998: an EXISTS InitPlan's pipeline ends in its cell, not the sink: no leg takes a row of it
-        if p.ends_in == End::Sink && !sink_has_legs && !gravity_driver::exists_cell(program, pipeline) {
+        if p.ends_in == End::Sink
+            && !sink_has_legs
+            && !gravity_driver::exists_cell(program, pipeline)
+        {
             return None;
         }
-        Some(Section { pipeline, width: granted, driving_site: p.driving_site, relation: program.sites[p.driving_site as usize].relation, finish: p.finish })
+        Some(Section {
+            pipeline,
+            width: granted,
+            driving_site: p.driving_site,
+            relation: program.sites[p.driving_site as usize].relation,
+            finish: p.finish,
+        })
     }
 }

@@ -10,8 +10,8 @@ use types_error::{
 };
 use types_fmgr::{FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction};
 use types_trigger::{
-    TRIGGER_FIRED_AFTER, TRIGGER_FIRED_BY_DELETE, TRIGGER_FIRED_BY_INSERT,
-    TRIGGER_FIRED_BY_UPDATE, TRIGGER_FIRED_FOR_ROW,
+    TRIGGER_FIRED_AFTER, TRIGGER_FIRED_BY_DELETE, TRIGGER_FIRED_BY_INSERT, TRIGGER_FIRED_BY_UPDATE,
+    TRIGGER_FIRED_FOR_ROW,
 };
 use types_trigger_call::trigger_data_from_fcinfo;
 use types_tuple::HeapTupleData;
@@ -26,8 +26,10 @@ fn internal(msg: String) -> Box<PgError> {
 #[cold]
 fn no_attribute(colname: &str, relname: &str) -> Box<PgError> {
     Box::new(
-        PgError::error(format!("there is no attribute \"{colname}\" in relation \"{relname}\""))
-            .with_sqlstate(ERRCODE_UNDEFINED_COLUMN),
+        PgError::error(format!(
+            "there is no attribute \"{colname}\" in relation \"{relname}\""
+        ))
+        .with_sqlstate(ERRCODE_UNDEFINED_COLUMN),
     )
 }
 
@@ -116,18 +118,24 @@ fn tuple_datum(t: core::ptr::NonNull<HeapTupleData<'_>>) -> Datum {
 fn fc_check_primary_key(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     // SAFETY: the trigger call machinery keeps the TriggerData live for the call.
     let Some(td) = (unsafe { trigger_data_from_fcinfo(fcinfo) }) else {
-        return Err(internal("check_primary_key: not fired by trigger manager".into()));
+        return Err(internal(
+            "check_primary_key: not fired by trigger manager".into(),
+        ));
     };
     if !TRIGGER_FIRED_FOR_ROW(td.tg_event) {
         return Err(internal("check_primary_key: must be fired for row".into()));
     }
     if !TRIGGER_FIRED_AFTER(td.tg_event) {
-        return Err(internal("check_primary_key: must be fired by AFTER trigger".into()));
+        return Err(internal(
+            "check_primary_key: must be fired by AFTER trigger".into(),
+        ));
     }
     let tuple_nn = if TRIGGER_FIRED_BY_INSERT(td.tg_event) {
         td.tg_trigtuple.expect("INSERT row trigger has a tuple")
     } else if TRIGGER_FIRED_BY_DELETE(td.tg_event) {
-        return Err(internal("check_primary_key: cannot process DELETE events".into()));
+        return Err(internal(
+            "check_primary_key: cannot process DELETE events".into(),
+        ));
     } else {
         td.tg_newtuple.expect("UPDATE row trigger has a new tuple")
     };
@@ -182,7 +190,9 @@ fn fc_check_primary_key(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> 
     nulls.resize(nkeys, false);
     let ret = spi::SPI_execp(pplan, &kvals, &nulls, 1)?;
     if ret < 0 {
-        return Err(internal(format!("check_primary_key: SPI_execp returned {ret}")));
+        return Err(internal(format!(
+            "check_primary_key: SPI_execp returned {ret}"
+        )));
     }
 
     if spi::SPI_processed() == 0 {
@@ -204,16 +214,22 @@ fn fc_check_primary_key(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> 
 fn fc_check_foreign_key(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     // SAFETY: the trigger call machinery keeps the TriggerData live for the call.
     let Some(td) = (unsafe { trigger_data_from_fcinfo(fcinfo) }) else {
-        return Err(internal("check_foreign_key: not fired by trigger manager".into()));
+        return Err(internal(
+            "check_foreign_key: not fired by trigger manager".into(),
+        ));
     };
     if !TRIGGER_FIRED_FOR_ROW(td.tg_event) {
         return Err(internal("check_foreign_key: must be fired for row".into()));
     }
     if TRIGGER_FIRED_BY_INSERT(td.tg_event) {
-        return Err(internal("check_foreign_key: cannot process INSERT events".into()));
+        return Err(internal(
+            "check_foreign_key: cannot process INSERT events".into(),
+        ));
     }
     if !TRIGGER_FIRED_AFTER(td.tg_event) {
-        return Err(internal("check_foreign_key: must be fired by AFTER trigger".into()));
+        return Err(internal(
+            "check_foreign_key: must be fired by AFTER trigger".into(),
+        ));
     }
 
     let trigtuple_nn = td.tg_trigtuple.expect("row trigger has an old tuple");
@@ -241,9 +257,17 @@ fn fc_check_foreign_key(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> 
             "check_foreign_key: {nrefs} (< 1) number of references specified"
         )));
     }
-    let action = all_args(1).as_bytes().first().copied().unwrap_or(0).to_ascii_lowercase();
+    let action = all_args(1)
+        .as_bytes()
+        .first()
+        .copied()
+        .unwrap_or(0)
+        .to_ascii_lowercase();
     if action != b'r' && action != b'c' && action != b's' {
-        return Err(internal(format!("check_foreign_key: invalid action {}", all_args(1))));
+        return Err(internal(format!(
+            "check_foreign_key: invalid action {}",
+            all_args(1)
+        )));
     }
     let nargs = nargs - 2;
     let args = |i: usize| all_args(i + 2);

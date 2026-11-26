@@ -13,11 +13,18 @@
 //! as `ops::group::distinct_fold`, the path its readers name.
 #![allow(unsafe_code)]
 
-use gravity_abi::breaker::{prefetch_read, FloatOverflow, HashAgg, KeyKind, OwnerFns, OwnerTop, Rec, RecordLayout, SlotKind, FOLD_PF, HASHAGG_HDR, LAYOUT_IMPLICIT_COUNT, MINCODE_NONE, MOVING, ORDER_KEY, ORDER_NONE, OWNERTOP_HDR, OWNER_PARAMS, T1_MAX_PARTS};
+use gravity_abi::breaker::{
+    prefetch_read, FloatOverflow, HashAgg, KeyKind, OwnerFns, OwnerTop, Rec, RecordLayout,
+    SlotKind, FOLD_PF, HASHAGG_HDR, LAYOUT_IMPLICIT_COUNT, MINCODE_NONE, MOVING, ORDER_KEY,
+    ORDER_NONE, OWNERTOP_HDR, OWNER_PARAMS, T1_MAX_PARTS,
+};
 use gravity_abi::hash::{Depth, KeyHash};
 use gravity_abi::status::{unsupported, CANCELLED, UNSUPPORTED_SCRATCH};
 use gravity_abi::Site;
-use gravity_kernels::dict::reps::{count_better, keys_better, pack_slot, render, unpack_slot, varlena_bytes, Reps, MAX_REPS, REP_NONE, REP_WORDS};
+use gravity_kernels::dict::reps::{
+    count_better, keys_better, pack_slot, render, unpack_slot, varlena_bytes, Reps, MAX_REPS,
+    REP_NONE, REP_WORDS,
+};
 use gravity_kernels::host_abi::slot_order;
 use gravity_program::cost::owner::RUNS_FLOOR_MAX;
 use gravity_program::{OwnerDesc, ACC_PAIRS, ACC_SLOT_BASE, NULL_ARG_NONE};
@@ -65,9 +72,21 @@ impl DistinctFold {
     /// it), a key order (`ORDER_KEY`) is not a form of this face.
     pub fn of_desc(d: &OwnerDesc) -> DistinctFold {
         assert!(d.ctor.is_none() && d.pair != 0, "the distinct form");
-        assert!(d.topk == 0 || d.order_slot < ORDER_KEY, "the count-ordered form orders by an accumulator slot");
-        assert!(d.topk != 0 || d.order_slot == ORDER_NONE, "a key-ordered distinct set is not a one-round form");
-        DistinctFold { pair: d.layout, words: d.pair, form: FORM_SENTINEL, topk: d.topk, reps: d.reps }
+        assert!(
+            d.topk == 0 || d.order_slot < ORDER_KEY,
+            "the count-ordered form orders by an accumulator slot"
+        );
+        assert!(
+            d.topk != 0 || d.order_slot == ORDER_NONE,
+            "a key-ordered distinct set is not a one-round form"
+        );
+        DistinctFold {
+            pair: d.layout,
+            words: d.pair,
+            form: FORM_SENTINEL,
+            topk: d.topk,
+            reps: d.reps,
+        }
     }
 
     pub fn plain(&self) -> bool {
@@ -82,12 +101,20 @@ impl DistinctFold {
         accumulator(&self.pair, self.words, self.form)
     }
 
-        pub const fn pairs_slot(&self) -> usize {
-        if self.form == FORM_SENTINEL { ACC_PAIRS as usize } else { 0 }
+    pub const fn pairs_slot(&self) -> usize {
+        if self.form == FORM_SENTINEL {
+            ACC_PAIRS as usize
+        } else {
+            0
+        }
     }
 
-        pub const fn slot_base(&self) -> usize {
-        if self.form == FORM_SENTINEL { ACC_SLOT_BASE as usize } else { 1 }
+    pub const fn slot_base(&self) -> usize {
+        if self.form == FORM_SENTINEL {
+            ACC_SLOT_BASE as usize
+        } else {
+            1
+        }
     }
 }
 
@@ -96,11 +123,19 @@ pub fn accumulator(pair: &RecordLayout, words: u8, form: u8) -> RecordLayout {
     let nk = pair.nkeys() - words as usize;
     let implicit = pair.flags & LAYOUT_IMPLICIT_COUNT != 0;
     let ns = pair.nslots() - implicit as usize;
-    let base = if form == FORM_SENTINEL { ACC_SLOT_BASE as usize } else { 1 };
+    let base = if form == FORM_SENTINEL {
+        ACC_SLOT_BASE as usize
+    } else {
+        1
+    };
     let mut slots = [SlotKind::Count; gravity_abi::breaker::MAX_RECORD_SLOTS];
     slots[base..base + ns].copy_from_slice(&pair.slot_kinds()[..ns]);
     let slots = &slots[..base + ns];
-    if pair.has_validity() { RecordLayout::new(&pair.key_kinds()[..nk], slots) } else { RecordLayout::new_nn(&pair.key_kinds()[..nk], slots) }
+    if pair.has_validity() {
+        RecordLayout::new(&pair.key_kinds()[..nk], slots)
+    } else {
+        RecordLayout::new_nn(&pair.key_kinds()[..nk], slots)
+    }
 }
 
 /// `distinct_fold_fns` over lower.md §6.12's descriptor with its NULL-argument flag, argument-fold slots and widened accumulator carried (M5 §4.5).
@@ -110,12 +145,18 @@ pub fn distinct_fold_fns_desc(d: &OwnerDesc, spill_bits: u8) -> OwnerFns {
     let acc: [u64; LAYOUT_WORDS] = d.acc.words();
     fns.params[P_ACC..P_ACC + LAYOUT_WORDS].copy_from_slice(&acc);
     if d.null_arg.0 != NULL_ARG_NONE {
-        fns.params[P_FORM] |= (d.null_arg.0 as u64 + 1) << NULL_ARG_SHIFT | (d.null_arg.1 as u64) << (NULL_ARG_SHIFT + 8);
+        fns.params[P_FORM] |= (d.null_arg.0 as u64 + 1) << NULL_ARG_SHIFT
+            | (d.null_arg.1 as u64) << (NULL_ARG_SHIFT + 8);
         // a flagged pair may sit in an identity-shaped table: the plain form counts it out in `fold_reduce`
         fns.fold = Some(gravity_kernels::table::owner_fold::owner_fold);
     }
     // bounded("small-fixed: the descriptor's argument-fold slots, 3")
-    for (i, s) in d.arg_fold.iter().enumerate().filter(|(_, s)| **s != NULL_ARG_NONE) {
+    for (i, s) in d
+        .arg_fold
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| **s != NULL_ARG_NONE)
+    {
         fns.params[P_FORM] |= (*s as u64 + 1) << (ARG_FOLD_SHIFT + 8 * i as u32);
     }
     if d.topk > 0 {
@@ -127,10 +168,16 @@ pub fn distinct_fold_fns_desc(d: &OwnerDesc, spill_bits: u8) -> OwnerFns {
 
 /// The face's owner functions over `f` (`spill_bits`: the pipeline's, carried for the memo).
 pub fn distinct_fold_fns(f: &DistinctFold, spill_bits: u8) -> OwnerFns {
-    assert!(f.words != 0 && (f.words as usize) <= f.pair.nkeys(), "the argument's words");
+    assert!(
+        f.words != 0 && (f.words as usize) <= f.pair.nkeys(),
+        "the argument's words"
+    );
     assert!(f.form <= FORM_SENTINEL, "the accumulator form");
     let plain = f.plain();
-    assert!(plain || f.pair.partition_keys() == f.group_words(), "the grouped form is declared: the pair layout partitioned by its group words");
+    assert!(
+        plain || f.pair.partition_keys() == f.group_words(),
+        "the grouped form is declared: the pair layout partitioned by its group words"
+    );
     assert!(!plain || f.topk == 0, "the plain form has no order");
     let mut p = [0u64; OWNER_PARAMS];
     p[P_TOPK] = f.topk as u64;
@@ -142,8 +189,23 @@ pub fn distinct_fold_fns(f: &DistinctFold, spill_bits: u8) -> OwnerFns {
     let words: [u64; LAYOUT_WORDS] = f.pair.words();
     p[P_LAYOUT..P_LAYOUT + LAYOUT_WORDS].copy_from_slice(&words);
     // the plain form reads `len` only: its pair table holds identities (kernel-floors.md §2.1) when the identity fold lays it
-    let fold = if plain && gravity_kernels::table::owner_fold::ident_folds(&f.pair) { gravity_kernels::table::owner_fold::owner_fold_ident } else { gravity_kernels::table::owner_fold::owner_fold };
-    OwnerFns { params: p, rounds: 1, order_slot: ORDER_NONE, order_slot2: ORDER_NONE, min_bytes: fold_min, open: fold_open, reduce: fold_reduce, end_round: fold_end, reduce2: fold_reduce, fold: Some(fold) }
+    let fold = if plain && gravity_kernels::table::owner_fold::ident_folds(&f.pair) {
+        gravity_kernels::table::owner_fold::owner_fold_ident
+    } else {
+        gravity_kernels::table::owner_fold::owner_fold
+    };
+    OwnerFns {
+        params: p,
+        rounds: 1,
+        order_slot: ORDER_NONE,
+        order_slot2: ORDER_NONE,
+        min_bytes: fold_min,
+        open: fold_open,
+        reduce: fold_reduce,
+        end_round: fold_end,
+        reduce2: fold_reduce,
+        fold: Some(fold),
+    }
 }
 
 /// The plain form's answer: the owners' totals summed (the leader's, over the finished owned region).
@@ -151,7 +213,9 @@ pub fn distinct_fold_fns(f: &DistinctFold, spill_bits: u8) -> OwnerFns {
 /// `owned` is a leader region the owner phase finished (`TABLE_OWNED`) under this face's plain form.
 pub unsafe fn plain_total(owned: *const u8) -> u64 {
     let o = gravity_abi::breaker::Owned::view(owned);
-    (0..o.nowners as usize).map(|i| OwnerTop::view(o.owner(i)).total).sum()
+    (0..o.nowners as usize)
+        .map(|i| OwnerTop::view(o.owner(i)).total)
+        .sum()
 }
 
 struct Params {
@@ -172,15 +236,47 @@ unsafe fn params_of(p: *const u64) -> Params {
     words.copy_from_slice(&w[P_LAYOUT..P_LAYOUT + LAYOUT_WORDS]);
     // SAFETY: the words `distinct_fold_fns` packed.
     let pair: RecordLayout = RecordLayout::from_words(words);
-    let f = DistinctFold { pair, words: (w[P_FORM] >> 8) as u8, form: w[P_FORM] as u8, topk: w[P_TOPK] as u32, reps: unpack_slot(&core::array::from_fn(|i| if i == 0 { w[P_SLOT] } else { w[P_SLOT_MORE + i - 1] })) };
+    let f = DistinctFold {
+        pair,
+        words: (w[P_FORM] >> 8) as u8,
+        form: w[P_FORM] as u8,
+        topk: w[P_TOPK] as u32,
+        reps: unpack_slot(&core::array::from_fn(|i| {
+            if i == 0 {
+                w[P_SLOT]
+            } else {
+                w[P_SLOT_MORE + i - 1]
+            }
+        })),
+    };
     words.copy_from_slice(&w[P_ACC..P_ACC + LAYOUT_WORDS]);
     let declared: RecordLayout = RecordLayout::from_words(words);
-    let acc = if f.plain() { pair } else if declared.nslots() != 0 { declared } else { f.accumulator() };
+    let acc = if f.plain() {
+        pair
+    } else if declared.nslots() != 0 {
+        declared
+    } else {
+        f.accumulator()
+    };
     let na = (w[P_FORM] >> NULL_ARG_SHIFT) as u8;
     let null_arg = (na != 0).then(|| (na as usize - 1, (w[P_FORM] >> (NULL_ARG_SHIFT + 8)) as u8));
-    let fold = |i: u32| { let s = (w[P_FORM] >> (ARG_FOLD_SHIFT + 8 * i)) as u8; (s != 0).then(|| s as usize - 1) };
-    let order_slot = match w[P_SLOT] as u8 { 0 => f.pairs_slot(), s => s as usize - 1 };
-    Params { f, acc, n: w[P_TOPK] as u32 as usize, null_arg, arg_fold: [fold(0), fold(1), fold(2)], order_slot, order: w[P_TOPK] >> ORDER_WORD_SHIFT & 0xffff }
+    let fold = |i: u32| {
+        let s = (w[P_FORM] >> (ARG_FOLD_SHIFT + 8 * i)) as u8;
+        (s != 0).then(|| s as usize - 1)
+    };
+    let order_slot = match w[P_SLOT] as u8 {
+        0 => f.pairs_slot(),
+        s => s as usize - 1,
+    };
+    Params {
+        f,
+        acc,
+        n: w[P_TOPK] as u32 as usize,
+        null_arg,
+        arg_fold: [fold(0), fold(1), fold(2)],
+        order_slot,
+        order: w[P_TOPK] >> ORDER_WORD_SHIFT & 0xffff,
+    }
 }
 
 /// The pair's NULL-argument flag is set: it adds nothing to the pair count and folds no argument.
@@ -231,7 +327,8 @@ fn split(p: &Params, res_end: usize, bytes: usize) -> Option<(usize, usize)> {
     }
     let floor = HASHAGG_HDR + 64 * pr;
     let acc_floor = HASHAGG_HDR + 64 * ar;
-    (pair_bytes >= floor && rest - pair_bytes >= acc_floor).then_some((res_end, res_end + (rest - pair_bytes)))
+    (pair_bytes >= floor && rest - pair_bytes >= acc_floor)
+        .then_some((res_end, res_end + (rest - pair_bytes)))
 }
 
 fn fold_min(params: *const u64, _owners: u32) -> u64 {
@@ -242,7 +339,11 @@ fn fold_min(params: *const u64, _owners: u32) -> u64 {
         return (OWNERTOP_HDR + HASHAGG_HDR) as u64 + 64 * pr;
     }
     let ar = p.acc.size() as u64;
-    let res = if p.n > 0 { (OWNERTOP_HDR + p.n * ar as usize + 7) as u64 & !7 } else { RUN_OFF as u64 + 4 * (64 * ar).min(RUNS_FLOOR_MAX) };
+    let res = if p.n > 0 {
+        (OWNERTOP_HDR + p.n * ar as usize + 7) as u64 & !7
+    } else {
+        RUN_OFF as u64 + 4 * (64 * ar).min(RUNS_FLOOR_MAX)
+    };
     res + 2 * (HASHAGG_HDR as u64 + 64 * pr.max(ar)) + 64
 }
 
@@ -255,16 +356,38 @@ unsafe fn fold_open(params: *const u64, owner: *mut u8, bytes: usize) -> i64 {
         }
         (0, res_end)
     } else {
-        let Some(s) = split(&p, res_end, bytes) else { return unsupported(UNSUPPORTED_SCRATCH) };
+        let Some(s) = split(&p, res_end, bytes) else {
+            return unsupported(UNSUPPORTED_SCRATCH);
+        };
         s
     };
     // `resume` (the two-round owner's flush slot; this face never flushes) holds the accumulator space's offset: the end
     // of the results the reduces keep (`OwnerTop::resume`, D3111: a grown region takes them and goes on, not from partition 0)
-    *(owner as *mut OwnerTop) = OwnerTop { len: 0, n: p.n as u32, table_off: table_off as u32, worst: 0, round2_off: 0, resume: acc_off as u32, total: 0, groups: 0, records: 0, thr: 0, key_lo: gravity_abi::breaker::KEY_LO_NONE, key_hi: gravity_abi::breaker::KEY_HI_NONE, cell: core::cell::UnsafeCell::new([]) };
+    *(owner as *mut OwnerTop) = OwnerTop {
+        len: 0,
+        n: p.n as u32,
+        table_off: table_off as u32,
+        worst: 0,
+        round2_off: 0,
+        resume: acc_off as u32,
+        total: 0,
+        groups: 0,
+        records: 0,
+        thr: 0,
+        key_lo: gravity_abi::breaker::KEY_LO_NONE,
+        key_hi: gravity_abi::breaker::KEY_HI_NONE,
+        cell: core::cell::UnsafeCell::new([]),
+    };
     table_off as i64
 }
 
-unsafe fn fold_slots(a: &Rec<'_>, pair: &RecordLayout, s: &Rec<'_>, ns: usize, base: usize) -> Result<(), FloatOverflow> {
+unsafe fn fold_slots(
+    a: &Rec<'_>,
+    pair: &RecordLayout,
+    s: &Rec<'_>,
+    ns: usize,
+    base: usize,
+) -> Result<(), FloatOverflow> {
     if s.null_seen() {
         a.set_null_seen();
     }
@@ -313,7 +436,9 @@ unsafe fn fold_slots(a: &Rec<'_>, pair: &RecordLayout, s: &Rec<'_>, ns: usize, b
             SlotKind::IntervalSum => a.fold_interval_sum(d, &s.interval_sum(j))?,
             SlotKind::AggState => a.move_state(d, s, j)?,
             // N13: an order-key layout (LAYOUT_KEY_TIES) keeps no DISTINCT sibling (decompose settle_keyed: a pair fold is hosted)
-            SlotKind::NumSideMin | SlotKind::NumSideMax => unreachable!("an order-key side slot in a DISTINCT pair's riders"),
+            SlotKind::NumSideMin | SlotKind::NumSideMax => {
+                unreachable!("an order-key side slot in a DISTINCT pair's riders")
+            }
         }
     }
     Ok(())
@@ -322,7 +447,14 @@ unsafe fn fold_slots(a: &Rec<'_>, pair: &RecordLayout, s: &Rec<'_>, ns: usize, b
 /// The next used pair slot at or after `*j` (`None` past the table); `*j` advances past it. C9: a slot is one load, so
 /// `step` ticks in batches by the slot's index (every `BATCH` slots of the table, whatever the calls); `Err` on a stop.
 #[inline(always)]
-unsafe fn next_used(step: &mut cancelpoll::Step, tbase: *mut u8, rec: usize, sent: usize, cap: usize, j: &mut usize) -> Result<Option<*const u8>, cancelpoll::Canceled> {
+unsafe fn next_used(
+    step: &mut cancelpoll::Step,
+    tbase: *mut u8,
+    rec: usize,
+    sent: usize,
+    cap: usize,
+    j: &mut usize,
+) -> Result<Option<*const u8>, cancelpoll::Canceled> {
     while *j < cap {
         step.batch(*j)?;
         let q = tbase.add(*j * rec);
@@ -339,7 +471,14 @@ unsafe fn next_used(step: &mut cancelpoll::Step, tbase: *mut u8, rec: usize, sen
 /// pairs), then offers the groups to the count-ordered top or writes them as a run. C9: under the byte the owner phase
 /// lends (driver section.rs `lend_cancel`), the pair table's slots, the accumulator's and the kept top's poll a step:
 /// `CANCELLED` on a stop, which the merge raises as the statement's cancel (parallel merge.rs `reduce_error`).
-unsafe fn fold_reduce(params: *const u64, owner: *mut u8, table: *const HashAgg, site: *mut Site, _cand: *const u32, _ncand: i64) -> i64 {
+unsafe fn fold_reduce(
+    params: *const u64,
+    owner: *mut u8,
+    table: *const HashAgg,
+    site: *mut Site,
+    _cand: *const u32,
+    _ncand: i64,
+) -> i64 {
     let mut step = cancelpoll::step("distinct_fold fold_reduce: a partition's pairs folded");
     let p = params_of(params);
     let h = &mut *(owner as *mut OwnerTop);
@@ -349,10 +488,17 @@ unsafe fn fold_reduce(params: *const u64, owner: *mut u8, table: *const HashAgg,
         h.total += t.len as u64;
         if p.null_arg.is_some() {
             // the NULL pair (its words 0, the flag set) is at most one record per partition: counted out
-            let (rec, sent, tbase) = (t.layout.size() as usize, t.layout.sentinel_off as usize, t.base_ptr());
+            let (rec, sent, tbase) = (
+                t.layout.size() as usize,
+                t.layout.sentinel_off as usize,
+                t.base_ptr(),
+            );
             let mut j = 0usize;
             loop {
-                let Ok(next) = next_used(&mut step, tbase, rec, sent, t.cap as usize, &mut j) else { return CANCELLED };
+                let Ok(next) = next_used(&mut step, tbase, rec, sent, t.cap as usize, &mut j)
+                else {
+                    return CANCELLED;
+                };
                 let Some(q) = next else { break };
                 if flagged(q, p.null_arg) {
                     h.total -= 1;
@@ -375,7 +521,11 @@ unsafe fn fold_reduce(params: *const u64, owner: *mut u8, table: *const HashAgg,
     // pair count for its first partition) and doubles in place (`HashAgg::grow`) up to the space's capacity: a table
     // of the pair capacity was zeroed and walked at random per partition (x86-opt.md §2b: a pair space far larger than the
     // groups it folds paid its zeroing and random walk per partition)
-    let est = if h.records > t.len as u64 && h.groups > 0 { (t.len as u64 * h.groups / (h.records - t.len as u64)).max(1) } else { t.len as u64 };
+    let est = if h.records > t.len as u64 && h.groups > 0 {
+        (t.len as u64 * h.groups / (h.records - t.len as u64)).max(1)
+    } else {
+        t.len as u64
+    };
     // the T1's route bits are a Depth's own (`set_route_bits`): never past ROUTE_BITS (`Depth::stored`)
     let at = Depth::stored(t.route_bits as u32);
     let cap0 = (est.saturating_mul(2).next_power_of_two().max(64) as u32).min(cap);
@@ -387,16 +537,25 @@ unsafe fn fold_reduce(params: *const u64, owner: *mut u8, table: *const HashAgg,
     let pair = t.layout;
     let nk = p.f.group_words();
     let ns = pair.nslots() - (pair.flags & LAYOUT_IMPLICIT_COUNT != 0) as usize;
-    let (pairs_slot, base, sentinel) = (p.f.pairs_slot(), p.f.slot_base(), p.f.form == FORM_SENTINEL);
-    let (rec, sent, tbase) = (pair.size() as usize, pair.sentinel_off as usize, t.base_ptr());
+    let (pairs_slot, base, sentinel) =
+        (p.f.pairs_slot(), p.f.slot_base(), p.f.form == FORM_SENTINEL);
+    let (rec, sent, tbase) = (
+        pair.size() as usize,
+        pair.sentinel_off as usize,
+        t.base_ptr(),
+    );
     // the used pair slots hashed `pf` ahead of the probe, their accumulator homes prefetched (`kernels::fold::run_with`'s
     // ring): the pair table is streamed, the accumulator is the random walk
-    let pf = gravity_driver::machine::profile().prefetch.clamp(1, FOLD_PF);
+    let pf = gravity_driver::machine::profile()
+        .prefetch
+        .clamp(1, FOLD_PF);
     let arec = acc.size() as usize;
     let mut ring = [(core::ptr::null::<u8>(), KeyHash::word(0)); FOLD_PF];
     let (mut j, mut w, mut r) = (0usize, 0usize, 0usize);
     while w < pf {
-        let Ok(next) = next_used(&mut step, tbase, rec, sent, t.cap as usize, &mut j) else { return CANCELLED };
+        let Ok(next) = next_used(&mut step, tbase, rec, sent, t.cap as usize, &mut j) else {
+            return CANCELLED;
+        };
         let Some(q) = next else { break };
         let hash = KeyHash::of(core::slice::from_raw_parts(q as *const u64, nk));
         prefetch_read(a.home_ptr(hash));
@@ -407,7 +566,9 @@ unsafe fn fold_reduce(params: *const u64, owner: *mut u8, table: *const HashAgg,
         let (q, hash) = ring[r % FOLD_PF];
         r += 1;
         // a used slot's pair is folded once below: the slots' batches poll the fold too (at most `BATCH` pairs a tick)
-        let Ok(next) = next_used(&mut step, tbase, rec, sent, t.cap as usize, &mut j) else { return CANCELLED };
+        let Ok(next) = next_used(&mut step, tbase, rec, sent, t.cap as usize, &mut j) else {
+            return CANCELLED;
+        };
         if let Some(q2) = next {
             let h2 = KeyHash::of(core::slice::from_raw_parts(q2 as *const u64, nk));
             prefetch_read(a.home_ptr(h2));
@@ -415,7 +576,9 @@ unsafe fn fold_reduce(params: *const u64, owner: *mut u8, table: *const HashAgg,
             w += 1;
         }
         let keys = core::slice::from_raw_parts(q as *const u64, nk);
-        let Some(i) = a.find_or_insert_index_hashed(keys, hash) else { return unsupported(UNSUPPORTED_SCRATCH) };
+        let Some(i) = a.find_or_insert_index_hashed(keys, hash) else {
+            return unsupported(UNSUPPORTED_SCRATCH);
+        };
         let g = a.record(i);
         if sentinel && g.count(0) == 0 {
             g.add_count(0, 1);
@@ -435,7 +598,19 @@ unsafe fn fold_reduce(params: *const u64, owner: *mut u8, table: *const HashAgg,
     h.groups += a.len as u64;
     if p.n > 0 {
         let rendered = p.f.form == FORM_PAIRS && p.f.reps.iter().any(|r| r.0 != REP_NONE);
-        let mut top = CountTop { base: owner.add(OWNERTOP_HDR), rec: arec, n: p.n, len: h.len as usize, worst: h.worst as usize, off_count: acc.slot_off[p.order_slot] as usize, layout: acc, reps: p.f.reps, site, rendered, order: p.order };
+        let mut top = CountTop {
+            base: owner.add(OWNERTOP_HDR),
+            rec: arec,
+            n: p.n,
+            len: h.len as usize,
+            worst: h.worst as usize,
+            off_count: acc.slot_off[p.order_slot] as usize,
+            layout: acc,
+            reps: p.f.reps,
+            site,
+            rendered,
+            order: p.order,
+        };
         if top.offer_all(&mut step, a).is_err() {
             return CANCELLED;
         }
@@ -511,7 +686,16 @@ impl CountTop {
             return self.word_better(a, a_raw, b);
         }
         if !self.rendered {
-            return count_better(&self.layout, self.off_count, &self.reps, None, 0, self.site, a, b);
+            return count_better(
+                &self.layout,
+                self.off_count,
+                &self.reps,
+                None,
+                0,
+                self.site,
+                a,
+                b,
+            );
         }
         let (ca, cb) = (self.count_of(a), self.count_of(b));
         if ca != cb {
@@ -523,7 +707,10 @@ impl CountTop {
     /// The emit's own order of the order word's slot (`slot_order`), then the keys.
     #[inline(never)]
     unsafe fn word_better(&self, a: *const u8, a_raw: bool, b: *const u8) -> bool {
-        let (ra, rb) = (Rec::at(a as *mut u8, &self.layout), Rec::at(b as *mut u8, &self.layout));
+        let (ra, rb) = (
+            Rec::at(a as *mut u8, &self.layout),
+            Rec::at(b as *mut u8, &self.layout),
+        );
         match slot_order(&ra, &rb, &self.layout, self.order) {
             core::cmp::Ordering::Less => true,
             core::cmp::Ordering::Greater => false,
@@ -545,13 +732,21 @@ impl CountTop {
             if self.layout.key_kind(k) == KeyKind::Fp128 {
                 let (ha, hb) = (*(a as *const u64).add(k + 1), *(b as *const u64).add(k + 1));
                 if (wa, ha) != (wb, hb) {
-                    let (slot, lane) = if t < MAX_REPS { self.reps[t] } else { (REP_NONE, 0) };
+                    let (slot, lane) = if t < MAX_REPS {
+                        self.reps[t]
+                    } else {
+                        (REP_NONE, 0)
+                    };
                     if slot == REP_NONE {
                         return (wa, ha) < (wb, hb);
                     }
                     let off = self.layout.slot_off(slot as usize) as usize;
                     let (da, db) = (*(a.add(off) as *const u64), *(b.add(off) as *const u64));
-                    let pa = if a_raw { render(self.site, lane, da).ok().flatten() } else { (da != MINCODE_NONE).then_some(da as *const u8) };
+                    let pa = if a_raw {
+                        render(self.site, lane, da).ok().flatten()
+                    } else {
+                        (da != MINCODE_NONE).then_some(da as *const u8)
+                    };
                     let pb = (db != MINCODE_NONE).then_some(db as *const u8);
                     return match (pa, pb) {
                         (Some(pa), Some(pb)) => varlena_bytes(pa) < varlena_bytes(pb),
@@ -572,7 +767,10 @@ impl CountTop {
 
     /// C9: a scan of the kept copies ticks once (a top of a few copies is rescanned per record it takes) and in batches
     /// past `BATCH` copies (a compare is a few loads, or a text compare at a tie).
-    unsafe fn find_worst(&mut self, step: &mut cancelpoll::Step) -> Result<(), cancelpoll::Canceled> {
+    unsafe fn find_worst(
+        &mut self,
+        step: &mut cancelpoll::Step,
+    ) -> Result<(), cancelpoll::Canceled> {
         step.tick()?;
         let mut w = 0;
         for i in 1..self.len {
@@ -594,7 +792,10 @@ impl CountTop {
         // bounded("small-fixed: one representative slot of a record, at most MAX_REPS (8)")
         for &(slot, lane) in self.reps.iter().filter(|r| r.0 != REP_NONE) {
             let w = r.add(self.layout.slot_off(slot as usize) as usize) as *mut u64;
-            *w = render(self.site, lane, *w).ok().flatten().map_or(MINCODE_NONE, |p| p as u64);
+            *w = render(self.site, lane, *w)
+                .ok()
+                .flatten()
+                .map_or(MINCODE_NONE, |p| p as u64);
         }
     }
 
@@ -605,7 +806,11 @@ impl CountTop {
         self.count_of(self.at(self.worst))
     }
 
-    unsafe fn offer(&mut self, step: &mut cancelpoll::Step, r: *const u8) -> Result<(), cancelpoll::Canceled> {
+    unsafe fn offer(
+        &mut self,
+        step: &mut cancelpoll::Step,
+        r: *const u8,
+    ) -> Result<(), cancelpoll::Canceled> {
         if self.len < self.n {
             core::ptr::copy_nonoverlapping(r, self.base.add(self.len * self.rec), self.rec);
             self.render_kept(self.len);
@@ -625,7 +830,11 @@ impl CountTop {
 
     /// C9: the accumulator's slots in batches (a slot under the threshold is a test); an offer that takes a copy ticks in
     /// `find_worst`.
-    unsafe fn offer_all(&mut self, step: &mut cancelpoll::Step, t: &HashAgg) -> Result<(), cancelpoll::Canceled> {
+    unsafe fn offer_all(
+        &mut self,
+        step: &mut cancelpoll::Step,
+        t: &HashAgg,
+    ) -> Result<(), cancelpoll::Canceled> {
         let base = t.base_ptr();
         let off_used = t.layout.sentinel_off as usize;
         let mut thr = self.threshold();

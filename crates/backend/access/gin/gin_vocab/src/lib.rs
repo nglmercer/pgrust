@@ -1,11 +1,11 @@
 //! GIN vocabulary: on-disk block layouts (ginblock.h), GinState carrier,
 //! scan opaque (gin_private.h), and WAL constants (ginxlog.h). Plain data
 //! only; behavior lives in the `gin` crate.
-#![allow(non_camel_case_types,non_snake_case,non_upper_case_globals)]
+#![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]
 
 use ::datum::Datum;
 use ::mcx::{Mcx, PgBox, PgVec};
-use ::tidbitmap::{ TIDBitmap, TbmPrivateIterator, TBM_MAX_TUPLES_PER_PAGE};
+use ::tidbitmap::{TIDBitmap, TbmPrivateIterator, TBM_MAX_TUPLES_PER_PAGE};
 use ::types_core::{
     uint16, uint32, BlockNumber, Buffer, InvalidBlockNumber, InvalidBuffer, OffsetNumber, Oid,
     BLCKSZ,
@@ -628,7 +628,6 @@ impl GinBtreeType {
     }
 }
 
-
 pub const JSP_GIN_OR: u8 = 0;
 pub const JSP_GIN_AND: u8 = 1;
 pub const JSP_GIN_ENTRY: u8 = 2;
@@ -773,7 +772,11 @@ impl GinColState {
             can_partial_match: false,
             key_byval,
             key_len,
-            key_storage: if key_len == -1 { b'x' as i8 } else { b'p' as i8 },
+            key_storage: if key_len == -1 {
+                b'x' as i8
+            } else {
+                b'p' as i8
+            },
             secdef: [::types_core::InvalidOid; 6],
         }
     }
@@ -853,7 +856,11 @@ impl GinColState {
             can_partial_match: true,
             key_byval,
             key_len,
-            key_storage: if key_len == -1 { b'x' as i8 } else { b'p' as i8 },
+            key_storage: if key_len == -1 {
+                b'x' as i8
+            } else {
+                b'p' as i8
+            },
             secdef: [::types_core::InvalidOid; 6],
         }
     }
@@ -872,7 +879,7 @@ pub struct GinState {
 impl GinState {
     #[inline]
     pub fn col(&self, attnum: OffsetNumber) -> &GinColState {
-        debug_assert!(attnum >= 1 &&attnum <= self.natts);
+        debug_assert!(attnum >= 1 && attnum <= self.natts);
         &self.cols[attnum as usize - 1]
     }
 }
@@ -999,7 +1006,8 @@ impl Default for GinScanWork {
 
 impl GinScanWork {
     pub fn new() -> Self {
-        let key_ctx = mcx::PinnedContext::new(mcx::MemoryContext::new_wholesale("Gin scan key context"));
+        let key_ctx =
+            mcx::PinnedContext::new(mcx::MemoryContext::new_wholesale("Gin scan key context"));
         // SAFETY: state is private and destroyed before key_ctx; with() bounds
         // every exposed allocator lifetime to a generative invocation.
         let kcx = unsafe { key_ctx.handle() };
@@ -1008,7 +1016,9 @@ impl GinScanWork {
                 keys: PgVec::new_in(kcx),
                 entries: PgVec::new_in(kcx),
                 kcx,
-                temp_ctx: Box::new(mcx::MemoryContext::new_wholesale("Gin scan temporary context",)),
+                temp_ctx: Box::new(mcx::MemoryContext::new_wholesale(
+                    "Gin scan temporary context",
+                )),
             }),
             key_ctx,
         }

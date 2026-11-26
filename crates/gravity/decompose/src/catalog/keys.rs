@@ -51,7 +51,14 @@ pub fn order_of((family, left, right, strategy): (Oid, Oid, Oid, u8)) -> Option<
         BPCHAROID => Typing::Bpchar,
         _ => Typing::Other,
     };
-    Some(KeyOrder { desc: strategy == 5, bytes: matches!(family, TEXT_PATTERN_BTREE_FAM_OID | BPCHAR_PATTERN_BTREE_FAM_OID), typing })
+    Some(KeyOrder {
+        desc: strategy == 5,
+        bytes: matches!(
+            family,
+            TEXT_PATTERN_BTREE_FAM_OID | BPCHAR_PATTERN_BTREE_FAM_OID
+        ),
+        typing,
+    })
 }
 
 #[cfg(test)]
@@ -63,16 +70,59 @@ mod tests {
     #[test]
     fn a_member_says_its_key() {
         let k = |m| order_of(m);
-        assert_eq!(k((1986, NAMEOID, NAMEOID, 1)), Some(KeyOrder { desc: false, bytes: false, typing: Typing::Name }));
-        assert_eq!(k((426, BPCHAROID, BPCHAROID, 5)), Some(KeyOrder { desc: true, bytes: false, typing: Typing::Bpchar }));
-        assert_eq!(k((2095, 25, 25, 5)), Some(KeyOrder { desc: true, bytes: true, typing: Typing::Other }));
-        assert_eq!(k((2097, BPCHAROID, BPCHAROID, 1)), Some(KeyOrder { desc: false, bytes: true, typing: Typing::Bpchar }));
+        assert_eq!(
+            k((1986, NAMEOID, NAMEOID, 1)),
+            Some(KeyOrder {
+                desc: false,
+                bytes: false,
+                typing: Typing::Name
+            })
+        );
+        assert_eq!(
+            k((426, BPCHAROID, BPCHAROID, 5)),
+            Some(KeyOrder {
+                desc: true,
+                bytes: false,
+                typing: Typing::Bpchar
+            })
+        );
+        assert_eq!(
+            k((2095, 25, 25, 5)),
+            Some(KeyOrder {
+                desc: true,
+                bytes: true,
+                typing: Typing::Other
+            })
+        );
+        assert_eq!(
+            k((2097, BPCHAROID, BPCHAROID, 1)),
+            Some(KeyOrder {
+                desc: false,
+                bytes: true,
+                typing: Typing::Bpchar
+            })
+        );
         assert_eq!(k((1994, NAMEOID, 25, 1)), None, "cross-type");
         assert_eq!(k((1976, 23, 23, 3)), None, "an equality");
-        let typed = |t: Typing| (1..5000u32).filter(|&o| key_order(o).is_some_and(|x| x.typing == t)).collect::<Vec<_>>();
+        let typed = |t: Typing| {
+            (1..5000u32)
+                .filter(|&o| key_order(o).is_some_and(|x| x.typing == t))
+                .collect::<Vec<_>>()
+        };
         assert_eq!(typed(Typing::Name), [660, 662], "namelt / namegt");
-        assert_eq!(typed(Typing::Bpchar), [1058, 1060, 2326, 2330], "bpcharlt / bpchargt, ~<~ / ~>~ of bpchar_pattern_ops");
-        let bytes: Vec<_> = (1..5000u32).filter(|&o| key_order(o).is_some_and(|x| x.bytes)).map(|o| (o, key_order(o).unwrap().desc)).collect();
-        assert_eq!(bytes, [(2314, false), (2318, true), (2326, false), (2330, true)], "the pattern families' ~<~ / ~>~");
+        assert_eq!(
+            typed(Typing::Bpchar),
+            [1058, 1060, 2326, 2330],
+            "bpcharlt / bpchargt, ~<~ / ~>~ of bpchar_pattern_ops"
+        );
+        let bytes: Vec<_> = (1..5000u32)
+            .filter(|&o| key_order(o).is_some_and(|x| x.bytes))
+            .map(|o| (o, key_order(o).unwrap().desc))
+            .collect();
+        assert_eq!(
+            bytes,
+            [(2314, false), (2318, true), (2326, false), (2330, true)],
+            "the pattern families' ~<~ / ~>~"
+        );
     }
 }

@@ -29,8 +29,8 @@ type FxHashSet<K> = std::collections::HashSet<K, rustc_hash::FxBuildHasher>;
 use datum::{Datum, NullableDatum};
 use mcx::{Mcx, MemoryContext};
 use spi::{
-    SPI_cursor_close, SPI_cursor_fetch, SPI_cursor_open_with_paramlist,
-    SpiCursor, SpiPlanPtr, TuptabHandle,
+    SPI_cursor_close, SPI_cursor_fetch, SPI_cursor_open_with_paramlist, SpiCursor, SpiPlanPtr,
+    TuptabHandle,
 };
 use types_core::{Oid, OidIsValid};
 use types_error::{PgError, PgResult, SqlState, ERROR};
@@ -80,7 +80,10 @@ pub(crate) struct Ctx {
 
 impl Ctx {
     fn made(ctx: MemoryContext, name: &'static str) -> Ctx {
-        Ctx { ptr: core::cell::Cell::new(Box::into_raw(Box::new(ctx))), name }
+        Ctx {
+            ptr: core::cell::Cell::new(Box::into_raw(Box::new(ctx))),
+            name,
+        }
     }
     // Reset-wholesale AllocSet scratch (C's eval_mcontext / stmt_mcontext).
     pub fn new(name: &'static str) -> Ctx {
@@ -98,7 +101,10 @@ impl Ctx {
     // invocation whose variables are all by-value makes none, as C's
     // datum_context costs nothing when nothing is palloc'd in it.
     pub fn lazy_aset(name: &'static str) -> Ctx {
-        Ctx { ptr: core::cell::Cell::new(core::ptr::null_mut()), name }
+        Ctx {
+            ptr: core::cell::Cell::new(core::ptr::null_mut()),
+            name,
+        }
     }
     pub fn mcx(&self) -> Mcx<'static> {
         let mut p = self.ptr.get();
@@ -173,7 +179,8 @@ impl RecDesc {
             // attname as stored: expanded_record_lookup_field compares the
             // (scanner-downcased or quoted) field name with namestrcmp,
             // case-sensitively (expandedrecord.c:1032).
-            d.names.push(String::from_utf8_lossy(a.attname.name_str()).into_owned());
+            d.names
+                .push(String::from_utf8_lossy(a.attname.name_str()).into_owned());
             d.types.push(a.atttypid);
             d.typmods.push(a.atttypmod);
             d.typlens.push(a.attlen);
@@ -222,8 +229,9 @@ impl RecSysAttrs {
             }
             types_tuple::MinTransactionIdAttributeNumber => Datum::from_u32(self.xmin),
             types_tuple::MaxTransactionIdAttributeNumber => Datum::from_u32(self.xmax),
-            types_tuple::MinCommandIdAttributeNumber
-            | types_tuple::MaxCommandIdAttributeNumber => Datum::from_u32(self.cmd),
+            types_tuple::MinCommandIdAttributeNumber | types_tuple::MaxCommandIdAttributeNumber => {
+                Datum::from_u32(self.cmd)
+            }
             types_tuple::TableOidAttributeNumber => Datum::from_oid(self.tableoid),
             other => panic!("invalid attnum: {other}"),
         }
@@ -274,7 +282,10 @@ pub fn rec_lookup_field(desc: &RecDesc, fieldname: &str) -> Option<RecFieldRef> 
     catalog_heap::SystemAttributeByName(fieldname).map(RecFieldRef::Sys)
 }
 
-fn compatible_tupdescs(src: &types_tuple::TupleDescData<'_>, dst: &types_tuple::TupleDescData<'_>) -> bool {
+fn compatible_tupdescs(
+    src: &types_tuple::TupleDescData<'_>,
+    dst: &types_tuple::TupleDescData<'_>,
+) -> bool {
     if dst.attrs.len() != src.attrs.len() {
         return false;
     }
@@ -339,7 +350,10 @@ pub struct RecValue {
 }
 
 impl RecValue {
-    pub(crate) fn original_trigger_tuple(&self, out: &types_tuple::TupleDescData<'_>) -> Option<usize> {
+    pub(crate) fn original_trigger_tuple(
+        &self,
+        out: &types_tuple::TupleDescData<'_>,
+    ) -> Option<usize> {
         if self.empty || !self.fvalue_valid || !compatible_tupdescs(self.src_desc.as_ref()?, out) {
             return None;
         }
@@ -391,7 +405,12 @@ pub enum DatumVal {
     /// `exp`: the value is held as a read/write expanded array (C's form for
     /// array variables, made on the first in-place use); `value` is then
     /// unused and readers get the object's flat image.
-    Var { value: Datum, isnull: bool, freeval: bool, exp: Option<arrayfuncs::OwnedExpandedArray> },
+    Var {
+        value: Datum,
+        isnull: bool,
+        freeval: bool,
+        exp: Option<arrayfuncs::OwnedExpandedArray>,
+    },
     Rec(Option<RecValue>),
     None,
 }
@@ -530,7 +549,11 @@ fn reanalyze_plpgsql_expr(
             std::rc::Rc::new(estate.hook_snapshot(unsafe { &*(expr as *const PlExpr) })?)
         }
         None => EXPR_PLANS
-            .with(|t| t.borrow().get(&expr_id).map(|e| std::rc::Rc::clone(&e.hooks)))
+            .with(|t| {
+                t.borrow()
+                    .get(&expr_id)
+                    .map(|e| std::rc::Rc::clone(&e.hooks))
+            })
             .expect("reanalyze_plpgsql_expr: plan entry lives while its source does"),
     };
     let used = core::cell::RefCell::new(Vec::new());
@@ -545,10 +568,16 @@ fn reanalyze_plpgsql_expr(
             collation: *c,
         })
         .collect();
-    let rec_names: Vec<(&str, &str)> = snap.recs.iter()
-        .map(|(key, name)| (key.as_str(), name.as_str())).collect();
-    let valueless_names: Vec<(usize, &str)> =
-        snap.valueless.iter().map(|(r, s)| (*r, s.as_str())).collect();
+    let rec_names: Vec<(&str, &str)> = snap
+        .recs
+        .iter()
+        .map(|(key, name)| (key.as_str(), name.as_str()))
+        .collect();
+    let valueless_names: Vec<(usize, &str)> = snap
+        .valueless
+        .iter()
+        .map(|(r, s)| (*r, s.as_str()))
+        .collect();
     let recfield_keys: Vec<&str> = snap.recfields.iter().map(String::as_str).collect();
     let hooks = parser_small1::PlpgsqlHookState {
         names: &name_entries,
@@ -663,7 +692,10 @@ impl ExprSlab {
 
     fn insert(&mut self, id: u32, entry: PlanEntry) -> Option<PlanEntry> {
         let i = id as usize;
-        assert!(i <= self.slots.len() + (1 << 20), "plpgsql: expression id {id} is not from the id pool");
+        assert!(
+            i <= self.slots.len() + (1 << 20),
+            "plpgsql: expression id {id} is not from the id pool"
+        );
         while self.slots.len() <= i {
             self.slots.push(None);
         }
@@ -675,7 +707,10 @@ impl ExprSlab {
     }
 
     fn drain(&mut self) -> impl Iterator<Item = (u32, PlanEntry)> + '_ {
-        self.slots.drain(..).enumerate().filter_map(|(i, e)| e.map(|e| (i as u32, e)))
+        self.slots
+            .drain(..)
+            .enumerate()
+            .filter_map(|(i, e)| e.map(|e| (i as u32, e)))
     }
 }
 
@@ -899,7 +934,8 @@ fn release_plpgsql_state_at_exit(_code: i32, _arg: usize) {
     // The function hash first (pl_comp.c: functions own their expressions'
     // plans); entries drop outside the map borrow.
     crate::handler::release_func_cache_at_exit();
-    let entries: Vec<PlanEntry> = EXPR_PLANS.with(|t| t.borrow_mut().drain().map(|(_, e)| e).collect());
+    let entries: Vec<PlanEntry> =
+        EXPR_PLANS.with(|t| t.borrow_mut().drain().map(|(_, e)| e).collect());
     // Drops (plan pins, fn_extra) run outside the map borrow, plancache
     // still intact; simple pin before its plansource (free_function_plans
     // order).
@@ -938,7 +974,10 @@ pub(crate) fn register_exit_release() {
 // (pl_exec.c:6797/6838) that datum_as_param carries. `arg` is the evaluating
 // estate (C paramFetchArg), armed by eval_simple_body.
 unsafe fn simple_param_eval(arg: *mut (), paramid: i32, paramtype: Oid) -> PgResult<NullableDatum> {
-    assert!(!arg.is_null(), "plpgsql: simple expression evaluated without an armed estate");
+    assert!(
+        !arg.is_null(),
+        "plpgsql: simple expression evaluated without an armed estate"
+    );
     // SAFETY: eval_simple_body arms `arg` from its own `&mut Estate`
     // immediately before running the program and uses nothing else through
     // that borrow until the program returns (C's ecxt_param_list_info->
@@ -951,8 +990,15 @@ unsafe fn simple_param_eval(arg: *mut (), paramid: i32, paramtype: Oid) -> PgRes
 
 // plpgsql_param_eval_var's read/write delivery for the expression's
 // expr_rw_param (pl_exec.c:6573-6580).
-unsafe fn simple_param_eval_rw(arg: *mut (), paramid: i32, paramtype: Oid) -> PgResult<NullableDatum> {
-    assert!(!arg.is_null(), "plpgsql: simple expression evaluated without an armed estate");
+unsafe fn simple_param_eval_rw(
+    arg: *mut (),
+    paramid: i32,
+    paramtype: Oid,
+) -> PgResult<NullableDatum> {
+    assert!(
+        !arg.is_null(),
+        "plpgsql: simple expression evaluated without an armed estate"
+    );
     // SAFETY: as simple_param_eval.
     let estate = unsafe { &mut *arg.cast::<Estate<'_>>() };
     let dno = paramid - 1;
@@ -966,8 +1012,15 @@ unsafe fn simple_param_eval_rw(arg: *mut (), paramid: i32, paramtype: Oid) -> Pg
 // plpgsql_param_eval_var_transfer (pl_exec.c:6616): the variable's R/W
 // expanded array moves to the expression's context and the variable reads
 // NULL until the assignment takes the result back.
-unsafe fn simple_param_eval_transfer(arg: *mut (), paramid: i32, paramtype: Oid) -> PgResult<NullableDatum> {
-    assert!(!arg.is_null(), "plpgsql: simple expression evaluated without an armed estate");
+unsafe fn simple_param_eval_transfer(
+    arg: *mut (),
+    paramid: i32,
+    paramtype: Oid,
+) -> PgResult<NullableDatum> {
+    assert!(
+        !arg.is_null(),
+        "plpgsql: simple expression evaluated without an armed estate"
+    );
     // SAFETY: as simple_param_eval.
     let estate = unsafe { &mut *arg.cast::<Estate<'_>>() };
     let dno = paramid - 1;
@@ -980,8 +1033,15 @@ unsafe fn simple_param_eval_transfer(arg: *mut (), paramid: i32, paramtype: Oid)
 
 // plpgsql_param_eval_var_ro for a Param whose consumer reads expanded
 // arrays (Estate::expanded_reader_params): the R/O expanded pointer.
-unsafe fn simple_param_eval_ro(arg: *mut (), paramid: i32, paramtype: Oid) -> PgResult<NullableDatum> {
-    assert!(!arg.is_null(), "plpgsql: simple expression evaluated without an armed estate");
+unsafe fn simple_param_eval_ro(
+    arg: *mut (),
+    paramid: i32,
+    paramtype: Oid,
+) -> PgResult<NullableDatum> {
+    assert!(
+        !arg.is_null(),
+        "plpgsql: simple expression evaluated without an armed estate"
+    );
     // SAFETY: as simple_param_eval.
     let estate = unsafe { &mut *arg.cast::<Estate<'_>>() };
     let dno = paramid - 1;
@@ -990,13 +1050,22 @@ unsafe fn simple_param_eval_ro(arg: *mut (), paramid: i32, paramtype: Oid) -> Pg
     }
     if estate.var_type(dno).typoid == paramtype {
         let mcx = estate.datum_ctx.mcx();
-        if let DatumVal::Var { value, isnull: false, exp, .. } = &mut estate.datums[dno as usize] {
+        if let DatumVal::Var {
+            value,
+            isnull: false,
+            exp,
+            ..
+        } = &mut estate.datums[dno as usize]
+        {
             // C holds every array variable expanded (exec_assign_value), so
             // a[i] on varlena or NULL-bearing elements is O(1), not a walk.
             if exp.is_none() {
                 *exp = Some(arrayfuncs::expand_array_owned(*value, mcx.context(), None)?);
             }
-            return Ok(NullableDatum { value: exp.as_ref().unwrap().ro_datum(), isnull: false });
+            return Ok(NullableDatum {
+                value: exp.as_ref().unwrap().ro_datum(),
+                isnull: false,
+            });
         }
     }
     unsafe { simple_param_eval(arg, paramid, paramtype) }
@@ -1015,14 +1084,18 @@ struct SpiFetchArg {
 // plain hooked list (D2834: Gravity admits it). A datum the expression does
 // not reference has no planned type (argtypes_of: InvalidOid) and no Param
 // reaches it.
-fn spi_param_list<'p>(params: &'p [ParamExternData], arg: &mut SpiFetchArg) -> spi::SpiParamList<'p> {
-    let missing =
-        arg.paramnos.iter().any(|&d| params.get(d as usize).is_some_and(|p| p.ptype == types_core::InvalidOid));
-    let fetch = missing.then(|| {
-        types_portal::params::ParamFetchHook {
-            func: spi_param_fetch,
-            arg: (arg as *mut SpiFetchArg).cast(),
-        }
+fn spi_param_list<'p>(
+    params: &'p [ParamExternData],
+    arg: &mut SpiFetchArg,
+) -> spi::SpiParamList<'p> {
+    let missing = arg.paramnos.iter().any(|&d| {
+        params
+            .get(d as usize)
+            .is_some_and(|p| p.ptype == types_core::InvalidOid)
+    });
+    let fetch = missing.then(|| types_portal::params::ParamFetchHook {
+        func: spi_param_fetch,
+        arg: (arg as *mut SpiFetchArg).cast(),
     });
     spi::SpiParamList { params, fetch }
 }
@@ -1056,7 +1129,10 @@ unsafe fn spi_param_fetch(arg: *mut (), paramid: i32) -> PgResult<ParamExternDat
 // every other datum stay flat, which array_set_element tells apart by the
 // datum header (arrayfuncs.c:2273).
 unsafe fn simple_param_expanded(arg: *mut (), paramid: i32) -> bool {
-    assert!(!arg.is_null(), "plpgsql: simple expression evaluated without an armed estate");
+    assert!(
+        !arg.is_null(),
+        "plpgsql: simple expression evaluated without an armed estate"
+    );
     // SAFETY: as simple_param_eval.
     let estate = unsafe { &*arg.cast::<Estate<'_>>() };
     matches!(&estate.func.datums[(paramid - 1) as usize], PlDatum::Var(v) if v.datatype.typisarray)
@@ -1072,7 +1148,9 @@ enum SimpleTake {
     Ready(Box<SimpleExpr>),
     /// Undetermined; caller owns the build. Carries the plan identity so no
     /// second map borrow is required.
-    Build { plan: SpiPlanPtr },
+    Build {
+        plan: SpiPlanPtr,
+    },
 }
 
 fn take_simple(expr_id: u32, take_unknown: bool) -> SimpleTake {
@@ -1085,8 +1163,7 @@ fn take_simple(expr_id: u32, take_unknown: bool) -> SimpleTake {
             SimpleState::NotSimple | SimpleState::InUse => SimpleTake::Skip,
             SimpleState::Quarantined(lxid) if lxid == current_lxid() => SimpleTake::Skip,
             SimpleState::Ready(_) => {
-                let SimpleState::Ready(se) =
-                    core::mem::replace(&mut e.simple, SimpleState::InUse)
+                let SimpleState::Ready(se) = core::mem::replace(&mut e.simple, SimpleState::InUse)
                 else {
                     unreachable!()
                 };
@@ -1230,7 +1307,10 @@ fn compile_cast(
     mcx: Mcx<'static>,
     expr: Option<types_nodes::Node<'static>>,
     srctype: Oid,
-) -> PgResult<(Option<mcx::PgBox<'static, execexpr::ExprState<'static>>>, Box<[ParamExternData; 1]>)> {
+) -> PgResult<(
+    Option<mcx::PgBox<'static, execexpr::ExprState<'static>>>,
+    Box<[ParamExternData; 1]>,
+)> {
     let param: Box<[ParamExternData; 1]> = Box::new([ParamExternData {
         value: Datum::null(),
         isnull: true,
@@ -1320,7 +1400,11 @@ fn session_cast_inval(_arg: Datum, cacheid: i32, hashvalue: u32) {
     SESSION_CASTS.with(|t| match t.try_borrow_mut() {
         Ok(mut t) => {
             for e in t.values_mut() {
-                if all || e.deps.iter().any(|&(c, h)| c == cacheid && (hashvalue == 0 || h == hashvalue)) {
+                if all
+                    || e.deps
+                        .iter()
+                        .any(|&(c, h)| c == cacheid && (hashvalue == 0 || h == hashvalue))
+                {
                     e.valid = false;
                 }
             }
@@ -1342,7 +1426,11 @@ fn ensure_session_cast_callbacks() -> PgResult<()> {
         cache_syscache::FOREIGNSERVEROID,
         cache_syscache::FOREIGNDATAWRAPPEROID,
     ] {
-        inval::invalidate::CacheRegisterSyscacheCallback(cacheid, session_cast_inval, Datum::null())?;
+        inval::invalidate::CacheRegisterSyscacheCallback(
+            cacheid,
+            session_cast_inval,
+            Datum::null(),
+        )?;
     }
     SESSION_CAST_CALLBACKS.set(true);
     Ok(())
@@ -1440,7 +1528,10 @@ impl FrameGuard {
     /// # Safety
     /// `callback` stays alive and unmoved until this guard drops: declare the guard after the closure in the same scope.
     #[inline]
-    pub unsafe fn push_borrowed(callback: &mut (dyn FnMut(&mut PgError) + '_), emit: bool) -> FrameGuard {
+    pub unsafe fn push_borrowed(
+        callback: &mut (dyn FnMut(&mut PgError) + '_),
+        emit: bool,
+    ) -> FrameGuard {
         // SAFETY: the caller's contract is the one push_context_frame_borrowed states.
         FrameGuard(unsafe { elog::push_context_frame_borrowed(callback, emit) })
     }
@@ -1494,11 +1585,7 @@ fn get_error_context_stack() -> String {
 // otherwise a parse-mode-shaped context line.
 #[track_caller]
 #[cold]
-fn spi_ctx_err(
-    mut e: Box<PgError>,
-    query: &str,
-    mode: parser_seams::RawParseMode,
-) -> Box<PgError> {
+fn spi_ctx_err(mut e: Box<PgError>, query: &str, mode: parser_seams::RawParseMode) -> Box<PgError> {
     spi_error_context(&mut e, query, mode);
     e
 }
@@ -1549,10 +1636,8 @@ pub(crate) fn exec_err(code: SqlState, msg: String) -> Box<PgError> {
 #[track_caller]
 #[cold]
 fn param_type_mismatch(dno: Dno, current: Oid, planned: Oid) -> Box<PgError> {
-    let cur = format_type::format_type_be(current)
-        .unwrap_or_else(|_| format!("type {current}"));
-    let plan = format_type::format_type_be(planned)
-        .unwrap_or_else(|_| format!("type {planned}"));
+    let cur = format_type::format_type_be(current).unwrap_or_else(|_| format!("type {current}"));
+    let plan = format_type::format_type_be(planned).unwrap_or_else(|_| format!("type {planned}"));
     exec_err(
         types_error::ERRCODE_DATATYPE_MISMATCH,
         format!(
@@ -1687,9 +1772,12 @@ impl<'a> Estate<'a> {
         let mut datums = ::mcx::std_vec_with_capacity("plpgsql", func.datums.len())?;
         for d in &func.datums {
             datums.push(match d {
-                PlDatum::Var(_) => {
-                    DatumVal::Var { value: Datum::null(), isnull: true, freeval: false, exp: None }
-                }
+                PlDatum::Var(_) => DatumVal::Var {
+                    value: Datum::null(),
+                    isnull: true,
+                    freeval: false,
+                    exp: None,
+                },
                 PlDatum::Rec(_) => DatumVal::Rec(None),
                 _ => DatumVal::None,
             });
@@ -1757,7 +1845,12 @@ impl<'a> Estate<'a> {
         }
         let typlen = self.var_type(dno).typlen;
         match &mut self.datums[dno as usize] {
-            DatumVal::Var { value: v, isnull: n, freeval, exp } => {
+            DatumVal::Var {
+                value: v,
+                isnull: n,
+                freeval,
+                exp,
+            } => {
                 *exp = None;
                 if *freeval {
                     // SAFETY: freeval marks a copy_to_datum_ctx copy in
@@ -1850,7 +1943,10 @@ impl<'a> Estate<'a> {
             self.fulfill_promise(dno)?;
         }
         let mcx = self.datum_ctx.mcx();
-        let DatumVal::Var { value, isnull, exp, .. } = &mut self.datums[dno as usize] else {
+        let DatumVal::Var {
+            value, isnull, exp, ..
+        } = &mut self.datums[dno as usize]
+        else {
             panic!("plpgsql: read of non-Var datum {dno}");
         };
         if *isnull {
@@ -1874,7 +1970,10 @@ impl<'a> Estate<'a> {
         };
         let obj = exp.take().expect("get_var_rw expanded the value");
         *isnull = true;
-        Ok((obj.transfer_to_context(self.eval_ctx.mcx().context()), false))
+        Ok((
+            obj.transfer_to_context(self.eval_ctx.mcx().context()),
+            false,
+        ))
     }
 
     // Installs an adopted R/W array as the variable's value (C
@@ -1890,11 +1989,16 @@ impl<'a> Estate<'a> {
     // returning exactly the target array variable's type.
     fn adoptable_call(&self, expr: &PlExpr, sexpr: types_nodes::Node<'static>) -> usize {
         let target = expr.target_param;
-        let Some(PlDatum::Var(v)) = (target >= 0).then(|| &self.func.datums[target as usize]) else {
+        let Some(PlDatum::Var(v)) = (target >= 0).then(|| &self.func.datums[target as usize])
+        else {
             return 0;
         };
         match sexpr.as_variant::<types_nodes::primnodes::FuncExpr>() {
-            Some(f) if v.datatype.typisarray && !f.funcretset && f.funcresulttype == self.var_type(target).typoid => {
+            Some(f)
+                if v.datatype.typisarray
+                    && !f.funcretset
+                    && f.funcresulttype == self.var_type(target).typoid =>
+            {
                 f as *const types_nodes::primnodes::FuncExpr as usize
             }
             _ => 0,
@@ -1994,7 +2098,13 @@ impl<'a> Estate<'a> {
     }
 
     // datumCopy into the invocation context (by-ref survives statements).
-    pub(crate) fn copy_to_datum_ctx(&self, value: Datum, isnull: bool, typlen: i16, typbyval: bool) -> PgResult<Datum> {
+    pub(crate) fn copy_to_datum_ctx(
+        &self,
+        value: Datum,
+        isnull: bool,
+        typlen: i16,
+        typbyval: bool,
+    ) -> PgResult<Datum> {
         if isnull || typbyval {
             return Ok(value);
         }
@@ -2022,8 +2132,7 @@ impl<'a> Estate<'a> {
                 {
                     // VarlenaRef is the 4B-only lane; external pointers size
                     // via varsize_any.
-                    let attr =
-                        core::slice::from_raw_parts(p, types_tuple::varatt::varsize_any(p));
+                    let attr = core::slice::from_raw_parts(p, types_tuple::varatt::varsize_any(p));
                     // pl_exec.c:8803-8811: detoast in the eval_mcontext
                     // (released at the next exec_eval_cleanup), then
                     // datumCopy into the function's context so the stored
@@ -2090,10 +2199,10 @@ impl<'a> Estate<'a> {
                 // invariant is "a Ready state implies its entry is live").
                 // An in-flight evaluation of this expression (InUse) keeps
                 // its own pin and put_simple() orphan-drops it on return.
-                if let Some(e) =
-                    EXPR_PLANS.with(|t| t.borrow_mut().remove(&expr.expr_id))
-                {
-                    let PlanEntry { plan, simple, lex, .. } = e;
+                if let Some(e) = EXPR_PLANS.with(|t| t.borrow_mut().remove(&expr.expr_id)) {
+                    let PlanEntry {
+                        plan, simple, lex, ..
+                    } = e;
                     relex = Some(lex);
                     let carry = match simple {
                         SimpleState::Unknown | SimpleState::Ready(_) => SimpleCarry::Redetermine,
@@ -2140,8 +2249,10 @@ impl<'a> Estate<'a> {
                 collation: *c,
             })
             .collect();
-        let rec_names: Vec<(&str, &str)> = recs.iter()
-            .map(|(key, name)| (key.as_str(), name.as_str())).collect();
+        let rec_names: Vec<(&str, &str)> = recs
+            .iter()
+            .map(|(key, name)| (key.as_str(), name.as_str()))
+            .collect();
         let valueless_names: Vec<(usize, &str)> =
             valueless.iter().map(|(r, s)| (*r, s.as_str())).collect();
         let recfield_keys: Vec<&str> = recfields.iter().map(String::as_str).collect();
@@ -2160,7 +2271,13 @@ impl<'a> Estate<'a> {
         // internalize their cursor onto the expression text, as under C's
         // _SPI_error_callback during SPI_prepare_extended.
         spi_frame!(prep_frame, &expr.query, expr.parse_mode);
-        let outer = relex.map(|l| LexSettings { escape_string_warning: false, ..l }.install());
+        let outer = relex.map(|l| {
+            LexSettings {
+                escape_string_warning: false,
+                ..l
+            }
+            .install()
+        });
         let plan = spi::SPI_prepare_plpgsql(&expr.query, expr.parse_mode, &hooks, cursor_options);
         if let Some(prev) = outer {
             prev.install();
@@ -2207,10 +2324,21 @@ impl<'a> Estate<'a> {
         let old = EXPR_PLANS.with(|t| {
             t.borrow_mut().insert(
                 expr.expr_id,
-                PlanEntry { plan, lex, paramnos, argtypes, mod_stmt, hooks, simple },
+                PlanEntry {
+                    plan,
+                    lex,
+                    paramnos,
+                    argtypes,
+                    mod_stmt,
+                    hooks,
+                    simple,
+                },
             )
         });
-        debug_assert!(old.is_none(), "ensure_plan: stale path removed the old entry");
+        debug_assert!(
+            old.is_none(),
+            "ensure_plan: stale path removed the old entry"
+        );
         drop(old);
         self.exec_simple_check_plan(expr)
     }
@@ -2297,7 +2425,11 @@ impl<'a> Estate<'a> {
         // spells `rec.field` cannot, so its rowtype is left unresolved
         // (an ALTER of the underlying table inside the function must not
         // find the record already instantiated over the old descriptor).
-        let pairs = if func.datums.iter().any(|d| matches!(d, PlDatum::RecField(_))) {
+        let pairs = if func
+            .datums
+            .iter()
+            .any(|d| matches!(d, PlDatum::RecField(_)))
+        {
             crate::scanner::PlScanner::dotted_word_pairs(&expr.query)?
         } else {
             Vec::new()
@@ -2473,7 +2605,10 @@ impl<'a> Estate<'a> {
         let DatumVal::Rec(Some(rv)) = &self.datums[recno as usize] else {
             return Ok((RECORDOID, -1));
         };
-        let src = rv.src_desc.clone().expect("RecValue carries its source tupdesc");
+        let src = rv
+            .src_desc
+            .clone()
+            .expect("RecValue carries its source tupdesc");
         if src.tdtypeid != RECORDOID {
             // C: erh->er_typeid (named composite), typmod -1. C reports this
             // for an EMPTY expanded record too — the trigger path builds
@@ -2515,7 +2650,11 @@ impl<'a> Estate<'a> {
             .expect("RecValue carries its source tupdesc");
         let mut values = rv.values.clone();
         let nulls = rv.nulls.clone();
-        let origin = RecOrigin { recno, sys: rv.sys.clone(), fvalue_valid: rv.fvalue_valid };
+        let origin = RecOrigin {
+            recno,
+            sys: rv.sys.clone(),
+            fvalue_valid: rv.fvalue_valid,
+        };
         let mcx = self.eval_ctx.mcx();
         detoast_external_fields(mcx, &src, &mut values, &nulls)?;
         let mut td = tupdesc::CreateTupleDescCopy(mcx, &src)?;
@@ -2526,10 +2665,9 @@ impl<'a> Estate<'a> {
             // type is what exec_eval_datum reports.
             td.tdtypeid = Self::rec_base_typeid(rectypeid)?;
             td.tdtypmod = -1;
-        } else if td.tdtypeid == RECORDOID
-            && td.tdtypmod < 0 {
-                typcache::assign_record_type_typmod(&mut td)?;
-            }
+        } else if td.tdtypeid == RECORDOID && td.tdtypmod < 0 {
+            typcache::assign_record_type_typmod(&mut td)?;
+        }
         // else: the source tupdesc already carries the value's real rowtype
         // (C exec_eval_datum REC arm, pl_exec.c:5364-5375: a RECORD-declared
         // rec reports erh->er_typeid/er_typmod, the named composite for a
@@ -2569,7 +2707,11 @@ impl<'a> Estate<'a> {
             .as_ref()
             .and_then(|t| t.rec_ident.clone())
             .expect("named composite rec carries its typcache identity");
-        let cached_id = ident.tcache.borrow().upgrade().map_or(0, |e| e.tupdesc_identifier());
+        let cached_id = ident
+            .tcache
+            .borrow()
+            .upgrade()
+            .map_or(0, |e| e.tupdesc_identifier());
         if cached_id != ident.tupdesc_id.get() {
             if let Some(name) = &ident.origtypname {
                 ident.typoid.set(resolve_origtypname(name)?.0);
@@ -2656,9 +2798,7 @@ impl<'a> Estate<'a> {
                 elog::ereport(ERROR)
                     .errcode(types_error::ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE)
                     .errmsg(format!("record \"{}\" is not assigned yet", rec.refname))
-                    .errdetail(
-                        "The tuple structure of a not-yet-assigned record is indeterminate.",
-                    )
+                    .errdetail("The tuple structure of a not-yet-assigned record is indeterminate.")
                     .into_error(),
             ));
         }
@@ -2772,7 +2912,10 @@ impl<'a> Estate<'a> {
     }
 
     fn spi_fetch_arg(&mut self, paramnos: &std::rc::Rc<[Dno]>) -> SpiFetchArg {
-        SpiFetchArg { estate: (self as *mut Estate<'a>).cast(), paramnos: std::rc::Rc::clone(paramnos) }
+        SpiFetchArg {
+            estate: (self as *mut Estate<'a>).cast(),
+            paramnos: std::rc::Rc::clone(paramnos),
+        }
     }
 
     // plpgsql_param_fetch / exec_eval_datum (pl_exec.c:6298, 5301): the
@@ -2789,7 +2932,11 @@ impl<'a> Estate<'a> {
         let (value, isnull, ptype) = match &func.datums[dno as usize] {
             PlDatum::Var(v) => {
                 let (value, isnull) = self.get_var(dno)?;
-                let ptype = if OidIsValid(planned) { planned } else { v.datatype.typoid };
+                let ptype = if OidIsValid(planned) {
+                    planned
+                } else {
+                    v.datatype.typoid
+                };
                 (value, isnull, ptype)
             }
             PlDatum::Rec(r) => {
@@ -2829,7 +2976,8 @@ impl<'a> Estate<'a> {
                             .into_error(),
                     ));
                 };
-                match rec_lookup_field_cached(&mut self.recfield_idx, f.dno, &rv.desc, &f.fieldname) {
+                match rec_lookup_field_cached(&mut self.recfield_idx, f.dno, &rv.desc, &f.fieldname)
+                {
                     Some(RecFieldRef::User(i)) => (rv.values[i], rv.nulls[i], rv.desc.types[i]),
                     Some(RecFieldRef::Sys(a)) => match &rv.sys {
                         Some(s) => (s.get(a.attnum), false, a.atttypid),
@@ -2845,7 +2993,12 @@ impl<'a> Estate<'a> {
             }
             _ => panic!("plpgsql: datum {dno} cannot be a parameter"),
         };
-        Ok(Some(ParamExternData { value, isnull, pflags: PARAM_FLAG_CONST, ptype }))
+        Ok(Some(ParamExternData {
+            value,
+            isnull,
+            pflags: PARAM_FLAG_CONST,
+            ptype,
+        }))
     }
 
     // `planned` = the Param's type as of plan preparation. C's compiled
@@ -3084,7 +3237,11 @@ impl<'a> Estate<'a> {
             return Ok(None);
         }
         if expr.target_is_local {
-            let mut refs = TargetParamRefs { paramid: target + 1, count: 0, last: None };
+            let mut refs = TargetParamRefs {
+                paramid: target + 1,
+                count: 0,
+                last: None,
+            };
             nodes_core::NodeWalker::visit(&mut refs, sexpr)?;
             if refs.count == 1 {
                 return Ok(refs.last.map(|p| (p, true)));
@@ -3124,11 +3281,8 @@ impl<'a> Estate<'a> {
         if !OidIsValid(prosupport) {
             return Ok(None);
         }
-        let req = types_nodes::supportnodes::SupportRequestModifyInPlace::new(
-            funcid,
-            &args,
-            target + 1,
-        );
+        let req =
+            types_nodes::supportnodes::SupportRequestModifyInPlace::new(funcid, &args, target + 1);
         let call_cx = ::mcx::MemoryContext::new_bump("plpgsql_rw_param_support");
         let answer = fmgr_core::oid_function_call1_coll_in(
             prosupport,
@@ -3142,7 +3296,9 @@ impl<'a> Estate<'a> {
         // SAFETY: the support function returned one of the request's own
         // argument nodes (supportnodes.h contract).
         let node = unsafe { types_nodes::Node::<'static>::from_raw(raw) };
-        Ok(node.as_variant::<Param>().map(|p| (p as *const Param as *const (), false)))
+        Ok(node
+            .as_variant::<Param>()
+            .map(|p| (p as *const Param as *const (), false)))
     }
 
     // The array-variable Params whose direct consumer reads an expanded
@@ -3154,7 +3310,11 @@ impl<'a> Estate<'a> {
         sexpr: types_nodes::Node<'static>,
         rw: Option<*const ()>,
     ) -> PgResult<Vec<*const ()>> {
-        let mut w = ExpandedReaderParams { func: self.func, rw, found: Vec::new() };
+        let mut w = ExpandedReaderParams {
+            func: self.func,
+            rw,
+            found: Vec::new(),
+        };
         nodes_core::NodeWalker::visit(&mut w, sexpr)?;
         Ok(w.found)
     }
@@ -3200,7 +3360,13 @@ impl<'a> Estate<'a> {
         elog::pop_emit_context_callback(emit_cb);
         let cplan = match cplan {
             Ok(c) => c,
-            Err(e) => return Ok(SimpleBuild::PlanFailed(spi_ctx_err(e, &expr.query, expr.parse_mode))),
+            Err(e) => {
+                return Ok(SimpleBuild::PlanFailed(spi_ctx_err(
+                    e,
+                    &expr.query,
+                    expr.parse_mode,
+                )))
+            }
         };
         let built = (|| -> PgResult<SimpleBuild> {
             let stmts = plancache::CachedPlanStmtList(cplan);
@@ -3254,8 +3420,7 @@ impl<'a> Estate<'a> {
                 )),
                 ..types_portal::params::ParamBind::NONE
             };
-            let Some(state) = execexpr::exec_init_expr(ctx.mcx(), Some(plan_expr.0), bind)?
-            else {
+            let Some(state) = execexpr::exec_init_expr(ctx.mcx(), Some(plan_expr.0), bind)? else {
                 return Ok(SimpleBuild::NotSimple);
             };
             // C exec_save_simple_expr (pl_exec.c:8349): immutable
@@ -3335,7 +3500,9 @@ impl<'a> Estate<'a> {
     }
 
     fn eval_simple_body(&mut self, se: &mut SimpleExpr) -> PgResult<(Datum, bool, Oid, i32)> {
-        if let (true, Some((dno, planned))) = (core::mem::take(&mut self.bare_rec_wanted), se.bare_rec) {
+        if let (true, Some((dno, planned))) =
+            (core::mem::take(&mut self.bare_rec_wanted), se.bare_rec)
+        {
             let current = self.rec_value_type(dno);
             if current != planned {
                 return Err(param_type_mismatch(dno, current, planned));
@@ -3347,7 +3514,8 @@ impl<'a> Estate<'a> {
         // whose ecxt_param_list_info->paramFetchArg is THIS estate; its
         // ParamCallback steps fetch datums through simple_param_eval only
         // when reached (an untaken CASE arm never touches its record).
-        se.state.arm_param_callback_arg((self as *mut Estate<'a>).cast());
+        se.state
+            .arm_param_callback_arg((self as *mut Estate<'a>).cast());
         // By-ref results land in THIS invocation's eval scratch: the state
         // is shared across estates now, so it re-arms per evaluation (C
         // evaluates under get_eval_mcontext, pl_exec.c:6197).
@@ -3364,7 +3532,11 @@ impl<'a> Estate<'a> {
         }
         let _accept = AcceptArrayResult::set(se.adopt_call);
         let result = (|| {
-            let mut slots = execexpr::EvalSlots { scan: None, inner: None, outer: None };
+            let mut slots = execexpr::EvalSlots {
+                scan: None,
+                inner: None,
+                outer: None,
+            };
             let r = execexpr::exec_eval_expr(&mut se.state, &mut slots)?;
             Ok((r.value, r.isnull, se.rettype, se.rettypmod))
         })();
@@ -3502,7 +3674,11 @@ impl<'a> Estate<'a> {
         };
         entry.param[0].value = value;
         entry.param[0].isnull = *isnull;
-        let mut slots = execexpr::EvalSlots { scan: None, inner: None, outer: None };
+        let mut slots = execexpr::EvalSlots {
+            scan: None,
+            inner: None,
+            outer: None,
+        };
         let r = execexpr::exec_eval_expr(state, &mut slots)?;
         *isnull = r.isnull;
         Ok(r.value)
@@ -3525,7 +3701,12 @@ impl<'a> Estate<'a> {
             st.arm_result_mcx(self.eval_ctx.mcx());
             st
         });
-        Ok(CastEntry { state, param, inval_gen, lxid: current_lxid() })
+        Ok(CastEntry {
+            state,
+            param,
+            inval_gen,
+            lxid: current_lxid(),
+        })
     }
 
     // get_cast_hashentry's shared_cast_hash arm (pl_exec.c:7952-8070) for
@@ -3561,7 +3742,15 @@ impl<'a> Estate<'a> {
                 g.set(g.get() + 1);
                 g.get()
             });
-            let entry = SessionCast { expr, deps, valid: true, generation, state: None, lxid: 0, expr_ctx };
+            let entry = SessionCast {
+                expr,
+                deps,
+                valid: true,
+                generation,
+                state: None,
+                lxid: 0,
+                expr_ctx,
+            };
             let old = SESSION_CASTS.with(|t| t.borrow_mut().insert(key, entry));
             drop(old);
         }
@@ -3584,13 +3773,22 @@ impl<'a> Estate<'a> {
                 let Some(state) = state else {
                     return Ok(value);
                 };
-                CastState { state, param, ctx, _expr: expr_ctx }
+                CastState {
+                    state,
+                    param,
+                    ctx,
+                    _expr: expr_ctx,
+                }
             }
         };
         st.param[0].value = value;
         st.param[0].isnull = *isnull;
         st.state.arm_result_mcx(self.eval_ctx.mcx());
-        let mut slots = execexpr::EvalSlots { scan: None, inner: None, outer: None };
+        let mut slots = execexpr::EvalSlots {
+            scan: None,
+            inner: None,
+            outer: None,
+        };
         let r = execexpr::exec_eval_expr(&mut st.state, &mut slots)?;
         *isnull = r.isnull;
         SESSION_CASTS.with(|t| {
@@ -3615,9 +3813,7 @@ impl<'a> Estate<'a> {
             value,
         )?;
         // SAFETY: type output functions return a NUL-terminated cstring.
-        let s = unsafe {
-            core::ffi::CStr::from_ptr(out.as_usize() as *const core::ffi::c_char)
-        };
+        let s = unsafe { core::ffi::CStr::from_ptr(out.as_usize() as *const core::ffi::c_char) };
         // Byte-faithful conversion, matching C's convert_value_to_string, which
         // returns the type output function's server-encoding bytes verbatim.
         // NEVER lossily substitute U+FFFD for non-UTF-8 bytes: the result feeds
@@ -3835,7 +4031,10 @@ fn simple_result_expr(
             let m = nodes_core::node_funcs::expr_typmod(expr);
             return Some((expr, t, m));
         }
-        if expr.as_variant::<Var>().is_none_or(|v| v.varno != OUTER_VAR) {
+        if expr
+            .as_variant::<Var>()
+            .is_none_or(|v| v.varno != OUTER_VAR)
+        {
             return None;
         }
         plan = base.lefttree?;
@@ -3866,7 +4065,9 @@ impl<'a> Estate<'a> {
         }
         let save = self.frame.stmt.get();
         for s in stmts {
-            self.frame.stmt.set(Some((stmt_lineno(s), stmt_typename(s))));
+            self.frame
+                .stmt
+                .set(Some((stmt_lineno(s), stmt_typename(s))));
             // pl_exec.c:2023: per statement, before the dispatch switch
             check_for_interrupts()?;
             let rc = self.exec_stmt(s)?;
@@ -3891,7 +4092,13 @@ impl<'a> Estate<'a> {
                 self.exec_assign_expr(*varno, expr)?;
                 Ok(RC_OK)
             }
-            PlStmt::If { cond, then_body, elsifs, else_body, .. } => {
+            PlStmt::If {
+                cond,
+                then_body,
+                elsifs,
+                else_body,
+                ..
+            } => {
                 let (value, isnull) = self.exec_eval_boolean(cond)?;
                 self.exec_eval_cleanup();
                 if !isnull && value {
@@ -3915,7 +4122,9 @@ impl<'a> Estate<'a> {
                     return Ok(rc);
                 }
             },
-            PlStmt::While { label, cond, body, .. } => loop {
+            PlStmt::While {
+                label, cond, body, ..
+            } => loop {
                 let (value, isnull) = self.exec_eval_boolean(cond)?;
                 self.exec_eval_cleanup();
                 if isnull || !value {
@@ -3926,13 +4135,37 @@ impl<'a> Estate<'a> {
                     return Ok(rc);
                 }
             },
-            PlStmt::ForI { label, var, lower, upper, step, reverse, body, .. } => {
-                self.exec_stmt_fori(label.as_deref(), *var, lower, upper, step.as_ref(), *reverse, body)
-            }
-            PlStmt::ForS { label, var, query, body, .. } => {
-                self.exec_stmt_fors(label.as_deref(), *var, query, body)
-            }
-            PlStmt::ExitContinue { is_exit, label, cond, .. } => {
+            PlStmt::ForI {
+                label,
+                var,
+                lower,
+                upper,
+                step,
+                reverse,
+                body,
+                ..
+            } => self.exec_stmt_fori(
+                label.as_deref(),
+                *var,
+                lower,
+                upper,
+                step.as_ref(),
+                *reverse,
+                body,
+            ),
+            PlStmt::ForS {
+                label,
+                var,
+                query,
+                body,
+                ..
+            } => self.exec_stmt_fors(label.as_deref(), *var, query, body),
+            PlStmt::ExitContinue {
+                is_exit,
+                label,
+                cond,
+                ..
+            } => {
                 if let Some(c) = cond {
                     let (value, isnull) = self.exec_eval_boolean(c)?;
                     self.exec_eval_cleanup();
@@ -3949,9 +4182,13 @@ impl<'a> Estate<'a> {
             }
             PlStmt::Raise { .. } => self.exec_stmt_raise(stmt),
             PlStmt::Assert { cond, message, .. } => self.exec_stmt_assert(cond, message.as_ref()),
-            PlStmt::ExecSql { sqlstmt, into, strict, target, .. } => {
-                self.exec_stmt_execsql(sqlstmt, *into, *strict, *target)
-            }
+            PlStmt::ExecSql {
+                sqlstmt,
+                into,
+                strict,
+                target,
+                ..
+            } => self.exec_stmt_execsql(sqlstmt, *into, *strict, *target),
             PlStmt::Perform { expr, .. } => {
                 self.ensure_plan(expr, CURSOR_OPT_PARALLEL_OK)?;
                 let _ = self.exec_run_select(expr, 0)?;
@@ -3963,48 +4200,91 @@ impl<'a> Estate<'a> {
             PlStmt::Call { expr, is_call, .. } => self.exec_stmt_call(expr, *is_call),
             PlStmt::Commit { chain, .. } => self.exec_stmt_commit_rollback(true, *chain),
             PlStmt::Rollback { chain, .. } => self.exec_stmt_commit_rollback(false, *chain),
-            PlStmt::DynExecute { query, into, strict, target, params, .. } => {
-                self.exec_stmt_dynexecute(query, *into, *strict, *target, params)
-            }
-            PlStmt::GetDiag { is_stacked, items, .. } => {
-                self.exec_stmt_getdiag(*is_stacked, items)
-            }
-            PlStmt::Case { t_expr, t_varno, whens, have_else, else_stmts, .. } => self
-                .exec_stmt_case(
-                    t_expr.as_ref(),
-                    *t_varno,
-                    whens,
-                    *have_else,
-                    else_stmts,
-                ),
-            PlStmt::ForEachA { label, varno, slice, expr, body, .. } => {
-                self.exec_stmt_foreach_a(label.as_deref(), *varno, *slice, expr, body)
-            }
+            PlStmt::DynExecute {
+                query,
+                into,
+                strict,
+                target,
+                params,
+                ..
+            } => self.exec_stmt_dynexecute(query, *into, *strict, *target, params),
+            PlStmt::GetDiag {
+                is_stacked, items, ..
+            } => self.exec_stmt_getdiag(*is_stacked, items),
+            PlStmt::Case {
+                t_expr,
+                t_varno,
+                whens,
+                have_else,
+                else_stmts,
+                ..
+            } => self.exec_stmt_case(t_expr.as_ref(), *t_varno, whens, *have_else, else_stmts),
+            PlStmt::ForEachA {
+                label,
+                varno,
+                slice,
+                expr,
+                body,
+                ..
+            } => self.exec_stmt_foreach_a(label.as_deref(), *varno, *slice, expr, body),
             PlStmt::ReturnNext { expr, retvarno, .. } => {
                 self.exec_stmt_return_next(expr.as_ref(), *retvarno)
             }
-            PlStmt::ReturnQuery { query, dynquery, params, .. } => {
-                self.exec_stmt_return_query(query.as_ref(), dynquery.as_ref(), params)
-            }
-            PlStmt::Open { curvar, cursor_options, argquery, query, dynquery, params, .. } => self
-                .exec_stmt_open(
-                    *curvar,
-                    *cursor_options,
-                    argquery.as_ref(),
-                    query.as_ref(),
-                    dynquery.as_ref(),
-                    params,
-                ),
-            PlStmt::Fetch { target, curvar, direction, how_many, expr, is_move, .. } => {
-                self.exec_stmt_fetch(*target, *curvar, *direction, *how_many, expr.as_ref(), *is_move)
-            }
+            PlStmt::ReturnQuery {
+                query,
+                dynquery,
+                params,
+                ..
+            } => self.exec_stmt_return_query(query.as_ref(), dynquery.as_ref(), params),
+            PlStmt::Open {
+                curvar,
+                cursor_options,
+                argquery,
+                query,
+                dynquery,
+                params,
+                ..
+            } => self.exec_stmt_open(
+                *curvar,
+                *cursor_options,
+                argquery.as_ref(),
+                query.as_ref(),
+                dynquery.as_ref(),
+                params,
+            ),
+            PlStmt::Fetch {
+                target,
+                curvar,
+                direction,
+                how_many,
+                expr,
+                is_move,
+                ..
+            } => self.exec_stmt_fetch(
+                *target,
+                *curvar,
+                *direction,
+                *how_many,
+                expr.as_ref(),
+                *is_move,
+            ),
             PlStmt::Close { curvar, .. } => self.exec_stmt_close(*curvar),
-            PlStmt::ForC { label, var, curvar, argquery, body, .. } => {
-                self.exec_stmt_forc(label.as_deref(), *var, *curvar, argquery.as_ref(), body)
-            }
-            PlStmt::DynForS { label, var, query, params, body, .. } => {
-                self.exec_stmt_dynfors(label.as_deref(), *var, query, params, body)
-            }
+            PlStmt::ForC {
+                label,
+                var,
+                curvar,
+                argquery,
+                body,
+                ..
+            } => self.exec_stmt_forc(label.as_deref(), *var, *curvar, argquery.as_ref(), body),
+            PlStmt::DynForS {
+                label,
+                var,
+                query,
+                params,
+                body,
+                ..
+            } => self.exec_stmt_dynfors(label.as_deref(), *var, query, params, body),
         }
     }
 
@@ -4013,8 +4293,7 @@ impl<'a> Estate<'a> {
         if is_stacked && self.cur_error.is_none() {
             return Err(exec_err(
                 types_error::ERRCODE_STACKED_DIAGNOSTICS_ACCESSED_WITHOUT_ACTIVE_HANDLER,
-                "GET STACKED DIAGNOSTICS cannot be used outside an exception handler"
-                    .to_string(),
+                "GET STACKED DIAGNOSTICS cannot be used outside an exception handler".to_string(),
             ));
         }
         const OIDOID: Oid = 26;
@@ -4033,13 +4312,18 @@ impl<'a> Estate<'a> {
                     self.exec_assign_c_string(item.target, Some(&s))?;
                 }
                 _ => {
-                    let e = self.cur_error.as_ref().expect("stacked item without cur_error");
+                    let e = self
+                        .cur_error
+                        .as_ref()
+                        .expect("stacked item without cur_error");
                     let s: Option<String> = match item.kind {
-                        GETDIAG_ERROR_CONTEXT => match (&e.context, &self.cur_error_outer_context) {
-                            (Some(c), Some(outer)) => Some(format!("{c}\n{outer}")),
-                            (Some(c), None) => Some(c.clone()),
-                            (None, outer) => outer.clone(),
-                        },
+                        GETDIAG_ERROR_CONTEXT => {
+                            match (&e.context, &self.cur_error_outer_context) {
+                                (Some(c), Some(outer)) => Some(format!("{c}\n{outer}")),
+                                (Some(c), None) => Some(c.clone()),
+                                (None, outer) => outer.clone(),
+                            }
+                        }
                         GETDIAG_ERROR_DETAIL => e.detail.clone(),
                         GETDIAG_ERROR_HINT => e.hint.clone(),
                         GETDIAG_RETURNED_SQLSTATE => Some(unpack_sql_state(e.sqlstate)),
@@ -4267,7 +4551,13 @@ impl<'a> Estate<'a> {
                 // The slice is eval scratch (C pfree's it right after the
                 // assignment, pl_exec.c:3126): the reset below frees it.
                 core::mem::forget(sub);
-                self.exec_assign_value(varno, Datum::from_usize(sub_ptr), false, arrtype, arrtypmod)?;
+                self.exec_assign_value(
+                    varno,
+                    Datum::from_usize(sub_ptr),
+                    false,
+                    arrtype,
+                    arrtypmod,
+                )?;
                 self.exec_eval_cleanup();
                 rc = self.exec_stmts(body)?;
                 if let Some(r) = self.loop_rc(label, rc) {
@@ -4313,15 +4603,19 @@ impl<'a> Estate<'a> {
     }
 
     fn exec_stmt_block(&mut self, block: &'a PlBlock) -> PgResult<i32> {
-        self.frame.text.set(Some("during statement block local variable initialization"));
+        self.frame
+            .text
+            .set(Some("during statement block local variable initialization"));
         for &dno in &block.initvarnos {
             // estate->err_var = datum (exec_stmt_block): the context line
             // carries the variable's declaration lineno.
-            self.frame.var_lineno.set(Some(match &self.func.datums[dno as usize] {
-                PlDatum::Var(v) => v.lineno,
-                PlDatum::Rec(r) => r.lineno,
-                _ => 0,
-            }));
+            self.frame
+                .var_lineno
+                .set(Some(match &self.func.datums[dno as usize] {
+                    PlDatum::Var(v) => v.lineno,
+                    PlDatum::Rec(r) => r.lineno,
+                    _ => 0,
+                }));
             match &self.func.datums[dno as usize] {
                 PlDatum::Var(v) => {
                     if let Some(default_val) = &v.default_val {
@@ -4351,7 +4645,11 @@ impl<'a> Estate<'a> {
                     self.assign_record_var(dno, None);
                     if let Some(default_val) = &r.default_val {
                         self.exec_assign_expr(dno, default_val)?;
-                    } else if r.datatype.as_ref().is_some_and(|d| d.typtype == TYPTYPE_DOMAIN) {
+                    } else if r
+                        .datatype
+                        .as_ref()
+                        .is_some_and(|d| d.typtype == TYPTYPE_DOMAIN)
+                    {
                         // C pl_exec.c:1737-1748: a defaultless rec runs
                         // exec_move_row(NULL, NULL); for a composite-domain
                         // rec that makes an empty expanded record and
@@ -4380,9 +4678,7 @@ impl<'a> Estate<'a> {
         match rc {
             RC_OK | RC_RETURN | RC_CONTINUE => Ok(rc),
             RC_EXIT => {
-                if self.exitlabel.is_some()
-                    && block.label.as_deref() == self.exitlabel.as_deref()
-                {
+                if self.exitlabel.is_some() && block.label.as_deref() == self.exitlabel.as_deref() {
                     self.exitlabel = None;
                     Ok(RC_OK)
                 } else {
@@ -4433,7 +4729,9 @@ impl<'a> Estate<'a> {
             self.frame.text.set(Some("during statement block exit"));
             // The return value must survive subxact exit (C datumTransfer
             // out of the subxact eval_econtext).
-            if rc == RC_RETURN && !self.retisnull && self.ret_rec.is_none()
+            if rc == RC_RETURN
+                && !self.retisnull
+                && self.ret_rec.is_none()
                 && OidIsValid(self.rettype)
             {
                 let (typlen, typbyval) = lsyscache::typ::get_typlenbyval(self.rettype)?;
@@ -4466,9 +4764,11 @@ impl<'a> Estate<'a> {
                 // before the cleanup markers overwrite them (C's callback ran
                 // at errfinish).
                 let mut edata = attach_frame_context_at_catch(e, self);
-                edata.output_to_server
+                edata
+                    .output_to_server
                     .get_or_insert_with(|| ::elog::should_output_to_server(edata.level));
-                edata.output_to_client
+                edata
+                    .output_to_client
                     .get_or_insert_with(|| ::elog::should_output_to_client(edata.level));
                 let outer_context = outer_context_at_catch(self);
                 self.frame.text.set(Some("during exception cleanup"));
@@ -4586,13 +4886,18 @@ impl<'a> Estate<'a> {
         for f in 0..sv.values.len() {
             if !sv.nulls[f] && sv.desc.typlens[f] == -1 {
                 // SAFETY: a non-null varlena field image held by the record.
-                if unsafe { types_tuple::varatt::varatt_is_1b_e(sv.values[f].as_usize() as *const u8) } {
+                if unsafe {
+                    types_tuple::varatt::varatt_is_1b_e(sv.values[f].as_usize() as *const u8)
+                } {
                     return Ok(false);
                 }
             }
         }
         let src_rectypeid = self.rec_typeid(src);
-        let src_td = sv.src_desc.clone().expect("RecValue carries its source tupdesc");
+        let src_td = sv
+            .src_desc
+            .clone()
+            .expect("RecValue carries its source tupdesc");
         let image_type = if src_rectypeid != RECORDOID {
             Self::rec_base_typeid(src_rectypeid)?
         } else {
@@ -4603,7 +4908,8 @@ impl<'a> Estate<'a> {
         let held = match &self.datums[target as usize] {
             DatumVal::Rec(Some(tv)) => tv.src_desc.as_ref().is_some_and(|td| {
                 td.tdtypeid == image_type
-                    && (image_type != RECORDOID || (src_td.tdtypmod == td.tdtypmod && src_td.tdtypmod >= 0))
+                    && (image_type != RECORDOID
+                        || (src_td.tdtypmod == td.tdtypmod && src_td.tdtypmod >= 0))
             }),
             _ => false,
         };
@@ -4622,7 +4928,8 @@ impl<'a> Estate<'a> {
         let DatumVal::Rec(Some(sv)) = &self.datums[src as usize] else {
             unreachable!("source record checked above");
         };
-        let sys = if sv.fvalue_valid && (rectypeid == RECORDOID || rectypeid == image_type || held) {
+        let sys = if sv.fvalue_valid && (rectypeid == RECORDOID || rectypeid == image_type || held)
+        {
             sv.sys.clone()
         } else {
             None
@@ -4634,7 +4941,8 @@ impl<'a> Estate<'a> {
         let mut owned = ::mcx::std_vec_from_elem("plpgsql", false, natts)?;
         for f in 0..natts {
             if !desc.dropped[f] && !nulls[f] && !desc.typbyvals[f] {
-                values[f] = self.assign_copy_to_datum_ctx(values[f], false, desc.typlens[f], false)?;
+                values[f] =
+                    self.assign_copy_to_datum_ctx(values[f], false, desc.typlens[f], false)?;
                 owned[f] = true;
             }
         }
@@ -4686,7 +4994,11 @@ impl<'a> Estate<'a> {
                     v.notnull,
                 );
                 let mut value = value;
-                if !isnull && typisarray && valtype == reqtype && (valtypmod == reqtypmod || reqtypmod == -1) {
+                if !isnull
+                    && typisarray
+                    && valtype == reqtype
+                    && (valtypmod == reqtypmod || reqtypmod == -1)
+                {
                     if let Some(obj) = arrayfuncs::adopt_transferred(value) {
                         self.set_var_expanded(target, obj);
                         return Ok(());
@@ -4704,8 +5016,14 @@ impl<'a> Estate<'a> {
                     // A cast reads the value like any other consumer.
                     value = self.get_var(target)?.0;
                 }
-                let newvalue =
-                    self.exec_cast_value(value, &mut isnull, valtype, valtypmod, reqtype, reqtypmod)?;
+                let newvalue = self.exec_cast_value(
+                    value,
+                    &mut isnull,
+                    valtype,
+                    valtypmod,
+                    reqtype,
+                    reqtypmod,
+                )?;
                 if isnull && notnull {
                     let refname = match &self.func.datums[target as usize] {
                         PlDatum::Var(v) => v.refname.as_str(),
@@ -4739,7 +5057,9 @@ impl<'a> Estate<'a> {
                     self.instantiate_empty_rec(recno)?;
                 }
                 let DatumVal::Rec(Some(rv)) = &self.datums[recno as usize] else {
-                    panic!("plpgsql exec_assign_value: rec \"{recname}\" valueless after instantiate");
+                    panic!(
+                        "plpgsql exec_assign_value: rec \"{recname}\" valueless after instantiate"
+                    );
                 };
                 let i = match rec_lookup_field_cached(
                     &mut self.recfield_idx,
@@ -4778,7 +5098,9 @@ impl<'a> Estate<'a> {
                 if Self::rec_typeid_is_domain(rectypeid)? {
                     let (src, mut pv, mut pn) = match &self.datums[recno as usize] {
                         DatumVal::Rec(Some(rv)) => (
-                            rv.src_desc.clone().expect("RecValue carries its source tupdesc"),
+                            rv.src_desc
+                                .clone()
+                                .expect("RecValue carries its source tupdesc"),
                             rv.values.clone(),
                             rv.nulls.clone(),
                         ),
@@ -5204,9 +5526,10 @@ impl<'a> Estate<'a> {
         let rectypeid = self.rec_typeid(recno);
         if Self::rec_base_typeid(rectypeid)? != rectypeid {
             let td = match &self.datums[recno as usize] {
-                DatumVal::Rec(Some(rv)) => {
-                    rv.src_desc.clone().expect("RecValue carries its source tupdesc")
-                }
+                DatumVal::Rec(Some(rv)) => rv
+                    .src_desc
+                    .clone()
+                    .expect("RecValue carries its source tupdesc"),
                 _ => unreachable!("checked above"),
             };
             if let Err(e) = self.rec_domain_check_fields(rectypeid, &td, &values, &nulls) {
@@ -5241,7 +5564,10 @@ impl<'a> Estate<'a> {
         Ok(())
     }
 
-    fn rec_desc_of(&self, tuptab: TuptabHandle) -> PgResult<(RecDesc, std::rc::Rc<types_tuple::TupleDescData<'static>>)> {
+    fn rec_desc_of(
+        &self,
+        tuptab: TuptabHandle,
+    ) -> PgResult<(RecDesc, std::rc::Rc<types_tuple::TupleDescData<'static>>)> {
         let td = spi::tuptable_with(tuptab, |t| {
             tupdesc::CreateTupleDescCopy(self.datum_ctx.mcx(), &t.tupdesc)
         })?;
@@ -5252,7 +5578,10 @@ impl<'a> Estate<'a> {
     // the declared type's CURRENT typcache descriptor, pinned by refcount,
     // never a descriptor kept from an earlier assignment (ALTER TYPE in
     // between would otherwise coerce into the old attribute types).
-    fn declared_rec_tupdesc(&self, base: Oid) -> PgResult<std::rc::Rc<types_tuple::TupleDescData<'static>>> {
+    fn declared_rec_tupdesc(
+        &self,
+        base: Oid,
+    ) -> PgResult<std::rc::Rc<types_tuple::TupleDescData<'static>>> {
         let entry = typcache::lookup_type_cache(base, typcache::TYPECACHE_TUPDESC)?;
         match entry.tupdesc() {
             Some(td) => Ok(td),
@@ -5336,7 +5665,16 @@ impl<'a> Estate<'a> {
                     }
                     std::rc::Rc::new(RecSysAttrs::from_tuple(&t.vals[i]))
                 });
-                self.move_rec_from_values(var, &desc, src_desc, &values, &nulls, Some(sys), true, true)
+                self.move_rec_from_values(
+                    var,
+                    &desc,
+                    src_desc,
+                    &values,
+                    &nulls,
+                    Some(sys),
+                    true,
+                    true,
+                )
             }
             PlDatum::Row(r) => {
                 let varnos = r.varnos.clone();
@@ -5348,22 +5686,27 @@ impl<'a> Estate<'a> {
 
     // The strict_multi_assignment report (pl_exec.c:7286-7297); Err only at
     // ERROR level, WARNING is emitted and execution continues.
-    fn strict_multiassignment_report(
-        &self,
-        level: types_error::ErrorLevel,
-    ) -> PgResult<()> {
+    fn strict_multiassignment_report(&self, level: types_error::ErrorLevel) -> PgResult<()> {
         let b = elog::ereport(level)
             .errcode(types_error::ERRCODE_DATATYPE_MISMATCH)
             .errmsg("number of source and target fields in assignment does not match")
             .errdetail(format!(
                 "strict_multi_assignment check of {} is active.",
-                if level == ERROR { "extra_errors" } else { "extra_warnings" }
+                if level == ERROR {
+                    "extra_errors"
+                } else {
+                    "extra_warnings"
+                }
             ))
             .errhint("Make sure the query returns the exact list of columns.");
         if level == ERROR {
             return Err(Box::new(b.into_error()));
         }
-        b.finish(types_error::ErrorLocation::new(file!(), line!() as i32, "exec_move_row_from_fields"))
+        b.finish(types_error::ErrorLocation::new(
+            file!(),
+            line!() as i32,
+            "exec_move_row_from_fields",
+        ))
     }
 
     // exec_move_row_from_fields REC-target arm: a RECORD rec adopts the
@@ -5389,7 +5732,7 @@ impl<'a> Estate<'a> {
         let rectypeid = self.rec_typeid(recno);
         if rectypeid == RECORDOID {
             let natts = srcdesc.types.len();
-            let mut out_values = ::mcx::std_vec_from_slice("plpgsql",values)?;
+            let mut out_values = ::mcx::std_vec_from_slice("plpgsql", values)?;
             for f in 0..natts {
                 if !srcdesc.dropped[f] {
                     out_values[f] = self.assign_copy_to_datum_ctx(
@@ -5408,7 +5751,7 @@ impl<'a> Estate<'a> {
                 Some(RecValue {
                     desc: srcdesc.clone(),
                     values: out_values,
-                    nulls: ::mcx::std_vec_from_slice("plpgsql",nulls)?,
+                    nulls: ::mcx::std_vec_from_slice("plpgsql", nulls)?,
                     src_desc: Some(src_tupdesc),
                     empty: false,
                     fvalue_valid: sys.is_some(),
@@ -5424,7 +5767,8 @@ impl<'a> Estate<'a> {
         let base = Self::rec_base_typeid(rectypeid)?;
         let var_td = self.declared_rec_tupdesc(base)?;
         let dst = RecDesc::from_tupdesc(&var_td)?;
-        let sys = if rectypeid == src_tupdesc.tdtypeid || compatible_tupdescs(&src_tupdesc, &var_td) {
+        let sys = if rectypeid == src_tupdesc.tdtypeid || compatible_tupdescs(&src_tupdesc, &var_td)
+        {
             sys
         } else {
             None
@@ -5450,7 +5794,12 @@ impl<'a> Estate<'a> {
                 anum += 1;
             }
             let (value, mut isnull, valtype, valtypmod) = if anum < td_natts {
-                let r = (values[anum], nulls[anum], srcdesc.types[anum], srcdesc.typmods[anum]);
+                let r = (
+                    values[anum],
+                    nulls[anum],
+                    srcdesc.types[anum],
+                    srcdesc.typmods[anum],
+                );
                 anum += 1;
                 r
             } else {
@@ -5470,7 +5819,10 @@ impl<'a> Estate<'a> {
             // A cast result can live in its step's retained scratch, which the
             // next field cast through the same entry overwrites; C keeps every
             // field's result alive in eval_mcontext until the record is built.
-            newvalues[fnum] = if !isnull && !dst.typbyvals[fnum] && cast.as_usize() != value.as_usize() {
+            newvalues[fnum] = if !isnull
+                && !dst.typbyvals[fnum]
+                && cast.as_usize() != value.as_usize()
+            {
                 // SAFETY: a live non-null by-ref datum of the target column's typlen.
                 unsafe { execexpr::agg_datum_copy(self.eval_ctx.mcx(), cast, dst.typlens[fnum])? }
             } else {
@@ -5541,7 +5893,11 @@ impl<'a> Estate<'a> {
         if target.is_some_and(|t| t.types.len() != n) {
             return Ok(None);
         }
-        let mcx = if scratch { self.eval_ctx.mcx() } else { self.datum_ctx.mcx() };
+        let mcx = if scratch {
+            self.eval_ctx.mcx()
+        } else {
+            self.datum_ctx.mcx()
+        };
         let mut td = tupdesc::CreateTemplateTupleDesc(mcx, n as i32)?;
         let mut values = ::mcx::std_vec_with_capacity("plpgsql", n)?;
         let mut nulls = ::mcx::std_vec_with_capacity("plpgsql", n)?;
@@ -5551,7 +5907,11 @@ impl<'a> Estate<'a> {
                     let t = self.var_type(dno);
                     (t.typoid, t.atttypmod, t.typoid)
                 }
-                PlDatum::Rec(r) => (self.rec_typeid(r.dno), -1, self.rec_param_type_mod(r.dno)?.0),
+                PlDatum::Rec(r) => (
+                    self.rec_typeid(r.dno),
+                    -1,
+                    self.rec_param_type_mod(r.dno)?.0,
+                ),
                 _ => panic!("plpgsql row member {dno} is not a Var or Rec"),
             };
             let expected = target.map_or(typoid, |t| t.types[i]);
@@ -5575,11 +5935,17 @@ impl<'a> Estate<'a> {
         let desc = RecDesc::from_tupdesc(&td)?;
         if !scratch {
             for i in 0..n {
-                values[i] =
-                    self.copy_to_datum_ctx(values[i], nulls[i], desc.typlens[i], desc.typbyvals[i])?;
+                values[i] = self.copy_to_datum_ctx(
+                    values[i],
+                    nulls[i],
+                    desc.typlens[i],
+                    desc.typbyvals[i],
+                )?;
             }
         }
-        let owned = (0..n).map(|i| !scratch && !nulls[i] && !desc.typbyvals[i]).collect();
+        let owned = (0..n)
+            .map(|i| !scratch && !nulls[i] && !desc.typbyvals[i])
+            .collect();
         Ok(Some(RecValue {
             desc,
             values,
@@ -5654,8 +6020,11 @@ impl<'a> Estate<'a> {
                         && v.datatype.typisarray
                         && v.datatype.typoid == self.func.fn_rettype
                     {
-                        if let DatumVal::Var { isnull: false, exp: exp @ Some(_), .. } =
-                            &mut self.datums[retvarno as usize]
+                        if let DatumVal::Var {
+                            isnull: false,
+                            exp: exp @ Some(_),
+                            ..
+                        } = &mut self.datums[retvarno as usize]
                         {
                             let obj = exp.take().expect("matched Some");
                             self.retval = obj.rw_datum();
@@ -5699,8 +6068,11 @@ impl<'a> Estate<'a> {
                         DatumVal::Rec(Some(rv)) if !rv.empty => {
                             self.ret_rec = Some(rv.try_clone()?);
                             self.retisnull = false;
-                            self.rettype =
-                                if rectypeid != RECORDOID { rectypeid } else { RECORDOID };
+                            self.rettype = if rectypeid != RECORDOID {
+                                rectypeid
+                            } else {
+                                RECORDOID
+                            };
                         }
                         _ => {
                             self.ret_rec = None;
@@ -5712,12 +6084,14 @@ impl<'a> Estate<'a> {
                 PlDatum::Row(row) => {
                     // exec_eval_datum ROW arm: rows materialize through their
                     // member variables (multiple OUT parameters).
-                    let rv = self.row_as_rec_value(row.dno, false, None)?.ok_or_else(|| {
-                        exec_err(
-                            types_error::ERRCODE_INTERNAL_ERROR,
-                            "row not compatible with its own tupdesc".to_string(),
-                        )
-                    })?;
+                    let rv = self
+                        .row_as_rec_value(row.dno, false, None)?
+                        .ok_or_else(|| {
+                            exec_err(
+                                types_error::ERRCODE_INTERNAL_ERROR,
+                                "row not compatible with its own tupdesc".to_string(),
+                            )
+                        })?;
                     self.ret_rec = Some(rv);
                     self.retisnull = false;
                     self.rettype = RECORDOID;
@@ -5731,10 +6105,7 @@ impl<'a> Estate<'a> {
             self.retval = value;
             self.retisnull = isnull;
             self.rettype = rettype;
-            if self.func.fn_retistuple
-                && !isnull
-                && !lsyscache::typ::type_is_rowtype(rettype)?
-            {
+            if self.func.fn_retistuple && !isnull && !lsyscache::typ::type_is_rowtype(rettype)? {
                 return Err(exec_err(
                     types_error::ERRCODE_DATATYPE_MISMATCH,
                     "cannot return non-composite value from function returning composite type"
@@ -5763,7 +6134,15 @@ impl<'a> Estate<'a> {
     }
 
     fn exec_stmt_raise(&mut self, stmt: &PlStmt) -> PgResult<i32> {
-        let PlStmt::Raise { elog_level, condname, message, params, options, .. } = stmt else {
+        let PlStmt::Raise {
+            elog_level,
+            condname,
+            message,
+            params,
+            options,
+            ..
+        } = stmt
+        else {
             unreachable!()
         };
 
@@ -5774,7 +6153,9 @@ impl<'a> Estate<'a> {
             }
             return Err(Box::new(
                 elog::ereport(ERROR)
-                    .errcode(types_error::ERRCODE_STACKED_DIAGNOSTICS_ACCESSED_WITHOUT_ACTIVE_HANDLER)
+                    .errcode(
+                        types_error::ERRCODE_STACKED_DIAGNOSTICS_ACCESSED_WITHOUT_ACTIVE_HANDLER,
+                    )
                     .errmsg("RAISE without parameters cannot be used outside an exception handler")
                     .into_error(),
             ));
@@ -5930,7 +6311,9 @@ impl<'a> Estate<'a> {
         };
 
         if *elog_level >= crate::gram::ELOG_ERROR {
-            let mut b = elog::ereport(ERROR).errverbatim().errmsg_internal(err_message);
+            let mut b = elog::ereport(ERROR)
+                .errverbatim()
+                .errmsg_internal(err_message);
             if let Some(c) = err_code {
                 b = b.errcode(c);
             }
@@ -5959,7 +6342,9 @@ impl<'a> Estate<'a> {
             crate::gram::LOG => types_error::LOG,
             _ => types_error::DEBUG1,
         };
-        let mut b = elog::ereport(level).errverbatim().errmsg_internal(err_message);
+        let mut b = elog::ereport(level)
+            .errverbatim()
+            .errmsg_internal(err_message);
         if let Some(c) = err_code {
             b = b.errcode(c);
         }
@@ -6033,9 +6418,8 @@ impl<'a> Estate<'a> {
 
         // too_many_rows extra check reads the GUCs at execution, not compile
         // (pl_exec.c:4217-4220).
-        let too_many_rows_level = crate::handler::extra_checks_level(
-            crate::comp::XCHECK_TOOMANYROWS,
-        )?;
+        let too_many_rows_level =
+            crate::handler::extra_checks_level(crate::comp::XCHECK_TOOMANYROWS)?;
 
         let tcount: i64 = if into {
             if strict || mod_stmt || too_many_rows_level.is_some() {
@@ -6134,7 +6518,11 @@ impl<'a> Estate<'a> {
                         let _ = spi::SPI_freetuptable(tuptab);
                         return Err(Box::new(b.into_error()));
                     }
-                    b.finish(types_error::ErrorLocation::new(file!(), line!() as i32, "exec_stmt_execsql"))?;
+                    b.finish(types_error::ErrorLocation::new(
+                        file!(),
+                        line!() as i32,
+                        "exec_stmt_execsql",
+                    ))?;
                 }
                 self.move_row_from_tuptable(target, tuptab, 0)?;
                 let _ = spi::SPI_freetuptable(tuptab);
@@ -6187,16 +6575,9 @@ impl<'a> Estate<'a> {
         let before_lxid = current_lxid();
         spi_frame!(frame, &expr.query, expr.parse_mode);
         let _live = LiveSpiExpr::set((self as *mut Estate<'a>).cast(), expr);
-        let rc = spi::SPI_execute_plan_extended(
-            plan,
-            params,
-            self.readonly_func,
-            true,
-            false,
-            0,
-            None,
-        )
-        .map_err(|e| spi_ctx_err(e, &expr.query, expr.parse_mode))?;
+        let rc =
+            spi::SPI_execute_plan_extended(plan, params, self.readonly_func, true, false, 0, None)
+                .map_err(|e| spi_ctx_err(e, &expr.query, expr.parse_mode))?;
         drop(frame);
         if rc < 0 {
             panic!(
@@ -6268,11 +6649,7 @@ impl<'a> Estate<'a> {
 
     // make_callstmt_target (pl_exec.c:2288): OUT-arg Params -> row varnos,
     // cached per expr like C's stmt->target (function lifetime).
-    fn make_callstmt_target(
-        &mut self,
-        expr: &PlExpr,
-        plan: SpiPlanPtr,
-    ) -> PgResult<Vec<Dno>> {
+    fn make_callstmt_target(&mut self, expr: &PlExpr, plan: SpiPlanPtr) -> PgResult<Vec<Dno>> {
         if let Some(v) = CALL_TARGETS.with(|t| t.borrow().get(&expr.expr_id).cloned()) {
             return Ok(v);
         }
@@ -6303,19 +6680,17 @@ impl<'a> Estate<'a> {
                 return Err(not_call_stmt());
             };
             let funcexpr = stmt.funcexpr.expect("analyzed CallStmt has funcexpr");
-            let arrays = syscache_seams::pg_proc_result_arrays::call(
-                self.eval_ctx.mcx(),
-                funcexpr.funcid,
-            )?
-            // pl_exec.c:2324-2328 elog(ERROR, "cache lookup failed for
-            // function %u", funcexpr->funcid) -- catchable, SQLSTATE XX000
-            // (elog's default); it must not abort the backend.
-            .ok_or_else(|| {
-                exec_err(
-                    types_error::ERRCODE_INTERNAL_ERROR,
-                    format!("cache lookup failed for function {}", funcexpr.funcid),
-                )
-            })?;
+            let arrays =
+                syscache_seams::pg_proc_result_arrays::call(self.eval_ctx.mcx(), funcexpr.funcid)?
+                    // pl_exec.c:2324-2328 elog(ERROR, "cache lookup failed for
+                    // function %u", funcexpr->funcid) -- catchable, SQLSTATE XX000
+                    // (elog's default); it must not abort the backend.
+                    .ok_or_else(|| {
+                        exec_err(
+                            types_error::ERRCODE_INTERNAL_ERROR,
+                            format!("cache lookup failed for function {}", funcexpr.funcid),
+                        )
+                    })?;
 
             let mut varnos: Vec<Dno> = Vec::new();
             if let Some(argmodes) = &arrays.proargmodes {
@@ -6508,7 +6883,11 @@ impl<'a> Estate<'a> {
         let stmt_ctx = MemoryContext::new("PLpgSQL EXECUTE params");
         let (ptypes, pvalues, pnulls) = self.exec_eval_using_params(params, stmt_ctx.mcx())?;
 
-        spi_frame!(frame, &querystr, parser_seams::RawParseMode::RAW_PARSE_DEFAULT);
+        spi_frame!(
+            frame,
+            &querystr,
+            parser_seams::RawParseMode::RAW_PARSE_DEFAULT
+        );
         let rc = spi::SPI_execute_extended(
             &querystr,
             &ptypes,
@@ -6557,9 +6936,9 @@ impl<'a> Estate<'a> {
                     "EXECUTE of transaction commands is not implemented".to_string(),
                 ));
             }
-            other => panic!(
-                "SPI_execute_extended failed executing query \"{querystr}\": rc {other}"
-            ),
+            other => {
+                panic!("SPI_execute_extended failed executing query \"{querystr}\": rc {other}")
+            }
         }
 
         self.eval_processed = spi::SPI_processed();
@@ -6710,12 +7089,14 @@ impl<'a> Estate<'a> {
                     self.put_tuple_store_values(&v, &n)?;
                 }
                 PlDatum::Row(row) => {
-                    let rv = self.row_as_rec_value(row.dno, true, Some(&dst))?.ok_or_else(|| {
-                        exec_err(
-                            types_error::ERRCODE_DATATYPE_MISMATCH,
-                            "wrong record type supplied in RETURN NEXT".to_string(),
-                        )
-                    })?;
+                    let rv = self
+                        .row_as_rec_value(row.dno, true, Some(&dst))?
+                        .ok_or_else(|| {
+                            exec_err(
+                                types_error::ERRCODE_DATATYPE_MISMATCH,
+                                "wrong record type supplied in RETURN NEXT".to_string(),
+                            )
+                        })?;
                     let (v, n) = convert_values_by_position(
                         &rv.desc,
                         &rv.values,
@@ -6782,7 +7163,10 @@ impl<'a> Estate<'a> {
     }
 
     fn put_tuple_store_values(&mut self, values: &[Datum], nulls: &[bool]) -> PgResult<()> {
-        let td = self.tuple_store_desc.as_ref().expect("tuple store initialized");
+        let td = self
+            .tuple_store_desc
+            .as_ref()
+            .expect("tuple store initialized");
         self.tuple_store
             .as_mut()
             .expect("tuple store initialized")
@@ -6835,8 +7219,12 @@ impl<'a> Estate<'a> {
         self.eval_tuptable = None;
         self.exec_eval_cleanup();
 
-        let processed =
-            (self.tuple_store.as_ref().expect("initialized").tuple_count() - tcount) as u64;
+        let processed = (self
+            .tuple_store
+            .as_ref()
+            .expect("initialized")
+            .tuple_count()
+            - tcount) as u64;
         self.eval_processed = processed;
         self.exec_set_found(processed != 0);
         Ok(RC_OK)
@@ -6865,7 +7253,11 @@ impl<'a> Estate<'a> {
         self.exec_eval_cleanup();
         let stmt_ctx = MemoryContext::new("PLpgSQL RETURN QUERY EXECUTE params");
         let (ptypes, pvalues, pnulls) = self.exec_eval_using_params(params, stmt_ctx.mcx())?;
-        spi_frame!(_frame, &querystr, parser_seams::RawParseMode::RAW_PARSE_DEFAULT);
+        spi_frame!(
+            _frame,
+            &querystr,
+            parser_seams::RawParseMode::RAW_PARSE_DEFAULT
+        );
         // must_return_tuples = true (pl_exec.c:3626): the SPI level
         // describes its own errors — "empty query does not return
         // tuples" is raised before its callback names a query, so it
@@ -6938,7 +7330,8 @@ impl<'a> Estate<'a> {
         let params = self.setup_param_list_under_spi(query, &paramnos, &argtypes, false)?;
         spi_frame!(frame, &query.query, query.parse_mode);
         let _live = LiveSpiExpr::set((self as *mut Estate<'a>).cast(), query);
-        let cursor = spi::SPI_cursor_open_with_paramlist(curname, plan, &params, self.readonly_func)?;
+        let cursor =
+            spi::SPI_cursor_open_with_paramlist(curname, plan, &params, self.readonly_func)?;
         drop(frame);
         if curname.is_none() {
             // Verify assignability before storing the portal name
@@ -7036,7 +7429,11 @@ impl<'a> Estate<'a> {
         // SPI_cursor_open copies the values into the portal (copyParamList).
         let stmt_ctx = MemoryContext::new("PLpgSQL OPEN params");
         let (ptypes, pvalues, pnulls) = self.exec_eval_using_params(params, stmt_ctx.mcx())?;
-        spi_frame!(frame, &querystr, parser_seams::RawParseMode::RAW_PARSE_DEFAULT);
+        spi_frame!(
+            frame,
+            &querystr,
+            parser_seams::RawParseMode::RAW_PARSE_DEFAULT
+        );
         let cursor = spi::SPI_cursor_open_extended(
             curname,
             &querystr,
@@ -7157,8 +7554,12 @@ impl<'a> Estate<'a> {
         });
         let params = self.setup_param_list_under_spi(cq, &paramnos, &argtypes, false)?;
         spi_frame!(frame, &cq.query, cq.parse_mode);
-        let cursor =
-            spi::SPI_cursor_open_with_paramlist(curname.as_deref(), plan, &params, self.readonly_func)?;
+        let cursor = spi::SPI_cursor_open_with_paramlist(
+            curname.as_deref(),
+            plan,
+            &params,
+            self.readonly_func,
+        )?;
         drop(frame);
         if curname.is_none() {
             let name = cursor.portal.borrow().name.as_str().to_string();
@@ -7193,8 +7594,7 @@ impl<'a> Estate<'a> {
     ) -> PgResult<i32> {
         // C exec_stmt_dynfors (pl_exec.c:4635) opens the implicit cursor
         // with CURSOR_OPT_NO_SCROLL — same FOR-loop pinning as exec_stmt_fors.
-        let portal =
-            self.exec_dynquery_with_params(query, params, None, CURSOR_OPT_NO_SCROLL)?;
+        let portal = self.exec_dynquery_with_params(query, params, None, CURSOR_OPT_NO_SCROLL)?;
         let cursor = spi::SpiCursor::from_portal(portal);
         let result = self.exec_for_query(label, var, &cursor, body, true);
         match result {
@@ -7292,8 +7692,9 @@ fn resolve_origtypname(name: &OrigTypeName) -> PgResult<(Oid, i32)> {
             let mut nodes: mcx::PgVec<'_, types_nodes::Node<'_>> =
                 mcx::vec_with_capacity_in(mcx, parts.len())?;
             for p in parts {
-                let s = core::str::from_utf8(mcx::PgString::from_str_in(p, mcx)?.into_bytes().leak())
-                    .expect("copied from a str");
+                let s =
+                    core::str::from_utf8(mcx::PgString::from_str_in(p, mcx)?.into_bytes().leak())
+                        .expect("copied from a str");
                 nodes.push(types_nodes::Node::mk_string(mcx, s)?);
             }
             let tn = types_nodes::rawnodes::TypeName {
@@ -7509,7 +7910,10 @@ pub(crate) mod cfi_tests {
             let line = spi_context_line(query, mode);
             for prefix in ["", "PL/pgSQL function inner_fn() line 1 at EXECUTE\n"] {
                 let context = format!("{prefix}{line}");
-                let mut e = exec_err(types_error::ERRCODE_DIVISION_BY_ZERO, "division by zero".into());
+                let mut e = exec_err(
+                    types_error::ERRCODE_DIVISION_BY_ZERO,
+                    "division by zero".into(),
+                );
                 e.context = Some(context.clone());
                 spi_error_context(&mut e, query, mode);
                 assert_eq!(e.context.as_deref(), Some(context.as_str()));
@@ -7527,12 +7931,19 @@ pub(crate) mod cfi_tests {
             format!("prefix {line}"),
             String::new(),
         ] {
-            let mut e = exec_err(types_error::ERRCODE_DIVISION_BY_ZERO, "division by zero".into());
+            let mut e = exec_err(
+                types_error::ERRCODE_DIVISION_BY_ZERO,
+                "division by zero".into(),
+            );
             if !context.is_empty() {
                 e.context = Some(context.clone());
             }
             spi_error_context(&mut e, query, mode);
-            let expected = if context.is_empty() { line.clone() } else { format!("{context}\n{line}") };
+            let expected = if context.is_empty() {
+                line.clone()
+            } else {
+                format!("{context}\n{line}")
+            };
             assert_eq!(e.context.as_deref(), Some(expected.as_str()));
         }
     }
@@ -7581,7 +7992,10 @@ pub(crate) mod cfi_tests {
         let matches = |condition, error| {
             exception_matches_conditions(
                 &PgError::error("test".to_string()).with_sqlstate(error),
-                &[PlCondition { sqlerrstate: condition, condname: String::new() }],
+                &[PlCondition {
+                    sqlerrstate: condition,
+                    condname: String::new(),
+                }],
             )
         };
         let success = types_error::make_sqlstate(*b"00000");
@@ -7592,7 +8006,10 @@ pub(crate) mod cfi_tests {
         assert!(matches(division, division));
         assert!(matches(types_error::make_sqlstate(*b"22000"), division));
         assert!(!matches(types_error::make_sqlstate(*b"22P02"), division));
-        for error in [types_error::ERRCODE_QUERY_CANCELED, types_error::ERRCODE_ASSERT_FAILURE] {
+        for error in [
+            types_error::ERRCODE_QUERY_CANCELED,
+            types_error::ERRCODE_ASSERT_FAILURE,
+        ] {
             assert!(!matches(others, error));
             assert!(!matches(success, error));
             assert!(matches(error, error));
@@ -7617,7 +8034,11 @@ pub(crate) mod cfi_tests {
         let mut estate = Estate::new(&func, false, true).unwrap();
 
         init_small::globals::SetInterruptPending(false);
-        assert_eq!(estate.exec_stmts(&[]).unwrap(), RC_OK, "no interrupt: RC_OK");
+        assert_eq!(
+            estate.exec_stmts(&[]).unwrap(),
+            RC_OK,
+            "no interrupt: RC_OK"
+        );
 
         init_small::globals::SetInterruptPending(true);
         let err = estate.exec_stmts(&[]).err().unwrap();
@@ -7737,7 +8158,8 @@ pub(crate) mod cfi_tests {
         let mcx = estate.datum_mcx();
         let mut td = tupdesc::CreateTemplateTupleDesc(mcx, 1).unwrap();
         tupdesc::TupleDescInitEntry(&mut td, 1, Some("f1"), INT4OID, -1, 0).unwrap();
-        let mut tup = heaptuple::heap_form_tuple(mcx, &td, &[Datum::from_i32(7)], &[false]).unwrap();
+        let mut tup =
+            heaptuple::heap_form_tuple(mcx, &td, &[Datum::from_i32(7)], &[false]).unwrap();
         tup.t_self = types_tuple::ItemPointerData::new(0, 1);
         tup.t_tableOid = 4242;
         let bound = |sys: Option<RecSysAttrs>| RecValue {
@@ -7745,30 +8167,45 @@ pub(crate) mod cfi_tests {
             values: vec![Datum::from_i32(7)],
             nulls: vec![false],
             owned: vec![false],
-            src_desc: Some(std::rc::Rc::new(tupdesc::CreateTupleDescCopy(mcx, &td).unwrap())),
+            src_desc: Some(std::rc::Rc::new(
+                tupdesc::CreateTupleDescCopy(mcx, &td).unwrap(),
+            )),
             empty: false,
             fvalue_valid: sys.is_some(),
             sys: sys.map(std::rc::Rc::new),
         };
 
         estate.datums[0] = DatumVal::Rec(Some(bound(Some(RecSysAttrs::from_tuple(&tup)))));
-        let PlDatum::RecField(ctid) = &func.datums[1] else { unreachable!() };
-        assert_eq!(estate.recfield_type(ctid).unwrap(), Some((TIDOID, -1, types_core::InvalidOid)));
+        let PlDatum::RecField(ctid) = &func.datums[1] else {
+            unreachable!()
+        };
+        assert_eq!(
+            estate.recfield_type(ctid).unwrap(),
+            Some((TIDOID, -1, types_core::InvalidOid))
+        );
         let (d, isnull) = estate.datum_as_param(1, Some(TIDOID)).unwrap();
         assert!(!isnull);
         // SAFETY: a tid Datum is a pointer to an ItemPointerData.
         let tid = unsafe { *(d.as_usize() as *const types_tuple::ItemPointerData) };
         assert_eq!(types_tuple::ItemPointerGetBlockNumber(&tid), 0);
         assert_eq!(types_tuple::ItemPointerGetOffsetNumber(&tid), 1);
-        assert_eq!(estate.datum_as_param(2, Some(OIDOID)).unwrap(), (Datum::from_oid(4242), false));
+        assert_eq!(
+            estate.datum_as_param(2, Some(OIDOID)).unwrap(),
+            (Datum::from_oid(4242), false)
+        );
         let err = estate.datum_as_param(3, None).unwrap_err();
         assert_eq!(err.message(), "record \"r\" has no field \"nosuch\"");
-        let err = estate.exec_assign_value(1, Datum::null(), true, UNKNOWNOID, -1).unwrap_err();
+        let err = estate
+            .exec_assign_value(1, Datum::null(), true, UNKNOWNOID, -1)
+            .unwrap_err();
         assert_eq!(err.sqlstate(), types_error::ERRCODE_FEATURE_NOT_SUPPORTED);
         assert_eq!(err.message(), "cannot assign to system column \"ctid\"");
 
         estate.datums[0] = DatumVal::Rec(Some(bound(None)));
-        assert_eq!(estate.datum_as_param(1, None).unwrap(), (Datum::null(), true));
+        assert_eq!(
+            estate.datum_as_param(1, None).unwrap(),
+            (Datum::null(), true)
+        );
     }
 
     // A field planned as text that now holds an int4 keeps its current type
@@ -7789,7 +8226,11 @@ pub(crate) mod cfi_tests {
             notnull: false,
             default_val: None,
         }));
-        func.datums.push(PlDatum::RecField(PlRecField { dno: 1, recparentno: 0, fieldname: "f".into() }));
+        func.datums.push(PlDatum::RecField(PlRecField {
+            dno: 1,
+            recparentno: 0,
+            fieldname: "f".into(),
+        }));
         let mut estate = Estate::new(&func, false, true).unwrap();
         let mcx = estate.datum_mcx();
         let mut td = tupdesc::CreateTemplateTupleDesc(mcx, 1).unwrap();
@@ -7799,15 +8240,24 @@ pub(crate) mod cfi_tests {
             values: vec![Datum::from_i32(7)],
             nulls: vec![false],
             owned: vec![false],
-            src_desc: Some(std::rc::Rc::new(tupdesc::CreateTupleDescCopy(mcx, &td).unwrap())),
+            src_desc: Some(std::rc::Rc::new(
+                tupdesc::CreateTupleDescCopy(mcx, &td).unwrap(),
+            )),
             empty: false,
             fvalue_valid: false,
             sys: None,
         }));
         for speculative in [true, false] {
-            let p = estate.setup_param_list(&[1], &[types_core::InvalidOid, TEXTOID], speculative).unwrap();
-            assert_eq!((p[1].ptype, p[1].pflags, p[1].value), (INT4OID, 0, Datum::from_i32(7)));
-            let p = estate.setup_param_list(&[1], &[types_core::InvalidOid, INT4OID], speculative).unwrap();
+            let p = estate
+                .setup_param_list(&[1], &[types_core::InvalidOid, TEXTOID], speculative)
+                .unwrap();
+            assert_eq!(
+                (p[1].ptype, p[1].pflags, p[1].value),
+                (INT4OID, 0, Datum::from_i32(7))
+            );
+            let p = estate
+                .setup_param_list(&[1], &[types_core::InvalidOid, INT4OID], speculative)
+                .unwrap();
             assert_eq!((p[1].ptype, p[1].pflags), (INT4OID, PARAM_FLAG_CONST));
         }
     }
@@ -7835,15 +8285,25 @@ pub(crate) mod cfi_tests {
                 default_val: None,
             }));
         }
-        let fields = [(2, 1, "ctid"), (3, 1, "tableoid"), (4, 0, "f1"), (5, 0, "ctid")];
+        let fields = [
+            (2, 1, "ctid"),
+            (3, 1, "tableoid"),
+            (4, 0, "f1"),
+            (5, 0, "ctid"),
+        ];
         for (dno, recparentno, name) in fields {
-            func.datums.push(PlDatum::RecField(PlRecField { dno, recparentno, fieldname: name.into() }));
+            func.datums.push(PlDatum::RecField(PlRecField {
+                dno,
+                recparentno,
+                fieldname: name.into(),
+            }));
         }
         let mut estate = Estate::new(&func, false, true).unwrap();
         let mcx = estate.datum_mcx();
         let mut td = tupdesc::CreateTemplateTupleDesc(mcx, 1).unwrap();
         tupdesc::TupleDescInitEntry(&mut td, 1, Some("f1"), INT4OID, -1, 0).unwrap();
-        let mut tup = heaptuple::heap_form_tuple(mcx, &td, &[Datum::from_i32(7)], &[false]).unwrap();
+        let mut tup =
+            heaptuple::heap_form_tuple(mcx, &td, &[Datum::from_i32(7)], &[false]).unwrap();
         tup.t_self = types_tuple::ItemPointerData::new(0, 1);
         tup.t_tableOid = 4242;
         let tuple_identity = &tup as *const _ as usize;
@@ -7854,7 +8314,9 @@ pub(crate) mod cfi_tests {
             values: vec![Datum::from_i32(7)],
             nulls: vec![false],
             owned: vec![false],
-            src_desc: Some(std::rc::Rc::new(tupdesc::CreateTupleDescCopy(mcx, &td).unwrap())),
+            src_desc: Some(std::rc::Rc::new(
+                tupdesc::CreateTupleDescCopy(mcx, &td).unwrap(),
+            )),
             empty: false,
             sys: Some(std::rc::Rc::new(sys)),
             fvalue_valid: true,
@@ -7876,25 +8338,37 @@ pub(crate) mod cfi_tests {
         };
 
         let original_tuple = |estate: &Estate<'_>, dno: usize| {
-            let DatumVal::Rec(Some(rv)) = &estate.datums[dno] else { unreachable!() };
+            let DatumVal::Rec(Some(rv)) = &estate.datums[dno] else {
+                unreachable!()
+            };
             rv.try_clone().unwrap().original_trigger_tuple(&td)
         };
         assert_eq!(original_tuple(&estate, 0), Some(tuple_identity));
         assign(&mut estate, 1, 0);
         assert_eq!(original_tuple(&estate, 1), Some(tuple_identity));
-        estate.exec_assign_value(4, Datum::from_i32(7), false, INT4OID, -1).unwrap();
+        estate
+            .exec_assign_value(4, Datum::from_i32(7), false, INT4OID, -1)
+            .unwrap();
         assert_eq!(original_tuple(&estate, 0), None);
         assert_eq!(original_tuple(&estate, 1), Some(tuple_identity));
         assert_eq!(ctid_of(&mut estate, 2), Some((0, 1)));
-        assert_eq!(estate.datum_as_param(3, Some(OIDOID)).unwrap(), (Datum::from_oid(4242), false));
+        assert_eq!(
+            estate.datum_as_param(3, Some(OIDOID)).unwrap(),
+            (Datum::from_oid(4242), false)
+        );
 
-        estate.exec_assign_value(4, Datum::from_i32(8), false, INT4OID, -1).unwrap();
+        estate
+            .exec_assign_value(4, Datum::from_i32(8), false, INT4OID, -1)
+            .unwrap();
         assert_eq!(ctid_of(&mut estate, 5), Some((0, 1)));
         assign(&mut estate, 0, 0);
         assert_eq!(ctid_of(&mut estate, 5), Some((0, 1)));
         assign(&mut estate, 1, 0);
         assert_eq!(ctid_of(&mut estate, 2), None);
-        assert_eq!(estate.datum_as_param(3, Some(OIDOID)).unwrap(), (Datum::null(), true));
+        assert_eq!(
+            estate.datum_as_param(3, Some(OIDOID)).unwrap(),
+            (Datum::null(), true)
+        );
         estate.exec_eval_cleanup();
         assert!(estate.rec_origins.is_empty());
     }
@@ -8004,7 +8478,10 @@ pub(crate) mod cfi_tests {
             rd_firstRelfilelocatorSubid: Cell::new(0),
             rd_droppedSubid: Cell::new(0),
             rd_lockInfo: types_rel::LockInfoData {
-                lockRelId: types_rel::LockRelId { relId: oid, dbId: 5 },
+                lockRelId: types_rel::LockRelId {
+                    relId: oid,
+                    dbId: 5,
+                },
             },
             rd_rel,
             rd_att: std::rc::Rc::new(td),
@@ -8055,7 +8532,9 @@ pub(crate) mod cfi_tests {
             });
             syscache_seams::lookup_pg_type_typcache_shape::set(|typid| {
                 Ok(match typid {
-                    INTERNALOID => Some(typcache_row("internal", b'p' as i8, types_core::InvalidOid)),
+                    INTERNALOID => {
+                        Some(typcache_row("internal", b'p' as i8, types_core::InvalidOid))
+                    }
                     TEXTOID => Some(typcache_row("text", b'p' as i8, types_core::InvalidOid)),
                     COMP_OLD => Some(typcache_row("comp", b'c' as i8, COMP_OLD_REL)),
                     COMP_NEW => Some(typcache_row("comp", b'c' as i8, COMP_NEW_REL)),
@@ -8067,7 +8546,11 @@ pub(crate) mod cfi_tests {
             relation_seams::relation_open::set(fake_relation_open);
             relcache_seams::relation_cache_invalidate_entry::set(|_| Ok(()));
             syscache_seams::lookup_pg_namespace_oid_by_name::set(|nsp| {
-                Ok(if nsp == "s" { NSP } else { types_core::InvalidOid })
+                Ok(if nsp == "s" {
+                    NSP
+                } else {
+                    types_core::InvalidOid
+                })
             });
             aclchk_seams::object_aclcheck::set(|_, _, _, _| Ok(0));
             miscinit_seams::get_user_id::set(|| 10);
@@ -8096,7 +8579,14 @@ pub(crate) mod cfi_tests {
                 tcache: core::cell::RefCell::new(std::rc::Rc::downgrade(&tcache)),
             })
         };
-        let cached_id = || ident.tcache.borrow().upgrade().unwrap().tupdesc_identifier();
+        let cached_id = || {
+            ident
+                .tcache
+                .borrow()
+                .upgrade()
+                .unwrap()
+                .tupdesc_identifier()
+        };
         let mut func = tiny_function();
         func.datums.push(PlDatum::Rec(PlRec {
             dno: 0,
@@ -8126,9 +8616,14 @@ pub(crate) mod cfi_tests {
         assert_eq!(estate.rec_typeid(0), COMP_OLD);
 
         COMP_BY_NAME.with(|c| c.set(COMP_NEW));
-        inval::local::LocalExecuteInvalidationMessage(&types_storage::SharedInvalidationMessage::Relcache(
-            types_storage::SharedInvalRelcacheMsg { dbId: types_core::InvalidOid, relId: COMP_OLD_REL },
-        ))
+        inval::local::LocalExecuteInvalidationMessage(
+            &types_storage::SharedInvalidationMessage::Relcache(
+                types_storage::SharedInvalRelcacheMsg {
+                    dbId: types_core::InvalidOid,
+                    relId: COMP_OLD_REL,
+                },
+            ),
+        )
         .unwrap();
         assert_eq!(cached_id(), 0);
         estate.revalidate_rectypeid(0).unwrap();
@@ -8156,7 +8651,16 @@ pub(crate) mod cfi_tests {
         let mcx = ctx.mcx();
         let values = [Datum::from_i32(1), Datum::from_i32(2), Datum::from_i32(3)];
         let full = arrayfuncs::construct::construct_md_array(
-            mcx, &values, None, 1, &[3], &[1], INT4OID, 4, true, b'i',
+            mcx,
+            &values,
+            None,
+            1,
+            &[3],
+            &[1],
+            INT4OID,
+            4,
+            true,
+            b'i',
         )
         .unwrap();
         let payload = &full[datum::VARHDRSZ..];
@@ -8209,7 +8713,10 @@ pub(crate) mod cfi_tests {
         EXPR_PLANS.with(|t| t.borrow_mut().remove(&expr.expr_id));
         crate::comp::release_expr_ids(&[expr.expr_id]);
         let err = r.expect_err("no portal snapshot can be re-established here");
-        assert_eq!(err.message(), "cannot execute SQL without an outer snapshot or portal");
+        assert_eq!(
+            err.message(),
+            "cannot execute SQL without an outer snapshot or portal"
+        );
     }
 }
 
@@ -8279,7 +8786,9 @@ mod var_assign_tests {
         let mut estate = Estate::new(&func, false, true).unwrap();
         let src = varlena::cstring_to_text(estate.eval_ctx.mcx(), b"ab").unwrap();
         let d = fmgr::varlena_result(src);
-        let stored = estate.assign_copy_to_datum_ctx(d, false, -1, false).unwrap();
+        let stored = estate
+            .assign_copy_to_datum_ctx(d, false, -1, false)
+            .unwrap();
         estate.set_var(0, stored, false, true);
         estate.retype_var(0, name);
         let (_, isnull) = estate.get_var(0).unwrap();
@@ -8346,7 +8855,10 @@ mod param_fetch_tests {
         let mut used = vec![3, 0];
         drop_unread_assign_target(&mut used, &[select_of(m, param(m, 3))]).unwrap();
         assert_eq!(used, vec![3, 0]);
-        assert_eq!(referenced_param_dnos(&[select_of(m, param(m, 3))]).unwrap(), vec![3]);
+        assert_eq!(
+            referenced_param_dnos(&[select_of(m, param(m, 3))]).unwrap(),
+            vec![3]
+        );
     }
 
     // Execute-path param fetch failures carry the SQL statement line
@@ -8365,7 +8877,11 @@ mod param_fetch_tests {
                 notnull: false,
                 default_val: None,
             }),
-            PlDatum::RecField(PlRecField { dno: 1, recparentno: 0, fieldname: "a".into() }),
+            PlDatum::RecField(PlRecField {
+                dno: 1,
+                recparentno: 0,
+                fieldname: "a".into(),
+            }),
         ];
         let mut estate = Estate::new(&func, false, true).unwrap();
         let expr = PlExpr {
@@ -8377,22 +8893,40 @@ mod param_fetch_tests {
             target_is_local: false,
         };
         let argtypes = [types_core::InvalidOid, 23];
-        let err = estate.setup_param_list_under_spi(&expr, &[1], &argtypes, false).unwrap_err();
-        assert_eq!(err.sqlstate, types_error::ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE);
-        assert_eq!(err.context.as_deref(), Some("SQL statement \"select pg_typeof(r.a)\""));
+        let err = estate
+            .setup_param_list_under_spi(&expr, &[1], &argtypes, false)
+            .unwrap_err();
+        assert_eq!(
+            err.sqlstate,
+            types_error::ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE
+        );
+        assert_eq!(
+            err.context.as_deref(),
+            Some("SQL statement \"select pg_typeof(r.a)\"")
+        );
         let err = estate.setup_param_list(&[1], &argtypes, false).unwrap_err();
         assert_eq!(err.context, None);
         // The execute path's speculative fetch (pl_exec.c:6335) leaves the
         // field without a value and hands SPI the fetch for evaluation time.
         let params = estate.setup_param_list(&[1], &argtypes, true).unwrap();
-        assert_eq!((params[1].ptype, params[1].pflags), (types_core::InvalidOid, 0));
+        assert_eq!(
+            (params[1].ptype, params[1].pflags),
+            (types_core::InvalidOid, 0)
+        );
         let mut arg = estate.spi_fetch_arg(&std::rc::Rc::from(vec![1]));
         let list = spi_param_list(&params, &mut arg);
         let fetch = list.fetch.expect("a slot without a value brings the fetch");
         let err = unsafe { (fetch.func)(fetch.arg, 2) }.unwrap_err();
-        assert_eq!(err.sqlstate, types_error::ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE);
+        assert_eq!(
+            err.sqlstate,
+            types_error::ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE
+        );
         let dummy = unsafe { (fetch.func)(fetch.arg, 1) }.unwrap();
-        assert_eq!(dummy.ptype, types_core::InvalidOid, "datum 0 is not one of the paramnos");
+        assert_eq!(
+            dummy.ptype,
+            types_core::InvalidOid,
+            "datum 0 is not one of the paramnos"
+        );
     }
 }
 
@@ -8439,15 +8973,27 @@ mod simple_expr_tests {
     }
 
     fn var(m: mcx::Mcx<'static>, varno: i32) -> Node<'static> {
-        Node::mk(m, Var { varno, varattno: 1, vartype: 23, vartypmod: -1, ..Default::default() })
-            .unwrap()
+        Node::mk(
+            m,
+            Var {
+                varno,
+                varattno: 1,
+                vartype: 23,
+                vartypmod: -1,
+                ..Default::default()
+            },
+        )
+        .unwrap()
     }
 
     fn result(m: mcx::Mcx<'static>, expr: Node<'static>) -> Node<'static> {
         Node::mk(
             m,
             Result {
-                plan: Plan { targetlist: tlist(m, expr), ..Default::default() },
+                plan: Plan {
+                    targetlist: tlist(m, expr),
+                    ..Default::default()
+                },
                 resconstantqual: None,
             },
         )
@@ -8458,7 +9004,11 @@ mod simple_expr_tests {
         Node::mk(
             m,
             Gather {
-                plan: Plan { targetlist: tlist(m, tle), lefttree: Some(child), ..Default::default() },
+                plan: Plan {
+                    targetlist: tlist(m, tle),
+                    lefttree: Some(child),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         )
@@ -8466,11 +9016,18 @@ mod simple_expr_tests {
     }
 
     fn stmt(plan: Node<'static>) -> PlannedStmt<'static> {
-        PlannedStmt { commandType: CmdType::CMD_SELECT, planTree: Some(plan), ..Default::default() }
+        PlannedStmt {
+            commandType: CmdType::CMD_SELECT,
+            planTree: Some(plan),
+            ..Default::default()
+        }
     }
 
     fn m() -> mcx::Mcx<'static> {
-        Box::leak(Box::new(mcx::MemoryContext::new("plpgsql simple expr test"))).mcx()
+        Box::leak(Box::new(mcx::MemoryContext::new(
+            "plpgsql simple expr test",
+        )))
+        .mcx()
     }
 
     // exec_save_simple_expr (pl_exec.c:8300-8343): a Gather (debug_parallel_query)
@@ -8490,7 +9047,13 @@ mod simple_expr_tests {
 
         let material = Node::mk(
             m,
-            Material { plan: Plan { targetlist: tlist(m, var(m, OUTER_VAR)), lefttree: Some(wrapped), ..Default::default() } },
+            Material {
+                plan: Plan {
+                    targetlist: tlist(m, var(m, OUTER_VAR)),
+                    lefttree: Some(wrapped),
+                    ..Default::default()
+                },
+            },
         )
         .unwrap();
         let (expr, _, _) = simple_result_expr(&stmt(material)).expect("Material over Gather");
@@ -8523,7 +9086,14 @@ mod d4312_tests {
         let first = task_ids(1000);
         super::release_plpgsql_state_at_exit(0, 0);
         let second = task_ids(1000);
-        assert_eq!(second.first(), first.first(), "the next task's ids start where the first task's did");
-        assert_eq!(second, first, "a retained thread's next task reissues the ids its exit drain freed");
+        assert_eq!(
+            second.first(),
+            first.first(),
+            "the next task's ids start where the first task's did"
+        );
+        assert_eq!(
+            second, first,
+            "a retained thread's next task reissues the ids its exit drain freed"
+        );
     }
 }

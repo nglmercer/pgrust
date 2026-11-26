@@ -41,11 +41,20 @@ const NORMALIZE: usize = 64 << 10;
 #[test]
 fn a_refused_boxed_block_raises_53200_never_the_abort() {
     ARMED.with(|a| a.set(NORMALIZE));
-    let payload = std::panic::catch_unwind(|| drop(Arena::new(NORMALIZE))).expect_err("the refused block raises");
-    let e = payload.downcast_ref::<types_error::PgError>().expect("a PgError payload (an ERROR), not a plain panic");
+    let payload = std::panic::catch_unwind(|| drop(Arena::new(NORMALIZE)))
+        .expect_err("the refused block raises");
+    let e = payload
+        .downcast_ref::<types_error::PgError>()
+        .expect("a PgError payload (an ERROR), not a plain panic");
     assert_eq!(e.sqlstate(), types_error::ERRCODE_OUT_OF_MEMORY);
     assert_eq!(e.message(), "out of memory");
     ARMED.with(|a| a.set(NORMALIZE));
-    assert!(Arena::try_new(NORMALIZE).is_none(), "try_new: the refusal as None");
-    assert!(Arena::try_new(NORMALIZE).is_some(), "disarmed: the allocator's block");
+    assert!(
+        Arena::try_new(NORMALIZE).is_none(),
+        "try_new: the refusal as None"
+    );
+    assert!(
+        Arena::try_new(NORMALIZE).is_some(),
+        "disarmed: the allocator's block"
+    );
 }

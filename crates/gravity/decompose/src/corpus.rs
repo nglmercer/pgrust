@@ -10,7 +10,10 @@ use types_nodes::{Node, NodeTag};
 
 use gravity_program::limits;
 
-use crate::catalog::{expr_fp, nth_index_expr, Am, AttFact, ExprFp, Facts, IndexExt, IndexFact, InsteadOf, LeafFact, RelFact};
+use crate::catalog::{
+    expr_fp, nth_index_expr, Am, AttFact, ExprFp, Facts, IndexExt, IndexFact, InsteadOf, LeafFact,
+    RelFact,
+};
 use crate::effects::FuncProps;
 use crate::ledger::Kind;
 use crate::ops::modifytable::trig_facts::{TrigExt, TRIG_DELETE, TRIG_INSERT, TRIG_UPDATE};
@@ -86,9 +89,22 @@ pub struct FuncLine {
 impl FixtureFacts {
     /// `twins`: `a` and `b` heap relations of one width whose captured attributes are equal.
     fn twin(&self, a: u32, b: u32) -> bool {
-        let (Some(x), Some(y)) = (self.rel(a), self.rel(b)) else { return false };
-        let atts = |r: u32| self.atts.iter().filter(move |(id, _, _)| *id == r).map(|(_, n, f)| (*n, *f));
-        self.twins && x.am == Am::Heap && y.am == Am::Heap && x.relkind == b'r' && y.relkind == b'r' && x.natts == y.natts && atts(a).eq(atts(b))
+        let (Some(x), Some(y)) = (self.rel(a), self.rel(b)) else {
+            return false;
+        };
+        let atts = |r: u32| {
+            self.atts
+                .iter()
+                .filter(move |(id, _, _)| *id == r)
+                .map(|(_, n, f)| (*n, *f))
+        };
+        self.twins
+            && x.am == Am::Heap
+            && y.am == Am::Heap
+            && x.relkind == b'r'
+            && y.relkind == b'r'
+            && x.natts == y.natts
+            && atts(a).eq(atts(b))
     }
 }
 
@@ -102,15 +118,24 @@ impl Facts for FixtureFacts {
     }
 
     fn rel(&self, relid: u32) -> Option<RelFact> {
-        self.rels.iter().find(|(r, _)| r.relid == relid).map(|(r, _)| *r)
+        self.rels
+            .iter()
+            .find(|(r, _)| r.relid == relid)
+            .map(|(r, _)| *r)
     }
 
     fn att(&self, relid: u32, attno: i16) -> Option<AttFact> {
-        self.atts.iter().find(|(r, a, _)| *r == relid && *a == attno).map(|(_, _, f)| *f)
+        self.atts
+            .iter()
+            .find(|(r, a, _)| *r == relid && *a == attno)
+            .map(|(_, _, f)| *f)
     }
 
     fn att_range(&self, relid: u32, attno: i16) -> Option<(i64, i64)> {
-        self.ranges.iter().find(|(r, a, _, _)| *r == relid && *a == attno).map(|(_, _, lo, hi)| (*lo, *hi))
+        self.ranges
+            .iter()
+            .find(|(r, a, _, _)| *r == relid && *a == attno)
+            .map(|(_, _, lo, hi)| (*lo, *hi))
     }
 
     fn index(&self, indexid: u32) -> Option<IndexFact> {
@@ -118,43 +143,78 @@ impl Facts for FixtureFacts {
     }
 
     fn index_am(&self, indexid: u32) -> crate::catalog::IndexAm {
-        self.idx_ams.iter().find(|(i, _)| *i == indexid).map_or(crate::catalog::IndexAm::Other, |(_, a)| *a)
+        self.idx_ams
+            .iter()
+            .find(|(i, _)| *i == indexid)
+            .map_or(crate::catalog::IndexAm::Other, |(_, a)| *a)
     }
 
     fn indexes_of(&self, relid: u32, f: &mut dyn FnMut(IndexFact)) {
-        self.idxs.iter().filter(|i| i.relid == relid).for_each(|i| f(*i));
+        self.idxs
+            .iter()
+            .filter(|i| i.relid == relid)
+            .for_each(|i| f(*i));
     }
 
     fn index_ext(&self, indexid: u32) -> IndexExt {
-        self.exts.iter().find(|(i, _)| *i == indexid).map_or(IndexExt::UNKNOWN, |(_, e)| *e)
+        self.exts
+            .iter()
+            .find(|(i, _)| *i == indexid)
+            .map_or(IndexExt::UNKNOWN, |(_, e)| *e)
     }
 
     fn att_generated(&self, relid: u32, attno: i16) -> u8 {
-        self.gens.iter().find(|(r, a, _)| *r == relid && *a == attno).map_or(0, |(_, _, g)| *g)
+        self.gens
+            .iter()
+            .find(|(r, a, _)| *r == relid && *a == attno)
+            .map_or(0, |(_, _, g)| *g)
     }
 
     /// KeySem slice 3: a captured `-- op` line is a default family's ordering operator (the direction table's), its family,
     /// input type and comparator unknown to the capture (0); else the bootstrap rows' (`opdir::builtin_key`).
     fn key(&self, req: crate::catalog::KeyReq) -> Option<crate::catalog::KeyOrder> {
-        let captured = self.ops.iter().find(|(o, _)| *o == req.op).map(|&(_, desc)| crate::catalog::KeyOrder { desc, family: 0, opcintype: 0, default_family: true, cmp: 0, no_proc: false });
+        let captured = self
+            .ops
+            .iter()
+            .find(|(o, _)| *o == req.op)
+            .map(|&(_, desc)| crate::catalog::KeyOrder {
+                desc,
+                family: 0,
+                opcintype: 0,
+                default_family: true,
+                cmp: 0,
+                no_proc: false,
+            });
         captured.or_else(|| crate::catalog::opdir::builtin_key(req.op))
     }
 
     fn op_image_eq(&self, opno: u32) -> Option<(u32, u32)> {
-        self.image_eqs.iter().find(|e| e.0 == opno).map(|e| (e.1, e.2))
+        self.image_eqs
+            .iter()
+            .find(|e| e.0 == opno)
+            .map(|e| (e.1, e.2))
     }
 
     fn instead_of(&self, relid: u32) -> InsteadOf {
-        self.trigs.iter().find(|(r, _)| *r == relid).map_or(InsteadOf::UNKNOWN, |(_, t)| *t)
+        self.trigs
+            .iter()
+            .find(|(r, _)| *r == relid)
+            .map_or(InsteadOf::UNKNOWN, |(_, t)| *t)
     }
 
     /// The relation's `-- trigext` line; `UNKNOWN` without one (a capture older than the line).
     fn shred_election(&self, relid: u32, attno: i16, keys: &[&str]) -> Option<(u8, i32)> {
-        self.shreds.iter().any(|(r, a, k)| *r == relid && *a == attno && keys == [k.as_str()]).then_some((0, 0))
+        self.shreds
+            .iter()
+            .any(|(r, a, k)| *r == relid && *a == attno && keys == [k.as_str()])
+            .then_some((0, 0))
     }
 
     fn trig_ext(&self, relid: u32) -> TrigExt {
-        self.trig_exts.iter().find(|(r, _)| *r == relid).map_or(TrigExt::UNKNOWN, |(_, t)| *t)
+        self.trig_exts
+            .iter()
+            .find(|(r, _)| *r == relid)
+            .map_or(TrigExt::UNKNOWN, |(_, t)| *t)
     }
 
     /// The tree walk of `hosts/src/facts.rs::leaves_under` over the `-- part` lines (none under the root = unknown).
@@ -167,7 +227,11 @@ impl Facts for FixtureFacts {
     }
 
     fn index_expr(&self, indexid: u32, col: u8) -> Option<ExprFp> {
-        self.exprs.iter().find(|(i, _, _)| *i == indexid).map(|(_, _, fps)| fps[col as usize]).filter(|fp| fp.is_some())
+        self.exprs
+            .iter()
+            .find(|(i, _, _)| *i == indexid)
+            .map(|(_, _, fps)| fps[col as usize])
+            .filter(|fp| fp.is_some())
     }
 
     fn reads_hash_functions(&self) -> bool {
@@ -176,28 +240,36 @@ impl Facts for FixtureFacts {
 
     /// The fixture's `-- func` line, else the builtin table (the default's answer).
     fn func(&self, funcid: u32) -> Option<FuncProps> {
-        self.funcs.iter().find(|f| f.oid == funcid).map(|f| f.props).or_else(|| crate::effects::builtin_func(funcid))
+        self.funcs
+            .iter()
+            .find(|f| f.oid == funcid)
+            .map(|f| f.props)
+            .or_else(|| crate::effects::builtin_func(funcid))
     }
 
     /// On unless the test named the road off (`roads_off`).
     fn default_on_road_on(&self, road: &str) -> bool {
-        !self.roads_off.contains(& road)
+        !self.roads_off.contains(&road)
     }
 
     /// Off unless the test named the road on (`roads_on`).
     fn road_on(&self, name: &str) -> bool {
-        self.roads_on.contains(& name)
+        self.roads_on.contains(&name)
     }
 }
 
 type R<T> = core::result::Result<T, String>;
 
 fn kv<'a>(words: &[&'a str], key: &str) -> R<&'a str> {
-    words.iter().find_map(|w| w.strip_prefix(key).and_then(|r| r.strip_prefix('='))).ok_or_else(|| format!("fixture header: missing {key}=")) // alloc: Cold
+    words
+        .iter()
+        .find_map(|w| w.strip_prefix(key).and_then(|r| r.strip_prefix('=')))
+        .ok_or_else(|| format!("fixture header: missing {key}=")) // alloc: Cold
 }
 
 fn num<T: core::str::FromStr>(s: &str, what: &str) -> R<T> {
-    s.parse().map_err(|_| format!("fixture header: bad {what} {s:?}")) // alloc: Cold
+    s.parse()
+        .map_err(|_| format!("fixture header: bad {what} {s:?}")) // alloc: Cold
 }
 
 impl FixtureFacts {
@@ -215,15 +287,42 @@ impl FixtureFacts {
         let atts = |relid: u32| self.atts.iter().filter(move |(r, _, _)| *r == relid);
         let rel = self.rel(leaf);
         let natts = rel.map_or(0, |r| r.natts);
-        let same_layout = self.rel(root).is_some_and(|r| r.natts == natts) && atts(root).count() == atts(leaf).count() && atts(root).zip(atts(leaf)).all(|(a, b)| a.1 == b.1 && a.2.typid == b.2.typid && a.2.typmod == b.2.typmod);
+        let same_layout = self.rel(root).is_some_and(|r| r.natts == natts)
+            && atts(root).count() == atts(leaf).count()
+            && atts(root)
+                .zip(atts(leaf))
+                .all(|(a, b)| a.1 == b.1 && a.2.typid == b.2.typid && a.2.typmod == b.2.typmod);
         let (mut nindexes, mut plain) = (0u16, true);
         self.indexes_of(leaf, &mut |i| {
             nindexes += 1;
             let e = self.index_ext(i.indexid);
-            plain &= i.btree && !i.partial && !e.deferrable && !e.exclusion && i.nkeys > 0 && !i.keys().iter().any(|&a| a <= 0) && (e.nkeyatts == 0 || e.nkeyatts == i.nkeys);
+            plain &= i.btree
+                && !i.partial
+                && !e.deferrable
+                && !e.exclusion
+                && i.nkeys > 0
+                && !i.keys().iter().any(|&a| a <= 0)
+                && (e.nkeyatts == 0 || e.nkeyatts == i.nkeys);
         });
-        let trig_ext = if trig { self.trig_ext(leaf) } else { TrigExt::NONE };
-        LeafFact { relid: leaf, natts, heap: rel.is_some_and(|r| r.am == Am::Heap && r.relkind == b'r'), foreign: rel.is_some_and(|r| r.relkind == b'f'), pgrc: rel.is_some_and(|r| r.am == Am::Pgrcolumnar && r.relkind == b'r'), same_layout, has_triggers: trig, trig: trig_ext, has_rules: rules, has_generated: self.gens.iter().any(|g| g.0 == leaf), nindexes, indexes_plain: plain }
+        let trig_ext = if trig {
+            self.trig_ext(leaf)
+        } else {
+            TrigExt::NONE
+        };
+        LeafFact {
+            relid: leaf,
+            natts,
+            heap: rel.is_some_and(|r| r.am == Am::Heap && r.relkind == b'r'),
+            foreign: rel.is_some_and(|r| r.relkind == b'f'),
+            pgrc: rel.is_some_and(|r| r.am == Am::Pgrcolumnar && r.relkind == b'r'),
+            same_layout,
+            has_triggers: trig,
+            trig: trig_ext,
+            has_rules: rules,
+            has_generated: self.gens.iter().any(|g| g.0 == leaf),
+            nindexes,
+            indexes_plain: plain,
+        }
     }
 
     pub fn line(&mut self, line: &str) -> R<bool> {
@@ -244,7 +343,10 @@ impl FixtureFacts {
                     let mut n = 0;
                     for a in s.split(',') {
                         if n == limits::KEYS {
-                            return Err(format!("fixture header: rel {relid}: more than {} sorted columns", limits::KEYS)); // alloc: Cold
+                            return Err(format!(
+                                "fixture header: rel {relid}: more than {} sorted columns",
+                                limits::KEYS
+                            )); // alloc: Cold
                         }
                         attnos[n] = num(a, "sorted")?;
                         n += 1;
@@ -256,10 +358,18 @@ impl FixtureFacts {
             Some("att") => {
                 let relid = num(w[1], "relid")?;
                 let attno = num(w[2], "attno")?;
-                let mut f = AttFact::plain(num(kv(&w, "typid")?, "typid")?, num(kv(&w, "typmod")?, "typmod")?, num(kv(&w, "len")?, "len")?, kv(&w, "byval")? == "t", kv(&w, "notnull")? == "t");
+                let mut f = AttFact::plain(
+                    num(kv(&w, "typid")?, "typid")?,
+                    num(kv(&w, "typmod")?, "typmod")?,
+                    num(kv(&w, "len")?, "len")?,
+                    kv(&w, "byval")? == "t",
+                    kv(&w, "notnull")? == "t",
+                );
                 // D2700: a domain column's base type and typmod (absent: the column's own)
                 if let Ok(b) = kv(&w, "base") {
-                    let (t, m) = b.split_once(':').ok_or_else(|| format!("fixture header: bad base {b:?}"))?; // alloc: Cold
+                    let (t, m) = b
+                        .split_once(':')
+                        .ok_or_else(|| format!("fixture header: bad base {b:?}"))?; // alloc: Cold
                     (f.base, f.base_typmod) = (num(t, "base")?, num(m, "base typmod")?);
                 }
                 self.atts.push((relid, attno, f));
@@ -269,8 +379,11 @@ impl FixtureFacts {
                     }
                 }
                 if let Ok(r) = kv(&w, "range") {
-                    let (lo, hi) = r.split_once(':').ok_or_else(|| format!("fixture header: bad range {r:?}"))?; // alloc: Cold
-                    self.ranges.push((relid, attno, num(lo, "range")?, num(hi, "range")?));
+                    let (lo, hi) = r
+                        .split_once(':')
+                        .ok_or_else(|| format!("fixture header: bad range {r:?}"))?; // alloc: Cold
+                    self.ranges
+                        .push((relid, attno, num(lo, "range")?, num(hi, "range")?));
                 }
                 if let Ok(k) = kv(&w, "shred") {
                     self.shreds.push((relid, attno, k.to_string())); // alloc: Cold
@@ -282,26 +395,54 @@ impl FixtureFacts {
                 let mut nkeys = 0u8;
                 for k in kv(&w, "keys")?.split(',').filter(|k| !k.is_empty()) {
                     if nkeys as usize == keys.len() {
-                        return Err(format!("index {indexid}: more than {} key columns (limits::KEYS = INDEX_MAX_KEYS)", keys.len())); // alloc: Cold
+                        return Err(format!("index {indexid}: more than {} key columns (limits::KEYS = INDEX_MAX_KEYS)", keys.len()));
+                        // alloc: Cold
                     }
                     keys[nkeys as usize] = num(k, "key")?;
                     nkeys += 1;
                 }
                 let am = kv(&w, "am")?;
-                self.idx_ams.push((indexid, crate::catalog::IndexAm::of_name(am)));
+                self.idx_ams
+                    .push((indexid, crate::catalog::IndexAm::of_name(am)));
                 // the D5 facts are required: a fixture without the key options fails to load
                 let mut opts = [0u8; gravity_program::limits::KEYS];
-                for (i, o) in kv(&w, "opts")?.split(',').filter(|o| !o.is_empty()).enumerate() {
+                for (i, o) in kv(&w, "opts")?
+                    .split(',')
+                    .filter(|o| !o.is_empty())
+                    .enumerate()
+                {
                     if i >= nkeys as usize {
-                        return Err(format!("index {indexid}: more options than key columns")); // alloc: Cold
+                        return Err(format!("index {indexid}: more options than key columns"));
+                        // alloc: Cold
                     }
                     opts[i] = num(o, "opt")?;
                 }
                 // the D1 index facts are required: a fixture whose index does not classify fails to load
                 let flag = |key: &str| kv(&w, key).map(|v| v == "t");
                 let deferrable = flag("deferrable")?;
-                self.idxs.push(IndexFact { indexid, relid: num(kv(&w, "rel")?, "rel")?, keys, opts, nkeys, unique: kv(&w, "unique")? == "t", immediate: !deferrable, btree: am == "btree", partial: kv(&w, "partial").is_ok_and(|p| p == "t") });
-                self.exts.push((indexid, IndexExt { deferrable, valid: flag("valid").unwrap_or(true), ready: flag("ready").unwrap_or(true), exclusion: flag("excl")?, primary: flag("primary")?, nkeyatts: num(kv(&w, "nkeyatts")?, "nkeyatts")?, known: true }));
+                self.idxs.push(IndexFact {
+                    indexid,
+                    relid: num(kv(&w, "rel")?, "rel")?,
+                    keys,
+                    opts,
+                    nkeys,
+                    unique: kv(&w, "unique")? == "t",
+                    immediate: !deferrable,
+                    btree: am == "btree",
+                    partial: kv(&w, "partial").is_ok_and(|p| p == "t"),
+                });
+                self.exts.push((
+                    indexid,
+                    IndexExt {
+                        deferrable,
+                        valid: flag("valid").unwrap_or(true),
+                        ready: flag("ready").unwrap_or(true),
+                        exclusion: flag("excl")?,
+                        primary: flag("primary")?,
+                        nkeyatts: num(kv(&w, "nkeyatts")?, "nkeyatts")?,
+                        known: true,
+                    },
+                ));
             }
             Some("op") => {
                 // `op <opno> family=<opfamily> strat=<1|5>`: the btree opfamily membership of a user operator
@@ -312,32 +453,53 @@ impl FixtureFacts {
             Some("imageeq") => {
                 // `imageeq <opno> left=<typid> right=<typid>`: an image equality the plan reads (`Facts::op_image_eq`)
                 let opno = num(w[1], "opno")?;
-                self.image_eqs.push((opno, num(kv(&w, "left")?, "left")?, num(kv(&w, "right")?, "right")?)); // alloc: Cold
+                self.image_eqs.push((
+                    opno,
+                    num(kv(&w, "left")?, "left")?,
+                    num(kv(&w, "right")?, "right")?,
+                )); // alloc: Cold
             }
             Some("trig") => {
                 // `trig <relid> instead=<i?u?d?>`: the relation's INSTEAD OF row triggers (a view target)
                 let relid = num(w[1], "relid")?;
-                self.trigs.push((relid, InsteadOf::of_letters(kv(&w, "instead")?))); // alloc: Cold
+                self.trigs
+                    .push((relid, InsteadOf::of_letters(kv(&w, "instead")?))); // alloc: Cold
             }
             Some("trigext") => {
                 // `trigext <relid> before=<iud|-> after= instead= stmt= trans= internal= defer= rules=<t|f>`: the relation's
                 // trigger kinds as the relcache's trigger descriptor holds them (gravity_capture.trigext); `rules=` is RelExt's;
                 let bits = |key: &str| -> R<u8> {
                     let v = kv(&w, key)?;
-                    v.chars().filter(|&c| c != '-').try_fold(0u8, |b, c| match c {
-                        'i' => Ok(b | TRIG_INSERT),
-                        'u' => Ok(b | TRIG_UPDATE),
-                        'd' => Ok(b | TRIG_DELETE),
-                        _ => Err(format!("fixture header: bad trigext {key}={v:?}")), // alloc: Cold
-                    })
+                    v.chars()
+                        .filter(|&c| c != '-')
+                        .try_fold(0u8, |b, c| match c {
+                            'i' => Ok(b | TRIG_INSERT),
+                            'u' => Ok(b | TRIG_UPDATE),
+                            'd' => Ok(b | TRIG_DELETE),
+                            _ => Err(format!("fixture header: bad trigext {key}={v:?}")), // alloc: Cold
+                        })
                 };
-                let t = TrigExt { before_row: bits("before")?, after_row: bits("after")?, instead_row: bits("instead")?, statement: bits("stmt")?, transition: bits("trans")?, internal: bits("internal")?, deferrable: bits("defer")?, known: true };
+                let t = TrigExt {
+                    before_row: bits("before")?,
+                    after_row: bits("after")?,
+                    instead_row: bits("instead")?,
+                    statement: bits("stmt")?,
+                    transition: bits("trans")?,
+                    internal: bits("internal")?,
+                    deferrable: bits("defer")?,
+                    known: true,
+                };
                 self.trig_exts.push((num(w[1], "relid")?, t)); // alloc: Cold
             }
             Some("part") => {
                 // `part <parent> <child> trig=<t|f> rules=<t|f>`: one pg_inherits edge of a partition tree
                 let flag = |key: &str| kv(&w, key).map(|v| v == "t");
-                self.parts.push((num(w[1], "parent")?, num(w[2], "child")?, flag("trig")?, flag("rules")?)); // alloc: Cold
+                self.parts.push((
+                    num(w[1], "parent")?,
+                    num(w[2], "child")?,
+                    flag("trig")?,
+                    flag("rules")?,
+                )); // alloc: Cold
             }
             Some("func") => {
                 let flag = |key: &str| -> R<bool> {
@@ -348,14 +510,32 @@ impl FixtureFacts {
                     }
                 };
                 let (vol, par) = (kv(&w, "vol")?, kv(&w, "parallel")?);
-                let props = FuncProps::of_letters(vol, flag("strict")?, flag("leakproof")?, par).ok_or_else(|| format!("fixture header: bad func vol={vol:?} parallel={par:?}"))?; // alloc: Cold
-                let f = FuncLine { oid: num(w[1], "func oid")?, props, retset: flag("retset")?, nargs: num(kv(&w, "nargs")?, "nargs")?, lang: num(kv(&w, "lang")?, "lang")?, node_arg: flag("nodearg")? };
+                let props = FuncProps::of_letters(vol, flag("strict")?, flag("leakproof")?, par)
+                    .ok_or_else(|| {
+                        format!("fixture header: bad func vol={vol:?} parallel={par:?}")
+                    })?; // alloc: Cold
+                let f = FuncLine {
+                    oid: num(w[1], "func oid")?,
+                    props,
+                    retset: flag("retset")?,
+                    nargs: num(kv(&w, "nargs")?, "nargs")?,
+                    lang: num(kv(&w, "lang")?, "lang")?,
+                    node_arg: flag("nodearg")?,
+                };
                 self.funcs.push(f); // alloc: Cold
             }
             Some("idxexprs") => {
                 let indexid = num(w[1], "indexid")?;
-                let text = line.splitn(3, char::is_whitespace).nth(2).ok_or("fixture header: idxexprs without a list")?.trim();
-                self.exprs.push((indexid, text.to_string(), [ExprFp::NONE; gravity_program::limits::KEYS])); // alloc: Cold
+                let text = line
+                    .splitn(3, char::is_whitespace)
+                    .nth(2)
+                    .ok_or("fixture header: idxexprs without a list")?
+                    .trim();
+                self.exprs.push((
+                    indexid,
+                    text.to_string(),
+                    [ExprFp::NONE; gravity_program::limits::KEYS],
+                )); // alloc: Cold
             }
             _ => return Ok(false),
         }
@@ -389,13 +569,18 @@ pub fn load<'m>(mcx: Mcx<'m>, text: &str) -> R<Fixture<'m>> {
             plan.push_str(line.trim());
         }
     }
-    for line in SHARED_IMAGEEQ_LINES.lines().filter(|l| l.starts_with("-- imageeq ")) {
+    for line in SHARED_IMAGEEQ_LINES
+        .lines()
+        .filter(|l| l.starts_with("-- imageeq "))
+    {
         facts.line(&line[3..])?;
     }
     let rd = Rd { mcx };
     for i in 0..facts.exprs.len() {
         let (indexid, text) = (facts.exprs[i].0, facts.exprs[i].1.clone()); // alloc: Cold
-        let idx = facts.index(indexid).ok_or_else(|| format!("fixture: idxexprs for an unknown index {indexid}"))?; // alloc: Cold
+        let idx = facts
+            .index(indexid)
+            .ok_or_else(|| format!("fixture: idxexprs for an unknown index {indexid}"))?; // alloc: Cold
         let list = rd.list(&text)?;
         for col in 0..idx.nkeys {
             if let Some(e) = nth_index_expr(&idx, &list, col) {
@@ -403,9 +588,19 @@ pub fn load<'m>(mcx: Mcx<'m>, text: &str) -> R<Fixture<'m>> {
             }
         }
     }
-    let node = rd.node(&plan)?.ok_or_else(|| "fixture: no plan".to_string())?; // alloc: Cold
-    let stmt = node.as_planned_stmt().ok_or_else(|| "fixture: not a PLANNEDSTMT".to_string())?; // alloc: Cold
-    Ok(Fixture { name, sql, stmt, facts, mcx })
+    let node = rd
+        .node(&plan)?
+        .ok_or_else(|| "fixture: no plan".to_string())?; // alloc: Cold
+    let stmt = node
+        .as_planned_stmt()
+        .ok_or_else(|| "fixture: not a PLANNEDSTMT".to_string())?; // alloc: Cold
+    Ok(Fixture {
+        name,
+        sql,
+        stmt,
+        facts,
+        mcx,
+    })
 }
 
 struct Rd<'m> {
@@ -489,7 +684,11 @@ struct Fields<'s>(Vec<(&'s str, &'s str)>);
 
 impl<'s> Fields<'s> {
     fn raw(&self, label: &str) -> R<&'s str> {
-        self.0.iter().find(|(l, _)| *l == label).map(|(_, v)| *v).ok_or_else(|| format!("fixture: missing field :{label}")) // alloc: Cold
+        self.0
+            .iter()
+            .find(|(l, _)| *l == label)
+            .map(|(_, v)| *v)
+            .ok_or_else(|| format!("fixture: missing field :{label}")) // alloc: Cold
     }
 
     fn opt(&self, label: &str) -> Option<&'s str> {
@@ -534,7 +733,13 @@ impl<'s> Fields<'s> {
 }
 
 /// Plan-family nodes that are not plan nodes (`readfuncs` reads none of them): the append-rel map and the partition pruning descriptors.
-const AUX_TAGS: &[&str] = &["APPENDRELINFO", "PARTITIONPRUNEINFO", "PARTITIONEDRELPRUNEINFO", "PARTITIONPRUNESTEPOP", "PARTITIONPRUNESTEPCOMBINE"];
+const AUX_TAGS: &[&str] = &[
+    "APPENDRELINFO",
+    "PARTITIONPRUNEINFO",
+    "PARTITIONEDRELPRUNEINFO",
+    "PARTITIONPRUNESTEPOP",
+    "PARTITIONPRUNESTEPCOMBINE",
+];
 
 const PLAN_TAGS: &[(&str, Kind)] = &[
     ("RESULT", Kind::Result),
@@ -613,20 +818,52 @@ fn join_type(v: u32) -> JoinType {
 
 /// An Agg's `gravity_finals`: (resno min max sum count) per final, flat (outfuncs `out_agg`).
 fn finals(flat: &[i32]) -> R<Vec<GravityFinal>> {
-    if ! flat.len().is_multiple_of( 5) {
-        return Err(format!("fixture: gravity_finals of {} numbers", flat.len())); // alloc: Cold
+    if !flat.len().is_multiple_of(5) {
+        return Err(format!("fixture: gravity_finals of {} numbers", flat.len()));
+        // alloc: Cold
     }
-    flat.chunks(5).map(|c| Ok(GravityFinal { resno: i16::try_from(c[0]).map_err(|_| format!("fixture: gravity_finals resno {}", c[0]))?, min: c[1], max: c[2], sum: c[3], count: c[4] })).collect() // alloc: Cold
+    flat.chunks(5)
+        .map(|c| {
+            Ok(GravityFinal {
+                resno: i16::try_from(c[0])
+                    .map_err(|_| format!("fixture: gravity_finals resno {}", c[0]))?,
+                min: c[1],
+                max: c[2],
+                sum: c[3],
+                count: c[4],
+            })
+        })
+        .collect() // alloc: Cold
 }
 
 fn rewrite(v: &str) -> R<Option<GravityRewrite>> {
-    let nums: Vec<&str> = v.split(|c: char| !c.is_ascii_alphanumeric() && c != '_').filter(|t| !t.is_empty()).collect(); // alloc: Cold
-    let val = |key: &str| -> R<&str> { nums.iter().position(|t| *t == key).and_then(|p| nums.get(p + 1).copied()).ok_or_else(|| format!("fixture: gravity_rewrite without {key}")) }; // alloc: Cold
+    let nums: Vec<&str> = v
+        .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+        .filter(|t| !t.is_empty())
+        .collect(); // alloc: Cold
+    let val = |key: &str| -> R<&str> {
+        nums.iter()
+            .position(|t| *t == key)
+            .and_then(|p| nums.get(p + 1).copied())
+            .ok_or_else(|| format!("fixture: gravity_rewrite without {key}"))
+    }; // alloc: Cold
     let attno: i16 = num(val("attno")?, "attno")?;
     Ok(Some(match nums.first().copied() {
-        Some("ZoneTopK") => GravityRewrite::ZoneTopK { attno, desc: val("desc")? == "true", nulls_first: val("nulls_first")? == "true" },
-        Some("ZoneWalk") => GravityRewrite::ZoneWalk { attno, desc: val("desc")? == "true", nulls_first: val("nulls_first")? == "true" },
-        Some("TwoPass") => GravityRewrite::TwoPass { attno, floor_desc: val("floor_desc")? == "true", floor_nulls_first: val("floor_nulls_first")? == "true" },
+        Some("ZoneTopK") => GravityRewrite::ZoneTopK {
+            attno,
+            desc: val("desc")? == "true",
+            nulls_first: val("nulls_first")? == "true",
+        },
+        Some("ZoneWalk") => GravityRewrite::ZoneWalk {
+            attno,
+            desc: val("desc")? == "true",
+            nulls_first: val("nulls_first")? == "true",
+        },
+        Some("TwoPass") => GravityRewrite::TwoPass {
+            attno,
+            floor_desc: val("floor_desc")? == "true",
+            floor_nulls_first: val("floor_nulls_first")? == "true",
+        },
         _ => return Err(format!("fixture: unknown gravity_rewrite {v}")), // alloc: Cold
     }))
 }
@@ -641,11 +878,20 @@ impl<'m> Rd<'m> {
         if span == "<>" || span.is_empty() {
             return Ok(None);
         }
-        if span.starts_with('(') && !span.starts_with("(b") && !span.starts_with("(i") && !span.starts_with("(o") {
-            return Node::mk_list(self.mcx, self.list(span)?).map(Some).or_else(|e| self.err(e));
+        if span.starts_with('(')
+            && !span.starts_with("(b")
+            && !span.starts_with("(i")
+            && !span.starts_with("(o")
+        {
+            return Node::mk_list(self.mcx, self.list(span)?)
+                .map(Some)
+                .or_else(|e| self.err(e));
         }
         if let Some(rest) = span.strip_prefix('{') {
-            let tag = rest.split(|c: char| c.is_whitespace() || c == '}').next().unwrap_or("");
+            let tag = rest
+                .split(|c: char| c.is_whitespace() || c == '}')
+                .next()
+                .unwrap_or("");
             if tag == "PLANNEDSTMT" {
                 return self.planned_stmt(span).map(Some);
             }
@@ -691,24 +937,39 @@ impl<'m> Rd<'m> {
         if span == "<>" || span == "(b)" {
             return Ok(Bitmapset::empty());
         }
-        let n = self.node(span)?.ok_or_else(|| "fixture: empty bitmapset".to_string())?; // alloc: Cold
-        n.as_bitmapset().ok_or_else(|| format!("fixture: not a bitmapset: {span}"))?.clone_in(self.mcx).or_else(|e| self.err(e)) // alloc: Cold
+        let n = self
+            .node(span)?
+            .ok_or_else(|| "fixture: empty bitmapset".to_string())?; // alloc: Cold
+        n.as_bitmapset()
+            .ok_or_else(|| format!("fixture: not a bitmapset: {span}"))?
+            .clone_in(self.mcx)
+            .or_else(|e| self.err(e)) // alloc: Cold
     }
 
     fn ints(&self, span: &str) -> R<IntList<'m>> {
         if span == "<>" {
             return Ok(IntList::nil());
         }
-        let n = self.node(span)?.ok_or_else(|| "fixture: empty int list".to_string())?; // alloc: Cold
-        n.as_int_list().ok_or_else(|| format!("fixture: not an int list: {span}"))?.clone_in(self.mcx).or_else(|e| self.err(e)) // alloc: Cold
+        let n = self
+            .node(span)?
+            .ok_or_else(|| "fixture: empty int list".to_string())?; // alloc: Cold
+        n.as_int_list()
+            .ok_or_else(|| format!("fixture: not an int list: {span}"))?
+            .clone_in(self.mcx)
+            .or_else(|e| self.err(e)) // alloc: Cold
     }
 
     fn oid_list(&self, span: &str) -> R<OidList<'m>> {
         if span == "<>" {
             return Ok(OidList::nil());
         }
-        let n = self.node(span)?.ok_or_else(|| "fixture: empty oid list".to_string())?; // alloc: Cold
-        n.as_oid_list().ok_or_else(|| format!("fixture: not an oid list: {span}"))?.clone_in(self.mcx).or_else(|e| self.err(e)) // alloc: Cold
+        let n = self
+            .node(span)?
+            .ok_or_else(|| "fixture: empty oid list".to_string())?; // alloc: Cold
+        n.as_oid_list()
+            .ok_or_else(|| format!("fixture: not an oid list: {span}"))?
+            .clone_in(self.mcx)
+            .or_else(|e| self.err(e)) // alloc: Cold
     }
 
     fn slice<T: Clone>(&self, v: &[T]) -> R<&'m [T]> {
@@ -718,7 +979,11 @@ impl<'m> Rd<'m> {
     fn string(&self, tok: &str) -> R<Option<&'m str>> {
         match unescape(tok) {
             None => Ok(None),
-            Some(s) => Ok(Some(mcx::slice_borrow_in(self.mcx, s.as_bytes()).or_else(|e| self.err(e)).map(|b| core::str::from_utf8(b).unwrap_or(""))?)),
+            Some(s) => Ok(Some(
+                mcx::slice_borrow_in(self.mcx, s.as_bytes())
+                    .or_else(|e| self.err(e))
+                    .map(|b| core::str::from_utf8(b).unwrap_or(""))?,
+            )),
         }
     }
 
@@ -741,7 +1006,8 @@ impl<'m> Rd<'m> {
                 break;
             }
             if b[i] != b':' {
-                return Err(format!("fixture: expected a field label at {i} in {tag}")); // alloc: Cold
+                return Err(format!("fixture: expected a field label at {i} in {tag}"));
+                // alloc: Cold
             }
             let le = span_end(b, i);
             let label = &span[i + 1..le];
@@ -788,11 +1054,19 @@ impl<'m> Rd<'m> {
     }
 
     fn scan_base(&self, f: &Fields<'_>) -> R<Scan<'m>> {
-        Ok(Scan { plan: self.plan_base(f, "scan.plan.")?, scanrelid: f.u32("scan.scanrelid")? })
+        Ok(Scan {
+            plan: self.plan_base(f, "scan.plan.")?,
+            scanrelid: f.u32("scan.scanrelid")?,
+        })
     }
 
     fn join_base(&self, f: &Fields<'_>) -> R<Join<'m>> {
-        Ok(Join { plan: self.plan_base(f, "join.plan.")?, jointype: join_type(f.u32("join.jointype")?), inner_unique: f.bool("join.inner_unique")?, joinqual: self.list(f.raw("join.joinqual")?)? })
+        Ok(Join {
+            plan: self.plan_base(f, "join.plan.")?,
+            jointype: join_type(f.u32("join.jointype")?),
+            inner_unique: f.bool("join.inner_unique")?,
+            joinqual: self.list(f.raw("join.joinqual")?)?,
+        })
     }
 
     fn sort_fields(&self, f: &Fields<'_>, pfx: &str) -> R<Sort<'m>> {
@@ -860,7 +1134,11 @@ impl<'m> Rd<'m> {
                 parent_colnos: self.slice(&f.i16s("parent_colnos")?)?,
                 parent_reloid: f.u32("parent_reloid")?,
             }),
-            "PARTITIONPRUNEINFO" => self.mk(PartitionPruneInfo { relids: self.bms(f.raw("relids")?)?, prune_infos: self.list(f.raw("prune_infos")?)?, other_subplans: self.bms(f.raw("other_subplans")?)? }),
+            "PARTITIONPRUNEINFO" => self.mk(PartitionPruneInfo {
+                relids: self.bms(f.raw("relids")?)?,
+                prune_infos: self.list(f.raw("prune_infos")?)?,
+                other_subplans: self.bms(f.raw("other_subplans")?)?,
+            }),
             "PARTITIONEDRELPRUNEINFO" => self.mk(PartitionedRelPruneInfo {
                 rtindex: f.u32("rtindex")?,
                 present_parts: self.bms(f.raw("present_parts")?)?,
@@ -873,8 +1151,18 @@ impl<'m> Rd<'m> {
                 exec_pruning_steps: self.list(f.raw("exec_pruning_steps")?)?,
                 execparamids: self.bms(f.raw("execparamids")?)?,
             }),
-            "PARTITIONPRUNESTEPOP" => self.mk(PartitionPruneStepOp { step_id: f.i32("step.step_id")?, opstrategy: num(f.raw("opstrategy")?, "opstrategy")?, exprs: self.list(f.raw("exprs")?)?, cmpfns: self.oid_list(f.raw("cmpfns")?)?, nullkeys: self.bms(f.raw("nullkeys")?)? }),
-            _ => self.mk(PartitionPruneStepCombine { step_id: f.i32("step.step_id")?, combineOp: f.u32("combineOp")?, source_stepids: self.ints(f.raw("source_stepids")?)? }),
+            "PARTITIONPRUNESTEPOP" => self.mk(PartitionPruneStepOp {
+                step_id: f.i32("step.step_id")?,
+                opstrategy: num(f.raw("opstrategy")?, "opstrategy")?,
+                exprs: self.list(f.raw("exprs")?)?,
+                cmpfns: self.oid_list(f.raw("cmpfns")?)?,
+                nullkeys: self.bms(f.raw("nullkeys")?)?,
+            }),
+            _ => self.mk(PartitionPruneStepCombine {
+                step_id: f.i32("step.step_id")?,
+                combineOp: f.u32("combineOp")?,
+                source_stepids: self.ints(f.raw("source_stepids")?)?,
+            }),
         }
     }
 
@@ -882,8 +1170,13 @@ impl<'m> Rd<'m> {
         let (_, f) = self.fields(span)?;
         let f = &f;
         match k {
-            Kind::Result => self.mk(ResultPlan { plan: self.plan_base(f, "plan.")?, resconstantqual: self.node(f.raw("resconstantqual")?)? }),
-            Kind::ProjectSet => self.mk(ProjectSet { plan: self.plan_base(f, "plan.")? }),
+            Kind::Result => self.mk(ResultPlan {
+                plan: self.plan_base(f, "plan.")?,
+                resconstantqual: self.node(f.raw("resconstantqual")?)?,
+            }),
+            Kind::ProjectSet => self.mk(ProjectSet {
+                plan: self.plan_base(f, "plan.")?,
+            }),
             Kind::ModifyTable => self.mk(ModifyTable {
                 plan: self.plan_base(f, "plan.")?,
                 operation: cmd_type(f.u32("operation")?),
@@ -919,9 +1212,21 @@ impl<'m> Rd<'m> {
                 first_partial_plan: f.i32("first_partial_plan")?,
                 part_prune_index: f.i32("part_prune_index")?,
                 // the ordered-Append mark is printed only when the planner set it
-                gravity_sort_col_idx: if f.opt("gravity_sort_col_idx").is_some() { self.slice(&f.i16s("gravity_sort_col_idx")?)? } else { &[] },
-                gravity_sort_operators: if f.opt("gravity_sort_operators").is_some() { self.slice(&f.oids("gravity_sort_operators")?)? } else { &[] },
-                gravity_nulls_first: if f.opt("gravity_nulls_first").is_some() { self.slice(&f.bools("gravity_nulls_first")?)? } else { &[] },
+                gravity_sort_col_idx: if f.opt("gravity_sort_col_idx").is_some() {
+                    self.slice(&f.i16s("gravity_sort_col_idx")?)?
+                } else {
+                    &[]
+                },
+                gravity_sort_operators: if f.opt("gravity_sort_operators").is_some() {
+                    self.slice(&f.oids("gravity_sort_operators")?)?
+                } else {
+                    &[]
+                },
+                gravity_nulls_first: if f.opt("gravity_nulls_first").is_some() {
+                    self.slice(&f.bools("gravity_nulls_first")?)?
+                } else {
+                    &[]
+                },
             }),
             Kind::MergeAppend => self.mk(MergeAppend {
                 plan: self.plan_base(f, "plan.")?,
@@ -943,8 +1248,15 @@ impl<'m> Rd<'m> {
                 dupCollations: self.slice(&f.oids("dupCollations")?)?,
                 numGroups: f.i64("numGroups")?,
             }),
-            Kind::BitmapAnd => self.mk(BitmapAnd { plan: self.plan_base(f, "plan.")?, bitmapplans: self.list(f.raw("bitmapplans")?)? }),
-            Kind::BitmapOr => self.mk(BitmapOr { plan: self.plan_base(f, "plan.")?, isshared: f.bool("isshared")?, bitmapplans: self.list(f.raw("bitmapplans")?)? }),
+            Kind::BitmapAnd => self.mk(BitmapAnd {
+                plan: self.plan_base(f, "plan.")?,
+                bitmapplans: self.list(f.raw("bitmapplans")?)?,
+            }),
+            Kind::BitmapOr => self.mk(BitmapOr {
+                plan: self.plan_base(f, "plan.")?,
+                isshared: f.bool("isshared")?,
+                bitmapplans: self.list(f.raw("bitmapplans")?)?,
+            }),
             Kind::SeqScan => self.mk(SeqScan {
                 scan: self.scan_base(f)?,
                 cb_scan_cols: match f.opt("cb_scan_cols") {
@@ -955,9 +1267,16 @@ impl<'m> Rd<'m> {
                     Some("<>") | None => None,
                     Some(v) => Some(self.bms(v)?),
                 },
-                pgrc_merge: if f.opt("pgrc_merge").is_some() { self.slice(&f.i16s("pgrc_merge")?)? } else { &[] },
+                pgrc_merge: if f.opt("pgrc_merge").is_some() {
+                    self.slice(&f.i16s("pgrc_merge")?)?
+                } else {
+                    &[]
+                },
             }),
-            Kind::SampleScan => self.mk(SampleScan { scan: self.scan_base(f)?, tablesample: self.node(f.raw("tablesample")?)? }),
+            Kind::SampleScan => self.mk(SampleScan {
+                scan: self.scan_base(f)?,
+                tablesample: self.node(f.raw("tablesample")?)?,
+            }),
             Kind::IndexScan => self.mk(IndexScan {
                 scan: self.scan_base(f)?,
                 indexid: f.u32("indexid")?,
@@ -977,19 +1296,67 @@ impl<'m> Rd<'m> {
                 indextlist: self.list(f.raw("indextlist")?)?,
                 indexorderdir: f.i32("indexorderdir")?,
             }),
-            Kind::BitmapIndexScan => self.mk(BitmapIndexScan { scan: self.scan_base(f)?, indexid: f.u32("indexid")?, isshared: f.bool("isshared")?, indexqual: self.list(f.raw("indexqual")?)?, indexqualorig: self.list(f.raw("indexqualorig")?)? }),
-            Kind::BitmapHeapScan => self.mk(BitmapHeapScan { scan: self.scan_base(f)?, bitmapqualorig: self.list(f.raw("bitmapqualorig")?)? }),
-            Kind::TidScan => self.mk(TidScan { scan: self.scan_base(f)?, tidquals: self.list(f.raw("tidquals")?)? }),
-            Kind::TidRangeScan => self.mk(TidRangeScan { scan: self.scan_base(f)?, tidrangequals: self.list(f.raw("tidrangequals")?)? }),
-            Kind::SubqueryScan => self.mk(SubqueryScan { scan: self.scan_base(f)?, subplan: self.node(f.raw("subplan")?)?, scanstatus: f.u32("scanstatus")? }),
-            Kind::FunctionScan => self.mk(FunctionScan { scan: self.scan_base(f)?, functions: self.list(f.raw("functions")?)?, funcordinality: f.bool("funcordinality")? }),
-            Kind::ValuesScan => self.mk(ValuesScan { scan: self.scan_base(f)?, values_lists: self.list(f.raw("values_lists")?)? }),
-            Kind::TableFuncScan => self.mk(TableFuncScan { scan: self.scan_base(f)?, tablefunc: self.node(f.raw("tablefunc")?)? }),
-            Kind::CteScan => self.mk(CteScan { scan: self.scan_base(f)?, ctePlanId: f.i32("ctePlanId")?, cteParam: f.i32("cteParam")?, gravity_fill: f.opt("gravity_fill").is_some() && f.bool("gravity_fill")? }),
-            Kind::NamedTuplestoreScan => self.mk(NamedTuplestoreScan { scan: self.scan_base(f)?, enrname: self.string(f.raw("enrname")?)? }),
-            Kind::WorkTableScan => self.mk(WorkTableScan { scan: self.scan_base(f)?, wtParam: f.i32("wtParam")? }),
-            Kind::NestLoop => self.mk(NestLoop { join: self.join_base(f)?, nestParams: self.list(f.raw("nestParams")?)? }),
-            Kind::NestLoopParam => self.mk(NestLoopParam { paramno: f.i32("paramno")?, paramval: self.node(f.raw("paramval")?)?.ok_or_else(|| "fixture: NestLoopParam without paramval".to_string())? }), // alloc: Cold
+            Kind::BitmapIndexScan => self.mk(BitmapIndexScan {
+                scan: self.scan_base(f)?,
+                indexid: f.u32("indexid")?,
+                isshared: f.bool("isshared")?,
+                indexqual: self.list(f.raw("indexqual")?)?,
+                indexqualorig: self.list(f.raw("indexqualorig")?)?,
+            }),
+            Kind::BitmapHeapScan => self.mk(BitmapHeapScan {
+                scan: self.scan_base(f)?,
+                bitmapqualorig: self.list(f.raw("bitmapqualorig")?)?,
+            }),
+            Kind::TidScan => self.mk(TidScan {
+                scan: self.scan_base(f)?,
+                tidquals: self.list(f.raw("tidquals")?)?,
+            }),
+            Kind::TidRangeScan => self.mk(TidRangeScan {
+                scan: self.scan_base(f)?,
+                tidrangequals: self.list(f.raw("tidrangequals")?)?,
+            }),
+            Kind::SubqueryScan => self.mk(SubqueryScan {
+                scan: self.scan_base(f)?,
+                subplan: self.node(f.raw("subplan")?)?,
+                scanstatus: f.u32("scanstatus")?,
+            }),
+            Kind::FunctionScan => self.mk(FunctionScan {
+                scan: self.scan_base(f)?,
+                functions: self.list(f.raw("functions")?)?,
+                funcordinality: f.bool("funcordinality")?,
+            }),
+            Kind::ValuesScan => self.mk(ValuesScan {
+                scan: self.scan_base(f)?,
+                values_lists: self.list(f.raw("values_lists")?)?,
+            }),
+            Kind::TableFuncScan => self.mk(TableFuncScan {
+                scan: self.scan_base(f)?,
+                tablefunc: self.node(f.raw("tablefunc")?)?,
+            }),
+            Kind::CteScan => self.mk(CteScan {
+                scan: self.scan_base(f)?,
+                ctePlanId: f.i32("ctePlanId")?,
+                cteParam: f.i32("cteParam")?,
+                gravity_fill: f.opt("gravity_fill").is_some() && f.bool("gravity_fill")?,
+            }),
+            Kind::NamedTuplestoreScan => self.mk(NamedTuplestoreScan {
+                scan: self.scan_base(f)?,
+                enrname: self.string(f.raw("enrname")?)?,
+            }),
+            Kind::WorkTableScan => self.mk(WorkTableScan {
+                scan: self.scan_base(f)?,
+                wtParam: f.i32("wtParam")?,
+            }),
+            Kind::NestLoop => self.mk(NestLoop {
+                join: self.join_base(f)?,
+                nestParams: self.list(f.raw("nestParams")?)?,
+            }),
+            Kind::NestLoopParam => self.mk(NestLoopParam {
+                paramno: f.i32("paramno")?,
+                paramval: self
+                    .node(f.raw("paramval")?)?
+                    .ok_or_else(|| "fixture: NestLoopParam without paramval".to_string())?,
+            }), // alloc: Cold
             Kind::MergeJoin => self.mk(MergeJoin {
                 join: self.join_base(f)?,
                 skip_mark_restore: f.bool("skip_mark_restore")?,
@@ -999,8 +1366,16 @@ impl<'m> Rd<'m> {
                 mergeReversals: self.slice(&f.bools("mergeReversals")?)?,
                 mergeNullsFirst: self.slice(&f.bools("mergeNullsFirst")?)?,
             }),
-            Kind::HashJoin => self.mk(HashJoin { join: self.join_base(f)?, hashclauses: self.list(f.raw("hashclauses")?)?, hashoperators: self.oid_list(f.raw("hashoperators")?)?, hashcollations: self.oid_list(f.raw("hashcollations")?)?, hashkeys: self.list(f.raw("hashkeys")?)? }),
-            Kind::Material => self.mk(Material { plan: self.plan_base(f, "plan.")? }),
+            Kind::HashJoin => self.mk(HashJoin {
+                join: self.join_base(f)?,
+                hashclauses: self.list(f.raw("hashclauses")?)?,
+                hashoperators: self.oid_list(f.raw("hashoperators")?)?,
+                hashcollations: self.oid_list(f.raw("hashcollations")?)?,
+                hashkeys: self.list(f.raw("hashkeys")?)?,
+            }),
+            Kind::Material => self.mk(Material {
+                plan: self.plan_base(f, "plan.")?,
+            }),
             Kind::Memoize => self.mk(Memoize {
                 plan: self.plan_base(f, "plan.")?,
                 numKeys: f.i32("numKeys")?,
@@ -1013,8 +1388,17 @@ impl<'m> Rd<'m> {
                 keyparamids: self.bms(f.raw("keyparamids")?)?,
             }),
             Kind::Sort => self.mk(self.sort_fields(f, "")?),
-            Kind::IncrementalSort => self.mk(IncrementalSort { sort: self.sort_fields(f, "sort.")?, nPresortedCols: f.i32("nPresortedCols")? }),
-            Kind::Group => self.mk(Group { plan: self.plan_base(f, "plan.")?, numCols: f.i32("numCols")?, grpColIdx: self.slice(&f.i16s("grpColIdx")?)?, grpOperators: self.slice(&f.oids("grpOperators")?)?, grpCollations: self.slice(&f.oids("grpCollations")?)? }),
+            Kind::IncrementalSort => self.mk(IncrementalSort {
+                sort: self.sort_fields(f, "sort.")?,
+                nPresortedCols: f.i32("nPresortedCols")?,
+            }),
+            Kind::Group => self.mk(Group {
+                plan: self.plan_base(f, "plan.")?,
+                numCols: f.i32("numCols")?,
+                grpColIdx: self.slice(&f.i16s("grpColIdx")?)?,
+                grpOperators: self.slice(&f.oids("grpOperators")?)?,
+                grpCollations: self.slice(&f.oids("grpCollations")?)?,
+            }),
             Kind::Agg => self.mk(Agg {
                 plan: self.plan_base(f, "plan.")?,
                 aggstrategy: f.u32("aggstrategy")?,
@@ -1063,8 +1447,21 @@ impl<'m> Rd<'m> {
                 inRangeNullsFirst: f.bool("inRangeNullsFirst")?,
                 topWindow: f.bool("topWindow")?,
             }),
-            Kind::Unique => self.mk(Unique { plan: self.plan_base(f, "plan.")?, numCols: f.i32("numCols")?, uniqColIdx: self.slice(&f.i16s("uniqColIdx")?)?, uniqOperators: self.slice(&f.oids("uniqOperators")?)?, uniqCollations: self.slice(&f.oids("uniqCollations")?)? }),
-            Kind::Gather => self.mk(Gather { plan: self.plan_base(f, "plan.")?, num_workers: f.i32("num_workers")?, rescan_param: f.i32("rescan_param")?, single_copy: f.bool("single_copy")?, invisible: f.bool("invisible")?, initParam: self.bms(f.raw("initParam")?)? }),
+            Kind::Unique => self.mk(Unique {
+                plan: self.plan_base(f, "plan.")?,
+                numCols: f.i32("numCols")?,
+                uniqColIdx: self.slice(&f.i16s("uniqColIdx")?)?,
+                uniqOperators: self.slice(&f.oids("uniqOperators")?)?,
+                uniqCollations: self.slice(&f.oids("uniqCollations")?)?,
+            }),
+            Kind::Gather => self.mk(Gather {
+                plan: self.plan_base(f, "plan.")?,
+                num_workers: f.i32("num_workers")?,
+                rescan_param: f.i32("rescan_param")?,
+                single_copy: f.bool("single_copy")?,
+                invisible: f.bool("invisible")?,
+                initParam: self.bms(f.raw("initParam")?)?,
+            }),
             Kind::GatherMerge => self.mk(GatherMerge {
                 plan: self.plan_base(f, "plan.")?,
                 num_workers: f.i32("num_workers")?,
@@ -1076,7 +1473,14 @@ impl<'m> Rd<'m> {
                 nullsFirst: self.slice(&f.bools("nullsFirst")?)?,
                 initParam: self.bms(f.raw("initParam")?)?,
             }),
-            Kind::Hash => self.mk(Hash { plan: self.plan_base(f, "plan.")?, hashkeys: self.list(f.raw("hashkeys")?)?, skewTable: f.u32("skewTable")?, skewColumn: num(f.raw("skewColumn")?, "skewColumn")?, skewInherit: f.bool("skewInherit")?, rows_total: f.f64("rows_total")? }),
+            Kind::Hash => self.mk(Hash {
+                plan: self.plan_base(f, "plan.")?,
+                hashkeys: self.list(f.raw("hashkeys")?)?,
+                skewTable: f.u32("skewTable")?,
+                skewColumn: num(f.raw("skewColumn")?, "skewColumn")?,
+                skewInherit: f.bool("skewInherit")?,
+                rows_total: f.f64("rows_total")?,
+            }),
             Kind::SetOp => self.mk(SetOp {
                 plan: self.plan_base(f, "plan.")?,
                 cmd: f.u32("cmd")?,
@@ -1088,12 +1492,20 @@ impl<'m> Rd<'m> {
                 cmpNullsFirst: self.slice(&f.bools("cmpNullsFirst")?)?,
                 numGroups: f.i64("numGroups")?,
             }),
-            Kind::LockRows => self.mk(LockRows { plan: self.plan_base(f, "plan.")?, rowMarks: self.list(f.raw("rowMarks")?)?, epqParam: f.i32("epqParam")? }),
+            Kind::LockRows => self.mk(LockRows {
+                plan: self.plan_base(f, "plan.")?,
+                rowMarks: self.list(f.raw("rowMarks")?)?,
+                epqParam: f.i32("epqParam")?,
+            }),
             Kind::Limit => self.mk(Limit {
                 plan: self.plan_base(f, "plan.")?,
                 limitOffset: self.node(f.raw("limitOffset")?)?,
                 limitCount: self.node(f.raw("limitCount")?)?,
-                limitOption: if f.u32("limitOption")? == 1 { LimitOption::LIMIT_OPTION_WITH_TIES } else { LimitOption::LIMIT_OPTION_COUNT },
+                limitOption: if f.u32("limitOption")? == 1 {
+                    LimitOption::LIMIT_OPTION_WITH_TIES
+                } else {
+                    LimitOption::LIMIT_OPTION_COUNT
+                },
                 uniqNumCols: f.i32("uniqNumCols")?,
                 uniqColIdx: self.slice(&f.i16s("uniqColIdx")?)?,
                 uniqOperators: self.slice(&f.oids("uniqOperators")?)?,
@@ -1126,8 +1538,18 @@ impl<'m> Rd<'m> {
                 },
                 isParent: f.bool("isParent")?,
             }),
-            Kind::PlanInvalItem => self.mk(PlanInvalItem { cacheId: f.i32("cacheId")?, hashValue: f.u32("hashValue")? }),
-            Kind::ForeignScan | Kind::CustomScan | Kind::PartitionPruneInfo | Kind::SubPlan | Kind::AlternativeSubPlan => Err(format!("fixture: {} is not read by the corpus loader", k.name())), // alloc: Cold
+            Kind::PlanInvalItem => self.mk(PlanInvalItem {
+                cacheId: f.i32("cacheId")?,
+                hashValue: f.u32("hashValue")?,
+            }),
+            Kind::ForeignScan
+            | Kind::CustomScan
+            | Kind::PartitionPruneInfo
+            | Kind::SubPlan
+            | Kind::AlternativeSubPlan => Err(format!(
+                "fixture: {} is not read by the corpus loader",
+                k.name()
+            )), // alloc: Cold
         }
     }
 }

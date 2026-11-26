@@ -69,70 +69,160 @@ fn col_of(fam: &str) -> &'static str {
 
 /// Boolean-returning binary operators: predicate + scalar fuel.
 const BOOL_OPS: &[(&str, &str, &str)] = &[
-    ("&&", "box", "box"), ("&&", "circle", "circle"), ("&&", "polygon", "polygon"),
-    ("&<", "box", "box"), ("&<", "circle", "circle"), ("&<", "polygon", "polygon"),
-    ("&>", "box", "box"), ("&>", "circle", "circle"), ("&>", "polygon", "polygon"),
-    ("&<|", "box", "box"), ("&<|", "circle", "circle"), ("&<|", "polygon", "polygon"),
-    ("|&>", "box", "box"), ("|&>", "circle", "circle"), ("|&>", "polygon", "polygon"),
-    ("<<", "box", "box"), ("<<", "circle", "circle"), ("<<", "point", "point"),
+    ("&&", "box", "box"),
+    ("&&", "circle", "circle"),
+    ("&&", "polygon", "polygon"),
+    ("&<", "box", "box"),
+    ("&<", "circle", "circle"),
+    ("&<", "polygon", "polygon"),
+    ("&>", "box", "box"),
+    ("&>", "circle", "circle"),
+    ("&>", "polygon", "polygon"),
+    ("&<|", "box", "box"),
+    ("&<|", "circle", "circle"),
+    ("&<|", "polygon", "polygon"),
+    ("|&>", "box", "box"),
+    ("|&>", "circle", "circle"),
+    ("|&>", "polygon", "polygon"),
+    ("<<", "box", "box"),
+    ("<<", "circle", "circle"),
+    ("<<", "point", "point"),
     ("<<", "polygon", "polygon"),
-    (">>", "box", "box"), (">>", "circle", "circle"), (">>", "point", "point"),
+    (">>", "box", "box"),
+    (">>", "circle", "circle"),
+    (">>", "point", "point"),
     (">>", "polygon", "polygon"),
-    ("<<|", "box", "box"), ("<<|", "circle", "circle"), ("<<|", "point", "point"),
+    ("<<|", "box", "box"),
+    ("<<|", "circle", "circle"),
+    ("<<|", "point", "point"),
     ("<<|", "polygon", "polygon"),
-    ("|>>", "box", "box"), ("|>>", "circle", "circle"), ("|>>", "point", "point"),
+    ("|>>", "box", "box"),
+    ("|>>", "circle", "circle"),
+    ("|>>", "point", "point"),
     ("|>>", "polygon", "polygon"),
-    ("<^", "box", "box"), ("<^", "point", "point"),
-    (">^", "box", "box"), (">^", "point", "point"),
-    ("<", "box", "box"), ("<", "circle", "circle"), ("<", "lseg", "lseg"), ("<", "path", "path"),
-    ("<=", "box", "box"), ("<=", "circle", "circle"), ("<=", "lseg", "lseg"), ("<=", "path", "path"),
-    (">", "box", "box"), (">", "circle", "circle"), (">", "lseg", "lseg"), (">", "path", "path"),
-    (">=", "box", "box"), (">=", "circle", "circle"), (">=", "lseg", "lseg"), (">=", "path", "path"),
-    ("=", "box", "box"), ("=", "circle", "circle"), ("=", "line", "line"),
-    ("=", "lseg", "lseg"), ("=", "path", "path"),
-    ("<>", "circle", "circle"), ("<>", "lseg", "lseg"), ("<>", "point", "point"),
-    ("~=", "box", "box"), ("~=", "circle", "circle"), ("~=", "point", "point"),
+    ("<^", "box", "box"),
+    ("<^", "point", "point"),
+    (">^", "box", "box"),
+    (">^", "point", "point"),
+    ("<", "box", "box"),
+    ("<", "circle", "circle"),
+    ("<", "lseg", "lseg"),
+    ("<", "path", "path"),
+    ("<=", "box", "box"),
+    ("<=", "circle", "circle"),
+    ("<=", "lseg", "lseg"),
+    ("<=", "path", "path"),
+    (">", "box", "box"),
+    (">", "circle", "circle"),
+    (">", "lseg", "lseg"),
+    (">", "path", "path"),
+    (">=", "box", "box"),
+    (">=", "circle", "circle"),
+    (">=", "lseg", "lseg"),
+    (">=", "path", "path"),
+    ("=", "box", "box"),
+    ("=", "circle", "circle"),
+    ("=", "line", "line"),
+    ("=", "lseg", "lseg"),
+    ("=", "path", "path"),
+    ("<>", "circle", "circle"),
+    ("<>", "lseg", "lseg"),
+    ("<>", "point", "point"),
+    ("~=", "box", "box"),
+    ("~=", "circle", "circle"),
+    ("~=", "point", "point"),
     ("~=", "polygon", "polygon"),
-    ("<@", "box", "box"), ("<@", "circle", "circle"), ("<@", "lseg", "box"),
-    ("<@", "lseg", "line"), ("<@", "point", "box"), ("<@", "point", "circle"),
-    ("<@", "point", "line"), ("<@", "point", "lseg"), ("<@", "point", "path"),
-    ("<@", "point", "polygon"), ("<@", "polygon", "polygon"),
-    ("@>", "box", "box"), ("@>", "box", "point"), ("@>", "circle", "circle"),
-    ("@>", "circle", "point"), ("@>", "path", "point"), ("@>", "polygon", "point"),
+    ("<@", "box", "box"),
+    ("<@", "circle", "circle"),
+    ("<@", "lseg", "box"),
+    ("<@", "lseg", "line"),
+    ("<@", "point", "box"),
+    ("<@", "point", "circle"),
+    ("<@", "point", "line"),
+    ("<@", "point", "lseg"),
+    ("<@", "point", "path"),
+    ("<@", "point", "polygon"),
+    ("<@", "polygon", "polygon"),
+    ("@>", "box", "box"),
+    ("@>", "box", "point"),
+    ("@>", "circle", "circle"),
+    ("@>", "circle", "point"),
+    ("@>", "path", "point"),
+    ("@>", "polygon", "point"),
     ("@>", "polygon", "polygon"),
-    ("?#", "box", "box"), ("?#", "line", "box"), ("?#", "line", "line"),
-    ("?#", "lseg", "box"), ("?#", "lseg", "line"), ("?#", "lseg", "lseg"),
+    ("?#", "box", "box"),
+    ("?#", "line", "box"),
+    ("?#", "line", "line"),
+    ("?#", "lseg", "box"),
+    ("?#", "lseg", "line"),
+    ("?#", "lseg", "lseg"),
     ("?#", "path", "path"),
-    ("?-", "point", "point"), ("?|", "point", "point"),
-    ("?-|", "line", "line"), ("?-|", "lseg", "lseg"),
-    ("?||", "line", "line"), ("?||", "lseg", "lseg"),
+    ("?-", "point", "point"),
+    ("?|", "point", "point"),
+    ("?-|", "line", "line"),
+    ("?-|", "lseg", "lseg"),
+    ("?||", "line", "line"),
+    ("?||", "lseg", "lseg"),
 ];
 
 /// `<->` distance pairs (all float8).
 const DIST_OPS: &[(&str, &str)] = &[
-    ("box", "box"), ("box", "lseg"), ("box", "point"),
-    ("circle", "circle"), ("circle", "point"), ("circle", "polygon"),
-    ("line", "line"), ("line", "lseg"), ("line", "point"),
-    ("lseg", "box"), ("lseg", "line"), ("lseg", "lseg"), ("lseg", "point"),
-    ("path", "path"), ("path", "point"),
-    ("point", "box"), ("point", "circle"), ("point", "line"), ("point", "lseg"),
-    ("point", "path"), ("point", "point"), ("point", "polygon"),
-    ("polygon", "circle"), ("polygon", "point"), ("polygon", "polygon"),
+    ("box", "box"),
+    ("box", "lseg"),
+    ("box", "point"),
+    ("circle", "circle"),
+    ("circle", "point"),
+    ("circle", "polygon"),
+    ("line", "line"),
+    ("line", "lseg"),
+    ("line", "point"),
+    ("lseg", "box"),
+    ("lseg", "line"),
+    ("lseg", "lseg"),
+    ("lseg", "point"),
+    ("path", "path"),
+    ("path", "point"),
+    ("point", "box"),
+    ("point", "circle"),
+    ("point", "line"),
+    ("point", "lseg"),
+    ("point", "path"),
+    ("point", "point"),
+    ("point", "polygon"),
+    ("polygon", "circle"),
+    ("polygon", "point"),
+    ("polygon", "polygon"),
 ];
 
 /// Translate/scale arithmetic: (op, left family); right side is a point
 /// (`/` divisors draw nonzero coordinates — verified error surface).
 const ARITH_OPS: &[(&str, &str)] = &[
-    ("+", "box"), ("+", "circle"), ("+", "path"), ("+", "point"),
-    ("-", "box"), ("-", "circle"), ("-", "path"), ("-", "point"),
-    ("*", "box"), ("*", "circle"), ("*", "path"), ("*", "point"),
-    ("/", "box"), ("/", "circle"), ("/", "path"), ("/", "point"),
+    ("+", "box"),
+    ("+", "circle"),
+    ("+", "path"),
+    ("+", "point"),
+    ("-", "box"),
+    ("-", "circle"),
+    ("-", "path"),
+    ("-", "point"),
+    ("*", "box"),
+    ("*", "circle"),
+    ("*", "path"),
+    ("*", "point"),
+    ("/", "box"),
+    ("/", "circle"),
+    ("/", "path"),
+    ("/", "point"),
 ];
 
 /// `##` closest-point pairs (result point).
 const CLOSEST_OPS: &[(&str, &str)] = &[
-    ("line", "lseg"), ("lseg", "box"), ("lseg", "lseg"),
-    ("point", "box"), ("point", "line"), ("point", "lseg"),
+    ("line", "lseg"),
+    ("lseg", "box"),
+    ("lseg", "lseg"),
+    ("point", "box"),
+    ("point", "line"),
+    ("point", "lseg"),
 ];
 
 /// `#` intersection pairs: box#box -> box, line#line -> point (NULL when
@@ -142,50 +232,92 @@ const INTER_OPS: &[(&str, &str)] = &[("box", "box"), ("line", "line"), ("lseg", 
 /// Prefix operators: (op, operand family). `@@` -> center point,
 /// `@-@` -> length, `#` -> npoints, `?-`/`?|` -> is-horizontal/vertical.
 const PREFIX_OPS: &[(&str, &str)] = &[
-    ("@@", "box"), ("@@", "circle"), ("@@", "lseg"), ("@@", "polygon"),
-    ("@-@", "lseg"), ("@-@", "path"),
-    ("#", "path"), ("#", "polygon"),
-    ("?-", "line"), ("?-", "lseg"),
-    ("?|", "line"), ("?|", "lseg"),
+    ("@@", "box"),
+    ("@@", "circle"),
+    ("@@", "lseg"),
+    ("@@", "polygon"),
+    ("@-@", "lseg"),
+    ("@-@", "path"),
+    ("#", "path"),
+    ("#", "polygon"),
+    ("?-", "line"),
+    ("?-", "lseg"),
+    ("?|", "line"),
+    ("?|", "lseg"),
 ];
 
 /// User-facing single-argument functions (name, arg family). All verified
 /// callable + byte-identical both engines.
 const FUNCS1: &[(&str, &str)] = &[
-    ("area", "box"), ("area", "path"), ("area", "circle"),
-    ("box_center", "box"), ("center", "circle"), ("poly_center", "polygon"),
-    ("diagonal", "box"), ("diameter", "circle"), ("radius", "circle"),
-    ("height", "box"), ("width", "box"),
-    ("isclosed", "path"), ("isopen", "path"),
-    ("length", "lseg"), ("length", "path"),
-    ("npoints", "path"), ("npoints", "polygon"),
-    ("pclose", "path"), ("popen", "path"),
+    ("area", "box"),
+    ("area", "path"),
+    ("area", "circle"),
+    ("box_center", "box"),
+    ("center", "circle"),
+    ("poly_center", "polygon"),
+    ("diagonal", "box"),
+    ("diameter", "circle"),
+    ("radius", "circle"),
+    ("height", "box"),
+    ("width", "box"),
+    ("isclosed", "path"),
+    ("isopen", "path"),
+    ("length", "lseg"),
+    ("length", "path"),
+    ("npoints", "path"),
+    ("npoints", "polygon"),
+    ("pclose", "path"),
+    ("popen", "path"),
     ("lseg_center", "lseg"),
-    ("point", "box"), ("point", "circle"), ("point", "polygon"), ("point", "lseg"),
-    ("polygon", "box"), ("polygon", "circle"),
-    ("circle", "box"), ("box", "circle"), ("box", "polygon"), ("box", "point"),
-    ("lseg", "box"), ("path", "polygon"), ("circle", "polygon"),
+    ("point", "box"),
+    ("point", "circle"),
+    ("point", "polygon"),
+    ("point", "lseg"),
+    ("polygon", "box"),
+    ("polygon", "circle"),
+    ("circle", "box"),
+    ("box", "circle"),
+    ("box", "polygon"),
+    ("box", "point"),
+    ("lseg", "box"),
+    ("path", "polygon"),
+    ("circle", "polygon"),
 ];
 
 /// Two-argument functions (name, fam1, fam2).
 const FUNCS2: &[(&str, &str, &str)] = &[
     ("bound_box", "box", "box"),
-    ("isparallel", "line", "line"), ("isparallel", "lseg", "lseg"),
-    ("isperp", "line", "line"), ("isperp", "lseg", "lseg"),
-    ("ishorizontal", "point", "point"), ("isvertical", "point", "point"),
+    ("isparallel", "line", "line"),
+    ("isparallel", "lseg", "lseg"),
+    ("isperp", "line", "line"),
+    ("isperp", "lseg", "lseg"),
+    ("ishorizontal", "point", "point"),
+    ("isvertical", "point", "point"),
     ("slope", "point", "point"),
-    ("line_interpt", "line", "line"), ("lseg_interpt", "lseg", "lseg"),
-    ("line", "point", "point"), ("lseg", "point", "point"),
+    ("line_interpt", "line", "line"),
+    ("lseg_interpt", "lseg", "lseg"),
+    ("line", "point", "point"),
+    ("lseg", "point", "point"),
 ];
 
 /// Legal cast pairs (source family, target family) from pg_cast, both
 /// engines identical. path -> polygon only for closed paths (the literal
 /// generator is asked for a closed one).
 const CASTS: &[(&str, &str)] = &[
-    ("box", "circle"), ("box", "lseg"), ("box", "point"), ("box", "polygon"),
-    ("circle", "box"), ("circle", "point"), ("circle", "polygon"),
-    ("lseg", "point"), ("path", "polygon"), ("point", "box"),
-    ("polygon", "box"), ("polygon", "circle"), ("polygon", "path"), ("polygon", "point"),
+    ("box", "circle"),
+    ("box", "lseg"),
+    ("box", "point"),
+    ("box", "polygon"),
+    ("circle", "box"),
+    ("circle", "point"),
+    ("circle", "polygon"),
+    ("lseg", "point"),
+    ("path", "polygon"),
+    ("point", "box"),
+    ("polygon", "box"),
+    ("polygon", "circle"),
+    ("polygon", "path"),
+    ("polygon", "point"),
 ];
 
 // ------------------------------------------------------------------ state ----
@@ -358,7 +490,13 @@ fn lseg_lit(g: &mut Gen) -> String {
             }
         }
         // Text-input form (lseg_in).
-        2 => format!("'[({},{}),({},{})]'::lseg", coord(g), coord(g), coord(g), coord(g)),
+        2 => format!(
+            "'[({},{}),({},{})]'::lseg",
+            coord(g),
+            coord(g),
+            coord(g),
+            coord(g)
+        ),
         _ => format!("lseg({}, {})", point_lit(g), point_lit(g)),
     }
 }
@@ -371,7 +509,13 @@ fn box_lit(g: &mut Gen) -> String {
             format!("box(point({x}, {y}), point({x}, {y}))")
         }
         // Text-input form (box_in).
-        1 => format!("'(({},{}),({},{}))'::box", coord(g), coord(g), coord(g), coord(g)),
+        1 => format!(
+            "'(({},{}),({},{}))'::box",
+            coord(g),
+            coord(g),
+            coord(g),
+            coord(g)
+        ),
         _ => format!("box({}, {})", point_lit(g), point_lit(g)),
     }
 }
@@ -379,7 +523,9 @@ fn box_lit(g: &mut Gen) -> String {
 fn path_lit(g: &mut Gen) -> String {
     // Text forms with explicit point tuples: '[...]' open, '(...)' closed.
     let n = 2 + g.rng.below(3);
-    let pts: Vec<String> = (0..n).map(|_| format!("({},{})", coord(g), coord(g))).collect();
+    let pts: Vec<String> = (0..n)
+        .map(|_| format!("({},{})", coord(g), coord(g)))
+        .collect();
     if g.rng.chance(1, 2) {
         format!("'[{}]'::path", pts.join(","))
     } else {
@@ -389,7 +535,9 @@ fn path_lit(g: &mut Gen) -> String {
 
 fn closed_path_lit(g: &mut Gen) -> String {
     let n = 2 + g.rng.below(3);
-    let pts: Vec<String> = (0..n).map(|_| format!("({},{})", coord(g), coord(g))).collect();
+    let pts: Vec<String> = (0..n)
+        .map(|_| format!("({},{})", coord(g), coord(g)))
+        .collect();
     format!("'({})'::path", pts.join(","))
 }
 
@@ -472,7 +620,10 @@ fn gen_create(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("geo:create");
     let name = format!("fz_geo_{}", g.geo.next_table);
     g.geo.next_table += 1;
-    let rows = match g.weights.pick(g.rng, &["geo:rows:120", "geo:rows:300", "geo:rows:700"]) {
+    let rows = match g
+        .weights
+        .pick(g.rng, &["geo:rows:120", "geo:rows:300", "geo:rows:700"])
+    {
         "geo:rows:120" => 120,
         "geo:rows:300" => 300,
         _ => 700,
@@ -496,12 +647,24 @@ fn gen_create(g: &mut Gen) -> Vec<StmtKind> {
         g.fire(kind);
         let iname = format!("fz_geoi_{}", g.geo.next_index);
         g.geo.next_index += 1;
-        stmts.push(StmtKind::Raw(format!("CREATE INDEX {} ON {} USING {};", iname, name, using)));
+        stmts.push(StmtKind::Raw(format!(
+            "CREATE INDEX {} ON {} USING {};",
+            iname, name, using
+        )));
         indexes.push(iname);
     }
     stmts.push(StmtKind::Raw(format!("ANALYZE {};", name)));
-    g.geo.tables.push(GeoTable { name: name.clone(), live: true, next_pk: rows, indexes });
-    g.geo.events.push(DdlEvent { table: name, pk: "pk".to_string(), kind: DdlEventKind::Created });
+    g.geo.tables.push(GeoTable {
+        name: name.clone(),
+        live: true,
+        next_pk: rows,
+        indexes,
+    });
+    g.geo.events.push(DdlEvent {
+        table: name,
+        pk: "pk".to_string(),
+        kind: DdlEventKind::Created,
+    });
     stmts
 }
 
@@ -530,8 +693,15 @@ fn gen_drop(g: &mut Gen) -> Vec<StmtKind> {
 fn scalar_expr(g: &mut Gen) -> String {
     let class = g.weights.pick(
         g.rng,
-        &["geo:sc:bool", "geo:sc:dist", "geo:sc:arith", "geo:sc:closest", "geo:sc:inter",
-          "geo:sc:prefix", "geo:sc:func"],
+        &[
+            "geo:sc:bool",
+            "geo:sc:dist",
+            "geo:sc:arith",
+            "geo:sc:closest",
+            "geo:sc:inter",
+            "geo:sc:prefix",
+            "geo:sc:func",
+        ],
     );
     g.fire(class);
     match class {
@@ -591,7 +761,11 @@ fn gen_cast(g: &mut Gen) -> Vec<StmtKind> {
     let (s, t) = CASTS[g.rng.below_usize(CASTS.len())];
     // path -> polygon requires a closed path (open-path casts are a
     // verified both-sides-error shape).
-    let src = if s == "path" && t == "polygon" { closed_path_lit(g) } else { lit(g, s) };
+    let src = if s == "path" && t == "polygon" {
+        closed_path_lit(g)
+    } else {
+        lit(g, s)
+    };
     vec![StmtKind::Raw(format!("SELECT (({}))::{};", src, t))]
 }
 
@@ -610,19 +784,35 @@ fn pick_live(g: &mut Gen) -> Option<usize> {
 fn table_pred(g: &mut Gen) -> String {
     let fam_prod = g.weights.pick(
         g.rng,
-        &["geo:fam:pt", "geo:fam:ln", "geo:fam:sg", "geo:fam:bx", "geo:fam:pa",
-          "geo:fam:pgn", "geo:fam:cr"],
+        &[
+            "geo:fam:pt",
+            "geo:fam:ln",
+            "geo:fam:sg",
+            "geo:fam:bx",
+            "geo:fam:pa",
+            "geo:fam:pgn",
+            "geo:fam:cr",
+        ],
     );
     g.fire(fam_prod);
-    let fam = FAMS[["geo:fam:pt", "geo:fam:ln", "geo:fam:sg", "geo:fam:bx", "geo:fam:pa",
-                    "geo:fam:pgn", "geo:fam:cr"]
-        .iter()
-        .position(|p| *p == fam_prod)
-        .unwrap()];
+    let fam = FAMS[[
+        "geo:fam:pt",
+        "geo:fam:ln",
+        "geo:fam:sg",
+        "geo:fam:bx",
+        "geo:fam:pa",
+        "geo:fam:pgn",
+        "geo:fam:cr",
+    ]
+    .iter()
+    .position(|p| *p == fam_prod)
+    .unwrap()];
     let col = col_of(fam);
     // Candidate ops with this family on either side.
-    let cands: Vec<&(&str, &str, &str)> =
-        BOOL_OPS.iter().filter(|(_, l, r)| *l == fam || *r == fam).collect();
+    let cands: Vec<&(&str, &str, &str)> = BOOL_OPS
+        .iter()
+        .filter(|(_, l, r)| *l == fam || *r == fam)
+        .collect();
     let (op, l, r) = *cands[g.rng.below_usize(cands.len())];
     if l == fam && (r != fam || g.rng.chance(1, 2)) {
         format!("{} {} ({})", col, op, lit(g, r))
@@ -635,7 +825,10 @@ fn table_pred(g: &mut Gen) -> String {
 /// same statement group, applied identically both sides — the idx-module
 /// discipline) so the GiST/SP-GiST consistent paths actually engage.
 fn maybe_bracket(g: &mut Gen, body: StmtKind) -> Vec<StmtKind> {
-    if g.weights.pick(g.rng, &["geo:seqscan:off", "geo:seqscan:on"]) == "geo:seqscan:off" {
+    if g.weights
+        .pick(g.rng, &["geo:seqscan:off", "geo:seqscan:on"])
+        == "geo:seqscan:off"
+    {
         g.fire("geo:seqscan:off");
         vec![
             StmtKind::Raw("SET enable_seqscan TO off;".to_string()),
@@ -679,7 +872,11 @@ fn calc_expr(g: &mut Gen) -> String {
         }
         1 => {
             let (op, l) = ARITH_OPS[g.rng.below_usize(ARITH_OPS.len())];
-            let rhs = if op == "/" { point_nz_lit(g) } else { point_lit(g) };
+            let rhs = if op == "/" {
+                point_nz_lit(g)
+            } else {
+                point_lit(g)
+            };
             format!("{} {} ({})", col_of(l), op, rhs)
         }
         2 => {
@@ -749,8 +946,12 @@ fn gen_join(g: &mut Gen) -> Vec<StmtKind> {
         return gen_create(g);
     }
     g.fire("geo:join");
-    let ta = g.geo.tables[live[g.rng.below_usize(live.len())]].name.clone();
-    let tb = g.geo.tables[live[g.rng.below_usize(live.len())]].name.clone();
+    let ta = g.geo.tables[live[g.rng.below_usize(live.len())]]
+        .name
+        .clone();
+    let tb = g.geo.tables[live[g.rng.below_usize(live.len())]]
+        .name
+        .clone();
     // Same-family column-vs-column boolean ops only.
     let cands: Vec<&(&str, &str, &str)> = BOOL_OPS.iter().filter(|(_, l, r)| l == r).collect();
     let (op, fam, _) = *cands[g.rng.below_usize(cands.len())];
@@ -772,8 +973,13 @@ fn gen_churn(g: &mut Gen) -> Vec<StmtKind> {
     let table = g.geo.tables[ti].name.clone();
     let form = g.weights.pick(
         g.rng,
-        &["geo:churn:update", "geo:churn:delete", "geo:churn:insert",
-          "geo:churn:reindex", "geo:churn:vacuum"],
+        &[
+            "geo:churn:update",
+            "geo:churn:delete",
+            "geo:churn:insert",
+            "geo:churn:reindex",
+            "geo:churn:vacuum",
+        ],
     );
     g.fire(form);
     match form {
@@ -793,19 +999,29 @@ fn gen_churn(g: &mut Gen) -> Vec<StmtKind> {
                       point((pk*13) % 13 - 6 + 1, (pk*19) % 17 - 8 + (pk % 4)))"
                     .to_string(),
             };
-            vec![StmtKind::Raw(format!("UPDATE {} SET {} WHERE pk % {} = {};", table, set, m, r))]
+            vec![StmtKind::Raw(format!(
+                "UPDATE {} SET {} WHERE pk % {} = {};",
+                table, set, m, r
+            ))]
         }
         "geo:churn:delete" => {
             let m = 5 + g.rng.below(11);
             let r = g.rng.below(m);
-            vec![StmtKind::Raw(format!("DELETE FROM {} WHERE pk % {} = {};", table, m, r))]
+            vec![StmtKind::Raw(format!(
+                "DELETE FROM {} WHERE pk % {} = {};",
+                table, m, r
+            ))]
         }
         "geo:churn:insert" => {
             let n = 80 + g.rng.below(150) as i64;
             let lo = g.geo.tables[ti].next_pk + 1;
             let hi = g.geo.tables[ti].next_pk + n;
             g.geo.tables[ti].next_pk = hi;
-            vec![StmtKind::Raw(format!("INSERT INTO {} {};", table, row_source(lo, hi)))]
+            vec![StmtKind::Raw(format!(
+                "INSERT INTO {} {};",
+                table,
+                row_source(lo, hi)
+            ))]
         }
         "geo:churn:reindex" => {
             let xs = &g.geo.tables[ti].indexes;
@@ -863,7 +1079,11 @@ mod tests {
         for sql in flat(&groups) {
             assert!(!sql.contains('\n'), "multi-line: {sql}");
             assert!(sql.ends_with(';'), "unterminated: {sql}");
-            assert_eq!(sql.matches('(').count(), sql.matches(')').count(), "parens: {sql}");
+            assert_eq!(
+                sql.matches('(').count(),
+                sql.matches(')').count(),
+                "parens: {sql}"
+            );
         }
     }
 
@@ -922,14 +1142,42 @@ mod tests {
             assert!(all.contains(frag), "geo flavor {frag:?} never generated");
         }
         for p in [
-            "geo:create", "geo:drop", "geo:scalar", "geo:cast", "geo:query", "geo:calc",
-            "geo:knn", "geo:join", "geo:churn", "geo:sc:bool", "geo:sc:dist", "geo:sc:arith",
-            "geo:sc:closest", "geo:sc:inter", "geo:sc:prefix", "geo:sc:func",
-            "geo:fam:pt", "geo:fam:ln", "geo:fam:sg", "geo:fam:bx", "geo:fam:pa",
-            "geo:fam:pgn", "geo:fam:cr", "geo:q:rows", "geo:q:count", "geo:lit:nan",
-            "geo:churn:update", "geo:churn:delete", "geo:churn:insert",
-            "geo:churn:reindex", "geo:churn:vacuum", "geo:x:gistpoly", "geo:x:gistcirc",
-            "geo:x:spgbox", "geo:x:spgpoly", "geo:seqscan:off",
+            "geo:create",
+            "geo:drop",
+            "geo:scalar",
+            "geo:cast",
+            "geo:query",
+            "geo:calc",
+            "geo:knn",
+            "geo:join",
+            "geo:churn",
+            "geo:sc:bool",
+            "geo:sc:dist",
+            "geo:sc:arith",
+            "geo:sc:closest",
+            "geo:sc:inter",
+            "geo:sc:prefix",
+            "geo:sc:func",
+            "geo:fam:pt",
+            "geo:fam:ln",
+            "geo:fam:sg",
+            "geo:fam:bx",
+            "geo:fam:pa",
+            "geo:fam:pgn",
+            "geo:fam:cr",
+            "geo:q:rows",
+            "geo:q:count",
+            "geo:lit:nan",
+            "geo:churn:update",
+            "geo:churn:delete",
+            "geo:churn:insert",
+            "geo:churn:reindex",
+            "geo:churn:vacuum",
+            "geo:x:gistpoly",
+            "geo:x:gistcirc",
+            "geo:x:spgbox",
+            "geo:x:spgpoly",
+            "geo:seqscan:off",
         ] {
             assert!(prods.iter().any(|q| q == p), "production {p} never fired");
         }
@@ -956,14 +1204,23 @@ mod tests {
                 live.insert(name, false);
             } else if let Some(rest) = sql.strip_prefix("CREATE INDEX ") {
                 let iname = rest.split(' ').next().unwrap().to_string();
-                let tname = sql.split(" ON ").nth(1).unwrap().split([' ', '(']).next().unwrap();
+                let tname = sql
+                    .split(" ON ")
+                    .nth(1)
+                    .unwrap()
+                    .split([' ', '('])
+                    .next()
+                    .unwrap();
                 assert_eq!(live.get(tname), Some(&true), "index on dead table: {sql}");
                 idx_table.insert(iname, tname.to_string());
             } else if let Some(rest) = sql.strip_prefix("REINDEX INDEX ") {
                 let iname = rest.trim_end_matches(';');
                 let t = idx_table.get(iname).expect("reindex of unknown index");
                 assert_eq!(live.get(t), Some(&true), "reindex on dead table: {sql}");
-            } else if let Some(rest) = sql.strip_prefix("VACUUM ").or_else(|| sql.strip_prefix("ANALYZE ")) {
+            } else if let Some(rest) = sql
+                .strip_prefix("VACUUM ")
+                .or_else(|| sql.strip_prefix("ANALYZE "))
+            {
                 let name = rest.trim_end_matches(';');
                 assert_eq!(live.get(name), Some(&true), "utility on dead table: {sql}");
             } else if sql.contains(" FROM fz_geo_") || sql.starts_with("UPDATE fz_geo_") {
@@ -975,13 +1232,26 @@ mod tests {
                     .take_while(|c| c.is_ascii_digit())
                     .collect::<String>();
                 let name = format!("fz_geo_{name}");
-                assert_eq!(live.get(&name), Some(&true), "reference to dead table: {sql}");
+                assert_eq!(
+                    live.get(&name),
+                    Some(&true),
+                    "reference to dead table: {sql}"
+                );
             }
             if let Some(rest) = sql.strip_prefix("INSERT INTO ") {
                 let tname = rest.split(' ').next().unwrap().to_string();
                 let series = sql.split("generate_series(").nth(1).unwrap();
                 let lo: i64 = series.split(',').next().unwrap().trim().parse().unwrap();
-                let hi: i64 = series.split(", ").nth(1).unwrap().split(')').next().unwrap().trim().parse().unwrap();
+                let hi: i64 = series
+                    .split(", ")
+                    .nth(1)
+                    .unwrap()
+                    .split(')')
+                    .next()
+                    .unwrap()
+                    .trim()
+                    .parse()
+                    .unwrap();
                 assert!(lo <= hi, "{sql}");
                 let prev = *max_pk.get(&tname).unwrap_or(&0);
                 assert!(lo > prev, "pk batch overlap (prev max {prev}): {sql}");
@@ -1023,8 +1293,14 @@ mod tests {
                 let joined = gp.join("\n");
                 assert!(joined.contains("USING gist (pgn)"), "missing poly index");
                 assert!(joined.contains("USING gist (cr)"), "missing circle index");
-                assert!(joined.contains("USING spgist (bx)"), "missing spgist box index");
-                assert!(joined.contains("USING spgist (pgn)"), "missing spgist poly index");
+                assert!(
+                    joined.contains("USING spgist (bx)"),
+                    "missing spgist box index"
+                );
+                assert!(
+                    joined.contains("USING spgist (pgn)"),
+                    "missing spgist poly index"
+                );
                 assert!(joined.contains("ANALYZE "), "missing ANALYZE");
             }
         }

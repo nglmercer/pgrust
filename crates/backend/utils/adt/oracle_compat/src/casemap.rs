@@ -171,8 +171,7 @@ mod tests {
         locale.builtin_locale = Some("PG_UNICODE_FAST");
         locale.builtin_casemap_full = true;
         let input = "\u{023f}".repeat(100);
-        let output = pg_case(ctx.mcx(), input.as_bytes(), &locale, pg_locale::pg_strupper)
-            .unwrap();
+        let output = pg_case(ctx.mcx(), input.as_bytes(), &locale, pg_locale::pg_strupper).unwrap();
         assert_eq!(&output[..], "\u{2c7e}".repeat(100).as_bytes());
         assert_eq!(output.capacity(), 301);
     }

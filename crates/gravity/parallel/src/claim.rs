@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicI64, AtomicU64, AtomicU8, Ordering};
 use pgsync::OnceLock;
+use std::sync::atomic::{AtomicI64, AtomicU64, AtomicU8, Ordering};
 
 use gravity_abi::MorselRange;
 
@@ -143,11 +143,31 @@ fn release_of(o: memledger::Owner) -> memledger::Release {
 impl RangeCursor {
     pub const fn new(total: u64, size: ClaimSize) -> RangeCursor {
         assert!(size.units() > 0, "claim size");
-        RangeCursor { next: AtomicU64::new(0), total: AtomicU64::new(total), size, bounds: Vec::new(), dead: Vec::new(), whole: false, tail_from: u64::MAX, endgame: true, split: false, order: Vec::new(), mins: Vec::new(), bound: AtomicI64::new(i64::MAX), aimed: AtomicU64::new(0), charge: OnceLock::new() } // alloc: Program
+        RangeCursor {
+            next: AtomicU64::new(0),
+            total: AtomicU64::new(total),
+            size,
+            bounds: Vec::new(),
+            dead: Vec::new(),
+            whole: false,
+            tail_from: u64::MAX,
+            endgame: true,
+            split: false,
+            order: Vec::new(),
+            mins: Vec::new(),
+            bound: AtomicI64::new(i64::MAX),
+            aimed: AtomicU64::new(0),
+            charge: OnceLock::new(),
+        } // alloc: Program
     }
 
     /// An explicit ordered walk (`mins` ascending); boundaries where consecutive granules change part (R4).
-    pub fn ordered(order: &[u32], mins: &[i64], part_of: impl Fn(u32) -> usize, size: ClaimSize) -> RangeCursor {
+    pub fn ordered(
+        order: &[u32],
+        mins: &[i64],
+        part_of: impl Fn(u32) -> usize,
+        size: ClaimSize,
+    ) -> RangeCursor {
         assert_eq!(order.len(), mins.len(), "walk order");
         let mut c = RangeCursor::new(order.len() as u64, size);
         c.order.extend_from_slice(order); // alloc: Exec charged charge_to's owner
@@ -165,12 +185,21 @@ impl RangeCursor {
     /// A second call keeps the first owner; `None`: uncharged.
     pub fn charge_to(&self, owner: Option<memledger::Owner>) {
         if let (Some(o), None) = (owner, self.charge.get()) {
-            let _ = self.charge.set(memledger::Charge::open(o, release_of(o), memledger::Kind::Region, memledger::charge::Door::Heap, self.heap_bytes()));
+            let _ = self.charge.set(memledger::Charge::open(
+                o,
+                release_of(o),
+                memledger::Kind::Region,
+                memledger::charge::Door::Heap,
+                self.heap_bytes(),
+            ));
         }
     }
 
     fn heap_bytes(&self) -> u64 {
-        (self.bounds.capacity() * 8 + self.dead.capacity() * 16 + self.order.capacity() * 4 + self.mins.capacity() * 8) as u64
+        (self.bounds.capacity() * 8
+            + self.dead.capacity() * 16
+            + self.order.capacity() * 4
+            + self.mins.capacity() * 8) as u64
     }
 
     /// The charge (when one is open) re-synced to the vectors' capacity after a growth on this thread.
@@ -200,7 +229,9 @@ impl RangeCursor {
     }
 
     pub fn beyond_bound(&self, unit: u64) -> bool {
-        self.mins.get(unit as usize).is_some_and(|&m| m > self.bound.load(Ordering::Acquire))
+        self.mins
+            .get(unit as usize)
+            .is_some_and(|&m| m > self.bound.load(Ordering::Acquire))
     }
 
     /// The bound observed so far (`i64::MAX` without one).
@@ -278,7 +309,10 @@ impl RangeCursor {
     }
 
     fn dead_end_of(&self, lo: u64) -> Option<u64> {
-        let i = self.dead.partition_point(|&(s, _)| s <= lo).checked_sub(1)?;
+        let i = self
+            .dead
+            .partition_point(|&(s, _)| s <= lo)
+            .checked_sub(1)?;
         let (_, e) = self.dead[i];
         (lo < e).then_some(e)
     }
@@ -327,12 +361,25 @@ impl RangeCursor {
                 return None;
             }
             if let Some(e) = self.dead_end_of(lo) {
-                let _ = self.next.compare_exchange_weak(lo, e.min(total), Ordering::AcqRel, Ordering::Acquire);
+                let _ = self.next.compare_exchange_weak(
+                    lo,
+                    e.min(total),
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                );
                 continue;
             }
             let bound = self.next_boundary_after(lo);
-            let hi = if self.whole && lo < self.tail_from { bound } else { (lo + n).min(bound) };
-            if self.next.compare_exchange_weak(lo, hi, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+            let hi = if self.whole && lo < self.tail_from {
+                bound
+            } else {
+                (lo + n).min(bound)
+            };
+            if self
+                .next
+                .compare_exchange_weak(lo, hi, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
                 return Some(MorselRange::new(lo, hi));
             }
         }
@@ -343,7 +390,8 @@ impl RangeCursor {
     }
 
     pub fn remaining(&self) -> u64 {
-        self.total().saturating_sub(self.next.load(Ordering::Acquire))
+        self.total()
+            .saturating_sub(self.next.load(Ordering::Acquire))
     }
 
     pub fn reset(&self) {
@@ -375,7 +423,10 @@ pub struct PartitionRange(pub RangeCursor);
 
 impl PartitionRange {
     pub const fn new(partitions: u64, per_claim: u64) -> PartitionRange {
-        PartitionRange(RangeCursor::new(partitions, ClaimSize::Fixed(if per_claim == 0 { 1 } else { per_claim })))
+        PartitionRange(RangeCursor::new(
+            partitions,
+            ClaimSize::Fixed(if per_claim == 0 { 1 } else { per_claim }),
+        ))
     }
 
     pub const fn for_width(partitions: u64, width: u16) -> PartitionRange {
@@ -437,7 +488,12 @@ impl GranuleRange {
     }
 
     /// The zone walk's claims: granules in `order` (key minima `mins` ascending), one part per claim run.
-    pub fn ordered(order: &[u32], mins: &[i64], part_of: impl Fn(u32) -> usize, size: ClaimSize) -> GranuleRange {
+    pub fn ordered(
+        order: &[u32],
+        mins: &[i64],
+        part_of: impl Fn(u32) -> usize,
+        size: ClaimSize,
+    ) -> GranuleRange {
         GranuleRange(RangeCursor::ordered(order, mins, part_of, size))
     }
 
@@ -513,7 +569,9 @@ impl ClaimLedger {
     pub fn new(units: u64) -> ClaimLedger {
         let mut v = Vec::with_capacity(units as usize); // alloc: Cold
         v.resize_with(units as usize, || AtomicU8::new(0));
-        ClaimLedger { counts: v.into_boxed_slice() }
+        ClaimLedger {
+            counts: v.into_boxed_slice(),
+        }
     }
 
     pub fn record(&self, range: MorselRange) {
@@ -523,7 +581,10 @@ impl ClaimLedger {
     }
 
     pub fn consumed(&self) -> u64 {
-        self.counts.iter().filter(|c| c.load(Ordering::Relaxed) > 0).count() as u64
+        self.counts
+            .iter()
+            .filter(|c| c.load(Ordering::Relaxed) > 0)
+            .count() as u64
     }
 
     pub fn consumed_once(&self) -> bool {
@@ -531,7 +592,10 @@ impl ClaimLedger {
     }
 
     pub fn twice(&self) -> u64 {
-        self.counts.iter().filter(|c| c.load(Ordering::Relaxed) > 1).count() as u64
+        self.counts
+            .iter()
+            .filter(|c| c.load(Ordering::Relaxed) > 1)
+            .count() as u64
     }
 
     pub fn clear(&self) {

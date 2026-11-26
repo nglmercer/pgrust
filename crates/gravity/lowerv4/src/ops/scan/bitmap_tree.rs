@@ -11,10 +11,18 @@ use crate::face::kinds::KindId;
 use crate::frame::px::Px;
 use crate::ops::Table;
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::SrcBitmapTree, &())], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::SrcBitmapTree, &())],
+    ..crate::ops::NONE
+};
 
 /// The tree's key words in leaf order (into `k`, D1016 row 6's computed keys too); returns the first leaf's index, the site's.
-pub(crate) fn tree<'p>(px: &mut Px<'_, 'p>, node: i32, plan: &BitmapPlan<'p>, k: &mut crate::ops::scan::bitmap::Words<'_, 'p>) -> u32 {
+pub(crate) fn tree<'p>(
+    px: &mut Px<'_, 'p>,
+    node: i32,
+    plan: &BitmapPlan<'p>,
+    k: &mut crate::ops::scan::bitmap::Words<'_, 'p>,
+) -> u32 {
     crate::stack_check();
     match plan {
         BitmapPlan::Index { indexid, keys, .. } => {
@@ -27,7 +35,9 @@ pub(crate) fn tree<'p>(px: &mut Px<'_, 'p>, node: i32, plan: &BitmapPlan<'p>, k:
                 let i = tree(px, node, p, k);
                 first.get_or_insert(i);
             }
-            first.unwrap_or_else(|| crate::ops::scan::bitmap::shape(node, "a BitmapAnd / BitmapOr with no child"))
+            first.unwrap_or_else(|| {
+                crate::ops::scan::bitmap::shape(node, "a BitmapAnd / BitmapOr with no child")
+            })
         }
     }
 }

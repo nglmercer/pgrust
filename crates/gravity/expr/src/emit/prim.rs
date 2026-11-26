@@ -4,7 +4,10 @@
 
 use gravity_abi::status::raise;
 use gravity_ir::builder::FunctionBuilder;
-use gravity_ir::{ConvOp, FloatBinOp, FloatCond, FloatUnOp, IntBinOp, IntCond, IntOvfOp, IntUnOp, Type, Value, VecBinOp};
+use gravity_ir::{
+    ConvOp, FloatBinOp, FloatCond, FloatUnOp, IntBinOp, IntCond, IntOvfOp, IntUnOp, Type, Value,
+    VecBinOp,
+};
 use types_core::Oid;
 
 use crate::nodes::func::Call;
@@ -118,7 +121,13 @@ fn widths(d: &str) -> Option<(u8, u8)> {
 
 fn form(name: &str) -> Option<Form> {
     if let Some(rest) = name.strip_prefix("btint") {
-        return rest.strip_suffix("cmp").and_then(widths).map(|w| if w == (2, 2) { Form::Int2BtCmp } else { Form::IntBtCmp });
+        return rest.strip_suffix("cmp").and_then(widths).map(|w| {
+            if w == (2, 2) {
+                Form::Int2BtCmp
+            } else {
+                Form::IntBtCmp
+            }
+        });
     }
     if let Some(rest) = name.strip_prefix("btfloat") {
         let (a, b) = rest.strip_suffix("cmp").and_then(widths)?;
@@ -126,11 +135,17 @@ fn form(name: &str) -> Option<Form> {
     }
     if let Some(rest) = name.strip_prefix("int") {
         // a cast's name is all digits (int48, int84, int28, int82)
-        let n = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+        let n = rest
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(rest.len());
         let (d, op) = rest.split_at(n);
         let (a, b) = widths(d)?;
         if op.is_empty() {
-            return (a != b).then_some(if b < a { Form::IntNarrow(b) } else { Form::Widen(a) });
+            return (a != b).then_some(if b < a {
+                Form::IntNarrow(b)
+            } else {
+                Form::Widen(a)
+            });
         }
         if let Some(c) = cmp_of(op) {
             return Some(Form::IntCmp(c));
@@ -219,23 +234,43 @@ fn form_of(funcid: Oid) -> Option<Form> {
 }
 
 fn datetime_name(name: &str) -> bool {
-    matches!(name, "extract_timestamp" | "extract_date" | "timestamp_part" | "timestamp_trunc")
+    matches!(
+        name,
+        "extract_timestamp" | "extract_date" | "timestamp_part" | "timestamp_trunc"
+    )
 }
 
 /// The site is open-coded: a form by name, or a datetime form by its constant unit (`word_root`: the
 /// site is the root a caller reads as the integer word, `RowRefs::word_root`).
 pub fn is_prim(p: &Program<'_>, call: &Call, word_root: bool) -> bool {
     match form_of(call.funcid) {
-        Some(Form::DateTime) => datetime::form_of(p, call, gravity_fn::row_of(call.funcid).map_or("", |r| r.name), word_root).is_some(),
+        Some(Form::DateTime) => datetime::form_of(
+            p,
+            call,
+            gravity_fn::row_of(call.funcid).map_or("", |r| r.name),
+            word_root,
+        )
+        .is_some(),
         Some(_) => true,
         None => false,
     }
 }
 
 /// `emit` with the datetime forms: the value and, when the form decides it, the validity.
-pub fn emit_ext(b: &mut FunctionBuilder<'_>, p: &Program<'_>, call: &Call, a: &[Value], word_root: bool) -> Option<(Out, Option<Value>)> {
+pub fn emit_ext(
+    b: &mut FunctionBuilder<'_>,
+    p: &Program<'_>,
+    call: &Call,
+    a: &[Value],
+    word_root: bool,
+) -> Option<(Out, Option<Value>)> {
     if matches!(form_of(call.funcid), Some(Form::DateTime)) {
-        let f = datetime::form_of(p, call, gravity_fn::row_of(call.funcid).map_or("", |r| r.name), word_root)?;
+        let f = datetime::form_of(
+            p,
+            call,
+            gravity_fn::row_of(call.funcid).map_or("", |r| r.name),
+            word_root,
+        )?;
         return Some(datetime::emit(b, f, a[1]));
     }
     emit(b, call.funcid, a).map(|o| (o, None))
@@ -297,12 +332,20 @@ fn is_nan(b: &mut FunctionBuilder<'_>, x: Value) -> Value {
 
 fn is_inf(b: &mut FunctionBuilder<'_>, x: Value, w: u8) -> Value {
     let a = b.float_un(FloatUnOp::Abs, x);
-    let inf = if w == 4 { b.f32const(f32::INFINITY) } else { b.f64const(f64::INFINITY) };
+    let inf = if w == 4 {
+        b.f32const(f32::INFINITY)
+    } else {
+        b.f64const(f64::INFINITY)
+    };
     b.fcmp(FloatCond::Eq, a, inf)
 }
 
 fn is_zero(b: &mut FunctionBuilder<'_>, x: Value, w: u8) -> Value {
-    let z = if w == 4 { b.f32const(0.0) } else { b.f64const(0.0) };
+    let z = if w == 4 {
+        b.f32const(0.0)
+    } else {
+        b.f64const(0.0)
+    };
     b.fcmp(FloatCond::Eq, x, z)
 }
 
@@ -414,15 +457,24 @@ fn int_arith(b: &mut FunctionBuilder<'_>, op: Arith, w: u8, x: Value, y: Value) 
         return match op {
             Arith::Add => {
                 let o = b.int_ovf(IntOvfOp::SaddOvf, x, y);
-                Out { value: b.int_bin(IntBinOp::Add, x, y), err: raise(b, o, raise::INT8_RANGE) }
+                Out {
+                    value: b.int_bin(IntBinOp::Add, x, y),
+                    err: raise(b, o, raise::INT8_RANGE),
+                }
             }
             Arith::Sub => {
                 let o = b.int_ovf(IntOvfOp::SsubOvf, x, y);
-                Out { value: b.int_bin(IntBinOp::Sub, x, y), err: raise(b, o, raise::INT8_RANGE) }
+                Out {
+                    value: b.int_bin(IntBinOp::Sub, x, y),
+                    err: raise(b, o, raise::INT8_RANGE),
+                }
             }
             Arith::Mul => {
                 let o = b.int_ovf(IntOvfOp::SmulOvf, x, y);
-                Out { value: b.int_bin(IntBinOp::Mul, x, y), err: raise(b, o, raise::INT8_RANGE) }
+                Out {
+                    value: b.int_bin(IntBinOp::Mul, x, y),
+                    err: raise(b, o, raise::INT8_RANGE),
+                }
             }
             Arith::Div => {
                 let min = b.iconst(Type::I64, i64::MIN);
@@ -434,14 +486,20 @@ fn int_arith(b: &mut FunctionBuilder<'_>, op: Arith, w: u8, x: Value, y: Value) 
                 let d = b.select(bad, one, y);
                 let ez = raise(b, z, raise::DIV_ZERO);
                 let eo = raise(b, ovf, raise::INT8_RANGE);
-                Out { value: b.int_bin(IntBinOp::Sdiv, x, d), err: or(b, ez, eo) }
+                Out {
+                    value: b.int_bin(IntBinOp::Sdiv, x, d),
+                    err: or(b, ez, eo),
+                }
             }
             Arith::Mod => {
                 let z = b.icmp(IntCond::Eq, y, zero);
                 let m1 = b.icmp(IntCond::Eq, y, mone);
                 let mask = or(b, z, m1);
                 let d = b.select(mask, one, y);
-                Out { value: b.int_bin(IntBinOp::Srem, x, d), err: raise(b, z, raise::DIV_ZERO) }
+                Out {
+                    value: b.int_bin(IntBinOp::Srem, x, d),
+                    err: raise(b, z, raise::DIV_ZERO),
+                }
             }
         };
     }
@@ -455,7 +513,10 @@ fn int_arith(b: &mut FunctionBuilder<'_>, op: Arith, w: u8, x: Value, y: Value) 
             let r = b.int_bin(iop, x, y);
             let ok = fits(b, r, w);
             let nok = not(b, ok);
-            Out { value: r, err: raise(b, nok, range_code(w)) }
+            Out {
+                value: r,
+                err: raise(b, nok, range_code(w)),
+            }
         }
         Arith::Div => {
             // D857: the dividend word need not be a sign-extended narrow value (a NULL argument's or an erroring
@@ -475,7 +536,10 @@ fn int_arith(b: &mut FunctionBuilder<'_>, op: Arith, w: u8, x: Value, y: Value) 
             let nok = not(b, ok);
             let ez = raise(b, z, raise::DIV_ZERO);
             let eo = raise(b, nok, range_code(w));
-            Out { value: q, err: or(b, ez, eo) }
+            Out {
+                value: q,
+                err: or(b, ez, eo),
+            }
         }
         Arith::Mod => {
             let one = b.iconst(Type::I64, 1);
@@ -485,7 +549,10 @@ fn int_arith(b: &mut FunctionBuilder<'_>, op: Arith, w: u8, x: Value, y: Value) 
             let mask = or(b, z, m1);
             let d = b.select(mask, one, y);
             let _ = f;
-            Out { value: b.int_bin(IntBinOp::Srem, x, d), err: raise(b, z, raise::DIV_ZERO) }
+            Out {
+                value: b.int_bin(IntBinOp::Srem, x, d),
+                err: raise(b, z, raise::DIV_ZERO),
+            }
         }
     }
 }
@@ -499,7 +566,15 @@ fn float_arith(b: &mut FunctionBuilder<'_>, op: Arith, w: u8, x: Value, y: Value
     let f = b.bconst(false);
     let (r, zero, ovf, under) = match op {
         Arith::Add | Arith::Sub => {
-            let r = b.float_bin(if op == Arith::Add { FloatBinOp::Add } else { FloatBinOp::Sub }, x, y);
+            let r = b.float_bin(
+                if op == Arith::Add {
+                    FloatBinOp::Add
+                } else {
+                    FloatBinOp::Sub
+                },
+                x,
+                y,
+            );
             let ri = is_inf(b, r, w);
             (r, f, and(b, ri, finite_in), f)
         }
@@ -522,7 +597,11 @@ fn float_arith(b: &mut FunctionBuilder<'_>, op: Arith, w: u8, x: Value, y: Value
             let xn = is_nan(b, x);
             let nxn = not(b, xn);
             let zero = and(b, yz, nxn);
-            let one = if w == 4 { b.f32const(1.0) } else { b.f64const(1.0) };
+            let one = if w == 4 {
+                b.f32const(1.0)
+            } else {
+                b.f64const(1.0)
+            };
             let d = b.select(zero, one, y);
             let r = b.float_bin(FloatBinOp::Div, x, d);
             let ri = is_inf(b, r, w);
@@ -537,9 +616,16 @@ fn float_arith(b: &mut FunctionBuilder<'_>, op: Arith, w: u8, x: Value, y: Value
             (r, zero, ovf, under)
         }
     };
-    let (ez, eo, eu) = (raise(b, zero, raise::DIV_ZERO), raise(b, ovf, raise::FLOAT_OVF), raise(b, under, raise::FLOAT_UNDER));
+    let (ez, eo, eu) = (
+        raise(b, zero, raise::DIV_ZERO),
+        raise(b, ovf, raise::FLOAT_OVF),
+        raise(b, under, raise::FLOAT_UNDER),
+    );
     let e = or(b, ez, eo);
-    Out { value: r, err: or(b, e, eu) }
+    Out {
+        value: r,
+        err: or(b, e, eu),
+    }
 }
 
 /// The tier-A form of `funcid` over the `I64` words `a`; `None` when it is not one.
@@ -555,37 +641,64 @@ pub fn emit(b: &mut FunctionBuilder<'_>, funcid: Oid, a: &[Value]) -> Option<Out
         Form::IntArith(op, w) => int_arith(b, op, w, x, y?),
         Form::IntCmp(c) => {
             let r = b.icmp(icond(c, true), x, y?);
-            Out { value: zext(b, r), err: f }
+            Out {
+                value: zext(b, r),
+                err: f,
+            }
         }
         Form::UCmp(c) => {
-            let (x, y) = (b.conv(ConvOp::Trunc, Type::I32, x), b.conv(ConvOp::Trunc, Type::I32, y?));
+            let (x, y) = (
+                b.conv(ConvOp::Trunc, Type::I32, x),
+                b.conv(ConvOp::Trunc, Type::I32, y?),
+            );
             let r = b.icmp(icond(c, false), x, y);
-            Out { value: zext(b, r), err: f }
+            Out {
+                value: zext(b, r),
+                err: f,
+            }
         }
         Form::CharCmp(c) => {
             // D2689: char.c orders the bytes as uint8
-            let (x, y) = (b.conv(ConvOp::Trunc, Type::I8, x), b.conv(ConvOp::Trunc, Type::I8, y?));
+            let (x, y) = (
+                b.conv(ConvOp::Trunc, Type::I8, x),
+                b.conv(ConvOp::Trunc, Type::I8, y?),
+            );
             let r = b.icmp(icond(c, false), x, y);
-            Out { value: zext(b, r), err: f }
+            Out {
+                value: zext(b, r),
+                err: f,
+            }
         }
         Form::BoolCmp(c) => {
             let zero = b.iconst(Type::I64, 0);
             let (x, y) = (b.icmp(IntCond::Ne, x, zero), b.icmp(IntCond::Ne, y?, zero));
             let (x, y) = (zext(b, x), zext(b, y));
             let r = b.icmp(icond(c, true), x, y);
-            Out { value: zext(b, r), err: f }
+            Out {
+                value: zext(b, r),
+                err: f,
+            }
         }
         Form::IntBtCmp => {
             let y = y?;
             let gt = b.icmp(IntCond::Sgt, x, y);
             let lt = b.icmp(IntCond::Slt, x, y);
-            Out { value: three_way(b, gt, lt), err: f }
+            Out {
+                value: three_way(b, gt, lt),
+                err: f,
+            }
         }
         Form::UBtCmp => {
-            let (x, y) = (b.conv(ConvOp::Trunc, Type::I32, x), b.conv(ConvOp::Trunc, Type::I32, y?));
+            let (x, y) = (
+                b.conv(ConvOp::Trunc, Type::I32, x),
+                b.conv(ConvOp::Trunc, Type::I32, y?),
+            );
             let gt = b.icmp(IntCond::Ugt, x, y);
             let lt = b.icmp(IntCond::Ult, x, y);
-            Out { value: three_way(b, gt, lt), err: f }
+            Out {
+                value: three_way(b, gt, lt),
+                err: f,
+            }
         }
         Form::BoolBtCmp => {
             let zero = b.iconst(Type::I64, 0);
@@ -593,31 +706,58 @@ pub fn emit(b: &mut FunctionBuilder<'_>, funcid: Oid, a: &[Value]) -> Option<Out
             let (x, y) = (zext(b, x), zext(b, y));
             let gt = b.icmp(IntCond::Sgt, x, y);
             let lt = b.icmp(IntCond::Slt, x, y);
-            Out { value: three_way(b, gt, lt), err: f }
+            Out {
+                value: three_way(b, gt, lt),
+                err: f,
+            }
         }
         Form::CharBtCmp => {
             // D2742: nbtcompare.c's btcharcmp, the uint8 difference (D2689's sibling: GREATEST / LEAST / a row compare over "char"
             // read its sign; a direct call shows the value)
-            let (x, y) = (b.conv(ConvOp::Trunc, Type::I8, x), b.conv(ConvOp::Trunc, Type::I8, y?));
-            let (x, y) = (b.conv(ConvOp::Zext, Type::I64, x), b.conv(ConvOp::Zext, Type::I64, y));
-            Out { value: b.int_bin(IntBinOp::Sub, x, y), err: f }
+            let (x, y) = (
+                b.conv(ConvOp::Trunc, Type::I8, x),
+                b.conv(ConvOp::Trunc, Type::I8, y?),
+            );
+            let (x, y) = (
+                b.conv(ConvOp::Zext, Type::I64, x),
+                b.conv(ConvOp::Zext, Type::I64, y),
+            );
+            Out {
+                value: b.int_bin(IntBinOp::Sub, x, y),
+                err: f,
+            }
         }
         Form::Int2BtCmp => {
             // D2742: nbtcompare.c's btint2cmp, the difference of the two int2 values (in int32 range)
-            let (x, y) = (b.conv(ConvOp::Trunc, Type::I16, x), b.conv(ConvOp::Trunc, Type::I16, y?));
-            let (x, y) = (b.conv(ConvOp::Sext, Type::I64, x), b.conv(ConvOp::Sext, Type::I64, y));
-            Out { value: b.int_bin(IntBinOp::Sub, x, y), err: f }
+            let (x, y) = (
+                b.conv(ConvOp::Trunc, Type::I16, x),
+                b.conv(ConvOp::Trunc, Type::I16, y?),
+            );
+            let (x, y) = (
+                b.conv(ConvOp::Sext, Type::I64, x),
+                b.conv(ConvOp::Sext, Type::I64, y),
+            );
+            Out {
+                value: b.int_bin(IntBinOp::Sub, x, y),
+                err: f,
+            }
         }
         Form::IntNeg(w) => {
             let zero = b.iconst(Type::I64, 0);
             if w == 8 {
                 let o = b.int_ovf(IntOvfOp::SsubOvf, zero, x);
-                Out { value: b.int_bin(IntBinOp::Sub, zero, x), err: raise(b, o, raise::INT8_RANGE) }
+                Out {
+                    value: b.int_bin(IntBinOp::Sub, zero, x),
+                    err: raise(b, o, raise::INT8_RANGE),
+                }
             } else {
                 let r = b.int_bin(IntBinOp::Sub, zero, x);
                 let ok = fits(b, r, w);
                 let nok = not(b, ok);
-                Out { value: r, err: raise(b, nok, range_code(w)) }
+                Out {
+                    value: r,
+                    err: raise(b, nok, range_code(w)),
+                }
             }
         }
         Form::IntAbs(w) => {
@@ -632,76 +772,143 @@ pub fn emit(b: &mut FunctionBuilder<'_>, funcid: Oid, a: &[Value]) -> Option<Out
                 let ok = fits(b, r, w);
                 not(b, ok)
             };
-            Out { value: r, err: raise(b, bad, range_code(w)) }
+            Out {
+                value: r,
+                err: raise(b, bad, range_code(w)),
+            }
         }
-        Form::Bit(op) => Out { value: b.int_bin(op, x, y?), err: f },
+        Form::Bit(op) => Out {
+            value: b.int_bin(op, x, y?),
+            err: f,
+        },
         Form::BitNot => {
             let m = b.iconst(Type::I64, -1);
-            Out { value: b.int_bin(IntBinOp::Xor, x, m), err: f }
+            Out {
+                value: b.int_bin(IntBinOp::Xor, x, m),
+                err: f,
+            }
         }
-        Form::IntMinMax(larger) => Out { value: b.int_bin(if larger { IntBinOp::Smax } else { IntBinOp::Smin }, x, y?), err: f },
+        Form::IntMinMax(larger) => Out {
+            value: b.int_bin(
+                if larger {
+                    IntBinOp::Smax
+                } else {
+                    IntBinOp::Smin
+                },
+                x,
+                y?,
+            ),
+            err: f,
+        },
         Form::IntNarrow(w) => {
             let ok = fits(b, x, w);
             let nok = not(b, ok);
-            Out { value: x, err: raise(b, nok, range_code(w)) }
+            Out {
+                value: x,
+                err: raise(b, nok, range_code(w)),
+            }
         }
         Form::Widen(w) => {
             let t = b.conv(ConvOp::Trunc, int_ty(w), x);
-            Out { value: b.conv(ConvOp::Sext, Type::I64, t), err: f }
+            Out {
+                value: b.conv(ConvOp::Sext, Type::I64, t),
+                err: f,
+            }
         }
         Form::DateTime => return None,
         Form::DateMi => {
             // PG's date_mi: -infinity / infinity are i32::MIN / i32::MAX (DATEVAL_NOBEGIN / NOEND) and raise 22008.
-            let (x, y) = (b.conv(ConvOp::Trunc, Type::I32, x), b.conv(ConvOp::Trunc, Type::I32, y?));
-            let (wx, wy) = (b.conv(ConvOp::Sext, Type::I64, x), b.conv(ConvOp::Sext, Type::I64, y));
-            let (lo, hi) = (b.iconst(Type::I64, i32::MIN as i64), b.iconst(Type::I64, i32::MAX as i64));
-            let (xl, xh, yl, yh) = (b.icmp(IntCond::Eq, wx, lo), b.icmp(IntCond::Eq, wx, hi), b.icmp(IntCond::Eq, wy, lo), b.icmp(IntCond::Eq, wy, hi));
+            let (x, y) = (
+                b.conv(ConvOp::Trunc, Type::I32, x),
+                b.conv(ConvOp::Trunc, Type::I32, y?),
+            );
+            let (wx, wy) = (
+                b.conv(ConvOp::Sext, Type::I64, x),
+                b.conv(ConvOp::Sext, Type::I64, y),
+            );
+            let (lo, hi) = (
+                b.iconst(Type::I64, i32::MIN as i64),
+                b.iconst(Type::I64, i32::MAX as i64),
+            );
+            let (xl, xh, yl, yh) = (
+                b.icmp(IntCond::Eq, wx, lo),
+                b.icmp(IntCond::Eq, wx, hi),
+                b.icmp(IntCond::Eq, wy, lo),
+                b.icmp(IntCond::Eq, wy, hi),
+            );
             let (bx, by) = (or(b, xl, xh), or(b, yl, yh));
             let bad = or(b, bx, by);
             let d = b.int_bin(IntBinOp::Sub, x, y);
-            Out { value: b.conv(ConvOp::Sext, Type::I64, d), err: raise(b, bad, raise::DATE_NOT_FINITE) }
+            Out {
+                value: b.conv(ConvOp::Sext, Type::I64, d),
+                err: raise(b, bad, raise::DATE_NOT_FINITE),
+            }
         }
         Form::FloatArith(op, wa, wb, w) => {
             let (x, y) = (promote(b, x, wa, w), promote(b, y?, wb, w));
             let o = float_arith(b, op, w, x, y);
-            Out { value: from_float(b, o.value, w), err: o.err }
+            Out {
+                value: from_float(b, o.value, w),
+                err: o.err,
+            }
         }
         Form::FloatCmp(c, wa, wb) => {
             let w = wa.max(wb);
             let (x, y) = (promote(b, x, wa, w), promote(b, y?, wb, w));
             let r = float_cmp(b, c, x, y);
-            Out { value: zext(b, r), err: f }
+            Out {
+                value: zext(b, r),
+                err: f,
+            }
         }
         Form::FloatBtCmp(wa, wb) => {
             let w = wa.max(wb);
             let (x, y) = (promote(b, x, wa, w), promote(b, y?, wb, w));
             let gt = float_cmp(b, Cmp::Gt, x, y);
             let lt = float_cmp(b, Cmp::Lt, x, y);
-            Out { value: three_way(b, gt, lt), err: f }
+            Out {
+                value: three_way(b, gt, lt),
+                err: f,
+            }
         }
         Form::FloatNeg(w) => {
             let x = to_float(b, x, w);
             let r = b.float_un(FloatUnOp::Neg, x);
-            Out { value: from_float(b, r, w), err: f }
+            Out {
+                value: from_float(b, r, w),
+                err: f,
+            }
         }
         Form::FloatAbs(w) => {
             let x = to_float(b, x, w);
             let r = b.float_un(FloatUnOp::Abs, x);
-            Out { value: from_float(b, r, w), err: f }
+            Out {
+                value: from_float(b, r, w),
+                err: f,
+            }
         }
         Form::FloatMinMax(larger, w) => {
             let (x, y) = (to_float(b, x, w), to_float(b, y?, w));
             let c = float_cmp(b, if larger { Cmp::Gt } else { Cmp::Lt }, x, y);
             let r = b.select(c, x, y);
-            Out { value: from_float(b, r, w), err: f }
+            Out {
+                value: from_float(b, r, w),
+                err: f,
+            }
         }
         Form::IntToFloat(w) => {
             let r = b.conv(ConvOp::SintToFloat, flt_ty(w), x);
-            Out { value: from_float(b, r, w), err: f }
+            Out {
+                value: from_float(b, r, w),
+                err: f,
+            }
         }
         Form::Promote => {
             let r = promote(b, x, 4, 8);
-            Out { value: from_float(b, r, 8), err: f }
+            Out {
+                value: from_float(b, r, 8),
+                err: f,
+            }
         }
         Form::Demote => {
             let x = to_float(b, x, 8);
@@ -716,7 +923,10 @@ pub fn emit(b: &mut FunctionBuilder<'_>, funcid: Oid, a: &[Value]) -> Option<Out
             let under = and(b, rz, nxz);
             let eo = raise(b, ovf, raise::FLOAT_OVF);
             let eu = raise(b, under, raise::FLOAT_UNDER);
-            Out { value: from_float(b, r, 4), err: or(b, eo, eu) }
+            Out {
+                value: from_float(b, r, 4),
+                err: or(b, eo, eu),
+            }
         }
     })
 }
@@ -753,8 +963,13 @@ pub fn vector_cond(funcid: Oid, width: u8, swapped: bool) -> Option<IntCond> {
 /// at the width, the overflow a mask (`vec.rs`); the mixed-width forms (`int24pl`) and int8 refused.
 pub fn vector_arith(funcid: Oid, width: u8) -> Option<VecBinOp> {
     let name = gravity_fn::row_of(funcid)?.name;
-    let Form::IntArith(ar, w) = form_of(funcid)? else { return None };
-    let digits = name.strip_prefix("int")?.trim_end_matches(|c: char| !c.is_ascii_digit()).len();
+    let Form::IntArith(ar, w) = form_of(funcid)? else {
+        return None;
+    };
+    let digits = name
+        .strip_prefix("int")?
+        .trim_end_matches(|c: char| !c.is_ascii_digit())
+        .len();
     if w != width || digits != 1 || w == 8 {
         return None;
     }

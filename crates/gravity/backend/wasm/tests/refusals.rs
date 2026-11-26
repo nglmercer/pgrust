@@ -1,4 +1,5 @@
-#![cfg(feature = "wasmtime-oracle")]//! Irreducible control flow through the dispatch transform (agreement
+#![cfg(feature = "wasmtime-oracle")]
+//! Irreducible control flow through the dispatch transform (agreement
 //! with the interpreter), and the typed refusal of a host whose address
 //! is not a table index.
 
@@ -39,8 +40,15 @@ fn irreducible_graph_is_dispatched() {
     let p = pb.finish();
     gravity_ir::verify::verify(&p).unwrap();
     let f = &p.funcs[0];
-    let fixed = gravity_wasm::irreduce::make_reducible(f).ok().flatten().expect("the graph needs the transform");
-    assert_eq!(fixed.funcs[0].blocks.len(), f.blocks.len() + 1, "one dispatch block");
+    let fixed = gravity_wasm::irreduce::make_reducible(f)
+        .ok()
+        .flatten()
+        .expect("the graph needs the transform");
+    assert_eq!(
+        fixed.funcs[0].blocks.len(),
+        f.blocks.len() + 1,
+        "one dispatch block"
+    );
     let mut rig = Rig::new();
     let (inst, _) = rig.instantiate(&p, Func(0));
     for c in [0u64, 1] {
@@ -56,7 +64,13 @@ fn native_host_address_is_refused() {
         a
     }
     let mut pb = ProgramBuilder::new();
-    let host = pb.declare_host("h", &[Type::I64], Some(Type::I64), h as *const () as usize, HostFlags::default());
+    let host = pb.declare_host(
+        "h",
+        &[Type::I64],
+        Some(Type::I64),
+        h as *const () as usize,
+        HostFlags::default(),
+    );
     let f = pb.declare_func("f", &[Type::I64], &[Type::I64]);
     let mut b = pb.define(f);
     let x = b.params()[0];
@@ -65,7 +79,16 @@ fn native_host_address_is_refused() {
     let p = pb.finish();
     let got = gravity_wasm::compile(&p, Func(0));
     if (h as *const () as usize) > u32::MAX as usize {
-        assert!(matches!(got, Err(Refusal::HostIndex { host: HostFn(0), .. })), "{got:?}");
+        assert!(
+            matches!(
+                got,
+                Err(Refusal::HostIndex {
+                    host: HostFn(0),
+                    ..
+                })
+            ),
+            "{got:?}"
+        );
     } else {
         assert!(got.is_ok());
     }

@@ -17,6 +17,16 @@ pub(crate) fn expr_cell(tf: &TypeFacts) -> Cell {
         (true, _) => Rep::Word { bytes: 8 },
         (false, _) => Rep::of_storage(tf.typlen, false),
     };
-    let life = CellLife { until: Until::Row, home: CellHome::RowCx };
-    Cell { rep, typid: tf.typid, num: NumTypmod::NONE, life, at: At::Value(0), null: Nullable::Maybe }
+    let life = CellLife {
+        until: Until::Row,
+        home: CellHome::RowCx,
+    };
+    Cell {
+        rep,
+        typid: tf.typid,
+        num: NumTypmod::NONE,
+        life,
+        at: At::Value(0),
+        null: Nullable::Maybe,
+    }
 }

@@ -59,15 +59,30 @@ pub struct Piece {
 
 impl Piece {
     fn sql(sql: impl Into<String>, ordered: Ordered) -> Piece {
-        Piece { sql: sql.into(), ordered, kind: StepKind::Sql, xproto: None }
+        Piece {
+            sql: sql.into(),
+            ordered,
+            kind: StepKind::Sql,
+            xproto: None,
+        }
     }
     fn disconnect() -> Piece {
-        Piece { sql: String::new(), ordered: Ordered::None, kind: StepKind::Disconnect, xproto: None }
+        Piece {
+            sql: String::new(),
+            ordered: Ordered::None,
+            kind: StepKind::Disconnect,
+            xproto: None,
+        }
     }
     fn pipeline(sql: impl Into<String>, ordered: Ordered, repeat: u32) -> Piece {
         let mut x = XProto::simple("pipeline");
         x.repeat = repeat;
-        Piece { sql: sql.into(), ordered, kind: StepKind::Xproto, xproto: Some(x) }
+        Piece {
+            sql: sql.into(),
+            ordered,
+            kind: StepKind::Xproto,
+            xproto: Some(x),
+        }
     }
 }
 
@@ -142,7 +157,12 @@ impl ShellCtx {
                 .tables
                 .iter()
                 .filter(|t| !t.at_most_one_row)
-                .filter_map(|t| t.pk.as_ref().map(|pk| ShellTable { name: t.name.clone(), pk: pk.column.clone() }))
+                .filter_map(|t| {
+                    t.pk.as_ref().map(|pk| ShellTable {
+                        name: t.name.clone(),
+                        pk: pk.column.clone(),
+                    })
+                })
                 .collect(),
         }
     }
@@ -296,11 +316,14 @@ impl Template {
         let reroutable = |no_conflict: bool, no_merge: bool| {
             k.is_dml()
                 && c.target.as_ref().is_some_and(|t| {
-                    ctx.table(&t.table).is_some() && !(no_conflict && t.on_conflict) && !(no_merge && t.verb == Verb::Merge)
+                    ctx.table(&t.table).is_some()
+                        && !(no_conflict && t.on_conflict)
+                        && !(no_merge && t.verb == Verb::Merge)
                 })
         };
         // Repeated execution: a fresh-pk INSERT collides with itself.
-        let repeatable = k == Kind::Select || (k.is_dml() && c.target.as_ref().is_some_and(|t| t.verb != Verb::Insert));
+        let repeatable = k == Kind::Select
+            || (k.is_dml() && c.target.as_ref().is_some_and(|t| t.verb != Verb::Insert));
         match self {
             Template::SecdefSrf
             | Template::PlpgsqlRecord
@@ -318,11 +341,15 @@ impl Template {
             | Template::Rls
             | Template::PlpgsqlLoopArray => k == Kind::Select,
             Template::HoldCursorSplit => k == Kind::Select && c.ordered == Ordered::Total,
-            Template::TriggerExec => matches!(k, Kind::Select | Kind::Dml | Kind::DmlReturning | Kind::Ddl),
+            Template::TriggerExec => {
+                matches!(k, Kind::Select | Kind::Dml | Kind::DmlReturning | Kind::Ddl)
+            }
             Template::MultiN | Template::PipelineN | Template::PlanCache => repeatable,
             Template::ViewRule => reroutable(true, true),
             Template::PartitionDml => reroutable(false, false),
-            Template::Savepoint => matches!(k, Kind::Select | Kind::Dml | Kind::DmlReturning | Kind::Ddl),
+            Template::Savepoint => {
+                matches!(k, Kind::Select | Kind::Dml | Kind::DmlReturning | Kind::Ddl)
+            }
         }
     }
 
@@ -711,7 +738,12 @@ fn words(sql: &str) -> Vec<Word> {
                 }
                 i += 1;
             }
-            out.push(Word { text: sql[s..i].to_string(), start: s, end: i, depth });
+            out.push(Word {
+                text: sql[s..i].to_string(),
+                start: s,
+                end: i,
+                depth,
+            });
         } else if c == b'$' {
             // $tag$ ... $tag$ or a $n parameter.
             let mut j = i + 1;
@@ -735,10 +767,17 @@ fn words(sql: &str) -> Vec<Word> {
             i += 1;
         } else if c == b'_' || c.is_ascii_alphabetic() || c >= 0x80 {
             let s = i;
-            while i < n && (b[i] == b'_' || b[i] == b'$' || b[i].is_ascii_alphanumeric() || b[i] >= 0x80) {
+            while i < n
+                && (b[i] == b'_' || b[i] == b'$' || b[i].is_ascii_alphanumeric() || b[i] >= 0x80)
+            {
                 i += 1;
             }
-            out.push(Word { text: sql[s..i].to_ascii_lowercase(), start: s, end: i, depth });
+            out.push(Word {
+                text: sql[s..i].to_ascii_lowercase(),
+                start: s,
+                end: i,
+                depth,
+            });
         } else {
             i += 1;
         }
@@ -746,9 +785,17 @@ fn words(sql: &str) -> Vec<Word> {
     out
 }
 
-const DDL_VERBS: &[&str] = &["create", "alter", "drop", "truncate", "comment", "grant", "revoke", "reindex", "refresh"];
+const DDL_VERBS: &[&str] = &[
+    "create", "alter", "drop", "truncate", "comment", "grant", "revoke", "reindex", "refresh",
+];
 /// DDL words that cannot run inside a transaction block / a function.
-const NON_TXN_WORDS: &[&str] = &["concurrently", "database", "tablespace", "subscription", "system"];
+const NON_TXN_WORDS: &[&str] = &[
+    "concurrently",
+    "database",
+    "tablespace",
+    "subscription",
+    "system",
+];
 
 /// Classify `sql` for the shell filter; `None` when no shell may touch
 /// it (empty, multi-statement, or carrying a shell dollar tag).
@@ -762,29 +809,51 @@ pub fn classify(sql: &str, ordered: Ordered) -> Option<Classified> {
         let upper = body.to_ascii_uppercase();
         // SELECT INTO / locking clauses cannot live in a subquery or a
         // SQL function body.
-        if upper.contains(" INTO ") || upper.contains("FOR UPDATE") || upper.contains("FOR SHARE") || upper.contains("FOR NO KEY") || upper.contains("FOR KEY SHARE") {
+        if upper.contains(" INTO ")
+            || upper.contains("FOR UPDATE")
+            || upper.contains("FOR SHARE")
+            || upper.contains("FOR NO KEY")
+            || upper.contains("FOR KEY SHARE")
+        {
             return None;
         }
-        return Some(Classified { kind: Kind::Select, ordered, target: None });
+        return Some(Classified {
+            kind: Kind::Select,
+            ordered,
+            target: None,
+        });
     }
     if matches!(shape, Shape::Sequential) {
-        return Some(Classified { kind: Kind::Utility, ordered, target: None });
+        return Some(Classified {
+            kind: Kind::Utility,
+            ordered,
+            target: None,
+        });
     }
     let ws = words(body);
     #[allow(clippy::question_mark)]
-    let Some(first) = ws.first() else { return None };
+    let Some(first) = ws.first() else {
+        return None;
+    };
     // Main verb after a CTE prefix: the first depth-0 DML keyword not
     // followed by AS (a CTE name).
     let verb_at = if first.text == "with" {
         ws.iter().enumerate().skip(1).find_map(|(i, w)| {
-            let is_verb = w.depth == 0 && matches!(w.text.as_str(), "insert" | "update" | "delete" | "merge");
+            let is_verb =
+                w.depth == 0 && matches!(w.text.as_str(), "insert" | "update" | "delete" | "merge");
             let next_as = ws.get(i + 1).is_some_and(|x| x.text == "as");
             (is_verb && !next_as).then_some(i)
         })
     } else {
         Some(0)
     };
-    let Some(vi) = verb_at else { return Some(Classified { kind: Kind::Utility, ordered, target: None }) };
+    let Some(vi) = verb_at else {
+        return Some(Classified {
+            kind: Kind::Utility,
+            ordered,
+            target: None,
+        });
+    };
     let verb = match ws[vi].text.as_str() {
         "insert" => Some(Verb::Insert),
         "update" => Some(Verb::Update),
@@ -793,8 +862,14 @@ pub fn classify(sql: &str, ordered: Ordered) -> Option<Classified> {
         _ => None,
     };
     if let Some(verb) = verb {
-        let returning = ws.iter().skip(vi + 1).any(|w| w.depth == 0 && w.text == "returning");
-        let on_conflict = ws.iter().skip(vi + 1).any(|w| w.depth == 0 && w.text == "conflict");
+        let returning = ws
+            .iter()
+            .skip(vi + 1)
+            .any(|w| w.depth == 0 && w.text == "returning");
+        let on_conflict = ws
+            .iter()
+            .skip(vi + 1)
+            .any(|w| w.depth == 0 && w.text == "conflict");
         // The name: after INTO / FROM (INSERT / MERGE / DELETE) or right
         // after UPDATE, skipping ONLY.
         let mut j = vi + 1;
@@ -804,17 +879,43 @@ pub fn classify(sql: &str, ordered: Ordered) -> Option<Classified> {
         if ws.get(j).is_some_and(|w| w.text == "only") {
             j += 1;
         }
-        let target = ws.get(j).filter(|w| w.depth == 0 && !w.text.starts_with('"')).and_then(|w| {
-            // Not schema-qualified: the next byte is not a dot.
-            (body.as_bytes().get(w.end) != Some(&b'.')).then(|| DmlTarget { verb, table: w.text.clone(), span: (w.start, w.end), on_conflict })
+        let target = ws
+            .get(j)
+            .filter(|w| w.depth == 0 && !w.text.starts_with('"'))
+            .and_then(|w| {
+                // Not schema-qualified: the next byte is not a dot.
+                (body.as_bytes().get(w.end) != Some(&b'.')).then(|| DmlTarget {
+                    verb,
+                    table: w.text.clone(),
+                    span: (w.start, w.end),
+                    on_conflict,
+                })
+            });
+        let kind = if returning {
+            Kind::DmlReturning
+        } else {
+            Kind::Dml
+        };
+        return Some(Classified {
+            kind,
+            ordered,
+            target,
         });
-        let kind = if returning { Kind::DmlReturning } else { Kind::Dml };
-        return Some(Classified { kind, ordered, target });
     }
-    if DDL_VERBS.contains(&ws[vi].text.as_str()) && !ws.iter().any(|w| NON_TXN_WORDS.contains(&w.text.as_str())) {
-        return Some(Classified { kind: Kind::Ddl, ordered, target: None });
+    if DDL_VERBS.contains(&ws[vi].text.as_str())
+        && !ws.iter().any(|w| NON_TXN_WORDS.contains(&w.text.as_str()))
+    {
+        return Some(Classified {
+            kind: Kind::Ddl,
+            ordered,
+            target: None,
+        });
     }
-    Some(Classified { kind: Kind::Utility, ordered, target: None })
+    Some(Classified {
+        kind: Kind::Utility,
+        ordered,
+        target: None,
+    })
 }
 
 /// Is any shell legal for the statement? (SELECT-shaped, single, no
@@ -828,11 +929,24 @@ pub fn wrappable(sql: &str) -> bool {
 /// drawn from `templates` (those legal for the statement's kind) by
 /// `rng`; everything else passes through. `source` is the index into
 /// the input stream.
-pub fn compose(stmts: &[(String, Vec<String>, Ordered)], p_per_mille: u64, templates: &[Template], ctx: &ShellCtx, rng: &mut Rng) -> Vec<Composed> {
+pub fn compose(
+    stmts: &[(String, Vec<String>, Ordered)],
+    p_per_mille: u64,
+    templates: &[Template],
+    ctx: &ShellCtx,
+    rng: &mut Rng,
+) -> Vec<Composed> {
     let mut out = Vec::with_capacity(stmts.len());
     for (i, (sql, productions, ordered)) in stmts.iter().enumerate() {
         let pass = |out: &mut Vec<Composed>| {
-            out.push(Composed { sql: sql.clone(), productions: productions.clone(), ordered: *ordered, source: i, kind: StepKind::Sql, xproto: None });
+            out.push(Composed {
+                sql: sql.clone(),
+                productions: productions.clone(),
+                ordered: *ordered,
+                source: i,
+                kind: StepKind::Sql,
+                xproto: None,
+            });
         };
         let cl = match classify(sql, *ordered) {
             Some(c) if !templates.is_empty() && c.kind != Kind::Utility => c,
@@ -845,7 +959,11 @@ pub fn compose(stmts: &[(String, Vec<String>, Ordered)], p_per_mille: u64, templ
             pass(&mut out);
             continue;
         }
-        let cands: Vec<Template> = templates.iter().copied().filter(|t| t.applies(&cl, ctx)).collect();
+        let cands: Vec<Template> = templates
+            .iter()
+            .copied()
+            .filter(|t| t.applies(&cl, ctx))
+            .collect();
         if cands.is_empty() {
             pass(&mut out);
             continue;
@@ -858,7 +976,14 @@ pub fn compose(stmts: &[(String, Vec<String>, Ordered)], p_per_mille: u64, templ
         prods.sort();
         prods.dedup();
         for p in t.render(inner, &cl, ctx, salt) {
-            out.push(Composed { sql: p.sql, productions: prods.clone(), ordered: p.ordered, source: i, kind: p.kind, xproto: p.xproto });
+            out.push(Composed {
+                sql: p.sql,
+                productions: prods.clone(),
+                ordered: p.ordered,
+                source: i,
+                kind: p.kind,
+                xproto: p.xproto,
+            });
         }
     }
     out
@@ -904,24 +1029,39 @@ mod tests {
         assert_eq!(cl("VACUUM fz_scalar").kind, Kind::Utility);
         assert_eq!(cl("CREATE TABLE t (a int)").kind, Kind::Ddl);
         assert_eq!(cl("ALTER TABLE t ADD COLUMN b int").kind, Kind::Ddl);
-        assert_eq!(cl("CREATE INDEX CONCURRENTLY i ON t (a)").kind, Kind::Utility);
+        assert_eq!(
+            cl("CREATE INDEX CONCURRENTLY i ON t (a)").kind,
+            Kind::Utility
+        );
         assert_eq!(cl("CREATE DATABASE d").kind, Kind::Utility);
         assert_eq!(cl("DROP TABLE IF EXISTS t").kind, Kind::Ddl);
 
-        let c = cl("INSERT INTO fz_scalar AS s (pk, k_int) VALUES (100, 1) ON CONFLICT (pk) DO NOTHING");
+        let c = cl(
+            "INSERT INTO fz_scalar AS s (pk, k_int) VALUES (100, 1) ON CONFLICT (pk) DO NOTHING",
+        );
         assert_eq!(c.kind, Kind::Dml);
         let t = c.target.unwrap();
-        assert_eq!((t.verb, t.table.as_str(), t.on_conflict), (Verb::Insert, "fz_scalar", true));
-        assert_eq!(&"INSERT INTO fz_scalar AS s"[t.span.0..t.span.1], "fz_scalar");
+        assert_eq!(
+            (t.verb, t.table.as_str(), t.on_conflict),
+            (Verb::Insert, "fz_scalar", true)
+        );
+        assert_eq!(
+            &"INSERT INTO fz_scalar AS s"[t.span.0..t.span.1],
+            "fz_scalar"
+        );
 
         let c = cl("UPDATE fz_mixed AS u SET val = 1 WHERE id = 2 RETURNING *");
         assert_eq!(c.kind, Kind::DmlReturning);
         let t = c.target.unwrap();
-        assert_eq!((t.verb, t.table.as_str(), t.on_conflict), (Verb::Update, "fz_mixed", false));
+        assert_eq!(
+            (t.verb, t.table.as_str(), t.on_conflict),
+            (Verb::Update, "fz_mixed", false)
+        );
 
         let c = cl("DELETE FROM ONLY fz_wide AS d USING fz_one WHERE d.pk = fz_one.k_int");
         assert_eq!(c.target.unwrap().table, "fz_wide");
-        let c = cl("MERGE INTO fz_rich AS m USING fz_one o ON m.pk = o.k_int WHEN MATCHED THEN DELETE");
+        let c =
+            cl("MERGE INTO fz_rich AS m USING fz_one o ON m.pk = o.k_int WHEN MATCHED THEN DELETE");
         assert_eq!(c.target.unwrap().verb, Verb::Merge);
 
         // CTE prefix: the main verb is the one not followed by AS.
@@ -929,7 +1069,10 @@ mod tests {
         assert_eq!(c.kind, Kind::Dml);
         assert_eq!(c.target.unwrap().table, "fz_mixed");
         // A string literal containing RETURNING does not count.
-        assert_eq!(cl("UPDATE fz_scalar SET t = 'x returning y' WHERE pk = 1").kind, Kind::Dml);
+        assert_eq!(
+            cl("UPDATE fz_scalar SET t = 'x returning y' WHERE pk = 1").kind,
+            Kind::Dml
+        );
         // Quoted or qualified targets are not rerouted.
         assert!(cl("UPDATE \"Fz\" SET a = 1").target.is_none());
         assert!(cl("UPDATE public.fz_scalar SET k_int = 1").target.is_none());
@@ -942,7 +1085,10 @@ mod tests {
     fn retarget_rewrites_only_the_target_token() {
         let sql = "UPDATE fz_scalar AS u SET k_int = 1 FROM fz_scalar x WHERE u.pk = x.pk";
         let c = cl(sql);
-        assert_eq!(retarget(sql, c.target.as_ref().unwrap(), "fz_comp_part"), "UPDATE fz_comp_part AS u SET k_int = 1 FROM fz_scalar x WHERE u.pk = x.pk");
+        assert_eq!(
+            retarget(sql, c.target.as_ref().unwrap(), "fz_comp_part"),
+            "UPDATE fz_comp_part AS u SET k_int = 1 FROM fz_scalar x WHERE u.pk = x.pk"
+        );
     }
 
     #[test]
@@ -953,14 +1099,20 @@ mod tests {
         let ins = cl("INSERT INTO fz_scalar (pk) VALUES (100)");
         let ins_conflict = cl("INSERT INTO fz_scalar (pk) VALUES (100) ON CONFLICT DO NOTHING");
         let upd = cl("UPDATE fz_scalar SET k_int = 1 WHERE pk = 1 RETURNING pk");
-        let merge = cl("MERGE INTO fz_scalar m USING fz_one o ON m.pk = o.k_int WHEN MATCHED THEN DELETE");
+        let merge =
+            cl("MERGE INTO fz_scalar m USING fz_one o ON m.pk = o.k_int WHEN MATCHED THEN DELETE");
         let upd_unknown = cl("UPDATE fz_ddl_9 SET a = 1");
         let ddl = cl("CREATE TABLE fz_x (a int)");
         let util = cl("SET work_mem = '1MB'");
         for t in Template::ALL {
             assert!(!t.applies(&util, &ctx), "{} accepts utility", t.name());
             let dml_only = matches!(t, Template::ViewRule | Template::PartitionDml);
-            assert_eq!(t.applies(&sel_total, &ctx), !dml_only, "{} on a total-order select", t.name());
+            assert_eq!(
+                t.applies(&sel_total, &ctx),
+                !dml_only,
+                "{} on a total-order select",
+                t.name()
+            );
         }
         // SELECT-only shells.
         for t in [
@@ -996,7 +1148,11 @@ mod tests {
             assert!(t.applies(&sel, &ctx));
             assert!(t.applies(&upd, &ctx));
             assert!(t.applies(&merge, &ctx));
-            assert!(!t.applies(&ins, &ctx), "{} repeats a fresh-pk INSERT", t.name());
+            assert!(
+                !t.applies(&ins, &ctx),
+                "{} repeats a fresh-pk INSERT",
+                t.name()
+            );
             assert!(!t.applies(&ddl, &ctx));
         }
         assert!(Template::ViewRule.applies(&ins, &ctx));
@@ -1017,8 +1173,14 @@ mod tests {
     fn every_shell_renders_the_inner_once_per_shell_and_ends_in_a_statement() {
         let ctx = ctx();
         let cases = [
-            ("SELECT pk, k_text FROM fz_scalar ORDER BY pk", Ordered::Total),
-            ("UPDATE fz_scalar AS u SET k_int = 1 WHERE pk = 1 RETURNING pk", Ordered::None),
+            (
+                "SELECT pk, k_text FROM fz_scalar ORDER BY pk",
+                Ordered::Total,
+            ),
+            (
+                "UPDATE fz_scalar AS u SET k_int = 1 WHERE pk = 1 RETURNING pk",
+                Ordered::None,
+            ),
             ("DELETE FROM fz_mixed WHERE id = 1", Ordered::None),
             ("CREATE TABLE fz_x (a int)", Ordered::None),
         ];
@@ -1028,13 +1190,28 @@ mod tests {
                 for salt in 0..3 {
                     let pieces = t.render(sql, &c, &ctx, salt);
                     assert!(!pieces.is_empty(), "{}", t.name());
-                    let joined: String = pieces.iter().map(|p| p.sql.as_str()).collect::<Vec<_>>().join("\n");
-                    let inner_present = joined.contains(sql) || c.target.as_ref().is_some_and(|tg| joined.contains(&sql[tg.span.1..]));
-                    assert!(inner_present, "{} lost the inner statement:\n{joined}", t.name());
+                    let joined: String = pieces
+                        .iter()
+                        .map(|p| p.sql.as_str())
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    let inner_present = joined.contains(sql)
+                        || c.target
+                            .as_ref()
+                            .is_some_and(|tg| joined.contains(&sql[tg.span.1..]));
+                    assert!(
+                        inner_present,
+                        "{} lost the inner statement:\n{joined}",
+                        t.name()
+                    );
                     for p in &pieces {
                         match p.kind {
-                            StepKind::Sql => assert!(p.sql.ends_with(';'), "{}: {}", t.name(), p.sql),
-                            StepKind::Xproto => assert_eq!(p.xproto.as_ref().unwrap().mode, "pipeline"),
+                            StepKind::Sql => {
+                                assert!(p.sql.ends_with(';'), "{}: {}", t.name(), p.sql)
+                            }
+                            StepKind::Xproto => {
+                                assert_eq!(p.xproto.as_ref().unwrap().mode, "pipeline")
+                            }
                             StepKind::Disconnect => assert!(p.sql.is_empty()),
                             ref k => panic!("{}: unexpected step kind {k:?}", t.name()),
                         }
@@ -1051,19 +1228,33 @@ mod tests {
         let inner = "SELECT pk FROM fz_scalar ORDER BY pk";
         // 1. sublink direct argument of an ordered-set aggregate.
         let p = Template::OrderedSetAgg.render(inner, &sel, &ctx, 0);
-        assert!(p[0].sql.contains("percentile_disc((SELECT 0.5)) WITHIN GROUP (ORDER BY x)"));
+        assert!(p[0]
+            .sql
+            .contains("percentile_disc((SELECT 0.5)) WITHIN GROUP (ORDER BY x)"));
         assert_eq!(p[0].ordered, Ordered::Total);
         // 2. trigger: SELECT runs as a query, DML via EXECUTE.
         let p = Template::TriggerExec.render(inner, &sel, &ctx, 0);
-        assert!(p.iter().any(|p| p.sql.contains("NEW.\"camelCase\" := NEW.\"camelCase\"") && p.sql.contains(&format!("FROM ({inner}) q"))));
+        assert!(p
+            .iter()
+            .any(|p| p.sql.contains("NEW.\"camelCase\" := NEW.\"camelCase\"")
+                && p.sql.contains(&format!("FROM ({inner}) q"))));
         let dml = cl("DELETE FROM fz_mixed WHERE id = 1");
         let p = Template::TriggerExec.render("DELETE FROM fz_mixed WHERE id = 1", &dml, &ctx, 0);
-        assert!(p.iter().any(|p| p.sql.contains("EXECUTE $fzq$DELETE FROM fz_mixed WHERE id = 1$fzq$")));
+        assert!(p.iter().any(|p| p
+            .sql
+            .contains("EXECUTE $fzq$DELETE FROM fz_mixed WHERE id = 1$fzq$")));
         // 3. hold cursors: split keeps the total witness on every chunk;
         // leak ends the session.
         let p = Template::HoldCursorSplit.render(inner, &sel, &ctx, 0);
-        assert!(p.iter().filter(|p| p.sql.starts_with("FETCH")).all(|p| p.ordered == Ordered::Total));
-        assert!(p.iter().any(|p| p.sql == "COMMIT;") && p.iter().position(|p| p.sql == "COMMIT;") > p.iter().position(|p| p.sql.starts_with("FETCH")));
+        assert!(p
+            .iter()
+            .filter(|p| p.sql.starts_with("FETCH"))
+            .all(|p| p.ordered == Ordered::Total));
+        assert!(
+            p.iter().any(|p| p.sql == "COMMIT;")
+                && p.iter().position(|p| p.sql == "COMMIT;")
+                    > p.iter().position(|p| p.sql.starts_with("FETCH"))
+        );
         let p = Template::HoldCursorLeak.render(inner, &sel, &ctx, 0);
         assert_eq!(p.last().unwrap().kind, StepKind::Disconnect);
         assert!(!p.iter().any(|p| p.sql.starts_with("CLOSE")));
@@ -1080,55 +1271,117 @@ mod tests {
         }
         // 5. nested aggregate + json_agg over a grouped subquery.
         let p = Template::AggNested.render(inner, &sel, &ctx, 0);
-        assert!(p[0].sql.contains("(SELECT s FROM (SELECT count(x) AS s) r)"));
+        assert!(p[0]
+            .sql
+            .contains("(SELECT s FROM (SELECT count(x) AS s) r)"));
         assert!(p[1].sql.contains("json_agg(g ORDER BY g.k)") && p[1].sql.contains("GROUP BY x"));
         // 6. views: viewdef for SELECT; rules with a multi-column SET for DML.
         let p = Template::ViewSelect.render(inner, &sel, &ctx, 0);
         assert!(p.iter().any(|p| p.sql.contains("pg_get_viewdef")));
         let upd = cl("UPDATE fz_mixed AS u SET val = 1 WHERE id = 2");
-        let p = Template::ViewRule.render("UPDATE fz_mixed AS u SET val = 1 WHERE id = 2", &upd, &ctx, 0);
-        assert!(p.iter().any(|p| p.sql == "UPDATE fz_comp_v AS u SET val = 1 WHERE id = 2;"));
-        assert!(p.iter().any(|p| p.sql.contains("SET (n, last) = (SELECT fz_comp_log.n + 1, 'upd')") && p.sql.contains("NEW.id::text")));
+        let p = Template::ViewRule.render(
+            "UPDATE fz_mixed AS u SET val = 1 WHERE id = 2",
+            &upd,
+            &ctx,
+            0,
+        );
+        assert!(p
+            .iter()
+            .any(|p| p.sql == "UPDATE fz_comp_v AS u SET val = 1 WHERE id = 2;"));
+        assert!(p.iter().any(|p| p
+            .sql
+            .contains("SET (n, last) = (SELECT fz_comp_log.n + 1, 'upd')")
+            && p.sql.contains("NEW.id::text")));
         assert!(p.iter().any(|p| p.sql.contains("pg_get_ruledef")));
         // 7. SET clauses + LEAKPROOF; plpgsql RETURN QUERY; both in FROM and select list.
         let p = Template::SecdefSetLeakproof.render(inner, &sel, &ctx, 0);
-        assert!(p[0].sql.contains("LEAKPROOF SECURITY DEFINER SET search_path") && p[0].sql.contains("SET work_mem"));
-        assert!(p.iter().any(|p| p.sql == "SELECT fz_comp_sfl() AS v;") && p.iter().any(|p| p.sql.contains("FROM fz_comp_sfl()")));
+        assert!(
+            p[0].sql
+                .contains("LEAKPROOF SECURITY DEFINER SET search_path")
+                && p[0].sql.contains("SET work_mem")
+        );
+        assert!(
+            p.iter().any(|p| p.sql == "SELECT fz_comp_sfl() AS v;")
+                && p.iter().any(|p| p.sql.contains("FROM fz_comp_sfl()"))
+        );
         let p = Template::PlpgsqlSrf.render(inner, &sel, &ctx, 0);
         assert!(p[0].sql.contains("RETURN QUERY SELECT q::text FROM"));
         // 8. partition: the DML rerouted, a trigger on a partition.
-        let p = Template::PartitionDml.render("UPDATE fz_mixed AS u SET val = 1 WHERE id = 2", &upd, &ctx, 0);
-        assert!(p.iter().any(|p| p.sql == "CREATE TABLE fz_comp_part (LIKE fz_mixed INCLUDING ALL) PARTITION BY RANGE (id);"));
-        assert!(p.iter().any(|p| p.sql == "UPDATE fz_comp_part AS u SET val = 1 WHERE id = 2;"));
-        assert!(p.iter().any(|p| p.sql.contains("CREATE TRIGGER fz_comp_ptrg BEFORE INSERT OR UPDATE OR DELETE ON fz_comp_part_hi")));
+        let p = Template::PartitionDml.render(
+            "UPDATE fz_mixed AS u SET val = 1 WHERE id = 2",
+            &upd,
+            &ctx,
+            0,
+        );
+        assert!(p.iter().any(|p| p.sql
+            == "CREATE TABLE fz_comp_part (LIKE fz_mixed INCLUDING ALL) PARTITION BY RANGE (id);"));
+        assert!(p
+            .iter()
+            .any(|p| p.sql == "UPDATE fz_comp_part AS u SET val = 1 WHERE id = 2;"));
+        assert!(p.iter().any(|p| p.sql.contains(
+            "CREATE TRIGGER fz_comp_ptrg BEFORE INSERT OR UPDATE OR DELETE ON fz_comp_part_hi"
+        )));
         // 9. RLS: policy over the row columns, read under SET ROLE.
         let p = Template::Rls.render(inner, &sel, &ctx, 0);
-        let set = p.iter().position(|p| p.sql == "SET ROLE fz_comp_role;").unwrap();
+        let set = p
+            .iter()
+            .position(|p| p.sql == "SET ROLE fz_comp_role;")
+            .unwrap();
         let reset = p.iter().position(|p| p.sql == "RESET ROLE;").unwrap();
-        assert!(p[set + 1..reset].iter().all(|p| p.sql.starts_with("SELECT")));
-        assert!(p.iter().any(|p| p.sql.contains("CREATE POLICY") && p.sql.contains("\"rowText\"")));
+        assert!(p[set + 1..reset]
+            .iter()
+            .all(|p| p.sql.starts_with("SELECT")));
+        assert!(p
+            .iter()
+            .any(|p| p.sql.contains("CREATE POLICY") && p.sql.contains("\"rowText\"")));
         // 10. loop into text[].
         let p = Template::PlpgsqlLoopArray.render(inner, &sel, &ctx, 0);
-        assert!(p[0].sql.contains(&format!("FOR \"fzRow\" IN {inner} LOOP \"fzAcc\" := \"fzAcc\" || \"fzRow\"::text")));
+        assert!(p[0].sql.contains(&format!(
+            "FOR \"fzRow\" IN {inner} LOOP \"fzAcc\" := \"fzAcc\" || \"fzRow\"::text"
+        )));
         assert!(p[0].sql.contains("RETURNS text[]"));
         // 11. plan cache: 6 auto executions, then generic and custom.
         let p = Template::PlanCache.render(inner, &sel, &ctx, 0);
-        assert_eq!(p.iter().filter(|p| p.sql.starts_with("EXECUTE fz_comp_pc(")).count(), 8);
-        assert!(p.iter().any(|p| p.sql == "SET plan_cache_mode = force_generic_plan;"));
-        assert!(p.iter().any(|p| p.sql == "SET plan_cache_mode = force_custom_plan;"));
+        assert_eq!(
+            p.iter()
+                .filter(|p| p.sql.starts_with("EXECUTE fz_comp_pc("))
+                .count(),
+            8
+        );
+        assert!(p
+            .iter()
+            .any(|p| p.sql == "SET plan_cache_mode = force_generic_plan;"));
+        assert!(p
+            .iter()
+            .any(|p| p.sql == "SET plan_cache_mode = force_custom_plan;"));
         assert_eq!(p.last().unwrap().sql, "DEALLOCATE fz_comp_pc;");
         // 12. savepoint: the statement twice, verbatim, with its witness.
         let p = Template::Savepoint.render(inner, &sel, &ctx, 0);
-        assert_eq!(p.iter().filter(|p| p.sql == format!("{inner};") && p.ordered == Ordered::Total).count(), 2);
-        assert!(p.iter().any(|p| p.sql == "ROLLBACK TO SAVEPOINT fz_comp_sp;"));
+        assert_eq!(
+            p.iter()
+                .filter(|p| p.sql == format!("{inner};") && p.ordered == Ordered::Total)
+                .count(),
+            2
+        );
+        assert!(p
+            .iter()
+            .any(|p| p.sql == "ROLLBACK TO SAVEPOINT fz_comp_sp;"));
     }
 
     #[test]
     fn templates_render_the_inner_query_once_per_shell_and_tag() {
         let ctx = ctx();
         let stmts = vec![
-            ("SELECT 1 AS a;".to_string(), vec!["expr.const".to_string()], Ordered::Total),
-            ("SET x = 1;".to_string(), vec!["cfgm.set".to_string()], Ordered::None),
+            (
+                "SELECT 1 AS a;".to_string(),
+                vec!["expr.const".to_string()],
+                Ordered::Total,
+            ),
+            (
+                "SET x = 1;".to_string(),
+                vec!["cfgm.set".to_string()],
+                Ordered::None,
+            ),
         ];
         let c = cl_total("SELECT 1 AS a");
         for t in Template::ALL.into_iter().filter(|t| t.applies(&c, &ctx)) {
@@ -1150,13 +1403,16 @@ mod tests {
     #[test]
     fn p_zero_passes_through_and_p_full_wraps_every_select() {
         let ctx = ctx();
-        let stmts: Vec<(String, Vec<String>, Ordered)> =
-            (0..20).map(|i| (format!("SELECT {i};"), vec![], Ordered::Total)).collect();
+        let stmts: Vec<(String, Vec<String>, Ordered)> = (0..20)
+            .map(|i| (format!("SELECT {i};"), vec![], Ordered::Total))
+            .collect();
         let mut rng = Rng::new(1);
         assert_eq!(compose(&stmts, 0, &Template::ALL, &ctx, &mut rng).len(), 20);
         let mut rng = Rng::new(1);
         let all = compose(&stmts, 1000, &Template::ALL, &ctx, &mut rng);
-        assert!(all.iter().all(|c| c.productions.iter().any(|p| p.starts_with("compose:"))));
+        assert!(all
+            .iter()
+            .all(|c| c.productions.iter().any(|p| p.starts_with("compose:"))));
         // Deterministic under the seed.
         let mut rng2 = Rng::new(1);
         assert_eq!(compose(&stmts, 1000, &Template::ALL, &ctx, &mut rng2), all);
@@ -1165,14 +1421,34 @@ mod tests {
     #[test]
     fn dml_only_gets_dml_shells_and_unknown_targets_pass_when_nothing_applies() {
         let ctx = ctx();
-        let stmts = vec![("INSERT INTO fz_scalar (pk) VALUES (100);".to_string(), vec!["dml.insert".to_string()], Ordered::None)];
+        let stmts = vec![(
+            "INSERT INTO fz_scalar (pk) VALUES (100);".to_string(),
+            vec!["dml.insert".to_string()],
+            Ordered::None,
+        )];
         let mut rng = Rng::new(3);
-        let out = compose(&stmts, 1000, &[Template::Cte, Template::Rls], &ctx, &mut rng);
+        let out = compose(
+            &stmts,
+            1000,
+            &[Template::Cte, Template::Rls],
+            &ctx,
+            &mut rng,
+        );
         assert_eq!(out.len(), 1, "no legal shell: pass through");
         let mut rng = Rng::new(3);
-        let out = compose(&stmts, 1000, &[Template::Cte, Template::PartitionDml], &ctx, &mut rng);
-        assert!(out.iter().all(|c| c.productions.contains(&"compose:partition-dml".to_string())));
-        assert!(out.iter().any(|c| c.sql == "INSERT INTO fz_comp_part (pk) VALUES (100);"));
+        let out = compose(
+            &stmts,
+            1000,
+            &[Template::Cte, Template::PartitionDml],
+            &ctx,
+            &mut rng,
+        );
+        assert!(out
+            .iter()
+            .all(|c| c.productions.contains(&"compose:partition-dml".to_string())));
+        assert!(out
+            .iter()
+            .any(|c| c.sql == "INSERT INTO fz_comp_part (pk) VALUES (100);"));
     }
 
     #[test]
@@ -1181,7 +1457,8 @@ mod tests {
             assert_eq!(Template::parse(t.name()), Some(t));
         }
         assert_eq!(Template::parse("nope"), None);
-        let names: std::collections::BTreeSet<&str> = Template::ALL.iter().map(|t| t.name()).collect();
+        let names: std::collections::BTreeSet<&str> =
+            Template::ALL.iter().map(|t| t.name()).collect();
         assert_eq!(names.len(), Template::ALL.len());
     }
 
@@ -1189,8 +1466,24 @@ mod tests {
     fn words_skip_strings_comments_and_dollar_quotes() {
         let w = words("UPDATE t SET a = 'x returning ''y''' /* returning */ -- returning\n, b = $q$returning$q$, c = $1 WHERE (d = E'\\'returning') RETURNING *");
         let texts: Vec<&str> = w.iter().map(|w| w.text.as_str()).collect();
-        assert_eq!(texts, ["update", "t", "set", "a", "b", "c", "where", "d", "returning"]);
+        assert_eq!(
+            texts,
+            [
+                "update",
+                "t",
+                "set",
+                "a",
+                "b",
+                "c",
+                "where",
+                "d",
+                "returning"
+            ]
+        );
         assert_eq!(w.iter().find(|w| w.text == "d").unwrap().depth, 1);
-        assert_eq!(words("select \"Quoted\"\"x\" from t")[1].text, "\"Quoted\"\"x\"");
+        assert_eq!(
+            words("select \"Quoted\"\"x\" from t")[1].text,
+            "\"Quoted\"\"x\""
+        );
     }
 }

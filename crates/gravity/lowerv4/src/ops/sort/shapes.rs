@@ -17,10 +17,28 @@ use crate::graph::{emits_groups, Gx};
 /// mantissa, a code, a fingerprint, a key its own btree
 /// family orders, or a text key under a libc collation (word 0: nothing for the radix) is not.
 pub(crate) fn lane_key(d: &SortDesc<'_>, group: Option<&GroupDecl<'_>>) -> bool {
-    let word = |k: &SortKey| matches!(k.kind, KeyKind::I32 | KeyKind::I64 | KeyKind::Date | KeyKind::Timestamp | KeyKind::F32 | KeyKind::F64) && (k.image.is_raw() || k.image.is_float());
-    let prefix = |k: &SortKey| (k.image.is_text() || k.image.is_bpchar()) && !k.own_family && (k.coll.bytes_order || crate::rep::varkey::coll_prefix(k.coll.oid));
+    let word = |k: &SortKey| {
+        matches!(
+            k.kind,
+            KeyKind::I32
+                | KeyKind::I64
+                | KeyKind::Date
+                | KeyKind::Timestamp
+                | KeyKind::F32
+                | KeyKind::F64
+        ) && (k.image.is_raw() || k.image.is_float())
+    };
+    let prefix = |k: &SortKey| {
+        (k.image.is_text() || k.image.is_bpchar())
+            && !k.own_family
+            && (k.coll.bytes_order || crate::rep::varkey::coll_prefix(k.coll.oid))
+    };
     // USEROP: a CompareFn key's word is the constant 0 (its comparator decides), never the whole key a radix orders by
-    matches!(d.form, SortForm::Runs) && group.is_none() && d.keys.first().is_some_and(|k| !k.compare_fn() && (word(k) || prefix(k)))
+    matches!(d.form, SortForm::Runs)
+        && group.is_none()
+        && d.keys
+            .first()
+            .is_some_and(|k| !k.compare_fn() && (word(k) || prefix(k)))
 }
 
 /// Form G (runs/sort.rs, keyed/emit_group.rs): pipeline `k`'s full sort orders the records of the keyed group it drains
@@ -33,16 +51,40 @@ pub(crate) fn lane_key(d: &SortDesc<'_>, group: Option<&GroupDecl<'_>>) -> bool 
 /// reading it does not have): a row sort there; a recursive union's term set (`RECURSIVE_SET`) keeps it.
 pub(crate) fn group_sort(gx: &Gx<'_, '_>, k: usize) -> bool {
     let p = &gx.pipelines()[k];
-    let (Some(g), Some(br)) = (gx.drained_group(k), crate::frame::iface::breaker_of(&p.desc)) else { return false };
-    let Some(s) = p.ops.iter().position(|op| matches!(op, Op::Sort(_))) else { return false };
+    let (Some(g), Some(br)) = (
+        gx.drained_group(k),
+        crate::frame::iface::breaker_of(&p.desc),
+    ) else {
+        return false;
+    };
+    let Some(s) = p.ops.iter().position(|op| matches!(op, Op::Sort(_))) else {
+        return false;
+    };
     let Op::Sort(d) = &p.ops[s] else { return false };
-    let Source::Breaker { slot } = p.source else { return false };
-    let reader = (k + 1..gx.pipelines().len()).find(|&j| matches!(gx.pipelines()[j].source, Source::Breaker { slot } if slot == br.slot));
-    let again = |slot: u8, from: usize| reader.is_none_or(|r| (from + 1..=r).any(|m| gx.pipelines()[m].desc.produces() == Some(slot)));
+    let Source::Breaker { slot } = p.source else {
+        return false;
+    };
+    let reader = (k + 1..gx.pipelines().len())
+        .find(|&j| matches!(gx.pipelines()[j].source, Source::Breaker { slot } if slot == br.slot));
+    let again = |slot: u8, from: usize| {
+        reader
+            .is_none_or(|r| (from + 1..=r).any(|m| gx.pipelines()[m].desc.produces() == Some(slot)))
+    };
     let life = gx.life_of(k, slot).map_or(k, |l| l.0 as usize);
     // USEROP: a CompareFn key (another family's comparator) orders rows by value through its comparator (runs.sort), never
     // the group's records by their key images
     let images = d.keys.iter().all(|key| !key.compare_fn());
-    images && matches!(d.form, SortForm::Runs) && d.presorted == 0 && emits_groups(g) && p.ops[..s].iter().all(|op| matches!(op, Op::Filter(_) | Op::Project(_)))
-        && !again(slot, life) && !again(br.slot, k) && !gx.drained_twice(k) && !crate::effects::visible::sort::finals_once(gx, g) && !crate::rerun::sets::in_owner_set(gx, k) && gx.projects_group_row(k)
+    images
+        && matches!(d.form, SortForm::Runs)
+        && d.presorted == 0
+        && emits_groups(g)
+        && p.ops[..s]
+            .iter()
+            .all(|op| matches!(op, Op::Filter(_) | Op::Project(_)))
+        && !again(slot, life)
+        && !again(br.slot, k)
+        && !gx.drained_twice(k)
+        && !crate::effects::visible::sort::finals_once(gx, g)
+        && !crate::rerun::sets::in_owner_set(gx, k)
+        && gx.projects_group_row(k)
 }

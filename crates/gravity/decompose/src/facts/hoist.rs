@@ -22,7 +22,9 @@
 use gravity_program::ArenaVec;
 use types_error::PgResult;
 use types_nodes::list::NodeList;
-use types_nodes::plannodes::{NestLoop, NestLoopParam, PartitionPruneInfo, PartitionedRelPruneInfo, PlannedStmt};
+use types_nodes::plannodes::{
+    NestLoop, NestLoopParam, PartitionPruneInfo, PartitionedRelPruneInfo, PlannedStmt,
+};
 use types_nodes::primnodes::{Param, ParamKind, SubLinkType, SubPlan};
 use types_nodes::{Node, NodeTag};
 
@@ -44,7 +46,10 @@ pub fn nest_values<'a, 'p>(params: &'a NodeList<'p>) -> impl Iterator<Item = Nod
 /// A NestLoop's parameters (`nestParams`) in plan order, each as (the PARAM_EXEC id it sets, the outer row's value):
 /// lowerv4 ops/nestloop/lower.rs compiles each value per outer row.
 pub fn nest_params<'a, 'p>(params: &'a NodeList<'p>) -> impl Iterator<Item = (i32, Node<'p>)> + 'a {
-    params.iter().filter_map(|n| n.as_nest_loop_param()).map(|p| (p.paramno, p.paramval))
+    params
+        .iter()
+        .filter_map(|n| n.as_nest_loop_param())
+        .map(|p| (p.paramno, p.paramval))
 }
 
 /// The index of a pruning desc whose steps `plan` rewrote: its info is the hoist's, not the statement's `partPruneInfos`
@@ -96,17 +101,30 @@ fn recheck_mut<'a, 'p>(s: &'a mut Source<'p>) -> Option<&'a mut &'p NodeList<'p>
     }
 }
 
-fn rel_infos<'p>(info: &'p PartitionPruneInfo<'p>) -> impl Iterator<Item = &'p PartitionedRelPruneInfo<'p>> {
-    info.prune_infos.iter().filter_map(|l| l.as_list()).flat_map(|l| l.iter()).filter_map(|r| r.as_partitioned_rel_prune_info())
+fn rel_infos<'p>(
+    info: &'p PartitionPruneInfo<'p>,
+) -> impl Iterator<Item = &'p PartitionedRelPruneInfo<'p>> {
+    info.prune_infos
+        .iter()
+        .filter_map(|l| l.as_list())
+        .flat_map(|l| l.iter())
+        .filter_map(|r| r.as_partitioned_rel_prune_info())
 }
 
 fn step_exprs<'p>(s: Node<'p>) -> impl Iterator<Item = Node<'p>> {
-    s.as_partition_prune_step_op().into_iter().flat_map(|o| o.exprs.iter())
+    s.as_partition_prune_step_op()
+        .into_iter()
+        .flat_map(|o| o.exprs.iter())
 }
 
 /// `v` into `values` beside its `bare` form (`key`: an index key reads it, at the scan's rescan) unless one whose bare
 /// form is `equal` is there, which then takes `key` too.
-fn add<'p>(mcx: mcx::Mcx<'p>, values: &mut ArenaVec<(Node<'p>, Node<'p>, bool)>, v: Node<'p>, key: bool) -> PgResult<()> {
+fn add<'p>(
+    mcx: mcx::Mcx<'p>,
+    values: &mut ArenaVec<(Node<'p>, Node<'p>, bool)>,
+    v: Node<'p>,
+    key: bool,
+) -> PgResult<()> {
     let vb = bare(mcx, v)?.unwrap_or(v);
     match values.iter_mut().find(|w| types_nodes::equal(w.1, vb)) {
         Some(w) => w.2 |= key,
@@ -120,7 +138,9 @@ fn add<'p>(mcx: mcx::Mcx<'p>, values: &mut ArenaVec<(Node<'p>, Node<'p>, bool)>,
 /// the graph (exec tests inputs_front_census).
 fn bare<'p>(mcx: mcx::Mcx<'p>, n: Node<'p>) -> PgResult<Option<Node<'p>>> {
     crate::walk::stack_check(); // D3748
-    let Some(s) = n.as_sub_plan() else { return nodes_core::expression_tree_mutator_dyn(mcx, n, &mut |y| bare(mcx, y)) };
+    let Some(s) = n.as_sub_plan() else {
+        return nodes_core::expression_tree_mutator_dyn(mcx, n, &mut |y| bare(mcx, y));
+    };
     let testexpr = match s.testexpr {
         Some(t) => bare(mcx, t)?.or(Some(t)),
         None => None,
@@ -156,8 +176,16 @@ fn recheck_value(c: Node<'_>) -> Result<Option<Node<'_>>, ()> {
     if !crate::expr::has_subplan(c) {
         return Ok(None);
     }
-    let args = c.as_op_expr().map(|o| &o.args).or_else(|| c.as_scalar_array_op_expr().map(|o| &o.args)).filter(|a| a.len() == 2).ok_or(())?;
-    match (crate::expr::has_subplan(args.nth(0)), crate::expr::has_subplan(args.nth(1))) {
+    let args = c
+        .as_op_expr()
+        .map(|o| &o.args)
+        .or_else(|| c.as_scalar_array_op_expr().map(|o| &o.args))
+        .filter(|a| a.len() == 2)
+        .ok_or(())?;
+    match (
+        crate::expr::has_subplan(args.nth(0)),
+        crate::expr::has_subplan(args.nth(1)),
+    ) {
         (false, true) => Ok(Some(args.nth(1))),
         (true, false) => Ok(Some(args.nth(0))),
         _ => Err(()),
@@ -169,10 +197,21 @@ fn under<'p>(n: Node<'p>, f: &mut dyn FnMut(Node<'p>)) {
     crate::walk::stack_check(); // D3748
     f(n);
     let Some(p) = n.as_plan() else { return };
-    for k in p.lefttree.into_iter().chain(p.righttree).chain(n.as_subquery_scan().and_then(|s| s.subplan)) {
+    for k in p
+        .lefttree
+        .into_iter()
+        .chain(p.righttree)
+        .chain(n.as_subquery_scan().and_then(|s| s.subplan))
+    {
         under(k, f);
     }
-    let lists = [n.as_append().map(|a| &a.appendplans), n.as_merge_append().map(|a| &a.mergeplans), n.as_bitmap_and().map(|a| &a.bitmapplans), n.as_bitmap_or().map(|a| &a.bitmapplans), n.as_agg().map(|a| &a.chain)];
+    let lists = [
+        n.as_append().map(|a| &a.appendplans),
+        n.as_merge_append().map(|a| &a.mergeplans),
+        n.as_bitmap_and().map(|a| &a.bitmapplans),
+        n.as_bitmap_or().map(|a| &a.bitmapplans),
+        n.as_agg().map(|a| &a.chain),
+    ];
     for k in lists.into_iter().flatten().flat_map(|l| l.iter()) {
         under(k, f);
     }
@@ -182,15 +221,39 @@ fn under<'p>(n: Node<'p>, f: &mut dyn FnMut(Node<'p>)) {
 /// clauses, an Append's or MergeAppend's pruning steps.
 fn refers_node<'p>(stmt: &'p PlannedStmt<'p>, n: Node<'p>, id: i32) -> bool {
     let mut hit = false;
-    crate::ops::subplan::own_lists(n, &mut |e| hit |= crate::ops::shared::subplan::refers(e, id));
+    crate::ops::subplan::own_lists(n, &mut |e| {
+        hit |= crate::ops::shared::subplan::refers(e, id)
+    });
     let list = |l: &NodeList<'_>| crate::ops::shared::subplan::refers_list(l, id);
-    hit |= n.as_index_scan().is_some_and(|s| list(&s.indexqual) || list(&s.indexqualorig) || list(&s.indexorderby));
-    hit |= n.as_index_only_scan().is_some_and(|s| list(&s.indexqual) || list(&s.recheckqual) || list(&s.indexorderby));
-    hit |= n.as_bitmap_index_scan().is_some_and(|s| list(&s.indexqual) || list(&s.indexqualorig));
-    hit |= n.as_bitmap_heap_scan().is_some_and(|s| list(&s.bitmapqualorig));
-    let prune = n.as_append().map(|a| a.part_prune_index).or_else(|| n.as_merge_append().map(|a| a.part_prune_index));
-    let info = prune.and_then(|i| usize::try_from(i).ok()).filter(|&i| i < stmt.partPruneInfos.len()).and_then(|i| stmt.partPruneInfos.nth(i).as_partition_prune_info());
-    hit || info.is_some_and(|info| rel_infos(info).any(|r| r.initial_pruning_steps.iter().chain(r.exec_pruning_steps.iter()).flat_map(step_exprs).any(|e| crate::ops::shared::subplan::refers(e, id))))
+    hit |= n
+        .as_index_scan()
+        .is_some_and(|s| list(&s.indexqual) || list(&s.indexqualorig) || list(&s.indexorderby));
+    hit |= n
+        .as_index_only_scan()
+        .is_some_and(|s| list(&s.indexqual) || list(&s.recheckqual) || list(&s.indexorderby));
+    hit |= n
+        .as_bitmap_index_scan()
+        .is_some_and(|s| list(&s.indexqual) || list(&s.indexqualorig));
+    hit |= n
+        .as_bitmap_heap_scan()
+        .is_some_and(|s| list(&s.bitmapqualorig));
+    let prune = n
+        .as_append()
+        .map(|a| a.part_prune_index)
+        .or_else(|| n.as_merge_append().map(|a| a.part_prune_index));
+    let info = prune
+        .and_then(|i| usize::try_from(i).ok())
+        .filter(|&i| i < stmt.partPruneInfos.len())
+        .and_then(|i| stmt.partPruneInfos.nth(i).as_partition_prune_info());
+    hit || info.is_some_and(|info| {
+        rel_infos(info).any(|r| {
+            r.initial_pruning_steps
+                .iter()
+                .chain(r.exec_pruning_steps.iter())
+                .flat_map(step_exprs)
+                .any(|e| crate::ops::shared::subplan::refers(e, id))
+        })
+    })
 }
 
 /// Every plan node of the statement that reads SubPlan `id` is in subtree `inner`: no other nest hoists it, so its synthetic
@@ -198,7 +261,9 @@ fn refers_node<'p>(stmt: &'p PlannedStmt<'p>, n: Node<'p>, id: i32) -> bool {
 fn only_under<'p>(stmt: &'p PlannedStmt<'p>, inner: Node<'p>, id: i32) -> bool {
     let (mut all, mut mine) = (0usize, 0usize);
     crate::rerun::each_plan_node(stmt, &mut |x| all += usize::from(refers_node(stmt, x, id)));
-    under(inner, &mut |x| mine += usize::from(refers_node(stmt, x, id)));
+    under(inner, &mut |x| {
+        mine += usize::from(refers_node(stmt, x, id))
+    });
     all == mine
 }
 
@@ -207,7 +272,11 @@ fn op_of(p: &PipelineNode<'_>, id: i32) -> bool {
     crate::walk::stack_check(); // D3748
     p.ops.iter().any(|op| match op {
         Op::SubPlan(d) if d.plan_id == id => true,
-        Op::SubPlan(SubPlanDesc { form: SubForm::Nested { inner }, .. }) | Op::Join(JoinDesc::Nest { inner, .. }) => op_of(inner, id),
+        Op::SubPlan(SubPlanDesc {
+            form: SubForm::Nested { inner },
+            ..
+        })
+        | Op::Join(JoinDesc::Nest { inner, .. }) => op_of(inner, id),
         _ => false,
     })
 }
@@ -216,14 +285,26 @@ fn op_of(p: &PipelineNode<'_>, id: i32) -> bool {
 fn sets(p: &PipelineNode<'_>, id: i32) -> bool {
     crate::walk::stack_check(); // D3748
     p.ops.iter().any(|op| match op {
-        Op::Join(JoinDesc::Nest { params, inner, .. }) => params.iter().any(|x| x.as_nest_loop_param().is_some_and(|n| n.paramno == id)) || sets(inner, id),
-        Op::SubPlan(SubPlanDesc { form: SubForm::Nested { inner }, .. }) => sets(inner, id),
+        Op::Join(JoinDesc::Nest { params, inner, .. }) => {
+            params
+                .iter()
+                .any(|x| x.as_nest_loop_param().is_some_and(|n| n.paramno == id))
+                || sets(inner, id)
+        }
+        Op::SubPlan(SubPlanDesc {
+            form: SubForm::Nested { inner },
+            ..
+        }) => sets(inner, id),
         _ => false,
     })
 }
 
 /// `n` with each sub-expression `equal` to a hoisted value as its parameter.
-fn swap<'p>(mcx: mcx::Mcx<'p>, n: Node<'p>, lifts: &[(Node<'p>, Node<'p>)]) -> PgResult<Option<Node<'p>>> {
+fn swap<'p>(
+    mcx: mcx::Mcx<'p>,
+    n: Node<'p>,
+    lifts: &[(Node<'p>, Node<'p>)],
+) -> PgResult<Option<Node<'p>>> {
     crate::walk::stack_check(); // D3748
     if crate::expr::has_subplan(n) {
         let nb = bare(mcx, n)?.unwrap_or(n);
@@ -234,7 +315,11 @@ fn swap<'p>(mcx: mcx::Mcx<'p>, n: Node<'p>, lifts: &[(Node<'p>, Node<'p>)]) -> P
     nodes_core::expression_tree_mutator_dyn(mcx, n, &mut |y| swap(mcx, y, lifts))
 }
 
-fn swap_list<'p>(mcx: mcx::Mcx<'p>, l: &'p NodeList<'p>, lifts: &[(Node<'p>, Node<'p>)]) -> PgResult<Option<&'p NodeList<'p>>> {
+fn swap_list<'p>(
+    mcx: mcx::Mcx<'p>,
+    l: &'p NodeList<'p>,
+    lifts: &[(Node<'p>, Node<'p>)],
+) -> PgResult<Option<&'p NodeList<'p>>> {
     if l.is_nil() {
         return Ok(Some(l));
     }
@@ -246,16 +331,27 @@ fn swap_list<'p>(mcx: mcx::Mcx<'p>, l: &'p NodeList<'p>, lifts: &[(Node<'p>, Nod
 }
 
 /// `n` with each of the nest's parameters read (`nest`: paramno, the outer value) as its outer value.
-fn outer_of<'p>(mcx: mcx::Mcx<'p>, n: Node<'p>, nest: &[(i32, Node<'p>)]) -> PgResult<Option<Node<'p>>> {
+fn outer_of<'p>(
+    mcx: mcx::Mcx<'p>,
+    n: Node<'p>,
+    nest: &[(i32, Node<'p>)],
+) -> PgResult<Option<Node<'p>>> {
     crate::walk::stack_check(); // D3748
-    if let Some(p) = n.as_param().filter(|p| p.paramkind == ParamKind::PARAM_EXEC) {
+    if let Some(p) = n
+        .as_param()
+        .filter(|p| p.paramkind == ParamKind::PARAM_EXEC)
+    {
         return Ok(nest.iter().find(|x| x.0 == p.paramid).map(|x| x.1));
     }
     nodes_core::expression_tree_mutator_dyn(mcx, n, &mut |y| outer_of(mcx, y, nest))
 }
 
 /// Pruning `info` with its exec steps' expressions swapped (`swap`); the rest as it was.
-fn swap_info<'p>(mcx: mcx::Mcx<'p>, info: &'p PartitionPruneInfo<'p>, lifts: &[(Node<'p>, Node<'p>)]) -> PgResult<Option<&'p PartitionPruneInfo<'p>>> {
+fn swap_info<'p>(
+    mcx: mcx::Mcx<'p>,
+    info: &'p PartitionPruneInfo<'p>,
+    lifts: &[(Node<'p>, Node<'p>)],
+) -> PgResult<Option<&'p PartitionPruneInfo<'p>>> {
     let mut outer = NodeList::nil();
     for l in info.prune_infos.iter() {
         let Some(rl) = l.as_list() else {
@@ -288,15 +384,31 @@ fn swap_info<'p>(mcx: mcx::Mcx<'p>, info: &'p PartitionPruneInfo<'p>, lifts: &[(
         }
         outer.lappend(mcx, Node::mk_list(mcx, rels)?)?;
     }
-    let n = Node::mk(mcx, PartitionPruneInfo { relids: info.relids.clone_in(mcx)?, prune_infos: outer, other_subplans: info.other_subplans.clone_in(mcx)? })?;
+    let n = Node::mk(
+        mcx,
+        PartitionPruneInfo {
+            relids: info.relids.clone_in(mcx)?,
+            prune_infos: outer,
+            other_subplans: info.other_subplans.clone_in(mcx)?,
+        },
+    )?;
     Ok(n.as_partition_prune_info())
 }
 
 /// The hoist of nest `nl`'s inner (`inner`, mapped since pipeline `p0`; its parameters `params`, its outer `outer`): the
 /// inner's keys and pruning rewritten in place, or `None` when nothing is hoisted (module doc).
-pub(crate) fn plan<'p>(b: &mut Builder<'p, '_>, nl: &'p NestLoop<'p>, params: &'p NodeList<'p>, p0: usize, inner: &mut Open<'p>, outer: &Open<'p>) -> Result<Option<Hoisted<'p>>, Refusal> {
+pub(crate) fn plan<'p>(
+    b: &mut Builder<'p, '_>,
+    nl: &'p NestLoop<'p>,
+    params: &'p NodeList<'p>,
+    p0: usize,
+    inner: &mut Open<'p>,
+    outer: &Open<'p>,
+) -> Result<Option<Hoisted<'p>>, Refusal> {
     let (stmt, facts, arena) = (b.stmt, b.facts, b.arena);
-    let (Some(mcx), Some(inner_plan)) = (b.alloc, nl.join.plan.righttree) else { return Ok(None) };
+    let (Some(mcx), Some(inner_plan)) = (b.alloc, nl.join.plan.righttree) else {
+        return Ok(None);
+    };
     let id = nl.join.plan.plan_node_id;
     let room = |_| Refusal::shape(Kind::NestLoop, id, NO_ROOM);
     // the union this inner emits (settled: its first op) and its feeds, else the inner's own source
@@ -308,7 +420,12 @@ pub(crate) fn plan<'p>(b: &mut Builder<'p, '_>, nl: &'p NestLoop<'p>, params: &'
     if let Some(s) = slot {
         feeds.extend((p0..b.graph.pipelines.len()).filter(|&f| matches!(b.graph.pipelines[f].ops.last(), Some(Op::Append(AppendDesc::Feed { slot, .. })) if *slot == s)));
     }
-    let exact = slot.is_none() && matches!(inner.source, Source::Index { .. }) && matches!(inner_plan.node_tag(), NodeTag::T_IndexScan | NodeTag::T_IndexOnlyScan);
+    let exact = slot.is_none()
+        && matches!(inner.source, Source::Index { .. })
+        && matches!(
+            inner_plan.node_tag(),
+            NodeTag::T_IndexScan | NodeTag::T_IndexOnlyScan
+        );
     // the values holding a SubPlan: a key's comparison value or `= ANY` array, a recheck clause's (the planner's choice of
     // an AlternativeSubPlan may differ there: a hashed one), an exec pruning step's expression
     let mut values: ArenaVec<(Node<'p>, Node<'p>, bool)> = ArenaVec::new_in(arena); // alloc: Cold
@@ -318,11 +435,13 @@ pub(crate) fn plan<'p>(b: &mut Builder<'p, '_>, nl: &'p NestLoop<'p>, params: &'
         let mut scan = |s: &mut Source<'p>| {
             keys_mut(s, &mut |k| match k.form {
                 _ if !crate::expr::has_subplan(k.value) => {}
-                KeyForm::Op | KeyForm::Any => oom = add(mcx, &mut values, k.value, true).err().or(oom.take()),
+                KeyForm::Op | KeyForm::Any => {
+                    oom = add(mcx, &mut values, k.value, true).err().or(oom.take())
+                }
                 _ => bad = true,
             });
             if let Some(r) = recheck_mut(s) {
-                let r: &'p NodeList<'p> =r;
+                let r: &'p NodeList<'p> = r;
                 for c in r.iter() {
                     match recheck_value(c) {
                         Ok(Some(v)) => oom = add(mcx, &mut values, v, false).err().or(oom.take()),
@@ -347,8 +466,17 @@ pub(crate) fn plan<'p>(b: &mut Builder<'p, '_>, nl: &'p NestLoop<'p>, params: &'
     };
     let mut in_steps = false;
     for r in prune.into_iter().flat_map(|d| rel_infos(d.info)) {
-        bad |= r.initial_pruning_steps.iter().flat_map(step_exprs).any(crate::expr::has_subplan);
-        for e in r.exec_pruning_steps.iter().flat_map(step_exprs).filter(|&e| crate::expr::has_subplan(e)) {
+        bad |= r
+            .initial_pruning_steps
+            .iter()
+            .flat_map(step_exprs)
+            .any(crate::expr::has_subplan);
+        for e in r
+            .exec_pruning_steps
+            .iter()
+            .flat_map(step_exprs)
+            .filter(|&e| crate::expr::has_subplan(e))
+        {
             in_steps = true;
             oom = add(mcx, &mut values, e, false).err().or(oom.take());
         }
@@ -361,15 +489,28 @@ pub(crate) fn plan<'p>(b: &mut Builder<'p, '_>, nl: &'p NestLoop<'p>, params: &'
     }
     // each value's SubPlans, its synthetic id (its first SubPlan's), its effects
     let base = stmt.paramExecTypes.len() as i32;
-    let mut lifts: ArenaVec<(Node<'p>, Node<'p>, i32, Option<crate::effects::Licence>)> = ArenaVec::new_in(arena); // alloc: Cold
+    let mut lifts: ArenaVec<(Node<'p>, Node<'p>, i32, Option<crate::effects::Licence>)> =
+        ArenaVec::new_in(arena); // alloc: Cold
     for &(v, vb, key) in values.iter() {
         let (mut ok, mut first) = (true, None);
         crate::expr::walk(v, &mut |x| match x.node_tag() {
             NodeTag::T_SubPlan => {
-                let Some(s) = x.as_sub_plan() else { return false };
-                let form = (!s.useHashTable || s.parParam.is_nil()) && s.setParam.is_nil() && !matches!(s.subLinkType, SubLinkType::CTE_SUBLINK | SubLinkType::MULTIEXPR_SUBLINK);
-                let nested = s.testexpr.is_some_and(crate::expr::has_subplan) || s.args.iter().any(crate::expr::has_subplan);
-                let own = !op_of(inner, s.plan_id) && !feeds.iter().any(|&f| op_of(&b.graph.pipelines[f], s.plan_id)) && only_under(stmt, inner_plan, s.plan_id);
+                let Some(s) = x.as_sub_plan() else {
+                    return false;
+                };
+                let form = (!s.useHashTable || s.parParam.is_nil())
+                    && s.setParam.is_nil()
+                    && !matches!(
+                        s.subLinkType,
+                        SubLinkType::CTE_SUBLINK | SubLinkType::MULTIEXPR_SUBLINK
+                    );
+                let nested = s.testexpr.is_some_and(crate::expr::has_subplan)
+                    || s.args.iter().any(crate::expr::has_subplan);
+                let own = !op_of(inner, s.plan_id)
+                    && !feeds
+                        .iter()
+                        .any(|&f| op_of(&b.graph.pipelines[f], s.plan_id))
+                    && only_under(stmt, inner_plan, s.plan_id);
                 ok &= form && !nested && own;
                 first.get_or_insert(s.plan_id);
                 false
@@ -380,11 +521,19 @@ pub(crate) fn plan<'p>(b: &mut Builder<'p, '_>, nl: &'p NestLoop<'p>, params: &'
             }
             _ => ok,
         });
-        let Some(first) = first.filter(|_| ok) else { return Ok(None) };
+        let Some(first) = first.filter(|_| ok) else {
+            return Ok(None);
+        };
         let pid = base + first - 1;
         let e = crate::effects::Effects::of_found(crate::rerun::of_expr(stmt, facts, arena, v));
-        let taken = lifts.iter().any(|l| l.2 == pid) || sets(outer, pid) || sets(inner, pid) || b.graph.pipelines.iter().any(|p| sets(p, pid));
-        if !crate::effects::hoist_ok(e, exact && key) || taken || crate::catalog::expr_type::type_of(v).is_none() {
+        let taken = lifts.iter().any(|l| l.2 == pid)
+            || sets(outer, pid)
+            || sets(inner, pid)
+            || b.graph.pipelines.iter().any(|p| sets(p, pid));
+        if !crate::effects::hoist_ok(e, exact && key)
+            || taken
+            || crate::catalog::expr_type::type_of(v).is_none()
+        {
             return Ok(None);
         }
         // construct C2: the licence of the value's evaluation on the outer row, once for each row that reaches the Nest
@@ -395,13 +544,20 @@ pub(crate) fn plan<'p>(b: &mut Builder<'p, '_>, nl: &'p NestLoop<'p>, params: &'
         // reader guard (`Px::whole_read`) is asked: none would add the calls an unreached arm skips. Asked once the
         // hoist is decided, which it does not change: a value denied it is hoisted as before, with none
         let cx = crate::effects::Cx::new(stmt, facts, arena);
-        let local = (e.acts && stmt.rowMarks.iter().next().is_none()).then(|| crate::effects::call_local(&cx, core::iter::once(v))).flatten();
+        let local = (e.acts && stmt.rowMarks.iter().next().is_none())
+            .then(|| crate::effects::call_local(&cx, core::iter::once(v)))
+            .flatten();
         lifts.push((v, vb, pid, crate::effects::whole_read_local(e, local).ok()));
     }
     // the parameters: each value as the outer row computes it (the nest's parameters read as their outer values)
     let nest: ArenaVec<(i32, Node<'p>)> = {
         let mut n = ArenaVec::new_in(arena); // alloc: Cold
-        n.extend(params.iter().filter_map(|p| p.as_nest_loop_param()).map(|p| (p.paramno, p.paramval)));
+        n.extend(
+            params
+                .iter()
+                .filter_map(|p| p.as_nest_loop_param())
+                .map(|p| (p.paramno, p.paramval)),
+        );
         n
     };
     let mut all = NodeList::nil();
@@ -409,7 +565,8 @@ pub(crate) fn plan<'p>(b: &mut Builder<'p, '_>, nl: &'p NestLoop<'p>, params: &'
         all.lappend(mcx, p).map_err(room)?;
     }
     let mut swaps: ArenaVec<(Node<'p>, Node<'p>)> = ArenaVec::new_in(arena); // alloc: Cold
-    let mut subs: ArenaVec<(&'p SubPlan<'p>, Option<crate::effects::Licence>)> = ArenaVec::new_in(arena); // alloc: Cold
+    let mut subs: ArenaVec<(&'p SubPlan<'p>, Option<crate::effects::Licence>)> =
+        ArenaVec::new_in(arena); // alloc: Cold
     for &(v, vb, pid, ahead) in lifts.iter() {
         let val = outer_of(mcx, v, &nest).map_err(room)?.unwrap_or(v);
         crate::expr::walk(val, &mut |x| {
@@ -419,8 +576,30 @@ pub(crate) fn plan<'p>(b: &mut Builder<'p, '_>, nl: &'p NestLoop<'p>, params: &'
             x.as_sub_plan().is_none()
         });
         let ty = crate::catalog::expr_type::type_of(v).unwrap_or(0);
-        let param = Node::mk(mcx, Param { paramkind: ParamKind::PARAM_EXEC, paramid: pid, paramtype: ty, paramtypmod: nodes_core::expr_typmod(v), paramcollid: crate::catalog::expr_type::collation_of(v), location: -1 }).map_err(room)?;
-        all.lappend(mcx, Node::mk(mcx, NestLoopParam { paramno: pid, paramval: val }).map_err(room)?).map_err(room)?;
+        let param = Node::mk(
+            mcx,
+            Param {
+                paramkind: ParamKind::PARAM_EXEC,
+                paramid: pid,
+                paramtype: ty,
+                paramtypmod: nodes_core::expr_typmod(v),
+                paramcollid: crate::catalog::expr_type::collation_of(v),
+                location: -1,
+            },
+        )
+        .map_err(room)?;
+        all.lappend(
+            mcx,
+            Node::mk(
+                mcx,
+                NestLoopParam {
+                    paramno: pid,
+                    paramval: val,
+                },
+            )
+            .map_err(room)?,
+        )
+        .map_err(room)?;
         swaps.push((vb, param));
     }
     // the inner reads the parameters: its keys, its rechecks, its pruning
@@ -448,10 +627,17 @@ pub(crate) fn plan<'p>(b: &mut Builder<'p, '_>, nl: &'p NestLoop<'p>, params: &'
     if let Some(e) = err {
         return Err(room(e));
     }
-    if let (true, Some(Op::Append(AppendDesc::Union { prune: Some(d), .. }))) = (in_steps, inner.ops.first_mut()) {
-        d.info = swap_info(mcx, d.info, &swaps).map_err(room)?.ok_or(Refusal::shape(Kind::NestLoop, id, NO_ROOM))?;
+    if let (true, Some(Op::Append(AppendDesc::Union { prune: Some(d), .. }))) =
+        (in_steps, inner.ops.first_mut())
+    {
+        d.info = swap_info(mcx, d.info, &swaps)
+            .map_err(room)?
+            .ok_or(Refusal::shape(Kind::NestLoop, id, NO_ROOM))?;
         d.index = HOISTED;
     }
-    let params = Node::mk_list(mcx, all).map_err(room)?.as_list().ok_or(Refusal::shape(Kind::NestLoop, id, NO_ROOM))?;
+    let params = Node::mk_list(mcx, all)
+        .map_err(room)?
+        .as_list()
+        .ok_or(Refusal::shape(Kind::NestLoop, id, NO_ROOM))?;
     Ok(Some(Hoisted { params, subs }))
 }

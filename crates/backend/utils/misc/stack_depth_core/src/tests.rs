@@ -80,7 +80,11 @@ fn guard_probe_reads_the_machine_stack() {
 
 /// What `STACK_DEPTH_SCALE` must be for the opt-level build.rs reported.
 fn expected_scale_for_opt_level() -> isize {
-    if cfg!(pgrust_opt_level = "0") { 32 } else { 6 }
+    if cfg!(pgrust_opt_level = "0") {
+        32
+    } else {
+        6
+    }
 }
 
 #[test]
@@ -102,7 +106,8 @@ fn build_script_cfg_and_env_agree_on_the_opt_level() {
 fn scale_is_keyed_on_opt_level_not_debug_assertions() {
     let expected = expected_scale_for_opt_level();
     assert_eq!(
-        STACK_DEPTH_SCALE, expected,
+        STACK_DEPTH_SCALE,
+        expected,
         "opt-level {BUILD_OPT_LEVEL} (debug_assertions={}) must enforce {expected}x — \
          the scale is keyed on something other than the build's opt-level",
         cfg!(debug_assertions)
@@ -145,7 +150,10 @@ fn unoptimized_without_assertions_build_enforces_the_unoptimized_budget() {
 #[test]
 fn weighted_check_is_plain_off_wasm_and_engine_ratio_is_calibrated() {
     assert_eq!(WASM_NATIVE_HEAVY_WEIGHT, 1);
-    assert_eq!(wasm_shadow_equivalent(DEFAULT_WASM_ENGINE_STACK), 984 * 1024 / 3 * 5);
+    assert_eq!(
+        wasm_shadow_equivalent(DEFAULT_WASM_ENGINE_STACK),
+        984 * 1024 / 3 * 5
+    );
     let old = set_stack_base();
     set_enforced_stack_budget_for_tests(1);
     assert!(check_stack_depth_weighted().is_err() == check_stack_depth().is_err());
@@ -163,7 +171,10 @@ fn nest_level_charge_is_wasm_only_and_scoped() {
     {
         let _a = EngineLevel::charging(WASM_NEST_LEVEL_CHARGE);
         let _b = EngineLevel::enter();
-        assert_eq!(guarded_depth(0), before + WASM_NEST_LEVEL_CHARGE + WASM_ENGINE_LEVEL_CHARGE);
+        assert_eq!(
+            guarded_depth(0),
+            before + WASM_NEST_LEVEL_CHARGE + WASM_ENGINE_LEVEL_CHARGE
+        );
     }
     assert_eq!(guarded_depth(0), before);
 }
@@ -172,7 +183,14 @@ fn nest_level_charge_is_wasm_only_and_scoped() {
 // where a held level changes no reading), and the charge comes off when the level ends, by an error's unwind too.
 #[test]
 fn engine_level_charge_is_wasm_only_and_scoped() {
-    assert_eq!(WASM_ENGINE_LEVEL_CHARGE, if cfg!(target_family = "wasm") { 8 * 1024 } else { 0 });
+    assert_eq!(
+        WASM_ENGINE_LEVEL_CHARGE,
+        if cfg!(target_family = "wasm") {
+            8 * 1024
+        } else {
+            0
+        }
+    );
     let old = set_stack_base();
     set_enforced_stack_budget_for_tests(1 << 20);
     let before = guarded_depth(0);
@@ -205,8 +223,11 @@ fn shadow_heavy_check_is_the_plain_check_off_wasm() {
     restore_stack_base(sp + budget as usize - margin);
     check_stack_depth_shadow_heavy_or_panic();
     restore_stack_base(sp + budget as usize + margin);
-    let payload = std::panic::catch_unwind(check_stack_depth_shadow_heavy_or_panic).expect_err("past the budget it raises");
-    let e = payload.downcast::<Box<types_error::PgError>>().expect("the payload is the guard's PgError");
+    let payload = std::panic::catch_unwind(check_stack_depth_shadow_heavy_or_panic)
+        .expect_err("past the budget it raises");
+    let e = payload
+        .downcast::<Box<types_error::PgError>>()
+        .expect("the payload is the guard's PgError");
     assert_eq!(e.sqlstate(), ERRCODE_STATEMENT_TOO_COMPLEX);
     set_enforced_stack_budget_for_tests(100 * 1024 * STACK_DEPTH_SCALE);
     restore_stack_base(0);

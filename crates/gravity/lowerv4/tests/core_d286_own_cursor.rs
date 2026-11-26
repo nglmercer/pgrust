@@ -35,8 +35,20 @@ struct Own {
 
 impl SourceMech for Own {
     fn open_words(&self, w: &mut OpenWords) {
-        w.declare(OpenWord::open("own cursor", Base::Ctx, (CUR * 8) as i32, I64, 0));
-        w.declare(OpenWord::open("own sum", Base::Ctx, (SUM * 8) as i32, I64, 0));
+        w.declare(OpenWord::open(
+            "own cursor",
+            Base::Ctx,
+            (CUR * 8) as i32,
+            I64,
+            0,
+        ));
+        w.declare(OpenWord::open(
+            "own sum",
+            Base::Ctx,
+            (SUM * 8) as i32,
+            I64,
+            0,
+        ));
     }
     fn open(&self, b: &mut FunctionBuilder<'_>, _env: &mut Env) -> Value {
         b.iconst(I64, 0)
@@ -58,11 +70,30 @@ impl SourceMech for Own {
         let end = b.int_bin(IntBinOp::Add, cursor, w);
         let over = b.icmp(IntCond::Sgt, end, n);
         let end = b.select(over, n, end);
-        Win { cursor, end, facts: Default::default() }
+        Win {
+            cursor,
+            end,
+            facts: Default::default(),
+        }
     }
-    fn row<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e> {
+    fn row<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+        j: Value,
+        carry: Carry<'e>,
+        next: Value,
+    ) -> RowVals<'e> {
         let v = b.int_bin(IntBinOp::Add, j, env.one);
-        RowVals { row: gravity_lowerv4::cell::Row::new_in(env.mcx), vals: mcx::pg_vec![in env.mcx; (v, None)], cols: mcx::PgVec::new_in(env.mcx), carry, next, at: j }
+        RowVals {
+            row: gravity_lowerv4::cell::Row::new_in(env.mcx),
+            vals: mcx::pg_vec![in env.mcx; (v, None)],
+            cols: mcx::PgVec::new_in(env.mcx),
+            carry,
+            next,
+            at: j,
+        }
     }
     fn write_back(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, cur: Value, out: Value) {
         b.store(env.ctx, (CUR * 8) as i32, cur);
@@ -76,8 +107,17 @@ impl SourceMech for Own {
 struct Sum;
 
 impl EndMech for Sum {
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, _x: &Exits) -> Carry<'e> {
-        Carry::new(b.int_bin(IntBinOp::Add, row.carry.out, row.vals[0].0), env.mcx)
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        _x: &Exits,
+    ) -> Carry<'e> {
+        Carry::new(
+            b.int_bin(IntBinOp::Add, row.carry.out, row.vals[0].0),
+            env.mcx,
+        )
     }
 }
 
@@ -90,20 +130,33 @@ fn run(total: i64, window: i64, once: bool) -> (i64, i64, i64) {
         let rig = mcx::MemoryContext::new("GravityPlanRig");
         let mut desc = gravity_program::Pipeline::eligible(0, gravity_program::End::Sink, 0);
         desc.driving_site = -1;
-        let mut m = Mechs { k: 0, source: mcx::pg_box_dyn!(rig.mcx(), Own { total, window, once } => dyn SourceMech), steps: mcx::PgVec::new_in(rig.mcx()), end: mcx::pg_box_dyn!(rig.mcx(), Sum => dyn EndMech), site: None, desc, words: None, state_word: None };
+        let mut m = Mechs {
+            k: 0,
+            source: mcx::pg_box_dyn!(rig.mcx(), Own { total, window, once } => dyn SourceMech),
+            steps: mcx::PgVec::new_in(rig.mcx()),
+            end: mcx::pg_box_dyn!(rig.mcx(), Sum => dyn EndMech),
+            site: None,
+            desc,
+            words: None,
+            state_word: None,
+        };
         let mut pb = ProgramBuilder::new();
         let core = env::declare(&mut pb);
-        let (f, bounded) = frame::pipeline_fn(&mut pb, core, Ir::none(), &[], "p0", 1, &mut m, rig.mcx());
+        let (f, bounded) =
+            frame::pipeline_fn(&mut pb, core, Ir::none(), &[], "p0", 1, &mut m, rig.mcx());
         let p = pb.finish();
         gravity_ir::verify::verify(&p).expect("the frame's IR verifies");
         assert_eq!(cancel::verify(p.func(f), &bounded, rig.mcx()), Ok(()));
         let mut out = vec![0u64; 7];
         let mut ctx = vec![0u64; SUM + 1];
         ctx[hdr::OUT / 8] = out.as_mut_ptr() as u64;
-        let st = Interp::new(&p).run(f, &[ctx.as_mut_ptr() as u64]).expect("runs")[0] as i64;
+        let st = Interp::new(&p)
+            .run(f, &[ctx.as_mut_ptr() as u64])
+            .expect("runs")[0] as i64;
         let _ = tx.send((st, ctx[CUR] as i64, ctx[SUM] as i64));
     });
-    rx.recv_timeout(Duration::from_secs(20)).expect("the pipeline ends within 20 s (no window loop past eof)")
+    rx.recv_timeout(Duration::from_secs(20))
+        .expect("the pipeline ends within 20 s (no window loop past eof)")
 }
 
 /// `1 + 2 + … + n`.

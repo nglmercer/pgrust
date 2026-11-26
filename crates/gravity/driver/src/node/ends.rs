@@ -64,14 +64,17 @@ pub(crate) fn unbound(inner: &Inner, j: usize) -> bool {
 impl Node {
     /// A lazy writer not bound yet names pipeline `p` (program index): a post group's first pipeline before its turn.
     pub(crate) fn binds_at(&self, p: u16) -> bool {
-        self.inner.lazy != 0 && (0..64usize).any(|j| unbound(&self.inner, j) && end_of(&self.program, j) == p)
+        self.inner.lazy != 0
+            && (0..64usize).any(|j| unbound(&self.inner, j) && end_of(&self.program, j) == p)
     }
 
     /// The first pull of the set whose pulled pipeline is `p` (program index): each lazy writer of `p` binds (its BEFORE
     /// STATEMENT triggers), its bind's statement entries tagged with its slot. An error leaves that writer unbound: it
     /// unbinds here (D4602), as the host walks pass over a writer still lazy.
     pub fn bind_at(&mut self, b: &BindingRef<'_>, p: u16) -> Result<()> {
-        let Some(h) = STMT_ENDS.get() else { return Ok(()) };
+        let Some(h) = STMT_ENDS.get() else {
+            return Ok(());
+        };
         if self.inner.lazy == 0 {
             return Ok(());
         }
@@ -98,13 +101,18 @@ impl Node {
 
     /// The set whose pulled pipeline is `p` ran to its end: each bound writer of `p` queues its AFTER STATEMENT events.
     pub fn end_at(&mut self, p: u16) -> Result<()> {
-        let Some(h) = STMT_ENDS.get() else { return Ok(()) };
+        let Some(h) = STMT_ENDS.get() else {
+            return Ok(());
+        };
         if self.inner.lazy_all == 0 {
             return Ok(());
         }
         let program = self.program.clone();
         for j in 0..64usize {
-            if self.inner.lazy_all & (1 << j) != 0 && !unbound(&self.inner, j) && end_of(&program, j) == p {
+            if self.inner.lazy_all & (1 << j) != 0
+                && !unbound(&self.inner, j)
+                && end_of(&program, j) == p
+            {
                 (h.end)(j as u32 + 1)?;
             }
         }

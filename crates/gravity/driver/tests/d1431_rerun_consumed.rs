@@ -13,9 +13,15 @@ use gravity_abi::breaker::{Breaker, BreakerKind};
 use gravity_abi::status::DONE;
 use gravity_abi::Ctx;
 use gravity_driver::{Binding, Call, Entry, Exec, Grant, Pulled, Step};
-use gravity_program::{Arena, Code, End, Generation, Handle, Layout, OutCol, Pipeline, PlanKey, Program, Reason, SiteDesc, WritePlan};
+use gravity_program::{
+    Arena, Code, End, Generation, Handle, Layout, OutCol, Pipeline, PlanKey, Program, Reason,
+    SiteDesc, WritePlan,
+};
 
-const KEY: PlanKey = PlanKey { handle: Handle(33), generation: Generation(4) };
+const KEY: PlanKey = PlanKey {
+    handle: Handle(33),
+    generation: Generation(4),
+};
 
 /// The reader's count of slot 0, -1 before it reads.
 static READ: AtomicI64 = AtomicI64::new(-1);
@@ -35,17 +41,47 @@ fn program() -> Program {
 fn program_on(out: u8, kept: u8) -> Program {
     let st = Arena::new(1 << 14);
     let sites = [SiteDesc::range_source(st.handle(), 2001, &[1, 2])];
-    let agg = |slot| End::Breaker(Breaker::sized(BreakerKind::PlainAgg, COUNT_SUM_BYTES).in_slot(slot));
+    let agg =
+        |slot| End::Breaker(Breaker::sized(BreakerKind::PlainAgg, COUNT_SUM_BYTES).in_slot(slot));
     let pipes = [
-        (Pipeline::serial(0, agg(kept), Reason::Host), Code::hand(k_range_count)),
-        (Pipeline::serial(0, agg(out), Reason::Host).consuming_one(kept), Code::hand(k_range_count)),
-        (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming_one(out), Code::hand(k_read)),
+        (
+            Pipeline::serial(0, agg(kept), Reason::Host),
+            Code::hand(k_range_count),
+        ),
+        (
+            Pipeline::serial(0, agg(out), Reason::Host).consuming_one(kept),
+            Code::hand(k_range_count),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming_one(out),
+            Code::hand(k_read),
+        ),
     ];
     let cols: [OutCol; 1] = [OutCol::new("c0", 20, -1, 8, true)];
-    rerun_set(Program::with_pipelines(Layout { nsites: 1, out_natts: 1, out_rows: 4, scratch_bytes: 0, exec_bytes: 0 }, &sites, &cols, WritePlan::SELECT, pipes), &[1])
+    rerun_set(
+        Program::with_pipelines(
+            Layout {
+                nsites: 1,
+                out_natts: 1,
+                out_rows: 4,
+                scratch_bytes: 0,
+                exec_bytes: 0,
+            },
+            &sites,
+            &cols,
+            WritePlan::SELECT,
+            pipes,
+        ),
+        &[1],
+    )
 }
 
-fn run_whole(e: &mut Entry, x: &mut Exec, b: &mut Binding<'_>, p: usize) -> gravity_driver::Result<()> {
+fn run_whole(
+    e: &mut Entry,
+    x: &mut Exec,
+    b: &mut Binding<'_>,
+    p: usize,
+) -> gravity_driver::Result<()> {
     match e.run_pipeline(x, b, Call::batch(4))? {
         Step::Done => Ok(()),
         s => panic!("pipeline {p} stopped with {s:?}"),
@@ -79,19 +115,45 @@ fn reruns_keep(program: Program, kept: u8) {
     let flag = AtomicU8::new(0);
     let mut sink = LegSink::new();
     let mut b = binding(&THR, &[0], &mut sink, &flag);
-    let mut exec = entry.start(Some(KEY), &program, &mut derive, &mut b, lease(Grant::of(8 << 20))).unwrap();
+    let mut exec = entry
+        .start(
+            Some(KEY),
+            &program,
+            &mut derive,
+            &mut b,
+            lease(Grant::of(8 << 20)),
+        )
+        .unwrap();
     entry.skip_deferred(&mut exec);
     entry.skip_rerun(&mut exec, 2).unwrap();
-    assert!(!exec.node().slot_live(kept), "the producer outside the set has not run at the member's step");
-    entry.run_nested(&mut exec, &mut b, &[0], &mut run_whole).unwrap();
+    assert!(
+        !exec.node().slot_live(kept),
+        "the producer outside the set has not run at the member's step"
+    );
+    entry
+        .run_nested(&mut exec, &mut b, &[0], &mut run_whole)
+        .unwrap();
     assert!(exec.node().slot_live(kept));
     for i in 0..5 {
-        entry.rerun_nested(&mut exec, &mut b, &[1], &mut run_whole).unwrap_or_else(|e| panic!("rerun {i}: {e:?}"));
-        assert!(exec.node().slot_live(kept), "rerun {i}: the member's consumed slot outlives the member's run");
+        entry
+            .rerun_nested(&mut exec, &mut b, &[1], &mut run_whole)
+            .unwrap_or_else(|e| panic!("rerun {i}: {e:?}"));
+        assert!(
+            exec.node().slot_live(kept),
+            "rerun {i}: the member's consumed slot outlives the member's run"
+        );
     }
     READ.store(-1, Relaxed);
-    assert_eq!(entry.run_pipeline(&mut exec, &mut b, Call::batch(4)).unwrap(), Step::Done);
-    assert!(READ.load(Relaxed) > 0, "the owner reads the last rerun's table");
+    assert_eq!(
+        entry
+            .run_pipeline(&mut exec, &mut b, Call::batch(4))
+            .unwrap(),
+        Step::Done
+    );
+    assert!(
+        READ.load(Relaxed) > 0,
+        "the owner reads the last rerun's table"
+    );
     entry.end(exec, true);
 }
 
@@ -104,12 +166,35 @@ fn does_not_apply_a_pulled_sets_consumed_slot_not_live_at_its_step_frees_at_its_
     let flag = AtomicU8::new(0);
     let mut sink = LegSink::new();
     let mut b = binding(&THR, &[0], &mut sink, &flag);
-    let mut exec = entry.start(Some(KEY), &program, &mut derive, &mut b, lease(Grant::of(8 << 20))).unwrap();
+    let mut exec = entry
+        .start(
+            Some(KEY),
+            &program,
+            &mut derive,
+            &mut b,
+            lease(Grant::of(8 << 20)),
+        )
+        .unwrap();
     entry.skip_deferred(&mut exec);
     entry.skip_pulled(&mut exec, &[2]).unwrap();
-    while entry.pull_nested(&mut exec, &mut b, &[0, 1], &mut run_whole).unwrap() == Pulled::Stopped {}
-    assert!(!exec.node().slot_live(1), "the pulled member's consumed slot freed at its last consumer");
-    assert!(exec.node().slot_live(0), "the store edge stays for the readers");
-    assert_eq!(entry.run_pipeline(&mut exec, &mut b, Call::batch(4)).unwrap(), Step::Done);
+    while entry
+        .pull_nested(&mut exec, &mut b, &[0, 1], &mut run_whole)
+        .unwrap()
+        == Pulled::Stopped
+    {}
+    assert!(
+        !exec.node().slot_live(1),
+        "the pulled member's consumed slot freed at its last consumer"
+    );
+    assert!(
+        exec.node().slot_live(0),
+        "the store edge stays for the readers"
+    );
+    assert_eq!(
+        entry
+            .run_pipeline(&mut exec, &mut b, Call::batch(4))
+            .unwrap(),
+        Step::Done
+    );
     entry.end(exec, true);
 }

@@ -10,8 +10,8 @@ use ::types_storage::{File, WriteChunk};
 
 use crate::fileset::FileSetKey;
 use crate::io::{
-    file_path_name_lossy, FileCloseGeneration, FileGeneration, FileRead, FileSize, FileTruncate, FileWrite, FileWriteV,
-    PG_IOV_MAX,
+    file_path_name_lossy, FileCloseGeneration, FileGeneration, FileRead, FileSize, FileTruncate,
+    FileWrite, FileWriteV, PG_IOV_MAX,
 };
 use crate::temp::OpenTemporaryFile;
 use crate::vfd::{get_errno, loc};
@@ -60,7 +60,12 @@ pub fn temp_blk_write_time() -> i64 {
 pub type TempUsage = [i64; 4];
 
 fn temp_cells() -> [&'static std::thread::LocalKey<Cell<i64>>; 4] {
-    [&TEMP_BLKS_READ, &TEMP_BLKS_WRITTEN, &TEMP_BLK_READ_TIME, &TEMP_BLK_WRITE_TIME]
+    [
+        &TEMP_BLKS_READ,
+        &TEMP_BLKS_WRITTEN,
+        &TEMP_BLK_READ_TIME,
+        &TEMP_BLK_WRITE_TIME,
+    ]
 }
 
 /// This thread's temp-file counters now.
@@ -179,7 +184,10 @@ pub fn BufFileCreateTemp<'mcx>(mcx: Mcx<'mcx>, inter_xact: bool) -> PgResult<Buf
 
 // `FileSetSegmentName` (buffile.c:222): "<buffile_name>.<segment>".
 fn seg_name(name: &[u8], segment: usize) -> String {
-    format!("{}.{segment}", core::str::from_utf8(name).expect("fileset name is utf8"))
+    format!(
+        "{}.{segment}",
+        core::str::from_utf8(name).expect("fileset name is utf8")
+    )
 }
 
 // `MakeNewFileSetSegment` (buffile.c:231): create segment `segment` of the
@@ -244,7 +252,11 @@ fn open_fileset_common<'mcx>(
     missing_ok: bool,
 ) -> PgResult<Option<BufFile<'mcx>>> {
     let key = fileset.key();
-    let mode = if read_only { libc::O_RDONLY } else { libc::O_RDWR };
+    let mode = if read_only {
+        libc::O_RDONLY
+    } else {
+        libc::O_RDWR
+    };
     let mut files: PgVec<'mcx, File> = vec_with_capacity_in(mcx, 16)?;
     let mut gens: PgVec<'mcx, u64> = vec_with_capacity_in(mcx, 16)?;
     let mut segment_name;
@@ -387,7 +399,11 @@ impl<'mcx> BufFile<'mcx> {
     /// offset), removing whole segments past the point.
     pub fn truncate_fileset(&mut self, fileno: i32, offset: i64) -> PgResult<()> {
         let fileset = self.fileset.expect("truncate_fileset on a fileset BufFile");
-        let name: &[u8] = self.name.as_ref().expect("fileset BufFile has a name").as_slice();
+        let name: &[u8] = self
+            .name
+            .as_ref()
+            .expect("fileset BufFile has a name")
+            .as_slice();
         let mut num_files = self.files.len() as i32;
         let mut new_file = fileno;
         let mut new_offset = self.cur_offset;
@@ -404,7 +420,9 @@ impl<'mcx> BufFile<'mcx> {
                     ereport(ERROR)
                         .with_saved_errno(get_errno())
                         .errcode_for_file_access()
-                        .errmsg(format!("could not delete fileset \"{segment_name}\": {PCT_M}"))
+                        .errmsg(format!(
+                            "could not delete fileset \"{segment_name}\": {PCT_M}"
+                        ))
                         .finish(loc("BufFileTruncateFileSet"))?;
                 }
                 num_files -= 1;
@@ -498,7 +516,10 @@ impl<'mcx> BufFile<'mcx> {
     }
 
     pub fn abandon(self) -> PgResult<()> {
-        if !self.on_owner(false) || ::elog::config::proc_exit_inprogress() || !crate::vfd::fd_tls_alive() {
+        if !self.on_owner(false)
+            || ::elog::config::proc_exit_inprogress()
+            || !crate::vfd::fd_tls_alive()
+        {
             return Ok(());
         }
         self.close_files()
@@ -515,7 +536,10 @@ impl<'mcx> BufFile<'mcx> {
                         ))
                         .finish(loc("BufFileClose"));
                 }
-                crate::orphan::send(owner, self.files.iter().copied().zip(self.gens.iter().copied()));
+                crate::orphan::send(
+                    owner,
+                    self.files.iter().copied().zip(self.gens.iter().copied()),
+                );
                 false
             }
             _ => true,
@@ -523,7 +547,12 @@ impl<'mcx> BufFile<'mcx> {
     }
 
     fn released(&self) -> bool {
-        crate::vfd::fd_tls_alive() && self.files.iter().zip(self.gens.iter()).any(|(&f, &g)| FileGeneration(f) != g)
+        crate::vfd::fd_tls_alive()
+            && self
+                .files
+                .iter()
+                .zip(self.gens.iter())
+                .any(|(&f, &g)| FileGeneration(f) != g)
     }
 
     fn close_files(&self) -> PgResult<()> {
@@ -535,8 +564,7 @@ impl<'mcx> BufFile<'mcx> {
     }
 
     fn load_buffer(&mut self) -> PgResult<()> {
-        if self.cur_offset >= MAX_PHYSICAL_FILESIZE
-            && (self.cur_file + 1) < self.files.len() as i32
+        if self.cur_offset >= MAX_PHYSICAL_FILESIZE && (self.cur_file + 1) < self.files.len() as i32
         {
             self.cur_file += 1;
             self.cur_offset = 0;
@@ -748,13 +776,19 @@ impl<'mcx> BufFile<'mcx> {
             }
             let thisfile = self.files[self.cur_file as usize];
             let io_start = io_timing_start();
-            let written = FileWriteV(thisfile, &iov[..n], self.cur_offset, WAIT_EVENT_BUFFILE_WRITE)?;
+            let written = FileWriteV(
+                thisfile,
+                &iov[..n],
+                self.cur_offset,
+                WAIT_EVENT_BUFFILE_WRITE,
+            )?;
             if written <= 0 {
                 return write_failed(thisfile);
             }
             io_timing_accum(&TEMP_BLK_WRITE_TIME, io_start);
             self.cur_offset += written as i64;
-            TEMP_BLKS_WRITTEN.with(|c| c.set(c.get() + (written as u64).div_ceil(BLCKSZ as u64) as i64));
+            TEMP_BLKS_WRITTEN
+                .with(|c| c.set(c.get() + (written as u64).div_ceil(BLCKSZ as u64) as i64));
             let mut left = written as usize;
             while left > 0 {
                 let rest = spans[at].len() - skip;
@@ -786,7 +820,9 @@ impl<'mcx> BufFile<'mcx> {
             (self.pos, self.nbytes) = (0, 0);
         }
         while nread < ptr.len() {
-            if self.cur_offset >= MAX_PHYSICAL_FILESIZE && (self.cur_file + 1) < self.files.len() as i32 {
+            if self.cur_offset >= MAX_PHYSICAL_FILESIZE
+                && (self.cur_file + 1) < self.files.len() as i32
+            {
                 self.cur_file += 1;
                 self.cur_offset = 0;
             }
@@ -797,7 +833,12 @@ impl<'mcx> BufFile<'mcx> {
             }
             let thisfile = self.files[self.cur_file as usize];
             let io_start = io_timing_start();
-            let got = FileRead(thisfile, &mut ptr[nread..nread + n], self.cur_offset, WAIT_EVENT_BUFFILE_READ)?;
+            let got = FileRead(
+                thisfile,
+                &mut ptr[nread..nread + n],
+                self.cur_offset,
+                WAIT_EVENT_BUFFILE_READ,
+            )?;
             if got < 0 {
                 return read_failed(thisfile);
             }
@@ -811,10 +852,20 @@ impl<'mcx> BufFile<'mcx> {
         }
         if nread != ptr.len() {
             let msg = match &self.name {
-                Some(name) => format!("could not read from file set \"{}\": read only {nread} of {} bytes", String::from_utf8_lossy(name), ptr.len()),
-                None => format!("could not read from temporary file: read only {nread} of {} bytes", ptr.len()),
+                Some(name) => format!(
+                    "could not read from file set \"{}\": read only {nread} of {} bytes",
+                    String::from_utf8_lossy(name),
+                    ptr.len()
+                ),
+                None => format!(
+                    "could not read from temporary file: read only {nread} of {} bytes",
+                    ptr.len()
+                ),
             };
-            ereport(ERROR).errcode_for_file_access().errmsg(msg).finish(loc("BufFileReadCommon"))?;
+            ereport(ERROR)
+                .errcode_for_file_access()
+                .errmsg(msg)
+                .finish(loc("BufFileReadCommon"))?;
         }
         Ok(())
     }
@@ -942,7 +993,10 @@ fn read_failed(file: File) -> PgResult<()> {
     ereport(ERROR)
         .with_saved_errno(get_errno())
         .errcode_for_file_access()
-        .errmsg(format!("could not read file \"{}\": {PCT_M}", file_path_name_lossy(file)))
+        .errmsg(format!(
+            "could not read file \"{}\": {PCT_M}",
+            file_path_name_lossy(file)
+        ))
         .finish(loc("BufFileLoadBuffer"))
         .map(|_| ())
 }
@@ -953,7 +1007,10 @@ fn write_failed(file: File) -> PgResult<()> {
     ereport(ERROR)
         .with_saved_errno(get_errno())
         .errcode_for_file_access()
-        .errmsg(format!("could not write to file \"{}\": {PCT_M}", file_path_name_lossy(file)))
+        .errmsg(format!(
+            "could not write to file \"{}\": {PCT_M}",
+            file_path_name_lossy(file)
+        ))
         .finish(loc("BufFileDumpBuffer"))
         .map(|_| ())
 }

@@ -2,8 +2,10 @@
 // state — C's memcxt palloc), not arena-resident.
 #![allow(non_snake_case)]
 
-use types_core::{BlockNumber, ForkNumber, InvalidSubTransactionId, XLogRecPtr, BLCKSZ, INVALID_PROC_NUMBER};
 use elog::ereport;
+use types_core::{
+    BlockNumber, ForkNumber, InvalidSubTransactionId, XLogRecPtr, BLCKSZ, INVALID_PROC_NUMBER,
+};
 use types_error::{ErrorLocation, PgResult, DEBUG1};
 use types_rel::Relation;
 use types_storage::{RelFileLocatorBackend, DELAY_CHKPT_START};
@@ -48,7 +50,10 @@ fn relation_needs_wal(rel: &Relation<'_>) -> bool {
 pub fn smgr_bulk_start_rel(rel: &Relation<'_>, forknum: ForkNumber) -> PgResult<BulkWriteState> {
     smgr::RelationGetSmgr(rel)?;
     smgr_bulk_start_smgr(
-        RelFileLocatorBackend { locator: rel.rd_locator.get(), backend: rel.rd_backend },
+        RelFileLocatorBackend {
+            locator: rel.rd_locator.get(),
+            backend: rel.rd_backend,
+        },
         forknum,
         relation_needs_wal(rel) || forknum == ForkNumber::INIT_FORKNUM,
     )
@@ -79,7 +84,11 @@ pub fn smgr_bulk_write(
     buf: BulkWriteBuffer,
     page_std: bool,
 ) -> PgResult<()> {
-    state.pending_writes.push(PendingWrite { buf: buf.0, blkno: blocknum, page_std });
+    state.pending_writes.push(PendingWrite {
+        buf: buf.0,
+        blkno: blocknum,
+        page_std,
+    });
     if state.pending_writes.len() >= MAX_PENDING_WRITES {
         smgr_bulk_flush(state)?;
     }
@@ -104,7 +113,11 @@ pub fn smgr_bulk_finish(mut state: BulkWriteState) -> PgResult<()> {
             // bulk_write.c:214
             ereport(DEBUG1)
                 .errmsg_internal("flushed relation because a checkpoint occurred concurrently")
-                .finish(ErrorLocation::new(file!(), line!() as i32, "smgr_bulk_finish"))?;
+                .finish(ErrorLocation::new(
+                    file!(),
+                    line!() as i32,
+                    "smgr_bulk_finish",
+                ))?;
         } else {
             smgr::smgrregistersync(state.smgr, state.forknum)?;
             proc.delayChkptFlags.fetch_and(!DELAY_CHKPT_START, Relaxed);
@@ -141,7 +154,13 @@ fn smgr_bulk_flush(state: &mut BulkWriteState) -> PgResult<()> {
         bufmgr::PageSetChecksumInplace(&mut page.0, w.blkno);
         if w.blkno >= state.relsize {
             while w.blkno > state.relsize {
-                smgr::smgrextend(state.smgr, state.forknum, state.relsize, fd::zero_block(), true)?;
+                smgr::smgrextend(
+                    state.smgr,
+                    state.forknum,
+                    state.relsize,
+                    fd::zero_block(),
+                    true,
+                )?;
                 state.relsize += 1;
             }
             smgr::smgrextend(state.smgr, state.forknum, w.blkno, &page.0[..], true)?;

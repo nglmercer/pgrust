@@ -52,8 +52,17 @@ pub enum FromItem {
     /// Base table or CTE reference, always aliased.
     Table { name: String, alias: String },
     /// Derived table: `(SELECT ...) AS alias(c0, c1, ...)`.
-    Derived { body: Box<SelectStmt>, alias: String, columns: Vec<String> },
-    Join { left: Box<FromItem>, right: Box<FromItem>, kind: JoinKind, cond: JoinCond },
+    Derived {
+        body: Box<SelectStmt>,
+        alias: String,
+        columns: Vec<String>,
+    },
+    Join {
+        left: Box<FromItem>,
+        right: Box<FromItem>,
+        kind: JoinKind,
+        cond: JoinCond,
+    },
 }
 
 /// GROUP BY clause forms. Plain expressions render parenthesized so a
@@ -207,7 +216,11 @@ impl WindowDef {
         }
         if let Some(f) = &self.frame {
             sep(out);
-            out.push_str(if f.range { "RANGE BETWEEN " } else { "ROWS BETWEEN " });
+            out.push_str(if f.range {
+                "RANGE BETWEEN "
+            } else {
+                "ROWS BETWEEN "
+            });
             f.start.render(out);
             out.push_str(" AND ");
             f.end.render(out);
@@ -259,7 +272,11 @@ impl FromItem {
                 out.push_str(" AS ");
                 out.push_str(alias);
             }
-            FromItem::Derived { body, alias, columns } => {
+            FromItem::Derived {
+                body,
+                alias,
+                columns,
+            } => {
                 out.push('(');
                 body.render(out);
                 out.push_str(") AS ");
@@ -273,7 +290,12 @@ impl FromItem {
                 }
                 out.push(')');
             }
-            FromItem::Join { left, right, kind, cond } => {
+            FromItem::Join {
+                left,
+                right,
+                kind,
+                cond,
+            } => {
                 left.render(out);
                 out.push(' ');
                 match cond {
@@ -333,7 +355,11 @@ impl SelectStmt {
             }
             out.push(' ');
         }
-        out.push_str(if self.distinct { "SELECT DISTINCT " } else { "SELECT " });
+        out.push_str(if self.distinct {
+            "SELECT DISTINCT "
+        } else {
+            "SELECT "
+        });
         for (i, item) in self.items.iter().enumerate() {
             if i > 0 {
                 out.push_str(", ");
@@ -413,8 +439,14 @@ impl SelectStmt {
 /// plan-dependent, so their result columns are ruled-soft (B1 ruling;
 /// crate::ruled b1-float-agg-soft). numeric variants of the same
 /// aggregates accumulate exactly and are NOT listed.
-pub const SOFT_FLOAT_AGGS: &[&str] =
-    &["sum", "avg", "stddev_samp", "stddev_pop", "var_samp", "var_pop"];
+pub const SOFT_FLOAT_AGGS: &[&str] = &[
+    "sum",
+    "avg",
+    "stddev_samp",
+    "stddev_pop",
+    "var_samp",
+    "var_pop",
+];
 
 /// Output-column indexes whose values are order-sensitive float aggregates
 /// (ruled-soft in the differ). Empty for every statement the agg module
@@ -475,7 +507,11 @@ fn check_from(
             Some(cols) => local.push((alias.clone(), cols)),
             None => errs.push(format!("unknown relation {name} (alias {alias})")),
         },
-        FromItem::Derived { body, alias, columns } => {
+        FromItem::Derived {
+            body,
+            alias,
+            columns,
+        } => {
             if body.items.len() != columns.len() {
                 errs.push(format!("derived table {alias}: column list arity mismatch"));
             }
@@ -483,7 +519,9 @@ fn check_from(
             check_stmt(body, &Vec::new(), catalog, ctes, false, errs);
             local.push((alias.clone(), columns.clone()));
         }
-        FromItem::Join { left, right, cond, .. } => {
+        FromItem::Join {
+            left, right, cond, ..
+        } => {
             let before = local.len();
             check_from(left, outer, local, catalog, ctes, errs);
             check_from(right, outer, local, catalog, ctes, errs);
@@ -520,7 +558,11 @@ struct ExprCtx<'a> {
 impl ExprCtx<'static> {
     /// WHERE / ON / GROUP BY / window definitions / aggregate arguments.
     fn plain() -> ExprCtx<'static> {
-        ExprCtx { allow_agg: false, allow_window: false, wins: &[] }
+        ExprCtx {
+            allow_agg: false,
+            allow_window: false,
+            wins: &[],
+        }
     }
 }
 
@@ -551,7 +593,11 @@ fn check_expr(
                 check_expr(a, env, catalog, ctes, ctx, errs);
             }
         }
-        Expr::Case { cond, then_e, else_e } => {
+        Expr::Case {
+            cond,
+            then_e,
+            else_e,
+        } => {
             check_expr(cond, env, catalog, ctes, ctx, errs);
             check_expr(then_e, env, catalog, ctes, ctx, errs);
             check_expr(else_e, env, catalog, ctes, ctx, errs);
@@ -565,7 +611,14 @@ fn check_expr(
             check_stmt(body, env, catalog, ctes, false, errs);
         }
         Expr::Exists { body, .. } => check_stmt(body, env, catalog, ctes, false, errs),
-        Expr::Agg { name, star, args, order_within, filter, .. } => {
+        Expr::Agg {
+            name,
+            star,
+            args,
+            order_within,
+            filter,
+            ..
+        } => {
             if !ctx.allow_agg {
                 errs.push(format!("aggregate {name} in an illegal context"));
             }
@@ -680,7 +733,11 @@ fn check_stmt(
         check_from(f, outer, &mut env, catalog, ctes, errs);
     }
     let win_names: Vec<String> = stmt.windows.iter().map(|(n, _)| n.clone()).collect();
-    let item_ctx = ExprCtx { allow_agg: true, allow_window: true, wins: &win_names };
+    let item_ctx = ExprCtx {
+        allow_agg: true,
+        allow_window: true,
+        wins: &win_names,
+    };
     for item in &stmt.items {
         check_expr(&item.expr, &env, catalog, ctes, item_ctx, errs);
     }
@@ -699,7 +756,11 @@ fn check_stmt(
             &env,
             catalog,
             ctes,
-            ExprCtx { allow_agg: true, allow_window: false, wins: &[] },
+            ExprCtx {
+                allow_agg: true,
+                allow_window: false,
+                wins: &[],
+            },
             errs,
         );
     }
@@ -748,7 +809,10 @@ mod tests {
 
     fn colref(alias: &str, name: &str, ty: SqlType) -> SelectItem {
         SelectItem {
-            expr: Expr::ColRef { alias: alias.to_string(), name: name.to_string() },
+            expr: Expr::ColRef {
+                alias: alias.to_string(),
+                name: name.to_string(),
+            },
             alias: None,
             ty,
         }
@@ -772,7 +836,11 @@ mod tests {
                 cond: JoinCond::Using(vec!["k_int".to_string()]),
             }),
             where_clause: None,
-            order_by: vec![OrderKey { position: 1, desc: Some(true), nulls_first: Some(false) }],
+            order_by: vec![OrderKey {
+                position: 1,
+                desc: Some(true),
+                nulls_first: Some(false),
+            }],
             limit: Some("1".to_string()),
             offset: Some("0".to_string()),
             ..Default::default()
@@ -790,7 +858,10 @@ mod tests {
     fn renders_cte_and_natural_join() {
         let body = SelectStmt {
             items: vec![SelectItem {
-                expr: Expr::ColRef { alias: "t0".to_string(), name: "k_int".to_string() },
+                expr: Expr::ColRef {
+                    alias: "t0".to_string(),
+                    name: "k_int".to_string(),
+                },
                 alias: Some("c0".to_string()),
                 ty: SqlType::Int4,
             }],
@@ -803,7 +874,10 @@ mod tests {
         let stmt = SelectStmt {
             ctes: vec![("w0".to_string(), body)],
             items: vec![colref("t1", "c0", SqlType::Int4)],
-            from: Some(FromItem::Table { name: "w0".to_string(), alias: "t1".to_string() }),
+            from: Some(FromItem::Table {
+                name: "w0".to_string(),
+                alias: "t1".to_string(),
+            }),
             ..Default::default()
         };
         assert_eq!(
@@ -887,7 +961,11 @@ mod tests {
                 name: "fz_scalar".to_string(),
                 alias: "t0".to_string(),
             }),
-            order_by: vec![OrderKey { position: 2, desc: None, nulls_first: None }],
+            order_by: vec![OrderKey {
+                position: 2,
+                desc: None,
+                nulls_first: None,
+            }],
             ..Default::default()
         };
         assert!(!scope_errors(&bad, &cat).is_empty());

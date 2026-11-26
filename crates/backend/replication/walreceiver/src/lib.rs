@@ -12,8 +12,7 @@ use types_core::{
 };
 use types_error::{
     ErrorLocation, PgError, PgResult, DEBUG1, DEBUG2, ERRCODE_CONNECTION_FAILURE,
-    ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE, ERRCODE_PROTOCOL_VIOLATION, ERROR, FATAL, LOG,
-    PANIC,
+    ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE, ERRCODE_PROTOCOL_VIOLATION, ERROR, FATAL, LOG, PANIC,
 };
 use types_startup::StartupData;
 use types_storage::waiteventset::{
@@ -203,25 +202,23 @@ fn wal_receiver_main_inner() -> PgResult<()> {
         // no SIG* names (thread-signal emulation numbering, signums law).
         use procsignal::signums::{SIGALRM, SIGHUP, SIGINT, SIGPIPE, SIGTERM, SIGUSR1, SIGUSR2};
         use procsignal::ThreadSignalHandler::{Fallible, Ignore, Simple};
-        procsignal::pqsignal_thread(
-            SIGHUP,
-            Simple(interrupt::SignalHandlerForConfigReload),
-        );
+        procsignal::pqsignal_thread(SIGHUP, Simple(interrupt::SignalHandlerForConfigReload));
         procsignal::pqsignal_thread(SIGINT, Ignore);
         procsignal::pqsignal_thread(SIGTERM, Fallible(sigterm_die));
         procsignal::pqsignal_thread(SIGALRM, Ignore);
         procsignal::pqsignal_thread(SIGPIPE, Ignore);
-        procsignal::pqsignal_thread(
-            SIGUSR1,
-            Simple(procsignal::procsignal_sigusr1_handler),
-        );
+        procsignal::pqsignal_thread(SIGUSR1, Simple(procsignal::procsignal_sigusr1_handler));
         procsignal::pqsignal_thread(SIGUSR2, Ignore);
     }
     libpq_pqsignal::unblock_signals();
 
     // Establish the connection to the primary for XLOG streaming.
     let cluster_name = guc_tables::vars::cluster_name.read().unwrap_or_default();
-    let appname = if cluster_name.is_empty() { "walreceiver" } else { cluster_name.as_str() };
+    let appname = if cluster_name.is_empty() {
+        "walreceiver"
+    } else {
+        cluster_name.as_str()
+    };
     match client::connect(&conninfo, appname)? {
         Ok(conn) => CONN.with(|c| *c.borrow_mut() = Some(conn)),
         Err(err) => {
@@ -335,7 +332,11 @@ fn wal_receiver_main_inner() -> PgResult<()> {
             with_walrcv(|d| d.slotname = name);
         }
 
-        let slot = if slotname.is_empty() { None } else { Some(slotname.clone()) };
+        let slot = if slotname.is_empty() {
+            None
+        } else {
+            Some(slotname.clone())
+        };
         if with_conn(|c| client::start_streaming(c, slot.as_deref(), startpoint, startpointTLI))? {
             if first_stream {
                 let _ = ereport(LOG)
@@ -493,7 +494,8 @@ fn wal_receiver_main_inner() -> PgResult<()> {
         if with_state(|s| s.recvFile) >= 0 {
             XLogWalRcvFlush(false, startpointTLI)?;
             let (tli, segno) = with_state(|s| (s.recvFileTLI, s.recvSegNo));
-            let xlogfname = transam_xlog::XLogFileName(tli, segno, transam_xlog::wal_segment_size());
+            let xlogfname =
+                transam_xlog::XLogFileName(tli, segno, transam_xlog::wal_segment_size());
             let recv_file = with_state(|s| s.recvFile);
             if unsafe { libc::close(recv_file) } != 0 {
                 let en = ::elog::errno::current_errno();
@@ -512,7 +514,10 @@ fn wal_receiver_main_inner() -> PgResult<()> {
         }
         with_state(|s| s.recvFile = -1);
 
-        let _ = elog(DEBUG1, "walreceiver ended streaming and awaits new instructions");
+        let _ = elog(
+            DEBUG1,
+            "walreceiver ended streaming and awaits new instructions",
+        );
         WalRcvWaitForStartPosition(&mut startpoint, &mut startpointTLI)?;
         STARTPOINT_TLI.set(startpointTLI);
     }
@@ -744,9 +749,7 @@ fn XLogWalRcvWrite(buf: &[u8], recptr_in: XLogRecPtr, tli: TimeLineID) -> PgResu
     let mut off = 0usize;
     while off < buf.len() {
         let (recv_file, recv_seg_no) = with_state(|s| (s.recvFile, s.recvSegNo));
-        if recv_file >= 0
-            && transam_xlog::XLByteToSeg(recptr, wal_segment_size) != recv_seg_no
-        {
+        if recv_file >= 0 && transam_xlog::XLByteToSeg(recptr, wal_segment_size) != recv_seg_no {
             XLogWalRcvClose(recptr, tli)?;
         }
 
@@ -767,9 +770,8 @@ fn XLogWalRcvWrite(buf: &[u8], recptr_in: XLogRecPtr, tli: TimeLineID) -> PgResu
         // OK to write the logs
         set_errno(0);
 
-        let start_ns = pgstat::io::pgstat_prepare_io_time(
-            guc_tables::vars::track_wal_io_timing.read(),
-        );
+        let start_ns =
+            pgstat::io::pgstat_prepare_io_time(guc_tables::vars::track_wal_io_timing.read());
         waitevent_seams::pgstat_report_wait_start::call(WAIT_EVENT_WAL_WRITE);
         let recv_file = with_state(|s| s.recvFile);
         let byteswritten = unsafe {
@@ -786,7 +788,11 @@ fn XLogWalRcvWrite(buf: &[u8], recptr_in: XLogRecPtr, tli: TimeLineID) -> PgResu
         if byteswritten <= 0 {
             // if write didn't set errno, assume no disk space
             // (walreceiver.c:1017-1019; %m renders that errno).
-            let save_errno = if write_errno == 0 { libc::ENOSPC } else { write_errno };
+            let save_errno = if write_errno == 0 {
+                libc::ENOSPC
+            } else {
+                write_errno
+            };
             let (tli_f, segno) = with_state(|s| (s.recvFileTLI, s.recvSegNo));
             let xlogfname = transam_xlog::XLogFileName(tli_f, segno, wal_segment_size);
             return ereport(PANIC)
@@ -864,9 +870,7 @@ fn XLogWalRcvFlush(dying: bool, tli: TimeLineID) -> PgResult<()> {
 fn XLogWalRcvClose(recptr: XLogRecPtr, tli: TimeLineID) -> PgResult<()> {
     let wal_segment_size = transam_xlog::wal_segment_size();
     let (recv_file, recv_seg_no) = with_state(|s| (s.recvFile, s.recvSegNo));
-    assert!(
-        recv_file >= 0 && transam_xlog::XLByteToSeg(recptr, wal_segment_size) != recv_seg_no
-    );
+    assert!(recv_file >= 0 && transam_xlog::XLByteToSeg(recptr, wal_segment_size) != recv_seg_no);
     assert!(tli != 0);
 
     XLogWalRcvFlush(false, tli)?;
@@ -901,7 +905,13 @@ fn XLogWalRcvSendReply(force: bool, request_reply: bool) -> PgResult<()> {
 
     let now = get_ts();
     let (write, flush, r_write, r_flush, r_wakeup) = with_state(|s| {
-        (s.write, s.flush, s.reply_writePtr, s.reply_flushPtr, s.wakeup[WAKEUP_REPLY])
+        (
+            s.write,
+            s.flush,
+            s.reply_writePtr,
+            s.reply_flushPtr,
+            s.wakeup[WAKEUP_REPLY],
+        )
     });
     if !force && r_write == write && r_flush == flush && now < r_wakeup {
         return Ok(());
@@ -930,7 +940,11 @@ fn XLogWalRcvSendReply(force: bool, request_reply: bool) -> PgResult<()> {
             lsn_fmt(write),
             lsn_fmt(flush),
             lsn_fmt(apply),
-            if request_reply { " (reply requested)" } else { "" }
+            if request_reply {
+                " (reply requested)"
+            } else {
+                ""
+            }
         ),
     );
 
@@ -940,8 +954,7 @@ fn XLogWalRcvSendReply(force: bool, request_reply: bool) -> PgResult<()> {
 fn XLogWalRcvSendHSFeedback(immed: bool) -> PgResult<()> {
     let primary_has_standby_xmin = with_state(|s| s.primary_has_standby_xmin);
 
-    if (wal_receiver_status_interval() <= 0 || !hot_standby_feedback())
-        && !primary_has_standby_xmin
+    if (wal_receiver_status_interval() <= 0 || !hot_standby_feedback()) && !primary_has_standby_xmin
     {
         return Ok(());
     }
@@ -1209,8 +1222,15 @@ mod tests {
         let (r, captured) = with_captured(|| {
             catch_unwind(AssertUnwindSafe(|| WalRcvFetchTimeLineHistoryFiles(2, 2)))
         });
-        assert!(r.is_err(), "the fetch must go to the primary connection: {r:?}");
-        assert_eq!(RESTORE_CALLS.load(Ordering::SeqCst), before, "RestoreArchivedFile consulted");
+        assert!(
+            r.is_err(),
+            "the fetch must go to the primary connection: {r:?}"
+        );
+        assert_eq!(
+            RESTORE_CALLS.load(Ordering::SeqCst),
+            before,
+            "RestoreArchivedFile consulted"
+        );
         assert!(
             captured.iter().any(|(_, _, m)| m
                 == "fetching timeline history file for timeline 2 from primary server"),

@@ -51,11 +51,16 @@ fn print_result(st: &PsqlState, r: &QueryResult, title: &str) {
 }
 
 fn cell(r: &QueryResult, i: usize, j: usize) -> String {
-    r.rows[i][j].as_ref().map(|b| String::from_utf8_lossy(b).into_owned()).unwrap_or_default()
+    r.rows[i][j]
+        .as_ref()
+        .map(|b| String::from_utf8_lossy(b).into_owned())
+        .unwrap_or_default()
 }
 
 fn cell_opt(r: &QueryResult, i: usize, j: usize) -> Option<String> {
-    r.rows[i][j].as_ref().map(|b| String::from_utf8_lossy(b).into_owned())
+    r.rows[i][j]
+        .as_ref()
+        .map(|b| String::from_utf8_lossy(b).into_owned())
 }
 
 // ----------------------------------------------------- name pattern -> SQL
@@ -110,7 +115,10 @@ pub fn process_pattern(
     }
     parts.push(cur);
     let (schema_pat, name_pat) = if parts.len() >= 2 {
-        (Some(parts[parts.len() - 2].clone()), parts[parts.len() - 1].clone())
+        (
+            Some(parts[parts.len() - 2].clone()),
+            parts[parts.len() - 1].clone(),
+        )
     } else {
         (None, parts.pop().unwrap())
     };
@@ -383,7 +391,11 @@ pub fn list_functions(st: &mut PsqlState, pattern: Option<&str>, plus: bool) -> 
         pattern,
         "n.nspname",
         "p.proname",
-        if pattern.is_some() { Some("pg_catalog.pg_function_is_visible(p.oid)") } else { None },
+        if pattern.is_some() {
+            Some("pg_catalog.pg_function_is_visible(p.oid)")
+        } else {
+            None
+        },
     );
     sql.push('\n');
     sql.push_str(&where_clause(&pat.clauses, &base));
@@ -478,9 +490,15 @@ fn describe_one(
         let identity = cell(&cols, i, 5);
         let generated = cell(&cols, i, 6);
         let default_disp = if generated == "s" {
-            Some(format!("generated always as ({}) stored", default.clone().unwrap_or_default()))
+            Some(format!(
+                "generated always as ({}) stored",
+                default.clone().unwrap_or_default()
+            ))
         } else if generated == "v" {
-            Some(format!("generated always as ({})", default.clone().unwrap_or_default()))
+            Some(format!(
+                "generated always as ({})",
+                default.clone().unwrap_or_default()
+            ))
         } else if identity == "a" {
             Some("generated always as identity".to_string())
         } else if identity == "d" {
@@ -492,7 +510,11 @@ fn describe_one(
             Some(colname),
             Some(typ),
             collation,
-            Some(if notnull { "not null".into() } else { String::new() }),
+            Some(if notnull {
+                "not null".into()
+            } else {
+                String::new()
+            }),
             default_disp,
         ]);
     }
@@ -526,7 +548,10 @@ fn describe_one(
                     }
                 }
                 // Strip "CREATE [UNIQUE] INDEX name ON table USING " prefix.
-                let tail = indexdef.split_once(" USING ").map(|x| x.1).unwrap_or(&indexdef);
+                let tail = indexdef
+                    .split_once(" USING ")
+                    .map(|x| x.1)
+                    .unwrap_or(&indexdef);
                 line.push(' ');
                 line.push_str(tail);
                 footers.push(line);
@@ -542,7 +567,11 @@ fn describe_one(
         if !checks.rows.is_empty() {
             footers.push("Check constraints:".to_string());
             for i in 0..checks.rows.len() {
-                footers.push(format!("    \"{}\" {}", cell(&checks, i, 0), cell(&checks, i, 1)));
+                footers.push(format!(
+                    "    \"{}\" {}",
+                    cell(&checks, i, 0),
+                    cell(&checks, i, 1)
+                ));
             }
         }
         // Foreign keys.
@@ -602,7 +631,11 @@ fn describe_one(
         ],
         aligns: vec!['l', 'l', 'l', 'l', 'l'],
         cells,
-        footers: if footers.is_empty() { Some(Vec::new()) } else { Some(footers) },
+        footers: if footers.is_empty() {
+            Some(Vec::new())
+        } else {
+            Some(footers)
+        },
     };
     let mut out = std::io::stdout();
     let _ = print::print_table(&t, &st.popt, &mut out);
@@ -672,11 +705,19 @@ fn describe_index(
         cells.push(vec![
             Some(cell(&cols, i, 0)),
             Some(cell(&cols, i, 1)),
-            Some(if attnum <= nkey { "yes".into() } else { "no".into() }),
+            Some(if attnum <= nkey {
+                "yes".into()
+            } else {
+                "no".into()
+            }),
             Some(cell(&cols, i, 3)),
         ]);
     }
-    let kindword = if relkind == "I" { "Partitioned index" } else { "Index" };
+    let kindword = if relkind == "I" {
+        "Partitioned index"
+    } else {
+        "Index"
+    };
     let mut qual = String::new();
     if isprimary {
         qual.push_str("primary key, ");
@@ -686,7 +727,12 @@ fn describe_index(
     let footer = format!("{qual}{amname}, for table \"{tabnsp}.{tabname}\"");
     let t = Table {
         title: Some(format!("{kindword} \"{nsp}.{name}\"")),
-        headers: vec!["Column".into(), "Type".into(), "Key?".into(), "Definition".into()],
+        headers: vec![
+            "Column".into(),
+            "Type".into(),
+            "Key?".into(),
+            "Definition".into(),
+        ],
         aligns: vec!['l', 'l', 'l', 'l'],
         cells,
         footers: Some(vec![footer]),
@@ -717,23 +763,33 @@ pub fn conninfo(st: &mut PsqlState) {
     rows.push(("Server Port".into(), p.port.clone()));
     rows.push(("Options".into(), String::new()));
     rows.push(("Protocol Version".into(), "3.0".into()));
-    rows.push(("Password Used".into(), if conn.used_password { "true" } else { "false" }.into()));
+    rows.push((
+        "Password Used".into(),
+        if conn.used_password { "true" } else { "false" }.into(),
+    ));
     rows.push(("GSSAPI Authenticated".into(), "false".into()));
     rows.push(("Backend PID".into(), conn.be_pid.to_string()));
     rows.push(("SSL Connection".into(), "false".into()));
     rows.push((
         "Superuser".into(),
-        conn.parameter_status("is_superuser").unwrap_or("off").to_string(),
+        conn.parameter_status("is_superuser")
+            .unwrap_or("off")
+            .to_string(),
     ));
     rows.push((
         "Hot Standby".into(),
-        conn.parameter_status("in_hot_standby").unwrap_or("off").to_string(),
+        conn.parameter_status("in_hot_standby")
+            .unwrap_or("off")
+            .to_string(),
     ));
     let t = Table {
         title: Some("Connection Information".into()),
         headers: vec!["Parameter".into(), "Value".into()],
         aligns: vec!['l', 'l'],
-        cells: rows.into_iter().map(|(a, b)| vec![Some(a), Some(b)]).collect(),
+        cells: rows
+            .into_iter()
+            .map(|(a, b)| vec![Some(a), Some(b)])
+            .collect(),
         footers: None,
     };
     let mut out = std::io::stdout();

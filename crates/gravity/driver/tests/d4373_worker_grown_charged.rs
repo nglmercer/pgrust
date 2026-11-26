@@ -17,7 +17,14 @@ fn a_workers_grown_draw_is_charged_on_its_statements_count() {
     POOL.gate(0);
     REGIONS.trim();
     POOL.arm(1 << 30);
-    let r = POOL.admit_need_until(Grant::of(64 * MIB), &|g| g.bytes, Duration::from_secs(5), &|| false).expect("admitted");
+    let r = POOL
+        .admit_need_until(
+            Grant::of(64 * MIB),
+            &|g| g.bytes,
+            Duration::from_secs(5),
+            &|| false,
+        )
+        .expect("admitted");
     mcx::governor::statement_start(0, true);
     let led = mcx::governor::current().expect("the statement's ledger");
     let before = led.bytes();
@@ -36,7 +43,11 @@ fn a_workers_grown_draw_is_charged_on_its_statements_count() {
     mcx::governor::statement_end();
     drop(r);
     POOL.arm(0);
-    assert_eq!(during - before, (256 * MIB) as isize, "the worker's grown bytes are on the statement's charge");
+    assert_eq!(
+        during - before,
+        (256 * MIB) as isize,
+        "the worker's grown bytes are on the statement's charge"
+    );
     assert_eq!(after, before, "and given back with the hold");
 }
 
@@ -57,5 +68,8 @@ fn a_workers_grown_draw_past_its_statements_limit_is_refused() {
     });
     mcx::governor::statement_end();
     POOL.arm(0);
-    assert!(refused, "a worker's growth past the statement's memory limit is refused: the sort puts its run");
+    assert!(
+        refused,
+        "a worker's growth past the statement's memory limit is refused: the sort puts its run"
+    );
 }

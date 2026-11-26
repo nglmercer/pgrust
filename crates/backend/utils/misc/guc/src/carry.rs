@@ -9,7 +9,10 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use guc_tables::{GucBoolAssignFn, GucBoolVar, GucEnumAssignFn, GucEnumVar, GucIntAssignFn, GucIntVar, GucRealAssignFn, GucRealVar, GucStringAssignFn, GucStringVar};
+use guc_tables::{
+    GucBoolAssignFn, GucBoolVar, GucEnumAssignFn, GucEnumVar, GucIntAssignFn, GucIntVar,
+    GucRealAssignFn, GucRealVar, GucStringAssignFn, GucStringVar,
+};
 use types_error::{PgError, PgResult};
 use types_guc::{GucContext, GUC_CUSTOM_PLACEHOLDER, PGC_S_DEFAULT};
 
@@ -20,7 +23,14 @@ use crate::registry::{installed_hook, GucRegistry, GucVariable};
 /// Set by other means in PostgreSQL's ParallelWorkerMain: the transaction modes (its transaction state), client_encoding
 /// (the database's), and the identity pair, whose assign hooks would move the pool thread's own identity (a claim runs
 /// no privilege check).
-const NOT_CARRIED: [&str; 6] = ["transaction_isolation", "transaction_read_only", "transaction_deferrable", "client_encoding", "role", "session_authorization"];
+const NOT_CARRIED: [&str; 6] = [
+    "transaction_isolation",
+    "transaction_read_only",
+    "transaction_deferrable",
+    "client_encoding",
+    "role",
+    "session_authorization",
+];
 
 /// D4244: the PGC_SIGHUP variables whose backing is a thread_local! one, so a claim thread holds the value it started with
 /// (no pool thread runs ProcessConfigFile): the server-log settings a log line a claim writes reads on its own thread
@@ -28,7 +38,14 @@ const NOT_CARRIED: [&str; 6] = ["transaction_isolation", "transaction_read_only"
 /// claim's own WAL write reads (XLogWrite's fsync after a dirty-buffer eviction's XLogFlush). They are carried as PostgreSQL's
 /// RestoreGUCState carries every PGC_SIGHUP variable to its worker. Every other PGC_SIGHUP backing is process-wide: the
 /// reload itself writes it, and a claim's undo would put an older value back over a reload, so none is carried.
-const THREAD_SIGHUP: [&str; 6] = ["log_line_prefix", "log_destination", "syslog_sequence_numbers", "syslog_split_messages", "wal_sync_method", "fsync"];
+const THREAD_SIGHUP: [&str; 6] = [
+    "log_line_prefix",
+    "log_destination",
+    "syslog_sequence_numbers",
+    "syslog_split_messages",
+    "wal_sync_method",
+    "fsync",
+];
 
 #[derive(Clone, Copy)]
 enum Slot {
@@ -43,11 +60,26 @@ impl Slot {
     fn of(record: &GucVariable) -> Option<Slot> {
         // a backing no owning unit installed holds no value a claim could read
         match record {
-            GucVariable::Bool(c) => c.variable.installed().then(|| Slot::Bool(c.variable, installed_hook(c.assign_hook))),
-            GucVariable::Int(c) => c.variable.installed().then(|| Slot::Int(c.variable, installed_hook(c.assign_hook))),
-            GucVariable::Real(c) => c.variable.installed().then(|| Slot::Real(c.variable, installed_hook(c.assign_hook))),
-            GucVariable::String(c) => c.variable.installed().then(|| Slot::Str(c.variable, installed_hook(c.assign_hook))),
-            GucVariable::Enum(c) => c.variable.installed().then(|| Slot::Enum(c.variable, installed_hook(c.assign_hook))),
+            GucVariable::Bool(c) => c
+                .variable
+                .installed()
+                .then(|| Slot::Bool(c.variable, installed_hook(c.assign_hook))),
+            GucVariable::Int(c) => c
+                .variable
+                .installed()
+                .then(|| Slot::Int(c.variable, installed_hook(c.assign_hook))),
+            GucVariable::Real(c) => c
+                .variable
+                .installed()
+                .then(|| Slot::Real(c.variable, installed_hook(c.assign_hook))),
+            GucVariable::String(c) => c
+                .variable
+                .installed()
+                .then(|| Slot::Str(c.variable, installed_hook(c.assign_hook))),
+            GucVariable::Enum(c) => c
+                .variable
+                .installed()
+                .then(|| Slot::Enum(c.variable, installed_hook(c.assign_hook))),
         }
     }
 
@@ -128,11 +160,18 @@ thread_local! {
 #[track_caller]
 #[cold]
 fn oom() -> Box<PgError> {
-    elog::ereport(types_error::ERROR).errcode(types_error::ERRCODE_OUT_OF_MEMORY).errmsg("out of memory").into_error().into()
+    elog::ereport(types_error::ERROR)
+        .errcode(types_error::ERRCODE_OUT_OF_MEMORY)
+        .errmsg("out of memory")
+        .into_error()
+        .into()
 }
 
 fn carried(reg: &GucRegistry, name: &str) -> Option<(usize, Slot)> {
-    if NOT_CARRIED.iter().any(|n| crate::name::guc_name_eq(n, name)) {
+    if NOT_CARRIED
+        .iter()
+        .any(|n| crate::name::guc_name_eq(n, name))
+    {
         return None;
     }
     let idx = reg.find_index(name)?;
@@ -140,7 +179,9 @@ fn carried(reg: &GucRegistry, name: &str) -> Option<(usize, Slot)> {
     let gen = record.gen();
     let shared = match gen.context {
         GucContext::PGC_POSTMASTER | GucContext::PGC_INTERNAL => true,
-        GucContext::PGC_SIGHUP => !THREAD_SIGHUP.iter().any(|n| crate::name::guc_name_eq(n, name)),
+        GucContext::PGC_SIGHUP => !THREAD_SIGHUP
+            .iter()
+            .any(|n| crate::name::guc_name_eq(n, name)),
         _ => false,
     };
     if shared || gen.flags & GUC_CUSTOM_PLACEHOLDER != 0 {
@@ -161,16 +202,31 @@ fn build(pin: &Arc<GucQuerySnapshot>) -> PgResult<Plan> {
     crate::store::with_store(|reg| {
         for cap in vars.iter().filter(|c| c.source() != PGC_S_DEFAULT) {
             if let Some((idx, slot)) = carried(reg, cap.name()) {
-                entries.push(Entry { idx, slot, want: cap.value().clone(), extra: cap.extra().cloned() });
+                entries.push(Entry {
+                    idx,
+                    slot,
+                    want: cap.value().clone(),
+                    extra: cap.extra().cloned(),
+                });
             }
         }
     });
-    Ok(Plan { pin: pin.clone(), gen: crate::store::store_generation(), entries, differed: RefCell::new(None) })
+    Ok(Plan {
+        pin: pin.clone(),
+        gen: crate::store::store_generation(),
+        entries,
+        differed: RefCell::new(None),
+    })
 }
 
 fn plan_of(pin: &Arc<GucQuerySnapshot>) -> PgResult<Rc<Plan>> {
     let gen = crate::store::store_generation();
-    if let Some(plan) = PLAN.with(|p| p.borrow().as_ref().filter(|p| Arc::ptr_eq(&p.pin, pin) && p.gen == gen).cloned()) {
+    if let Some(plan) = PLAN.with(|p| {
+        p.borrow()
+            .as_ref()
+            .filter(|p| Arc::ptr_eq(&p.pin, pin) && p.gen == gen)
+            .cloned()
+    }) {
         return Ok(plan);
     }
     let plan = Rc::new(build(pin)?);
@@ -180,10 +236,19 @@ fn plan_of(pin: &Arc<GucQuerySnapshot>) -> PgResult<Rc<Plan>> {
 
 /// The extra of this thread's value of variable `idx`: an armed claim's, else its store's.
 fn extra_now(idx: usize) -> Option<SharedExtra> {
-    let applied = APPLIED.with(|a| a.borrow().iter().rev().find(|(i, _)| *i == idx).map(|(_, x)| x.clone()));
+    let applied = APPLIED.with(|a| {
+        a.borrow()
+            .iter()
+            .rev()
+            .find(|(i, _)| *i == idx)
+            .map(|(_, x)| x.clone())
+    });
     match applied {
         Some(extra) => extra,
-        None => crate::store::with_store(|reg| reg.live_at(idx).and_then(|r| r.gen().extra.clone())).flatten(),
+        None => {
+            crate::store::with_store(|reg| reg.live_at(idx).and_then(|r| r.gen().extra.clone()))
+                .flatten()
+        }
     }
 }
 
@@ -222,7 +287,11 @@ fn apply(i: usize, e: &Entry, guard: &mut ClaimGucs, differed: Option<&mut Vec<u
     let had = extra_now(e.idx);
     e.slot.set(e.want.clone(), e.extra.as_ref());
     // within the capacity arm_claim reserved for every entry
-    guard.undo.push(Undo { slot: e.slot, val: have, extra: had });
+    guard.undo.push(Undo {
+        slot: e.slot,
+        val: have,
+        extra: had,
+    });
     APPLIED.with(|a| a.borrow_mut().push((e.idx, e.extra.clone())));
     if let Some(d) = differed {
         d.push(i as u32);
@@ -234,8 +303,11 @@ pub fn arm_claim(pin: &Arc<GucQuerySnapshot>) -> PgResult<ClaimGucs> {
     let plan = plan_of(pin)?;
     let mark = APPLIED.with(|a| a.borrow().len());
     let mut undo = Vec::new();
-    undo.try_reserve_exact(plan.entries.len()).map_err(|_| oom())?;
-    APPLIED.with(|a| a.borrow_mut().try_reserve(plan.entries.len())).map_err(|_| oom())?;
+    undo.try_reserve_exact(plan.entries.len())
+        .map_err(|_| oom())?;
+    APPLIED
+        .with(|a| a.borrow_mut().try_reserve(plan.entries.len()))
+        .map_err(|_| oom())?;
     let mut guard = ClaimGucs { undo, mark };
     // an outermost claim under an unmoved store compares only what differed at the last one
     let count = crate::store::store_mutation_count();
@@ -255,7 +327,9 @@ pub fn arm_claim(pin: &Arc<GucQuerySnapshot>) -> PgResult<ClaimGucs> {
         return Ok(guard);
     }
     let mut differed = Vec::new();
-    differed.try_reserve_exact(plan.entries.len()).map_err(|_| oom())?;
+    differed
+        .try_reserve_exact(plan.entries.len())
+        .map_err(|_| oom())?;
     for (i, e) in plan.entries.iter().enumerate() {
         apply(i, e, &mut guard, Some(&mut differed));
     }

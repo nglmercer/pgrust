@@ -148,17 +148,17 @@ impl FileInfo {
 
     #[inline]
     pub fn is_dir(&self) -> bool {
-        self.mode &libc::S_IFMT == libc::S_IFDIR
+        self.mode & libc::S_IFMT == libc::S_IFDIR
     }
 
     #[inline]
     pub fn is_file(&self) -> bool {
-        self.mode &libc::S_IFMT == libc::S_IFREG
+        self.mode & libc::S_IFMT == libc::S_IFREG
     }
 
     #[inline]
     pub fn is_symlink(&self) -> bool {
-        self.mode &libc::S_IFMT == libc::S_IFLNK
+        self.mode & libc::S_IFMT == libc::S_IFLNK
     }
 }
 
@@ -272,7 +272,10 @@ impl PgPath {
 
     /// The bytes before the final '/', if any.
     pub fn parent(&self) -> Option<&[u8]> {
-        self.0.iter().rposition(|&b| b == b'/').map(|i| &self.0[..i])
+        self.0
+            .iter()
+            .rposition(|&b| b == b'/')
+            .map(|i| &self.0[..i])
     }
 }
 
@@ -424,9 +427,12 @@ impl VfsDirIter {
                 }
                 None => None,
             },
-            DirIterInner::Named(names) => {
-                names.next().map(|d_name| Ok(VfsDirEnt { d_name, d_type: VfsDType::Unknown }))
-            }
+            DirIterInner::Named(names) => names.next().map(|d_name| {
+                Ok(VfsDirEnt {
+                    d_name,
+                    d_type: VfsDType::Unknown,
+                })
+            }),
         }
     }
 }
@@ -760,7 +766,11 @@ pub fn part_fd_slice() -> usize {
     if cap == 0 {
         return 0;
     }
-    part_fd_slice_of_demand(fd_budget::PART_DEMAND.load(Relaxed), fd_budget::PART_FLOOR.load(Relaxed), cap)
+    part_fd_slice_of_demand(
+        fd_budget::PART_DEMAND.load(Relaxed),
+        fd_budget::PART_FLOOR.load(Relaxed),
+        cap,
+    )
 }
 
 /// Each session's file-cache limit under the part pool's current demand (fd

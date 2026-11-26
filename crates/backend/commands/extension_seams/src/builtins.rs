@@ -4,7 +4,10 @@ use datum::Datum;
 use types_error::PgResult;
 use types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 
-fn fc_pg_available_extensions(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo,) -> PgResult<Datum> {
+fn fc_pg_available_extensions(
+    flinfo: Option<&mut FmgrInfo>,
+    fcinfo: &mut Fcinfo,
+) -> PgResult<Datum> {
     crate::pg_available_extensions::call(flinfo, fcinfo)
 }
 
@@ -36,9 +39,24 @@ fn fc_pg_get_loaded_modules(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) 
 use ::types_fmgr::builtin_strict_retset as srf;
 
 pub const EXTENSION_BUILTINS: &[FmgrBuiltin] = &[
-    srf(3082, "pg_available_extensions", 0, fc_pg_available_extensions,),
-    srf(3083, "pg_available_extension_versions", 0, fc_pg_available_extension_versions,),
-    srf(3084, "pg_extension_update_paths", 1, fc_pg_extension_update_paths,),
+    srf(
+        3082,
+        "pg_available_extensions",
+        0,
+        fc_pg_available_extensions,
+    ),
+    srf(
+        3083,
+        "pg_available_extension_versions",
+        0,
+        fc_pg_available_extension_versions,
+    ),
+    srf(
+        3084,
+        "pg_extension_update_paths",
+        1,
+        fc_pg_extension_update_paths,
+    ),
     FmgrBuiltin {
         foid: 3086,
         name: "pg_extension_config_dump",

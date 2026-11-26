@@ -29,21 +29,37 @@ pub(crate) fn child_attno(b: &Builder<'_, '_>, target: u32, rti: u32, attno: i16
     if rti == target {
         return Some(attno);
     }
-    let ari = b.stmt.appendRelations.iter().filter_map(|n| n.as_append_rel_info()).find(|a| a.child_relid == rti)?;
+    let ari = b
+        .stmt
+        .appendRelations
+        .iter()
+        .filter_map(|n| n.as_append_rel_info())
+        .find(|a| a.child_relid == rti)?;
     let pa = child_attno(b, target, ari.parent_relid, attno)?;
-    ari.parent_colnos.iter().position(|&p| p == pa).map(|j| j as i16 + 1)
+    ari.parent_colnos
+        .iter()
+        .position(|&p| p == pa)
+        .map(|j| j as i16 + 1)
 }
 
 /// `rti` is the target or a partition / inheritance child under it.
 pub(crate) fn under_target(b: &Builder<'_, '_>, target: u32, rti: u32) -> bool {
     crate::walk::stack_check(); // D3748
-    rti == target || b.stmt.appendRelations.iter().filter_map(|n| n.as_append_rel_info()).any(|a| a.child_relid == rti && under_target(b, target, a.parent_relid))
+    rti == target
+        || b.stmt
+            .appendRelations
+            .iter()
+            .filter_map(|n| n.as_append_rel_info())
+            .any(|a| a.child_relid == rti && under_target(b, target, a.parent_relid))
 }
 
 /// The target's attributes into a scan's lane set when the scan is the target or a child of it.
 pub fn atts_for(b: &Builder<'_, '_>, scanrelid: u32, atts: &mut Atts) -> bool {
     match &b.carry {
-        Some(c) if under_target(b, c.rti, scanrelid) => c.attnos.iter().all(|&a| child_attno(b, c.rti, scanrelid, a).is_none_or(|ca| atts.add(ca))),
+        Some(c) if under_target(b, c.rti, scanrelid) => c
+            .attnos
+            .iter()
+            .all(|&a| child_attno(b, c.rti, scanrelid, a).is_none_or(|ca| atts.add(ca))),
         _ => true,
     }
 }

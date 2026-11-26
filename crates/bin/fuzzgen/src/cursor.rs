@@ -205,7 +205,8 @@ fn prep_tables(g: &Gen, dml: bool) -> Vec<usize> {
     base.into_iter()
         .filter(|&i| {
             let t = &g.catalog.tables[i];
-            t.pk.as_ref().is_some_and(|pk| pk.seeded_max > 0) && !t.name.starts_with("fz_ddl_")
+            t.pk.as_ref().is_some_and(|pk| pk.seeded_max > 0)
+                && !t.name.starts_with("fz_ddl_")
                 && !t.name.starts_with("fz_part_")
         })
         .collect()
@@ -216,7 +217,12 @@ fn prep_tables(g: &Gen, dml: bool) -> Vec<usize> {
 /// evaluation can error mid-FETCH), pk order total.
 fn cursor_query(g: &mut Gen, ti: usize, for_update: bool) -> String {
     let table = &g.catalog.tables[ti];
-    let pk_col = table.pk.as_ref().expect("cursor table has pk").column.clone();
+    let pk_col = table
+        .pk
+        .as_ref()
+        .expect("cursor table has pk")
+        .column
+        .clone();
     let seeded = table.pk.as_ref().map(|p| p.seeded_max).unwrap_or(0);
     let ncols_max = table.columns.len().min(3);
     let ncols = 1 + g.rng.below_usize(ncols_max);
@@ -246,7 +252,10 @@ fn cursor_query(g: &mut Gen, ti: usize, for_update: bool) -> String {
         q.push_str(&format!(" ORDER BY {}.{} FOR UPDATE", alias, pk_col));
         return q;
     }
-    if g.weights.pick(g.rng, &["cursor:where", "cursor:where:none"]) == "cursor:where" {
+    if g.weights
+        .pick(g.rng, &["cursor:where", "cursor:where:none"])
+        == "cursor:where"
+    {
         g.fire("cursor:where");
         let op = ["<", "<=", ">", ">=", "<>"][g.rng.below_usize(5)];
         let k = match g.rng.below(4) {
@@ -258,7 +267,10 @@ fn cursor_query(g: &mut Gen, ti: usize, for_update: bool) -> String {
         q.push_str(&format!(" WHERE {}.{} {} {}", alias, pk_col, op, k));
     }
     q.push_str(&format!(" ORDER BY {}.{}", alias, pk_col));
-    if g.weights.pick(g.rng, &["cursor:orderasc", "cursor:orderdesc"]) == "cursor:orderdesc" {
+    if g.weights
+        .pick(g.rng, &["cursor:orderasc", "cursor:orderdesc"])
+        == "cursor:orderdesc"
+    {
         g.fire("cursor:orderdesc");
         q.push_str(" DESC");
     }
@@ -269,14 +281,20 @@ fn cursor_query(g: &mut Gen, ti: usize, for_update: bool) -> String {
 /// take none of the flags — BINARY/SCROLL/INSENSITIVE/HOLD combinations
 /// with FOR UPDATE are rejected or unsupported.
 fn render_declare(g: &mut Gen, name: &str, ti: usize) -> (String, Scrollability, bool) {
-    let binary = g.weights.pick(g.rng, &["cursor:binary", "cursor:binary:none"])
+    let binary = g
+        .weights
+        .pick(g.rng, &["cursor:binary", "cursor:binary:none"])
         == "cursor:binary";
     if binary {
         g.fire("cursor:binary");
     }
     let sens = g.weights.pick(
         g.rng,
-        &["cursor:sens:none", "cursor:sens:insensitive", "cursor:sens:asensitive"],
+        &[
+            "cursor:sens:none",
+            "cursor:sens:insensitive",
+            "cursor:sens:asensitive",
+        ],
     );
     let scroll = match g.weights.pick(
         g.rng,
@@ -402,7 +420,9 @@ fn gen_op(g: &mut Gen, name: &str, scroll: Scrollability) -> String {
         "cursor:op:back_n" => format!("BACKWARD {}", fetch_count(g)),
         _ => "BACKWARD ALL".to_string(),
     };
-    let verb = if g.weights.pick(g.rng, &["cursor:op:fetch", "cursor:op:move"])
+    let verb = if g
+        .weights
+        .pick(g.rng, &["cursor:op:fetch", "cursor:op:move"])
         == "cursor:op:move"
     {
         g.fire("cursor:op:move");
@@ -445,7 +465,8 @@ fn gen_bracket(g: &mut Gen) -> Vec<StmtKind> {
         // terminator event (it aborts the transaction).
         if scroll == Scrollability::NoScroll
             && i + 1 == nops
-            && g.weights.pick(g.rng, &["cursor:op:invalid_back", "cursor:op:valid"])
+            && g.weights
+                .pick(g.rng, &["cursor:op:invalid_back", "cursor:op:valid"])
                 == "cursor:op:invalid_back"
         {
             out.push(raw(gen_invalid_back(g, &name)));
@@ -461,7 +482,9 @@ fn gen_bracket(g: &mut Gen) -> Vec<StmtKind> {
         return out;
     }
 
-    let closed = if g.weights.pick(g.rng, &["cursor:close", "cursor:close:none"])
+    let closed = if g
+        .weights
+        .pick(g.rng, &["cursor:close", "cursor:close:none"])
         == "cursor:close"
     {
         g.fire("cursor:close");
@@ -470,15 +493,22 @@ fn gen_bracket(g: &mut Gen) -> Vec<StmtKind> {
     } else {
         false
     };
-    let commit = g.weights.pick(g.rng, &["cursor:end:commit", "cursor:end:rollback"])
+    let commit = g
+        .weights
+        .pick(g.rng, &["cursor:end:commit", "cursor:end:rollback"])
         == "cursor:end:commit";
-    g.fire(if commit { "cursor:end:commit" } else { "cursor:end:rollback" });
+    g.fire(if commit {
+        "cursor:end:commit"
+    } else {
+        "cursor:end:rollback"
+    });
     out.push(raw(if commit { "COMMIT;" } else { "ROLLBACK;" }.to_string()));
 
     if commit && !closed && hold {
         if g.cursor.held.len() < HELD_CAP {
             // Held survivor: usable by later groups (and immediately).
-            if g.weights.pick(g.rng, &["cursor:post_ops", "cursor:post_ops:none"])
+            if g.weights
+                .pick(g.rng, &["cursor:post_ops", "cursor:post_ops:none"])
                 == "cursor:post_ops"
             {
                 g.fire("cursor:post_ops");
@@ -494,7 +524,8 @@ fn gen_bracket(g: &mut Gen) -> Vec<StmtKind> {
         // Non-hold or rolled back or closed: the cursor is dead. Low
         // weight: prove it (34000, matched both sides).
         if commit
-            && g.weights.pick(g.rng, &["cursor:fetch:dead", "cursor:fetch:dead:none"])
+            && g.weights
+                .pick(g.rng, &["cursor:fetch:dead", "cursor:fetch:dead:none"])
                 == "cursor:fetch:dead"
         {
             g.fire("cursor:fetch:dead");
@@ -513,7 +544,10 @@ fn gen_wco(g: &mut Gen) -> Vec<StmtKind> {
     let candidates: Vec<usize> = eligible_tables(g)
         .into_iter()
         .filter(|&i| {
-            g.catalog.tables[i].pk.as_ref().is_some_and(|pk| pk.seeded_max >= 3)
+            g.catalog.tables[i]
+                .pk
+                .as_ref()
+                .is_some_and(|pk| pk.seeded_max >= 3)
         })
         .collect();
     if candidates.is_empty() {
@@ -531,10 +565,18 @@ fn gen_wco(g: &mut Gen) -> Vec<StmtKind> {
     // Position on a row: the query is unfiltered and seeded_max >= 3, so a
     // 1-2 row forward fetch lands on a row unless a mid-stream DELETE has
     // emptied the table (then CURRENT OF raises 24000, matched both sides).
-    out.push(raw(format!("FETCH FORWARD {} FROM {};", 1 + g.rng.below(2), name)));
+    out.push(raw(format!(
+        "FETCH FORWARD {} FROM {};",
+        1 + g.rng.below(2),
+        name
+    )));
     let wco = g.weights.pick(
         g.rng,
-        &["cursor:wco:update", "cursor:wco:update2", "cursor:wco:delete"],
+        &[
+            "cursor:wco:update",
+            "cursor:wco:update2",
+            "cursor:wco:delete",
+        ],
     );
     g.fire(wco);
     let n_updates = match wco {
@@ -550,12 +592,21 @@ fn gen_wco(g: &mut Gen) -> Vec<StmtKind> {
         )));
     }
     if wco == "cursor:wco:delete" {
-        out.push(raw(format!("DELETE FROM {} WHERE CURRENT OF {};", tname, name)));
+        out.push(raw(format!(
+            "DELETE FROM {} WHERE CURRENT OF {};",
+            tname, name
+        )));
     }
     out.push(raw(format!("CLOSE {};", name)));
-    let commit = g.weights.pick(g.rng, &["cursor:end:commit", "cursor:end:rollback"])
+    let commit = g
+        .weights
+        .pick(g.rng, &["cursor:end:commit", "cursor:end:rollback"])
         == "cursor:end:commit";
-    g.fire(if commit { "cursor:end:commit" } else { "cursor:end:rollback" });
+    g.fire(if commit {
+        "cursor:end:commit"
+    } else {
+        "cursor:end:rollback"
+    });
     out.push(raw(if commit { "COMMIT;" } else { "ROLLBACK;" }.to_string()));
     g.cursor.last_dead = Some(name);
     out
@@ -582,7 +633,8 @@ fn gen_held(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("cursor:held");
     let create = g.cursor.held.is_empty()
         || (g.cursor.held.len() < HELD_CAP
-            && g.weights.pick(g.rng, &["cursor:held:create", "cursor:held:use"])
+            && g.weights
+                .pick(g.rng, &["cursor:held:create", "cursor:held:use"])
                 == "cursor:held:create");
     if create {
         g.fire("cursor:held:create");
@@ -598,7 +650,11 @@ fn gen_held(g: &mut Gen) -> Vec<StmtKind> {
         let mut out = vec![raw(format!(
             "DECLARE {}{} CURSOR WITH HOLD FOR {};",
             name,
-            if scroll == Scrollability::Scroll { " SCROLL" } else { "" },
+            if scroll == Scrollability::Scroll {
+                " SCROLL"
+            } else {
+                ""
+            },
             q
         ))];
         for _ in 0..1 + g.rng.below_usize(2) {
@@ -670,17 +726,29 @@ fn render_execute(g: &mut Gen, p: &Prepared) -> String {
             }
         }
         PrepKind::Update => {
-            let hit = g.weights.pick(g.rng, &["cursor:exec:hit", "cursor:exec:miss"])
+            let hit = g
+                .weights
+                .pick(g.rng, &["cursor:exec:hit", "cursor:exec:miss"])
                 == "cursor:exec:hit";
-            g.fire(if hit { "cursor:exec:hit" } else { "cursor:exec:miss" });
+            g.fire(if hit {
+                "cursor:exec:hit"
+            } else {
+                "cursor:exec:miss"
+            });
             let pk = pk_arg(g, &p.table, hit);
             let lit = g.gen_literal(p.set_ty.expect("update entry has set_ty"));
             format!("EXECUTE {}({}, {});", p.name, pk, lit)
         }
         PrepKind::Delete => {
-            let hit = g.weights.pick(g.rng, &["cursor:exec:hit", "cursor:exec:miss"])
+            let hit = g
+                .weights
+                .pick(g.rng, &["cursor:exec:hit", "cursor:exec:miss"])
                 == "cursor:exec:hit";
-            g.fire(if hit { "cursor:exec:hit" } else { "cursor:exec:miss" });
+            g.fire(if hit {
+                "cursor:exec:hit"
+            } else {
+                "cursor:exec:miss"
+            });
             let pk = pk_arg(g, &p.table, hit);
             format!("EXECUTE {}({});", p.name, pk)
         }
@@ -688,7 +756,8 @@ fn render_execute(g: &mut Gen, p: &Prepared) -> String {
             let ti = g.catalog.tables.iter().position(|t| t.name == p.table);
             let pk = match ti {
                 Some(ti)
-                    if g.weights.pick(g.rng, &["cursor:exec:fresh", "cursor:exec:collide"])
+                    if g.weights
+                        .pick(g.rng, &["cursor:exec:fresh", "cursor:exec:collide"])
                         == "cursor:exec:collide" =>
                 {
                     g.fire("cursor:exec:collide");
@@ -716,7 +785,12 @@ fn gen_prepare(g: &mut Gen) -> Vec<StmtKind> {
     }
     let kind = match g.weights.pick(
         g.rng,
-        &["cursor:prep:select", "cursor:prep:update", "cursor:prep:delete", "cursor:prep:insert"],
+        &[
+            "cursor:prep:select",
+            "cursor:prep:update",
+            "cursor:prep:delete",
+            "cursor:prep:insert",
+        ],
     ) {
         "cursor:prep:update" => PrepKind::Update,
         "cursor:prep:delete" => PrepKind::Delete,
@@ -737,7 +811,9 @@ fn gen_prepare(g: &mut Gen) -> Vec<StmtKind> {
     let entry = match kind {
         PrepKind::Select => {
             g.fire("cursor:prep:select");
-            let two = g.weights.pick(g.rng, &["cursor:prep:arg1", "cursor:prep:arg2"])
+            let two = g
+                .weights
+                .pick(g.rng, &["cursor:prep:arg1", "cursor:prep:arg2"])
                 == "cursor:prep:arg2";
             let table = &g.catalog.tables[ti];
             let pk_col = table.pk.as_ref().expect("prep table has pk").column.clone();
@@ -797,7 +873,13 @@ fn gen_prepare(g: &mut Gen) -> Vec<StmtKind> {
                 col,
                 pk_col
             )));
-            Prepared { name, table: tname, kind, nargs: 2, set_ty: Some(ty) }
+            Prepared {
+                name,
+                table: tname,
+                kind,
+                nargs: 2,
+                set_ty: Some(ty),
+            }
         }
         PrepKind::Delete => {
             g.fire("cursor:prep:delete");
@@ -806,7 +888,13 @@ fn gen_prepare(g: &mut Gen) -> Vec<StmtKind> {
                 "PREPARE {}(int4) AS DELETE FROM {} WHERE {} = $1;",
                 name, tname, pk_col
             )));
-            Prepared { name, table: tname, kind, nargs: 1, set_ty: None }
+            Prepared {
+                name,
+                table: tname,
+                kind,
+                nargs: 1,
+                set_ty: None,
+            }
         }
         PrepKind::Insert => {
             g.fire("cursor:prep:insert");
@@ -838,7 +926,13 @@ fn gen_prepare(g: &mut Gen) -> Vec<StmtKind> {
                 col_names.join(", "),
                 vals.join(", ")
             )));
-            Prepared { name, table: tname, kind, nargs: 1, set_ty: None }
+            Prepared {
+                name,
+                table: tname,
+                kind,
+                nargs: 1,
+                set_ty: None,
+            }
         }
     };
 
@@ -863,7 +957,12 @@ fn gen_execute(g: &mut Gen) -> Vec<StmtKind> {
     let entry = g.cursor.prepared[idx].clone();
     let variant = g.weights.pick(
         g.rng,
-        &["cursor:exec:few", "cursor:exec:burst", "cursor:exec:explain", "cursor:exec:badargs"],
+        &[
+            "cursor:exec:few",
+            "cursor:exec:burst",
+            "cursor:exec:explain",
+            "cursor:exec:badargs",
+        ],
     );
     g.fire(variant);
     let mut out = Vec::new();
@@ -879,10 +978,7 @@ fn gen_execute(g: &mut Gen) -> Vec<StmtKind> {
             // Custom plans print folded parameters, the generic plan
             // prints $n — the plancache choice surface itself.
             let inner = render_execute(g, &entry);
-            out.push(raw(format!(
-                "EXPLAIN (COSTS OFF, SUMMARY OFF) {}",
-                inner
-            )));
+            out.push(raw(format!("EXPLAIN (COSTS OFF, SUMMARY OFF) {}", inner)));
             out.push(raw(render_execute(g, &entry)));
         }
         "cursor:exec:badargs" => {
@@ -908,7 +1004,8 @@ fn gen_dealloc(g: &mut Gen) -> Vec<StmtKind> {
         return gen_prepare(g);
     }
     g.fire("cursor:dealloc");
-    if g.weights.pick(g.rng, &["cursor:dealloc:one", "cursor:dealloc:all"])
+    if g.weights
+        .pick(g.rng, &["cursor:dealloc:one", "cursor:dealloc:all"])
         == "cursor:dealloc:all"
     {
         g.fire("cursor:dealloc:all");
@@ -940,8 +1037,10 @@ mod tests {
             let mut prods = Vec::new();
             let mut g = Gen::new(&mut rng, &cat, w, &mut prods, 3);
             std::mem::swap(&mut g.cursor, &mut state);
-            let sqls: Vec<String> =
-                gen_cursor_module(&mut g).iter().map(|s| s.to_sql()).collect();
+            let sqls: Vec<String> = gen_cursor_module(&mut g)
+                .iter()
+                .map(|s| s.to_sql())
+                .collect();
             std::mem::swap(&mut g.cursor, &mut state);
             out.push((sqls, prods));
         }
@@ -975,7 +1074,9 @@ mod tests {
                 // Post-terminator statements are cursor/prepared ops only.
                 for s in &sqls[e + 1..] {
                     assert!(
-                        s.starts_with("FETCH ") || s.starts_with("MOVE ") || s.starts_with("CLOSE "),
+                        s.starts_with("FETCH ")
+                            || s.starts_with("MOVE ")
+                            || s.starts_with("CLOSE "),
                         "{sqls:?}"
                     );
                 }
@@ -1030,7 +1131,10 @@ mod tests {
             "cursor:dealloc:one",
             "cursor:dealloc:all",
         ] {
-            assert!(all_prods.iter().any(|q| q == p), "production {p} never fired");
+            assert!(
+                all_prods.iter().any(|q| q == p),
+                "production {p} never fired"
+            );
         }
     }
 
@@ -1109,8 +1213,7 @@ mod tests {
                         || sql.contains(" ABSOLUTE ")
                         || sql.contains(" RELATIVE -");
                     if backward && !invalid_ok {
-                        let scroll_in_txn =
-                            txn_cursors.iter().any(|c| c.0 == name && c.3);
+                        let scroll_in_txn = txn_cursors.iter().any(|c| c.0 == name && c.3);
                         assert!(
                             scroll_in_txn || is_held,
                             "backward op on non-scroll bracket cursor: {sqls:?}"
@@ -1159,13 +1262,10 @@ mod tests {
     #[test]
     fn cursor_is_deterministic() {
         let w = WeightTable::defaults();
-        let a: Vec<Vec<String>> =
-            gen_groups(5, 120, &w).into_iter().map(|(s, _)| s).collect();
-        let b: Vec<Vec<String>> =
-            gen_groups(5, 120, &w).into_iter().map(|(s, _)| s).collect();
+        let a: Vec<Vec<String>> = gen_groups(5, 120, &w).into_iter().map(|(s, _)| s).collect();
+        let b: Vec<Vec<String>> = gen_groups(5, 120, &w).into_iter().map(|(s, _)| s).collect();
         assert_eq!(a, b);
-        let c: Vec<Vec<String>> =
-            gen_groups(6, 120, &w).into_iter().map(|(s, _)| s).collect();
+        let c: Vec<Vec<String>> = gen_groups(6, 120, &w).into_iter().map(|(s, _)| s).collect();
         assert_ne!(a, c);
     }
 }

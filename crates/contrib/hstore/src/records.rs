@@ -6,7 +6,9 @@ use datum::Datum;
 use mcx::{vec_from_elem_in, PgVec};
 use types_core::{InvalidOid, Oid};
 use types_error::{PgError, PgResult, ERRCODE_DATATYPE_MISMATCH};
-use types_fmgr::{function_call1_coll_in, input_function_call, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
+use types_fmgr::{
+    function_call1_coll_in, input_function_call, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
+};
 use types_tuple::{HeapTupleData, HeapTupleHeaderData, ItemPointerData, TupleDescData};
 
 use crate::repr::{build_hstore, find_key, unique_pairs, Pair};
@@ -28,7 +30,11 @@ struct RecordIOData {
 
 // lookup_rowtype_tupdesc_domain (typcache.c): a domain over composite
 // resolves through its base type.
-fn rowtype_tupdesc<'m>(mcx: mcx::Mcx<'m>, type_id: Oid, typmod: i32) -> PgResult<TupleDescData<'m>> {
+fn rowtype_tupdesc<'m>(
+    mcx: mcx::Mcx<'m>,
+    type_id: Oid,
+    typmod: i32,
+) -> PgResult<TupleDescData<'m>> {
     let (type_id, typmod) = if type_id != RECORDOID
         && lsyscache::typ::get_typtype(type_id)? == lsyscache::typ::TYPTYPE_DOMAIN
     {
@@ -45,8 +51,7 @@ fn rowtype_tupdesc<'m>(mcx: mcx::Mcx<'m>, type_id: Oid, typmod: i32) -> PgResult
 #[cold]
 fn not_rowtype() -> Box<PgError> {
     Box::new(
-        PgError::error("first argument must be a rowtype")
-            .with_sqlstate(ERRCODE_DATATYPE_MISMATCH),
+        PgError::error("first argument must be a rowtype").with_sqlstate(ERRCODE_DATATYPE_MISMATCH),
     )
 }
 
@@ -65,7 +70,11 @@ fn composite_arg<'m>(mcx: mcx::Mcx<'m>, fcinfo: &Fcinfo, i: usize) -> PgResult<R
     let rec: &'m [u8] = detoast_seams::detoast_attr::call(mcx, raw)?.leak();
     // SAFETY: detoasted composite image; header prefix in bounds.
     let hdr = unsafe { &*(rec.as_ptr() as *const HeapTupleHeaderData) };
-    Ok(RecArg { rec, tup_type: hdr.type_id(), tup_typmod: hdr.typmod() })
+    Ok(RecArg {
+        rec,
+        tup_type: hdr.type_id(),
+        tup_typmod: hdr.typmod(),
+    })
 }
 
 fn control_tuple(rec: &[u8]) -> HeapTupleData<'_> {
@@ -93,11 +102,18 @@ fn refresh_extra(flinfo: &mut FmgrInfo, tup_type: Oid, tup_typmod: i32, ncolumns
     if refresh {
         let mut columns = Vec::with_capacity(ncolumns);
         columns.resize_with(ncolumns, || None);
-        flinfo.set_fn_extra(RecordIOData { record_type: tup_type, record_typmod: tup_typmod, columns });
+        flinfo.set_fn_extra(RecordIOData {
+            record_type: tup_type,
+            record_typmod: tup_typmod,
+            columns,
+        });
     }
 }
 
-pub fn fc_hstore_from_record(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
+pub fn fc_hstore_from_record(
+    flinfo: Option<&mut FmgrInfo>,
+    fcinfo: &mut Fcinfo,
+) -> PgResult<Datum> {
     let flinfo = flinfo.expect("hstore_from_record: resolved FmgrInfo required");
     let mcx = fcinfo.result_mcx();
     let [a] = fcinfo.args_n::<1>();
@@ -128,7 +144,7 @@ pub fn fc_hstore_from_record(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo)
         if att.attisdropped {
             continue;
         }
-        let key = ::mcx::std_vec_from_slice("contrib",att.attname.name_str())?;
+        let key = ::mcx::std_vec_from_slice("contrib", att.attname.name_str())?;
         check_key_len(key.len())?;
         let val = if nulls[i] {
             None
@@ -142,18 +158,26 @@ pub fn fc_hstore_from_record(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo)
             if stale {
                 let (typiofunc, _varlena) = lsyscache::getTypeOutputInfo(column_type)?;
                 let proc = fmgr_seams::fmgr_info::call(typiofunc)?;
-                my.columns[i] = Some(ColumnIOData { column_type, typioparam: InvalidOid, proc });
+                my.columns[i] = Some(ColumnIOData {
+                    column_type,
+                    typioparam: InvalidOid,
+                    proc,
+                });
             }
             let proc = &mut flinfo.fn_extra_mut::<RecordIOData>().unwrap().columns[i]
                 .as_mut()
                 .unwrap()
                 .proc;
             let d = function_call1_coll_in(proc, InvalidOid, mcx, values[i])?;
-            let v = ::mcx::std_vec_from_slice("hstore",cstring_bytes(d))?;
+            let v = ::mcx::std_vec_from_slice("hstore", cstring_bytes(d))?;
             check_val_len(v.len())?;
             Some(v)
         };
-        pairs.push(Pair { key, val, needfree: false });
+        pairs.push(Pair {
+            key,
+            val,
+            needfree: false,
+        });
     }
     let pairs = unique_pairs(pairs);
     crate::ret_hstore_pub(fcinfo, &build_hstore(&pairs))
@@ -227,9 +251,15 @@ pub fn fc_hstore_populate_record(
         if stale {
             let (typiofunc, typioparam) = lsyscache::getTypeInputInfo(column_type)?;
             let proc = fmgr_seams::fmgr_info::call(typiofunc)?;
-            my.columns[i] = Some(ColumnIOData { column_type, typioparam, proc });
+            my.columns[i] = Some(ColumnIOData {
+                column_type,
+                typioparam,
+                proc,
+            });
         }
-        let col = flinfo.fn_extra_mut::<RecordIOData>().unwrap().columns[i].as_mut().unwrap();
+        let col = flinfo.fn_extra_mut::<RecordIOData>().unwrap().columns[i]
+            .as_mut()
+            .unwrap();
 
         let cstr_storage;
         let cstr: Option<&core::ffi::CStr> = match idx {

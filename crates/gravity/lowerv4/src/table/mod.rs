@@ -7,8 +7,8 @@ pub(crate) mod emit_runs;
 pub mod face;
 pub(crate) mod hash_open;
 pub(crate) mod key_copy;
-pub mod owner_fold;
 pub mod keyimg;
+pub mod owner_fold;
 pub(crate) mod radix;
 pub(crate) mod raw;
 pub(crate) mod rec;
@@ -46,7 +46,11 @@ pub(crate) fn end<'g, 'p>(px: &mut Px<'g, 'p>, k: usize) -> PgBox<'g, dyn EndMec
 
 /// The fold as step `j` of pipeline `k` (a streamed sorted group over the keyed record).
 #[allow(dead_code)]
-pub(crate) fn step<'g, 'p>(px: &mut Px<'g, 'p>, k: usize, j: usize) -> PgBox<'g, dyn StepMech + 'g> {
+pub(crate) fn step<'g, 'p>(
+    px: &mut Px<'g, 'p>,
+    k: usize,
+    j: usize,
+) -> PgBox<'g, dyn StepMech + 'g> {
     crate::mechs_used::fetched(Variant::Kind(KindId::KeyedHashagg));
     crate::ops::group::stream::make(px, k, j)
 }

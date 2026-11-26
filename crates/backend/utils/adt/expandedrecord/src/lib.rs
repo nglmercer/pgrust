@@ -30,8 +30,7 @@ pub const ER_FLAG_HAVE_EXTERNAL: i32 = 0x0010;
 pub const ER_FLAG_TUPDESC_ALLOCED: i32 = 0x0020;
 pub const ER_FLAG_IS_DOMAIN: i32 = 0x0040;
 pub const ER_FLAG_IS_DUMMY: i32 = 0x0080;
-pub const ER_FLAGS_NON_DATA: i32 =
-    ER_FLAG_TUPDESC_ALLOCED | ER_FLAG_IS_DOMAIN | ER_FLAG_IS_DUMMY;
+pub const ER_FLAGS_NON_DATA: i32 = ER_FLAG_TUPDESC_ALLOCED | ER_FLAG_IS_DOMAIN | ER_FLAG_IS_DUMMY;
 
 const TYPTYPE_DOMAIN: i8 = b'd' as i8;
 
@@ -413,7 +412,10 @@ pub unsafe fn expanded_record_set_tuple(
             debug_assert!(copy);
             if t.has_external() {
                 let short = erh.short_mcx();
-                let td = erh.er_tupdesc.as_ref().expect("expanded record has no tupdesc");
+                let td = erh
+                    .er_tupdesc
+                    .as_ref()
+                    .expect("expanded record has no tupdesc");
                 flat_holder = Some(heaptoast::toast_flatten_tuple(short, t, td)?);
             } else {
                 expand_external = false;
@@ -699,10 +701,15 @@ pub fn expanded_record_get_tuple<'a, 'mcx>(
     erh: &'a ExpandedRecordHeader,
 ) -> PgResult<Option<RecordTuple<'a, 'mcx>>> {
     if erh.flags & ER_FLAG_FVALUE_VALID != 0 {
-        return Ok(Some(RecordTuple::Borrowed(erh.fvalue.as_ref().unwrap().tuple())));
+        return Ok(Some(RecordTuple::Borrowed(
+            erh.fvalue.as_ref().unwrap().tuple(),
+        )));
     }
     if erh.flags & ER_FLAG_DVALUES_VALID != 0 {
-        let td = erh.er_tupdesc.as_ref().expect("expanded record has no tupdesc");
+        let td = erh
+            .er_tupdesc
+            .as_ref()
+            .expect("expanded record has no tupdesc");
         return Ok(Some(RecordTuple::Formed(heap_form_tuple(
             mcx,
             td,
@@ -718,9 +725,8 @@ pub fn expanded_record_get_tuple<'a, 'mcx>(
 // adt_domains).
 fn field_select(value: Datum, fieldnum: i32, resulttype: Oid) -> PgResult<(Datum, bool)> {
     // SAFETY: the seam contract guarantees a live external-expanded datum.
-    let erh = unsafe {
-        &mut *(datum::expandeddatum::datum_get_eohp(value) as *mut ExpandedRecordHeader)
-    };
+    let erh =
+        unsafe { &mut *(datum::expandeddatum::datum_get_eohp(value) as *mut ExpandedRecordHeader) };
     assert_eq!(erh.er_magic, ER_MAGIC);
     let td = expanded_record_get_tupdesc(erh)?;
     let natts = td.natts;
@@ -743,10 +749,12 @@ fn field_select(value: Datum, fieldnum: i32, resulttype: Oid) -> PgResult<(Datum
     if resulttype != attr.atttypid {
         let have = format_type::format_type_be(attr.atttypid)?;
         let want = format_type::format_type_be(resulttype)?;
-        return Err(PgError::error(format!("attribute {fieldnum} has wrong type"))
-            .with_sqlstate(types_error::ERRCODE_DATATYPE_MISMATCH)
-            .with_detail(format!("Table has type {have}, but query expects {want}."))
-            .into());
+        return Err(
+            PgError::error(format!("attribute {fieldnum} has wrong type"))
+                .with_sqlstate(types_error::ERRCODE_DATATYPE_MISMATCH)
+                .with_detail(format!("Table has type {have}, but query expects {want}."))
+                .into(),
+        );
     }
     expanded_record_get_field(erh, fieldnum)
 }
@@ -836,7 +844,10 @@ pub fn expanded_record_fetch_field(
         if fnumber > erh.nfields {
             return Ok((Datum::null(), true));
         }
-        Ok((erh.dvalues[(fnumber - 1) as usize], erh.dnulls[(fnumber - 1) as usize]))
+        Ok((
+            erh.dvalues[(fnumber - 1) as usize],
+            erh.dnulls[(fnumber - 1) as usize],
+        ))
     } else {
         // System columns read as null without a flat tuple.
         match &erh.fvalue {
@@ -856,7 +867,10 @@ pub fn expanded_record_get_field(
     fnumber: i32,
 ) -> PgResult<(Datum, bool)> {
     if erh.flags & ER_FLAG_DVALUES_VALID != 0 && fnumber > 0 && fnumber <= erh.nfields {
-        Ok((erh.dvalues[(fnumber - 1) as usize], erh.dnulls[(fnumber - 1) as usize]))
+        Ok((
+            erh.dvalues[(fnumber - 1) as usize],
+            erh.dnulls[(fnumber - 1) as usize],
+        ))
     } else {
         expanded_record_fetch_field(erh, fnumber)
     }
@@ -1112,7 +1126,11 @@ fn check_domain_for_new_field(
     dummy.dnulls[(fnumber - 1) as usize] = isnull;
 
     if !isnull {
-        let attr = erh.er_tupdesc.as_ref().unwrap().compact_attr((fnumber - 1) as usize);
+        let attr = erh
+            .er_tupdesc
+            .as_ref()
+            .unwrap()
+            .compact_attr((fnumber - 1) as usize);
         if !attr.attbyval
             && attr.attlen == -1
             // SAFETY: non-null by-ref datum points at a live varlena.

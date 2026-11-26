@@ -129,7 +129,8 @@ fn gen_locktable(g: &mut Gen) -> Vec<String> {
 
     // Optional 42P01 arm (autocommit — errors on its own, cannot poison
     // the bracket which has already ended).
-    if g.weights.pick(g.rng, &["lockcursor:lt:err", "lockcursor:lt:noerr"])
+    if g.weights
+        .pick(g.rng, &["lockcursor:lt:err", "lockcursor:lt:noerr"])
         == "lockcursor:lt:err"
     {
         g.fire("lockcursor:lt:err");
@@ -166,10 +167,7 @@ fn gen_advisory(g: &mut Gen) -> Vec<String> {
     // Plain (non-try, non-shared) xact advisory lock, released by COMMIT.
     out.push("BEGIN;".to_string());
     out.push(format!("SELECT pg_advisory_xact_lock({k2});"));
-    out.push(
-        "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND granted;"
-            .to_string(),
-    );
+    out.push("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND granted;".to_string());
     out.push("COMMIT;".to_string());
     out
 }
@@ -180,7 +178,9 @@ fn gen_advisory(g: &mut Gen) -> Vec<String> {
 
 fn gen_savepoint(g: &mut Gen) -> Vec<String> {
     g.fire("lockcursor:savepoint");
-    let commit = g.weights.pick(g.rng, &["lockcursor:sp:commit", "lockcursor:sp:rollback"])
+    let commit = g
+        .weights
+        .pick(g.rng, &["lockcursor:sp:commit", "lockcursor:sp:rollback"])
         == "lockcursor:sp:commit";
     if commit {
         g.fire("lockcursor:sp:commit");

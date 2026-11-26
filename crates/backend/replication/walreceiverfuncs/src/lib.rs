@@ -5,8 +5,8 @@
 #![allow(non_snake_case)]
 #![allow(clippy::result_large_err)]
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::SeqCst};
 use pgsync::{Mutex, MutexGuard, OnceLock};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::SeqCst};
 
 use condition_variable::{
     ConditionVariable, ConditionVariableBroadcast, ConditionVariableCancelSleep,
@@ -92,7 +92,9 @@ struct WalRcvShared {
 static WAL_RCV: OnceLock<WalRcvShared> = OnceLock::new();
 
 fn shmem() -> &'static WalRcvShared {
-    WAL_RCV.get().expect("WalRcv accessed before WalRcvShmemInit")
+    WAL_RCV
+        .get()
+        .expect("WalRcv accessed before WalRcvShmemInit")
 }
 
 // sizeof(WalRcvData) (replication/walreceiver.h) at 18.6, x86-64 and
@@ -270,7 +272,10 @@ pub fn RequestXLogStreaming(
     }
 
     let walrcv_proc = with_walrcv(|d| {
-        debug_assert!(matches!(d.walRcvState, WalRcvState::Stopped | WalRcvState::Waiting));
+        debug_assert!(matches!(
+            d.walRcvState,
+            WalRcvState::Stopped | WalRcvState::Waiting
+        ));
 
         if !slotname.is_empty() {
             d.slotname = strlcpy_trunc(slotname, NAMEDATALEN);
@@ -408,7 +413,11 @@ mod tests {
     #[test]
     fn shmem_index_lists_wal_receiver_ctl() {
         init_once();
-        assert_eq!(WalRcvShmemSize(), 2248, "walreceiverfuncs.c:44 sizeof(WalRcvData)");
+        assert_eq!(
+            WalRcvShmemSize(),
+            2248,
+            "walreceiverfuncs.c:44 sizeof(WalRcvData)"
+        );
         let (_, found) = shmem::ShmemInitStruct("Wal Receiver Ctl", 2248).unwrap();
         assert!(
             found,
@@ -472,7 +481,10 @@ mod tests {
             g::SetMyProcPid(7900);
             waiteventset::InitializeWaitEventSupport().unwrap();
             let h = LatchHandle::proc(0);
-            lmgr_proc::GetPGProcByNumber(0).procLatch.owner_pid.store(0, SeqCst);
+            lmgr_proc::GetPGProcByNumber(0)
+                .procLatch
+                .owner_pid
+                .store(0, SeqCst);
             latch::OwnLatch(h).unwrap();
             g::SetMyLatch(Some(h));
             latch::InitializeLatchWaitSet().unwrap();
@@ -580,7 +592,10 @@ mod tests {
         RequestXLogStreaming(2, 0x0100_0000, raw, "", false).unwrap();
         with_walrcv(|d| {
             assert_eq!(d.walRcvState, WalRcvState::Restarting);
-            assert_eq!(d.conninfo, shown, "timeline jump must not expose the raw conninfo");
+            assert_eq!(
+                d.conninfo, shown,
+                "timeline jump must not expose the raw conninfo"
+            );
             assert_eq!((d.receiveStart, d.receiveStartTLI), (0x0100_0000, 2));
             *d = WalRcvData::new();
         });
@@ -588,7 +603,10 @@ mod tests {
         RequestXLogStreaming(1, 0x0100_0000, raw, "", false).unwrap();
         with_walrcv(|d| {
             assert_eq!(d.walRcvState, WalRcvState::Starting);
-            assert_eq!(d.conninfo, raw, "a fresh launch takes the configured conninfo");
+            assert_eq!(
+                d.conninfo, raw,
+                "a fresh launch takes the configured conninfo"
+            );
             *d = WalRcvData::new();
         });
     }

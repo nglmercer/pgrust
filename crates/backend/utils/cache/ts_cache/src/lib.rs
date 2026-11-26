@@ -233,7 +233,10 @@ pub fn lookup_ts_parser_cache(prsId: Oid) -> PgResult<Rc<TSParserCacheEntry>> {
                 return Some(Rc::clone(last));
             }
         }
-        st.parsers.get(&prsId).filter(|e| e.isvalid.get()).map(Rc::clone)
+        st.parsers
+            .get(&prsId)
+            .filter(|e| e.isvalid.get())
+            .map(Rc::clone)
     }) {
         with_state(|st| st.last_parser = Some(Rc::clone(&hit)));
         return Ok(hit);
@@ -300,7 +303,10 @@ pub fn lookup_ts_dictionary_cache(dictId: Oid) -> PgResult<Rc<TSDictionaryCacheE
                 return Some(Rc::clone(last));
             }
         }
-        st.dicts.get(&dictId).filter(|e| e.isvalid.get()).map(Rc::clone)
+        st.dicts
+            .get(&dictId)
+            .filter(|e| e.isvalid.get())
+            .map(Rc::clone)
     }) {
         with_state(|st| st.last_dict = Some(Rc::clone(&hit)));
         return Ok(hit);
@@ -427,7 +433,7 @@ fn build_config_map(
     for (toktype, mapdict) in rows {
         if toktype <= 0 || toktype as usize > MAXTOKENTYPE {
             return Err(
-                PgError::error(format!("maptokentype value {toktype} is out of range")).into()
+                PgError::error(format!("maptokentype value {toktype} is out of range")).into(),
             );
         }
         if toktype < maxtokentype {
@@ -436,7 +442,9 @@ fn build_config_map(
         if toktype > maxtokentype {
             // starting a new token type (C:507-518)
             while map.len() <= toktype as usize {
-                map.push(ListDictionary { dict_ids: PgVec::new_in(state_mcx) });
+                map.push(ListDictionary {
+                    dict_ids: PgVec::new_in(state_mcx),
+                });
             }
             maxtokentype = toktype;
             map[toktype as usize].dict_ids.push(mapdict);
@@ -445,7 +453,7 @@ fn build_config_map(
             let dicts = &mut map[toktype as usize].dict_ids;
             if dicts.len() >= MAXDICTSPERTT {
                 return Err(
-                    PgError::error("too many pg_ts_config_map entries for one token type").into()
+                    PgError::error("too many pg_ts_config_map entries for one token type").into(),
                 );
             }
             dicts.push(mapdict);
@@ -463,7 +471,10 @@ pub fn lookup_ts_config_cache(cfgId: Oid) -> PgResult<Rc<TSConfigCacheEntry>> {
                 return Some(Rc::clone(last));
             }
         }
-        st.configs.get(&cfgId).filter(|e| e.isvalid.get()).map(Rc::clone)
+        st.configs
+            .get(&cfgId)
+            .filter(|e| e.isvalid.get())
+            .map(Rc::clone)
     }) {
         with_state(|st| st.last_config = Some(Rc::clone(&hit)));
         return Ok(hit);
@@ -474,7 +485,7 @@ pub fn lookup_ts_config_cache(cfgId: Oid) -> PgResult<Rc<TSConfigCacheEntry>> {
     let prs_id = cfg.cfgparser;
     if prs_id == InvalidOid {
         return Err(
-            PgError::error(format!("text search configuration {cfgId} has no parser")).into()
+            PgError::error(format!("text search configuration {cfgId} has no parser")).into(),
         );
     }
 
@@ -581,7 +592,9 @@ fn check_default_text_search_config(
             // C ts_cache.c:646-648: ereport(NOTICE, errcode(ERRCODE_UNDEFINED_OBJECT), ...)
             elog::ereport(types_error::NOTICE)
                 .errcode(ERRCODE_UNDEFINED_OBJECT)
-                .errmsg(format!("text search configuration \"{val}\" does not exist"))
+                .errmsg(format!(
+                    "text search configuration \"{val}\" does not exist"
+                ))
                 .finish(types_error::ErrorLocation::new(
                     file!(),
                     line!() as i32,
@@ -621,11 +634,12 @@ fn assign_default_text_search_config(
 }
 
 pub fn init_hooks() {
-    guc_tables::vars::TSCurrentConfig
-        .install(guc_tables::GucVarAccessors { get: guc_get, set: guc_set });
+    guc_tables::vars::TSCurrentConfig.install(guc_tables::GucVarAccessors {
+        get: guc_get,
+        set: guc_set,
+    });
     guc_tables::hooks::check_default_text_search_config.install(check_default_text_search_config);
-    guc_tables::hooks::assign_default_text_search_config
-        .install(assign_default_text_search_config);
+    guc_tables::hooks::assign_default_text_search_config.install(assign_default_text_search_config);
 }
 
 pub fn fc_get_current_ts_config(
@@ -640,6 +654,10 @@ pub mod builtins {
 
     use ::types_fmgr::builtin_strict as b;
 
-    pub const TS_CACHE_BUILTINS: &[FmgrBuiltin] =
-        &[b(3759, "get_current_ts_config", 0, fc_get_current_ts_config)];
+    pub const TS_CACHE_BUILTINS: &[FmgrBuiltin] = &[b(
+        3759,
+        "get_current_ts_config",
+        0,
+        fc_get_current_ts_config,
+    )];
 }

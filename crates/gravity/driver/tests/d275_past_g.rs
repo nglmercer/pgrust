@@ -31,22 +31,38 @@ fn a_w8_sections_worker_regions_bind_past_an_exhausted_g_and_the_statement_compl
     let program = Arc::new(p_count(4));
     let grant = Grant::of(1 << 20);
     POOL.arm(footprint(grant, &program, WIDTH) + (256 << 20));
-    let res = std::rc::Rc::new(POOL.admit_need(grant, &|g| footprint(g, &program, WIDTH), Duration::from_millis(10)).expect("admitted"));
+    let res = std::rc::Rc::new(
+        POOL.admit_need(
+            grant,
+            &|g| footprint(g, &program, WIDTH),
+            Duration::from_millis(10),
+        )
+        .expect("admitted"),
+    );
     let table = RangeTable::new(BLOCKS, PER_BLOCK);
     let mut derive = FakeDerive::ranges(table);
     let mut entry = Entry::new(2);
     let flag = AtomicU8::new(0);
     let mut sink = LegSink::new();
     let mut b = binding(&[100], &NULLS, &mut sink, &flag);
-    let mut exec = entry.start(None, &program, &mut derive, &mut b, res.clone()).expect("started");
+    let mut exec = entry
+        .start(None, &program, &mut derive, &mut b, res.clone())
+        .expect("started");
 
     // G's room gone but the leader slot's one region, as an earlier section's bind leaves it after carving the workers' W
-    let carved = res.hold(res.left() - REGION_MIN as u64).expect("G's room held");
+    let carved = res
+        .hold(res.left() - REGION_MIN as u64)
+        .expect("G's room held");
     assert_eq!(res.left(), REGION_MIN as u64);
-    assert!(res.hold(REGION_MIN as u64 + 1).is_none(), "Reservation::hold stays bounded by G");
+    assert!(
+        res.hold(REGION_MIN as u64 + 1).is_none(),
+        "Reservation::hold stays bounded by G"
+    );
     let grown = res.grown();
 
-    let open = entry.open_section(&mut exec, &b, &mut derive, 0, WIDTH).expect("the workers' program-constant regions bind past G (D275), never out of memory");
+    let open = entry
+        .open_section(&mut exec, &b, &mut derive, 0, WIDTH)
+        .expect("the workers' program-constant regions bind past G (D275), never out of memory");
     let cursor = AtomicU64::new(0);
     'claims: loop {
         for o in 0..WIDTH {
@@ -54,14 +70,28 @@ fn a_w8_sections_worker_regions_bind_past_an_exhausted_g_and_the_statement_compl
             if lo >= BLOCKS {
                 break 'claims;
             }
-            assert_eq!(open.run_claim(o, MorselRange::new(lo, (lo + CLAIM).min(BLOCKS))).unwrap(), Claimed::Done);
+            assert_eq!(
+                open.run_claim(o, MorselRange::new(lo, (lo + CLAIM).min(BLOCKS)))
+                    .unwrap(),
+                Claimed::Done
+            );
         }
     }
-    entry.close_section(open, &mut b, &CountMerge, true).unwrap();
+    entry
+        .close_section(open, &mut b, &CountMerge, true)
+        .unwrap();
     entry.run_to_end(&mut exec, &mut b).expect("the emit");
     entry.end(exec, true);
-    assert!(res.grown() > grown, "the regions past G are counted as grown ({} B)", res.grown() - grown);
-    assert_eq!(sink.sorted(), vec![vec![100, (0..100).sum::<u64>()]], "the count, as PG's");
+    assert!(
+        res.grown() > grown,
+        "the regions past G are counted as grown ({} B)",
+        res.grown() - grown
+    );
+    assert_eq!(
+        sink.sorted(),
+        vec![vec![100, (0..100).sum::<u64>()]],
+        "the count, as PG's"
+    );
 
     drop(carved);
     drop(res);

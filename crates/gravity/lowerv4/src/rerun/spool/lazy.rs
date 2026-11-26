@@ -36,14 +36,23 @@ pub(crate) struct Lazy {
 /// loud fill the wait cannot defer run in pipeline order (`Px::ahead_unchecked`'s, tagged: `fill_wait`, `drain_wait`);
 /// `None` where the pipeline-order run is not this file's departure (the eager form's own, its licence held by
 /// material/lower.rs `Fill.ahead`; a settled union's, rerun/union_arms.rs; a quiet fill's) or the fill waits.
-pub(crate) fn declare(px: &mut Px<'_, '_>, k: usize, j: usize) -> (Option<Lazy>, Option<gravity_decompose::effects::Licence>) {
+pub(crate) fn declare(
+    px: &mut Px<'_, '_>,
+    k: usize,
+    j: usize,
+) -> (Option<Lazy>, Option<gravity_decompose::effects::Licence>) {
     let mut ahead = None;
     let lazy = fill_wait(px, k, j, &mut ahead);
     (lazy, ahead)
 }
 
 /// `declare`'s wait, the licence of a loud fill's run ahead in pipeline order put in `ahead`.
-fn fill_wait(px: &mut Px<'_, '_>, k: usize, j: usize, ahead: &mut Option<gravity_decompose::effects::Licence>) -> Option<Lazy> {
+fn fill_wait(
+    px: &mut Px<'_, '_>,
+    k: usize,
+    j: usize,
+    ahead: &mut Option<gravity_decompose::effects::Licence>,
+) -> Option<Lazy> {
     let gx = px.gx;
     let ps = gx.pipelines();
     if k >= ps.len() {
@@ -51,10 +60,21 @@ fn fill_wait(px: &mut Px<'_, '_>, k: usize, j: usize, ahead: &mut Option<gravity
     }
     let ik = ps.inner_of(k, j)?;
     let ip = &ps[ik];
-    let Source::Breaker { slot } = ip.source else { return None };
-    let kf = ip.desc.consumes.iter().position(|&s| s == slot).and_then(|i| ip.desc.consumes_from.get(i)).map(|l| l.0 as usize)?;
+    let Source::Breaker { slot } = ip.source else {
+        return None;
+    };
+    let kf = ip
+        .desc
+        .consumes
+        .iter()
+        .position(|&s| s == slot)
+        .and_then(|i| ip.desc.consumes_from.get(i))
+        .map(|l| l.0 as usize)?;
     // D3378: a kept sort run whose fill may raise (inner_once.rs `kept_run_lazy`) fills at the first outer row
-    if gx.source_kind(ik) == crate::face::kinds::KindId::RunsSort && crate::rerun::inner_once::kept_run(gx, (k, j, ik)).is_none() && crate::rerun::inner_once::kept_run_lazy(gx, (k, j, ik)) {
+    if gx.source_kind(ik) == crate::face::kinds::KindId::RunsSort
+        && crate::rerun::inner_once::kept_run(gx, (k, j, ik)).is_none()
+        && crate::rerun::inner_once::kept_run_lazy(gx, (k, j, ik))
+    {
         return kept_run_wait(px, k, kf, slot);
     }
     // D3897: a RIGHT / FULL drain's fill (INNER-SPOOL) runs at the first outer row when it may raise or calls
@@ -62,16 +82,22 @@ fn fill_wait(px: &mut Px<'_, '_>, k: usize, j: usize, ahead: &mut Option<gravity
         return drain_wait(px, k, ik, slot, ahead);
     }
     // rowsecurity#343 (readers.rs `copies`): the nest copies of a streamed write's arms share one fill
-    let copies = crate::rerun::spool::readers::copies(gx, kf).unwrap_or_else(|| PgVec::new_in(gx.mcx));
+    let copies =
+        crate::rerun::spool::readers::copies(gx, kf).unwrap_or_else(|| PgVec::new_in(gx.mcx));
     // errorhold (D1108 row 2): a licensed fill stays in pipeline order (deferred, a fill over a hashed aggregate
     // and a merge join tripped breaker.rs's sort-run shape check at the wait; its recheck licence repairs an early raise)
-    if !matches!(crate::lifetime::material::spool_fill(gx, kf), Ok((r, false)) if r == ik || copies.contains(&ik)) || crate::rerun::spool::form::eager_licensed(gx, kf) {
+    if !matches!(crate::lifetime::material::spool_fill(gx, kf), Ok((r, false)) if r == ik || copies.contains(&ik))
+        || crate::rerun::spool::form::eager_licensed(gx, kf)
+    {
         return None;
     }
     // D4569: a SELECT's union nest copies (readers.rs `union_nest`) read a calm fill run once in pipeline order ahead of
     // every arm: an arm that widens (ops/nestloop/widen.rs `spool`) reads the record from its first outer row on, so no arm
     // may defer the fill to its own first row
-    if copies.len() > 1 && crate::rerun::spool::readers::union_nest(gx, k, j) && crate::lifetime::material::quiet_fill_licence(gx, kf).is_some() {
+    if copies.len() > 1
+        && crate::rerun::spool::readers::union_nest(gx, k, j)
+        && crate::lifetime::material::quiet_fill_licence(gx, kf).is_some()
+    {
         return None;
     }
     // D3133: a fill that is a settled union's emit a rerun set refills whole (rerun/union_arms.rs `refilled_emit`, S2q) stays
@@ -84,7 +110,12 @@ fn fill_wait(px: &mut Px<'_, '_>, k: usize, j: usize, ahead: &mut Option<gravity
     let pulls = crate::effects::visible::material::pulls_loud_cte(gx, kf);
     if crate::rerun::union_arms::refilled_emit(gx, kf) {
         if pulls {
-            crate::refuse!(ps[kf].node_id, crate::admit::refusal::Reason::Shape { why: crate::admit::refusal::ShapeWhy(crate::pipes::LOUD_CHILD) })
+            crate::refuse!(
+                ps[kf].node_id,
+                crate::admit::refusal::Reason::Shape {
+                    why: crate::admit::refusal::ShapeWhy(crate::pipes::LOUD_CHILD)
+                }
+            )
         }
         return None;
     }
@@ -94,14 +125,21 @@ fn fill_wait(px: &mut Px<'_, '_>, k: usize, j: usize, ahead: &mut Option<gravity
     // D3373 (H-2): a nest in a recursive union's generation set whose Material fill runs once outside it (decompose F3's kept
     // Material over a hashed group) stays in pipeline order, as D3133's refilled emit does: the wait inside the set's run
     // does not run it. A quiet fill run before the union shows nothing PostgreSQL's first inner fetch would not
-    let gen_set = |r: &gravity_decompose::graph::Rerun| r.plan_id == gravity_decompose::ops::shared::setop::RECURSIVE_SET && r.pipelines.contains(&(k as u16)) && !r.pipelines.contains(&(kf as u16));
+    let gen_set = |r: &gravity_decompose::graph::Rerun| {
+        r.plan_id == gravity_decompose::ops::shared::setop::RECURSIVE_SET
+            && r.pipelines.contains(&(k as u16))
+            && !r.pipelines.contains(&(kf as u16))
+    };
     if !loud && !pulls && gx.graph.reruns.iter().any(gen_set) {
         return None;
     }
     if copies.first().is_some_and(|&c| c != ik) {
         return crate::rerun::spool::arm_fill::later(px, k, kf, slot, loud);
     }
-    let readers: PgVec<'_, usize> = copies.iter().map(|&c| ps.inners()[c - ps.len()].0 .0).collect_in(px.mcx());
+    let readers: PgVec<'_, usize> = copies
+        .iter()
+        .map(|&c| ps.inners()[c - ps.len()].0 .0)
+        .collect_in(px.mcx());
     match group(px, k, kf, slot, loud || pulls, &readers[..]) {
         // a reader that stops early (a cursor's FETCH n) would see the whole run PostgreSQL makes row by row; not the held
         // form's (form.rs `held`, D1108): its reader raises the fill's error only at the record the fill stopped at; nor the
@@ -109,7 +147,11 @@ fn fill_wait(px: &mut Px<'_, '_>, k: usize, j: usize, ahead: &mut Option<gravity
         // first-sort form's (`first_sorted`, D4102), whose Sort PostgreSQL reads whole there; nor the first-run form's
         // (form.rs `first_ran`, D3803), whose per-row work is quiet
         Some(consumed) if loud => {
-            if crate::rerun::spool::form::held(gx, kf).is_none() && !crate::rerun::spool::form::first_pulled(gx, kf) && !crate::rerun::spool::form::first_sorted(gx, kf) && !crate::rerun::spool::form::first_ran(gx, kf) {
+            if crate::rerun::spool::form::held(gx, kf).is_none()
+                && !crate::rerun::spool::form::first_pulled(gx, kf)
+                && !crate::rerun::spool::form::first_sorted(gx, kf)
+                && !crate::rerun::spool::form::first_ran(gx, kf)
+            {
                 px.whole_read(k);
             }
             Some(Lazy { consumed })
@@ -118,14 +160,25 @@ fn fill_wait(px: &mut Px<'_, '_>, k: usize, j: usize, ahead: &mut Option<gravity
         // `DECISIONS.md` 4 (D) b: a fill of that kind the wait cannot defer runs ahead in pipeline order, unchecked, where
         // nothing in it acts or calls user code (`Px::ahead_unchecked`, tagged; its licence in `ahead`); else D1108
         None if loud => {
-            let Some(l) = px.ahead_unchecked(kf, gravity_decompose::effects::Effects::RAISES) else {
-                crate::refuse!(ps[kf].node_id, crate::admit::refusal::Reason::Shape { why: crate::admit::refusal::ShapeWhy(crate::pipes::LOUD_CHILD) })
+            let Some(l) = px.ahead_unchecked(kf, gravity_decompose::effects::Effects::RAISES)
+            else {
+                crate::refuse!(
+                    ps[kf].node_id,
+                    crate::admit::refusal::Reason::Shape {
+                        why: crate::admit::refusal::ShapeWhy(crate::pipes::LOUD_CHILD)
+                    }
+                )
             };
             *ahead = Some(l);
             None
         }
         None if pulls => {
-            crate::refuse!(ps[kf].node_id, crate::admit::refusal::Reason::Shape { why: crate::admit::refusal::ShapeWhy(crate::pipes::LOUD_CHILD) })
+            crate::refuse!(
+                ps[kf].node_id,
+                crate::admit::refusal::Reason::Shape {
+                    why: crate::admit::refusal::ShapeWhy(crate::pipes::LOUD_CHILD)
+                }
+            )
         }
         None => None,
     }
@@ -135,17 +188,33 @@ fn fill_wait(px: &mut Px<'_, '_>, k: usize, j: usize, ahead: &mut Option<gravity
 /// each plan Material fill one of them reads that reads a CTE whose run locks, calls or may raise (form.rs
 /// `pulls_loud_cte`; `declare` defers it or refuses), with its feeders. hashjoin's lazy build at op `j` (build_class.rs
 /// `lazy_group_by`) skips them as pipelines that run between it and `q`: they run after it, at a later op's first row.
-pub(crate) fn waits_after<'g>(gx: &crate::graph::Gx<'g, '_>, q: usize, j: usize) -> PgVec<'g, usize> {
+pub(crate) fn waits_after<'g>(
+    gx: &crate::graph::Gx<'g, '_>,
+    q: usize,
+    j: usize,
+) -> PgVec<'g, usize> {
     let ps = gx.pipelines();
     let mut out = PgVec::new_in(gx.mcx);
     if q >= ps.len() {
         return out;
     }
     for jn in j + 1..ps[q].ops.len() {
-        let Some(kf) = fill_of(gx, q, jn).filter(|&kf| crate::effects::visible::material::pulls_loud_cte(gx, kf)) else { continue };
-        let src = if let Source::Breaker { slot } = ps[kf].source { Some(slot) } else { None };
+        let Some(kf) = fill_of(gx, q, jn)
+            .filter(|&kf| crate::effects::visible::material::pulls_loud_cte(gx, kf))
+        else {
+            continue;
+        };
+        let src = if let Source::Breaker { slot } = ps[kf].source {
+            Some(slot)
+        } else {
+            None
+        };
         out.push_in(kf);
-        out.extend_in(crate::ops::hashjoin::build_class::feed(gx, kf, ps[kf].desc.consumes.iter().copied().chain(src)));
+        out.extend_in(crate::ops::hashjoin::build_class::feed(
+            gx,
+            kf,
+            ps[kf].desc.consumes.iter().copied().chain(src),
+        ));
     }
     out
 }
@@ -159,8 +228,16 @@ fn fill_of(gx: &crate::graph::Gx<'_, '_>, k: usize, j: usize) -> Option<usize> {
     }
     let ik = ps.inner_of(k, j)?;
     let ip = &ps[ik];
-    let Source::Breaker { slot } = ip.source else { return None };
-    let kf = ip.desc.consumes.iter().position(|&s| s == slot).and_then(|i| ip.desc.consumes_from.get(i)).map(|l| l.0 as usize)?;
+    let Source::Breaker { slot } = ip.source else {
+        return None;
+    };
+    let kf = ip
+        .desc
+        .consumes
+        .iter()
+        .position(|&s| s == slot)
+        .and_then(|i| ip.desc.consumes_from.get(i))
+        .map(|l| l.0 as usize)?;
     matches!(crate::lifetime::material::spool_fill(gx, kf), Ok((r, false)) if r == ik).then_some(kf)
 }
 
@@ -174,7 +251,12 @@ fn kept_run_wait(px: &mut Px<'_, '_>, k: usize, kf: usize, slot: u8) -> Option<L
             px.whole_read(k);
             Some(Lazy { consumed })
         }
-        None => crate::refuse!(ps[kf].node_id, crate::admit::refusal::Reason::Shape { why: crate::admit::refusal::ShapeWhy(KEPT_RUN_LOUD) }),
+        None => crate::refuse!(
+            ps[kf].node_id,
+            crate::admit::refusal::Reason::Shape {
+                why: crate::admit::refusal::ShapeWhy(KEPT_RUN_LOUD)
+            }
+        ),
     }
 }
 
@@ -193,19 +275,44 @@ pub(crate) const KEPT_RUN_LOUD: &str = "a nest inner reading a sort run kept acr
 /// its hash keys) makes the fill run whole at the first outer row instead (`lazy_group_drain` / `lazy_group_by`, the
 /// wait over its slot); one the wait cannot defer runs ahead unchecked (`Px::ahead_unchecked`, tagged; its licence put
 /// in `ahead`), else refuses by name.
-fn drain_wait(px: &mut Px<'_, '_>, k: usize, ik: usize, slot: u8, ahead: &mut Option<gravity_decompose::effects::Licence>) -> Option<Lazy> {
+fn drain_wait(
+    px: &mut Px<'_, '_>,
+    k: usize,
+    ik: usize,
+    slot: u8,
+    ahead: &mut Option<gravity_decompose::effects::Licence>,
+) -> Option<Lazy> {
     use crate::ops::hashjoin::build_class::{feed, lazy_group_by, lazy_group_drain, side_by, Side};
     let gx = px.gx;
     let ps = gx.pipelines();
-    let m = ps[ik].ops.iter().find_map(|o| if let Op::Join(JoinDesc::Drain { matches, .. }) = o { Some(*matches) } else { None })?;
-    let graph = |s: u8| gx.life_of(ik, s).map(|l| l.0 as usize).filter(|&q| q < ps.len());
+    let m = ps[ik].ops.iter().find_map(|o| {
+        if let Op::Join(JoinDesc::Drain { matches, .. }) = o {
+            Some(*matches)
+        } else {
+            None
+        }
+    })?;
+    let graph = |s: u8| {
+        gx.life_of(ik, s)
+            .map(|l| l.0 as usize)
+            .filter(|&q| q < ps.len())
+    };
     let (kp, kb) = (graph(m)?, graph(slot)?);
-    let reads = |c: usize, x: usize| ps[c].desc.consumes.iter().any(|&s| gx.life_of(c, s).is_some_and(|l| l.0 as usize == x));
+    let reads = |c: usize, x: usize| {
+        ps[c]
+            .desc
+            .consumes
+            .iter()
+            .any(|&s| gx.life_of(c, s).is_some_and(|l| l.0 as usize == x))
+    };
     let (fill, wait) = match crate::rerun::sets::owner_set_at(gx, ik) {
         None => (kp, m),
         Some(r) => {
             let member = |x: usize| gx.graph.reruns[r].pipelines.contains(&(x as u16));
-            if !member(kp) || crate::rerun::sets::in_owner_set(gx, kb) || !(0..ps.len()).all(|c| c == k || member(c) || !reads(c, kb)) {
+            if !member(kp)
+                || crate::rerun::sets::in_owner_set(gx, kb)
+                || !(0..ps.len()).all(|c| c == k || member(c) || !reads(c, kb))
+            {
                 return None;
             }
             (kb, slot)
@@ -214,29 +321,67 @@ fn drain_wait(px: &mut Px<'_, '_>, k: usize, ik: usize, slot: u8, ahead: &mut Op
     // every pipeline writing the build's slot in this life (a build that is itself a RIGHT / FULL join's output has
     // two: that join's probe and its drain), back to the slot's previous reader
     let writes = |q: usize| ps[q].desc.produces() == Some(slot);
-    let from = (0..kb).rev().find(|&q| !writes(q) && reads_slot(ps, q, slot)).map_or(0, |q| q + 1);
-    if (from..=kb).filter(|&q| writes(q)).all(|q| side_by(gx, q, usize::MAX, false) == Side::Safe) {
+    let from = (0..kb)
+        .rev()
+        .find(|&q| !writes(q) && reads_slot(ps, q, slot))
+        .map_or(0, |q| q + 1);
+    if (from..=kb)
+        .filter(|&q| writes(q))
+        .all(|q| side_by(gx, q, usize::MAX, false) == Side::Safe)
+    {
         return None;
     }
-    let src = if let Source::Breaker { slot } = ps[k].source { Some(slot) } else { None };
-    let first = ps[k].desc.consumes.iter().copied().filter(|&s| s != slot && s != m).chain(src);
+    let src = if let Source::Breaker { slot } = ps[k].source {
+        Some(slot)
+    } else {
+        None
+    };
+    let first = ps[k]
+        .desc
+        .consumes
+        .iter()
+        .copied()
+        .filter(|&s| s != slot && s != m)
+        .chain(src);
     let before = feed(gx, k, first);
     // as D3378's: a raise a pattern compiled at bind makes would come under an empty outer too (`raises_at_rows`)
-    let fsrc = if let Source::Breaker { slot } = ps[fill].source { Some(slot) } else { None };
-    let at_rows = feed(gx, fill, ps[fill].desc.consumes.iter().copied().chain(fsrc)).into_iter().chain([fill]).all(|x| crate::effects::raises_at_rows_joined(gx, x));
-    let readers: PgVec<'_, usize> = (0..ps.len()).filter(|&c| c == k || reads(c, fill)).collect_in(px.mcx());
-    let group = px.consumed(k, wait).filter(|_| at_rows).and_then(|consumed| {
-        let g = if fill == kp { lazy_group_drain(px, fill, k, consumed, wait, &before) } else { lazy_group_by(px, fill, k, &readers[..], consumed, wait, &before) };
-        g.map(|g| (consumed, g))
-    });
+    let fsrc = if let Source::Breaker { slot } = ps[fill].source {
+        Some(slot)
+    } else {
+        None
+    };
+    let at_rows = feed(gx, fill, ps[fill].desc.consumes.iter().copied().chain(fsrc))
+        .into_iter()
+        .chain([fill])
+        .all(|x| crate::effects::raises_at_rows_joined(gx, x));
+    let readers: PgVec<'_, usize> = (0..ps.len())
+        .filter(|&c| c == k || reads(c, fill))
+        .collect_in(px.mcx());
+    let group = px
+        .consumed(k, wait)
+        .filter(|_| at_rows)
+        .and_then(|consumed| {
+            let g = if fill == kp {
+                lazy_group_drain(px, fill, k, consumed, wait, &before)
+            } else {
+                lazy_group_by(px, fill, k, &readers[..], consumed, wait, &before)
+            };
+            g.map(|g| (consumed, g))
+        });
     match group {
         Some((consumed, group)) => {
             group.into_iter().for_each(|x| px.lazy.push((x, k))); // alloc: Program
             Some(Lazy { consumed })
         }
         None => {
-            let Some(l) = px.ahead_unchecked(fill, gravity_decompose::effects::Effects::RAISES) else {
-                crate::refuse!(ps[fill].node_id, crate::admit::refusal::Reason::Shape { why: crate::admit::refusal::ShapeWhy(DRAIN_LOUD) })
+            let Some(l) = px.ahead_unchecked(fill, gravity_decompose::effects::Effects::RAISES)
+            else {
+                crate::refuse!(
+                    ps[fill].node_id,
+                    crate::admit::refusal::Reason::Shape {
+                        why: crate::admit::refusal::ShapeWhy(DRAIN_LOUD)
+                    }
+                )
             };
             *ahead = Some(l);
             None
@@ -246,7 +391,8 @@ fn drain_wait(px: &mut Px<'_, '_>, k: usize, ik: usize, slot: u8, ahead: &mut Op
 
 /// Pipeline `q` reads `slot`: a consumed region or its breaker source.
 fn reads_slot(ps: &crate::pipes::Pipes<'_>, q: usize, slot: u8) -> bool {
-    ps[q].desc.consumes.contains(&slot) || matches!(ps[q].source, Source::Breaker { slot: s } if s == slot)
+    ps[q].desc.consumes.contains(&slot)
+        || matches!(ps[q].source, Source::Breaker { slot: s } if s == slot)
 }
 
 /// D3897: the Shape of a nest inner's spooled RIGHT / FULL drain whose fill may raise or calls and whose fill group the
@@ -256,21 +402,52 @@ pub(crate) const DRAIN_LOUD: &str = "a nest inner reading a RIGHT / FULL hash jo
 /// `declare`'s group for fill `kf` of the Material in `slot` read by the nest of pipeline `k`, pushed onto `Px::lazy`: the
 /// slot's index among `k`'s consumed regions. `None`: the fill runs in pipeline order. `loud`: a `deferred` fill, which no
 /// eager form may run, goes lazy over parallel-eligible pipelines too (run at width 1 on the leader, as D824's builds are).
-fn group(px: &mut Px<'_, '_>, k: usize, kf: usize, slot: u8, loud: bool, readers: &[usize]) -> Option<usize> {
+fn group(
+    px: &mut Px<'_, '_>,
+    k: usize,
+    kf: usize,
+    slot: u8,
+    loud: bool,
+    readers: &[usize],
+) -> Option<usize> {
     let gx = px.gx;
     let ps = gx.pipelines();
     let consumed = px.consumed(k, slot)?;
     // the outer's feeders (its breaker source, the other slots the nest's call reads) PG runs before the Material's
     // first fetch: not in the group
-    let src = if let Source::Breaker { slot } = ps[k].source { Some(slot) } else { None };
-    let first = ps[k].desc.consumes.iter().copied().filter(|&s| s != slot).chain(src);
+    let src = if let Source::Breaker { slot } = ps[k].source {
+        Some(slot)
+    } else {
+        None
+    };
+    let first = ps[k]
+        .desc
+        .consumes
+        .iter()
+        .copied()
+        .filter(|&s| s != slot)
+        .chain(src);
     let before = crate::ops::hashjoin::build_class::feed(gx, k, first);
     // rowsecurity#343: every arm's nest copy reads the fill (`readers`, the first arm's `k` among them)
     let one = [k];
-    let group = crate::ops::hashjoin::build_class::lazy_group_by(px, kf, k, if readers.is_empty() { &one } else { readers }, consumed, slot, &before)?;
+    let group = crate::ops::hashjoin::build_class::lazy_group_by(
+        px,
+        kf,
+        k,
+        if readers.is_empty() { &one } else { readers },
+        consumed,
+        slot,
+        &before,
+    )?;
     // a deferred pipeline runs on the leader at the wait, so only fills no worker would share
     // go lazy: every pipeline of the group serial already (not parallel-eligible, or driving a nest, whose step is serial)
-    let serial = |x: usize| !ps[x].desc.is_eligible() || ps[x].ops.iter().any(|o| matches!(o, Op::Join(JoinDesc::Nest { .. })));
+    let serial = |x: usize| {
+        !ps[x].desc.is_eligible()
+            || ps[x]
+                .ops
+                .iter()
+                .any(|o| matches!(o, Op::Join(JoinDesc::Nest { .. })))
+    };
     if !loud && !group.iter().all(|&x| serial(x)) {
         return None;
     }
@@ -298,9 +475,18 @@ impl Lazy {
     /// end's carried accumulators still hold what its state held (the resumed call reloads them from the state, which
     /// D2147 keeps in frame words). Leaving the carry exit unreached keeps the row loop's registers as without the wait
     /// (through it, the exit's accumulator parameters cost the inner loop spills: x1.75 per read of a 90k-row spool).
-    pub(crate) fn wait(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals, offset: i32) {
+    pub(crate) fn wait(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        row: &RowVals,
+        offset: i32,
+    ) {
         let fl = b.load_zext(Type::I32, env.ctx, hdr::FLAGS as i32);
-        let bit = b.iconst(Type::I64, 1i64 << (FLAG_PENDING_SHIFT as usize + self.consumed));
+        let bit = b.iconst(
+            Type::I64,
+            1i64 << (FLAG_PENDING_SHIFT as usize + self.consumed),
+        );
         let m = b.int_bin(IntBinOp::And, fl, bit);
         let pending = b.icmp(IntCond::Ne, m, env.zero);
         let (l_wait, l_go) = (b.create_block(&[]), b.create_block(&[]));

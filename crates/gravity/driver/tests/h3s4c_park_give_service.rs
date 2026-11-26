@@ -78,7 +78,10 @@ fn probe(at: usize, give: usize) {
     let (lo, hi) = (at.next_multiple_of(PAGE), (at + give) / PAGE * PAGE);
     let mut buf = [0u8; 4096];
     PROBE_HELD.store(POOL.held(), Ordering::Relaxed);
-    PROBE_RESIDENT.store(pagegive::resident_bytes(lo, hi.max(lo), &mut buf).unwrap_or(0) as u64, Ordering::Relaxed);
+    PROBE_RESIDENT.store(
+        pagegive::resident_bytes(lo, hi.max(lo), &mut buf).unwrap_or(0) as u64,
+        Ordering::Relaxed,
+    );
     PROBES.fetch_add(1, Ordering::Relaxed);
 }
 
@@ -97,9 +100,16 @@ fn prot_at(addr: usize) -> String {
     let maps = std::fs::read_to_string("/proc/self/maps").expect("/proc/self/maps");
     for line in maps.lines() {
         let mut f = line.split_whitespace();
-        let (Some(range), Some(perms)) = (f.next(), f.next()) else { continue };
-        let Some((lo, hi)) = range.split_once('-') else { continue };
-        let (lo, hi) = (usize::from_str_radix(lo, 16).unwrap(), usize::from_str_radix(hi, 16).unwrap());
+        let (Some(range), Some(perms)) = (f.next(), f.next()) else {
+            continue;
+        };
+        let Some((lo, hi)) = range.split_once('-') else {
+            continue;
+        };
+        let (lo, hi) = (
+            usize::from_str_radix(lo, 16).unwrap(),
+            usize::from_str_radix(hi, 16).unwrap(),
+        );
         if (lo..hi).contains(&addr) {
             return perms[..3].to_string();
         }
@@ -138,7 +148,17 @@ fn put_on_session(procno: u32) -> Put {
         let took = park_witness_take(SHARE, RESERVE).map(|b| b.as_ptr() as usize);
         let c2 = giveback::counts();
         memledger::unbind_backend();
-        Put { p, len, rw, c0, c1, c2, took, r: (r0, r1), session: (s0, account(acct)) }
+        Put {
+            p,
+            len,
+            rw,
+            c0,
+            c1,
+            c2,
+            took,
+            r: (r0, r1),
+            session: (s0, account(acct)),
+        }
     })
     .join()
     .unwrap()
@@ -150,7 +170,13 @@ fn service_batch() -> (i64, i64, u64, giveback::Counts, u64) {
     std::thread::spawn(|| {
         let (p0, r0) = (PROBES.load(Ordering::Relaxed), reaping());
         allocarena::own::drain_jobs_upto(usize::MAX);
-        (r0, reaping(), POOL.held(), giveback::counts(), PROBES.load(Ordering::Relaxed) - p0)
+        (
+            r0,
+            reaping(),
+            POOL.held(),
+            giveback::counts(),
+            PROBES.load(Ordering::Relaxed) - p0,
+        )
     })
     .join()
     .unwrap()
@@ -160,9 +186,14 @@ fn service_batch() -> (i64, i64, u64, giveback::Counts, u64) {
 const NO_WAIT: Duration = Duration::from_millis(50);
 
 #[test]
-fn h3s4c_a_park_gives_its_committed_pages_back_on_the_service_then_parks_and_a_take_meanwhile_misses() {
+fn h3s4c_a_park_gives_its_committed_pages_back_on_the_service_then_parks_and_a_take_meanwhile_misses(
+) {
     mempolicy::consts::set(K::GiveBackService, 1);
-    assert_eq!(mempolicy::consts::get(K::GiveBackSpill), 1, "give_back_spill defaults to 1 under the service's knob");
+    assert_eq!(
+        mempolicy::consts::get(K::GiveBackSpill),
+        1,
+        "give_back_spill defaults to 1 under the service's knob"
+    );
     allocarena::own::set_service(stalled, 8);
     allocarena::own::set_release_wake(wake);
     giveback::set_give_probe(probe);
@@ -172,60 +203,168 @@ fn h3s4c_a_park_gives_its_committed_pages_back_on_the_service_then_parks_and_a_t
 
     // the put: one park job, E1-E3 made there
     let put = put_on_session(4071);
-    assert!(put.rw >= put.len + MORE && put.len == SHARE, "a mapped reservation, its commit writable: {put:?}");
+    assert!(
+        put.rw >= put.len + MORE && put.len == SHARE,
+        "a mapped reservation, its commit writable: {put:?}"
+    );
     let tail = (put.rw - keep) as i64;
-    assert_eq!((put.c1.park_jobs - put.c0.park_jobs, put.c1.jobs - put.c0.jobs), (1, 0), "one park job: {put:?}");
-    assert_eq!(put.r.1 - put.r.0, tail, "E1: REAPING up by the tail's charged bytes: {put:?}");
-    assert_eq!(put.c1.landing - put.c0.landing, tail as u64, "the lane's charged landing is the tail");
+    assert_eq!(
+        (
+            put.c1.park_jobs - put.c0.park_jobs,
+            put.c1.jobs - put.c0.jobs
+        ),
+        (1, 0),
+        "one park job: {put:?}"
+    );
+    assert_eq!(
+        put.r.1 - put.r.0,
+        tail,
+        "E1: REAPING up by the tail's charged bytes: {put:?}"
+    );
+    assert_eq!(
+        put.c1.landing - put.c0.landing,
+        tail as u64,
+        "the lane's charged landing is the tail"
+    );
     // the fence: a take of its shape misses while the job waits (counted) and never gets the region
     assert_eq!(put.took, None, "a take meanwhile gets nothing: {put:?}");
-    assert_eq!(put.c2.park_take_misses - put.c1.park_take_misses, 1, "the miss counted: {put:?}");
+    assert_eq!(
+        put.c2.park_take_misses - put.c1.park_take_misses,
+        1,
+        "the miss counted: {put:?}"
+    );
     // (e): the session unbound with its job queued: E2 moved the share to the depot at the put, E1 the tail to REAPING
-    assert!((put.session.1 - put.session.0).abs() <= SLACK, "(e) the unbound session's account holds nothing of the region: {put:?}");
-    assert_eq!(reaping() - base, giveback::charged_landing_bytes() as i64, "A7 with the job queued");
+    assert!(
+        (put.session.1 - put.session.0).abs() <= SLACK,
+        "(e) the unbound session's account holds nothing of the region: {put:?}"
+    );
+    assert_eq!(
+        reaping() - base,
+        giveback::charged_landing_bytes() as i64,
+        "A7 with the job queued"
+    );
 
     // a depot trim never waits for the job queued before it (take-back TB3) and never gives it back itself
     let t0 = Instant::now();
     let c0 = giveback::counts();
     REGIONS.trim();
     let c1 = giveback::counts();
-    assert!(t0.elapsed() < NO_WAIT, "the trim did not wait for the service");
-    assert_eq!((c1.park_jobs - c1.parked, c1.parked, c1.landing), (c0.park_jobs - c0.parked, c0.parked, c0.landing), "the job still the service's: {c1:?}");
-    assert_eq!(c1.park_drained_here, c0.park_drained_here, "the trim gave nothing back itself");
+    assert!(
+        t0.elapsed() < NO_WAIT,
+        "the trim did not wait for the service"
+    );
+    assert_eq!(
+        (c1.park_jobs - c1.parked, c1.parked, c1.landing),
+        (c0.park_jobs - c0.parked, c0.parked, c0.landing),
+        "the job still the service's: {c1:?}"
+    );
+    assert_eq!(
+        c1.park_drained_here, c0.park_drained_here,
+        "the trim gave nothing back itself"
+    );
 
     // the job, on the service's thread: pages first, then the pool bytes, the tail off REAPING, the region parked
     let (r0, r1, held1, c, probes) = service_batch();
-    assert_eq!((c.parked - c1.parked, c.landing, c.pending), (1, 0, 0), "the service parked it: {c:?}");
+    assert_eq!(
+        (c.parked - c1.parked, c.landing, c.pending),
+        (1, 0, 0),
+        "the service parked it: {c:?}"
+    );
     assert_eq!(r1 - r0, -tail, "REAPING down by the tail");
     assert_eq!(probes, 1, "one give");
-    assert_eq!(PROBE_RESIDENT.load(Ordering::Relaxed), 0, "the committed pages given back before their pool bytes");
-    assert!(PROBE_HELD.load(Ordering::Relaxed) >= held1 + MORE as u64, "the pool's room rose only after the pages were given");
+    assert_eq!(
+        PROBE_RESIDENT.load(Ordering::Relaxed),
+        0,
+        "the committed pages given back before their pool bytes"
+    );
+    assert!(
+        PROBE_HELD.load(Ordering::Relaxed) >= held1 + MORE as u64,
+        "the pool's room rose only after the pages were given"
+    );
     assert_eq!(c.park_protect_refused, 0);
-    assert_eq!(prot_at(put.p + keep), "---", "the parked region's tail is closed again");
+    assert_eq!(
+        prot_at(put.p + keep),
+        "---",
+        "the parked region's tail is closed again"
+    );
     assert_eq!(prot_at(put.p), "rw-", "its share stays writable");
-    assert_eq!(reaping() - base, giveback::charged_landing_bytes() as i64, "A7 after the job");
+    assert_eq!(
+        reaping() - base,
+        giveback::charged_landing_bytes() as i64,
+        "A7 after the job"
+    );
 
     // a take after the job gets the region: its share, nothing committed, the tail closed
     let misses = giveback::counts().park_take_misses;
     let again = park_witness_take(SHARE, RESERVE).expect("the parked reservation");
-    assert_eq!((again.as_ptr() as usize, again.len(), again.committed(), again.writable()), (put.p, SHARE, 0, keep), "the region back, as uncommit leaves it");
-    assert_eq!(giveback::counts().park_take_misses, misses, "no miss once the job parked it");
+    assert_eq!(
+        (
+            again.as_ptr() as usize,
+            again.len(),
+            again.committed(),
+            again.writable()
+        ),
+        (put.p, SHARE, 0, keep),
+        "the region back, as uncommit leaves it"
+    );
+    assert_eq!(
+        giveback::counts().park_take_misses,
+        misses,
+        "no miss once the job parked it"
+    );
     drop(again);
 
     // a draw's trim (`reap::drain`) with no service draining: no wait, nothing given back on its own thread, the job still
     // the service's, which parks the region
     let put = put_on_session(4074);
-    assert_eq!(put.c1.park_jobs - put.c0.park_jobs, 1, "one park job: {put:?}");
-    let (p0, c0, r0, t0) = (PROBES.load(Ordering::Relaxed), giveback::counts(), reaping(), Instant::now());
+    assert_eq!(
+        put.c1.park_jobs - put.c0.park_jobs,
+        1,
+        "one park job: {put:?}"
+    );
+    let (p0, c0, r0, t0) = (
+        PROBES.load(Ordering::Relaxed),
+        giveback::counts(),
+        reaping(),
+        Instant::now(),
+    );
     gravity_driver::mem::reap::drain();
     let (c1, r1) = (giveback::counts(), reaping());
-    assert!(t0.elapsed() < NO_WAIT, "the draw's trim did not wait for the service");
-    assert_eq!((c1.park_drained_here - c0.park_drained_here, c1.parked, c1.landing, r1 - r0), (0, c0.parked, c0.landing, 0), "the trim gave nothing back itself: {c1:?}");
-    assert_eq!(PROBES.load(Ordering::Relaxed) - p0, 0, "no give on the trim's thread");
+    assert!(
+        t0.elapsed() < NO_WAIT,
+        "the draw's trim did not wait for the service"
+    );
+    assert_eq!(
+        (
+            c1.park_drained_here - c0.park_drained_here,
+            c1.parked,
+            c1.landing,
+            r1 - r0
+        ),
+        (0, c0.parked, c0.landing, 0),
+        "the trim gave nothing back itself: {c1:?}"
+    );
+    assert_eq!(
+        PROBES.load(Ordering::Relaxed) - p0,
+        0,
+        "no give on the trim's thread"
+    );
     let (r0, r1, _, c, probes) = service_batch();
-    assert_eq!((c.parked - c1.parked, c.landing, probes), (1, 0, 1), "the service parked it: {c:?}");
-    assert_eq!(r1 - r0, -((put.rw - keep) as i64), "REAPING down by the tail");
-    assert_eq!(PROBE_RESIDENT.load(Ordering::Relaxed), 0, "its pages given back before its pool bytes");
+    assert_eq!(
+        (c.parked - c1.parked, c.landing, probes),
+        (1, 0, 1),
+        "the service parked it: {c:?}"
+    );
+    assert_eq!(
+        r1 - r0,
+        -((put.rw - keep) as i64),
+        "REAPING down by the tail"
+    );
+    assert_eq!(
+        PROBE_RESIDENT.load(Ordering::Relaxed),
+        0,
+        "its pages given back before its pool bytes"
+    );
     assert_eq!(prot_at(put.p + keep), "---", "parked with its tail closed");
     drop(park_witness_take(SHARE, RESERVE).expect("parked by the service"));
 
@@ -235,7 +374,14 @@ fn h3s4c_a_park_gives_its_committed_pages_back_on_the_service_then_parks_and_a_t
     let put = put_on_session(4072);
     mcx::ladder::publish_cancel_line(0);
     mcx::ladder::publish_read(0);
-    assert_eq!((put.c1.park_jobs - put.c0.park_jobs, put.c1.park_inline_past_cancel - put.c0.park_inline_past_cancel), (0, 1), "S1: no job past the line: {put:?}");
+    assert_eq!(
+        (
+            put.c1.park_jobs - put.c0.park_jobs,
+            put.c1.park_inline_past_cancel - put.c0.park_inline_past_cancel
+        ),
+        (0, 1),
+        "S1: no job past the line: {put:?}"
+    );
     assert_eq!(put.r.1, put.r.0, "S1: nothing on REAPING");
     assert!(put.took.is_some(), "parked at once: a take gets it");
 

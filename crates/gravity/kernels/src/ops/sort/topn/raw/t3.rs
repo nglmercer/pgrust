@@ -2,19 +2,29 @@
 //! tables `owner_fns_pass1` / `owner_fns_distinct` hand out): the plan read off a context, the record readers, the bare
 //! pass 1, the export and distinct owner phases with their pair folds, and the round-2 top. Moved unchanged from t3.rs
 //! (rule R6: the family's unsafe code lives in raw); t3.rs re-exports the public functions under their old paths.
-use gravity_abi::PtrWord;
-use gravity_abi::breaker::{HashAgg, Owned, OwnerTop, Rec, RecordLayout, SubSplit, T1, HASHAGG_HDR, MOVING, OWNERTOP_HDR, REDUCE_FLUSH};
+use gravity_abi::breaker::{
+    HashAgg, Owned, OwnerTop, Rec, RecordLayout, SubSplit, HASHAGG_HDR, MOVING, OWNERTOP_HDR,
+    REDUCE_FLUSH, T1,
+};
 use gravity_abi::hash::KeyHash;
 use gravity_abi::program::consumed;
 use gravity_abi::site::dict_value;
-use gravity_abi::status::{unsupported, ERROR, UNSUPPORTED_DOMAIN, UNSUPPORTED_SCRATCH, UNSUPPORTED_SHAPE};
+use gravity_abi::status::{
+    unsupported, ERROR, UNSUPPORTED_DOMAIN, UNSUPPORTED_SCRATCH, UNSUPPORTED_SHAPE,
+};
 use gravity_abi::t3::{ROUND2_T1_BYTES, ROUND2_T1_MAX};
+use gravity_abi::PtrWord;
 use gravity_abi::{Ctx, Site};
 
 use core::sync::atomic::Ordering;
 
+use crate::ops::sort::topn::t3::{
+    distinct_geometry, distinct_list_off, export_list, export_rec, grouped, is_text, Loop,
+    PairFold, Plan, BARE_INIT, CENSUS_ON, EXPORT_DUPS, EXPORT_TOP, GMARK_ENTRY, K_CODE, K_TEXT,
+    MAX_KEYS, MODE_TWO_PASS, NPARAMS, ORDER_COUNT_DESC, P1_BASE, PF_AVG, PF_COUNT, PF_ONE, PF_SUM,
+    P_SHAPE, S_AVG, S_AVG_TBL, S_MIN_CODE, S_SUM,
+};
 use crate::ops::sort::topn::t3_dense;
-use crate::ops::sort::topn::t3::{distinct_geometry, distinct_list_off, export_list, export_rec, grouped, is_text, Loop, PairFold, Plan, BARE_INIT, CENSUS_ON, EXPORT_DUPS, EXPORT_TOP, GMARK_ENTRY, K_CODE, K_TEXT, MAX_KEYS, MODE_TWO_PASS, NPARAMS, ORDER_COUNT_DESC, P1_BASE, PF_AVG, PF_COUNT, PF_ONE, PF_SUM, P_SHAPE, S_AVG, S_AVG_TBL, S_MIN_CODE, S_SUM};
 
 impl Plan {
     /// # Safety — `ctx` carries `NPARAMS` parameter words.
@@ -26,7 +36,11 @@ impl Plan {
         }
         // the two-pass form: pass 1 (no consumed slot) reads its own block; pass 2 and the emit this one
         if consumed(ctx, 0).is_null() {
-            return Plan::from_words(core::slice::from_raw_parts((*ctx).params.ptr().add(P1_BASE), NPARAMS)).map(|mut pl| {
+            return Plan::from_words(core::slice::from_raw_parts(
+                (*ctx).params.ptr().add(P1_BASE),
+                NPARAMS,
+            ))
+            .map(|mut pl| {
                 pl.two_pass = true;
                 pl
             });
@@ -44,7 +58,11 @@ impl Plan {
     #[inline(always)]
     #[allow(clippy::missing_safety_doc)]
     pub unsafe fn key_out(&self, r: &Rec<'_>, k: usize, base: usize) -> u64 {
-        if is_text(self.key_kind[k]) { slot_word(r, base + self.rep_slot[k]) } else { r.key(self.key_word[k]) }
+        if is_text(self.key_kind[k]) {
+            slot_word(r, base + self.rep_slot[k])
+        } else {
+            r.key(self.key_word[k])
+        }
     }
 }
 
@@ -58,13 +76,29 @@ unsafe fn bare_area(t: &mut HashAgg) -> (*mut u64, *mut u64, *mut u64, usize) {
         *area.add(1) = 0;
         t.flags |= BARE_INIT;
     }
-    (area, area.add(1), area.add(2), words.saturating_sub(t.cap as usize + 2))
+    (
+        area,
+        area.add(1),
+        area.add(2),
+        words.saturating_sub(t.cap as usize + 2),
+    )
 }
 
 /// The bare form's owner fold: every word into the table's open-addressing set (a slot holds a key;
-pub(in crate::ops::sort::topn) unsafe fn bare_fold(_params: *const u64, t: *mut HashAgg, recs: *const u8, nrecs: usize, split: SubSplit, _cand: *mut gravity_abi::breaker::Candidates) -> i64 {
+pub(in crate::ops::sort::topn) unsafe fn bare_fold(
+    _params: *const u64,
+    t: *mut HashAgg,
+    recs: *const u8,
+    nrecs: usize,
+    split: SubSplit,
+    _cand: *mut gravity_abi::breaker::Candidates,
+) -> i64 {
     let t = &mut *t;
-    let m = if t.cap.is_power_of_two() { t.cap as usize } else { (t.cap as usize).next_power_of_two() / 2 };
+    let m = if t.cap.is_power_of_two() {
+        t.cap as usize
+    } else {
+        (t.cap as usize).next_power_of_two() / 2
+    };
     let m = m.max(2);
     let (cap_bits, mask) = (m.trailing_zeros(), m - 1);
     // V4R-197: the home reads the hash bits below the route the split consumed (`KeyHash::home`, as every keyed table since
@@ -111,14 +145,23 @@ pub(in crate::ops::sort::topn) unsafe fn bare_fold(_params: *const u64, t: *mut 
 }
 
 /// The bare form's reduce: the dup area's keys to the owner's list (repeats included: the admitted set is a bitmap).
-pub(in crate::ops::sort::topn) unsafe fn bare_reduce(_params: *const u64, owner: *mut u8, table: *const HashAgg, _site: *mut Site, _cand: *const u32, _ncand: i64) -> i64 {
+pub(in crate::ops::sort::topn) unsafe fn bare_reduce(
+    _params: *const u64,
+    owner: *mut u8,
+    table: *const HashAgg,
+    _site: *mut Site,
+    _cand: *const u32,
+    _ncand: i64,
+) -> i64 {
     let t = &mut *(table as *mut HashAgg);
     let h = &mut *(owner as *mut OwnerTop);
     h.groups += t.len as u64;
     h.records += t.len as u64;
     let (_, ndups, dups, _) = bare_area(t);
     for i in 0..*ndups as usize {
-        let Some(d) = export_slot(owner, h, 8) else { return unsupported(UNSUPPORTED_SCRATCH) };
+        let Some(d) = export_slot(owner, h, 8) else {
+            return unsupported(UNSUPPORTED_SCRATCH);
+        };
         *(d as *mut u64) = *dups.add(i);
     }
     0
@@ -126,21 +169,47 @@ pub(in crate::ops::sort::topn) unsafe fn bare_reduce(_params: *const u64, owner:
 
 pub(in crate::ops::sort::topn) fn export_min(params: *const u64, _owners: u32) -> u64 {
     // SAFETY: `NPARAMS` plan words.
-    let Some(pl) = Plan::from_words(unsafe { core::slice::from_raw_parts(params, NPARAMS) }) else { return u64::MAX };
+    let Some(pl) = Plan::from_words(unsafe { core::slice::from_raw_parts(params, NPARAMS) }) else {
+        return u64::MAX;
+    };
     let rec = export_rec(&pl) as u64;
     8 * (OWNERTOP_HDR as u64 + HASHAGG_HDR as u64 + 64 * rec)
 }
 
-pub(in crate::ops::sort::topn) unsafe fn export_open(params: *const u64, owner: *mut u8, bytes: usize) -> i64 {
-    let Some(pl) = Plan::from_words(core::slice::from_raw_parts(params, NPARAMS)) else { return unsupported(UNSUPPORTED_SHAPE) };
+pub(in crate::ops::sort::topn) unsafe fn export_open(
+    params: *const u64,
+    owner: *mut u8,
+    bytes: usize,
+) -> i64 {
+    let Some(pl) = Plan::from_words(core::slice::from_raw_parts(params, NPARAMS)) else {
+        return unsupported(UNSUPPORTED_SHAPE);
+    };
     let rec = export_rec(&pl);
     let (list_off, list_bytes) = export_list(bytes);
     let table_off = list_off + list_bytes;
     if table_off + HASHAGG_HDR + 2 * rec > bytes {
         return unsupported(UNSUPPORTED_SCRATCH);
     }
-    let thr = if pl.export & 0xff == EXPORT_DUPS { 2 } else { 0 };
-    *(owner as *mut OwnerTop) = OwnerTop { len: 0, n: 0, table_off: table_off as u32, worst: 0, round2_off: 0, resume: 0, total: 0, groups: 0, records: 0, thr, key_lo: gravity_abi::breaker::KEY_LO_NONE, key_hi: gravity_abi::breaker::KEY_HI_NONE, cell: core::cell::UnsafeCell::new([]) };
+    let thr = if pl.export & 0xff == EXPORT_DUPS {
+        2
+    } else {
+        0
+    };
+    *(owner as *mut OwnerTop) = OwnerTop {
+        len: 0,
+        n: 0,
+        table_off: table_off as u32,
+        worst: 0,
+        round2_off: 0,
+        resume: 0,
+        total: 0,
+        groups: 0,
+        records: 0,
+        thr,
+        key_lo: gravity_abi::breaker::KEY_LO_NONE,
+        key_hi: gravity_abi::breaker::KEY_HI_NONE,
+        cell: core::cell::UnsafeCell::new([]),
+    };
     table_off as i64
 }
 
@@ -158,8 +227,17 @@ unsafe fn export_slot(owner: *mut u8, h: &mut OwnerTop, rec: usize) -> Option<*m
 }
 
 /// Every folded record through the rule to the list, whole: the driver's candidates (count ≥ 2,
-pub(in crate::ops::sort::topn) unsafe fn export_reduce(params: *const u64, owner: *mut u8, table: *const HashAgg, _site: *mut Site, cand: *const u32, ncand: i64) -> i64 {
-    let Some(pl) = Plan::from_words(core::slice::from_raw_parts(params, NPARAMS)) else { return unsupported(UNSUPPORTED_SHAPE) };
+pub(in crate::ops::sort::topn) unsafe fn export_reduce(
+    params: *const u64,
+    owner: *mut u8,
+    table: *const HashAgg,
+    _site: *mut Site,
+    cand: *const u32,
+    ncand: i64,
+) -> i64 {
+    let Some(pl) = Plan::from_words(core::slice::from_raw_parts(params, NPARAMS)) else {
+        return unsupported(UNSUPPORTED_SHAPE);
+    };
     let layout = pl.layout();
     let h = &mut *(owner as *mut OwnerTop);
     h.groups += (*table).len as u64;
@@ -167,14 +245,19 @@ pub(in crate::ops::sort::topn) unsafe fn export_reduce(params: *const u64, owner
     let rec = layout.size() as usize;
     let (rule, thr) = (pl.export & 0xff, (pl.export >> 8) as i64);
     let t = &*table;
-    let (off_used, off_count) = (t.layout.sentinel_off as usize, t.layout.slot_off[0] as usize);
+    let (off_used, off_count) = (
+        t.layout.sentinel_off as usize,
+        t.layout.slot_off[0] as usize,
+    );
     let base = t.base_ptr();
     let mut keep = |p: *mut u8| -> Result<(), i64> {
         let w = p.add(off_count) as *mut u64;
         *w &= !MOVING;
         let c = *w as i64;
         if if rule == EXPORT_DUPS { c >= 2 } else { c > thr } {
-            let Some(d) = export_slot(owner, h, rec) else { return Err(unsupported(UNSUPPORTED_SCRATCH)) };
+            let Some(d) = export_slot(owner, h, rec) else {
+                return Err(unsupported(UNSUPPORTED_SCRATCH));
+            };
             core::ptr::copy_nonoverlapping(p, d, rec);
         }
         Ok(())
@@ -206,7 +289,9 @@ pub unsafe fn render_reps(pl: &Plan, layout: &RecordLayout, site: *mut Site, r: 
         let off = r.add(layout.slot_off[slot] as usize) as *mut u64;
         let raw = *off;
         let mut v = 0u64;
-        if raw == u64::MAX || dict_value(site, (raw >> 32) as u32, lane as u32, raw as u32, &mut v) < 0 {
+        if raw == u64::MAX
+            || dict_value(site, (raw >> 32) as u32, lane as u32, raw as u32, &mut v) < 0
+        {
             return ERROR;
         }
         *off = v;
@@ -227,7 +312,11 @@ pub unsafe fn render_reps(pl: &Plan, layout: &RecordLayout, site: *mut Site, r: 
 
 /// Every record of a finished export region (`owner_fns_pass1` / `owner_fns_pass2`'s layout): the
 #[allow(clippy::missing_safety_doc)]
-pub unsafe fn export_records(owned: *const u8, p: &[u64], f: &mut dyn FnMut(*const u8)) -> Option<usize> {
+pub unsafe fn export_records(
+    owned: *const u8,
+    p: &[u64],
+    f: &mut dyn FnMut(*const u8),
+) -> Option<usize> {
     let pl = Plan::from_words(p)?;
     let o = Owned::view(owned);
     let mut n = 0usize;
@@ -257,7 +346,11 @@ pub unsafe fn export_records(owned: *const u8, p: &[u64], f: &mut dyn FnMut(*con
 
 /// The granule marks of a finished distinct pass-1 region (`MISC_GMARK`): every owner's listed
 #[allow(clippy::missing_safety_doc)]
-pub unsafe fn gmark_lists(owned: *const u8, p1: &[u64], f: &mut dyn FnMut(u64, u64, u64)) -> Option<usize> {
+pub unsafe fn gmark_lists(
+    owned: *const u8,
+    p1: &[u64],
+    f: &mut dyn FnMut(u64, u64, u64),
+) -> Option<usize> {
     let pl = Plan::from_words(p1)?;
     if !pl.gmark || pl.export & 0xff != EXPORT_TOP {
         return None;
@@ -289,49 +382,114 @@ pub unsafe fn export_keys(owned: *const u8, p1: &[u64], f: &mut dyn FnMut(u64)) 
 
 pub(in crate::ops::sort::topn) fn distinct_min(params: *const u64, _owners: u32) -> u64 {
     // SAFETY: `NPARAMS` plan words.
-    let Some(pl) = Plan::from_words(unsafe { core::slice::from_raw_parts(params, NPARAMS) }) else { return u64::MAX };
+    let Some(pl) = Plan::from_words(unsafe { core::slice::from_raw_parts(params, NPARAMS) }) else {
+        return u64::MAX;
+    };
     let acc = pl.layout_of(pl.nkeys - 1, 1).size() as u64;
     // the round-2 table scales to the region (`distinct_open`): the floor is the results, a 4 KiB round-2 region and a 64-record table
-    OWNERTOP_HDR as u64 + (pl.limit + pl.offset) as u64 * acc + 2 * 4096 + HASHAGG_HDR as u64 + 64 * pl.layout().size() as u64
+    OWNERTOP_HDR as u64
+        + (pl.limit + pl.offset) as u64 * acc
+        + 2 * 4096
+        + HASHAGG_HDR as u64
+        + 64 * pl.layout().size() as u64
 }
 
 pub(in crate::ops::sort::topn) unsafe fn owner_noop(_params: *const u64, _owner: *mut u8) -> i64 {
     0
 }
 
-pub(in crate::ops::sort::topn) unsafe fn distinct_open(params: *const u64, owner: *mut u8, bytes: usize) -> i64 {
-    let Some(pl) = Plan::from_words(core::slice::from_raw_parts(params, NPARAMS)) else { return unsupported(UNSUPPORTED_SHAPE) };
+pub(in crate::ops::sort::topn) unsafe fn distinct_open(
+    params: *const u64,
+    owner: *mut u8,
+    bytes: usize,
+) -> i64 {
+    let Some(pl) = Plan::from_words(core::slice::from_raw_parts(params, NPARAMS)) else {
+        return unsupported(UNSUPPORTED_SHAPE);
+    };
     let ng = pl.nkeys - 1;
     let acc = pl.layout_of(ng, 1);
     let n = if ng == 0 { 0 } else { pl.limit + pl.offset };
     let (list_off, round2_off, table_off) = distinct_geometry(&pl, bytes);
     let r2_bytes = table_off - round2_off;
-    if ng == 0 || r2_bytes < 4096 || table_off + HASHAGG_HDR + 2 * pl.layout().size() as usize > bytes {
+    if ng == 0
+        || r2_bytes < 4096
+        || table_off + HASHAGG_HDR + 2 * pl.layout().size() as usize > bytes
+    {
         if ng != 0 {
             return unsupported(UNSUPPORTED_SCRATCH);
         }
         // the plain count: no round-2 buffers, the table space is the rest
-        *(owner as *mut OwnerTop) = OwnerTop { len: 0, n: 0, table_off: list_off as u32, worst: 0, round2_off: 0, resume: 0, total: 0, groups: 0, records: 0, thr: 0, key_lo: gravity_abi::breaker::KEY_LO_NONE, key_hi: gravity_abi::breaker::KEY_HI_NONE, cell: core::cell::UnsafeCell::new([]) };
+        *(owner as *mut OwnerTop) = OwnerTop {
+            len: 0,
+            n: 0,
+            table_off: list_off as u32,
+            worst: 0,
+            round2_off: 0,
+            resume: 0,
+            total: 0,
+            groups: 0,
+            records: 0,
+            thr: 0,
+            key_lo: gravity_abi::breaker::KEY_LO_NONE,
+            key_hi: gravity_abi::breaker::KEY_HI_NONE,
+            cell: core::cell::UnsafeCell::new([]),
+        };
         return list_off as i64;
     }
     let pbits2 = crate::table::params::spill_bits(pl.groups, acc.size()).max(3);
     let r2 = owner.add(round2_off);
     core::ptr::write_bytes(r2, 0, 64);
     // the hot table: two slots per expected group in the pair mode (every partition touches most groups),
-    let want = if grouped(&pl, Loop::of(&pl)) { 4096 } else { (2 * pl.groups * acc.size() as u64).clamp(ROUND2_T1_BYTES as u64, ROUND2_T1_MAX as u64).next_power_of_two() as u32 };
-    T1::at(r2, &acc, pbits2, want.min(r2_bytes as u32 / 4), r2_bytes as u32);
+    let want = if grouped(&pl, Loop::of(&pl)) {
+        4096
+    } else {
+        (2 * pl.groups * acc.size() as u64)
+            .clamp(ROUND2_T1_BYTES as u64, ROUND2_T1_MAX as u64)
+            .next_power_of_two() as u32
+    };
+    T1::at(
+        r2,
+        &acc,
+        pbits2,
+        want.min(r2_bytes as u32 / 4),
+        r2_bytes as u32,
+    );
     // the dense area before the partition table: the owner fold counts at insert (`fold::owner_fold_dense`) when it fits the table space
-    let table_off = table_off + t3_dense::Dense::lay(params, owner.add(table_off), bytes - table_off);
+    let table_off =
+        table_off + t3_dense::Dense::lay(params, owner.add(table_off), bytes - table_off);
     if table_off + HASHAGG_HDR + 2 * pl.layout().size() as usize > bytes {
         return unsupported(UNSUPPORTED_SCRATCH);
     }
-    *(owner as *mut OwnerTop) = OwnerTop { len: 0, n: n as u32, table_off: table_off as u32, worst: 0, round2_off: round2_off as u32, resume: 0, total: 0, groups: 0, records: 0, thr: 0, key_lo: gravity_abi::breaker::KEY_LO_NONE, key_hi: gravity_abi::breaker::KEY_HI_NONE, cell: core::cell::UnsafeCell::new([]) };
+    *(owner as *mut OwnerTop) = OwnerTop {
+        len: 0,
+        n: n as u32,
+        table_off: table_off as u32,
+        worst: 0,
+        round2_off: round2_off as u32,
+        resume: 0,
+        total: 0,
+        groups: 0,
+        records: 0,
+        thr: 0,
+        key_lo: gravity_abi::breaker::KEY_LO_NONE,
+        key_hi: gravity_abi::breaker::KEY_HI_NONE,
+        cell: core::cell::UnsafeCell::new([]),
+    };
     table_off as i64
 }
 
 /// Round 1: the partition's deduped pairs counted per group into the owner's round-2 table; a full
-pub(in crate::ops::sort::topn) unsafe fn distinct_reduce(params: *const u64, owner: *mut u8, table: *const HashAgg, _site: *mut Site, _cand: *const u32, _ncand: i64) -> i64 {
-    let Some(pl) = Plan::from_words(core::slice::from_raw_parts(params, NPARAMS)) else { return unsupported(UNSUPPORTED_SHAPE) };
+pub(in crate::ops::sort::topn) unsafe fn distinct_reduce(
+    params: *const u64,
+    owner: *mut u8,
+    table: *const HashAgg,
+    _site: *mut Site,
+    _cand: *const u32,
+    _ncand: i64,
+) -> i64 {
+    let Some(pl) = Plan::from_words(core::slice::from_raw_parts(params, NPARAMS)) else {
+        return unsupported(UNSUPPORTED_SHAPE);
+    };
     let ng = pl.nkeys - 1;
     let h = &mut *(owner as *mut OwnerTop);
     let t = &*table;
@@ -357,7 +515,11 @@ pub(in crate::ops::sort::topn) unsafe fn distinct_reduce(params: *const u64, own
             return 0;
         }
         let f = PairFold::of(&pl, &acc, &t.layout, ng);
-        return if grouped(&pl, Loop::of(&pl)) { reduce_grouped(h, t, r2, &f, nw) } else { reduce_pairs(h, t, r2, &f, nw) };
+        return if grouped(&pl, Loop::of(&pl)) {
+            reduce_grouped(h, t, r2, &f, nw)
+        } else {
+            reduce_pairs(h, t, r2, &f, nw)
+        };
     }
     let list_off = distinct_list_off(&pl);
     let mark = pl.nwords - 1;
@@ -417,7 +579,8 @@ impl PairFold {
                 PF_COUNT => *d = (*d).wrapping_add(*s & !MOVING),
                 PF_SUM => *d = (*d).wrapping_add(*s),
                 PF_AVG => {
-                    let v = ((*d as u128) | (*d.add(1) as u128) << 64).wrapping_add((*s as u128) | (*s.add(1) as u128) << 64);
+                    let v = ((*d as u128) | (*d.add(1) as u128) << 64)
+                        .wrapping_add((*s as u128) | (*s.add(1) as u128) << 64);
                     *d = v as u64;
                     *d.add(1) = (v >> 64) as u64;
                     *d.add(2) = (*d.add(2)).wrapping_add(*s.add(2));
@@ -457,7 +620,11 @@ impl PairFold {
 
 /// The pair mode: every deduped pair probed into the round-2 table (the hot groups; an evicted
 unsafe fn reduce_pairs(h: &mut OwnerTop, t: &HashAgg, r2: *mut T1, f: &PairFold, nw: usize) -> i64 {
-    let (rec, sent, base) = (t.layout.size as usize, t.layout.sentinel_off as usize, t.base_ptr());
+    let (rec, sent, base) = (
+        t.layout.size as usize,
+        t.layout.sentinel_off as usize,
+        t.base_ptr(),
+    );
     for i in h.resume as usize..t.cap as usize {
         let p = base.add(i * rec);
         if *(p.add(sent) as *const u64) == 0 {
@@ -483,8 +650,18 @@ unsafe fn reduce_pairs(h: &mut OwnerTop, t: &HashAgg, r2: *mut T1, f: &PairFold,
 }
 
 /// The grouped mode: a group's pairs all lie in this partition, so every deduped pair's group record
-unsafe fn reduce_grouped(h: &mut OwnerTop, t: &HashAgg, r2: *mut T1, f: &PairFold, nw: usize) -> i64 {
-    let (rec, sent, base) = (t.layout.size as usize, t.layout.sentinel_off as usize, t.base_ptr());
+unsafe fn reduce_grouped(
+    h: &mut OwnerTop,
+    t: &HashAgg,
+    r2: *mut T1,
+    f: &PairFold,
+    nw: usize,
+) -> i64 {
+    let (rec, sent, base) = (
+        t.layout.size as usize,
+        t.layout.sentinel_off as usize,
+        t.base_ptr(),
+    );
     let pbits = (*r2).pbits;
     let mut ap = T1::appender(r2);
     for i in h.resume as usize..t.cap as usize {
@@ -506,7 +683,10 @@ unsafe fn reduce_grouped(h: &mut OwnerTop, t: &HashAgg, r2: *mut T1, f: &PairFol
     0
 }
 
-pub(in crate::ops::sort::topn) unsafe fn distinct_end_round(params: *const u64, owner: *mut u8) -> i64 {
+pub(in crate::ops::sort::topn) unsafe fn distinct_end_round(
+    params: *const u64,
+    owner: *mut u8,
+) -> i64 {
     let h = &*(owner as *const OwnerTop);
     if h.round2_off == 0 {
         return 0;
@@ -525,8 +705,10 @@ pub(in crate::ops::sort::topn) unsafe fn distinct_end_round(params: *const u64, 
     }
     if CENSUS_ON.load(Ordering::Relaxed) {
         let t = &*r2;
-        let groups = Plan::from_words(core::slice::from_raw_parts(params, NPARAMS)).map_or(0, |pl| pl.groups);
-        eprintln!("DISTINCT owner round 1: pairs={} r2 cap={} len={} inserts={} evictions={} buffered={} groups_est={} dense={dense}", h.records, t.cap, t.len, t.inserts, t.evictions, t.buffered, groups); // alloc: Cold
+        let groups = Plan::from_words(core::slice::from_raw_parts(params, NPARAMS))
+            .map_or(0, |pl| pl.groups);
+        eprintln!("DISTINCT owner round 1: pairs={} r2 cap={} len={} inserts={} evictions={} buffered={} groups_est={} dense={dense}", h.records, t.cap, t.len, t.inserts, t.evictions, t.buffered, groups);
+        // alloc: Cold
     }
     if !T1::drain(r2) {
         return REDUCE_FLUSH;
@@ -535,14 +717,34 @@ pub(in crate::ops::sort::topn) unsafe fn distinct_end_round(params: *const u64, 
 }
 
 /// Round 2: a partition's group records folded across the owners, the best kept under the order.
-pub(in crate::ops::sort::topn) unsafe fn distinct_reduce2(params: *const u64, owner: *mut u8, table: *const HashAgg, site: *mut Site, cand: *const u32, ncand: i64) -> i64 {
-    let Some(pl) = Plan::from_words(core::slice::from_raw_parts(params, NPARAMS)) else { return unsupported(UNSUPPORTED_SHAPE) };
+pub(in crate::ops::sort::topn) unsafe fn distinct_reduce2(
+    params: *const u64,
+    owner: *mut u8,
+    table: *const HashAgg,
+    site: *mut Site,
+    cand: *const u32,
+    ncand: i64,
+) -> i64 {
+    let Some(pl) = Plan::from_words(core::slice::from_raw_parts(params, NPARAMS)) else {
+        return unsupported(UNSUPPORTED_SHAPE);
+    };
     let ng = pl.nkeys - 1;
     let acc = pl.layout_of(ng, 1);
     let text = pl.key_kind[..ng].contains(&K_TEXT);
     let h = &mut *(owner as *mut OwnerTop);
     h.groups += (*table).len as u64;
-    let mut top = Top { base: h.records(), rec: acc.size() as usize, n: h.n as usize, len: h.len as usize, worst: h.worst as usize, pl: &pl, layout: &acc, nkeys: ng, slot_base: 1, rendered: text };
+    let mut top = Top {
+        base: h.records(),
+        rec: acc.size() as usize,
+        n: h.n as usize,
+        len: h.len as usize,
+        worst: h.worst as usize,
+        pl: &pl,
+        layout: &acc,
+        nkeys: ng,
+        slot_base: 1,
+        rendered: text,
+    };
     if let Err(e) = top.offer_folded(site, text, &*table, ng, cand, ncand) {
         return e;
     }
@@ -568,7 +770,12 @@ struct Top<'a> {
 }
 
 unsafe fn text_less(a: u64, b: u64) -> core::cmp::Ordering {
-    let bytes = |d: u64| core::slice::from_raw_parts((d as *const u8).add(4), (*(d as *const u32) >> 2) as usize - 4);
+    let bytes = |d: u64| {
+        core::slice::from_raw_parts(
+            (d as *const u8).add(4),
+            (*(d as *const u32) >> 2) as usize - 4,
+        )
+    };
     bytes(a).cmp(bytes(b))
 }
 
@@ -579,7 +786,10 @@ impl Top<'_> {
 
     /// Whether the record at `a` ranks before the one at `b` (the query's ORDER BY, ties by the keys).
     unsafe fn better(&self, a: *const u8, b: *const u8) -> bool {
-        let (ra, rb) = (Rec::at(a as *mut u8, self.layout), Rec::at(b as *mut u8, self.layout));
+        let (ra, rb) = (
+            Rec::at(a as *mut u8, self.layout),
+            Rec::at(b as *mut u8, self.layout),
+        );
         if self.pl.order == ORDER_COUNT_DESC {
             let (ca, cb) = (ra.count(self.pl.order_slot), rb.count(self.pl.order_slot));
             if ca != cb {
@@ -587,12 +797,20 @@ impl Top<'_> {
             }
         }
         for k in 0..self.nkeys {
-            let (wa, wb) = (self.pl.key_out(&ra, k, self.slot_base), self.pl.key_out(&rb, k, self.slot_base));
+            let (wa, wb) = (
+                self.pl.key_out(&ra, k, self.slot_base),
+                self.pl.key_out(&rb, k, self.slot_base),
+            );
             if wa == wb {
                 continue;
             }
-            let text = self.rendered && (self.pl.key_kind[k] == K_CODE || self.pl.key_kind[k] == K_TEXT);
-            return if text { text_less(wa, wb) == core::cmp::Ordering::Less } else { (wa as i64) < (wb as i64) };
+            let text =
+                self.rendered && (self.pl.key_kind[k] == K_CODE || self.pl.key_kind[k] == K_TEXT);
+            return if text {
+                text_less(wa, wb) == core::cmp::Ordering::Less
+            } else {
+                (wa as i64) < (wb as i64)
+            };
         }
         false
     }
@@ -632,11 +850,27 @@ impl Top<'_> {
     }
 
     /// A folded partition's records to the top: the driver's candidates (their `MOVING` mark
-    unsafe fn offer_folded(&mut self, s: *mut Site, text: bool, t: &HashAgg, ng: usize, cand: *const u32, ncand: i64) -> Result<(), i64> {
+    unsafe fn offer_folded(
+        &mut self,
+        s: *mut Site,
+        text: bool,
+        t: &HashAgg,
+        ng: usize,
+        cand: *const u32,
+        ncand: i64,
+    ) -> Result<(), i64> {
         if ncand < 0 {
-            return if text { self.offer_table_lazy(s, t, ng) } else { self.offer_table(t); Ok(()) };
+            return if text {
+                self.offer_table_lazy(s, t, ng)
+            } else {
+                self.offer_table(t);
+                Ok(())
+            };
         }
-        let (off_count, rec) = (t.layout.slot_off[self.pl.order_slot] as usize, t.layout.size as usize);
+        let (off_count, rec) = (
+            t.layout.slot_off[self.pl.order_slot] as usize,
+            t.layout.size as usize,
+        );
         let base = t.base_ptr();
         for k in 0..ncand as usize {
             let p = base.add(*cand.add(k) as usize * rec);
@@ -645,13 +879,20 @@ impl Top<'_> {
             if ((*w) as i64) < self.threshold() {
                 continue;
             }
-            if text { self.offer_lazy(s, p, ng)? } else { self.offer(p) }
+            if text {
+                self.offer_lazy(s, p, ng)?
+            } else {
+                self.offer(p)
+            }
         }
         Ok(())
     }
 
     unsafe fn offer_table(&mut self, t: &HashAgg) {
-        let (off_used, off_count) = (t.layout.sentinel_off as usize, t.layout.slot_off[self.pl.order_slot] as usize);
+        let (off_used, off_count) = (
+            t.layout.sentinel_off as usize,
+            t.layout.slot_off[self.pl.order_slot] as usize,
+        );
         let rec = t.layout.size as usize;
         let base = t.base_ptr();
         let mut thr = self.threshold();
@@ -671,8 +912,19 @@ impl Top<'_> {
     }
 
     /// `better(r, worst)` with `r`'s text keys rendered through the site only when the comparison
-    unsafe fn better_lazy(&self, s: *mut Site, r: *const u8, w: *const u8, ng: usize, tmp: &mut [u64; MAX_KEYS], done: &mut u32) -> Result<bool, i64> {
-        let (ra, rb) = (Rec::at(r as *mut u8, self.layout), Rec::at(w as *mut u8, self.layout));
+    unsafe fn better_lazy(
+        &self,
+        s: *mut Site,
+        r: *const u8,
+        w: *const u8,
+        ng: usize,
+        tmp: &mut [u64; MAX_KEYS],
+        done: &mut u32,
+    ) -> Result<bool, i64> {
+        let (ra, rb) = (
+            Rec::at(r as *mut u8, self.layout),
+            Rec::at(w as *mut u8, self.layout),
+        );
         if self.pl.order == ORDER_COUNT_DESC {
             let (ca, cb) = (ra.count(self.pl.order_slot), rb.count(self.pl.order_slot));
             if ca != cb {
@@ -685,7 +937,14 @@ impl Top<'_> {
             let wa = if text {
                 if *done >> k & 1 == 0 {
                     let raw = slot_word(&ra, self.slot_base + self.pl.rep_slot[k]);
-                    if dict_value(s, (raw >> 32) as u32, self.pl.key_lane[k] as u32, raw as u32, &mut tmp[k]) < 0 {
+                    if dict_value(
+                        s,
+                        (raw >> 32) as u32,
+                        self.pl.key_lane[k] as u32,
+                        raw as u32,
+                        &mut tmp[k],
+                    ) < 0
+                    {
                         return Err(ERROR);
                     }
                     *done |= 1 << k;
@@ -699,7 +958,11 @@ impl Top<'_> {
                 continue;
             }
             let bytes = text || (self.pl.key_kind[k] == K_CODE && self.rendered);
-            return Ok(if bytes { text_less(wa, wb) == core::cmp::Ordering::Less } else { (wa as i64) < (wb as i64) });
+            return Ok(if bytes {
+                text_less(wa, wb) == core::cmp::Ordering::Less
+            } else {
+                (wa as i64) < (wb as i64)
+            });
         }
         Ok(false)
     }
@@ -727,7 +990,14 @@ impl Top<'_> {
             let off = self.layout.slot_off[self.slot_base + self.pl.rep_slot[k]] as usize;
             if done >> k & 1 == 0 {
                 let raw = *(kept.as_ptr().add(off) as *const u64);
-                if dict_value(s, (raw >> 32) as u32, self.pl.key_lane[k] as u32, raw as u32, &mut tmp[k]) < 0 {
+                if dict_value(
+                    s,
+                    (raw >> 32) as u32,
+                    self.pl.key_lane[k] as u32,
+                    raw as u32,
+                    &mut tmp[k],
+                ) < 0
+                {
                     return Err(ERROR);
                 }
             }
@@ -740,7 +1010,10 @@ impl Top<'_> {
     }
 
     unsafe fn offer_table_lazy(&mut self, s: *mut Site, t: &HashAgg, ng: usize) -> Result<(), i64> {
-        let (off_used, off_count) = (t.layout.sentinel_off as usize, t.layout.slot_off[self.pl.order_slot] as usize);
+        let (off_used, off_count) = (
+            t.layout.sentinel_off as usize,
+            t.layout.slot_off[self.pl.order_slot] as usize,
+        );
         let rec = t.layout.size as usize;
         let base = t.base_ptr();
         let mut thr = self.threshold();

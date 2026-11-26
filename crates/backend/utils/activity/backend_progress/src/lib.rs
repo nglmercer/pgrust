@@ -32,10 +32,16 @@ fn with_write_bracket(f: impl FnOnce(&'static PgBackendStatus)) {
 
 pub fn pgstat_progress_start_command(cmdtype: i32, relid: Oid) {
     with_write_bracket(|be| {
-        unsafe { be.st_progress_command.set(cmdtype); }
-        unsafe { be.st_progress_command_target.set(relid); }
+        unsafe {
+            be.st_progress_command.set(cmdtype);
+        }
+        unsafe {
+            be.st_progress_command_target.set(relid);
+        }
         for p in &be.st_progress_param {
-            unsafe { p.set(0); }
+            unsafe {
+                p.set(0);
+            }
         }
     });
 }
@@ -49,7 +55,9 @@ pub fn pgstat_progress_incr_param(index: usize, incr: i64) {
     debug_assert!(index < PGSTAT_NUM_PROGRESS_PARAM);
     with_write_bracket(|be| {
         let p = &be.st_progress_param[index];
-        unsafe { p.set(p.get() + incr); }
+        unsafe {
+            p.set(p.get() + incr);
+        }
     });
 }
 
@@ -69,7 +77,9 @@ pub fn pgstat_progress_update_multi_param(indices: &[usize], vals: &[i64]) {
     with_write_bracket(|be| {
         for (&i, &v) in indices.iter().zip(vals) {
             debug_assert!(i < PGSTAT_NUM_PROGRESS_PARAM);
-            unsafe { be.st_progress_param[i].set(v); }
+            unsafe {
+                be.st_progress_param[i].set(v);
+            }
         }
     });
 }
@@ -80,7 +90,9 @@ pub fn pgstat_progress_update_multi_param(indices: &[usize], vals: &[i64]) {
 pub fn pgstat_progress_current_param(index: usize) -> i64 {
     debug_assert!(index < PGSTAT_NUM_PROGRESS_PARAM);
     // SAFETY: the entry is this backend's own; single-writer cell read.
-    MyBEEntry().map(|be| unsafe { be.st_progress_param[index].get() }).unwrap_or(0)
+    MyBEEntry()
+        .map(|be| unsafe { be.st_progress_param[index].get() })
+        .unwrap_or(0)
 }
 
 pub fn pgstat_progress_end_command() {
@@ -94,8 +106,12 @@ pub fn pgstat_progress_end_command() {
         return;
     }
     begin_write_activity(beentry);
-    unsafe { beentry.st_progress_command.set(PROGRESS_COMMAND_INVALID); }
-    unsafe { beentry.st_progress_command_target.set(InvalidOid); }
+    unsafe {
+        beentry.st_progress_command.set(PROGRESS_COMMAND_INVALID);
+    }
+    unsafe {
+        beentry.st_progress_command_target.set(InvalidOid);
+    }
     end_write_activity(beentry);
 }
 

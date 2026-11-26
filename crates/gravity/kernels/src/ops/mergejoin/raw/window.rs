@@ -7,11 +7,15 @@
 //! in the window has its by-reference cells pointed at the images inside it (`point_images`), so a row's cells hold until
 //! the next `m11_window`: a row's life, as runs.sort's emit's cells (`Until::Row`).
 use gravity_abi::breaker::SortRun;
-use gravity_abi::program::{SPILL_MERGE_BIG, SPILL_RUN_BASE, SPILL_RUN_CLOSE, SPILL_RUN_FILL, SPILL_RUN_OPEN};
+use gravity_abi::program::{
+    SPILL_MERGE_BIG, SPILL_RUN_BASE, SPILL_RUN_CLOSE, SPILL_RUN_FILL, SPILL_RUN_OPEN,
+};
 use gravity_abi::status::{unsupported, ERROR, UNSUPPORTED_SCRATCH};
 use gravity_abi::Ctx;
 
-use crate::host_abi::{cmp_rows, merge_to_one, point_images, tbl_shape, var_shape, RowCmp, CMP_ERR};
+use crate::host_abi::{
+    cmp_rows, merge_to_one, point_images, tbl_shape, var_shape, RowCmp, CMP_ERR,
+};
 use crate::table::fold_entries::bare;
 use crate::util::spill;
 
@@ -76,7 +80,10 @@ pub const W_J0: i32 = core::mem::offset_of!(Window, j0) as i32;
 pub const W_CNT: i32 = core::mem::offset_of!(Window, cnt) as i32;
 pub const W_IDX: i32 = core::mem::offset_of!(Window, idx) as i32;
 pub const W_MARK: i32 = core::mem::offset_of!(Window, mark_j) as i32;
-const _: () = assert!(W_LEN == 4 && W_KIND == 15, "a window's len and kind sit where a SortRun keeps them");
+const _: () = assert!(
+    W_LEN == 4 && W_KIND == 15,
+    "a window's len and kind sit where a SortRun keeps them"
+);
 
 /// Whether consumed region `own` holds a window laid by `lay` (a later window of the same fill).
 pub(crate) unsafe fn live(own: *const u8) -> bool {
@@ -87,12 +94,21 @@ pub(crate) unsafe fn live(own: *const u8) -> bool {
 /// The window laid over `own` (the inner's region, its run put empty): the stream's `rows` rows merged into one run over
 /// the region (`full` the run's table: its record form and order), then the window over the region with no row in it
 /// (the first fetch fills it). `point`: the rows' images pointed (the merge reads a by-reference cell).
-pub(crate) unsafe fn lay(ctx: *mut Ctx, own: *mut u8, full: *const u32, stream: u64, rows: u64, point: bool) -> *const u8 {
+pub(crate) unsafe fn lay(
+    ctx: *mut Ctx,
+    own: *mut u8,
+    full: *const u32,
+    stream: u64,
+    rows: u64,
+    point: bool,
+) -> *const u8 {
     let r = &*(own as *const SortRun);
     if r.len != 0 {
         return bare("Bug: a merge join's inner run both put and held") as *const u8;
     }
-    let Ok(len) = u32::try_from(rows) else { return unsupported(UNSUPPORTED_SCRATCH) as *const u8 };
+    let Ok(len) = u32::try_from(rows) else {
+        return unsupported(UNSUPPORTED_SCRATCH) as *const u8;
+    };
     let (rec, nkey, _, spec) = tbl_shape(full);
     let usable = SortRun::region_bytes(own, rec as u32);
     let var = var_shape(full);
@@ -103,16 +119,24 @@ pub(crate) unsafe fn lay(ctx: *mut Ctx, own: *mut u8, full: *const u32, stream: 
         Some(v) => {
             let rc = RowCmp::of(full);
             CMP_ERR.with(|c| c.set(false));
-            let m = merge_to_one(ctx, own, usable, rec, stream, Some(v.rec_off as u16), &|a, b| rc.cmp(a, b));
+            let m = merge_to_one(
+                ctx,
+                own,
+                usable,
+                rec,
+                stream,
+                Some(v.rec_off as u16),
+                &|a, b| rc.cmp(a, b),
+            );
             if CMP_ERR.with(|c| c.get()) {
                 spill(ctx, SPILL_RUN_BASE, 0);
                 return crate::host_abi::cmp_failed("a sort merge compare failed") as *const u8;
             }
             m
         }
-        None => {
-            merge_to_one(ctx, own, usable, rec, stream, None, &|a, b| cmp_rows(nkey / 2, spec, a, b))
-        }
+        None => merge_to_one(ctx, own, usable, rec, stream, None, &|a, b| {
+            cmp_rows(nkey / 2, spec, a, b)
+        }),
     };
     spill(ctx, SPILL_RUN_BASE, 0);
     let token = match merged {
@@ -129,9 +153,38 @@ pub(crate) unsafe fn lay(ctx: *mut Ctx, own: *mut u8, full: *const u32, stream: 
     let bcap = (usable - hdr - 8 * n) & !7;
     let rec_off = var.map_or(u32::MAX, |v| v.rec_off as u32);
     *(own as *mut Window) = Window {
-        zero: 0, len, _r: 0, _pad: [0; 3], kind: MJ_WINDOW_KIND, j0: 0, cnt: 0, idx: own.add(hdr) as u64, mark_j: -1, magic: MAGIC, rows,
-        buf: buf as u64, bcap: bcap as u64, blen: 0, parsed: 0, boff: 0, idx_cap: n as u64, mark_at: -1, mark_off: 0, big: 0, big_cap: 0,
-        big_off: 0, big_on: 0, token, stream, handle: -1, eof: 0, rec: rec as u32, rec_off, point: point as u32, _p: 0, own: own as u64,
+        zero: 0,
+        len,
+        _r: 0,
+        _pad: [0; 3],
+        kind: MJ_WINDOW_KIND,
+        j0: 0,
+        cnt: 0,
+        idx: own.add(hdr) as u64,
+        mark_j: -1,
+        magic: MAGIC,
+        rows,
+        buf: buf as u64,
+        bcap: bcap as u64,
+        blen: 0,
+        parsed: 0,
+        boff: 0,
+        idx_cap: n as u64,
+        mark_at: -1,
+        mark_off: 0,
+        big: 0,
+        big_cap: 0,
+        big_off: 0,
+        big_on: 0,
+        token,
+        stream,
+        handle: -1,
+        eof: 0,
+        rec: rec as u32,
+        rec_off,
+        point: point as u32,
+        _p: 0,
+        own: own as u64,
     };
     own
 }
@@ -152,7 +205,11 @@ pub(crate) unsafe fn row(ctx: *mut Ctx, w: *mut u8, j: u64, full: *const u32) ->
             return *(w.idx as *const u64).add((j - w.j0) as usize) as i64;
         }
         note_mark(w);
-        let r = if j < w.j0 { rewind(ctx, w, j) } else { advance(ctx, w, full) };
+        let r = if j < w.j0 {
+            rewind(ctx, w, j)
+        } else {
+            advance(ctx, w, full)
+        };
         if let Err(e) = r {
             return e;
         }
@@ -205,11 +262,14 @@ unsafe fn advance(ctx: *mut Ctx, w: &mut Window, full: *const u32) -> Result<(),
     if w.big_on != 0 {
         (w.big_on, w.j0, w.cnt) = (0, tail, 0);
     } else {
-        let mark = u64::try_from(w.mark_j).ok().filter(|&m| m >= w.j0 && m < tail);
-        let (keep, at) = match mark.map(|m| (m, *(w.idx as *const u64).add((m - w.j0) as usize) - w.buf)) {
-            Some((m, a)) if 4 * (w.blen - a) <= 3 * w.bcap => (m, a),
-            _ => (tail, w.parsed),
-        };
+        let mark = u64::try_from(w.mark_j)
+            .ok()
+            .filter(|&m| m >= w.j0 && m < tail);
+        let (keep, at) =
+            match mark.map(|m| (m, *(w.idx as *const u64).add((m - w.j0) as usize) - w.buf)) {
+                Some((m, a)) if 4 * (w.blen - a) <= 3 * w.bcap => (m, a),
+                _ => (tail, w.parsed),
+            };
         core::ptr::copy(buf.add(at as usize), buf, (w.blen - at) as usize);
         (w.blen, w.boff, w.j0, w.cnt, w.parsed) = (w.blen - at, w.boff + at, keep, 0, 0);
     }
@@ -262,7 +322,7 @@ unsafe fn record_len(w: &Window, p: *const u8, have: usize) -> Option<usize> {
         return None;
     }
     let n = (p.add(o) as *const u32).read_unaligned() as usize;
-    (n >= w.rec as usize && n.is_multiple_of( 8)).then_some(n)
+    (n >= w.rec as usize && n.is_multiple_of(8)).then_some(n)
 }
 
 /// Bytes from the run appended to `dst[blen..cap]` until it is full or the run ends (the reader opened at `boff` first
@@ -270,7 +330,9 @@ unsafe fn record_len(w: &Window, p: *const u8, have: usize) -> Option<usize> {
 unsafe fn fill(ctx: *mut Ctx, w: &mut Window, dst: *mut u8, cap: u64) -> Result<(), i64> {
     if w.handle < 0 && w.eof == 0 {
         if w.blen != 0 {
-            return Err(bare("Bug: a merge join's inner window reopened over bytes it holds"));
+            return Err(bare(
+                "Bug: a merge join's inner window reopened over bytes it holds",
+            ));
         }
         let off = w.boff;
         open_at(ctx, w, dst, off)?;
@@ -285,7 +347,11 @@ unsafe fn fill(ctx: *mut Ctx, w: &mut Window, dst: *mut u8, cap: u64) -> Result<
 
 /// The run reopened and read forward to run offset `off` (`dst` its scratch).
 unsafe fn open_at(ctx: *mut Ctx, w: &mut Window, dst: *mut u8, off: u64) -> Result<(), i64> {
-    let h = spill(ctx, SPILL_RUN_OPEN, (w.token as u64 | w.stream << 32) as i64);
+    let h = spill(
+        ctx,
+        SPILL_RUN_OPEN,
+        (w.token as u64 | w.stream << 32) as i64,
+    );
     if h < 0 {
         return Err(ERROR);
     }
@@ -303,14 +369,24 @@ unsafe fn open_at(ctx: *mut Ctx, w: &mut Window, dst: *mut u8, off: u64) -> Resu
 
 /// One fill of at most `want` bytes into `dst[at..]` (several `SPILL_RUN_FILL`s of 16-bit counts): the bytes read, 0 at the
 /// run's end (`eof`: the driver dropped the reader).
-unsafe fn read(ctx: *mut Ctx, w: &mut Window, dst: *mut u8, at: usize, want: usize) -> Result<usize, i64> {
+unsafe fn read(
+    ctx: *mut Ctx,
+    w: &mut Window,
+    dst: *mut u8,
+    at: usize,
+    want: usize,
+) -> Result<usize, i64> {
     if spill(ctx, SPILL_RUN_BASE, dst as i64) < 0 {
         return Err(ERROR);
     }
     let mut got = 0;
     while got < want {
         let ask = (want - got).min(FILL_MAX) as u64;
-        let n = spill(ctx, SPILL_RUN_FILL, (w.handle as u64 & 0xffff | ((at + got) as u64) << 16 | ask << 48) as i64);
+        let n = spill(
+            ctx,
+            SPILL_RUN_FILL,
+            (w.handle as u64 & 0xffff | ((at + got) as u64) << 16 | ask << 48) as i64,
+        );
         if n < 0 {
             spill(ctx, SPILL_RUN_BASE, 0);
             return Err(ERROR);
@@ -330,7 +406,9 @@ unsafe fn read(ctx: *mut Ctx, w: &mut Window, dst: *mut u8, at: usize, want: usi
 #[cold]
 unsafe fn big(ctx: *mut Ctx, w: &mut Window, full: *const u32) -> Result<(), i64> {
     let buf = w.buf as *mut u8;
-    let Some(n) = record_len(w, buf, w.blen as usize) else { return Err(unsupported(UNSUPPORTED_SCRATCH)) };
+    let Some(n) = record_len(w, buf, w.blen as usize) else {
+        return Err(unsupported(UNSUPPORTED_SCRATCH));
+    };
     if n as u64 > w.big_cap {
         let key = big_key(w.own);
         let free = [key, 0u64];
@@ -354,7 +432,8 @@ unsafe fn big(ctx: *mut Ctx, w: &mut Window, full: *const u32) -> Result<(), i64
         point_images(big, full);
     }
     *(w.idx as *mut u64) = big as u64;
-    (w.big_off, w.boff, w.blen, w.parsed, w.cnt, w.big_on) = (w.boff, w.boff + n as u64, 0, 0, 1, 1);
+    (w.big_off, w.boff, w.blen, w.parsed, w.cnt, w.big_on) =
+        (w.boff, w.boff + n as u64, 0, 0, 1, 1);
     Ok(())
 }
 
@@ -381,7 +460,10 @@ mod tests {
 
     fn run_of(f: &Fake, token: u32) -> Vec<u8> {
         if token & MERGED_RUN != 0 {
-            let (p, i) = (((token & !MERGED_RUN) >> 20) as usize, (token & 0xfffff) as usize);
+            let (p, i) = (
+                ((token & !MERGED_RUN) >> 20) as usize,
+                (token & 0xfffff) as usize,
+            );
             f.passes[p][i].clone() // alloc: Cold
         } else {
             f.puts[token as usize].clone() // alloc: Cold
@@ -415,7 +497,10 @@ mod tests {
             SPILL_MERGE_WRITE => {
                 let w = arg as *const u64;
                 let (token, p, n) = (*w.add(1) as u32, *w.add(2) as *const u8, *w.add(3) as usize);
-                let (pass, i) = (((token & !MERGED_RUN) >> 20) as usize, (token & 0xfffff) as usize);
+                let (pass, i) = (
+                    ((token & !MERGED_RUN) >> 20) as usize,
+                    (token & 0xfffff) as usize,
+                );
                 f.passes[pass][i].extend_from_slice(core::slice::from_raw_parts(p, n));
                 0
             }
@@ -437,11 +522,21 @@ mod tests {
                 (f.readers.len() - 1) as i64
             }
             SPILL_RUN_FILL => {
-                let (h, off, cap) = ((arg & 0xffff) as usize, ((arg >> 16) & 0xffff_ffff) as usize, (arg >> 48) as usize);
+                let (h, off, cap) = (
+                    (arg & 0xffff) as usize,
+                    ((arg >> 16) & 0xffff_ffff) as usize,
+                    (arg >> 48) as usize,
+                );
                 assert_ne!(f.base, 0, "a fill with no base");
-                let Some((bytes, pos)) = f.readers[h].as_mut() else { return 0 };
+                let Some((bytes, pos)) = f.readers[h].as_mut() else {
+                    return 0;
+                };
                 let n = (bytes.len() - *pos).min(cap).min(5000); // short reads, as a file's
-                core::ptr::copy_nonoverlapping(bytes.as_ptr().add(*pos), (f.base + off) as *mut u8, n);
+                core::ptr::copy_nonoverlapping(
+                    bytes.as_ptr().add(*pos),
+                    (f.base + off) as *mut u8,
+                    n,
+                );
                 *pos += n;
                 if n == 0 {
                     f.readers[h] = None;
@@ -465,14 +560,21 @@ mod tests {
 
     impl Rig {
         fn new(bytes: usize, puts: Vec<Vec<u8>>) -> Rig {
-            *FAKE.lock().expect("fake") = Some(Fake { puts, ..Fake::default() });
+            *FAKE.lock().expect("fake") = Some(Fake {
+                puts,
+                ..Fake::default()
+            });
             let mut program = Box::new(ProgramBlock::NONE); // alloc: Cold
             program.spill = Some(fake_spill);
             let mut ctx = vec![0u64; gravity_abi::ctx::ctx_size(0) / 8]; // alloc: Cold
             unsafe { (*(ctx.as_mut_ptr() as *mut Ctx)).program = &mut *program };
             let mut own = vec![0u64; bytes / 8]; // alloc: Cold
             unsafe { (own.as_mut_ptr() as *mut u32).add(2).write(bytes as u32) };
-            Rig { _program: program, ctx, own }
+            Rig {
+                _program: program,
+                ctx,
+                own,
+            }
         }
         fn c(&mut self) -> *mut Ctx {
             self.ctx.as_mut_ptr() as *mut Ctx
@@ -500,7 +602,9 @@ mod tests {
     }
 
     fn bytes(rows: &[[u64; 4]]) -> Vec<u8> {
-        rows.iter().flat_map(|r| r.iter().flat_map(|w| w.to_le_bytes())).collect() // alloc: Cold
+        rows.iter()
+            .flat_map(|r| r.iter().flat_map(|w| w.to_le_bytes()))
+            .collect() // alloc: Cold
     }
 
     fn key(p: *const u8) -> u64 {
@@ -553,29 +657,53 @@ mod tests {
     fn a_window_over_put_runs_reads_the_merge_joins_rows() {
         let _one = ONE.lock().expect("one");
         let tbl = [32u32, 2, 1, 0, 0, 0];
-        let mut all: Vec<u64> = (0..2000u64).map(|i| i / 7).chain((0..300).map(|_| 150)).collect(); // alloc: Cold
+        let mut all: Vec<u64> = (0..2000u64)
+            .map(|i| i / 7)
+            .chain((0..300).map(|_| 150))
+            .collect(); // alloc: Cold
         let mut runs: Vec<Vec<[u64; 4]>> = vec![Vec::new(); 5]; // alloc: Cold
         for (i, &k) in all.iter().enumerate() {
             runs[i * 7 % 5].push(fixed(k, i as u64)); // alloc: Cold
         }
-        let puts = runs.iter_mut().map(|r| {
-            r.sort_by_key(|x| x[1]);
-            bytes(r)
-        }).collect(); // alloc: Cold
+        let puts = runs
+            .iter_mut()
+            .map(|r| {
+                r.sort_by_key(|x| x[1]);
+                bytes(r)
+            })
+            .collect(); // alloc: Cold
         all.sort_unstable();
         let n = all.len() as u64;
         let mut r = Rig::new(2048, puts);
         let (c, own) = (r.c(), r.own());
-        assert_eq!(unsafe { lay(c, own, tbl.as_ptr(), 1, n, false) }, own as *const u8);
+        assert_eq!(
+            unsafe { lay(c, own, tbl.as_ptr(), 1, n, false) },
+            own as *const u8
+        );
         let w = unsafe { &*(own as *const Window) };
-        assert!(w.idx_cap < 60 && w.len as u64 == n, "a small window: {} rows", w.idx_cap);
-        let outer: Vec<u64> = [1u64, 1, 2, 5, 5, 5, 149, 150, 150, 150, 151, 151, 300, 400].to_vec(); // alloc: Cold
-        let want: Vec<usize> = outer.iter().map(|&k| all.iter().filter(|&&x| x == k).count()).collect(); // alloc: Cold
+        assert!(
+            w.idx_cap < 60 && w.len as u64 == n,
+            "a small window: {} rows",
+            w.idx_cap
+        );
+        let outer: Vec<u64> =
+            [1u64, 1, 2, 5, 5, 5, 149, 150, 150, 150, 151, 151, 300, 400].to_vec(); // alloc: Cold
+        let want: Vec<usize> = outer
+            .iter()
+            .map(|&k| all.iter().filter(|&&x| x == k).count())
+            .collect(); // alloc: Cold
         let opens = r.opens();
         assert_eq!(merge(&mut r, &tbl, n, &outer), want);
-        assert!(r.opens() > opens + 1, "the group past the window restored by reopening the run");
+        assert!(
+            r.opens() > opens + 1,
+            "the group past the window restored by reopening the run"
+        );
         for j in 0..n {
-            assert_eq!(key(r.at(j, &tbl)), all[j as usize], "row {j} after the rescan");
+            assert_eq!(
+                key(r.at(j, &tbl)),
+                all[j as usize],
+                "row {j} after the rescan"
+            );
         }
         *FAKE.lock().expect("fake") = None;
     }
@@ -591,7 +719,10 @@ mod tests {
         tbl[2] = VAR_TBL;
         tbl[SORT_TBL_HDR..].copy_from_slice(&[1, 16, 0, 24]);
         let rec = |id: u64| -> Vec<u8> {
-            let len = match id % 11 { 0 => 5000, k => 8 * k as usize };
+            let len = match id % 11 {
+                0 => 5000,
+                k => 8 * k as usize,
+            };
             let total = 32 + len;
             let mut v = vec![0u8; total]; // alloc: Cold
             v[0..8].copy_from_slice(&id.to_le_bytes());
@@ -601,11 +732,16 @@ mod tests {
             v[32..].fill((id % 251) as u8);
             v
         };
-        let puts: Vec<Vec<u8>> = (0..3u64).map(|r| (0..120u64).flat_map(|i| rec(r * 1000 + i)).collect()).collect(); // alloc: Cold
+        let puts: Vec<Vec<u8>> = (0..3u64)
+            .map(|r| (0..120u64).flat_map(|i| rec(r * 1000 + i)).collect())
+            .collect(); // alloc: Cold
         let n = 360u64;
         let mut r = Rig::new(4096, puts);
         let (c, own) = (r.c(), r.own());
-        assert_eq!(unsafe { lay(c, own, tbl.as_ptr(), 1, n, false) }, own as *const u8);
+        assert_eq!(
+            unsafe { lay(c, own, tbl.as_ptr(), 1, n, false) },
+            own as *const u8
+        );
         let merged = {
             let g = FAKE.lock().expect("fake");
             let w = unsafe { &*(own as *const Window) };
@@ -619,13 +755,22 @@ mod tests {
             at += len;
         }
         assert_eq!(want.len() as u64, n);
-        let ids: Vec<u64> = want.iter().map(|w| u64::from_le_bytes(w[0..8].try_into().expect("8"))).collect(); // alloc: Cold
-        let order: Vec<u64> = (0..3u64).flat_map(|r| (0..120u64).map(move |i| r * 1000 + i)).collect(); // alloc: Cold
+        let ids: Vec<u64> = want
+            .iter()
+            .map(|w| u64::from_le_bytes(w[0..8].try_into().expect("8")))
+            .collect(); // alloc: Cold
+        let order: Vec<u64> = (0..3u64)
+            .flat_map(|r| (0..120u64).map(move |i| r * 1000 + i))
+            .collect(); // alloc: Cold
         assert_eq!(ids, order, "a keyless merge keeps the runs' order");
         let check = |r: &mut Rig, j: u64| {
             let p = r.at(j, &tbl);
             let w = &want[j as usize];
-            assert_eq!(unsafe { core::slice::from_raw_parts(p, w.len()) }, &w[..], "row {j}");
+            assert_eq!(
+                unsafe { core::slice::from_raw_parts(p, w.len()) },
+                &w[..],
+                "row {j}"
+            );
         };
         for j in 0..200 {
             check(&mut r, j);

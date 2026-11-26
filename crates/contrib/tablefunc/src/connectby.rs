@@ -31,13 +31,13 @@ fn err(msg: &str, detail: &str, sqlstate: types_error::SqlState) -> Box<PgError>
 // tablefunc.c:979-982/:1057-1061 text_to_cstring → :1230/:1241 quote_literal_cstr / the
 // query template): bytes no &str can carry (a SQL_ASCII database) draw the
 // ratified §11 refusal instead of a panic.
-fn arg_str(fcinfo: & Fcinfo, i: usize) -> PgResult<& str> {
+fn arg_str(fcinfo: &Fcinfo, i: usize) -> PgResult<&str> {
     core::str::from_utf8(arg_bytes(fcinfo, i)?).map_err(|_| crate::non_utf8_query_error())
 }
 
 // A text argument that only travels the value plane (the branch delimiter,
 // tablefunc.c:1006/:1085, used only at :1318/:1335/:1345 appendStringInfo): carried raw as C does.
-fn arg_bytes(fcinfo: & Fcinfo, i: usize) -> PgResult<& [u8]> {
+fn arg_bytes(fcinfo: &Fcinfo, i: usize) -> PgResult<&[u8]> {
     // SAFETY: catalog args are non-null text varlenas (STRICT fns).
     let v = unsafe { fcinfo.arg_varlena_packed(i)? };
     Ok(v.data())
@@ -60,7 +60,7 @@ pub(crate) fn fc_connectby_text(
 ) -> PgResult<Datum> {
     let show_branch = fcinfo.nargs() == 6;
     let branch_delim = if show_branch {
-        ::mcx::std_vec_from_slice("tablefunc",arg_bytes(fcinfo, 5)?)?
+        ::mcx::std_vec_from_slice("tablefunc", arg_bytes(fcinfo, 5)?)?
     } else {
         vec![b'~']
     };
@@ -75,7 +75,12 @@ pub(crate) fn fc_connectby_text(
         max_depth: fcinfo.arg_i32(4),
     };
     let start_with = arg_str(fcinfo, 3)?.to_string();
-    connectby_body(flinfo.expect("connectby_text: NULL flinfo"), fcinfo, params, start_with)
+    connectby_body(
+        flinfo.expect("connectby_text: NULL flinfo"),
+        fcinfo,
+        params,
+        start_with,
+    )
 }
 
 pub(crate) fn fc_connectby_text_serial(
@@ -84,7 +89,7 @@ pub(crate) fn fc_connectby_text_serial(
 ) -> PgResult<Datum> {
     let show_branch = fcinfo.nargs() == 7;
     let branch_delim = if show_branch {
-        ::mcx::std_vec_from_slice("tablefunc",arg_bytes(fcinfo, 6)?)?
+        ::mcx::std_vec_from_slice("tablefunc", arg_bytes(fcinfo, 6)?)?
     } else {
         vec![b'~']
     };
@@ -123,7 +128,10 @@ fn validate_connectby_tupdesc(
     if td.natts as usize != expected_cols {
         return Err(err(
             "invalid connectby return type",
-            &format!("Return row must have {expected_cols} columns, not {}.", td.natts),
+            &format!(
+                "Return row must have {expected_cols} columns, not {}.",
+                td.natts
+            ),
             ERRCODE_DATATYPE_MISMATCH,
         ));
     }
@@ -170,10 +178,7 @@ fn validate_connectby_tupdesc(
     Ok(())
 }
 
-fn compat_connectby_tupdescs(
-    ret: &TupleDescData<'_>,
-    sql: &TupleDescData<'_>,
-) -> PgResult<()> {
+fn compat_connectby_tupdescs(ret: &TupleDescData<'_>, sql: &TupleDescData<'_>) -> PgResult<()> {
     if sql.natts < 2 {
         return Err(err(
             "invalid connectby source data query",
@@ -199,7 +204,11 @@ fn compat_connectby_tupdescs(
                 )
             };
             let _ = label;
-            return Err(err("invalid connectby return type", &detail, ERRCODE_DATATYPE_MISMATCH));
+            return Err(err(
+                "invalid connectby return type",
+                &detail,
+                ERRCODE_DATATYPE_MISMATCH,
+            ));
         }
     }
     Ok(())
@@ -274,7 +283,10 @@ fn build_tuplestore_recursively(
             params.key_fld,
             params.key_fld,
             params.parent_key_fld,
-            params.orderby_fld.as_deref().expect("serial mode carries orderby_fld"),
+            params
+                .orderby_fld
+                .as_deref()
+                .expect("serial mode carries orderby_fld"),
         )
     };
 
@@ -322,7 +334,10 @@ fn build_tuplestore_recursively(
                 Some(s) => Some(::mcx::std_vec_from_slice("tablefunc", s)?),
                 None => None,
             };
-            rows.push(Row { current_key, parent_key });
+            rows.push(Row {
+                current_key,
+                parent_key,
+            });
         }
         Ok(rows)
     })?;
@@ -336,14 +351,18 @@ fn build_tuplestore_recursively(
             let chk_branch = [d, branch, d].concat();
             let chk_current = [d, ck, d].concat();
             if contains_bytes(&chk_branch, &chk_current) {
-                return Err(err("infinite recursion detected", "", ERRCODE_INVALID_RECURSION));
+                return Err(err(
+                    "infinite recursion detected",
+                    "",
+                    ERRCODE_INVALID_RECURSION,
+                ));
             }
         }
 
         // Extend the branch with the current key (tablefunc.c:1345-1346).
         let current_branch: Vec<u8> = match row.current_key.as_deref() {
             Some(ck) => [branch, params.branch_delim.as_slice(), ck].concat(),
-            None => ::mcx::std_vec_from_slice("tablefunc",branch)?,
+            None => ::mcx::std_vec_from_slice("tablefunc", branch)?,
         };
 
         let values = build_values(
@@ -393,8 +412,7 @@ fn build_values(
     } else {
         CONNECTBY_NCOLS_NOBRANCH
     } + params.show_serial as usize;
-    let mut values: Vec<Option<Vec<u8>>> =
-        ::mcx::std_vec_from_elem("tablefunc", None, ncols)?;
+    let mut values: Vec<Option<Vec<u8>>> = ::mcx::std_vec_from_elem("tablefunc", None, ncols)?;
     values[0] = match current_key {
         Some(s) => Some(::mcx::std_vec_from_slice("tablefunc", s)?),
         None => None,
@@ -428,5 +446,6 @@ fn quote_literal_cstr(mcx: Mcx<'_>, s: &str) -> PgResult<String> {
     let v = adt_quote::quote_literal(mcx, s.as_bytes())?;
     // quote_literal only adds ASCII (quotes, E, doubled backslashes) to a
     // valid-UTF-8 input; the map_err keeps the path panic-free regardless.
-    String::from_utf8(::mcx::std_vec_from_slice("tablefunc",v.data())?).map_err(|_| crate::non_utf8_query_error())
+    String::from_utf8(::mcx::std_vec_from_slice("tablefunc", v.data())?)
+        .map_err(|_| crate::non_utf8_query_error())
 }

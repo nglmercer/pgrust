@@ -19,7 +19,12 @@ fn int4_rng() -> RangeInfo {
         rngtypid: INT4RANGE,
         collation: 0,
         elem_typid: 23,
-        elem: ElemInfo { typlen: 4, typbyval: true, typalign: b'i', typstorage: b'p' },
+        elem: ElemInfo {
+            typlen: 4,
+            typbyval: true,
+            typalign: b'i',
+            typstorage: b'p',
+        },
         cmp: FmgrInfo::new(fc_i32_cmp, 351, 2, true, false),
         canonical_oid: F_INT4RANGE_CANONICAL,
         elem_hash: None,
@@ -43,7 +48,9 @@ fn mk<'m>(mcx: ::mcx::Mcx<'m>, rng: &mut RangeInfo, lo: i32, hi: i32) -> PgVec<'
         inclusive: false,
         lower: false,
     };
-    make_range(mcx, rng, &mut lower, &mut upper, false, None).unwrap().unwrap()
+    make_range(mcx, rng, &mut lower, &mut upper, false, None)
+        .unwrap()
+        .unwrap()
 }
 
 #[test]
@@ -103,7 +110,14 @@ fn contains_and_overlaps_bsearch() {
     let mr = make_multirange(mcx, INT4MULTIRANGE, &mut rng, &mut ranges).unwrap();
     assert_eq!(multirange_count(&mr), 3);
 
-    for (v, want) in [(0, false), (1, true), (3, false), (6, true), (15, true), (20, false)] {
+    for (v, want) in [
+        (0, false),
+        (1, true),
+        (3, false),
+        (6, true),
+        (15, true),
+        (20, false),
+    ] {
         assert_eq!(
             multirange_contains_elem_internal(mcx, &mut rng, &mr, Datum::from_i32(v)).unwrap(),
             want,
@@ -209,7 +223,11 @@ mod recv_wire {
 
     fn io_data() -> MultirangeIOData {
         MultirangeIOData {
-            mi: MultirangeInfo { pin: None, mltrngtypid: INT4MULTIRANGE, rng: int4_rng() },
+            mi: MultirangeInfo {
+                pin: None,
+                mltrngtypid: INT4MULTIRANGE,
+                rng: int4_rng(),
+            },
             typioproc: FmgrInfo::new(fc_range_recv, 3836, 3, true, false),
             typioparam: INT4RANGE,
         }
@@ -313,11 +331,24 @@ fn constructor_guards_are_elog_errors() {
     // SAFETY: mcx outlives the call.
     unsafe { fcinfo.set_result_mcx(ctx.mcx()) };
     fcinfo.set_arg_null(0);
-    let mut flinfo = FmgrInfo::new(crate::builtins::fc_multirange_constructor0, 4229, 0, false, false);
-    let e = crate::builtins::fc_multirange_constructor0(Some(&mut flinfo), &mut fcinfo).unwrap_err();
+    let mut flinfo = FmgrInfo::new(
+        crate::builtins::fc_multirange_constructor0,
+        4229,
+        0,
+        false,
+        false,
+    );
+    let e =
+        crate::builtins::fc_multirange_constructor0(Some(&mut flinfo), &mut fcinfo).unwrap_err();
     assert_eq!(e.sqlstate, ::types_error::ERRCODE_INTERNAL_ERROR);
-    assert_eq!(e.message, "niladic multirange constructor must not receive arguments");
-    for f in [crate::builtins::fc_multirange_constructor1, crate::builtins::fc_multirange_constructor2] {
+    assert_eq!(
+        e.message,
+        "niladic multirange constructor must not receive arguments"
+    );
+    for f in [
+        crate::builtins::fc_multirange_constructor1,
+        crate::builtins::fc_multirange_constructor2,
+    ] {
         let mut flinfo = FmgrInfo::new(f, 4230, 1, false, false);
         let e = f(Some(&mut flinfo), &mut fcinfo).unwrap_err();
         assert_eq!(e.sqlstate, ::types_error::ERRCODE_INTERNAL_ERROR);
@@ -357,7 +388,11 @@ mod out_ceiling {
         let ctx = MemoryContext::new("t");
         let mcx = ctx.mcx();
         let mut cache = MultirangeIOData {
-            mi: MultirangeInfo { pin: None, mltrngtypid: INT4MULTIRANGE, rng: int4_rng() },
+            mi: MultirangeInfo {
+                pin: None,
+                mltrngtypid: INT4MULTIRANGE,
+                rng: int4_rng(),
+            },
             typioproc: FmgrInfo::new(fc_huge_range_out, 3840, 1, true, false),
             typioparam: INT4RANGE,
         };
@@ -367,8 +402,8 @@ mod out_ceiling {
         let mut ranges: PgVec<'_, &[u8]> = ::mcx::vec_with_capacity_in(mcx, 2).unwrap();
         ranges.push(&r1[..]);
         ranges.push(&r2[..]);
-        let mr = crate::make_multirange(mcx, INT4MULTIRANGE, &mut cache.mi.rng, &mut ranges)
-            .unwrap();
+        let mr =
+            crate::make_multirange(mcx, INT4MULTIRANGE, &mut cache.mi.rng, &mut ranges).unwrap();
         let err = multirange_out(mcx, &mut cache, &mr).expect_err(
             "multirange output above MaxAllocSize must raise the StringInfo ceiling error",
         );
@@ -392,8 +427,14 @@ fn pseudotype_aliases_delegate_to_multirange_out() {
             .find(|b| b.foid == oid)
             .unwrap_or_else(|| panic!("oid {oid} not registered"))
     };
-    assert_eq!(by_oid(4230).func as usize, crate::builtins::fc_multirange_out as *const () as usize);
-    assert_eq!(by_oid(4227).func as usize, crate::builtins::fc_multirange_out as *const () as usize);
+    assert_eq!(
+        by_oid(4230).func as usize,
+        crate::builtins::fc_multirange_out as *const () as usize
+    );
+    assert_eq!(
+        by_oid(4227).func as usize,
+        crate::builtins::fc_multirange_out as *const () as usize
+    );
     assert_eq!(by_oid(4227).name, "anycompatiblemultirange_out");
 }
 
@@ -405,7 +446,10 @@ fn pseudotype_aliases_delegate_to_multirange_out() {
 #[test]
 fn range_type_cache_lookup_failure_is_a_catchable_xx000() {
     let e = crate::builtins::range_type_lookup_failed(INT4RANGE);
-    assert_eq!(e.message(), format!("cache lookup failed for range type {INT4RANGE}"));
+    assert_eq!(
+        e.message(),
+        format!("cache lookup failed for range type {INT4RANGE}")
+    );
     assert_eq!(e.sqlstate(), ::types_error::ERRCODE_INTERNAL_ERROR);
     assert_eq!(e.level(), ::types_error::ERROR);
 }

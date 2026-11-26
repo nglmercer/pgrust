@@ -68,7 +68,10 @@ fn nested_bounded_quantifiers_error_etoobig_capturing() {
 fn backref_dup_blowup_still_etoobig() {
     // Backref dupnfa path: already reported REG_ETOOBIG pre-fix (its
     // NISERR-check ordering happened to cover it); must keep doing so.
-    assert_eq!(compile("(a{250})\\1{250}(b{250})\\2{250}"), Err(REG_ETOOBIG));
+    assert_eq!(
+        compile("(a{250})\\1{250}(b{250})\\2{250}"),
+        Err(REG_ETOOBIG)
+    );
 }
 
 #[test]

@@ -34,23 +34,52 @@ pub(super) struct Dropped<'p> {
 /// to a constant, so every row computes the same image and the key's groups are the node's one group. Any other read,
 /// or a type whose equal values show apart (a numeric's scale, a text under a nondeterministic collation: PostgreSQL
 /// shows the first row's), answers none.
-pub(super) fn dropped<'p>(b: &Builder<'p, '_>, tlist: &'p NodeList<'p>, qual: &'p NodeList<'p>, keyed: &[i16], fd: bool, alone: bool) -> Dropped<'p> {
-    let mut out = Dropped { covered: ArenaVec::new_in(b.arena), exprs: ArenaVec::new_in(b.arena) }; // alloc: Cold
+pub(super) fn dropped<'p>(
+    b: &Builder<'p, '_>,
+    tlist: &'p NodeList<'p>,
+    qual: &'p NodeList<'p>,
+    keyed: &[i16],
+    fd: bool,
+    alone: bool,
+) -> Dropped<'p> {
+    let mut out = Dropped {
+        covered: ArenaVec::new_in(b.arena),
+        exprs: ArenaVec::new_in(b.arena),
+    }; // alloc: Cold
     if !fd || (keyed.is_empty() && !alone) {
         return out;
     }
-    let free = |x: Node<'p>| x.as_var().filter(|v| v.varno == OUTER_VAR && v.varlevelsup == 0 && v.varattno > 0 && !keyed.contains(&v.varattno)).map(|v| v.varattno);
+    let free = |x: Node<'p>| {
+        x.as_var()
+            .filter(|v| {
+                v.varno == OUTER_VAR
+                    && v.varlevelsup == 0
+                    && v.varattno > 0
+                    && !keyed.contains(&v.varattno)
+            })
+            .map(|v| v.varattno)
+    };
     let cx = crate::effects::Cx::new(b.stmt, b.facts, b.arena);
     let mut cands: ArenaVec<Node<'p>> = ArenaVec::new_in(b.arena); // alloc: Cold
     for te in tlist.iter().filter_map(|n| n.as_target_entry()) {
         let e = te.expr;
-        if te.ressortgroupref == 0 || relabels(e).as_var().is_some() || cands.iter().any(|&c| types_nodes::equal(c, e)) {
+        if te.ressortgroupref == 0
+            || relabels(e).as_var().is_some()
+            || cands.iter().any(|&c| types_nodes::equal(c, e))
+        {
             continue;
         }
         let mut reads = false;
         let plain = expr::walk(e, &mut |x| {
             reads |= free(x).is_some();
-            !matches!(x.node_tag(), NodeTag::T_Aggref | NodeTag::T_SubPlan | NodeTag::T_AlternativeSubPlan | NodeTag::T_GroupingFunc | NodeTag::T_WindowFunc)
+            !matches!(
+                x.node_tag(),
+                NodeTag::T_Aggref
+                    | NodeTag::T_SubPlan
+                    | NodeTag::T_AlternativeSubPlan
+                    | NodeTag::T_GroupingFunc
+                    | NodeTag::T_WindowFunc
+            )
         });
         if reads && plain && !crate::effects::expr_acts(&cx, e) {
             cands.push(e);
@@ -62,7 +91,11 @@ pub(super) fn dropped<'p>(b: &Builder<'p, '_>, tlist: &'p NodeList<'p>, qual: &'
     // each read of a free column with the innermost candidate it sits in (none: outside every one)
     let mut reads: ArenaVec<(i16, Option<usize>)> = ArenaVec::new_in(b.arena); // alloc: Cold
     let mut known = true;
-    for n in tlist.iter().filter_map(|n| n.as_target_entry().map(|t| t.expr)).chain(qual.iter()) {
+    for n in tlist
+        .iter()
+        .filter_map(|n| n.as_target_entry().map(|t| t.expr))
+        .chain(qual.iter())
+    {
         known &= reads_in(n, None, &cands, &free, &mut reads);
     }
     if !known {
@@ -83,9 +116,18 @@ pub(super) fn dropped<'p>(b: &Builder<'p, '_>, tlist: &'p NodeList<'p>, qual: &'
     if keyed.is_empty() {
         // D4163: with no key left the expressions are the node's only keys
         let whole = reads.iter().all(|&(_, at)| at.is_some());
-        let one = |e: Node<'p>| crate::catalog::keysem::one_image(b.facts, nodes_core::expr_type(e), nodes_core::expr_collation(e));
+        let one = |e: Node<'p>| {
+            crate::catalog::keysem::one_image(
+                b.facts,
+                nodes_core::expr_type(e),
+                nodes_core::expr_collation(e),
+            )
+        };
         if !whole || !out.exprs.iter().all(|&e| one(e)) {
-            return Dropped { covered: ArenaVec::new_in(b.arena), exprs: ArenaVec::new_in(b.arena) }; // alloc: Cold
+            return Dropped {
+                covered: ArenaVec::new_in(b.arena),
+                exprs: ArenaVec::new_in(b.arena),
+            }; // alloc: Cold
         }
     }
     out
@@ -93,7 +135,13 @@ pub(super) fn dropped<'p>(b: &Builder<'p, '_>, tlist: &'p NodeList<'p>, qual: &'
 
 /// `dropped`'s walk: the free columns `n` reads outside the aggregates, each with the innermost of `cands` it sits in
 /// (`at` on entry: the one around `n`). False past a node kind `expr::kids` does not know.
-fn reads_in<'p>(n: Node<'p>, at: Option<usize>, cands: &[Node<'p>], free: &dyn Fn(Node<'p>) -> Option<i16>, out: &mut ArenaVec<(i16, Option<usize>)>) -> bool {
+fn reads_in<'p>(
+    n: Node<'p>,
+    at: Option<usize>,
+    cands: &[Node<'p>],
+    free: &dyn Fn(Node<'p>) -> Option<i16>,
+    out: &mut ArenaVec<(i16, Option<usize>)>,
+) -> bool {
     crate::walk::stack_check(); // D3748
     if n.node_tag() == NodeTag::T_Aggref {
         return true;
@@ -110,13 +158,25 @@ fn reads_in<'p>(n: Node<'p>, at: Option<usize>, cands: &[Node<'p>], free: &dyn F
 /// Key each of `d.exprs` that reads a column `sh.dropped` names and no later arm keyed (`pk_keys`), and answer `tlist`
 /// and `qual` reading those expressions from the keys. The expressions read the node's input row (`OUTER_VAR`), so a
 /// projection after `child`'s ops passes that row on and appends them; a key's word is the group's one value.
-pub(super) fn rekey<'p>(b: &Builder<'p, '_>, child: &mut Open<'p>, sh: &mut Shape<'p>, d: &Dropped<'p>, tlist: &'p NodeList<'p>, qual: &'p NodeList<'p>, input: Option<&'p NodeList<'p>>, k: Kind, id: i32) -> Result<(&'p NodeList<'p>, &'p NodeList<'p>), Refusal> {
+pub(super) fn rekey<'p>(
+    b: &Builder<'p, '_>,
+    child: &mut Open<'p>,
+    sh: &mut Shape<'p>,
+    d: &Dropped<'p>,
+    tlist: &'p NodeList<'p>,
+    qual: &'p NodeList<'p>,
+    input: Option<&'p NodeList<'p>>,
+    k: Kind,
+    id: i32,
+) -> Result<(&'p NodeList<'p>, &'p NodeList<'p>), Refusal> {
     let left = |c: i16| sh.dropped.contains(&c) && !sh.keys.iter().any(|key| key.resno == c);
     let mut exprs: ArenaVec<Node<'p>> = ArenaVec::new_in(b.arena); // alloc: Cold
     for &e in d.exprs.iter() {
         let mut reads = false;
         expr::walk(e, &mut |x| {
-            reads |= x.as_var().is_some_and(|v| v.varno == OUTER_VAR && v.varlevelsup == 0 && left(v.varattno));
+            reads |= x
+                .as_var()
+                .is_some_and(|v| v.varno == OUTER_VAR && v.varlevelsup == 0 && left(v.varattno));
             true
         });
         if reads {
@@ -140,26 +200,55 @@ pub(super) fn rekey<'p>(b: &Builder<'p, '_>, child: &mut Open<'p>, sh: &mut Shap
     let row = row.or(input).ok_or_else(refuse)?;
     let mut list = NodeList::with_capacity(mcx, row.len() + exprs.len()).map_err(oom)?;
     for (i, n) in row.iter().enumerate() {
-        let te = n.as_target_entry().filter(|t| t.resno as usize == i + 1).ok_or_else(refuse)?;
-        let syn = relabels(te.expr).as_var().map_or((0, 0), |v| (v.varnosyn, v.varattnosyn));
+        let te = n
+            .as_target_entry()
+            .filter(|t| t.resno as usize == i + 1)
+            .ok_or_else(refuse)?;
+        let syn = relabels(te.expr)
+            .as_var()
+            .map_or((0, 0), |v| (v.varnosyn, v.varattnosyn));
         let v = pass_var(mcx, te.resno, te.expr, syn).map_err(oom)?;
-        list.lappend(mcx, Node::mk_target_entry(mcx, v, te.resno, te.resname, te.resjunk).map_err(oom)?).map_err(oom)?;
+        list.lappend(
+            mcx,
+            Node::mk_target_entry(mcx, v, te.resno, te.resname, te.resjunk).map_err(oom)?,
+        )
+        .map_err(oom)?;
     }
     let mut swaps: ArenaVec<(Node<'p>, Node<'p>)> = ArenaVec::new_in(b.arena); // alloc: Cold
     for (j, &e) in exprs.iter().enumerate() {
         let resno = i16::try_from(row.len() + j + 1).map_err(|_| refuse())?;
-        list.lappend(mcx, Node::mk_target_entry(mcx, e, resno, None, false).map_err(oom)?).map_err(oom)?;
+        list.lappend(
+            mcx,
+            Node::mk_target_entry(mcx, e, resno, None, false).map_err(oom)?,
+        )
+        .map_err(oom)?;
         swaps.push((e, pass_var(mcx, resno, e, (0, 0)).map_err(oom)?));
     }
-    child.push(Op::Project(Node::mk_list(mcx, list).map_err(oom)?.as_list().ok_or_else(refuse)?));
+    child.push(Op::Project(
+        Node::mk_list(mcx, list)
+            .map_err(oom)?
+            .as_list()
+            .ok_or_else(refuse)?,
+    ));
     for &(e, v) in swaps.iter() {
         fires::fire("agg.rekey_dropped"); // shapecheck fire signal (D4076): a dropped grouping expression keys the group again
-        sh.key(b, child, v.as_var().map_or(0, |v| v.varattno), nodes_core::expr_collation(e), k, id)?;
+        sh.key(
+            b,
+            child,
+            v.as_var().map_or(0, |v| v.varattno),
+            nodes_core::expr_collation(e),
+            k,
+            id,
+        )?;
     }
     let swap = |l: &'p NodeList<'p>| -> Result<&'p NodeList<'p>, Refusal> {
-        let out = nodes_core::mutate_list_dyn(mcx, l, &mut |n| swap_in(mcx, n, &swaps)).map_err(oom)?;
+        let out =
+            nodes_core::mutate_list_dyn(mcx, l, &mut |n| swap_in(mcx, n, &swaps)).map_err(oom)?;
         match out {
-            Some(o) => Node::mk_list(mcx, o).map_err(oom)?.as_list().ok_or_else(refuse),
+            Some(o) => Node::mk_list(mcx, o)
+                .map_err(oom)?
+                .as_list()
+                .ok_or_else(refuse),
             None => Ok(l),
         }
     };
@@ -167,7 +256,12 @@ pub(super) fn rekey<'p>(b: &Builder<'p, '_>, child: &mut Open<'p>, sh: &mut Shap
 }
 
 /// An `OUTER_VAR` reference to column `resno` of the row before, typed as `e` (its syntactic column `syn`, or none).
-fn pass_var<'p>(mcx: mcx::Mcx<'p>, resno: i16, e: Node<'p>, syn: (u32, i16)) -> types_error::PgResult<Node<'p>> {
+fn pass_var<'p>(
+    mcx: mcx::Mcx<'p>,
+    resno: i16,
+    e: Node<'p>,
+    syn: (u32, i16),
+) -> types_error::PgResult<Node<'p>> {
     let v = Var {
         varno: OUTER_VAR,
         varattno: resno,
@@ -184,7 +278,11 @@ fn pass_var<'p>(mcx: mcx::Mcx<'p>, resno: i16, e: Node<'p>, syn: (u32, i16)) -> 
 }
 
 /// `n` with each sub-expression outside the aggregates `equal` to a re-keyed expression as its key's column.
-fn swap_in<'p>(mcx: mcx::Mcx<'p>, n: Node<'p>, swaps: &[(Node<'p>, Node<'p>)]) -> types_error::PgResult<Option<Node<'p>>> {
+fn swap_in<'p>(
+    mcx: mcx::Mcx<'p>,
+    n: Node<'p>,
+    swaps: &[(Node<'p>, Node<'p>)],
+) -> types_error::PgResult<Option<Node<'p>>> {
     crate::walk::stack_check(); // D3748
     if n.node_tag() == NodeTag::T_Aggref {
         return Ok(None);
@@ -201,13 +299,25 @@ fn swap_in<'p>(mcx: mcx::Mcx<'p>, n: Node<'p>, swaps: &[(Node<'p>, Node<'p>)]) -
 /// demand.rs: inside a target entry a WindowAgg computes under a ressortgroupref, one value per group): the node must not
 /// key them (each group would split by their values); they ride a `min` cell (passenger.rs `rewrite`: the reader's
 /// expression over any member is the group's one value). None without `fd` or a key.
-pub(super) fn window_dropped<'p>(b: &Builder<'p, '_>, plan: &'p Plan<'p>, tlist: &'p NodeList<'p>, keyed: &[i16], fd: bool) -> ArenaVec<i16> {
+pub(super) fn window_dropped<'p>(
+    b: &Builder<'p, '_>,
+    plan: &'p Plan<'p>,
+    tlist: &'p NodeList<'p>,
+    keyed: &[i16],
+    fd: bool,
+) -> ArenaVec<i16> {
     let mut out: ArenaVec<i16> = ArenaVec::new_in(b.arena); // alloc: Cold
     if !fd || keyed.is_empty() {
         return out;
     }
     for te in tlist.iter().filter_map(|n| n.as_target_entry()) {
-        let col = te.expr.as_var().filter(|v| te.ressortgroupref == 0 && v.varno == OUTER_VAR && v.varlevelsup == 0 && v.varattno > 0 && !keyed.contains(&v.varattno));
+        let col = te.expr.as_var().filter(|v| {
+            te.ressortgroupref == 0
+                && v.varno == OUTER_VAR
+                && v.varlevelsup == 0
+                && v.varattno > 0
+                && !keyed.contains(&v.varattno)
+        });
         if let Some(v) = col.filter(|_| reads_above(b, plan, te.resno) == Read::Grouped) {
             if !out.contains(&v.varattno) {
                 out.push(v.varattno);

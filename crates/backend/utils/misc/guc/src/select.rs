@@ -92,7 +92,12 @@ pub fn SelectConfigFiles(user_d_option: Option<&str>, progname: &str) -> PgResul
     let data_dir = init_small::globals::DataDir()
         .expect("SelectConfigFiles: SetDataDir published DataDir")
         .to_string();
-    crate::SetConfigOption("data_directory", Some(&data_dir), PGC_POSTMASTER, PGC_S_OVERRIDE)?;
+    crate::SetConfigOption(
+        "data_directory",
+        Some(&data_dir),
+        PGC_POSTMASTER,
+        PGC_S_OVERRIDE,
+    )?;
 
     // Second pass picks up postgresql.auto.conf now that DataDir is known.
     guc_file::ProcessConfigFile(PGC_POSTMASTER)?;

@@ -1,4 +1,5 @@
-#![cfg(feature = "wasmtime-oracle")]//! `IntBinOp::Umulh` (V4R-206) gives the same word on TPDE, the interpreter and wasm, and that word is the high half
+#![cfg(feature = "wasmtime-oracle")]
+//! `IntBinOp::Umulh` (V4R-206) gives the same word on TPDE, the interpreter and wasm, and that word is the high half
 //! of the unsigned 128-bit product: over edge words (0, 1, all ones, single bits, the sign bit, the datetime divides'
 //! Granlund-Montgomery magics) crossed with each other and with random words, with a run-time operand and with a
 //! constant one (TPDE folds a constant pair; datetime.rs multiplies by a constant).
@@ -44,19 +45,42 @@ impl Wasm {
         let engine = Engine::new(Config::new().wasm_simd(true)).unwrap();
         let mut store = Store::new(&engine, ());
         let memory = Memory::new(&mut store, MemoryType::new(64, None)).unwrap();
-        let table = Table::new(&mut store, TableType::new(RefType::FUNCREF, 16, None), Ref::Func(None)).unwrap();
-        let sp = Global::new(&mut store, GlobalType::new(ValType::I32, Mutability::Var), Val::I32(DATA as i32)).unwrap();
+        let table = Table::new(
+            &mut store,
+            TableType::new(RefType::FUNCREF, 16, None),
+            Ref::Func(None),
+        )
+        .unwrap();
+        let sp = Global::new(
+            &mut store,
+            GlobalType::new(ValType::I32, Mutability::Var),
+            Val::I32(DATA as i32),
+        )
+        .unwrap();
         let module = Module::new(&engine, &bytes).unwrap();
-        let inst = Instance::new(&mut store, &module, &[memory.into(), table.into(), sp.into()]).unwrap();
-        let func = inst.get_func(&mut store, &gravity_wasm::func_export_name(f)).expect("exported");
-        Wasm { store, memory, func }
+        let inst = Instance::new(
+            &mut store,
+            &module,
+            &[memory.into(), table.into(), sp.into()],
+        )
+        .unwrap();
+        let func = inst
+            .get_func(&mut store, &gravity_wasm::func_export_name(f))
+            .expect("exported");
+        Wasm {
+            store,
+            memory,
+            func,
+        }
     }
     fn run(&mut self, fr: &mut Frame) {
         let size = std::mem::size_of::<Frame>();
         let bytes = unsafe { std::slice::from_raw_parts(fr as *const Frame as *const u8, size) };
         self.memory.data_mut(&mut self.store)[DATA..DATA + size].copy_from_slice(bytes);
         let mut r = [wasmtime::Val::I64(-1)];
-        self.func.call(&mut self.store, &[wasmtime::Val::I64(DATA as i64)], &mut r).unwrap();
+        self.func
+            .call(&mut self.store, &[wasmtime::Val::I64(DATA as i64)], &mut r)
+            .unwrap();
         assert_eq!(r[0].i64(), Some(0));
         let back = self.memory.data(&self.store)[DATA..DATA + size].to_vec();
         unsafe { std::ptr::copy_nonoverlapping(back.as_ptr(), fr as *mut Frame as *mut u8, size) };
@@ -75,18 +99,40 @@ fn umulh_is_the_same_word_on_every_backend() {
     };
     // the magics datetime.rs divides by (86_400_000_000, 3_600_000_000, 60_000_000, 1_000_000, 146_097, 1_461, 153 ...)
     // are all of the form ceil(2^s / d); a few of them plus the edges
-    let magics: Vec<u64> = [86_400_000_000u64, 3_600_000_000, 60_000_000, 1_000_000, 146_097, 1_461, 153, 7, 10]
-        .iter()
-        .map(|&d| (1u128 << 64).div_ceil( d as u128) as u64)
-        .collect();
-    let mut words = vec![0u64, 1, 2, u64::MAX, u64::MAX - 1, 1 << 63, (1 << 63) - 1, 0xffff_ffff, 1 << 32, (1 << 32) + 1];
+    let magics: Vec<u64> = [
+        86_400_000_000u64,
+        3_600_000_000,
+        60_000_000,
+        1_000_000,
+        146_097,
+        1_461,
+        153,
+        7,
+        10,
+    ]
+    .iter()
+    .map(|&d| (1u128 << 64).div_ceil(d as u128) as u64)
+    .collect();
+    let mut words = vec![
+        0u64,
+        1,
+        2,
+        u64::MAX,
+        u64::MAX - 1,
+        1 << 63,
+        (1 << 63) - 1,
+        0xffff_ffff,
+        1 << 32,
+        (1 << 32) + 1,
+    ];
     words.extend((0..64).map(|i| 1u64 << i));
     words.extend(magics.iter().copied());
     words.extend((0..64).map(|_| next()));
     for &k in words.iter().step_by(7).chain(magics.iter()) {
         let (p, f) = program(k);
         gravity_ir::verify::verify(&p).unwrap_or_else(|e| panic!("verify: {e:?}"));
-        let tpde = gravity_backend::mapped(&p, f).unwrap_or_else(|e| panic!("tpde: {}", e.message()));
+        let tpde =
+            gravity_backend::mapped(&p, f).unwrap_or_else(|e| panic!("tpde: {}", e.message()));
         let interp = gravity_backend::interp(p.clone(), f).unwrap();
         let mut wasm = Wasm::new(&p, f);
         for &x in &words {

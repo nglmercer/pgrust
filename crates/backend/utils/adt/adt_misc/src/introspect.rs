@@ -1,6 +1,5 @@
 //! misc.c + version.c slices.
 
-
 use types_error::PgResult;
 use types_tuple::NameData;
 

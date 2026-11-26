@@ -16,12 +16,12 @@
 use std::sync::Arc;
 
 use gravity_abi::Datum as Word;
+use types_core::BlockNumber;
 use types_core::Oid;
 use types_error::PgResult;
 use types_rel::Relation;
 use types_scan::scankey::ScanKeyData;
 use types_storage::bufpage::PageRef;
-use types_core::BlockNumber;
 
 use crate::ops::scan::heap_source::{RangeRecipe, SampleFilter};
 use crate::scratch::NodeScratch;
@@ -53,15 +53,32 @@ impl WorkerProbe {
     /// `None` when the recipe's walk is not a plain point probe a worker serves: every key a bound `column op value` key
     /// word in key order (no search array, row comparison, null test or ORDER BY), a forward heap walk (not index-only),
     /// table columns only, over a relation the heap range source reads by locator (not temporary).
-    pub fn of(r: &crate::ops::scan::index_source::SiteRecipe, heap: &Relation<'_>) -> Option<WorkerProbe> {
+    pub fn of(
+        r: &crate::ops::scan::index_source::SiteRecipe,
+        heap: &Relation<'_>,
+    ) -> Option<WorkerProbe> {
         use crate::ops::scan::index_source::KeyWord;
-        let plain = r.nkeys > 0 && r.keys.len() == r.nkeys && r.words.len() == r.nkeys && r.words.iter().enumerate().all(|(i, w)| matches!(w, KeyWord::Key(k) if *k as usize == i));
-        let keys = plain && r.keys.iter().all(|k| k.sk_flags == 0) && r.host_keys.iter().all(|h| !h) && r.rows.is_empty() && r.am.is_none();
+        let plain = r.nkeys > 0
+            && r.keys.len() == r.nkeys
+            && r.words.len() == r.nkeys
+            && r.words
+                .iter()
+                .enumerate()
+                .all(|(i, w)| matches!(w, KeyWord::Key(k) if *k as usize == i));
+        let keys = plain
+            && r.keys.iter().all(|k| k.sk_flags == 0)
+            && r.host_keys.iter().all(|h| !h)
+            && r.rows.is_empty()
+            && r.am.is_none();
         if !keys || r.backward || r.attnos.iter().any(|&a| a < 1) || heap.uses_local_buffers() {
             return None;
         }
         let range = RangeRecipe::from_plan(heap, &r.attnos).ok()?;
-        Some(WorkerProbe { range, index: r.index, keys: r.keys.clone() })
+        Some(WorkerProbe {
+            range,
+            index: r.index,
+            keys: r.keys.clone(),
+        })
     }
 
     /// The execution's image of `index` (the site's), for the workers (exec runner plan.rs files it in the execution's
@@ -70,15 +87,31 @@ impl WorkerProbe {
     /// the execution's `Resolved` (a REINDEX moves the locator; the next execution captures its own).
     /// `in_recovery` is the leader's `TransactionStartedDuringRecovery`.
     pub fn capture(&self, index: &Relation<'_>, in_recovery: bool) -> PgResult<Option<Arc<Filed>>> {
-        if xact_seams::isolation_is_serializable::is_installed() && xact_seams::isolation_is_serializable::call() {
+        if xact_seams::isolation_is_serializable::is_installed()
+            && xact_seams::isolation_is_serializable::call()
+        {
             return Ok(None);
         }
-        let Some(img) = nbtree::IndexImage::capture(index)? else { return Ok(None) };
-        if !img.proc_oids().all(gravity_fn::session::pool_hosted) || !self.keys.iter().all(|k| gravity_fn::session::pool_hosted(k.sk_func.fn_oid)) {
+        let Some(img) = nbtree::IndexImage::capture(index)? else {
+            return Ok(None);
+        };
+        if !img.proc_oids().all(gravity_fn::session::pool_hosted)
+            || !self
+                .keys
+                .iter()
+                .all(|k| gravity_fn::session::pool_hosted(k.sk_func.fn_oid))
+        {
             return Ok(None);
         }
-        let stats = index.pgstat_enabled.get().then_some(index.rd_rel.relisshared);
-        Ok(Some(Arc::new(Filed { img: Arc::new(img), in_recovery, stats }))) // alloc: Exec
+        let stats = index
+            .pgstat_enabled
+            .get()
+            .then_some(index.rd_rel.relisshared);
+        Ok(Some(Arc::new(Filed {
+            img: Arc::new(img),
+            in_recovery,
+            stats,
+        }))) // alloc: Exec
     }
 }
 
@@ -112,16 +145,31 @@ pub struct ProbeFilter {
 
 impl ProbeFilter {
     pub fn new(p: &WorkerProbe, site: usize) -> ProbeFilter {
-        ProbeFilter { site, filed: None, keys: p.keys.clone(), nkeys: p.keys.len(), view: None, pages: crate::ops::scan::tid_pages::TidPages::new(), counts: (0, 0, 0, 0), stats: None }
+        ProbeFilter {
+            site,
+            filed: None,
+            keys: p.keys.clone(),
+            nkeys: p.keys.len(),
+            view: None,
+            pages: crate::ops::scan::tid_pages::TidPages::new(),
+            counts: (0, 0, 0, 0),
+            stats: None,
+        }
     }
 
     /// This thread's view of the bound execution's image, built at its first probe on the thread (a worker's claims may
     /// move between pool threads) or of a new execution's image.
     fn view(&mut self) -> PgResult<&mut View> {
-        let filed = self.filed.as_ref().ok_or_else(|| crate::pg_err("gravity: a worker index probe without its execution's image"))?;
+        let filed = self.filed.as_ref().ok_or_else(|| {
+            crate::pg_err("gravity: a worker index probe without its execution's image")
+        })?;
         let me = std::thread::current().id();
         // no reference count of the shared image is touched per probe (every participant's would contend on it)
-        if self.view.as_ref().is_none_or(|v| v.thread != me || !Arc::ptr_eq(&v.filed, filed)) {
+        if self
+            .view
+            .as_ref()
+            .is_none_or(|v| v.thread != me || !Arc::ptr_eq(&v.filed, filed))
+        {
             let filed = filed.clone();
             self.drop_view();
             let scratch = NodeScratch::new("GravityIndexProbe");
@@ -131,14 +179,22 @@ impl ProbeFilter {
             let rel = nbtree::ImageRel::new(img, mcx)?;
             let scan = rel.begin_scan(mcx, self.nkeys as i32, filed.in_recovery)?;
             self.stats = filed.stats.map(|shared| (filed.img.oid(), shared));
-            self.view = Some(View { scan, rel, filed, thread: me, scratch });
+            self.view = Some(View {
+                scan,
+                rel,
+                filed,
+                thread: me,
+                scratch,
+            });
         }
         Ok(self.view.as_mut().expect("built"))
     }
 
     /// The view ended: its scan closed on the thread that built it (a pin is that thread's), its block counts taken.
     fn drop_view(&mut self) {
-        let Some(mut v) = self.view.take() else { return };
+        let Some(mut v) = self.view.take() else {
+            return;
+        };
         self.counts.2 += v.rel.blocks_fetched();
         self.counts.3 += v.rel.blocks_hit();
         if v.thread == std::thread::current().id() {
@@ -171,14 +227,22 @@ impl SampleFilter for ProbeFilter {
         }
         let mut tids = self.pages.take_tids();
         let keys = core::mem::take(&mut self.keys);
-        let probed = self.view().and_then(|v| tids.with_vec(|t| v.rel.probe(&mut v.scan, &keys, t))); // alloc: Node charged owner
+        let probed = self
+            .view()
+            .and_then(|v| tids.with_vec(|t| v.rel.probe(&mut v.scan, &keys, t))); // alloc: Node charged owner
         self.keys = keys;
         self.pages.put_tids(tids);
         let got = probed?;
         self.counts.0 += 1;
         self.counts.1 += got as u64;
         // a probe's TIDs are as many as its matches: the sort polls
-        self.pages.order(&mut cancelpoll::step("index_probe start: one probe's TIDs sorted")).map_err(|_| crate::pg_err("gravity: an index probe's sort stopped for its statement's cancel"))?;
+        self.pages
+            .order(&mut cancelpoll::step(
+                "index_probe start: one probe's TIDs sorted",
+            ))
+            .map_err(|_| {
+                crate::pg_err("gravity: an index probe's sort stopped for its statement's cancel")
+            })?;
         Ok(())
     }
 
@@ -191,14 +255,21 @@ impl SampleFilter for ProbeFilter {
     }
 
     /// The visible tuples whose HOT chain root is a probed offset (tid_pages.rs).
-    fn keep_page(&mut self, _blk: BlockNumber, page: PageRef<'_>, vis: &mut [u16]) -> PgResult<usize> {
+    fn keep_page(
+        &mut self,
+        _blk: BlockNumber,
+        page: PageRef<'_>,
+        vis: &mut [u16],
+    ) -> PgResult<usize> {
         self.pages.keep_page(page, vis)
     }
 
     /// The execution's image from its `Resolved` (the binding's): the one its leader captured for this registry entry,
     /// never a recipe's (another statement's or session's, D3117).
     fn bind(&mut self, b: &gravity_driver::BindingRef<'_>) -> PgResult<()> {
-        let resolved = b.resolved.and_then(|r| r.downcast_ref::<crate::ops::scan::pgrc::granule_source::Resolved>());
+        let resolved = b
+            .resolved
+            .and_then(|r| r.downcast_ref::<crate::ops::scan::pgrc::granule_source::Resolved>());
         self.filed = resolved.and_then(|r| r.probe_image(self.site)).cloned();
         Ok(())
     }
@@ -226,12 +297,26 @@ pub fn lanes_served(desc: &gravity_program::SiteDesc) -> bool {
     use gravity_program::LaneId;
     let l = desc.lanes();
     let n = l.len() - l.last().is_some_and(|x| x.id == LaneId::RowId) as usize;
-    l[..n].iter().all(|x| matches!(x.id, LaneId::Attr(a) if a > 0))
+    l[..n]
+        .iter()
+        .all(|x| matches!(x.id, LaneId::Attr(a) if a > 0))
 }
 
 /// A worker's source for recipe `p` at registry entry `site` (`HostRegistry::derive_worker_source`).
-pub fn derive(p: &WorkerProbe, site: usize, a: gravity_driver::ArenaRef) -> gravity_driver::SourceBox {
-    gravity_driver::box_source(crate::ops::scan::heap_source::HeapRangeSource::with_sample(p.range.clone(), ProbeFilter::new(p, site)).serving_worker(), a)
+pub fn derive(
+    p: &WorkerProbe,
+    site: usize,
+    a: gravity_driver::ArenaRef,
+) -> gravity_driver::SourceBox {
+    gravity_driver::box_source(
+        crate::ops::scan::heap_source::HeapRangeSource::with_sample(
+            p.range.clone(),
+            ProbeFilter::new(p, site),
+        )
+        .serving_worker(),
+        a,
+    )
 }
 
-pub const SIZE: usize = core::mem::size_of::<crate::ops::scan::heap_source::HeapRangeSource<ProbeFilter>>();
+pub const SIZE: usize =
+    core::mem::size_of::<crate::ops::scan::heap_source::HeapRangeSource<ProbeFilter>>();

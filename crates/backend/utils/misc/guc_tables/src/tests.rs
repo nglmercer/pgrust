@@ -32,7 +32,9 @@ const PGRUST_UNPREFIXED: &[&str] = &[
 ];
 
 fn pgrust_only(name: &str) -> bool {
-    name.starts_with("pgrust.") || name.starts_with("jwt_validator.") || PGRUST_UNPREFIXED.contains(&name)
+    name.starts_with("pgrust.")
+        || name.starts_with("jwt_validator.")
+        || PGRUST_UNPREFIXED.contains(&name)
 }
 
 fn postgres_side<'a>(names: impl Iterator<Item = &'a str>) -> usize {
@@ -43,17 +45,43 @@ fn postgres_side<'a>(names: impl Iterator<Item = &'a str>) -> usize {
 fn table_counts_match_compiled_backend_shape() {
     let test_validator = usize::from(cfg!(feature = "oauth-test-validator"));
     let pg_side = [
-        ("bool", postgres_side(ConfigureNamesBool.iter().map(|s| s.name)), PG_BOOL + test_validator),
-        ("int", postgres_side(ConfigureNamesInt.iter().map(|s| s.name)), PG_INT),
-        ("real", postgres_side(ConfigureNamesReal.iter().map(|s| s.name)), PG_REAL),
-        ("string", postgres_side(ConfigureNamesString.iter().map(|s| s.name)), PG_STRING + test_validator),
-        ("enum", postgres_side(ConfigureNamesEnum.iter().map(|s| s.name)), PG_ENUM),
+        (
+            "bool",
+            postgres_side(ConfigureNamesBool.iter().map(|s| s.name)),
+            PG_BOOL + test_validator,
+        ),
+        (
+            "int",
+            postgres_side(ConfigureNamesInt.iter().map(|s| s.name)),
+            PG_INT,
+        ),
+        (
+            "real",
+            postgres_side(ConfigureNamesReal.iter().map(|s| s.name)),
+            PG_REAL,
+        ),
+        (
+            "string",
+            postgres_side(ConfigureNamesString.iter().map(|s| s.name)),
+            PG_STRING + test_validator,
+        ),
+        (
+            "enum",
+            postgres_side(ConfigureNamesEnum.iter().map(|s| s.name)),
+            PG_ENUM,
+        ),
     ];
     for (kind, got, want) in pg_side {
-        assert_eq!(got, want, "{kind}: PostgreSQL's side changed (a pgrust-only GUC is named pgrust.*)");
+        assert_eq!(
+            got, want,
+            "{kind}: PostgreSQL's side changed (a pgrust-only GUC is named pgrust.*)"
+        );
     }
     for name in PGRUST_UNPREFIXED {
-        assert!(all_settings().any(|s| s.name() == *name), "{name} is gone: drop it from PGRUST_UNPREFIXED");
+        assert!(
+            all_settings().any(|s| s.name() == *name),
+            "{name} is gone: drop it from PGRUST_UNPREFIXED"
+        );
     }
     assert_eq!(
         all_settings().count(),
@@ -260,9 +288,15 @@ fn default_toast_compression_is_installed_by_the_product_boot() {
     );
     // Boot value is pglz (C toast_compression.c boot default) and the
     // accessors must round-trip through the session backing cell.
-    assert_eq!(vars::default_toast_compression.read(), crate::consts::TOAST_PGLZ_COMPRESSION);
+    assert_eq!(
+        vars::default_toast_compression.read(),
+        crate::consts::TOAST_PGLZ_COMPRESSION
+    );
     vars::default_toast_compression.write(crate::consts::TOAST_LZ4_COMPRESSION);
-    assert_eq!(vars::default_toast_compression.read(), crate::consts::TOAST_LZ4_COMPRESSION);
+    assert_eq!(
+        vars::default_toast_compression.read(),
+        crate::consts::TOAST_LZ4_COMPRESSION
+    );
     vars::default_toast_compression.write(crate::consts::TOAST_PGLZ_COMPRESSION);
 }
 
@@ -294,7 +328,10 @@ fn name_tables_round_trip_indices() {
     assert_eq!(GucContext_Names[PGC_USERSET as usize], "user");
     assert_eq!(GucSource_Names[PGC_S_DEFAULT as usize], "default");
     assert_eq!(GucSource_Names[PGC_S_FILE as usize], "configuration file");
-    assert_eq!(config_group_names[FILE_LOCATIONS as usize], "File Locations");
+    assert_eq!(
+        config_group_names[FILE_LOCATIONS as usize],
+        "File Locations"
+    );
     assert_eq!(config_type_names[PGC_BOOL as usize], "bool");
     assert_eq!(config_type_names[PGC_ENUM as usize], "enum");
 }
@@ -349,21 +386,36 @@ fn file_extend_method_values_match_storage_layer() {
 
 #[test]
 fn recovery_init_sync_method_offers_syncfs_where_available() {
-    let opts = find("recovery_init_sync_method").options().unwrap().entries();
+    let opts = find("recovery_init_sync_method")
+        .options()
+        .unwrap()
+        .entries();
     let syncfs = opts.iter().find(|o| o.name == "syncfs");
     #[cfg(target_os = "linux")]
-    assert_eq!(syncfs.unwrap().val, types_storage::DATA_DIR_SYNC_METHOD_SYNCFS);
+    assert_eq!(
+        syncfs.unwrap().val,
+        types_storage::DATA_DIR_SYNC_METHOD_SYNCFS
+    );
     #[cfg(not(target_os = "linux"))]
     assert!(syncfs.is_none());
 }
 
 #[test]
 fn lz4_zstd_build_config_is_reflected_in_option_sets() {
-    let opts = find("default_toast_compression").options().unwrap().entries();
-    assert!(opts.iter().any(|o| o.name == "lz4" && o.val == consts::TOAST_LZ4_COMPRESSION));
+    let opts = find("default_toast_compression")
+        .options()
+        .unwrap()
+        .entries();
+    assert!(opts
+        .iter()
+        .any(|o| o.name == "lz4" && o.val == consts::TOAST_LZ4_COMPRESSION));
     // guc_tables.c wal_compression_options with USE_LZ4 and USE_ZSTD.
     let wal = find("wal_compression").options().unwrap().entries();
-    let visible: Vec<_> = wal.iter().filter(|o| !o.hidden).map(|o| (o.name, o.val)).collect();
+    let visible: Vec<_> = wal
+        .iter()
+        .filter(|o| !o.hidden)
+        .map(|o| (o.name, o.val))
+        .collect();
     assert_eq!(
         visible,
         [
@@ -384,8 +436,6 @@ fn lz4_zstd_build_config_is_reflected_in_option_sets() {
     assert_eq!(stack.boot_val, GucDefaultValue::Int(100));
 }
 
-
-
 // "pg_prewarm.autoprewarm" — autoprewarm.c:144-153 (_PG_init, preload arm):
 // DefineCustomBoolVariable, default true, PGC_POSTMASTER, flags 0, no hooks,
 // "Starts the autoprewarm worker." Regression for audit-18.6 w2-038
@@ -393,7 +443,17 @@ fn lz4_zstd_build_config_is_reflected_in_option_sets() {
 // pgrust knew no such GUC (42704 on SHOW under shared_preload_libraries).
 #[test]
 fn extension_settings_are_not_builtins() {
-    for prefix in ["plpgsql.", "pg_stat_statements.", "pg_trgm.", "pgcrypto.", "auto_explain.", "pg_prewarm.", "isn.", "passwordcheck.", "jwt_validator."] {
+    for prefix in [
+        "plpgsql.",
+        "pg_stat_statements.",
+        "pg_trgm.",
+        "pgcrypto.",
+        "auto_explain.",
+        "pg_prewarm.",
+        "isn.",
+        "passwordcheck.",
+        "jwt_validator.",
+    ] {
         assert!(all_settings().all(|setting| !setting.name().starts_with(prefix)));
     }
 }
@@ -415,7 +475,10 @@ fn retired_lanev2_settings_are_not_builtins() {
         "pgrust.runtime_bitmap_pool",
         "pgrust.lane_parallel_pool",
     ] {
-        assert!(all_settings().all(|setting| setting.name() != name), "{name}");
+        assert!(
+            all_settings().all(|setting| setting.name() != name),
+            "{name}"
+        );
     }
 }
 
@@ -450,9 +513,19 @@ fn regex_engine_is_shown_in_pg_settings() {
 #[test]
 fn writeback_flush_after_defaults_follow_sync_file_range() {
     let linux = cfg!(target_os = "linux");
-    for (name, on_linux) in [("bgwriter_flush_after", 64), ("checkpoint_flush_after", 32), ("backend_flush_after", 0)] {
-        let GucSetting::Int(g) = find(name) else { panic!("{name} should be an int GUC") };
-        assert_eq!(g.boot_val, GucDefaultValue::Int(if linux { on_linux } else { 0 }), "{name}");
+    for (name, on_linux) in [
+        ("bgwriter_flush_after", 64),
+        ("checkpoint_flush_after", 32),
+        ("backend_flush_after", 0),
+    ] {
+        let GucSetting::Int(g) = find(name) else {
+            panic!("{name} should be an int GUC")
+        };
+        assert_eq!(
+            g.boot_val,
+            GucDefaultValue::Int(if linux { on_linux } else { 0 }),
+            "{name}"
+        );
         assert_eq!(g.max, consts::WRITEBACK_MAX_PENDING_FLUSHES, "{name}");
     }
 }
@@ -468,13 +541,30 @@ fn condition_cache_modes_and_boolean_aliases() {
     let GucEnumOptions::Inline(options) = setting.options else {
         panic!("condition cache modes should be inline");
     };
-    assert_eq!(options.iter().filter(|o| !o.hidden).map(|o| o.name).collect::<Vec<_>>(), ["off", "granule", "rows", "full"]);
+    assert_eq!(
+        options
+            .iter()
+            .filter(|o| !o.hidden)
+            .map(|o| o.name)
+            .collect::<Vec<_>>(),
+        ["off", "granule", "rows", "full"]
+    );
     assert!(!options.iter().any(|o| o.name == "o"));
     for (names, mode) in [
-        (&["off", "false", "no", "0", "f", "fa", "fal", "fals", "n", "of"][..], Off),
+        (
+            &[
+                "off", "false", "no", "0", "f", "fa", "fal", "fals", "n", "of",
+            ][..],
+            Off,
+        ),
         (&["granule"][..], Granule),
         (&["rows"][..], Rows),
-        (&["full", "on", "true", "yes", "1", "t", "tr", "tru", "y", "ye"][..], Full),
+        (
+            &[
+                "full", "on", "true", "yes", "1", "t", "tr", "tru", "y", "ye",
+            ][..],
+            Full,
+        ),
     ] {
         for name in names {
             let option = options.iter().find(|o| o.name == *name).unwrap();
@@ -494,7 +584,12 @@ fn startup_prewarm_is_independent_of_condition_cache_mode() {
     let saved = backing::pgrust_gravity_prewarm();
     for on in [false, true] {
         backing::set_pgrust_gravity_prewarm(on);
-        for mode in [ConditionCacheMode::Off, ConditionCacheMode::Granule, ConditionCacheMode::Rows, ConditionCacheMode::Full] {
+        for mode in [
+            ConditionCacheMode::Off,
+            ConditionCacheMode::Granule,
+            ConditionCacheMode::Rows,
+            ConditionCacheMode::Full,
+        ] {
             backing::set_pgrust_condition_cache(mode as i32);
             assert_eq!(backing::pgrust_gravity_prewarm(), on);
         }
@@ -522,13 +617,36 @@ fn condition_cache_size_defaults_to_the_derived_budget_and_shows_the_budget_in_e
     assert_eq!((t.min, t.flags & GUC_UNIT_KB), (-1, GUC_UNIT_KB));
     assert_eq!(backing::pgrust_condition_cache_size(), -1);
     // nothing installed the derivation: the default keeps nothing
-    assert_eq!((pgrust_condition_cache_bytes(), show_pgrust_condition_cache_size().as_str()), (0, "0"));
+    assert_eq!(
+        (
+            pgrust_condition_cache_bytes(),
+            show_pgrust_condition_cache_size().as_str()
+        ),
+        (0, "0")
+    );
     hooks::derive_pgrust_condition_cache_size.install_if_absent(|| 3 << 30);
-    assert_eq!((pgrust_condition_cache_bytes(), show_pgrust_condition_cache_size().as_str()), (3 << 30, "3145728"));
+    assert_eq!(
+        (
+            pgrust_condition_cache_bytes(),
+            show_pgrust_condition_cache_size().as_str()
+        ),
+        (3 << 30, "3145728")
+    );
     // a set value as set, a bare number of kB (D3791: pg_settings.setting carries no unit)
-    for (kb, shown) in [(102400, "102400"), (1536, "1536"), (1 << 30, "1073741824"), (0, "0")] {
+    for (kb, shown) in [
+        (102400, "102400"),
+        (1536, "1536"),
+        (1 << 30, "1073741824"),
+        (0, "0"),
+    ] {
         backing::set_pgrust_condition_cache_size(kb);
-        assert_eq!((pgrust_condition_cache_bytes(), show_pgrust_condition_cache_size().as_str()), (kb as u64 * 1024, shown));
+        assert_eq!(
+            (
+                pgrust_condition_cache_bytes(),
+                show_pgrust_condition_cache_size().as_str()
+            ),
+            (kb as u64 * 1024, shown)
+        );
     }
     backing::set_pgrust_condition_cache_size(-1);
     assert_eq!(pgrust_condition_cache_bytes(), 3 << 30);
@@ -538,12 +656,21 @@ fn condition_cache_size_defaults_to_the_derived_budget_and_shows_the_budget_in_e
 fn zone_store_and_dict_filter_cache_boot_on_and_are_independent_of_the_mode() {
     for name in ["pgrust.zone_store", "pgrust.dict_filter_cache"] {
         let setting = find(name);
-        assert_eq!(setting.default_value(), GucDefaultValue::Bool(true), "{name}");
+        assert_eq!(
+            setting.default_value(),
+            GucDefaultValue::Bool(true),
+            "{name}"
+        );
         assert_eq!(setting.context(), PGC_USERSET, "{name}");
     }
     backing::set_pgrust_zone_store(false);
     backing::set_pgrust_dict_filter_cache(false);
-    for mode in [ConditionCacheMode::Off, ConditionCacheMode::Granule, ConditionCacheMode::Rows, ConditionCacheMode::Full] {
+    for mode in [
+        ConditionCacheMode::Off,
+        ConditionCacheMode::Granule,
+        ConditionCacheMode::Rows,
+        ConditionCacheMode::Full,
+    ] {
         backing::set_pgrust_condition_cache(mode as i32);
         assert!(!backing::pgrust_zone_store() && !backing::pgrust_dict_filter_cache());
     }

@@ -302,7 +302,8 @@ fn postgres_acquire_sample_rows<'mcx>(
                         sampling::reservoir_get_next_s(&mut rstate, samplerows, targrows as u32);
                 }
                 let pos = if rowstoskip <= 0.0 {
-                    let k = (targrows as f64 * sampling::sampler_random_fract(&mut rstate.randstate))
+                    let k = (targrows as f64
+                        * sampling::sampler_random_fract(&mut rstate.randstate))
                         as usize;
                     debug_assert!(k < targrows as usize);
                     Some(base + k)
@@ -347,7 +348,11 @@ fn postgres_acquire_sample_rows<'mcx>(
     *totaldeadrows = 0.0;
     // Without sampling we've retrieved all living tuples; otherwise use the
     // remote reltuples estimate.
-    *totalrows = if method == SamplingMethod::Off { samplerows } else { reltuples };
+    *totalrows = if method == SamplingMethod::Off {
+        samplerows
+    } else {
+        reltuples
+    };
 
     // Emit some interesting relation info.
     elog::ereport(elevel)
@@ -362,8 +367,9 @@ fn postgres_acquire_sample_rows<'mcx>(
     Ok(numrows)
 }
 
-pub(crate) static ANALYZE_ROUTINE: FdwAnalyzeRoutine =
-    FdwAnalyzeRoutine { analyze_foreign_table: postgres_analyze_foreign_table };
+pub(crate) static ANALYZE_ROUTINE: FdwAnalyzeRoutine = FdwAnalyzeRoutine {
+    analyze_foreign_table: postgres_analyze_foreign_table,
+};
 
 #[cfg(test)]
 mod tests {

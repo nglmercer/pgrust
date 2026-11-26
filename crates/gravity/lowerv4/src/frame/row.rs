@@ -16,24 +16,37 @@ pub struct Carry<'e> {
 
 impl<'e> Carry<'e> {
     pub fn new(out: Value, mcx: Mcx<'e>) -> Carry<'e> {
-        Carry { out, accs: PgVec::new_in(mcx) }
+        Carry {
+            out,
+            accs: PgVec::new_in(mcx),
+        }
     }
 
     pub fn types(&self, f: &dyn Fn(Value) -> Type) -> PgVec<'e, Type> {
-        core::iter::once(Type::I64).chain(self.accs.iter().map(|&v| f(v))).collect_in(*self.accs.allocator())
+        core::iter::once(Type::I64)
+            .chain(self.accs.iter().map(|&v| f(v)))
+            .collect_in(*self.accs.allocator())
     }
 
     pub fn params(&self) -> PgVec<'e, Value> {
-        core::iter::once(self.out).chain(self.accs.iter().copied()).collect_in(*self.accs.allocator())
+        core::iter::once(self.out)
+            .chain(self.accs.iter().copied())
+            .collect_in(*self.accs.allocator())
     }
 
     pub fn from_params(p: &[Value], mcx: Mcx<'e>) -> Carry<'e> {
-        Carry { out: p[0], accs: mcx::to_vec_in(&p[1..], mcx) }
+        Carry {
+            out: p[0],
+            accs: mcx::to_vec_in(&p[1..], mcx),
+        }
     }
 
     /// `clone` into `mcx` (its ERROR at the limit, where `clone` would abort).
     pub fn copy_in<'m>(&self, mcx: Mcx<'m>) -> Carry<'m> {
-        Carry { out: self.out, accs: mcx::to_vec_in(&self.accs[..], mcx) }
+        Carry {
+            out: self.out,
+            accs: mcx::to_vec_in(&self.accs[..], mcx),
+        }
     }
 }
 
@@ -61,8 +74,15 @@ impl RowVals<'_> {
         Some(CellRef { cell: c, val, null })
     }
     /// INNER_VAR column `a` of a joined row: the probe's map in `env.inner` (M1-JOIN), `None` outside a join.
-    pub fn inner_col<'r>(&'r self, env: &crate::frame::env::Env<'_, '_>, a: i16) -> Option<CellRef<'r>> {
-        let k = *env.inner.as_ref()?.get(usize::try_from(a).ok()?.checked_sub(1)?)?;
+    pub fn inner_col<'r>(
+        &'r self,
+        env: &crate::frame::env::Env<'_, '_>,
+        a: i16,
+    ) -> Option<CellRef<'r>> {
+        let k = *env
+            .inner
+            .as_ref()?
+            .get(usize::try_from(a).ok()?.checked_sub(1)?)?;
         self.cell(k? as usize)
     }
 }

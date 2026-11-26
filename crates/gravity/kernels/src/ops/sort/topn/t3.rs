@@ -4,7 +4,10 @@
 
 use gravity_abi::ctx::hdr;
 
-use gravity_abi::breaker::{KeyCell, KeyKind, OwnerFns, RecordLayout, SlotKind, MAX_RECORD_KEYS, ORDER_NONE, OWNERTOP_HDR, OWNER_PARAMS};
+use gravity_abi::breaker::{
+    KeyCell, KeyKind, OwnerFns, RecordLayout, SlotKind, MAX_RECORD_KEYS, ORDER_NONE, OWNERTOP_HDR,
+    OWNER_PARAMS,
+};
 
 use crate::{Touch, SITE_EXEC_CELLS};
 
@@ -12,10 +15,18 @@ use core::sync::atomic::{AtomicBool, AtomicU64};
 
 pub use gravity_abi::t3::{MAX_KEYS, MAX_OUT, MAX_QUALS, MAX_SLOTS, MAX_TOPK};
 
-use super::raw::t3::{bare_fold, bare_reduce, distinct_end_round, distinct_min, distinct_open, distinct_reduce, distinct_reduce2, export_min, export_open, export_reduce, owner_noop};
-pub use super::raw::t3::{export_keys, export_records, fold_pair, gmark_lists, render_reps, slot_word, slot_word_of};
+use super::raw::t3::{
+    bare_fold, bare_reduce, distinct_end_round, distinct_min, distinct_open, distinct_reduce,
+    distinct_reduce2, export_min, export_open, export_reduce, owner_noop,
+};
+pub use super::raw::t3::{
+    export_keys, export_records, fold_pair, gmark_lists, render_reps, slot_word, slot_word_of,
+};
 
-pub const TOUCH: Touch = Touch { hdr: &[hdr::RESUME], sites: &[(0, SITE_EXEC_CELLS)] };
+pub const TOUCH: Touch = Touch {
+    hdr: &[hdr::RESUME],
+    sites: &[(0, SITE_EXEC_CELLS)],
+};
 
 pub const P_LIMIT: usize = 0;
 
@@ -207,22 +218,63 @@ pub struct Plan {
 }
 
 /// The shape word of a plan (`P_SHAPE`).
-pub const fn shape_word(nkeys: usize, nslots: usize, order: u8, mode: u8, order_slot: usize, filter_lane: Option<usize>, topk: u32, nout: usize) -> u64 {
+pub const fn shape_word(
+    nkeys: usize,
+    nslots: usize,
+    order: u8,
+    mode: u8,
+    order_slot: usize,
+    filter_lane: Option<usize>,
+    topk: u32,
+    nout: usize,
+) -> u64 {
     let f = match filter_lane {
         Some(l) => l as u64 + 1,
         None => 0,
     };
-    nkeys as u64 | (nslots as u64) << 8 | (order as u64) << 16 | (mode as u64) << 24 | (order_slot as u64) << 28 | f << 32 | (topk as u64) << 40 | (nout as u64) << 56
+    nkeys as u64
+        | (nslots as u64) << 8
+        | (order as u64) << 16
+        | (mode as u64) << 24
+        | (order_slot as u64) << 28
+        | f << 32
+        | (topk as u64) << 40
+        | (nout as u64) << 56
 }
 
 /// `shape_word` with bit 27: the slot lanes are NOT NULL (the admission saw no nullable lane).
-pub const fn shape_word_nn(nkeys: usize, nslots: usize, order: u8, mode: u8, order_slot: usize, filter_lane: Option<usize>, topk: u32, nout: usize, nn: bool) -> u64 {
-    shape_word(nkeys, nslots, order, mode, order_slot, filter_lane, topk, nout) | (nn as u64) << 27
+pub const fn shape_word_nn(
+    nkeys: usize,
+    nslots: usize,
+    order: u8,
+    mode: u8,
+    order_slot: usize,
+    filter_lane: Option<usize>,
+    topk: u32,
+    nout: usize,
+    nn: bool,
+) -> u64 {
+    shape_word(
+        nkeys,
+        nslots,
+        order,
+        mode,
+        order_slot,
+        filter_lane,
+        topk,
+        nout,
+    ) | (nn as u64) << 27
 }
 
 /// The `P_MISC` word: the spill bits, the phase-1 table's size in 16 KiB units (0 = the default), the plan's group estimate (40 bits).
 pub const fn misc_word(bits: u8, t1_16k: u8, groups: u64) -> u64 {
-    bits as u64 | (t1_16k as u64) << 8 | (if groups > MISC_GROUPS_MASK { MISC_GROUPS_MASK } else { groups }) << 16
+    bits as u64
+        | (t1_16k as u64) << 8
+        | (if groups > MISC_GROUPS_MASK {
+            MISC_GROUPS_MASK
+        } else {
+            groups
+        }) << 16
 }
 
 /// The `P_SLOTS` word's qual bytes: per qual `(table lane + 1) | code lane << 5 | negated << 7` at bytes 4 and 5.
@@ -230,7 +282,8 @@ pub const fn quals_word(quals: &[(usize, usize, bool)]) -> u64 {
     let mut w = 0u64;
     let mut q = 0;
     while q < quals.len() && q < MAX_QUALS {
-        w |= ((quals[q].0 as u64 + 1) | (quals[q].1 as u64) << 5 | (quals[q].2 as u64) << 7) << (32 + 8 * q);
+        w |= ((quals[q].0 as u64 + 1) | (quals[q].1 as u64) << 5 | (quals[q].2 as u64) << 7)
+            << (32 + 8 * q);
         q += 1;
     }
     w
@@ -254,7 +307,11 @@ impl Plan {
             return None;
         }
         let shape = p[P_SHAPE];
-        let (nkeys, nslots, nout) = ((shape & 0xff) as usize, (shape >> 8 & 0xff) as usize, (shape >> 56) as usize);
+        let (nkeys, nslots, nout) = (
+            (shape & 0xff) as usize,
+            (shape >> 8 & 0xff) as usize,
+            (shape >> 56) as usize,
+        );
         if nkeys == 0 || nkeys > MAX_KEYS || nslots > MAX_SLOTS || nout > MAX_OUT {
             return None;
         }
@@ -337,7 +394,10 @@ impl Plan {
             pl.out_kind[c] = (out >> (8 * c + 4) & 0xf) as u8;
             pl.out_val[c] = (outval >> (8 * c) & 0xff) as i64;
         }
-        if (nslots > 0 && pl.slot_kind[0] != S_COUNT) || pl.limit + pl.offset > MAX_TOPK || pl.limit == 0 {
+        if (nslots > 0 && pl.slot_kind[0] != S_COUNT)
+            || pl.limit + pl.offset > MAX_TOPK
+            || pl.limit == 0
+        {
             return None;
         }
         if pl.bits == 0 {
@@ -389,7 +449,11 @@ impl Plan {
                 n += 1;
             }
         }
-        if self.nn { RecordLayout::new_nn(&keys[..w], &slots[..n]) } else { RecordLayout::new(&keys[..w], &slots[..n]) }
+        if self.nn {
+            RecordLayout::new_nn(&keys[..w], &slots[..n])
+        } else {
+            RecordLayout::new(&keys[..w], &slots[..n])
+        }
     }
 
     pub fn has_code_key(&self) -> bool {
@@ -411,12 +475,20 @@ impl Plan {
 /// (the lowerer takes any type whose words order as it does, KeySem `word_order`), and the one slot is the count, the
 /// form's definition (no costly aggregate in pass 1: any other keeps the hash aggregate).
 pub fn bare_dups(pl: &Plan) -> bool {
-    pl.export & 0xff == EXPORT_DUPS && pl.nkeys == 1 && pl.key_kind[0] == K_INT && pl.nslots == 1 && pl.nquals == 0
+    pl.export & 0xff == EXPORT_DUPS
+        && pl.nkeys == 1
+        && pl.key_kind[0] == K_INT
+        && pl.nslots == 1
+        && pl.nquals == 0
 }
 
 /// A pass-1 block's exported record size: the bare word, else the plan's record.
 pub(super) fn export_rec(pl: &Plan) -> usize {
-    if bare_dups(pl) { BARE.size() as usize } else { pl.layout().size() as usize }
+    if bare_dups(pl) {
+        BARE.size() as usize
+    } else {
+        pl.layout().size() as usize
+    }
 }
 
 /// A key with two fingerprint words and a `MinCode` representative (`K_TEXT`, `K_DERIVED`).
@@ -430,7 +502,14 @@ pub const fn is_text(kind: u8) -> bool {
 /// spread over every owner, the lab's rule).
 pub(super) fn grouped(pl: &Plan, lp: Loop) -> bool {
     // a gmark plan never groups (`Loop::of` sends it to the generic loops first): its `[fp, part, mark]` records stay on the full hash
-    !pl.gmark && matches!(lp, Loop::TextInt | Loop::IntTextInt) && crate::table::route::group_routed(pl.groups, crate::table::params::spill_bits(pl.groups, pl.layout().size()), 0, true)
+    !pl.gmark
+        && matches!(lp, Loop::TextInt | Loop::IntTextInt)
+        && crate::table::route::group_routed(
+            pl.groups,
+            crate::table::params::spill_bits(pl.groups, pl.layout().size()),
+            0,
+            true,
+        )
 }
 
 /// The row-loop class of a plan (the int-headed count shapes, the distinct family's pair sets, the int-pair slot
@@ -479,8 +558,18 @@ impl Loop {
                 _ => {}
             }
         }
-        if (2..=3).contains(&pl.nslots) && keys == [K_INT, K_INT] && pl.slot_kind[..pl.nslots].iter().skip(1).all(|&k| k == S_SUM || k == S_AVG) {
-            return if pl.filter.is_none() { Loop::IntIntSlots } else { Loop::IntIntFSlots };
+        if (2..=3).contains(&pl.nslots)
+            && keys == [K_INT, K_INT]
+            && pl.slot_kind[..pl.nslots]
+                .iter()
+                .skip(1)
+                .all(|&k| k == S_SUM || k == S_AVG)
+        {
+            return if pl.filter.is_none() {
+                Loop::IntIntSlots
+            } else {
+                Loop::IntIntFSlots
+            };
         }
         Loop::Rows
     }
@@ -506,11 +595,33 @@ pub fn owner_fns_pass1(params: &[u64]) -> OwnerFns {
     let mut p = [0u64; OWNER_PARAMS];
     p[..NPARAMS].copy_from_slice(&params[..NPARAMS]);
     if Plan::from_words(&params[..NPARAMS]).is_some_and(|pl| bare_dups(&pl)) {
-        return OwnerFns { params: p, rounds: 1, order_slot: ORDER_NONE, order_slot2: ORDER_NONE, min_bytes: export_min, open: export_open, reduce: bare_reduce, end_round: owner_noop, reduce2: bare_reduce, fold: Some(bare_fold) };
+        return OwnerFns {
+            params: p,
+            rounds: 1,
+            order_slot: ORDER_NONE,
+            order_slot2: ORDER_NONE,
+            min_bytes: export_min,
+            open: export_open,
+            reduce: bare_reduce,
+            end_round: owner_noop,
+            reduce2: bare_reduce,
+            fold: Some(bare_fold),
+        };
     }
     let dups = rule == EXPORT_DUPS;
     let order_slot = if dups { 0 } else { ORDER_NONE };
-    OwnerFns { params: p, rounds: 1, order_slot, order_slot2: order_slot, min_bytes: export_min, open: export_open, reduce: export_reduce, end_round: owner_noop, reduce2: export_reduce, fold: Some(crate::table::owner_fold::owner_fold) }
+    OwnerFns {
+        params: p,
+        rounds: 1,
+        order_slot,
+        order_slot2: order_slot,
+        min_bytes: export_min,
+        open: export_open,
+        reduce: export_reduce,
+        end_round: owner_noop,
+        reduce2: export_reduce,
+        fold: Some(crate::table::owner_fold::owner_fold),
+    }
 }
 
 /// The list's offset, and its bytes for a region of `bytes`.
@@ -527,7 +638,18 @@ pub fn owner_fns_distinct(params: &[u64]) -> OwnerFns {
         Some(pl) if pl.order == ORDER_COUNT_DESC => pl.order_slot as u8,
         _ => ORDER_NONE,
     };
-    OwnerFns { params: p, rounds: 2, order_slot: ORDER_NONE, order_slot2, min_bytes: distinct_min, open: distinct_open, reduce: distinct_reduce, end_round: distinct_end_round, reduce2: distinct_reduce2, fold: Some(crate::table::owner_fold::owner_fold_dense) }
+    OwnerFns {
+        params: p,
+        rounds: 2,
+        order_slot: ORDER_NONE,
+        order_slot2,
+        min_bytes: distinct_min,
+        open: distinct_open,
+        reduce: distinct_reduce,
+        end_round: distinct_end_round,
+        reduce2: distinct_reduce2,
+        fold: Some(crate::table::owner_fold::owner_fold_dense),
+    }
 }
 
 /// The distinct owner's region: `[OwnerTop][results][mark list][round-2 region][table space]` — the
@@ -566,7 +688,12 @@ const PF_MIN: u8 = 4;
 
 impl PairFold {
     pub(crate) fn of(pl: &Plan, acc: &RecordLayout, pair: &RecordLayout, ng: usize) -> PairFold {
-        let mut f = PairFold { n: 0, dst: [0; 2 * MAX_SLOTS + MAX_KEYS], src: [0; 2 * MAX_SLOTS + MAX_KEYS], kind: [0; 2 * MAX_SLOTS + MAX_KEYS] };
+        let mut f = PairFold {
+            n: 0,
+            dst: [0; 2 * MAX_SLOTS + MAX_KEYS],
+            src: [0; 2 * MAX_SLOTS + MAX_KEYS],
+            kind: [0; 2 * MAX_SLOTS + MAX_KEYS],
+        };
         let mut push = |d: usize, s: usize, k: u8| {
             f.dst[f.n] = acc.slot_off[d] as usize / 8;
             f.src[f.n] = pair.slot_off[s] as usize / 8;
@@ -575,12 +702,16 @@ impl PairFold {
         };
         push(0, 0, PF_ONE);
         for j in 0..pl.nslots {
-            push(j + 1, j, match pl.slot_kind[j] {
-                S_SUM => PF_SUM,
-                S_AVG | S_AVG_TBL => PF_AVG,
-                S_MIN_CODE => PF_MIN,
-                _ => PF_COUNT,
-            });
+            push(
+                j + 1,
+                j,
+                match pl.slot_kind[j] {
+                    S_SUM => PF_SUM,
+                    S_AVG | S_AVG_TBL => PF_AVG,
+                    S_MIN_CODE => PF_MIN,
+                    _ => PF_COUNT,
+                },
+            );
         }
         for k in 0..ng {
             if is_text(pl.key_kind[k]) {
@@ -595,7 +726,11 @@ impl PairFold {
 pub fn layout_of(nkeys: usize, code_keys: u32, nslots: usize, slot_kinds: &[u8]) -> RecordLayout {
     let mut kinds = [K_INT; MAX_KEYS];
     for (k, kind) in kinds.iter_mut().enumerate().take(nkeys) {
-        *kind = if code_keys >> k & 1 != 0 { K_CODE } else { K_INT };
+        *kind = if code_keys >> k & 1 != 0 {
+            K_CODE
+        } else {
+            K_INT
+        };
     }
     layout_of_kinds(&kinds[..nkeys], nslots, slot_kinds)
 }
@@ -605,14 +740,62 @@ pub fn layout_of_kinds(kinds: &[u8], nslots: usize, slot_kinds: &[u8]) -> Record
     layout_of_kinds_nn(kinds, nslots, slot_kinds, false)
 }
 
-pub fn layout_of_kinds_nn(kinds: &[u8], nslots: usize, slot_kinds: &[u8], nn: bool) -> RecordLayout {
+pub fn layout_of_kinds_nn(
+    kinds: &[u8],
+    nslots: usize,
+    slot_kinds: &[u8],
+    nn: bool,
+) -> RecordLayout {
     layout_of_kinds_gmark(kinds, nslots, slot_kinds, nn, false)
 }
 
 /// `layout_of_kinds_nn` with the granule-mark word (`MISC_GMARK`).
-pub fn layout_of_kinds_gmark(kinds: &[u8], nslots: usize, slot_kinds: &[u8], nn: bool, gmark: bool) -> RecordLayout {
+pub fn layout_of_kinds_gmark(
+    kinds: &[u8],
+    nslots: usize,
+    slot_kinds: &[u8],
+    nn: bool,
+    gmark: bool,
+) -> RecordLayout {
     let nkeys = kinds.len();
-    let mut pl = Plan { nkeys, nslots, order: 0, mode: 0, filter: None, topk: 0, key_lane: [0; MAX_KEYS], key_kind: [0; MAX_KEYS], slot_lane: [0; MAX_SLOTS], slot_kind: [0; MAX_SLOTS], nout: 0, out_kind: [0; MAX_OUT], out_index: [0; MAX_OUT], out_val: [0; MAX_OUT], limit: 1, offset: 0, bits: 0, t1_16k: 0, order_slot: 0, groups: 0, fp_lane: [0; MAX_KEYS], key_word: [0; MAX_KEYS], rep_slot: [usize::MAX; MAX_KEYS], nwords: 0, ntext: 0, nn, two_pass: false, admit: false, site: 0, gmark, bycode: false, export: 0, nquals: 0, qual_lane: [0; MAX_QUALS], qual_code: [0; MAX_QUALS], qual_neg: [false; MAX_QUALS] };
+    let mut pl = Plan {
+        nkeys,
+        nslots,
+        order: 0,
+        mode: 0,
+        filter: None,
+        topk: 0,
+        key_lane: [0; MAX_KEYS],
+        key_kind: [0; MAX_KEYS],
+        slot_lane: [0; MAX_SLOTS],
+        slot_kind: [0; MAX_SLOTS],
+        nout: 0,
+        out_kind: [0; MAX_OUT],
+        out_index: [0; MAX_OUT],
+        out_val: [0; MAX_OUT],
+        limit: 1,
+        offset: 0,
+        bits: 0,
+        t1_16k: 0,
+        order_slot: 0,
+        groups: 0,
+        fp_lane: [0; MAX_KEYS],
+        key_word: [0; MAX_KEYS],
+        rep_slot: [usize::MAX; MAX_KEYS],
+        nwords: 0,
+        ntext: 0,
+        nn,
+        two_pass: false,
+        admit: false,
+        site: 0,
+        gmark,
+        bycode: false,
+        export: 0,
+        nquals: 0,
+        qual_lane: [0; MAX_QUALS],
+        qual_code: [0; MAX_QUALS],
+        qual_neg: [false; MAX_QUALS],
+    };
     pl.key_kind[..nkeys].copy_from_slice(kinds);
     #[allow(clippy::needless_range_loop)]
     for k in 0..nkeys {

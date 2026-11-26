@@ -83,7 +83,11 @@ pub fn gen_ruleutils_module(g: &mut Gen) -> Vec<StmtKind> {
 /// Deterministic subset of `items`: each included with prob 1/2, but never
 /// fewer than `min` (falls back to the first `min`). Order preserved.
 fn take_some(g: &mut Gen, items: &[&'static str], min: usize) -> Vec<&'static str> {
-    let mut chosen: Vec<&'static str> = items.iter().copied().filter(|_| g.rng.chance(1, 2)).collect();
+    let mut chosen: Vec<&'static str> = items
+        .iter()
+        .copied()
+        .filter(|_| g.rng.chance(1, 2))
+        .collect();
     if chosen.len() < min {
         chosen = items.iter().copied().take(min).collect();
     }
@@ -107,7 +111,8 @@ const VIEW_BODIES: &[&str] = &[
 
 fn gen_viewdef(g: &mut Gen, out: &mut Vec<String>) {
     out.push(
-        "CREATE TABLE ru_s.base (a int, b int, c text, d numeric(10,2), e date, f bool);".to_string(),
+        "CREATE TABLE ru_s.base (a int, b int, c text, d numeric(10,2), e date, f bool);"
+            .to_string(),
     );
     // 2-4 views, each a distinct body pick.
     let nviews = 2 + g.rng.below_usize(3);
@@ -127,7 +132,11 @@ fn gen_viewdef(g: &mut Gen, out: &mut Vec<String>) {
         let Some(i) = idx else { break };
         used[i] = true;
         count += 1;
-        let orr = if g.rng.chance(1, 3) { "OR REPLACE " } else { "" };
+        let orr = if g.rng.chance(1, 3) {
+            "OR REPLACE "
+        } else {
+            ""
+        };
         out.push(format!("CREATE {orr}VIEW ru_s.v{i} AS {};", VIEW_BODIES[i]));
     }
     debug_assert!(count > 0);
@@ -149,7 +158,10 @@ fn gen_viewdef(g: &mut Gen, out: &mut Vec<String>) {
     // Idempotence round-trip: deparse one view, re-create from the text, and
     // require the re-deparse to match. A non-idempotent deparse raises here
     // (error divergence between engines).
-    if g.weights.pick(g.rng, &["ruleutils:idem", "ruleutils:noidem"]) == "ruleutils:idem" {
+    if g.weights
+        .pick(g.rng, &["ruleutils:idem", "ruleutils:noidem"])
+        == "ruleutils:idem"
+    {
         g.fire("ruleutils:idem");
         out.push(
             "DO $rt$ DECLARE src text; v regclass; BEGIN \
@@ -211,7 +223,8 @@ fn gen_constraintdef(g: &mut Gen, out: &mut Vec<String>) {
     let mut tcons: Vec<&'static str> = Vec::new();
     tcons.push("UNIQUE (c)");
     tcons.push("CONSTRAINT ck2 CHECK (a + coalesce(c, 0) < 1000)");
-    tcons.push("FOREIGN KEY (pid) REFERENCES ru_s.parent (id) ON DELETE CASCADE ON UPDATE SET NULL");
+    tcons
+        .push("FOREIGN KEY (pid) REFERENCES ru_s.parent (id) ON DELETE CASCADE ON UPDATE SET NULL");
     if g.rng.chance(1, 2) {
         tcons.push("EXCLUDE USING gist (r WITH &&)");
     }
@@ -453,7 +466,12 @@ mod tests {
         for _ in 0..n {
             let mut prods = Vec::new();
             let mut g = Gen::new(&mut rng, &cat, w, &mut prods, 3);
-            groups.push(gen_ruleutils_module(&mut g).iter().map(|s| s.to_sql()).collect::<Vec<_>>());
+            groups.push(
+                gen_ruleutils_module(&mut g)
+                    .iter()
+                    .map(|s| s.to_sql())
+                    .collect::<Vec<_>>(),
+            );
             prods_all.extend(prods);
         }
         (groups, prods_all)
@@ -465,7 +483,10 @@ mod tests {
     fn groups_are_self_contained_and_wellformed() {
         let (groups, _) = gen_groups(0x2ACE, 200, &WeightTable::defaults());
         for group in &groups {
-            assert_eq!(group.first().unwrap(), "DROP SCHEMA IF EXISTS ru_s CASCADE;");
+            assert_eq!(
+                group.first().unwrap(),
+                "DROP SCHEMA IF EXISTS ru_s CASCADE;"
+            );
             assert_eq!(group.get(1).unwrap(), "CREATE SCHEMA ru_s;");
             assert_eq!(group.last().unwrap(), "DROP SCHEMA ru_s CASCADE;");
             for s in group {
@@ -485,7 +506,10 @@ mod tests {
     fn all_shapes_fire() {
         let (_, prods) = gen_groups(0x5A17, 400, &WeightTable::defaults());
         for shape in SHAPES {
-            assert!(prods.iter().any(|p| p == shape), "shape {shape} never fired");
+            assert!(
+                prods.iter().any(|p| p == shape),
+                "shape {shape} never fired"
+            );
         }
     }
 

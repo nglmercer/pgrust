@@ -148,8 +148,7 @@ fn grouping_set_simple_content_jumbles_as_intlist() {
             ..Default::default()
         }
     };
-    let mut q_simple =
-        gsets_query(types_nodes::parsenodes::GroupingSetKind::GROUPING_SET_SIMPLE);
+    let mut q_simple = gsets_query(types_nodes::parsenodes::GroupingSetKind::GROUPING_SET_SIMPLE);
     let mut q_sets = gsets_query(types_nodes::parsenodes::GroupingSetKind::GROUPING_SET_SETS);
     JumbleQuery(mcx, &mut q_simple).unwrap();
     JumbleQuery(mcx, &mut q_sets).unwrap();
@@ -207,9 +206,15 @@ fn nil_list_cell_jumbles_as_a_pending_null() {
     // Two NIL cells: T_List's tag value (1) is also a one-null count, so a
     // single cell could not tell the two byte streams apart.
     let mut cells = NodeList::nil();
-    cells.lappend(mcx, Node::mk_list(mcx, NodeList::nil()).unwrap()).unwrap();
-    cells.lappend(mcx, Node::mk_list(mcx, NodeList::nil()).unwrap()).unwrap();
-    cells.lappend(mcx, Node::mk_string(mcx, "x").unwrap()).unwrap();
+    cells
+        .lappend(mcx, Node::mk_list(mcx, NodeList::nil()).unwrap())
+        .unwrap();
+    cells
+        .lappend(mcx, Node::mk_list(mcx, NodeList::nil()).unwrap())
+        .unwrap();
+    cells
+        .lappend(mcx, Node::mk_string(mcx, "x").unwrap())
+        .unwrap();
     let mut q = Query {
         commandType: types_nodes::nodes_enums::CmdType::CMD_UTILITY,
         utilityStmt: Some(Node::mk_list(mcx, cells).unwrap()),
@@ -223,12 +228,16 @@ fn nil_list_cell_jumbles_as_a_pending_null() {
     expected.extend_from_slice(&(types_nodes::NodeTag::T_String as u16 as u32).to_ne_bytes());
     expected.extend_from_slice(b"x\0");
     assert!(
-        bytes.windows(expected.len()).any(|w| w == expected.as_slice()),
+        bytes
+            .windows(expected.len())
+            .any(|w| w == expected.as_slice()),
         "outer T_List tag, two pending nulls flushed, then the tagged string"
     );
     let three_tags = [list_tag, list_tag, list_tag].concat();
     assert!(
-        !bytes.windows(three_tags.len()).any(|w| w == three_tags.as_slice()),
+        !bytes
+            .windows(three_tags.len())
+            .any(|w| w == three_tags.as_slice()),
         "an empty list cell must not add a T_List tag"
     );
 }

@@ -2,13 +2,17 @@
 //! its code); a miss compiles under a try-lock, never waited on (the other owners fold through the counted loops).
 use super::owner_fold::{full_at, Fold};
 use crate::contract::Host;
-use gravity_abi::breaker::{Candidates, HashAgg, RecordLayout, FOLD_OVERFLOW, FOLD_PF, LAYOUT_WORDS};
+use core::any::Any;
+use core::cell::UnsafeCell;
+use core::sync::atomic::{
+    AtomicBool, AtomicPtr, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering,
+};
+use gravity_abi::breaker::{
+    Candidates, HashAgg, RecordLayout, FOLD_OVERFLOW, FOLD_PF, LAYOUT_WORDS,
+};
 use gravity_abi::hash::KeyHash;
 use gravity_abi::program::Entry;
 use gravity_abi::Ctx;
-use core::any::Any;
-use core::cell::UnsafeCell;
-use core::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering};
 
 /// The code reads every field at its `offset_of!`. No sub-split: the code has no split filter.
 #[repr(C)]
@@ -97,7 +101,8 @@ pub fn key(l: &RecordLayout) -> [u64; LAYOUT_WORDS] {
     let mut w = l.words();
     let at = core::mem::offset_of!(RecordLayout, keys);
     // SAFETY: the layout's bytes as words (`RecordLayout::words`); the key kinds' bytes lie inside them.
-    let b = unsafe { core::slice::from_raw_parts_mut(w.as_mut_ptr().cast::<u8>(), 8 * LAYOUT_WORDS) };
+    let b =
+        unsafe { core::slice::from_raw_parts_mut(w.as_mut_ptr().cast::<u8>(), 8 * LAYOUT_WORDS) };
     b[at..at + core::mem::size_of_val(&l.keys)].fill(0);
     w
 }
@@ -130,7 +135,14 @@ impl Drop for Pin {
 pub fn find(key: &[u64; LAYOUT_WORDS]) -> Option<Pin> {
     for s in set_of(key) {
         let v = s.ver.load(Ordering::Acquire);
-        if v == 0 || v & 1 != 0 || !s.key.iter().zip(key).all(|(a, b)| a.load(Ordering::Relaxed) == *b) {
+        if v == 0
+            || v & 1 != 0
+            || !s
+                .key
+                .iter()
+                .zip(key)
+                .all(|(a, b)| a.load(Ordering::Relaxed) == *b)
+        {
             continue;
         }
         // pin, then see the slot unchanged: an evictor marks the slot odd before it reads the pins, so either it sees this
@@ -162,7 +174,11 @@ pub fn get(f: &Fold, key: &[u64; LAYOUT_WORDS]) -> Option<Pin> {
         return Some(p);
     }
     let c = COMPILE.load(Ordering::Acquire);
-    if c.is_null() || LOCK.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
+    if c.is_null()
+        || LOCK
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+    {
         return None;
     }
     let _unlock = Unlock;
@@ -178,7 +194,7 @@ pub fn get(f: &Fold, key: &[u64; LAYOUT_WORDS]) -> Option<Pin> {
     };
     let s = victim(set_index(key))?;
     // SAFETY: under `LOCK`, the slot odd and unpinned (`victim`): no reader holds it and none can pin it.
-    let old = unsafe {( *s.own.get()).take() };
+    let old = unsafe { (*s.own.get()).take() };
     if s.ver.load(Ordering::Relaxed) != 1 {
         EVICTED.fetch_add(1, Ordering::Relaxed);
         LIVE_BYTES.fetch_sub(s.bytes.load(Ordering::Relaxed) as u64, Ordering::Relaxed);
@@ -237,7 +253,13 @@ fn victim(set: usize) -> Option<&'static Slot> {
 
 /// # Safety
 /// `FoldFn`'s contract, no sub-split; `e` compiled for `(*t).layout`.
-pub unsafe fn run(e: Entry, t: *mut HashAgg, recs: *const u8, nrecs: usize, cand: *mut Candidates) -> i64 {
+pub unsafe fn run(
+    e: Entry,
+    t: *mut HashAgg,
+    recs: *const u8,
+    nrecs: usize,
+    cand: *mut Candidates,
+) -> i64 {
     let (cb, at) = (*t).home_bits();
     let mut c = FoldCall {
         base: (*t).base_ptr(),
@@ -268,7 +290,12 @@ impl Host for SlotHost {
 
     unsafe fn run(ctx: *mut Ctx, (j, dst, src): (u64, u64, u64)) -> u64 {
         let l = &*(*(ctx as *const FoldCall)).layout;
-        gravity_abi::breaker::Rec::at(dst as *mut u8, l).fold_slot(j as usize, &gravity_abi::breaker::Rec::at(src as *mut u8, l)).is_ok() as u64
+        gravity_abi::breaker::Rec::at(dst as *mut u8, l)
+            .fold_slot(
+                j as usize,
+                &gravity_abi::breaker::Rec::at(src as *mut u8, l),
+            )
+            .is_ok() as u64
     }
 
     fn fail(_a: (u64, u64, u64)) -> u64 {

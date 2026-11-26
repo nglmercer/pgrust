@@ -8,7 +8,9 @@ use ::types_error::{
     PgError, PgResult, ERRCODE_DATETIME_VALUE_OUT_OF_RANGE, ERRCODE_INVALID_DATETIME_FORMAT,
 };
 
-use ::adt_datetime::{date2j, fsec_t, HOURS_PER_DAY, MONTHS_PER_YEAR, SECS_PER_HOUR, SECS_PER_MINUTE};
+use ::adt_datetime::{
+    date2j, fsec_t, HOURS_PER_DAY, MONTHS_PER_YEAR, SECS_PER_HOUR, SECS_PER_MINUTE,
+};
 
 use crate::case::{asc_tolower, asc_toupper, get_th};
 use crate::isoweek::{date2isoweek, date2isoyear, date2isoyearday};
@@ -170,7 +172,10 @@ pub fn dch_to_char<'mcx>(
     // formatting.c:4075 palloc(fmt_len * DCH_MAX_ITEM_SIZ + 1): every node
     // emits at most DCH_MAX_ITEM_SIZ bytes, so the whole output is admitted
     // (or refused with C's error) before rendering.
-    let budget = nodes.len().saturating_mul(DCH_MAX_ITEM_SIZ).saturating_add(1);
+    let budget = nodes
+        .len()
+        .saturating_mul(DCH_MAX_ITEM_SIZ)
+        .saturating_add(1);
     ::mcx::check_alloc_size(budget)?;
     let mut out: Vec<u8> = Vec::new();
     out.try_reserve_exact(budget).map_err(|_| mcx.oom(budget))?;
@@ -352,7 +357,10 @@ pub fn dch_to_char<'mcx>(
                     )
                     .as_bytes(),
                 );
-                if ! (tm.tm_gmtoff as i32).unsigned_abs().is_multiple_of( SECS_PER_HOUR as u32) {
+                if !(tm.tm_gmtoff as i32)
+                    .unsigned_abs()
+                    .is_multiple_of(SECS_PER_HOUR as u32)
+                {
                     out.push(b':');
                     let mins = ((tm.tm_gmtoff as i32).unsigned_abs() % SECS_PER_HOUR as u32)
                         / SECS_PER_MINUTE as u32;
@@ -361,11 +369,17 @@ pub fn dch_to_char<'mcx>(
             }
             DCH_A_D | DCH_B_C => {
                 invalid_for_interval(is_interval)?;
-                pg_append(&mut out, if tm.tm_year <= 0 { B_C_STR } else { A_D_STR }.as_bytes());
+                pg_append(
+                    &mut out,
+                    if tm.tm_year <= 0 { B_C_STR } else { A_D_STR }.as_bytes(),
+                );
             }
             DCH_AD | DCH_BC => {
                 invalid_for_interval(is_interval)?;
-                pg_append(&mut out, if tm.tm_year <= 0 { BC_STR } else { AD_STR }.as_bytes());
+                pg_append(
+                    &mut out,
+                    if tm.tm_year <= 0 { BC_STR } else { AD_STR }.as_bytes(),
+                );
             }
             DCH_A_D_LOWER | DCH_B_C_LOWER => {
                 invalid_for_interval(is_interval)?;
@@ -410,8 +424,11 @@ pub fn dch_to_char<'mcx>(
                 let name = asc_toupper(MONTHS_FULL[(tm.tm_mon - 1) as usize].as_bytes());
                 pg_append(
                     &mut out,
-                    fmt_pad_str(if s_fm(suffix) { 0 } else { -9 }, &String::from_utf8_lossy(&name))
-                        .as_bytes(),
+                    fmt_pad_str(
+                        if s_fm(suffix) { 0 } else { -9 },
+                        &String::from_utf8_lossy(&name),
+                    )
+                    .as_bytes(),
                 );
             }
             DCH_MONTH_CAP => {
@@ -458,8 +475,11 @@ pub fn dch_to_char<'mcx>(
                 let name = asc_tolower(MONTHS_FULL[(tm.tm_mon - 1) as usize].as_bytes());
                 pg_append(
                     &mut out,
-                    fmt_pad_str(if s_fm(suffix) { 0 } else { -9 }, &String::from_utf8_lossy(&name))
-                        .as_bytes(),
+                    fmt_pad_str(
+                        if s_fm(suffix) { 0 } else { -9 },
+                        &String::from_utf8_lossy(&name),
+                    )
+                    .as_bytes(),
                 );
             }
             DCH_MON => {
@@ -478,7 +498,10 @@ pub fn dch_to_char<'mcx>(
                     )?;
                     continue;
                 }
-                pg_append(&mut out, &asc_toupper(MONTHS[(tm.tm_mon - 1) as usize].as_bytes()));
+                pg_append(
+                    &mut out,
+                    &asc_toupper(MONTHS[(tm.tm_mon - 1) as usize].as_bytes()),
+                );
             }
             DCH_MON_CAP => {
                 invalid_for_interval(is_interval)?;
@@ -514,7 +537,10 @@ pub fn dch_to_char<'mcx>(
                     )?;
                     continue;
                 }
-                pg_append(&mut out, &asc_tolower(MONTHS[(tm.tm_mon - 1) as usize].as_bytes()));
+                pg_append(
+                    &mut out,
+                    &asc_tolower(MONTHS[(tm.tm_mon - 1) as usize].as_bytes()),
+                );
             }
             DCH_MM => {
                 let width = if s_fm(suffix) {
@@ -544,8 +570,11 @@ pub fn dch_to_char<'mcx>(
                 let name = asc_toupper(DAYS[tm.tm_wday as usize].as_bytes());
                 pg_append(
                     &mut out,
-                    fmt_pad_str(if s_fm(suffix) { 0 } else { -9 }, &String::from_utf8_lossy(&name))
-                        .as_bytes(),
+                    fmt_pad_str(
+                        if s_fm(suffix) { 0 } else { -9 },
+                        &String::from_utf8_lossy(&name),
+                    )
+                    .as_bytes(),
                 );
             }
             DCH_DAY_CAP => {
@@ -583,8 +612,11 @@ pub fn dch_to_char<'mcx>(
                 let name = asc_tolower(DAYS[tm.tm_wday as usize].as_bytes());
                 pg_append(
                     &mut out,
-                    fmt_pad_str(if s_fm(suffix) { 0 } else { -9 }, &String::from_utf8_lossy(&name))
-                        .as_bytes(),
+                    fmt_pad_str(
+                        if s_fm(suffix) { 0 } else { -9 },
+                        &String::from_utf8_lossy(&name),
+                    )
+                    .as_bytes(),
                 );
             }
             DCH_DY => {
@@ -600,7 +632,10 @@ pub fn dch_to_char<'mcx>(
                     )?;
                     continue;
                 }
-                pg_append(&mut out, &asc_toupper(DAYS_SHORT[tm.tm_wday as usize].as_bytes()));
+                pg_append(
+                    &mut out,
+                    &asc_toupper(DAYS_SHORT[tm.tm_wday as usize].as_bytes()),
+                );
             }
             DCH_DY_CAP => {
                 invalid_for_interval(is_interval)?;
@@ -630,7 +665,10 @@ pub fn dch_to_char<'mcx>(
                     )?;
                     continue;
                 }
-                pg_append(&mut out, &asc_tolower(DAYS_SHORT[tm.tm_wday as usize].as_bytes()));
+                pg_append(
+                    &mut out,
+                    &asc_tolower(DAYS_SHORT[tm.tm_wday as usize].as_bytes()),
+                );
             }
             DCH_DDD | DCH_IDDD => {
                 let width = if s_fm(suffix) { 0 } else { 3 };
@@ -680,7 +718,11 @@ pub fn dch_to_char<'mcx>(
                 let start = out.len();
                 pg_append(
                     &mut out,
-                    fmt_0d(width, date2isoweek(tm.tm_year, tm.tm_mon, tm.tm_mday) as i64).as_bytes(),
+                    fmt_0d(
+                        width,
+                        date2isoweek(tm.tm_year, tm.tm_mon, tm.tm_mday) as i64,
+                    )
+                    .as_bytes(),
                 );
                 apply_thth(&mut out, start, suffix)?;
             }

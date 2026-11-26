@@ -26,7 +26,14 @@ fn an_exec_unwound_after_its_section_bound_gives_every_workers_w_back() {
     REGIONS.trim();
     gravity_driver::DEPOT.trim();
     POOL.arm(need);
-    let res = std::rc::Rc::new(POOL.admit_need(want, &|g| footprint(g, &program, WIDTH), Duration::from_millis(10)).unwrap());
+    let res = std::rc::Rc::new(
+        POOL.admit_need(
+            want,
+            &|g| footprint(g, &program, WIDTH),
+            Duration::from_millis(10),
+        )
+        .unwrap(),
+    );
     let table = RangeTable::new(24, 10);
     let mut derive = FakeDerive::ranges(table);
     let mut entry = Entry::new(2);
@@ -35,19 +42,35 @@ fn an_exec_unwound_after_its_section_bound_gives_every_workers_w_back() {
     let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut sink = LegSink::new();
         let mut b = binding(&[8], &NULLS, &mut sink, &flag);
-        let mut exec = entry.start(None, &program, &mut derive, &mut b, res.clone()).unwrap();
-        let open = entry.open_section(&mut exec, &b, &mut derive, 0, WIDTH).unwrap();
+        let mut exec = entry
+            .start(None, &program, &mut derive, &mut b, res.clone())
+            .unwrap();
+        let open = entry
+            .open_section(&mut exec, &b, &mut derive, 0, WIDTH)
+            .unwrap();
         carved.set((open.worker_room(0), open.worker_room(1)));
         // the statement ledger's refusal of the next block, raised as `mcx::governor` raises its 53200
         std::panic::panic_any("D3258: a 53200 right after the section's bind");
     }));
     assert!(unwound.is_err(), "the run unwound");
-    assert_eq!(carved.get(), (4 * MIB, 4 * MIB), "each worker's arena carved into its W at bind");
-    assert_eq!(std::rc::Rc::strong_count(&res), 1, "the unwound Exec dropped its lease");
+    assert_eq!(
+        carved.get(),
+        (4 * MIB, 4 * MIB),
+        "each worker's arena carved into its W at bind"
+    );
+    assert_eq!(
+        std::rc::Rc::strong_count(&res),
+        1,
+        "the unwound Exec dropped its lease"
+    );
     drop(res);
     drop(entry);
     REGIONS.trim();
     gravity_driver::DEPOT.trim();
-    assert_eq!(POOL.held(), 0, "every worker's W given back with no Entry::end (D3258)");
+    assert_eq!(
+        POOL.held(),
+        0,
+        "every worker's W given back with no Entry::end (D3258)"
+    );
     POOL.arm(0);
 }

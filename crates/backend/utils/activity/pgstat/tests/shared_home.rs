@@ -49,7 +49,9 @@ fn account(a: Acct) -> i64 {
 
 /// The holder's account, found by its name (none before the holder existed).
 fn holder() -> Option<Acct> {
-    (1..memledger::BACKEND_SLOT_BASE).map(Acct).find(|a| a.name() == "shared_stats")
+    (1..memledger::BACKEND_SLOT_BASE)
+        .map(Acct)
+        .find(|a| a.name() == "shared_stats")
 }
 
 fn setup() {
@@ -69,15 +71,26 @@ fn a_standbys_backend_entry_leaves_neither_its_leader_nor_its_slot_below_base() 
     setup();
     set_home(true);
     let leader = Acct::backend(4000);
-    let (made, parked) = (Arc::new(Barrier::new(STANDBYS as usize + 1)), Arc::new(Barrier::new(STANDBYS as usize + 1)));
-    let (go_make, go_park) = (Arc::new(Barrier::new(STANDBYS as usize + 1)), Arc::new(Barrier::new(STANDBYS as usize + 1)));
+    let (made, parked) = (
+        Arc::new(Barrier::new(STANDBYS as usize + 1)),
+        Arc::new(Barrier::new(STANDBYS as usize + 1)),
+    );
+    let (go_make, go_park) = (
+        Arc::new(Barrier::new(STANDBYS as usize + 1)),
+        Arc::new(Barrier::new(STANDBYS as usize + 1)),
+    );
     // the leader holds its slot throughout
     bind_backend(4000, 9000);
     let l0 = account(leader);
     let h0 = holder().map(account);
     let standbys: Vec<_> = (0..STANDBYS)
         .map(|i| {
-            let (made, parked, go_make, go_park) = (made.clone(), parked.clone(), go_make.clone(), go_park.clone());
+            let (made, parked, go_make, go_park) = (
+                made.clone(),
+                parked.clone(),
+                go_make.clone(),
+                go_park.clone(),
+            );
             std::thread::spawn(move || {
                 let procno = 4010 + i;
                 bind_backend(procno, 9010 + procno);
@@ -96,7 +109,10 @@ fn a_standbys_backend_entry_leaves_neither_its_leader_nor_its_slot_below_base() 
                 made.wait();
                 go_park.wait();
                 // its park, on its own slot: the shutdown hook pgstat_initialize registered
-                let hook = HOOK.lock().unwrap_or_else(|e| e.into_inner()).expect("pgstat registered its shutdown hook");
+                let hook = HOOK
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .expect("pgstat registered its shutdown hook");
                 hook(0, datum::Datum::from_usize(0)).unwrap();
                 let moved = account(me) - s0;
                 unbind_backend();
@@ -117,9 +133,27 @@ fn a_standbys_backend_entry_leaves_neither_its_leader_nor_its_slot_below_base() 
     unbind_backend();
     let below: i64 = moved.iter().filter(|m| **m < 0).sum();
     assert!(l_made.abs() < SLACK, "the leader's account kept {l_made} B of its standbys' backend entries ({STANDBYS} x {ENTRY} B)");
-    assert!(below.abs() < SLACK, "the standbys' slots went {below} B below their bases at their parks ({moved:?})");
-    assert!(l_parked.abs() < SLACK, "the leader's account after the parks: {l_parked} B");
-    let (h0, held, back) = (h0.expect("the shared stats holder's account"), held.unwrap(), back.unwrap());
-    assert!(held - h0 >= STANDBYS as i64 * ENTRY, "the holder carries the entries: {} B", held - h0);
-    assert!(held - back >= STANDBYS as i64 * ENTRY, "and gives them back at the parks: {} B", held - back);
+    assert!(
+        below.abs() < SLACK,
+        "the standbys' slots went {below} B below their bases at their parks ({moved:?})"
+    );
+    assert!(
+        l_parked.abs() < SLACK,
+        "the leader's account after the parks: {l_parked} B"
+    );
+    let (h0, held, back) = (
+        h0.expect("the shared stats holder's account"),
+        held.unwrap(),
+        back.unwrap(),
+    );
+    assert!(
+        held - h0 >= STANDBYS as i64 * ENTRY,
+        "the holder carries the entries: {} B",
+        held - h0
+    );
+    assert!(
+        held - back >= STANDBYS as i64 * ENTRY,
+        "and gives them back at the parks: {} B",
+        held - back
+    );
 }

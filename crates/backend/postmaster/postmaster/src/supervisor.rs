@@ -60,7 +60,13 @@ static HELD: [AtomicI32; MAXLISTEN] = [const { AtomicI32::new(-1) }; MAXLISTEN];
 static HELD_N: AtomicUsize = AtomicUsize::new(0);
 
 #[cfg(not(any(target_family = "wasm", pgrust_sim)))]
-const FORWARDED: [i32; 5] = [libc::SIGHUP, libc::SIGINT, libc::SIGTERM, libc::SIGQUIT, libc::SIGUSR1];
+const FORWARDED: [i32; 5] = [
+    libc::SIGHUP,
+    libc::SIGINT,
+    libc::SIGTERM,
+    libc::SIGQUIT,
+    libc::SIGUSR1,
+];
 
 const NO_SUPERVISOR: &str = "--no-supervisor";
 
@@ -78,7 +84,8 @@ pub fn wants_supervisor(argv: &[String]) -> bool {
 /// The argv PostmasterMain sees: the switch is ours, not a GUC.
 fn strip_switch(argv: &[String]) -> PgResult<Vec<String>> {
     let mut v = Vec::new();
-    v.try_reserve(argv.len()).map_err(|_| mcx::oom_named("Postmaster", argv.len()))?;
+    v.try_reserve(argv.len())
+        .map_err(|_| mcx::oom_named("Postmaster", argv.len()))?;
     v.extend(argv.iter().filter(|a| *a != NO_SUPERVISOR).cloned());
     Ok(v)
 }
@@ -107,13 +114,21 @@ pub struct CrashLine {
 impl CrashLine {
     #[cfg(not(any(target_family = "wasm", pgrust_sim)))]
     fn new(message: String, line: i32, func: &'static str) -> Self {
-        Self { message, detail: None, line, func }
+        Self {
+            message,
+            detail: None,
+            line,
+            func,
+        }
     }
 }
 
 impl ChildReport {
     fn new() -> Self {
-        Self { restart_after_crash: true, ..Self::default() }
+        Self {
+            restart_after_crash: true,
+            ..Self::default()
+        }
     }
 
     fn feed(&mut self, bytes: &[u8], pending: &mut Vec<u8>) {
@@ -157,7 +172,10 @@ fn parse_crash_record(rec: &[u8]) -> Option<(String, i32, Option<String>)> {
     if desc.is_empty() || pid.is_empty() || !pid.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
-    let activity = parts.next().filter(|a| !a.is_empty()).map(|a| String::from_utf8_lossy(a).into_owned());
+    let activity = parts
+        .next()
+        .filter(|a| !a.is_empty())
+        .map(|a| String::from_utf8_lossy(a).into_owned());
     Some((format!("{desc} (PID {pid})"), sig, activity))
 }
 
@@ -235,7 +253,11 @@ pub fn supervise(argv: &[String]) -> PgResult<Vec<String>> {
             libc::close(hand_wr);
         }
         CHILD_PID.store(pid, Ordering::Release);
-        let mut images = ConfigImages { fd: config_rd, buf: Vec::new(), latest: std::mem::take(&mut config) };
+        let mut images = ConfigImages {
+            fd: config_rd,
+            buf: Vec::new(),
+            latest: std::mem::take(&mut config),
+        };
         let (status, report) = watch_child(pid, status_rd, hand_rd, &mut handoff, &mut images);
         config = images.latest;
         CHILD_PID.store(0, Ordering::Release);
@@ -248,10 +270,10 @@ pub fn supervise(argv: &[String]) -> PgResult<Vec<String>> {
         }
 
         let mut lines = Vec::new();
-        let (who, handler_sig) = report
-            .crashed
-            .clone()
-            .map_or_else(|| (format!("server process (PID {pid})"), None), |(w, s)| (w, Some(s)));
+        let (who, handler_sig) = report.crashed.clone().map_or_else(
+            || (format!("server process (PID {pid})"), None),
+            |(w, s)| (w, Some(s)),
+        );
         if libc::WIFEXITED(status) {
             let code = libc::WEXITSTATUS(status);
             if report.restart_requested {
@@ -264,7 +286,11 @@ pub fn supervise(argv: &[String]) -> PgResult<Vec<String>> {
                 std::process::exit(code);
             }
             // postmaster.c LogChildExit: a non-0/1 exit is a crash too.
-            lines.push(CrashLine::new(format!("{who} exited with exit code {code}"), 3830, "LogChildExit"));
+            lines.push(CrashLine::new(
+                format!("{who} exited with exit code {code}"),
+                3830,
+                "LogChildExit",
+            ));
         } else {
             // A doomed child the supervisor had to SIGKILL died of the
             // signal its crash handler reported.
@@ -274,16 +300,26 @@ pub fn supervise(argv: &[String]) -> PgResult<Vec<String>> {
                 libc::SIGKILL
             });
             lines.push(CrashLine::new(
-                format!("{who} was terminated by signal {signo}: {}", wait_error::pg_strsignal(signo)),
+                format!(
+                    "{who} was terminated by signal {signo}: {}",
+                    wait_error::pg_strsignal(signo)
+                ),
                 3844,
                 "LogChildExit",
             ));
         }
         if let Some(first) = lines.first_mut() {
-            first.detail = report.activity.clone().map(|a| format!("Failed process was running: {a}"));
+            first.detail = report
+                .activity
+                .clone()
+                .map(|a| format!("Failed process was running: {a}"));
         }
         if !report.ready || report.startup_crashed {
-            lines.push(CrashLine::new("shutting down due to startup process failure".into(), 3190, ""));
+            lines.push(CrashLine::new(
+                "shutting down due to startup process failure".into(),
+                3190,
+                "",
+            ));
             log_lines(&lines);
             remove_leftovers(handoff_field(&handoff, 0));
             std::process::exit(1);
@@ -294,7 +330,11 @@ pub fn supervise(argv: &[String]) -> PgResult<Vec<String>> {
             "HandleChildCrash",
         ));
         if !report.restart_after_crash {
-            lines.push(CrashLine::new("shutting down because \"restart_after_crash\" is off".into(), 3202, ""));
+            lines.push(CrashLine::new(
+                "shutting down because \"restart_after_crash\" is off".into(),
+                3202,
+                "",
+            ));
             log_lines(&lines);
             remove_leftovers(handoff_field(&handoff, 0));
             std::process::exit(1);
@@ -353,7 +393,11 @@ pub fn notify_ready() {
 }
 
 pub fn notify_restart_after_crash() {
-    notify(if guc_tables::vars::restart_after_crash.read() { b'y' } else { b'n' });
+    notify(if guc_tables::vars::restart_after_crash.read() {
+        b'y'
+    } else {
+        b'n'
+    });
 }
 
 /// Send PgStartTime and the postmaster's current settings for the next
@@ -505,7 +549,9 @@ pub fn notify_doomed(backend_type: &str, pid: i32, sig: i32, activity: &[u8]) {
 /// the next generation, which runs crash recovery.
 pub fn exit_for_restart() -> ! {
     // D4812: best effort, the memory threads' queued log lines first (bounded: the generation is ending)
-    let _ = memruntime::memlog::drain(core::time::Duration::from_millis(memruntime::memlog::CRASH_WAIT_MS));
+    let _ = memruntime::memlog::drain(core::time::Duration::from_millis(
+        memruntime::memlog::CRASH_WAIT_MS,
+    ));
     notify(b'C');
     // SAFETY: immediate process exit; nothing may run after this.
     unsafe { libc::_exit(1) }
@@ -533,7 +579,10 @@ pub fn hand_off_listen_sockets(fds: &[i32], fields: &[&str; 3]) {
     // SAFETY: msghdr/cmsghdr built per sendmsg(2)/cmsg(3) over buffers that
     // outlive the call; the control buffer is sized by CMSG_SPACE.
     unsafe {
-        let mut iov = libc::iovec { iov_base: payload.as_mut_ptr().cast(), iov_len: at };
+        let mut iov = libc::iovec {
+            iov_base: payload.as_mut_ptr().cast(),
+            iov_len: at,
+        };
         let mut msg: libc::msghdr = core::mem::zeroed();
         msg.msg_iov = &mut iov;
         msg.msg_iovlen = 1;
@@ -545,7 +594,11 @@ pub fn hand_off_listen_sockets(fds: &[i32], fields: &[&str; 3]) {
             (*c).cmsg_level = libc::SOL_SOCKET;
             (*c).cmsg_type = libc::SCM_RIGHTS;
             (*c).cmsg_len = libc::CMSG_LEN(bytes) as _;
-            core::ptr::copy_nonoverlapping(fds.as_ptr(), libc::CMSG_DATA(c).cast::<i32>(), fds.len());
+            core::ptr::copy_nonoverlapping(
+                fds.as_ptr(),
+                libc::CMSG_DATA(c).cast::<i32>(),
+                fds.len(),
+            );
         }
         libc::sendmsg(sock, &msg, 0);
         libc::close(sock);
@@ -558,9 +611,13 @@ const HANDOFF_BYTES: usize = 3 * (4 + types_core::MAXPGPATH);
 fn handoff_field(payload: &[u8], i: usize) -> &[u8] {
     let mut at = 0;
     for k in 0..=i {
-        let Some(len) = payload.get(at..at + 4) else { return &[] };
+        let Some(len) = payload.get(at..at + 4) else {
+            return &[];
+        };
         let len = u32::from_ne_bytes([len[0], len[1], len[2], len[3]]) as usize;
-        let Some(field) = payload.get(at + 4..at + 4 + len) else { return &[] };
+        let Some(field) = payload.get(at + 4..at + 4 + len) else {
+            return &[];
+        };
         if k == i {
             return field;
         }
@@ -568,7 +625,6 @@ fn handoff_field(payload: &[u8], i: usize) -> &[u8] {
     }
     &[]
 }
-
 
 #[cfg(any(target_family = "wasm", pgrust_sim))]
 pub fn hand_off_listen_sockets(_fds: &[i32], _fields: &[&str; 3]) {}
@@ -591,7 +647,10 @@ fn receive_handoff(sock: i32, handoff: &mut Vec<u8>) -> bool {
         // SAFETY: recvmsg(2) into stack buffers; control data parsed with the
         // cmsg(3) accessors within msg_controllen.
         let (n, fds, nfds) = unsafe {
-            let mut iov = libc::iovec { iov_base: payload.as_mut_ptr().cast(), iov_len: payload.len() };
+            let mut iov = libc::iovec {
+                iov_base: payload.as_mut_ptr().cast(),
+                iov_len: payload.len(),
+            };
             let mut msg: libc::msghdr = core::mem::zeroed();
             msg.msg_iov = &mut iov;
             msg.msg_iovlen = 1;
@@ -677,7 +736,9 @@ fn remove_if_owned(base: &[u8], suffix: &[u8], sock: Option<&[u8]>) {
         return;
     };
     let first = text.split(|&b| b == b'\n').next().unwrap_or(&[]);
-    if std::str::from_utf8(first).ok().and_then(|s| s.trim().parse::<i32>().ok())
+    if std::str::from_utf8(first)
+        .ok()
+        .and_then(|s| s.trim().parse::<i32>().ok())
         != Some(process_id() as i32)
     {
         return;
@@ -701,10 +762,16 @@ fn unix_path_of(fd: i32) -> Option<Vec<u8>> {
         }
         (su, len)
     };
-    if su.sun_family as i32 != libc::AF_UNIX || len as usize <= core::mem::offset_of!(libc::sockaddr_un, sun_path) {
+    if su.sun_family as i32 != libc::AF_UNIX
+        || len as usize <= core::mem::offset_of!(libc::sockaddr_un, sun_path)
+    {
         return None;
     }
-    let len = su.sun_path.iter().position(|&c| c == 0).unwrap_or(su.sun_path.len());
+    let len = su
+        .sun_path
+        .iter()
+        .position(|&c| c == 0)
+        .unwrap_or(su.sun_path.len());
     let mut path = Vec::new();
     path.try_reserve(len).ok()?;
     path.extend(su.sun_path[..len].iter().map(|&c| c as u8));
@@ -734,20 +801,30 @@ fn log(msg: &str) {
 
 #[cfg(not(any(target_family = "wasm", pgrust_sim)))]
 fn log_at(level: &str, msg: &str) {
-    let mut tv = libc::timeval { tv_sec: 0, tv_usec: 0 };
+    let mut tv = libc::timeval {
+        tv_sec: 0,
+        tv_usec: 0,
+    };
     let mut tm: libc::tm = unsafe { core::mem::zeroed() };
     let mut stamp = [0u8; 32];
     // SAFETY: valid out-pointers; strftime bounds itself to the buffer.
     let n = unsafe {
         libc::gettimeofday(&mut tv, core::ptr::null_mut());
         libc::localtime_r(&tv.tv_sec, &mut tm);
-        libc::strftime(stamp.as_mut_ptr().cast(), stamp.len(), c"%Y-%m-%d %H:%M:%S".as_ptr(), &tm)
+        libc::strftime(
+            stamp.as_mut_ptr().cast(),
+            stamp.len(),
+            c"%Y-%m-%d %H:%M:%S".as_ptr(),
+            &tm,
+        )
     };
     let zone = if tm.tm_zone.is_null() {
         String::new()
     } else {
         // SAFETY: tm_zone is a NUL-terminated static string from libc.
-        unsafe { std::ffi::CStr::from_ptr(tm.tm_zone) }.to_string_lossy().into_owned()
+        unsafe { std::ffi::CStr::from_ptr(tm.tm_zone) }
+            .to_string_lossy()
+            .into_owned()
     };
     elog::write_stderr(&format!(
         "{}.{:03} {zone} [{}] {level}:  {msg}\n",
@@ -821,11 +898,27 @@ fn watch_child(
         if eof {
             continue;
         }
-        let timeout = if report.doomed && !killed { DOOMED_GRACE_MS } else { 1000 };
+        let timeout = if report.doomed && !killed {
+            DOOMED_GRACE_MS
+        } else {
+            1000
+        };
         let mut pfds = [
-            libc::pollfd { fd: status_rd, events: libc::POLLIN, revents: 0 },
-            libc::pollfd { fd: if hand_open { hand_rd } else { -1 }, events: libc::POLLIN, revents: 0 },
-            libc::pollfd { fd: if config_open { images.fd } else { -1 }, events: libc::POLLIN, revents: 0 },
+            libc::pollfd {
+                fd: status_rd,
+                events: libc::POLLIN,
+                revents: 0,
+            },
+            libc::pollfd {
+                fd: if hand_open { hand_rd } else { -1 },
+                events: libc::POLLIN,
+                revents: 0,
+            },
+            libc::pollfd {
+                fd: if config_open { images.fd } else { -1 },
+                events: libc::POLLIN,
+                revents: 0,
+            },
         ];
         // SAFETY: three valid pollfds.
         let r = unsafe { libc::poll(pfds.as_mut_ptr(), 3, timeout) };
@@ -979,10 +1072,15 @@ mod tests {
 
     #[test]
     fn no_supervisor_switch_is_recognised_and_stripped() {
-        let argv: Vec<String> =
-            ["postgres", "-D", "dd", "--no-supervisor"].iter().map(|s| s.to_string()).collect();
+        let argv: Vec<String> = ["postgres", "-D", "dd", "--no-supervisor"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         assert!(!wants_supervisor(&argv));
-        let plain: Vec<String> = ["postgres", "-D", "dd"].iter().map(|s| s.to_string()).collect();
+        let plain: Vec<String> = ["postgres", "-D", "dd"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         assert!(wants_supervisor(&plain));
         assert_eq!(strip_switch(&argv).expect("small argv"), plain);
     }
@@ -1048,7 +1146,11 @@ mod tests {
             sa.sin_family = libc::AF_INET as _;
             sa.sin_addr.s_addr = u32::from_ne_bytes([127, 0, 0, 1]);
             assert_eq!(
-                libc::bind(s, (&raw const sa).cast(), core::mem::size_of::<libc::sockaddr_in>() as _),
+                libc::bind(
+                    s,
+                    (&raw const sa).cast(),
+                    core::mem::size_of::<libc::sockaddr_in>() as _
+                ),
                 0
             );
             assert_eq!(libc::listen(s, 4), 0);

@@ -34,7 +34,7 @@ use gravity_kernels::host_abi as abi;
 use gravity_program::{Home, LaneId as SiteLane, Pipeline, Rep, SiteDesc, Until};
 use mcx::{CollectIn, GrowIn, Mcx, PgBox, PgVec};
 
-use crate::ops::scan::heap::{add_off, align_off, as_value, load_word, push_ctid, push_tableoid, set_rel, step_varlena, tid_image, Off, HEAP_HASNULL, LP_OFF_MASK, PAGE_HEADER, T_BITS, T_HOFF};
+use crate::admit::refusal::Reason;
 use crate::cell::{At, Cell, CellHome, CellLife, Nullable, Row};
 use crate::face::source::{Locator, ReadPlan, SourceMech, WinConds};
 use crate::frame::env::Env;
@@ -42,7 +42,10 @@ use crate::frame::frame::Win;
 use crate::frame::px::Px;
 use crate::frame::row::{Carry, RowVals};
 use crate::frame::site::CTID_AT;
-use crate::admit::refusal::Reason;
+use crate::ops::scan::heap::{
+    add_off, align_off, as_value, load_word, push_ctid, push_tableoid, set_rel, step_varlena,
+    tid_image, Off, HEAP_HASNULL, LP_OFF_MASK, PAGE_HEADER, T_BITS, T_HOFF,
+};
 use crate::ops::Table;
 
 crate::strategies! {
@@ -51,7 +54,10 @@ crate::strategies! {
 }
 
 /// Read by heap.rs through `LaneForm::HeapPages.on()`: the road's mechanism is this file's `make`.
-pub(crate) const ROWS: Table = Table { strategies: &[(HEAP_PAGES, &())], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(HEAP_PAGES, &())],
+    ..crate::ops::NONE
+};
 
 /// One attribute on the walk: a by-value column of 1 / 2 / 4 / 8 bytes (aligned to its length), a by-reference column of
 /// fixed length `len` aligned to its type's `typalign` (`att_align_nominal`), or a varlena of its `typalign`.
@@ -141,7 +147,10 @@ fn type_align(px: &Px<'_, '_>, typid: u32) -> Option<u8> {
 fn dropped_att(l: gravity_decompose::catalog::AttLayout) -> Option<Att> {
     match (l.byval, l.typlen) {
         (true, 1 | 2 | 4 | 8) if l.align as i16 == l.typlen => Some(Att::Fixed(l.typlen as u8)),
-        (false, n) if n > 0 => Some(Att::Ref { len: n as u16, align: l.align }),
+        (false, n) if n > 0 => Some(Att::Ref {
+            len: n as u16,
+            align: l.align,
+        }),
         (false, -1) => Some(Att::Varlena(l.align)),
         _ => None,
     }
@@ -149,16 +158,37 @@ fn dropped_att(l: gravity_decompose::catalog::AttLayout) -> Option<Att> {
 
 /// The page form of heap site `s`, or `None` when the walk cannot reach a read column (v2 `pages_of`). Publishes the site
 /// raw on success.
-pub(crate) fn make<'g>(px: &mut Px<'g, '_>, k: usize, s: &SiteDesc, relid: u32, off: Option<usize>, ctid: bool) -> Option<PgBox<'g, dyn SourceMech + 'g>> {
+pub(crate) fn make<'g>(
+    px: &mut Px<'g, '_>,
+    k: usize,
+    s: &SiteDesc,
+    relid: u32,
+    off: Option<usize>,
+    ctid: bool,
+) -> Option<PgBox<'g, dyn SourceMech + 'g>> {
     let off = off?;
     let mcx = px.mcx();
     let facts = px.gx.facts;
-    let read: PgVec<'_, (usize, i16)> = s.lanes().iter().enumerate().filter_map(|(k, l)| if let SiteLane::Attr(a) = l.id { Some((k, a)) } else { None }).collect_in(mcx);
+    let read: PgVec<'_, (usize, i16)> = s
+        .lanes()
+        .iter()
+        .enumerate()
+        .filter_map(|(k, l)| {
+            if let SiteLane::Attr(a) = l.id {
+                Some((k, a))
+            } else {
+                None
+            }
+        })
+        .collect_in(mcx);
     let want = read.iter().map(|&(_, a)| a).max().unwrap_or(0);
     let mut walk = mcx::reserved_in(want as usize, mcx);
     let mut cols = mcx::reserved_in(read.len(), mcx);
     for a in 1..=want {
-        let at = read.iter().find(|&&(_, x)| x == a).map(|&(k, _)| (k, s.lanes()[k]));
+        let at = read
+            .iter()
+            .find(|&&(_, x)| x == a)
+            .map(|&(k, _)| (k, s.lanes()[k]));
         let Some(f) = facts.att(relid, a) else {
             let att = dropped_att(facts.dropped_layout(relid, a)?)?;
             walk.push_in(att);
@@ -166,34 +196,110 @@ pub(crate) fn make<'g>(px: &mut Px<'g, '_>, k: usize, s: &SiteDesc, relid: u32, 
             // pointer into the pinned page by the kept layout; it has no type
             if let Some((lk, d)) = at {
                 let cell = match att {
-                    Att::Fixed(_) if d.kind != lane::KIND_BYREF => Cell { rep: Rep::Word { bytes: 8 }, typid: 0, num: d.num, life: CellLife { until: Until::Statement, home: CellHome::Lane(Home::Word) }, at: At::Value(a as u16), null: Nullable::Maybe },
-                    Att::Ref { len, .. } if d.kind == lane::KIND_BYREF && d.rep == Rep::FixedPtr { len } => Cell { rep: d.rep, typid: 0, num: d.num, life: CellLife::of_lane(d.life), at: At::Value(a as u16), null: Nullable::Maybe },
-                    Att::Varlena(_) if d.kind == lane::KIND_BYREF && d.rep == Rep::VarlenaPtr => Cell { rep: d.rep, typid: 0, num: d.num, life: CellLife::of_lane(d.life), at: At::Value(a as u16), null: Nullable::Maybe },
+                    Att::Fixed(_) if d.kind != lane::KIND_BYREF => Cell {
+                        rep: Rep::Word { bytes: 8 },
+                        typid: 0,
+                        num: d.num,
+                        life: CellLife {
+                            until: Until::Statement,
+                            home: CellHome::Lane(Home::Word),
+                        },
+                        at: At::Value(a as u16),
+                        null: Nullable::Maybe,
+                    },
+                    Att::Ref { len, .. }
+                        if d.kind == lane::KIND_BYREF && d.rep == Rep::FixedPtr { len } =>
+                    {
+                        Cell {
+                            rep: d.rep,
+                            typid: 0,
+                            num: d.num,
+                            life: CellLife::of_lane(d.life),
+                            at: At::Value(a as u16),
+                            null: Nullable::Maybe,
+                        }
+                    }
+                    Att::Varlena(_) if d.kind == lane::KIND_BYREF && d.rep == Rep::VarlenaPtr => {
+                        Cell {
+                            rep: d.rep,
+                            typid: 0,
+                            num: d.num,
+                            life: CellLife::of_lane(d.life),
+                            at: At::Value(a as u16),
+                            null: Nullable::Maybe,
+                        }
+                    }
                     _ => return None,
                 };
-                cols.push_in(PageCol { k: lk, attno: a, notnull: false, cell });
+                cols.push_in(PageCol {
+                    k: lk,
+                    attno: a,
+                    notnull: false,
+                    cell,
+                });
             }
             continue;
         };
         let att = if f.byval && matches!(f.typlen, 1 | 2 | 4 | 8) {
             Att::Fixed(f.typlen as u8)
-        } else if !f.byval && f.typlen > 0 && at.is_none_or(|(_, d)| d.kind == lane::KIND_BYREF && d.rep == Rep::FixedPtr { len: f.typlen as u16 }) {
-            Att::Ref { len: f.typlen as u16, align: type_align(px, f.typid)? }
-        } else if f.typlen == -1 && !f.byval && at.is_none_or(|(_, d)| d.kind == lane::KIND_BYREF && d.rep == Rep::VarlenaPtr) {
+        } else if !f.byval
+            && f.typlen > 0
+            && at.is_none_or(|(_, d)| {
+                d.kind == lane::KIND_BYREF
+                    && d.rep
+                        == Rep::FixedPtr {
+                            len: f.typlen as u16,
+                        }
+            })
+        {
+            Att::Ref {
+                len: f.typlen as u16,
+                align: type_align(px, f.typid)?,
+            }
+        } else if f.typlen == -1
+            && !f.byval
+            && at.is_none_or(|(_, d)| d.kind == lane::KIND_BYREF && d.rep == Rep::VarlenaPtr)
+        {
             Att::Varlena(type_align(px, f.typid)?)
         } else {
             return None;
         };
         walk.push_in(att);
         let Some((lk, d)) = at else { continue };
-        let null = if f.notnull { Nullable::Never } else { Nullable::Maybe };
+        let null = if f.notnull {
+            Nullable::Never
+        } else {
+            Nullable::Maybe
+        };
         // a fixed column's cell is its datum word (the host's by-value lane word, sign-extended from the type's length);
         // a by-reference one's (fixed length or varlena) is the datum pointer into the pinned page
         let cell = match att {
-            Att::Fixed(_) => Cell { rep: Rep::Word { bytes: 8 }, typid: f.typid, num: d.num, life: CellLife { until: Until::Statement, home: CellHome::Lane(Home::Word) }, at: At::Value(a as u16), null },
-            Att::Ref { .. } | Att::Varlena(_) => Cell { rep: d.rep, typid: f.typid, num: d.num, life: CellLife::of_lane(d.life), at: At::Value(a as u16), null },
+            Att::Fixed(_) => Cell {
+                rep: Rep::Word { bytes: 8 },
+                typid: f.typid,
+                num: d.num,
+                life: CellLife {
+                    until: Until::Statement,
+                    home: CellHome::Lane(Home::Word),
+                },
+                at: At::Value(a as u16),
+                null,
+            },
+            Att::Ref { .. } | Att::Varlena(_) => Cell {
+                rep: d.rep,
+                typid: f.typid,
+                num: d.num,
+                life: CellLife::of_lane(d.life),
+                at: At::Value(a as u16),
+                null,
+            },
         };
-        cols.push_in(PageCol { k: lk, attno: a, notnull: f.notnull, cell });
+        cols.push_in(PageCol {
+            k: lk,
+            attno: a,
+            notnull: f.notnull,
+            cell,
+        });
     }
     let node = px.gx.pipelines()[k].node_id;
     // a plain or a hashed aggregate's end: a hashed group's records take its rows in any order the effects home finds
@@ -201,11 +307,25 @@ pub(crate) fn make<'g>(px: &mut Px<'g, '_>, k: usize, s: &SiteDesc, relid: u32, 
     // leave the table in is the table's (nodeAgg.c agg_retrieve_hash_table). A sorted group on this end keeps the walk.
     // and every fold of the hashed group gives PostgreSQL's bits over its rows in any order (`fold::bits_free`: a float
     // fold rounds by the order PG's seq scan feeds the group, which D798's e2e compares bit for bit)
-    let hashed = || px.gx.group_at(k).is_some_and(|g| g.form == gravity_decompose::ops::shared::agg::GroupForm::Hashed && crate::effects::fold::bits_free(g));
-    let folds = px.gx.pipelines()[k].desc.breaker().is_some_and(|b| b.kind == BreakerKind::PlainAgg || b.kind == BreakerKind::HashAgg && hashed());
+    let hashed = || {
+        px.gx.group_at(k).is_some_and(|g| {
+            g.form == gravity_decompose::ops::shared::agg::GroupForm::Hashed
+                && crate::effects::fold::bits_free(g)
+        })
+    };
+    let folds = px.gx.pipelines()[k].desc.breaker().is_some_and(|b| {
+        b.kind == BreakerKind::PlainAgg || b.kind == BreakerKind::HashAgg && hashed()
+    });
     let reverse = folds && crate::effects::visible::order_visible(px.gx, k).is_none();
-    let natts = if ctid { CTID_AT as usize } else { want as usize };
-    let (set, tableoid) = (s.set.len() > 1, crate::ops::scan::heap::set_tableoid(px, k, s));
+    let natts = if ctid {
+        CTID_AT as usize
+    } else {
+        want as usize
+    };
+    let (set, tableoid) = (
+        s.set.len() > 1,
+        crate::ops::scan::heap::set_tableoid(px, k, s),
+    );
     px.set_site(k, s.copy_in(px.arena).raw_pages());
     // the reversal also needs nests whose inners raise nothing (`effects::nests_raise_free`): a raising inner raises at the
     // first outer row the walk reaches, PostgreSQL's
@@ -215,11 +335,27 @@ pub(crate) fn make<'g>(px: &mut Px<'g, '_>, k: usize, s: &SiteDesc, relid: u32, 
     let all: PgVec<'_, usize> = (0..cols.len()).collect_in(mcx);
     // a row that passes pays a re-entry (its tuple, the body's branches) for the late cells: worth it only when the walk
     // past the filters' columns steps over a varlena or a by-reference column; a fixed-width one is a few constant loads
-    let late_walk = |e: usize| walk[e.min(walk.len())..].iter().any(|a| !matches!(a, Att::Fixed(_)));
-    let (late_at, early) = late_split(px, k).filter(|&(_, e)| cols.iter().any(|c| c.attno as usize > e) && late_walk(e)).unwrap_or((0, walk.len()));
-    let first = all.iter().copied().filter(|&x| cols[x].attno as usize <= early).collect_in(mcx);
-    let rest = all.iter().copied().filter(|&x| cols[x].attno as usize > early).collect_in(mcx);
-    Some(mcx::pg_box_dyn!(mcx, PagesMech { cols, walk, late_at, early, all, first, rest, mcx, early_fast: Once::new(false), early_off: Once::new(Off::K(0)), last_fast: Once::new(false), natts, node, off, ctid, set, tableoid, reverse, hosts: Once::new(None), win: RefCell::new(None) } => dyn SourceMech + 'g))
+    let late_walk = |e: usize| {
+        walk[e.min(walk.len())..]
+            .iter()
+            .any(|a| !matches!(a, Att::Fixed(_)))
+    };
+    let (late_at, early) = late_split(px, k)
+        .filter(|&(_, e)| cols.iter().any(|c| c.attno as usize > e) && late_walk(e))
+        .unwrap_or((0, walk.len()));
+    let first = all
+        .iter()
+        .copied()
+        .filter(|&x| cols[x].attno as usize <= early)
+        .collect_in(mcx);
+    let rest = all
+        .iter()
+        .copied()
+        .filter(|&x| cols[x].attno as usize > early)
+        .collect_in(mcx);
+    Some(
+        mcx::pg_box_dyn!(mcx, PagesMech { cols, walk, late_at, early, all, first, rest, mcx, early_fast: Once::new(false), early_off: Once::new(Off::K(0)), last_fast: Once::new(false), natts, node, off, ctid, set, tableoid, reverse, hosts: Once::new(None), win: RefCell::new(None) } => dyn SourceMech + 'g),
+    )
 }
 
 /// decode.late: pipeline `k`'s leading filter ops and the last attribute their quals read, when every column they read is
@@ -228,7 +364,9 @@ pub(crate) fn make<'g>(px: &mut Px<'g, '_>, k: usize, s: &SiteDesc, relid: u32, 
 fn late_split(px: &Px<'_, '_>, k: usize) -> Option<(usize, usize)> {
     let mcx = px.mcx();
     let p = &px.gx.pipelines()[k];
-    let Source::Range { scanrelid, .. } = &p.source else { return None };
+    let Source::Range { scanrelid, .. } = &p.source else {
+        return None;
+    };
     let (mut n, mut last, mut other) = (0usize, 0usize, false);
     for op in p.ops.iter() {
         let Op::Filter(q) = op else { break };
@@ -277,7 +415,12 @@ fn tuple_at(b: &mut FunctionBuilder<'_>, w: &PWin<'_>, i: Value, iota: bool) -> 
 }
 
 /// `tuple_at` and the tuple's header word.
-fn tuple_word(b: &mut FunctionBuilder<'_>, w: &PWin<'_>, i: Value, iota: bool) -> (Value, Value, Value) {
+fn tuple_word(
+    b: &mut FunctionBuilder<'_>,
+    w: &PWin<'_>,
+    i: Value,
+    iota: bool,
+) -> (Value, Value, Value) {
     let (tup, hoff) = tuple_at(b, w, i, iota);
     (tup, b.load_zext_unaligned(Type::I32, tup, T_WORD), hoff)
 }
@@ -303,21 +446,36 @@ impl<'g> PagesMech<'g> {
     fn hosts(&self) -> [HostFn; 3] {
         match self.hosts.get() {
             Some(h) => h,
-            None => crate::refuse!(self.node, Reason::Bug { payload: "a heap page source lowered before its declare" }),
+            None => crate::refuse!(
+                self.node,
+                Reason::Bug {
+                    payload: "a heap page source lowered before its declare"
+                }
+            ),
         }
     }
 
     fn vals(&self) -> PWin<'g> {
         match self.win.borrow().clone() {
             Some(w) => w,
-            None => crate::refuse!(self.node, Reason::Bug { payload: "a heap page row before its window" }),
+            None => crate::refuse!(
+                self.node,
+                Reason::Bug {
+                    payload: "a heap page row before its window"
+                }
+            ),
         }
     }
 
     fn k(&self, env: &Env) -> usize {
         match env.site {
             Some(k) => k,
-            None => crate::refuse!(self.node, Reason::Bug { payload: "a heap page source without its site" }),
+            None => crate::refuse!(
+                self.node,
+                Reason::Bug {
+                    payload: "a heap page source without its site"
+                }
+            ),
         }
     }
 
@@ -325,7 +483,13 @@ impl<'g> PagesMech<'g> {
     /// 1-byte-header road (D062) and its verdict (no varlena read length 0: the external tag 0x01). The road speculates on
     /// the short header: an even header byte branches to `short`'s block (the full walk), so the running offset is one load
     /// and one add per varlena (the mask form's and / neg / and sat on that chain: 8 -> 6 cycles per varlena on V2).
-    fn fixed(&self, b: &mut FunctionBuilder<'_>, data: Value, short: Option<Block>, p: Part<'_>) -> (PgVec<'g, Value>, Option<Value>, Off) {
+    fn fixed(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        data: Value,
+        short: Option<Block>,
+        p: Part<'_>,
+    ) -> (PgVec<'g, Value>, Option<Value>, Off) {
         let mut off = p.off;
         let mut least: Option<Value> = None;
         let mut out = mcx::reserved_in(p.idx.len(), self.mcx);
@@ -385,8 +549,16 @@ impl<'g> PagesMech<'g> {
     }
 
     /// `fixed` with the short road first when a varlena is on the walk; any other header form takes the full walk (cold).
-    fn fixed_cells(&self, b: &mut FunctionBuilder<'_>, data: Value, p: Part<'_>) -> (PgVec<'g, Value>, Off) {
-        if !self.walk[p.from.min(p.n)..p.n].iter().any(|a| matches!(a, Att::Varlena(_))) {
+    fn fixed_cells(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        data: Value,
+        p: Part<'_>,
+    ) -> (PgVec<'g, Value>, Off) {
+        if !self.walk[p.from.min(p.n)..p.n]
+            .iter()
+            .any(|a| matches!(a, Att::Varlena(_)))
+        {
             let (out, _, off) = self.fixed(b, data, None, p);
             return (out, off);
         }
@@ -407,14 +579,25 @@ impl<'g> PagesMech<'g> {
         b.br(l_join, &full[..]);
         b.switch_to(l_join);
         let mut out = mcx::to_vec_in(b.block_params(l_join), self.mcx);
-        let end = if p.tail { out.pop().map_or(Off::K(0), Off::V) } else { Off::K(0) };
+        let end = if p.tail {
+            out.pop().map_or(Off::K(0), Off::V)
+        } else {
+            Off::K(0)
+        };
         (out, end)
     }
 
     /// A tuple with a null bitmap: attribute a is present when bit a - 1 of `t_bits` is set; a present attribute sits at
     /// the running offset aligned to its length and advances it; an absent one is NULL (v2 `deform`'s null walk). Returns
     /// `(word, null)` per read column.
-    fn null_walk(&self, b: &mut FunctionBuilder<'_>, env: &Env, tup: Value, hoff: Value, p: Part<'_>) -> (PgVec<'g, (Value, Value)>, Value) {
+    fn null_walk(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &Env,
+        tup: Value,
+        hoff: Value,
+        p: Part<'_>,
+    ) -> (PgVec<'g, (Value, Value)>, Value) {
         let data = b.ptr_add(tup, hoff, 1, 0);
         let mut off = match p.off {
             Off::K(0) => env.zero,
@@ -459,7 +642,8 @@ impl<'g> PagesMech<'g> {
                     b.int_bin(IntBinOp::Add, aligned, l)
                 }
                 Att::Varlena(align) => {
-                    let (after, p) = step_varlena(b, data, Off::V(off), align, Some((present, tup)));
+                    let (after, p) =
+                        step_varlena(b, data, Off::V(off), align, Some((present, tup)));
                     if read {
                         out.push_in((b.conv(ConvOp::PtrToInt, Type::I64, p), absent));
                     }
@@ -493,8 +677,19 @@ impl<'g> PagesMech<'g> {
     }
 
     /// The general body's cells: a full or unread page's tuple (`tuple_cells`), else the host's lanes.
-    fn general(&self, b: &mut FunctionBuilder<'_>, env: &Env, w: &PWin<'_>, i: Value, p: Part<'_>) -> (PgVec<'g, Value>, Option<Value>) {
-        let (l_done, l_tup, l_lane) = (self.pair_block(b, p), b.create_block(&[]), b.create_block(&[]));
+    fn general(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &Env,
+        w: &PWin<'_>,
+        i: Value,
+        p: Part<'_>,
+    ) -> (PgVec<'g, Value>, Option<Value>) {
+        let (l_done, l_tup, l_lane) = (
+            self.pair_block(b, p),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         if !self.walk.is_empty() {
             // a page the host walked with both flags known (a gap in its line pointers: no PAGE_IOTA) reads its fixed offsets
             let (l_known, l_rest) = (b.create_block(&[]), b.create_block(&[]));
@@ -533,8 +728,21 @@ impl<'g> PagesMech<'g> {
     /// The fast body's row (V4R-371): the header word's tests, passed by every row of a page the host walked
     /// (`PAGE_NONULLS | PAGE_FULL`) and asked here of an unread page's (no null bitmap, at least the walk's attributes), then
     /// the fixed offsets. A row that fails re-enters the window in the general body at its own row (`Env::escape`, cold).
-    fn checked(&self, b: &mut FunctionBuilder<'_>, env: &Env, w: &PWin<'_>, i: Value, l_row: Block, (j, carry): (Value, &Carry), p: Part<'_>) -> (PgVec<'g, Value>, Off) {
-        let (l_long, l_other, l_fixed) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));
+    fn checked(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &Env,
+        w: &PWin<'_>,
+        i: Value,
+        l_row: Block,
+        (j, carry): (Value, &Carry),
+        p: Part<'_>,
+    ) -> (PgVec<'g, Value>, Off) {
+        let (l_long, l_other, l_fixed) = (
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         b.mark_cold(l_other);
         let (tup, word, hoff) = tuple_word(b, w, i, true);
         let hasnull = word_test(b, env, word, None);
@@ -543,22 +751,47 @@ impl<'g> PagesMech<'g> {
         let short = word_test(b, env, word, Some(self.walk.len()));
         b.cond_br(short, (l_other, &[]), (l_fixed, &[]));
         b.switch_to(l_other);
-        b.br(l_row, &mcx::concat_in(&[&[j][..], &carry.params()[..]], self.mcx)[..]);
+        b.br(
+            l_row,
+            &mcx::concat_in(&[&[j][..], &carry.params()[..]], self.mcx)[..],
+        );
         b.switch_to(l_fixed);
         self.fixed_flat(b, tup, hoff, p)
     }
 
     /// A tuple without a null bitmap: its fixed-offset cells, flat `(word, false)` pairs.
-    fn fixed_flat(&self, b: &mut FunctionBuilder<'_>, tup: Value, hoff: Value, p: Part<'_>) -> (PgVec<'g, Value>, Off) {
+    fn fixed_flat(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        tup: Value,
+        hoff: Value,
+        p: Part<'_>,
+    ) -> (PgVec<'g, Value>, Off) {
         let (data, f) = (b.ptr_add(tup, hoff, 1, 0), b.bconst(false));
         let (cells, off) = self.fixed_cells(b, data, p);
-        (cells.into_iter().flat_map(|v| [v, f]).collect_in(self.mcx), off)
+        (
+            cells.into_iter().flat_map(|v| [v, f]).collect_in(self.mcx),
+            off,
+        )
     }
 
     /// A tuple's flat `(word, null)` cells by its header word `[tup, word, hoff]`: fewer attributes than the walk (an unread
     /// page's: `short_cells`, cold), a null bitmap (the null walk), else the fixed offsets.
-    fn tuple_cells(&self, b: &mut FunctionBuilder<'_>, env: &Env, i: Value, [tup, word, hoff]: [Value; 3], p: Part<'_>) -> (PgVec<'g, Value>, Option<Value>) {
-        let (l_done, l_short, l_long, l_fixed, l_walk) = (self.pair_block(b, p), b.create_block(&[]), b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));
+    fn tuple_cells(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &Env,
+        i: Value,
+        [tup, word, hoff]: [Value; 3],
+        p: Part<'_>,
+    ) -> (PgVec<'g, Value>, Option<Value>) {
+        let (l_done, l_short, l_long, l_fixed, l_walk) = (
+            self.pair_block(b, p),
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         b.mark_cold(l_short);
         let short = word_test(b, env, word, Some(self.walk.len()));
         b.cond_br(short, (l_short, &[]), (l_long, &[]));
@@ -573,7 +806,10 @@ impl<'g> PagesMech<'g> {
         b.br(l_done, &args[..]);
         b.switch_to(l_walk);
         let (pairs, off) = self.null_walk(b, env, tup, hoff, p);
-        let mut args = pairs.into_iter().flat_map(|(v, nl)| [v, nl]).collect_in(self.mcx);
+        let mut args = pairs
+            .into_iter()
+            .flat_map(|(v, nl)| [v, nl])
+            .collect_in(self.mcx);
         if p.tail {
             args.push_in(off);
         }
@@ -592,7 +828,13 @@ impl<'g> PagesMech<'g> {
 
     /// An unread page's short tuple (missing attributes): each read column's lane asked for once per window
     /// (`heap_page_lane` deforms the page's rows; a failing status leaves), then read as a not-full page's.
-    fn short_cells(&self, b: &mut FunctionBuilder<'_>, env: &Env, i: Value, p: Part<'_>) -> PgVec<'g, Value> {
+    fn short_cells(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &Env,
+        i: Value,
+        p: Part<'_>,
+    ) -> PgVec<'g, Value> {
         let (fill, k) = (self.hosts()[2], self.k(env));
         let kv = b.iconst(Type::I64, k as i64);
         let arr = b.load(Type::Ptr, env.ctx, site_off(k) as i32 + site::LANES as i32);
@@ -604,7 +846,9 @@ impl<'g> PagesMech<'g> {
             b.cond_br(none, (l_fill, &[]), (l_ok, &[]));
             b.switch_to(l_fill);
             let lk = b.iconst(Type::I64, c.k as i64);
-            let rc = b.call_host(fill, &[env.ctx, kv, lk], Some(Type::I64)).unwrap_or(env.zero);
+            let rc = b
+                .call_host(fill, &[env.ctx, kv, lk], Some(Type::I64))
+                .unwrap_or(env.zero);
             let bad = b.icmp(IntCond::Slt, rc, env.zero);
             b.cond_br(bad, (env.x.l_exit, &[rc]), (l_ok, &[]));
             b.switch_to(l_ok);
@@ -614,7 +858,12 @@ impl<'g> PagesMech<'g> {
     }
 
     /// Per read column its lane's `(values, validity words, no validity words)` from the site's lane array `arr`.
-    fn lane_descs(&self, b: &mut FunctionBuilder<'_>, env: &Env, arr: Value) -> PgVec<'g, (Value, Value, Value)> {
+    fn lane_descs(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &Env,
+        arr: Value,
+    ) -> PgVec<'g, (Value, Value, Value)> {
         let mut lanes = mcx::reserved_in(self.cols.len(), self.mcx);
         for c in self.cols.iter() {
             let at = (c.k * lane::SIZE) as i32;
@@ -627,7 +876,14 @@ impl<'g> PagesMech<'g> {
     }
 
     /// Row `i`'s flat `(word, null)` cells from the host's lanes.
-    fn lane_cells(&self, b: &mut FunctionBuilder<'_>, env: &Env, i: Value, lanes: &[(Value, Value, Value)], p: Part<'_>) -> PgVec<'g, Value> {
+    fn lane_cells(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &Env,
+        i: Value,
+        lanes: &[(Value, Value, Value)],
+        p: Part<'_>,
+    ) -> PgVec<'g, Value> {
         let mut args = mcx::reserved_in(2 * p.idx.len(), self.mcx);
         for (c, &(ptr, valid, vnull)) in p.idx.iter().map(|&x| (&self.cols[x], &lanes[x])) {
             let p = b.ptr_add(ptr, i, 8, 0);
@@ -639,7 +895,9 @@ impl<'g> PagesMech<'g> {
 
     /// A join block taking a `(word, null)` pair per read column.
     fn pair_block(&self, b: &mut FunctionBuilder<'_>, p: Part<'_>) -> Block {
-        let mut tys = (0..p.idx.len()).flat_map(|_| [Type::I64, Type::Bool]).collect_in(self.mcx);
+        let mut tys = (0..p.idx.len())
+            .flat_map(|_| [Type::I64, Type::Bool])
+            .collect_in(self.mcx);
         if p.tail {
             tys.push_in(Type::I64);
         }
@@ -654,19 +912,47 @@ impl<'g> PagesMech<'g> {
     /// Every cell (`row`), the cells the leading filters read (`row_early`) or the rest (`row_late`).
     fn part(&self, which: Option<bool>) -> Part<'_> {
         match which {
-            None => Part { n: self.walk.len(), idx: &self.all[..], from: 0, off: Off::K(0), tail: false },
-            Some(true) => Part { n: self.early, idx: &self.first[..], from: 0, off: Off::K(0), tail: true },
-            Some(false) => Part { n: self.walk.len(), idx: &self.rest[..], from: self.early, off: self.early_off.get(), tail: false },
+            None => Part {
+                n: self.walk.len(),
+                idx: &self.all[..],
+                from: 0,
+                off: Off::K(0),
+                tail: false,
+            },
+            Some(true) => Part {
+                n: self.early,
+                idx: &self.first[..],
+                from: 0,
+                off: Off::K(0),
+                tail: true,
+            },
+            Some(false) => Part {
+                n: self.walk.len(),
+                idx: &self.rest[..],
+                from: self.early,
+                off: self.early_off.get(),
+                tail: false,
+            },
         }
     }
 
     /// Row `j`: every cell (`which` none), or the leading filters' cells (`Some(true)`) with placeholders for the rest.
-    fn row_of<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, j: Value, carry: Carry<'e>, next: Value, which: Option<bool>) -> RowVals<'e> {
+    fn row_of<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        j: Value,
+        carry: Carry<'e>,
+        next: Value,
+        which: Option<bool>,
+    ) -> RowVals<'e> {
         let w = self.vals();
         let i = self.index(b, env, &w, j);
         let p = self.part(which);
         // the fast body re-enters the general one at a failing row (frame.rs sets the escape wherever it lowers one)
-        let fast = env.escape.filter(|_| env.body.nonulls && env.body.page_full);
+        let fast = env
+            .escape
+            .filter(|_| env.body.nonulls && env.body.page_full);
         if which.is_some() {
             self.early_fast.set(fast.is_some());
         }
@@ -698,7 +984,14 @@ impl<'g> PagesMech<'g> {
             cols[c.attno as usize - 1] = Some(n as u16);
         }
         let cells = self.cols.iter().map(|c| c.cell).collect_in(env.mcx);
-        let mut row = RowVals { row: Row { cells }, vals, cols, carry, next, at: j };
+        let mut row = RowVals {
+            row: Row { cells },
+            vals,
+            cols,
+            carry,
+            next,
+            at: j,
+        };
         if self.ctid {
             let off = self.tid(b, &w, i);
             let img = tid_image(b, w.block, off);
@@ -718,7 +1011,14 @@ impl<'g> PagesMech<'g> {
 }
 
 /// Row `i`'s NULL flag from a host lane's validity words (none: all valid); a NOT NULL column is never NULL.
-fn null_bit(b: &mut FunctionBuilder<'_>, env: &Env, i: Value, valid: Value, vnull: Value, notnull: bool) -> Value {
+fn null_bit(
+    b: &mut FunctionBuilder<'_>,
+    env: &Env,
+    i: Value,
+    valid: Value,
+    vnull: Value,
+    notnull: bool,
+) -> Value {
     if notnull {
         return b.bconst(false);
     }
@@ -744,10 +1044,31 @@ impl<'g> SourceMech for PagesMech<'g> {
     }
 
     fn declare(&mut self, pb: &mut ProgramBuilder) {
-        let mem = HostFlags { touches_memory: true, ..HostFlags::default() };
-        let seek = pb.declare_host("range_seek", &[Type::Ptr, Type::I64], Some(Type::I64), gravity_kernels::contract::entry1::<abi::RangeSeek> as *const () as usize, mem);
-        let advance = pb.declare_host("advance", &[Type::Ptr, Type::I64], Some(Type::I64), gravity_kernels::contract::entry1::<abi::Advance> as *const () as usize, mem);
-        let lane = pb.declare_host("heap_page_lane", &[Type::Ptr, Type::I64, Type::I64], Some(Type::I64), gravity_kernels::ops::scan::entries::heap_page_lane as *const () as usize, mem);
+        let mem = HostFlags {
+            touches_memory: true,
+            ..HostFlags::default()
+        };
+        let seek = pb.declare_host(
+            "range_seek",
+            &[Type::Ptr, Type::I64],
+            Some(Type::I64),
+            gravity_kernels::contract::entry1::<abi::RangeSeek> as *const () as usize,
+            mem,
+        );
+        let advance = pb.declare_host(
+            "advance",
+            &[Type::Ptr, Type::I64],
+            Some(Type::I64),
+            gravity_kernels::contract::entry1::<abi::Advance> as *const () as usize,
+            mem,
+        );
+        let lane = pb.declare_host(
+            "heap_page_lane",
+            &[Type::Ptr, Type::I64, Type::I64],
+            Some(Type::I64),
+            gravity_kernels::ops::scan::entries::heap_page_lane as *const () as usize,
+            mem,
+        );
         self.hosts.set(Some([seek, advance, lane]));
     }
 
@@ -765,7 +1086,8 @@ impl<'g> SourceMech for PagesMech<'g> {
 
     fn open(&self, b: &mut FunctionBuilder<'_>, env: &mut Env) -> Value {
         let k = b.iconst(Type::I64, self.k(env) as i64);
-        b.call_host(self.hosts()[0], &[env.ctx, k], Some(Type::I64)).unwrap_or(env.zero)
+        b.call_host(self.hosts()[0], &[env.ctx, k], Some(Type::I64))
+            .unwrap_or(env.zero)
     }
 
     /// The next page (`advance`: a stop resumes inside the current one), its flags and offsets; a page that is not full
@@ -774,7 +1096,9 @@ impl<'g> SourceMech for PagesMech<'g> {
         let k = self.k(env);
         let [_, advance, fill] = self.hosts();
         let kv = b.iconst(Type::I64, k as i64);
-        let r = b.call_host(advance, &[env.ctx, kv], Some(Type::I64)).unwrap_or(env.zero);
+        let r = b
+            .call_host(advance, &[env.ctx, kv], Some(Type::I64))
+            .unwrap_or(env.zero);
         let le = b.icmp(IntCond::Sle, r, env.zero);
         let l_window = b.create_block(&[]);
         b.cond_br(le, (l_eof, &[r]), (l_window, &[]));
@@ -792,8 +1116,18 @@ impl<'g> SourceMech for PagesMech<'g> {
         // V4R-371: an unread page counts as full and null-free (its rows test their own header word); the fast body's
         // page is also PAGE_IOTA
         let flag = |b: &mut FunctionBuilder<'_>, m: u16| page_flag(b, flags, m);
-        let ((uw, _), (fw, _), (bw, both), (iw, _)) = (flag(b, site::PAGE_UNREAD), flag(b, site::PAGE_FULL | site::PAGE_UNREAD), flag(b, site::PAGE_FULL | site::PAGE_NONULLS), flag(b, site::PAGE_IOTA));
-        let (unread, full, known, iota) = (b.icmp(IntCond::Ne, uw, env.zero), b.icmp(IntCond::Ne, fw, env.zero), b.icmp(IntCond::Eq, bw, both), b.icmp(IntCond::Ne, iw, env.zero));
+        let ((uw, _), (fw, _), (bw, both), (iw, _)) = (
+            flag(b, site::PAGE_UNREAD),
+            flag(b, site::PAGE_FULL | site::PAGE_UNREAD),
+            flag(b, site::PAGE_FULL | site::PAGE_NONULLS),
+            flag(b, site::PAGE_IOTA),
+        );
+        let (unread, full, known, iota) = (
+            b.icmp(IntCond::Ne, uw, env.zero),
+            b.icmp(IntCond::Ne, fw, env.zero),
+            b.icmp(IntCond::Eq, bw, both),
+            b.icmp(IntCond::Ne, iw, env.zero),
+        );
         let nonulls = b.int_bin(IntBinOp::Or, known, unread);
         let fast = b.int_bin(IntBinOp::And, full, iota);
         if !self.cols.is_empty() {
@@ -803,7 +1137,9 @@ impl<'g> SourceMech for PagesMech<'g> {
             b.switch_to(l_fill);
             for c in self.cols.iter() {
                 let lk = b.iconst(Type::I64, c.k as i64);
-                let rc = b.call_host(fill, &[env.ctx, kv, lk], Some(Type::I64)).unwrap_or(env.zero);
+                let rc = b
+                    .call_host(fill, &[env.ctx, kv, lk], Some(Type::I64))
+                    .unwrap_or(env.zero);
                 let bad = b.icmp(IntCond::Slt, rc, env.zero);
                 let l_ok = b.create_block(&[]);
                 b.cond_br(bad, (l_eof, &[rc]), (l_ok, &[]));
@@ -817,11 +1153,37 @@ impl<'g> SourceMech for PagesMech<'g> {
         let block = b.load(Type::I32, env.ctx, s + site::POS_BLOCK as i32);
         let lanes = self.lane_descs(b, env, arr);
         let last = b.int_bin(IntBinOp::Sub, end, env.one);
-        *self.win.borrow_mut() = Some(PWin { page, offs, block, flags, sel, sel_null, last, lanes });
-        Win { cursor, end, facts: WinConds { nonulls: Some(nonulls), nosel: Some(sel_null), page_full: Some(fast), ..WinConds::default() } }
+        *self.win.borrow_mut() = Some(PWin {
+            page,
+            offs,
+            block,
+            flags,
+            sel,
+            sel_null,
+            last,
+            lanes,
+        });
+        Win {
+            cursor,
+            end,
+            facts: WinConds {
+                nonulls: Some(nonulls),
+                nosel: Some(sel_null),
+                page_full: Some(fast),
+                ..WinConds::default()
+            },
+        }
     }
 
-    fn row<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e> {
+    fn row<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+        j: Value,
+        carry: Carry<'e>,
+        next: Value,
+    ) -> RowVals<'e> {
         self.row_of(b, env, j, carry, next, None)
     }
 
@@ -829,14 +1191,28 @@ impl<'g> SourceMech for PagesMech<'g> {
         self.late_at
     }
 
-    fn row_early<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e> {
+    fn row_early<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+        j: Value,
+        carry: Carry<'e>,
+        next: Value,
+    ) -> RowVals<'e> {
         self.row_of(b, env, j, carry, next, Some(true))
     }
 
     /// The rest of the row's cells where it passed the leading filters, in the body `row_early` chose: the walk goes on
     /// from the offset `row_early`'s stopped at (the general body's branches taken again over the same tuple), the fast
     /// body's header tests already passed.
-    fn row_late<'x, 'e: 'x>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win, mut row: RowVals<'x>) -> RowVals<'x> {
+    fn row_late<'x, 'e: 'x>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+        mut row: RowVals<'x>,
+    ) -> RowVals<'x> {
         let w = self.vals();
         let i = self.index(b, env, &w, row.at);
         let p = self.part(Some(false));
@@ -871,11 +1247,21 @@ impl<'g> SourceMech for PagesMech<'g> {
 
     /// H28: the row's `(block, offset)`; the pinned buffer is not published (`pinned = None`). D3681: a relation set's
     /// row's own relation (heap.rs `set_rel`).
-    fn locator(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals) -> Option<Locator> {
+    fn locator(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        row: &RowVals,
+    ) -> Option<Locator> {
         let w = self.vals();
         let i = self.index(b, env, &w, row.at);
         let off = self.tid(b, &w, i);
         let rel = self.set.then(|| set_rel(b, env, self.k(env)));
-        Some(Locator { block: b.conv(ConvOp::Zext, Type::I64, w.block), offset: b.conv(ConvOp::Zext, Type::I64, off), pinned: None, rel })
+        Some(Locator {
+            block: b.conv(ConvOp::Zext, Type::I64, w.block),
+            offset: b.conv(ConvOp::Zext, Type::I64, off),
+            pinned: None,
+            rel,
+        })
     }
 }

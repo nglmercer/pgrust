@@ -33,7 +33,12 @@ struct Slot {
     served: u16,
 }
 
-const VACANT: Slot = Slot { handle: 0, generation: 0, stamp: 0, served: EMPTY };
+const VACANT: Slot = Slot {
+    handle: 0,
+    generation: 0,
+    stamp: 0,
+    served: EMPTY,
+};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct MemoStats {
@@ -51,7 +56,8 @@ pub struct PlanMemo {
 /// The observed group count per plan key, process-wide (partitioned-record.md §3.12 item 5):
 /// a fresh backend's first execution sizes its partitions and bypasses its phase-1
 /// table from it; a stale count costs a split, never a wrong answer.
-static GROUPS: pgsync::Mutex<Option<std::collections::HashMap<(u64, u32), (u64, u64)>>> = pgsync::Mutex::new(None);
+static GROUPS: pgsync::Mutex<Option<std::collections::HashMap<(u64, u32), (u64, u64)>>> =
+    pgsync::Mutex::new(None);
 /// Plan keys whose group counts are remembered: past this the map starts over (a forgotten count costs one estimate, never a
 /// wrong answer). A capacity bound, not a tuned threshold: the keys the memo itself holds.
 const GROUPS_CAP: usize = CAPACITY;
@@ -86,7 +92,10 @@ impl Slot {
     }
 
     fn key(&self) -> PlanKey {
-        PlanKey { handle: Handle(self.handle), generation: Generation(self.generation) }
+        PlanKey {
+            handle: Handle(self.handle),
+            generation: Generation(self.generation),
+        }
     }
 
     fn verdict(&self) -> Verdict {
@@ -107,7 +116,8 @@ pub fn set_index(key: PlanKey) -> usize {
 
 /// The set (0..sets) a key hashes to in a memo of `sets` sets (`PlanMemo::with_sets`).
 fn set_of(key: PlanKey, sets: usize) -> usize {
-    let mut h = key.handle.0.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ (key.generation.0 as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F);
+    let mut h = key.handle.0.wrapping_mul(0x9E37_79B9_7F4A_7C15)
+        ^ (key.generation.0 as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F);
     h ^= h >> 29;
     h = h.wrapping_mul(0xBF58_476D_1CE4_E5B9);
     h ^= h >> 32;
@@ -128,7 +138,11 @@ impl PlanMemo {
     /// D3465: a memo of `sets` sets of `WAYS` keys (`new`: `CAPACITY` keys); a deep statement level's holds one set
     /// (lib.rs `Backend::new_deep`). Fewer sets replace a key sooner: one admission again, never a wrong answer.
     pub fn with_sets(sets: usize) -> PlanMemo {
-        PlanMemo { slots: vec![VACANT; sets.clamp(1, SETS) * WAYS].into_boxed_slice(), clock: 0, stats: MemoStats::default() } // alloc: Cold
+        PlanMemo {
+            slots: vec![VACANT; sets.clamp(1, SETS) * WAYS].into_boxed_slice(),
+            clock: 0,
+            stats: MemoStats::default(),
+        } // alloc: Cold
     }
 
     fn set(&mut self, key: PlanKey) -> &mut [Slot] {
@@ -154,7 +168,10 @@ impl PlanMemo {
     /// The verdict for `key`, not counted as a probe and its age left as it was (a filing's look, D4081).
     pub fn peek(&self, key: PlanKey) -> Option<Verdict> {
         let base = set_of(key, self.slots.len() / WAYS) * WAYS;
-        self.slots[base..base + WAYS].iter().find(|s| s.is(key)).map(Slot::verdict)
+        self.slots[base..base + WAYS]
+            .iter()
+            .find(|s| s.is(key))
+            .map(Slot::verdict)
     }
 
     /// Records `verdict` for `key`; returns the entry it displaced (the LRU of
@@ -185,7 +202,12 @@ impl PlanMemo {
             Verdict::EntryRefused => ENTRY_REFUSED,
             Verdict::Served(i) => i.min(ENTRY_REFUSED - 1),
         };
-        *s = Slot { handle: key.handle.0, generation: key.generation.0, stamp: clock, served };
+        *s = Slot {
+            handle: key.handle.0,
+            generation: key.generation.0,
+            stamp: clock,
+            served,
+        };
         if displaced.is_some() {
             self.stats.evictions += 1;
         }
@@ -258,9 +280,17 @@ mod tests {
 
     #[test]
     fn group_sizing_feedback_obeys_its_setting_in_every_condition_cache_mode() {
-        for mode in [ConditionCacheMode::Off, ConditionCacheMode::Granule, ConditionCacheMode::Rows, ConditionCacheMode::Full] {
+        for mode in [
+            ConditionCacheMode::Off,
+            ConditionCacheMode::Granule,
+            ConditionCacheMode::Rows,
+            ConditionCacheMode::Full,
+        ] {
             guc_tables::backing::set_pgrust_condition_cache(mode as i32);
-            let key = PlanKey { handle: Handle(0x0b5e_12ed_6a0f + mode as u64), generation: Generation(3) };
+            let key = PlanKey {
+                handle: Handle(0x0b5e_12ed_6a0f + mode as u64),
+                generation: Generation(3),
+            };
             set_feedback_for_test(Feedback::Off);
             groups_remember(key, (100, 10));
             assert_eq!(groups_for(key), None);
@@ -272,7 +302,11 @@ mod tests {
             assert_eq!(groups_for(key), None, "disabled feedback was not read");
             groups_remember(key, (200, 20));
             set_feedback_for_test(Feedback::On);
-            assert_eq!(groups_for(key), Some((100, 10)), "disabled feedback did not overwrite history");
+            assert_eq!(
+                groups_for(key),
+                Some((100, 10)),
+                "disabled feedback did not overwrite history"
+            );
             groups_remember(key, (300, 30));
             assert_eq!(groups_for(key), Some((300, 30)));
         }

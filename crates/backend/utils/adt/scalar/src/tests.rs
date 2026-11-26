@@ -16,19 +16,85 @@ fn oid_comparisons() {
 #[test]
 fn tid_in_out() {
     let t = |s: &str| tidin(s.as_bytes()).unwrap();
-    assert_eq!(t("(1,2)"), Tid { block: 1, offset: 2 });
-    assert_eq!(t("(4294967295,65535)"), Tid { block: u32::MAX, offset: u16::MAX });
+    assert_eq!(
+        t("(1,2)"),
+        Tid {
+            block: 1,
+            offset: 2
+        }
+    );
+    assert_eq!(
+        t("(4294967295,65535)"),
+        Tid {
+            block: u32::MAX,
+            offset: u16::MAX
+        }
+    );
     // strtoul wrap: C accepts (-1,0) as block 4294967295
-    assert_eq!(t("(-1,0)"), Tid { block: u32::MAX, offset: 0 });
-    assert_eq!(t("( 42,7)"), Tid { block: 42, offset: 7 });
-    assert_eq!(t("(,1)"), Tid { block: 0, offset: 1 });
-    assert_eq!(t("(1,)"), Tid { block: 1, offset: 0 });
-    assert_eq!(t("(,5)"), Tid { block: 0, offset: 5 });
-    assert_eq!(t("(5,)"), Tid { block: 5, offset: 0 });
-    assert_eq!(t("(,)"), Tid { block: 0, offset: 0 });
+    assert_eq!(
+        t("(-1,0)"),
+        Tid {
+            block: u32::MAX,
+            offset: 0
+        }
+    );
+    assert_eq!(
+        t("( 42,7)"),
+        Tid {
+            block: 42,
+            offset: 7
+        }
+    );
+    assert_eq!(
+        t("(,1)"),
+        Tid {
+            block: 0,
+            offset: 1
+        }
+    );
+    assert_eq!(
+        t("(1,)"),
+        Tid {
+            block: 1,
+            offset: 0
+        }
+    );
+    assert_eq!(
+        t("(,5)"),
+        Tid {
+            block: 0,
+            offset: 5
+        }
+    );
+    assert_eq!(
+        t("(5,)"),
+        Tid {
+            block: 5,
+            offset: 0
+        }
+    );
+    assert_eq!(
+        t("(,)"),
+        Tid {
+            block: 0,
+            offset: 0
+        }
+    );
     for bad in [
-        "", "1,2", "(1,2", "(1 ,2)", "( 42 , 7 )", "(1,65536)", "(1,2)x", "( ,1)", "(-,1)", "(1, )", "(1,+)", "( ,5)",
-        "(-,5)", "(5,+)",
+        "",
+        "1,2",
+        "(1,2",
+        "(1 ,2)",
+        "( 42 , 7 )",
+        "(1,65536)",
+        "(1,2)x",
+        "( ,1)",
+        "(-,1)",
+        "(1, )",
+        "(1,+)",
+        "( ,5)",
+        "(-,5)",
+        "(5,+)",
     ] {
         // trailing garbage after ')' is accepted by C (scan stops at RDELIM)
         if bad == "(1,2)x" {
@@ -55,7 +121,10 @@ fn tid_hash_live_c() {
         [hi[0], hi[1], lo[0], lo[1], off[0], off[1]]
     };
     assert_eq!(hashfn::hash_bytes(&img) as i32, -1827449972);
-    assert_eq!(hashfn::hash_bytes_extended(&img, 7) as i64, 4917257717648883525);
+    assert_eq!(
+        hashfn::hash_bytes_extended(&img, 7) as i64,
+        4917257717648883525
+    );
 }
 
 #[test]
@@ -63,9 +132,15 @@ fn xid_hash_live_c() {
     // hashxid('42'), hashxidextended('42',3), hashoid(12345),
     // hashoidextended(12345,3), hashxid8(42),hashxid8extended(42,3)
     assert_eq!(hashfn::hash_bytes_uint32(42) as i32, 1509752520);
-    assert_eq!(hashfn::hash_bytes_uint32_extended(42, 3) as i64, -1610262496784391990);
+    assert_eq!(
+        hashfn::hash_bytes_uint32_extended(42, 3) as i64,
+        -1610262496784391990
+    );
     assert_eq!(hashfn::hash_bytes_uint32(12345) as i32, -78097827);
-    assert_eq!(hashfn::hash_bytes_uint32_extended(12345, 3) as i64, -2672860095681695817);
+    assert_eq!(
+        hashfn::hash_bytes_uint32_extended(12345, 3) as i64,
+        -2672860095681695817
+    );
     let val = 42i64;
     let lohalf = (val as u32) ^ ((val >> 32) as u32);
     assert_eq!(hashfn::hash_bytes_uint32(lohalf) as i32, 1509752520);
@@ -123,14 +198,19 @@ mod oidvector_tests {
             &build(&[1, 2, 40010])[..]
         );
         let out = call1(fc_oidvectorout, d, &ctx);
-        let bytes = unsafe { core::ffi::CStr::from_ptr(out.as_usize() as *const core::ffi::c_char) };
+        let bytes =
+            unsafe { core::ffi::CStr::from_ptr(out.as_usize() as *const core::ffi::c_char) };
         assert_eq!(bytes.to_bytes(), b"1 2 40010");
 
         #[allow(clippy::manual_c_str_literals)]
-
-        let empty = call1(fc_oidvectorin, Datum::from_usize(b" \0".as_ptr() as usize), &ctx);
+        let empty = call1(
+            fc_oidvectorin,
+            Datum::from_usize(b" \0".as_ptr() as usize),
+            &ctx,
+        );
         let out = call1(fc_oidvectorout, empty, &ctx);
-        let bytes = unsafe { core::ffi::CStr::from_ptr(out.as_usize() as *const core::ffi::c_char) };
+        let bytes =
+            unsafe { core::ffi::CStr::from_ptr(out.as_usize() as *const core::ffi::c_char) };
         assert_eq!(bytes.to_bytes(), b"");
     }
 
@@ -140,7 +220,11 @@ mod oidvector_tests {
 
         // A valid 3-element oidvector still passes and prints.
         let valid = build(&[1, 2, 3]);
-        let out = call1(fc_oidvectorout, Datum::from_usize(valid.as_ptr() as usize), &ctx);
+        let out = call1(
+            fc_oidvectorout,
+            Datum::from_usize(valid.as_ptr() as usize),
+            &ctx,
+        );
         let bytes =
             unsafe { core::ffi::CStr::from_ptr(out.as_usize() as *const core::ffi::c_char) };
         assert_eq!(bytes.to_bytes(), b"1 2 3");
@@ -215,8 +299,13 @@ mod datum_ops_tests {
         for n in 0u32..4 {
             for bits in [0x00u32, 0x02] {
                 let img = ((n << 2) | bits).to_ne_bytes();
-                let err = datum_copy(mcx, Datum::from_usize(img.as_ptr() as usize), false, -1).unwrap_err();
-                assert_eq!(err.sqlstate(), types_error::ERRCODE_DATA_CORRUPTED, "VARSIZE {n} bits {bits}");
+                let err = datum_copy(mcx, Datum::from_usize(img.as_ptr() as usize), false, -1)
+                    .unwrap_err();
+                assert_eq!(
+                    err.sqlstate(),
+                    types_error::ERRCODE_DATA_CORRUPTED,
+                    "VARSIZE {n} bits {bits}"
+                );
             }
         }
         let short = [0x03u8, b'x'];
@@ -250,11 +339,14 @@ mod datum_ops_tests {
         let src = Datum::from_usize(img.as_ptr() as usize);
         let cp = datum_copy(mcx, src, false, -1).unwrap();
         assert_ne!(cp.as_usize(), src.as_usize());
-        let out = unsafe {
-            core::slice::from_raw_parts(cp.as_usize() as *const u8, img.len())
-        };
+        let out = unsafe { core::slice::from_raw_parts(cp.as_usize() as *const u8, img.len()) };
         assert_eq!(out, &img[..]);
-        assert_eq!(datum_copy(mcx, Datum::from_i32(-5), true, 4).unwrap().as_i32(), -5);
+        assert_eq!(
+            datum_copy(mcx, Datum::from_i32(-5), true, 4)
+                .unwrap()
+                .as_i32(),
+            -5
+        );
     }
 
     #[test]
@@ -268,12 +360,18 @@ mod datum_ops_tests {
         expect.extend_from_slice(&(-1i32).to_ne_bytes());
         expect.extend_from_slice(&42u64.to_ne_bytes());
         assert_eq!(&out[..], &expect[..]);
-        assert_eq!(out.len(), datum_estimate_space(Datum::from_usize(42), false, true, 4).unwrap());
+        assert_eq!(
+            out.len(),
+            datum_estimate_space(Datum::from_usize(42), false, true, 4).unwrap()
+        );
 
         out.clear();
         datum_serialize(Datum::null(), true, false, -1, &mut out).unwrap();
         assert_eq!(&out[..], &(-2i32).to_ne_bytes());
-        assert_eq!(out.len(), datum_estimate_space(Datum::null(), true, false, -1).unwrap());
+        assert_eq!(
+            out.len(),
+            datum_estimate_space(Datum::null(), true, false, -1).unwrap()
+        );
 
         out.clear();
         let img = varlena(b"xyz");
@@ -283,14 +381,15 @@ mod datum_ops_tests {
         expect.extend_from_slice(&(img.len() as i32).to_ne_bytes());
         expect.extend_from_slice(&img);
         assert_eq!(&out[..], &expect[..]);
-        assert_eq!(out.len(), datum_estimate_space(d, false, false, -1).unwrap());
+        assert_eq!(
+            out.len(),
+            datum_estimate_space(d, false, false, -1).unwrap()
+        );
 
         let mut cur: &[u8] = &out;
         let (rv, rn) = datum_restore(mcx, &mut cur).unwrap();
         assert!(!rn && cur.is_empty());
-        let rimg = unsafe {
-            core::slice::from_raw_parts(rv.as_usize() as *const u8, img.len())
-        };
+        let rimg = unsafe { core::slice::from_raw_parts(rv.as_usize() as *const u8, img.len()) };
         assert_eq!(rimg, &img[..]);
     }
 
@@ -342,7 +441,12 @@ mod datum_ops_tests {
         assert_ne!(t.as_usize(), src.as_usize());
         let out = unsafe { core::slice::from_raw_parts(t.as_usize() as *const u8, img.len()) };
         assert_eq!(out, &img[..]);
-        assert_eq!(datum_transfer(mcx, Datum::from_i32(3), true, 4).unwrap().as_i32(), 3);
+        assert_eq!(
+            datum_transfer(mcx, Datum::from_i32(3), true, 4)
+                .unwrap()
+                .as_i32(),
+            3
+        );
     }
 }
 
@@ -362,7 +466,12 @@ fn out_functions_do_not_alias_across_fmgrinfos() {
     use ::datum::Datum;
     use types_fmgr::{FmgrInfo, LocalFcinfo};
     for (f, oid, a, b) in [
-        (crate::builtins::fc_oidout as types_fmgr::PGFunction, 1799u32, 11u32, 22u32),
+        (
+            crate::builtins::fc_oidout as types_fmgr::PGFunction,
+            1799u32,
+            11u32,
+            22u32,
+        ),
         (crate::builtins::fc_xidout, 51, 5, 6),
         (crate::builtins::fc_cidout, 31, 7, 8),
     ] {
@@ -406,8 +515,14 @@ fn tidout_and_xid8out_do_not_alias_across_fmgrinfos() {
     assert_eq!(cs(d1), b"33");
     assert_eq!(cs(d2), b"44");
 
-    let a = crate::builtins::tid_image(Tid { block: 1, offset: 2 });
-    let b = crate::builtins::tid_image(Tid { block: 3, offset: 4 });
+    let a = crate::builtins::tid_image(Tid {
+        block: 1,
+        offset: 2,
+    });
+    let b = crate::builtins::tid_image(Tid {
+        block: 3,
+        offset: 4,
+    });
     let mut f1 = FmgrInfo::new(crate::builtins::fc_tidout, 49, 1, true, false);
     let mut f2 = FmgrInfo::new(crate::builtins::fc_tidout, 49, 1, true, false);
     fcinfo.set_arg(0, Datum::from_usize(a.as_ptr() as usize));
@@ -424,16 +539,26 @@ fn tidout_and_xid8out_do_not_alias_across_fmgrinfos() {
 #[test]
 fn currtid_qualified_name_split() {
     let split = |s: &str| {
-        crate::currtid::split_qualified_name(s)
-            .map(|v| v.iter().map(String::as_str).map(str::to_owned).collect::<Vec<_>>())
+        crate::currtid::split_qualified_name(s).map(|v| {
+            v.iter()
+                .map(String::as_str)
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        })
     };
-    assert_eq!(split("public.t"), Some(vec!["public".to_owned(), "t".to_owned()]));
+    assert_eq!(
+        split("public.t"),
+        Some(vec!["public".to_owned(), "t".to_owned()])
+    );
     assert_eq!(split("public."), None);
     assert_eq!(split("public. "), None);
     assert_eq!(split("."), None);
     assert_eq!(split("a..b"), None);
     assert_eq!(split(&("a".repeat(62) + "é")), Some(vec!["a".repeat(62)]));
-    assert_eq!(split(&("a".repeat(61) + "éé")), Some(vec!["a".repeat(61) + "é"]));
+    assert_eq!(
+        split(&("a".repeat(61) + "éé")),
+        Some(vec!["a".repeat(61) + "é"])
+    );
     assert_eq!(split(&("a".repeat(64))), Some(vec!["a".repeat(63)]));
 }
 
@@ -441,8 +566,14 @@ fn currtid_qualified_name_split() {
 #[test]
 fn tid_syntax_message_keeps_non_utf8_bytes() {
     let err = crate::builtins::tid_syntax(b"(\xff");
-    assert_eq!(err.message_raw.as_deref(), Some(&b"invalid input syntax for type tid: \"(\xff\""[..]));
-    assert_eq!(err.sqlstate(), ::types_error::ERRCODE_INVALID_TEXT_REPRESENTATION);
+    assert_eq!(
+        err.message_raw.as_deref(),
+        Some(&b"invalid input syntax for type tid: \"(\xff\""[..])
+    );
+    assert_eq!(
+        err.sqlstate(),
+        ::types_error::ERRCODE_INVALID_TEXT_REPRESENTATION
+    );
     let err = crate::builtins::tid_syntax(b"(1");
     assert_eq!(err.message(), "invalid input syntax for type tid: \"(1\"");
     assert!(err.message_raw.is_none());

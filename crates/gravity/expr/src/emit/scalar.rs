@@ -13,14 +13,13 @@ use super::host::{self, CELL_ARGS, CELL_AUX, CELL_OUT};
 use super::jsonb::{self, ShredType};
 use super::{prim, ColsRef, EmitError, LaneRef, Lowered, Plan, RowRefs};
 use crate::eval::Source;
-use crate::percode::{walk_kids, Plan as PerCodePlan};
-use crate::nodes::func::{Call, How};
-use crate::nodes::rowcmp::{COMPARE_GE, COMPARE_GT, COMPARE_LE, COMPARE_LT};
 use crate::nodes::cast::Canon;
+use crate::nodes::func::{Call, How};
 use crate::nodes::null::NullTestNode;
 use crate::nodes::op::ScalarArrayOp;
+use crate::nodes::rowcmp::{COMPARE_GE, COMPARE_GT, COMPARE_LE, COMPARE_LT};
 use crate::nodes::{ExprNode, Kind, NodeId, Program, SiteId};
-
+use crate::percode::{walk_kids, Plan as PerCodePlan};
 
 leader_tls::leader_tls! {
     thread_local! {
@@ -56,7 +55,12 @@ impl Drop for CaseSelect {
 fn trivial(p: &Program<'_>, id: NodeId) -> bool {
     crate::stack_check();
     match &p.nodes[id.0 as usize] {
-        ExprNode::Var(_) | ExprNode::Const(_) | ExprNode::Imm(_) | ExprNode::Param(_) | ExprNode::CaseTest | ExprNode::Aggref(_) => true,
+        ExprNode::Var(_)
+        | ExprNode::Const(_)
+        | ExprNode::Imm(_)
+        | ExprNode::Param(_)
+        | ExprNode::CaseTest
+        | ExprNode::Aggref(_) => true,
         ExprNode::Relabel(r) => trivial(p, r.arg),
         _ => false,
     }
@@ -66,14 +70,20 @@ fn trivial(p: &Program<'_>, id: NodeId) -> bool {
 /// backend's typcache, so a consumer's pool check (lowerv4 hir.rs `pool_unsafe_site`) keeps such a program on the leader,
 /// though a synthetic shim site is otherwise pool-safe.
 pub fn row_tests(p: &Program<'_>) -> usize {
-    p.nodes.iter().filter(|n| matches!(n, ExprNode::NullTest(t) if t.row)).count()
+    p.nodes
+        .iter()
+        .filter(|n| matches!(n, ExprNode::NullTest(t) if t.row))
+        .count()
 }
 
 /// D3542: the rowtype conversions: their site's shim (nodes/row.rs `CONVERT_SITE`) re-reads both rowtypes from the
 /// backend's typcache (nodes/tuple.rs `refreshed`, D2803: DDL inside the statement), which a pool thread has not, so the
 /// same pool check keeps such a program on the leader.
 pub fn row_converts(p: &Program<'_>) -> usize {
-    p.nodes.iter().filter(|n| matches!(n, ExprNode::ConvertRowtype(_))).count()
+    p.nodes
+        .iter()
+        .filter(|n| matches!(n, ExprNode::ConvertRowtype(_)))
+        .count()
 }
 
 /// Whether ScalarArrayOp `n`'s array is walked by the host (`Em::array_walk`) rather than unrolled: any operand but a
@@ -110,10 +120,32 @@ pub fn check_node(p: &Program<'_>, id: NodeId, whole: bool) -> Result<(), EmitEr
     let n = &p.nodes[id.0 as usize];
     match n {
         // a system-column (< 0) reference: no lane carries it; a whole-row one (0) only with `whole`
-        ExprNode::Var(v) if v.attno < 0 || (v.attno == 0 && !whole) => return Err(EmitError::NoColumn(v.attno)),
-        ExprNode::Var(_) | ExprNode::Const(_) | ExprNode::Imm(_) | ExprNode::Relabel(_) | ExprNode::NullTest(_) | ExprNode::BooleanTest(_) | ExprNode::CaseTest | ExprNode::Aggref(_) | ExprNode::WindowFunc(_) | ExprNode::SubPlan(_) | ExprNode::Srf(_) => {}
-        ExprNode::Param(q) if q.kind == ParamKind::PARAM_EXTERN || q.kind == ParamKind::PARAM_EXEC || crate::nodes::param::is_deferred(q) => {}
-        ExprNode::Func(_) | ExprNode::Op(_) | ExprNode::Distinct(_) | ExprNode::NullIf(_) | ExprNode::Bool(_) | ExprNode::Case(_) | ExprNode::Coalesce(_) | ExprNode::CoerceViaIO(_) => {}
+        ExprNode::Var(v) if v.attno < 0 || (v.attno == 0 && !whole) => {
+            return Err(EmitError::NoColumn(v.attno))
+        }
+        ExprNode::Var(_)
+        | ExprNode::Const(_)
+        | ExprNode::Imm(_)
+        | ExprNode::Relabel(_)
+        | ExprNode::NullTest(_)
+        | ExprNode::BooleanTest(_)
+        | ExprNode::CaseTest
+        | ExprNode::Aggref(_)
+        | ExprNode::WindowFunc(_)
+        | ExprNode::SubPlan(_)
+        | ExprNode::Srf(_) => {}
+        ExprNode::Param(q)
+            if q.kind == ParamKind::PARAM_EXTERN
+                || q.kind == ParamKind::PARAM_EXEC
+                || crate::nodes::param::is_deferred(q) => {}
+        ExprNode::Func(_)
+        | ExprNode::Op(_)
+        | ExprNode::Distinct(_)
+        | ExprNode::NullIf(_)
+        | ExprNode::Bool(_)
+        | ExprNode::Case(_)
+        | ExprNode::Coalesce(_)
+        | ExprNode::CoerceViaIO(_) => {}
         // a domain's VALUE outside its CoerceToDomain is the emit's refusal, as CaseTest outside its CASE is
         ExprNode::CoerceToDomain(_) | ExprNode::CoerceToDomainValue => {}
         // the fetch (emit/subscript.rs); an assignment, FieldStore and nextval are the store's host sites (emit/store.rs)
@@ -175,19 +207,49 @@ pub struct Em<'e, 'b, 'mcx> {
 
 impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
     #[allow(private_interfaces)]
-    pub fn new(p: &'e Program<'mcx>, b: &'e mut FunctionBuilder<'b>, row: &'e RowRefs<'e>, plan: &'e Plan<'e>, pc: PerCodePlan<'e>, root: NodeId) -> Self {
+    pub fn new(
+        p: &'e Program<'mcx>,
+        b: &'e mut FunctionBuilder<'b>,
+        row: &'e RowRefs<'e>,
+        plan: &'e Plan<'e>,
+        pc: PerCodePlan<'e>,
+        root: NodeId,
+    ) -> Self {
         let t = b.bconst(true);
         let f = b.bconst(false);
         let zero = b.iconst(Type::I64, 0);
         let word_at = super::prim::datetime::word_node(p, root);
         let width = host::cell_width(p);
         let host_memo = mcx::vec_elem_in(row.scratch, core::cell::Cell::new(0), p.nodes.len());
-        Em { p, b, row, plan, pc, casetest: None, domainval: None, vars: PgVec::new_in(row.scratch), depth: 0, root, word_at, t, f, zero, word_of: None, width, host_memo }
+        Em {
+            p,
+            b,
+            row,
+            plan,
+            pc,
+            casetest: None,
+            domainval: None,
+            vars: PgVec::new_in(row.scratch),
+            depth: 0,
+            root,
+            word_at,
+            t,
+            f,
+            zero,
+            word_of: None,
+            width,
+            host_memo,
+        }
     }
 
     /// Site `site`'s cell in `cells` (`host::cell_size` of the program's width apart).
     pub(super) fn site_cell(&mut self, cells: Value, site: usize) -> Value {
-        self.b.ptr_add(cells, self.zero, 1, (site * host::cell_size(self.width)) as i32)
+        self.b.ptr_add(
+            cells,
+            self.zero,
+            1,
+            (site * host::cell_size(self.width)) as i32,
+        )
     }
 
     /// The bytes from a cell to the next (`host::cell_size` of the program's width).
@@ -197,12 +259,20 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
 
     /// A cell's null byte `i` (after the program's width of argument words).
     fn cell_null(&self, i: usize) -> i32 {
-        debug_assert!(i < self.width, "null byte {i} of a cell {} wide", self.width);
+        debug_assert!(
+            i < self.width,
+            "null byte {i} of a cell {} wide",
+            self.width
+        );
         host::cell_nulls(self.width) + i as i32
     }
 
     fn null(&self) -> Lowered {
-        Lowered { value: self.zero, valid: self.f, err: self.zero }
+        Lowered {
+            value: self.zero,
+            valid: self.f,
+            err: self.zero,
+        }
     }
 
     pub(crate) fn and(&mut self, x: Value, y: Value) -> Value {
@@ -270,7 +340,11 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
     pub(super) fn bound_null(&mut self, r: &crate::percode::Root) -> Option<Value> {
         let all = match &r.table.and_then(|t| self.pc.needs.get(t as usize))?.known {
             crate::percode::Known::LikeBound { .. } => false,
-            crate::percode::Known::EqBound { values, consts, .. } if values.is_empty() && consts.is_empty() => true,
+            crate::percode::Known::EqBound { values, consts, .. }
+                if values.is_empty() && consts.is_empty() =>
+            {
+                true
+            }
             _ => return None,
         };
         let m = self.row.scratch;
@@ -279,7 +353,9 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
         while let Some(id) = stack.pop() {
             match &self.p.nodes[id.0 as usize] {
                 ExprNode::Param(q) => {
-                    if q.kind == ParamKind::PARAM_EXEC && self.row.lazy.is_some_and(|l| l.has_param(q.id)) {
+                    if q.kind == ParamKind::PARAM_EXEC
+                        && self.row.lazy.is_some_and(|l| l.has_param(q.id))
+                    {
                         return None;
                     }
                     nulls.push_in(self.row.consts_null[self.plan.index(id)? as usize]);
@@ -288,7 +364,10 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
             }
         }
         let (&first, rest) = nulls.split_first()?;
-        Some(rest.iter().fold(first, |a, &n| if all { self.and(a, n) } else { self.or(a, n) }))
+        Some(rest.iter().fold(
+            first,
+            |a, &n| if all { self.and(a, n) } else { self.or(a, n) },
+        ))
     }
 
     pub(crate) fn word(&mut self, v: Value) -> Value {
@@ -344,22 +423,54 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
         }
         let site = |s: SiteId| !prim::is_prim(self.p, &self.p.sites[s.0 as usize], false);
         let here = match &self.p.nodes[id.0 as usize] {
-            ExprNode::Func(n) | ExprNode::Op(n) | ExprNode::Distinct(n) | ExprNode::NullIf(n) => site(n.site),
+            ExprNode::Func(n) | ExprNode::Op(n) | ExprNode::Distinct(n) | ExprNode::NullIf(n) => {
+                site(n.site)
+            }
             ExprNode::ScalarArrayOp(n) => site(n.site) || walked(self.p, n),
             ExprNode::NullTest(t) => t.row,
             ExprNode::MinMax(m) => site(m.cmp),
             ExprNode::RowCompare(r) => (0..r.largs.len).any(|i| site(SiteId(r.sites + i))),
-            ExprNode::Subscripting(_) | ExprNode::FieldSelect(_) | ExprNode::Row(_) | ExprNode::ConvertRowtype(_) | ExprNode::Array(_) | ExprNode::FieldStore(_) | ExprNode::NextValue(_) => true,
+            ExprNode::Subscripting(_)
+            | ExprNode::FieldSelect(_)
+            | ExprNode::Row(_)
+            | ExprNode::ConvertRowtype(_)
+            | ExprNode::Array(_)
+            | ExprNode::FieldStore(_)
+            | ExprNode::NextValue(_) => true,
             ExprNode::Json(_) | ExprNode::Xml(_) => true,
             ExprNode::CoerceViaIO(c) => self.shred_lane(c.arg).is_none(),
-            ExprNode::Aggref(a) => self.row.aggs.get(a.aggno as usize).is_some_and(|c| c.is_host()),
-            ExprNode::WindowFunc(w) => self.row.aggs.get(w.cell as usize).is_some_and(|c| c.is_host()),
+            ExprNode::Aggref(a) => self
+                .row
+                .aggs
+                .get(a.aggno as usize)
+                .is_some_and(|c| c.is_host()),
+            ExprNode::WindowFunc(w) => self
+                .row
+                .aggs
+                .get(w.cell as usize)
+                .is_some_and(|c| c.is_host()),
             // M8 B2c: a lazy SubPlan's hook runs the subplan where the expression reaches it (a host call: a guard branches)
-            ExprNode::SubPlan(s) => self.row.aggs.get(s.cell as usize).is_some_and(|c| c.is_host()) || self.row.lazy.is_some_and(|l| l.has_subplan(s.plan_id)),
-            ExprNode::Srf(s) => self.row.aggs.get(s.cell as usize).is_some_and(|c| c.is_host()),
-            ExprNode::Var(v) => self.row.lazy.is_some_and(|l| (v.src == Source::Scan && l.has(v.attno)) || l.has_col(v.src, v.attno)),
+            ExprNode::SubPlan(s) => {
+                self.row
+                    .aggs
+                    .get(s.cell as usize)
+                    .is_some_and(|c| c.is_host())
+                    || self.row.lazy.is_some_and(|l| l.has_subplan(s.plan_id))
+            }
+            ExprNode::Srf(s) => self
+                .row
+                .aggs
+                .get(s.cell as usize)
+                .is_some_and(|c| c.is_host()),
+            ExprNode::Var(v) => self.row.lazy.is_some_and(|l| {
+                (v.src == Source::Scan && l.has(v.attno)) || l.has_col(v.src, v.attno)
+            }),
             // D2834: a deferred extern parameter is fetched where it is evaluated (`deferred`, a host call: a guard branches)
-            ExprNode::Param(q) => (q.kind == ParamKind::PARAM_EXEC && self.row.lazy.is_some_and(|l| l.has_param(q.id))) || crate::nodes::param::is_deferred(q),
+            ExprNode::Param(q) => {
+                (q.kind == ParamKind::PARAM_EXEC
+                    && self.row.lazy.is_some_and(|l| l.has_param(q.id)))
+                    || crate::nodes::param::is_deferred(q)
+            }
             _ => false,
         };
         here || walk_kids(self.p, id).into_iter().any(|k| self.has_host(k))
@@ -372,7 +483,11 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
             let l = self.node(id)?;
             let err = self.mask_if(guard, l.err);
             let valid = self.and(l.valid, guard);
-            return Ok(Lowered { value: l.value, valid, err });
+            return Ok(Lowered {
+                value: l.value,
+                valid,
+                err,
+            });
         }
         self.branch(guard, id)
     }
@@ -380,7 +495,7 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
     /// D3233 (`CaseSelect`): a CASE arm that computes anything in its own block where `guard` holds, as `guarded` runs one
     /// that calls a host; a trivial arm is read and masked as before.
     fn arm(&mut self, guard: Value, id: NodeId) -> Result<Lowered, EmitError> {
-        if CaseSelect::on() && !trivial(self.p, id) &&self.b.const_of(guard).is_none() {
+        if CaseSelect::on() && !trivial(self.p, id) && self.b.const_of(guard).is_none() {
             return self.branch(guard, id);
         }
         self.guarded(guard, id)
@@ -399,7 +514,11 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
         self.b.br(l_join, &[l.value, l.valid, l.err]);
         self.b.switch_to(l_join);
         let ps = self.b.block_params(l_join);
-        Ok(Lowered { value: ps[0], valid: ps[1], err: ps[2] })
+        Ok(Lowered {
+            value: ps[0],
+            valid: ps[1],
+            err: ps[2],
+        })
     }
 
     pub fn node(&mut self, id: NodeId) -> Result<Lowered, EmitError> {
@@ -416,16 +535,31 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
         }
         match &self.p.nodes[id.0 as usize] {
             ExprNode::Var(v) => self.var(v.src, v.attno),
-            ExprNode::Param(q) if q.kind == ParamKind::PARAM_EXEC && self.row.lazy.is_some_and(|l| l.has_param(q.id)) => {
-                let [value, valid, err] = self.row.lazy.map_or([self.zero, self.f, self.zero], |l| l.emit_param(self.b, q.id)); // M8 B1: here, where PG evaluates it
+            ExprNode::Param(q)
+                if q.kind == ParamKind::PARAM_EXEC
+                    && self.row.lazy.is_some_and(|l| l.has_param(q.id)) =>
+            {
+                let [value, valid, err] =
+                    self.row.lazy.map_or([self.zero, self.f, self.zero], |l| {
+                        l.emit_param(self.b, q.id)
+                    }); // M8 B1: here, where PG evaluates it
                 Ok(Lowered { value, valid, err })
             }
-            ExprNode::Param(q) if crate::nodes::param::is_deferred(q) => self.deferred(id, q.id, q.typ),
+            ExprNode::Param(q) if crate::nodes::param::is_deferred(q) => {
+                self.deferred(id, q.id, q.typ)
+            }
             ExprNode::Const(_) | ExprNode::Param(_) => {
-                let i = self.plan.index(id).ok_or(EmitError::Unsupported(Kind::Param))? as usize;
+                let i = self
+                    .plan
+                    .index(id)
+                    .ok_or(EmitError::Unsupported(Kind::Param))? as usize;
                 let value = self.row.consts[i];
                 let valid = self.not(self.row.consts_null[i]);
-                Ok(Lowered { value, valid, err: self.zero })
+                Ok(Lowered {
+                    value,
+                    valid,
+                    err: self.zero,
+                })
             }
             ExprNode::Relabel(r) => {
                 let l = self.node(r.arg)?;
@@ -435,9 +569,16 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
                     Canon::Zext32 => ConvOp::Zext,
                 };
                 let t = self.b.conv(ConvOp::Trunc, Type::I32, l.value);
-                Ok(Lowered { value: self.b.conv(ext, Type::I64, t), ..l })
+                Ok(Lowered {
+                    value: self.b.conv(ext, Type::I64, t),
+                    ..l
+                })
             }
-            ExprNode::Imm(i) => Ok(Lowered { value: self.b.iconst(Type::I64, i.value), valid: self.t, err: self.zero }),
+            ExprNode::Imm(i) => Ok(Lowered {
+                value: self.b.iconst(Type::I64, i.value),
+                valid: self.t,
+                err: self.zero,
+            }),
             ExprNode::Returning(_) => Ok(self.null()),
             ExprNode::Func(n) | ExprNode::Op(n) => {
                 if let Some(l) = self.shred(id, ShredType::Text) {
@@ -458,12 +599,32 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
                     return Ok(l);
                 }
                 let a = self.node(c.arg)?;
-                let text = if c.direct { a } else { self.call(c.out, &[a], false)? };
+                let text = if c.direct {
+                    a
+                } else {
+                    self.call(c.out, &[a], false)?
+                };
                 let ioparam = self.b.iconst(Type::I64, c.ioparam as i64);
                 let typmod = self.b.iconst(Type::I64, -1);
                 let (t, z) = (self.t, self.zero);
                 let n = self.p.sites[c.inp.0 as usize].nargs as usize;
-                self.call(c.inp, &[text, Lowered { value: ioparam, valid: t, err: z }, Lowered { value: typmod, valid: t, err: z }][..n], false)
+                self.call(
+                    c.inp,
+                    &[
+                        text,
+                        Lowered {
+                            value: ioparam,
+                            valid: t,
+                            err: z,
+                        },
+                        Lowered {
+                            value: typmod,
+                            valid: t,
+                            err: z,
+                        },
+                    ][..n],
+                    false,
+                )
             }
             ExprNode::Distinct(n) => {
                 let a = self.args(n.site)?;
@@ -475,7 +636,11 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
                 let ne = self.not(rt);
                 let v0 = self.b.select(both, self.f, ne);
                 let v = self.b.select(one, self.t, v0);
-                Ok(Lowered { value: self.word(v), valid: self.t, err: r.err })
+                Ok(Lowered {
+                    value: self.word(v),
+                    valid: self.t,
+                    err: r.err,
+                })
             }
             ExprNode::NullIf(n) => {
                 let a = self.args(n.site)?;
@@ -484,7 +649,11 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
                 let eq = self.and(r.valid, rt);
                 let neq = self.not(eq);
                 let valid = self.and(a[0].valid, neq);
-                Ok(Lowered { value: a[0].value, valid, err: r.err })
+                Ok(Lowered {
+                    value: a[0].value,
+                    valid,
+                    err: r.err,
+                })
             }
             ExprNode::ScalarArrayOp(n) => self.scalar_array(n),
             ExprNode::Bool(n) => {
@@ -494,7 +663,11 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
                         let a = self.node(ks[0])?;
                         let t = self.truth(a.value);
                         let nt = self.not(t);
-                        Ok(Lowered { value: self.word(nt), valid: a.valid, err: a.err })
+                        Ok(Lowered {
+                            value: self.word(nt),
+                            valid: a.valid,
+                            err: a.err,
+                        })
                     }
                     BoolExprType::AND_EXPR => self.chain(ks, false),
                     BoolExprType::OR_EXPR => self.chain(ks, true),
@@ -504,11 +677,25 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
             ExprNode::NullTest(n) => {
                 // a dictionary-coded column has no value word in the row loop, but its validity is the code lane's bitmap
                 let a = match &self.p.nodes[n.arg.0 as usize] {
-                    ExprNode::Var(v) if v.src == Source::Scan && v.attno > 0 && self.row.codes.iter().any(|c| c.attno == v.attno) => self.code_valid(v.attno)?,
+                    ExprNode::Var(v)
+                        if v.src == Source::Scan
+                            && v.attno > 0
+                            && self.row.codes.iter().any(|c| c.attno == v.attno) =>
+                    {
+                        self.code_valid(v.attno)?
+                    }
                     _ => self.node(n.arg)?,
                 };
-                let v = if n.is_null { self.not(a.valid) } else { a.valid };
-                Ok(Lowered { value: self.word(v), valid: self.t, err: a.err })
+                let v = if n.is_null {
+                    self.not(a.valid)
+                } else {
+                    a.valid
+                };
+                Ok(Lowered {
+                    value: self.word(v),
+                    valid: self.t,
+                    err: a.err,
+                })
             }
             ExprNode::BooleanTest(n) => {
                 let a = self.node(n.arg)?;
@@ -524,7 +711,11 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
                     BoolTestType::IS_UNKNOWN => null,
                     BoolTestType::IS_NOT_UNKNOWN => a.valid,
                 };
-                Ok(Lowered { value: self.word(v), valid: self.t, err: a.err })
+                Ok(Lowered {
+                    value: self.word(v),
+                    valid: self.t,
+                    err: a.err,
+                })
             }
             ExprNode::Case(c) => {
                 let saved = self.casetest;
@@ -537,7 +728,9 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
                 self.casetest = saved;
                 r
             }
-            ExprNode::CaseTest => self.casetest.ok_or(EmitError::Unsupported(Kind::CaseTestExpr)),
+            ExprNode::CaseTest => self
+                .casetest
+                .ok_or(EmitError::Unsupported(Kind::CaseTestExpr)),
             ExprNode::CoerceToDomain(d) => {
                 let d = *d;
                 let a = self.node(d.arg)?;
@@ -557,9 +750,15 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
                     err = self.domain_raise(d.site, d.typ, i as i64, fails, err)?;
                 }
                 self.domainval = saved;
-                Ok(Lowered { value: a.value, valid: a.valid, err })
+                Ok(Lowered {
+                    value: a.value,
+                    valid: a.valid,
+                    err,
+                })
             }
-            ExprNode::CoerceToDomainValue => self.domainval.ok_or(EmitError::Unsupported(Kind::CoerceToDomainValue)),
+            ExprNode::CoerceToDomainValue => self
+                .domainval
+                .ok_or(EmitError::Unsupported(Kind::CoerceToDomainValue)),
             ExprNode::Subscripting(n) => self.subscript(n),
             ExprNode::FieldSelect(n) => self.field_select(n),
             ExprNode::FieldStore(n) => self.field_store(n),
@@ -599,7 +798,11 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
                     err = self.first(err, c.err);
                     a.err = err;
                     let z = self.zero;
-                    let better = if m.least { self.b.icmp(IntCond::Slt, c.value, z) } else { self.b.icmp(IntCond::Sgt, c.value, z) };
+                    let better = if m.least {
+                        self.b.icmp(IntCond::Slt, c.value, z)
+                    } else {
+                        self.b.icmp(IntCond::Sgt, c.value, z)
+                    };
                     let nb = self.not(best.valid);
                     let take0 = self.or(nb, better);
                     let take = self.and(a.valid, take0);
@@ -609,15 +812,35 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
             }
             ExprNode::RowCompare(r) => self.row_compare(r.cmptype, r.largs, r.rargs, r.sites),
             ExprNode::Aggref(a) => self.aggref(a),
-            ExprNode::WindowFunc(w) => self.aggref(&crate::nodes::agg::Aggref { aggno: w.cell, typ: w.typ }),
+            ExprNode::WindowFunc(w) => self.aggref(&crate::nodes::agg::Aggref {
+                aggno: w.cell,
+                typ: w.typ,
+            }),
             ExprNode::SubPlan(s) if self.row.lazy.is_some_and(|l| l.has_subplan(s.plan_id)) => {
                 // D3374: a SubPlan inside an island's range is only ever that island's argument (nodes/mod.rs `island`)
-                let island = self.p.islands.iter().any(|i| i.first.0 <= id.0 && id.0 <= i.root.0);
-                let [value, valid, err] = self.row.lazy.map_or([self.zero, self.f, self.zero], |l| if island { l.emit_subplan_held(self.b, s.plan_id) } else { l.emit_subplan(self.b, s.plan_id) });
+                let island = self
+                    .p
+                    .islands
+                    .iter()
+                    .any(|i| i.first.0 <= id.0 && id.0 <= i.root.0);
+                let [value, valid, err] =
+                    self.row.lazy.map_or([self.zero, self.f, self.zero], |l| {
+                        if island {
+                            l.emit_subplan_held(self.b, s.plan_id)
+                        } else {
+                            l.emit_subplan(self.b, s.plan_id)
+                        }
+                    });
                 Ok(Lowered { value, valid, err })
             }
-            ExprNode::SubPlan(s) => self.aggref(&crate::nodes::agg::Aggref { aggno: s.cell, typ: s.typ }),
-            ExprNode::Srf(s) => self.aggref(&crate::nodes::agg::Aggref { aggno: s.cell, typ: s.typ }),
+            ExprNode::SubPlan(s) => self.aggref(&crate::nodes::agg::Aggref {
+                aggno: s.cell,
+                typ: s.typ,
+            }),
+            ExprNode::Srf(s) => self.aggref(&crate::nodes::agg::Aggref {
+                aggno: s.cell,
+                typ: s.typ,
+            }),
             other => Err(EmitError::Unsupported(other.kind())),
         }
     }
@@ -629,7 +852,10 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
         if !text {
             return None;
         }
-        self.row.shreds.iter().find(|s| s.attno == attno && s.path == path)
+        self.row
+            .shreds
+            .iter()
+            .find(|s| s.attno == attno && s.path == path)
     }
 
     /// A `->` / `->>` chain the row references carry as a shredded lane of `typ` (§2.7).
@@ -639,7 +865,9 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
             return None;
         }
         let s = jsonb::find(self.row.shreds, attno, &path, typ)?;
-        let ColsRef::Lanes { row, .. } = self.row.scan else { return None };
+        let ColsRef::Lanes { row, .. } = self.row.scan else {
+            return None;
+        };
         let lane = s.lane;
         Some(self.lane_cell(&lane, row))
     }
@@ -664,7 +892,11 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
         if src == Source::Scan && self.row.codes.iter().any(|c| c.attno == attno) {
             return Err(EmitError::CodesLane(attno));
         }
-        if let Some(l) = self.row.lazy.filter(|l| src == Source::Scan && l.has(attno)) {
+        if let Some(l) = self
+            .row
+            .lazy
+            .filter(|l| src == Source::Scan && l.has(attno))
+        {
             let [value, valid, err] = l.emit(self.b, attno); // V4R-342: here, where PG evaluates it
             return Ok(Lowered { value, valid, err });
         }
@@ -684,16 +916,30 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
                 let value = self.b.load(Type::I64, values, (i * 8) as i32);
                 let n = self.b.load_zext(Type::I8, nulls, i as i32);
                 let valid = self.b.icmp(IntCond::Eq, n, self.zero);
-                Ok(Lowered { value, valid, err: self.zero })
+                Ok(Lowered {
+                    value,
+                    valid,
+                    err: self.zero,
+                })
             }
             ColsRef::Values { values, valids } => {
                 let value = *values.get(i).ok_or(EmitError::NoColumn(attno))?;
                 let valid = *valids.get(i).ok_or(EmitError::NoColumn(attno))?;
-                let raised = (src == Source::Scan).then(|| self.row.col_raises.iter().find(|r| r.0 == attno)).flatten();
-                Ok(Lowered { value, valid, err: raised.map_or(self.zero, |r| r.1) })
+                let raised = (src == Source::Scan)
+                    .then(|| self.row.col_raises.iter().find(|r| r.0 == attno))
+                    .flatten();
+                Ok(Lowered {
+                    value,
+                    valid,
+                    err: raised.map_or(self.zero, |r| r.1),
+                })
             }
             ColsRef::Lanes { row, lanes } => {
-                let l = lanes.get(i).copied().flatten().ok_or(EmitError::NoColumn(attno))?;
+                let l = lanes
+                    .get(i)
+                    .copied()
+                    .flatten()
+                    .ok_or(EmitError::NoColumn(attno))?;
                 if l.kind == gravity_abi::ctx::lane::KIND_CODES {
                     return Err(EmitError::CodesLane(attno));
                 }
@@ -702,9 +948,18 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
             ColsRef::Record { base, offsets } => {
                 let off = *offsets.get(i).ok_or(EmitError::NoColumn(attno))?;
                 let value = self.b.load(Type::I64, base, off as i32);
-                Ok(Lowered { value, valid: self.t, err: self.zero })
+                Ok(Lowered {
+                    value,
+                    valid: self.t,
+                    err: self.zero,
+                })
             }
-            ColsRef::RecordNulls { base, offsets, null_off, bits } => {
+            ColsRef::RecordNulls {
+                base,
+                offsets,
+                null_off,
+                bits,
+            } => {
                 let off = *offsets.get(i).ok_or(EmitError::NoColumn(attno))?;
                 let value = self.b.load(Type::I64, base, off as i32);
                 let bit = *bits.get(i).ok_or(EmitError::NoColumn(attno))?;
@@ -718,17 +973,32 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
                     let b1 = self.b.int_bin(IntBinOp::And, s, one);
                     self.b.icmp(IntCond::Eq, b1, self.zero)
                 };
-                Ok(Lowered { value, valid, err: self.zero })
+                Ok(Lowered {
+                    value,
+                    valid,
+                    err: self.zero,
+                })
             }
         }
     }
 
     /// The validity of a code lane's cell (its code word is not a datum: only a NULL test reads it).
     fn code_valid(&mut self, attno: i16) -> Result<Lowered, EmitError> {
-        let cr = *self.row.codes.iter().find(|c| c.attno == attno).ok_or(EmitError::NoColumn(attno))?;
-        let ColsRef::Lanes { row, .. } = self.row.scan else { return Err(EmitError::CodesLane(attno)) };
+        let cr = *self
+            .row
+            .codes
+            .iter()
+            .find(|c| c.attno == attno)
+            .ok_or(EmitError::NoColumn(attno))?;
+        let ColsRef::Lanes { row, .. } = self.row.scan else {
+            return Err(EmitError::CodesLane(attno));
+        };
         let l = self.lane_cell(&cr.lane, row);
-        Ok(Lowered { value: self.zero, valid: l.valid, err: self.zero })
+        Ok(Lowered {
+            value: self.zero,
+            valid: l.valid,
+            err: self.zero,
+        })
     }
 
     fn lane_cell(&mut self, l: &LaneRef, row: Value) -> Lowered {
@@ -746,7 +1016,11 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
             _ => self.b.load_zext(Type::I8, p, 0),
         };
         let valid = self.lane_valid(l, row);
-        Lowered { value, valid, err: self.zero }
+        Lowered {
+            value,
+            valid,
+            err: self.zero,
+        }
     }
 
     /// The lane's validity bit at `row` (`true` for an all-valid lane; branch-free otherwise).
@@ -792,7 +1066,11 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
         // D775: in order, an operand with a host call only where no earlier one raised (the running word kept only while
         // a later operand calls one: pure arithmetic pays nothing here, `call` combines the words)
         for (i, &id) in ids.iter().enumerate() {
-            let a = if self.has_host(id) { self.after(err, id)? } else { self.node(id)? };
+            let a = if self.has_host(id) {
+                self.after(err, id)?
+            } else {
+                self.node(id)?
+            };
             if last_host.is_some_and(|l| l > i) {
                 err = self.first(err, a.err);
             }
@@ -803,7 +1081,14 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
 
     /// The domain's raise where `flag` holds and no earlier raise of the row is in `err`: the site called with the
     /// type and the check's index (its cell then carries the built error, as a tier B call's does); the mask out.
-    fn domain_raise(&mut self, site: SiteId, typ: u32, ix: i64, flag: Value, err: Value) -> Result<Value, EmitError> {
+    fn domain_raise(
+        &mut self,
+        site: SiteId,
+        typ: u32,
+        ix: i64,
+        flag: Value,
+        err: Value,
+    ) -> Result<Value, EmitError> {
         let raised = self.b.icmp(IntCond::Ne, err, self.zero);
         let fresh = self.not(raised);
         let go = self.and(flag, fresh);
@@ -814,10 +1099,28 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
         let t = self.b.iconst(Type::I64, typ as i64);
         let i = self.b.iconst(Type::I64, ix);
         // D2019: the domain's baked names from the site's cell (`CELL_AUX`): the raise may run on a pool thread
-        let Some(cells) = self.row.cells else { return Err(EmitError::NoCells) };
+        let Some(cells) = self.row.cells else {
+            return Err(EmitError::NoCells);
+        };
         let cell = self.site_cell(cells, site.0 as usize);
         let names = self.b.load(Type::I64, cell, super::host::CELL_AUX);
-        let args = [Lowered { value: t, valid: self.t, err: self.zero }, Lowered { value: i, valid: self.t, err: self.zero }, Lowered { value: names, valid: self.t, err: self.zero }];
+        let args = [
+            Lowered {
+                value: t,
+                valid: self.t,
+                err: self.zero,
+            },
+            Lowered {
+                value: i,
+                valid: self.t,
+                err: self.zero,
+            },
+            Lowered {
+                value: names,
+                valid: self.t,
+                err: self.zero,
+            },
+        ];
         let r = self.call(site, &args, false)?;
         let e = self.or(err, r.err);
         self.b.br(l_join, &[e]);
@@ -826,7 +1129,12 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
     }
 
     /// The site over evaluated arguments: tier A in line, tier B / C through the cell.
-    pub(super) fn call(&mut self, site: SiteId, args: &[Lowered], word_root: bool) -> Result<Lowered, EmitError> {
+    pub(super) fn call(
+        &mut self,
+        site: SiteId,
+        args: &[Lowered],
+        word_root: bool,
+    ) -> Result<Lowered, EmitError> {
         let call: &Call = &self.p.sites[site.0 as usize];
         let mut all_valid = self.t;
         let mut err = self.zero;
@@ -836,27 +1144,47 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
         }
         if prim::is_prim(self.p, call, word_root) {
             let vals: PgVec<'_, Value> = args.iter().map(|a| a.value).collect_in(self.row.scratch);
-            let (o, nonnull) = prim::emit_ext(self.b, self.p, call, &vals, word_root).expect("a tier-A primitive");
+            let (o, nonnull) =
+                prim::emit_ext(self.b, self.p, call, &vals, word_root).expect("a tier-A primitive");
             let e = self.mask_if(all_valid, o.err);
             let err = self.first(err, e);
             let valid = match nonnull {
                 Some(n) => self.and(all_valid, n),
                 None => all_valid,
             };
-            return Ok(Lowered { value: o.value, valid, err });
+            return Ok(Lowered {
+                value: o.value,
+                valid,
+                err,
+            });
         }
-        let (Some(cells), Some(region)) = (self.row.cells, self.row.region) else { return Err(EmitError::NoCells) };
+        let (Some(cells), Some(region)) = (self.row.cells, self.row.region) else {
+            return Err(EmitError::NoCells);
+        };
         // D3129: the direct road is 64-bit only (`direct`); on a 32-bit target (wasm32) every site takes the cell road below
         #[cfg(target_pointer_width = "64")]
         if let Some(shim) = host::direct(self.p, call) {
             return Ok(self.direct(site, shim, args, all_valid, err, cells));
         }
         let cell = self.site_cell(cells, site.0 as usize);
-        debug_assert!(args.len() <= self.width, "site {} stores {} words in a cell {} wide", site.0, args.len(), self.width);
-        let flags = HostFlags { may_error: true, pure: false, touches_memory: true, worker: false, state: StateMask::NONE };
+        debug_assert!(
+            args.len() <= self.width,
+            "site {} stores {} words in a cell {} wide",
+            site.0,
+            args.len(),
+            self.width
+        );
+        let flags = HostFlags {
+            may_error: true,
+            pure: false,
+            touches_memory: true,
+            worker: false,
+            state: StateMask::NONE,
+        };
         // a shim site is strict unless its call says otherwise AND every argument is by value (a view of a null
         // datum is never formed): a RowExpr site's arguments are words, its null mask one of them
-        let strict = call.strict || matches!(call.how, How::Shim { convs, .. } if self.p.convs[convs as usize..convs as usize + call.nargs as usize].iter().any(|c| c.kind != gravity_fn::ArgKind::V));
+        let strict = call.strict
+            || matches!(call.how, How::Shim { convs, .. } if self.p.convs[convs as usize..convs as usize + call.nargs as usize].iter().any(|c| c.kind != gravity_fn::ArgKind::V));
         let l_call = self.b.create_block(&[]);
         let l_join = self.b.create_block(&[Type::I64, Type::Bool, Type::I64]);
         let (z, f) = (self.zero, self.f);
@@ -879,16 +1207,38 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
         }
         let status = match call.how {
             How::Shim { .. } => {
-                let h = self.b.declare_host_once("gravity_expr::shim", &[Type::Ptr, Type::Ptr], Some(Type::I64), host::shim as *const () as usize, flags);
-                self.b.call_host(h, &[cell, region], Some(Type::I64)).unwrap()
+                let h = self.b.declare_host_once(
+                    "gravity_expr::shim",
+                    &[Type::Ptr, Type::Ptr],
+                    Some(Type::I64),
+                    host::shim as *const () as usize,
+                    flags,
+                );
+                self.b
+                    .call_host(h, &[cell, region], Some(Type::I64))
+                    .unwrap()
             }
             How::Fmgr(_) => {
-                let h = self.b.declare_host_once("gravity_expr::fmgr", &[Type::Ptr], Some(Type::I64), host::fmgr as *const () as usize, flags);
+                let h = self.b.declare_host_once(
+                    "gravity_expr::fmgr",
+                    &[Type::Ptr],
+                    Some(Type::I64),
+                    host::fmgr as *const () as usize,
+                    flags,
+                );
                 self.b.call_host(h, &[cell], Some(Type::I64)).unwrap()
             }
             How::Island { .. } => {
-                let h = self.b.declare_host_once("gravity_expr::island", &[Type::Ptr, Type::Ptr], Some(Type::I64), host::island as *const () as usize, flags);
-                self.b.call_host(h, &[cell, region], Some(Type::I64)).unwrap()
+                let h = self.b.declare_host_once(
+                    "gravity_expr::island",
+                    &[Type::Ptr, Type::Ptr],
+                    Some(Type::I64),
+                    host::island as *const () as usize,
+                    flags,
+                );
+                self.b
+                    .call_host(h, &[cell, region], Some(Type::I64))
+                    .unwrap()
             }
         };
         let valid = self.b.icmp(IntCond::Eq, status, self.zero);
@@ -907,16 +1257,42 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
     /// the host `param_deferred` fetches it from the execution's list (its word, `ParamNeed::Deferred`) as
     /// ExecEvalParamExtern does, so a slot PL/pgSQL left without a value raises its error, and one whose type changed raises
     /// the mismatch, only on the rows (and arms) that reach it. Its error is stashed (`HOST`).
-    fn deferred(&mut self, id: NodeId, pid: i32, typ: types_core::Oid) -> Result<Lowered, EmitError> {
-        let i = self.plan.index(id).ok_or(EmitError::Unsupported(Kind::Param))? as usize;
+    fn deferred(
+        &mut self,
+        id: NodeId,
+        pid: i32,
+        typ: types_core::Oid,
+    ) -> Result<Lowered, EmitError> {
+        let i = self
+            .plan
+            .index(id)
+            .ok_or(EmitError::Unsupported(Kind::Param))? as usize;
         let list = self.row.consts[i];
         let tmp = self.b.declare_stack_slot(8, 8);
         let out = self.b.stack_addr(tmp);
         self.b.store(out, 0, self.zero);
-        let (pid, typ) = (self.b.iconst(Type::I64, i64::from(pid)), self.b.iconst(Type::I64, i64::from(typ)));
-        let flags = HostFlags { may_error: true, pure: false, touches_memory: true, worker: false, state: StateMask::NONE };
-        let h = self.b.declare_host_once("gravity_expr::param_deferred", &[Type::I64, Type::I64, Type::I64, Type::Ptr], Some(Type::I64), host::param_deferred as *const () as usize, flags);
-        let status = self.b.call_host(h, &[list, pid, typ, out], Some(Type::I64)).unwrap();
+        let (pid, typ) = (
+            self.b.iconst(Type::I64, i64::from(pid)),
+            self.b.iconst(Type::I64, i64::from(typ)),
+        );
+        let flags = HostFlags {
+            may_error: true,
+            pure: false,
+            touches_memory: true,
+            worker: false,
+            state: StateMask::NONE,
+        };
+        let h = self.b.declare_host_once(
+            "gravity_expr::param_deferred",
+            &[Type::I64, Type::I64, Type::I64, Type::Ptr],
+            Some(Type::I64),
+            host::param_deferred as *const () as usize,
+            flags,
+        );
+        let status = self
+            .b
+            .call_host(h, &[list, pid, typ, out], Some(Type::I64))
+            .unwrap();
         let value = self.b.load(Type::I64, out, 0);
         let valid = self.b.icmp(IntCond::Eq, status, self.zero);
         let failed = self.b.icmp(IntCond::Slt, status, self.zero);
@@ -932,8 +1308,21 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
     /// so the indirect call traps (`call_indirect`'s type check); there the site takes the cell road, which reaches the shim
     /// from Rust (`Shim::call`). gravity_lint's host_decls test holds a shim-entry declaration to this cfg.
     #[cfg(target_pointer_width = "64")]
-    fn direct(&mut self, site: SiteId, shim: &'static gravity_fn::Shim, args: &[Lowered], all_valid: Value, err: Value, cells: Value) -> Lowered {
-        let cell_slot = self.b.ptr_add(cells, self.zero, 1, (site.0 as usize * self.cell_stride()) as i32 + host::CELL_ERR);
+    fn direct(
+        &mut self,
+        site: SiteId,
+        shim: &'static gravity_fn::Shim,
+        args: &[Lowered],
+        all_valid: Value,
+        err: Value,
+        cells: Value,
+    ) -> Lowered {
+        let cell_slot = self.b.ptr_add(
+            cells,
+            self.zero,
+            1,
+            (site.0 as usize * self.cell_stride()) as i32 + host::CELL_ERR,
+        );
         let tmp = self.b.declare_stack_slot(8, 8);
         let l_call = self.b.create_block(&[]);
         let l_fail = self.b.create_block(&[]);
@@ -951,16 +1340,34 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
             params.push_in(Type::I64);
             vals.push_in(a.value);
         }
-        let flags = HostFlags { may_error: true, pure: false, touches_memory: true, worker: false, state: StateMask::NONE };
+        let flags = HostFlags {
+            may_error: true,
+            pure: false,
+            touches_memory: true,
+            worker: false,
+            state: StateMask::NONE,
+        };
         let name = format!("gravity_fn::byval::{}", shim.name); // alloc: Program
-        let h = self.b.declare_host_once(&name, &params, Some(Type::I64), shim.addr(), flags);
+        let h = self
+            .b
+            .declare_host_once(&name, &params, Some(Type::I64), shim.addr(), flags);
         let value = self.b.call_host(h, &vals, Some(Type::I64)).unwrap();
         let ep = self.b.load(Type::I64, slot, 0);
         let failed = self.b.icmp(IntCond::Ne, ep, z);
-        let raised = self.b.iconst(Type::I64, gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64);
-        self.b.cond_br(failed, (l_fail, &[]), (l_join, &[value, t, z]));
+        let raised = self.b.iconst(
+            Type::I64,
+            gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64,
+        );
+        self.b
+            .cond_br(failed, (l_fail, &[]), (l_join, &[value, t, z]));
         self.b.switch_to(l_fail);
-        let put = self.b.declare_host_once("gravity_expr::slot_put", &[Type::Ptr, Type::I64], None, host::slot_put as *const () as usize, flags);
+        let put = self.b.declare_host_once(
+            "gravity_expr::slot_put",
+            &[Type::Ptr, Type::I64],
+            None,
+            host::slot_put as *const () as usize,
+            flags,
+        );
         self.b.call_host(put, &[cell_slot, ep], None);
         self.b.br(l_join, &[z, f, raised]);
         self.b.switch_to(l_join);
@@ -975,13 +1382,21 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
     /// / a domain coercion could be the outer form's (the island starts with none): refused by name.
     fn island(&mut self, id: NodeId) -> Result<Lowered, EmitError> {
         let kind = self.p.nodes[id.0 as usize].kind();
-        let isl = *self.p.islands.iter().find(|i| i.root == id).ok_or(EmitError::Unsupported(kind))?;
+        let isl = *self
+            .p
+            .islands
+            .iter()
+            .find(|i| i.root == id)
+            .ok_or(EmitError::Unsupported(kind))?;
         if self.casetest.is_some() || self.domainval.is_some() {
             let range = &self.p.nodes[isl.first.0 as usize..=id.0 as usize];
             if range.iter().any(|n| matches!(n, ExprNode::CaseTest)) {
                 return Err(EmitError::Unsupported(Kind::CaseTestExpr));
             }
-            if range.iter().any(|n| matches!(n, ExprNode::CoerceToDomainValue)) {
+            if range
+                .iter()
+                .any(|n| matches!(n, ExprNode::CoerceToDomainValue))
+            {
                 return Err(EmitError::Unsupported(Kind::CoerceToDomainValue));
             }
         }
@@ -1000,7 +1415,9 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
             let go = self.go_fresh(alive, err); // D775: no operand past a raise
             let a = self.guarded(go, k)?;
             let tv = self.truth(a.value);
-            let hit = if or_chain { self.and(a.valid, tv) } else {
+            let hit = if or_chain {
+                self.and(a.valid, tv)
+            } else {
                 let ntv = self.not(tv);
                 self.and(a.valid, ntv)
             };
@@ -1015,14 +1432,21 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
         let value = if or_chain { decided } else { self.not(decided) };
         let nn = self.not(any_null);
         let valid = self.or(decided, nn);
-        Ok(Lowered { value: self.word(value), valid, err })
+        Ok(Lowered {
+            value: self.word(value),
+            valid,
+            err,
+        })
     }
 
     /// D947 (GV-D5): PG evaluates a simple CASE's test before any arm (ExecInitExprRec, T_CaseExpr): its raise is the
     /// CASE's and no arm runs, whether an arm reads the test (the parser's shape) or not (a hand-built plan's).
     fn case(&mut self, id: NodeId, test_err: Value) -> Result<Lowered, EmitError> {
-        let ExprNode::Case(c) = &self.p.nodes[id.0 as usize] else { unreachable!() };
-        let whens = &self.p.kids[c.whens.start as usize..c.whens.start as usize + c.whens.len as usize];
+        let ExprNode::Case(c) = &self.p.nodes[id.0 as usize] else {
+            unreachable!()
+        };
+        let whens =
+            &self.p.kids[c.whens.start as usize..c.whens.start as usize + c.whens.len as usize];
         let mut alive = self.go_fresh(self.t, test_err);
         let mut arms = mcx::reserved_in(whens.len() / 2, self.row.scratch);
         for pair in whens.chunks_exact(2) {
@@ -1037,7 +1461,13 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
             let nt = self.not(taken);
             alive = self.and(alive, nt);
             alive = self.go_fresh(alive, cond.err);
-            let arm = (taken, Lowered { err: self.first(cond.err, res.err), ..res });
+            let arm = (
+                taken,
+                Lowered {
+                    err: self.first(cond.err, res.err),
+                    ..res
+                },
+            );
             arms.push_in(arm);
         }
         let mut acc = match c.default {
@@ -1047,14 +1477,20 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
         for (taken, res) in arms.into_iter().rev() {
             acc = self.select3(taken, res, acc);
         }
-        Ok(Lowered { err: self.first(test_err, acc.err), ..acc })
+        Ok(Lowered {
+            err: self.first(test_err, acc.err),
+            ..acc
+        })
     }
 
     fn scalar_array(&mut self, n: &ScalarArrayOp) -> Result<Lowered, EmitError> {
         let (site, use_or) = (n.site, n.use_or);
         let call = &self.p.sites[site.0 as usize];
         let hosted = !prim::is_prim(self.p, call, false);
-        let (k0, k1) = (self.p.kids[call.args.start as usize], self.p.kids[call.args.start as usize + 1]);
+        let (k0, k1) = (
+            self.p.kids[call.args.start as usize],
+            self.p.kids[call.args.start as usize + 1],
+        );
         let scalar = self.node(k0)?;
         if walked(self.p, n) {
             return self.array_walk(n, scalar, k1);
@@ -1068,19 +1504,30 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
                 }
                 for ci in start as usize..start as usize + count as usize {
                     let ev = self.not(self.row.consts_null[ci]);
-                    elems.push_in(Lowered { value: self.row.consts[ci], valid: ev, err: self.zero });
+                    elems.push_in(Lowered {
+                        value: self.row.consts[ci],
+                        valid: ev,
+                        err: self.zero,
+                    });
                 }
                 arr_null
             }
             None => {
                 // an ARRAY[...] operand (C ExecEvalArrayExpr): every element in order, after the scalar, before any
                 // compare; the array itself is never NULL (`walked` takes any other operand)
-                let ExprNode::Array(a) = &self.p.nodes[k1.0 as usize] else { return Err(EmitError::LongList) };
+                let ExprNode::Array(a) = &self.p.nodes[k1.0 as usize] else {
+                    return Err(EmitError::LongList);
+                };
                 let p = self.p;
-                for &id in &p.kids[a.elements.start as usize..(a.elements.start + a.elements.len) as usize] {
+                for &id in
+                    &p.kids[a.elements.start as usize..(a.elements.start + a.elements.len) as usize]
+                {
                     let l = self.after(err, id)?;
                     err = self.first(err, l.err);
-                    elems.push_in(Lowered { err: self.zero, ..l });
+                    elems.push_in(Lowered {
+                        err: self.zero,
+                        ..l
+                    });
                 }
                 false
             }
@@ -1091,7 +1538,11 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
         }
         if elems.is_empty() {
             let v = if use_or { self.f } else { self.t };
-            return Ok(Lowered { value: self.word(v), valid: self.t, err });
+            return Ok(Lowered {
+                value: self.word(v),
+                valid: self.t,
+                err,
+            });
         }
         let mut alive = self.t;
         let mut decided = self.f;
@@ -1106,7 +1557,9 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
                 self.call(site, &[scalar, e], false)?
             };
             let tv = self.truth(r.value);
-            let hit0 = if use_or { self.and(r.valid, tv) } else {
+            let hit0 = if use_or {
+                self.and(r.valid, tv)
+            } else {
                 let ntv = self.not(tv);
                 self.and(r.valid, ntv)
             };
@@ -1123,8 +1576,16 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
         let value = if use_or { decided } else { self.not(decided) };
         let nn = self.not(any_null);
         let valid0 = self.or(decided, nn);
-        let valid = if call.strict { self.and(valid0, scalar.valid) } else { valid0 };
-        Ok(Lowered { value: self.word(value), valid, err })
+        let valid = if call.strict {
+            self.and(valid0, scalar.valid)
+        } else {
+            valid0
+        };
+        Ok(Lowered {
+            value: self.word(value),
+            valid,
+            err,
+        })
     }
 
     /// A ScalarArrayOp whose array is walked (`walked`): the array evaluated after the scalar and never past its raise
@@ -1132,8 +1593,15 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
     /// cell holding the walk word (`host::saop_walk`), which walks the array and compares each element through that cell,
     /// PG's `ExecEvalScalarArrayOp` (its NULL, empty-array and strict rules; decided at the first true (ANY) / false (ALL)
     /// answer; a raise ends it, the error in the site's cell as any hosted call's).
-    fn array_walk(&mut self, n: &ScalarArrayOp, scalar: Lowered, arr_id: NodeId) -> Result<Lowered, EmitError> {
-        let (Some(cells), Some(region)) = (self.row.cells, self.row.region) else { return Err(EmitError::NoCells) };
+    fn array_walk(
+        &mut self,
+        n: &ScalarArrayOp,
+        scalar: Lowered,
+        arr_id: NodeId,
+    ) -> Result<Lowered, EmitError> {
+        let (Some(cells), Some(region)) = (self.row.cells, self.row.region) else {
+            return Err(EmitError::NoCells);
+        };
         let arr = self.after(scalar.err, arr_id)?;
         let err = self.first(scalar.err, arr.err);
         let cell = self.site_cell(cells, n.site.0 as usize);
@@ -1159,9 +1627,24 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
         }
         let word = self.b.iconst(Type::I64, host::walk_word(n.elem, n.use_or));
         self.b.store(cell, CELL_AUX, word);
-        let hf = HostFlags { may_error: true, pure: false, touches_memory: true, worker: false, state: StateMask::NONE };
-        let h = self.b.declare_host_once("gravity_expr::shim", &[Type::Ptr, Type::Ptr], Some(Type::I64), host::shim as *const () as usize, hf);
-        let status = self.b.call_host(h, &[cell, region], Some(Type::I64)).unwrap();
+        let hf = HostFlags {
+            may_error: true,
+            pure: false,
+            touches_memory: true,
+            worker: false,
+            state: StateMask::NONE,
+        };
+        let h = self.b.declare_host_once(
+            "gravity_expr::shim",
+            &[Type::Ptr, Type::Ptr],
+            Some(Type::I64),
+            host::shim as *const () as usize,
+            hf,
+        );
+        let status = self
+            .b
+            .call_host(h, &[cell, region], Some(Type::I64))
+            .unwrap();
         let valid = self.b.icmp(IntCond::Eq, status, self.zero);
         let failed = self.b.icmp(IntCond::Slt, status, self.zero);
         let e = super::prim::raise(self.b, failed, gravity_abi::status::raise::HOST);
@@ -1182,16 +1665,41 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
         let site = n.site.ok_or(EmitError::Unsupported(Kind::NullTest))?;
         let a = self.node(n.arg)?;
         let k = self.b.iconst(Type::I64, n.is_null as i64);
-        let r = self.call(site, &[a, Lowered { value: k, valid: self.t, err: self.zero }], false)?;
+        let r = self.call(
+            site,
+            &[
+                a,
+                Lowered {
+                    value: k,
+                    valid: self.t,
+                    err: self.zero,
+                },
+            ],
+            false,
+        )?;
         let value = self.b.select(a.valid, r.value, k);
-        Ok(Lowered { value, valid: self.t, err: r.err })
+        Ok(Lowered {
+            value,
+            valid: self.t,
+            err: r.err,
+        })
     }
 
     /// The compare site over two values: tier A in line, else the site's call (shim or fmgr, by-reference arguments as
     /// datum words); the sign in `value`, the call's raise in `err`.
-    fn compare(&mut self, site: SiteId, call: &Call, l: Lowered, r: Lowered) -> Result<Lowered, EmitError> {
+    fn compare(
+        &mut self,
+        site: SiteId,
+        call: &Call,
+        l: Lowered,
+        r: Lowered,
+    ) -> Result<Lowered, EmitError> {
         if let Some(o) = prim::emit(self.b, call.funcid, &[l.value, r.value]) {
-            return Ok(Lowered { value: o.value, valid: self.t, err: self.zero });
+            return Ok(Lowered {
+                value: o.value,
+                valid: self.t,
+                err: self.zero,
+            });
         }
         self.call(site, &[l, r], false)
     }
@@ -1205,14 +1713,31 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
     }
 
     /// `compare` whose hosted road runs only where `go` holds (a tier-A compare is in line and cannot raise).
-    fn compare_when(&mut self, go: Value, site: SiteId, call: &Call, l: Lowered, r: Lowered) -> Result<Lowered, EmitError> {
+    fn compare_when(
+        &mut self,
+        go: Value,
+        site: SiteId,
+        call: &Call,
+        l: Lowered,
+        r: Lowered,
+    ) -> Result<Lowered, EmitError> {
         if let Some(o) = prim::emit(self.b, call.funcid, &[l.value, r.value]) {
-            return Ok(Lowered { value: o.value, valid: self.t, err: self.zero });
+            return Ok(Lowered {
+                value: o.value,
+                valid: self.t,
+                err: self.zero,
+            });
         }
         self.call_when(go, site, &[l, r])
     }
 
-    fn row_compare(&mut self, cmptype: i32, largs: crate::nodes::Kids, rargs: crate::nodes::Kids, sites: u32) -> Result<Lowered, EmitError> {
+    fn row_compare(
+        &mut self,
+        cmptype: i32,
+        largs: crate::nodes::Kids,
+        rargs: crate::nodes::Kids,
+        sites: u32,
+    ) -> Result<Lowered, EmitError> {
         let mut alive = self.t;
         let mut null_seen = self.f;
         let mut cmp = self.zero;
@@ -1251,6 +1776,10 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
             _ => return Err(EmitError::Unsupported(Kind::RowCompareExpr)),
         };
         let valid = self.not(null_seen);
-        Ok(Lowered { value: self.word(v), valid, err })
+        Ok(Lowered {
+            value: self.word(v),
+            valid,
+            err,
+        })
     }
 }

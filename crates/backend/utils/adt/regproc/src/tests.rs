@@ -3,7 +3,9 @@ use std::collections::HashMap;
 
 use mcx::{Mcx, MemoryContext};
 use types_core::{InvalidOid, Oid};
-use types_error::{SoftErrorContext, ERRCODE_INVALID_TEXT_REPRESENTATION, ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE};
+use types_error::{
+    SoftErrorContext, ERRCODE_INVALID_TEXT_REPRESENTATION, ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE,
+};
 use types_tuple::NameData;
 
 use super::*;
@@ -35,7 +37,12 @@ thread_local! {
 }
 
 fn ns_name(oid: Oid) -> Option<String> {
-    NS_BY_NAME.with(|m| m.borrow().iter().find(|(_, &v)| v == oid).map(|(k, _)| k.clone()))
+    NS_BY_NAME.with(|m| {
+        m.borrow()
+            .iter()
+            .find(|(_, &v)| v == oid)
+            .map(|(k, _)| k.clone())
+    })
 }
 
 fn install_fakes() {
@@ -52,10 +59,14 @@ fn install_fakes() {
         syscache_seams::pg_type_typnamespace::set(|_| Ok(Some(11)));
         aclchk_seams::object_aclcheck::set(|_, _, _, _| Ok(0));
         aclchk_seams::aclcheck_error::set(|_, _, name| {
-            Err(Box::new(PgError::error(format!("permission denied for schema {name}"))))
+            Err(Box::new(PgError::error(format!(
+                "permission denied for schema {name}"
+            ))))
         });
         syscache_seams::lookup_pg_namespace_oid_by_name::set(|nspname| {
-            Ok(NS_BY_NAME.with(|m| m.borrow().get(nspname).copied()).unwrap_or(InvalidOid))
+            Ok(NS_BY_NAME
+                .with(|m| m.borrow().get(nspname).copied())
+                .unwrap_or(InvalidOid))
         });
         syscache_seams::pg_namespace_nspname::set(|nspid| {
             Ok(ns_name(nspid).map(|n| {
@@ -66,17 +77,22 @@ fn install_fakes() {
         });
         syscache_seams::pg_class_relname::set(|relid| {
             Ok(RELS.with(|m| {
-                m.borrow().iter().find(|(_, &v)| v == relid).map(|((name, _), _)| {
-                    let mut nd = NameData::default();
-                    nd.namestrcpy(name);
-                    nd
-                })
+                m.borrow()
+                    .iter()
+                    .find(|(_, &v)| v == relid)
+                    .map(|((name, _), _)| {
+                        let mut nd = NameData::default();
+                        nd.namestrcpy(name);
+                        nd
+                    })
             }))
         });
         syscache_seams::lookup_pg_class_ls_shape::set(|relid| {
             Ok(RELS.with(|m| {
-                m.borrow().iter().find(|(_, &v)| v == relid).map(|((_, nsp), _)| {
-                    syscache_seams::PgClassLsShape {
+                m.borrow()
+                    .iter()
+                    .find(|(_, &v)| v == relid)
+                    .map(|((_, nsp), _)| syscache_seams::PgClassLsShape {
                         relnamespace: *nsp,
                         reltype: InvalidOid,
                         relam: 2,
@@ -86,8 +102,7 @@ fn install_fakes() {
                         relpersistence: b'p' as i8,
                         relispartition: false,
                         relhassubclass: false,
-                    }
-                })
+                    })
             }))
         });
         syscache_seams::lookup_pg_proc_name_candidates::set(|mcx, proname| {
@@ -116,17 +131,22 @@ fn install_fakes() {
         });
         syscache_seams::pg_proc_proname::set(|funcid| {
             Ok(PROCS.with(|p| {
-                p.borrow().iter().find(|(_, oid, _, _)| *oid == funcid).map(|(name, ..)| {
-                    let mut nd = NameData::default();
-                    nd.namestrcpy(name);
-                    nd
-                })
+                p.borrow()
+                    .iter()
+                    .find(|(_, oid, _, _)| *oid == funcid)
+                    .map(|(name, ..)| {
+                        let mut nd = NameData::default();
+                        nd.namestrcpy(name);
+                        nd
+                    })
             }))
         });
         syscache_seams::lookup_pg_proc_shape::set(|funcid| {
             Ok(PROCS.with(|p| {
-                p.borrow().iter().find(|(_, oid, _, _)| *oid == funcid).map(|(_, _, nsp, args)| {
-                    syscache_seams::PgProcShape {
+                p.borrow()
+                    .iter()
+                    .find(|(_, oid, _, _)| *oid == funcid)
+                    .map(|(_, _, nsp, args)| syscache_seams::PgProcShape {
                         prolang: 12,
                         prosecdef: false,
                         proconfig_isnull: true,
@@ -141,19 +161,21 @@ fn install_fakes() {
                         proretset: false,
                         proisstrict: true,
                         proleakproof: false,
-                    }
-                })
+                    })
             }))
         });
         syscache_seams::lookup_pg_proc_signature::set(|mcx, funcid| {
             Ok(PROCS.with(|p| {
-                p.borrow().iter().find(|(_, oid, _, _)| *oid == funcid).map(|(_, _, _, args)| {
-                    let mut av = mcx::PgVec::new_in(mcx);
-                    for &a in args {
-                        av.push(a);
-                    }
-                    (25, av)
-                })
+                p.borrow()
+                    .iter()
+                    .find(|(_, oid, _, _)| *oid == funcid)
+                    .map(|(_, _, _, args)| {
+                        let mut av = mcx::PgVec::new_in(mcx);
+                        for &a in args {
+                            av.push(a);
+                        }
+                        (25, av)
+                    })
             }))
         });
         regproc_seams::parse_type_string::set(|_mcx, typename, esc| {
@@ -218,8 +240,9 @@ fn install_fakes() {
         namespace_seams::range_var_get_relid::set(|_mcx, rv, _lockmode, missing_ok| {
             let relid = match rv.schemaname {
                 Some(schema) => {
-                    let nsp =
-                        NS_BY_NAME.with(|m| m.borrow().get(schema).copied()).unwrap_or(InvalidOid);
+                    let nsp = NS_BY_NAME
+                        .with(|m| m.borrow().get(schema).copied())
+                        .unwrap_or(InvalidOid);
                     if !OidIsValid(nsp) {
                         if missing_ok {
                             return Ok(InvalidOid);
@@ -253,7 +276,10 @@ fn install_fakes() {
         // this one.
         namespace_seams::relation_is_visible::set(|relid| {
             let name = RELS.with(|m| {
-                m.borrow().iter().find(|(_, &oid)| oid == relid).map(|((name, _), _)| name.clone())
+                m.borrow()
+                    .iter()
+                    .find(|(_, &oid)| oid == relid)
+                    .map(|((name, _), _)| name.clone())
             });
             let Some(name) = name else { return Ok(false) };
             Ok(PATH.with(|p| {
@@ -311,7 +337,10 @@ fn numeric_and_dash_paths() {
         assert_eq!(regclassin(mcx, "-", None).unwrap(), Some(0));
         assert_eq!(regclassin(mcx, "0", None).unwrap(), Some(0));
         assert_eq!(regclassin(mcx, "1259", None).unwrap(), Some(1259));
-        assert_eq!(regclassin(mcx, "4294967295", None).unwrap(), Some(4294967295));
+        assert_eq!(
+            regclassin(mcx, "4294967295", None).unwrap(),
+            Some(4294967295)
+        );
         assert_eq!(regtypein(mcx, "23", None).unwrap(), Some(23));
         assert_eq!(regprocin(mcx, "1299", None).unwrap(), Some(1299));
         // oidin's strtoul(base 0): a leading zero is octal.
@@ -326,12 +355,21 @@ fn numeric_and_dash_paths() {
 
         let err = regclassin(mcx, "4294967296", None).unwrap_err();
         assert_eq!(err.sqlstate(), ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE);
-        assert_eq!(err.message(), "value \"4294967296\" is out of range for type oid");
+        assert_eq!(
+            err.message(),
+            "value \"4294967296\" is out of range for type oid"
+        );
         let err = regclassin(mcx, "99999999999999999999", None).unwrap_err();
-        assert_eq!(err.message(), "value \"99999999999999999999\" is out of range for type oid");
+        assert_eq!(
+            err.message(),
+            "value \"99999999999999999999\" is out of range for type oid"
+        );
 
         let mut soft = SoftErrorContext::new(true);
-        assert_eq!(regclassin(mcx, "4294967296", Some(&mut soft)).unwrap(), Some(0));
+        assert_eq!(
+            regclassin(mcx, "4294967296", Some(&mut soft)).unwrap(),
+            Some(0)
+        );
         assert!(soft.error_occurred());
     });
 }
@@ -339,11 +377,26 @@ fn numeric_and_dash_paths() {
 #[test]
 fn regclassin_names() {
     with_mcx(|mcx| {
-        assert_eq!(regclassin(mcx, "pg_class", None).unwrap(), Some(REL_PG_CLASS));
-        assert_eq!(regclassin(mcx, "pg_catalog.pg_class", None).unwrap(), Some(REL_PG_CLASS));
-        assert_eq!(regclassin(mcx, "PG_CLASS", None).unwrap(), Some(REL_PG_CLASS));
-        assert_eq!(regclassin(mcx, "  pg_class  ", None).unwrap(), Some(REL_PG_CLASS));
-        assert_eq!(regclassin(mcx, "\"Mixed Case\"", None).unwrap(), Some(REL_MIXED));
+        assert_eq!(
+            regclassin(mcx, "pg_class", None).unwrap(),
+            Some(REL_PG_CLASS)
+        );
+        assert_eq!(
+            regclassin(mcx, "pg_catalog.pg_class", None).unwrap(),
+            Some(REL_PG_CLASS)
+        );
+        assert_eq!(
+            regclassin(mcx, "PG_CLASS", None).unwrap(),
+            Some(REL_PG_CLASS)
+        );
+        assert_eq!(
+            regclassin(mcx, "  pg_class  ", None).unwrap(),
+            Some(REL_PG_CLASS)
+        );
+        assert_eq!(
+            regclassin(mcx, "\"Mixed Case\"", None).unwrap(),
+            Some(REL_MIXED)
+        );
         assert_eq!(regclassin(mcx, "s1.t1", None).unwrap(), Some(REL_S1_T1));
 
         let err = regclassin(mcx, "\"PG_CLASS\"", None).unwrap_err();
@@ -352,7 +405,10 @@ fn regclassin_names() {
         let err = regclassin(mcx, "  1259", None).unwrap_err();
         assert_eq!(err.message(), "relation \"1259\" does not exist");
         let err = regclassin(mcx, "no_such_schema.rel", None).unwrap_err();
-        assert_eq!(err.message(), "relation \"no_such_schema.rel\" does not exist");
+        assert_eq!(
+            err.message(),
+            "relation \"no_such_schema.rel\" does not exist"
+        );
         let err = regclassin(mcx, "", None).unwrap_err();
         assert_eq!(err.sqlstate(), ERRCODE_INVALID_NAME);
         assert_eq!(err.message(), "invalid name syntax");
@@ -360,7 +416,10 @@ fn regclassin_names() {
         assert_eq!(err.message(), "invalid name syntax");
         let err = regclassin(mcx, "a.b.c.d", None).unwrap_err();
         assert_eq!(err.sqlstate(), ERRCODE_SYNTAX_ERROR);
-        assert_eq!(err.message(), "improper relation name (too many dotted names): a.b.c.d");
+        assert_eq!(
+            err.message(),
+            "improper relation name (too many dotted names): a.b.c.d"
+        );
     });
 }
 
@@ -369,7 +428,10 @@ fn to_regclass_soft_semantics() {
     with_mcx(|mcx| {
         // C DirectInputFunctionCallSafe: soft failure -> NULL, "-" -> Datum 0.
         let mut soft = SoftErrorContext::new(false);
-        assert_eq!(regclassin(mcx, "no_such_rel", Some(&mut soft)).unwrap(), Some(0));
+        assert_eq!(
+            regclassin(mcx, "no_such_rel", Some(&mut soft)).unwrap(),
+            Some(0)
+        );
         assert!(soft.error_occurred());
         let mut soft = SoftErrorContext::new(false);
         assert_eq!(regclassin(mcx, "", Some(&mut soft)).unwrap(), None);
@@ -387,13 +449,25 @@ fn to_regclass_soft_semantics() {
 fn regclassout_visibility_and_quoting() {
     with_mcx(|mcx| {
         assert_eq!(out_str(&regclassout(mcx, InvalidOid).unwrap()), "-");
-        assert_eq!(out_str(&regclassout(mcx, REL_PG_CLASS).unwrap()), "pg_class");
-        assert_eq!(out_str(&regclassout(mcx, REL_MIXED).unwrap()), "\"Mixed Case\"");
+        assert_eq!(
+            out_str(&regclassout(mcx, REL_PG_CLASS).unwrap()),
+            "pg_class"
+        );
+        assert_eq!(
+            out_str(&regclassout(mcx, REL_MIXED).unwrap()),
+            "\"Mixed Case\""
+        );
         assert_eq!(out_str(&regclassout(mcx, REL_S1_T1).unwrap()), "s1.t1");
         assert_eq!(out_str(&regclassout(mcx, REL_DUP_CAT).unwrap()), "dup");
-        assert_eq!(out_str(&regclassout(mcx, REL_DUP_PUB).unwrap()), "public.dup");
+        assert_eq!(
+            out_str(&regclassout(mcx, REL_DUP_PUB).unwrap()),
+            "public.dup"
+        );
         assert_eq!(out_str(&regclassout(mcx, 12345678).unwrap()), "12345678");
-        assert_eq!(out_str(&regclassout(mcx, 4294967295).unwrap()), "4294967295");
+        assert_eq!(
+            out_str(&regclassout(mcx, 4294967295).unwrap()),
+            "4294967295"
+        );
     });
 }
 
@@ -401,11 +475,20 @@ fn regclassout_visibility_and_quoting() {
 fn regprocin_lookup() {
     with_mcx(|mcx| {
         assert_eq!(regprocin(mcx, "now", None).unwrap(), Some(PROC_NOW));
-        assert_eq!(regprocin(mcx, "pg_catalog.now", None).unwrap(), Some(PROC_NOW));
-        assert_eq!(regprocin(mcx, "pg_catalog.\"now\"", None).unwrap(), Some(PROC_NOW));
+        assert_eq!(
+            regprocin(mcx, "pg_catalog.now", None).unwrap(),
+            Some(PROC_NOW)
+        );
+        assert_eq!(
+            regprocin(mcx, "pg_catalog.\"now\"", None).unwrap(),
+            Some(PROC_NOW)
+        );
         // Same-signature shadowing: pg_catalog precedes public in the path.
         assert_eq!(regprocin(mcx, "sfunc", None).unwrap(), Some(PROC_SF_CAT));
-        assert_eq!(regprocin(mcx, "public.sfunc", None).unwrap(), Some(PROC_SF_PUB));
+        assert_eq!(
+            regprocin(mcx, "public.sfunc", None).unwrap(),
+            Some(PROC_SF_PUB)
+        );
 
         let err = regprocin(mcx, "no_such_func", None).unwrap_err();
         assert_eq!(err.sqlstate(), ERRCODE_UNDEFINED_FUNCTION);
@@ -425,8 +508,14 @@ fn regprocout_qualification() {
         assert_eq!(out_str(&regprocout(mcx, InvalidOid).unwrap()), "-");
         assert_eq!(out_str(&regprocout(mcx, PROC_NOW).unwrap()), "now");
         // Ambiguous unqualified lookup -> qualified.
-        assert_eq!(out_str(&regprocout(mcx, PROC_LOWER_TEXT).unwrap()), "pg_catalog.lower");
-        assert_eq!(out_str(&regprocout(mcx, PROC_SF_PUB).unwrap()), "public.sfunc");
+        assert_eq!(
+            out_str(&regprocout(mcx, PROC_LOWER_TEXT).unwrap()),
+            "pg_catalog.lower"
+        );
+        assert_eq!(
+            out_str(&regprocout(mcx, PROC_SF_PUB).unwrap()),
+            "public.sfunc"
+        );
         assert_eq!(out_str(&regprocout(mcx, PROC_SF_CAT).unwrap()), "sfunc");
         assert_eq!(out_str(&regprocout(mcx, 99999999).unwrap()), "99999999");
     });
@@ -438,16 +527,31 @@ fn regprocedurein_lookup() {
         assert_eq!(regprocedurein(mcx, "-", None).unwrap(), Some(0));
         assert_eq!(regprocedurein(mcx, "1299", None).unwrap(), Some(1299));
         assert_eq!(regprocedurein(mcx, "now()", None).unwrap(), Some(PROC_NOW));
-        assert_eq!(regprocedurein(mcx, "now(  )", None).unwrap(), Some(PROC_NOW));
-        assert_eq!(regprocedurein(mcx, "lower(text)", None).unwrap(), Some(PROC_LOWER_TEXT));
-        assert_eq!(regprocedurein(mcx, "lower(anyarray)", None).unwrap(), Some(PROC_LOWER_ANY));
+        assert_eq!(
+            regprocedurein(mcx, "now(  )", None).unwrap(),
+            Some(PROC_NOW)
+        );
+        assert_eq!(
+            regprocedurein(mcx, "lower(text)", None).unwrap(),
+            Some(PROC_LOWER_TEXT)
+        );
+        assert_eq!(
+            regprocedurein(mcx, "lower(anyarray)", None).unwrap(),
+            Some(PROC_LOWER_ANY)
+        );
         assert_eq!(
             regprocedurein(mcx, "pg_catalog.lower( text )", None).unwrap(),
             Some(PROC_LOWER_TEXT)
         );
         // Same-signature shadowing: pg_catalog precedes public in the path.
-        assert_eq!(regprocedurein(mcx, "sfunc(integer)", None).unwrap(), Some(PROC_SF_CAT));
-        assert_eq!(regprocedurein(mcx, "public.sfunc(integer)", None).unwrap(), Some(PROC_SF_PUB));
+        assert_eq!(
+            regprocedurein(mcx, "sfunc(integer)", None).unwrap(),
+            Some(PROC_SF_CAT)
+        );
+        assert_eq!(
+            regprocedurein(mcx, "public.sfunc(integer)", None).unwrap(),
+            Some(PROC_SF_PUB)
+        );
 
         let err = regprocedurein(mcx, "lower", None).unwrap_err();
         assert_eq!(err.sqlstate(), ERRCODE_INVALID_TEXT_REPRESENTATION);
@@ -463,7 +567,10 @@ fn regprocedurein_lookup() {
         assert_eq!(err.message(), "function \"lower(integer)\" does not exist");
 
         let mut soft = SoftErrorContext::new(false);
-        assert_eq!(regprocedurein(mcx, "no_such(text)", Some(&mut soft)).unwrap(), Some(0));
+        assert_eq!(
+            regprocedurein(mcx, "no_such(text)", Some(&mut soft)).unwrap(),
+            Some(0)
+        );
         assert!(soft.error_occurred());
         let mut soft = SoftErrorContext::new(false);
         assert_eq!(regprocedurein(mcx, "lower", Some(&mut soft)).unwrap(), None);
@@ -481,9 +588,15 @@ fn funcname_missing_schema_is_function_not_found() {
         assert_eq!(err.message(), "function \"ng_catalog.now\" does not exist");
         let err = regprocedurein(mcx, "ng_catalog.lower(text)", None).unwrap_err();
         assert_eq!(err.sqlstate(), ERRCODE_UNDEFINED_FUNCTION);
-        assert_eq!(err.message(), "function \"ng_catalog.lower(text)\" does not exist");
+        assert_eq!(
+            err.message(),
+            "function \"ng_catalog.lower(text)\" does not exist"
+        );
         let mut soft = SoftErrorContext::new(true);
-        assert_eq!(regprocin(mcx, "ng_catalog.now", Some(&mut soft)).unwrap(), Some(0));
+        assert_eq!(
+            regprocin(mcx, "ng_catalog.now", Some(&mut soft)).unwrap(),
+            Some(0)
+        );
         assert!(soft.error_occurred());
         assert_eq!(
             soft.error().unwrap().message(),
@@ -498,9 +611,18 @@ fn pg_temp_alias_resolves_to_temp_namespace() {
     // (no ACL check); C-server: 'pg_temp.f(int)'::regprocedure -> pg_temp_N.f.
     with_mcx(|mcx| {
         TEMP_NS.with(|t| t.set(NS_TEMP));
-        PROCS.with(|p| p.borrow_mut().push(("tf".into(), PROC_TEMP_F, NS_TEMP, vec![23])));
-        assert_eq!(regprocedurein(mcx, "pg_temp.tf(integer)", None).unwrap(), Some(PROC_TEMP_F));
-        assert_eq!(regprocin(mcx, "pg_temp.tf", None).unwrap(), Some(PROC_TEMP_F));
+        PROCS.with(|p| {
+            p.borrow_mut()
+                .push(("tf".into(), PROC_TEMP_F, NS_TEMP, vec![23]))
+        });
+        assert_eq!(
+            regprocedurein(mcx, "pg_temp.tf(integer)", None).unwrap(),
+            Some(PROC_TEMP_F)
+        );
+        assert_eq!(
+            regprocin(mcx, "pg_temp.tf", None).unwrap(),
+            Some(PROC_TEMP_F)
+        );
         // A temp function not on the search path is invisible unqualified.
         let err = regprocin(mcx, "tf", None).unwrap_err();
         assert_eq!(err.sqlstate(), ERRCODE_UNDEFINED_FUNCTION);
@@ -516,9 +638,15 @@ fn pg_temp_alias_without_temp_namespace_falls_through() {
     with_mcx(|mcx| {
         let err = regprocedurein(mcx, "pg_temp.tf(integer)", None).unwrap_err();
         assert_eq!(err.sqlstate(), ERRCODE_UNDEFINED_FUNCTION);
-        assert_eq!(err.message(), "function \"pg_temp.tf(integer)\" does not exist");
+        assert_eq!(
+            err.message(),
+            "function \"pg_temp.tf(integer)\" does not exist"
+        );
         let mut soft = SoftErrorContext::new(false);
-        assert_eq!(regprocedurein(mcx, "pg_temp.tf(integer)", Some(&mut soft)).unwrap(), Some(0));
+        assert_eq!(
+            regprocedurein(mcx, "pg_temp.tf(integer)", Some(&mut soft)).unwrap(),
+            Some(0)
+        );
         assert!(soft.error_occurred());
     });
 }
@@ -531,7 +659,10 @@ fn catalog_qualified_names() {
     //   ERROR: 0A000: cross-database references are not implemented: otherdb.public.foo
     // (hard even for to_regprocedure).
     with_mcx(|mcx| {
-        assert_eq!(regprocin(mcx, "testdb.pg_catalog.now", None).unwrap(), Some(PROC_NOW));
+        assert_eq!(
+            regprocin(mcx, "testdb.pg_catalog.now", None).unwrap(),
+            Some(PROC_NOW)
+        );
         assert_eq!(
             regprocedurein(mcx, "testdb.pg_catalog.lower(text)", None).unwrap(),
             Some(PROC_LOWER_TEXT)
@@ -552,7 +683,10 @@ fn regprocedureout_formats() {
     with_mcx(|mcx| {
         assert_eq!(out_str(&regprocedureout(mcx, InvalidOid).unwrap()), "-");
         assert_eq!(out_str(&regprocedureout(mcx, PROC_NOW).unwrap()), "now()");
-        assert_eq!(out_str(&regprocedureout(mcx, 99999999).unwrap()), "99999999");
+        assert_eq!(
+            out_str(&regprocedureout(mcx, 99999999).unwrap()),
+            "99999999"
+        );
     });
 }
 
@@ -565,7 +699,10 @@ fn regtypein_name_arm() {
         let err = regtypein(mcx, "no_such_type", None).unwrap_err();
         assert_eq!(err.sqlstate(), ERRCODE_UNDEFINED_OBJECT);
         let mut soft = SoftErrorContext::new(false);
-        assert_eq!(regtypein(mcx, "no_such_type", Some(&mut soft)).unwrap(), None);
+        assert_eq!(
+            regtypein(mcx, "no_such_type", Some(&mut soft)).unwrap(),
+            None
+        );
         assert!(soft.error_occurred());
     });
 }
@@ -578,7 +715,10 @@ fn to_regtypemod_soft_fail() {
         let err = to_regtypemod(mcx, "no_such_type", None).unwrap_err();
         assert_eq!(err.sqlstate(), ERRCODE_UNDEFINED_OBJECT);
         let mut soft = SoftErrorContext::new(false);
-        assert_eq!(to_regtypemod(mcx, "no_such_type", Some(&mut soft)).unwrap(), None);
+        assert_eq!(
+            to_regtypemod(mcx, "no_such_type", Some(&mut soft)).unwrap(),
+            None
+        );
         assert!(soft.error_occurred());
     });
 }
@@ -588,7 +728,10 @@ fn regtypeout_formats() {
     with_mcx(|mcx| {
         assert_eq!(out_str(&regtypeout(mcx, InvalidOid).unwrap()), "-");
         assert_eq!(out_str(&regtypeout(mcx, 23).unwrap()), "integer");
-        assert_eq!(out_str(&regtypeout(mcx, 1043).unwrap()), "character varying");
+        assert_eq!(
+            out_str(&regtypeout(mcx, 1043).unwrap()),
+            "character varying"
+        );
         assert_eq!(out_str(&regtypeout(mcx, 1007).unwrap()), "integer[]");
         assert_eq!(out_str(&regtypeout(mcx, 2205).unwrap()), "regclass");
         assert_eq!(out_str(&regtypeout(mcx, 99999999).unwrap()), "99999999");
@@ -598,8 +741,14 @@ fn regtypeout_formats() {
 #[test]
 fn regnamespace_in_out() {
     with_mcx(|mcx| {
-        assert_eq!(regnamespacein(mcx, "pg_catalog", None).unwrap(), Some(NS_CATALOG));
-        assert_eq!(regnamespacein(mcx, "\"pg_catalog\"", None).unwrap(), Some(NS_CATALOG));
+        assert_eq!(
+            regnamespacein(mcx, "pg_catalog", None).unwrap(),
+            Some(NS_CATALOG)
+        );
+        assert_eq!(
+            regnamespacein(mcx, "\"pg_catalog\"", None).unwrap(),
+            Some(NS_CATALOG)
+        );
         assert_eq!(regnamespacein(mcx, "-", None).unwrap(), Some(0));
         let err = regnamespacein(mcx, "no_such_ns", None).unwrap_err();
         assert_eq!(err.sqlstate(), ERRCODE_UNDEFINED_SCHEMA);
@@ -608,8 +757,14 @@ fn regnamespace_in_out() {
         assert_eq!(err.sqlstate(), ERRCODE_INVALID_NAME);
 
         assert_eq!(out_str(&regnamespaceout(mcx, InvalidOid).unwrap()), "-");
-        assert_eq!(out_str(&regnamespaceout(mcx, NS_CATALOG).unwrap()), "pg_catalog");
-        assert_eq!(out_str(&regnamespaceout(mcx, 99999999).unwrap()), "99999999");
+        assert_eq!(
+            out_str(&regnamespaceout(mcx, NS_CATALOG).unwrap()),
+            "pg_catalog"
+        );
+        assert_eq!(
+            out_str(&regnamespaceout(mcx, 99999999).unwrap()),
+            "99999999"
+        );
     });
 }
 

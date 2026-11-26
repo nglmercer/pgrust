@@ -7,7 +7,9 @@ use std::sync::{Arc, Mutex};
 
 use gravity_abi::Lane;
 use gravity_driver::{blank_site, Source, Window};
-use gravity_hosts::ops::scan::pgrc::granule_source::{in_place_census, GranuleRangeSource, GranuleRecipe, PartIoSpec, PartList, PartSpec, Resolved};
+use gravity_hosts::ops::scan::pgrc::granule_source::{
+    in_place_census, GranuleRangeSource, GranuleRecipe, PartIoSpec, PartList, PartSpec, Resolved,
+};
 use gravity_program::{ZoneOp, ZonePred};
 use pgrc_qa::corpus::{BuiltFixture, Fixture, OracleVal};
 use pgrc_read::PartRegistry;
@@ -27,7 +29,9 @@ fn key(i: u64) -> Option<i64> {
     Some((i % 1000) as i64)
 }
 fn wide(i: u64) -> Option<i64> {
-    (i % 13 != 5).then(|| (i.wrapping_mul(0x9E37_79B9_7F4A_7C15).rotate_left(29) ^ 0xA5A5_5A5A_F00F_0FF0) as i64)
+    (i % 13 != 5).then(|| {
+        (i.wrapping_mul(0x9E37_79B9_7F4A_7C15).rotate_left(29) ^ 0xA5A5_5A5A_F00F_0FF0) as i64
+    })
 }
 
 fn fixture() -> BuiltFixture {
@@ -36,7 +40,11 @@ fn fixture() -> BuiltFixture {
     use pgrc_write::elect::{CandidateSource, CodecCandidates, ColumnPosture, ReferenceCandidates};
     use pgrc_write::publish::{effective_manifest, TxnVerdict};
     use pgrc_write::wvfs::WriteVfs;
-    let col = |f: fn(u64) -> Option<i64>| (0..NROWS).map(|i| f(i).map(|v| OracleVal::Word(v as u64))).collect();
+    let col = |f: fn(u64) -> Option<i64>| {
+        (0..NROWS)
+            .map(|i| f(i).map(|v| OracleVal::Word(v as u64)))
+            .collect()
+    };
     let fx = Fixture {
         name: "gravity_inplace",
         dir: "/qa/t7340".to_string(),
@@ -46,7 +54,10 @@ fn fixture() -> BuiltFixture {
         schema: vec![pgrc_qa::int8_col(1), pgrc_qa::int8_col(2)],
         oracle: vec![col(key), col(wide)],
         plans: vec![],
-        policy: pgrc_write::writer::PartCutPolicy { max_rows: 20_000, ..Default::default() },
+        policy: pgrc_write::writer::PartCutPolicy {
+            max_rows: 20_000,
+            ..Default::default()
+        },
     };
     // pgrc's real election (the AM's codec candidates)
     let cands = CodecCandidates::new(ColumnPosture::default());
@@ -62,18 +73,64 @@ fn fixture() -> BuiltFixture {
     w.publish(&mut vfs, &probe).expect("publish");
     probe.mark(fxid, TxnVerdict::Committed);
     let files = vfs.snapshot_dir(&fx.dir);
-    let manifest = effective_manifest(&mut vfs, &fx.dir, &probe, None).expect("effective").expect("committed generation");
-    BuiltFixture { fx, files, manifest }
+    let manifest = effective_manifest(&mut vfs, &fx.dir, &probe, None)
+        .expect("effective")
+        .expect("committed generation");
+    BuiltFixture {
+        fx,
+        files,
+        manifest,
+    }
 }
 
 /// The fixture's parts; with `dv`, part 0's granule 1 carries a delete mask of rows 5 and 700.
 fn list(bf: &BuiltFixture, dv: bool) -> Arc<PartList> {
-    Arc::new(PartList::new(bf.manifest.parts.iter().enumerate().map(|(i, rec)| {
-        let bytes: Arc<[u8]> = Arc::from(bf.files.get(&pgrc_format::dirlayout::part_file_name(rec.part_no)).expect("part file").as_slice());
-        let d = (dv && i == 0).then(|| pgrc_format::dml::encode_dv(rec.part_no, 1, &[(1, pgrc_format::dml::DvBlockKind::List, &[5u16, 700][..])]).unwrap());
-        let deletes = d.map(|d| Arc::new(pgrc_scan::PartDeletes::from_dv_payload(&d, rec.part_no, 1, rec.granule_count).unwrap()));
-        PartSpec { io: PartIoSpec::Mem { bytes, dev: 7, ino: 900 + i as u64 }, expect: pgrc_read::PartExpect::none(), rows: rec.rows, granules: rec.granule_count, deletes, part: None }
-    }).collect()))
+    Arc::new(PartList::new(
+        bf.manifest
+            .parts
+            .iter()
+            .enumerate()
+            .map(|(i, rec)| {
+                let bytes: Arc<[u8]> = Arc::from(
+                    bf.files
+                        .get(&pgrc_format::dirlayout::part_file_name(rec.part_no))
+                        .expect("part file")
+                        .as_slice(),
+                );
+                let d = (dv && i == 0).then(|| {
+                    pgrc_format::dml::encode_dv(
+                        rec.part_no,
+                        1,
+                        &[(1, pgrc_format::dml::DvBlockKind::List, &[5u16, 700][..])],
+                    )
+                    .unwrap()
+                });
+                let deletes = d.map(|d| {
+                    Arc::new(
+                        pgrc_scan::PartDeletes::from_dv_payload(
+                            &d,
+                            rec.part_no,
+                            1,
+                            rec.granule_count,
+                        )
+                        .unwrap(),
+                    )
+                });
+                PartSpec {
+                    io: PartIoSpec::Mem {
+                        bytes,
+                        dev: 7,
+                        ino: 900 + i as u64,
+                    },
+                    expect: pgrc_read::PartExpect::none(),
+                    rows: rec.rows,
+                    granules: rec.granule_count,
+                    deletes,
+                    part: None,
+                }
+            })
+            .collect(),
+    ))
 }
 
 fn lane_value(l: &Lane, i: u32) -> i64 {
@@ -117,14 +174,23 @@ fn walk(list: &Arc<PartList>, attnos: &[i16], preds: &[ZonePred]) -> (Vec<usize>
             break;
         }
         // SAFETY: a window's selection holds `sel_n` rows.
-        let rows: Vec<u32> = if w.sel.is_null() { (0..n).collect() } else { unsafe { std::slice::from_raw_parts(w.sel, w.sel_n as usize) }.to_vec() };
+        let rows: Vec<u32> = if w.sel.is_null() {
+            (0..n).collect()
+        } else {
+            unsafe { std::slice::from_raw_parts(w.sel, w.sel_n as usize) }.to_vec()
+        };
         let at = starts[&(w.base().part_id, w.base().granule)];
         for (k, &a) in attnos.iter().enumerate() {
             let l = w.lanes()[k];
             let f = if a == 1 { key } else { wide };
             for &r in &rows {
                 let want = f(at + r as u64);
-                assert_eq!(lane_valid(&l, r), want.is_some(), "attno {a} row {} validity", at + r as u64);
+                assert_eq!(
+                    lane_valid(&l, r),
+                    want.is_some(),
+                    "attno {a} row {} validity",
+                    at + r as u64
+                );
                 if let Some(v) = want {
                     assert_eq!(lane_value(&l, r), v, "attno {a} row {}", at + r as u64);
                 }
@@ -147,11 +213,19 @@ fn a_verbatim_word_lane_reads_in_place_and_a_byte_for_lane_copies() {
     let g = l.granules();
     // an extent is a band of 8 granules and a root VERBATIM body runs to its end: a band's last granule has no slack
     // after it and copies, every other granule reads in place
-    let last: u64 = l.parts().iter().map(|p| (p.granules as u64).div_ceil(8)).sum();
+    let last: u64 = l
+        .parts()
+        .iter()
+        .map(|p| (p.granules as u64).div_ceil(8))
+        .sum();
     assert!(g > last, "the fixture has granules inside a band");
     let (rows, c) = walk(&l, &[2], &[]);
     assert_eq!(rows.iter().sum::<usize>() as u64, NROWS);
-    assert_eq!(c, [g - last, last], "the verbatim lane goes in place but for each band's last granule");
+    assert_eq!(
+        c,
+        [g - last, last],
+        "the verbatim lane goes in place but for each band's last granule"
+    );
     let (_, c) = walk(&l, &[1], &[]);
     assert_eq!(c, [0, g], "a BYTE_FOR lane is never in place");
     let (_, c) = walk(&l, &[1, 2], &[]);
@@ -171,11 +245,17 @@ fn a_zone_lane_and_a_gathered_lane_copy_and_a_delete_mask_stays_in_place() {
     assert_eq!(c[0], 0, "a zone lane is never in place: {c:?}");
     // the key filters to 3 rows in 1 000: the verbatim lane is gathered for them
     let (rows, c) = walk(&l, &[1, 2], &[ZonePred::word(0, ZoneOp::Lt, 3)]);
-    assert_eq!(rows.iter().sum::<usize>() as u64, (0..NROWS).filter(|&i| i % 1000 < 3).count() as u64);
+    assert_eq!(
+        rows.iter().sum::<usize>() as u64,
+        (0..NROWS).filter(|&i| i % 1000 < 3).count() as u64
+    );
     assert_eq!(c[0], 0, "a gathered lane is never in place: {c:?}");
     // a delete mask on part 0's granule 1
     let d = list(&bf, true);
     let (rows, c) = walk(&d, &[2], &[]);
     assert_eq!(rows[1], GRANULE as usize - 2);
-    assert!(c[0] >= 2, "the masked granule decodes whole, in place: {c:?}");
+    assert!(
+        c[0] >= 2,
+        "the masked granule decodes whole, in place: {c:?}"
+    );
 }

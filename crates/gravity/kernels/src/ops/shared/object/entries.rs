@@ -19,7 +19,12 @@
 //! Every entry runs its body under the landing pad (`contract::host!`'s `#[guard]`): a bug's panic in the object's `op`
 //! never crosses the `extern "C"` frame. The entries and the `Head` live in raw.rs (rules R6 / R8); their paths here are
 //! unchanged. Each entry is listed in the `hosts:` rows of the lowerv4 file that calls it.
-pub use super::raw::{Head, m8_array_begin, m8_array_end, m8_array_push, m8_cte_pull, m8_init_copy, m8_init_epq, m8_init_run, m8_memo_done, m8_memo_miss, m8_memo_store, m8_raise, m8_rerun, m8_spool_copy, m8_spool_grow, m8_sub_copy, m8_subhash_exact, m8_subhash_insert, m8_subhash_probe, m8_subhash_reset, m8_subhash_run, m8_subhash_seal};
+pub use super::raw::{
+    m8_array_begin, m8_array_end, m8_array_push, m8_cte_pull, m8_init_copy, m8_init_epq,
+    m8_init_run, m8_memo_done, m8_memo_miss, m8_memo_store, m8_raise, m8_rerun, m8_spool_copy,
+    m8_spool_grow, m8_sub_copy, m8_subhash_exact, m8_subhash_insert, m8_subhash_probe,
+    m8_subhash_reset, m8_subhash_run, m8_subhash_seal, Head,
+};
 
 /// `nest.initplan`: an `InitCell` (the Init proto's object).
 pub const INIT_MAGIC: u64 = 0x8a11_7e11_0000_0001;
@@ -231,16 +236,18 @@ pub const MEMO_HIT_HEAD: usize = 2;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contract::sqlstate;
     use gravity_abi::status::ERROR;
     use gravity_abi::Ctx;
-    use crate::contract::sqlstate;
     use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 
     // only `each_entry_runs_its_objects_op_...` runs `record` (the foreign-handle test never reaches it); no thread-local (D375)
     static SEEN: [AtomicU64; 3] = [AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0)];
 
     unsafe fn record(_h: *mut Head, _ctx: *mut Ctx, code: u64, a: u64, b: u64) -> i64 {
-        SEEN.iter().zip([code, a, b]).for_each(|(s, v)| s.store(v, Relaxed));
+        SEEN.iter()
+            .zip([code, a, b])
+            .for_each(|(s, v)| s.store(v, Relaxed));
         (code * 100 + a + b) as i64
     }
 
@@ -253,7 +260,9 @@ mod tests {
     }
 
     fn message() -> String {
-        gravity_fn::take_error().map(|e| e.message().to_owned()).unwrap_or_default()
+        gravity_fn::take_error()
+            .map(|e| e.message().to_owned())
+            .unwrap_or_default()
     }
 
     /// D2112 phase B: the recheck bit, beside the eager one, is no pair: every reader decodes the same pairs and first param.
@@ -277,28 +286,51 @@ mod tests {
         let ctx: *mut Ctx = core::ptr::null_mut();
         let key = [7u64, 0];
         let h = |magic| Box::into_raw(head(magic, record)) as u64;
-        let (init, rerun, cte, memo, set, acc, spool) = (h(INIT_MAGIC), h(RERUN_MAGIC), h(CTE_MAGIC), h(MEMO_MAGIC), h(SUBHASH_MAGIC), h(ARRAY_MAGIC), h(SPOOL_MAGIC));
+        let (init, rerun, cte, memo, set, acc, spool) = (
+            h(INIT_MAGIC),
+            h(RERUN_MAGIC),
+            h(CTE_MAGIC),
+            h(MEMO_MAGIC),
+            h(SUBHASH_MAGIC),
+            h(ARRAY_MAGIC),
+            h(SPOOL_MAGIC),
+        );
         let kp = key.as_ptr() as u64;
         // SAFETY: every handle is a live `Head` whose op reads no pointer.
         let cases = unsafe {
             [
                 (m8_init_run(ctx, init, 3), (OP_INIT_RUN, 3, 0)),
-                (m8_init_copy(ctx, init, key.as_ptr() as *const u8, 16), (OP_INIT_COPY, kp, 16)),
+                (
+                    m8_init_copy(ctx, init, key.as_ptr() as *const u8, 16),
+                    (OP_INIT_COPY, kp, 16),
+                ),
                 (m8_rerun(ctx as u64, rerun), (OP_RERUN, 0, 0)),
                 (m8_cte_pull(ctx as u64, cte, 64), (OP_CTE_PULL, 64, 0)),
                 (m8_memo_miss(ctx, memo, key.as_ptr()), (OP_MEMO_MISS, kp, 0)),
-                (m8_subhash_insert(ctx, set, key.as_ptr()), (OP_SUBHASH_INSERT, kp, 0)),
+                (
+                    m8_subhash_insert(ctx, set, key.as_ptr()),
+                    (OP_SUBHASH_INSERT, kp, 0),
+                ),
                 (m8_subhash_seal(ctx, set), (OP_SUBHASH_SEAL, 0, 0)),
                 (m8_subhash_reset(ctx, set), (OP_SUBHASH_RESET, 0, 0)),
                 (m8_subhash_run(ctx, set), (OP_SUBHASH_RUN, 0, 0)),
-                (m8_subhash_probe(ctx, set, key.as_ptr()), (OP_SUBHASH_PROBE, kp, 0)),
+                (
+                    m8_subhash_probe(ctx, set, key.as_ptr()),
+                    (OP_SUBHASH_PROBE, kp, 0),
+                ),
                 (m8_subhash_exact(ctx, set), (OP_SUBHASH_EXACT, 0, 0)),
-                (m8_sub_copy(ctx as u64, acc, (key.as_ptr() as *const u8) as u64, 16), (OP_SUB_COPY, kp, 16)),
+                (
+                    m8_sub_copy(ctx as u64, acc, (key.as_ptr() as *const u8) as u64, 16),
+                    (OP_SUB_COPY, kp, 16),
+                ),
                 (m8_array_begin(ctx, acc), (OP_ARRAY_BEGIN, 0, 0)),
                 (m8_array_push(ctx, acc, 42, 1), (OP_ARRAY_PUSH, 42, 1)),
                 (m8_array_end(ctx, acc), (OP_ARRAY_END, 0, 0)),
                 (m8_spool_grow(ctx as u64, spool), (OP_SPOOL_GROW, 0, 0)),
-                (m8_spool_copy(ctx, spool, key.as_ptr() as *const u8, 16), (OP_SPOOL_COPY, kp, 16)),
+                (
+                    m8_spool_copy(ctx, spool, key.as_ptr() as *const u8, 16),
+                    (OP_SPOOL_COPY, kp, 16),
+                ),
             ]
         };
         for (i, (got, (code, a, b))) in cases.into_iter().enumerate() {
@@ -306,7 +338,10 @@ mod tests {
         }
         // SAFETY: as above.
         unsafe { m8_array_push(ctx, acc, 5, 0) };
-        assert_eq!(SEEN.each_ref().map(|s| s.load(Relaxed)), [OP_ARRAY_PUSH, 5, 0]);
+        assert_eq!(
+            SEEN.each_ref().map(|s| s.load(Relaxed)),
+            [OP_ARRAY_PUSH, 5, 0]
+        );
         for p in [init, rerun, cte, memo, set, acc, spool] {
             // SAFETY: each came from `Box::into_raw` above.
             drop(unsafe { Box::from_raw(p as *mut Head) });
@@ -318,7 +353,10 @@ mod tests {
         let ctx: *mut Ctx = core::ptr::null_mut();
         // SAFETY: a null handle is never dereferenced.
         assert_eq!(unsafe { m8_init_run(ctx, 0, 1) }, ERROR);
-        assert_eq!(message(), "gravity: m8_init_run: a stale or foreign M8 handle 0x0");
+        assert_eq!(
+            message(),
+            "gravity: m8_init_run: a stale or foreign M8 handle 0x0"
+        );
         let memo = head(MEMO_MAGIC, record);
         let h = &*memo as *const Head as u64;
         // SAFETY: a live head of another kind: only its magic is read.
@@ -344,7 +382,10 @@ mod tests {
         // SAFETY: the entry reads no argument but the code.
         assert_eq!(unsafe { m8_raise(ctx as u64, RAISE_CARDINALITY) }, ERROR);
         let e = gravity_fn::take_error().expect("the stashed error");
-        assert_eq!(e.message(), "more than one row returned by a subquery used as an expression");
+        assert_eq!(
+            e.message(),
+            "more than one row returned by a subquery used as an expression"
+        );
         assert_eq!(e.sqlstate().0, sqlstate(*b"21000"));
         // SAFETY: as above.
         assert_eq!(unsafe { m8_raise(ctx as u64, 99) }, ERROR);
@@ -359,6 +400,9 @@ mod tests {
 
     #[test]
     fn the_spool_cells_words_follow_its_head() {
-        assert_eq!((SPOOL_BASE, SPOOL_CAP, core::mem::size_of::<SpoolCell>()), (16, 24, 40));
+        assert_eq!(
+            (SPOOL_BASE, SPOOL_CAP, core::mem::size_of::<SpoolCell>()),
+            (16, 24, 40)
+        );
     }
 }

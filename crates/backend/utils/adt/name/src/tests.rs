@@ -103,7 +103,10 @@ fn comparisons_c_collation() {
     // Prefix sorts first; bytes compare unsigned. Raw strncmp magnitudes
     // (names are NUL-padded, so the prefix case compares NUL vs the next
     // byte). C 18.3: btnamecmp('ab','abc') → -99; 0xC3 vs 'z' → 73.
-    assert_eq!(btnamecmp(&name("ab"), &name("abc"), C_COLLATION_OID).unwrap(), -99);
+    assert_eq!(
+        btnamecmp(&name("ab"), &name("abc"), C_COLLATION_OID).unwrap(),
+        -99
+    );
     assert_eq!(
         btnamecmp(&name("a\u{ff}"), &name("az"), C_COLLATION_OID).unwrap(),
         0xC3 - b'z' as i32
@@ -122,7 +125,10 @@ fn namestrcmp_null_and_padding() {
     // A 63-byte name equals its exact source; a longer C string wins at the
     // NUL (C strncmp semantics, raw byte difference: 0 - 'a' = -97).
     assert_eq!(namestrcmp(Some(&namein(&[b'a'; 63])), Some(&[b'a'; 63])), 0);
-    assert_eq!(namestrcmp(Some(&namein(&[b'a'; 100])), Some(&[b'a'; 80])), -97);
+    assert_eq!(
+        namestrcmp(Some(&namein(&[b'a'; 100])), Some(&[b'a'; 80])),
+        -97
+    );
 }
 
 #[test]
@@ -166,7 +172,11 @@ fn fc_wrappers_and_table() {
     let d1 = f1.invoke(&mut fci).unwrap();
     fci.set_arg(0, Datum::from_usize(b.data.as_ptr() as usize));
     let d2 = f2.invoke(&mut fci).unwrap();
-    let cs = |d: Datum| unsafe { core::ffi::CStr::from_ptr(d.as_usize() as *const core::ffi::c_char) }.to_bytes().to_vec();
+    let cs = |d: Datum| {
+        unsafe { core::ffi::CStr::from_ptr(d.as_usize() as *const core::ffi::c_char) }
+            .to_bytes()
+            .to_vec()
+    };
     assert_eq!(cs(d1), b"alpha");
     assert_eq!(cs(d2), b.name_str());
 
@@ -210,8 +220,12 @@ fn fc_text_name_truncates_and_is_registered_for_both_oids() {
     assert_eq!(n.name_str().len(), 62);
     assert!(std::str::from_utf8(n.name_str()).is_ok());
 
-    assert!(NAME_BUILTINS.iter().any(|b| b.foid == 407 && b.func as *const () == fc_text_name as *const ()));
-    assert!(NAME_BUILTINS.iter().any(|b| b.foid == 1400 && b.func as *const () == fc_text_name as *const ()));
+    assert!(NAME_BUILTINS
+        .iter()
+        .any(|b| b.foid == 407 && b.func as *const () == fc_text_name as *const ()));
+    assert!(NAME_BUILTINS
+        .iter()
+        .any(|b| b.foid == 1400 && b.func as *const () == fc_text_name as *const ()));
 }
 
 // fnconf batch-1 cmp-magnitude family: C's btnamecmp is raw strncmp — the
@@ -283,7 +297,10 @@ fn comparators_read_cstring_keys_only_through_their_nul() {
         );
         assert_ne!(base, libc::MAP_FAILED);
         let base = base.cast::<u8>();
-        assert_eq!(libc::mprotect(base.add(page).cast(), page, libc::PROT_NONE), 0);
+        assert_eq!(
+            libc::mprotect(base.add(page).cast(), page, libc::PROT_NONE),
+            0
+        );
         let at = base.add(page - key.len());
         core::ptr::copy_nonoverlapping(key.as_ptr(), at, key.len());
         at

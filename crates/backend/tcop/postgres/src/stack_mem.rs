@@ -204,7 +204,11 @@ fn stack_census_impl() -> Option<StackCensus> {
     // SAFETY: [start, start+npages*page) lies within this thread's mapped
     // stack region; vec is npages bytes as mincore requires.
     let rc = unsafe {
-        libc::mincore(start as *mut libc::c_void, npages * page, vec.as_mut_ptr().cast())
+        libc::mincore(
+            start as *mut libc::c_void,
+            npages * page,
+            vec.as_mut_ptr().cast(),
+        )
     };
     if rc != 0 {
         return None;
@@ -216,8 +220,7 @@ fn stack_census_impl() -> Option<StackCensus> {
         #[cfg(target_os = "macos")]
         let (is_res, is_dirty) = (
             b & mac_mincore::INCORE != 0,
-            b & (mac_mincore::MODIFIED | mac_mincore::MODIFIED_OTHER | mac_mincore::PAGED_OUT)
-                != 0,
+            b & (mac_mincore::MODIFIED | mac_mincore::MODIFIED_OTHER | mac_mincore::PAGED_OUT) != 0,
         );
         #[cfg(not(target_os = "macos"))]
         let (is_res, is_dirty) = (b & 1 != 0, b & 1 != 0);
@@ -272,7 +275,9 @@ pub fn release_idle_stack() -> usize {
         return 0;
     }
     let marker = 0u8;
-    let Some((lo, _hi)) = stack_region() else { return 0 };
+    let Some((lo, _hi)) = stack_region() else {
+        return 0;
+    };
     let page = page_size();
     // one page above the guard: a backend thread locks its stack's lowest page (pagegive::pin_thread_stack, so glibc's
     // thread-exit MADV_DONTNEED stops there, CVE-2026-74674), and a give-back across it would be refused at that page
@@ -292,15 +297,14 @@ pub fn release_idle_stack() -> usize {
         // `pagegive::give_back_stack`: MADV_DONTNEED in calls that never cover a whole 2 MiB-aligned range (CVE-2026-74674).
         unsafe {
             pagegive::give_back_stack(start, len);
-        } len
+        }
+        len
     }
     #[cfg(target_os = "macos")]
     {
         const MADV_FREE_REUSABLE: libc::c_int = 7;
         // SAFETY: as above; MADV_FREE_REUSABLE never unmaps.
-        let rc = unsafe {
-            libc::madvise(start as *mut libc::c_void, len, MADV_FREE_REUSABLE)
-        };
+        let rc = unsafe { libc::madvise(start as *mut libc::c_void, len, MADV_FREE_REUSABLE) };
         if rc == 0 {
             RELEASED.with(|c| {
                 let merged = match c.get() {
@@ -332,11 +336,7 @@ pub fn reuse_idle_stack() {
             // SAFETY: same range a prior release_idle_stack madvised on this
             // same thread; purely an accounting advisory.
             unsafe {
-                libc::madvise(
-                    start as *mut libc::c_void,
-                    end - start,
-                    MADV_FREE_REUSE,
-                );
+                libc::madvise(start as *mut libc::c_void, end - start, MADV_FREE_REUSE);
             }
         }
     }
@@ -354,7 +354,11 @@ mod tests {
         buf[63 * 1024] = (n >> 8) as u8;
         let buf = std::hint::black_box(&mut buf);
         let s = buf[0] as u64 + buf[32 * 1024] as u64 + buf[63 * 1024] as u64;
-        if n == 0 { s } else { s + dip(n - 1) }
+        if n == 0 {
+            s
+        } else {
+            s + dip(n - 1)
+        }
     }
 
     #[test]
@@ -387,7 +391,7 @@ mod tests {
             .stack_size(8 * 1024 * 1024)
             .spawn(|| {
                 let deep0 = dip(40); // ~2.5MB excursion
-                // Force the release path regardless of GUC default state.
+                                     // Force the release path regardless of GUC default state.
                 std::env::set_var("PGRUST_PASSIVATE_STACK", "1");
                 let released = release_idle_stack();
                 if cfg!(any(target_os = "macos", target_os = "linux")) {

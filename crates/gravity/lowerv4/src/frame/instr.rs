@@ -101,7 +101,11 @@ pub fn reader_owned(t: i32) {
 
 /// Node `n` is counted by its reader alone (`reader_owned`).
 fn reader_only(n: i32) -> bool {
-    CELLS.with(|c| c.borrow().iter().any(|x| x.node == n && x.ctr == Ctr::SpoolRead))
+    CELLS.with(|c| {
+        c.borrow()
+            .iter()
+            .any(|x| x.node == n && x.ctr == Ctr::SpoolRead)
+    })
 }
 
 /// EXPLAIN ANALYZE: the quiet InitPlan `plan_id`'s marker cell (`Ctr::InitQuiet`); nothing when the lowering is not
@@ -144,10 +148,19 @@ pub fn memo_cells(node: i32, word: u16) {
         if c.iter().any(|x| x.node == node && x.ctr == Ctr::Hits) {
             return;
         }
-        for ctr in [Ctr::Hits, Ctr::Misses, Ctr::Evictions, Ctr::Overflows, Ctr::MemPeak] {
+        for ctr in [
+            Ctr::Hits,
+            Ctr::Misses,
+            Ctr::Evictions,
+            Ctr::Overflows,
+            Ctr::MemPeak,
+        ] {
             c.push(InstrCell { node, ctr }); // alloc: Program
         }
-        c.push(InstrCell { node: word as i32, ctr: Ctr::MemoOf }); // alloc: Program
+        c.push(InstrCell {
+            node: word as i32,
+            ctr: Ctr::MemoOf,
+        }); // alloc: Program
     });
 }
 
@@ -181,14 +194,34 @@ impl Bounds {
     /// the next node's first, so its rows are the rows entering the next node's first op. A breaker's entry (producer_top)
     /// counts no rows here, its rows being its emit's, except a hash build's (`hash`: the rows the Hash node inserts);
     /// `own` excludes a node that counts its own rows (a write's).
-    pub fn of(entries: &[(i32, u16, bool)], nops: usize, hash: bool, own: &dyn Fn(i32) -> bool) -> Option<Bounds> {
-        if entries.is_empty() || entries.windows(2).any(|w| w[0].1 > w[1].1) || entries.iter().any(|e| e.1 as usize > nops) {
+    pub fn of(
+        entries: &[(i32, u16, bool)],
+        nops: usize,
+        hash: bool,
+        own: &dyn Fn(i32) -> bool,
+    ) -> Option<Bounds> {
+        if entries.is_empty()
+            || entries.windows(2).any(|w| w[0].1 > w[1].1)
+            || entries.iter().any(|e| e.1 as usize > nops)
+        {
             return None;
         }
         // the node owning op 0: the last of the entries starting there (a bitmap heap scan after its index scans, which
         // own no op)
-        let src = entries.iter().take_while(|e| e.1 == 0).last().filter(|e| !e.2).map(|e| e.0);
-        let mut b = Bounds { at: vec![Vec::new(); nops], end: Vec::new(), loops: Vec::new(), out: false, win: false, src }; // alloc: Program
+        let src = entries
+            .iter()
+            .take_while(|e| e.1 == 0)
+            .last()
+            .filter(|e| !e.2)
+            .map(|e| e.0);
+        let mut b = Bounds {
+            at: vec![Vec::new(); nops],
+            end: Vec::new(),
+            loops: Vec::new(),
+            out: false,
+            win: false,
+            src,
+        }; // alloc: Program
         for (i, &(node, _, top)) in entries.iter().enumerate() {
             if (top && !hash) || own(node) || b.loops.contains(&node) {
                 continue;
@@ -273,10 +306,12 @@ pub fn close_base(f: Func) {
 /// by the content of the pre-pass program and its counter bases (the pass is a function of both); the oldest of more than
 /// `MEMO_KEEP` goes. An entry's program holds, at each function's index, the function the pass made for it (no blocks: it
 /// made none), on the program caches (the memo outlives every statement).
-static MEMO: pgsync::Mutex<Vec<(u128, std::sync::Arc<gravity_ir::Program>)>> = pgsync::Mutex::new(Vec::new());
+static MEMO: pgsync::Mutex<Vec<(u128, std::sync::Arc<gravity_ir::Program>)>> =
+    pgsync::Mutex::new(Vec::new());
 const MEMO_KEEP: usize = 32;
 
-const PROGRAM_CACHES: memledger::Owner = memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::ProgramCaches));
+const PROGRAM_CACHES: memledger::Owner =
+    memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::ProgramCaches));
 
 /// The loop-carried values a function's widest loop may reach with the counters carried through it: the baseline backend
 /// pins 9 (tpde frontend `PINNED_ASSIGNMENTS`), and a loop near that limit pays for a carried counter on every row (a
@@ -316,7 +351,9 @@ fn memo_key(ir: &gravity_ir::Program, bases: &[(Func, Value, Vec<i32>)]) -> u128
     }
     impl Hasher for Twin {
         fn write(&mut self, bytes: &[u8]) {
-            let lane = bytes.iter().fold(bytes.len() as u64, |h, &b| h.rotate_left(8) ^ u64::from(b));
+            let lane = bytes
+                .iter()
+                .fold(bytes.len() as u64, |h, &b| h.rotate_left(8) ^ u64::from(b));
             self.put(bytes, lane);
         }
         fn write_u8(&mut self, i: u8) {
@@ -340,7 +377,12 @@ fn memo_key(ir: &gravity_ir::Program, bases: &[(Func, Value, Vec<i32>)]) -> u128
             sip.finish()
         }
     }
-    let mut h = Twin { sip: std::hash::DefaultHasher::new(), fnv: 0xcbf2_9ce4_8422_2325, run: [0; RUN], len: 0 };
+    let mut h = Twin {
+        sip: std::hash::DefaultHasher::new(),
+        fnv: 0xcbf2_9ce4_8422_2325,
+        run: [0; RUN],
+        len: 0,
+    };
     ir.hash(&mut h);
     bases.hash(&mut h);
     u128::from(h.finish()) << 64 | u128::from(h.fnv)
@@ -357,11 +399,19 @@ pub fn carry(ir: &mut gravity_ir::Program, mcx: Mcx<'_>) -> Option<u128> {
         return None;
     }
     let key = memo_key(ir, &bases);
-    let hit = pgsync::lock(&MEMO).iter().find(|m| m.0 == key).map(|m| m.1.clone());
+    let hit = pgsync::lock(&MEMO)
+        .iter()
+        .find(|m| m.0 == key)
+        .map(|m| m.1.clone());
     match hit {
         Some(made) => {
             let m = ir.mint();
-            for (i, func) in made.funcs.iter().enumerate().filter(|(_, f)| !f.blocks.is_empty()) {
+            for (i, func) in made
+                .funcs
+                .iter()
+                .enumerate()
+                .filter(|(_, f)| !f.blocks.is_empty())
+            {
                 ir.funcs[i] = func.clone_in(&m);
             }
         }
@@ -374,37 +424,92 @@ pub fn carry(ir: &mut gravity_ir::Program, mcx: Mcx<'_>) -> Option<u128> {
 }
 
 /// `carry`'s pass on a memo miss: the functions it made filed under `key`.
-fn promote_counters(ir: &mut gravity_ir::Program, bases: &[(Func, Value, Vec<i32>)], key: u128, mcx: Mcx<'_>) {
+fn promote_counters(
+    ir: &mut gravity_ir::Program,
+    bases: &[(Func, Value, Vec<i32>)],
+    key: u128,
+    mcx: Mcx<'_>,
+) {
     let mut made: PgVec<'_, Func> = PgVec::new_in(mcx);
     let users = cell_users(ir, mcx);
-    let own = |f: Func, off: i32| users.as_ref().is_some_and(|u| u.iter().all(|&(g, o)| o != off || g == f));
+    let own = |f: Func, off: i32| {
+        users
+            .as_ref()
+            .is_some_and(|u| u.iter().all(|&(g, o)| o != off || g == f))
+    };
     let m = ir.mint();
-    let hosts = m.collect(ir.host_fns.iter().map(|h| StateMask(h.flags.state.0 & !OWN.0)));
+    let hosts = m.collect(
+        ir.host_fns
+            .iter()
+            .map(|h| StateMask(h.flags.state.0 & !OWN.0)),
+    );
     // only the counters a row adds to: one added once per window, block or write-back stays a memory add there (carried,
     // it would hold a register, or a stack slot the baseline backend moves per row, through every loop for nothing)
     for &(f, base, ref hot) in bases {
         let mut offs: PgVec<'_, i32> = PgVec::new_in(mcx);
-        for i in ir.funcs[f.index()].blocks.iter().flat_map(|bb| bb.insts.iter()) {
+        for i in ir.funcs[f.index()]
+            .blocks
+            .iter()
+            .flat_map(|bb| bb.insts.iter())
+        {
             if let Op::Load { ptr, offset, .. } | Op::Store { ptr, offset, .. } = i.op {
-                if ptr == base && hot.contains(&offset) && !offs.contains(&offset) && offs.len() < 64 {
+                if ptr == base
+                    && hot.contains(&offset)
+                    && !offs.contains(&offset)
+                    && offs.len() < 64
+                {
                     offs.push_in(offset);
                 }
             }
         }
         // the room the function's widest loop leaves: the earliest boundaries first (they count the most rows)
         let fun = &ir.funcs[f.index()];
-        let widest = fun.hints.loop_headers.iter().map(|h| fun.blocks[h.index()].params.len()).max().unwrap_or(0);
-        let offs: PgVec<'_, i32> = hot.iter().copied().filter(|o| offs.contains(o)).take(CARRY_ROOM.saturating_sub(widest)).collect_in(mcx);
+        let widest = fun
+            .hints
+            .loop_headers
+            .iter()
+            .map(|h| fun.blocks[h.index()].params.len())
+            .max()
+            .unwrap_or(0);
+        let offs: PgVec<'_, i32> = hot
+            .iter()
+            .copied()
+            .filter(|o| offs.contains(o))
+            .take(CARRY_ROOM.saturating_sub(widest))
+            .collect_in(mcx);
         if offs.is_empty() {
             continue;
         }
-        let cells: PgVec<'_, Carried> = offs.iter().map(|&offset| Carried { root: Root::Value(base), offset, ty: Type::I64, class: if own(f, offset) { OWN } else { COUNTERS } }).collect_in(mcx);
+        let cells: PgVec<'_, Carried> = offs
+            .iter()
+            .map(|&offset| Carried {
+                root: Root::Value(base),
+                offset,
+                ty: Type::I64,
+                class: if own(f, offset) { OWN } else { COUNTERS },
+            })
+            .collect_in(mcx);
         let f0 = ir.dup_func(f);
         // C6 (b): Err(TooDeep) = a content read walked more than PROMOTE_MAX_READ_DEPTH blocks (the function is half
         // rewritten); the function keeps its counters in memory, as on a verify failure (an optimisation, not a refusal)
-        let promoted = gravity_ir::promote::promote(&mut ir.funcs[f.index()], &cells, &hosts, gravity_abi::limits::PROMOTE_MAX_READ_DEPTH);
+        let promoted = gravity_ir::promote::promote(
+            &mut ir.funcs[f.index()],
+            &cells,
+            &hosts,
+            gravity_abi::limits::PROMOTE_MAX_READ_DEPTH,
+        );
         match promoted {
-            Ok(report) if gravity_ir::verify::verify_carried(&m, &f0, &ir.funcs[f.index()], &cells, &report, &hosts).is_ok() => {
+            Ok(report)
+                if gravity_ir::verify::verify_carried(
+                    &m,
+                    &f0,
+                    &ir.funcs[f.index()],
+                    &cells,
+                    &report,
+                    &hosts,
+                )
+                .is_ok() =>
+            {
                 made.push_in(f);
             }
             _ => ir.funcs[f.index()] = f0,
@@ -413,7 +518,11 @@ fn promote_counters(ir: &mut gravity_ir::Program, bases: &[(Func, Value, Vec<i32
     let mut prog = gravity_ir::Program::new_owned(PROGRAM_CACHES);
     let pm = prog.mint();
     for (i, func) in ir.funcs.iter().enumerate() {
-        prog.funcs.push(if made.contains(&Func(i as u32)) { func.clone_in(&pm) } else { pm.function("", &[], &[]) });
+        prog.funcs.push(if made.contains(&Func(i as u32)) {
+            func.clone_in(&pm)
+        } else {
+            pm.function("", &[], &[])
+        });
     }
     let mut memo = pgsync::lock(&MEMO);
     if !memo.iter().any(|m| m.0 == key) {
@@ -432,8 +541,20 @@ fn promote_counters(ir: &mut gravity_ir::Program, bases: &[(Func, Value, Vec<i32
 /// base, as the loads would run once per row. `false` (unchanged) when the base is used as anything but a counter's
 /// address.
 fn local_bases(f: &mut Function, base: Value, hot: &[i32], mcx: Mcx<'_>) -> bool {
-    let Some(&ctx) = f.blocks.get(f.entry.index()).and_then(|bb| bb.params.first()) else { return false };
-    let Some(home) = f.blocks.iter().position(|bb| bb.insts.iter().any(|i| i.result == Some(base))) else { return false };
+    let Some(&ctx) = f
+        .blocks
+        .get(f.entry.index())
+        .and_then(|bb| bb.params.first())
+    else {
+        return false;
+    };
+    let Some(home) = f
+        .blocks
+        .iter()
+        .position(|bb| bb.insts.iter().any(|i| i.result == Some(base)))
+    else {
+        return false;
+    };
     let mut ops: Vec<Value> = Vec::new(); // alloc: Program
     let mut users: PgVec<'_, usize> = PgVec::new_in(mcx);
     for (bi, bb) in f.blocks.iter().enumerate() {
@@ -455,27 +576,56 @@ fn local_bases(f: &mut Function, base: Value, hot: &[i32], mcx: Mcx<'_>) -> bool
         bb.term.operands_into(&mut ops);
         match &bb.term {
             gravity_ir::Terminator::Br(e) => ops.extend_from_slice(&e.args), // alloc: Program
-            gravity_ir::Terminator::CondBr { then_edge, else_edge, .. } => [then_edge, else_edge].iter().for_each(|e| ops.extend_from_slice(&e.args)), // alloc: Program
-            gravity_ir::Terminator::Switch { cases, default, .. } => cases.iter().map(|c| &c.edge).chain([default]).for_each(|e| ops.extend_from_slice(&e.args)), // alloc: Program
+            gravity_ir::Terminator::CondBr {
+                then_edge,
+                else_edge,
+                ..
+            } => [then_edge, else_edge]
+                .iter()
+                .for_each(|e| ops.extend_from_slice(&e.args)), // alloc: Program
+            gravity_ir::Terminator::Switch { cases, default, .. } => cases
+                .iter()
+                .map(|c| &c.edge)
+                .chain([default])
+                .for_each(|e| ops.extend_from_slice(&e.args)), // alloc: Program
             gravity_ir::Terminator::Return(_) | gravity_ir::Terminator::Unreachable => {}
         }
         if ops.contains(&base) || bb.params.contains(&base) {
             return false;
         }
-        let row_add = |off: i32| bb.insts.iter().any(|i| matches!(i.op, Op::Load { ptr, offset, .. } if ptr == base && offset == off));
+        let row_add = |off: i32| {
+            bb.insts.iter().any(
+                |i| matches!(i.op, Op::Load { ptr, offset, .. } if ptr == base && offset == off),
+            )
+        };
         let per_row = bb.insts.iter().any(|i| matches!(i.op, Op::Store { ptr, offset, .. } if ptr == base && hot.contains(&offset) && row_add(offset)));
         if used && bi != home && !per_row {
             users.push_in(bi);
         }
     }
     for &bi in &users {
-        let (block, local) = (Value(f.values.len() as u32), Value(f.values.len() as u32 + 1));
+        let (block, local) = (
+            Value(f.values.len() as u32),
+            Value(f.values.len() as u32 + 1),
+        );
         f.values.extend([Type::Ptr, Type::Ptr]); // alloc: Program
-        let load = |result: Value, ptr: Value, offset: usize| gravity_ir::Instruction { result: Some(result), op: Op::Load { ty: Type::Ptr, ptr, offset: offset as i32, unaligned: false } };
+        let load = |result: Value, ptr: Value, offset: usize| gravity_ir::Instruction {
+            result: Some(result),
+            op: Op::Load {
+                ty: Type::Ptr,
+                ptr,
+                offset: offset as i32,
+                unaligned: false,
+            },
+        };
         let insts = &mut f.blocks[bi].insts;
         for i in insts.iter_mut() {
             match &mut i.op {
-                Op::Load { ptr, .. } | Op::LoadZext { ptr, .. } | Op::Store { ptr, .. } if *ptr == base => *ptr = local,
+                Op::Load { ptr, .. } | Op::LoadZext { ptr, .. } | Op::Store { ptr, .. }
+                    if *ptr == base =>
+                {
+                    *ptr = local
+                }
                 _ => {}
             }
         }
@@ -495,12 +645,27 @@ fn cell_users<'m>(ir: &gravity_ir::Program, mcx: Mcx<'m>) -> Option<PgVec<'m, (F
     let mut users: PgVec<'m, (Func, i32)> = PgVec::new_in(mcx);
     let mut ops: Vec<Value> = Vec::new(); // alloc: Program
     for (fi, f) in ir.funcs.iter().enumerate() {
-        let Some(&ctx) = f.blocks.get(f.entry.index()).and_then(|bb| bb.params.first()) else { continue };
+        let Some(&ctx) = f
+            .blocks
+            .get(f.entry.index())
+            .and_then(|bb| bb.params.first())
+        else {
+            continue;
+        };
         let loads = |from: &[Value], at: i32| -> PgVec<'m, Value> {
-            f.blocks.iter().flat_map(|bb| bb.insts.iter()).filter_map(|i| match i.op {
-                Op::Load { ty: Type::Ptr, ptr, offset, .. } if offset == at && from.contains(&ptr) => i.result,
-                _ => None,
-            }).collect_in(mcx)
+            f.blocks
+                .iter()
+                .flat_map(|bb| bb.insts.iter())
+                .filter_map(|i| match i.op {
+                    Op::Load {
+                        ty: Type::Ptr,
+                        ptr,
+                        offset,
+                        ..
+                    } if offset == at && from.contains(&ptr) => i.result,
+                    _ => None,
+                })
+                .collect_in(mcx)
         };
         let bases = loads(&loads(&[ctx], hdr::PROGRAM as i32)[..], prog::INSTR as i32);
         if bases.is_empty() {
@@ -513,8 +678,14 @@ fn cell_users<'m>(ir: &gravity_ir::Program, mcx: Mcx<'m>) -> Option<PgVec<'m, (F
             }
             for i in &bb.insts {
                 let off = match i.op {
-                    Op::Load { ptr, offset, .. } | Op::LoadZext { ptr, offset, .. } if bases.contains(&ptr) => Some(offset),
-                    Op::Store { ptr, offset, value, .. } if bases.contains(&ptr) && !bases.contains(&value) => Some(offset),
+                    Op::Load { ptr, offset, .. } | Op::LoadZext { ptr, offset, .. }
+                        if bases.contains(&ptr) =>
+                    {
+                        Some(offset)
+                    }
+                    Op::Store {
+                        ptr, offset, value, ..
+                    } if bases.contains(&ptr) && !bases.contains(&value) => Some(offset),
                     _ => None,
                 };
                 match off {
@@ -533,9 +704,19 @@ fn cell_users<'m>(ir: &gravity_ir::Program, mcx: Mcx<'m>) -> Option<PgVec<'m, (F
             bb.term.operands_into(&mut ops);
             let edges: PgVec<'_, &gravity_ir::Edge> = match &bb.term {
                 gravity_ir::Terminator::Br(e) => mcx::pg_vec![in mcx; e],
-                gravity_ir::Terminator::CondBr { then_edge, else_edge, .. } => mcx::pg_vec![in mcx; then_edge, else_edge],
-                gravity_ir::Terminator::Switch { cases, default, .. } => cases.iter().map(|c| &c.edge).chain([default]).collect_in(mcx),
-                gravity_ir::Terminator::Return(_) | gravity_ir::Terminator::Unreachable => PgVec::new_in(mcx),
+                gravity_ir::Terminator::CondBr {
+                    then_edge,
+                    else_edge,
+                    ..
+                } => mcx::pg_vec![in mcx; then_edge, else_edge],
+                gravity_ir::Terminator::Switch { cases, default, .. } => cases
+                    .iter()
+                    .map(|c| &c.edge)
+                    .chain([default])
+                    .collect_in(mcx),
+                gravity_ir::Terminator::Return(_) | gravity_ir::Terminator::Unreachable => {
+                    PgVec::new_in(mcx)
+                }
             };
             edges.iter().for_each(|e| ops.extend_from_slice(&e.args)); // alloc: Program
             if ops.iter().any(|v| bases.contains(v)) {
@@ -550,7 +731,14 @@ fn cell_users<'m>(ir: &gravity_ir::Program, mcx: Mcx<'m>) -> Option<PgVec<'m, (F
 /// whose rows leave before one of the `lead` leading filters is not counted either: the source's verdicts (a zone, the
 /// condition cache, a code range) skip a window on those filters whole, and the block path tests them as a mask, so its
 /// rows past such a filter are never seen one by one.
-pub fn plan_pipeline(k: usize, entries: &[(i32, u16, bool)], nops: usize, hash: bool, lead: usize, own: &dyn Fn(i32) -> bool) {
+pub fn plan_pipeline(
+    k: usize,
+    entries: &[(i32, u16, bool)],
+    nops: usize,
+    hash: bool,
+    lead: usize,
+    own: &dyn Fn(i32) -> bool,
+) {
     if !on() {
         return;
     }
@@ -573,13 +761,33 @@ pub fn plan_pass(v: usize, q: usize, j0: usize, j: usize) {
     if !on() {
         return;
     }
-    let Some(b) = PLAN.with(|p| p.borrow().pipes.iter().find(|x| x.0 == q).map(|x| x.1.clone())) else { return };
+    let Some(b) = PLAN.with(|p| {
+        p.borrow()
+            .pipes
+            .iter()
+            .find(|x| x.0 == q)
+            .map(|x| x.1.clone())
+    }) else {
+        return;
+    };
     if j0 > j || j >= b.at.len() {
         return;
     }
     let mut at: Vec<Vec<i32>> = b.at[j0..].to_vec(); // alloc: Program
     at.iter_mut().take(j - j0 + 1).for_each(Vec::clear);
-    PLAN.with(|p| p.borrow_mut().pipes.push((v, Bounds { at, end: b.end, loops: Vec::new(), out: false, win: false, src: None }))); // alloc: Program
+    PLAN.with(|p| {
+        p.borrow_mut().pipes.push((
+            v,
+            Bounds {
+                at,
+                end: b.end,
+                loops: Vec::new(),
+                out: false,
+                win: false,
+                src: None,
+            },
+        ))
+    }); // alloc: Program
 }
 
 /// A nest's embedded inner pipeline `ik`, run inside pipeline `k`'s function per outer row (rerun/inner.rs): its
@@ -595,7 +803,12 @@ pub fn plan_inner(ik: usize, k: usize, entries: &[(i32, u16, bool)], nops: usize
 
 /// The tag bit that keeps an arm key apart from every pipeline index: bit 40 on 64-bit targets, the second-highest bit
 /// of a 32-bit usize (wasm32).
-const ARM_KEY_TAG: usize = 1 << (if usize::BITS > 40 { 40 } else { usize::BITS - 2 });
+const ARM_KEY_TAG: usize = 1
+    << (if usize::BITS > 40 {
+        40
+    } else {
+        usize::BITS - 2
+    });
 
 /// The plan's key of union arm `kf` streamed inside a nest inner (rerun/inner_arms.rs): its feed pipeline `kf` runs
 /// nothing itself, so its boundaries are kept apart from that pipeline's (which counts none).
@@ -609,7 +822,13 @@ pub fn bounds_of(ik: usize) -> Option<Bounds> {
     if !on() {
         return None;
     }
-    PLAN.with(|p| p.borrow().pipes.iter().find(|q| q.0 == ik).map(|q| q.1.clone()))
+    PLAN.with(|p| {
+        p.borrow()
+            .pipes
+            .iter()
+            .find(|q| q.0 == ik)
+            .map(|q| q.1.clone())
+    })
 }
 
 /// The current boundaries replaced by `b` (rerun/inner.rs `swap`: an inner's rows lower under its own, its owner's
@@ -620,16 +839,34 @@ pub fn replace_current(b: Option<Bounds>) -> Option<Bounds> {
 
 /// One loop of each node of the current boundaries' starts that `which` keeps (an embedded inner's re-open: the nodes at
 /// and above a Memoize or a one-time gate at every re-open, those below it only where the source opens).
-pub fn count_loops(b: &mut FunctionBuilder<'_>, ctx: Value, which: &dyn Fn(i32) -> bool, mcx: Mcx<'_>) {
+pub fn count_loops(
+    b: &mut FunctionBuilder<'_>,
+    ctx: Value,
+    which: &dyn Fn(i32) -> bool,
+    mcx: Mcx<'_>,
+) {
     if !on() {
         return;
     }
-    let nodes: PgVec<'_, i32> = CURRENT.with(|c| c.borrow().as_ref().map(|x| x.loops.iter().copied().filter(|&n| which(n)).collect_in(mcx)).unwrap_or_else(|| PgVec::new_in(mcx)));
+    let nodes: PgVec<'_, i32> = CURRENT.with(|c| {
+        c.borrow()
+            .as_ref()
+            .map(|x| {
+                x.loops
+                    .iter()
+                    .copied()
+                    .filter(|&n| which(n))
+                    .collect_in(mcx)
+            })
+            .unwrap_or_else(|| PgVec::new_in(mcx))
+    });
     if nodes.is_empty() {
         return;
     }
     let one = b.iconst(Type::I64, 1);
-    nodes.into_iter().for_each(|x| add(b, ctx, x, Ctr::Loops, one, false));
+    nodes
+        .into_iter()
+        .for_each(|x| add(b, ctx, x, Ctr::Loops, one, false));
 }
 
 /// Whether node `node`'s quals count their failures (`Ctr::Filtered1`) in the current frame: a bounded frame's source node
@@ -644,11 +881,21 @@ pub fn filters_counted(node: i32, frame: i32) -> bool {
 
 /// `instr[cell(node, Filtered1)] += popcnt(before) - popcnt(after)`: the rows a block's mask step dropped, where the
 /// node's failures count (`filters_counted`).
-pub fn count_mask_dropped(b: &mut FunctionBuilder<'_>, ctx: Value, node: i32, frame: i32, before: Value, after: Value) {
+pub fn count_mask_dropped(
+    b: &mut FunctionBuilder<'_>,
+    ctx: Value,
+    node: i32,
+    frame: i32,
+    before: Value,
+    after: Value,
+) {
     if !filters_counted(node, frame) {
         return;
     }
-    let (a, k) = (b.int_un(IntUnOp::Popcnt, before), b.int_un(IntUnOp::Popcnt, after));
+    let (a, k) = (
+        b.int_un(IntUnOp::Popcnt, before),
+        b.int_un(IntUnOp::Popcnt, after),
+    );
     let n = b.int_bin(IntBinOp::Sub, a, k);
     add(b, ctx, node, Ctr::Filtered1, n, true);
 }
@@ -690,9 +937,19 @@ pub fn cut(k: usize, j: usize) {
 pub fn seal_plan(order: &[usize], mcx: Mcx<'_>) {
     PLAN.with(|p| {
         let mut p = p.borrow_mut();
-        let Plan { pipes, unsafe_nodes, counted, cuts, alias, members, .. } = &mut *p;
+        let Plan {
+            pipes,
+            unsafe_nodes,
+            counted,
+            cuts,
+            alias,
+            members,
+            ..
+        } = &mut *p;
         for &(k, j) in cuts.iter() {
-            let Some((_, b)) = pipes.iter().find(|q| q.0 == k) else { continue };
+            let Some((_, b)) = pipes.iter().find(|q| q.0 == k) else {
+                continue;
+            };
             for n in b.at.iter().take(j + 1).flatten() {
                 if !unsafe_nodes.contains(n) {
                     unsafe_nodes.push(*n); // alloc: Program
@@ -702,9 +959,15 @@ pub fn seal_plan(order: &[usize], mcx: Mcx<'_>) {
         let bad = |n: &i32| unsafe_nodes.contains(n);
         let mut owned: PgVec<'_, i32> = PgVec::new_in(mcx);
         // the program's pipelines in order, then the embedded inners (`plan_inner`), which no function opens
-        let rest: PgVec<'_, usize> = pipes.iter().map(|q| q.0).filter(|k| !order.contains(k)).collect_in(mcx);
+        let rest: PgVec<'_, usize> = pipes
+            .iter()
+            .map(|q| q.0)
+            .filter(|k| !order.contains(k))
+            .collect_in(mcx);
         for &k in order.iter().chain(rest.iter()) {
-            let Some((_, b)) = pipes.iter_mut().find(|q| q.0 == k) else { continue };
+            let Some((_, b)) = pipes.iter_mut().find(|q| q.0 == k) else {
+                continue;
+            };
             let program = order.contains(&k);
             let skip = |n: &i32| bad(n) || (program && reader_only(*n));
             b.at.iter_mut().for_each(|a| a.retain(|n| !skip(n)));
@@ -722,17 +985,38 @@ pub fn seal_plan(order: &[usize], mcx: Mcx<'_>) {
                 }
             }
         }
-        *members = pipes.iter().flat_map(|(k, b)| b.at.iter().flatten().chain(b.end.iter()).chain(b.loops.iter()).map(move |&n| (*k, n))).collect(); // alloc: Program
-        // one counter per boundary: every node a boundary counts takes the same rows, so a later node of the boundary
-        // takes its first node's (`Ctr::Same`) where it is in no other boundary and the first is first wherever it is
-        let lists: PgVec<'_, &Vec<i32>> = pipes.iter().flat_map(|(_, b)| b.at.iter().chain(core::iter::once(&b.end))).collect_in(mcx);
-        let times = |n: i32| lists.iter().flat_map(|l| l.iter()).filter(|&&x| x == n).count();
+        *members = pipes
+            .iter()
+            .flat_map(|(k, b)| {
+                b.at.iter()
+                    .flatten()
+                    .chain(b.end.iter())
+                    .chain(b.loops.iter())
+                    .map(move |&n| (*k, n))
+            })
+            .collect(); // alloc: Program
+                        // one counter per boundary: every node a boundary counts takes the same rows, so a later node of the boundary
+                        // takes its first node's (`Ctr::Same`) where it is in no other boundary and the first is first wherever it is
+        let lists: PgVec<'_, &Vec<i32>> = pipes
+            .iter()
+            .flat_map(|(_, b)| b.at.iter().chain(core::iter::once(&b.end)))
+            .collect_in(mcx);
+        let times = |n: i32| {
+            lists
+                .iter()
+                .flat_map(|l| l.iter())
+                .filter(|&&x| x == n)
+                .count()
+        };
         for l in lists.iter() {
-            let Some((&a, rest)) = l.split_first() else { continue };
+            let Some((&a, rest)) = l.split_first() else {
+                continue;
+            };
             if lists.iter().any(|m| m.iter().skip(1).any(|&x| x == a)) {
                 continue;
             }
-            alias.extend(rest.iter().filter(|&&n| times(n) == 1).map(|&n| (n, a))); // alloc: Program
+            alias.extend(rest.iter().filter(|&&n| times(n) == 1).map(|&n| (n, a)));
+            // alloc: Program
         }
         drop(lists);
         let later = |n: &i32| alias.iter().any(|x| x.0 == *n);
@@ -782,7 +1066,17 @@ pub fn enter(k: usize) -> impl Drop {
             CURRENT.with(|c| *c.borrow_mut() = prev);
         }
     }
-    let b = if on() { PLAN.with(|p| p.borrow().pipes.iter().find(|q| q.0 == k).map(|q| q.1.clone())) } else { None };
+    let b = if on() {
+        PLAN.with(|p| {
+            p.borrow()
+                .pipes
+                .iter()
+                .find(|q| q.0 == k)
+                .map(|q| q.1.clone())
+        })
+    } else {
+        None
+    };
     Restore(CURRENT.with(|c| core::mem::replace(&mut *c.borrow_mut(), b)))
 }
 
@@ -819,14 +1113,25 @@ pub fn by_window(b: &mut FunctionBuilder<'_>, on: bool) {
 
 fn ahead(b: &FunctionBuilder<'_>) -> Option<Value> {
     let here = b.func() as *const Function as usize;
-    AHEAD.with(Cell::get).filter(|a| a.0 == here && CURRENT.with(|c| c.borrow().as_ref().is_some_and(|x| x.win))).map(|a| a.1)
+    AHEAD
+        .with(Cell::get)
+        .filter(|a| a.0 == here && CURRENT.with(|c| c.borrow().as_ref().is_some_and(|x| x.win)))
+        .map(|a| a.1)
 }
 
 /// A window `[cursor, end)` the source handed on: each position a row entering step 0, counted ahead for `at[0]`.
-pub fn count_window(b: &mut FunctionBuilder<'_>, ctx: Value, cursor: Value, end: Value, mcx: Mcx<'_>) {
+pub fn count_window(
+    b: &mut FunctionBuilder<'_>,
+    ctx: Value,
+    cursor: Value,
+    end: Value,
+    mcx: Mcx<'_>,
+) {
     let Some(at) = ahead(b) else { return };
     let n = b.int_bin(IntBinOp::Sub, end, cursor);
-    at_step(0, mcx).into_iter().for_each(|x| count_bound(b, ctx, x, n));
+    at_step(0, mcx)
+        .into_iter()
+        .for_each(|x| count_bound(b, ctx, x, n));
     b.store(at, 0, end);
 }
 
@@ -839,7 +1144,9 @@ pub fn uncount_ahead(b: &mut FunctionBuilder<'_>, ctx: Value, cur: Value, mcx: M
     let zero = b.iconst(Type::I64, 0);
     let rest = b.int_bin(IntBinOp::Smax, rest, zero);
     let back = b.int_bin(IntBinOp::Sub, zero, rest);
-    at_step(0, mcx).into_iter().for_each(|x| count_bound(b, ctx, x, back));
+    at_step(0, mcx)
+        .into_iter()
+        .for_each(|x| count_bound(b, ctx, x, back));
     b.store(at, 0, zero);
 }
 
@@ -853,20 +1160,39 @@ pub fn row_at<'m>(j: usize, mcx: Mcx<'m>) -> PgVec<'m, i32> {
 
 /// Step `j` is the current frame's end and its rows are counted from `out` (`by_out`).
 pub fn end_by_out(j: usize) -> bool {
-    CURRENT.with(|c| c.borrow().as_ref().is_some_and(|b| b.out && j == b.at.len()))
+    CURRENT.with(|c| {
+        c.borrow()
+            .as_ref()
+            .is_some_and(|b| b.out && j == b.at.len())
+    })
 }
 
 /// The end's rows a write-back hands on (`out` since the window's or the resume's start), where they are its count.
 pub fn count_end_out(b: &mut FunctionBuilder<'_>, ctx: Value, out: Value, mcx: Mcx<'_>) {
-    let nodes = CURRENT.with(|c| c.borrow().as_ref().filter(|b| b.out).map(|b| mcx::to_vec_in(&b.end[..], mcx)));
-    nodes.into_iter().flatten().for_each(|x| count_bound(b, ctx, x, out));
+    let nodes = CURRENT.with(|c| {
+        c.borrow()
+            .as_ref()
+            .filter(|b| b.out)
+            .map(|b| mcx::to_vec_in(&b.end[..], mcx))
+    });
+    nodes
+        .into_iter()
+        .flatten()
+        .for_each(|x| count_bound(b, ctx, x, out));
 }
 
 /// A row the end took but keeps no record of (a hash build's NULL key under a join that keeps no NULL inner row:
 /// PostgreSQL's Hash neither inserts nor counts it, `MultiExecPrivateHash`): the end's count takes it back. Its rows
 /// counted per row only (an end counted from `out` adds nothing for such a row).
 pub fn uncount_end_row(b: &mut FunctionBuilder<'_>, ctx: Value) {
-    let nodes = CURRENT.with(|c| c.borrow().as_ref().filter(|x| !x.out).map(|x| x.end.clone())).unwrap_or_default();
+    let nodes = CURRENT
+        .with(|c| {
+            c.borrow()
+                .as_ref()
+                .filter(|x| !x.out)
+                .map(|x| x.end.clone())
+        })
+        .unwrap_or_default();
     if nodes.is_empty() {
         return;
     }
@@ -896,21 +1222,32 @@ pub fn at_step<'m>(j: usize, mcx: Mcx<'m>) -> PgVec<'m, i32> {
 pub fn partial() {
     if on() {
         #[allow(dropping_copy_types)]
-        all_nodes().into_iter().for_each(|n| drop(cell(n, Ctr::Partial)));
+        all_nodes()
+            .into_iter()
+            .for_each(|n| drop(cell(n, Ctr::Partial)));
     }
 }
 
 /// No node of the current frame leaves before step `span` (a block path's masked steps) but `at[0]` where windows count
 /// it (`by_window`): true outside a bounded frame.
 pub fn clear_before(span: usize) -> bool {
-    CURRENT.with(|c| c.borrow().as_ref().is_none_or(|b| b.at.iter().take(span).enumerate().all(|(i, n)| n.is_empty() || (i == 0 && b.win))))
+    CURRENT.with(|c| {
+        c.borrow().as_ref().is_none_or(|b| {
+            b.at.iter()
+                .take(span)
+                .enumerate()
+                .all(|(i, n)| n.is_empty() || (i == 0 && b.win))
+        })
+    })
 }
 
 /// `n` rows past every boundary of the current frame (a block the end folds whole: every row it holds reaches the end),
 /// but the end's where its write-backs count them (`by_out`).
 pub fn count_all(b: &mut FunctionBuilder<'_>, ctx: Value, n: Value, mcx: Mcx<'_>) {
     if bounded() {
-        row_nodes(mcx).into_iter().for_each(|x| count_bound(b, ctx, x, n));
+        row_nodes(mcx)
+            .into_iter()
+            .for_each(|x| count_bound(b, ctx, x, n));
     }
 }
 
@@ -926,29 +1263,52 @@ pub fn count_mask(b: &mut FunctionBuilder<'_>, ctx: Value, mask: Value, mcx: Mcx
 /// `all_nodes` but the end's where its write-backs count them (`by_out`) and `at[0]`'s where windows do (`by_window`).
 pub fn row_nodes<'m>(mcx: Mcx<'m>) -> PgVec<'m, i32> {
     CURRENT.with(|c| {
-        c.borrow().as_ref().map_or_else(|| PgVec::new_in(mcx), |b| {
-            let at = b.at.iter().enumerate().filter(|(i, _)| *i > 0 || !b.win).flat_map(|(_, n)| n.iter());
-            at.chain(b.end.iter().filter(|_| !b.out)).copied().collect_in(mcx)
-        })
+        c.borrow().as_ref().map_or_else(
+            || PgVec::new_in(mcx),
+            |b| {
+                let at =
+                    b.at.iter()
+                        .enumerate()
+                        .filter(|(i, _)| *i > 0 || !b.win)
+                        .flat_map(|(_, n)| n.iter());
+                at.chain(b.end.iter().filter(|_| !b.out))
+                    .copied()
+                    .collect_in(mcx)
+            },
+        )
     })
 }
 
 /// The rows a block test dropped as they entered step `j` (a probe's build filter on the block path: `all` the block's
 /// mask, `kept` the rows it keeps): they left the nodes a row entering `j` counts (`at_step`), as the kept rows do
 /// when they walk on.
-pub fn count_dropped(b: &mut FunctionBuilder<'_>, ctx: Value, j: usize, all: Value, kept: Value, mcx: Mcx<'_>) {
+pub fn count_dropped(
+    b: &mut FunctionBuilder<'_>,
+    ctx: Value,
+    j: usize,
+    all: Value,
+    kept: Value,
+    mcx: Mcx<'_>,
+) {
     let nodes = row_at(j, mcx);
     if nodes.is_empty() {
         return;
     }
-    let (a, k) = (b.int_un(IntUnOp::Popcnt, all), b.int_un(IntUnOp::Popcnt, kept));
+    let (a, k) = (
+        b.int_un(IntUnOp::Popcnt, all),
+        b.int_un(IntUnOp::Popcnt, kept),
+    );
     let n = b.int_bin(IntBinOp::Sub, a, k);
     nodes.into_iter().for_each(|x| count_bound(b, ctx, x, n));
 }
 
 /// Every node the current frame counts rows of.
 pub fn all_nodes() -> Vec<i32> {
-    CURRENT.with(|c| c.borrow().as_ref().map_or_else(Vec::new, |b| b.at.iter().flatten().chain(b.end.iter()).copied().collect()))
+    CURRENT.with(|c| {
+        c.borrow().as_ref().map_or_else(Vec::new, |b| {
+            b.at.iter().flatten().chain(b.end.iter()).copied().collect()
+        })
+    })
 }
 
 /// The current frame is bounded: its nodes' rows are counted at its boundaries.
@@ -1013,12 +1373,24 @@ pub fn scope<T>(instrument: bool, f: impl FnOnce() -> T) -> (T, Vec<InstrCell>) 
     CELLS.with(|c| {
         let mut c = c.borrow_mut();
         for (n, a) in alias {
-            c.push(InstrCell { node: n, ctr: Ctr::Same }); // alloc: Program
-            c.push(InstrCell { node: a, ctr: Ctr::SameAs }); // alloc: Program
+            c.push(InstrCell {
+                node: n,
+                ctr: Ctr::Same,
+            }); // alloc: Program
+            c.push(InstrCell {
+                node: a,
+                ctr: Ctr::SameAs,
+            }); // alloc: Program
         }
         for (n, p) in pipes_of {
-            c.push(InstrCell { node: n, ctr: Ctr::Pipe }); // alloc: Program
-            c.push(InstrCell { node: p as i32, ctr: Ctr::PipeOf }); // alloc: Program
+            c.push(InstrCell {
+                node: n,
+                ctr: Ctr::Pipe,
+            }); // alloc: Program
+            c.push(InstrCell {
+                node: p as i32,
+                ctr: Ctr::PipeOf,
+            }); // alloc: Program
         }
     });
     drop(reset);
@@ -1034,10 +1406,13 @@ pub fn on() -> bool {
 pub fn cell(node: i32, ctr: Ctr) -> u32 {
     CELLS.with(|c| {
         let mut c = c.borrow_mut();
-        let i = c.iter().position(|x| x.node == node && x.ctr == ctr).unwrap_or_else(|| {
-            c.push(InstrCell { node, ctr }); // alloc: Program
-            c.len() - 1
-        });
+        let i = c
+            .iter()
+            .position(|x| x.node == node && x.ctr == ctr)
+            .unwrap_or_else(|| {
+                c.push(InstrCell { node, ctr }); // alloc: Program
+                c.len() - 1
+            });
         i as u32
     })
 }
@@ -1100,13 +1475,31 @@ fn cell_base(b: &mut FunctionBuilder<'_>, ctx: Value, off: i32, hot: bool) -> Va
 /// whose `closes` holds when the call pulls nothing (a false one-time gate, a zero or met LIMIT): PostgreSQL never calls
 /// a node below such a step, so the nodes whose rows leave before it (`Bounds::at` up to it, and `Bounds::end` for a step
 /// past every op) start only while it is open; the step's own node and those above it start either way.
-pub fn count_open(b: &mut FunctionBuilder<'_>, ctx: Value, node: i32, closers: &[(usize, Value)], mcx: Mcx<'_>) {
+pub fn count_open(
+    b: &mut FunctionBuilder<'_>,
+    ctx: Value,
+    node: i32,
+    closers: &[(usize, Value)],
+    mcx: Mcx<'_>,
+) {
     if !on() {
         return;
     }
-    let cur = CURRENT.with(|c| c.borrow().as_ref().map(|b| (mcx::to_vec_in(&b.loops[..], mcx), b.at.iter().map(|a| mcx::to_vec_in(&a[..], mcx)).collect_in(mcx), mcx::to_vec_in(&b.end[..], mcx))));
+    let cur = CURRENT.with(|c| {
+        c.borrow().as_ref().map(|b| {
+            (
+                mcx::to_vec_in(&b.loops[..], mcx),
+                b.at.iter()
+                    .map(|a| mcx::to_vec_in(&a[..], mcx))
+                    .collect_in(mcx),
+                mcx::to_vec_in(&b.end[..], mcx),
+            )
+        })
+    });
     let nodes = cur.as_ref().map(|c| &c.0);
-    if nodes.as_ref().is_some_and(|n| n.is_empty()) || (nodes.is_none() && planned() && counted(node)) {
+    if nodes.as_ref().is_some_and(|n| n.is_empty())
+        || (nodes.is_none() && planned() && counted(node))
+    {
         return;
     }
     let fl = b.load_zext(Type::I32, ctx, hdr::FLAGS as i32);
@@ -1119,7 +1512,9 @@ pub fn count_open(b: &mut FunctionBuilder<'_>, ctx: Value, node: i32, closers: &
         Some((ns, at, end)) => ns.into_iter().for_each(|x| {
             // D3422: a step past every op (the feeder of the checks above the pipeline, a fused tail's) shuts the end's
             // nodes too: its node is above all of them
-            let shuts = |j: usize| at.iter().take(j + 1).any(|a| a.contains(&x)) || (j >= at.len() && end.contains(&x));
+            let shuts = |j: usize| {
+                at.iter().take(j + 1).any(|a| a.contains(&x)) || (j >= at.len() && end.contains(&x))
+            };
             let below = closers.iter().filter(|(j, _)| shuts(*j)).map(|c| c.1);
             let shut = below.reduce(|a, c| b.int_bin(IntBinOp::Or, a, c));
             let nx = shut.map_or(n, |s| b.select(s, zero, n));
@@ -1149,16 +1544,58 @@ mod tests {
         // a scan (6) with its qual (op 0) under a Hash (5) whose build is op 1: the scan's rows enter op 1, the Hash's reach
         // the end (a hash build counts its producer-top entry)
         let b = Bounds::of(&[(6, 0, false), (5, 1, false)], 2, true, &|_| false).unwrap();
-        assert_eq!(b, Bounds { at: vec![vec![], vec![6]], end: vec![5], loops: vec![6, 5], out: false, win: false, src: Some(6) });
+        assert_eq!(
+            b,
+            Bounds {
+                at: vec![vec![], vec![6]],
+                end: vec![5],
+                loops: vec![6, 5],
+                out: false,
+                win: false,
+                src: Some(6)
+            }
+        );
         // an aggregate's emit (2) into a Sort (1, producer-top, not a hash): the Sort's rows are its own emit's
         let b = Bounds::of(&[(2, 0, false), (1, 1, true)], 2, false, &|_| false).unwrap();
-        assert_eq!(b, Bounds { at: vec![vec![], vec![2]], end: vec![], loops: vec![2], out: false, win: false, src: Some(2) });
+        assert_eq!(
+            b,
+            Bounds {
+                at: vec![vec![], vec![2]],
+                end: vec![],
+                loops: vec![2],
+                out: false,
+                win: false,
+                src: Some(2)
+            }
+        );
         // a node of no op passes its rows on where the next one starts: both count at op 1
-        let b = Bounds::of(&[(4, 0, false), (3, 1, false), (2, 1, false)], 2, false, &|_| false).unwrap();
-        assert_eq!(b, Bounds { at: vec![vec![], vec![4, 3]], end: vec![2], loops: vec![4, 3, 2], out: false, win: false, src: Some(4) });
+        let b = Bounds::of(
+            &[(4, 0, false), (3, 1, false), (2, 1, false)],
+            2,
+            false,
+            &|_| false,
+        )
+        .unwrap();
+        assert_eq!(
+            b,
+            Bounds {
+                at: vec![vec![], vec![4, 3]],
+                end: vec![2],
+                loops: vec![4, 3, 2],
+                out: false,
+                win: false,
+                src: Some(4)
+            }
+        );
         // a bitmap heap scan (6) after its index scan (7), both at op 0: the heap scan owns the source op, its quals' failures
         // are its own
-        let b = Bounds::of(&[(7, 0, false), (6, 0, false), (5, 1, false)], 2, false, &|_| false).unwrap();
+        let b = Bounds::of(
+            &[(7, 0, false), (6, 0, false), (5, 1, false)],
+            2,
+            false,
+            &|_| false,
+        )
+        .unwrap();
         assert_eq!(b.src, Some(6));
     }
 
@@ -1175,8 +1612,16 @@ mod tests {
             let block = b.load(Type::Ptr, ctx, super::hdr::PROGRAM as i32);
             base = b.load(Type::Ptr, block, super::prog::INSTR as i32);
             let (head, body) = (b.create_block(&[Type::I64]), b.create_block(&[]));
-            let exit = if edge { b.create_block(&[Type::Ptr]) } else { b.create_block(&[]) };
-            let (zero, one, ten) = (b.iconst(Type::I64, 0), b.iconst(Type::I64, 1), b.iconst(Type::I64, 10));
+            let exit = if edge {
+                b.create_block(&[Type::Ptr])
+            } else {
+                b.create_block(&[])
+            };
+            let (zero, one, ten) = (
+                b.iconst(Type::I64, 0),
+                b.iconst(Type::I64, 1),
+                b.iconst(Type::I64, 10),
+            );
             b.br(head, &[zero]);
             b.switch_to(head);
             let i = b.block_params(head)[0];
@@ -1208,13 +1653,39 @@ mod tests {
         let f = &ir.funcs[0];
         let ctx = f.blocks[f.entry.index()].params[0];
         let mut users = 0;
-        for (bi, bb) in f.blocks.iter().enumerate().filter(|(bi, _)| *bi != f.entry.index()) {
+        for (bi, bb) in f
+            .blocks
+            .iter()
+            .enumerate()
+            .filter(|(bi, _)| *bi != f.entry.index())
+        {
             let mut ops = Vec::new();
             bb.insts.iter().for_each(|i| i.op.operands_into(&mut ops));
-            assert!(!ops.contains(&base), "block {bi} still reads the entry's base");
+            assert!(
+                !ops.contains(&base),
+                "block {bi} still reads the entry's base"
+            );
             if let [a, c, ..] = &bb.insts[..] {
-                if let (Op::Load { ty: Type::Ptr, ptr, offset: 0, .. }, Op::Load { ty: Type::Ptr, ptr: p2, offset, .. }) = (&a.op, &c.op) {
-                    assert!(*ptr == ctx && Some(*p2) == a.result && *offset == super::prog::INSTR as i32);
+                if let (
+                    Op::Load {
+                        ty: Type::Ptr,
+                        ptr,
+                        offset: 0,
+                        ..
+                    },
+                    Op::Load {
+                        ty: Type::Ptr,
+                        ptr: p2,
+                        offset,
+                        ..
+                    },
+                ) = (&a.op, &c.op)
+                {
+                    assert!(
+                        *ptr == ctx
+                            && Some(*p2) == a.result
+                            && *offset == super::prog::INSTR as i32
+                    );
                     users += 1;
                 }
             }
@@ -1228,7 +1699,11 @@ mod tests {
         let (mut ir, base) = counted_loop(false);
         assert!(super::local_bases(&mut ir.funcs[0], base, &[8], rig.mcx()));
         let f = &ir.funcs[0];
-        let reads = |bi: usize| f.blocks[bi].insts.iter().any(|i| matches!(i.op, Op::Load { ptr, .. } | Op::Store { ptr, .. } if ptr == base));
+        let reads = |bi: usize| {
+            f.blocks[bi].insts.iter().any(
+                |i| matches!(i.op, Op::Load { ptr, .. } | Op::Store { ptr, .. } if ptr == base),
+            )
+        };
         assert_eq!((1..f.blocks.len()).filter(|&bi| reads(bi)).count(), 1);
     }
 
@@ -1239,15 +1714,34 @@ mod tests {
         let k = super::memo_key(&a, &bases(va));
         assert_eq!(k, super::memo_key(&counted_loop(false).0, &bases(va)));
         assert_ne!(k, super::memo_key(&b, &bases(vb)));
-        assert_ne!(k, super::memo_key(&a, &[(gravity_ir::Func(0), va, vec![16])]));
+        assert_ne!(
+            k,
+            super::memo_key(&a, &[(gravity_ir::Func(0), va, vec![16])])
+        );
         assert_ne!(k >> 64, k & u128::from(u64::MAX));
     }
 
     #[test]
     fn no_bounds_out_of_order_and_a_write_counts_its_own() {
-        assert_eq!(Bounds::of(&[(4, 1, false), (3, 0, false)], 2, false, &|_| false), None);
-        assert_eq!(Bounds::of(&[(4, 0, false), (3, 3, false)], 2, false, &|_| false), None);
+        assert_eq!(
+            Bounds::of(&[(4, 1, false), (3, 0, false)], 2, false, &|_| false),
+            None
+        );
+        assert_eq!(
+            Bounds::of(&[(4, 0, false), (3, 3, false)], 2, false, &|_| false),
+            None
+        );
         let b = Bounds::of(&[(2, 0, false), (1, 1, false)], 2, false, &|n| n == 1).unwrap();
-        assert_eq!(b, Bounds { at: vec![vec![], vec![2]], end: vec![], loops: vec![2], out: false, win: false, src: Some(2) });
+        assert_eq!(
+            b,
+            Bounds {
+                at: vec![vec![], vec![2]],
+                end: vec![],
+                loops: vec![2],
+                out: false,
+                win: false,
+                src: Some(2)
+            }
+        );
     }
 }

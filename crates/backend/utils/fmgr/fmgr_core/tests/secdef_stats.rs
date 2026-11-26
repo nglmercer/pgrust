@@ -2,8 +2,7 @@ use std::sync::Once;
 
 use datum::Datum;
 use fmgr::{
-    FmgrInfo, FunctionCallInfoBaseData, LocalFcinfo, TRACK_FUNC_ALL, TRACK_FUNC_OFF,
-    TRACK_FUNC_PL,
+    FmgrInfo, FunctionCallInfoBaseData, LocalFcinfo, TRACK_FUNC_ALL, TRACK_FUNC_OFF, TRACK_FUNC_PL,
 };
 use types_error::PgResult;
 

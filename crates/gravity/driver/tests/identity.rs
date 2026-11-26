@@ -23,11 +23,26 @@ fn bind_writes_the_header_cells_and_hands_identity_to_the_sources() {
     node.apply(&mut b).unwrap();
     assert_eq!(hdr_cell(&node, hdr::PARAMS), params.as_ptr() as u64);
     assert_eq!(hdr_cell(&node, hdr::CANCEL), flag.as_ptr() as u64);
-    assert_eq!(node.identity(), gravity_abi::Identity { proc_number: 7, command_id: 3, resource_owner: 0xAB, latch: 0xCD, snapshot: 0x5A });
-    assert_eq!(hdr_cell(&node, hdr::IDENTITY), unsafe { *gravity_abi::ctx::cell(node.ctx(), hdr::IDENTITY) });
+    assert_eq!(
+        node.identity(),
+        gravity_abi::Identity {
+            proc_number: 7,
+            command_id: 3,
+            resource_owner: 0xAB,
+            latch: 0xCD,
+            snapshot: 0x5A
+        }
+    );
+    assert_eq!(hdr_cell(&node, hdr::IDENTITY), unsafe {
+        *gravity_abi::ctx::cell(node.ctx(), hdr::IDENTITY)
+    });
     assert_ne!(hdr_cell(&node, hdr::IDENTITY), 0);
     assert_eq!(hdr_cell(&node, hdr::CLAIM_HI), u64::MAX);
-    assert_eq!(hdr_cell(&node, hdr::FLAGS), 1 << 48, "width 1, ordinal 0, flags 0");
+    assert_eq!(
+        hdr_cell(&node, hdr::FLAGS),
+        1 << 48,
+        "width 1, ordinal 0, flags 0"
+    );
     let _ = &b.parts.identity as *const Identity;
     assert_eq!(stats.binds.get(), 2);
     for i in 0..2 {
@@ -35,7 +50,14 @@ fn bind_writes_the_header_cells_and_hands_identity_to_the_sources() {
         let _ = s;
     }
     node.remove();
-    assert_eq!((hdr_cell(&node, hdr::PARAMS), hdr_cell(&node, hdr::CANCEL), hdr_cell(&node, hdr::IDENTITY)), (0, 0, 0));
+    assert_eq!(
+        (
+            hdr_cell(&node, hdr::PARAMS),
+            hdr_cell(&node, hdr::CANCEL),
+            hdr_cell(&node, hdr::IDENTITY)
+        ),
+        (0, 0, 0)
+    );
     assert_eq!(node.identity(), gravity_abi::Identity::default());
     assert_eq!(stats.unbinds.get(), 2);
     let _ = Snapshot(0);

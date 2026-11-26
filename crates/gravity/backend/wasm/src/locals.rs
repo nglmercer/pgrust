@@ -102,7 +102,9 @@ pub(crate) fn assign(f: &Function, cfg: &Cfg) -> (Vec<u32>, Vec<ValType>) {
     for &b in &order {
         for &v in &live_in[b.index()] {
             let d = def_block[v as usize];
-            let dominated = d != none && pre[d as usize] <= pre[b.index()] && post[b.index()] <= post[d as usize];
+            let dominated = d != none
+                && pre[d as usize] <= pre[b.index()]
+                && post[b.index()] <= post[d as usize];
             if !dominated && !own[v as usize] {
                 own[v as usize] = true;
                 loc[v as usize] = types.len() as u32;
@@ -124,16 +126,17 @@ pub(crate) fn assign(f: &Function, cfg: &Cfg) -> (Vec<u32>, Vec<ValType>) {
         ValType::F64 => 3,
         _ => 4,
     };
-    let take = |v: Value, free: &mut [Vec<u32>; 5], types: &mut Vec<ValType>, loc: &mut Vec<u32>| {
-        if own[v.index()] {
-            return;
-        }
-        let t = val_type(f.value_type(v));
-        loc[v.index()] = free[class(t)].pop().unwrap_or_else(|| {
-            types.push(t);
-            types.len() as u32 - 1
-        });
-    };
+    let take =
+        |v: Value, free: &mut [Vec<u32>; 5], types: &mut Vec<ValType>, loc: &mut Vec<u32>| {
+            if own[v.index()] {
+                return;
+            }
+            let t = val_type(f.value_type(v));
+            loc[v.index()] = free[class(t)].pop().unwrap_or_else(|| {
+                types.push(t);
+                types.len() as u32 - 1
+            });
+        };
     let give = |v: u32, free: &mut [Vec<u32>; 5], types: &Vec<ValType>, loc: &Vec<u32>| {
         if !own[v as usize] {
             let l = loc[v as usize];
@@ -151,7 +154,10 @@ pub(crate) fn assign(f: &Function, cfg: &Cfg) -> (Vec<u32>, Vec<ValType>) {
 
         taken.resize(types.len(), none);
         for &v in &live_in[bi] {
-            debug_assert!(loc[v as usize] != none, "a live-in value its definition dominates is coloured first");
+            debug_assert!(
+                loc[v as usize] != none,
+                "a live-in value its definition dominates is coloured first"
+            );
             taken[loc[v as usize] as usize] = visit;
         }
         if b == entry {
@@ -222,10 +228,14 @@ pub(crate) fn assign(f: &Function, cfg: &Cfg) -> (Vec<u32>, Vec<ValType>) {
     for v in 0..nv {
         if loc[v] == none {
             let t = val_type(f.values[v]);
-            loc[v] = types.iter().position(|&x| x == t).map(|l| l as u32).unwrap_or_else(|| {
-                types.push(t);
-                types.len() as u32 - 1
-            });
+            loc[v] = types
+                .iter()
+                .position(|&x| x == t)
+                .map(|l| l as u32)
+                .unwrap_or_else(|| {
+                    types.push(t);
+                    types.len() as u32 - 1
+                });
         }
     }
     (loc, types.split_off(np))

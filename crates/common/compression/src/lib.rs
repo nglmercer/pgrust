@@ -113,7 +113,10 @@ pub fn parse_compress_options(option: &str) -> (String, Option<String>) {
     // name (compression.c:458-475: split at the first ':').
     match option.find(':') {
         None => (option.to_string(), None),
-        Some(sep) => (option[..sep].to_string(), Some(option[sep + 1..].to_string())),
+        Some(sep) => (
+            option[..sep].to_string(),
+            Some(option[sep + 1..].to_string()),
+        ),
     }
 }
 
@@ -236,9 +239,8 @@ pub fn parse_compress_specification(
             }
             #[cfg(target_family = "wasm")]
             {
-                result.parse_error = Some(
-                    "this build does not support compression with ZSTD".to_string(),
-                );
+                result.parse_error =
+                    Some("this build does not support compression with ZSTD".to_string());
             }
         }
         PgCompressAlgorithm::Gzip => {
@@ -261,9 +263,7 @@ pub fn parse_compress_specification(
     // Look for comma-separated keyword or keyword=value entries.
     loop {
         // Figure start, end, and length of next keyword and any value.
-        let kwend = spec
-            .find([ ',', '='])
-            .unwrap_or(spec.len());
+        let kwend = spec.find([',', '=']).unwrap_or(spec.len());
         let keyword = &spec[..kwend];
         let has_value = spec.as_bytes().get(kwend) == Some(&b'=');
         let (value, vend): (Option<&str>, Option<usize>) = if has_value {
@@ -296,8 +296,7 @@ pub fn parse_compress_specification(
             result.long_distance = expect_boolean_value(keyword, value, &mut result);
             result.options |= PG_COMPRESSION_OPTION_LONG_DISTANCE;
         } else {
-            result.parse_error =
-                Some(format!("unrecognized compression option: \"{keyword}\""));
+            result.parse_error = Some(format!("unrecognized compression option: \"{keyword}\""));
         }
 
         // If we got an error or have reached the end of the string, stop.

@@ -32,6 +32,7 @@ use gravity_ir::{ConvOp, IntBinOp, IntCond, Type, Value};
 use mcx::{CollectIn, GrowIn, PgBox, PgVec};
 use types_nodes::{Node, NodeTag};
 
+use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::face::kinds::{Face, KindId};
 use crate::face::step::{Expand, ExpandKind, ExprMech, StepMech};
 use crate::frame::cancel;
@@ -41,14 +42,16 @@ use crate::frame::open::{Base, OpenWord, OpenWords};
 use crate::frame::px::{ExId, Px, WordKey};
 use crate::frame::row::{Carry, RowVals};
 use crate::frame::stop::{self, ResumeWord};
-use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::ops::Table;
 
 use crate::ops::srf::cell as srf_cell;
 use crate::ops::srf::cell::Cells;
 use crate::ops::srf::iter::{Iter, Opened};
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::SrfProjectset, &StepMaker(make))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::SrfProjectset, &StepMaker(make))],
+    ..crate::ops::NONE
+};
 
 /// One set function of the ProjectSet (`SrfDesc::functions` order: function `i` is cell `i`).
 struct Member<'g> {
@@ -74,7 +77,11 @@ enum How {
 /// (`volatile`: PG evaluates it once more in the ending call; `early`: its index in `PSet::early`, D2032).
 enum Ent {
     Set(usize),
-    Plain { ex: ExId, volatile: bool, early: Option<usize> },
+    Plain {
+        ex: ExId,
+        volatile: bool,
+        early: Option<usize>,
+    },
 }
 
 /// D2032: an entry this step evaluates itself, into cell `functions.len() + i` of its row (`early_entries`). `val` / `ok`:
@@ -108,55 +115,124 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMech +
     let mcx = px.mcx();
     let gx = px.gx;
     let p = &gx.pipelines()[k];
-    let node = p.node_ops.iter().rev().find(|n| n.first_op as usize <= j).map_or(p.node_id, |n| n.node_id);
-    let Op::Srf(d) = &p.ops[j] else { crate::refuse!(node, Reason::Bug { payload: "a projectset step over another op" }) };
+    let node = p
+        .node_ops
+        .iter()
+        .rev()
+        .find(|n| n.first_op as usize <= j)
+        .map_or(p.node_id, |n| n.node_id);
+    let Op::Srf(d) = &p.ops[j] else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a projectset step over another op"
+            }
+        )
+    };
     if d.place != SrfPlace::TargetList {
-        crate::refuse!(node, Reason::Bug { payload: "a FROM function under srf.projectset" });
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a FROM function under srf.projectset"
+            }
+        );
     }
     ExpandKind::Srf.require(&node);
     // a LIMIT after the step leaves the set loop where PG's lazy ProjectSet stops (srf/limit_cut.rs)
     if crate::frame::iface::holds_limit(&p.ops[j + 1..]) {
         ExpandKind::LimitCut.require(&node);
-        if d.functions.iter().any(|f| crate::ops::srf::strategies::limit_cut::cut(gx, f, d.place, true) != crate::ops::srf::strategies::limit_cut::Cut::Lazy) {
-            crate::refuse!(node, Reason::Bug { payload: "a target-list set the LIMIT cut does not meet lazily" });
+        if d.functions.iter().any(|f| {
+            crate::ops::srf::strategies::limit_cut::cut(gx, f, d.place, true)
+                != crate::ops::srf::strategies::limit_cut::Cut::Lazy
+        }) {
+            crate::refuse!(
+                node,
+                Reason::Bug {
+                    payload: "a target-list set the LIMIT cut does not meet lazily"
+                }
+            );
         }
     }
     let xm = crate::frame::iface::expr_face(&node).0;
-    let offset = stop::resume_word(px, ResumeWord::StepOffset { k, j: crate::frame::px::key_j(j) });
+    let offset = stop::resume_word(
+        px,
+        ResumeWord::StepOffset {
+            k,
+            j: crate::frame::px::key_j(j),
+        },
+    );
     let mut members: PgVec<'_, Member<'_>> = mcx::reserved_in(d.functions.len(), mcx);
     let mut held: PgVec<'_, i32> = PgVec::new_in(mcx);
     let mut cells = Cells::default();
     for (mi, f) in d.functions.iter().enumerate() {
-        let args = f.args.iter().map(|a| xm.compile_at(px, (k, j), a, None, node)).collect_in(mcx);
+        let args = f
+            .args
+            .iter()
+            .map(|a| xm.compile_at(px, (k, j), a, None, node))
+            .collect_in(mcx);
         let how = match crate::ops::srf::iter::plan(px, f, node) {
             Some(it) => {
                 let at = held.len();
                 for i in at..at + it.nwords() {
-                    held.push_in(px.frame_word(WordKey::Open { face: Face::Srf, k, j: crate::frame::px::key_j(j), i: i as u8 }) as i32 * 8);
+                    held.push_in(
+                        px.frame_word(WordKey::Open {
+                            face: Face::Srf,
+                            k,
+                            j: crate::frame::px::key_j(j),
+                            i: i as u8,
+                        }) as i32
+                            * 8,
+                    );
                 }
                 How::Iter { it, at }
             }
             None => {
                 let m = cells.member(px, f, xm.out_type(gx, f.node, node), node);
-                How::Cell { m, done: px.frame_word(WordKey::Open { face: Face::Srf, k, j: crate::frame::px::key_j(j), i: 128 + mi as u8 }) as i32 * 8 }
+                How::Cell {
+                    m,
+                    done: px.frame_word(WordKey::Open {
+                        face: Face::Srf,
+                        k,
+                        j: crate::frame::px::key_j(j),
+                        i: 128 + mi as u8,
+                    }) as i32
+                        * 8,
+                }
             }
         };
         // a called set that acts may see the volatile entry's effect (STABLE and IMMUTABLE ones do not act: DECISIONS.md 3)
         let ecx = effects::Cx::without_stmt(gx.facts, px.arena);
-        let sees = matches!(how, How::Cell { .. }) && effects::of_expr(&ecx, f.node, &effects::PLAIN).acts;
+        let sees =
+            matches!(how, How::Cell { .. }) && effects::of_expr(&ecx, f.node, &effects::PLAIN).acts;
         let after_volatile = !sees && f.args.iter().all(plain);
-        let args_act = f.args.iter().any(|a| effects::of_expr(&ecx, a, &effects::PLAIN).acts || acting_subplan(p, a));
+        let args_act = f
+            .args
+            .iter()
+            .any(|a| effects::of_expr(&ecx, a, &effects::PLAIN).acts || acting_subplan(p, a));
         // an iterator is an integer series: its open raises only on a zero step (effects reads the two-argument forms as
         // raise-free, types_core::quiet::int_series; a literal step is a word bound per execution, D691, so every stepped
         // series counts)
-        let raises = !matches!(how, How::Iter { .. }) || effects::of_call(gx.facts, f.funcid).may_raise;
-        members.push_in(Member { args, raises, after_volatile, args_act, how });
+        let raises =
+            !matches!(how, How::Iter { .. }) || effects::of_call(gx.facts, f.funcid).may_raise;
+        members.push_in(Member {
+            args,
+            raises,
+            after_volatile,
+            args_act,
+            how,
+        });
     }
     cells.declare(px, k);
     // D439 / V4R-295: a VOLATILE set (a PL / SQL body above all) never runs ahead of a pull's count: a cursor's FETCH n
     // calls it for the input rows PG pulls, not a block's
-    if d.functions.iter().any(|f| gravity_decompose::effects::of_call(gx.facts, f.funcid).acts) {
-        px.declare_proto(gravity_program::protos::Proto::new(gravity_program::protos::ProtoKind::Volatile, k as u16));
+    if d.functions
+        .iter()
+        .any(|f| gravity_decompose::effects::of_call(gx.facts, f.funcid).acts)
+    {
+        px.declare_proto(gravity_program::protos::Proto::new(
+            gravity_program::protos::ProtoKind::Volatile,
+            k as u16,
+        ));
     }
     let mut ents: PgVec<'_, Ent> = PgVec::new_in(mcx);
     let ahead = early_entries(px, k, j);
@@ -176,20 +252,40 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMech +
                         shape(node, EARLY_WIDE);
                     }
                     let w = |px: &mut Px<'g, '_>, i: usize| {
-                        let Ok(i) = u8::try_from(EARLY_WORD + i) else { shape(node, EARLY_WIDE) };
-                        px.frame_word(WordKey::Open { face: Face::Srf, k, j: crate::frame::px::key_j(j), i }) as i32 * 8
+                        let Ok(i) = u8::try_from(EARLY_WORD + i) else {
+                            shape(node, EARLY_WIDE)
+                        };
+                        px.frame_word(WordKey::Open {
+                            face: Face::Srf,
+                            k,
+                            j: crate::frame::px::key_j(j),
+                            i,
+                        }) as i32
+                            * 8
                     };
                     let (val, ok) = (w(px, 2 * early.len()), w(px, 2 * early.len() + 1));
-                    early.push_in(Early { ex, val, ok, before: usize::MAX });
+                    early.push_in(Early {
+                        ex,
+                        val,
+                        ok,
+                        before: usize::MAX,
+                    });
                     early.len() - 1
                 });
-                ents.push_in(Ent::Plain { ex, volatile: volatile || e.is_some(), early: e });
+                ents.push_in(Ent::Plain {
+                    ex,
+                    volatile: volatile || e.is_some(),
+                    early: e,
+                });
             }
         }
     }
     for (i, e) in ents.iter().enumerate() {
         if let Ent::Plain { early: Some(x), .. } = *e {
-            early[x].before = ents[i + 1..].iter().position(|y| matches!(*y, Ent::Set(m) if members[m].args_act)).map_or(usize::MAX, |q| i + 1 + q);
+            early[x].before = ents[i + 1..]
+                .iter()
+                .position(|y| matches!(*y, Ent::Set(m) if members[m].args_act))
+                .map_or(usize::MAX, |q| i + 1 + q);
         }
     }
     // PG runs a volatile entry's call, then the later function's raising open; this step opens every function first and
@@ -202,7 +298,9 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMech +
         let mut loud = false;
         for x in ents[i + 1..].iter() {
             match *x {
-                Ent::Plain { volatile: false, .. } => loud = true,
+                Ent::Plain {
+                    volatile: false, ..
+                } => loud = true,
                 Ent::Set(m) if members[m].raises && (loud || !members[m].after_volatile) => {
                     shape(node, "a volatile target entry before a set-returning function whose open can raise");
                 }
@@ -218,7 +316,13 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMech +
 /// index space.
 const EARLY_WIDE: &str = "a volatile target entry before a set-returning function whose arguments call a VOLATILE function, of a type the step cannot hold (PG evaluates the entry first: D2032)";
 /// The entry types an early cell holds as its word.
-const EARLY_TYPES: [u32; 5] = [types_core::catalog::INT8OID, types_core::catalog::INT4OID, types_core::catalog::INT2OID, types_core::catalog::BOOLOID, types_core::catalog::OIDOID];
+const EARLY_TYPES: [u32; 5] = [
+    types_core::catalog::INT8OID,
+    types_core::catalog::INT4OID,
+    types_core::catalog::INT2OID,
+    types_core::catalog::BOOLOID,
+    types_core::catalog::OIDOID,
+];
 /// The early entries' frame words: `WordKey::Open` indices from `EARLY_WORD` (past the iterators' and the host sets'
 /// `128 + i`), two per entry.
 const EARLY_WORD: usize = 200;
@@ -232,11 +336,14 @@ pub(crate) fn early_entries<'g>(px: &Px<'g, '_>, k: usize, j: usize) -> PgVec<'g
     let mcx = px.mcx();
     let gx = px.gx;
     let p = &gx.pipelines()[k];
-    let Some(Op::Srf(d)) = p.ops.get(j) else { return PgVec::new_in(mcx) };
+    let Some(Op::Srf(d)) = p.ops.get(j) else {
+        return PgVec::new_in(mcx);
+    };
     let ecx = effects::Cx::without_stmt(gx.facts, px.arena);
     // evaluating it acts: a VOLATILE call (the effects home, `DECISIONS.md` 3), or a SubPlan whose step acts
     let acting = |e| effects::of_expr(&ecx, e, &effects::PLAIN).acts || acting_subplan(p, e);
-    let (mut out, mut pending): (PgVec<'g, i16>, PgVec<'_, i16>) = (PgVec::new_in(mcx), PgVec::new_in(mcx));
+    let (mut out, mut pending): (PgVec<'g, i16>, PgVec<'_, i16>) =
+        (PgVec::new_in(mcx), PgVec::new_in(mcx));
     for te in d.tlist.iter().filter_map(|n| n.as_target_entry()) {
         match d.functions.iter().find(|f| f.resno == te.resno) {
             Some(f) if f.args.iter().any(&acting) => out.extend_in(pending.drain(..)),
@@ -252,7 +359,11 @@ pub(crate) fn early_entries<'g>(px: &Px<'g, '_>, k: usize, j: usize) -> PgVec<'g
 fn acting_subplan(p: &gravity_decompose::PipelineNode<'_>, e: Node<'_>) -> bool {
     let mut hit = false;
     gravity_decompose::expr::walk(e, &mut |x| {
-        hit |= x.as_sub_plan().is_some_and(|s| p.ops.iter().any(|o| matches!(o, Op::SubPlan(t) if t.plan_id == s.plan_id && t.effects().acts)));
+        hit |= x.as_sub_plan().is_some_and(|s| {
+            p.ops
+                .iter()
+                .any(|o| matches!(o, Op::SubPlan(t) if t.plan_id == s.plan_id && t.effects().acts))
+        });
         !hit
     });
     hit
@@ -274,7 +385,12 @@ impl<'g> PSet<'g> {
     /// per step, so its first row's error comes before a later entry's), and the set loop does not step it at output 0.
     /// The iterators' opened words (`Iter::nwords` each), for `held`; a host set's first row goes to its cell and whether
     /// it ended to its `done` word.
-    fn first_call<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals) -> PgVec<'e, Value> {
+    fn first_call<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+    ) -> PgVec<'e, Value> {
         let mut words = mcx::pg_vec![in env.mcx; env.zero; self.held.len()];
         let cw = self.cells.words(b, env);
         let (mut from, mut efrom) = (0, 0);
@@ -283,7 +399,12 @@ impl<'g> PSet<'g> {
             let mb = &self.members[m];
             if mb.raises {
                 for e in self.ents[from..i].iter() {
-                    if let Ent::Plain { ex, volatile: false, .. } = *e {
+                    if let Ent::Plain {
+                        ex,
+                        volatile: false,
+                        ..
+                    } = *e
+                    {
                         let _ = self.xm.emit(b, env, self.node, row, ex);
                     }
                 }
@@ -301,18 +422,30 @@ impl<'g> PSet<'g> {
             }
             let t = b.bconst(true);
             let mcx = env.mcx;
-            let args: PgVec<'_, (Value, Option<Value>)> = mb.args.iter().map(|&a| {
-                let (v, valid) = self.xm.emit(b, env, self.node, row, a);
-                let null = b.const_of(valid).is_none_or(|c| c.1 == 0).then(|| b.int_bin(IntBinOp::Xor, valid, t));
-                (v, null)
-            }).collect_in(mcx);
+            let args: PgVec<'_, (Value, Option<Value>)> = mb
+                .args
+                .iter()
+                .map(|&a| {
+                    let (v, valid) = self.xm.emit(b, env, self.node, row, a);
+                    let null = b
+                        .const_of(valid)
+                        .is_none_or(|c| c.1 == 0)
+                        .then(|| b.int_bin(IntBinOp::Xor, valid, t));
+                    (v, null)
+                })
+                .collect_in(mcx);
             match (&mb.how, cw) {
                 (How::Iter { it, at }, _) => {
                     let (o, err) = it.open(b, env, &args[..], false);
                     self.raise_open(b, env, row, i, err);
                     let w = o.words(mcx);
                     if w.len() != it.nwords() {
-                        crate::refuse!(self.node, Reason::Bug { payload: "an opened set whose words are not its held words" });
+                        crate::refuse!(
+                            self.node,
+                            Reason::Bug {
+                                payload: "an opened set whose words are not its held words"
+                            }
+                        );
                     }
                     words[*at..*at + w.len()].copy_from_slice(&w[..]);
                 }
@@ -334,7 +467,12 @@ impl<'g> PSet<'g> {
                     let d = b.block_params(l_join)[0];
                     env.store_word(b, *done, d);
                 }
-                (How::Cell { .. }, None) => crate::refuse!(self.node, Reason::Bug { payload: "a host set without its step's cells" }),
+                (How::Cell { .. }, None) => crate::refuse!(
+                    self.node,
+                    Reason::Bug {
+                        payload: "a host set without its step's cells"
+                    }
+                ),
             }
         }
         words
@@ -342,12 +480,26 @@ impl<'g> PSet<'g> {
 
     /// Set entry `i`'s open (or a host set's first step) left with raise word `err`: PG had run the volatile entries before
     /// it (D2021: `nextval` or an acting SubPlan), so they run, left to right, before the error leaves.
-    fn raise_open(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals, i: usize, err: Value) {
-        let vols: PgVec<'_, ExId> = self.ents[..i].iter().filter_map(|e| match *e {
-            // an early entry that ran before an earlier function's arguments (or this one's) does not run again
-            Ent::Plain { ex, volatile: true, early } if early.is_none_or(|x| self.early[x].before > i) => Some(ex),
-            _ => None,
-        }).collect_in(env.mcx);
+    fn raise_open(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        row: &RowVals,
+        i: usize,
+        err: Value,
+    ) {
+        let vols: PgVec<'_, ExId> = self.ents[..i]
+            .iter()
+            .filter_map(|e| match *e {
+                // an early entry that ran before an earlier function's arguments (or this one's) does not run again
+                Ent::Plain {
+                    ex,
+                    volatile: true,
+                    early,
+                } if early.is_none_or(|x| self.early[x].before > i) => Some(ex),
+                _ => None,
+            })
+            .collect_in(env.mcx);
         if vols.is_empty() || b.const_of(err).is_some_and(|(_, c)| c == 0) {
             return raise(b, env, row, &row.carry, err);
         }
@@ -368,7 +520,12 @@ impl<'g> PSet<'g> {
     /// Early entry `x`'s value and validity into its frame words (D2032).
     fn hold(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, x: usize, v: Value, valid: Value) {
         if b.value_type(v) != Type::I64 {
-            crate::refuse!(self.node, Reason::Bug { payload: "an early ProjectSet entry whose value is not a word" });
+            crate::refuse!(
+                self.node,
+                Reason::Bug {
+                    payload: "an early ProjectSet entry whose value is not a word"
+                }
+            );
         }
         let w = b.conv(ConvOp::Zext, Type::I64, valid);
         env.store_word(b, self.early[x].val, v);
@@ -378,7 +535,15 @@ impl<'g> PSet<'g> {
     /// Output `k`'s early entries into their cells of `rec` (D2032): output 0's, and a resumed output's (`again`), from
     /// their frame words; any other output evaluates them here, after the set functions stepped (PG's ProjectSet
     /// evaluates the plain entries per output row), and holds them for a resume inside it.
-    fn early_cells(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals, k: Value, again: Option<Value>, rec: Value) {
+    fn early_cells(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        row: &RowVals,
+        k: Value,
+        again: Option<Value>,
+        rec: Value,
+    ) {
         let base = 16 * self.members.len() as i32;
         for (x, e) in self.early.iter().enumerate() {
             let first = b.icmp(IntCond::Eq, k, env.zero);
@@ -413,11 +578,23 @@ impl<'g> PSet<'g> {
                 }
             }
         };
-        if !self.ents.iter().any(|e| matches!(e, Ent::Plain { volatile: false, .. })) {
+        if !self.ents.iter().any(|e| {
+            matches!(
+                e,
+                Ent::Plain {
+                    volatile: false,
+                    ..
+                }
+            )
+        }) {
             return eval(b, env, false);
         }
         let none = b.icmp(IntCond::Eq, k, env.zero);
-        let (l_all, l_vol, l_join) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));
+        let (l_all, l_vol, l_join) = (
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         b.cond_br(none, (l_all, &[]), (l_vol, &[]));
         b.switch_to(l_all);
         eval(b, env, true);
@@ -465,21 +642,44 @@ fn raise(b: &mut FunctionBuilder<'_>, env: &Env, row: &RowVals, carry: &Carry, e
 
 impl<'g> StepMech for PSet<'g> {
     fn open_words(&self, w: &mut OpenWords) {
-        w.declare(OpenWord::open("srf.projectset offset", Base::Words, self.offset, Type::I64, 0));
+        w.declare(OpenWord::open(
+            "srf.projectset offset",
+            Base::Words,
+            self.offset,
+            Type::I64,
+            0,
+        ));
     }
 
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, next: Next<'_, 'e>) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        next: Next<'_, 'e>,
+    ) -> Carry<'e> {
         let saved = env.memo.set_aside();
-        let held = stop::held(b, env, &self.held[..], Some(self.offset), &mut |b, env| self.first_call(b, env, row));
+        let held = stop::held(b, env, &self.held[..], Some(self.offset), &mut |b, env| {
+            self.first_call(b, env, row)
+        });
         env.memo.restore(saved);
-        let opened: PgVec<'_, Option<Opened>> = self.members.iter().map(|m| match &m.how {
-            How::Iter { it, at } => Some(it.from_words(&held[*at..*at + it.nwords()])),
-            How::Cell { .. } => None,
-        }).collect_in(env.mcx);
+        let opened: PgVec<'_, Option<Opened>> = self
+            .members
+            .iter()
+            .map(|m| match &m.how {
+                How::Iter { it, at } => Some(it.from_words(&held[*at..*at + it.nwords()])),
+                How::Cell { .. } => None,
+            })
+            .collect_in(env.mcx);
         // the resume point: past the output a sink stopped after, or at the one a later expanding step stopped inside
         // (`inside`: that output again, a host set's row still in its cell, not stepped)
         let off = env.load_word(b, self.offset);
-        let later: PgVec<'_, i32> = env.expands.iter().filter(|e| env.step.is_some_and(|j| e.0 > j)).map(|e| e.1).collect_in(env.mcx);
+        let later: PgVec<'_, i32> = env
+            .expands
+            .iter()
+            .filter(|e| env.step.is_some_and(|j| e.0 > j))
+            .map(|e| e.1)
+            .collect_in(env.mcx);
         let (k0, inside) = match later.is_empty() {
             true => (off, None),
             false => {
@@ -496,12 +696,20 @@ impl<'g> StepMech for PSet<'g> {
         };
         let cw = self.cells.words(b, env);
         // the set loop: (k, every iterator's cursor, the carry); the header polls cancel
-        let curs: PgVec<'_, PgVec<'_, Value>> = self.members.iter().zip(opened.iter()).map(|(m, o)| match (&m.how, o) {
-            (How::Iter { it, .. }, Some(o)) => it.at(b, o, k0, env.mcx),
-            _ => PgVec::new_in(env.mcx),
-        }).collect_in(env.mcx);
+        let curs: PgVec<'_, PgVec<'_, Value>> = self
+            .members
+            .iter()
+            .zip(opened.iter())
+            .map(|(m, o)| match (&m.how, o) {
+                (How::Iter { it, .. }, Some(o)) => it.at(b, o, k0, env.mcx),
+                _ => PgVec::new_in(env.mcx),
+            })
+            .collect_in(env.mcx);
         let ncur: PgVec<'_, usize> = curs.iter().map(|c| c.len()).collect_in(env.mcx);
-        let init: PgVec<'_, Value> = core::iter::once(k0).chain(curs.iter().flatten().copied()).chain(row.carry.params()).collect_in(env.mcx);
+        let init: PgVec<'_, Value> = core::iter::once(k0)
+            .chain(curs.iter().flatten().copied())
+            .chain(row.carry.params())
+            .collect_in(env.mcx);
         let types: PgVec<'_, Type> = init.iter().map(|&v| b.value_type(v)).collect_in(env.mcx);
         let (l_head, l_body) = cancel::header(b, env.ctx, env.l_cancel, &types[..], env.mcx);
         let mut etypes: PgVec<'_, Type> = mcx::pg_vec![in env.mcx; Type::I64];
@@ -516,18 +724,24 @@ impl<'g> StepMech for PSet<'g> {
         let ps = mcx::to_vec_in(b.block_params(l_body), env.mcx);
         let k = ps[0];
         let mut at = 1;
-        let curs: PgVec<'_, &[Value]> = ncur.iter().map(|&n| {
-            let c = &ps[at..at + n];
-            at += n;
-            c
-        }).collect_in(env.mcx);
+        let curs: PgVec<'_, &[Value]> = ncur
+            .iter()
+            .map(|&n| {
+                let c = &ps[at..at + n];
+                at += n;
+                c
+            })
+            .collect_in(env.mcx);
         let carry = Carry::from_params(&ps[at..], env.mcx);
         // this call's first output after a stop inside it: a host set's row is already in its cell
         let again = inside.map(|x| {
             let first = b.icmp(IntCond::Eq, k, k0);
             b.int_bin(IntBinOp::And, x, first)
         });
-        let slot = b.declare_stack_slot(16 * (self.members.len() + self.early.len()).max(1) as u32, 8);
+        let slot = b.declare_stack_slot(
+            16 * (self.members.len() + self.early.len()).max(1) as u32,
+            8,
+        );
         let rec = b.stack_addr(slot);
         let mut any = b.bconst(false);
         let t = b.bconst(true);
@@ -563,7 +777,12 @@ impl<'g> StepMech for PSet<'g> {
                     let (w, null) = m.value(b, env, cw);
                     (yields, w, null)
                 }
-                _ => crate::refuse!(self.node, Reason::Bug { payload: "a projectset member without its opened set or cells" }),
+                _ => crate::refuse!(
+                    self.node,
+                    Reason::Bug {
+                        payload: "a projectset member without its opened set or cells"
+                    }
+                ),
             };
             let not_null = b.int_bin(IntBinOp::Xor, null, t);
             let valid = b.int_bin(IntBinOp::And, yields, not_null);
@@ -573,18 +792,36 @@ impl<'g> StepMech for PSet<'g> {
             any = b.int_bin(IntBinOp::Or, any, yields);
         }
         let l_row = b.create_block(&[]);
-        let ended: PgVec<'_, Value> = core::iter::once(k).chain(carry.params()).collect_in(env.mcx);
+        let ended: PgVec<'_, Value> = core::iter::once(k)
+            .chain(carry.params())
+            .collect_in(env.mcx);
         b.cond_br(any, (l_row, &[]), (l_end, &ended[..]));
         b.switch_to(l_row);
         if !self.early.is_empty() {
-            let lrow = RowVals { row: row.row.clone(), vals: row.vals.clone(), cols: row.cols.clone(), carry: carry.copy_in(env.mcx), next: row.next, at: row.at };
+            let lrow = RowVals {
+                row: row.row.clone(),
+                vals: row.vals.clone(),
+                cols: row.cols.clone(),
+                carry: carry.copy_in(env.mcx),
+                next: row.next,
+                at: row.at,
+            };
             self.early_cells(b, env, &lrow, k, again, rec);
         }
         let k1 = b.int_bin(IntBinOp::Add, k, env.one);
         env.store_word(b, self.offset, k1);
-        let cells = (0..(self.members.len() + self.early.len()) as u32).map(|i| AggCell::word(16 * i, CellValid::NonZeroAt(16 * i + 8))).collect_in(env.mcx);
+        let cells = (0..(self.members.len() + self.early.len()) as u32)
+            .map(|i| AggCell::word(16 * i, CellValid::NonZeroAt(16 * i + 8)))
+            .collect_in(env.mcx);
         let outer = env.srfs.replace(AggRow { rec, cells });
-        let out = RowVals { row: row.row.clone(), vals: row.vals.clone(), cols: row.cols.clone(), carry, next: row.at, at: row.at };
+        let out = RowVals {
+            row: row.row.clone(),
+            vals: row.vals.clone(),
+            cols: row.cols.clone(),
+            carry,
+            next: row.at,
+            at: row.at,
+        };
         let memo = env.memo.set_aside();
         let seen = env.hir.seen();
         let c2 = next(b, env, &out);
@@ -609,7 +846,14 @@ impl<'g> StepMech for PSet<'g> {
             let ep = b.block_params(l_end);
             (ep[0], Carry::from_params(&ep[1..], env.mcx))
         };
-        let end_row = RowVals { row: row.row.clone(), vals: row.vals.clone(), cols: row.cols.clone(), carry: ce.copy_in(env.mcx), next: row.next, at: row.at };
+        let end_row = RowVals {
+            row: row.row.clone(),
+            vals: row.vals.clone(),
+            cols: row.cols.clone(),
+            carry: ce.copy_in(env.mcx),
+            next: row.next,
+            at: row.at,
+        };
         let memo = env.memo.set_aside();
         self.ending_call(b, env, &end_row, k_end);
         env.memo.restore(memo);
@@ -618,6 +862,10 @@ impl<'g> StepMech for PSet<'g> {
     }
 
     fn expand(&self) -> Option<Expand> {
-        Some(Expand { kind: ExpandKind::Srf, offset: self.offset, held: self.held.len() as u8 })
+        Some(Expand {
+            kind: ExpandKind::Srf,
+            offset: self.offset,
+            held: self.held.len() as u8,
+        })
     }
 }

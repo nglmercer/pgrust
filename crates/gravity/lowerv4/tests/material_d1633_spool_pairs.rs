@@ -25,10 +25,18 @@ type Key = (u32, u32, Vec<i16>);
 fn walk(rel: &str) -> Vec<(Key, bool)> {
     fn sources(p: &PipelineNode<'_>, out: &mut Vec<(Key, bool)>) {
         if let Some((_, r, sd)) = p.source.relation() {
-            out.push(((r, sd.index, sd.out_attnos.to_vec()), matches!(p.source, Source::Range { am: Am::Heap, .. })));
+            out.push((
+                (r, sd.index, sd.out_attnos.to_vec()),
+                matches!(p.source, Source::Range { am: Am::Heap, .. }),
+            ));
         }
         for op in p.ops.iter() {
-            if let Op::Join(JoinDesc::Nest { inner, .. }) | Op::SubPlan(SubPlanDesc { form: SubForm::Nested { inner }, .. }) = op {
+            if let Op::Join(JoinDesc::Nest { inner, .. })
+            | Op::SubPlan(SubPlanDesc {
+                form: SubForm::Nested { inner },
+                ..
+            }) = op
+            {
                 sources(inner, out);
             }
         }
@@ -37,7 +45,9 @@ fn walk(rel: &str) -> Vec<(Key, bool)> {
     let arena = gravity_program::Arena::new(1 << 20);
     let t = text(rel);
     let fx = corpus::load(ctx.mcx(), &t).unwrap_or_else(|e| panic!("{rel}: {e}"));
-    let g = gravity_decompose::decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx).ok().unwrap_or_else(|| panic!("{rel}: decompose refused"));
+    let g = gravity_decompose::decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx)
+        .ok()
+        .unwrap_or_else(|| panic!("{rel}: decompose refused"));
     let mut out = Vec::new();
     g.pipelines.iter().for_each(|p| sources(p, &mut out));
     out
@@ -47,13 +57,26 @@ fn walk(rel: &str) -> Vec<(Key, bool)> {
 /// relation and index, else the first).
 fn pairs(rel: &str) -> Vec<(Key, usize)> {
     let w = walk(rel);
-    let l = common::lower_fixture(&text(rel)).expect("decomposes").unwrap_or_else(|r| panic!("{rel} refused: {r:?}"));
+    let l = common::lower_fixture(&text(rel))
+        .expect("decomposes")
+        .unwrap_or_else(|r| panic!("{rel} refused: {r:?}"));
     let mut used = vec![false; w.len()];
-    let sites = l.descs.sites.iter().filter(|s| s.is_source()).map(|s| (s.relation, s.index, s.out_attnos.to_vec()));
+    let sites = l
+        .descs
+        .sites
+        .iter()
+        .filter(|s| s.is_source())
+        .map(|s| (s.relation, s.index, s.out_attnos.to_vec()));
     sites
         .map(|k| {
-            let first = |unused: bool| w.iter().enumerate().position(|(i, e)| (!unused || !used[i]) && (e.0 .0, e.0 .1) == (k.0, k.1));
-            let i = first(true).or_else(|| first(false)).unwrap_or_else(|| panic!("{rel}: no source for site {k:?}"));
+            let first = |unused: bool| {
+                w.iter()
+                    .enumerate()
+                    .position(|(i, e)| (!unused || !used[i]) && (e.0 .0, e.0 .1) == (k.0, k.1))
+            };
+            let i = first(true)
+                .or_else(|| first(false))
+                .unwrap_or_else(|| panic!("{rel}: no source for site {k:?}"));
             used[i] = true;
             (k, i)
         })
@@ -75,9 +98,15 @@ fn a_child_after_an_index_inner_takes_the_held_number() {
         for (k, i) in p.iter() {
             assert_eq!(*k, w[*i].0, "{rel}: site {k:?} pairs {:?}", w[*i].0);
         }
-        let same: Vec<_> = p.iter().filter(|(k, _)| p.iter().filter(|(o, _)| (o.0, o.1) == (k.0, k.1)).count() > 1).collect();
+        let same: Vec<_> = p
+            .iter()
+            .filter(|(k, _)| p.iter().filter(|(o, _)| (o.0, o.1) == (k.0, k.1)).count() > 1)
+            .collect();
         assert!(same.len() >= 2, "{rel}: {same:?}");
-        assert!(same.windows(2).all(|x| x[0].1 < x[1].1), "{rel}: the sites of one key pair in walk order: {same:?}");
+        assert!(
+            same.windows(2).all(|x| x[0].1 < x[1].1),
+            "{rel}: the sites of one key pair in walk order: {same:?}"
+        );
     }
 }
 
@@ -104,6 +133,12 @@ fn heap_ranges_of_one_relation_pair_in_any_order() {
     let w = walk(rel);
     let p = pairs(rel);
     let crossed: Vec<_> = p.iter().filter(|(k, i)| *k != w[*i].0).collect();
-    assert!(!crossed.is_empty(), "{rel}: no crossed pair ({p:?} over {w:?})");
-    assert!(crossed.iter().all(|(_, i)| w[*i].1), "{rel}: a crossed pair over a non-heap source ({crossed:?} over {w:?})");
+    assert!(
+        !crossed.is_empty(),
+        "{rel}: no crossed pair ({p:?} over {w:?})"
+    );
+    assert!(
+        crossed.iter().all(|(_, i)| w[*i].1),
+        "{rel}: a crossed pair over a non-heap source ({crossed:?} over {w:?})"
+    );
 }

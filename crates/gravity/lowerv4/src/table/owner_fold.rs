@@ -1,7 +1,7 @@
 //! `Fold::run`'s loop for one layout, its constants inline. Every merge equals `Fold::fold`'s: a table folds byte for byte
 //! as the counted loops fold it. No sub-split filter (kernels `owner_fold` sends a sub-split to the loops).
-use gravity_abi::breaker::{Candidates, FOLD_OVERFLOW, FOLD_PF, MAX_RECORD_KEYS, MOVING};
 use core::mem::offset_of;
+use gravity_abi::breaker::{Candidates, FOLD_OVERFLOW, FOLD_PF, MAX_RECORD_KEYS, MOVING};
 use gravity_expr::emit::hash::{emit_hash_mix, emit_home_at, emit_key_hash_with, Bits};
 use gravity_ir::builder::{FunctionBuilder, ProgramBuilder};
 use gravity_ir::{ConvOp, FloatBinOp, Func, HostFlags, IntBinOp, IntCond, Type, Value};
@@ -19,7 +19,17 @@ pub fn emit(pb: &mut ProgramBuilder, f: &Fold) -> Option<Func> {
     if rec % 8 != 0 || nw == 0 || nw > MAX_RECORD_KEYS || FOLD_PF * rec > i32::MAX as usize {
         return None;
     }
-    let host = pb.declare_host("owner_fold_slot", &[Type::Ptr, Type::I64, Type::Ptr, Type::Ptr], Some(Type::I64), entry3::<SlotHost> as *const () as usize, HostFlags { touches_memory: true, worker: true, ..HostFlags::default() });
+    let host = pb.declare_host(
+        "owner_fold_slot",
+        &[Type::Ptr, Type::I64, Type::Ptr, Type::Ptr],
+        Some(Type::I64),
+        entry3::<SlotHost> as *const () as usize,
+        HostFlags {
+            touches_memory: true,
+            worker: true,
+            ..HostFlags::default()
+        },
+    );
     let func = pb.declare_func("owner_fold", &[Type::Ptr], &[Type::I64]);
     let mut b = pb.define(func);
     let ctx = b.params()[0];
@@ -75,7 +85,11 @@ pub fn emit(pb: &mut ProgramBuilder, f: &Fold) -> Option<Func> {
     b.mark_loop_header(pro);
     let [pi, pp, pmix]: [Value; 3] = b.block_params(pro).try_into().ok()?;
     let more = b.icmp(IntCond::Ult, pi, pre_n);
-    b.cond_br(more, (pro_body, &[]), (head, &[zero, zero, len0, recs, pmix]));
+    b.cond_br(
+        more,
+        (pro_body, &[]),
+        (head, &[zero, zero, len0, recs, pmix]),
+    );
     b.switch_to(pro_body);
     let kw = words(&mut b, pp);
     let h = emit_key_hash_with(&mut b, &kw[..nw], pmix);
@@ -170,7 +184,15 @@ pub fn emit(pb: &mut ProgramBuilder, f: &Fold) -> Option<Func> {
     b.br(note, &[len1]);
     b.switch_to(merge);
     let refuse = b.create_block(&[]);
-    Merges { ctx, d, src, valid: f.valid(), host, refuse }.emit(&mut b, f);
+    Merges {
+        ctx,
+        d,
+        src,
+        valid: f.valid(),
+        host,
+        refuse,
+    }
+    .emit(&mut b, f);
     b.br(note, &[len]);
     b.switch_to(refuse);
     b.mark_cold(refuse);
@@ -238,7 +260,12 @@ struct Merges {
 impl Merges {
     fn emit(&self, b: &mut FunctionBuilder<'_>, f: &Fold) {
         let (d, src) = (self.d, self.src);
-        let vw = self.valid.map(|vo| (b.load(Type::I64, d, vo as i32), b.load(Type::I64, src, vo as i32)));
+        let vw = self.valid.map(|vo| {
+            (
+                b.load(Type::I64, d, vo as i32),
+                b.load(Type::I64, src, vo as i32),
+            )
+        });
         let one = b.iconst(Type::I64, 1);
         let zero = b.iconst(Type::I64, 0);
         let bit = |b: &mut FunctionBuilder<'_>, v: Value, j: u32| {
@@ -252,7 +279,9 @@ impl Merges {
                 b.int_bin(IntBinOp::Sub, zero, x)
             })
         };
-        let word = |b: &mut FunctionBuilder<'_>, p: Value, o: &Op, k: i32| b.load(Type::I64, p, o.off as i32 + k);
+        let word = |b: &mut FunctionBuilder<'_>, p: Value, o: &Op, k: i32| {
+            b.load(Type::I64, p, o.off as i32 + k)
+        };
         for o in f.adds() {
             let mut s = word(b, src, o, 0);
             if o.k != !0 {
@@ -296,7 +325,10 @@ impl Merges {
                 (s, dv)
             } else {
                 let k = b.iconst(Type::I64, o.k as i64);
-                (b.int_bin(IntBinOp::Xor, s, k), b.int_bin(IntBinOp::Xor, dv, k))
+                (
+                    b.int_bin(IntBinOp::Xor, s, k),
+                    b.int_bin(IntBinOp::Xor, dv, k),
+                )
             };
             let mut take = b.icmp(IntCond::Ult, sk, dk);
             if let Some((dw, sw)) = vw {
@@ -334,7 +366,9 @@ impl Merges {
             }
             if o.k == 0 {
                 let j = b.iconst(Type::I64, o.j as i64);
-                let ok = b.call_host(self.host, &[self.ctx, j, d, src], Some(Type::I64)).expect("the slot host's word");
+                let ok = b
+                    .call_host(self.host, &[self.ctx, j, d, src], Some(Type::I64))
+                    .expect("the slot host's word");
                 let yes = b.icmp(IntCond::Ne, ok, zero);
                 b.cond_br(yes, (done, &[]), (self.refuse, &[]));
             } else {
@@ -349,7 +383,13 @@ impl Merges {
     }
 
     /// `float8_pl`: an infinite sum of finite operands refuses (`FOLD_OVERFLOW`).
-    fn float_sum(&self, b: &mut FunctionBuilder<'_>, o: &Op, dvalid: Option<Value>, done: gravity_ir::Block) {
+    fn float_sum(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        o: &Op,
+        dvalid: Option<Value>,
+        done: gravity_ir::Block,
+    ) {
         let (d, src) = (self.d, self.src);
         let s = b.load(Type::I64, src, o.off as i32);
         if let Some(dw) = dvalid {

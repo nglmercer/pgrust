@@ -76,7 +76,9 @@ pub(crate) fn plan_foreign_modify<'mcx>(
     } else {
         None
     };
-    let trig_update_before = trigdesc.as_deref().is_some_and(|t| t.trig_update_before_row);
+    let trig_update_before = trigdesc
+        .as_deref()
+        .is_some_and(|t| t.trig_update_before_row);
     let trig_after_row = match operation {
         CmdType::CMD_INSERT => trigdesc.as_deref().is_some_and(|t| t.trig_insert_after_row),
         CmdType::CMD_UPDATE => trigdesc.as_deref().is_some_and(|t| t.trig_update_after_row),
@@ -88,8 +90,7 @@ pub(crate) fn plan_foreign_modify<'mcx>(
     // triggers likewise; otherwise only the explicitly updated columns
     // (get_rel_all_updated_cols: perminfo updatedCols + dependent generated).
     let mut target_attrs: PgVec<'mcx, i32> = PgVec::new_in(mcx);
-    if operation == CmdType::CMD_INSERT
-        || (operation == CmdType::CMD_UPDATE && trig_update_before)
+    if operation == CmdType::CMD_INSERT || (operation == CmdType::CMD_UPDATE && trig_update_before)
     {
         for attnum in 1..=rel.rd_att.natts as usize {
             if !rel.rd_att.attr(attnum - 1).attisdropped {
@@ -303,7 +304,11 @@ fn foreign_modify_batch_size<'mcx>(
         .count();
     let opt = get_batch_size_option(mcx, rel.rd_id)?;
     #[allow(clippy::manual_checked_ops)]
-    Ok(if p_nums > 0 { opt.min((65535 / p_nums) as i32).max(1) } else { opt.max(1) })
+    Ok(if p_nums > 0 {
+        opt.min((65535 / p_nums) as i32).max(1)
+    } else {
+        opt.max(1)
+    })
 }
 
 // ---------- executor half ----------
@@ -405,8 +410,11 @@ pub(crate) fn begin_foreign_modify<'mcx>(
         .expect("fdw_private[4] is retrieved_attrs")
         .iter()
         .collect();
-    let local_returning =
-        it.next().and_then(|n| n.as_boolean()).map(|b| b.boolval).unwrap_or(false);
+    let local_returning = it
+        .next()
+        .and_then(|n| n.as_boolean())
+        .map(|b| b.boolval)
+        .unwrap_or(false);
 
     // ExecGetResultRelCheckAsUser (execUtils.c:1489): the checkAsUser of the
     // result relation's RTEPermissionInfo, else the current user. A child
@@ -414,7 +422,11 @@ pub(crate) fn begin_foreign_modify<'mcx>(
     // routed INSERT leaf) has no perminfo of its own: C reads the root target
     // relation's through ri_RootResultRelInfo (nodeModifyTable.c:4862), which
     // exists exactly when the plan carries rootRelation.
-    let perm_rti = if node.rootRelation > 0 { node.rootRelation } else { rti };
+    let perm_rti = if node.rootRelation > 0 {
+        node.rootRelation
+    } else {
+        rti
+    };
     let rte = estate.exec_rt_fetch(perm_rti);
     let mut userid = miscinit::GetUserId();
     if rte.perminfoindex > 0 {
@@ -511,7 +523,8 @@ fn create_foreign_modify<'mcx>(
     let user = foreigncmds::foreign::GetUserMapping(mcx, userid, table.serverid)?;
     let conn_key = connection::get_connection(mcx, &user, true)?;
     let p_nums = attgenerated.iter().filter(|&&g| !g).count();
-    let mut p_flinfo: Vec<FmgrInfo> = ::mcx::std_vec_with_capacity("postgres_fdw", out_fn_oids.len() + 1)?;
+    let mut p_flinfo: Vec<FmgrInfo> =
+        ::mcx::std_vec_with_capacity("postgres_fdw", out_fn_oids.len() + 1)?;
     let mut ctid_attno: i16 = 0;
     if operation == CmdType::CMD_UPDATE || operation == CmdType::CMD_DELETE {
         let tlist = subplan_tlist.expect("UPDATE/DELETE has a subplan");
@@ -519,8 +532,7 @@ fn create_foreign_modify<'mcx>(
         if ctid_attno <= 0 {
             return Err(Box::new(PgError::error("could not find junk ctid column")));
         }
-        let (tid_out, _isvarlena) =
-            lsyscache::getTypeOutputInfo(types_core::catalog::TIDOID)?;
+        let (tid_out, _isvarlena) = lsyscache::getTypeOutputInfo(types_core::catalog::TIDOID)?;
         p_flinfo.push(fmgr_seams::fmgr_info::call(tid_out)?);
     }
     if operation == CmdType::CMD_INSERT || operation == CmdType::CMD_UPDATE {
@@ -622,8 +634,13 @@ pub(crate) fn begin_foreign_insert<'mcx>(
             .is_some_and(|t| t.trig_insert_after_row);
     let wco: Vec<Node<'mcx>> = wco_list.iter().collect();
     let returning: Vec<Node<'mcx>> = returning_list.iter().collect();
-    let batch_size =
-        foreign_modify_batch_size(mcx, rel, !returning.is_empty(), !wco.is_empty(), &target_attrs)?;
+    let batch_size = foreign_modify_batch_size(
+        mcx,
+        rel,
+        !returning.is_empty(),
+        !wco.is_empty(),
+        &target_attrs,
+    )?;
     let mut sql: PgString<'mcx> = PgString::new_in(mcx);
     let mut retrieved_attrs: PgVec<'mcx, i32> = PgVec::new_in(mcx);
     let values_end_len = deparse::deparse_insert_sql(
@@ -773,7 +790,10 @@ fn execute_foreign_modify<'mcx>(
             // C pgfdw_exec_query's process_pending_request guard: settle/park
             // any in-flight async FETCH before using the connection.
             connection::park_pending_entry(e)?;
-            Ok(e.conn.as_mut().expect("live connection").prepare(&name, &st.query, &[]))
+            Ok(e.conn
+                .as_mut()
+                .expect("live connection")
+                .prepare(&name, &st.query, &[]))
         })???;
         if res.status != ExecStatus::CommandOk {
             return Err(connection::remote_error(&res, Some(&st.query)));
@@ -782,7 +802,8 @@ fn execute_foreign_modify<'mcx>(
     }
 
     // Convert parameters to text (C convert_prep_stmt_params).
-    let mut p_values: Vec<Option<String>> = ::mcx::std_vec_with_capacity("postgres_fdw", st.p_flinfo.len())?;
+    let mut p_values: Vec<Option<String>> =
+        ::mcx::std_vec_with_capacity("postgres_fdw", st.p_flinfo.len())?;
     let mut pindex = 0usize;
     if operation == CmdType::CMD_UPDATE || operation == CmdType::CMD_DELETE {
         let mut isnull = false;
@@ -843,7 +864,10 @@ fn execute_foreign_modify<'mcx>(
     let res = connection::with_entry(st.conn_key, |e| -> PgResult<_> {
         // Same async-fetch settle/park guard as the prepare above.
         connection::park_pending_entry(e)?;
-        Ok(e.conn.as_mut().expect("live connection").exec_prepared(&p_name, &params))
+        Ok(e.conn
+            .as_mut()
+            .expect("live connection")
+            .exec_prepared(&p_name, &params))
     })???;
     let expected = if st.has_returning {
         ExecStatus::TuplesOk
@@ -904,7 +928,10 @@ fn flush_pending_inserts<'mcx>(
         let name = format!("pgsql_fdw_prep_{}", connection::get_prep_stmt_number());
         let res = connection::with_entry(st.conn_key, |e| -> PgResult<_> {
             connection::park_pending_entry(e)?;
-            Ok(e.conn.as_mut().expect("live connection").prepare(&name, &st.query, &[]))
+            Ok(e.conn
+                .as_mut()
+                .expect("live connection")
+                .prepare(&name, &st.query, &[]))
         })???;
         if res.status != ExecStatus::CommandOk {
             return Err(connection::remote_error(&res, Some(&st.query)));
@@ -915,7 +942,10 @@ fn flush_pending_inserts<'mcx>(
     let p_name = st.p_name.as_deref().expect("prepared above").to_string();
     let res = connection::with_entry(st.conn_key, |e| -> PgResult<_> {
         connection::park_pending_entry(e)?;
-        Ok(e.conn.as_mut().expect("live connection").exec_prepared(&p_name, &params))
+        Ok(e.conn
+            .as_mut()
+            .expect("live connection")
+            .exec_prepared(&p_name, &params))
     })???;
     if res.status != ExecStatus::CommandOk {
         return Err(connection::remote_error(&res, Some(&st.query)));
@@ -1013,11 +1043,18 @@ pub(crate) fn explain_foreign_modify<'mcx>(
         .and_then(|n| n.as_int_list())
         .map(|l| l.iter().collect())
         .unwrap_or_default();
-    let values_end = it.next().and_then(|n| n.as_integer()).map(|i| i.ival).unwrap_or(-1);
+    let values_end = it
+        .next()
+        .and_then(|n| n.as_integer())
+        .map(|i| i.ival)
+        .unwrap_or(-1);
     let _remote_returning = it.next();
     let _retrieved_attrs = it.next();
-    let local_returning =
-        it.next().and_then(|n| n.as_boolean()).map(|b| b.boolval).unwrap_or(false);
+    let local_returning = it
+        .next()
+        .and_then(|n| n.as_boolean())
+        .map(|b| b.boolval)
+        .unwrap_or(false);
     if values_end >= 0 {
         // INSERT: report the effective batch size.
         let has_insert_row_triggers = relcache_seams::relation_get_trigger_desc::call(relid)?
@@ -1049,7 +1086,10 @@ pub(crate) fn explain_foreign_modify<'mcx>(
         };
         emit(
             "Batch Size",
-            types_nodes::FdwExplainProp::Integer { value: batch as i64, unit: "" },
+            types_nodes::FdwExplainProp::Integer {
+                value: batch as i64,
+                unit: "",
+            },
         )?;
     }
     Ok(())
@@ -1117,9 +1157,11 @@ pub(crate) fn plan_direct_modify<'mcx>(
         for m in fs_relids {
             types_pathnodes::relids::relids_add_member_mut(mcx, &mut relids, m as u32);
         }
-        planner::joinrels::find_join_rel(&run.root, &relids).expect("a RelOptInfo for the foreign join")
+        planner::joinrels::find_join_rel(&run.root, &relids)
+            .expect("a RelOptInfo for the foreign join")
     } else {
-        run.root.simple_rel_array[result_relation as usize].expect("result relation has a RelOptInfo")
+        run.root.simple_rel_array[result_relation as usize]
+            .expect("result relation has a RelOptInfo")
     };
 
     let mut tlist_nodes: Vec<Node<'mcx>> = Vec::new();
@@ -1262,7 +1304,8 @@ fn build_remote_returning<'mcx>(
         vars::PVC_INCLUDE_PLACEHOLDERS,
     )?;
     let is_target_var = |n: Node<'mcx>, pred: &dyn Fn(i16) -> bool| {
-        n.as_var().is_some_and(|v| v.varno == rtindex as i32 && pred(v.varattno))
+        n.as_var()
+            .is_some_and(|v| v.varno == rtindex as i32 && pred(v.varattno))
     };
     let mut tlist: NodeList<'mcx> = NodeList::nil();
     if vars.iter().any(|n| is_target_var(n, &|a| a == 0)) {
@@ -1285,7 +1328,9 @@ fn build_remote_returning<'mcx>(
         }
     }
     for n in vars.iter() {
-        if is_target_var(n, &|a| a <= 0 && i32::from(a) != SelfItemPointerAttributeNumber) {
+        if is_target_var(n, &|a| {
+            a <= 0 && i32::from(a) != SelfItemPointerAttributeNumber
+        }) {
             continue;
         }
         if tlist_member(&tlist, n) {
@@ -1298,9 +1343,9 @@ fn build_remote_returning<'mcx>(
 }
 
 fn tlist_member<'mcx>(tlist: &NodeList<'mcx>, expr: Node<'mcx>) -> bool {
-    tlist.iter().any(|t| {
-        types_nodes::equal::equal(t.as_target_entry().expect("TargetEntry").expr, expr)
-    })
+    tlist
+        .iter()
+        .any(|t| types_nodes::equal::equal(t.as_target_entry().expect("TargetEntry").expr, expr))
 }
 
 // rebuild_fdw_scan_tlist (postgres_fdw.c:4547): the remote RETURNING entries
@@ -1370,7 +1415,12 @@ fn init_returning_filter<'mcx>(
     let mut ctid_attno = 0;
     for (k, tle) in fdw_scan_tlist.iter().enumerate() {
         let i = k + 1;
-        let var = tle.as_target_entry().expect("TargetEntry").expr.as_var().expect("fdw_scan_tlist Var");
+        let var = tle
+            .as_target_entry()
+            .expect("TargetEntry")
+            .expr
+            .as_var()
+            .expect("fdw_scan_tlist Var");
         if var.varno != rtindex as i32 || !retrieved_attrs.contains(&(i as i32)) {
             continue;
         }
@@ -1381,13 +1431,19 @@ fn init_returning_filter<'mcx>(
             attno_map[var.varattno as usize - 1] = i;
         }
     }
-    Ok(ReturningFilter { attno_map, ctid_attno, result_slot })
+    Ok(ReturningFilter {
+        attno_map,
+        ctid_attno,
+        result_slot,
+    })
 }
 
 fn dmstate<'a>(
     node: &'a mut nodeforeignscan::ForeignScanState<'_>,
 ) -> Option<&'a mut PgFdwDirectModifyState> {
-    node.fdw_state.as_mut().and_then(|s| s.downcast_mut::<PgFdwDirectModifyState>())
+    node.fdw_state
+        .as_mut()
+        .and_then(|s| s.downcast_mut::<PgFdwDirectModifyState>())
 }
 
 // postgresBeginDirectModify.
@@ -1413,7 +1469,10 @@ pub(crate) fn begin_direct_modify<'mcx>(
         join_target = estate.exec_open_scan_relation(fsplan.resultRelation, eflags)?;
         &join_target
     } else {
-        node.ss.ss_currentRelation.as_ref().expect("direct modify scans the target rel")
+        node.ss
+            .ss_currentRelation
+            .as_ref()
+            .expect("direct modify scans the target rel")
     };
     let table = foreigncmds::foreign::GetForeignTable(mcx, rel.rd_id)?;
     let user = foreigncmds::foreign::GetUserMapping(mcx, userid, table.serverid)?;
@@ -1468,8 +1527,7 @@ pub(crate) fn begin_direct_modify<'mcx>(
         Some(crate::exec::base_scan_attin(rel.name(), &rel.rd_att, rte)?)
     };
 
-    let (param_flinfo, param_exprs) =
-        crate::exec::prepare_query_params(estate, &fsplan.fdw_exprs)?;
+    let (param_flinfo, param_exprs) = crate::exec::prepare_query_params(estate, &fsplan.fdw_exprs)?;
     // SAFETY: plan-lived string, restamped (PgFdwScanState precedent).
     let query = unsafe { core::mem::transmute::<&'mcx str, &'static str>(query) };
 
@@ -1510,10 +1568,12 @@ fn execute_dml_stmt<'mcx>(
         )?
     };
     let params: Vec<Option<&str>> = values.iter().map(|v| v.as_deref()).collect();
-    let res =
-        connection::exec_query_params(state.conn_key, state.query, &params, state.query)?;
-    let expected =
-        if state.has_returning { ExecStatus::TuplesOk } else { ExecStatus::CommandOk };
+    let res = connection::exec_query_params(state.conn_key, state.query, &params, state.query)?;
+    let expected = if state.has_returning {
+        ExecStatus::TuplesOk
+    } else {
+        ExecStatus::CommandOk
+    };
     if res.status != expected {
         return Err(connection::remote_error(&res, Some(state.query)));
     }
@@ -1532,7 +1592,11 @@ pub(crate) fn iterate_direct_modify<'mcx>(
     node: &mut nodeforeignscan::ForeignScanState<'mcx>,
     estate: &mut EStateData<'mcx>,
 ) -> PgResult<bool> {
-    if dmstate(node).expect("fdw_state set by BeginDirectModify").num_tuples == -1 {
+    if dmstate(node)
+        .expect("fdw_state set by BeginDirectModify")
+        .num_tuples
+        == -1
+    {
         execute_dml_stmt(node, estate)?;
     }
     let scan_slot = node.ss.ss_ScanTupleSlot;
@@ -1587,12 +1651,21 @@ pub(crate) fn iterate_direct_modify<'mcx>(
         return Ok(true);
     }
     let (values, nulls, ctid) = {
-        let PgFdwDirectModifyState { attin, retrieved_attrs, batch_mcx, result, next_tuple, .. } =
-            state;
+        let PgFdwDirectModifyState {
+            attin,
+            retrieved_attrs,
+            batch_mcx,
+            result,
+            next_tuple,
+            ..
+        } = state;
         convert_result_row(
             attin.as_mut().expect("has_returning built attin"),
             retrieved_attrs,
-            &result.as_ref().expect("execute_dml_stmt kept the result").rows[*next_tuple],
+            &result
+                .as_ref()
+                .expect("execute_dml_stmt kept the result")
+                .rows[*next_tuple],
             batch_mcx.mcx(),
         )?
     };
@@ -1692,9 +1765,16 @@ mod tests {
         let cx = mcx::MemoryContext::new("t");
         let m = cx.mcx();
         let mut tl: NodeList<'_> = NodeList::nil();
-        for (resno, (varno, attno)) in [(1, 2), (2, 2), (1, -1), (1, 1), (1, 3)].into_iter().enumerate() {
+        for (resno, (varno, attno)) in [(1, 2), (2, 2), (1, -1), (1, 1), (1, 3)]
+            .into_iter()
+            .enumerate()
+        {
             let var = Node::mk_var(m, varno, attno, 23, -1, 0, 0).unwrap();
-            tl.lappend(m, Node::mk_target_entry(m, var, resno as i16 + 1, None, false).unwrap()).unwrap();
+            tl.lappend(
+                m,
+                Node::mk_target_entry(m, var, resno as i16 + 1, None, false).unwrap(),
+            )
+            .unwrap();
         }
         let f = init_returning_filter(&tl, 1, &[1, 2, 3, 4], 3, executils::ExecSlotId(0)).unwrap();
         assert_eq!(f.attno_map, vec![4, 1, 0]);

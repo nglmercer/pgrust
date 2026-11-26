@@ -35,7 +35,10 @@ fn fc_citext_pattern_cmp(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) ->
             datum_varlena_packed(fcinfo.arg(1), scratch.mcx())?,
         )
     };
-    Ok(Datum::from_i32(crate::citext_pattern_cmp(a.data(), b.data())?))
+    Ok(Datum::from_i32(crate::citext_pattern_cmp(
+        a.data(),
+        b.data(),
+    )?))
 }
 
 fn fc_citext_hash(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {

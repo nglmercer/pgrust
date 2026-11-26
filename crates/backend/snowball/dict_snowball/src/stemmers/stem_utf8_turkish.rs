@@ -1,11 +1,10 @@
+use crate::api::{SN_close_env, SN_create_env};
 use crate::types::{among, symbol, SN_env};
-use crate::api::{SN_create_env, SN_close_env};
 #[allow(unused_imports)]
 use crate::utilities::{
-    in_grouping, in_grouping_b, out_grouping, out_grouping_b,
-    in_grouping_U, in_grouping_b_U, out_grouping_U, out_grouping_b_U,
-    find_among, find_among_b, slice_from_s, slice_del, slice_to,
-    eq_s, eq_s_b, eq_v_b, insert_s, len_utf8, skip_utf8, skip_b_utf8,
+    eq_s, eq_s_b, eq_v_b, find_among, find_among_b, in_grouping, in_grouping_U, in_grouping_b,
+    in_grouping_b_U, insert_s, len_utf8, out_grouping, out_grouping_U, out_grouping_b,
+    out_grouping_b_U, skip_b_utf8, skip_utf8, slice_del, slice_from_s, slice_to,
 };
 
 static mut s_0_0: [symbol; 1] = ['m' as i32 as symbol];
@@ -1609,15 +1608,9 @@ static mut g_vowel3: [::core::ffi::c_uchar; 27] = [
     0 as ::core::ffi::c_int as ::core::ffi::c_uchar,
     1 as ::core::ffi::c_int as ::core::ffi::c_uchar,
 ];
-static mut g_vowel4: [::core::ffi::c_uchar; 1] = [
-    17 as ::core::ffi::c_int as ::core::ffi::c_uchar,
-];
-static mut g_vowel5: [::core::ffi::c_uchar; 1] = [
-    65 as ::core::ffi::c_int as ::core::ffi::c_uchar,
-];
-static mut g_vowel6: [::core::ffi::c_uchar; 1] = [
-    65 as ::core::ffi::c_int as ::core::ffi::c_uchar,
-];
+static mut g_vowel4: [::core::ffi::c_uchar; 1] = [17 as ::core::ffi::c_int as ::core::ffi::c_uchar];
+static mut g_vowel5: [::core::ffi::c_uchar; 1] = [65 as ::core::ffi::c_int as ::core::ffi::c_uchar];
+static mut g_vowel6: [::core::ffi::c_uchar; 1] = [65 as ::core::ffi::c_int as ::core::ffi::c_uchar];
 static mut s_0: [symbol; 2] = [
     0xc4 as ::core::ffi::c_int as symbol,
     0xb1 as ::core::ffi::c_int as symbol,
@@ -1686,8 +1679,8 @@ unsafe fn r_check_vowel_harmony(mut z: *mut SN_env) -> ::core::ffi::c_int {
     }
     let mut m2: ::core::ffi::c_int = (*z).l - (*z).c;
     if (*z).c <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 'a' as i32
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 'a' as i32
     {
         current_block = 10711865538819913068;
     } else {
@@ -1709,8 +1702,8 @@ unsafe fn r_check_vowel_harmony(mut z: *mut SN_env) -> ::core::ffi::c_int {
         10711865538819913068 => {
             (*z).c = (*z).l - m2;
             if (*z).c <= (*z).lb
-                || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                    as ::core::ffi::c_int != 'e' as i32
+                || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+                    != 'e' as i32
             {
                 current_block = 4180862646881766146;
             } else {
@@ -1732,12 +1725,7 @@ unsafe fn r_check_vowel_harmony(mut z: *mut SN_env) -> ::core::ffi::c_int {
                 1655704410784438243 => {}
                 _ => {
                     (*z).c = (*z).l - m2;
-                    if eq_s_b(
-                        z,
-                        2 as ::core::ffi::c_int,
-                        &raw const s_0 as *const symbol,
-                    ) == 0
-                    {
+                    if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_0 as *const symbol) == 0 {
                         current_block = 8193144676602674933;
                     } else if out_grouping_b_U(
                         z,
@@ -1756,10 +1744,9 @@ unsafe fn r_check_vowel_harmony(mut z: *mut SN_env) -> ::core::ffi::c_int {
                         _ => {
                             (*z).c = (*z).l - m2;
                             if (*z).c <= (*z).lb
-                                || *(*z)
-                                    .p
-                                    .offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                                    as ::core::ffi::c_int != 'i' as i32
+                                || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
+                                    as ::core::ffi::c_int
+                                    != 'i' as i32
                             {
                                 current_block = 3285653399674207684;
                             } else {
@@ -1785,7 +1772,8 @@ unsafe fn r_check_vowel_harmony(mut z: *mut SN_env) -> ::core::ffi::c_int {
                                         || *(*z)
                                             .p
                                             .offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                                            as ::core::ffi::c_int != 'o' as i32
+                                            as ::core::ffi::c_int
+                                            != 'o' as i32
                                     {
                                         current_block = 12246471050194814546;
                                     } else {
@@ -1831,17 +1819,20 @@ unsafe fn r_check_vowel_harmony(mut z: *mut SN_env) -> ::core::ffi::c_int {
                                                 _ => {
                                                     (*z).c = (*z).l - m2;
                                                     if (*z).c <= (*z).lb
-                                                        || *(*z)
-                                                            .p
-                                                            .offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                                                            as ::core::ffi::c_int != 'u' as i32
+                                                        || *(*z).p.offset(
+                                                            ((*z).c - 1 as ::core::ffi::c_int)
+                                                                as isize,
+                                                        )
+                                                            as ::core::ffi::c_int
+                                                            != 'u' as i32
                                                     {
                                                         current_block = 2438352751361416361;
                                                     } else {
                                                         (*z).c -= 1;
                                                         if out_grouping_b_U(
                                                             z,
-                                                            &raw const g_vowel5 as *const ::core::ffi::c_uchar,
+                                                            &raw const g_vowel5
+                                                                as *const ::core::ffi::c_uchar,
                                                             111 as ::core::ffi::c_int,
                                                             117 as ::core::ffi::c_int,
                                                             1 as ::core::ffi::c_int,
@@ -1866,7 +1857,8 @@ unsafe fn r_check_vowel_harmony(mut z: *mut SN_env) -> ::core::ffi::c_int {
                                                             }
                                                             if out_grouping_b_U(
                                                                 z,
-                                                                &raw const g_vowel6 as *const ::core::ffi::c_uchar,
+                                                                &raw const g_vowel6
+                                                                    as *const ::core::ffi::c_uchar,
                                                                 246 as ::core::ffi::c_int,
                                                                 252 as ::core::ffi::c_int,
                                                                 1 as ::core::ffi::c_int,
@@ -1892,14 +1884,12 @@ unsafe fn r_check_vowel_harmony(mut z: *mut SN_env) -> ::core::ffi::c_int {
     (*z).c = (*z).l - m_test1;
     return 1 as ::core::ffi::c_int;
 }
-unsafe fn r_mark_suffix_with_optional_n_consonant(
-    mut z: *mut SN_env,
-) -> ::core::ffi::c_int {
+unsafe fn r_mark_suffix_with_optional_n_consonant(mut z: *mut SN_env) -> ::core::ffi::c_int {
     let mut current_block: u64;
     let mut m1: ::core::ffi::c_int = (*z).l - (*z).c;
     if (*z).c <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 'n' as i32
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 'n' as i32
     {
         current_block = 5136985158474231060;
     } else {
@@ -1925,8 +1915,8 @@ unsafe fn r_mark_suffix_with_optional_n_consonant(
             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
             let mut m_test4: ::core::ffi::c_int = (*z).l - (*z).c;
             if (*z).c <= (*z).lb
-                || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                    as ::core::ffi::c_int != 'n' as i32
+                || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+                    != 'n' as i32
             {
                 (*z).c = (*z).l - m3;
             } else {
@@ -1935,12 +1925,8 @@ unsafe fn r_mark_suffix_with_optional_n_consonant(
                 return 0 as ::core::ffi::c_int;
             }
             let mut m_test5: ::core::ffi::c_int = (*z).l - (*z).c;
-            let mut ret: ::core::ffi::c_int = skip_b_utf8(
-                (*z).p,
-                (*z).c,
-                (*z).lb,
-                1 as ::core::ffi::c_int,
-            );
+            let mut ret: ::core::ffi::c_int =
+                skip_b_utf8((*z).p, (*z).c, (*z).lb, 1 as ::core::ffi::c_int);
             if ret < 0 as ::core::ffi::c_int {
                 return 0 as ::core::ffi::c_int;
             }
@@ -1961,14 +1947,12 @@ unsafe fn r_mark_suffix_with_optional_n_consonant(
     }
     return 1 as ::core::ffi::c_int;
 }
-unsafe fn r_mark_suffix_with_optional_s_consonant(
-    mut z: *mut SN_env,
-) -> ::core::ffi::c_int {
+unsafe fn r_mark_suffix_with_optional_s_consonant(mut z: *mut SN_env) -> ::core::ffi::c_int {
     let mut current_block: u64;
     let mut m1: ::core::ffi::c_int = (*z).l - (*z).c;
     if (*z).c <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 's' as i32
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 's' as i32
     {
         current_block = 10766308341712289000;
     } else {
@@ -1994,8 +1978,8 @@ unsafe fn r_mark_suffix_with_optional_s_consonant(
             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
             let mut m_test4: ::core::ffi::c_int = (*z).l - (*z).c;
             if (*z).c <= (*z).lb
-                || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                    as ::core::ffi::c_int != 's' as i32
+                || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+                    != 's' as i32
             {
                 (*z).c = (*z).l - m3;
             } else {
@@ -2004,12 +1988,8 @@ unsafe fn r_mark_suffix_with_optional_s_consonant(
                 return 0 as ::core::ffi::c_int;
             }
             let mut m_test5: ::core::ffi::c_int = (*z).l - (*z).c;
-            let mut ret: ::core::ffi::c_int = skip_b_utf8(
-                (*z).p,
-                (*z).c,
-                (*z).lb,
-                1 as ::core::ffi::c_int,
-            );
+            let mut ret: ::core::ffi::c_int =
+                skip_b_utf8((*z).p, (*z).c, (*z).lb, 1 as ::core::ffi::c_int);
             if ret < 0 as ::core::ffi::c_int {
                 return 0 as ::core::ffi::c_int;
             }
@@ -2030,14 +2010,12 @@ unsafe fn r_mark_suffix_with_optional_s_consonant(
     }
     return 1 as ::core::ffi::c_int;
 }
-unsafe fn r_mark_suffix_with_optional_y_consonant(
-    mut z: *mut SN_env,
-) -> ::core::ffi::c_int {
+unsafe fn r_mark_suffix_with_optional_y_consonant(mut z: *mut SN_env) -> ::core::ffi::c_int {
     let mut current_block: u64;
     let mut m1: ::core::ffi::c_int = (*z).l - (*z).c;
     if (*z).c <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 'y' as i32
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 'y' as i32
     {
         current_block = 10555405479196348808;
     } else {
@@ -2063,8 +2041,8 @@ unsafe fn r_mark_suffix_with_optional_y_consonant(
             let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
             let mut m_test4: ::core::ffi::c_int = (*z).l - (*z).c;
             if (*z).c <= (*z).lb
-                || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                    as ::core::ffi::c_int != 'y' as i32
+                || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+                    != 'y' as i32
             {
                 (*z).c = (*z).l - m3;
             } else {
@@ -2073,12 +2051,8 @@ unsafe fn r_mark_suffix_with_optional_y_consonant(
                 return 0 as ::core::ffi::c_int;
             }
             let mut m_test5: ::core::ffi::c_int = (*z).l - (*z).c;
-            let mut ret: ::core::ffi::c_int = skip_b_utf8(
-                (*z).p,
-                (*z).c,
-                (*z).lb,
-                1 as ::core::ffi::c_int,
-            );
+            let mut ret: ::core::ffi::c_int =
+                skip_b_utf8((*z).p, (*z).c, (*z).lb, 1 as ::core::ffi::c_int);
             if ret < 0 as ::core::ffi::c_int {
                 return 0 as ::core::ffi::c_int;
             }
@@ -2099,9 +2073,7 @@ unsafe fn r_mark_suffix_with_optional_y_consonant(
     }
     return 1 as ::core::ffi::c_int;
 }
-unsafe fn r_mark_suffix_with_optional_U_vowel(
-    mut z: *mut SN_env,
-) -> ::core::ffi::c_int {
+unsafe fn r_mark_suffix_with_optional_U_vowel(mut z: *mut SN_env) -> ::core::ffi::c_int {
     let mut current_block: u64;
     let mut m1: ::core::ffi::c_int = (*z).l - (*z).c;
     if in_grouping_b_U(
@@ -2148,12 +2120,8 @@ unsafe fn r_mark_suffix_with_optional_U_vowel(
                 return 0 as ::core::ffi::c_int;
             }
             let mut m_test5: ::core::ffi::c_int = (*z).l - (*z).c;
-            let mut ret: ::core::ffi::c_int = skip_b_utf8(
-                (*z).p,
-                (*z).c,
-                (*z).lb,
-                1 as ::core::ffi::c_int,
-            );
+            let mut ret: ::core::ffi::c_int =
+                skip_b_utf8((*z).p, (*z).c, (*z).lb, 1 as ::core::ffi::c_int);
             if ret < 0 as ::core::ffi::c_int {
                 return 0 as ::core::ffi::c_int;
             }
@@ -2176,12 +2144,14 @@ unsafe fn r_mark_suffix_with_optional_U_vowel(
 }
 unsafe fn r_mark_possessives(mut z: *mut SN_env) -> ::core::ffi::c_int {
     if (*z).c <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int >> 5 as ::core::ffi::c_int != 3 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            >> 5 as ::core::ffi::c_int
+            != 3 as ::core::ffi::c_int
         || 67133440 as ::core::ffi::c_int
-            >> (*(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                as ::core::ffi::c_int & 0x1f as ::core::ffi::c_int)
-            & 1 as ::core::ffi::c_int == 0
+            >> (*(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+                & 0x1f as ::core::ffi::c_int)
+            & 1 as ::core::ffi::c_int
+            == 0
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -2217,10 +2187,10 @@ unsafe fn r_mark_sU(mut z: *mut SN_env) -> ::core::ffi::c_int {
 }
 unsafe fn r_mark_lArI(mut z: *mut SN_env) -> ::core::ffi::c_int {
     if (*z).c - 3 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 105 as ::core::ffi::c_int
-            && *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                as ::core::ffi::c_int != 177 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 105 as ::core::ffi::c_int
+            && *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+                != 177 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -2266,8 +2236,8 @@ unsafe fn r_mark_nUn(mut z: *mut SN_env) -> ::core::ffi::c_int {
         return ret;
     }
     if (*z).c - 1 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 110 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 110 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -2286,10 +2256,10 @@ unsafe fn r_mark_yA(mut z: *mut SN_env) -> ::core::ffi::c_int {
         return ret;
     }
     if (*z).c <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 97 as ::core::ffi::c_int
-            && *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                as ::core::ffi::c_int != 101 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 97 as ::core::ffi::c_int
+            && *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+                != 101 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -2308,10 +2278,10 @@ unsafe fn r_mark_nA(mut z: *mut SN_env) -> ::core::ffi::c_int {
         return ret;
     }
     if (*z).c - 1 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 97 as ::core::ffi::c_int
-            && *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                as ::core::ffi::c_int != 101 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 97 as ::core::ffi::c_int
+            && *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+                != 101 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -2326,10 +2296,10 @@ unsafe fn r_mark_DA(mut z: *mut SN_env) -> ::core::ffi::c_int {
         return ret;
     }
     if (*z).c - 1 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 97 as ::core::ffi::c_int
-            && *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                as ::core::ffi::c_int != 101 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 97 as ::core::ffi::c_int
+            && *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+                != 101 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -2344,10 +2314,10 @@ unsafe fn r_mark_ndA(mut z: *mut SN_env) -> ::core::ffi::c_int {
         return ret;
     }
     if (*z).c - 2 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 97 as ::core::ffi::c_int
-            && *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                as ::core::ffi::c_int != 101 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 97 as ::core::ffi::c_int
+            && *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+                != 101 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -2362,8 +2332,8 @@ unsafe fn r_mark_DAn(mut z: *mut SN_env) -> ::core::ffi::c_int {
         return ret;
     }
     if (*z).c - 2 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 110 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 110 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -2378,8 +2348,8 @@ unsafe fn r_mark_ndAn(mut z: *mut SN_env) -> ::core::ffi::c_int {
         return ret;
     }
     if (*z).c - 3 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 110 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 110 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -2394,10 +2364,10 @@ unsafe fn r_mark_ylA(mut z: *mut SN_env) -> ::core::ffi::c_int {
         return ret;
     }
     if (*z).c - 1 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 97 as ::core::ffi::c_int
-            && *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                as ::core::ffi::c_int != 101 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 97 as ::core::ffi::c_int
+            && *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+                != 101 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -2422,10 +2392,10 @@ unsafe fn r_mark_ncA(mut z: *mut SN_env) -> ::core::ffi::c_int {
         return ret;
     }
     if (*z).c - 1 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 97 as ::core::ffi::c_int
-            && *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                as ::core::ffi::c_int != 101 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 97 as ::core::ffi::c_int
+            && *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+                != 101 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -2444,8 +2414,8 @@ unsafe fn r_mark_yUm(mut z: *mut SN_env) -> ::core::ffi::c_int {
         return ret;
     }
     if (*z).c - 1 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 109 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 109 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -2464,8 +2434,8 @@ unsafe fn r_mark_sUn(mut z: *mut SN_env) -> ::core::ffi::c_int {
         return ret;
     }
     if (*z).c - 2 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 110 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 110 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -2480,8 +2450,8 @@ unsafe fn r_mark_yUz(mut z: *mut SN_env) -> ::core::ffi::c_int {
         return ret;
     }
     if (*z).c - 1 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 122 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 122 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -2496,8 +2466,8 @@ unsafe fn r_mark_yUz(mut z: *mut SN_env) -> ::core::ffi::c_int {
 }
 unsafe fn r_mark_sUnUz(mut z: *mut SN_env) -> ::core::ffi::c_int {
     if (*z).c - 4 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 122 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 122 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -2512,8 +2482,8 @@ unsafe fn r_mark_lAr(mut z: *mut SN_env) -> ::core::ffi::c_int {
         return ret;
     }
     if (*z).c - 2 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 114 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 114 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -2528,8 +2498,8 @@ unsafe fn r_mark_nUz(mut z: *mut SN_env) -> ::core::ffi::c_int {
         return ret;
     }
     if (*z).c - 2 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 122 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 122 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -2544,8 +2514,8 @@ unsafe fn r_mark_DUr(mut z: *mut SN_env) -> ::core::ffi::c_int {
         return ret;
     }
     if (*z).c - 2 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 114 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 114 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -2556,10 +2526,10 @@ unsafe fn r_mark_DUr(mut z: *mut SN_env) -> ::core::ffi::c_int {
 }
 unsafe fn r_mark_cAsInA(mut z: *mut SN_env) -> ::core::ffi::c_int {
     if (*z).c - 5 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 97 as ::core::ffi::c_int
-            && *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                as ::core::ffi::c_int != 101 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 97 as ::core::ffi::c_int
+            && *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+                != 101 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -2584,12 +2554,14 @@ unsafe fn r_mark_yDU(mut z: *mut SN_env) -> ::core::ffi::c_int {
 }
 unsafe fn r_mark_ysA(mut z: *mut SN_env) -> ::core::ffi::c_int {
     if (*z).c - 1 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int >> 5 as ::core::ffi::c_int != 3 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            >> 5 as ::core::ffi::c_int
+            != 3 as ::core::ffi::c_int
         || 26658 as ::core::ffi::c_int
-            >> (*(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                as ::core::ffi::c_int & 0x1f as ::core::ffi::c_int)
-            & 1 as ::core::ffi::c_int == 0
+            >> (*(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+                & 0x1f as ::core::ffi::c_int)
+            & 1 as ::core::ffi::c_int
+            == 0
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -2608,8 +2580,8 @@ unsafe fn r_mark_ymUs_(mut z: *mut SN_env) -> ::core::ffi::c_int {
         return ret;
     }
     if (*z).c - 3 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 159 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 159 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -2632,9 +2604,7 @@ unsafe fn r_mark_yken(mut z: *mut SN_env) -> ::core::ffi::c_int {
     }
     return 1 as ::core::ffi::c_int;
 }
-unsafe fn r_stem_nominal_verb_suffixes(
-    mut z: *mut SN_env,
-) -> ::core::ffi::c_int {
+unsafe fn r_stem_nominal_verb_suffixes(mut z: *mut SN_env) -> ::core::ffi::c_int {
     let mut current_block: u64;
     (*z).ket = (*z).c;
     *(*z).I.offset(0 as ::core::ffi::c_int as isize) = 1 as ::core::ffi::c_int;
@@ -2676,19 +2646,19 @@ unsafe fn r_stem_nominal_verb_suffixes(
                                         if ret_8 == 0 as ::core::ffi::c_int {
                                             (*z).c = (*z).l - m3;
                                         } else if ret_8 < 0 as ::core::ffi::c_int {
-                                            return ret_8
+                                            return ret_8;
                                         }
                                     } else if ret_7 < 0 as ::core::ffi::c_int {
-                                        return ret_7
+                                        return ret_7;
                                     }
                                 } else if ret_6 < 0 as ::core::ffi::c_int {
-                                    return ret_6
+                                    return ret_6;
                                 }
                             } else if ret_5 < 0 as ::core::ffi::c_int {
-                                return ret_5
+                                return ret_5;
                             }
                         } else if ret_4 < 0 as ::core::ffi::c_int {
-                            return ret_4
+                            return ret_4;
                         }
                         let mut ret_9: ::core::ffi::c_int = r_mark_ymUs_(z);
                         if ret_9 == 0 as ::core::ffi::c_int {
@@ -2748,32 +2718,43 @@ unsafe fn r_stem_nominal_verb_suffixes(
                                                 let mut ret_21: ::core::ffi::c_int = r_mark_sUn(z);
                                                 if ret_21 == 0 as ::core::ffi::c_int {
                                                     (*z).c = (*z).l - m7;
-                                                    let mut ret_22: ::core::ffi::c_int = r_mark_yUm(z);
+                                                    let mut ret_22: ::core::ffi::c_int =
+                                                        r_mark_yUm(z);
                                                     if ret_22 == 0 as ::core::ffi::c_int {
                                                         (*z).c = (*z).l - m1;
-                                                        let mut ret_25: ::core::ffi::c_int = r_mark_DUr(z);
+                                                        let mut ret_25: ::core::ffi::c_int =
+                                                            r_mark_DUr(z);
                                                         if ret_25 <= 0 as ::core::ffi::c_int {
                                                             return ret_25;
                                                         }
                                                         (*z).bra = (*z).c;
-                                                        let mut ret_26: ::core::ffi::c_int = slice_del(z);
+                                                        let mut ret_26: ::core::ffi::c_int =
+                                                            slice_del(z);
                                                         if ret_26 < 0 as ::core::ffi::c_int {
                                                             return ret_26;
                                                         }
-                                                        let mut m9: ::core::ffi::c_int = (*z).l - (*z).c;
+                                                        let mut m9: ::core::ffi::c_int =
+                                                            (*z).l - (*z).c;
                                                         (*z).ket = (*z).c;
-                                                        let mut m10: ::core::ffi::c_int = (*z).l - (*z).c;
-                                                        let mut ret_27: ::core::ffi::c_int = r_mark_sUnUz(z);
+                                                        let mut m10: ::core::ffi::c_int =
+                                                            (*z).l - (*z).c;
+                                                        let mut ret_27: ::core::ffi::c_int =
+                                                            r_mark_sUnUz(z);
                                                         if ret_27 == 0 as ::core::ffi::c_int {
                                                             (*z).c = (*z).l - m10;
-                                                            let mut ret_28: ::core::ffi::c_int = r_mark_lAr(z);
+                                                            let mut ret_28: ::core::ffi::c_int =
+                                                                r_mark_lAr(z);
                                                             if ret_28 == 0 as ::core::ffi::c_int {
                                                                 (*z).c = (*z).l - m10;
-                                                                let mut ret_29: ::core::ffi::c_int = r_mark_yUm(z);
-                                                                if ret_29 == 0 as ::core::ffi::c_int {
+                                                                let mut ret_29: ::core::ffi::c_int =
+                                                                    r_mark_yUm(z);
+                                                                if ret_29 == 0 as ::core::ffi::c_int
+                                                                {
                                                                     (*z).c = (*z).l - m10;
                                                                     let mut ret_30: ::core::ffi::c_int = r_mark_sUn(z);
-                                                                    if ret_30 == 0 as ::core::ffi::c_int {
+                                                                    if ret_30
+                                                                        == 0 as ::core::ffi::c_int
+                                                                    {
                                                                         (*z).c = (*z).l - m10;
                                                                         let mut ret_31: ::core::ffi::c_int = r_mark_yUz(z);
                                                                         if ret_31 == 0 as ::core::ffi::c_int {
@@ -2781,23 +2762,30 @@ unsafe fn r_stem_nominal_verb_suffixes(
                                                                         } else if ret_31 < 0 as ::core::ffi::c_int {
                                                                             return ret_31
                                                                         }
-                                                                    } else if ret_30 < 0 as ::core::ffi::c_int {
-                                                                        return ret_30
+                                                                    } else if ret_30
+                                                                        < 0 as ::core::ffi::c_int
+                                                                    {
+                                                                        return ret_30;
                                                                     }
-                                                                } else if ret_29 < 0 as ::core::ffi::c_int {
-                                                                    return ret_29
+                                                                } else if ret_29
+                                                                    < 0 as ::core::ffi::c_int
+                                                                {
+                                                                    return ret_29;
                                                                 }
-                                                            } else if ret_28 < 0 as ::core::ffi::c_int {
-                                                                return ret_28
+                                                            } else if ret_28
+                                                                < 0 as ::core::ffi::c_int
+                                                            {
+                                                                return ret_28;
                                                             }
                                                         } else if ret_27 < 0 as ::core::ffi::c_int {
-                                                            return ret_27
+                                                            return ret_27;
                                                         }
-                                                        let mut ret_32: ::core::ffi::c_int = r_mark_ymUs_(z);
+                                                        let mut ret_32: ::core::ffi::c_int =
+                                                            r_mark_ymUs_(z);
                                                         if ret_32 == 0 as ::core::ffi::c_int {
                                                             (*z).c = (*z).l - m9;
                                                         } else if ret_32 < 0 as ::core::ffi::c_int {
-                                                            return ret_32
+                                                            return ret_32;
                                                         }
                                                         current_block = 8277373342746637944;
                                                     } else {
@@ -2834,11 +2822,12 @@ unsafe fn r_stem_nominal_verb_suffixes(
                                                 }
                                                 let mut m8: ::core::ffi::c_int = (*z).l - (*z).c;
                                                 (*z).ket = (*z).c;
-                                                let mut ret_24: ::core::ffi::c_int = r_mark_ymUs_(z);
+                                                let mut ret_24: ::core::ffi::c_int =
+                                                    r_mark_ymUs_(z);
                                                 if ret_24 == 0 as ::core::ffi::c_int {
                                                     (*z).c = (*z).l - m8;
                                                 } else if ret_24 < 0 as ::core::ffi::c_int {
-                                                    return ret_24
+                                                    return ret_24;
                                                 }
                                             }
                                         }
@@ -2869,33 +2858,33 @@ unsafe fn r_stem_nominal_verb_suffixes(
                                             if ret_15 == 0 as ::core::ffi::c_int {
                                                 (*z).c = (*z).l - m4;
                                             } else if ret_15 < 0 as ::core::ffi::c_int {
-                                                return ret_15
+                                                return ret_15;
                                             }
                                         } else if ret_14 < 0 as ::core::ffi::c_int {
-                                            return ret_14
+                                            return ret_14;
                                         }
                                     } else if ret_13 < 0 as ::core::ffi::c_int {
-                                        return ret_13
+                                        return ret_13;
                                     }
                                 } else if ret_12 < 0 as ::core::ffi::c_int {
-                                    return ret_12
+                                    return ret_12;
                                 }
-                                *(*z).I.offset(0 as ::core::ffi::c_int as isize) = 0
-                                    as ::core::ffi::c_int;
+                                *(*z).I.offset(0 as ::core::ffi::c_int as isize) =
+                                    0 as ::core::ffi::c_int;
                             }
                         }
                     }
                 } else if ret_2 < 0 as ::core::ffi::c_int {
-                    return ret_2
+                    return ret_2;
                 }
             } else if ret_1 < 0 as ::core::ffi::c_int {
-                return ret_1
+                return ret_1;
             }
         } else if ret_0 < 0 as ::core::ffi::c_int {
-            return ret_0
+            return ret_0;
         }
     } else if ret < 0 as ::core::ffi::c_int {
-        return ret
+        return ret;
     }
     (*z).bra = (*z).c;
     let mut ret_33: ::core::ffi::c_int = slice_del(z);
@@ -2904,9 +2893,7 @@ unsafe fn r_stem_nominal_verb_suffixes(
     }
     return 1 as ::core::ffi::c_int;
 }
-unsafe fn r_stem_suffix_chain_before_ki(
-    mut z: *mut SN_env,
-) -> ::core::ffi::c_int {
+unsafe fn r_stem_suffix_chain_before_ki(mut z: *mut SN_env) -> ::core::ffi::c_int {
     let mut current_block: u64;
     (*z).ket = (*z).c;
     let mut ret: ::core::ffi::c_int = r_mark_ki(z);
@@ -2931,9 +2918,7 @@ unsafe fn r_stem_suffix_chain_before_ki(
                 let mut ret_24: ::core::ffi::c_int = r_mark_sU(z);
                 if ret_24 == 0 as ::core::ffi::c_int {
                     (*z).c = (*z).l - m10;
-                    let mut ret_29: ::core::ffi::c_int = r_stem_suffix_chain_before_ki(
-                        z,
-                    );
+                    let mut ret_29: ::core::ffi::c_int = r_stem_suffix_chain_before_ki(z);
                     if ret_29 <= 0 as ::core::ffi::c_int {
                         return ret_29;
                     }
@@ -2960,13 +2945,11 @@ unsafe fn r_stem_suffix_chain_before_ki(
                         if ret_27 < 0 as ::core::ffi::c_int {
                             return ret_27;
                         }
-                        let mut ret_28: ::core::ffi::c_int = r_stem_suffix_chain_before_ki(
-                            z,
-                        );
+                        let mut ret_28: ::core::ffi::c_int = r_stem_suffix_chain_before_ki(z);
                         if ret_28 == 0 as ::core::ffi::c_int {
                             (*z).c = (*z).l - m11;
                         } else if ret_28 < 0 as ::core::ffi::c_int {
-                            return ret_28
+                            return ret_28;
                         }
                     }
                 }
@@ -3003,13 +2986,11 @@ unsafe fn r_stem_suffix_chain_before_ki(
                     let mut ret_15: ::core::ffi::c_int = r_mark_sU(z);
                     if ret_15 == 0 as ::core::ffi::c_int {
                         (*z).c = (*z).l - m7;
-                        let mut ret_20: ::core::ffi::c_int = r_stem_suffix_chain_before_ki(
-                            z,
-                        );
+                        let mut ret_20: ::core::ffi::c_int = r_stem_suffix_chain_before_ki(z);
                         if ret_20 == 0 as ::core::ffi::c_int {
                             (*z).c = (*z).l - m6;
                         } else if ret_20 < 0 as ::core::ffi::c_int {
-                            return ret_20
+                            return ret_20;
                         }
                         current_block = 9098473726789065310;
                     } else {
@@ -3046,13 +3027,11 @@ unsafe fn r_stem_suffix_chain_before_ki(
                             if ret_18 < 0 as ::core::ffi::c_int {
                                 return ret_18;
                             }
-                            let mut ret_19: ::core::ffi::c_int = r_stem_suffix_chain_before_ki(
-                                z,
-                            );
+                            let mut ret_19: ::core::ffi::c_int = r_stem_suffix_chain_before_ki(z);
                             if ret_19 == 0 as ::core::ffi::c_int {
                                 (*z).c = (*z).l - m9;
                             } else if ret_19 < 0 as ::core::ffi::c_int {
-                                return ret_19
+                                return ret_19;
                             }
                         }
                     }
@@ -3113,7 +3092,7 @@ unsafe fn r_stem_suffix_chain_before_ki(
                     if ret_9 == 0 as ::core::ffi::c_int {
                         (*z).c = (*z).l - m5;
                     } else if ret_9 < 0 as ::core::ffi::c_int {
-                        return ret_9
+                        return ret_9;
                     }
                 }
             }
@@ -3131,7 +3110,7 @@ unsafe fn r_stem_suffix_chain_before_ki(
             if ret_4 == 0 as ::core::ffi::c_int {
                 (*z).c = (*z).l - m4;
             } else if ret_4 < 0 as ::core::ffi::c_int {
-                return ret_4
+                return ret_4;
             }
         }
     }
@@ -3177,9 +3156,7 @@ unsafe fn r_stem_noun_suffixes(mut z: *mut SN_env) -> ::core::ffi::c_int {
                         let mut ret_19: ::core::ffi::c_int = r_mark_sU(z);
                         if ret_19 == 0 as ::core::ffi::c_int {
                             (*z).c = (*z).l - m8;
-                            let mut ret_24: ::core::ffi::c_int = r_stem_suffix_chain_before_ki(
-                                z,
-                            );
+                            let mut ret_24: ::core::ffi::c_int = r_stem_suffix_chain_before_ki(z);
                             if ret_24 == 0 as ::core::ffi::c_int {
                                 current_block = 3282659514390828718;
                             } else {
@@ -3211,13 +3188,12 @@ unsafe fn r_stem_noun_suffixes(mut z: *mut SN_env) -> ::core::ffi::c_int {
                                 if ret_22 < 0 as ::core::ffi::c_int {
                                     return ret_22;
                                 }
-                                let mut ret_23: ::core::ffi::c_int = r_stem_suffix_chain_before_ki(
-                                    z,
-                                );
+                                let mut ret_23: ::core::ffi::c_int =
+                                    r_stem_suffix_chain_before_ki(z);
                                 if ret_23 == 0 as ::core::ffi::c_int {
                                     (*z).c = (*z).l - m9;
                                 } else if ret_23 < 0 as ::core::ffi::c_int {
-                                    return ret_23
+                                    return ret_23;
                                 }
                             }
                             current_block = 18226426736697592660;
@@ -3298,13 +3274,12 @@ unsafe fn r_stem_noun_suffixes(mut z: *mut SN_env) -> ::core::ffi::c_int {
                                     if ret_30 < 0 as ::core::ffi::c_int {
                                         return ret_30;
                                     }
-                                    let mut ret_31: ::core::ffi::c_int = r_stem_suffix_chain_before_ki(
-                                        z,
-                                    );
+                                    let mut ret_31: ::core::ffi::c_int =
+                                        r_stem_suffix_chain_before_ki(z);
                                     if ret_31 == 0 as ::core::ffi::c_int {
                                         (*z).c = (*z).l - m12;
                                     } else if ret_31 < 0 as ::core::ffi::c_int {
-                                        return ret_31
+                                        return ret_31;
                                     }
                                 }
                                 current_block = 18226426736697592660;
@@ -3332,9 +3307,8 @@ unsafe fn r_stem_noun_suffixes(mut z: *mut SN_env) -> ::core::ffi::c_int {
                                         let mut ret_57: ::core::ffi::c_int = r_mark_lArI(z);
                                         if ret_57 == 0 as ::core::ffi::c_int {
                                             (*z).c = (*z).l - m1;
-                                            let mut ret_59: ::core::ffi::c_int = r_stem_suffix_chain_before_ki(
-                                                z,
-                                            );
+                                            let mut ret_59: ::core::ffi::c_int =
+                                                r_stem_suffix_chain_before_ki(z);
                                             if ret_59 == 0 as ::core::ffi::c_int {
                                                 (*z).c = (*z).l - m1;
                                                 (*z).ket = (*z).c;
@@ -3342,50 +3316,66 @@ unsafe fn r_stem_noun_suffixes(mut z: *mut SN_env) -> ::core::ffi::c_int {
                                                 let mut ret_60: ::core::ffi::c_int = r_mark_DA(z);
                                                 if ret_60 == 0 as ::core::ffi::c_int {
                                                     (*z).c = (*z).l - m22;
-                                                    let mut ret_61: ::core::ffi::c_int = r_mark_yU(z);
+                                                    let mut ret_61: ::core::ffi::c_int =
+                                                        r_mark_yU(z);
                                                     if ret_61 == 0 as ::core::ffi::c_int {
                                                         (*z).c = (*z).l - m22;
-                                                        let mut ret_62: ::core::ffi::c_int = r_mark_yA(z);
+                                                        let mut ret_62: ::core::ffi::c_int =
+                                                            r_mark_yA(z);
                                                         if ret_62 == 0 as ::core::ffi::c_int {
                                                             (*z).c = (*z).l - m1;
                                                             (*z).ket = (*z).c;
-                                                            let mut m26: ::core::ffi::c_int = (*z).l - (*z).c;
-                                                            let mut ret_70: ::core::ffi::c_int = r_mark_possessives(z);
+                                                            let mut m26: ::core::ffi::c_int =
+                                                                (*z).l - (*z).c;
+                                                            let mut ret_70: ::core::ffi::c_int =
+                                                                r_mark_possessives(z);
                                                             if ret_70 == 0 as ::core::ffi::c_int {
                                                                 (*z).c = (*z).l - m26;
-                                                                let mut ret_71: ::core::ffi::c_int = r_mark_sU(z);
-                                                                if ret_71 <= 0 as ::core::ffi::c_int {
+                                                                let mut ret_71: ::core::ffi::c_int =
+                                                                    r_mark_sU(z);
+                                                                if ret_71 <= 0 as ::core::ffi::c_int
+                                                                {
                                                                     return ret_71;
                                                                 }
-                                                            } else if ret_70 < 0 as ::core::ffi::c_int {
-                                                                return ret_70
+                                                            } else if ret_70
+                                                                < 0 as ::core::ffi::c_int
+                                                            {
+                                                                return ret_70;
                                                             }
                                                             (*z).bra = (*z).c;
-                                                            let mut ret_72: ::core::ffi::c_int = slice_del(z);
+                                                            let mut ret_72: ::core::ffi::c_int =
+                                                                slice_del(z);
                                                             if ret_72 < 0 as ::core::ffi::c_int {
                                                                 return ret_72;
                                                             }
-                                                            let mut m27: ::core::ffi::c_int = (*z).l - (*z).c;
+                                                            let mut m27: ::core::ffi::c_int =
+                                                                (*z).l - (*z).c;
                                                             (*z).ket = (*z).c;
-                                                            let mut ret_73: ::core::ffi::c_int = r_mark_lAr(z);
+                                                            let mut ret_73: ::core::ffi::c_int =
+                                                                r_mark_lAr(z);
                                                             if ret_73 == 0 as ::core::ffi::c_int {
                                                                 (*z).c = (*z).l - m27;
                                                             } else {
-                                                                if ret_73 < 0 as ::core::ffi::c_int {
+                                                                if ret_73 < 0 as ::core::ffi::c_int
+                                                                {
                                                                     return ret_73;
                                                                 }
                                                                 (*z).bra = (*z).c;
-                                                                let mut ret_74: ::core::ffi::c_int = slice_del(z);
-                                                                if ret_74 < 0 as ::core::ffi::c_int {
+                                                                let mut ret_74: ::core::ffi::c_int =
+                                                                    slice_del(z);
+                                                                if ret_74 < 0 as ::core::ffi::c_int
+                                                                {
                                                                     return ret_74;
                                                                 }
-                                                                let mut ret_75: ::core::ffi::c_int = r_stem_suffix_chain_before_ki(
-                                                                    z,
-                                                                );
-                                                                if ret_75 == 0 as ::core::ffi::c_int {
+                                                                let mut ret_75: ::core::ffi::c_int =
+                                                                    r_stem_suffix_chain_before_ki(z);
+                                                                if ret_75 == 0 as ::core::ffi::c_int
+                                                                {
                                                                     (*z).c = (*z).l - m27;
-                                                                } else if ret_75 < 0 as ::core::ffi::c_int {
-                                                                    return ret_75
+                                                                } else if ret_75
+                                                                    < 0 as ::core::ffi::c_int
+                                                                {
+                                                                    return ret_75;
                                                                 }
                                                             }
                                                             current_block = 18226426736697592660;
@@ -3411,22 +3401,29 @@ unsafe fn r_stem_noun_suffixes(mut z: *mut SN_env) -> ::core::ffi::c_int {
                                                     18226426736697592660 => {}
                                                     _ => {
                                                         (*z).bra = (*z).c;
-                                                        let mut ret_63: ::core::ffi::c_int = slice_del(z);
+                                                        let mut ret_63: ::core::ffi::c_int =
+                                                            slice_del(z);
                                                         if ret_63 < 0 as ::core::ffi::c_int {
                                                             return ret_63;
                                                         }
-                                                        let mut m23: ::core::ffi::c_int = (*z).l - (*z).c;
+                                                        let mut m23: ::core::ffi::c_int =
+                                                            (*z).l - (*z).c;
                                                         (*z).ket = (*z).c;
-                                                        let mut m24: ::core::ffi::c_int = (*z).l - (*z).c;
-                                                        let mut ret_64: ::core::ffi::c_int = r_mark_possessives(z);
+                                                        let mut m24: ::core::ffi::c_int =
+                                                            (*z).l - (*z).c;
+                                                        let mut ret_64: ::core::ffi::c_int =
+                                                            r_mark_possessives(z);
                                                         if ret_64 == 0 as ::core::ffi::c_int {
                                                             (*z).c = (*z).l - m24;
-                                                            let mut ret_67: ::core::ffi::c_int = r_mark_lAr(z);
+                                                            let mut ret_67: ::core::ffi::c_int =
+                                                                r_mark_lAr(z);
                                                             if ret_67 == 0 as ::core::ffi::c_int {
                                                                 (*z).c = (*z).l - m23;
-                                                                current_block = 18226426736697592660;
+                                                                current_block =
+                                                                    18226426736697592660;
                                                             } else {
-                                                                if ret_67 < 0 as ::core::ffi::c_int {
+                                                                if ret_67 < 0 as ::core::ffi::c_int
+                                                                {
                                                                     return ret_67;
                                                                 }
                                                                 current_block = 3448696023653767246;
@@ -3436,17 +3433,22 @@ unsafe fn r_stem_noun_suffixes(mut z: *mut SN_env) -> ::core::ffi::c_int {
                                                                 return ret_64;
                                                             }
                                                             (*z).bra = (*z).c;
-                                                            let mut ret_65: ::core::ffi::c_int = slice_del(z);
+                                                            let mut ret_65: ::core::ffi::c_int =
+                                                                slice_del(z);
                                                             if ret_65 < 0 as ::core::ffi::c_int {
                                                                 return ret_65;
                                                             }
-                                                            let mut m25: ::core::ffi::c_int = (*z).l - (*z).c;
+                                                            let mut m25: ::core::ffi::c_int =
+                                                                (*z).l - (*z).c;
                                                             (*z).ket = (*z).c;
-                                                            let mut ret_66: ::core::ffi::c_int = r_mark_lAr(z);
+                                                            let mut ret_66: ::core::ffi::c_int =
+                                                                r_mark_lAr(z);
                                                             if ret_66 == 0 as ::core::ffi::c_int {
                                                                 (*z).c = (*z).l - m25;
-                                                            } else if ret_66 < 0 as ::core::ffi::c_int {
-                                                                return ret_66
+                                                            } else if ret_66
+                                                                < 0 as ::core::ffi::c_int
+                                                            {
+                                                                return ret_66;
                                                             }
                                                             current_block = 3448696023653767246;
                                                         }
@@ -3454,25 +3456,29 @@ unsafe fn r_stem_noun_suffixes(mut z: *mut SN_env) -> ::core::ffi::c_int {
                                                             18226426736697592660 => {}
                                                             _ => {
                                                                 (*z).bra = (*z).c;
-                                                                let mut ret_68: ::core::ffi::c_int = slice_del(z);
-                                                                if ret_68 < 0 as ::core::ffi::c_int {
+                                                                let mut ret_68: ::core::ffi::c_int =
+                                                                    slice_del(z);
+                                                                if ret_68 < 0 as ::core::ffi::c_int
+                                                                {
                                                                     return ret_68;
                                                                 }
                                                                 (*z).ket = (*z).c;
-                                                                let mut ret_69: ::core::ffi::c_int = r_stem_suffix_chain_before_ki(
-                                                                    z,
-                                                                );
-                                                                if ret_69 == 0 as ::core::ffi::c_int {
+                                                                let mut ret_69: ::core::ffi::c_int =
+                                                                    r_stem_suffix_chain_before_ki(z);
+                                                                if ret_69 == 0 as ::core::ffi::c_int
+                                                                {
                                                                     (*z).c = (*z).l - m23;
-                                                                } else if ret_69 < 0 as ::core::ffi::c_int {
-                                                                    return ret_69
+                                                                } else if ret_69
+                                                                    < 0 as ::core::ffi::c_int
+                                                                {
+                                                                    return ret_69;
                                                                 }
                                                             }
                                                         }
                                                     }
                                                 }
                                             } else if ret_59 < 0 as ::core::ffi::c_int {
-                                                return ret_59
+                                                return ret_59;
                                             }
                                         } else {
                                             if ret_57 < 0 as ::core::ffi::c_int {
@@ -3520,9 +3526,8 @@ unsafe fn r_stem_noun_suffixes(mut z: *mut SN_env) -> ::core::ffi::c_int {
                                             if ret_48 < 0 as ::core::ffi::c_int {
                                                 return ret_48;
                                             }
-                                            let mut ret_49: ::core::ffi::c_int = r_stem_suffix_chain_before_ki(
-                                                z,
-                                            );
+                                            let mut ret_49: ::core::ffi::c_int =
+                                                r_stem_suffix_chain_before_ki(z);
                                             if ret_49 == 0 as ::core::ffi::c_int {
                                                 current_block = 14992349157982313401;
                                             } else {
@@ -3538,19 +3543,20 @@ unsafe fn r_stem_noun_suffixes(mut z: *mut SN_env) -> ::core::ffi::c_int {
                                                 (*z).c = (*z).l - m19;
                                                 (*z).ket = (*z).c;
                                                 let mut m20: ::core::ffi::c_int = (*z).l - (*z).c;
-                                                let mut ret_50: ::core::ffi::c_int = r_mark_possessives(z);
+                                                let mut ret_50: ::core::ffi::c_int =
+                                                    r_mark_possessives(z);
                                                 if ret_50 == 0 as ::core::ffi::c_int {
                                                     (*z).c = (*z).l - m20;
-                                                    let mut ret_51: ::core::ffi::c_int = r_mark_sU(z);
+                                                    let mut ret_51: ::core::ffi::c_int =
+                                                        r_mark_sU(z);
                                                     if ret_51 == 0 as ::core::ffi::c_int {
                                                         (*z).c = (*z).l - m19;
-                                                        let mut ret_56: ::core::ffi::c_int = r_stem_suffix_chain_before_ki(
-                                                            z,
-                                                        );
+                                                        let mut ret_56: ::core::ffi::c_int =
+                                                            r_stem_suffix_chain_before_ki(z);
                                                         if ret_56 == 0 as ::core::ffi::c_int {
                                                             (*z).c = (*z).l - m18;
                                                         } else if ret_56 < 0 as ::core::ffi::c_int {
-                                                            return ret_56
+                                                            return ret_56;
                                                         }
                                                         current_block = 18226426736697592660;
                                                     } else {
@@ -3569,13 +3575,16 @@ unsafe fn r_stem_noun_suffixes(mut z: *mut SN_env) -> ::core::ffi::c_int {
                                                     18226426736697592660 => {}
                                                     _ => {
                                                         (*z).bra = (*z).c;
-                                                        let mut ret_52: ::core::ffi::c_int = slice_del(z);
+                                                        let mut ret_52: ::core::ffi::c_int =
+                                                            slice_del(z);
                                                         if ret_52 < 0 as ::core::ffi::c_int {
                                                             return ret_52;
                                                         }
-                                                        let mut m21: ::core::ffi::c_int = (*z).l - (*z).c;
+                                                        let mut m21: ::core::ffi::c_int =
+                                                            (*z).l - (*z).c;
                                                         (*z).ket = (*z).c;
-                                                        let mut ret_53: ::core::ffi::c_int = r_mark_lAr(z);
+                                                        let mut ret_53: ::core::ffi::c_int =
+                                                            r_mark_lAr(z);
                                                         if ret_53 == 0 as ::core::ffi::c_int {
                                                             (*z).c = (*z).l - m21;
                                                         } else {
@@ -3583,17 +3592,19 @@ unsafe fn r_stem_noun_suffixes(mut z: *mut SN_env) -> ::core::ffi::c_int {
                                                                 return ret_53;
                                                             }
                                                             (*z).bra = (*z).c;
-                                                            let mut ret_54: ::core::ffi::c_int = slice_del(z);
+                                                            let mut ret_54: ::core::ffi::c_int =
+                                                                slice_del(z);
                                                             if ret_54 < 0 as ::core::ffi::c_int {
                                                                 return ret_54;
                                                             }
-                                                            let mut ret_55: ::core::ffi::c_int = r_stem_suffix_chain_before_ki(
-                                                                z,
-                                                            );
+                                                            let mut ret_55: ::core::ffi::c_int =
+                                                                r_stem_suffix_chain_before_ki(z);
                                                             if ret_55 == 0 as ::core::ffi::c_int {
                                                                 (*z).c = (*z).l - m21;
-                                                            } else if ret_55 < 0 as ::core::ffi::c_int {
-                                                                return ret_55
+                                                            } else if ret_55
+                                                                < 0 as ::core::ffi::c_int
+                                                            {
+                                                                return ret_55;
                                                             }
                                                         }
                                                     }
@@ -3620,13 +3631,12 @@ unsafe fn r_stem_noun_suffixes(mut z: *mut SN_env) -> ::core::ffi::c_int {
                                     let mut ret_40: ::core::ffi::c_int = r_mark_lAr(z);
                                     if ret_40 == 0 as ::core::ffi::c_int {
                                         (*z).c = (*z).l - m14;
-                                        let mut ret_43: ::core::ffi::c_int = r_stem_suffix_chain_before_ki(
-                                            z,
-                                        );
+                                        let mut ret_43: ::core::ffi::c_int =
+                                            r_stem_suffix_chain_before_ki(z);
                                         if ret_43 == 0 as ::core::ffi::c_int {
                                             (*z).c = (*z).l - m13;
                                         } else if ret_43 < 0 as ::core::ffi::c_int {
-                                            return ret_43
+                                            return ret_43;
                                         }
                                     } else {
                                         if ret_40 < 0 as ::core::ffi::c_int {
@@ -3638,13 +3648,12 @@ unsafe fn r_stem_noun_suffixes(mut z: *mut SN_env) -> ::core::ffi::c_int {
                                             return ret_41;
                                         }
                                         let mut m16: ::core::ffi::c_int = (*z).l - (*z).c;
-                                        let mut ret_42: ::core::ffi::c_int = r_stem_suffix_chain_before_ki(
-                                            z,
-                                        );
+                                        let mut ret_42: ::core::ffi::c_int =
+                                            r_stem_suffix_chain_before_ki(z);
                                         if ret_42 == 0 as ::core::ffi::c_int {
                                             (*z).c = (*z).l - m16;
                                         } else if ret_42 < 0 as ::core::ffi::c_int {
-                                            return ret_42
+                                            return ret_42;
                                         }
                                     }
                                 } else {
@@ -3670,13 +3679,12 @@ unsafe fn r_stem_noun_suffixes(mut z: *mut SN_env) -> ::core::ffi::c_int {
                                         if ret_38 < 0 as ::core::ffi::c_int {
                                             return ret_38;
                                         }
-                                        let mut ret_39: ::core::ffi::c_int = r_stem_suffix_chain_before_ki(
-                                            z,
-                                        );
+                                        let mut ret_39: ::core::ffi::c_int =
+                                            r_stem_suffix_chain_before_ki(z);
                                         if ret_39 == 0 as ::core::ffi::c_int {
                                             (*z).c = (*z).l - m15;
                                         } else if ret_39 < 0 as ::core::ffi::c_int {
-                                            return ret_39
+                                            return ret_39;
                                         }
                                     }
                                 }
@@ -3721,13 +3729,11 @@ unsafe fn r_stem_noun_suffixes(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             if ret_13 < 0 as ::core::ffi::c_int {
                                 return ret_13;
                             }
-                            let mut ret_14: ::core::ffi::c_int = r_stem_suffix_chain_before_ki(
-                                z,
-                            );
+                            let mut ret_14: ::core::ffi::c_int = r_stem_suffix_chain_before_ki(z);
                             if ret_14 == 0 as ::core::ffi::c_int {
                                 (*z).c = (*z).l - m3;
                             } else if ret_14 < 0 as ::core::ffi::c_int {
-                                return ret_14
+                                return ret_14;
                             }
                         }
                         current_block = 18226426736697592660;
@@ -3765,13 +3771,11 @@ unsafe fn r_stem_noun_suffixes(mut z: *mut SN_env) -> ::core::ffi::c_int {
                             if ret_10 < 0 as ::core::ffi::c_int {
                                 return ret_10;
                             }
-                            let mut ret_11: ::core::ffi::c_int = r_stem_suffix_chain_before_ki(
-                                z,
-                            );
+                            let mut ret_11: ::core::ffi::c_int = r_stem_suffix_chain_before_ki(z);
                             if ret_11 == 0 as ::core::ffi::c_int {
                                 (*z).c = (*z).l - m6;
                             } else if ret_11 < 0 as ::core::ffi::c_int {
-                                return ret_11
+                                return ret_11;
                             }
                         }
                     }
@@ -3801,62 +3805,44 @@ unsafe fn r_stem_noun_suffixes(mut z: *mut SN_env) -> ::core::ffi::c_int {
         if ret_1 == 0 as ::core::ffi::c_int {
             (*z).c = (*z).l - m2;
         } else if ret_1 < 0 as ::core::ffi::c_int {
-            return ret_1
+            return ret_1;
         }
     }
     return 1 as ::core::ffi::c_int;
 }
-unsafe fn r_post_process_last_consonants(
-    mut z: *mut SN_env,
-) -> ::core::ffi::c_int {
+unsafe fn r_post_process_last_consonants(mut z: *mut SN_env) -> ::core::ffi::c_int {
     let mut among_var: ::core::ffi::c_int = 0;
     (*z).ket = (*z).c;
-    among_var = find_among_b(
-        z,
-        &raw const a_23 as *const among,
-        4 as ::core::ffi::c_int,
-    );
+    among_var = find_among_b(z, &raw const a_23 as *const among, 4 as ::core::ffi::c_int);
     if among_var == 0 {
         return 0 as ::core::ffi::c_int;
     }
     (*z).bra = (*z).c;
     match among_var {
         1 => {
-            let mut ret: ::core::ffi::c_int = slice_from_s(
-                z,
-                1 as ::core::ffi::c_int,
-                &raw const s_5 as *const symbol,
-            );
+            let mut ret: ::core::ffi::c_int =
+                slice_from_s(z, 1 as ::core::ffi::c_int, &raw const s_5 as *const symbol);
             if ret < 0 as ::core::ffi::c_int {
                 return ret;
             }
         }
         2 => {
-            let mut ret_0: ::core::ffi::c_int = slice_from_s(
-                z,
-                2 as ::core::ffi::c_int,
-                &raw const s_6 as *const symbol,
-            );
+            let mut ret_0: ::core::ffi::c_int =
+                slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_6 as *const symbol);
             if ret_0 < 0 as ::core::ffi::c_int {
                 return ret_0;
             }
         }
         3 => {
-            let mut ret_1: ::core::ffi::c_int = slice_from_s(
-                z,
-                1 as ::core::ffi::c_int,
-                &raw const s_7 as *const symbol,
-            );
+            let mut ret_1: ::core::ffi::c_int =
+                slice_from_s(z, 1 as ::core::ffi::c_int, &raw const s_7 as *const symbol);
             if ret_1 < 0 as ::core::ffi::c_int {
                 return ret_1;
             }
         }
         4 => {
-            let mut ret_2: ::core::ffi::c_int = slice_from_s(
-                z,
-                1 as ::core::ffi::c_int,
-                &raw const s_8 as *const symbol,
-            );
+            let mut ret_2: ::core::ffi::c_int =
+                slice_from_s(z, 1 as ::core::ffi::c_int, &raw const s_8 as *const symbol);
             if ret_2 < 0 as ::core::ffi::c_int {
                 return ret_2;
             }
@@ -3865,21 +3851,19 @@ unsafe fn r_post_process_last_consonants(
     }
     return 1 as ::core::ffi::c_int;
 }
-unsafe fn r_append_U_to_stems_ending_with_d_or_g(
-    mut z: *mut SN_env,
-) -> ::core::ffi::c_int {
+unsafe fn r_append_U_to_stems_ending_with_d_or_g(mut z: *mut SN_env) -> ::core::ffi::c_int {
     let mut current_block: u64;
     (*z).ket = (*z).c;
     (*z).bra = (*z).c;
     let mut m1: ::core::ffi::c_int = (*z).l - (*z).c;
     if (*z).c <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 'd' as i32
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 'd' as i32
     {
         (*z).c = (*z).l - m1;
         if (*z).c <= (*z).lb
-            || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                as ::core::ffi::c_int != 'g' as i32
+            || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+                != 'g' as i32
         {
             return 0 as ::core::ffi::c_int;
         }
@@ -3900,42 +3884,40 @@ unsafe fn r_append_U_to_stems_ending_with_d_or_g(
     let mut m2: ::core::ffi::c_int = (*z).l - (*z).c;
     let mut m3: ::core::ffi::c_int = (*z).l - (*z).c;
     if (*z).c <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 'a' as i32
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 'a' as i32
     {
         (*z).c = (*z).l - m3;
         if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_9 as *const symbol) == 0 {
             (*z).c = (*z).l - m2;
             let mut m4: ::core::ffi::c_int = (*z).l - (*z).c;
             if (*z).c <= (*z).lb
-                || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                    as ::core::ffi::c_int != 'e' as i32
+                || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+                    != 'e' as i32
             {
                 (*z).c = (*z).l - m4;
                 if (*z).c <= (*z).lb
                     || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                        as ::core::ffi::c_int != 'i' as i32
+                        as ::core::ffi::c_int
+                        != 'i' as i32
                 {
                     (*z).c = (*z).l - m2;
                     let mut m5: ::core::ffi::c_int = (*z).l - (*z).c;
                     if (*z).c <= (*z).lb
                         || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                            as ::core::ffi::c_int != 'o' as i32
+                            as ::core::ffi::c_int
+                            != 'o' as i32
                     {
                         (*z).c = (*z).l - m5;
                         if (*z).c <= (*z).lb
-                            || *(*z)
-                                .p
-                                .offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                                as ::core::ffi::c_int != 'u' as i32
+                            || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
+                                as ::core::ffi::c_int
+                                != 'u' as i32
                         {
                             (*z).c = (*z).l - m2;
                             let mut m6: ::core::ffi::c_int = (*z).l - (*z).c;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_13 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_13 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m6;
                                 if eq_s_b(
@@ -3989,11 +3971,8 @@ unsafe fn r_append_U_to_stems_ending_with_d_or_g(
             match current_block {
                 17120961156120710785 => {}
                 _ => {
-                    let mut ret_0: ::core::ffi::c_int = slice_from_s(
-                        z,
-                        1 as ::core::ffi::c_int,
-                        &raw const s_11 as *const symbol,
-                    );
+                    let mut ret_0: ::core::ffi::c_int =
+                        slice_from_s(z, 1 as ::core::ffi::c_int, &raw const s_11 as *const symbol);
                     if ret_0 < 0 as ::core::ffi::c_int {
                         return ret_0;
                     }
@@ -4009,11 +3988,8 @@ unsafe fn r_append_U_to_stems_ending_with_d_or_g(
     }
     match current_block {
         13234927814670729062 => {
-            let mut ret: ::core::ffi::c_int = slice_from_s(
-                z,
-                2 as ::core::ffi::c_int,
-                &raw const s_10 as *const symbol,
-            );
+            let mut ret: ::core::ffi::c_int =
+                slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_10 as *const symbol);
             if ret < 0 as ::core::ffi::c_int {
                 return ret;
             }
@@ -4035,23 +4011,16 @@ unsafe fn r_is_reserved_word(mut z: *mut SN_env) -> ::core::ffi::c_int {
     }
     return 1 as ::core::ffi::c_int;
 }
-unsafe fn r_remove_proper_noun_suffix(
-    mut z: *mut SN_env,
-) -> ::core::ffi::c_int {
+unsafe fn r_remove_proper_noun_suffix(mut z: *mut SN_env) -> ::core::ffi::c_int {
     let mut current_block_10: u64;
     let mut c1: ::core::ffi::c_int = (*z).c;
     loop {
         let mut c2: ::core::ffi::c_int = (*z).c;
-        if (*z).c == (*z).l
-            || *(*z).p.offset((*z).c as isize) as ::core::ffi::c_int != '\'' as i32
+        if (*z).c == (*z).l || *(*z).p.offset((*z).c as isize) as ::core::ffi::c_int != '\'' as i32
         {
             (*z).c = c2;
-            let mut ret: ::core::ffi::c_int = skip_utf8(
-                (*z).p,
-                (*z).c,
-                (*z).l,
-                1 as ::core::ffi::c_int,
-            );
+            let mut ret: ::core::ffi::c_int =
+                skip_utf8((*z).p, (*z).c, (*z).l, 1 as ::core::ffi::c_int);
             if ret < 0 as ::core::ffi::c_int {
                 current_block_10 = 2593436951332334351;
                 break;
@@ -4079,9 +4048,7 @@ unsafe fn r_remove_proper_noun_suffix(
     (*z).c = c1;
     return 1 as ::core::ffi::c_int;
 }
-unsafe fn r_more_than_one_syllable_word(
-    mut z: *mut SN_env,
-) -> ::core::ffi::c_int {
+unsafe fn r_more_than_one_syllable_word(mut z: *mut SN_env) -> ::core::ffi::c_int {
     let mut c_test1: ::core::ffi::c_int = (*z).c;
     let mut i: ::core::ffi::c_int = 0;
     i = 2 as ::core::ffi::c_int;

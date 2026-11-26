@@ -1,4 +1,3 @@
-
 use super::consts::*;
 
 #[derive(Clone)]
@@ -110,11 +109,7 @@ impl PgpContext {
             if *p < b.len() && (b[*p] == b'=' || b[*p] == b',') {
                 *p += 1;
             } else {
-                while *p < b.len()
-                    && !is_ws(b[*p])
-                    && b[*p] != b'='
-                    && b[*p] != b','
-                {
+                while *p < b.len() && !is_ws(b[*p]) && b[*p] != b'=' && b[*p] != b',' {
                     *p += 1;
                 }
             }
@@ -186,7 +181,9 @@ impl PgpContext {
             // then truncates to int ("4294967299" -> 3, LONG_MAX -> -1).
             let mut acc: u64 = 0;
             while i < b.len() && b[i].is_ascii_digit() {
-                acc = acc.saturating_mul(10).saturating_add(u64::from(b[i] - b'0'));
+                acc = acc
+                    .saturating_mul(10)
+                    .saturating_add(u64::from(b[i] - b'0'));
                 i += 1;
             }
             let v = if neg {
@@ -320,7 +317,8 @@ mod parse_args_tests {
         assert_eq!(c.convert_crlf, 1);
         // sp/tab/nl ARE skipped.
         let mut c = PgpContext::default();
-        c.parse_args(b" \t\nconvert-crlf \t= \n1 , debug=1").unwrap();
+        c.parse_args(b" \t\nconvert-crlf \t= \n1 , debug=1")
+            .unwrap();
         assert_eq!((c.convert_crlf, c.debug), (1, 1));
     }
 
@@ -350,9 +348,15 @@ mod parse_args_tests {
     fn setter_rejects_match_c_pxe_argument_error() {
         const ARG: &str = "Illegal argument to function";
         let mut c = PgpContext::default();
-        assert_eq!(c.parse_args(b"s2k-mode=0, s2k-count=1024").unwrap_err(), ARG);
+        assert_eq!(
+            c.parse_args(b"s2k-mode=0, s2k-count=1024").unwrap_err(),
+            ARG
+        );
         let mut c = PgpContext::default();
-        assert_eq!(c.parse_args(b"s2k-mode=1, s2k-count=1024").unwrap_err(), ARG);
+        assert_eq!(
+            c.parse_args(b"s2k-mode=1, s2k-count=1024").unwrap_err(),
+            ARG
+        );
         let mut c = PgpContext::default();
         c.parse_args(b"s2k-count=1024").unwrap();
         assert_eq!(c.s2k_count, 1024);
@@ -388,10 +392,17 @@ mod parse_args_tests {
         ] {
             let mut c = PgpContext::default();
             c.parse_args(arg).unwrap();
-            assert_eq!(c.ignore_cipher_failure, want, "{}", String::from_utf8_lossy(arg));
+            assert_eq!(
+                c.ignore_cipher_failure,
+                want,
+                "{}",
+                String::from_utf8_lossy(arg)
+            );
         }
         assert_eq!(
-            PgpContext::default().parse_args(b"ignore-cipher-failure=").unwrap_err(),
+            PgpContext::default()
+                .parse_args(b"ignore-cipher-failure=")
+                .unwrap_err(),
             "Illegal argument to function"
         );
     }
@@ -403,9 +414,13 @@ mod parse_args_tests {
         let mut c = PgpContext::default();
         c.parse_args(b"s2k-mode=4294967299, compress-algo=4294967297, s2k-count=4294968320, compress-level=4294967301")
             .unwrap();
-        assert_eq!((c.s2k_mode, c.compress_algo, c.s2k_count, c.compress_level), (3, 1, 1024, 5));
+        assert_eq!(
+            (c.s2k_mode, c.compress_algo, c.s2k_count, c.compress_level),
+            (3, 1, 1024, 5)
+        );
         let mut c = PgpContext::default();
-        c.parse_args(b"s2k-mode=-4294967293, compress-algo=4294967296").unwrap();
+        c.parse_args(b"s2k-mode=-4294967293, compress-algo=4294967296")
+            .unwrap();
         assert_eq!((c.s2k_mode, c.compress_algo), (3, 0));
         let mut c = PgpContext::default();
         c.parse_args(b"s2k-mode=-99999999999999999999").unwrap();
@@ -425,8 +440,14 @@ mod parse_args_tests {
         }
         const ARG: &str = "Illegal argument to function";
         let mut c = PgpContext::default();
-        assert_eq!(c.parse_args(b"s2k-mode=9223372036854775807").unwrap_err(), ARG);
-        assert_eq!(c.parse_args(b"s2k-mode=99999999999999999999").unwrap_err(), ARG);
+        assert_eq!(
+            c.parse_args(b"s2k-mode=9223372036854775807").unwrap_err(),
+            ARG
+        );
+        assert_eq!(
+            c.parse_args(b"s2k-mode=99999999999999999999").unwrap_err(),
+            ARG
+        );
     }
 
     /// pgp.c:225-245/:348: sess-key, disable-mdc, convert-crlf and
@@ -434,8 +455,17 @@ mod parse_args_tests {
     #[test]
     fn boolean_setters_normalise_to_0_or_1() {
         let mut c = PgpContext::default();
-        c.parse_args(b"sess-key=5, disable-mdc=-2, convert-crlf=7, unicode-mode=4294967296").unwrap();
-        assert_eq!((c.use_sess_key, c.disable_mdc, c.convert_crlf, c.unicode_mode), (1, 1, 1, 0));
+        c.parse_args(b"sess-key=5, disable-mdc=-2, convert-crlf=7, unicode-mode=4294967296")
+            .unwrap();
+        assert_eq!(
+            (
+                c.use_sess_key,
+                c.disable_mdc,
+                c.convert_crlf,
+                c.unicode_mode
+            ),
+            (1, 1, 1, 0)
+        );
         let mut c = PgpContext::default();
         c.parse_args(b"expect-sess-key=5").unwrap();
         assert_eq!(c.exp_use_sess_key, 5);

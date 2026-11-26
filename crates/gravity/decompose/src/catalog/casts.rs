@@ -35,9 +35,18 @@ pub const fn domain_to_base(a: &super::AttFact, resulttype: u32) -> bool {
 /// PS1-10: `n` without a domain-to-base relabel ([`domain_to_base`]) of a column of scan `varno` (`att`: the column's
 /// facts by attribute number), else `n` as it is. The one reading both zone sites use (decompose `sources::zone` for the
 /// keyed site, lowerv4 `verdict_zone::lane_of` for the lane), so the content key and the lane agree.
-pub fn domain_base<'p>(n: types_nodes::Node<'p>, varno: i32, att: impl Fn(i16) -> Option<super::AttFact>) -> types_nodes::Node<'p> {
-    let Some(r) = n.as_relabel_type() else { return n };
-    let col = r.arg.as_var().filter(|v| v.varno == varno && v.varlevelsup == 0 && v.varattno > 0);
+pub fn domain_base<'p>(
+    n: types_nodes::Node<'p>,
+    varno: i32,
+    att: impl Fn(i16) -> Option<super::AttFact>,
+) -> types_nodes::Node<'p> {
+    let Some(r) = n.as_relabel_type() else {
+        return n;
+    };
+    let col = r
+        .arg
+        .as_var()
+        .filter(|v| v.varno == varno && v.varlevelsup == 0 && v.varattno > 0);
     match col.and_then(|v| att(v.varattno).filter(|a| a.typid == v.vartype)) {
         Some(a) if domain_to_base(&a, r.resulttype) => r.arg,
         _ => n,
@@ -48,9 +57,21 @@ pub fn domain_base<'p>(n: types_nodes::Node<'p>, varno: i32, att: impl Fn(i16) -
 /// varchar's comparisons read it through (varchar has text's operators, `pg_cast` varchar -> text is binary-coercible):
 /// the same bytes, so the same prefix key and the same code lane; else `n` as it is. A column of scan `varno` only, its
 /// facts `att` by attribute number.
-pub fn varchar_text<'p>(n: types_nodes::Node<'p>, varno: i32, att: impl Fn(i16) -> Option<super::AttFact>) -> types_nodes::Node<'p> {
-    let Some(r) = n.as_relabel_type().filter(|r| r.resulttype == super::TEXTOID) else { return n };
-    let col = r.arg.as_var().filter(|v| v.varno == varno && v.varlevelsup == 0 && v.varattno > 0);
+pub fn varchar_text<'p>(
+    n: types_nodes::Node<'p>,
+    varno: i32,
+    att: impl Fn(i16) -> Option<super::AttFact>,
+) -> types_nodes::Node<'p> {
+    let Some(r) = n
+        .as_relabel_type()
+        .filter(|r| r.resulttype == super::TEXTOID)
+    else {
+        return n;
+    };
+    let col = r
+        .arg
+        .as_var()
+        .filter(|v| v.varno == varno && v.varlevelsup == 0 && v.varattno > 0);
     match col.and_then(|v| att(v.varattno).filter(|a| a.typid == v.vartype)) {
         Some(a) if a.base == super::VARCHAROID => r.arg,
         _ => n,
@@ -67,5 +88,8 @@ pub const fn numeric_typmod_cast(funcid: u32) -> bool {
 /// D858: a zero-extended 4-byte type (`ObjectIdGetDatum` / `UInt32GetDatum`: oid 26, xid 28, cid 29, regproc 24 and the
 /// reg* types); int4 (`Int32GetDatum`) sign-extends. gravity_fn typesem `expr::zext4` holds the same list for gravity_expr.
 pub const fn zext4(t: u32) -> bool {
-    matches!(t, 26 | 28 | 29 | 24 | 2202 | 2203 | 2204 | 2205 | 2206 | 3734 | 3769 | 4089 | 4096 | 4191)
+    matches!(
+        t,
+        26 | 28 | 29 | 24 | 2202 | 2203 | 2204 | 2205 | 2206 | 3734 | 3769 | 4089 | 4096 | 4191
+    )
 }

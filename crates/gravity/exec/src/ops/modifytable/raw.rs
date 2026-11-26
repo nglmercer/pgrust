@@ -8,12 +8,12 @@
 //! the program reads the table's cells as Consts, alive for the execution (an out batch, a sort run hold them by
 //! reference past the next row), so a by-reference value is copied out of the row context into the stream's kept one.
 #![allow(unsafe_code)]
+use datum::Datum;
 use execexpr::EvalSlots;
 use gravity_program::protos::LiteralsStream;
 use mcx::{Mcx, MemoryContext};
 use types_error::PgResult;
 use types_nodes::{Node, NodeList};
-use datum::Datum;
 use types_portal::params::{ParamBind, ParamExecData, ParamExternData, ParamFetchHook};
 
 use gravity_decompose::catalog::expr_type;
@@ -46,28 +46,87 @@ pub(crate) struct Stream {
 impl Stream {
     /// The stream over `lists` (the ValuesScan's) writing into `cells` / `nulls` (the table's arrays, kept beside it by the
     /// protocol's Live and never resized).
-    pub(crate) fn new(lists: &NodeList<'static>, cols: usize, cells: &mut [u64], nulls: &mut [u8], params: memledger::ChargedVec<ParamExternData>, fetch: Option<ParamFetchHook>, mcx: Mcx<'static>, owner: Option<(memledger::Owner, memledger::Kind)>) -> PgResult<Box<Stream>> {
+    pub(crate) fn new(
+        lists: &NodeList<'static>,
+        cols: usize,
+        cells: &mut [u64],
+        nulls: &mut [u8],
+        params: memledger::ChargedVec<ParamExternData>,
+        fetch: Option<ParamFetchHook>,
+        mcx: Mcx<'static>,
+        owner: Option<(memledger::Owner, memledger::Kind)>,
+    ) -> PgResult<Box<Stream>> {
         if cells.len() != lists.len() * cols || nulls.len() != cells.len() {
-            return Err(glue::internal("gravity: write.literals' stream over arrays that are not its table's"));
+            return Err(glue::internal(
+                "gravity: write.literals' stream over arrays that are not its table's",
+            ));
         }
         // SAFETY: the admitted plan outlives the execution, and the stream lives in the execution's Live (as the table's
         // Const cells point into the same plan for as long).
-        let rows: &'static [Node<'static>] = unsafe { &*(lists.as_slice() as *const [Node<'static>]) };
+        let rows: &'static [Node<'static>] =
+            unsafe { &*(lists.as_slice() as *const [Node<'static>]) };
         // D2943: reset wholesale per row (ValuesNext's ReScanExprContext) with the last row's values still in it
-        let row = mcx.context().new_child_wholesale("gravity VALUES stream row");
-        let kept = mcx.context().new_child_wholesale("gravity VALUES stream values");
+        let row = mcx
+            .context()
+            .new_child_wholesale("gravity VALUES stream row");
+        let kept = mcx
+            .context()
+            .new_child_wholesale("gravity VALUES stream values");
         // a VALUES column has one type (the parser coerced every row's cell to it): the first row's cells name them
-        let first = rows.first().and_then(|r| r.as_list()).filter(|l| l.len() == cols).ok_or_else(|| glue::internal("gravity: a write.literals stream row is not the table's width"))?;
-        let lens = first.iter().map(|e| gravity_fn::typesem::storage::len_byval(expr_type::type_of(e).unwrap_or_else(|| expr_type::result_type(e)))).collect::<PgResult<Box<[_]>>>()?; // alloc: Exec
+        let first = rows
+            .first()
+            .and_then(|r| r.as_list())
+            .filter(|l| l.len() == cols)
+            .ok_or_else(|| {
+                glue::internal("gravity: a write.literals stream row is not the table's width")
+            })?;
+        let lens = first
+            .iter()
+            .map(|e| {
+                gravity_fn::typesem::storage::len_byval(
+                    expr_type::type_of(e).unwrap_or_else(|| expr_type::result_type(e)),
+                )
+            })
+            .collect::<PgResult<Box<[_]>>>()?; // alloc: Exec
         let (o, k) = owner.map_or((None, memledger::Kind::Region), |(o, k)| (Some(o), k));
         let mut xids = memledger::ChargedVec::<u32>::new(o, k);
-        xids.with_vec(|v| v.extend(gravity_lowerv4::ops::shared::values::exec_params(lists).iter().filter_map(|n| n.as_param()).map(|p| p.paramid as u32))); // alloc: Exec charged o
+        xids.with_vec(|v| {
+            v.extend(
+                gravity_lowerv4::ops::shared::values::exec_params(lists)
+                    .iter()
+                    .filter_map(|n| n.as_param())
+                    .map(|p| p.paramid as u32),
+            )
+        }); // alloc: Exec charged o
         let slots = vec![0u64; 2 * xids.len()].into_boxed_slice(); // alloc: Exec
-        let exec = vec![ParamExecData::EMPTY; xids.last().map_or(0, |&id| id as usize + 1)].into_boxed_slice(); // alloc: Exec
-        let mut s = Box::new(Stream { hook: LiteralsStream { eval, cx: 0, params: 0 }, rows, cols, cells: cells.as_mut_ptr(), nulls: nulls.as_mut_ptr(), params, fetch, row, lens, kept, xids, slots, exec }); // alloc: Exec
+        let exec = vec![ParamExecData::EMPTY; xids.last().map_or(0, |&id| id as usize + 1)]
+            .into_boxed_slice(); // alloc: Exec
+        let mut s = Box::new(Stream {
+            hook: LiteralsStream {
+                eval,
+                cx: 0,
+                params: 0,
+            },
+            rows,
+            cols,
+            cells: cells.as_mut_ptr(),
+            nulls: nulls.as_mut_ptr(),
+            params,
+            fetch,
+            row,
+            lens,
+            kept,
+            xids,
+            slots,
+            exec,
+        }); // alloc: Exec
         s.hook.cx = &*s as *const Stream as u64;
         // the slots are boxed: their address stays put while the execution runs
-        s.hook.params = if s.slots.is_empty() { 0 } else { s.slots.as_ptr() as u64 };
+        s.hook.params = if s.slots.is_empty() {
+            0
+        } else {
+            s.slots.as_ptr() as u64
+        };
         Ok(s)
     }
 
@@ -80,27 +139,57 @@ impl Stream {
     /// ExecInitExprList in the per-tuple context, ExecEvalExpr per cell in column order).
     fn row(&mut self, j: usize) -> PgResult<()> {
         let Some(list) = self.rows.get(j).and_then(|r| r.as_list()) else {
-            return Err(glue::internal("gravity: write.literals' stream past its list"));
+            return Err(glue::internal(
+                "gravity: write.literals' stream past its list",
+            ));
         };
         if list.len() != self.cols {
-            return Err(glue::internal("gravity: a write.literals stream row is not the table's width"));
+            return Err(glue::internal(
+                "gravity: a write.literals stream row is not the table's width",
+            ));
         }
         self.row.reset();
         let (cells, nulls, base) = (self.cells, self.nulls, j * self.cols);
         let mcx = self.row.mcx();
         // D3374: the executor parameters' values the program wrote for this row's turn (its outer row's, its InitPlan's)
         for (i, &id) in self.xids.iter().enumerate() {
-            self.exec[id as usize] = ParamExecData { value: Datum::from_u64(self.slots[2 * i]), isnull: self.slots[2 * i + 1] != 0, exec_plan: false };
+            self.exec[id as usize] = ParamExecData {
+                value: Datum::from_u64(self.slots[2 * i]),
+                isnull: self.slots[2 * i + 1] != 0,
+                exec_plan: false,
+            };
         }
-        let (n_exec, exec_vals) = (self.exec.len() as u32, core::ptr::NonNull::new(self.exec.as_mut_ptr()).filter(|_| !self.exec.is_empty()));
+        let (n_exec, exec_vals) = (
+            self.exec.len() as u32,
+            core::ptr::NonNull::new(self.exec.as_mut_ptr()).filter(|_| !self.exec.is_empty()),
+        );
         let ext: &[ParamExternData] = &self.params;
-        for (c, e) in list.iter().enumerate().filter(|(_, e)| e.as_const().is_none()) {
-            let params = ParamBind { extern_params: Some(ext), extern_fetch: self.fetch, exec_vals, n_exec, ..ParamBind::NONE };
+        for (c, e) in list
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| e.as_const().is_none())
+        {
+            let params = ParamBind {
+                extern_params: Some(ext),
+                extern_fetch: self.fetch,
+                exec_vals,
+                n_exec,
+                ..ParamBind::NONE
+            };
             let Some(mut st) = execexpr::exec_init_expr(mcx, Some(e), params)? else {
-                return Err(glue::internal("gravity: a write.literals stream cell the executor did not initialize"));
+                return Err(glue::internal(
+                    "gravity: a write.literals stream cell the executor did not initialize",
+                ));
             };
             st.arm_result_mcx(mcx);
-            let v = execexpr::exec_eval_expr(&mut st, &mut EvalSlots { scan: None, inner: None, outer: None })?;
+            let v = execexpr::exec_eval_expr(
+                &mut st,
+                &mut EvalSlots {
+                    scan: None,
+                    inner: None,
+                    outer: None,
+                },
+            )?;
             let (len, byval) = self.lens[c];
             let value = match v.isnull || byval {
                 true => v.value,

@@ -22,8 +22,8 @@ use std::time::Duration;
 
 use common::*;
 use gravity_abi::MorselRange;
-use gravity_driver::mem::{giveback, reap};
 use gravity_driver::mem::spill_host::v4;
+use gravity_driver::mem::{giveback, reap};
 use gravity_driver::{footprint, Claimed, Entry, Error, Grant, Open, Step, POOL, REGIONS};
 use memledger::Acct;
 use mempolicy::consts::K;
@@ -103,13 +103,19 @@ fn accounts() -> HashMap<u32, i64> {
 /// The ledger's REAPING and PARKED bytes now.
 fn reaping_parked() -> (i64, i64) {
     memledger::fold();
-    (memledger::account_row(Acct::REAPING).account_bytes, memledger::account_row(Acct::PARKED).account_bytes)
+    (
+        memledger::account_row(Acct::REAPING).account_bytes,
+        memledger::account_row(Acct::PARKED).account_bytes,
+    )
 }
 
 /// The pool's in-use region bytes, and its free bytes (warm and stranded) plus what its purger released so far.
 fn pool_now() -> (usize, u64) {
     let s = pagepool::stats();
-    (s.in_use[pagepool::Tag::REGION.0 as usize], (s.warm_free() + s.stranded) as u64 + s.released_bytes)
+    (
+        s.in_use[pagepool::Tag::REGION.0 as usize],
+        (s.warm_free() + s.stranded) as u64 + s.released_bytes,
+    )
 }
 
 /// pagepool P3: what the give saw when the pool backs the region (`v4::is_pool`), read around it on the giving thread.
@@ -129,12 +135,37 @@ struct Gave {
 /// slack), the block out of the pool's in-use region bytes and back among its free ones.
 fn pool_give(g: &Gave) {
     assert!(g.pooled, "the pool backs the region: {g:?}");
-    assert_eq!(g.c.1, g.c.0, "a pool give is no job and moves no give_back_spill_* count: {g:?}");
-    assert_eq!(g.reaping_parked.1, g.reaping_parked.0, "REAPING and PARKED unchanged: {g:?}");
-    assert!(g.moved.iter().any(|(_, d)| (d + REGION as i64).abs() <= SLACK), "the owner's account released by the region's bytes: {:?}", g.moved);
-    assert!(g.moved.iter().filter(|(_, d)| (d + REGION as i64).abs() > SLACK).all(|(_, d)| d.abs() <= SLACK), "nothing else moved past the fold slack: {:?}", g.moved);
-    assert!(g.in_use.0 >= g.in_use.1 + REGION, "the block left the pool's in-use region bytes: {g:?}");
-    assert!(g.free.1 >= g.free.0 + REGION as u64, "the block back among the pool's free bytes (or released by its purger): {g:?}");
+    assert_eq!(
+        g.c.1, g.c.0,
+        "a pool give is no job and moves no give_back_spill_* count: {g:?}"
+    );
+    assert_eq!(
+        g.reaping_parked.1, g.reaping_parked.0,
+        "REAPING and PARKED unchanged: {g:?}"
+    );
+    assert!(
+        g.moved
+            .iter()
+            .any(|(_, d)| (d + REGION as i64).abs() <= SLACK),
+        "the owner's account released by the region's bytes: {:?}",
+        g.moved
+    );
+    assert!(
+        g.moved
+            .iter()
+            .filter(|(_, d)| (d + REGION as i64).abs() > SLACK)
+            .all(|(_, d)| d.abs() <= SLACK),
+        "nothing else moved past the fold slack: {:?}",
+        g.moved
+    );
+    assert!(
+        g.in_use.0 >= g.in_use.1 + REGION,
+        "the block left the pool's in-use region bytes: {g:?}"
+    );
+    assert!(
+        g.free.1 >= g.free.0 + REGION as u64,
+        "the block back among the pool's free bytes (or released by its purger): {g:?}"
+    );
 }
 
 /// One run of a W2 statement whose worker 0 takes a reload region (`v4::take`), writes it and gives it back
@@ -147,7 +178,14 @@ fn give_one() -> Gave {
     REGIONS.trim();
     gravity_driver::DEPOT.trim();
     POOL.arm(need + REGION as u64 + 64 * MIB);
-    let res = std::rc::Rc::new(POOL.admit_need(want, &|g| footprint(g, &program, WIDTH), Duration::from_millis(10)).unwrap());
+    let res = std::rc::Rc::new(
+        POOL.admit_need(
+            want,
+            &|g| footprint(g, &program, WIDTH),
+            Duration::from_millis(10),
+        )
+        .unwrap(),
+    );
     let table = RangeTable::new(BLOCKS, PER_BLOCK);
     let mut derive = FakeDerive::ranges(table);
     let mut entry = Entry::new(2);
@@ -156,8 +194,12 @@ fn give_one() -> Gave {
     {
         let mut sink = LegSink::new();
         let mut b = binding(&[8], &NULLS, &mut sink, &flag);
-        let mut exec = entry.start(None, &program, &mut derive, &mut b, res.clone()).unwrap();
-        let open = entry.open_section(&mut exec, &b, &mut derive, 0, WIDTH).unwrap();
+        let mut exec = entry
+            .start(None, &program, &mut derive, &mut b, res.clone())
+            .unwrap();
+        let open = entry
+            .open_section(&mut exec, &b, &mut derive, 0, WIDTH)
+            .unwrap();
         let ctx = open.worker_ctx(0) as usize;
         gave = std::thread::scope(|s| {
             s.spawn(move || {
@@ -169,20 +211,34 @@ fn give_one() -> Gave {
                 unsafe { core::ptr::write_bytes(p, 0x5a, REGION) };
                 // SAFETY: worker 0's context is bound; `p` is its live `take`
                 let pooled = unsafe { v4::is_pool(ctx, p) };
-                let (c0, a0, k0, s0) = (giveback::counts(), accounts(), reaping_parked(), pool_now());
+                let (c0, a0, k0, s0) =
+                    (giveback::counts(), accounts(), reaping_parked(), pool_now());
                 // SAFETY: a `take` of this owner, read by nothing from now on
                 unsafe { v4::give(ctx, p) };
-                let (c1, a1, k1, s1) = (giveback::counts(), accounts(), reaping_parked(), pool_now());
+                let (c1, a1, k1, s1) =
+                    (giveback::counts(), accounts(), reaping_parked(), pool_now());
                 let mut keys: Vec<u32> = a0.keys().chain(a1.keys()).copied().collect();
                 keys.sort_unstable();
                 keys.dedup();
                 let moved = keys
                     .into_iter()
                     .filter(|k| *k != Acct::REAPING.0 && *k != Acct::PARKED.0)
-                    .map(|k| (k, a1.get(&k).copied().unwrap_or(0) - a0.get(&k).copied().unwrap_or(0)))
+                    .map(|k| {
+                        (
+                            k,
+                            a1.get(&k).copied().unwrap_or(0) - a0.get(&k).copied().unwrap_or(0),
+                        )
+                    })
                     .filter(|(_, d)| *d != 0)
                     .collect();
-                Gave { pooled, c: (c0, c1), reaping_parked: (k0, k1), moved, in_use: (s0.0, s1.0), free: (s0.1, s1.1) }
+                Gave {
+                    pooled,
+                    c: (c0, c1),
+                    reaping_parked: (k0, k1),
+                    moved,
+                    in_use: (s0.0, s1.0),
+                    free: (s0.1, s1.1),
+                }
             })
             .join()
             .unwrap()
@@ -191,8 +247,15 @@ fn give_one() -> Gave {
         for o in 0..WIDTH {
             drain(&open, &cursor, o).unwrap();
         }
-        entry.close_section(open, &mut b, &GroupMerge, true).unwrap();
-        assert_eq!(entry.run(&mut exec, &mut b, gravity_driver::Call::batch(4)).unwrap(), Step::Done);
+        entry
+            .close_section(open, &mut b, &GroupMerge, true)
+            .unwrap();
+        assert_eq!(
+            entry
+                .run(&mut exec, &mut b, gravity_driver::Call::batch(4))
+                .unwrap(),
+            Step::Done
+        );
         entry.end(exec, true);
     }
     drop(res);
@@ -233,7 +296,10 @@ impl mcx::ladder::Rungs for Read {
 
 /// Whether a thread of this process is named `name` (`/proc/self/task/*/comm`).
 fn thread_named(name: &str) -> bool {
-    std::fs::read_dir("/proc/self/task").unwrap().flatten().any(|t| std::fs::read_to_string(t.path().join("comm")).is_ok_and(|c| c.trim() == name))
+    std::fs::read_dir("/proc/self/task")
+        .unwrap()
+        .flatten()
+        .any(|t| std::fs::read_to_string(t.path().join("comm")).is_ok_and(|c| c.trim() == name))
 }
 
 #[test]
@@ -246,17 +312,31 @@ fn the_landing_credit_is_the_hooks_from_the_drivers_start_with_no_reaper() {
     let n = giveback::landing_bytes() as u64;
     if g.pooled {
         pool_give(&g);
-        assert_eq!(n, 0, "pagepool P3: a pool give queues nothing on the lane: {g:?}");
+        assert_eq!(
+            n, 0,
+            "pagepool P3: a pool give queues nothing on the lane: {g:?}"
+        );
     } else {
         assert!(n >= REGION as u64, "one job on the lane, not drained: {n}");
     }
 
     // the driver's start: the credit is the hook's, and no reaper exists
     reap::start();
-    assert_eq!(reap::HANDED.load(Ordering::Relaxed), 0, "no reservation reached the reaper");
+    assert_eq!(
+        reap::HANDED.load(Ordering::Relaxed),
+        0,
+        "no reservation reached the reaper"
+    );
     assert!(!thread_named("gravity-reap"), "no reaper thread");
-    assert_eq!(mcx::ladder::unmap_landing(), reap::landing_credit(), "the hook's landing is the driver's credit");
-    assert!(mcx::ladder::unmap_landing() >= n, "the job's bytes are landing to the pass");
+    assert_eq!(
+        mcx::ladder::unmap_landing(),
+        reap::landing_credit(),
+        "the hook's landing is the driver's credit"
+    );
+    assert!(
+        mcx::ladder::unmap_landing() >= n,
+        "the job's bytes are landing to the pass"
+    );
 
     // the hook's pass nets it under the cancel line: a read past the line by half the landing leaves no need. pagepool P3:
     // after a pool give nothing is landing, so a read past the line by a MiB is left whole
@@ -264,14 +344,20 @@ fn the_landing_credit_is_the_hooks_from_the_drivers_start_with_no_reaper() {
     let over = if g.pooled { MIB } else { n / 2 };
     let c = mcx::ladder::hook_pass_with(&Read(LINE + over), LINE, 1);
     if g.pooled {
-        assert_eq!(c.need, over, "pagepool P3: nothing queued, nothing landing to net the read: {c:?}");
+        assert_eq!(
+            c.need, over,
+            "pagepool P3: nothing queued, nothing landing to net the read: {c:?}"
+        );
     } else {
         assert_eq!(c.need, 0, "the landing netted: {c:?}");
     }
     // past the watchdog's cancel line nothing nets (R5): the whole overage is left
     mcx::ladder::waive_wait();
     let c = mcx::ladder::hook_pass_with(&Read(LINE + over), LINE, 1);
-    assert_eq!(c.need, over, "past the cancel line no landing nets the read: {c:?}");
+    assert_eq!(
+        c.need, over,
+        "past the cancel line no landing nets the read: {c:?}"
+    );
     mcx::ladder::publish(mcx::ladder::OFF, 0);
 
     // the job given back as the service's batch: nothing landing

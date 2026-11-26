@@ -8,9 +8,9 @@
 //! head / tail of a long text, a hosted type) confirms a hit with each key's Rep `eq` against the stored key. The order
 //! images (DESC / NULLS folded in, comparable across the two sides of a merge) are the Rep × order kinds.
 use gravity_abi::breaker::KeyKind;
-use gravity_decompose::ops::shared::agg::KeyDecl;
 use gravity_decompose::catalog::keysem::image::{held_apart, held_form};
 use gravity_decompose::catalog::typefacts::{KeyColl, TypeFacts};
+use gravity_decompose::ops::shared::agg::KeyDecl;
 use gravity_expr::emit::hash::{emit_image_then, ImageValues, KeyPart};
 use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{Type, Value};
@@ -72,7 +72,9 @@ pub struct CodeIfImpl(pub &'static dyn CodeIfMech);
 
 /// Road key.codeif's form reader while the road is on (built, not dropped, not switched off), else `None`.
 pub fn code_if(cx: &impl crate::admit::refusal::Site) -> Option<&'static dyn CodeIfMech> {
-    ImageForm::CodeIf.on().then(|| ImageForm::CodeIf.need::<CodeIfImpl>(cx).0)
+    ImageForm::CodeIf
+        .on()
+        .then(|| ImageForm::CodeIf.need::<CodeIfImpl>(cx).0)
 }
 
 /// How a sort key's tail compares in RowCmp: its bytes (memcmp, then length), through a collation (`varstr_cmp`, PG's
@@ -88,9 +90,22 @@ pub enum TailForm {
 /// CodeIfMech does, so the keyed ends outside M6's registry reach key.coll by name (D823).
 pub trait VarKeyMech: Sync {
     /// The exact hash image under `coll`, or `None` when this road does not engage (the caller takes the next form).
-    fn hash(&self, lx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, tf: &TypeFacts, coll: KeyColl, scope: Scope) -> Option<Words>;
+    fn hash(
+        &self,
+        lx: &mut Lx<'_, '_, '_>,
+        c: CellRef<'_>,
+        tf: &TypeFacts,
+        coll: KeyColl,
+        scope: Scope,
+    ) -> Option<Words>;
     /// The order prefix word and the tail form, or `None`.
-    fn order(&self, lx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, tf: &TypeFacts, coll: KeyColl) -> Option<(Value, TailForm)>;
+    fn order(
+        &self,
+        lx: &mut Lx<'_, '_, '_>,
+        c: CellRef<'_>,
+        tf: &TypeFacts,
+        coll: KeyColl,
+    ) -> Option<(Value, TailForm)>;
 }
 
 pub struct VarKeyImpl(pub &'static dyn VarKeyMech);
@@ -131,7 +146,13 @@ pub enum FrontIndex {
 impl ImageWords {
     /// An image built from words at hand (a carried open run, a lone word): no code, no pair.
     pub fn plain(words: ImageValues, exact: bool) -> ImageWords {
-        ImageWords { words, exact, code: None, index: None, widths: Vec::new() }
+        ImageWords {
+            words,
+            exact,
+            code: None,
+            index: None,
+            widths: Vec::new(),
+        }
     }
 }
 
@@ -145,7 +166,12 @@ pub fn image(lx: &mut Lx<'_, '_, '_>, keys: &[KeyCell<'_>]) -> ImageWords {
 /// `image`, where `skip` = `(flag, mask)` gives each key of `mask` (bit i: key i) the words 0 on a row where `flag` holds
 /// (D3324 (b), ops/agg/strategies/dependent.rs: a unique build key's dependent text keys) and its own image elsewhere,
 /// its NULL flag kept either way; `tail`'s word, if any, ends the image after its flags words (`emit_image_then`).
-pub fn image_skip(lx: &mut Lx<'_, '_, '_>, keys: &[KeyCell<'_>], skip: Option<(Value, u64)>, tail: impl FnOnce(&mut FunctionBuilder<'_>) -> Option<Value>) -> ImageWords {
+pub fn image_skip(
+    lx: &mut Lx<'_, '_, '_>,
+    keys: &[KeyCell<'_>],
+    skip: Option<(Value, u64)>,
+    tail: impl FnOnce(&mut FunctionBuilder<'_>) -> Option<Value>,
+) -> ImageWords {
     let mcx = lx.mcx;
     let mut exact = true;
     let mut words = mcx::reserved_in(keys.len(), mcx);
@@ -165,7 +191,9 @@ pub fn image_skip(lx: &mut Lx<'_, '_, '_>, keys: &[KeyCell<'_>], skip: Option<(V
         }
         words.push_in((a, n, k.cell.null));
     }
-    let is_code = |k: &KeyCell<'_>| matches!(k.cell.cell.rep, Rep::Code { .. }) && !k.cell.cell.image_only() && k.coll.bytes_eq;
+    let is_code = |k: &KeyCell<'_>| {
+        matches!(k.cell.cell.rep, Rep::Code { .. }) && !k.cell.cell.image_only() && k.coll.bytes_eq
+    };
     let mut lanes: Option<PgVec<'_, u8>> = Some(mcx::reserved_in(keys.len(), mcx));
     for k in keys {
         let lane = match k.cell.cell.rep {
@@ -181,12 +209,33 @@ pub fn image_skip(lx: &mut Lx<'_, '_, '_>, keys: &[KeyCell<'_>], skip: Option<(V
     }
     let (code, index) = match (keys, lanes) {
         ([k], _) if is_code(k) => (Some(one_code(lx, k, words[0].0[0])), None),
-        (_, Some(l)) if l.len() >= 2 => (None, Some(FrontIndex::Codes(keys.iter().zip(&words).zip(l).map(|((k, w), l)| (one_code(lx, k, w.0[0]), l)).collect()))), // alloc: Program
+        (_, Some(l)) if l.len() >= 2 => (
+            None,
+            Some(FrontIndex::Codes(
+                keys.iter()
+                    .zip(&words)
+                    .zip(l)
+                    .map(|((k, w), l)| (one_code(lx, k, w.0[0]), l))
+                    .collect(),
+            )),
+        ), // alloc: Program
         _ => (None, None),
     };
-    let parts: PgVec<'_, KeyPart<'_>> = words.iter().map(|(a, n, null)| KeyPart { words: &a[..*n], null: *null }).collect_in(mcx);
+    let parts: PgVec<'_, KeyPart<'_>> = words
+        .iter()
+        .map(|(a, n, null)| KeyPart {
+            words: &a[..*n],
+            null: *null,
+        })
+        .collect_in(mcx);
     let widths = words.iter().map(|w| w.1 as u8).collect(); // alloc: Program
-    ImageWords { words: emit_image_then(lx.b, &parts[..], tail), exact, code, index, widths }
+    ImageWords {
+        words: emit_image_then(lx.b, &parts[..], tail),
+        exact,
+        code,
+        index,
+        widths,
+    }
 }
 
 /// Key `k`'s image words, 0 where `flag` holds: its hash image computed on the other branch alone (the memo forked around it).
@@ -213,7 +262,10 @@ fn skipped(lx: &mut Lx<'_, '_, '_>, k: &KeyCell<'_>, flag: Value) -> Words {
     lx.b.br(l_join, &zs[..n]);
     lx.b.switch_to(l_join);
     let ps = lx.b.block_params(l_join);
-    Words { w: [ps.first().copied(), ps.get(1).copied()], exact: w.exact }
+    Words {
+        w: [ps.first().copied(), ps.get(1).copied()],
+        exact: w.exact,
+    }
 }
 
 /// D3224 A4: `image`'s front index of `keys` alone (its `code` for one key, its `index` for two or more), with no image word
@@ -221,19 +273,42 @@ fn skipped(lx: &mut Lx<'_, '_, '_>, k: &KeyCell<'_>, flag: Value) -> Words {
 /// key `image` indexes. A front probes the record it holds by it (`TableMech::probe`); its `words` are empty, so it never
 /// images a record.
 pub fn codes(lx: &mut Lx<'_, '_, '_>, keys: &[KeyCell<'_>]) -> Option<ImageWords> {
-    let is_code = |k: &KeyCell<'_>| matches!(k.cell.cell.rep, Rep::Code { .. }) && !k.cell.cell.image_only() && k.coll.bytes_eq;
+    let is_code = |k: &KeyCell<'_>| {
+        matches!(k.cell.cell.rep, Rep::Code { .. }) && !k.cell.cell.image_only() && k.coll.bytes_eq
+    };
     if keys.is_empty() || !keys.iter().all(is_code) {
         return None;
     }
     let mut cs = Vec::with_capacity(keys.len()); // alloc: Program
     for k in keys {
-        let Rep::Code { dict } = k.cell.cell.rep else { return None };
+        let Rep::Code { dict } = k.cell.cell.rep else {
+            return None;
+        };
         let same = matches!((k.scope, k.cell.cell.rep), (Scope::SameDict(d), Rep::Code { dict }) if d == dict);
-        let w0 = if same { rep::hash_image(lx, k.cell, k.tf, k.scope).w.into_iter().flatten().next().unwrap_or(k.cell.val) } else { k.cell.val };
+        let w0 = if same {
+            rep::hash_image(lx, k.cell, k.tf, k.scope)
+                .w
+                .into_iter()
+                .flatten()
+                .next()
+                .unwrap_or(k.cell.val)
+        } else {
+            k.cell.val
+        };
         cs.push((one_code(lx, k, w0), dict.lane)); // alloc: Program
     }
-    let (code, index) = if cs.len() == 1 { (Some(cs[0].0), None) } else { (None, Some(FrontIndex::Codes(cs))) };
-    Some(ImageWords { words: ImageValues { words: Vec::new() }, exact: true, code, index, widths: Vec::new() })
+    let (code, index) = if cs.len() == 1 {
+        (Some(cs[0].0), None)
+    } else {
+        (None, Some(FrontIndex::Codes(cs)))
+    };
+    Some(ImageWords {
+        words: ImageValues { words: Vec::new() },
+        exact: true,
+        code,
+        index,
+        widths: Vec::new(),
+    })
 }
 
 /// The record kind and words key `k`'s image takes in pipeline `producer`'s tables (every keyed table over the key set and
@@ -254,8 +329,17 @@ pub fn record_words(gx: &Gx<'_, '_>, producer: usize, k: &KeyDecl<'_>) -> (KeyKi
 
 /// `record_words` before D3857's set-side rule (the rule's own comparison of the two sides reads this one).
 pub fn base_record_words(gx: &Gx<'_, '_>, producer: usize, k: &KeyDecl<'_>) -> (KeyKind, u8) {
-    let varlena = k.image.is_mantissa() && k.words == 1 && !matches!(crate::cell::key_cell_rep(gx, producer, k), Some(Rep::PackedNum { .. }));
-    if gx.facts.coll(k.coll).bytes_eq && !varlena { (k.kind, k.words) } else { (KeyKind::Fp128, 2) }
+    let varlena = k.image.is_mantissa()
+        && k.words == 1
+        && !matches!(
+            crate::cell::key_cell_rep(gx, producer, k),
+            Some(Rep::PackedNum { .. })
+        );
+    if gx.facts.coll(k.coll).bytes_eq && !varlena {
+        (k.kind, k.words)
+    } else {
+        (KeyKind::Fp128, 2)
+    }
 }
 
 /// D3857 (c-random over pgrc copies: rnd-0313 / 0682 / 1869 / 2226 / 4123, a hashed INTERSECT / EXCEPT [ALL] whose
@@ -271,24 +355,52 @@ pub fn base_record_words(gx: &Gx<'_, '_>, producer: usize, k: &KeyDecl<'_>) -> (
 /// numeric_eq. A sorted set operation's walk (setop/stream.rs) keeps its own comparison.
 pub(crate) fn packed_set_key(gx: &Gx<'_, '_>, producer: usize, k: &KeyDecl<'_>) -> bool {
     use gravity_decompose::ops::shared::setop::{SetDesc, SetForm};
-    if !k.image.is_mantissa() || k.words != 1 || !matches!(crate::cell::key_cell_rep(gx, producer, k), Some(Rep::PackedNum { .. })) {
+    if !k.image.is_mantissa()
+        || k.words != 1
+        || !matches!(
+            crate::cell::key_cell_rep(gx, producer, k),
+            Some(Rep::PackedNum { .. })
+        )
+    {
         return false;
     }
-    let Ok(life) = u16::try_from(producer).map(gravity_program::LifeId) else { return false };
-    let Some(g) = gx.graph_group(life) else { return false };
-    let Some(i) = g.keys.iter().position(|x| x.word == k.word && x.resno == k.resno) else { return false };
+    let Ok(life) = u16::try_from(producer).map(gravity_program::LifeId) else {
+        return false;
+    };
+    let Some(g) = gx.graph_group(life) else {
+        return false;
+    };
+    let Some(i) = g
+        .keys
+        .iter()
+        .position(|x| x.word == k.word && x.resno == k.resno)
+    else {
+        return false;
+    };
     let ps = gx.pipelines();
     let peer = (0..ps.len()).find_map(|q| {
         ps[q].ops.iter().find_map(|op| match op {
-            gravity_decompose::Op::SetOp(SetDesc::Set { left, right, form, .. }) if !matches!(form, SetForm::Stream { .. }) => {
+            gravity_decompose::Op::SetOp(SetDesc::Set {
+                left, right, form, ..
+            }) if !matches!(form, SetForm::Stream { .. }) => {
                 let (l, r) = (gx.life_of(q, *left), gx.life_of(q, *right));
-                if l == Some(life) { r } else if r == Some(life) { l } else { None }
+                if l == Some(life) {
+                    r
+                } else if r == Some(life) {
+                    l
+                } else {
+                    None
+                }
             }
             _ => None,
         })
     });
-    let Some(pg) = peer.and_then(|p| gx.graph_group(p)) else { return false };
-    let Some(pk) = pg.keys.get(i) else { return false };
+    let Some(pg) = peer.and_then(|p| gx.graph_group(p)) else {
+        return false;
+    };
+    let Some(pk) = pg.keys.get(i) else {
+        return false;
+    };
     let a = held_form(k, base_record_words(gx, producer, k));
     let b = held_form(pk, base_record_words(gx, pg.producer.0 as usize, pk));
     held_apart(&a, &b)
@@ -300,13 +412,19 @@ fn coll_image(lx: &mut Lx<'_, '_, '_>, k: &KeyCell<'_>) -> Words {
     let m = ImageForm::Coll.need::<VarKeyImpl>(&*lx).0;
     match m.hash(lx, k.cell, k.tf, k.coll, Scope::Program) {
         Some(w) => w,
-        None => crate::refuse!(*lx, crate::admit::refusal::Reason::Bug { payload: "key.coll declined a nondeterministic key" }),
+        None => crate::refuse!(
+            *lx,
+            crate::admit::refusal::Reason::Bug {
+                payload: "key.coll declined a nondeterministic key"
+            }
+        ),
     }
 }
 
 /// The one code key's code, all ones on a NULL row. A same-dictionary image IS the code (`w0`), so no word is re-read.
 fn one_code(lx: &mut Lx<'_, '_, '_>, k: &KeyCell<'_>, w0: Value) -> Value {
-    let same = matches!((k.scope, k.cell.cell.rep), (Scope::SameDict(d), Rep::Code { dict }) if d == dict);
+    let same =
+        matches!((k.scope, k.cell.cell.rep), (Scope::SameDict(d), Rep::Code { dict }) if d == dict);
     let c = if same { w0 } else { rep::code_word(lx, k.cell) };
     match k.cell.null {
         Some(n) => {
@@ -327,33 +445,80 @@ mod tests {
     use gravity_ir::builder::ProgramBuilder;
     use gravity_program::{DictRef, LaneLife, NumTypmod};
 
-    const DICT: DictRef = DictRef { lane: 1, fp_table: 2 };
+    const DICT: DictRef = DictRef {
+        lane: 1,
+        fp_table: 2,
+    };
 
     /// `ImageWords.code` of one nullable code key (code 2, table 2 at `fps`) under `scope`, and `index` of that key
     /// twice, for a valid and a NULL row.
     fn code_of(scope: Scope, null: u64) -> Vec<u64> {
         let rig = mcx::MemoryContext::new("GravityPlanRig");
-        let c = Cell { rep: Rep::Code { dict: DICT }, typid: 25, num: NumTypmod::NONE, life: CellLife::of_lane(LaneLife::DICTIONARY), at: At::Lane(LaneId::col(1)), null: Nullable::Maybe };
+        let c = Cell {
+            rep: Rep::Code { dict: DICT },
+            typid: 25,
+            num: NumTypmod::NONE,
+            life: CellLife::of_lane(LaneLife::DICTIONARY),
+            at: At::Lane(LaneId::col(1)),
+            null: Nullable::Maybe,
+        };
         let mut pb = ProgramBuilder::new();
-        let render = pb.declare_host("agg_render", &[Type::Ptr, Type::I64, Type::I64, Type::I64], Some(Type::Ptr), 0, Default::default());
-        let f = pb.declare_func("k", &[Type::Ptr, Type::Ptr, Type::Ptr, Type::I64], &[Type::I64, Type::I64, Type::I64]);
+        let render = pb.declare_host(
+            "agg_render",
+            &[Type::Ptr, Type::I64, Type::I64, Type::I64],
+            Some(Type::Ptr),
+            0,
+            Default::default(),
+        );
+        let f = pb.declare_func(
+            "k",
+            &[Type::Ptr, Type::Ptr, Type::Ptr, Type::I64],
+            &[Type::I64, Type::I64, Type::I64],
+        );
         let mut b = pb.define(f);
         let (ctx, elem, tables, n) = (b.params()[0], b.params()[1], b.params()[2], b.params()[3]);
         let zero = b.iconst(Type::I64, 0);
         let isnull = b.icmp(gravity_ir::IntCond::Ne, n, zero);
         let code = {
             let mut cx = Lx::new(&mut b, 1, rig.mcx());
-            cx.at = Some(Frame { ctx, site: Some(0), hosts: RepHosts { render }, tables: Some(tables) });
-            let k = KeyCell { cell: CellRef { cell: &c, val: elem, null: Some(isnull) }, tf: row_of(25).unwrap(), scope, coll: KeyColl::NONE };
+            cx.at = Some(Frame {
+                ctx,
+                site: Some(0),
+                hosts: RepHosts { render },
+                tables: Some(tables),
+            });
+            let k = KeyCell {
+                cell: CellRef {
+                    cell: &c,
+                    val: elem,
+                    null: Some(isnull),
+                },
+                tf: row_of(25).unwrap(),
+                scope,
+                coll: KeyColl::NONE,
+            };
             let one = image(&mut cx, &[k]);
             assert!(one.index.is_none(), "one key carries no pair");
             let two = image(&mut cx, &[k, k]);
             assert!(two.code.is_none(), "two keys carry no code");
-            let Some(FrontIndex::Codes(cs)) = two.index else { panic!("two code keys carry both codes") };
-            assert_eq!(cs.iter().map(|c| c.1).collect::<Vec<_>>(), [DICT.lane; 2], "each code's lane");
+            let Some(FrontIndex::Codes(cs)) = two.index else {
+                panic!("two code keys carry both codes")
+            };
+            assert_eq!(
+                cs.iter().map(|c| c.1).collect::<Vec<_>>(),
+                [DICT.lane; 2],
+                "each code's lane"
+            );
             let three = image(&mut cx, &[k, k, k]);
-            assert!(matches!(three.index, Some(FrontIndex::Codes(ref c)) if c.len() == 3), "three code keys carry three codes");
-            (one.code.expect("one code key carries its code"), cs[0].0, cs[1].0)
+            assert!(
+                matches!(three.index, Some(FrontIndex::Codes(ref c)) if c.len() == 3),
+                "three code keys carry three codes"
+            );
+            (
+                one.code.expect("one code key carries its code"),
+                cs[0].0,
+                cs[1].0,
+            )
         };
         b.ret(&[code.0, code.1, code.2]);
         let prog = pb.finish();
@@ -361,7 +526,9 @@ mod tests {
         let mut words = [0u64; 9];
         words[2 * 3] = fps.as_ptr() as u64;
         let cw = [2u32];
-        Interp::new(&prog).run(f, &[0, cw.as_ptr() as u64, words.as_ptr() as u64, null]).expect("runs")
+        Interp::new(&prog)
+            .run(f, &[0, cw.as_ptr() as u64, words.as_ptr() as u64, null])
+            .expect("runs")
     }
 
     #[test]

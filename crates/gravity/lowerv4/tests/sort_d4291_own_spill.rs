@@ -52,7 +52,8 @@ impl gravity_driver::SpillFile for VecFile {
 
     fn open_part(&self, part: u32) -> Result<Option<Box<dyn gravity_driver::RunReader>>> {
         let bytes = self.0[part as usize].clone();
-        Ok((!bytes.is_empty()).then(|| Box::new(VecReader(bytes, 0)) as Box<dyn gravity_driver::RunReader>))
+        Ok((!bytes.is_empty())
+            .then(|| Box::new(VecReader(bytes, 0)) as Box<dyn gravity_driver::RunReader>))
     }
 
     fn spilled_bytes(&self) -> u64 {
@@ -74,9 +75,18 @@ impl gravity_driver::RunReader for VecReader {
 struct VecSet;
 
 impl gravity_driver::SpillSet for VecSet {
-    fn open(&mut self, _purpose: &str, _generation: u64, _worker: usize, nparts: u32) -> Result<Box<dyn gravity_driver::SpillFile>> {
+    fn open(
+        &mut self,
+        _purpose: &str,
+        _generation: u64,
+        _worker: usize,
+        nparts: u32,
+    ) -> Result<Box<dyn gravity_driver::SpillFile>> {
         FILES_LIVE.fetch_add(1, Ordering::Relaxed);
-        Ok(Box::new(VecFile((0..nparts).map(|_| Vec::new()).collect(), 0)))
+        Ok(Box::new(VecFile(
+            (0..nparts).map(|_| Vec::new()).collect(),
+            0,
+        )))
     }
 }
 
@@ -92,7 +102,11 @@ static FACTORY: VecFactory = VecFactory;
 
 /// The statement's grant: G 8 MiB, the sort's ceiling 64 MiB (its region a floor reservation it grows in place past G).
 fn grant() -> Grant {
-    Grant { sort_floor: 4 * MIB, sort_ceil: 64 * MIB, ..Grant::of(8 * MIB) }
+    Grant {
+        sort_floor: 4 * MIB,
+        sort_ceil: 64 * MIB,
+        ..Grant::of(8 * MIB)
+    }
 }
 
 /// The fixture run under an admitted lease over a pool armed at `capacity`; `edge`: when the sort's pipeline ends, G is
@@ -102,27 +116,37 @@ fn run(capacity: u64, edge: bool) -> Outcome {
     REGIONS.trim();
     gravity_driver::DEPOT.trim();
     POOL.arm(capacity);
-    let res = Rc::new(POOL.admit_need_until(grant(), &|g| g.bytes, Duration::from_secs(5), &|| false).unwrap_or_else(|e| panic!("admitted: {e:?}")));
+    let res = Rc::new(
+        POOL.admit_need_until(grant(), &|g| g.bytes, Duration::from_secs(5), &|| false)
+            .unwrap_or_else(|e| panic!("admitted: {e:?}")),
+    );
     let kept: Rc<RefCell<Vec<Held>>> = Rc::new(RefCell::new(Vec::new()));
     let (r, k) = (res.clone(), kept.clone());
     common::LEASE.with(|l| *l.borrow_mut() = Some(res.clone()));
     common::BETWEEN.with(|h| {
         *h.borrow_mut() = edge.then(|| {
-            Box::new(move |p: usize, exec: &gravity_driver::Exec, _abort: &AtomicU8| {
-                if exec.node().program().pipelines[p].breaker().is_none_or(|b| b.kind != BreakerKind::Sort) {
-                    return;
-                }
-                REGIONS.trim();
-                gravity_driver::DEPOT.trim();
-                if let Some(h) = r.hold(r.left()) {
-                    k.borrow_mut().push(h);
-                }
-                let room = POOL.capacity().saturating_sub(POOL.held());
-                k.borrow_mut().push(POOL.keep(room));
-            }) as Box<dyn FnMut(usize, &gravity_driver::Exec, &AtomicU8)>
+            Box::new(
+                move |p: usize, exec: &gravity_driver::Exec, _abort: &AtomicU8| {
+                    if exec.node().program().pipelines[p]
+                        .breaker()
+                        .is_none_or(|b| b.kind != BreakerKind::Sort)
+                    {
+                        return;
+                    }
+                    REGIONS.trim();
+                    gravity_driver::DEPOT.trim();
+                    if let Some(h) = r.hold(r.left()) {
+                        k.borrow_mut().push(h);
+                    }
+                    let room = POOL.capacity().saturating_sub(POOL.held());
+                    k.borrow_mut().push(POOL.keep(room));
+                },
+            ) as Box<dyn FnMut(usize, &gravity_driver::Exec, &AtomicU8)>
         })
     });
-    let out = common::run_fixture(FIXTURE, common::Mode::Straight).expect("decomposes").unwrap_or_else(|e| panic!("the rig: {e}"));
+    let out = common::run_fixture(FIXTURE, common::Mode::Straight)
+        .expect("decomposes")
+        .unwrap_or_else(|e| panic!("the rig: {e}"));
     common::BETWEEN.with(|h| *h.borrow_mut() = None);
     common::LEASE.with(|l| *l.borrow_mut() = None);
     kept.borrow_mut().clear();
@@ -130,8 +154,16 @@ fn run(capacity: u64, edge: bool) -> Outcome {
     REGIONS.trim();
     gravity_driver::DEPOT.trim();
     gravity_driver::mem::reap::drain();
-    assert_eq!(POOL.held(), 0, "every byte back at the statement's end (capacity {capacity}, edge {edge})");
-    assert_eq!(FILES_LIVE.load(Ordering::Relaxed), 0, "every temp file dropped with its statement");
+    assert_eq!(
+        POOL.held(),
+        0,
+        "every byte back at the statement's end (capacity {capacity}, edge {edge})"
+    );
+    assert_eq!(
+        FILES_LIVE.load(Ordering::Relaxed),
+        0,
+        "every temp file dropped with its statement"
+    );
     POOL.arm(0);
     out
 }
@@ -139,10 +171,16 @@ fn run(capacity: u64, edge: bool) -> Outcome {
 #[test]
 fn a_finished_sort_goes_to_its_file_before_its_readers_open_is_refused() {
     // the driver reads the kernel's sealed mark from its own copy (it does not link the kernels)
-    assert_eq!(gravity_driver::node::SORT_RUN_SEALED, gravity_kernels::ops::sort::entries::RUN_SEALED, "the sealed mark");
+    assert_eq!(
+        gravity_driver::node::SORT_RUN_SEALED,
+        gravity_kernels::ops::sort::entries::RUN_SEALED,
+        "the sealed mark"
+    );
     gravity_driver::install_spill_factory(&FACTORY);
     let plenty = run(1 << 30, false);
-    let Outcome::Rows(want) = &plenty else { panic!("the plentiful run: {plenty:?}") };
+    let Outcome::Rows(want) = &plenty else {
+        panic!("the plentiful run: {plenty:?}")
+    };
     assert_eq!(want.len(), 1, "one row: {want:?}");
 
     // the d4168 edge: the sort sealed in memory past G, the pool's last byte kept, its reader's open next
@@ -157,7 +195,10 @@ fn a_finished_sort_goes_to_its_file_before_its_readers_open_is_refused() {
     let failed = run(256 * MIB, true);
     FAIL_WRITES.store(false, Ordering::Relaxed);
     match &failed {
-        Outcome::Error { sqlstate, .. } => assert_eq!(sqlstate, "57014", "the put's cancel ends the statement: {failed:?}"),
+        Outcome::Error { sqlstate, .. } => assert_eq!(
+            sqlstate, "57014",
+            "the put's cancel ends the statement: {failed:?}"
+        ),
         Outcome::Rows(_) => panic!("served though its sort's put failed"),
     }
 }

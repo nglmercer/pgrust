@@ -108,7 +108,11 @@ leader_tls::leader_tls! {
 }
 
 /// C1: `None` leaves the Bind to Gravity, unchanged; `Some` is the Bind's answer (`Ok(true)`: the portal is served here).
-pub(in crate::runner) fn bind_point(portal: &Portal<'static>, cplan: CachedPlanHandle, params: ParamListHandle) -> Option<PgResult<bool>> {
+pub(in crate::runner) fn bind_point(
+    portal: &Portal<'static>,
+    cplan: CachedPlanHandle,
+    params: ParamListHandle,
+) -> Option<PgResult<bool>> {
     let mode = point_path();
     if mode == POINT_PATH_OFF || !portal.borrow().name.is_empty() {
         return None;
@@ -129,9 +133,18 @@ pub(in crate::runner) fn bind_point(portal: &Portal<'static>, cplan: CachedPlanH
         return declined(RUNS_SQL);
     }
     let why = runtime_refusal(elog::config::where_to_send_output())
-        .or_else(|| types_portal::params::defers_to_evaluation(params).then_some("params fetched at evaluation"))
-        .or_else(|| LIVE.with(|l| l.borrow().is_some()).then_some("a point portal is live"))
-        .or_else(|| (matches!(what, What::Probe(_)) && xact::IsolationIsSerializable()).then_some("serializable"));
+        .or_else(|| {
+            types_portal::params::defers_to_evaluation(params)
+                .then_some("params fetched at evaluation")
+        })
+        .or_else(|| {
+            LIVE.with(|l| l.borrow().is_some())
+                .then_some("a point portal is live")
+        })
+        .or_else(|| {
+            (matches!(what, What::Probe(_)) && xact::IsolationIsSerializable())
+                .then_some("serializable")
+        });
     if let Some(why) = why {
         // `strict` raises where S0a's hook A would have built the plan (a FROM-less SELECT); S1x serves the planner's
         // own plan, so its decline is a word in the log in every mode, as S1's
@@ -163,7 +176,12 @@ fn declined(why: &str) -> Option<PgResult<bool>> {
 /// PortalStart's and ExecutorStart's work for the portal, in their order: the snapshot (registered on the portal's owner
 /// and pushed), the permission checks, every entry or the probe initialized; then the portal's descriptor and state.
 /// `Ok(None)`: S1x's relation tests declined it; all of it is undone and Gravity serves the Bind.
-fn open(portal: &Portal<'static>, pstmt: &'static PlannedStmt<'static>, what: What, params: ParamListHandle) -> PgResult<Option<bool>> {
+fn open(
+    portal: &Portal<'static>,
+    pstmt: &'static PlannedStmt<'static>,
+    what: What,
+    params: ParamListHandle,
+) -> PgResult<Option<bool>> {
     let id = memledger::charge::new_owner_id();
     memledger::charge::portal_begin(id);
     // the owner ends here on an error below (the portal is not served, so no C4 comes for it)
@@ -193,7 +211,8 @@ fn open(portal: &Portal<'static>, pstmt: &'static PlannedStmt<'static>, what: Wh
         declined(why);
         return Ok(None);
     }
-    let desc = built.and_then(|s| execmain_seams::exec_clean_type_from_tl::call(pstmt).map(|d| (s, d)));
+    let desc =
+        built.and_then(|s| execmain_seams::exec_clean_type_from_tl::call(pstmt).map(|d| (s, d)));
     let (state, desc) = match desc {
         Ok(v) => v,
         Err(e) => {
@@ -212,10 +231,26 @@ fn open(portal: &Portal<'static>, pstmt: &'static PlannedStmt<'static>, what: Wh
         let mut p = portal.borrow_mut();
         p.gravity = token;
         p.tupDesc = Some(desc);
-        (p.strategy, p.status, p.atStart, p.atEnd, p.portalPos) = (types_portal::PORTAL_ONE_SELECT, types_portal::PORTAL_READY, true, false, 0);
+        (p.strategy, p.status, p.atStart, p.atEnd, p.portalPos) = (
+            types_portal::PORTAL_ONE_SELECT,
+            types_portal::PORTAL_READY,
+            true,
+            false,
+            0,
+        );
     }
     let c8 = c8.0.take().expect("set above");
-    LIVE.with(|l| *l.borrow_mut() = Some(Point { token, state: State::Own(state), snap, owner, c8, done: false, suspended: false }));
+    LIVE.with(|l| {
+        *l.borrow_mut() = Some(Point {
+            token,
+            state: State::Own(state),
+            snap,
+            owner,
+            c8,
+            done: false,
+            suspended: false,
+        })
+    });
     super::super::execute::arm_teardown();
     if reporting() {
         report("bound portal");
@@ -227,7 +262,13 @@ fn open(portal: &Portal<'static>, pstmt: &'static PlannedStmt<'static>, what: Wh
 /// as `open` makes them, then the plan's kept probe taken and re-armed or one made (`pkeep::bind`: ExecutorStart's checks
 /// and the probe's per-portal part, in `build_probe`'s order), with no context of the portal's; its descriptor is the
 /// kept one. `Ok(None)`: S1's tests or the parameters declined it (undone; Gravity serves the Bind).
-fn open_kept(portal: &Portal<'static>, pstmt: &'static PlannedStmt<'static>, s: &Shape<'static>, key: gravity_program::PlanKey, params: ParamListHandle) -> PgResult<Option<bool>> {
+fn open_kept(
+    portal: &Portal<'static>,
+    pstmt: &'static PlannedStmt<'static>,
+    s: &Shape<'static>,
+    key: gravity_program::PlanKey,
+    params: ParamListHandle,
+) -> PgResult<Option<bool>> {
     let id = memledger::charge::new_owner_id();
     memledger::charge::portal_begin(id);
     // the owner ends here on an error below (the portal is not served, so no C4 comes for it)
@@ -236,7 +277,8 @@ fn open_kept(portal: &Portal<'static>, pstmt: &'static PlannedStmt<'static>, s: 
     let snap = snapmgr::RegisterSnapshotOnOwner(&snapmgr::GetTransactionSnapshot()?, owner)?;
     let root = pkeep::root_of(pstmt);
     let bound = snapmgr::PushActiveSnapshot(&snap).and_then(|()| {
-        let r = with_run(|run, _| with_params(params, |ps| pkeep::bind(pstmt, s, key, root, ps, run)));
+        let r =
+            with_run(|run, _| with_params(params, |ps| pkeep::bind(pstmt, s, key, root, ps, run)));
         let popped = snapmgr::PopActiveSnapshot();
         r.and_then(|b| popped.map(|()| b))
     });
@@ -263,11 +305,27 @@ fn open_kept(portal: &Portal<'static>, pstmt: &'static PlannedStmt<'static>, s: 
         let mut p = portal.borrow_mut();
         p.gravity = token;
         p.tupDesc = Some(desc);
-        (p.strategy, p.status, p.atStart, p.atEnd, p.portalPos) = (types_portal::PORTAL_ONE_SELECT, types_portal::PORTAL_READY, true, false, 0);
+        (p.strategy, p.status, p.atStart, p.atEnd, p.portalPos) = (
+            types_portal::PORTAL_ONE_SELECT,
+            types_portal::PORTAL_READY,
+            true,
+            false,
+            0,
+        );
     }
     let c8 = c8.0.take().expect("set above");
     let tlist: &'static NodeList<'static> = &s.scan.scan.plan.targetlist;
-    LIVE.with(|l| *l.borrow_mut() = Some(Point { token, state: State::Kept(lent, tlist), snap, owner, c8, done: false, suspended: false }));
+    LIVE.with(|l| {
+        *l.borrow_mut() = Some(Point {
+            token,
+            state: State::Kept(lent, tlist),
+            snap,
+            owner,
+            c8,
+            done: false,
+            suspended: false,
+        })
+    });
     super::super::execute::arm_teardown();
     if reporting() {
         report("bound portal");
@@ -277,27 +335,45 @@ fn open_kept(portal: &Portal<'static>, pstmt: &'static PlannedStmt<'static>, s: 
 
 /// ExecutorStart's part in the portal's context: the permission checks, the parameters copied where the states read them,
 /// each entry's ExprState (ExecInitResult's projection: an EXECUTE privilege error raises here), the out columns.
-fn build<'m>(mcx: Mcx<'m>, pstmt: &'static PlannedStmt<'static>, tlist: &'static NodeList<'static>, params: ParamListHandle) -> PgResult<Bound<'m>> {
+fn build<'m>(
+    mcx: Mcx<'m>,
+    pstmt: &'static PlannedStmt<'static>,
+    tlist: &'static NodeList<'static>,
+    params: ParamListHandle,
+) -> PgResult<Bound<'m>> {
     super::super::start_checks(pstmt, Cmd::Select, mcx)?;
     let n = types_portal::params::num_params(params);
     let mut ext: PgVec<'m, ParamExternData> = PgVec::new_in(mcx);
-    ext.try_reserve_exact(n).map_err(|_| mcx.oom(n * core::mem::size_of::<ParamExternData>()))?;
+    ext.try_reserve_exact(n)
+        .map_err(|_| mcx.oom(n * core::mem::size_of::<ParamExternData>()))?;
     if n > 0 {
         types_portal::params::with(params, |ps| ext.extend_from_slice(&ps[..n.min(ps.len())]));
     }
     let ext: &'m [ParamExternData] = ext.leak();
-    let bind = execexpr::ParamBind { extern_params: Some(ext), ..execexpr::ParamBind::NONE };
+    let bind = execexpr::ParamBind {
+        extern_params: Some(ext),
+        ..execexpr::ParamBind::NONE
+    };
     let k = tlist.len();
     let mut states: PgVec<'m, PgBox<'m, execexpr::ExprState<'m>>> = PgVec::new_in(mcx);
     let mut cols: PgVec<'m, OutCol> = PgVec::new_in(mcx);
-    states.try_reserve_exact(k).map_err(|_| mcx.oom(k * core::mem::size_of::<usize>()))?;
-    cols.try_reserve_exact(k).map_err(|_| mcx.oom(k * core::mem::size_of::<OutCol>()))?;
+    states
+        .try_reserve_exact(k)
+        .map_err(|_| mcx.oom(k * core::mem::size_of::<usize>()))?;
+    cols.try_reserve_exact(k)
+        .map_err(|_| mcx.oom(k * core::mem::size_of::<OutCol>()))?;
     for t in tlist.iter() {
         let te = t.as_target_entry().expect("checked by bare_result");
         cols.push(out_col(te)?);
-        states.push(execexpr::exec_init_expr(mcx, Some(te.expr), bind)?.expect("a target entry has an expression"));
+        states.push(
+            execexpr::exec_init_expr(mcx, Some(te.expr), bind)?
+                .expect("a target entry has an expression"),
+        );
     }
-    Ok(Bound { body: Body::NoFrom(states), cols })
+    Ok(Bound {
+        body: Body::NoFrom(states),
+        cols,
+    })
 }
 
 /// S1x: ExecutorStart's part for the probe in the portal's context: the permission checks, the table opened
@@ -306,27 +382,49 @@ fn build<'m>(mcx: Mcx<'m>, pstmt: &'static PlannedStmt<'static>, tlist: &'static
 /// (`probe::key_gates`, D4541), the out columns, then the scan begun under
 /// the portal's snapshot (the active one, `open` pushed it: es_snapshot) with its keys given to the AM (ExecInitIndexScan's index_rescan; a generic plan's parameter keys
 /// are ExecReScanIndexScan's at the first fetch, with nothing between to tell them apart).
-fn build_probe<'m>(mcx: Mcx<'m>, pstmt: &'static PlannedStmt<'static>, s: &Shape<'static>, params: ParamListHandle) -> PgResult<Bound<'m>> {
+fn build_probe<'m>(
+    mcx: Mcx<'m>,
+    pstmt: &'static PlannedStmt<'static>,
+    s: &Shape<'static>,
+    params: ParamListHandle,
+) -> PgResult<Bound<'m>> {
     super::super::start_checks(pstmt, Cmd::Select, mcx)?;
     let heap = table::table_open(mcx, s.relid, NoLock)?;
     let index = indexam::index_open(mcx, s.scan.indexid, select::index_lockmode(s))?;
     let mut ops: probe::KeyOps = [(0, 0); types_core::fmgr::INDEX_MAX_KEYS as usize];
-    let begun = with_params(params, |ps| match select::relation_refusal(&heap, &index, s, ps, &mut ops)? {
-        Some(why) => Ok(Err(why)),
-        None => {
-            probe::key_gates(&s.scan.indexqual)?;
-            probe::Scan::begin(mcx, &heap, &index, &s.scan.indexqual, ps, &ops, snapmgr::GetActiveSnapshot()).map(Ok)
+    let begun = with_params(params, |ps| {
+        match select::relation_refusal(&heap, &index, s, ps, &mut ops)? {
+            Some(why) => Ok(Err(why)),
+            None => {
+                probe::key_gates(&s.scan.indexqual)?;
+                probe::Scan::begin(
+                    mcx,
+                    &heap,
+                    &index,
+                    &s.scan.indexqual,
+                    ps,
+                    &ops,
+                    snapmgr::GetActiveSnapshot(),
+                )
+                .map(Ok)
+            }
         }
     })?;
     let mut scan = match begun {
         Ok(scan) => scan,
-        Err(why) => return Ok(Bound { body: Body::Declined(why), cols: PgVec::new_in(mcx) }),
+        Err(why) => {
+            return Ok(Bound {
+                body: Body::Declined(why),
+                cols: PgVec::new_in(mcx),
+            })
+        }
     };
     let tlist: &'static NodeList<'static> = &s.scan.scan.plan.targetlist;
     let r = (|| -> PgResult<PgVec<'m, OutCol>> {
         let k = tlist.len();
         let mut cols: PgVec<'m, OutCol> = PgVec::new_in(mcx);
-        cols.try_reserve_exact(k).map_err(|_| mcx.oom(k * core::mem::size_of::<OutCol>()))?;
+        cols.try_reserve_exact(k)
+            .map_err(|_| mcx.oom(k * core::mem::size_of::<OutCol>()))?;
         for t in tlist.iter() {
             cols.push(out_col(t.as_target_entry().expect("checked by shape"))?);
         }
@@ -340,7 +438,15 @@ fn build_probe<'m>(mcx: Mcx<'m>, pstmt: &'static PlannedStmt<'static>, s: &Shape
             return Err(e);
         }
     };
-    Ok(Bound { body: Body::Probe(Probe { tlist, scan: Some(scan), _index: index, _heap: heap }), cols })
+    Ok(Bound {
+        body: Body::Probe(Probe {
+            tlist,
+            scan: Some(scan),
+            _index: index,
+            _heap: heap,
+        }),
+        cols,
+    })
 }
 
 /// The portal's parameters as a slice (none: empty).
@@ -353,9 +459,15 @@ fn with_params<R>(params: ParamListHandle, f: impl FnOnce(&[ParamExternData]) ->
 }
 
 /// C2: the portal's Execute (`Some(None)`: suspended at `max_rows`; `Some(Some(qc))`: complete).
-pub(in crate::runner) fn step(portal: &Portal<'static>, token: u64, max_rows: i64) -> PgResult<Option<Option<QueryCompletion>>> {
+pub(in crate::runner) fn step(
+    portal: &Portal<'static>,
+    token: u64,
+    max_rows: i64,
+) -> PgResult<Option<Option<QueryCompletion>>> {
     let mut lent = Lent(LIVE.with(|l| l.borrow_mut().take_if(|p| p.token == token)));
-    let Some(p) = lent.0.as_mut() else { return Err(missing()) };
+    let Some(p) = lent.0.as_mut() else {
+        return Err(missing());
+    };
     if p.done {
         // D4639: a portal suspended at its count runs ExecResult once more (its CHECK_FOR_INTERRUPTS, then rs_done)
         if std::mem::take(&mut p.suspended) {
@@ -384,7 +496,9 @@ pub(in crate::runner) fn step(portal: &Portal<'static>, token: u64, max_rows: i6
         report(&format!("served portal rows={rows}")); // alloc: Cold
     }
     // PortalRunSelect: a count the rows reached leaves the portal not at its end (PortalSuspended)
-    Ok(Some(at_end.then(|| gravity_wire::completion(Cmd::Select, rows))))
+    Ok(Some(
+        at_end.then(|| gravity_wire::completion(Cmd::Select, rows)),
+    ))
 }
 
 /// The Execute's rows in the portal's formats, each DataRow built in the run context, to `max_rows` (0: all); returns the
@@ -392,11 +506,19 @@ pub(in crate::runner) fn step(portal: &Portal<'static>, token: u64, max_rows: i6
 /// ExecResult's projection: the entries in order (their results in the portal's context), one row. S1x, IndexNext: a fetch
 /// per row, the row projected from the scan's slot (`select::project`), ExecutePlan's count checked after each row sent,
 /// before the next fetch.
-fn project(portal: &Portal<'static>, state: &mut McxOwned<BoundTy>, max_rows: i64, run: Mcx<'_>, wire: &mut gravity_wire::WireNode) -> PgResult<(u64, bool, bool)> {
+fn project(
+    portal: &Portal<'static>,
+    state: &mut McxOwned<BoundTy>,
+    max_rows: i64,
+    run: Mcx<'_>,
+    wire: &mut gravity_wire::WireNode,
+) -> PgResult<(u64, bool, bool)> {
     let mut formats: PgVec<'_, i16> = PgVec::new_in(run);
     {
         let p = portal.borrow();
-        formats.try_reserve_exact(p.formats.len()).map_err(|_| run.oom(p.formats.len() * 2))?;
+        formats
+            .try_reserve_exact(p.formats.len())
+            .map_err(|_| run.oom(p.formats.len() * 2))?;
         formats.extend_from_slice(&p.formats);
     }
     state.with_mut_mcx(|mcx, b| {
@@ -411,7 +533,11 @@ fn project(portal: &Portal<'static>, state: &mut McxOwned<BoundTy>, max_rows: i6
             Body::NoFrom(states) => {
                 // ExecResult's CHECK_FOR_INTERRUPTS at its first call
                 cancelpoll::interrupts::check()?;
-                let mut slots = execexpr::EvalSlots { scan: None, inner: None, outer: None };
+                let mut slots = execexpr::EvalSlots {
+                    scan: None,
+                    inner: None,
+                    outer: None,
+                };
                 for st in states.iter_mut() {
                     st.arm_result_mcx(mcx);
                     let d = execexpr::exec_eval_expr(st, &mut slots)?;
@@ -448,11 +574,20 @@ fn project(portal: &Portal<'static>, state: &mut McxOwned<BoundTy>, max_rows: i6
 }
 
 /// S1x's Execute over a kept probe (pkeep.rs): `project`'s probe arm, the fetches in the probe's exec context.
-fn project_kept(portal: &Portal<'static>, lent: &mut pkeep::Lent, tlist: &'static NodeList<'static>, max_rows: i64, run: Mcx<'_>, wire: &mut gravity_wire::WireNode) -> PgResult<(u64, bool, bool)> {
+fn project_kept(
+    portal: &Portal<'static>,
+    lent: &mut pkeep::Lent,
+    tlist: &'static NodeList<'static>,
+    max_rows: i64,
+    run: Mcx<'_>,
+    wire: &mut gravity_wire::WireNode,
+) -> PgResult<(u64, bool, bool)> {
     let mut formats: PgVec<'_, i16> = PgVec::new_in(run);
     {
         let p = portal.borrow();
-        formats.try_reserve_exact(p.formats.len()).map_err(|_| run.oom(p.formats.len() * 2))?;
+        formats
+            .try_reserve_exact(p.formats.len())
+            .map_err(|_| run.oom(p.formats.len() * 2))?;
         formats.extend_from_slice(&p.formats);
     }
     lent.with_probe(|pr| {
@@ -483,8 +618,22 @@ fn project_kept(portal: &Portal<'static>, lent: &mut pkeep::Lent, tlist: &'stati
 /// C4: the portal's drop: its state freed (a kept probe given back, pkeep.rs `put`), its snapshot unregistered from its
 /// owner, then its end as a memory owner (its residue, if any, is noted then).
 pub(in crate::runner) fn drop_portal(token: u64) {
-    let p = LIVE.try_with(|l| l.try_borrow_mut().ok().and_then(|mut g| g.take_if(|p| p.token == token))).ok().flatten();
-    if let Some(Point { state, snap, owner, c8, .. }) = p {
+    let p = LIVE
+        .try_with(|l| {
+            l.try_borrow_mut()
+                .ok()
+                .and_then(|mut g| g.take_if(|p| p.token == token))
+        })
+        .ok()
+        .flatten();
+    if let Some(Point {
+        state,
+        snap,
+        owner,
+        c8,
+        ..
+    }) = p
+    {
         match state {
             State::Own(mut state) => {
                 // S1x: ExecEndIndexScan's index_endscan (its error, an AM's own failure, has no caller to reach: C4 runs
@@ -533,5 +682,8 @@ impl Drop for OwnerEnd {
 
 #[cold]
 fn missing() -> Box<PgError> {
-    Box::new(PgError::error("point path: an Execute of a point portal whose state is gone").with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR)) // alloc: Cold
+    Box::new(
+        PgError::error("point path: an Execute of a point portal whose state is gone")
+            .with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR),
+    ) // alloc: Cold
 }

@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
 use gravity_abi::Ctx;
-use gravity_program::{Arena, Cmd, Code, Generation, Handle, IndexPlan, Layout, OutCol, PlanKey, Program, ProgramCache, SiteDesc, WritePlan};
+use gravity_program::{
+    Arena, Cmd, Code, Generation, Handle, IndexPlan, Layout, OutCol, PlanKey, Program,
+    ProgramCache, SiteDesc, WritePlan,
+};
 
 unsafe extern "C-unwind" fn fake_entry(_ctx: *mut Ctx) -> i64 {
     gravity_abi::status::DONE
@@ -16,35 +19,91 @@ unsafe extern "C-unwind" fn other_entry(_ctx: *mut Ctx) -> i64 {
 struct Mapping(#[allow(dead_code)] Vec<u8>);
 
 fn layout(nsites: u16, out_natts: u16) -> Layout {
-    Layout { nsites, out_natts, out_rows: 64, scratch_bytes: 0, exec_bytes: 0 }
+    Layout {
+        nsites,
+        out_natts,
+        out_rows: 64,
+        scratch_bytes: 0,
+        exec_bytes: 0,
+    }
 }
 
 fn program(rel: u32, bytes: usize) -> Arc<Program> {
     let st = Arena::new(1 << 12);
-    let sites = [SiteDesc::index_source(st.handle(), rel, rel + 1, &[1, 2], &[0, 1], &[3, 4])];
-    let out = [OutCol::new("a", 23, -1, 4, true), OutCol::new("b", 25, -1, -1, false)];
-    let code = if bytes == 0 { Code::hand(fake_entry) } else { Code::mapped(fake_entry, bytes, Box::new(Mapping(vec![0; bytes]))) };
-    Arc::new(Program::new(layout(1, 2), &sites, &out, WritePlan::SELECT, code))
+    let sites = [SiteDesc::index_source(
+        st.handle(),
+        rel,
+        rel + 1,
+        &[1, 2],
+        &[0, 1],
+        &[3, 4],
+    )];
+    let out = [
+        OutCol::new("a", 23, -1, 4, true),
+        OutCol::new("b", 25, -1, -1, false),
+    ];
+    let code = if bytes == 0 {
+        Code::hand(fake_entry)
+    } else {
+        Code::mapped(fake_entry, bytes, Box::new(Mapping(vec![0; bytes])))
+    };
+    Arc::new(Program::new(
+        layout(1, 2),
+        &sites,
+        &out,
+        WritePlan::SELECT,
+        code,
+    ))
 }
 
 fn pk(h: u64, g: u32) -> PlanKey {
-    PlanKey { handle: Handle(h), generation: Generation(g) }
+    PlanKey {
+        handle: Handle(h),
+        generation: Generation(g),
+    }
 }
 
 #[test]
 fn content_key_covers_every_field() {
     let base = program(1, 0);
-    assert_eq!(base.key, program(1, 0).key, "the key is a function of the content");
+    assert_eq!(
+        base.key,
+        program(1, 0).key,
+        "the key is a function of the content"
+    );
     assert_ne!(base.key, program(2, 0).key, "relation oid");
     assert_ne!(base.key, program(1, 10).key, "code bytes");
     let st = Arena::new(1 << 12);
     let a = st.handle();
     let sites = [SiteDesc::index_source(a, 1, 2, &[1, 2], &[0, 1], &[3, 4])];
-    let out = [OutCol::new("a", 23, -1, 4, true), OutCol::new("b", 25, -1, -1, false)];
-    let other_code = Program::new(layout(1, 2), &sites, &out, WritePlan::SELECT, Code::hand(other_entry));
+    let out = [
+        OutCol::new("a", 23, -1, 4, true),
+        OutCol::new("b", 25, -1, -1, false),
+    ];
+    let other_code = Program::new(
+        layout(1, 2),
+        &sites,
+        &out,
+        WritePlan::SELECT,
+        Code::hand(other_entry),
+    );
     assert_ne!(base.key, other_code.key, "entry address");
-    let renamed = [OutCol::new("a", 23, -1, 4, true), OutCol::new("c", 25, -1, -1, false)];
-    assert_ne!(base.key, Program::new(layout(1, 2), &sites, &renamed, WritePlan::SELECT, Code::hand(fake_entry)).key, "output column");
+    let renamed = [
+        OutCol::new("a", 23, -1, 4, true),
+        OutCol::new("c", 25, -1, -1, false),
+    ];
+    assert_ne!(
+        base.key,
+        Program::new(
+            layout(1, 2),
+            &sites,
+            &renamed,
+            WritePlan::SELECT,
+            Code::hand(fake_entry)
+        )
+        .key,
+        "output column"
+    );
     let w = WritePlan::write(a, Cmd::Update, 1, &[IndexPlan::new(a, 2, &[1, 2], true)]);
     let written = Program::new(layout(1, 2), &sites, &out, w, Code::hand(fake_entry));
     assert_ne!(base.key, written.key, "write plan");
@@ -63,20 +122,35 @@ fn code_calls_and_reports_owner() {
     let m = program(2, 100);
     assert!(!m.code().is_hand());
     assert_eq!(m.code_bytes(), 100);
-    assert_eq!(m.layout.ctx_size(), gravity_abi::HEADER_SIZE + m.layout.nsites as usize * gravity_abi::SITE_SIZE);
+    assert_eq!(
+        m.layout.ctx_size(),
+        gravity_abi::HEADER_SIZE + m.layout.nsites as usize * gravity_abi::SITE_SIZE
+    );
     assert_eq!(m.layout.site_off(0), gravity_abi::HEADER_SIZE);
 }
 
 #[test]
 #[should_panic(expected = "layout.nsites")]
 fn program_rejects_site_count_mismatch() {
-    let _ = Program::new(layout(2, 0), &[], &[], WritePlan::SELECT, Code::hand(fake_entry));
+    let _ = Program::new(
+        layout(2, 0),
+        &[],
+        &[],
+        WritePlan::SELECT,
+        Code::hand(fake_entry),
+    );
 }
 
 #[test]
 #[should_panic(expected = "layout.out_natts")]
 fn program_rejects_output_count_mismatch() {
-    let _ = Program::new(layout(0, 1), &[], &[], WritePlan::SELECT, Code::hand(fake_entry));
+    let _ = Program::new(
+        layout(0, 1),
+        &[],
+        &[],
+        WritePlan::SELECT,
+        Code::hand(fake_entry),
+    );
 }
 
 #[test]
@@ -146,21 +220,51 @@ fn l2_evicts_lru_by_bytes_and_count() {
 #[test]
 fn d2948_an_entry_promoted_after_filing_is_evicted_by_the_bytes_it_was_counted_at() {
     let st = Arena::new(1 << 12);
-    let sites = [SiteDesc::index_source(st.handle(), 7, 8, &[1, 2], &[0, 1], &[3, 4])];
-    let out = [OutCol::new("a", 23, -1, 4, true), OutCol::new("b", 25, -1, -1, false)];
-    let up = Box::new(|| Ok(Code::mapped(fake_entry, 4096, Box::new(Mapping(vec![0; 4096])))));
-    let tiered = Arc::new(Program::new(layout(1, 2), &sites, &out, WritePlan::SELECT, Code::tiered(Code::hand(fake_entry), u64::MAX, up)));
+    let sites = [SiteDesc::index_source(
+        st.handle(),
+        7,
+        8,
+        &[1, 2],
+        &[0, 1],
+        &[3, 4],
+    )];
+    let out = [
+        OutCol::new("a", 23, -1, 4, true),
+        OutCol::new("b", 25, -1, -1, false),
+    ];
+    let up = Box::new(|| {
+        Ok(Code::mapped(
+            fake_entry,
+            4096,
+            Box::new(Mapping(vec![0; 4096])),
+        ))
+    });
+    let tiered = Arc::new(Program::new(
+        layout(1, 2),
+        &sites,
+        &out,
+        WritePlan::SELECT,
+        Code::tiered(Code::hand(fake_entry), u64::MAX, up),
+    ));
     let mut c = ProgramCache::new(1 << 20, 1);
     c.insert(None, tiered.clone());
     assert_eq!(c.l2_bytes(), 0, "filed while it interprets");
     assert!(tiered.code().tier0().expect("tier-0 code").promote());
     assert_eq!(tiered.code_bytes(), 4096, "promoted");
     c.insert(None, program(1, 100));
-    assert_eq!(c.l2_bytes(), 100, "the tier-0 entry evicted by what it was counted at");
+    assert_eq!(
+        c.l2_bytes(),
+        100,
+        "the tier-0 entry evicted by what it was counted at"
+    );
     let front = tiered.key;
     c.install(front, tiered.clone());
     c.install(front, program(2, 0));
-    assert_eq!(c.l2_bytes(), 0, "the promoted entry, re-filed at its new size, evicted by that size");
+    assert_eq!(
+        c.l2_bytes(),
+        0,
+        "the promoted entry, re-filed at its new size, evicted by that size"
+    );
 }
 
 /// D3615: a code that is one entry of `m`'s mapping (as the backend's `codes_of` makes them).
@@ -173,11 +277,36 @@ fn piped(codes: Vec<Code>) -> Program {
     use gravity_abi::breaker::{Breaker, BreakerKind};
     use gravity_program::{End, Pipeline, Reason};
     let st = Arena::new(1 << 12);
-    let sites = [SiteDesc::index_source(st.handle(), 1, 2, &[1, 2], &[0, 1], &[3, 4])];
-    let out = [OutCol::new("a", 23, -1, 4, true), OutCol::new("b", 25, -1, -1, false)];
+    let sites = [SiteDesc::index_source(
+        st.handle(),
+        1,
+        2,
+        &[1, 2],
+        &[0, 1],
+        &[3, 4],
+    )];
+    let out = [
+        OutCol::new("a", 23, -1, 4, true),
+        OutCol::new("b", 25, -1, -1, false),
+    ];
     let n = codes.len();
-    let end = |i| if i + 1 < n { End::Breaker(Breaker::sized(BreakerKind::PlainAgg, 16)) } else { End::Sink };
-    Program::with_pipelines(layout(1, 2), &sites, &out, WritePlan::SELECT, codes.into_iter().enumerate().map(|(i, c)| (Pipeline::serial(-1, end(i), Reason::NoDrivingSite), c)))
+    let end = |i| {
+        if i + 1 < n {
+            End::Breaker(Breaker::sized(BreakerKind::PlainAgg, 16))
+        } else {
+            End::Sink
+        }
+    };
+    Program::with_pipelines(
+        layout(1, 2),
+        &sites,
+        &out,
+        WritePlan::SELECT,
+        codes
+            .into_iter()
+            .enumerate()
+            .map(|(i, c)| (Pipeline::serial(-1, end(i), Reason::NoDrivingSite), c)),
+    )
 }
 
 /// D3615: one compile maps every pipeline's entry, and each of those codes reports the whole mapping's bytes; a program
@@ -186,12 +315,23 @@ fn piped(codes: Vec<Code>) -> Program {
 /// own (no mapping named) counts as before.
 #[test]
 fn d3615_a_program_is_charged_each_mapping_once() {
-    let (m1, m2) = (Arc::new(Mapping(vec![0; 1000])), Arc::new(Mapping(vec![0; 300])));
+    let (m1, m2) = (
+        Arc::new(Mapping(vec![0; 1000])),
+        Arc::new(Mapping(vec![0; 300])),
+    );
     let one = piped(vec![of_mapping(&m1), of_mapping(&m1), of_mapping(&m1)]);
-    assert_eq!(one.code_bytes(), 1000, "three pipelines of one mapping: its bytes once");
+    assert_eq!(
+        one.code_bytes(),
+        1000,
+        "three pipelines of one mapping: its bytes once"
+    );
     let own = Code::mapped(fake_entry, 50, Box::new(Mapping(vec![0; 50])));
     let two = piped(vec![of_mapping(&m1), of_mapping(&m2), of_mapping(&m1), own]);
-    assert_eq!(two.code_bytes(), 1000 + 300 + 50, "each mapping once, and the code of its own");
+    assert_eq!(
+        two.code_bytes(),
+        1000 + 300 + 50,
+        "each mapping once, and the code of its own"
+    );
 }
 
 /// D3615: the process-wide tier still refuses a program that is genuinely over a shard's share: many pipelines of one
@@ -200,12 +340,21 @@ fn d3615_a_program_is_charged_each_mapping_once() {
 fn d3615_the_shared_tier_still_refuses_a_large_program() {
     use gravity_program::cache::{SharedCache, SHARDS};
     let tier: SharedCache<Arc<Program>> = SharedCache::new(SHARDS * 4, SHARDS * 1000);
-    let (m1, m2) = (Arc::new(Mapping(vec![0; 600])), Arc::new(Mapping(vec![0; 600])));
+    let (m1, m2) = (
+        Arc::new(Mapping(vec![0; 600])),
+        Arc::new(Mapping(vec![0; 600])),
+    );
     let many = Arc::new(piped((0..20).map(|_| of_mapping(&m1)).collect()));
     tier.insert(1, many.clone(), many.code_bytes());
-    assert!(tier.contains(1), "20 pipelines of one 600-byte mapping fit a 1000-byte share");
+    assert!(
+        tier.contains(1),
+        "20 pipelines of one 600-byte mapping fit a 1000-byte share"
+    );
     let large = Arc::new(piped(vec![of_mapping(&m1), of_mapping(&m2)]));
     assert_eq!(large.code_bytes(), 1200);
     tier.insert(2, large.clone(), large.code_bytes());
-    assert!(!tier.contains(2), "1200 bytes of code over a 1000-byte share is not filed");
+    assert!(
+        !tier.contains(2),
+        "1200 bytes of code over a 1000-byte share is not filed"
+    );
 }

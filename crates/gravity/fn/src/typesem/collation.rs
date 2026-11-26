@@ -32,14 +32,29 @@ pub enum Need {
 }
 
 impl Facts {
-    pub const C: Facts = Facts { oid: C_COLLATION_OID, provider: COLLPROVIDER_LIBC, deterministic: true, collate_is_c: true, ctype_is_c: true };
+    pub const C: Facts = Facts {
+        oid: C_COLLATION_OID,
+        provider: COLLPROVIDER_LIBC,
+        deterministic: true,
+        collate_is_c: true,
+        ctype_is_c: true,
+    };
 
     pub fn of(collid: Oid) -> PgResult<Facts> {
         if collid == C_COLLATION_OID || collid == POSIX_COLLATION_OID {
-            return Ok(Facts { oid: collid, ..Facts::C });
+            return Ok(Facts {
+                oid: collid,
+                ..Facts::C
+            });
         }
         let l = pg_locale::pg_newlocale_from_collation(collid)?;
-        Ok(Facts { oid: collid, provider: l.provider, deterministic: l.deterministic, collate_is_c: l.collate_is_c, ctype_is_c: l.ctype_is_c })
+        Ok(Facts {
+            oid: collid,
+            provider: l.provider,
+            deterministic: l.deterministic,
+            collate_is_c: l.collate_is_c,
+            ctype_is_c: l.ctype_is_c,
+        })
     }
 
     pub fn version(&self) -> PgResult<Option<String>> {
@@ -47,10 +62,15 @@ impl Facts {
             return Ok(None);
         }
         let cx = crate::session::root_context("gravity_fn collation version"); // alloc: Cold
-        let Some(row) = syscache_seams::lookup_pg_collation_locale_row::call(cx.mcx(), self.oid)? else {
+        let Some(row) = syscache_seams::lookup_pg_collation_locale_row::call(cx.mcx(), self.oid)?
+        else {
             return Ok(None);
         };
-        let locale = if row.collprovider == COLLPROVIDER_LIBC { row.collcollate.as_ref() } else { row.colllocale.as_ref() };
+        let locale = if row.collprovider == COLLPROVIDER_LIBC {
+            row.collcollate.as_ref()
+        } else {
+            row.colllocale.as_ref()
+        };
         match locale {
             Some(l) => pg_locale::get_collation_actual_version(row.collprovider, l.as_str()),
             None => Ok(None),
@@ -77,19 +97,45 @@ impl Facts {
 }
 
 pub fn need_of(proc_oid: Oid) -> Need {
-    let Some(row) = crate::row_of(proc_oid) else { return Need::Order };
+    let Some(row) = crate::row_of(proc_oid) else {
+        return Need::Order;
+    };
     need_of_name(row.name)
 }
 
 pub fn need_of_name(name: &str) -> Need {
     let base = name.strip_suffix("_pattern").unwrap_or(name);
-    if base.ends_with("_pattern_lt") || base.ends_with("_pattern_le") || base.ends_with("_pattern_gt") || base.ends_with("_pattern_ge") || base.ends_with("_pattern_cmp") {
+    if base.ends_with("_pattern_lt")
+        || base.ends_with("_pattern_le")
+        || base.ends_with("_pattern_gt")
+        || base.ends_with("_pattern_ge")
+        || base.ends_with("_pattern_cmp")
+    {
         return Need::None;
     }
-    if base.ends_with("lt") || base.ends_with("le") || base.ends_with("gt") || base.ends_with("ge") || base.ends_with("cmp") || base.contains("larger") || base.contains("smaller") || base.ends_with("min") || base.ends_with("max") || base.contains("sort") {
+    if base.ends_with("lt")
+        || base.ends_with("le")
+        || base.ends_with("gt")
+        || base.ends_with("ge")
+        || base.ends_with("cmp")
+        || base.contains("larger")
+        || base.contains("smaller")
+        || base.ends_with("min")
+        || base.ends_with("max")
+        || base.contains("sort")
+    {
         return Need::Order;
     }
-    if base.ends_with("eq") || base.ends_with("ne") || base.starts_with("hash") || base.contains("like") || base.contains("regex") || base.contains("starts_with") || base.contains("pos") || base.contains("strpos") || base.contains("replace") {
+    if base.ends_with("eq")
+        || base.ends_with("ne")
+        || base.starts_with("hash")
+        || base.contains("like")
+        || base.contains("regex")
+        || base.contains("starts_with")
+        || base.contains("pos")
+        || base.contains("strpos")
+        || base.contains("replace")
+    {
         return Need::Equality;
     }
     Need::None
@@ -102,11 +148,17 @@ pub fn need_of_name(name: &str) -> Need {
 /// nondeterministic collation is the Err the first row would raise: false. So is a thread without the database default
 /// locale or the catalog (no backend: a lowering or front-walk test, whose facts answer false), as `prefix_enabled`.
 pub fn regex_compiles(pattern: &[u8], icase: bool, collation: Oid) -> bool {
-    if pg_locale::default_locale().is_none() || !syscache_seams::lookup_pg_collation_locale_row::is_installed() {
+    if pg_locale::default_locale().is_none()
+        || !syscache_seams::lookup_pg_collation_locale_row::is_installed()
+    {
         return false;
     }
     let cx = mcx::MemoryContext::new_bump("gravity regex_compiles"); // alloc: Cold
-    let row = if icase { adt_regexp::texticregexeq(cx.mcx(), b"", pattern, collation) } else { adt_regexp::textregexeq(cx.mcx(), b"", pattern, collation) };
+    let row = if icase {
+        adt_regexp::texticregexeq(cx.mcx(), b"", pattern, collation)
+    } else {
+        adt_regexp::textregexeq(cx.mcx(), b"", pattern, collation)
+    };
     row.is_ok() && adt_regexp::regexp_fixed_prefix(cx.mcx(), pattern, icase, collation).is_ok()
 }
 
@@ -120,10 +172,14 @@ pub fn regex_ascii_cases(collid: Oid) -> bool {
     if collid == C_COLLATION_OID || collid == POSIX_COLLATION_OID {
         return true;
     }
-    if pg_locale::default_locale().is_none() || !syscache_seams::lookup_pg_collation_locale_row::is_installed() {
+    if pg_locale::default_locale().is_none()
+        || !syscache_seams::lookup_pg_collation_locale_row::is_installed()
+    {
         return false;
     }
-    let Ok(l) = pg_locale::pg_newlocale_from_collation(collid) else { return false };
+    let Ok(l) = pg_locale::pg_newlocale_from_collation(collid) else {
+        return false;
+    };
     if !l.deterministic {
         return false;
     }
@@ -132,7 +188,10 @@ pub fn regex_ascii_cases(collid: Oid) -> bool {
     }
     (b'a'..=b'z').all(|c| {
         let (lc, uc) = (c as u32, c.to_ascii_uppercase() as u32);
-        l.wc_toupper_wide(lc) == uc && l.wc_tolower_wide(lc) == lc && l.wc_toupper_wide(uc) == uc && l.wc_tolower_wide(uc) == lc
+        l.wc_toupper_wide(lc) == uc
+            && l.wc_tolower_wide(lc) == lc
+            && l.wc_toupper_wide(uc) == uc
+            && l.wc_tolower_wide(uc) == lc
     })
 }
 
@@ -184,8 +243,8 @@ impl Drop for Armed {
     fn drop(&mut self) {
         pg_locale::arm_collations(&[]);
         let _ = CLAIM.try_with(|c| c.set(None)); // V4R-452: a plain store, as above
-        // V4R-453 (D1409): a hosted aggregate's catalog arm (armed by the arena on the claim's first call) ends with the
-        // claim: the rows forgotten, typcache's per-claim entries dropped (no allocation, no panic)
+                                                 // V4R-453 (D1409): a hosted aggregate's catalog arm (armed by the arena on the claim's first call) ends with the
+                                                 // claim: the rows forgotten, typcache's per-claim entries dropped (no allocation, no panic)
         syscache_seams::arm_type_rows(&[]);
         typcache::armed::disarm();
         if let Some(prev) = self.prev {
@@ -217,12 +276,17 @@ pub fn on_claim() -> bool {
 /// Whether a collation reaches a pool worker with nothing resolved for it: none (0), the database default (a claim arms
 /// the default locale) or C / POSIX (static locales).
 pub fn armed_by_default(collid: Oid) -> bool {
-    matches!(collid, 0 | DEFAULT_COLLATION_OID | C_COLLATION_OID | POSIX_COLLATION_OID)
+    matches!(
+        collid,
+        0 | DEFAULT_COLLATION_OID | C_COLLATION_OID | POSIX_COLLATION_OID
+    )
 }
 
 #[cold]
 fn unresolved(collid: Oid) -> Box<PgError> {
-    let m = format!("gravity: collation {collid} was not resolved on the leader for a pool worker (D1409)"); // alloc: Cold
+    let m = format!(
+        "gravity: collation {collid} was not resolved on the leader for a pool worker (D1409)"
+    ); // alloc: Cold
     Box::new(PgError::error(m)) // alloc: Cold
 }
 
@@ -230,7 +294,9 @@ fn unresolved(collid: Oid) -> Box<PgError> {
 /// where the worker would otherwise look its locale up in a catcache it does not have; off a claim (the leader), Ok.
 pub fn check_worker_collation(collid: Oid) -> PgResult<()> {
     match CLAIM.with(core::cell::Cell::get) {
-        Some(armed) if !armed_by_default(collid) && !armed.iter().any(|&(o, _)| o == collid) => Err(unresolved(collid)),
+        Some(armed) if !armed_by_default(collid) && !armed.iter().any(|&(o, _)| o == collid) => {
+            Err(unresolved(collid))
+        }
         _ => Ok(()),
     }
 }
@@ -251,14 +317,23 @@ impl StatementArm {
             let _ = pg_locale::pg_newlocale_from_collation(POSIX_COLLATION_OID);
         }
         let collations = pg_locale::resolved_collations().unwrap_or(&[]);
-        StatementArm { encoding: database_encoding(), default_locale: pg_locale::default_locale(), collations, session_timezone: tz::session_timezone(), ctype: pg_locale::capture_database_ctype() }
+        StatementArm {
+            encoding: database_encoding(),
+            default_locale: pg_locale::default_locale(),
+            collations,
+            session_timezone: tz::session_timezone(),
+            ctype: pg_locale::capture_database_ctype(),
+        }
     }
 
     fn key(&self) -> (i32, usize, usize) {
         (
             self.encoding,
-            self.default_locale.map_or(0, |l| std::ptr::from_ref(l) as usize),
-            self.session_timezone.as_ref().map_or(0, |z| PgTzRef::as_ptr(z) as usize),
+            self.default_locale
+                .map_or(0, |l| std::ptr::from_ref(l) as usize),
+            self.session_timezone
+                .as_ref()
+                .map_or(0, |z| PgTzRef::as_ptr(z) as usize),
         )
     }
 
@@ -267,7 +342,9 @@ impl StatementArm {
     /// hooks move the zone (and the encoding and default locale) under an unchanged stamp. The collations are `arm`'s.
     pub fn apply(&self) -> PgResult<()> {
         arm_database_encoding(self.encoding)?;
-        if pg_locale::default_locale().map(std::ptr::from_ref) != self.default_locale.map(std::ptr::from_ref) {
+        if pg_locale::default_locale().map(std::ptr::from_ref)
+            != self.default_locale.map(std::ptr::from_ref)
+        {
             pg_locale::arm_default_locale(self.default_locale);
         }
         // Compared under a borrow (no handle per claim); the set runs after the borrow ends.
@@ -287,7 +364,10 @@ impl StatementArm {
         let prev = pg_locale::default_locale();
         let moved = prev.map(std::ptr::from_ref) != self.default_locale.map(std::ptr::from_ref);
         // C7 (c): the database ctype first, so a failed apply's guard puts it back
-        let mut armed = Armed { prev: None, ctype: pg_locale::arm_database_ctype(&self.ctype)? };
+        let mut armed = Armed {
+            prev: None,
+            ctype: pg_locale::arm_database_ctype(&self.ctype)?,
+        };
         self.apply()?;
         pg_locale::arm_collations(self.collations);
         CLAIM.with(|c| c.set(Some(self.collations)));
@@ -311,7 +391,11 @@ impl Eq for StatementArm {}
 impl std::fmt::Debug for StatementArm {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let (enc, loc, tz) = self.key();
-        write!(f, "StatementArm(encoding {enc}, locale {loc:#x}, {} collations, timezone {tz:#x})", self.collations.len())
+        write!(
+            f,
+            "StatementArm(encoding {enc}, locale {loc:#x}, {} collations, timezone {tz:#x})",
+            self.collations.len()
+        )
     }
 }
 
@@ -359,7 +443,10 @@ pub fn compare(a: &[u8], b: &[u8], collid: Oid) -> PgResult<i32> {
 /// answers false (its comparator raises the error at run time, as before), and so does a thread without the database
 /// default locale or the catalog (no backend: a lowering test, whose facts answer `KeyColl::of`).
 pub fn prefix_enabled(collid: Oid) -> bool {
-    if matches!(collid, 0 | C_COLLATION_OID | POSIX_COLLATION_OID) || pg_locale::default_locale().is_none() || !syscache_seams::lookup_pg_collation_locale_row::is_installed() {
+    if matches!(collid, 0 | C_COLLATION_OID | POSIX_COLLATION_OID)
+        || pg_locale::default_locale().is_none()
+        || !syscache_seams::lookup_pg_collation_locale_row::is_installed()
+    {
         return false;
     }
     // interrupts held (D376): a cancel the catalog read meets stays pending instead of being consumed into `false`

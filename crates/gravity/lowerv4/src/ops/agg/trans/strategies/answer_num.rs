@@ -20,18 +20,33 @@ crate::strategies! {
     ANSWER_NUMERIC = 20, "answer.numeric", PgrcPlainNum;
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(ANSWER_NUMERIC, &AnswerImpl(&NUMERIC))], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(ANSWER_NUMERIC, &AnswerImpl(&NUMERIC))],
+    ..crate::ops::NONE
+};
 
 struct Numeric;
 static NUMERIC: Numeric = Numeric;
 
 /// `a` is `sum` / `avg` of a bare numeric column at the aggregate's scale (the stats sum's scale).
 pub(crate) fn fits(a: &AggDecl<'_>) -> bool {
-    let Some(r) = a.node.as_aggref().filter(|r| r.args.len() == 1 && matches!(a.reg, R::SumNum | R::AvgNum)) else { return false };
-    let Some(t) = r.args.iter().next() else { return false };
+    let Some(r) = a
+        .node
+        .as_aggref()
+        .filter(|r| r.args.len() == 1 && matches!(a.reg, R::SumNum | R::AvgNum))
+    else {
+        return false;
+    };
+    let Some(t) = r.args.iter().next() else {
+        return false;
+    };
     let e = t.as_target_entry().map_or(t, |t| t.expr);
     let e = e.as_relabel_type().map_or(e, |r| r.arg);
-    e.as_var().is_some_and(|v| v.vartype == types_core::NUMERICOID && v.vartypmod >= 4 && ((v.vartypmod - 4) & 0xffff) as i16 == a.scale)
+    e.as_var().is_some_and(|v| {
+        v.vartype == types_core::NUMERICOID
+            && v.vartypmod >= 4
+            && ((v.vartypmod - 4) & 0xffff) as i16 == a.scale
+    })
 }
 
 impl AnswerMech for Numeric {
@@ -40,9 +55,23 @@ impl AnswerMech for Numeric {
     }
 
     /// The window's `[sum_lo, sum_hi, nonnull]` from the lane's record.
-    fn fold(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, _a: &AggDecl<'_>, acc: Acc<'_>, rec: Value) {
+    fn fold(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        _a: &AggDecl<'_>,
+        acc: Acc<'_>,
+        rec: Value,
+    ) {
         fires::fire("answer.numeric"); // shapecheck fire signal (REGISTRY AR-45 / OIDW-67)
-        let Acc::Regs(w) = acc else { crate::refuse!(env.node, crate::admit::refusal::Reason::Bug { payload: "an answer into a slot" }) };
+        let Acc::Regs(w) = acc else {
+            crate::refuse!(
+                env.node,
+                crate::admit::refusal::Reason::Bug {
+                    payload: "an answer into a slot"
+                }
+            )
+        };
         w[0] = b.load(Type::I64, rec, answer::SUM_LO as i32);
         w[1] = b.load(Type::I64, rec, answer::SUM_HI as i32);
         w[2] = b.load(Type::I64, rec, answer::NONNULL as i32);

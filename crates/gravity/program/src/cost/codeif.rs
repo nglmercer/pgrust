@@ -18,18 +18,34 @@ const MACHINE: &str = "box 45: c8g.4xlarge, Graviton 4 (Neoverse V2), 16 vCPU";
 /// and up (10 .. 100 %: the groups past the caches on both roads; 1 / 5 % fold in cache, a lower slope where no decision
 /// is near); its slope is the cost an entry at that width, its intercept over the rows the cost a row; the W0 and W8
 /// lines give each term's split and flat shares.
-const CORPUS: &str = "KEYED-31 sweep (10 M rows, 10 .. 100 % entries, mirror CASE key, W0 + W8, medians of 6)";
+const CORPUS: &str =
+    "KEYED-31 sweep (10 M rows, 10 .. 100 % entries, mirror CASE key, W0 + W8, medians of 6)";
 
 /// The row saving is the text key's hash of the row's bytes (the update anchor); an entry's price is its render through its
 /// part's dictionary, reads at the entries' codes (the gather anchor).
 ///
 /// The text key's cost a row over the image's, divided among the participants (W0 113.3, W8 83.0 ns a row).
-pub const ROW_SAVED_SPLIT: Fitted = Fitted { ns: 34.63, machine: MACHINE, corpus: CORPUS, anchor: Anchor::Update };
+pub const ROW_SAVED_SPLIT: Fitted = Fitted {
+    ns: 34.63,
+    machine: MACHINE,
+    corpus: CORPUS,
+    anchor: Anchor::Update,
+};
 /// The text key's cost a row over the image's that the participants do not divide.
-pub const ROW_SAVED_FLAT: Fitted = Fitted { ns: 78.68, machine: MACHINE, corpus: CORPUS, anchor: Anchor::Update };
+pub const ROW_SAVED_FLAT: Fitted = Fitted {
+    ns: 78.68,
+    machine: MACHINE,
+    corpus: CORPUS,
+    anchor: Anchor::Update,
+};
 /// The image's cost an entry over the text key's: the emit's render of each group through its part, in the leader. The
 /// two widths' lines agree (W0 382.6, W8 383.3 ns an entry; the split share fits at -0.8, none), so no share is divided.
-pub const ENTRY_PAID: Fitted = Fitted { ns: 382.95, machine: MACHINE, corpus: CORPUS, anchor: Anchor::Gather };
+pub const ENTRY_PAID: Fitted = Fitted {
+    ns: 382.95,
+    machine: MACHINE,
+    corpus: CORPUS,
+    anchor: Anchor::Gather,
+};
 
 /// The text key's cost a row over the image's at `width` (0 = the leader alone, one participant), on a host of ratios `r`.
 pub fn codeif_row_saved_on(r: &Ratios, width: u16) -> f64 {
@@ -46,7 +62,10 @@ pub fn codeif_entries_per_row_on(r: &Ratios, width: u16) -> f64 {
 /// `break_even` of its summed cost at both ends, an entry paid at each, against the cost a row saved at each, on a host of
 /// ratios `r`.
 pub fn codeif_entries_per_row_served_on(r: &Ratios, widest: u16) -> f64 {
-    break_even(2.0 * ENTRY_PAID.on(r), codeif_row_saved_on(r, 0) + codeif_row_saved_on(r, widest))
+    break_even(
+        2.0 * ENTRY_PAID.on(r),
+        codeif_row_saved_on(r, 0) + codeif_row_saved_on(r, widest),
+    )
 }
 
 /// `codeif_row_saved_on` on this host (the installed profile).
@@ -93,7 +112,13 @@ pub fn codeif_entries_per_row_unrendered(widest: u16) -> f64 {
 /// its form, the image for the column-THEN form (`column_then`: every WHEN's result the column, the ELSE the constant)
 /// and the text key for the others, the roads each form takes without a cost rule, so no width runs the band slower than
 /// those. A guard on the session's width is what wins the band (DESIGN-OPEN NEW-dict-g3-2).
-pub fn codeif_keys_by_image(entries: u64, rows: u64, widest: u16, column_then: bool, rendered: bool) -> bool {
+pub fn codeif_keys_by_image(
+    entries: u64,
+    rows: u64,
+    widest: u16,
+    column_then: bool,
+    rendered: bool,
+) -> bool {
     if !rendered {
         return true; // codeif_entries_per_row_unrendered: every ratio
     }
@@ -114,7 +139,10 @@ mod tests {
     fn the_reference_fit_flips_inside_each_widths_crossover() {
         let at = |w: u16| (codeif_entries_per_row(w) * 1000.0).round() as u32;
         assert_eq!((at(0), at(8), at(16)), (296, 217, 211));
-        assert!((1..=16).all(|w| codeif_entries_per_row(w) <= codeif_entries_per_row(w - 1)), "more participants divide the saving");
+        assert!(
+            (1..=16).all(|w| codeif_entries_per_row(w) <= codeif_entries_per_row(w - 1)),
+            "more participants divide the saving"
+        );
         assert_eq!(codeif_entries_per_row(0), codeif_entries_per_row(1));
     }
 
@@ -125,10 +153,23 @@ mod tests {
     fn a_served_program_is_judged_at_both_ends() {
         let served = (codeif_entries_per_row_served(16) * 1000.0).round() as u32;
         assert_eq!(served, 253);
-        assert!(codeif_entries_per_row(16) < codeif_entries_per_row_served(16) && codeif_entries_per_row_served(16) < codeif_entries_per_row(0));
-        assert_eq!(codeif_entries_per_row_served(0), codeif_entries_per_row(0), "a server of the leader alone is its one width");
+        assert!(
+            codeif_entries_per_row(16) < codeif_entries_per_row_served(16)
+                && codeif_entries_per_row_served(16) < codeif_entries_per_row(0)
+        );
+        assert_eq!(
+            codeif_entries_per_row_served(0),
+            codeif_entries_per_row(0),
+            "a server of the leader alone is its one width"
+        );
         let rows = 10_000_000;
-        for (n, pays) in [(1_000_000, true), (2_126_472, true), (3_244_062, false), (4_500_939, false), (rows, false)] {
+        for (n, pays) in [
+            (1_000_000, true),
+            (2_126_472, true),
+            (3_244_062, false),
+            (4_500_939, false),
+            (rows, false),
+        ] {
             assert_eq!(codeif_image_pays(n, rows, 16), pays, "{n} entries");
         }
     }
@@ -140,12 +181,27 @@ mod tests {
     fn inside_the_band_the_form_decides() {
         for w in 0..=16 {
             for b in [codeif_entries_per_row(w), codeif_entries_per_row_served(w)] {
-                assert!(CODEIF_BAND_LOW < b && b < CODEIF_BAND_HIGH, "width {w}: {b}");
+                assert!(
+                    CODEIF_BAND_LOW < b && b < CODEIF_BAND_HIGH,
+                    "width {w}: {b}"
+                );
             }
         }
         let rows = 10_000_000;
-        for (n, column_then, image) in [(511_000, false, true), (1_016_000, false, false), (1_016_000, true, true), (3_244_062, true, true), (3_244_062, false, false), (4_500_939, true, false), (rows, true, false)] {
-            assert_eq!(codeif_keys_by_image(n, rows, 16, column_then, true), image, "{n} entries, column_then {column_then}");
+        for (n, column_then, image) in [
+            (511_000, false, true),
+            (1_016_000, false, false),
+            (1_016_000, true, true),
+            (3_244_062, true, true),
+            (3_244_062, false, false),
+            (4_500_939, true, false),
+            (rows, true, false),
+        ] {
+            assert_eq!(
+                codeif_keys_by_image(n, rows, 16, column_then, true),
+                image,
+                "{n} entries, column_then {column_then}"
+            );
         }
         assert!(codeif_keys_by_image(0, 0, 0, false, true), "no rows");
     }
@@ -157,7 +213,12 @@ mod tests {
         assert!((0..=16).all(|w| codeif_entries_per_row_unrendered(w) == 1.0));
         let rows = 10_000_000;
         for n in [99_032, 1_016_000, 2_126_472, 3_244_062, 4_500_939, rows] {
-            assert!([0, 8, 16].iter().all(|&w| codeif_keys_by_image(n, rows, w, false, false)), "{n} entries");
+            assert!(
+                [0, 8, 16]
+                    .iter()
+                    .all(|&w| codeif_keys_by_image(n, rows, w, false, false)),
+                "{n} entries"
+            );
         }
     }
 }

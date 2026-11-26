@@ -1,9 +1,9 @@
-
 use super::consts::*;
 use super::mpi::{self, read_mpi_pull, Mpi};
+use super::pubkey::{
+    KeyMaterial, PubKey, PGP_PUB_ELG_ENCRYPT, PGP_PUB_RSA_ENCRYPT, PGP_PUB_RSA_ENCRYPT_SIGN,
+};
 use super::pull::{expect_packet_end, getbyte, read_fixed, Dcx, PRes, Pull};
-use super::pubkey::{KeyMaterial, PubKey, PGP_PUB_ELG_ENCRYPT, PGP_PUB_RSA_ENCRYPT,
-    PGP_PUB_RSA_ENCRYPT_SIGN};
 
 fn check_eme_pkcs1_v15(data: &[u8]) -> Option<usize> {
     if data.len() < 1 + 8 + 1 {

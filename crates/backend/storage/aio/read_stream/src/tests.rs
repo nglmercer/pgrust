@@ -56,7 +56,11 @@ fn fake_start(
             let blk = blocknum + i as BlockNumber;
             let found;
             if buffers[i as usize] != InvalidBuffer {
-                assert_eq!(buffers[i as usize], blk as Buffer + 1, "forwarded buffer out of place");
+                assert_eq!(
+                    buffers[i as usize],
+                    blk as Buffer + 1,
+                    "forwarded buffer out of place"
+                );
                 found = f.resident.contains(&blk);
             } else {
                 pin(f, blk as Buffer + 1);
@@ -128,7 +132,9 @@ fn install() {
         bufmgr_seams::get_access_strategy_pin_limit::set(|_| i32::MAX);
         aio_seams::pgaio_enter_batchmode::set(|| {
             if IN_BATCH.swap(true, Ordering::Relaxed) {
-                return Err(Box::new(types_error::PgError::error("starting batch while batch already in progress")));
+                return Err(Box::new(types_error::PgError::error(
+                    "starting batch while batch already in progress",
+                )));
             }
             Ok(())
         });
@@ -136,9 +142,10 @@ fn install() {
             IN_BATCH.store(false, Ordering::Relaxed);
             Ok(())
         });
-        guc_tables::vars::effective_io_concurrency.install_if_absent(
-            guc_tables::GucVarAccessors { get: || EIC.load(Ordering::Relaxed), set: |v| EIC.store(v, Ordering::Relaxed) },
-        );
+        guc_tables::vars::effective_io_concurrency.install_if_absent(guc_tables::GucVarAccessors {
+            get: || EIC.load(Ordering::Relaxed),
+            set: |v| EIC.store(v, Ordering::Relaxed),
+        });
     });
 }
 
@@ -170,7 +177,11 @@ fn assert_no_pins() {
 
 fn smgr() -> RelFileLocatorBackend {
     RelFileLocatorBackend {
-        locator: RelFileLocator { spcOid: 1663, dbOid: 5, relNumber: 16384 },
+        locator: RelFileLocator {
+            spcOid: 1663,
+            dbOid: 5,
+            relNumber: 16384,
+        },
         backend: types_core::INVALID_PROC_NUMBER,
     }
 }
@@ -188,9 +199,13 @@ fn begin<D: Copy + Default>(flags: i32) -> ReadStream<'static, D> {
     .unwrap()
 }
 
-fn drain<D: Copy + Default>(stream: &mut ReadStream<'_, D>, blocks: &[BlockNumber]) -> Vec<BlockNumber> {
+fn drain<D: Copy + Default>(
+    stream: &mut ReadStream<'_, D>,
+    blocks: &[BlockNumber],
+) -> Vec<BlockNumber> {
     let mut it = blocks.iter().copied();
-    let mut cb = |_: &mut D| -> PgResult<BlockNumber> { Ok(it.next().unwrap_or(InvalidBlockNumber)) };
+    let mut cb =
+        |_: &mut D| -> PgResult<BlockNumber> { Ok(it.next().unwrap_or(InvalidBlockNumber)) };
     let mut out = Vec::new();
     loop {
         let b = stream.next_buffer(&mut cb).unwrap();
@@ -209,7 +224,8 @@ fn all_cached_takes_the_fast_path_without_io() {
     let _g = setup(2, 4, &blocks);
     let mut s = begin::<()>(READ_STREAM_DEFAULT);
     let mut it = blocks.iter().copied();
-    let mut cb = |_: &mut ()| -> PgResult<BlockNumber> { Ok(it.next().unwrap_or(InvalidBlockNumber)) };
+    let mut cb =
+        |_: &mut ()| -> PgResult<BlockNumber> { Ok(it.next().unwrap_or(InvalidBlockNumber)) };
     let first = s.next_buffer(&mut cb).unwrap();
     assert_eq!(first, 1);
     bufmgr_seams::release_buffer::call(first).unwrap();
@@ -408,10 +424,17 @@ fn callback_error_leaves_batch_mode_and_end_drains() {
     let mut s = begin::<()>(READ_STREAM_FULL | READ_STREAM_USE_BATCHING);
     let mut it = [Ok(0), Ok(10)].into_iter();
     let mut cb = |_: &mut ()| -> PgResult<BlockNumber> {
-        it.next().unwrap_or_else(|| Err(Box::new(types_error::PgError::error("canceling statement due to user request"))))
+        it.next().unwrap_or_else(|| {
+            Err(Box::new(types_error::PgError::error(
+                "canceling statement due to user request",
+            )))
+        })
     };
     assert!(s.next_buffer(&mut cb).is_err());
-    assert!(!IN_BATCH.load(Ordering::Relaxed), "the failed look-ahead left batch mode on");
+    assert!(
+        !IN_BATCH.load(Ordering::Relaxed),
+        "the failed look-ahead left batch mode on"
+    );
     assert!(s.state().1 > 0);
     s.end().unwrap();
     assert_no_pins();
@@ -438,7 +461,12 @@ fn advice_only_for_random_jumps_under_sync() {
 fn block_range_callback() {
     let mut p = BlockRangeReadStreamPrivate::new(3, 6);
     assert_eq!(
-        [p.next_block(), p.next_block(), p.next_block(), p.next_block()],
+        [
+            p.next_block(),
+            p.next_block(),
+            p.next_block(),
+            p.next_block()
+        ],
         [3, 4, 5, InvalidBlockNumber]
     );
 }

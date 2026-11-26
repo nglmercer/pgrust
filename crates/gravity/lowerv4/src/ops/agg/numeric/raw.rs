@@ -5,10 +5,10 @@
 
 /// `num_carry.rs`'s entries.
 pub(crate) mod carry {
+    use super::word::{num_avg_ds, num_sum_ds};
+    use crate::ops::agg::numeric::num_word::kept;
     use gravity_fn::agg_final::{self, SENT_HI, SUM_HI_LIMIT};
     use gravity_fn::{ErrSlot, Region};
-    use crate::ops::agg::numeric::num_word::kept;
-    use super::word::{num_avg_ds, num_sum_ds};
 
     gravity_kernels::contract::host! {
         /// D830: class_num.rs's carry-form sum (`cy` × 2^126 + the i128 `hi:lo`; avg: `n` > 0) at scale `sd >> 32`, dscale `sd`'s
@@ -22,25 +22,55 @@ pub(crate) mod carry {
     unsafe fn carried(r: u64, [lo, hi, cy]: [u64; 3], n: Option<u64>, sd: u64) -> u64 {
         let (scale, d) = (sd >> 32, sd & 0xffff_ffff);
         let sx = ((hi as i64) >> 63) as u64;
-        let add = |x: u64, y: u64, k: bool| { let (s, c1) = x.overflowing_add(y); let (t, c2) = s.overflowing_add(k as u64); (t, c1 || c2) };
+        let add = |x: u64, y: u64, k: bool| {
+            let (s, c1) = x.overflowing_add(y);
+            let (t, c2) = s.overflowing_add(k as u64);
+            (t, c1 || c2)
+        };
         let (w1, k1) = add(hi, cy << 62, false);
         let (w2, k2) = add(sx, ((cy as i64) >> 2) as u64, k1);
         let (w3, _) = add(sx, ((cy as i64) >> 63) as u64, k2);
-        let inside = (w1 as i64).wrapping_add(SUM_HI_LIMIT) >= 0 && w2 == ((w1 as i64) >> 63) as u64 && w3 == w2;
+        let inside = (w1 as i64).wrapping_add(SUM_HI_LIMIT) >= 0
+            && w2 == ((w1 as i64) >> 63) as u64
+            && w3 == w2;
         if hi as i64 == SENT_HI || inside {
             let hi = if hi as i64 == SENT_HI { hi } else { w1 };
-            return match n { None => num_sum_ds(r, lo, hi, scale, d), Some(n) => num_avg_ds(r, lo, hi, n, scale, d) };
+            return match n {
+                None => num_sum_ds(r, lo, hi, scale, d),
+                Some(n) => num_avg_ds(r, lo, hi, n, scale, d),
+            };
         }
         let neg = (w3 as i64) < 0;
-        let neg4 = |m: [u64; 4]| { let mut o = [0u64; 4]; let mut k = true; for i in 0..4 { let (v, c) = (!m[i]).overflowing_add(k as u64); o[i] = v; k = c; } o };
+        let neg4 = |m: [u64; 4]| {
+            let mut o = [0u64; 4];
+            let mut k = true;
+            for i in 0..4 {
+                let (v, c) = (!m[i]).overflowing_add(k as u64);
+                o[i] = v;
+                k = c;
+            }
+            o
+        };
         let mut m = [lo, w1, w2, w3];
-        if neg { m = neg4(m); }
+        if neg {
+            m = neg4(m);
+        }
         (d.min(scale)..scale).for_each(|_| _ = agg_final::wide_divrem(&mut m, 10));
-        if neg { m = neg4(m); }
+        if neg {
+            m = neg4(m);
+        }
         let mut e = ErrSlot::NONE;
         let v = match n {
-            None => agg_final::num_sum256(&mut e, r as *mut Region, m.as_ptr(), d.min(scale) as i64),
-            Some(n) => agg_final::num_avg256(&mut e, r as *mut Region, m.as_ptr(), n as i64, d.min(scale) as i64),
+            None => {
+                agg_final::num_sum256(&mut e, r as *mut Region, m.as_ptr(), d.min(scale) as i64)
+            }
+            Some(n) => agg_final::num_avg256(
+                &mut e,
+                r as *mut Region,
+                m.as_ptr(),
+                n as i64,
+                d.min(scale) as i64,
+            ),
         };
         kept(v, &mut e)
     }
@@ -68,9 +98,9 @@ pub(crate) mod datum {
 
 /// `num_wide.rs`'s entries.
 pub(crate) mod wide {
+    use crate::ops::agg::numeric::num_wide::{kept, mantissa, neg256, UNREADABLE};
     use gravity_abi::breaker::NumWide;
     use gravity_fn::agg_final::{wide_mul_add, SP_NAN, SP_NINF, SP_PINF};
-    use crate::ops::agg::numeric::num_wide::{kept, mantissa, neg256, UNREADABLE};
 
     gravity_kernels::contract::host! {
         /// Numeric datum `p`'s value × 10^`scale` × `mult` as an i256 into `out` (four words): 0 for a finite term, the specials
@@ -141,9 +171,9 @@ pub(crate) mod word {
     /// N13: `num_dyn_key`'s answer for an image it cannot read inline (no order key is this low: typesem numeric `KEY_NINF`
     /// is `i64::MIN + 16`).
     pub(crate) const KEY_TOAST: i64 = i64::MIN + 1;
-    use gravity_fn::{agg_final, ErrSlot, Region};
-    use gravity_fn::agg_final::{MANT_NAN, MANT_NINF, MANT_PINF, NO_MANTISSA};
     use crate::ops::agg::numeric::num_word::{down, kept};
+    use gravity_fn::agg_final::{MANT_NAN, MANT_NINF, MANT_PINF, NO_MANTISSA};
+    use gravity_fn::{agg_final, ErrSlot, Region};
 
     gravity_kernels::contract::host! {
         /// The image at `p`'s mantissa at `scale` (`NO_MANTISSA` past it). With `dsp` (D256: a sum over CASE arms of different
@@ -312,14 +342,26 @@ pub(crate) mod word {
     }
 
     /// N13: payload `pay` folded into the side copy at word `side` (`num_side_step`).
-    unsafe fn side_put(ctx: *mut gravity_abi::Ctx, side: u64, images: *mut u64, pay: &[u8], min: bool) -> u64 {
+    unsafe fn side_put(
+        ctx: *mut gravity_abi::Ctx,
+        side: u64,
+        images: *mut u64,
+        pay: &[u8],
+        min: bool,
+    ) -> u64 {
         use core::cmp::Ordering;
         use gravity_abi::breaker::{side_image, NUM_SIDE_T};
         let (cur, need) = (side_image(side), pay.len() + 4);
         if cur == 0 {
             return side_copy(ctx, images, pay, need.max(24));
         }
-        if gravity_abi::breaker::numeric_payload_cmp(pay, copy_payload(cur)) == if min { Ordering::Greater } else { Ordering::Less } {
+        if gravity_abi::breaker::numeric_payload_cmp(pay, copy_payload(cur))
+            == if min {
+                Ordering::Greater
+            } else {
+                Ordering::Less
+            }
+        {
             return side;
         }
         let p = cur as usize as *mut u8;
@@ -333,7 +375,12 @@ pub(crate) mod word {
 
     /// N13: a side copy of capacity `cap` (rounded to 8) holding `pay`, behind its capacity word: its word (the tie bit set),
     /// 0 when the pool refused (named, D1392 (b)).
-    unsafe fn side_copy(ctx: *mut gravity_abi::Ctx, images: *mut u64, pay: &[u8], cap: usize) -> u64 {
+    unsafe fn side_copy(
+        ctx: *mut gravity_abi::Ctx,
+        images: *mut u64,
+        pay: &[u8],
+        cap: usize,
+    ) -> u64 {
         let cap = (cap + 7) & !7;
         let d = crate::ops::agg::trans::code_copy::image_alloc(ctx, images, 8 + cap);
         if d.is_null() {

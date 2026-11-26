@@ -135,7 +135,10 @@ fn uri_ipv6_and_multihost_match_c() {
         "end of string reached when looking for matching \"]\" in IPv6 host address in URI: \"postgresql://[::1/db\""
     );
     let e = parse_conninfo("postgresql://[]/db").unwrap_err();
-    assert_eq!(e, "IPv6 host address may not be empty in URI: \"postgresql://[]/db\"");
+    assert_eq!(
+        e,
+        "IPv6 host address may not be empty in URI: \"postgresql://[]/db\""
+    );
     let e = parse_conninfo("postgresql://[::1]x/db").unwrap_err();
     assert_eq!(
         e,
@@ -170,9 +173,15 @@ fn uri_query_parameter_quirks_match_c() {
     let e = parse_conninfo("postgresql://host/db?bogus=x").unwrap_err();
     assert_eq!(e, "invalid URI query parameter: \"bogus\"");
     let e = parse_conninfo("postgresql://host/db?foo").unwrap_err();
-    assert_eq!(e, "missing key/value separator \"=\" in URI query parameter: \"foo\"");
+    assert_eq!(
+        e,
+        "missing key/value separator \"=\" in URI query parameter: \"foo\""
+    );
     let e = parse_conninfo("postgresql://host/db?foo=a=b").unwrap_err();
-    assert_eq!(e, "extra key/value separator \"=\" in URI query parameter: \"foo\"");
+    assert_eq!(
+        e,
+        "extra key/value separator \"=\" in URI query parameter: \"foo\""
+    );
     let e = parse_conninfo("postgresql://host/db?user=u&").unwrap();
     assert_eq!(get(&e, "user").as_deref(), Some("u"));
     let e = parse_conninfo("postgresql://host/db?").unwrap();
@@ -184,7 +193,8 @@ fn uri_query_parameter_quirks_match_c() {
 fn uri_password_is_visible_to_connstr_scans() {
     let o = parse_conninfo("postgresql://b045_nsu:secret@localhost:1/postgres").unwrap();
     assert_eq!(get(&o, "password").as_deref(), Some("secret"));
-    let o = parse_conninfo("postgresql://b045_nsu@localhost:1/postgres?password=via_query").unwrap();
+    let o =
+        parse_conninfo("postgresql://b045_nsu@localhost:1/postgres?password=via_query").unwrap();
     assert_eq!(get(&o, "password").as_deref(), Some("via_query"));
     let o = parse_conninfo("postgresql://b045_nsu:@localhost:1/postgres").unwrap();
     assert!(get(&o, "password").is_none());

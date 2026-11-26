@@ -2,42 +2,50 @@ use std::mem::size_of;
 use std::ptr::NonNull;
 use std::sync::Arc;
 
-use gravity_abi::ctx::{hdr, site_ptr, Out, Partials, FLAG_PENDING_SHIFT, LANE_SIZE, PARTIALS_SIZE};
+use gravity_abi::ctx::{
+    hdr, site_ptr, Out, Partials, FLAG_PENDING_SHIFT, LANE_SIZE, PARTIALS_SIZE,
+};
 use gravity_abi::program::ProgramBlock;
 use gravity_abi::site::site;
 use gravity_abi::{Ctx, Datum, Identity, Lane, MorselRange, ScanPos, IDENTITY_SIZE};
 use gravity_program::{Cmd, LockKind, Program, SiteDesc, WritePlan};
 
-use crate::mem::arena::{Arena, ArenaBox, ArenaRef, ArenaVec, Mark, SourceBox};
 use crate::binding::{Attached, Binding};
+use crate::mem::arena::{Arena, ArenaBox, ArenaRef, ArenaVec, Mark, SourceBox};
 use crate::mem::grant::{Counters, Share};
 use crate::mem::spill::{region_len, RunReader, SpillTable};
 use crate::slots::WorkerSlot;
 use crate::source::{Locker, Source, Writer};
 use crate::{Error, Result};
 
+mod ends;
 mod image;
 mod locks;
-mod ends;
 pub use ends::{StmtEnds, STMT_ENDS};
+mod ownspill;
 mod pull;
 mod raw;
 mod slotlife;
-mod ownspill;
-pub use ownspill::{OWN_SPILL, SORT_RUN_SEALED};
-pub use crate::mem::region::*;
 pub use self::image::*;
 pub use self::locks::*;
 pub(crate) use self::pull::*;
+pub use crate::mem::region::*;
+pub use ownspill::{OWN_SPILL, SORT_RUN_SEALED};
 
 /// What a kernel call settled to (the status vocabulary's non-error outcomes; errors are `Err`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Ret {
     Done,
-    Suspended { out_full: bool },
-    Recheck { site: u8 },
+    Suspended {
+        out_full: bool,
+    },
+    Recheck {
+        site: u8,
+    },
     /// D824 (V4R-298): the call stopped at its probe's first row; the lazy build of its `consumed`-th slot must run first.
-    BuildWait { consumed: u8 },
+    BuildWait {
+        consumed: u8,
+    },
 }
 
 pub trait Derive {
@@ -52,7 +60,12 @@ pub trait Derive {
     fn derive_writer(&mut self, plan: &WritePlan, a: ArenaRef) -> ArenaBox<dyn Writer>;
     /// D1687: the writer of a write plan beside the program's `write` (a writing CTE's); by default `derive_writer`'s.
     /// D3623: `_node` its ModifyTable's plan node (`WriteAt::node`, 0: not known).
-    fn derive_writer_beside(&mut self, plan: &WritePlan, _node: i32, a: ArenaRef) -> ArenaBox<dyn Writer> {
+    fn derive_writer_beside(
+        &mut self,
+        plan: &WritePlan,
+        _node: i32,
+        a: ArenaRef,
+    ) -> ArenaBox<dyn Writer> {
         self.derive_writer(plan, a)
     }
     fn locker_size_hint(&self) -> usize;
@@ -93,11 +106,17 @@ pub struct Call {
 
 impl Call {
     pub const fn batch(out_cap: u32) -> Call {
-        Call { out_cap, resume: false }
+        Call {
+            out_cap,
+            resume: false,
+        }
     }
 
     pub const fn resume(out_cap: u32) -> Call {
-        Call { out_cap, resume: true }
+        Call {
+            out_cap,
+            resume: true,
+        }
     }
 }
 
@@ -435,7 +454,12 @@ const CONTROL_SLACK: usize = 512;
 /// names no SPILL-DEBT row: the arena is the program's control memory, built before any slot opens, never a breaker's region.
 pub(crate) fn refused_arena(bytes: usize) -> crate::Error {
     let pool = &crate::mem::grant::POOL;
-    crate::Error::OutOfMemory { bytes: bytes as u64, held: pool.held(), capacity: pool.capacity(), why: None }
+    crate::Error::OutOfMemory {
+        bytes: bytes as u64,
+        held: pool.held(),
+        capacity: pool.capacity(),
+        why: None,
+    }
 }
 
 /// D1706: the binding a call's `Node::attach_raw` attached over, put back when the call ends.
@@ -461,28 +485,97 @@ impl Node {
     fn build_in(arena: Arena, program: Arc<Program>, derive: &mut dyn Derive) -> Node {
         let owner = derive.owner().or_else(|| program.owner.clone());
         let a = arena.handle();
-        let Image { inner, regions, image_bytes } = build_image(a, &program, derive, Role::Leader, owner_ptr(owner.as_deref()));
+        let Image {
+            inner,
+            regions,
+            image_bytes,
+        } = build_image(
+            a,
+            &program,
+            derive,
+            Role::Leader,
+            owner_ptr(owner.as_deref()),
+        );
         let nslots = program.slots.nslots();
         let spill = ArenaBox::new_in(SpillTable::with_slots(nslots), a);
         let mut slots: ArenaVec<SlotRegion> = ArenaVec::with_capacity_in(nslots, a);
         for s in 0..nslots {
-            slots.push(SlotRegion { ptr: core::ptr::null_mut(), bytes: program.slots.bytes[s], shared: program.slots.shared[s], high: 0, counted: 0, buf: RegionBuf::empty(), life: None, ceil: 0, fault: core::cell::Cell::new(crate::mem::grow::Fault::OFF), spills: false, debt: None, opened: 0, owner: None });
+            slots.push(SlotRegion {
+                ptr: core::ptr::null_mut(),
+                bytes: program.slots.bytes[s],
+                shared: program.slots.shared[s],
+                high: 0,
+                counted: 0,
+                buf: RegionBuf::empty(),
+                life: None,
+                ceil: 0,
+                fault: core::cell::Cell::new(crate::mem::grow::Fault::OFF),
+                spills: false,
+                debt: None,
+                opened: 0,
+                owner: None,
+            });
         }
         let slot_life = slotlife::SlotLives::new_in(nslots, a);
-        let mut opened: ArenaVec<u64> = ArenaVec::with_capacity_in(gravity_program::laneset::words_for(program.pipelines.len()), a);
-        opened.resize(gravity_program::laneset::words_for(program.pipelines.len()), 0);
+        let mut opened: ArenaVec<u64> = ArenaVec::with_capacity_in(
+            gravity_program::laneset::words_for(program.pipelines.len()),
+            a,
+        );
+        opened.resize(
+            gravity_program::laneset::words_for(program.pipelines.len()),
+            0,
+        );
         let pw = opened.len();
         let mut producers: ArenaVec<u64> = ArenaVec::with_capacity_in(nslots * pw, a);
         producers.resize(nslots * pw, 0);
         for (m, pipe) in program.pipelines.iter().enumerate() {
             if let Some(s) = pipe.produces().filter(|&s| (s as usize) < nslots) {
-                gravity_program::laneset::set(&mut producers[s as usize * pw..(s as usize + 1) * pw], m);
+                gravity_program::laneset::set(
+                    &mut producers[s as usize * pw..(s as usize + 1) * pw],
+                    m,
+                );
             }
         }
         let sched = crate::lives::Schedule::of_in(&program, a);
         let exec_mark = a.mark();
         let rels = inner.rels_read();
-        let mut node = Node { builder: derive.identity(), cells: derive.cells(), inner, widest_arena: 0, exec_regions: regions, program, owner, state: NodeState::Built, image_bytes, exec_mark, arena, workers: Vec::new(), rels, depot_key: None, depot_seen: 0, slots, slot_life, opened, producers, later_claim: false, sorts_revoked: (0, 0), rerun_pins: Vec::new(), pins_spare: Vec::new(), rerun_keep: None, pin_floor: 0, pulls: Vec::new(), held_sites: Vec::new(), swept: core::cell::Cell::new(false), nested: 0, lane_depth: 0, handed: Vec::new(), late_rows: Vec::new(), counters: Counters::default(), spill, sched }; // alloc: Node
+        let mut node = Node {
+            builder: derive.identity(),
+            cells: derive.cells(),
+            inner,
+            widest_arena: 0,
+            exec_regions: regions,
+            program,
+            owner,
+            state: NodeState::Built,
+            image_bytes,
+            exec_mark,
+            arena,
+            workers: Vec::new(),
+            rels,
+            depot_key: None,
+            depot_seen: 0,
+            slots,
+            slot_life,
+            opened,
+            producers,
+            later_claim: false,
+            sorts_revoked: (0, 0),
+            rerun_pins: Vec::new(),
+            pins_spare: Vec::new(),
+            rerun_keep: None,
+            pin_floor: 0,
+            pulls: Vec::new(),
+            held_sites: Vec::new(),
+            swept: core::cell::Cell::new(false),
+            nested: 0,
+            lane_depth: 0,
+            handed: Vec::new(),
+            late_rows: Vec::new(),
+            counters: Counters::default(),
+            spill,
+            sched,
+        }; // alloc: Node
         node.inner.spill = &mut *node.spill as *mut SpillTable;
         node.inner.spill_index = 0;
         node
@@ -516,8 +609,16 @@ impl Node {
     /// D3140: the record bytes `slot`'s owners fold: its phase-1 table's and its stream's files' (`Entry::owner_held_of`;
     /// D3024 (b): the drain's leader rule, exec runner/plan.rs).
     pub fn owner_held(&self, slot: u8) -> u64 {
-        let t1 = gravity_abi::breaker::T1::of(self.slot_region(slot)).map_or(0, |t| t.held() * t.layout.size() as u64);
-        t1 + self.spill.stream(slot).files.iter().flatten().map(|f| f.spilled_bytes()).sum::<u64>()
+        let t1 = gravity_abi::breaker::T1::of(self.slot_region(slot))
+            .map_or(0, |t| t.held() * t.layout.size() as u64);
+        t1 + self
+            .spill
+            .stream(slot)
+            .files
+            .iter()
+            .flatten()
+            .map(|f| f.spilled_bytes())
+            .sum::<u64>()
     }
 
     /// The sort runs `slot`'s stream holds (every owner's), as a kernel's `SPILL_RUNS` reads them.
@@ -548,8 +649,12 @@ impl Node {
     /// spilled and the emit's refill must find every record in the files. Returns the records
     /// moved (0 when the breaker does not spill or the table is empty).
     pub(crate) fn spill_leader(&mut self, p: usize) -> Result<u64> {
-        let Some(b) = self.program.pipelines[p].breaker() else { return Ok(0) };
-        let gravity_abi::breaker::Spill::Partitioned { bits } = b.spill else { return Ok(0) };
+        let Some(b) = self.program.pipelines[p].breaker() else {
+            return Ok(0);
+        };
+        let gravity_abi::breaker::Spill::Partitioned { bits } = b.spill else {
+            return Ok(0);
+        };
         let region = self.slot_region(b.slot);
         // a `Partitioned` breaker's region is a record or build table (`breakers.md`). A v4 build (`TABLE_V4BUILD`) writes its
         // own partitions from its lowered code and reads them back in its pair pipeline; the driver never scatters one.
@@ -570,8 +675,12 @@ impl Node {
     /// Scatter a worker's whole partial (a live table at `ptr`) into the leader's file of pipeline
     /// `p`'s slot: the partial alone exceeds what the emptied leader table holds.
     pub(crate) fn spill_partial(&mut self, p: usize, ptr: *mut u8) -> Result<u64> {
-        let Some(b) = self.program.pipelines[p].breaker() else { return Ok(0) };
-        let gravity_abi::breaker::Spill::Partitioned { bits } = b.spill else { return Ok(0) };
+        let Some(b) = self.program.pipelines[p].breaker() else {
+            return Ok(0);
+        };
+        let gravity_abi::breaker::Spill::Partitioned { bits } = b.spill else {
+            return Ok(0);
+        };
         // a worker's live partial; a v4 build's is never scattered by the driver (`spill_leader`)
         if raw::partial_unscattered(ptr) {
             return Ok(0);
@@ -589,7 +698,10 @@ impl Node {
     /// emit_key.rs `resident`: `Spill::None`), whose arms continuing a run hand their phase-1 tables on (`hand_off`).
     pub(crate) fn hands_off(&self, p: usize) -> bool {
         use gravity_abi::breaker::{BreakerKind, Spill};
-        self.program.pipelines[p].breaker().is_some_and(|b| matches!(b.spill, Spill::None) && matches!(b.kind, BreakerKind::HashAgg | BreakerKind::Distinct))
+        self.program.pipelines[p].breaker().is_some_and(|b| {
+            matches!(b.spill, Spill::None)
+                && matches!(b.kind, BreakerKind::HashAgg | BreakerKind::Distinct)
+        })
     }
 
     /// NEW-53 (D1443): the live phase-1 table at `ptr` (a worker's partial, or the leader's region before a section of an arm
@@ -599,18 +711,25 @@ impl Node {
     /// while the statement's grant holds the records' bytes; else (a run-time shortfall spills, never raises: the serial
     /// form answered without an error) in a disk spill file, read back by this process before the chunks go. Returns the records moved.
     pub(crate) fn hand_off(&mut self, p: usize, ptr: *mut u8) -> Result<u64> {
-        let Some(b) = self.program.pipelines[p].breaker() else { return Ok(0) };
+        let Some(b) = self.program.pipelines[p].breaker() else {
+            return Ok(0);
+        };
         let bytes = raw::t1_record_bytes(ptr);
         if bytes == 0 {
             return Ok(0);
         }
         self.settle_handed();
         // an admitted statement's G room (`hold` never borrows past G for it), an unadmitted one's pool capacity (a pull's)
-        let held = self.inner.stmt().filter(|s| !s.is_strict() && (!s.admitted() || bytes as u64 <= s.left())).and_then(|s| s.hold(bytes as u64));
+        let held = self
+            .inner
+            .stmt()
+            .filter(|s| !s.is_strict() && (!s.admitted() || bytes as u64 <= s.left()))
+            .and_then(|s| s.hold(bytes as u64));
         let memory = held.is_some();
         let n = raw::hand_own(&mut self.spill, b.slot, ptr, bytes, memory)?;
         if let Some(h) = held {
-            self.handed.push((b.slot, self.spill.stream(b.slot).life, h)); // alloc: Exec
+            self.handed
+                .push((b.slot, self.spill.stream(b.slot).life, h)); // alloc: Exec
         } else {
             self.counters.spills.set(self.counters.spills.get() + 1);
         }
@@ -620,7 +739,12 @@ impl Node {
     /// NEW-53: the leader's own records of resident keyed end `p` (an arm run's earlier serial arm kept them in its table,
     /// D2648) handed on before a section of the run, as `spill_leader` scatters the word form's.
     pub(crate) fn hand_leader(&mut self, p: usize) -> Result<u64> {
-        let Some(b) = self.program.pipelines[p].breaker().filter(|_| self.hands_off(p)) else { return Ok(0) };
+        let Some(b) = self.program.pipelines[p]
+            .breaker()
+            .filter(|_| self.hands_off(p))
+        else {
+            return Ok(0);
+        };
         let region = self.slot_region(b.slot);
         if region.len() < gravity_abi::breaker::HASHAGG_HDR || raw::leader_unscattered(region) {
             return Ok(0);
@@ -633,7 +757,8 @@ impl Node {
     fn settle_handed(&mut self) {
         if !self.handed.is_empty() {
             let spill = &self.spill;
-            self.handed.retain(|&(slot, life, _)| spill.stream(slot).life == life && life != 0);
+            self.handed
+                .retain(|&(slot, life, _)| spill.stream(slot).life == life && life != 0);
         }
     }
 
@@ -651,13 +776,21 @@ impl Node {
     /// The pipeline's own slot for the spill host: what it produces, else what it consumes first.
     pub(crate) fn own_slot_of(&self, p: usize) -> u8 {
         let pipe = self.program.pipelines[p];
-        pipe.produces().or(pipe.consumes.first().copied()).unwrap_or(0)
+        pipe.produces()
+            .or(pipe.consumes.first().copied())
+            .unwrap_or(0)
     }
 
     /// D1324: pipeline `p`'s consumed slots and whether it claims spill partitions (the spill host's `stream_of`).
     pub(crate) fn reads_of(&self, p: usize) -> (&'static [u8], bool) {
         let pipe = self.program.pipelines[p];
-        (pipe.consumes, matches!(pipe.claims, gravity_program::ClaimKind::SpillPartitions { .. }))
+        (
+            pipe.consumes,
+            matches!(
+                pipe.claims,
+                gravity_program::ClaimKind::SpillPartitions { .. }
+            ),
+        )
     }
 
     pub fn program(&self) -> &Arc<Program> {
@@ -671,14 +804,30 @@ impl Node {
 
     /// D3438: whether its program block names `owner` (a parked Node serves only the registry whose host state it runs over).
     pub(crate) fn runs_over(&self, owner: &std::rc::Rc<dyn core::any::Any>) -> bool {
-        self.owner.as_ref().is_some_and(|o| std::rc::Rc::ptr_eq(o, owner))
+        self.owner
+            .as_ref()
+            .is_some_and(|o| std::rc::Rc::ptr_eq(o, owner))
     }
 
     /// `grant::share` of pipeline `p`, the program's images flag read once (`lives::Schedule`).
-    pub(crate) fn share(&self, p: usize, grant: crate::mem::grant::Grant, width: u16) -> crate::mem::grant::Split {
+    pub(crate) fn share(
+        &self,
+        p: usize,
+        grant: crate::mem::grant::Grant,
+        width: u16,
+    ) -> crate::mem::grant::Split {
         match self.sized_pipe(p, grant) {
-            Some(pipe) => crate::mem::grant::share_of(&self.program, p, &pipe, grant, width, self.sched.images),
-            None => crate::mem::grant::share_with(&self.program, p, grant, width, self.sched.images),
+            Some(pipe) => crate::mem::grant::share_of(
+                &self.program,
+                p,
+                &pipe,
+                grant,
+                width,
+                self.sched.images,
+            ),
+            None => {
+                crate::mem::grant::share_with(&self.program, p, grant, width, self.sched.images)
+            }
         }
     }
 
@@ -693,9 +842,17 @@ impl Node {
 
     /// exactsize B4: pipeline `p` as the grant reads it under `EXACT_FINAL` when a late count was set (`set_late_rows`):
     /// its `predicted_rows` the count, which the planner's rows at its end never narrow (D4047). `None`: the program's own.
-    fn sized_pipe(&self, p: usize, grant: crate::mem::grant::Grant) -> Option<gravity_program::Pipeline> {
+    fn sized_pipe(
+        &self,
+        p: usize,
+        grant: crate::mem::grant::Grant,
+    ) -> Option<gravity_program::Pipeline> {
         let rows = self.late_rows.iter().find(|r| r.0 as usize == p)?.1;
-        (grant.exact & crate::mem::grant::EXACT_FINAL != 0).then(|| gravity_program::Pipeline { predicted_rows: rows, end_rows: 0, ..self.program.pipelines[p] })
+        (grant.exact & crate::mem::grant::EXACT_FINAL != 0).then(|| gravity_program::Pipeline {
+            predicted_rows: rows,
+            end_rows: 0,
+            ..self.program.pipelines[p]
+        })
     }
 
     pub fn state(&self) -> NodeState {
@@ -717,7 +874,11 @@ impl Node {
     /// The Node's capacity in bytes (the arena, the slot regions, the chunk pool, its sources' kept buffers, the workers it
     /// holds): the park's cap counts it.
     pub fn bytes(&self) -> usize {
-        self.arena.handle().capacity() + self.slots.iter().map(|s| s.buf.len()).sum::<usize>() + self.inner.chunks.iter().map(|c| c.len()).sum::<usize>() + self.inner.kept_bytes() + self.workers.iter().map(WorkerSlot::bytes).sum::<usize>()
+        self.arena.handle().capacity()
+            + self.slots.iter().map(|s| s.buf.len()).sum::<usize>()
+            + self.inner.chunks.iter().map(|c| c.len()).sum::<usize>()
+            + self.inner.kept_bytes()
+            + self.workers.iter().map(WorkerSlot::bytes).sum::<usize>()
     }
 
     pub fn exec_arena(&self) -> ArenaRef {
@@ -735,7 +896,13 @@ impl Node {
         self.inner.lay_positions();
         for i in 0..self.inner.descs.len() {
             if matches!(self.inner.descs[i].kind, gravity_program::SiteKind::Copy) {
-                let p = positions.and_then(|p| p.get(i)).filter(|p| p.is_valid()).map_or(ScanPos::NONE, |p| ScanPos { flags: p.flags | gravity_abi::ctx::POS_COPY, ..*p });
+                let p = positions
+                    .and_then(|p| p.get(i))
+                    .filter(|p| p.is_valid())
+                    .map_or(ScanPos::NONE, |p| ScanPos {
+                        flags: p.flags | gravity_abi::ctx::POS_COPY,
+                        ..*p
+                    });
                 // the node's context block holds a site slot per descriptor
                 raw::site_at(self.inner.ctx, i).pos = p;
             }
@@ -768,7 +935,9 @@ impl Node {
     /// D824 (V4R-298): lazy build `b`'s slot opened zeroed at `share` before `b` runs (its outer-first probe's pipeline opens
     /// over it: every consumed slot must be live), marked pending; `b`'s own open adopts it (`open_slot`).
     pub(crate) fn open_pending(&mut self, b: usize, share: Share, images: u32) -> Result<()> {
-        let Some(slot) = self.program.pipelines[b].produces() else { return Ok(()) };
+        let Some(slot) = self.program.pipelines[b].produces() else {
+            return Ok(());
+        };
         self.open_slot(slot, b, self.share_left(slot, b, share, images), images, 1)?;
         self.slot_life.pend(slot);
         Ok(())
@@ -788,24 +957,51 @@ impl Node {
     /// last consumer. D3520: a CTE whose producers ran ahead (`CTE_PRODUCERS_AHEAD`) keeps none the program holds through
     /// its readers: each producer's slot lives through the CTE's last reader (`Pipeline::live_through`), where `free_after`
     /// frees it, and the lowering may produce that number again past it.
-    pub(crate) fn defer_rerun(&mut self, m: usize, owners: &[usize], every: bool, share: Share, images: u32) -> Result<()> {
+    pub(crate) fn defer_rerun(
+        &mut self,
+        m: usize,
+        owners: &[usize],
+        every: bool,
+        share: Share,
+        images: u32,
+    ) -> Result<()> {
         let consumes: &'static [u8] = self.program.pipelines[m].consumes;
-        let ahead = !every && self.program.v4.as_deref().is_some_and(|d| d.protos.iter().any(|x| x.kind == gravity_program::protos::ProtoKind::Cte && x.pipeline as usize == m && x.arg & gravity_program::protos::CTE_PRODUCERS_AHEAD != 0));
+        let ahead = !every
+            && self.program.v4.as_deref().is_some_and(|d| {
+                d.protos.iter().any(|x| {
+                    x.kind == gravity_program::protos::ProtoKind::Cte
+                        && x.pipeline as usize == m
+                        && x.arg & gravity_program::protos::CTE_PRODUCERS_AHEAD != 0
+                })
+            });
         for &s in consumes {
             if !every && !self.slot_life.is_live(s) {
                 continue;
             }
-            if ahead &&self.program.producer_of_slot(m, s).is_some_and(|q| owners.iter().all(|&o| self.program.last_consumer(q) >= o)) {
+            if ahead
+                && self
+                    .program
+                    .producer_of_slot(m, s)
+                    .is_some_and(|q| owners.iter().all(|&o| self.program.last_consumer(q) >= o))
+            {
                 continue;
             }
             self.slot_life.keep_consumed(s, every);
         }
-        let Some(slot) = self.program.pipelines[m].produces() else { return Ok(()) };
+        let Some(slot) = self.program.pipelines[m].produces() else {
+            return Ok(());
+        };
         if owners.iter().any(|&o| o >= self.program.pipelines.len()) {
-            return Err(Error::Refused("graph: a kept member's owner past the program (M8 RT-2e)".into()));
+            return Err(Error::Refused(
+                "graph: a kept member's owner past the program (M8 RT-2e)".into(),
+            ));
         }
         // an Append-armed member range produces one slot: its first arm opens it
-        if !self.slot_life.is_kept(slot) && owners.iter().any(|&o| self.program.pipelines[o].consumes.contains(&slot)) {
+        if !self.slot_life.is_kept(slot)
+            && owners
+                .iter()
+                .any(|&o| self.program.pipelines[o].consumes.contains(&slot))
+        {
             self.open_slot(slot, m, self.share_left(slot, m, share, images), images, 1)?;
         } else if !self.slot_life.is_live(slot) {
             // D2242: a member no owner reads opens only when its set runs, nested inside the owner's pipeline beside the
@@ -834,7 +1030,11 @@ impl Node {
         }
         // its members open again (their sites' per-open words, their partials; `open_slot` adopts the region)
         let pw = self.opened.len();
-        for (o, p) in self.opened.iter_mut().zip(&self.producers[slot as usize * pw..(slot as usize + 1) * pw]) {
+        for (o, p) in self
+            .opened
+            .iter_mut()
+            .zip(&self.producers[slot as usize * pw..(slot as usize + 1) * pw])
+        {
             *o &= !p;
         }
         self.spill.begin_life(slot);
@@ -886,7 +1086,10 @@ impl Node {
         let n = &mut self.inner;
         let mut stale = Vec::new(); // alloc: Exec
         for &p in bases {
-            match n.chunks[..n.pinned].iter().position(|c| c.as_ptr() as usize == p) {
+            match n.chunks[..n.pinned]
+                .iter()
+                .position(|c| c.as_ptr() as usize == p)
+            {
                 Some(j) if j >= self.pin_floor => {
                     let c = n.chunks.remove(j);
                     (n.pinned, n.chunk_next) = (n.pinned - 1, n.chunk_next - 1);
@@ -917,7 +1120,14 @@ impl Node {
             let stale = self.rerun_pins.swap_remove(i).1;
             let n = &mut self.inner;
             let at = (n.chunk_next, n.pinned);
-            let (left, at) = pull::trade_stale(&mut n.chunks, |c| c.as_ptr() as usize, &stale, from, kept, at);
+            let (left, at) = pull::trade_stale(
+                &mut n.chunks,
+                |c| c.as_ptr() as usize,
+                &stale,
+                from,
+                kept,
+                at,
+            );
             (n.chunk_next, n.pinned) = at;
             bases.extend(left); // alloc: Exec
         }
@@ -929,8 +1139,14 @@ impl Node {
     pub(crate) fn unfile(&mut self, from: usize, n: usize) -> Vec<usize> {
         let mut bases = core::mem::take(&mut self.pins_spare);
         bases.clear();
-        bases.extend(self.inner.chunks[from..from + n].iter().map(|c| c.as_ptr() as usize)); // alloc: Exec
-        self.rerun_pins.iter_mut().for_each(|(_, l)| l.retain(|p| !bases.contains(p)));
+        bases.extend(
+            self.inner.chunks[from..from + n]
+                .iter()
+                .map(|c| c.as_ptr() as usize),
+        ); // alloc: Exec
+        self.rerun_pins
+            .iter_mut()
+            .for_each(|(_, l)| l.retain(|p| !bases.contains(p)));
         self.unfile_pulls(&bases);
         bases
     }
@@ -940,7 +1156,12 @@ impl Node {
     /// run by the member's pull of the CTE) leaves the outer set's resets for its later members to adopt.
     pub(crate) fn rerun_done(&mut self, members: &[u16]) {
         for &m in members {
-            if let Some(slot) = self.program.pipelines.get(m as usize).and_then(|x| x.produces()) {
+            if let Some(slot) = self
+                .program
+                .pipelines
+                .get(m as usize)
+                .and_then(|x| x.produces())
+            {
                 self.slot_life.drop_reset(slot);
             }
         }
@@ -950,9 +1171,15 @@ impl Node {
     /// open, so its breaker would fold the second run into the first's rows (never reopened): a Bug by name.
     pub(crate) fn rerun_without_reset(&self, members: &[u16]) -> Result<()> {
         for &m in members {
-            let kept = self.program.pipelines.get(m as usize).and_then(|x| x.produces()).is_some_and(|s| self.slot_life.is_kept(s));
+            let kept = self
+                .program
+                .pipelines
+                .get(m as usize)
+                .and_then(|x| x.produces())
+                .is_some_and(|s| self.slot_life.is_kept(s));
             if kept && self.is_opened(m as usize) {
-                return Err(Error::Refused(format!("gravity: Bug: rerun set member {m} run again without its reset (Entry::rerun_nested, M8 RT-2e)").into())); // alloc: Cold
+                return Err(Error::Refused(format!("gravity: Bug: rerun set member {m} run again without its reset (Entry::rerun_nested, M8 RT-2e)").into()));
+                // alloc: Cold
             }
         }
         Ok(())
@@ -977,7 +1204,8 @@ impl Node {
         for &c in self.program.pipelines[p].consumes.iter() {
             if let Some(o) = self.slot_life.unrun_reader(c, p, pass) {
                 debug_assert!(false, "pipeline {p} opens over slot {c} of a rerun set that never ran (its owner is pipeline {o})");
-                return Err(Error::Refused(format!("gravity: Bug: pipeline {p} reads slot {c} of a rerun set that never ran; only its owner, pipeline {o}, opens over it (M8 RT-2e)").into())); // alloc: Cold
+                return Err(Error::Refused(format!("gravity: Bug: pipeline {p} reads slot {c} of a rerun set that never ran; only its owner, pipeline {o}, opens over it (M8 RT-2e)").into()));
+                // alloc: Cold
             }
         }
         Ok(())
@@ -1007,8 +1235,13 @@ impl Node {
         if !self.slot_life.any_pending() {
             return 0;
         }
-        let cs = self.program.pipelines[p].consumes.iter().take(8).enumerate();
-        cs.filter(|&(_, &c)| self.is_pending(c)).fold(0, |f, (i, _)| f | 1 << (FLAG_PENDING_SHIFT + i as u32))
+        let cs = self.program.pipelines[p]
+            .consumes
+            .iter()
+            .take(8)
+            .enumerate();
+        cs.filter(|&(_, &c)| self.is_pending(c))
+            .fold(0, |f, (i, _)| f | 1 << (FLAG_PENDING_SHIFT + i as u32))
     }
 
     /// The leader's `Partials`, grow home and own slot pointed at pipeline `q`'s regions again (a re-attached call: `reattach`,
@@ -1051,7 +1284,10 @@ impl Node {
     /// fallback to a consumed slot or slot 0).
     pub(crate) fn feed_owner_of(&self, p: usize) -> Option<(memledger::Owner, memledger::Kind)> {
         let b = self.program.pipelines.get(p)?.breaker()?;
-        Some((self.slot_owner(b.slot)?, crate::mem::region::pipeline_kind(&self.program, p)))
+        Some((
+            self.slot_owner(b.slot)?,
+            crate::mem::region::pipeline_kind(&self.program, p),
+        ))
     }
 
     /// CONVERT wave 2 (commit 7): the ledger kind of pipeline `p`'s own slot (`own_slot_of`: the slot it produces into,
@@ -1060,7 +1296,10 @@ impl Node {
     pub(crate) fn own_kind_of(&self, p: usize) -> Option<memledger::Kind> {
         let pipe = self.program.pipelines.get(p)?;
         let slot = pipe.produces().or(pipe.consumes.first().copied())?;
-        Some(crate::mem::region::ledger_kind(crate::mem::grow::kind_of(&self.program, slot)))
+        Some(crate::mem::region::ledger_kind(crate::mem::grow::kind_of(
+            &self.program,
+            slot,
+        )))
     }
 
     /// CONVERT wave 2 (R3): the statement's (or the portal's) ledger owner and release, captured once on the leader at this
@@ -1104,7 +1343,9 @@ impl Node {
 
     /// RULE 7: the bound statement's reservation it has not drawn (G's room; 0 unbound or unadmitted).
     pub(crate) fn stmt_room(&self) -> u64 {
-        self.inner.stmt().map_or(0, crate::mem::grant::Reservation::left)
+        self.inner
+            .stmt()
+            .map_or(0, crate::mem::grant::Reservation::left)
     }
 
     /// D2242: pipeline `p` runs only on demand (`Entry::skip_deferred`): its share-budgeted slot may open nested inside a
@@ -1127,7 +1368,9 @@ impl Node {
     /// anyway, doubling past the cut, and the doublings (a CTE's pulled HashAgg cut from 2.5 GiB to 1 GiB grew to its 4 GiB
     /// floor) took a grouped join written as a MATERIALIZED CTE past the statement's cap where the same plan inlined fits.
     fn share_left(&self, slot: u8, p: usize, share: Share, images: u32) -> Share {
-        let Some(g) = self.inner.stmt().map(|s| s.grant) else { return share };
+        let Some(g) = self.inner.stmt().map(|s| s.grant) else {
+            return share;
+        };
         let grant = g.bytes;
         let s = slot as usize;
         if !self.slots[s].shared || self.slot_life.is_live(slot) {
@@ -1135,27 +1378,54 @@ impl Node {
         }
         let waiting = self.slot_life.deferred_besides(slot);
         // plan-counted: the slots live now, this one with them, are no more than the plan's peak for it (`share_live`)
-        let others = (0..self.slots.len()).filter(|&o| o != s && self.slot_life.is_live(o as u8)).count();
+        let others = (0..self.slots.len())
+            .filter(|&o| o != s && self.slot_life.is_live(o as u8))
+            .count();
         if waiting == 0 && others < self.program.slots.share_live(Some(slot)) as usize {
             return share;
         }
-        let held: u64 = (0..self.slots.len()).filter(|&o| o != s && self.slots[o].shared && self.slot_life.is_live(o as u8)).map(|o| self.slots[o].counted).sum();
-        let left = ( grant.saturating_sub(held).saturating_sub(images as u64) / (1 + waiting)) & !(crate::park::REGION_MIN as u64 - 1);
-        let charged = self.sized_pipe(p, g).or_else(|| self.program.pipelines.get(p).copied()).map_or(0, |pipe| crate::mem::grant::charged_share(&pipe, g));
+        let held: u64 = (0..self.slots.len())
+            .filter(|&o| o != s && self.slots[o].shared && self.slot_life.is_live(o as u8))
+            .map(|o| self.slots[o].counted)
+            .sum();
+        let left = (grant.saturating_sub(held).saturating_sub(images as u64) / (1 + waiting))
+            & !(crate::park::REGION_MIN as u64 - 1);
+        let charged = self
+            .sized_pipe(p, g)
+            .or_else(|| self.program.pipelines.get(p).copied())
+            .map_or(0, |pipe| crate::mem::grant::charged_share(&pipe, g));
         crate::mem::grant::cut_share(share, left, charged)
     }
 
     /// Slot `slot` opened for producer `p` (`open_slot_at`). A refused open of a region whose breaker names a SPILL-DEBT
     /// row (`SlotRegion::debt`, set before the open draws) names it (`grow::debt_refused`).
-    pub(crate) fn open_slot(&mut self, slot: u8, p: usize, share: Share, images: u32, width: u16) -> Result<()> {
-        self.open_slot_at(slot, p, share, images, width).map_err(|e| crate::mem::grow::debt_refused(e, self.slots[slot as usize].debt, None))
+    pub(crate) fn open_slot(
+        &mut self,
+        slot: u8,
+        p: usize,
+        share: Share,
+        images: u32,
+        width: u16,
+    ) -> Result<()> {
+        self.open_slot_at(slot, p, share, images, width)
+            .map_err(|e| crate::mem::grow::debt_refused(e, self.slots[slot as usize].debt, None))
     }
 
-    fn open_slot_at(&mut self, slot: u8, p: usize, share: Share, images: u32, width: u16) -> Result<()> {
+    fn open_slot_at(
+        &mut self,
+        slot: u8,
+        p: usize,
+        share: Share,
+        images: u32,
+        width: u16,
+    ) -> Result<()> {
         if self.slot_life.is_live(slot) {
             // D824: a lazy build adopts the slot its probe's pipeline opened over it, zeroed (`open_pending`); M8 (RT-2e): a
             // rerun member adopts its kept slot, opened zeroed for the owner (`defer_rerun`) or reset in place
-            if self.slot_life.adopt(slot, self.program.pipelines[p].lazy_for >= 0) {
+            if self
+                .slot_life
+                .adopt(slot, self.program.pipelines[p].lazy_for >= 0)
+            {
                 return Ok(());
             }
             // D393 (V4R-47): a later arm of an append.arms run folds on into the region its first arm opened (D559: a run
@@ -1164,9 +1434,14 @@ impl Node {
                 return Ok(());
             }
             if crate::grant_ledger::on() {
-                crate::grant_ledger::violation(crate::grant_ledger::Check::L3, self.inner.stmt().map_or(0, |s| s.id()), format_args!("slot {slot} produced again while its life is live"));
+                crate::grant_ledger::violation(
+                    crate::grant_ledger::Check::L3,
+                    self.inner.stmt().map_or(0, |s| s.id()),
+                    format_args!("slot {slot} produced again while its life is live"),
+                );
             }
-            return Err(crate::Error::Refused(format!("graph: slot {slot} produced again while a consumer of its live life is pending (L3)").into())); // alloc: Cold
+            return Err(crate::Error::Refused(format!("graph: slot {slot} produced again while a consumer of its live life is pending (L3)").into()));
+            // alloc: Cold
         }
         self.spill.begin_life(slot);
         self.settle_handed();
@@ -1187,20 +1462,62 @@ impl Node {
         r.ceil = match grant {
             Some(g) if r.shared => {
                 let pipe = &self.program.pipelines[p];
-                pipe.breaker().map_or(0, |b| crate::mem::grant::leader_ceiling(crate::mem::grant::ceiling_of(g, pipe), width, b.kind))
+                pipe.breaker().map_or(0, |b| {
+                    crate::mem::grant::leader_ceiling(
+                        crate::mem::grant::ceiling_of(g, pipe),
+                        width,
+                        b.kind,
+                    )
+                })
             }
             _ => 0,
         };
-        r.fault.set(crate::mem::grow::Fault::every(grant.map_or(0, |g| g.spill_every)).with_revoke_every(grant.map_or(0, |g| g.revoke_every)).with_refuse_debt(grant.is_some_and(|g| g.refuse_debt)));
-        let holds = if self.program.lowered() { self.program.pipelines[p].holds() } else { None };
-        (r.spills, r.debt) = (holds.is_some_and(|h| h.spills()), holds.and_then(|h| h.debt()));
-        let (mut reserve, mut floor) = if r.shared { crate::mem::grow::share_reserve(&self.program.pipelines[p], grant, bytes as u64, width, true) } else { (0, false) };
+        r.fault.set(
+            crate::mem::grow::Fault::every(grant.map_or(0, |g| g.spill_every))
+                .with_revoke_every(grant.map_or(0, |g| g.revoke_every))
+                .with_refuse_debt(grant.is_some_and(|g| g.refuse_debt)),
+        );
+        let holds = if self.program.lowered() {
+            self.program.pipelines[p].holds()
+        } else {
+            None
+        };
+        (r.spills, r.debt) = (
+            holds.is_some_and(|h| h.spills()),
+            holds.and_then(|h| h.debt()),
+        );
+        let (mut reserve, mut floor) = if r.shared {
+            crate::mem::grow::share_reserve(
+                &self.program.pipelines[p],
+                grant,
+                bytes as u64,
+                width,
+                true,
+            )
+        } else {
+            (0, false)
+        };
         // a hash breaker starts small: its share is the layout it grows into in place, its region commits the start
         let start = crate::mem::grant::start_bytes(bytes);
-        let laid = r.shared && crate::mem::grant::starts_small_in(&self.program, p, grant.unwrap_or(crate::mem::grant::Grant::of(0))) && start < bytes;
+        let laid = r.shared
+            && crate::mem::grant::starts_small_in(
+                &self.program,
+                p,
+                grant.unwrap_or(crate::mem::grant::Grant::of(0)),
+            )
+            && start < bytes;
         let top = bytes;
         if laid {
-            (reserve, floor) = (crate::mem::grow::start_reserve(&self.program.pipelines[p], grant, bytes as u64, width, true), true);
+            (reserve, floor) = (
+                crate::mem::grow::start_reserve(
+                    &self.program.pipelines[p],
+                    grant,
+                    bytes as u64,
+                    width,
+                    true,
+                ),
+                true,
+            );
             bytes = start;
         }
         if reserve > bytes as u64 || r.buf.is_reserved() {
@@ -1212,11 +1529,23 @@ impl Node {
                 if laid {
                     // A parked laid region's resident length is the start, past the share when it grew past it (D3794): the
                     // table's limit is the region's writable end, so its commits in place go on from there
-                    let buf = crate::node::laid_region(crate::park::region_bytes(bytes as usize), reserve as usize, top as usize, None, stmt)?;
+                    let buf = crate::node::laid_region(
+                        crate::park::region_bytes(bytes as usize),
+                        reserve as usize,
+                        top as usize,
+                        None,
+                        stmt,
+                    )?;
                     bytes = bytes.max(buf.len().min(buf.lay_reserve()) as u32 & !7);
                     buf
                 } else {
-                    let (buf, held) = crate::mem::region::reserved_share(bytes, reserve as usize, None, stmt, floor)?;
+                    let (buf, held) = crate::mem::region::reserved_share(
+                        bytes,
+                        reserve as usize,
+                        None,
+                        stmt,
+                        floor,
+                    )?;
                     bytes = held;
                     buf
                 }
@@ -1231,7 +1560,9 @@ impl Node {
             };
         } else if r.buf.len() < bytes as usize {
             // a dead slot's region first (D157: a freed slot kept its region and the next breaker drew one more share)
-            let dead = (0..self.slots.len()).filter(|&s| s != slot as usize && !self.slot_life.is_live(s as u8)).find(|&s| self.slots[s].buf.len() >= bytes as usize);
+            let dead = (0..self.slots.len())
+                .filter(|&s| s != slot as usize && !self.slot_life.is_live(s as u8))
+                .find(|&s| self.slots[s].buf.len() >= bytes as usize);
             if let Some(d) = dead {
                 let buf = core::mem::take(&mut self.slots[d].buf);
                 self.slots[d].ptr = core::ptr::null_mut();
@@ -1253,7 +1584,11 @@ impl Node {
         }
         let stmt = self.inner.stmt();
         let r = &mut self.slots[slot as usize];
-        r.life = if past { None } else { stmt.and_then(|s| s.life("GravityLife", r.buf.capacity() as u64)) };
+        r.life = if past {
+            None
+        } else {
+            stmt.and_then(|s| s.life("GravityLife", r.buf.capacity() as u64))
+        };
         if !past && !r.buf.recharge(stmt, r.life.as_ref()) {
             // a kept region past the grant's room: dropped for one of the bytes asked (past G when G has no room for it)
             r.buf = crate::node::RegionBuf::empty();
@@ -1265,7 +1600,12 @@ impl Node {
                     if !r.buf.recharge(stmt, r.life.as_ref()) {
                         r.buf = crate::node::RegionBuf::empty();
                         r.life = None;
-                        let e = crate::Error::OutOfMemory { bytes: bytes as u64, held: crate::mem::grant::POOL.held(), capacity: crate::mem::grant::POOL.capacity(), why: None };
+                        let e = crate::Error::OutOfMemory {
+                            bytes: bytes as u64,
+                            held: crate::mem::grant::POOL.held(),
+                            capacity: crate::mem::grant::POOL.capacity(),
+                            why: None,
+                        };
                         r.buf = past_g_open(&mut bytes, shared, stmt, e)?;
                     }
                 }
@@ -1278,15 +1618,19 @@ impl Node {
         // a laid region taken warm past its share counts its share, as its commits in place past the share are not counted
         // here: the bytes past it are held past G (`laid_region`), the grown part of the region
         let shared_bytes = if laid { bytes.min(top) } else { bytes };
-        let counted = crate::park::region_bytes(shared_bytes as usize) as u64 + if r.shared { images as u64 } else { 0 };
-        self.counters.limit(counted, core::mem::replace(&mut r.counted, counted));
+        let counted = crate::park::region_bytes(shared_bytes as usize) as u64
+            + if r.shared { images as u64 } else { 0 };
+        self.counters
+            .limit(counted, core::mem::replace(&mut r.counted, counted));
         if r.shared {
             self.live_shares_check(slot);
         }
         let r = &mut self.slots[slot as usize];
         if r.shared && shared_bytes > r.high {
             r.high = shared_bytes;
-            self.counters.grown_bytes.set(self.counters.grown_bytes.get() + shared_bytes as u64);
+            self.counters
+                .grown_bytes
+                .set(self.counters.grown_bytes.get() + shared_bytes as u64);
         }
         r.ptr = r.buf.as_mut_ptr();
         r.bytes = bytes;
@@ -1319,7 +1663,11 @@ impl Node {
             return Some(o);
         }
         let (parent, _) = memledger::charge::context();
-        let o = memledger::charge::op_begin(parent, crate::mem::region::pipeline_kind(&self.program, p) as u32, budget as u64);
+        let o = memledger::charge::op_begin(
+            parent,
+            crate::mem::region::pipeline_kind(&self.program, p) as u32,
+            budget as u64,
+        );
         let owner = (o != parent).then_some(o);
         self.slots[slot as usize].owner = owner;
         owner
@@ -1340,16 +1688,23 @@ impl Node {
     /// L2 (S7c): the live share-budgeted slots' limits within `grant_ledger::l2_bound`; a debug assert, a report line under
     /// the ledger.
     fn live_shares_check(&self, slot: u8) {
-        let Some((g, reserved)) = self.inner.stmt().map(|s| (s.grant, s.reserved)) else { return };
+        let Some((g, reserved)) = self.inner.stmt().map(|s| (s.grant, s.reserved)) else {
+            return;
+        };
         let grant = g.bytes;
-        let live = (0..self.slots.len()).filter(|&s| self.slots[s].shared && self.slot_life.is_live(s as u8) || s == slot as usize);
+        let live = (0..self.slots.len()).filter(|&s| {
+            self.slots[s].shared && self.slot_life.is_live(s as u8) || s == slot as usize
+        });
         let (n, sum) = live.fold((0u64, 0u64), |(n, t), s| (n + 1, t + self.slots[s].counted));
         let bound = crate::grant_ledger::l2_bound(g, n, reserved);
         if sum > bound {
             if crate::grant_ledger::on() {
                 crate::grant_ledger::violation(crate::grant_ledger::Check::L2, self.inner.stmt().map_or(0, |s| s.id()), format_args!("{n} live shares hold {sum} B past the grant's {grant} B and its reservation's {reserved} B (slot {slot} opened)"));
             }
-            debug_assert!(sum <= bound, "L2: {n} live shares hold {sum} B past the grant's {grant} B");
+            debug_assert!(
+                sum <= bound,
+                "L2: {n} live shares hold {sum} B past the grant's {grant} B"
+            );
         }
     }
 
@@ -1375,17 +1730,29 @@ impl Node {
         let d = self.program.pipelines[p].driving_site;
         // a site with no live word is left as it is, kept or not, so only a live one asks whether a held call or a parked
         // pull keeps it: the end-of-pipeline sweep walks every site, and a many-arm Append ends one pipeline per arm
-        let sites = (if d >= 0 && !ended { d as usize..(d as usize + 1).min(nsites) } else { 0..nsites }).filter(|&i| self.site_words_live(i));
+        let sites = (if d >= 0 && !ended {
+            d as usize..(d as usize + 1).min(nsites)
+        } else {
+            0..nsites
+        })
+        .filter(|&i| self.site_words_live(i));
         // D3586: an end's sweep that leaves no live site behind (none kept by a hold or a parked pull)
         let mut kept = false;
         for i in sites.filter(|&i| {
-            let keep = self.held_sites.iter().any(|&h| h as isize == i as isize) || self.parked_site(i);
+            let keep =
+                self.held_sites.iter().any(|&h| h as isize == i as isize) || self.parked_site(i);
             kept |= keep;
             !keep
         }) {
             // `i` is one of the program's sites, laid out by `build` in the Node's ctx
             let s = raw::site_at(self.ctx(), i);
-            let words = [("state", (s.state == gravity_abi::site::site::STATE_OPEN) as u64 * s.state as u64), ("cont", s.cont)];
+            let words = [
+                (
+                    "state",
+                    (s.state == gravity_abi::site::site::STATE_OPEN) as u64 * s.state as u64,
+                ),
+                ("cont", s.cont),
+            ];
             if let Some((w, v)) = words.iter().find(|(_, v)| *v != 0) {
                 if ended {
                     (s.state, s.cont) = (gravity_abi::site::site::STATE_CLOSED, 0);
@@ -1395,7 +1762,8 @@ impl Node {
                     crate::grant_ledger::violation(crate::grant_ledger::Check::L8, self.inner.stmt().map_or(0, |s| s.id()), format_args!("pipeline {p} opens with site {i}'s per-open word {w} = {v} left by an earlier open"));
                 }
                 if cfg!(debug_assertions) {
-                    return Err(crate::Error::Host(format!("gravity: pipeline {p} opens with site {i}'s per-open word {w} = {v} left by an earlier open (L8)").into())); // alloc: Cold
+                    return Err(crate::Error::Host(format!("gravity: pipeline {p} opens with site {i}'s per-open word {w} = {v} left by an earlier open (L8)").into()));
+                    // alloc: Cold
                 }
                 (s.state, s.cont) = (gravity_abi::site::site::STATE_CLOSED, 0);
             }
@@ -1414,7 +1782,9 @@ impl Node {
         let mut out = Partials::NONE;
         for (k, &c) in self.program.pipelines[p].consumes.iter().enumerate() {
             if !self.slot_live(c) {
-                return Err(Error::Host(format!("gravity: Bug: pipeline {p} consumes slot {c} that is not live").into())); // alloc: Cold
+                return Err(Error::Host(
+                    format!("gravity: Bug: pipeline {p} consumes slot {c} that is not live").into(),
+                )); // alloc: Cold
             }
             let ptr = self.slot_ptr(c);
             if k < 2 {
@@ -1431,7 +1801,11 @@ impl Node {
     pub(crate) fn consumed_ptrs_after(&self, p: usize) -> Partials {
         let mut out = Partials::NONE;
         for (k, &c) in self.program.pipelines[p].consumes.iter().enumerate() {
-            let ptr = if self.slot_live(c) { self.slot_ptr(c) } else { core::ptr::null_mut() };
+            let ptr = if self.slot_live(c) {
+                self.slot_ptr(c)
+            } else {
+                core::ptr::null_mut()
+            };
             if k < 2 {
                 out.consumed[k] = gravity_abi::word(ptr);
             }
@@ -1446,8 +1820,16 @@ impl Node {
     /// alone. No call is bound, so neither its consumed regions (a feeder after the failed one never opened its slot) nor
     /// its sites' per-open words (the failed feeder's driving site is still open mid-claim) are read.
     pub(crate) fn open_produced(&mut self, p: usize, share: Share, images: u32) -> Result<()> {
-        let Some(b) = self.program.pipelines[p].breaker() else { return Ok(()) };
-        self.open_slot(b.slot, p, self.share_left(b.slot, p, share, images), images, 1)
+        let Some(b) = self.program.pipelines[p].breaker() else {
+            return Ok(());
+        };
+        self.open_slot(
+            b.slot,
+            p,
+            self.share_left(b.slot, p, share, images),
+            images,
+            1,
+        )
     }
 
     /// C5: the leader's home region cut once per revoke its statement was asked (`mem::grow::revoke_home`), between calls.
@@ -1466,7 +1848,13 @@ impl Node {
         let mut partials = self.consumed_ptrs(p)?;
         partials.own = match self.program.pipelines[p].breaker() {
             Some(b) => {
-                self.open_slot(b.slot, p, self.share_left(b.slot, p, share, images), images, 1)?;
+                self.open_slot(
+                    b.slot,
+                    p,
+                    self.share_left(b.slot, p, share, images),
+                    images,
+                    1,
+                )?;
                 self.inner.home = crate::mem::grow::Home::Slot(&mut self.slots[b.slot as usize]);
                 gravity_abi::word(self.slot_ptr(b.slot))
             }
@@ -1490,7 +1878,13 @@ impl Node {
     /// D3203: `t` laps the parts into `entry::END_US` (0 the slots, 1 the leader's chunks and spills, 2 the workers').
     pub(crate) fn settle_regions(&mut self, t: &mut Option<u64>) {
         // DR-12: the leader's draws past its pins (its grow chunks) and the widest worker arena, for the next run's footprint
-        let grown = self.inner.chunks.iter().skip(self.inner.pinned).map(|c| c.len() as u64).sum::<u64>();
+        let grown = self
+            .inner
+            .chunks
+            .iter()
+            .skip(self.inner.pinned)
+            .map(|c| c.len() as u64)
+            .sum::<u64>();
         crate::mem::grant::note_arena(self.program().key, grown, self.widest_arena);
         self.widest_arena = 0;
         for r in self.slots.iter_mut() {
@@ -1520,7 +1914,14 @@ impl Node {
         self.inner.feed_owner = None;
         // CONVERT wave 2 (commit 7): own_kind with op_owner, so a reader of the field alone never sees a stale kind
         self.inner.own_kind = None;
-        self.workers.iter_mut().for_each(|w| (w.inner.op_owner, w.inner.own_kind, w.inner.feed_owner, w.inner.stmt_owner) = (None, None, None, None));
+        self.workers.iter_mut().for_each(|w| {
+            (
+                w.inner.op_owner,
+                w.inner.own_kind,
+                w.inner.feed_owner,
+                w.inner.stmt_owner,
+            ) = (None, None, None, None)
+        });
         crate::entry::end_lap(t, 2);
     }
 
@@ -1548,8 +1949,14 @@ impl Node {
     /// arena chunks, every worker's share, fixed and arena buffers) as the statement's resident bytes; the max is the "peak".
     fn note_resident(&self) {
         let Some(s) = self.inner.stmt() else { return };
-        let slots = (0..self.slots.len()).filter(|&k| self.slot_life.is_live(k as u8)).map(|k| self.slots[k].buf.len() as u64);
-        s.note_resident(slots.sum::<u64>() + self.inner.chunk_bytes() + self.workers.iter().map(WorkerSlot::resident).sum::<u64>());
+        let slots = (0..self.slots.len())
+            .filter(|&k| self.slot_life.is_live(k as u8))
+            .map(|k| self.slots[k].buf.len() as u64);
+        s.note_resident(
+            slots.sum::<u64>()
+                + self.inner.chunk_bytes()
+                + self.workers.iter().map(WorkerSlot::resident).sum::<u64>(),
+        );
     }
 
     /// The bytes the pool charges for breaker slot `slot`'s regions now (leader thread, where `note_resident` reads): the
@@ -1560,7 +1967,12 @@ impl Node {
         if k >= self.slots.len() || !self.slot_life.is_live(k as u8) {
             return 0;
         }
-        self.slots[k].buf.charged_bytes() + self.workers.iter().map(|w| w.partial_charged(slot)).sum::<u64>()
+        self.slots[k].buf.charged_bytes()
+            + self
+                .workers
+                .iter()
+                .map(|w| w.partial_charged(slot))
+                .sum::<u64>()
     }
 
     /// Step 3a: breaker slot `slot`'s charged bytes now, the leader's region and the widest worker's partial, for its
@@ -1571,9 +1983,24 @@ impl Node {
             return;
         }
         let k = slot as usize;
-        let leader = if k < self.slots.len() && self.slot_life.is_live(k as u8) { self.slots[k].buf.charged_bytes() } else { 0 };
-        let worker = self.workers.iter().map(|w| w.partial_charged(slot)).max().unwrap_or(0);
-        crate::mem::feedback::observe(key, slot, leader, worker, self.inner.stmt().map_or(0, |s| s.refused()));
+        let leader = if k < self.slots.len() && self.slot_life.is_live(k as u8) {
+            self.slots[k].buf.charged_bytes()
+        } else {
+            0
+        };
+        let worker = self
+            .workers
+            .iter()
+            .map(|w| w.partial_charged(slot))
+            .max()
+            .unwrap_or(0);
+        crate::mem::feedback::observe(
+            key,
+            slot,
+            leader,
+            worker,
+            self.inner.stmt().map_or(0, |s| s.refused()),
+        );
     }
 
     /// Step 3a: the statement's end (`Entry::end`, before its regions settle): its samples written. A failed statement's
@@ -1586,7 +2013,9 @@ impl Node {
         if !ok {
             self.observe_feedback(self.inner.own_slot);
         }
-        let Some(grant) = self.inner.stmt().map(|s| s.grant) else { return };
+        let Some(grant) = self.inner.stmt().map(|s| s.grant) else {
+            return;
+        };
         let spill = |slot: u8| self.spill.slot_spilled_bytes(slot);
         let given = |slot: u8, width: u16| self.slot_given(slot, grant, width);
         crate::mem::feedback::finish(key, ok, &spill, &given);
@@ -1595,14 +2024,36 @@ impl Node {
     /// Step 3a: what the sizing gave breaker slot `slot` at `grant` over `width` ([leader, worker] bytes; the worker's 0 for
     /// a serial producer) and the room each had before a draw past it ([leader, worker]: its share, or its kind's floor the
     /// region commits up to in place when that is more).
-    fn slot_given(&self, slot: u8, grant: crate::mem::grant::Grant, width: u16) -> ([u64; 2], [u64; 2]) {
-        let Some(p) = self.program.pipelines.iter().position(|q| q.breaker().is_some_and(|b| b.slot == slot)) else { return ([0; 2], [0; 2]) };
+    fn slot_given(
+        &self,
+        slot: u8,
+        grant: crate::mem::grant::Grant,
+        width: u16,
+    ) -> ([u64; 2], [u64; 2]) {
+        let Some(p) = self
+            .program
+            .pipelines
+            .iter()
+            .position(|q| q.breaker().is_some_and(|b| b.slot == slot))
+        else {
+            return ([0; 2], [0; 2]);
+        };
         let pipe = &self.program.pipelines[p];
         let split = self.share(p, grant, width);
         let floor = crate::mem::grant::floor_for(grant, pipe);
         let leader = crate::park::region_bytes(split.breaker.bytes as usize) as u64;
-        let worker = if width >= 2 && pipe.parallel == gravity_program::Parallel::Eligible { split.worker.bytes as u64 } else { 0 };
-        ([leader, worker], [leader.max(floor), if worker == 0 { 0 } else { worker.max(floor) }])
+        let worker = if width >= 2 && pipe.parallel == gravity_program::Parallel::Eligible {
+            split.worker.bytes as u64
+        } else {
+            0
+        };
+        (
+            [leader, worker],
+            [
+                leader.max(floor),
+                if worker == 0 { 0 } else { worker.max(floor) },
+            ],
+        )
     }
 
     pub(crate) fn arena_census(&self) {
@@ -1655,11 +2106,17 @@ impl Node {
         let due = self.sched.frees.after(p).len();
         for i in 0..due {
             let (q, flags) = self.sched.frees.after(p)[i];
-            let Some(slot) = self.program.pipelines[q as usize].produces() else { continue };
+            let Some(slot) = self.program.pipelines[q as usize].produces() else {
+                continue;
+            };
             // M8 (RT-2e): a rerun set's kept slot stays for the statement, its region (`settle_regions` frees it) and its
             // stream (D1638: a member's next run re-reads a kept Sort's stream; `drop_spills` ends it with the statement)
             let kept = self.slot_life.is_kept(slot);
-            if !kept && flags & crate::lives::DUE_END != 0 && self.spill.stream(slot).life != 0 && self.holds_life(q as usize, slot) {
+            if !kept
+                && flags & crate::lives::DUE_END != 0
+                && self.spill.stream(slot).life != 0
+                && self.holds_life(q as usize, slot)
+            {
                 self.spill.end_life(slot);
             }
             if flags & crate::lives::DUE_FREE != 0 && !kept {
@@ -1686,8 +2143,15 @@ impl Node {
     fn free_pulled_after(&mut self, p: usize) {
         loop {
             let program = &self.program;
-            let held = |slot| program.producer_of_slot(p, slot).map(|q| program.last_consumer(q)).filter(|&end| end > p);
-            let Some(slot) = self.slot_life.reader_done(p, held) else { return };
+            let held = |slot| {
+                program
+                    .producer_of_slot(p, slot)
+                    .map(|q| program.last_consumer(q))
+                    .filter(|&end| end > p)
+            };
+            let Some(slot) = self.slot_life.reader_done(p, held) else {
+                return;
+            };
             if self.pull_done_into(slot) {
                 self.slot_life.unkeep(slot);
                 self.free_slot(slot);
@@ -1717,7 +2181,8 @@ impl Node {
     /// no held call (`held_sites`), no rerun set's run (`rerun_keep`: its members' pins are filed at its end) and no pull open
     /// (`pulls`: a pulled set files the pins it made); `None` otherwise, and the region stays to the slot's free as before.
     pub(crate) fn owner_give_floor(&self) -> Option<usize> {
-        (self.held_sites.is_empty() && self.rerun_keep.is_none() && self.pulls.is_empty()).then_some(self.pin_floor)
+        (self.held_sites.is_empty() && self.rerun_keep.is_none() && self.pulls.is_empty())
+            .then_some(self.pin_floor)
     }
 
     /// D3236 (B): `slot`'s one-owner regions (`Inner::slot_pins`, the owner phase's pins) given back as the slot frees: a
@@ -1739,12 +2204,21 @@ impl Node {
                 continue;
             }
             self.inner.slot_pins.swap_remove(i);
-            if !free || self.inner.stmt_pins.contains(&base) || self.rerun_pins.iter().any(|(_, l)| l.contains(&base)) || self.pull_pinned(base) {
+            if !free
+                || self.inner.stmt_pins.contains(&base)
+                || self.rerun_pins.iter().any(|(_, l)| l.contains(&base))
+                || self.pull_pinned(base)
+            {
                 SLOT_PINS_KEPT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
                 continue;
             }
             let n = &mut self.inner;
-            let Some(j) = n.chunks[..n.pinned].iter().position(|c| c.as_ptr() as usize == base) else { continue };
+            let Some(j) = n.chunks[..n.pinned]
+                .iter()
+                .position(|c| c.as_ptr() as usize == base)
+            else {
+                continue;
+            };
             if j < floor {
                 SLOT_PINS_KEPT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
                 continue;
@@ -1753,7 +2227,10 @@ impl Node {
             (n.pinned, n.chunk_next) = (n.pinned - 1, n.chunk_next - 1);
             SLOT_PINS_GIVEN.fetch_add(c.len() as u64, core::sync::atomic::Ordering::Relaxed);
             if region_debug() & TRACE != 0 {
-                eprintln!("gravity: region: slot {slot} owner pin {} given back at its free", c.len());
+                eprintln!(
+                    "gravity: region: slot {slot} owner pin {} given back at its free",
+                    c.len()
+                );
             }
             crate::park::REGIONS.put_from_life(c, self.inner.stmt());
         }
@@ -1770,8 +2247,13 @@ impl Node {
             return self.sched.arms.run_of(q);
         }
         let v4 = self.program.v4.as_deref()?;
-        let produces = |q: usize| self.program.pipelines.get(q).and_then(|x| x.produces()) == Some(slot);
-        v4.protos.iter().filter(|p| p.kind == gravity_program::protos::ProtoKind::Arms && p.slot == slot).map(|p| p.pipeline as usize..p.pipeline as usize + p.arg as usize).find(|run| run.contains(&q) && produces(run.start) && produces(run.end - 1))
+        let produces =
+            |q: usize| self.program.pipelines.get(q).and_then(|x| x.produces()) == Some(slot);
+        v4.protos
+            .iter()
+            .filter(|p| p.kind == gravity_program::protos::ProtoKind::Arms && p.slot == slot)
+            .map(|p| p.pipeline as usize..p.pipeline as usize + p.arg as usize)
+            .find(|run| run.contains(&q) && produces(run.start) && produces(run.end - 1))
     }
 
     /// D393b (V4R-57): pipeline `p` is an arm of an append.arms run other than its last: it folds only. The owner fold, the
@@ -1779,7 +2261,11 @@ impl Node {
     /// which the last arm's owner fold / refill reads with its own (D2648: a serial arm's records stay in the leader's table).
     /// D3918 / D4072: a run that ends at its first arm (`arm_ends_run`) is not continued: that arm owns, finishes and seals it.
     pub fn arm_continues(&self, p: usize) -> bool {
-        self.program.pipelines[p].produces().and_then(|s| self.arms_of(s, p)).is_some_and(|r| p + 1 < r.end) && !self.arm_ends_run(p)
+        self.program.pipelines[p]
+            .produces()
+            .and_then(|s| self.arms_of(s, p))
+            .is_some_and(|r| p + 1 < r.end)
+            && !self.arm_ends_run(p)
     }
 
     /// D3918: arm `a` produces no row: a spilled build's pair pass (its claims `ClaimKind::SpillPartitions`) over a build
@@ -1799,31 +2285,54 @@ impl Node {
     pub fn arm_ends_run(&self, p: usize) -> bool {
         use gravity_abi::breaker::BreakerKind::{HashAgg, HashBuild, Sort};
         let pipe = &self.program.pipelines[p];
-        let Some(slot) = pipe.produces().filter(|_| pipe.breaker().is_some_and(|b| matches!(b.kind, Sort | HashAgg | HashBuild))) else { return false };
+        let Some(slot) = pipe.produces().filter(|_| {
+            pipe.breaker()
+                .is_some_and(|b| matches!(b.kind, Sort | HashAgg | HashBuild))
+        }) else {
+            return false;
+        };
         let produces = |a: usize| self.program.pipelines[a].produces() == Some(slot);
-        self.arms_of(slot, p).is_some_and(|r| r.start == p && p + 1 < r.end && (p + 1..r.end).filter(|&a| produces(a)).all(|a| self.arm_empty(a)))
+        self.arms_of(slot, p).is_some_and(|r| {
+            r.start == p
+                && p + 1 < r.end
+                && (p + 1..r.end)
+                    .filter(|&a| produces(a))
+                    .all(|a| self.arm_empty(a))
+        })
     }
 
     /// D3918: pipeline `p` is a later arm of a run that ended at its first arm (`arm_ends_run`): it is stepped past unopened
     /// (`Entry::skip_ended`), its claims none and the run sealed.
     pub fn arm_ended(&self, p: usize) -> bool {
-        self.program.pipelines[p].produces().and_then(|s| self.arms_of(s, p)).is_some_and(|r| r.start < p && self.arm_ends_run(r.start))
+        self.program.pipelines[p]
+            .produces()
+            .and_then(|s| self.arms_of(s, p))
+            .is_some_and(|r| r.start < p && self.arm_ends_run(r.start))
     }
 
     /// D393b: `FLAG_ARM_RUN` for a claim of pipeline `p` when it is an arm of an append.arms run (its phase-1 tables open at
     /// one partition count), else 0.
     pub(crate) fn arm_flag(&self, p: usize) -> u32 {
-        if self.in_arm_run(p) { gravity_abi::ctx::FLAG_ARM_RUN } else { 0 }
+        if self.in_arm_run(p) {
+            gravity_abi::ctx::FLAG_ARM_RUN
+        } else {
+            0
+        }
     }
 
     /// D393b: pipeline `p` is an arm of an append.arms run (any arm, the last too).
     pub fn in_arm_run(&self, p: usize) -> bool {
-        self.program.pipelines[p].produces().and_then(|s| self.arms_of(s, p)).is_some()
+        self.program.pipelines[p]
+            .produces()
+            .and_then(|s| self.arms_of(s, p))
+            .is_some()
     }
 
     /// D3140: the pipelines of the append.arms run `p` is an arm of.
     pub fn arm_run(&self, p: usize) -> Option<core::ops::Range<usize>> {
-        self.program.pipelines[p].produces().and_then(|s| self.arms_of(s, p))
+        self.program.pipelines[p]
+            .produces()
+            .and_then(|s| self.arms_of(s, p))
     }
 
     /// D393b: the partition count the owner fold of arm `p` reads its slot's stream at: the spilled stream's own (an
@@ -1834,7 +2343,14 @@ impl Node {
     pub(crate) fn run_stream_bits(&self, p: usize) -> u8 {
         let pipe = &self.program.pipelines[p];
         match pipe.produces() {
-            Some(s) if !pipe.breaker().is_some_and(|b| b.kind == gravity_abi::breaker::BreakerKind::HashBuild) && self.in_arm_run(p) => self.spill.stream(s).bits0(),
+            Some(s)
+                if !pipe
+                    .breaker()
+                    .is_some_and(|b| b.kind == gravity_abi::breaker::BreakerKind::HashBuild)
+                    && self.in_arm_run(p) =>
+            {
+                self.spill.stream(s).bits0()
+            }
             _ => 0,
         }
     }
@@ -1847,7 +2363,12 @@ impl Node {
     pub fn finishes(&self, of: usize, p: usize) -> bool {
         match self.arm_run(of) {
             None => p == of,
-            Some(run) => run.contains(&p) && self.program.pipelines[p].produces() == self.program.pipelines[of].produces() && !self.arm_continues(p) && !self.arm_ended(p),
+            Some(run) => {
+                run.contains(&p)
+                    && self.program.pipelines[p].produces() == self.program.pipelines[of].produces()
+                    && !self.arm_continues(p)
+                    && !self.arm_ended(p)
+            }
         }
     }
 
@@ -1871,7 +2392,11 @@ impl Node {
     }
 
     pub fn source_mut(&mut self, i: usize) -> Option<&mut (dyn Source + 'static)> {
-        self.inner.sources.get_mut(i).and_then(|s| s.as_mut()).map(|s| &mut **s)
+        self.inner
+            .sources
+            .get_mut(i)
+            .and_then(|s| s.as_mut())
+            .map(|s| &mut **s)
     }
 
     /// D3670: pipeline `p` runs now (a producer's run, or a pulled set's generation): its driving site's source counts the
@@ -1879,7 +2404,14 @@ impl Node {
     /// rerun set's or an InitPlan's member, whose scan PG counts once per run, and never when the member never runs).
     /// On the leader, which bound the source.
     pub fn count_scan(&mut self, p: usize) {
-        let Some(site) = self.program.pipelines.get(p).and_then(|x| usize::try_from(x.driving_site).ok()) else { return };
+        let Some(site) = self
+            .program
+            .pipelines
+            .get(p)
+            .and_then(|x| usize::try_from(x.driving_site).ok())
+        else {
+            return;
+        };
         if let Some(s) = self.source_mut(site) {
             s.count_scan();
         }
@@ -1902,7 +2434,12 @@ impl Node {
     }
 
     pub fn apply(&mut self, b: &mut Binding<'_>) -> Result<()> {
-        assert_eq!(self.state, NodeState::Built, "apply on a {:?} node", self.state);
+        assert_eq!(
+            self.state,
+            NodeState::Built,
+            "apply on a {:?} node",
+            self.state
+        );
         let bref = b.as_ref();
         let mut failed = None;
         self.for_each_host(|h| {
@@ -1936,7 +2473,12 @@ impl Node {
     }
 
     pub fn remove(&mut self) {
-        assert_eq!(self.state, NodeState::Bound, "remove on a {:?} node", self.state);
+        assert_eq!(
+            self.state,
+            NodeState::Bound,
+            "remove on a {:?} node",
+            self.state
+        );
         self.cool_workers();
         self.for_each_host(|h| h.unbind());
         ends::reset(&mut self.inner);
@@ -1960,7 +2502,12 @@ impl Node {
 
     /// `reset`, its parts lapped into `entry::END_US` (4 up to the spill table, 5 the spill table, 6 the rest) while `t` runs.
     pub(crate) fn reset_timed(&mut self, t: &mut Option<u64>) {
-        assert_eq!(self.state, NodeState::Built, "reset on a {:?} node", self.state);
+        assert_eq!(
+            self.state,
+            NodeState::Built,
+            "reset on a {:?} node",
+            self.state
+        );
         self.slot_life.clear();
         self.opened.fill(0);
         self.pulls.clear();
@@ -2007,7 +2554,12 @@ impl Node {
     }
 
     pub fn park(&mut self) {
-        assert_eq!(self.state, NodeState::Built, "park on a {:?} node", self.state);
+        assert_eq!(
+            self.state,
+            NodeState::Built,
+            "park on a {:?} node",
+            self.state
+        );
         // D4630 / D4631: under the keep-warm switch its sources keep their bind-sized buffers for the next run (on the
         // session from their unbind), so its next bind sizes nothing again; the park's idle release and budget give them
         // back (`shed_regions`). Writers and lockers park as before.
@@ -2030,7 +2582,12 @@ impl Node {
         if !mempolicy::keep::keep_warm() {
             return 0;
         }
-        let before = self.inner.park_bytes() + self.workers.iter().map(|w| w.inner.park_bytes()).sum::<usize>();
+        let before = self.inner.park_bytes()
+            + self
+                .workers
+                .iter()
+                .map(|w| w.inner.park_bytes())
+                .sum::<usize>();
         self.for_each_host(|h| {
             if let HostRef::Source(s) = h {
                 s.park();
@@ -2043,11 +2600,23 @@ impl Node {
                 }
             });
         }
-        before.saturating_sub(self.inner.park_bytes() + self.workers.iter().map(|w| w.inner.park_bytes()).sum::<usize>())
+        before.saturating_sub(
+            self.inner.park_bytes()
+                + self
+                    .workers
+                    .iter()
+                    .map(|w| w.inner.park_bytes())
+                    .sum::<usize>(),
+        )
     }
 
     pub fn unpark(&mut self) {
-        assert_eq!(self.state, NodeState::Parked, "unpark on a {:?} node", self.state);
+        assert_eq!(
+            self.state,
+            NodeState::Parked,
+            "unpark on a {:?} node",
+            self.state
+        );
         self.for_each_host(|h| h.unpark());
         for w in self.workers.iter_mut() {
             w.inner.for_each_host(&mut |h| h.unpark());
@@ -2072,7 +2641,11 @@ impl Node {
     /// D254: the leader's `region_grow`s of this call counted, the statement's first logged.
     fn fold_grows(&mut self, pipeline: usize) {
         if self.inner.grew.n != 0 {
-            crate::mem::grow::fold(&mut self.inner.grew, &self.counters, self.program.pipelines[pipeline].breaker().map(|b| b.kind));
+            crate::mem::grow::fold(
+                &mut self.inner.grew,
+                &self.counters,
+                self.program.pipelines[pipeline].breaker().map(|b| b.kind),
+            );
         }
     }
 }
@@ -2083,7 +2656,9 @@ impl Node {
 /// `start_at` (gravity_driver::stmt_context).
 pub fn stmt_context() -> Option<(memledger::Owner, memledger::Release)> {
     match memledger::charge::context() {
-        (o @ (memledger::Owner::Statement { .. } | memledger::Owner::Portal { .. }), r) => Some((o, r)),
+        (o @ (memledger::Owner::Statement { .. } | memledger::Owner::Portal { .. }), r) => {
+            Some((o, r))
+        }
         _ => None,
     }
 }
@@ -2147,7 +2722,8 @@ impl Inner {
     /// D645: the out block back on its own region at the statement's end; a regrown one (`SPILL_OUT_GROW`) went with the
     /// result spills just dropped (`arena::drop_result_spills`).
     pub(crate) fn rehome_out(&mut self) {
-        (self.out.region, self.out.region_cap) = (gravity_abi::word(self.out_home.0), self.out_home.1);
+        (self.out.region, self.out.region_cap) =
+            (gravity_abi::word(self.out_home.0), self.out_home.1);
         self.out.region_len = 0;
     }
 
@@ -2171,13 +2747,19 @@ impl Inner {
                 f(HostRef::Source(&mut **s));
             }
         }
-        debug_assert!(self.writer.is_none() && self.writers.is_empty() && self.lockers.is_empty(), "D4725: a worker slot holds sources alone");
+        debug_assert!(
+            self.writer.is_none() && self.writers.is_empty() && self.lockers.is_empty(),
+            "D4725: a worker slot holds sources alone"
+        );
     }
 
     /// P2 W1: the relations its sources read (`Source::rel_read`, nonzero), which `Source::release_rel` alone releases from.
     pub(crate) fn rels_read(&self) -> crate::park::RelsRead {
         let mut rels = crate::park::RelsRead::NONE;
-        self.sources.iter().flatten().for_each(|s| rels.add(s.rel_read()));
+        self.sources
+            .iter()
+            .flatten()
+            .for_each(|s| rels.add(s.rel_read()));
         rels
     }
 
@@ -2212,7 +2794,10 @@ impl Inner {
     }
 
     pub(crate) fn detach(&mut self) {
-        (self.block.push, self.block.sink) = (gravity_abi::word(crate::bind::UNBOUND_SINK.0), gravity_abi::word(crate::bind::UNBOUND_SINK.1));
+        (self.block.push, self.block.sink) = (
+            gravity_abi::word(crate::bind::UNBOUND_SINK.0),
+            gravity_abi::word(crate::bind::UNBOUND_SINK.1),
+        );
         self.attached = None;
         self.err = None;
     }
@@ -2220,12 +2805,16 @@ impl Inner {
     pub(crate) fn pins(&self) -> u64 {
         self.sources.iter().flatten().map(|s| s.pins()).sum()
     }
-
 }
 
 /// D3226 (c1): `past_g` for a slot's open: a shared (share-budgeted) slot's refusal opens at the pool's room
 /// (`past_g_share`) and `*bytes` becomes the share it holds; any other slot's refusal stands.
-fn past_g_open(bytes: &mut u32, shared: bool, stmt: Option<&crate::mem::grant::Reservation>, e: crate::Error) -> crate::Result<RegionBuf> {
+fn past_g_open(
+    bytes: &mut u32,
+    shared: bool,
+    stmt: Option<&crate::mem::grant::Reservation>,
+    e: crate::Error,
+) -> crate::Result<RegionBuf> {
     if !shared {
         return past_g(*bytes, stmt, e);
     }

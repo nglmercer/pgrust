@@ -2,7 +2,7 @@
 
 use datum::Datum;
 use mcx::Mcx;
-use types_core::{Oid, SECURITY_LOCAL_USERID_CHANGE, INT4OID, INT8OID, TEXTOID, TIMESTAMPTZOID};
+use types_core::{Oid, INT4OID, INT8OID, SECURITY_LOCAL_USERID_CHANGE, TEXTOID, TIMESTAMPTZOID};
 use types_error::{PgError, PgResult};
 
 use crate::catalog::{self, text_datum, CRON_SCHEMA_NAME, JOB_RUN_DETAILS_TABLE_NAME};
@@ -64,7 +64,15 @@ fn spi_run(sql: &str, argtypes: &[Oid], values: &[Datum], expect: i32) -> PgResu
         return Err(err("SPI_connect failed"));
     }
     let nulls = [false; 8];
-    let rc = spi::SPI_execute_extended(sql, argtypes, values, &nulls[..values.len()], false, false, None)?;
+    let rc = spi::SPI_execute_extended(
+        sql,
+        argtypes,
+        values,
+        &nulls[..values.len()],
+        false,
+        false,
+        None,
+    )?;
     if rc != expect {
         return Err(err(format!("SPI_exec failed: {sql}")));
     }
@@ -81,7 +89,10 @@ pub fn next_run_id() -> PgResult<i64> {
         let nsp = catalog_namespace::get_namespace_oid(CRON_SCHEMA_NAME, false)?;
         let seq = lsyscache::get_relname_relid("runid_seq", nsp)?;
         let saved = miscinit::GetUserIdAndSecContext();
-        miscinit::SetUserIdAndSecContext(catalog::cron_extension_owner()?, SECURITY_LOCAL_USERID_CHANGE);
+        miscinit::SetUserIdAndSecContext(
+            catalog::cron_extension_owner()?,
+            SECURITY_LOCAL_USERID_CHANGE,
+        );
         let r = sequence_seams::nextval_internal::call(seq, true);
         miscinit::SetUserIdAndSecContext(saved.0, saved.1);
         r

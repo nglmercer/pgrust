@@ -29,7 +29,8 @@ pub(crate) fn decode_levels(
     out: &mut Vec<u16>,
 ) -> PgResult<usize> {
     out.clear();
-    out.try_reserve(n).map_err(|_| corrupt_page("out of memory decoding levels"))?; // alloc: Exec charged the cursor's charge (ColumnCursor / FastCol held_bytes)
+    out.try_reserve(n)
+        .map_err(|_| corrupt_page("out of memory decoding levels"))?; // alloc: Exec charged the cursor's charge (ColumnCursor / FastCol held_bytes)
     let width = level_width(max);
     match enc {
         Enc::Rle => {
@@ -72,7 +73,10 @@ pub(crate) fn decode_levels(
             }
             Ok(start + nbytes)
         }
-        other => Err(crate::meta::unsupported(format!("level encoding {}", other.name()))), // alloc: Cold
+        other => Err(crate::meta::unsupported(format!(
+            "level encoding {}",
+            other.name()
+        ))), // alloc: Cold
     }
 }
 

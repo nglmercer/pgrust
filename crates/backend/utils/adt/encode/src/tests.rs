@@ -17,13 +17,19 @@ fn install_mb() {
 
 fn enc(data: &[u8], name: &[u8]) -> Vec<u8> {
     let ctx = MemoryContext::new("t");
-    let v = binary_encode(ctx.mcx(), data, name).unwrap().data().to_vec();
+    let v = binary_encode(ctx.mcx(), data, name)
+        .unwrap()
+        .data()
+        .to_vec();
     v
 }
 
 fn dec(data: &[u8], name: &[u8]) -> Vec<u8> {
     let ctx = MemoryContext::new("t");
-    let v = binary_decode(ctx.mcx(), data, name).unwrap().data().to_vec();
+    let v = binary_decode(ctx.mcx(), data, name)
+        .unwrap()
+        .data()
+        .to_vec();
     v
 }
 
@@ -56,7 +62,10 @@ fn hex_decode_errors() {
     assert_eq!(err.message, "invalid hexadecimal digit: \"g\"");
     assert_eq!(err.sqlstate(), ERRCODE_INVALID_PARAMETER_VALUE);
     let err = binary_decode(ctx.mcx(), b"616", b"hex").unwrap_err();
-    assert_eq!(err.message, "invalid hexadecimal data: odd number of digits");
+    assert_eq!(
+        err.message,
+        "invalid hexadecimal data: odd number of digits"
+    );
 }
 
 #[test]
@@ -64,7 +73,10 @@ fn base64_invalid_symbol_message_stops_at_nul() {
     install_mb();
     let ctx = MemoryContext::new("t");
     let err = binary_decode(ctx.mcx(), b"ab\0", b"base64").unwrap_err();
-    assert_eq!(err.message, "invalid symbol \"\" found while decoding base64 sequence");
+    assert_eq!(
+        err.message,
+        "invalid symbol \"\" found while decoding base64 sequence"
+    );
     // The raw-byte (non-UTF-8) rendering of the quoted symbol is
     // fp-adt-encode#1 (batch-225, PR #2332), not this row's claim.
 }
@@ -78,15 +90,7 @@ fn base64_round_trip_rfc_vectors() {
     assert_eq!(enc(b"foob", b"base64"), b"Zm9vYg==");
     assert_eq!(enc(b"fooba", b"base64"), b"Zm9vYmE=");
     assert_eq!(enc(b"foobar", b"base64"), b"Zm9vYmFy");
-    for v in [
-        &b""[..],
-        b"f",
-        b"fo",
-        b"foo",
-        b"foob",
-        b"fooba",
-        b"foobar",
-    ] {
+    for v in [&b""[..], b"f", b"fo", b"foo", b"foob", b"fooba", b"foobar"] {
         assert_eq!(dec(&enc(v, b"base64"), b"base64"), v);
     }
 }
@@ -109,7 +113,10 @@ fn base64_decode_errors() {
     let ctx = MemoryContext::new("t");
     // stray '=' where no padding is expected.
     let err = binary_decode(ctx.mcx(), b"=", b"base64").unwrap_err();
-    assert_eq!(err.message, "unexpected \"=\" while decoding base64 sequence");
+    assert_eq!(
+        err.message,
+        "unexpected \"=\" while decoding base64 sequence"
+    );
     assert_eq!(err.sqlstate(), ERRCODE_INVALID_PARAMETER_VALUE);
     // invalid symbol.
     let err = binary_decode(ctx.mcx(), b"Zm9*", b"base64").unwrap_err();
@@ -125,8 +132,14 @@ fn base64_decode_errors() {
 #[test]
 fn escape_round_trip() {
     // 0x00 -> \000, 0x5c -> \\, 0x80 -> \200, printable stays literal.
-    assert_eq!(enc(&[0x00, b'a', 0x5c, 0x80], b"escape"), b"\\000a\\\\\\200");
-    assert_eq!(dec(b"\\000a\\\\\\200", b"escape"), &[0x00, b'a', 0x5c, 0x80]);
+    assert_eq!(
+        enc(&[0x00, b'a', 0x5c, 0x80], b"escape"),
+        b"\\000a\\\\\\200"
+    );
+    assert_eq!(
+        dec(b"\\000a\\\\\\200", b"escape"),
+        &[0x00, b'a', 0x5c, 0x80]
+    );
     // full byte range round-trips.
     let all: Vec<u8> = (0u8..=255).collect();
     assert_eq!(dec(&enc(&all, b"escape"), b"escape"), all);

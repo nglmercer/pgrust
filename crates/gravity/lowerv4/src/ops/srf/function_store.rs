@@ -15,6 +15,7 @@ use gravity_kernels::ops::srf::entries as host;
 use gravity_program::protos::{Proto, ProtoKind};
 use mcx::{CollectIn, GrowIn, PgBox, PgVec};
 
+use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::face::step::{Expand, ExpandKind, ExprMech, StepMech};
 use crate::frame::cancel;
 use crate::frame::env::Env;
@@ -23,7 +24,6 @@ use crate::frame::open::{Base, OpenWord, OpenWords};
 use crate::frame::px::Px;
 use crate::frame::row::{Carry, RowVals};
 use crate::frame::stop::{self, ResumeWord};
-use crate::admit::refusal::{Reason, ShapeWhy};
 
 use crate::ops::srf::face::{RowType, StoreSource};
 use crate::ops::srf::function_scan::plain_type;
@@ -34,11 +34,21 @@ use crate::rerun::store_read::{fed, fed_values, reads_of, Fed};
 pub const UNTYPED: &str = "a whole-row reference to a FROM call with a column no descriptor types (a dropped column of its row type)";
 
 /// Op `j` of pipeline `k` (the FROM entry `d`, range entry `varno`, `ncols` columns) read from the scan's store.
-pub(crate) fn store_step<'g, 'p>(px: &mut Px<'g, 'p>, ex: &'static dyn ExprMech, (k, j): (usize, usize), d: &SrfDesc<'p>, (varno, ordinality, ncols): (i32, bool, usize), node: i32) -> PgBox<'g, dyn StepMech + 'g> {
+pub(crate) fn store_step<'g, 'p>(
+    px: &mut Px<'g, 'p>,
+    ex: &'static dyn ExprMech,
+    (k, j): (usize, usize),
+    d: &SrfDesc<'p>,
+    (varno, ordinality, ncols): (i32, bool, usize),
+    node: i32,
+) -> PgBox<'g, dyn StepMech + 'g> {
     let gx = px.gx;
     // construct C2: each fed SubPlan's evaluation at the open was granted its licence (quiet_ahead's, or none at
     // PostgreSQL's point); the step keeps the compiled value
-    let fed: PgVec<'g, Fed> = fed(px, ex, (k, j), d, node).into_iter().map(|(f, _licence)| f).collect_in(px.mcx());
+    let fed: PgVec<'g, Fed> = fed(px, ex, (k, j), d, node)
+        .into_iter()
+        .map(|(f, _licence)| f)
+        .collect_in(px.mcx());
     let ops = &gx.pipelines()[k].ops[j + 1..];
     let reads = reads_of(ops, varno, ncols);
     // each column's type: the call's own where it names it (a column definition list, one column of a plain type), the
@@ -50,7 +60,10 @@ pub(crate) fn store_step<'g, 'p>(px: &mut Px<'g, 'p>, ex: &'static dyn ExprMech,
     for f in d.functions.iter() {
         let n = f.cols as usize;
         if f.coltypes.len() == n {
-            f.coltypes.iter().enumerate().for_each(|(i, t)| types[a + i] = t);
+            f.coltypes
+                .iter()
+                .enumerate()
+                .for_each(|(i, t)| types[a + i] = t);
         } else if let Some(t) = (n == 1).then(|| plain_type(px, ex, f, node)).flatten() {
             types[a] = t;
         } else {
@@ -64,7 +77,11 @@ pub(crate) fn store_step<'g, 'p>(px: &mut Px<'g, 'p>, ex: &'static dyn ExprMech,
     for op in ops {
         let mut var = |n| {
             expr::walk(n, &mut |x| {
-                if let Some(v) = x.as_var().filter(|v| v.varno == varno && v.varlevelsup == 0 && (1..=ncols as i32).contains(&(v.varattno as i32))) {
+                if let Some(v) = x.as_var().filter(|v| {
+                    v.varno == varno
+                        && v.varlevelsup == 0
+                        && (1..=ncols as i32).contains(&(v.varattno as i32))
+                }) {
                     types[v.varattno as usize - 1] = v.vartype;
                 }
                 true
@@ -89,7 +106,16 @@ pub(crate) fn store_step<'g, 'p>(px: &mut Px<'g, 'p>, ex: &'static dyn ExprMech,
     // (store_read.rs); PG's store tuple holds it NULL and the host's deform steps over it
     let dropped_att = |t: u32, at: i16| {
         use gravity_expr::catalog::Support;
-        gx.catalog.support(Support::Natts(t)).is_ok_and(|n| n >= at as u32) && gx.catalog.support(Support::Field { typid: t, attno: at }).is_ok_and(|f| f == 0)
+        gx.catalog
+            .support(Support::Natts(t))
+            .is_ok_and(|n| n >= at as u32)
+            && gx
+                .catalog
+                .support(Support::Field {
+                    typid: t,
+                    attno: at,
+                })
+                .is_ok_and(|f| f == 0)
     };
     let mut dropped = 0u64;
     for (a, n, fnode) in composite {
@@ -100,7 +126,12 @@ pub(crate) fn store_step<'g, 'p>(px: &mut Px<'g, 'p>, ex: &'static dyn ExprMech,
         for i in a..a + n {
             if types[i] == 0 {
                 let at = (i - a) as i16 + 1;
-                types[i] = gx.facts.row_att(t, at).map(|x| x.typid).or_else(|| gx.facts.call_col(fnode, at).map(|c| c.0)).unwrap_or(0);
+                types[i] = gx
+                    .facts
+                    .row_att(t, at)
+                    .map(|x| x.typid)
+                    .or_else(|| gx.facts.call_col(fnode, at).map(|c| c.0))
+                    .unwrap_or(0);
                 if types[i] == 0 && i < 64 && dropped_att(t, at) {
                     dropped |= 1 << i;
                 }
@@ -109,22 +140,59 @@ pub(crate) fn store_step<'g, 'p>(px: &mut Px<'g, 'p>, ex: &'static dyn ExprMech,
     }
     let reads = reads & !dropped;
     // a column read that no descriptor types (no catalog: a dropped one of the call's row type is read by no one)
-    if types.iter().enumerate().any(|(a, &t)| t == 0 && (a >= 64 || reads >> a & 1 == 1)) {
-        crate::refuse!(node, Reason::Shape { why: ShapeWhy(UNTYPED) });
+    if types
+        .iter()
+        .enumerate()
+        .any(|(a, &t)| t == 0 && (a >= 64 || reads >> a & 1 == 1))
+    {
+        crate::refuse!(
+            node,
+            Reason::Shape {
+                why: ShapeWhy(UNTYPED)
+            }
+        );
     }
     let make = crate::frame::iface::store_maker(&node).0;
-    let rd = make(px, RowType { k, j, member: 0, node, types, reads });
+    let rd = make(
+        px,
+        RowType {
+            k,
+            j,
+            member: 0,
+            node,
+            types,
+            reads,
+        },
+    );
     let proto = px.proto_words(host::SETFN_WORDS);
-    px.declare_proto(Proto::new(ProtoKind::SetFn, k as u16).words(proto, host::SETFN_WORDS).arg(host::setfn_arg(0, 0, Some(node as u32))));
+    px.declare_proto(
+        Proto::new(ProtoKind::SetFn, k as u16)
+            .words(proto, host::SETFN_WORDS)
+            .arg(host::setfn_arg(0, 0, Some(node as u32))),
+    );
     // D1085 (retired): an embedded inner's store D1657's once rule names (filled once, rewound per re-open) declares D439's
     // Volatile protocol, so a capped pull never fills it for an owner row PostgreSQL never pulls; tagged for the entry (D2044)
     if k >= gx.pipelines().len() && crate::ops::srf::reopen_once::reopen_once(gx, px.arena, k, d) {
         if crate::ops::srf::reopen_once::eager_build(gx, k) {
-            crate::refuse!(node, Reason::Shape { why: ShapeWhy(crate::ops::srf::reopen_once::STORE_OUTER_FIRST_BUILD) }); // in-row (D2107)
+            crate::refuse!(
+                node,
+                Reason::Shape {
+                    why: ShapeWhy(crate::ops::srf::reopen_once::STORE_OUTER_FIRST_BUILD)
+                }
+            ); // in-row (D2107)
         }
-        px.declare_proto(Proto::new(ProtoKind::Volatile, k as u16).arg(gravity_program::protos::VOLATILE_ONCE_STORE));
+        px.declare_proto(
+            Proto::new(ProtoKind::Volatile, k as u16)
+                .arg(gravity_program::protos::VOLATILE_ONCE_STORE),
+        );
     }
-    let offset = stop::resume_word(px, ResumeWord::StepOffset { k, j: crate::frame::px::key_j(j) });
+    let offset = stop::resume_word(
+        px,
+        ResumeWord::StepOffset {
+            k,
+            j: crate::frame::px::key_j(j),
+        },
+    );
     // D2044 (D2031): a store over user code (a member or an argument past FIRST_NORMAL_OID) fills at an open only a row
     // PG pulls reaches: an embedded inner's, or a SubPlan's behind a gate on its owner's row (its pipeline is the
     // program's own); D439's Volatile protocol caps a pull at the rows it owes, so no fill runs or raises ahead of a
@@ -132,7 +200,14 @@ pub(crate) fn store_step<'g, 'p>(px: &mut Px<'g, 'p>, ex: &'static dyn ExprMech,
     // its pipeline took one already (the once rule above, or rerun/store_read.rs for a store re-opened on its owner's
     // parameters). A top-level store fills at the first pull either way: the cap only sizes its calls
     let id = px.ident(k) as u16; // the pipeline its protocols are declared under (`Px::declare_proto`)
-    if d.functions.iter().any(|f| crate::effects::user_fn(px.gx, f.node)) && !px.protos.iter().any(|p| p.kind == ProtoKind::Volatile && p.pipeline == id) {
+    if d.functions
+        .iter()
+        .any(|f| crate::effects::user_fn(px.gx, f.node))
+        && !px
+            .protos
+            .iter()
+            .any(|p| p.kind == ProtoKind::Volatile && p.pipeline == id)
+    {
         px.declare_proto(Proto::new(ProtoKind::Volatile, k as u16));
     }
     mcx::pg_box_dyn!(px.mcx(), StoreStep { rd, proto, offset, node, ex, fed } => dyn StepMech + 'g)
@@ -153,29 +228,67 @@ struct StoreStep<'g> {
 impl StepMech for StoreStep<'_> {
     fn open_words(&self, w: &mut OpenWords) {
         self.rd.open_words(w);
-        w.declare(OpenWord::open("srf.function store rows handed on", Base::Words, self.offset, Type::I64, 0));
+        w.declare(OpenWord::open(
+            "srf.function store rows handed on",
+            Base::Words,
+            self.offset,
+            Type::I64,
+            0,
+        ));
     }
 
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, next: Next<'_, 'e>) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        next: Next<'_, 'e>,
+    ) -> Carry<'e> {
         let mcx = env.mcx;
-        let ctypes: mcx::PgVec<'_, Type> = row.carry.params().iter().map(|&v| b.value_type(v)).collect_in(mcx);
-        let win_t: mcx::PgVec<'_, Type> = [Type::I64].into_iter().chain(ctypes.iter().copied()).collect_in(mcx);
+        let ctypes: mcx::PgVec<'_, Type> = row
+            .carry
+            .params()
+            .iter()
+            .map(|&v| b.value_type(v))
+            .collect_in(mcx);
+        let win_t: mcx::PgVec<'_, Type> = [Type::I64]
+            .into_iter()
+            .chain(ctypes.iter().copied())
+            .collect_in(mcx);
         // l_win(from, carry…): the window holding store row `from`, entered through the cancel poll (every window's);
         // l_row(j, carry…): its rows; l_end(carry…): the store is through
         let (l_poll, l_win) = cancel::header(b, env.ctx, env.l_cancel, &win_t[..], env.mcx);
-        let (l_open, l_end, l_row) = (b.create_block(&[]), b.create_block(&ctypes[..]), b.create_block(&win_t[..]));
+        let (l_open, l_end, l_row) = (
+            b.create_block(&[]),
+            b.create_block(&ctypes[..]),
+            b.create_block(&win_t[..]),
+        );
         let off = env.load_word(b, self.offset);
         let fresh = b.icmp(IntCond::Eq, off, env.zero);
         let from = crate::ops::srf::function_scan::resume_at(b, env, off);
-        b.cond_br(fresh, (l_open, &[]), (l_poll, &mcx::concat_in(&[&[from][..], &row.carry.params()[..]], mcx)));
+        b.cond_br(
+            fresh,
+            (l_open, &[]),
+            (
+                l_poll,
+                &mcx::concat_in(&[&[from][..], &row.carry.params()[..]], mcx),
+            ),
+        );
         // the open on this row: the scan's store at its SetFn word, rewound (a re-run scan's rescan; nothing before the
         // fill, which the first window's pull runs)
         b.switch_to(l_open);
-        let h = b.load(Type::I64, env.params, 8 * (self.proto as usize + host::SETFN_W_NODE) as i32);
+        let h = b.load(
+            Type::I64,
+            env.params,
+            8 * (self.proto as usize + host::SETFN_W_NODE) as i32,
+        );
         let fed = fed_values(b, env, self.ex, self.node, row, &self.fed);
         self.rd.open(b, env, h, env.zero);
         self.rd.rewind_fed(b, env, &fed);
-        b.br(l_poll, &mcx::concat_in(&[&[env.zero][..], &row.carry.params()[..]], mcx));
+        b.br(
+            l_poll,
+            &mcx::concat_in(&[&[env.zero][..], &row.carry.params()[..]], mcx),
+        );
         b.switch_to(l_win);
         let p = mcx::to_vec_in(b.block_params(l_win), mcx);
         let l_eof = b.create_block(&[Type::I64]);
@@ -194,13 +307,23 @@ impl StepMech for StoreStep<'_> {
         b.cond_br(more, (l_one, &[]), (l_next, &[]));
         b.switch_to(l_next);
         let from = b.int_bin(IntBinOp::Add, base, win.end);
-        b.br(l_poll, &mcx::concat_in(&[&[from][..], &carry.params()[..]], mcx));
+        b.br(
+            l_poll,
+            &mcx::concat_in(&[&[from][..], &carry.params()[..]], mcx),
+        );
         b.switch_to(l_one);
         let r = self.rd.row(b, env, &win, at);
         let handed = b.int_bin(IntBinOp::Add, base, at);
         let handed = b.int_bin(IntBinOp::Add, handed, env.one);
         env.store_word(b, self.offset, handed);
-        let out = RowVals { row: r.row, vals: r.vals, cols: r.cols, carry: carry.copy_in(env.mcx), next: row.at, at: row.at };
+        let out = RowVals {
+            row: r.row,
+            vals: r.vals,
+            cols: r.cols,
+            carry: carry.copy_in(env.mcx),
+            next: row.at,
+            at: row.at,
+        };
         env.memo.clear();
         let c2 = next(b, env, &out);
         env.memo.clear();
@@ -212,6 +335,10 @@ impl StepMech for StoreStep<'_> {
     }
 
     fn expand(&self) -> Option<Expand> {
-        Some(Expand { kind: ExpandKind::Srf, offset: self.offset, held: 0 })
+        Some(Expand {
+            kind: ExpandKind::Srf,
+            offset: self.offset,
+            held: 0,
+        })
     }
 }

@@ -65,7 +65,8 @@ impl gravity_driver::SpillFile for VecFile {
 
     fn open_part(&self, part: u32) -> Result<Option<Box<dyn gravity_driver::RunReader>>> {
         let bytes = self.0[part as usize].clone();
-        Ok((!bytes.is_empty()).then(|| Box::new(VecReader(bytes, 0)) as Box<dyn gravity_driver::RunReader>))
+        Ok((!bytes.is_empty())
+            .then(|| Box::new(VecReader(bytes, 0)) as Box<dyn gravity_driver::RunReader>))
     }
 
     fn spilled_bytes(&self) -> u64 {
@@ -87,9 +88,18 @@ impl gravity_driver::RunReader for VecReader {
 struct VecSet;
 
 impl gravity_driver::SpillSet for VecSet {
-    fn open(&mut self, _purpose: &str, _generation: u64, _worker: usize, nparts: u32) -> Result<Box<dyn gravity_driver::SpillFile>> {
+    fn open(
+        &mut self,
+        _purpose: &str,
+        _generation: u64,
+        _worker: usize,
+        nparts: u32,
+    ) -> Result<Box<dyn gravity_driver::SpillFile>> {
         FILES_LIVE.fetch_add(1, Ordering::Relaxed);
-        Ok(Box::new(VecFile((0..nparts).map(|_| Vec::new()).collect(), 0)))
+        Ok(Box::new(VecFile(
+            (0..nparts).map(|_| Vec::new()).collect(),
+            0,
+        )))
     }
 }
 
@@ -105,7 +115,11 @@ static FACTORY: VecFactory = VecFactory;
 
 /// The statement's grant: G 8 MiB, the sort's ceiling 64 MiB (its region a floor reservation it grows in place past G).
 fn grant() -> Grant {
-    Grant { sort_floor: 4 * MIB, sort_ceil: 64 * MIB, ..Grant::of(8 * MIB) }
+    Grant {
+        sort_floor: 4 * MIB,
+        sort_ceil: 64 * MIB,
+        ..Grant::of(8 * MIB)
+    }
 }
 
 /// The revoke's bytes given back so far, this process.
@@ -120,20 +134,30 @@ fn run(grant: Grant, mode: Mode, finished: bool) -> (Outcome, u64) {
     REGIONS.trim();
     gravity_driver::DEPOT.trim();
     POOL.arm(1 << 30);
-    let res = Rc::new(POOL.admit_need_until(grant, &|g| g.bytes, Duration::from_secs(5), &|| false).unwrap_or_else(|e| panic!("admitted: {e:?}")));
+    let res = Rc::new(
+        POOL.admit_need_until(grant, &|g| g.bytes, Duration::from_secs(5), &|| false)
+            .unwrap_or_else(|e| panic!("admitted: {e:?}")),
+    );
     common::LEASE.with(|l| *l.borrow_mut() = Some(res.clone()));
     common::BETWEEN.with(|h| {
         *h.borrow_mut() = finished.then(|| {
-            Box::new(move |p: usize, exec: &gravity_driver::Exec, _abort: &AtomicU8| {
-                if exec.node().program().pipelines[p].breaker().is_some_and(|b| b.kind == BreakerKind::Sort) {
-                    mcx::revoke::request_self();
-                }
-            }) as Box<dyn FnMut(usize, &gravity_driver::Exec, &AtomicU8)>
+            Box::new(
+                move |p: usize, exec: &gravity_driver::Exec, _abort: &AtomicU8| {
+                    if exec.node().program().pipelines[p]
+                        .breaker()
+                        .is_some_and(|b| b.kind == BreakerKind::Sort)
+                    {
+                        mcx::revoke::request_self();
+                    }
+                },
+            ) as Box<dyn FnMut(usize, &gravity_driver::Exec, &AtomicU8)>
         })
     });
     mcx::governor::statement_start(0, true);
     let before = given();
-    let out = common::run_fixture(FIXTURE, mode).expect("decomposes").unwrap_or_else(|e| panic!("the rig: {e}"));
+    let out = common::run_fixture(FIXTURE, mode)
+        .expect("decomposes")
+        .unwrap_or_else(|e| panic!("the rig: {e}"));
     let gave = given() - before;
     mcx::governor::statement_end();
     common::BETWEEN.with(|h| *h.borrow_mut() = None);
@@ -143,7 +167,11 @@ fn run(grant: Grant, mode: Mode, finished: bool) -> (Outcome, u64) {
     gravity_driver::DEPOT.trim();
     gravity_driver::mem::reap::drain();
     assert_eq!(POOL.held(), 0, "every byte back at the statement's end");
-    assert_eq!(FILES_LIVE.load(Ordering::Relaxed), 0, "every temp file dropped with its statement");
+    assert_eq!(
+        FILES_LIVE.load(Ordering::Relaxed),
+        0,
+        "every temp file dropped with its statement"
+    );
     POOL.arm(0);
     (out, gave)
 }
@@ -157,15 +185,23 @@ fn a_revoked_sort_gives_its_pages_back() {
     gravity_abi::ctx::set_poll(poll);
     common::ABORT.with(|a| a.set(Some(&BYTE)));
     let (plenty, _) = run(grant(), Mode::Straight, false);
-    let Outcome::Rows(want) = &plenty else { panic!("the plentiful run: {plenty:?}") };
+    let Outcome::Rows(want) = &plenty else {
+        panic!("the plentiful run: {plenty:?}")
+    };
     assert_eq!(want.len(), 1, "one row: {want:?}");
 
     // (1) a growing sort, revoked at its second room ask: cut, it spills from then on (its pages leave at its section's end)
     let (grown, _) = run(grant().with_revoke_every(2), Mode::Straight, false);
-    assert_eq!(&grown, &plenty, "a revoked growing sort's answer, read back from its runs");
+    assert_eq!(
+        &grown, &plenty,
+        "a revoked growing sort's answer, read back from its runs"
+    );
 
     // (2) a finished sort, revoked before its reader began: its run goes to its file and its growth back
     let (finished, gave) = run(grant(), Mode::Straight, true);
-    assert_eq!(&finished, &plenty, "a revoked finished sort's answer, read back from its file");
+    assert_eq!(
+        &finished, &plenty,
+        "a revoked finished sort's answer, read back from its file"
+    );
     assert!(gave >= 4 * MIB, "a revoked finished sort gave {gave} bytes back (before: 0, its sealed run kept its region)");
 }

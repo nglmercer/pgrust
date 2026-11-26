@@ -1,7 +1,6 @@
 use ::datum::Datum;
 use ::types_error::PgResult;
-use ::types_fmgr::{
-    byref_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, };
+use ::types_fmgr::{byref_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 
 pub fn fc_setseed(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     crate::setseed(fcinfo.arg_f64(0))?;

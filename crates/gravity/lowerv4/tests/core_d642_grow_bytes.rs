@@ -13,7 +13,10 @@ use std::sync::atomic::AtomicU8;
 use std::sync::Arc;
 
 use gravity_abi::Ctx;
-use gravity_driver::{ArenaBox, Binding, BindingParts, CommandId, Entry, Grant, Identity, Locker, PerTuple, Pins, Reservation, Snapshot, SourceBox, Writer, REGIONS};
+use gravity_driver::{
+    ArenaBox, Binding, BindingParts, CommandId, Entry, Grant, Identity, Locker, PerTuple, Pins,
+    Reservation, Snapshot, SourceBox, Writer, REGIONS,
+};
 use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{Block, IntBinOp, Type, Value};
 use gravity_lower::{assemble, compile, Backend, Sequential};
@@ -38,18 +41,46 @@ impl SourceMech for OneRow {
         b.iconst(Type::I64, 0)
     }
     fn next_window(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, _l_eof: Block) -> Win {
-        Win { cursor: env.zero, end: b.iconst(Type::I64, 1), facts: Default::default() }
+        Win {
+            cursor: env.zero,
+            end: b.iconst(Type::I64, 1),
+            facts: Default::default(),
+        }
     }
-    fn row<'e>(&self, _b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e> {
-        RowVals { row: gravity_lowerv4::cell::Row::new_in(env.mcx), vals: mcx::PgVec::new_in(env.mcx), cols: mcx::PgVec::new_in(env.mcx), carry, next, at: j }
+    fn row<'e>(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+        j: Value,
+        carry: Carry<'e>,
+        next: Value,
+    ) -> RowVals<'e> {
+        RowVals {
+            row: gravity_lowerv4::cell::Row::new_in(env.mcx),
+            vals: mcx::PgVec::new_in(env.mcx),
+            cols: mcx::PgVec::new_in(env.mcx),
+            carry,
+            next,
+            at: j,
+        }
     }
 }
 
 struct Count;
 
 impl EndMech for Count {
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, _x: &Exits) -> Carry<'e> {
-        Carry { out: b.int_bin(IntBinOp::Add, row.carry.out, env.one), accs: mcx::to_vec_in(&row.carry.accs[..], env.mcx) }
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        _x: &Exits,
+    ) -> Carry<'e> {
+        Carry {
+            out: b.int_bin(IntBinOp::Add, row.carry.out, env.one),
+            accs: mcx::to_vec_in(&row.carry.accs[..], env.mcx),
+        }
     }
 }
 
@@ -65,13 +96,21 @@ impl gravity_driver::Derive for Derive {
     fn writer_size_hint(&self) -> usize {
         0
     }
-    fn derive_writer(&mut self, _plan: &WritePlan, _a: gravity_program::ArenaRef) -> ArenaBox<dyn Writer> {
+    fn derive_writer(
+        &mut self,
+        _plan: &WritePlan,
+        _a: gravity_program::ArenaRef,
+    ) -> ArenaBox<dyn Writer> {
         panic!("no writer")
     }
     fn locker_size_hint(&self) -> usize {
         0
     }
-    fn derive_locker(&mut self, _plan: &WritePlan, _a: gravity_program::ArenaRef) -> ArenaBox<dyn Locker> {
+    fn derive_locker(
+        &mut self,
+        _plan: &WritePlan,
+        _a: gravity_program::ArenaRef,
+    ) -> ArenaBox<dyn Locker> {
         panic!("no locker")
     }
 }
@@ -79,11 +118,13 @@ impl gravity_driver::Derive for Derive {
 struct NoRows;
 
 impl gravity_driver::Sink for NoRows {
-    fn push(&mut self, _b: gravity_driver::BorrowedBatch<'_>) -> gravity_driver::Result<gravity_driver::Flow> {
+    fn push(
+        &mut self,
+        _b: gravity_driver::BorrowedBatch<'_>,
+    ) -> gravity_driver::Result<gravity_driver::Flow> {
         Ok(gravity_driver::Flow::Continue)
     }
 }
-
 
 const KB: u64 = 1 << 10;
 const MB: u64 = 1 << 20;
@@ -99,22 +140,59 @@ fn statement<T>(grant: u64, f: impl FnOnce(*mut Ctx) -> T) -> T {
     let arena = Arena::new(1 << 20);
     let a = arena.handle();
     let mut g = gravity_decompose::PipelineGraph::new(a);
-    g.pipelines.push(gravity_decompose::PipelineNode::new(a, 0, gravity_decompose::Source::Const, gravity_program::Pipeline::serial(-1, gravity_program::End::Sink, gravity_program::Reason::NoDrivingSite)));
-    let gx = Gx { graph: &g, facts: &gravity_decompose::NoFacts, catalog: common::RigCatalog::get(), over: None, mcx: rig.mcx() };
+    g.pipelines.push(gravity_decompose::PipelineNode::new(
+        a,
+        0,
+        gravity_decompose::Source::Const,
+        gravity_program::Pipeline::serial(
+            -1,
+            gravity_program::End::Sink,
+            gravity_program::Reason::NoDrivingSite,
+        ),
+    ));
+    let gx = Gx {
+        graph: &g,
+        facts: &gravity_decompose::NoFacts,
+        catalog: common::RigCatalog::get(),
+        over: None,
+        mcx: rig.mcx(),
+    };
     let mut words = Sequential::new(a);
     let mut px = Px::new(a, &gx, &mut words);
-    let m = Mechs::new(&mut px, 0, mcx::pg_box_dyn!(rig.mcx(), OneRow => dyn SourceMech), mcx::PgVec::new_in(rig.mcx()), mcx::pg_box_dyn!(rig.mcx(), Count => dyn EndMech));
+    let m = Mechs::new(
+        &mut px,
+        0,
+        mcx::pg_box_dyn!(rig.mcx(), OneRow => dyn SourceMech),
+        mcx::PgVec::new_in(rig.mcx()),
+        mcx::pg_box_dyn!(rig.mcx(), Count => dyn EndMech),
+    );
     let l = program::emit(&mut px, vec![m]);
     drop(px);
     let codes = compile(&l, Backend::Interp).unwrap_or_else(|e| panic!("backend: {}", e.message()));
     let program = Arc::new(assemble(&l, codes));
     let flag = AtomicU8::new(0);
     let mut sink = NoRows;
-    let parts = BindingParts { snapshot: Snapshot(0), command_id: CommandId(0), params: &[0], param_nulls: &[0], abort_flag: &flag, pins: Pins(0), per_tuple: PerTuple(0), identity: Identity { proc_number: 0, resource_owner: 0, latch: 0 }, resolved: None };
+    let parts = BindingParts {
+        snapshot: Snapshot(0),
+        command_id: CommandId(0),
+        params: &[0],
+        param_nulls: &[0],
+        abort_flag: &flag,
+        pins: Pins(0),
+        per_tuple: PerTuple(0),
+        identity: Identity {
+            proc_number: 0,
+            resource_owner: 0,
+            latch: 0,
+        },
+        resolved: None,
+    };
     let mut b = Binding::new(parts, &mut sink);
     let mut entry = Entry::new(1);
     let lease = std::rc::Rc::new(Reservation::unadmitted(Grant::of(grant)));
-    let exec = entry.start(None, &program, &mut Derive, &mut b, lease).unwrap_or_else(|e| panic!("start: {e:?}"));
+    let exec = entry
+        .start(None, &program, &mut Derive, &mut b, lease)
+        .unwrap_or_else(|e| panic!("start: {e:?}"));
     let r = f(exec.node().ctx());
     entry.end(exec, true);
     r
@@ -127,7 +205,11 @@ unsafe fn grows(ctx: *mut Ctx, n: usize, bytes: u64) -> usize {
             return i;
         }
         let (lo, hi) = ((*ctx).arena_cur, (*ctx).arena_end);
-        assert!(hi as usize - lo as usize >= bytes as usize, "grow {i}: a window of {} B for {bytes} B", hi as usize - lo as usize);
+        assert!(
+            hi as usize - lo as usize >= bytes as usize,
+            "grow {i}: a window of {} B for {bytes} B",
+            hi as usize - lo as usize
+        );
         lo.write(i as u8);
         hi.sub(1).write(i as u8);
     }
@@ -144,7 +226,10 @@ fn growth_is_bounded_by_bytes_and_returned_at_the_statement_end() {
         (got, gravity_driver::POOL.held().saturating_sub(before))
     });
     assert_eq!(got, 100, "100 grows of 64 KB under a 1 GiB grant");
-    assert!(held >= 100 * 64 * KB, "the 100 chunks held {held} B of the pool, not their 6.25 MiB");
+    assert!(
+        held >= 100 * 64 * KB,
+        "the 100 chunks held {held} B of the pool, not their 6.25 MiB"
+    );
     // the refusal is by bytes: one grow past the pool's capacity (2 GiB here) is refused, at its first chunk
     let got = statement(1 << 30, |ctx| unsafe { grows(ctx, 1, 3 << 30) });
     assert_eq!(got, 0, "a 3 GiB grow past a 2 GiB pool");
@@ -154,16 +239,30 @@ fn growth_is_bounded_by_bytes_and_returned_at_the_statement_end() {
     let got = statement(1 << 30, |ctx| unsafe { grows(ctx, 100, MB) });
     assert_eq!(got, 100, "100 grows of 1 MiB under a 1 GiB grant");
     let parked = REGIONS.stats().bytes.saturating_sub(before) as u64;
-    assert!(parked < 80 * MB, "{} MiB of the statement's 100 MiB growth still parked", parked / MB);
+    assert!(
+        parked < 80 * MB,
+        "{} MiB of the statement's 100 MiB growth still parked",
+        parked / MB
+    );
     // G4, what the return leaves alone: the pins (the old cap never counted them) park whole, the grows past the pins
     // park PARK_CHUNKS, so a rerun re-takes its pins from the depot instead of faulting them in again
     REGIONS.clear();
     let before = REGIONS.stats().bytes;
     let (pins, got) = statement(1 << 30, |ctx| unsafe {
-        let pins = (0..100).filter(|_| !gravity_abi::program::pin(ctx, MB).is_null()).count();
+        let pins = (0..100)
+            .filter(|_| !gravity_abi::program::pin(ctx, MB).is_null())
+            .count();
         (pins, grows(ctx, 100, MB))
     });
-    assert_eq!((pins, got), (100, 100), "100 pins and 100 grows of 1 MiB under a 1 GiB grant");
+    assert_eq!(
+        (pins, got),
+        (100, 100),
+        "100 pins and 100 grows of 1 MiB under a 1 GiB grant"
+    );
     let parked = REGIONS.stats().bytes.saturating_sub(before) as u64;
-    assert!((164 * MB..180 * MB).contains(&parked), "{} MiB parked, not the 100 MiB of pins + 64 MiB of grows", parked / MB);
+    assert!(
+        (164 * MB..180 * MB).contains(&parked),
+        "{} MiB parked, not the 100 MiB of pins + 64 MiB of grows",
+        parked / MB
+    );
 }

@@ -20,7 +20,10 @@ pub fn OpenTemporaryFile(inter_xact: bool) -> PgResult<File> {
     crate::orphan::drain();
     let mut file = File(0);
 
-    debug_assert!(with_fd(|fd| fd.temporary_files_allowed), "temp file access not up");
+    debug_assert!(
+        with_fd(|fd| fd.temporary_files_allowed),
+        "temp file access not up"
+    );
 
     // Make sure the current resource owner has space for this File before we
     // open it, if we'll be registering it below.
@@ -119,7 +122,10 @@ pub(crate) fn OpenTemporaryFileInTablespace(tblspc_oid: Oid, reject_error: bool)
 }
 
 pub fn PathNameCreateTemporaryFile(path: &str, error_on_failure: bool) -> PgResult<File> {
-    debug_assert!(with_fd(|fd| fd.temporary_files_allowed), "temp file access not up");
+    debug_assert!(
+        with_fd(|fd| fd.temporary_files_allowed),
+        "temp file access not up"
+    );
 
     resowner::resource_owner_enlarge(resowner::current_resource_owner());
 
@@ -129,7 +135,9 @@ pub fn PathNameCreateTemporaryFile(path: &str, error_on_failure: bool) -> PgResu
             ereport(ERROR)
                 .with_saved_errno(get_errno())
                 .errcode_for_file_access()
-                .errmsg(format!("could not create temporary file \"{path}\": {PCT_M}"))
+                .errmsg(format!(
+                    "could not create temporary file \"{path}\": {PCT_M}"
+                ))
                 .finish(loc("PathNameCreateTemporaryFile"))?;
         }
         return Ok(file);
@@ -144,7 +152,10 @@ pub fn PathNameCreateTemporaryFile(path: &str, error_on_failure: bool) -> PgResu
 }
 
 pub fn PathNameOpenTemporaryFile(path: &str, mode: i32) -> PgResult<File> {
-    debug_assert!(with_fd(|fd| fd.temporary_files_allowed), "temp file access not up");
+    debug_assert!(
+        with_fd(|fd| fd.temporary_files_allowed),
+        "temp file access not up"
+    );
 
     resowner::resource_owner_enlarge(resowner::current_resource_owner());
 
@@ -181,7 +192,9 @@ pub fn PathNameCreateTemporaryDir(basedir: &str, directory: &str) -> PgResult<()
             ereport(ERROR)
                 .with_saved_errno(get_errno())
                 .errcode_for_file_access()
-                .errmsg(format!("cannot create temporary directory \"{basedir}\": {PCT_M}"))
+                .errmsg(format!(
+                    "cannot create temporary directory \"{basedir}\": {PCT_M}"
+                ))
                 .finish(loc("PathNameCreateTemporaryDir"))?;
         }
 
@@ -233,7 +246,9 @@ pub fn PathNameDeleteTemporaryFile(path: &str, error_on_failure: bool) -> PgResu
             ereport(if error_on_failure { ERROR } else { LOG })
                 .with_saved_errno(unlink_errno)
                 .errcode_for_file_access()
-                .errmsg(format!("could not unlink temporary file \"{path}\": {PCT_M}"))
+                .errmsg(format!(
+                    "could not unlink temporary file \"{path}\": {PCT_M}"
+                ))
                 .finish(loc("PathNameDeleteTemporaryFile"))?;
         }
         return Ok(false);
@@ -296,7 +311,11 @@ pub fn PathNameDeleteTemporaryFilesWith(
     let done: Vec<AtomicI32> = paths.iter().map(|_| AtomicI32::new(0)).collect(); // alloc: Cold
     let unlink = |i: usize| {
         if sizes[i].0 != libc::ENOENT && done[i].load(Ordering::Acquire) == 0 {
-            let r = if vfs::unlink(&cps[i]) == 0 { 1 } else { 2 + get_errno() };
+            let r = if vfs::unlink(&cps[i]) == 0 {
+                1
+            } else {
+                2 + get_errno()
+            };
             done[i].store(r, Ordering::Release);
         }
     };

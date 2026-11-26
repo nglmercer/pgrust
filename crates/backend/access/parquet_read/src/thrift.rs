@@ -136,7 +136,9 @@ impl<'a> Cur<'a> {
         let id = if delta == 0 {
             self.zig_i16()?
         } else {
-            last_id.checked_add(delta).ok_or_else(|| corrupt("field id overflow"))?
+            last_id
+                .checked_add(delta)
+                .ok_or_else(|| corrupt("field id overflow"))?
         };
         *last_id = id;
         Ok(Some((t, id)))
@@ -177,12 +179,18 @@ impl<'a> Cur<'a> {
             // protocol's varint form is the same, so accept any int width
             // that fits.
             T_I16 | T_I64 | T_BYTE => {
-                let v = if t == T_BYTE { i64::from(self.bytes(1)?[0] as i8) } else { self.zig_i64()? };
+                let v = if t == T_BYTE {
+                    i64::from(self.bytes(1)?[0] as i8)
+                } else {
+                    self.zig_i64()?
+                };
                 i32::try_from(v).map_err(|_| corrupt("i32 field out of range"))
             }
             _ => Err(Box::new(
-                PgError::error(format!("invalid parquet metadata: expected i32 field, found compact type {t}")) // alloc: Cold
-                    .with_sqlstate(ERRCODE_BAD_COPY_FILE_FORMAT),
+                PgError::error(format!(
+                    "invalid parquet metadata: expected i32 field, found compact type {t}"
+                )) // alloc: Cold
+                .with_sqlstate(ERRCODE_BAD_COPY_FILE_FORMAT),
             )),
         }
     }

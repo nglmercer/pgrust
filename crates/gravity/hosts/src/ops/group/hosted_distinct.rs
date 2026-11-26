@@ -20,7 +20,7 @@ use types_nodes::primnodes::{Aggref, AGGKIND_NORMAL};
 /// column its input's attno, sort operator, collation (the input expression's) and NULLs placement.
 pub(crate) struct Sorted {
     pub(super) typ: Oid,
-    pub(crate) cols: Vec<(i16, bool)>, // alloc: Exec
+    pub(crate) cols: Vec<(i16, bool)>,           // alloc: Exec
     pub(crate) keys: Vec<(i16, Oid, Oid, bool)>, // alloc: Exec
     /// Each DISTINCT column's equality function (`get_opcode(eqop)`), bound per slot (bind.rs `Calls::eq`); none for an
     /// ORDER BY without DISTINCT (D458), which keeps every row.
@@ -49,13 +49,25 @@ impl Sorted {
             return Ok(None);
         }
         let (mut keys, mut eqfns, mut cols) = (Vec::new(), Vec::new(), Vec::new()); // alloc: Exec
-        // bounded("other: the sort clauses of one aggregate call (its DISTINCT or its ORDER BY), read once at bind: the query text bounds them, as PG's ExecInitAgg walks the same clauses with no poll")
+                                                                                    // bounded("other: the sort clauses of one aggregate call (its DISTINCT or its ORDER BY), read once at bind: the query text bounds them, as PG's ExecInitAgg walks the same clauses with no poll")
         for sc in clause.iter() {
-            let scl = sc.as_sort_group_clause().ok_or_else(|| shape("an aggregate sort entry that is no SortGroupClause"))?;
-            let tle = a.args.iter().filter_map(|n| n.as_target_entry()).find(|t| t.ressortgroupref == scl.tleSortGroupRef && scl.sortop != 0);
-            let tle = tle.ok_or_else(|| shape("a hosted sorted aggregate whose sort clause is not one of its arguments"))?;
+            let scl = sc
+                .as_sort_group_clause()
+                .ok_or_else(|| shape("an aggregate sort entry that is no SortGroupClause"))?;
+            let tle = a
+                .args
+                .iter()
+                .filter_map(|n| n.as_target_entry())
+                .find(|t| t.ressortgroupref == scl.tleSortGroupRef && scl.sortop != 0);
+            let tle = tle.ok_or_else(|| {
+                shape("a hosted sorted aggregate whose sort clause is not one of its arguments")
+            })?;
             let coll = execscan::expr_collation(tle.expr);
-            let coll = if dedup && clause.len() == 1 { count_sort_collation(a, scl.sortop, coll)? } else { coll };
+            let coll = if dedup && clause.len() == 1 {
+                count_sort_collation(a, scl.sortop, coll)?
+            } else {
+                coll
+            };
             keys.push((tle.resno, scl.sortop, coll, scl.nulls_first));
             if dedup {
                 eqfns.push(lsyscache::get_opcode(scl.eqop)?);
@@ -64,16 +76,37 @@ impl Sorted {
         let ninputs = a.aggargtypes.iter().count();
         let mut typ = None;
         // bounded("other: the argument entries of one aggregate call (its inputs and its ORDER BY's own columns), read once at bind: the query text bounds them, as PG's ExecInitAgg walks the same list with no poll")
-        for (c, t) in a.args.iter().filter_map(|n| n.as_target_entry()).enumerate() {
-            let t = if c < ninputs { a.aggargtypes.iter().nth(c).unwrap_or(0) } else { execexpr::expr_type(t.expr) };
+        for (c, t) in a
+            .args
+            .iter()
+            .filter_map(|n| n.as_target_entry())
+            .enumerate()
+        {
+            let t = if c < ninputs {
+                a.aggargtypes.iter().nth(c).unwrap_or(0)
+            } else {
+                execexpr::expr_type(t.expr)
+            };
             typ.get_or_insert(t);
             cols.push(gravity_fn::typesem::storage::len_byval(t)?);
         }
         let typ = typ.ok_or_else(|| shape("a hosted sorted aggregate without an input"))?;
-        if cols.len() != a.args.len() || ninputs > cols.len() || (dedup && (keys.len() != cols.len() || ninputs != cols.len())) {
-            return Err(shape("a hosted DISTINCT aggregate whose inputs are not all DISTINCT columns"));
+        if cols.len() != a.args.len()
+            || ninputs > cols.len()
+            || (dedup && (keys.len() != cols.len() || ninputs != cols.len()))
+        {
+            return Err(shape(
+                "a hosted DISTINCT aggregate whose inputs are not all DISTINCT columns",
+            ));
         }
-        Ok(Some(Sorted { typ, cols, keys, eqfns, ninputs, fed: None }))
+        Ok(Some(Sorted {
+            typ,
+            cols,
+            keys,
+            eqfns,
+            ninputs,
+            fed: None,
+        }))
     }
 
     /// Whether equal rows are dropped (a DISTINCT); an ORDER BY alone keeps them all.
@@ -91,7 +124,10 @@ impl Sorted {
 fn count_sort_collation(a: &Aggref<'_>, sortop: Oid, coll: Oid) -> PgResult<Oid> {
     use gravity_decompose::ops::shared::agg_class::Class;
     use gravity_fn::typesem::collation::{Facts, C_COLLATION_OID};
-    if coll == 0 || !gravity_decompose::ops::agg::trans::table::row(a.aggfnoid).is_some_and(|r| r.class == Class::CountAny) {
+    if coll == 0
+        || !gravity_decompose::ops::agg::trans::table::row(a.aggfnoid)
+            .is_some_and(|r| r.class == Class::CountAny)
+    {
         return Ok(coll);
     }
     let by = gravity_fn::typesem::keysem::sort_order(sortop)?;

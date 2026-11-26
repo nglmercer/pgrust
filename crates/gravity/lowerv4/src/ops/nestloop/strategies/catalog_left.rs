@@ -15,10 +15,10 @@
 use gravity_decompose::join::JoinDesc;
 use gravity_decompose::Op;
 
+use crate::admit::refusal::Reason;
 use crate::face::kinds::KindId;
 use crate::frame::frame::StepMaker;
 use crate::frame::px::Px;
-use crate::admit::refusal::Reason;
 use crate::ops::Table;
 
 crate::strategies! {
@@ -28,13 +28,29 @@ crate::strategies! {
 }
 
 #[allow(clippy::needless_update)]
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::NestCatalog, &StepMaker(make))], strategies: &[(NEST_CATALOG_LEFT, &())], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::NestCatalog, &StepMaker(make))],
+    strategies: &[(NEST_CATALOG_LEFT, &())],
+    ..crate::ops::NONE
+};
 
 /// The catalog probe `j` of pipeline `k`: join.inner's step maker, which reads the op's `catalog` flag.
-fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> mcx::PgBox<'g, dyn crate::face::step::StepMech + 'g> {
+fn make<'g>(
+    px: &mut Px<'g, '_>,
+    k: usize,
+    j: usize,
+) -> mcx::PgBox<'g, dyn crate::face::step::StepMech + 'g> {
     let p = &px.gx.pipelines()[k];
-    if !matches!(p.ops.get(j), Some(Op::Join(JoinDesc::Probe { catalog: true, .. }))) {
-        crate::refuse!(p.node_id, Reason::Bug { payload: "nest.catalog over an op that is not a catalog probe" });
+    if !matches!(
+        p.ops.get(j),
+        Some(Op::Join(JoinDesc::Probe { catalog: true, .. }))
+    ) {
+        crate::refuse!(
+            p.node_id,
+            Reason::Bug {
+                payload: "nest.catalog over an op that is not a catalog probe"
+            }
+        );
     }
     (crate::frame::iface::kind_impl::<StepMaker>(&p.node_id, KindId::JoinInner).0)(px, k, j)
 }

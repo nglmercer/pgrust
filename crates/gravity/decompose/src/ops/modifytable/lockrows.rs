@@ -10,15 +10,28 @@ use crate::walk::{Builder, Open};
 
 use super::{marks_of, serial_after, Carried, LockDesc, MemberSet};
 
-pub(crate) fn map_lock_rows<'p>(b: &mut Builder<'p, '_>, lr: &'p LockRows<'p>) -> Result<Open<'p>, Refusal> {
+pub(crate) fn map_lock_rows<'p>(
+    b: &mut Builder<'p, '_>,
+    lr: &'p LockRows<'p>,
+) -> Result<Open<'p>, Refusal> {
     let (plan, k) = (&lr.plan, Kind::LockRows);
     let id = plan.plan_node_id;
     if !plan.qual.is_nil() {
         return Err(Refusal::shape(k, id, "a qual on LockRows"));
     }
-    let mut c = Carried { set: MemberSet::EMPTY };
+    let mut c = Carried {
+        set: MemberSet::EMPTY,
+    };
     let mut plan_lock: Option<WritePlan> = None;
-    let marks = marks_of(b, &lr.plan, &lr.rowMarks, k, id, &mut c, Some(&mut plan_lock))?;
+    let marks = marks_of(
+        b,
+        &lr.plan,
+        &lr.rowMarks,
+        k,
+        id,
+        &mut c,
+        Some(&mut plan_lock),
+    )?;
     let mut open = b.child(plan, k)?;
     // a LockRows whose every mark is REFERENCE or COPY (FOR UPDATE of a subquery PG plans apart, its own LockRows taking the
     // locks): ExecLockRows locks nothing and never starts its EvalPlanQual (lr_arowMarks is empty), so the child's rows pass;
@@ -31,7 +44,13 @@ pub(crate) fn map_lock_rows<'p>(b: &mut Builder<'p, '_>, lr: &'p LockRows<'p>) -
         return Ok(open);
     };
     serial_after(&mut open, Reason::Lock);
-    open.push(Op::Lock(LockDesc { marks, plan: plan_lock, epq: lr.epqParam, tlist: &plan.targetlist, members: c.set }));
+    open.push(Op::Lock(LockDesc {
+        marks,
+        plan: plan_lock,
+        epq: lr.epqParam,
+        tlist: &plan.targetlist,
+        members: c.set,
+    }));
     ops::project(&mut open, &plan.targetlist);
     b.graph.note(Kind::PlanRowMark);
     b.graph.note(k);

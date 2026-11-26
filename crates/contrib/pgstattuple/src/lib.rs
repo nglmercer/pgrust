@@ -137,7 +137,9 @@ pub(crate) fn composite_tupdesc<'m>(
     if resolved.class != funcapi::TypeFuncClass::Composite {
         return Err(Box::new(PgError::error("return type must be a row type")));
     }
-    Ok(resolved.result_tuple_desc.expect("composite result has tupdesc"))
+    Ok(resolved
+        .result_tuple_desc
+        .expect("composite result has tupdesc"))
 }
 
 pub(crate) fn composite_result(
@@ -168,7 +170,8 @@ pub(crate) fn cstrings_composite_result(
     let mut flinfos: Vec<FmgrInfo> = ::mcx::std_vec_with_capacity("pgstattuple", n)?;
     // TupleDescGetAttInMetadata (pgstattuple.c:115) resolves every column's
     // input function before any value is converted.
-    let mut inputs: Vec<Option<(types_core::Oid, types_core::Oid)>> = ::mcx::std_vec_with_capacity("pgstattuple", n)?;
+    let mut inputs: Vec<Option<(types_core::Oid, types_core::Oid)>> =
+        ::mcx::std_vec_with_capacity("pgstattuple", n)?;
     for i in 0..n {
         let att = tupdesc.attr(i);
         inputs.push(if att.attisdropped {
@@ -272,13 +275,19 @@ fn qualified_name_parts(
         }
     };
     if names.len() > 3 {
-        let mut msg = ::mcx::std_vec_from_slice("pgstattuple", b"improper relation name (too many dotted names): ")?;
+        let mut msg = ::mcx::std_vec_from_slice(
+            "pgstattuple",
+            b"improper relation name (too many dotted names): ",
+        )?;
         msg.extend_from_slice(&names.join(&b'.'));
         return Err(Box::new(
             PgError::error_raw_message(msg).with_sqlstate(types_error::ERRCODE_SYNTAX_ERROR),
         ));
     }
-    Ok(names.iter().map(|n| String::from_utf8_lossy(n).into_owned()).collect())
+    Ok(names
+        .iter()
+        .map(|n| String::from_utf8_lossy(n).into_owned())
+        .collect())
 }
 
 /// Copy one MAIN-fork block out under a share lock (optionally strategy-read).
@@ -344,8 +353,7 @@ mod tests {
     #[test]
     fn too_many_dotted_names_keeps_raw_bytes() {
         let ctx = mcx::MemoryContext::new("pgstattuple test");
-        let err =
-            qualified_name_parts(ctx.mcx(), b"\xff.b.c.d", wchar::PG_SQL_ASCII).unwrap_err();
+        let err = qualified_name_parts(ctx.mcx(), b"\xff.b.c.d", wchar::PG_SQL_ASCII).unwrap_err();
         assert_eq!(
             err.message_raw.as_deref(),
             Some(b"improper relation name (too many dotted names): \xff.b.c.d".as_slice())

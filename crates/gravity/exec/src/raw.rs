@@ -16,18 +16,33 @@ impl Backend {
 pub(crate) fn build_id() -> Option<([u8; 32], usize)> {
     const NT_GNU_BUILD_ID: u32 = 3;
     // SAFETY: getauxval reads the process's auxiliary vector and nothing else.
-    let (at, n) = unsafe { (libc::getauxval(libc::AT_PHDR) as usize, libc::getauxval(libc::AT_PHNUM) as usize) };
+    let (at, n) = unsafe {
+        (
+            libc::getauxval(libc::AT_PHDR) as usize,
+            libc::getauxval(libc::AT_PHNUM) as usize,
+        )
+    };
     if at == 0 || n == 0 {
         return None;
     }
     // SAFETY: AT_PHDR is the address of the executable's `AT_PHNUM` program headers, mapped for the process's life.
     let phs = unsafe { core::slice::from_raw_parts(at as *const libc::Elf64_Phdr, n) };
     // the load bias: where the headers are against the address PT_PHDR names (none: a fixed-address executable, bias 0)
-    let bias = phs.iter().find(|p| p.p_type == libc::PT_PHDR).map_or(0, |p| at.wrapping_sub(p.p_vaddr as usize));
+    let bias = phs
+        .iter()
+        .find(|p| p.p_type == libc::PT_PHDR)
+        .map_or(0, |p| at.wrapping_sub(p.p_vaddr as usize));
     for ph in phs.iter().filter(|p| p.p_type == libc::PT_NOTE) {
         // SAFETY: a PT_NOTE segment is mapped readable for its `p_memsz` bytes at the bias past its `p_vaddr`.
-        let seg = unsafe { core::slice::from_raw_parts(bias.wrapping_add(ph.p_vaddr as usize) as *const u8, ph.p_memsz as usize) };
-        let word = |at: usize| u32::from_ne_bytes([seg[at], seg[at + 1], seg[at + 2], seg[at + 3]]) as usize;
+        let seg = unsafe {
+            core::slice::from_raw_parts(
+                bias.wrapping_add(ph.p_vaddr as usize) as *const u8,
+                ph.p_memsz as usize,
+            )
+        };
+        let word = |at: usize| {
+            u32::from_ne_bytes([seg[at], seg[at + 1], seg[at + 2], seg[at + 3]]) as usize
+        };
         let mut p = 0;
         while p + 12 <= seg.len() {
             let (namesz, descsz, kind) = (word(p), word(p + 4), word(p + 8) as u32);

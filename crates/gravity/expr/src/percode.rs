@@ -109,7 +109,9 @@ impl<const N: usize> Cols for [CodeCol; N] {
 
 impl Cols for [crate::emit::CodeRef] {
     fn col(&self, attno: i16) -> Option<CodeCol> {
-        self.iter().find(|c| c.attno == attno).map(|c| CodeCol { attno: c.attno })
+        self.iter()
+            .find(|c| c.attno == attno)
+            .map(|c| CodeCol { attno: c.attno })
     }
 }
 
@@ -142,10 +144,17 @@ pub struct ConstWord {
 #[cfg_attr(test, derive(Clone))]
 #[derive(Debug, PartialEq, Eq)]
 pub enum Known<'m> {
-    Like { pattern: PgVec<'m, u8>, ilike: bool, negated: bool },
+    Like {
+        pattern: PgVec<'m, u8>,
+        ilike: bool,
+        negated: bool,
+    },
     /// B2-20: a code set, the entries equal to one of `values` (`negated`: the others), looked up in the part's
     /// byte-ordered dictionary (`code_set`).
-    Eq { values: PgVec<'m, PgVec<'m, u8>>, negated: bool },
+    Eq {
+        values: PgVec<'m, PgVec<'m, u8>>,
+        negated: bool,
+    },
     /// X5 (PS1-11 / PS1-31): a code set some of whose values are statement parameters (`$n`, PARAM_EXTERN `(id, type)`),
     /// known only per execution: the entries equal to one of `values` or of the parameters' values (`negated`: the
     /// others). The hosts' EQ table over the values the source reads from the site's key cells at its lane fill, where
@@ -153,20 +162,37 @@ pub enum Known<'m> {
     /// parameter value makes every entry a fault, so each row evaluates the body (PG's answer).
     /// NEW-72 entry C: `consts` are text constants bound the same way (`x = 'c'`, `x IN ('a', 'b')`: `code_set`), their
     /// images never read here, so one program serves every literal of the shape; a NULL or unreadable one faults every entry.
-    EqBound { values: PgVec<'m, PgVec<'m, u8>>, params: PgVec<'m, (i32, Oid)>, consts: PgVec<'m, ConstWord>, negated: bool },
+    EqBound {
+        values: PgVec<'m, PgVec<'m, u8>>,
+        params: PgVec<'m, (i32, Oid)>,
+        consts: PgVec<'m, ConstWord>,
+        negated: bool,
+    },
     /// PS1-15: a LIKE whose pattern is fixed per execution (`bound_pattern`: a generic plan's `$n`, or `textcat` of such
     /// parameters and text constants, `'%' || $1 || '%'`): the hosts' LIKE table over the pattern the source assembles at
     /// its lane fill from `parts` and the parameters' values in the site's key cells (as `EqBound`'s): `parts[0]`, the
     /// first parameter's value, `parts[1]`, .. (`parts` holds one more run than `params`). A NULL or unreadable value
     /// faults every entry, so each row evaluates the body (PG's answer).
-    LikeBound { parts: PgVec<'m, PgVec<'m, u8>>, params: PgVec<'m, (i32, Oid)>, ilike: bool, negated: bool },
+    LikeBound {
+        parts: PgVec<'m, PgVec<'m, u8>>,
+        params: PgVec<'m, (i32, Oid)>,
+        ilike: bool,
+        negated: bool,
+    },
     /// P5-06 / SRC-17: the entries whose bytes lie in `[from, to)` (`to` `None`: no upper bound), one code run of the
     /// part's byte-ordered dictionary, its ends by binary search (`code_range`).
-    Range { from: PgVec<'m, u8>, to: Option<PgVec<'m, u8>> },
+    Range {
+        from: PgVec<'m, u8>,
+        to: Option<PgVec<'m, u8>>,
+    },
     /// NEW-72 entry C: `Range` over one text constant bound per execution (`code_range`): `[c, ..)` or with `below`
     /// `[.., c)`, `c || '\0'` in place of `c` with `nul` (`x <= c`, `x > c`). The source reads `c` from the key cell its
     /// word is stored in (`EqBound`'s consts) and resolves the range before it builds; a NULL or unreadable `c` faults.
-    RangeBound { at: ConstWord, below: bool, nul: bool },
+    RangeBound {
+        at: ConstWord,
+        below: bool,
+        nul: bool,
+    },
     OctetLength,
     CharLength,
     Body,
@@ -203,7 +229,10 @@ pub struct Plan<'m> {
 
 impl<'m> Plan<'m> {
     pub fn new_in(m: Mcx<'m>) -> Plan<'m> {
-        Plan { roots: PgVec::new_in(m), needs: PgVec::new_in(m) }
+        Plan {
+            roots: PgVec::new_in(m),
+            needs: PgVec::new_in(m),
+        }
     }
 }
 
@@ -213,8 +242,13 @@ impl TableNeed<'_> {
     /// and the root, so it is its own table (percode_key.rs keys by `ex` alike): one table for two such roots let a cached
     /// program's second literal read the table its first literal swept.
     pub fn table_fingerprint(&self, ex: u32) -> u64 {
-        let place = u128::from(self.fingerprint) << 64 | u128::from(ex) << 32 | u128::from(self.root.0);
-        if self.words { gravity_abi::hash::hash_bytes64(&place.to_le_bytes()) | 1 } else { self.fingerprint }
+        let place =
+            u128::from(self.fingerprint) << 64 | u128::from(ex) << 32 | u128::from(self.root.0);
+        if self.words {
+            gravity_abi::hash::hash_bytes64(&place.to_le_bytes()) | 1
+        } else {
+            self.fingerprint
+        }
     }
 }
 
@@ -232,7 +266,12 @@ struct Scan {
     has_var: bool,
 }
 
-pub(crate) fn analyze<'m, C: Cols + ?Sized>(p: &Program<'_>, root: NodeId, codes: &C, scratch: Mcx<'m>) -> Result<Plan<'m>, EmitError> {
+pub(crate) fn analyze<'m, C: Cols + ?Sized>(
+    p: &Program<'_>,
+    root: NodeId,
+    codes: &C,
+    scratch: Mcx<'m>,
+) -> Result<Plan<'m>, EmitError> {
     let mut plan = Plan::new_in(scratch);
     walk(p, root, codes, &mut plan, true, scratch)?;
     Ok(plan)
@@ -240,12 +279,23 @@ pub(crate) fn analyze<'m, C: Cols + ?Sized>(p: &Program<'_>, root: NodeId, codes
 
 /// The bare `Var` is the key form only as the program's root; under another node it stays a code
 /// lane `emit` refuses (the by-reference view is the lowerer's).
-fn walk<'m, C: Cols + ?Sized>(p: &Program<'_>, id: NodeId, codes: &C, plan: &mut Plan<'m>, top: bool, scratch: Mcx<'m>) -> Result<(), EmitError> {
+fn walk<'m, C: Cols + ?Sized>(
+    p: &Program<'_>,
+    id: NodeId,
+    codes: &C,
+    plan: &mut Plan<'m>,
+    top: bool,
+    scratch: Mcx<'m>,
+) -> Result<(), EmitError> {
     crate::stack_check();
     if !top && bare_var(p, id) {
         return Ok(());
     }
-    let mut st = Scan { attno: None, mixed: false, has_var: false };
+    let mut st = Scan {
+        attno: None,
+        mixed: false,
+        has_var: false,
+    };
     let clean = scan(p, id, codes, &mut st);
     if let (true, false, Some(attno)) = (clean && st.has_var, st.mixed, st.attno) {
         codes.col(attno).expect("a scanned attno is declared");
@@ -259,19 +309,58 @@ fn walk<'m, C: Cols + ?Sized>(p: &Program<'_>, id: NodeId, codes: &C, plan: &mut
                     _ => gravity_dict::ELEM_DERIVED,
                 };
                 let known = known_of(p, id, scratch);
-                let (fingerprint, words) = fingerprint_bound(p, id, &|n| bound_const(&known, n), scratch);
-                GrowIn::push_in(&mut plan.needs, TableNeed { root: id, attno, elem, fingerprint, words, known });
+                let (fingerprint, words) =
+                    fingerprint_bound(p, id, &|n| bound_const(&known, n), scratch);
+                GrowIn::push_in(
+                    &mut plan.needs,
+                    TableNeed {
+                        root: id,
+                        attno,
+                        elem,
+                        fingerprint,
+                        words,
+                        known,
+                    },
+                );
                 Some(plan.needs.len() as u32 - 1)
             }
         };
-        GrowIn::push_in(&mut plan.roots, Root { node: id, attno, form, table, null: None });
+        GrowIn::push_in(
+            &mut plan.roots,
+            Root {
+                node: id,
+                attno,
+                form,
+                table,
+                null: None,
+            },
+        );
         return Ok(());
     }
     if let Some((attno, known, null)) = nullable(p, id, codes, scratch) {
         let (fingerprint, words) = fingerprint(p, id, scratch);
-        GrowIn::push_in(&mut plan.needs, TableNeed { root: id, attno, elem: gravity_dict::ELEM_BITS, fingerprint, words, known });
+        GrowIn::push_in(
+            &mut plan.needs,
+            TableNeed {
+                root: id,
+                attno,
+                elem: gravity_dict::ELEM_BITS,
+                fingerprint,
+                words,
+                known,
+            },
+        );
         let table = Some(plan.needs.len() as u32 - 1);
-        GrowIn::push_in(&mut plan.roots, Root { node: id, attno, form: Form::Bits, table, null: Some(null) });
+        GrowIn::push_in(
+            &mut plan.roots,
+            Root {
+                node: id,
+                attno,
+                form: Form::Bits,
+                table,
+                null: Some(null),
+            },
+        );
         return Ok(());
     }
     for k in walk_kids(p, id) {
@@ -302,12 +391,24 @@ fn scan<C: Cols + ?Sized>(p: &Program<'_>, id: NodeId, codes: &C, st: &mut Scan)
         ExprNode::Const(c) => !c.is_null(),
         ExprNode::Param(q) => q.kind == ParamKind::PARAM_EXTERN,
         ExprNode::Relabel(r) => scan(p, r.arg, codes, st),
-        ExprNode::Func(n) | ExprNode::Op(n) => strict_site(p, &p.sites[n.site.0 as usize], id, codes, st),
-        ExprNode::ScalarArrayOp(n) => nonempty_array(p, id, n) && strict_site(p, &p.sites[n.site.0 as usize], id, codes, st),
-        ExprNode::Bool(n) if n.op == BoolExprType::NOT_EXPR => scan(p, p.kids[n.args.start as usize], codes, st),
+        ExprNode::Func(n) | ExprNode::Op(n) => {
+            strict_site(p, &p.sites[n.site.0 as usize], id, codes, st)
+        }
+        ExprNode::ScalarArrayOp(n) => {
+            nonempty_array(p, id, n) && strict_site(p, &p.sites[n.site.0 as usize], id, codes, st)
+        }
+        ExprNode::Bool(n) if n.op == BoolExprType::NOT_EXPR => {
+            scan(p, p.kids[n.args.start as usize], codes, st)
+        }
         _ => {
-            let mut inner = Scan { attno: None, mixed: false, has_var: false };
-            let clean = walk_kids(p, id).into_iter().all(|k| scan(p, k, codes, &mut inner));
+            let mut inner = Scan {
+                attno: None,
+                mixed: false,
+                has_var: false,
+            };
+            let clean = walk_kids(p, id)
+                .into_iter()
+                .all(|k| scan(p, k, codes, &mut inner));
             merge(st, &inner);
             clean && !inner.has_var
         }
@@ -324,13 +425,25 @@ fn nonempty_array(p: &Program<'_>, id: NodeId, n: &crate::nodes::op::ScalarArray
         ExprNode::Const(c) => c.list_len().is_some_and(|n| n > 0),
         // X5: an `ARRAY[..]` of constants and parameters only as a bound code set (the hosts' EQ table), never as a body
         // swept per entry
-        _ => matches!(code_set(p, id, false, mcx::MemoryContext::new_bump("GravityCodeSetProbe").mcx()), Some(Known::EqBound { .. })),
+        _ => matches!(
+            code_set(
+                p,
+                id,
+                false,
+                mcx::MemoryContext::new_bump("GravityCodeSetProbe").mcx()
+            ),
+            Some(Known::EqBound { .. })
+        ),
     }
 }
 
 /// X5: `ARRAY[e1, ..]` (one dimension, one or more elements, so never empty), each element a non-null text constant or a
 /// statement parameter (`extern_param`): the constants' images and the parameters, in order.
-fn bound_list<'m>(p: &Program<'_>, arr: NodeId, m: Mcx<'m>) -> Option<(PgVec<'m, PgVec<'m, u8>>, PgVec<'m, (i32, Oid)>)> {
+fn bound_list<'m>(
+    p: &Program<'_>,
+    arr: NodeId,
+    m: Mcx<'m>,
+) -> Option<(PgVec<'m, PgVec<'m, u8>>, PgVec<'m, (i32, Oid)>)> {
     let a = bound_array(p, arr)?;
     if a.multidims || a.elements.len == 0 || a.elem.len != -1 {
         return None;
@@ -339,7 +452,9 @@ fn bound_list<'m>(p: &Program<'_>, arr: NodeId, m: Mcx<'m>) -> Option<(PgVec<'m,
     for i in 0..a.elements.len {
         let e = p.kids[(a.elements.start + i) as usize];
         match &p.nodes[e.0 as usize] {
-            ExprNode::Const(c) if c.typlen == -1 && !c.is_null() => GrowIn::push_in(&mut values, const_bytes_in(c, m)?),
+            ExprNode::Const(c) if c.typlen == -1 && !c.is_null() => {
+                GrowIn::push_in(&mut values, const_bytes_in(c, m)?)
+            }
             _ => GrowIn::push_in(&mut params, extern_param(p, e)?),
         }
     }
@@ -380,7 +495,7 @@ fn extern_param(p: &Program<'_>, mut id: NodeId) -> Option<(i32, Oid)> {
 /// path to it), and no call of the range is volatile (the sweep would run it once per entry). Anything else (another
 /// column: `GREATEST(t, 'v' || i::text) = t`) keeps the subtree off the per-code form; the island runs per row.
 fn scan_island<C: Cols + ?Sized>(p: &Program<'_>, isl: &Island, codes: &C, st: &mut Scan) -> bool {
-    let volatile = |s: SiteId| p.sites.get(s.0 as usize).is_none_or( |c| c.volatile);
+    let volatile = |s: SiteId| p.sites.get(s.0 as usize).is_none_or(|c| c.volatile);
     for n in &p.nodes[isl.first.0 as usize..=isl.root.0 as usize] {
         match n {
             ExprNode::Var(v) => {
@@ -392,9 +507,18 @@ fn scan_island<C: Cols + ?Sized>(p: &Program<'_>, isl: &Island, codes: &C, st: &
                 }
                 st.attno = Some(v.attno);
             }
-            ExprNode::Func(f) | ExprNode::Op(f) | ExprNode::Distinct(f) | ExprNode::NullIf(f) if volatile(f.site) => return false,
+            ExprNode::Func(f) | ExprNode::Op(f) | ExprNode::Distinct(f) | ExprNode::NullIf(f)
+                if volatile(f.site) =>
+            {
+                return false
+            }
             ExprNode::ScalarArrayOp(o) if volatile(o.site) => return false,
-            ExprNode::Param(_) | ExprNode::NextValue(_) | ExprNode::Aggref(_) | ExprNode::WindowFunc(_) | ExprNode::SubPlan(_) | ExprNode::Srf(_) => return false,
+            ExprNode::Param(_)
+            | ExprNode::NextValue(_)
+            | ExprNode::Aggref(_)
+            | ExprNode::WindowFunc(_)
+            | ExprNode::SubPlan(_)
+            | ExprNode::Srf(_) => return false,
             _ => {}
         }
     }
@@ -412,11 +536,21 @@ fn merge(st: &mut Scan, inner: &Scan) {
     st.mixed |= inner.mixed;
 }
 
-fn strict_site<C: Cols + ?Sized>(p: &Program<'_>, call: &Call, id: NodeId, codes: &C, st: &mut Scan) -> bool {
+fn strict_site<C: Cols + ?Sized>(
+    p: &Program<'_>,
+    call: &Call,
+    id: NodeId,
+    codes: &C,
+    st: &mut Scan,
+) -> bool {
     if call.volatile {
         return false;
     }
-    let mut inner = Scan { attno: None, mixed: false, has_var: false };
+    let mut inner = Scan {
+        attno: None,
+        mixed: false,
+        has_var: false,
+    };
     let mut clean = true;
     for k in walk_kids(p, id) {
         clean &= scan(p, k, codes, &mut inner);
@@ -446,13 +580,16 @@ fn bare_var(p: &Program<'_>, mut id: NodeId) -> bool {
 /// length's (lowerv4 octet_lane.rs).
 pub fn empty_test(p: &Program<'_>, id: NodeId) -> Option<(NodeId, bool)> {
     let (call, c) = var_const(p, id)?;
-    let ne = text_eq_body(call.funcid).filter(|_| c.text_empty() == Some(true) && deterministic(call.collation))?;
+    let ne = text_eq_body(call.funcid)
+        .filter(|_| c.text_empty() == Some(true) && deterministic(call.collation))?;
     Some((p.kids[call.args.start as usize], ne))
 }
 
 /// `Op(Var, Const)` of `funcid`: the constant, when the site has that shape.
 fn var_const<'a>(p: &'a Program<'_>, id: NodeId) -> Option<(&'a Call, &'a ConstNode<'a>)> {
-    let (ExprNode::Op(n) | ExprNode::Func(n)) = &p.nodes[id.0 as usize] else { return None };
+    let (ExprNode::Op(n) | ExprNode::Func(n)) = &p.nodes[id.0 as usize] else {
+        return None;
+    };
     let call = &p.sites[n.site.0 as usize];
     if call.args.len != 2 || !bare_var(p, p.kids[call.args.start as usize]) {
         return None;
@@ -463,12 +600,14 @@ fn var_const<'a>(p: &'a Program<'_>, id: NodeId) -> Option<(&'a Call, &'a ConstN
     }
 }
 
-
 /// A non-null constant's bytes: the word by value, a varlena's payload in any header form, a cstring to its NUL, a fixed
 /// type's bytes. `None` when a compressed or external image cannot be expanded, never an empty payload for a failure
 /// (D348: a custom plan's short-header constant of 65..126 bytes, copied through a 64-byte scratch, read as `''`, so
 /// `t <> v` answered `t <> ''`). Plain and short-header images are read in full in place: only their bytes are copied.
-pub(crate) fn with_const_bytes<R>(c: &ConstNode<'_>, f: &mut dyn FnMut(&[u8]) -> Option<R>) -> Option<R> {
+pub(crate) fn with_const_bytes<R>(
+    c: &ConstNode<'_>,
+    f: &mut dyn FnMut(&[u8]) -> Option<R>,
+) -> Option<R> {
     let v = c.read().value; // a by-reference image's bytes decide what the caller builds: a bake
     if c.byval {
         return f(&v.as_u64().to_le_bytes());
@@ -534,17 +673,24 @@ fn deterministic(coll: Oid) -> bool {
 
 fn known_of<'m>(p: &Program<'_>, id: NodeId, m: Mcx<'m>) -> Known<'m> {
     let (inner, negated) = match &p.nodes[id.0 as usize] {
-        ExprNode::Bool(n) if n.op == BoolExprType::NOT_EXPR => (p.kids[n.args.start as usize], true),
+        ExprNode::Bool(n) if n.op == BoolExprType::NOT_EXPR => {
+            (p.kids[n.args.start as usize], true)
+        }
         _ => (id, false),
     };
     if let Some(t) = text_search(p, inner, m).filter(|t| bare_var(p, t.arg)) {
-        return Known::Like { pattern: t.pattern, ilike: false, negated: t.negated != negated };
+        return Known::Like {
+            pattern: t.pattern,
+            ilike: false,
+            negated: t.negated != negated,
+        };
     }
     if let Some(k) = code_set(p, inner, negated, m).or_else(|| code_range(p, inner, negated)) {
         return k;
     }
     if let Some((call, c)) = var_const(p, inner) {
-        let (like, (ilike, neg)) = like_body(call.funcid).map_or((false, (false, false)), |b| (true, b));
+        let (like, (ilike, neg)) =
+            like_body(call.funcid).map_or((false, (false, false)), |b| (true, b));
         // D318: the LIKE table matches bytes, PG's LIKE only under a deterministic collation; under a nondeterministic one
         // PG 18 matches per character (like_match.c), so the root is the generic body (the shim, under its collation)
         if like && c.typlen == -1 && deterministic(call.collation) {
@@ -553,7 +699,11 @@ fn known_of<'m>(p: &Program<'_>, id: NodeId, m: Mcx<'m>) -> Known<'m> {
             // single-byte SQL_ASCII arm went with that ruling), any other encoding keeps the generic body
             let utf8 = gravity_fn::typesem::collation::database_encoding() == PG_UTF8;
             if let Some(pattern) = const_bytes_in(c, m).filter(|_| utf8) {
-                return Known::Like { pattern, ilike, negated: neg != negated };
+                return Known::Like {
+                    pattern,
+                    ilike,
+                    negated: neg != negated,
+                };
             }
         }
     }
@@ -579,12 +729,20 @@ fn known_of<'m>(p: &Program<'_>, id: NodeId, m: Mcx<'m>) -> Known<'m> {
 /// folds ASCII letters only (str_tolower's C-ctype path): the text keeps its byte and character counts. The call's
 /// collation when `id` is that form.
 fn ascii_lower_of_var(p: &Program<'_>, id: NodeId) -> Option<Oid> {
-    let (ExprNode::Func(n) | ExprNode::Op(n)) = &p.nodes[id.0 as usize] else { return None };
+    let (ExprNode::Func(n) | ExprNode::Op(n)) = &p.nodes[id.0 as usize] else {
+        return None;
+    };
     let call = &p.sites[n.site.0 as usize];
-    if call.args.len != 1 || call.volatile || gravity_fn::shim_of(call.funcid).map(|s| s.name) != Some("lower") || !bare_var(p, p.kids[call.args.start as usize]) {
+    if call.args.len != 1
+        || call.volatile
+        || gravity_fn::shim_of(call.funcid).map(|s| s.name) != Some("lower")
+        || !bare_var(p, p.kids[call.args.start as usize])
+    {
         return None;
     }
-    gravity_fn::typesem::collation::Facts::of(call.collation).is_ok_and(|f| f.deterministic && f.ctype_is_c).then_some(call.collation)
+    gravity_fn::typesem::collation::Facts::of(call.collation)
+        .is_ok_and(|f| f.deterministic && f.ctype_is_c)
+        .then_some(call.collation)
 }
 
 /// D3077: `lower(x) LIKE p` / `NOT LIKE` over the bare column with a constant pattern, both under one C-ctype collation
@@ -592,9 +750,13 @@ fn ascii_lower_of_var(p: &Program<'_>, id: NodeId) -> Option<Oid> {
 /// so when `p` holds no ASCII capital (lower(p) = p; a capital never matches a lowered text) the root is the column's
 /// ILIKE verdict table (the hosts fold ASCII under a C ctype, D2680), read per code instead of lower() per entry or row.
 fn lower_like<'m>(p: &Program<'_>, id: NodeId, negated: bool, m: Mcx<'m>) -> Option<Known<'m>> {
-    let (ExprNode::Op(n) | ExprNode::Func(n)) = &p.nodes[id.0 as usize] else { return None };
+    let (ExprNode::Op(n) | ExprNode::Func(n)) = &p.nodes[id.0 as usize] else {
+        return None;
+    };
     let call = &p.sites[n.site.0 as usize];
-    let (false, neg) = like_body(call.funcid)? else { return None };
+    let (false, neg) = like_body(call.funcid)? else {
+        return None;
+    };
     let utf8 = gravity_fn::typesem::collation::database_encoding() == PG_UTF8;
     if call.args.len != 2 || !utf8 || !deterministic(call.collation) {
         return None;
@@ -602,27 +764,44 @@ fn lower_like<'m>(p: &Program<'_>, id: NodeId, negated: bool, m: Mcx<'m>) -> Opt
     if ascii_lower_of_var(p, p.kids[call.args.start as usize])? != call.collation {
         return None;
     }
-    let ExprNode::Const(c) = &p.nodes[p.kids[call.args.start as usize + 1].0 as usize] else { return None };
+    let ExprNode::Const(c) = &p.nodes[p.kids[call.args.start as usize + 1].0 as usize] else {
+        return None;
+    };
     if c.typlen != -1 || c.is_null() {
         return None;
     }
     let pattern = const_bytes_in(c, m).filter(|pt| !pt.iter().any(u8::is_ascii_uppercase))?;
-    Some(Known::Like { pattern, ilike: true, negated: neg != negated })
+    Some(Known::Like {
+        pattern,
+        ilike: true,
+        negated: neg != negated,
+    })
 }
 
 /// PS1-15: `x LIKE p` / `NOT LIKE` / `ILIKE` over the bare column whose pattern is fixed per execution (`bound_pattern`),
 /// under the rules a constant pattern's `Known::Like` keeps (D318: a deterministic collation; D1938: a UTF-8 database,
 /// as the table reads `_` as one UTF-8 character and ILIKE folds UTF-8, whatever pattern the execution binds).
 fn like_bound<'m>(p: &Program<'_>, id: NodeId, negated: bool, m: Mcx<'m>) -> Option<Known<'m>> {
-    let (ExprNode::Op(n) | ExprNode::Func(n)) = &p.nodes[id.0 as usize] else { return None };
+    let (ExprNode::Op(n) | ExprNode::Func(n)) = &p.nodes[id.0 as usize] else {
+        return None;
+    };
     let call = &p.sites[n.site.0 as usize];
     let (ilike, neg) = like_body(call.funcid)?;
     let utf8 = gravity_fn::typesem::collation::database_encoding() == PG_UTF8;
-    if call.args.len != 2 || !utf8 || !deterministic(call.collation) || !bare_var(p, p.kids[call.args.start as usize]) {
+    if call.args.len != 2
+        || !utf8
+        || !deterministic(call.collation)
+        || !bare_var(p, p.kids[call.args.start as usize])
+    {
         return None;
     }
     let (parts, params) = bound_pattern(p, p.kids[call.args.start as usize + 1], m)?;
-    Some(Known::LikeBound { parts, params, ilike, negated: neg != negated })
+    Some(Known::LikeBound {
+        parts,
+        params,
+        ilike,
+        negated: neg != negated,
+    })
 }
 
 /// PS1-15: a pattern fixed before the rows run that holds a statement parameter: `$n` (`extern_param`), or `textcat` over
@@ -630,8 +809,16 @@ fn like_bound<'m>(p: &Program<'_>, id: NodeId, negated: bool, m: Mcx<'m>) -> Opt
 /// the constant runs between the parameters (`parts`, one more than `params`; adjacent constants joined) and the
 /// parameters. `None` for any other pattern, a constant one included (`Known::Like`'s). PG concatenates the pattern per
 /// row; it is one value per execution, which the source assembles once (granule_source `bound_spec`).
-fn bound_pattern<'m>(p: &Program<'_>, id: NodeId, m: Mcx<'m>) -> Option<(PgVec<'m, PgVec<'m, u8>>, PgVec<'m, (i32, Oid)>)> {
-    let (mut parts, mut params, mut todo) = (PgVec::<PgVec<u8>>::new_in(m), PgVec::new_in(m), mcx::vec_elem_in(m, id, 1));
+fn bound_pattern<'m>(
+    p: &Program<'_>,
+    id: NodeId,
+    m: Mcx<'m>,
+) -> Option<(PgVec<'m, PgVec<'m, u8>>, PgVec<'m, (i32, Oid)>)> {
+    let (mut parts, mut params, mut todo) = (
+        PgVec::<PgVec<u8>>::new_in(m),
+        PgVec::new_in(m),
+        mcx::vec_elem_in(m, id, 1),
+    );
     GrowIn::push_in(&mut parts, PgVec::new_in(m));
     while let Some(n) = todo.pop() {
         if let Some(q) = extern_param(p, n) {
@@ -640,14 +827,24 @@ fn bound_pattern<'m>(p: &Program<'_>, id: NodeId, m: Mcx<'m>) -> Option<(PgVec<'
             continue;
         }
         match &p.nodes[n.0 as usize] {
-            ExprNode::Const(c) if c.typlen == -1 && !c.is_null() => GrowIn::extend_from_slice_in(parts.last_mut()?, &const_bytes_in(c, m)?),
+            ExprNode::Const(c) if c.typlen == -1 && !c.is_null() => {
+                GrowIn::extend_from_slice_in(parts.last_mut()?, &const_bytes_in(c, m)?)
+            }
             ExprNode::Op(f) | ExprNode::Func(f) => {
                 let call = &p.sites[f.site.0 as usize];
-                if call.args.len != 2 || gravity_fn::shim_of(call.funcid).map(|s| s.name) != Some("textcat") {
+                if call.args.len != 2
+                    || gravity_fn::shim_of(call.funcid).map(|s| s.name) != Some("textcat")
+                {
                     return None;
                 }
                 // the right operand first: the left one pops first
-                GrowIn::extend_in(&mut todo, [p.kids[call.args.start as usize + 1], p.kids[call.args.start as usize]]);
+                GrowIn::extend_in(
+                    &mut todo,
+                    [
+                        p.kids[call.args.start as usize + 1],
+                        p.kids[call.args.start as usize],
+                    ],
+                );
             }
             _ => return None,
         }
@@ -659,8 +856,15 @@ fn bound_pattern<'m>(p: &Program<'_>, id: NodeId, m: Mcx<'m>) -> Option<(PgVec<'
 /// hashed that the per-code road reads from the part's EQ table before `expr.saop` would claim it (lowerv4
 /// dict/percode.rs `sets_first`).
 pub fn code_set_var(p: &Program<'_>, id: NodeId) -> Option<crate::nodes::var::Var> {
-    let ExprNode::ScalarArrayOp(n) = &p.nodes[id.0 as usize] else { return None };
-    code_set(p, id, false, mcx::MemoryContext::new_bump("GravityCodeSetProbe").mcx())?;
+    let ExprNode::ScalarArrayOp(n) = &p.nodes[id.0 as usize] else {
+        return None;
+    };
+    code_set(
+        p,
+        id,
+        false,
+        mcx::MemoryContext::new_bump("GravityCodeSetProbe").mcx(),
+    )?;
     let mut x = p.kids[p.sites[n.site.0 as usize].args.start as usize];
     loop {
         match &p.nodes[x.0 as usize] {
@@ -680,9 +884,14 @@ pub fn code_set_var(p: &Program<'_>, id: NodeId) -> Option<crate::nodes::var::Va
 fn code_set<'m>(p: &Program<'_>, id: NodeId, negated: bool, m: Mcx<'m>) -> Option<Known<'m>> {
     // the byte equalities are symmetric: `c = x` is `x = c`
     let compare = || {
-        let (ExprNode::Op(n) | ExprNode::Func(n)) = &p.nodes[id.0 as usize] else { return None };
+        let (ExprNode::Op(n) | ExprNode::Func(n)) = &p.nodes[id.0 as usize] else {
+            return None;
+        };
         let call = Some(&p.sites[n.site.0 as usize]).filter(|c| c.args.len == 2)?;
-        let (a, b) = (p.kids[call.args.start as usize], p.kids[call.args.start as usize + 1]);
+        let (a, b) = (
+            p.kids[call.args.start as usize],
+            p.kids[call.args.start as usize + 1],
+        );
         let konst = |k: NodeId| matches!(&p.nodes[k.0 as usize], ExprNode::Const(c) if c.typlen == -1 && !c.is_null());
         if bare_var(p, a) && konst(b) {
             Some((call, b))
@@ -699,45 +908,116 @@ fn code_set<'m>(p: &Program<'_>, id: NodeId, negated: bool, m: Mcx<'m>) -> Optio
         }
         // `''` is held by both keys (konst.rs `text_empty`, lower key.rs beside the comparand's class): its set is the
         // empty entry's, built as before (`Class::Set`, no fault table); any other literal is bound per execution
-        let ExprNode::Const(k) = &p.nodes[c.0 as usize] else { return None };
+        let ExprNode::Const(k) = &p.nodes[c.0 as usize] else {
+            return None;
+        };
         if k.text_empty() == Some(true) {
-            return Some(Known::Eq { values: mcx::vec_elem_in(m, PgVec::new_in(m), 1), negated: ne != negated });
+            return Some(Known::Eq {
+                values: mcx::vec_elem_in(m, PgVec::new_in(m), 1),
+                negated: ne != negated,
+            });
         }
-        return Some(Known::EqBound { values: PgVec::new_in(m), params: PgVec::new_in(m), consts: mcx::vec_elem_in(m, ConstWord { node: c, elem: None, list: false }, 1), negated: ne != negated });
+        return Some(Known::EqBound {
+            values: PgVec::new_in(m),
+            params: PgVec::new_in(m),
+            consts: mcx::vec_elem_in(
+                m,
+                ConstWord {
+                    node: c,
+                    elem: None,
+                    list: false,
+                },
+                1,
+            ),
+            negated: ne != negated,
+        });
     }
     // X5: `x = $n` / `$n = x` over the bare column, the parameter's value bound per execution
     if let ExprNode::Op(n) | ExprNode::Func(n) = &p.nodes[id.0 as usize] {
         let call = &p.sites[n.site.0 as usize];
         if call.args.len == 2 && deterministic(call.collation) {
-            let (a, b) = (p.kids[call.args.start as usize], p.kids[call.args.start as usize + 1]);
-            let param = if bare_var(p, a) { extern_param(p, b) } else if bare_var(p, b) { extern_param(p, a) } else { None };
+            let (a, b) = (
+                p.kids[call.args.start as usize],
+                p.kids[call.args.start as usize + 1],
+            );
+            let param = if bare_var(p, a) {
+                extern_param(p, b)
+            } else if bare_var(p, b) {
+                extern_param(p, a)
+            } else {
+                None
+            };
             if let (Some(q), Some(ne)) = (param, text_eq_body(call.funcid)) {
-                return Some(Known::EqBound { values: PgVec::new_in(m), params: mcx::vec_elem_in(m, q, 1), consts: PgVec::new_in(m), negated: ne != negated });
+                return Some(Known::EqBound {
+                    values: PgVec::new_in(m),
+                    params: mcx::vec_elem_in(m, q, 1),
+                    consts: PgVec::new_in(m),
+                    negated: ne != negated,
+                });
             }
         }
         return None;
     }
-    let ExprNode::ScalarArrayOp(n) = &p.nodes[id.0 as usize] else { return None };
+    let ExprNode::ScalarArrayOp(n) = &p.nodes[id.0 as usize] else {
+        return None;
+    };
     let call = &p.sites[n.site.0 as usize];
     let ne = text_eq_body(call.funcid)?;
-    if call.args.len != 2 || n.use_or == ne || n.elem.len != -1 || !deterministic(call.collation) || !bare_var(p, p.kids[call.args.start as usize]) {
+    if call.args.len != 2
+        || n.use_or == ne
+        || n.elem.len != -1
+        || !deterministic(call.collation)
+        || !bare_var(p, p.kids[call.args.start as usize])
+    {
         return None;
     }
     // X5: `x = ANY (ARRAY[$1, 'c', ..])` / `x <> ALL (..)`: a generic plan's IN list, its parameters bound per execution
     if let Some((values, params)) = bound_list(p, p.kids[call.args.start as usize + 1], m) {
-        return (!params.is_empty()).then_some(Known::EqBound { values, params, consts: PgVec::new_in(m), negated: ne != negated });
+        return (!params.is_empty()).then_some(Known::EqBound {
+            values,
+            params,
+            consts: PgVec::new_in(m),
+            negated: ne != negated,
+        });
     }
     let arr = p.kids[call.args.start as usize + 1];
-    let ExprNode::Const(list) = &p.nodes[arr.0 as usize] else { return None };
+    let ExprNode::Const(list) = &p.nodes[arr.0 as usize] else {
+        return None;
+    };
     // the element count is the list's class the keys hash (konst.rs `list_class`): no bake
     let count = list.list_count(n.elem).filter(|&k| k > 0)?;
     // P5-02: a list past MAX_LIST shares one class whatever its length, so its program reads the whole array as one word
     // (its elements read per execution by the source), never one cell per element
     if count > gravity_program::cost::expr::MAX_LIST {
-        return Some(Known::EqBound { values: PgVec::new_in(m), params: PgVec::new_in(m), consts: mcx::vec_elem_in(m, ConstWord { node: arr, elem: None, list: true }, 1), negated: ne != negated });
+        return Some(Known::EqBound {
+            values: PgVec::new_in(m),
+            params: PgVec::new_in(m),
+            consts: mcx::vec_elem_in(
+                m,
+                ConstWord {
+                    node: arr,
+                    elem: None,
+                    list: true,
+                },
+                1,
+            ),
+            negated: ne != negated,
+        });
     }
-    let consts = mcx::CollectIn::collect_in((0..count as u32).map(|k| ConstWord { node: arr, elem: Some(k), list: false }), m);
-    Some(Known::EqBound { values: PgVec::new_in(m), params: PgVec::new_in(m), consts, negated: ne != negated })
+    let consts = mcx::CollectIn::collect_in(
+        (0..count as u32).map(|k| ConstWord {
+            node: arr,
+            elem: Some(k),
+            list: false,
+        }),
+        m,
+    );
+    Some(Known::EqBound {
+        values: PgVec::new_in(m),
+        params: PgVec::new_in(m),
+        consts,
+        negated: ne != negated,
+    })
 }
 
 /// NEW-72 entry C: whether a compare of function `funcid` under collation `coll` between a bare code column and a non-null
@@ -745,7 +1025,8 @@ fn code_set<'m>(p: &Program<'_>, id: NodeId, negated: bool, m: Mcx<'m>) -> Optio
 /// collation, `code_range`'s byte-order compare), read in the plan tree: the content key holds such a constant by its
 /// class (lower key.rs `bound_text_refs`), never its image.
 pub fn bound_text_compare(funcid: Oid, coll: Oid) -> bool {
-    (text_eq_body(funcid).is_some() && deterministic(coll)) || order_body(funcid).is_some_and(|(_, _, pattern)| pattern || bytes_ordered(coll))
+    (text_eq_body(funcid).is_some() && deterministic(coll))
+        || order_body(funcid).is_some_and(|(_, _, pattern)| pattern || bytes_ordered(coll))
 }
 
 /// NEW-72 entry C: whether `x = ANY (list)` / `x <> ALL (list)` (`use_or` its form) of function `funcid` under collation
@@ -785,12 +1066,17 @@ fn bytes_ordered(coll: Oid) -> bool {
 /// `x >= c || '\0'`, as no byte string lies between `c` and `c || '\0'`. NEW-72 entry C: `c` is bound per execution
 /// (`Known::RangeBound`, its image never read here).
 fn code_range(p: &Program<'_>, id: NodeId, negated: bool) -> Option<Known<'static>> {
-    let (ExprNode::Op(n) | ExprNode::Func(n)) = &p.nodes[id.0 as usize] else { return None };
+    let (ExprNode::Op(n) | ExprNode::Func(n)) = &p.nodes[id.0 as usize] else {
+        return None;
+    };
     let call = &p.sites[n.site.0 as usize];
     if call.args.len != 2 {
         return None;
     }
-    let (a, b) = (p.kids[call.args.start as usize], p.kids[call.args.start as usize + 1]);
+    let (a, b) = (
+        p.kids[call.args.start as usize],
+        p.kids[call.args.start as usize + 1],
+    );
     let (k, c, flip) = match (&p.nodes[a.0 as usize], &p.nodes[b.0 as usize]) {
         (_, ExprNode::Const(c)) if bare_var(p, a) => (b, c, false),
         (ExprNode::Const(c), _) if bare_var(p, b) => (a, c, true),
@@ -801,7 +1087,15 @@ fn code_range(p: &Program<'_>, id: NodeId, negated: bool) -> Option<Known<'stati
         return None;
     }
     let (below, inclusive) = ((below != flip) != negated, inclusive != negated);
-    Some(Known::RangeBound { at: ConstWord { node: k, elem: None, list: false }, below, nul: below == inclusive })
+    Some(Known::RangeBound {
+        at: ConstWord {
+            node: k,
+            elem: None,
+            list: false,
+        },
+        below,
+        nul: below == inclusive,
+    })
 }
 
 /// PS1-13 / PS1-14: a byte test over code column `x` that answers a NULL row, under at most one NOT: `x IS DISTINCT FROM c`
@@ -809,9 +1103,16 @@ fn code_range(p: &Program<'_>, id: NodeId, negated: bool) -> Option<Known<'stati
 /// images read whole. An entry's answer is the test's table over `x` (`coalesce` passes a non-NULL `x`); a NULL row's is
 /// the table's test of `c0`, or, with no `coalesce`, `IS DISTINCT FROM`'s true. A strict compare over the bare column is
 /// `scan`'s root.
-fn nullable<'m, C: Cols + ?Sized>(p: &Program<'_>, id: NodeId, codes: &C, m: Mcx<'m>) -> Option<(i16, Known<'m>, bool)> {
+fn nullable<'m, C: Cols + ?Sized>(
+    p: &Program<'_>,
+    id: NodeId,
+    codes: &C,
+    m: Mcx<'m>,
+) -> Option<(i16, Known<'m>, bool)> {
     let (inner, negated) = match &p.nodes[id.0 as usize] {
-        ExprNode::Bool(n) if n.op == BoolExprType::NOT_EXPR => (p.kids[n.args.start as usize], true),
+        ExprNode::Bool(n) if n.op == BoolExprType::NOT_EXPR => {
+            (p.kids[n.args.start as usize], true)
+        }
         _ => (id, false),
     };
     let (call, distinct) = match &p.nodes[inner.0 as usize] {
@@ -826,7 +1127,10 @@ fn nullable<'m, C: Cols + ?Sized>(p: &Program<'_>, id: NodeId, codes: &C, m: Mcx
         ExprNode::Const(c) if c.typlen == -1 && !c.is_null() => Some(c),
         _ => None,
     };
-    let (a, b) = (p.kids[call.args.start as usize], p.kids[call.args.start as usize + 1]);
+    let (a, b) = (
+        p.kids[call.args.start as usize],
+        p.kids[call.args.start as usize + 1],
+    );
     let ((attno, c0), c, flip) = match (operand(p, a), text(b)) {
         (Some(x), Some(c)) => (x, c, false),
         _ => (operand(p, b)?, text(a)?, true),
@@ -836,7 +1140,10 @@ fn nullable<'m, C: Cols + ?Sized>(p: &Program<'_>, id: NodeId, codes: &C, m: Mcx
     }
     let mut v = const_bytes_in(c, m)?;
     let known = match text_eq_body(call.funcid) {
-        Some(ne) if !(ne && distinct) && deterministic(call.collation) => Known::Eq { values: one_in(v, m), negated: (ne || distinct) != negated },
+        Some(ne) if !(ne && distinct) && deterministic(call.collation) => Known::Eq {
+            values: one_in(v, m),
+            negated: (ne || distinct) != negated,
+        },
         None if !distinct => {
             let (below, inclusive, pattern) = order_body(call.funcid)?;
             if !(pattern || bytes_ordered(call.collation)) {
@@ -846,7 +1153,14 @@ fn nullable<'m, C: Cols + ?Sized>(p: &Program<'_>, id: NodeId, codes: &C, m: Mcx
             if below == inclusive {
                 GrowIn::push_in(&mut v, 0);
             }
-            if below { Known::Range { from: PgVec::new_in(m), to: Some(v) } } else { Known::Range { from: v, to: None } }
+            if below {
+                Known::Range {
+                    from: PgVec::new_in(m),
+                    to: Some(v),
+                }
+            } else {
+                Known::Range { from: v, to: None }
+            }
         }
         _ => return None,
     };
@@ -854,8 +1168,8 @@ fn nullable<'m, C: Cols + ?Sized>(p: &Program<'_>, id: NodeId, codes: &C, m: Mcx
         Some(c0) => {
             let d = const_bytes_in(c0, m)?;
             match &known {
-                Known::Eq { values, negated } => values.contains(& d) != *negated,
-                Known::Range { from, to } => *from <= d && to.as_ref().is_none_or( |t| d < *t),
+                Known::Eq { values, negated } => values.contains(&d) != *negated,
+                Known::Range { from, to } => *from <= d && to.as_ref().is_none_or(|t| d < *t),
                 _ => return None,
             }
         }
@@ -872,7 +1186,10 @@ fn operand<'a>(p: &'a Program<'_>, mut id: NodeId) -> Option<(i16, Option<&'a Co
             ExprNode::Var(v) if v.src == eval::Source::Scan => return Some((v.attno, c0)),
             ExprNode::Relabel(r) if r.transparent() => id = r.arg,
             ExprNode::Coalesce(z) if c0.is_none() && z.args.len == 2 => {
-                let ExprNode::Const(c) = &p.nodes[p.kids[z.args.start as usize + 1].0 as usize] else { return None };
+                let ExprNode::Const(c) = &p.nodes[p.kids[z.args.start as usize + 1].0 as usize]
+                else {
+                    return None;
+                };
                 if c.typlen != -1 || c.is_null() {
                     return None;
                 }
@@ -906,10 +1223,17 @@ pub fn text_search<'m>(p: &Program<'_>, id: NodeId, m: Mcx<'m>) -> Option<TextSe
     use gravity_fn::typesem::expr::{starts_with, text_position};
     use gravity_program::twin::{twin_pattern, twin_spelling};
     let call = |id: NodeId| match &p.nodes[id.0 as usize] {
-        ExprNode::Op(n) | ExprNode::Func(n) => Some(&p.sites[n.site.0 as usize]).filter(|c| c.args.len == 2),
+        ExprNode::Op(n) | ExprNode::Func(n) => {
+            Some(&p.sites[n.site.0 as usize]).filter(|c| c.args.len == 2)
+        }
         _ => None,
     };
-    let args = |c: &Call| [p.kids[c.args.start as usize], p.kids[c.args.start as usize + 1]];
+    let args = |c: &Call| {
+        [
+            p.kids[c.args.start as usize],
+            p.kids[c.args.start as usize + 1],
+        ]
+    };
     let top = call(id)?;
     let (search, (head, tail, negated)) = if starts_with(top.funcid) {
         (top, twin_spelling(true, top.funcid, None, None)?)
@@ -921,21 +1245,39 @@ pub fn text_search<'m>(p: &Program<'_>, id: NodeId, m: Mcx<'m>) -> Option<TextSe
             (None, Some(s)) => (s, a, false),
             _ => return None,
         };
-        let ExprNode::Const(k) = &p.nodes[k.0 as usize] else { return None };
+        let ExprNode::Const(k) = &p.nodes[k.0 as usize] else {
+            return None;
+        };
         let v = k.read(); // the compare's by-value word decides the class: both keys hold it (`textpos_class`)
         if !k.byval || v.isnull {
             return None;
         }
-        (search, twin_spelling(false, top.funcid, Some(left), Some(v.value.as_u64() as i32))?)
+        (
+            search,
+            twin_spelling(false, top.funcid, Some(left), Some(v.value.as_u64() as i32))?,
+        )
     };
     let [arg, needle] = args(search);
-    let ExprNode::Const(c) = &p.nodes[needle.0 as usize] else { return None };
+    let ExprNode::Const(c) = &p.nodes[needle.0 as usize] else {
+        return None;
+    };
     let utf8 = gravity_fn::typesem::collation::database_encoding() == PG_UTF8;
-    if c.is_null() || c.typlen != -1 || search.collation == 0 || !deterministic(search.collation) || !utf8 {
+    if c.is_null()
+        || c.typlen != -1
+        || search.collation == 0
+        || !deterministic(search.collation)
+        || !utf8
+    {
         return None;
     }
-    let pattern = with_const_bytes(c, &mut |b| Some(mcx::to_vec_in(&twin_pattern(b, head, tail), m)))?;
-    Some(TextSearch { arg, pattern, negated })
+    let pattern = with_const_bytes(c, &mut |b| {
+        Some(mcx::to_vec_in(&twin_pattern(b, head, tail), m))
+    })?;
+    Some(TextSearch {
+        arg,
+        pattern,
+        negated,
+    })
 }
 
 /// E2: an int4 compare of a textpos call (strpos / position, or an operator over textpos: `text_search` takes both
@@ -947,10 +1289,25 @@ pub fn textpos_class(funcid: u32, args: &types_nodes::list::NodeList<'_>) -> Opt
     if !gravity_fn::typesem::expr::int4_compare(funcid) || args.len() != 2 {
         return None;
     }
-    let pos = |n: types_nodes::Node<'_>| n.as_func_expr().map(|f| f.funcid).or_else(|| n.as_op_expr().map(|o| o.opfuncid)).is_some_and(gravity_fn::typesem::expr::text_position);
-    let k = |n: types_nodes::Node<'_>| n.as_const().filter(|c| !c.constisnull && c.constbyval).map(|c| c.constvalue.as_usize() as i32);
+    let pos = |n: types_nodes::Node<'_>| {
+        n.as_func_expr()
+            .map(|f| f.funcid)
+            .or_else(|| n.as_op_expr().map(|o| o.opfuncid))
+            .is_some_and(gravity_fn::typesem::expr::text_position)
+    };
+    let k = |n: types_nodes::Node<'_>| {
+        n.as_const()
+            .filter(|c| !c.constisnull && c.constbyval)
+            .map(|c| c.constvalue.as_usize() as i32)
+    };
     let [a, b] = [args.iter().next()?, args.iter().nth(1)?];
-    let (k, left) = if pos(a) { (k(b)?, true) } else if pos(b) { (k(a)?, false) } else { return None };
+    let (k, left) = if pos(a) {
+        (k(b)?, true)
+    } else if pos(b) {
+        (k(a)?, false)
+    } else {
+        return None;
+    };
     Some(gravity_program::twin::textpos_test(funcid, k, left))
 }
 
@@ -964,8 +1321,14 @@ pub fn textpos_class(funcid: u32, args: &types_nodes::list::NodeList<'_>) -> Opt
 pub fn sized_class(funcid: u32, args: &types_nodes::list::NodeList<'_>) -> Option<bool> {
     use gravity_fn::typesem::image::{positive_operand, sized_when_set};
     let side = positive_operand(funcid).filter(|_| args.len() == 2)?;
-    args.iter().nth(side)?.as_func_expr().filter(|f| sized_when_set(f.funcid))?;
-    let zero = |n: types_nodes::Node<'_>| n.as_const().is_some_and(|c| !c.constisnull && c.constbyval && c.constvalue.as_usize() as i32 == 0);
+    args.iter()
+        .nth(side)?
+        .as_func_expr()
+        .filter(|f| sized_when_set(f.funcid))?;
+    let zero = |n: types_nodes::Node<'_>| {
+        n.as_const()
+            .is_some_and(|c| !c.constisnull && c.constbyval && c.constvalue.as_usize() as i32 == 0)
+    };
     Some(args.iter().nth(1 - side).is_some_and(zero))
 }
 
@@ -992,7 +1355,12 @@ fn fingerprint(p: &Program<'_>, id: NodeId, scratch: Mcx<'_>) -> (u64, bool) {
 
 /// NEW-72 entry C: `fingerprint` with the constants `bound` (a bound table's, `bound_const`) printed as words: their type,
 /// never their image (no bake), and the root marked `words` (its own table, D1100's rule for a by-value word).
-fn fingerprint_bound(p: &Program<'_>, id: NodeId, bound: &dyn Fn(NodeId) -> bool, scratch: Mcx<'_>) -> (u64, bool) {
+fn fingerprint_bound(
+    p: &Program<'_>,
+    id: NodeId,
+    bound: &dyn Fn(NodeId) -> bool,
+    scratch: Mcx<'_>,
+) -> (u64, bool) {
     let (mut bytes, mut words) = (Out::new(scratch), false);
     print_root(p, id, bound, &mut bytes, &mut words);
     (gravity_abi::hash::hash_bytes64(&bytes.0) | 1, words)
@@ -1014,7 +1382,13 @@ fn bound_const(k: &Known, id: NodeId) -> bool {
 /// (step/percode.rs `attach`). Printed by value, `length(t) > 5` twice was one table, and a statement differing only in
 /// its second literal (`> 10`) ran that cached program, its second root reading the table its first root's words swept.
 /// A root without one still merges by content (D319); an island prints by content (key.rs hashes the constants under it).
-fn print_root(p: &Program<'_>, id: NodeId, bound: &dyn Fn(NodeId) -> bool, out: &mut Out<'_>, words: &mut bool) {
+fn print_root(
+    p: &Program<'_>,
+    id: NodeId,
+    bound: &dyn Fn(NodeId) -> bool,
+    out: &mut Out<'_>,
+    words: &mut bool,
+) {
     crate::stack_check();
     let island = p.islands.iter().any(|i| i.root == id);
     match p.nodes.get(id.0 as usize) {
@@ -1030,7 +1404,9 @@ fn print_root(p: &Program<'_>, id: NodeId, bound: &dyn Fn(NodeId) -> bool, out: 
             le(out, c.typ);
         }
         _ if island => print(p, id, out),
-        _ => put_node(p, id, out, &mut |out, k| print_root(p, k, bound, out, words)),
+        _ => put_node(p, id, out, &mut |out, k| {
+            print_root(p, k, bound, out, words)
+        }),
     }
 }
 
@@ -1050,7 +1426,13 @@ fn print(p: &Program<'_>, id: NodeId, out: &mut Out<'_>) {
 /// An island by its whole range `first..=root`: every node by `put_node` with a child inside the range as its offset
 /// (one outside printed in place), the island's own site, then the name / oid / PASSING tables its nodes index.
 fn put_island<'s>(p: &Program<'_>, isl: &Island, out: &mut Out<'s>) {
-    let Island { root, first, site, src: _, once: _ } = *isl; // `src` is the plan node's address: the key's, not the content's; `once` follows the content
+    let Island {
+        root,
+        first,
+        site,
+        src: _,
+        once: _,
+    } = *isl; // `src` is the plan node's address: the key's, not the content's; `once` follows the content
     let (lo, hi) = (first.0, root.0);
     out.push(0xFF);
     le(out, hi.wrapping_sub(lo));
@@ -1067,7 +1449,18 @@ fn put_island<'s>(p: &Program<'_>, isl: &Island, out: &mut Out<'s>) {
         put_node(p, NodeId(i), out, &mut kid);
     }
     put_site(p, site, out, &mut kid);
-    let Program { nodes: _, kids: _, sites: _, convs: _, names, oids, json_vars, owned: _, naggs: _, islands: _ } = p;
+    let Program {
+        nodes: _,
+        kids: _,
+        sites: _,
+        convs: _,
+        names,
+        oids,
+        json_vars,
+        owned: _,
+        naggs: _,
+        islands: _,
+    } = p;
     le(out, names.len() as u32);
     for s in names.iter() {
         put_str(out, s);
@@ -1085,15 +1478,28 @@ fn put_island<'s>(p: &Program<'_>, isl: &Island, out: &mut Out<'s>) {
 /// One node's content by construction: an exhaustive match (no `_` arm) with each struct destructured whole, so a new
 /// kind or field does not build until it is printed. Scalars as bytes, enums and value structs by `Debug`, a call site by
 /// its content (`put_site`), a side-table index by the entries it names, each child through `kid`, lists count-prefixed.
-fn put_node<'s>(p: &Program<'_>, id: NodeId, out: &mut Out<'s>, kid: &mut dyn FnMut(&mut Out<'s>, NodeId)) {
-    use crate::nodes::{agg, array, bool as boolx, case, cast, collate, field, json, misc, null, op, param, row, rowcmp, srf, var};
+fn put_node<'s>(
+    p: &Program<'_>,
+    id: NodeId,
+    out: &mut Out<'s>,
+    kid: &mut dyn FnMut(&mut Out<'s>, NodeId),
+) {
+    use crate::nodes::{
+        agg, array, bool as boolx, case, cast, collate, field, json, misc, null, op, param, row,
+        rowcmp, srf, var,
+    };
     let Some(n) = p.nodes.get(id.0 as usize) else {
         out.push(0xFE);
         le(out, id.0);
         return;
     };
     match n {
-        ExprNode::Var(var::Var { src, attno, typ, desc }) => {
+        ExprNode::Var(var::Var {
+            src,
+            attno,
+            typ,
+            desc,
+        }) => {
             out.push(1);
             dbg(out, src);
             le(out, *attno);
@@ -1145,7 +1551,12 @@ fn put_node<'s>(p: &Program<'_>, id: NodeId, out: &mut Out<'s>, kid: &mut dyn Fn
             dbg(out, op);
             put_kids(p, *args, out, kid);
         }
-        ExprNode::NullTest(null::NullTestNode { arg, is_null, row, site }) => {
+        ExprNode::NullTest(null::NullTestNode {
+            arg,
+            is_null,
+            row,
+            site,
+        }) => {
             out.push(10);
             put_ref(out, *arg, kid);
             le(out, *is_null);
@@ -1159,7 +1570,11 @@ fn put_node<'s>(p: &Program<'_>, id: NodeId, out: &mut Out<'s>, kid: &mut dyn Fn
             put_ref(out, *arg, kid);
             dbg(out, test);
         }
-        ExprNode::Case(case::Case { arg, whens, default }) => {
+        ExprNode::Case(case::Case {
+            arg,
+            whens,
+            default,
+        }) => {
             out.push(12);
             put_opt(out, *arg, kid);
             put_kids(p, *whens, out, kid);
@@ -1181,7 +1596,13 @@ fn put_node<'s>(p: &Program<'_>, id: NodeId, out: &mut Out<'s>, kid: &mut dyn Fn
             put_ref(out, *arg, kid);
             out.push(*canon as u8);
         }
-        ExprNode::CoerceViaIO(cast::CoerceViaIO { arg, out: s_out, inp, ioparam, direct }) => {
+        ExprNode::CoerceViaIO(cast::CoerceViaIO {
+            arg,
+            out: s_out,
+            inp,
+            ioparam,
+            direct,
+        }) => {
             out.push(17);
             out.push(*direct as u8);
             put_ref(out, *arg, kid);
@@ -1189,7 +1610,14 @@ fn put_node<'s>(p: &Program<'_>, id: NodeId, out: &mut Out<'s>, kid: &mut dyn Fn
             put_site(p, *inp, out, kid);
             le(out, *ioparam);
         }
-        ExprNode::CoerceToDomain(cast::CoerceToDomain { arg, typ, notnull, checks, names, site }) => {
+        ExprNode::CoerceToDomain(cast::CoerceToDomain {
+            arg,
+            typ,
+            notnull,
+            checks,
+            names,
+            site,
+        }) => {
             out.push(18);
             put_ref(out, *arg, kid);
             le(out, *typ);
@@ -1201,7 +1629,12 @@ fn put_node<'s>(p: &Program<'_>, id: NodeId, out: &mut Out<'s>, kid: &mut dyn Fn
             put_site(p, *site, out, kid);
         }
         ExprNode::CoerceToDomainValue => out.push(19),
-        ExprNode::RowCompare(rowcmp::RowCompare { cmptype, largs, rargs, sites }) => {
+        ExprNode::RowCompare(rowcmp::RowCompare {
+            cmptype,
+            largs,
+            rargs,
+            sites,
+        }) => {
             out.push(20);
             le(out, *cmptype);
             put_kids(p, *largs, out, kid);
@@ -1210,7 +1643,13 @@ fn put_node<'s>(p: &Program<'_>, id: NodeId, out: &mut Out<'s>, kid: &mut dyn Fn
                 put_site(p, SiteId(*sites + i), out, kid);
             }
         }
-        ExprNode::FieldSelect(field::FieldSelect { arg, fieldnum, typ, site, desc }) => {
+        ExprNode::FieldSelect(field::FieldSelect {
+            arg,
+            fieldnum,
+            typ,
+            site,
+            desc,
+        }) => {
             out.push(21);
             put_ref(out, *arg, kid);
             le(out, *fieldnum);
@@ -1218,7 +1657,14 @@ fn put_node<'s>(p: &Program<'_>, id: NodeId, out: &mut Out<'s>, kid: &mut dyn Fn
             put_site(p, *site, out, kid);
             le(out, *desc);
         }
-        ExprNode::FieldStore(field::FieldStore { arg, newvals, fieldnums, typ, desc, site }) => {
+        ExprNode::FieldStore(field::FieldStore {
+            arg,
+            newvals,
+            fieldnums,
+            typ,
+            desc,
+            site,
+        }) => {
             out.push(22);
             put_ref(out, *arg, kid);
             put_kids(p, *newvals, out, kid);
@@ -1229,7 +1675,17 @@ fn put_node<'s>(p: &Program<'_>, id: NodeId, out: &mut Out<'s>, kid: &mut dyn Fn
             le(out, *desc);
             put_site(p, *site, out, kid);
         }
-        ExprNode::Subscripting(array::Subscript { container, upper, lower, assign, handler, result_type, container_is_param, fetch_old, site }) => {
+        ExprNode::Subscripting(array::Subscript {
+            container,
+            upper,
+            lower,
+            assign,
+            handler,
+            result_type,
+            container_is_param,
+            fetch_old,
+            site,
+        }) => {
             out.push(23);
             put_ref(out, *container, kid);
             put_kids(p, *upper, out, kid);
@@ -1241,7 +1697,13 @@ fn put_node<'s>(p: &Program<'_>, id: NodeId, out: &mut Out<'s>, kid: &mut dyn Fn
             le(out, *fetch_old);
             put_site(p, *site, out, kid);
         }
-        ExprNode::Array(array::ArrayExpr { elements, array_type, elem, multidims, site }) => {
+        ExprNode::Array(array::ArrayExpr {
+            elements,
+            array_type,
+            elem,
+            multidims,
+            site,
+        }) => {
             out.push(24);
             put_kids(p, *elements, out, kid);
             le(out, *array_type);
@@ -1249,7 +1711,13 @@ fn put_node<'s>(p: &Program<'_>, id: NodeId, out: &mut Out<'s>, kid: &mut dyn Fn
             le(out, *multidims);
             put_site(p, *site, out, kid);
         }
-        ExprNode::ArrayCoerce(array::ArrayCoerce { arg, elemexpr, result_type, out: e_out, inp }) => {
+        ExprNode::ArrayCoerce(array::ArrayCoerce {
+            arg,
+            elemexpr,
+            result_type,
+            out: e_out,
+            inp,
+        }) => {
             out.push(25);
             put_ref(out, *arg, kid);
             put_opt(out, *elemexpr, kid);
@@ -1257,7 +1725,13 @@ fn put_node<'s>(p: &Program<'_>, id: NodeId, out: &mut Out<'s>, kid: &mut dyn Fn
             dbg(out, e_out);
             dbg(out, inp);
         }
-        ExprNode::Row(row::RowExpr { args, row_type, desc, natts, site }) => {
+        ExprNode::Row(row::RowExpr {
+            args,
+            row_type,
+            desc,
+            natts,
+            site,
+        }) => {
             out.push(26);
             put_kids(p, *args, out, kid);
             le(out, *row_type);
@@ -1265,7 +1739,15 @@ fn put_node<'s>(p: &Program<'_>, id: NodeId, out: &mut Out<'s>, kid: &mut dyn Fn
             le(out, *natts);
             put_site(p, *site, out, kid);
         }
-        ExprNode::ConvertRowtype(row::ConvertRowtype { arg, result_type, indesc, outdesc, map, site, wide }) => {
+        ExprNode::ConvertRowtype(row::ConvertRowtype {
+            arg,
+            result_type,
+            indesc,
+            outdesc,
+            map,
+            site,
+            wide,
+        }) => {
             out.push(27);
             put_ref(out, *arg, kid);
             le(out, *result_type);
@@ -1286,7 +1768,17 @@ fn put_node<'s>(p: &Program<'_>, id: NodeId, out: &mut Out<'s>, kid: &mut dyn Fn
             le(out, *typ);
             le(out, *typmod);
         }
-        ExprNode::Xml(misc::Xml { op, args, named_args, typ, name, names, types, xmloption, indent }) => {
+        ExprNode::Xml(misc::Xml {
+            op,
+            args,
+            named_args,
+            typ,
+            name,
+            names,
+            types,
+            xmloption,
+            indent,
+        }) => {
             out.push(30);
             dbg(out, op);
             put_kids(p, *args, out, kid);
@@ -1312,7 +1804,10 @@ fn put_node<'s>(p: &Program<'_>, id: NodeId, out: &mut Out<'s>, kid: &mut dyn Fn
             le(out, *typ);
             put_site(p, *site, out, kid);
         }
-        ExprNode::CurrentOf(misc::CurrentOf { cvarno, cursor_param }) => {
+        ExprNode::CurrentOf(misc::CurrentOf {
+            cvarno,
+            cursor_param,
+        }) => {
             out.push(33);
             le(out, *cvarno);
             le(out, *cursor_param);
@@ -1356,10 +1851,33 @@ fn put_node<'s>(p: &Program<'_>, id: NodeId, out: &mut Out<'s>, kid: &mut dyn Fn
         }
     }
     // the JSON family's nodes, each struct whole (`json::JsonNode`)
-    fn put_json<'s>(p: &Program<'_>, j: &json::JsonNode, out: &mut Out<'s>, kid: &mut dyn FnMut(&mut Out<'s>, NodeId)) {
+    fn put_json<'s>(
+        p: &Program<'_>,
+        j: &json::JsonNode,
+        out: &mut Out<'s>,
+        kid: &mut dyn FnMut(&mut Out<'s>, NodeId),
+    ) {
         match j {
             json::JsonNode::Expr(e) => {
-                let json::JsonExprNode { op, formatted, path, passing, vars, wrapper, returning, throw_error, on_error, on_empty, io, json, column_name, ioparam, ret_typmod, ret_len, ret_byval } = e;
+                let json::JsonExprNode {
+                    op,
+                    formatted,
+                    path,
+                    passing,
+                    vars,
+                    wrapper,
+                    returning,
+                    throw_error,
+                    on_error,
+                    on_empty,
+                    io,
+                    json,
+                    column_name,
+                    ioparam,
+                    ret_typmod,
+                    ret_len,
+                    ret_byval,
+                } = e;
                 out.push(1);
                 dbg(out, op);
                 put_ref(out, *formatted, kid);
@@ -1375,7 +1893,10 @@ fn put_node<'s>(p: &Program<'_>, id: NodeId, out: &mut Out<'s>, kid: &mut dyn Fn
                 put_behavior(out, on_empty.as_ref(), kid);
                 dbg(out, io);
                 dbg(out, json);
-                put_opt_str(out, column_name.and_then(|i| p.names.get(i as usize).copied()));
+                put_opt_str(
+                    out,
+                    column_name.and_then(|i| p.names.get(i as usize).copied()),
+                );
                 le(out, *ioparam);
                 le(out, *ret_typmod);
                 le(out, *ret_len);
@@ -1385,7 +1906,17 @@ fn put_node<'s>(p: &Program<'_>, id: NodeId, out: &mut Out<'s>, kid: &mut dyn Fn
                 out.push(2);
                 put_ref(out, *f, kid);
             }
-            json::JsonNode::Constructor(json::Constructor { ctor, func, args, types, is_jsonb, absent_on_null, unique, cat, coercion }) => {
+            json::JsonNode::Constructor(json::Constructor {
+                ctor,
+                func,
+                args,
+                types,
+                is_jsonb,
+                absent_on_null,
+                unique,
+                cat,
+                coercion,
+            }) => {
                 out.push(3);
                 dbg(out, ctor);
                 put_opt(out, *func, kid);
@@ -1399,7 +1930,12 @@ fn put_node<'s>(p: &Program<'_>, id: NodeId, out: &mut Out<'s>, kid: &mut dyn Fn
                 le(out, *cat);
                 put_opt(out, *coercion, kid);
             }
-            json::JsonNode::IsJson(json::IsJson { arg, exprtype, item_type, unique_keys }) => {
+            json::JsonNode::IsJson(json::IsJson {
+                arg,
+                exprtype,
+                item_type,
+                unique_keys,
+            }) => {
                 out.push(4);
                 put_ref(out, *arg, kid);
                 le(out, *exprtype);
@@ -1412,8 +1948,18 @@ fn put_node<'s>(p: &Program<'_>, id: NodeId, out: &mut Out<'s>, kid: &mut dyn Fn
             }
         }
     }
-    fn put_behavior<'s>(out: &mut Out<'s>, b: Option<&json::Behavior>, kid: &mut dyn FnMut(&mut Out<'s>, NodeId)) {
-        let Some(json::Behavior { btype, expr, coerce, needs_finish }) = b else {
+    fn put_behavior<'s>(
+        out: &mut Out<'s>,
+        b: Option<&json::Behavior>,
+        kid: &mut dyn FnMut(&mut Out<'s>, NodeId),
+    ) {
+        let Some(json::Behavior {
+            btype,
+            expr,
+            coerce,
+            needs_finish,
+        }) = b
+        else {
             out.push(0);
             return;
         };
@@ -1427,8 +1973,23 @@ fn put_node<'s>(p: &Program<'_>, id: NodeId, out: &mut Out<'s>, kid: &mut dyn Fn
 
 /// A call site by content: every `Call` field, its arguments through `kid`, a shim by its catalog row and argument
 /// conversions (a manager call's slot is the site's own: its content is the site's).
-fn put_site<'s>(p: &Program<'_>, s: SiteId, out: &mut Out<'s>, kid: &mut dyn FnMut(&mut Out<'s>, NodeId)) {
-    let Some(Call { funcid, args, nargs, strict, collation, how, rettype, volatile }) = p.sites.get(s.0 as usize) else {
+fn put_site<'s>(
+    p: &Program<'_>,
+    s: SiteId,
+    out: &mut Out<'s>,
+    kid: &mut dyn FnMut(&mut Out<'s>, NodeId),
+) {
+    let Some(Call {
+        funcid,
+        args,
+        nargs,
+        strict,
+        collation,
+        how,
+        rettype,
+        volatile,
+    }) = p.sites.get(s.0 as usize)
+    else {
         out.push(0xFE);
         le(out, s.0);
         return;
@@ -1480,7 +2041,12 @@ fn put_image(out: &mut Out<'_>, c: &ConstNode<'_>) {
     }
 }
 
-fn put_kids<'s>(p: &Program<'_>, k: Kids, out: &mut Out<'s>, kid: &mut dyn FnMut(&mut Out<'s>, NodeId)) {
+fn put_kids<'s>(
+    p: &Program<'_>,
+    k: Kids,
+    out: &mut Out<'s>,
+    kid: &mut dyn FnMut(&mut Out<'s>, NodeId),
+) {
     le(out, k.len);
     for i in 0..k.len {
         match p.kids.get((k.start + i) as usize) {
@@ -1510,7 +2076,12 @@ fn put_opt<'s>(out: &mut Out<'s>, id: Option<NodeId>, kid: &mut dyn FnMut(&mut O
 }
 
 fn put_json_var(out: &mut Out<'_>, v: Option<&crate::nodes::json::JsonVar>) {
-    let Some(crate::nodes::json::JsonVar { name, typid, typmod }) = v else {
+    let Some(crate::nodes::json::JsonVar {
+        name,
+        typid,
+        typmod,
+    }) = v
+    else {
         out.push(0);
         return;
     };
@@ -1612,12 +2183,19 @@ pub(crate) fn host_calls(p: &Program<'_>, id: NodeId, plan: &Plan) -> usize {
         return 0;
     }
     let here = match &p.nodes[id.0 as usize] {
-        ExprNode::Func(n) | ExprNode::Op(n) | ExprNode::Distinct(n) | ExprNode::NullIf(n) => !crate::emit::prim::is_prim(p, &p.sites[n.site.0 as usize], false) as usize,
-        ExprNode::ScalarArrayOp(n) => (!crate::emit::prim::is_prim(p, &p.sites[n.site.0 as usize], false) || crate::emit::scalar::walked(p, n)) as usize,
+        ExprNode::Func(n) | ExprNode::Op(n) | ExprNode::Distinct(n) | ExprNode::NullIf(n) => {
+            !crate::emit::prim::is_prim(p, &p.sites[n.site.0 as usize], false) as usize
+        }
+        ExprNode::ScalarArrayOp(n) => {
+            (!crate::emit::prim::is_prim(p, &p.sites[n.site.0 as usize], false)
+                || crate::emit::scalar::walked(p, n)) as usize
+        }
         ExprNode::NullTest(t) => t.row as usize,
         _ => 0,
     };
-    here + walk_kids(p, id).map(|k| host_calls(p, k, plan)).sum::<usize>()
+    here + walk_kids(p, id)
+        .map(|k| host_calls(p, k, plan))
+        .sum::<usize>()
 }
 
 #[derive(Debug)]
@@ -1647,12 +2225,24 @@ fn image(scratch: &mut [u8], b: &[u8]) -> Option<Datum> {
 /// The need's table built by tier 0: the body evaluated per entry in code order over a one-column
 /// row holding the entry's image (the first half of `scratch`; by-reference intermediates in the
 /// second half); an error or an image past the scratch is a fault bit. The table lives in `region`.
-pub fn fill(c: &mut Compiled<'_>, need: &TableNeed, dict: &dyn Dict, region: &mut gravity_dict::Region, scratch: &mut [u8]) -> Result<*const Header, FillError> {
+pub fn fill(
+    c: &mut Compiled<'_>,
+    need: &TableNeed,
+    dict: &dyn Dict,
+    region: &mut gravity_dict::Region,
+    scratch: &mut [u8],
+) -> Result<*const Header, FillError> {
     let n = need.attno as usize;
     let mut values = vec![Datum::null(); n]; // alloc: Cold
     let nulls = vec![false; n]; // alloc: Cold
     let (img, rest) = scratch.split_at_mut(scratch.len() / 2);
-    let Compiled { prog, state, params, callback_arg, .. } = c;
+    let Compiled {
+        prog,
+        state,
+        params,
+        callback_arg,
+        ..
+    } = c;
     let (prog, mut state) = (prog.view(), state.view());
     let mut ev = |v: View| -> Result<NullableDatum, Fault> {
         // SAFETY: the dictionary's entry bytes are live through the build's sweep.
@@ -1664,16 +2254,24 @@ pub fn fill(c: &mut Compiled<'_>, need: &TableNeed, dict: &dyn Dict, region: &mu
         eval::eval(&prog, &mut state, need.root, &mut cx).map_err(|_| FAULT_BODY)
     };
     let hdr = match need.elem {
-        gravity_dict::ELEM_BITS => gravity_dict::Bits::build(dict, region, &mut |v| Ok(ev(v)?.value.as_i64() != 0))?.header(),
-        gravity_dict::ELEM_I64 => gravity_dict::I64::build(dict, region, &mut |v| Ok(ev(v)?.value.as_i64()))?.header(),
-        gravity_dict::ELEM_DERIVED => gravity_dict::Derived::build(dict, region, &mut |v, region| {
-            let r = ev(v)?;
-            let mut scratch = [0u8; 256];
-            let mut small = gravity_fn::Region::over(&mut scratch);
-            let view = payload_view(r.value, -1, &mut small).map_err(|_| Halt::Fault(FAULT_BODY))?;
-            Ok(region.copy(view.bytes())?)
-        })?
-        .header(),
+        gravity_dict::ELEM_BITS => {
+            gravity_dict::Bits::build(dict, region, &mut |v| Ok(ev(v)?.value.as_i64() != 0))?
+                .header()
+        }
+        gravity_dict::ELEM_I64 => {
+            gravity_dict::I64::build(dict, region, &mut |v| Ok(ev(v)?.value.as_i64()))?.header()
+        }
+        gravity_dict::ELEM_DERIVED => {
+            gravity_dict::Derived::build(dict, region, &mut |v, region| {
+                let r = ev(v)?;
+                let mut scratch = [0u8; 256];
+                let mut small = gravity_fn::Region::over(&mut scratch);
+                let view =
+                    payload_view(r.value, -1, &mut small).map_err(|_| Halt::Fault(FAULT_BODY))?;
+                Ok(region.copy(view.bytes())?)
+            })?
+            .header()
+        }
         _ => return Err(FillError::Form),
     };
     Ok(hdr)
@@ -1703,7 +2301,11 @@ fn islands_sig_t(p: &Program<'_>) -> Option<u64> {
 }
 
 #[cfg(test)]
-fn analyze_t<C: Cols + ?Sized>(p: &Program<'_>, root: NodeId, codes: &C) -> Result<Plan<'static>, EmitError> {
+fn analyze_t<C: Cols + ?Sized>(
+    p: &Program<'_>,
+    root: NodeId,
+    codes: &C,
+) -> Result<Plan<'static>, EmitError> {
     analyze(p, root, codes, tcx())
 }
 
@@ -1721,7 +2323,10 @@ fn bv(b: &[u8]) -> PgVec<'static, u8> {
 
 #[cfg(test)]
 mod d341 {
-    use types_nodes::primnodes::{BoolTestType, JsonBehaviorType as JBT, JsonConstructorType as JC, JsonExprOp, JsonValueType as JT, SQLValueFunctionOp as Svf, XmlExprOp, XmlOptionType};
+    use types_nodes::primnodes::{
+        BoolTestType, JsonBehaviorType as JBT, JsonConstructorType as JC, JsonExprOp,
+        JsonValueType as JT, SQLValueFunctionOp as Svf, XmlExprOp, XmlOptionType,
+    };
     use types_nodes::NodeTag;
 
     use super::*;
@@ -1737,7 +2342,12 @@ mod d341 {
     const INT4GT: Oid = 147;
     const INT4LT: Oid = 66;
     const CONCAT: Oid = 3058;
-    const ELEM: ElemFacts = ElemFacts { typ: 23, len: 4, byval: true, align: b'i' as i8 };
+    const ELEM: ElemFacts = ElemFacts {
+        typ: 23,
+        len: 4,
+        byval: true,
+        align: b'i' as i8,
+    };
 
     pub(super) struct B(pub(super) Program<'static>);
 
@@ -1752,23 +2362,49 @@ mod d341 {
         pub(super) fn kids(&mut self, ids: &[NodeId]) -> Kids {
             let start = self.0.kids.len() as u32;
             self.0.kids.extend_from_slice(ids);
-            Kids { start, len: ids.len() as u32 }
+            Kids {
+                start,
+                len: ids.len() as u32,
+            }
         }
-        pub(super) fn call(&mut self, funcid: Oid, args: &[NodeId], collation: Oid, how: How) -> SiteId {
+        pub(super) fn call(
+            &mut self,
+            funcid: Oid,
+            args: &[NodeId],
+            collation: Oid,
+            how: How,
+        ) -> SiteId {
             let args = self.kids(args);
-            self.0.sites.push(Call { funcid, args, nargs: args.len as u8, strict: true, collation, how, rettype: 23, volatile: false });
+            self.0.sites.push(Call {
+                funcid,
+                args,
+                nargs: args.len as u8,
+                strict: true,
+                collation,
+                how,
+                rettype: 23,
+                volatile: false,
+            });
             SiteId(self.0.sites.len() as u32 - 1)
         }
         pub(super) fn site(&mut self, funcid: Oid, args: &[NodeId]) -> SiteId {
             self.call(funcid, args, 0, How::Fmgr(0))
         }
         pub(super) fn var(&mut self, attno: i16) -> NodeId {
-            self.node(ExprNode::Var(crate::nodes::var::Var { src: eval::Source::Scan, attno, typ: 25, desc: 0 }))
+            self.node(ExprNode::Var(crate::nodes::var::Var {
+                src: eval::Source::Scan,
+                attno,
+                typ: 25,
+                desc: 0,
+            }))
         }
         pub(super) fn int(&mut self, v: Option<i32>) -> NodeId {
             let value = match v {
                 Some(v) => NullableDatum::value(Datum::from_i32(v)),
-                None => NullableDatum { value: Datum::from_i32(0), isnull: true },
+                None => NullableDatum {
+                    value: Datum::from_i32(0),
+                    isnull: true,
+                },
             };
             self.node(ExprNode::Const(ConstNode::new(value, 23, 4, true)))
         }
@@ -1791,7 +2427,13 @@ mod d341 {
             let root = self.island_root(tag, field, k);
             let col = self.var(2);
             let site = self.call(0, &[col], 0, How::Island { root });
-            self.0.islands.push(Island { root, first, site, src: 0, once: None });
+            self.0.islands.push(Island {
+                root,
+                first,
+                site,
+                src: 0,
+                once: None,
+            });
             root
         }
         pub(super) fn island_root(&mut self, tag: NodeTag, field: bool, k: i32) -> NodeId {
@@ -1801,27 +2443,55 @@ mod d341 {
                     let c = self.int(Some(k));
                     let row = self.kids(&[x, c]);
                     let arg = self.node(ExprNode::Coalesce(Coalesce { args: row }));
-                    self.node(ExprNode::NullTest(NullTestNode { arg, is_null: field, row: true, site: None }))
+                    self.node(ExprNode::NullTest(NullTestNode {
+                        arg,
+                        is_null: field,
+                        row: true,
+                        site: None,
+                    }))
                 }
                 NodeTag::T_MinMaxExpr => {
                     let c = self.int(Some(k));
                     let args = self.kids(&[x, c]);
                     let cmp = self.site(INT4GT, &[]);
-                    self.node(ExprNode::MinMax(MinMax { args, least: field, cmp }))
+                    self.node(ExprNode::MinMax(MinMax {
+                        args,
+                        least: field,
+                        cmp,
+                    }))
                 }
                 NodeTag::T_RowCompareExpr => {
                     let c = self.int(Some(k));
                     let (largs, rargs) = (self.kids(&[x]), self.kids(&[c]));
                     let sites = self.site(if field { INT4LT } else { INT4GT }, &[]).0;
-                    self.node(ExprNode::RowCompare(RowCompare { cmptype: 1, largs, rargs, sites }))
+                    self.node(ExprNode::RowCompare(RowCompare {
+                        cmptype: 1,
+                        largs,
+                        rargs,
+                        sites,
+                    }))
                 }
                 NodeTag::T_ArrayCoerceExpr => {
                     let elemexpr = Some(self.int(Some(k)));
-                    self.node(ExprNode::ArrayCoerce(ArrayCoerce { arg: x, elemexpr, result_type: if field { 1016 } else { 1007 }, out: ELEM, inp: ELEM }))
+                    self.node(ExprNode::ArrayCoerce(ArrayCoerce {
+                        arg: x,
+                        elemexpr,
+                        result_type: if field { 1016 } else { 1007 },
+                        out: ELEM,
+                        inp: ELEM,
+                    }))
                 }
                 NodeTag::T_SQLValueFunction => {
-                    let op = if field { Svf::SVFOP_SESSION_USER } else { Svf::SVFOP_CURRENT_USER };
-                    self.node(ExprNode::SqlValueFunction(SqlValueFunction { op, typ: 19, typmod: -1 }))
+                    let op = if field {
+                        Svf::SVFOP_SESSION_USER
+                    } else {
+                        Svf::SVFOP_CURRENT_USER
+                    };
+                    self.node(ExprNode::SqlValueFunction(SqlValueFunction {
+                        op,
+                        typ: 19,
+                        typmod: -1,
+                    }))
                 }
                 NodeTag::T_XmlExpr => {
                     let c = self.int(Some(k));
@@ -1831,8 +2501,19 @@ mod d341 {
                     let types = self.0.oids.len() as u32;
                     self.0.oids.extend_from_slice(&[25, 23]);
                     let named_args = Kids::default();
-                    let (op, xmloption) = (XmlExprOp::IS_XMLELEMENT, XmlOptionType::XMLOPTION_CONTENT);
-                    self.node(ExprNode::Xml(Xml { op, args, named_args, typ: 142, name, names: 0, types, xmloption, indent: false }))
+                    let (op, xmloption) =
+                        (XmlExprOp::IS_XMLELEMENT, XmlOptionType::XMLOPTION_CONTENT);
+                    self.node(ExprNode::Xml(Xml {
+                        op,
+                        args,
+                        named_args,
+                        typ: 142,
+                        name,
+                        names: 0,
+                        types,
+                        xmloption,
+                        indent: false,
+                    }))
                 }
                 NodeTag::T_JsonValueExpr => {
                     let c = self.int(Some(k));
@@ -1844,19 +2525,47 @@ mod d341 {
                     let args = self.kids(&[c, x]);
                     let types = self.0.oids.len() as u32;
                     self.0.oids.extend_from_slice(&[23, 25]);
-                    let ctor = Constructor { ctor: JC::JSCTOR_JSON_OBJECT, func: None, args, types, is_jsonb: false, absent_on_null: field, unique: false, cat: 0, coercion: None };
+                    let ctor = Constructor {
+                        ctor: JC::JSCTOR_JSON_OBJECT,
+                        func: None,
+                        args,
+                        types,
+                        is_jsonb: false,
+                        absent_on_null: field,
+                        unique: false,
+                        cat: 0,
+                        coercion: None,
+                    };
                     self.node(ExprNode::Json(JsonNode::Constructor(ctor)))
                 }
                 NodeTag::T_JsonIsPredicate => {
                     let c = self.int(Some(k));
                     let arg = self.func(CONCAT, &[x, c]);
-                    let item_type = if field { JT::JS_TYPE_ARRAY } else { JT::JS_TYPE_OBJECT };
-                    self.node(ExprNode::Json(JsonNode::IsJson(IsJson { arg, exprtype: 25, item_type, unique_keys: false })))
+                    let item_type = if field {
+                        JT::JS_TYPE_ARRAY
+                    } else {
+                        JT::JS_TYPE_OBJECT
+                    };
+                    self.node(ExprNode::Json(JsonNode::IsJson(IsJson {
+                        arg,
+                        exprtype: 25,
+                        item_type,
+                        unique_keys: false,
+                    })))
                 }
                 NodeTag::T_JsonExpr => {
                     let path = self.int(Some(k));
-                    let on_error = Behavior { btype: JBT::JSON_BEHAVIOR_NULL, expr: None, coerce: false, needs_finish: false };
-                    let op = if field { JsonExprOp::JSON_QUERY_OP } else { JsonExprOp::JSON_VALUE_OP };
+                    let on_error = Behavior {
+                        btype: JBT::JSON_BEHAVIOR_NULL,
+                        expr: None,
+                        coerce: false,
+                        needs_finish: false,
+                    };
+                    let op = if field {
+                        JsonExprOp::JSON_QUERY_OP
+                    } else {
+                        JsonExprOp::JSON_VALUE_OP
+                    };
                     let e = JsonExprNode {
                         op,
                         formatted: x,
@@ -1902,7 +2611,11 @@ mod d341 {
                 let ra = b.root(ia);
                 let ib = b.island(tag, field, k);
                 let rb = b.root(ib);
-                assert_ne!(fingerprint_t(&b.0, ra), fingerprint_t(&b.0, rb), "{tag:?} twin {i}: one fingerprint");
+                assert_ne!(
+                    fingerprint_t(&b.0, ra),
+                    fingerprint_t(&b.0, rb),
+                    "{tag:?} twin {i}: one fingerprint"
+                );
                 // two programs of one shape (the owner's sig)
                 let mut pa = B::new();
                 let ia = pa.island(tag, false, 1);
@@ -1910,7 +2623,11 @@ mod d341 {
                 let mut pb = B::new();
                 let ib = pb.island(tag, field, k);
                 pb.root(ib);
-                assert_ne!(islands_sig_t(&pa.0), islands_sig_t(&pb.0), "{tag:?} twin {i}: one islands_sig");
+                assert_ne!(
+                    islands_sig_t(&pa.0),
+                    islands_sig_t(&pb.0),
+                    "{tag:?} twin {i}: one islands_sig"
+                );
             }
             // the same island twice in one program: one table, as before
             let mut b = B::new();
@@ -1918,7 +2635,11 @@ mod d341 {
             let ra = b.root(ia);
             let ib = b.island(tag, false, 1);
             let rb = b.root(ib);
-            assert_eq!(fingerprint_t(&b.0, ra), fingerprint_t(&b.0, rb), "{tag:?}: equal islands at two places");
+            assert_eq!(
+                fingerprint_t(&b.0, ra),
+                fingerprint_t(&b.0, rb),
+                "{tag:?}: equal islands at two places"
+            );
         }
     }
 
@@ -1932,15 +2653,28 @@ mod d341 {
                 let (x, y) = (b.int(Some(3)), b.int(Some(4)));
                 let args = b.kids(&[x, y]);
                 let cmp = b.site(INT4GT, &[]);
-                b.node(ExprNode::MinMax(MinMax { args, least: v, cmp }))
+                b.node(ExprNode::MinMax(MinMax {
+                    args,
+                    least: v,
+                    cmp,
+                }))
             }),
             ("nulltest.is_null", |b, v| {
                 let x = b.int(Some(3));
-                b.node(ExprNode::NullTest(NullTestNode { arg: x, is_null: v, row: false, site: None }))
+                b.node(ExprNode::NullTest(NullTestNode {
+                    arg: x,
+                    is_null: v,
+                    row: false,
+                    site: None,
+                }))
             }),
             ("booleantest.test", |b, v| {
                 let x = b.int(Some(3));
-                let test = if v { BoolTestType::IS_FALSE } else { BoolTestType::IS_TRUE };
+                let test = if v {
+                    BoolTestType::IS_FALSE
+                } else {
+                    BoolTestType::IS_TRUE
+                };
                 b.node(ExprNode::BooleanTest(BooleanTestNode { arg: x, test }))
             }),
             ("coalesce.arity", |b, v| {
@@ -1958,7 +2692,11 @@ mod d341 {
             ("case.default", |b, v| {
                 let (c, r, d) = (b.int(Some(1)), b.int(Some(2)), b.int(Some(3)));
                 let whens = b.kids(&[c, r]);
-                b.node(ExprNode::Case(Case { arg: None, whens, default: v.then_some(d) }))
+                b.node(ExprNode::Case(Case {
+                    arg: None,
+                    whens,
+                    default: v.then_some(d),
+                }))
             }),
             ("distinct.collation", |b, v| {
                 let (x, y) = (b.int(Some(1)), b.int(Some(2)));
@@ -1972,14 +2710,23 @@ mod d341 {
             }),
             ("imm.value", |b, v| {
                 let x = b.int(Some(1));
-                let m = b.node(ExprNode::Imm(Imm { value: if v { 2 } else { 3 }, typ: 23 }));
+                let m = b.node(ExprNode::Imm(Imm {
+                    value: if v { 2 } else { 3 },
+                    typ: 23,
+                }));
                 b.func(1740, &[x, m])
             }),
             ("coerceviaio.site", |b, v| {
                 let x = b.int(Some(1));
                 let out = b.site(43, &[]);
                 let inp = b.site(if v { 1044 } else { 2 }, &[]);
-                b.node(ExprNode::CoerceViaIO(CoerceViaIO { arg: x, out, inp, ioparam: 23, direct: false }))
+                b.node(ExprNode::CoerceViaIO(CoerceViaIO {
+                    arg: x,
+                    out,
+                    inp,
+                    ioparam: 23,
+                    direct: false,
+                }))
             }),
             ("const.null", |b, v| b.int(if v { None } else { Some(0) })),
         ];
@@ -1989,10 +2736,18 @@ mod d341 {
             let ra = b.root(ia);
             let ib = mk(&mut b, true);
             let rb = b.root(ib);
-            assert_ne!(fingerprint_t(&b.0, ra), fingerprint_t(&b.0, rb), "{name}: one fingerprint");
+            assert_ne!(
+                fingerprint_t(&b.0, ra),
+                fingerprint_t(&b.0, rb),
+                "{name}: one fingerprint"
+            );
             let ic = mk(&mut b, false);
             let rc = b.root(ic);
-            assert_eq!(fingerprint_t(&b.0, ra), fingerprint_t(&b.0, rc), "{name}: equal roots at two places");
+            assert_eq!(
+                fingerprint_t(&b.0, ra),
+                fingerprint_t(&b.0, rc),
+                "{name}: equal roots at two places"
+            );
         }
     }
 }
@@ -2018,16 +2773,42 @@ mod d1100 {
     fn a_by_value_literal_is_a_word_never_its_value() {
         let (mut a, mut c) = (B::new(), B::new());
         let (ra, rc) = (gt(&mut a, 5), gt(&mut c, 10));
-        assert_eq!(fingerprint_t(&a.0, ra), (fingerprint_t(&c.0, rc).0, true), "a word's value in the fingerprint, or no word");
+        assert_eq!(
+            fingerprint_t(&a.0, ra),
+            (fingerprint_t(&c.0, rc).0, true),
+            "a word's value in the fingerprint, or no word"
+        );
         let t = a.var(1);
         let l = a.func(F_LENGTH[0], &[t]);
         assert!(!fingerprint_t(&a.0, l).1, "length(t): no word");
-        let need = |fingerprint: (u64, bool), root| TableNeed { root, attno: 1, elem: 0, fingerprint: fingerprint.0, words: fingerprint.1, known: Known::Body };
-        let (n1, n2) = (need(fingerprint_t(&a.0, ra), ra), need(fingerprint_t(&c.0, rc), ra));
-        assert_ne!(n1.table_fingerprint(1), n1.table_fingerprint(2), "two expressions' word roots: one table");
-        assert_eq!(n1.table_fingerprint(1), n2.table_fingerprint(1), "one place, another literal: one table");
+        let need = |fingerprint: (u64, bool), root| TableNeed {
+            root,
+            attno: 1,
+            elem: 0,
+            fingerprint: fingerprint.0,
+            words: fingerprint.1,
+            known: Known::Body,
+        };
+        let (n1, n2) = (
+            need(fingerprint_t(&a.0, ra), ra),
+            need(fingerprint_t(&c.0, rc), ra),
+        );
+        assert_ne!(
+            n1.table_fingerprint(1),
+            n1.table_fingerprint(2),
+            "two expressions' word roots: one table"
+        );
+        assert_eq!(
+            n1.table_fingerprint(1),
+            n2.table_fingerprint(1),
+            "one place, another literal: one table"
+        );
         let w = need(fingerprint_t(&a.0, l), l);
-        assert_eq!((w.table_fingerprint(1), w.table_fingerprint(2)), (w.fingerprint, w.fingerprint), "no word: by content (D319)");
+        assert_eq!(
+            (w.table_fingerprint(1), w.table_fingerprint(2)),
+            (w.fingerprint, w.fingerprint),
+            "no word: by content (D319)"
+        );
     }
 }
 
@@ -2058,7 +2839,11 @@ mod d348 {
         for n in [0usize, 1, 63, 64, 65, 71, 100, 125, 126, 127, 128, 300] {
             for at in [8usize, 9] {
                 let c = image(&mut buf, at, n, b'b');
-                assert_eq!(with_const_bytes(&c, &mut |b| Some(b.len())), Some(n), "{n} bytes at {at}");
+                assert_eq!(
+                    with_const_bytes(&c, &mut |b| Some(b.len())),
+                    Some(n),
+                    "{n} bytes at {at}"
+                );
                 assert!(with_const_bytes(&c, &mut |b| Some(b.iter().all(|&x| x == b'b'))).unwrap());
             }
         }
@@ -2076,9 +2861,18 @@ mod d348 {
         for at in [8usize, 9] {
             buf[at] = (((payload.len() + 1) << 1) | 1) as u8;
             buf[at + 1..at + 1 + payload.len()].copy_from_slice(payload);
-            let c = ConstNode::new(NullableDatum::value(Datum::from_usize(buf[at..].as_ptr() as usize)), 1700, -1, false);
+            let c = ConstNode::new(
+                NullableDatum::value(Datum::from_usize(buf[at..].as_ptr() as usize)),
+                1700,
+                -1,
+                false,
+            );
             let read = with_const_bytes(&c, &mut |b| {
-                assert_eq!(b.as_ptr() as usize % 2, 0, "the payload at {at} is lent aligned");
+                assert_eq!(
+                    b.as_ptr() as usize % 2,
+                    0,
+                    "the payload at {at} is lent aligned"
+                );
                 adt_numeric::numeric_int8(adt_numeric::Num::from_payload(b)).ok()
             });
             assert_eq!(read, Some(123_456_789), "at {at}");
@@ -2092,19 +2886,50 @@ mod d348 {
         let mut buf = [0u8; 256];
         for (n, empty) in [(71usize, false), (126, false), (0, true)] {
             let mut p: Program<'static> = Program::empty_in(crate::percode::tcx());
-            p.nodes.push(ExprNode::Var(crate::nodes::var::Var { src: eval::Source::Scan, attno: 1, typ: 25, desc: 0 }));
+            p.nodes.push(ExprNode::Var(crate::nodes::var::Var {
+                src: eval::Source::Scan,
+                attno: 1,
+                typ: 25,
+                desc: 0,
+            }));
             p.nodes.push(ExprNode::Const(image(&mut buf, 9, n, b'b')));
             p.kids.extend_from_slice(&[NodeId(0), NodeId(1)]);
             for (funcid, like) in [(F_TEXTNE, false), (F_TEXTLIKE[0], true)] {
-                p.sites.push(Call { funcid, args: Kids { start: 0, len: 2 }, nargs: 2, strict: true, collation: 100, how: How::Fmgr(0), rettype: BOOLOID, volatile: false });
-                p.nodes.push(ExprNode::Op(func::FuncNode { site: SiteId(p.sites.len() as u32 - 1) }));
+                p.sites.push(Call {
+                    funcid,
+                    args: Kids { start: 0, len: 2 },
+                    nargs: 2,
+                    strict: true,
+                    collation: 100,
+                    how: How::Fmgr(0),
+                    rettype: BOOLOID,
+                    volatile: false,
+                });
+                p.nodes.push(ExprNode::Op(func::FuncNode {
+                    site: SiteId(p.sites.len() as u32 - 1),
+                }));
                 let root = NodeId(p.nodes.len() as u32 - 1);
                 let form = classify(&p, root).unwrap();
                 if like {
-                    assert_eq!(known_of(&p, root, tcx()), Known::Like { pattern: bv(&vec![b'b'; n]), ilike: false, negated: false }); // alloc: Program
+                    assert_eq!(
+                        known_of(&p, root, tcx()),
+                        Known::Like {
+                            pattern: bv(&vec![b'b'; n]),
+                            ilike: false,
+                            negated: false
+                        }
+                    ); // alloc: Program
                 } else {
-                    assert_eq!(form, Form::Bits, "t <> a {n}-byte constant: a code set as any constant's");
-                    assert_eq!(empty_test(&p, root).map(|e| e.1), empty.then_some(true), "t <> a {n}-byte constant: the length test only for ''");
+                    assert_eq!(
+                        form,
+                        Form::Bits,
+                        "t <> a {n}-byte constant: a code set as any constant's"
+                    );
+                    assert_eq!(
+                        empty_test(&p, root).map(|e| e.1),
+                        empty.then_some(true),
+                        "t <> a {n}-byte constant: the length test only for ''"
+                    );
                 }
             }
         }
@@ -2116,15 +2941,39 @@ mod d348 {
     fn a_utf8_database_keeps_underscore_and_ilike_on_the_table() {
         let mut buf = [0u8; 64];
         gravity_fn::typesem::collation::arm_database_encoding(6).expect("UTF8");
-        for (byte, funcid) in [(b'_', F_TEXTLIKE[0]), (b'b', F_TEXTLIKE[0]), (b'_', F_TEXTICLIKE[0]), (b'b', F_TEXTICLIKE[0])] {
+        for (byte, funcid) in [
+            (b'_', F_TEXTLIKE[0]),
+            (b'b', F_TEXTLIKE[0]),
+            (b'_', F_TEXTICLIKE[0]),
+            (b'b', F_TEXTICLIKE[0]),
+        ] {
             let mut p: Program<'static> = Program::empty_in(crate::percode::tcx());
-            p.nodes.push(ExprNode::Var(crate::nodes::var::Var { src: eval::Source::Scan, attno: 1, typ: 25, desc: 0 }));
+            p.nodes.push(ExprNode::Var(crate::nodes::var::Var {
+                src: eval::Source::Scan,
+                attno: 1,
+                typ: 25,
+                desc: 0,
+            }));
             p.nodes.push(ExprNode::Const(image(&mut buf, 9, 2, byte)));
             p.kids.extend_from_slice(&[NodeId(0), NodeId(1)]);
-            p.sites.push(Call { funcid, args: Kids { start: 0, len: 2 }, nargs: 2, strict: true, collation: 100, how: How::Fmgr(0), rettype: BOOLOID, volatile: false });
-            p.nodes.push(ExprNode::Op(func::FuncNode { site: SiteId(0) }));
+            p.sites.push(Call {
+                funcid,
+                args: Kids { start: 0, len: 2 },
+                nargs: 2,
+                strict: true,
+                collation: 100,
+                how: How::Fmgr(0),
+                rettype: BOOLOID,
+                volatile: false,
+            });
+            p.nodes
+                .push(ExprNode::Op(func::FuncNode { site: SiteId(0) }));
             let got = matches!(known_of(&p, NodeId(2), tcx()), Known::Like { .. });
-            assert!(got, "pattern {:?}, funcid {funcid}: the table", byte as char);
+            assert!(
+                got,
+                "pattern {:?}, funcid {funcid}: the table",
+                byte as char
+            );
         }
     }
 }
@@ -2174,7 +3023,12 @@ mod d1832 {
     fn root(funcid: Oid, image: &'static [u8], coll: Oid, not: bool) -> (B, NodeId) {
         let mut b = B::new();
         let t = b.var(1);
-        let k = b.node(ExprNode::Const(ConstNode::new(NullableDatum::value(Datum::from_usize(image.as_ptr() as usize)), 25, -1, false)));
+        let k = b.node(ExprNode::Const(ConstNode::new(
+            NullableDatum::value(Datum::from_usize(image.as_ptr() as usize)),
+            25,
+            -1,
+            false,
+        )));
         let site = b.call(funcid, &[t, k], coll, How::Fmgr(0));
         b.0.sites[site.0 as usize].rettype = BOOLOID;
         let op = b.node(ExprNode::Op(func::FuncNode { site }));
@@ -2182,7 +3036,10 @@ mod d1832 {
             return (b, op);
         }
         let args = b.kids(&[op]);
-        let top = b.node(ExprNode::Bool(BoolNode { op: BoolExprType::NOT_EXPR, args }));
+        let top = b.node(ExprNode::Bool(BoolNode {
+            op: BoolExprType::NOT_EXPR,
+            args,
+        }));
         (b, top)
     }
 
@@ -2193,30 +3050,65 @@ mod d1832 {
         // a statement runs armed with its database's encoding, UTF8 (D3521): a test thread boots as SQL_ASCII
         gravity_fn::typesem::collation::arm_database_encoding(6).expect("UTF8");
         catalog();
-        assert_eq!(Facts::of(ND).map(|f| (f.provider, f.deterministic)).ok(), Some((COLLPROVIDER_ICU, false)), "ND builds nondeterministic");
+        assert_eq!(
+            Facts::of(ND).map(|f| (f.provider, f.deterministic)).ok(),
+            Some((COLLPROVIDER_ICU, false)),
+            "ND builds nondeterministic"
+        );
         assert!(Facts::of(GONE).is_err(), "GONE cannot be built");
         let cols = [CodeCol { attno: 1 }];
-        for (funcid, not, negated) in [(F_TEXTEQ, false, false), (F_TEXTNE, false, true), (F_TEXTEQ, true, true)] {
+        for (funcid, not, negated) in [
+            (F_TEXTEQ, false, false),
+            (F_TEXTNE, false, true),
+            (F_TEXTEQ, true, true),
+        ] {
             for (coll, det) in [(100, true), (950, true), (ND, false), (GONE, false)] {
                 let (b, top) = root(funcid, &EMPTY, coll, not);
                 let form = classify(&b.0, top).unwrap();
                 let plan = analyze_t(&b.0, top, &cols).unwrap();
                 let at = format!("{funcid} not {not} collation {coll}"); // alloc: Cold
                 assert_eq!(form, Form::Bits, "{at}");
-                assert_eq!(plan.roots.iter().map(|r| (r.node, r.form, r.table)).collect::<Vec<_>>(), vec![(top, Form::Bits, Some(0))], "{at}"); // alloc: Program
+                assert_eq!(
+                    plan.roots
+                        .iter()
+                        .map(|r| (r.node, r.form, r.table))
+                        .collect::<Vec<_>>(),
+                    vec![(top, Form::Bits, Some(0))],
+                    "{at}"
+                ); // alloc: Program
                 assert_eq!(plan.needs[0].elem, gravity_dict::ELEM_BITS, "{at}");
                 if det {
                     let set = matches!(&plan.needs[0].known, Known::Eq { values, negated: n } if values.len() == 1 && values[0].is_empty() && *n == negated);
-                    assert!(set, "{at}: the empty entry's code set: {:?}", plan.needs[0].known);
+                    assert!(
+                        set,
+                        "{at}: the empty entry's code set: {:?}",
+                        plan.needs[0].known
+                    );
                 } else {
-                    assert_eq!(&plan.needs[0].known, &Known::Body, "{at}: a body swept under the collation");
+                    assert_eq!(
+                        &plan.needs[0].known,
+                        &Known::Body,
+                        "{at}: a body swept under the collation"
+                    );
                 }
             }
         }
         for (coll, det) in [(100, true), (ND, false), (GONE, false)] {
             let (b, top) = root(F_TEXTLIKE[0], &PATTERN, coll, false);
-            let want = if det { Known::Like { pattern: bv(b"b"), ilike: false, negated: false } } else { Known::Body };
-            assert_eq!(known_of(&b.0, top, tcx()), want, "LIKE under collation {coll}");
+            let want = if det {
+                Known::Like {
+                    pattern: bv(b"b"),
+                    ilike: false,
+                    negated: false,
+                }
+            } else {
+                Known::Body
+            };
+            assert_eq!(
+                known_of(&b.0, top, tcx()),
+                want,
+                "LIKE under collation {coll}"
+            );
         }
     }
 
@@ -2227,23 +3119,74 @@ mod d1832 {
     fn a_range_compare_is_a_code_range_only_under_byte_order() {
         catalog();
         // NEW-72 entry C: the constant (`root`'s node 1) bound per execution, its image never read here
-        let at = ConstWord { node: NodeId(1), elem: None, list: false };
-        let below = Known::RangeBound { at, below: true, nul: false };
-        for (funcid, coll, range) in [(740, 950, true), (740, 951, true), (740, ND, false), (740, GONE, false), (740, 0, false), (2160, ND, true), (2160, 950, true)] {
+        let at = ConstWord {
+            node: NodeId(1),
+            elem: None,
+            list: false,
+        };
+        let below = Known::RangeBound {
+            at,
+            below: true,
+            nul: false,
+        };
+        for (funcid, coll, range) in [
+            (740, 950, true),
+            (740, 951, true),
+            (740, ND, false),
+            (740, GONE, false),
+            (740, 0, false),
+            (2160, ND, true),
+            (2160, 950, true),
+        ] {
             let (b, top) = root(funcid, &PATTERN, coll, false);
-            assert_eq!(known_of(&b.0, top, tcx()), if range { below.clone() } else { Known::Body }, "{funcid} under collation {coll}");
+            assert_eq!(
+                known_of(&b.0, top, tcx()),
+                if range { below.clone() } else { Known::Body },
+                "{funcid} under collation {coll}"
+            );
         }
         let (b, top) = root(740, &PATTERN, 950, true);
-        assert_eq!(known_of(&b.0, top, tcx()), Known::RangeBound { at, below: false, nul: false }, "NOT (x < 'b') is x >= 'b'");
+        assert_eq!(
+            known_of(&b.0, top, tcx()),
+            Known::RangeBound {
+                at,
+                below: false,
+                nul: false
+            },
+            "NOT (x < 'b') is x >= 'b'"
+        );
         let (b, top) = root(741, &PATTERN, 950, true);
-        assert_eq!(known_of(&b.0, top, tcx()), Known::RangeBound { at, below: false, nul: true }, "NOT (x <= 'b') is x > 'b'");
+        assert_eq!(
+            known_of(&b.0, top, tcx()),
+            Known::RangeBound {
+                at,
+                below: false,
+                nul: true
+            },
+            "NOT (x <= 'b') is x > 'b'"
+        );
         let (b, top) = root(741, &PATTERN, 950, false);
-        assert_eq!(known_of(&b.0, top, tcx()), Known::RangeBound { at, below: true, nul: true }, "x <= 'b' is x < 'b' || '\\0'");
+        assert_eq!(
+            known_of(&b.0, top, tcx()),
+            Known::RangeBound {
+                at,
+                below: true,
+                nul: true
+            },
+            "x <= 'b' is x < 'b' || '\\0'"
+        );
         // the program's fingerprint holds the constant's type, never its image: one table key for every literal
         let (b2, top2) = root(741, &EMPTY, 950, false);
         let one = |n: NodeId| n == NodeId(1);
-        assert_eq!(fingerprint_bound_t(&b.0, top, &one), fingerprint_bound_t(&b2.0, top2, &one), "x <= 'b' and x <= '' print alike");
-        assert!(fingerprint_bound_t(&b.0, top, &one).1, "a bound constant is a word");
+        assert_eq!(
+            fingerprint_bound_t(&b.0, top, &one),
+            fingerprint_bound_t(&b2.0, top2, &one),
+            "x <= 'b' and x <= '' print alike"
+        );
+        assert!(
+            fingerprint_bound_t(&b.0, top, &one).1,
+            "a bound constant is a word"
+        );
     }
 }
 
@@ -2271,10 +3214,20 @@ mod d340 {
         let x = f(&mut b);
         let args = b.kids(&[t, x]);
         let cmp = b.site(TEXT_LARGER, &[]);
-        let root = b.node(ExprNode::MinMax(MinMax { args, least: false, cmp }));
+        let root = b.node(ExprNode::MinMax(MinMax {
+            args,
+            least: false,
+            cmp,
+        }));
         let col = b.var(1);
         let site = b.call(0, &[col], 0, How::Island { root });
-        b.0.islands.push(Island { root, first, site, src: 0, once: None });
+        b.0.islands.push(Island {
+            root,
+            first,
+            site,
+            src: 0,
+            once: None,
+        });
         let t2 = b.var(1);
         let eq = b.site(TEXTEQ, &[root, t2]);
         let top = b.node(ExprNode::Op(func::FuncNode { site: eq }));
@@ -2283,16 +3236,33 @@ mod d340 {
 
     fn roots(f: fn(&mut B) -> NodeId) -> Vec<NodeId> {
         let (b, top) = greatest_eq(f);
-        analyze_t(&b.0, top, &CODES).expect("analyze").roots.iter().map(|r| r.node).collect() // alloc: Program
+        analyze_t(&b.0, top, &CODES)
+            .expect("analyze")
+            .roots
+            .iter()
+            .map(|r| r.node)
+            .collect() // alloc: Program
     }
 
     #[test]
     fn an_island_reading_another_column_is_no_per_code_body() {
         // 'v' || i::text: column 2 is not a code column
-        assert_eq!(roots(|b| { let (v, i) = (b.int(Some(1)), b.var(2)); b.func(TEXTCAT, &[v, i]) }), vec![]); // alloc: Program
-        // a second code column (3) beside the body's (1)
-        assert_eq!(roots(|b| { let (v, u) = (b.int(Some(1)), b.var(3)); b.func(TEXTCAT, &[v, u]) }), vec![]); // alloc: Program
-        // a volatile call inside the island
+        assert_eq!(
+            roots(|b| {
+                let (v, i) = (b.int(Some(1)), b.var(2));
+                b.func(TEXTCAT, &[v, i])
+            }),
+            vec![]
+        ); // alloc: Program
+           // a second code column (3) beside the body's (1)
+        assert_eq!(
+            roots(|b| {
+                let (v, u) = (b.int(Some(1)), b.var(3));
+                b.func(TEXTCAT, &[v, u])
+            }),
+            vec![]
+        ); // alloc: Program
+           // a volatile call inside the island
         assert_eq!(
             roots(|b| {
                 let r = b.func(RANDOM, &[]);
@@ -2308,7 +3278,13 @@ mod d340 {
     fn an_island_reading_only_the_code_column_stays_a_body() {
         let (b, top) = greatest_eq(|b| b.int(Some(5)));
         let plan = analyze_t(&b.0, top, &CODES).expect("analyze");
-        assert_eq!(plan.roots.iter().map(|r| (r.node, r.attno)).collect::<Vec<_>>(), vec![(top, 1)]); // alloc: Program
+        assert_eq!(
+            plan.roots
+                .iter()
+                .map(|r| (r.node, r.attno))
+                .collect::<Vec<_>>(),
+            vec![(top, 1)]
+        ); // alloc: Program
     }
 }
 
@@ -2333,11 +3309,24 @@ mod e2 {
 
     /// `op(f(t, c), k)` over code column 1 (`k op f(..)` when `!left`; `f(t, c)` alone for `op` 0), `f` under `coll`, `c`
     /// the image `needle` (`None`: column 2), `f(c, t)` when `swap`; a `k` of `None` is a NULL.
-    fn search(f: Oid, needle: Option<&'static [u8]>, swap: bool, coll: Oid, op: Oid, k: Option<i32>, left: bool) -> (B, NodeId) {
+    fn search(
+        f: Oid,
+        needle: Option<&'static [u8]>,
+        swap: bool,
+        coll: Oid,
+        op: Oid,
+        k: Option<i32>,
+        left: bool,
+    ) -> (B, NodeId) {
         let mut b = B::new();
         let t = b.var(1);
         let c = match needle {
-            Some(img) => b.node(ExprNode::Const(ConstNode::new(NullableDatum::value(Datum::from_usize(img.as_ptr() as usize)), 25, -1, false))),
+            Some(img) => b.node(ExprNode::Const(ConstNode::new(
+                NullableDatum::value(Datum::from_usize(img.as_ptr() as usize)),
+                25,
+                -1,
+                false,
+            ))),
             None => b.var(2),
         };
         let site = b.call(f, &if swap { [c, t] } else { [t, c] }, coll, How::Fmgr(0));
@@ -2347,14 +3336,23 @@ mod e2 {
             return (b, call);
         }
         let k = b.int(k);
-        let site = b.call(op, &if left { [call, k] } else { [k, call] }, 0, How::Fmgr(0));
+        let site = b.call(
+            op,
+            &if left { [call, k] } else { [k, call] },
+            0,
+            How::Fmgr(0),
+        );
         b.0.sites[site.0 as usize].rettype = BOOLOID;
         let top = b.node(ExprNode::Op(func::FuncNode { site }));
         (b, top)
     }
 
     fn twin(pattern: &[u8], negated: bool) -> Option<TextSearch<'_>> {
-        Some(TextSearch { arg: NodeId(0), pattern: bv(pattern), negated })
+        Some(TextSearch {
+            arg: NodeId(0),
+            pattern: bv(pattern),
+            negated,
+        })
     }
 
     /// STEP-07: every catalog spelling of a text length is one semantic by its body, whatever its oid: the four
@@ -2376,7 +3374,12 @@ mod e2 {
     /// are not, so they take the per-entry body.
     #[test]
     fn a_like_or_text_equality_is_its_catalog_body_not_an_oid_list() {
-        for (fs, want) in [(&F_TEXTLIKE[..], (false, false)), (&F_TEXTNLIKE[..], (false, true)), (&F_TEXTICLIKE[..], (true, false)), (&F_TEXTICNLIKE[..], (true, true))] {
+        for (fs, want) in [
+            (&F_TEXTLIKE[..], (false, false)),
+            (&F_TEXTNLIKE[..], (false, true)),
+            (&F_TEXTICLIKE[..], (true, false)),
+            (&F_TEXTICNLIKE[..], (true, true)),
+        ] {
             for &f in fs {
                 assert_eq!(like_body(f), Some(want), "{f}");
             }
@@ -2384,7 +3387,10 @@ mod e2 {
         for f in [1254, 858, 67, 0] {
             assert_eq!(like_body(f), None, "{f}");
         }
-        assert_eq!((text_eq_body(F_TEXTEQ), text_eq_body(F_TEXTNE)), (Some(false), Some(true)));
+        assert_eq!(
+            (text_eq_body(F_TEXTEQ), text_eq_body(F_TEXTNE)),
+            (Some(false), Some(true))
+        );
         for f in [1048, 1053, 850, 0] {
             assert_eq!(text_eq_body(f), None, "{f}");
         }
@@ -2396,58 +3402,193 @@ mod e2 {
         gravity_fn::typesem::collation::arm_database_encoding(6).expect("UTF8");
         let ts = |(b, top): (B, NodeId)| text_search(&b.0, top, tcx());
         let contains = [b"%".as_slice(), ESC, b"%"].concat();
-        for (f, op, k, left) in [(868, 147, 0, true), (868, 144, 0, true), (868, 150, 1, true), (868, 66, 0, false), (849, 147, 0, true), (849, 144, 0, false)] {
-            assert_eq!(ts(search(f, Some(&NEEDLE), false, 100, op, Some(k), left)), twin(&contains, false), "{f} {op} {k} {left}");
+        for (f, op, k, left) in [
+            (868, 147, 0, true),
+            (868, 144, 0, true),
+            (868, 150, 1, true),
+            (868, 66, 0, false),
+            (849, 147, 0, true),
+            (849, 144, 0, false),
+        ] {
+            assert_eq!(
+                ts(search(f, Some(&NEEDLE), false, 100, op, Some(k), left)),
+                twin(&contains, false),
+                "{f} {op} {k} {left}"
+            );
             let (b, top) = search(f, Some(&NEEDLE), false, 950, op, Some(k), left);
-            assert_eq!(known_of(&b.0, top, tcx()), Known::Like { pattern: bv(&contains), ilike: false, negated: false });
+            assert_eq!(
+                known_of(&b.0, top, tcx()),
+                Known::Like {
+                    pattern: bv(&contains),
+                    ilike: false,
+                    negated: false
+                }
+            );
         }
-        for (op, k, left) in [(65, 0, true), (66, 1, true), (149, 0, true), (147, 1, false), (65, 0, false)] {
-            assert_eq!(ts(search(868, Some(&NEEDLE), false, 100, op, Some(k), left)), twin(&contains, true), "{op} {k} {left}");
+        for (op, k, left) in [
+            (65, 0, true),
+            (66, 1, true),
+            (149, 0, true),
+            (147, 1, false),
+            (65, 0, false),
+        ] {
+            assert_eq!(
+                ts(search(868, Some(&NEEDLE), false, 100, op, Some(k), left)),
+                twin(&contains, true),
+                "{op} {k} {left}"
+            );
         }
         let (mut b, top) = search(868, Some(&NEEDLE), false, 100, 147, Some(0), true);
         let args = b.kids(&[top]);
-        let not = b.node(ExprNode::Bool(BoolNode { op: BoolExprType::NOT_EXPR, args }));
-        assert_eq!(known_of(&b.0, not, tcx()), Known::Like { pattern: bv(&contains), ilike: false, negated: true }, "NOT (strpos > 0)");
+        let not = b.node(ExprNode::Bool(BoolNode {
+            op: BoolExprType::NOT_EXPR,
+            args,
+        }));
+        assert_eq!(
+            known_of(&b.0, not, tcx()),
+            Known::Like {
+                pattern: bv(&contains),
+                ilike: false,
+                negated: true
+            },
+            "NOT (strpos > 0)"
+        );
         let (mut b, top) = search(868, Some(&NEEDLE), false, 100, 147, Some(0), true);
         let call = b.0.kids[b.0.sites[1].args.start as usize].0 as usize;
-        let ExprNode::Func(n) = &b.0.nodes[call] else { panic!("the strpos call") };
+        let ExprNode::Func(n) = &b.0.nodes[call] else {
+            panic!("the strpos call")
+        };
         b.0.nodes[call] = ExprNode::Op(func::FuncNode { site: n.site });
-        assert_eq!(ts((b, top)), twin(&contains, false), "(t ### c) > 0, an operator over textpos: lower key.rs keys it too");
+        assert_eq!(
+            ts((b, top)),
+            twin(&contains, false),
+            "(t ### c) > 0, an operator over textpos: lower key.rs keys it too"
+        );
         let prefix = [ESC, b"%"].concat();
-        assert_eq!(ts(search(F_STARTS_WITH, Some(&NEEDLE), false, 100, 0, None, true)), twin(&prefix, false), "starts_with");
-        assert_eq!(ts(search(868, Some(&EMPTY), false, 100, 147, Some(0), true)), twin(b"%%", false), "strpos(t, '') > 0");
-        assert_eq!(ts(search(F_STARTS_WITH, Some(&EMPTY), false, 100, 0, None, true)), twin(b"%", false), "starts_with(t, '')");
-        assert_eq!(ts(search(868, Some(&WIDE), false, 100, 147, Some(0), true)), twin(&[b"%".as_slice(), &WIDE[1..], b"%"].concat(), false));
+        assert_eq!(
+            ts(search(
+                F_STARTS_WITH,
+                Some(&NEEDLE),
+                false,
+                100,
+                0,
+                None,
+                true
+            )),
+            twin(&prefix, false),
+            "starts_with"
+        );
+        assert_eq!(
+            ts(search(868, Some(&EMPTY), false, 100, 147, Some(0), true)),
+            twin(b"%%", false),
+            "strpos(t, '') > 0"
+        );
+        assert_eq!(
+            ts(search(
+                F_STARTS_WITH,
+                Some(&EMPTY),
+                false,
+                100,
+                0,
+                None,
+                true
+            )),
+            twin(b"%", false),
+            "starts_with(t, '')"
+        );
+        assert_eq!(
+            ts(search(868, Some(&WIDE), false, 100, 147, Some(0), true)),
+            twin(&[b"%".as_slice(), &WIDE[1..], b"%"].concat(), false)
+        );
         let cols = [CodeCol { attno: 1 }];
-        for (coll, like) in [(100, true), (950, true), (ND, false), (GONE, false), (0, false)] {
+        for (coll, like) in [
+            (100, true),
+            (950, true),
+            (ND, false),
+            (GONE, false),
+            (0, false),
+        ] {
             for (f, op) in [(868, 147), (849, 144), (F_STARTS_WITH, 0)] {
                 let (b, top) = search(f, Some(&NEEDLE), false, coll, op, Some(0), true);
-                assert_eq!(text_search(&b.0, top, tcx()).is_some(), like, "{f} under the search's collation {coll} (the compare's is 0)");
+                assert_eq!(
+                    text_search(&b.0, top, tcx()).is_some(),
+                    like,
+                    "{f} under the search's collation {coll} (the compare's is 0)"
+                );
                 let plan = analyze_t(&b.0, top, &cols).expect("analyze");
-                assert_eq!(plan.roots.iter().map(|r| (r.node, r.form)).collect::<Vec<_>>(), vec![(top, Form::Bits)]); // alloc: Program
-                assert_eq!(matches!(plan.needs[0].known, Known::Like { .. }), like, "{f} {coll}: the LIKE table or the body");
+                assert_eq!(
+                    plan.roots
+                        .iter()
+                        .map(|r| (r.node, r.form))
+                        .collect::<Vec<_>>(),
+                    vec![(top, Form::Bits)]
+                ); // alloc: Program
+                assert_eq!(
+                    matches!(plan.needs[0].known, Known::Like { .. }),
+                    like,
+                    "{f} {coll}: the LIKE table or the body"
+                );
             }
         }
         let near = [
-            (search(868, Some(&NEEDLE), false, 100, 147, Some(1), true), "strpos > 1"),
-            (search(868, Some(&NEEDLE), false, 100, 65, Some(3), true), "strpos = 3"),
-            (search(868, Some(&NEEDLE), false, 100, 147, Some(-1), true), "strpos > -1: always"),
-            (search(868, Some(&NEEDLE), false, 100, 147, None, true), "k NULL"),
-            (search(868, None, false, 100, 147, Some(0), true), "a per-row needle"),
-            (search(868, None, true, 100, 147, Some(0), true), "strpos(column 2, t): the column as the needle"),
-            (search(849, None, true, 100, 144, Some(0), false), "position(t IN column 2)"),
-            (search(868, Some(&NEEDLE), false, 100, 0, None, true), "strpos as a value"),
-            (search(F_TEXTLIKE[0], Some(&NEEDLE), false, 100, 147, Some(0), true), "not a textpos call"),
+            (
+                search(868, Some(&NEEDLE), false, 100, 147, Some(1), true),
+                "strpos > 1",
+            ),
+            (
+                search(868, Some(&NEEDLE), false, 100, 65, Some(3), true),
+                "strpos = 3",
+            ),
+            (
+                search(868, Some(&NEEDLE), false, 100, 147, Some(-1), true),
+                "strpos > -1: always",
+            ),
+            (
+                search(868, Some(&NEEDLE), false, 100, 147, None, true),
+                "k NULL",
+            ),
+            (
+                search(868, None, false, 100, 147, Some(0), true),
+                "a per-row needle",
+            ),
+            (
+                search(868, None, true, 100, 147, Some(0), true),
+                "strpos(column 2, t): the column as the needle",
+            ),
+            (
+                search(849, None, true, 100, 144, Some(0), false),
+                "position(t IN column 2)",
+            ),
+            (
+                search(868, Some(&NEEDLE), false, 100, 0, None, true),
+                "strpos as a value",
+            ),
+            (
+                search(F_TEXTLIKE[0], Some(&NEEDLE), false, 100, 147, Some(0), true),
+                "not a textpos call",
+            ),
         ];
         for ((b, top), what) in near {
             assert_eq!(text_search(&b.0, top, tcx()), None, "{what}");
         }
         let (mut b, top) = search(868, Some(&NEEDLE), false, 100, 147, Some(0), true);
-        let needle = b.node(ExprNode::Const(ConstNode::new(NullableDatum { value: Datum::from_usize(0), isnull: true }, 25, -1, false)));
+        let needle = b.node(ExprNode::Const(ConstNode::new(
+            NullableDatum {
+                value: Datum::from_usize(0),
+                isnull: true,
+            },
+            25,
+            -1,
+            false,
+        )));
         b.0.kids[b.0.sites[0].args.start as usize + 1] = needle; // site 0 is strpos, site 1 the compare
         assert_eq!(text_search(&b.0, top, tcx()), None, "a NULL needle");
         let (mut b, top) = search(868, Some(&NEEDLE), false, 100, 147, Some(0), true);
-        let param = b.node(ExprNode::Param(crate::nodes::param::Param { kind: ParamKind::PARAM_EXTERN, id: 1, typ: 23 }));
+        let param = b.node(ExprNode::Param(crate::nodes::param::Param {
+            kind: ParamKind::PARAM_EXTERN,
+            id: 1,
+            typ: 23,
+        }));
         b.0.kids[b.0.sites[1].args.start as usize + 1] = param;
         assert_eq!(text_search(&b.0, top, tcx()), None, "k a $1");
     }
@@ -2473,13 +3614,23 @@ mod ps113 {
     fn text(b: &mut B, image: Option<&'static [u8]>) -> NodeId {
         let d = match image {
             Some(i) => NullableDatum::value(Datum::from_usize(i.as_ptr() as usize)),
-            None => NullableDatum { value: Datum::from_usize(0), isnull: true },
+            None => NullableDatum {
+                value: Datum::from_usize(0),
+                isnull: true,
+            },
         };
         b.node(ExprNode::Const(ConstNode::new(d, 25, -1, false)))
     }
 
     /// `[NOT] f(x, 'b')` and its plan, `x` column `attno` or `coalesce(column, c0)`; a `Distinct` node when `distinct`.
-    fn build(funcid: Oid, coll: Oid, attno: i16, c0: Option<Option<&'static [u8]>>, distinct: bool, not: bool) -> (Plan<'static>, NodeId) {
+    fn build(
+        funcid: Oid,
+        coll: Oid,
+        attno: i16,
+        c0: Option<Option<&'static [u8]>>,
+        distinct: bool,
+        not: bool,
+    ) -> (Plan<'static>, NodeId) {
         let mut b = B::new();
         let mut x = b.var(attno);
         if let Some(c0) = c0 {
@@ -2490,64 +3641,178 @@ mod ps113 {
         let k = text(&mut b, Some(&BB));
         let site = b.call(funcid, &[x, k], coll, How::Fmgr(0));
         b.0.sites[site.0 as usize].rettype = BOOLOID;
-        let mut top = b.node(if distinct { ExprNode::Distinct(func::FuncNode { site }) } else { ExprNode::Op(func::FuncNode { site }) });
+        let mut top = b.node(if distinct {
+            ExprNode::Distinct(func::FuncNode { site })
+        } else {
+            ExprNode::Op(func::FuncNode { site })
+        });
         if not {
             let args = b.kids(&[top]);
-            top = b.node(ExprNode::Bool(BoolNode { op: BoolExprType::NOT_EXPR, args }));
+            top = b.node(ExprNode::Bool(BoolNode {
+                op: BoolExprType::NOT_EXPR,
+                args,
+            }));
         }
         (analyze_t(&b.0, top, &CODES).expect("analyze"), top)
     }
 
-    fn test(funcid: Oid, coll: Oid, attno: i16, c0: Option<Option<&'static [u8]>>, distinct: bool, not: bool) -> Option<Root> {
+    fn test(
+        funcid: Oid,
+        coll: Oid,
+        attno: i16,
+        c0: Option<Option<&'static [u8]>>,
+        distinct: bool,
+        not: bool,
+    ) -> Option<Root> {
         let (plan, top) = build(funcid, coll, attno, c0, distinct, not);
         plan.root_at(top).copied()
     }
 
     /// The root's table and NULL answer over column 1; a NULL-answering root is one `Bits` table.
-    fn known(funcid: Oid, coll: Oid, c0: Option<Option<&'static [u8]>>, distinct: bool, not: bool) -> Option<(Known<'static>, Option<bool>)> {
+    fn known(
+        funcid: Oid,
+        coll: Oid,
+        c0: Option<Option<&'static [u8]>>,
+        distinct: bool,
+        not: bool,
+    ) -> Option<(Known<'static>, Option<bool>)> {
         let (plan, top) = build(funcid, coll, 1, c0, distinct, not);
         let r = plan.root_at(top)?;
         if r.null.is_some() {
-            assert_eq!((r.form, r.table, plan.needs.len()), (Form::Bits, Some(0), 1));
+            assert_eq!(
+                (r.form, r.table, plan.needs.len()),
+                (Form::Bits, Some(0), 1)
+            );
         }
         Some((plan.needs.get(r.table? as usize)?.known.clone(), r.null))
     }
 
     fn eq(v: &[u8], negated: bool) -> Known<'static> {
-        Known::Eq { values: one_in(bv(v), tcx()), negated }
+        Known::Eq {
+            values: one_in(bv(v), tcx()),
+            negated,
+        }
     }
 
     #[test]
     fn is_distinct_from_answers_a_null_row() {
         catalog();
-        assert_eq!(known(F_TEXTEQ, 100, None, true, false), Some((eq(b"b", true), Some(true))), "t IS DISTINCT FROM 'b'");
-        assert_eq!(known(F_TEXTEQ, 100, None, true, true), Some((eq(b"b", false), Some(false))), "t IS NOT DISTINCT FROM 'b'");
-        assert_eq!(known(F_TEXTEQ, ND, None, true, true), None, "under a nondeterministic collation");
-        assert_eq!(known(F_TEXTNE, 100, None, true, false), None, "a Distinct over no `=`");
-        assert!(test(F_TEXTEQ, 100, 2, None, true, false).is_none(), "another column");
+        assert_eq!(
+            known(F_TEXTEQ, 100, None, true, false),
+            Some((eq(b"b", true), Some(true))),
+            "t IS DISTINCT FROM 'b'"
+        );
+        assert_eq!(
+            known(F_TEXTEQ, 100, None, true, true),
+            Some((eq(b"b", false), Some(false))),
+            "t IS NOT DISTINCT FROM 'b'"
+        );
+        assert_eq!(
+            known(F_TEXTEQ, ND, None, true, true),
+            None,
+            "under a nondeterministic collation"
+        );
+        assert_eq!(
+            known(F_TEXTNE, 100, None, true, false),
+            None,
+            "a Distinct over no `=`"
+        );
+        assert!(
+            test(F_TEXTEQ, 100, 2, None, true, false).is_none(),
+            "another column"
+        );
         // NEW-72 entry C: the strict compare is `code_set`'s, its constant (node 1) bound per execution
-        let bound = Known::EqBound { values: PgVec::new_in(tcx()), params: PgVec::new_in(tcx()), consts: one_in(ConstWord { node: NodeId(1), elem: None, list: false }, tcx()), negated: false };
-        assert_eq!(known(F_TEXTEQ, 100, None, false, false), Some((bound, None)), "t = 'b' stays strict");
+        let bound = Known::EqBound {
+            values: PgVec::new_in(tcx()),
+            params: PgVec::new_in(tcx()),
+            consts: one_in(
+                ConstWord {
+                    node: NodeId(1),
+                    elem: None,
+                    list: false,
+                },
+                tcx(),
+            ),
+            negated: false,
+        };
+        assert_eq!(
+            known(F_TEXTEQ, 100, None, false, false),
+            Some((bound, None)),
+            "t = 'b' stays strict"
+        );
     }
 
     #[test]
     fn a_coalesce_default_is_the_null_rows_answer() {
         catalog();
         let e = Some(Some(&EMPTY[..]));
-        assert_eq!(known(F_TEXTEQ, 100, e, false, false), Some((eq(b"b", false), Some(false))), "coalesce(t, '') = 'b'");
-        assert_eq!(known(F_TEXTEQ, 100, Some(Some(&BB)), false, false), Some((eq(b"b", false), Some(true))), "coalesce(t, 'b') = 'b'");
-        assert_eq!(known(F_TEXTNE, 100, Some(Some(&BB)), false, false), Some((eq(b"b", true), Some(false))), "coalesce(t, 'b') <> 'b'");
-        assert_eq!(known(F_TEXTEQ, 100, Some(Some(&BB)), false, true), Some((eq(b"b", true), Some(false))), "NOT coalesce(t, 'b') = 'b'");
-        assert_eq!(known(F_TEXTEQ, 100, e, true, false), Some((eq(b"b", true), Some(true))), "coalesce(t, '') IS DISTINCT FROM 'b'");
-        assert_eq!(known(F_TEXTEQ, 100, Some(None), false, false), None, "a NULL default");
-        assert_eq!(known(F_TEXTEQ, ND, e, false, false), None, "under a nondeterministic collation");
-        assert!(test(F_TEXTEQ, 100, 2, e, false, false).is_none(), "over another column");
-        let below = Known::Range { from: PgVec::new_in(tcx()), to: Some(bv(b"b")) };
-        assert_eq!(known(740, 950, Some(Some(&A)), false, false), Some((below.clone(), Some(true))), "coalesce(t, 'a') < 'b'");
-        assert_eq!(known(740, 950, Some(Some(&C)), false, false), Some((below, Some(false))), "coalesce(t, 'c') < 'b'");
-        let at = Known::Range { from: bv(b"b"), to: None };
-        assert_eq!(known(740, 950, Some(Some(&BB)), false, true), Some((at, Some(true))), "NOT coalesce(t, 'b') < 'b'");
-        assert_eq!(known(740, ND, Some(Some(&A)), false, false), None, "a range under no byte order");
+        assert_eq!(
+            known(F_TEXTEQ, 100, e, false, false),
+            Some((eq(b"b", false), Some(false))),
+            "coalesce(t, '') = 'b'"
+        );
+        assert_eq!(
+            known(F_TEXTEQ, 100, Some(Some(&BB)), false, false),
+            Some((eq(b"b", false), Some(true))),
+            "coalesce(t, 'b') = 'b'"
+        );
+        assert_eq!(
+            known(F_TEXTNE, 100, Some(Some(&BB)), false, false),
+            Some((eq(b"b", true), Some(false))),
+            "coalesce(t, 'b') <> 'b'"
+        );
+        assert_eq!(
+            known(F_TEXTEQ, 100, Some(Some(&BB)), false, true),
+            Some((eq(b"b", true), Some(false))),
+            "NOT coalesce(t, 'b') = 'b'"
+        );
+        assert_eq!(
+            known(F_TEXTEQ, 100, e, true, false),
+            Some((eq(b"b", true), Some(true))),
+            "coalesce(t, '') IS DISTINCT FROM 'b'"
+        );
+        assert_eq!(
+            known(F_TEXTEQ, 100, Some(None), false, false),
+            None,
+            "a NULL default"
+        );
+        assert_eq!(
+            known(F_TEXTEQ, ND, e, false, false),
+            None,
+            "under a nondeterministic collation"
+        );
+        assert!(
+            test(F_TEXTEQ, 100, 2, e, false, false).is_none(),
+            "over another column"
+        );
+        let below = Known::Range {
+            from: PgVec::new_in(tcx()),
+            to: Some(bv(b"b")),
+        };
+        assert_eq!(
+            known(740, 950, Some(Some(&A)), false, false),
+            Some((below.clone(), Some(true))),
+            "coalesce(t, 'a') < 'b'"
+        );
+        assert_eq!(
+            known(740, 950, Some(Some(&C)), false, false),
+            Some((below, Some(false))),
+            "coalesce(t, 'c') < 'b'"
+        );
+        let at = Known::Range {
+            from: bv(b"b"),
+            to: None,
+        };
+        assert_eq!(
+            known(740, 950, Some(Some(&BB)), false, true),
+            Some((at, Some(true))),
+            "NOT coalesce(t, 'b') < 'b'"
+        );
+        assert_eq!(
+            known(740, ND, Some(Some(&A)), false, false),
+            None,
+            "a range under no byte order"
+        );
     }
 }
 
@@ -2565,13 +3830,23 @@ mod d3077 {
     static CAPITAL: [u8; 12] = [19, b'%', b'G', b'o', b'o', b'g', b'l', b'e', b'%', 0, 0, 0];
     static ACCENT: [u8; 8] = [11, b'%', 0xC3, 0x89, b'%', 0, 0, 0];
 
-    fn lower_like(funcid: Oid, lower_coll: Oid, like_coll: Oid, pattern: &'static [u8]) -> (B, NodeId) {
+    fn lower_like(
+        funcid: Oid,
+        lower_coll: Oid,
+        like_coll: Oid,
+        pattern: &'static [u8],
+    ) -> (B, NodeId) {
         let mut b = B::new();
         let x = b.var(1);
         let site = b.call(LOWER, &[x], lower_coll, How::Fmgr(0));
         b.0.sites[site.0 as usize].rettype = 25;
         let low = b.node(ExprNode::Func(func::FuncNode { site }));
-        let p = b.node(ExprNode::Const(ConstNode::new(NullableDatum::value(Datum::from_usize(pattern.as_ptr() as usize)), 25, -1, false)));
+        let p = b.node(ExprNode::Const(ConstNode::new(
+            NullableDatum::value(Datum::from_usize(pattern.as_ptr() as usize)),
+            25,
+            -1,
+            false,
+        )));
         let site = b.call(funcid, &[low, p], like_coll, How::Fmgr(0));
         b.0.sites[site.0 as usize].rettype = BOOLOID;
         let top = b.node(ExprNode::Op(func::FuncNode { site }));
@@ -2582,29 +3857,58 @@ mod d3077 {
     fn lower_like_is_an_ascii_ilike_under_c_ctype() {
         catalog();
         gravity_fn::typesem::collation::arm_database_encoding(6).expect("UTF8");
-        let like = |pattern: &[u8], negated| Known::Like { pattern: bv(pattern), ilike: true, negated };
+        let like = |pattern: &[u8], negated| Known::Like {
+            pattern: bv(pattern),
+            ilike: true,
+            negated,
+        };
         let (b, top) = lower_like(F_TEXTLIKE[0], 950, 950, &GARDEN);
         assert_eq!(known_of(&b.0, top, tcx()), like(b"%garden%", false));
         let (b, top) = lower_like(F_TEXTNLIKE[0], 950, 950, &GARDEN);
-        assert_eq!(known_of(&b.0, top, tcx()), like(b"%garden%", true), "NOT LIKE keeps its polarity");
+        assert_eq!(
+            known_of(&b.0, top, tcx()),
+            like(b"%garden%", true),
+            "NOT LIKE keeps its polarity"
+        );
         let (b, top) = lower_like(F_TEXTLIKE[0], 950, 950, &ACCENT);
-        assert_eq!(known_of(&b.0, top, tcx()), like("%\u{c9}%".as_bytes(), false), "a non-ASCII capital is matched as bytes on both sides");
+        assert_eq!(
+            known_of(&b.0, top, tcx()),
+            like("%\u{c9}%".as_bytes(), false),
+            "a non-ASCII capital is matched as bytes on both sides"
+        );
         for (lower_coll, like_coll, pattern, why) in [
-            (950, 950, &CAPITAL[..], "an ASCII capital in the pattern never matches lower(x)"),
+            (
+                950,
+                950,
+                &CAPITAL[..],
+                "an ASCII capital in the pattern never matches lower(x)",
+            ),
             (ND, ND, &GARDEN[..], "a nondeterministic collation"),
-            (950, ND, &GARDEN[..], "lower and LIKE under different collations"),
+            (
+                950,
+                ND,
+                &GARDEN[..],
+                "lower and LIKE under different collations",
+            ),
         ] {
             let (b, top) = lower_like(F_TEXTLIKE[0], lower_coll, like_coll, pattern);
             assert_eq!(known_of(&b.0, top, tcx()), Known::Body, "{why}");
         }
         let (b, top) = lower_like(F_TEXTICLIKE[0], 950, 950, &GARDEN);
-        assert!(!matches!(known_of(&b.0, top, tcx()), Known::Like { .. }), "an ILIKE over lower(x) is not rewritten");
+        assert!(
+            !matches!(known_of(&b.0, top, tcx()), Known::Like { .. }),
+            "an ILIKE over lower(x) is not rewritten"
+        );
     }
 
     #[test]
     fn a_length_of_ascii_lower_is_the_columns() {
         catalog();
-        for (f, coll, want) in [(1374, 950, Known::OctetLength), (1381, 950, Known::CharLength), (1374, ND, Known::Body)] {
+        for (f, coll, want) in [
+            (1374, 950, Known::OctetLength),
+            (1381, 950, Known::CharLength),
+            (1374, ND, Known::Body),
+        ] {
             let mut b = B::new();
             let x = b.var(1);
             let site = b.call(LOWER, &[x], coll, How::Fmgr(0));

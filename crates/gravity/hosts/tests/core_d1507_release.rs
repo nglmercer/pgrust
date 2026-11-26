@@ -7,8 +7,12 @@ use std::sync::atomic::AtomicU8;
 use std::sync::Arc;
 
 use gravity_abi::Lane;
-use gravity_driver::{blank_site, BindingRef, CommandId, Identity, PerTuple, Pins, Snapshot, Source, Window};
-use gravity_hosts::ops::scan::pgrc::granule_source::{GranuleRangeSource, GranuleRecipe, PartIoSpec, PartList, PartSpec, Resolved};
+use gravity_driver::{
+    blank_site, BindingRef, CommandId, Identity, PerTuple, Pins, Snapshot, Source, Window,
+};
+use gravity_hosts::ops::scan::pgrc::granule_source::{
+    GranuleRangeSource, GranuleRecipe, PartIoSpec, PartList, PartSpec, Resolved,
+};
 use gravity_parallel::{ClaimSize, GranuleRange, MorselSource};
 use pgrc_format::dirlayout::part_file_name;
 use pgrc_qa::corpus::{build_fixture, int8_fixture, open_part_bytes};
@@ -21,7 +25,17 @@ const ROWS: u64 = 60_000;
 static FLAG: AtomicU8 = AtomicU8::new(0);
 
 fn binding_ref(resolved: &Resolved) -> BindingRef<'_> {
-    BindingRef { snapshot: Snapshot(0), command_id: CommandId(0), params: &[], abort_flag: &FLAG, pins: Pins(0), per_tuple: PerTuple(0), identity: Identity::default(), resolved: Some(resolved), ordinal: None }
+    BindingRef {
+        snapshot: Snapshot(0),
+        command_id: CommandId(0),
+        params: &[],
+        abort_flag: &FLAG,
+        pins: Pins(0),
+        per_tuple: PerTuple(0),
+        identity: Identity::default(),
+        resolved: Some(resolved),
+        ordinal: None,
+    }
 }
 
 fn pass(src: &mut GranuleRangeSource, claims: &GranuleRange) -> u64 {
@@ -48,9 +62,34 @@ fn holds(parts: &[Arc<OpenPart>]) -> Vec<usize> {
 }
 
 #[test]
-fn an_unbound_sources_kept_cursors_go_at_release_of_its_relation_and_a_rebind_reads_the_same_rows() {
-    let bf = build_fixture(int8_fixture("gravity_d1507", REL as u64, ROWS, vec![], PartCutPolicy { max_rows: 20_000, ..PartCutPolicy::default() }, |i| Some((i as i64 * 31) % 1000)));
-    let parts: Vec<Arc<OpenPart>> = bf.manifest.parts.iter().enumerate().map(|(i, rec)| open_part_bytes(bf.files.get(&part_file_name(rec.part_no)).expect("part file"), 900 + i as u64).expect("open part")).collect();
+fn an_unbound_sources_kept_cursors_go_at_release_of_its_relation_and_a_rebind_reads_the_same_rows()
+{
+    let bf = build_fixture(int8_fixture(
+        "gravity_d1507",
+        REL as u64,
+        ROWS,
+        vec![],
+        PartCutPolicy {
+            max_rows: 20_000,
+            ..PartCutPolicy::default()
+        },
+        |i| Some((i as i64 * 31) % 1000),
+    ));
+    let parts: Vec<Arc<OpenPart>> = bf
+        .manifest
+        .parts
+        .iter()
+        .enumerate()
+        .map(|(i, rec)| {
+            open_part_bytes(
+                bf.files
+                    .get(&part_file_name(rec.part_no))
+                    .expect("part file"),
+                900 + i as u64,
+            )
+            .expect("open part")
+        })
+        .collect();
     assert_eq!(parts.len(), 3, "the fixture cut into three parts");
     let specs = bf
         .manifest
@@ -58,8 +97,22 @@ fn an_unbound_sources_kept_cursors_go_at_release_of_its_relation_and_a_rebind_re
         .iter()
         .enumerate()
         .map(|(i, rec)| {
-            let bytes = bf.files.get(&part_file_name(rec.part_no)).expect("part file");
-            PartSpec { io: PartIoSpec::Mem { bytes: Arc::from(bytes.as_slice()), dev: 7, ino: 900 + i as u64 }, expect: PartExpect::none(), rows: rec.rows, granules: rec.granule_count, deletes: None, part: Some(parts[i].clone()) }
+            let bytes = bf
+                .files
+                .get(&part_file_name(rec.part_no))
+                .expect("part file");
+            PartSpec {
+                io: PartIoSpec::Mem {
+                    bytes: Arc::from(bytes.as_slice()),
+                    dev: 7,
+                    ino: 900 + i as u64,
+                },
+                expect: PartExpect::none(),
+                rows: rec.rows,
+                granules: rec.granule_count,
+                deletes: None,
+                part: Some(parts[i].clone()),
+            }
         })
         .collect();
     let list = Arc::new(PartList::new(specs));
@@ -71,21 +124,38 @@ fn an_unbound_sources_kept_cursors_go_at_release_of_its_relation_and_a_rebind_re
         let resolved = Resolved::for_recipe(&recipe, list.clone());
         src.bind(&binding_ref(&resolved)).unwrap();
         assert_eq!(pass(src, &claims), ROWS);
-        assert!(src.release_rel(REL).is_none(), "a bound source keeps what its statement reads");
+        assert!(
+            src.release_rel(REL).is_none(),
+            "a bound source keeps what its statement reads"
+        );
         src.unbind();
     };
     assert_eq!(holds(&parts), [0, 0, 0]);
 
     statement(&mut src);
     let kept = holds(&parts);
-    assert!(kept.iter().all(|&k| k >= 1), "the unbound source keeps a cursor on every part it read: {kept:?}");
+    assert!(
+        kept.iter().all(|&k| k >= 1),
+        "the unbound source keeps a cursor on every part it read: {kept:?}"
+    );
 
-    assert!(src.release_rel(REL + 1).is_none(), "another relation's release keeps them");
+    assert!(
+        src.release_rel(REL + 1).is_none(),
+        "another relation's release keeps them"
+    );
     assert_eq!(holds(&parts), kept);
     let released = src.release_rel(REL).expect("the relation's kept cursors");
-    assert_eq!(holds(&parts), kept, "moved out, not dropped: the caller drops them after its lock");
+    assert_eq!(
+        holds(&parts),
+        kept,
+        "moved out, not dropped: the caller drops them after its lock"
+    );
     drop(released);
-    assert_eq!(holds(&parts), [0, 0, 0], "every part the source held is let go");
+    assert_eq!(
+        holds(&parts),
+        [0, 0, 0],
+        "every part the source held is let go"
+    );
     assert!(src.release_rel(REL).is_none(), "nothing left to release");
 
     // the next statement: the rebind reopens lazily and reads the same rows; relid 0 releases any relation's

@@ -10,19 +10,25 @@ use core::ops::Range;
 use core::sync::atomic::Ordering::AcqRel;
 
 use gravity_abi::breaker::{SortRun, SORTRUN_HDR, SORTRUN_VAR_WORDS};
-use gravity_driver::{BorrowedBatch, Error, Exec, Flow, Merge, RegionBuf, Result, Sink, SinkRef, State};
+use gravity_driver::{
+    BorrowedBatch, Error, Exec, Flow, Merge, RegionBuf, Result, Sink, SinkRef, State,
+};
 use gravity_fn::arena::Owner;
 use gravity_kernels::ops::sort::entries::RunShape;
 use gravity_program::Program;
 
 use super::raw;
-use crate::ops::{Live, Protocol};
 use crate::admit::{Admit, Bind};
-
+use crate::ops::{Live, Protocol};
 
 pub const ADMIT: &[Admit] = &[crate::ops::sort::fetch::admit];
 pub const BIND: &[Bind] = &[crate::ops::sort::fetch::bind];
-pub const PROTOCOLS: &[&dyn Protocol] = &[&crate::ops::sort::merge::SortMerge, &crate::ops::sort::walk::Walk, &crate::ops::sort::cosplit::CoSplit, &crate::ops::sort::heads::Heads];
+pub const PROTOCOLS: &[&dyn Protocol] = &[
+    &crate::ops::sort::merge::SortMerge,
+    &crate::ops::sort::walk::Walk,
+    &crate::ops::sort::cosplit::CoSplit,
+    &crate::ops::sort::heads::Heads,
+];
 
 /// MergeAppend's arms over one `runs.sort` slot: each arm merged as a sort's section (`Resident`), its run held after it.
 pub(crate) struct ArmSort {
@@ -38,15 +44,33 @@ struct NoRows;
 
 impl Sink for NoRows {
     fn push(&mut self, _: BorrowedBatch<'_>) -> Result<Flow> {
-        Err(Error::host("gravity: runs.sort: a row pushed during a merge's layout"))
+        Err(Error::host(
+            "gravity: runs.sort: a row pushed during a merge's layout",
+        ))
     }
 }
 
 impl ArmSort {
     #[allow(clippy::new_ret_no_self)]
-    pub(crate) fn new(run: crate::ops::sort::merge::Resident, slot: u8, program: &Program, mut prods: memledger::ChargedVec<usize>) -> Box<dyn Live> {
-        prods.with_vec(|v| v.extend(run.arms.clone().filter(|&q| program.pipelines.get(q).and_then(|x| x.produces()) == Some(slot)))); // alloc: Exec charged prods.owner()
-        Box::new(ArmSort { run, slot, prods, held: pgsync::Mutex::new(Vec::new()) }) // alloc: Exec
+    pub(crate) fn new(
+        run: crate::ops::sort::merge::Resident,
+        slot: u8,
+        program: &Program,
+        mut prods: memledger::ChargedVec<usize>,
+    ) -> Box<dyn Live> {
+        prods.with_vec(|v| {
+            v.extend(
+                run.arms
+                    .clone()
+                    .filter(|&q| program.pipelines.get(q).and_then(|x| x.produces()) == Some(slot)),
+            )
+        }); // alloc: Exec charged prods.owner()
+        Box::new(ArmSort {
+            run,
+            slot,
+            prods,
+            held: pgsync::Mutex::new(Vec::new()),
+        }) // alloc: Exec
     }
 
     fn is_arm(&self, p: usize) -> bool {
@@ -57,24 +81,38 @@ impl ArmSort {
     /// else at the last arm every held run merged into the leader. A hold or the leader's merge past the grant (the
     /// region refused) puts instead: every held run and the arm's own sealed runs go to the stream, as an arm that spills.
     fn after(&self, p: usize, node: &mut dyn ArmNode) -> Result<()> {
-        let (last, slot, var) = (self.prods.last() == Some(&p), self.slot, self.run.fixed.is_none());
+        let (last, slot, var) = (
+            self.prods.last() == Some(&p),
+            self.slot,
+            self.run.fixed.is_none(),
+        );
         let mut held = self.held.lock().unwrap_or_else(|e| e.into_inner());
         // D3918: the run ended at its first arm `p` (driver `Node::arm_ends_run`: every later arm is a spilled build's pair
         // pass over a build that wrote no partition). `p` finished and sealed the slot's whole run in the leader as a single
         // producer does, so it is neither held nor re-laid, and the later arms are stepped past unopened (`arm_ended`).
         if !last && node.ends_run(p) {
-            debug_assert!(held.is_empty(), "a run that ends at its first arm holds no earlier arm's run");
+            debug_assert!(
+                held.is_empty(),
+                "a run that ends at its first arm holds no earlier arm's run"
+            );
             fires::fire("sort.arms.alone"); // shapecheck fire signal (D3918): a pair arm with no row left the run in place
-            // past the cap `finish` left the workers' sealed runs in `run.held` (no `over` under an ArmSort): they are put
-            // to the slot's stream, as a single producer's `after_pipeline` puts them (`Resident::put_over`)
-            let over = core::mem::take(&mut *self.run.held.lock().unwrap_or_else(|e| e.into_inner()));
-            return if over.is_empty() { Ok(()) } else { self.run.put_over(node, slot, over) };
+                                            // past the cap `finish` left the workers' sealed runs in `run.held` (no `over` under an ArmSort): they are put
+                                            // to the slot's stream, as a single producer's `after_pipeline` puts them (`Resident::put_over`)
+            let over =
+                core::mem::take(&mut *self.run.held.lock().unwrap_or_else(|e| e.into_inner()));
+            return if over.is_empty() {
+                Ok(())
+            } else {
+                self.run.put_over(node, slot, over)
+            };
         }
         if !(last && held.is_empty()) {
             let leader = node.leader(slot);
             let (mut runs, rb, shape) = match settle(&self.run, leader) {
                 Some(srcs) => self.run.runs(srcs.into_iter())?,
-                None => self.run.runs(core::iter::once((leader.as_ptr() as usize, leader.len())))?,
+                None => self
+                    .run
+                    .runs(core::iter::once((leader.as_ptr() as usize, leader.len())))?,
             };
             if let Some(s) = shape {
                 match merged(&mut |n| node.region(n), &mut runs, rb, s, var, self.run.cap) {
@@ -100,12 +138,21 @@ impl ArmSort {
         if !last || held.is_empty() {
             return Ok(());
         }
-        let (mut runs, rb, shape) = self.run.runs(held.iter().map(|b| (b.as_ptr() as usize, b.len())))?;
+        let (mut runs, rb, shape) = self
+            .run
+            .runs(held.iter().map(|b| (b.as_ptr() as usize, b.len())))?;
         let s = shape.expect("a held run");
         let mut sink = NoRows;
         let mut leader = node.leader_state(slot, SinkRef::of(&mut sink));
         let vb = runs.iter().map(|r| raw::var_bytes(&s, r.0)).sum();
-        let (rows, var0) = match crate::ops::sort::merge::Resident::lay(&mut leader, runs.iter().map(|r| r.1 as u64).sum(), rb, vb, var.then_some(runs[0].0), self.run.cap) {
+        let (rows, var0) = match crate::ops::sort::merge::Resident::lay(
+            &mut leader,
+            runs.iter().map(|r| r.1 as u64).sum(),
+            rb,
+            vb,
+            var.then_some(runs[0].0),
+            self.run.cap,
+        ) {
             Ok(at) => at,
             Err(Error::OutOfMemory { .. }) => {
                 #[allow(clippy::drop_non_drop)]
@@ -188,7 +235,10 @@ pub(crate) fn rearm(leader: &mut [u8]) {
 
 /// The arm's run sources: the partials `merge_into` noted (`Some`), else `None`: the leader's run (phase 2's laid run sealed)
 /// is the one source.
-fn settle(run: &crate::ops::sort::merge::Resident, leader: &mut [u8]) -> Option<Vec<(usize, usize)>> {
+fn settle(
+    run: &crate::ops::sort::merge::Resident,
+    leader: &mut [u8],
+) -> Option<Vec<(usize, usize)>> {
     let held = core::mem::take(&mut *run.held.lock().unwrap_or_else(|e| e.into_inner()));
     let cut = core::mem::take(&mut *run.cut.lock().unwrap_or_else(|e| e.into_inner()));
     if !held.is_empty() {
@@ -209,18 +259,47 @@ pub(crate) fn head(base: usize) -> *const SortRun {
 /// `runs` merged into a statement-lived run of `lay`'s layout (a worker's: it reads back through `RunShape::of_run`
 /// and compacts for a put in place).
 /// D3259: past `max` bytes none is laid (`OutOfMemory`: the caller puts the runs), before any region is drawn.
-fn merged(region: &mut dyn FnMut(usize) -> Result<RegionBuf>, runs: &mut [(usize, u32)], rb: u32, s: RunShape, var: bool, max: u64) -> Result<RegionBuf> {
+fn merged(
+    region: &mut dyn FnMut(usize) -> Result<RegionBuf>,
+    runs: &mut [(usize, u32)],
+    rb: u32,
+    s: RunShape,
+    var: bool,
+    max: u64,
+) -> Result<RegionBuf> {
     let vb: u64 = runs.iter().map(|r| raw::var_bytes(&s, r.0)).sum();
     let total: u64 = runs.iter().map(|r| r.1 as u64).sum();
-    let copy = if var { raw::copy_bytes(runs[0].0) as u64 } else { 0 };
-    let need = SORTRUN_HDR as u64 + ((total * rb as u64 + vb + copy).div_ceil(rb as u64) + 1) * rb as u64 + SORTRUN_VAR_WORDS as u64;
+    let copy = if var {
+        raw::copy_bytes(runs[0].0) as u64
+    } else {
+        0
+    };
+    let need = SORTRUN_HDR as u64
+        + ((total * rb as u64 + vb + copy).div_ceil(rb as u64) + 1) * rb as u64
+        + SORTRUN_VAR_WORDS as u64;
     if need > max {
-        return Err(Error::OutOfMemory { bytes: need, held: 0, capacity: max, why: None });
+        return Err(Error::OutOfMemory {
+            bytes: need,
+            held: 0,
+            capacity: max,
+            why: None,
+        });
     }
-    let mut buf = region(SORTRUN_HDR + ((total * rb as u64 + vb + copy).div_ceil(rb as u64) as usize + 1) * rb as usize + SORTRUN_VAR_WORDS as usize)?;
+    let mut buf = region(
+        SORTRUN_HDR
+            + ((total * rb as u64 + vb + copy).div_ceil(rb as u64) as usize + 1) * rb as usize
+            + SORTRUN_VAR_WORDS as usize,
+    )?;
     let mut sink = NoRows;
     let mut st = State::new(&mut buf[..], SinkRef::of(&mut sink));
-    let (rows, var0) = crate::ops::sort::merge::Resident::lay(&mut st, total, rb, vb, var.then_some(runs[0].0), max)?;
+    let (rows, var0) = crate::ops::sort::merge::Resident::lay(
+        &mut st,
+        total,
+        rb,
+        vb,
+        var.then_some(runs[0].0),
+        max,
+    )?;
     if !raw::merge_laid(&s, runs, rows, st.bytes.as_mut_ptr(), var0) {
         return Err(Error::host("gravity: runs.sort: a merge compare failed"));
     }
@@ -240,11 +319,11 @@ fn put_held(node: &mut dyn ArmNode, slot: u8, held: &mut Vec<RegionBuf>, var: bo
 #[cfg(test)]
 #[allow(unsafe_code)]
 mod tests {
+    use super::*;
     use crate::ops::sort::merge::tests::{check, partials, run, vcheck, vrun, Discard, RB};
     use crate::ops::sort::merge::Resident;
-    use super::*;
-    use gravity_kernels::ops::sort::entries::{RESIDENT_MAX, RUN_SEALED};
     use gravity_driver::{PartitionPlan, Region};
+    use gravity_kernels::ops::sort::entries::{RESIDENT_MAX, RUN_SEALED};
 
     fn cv(v: impl IntoIterator<Item = usize>) -> memledger::ChargedVec<usize> {
         let mut c = memledger::ChargedVec::none();
@@ -269,7 +348,12 @@ mod tests {
     impl ArmNode for Mock {
         fn region(&mut self, n: usize) -> Result<RegionBuf> {
             if self.oom {
-                return Err(Error::OutOfMemory { bytes: n as u64, held: 0, capacity: 0, why: None });
+                return Err(Error::OutOfMemory {
+                    bytes: n as u64,
+                    held: 0,
+                    capacity: 0,
+                    why: None,
+                });
             }
             gravity_driver::try_region(n)
         }
@@ -287,7 +371,10 @@ mod tests {
             // SAFETY: as `Node::put_sort_run`: a sealed run in its put form that nothing else reads.
             unsafe {
                 #[allow(clippy::unnecessary_cast)]
-                self.stream.push(core::slice::from_raw_parts((*r).rows_ptr() as *const u8, (*r).dense_bytes()).to_vec()); // alloc: Cold
+                self.stream.push(
+                    core::slice::from_raw_parts((*r).rows_ptr() as *const u8, (*r).dense_bytes())
+                        .to_vec(),
+                ); // alloc: Cold
                 (*r).clear();
             }
             Ok(self.stream.len() as u32 - 1)
@@ -299,16 +386,38 @@ mod tests {
 
     fn arms(n: usize, fixed: Option<(usize, u64)>) -> (ArmSort, Mock) {
         let run = Resident::new(0..n, fixed, 0, None);
-        (ArmSort { run, slot: 0, prods: cv(0..n), held: pgsync::Mutex::new(Vec::new()) }, Mock { leader: vec![0; 1 << 15], stream: Vec::new(), oom: false, ends: Vec::new() }) // alloc: Cold
+        (
+            ArmSort {
+                run,
+                slot: 0,
+                prods: cv(0..n),
+                held: pgsync::Mutex::new(Vec::new()),
+            },
+            Mock {
+                leader: vec![0; 1 << 15],
+                stream: Vec::new(),
+                oom: false,
+                ends: Vec::new(),
+            },
+        ) // alloc: Cold
     }
 
     /// Arm `p`'s partials through the leader's own fold, then its finish when it is the last arm.
     fn fold(a: &ArmSort, m: &mut Mock, p: usize, runs: &[Vec<u64>]) {
         for part in partials(runs) {
-            a.merge_for(p).unwrap().merge_into(&mut State::new(&mut [], SinkRef::of(&mut Discard)), part).unwrap();
+            a.merge_for(p)
+                .unwrap()
+                .merge_into(&mut State::new(&mut [], SinkRef::of(&mut Discard)), part)
+                .unwrap();
         }
         if a.prods.last() == Some(&p) {
-            a.merge_for(p).unwrap().finish(&mut State::new(bytes(&mut m.leader), SinkRef::of(&mut Discard))).unwrap();
+            a.merge_for(p)
+                .unwrap()
+                .finish(&mut State::new(
+                    bytes(&mut m.leader),
+                    SinkRef::of(&mut Discard),
+                ))
+                .unwrap();
         }
     }
 
@@ -320,11 +429,31 @@ mod tests {
         let (a0, a1) = (run(&[9, 1, 5, 7], 1), run(&[2, 8, 8], 2));
         let both = [a0.clone(), a1.clone()];
         let ps = partials(&both);
-        let plan = PartitionPlan { pbits: 1, groups: 7, record: RB as u32 };
+        let plan = PartitionPlan {
+            pbits: 1,
+            groups: 7,
+            record: RB as u32,
+        };
         let merge = a.merge_for(0).unwrap();
-        merge.prepare_partitions_in(&mut State::new(bytes(&mut m.leader), SinkRef::of(&mut Discard)), plan, &ps).unwrap();
+        merge
+            .prepare_partitions_in(
+                &mut State::new(bytes(&mut m.leader), SinkRef::of(&mut Discard)),
+                plan,
+                &ps,
+            )
+            .unwrap();
         for part in [1, 0] {
-            merge.merge_partition(Region { ptr: m.leader.as_mut_ptr() as *mut u8, len: m.leader.len() * 8 }, part, plan, &ps).unwrap();
+            merge
+                .merge_partition(
+                    Region {
+                        ptr: m.leader.as_mut_ptr() as *mut u8,
+                        len: m.leader.len() * 8,
+                    },
+                    part,
+                    plan,
+                    &ps,
+                )
+                .unwrap();
         }
         a.after(0, &mut m).unwrap();
         let b0 = run(&[3, 0, 6], 3);
@@ -334,7 +463,10 @@ mod tests {
         fold(&a, &mut m, 2, &[c0.clone(), c1.clone()]);
         a.after(2, &mut m).unwrap();
         check(&m.leader, &[a0, a1, b0, c0, c1]);
-        assert!(m.stream.is_empty() && a.held.lock().unwrap().is_empty(), "nothing put, nothing held");
+        assert!(
+            m.stream.is_empty() && a.held.lock().unwrap().is_empty(),
+            "nothing put, nothing held"
+        );
     }
 
     /// D3918: the run ends at arm 0 (arm 1 a pair pass with no row): arm 0's phase-2 run, finished and sealed in the leader
@@ -346,20 +478,54 @@ mod tests {
         let (a0, a1) = (run(&[9, 1, 5, 7], 1), run(&[2, 8, 8], 2));
         let both = [a0.clone(), a1.clone()];
         let ps = partials(&both);
-        let plan = PartitionPlan { pbits: 1, groups: 7, record: RB as u32 };
+        let plan = PartitionPlan {
+            pbits: 1,
+            groups: 7,
+            record: RB as u32,
+        };
         let merge = a.merge_for(0).unwrap();
-        merge.prepare_partitions_in(&mut State::new(bytes(&mut m.leader), SinkRef::of(&mut Discard)), plan, &ps).unwrap();
+        merge
+            .prepare_partitions_in(
+                &mut State::new(bytes(&mut m.leader), SinkRef::of(&mut Discard)),
+                plan,
+                &ps,
+            )
+            .unwrap();
         for part in [1, 0] {
-            merge.merge_partition(Region { ptr: m.leader.as_mut_ptr() as *mut u8, len: m.leader.len() * 8 }, part, plan, &ps).unwrap();
+            merge
+                .merge_partition(
+                    Region {
+                        ptr: m.leader.as_mut_ptr() as *mut u8,
+                        len: m.leader.len() * 8,
+                    },
+                    part,
+                    plan,
+                    &ps,
+                )
+                .unwrap();
         }
-        merge.finish(&mut State::new(bytes(&mut m.leader), SinkRef::of(&mut Discard))).unwrap();
+        merge
+            .finish(&mut State::new(
+                bytes(&mut m.leader),
+                SinkRef::of(&mut Discard),
+            ))
+            .unwrap();
         let before = m.leader.clone();
         a.after(0, &mut m).unwrap();
-        assert!(a.held.lock().unwrap().is_empty() && m.leader == before, "arm 0's run neither held nor touched");
+        assert!(
+            a.held.lock().unwrap().is_empty() && m.leader == before,
+            "arm 0's run neither held nor touched"
+        );
         a.after(1, &mut m).unwrap();
-        assert!(m.leader == before, "the stepped-past arm's after leaves the sealed run");
+        assert!(
+            m.leader == before,
+            "the stepped-past arm's after leaves the sealed run"
+        );
         check(&m.leader, &[a0, a1]);
-        assert!(m.stream.is_empty() && a.held.lock().unwrap().is_empty(), "nothing put, nothing held");
+        assert!(
+            m.stream.is_empty() && a.held.lock().unwrap().is_empty(),
+            "nothing put, nothing held"
+        );
     }
 
     /// Arm 1 spills (its runs went to the stream): arm 0's held run is put behind them, every row in the stream once.
@@ -370,17 +536,34 @@ mod tests {
         fold(&a, &mut m, 0, &arm0);
         a.after(0, &mut m).unwrap();
         let d = run(&[7, 3], 3);
-        m.stream.push(bytes(&mut d.clone())[SORTRUN_HDR..][..2 * RB].to_vec()); // alloc: Cold
+        m.stream
+            .push(bytes(&mut d.clone())[SORTRUN_HDR..][..2 * RB].to_vec()); // alloc: Cold
         fold(&a, &mut m, 1, &[]);
         a.after(1, &mut m).unwrap();
         assert_eq!(m.stream.len(), 2, "arm 1's run and arm 0's held run");
-        let rows = |b: &[u8]| b.chunks(RB).map(|r| (u64::from_ne_bytes(r[8..16].try_into().unwrap()), u64::from_ne_bytes(r[16..24].try_into().unwrap()))).collect::<Vec<_>>();
+        let rows = |b: &[u8]| {
+            b.chunks(RB)
+                .map(|r| {
+                    (
+                        u64::from_ne_bytes(r[8..16].try_into().unwrap()),
+                        u64::from_ne_bytes(r[16..24].try_into().unwrap()),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
         let held = rows(&m.stream[1]);
-        assert!(held.windows(2).all(|w| w[0].0 <= w[1].0), "the held run in key order");
+        assert!(
+            held.windows(2).all(|w| w[0].0 <= w[1].0),
+            "the held run in key order"
+        );
         let mut got: Vec<u64> = m.stream.iter().flat_map(|b| rows(b)).map(|r| r.0).collect();
         got.sort_unstable();
         assert_eq!(got, vec![1, 2, 3, 5, 7, 8, 9]); // alloc: Cold
-        assert_ne!(unsafe { (*(m.leader.as_ptr() as *const SortRun)).pad[0] }, RUN_SEALED, "no sealed run beside the stream");
+        assert_ne!(
+            unsafe { (*(m.leader.as_ptr() as *const SortRun)).pad[0] },
+            RUN_SEALED,
+            "no sealed run beside the stream"
+        );
     }
 
     /// M3-MERGE's feeders: in the run 0..4 only 1 and 3 produce the slot; 0 and 2 are no arm (no merge, no after), the
@@ -393,7 +576,11 @@ mod tests {
         let (x, y) = ([run(&[5, 1], 1)], [run(&[4, 2], 2)]);
         fold(&a, &mut m, 1, &x);
         a.after(1, &mut m).unwrap();
-        assert_eq!(a.held.lock().unwrap().len(), 1, "arm 1 continues: its run held");
+        assert_eq!(
+            a.held.lock().unwrap().len(),
+            1,
+            "arm 1 continues: its run held"
+        );
         fold(&a, &mut m, 3, &y);
         a.after(3, &mut m).unwrap();
         check(&m.leader, &[x[0].clone(), y[0].clone()]);
@@ -407,21 +594,43 @@ mod tests {
         let (x, y) = ([run(&[9, 1, 5], 1)], [run(&[2, 8], 2)]);
         fold(&a, &mut m, 0, &x);
         a.after(0, &mut m).unwrap();
-        assert_eq!((a.held.lock().unwrap().len(), m.stream.len()), (1, 0), "arm 0 held");
+        assert_eq!(
+            (a.held.lock().unwrap().len(), m.stream.len()),
+            (1, 0),
+            "arm 0 held"
+        );
         m.oom = true;
         fold(&a, &mut m, 1, &y);
         a.after(1, &mut m).unwrap();
-        assert_eq!((a.held.lock().unwrap().len(), m.stream.len()), (0, 2), "arm 0's held run and arm 1's put");
+        assert_eq!(
+            (a.held.lock().unwrap().len(), m.stream.len()),
+            (0, 2),
+            "arm 0's held run and arm 1's put"
+        );
         let z = run(&[7, 3], 3);
-        m.stream.push(bytes(&mut z.clone())[SORTRUN_HDR..][..2 * RB].to_vec()); // alloc: Cold
+        m.stream
+            .push(bytes(&mut z.clone())[SORTRUN_HDR..][..2 * RB].to_vec()); // alloc: Cold
         fold(&a, &mut m, 2, &[]);
         a.after(2, &mut m).unwrap();
-        let keys = |b: &[u8]| b.chunks(RB).map(|r| u64::from_ne_bytes(r[8..16].try_into().unwrap())).collect::<Vec<_>>();
-        assert!(m.stream.iter().all(|b| keys(b).windows(2).all(|w| w[0] <= w[1])), "each put run in key order");
+        let keys = |b: &[u8]| {
+            b.chunks(RB)
+                .map(|r| u64::from_ne_bytes(r[8..16].try_into().unwrap()))
+                .collect::<Vec<_>>()
+        };
+        assert!(
+            m.stream
+                .iter()
+                .all(|b| keys(b).windows(2).all(|w| w[0] <= w[1])),
+            "each put run in key order"
+        );
         let mut got: Vec<u64> = m.stream.iter().flat_map(|b| keys(b)).collect();
         got.sort_unstable();
         assert_eq!(got, vec![1, 2, 3, 5, 7, 8, 9]); // alloc: Cold
-        assert_ne!(unsafe { (*(m.leader.as_ptr() as *const SortRun)).pad[0] }, RUN_SEALED, "no sealed run beside the stream");
+        assert_ne!(
+            unsafe { (*(m.leader.as_ptr() as *const SortRun)).pad[0] },
+            RUN_SEALED,
+            "no sealed run beside the stream"
+        );
     }
 
     /// D3259: kernels `resident` seals whenever no worker put, so an `ArmSort` merge can pass the cap (a region's bytes)
@@ -434,24 +643,53 @@ mod tests {
         let (x, y) = ([run(&[9, 1, 5], 1)], [run(&[2, 8], 2)]);
         fold(&a, &mut m, 0, &x);
         a.after(0, &mut m).unwrap();
-        assert_eq!((a.held.lock().unwrap().len(), m.stream.len()), (1, 0), "arm 0's 3 rows fit the cap: held");
+        assert_eq!(
+            (a.held.lock().unwrap().len(), m.stream.len()),
+            (1, 0),
+            "arm 0's 3 rows fit the cap: held"
+        );
         fold(&a, &mut m, 1, &y);
         a.after(1, &mut m).unwrap();
-        assert_eq!((a.held.lock().unwrap().len(), m.stream.len()), (0, 2), "5 rows pass it: both runs put");
-        let keys = |b: &[u8]| b.chunks(RB).map(|r| u64::from_ne_bytes(r[8..16].try_into().unwrap())).collect::<Vec<_>>();
-        assert!(m.stream.iter().all(|b| keys(b).windows(2).all(|w| w[0] <= w[1])), "each put run in key order");
+        assert_eq!(
+            (a.held.lock().unwrap().len(), m.stream.len()),
+            (0, 2),
+            "5 rows pass it: both runs put"
+        );
+        let keys = |b: &[u8]| {
+            b.chunks(RB)
+                .map(|r| u64::from_ne_bytes(r[8..16].try_into().unwrap()))
+                .collect::<Vec<_>>()
+        };
+        assert!(
+            m.stream
+                .iter()
+                .all(|b| keys(b).windows(2).all(|w| w[0] <= w[1])),
+            "each put run in key order"
+        );
         let mut got: Vec<u64> = m.stream.iter().flat_map(|b| keys(b)).collect();
         got.sort_unstable();
         assert_eq!(got, vec![1, 2, 5, 8, 9]); // alloc: Cold
-        assert_ne!(unsafe { (*(m.leader.as_ptr() as *const SortRun)).pad[0] }, RUN_SEALED, "no sealed run beside the stream");
+        assert_ne!(
+            unsafe { (*(m.leader.as_ptr() as *const SortRun)).pad[0] },
+            RUN_SEALED,
+            "no sealed run beside the stream"
+        );
     }
 
     /// Var rows: the held run keeps its table copy and copies (merged once into the leader), and in the put form its
     /// records carry them (a spill after it).
     #[test]
     fn var_arms_hold_their_copies_and_put_them_compacted() {
-        let t = |w: &[&str]| w.iter().map(|s| s.as_bytes().to_vec()).collect::<Vec<Vec<u8>>>();
-        let (x, y, z) = (t(&["pear", "apple and more", ""]), t(&["fig", "zucchini squash"]), t(&["kiwi", "apple"]));
+        let t = |w: &[&str]| {
+            w.iter()
+                .map(|s| s.as_bytes().to_vec())
+                .collect::<Vec<Vec<u8>>>()
+        };
+        let (x, y, z) = (
+            t(&["pear", "apple and more", ""]),
+            t(&["fig", "zucchini squash"]),
+            t(&["kiwi", "apple"]),
+        );
         // the partials live until the arm's after-pipeline, as a worker's region lives until the next section's open
         let arm0 = [vrun(&x, 1), vrun(&y, 2)];
         let (a, mut m) = arms(2, None);
@@ -469,7 +707,10 @@ mod tests {
         let (mut got, b, mut at) = (Vec::new(), &m.stream[1], 0); // alloc: Cold
         while at < b.len() {
             let rec = u32::from_ne_bytes(b[at + 32..at + 36].try_into().unwrap()) as usize;
-            let (size, off) = (u32::from_ne_bytes(b[at + 16..at + 20].try_into().unwrap()) as usize, u32::from_ne_bytes(b[at + 20..at + 24].try_into().unwrap()) as usize);
+            let (size, off) = (
+                u32::from_ne_bytes(b[at + 16..at + 20].try_into().unwrap()) as usize,
+                u32::from_ne_bytes(b[at + 20..at + 24].try_into().unwrap()) as usize,
+            );
             got.push(b[at + 16 + off + 4..][..size - 4].to_vec());
             at += rec;
         }
@@ -483,23 +724,61 @@ mod tests {
     /// producer's `after_pipeline` does; the stepped-past arm's `after` adds none.
     #[test]
     fn a_run_that_ends_at_its_first_arm_puts_its_runs_past_the_cap() {
-        let t = |w: &[&str]| w.iter().map(|s| s.as_bytes().to_vec()).collect::<Vec<Vec<u8>>>();
-        let (x, y) = (t(&["pear", "apple and more", ""]), t(&["fig", "zucchini squash"]));
+        let t = |w: &[&str]| {
+            w.iter()
+                .map(|s| s.as_bytes().to_vec())
+                .collect::<Vec<Vec<u8>>>()
+        };
+        let (x, y) = (
+            t(&["pear", "apple and more", ""]),
+            t(&["fig", "zucchini squash"]),
+        );
         let runs = [vrun(&x, 1), vrun(&y, 2)];
         let ps = partials(&runs);
-        let a = ArmSort { run: Resident { cap: 64, ..Resident::new(0..2, None, 0, None) }, slot: 0, prods: cv([0, 1]), held: pgsync::Mutex::new(Vec::new()) }; // alloc: Cold
-        let mut m = Mock { leader: vec![0; 1 << 15], stream: Vec::new(), oom: false, ends: vec![0] }; // alloc: Cold
+        let a = ArmSort {
+            run: Resident {
+                cap: 64,
+                ..Resident::new(0..2, None, 0, None)
+            },
+            slot: 0,
+            prods: cv([0, 1]),
+            held: pgsync::Mutex::new(Vec::new()),
+        }; // alloc: Cold
+        let mut m = Mock {
+            leader: vec![0; 1 << 15],
+            stream: Vec::new(),
+            oom: false,
+            ends: vec![0],
+        }; // alloc: Cold
         for p in ps.iter() {
-            a.run.merge_into(&mut State::new(&mut [], SinkRef::of(&mut Discard)), *p).unwrap();
+            a.run
+                .merge_into(&mut State::new(&mut [], SinkRef::of(&mut Discard)), *p)
+                .unwrap();
         }
-        a.run.finish(&mut State::new(bytes(&mut m.leader), SinkRef::of(&mut Discard))).unwrap();
-        assert_eq!(a.run.held.lock().unwrap().len(), 2, "past the cap both sealed runs stay for the arm's after");
+        a.run
+            .finish(&mut State::new(
+                bytes(&mut m.leader),
+                SinkRef::of(&mut Discard),
+            ))
+            .unwrap();
+        assert_eq!(
+            a.run.held.lock().unwrap().len(),
+            2,
+            "past the cap both sealed runs stay for the arm's after"
+        );
         a.after(0, &mut m).unwrap();
         assert_eq!(m.stream.len(), 2, "each sealed run put");
-        assert!(a.run.held.lock().unwrap().is_empty() && a.held.lock().unwrap().is_empty(), "nothing left held");
+        assert!(
+            a.run.held.lock().unwrap().is_empty() && a.held.lock().unwrap().is_empty(),
+            "nothing left held"
+        );
         a.after(1, &mut m).unwrap();
         assert_eq!(m.stream.len(), 2, "the stepped-past arm puts none");
-        assert_ne!(unsafe { (*(m.leader.as_ptr() as *const SortRun)).pad[0] }, RUN_SEALED, "no sealed run beside the stream");
+        assert_ne!(
+            unsafe { (*(m.leader.as_ptr() as *const SortRun)).pad[0] },
+            RUN_SEALED,
+            "no sealed run beside the stream"
+        );
     }
 
     /// D4413 (born red): the put of the sealed runs past the cap (`Resident::put_over`) compacts each to its put form on
@@ -507,30 +786,55 @@ mod tests {
     /// run's compact copy and raises, nothing put and the run as it lay, so the same put with no abort puts every record.
     #[test]
     fn a_pending_abort_stops_the_put_past_the_cap_in_a_runs_compact() {
-        let x: Vec<Vec<u8>> = (0..3 * gravity_abi::ctx::POLL_BATCH).map(|i| format!("text {:06}", (i * 7919) % 100_000).into_bytes()).collect(); // alloc: Cold
+        let x: Vec<Vec<u8>> = (0..3 * gravity_abi::ctx::POLL_BATCH)
+            .map(|i| format!("text {:06}", (i * 7919) % 100_000).into_bytes())
+            .collect(); // alloc: Cold
         let runs = [vrun(&x, 1)];
         let ps = partials(&runs);
-        let m = Resident { cap: 64, ..Resident::new(0..1, None, 0, Some(0)) };
-        let mut n = Mock { leader: vec![0; 1 << 15], stream: Vec::new(), oom: false, ends: Vec::new() }; // alloc: Cold
+        let m = Resident {
+            cap: 64,
+            ..Resident::new(0..1, None, 0, Some(0))
+        };
+        let mut n = Mock {
+            leader: vec![0; 1 << 15],
+            stream: Vec::new(),
+            oom: false,
+            ends: Vec::new(),
+        }; // alloc: Cold
         for p in ps.iter() {
-            m.merge_into(&mut State::new(&mut [], SinkRef::of(&mut Discard)), *p).unwrap();
+            m.merge_into(&mut State::new(&mut [], SinkRef::of(&mut Discard)), *p)
+                .unwrap();
         }
-        m.finish(&mut State::new(bytes(&mut n.leader), SinkRef::of(&mut Discard))).unwrap();
+        m.finish(&mut State::new(
+            bytes(&mut n.leader),
+            SinkRef::of(&mut Discard),
+        ))
+        .unwrap();
         let spilled = core::mem::take(&mut *m.spilled.lock().unwrap());
         assert_eq!(spilled.len(), 1, "the sealed run left for the put");
         let abort = crate::glue::abort_u8();
         abort.fetch_or(gravity_abi::ctx::ABORT_BIT, AcqRel);
         let stopped = m.put_over(&mut n, 0, spilled.clone());
         abort.fetch_and(!gravity_abi::ctx::ABORT_BIT, AcqRel);
-        assert!(stopped.is_err(), "a pending abort stops the put in the run's compact");
+        assert!(
+            stopped.is_err(),
+            "a pending abort stops the put in the run's compact"
+        );
         assert!(n.stream.is_empty(), "nothing put");
         m.put_over(&mut n, 0, spilled).unwrap();
-        assert_eq!(n.stream.len(), 1, "the run as it lay: the put with no abort puts it");
+        assert_eq!(
+            n.stream.len(),
+            1,
+            "the run as it lay: the put with no abort puts it"
+        );
         let b = &n.stream[0];
         let (mut got, mut at) = (Vec::new(), 0); // alloc: Cold
         while at < b.len() {
             let rec = u32::from_ne_bytes(b[at + 32..at + 36].try_into().unwrap()) as usize;
-            let (size, off) = (u32::from_ne_bytes(b[at + 16..at + 20].try_into().unwrap()) as usize, u32::from_ne_bytes(b[at + 20..at + 24].try_into().unwrap()) as usize);
+            let (size, off) = (
+                u32::from_ne_bytes(b[at + 16..at + 20].try_into().unwrap()) as usize,
+                u32::from_ne_bytes(b[at + 20..at + 24].try_into().unwrap()) as usize,
+            );
             got.push(b[at + 16 + off + 4..][..size - 4].to_vec());
             at += rec;
         }
@@ -544,26 +848,53 @@ mod tests {
     /// stream in its put form, each record with its copy; under the cap the same runs merge on the leader as before.
     #[test]
     fn a_merge_past_its_cap_puts_the_sealed_runs_instead() {
-        let t = |w: &[&str]| w.iter().map(|s| s.as_bytes().to_vec()).collect::<Vec<Vec<u8>>>();
-        let (x, y) = (t(&["pear", "apple and more", ""]), t(&["fig", "zucchini squash"]));
+        let t = |w: &[&str]| {
+            w.iter()
+                .map(|s| s.as_bytes().to_vec())
+                .collect::<Vec<Vec<u8>>>()
+        };
+        let (x, y) = (
+            t(&["pear", "apple and more", ""]),
+            t(&["fig", "zucchini squash"]),
+        );
         let runs = [vrun(&x, 1), vrun(&y, 2)];
         let ps = partials(&runs);
-        let over = |cap| Resident { cap, ..Resident::new(0..1, None, 0, Some(0)) };
-        let node = || Mock { leader: vec![0; 1 << 15], stream: Vec::new(), oom: false, ends: Vec::new() }; // alloc: Cold
+        let over = |cap| Resident {
+            cap,
+            ..Resident::new(0..1, None, 0, Some(0))
+        };
+        let node = || Mock {
+            leader: vec![0; 1 << 15],
+            stream: Vec::new(),
+            oom: false,
+            ends: Vec::new(),
+        }; // alloc: Cold
         let fold = |m: &Resident, n: &mut Mock| {
             for p in ps.iter() {
-                m.merge_into(&mut State::new(&mut [], SinkRef::of(&mut Discard)), *p).unwrap();
+                m.merge_into(&mut State::new(&mut [], SinkRef::of(&mut Discard)), *p)
+                    .unwrap();
             }
-            m.finish(&mut State::new(bytes(&mut n.leader), SinkRef::of(&mut Discard))).unwrap();
+            m.finish(&mut State::new(
+                bytes(&mut n.leader),
+                SinkRef::of(&mut Discard),
+            ))
+            .unwrap();
         };
         let (m, mut n) = (over(RESIDENT_MAX), node());
         fold(&m, &mut n);
         vcheck(&n.leader, &[x.clone(), y.clone()]);
-        assert!(m.spilled.lock().unwrap().is_empty() && n.stream.is_empty(), "under the cap: merged on the leader");
+        assert!(
+            m.spilled.lock().unwrap().is_empty() && n.stream.is_empty(),
+            "under the cap: merged on the leader"
+        );
         let (m, mut n) = (over(64), node());
         assert!(m.partition_plan(&ps).is_none(), "no phase 2 past the cap");
         fold(&m, &mut n);
-        assert_ne!(unsafe { (*(n.leader.as_ptr() as *const SortRun)).pad[0] }, RUN_SEALED, "the leader lays no run");
+        assert_ne!(
+            unsafe { (*(n.leader.as_ptr() as *const SortRun)).pad[0] },
+            RUN_SEALED,
+            "the leader lays no run"
+        );
         let spilled = core::mem::take(&mut *m.spilled.lock().unwrap());
         assert_eq!(spilled.len(), 2, "both sealed runs left for the put");
         m.put_over(&mut n, 0, spilled).unwrap();
@@ -573,17 +904,27 @@ mod tests {
             let (mut run, mut at) = (Vec::new(), 0); // alloc: Cold
             while at < b.len() {
                 let rec = u32::from_ne_bytes(b[at + 32..at + 36].try_into().unwrap()) as usize;
-                let (size, off) = (u32::from_ne_bytes(b[at + 16..at + 20].try_into().unwrap()) as usize, u32::from_ne_bytes(b[at + 20..at + 24].try_into().unwrap()) as usize);
+                let (size, off) = (
+                    u32::from_ne_bytes(b[at + 16..at + 20].try_into().unwrap()) as usize,
+                    u32::from_ne_bytes(b[at + 20..at + 24].try_into().unwrap()) as usize,
+                );
                 run.push(b[at + 16 + off + 4..][..size - 4].to_vec());
                 at += rec;
             }
-            assert!(run.windows(2).all(|w| w[0] <= w[1]), "each put run in text order");
+            assert!(
+                run.windows(2).all(|w| w[0] <= w[1]),
+                "each put run in text order"
+            );
             got.extend(run);
         }
         got.sort();
         let mut want = [x, y].concat();
         want.sort();
         assert_eq!(got, want, "every record in the stream once, with its copy");
-        assert_ne!(unsafe { (*(n.leader.as_ptr() as *const SortRun)).pad[0] }, RUN_SEALED, "no sealed run beside the stream");
+        assert_ne!(
+            unsafe { (*(n.leader.as_ptr() as *const SortRun)).pad[0] },
+            RUN_SEALED,
+            "no sealed run beside the stream"
+        );
     }
 }

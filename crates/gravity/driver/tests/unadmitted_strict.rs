@@ -18,7 +18,10 @@ const NULLS: [u8; 1] = [0];
 
 /// A program with a breaker (a share-budgeted hash aggregate) run under a strict reservation: its slot's region is the named error.
 #[test]
-#[cfg_attr(debug_assertions, should_panic(expected = "unadmitted program drew grant memory"))]
+#[cfg_attr(
+    debug_assertions,
+    should_panic(expected = "unadmitted program drew grant memory")
+)]
 fn a_program_that_opens_a_region_under_a_strict_reservation_fails_by_name() {
     let program = Arc::new(p_group_share(4));
     let mut derive = FakeDerive::ranges(RangeTable::new(24, 10));
@@ -54,13 +57,27 @@ fn a_breakerless_programs_arena_chunk_under_a_strict_reservation_is_drawn_and_co
     let mut b = binding(&[0], &NULLS, &mut sink, &flag);
     let res = Rc::new(Reservation::unadmitted_strict(Grant::of(8 * MIB)));
     assert!(res.is_strict());
-    let mut exec = entry.start(None, &program, &mut derive, &mut b, res.clone()).expect("a breakerless program starts under a strict reservation");
+    let mut exec = entry
+        .start(None, &program, &mut derive, &mut b, res.clone())
+        .expect("a breakerless program starts under a strict reservation");
     let ctx = exec.node().ctx();
     let want = 256 << 10;
     let got = unsafe { gravity_abi::program::arena_grow(ctx, want) };
-    assert!(got >= want as i64, "the arena chunk is drawn, not refused ({got})");
-    assert!(res.drawn() >= want, "counted as the statement's draw ({} B)", res.drawn());
-    assert_eq!(entry.run(&mut exec, &mut b, Call::batch(64)).expect("no error"), Step::Done);
+    assert!(
+        got >= want as i64,
+        "the arena chunk is drawn, not refused ({got})"
+    );
+    assert!(
+        res.drawn() >= want,
+        "counted as the statement's draw ({} B)",
+        res.drawn()
+    );
+    assert_eq!(
+        entry
+            .run(&mut exec, &mut b, Call::batch(64))
+            .expect("no error"),
+        Step::Done
+    );
     entry.end(exec, true);
     assert_eq!(sink.sorted().len() as u64, table.rows(), "every row");
 }

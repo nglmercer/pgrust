@@ -10,6 +10,7 @@ use gravity_ir::builder::{FunctionBuilder, ProgramBuilder};
 use gravity_ir::{Block, Value};
 use gravity_program::{ArenaRef, Pipeline, SiteDesc};
 
+use crate::admit::refusal::Variant;
 #[allow(unused_imports)]
 use crate::cell::LaneId;
 use crate::face::strategy;
@@ -18,7 +19,6 @@ use crate::frame::frame::{Win, WordWin};
 use crate::frame::open::OpenWords;
 use crate::frame::px::{ExId, Px};
 use crate::frame::row::{Carry, Mask, RowVals};
-use crate::admit::refusal::Variant;
 use crate::ops as registry;
 
 /// M6 D2 (L0-g, road `jsonb.lanes`): a drafted pgrc site's lanes before its quals compile (the path lanes the leading
@@ -27,7 +27,9 @@ pub struct SiteDraft(pub fn(&Px<'_, '_>, usize, &mut SiteDesc));
 
 /// The `jsonb.lanes` draft (`SiteDraft`) of pipeline `k`'s pgrc `site`, when the road is built.
 pub fn site_draft(px: &Px<'_, '_>, k: usize, site: &mut SiteDesc) {
-    if let Some(d) = registry::strategy(strategy::JSONB_LANES).and_then(|m| m.downcast_ref::<SiteDraft>()) {
+    if let Some(d) =
+        registry::strategy(strategy::JSONB_LANES).and_then(|m| m.downcast_ref::<SiteDraft>())
+    {
         (d.0)(px, k, site);
         // P1b: the int8 number paths after the text ones (their shred indices follow jsonb.lanes' `paths`)
         crate::ops::scan::pgrc::strategies::jsonb_nums::engage(px, k, site);
@@ -81,11 +83,19 @@ macro_rules! hook_variants {
 }
 
 pub fn built(v: Variant) -> bool {
-    match v { Variant::Kind(k) => registry::kind(k).is_some(), Variant::Strategy(r) => registry::strategy(r).is_some() }
+    match v {
+        Variant::Kind(k) => registry::kind(k).is_some(),
+        Variant::Strategy(r) => registry::strategy(r).is_some(),
+    }
 }
 
 pub fn on(v: Variant) -> bool {
-    match v { Variant::Kind(_) => built(v), Variant::Strategy(r) => built(v) && !strategy::off().has(r) && !registry::dropped_strategies().has(r) }
+    match v {
+        Variant::Kind(_) => built(v),
+        Variant::Strategy(r) => {
+            built(v) && !strategy::off().has(r) && !registry::dropped_strategies().has(r)
+        }
+    }
 }
 
 /// What a source knows of one window (H06 a / b). Each fact is a condition word (nonzero: holds), or `None` when unknown.
@@ -164,13 +174,27 @@ pub struct Body {
 /// A body road's mechanism (`BodyImpl`, for `body.versioned` / `body.form`): the window's guard (`I1`) and the facts the
 /// fast body runs under, or `None` when the window's facts give no fast body.
 pub trait BodyMech: Sync {
-    fn guard(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, facts: &WinConds) -> Option<(Value, Body)>;
+    fn guard(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        facts: &WinConds,
+    ) -> Option<(Value, Body)>;
 }
 
 pub struct BodyImpl(pub &'static dyn BodyMech);
 
 /// src.prune's skip bit `(word, bit)` of arm `i` of `n` (pipeline `k`, plan node `node`) for another kind's arms (D509: a MergeAppend's).
-pub struct PruneImpl(pub for<'a, 'b, 'c> fn(&mut Px<'a, 'b>, usize, u16, u16, &gravity_decompose::ops::shared::append::PruneDesc<'c>, i32) -> (u16, u32));
+pub struct PruneImpl(
+    pub  for<'a, 'b, 'c> fn(
+        &mut Px<'a, 'b>,
+        usize,
+        u16,
+        u16,
+        &gravity_decompose::ops::shared::append::PruneDesc<'c>,
+        i32,
+    ) -> (u16, u32),
+);
 
 crate::hook_variants! {
     /// The verdicts a source answers per window before its rows are read (H02). (f), answered records, is fold.rs's
@@ -221,7 +245,9 @@ pub trait VerdictMech: Sync {
     fn declare(&self, px: &mut Px<'_, '_>, site: &mut SiteDesc, qual: ExId) -> bool;
     /// The window's verdict computed in IR at the window's open (runtime constants), as a `Verdict` word. `None` means the
     /// host's answer stands.
-    fn window(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env, _win: &Win) -> Option<Value> { None }
+    fn window(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env, _win: &Win) -> Option<Value> {
+        None
+    }
 }
 
 pub struct VerdictImpl(pub &'static dyn VerdictMech);
@@ -256,7 +282,10 @@ impl ReadPlan {
     }
 
     pub fn forms(self) -> impl Iterator<Item = ReadForm> {
-        ReadForm::ALL.iter().copied().filter(move |&f| self.0 >> f as u8 & 1 == 1)
+        ReadForm::ALL
+            .iter()
+            .copied()
+            .filter(move |&f| self.0 >> f as u8 & 1 == 1)
     }
 }
 
@@ -276,7 +305,9 @@ crate::hook_variants! {
 pub enum DecodeOrder {
     #[default]
     Eager,
-    Late { first: u64 },
+    Late {
+        first: u64,
+    },
 }
 
 /// A window's granule identity in the condition cache (H02i, `VerdictKind::CondCache`), as `I64` words the source computes
@@ -317,7 +348,9 @@ pub trait SourceMech {
         core::any::type_name::<Self>()
     }
     fn declare(&mut self, _pb: &mut ProgramBuilder) {}
-    fn site_desc(&self, _arena: ArenaRef) -> Option<SiteDesc> { None }
+    fn site_desc(&self, _arena: ArenaRef) -> Option<SiteDesc> {
+        None
+    }
     /// After every make of pipeline `k`, on its drafted site just before it is numbered: lanes that follow every table lane
     /// (the condition cache's verdict lane, M1-SOURCE).
     fn seal(&mut self, _px: &mut Px<'_, '_>, _k: usize, _site: &mut SiteDesc) {}
@@ -327,28 +360,56 @@ pub trait SourceMech {
     /// D2561: before the code, on graph pipeline `k`'s source when a later call reads the array it gathers (a group sort's
     /// emit, form G, read by the top's drain) in a program that runs a nested pipeline: keep that array past its call (pinned).
     /// `false`: the source cannot, and the frame refuses the program.
-    fn keep_past_call(&mut self, _px: &mut Px<'_, '_>, _k: usize) -> bool { false }
+    fn keep_past_call(&mut self, _px: &mut Px<'_, '_>, _k: usize) -> bool {
+        false
+    }
     /// D2561: the source re-reads, in its own call, the record array its top pipeline's group emit gathered (a top's drain,
     /// form G: topn/lower.rs `make_drain`).
-    fn rereads_top(&self) -> bool { false }
-    fn pipeline_desc(&self, px: &Px<'_, '_>, k: usize) -> Pipeline { px.gx.pipelines()[k].desc }
+    fn rereads_top(&self) -> bool {
+        false
+    }
+    fn pipeline_desc(&self, px: &Px<'_, '_>, k: usize) -> Pipeline {
+        px.gx.pipelines()[k].desc
+    }
     /// A once source (a Result, a breaker's single emit) has no window loop.
-    fn once(&self) -> bool { false }
+    fn once(&self) -> bool {
+        false
+    }
     /// H17 a: every word the source reads across rows or calls; the frame writes them at the open.
     fn open_words(&self, _w: &mut OpenWords) {}
     /// H03 a–d.
-    fn read_plan(&self) -> ReadPlan { ReadPlan::PLAIN }
+    fn read_plan(&self) -> ReadPlan {
+        ReadPlan::PLAIN
+    }
     /// H02 a–i: the verdicts declared on this source's site.
-    fn verdicts(&self) -> &'static [VerdictKind] { &[] }
+    fn verdicts(&self) -> &'static [VerdictKind] {
+        &[]
+    }
     /// H01 e.
-    fn decode_order(&self) -> DecodeOrder { DecodeOrder::Eager }
+    fn decode_order(&self) -> DecodeOrder {
+        DecodeOrder::Eager
+    }
     /// H01 e (decode.late): the late lanes decoded before anything reads them. `Some((base, m))`: block `[base, base + 64)`'s
     /// rows in `m`, after step 0's mask and before the end's block fold or the ctz walk; `None`: a row-loop body's start, the
     /// whole window.
-    fn fill_late(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env, _win: &Win, _at: Option<(Value, Mask)>) {}
+    fn fill_late(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        _env: &mut Env,
+        _win: &Win,
+        _at: Option<(Value, Mask)>,
+    ) {
+    }
     /// D3194: the late lanes of columns `attnos` alone decoded for block `at`'s rows, ahead of `fill_late` (a filtered probe
     /// tests its keys first); whether those columns are readable there now. A source that cannot says no and emits nothing.
-    fn fill_late_cols(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env, _win: &Win, _at: (Value, Mask), _attnos: &[i16]) -> bool {
+    fn fill_late_cols(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        _env: &mut Env,
+        _win: &Win,
+        _at: (Value, Mask),
+        _attnos: &[i16],
+    ) -> bool {
         matches!(self.decode_order(), DecodeOrder::Eager)
     }
     /// D2625: at a nest inner's re-open, before its rerun set runs or any gate is read (rerun/inner.rs `open`): the reset PG's
@@ -356,9 +417,21 @@ pub trait SourceMech {
     fn reopen(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env) {}
     /// D4062: a source that lowers steps of its own (a nest inner union's arms, rerun/inner_arms.rs) runs their prologues
     /// with its inner's (rerun/inner.rs `prologue`), as a pipeline's frame runs its steps' before the source.
-    fn prologue(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env, _x: &crate::frame::stop::Exits) {}
+    fn prologue(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        _env: &mut Env,
+        _x: &crate::frame::stop::Exits,
+    ) {
+    }
     /// D4062: and their epilogues with its inner's (rerun/inner.rs `epilogue`).
-    fn epilogue(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env, _x: &crate::frame::stop::Exits) {}
+    fn epilogue(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        _env: &mut Env,
+        _x: &crate::frame::stop::Exits,
+    ) {
+    }
     /// The open: a negative status leaves the function with it.
     fn open(&self, b: &mut FunctionBuilder<'_>, env: &mut Env) -> Value;
     /// The next window with its facts (H06), or `l_eof(status)` at the end (0) or on a stop.
@@ -366,62 +439,142 @@ pub trait SourceMech {
     /// A1 (D3224): the window's packed numeric lanes' kind tests, once per window (TPDE has no LICM): `(site, lane,
     /// verbatim)` for each `Window` / dynamic-scale PackedNum lane, the Bool rep/packednum/datum.rs `element` reads in place
     /// of its kind byte's load in the window's rows (frame.rs sets them for the row loops alone). Empty: read per row.
-    fn num_kinds(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env) -> Vec<(usize, u16, Value)> { Vec::new() }
+    fn num_kinds(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env) -> Vec<(usize, u16, Value)> {
+        Vec::new()
+    }
     /// H01: the window's lanes for the 64-row block path; `None` means only the straight row loop runs.
-    fn word_win<'e>(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env<'e, '_>, _win: &Win) -> Option<WordWin<'e>> { None }
+    fn word_win<'e>(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        _env: &mut Env<'e, '_>,
+        _win: &Win,
+    ) -> Option<WordWin<'e>> {
+        None
+    }
     /// H06 b: lane `attno`'s block at `base` as raw ByteFor deltas, only under `WinConds::packed`; `None` masks it decoded.
-    fn packed(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env, _win: &Win, _attno: i16, _base: Value) -> Option<Packed> { None }
-    fn row<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, win: &Win, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e>;
+    fn packed(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        _env: &mut Env,
+        _win: &Win,
+        _attno: i16,
+        _base: Value,
+    ) -> Option<Packed> {
+        None
+    }
+    fn row<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        win: &Win,
+        j: Value,
+        carry: Carry<'e>,
+        next: Value,
+    ) -> RowVals<'e>;
     /// decode.late in the straight rows (H01 e): the leading steps (the pipeline's leading filters) that read only the cells
     /// `row_early` makes; the frame's chain asks `row_late` for the rest once a row passed them. 0: `row` alone.
-    fn late_at(&self) -> usize { 0 }
+    fn late_at(&self) -> usize {
+        0
+    }
     /// `row` with only the cells the first `late_at` steps read; the other cells' values are placeholders.
-    fn row_early<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, win: &Win, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e> { self.row(b, env, win, j, carry, next) }
+    fn row_early<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        win: &Win,
+        j: Value,
+        carry: Carry<'e>,
+        next: Value,
+    ) -> RowVals<'e> {
+        self.row(b, env, win, j, carry, next)
+    }
     /// A `row_early` row with its placeholder cells made, where it passed the first `late_at` steps.
-    fn row_late<'x, 'e: 'x>(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env<'e, '_>, _win: &Win, row: RowVals<'x>) -> RowVals<'x> { row }
+    fn row_late<'x, 'e: 'x>(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        _env: &mut Env<'e, '_>,
+        _win: &Win,
+        row: RowVals<'x>,
+    ) -> RowVals<'x> {
+        row
+    }
     /// Road `mask.rows` (frame/mask_rows.rs), right after the `row_early` (`early`) or `row` it asks of: whether that row's
     /// cells stay readable to the window's end (words and pointers into the pinned page, nothing made per row), so the mask
     /// keeps them per row and a passing row's walk reads them back; inside, the value `row_late` resumes from (`None`: a
     /// constant). `None`: not kept (the walk makes the row again).
-    fn keep_row(&self, _early: bool) -> Option<Option<Value>> { None }
+    fn keep_row(&self, _early: bool) -> Option<Option<Value>> {
+        None
+    }
     /// Road `mask.rows`: a kept row's resume value (`keep_row`) handed back before its `row_late`.
     fn resume_late(&self, _at: Value) {}
     /// H02i: the window's granule identity for the condition cache (pgrc parts only); `None`: the windows are not cached.
-    fn granule_ident(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env, _win: &Win) -> Option<GranuleIdent> { None }
+    fn granule_ident(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        _env: &mut Env,
+        _win: &Win,
+    ) -> Option<GranuleIdent> {
+        None
+    }
     /// Bit j: pipeline op j is a leading Filter whose qual this source's verdicts cover when `WinConds::covered` holds.
-    fn covers(&self) -> u64 { 0 }
+    fn covers(&self) -> u64 {
+        0
+    }
     /// In the uncovered body, right after the last covered step passed `row` (only when `covers() != 0`): a condition-cache
     /// fill records the row from what the statement evaluates anyway (no evaluation ahead: laziness, D237).
     fn passed(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env, _win: &Win, _row: &RowVals) {}
     /// A lowering-time fact that must agree with `passed` / `passed_block`: false, they emit nothing for this source (no
     /// condition-cache lane), so the frame builds no fill (no per-row `passed`, and the block path folds).
-    fn fills(&self) -> bool { true }
+    fn fills(&self) -> bool {
+        true
+    }
     /// Whether the fill also takes whole blocks (`passed_block`); false keeps the block path from folding while it fills.
-    fn fills_blocks(&self) -> bool { false }
+    fn fills_blocks(&self) -> bool {
+        false
+    }
     /// `passed` for a block (only when `fills_blocks`): bit i of `m` = row `base + i` passed every covered step.
-    fn passed_block(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env, _win: &Win, _base: Value, _m: Mask) {}
+    fn passed_block(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        _env: &mut Env,
+        _win: &Win,
+        _base: Value,
+        _m: Mask,
+    ) {
+    }
     /// H28.
-    fn locator(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env, _row: &RowVals) -> Option<Locator> { None }
+    fn locator(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        _env: &mut Env,
+        _row: &RowVals,
+    ) -> Option<Locator> {
+        None
+    }
     /// M7-SPILL (V4R-359): a site-less source whose claims are not a site's (a spill pair's partitions) names the program
     /// site its pipeline declares as its nominal driving site (the runner reads no row through it).
-    fn nominal_site(&self, _px: &Px<'_, '_>) -> Option<usize> { None }
+    fn nominal_site(&self, _px: &Px<'_, '_>) -> Option<usize> {
+        None
+    }
     /// The source's own position write-back when it has no site (a breaker's emit).
     fn write_back(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env, _cur: Value, _out: Value) {}
     /// D732-rest (V4R-290): a COPY-marked subquery's entry (`copy_row::wrap`): the frame's call is its stored row first.
-    fn copy_entry(&self) -> Option<&crate::rerun::epq::copy_row::CopyEntry<'_>> { None }
+    fn copy_entry(&self) -> Option<&crate::rerun::epq::copy_row::CopyEntry<'_>> {
+        None
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::face::strategy::{Strategy, STRATEGIES};
-    use crate::dict::face as codes;
-    use crate::face::{consts, end, policy, rewrite, runs, spill, step};
-    use crate::face::fold as fold;
-    use crate::ops::hashjoin::face as join;
-    use crate::table::{face as keyed, keyimg};
-    use crate::rerun::face as nest;
     use crate::admit::refusal::{Reason, Refusal};
+    use crate::dict::face as codes;
+    use crate::face::fold;
+    use crate::face::strategy::{Strategy, STRATEGIES};
+    use crate::face::{consts, end, policy, rewrite, runs, spill, step};
+    use crate::ops::hashjoin::face as join;
+    use crate::rerun::face as nest;
+    use crate::table::{face as keyed, keyimg};
 
     /// Every face's variant lists: (HOOKS, variants), each variant's refusal checked on the way.
     macro_rules! lists {
@@ -441,13 +594,49 @@ mod tests {
     #[test]
     fn every_strategy_is_a_face_variant_and_refuses_by_name() {
         let lists = lists!(
-            BodyForm, VerdictKind, ReadForm, LaneForm, LocatorUse, step::BlockForm, step::LoopRoad, step::ExprRoad,
-            step::Rescan, step::ExpandKind, end::SinkKind, end::Parallel, end::RowOpRoad, end::Finals, fold::BlockFold,
-            fold::AnswerForm, fold::NumRoad, fold::Multiplicity, fold::Moving, fold::StatRoad, keyed::TablePolicy, keyed::Prefetch,
-            keyed::CrossPass, keyed::OwnerTop, keyed::PartEmit, runs::RunStore, runs::RunForm, runs::OrderUse, join::Probe,
-            join::BuildFrom, join::JoinRoad, nest::ParamOwner, nest::CacheUse, nest::ProbeForm, spill::SpillForm,
-            codes::PerValue, codes::CodeRep, codes::DictPolicy, keyimg::ImageForm, consts::RtConst, policy::Width,
-            policy::Floor, rewrite::Rewrite,
+            BodyForm,
+            VerdictKind,
+            ReadForm,
+            LaneForm,
+            LocatorUse,
+            step::BlockForm,
+            step::LoopRoad,
+            step::ExprRoad,
+            step::Rescan,
+            step::ExpandKind,
+            end::SinkKind,
+            end::Parallel,
+            end::RowOpRoad,
+            end::Finals,
+            fold::BlockFold,
+            fold::AnswerForm,
+            fold::NumRoad,
+            fold::Multiplicity,
+            fold::Moving,
+            fold::StatRoad,
+            keyed::TablePolicy,
+            keyed::Prefetch,
+            keyed::CrossPass,
+            keyed::OwnerTop,
+            keyed::PartEmit,
+            runs::RunStore,
+            runs::RunForm,
+            runs::OrderUse,
+            join::Probe,
+            join::BuildFrom,
+            join::JoinRoad,
+            nest::ParamOwner,
+            nest::CacheUse,
+            nest::ProbeForm,
+            spill::SpillForm,
+            codes::PerValue,
+            codes::CodeRep,
+            codes::DictPolicy,
+            keyimg::ImageForm,
+            consts::RtConst,
+            policy::Width,
+            policy::Floor,
+            rewrite::Rewrite,
         );
         let mut seen = [false; Strategy::COUNT];
         for (_, vs) in &lists {
@@ -457,7 +646,14 @@ mod tests {
                 }
             }
         }
-        let missing: Vec<&str> = STRATEGIES.iter().filter(|d| !seen[d.bit()]).map(|d| d.name()).collect(); // alloc: Program
-        assert!(missing.is_empty(), "strategies no face declares: {missing:?}");
+        let missing: Vec<&str> = STRATEGIES
+            .iter()
+            .filter(|d| !seen[d.bit()])
+            .map(|d| d.name())
+            .collect(); // alloc: Program
+        assert!(
+            missing.is_empty(),
+            "strategies no face declares: {missing:?}"
+        );
     }
 }

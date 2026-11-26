@@ -4,10 +4,10 @@ use ::types_error::{PgResult, ERROR, WARNING};
 use crate::desc::{CloseTransientFile, OpenTransientFilePath, TransientFileRawFd};
 use crate::sync::{fsync_fname_path, pg_flush_data};
 use crate::vfd::{cpath, get_errno, loc, set_errno, MakePGDirectoryPath};
-use vfs::PgPath;
 #[cfg(all(not(pgrust_sim), target_os = "linux"))]
 use crate::wait_event::WAIT_EVENT_COPY_FILE_COPY;
 use crate::wait_event::{WAIT_EVENT_COPY_FILE_READ, WAIT_EVENT_COPY_FILE_WRITE};
+use vfs::PgPath;
 
 // FileCopyMethod (storage/copydir.h) — one C enum. guc_tables' consts carry
 // their own copy of the values; pin the two together at compile time so the
@@ -398,14 +398,13 @@ pub fn rmtree(path: &str, rmtopdir: bool) -> PgResult<bool> {
             result = false;
         }
     }
-    if rmtopdir
-        && vfs::rmdir(&cpath(path)) != 0 {
-            ereport(WARNING)
-                .with_saved_errno(get_errno())
-                .errmsg(format!("could not remove directory \"{path}\": {PCT_M}"))
-                .finish(loc("rmtree"))?;
-            result = false;
-        }
+    if rmtopdir && vfs::rmdir(&cpath(path)) != 0 {
+        ereport(WARNING)
+            .with_saved_errno(get_errno())
+            .errmsg(format!("could not remove directory \"{path}\": {PCT_M}"))
+            .finish(loc("rmtree"))?;
+        result = false;
+    }
     Ok(result)
 }
 
@@ -427,7 +426,7 @@ pub fn directory_is_empty(path: &str) -> PgResult<bool> {
 // pg_dir_create_mode (DirBuilder-recursive semantics: existing dirs at any
 // level are fine, existing non-dir surfaces the mkdir errno).
 pub fn pg_mkdir_p(path: &str) -> PgResult<()> {
-    fn mkdir_p_inner(path: & str, mode: u32) -> Result<(), (i32, & str)> {
+    fn mkdir_p_inner(path: &str, mode: u32) -> Result<(), (i32, &str)> {
         let cp = cpath(path);
         if vfs::mkdir(&cp, mode as libc::mode_t) == 0 {
             return Ok(());
@@ -450,7 +449,9 @@ pub fn pg_mkdir_p(path: &str) -> PgResult<()> {
                     .parent()
                     .and_then(std::path::Path::to_str)
                     .filter(|p| !p.is_empty() && *p != path);
-                let Some(parent) = parent else { return Err((en, path)) };
+                let Some(parent) = parent else {
+                    return Err((en, path));
+                };
                 mkdir_p_inner(parent, mode)?;
                 if vfs::mkdir(&cp, mode as libc::mode_t) == 0 {
                     return Ok(());

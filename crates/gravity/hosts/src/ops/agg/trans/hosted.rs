@@ -7,7 +7,10 @@ use std::collections::{HashMap, HashSet};
 
 use datum::{Datum, NullableDatum};
 use gravity_abi::hash::phi_fold;
-use gravity_kernels::ops::agg::trans::hosted::{AggHead, AGG_MAGIC, AGG_STATE_BYTES, DIRECT_BOUND, DIRECT_NULL, DIRECT_VALUE, STATE_AGGNO, STATE_INIT, STATE_NOTRANS, STATE_NULL, STATE_VALUE};
+use gravity_kernels::ops::agg::trans::hosted::{
+    AggHead, AGG_MAGIC, AGG_STATE_BYTES, DIRECT_BOUND, DIRECT_NULL, DIRECT_VALUE, STATE_AGGNO,
+    STATE_INIT, STATE_NOTRANS, STATE_NULL, STATE_VALUE,
+};
 use mcx::MemoryContext;
 use memledger::charge::Door;
 use memledger::{Charge, Kind, Owner};
@@ -28,8 +31,8 @@ const AGGMODIFY_SHAREABLE: i8 = b's' as i8;
 
 mod raw;
 
-pub(crate) use crate::ops::agg::trans::hosted_bind::{Calls, Spec};
 use crate::ops::agg::raw::read_only;
+pub(crate) use crate::ops::agg::trans::hosted_bind::{Calls, Spec};
 use crate::ops::agg::trans::hosted_kept::image_len;
 
 /// One worker slot: its calls and its aggregate context, owner-exclusive: a worker ordinal's (a pool lease runs one
@@ -37,7 +40,7 @@ use crate::ops::agg::trans::hosted_kept::image_len;
 /// `new_unobserved`: no weak entry in a thread's context forest), so a slot is made, used and dropped on any thread in
 /// turn; a serial arena's are the leader's own.
 pub(crate) struct Slot {
-    pub(crate) aggs: Vec<Calls>, // alloc: Exec
+    pub(crate) aggs: Vec<Calls>,        // alloc: Exec
     pub(crate) node: Box<AggStateNode>, // alloc: Exec
     pub(crate) tmp: MemoryContext,
     pub(crate) calls: u32,
@@ -108,7 +111,14 @@ pub(crate) struct Homes {
 
 impl Default for Homes {
     fn default() -> Homes {
-        Homes { charge: Charge::NONE, pending: 0, tables: 0, map: HashMap::default(), forgot: Vec::new(), bytes: 0 } // alloc: Exec
+        Homes {
+            charge: Charge::NONE,
+            pending: 0,
+            tables: 0,
+            map: HashMap::default(),
+            forgot: Vec::new(),
+            bytes: 0,
+        } // alloc: Exec
     }
 }
 
@@ -127,7 +137,10 @@ impl Homes {
     /// `heap` more bytes allocated for this shard (a new home's state and key) and its tables re-read: on its charge, opened
     /// on `owner` at the first (None: nothing is charged); committed when `batch` bytes wait (`AggArena::homes_batch`).
     fn note(&mut self, owner: Option<(Owner, Kind)>, heap: u64, batch: u64) {
-        let tables = table_bytes(self.map.capacity(), core::mem::size_of::<(Box<[u64]>, Box<[u64]>)>()) + 16 * self.forgot.capacity() as u64;
+        let tables = table_bytes(
+            self.map.capacity(),
+            core::mem::size_of::<(Box<[u64]>, Box<[u64]>)>(),
+        ) + 16 * self.forgot.capacity() as u64;
         self.pending += heap + tables.saturating_sub(self.tables);
         self.tables = tables;
         if self.pending >= batch {
@@ -198,7 +211,8 @@ impl Hasher for Words {
         self.0.rotate_left(26)
     }
     fn write(&mut self, b: &[u8]) {
-        b.chunks(8).for_each(|c| self.write_u64(c.iter().rev().fold(0, |w, &x| w << 8 | x as u64)));
+        b.chunks(8)
+            .for_each(|c| self.write_u64(c.iter().rev().fold(0, |w, &x| w << 8 | x as u64)));
     }
     fn write_u64(&mut self, x: u64) {
         self.0 = (self.0.rotate_left(5) ^ x).wrapping_mul(0x517c_c1b7_2722_0a95);
@@ -207,7 +221,10 @@ impl Hasher for Words {
 
 impl Slot {
     pub(crate) fn charge(&self) {
-        self.bytes.store(self.node.aggcontext().context().subtree_allocated() as u64, Ordering::Relaxed);
+        self.bytes.store(
+            self.node.aggcontext().context().subtree_allocated() as u64,
+            Ordering::Relaxed,
+        );
     }
 }
 
@@ -216,28 +233,81 @@ impl AggArena {
     /// `width`; ERROR by name for a shape it does not host. EXECUTE checks + catalog once (bind). D3025: a kept column
     /// does not make it serial: each worker slot keeps its first row's value and the combine keeps the earlier partial's,
     /// an input row's member of the group (a key's members are equal under its equality, X15).
-    pub fn new(aggrefs: &[&'static Aggref<'static>], kept: &[Oid], width: u16) -> PgResult<Box<AggArena>> {
+    pub fn new(
+        aggrefs: &[&'static Aggref<'static>],
+        kept: &[Oid],
+        width: u16,
+    ) -> PgResult<Box<AggArena>> {
         let keep = gravity_driver::mem::root::context("gravity agg arena init", true);
         let (specs, parallel) = crate::ops::agg::trans::hosted_bind::specs(aggrefs, width, &keep)?;
         // V4R-453: a parallel arena's workers read the catalog facts resolved here; None (a fact a worker cannot be armed
         // with: a row type, a domain, a non-builtin function) runs it serial
-        let catalog = if parallel { crate::ops::agg::trans::hosted_catalog::catalog(&specs)?.map(Box::new) } else { None }; // alloc: Exec
+        let catalog = if parallel {
+            crate::ops::agg::trans::hosted_catalog::catalog(&specs)?.map(Box::new)
+        } else {
+            None
+        }; // alloc: Exec
         let parallel = parallel && catalog.is_some();
-        let kept = kept.iter().map(|&t| gravity_fn::typesem::storage::len_byval(t)).collect::<PgResult<Vec<_>>>()?; // alloc: Exec
+        let kept = kept
+            .iter()
+            .map(|&t| gravity_fn::typesem::storage::len_byval(t))
+            .collect::<PgResult<Vec<_>>>()?; // alloc: Exec
         let naggs = aggrefs.len() as u32;
         let n = if parallel { width as usize + 1 } else { 1 };
-        let slots = (0..n).map(|_| Slot::new(&specs, parallel, &keep)).collect::<PgResult<Vec<_>>>()?; // alloc: Exec
-        let head = AggHead { magic: AGG_MAGIC, trans: raw::trans_of, final_: raw::final_of, fold: raw::fold_of, combine: raw::combine_of, combine_keep: raw::combine_keep_of, home: raw::home_of, homes_clear: raw::homes_clear_of, direct: 0, given: 0, stable: 0, wide: 1, gather: raw::gather_of };
-        Ok(Box::new(AggArena { head, specs, slots, parallel, keep, kept, naggs, homes: home_cells(), gathered: HashSet::new(), gathered_charge: Charge::NONE, owner: pgsync::OnceLock::new(), catalog, finals: Vec::new(), streamed: false, handed: false, budget: (crate::inputs::work_mem_kb().max(64) as u64) << 10 })) // alloc: Exec
+        let slots = (0..n)
+            .map(|_| Slot::new(&specs, parallel, &keep))
+            .collect::<PgResult<Vec<_>>>()?; // alloc: Exec
+        let head = AggHead {
+            magic: AGG_MAGIC,
+            trans: raw::trans_of,
+            final_: raw::final_of,
+            fold: raw::fold_of,
+            combine: raw::combine_of,
+            combine_keep: raw::combine_keep_of,
+            home: raw::home_of,
+            homes_clear: raw::homes_clear_of,
+            direct: 0,
+            given: 0,
+            stable: 0,
+            wide: 1,
+            gather: raw::gather_of,
+        };
+        Ok(Box::new(AggArena {
+            head,
+            specs,
+            slots,
+            parallel,
+            keep,
+            kept,
+            naggs,
+            homes: home_cells(),
+            gathered: HashSet::new(),
+            gathered_charge: Charge::NONE,
+            owner: pgsync::OnceLock::new(),
+            catalog,
+            finals: Vec::new(),
+            streamed: false,
+            handed: false,
+            budget: (crate::inputs::work_mem_kb().max(64) as u64) << 10,
+        })) // alloc: Exec
     }
 
     /// The arena of an Agg whose keyed record holds its states. D3062-b: wide at `width` when parallel (PG's rule) and no
     /// aggregate is an ordered collect (`types_core::quiet::ORDERED_COMBINES`): each home holds a state per worker slot and the gathered one
     /// (`AggHead.wide`), so the folds keep their width; else the V4R-375 arena, serial at width 1.
-    pub fn new_keyed(aggrefs: &[&'static Aggref<'static>], kept: &[Oid], width: u16) -> PgResult<Box<AggArena>> {
+    pub fn new_keyed(
+        aggrefs: &[&'static Aggref<'static>],
+        kept: &[Oid],
+        width: u16,
+    ) -> PgResult<Box<AggArena>> {
         if width > 1 {
             let mut a = AggArena::new(aggrefs, kept, width)?;
-            if a.parallel && !a.specs.iter().any(|s| types_core::quiet::ordered_combine(s.shape.aggcombinefn)) {
+            if a.parallel
+                && !a
+                    .specs
+                    .iter()
+                    .any(|s| types_core::quiet::ordered_combine(s.shape.aggcombinefn))
+            {
                 a.head.wide = a.slots.len() as u64;
                 return Ok(a);
             }
@@ -304,7 +374,10 @@ impl AggArena {
             s.calls = 0;
             s.bytes.store(0, Ordering::Relaxed);
         }
-        self.homes.iter_mut().filter_map(|c| c.get_mut()).for_each(|m| *m.get_mut().unwrap_or_else(|e| e.into_inner()) = Homes::default());
+        self.homes
+            .iter_mut()
+            .filter_map(|c| c.get_mut())
+            .for_each(|m| *m.get_mut().unwrap_or_else(|e| e.into_inner()) = Homes::default());
         self.gathered.clear();
         // the next open's homes take its own slot's owner (a re-open may begin another)
         self.owner = pgsync::OnceLock::new();
@@ -321,7 +394,12 @@ impl AggArena {
             hm.bytes
         });
         let homes = homes.sum::<u64>();
-        self.slots.iter().map(|s| s.bytes.load(Ordering::Relaxed)).sum::<u64>() + homes + 16 * self.gathered.len() as u64
+        self.slots
+            .iter()
+            .map(|s| s.bytes.load(Ordering::Relaxed))
+            .sum::<u64>()
+            + homes
+            + 16 * self.gathered.len() as u64
     }
 
     /// CONVERT (wave 2, H1): the bytes a home shard's charge commits at once (one commit, not one per group: a commit is
@@ -350,7 +428,10 @@ impl AggArena {
     /// CONVERT (wave 2, H1): `gathered`'s table re-read after an insert: its growth committed to the homes' owner (a few
     /// commits: the table doubles). A re-open keeps the table (`reset` clears it) and its charge.
     fn gathered_charged(&mut self) {
-        let (t, had) = (table_bytes(self.gathered.capacity(), core::mem::size_of::<usize>()), self.gathered_charge.committed());
+        let (t, had) = (
+            table_bytes(self.gathered.capacity(), core::mem::size_of::<usize>()),
+            self.gathered_charge.committed(),
+        );
         if let Some(o) = self.homes_owner().filter(|_| t > had) {
             open_on(&mut self.gathered_charge, o);
             self.gathered_charge.commit(t - had);
@@ -358,7 +439,14 @@ impl AggArena {
     }
 
     pub(crate) fn agg(&self, aggno: u32) -> PgResult<usize> {
-        self.specs.iter().position(|s| s.a.aggno == aggno as i32).ok_or_else(|| Box::new(PgError::error(format!("gravity: no hosted aggregate {aggno}")))) // alloc: Cold
+        self.specs
+            .iter()
+            .position(|s| s.a.aggno == aggno as i32)
+            .ok_or_else(|| {
+                Box::new(PgError::error(format!(
+                    "gravity: no hosted aggregate {aggno}"
+                )))
+            }) // alloc: Cold
     }
 
     /// Worker `ordinal`'s slot: a serial arena has the one (the program runs width 1), a parallel one a slot per ordinal
@@ -366,9 +454,21 @@ impl AggArena {
     /// an InitPlan's members) is the leader's, on a nested hosted lane's ordinal (D1036): it folds in the leader's slot
     /// (ordinal 0). An arena is one Agg's, never re-entered by an outer row while that run folds it.
     fn slot(&self, ordinal: u16) -> PgResult<usize> {
-        let n = if self.parallel { self.slots.len() - 1 } else { 1 };
-        let o = if ordinal >= gravity_driver::NESTED_LANE_FIRST { 0 } else { ordinal as usize };
-        (o < n).then_some(o).ok_or_else(|| Box::new(PgError::error(format!("gravity: a hosted aggregate called by worker {ordinal} of an arena of {n}")))) // alloc: Cold
+        let n = if self.parallel {
+            self.slots.len() - 1
+        } else {
+            1
+        };
+        let o = if ordinal >= gravity_driver::NESTED_LANE_FIRST {
+            0
+        } else {
+            ordinal as usize
+        };
+        (o < n).then_some(o).ok_or_else(|| {
+            Box::new(PgError::error(format!(
+                "gravity: a hosted aggregate called by worker {ordinal} of an arena of {n}"
+            )))
+        }) // alloc: Cold
     }
 
     /// V4R-452 (D1409a): before a slot's first transition, on a pool claim, every aggregate's collation is armed (bind
@@ -378,7 +478,9 @@ impl AggArena {
         if self.slots[k].calls != 0 {
             return Ok(());
         }
-        self.specs.iter().try_for_each(|s| gravity_fn::typesem::collation::check_worker_collation(s.a.inputcollid))
+        self.specs.iter().try_for_each(|s| {
+            gravity_fn::typesem::collation::check_worker_collation(s.a.inputcollid)
+        })
     }
 
     /// V4R-453 (D1409): on a pool claim, this thread armed with the arena's catalog facts (m6_agg_catalog.rs).
@@ -388,7 +490,6 @@ impl AggArena {
             c.arm();
         }
     }
-
 }
 
 /// D2337 / D2336: a final's result word as the emitted code reads it, whole: an int2 / int4 result sign-extended. A
@@ -412,7 +513,6 @@ impl Drop for AggArena {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -428,7 +528,10 @@ mod tests {
             let s = format!("key-{i:09}"); // alloc: Cold
             let mut w = [0u8; 16];
             w[..s.len()].copy_from_slice(s.as_bytes());
-            let img: Box<[u64]> = Box::new([u64::from_le_bytes(w[..8].try_into().unwrap()), u64::from_le_bytes(w[8..].try_into().unwrap()) | (s.len() as u64) << 56]); // alloc: Cold
+            let img: Box<[u64]> = Box::new([
+                u64::from_le_bytes(w[..8].try_into().unwrap()),
+                u64::from_le_bytes(w[8..].try_into().unwrap()) | (s.len() as u64) << 56,
+            ]); // alloc: Cold
             used.insert(b.hash_one(&img) & ((1 << 15) - 1));
         }
         assert!(used.len() > 13_000, "{} buckets", used.len());

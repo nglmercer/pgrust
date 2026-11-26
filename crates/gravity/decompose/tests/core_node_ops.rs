@@ -6,10 +6,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 
-use gravity_decompose::ops::shared::append::AppendDesc;
-use gravity_decompose::ops::shared::agg::AGG_PLAIN;
 use gravity_decompose::graph::{Op, PipelineGraph, PipelineNode};
 use gravity_decompose::join::JoinDesc;
+use gravity_decompose::ops::shared::agg::AGG_PLAIN;
+use gravity_decompose::ops::shared::append::AppendDesc;
 use gravity_decompose::ops::shared::subplan::SubForm;
 use gravity_decompose::{corpus, decompose_in};
 use gravity_program::Arena;
@@ -25,7 +25,9 @@ const OPTIONAL: &str = "optional";
 /// below its Sorts, so the SubqueryScan, the grouping and its Sorts may never run (such a plan's EXPLAIN ANALYZE delegates:
 /// admit explain.rs counts an Aggregate only at the root over a leaf). Those nodes, and the node the rewrite reads.
 fn counted_grouping(n: Node<'_>) -> Option<(Vec<i32>, Node<'_>)> {
-    let a = n.as_agg().filter(|a| a.aggstrategy == AGG_PLAIN && a.numCols == 0)?;
+    let a = n
+        .as_agg()
+        .filter(|a| a.aggstrategy == AGG_PLAIN && a.numCols == 0)?;
     let mut outs = a.plan.targetlist.iter().filter_map(|t| t.as_target_entry());
     if a.plan.targetlist.is_nil() || !outs.all(|t| t.expr.as_aggref().is_some_and(|r| r.aggstar)) {
         return None;
@@ -36,7 +38,11 @@ fn counted_grouping(n: Node<'_>) -> Option<(Vec<i32>, Node<'_>)> {
         skipped.push(s.scan.plan.plan_node_id);
         c = s.subplan?;
     }
-    let grouping = c.as_agg().is_some_and(|g| g.numCols >= 1 && g.groupingSets.is_nil()) || c.as_group().is_some() || c.as_unique().is_some();
+    let grouping = c
+        .as_agg()
+        .is_some_and(|g| g.numCols >= 1 && g.groupingSets.is_nil())
+        || c.as_group().is_some()
+        || c.as_unique().is_some();
     let inner = c.as_plan().filter(|_| grouping)?;
     skipped.push(inner.plan_node_id);
     let mut below = inner.lefttree?;
@@ -60,7 +66,11 @@ fn plan_nodes(n: Node<'_>, out: &mut BTreeMap<i32, String>) {
         // the grouping-sets rewrite reads a rollup's input below its Sort: the Sort never runs, but D1061's spool of a
         // VOLATILE input reads it through the Sort (PostgreSQL's first phase), so the Sort may be listed
         let skip = n.as_agg().is_some_and(|a| !a.groupingSets.is_nil()) && c.as_sort().is_some();
-        match c.as_sort().filter(|_| skip).and_then(|s| s.plan.lefttree.map(|below| (s, below))) {
+        match c
+            .as_sort()
+            .filter(|_| skip)
+            .and_then(|s| s.plan.lefttree.map(|below| (s, below)))
+        {
             Some((s, below)) => {
                 out.insert(s.plan.plan_node_id, OPTIONAL.into());
                 plan_nodes(below, out)
@@ -68,7 +78,12 @@ fn plan_nodes(n: Node<'_>, out: &mut BTreeMap<i32, String>) {
             None => plan_nodes(c, out),
         }
     }
-    let lists = [n.as_append().map(|a| &a.appendplans), n.as_merge_append().map(|m| &m.mergeplans), n.as_bitmap_and().map(|b| &b.bitmapplans), n.as_bitmap_or().map(|b| &b.bitmapplans)];
+    let lists = [
+        n.as_append().map(|a| &a.appendplans),
+        n.as_merge_append().map(|m| &m.mergeplans),
+        n.as_bitmap_and().map(|b| &b.bitmapplans),
+        n.as_bitmap_or().map(|b| &b.bitmapplans),
+    ];
     for l in lists.into_iter().flatten() {
         for c in l.iter() {
             plan_nodes(c, out);
@@ -80,7 +95,11 @@ fn plan_nodes(n: Node<'_>, out: &mut BTreeMap<i32, String>) {
 }
 
 /// Every pipeline, embedded inners included, with whether it is a streamed union's arm.
-fn walk<'a, 'p>(p: &'a PipelineNode<'p>, out: &mut Vec<&'a PipelineNode<'p>>, subplans: &mut BTreeSet<i32>) {
+fn walk<'a, 'p>(
+    p: &'a PipelineNode<'p>,
+    out: &mut Vec<&'a PipelineNode<'p>>,
+    subplans: &mut BTreeSet<i32>,
+) {
     out.push(p);
     for op in p.ops.iter() {
         match op {
@@ -96,7 +115,10 @@ fn walk<'a, 'p>(p: &'a PipelineNode<'p>, out: &mut Vec<&'a PipelineNode<'p>>, su
     }
 }
 
-fn check(g: &PipelineGraph<'_>, stmt: &types_nodes::plannodes::PlannedStmt<'_>) -> (Vec<String>, Vec<String>) {
+fn check(
+    g: &PipelineGraph<'_>,
+    stmt: &types_nodes::plannodes::PlannedStmt<'_>,
+) -> (Vec<String>, Vec<String>) {
     let (mut bad, mut repeats) = (Vec::new(), Vec::new());
     let mut all = Vec::new();
     let mut subplans: BTreeSet<i32> = g.init_plans.iter().map(|i| i.plan_id).collect();
@@ -108,29 +130,52 @@ fn check(g: &PipelineGraph<'_>, stmt: &types_nodes::plannodes::PlannedStmt<'_>) 
         plan_nodes(t, &mut want);
     }
     for id in subplans.iter() {
-        if let Some(t) = (*id as usize).checked_sub(1).filter(|&i| i < stmt.subplans.len()).and_then(|i| stmt.subplans.nth(i)) {
+        if let Some(t) = (*id as usize)
+            .checked_sub(1)
+            .filter(|&i| i < stmt.subplans.len())
+            .and_then(|i| stmt.subplans.nth(i))
+        {
             plan_nodes(t, &mut want);
         }
     }
-    let (mut plain, mut armed): (BTreeMap<i32, usize>, BTreeSet<i32>) = (BTreeMap::new(), BTreeSet::new());
+    let (mut plain, mut armed): (BTreeMap<i32, usize>, BTreeSet<i32>) =
+        (BTreeMap::new(), BTreeSet::new());
     for (k, p) in all.iter().enumerate() {
         let Some(first) = p.node_ops.first() else {
             bad.push(format!("pipeline {k} (node {}) has no node_ops", p.node_id));
             continue;
         };
         // a bitmap heap scan's subtree nodes come before it (they run inside the source)
-        let own = p.node_ops.iter().find(|n| !matches!(p.source, gravity_decompose::graph::Source::Bitmap { .. }) || n.node_id == p.node_id).unwrap_or(first);
+        let own = p
+            .node_ops
+            .iter()
+            .find(|n| {
+                !matches!(p.source, gravity_decompose::graph::Source::Bitmap { .. })
+                    || n.node_id == p.node_id
+            })
+            .unwrap_or(first);
         if own.node_id != p.node_id {
-            bad.push(format!("pipeline {k}: node_ops[0] is n{}, the pipeline's node is n{}", own.node_id, p.node_id));
+            bad.push(format!(
+                "pipeline {k}: node_ops[0] is n{}, the pipeline's node is n{}",
+                own.node_id, p.node_id
+            ));
         }
         let mut at = 0;
         for n in p.node_ops.iter() {
             if n.first_op < at || n.first_op as usize > p.ops.len() {
-                bad.push(format!("pipeline {k}: n{} first_op {} out of order (ops {})", n.node_id, n.first_op, p.ops.len()));
+                bad.push(format!(
+                    "pipeline {k}: n{} first_op {} out of order (ops {})",
+                    n.node_id,
+                    n.first_op,
+                    p.ops.len()
+                ));
             }
             at = n.first_op;
         }
-        let arm = p.ops.iter().any(|o| matches!(o, Op::Append(AppendDesc::Arm { .. })));
+        let arm = p
+            .ops
+            .iter()
+            .any(|o| matches!(o, Op::Append(AppendDesc::Arm { .. })));
         for n in p.node_ops.iter().filter(|n| !n.producer_top) {
             if arm {
                 armed.insert(n.node_id);
@@ -159,13 +204,19 @@ fn check(g: &PipelineGraph<'_>, stmt: &types_nodes::plannodes::PlannedStmt<'_>) 
 #[test]
 fn every_executed_plan_node_is_in_a_pipelines_node_ops() {
     let mut files = harness::fixtures_in(&harness::plans_root());
-    files.extend(harness::fixtures_in(&harness::plans_root().join("regress-full")));
+    files.extend(harness::fixtures_in(
+        &harness::plans_root().join("regress-full"),
+    ));
     let res = harness::par_map(&files, |f| {
         let text = fs::read_to_string(f).unwrap();
         let ctx = MemoryContext::new("fixture");
-        let Ok(fx) = corpus::load(ctx.mcx(), &text) else { return None };
+        let Ok(fx) = corpus::load(ctx.mcx(), &text) else {
+            return None;
+        };
         let arena = Arena::new(1 << 20);
-        let Ok(g) = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx) else { return None };
+        let Ok(g) = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx) else {
+            return None;
+        };
         let (bad, rep) = check(&g, fx.stmt);
         Some((fx.name.clone(), bad, rep))
     });
@@ -175,7 +226,11 @@ fn every_executed_plan_node_is_in_a_pipelines_node_ops() {
         bad.extend(b.into_iter().map(|x| format!("{f}: {x}")));
         rep.extend(r.into_iter().map(|x| format!("{f}: {x}")));
     }
-    println!("node_ops: {graphs} graphs, {} violations, {} repeats outside arms", bad.len(), rep.len());
+    println!(
+        "node_ops: {graphs} graphs, {} violations, {} repeats outside arms",
+        bad.len(),
+        rep.len()
+    );
     for x in bad.iter() {
         println!("violation: {x}");
     }

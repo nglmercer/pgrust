@@ -40,10 +40,27 @@ pub const PULL_FEW_ROWS: i64 = 1000;
 /// marker (V3-R1C): child `i` of `n` continues past it into the union's and the parent's ops and the parent's end,
 /// no slot between (`ordered`: the planner's ordered-Append mark held on every child, the arms run in child order).
 pub enum AppendDesc<'p> {
-    Feed { slot: u8, ordered: bool },
-    Arm { i: u16, n: u16, ordered: bool, prune: Option<PruneDesc<'p>> },
-    Union { slot: u8, children: u16, prune: Option<PruneDesc<'p>> },
-    Merge { slot: u8, children: u16, keys: ArenaVec<SortKey>, prune: Option<PruneDesc<'p>> },
+    Feed {
+        slot: u8,
+        ordered: bool,
+    },
+    Arm {
+        i: u16,
+        n: u16,
+        ordered: bool,
+        prune: Option<PruneDesc<'p>>,
+    },
+    Union {
+        slot: u8,
+        children: u16,
+        prune: Option<PruneDesc<'p>>,
+    },
+    Merge {
+        slot: u8,
+        children: u16,
+        keys: ArenaVec<SortKey>,
+        prune: Option<PruneDesc<'p>>,
+    },
 }
 
 /// A streamed union's children, held until the parent's end is pushed (`push_union`), and its order (the ordered

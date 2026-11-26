@@ -3,8 +3,8 @@
 //! arguments as widened words or as payload / image views formed at the boundary, the result by
 //! value or as an image in the region) or to an `FmgrCall` (tier C). Strictness is decided here.
 
-use mcx::GrowIn;
 use gravity_fn::{Arg, ArgKind, Datum, ErrSlot, FmgrCall, NullableDatum, Shim};
+use mcx::GrowIn;
 use types_core::Oid;
 use types_error::PgResult;
 use types_nodes::primnodes::{FuncExpr, OpExpr};
@@ -20,7 +20,11 @@ pub const MAX_ARGS: usize = gravity_fn::fmgr_call::FUNC_MAX_ARGS;
 /// A masked site (the ARRAY constructor's, the row's): one head word, the null mask's words (bit `i % 64` of word
 /// `i / 64` says value `i` is NULL), then the values by value.
 pub const fn mask_words(n: usize) -> usize {
-    if n == 0 { 1 } else { n.div_ceil(64) }
+    if n == 0 {
+        1
+    } else {
+        n.div_ceil(64)
+    }
 }
 
 /// The most values a masked site carries within a call's `MAX_ARGS` (the inverse of `1 + mask_words(n) + n`).
@@ -52,7 +56,11 @@ pub struct ArgConv {
 #[derive(Clone, Copy)]
 pub enum How {
     /// A direct shim; `convs` is the first of `nargs` entries in `Program::convs`; `byref` = an image in the region.
-    Shim { shim: &'static Shim, convs: u32, byref: bool },
+    Shim {
+        shim: &'static Shim,
+        convs: u32,
+        byref: bool,
+    },
     /// The function manager: an index into `State::calls`.
     Fmgr(u32),
     /// An interpreter island (`Program::islands`): the emitter's host evaluates `root` over the site's column `Var`s.
@@ -71,7 +79,13 @@ pub struct Call {
 }
 
 /// Bind `funcid` over `args` (already compiled; `arg_nodes` are the trees, for their types).
-pub fn bind<'mcx>(b: &mut Builder<'_, 'mcx>, funcid: Oid, args: Kids, arg_nodes: &NodeList<'mcx>, collation: Oid) -> CompileResult<Call> {
+pub fn bind<'mcx>(
+    b: &mut Builder<'_, 'mcx>,
+    funcid: Oid,
+    args: Kids,
+    arg_nodes: &NodeList<'mcx>,
+    collation: Oid,
+) -> CompileResult<Call> {
     let mut types = Vec::with_capacity(arg_nodes.len()); // alloc: Program
     for n in arg_nodes.iter() {
         types.push(nodes_core::expr_type(n));
@@ -118,7 +132,13 @@ impl Drop for SubstrAscii {
 
 /// Bind `funcid` with the argument types given: `args` may be empty when the caller supplies the
 /// argument values itself (`MinMaxExpr`, `RowCompareExpr`, `CoerceViaIO`).
-pub fn bind_typed(b: &mut Builder<'_, '_>, funcid: Oid, args: Kids, types: &[Oid], collation: Oid) -> CompileResult<Call> {
+pub fn bind_typed(
+    b: &mut Builder<'_, '_>,
+    funcid: Oid,
+    args: Kids,
+    types: &[Oid],
+    collation: Oid,
+) -> CompileResult<Call> {
     execute_gate(funcid)?;
     let facts = b.catalog.func(funcid)?;
     if facts.retset {
@@ -140,23 +160,49 @@ pub fn bind_typed(b: &mut Builder<'_, '_>, funcid: Oid, args: Kids, types: &[Oid
                 };
                 b.prog.convs.push_in(ArgConv { kind, typlen });
             }
-            how = Some(How::Shim { shim, convs, byref: shim.region });
+            how = Some(How::Shim {
+                shim,
+                convs,
+                byref: shim.region,
+            });
         }
     }
     let how = match how {
         Some(h) => h,
-        None => How::Fmgr(b.fmgr(FmgrCall::bind(funcid, nargs, collation)?, types, facts.node_arg)),
+        None => How::Fmgr(b.fmgr(
+            FmgrCall::bind(funcid, nargs, collation)?,
+            types,
+            facts.node_arg,
+        )),
     };
     let volatile = facts.call_acts(matches!(how, How::Fmgr(_)));
     // D316: a named collation is resolved here, on the leader, so the section's stamp arms its pool workers with it (a
     // worker has no catcache); a failure is the call's own at run time, as PG raises it
-    if !matches!(collation, 0 | gravity_fn::typesem::collation::DEFAULT_COLLATION_OID | gravity_fn::typesem::collation::C_COLLATION_OID | gravity_fn::typesem::collation::POSIX_COLLATION_OID) {
+    if !matches!(
+        collation,
+        0 | gravity_fn::typesem::collation::DEFAULT_COLLATION_OID
+            | gravity_fn::typesem::collation::C_COLLATION_OID
+            | gravity_fn::typesem::collation::POSIX_COLLATION_OID
+    ) {
         let _ = b.catalog.text(collation);
     }
-    Ok(Call { funcid, args, nargs: nargs as u8, strict: facts.strict, collation, how, rettype: 0, volatile })
+    Ok(Call {
+        funcid,
+        args,
+        nargs: nargs as u8,
+        strict: facts.strict,
+        collation,
+        how,
+        rettype: 0,
+        volatile,
+    })
 }
 
-pub fn compile_func<'mcx>(b: &mut Builder<'_, 'mcx>, f: &FuncExpr<'mcx>, node: Node<'mcx>) -> CompileResult<NodeId> {
+pub fn compile_func<'mcx>(
+    b: &mut Builder<'_, 'mcx>,
+    f: &FuncExpr<'mcx>,
+    node: Node<'mcx>,
+) -> CompileResult<NodeId> {
     if f.funcretset {
         return crate::nodes::srf::compile_srf(b, f);
     }
@@ -175,9 +221,21 @@ pub fn set_fn_expr<'mcx>(b: &mut Builder<'_, 'mcx>, call: &Call, node: Node<'mcx
         f.rettype = call.rettype;
         f.variadic = node.as_func_expr().is_some_and(|e| e.funcvariadic);
         f.stable = 0;
-        let args = node.as_func_expr().map(|e| &e.args).or_else(|| node.as_op_expr().map(|e| &e.args));
-        for (i, a) in args.into_iter().flat_map(|l| l.iter()).enumerate().take(128) {
-            f.stable |= (a.as_const().is_some_and(|c| gravity_fn::typesem::expr::unknown_type(c.consttype)) as u128) << i;
+        let args = node
+            .as_func_expr()
+            .map(|e| &e.args)
+            .or_else(|| node.as_op_expr().map(|e| &e.args));
+        for (i, a) in args
+            .into_iter()
+            .flat_map(|l| l.iter())
+            .enumerate()
+            .take(128)
+        {
+            f.stable |= (a
+                .as_const()
+                .is_some_and(|c| gravity_fn::typesem::expr::unknown_type(c.consttype))
+                as u128)
+                << i;
         }
         // SAFETY: a `Node` is a pointer into the plan arena, which outlives the program.
         let node = unsafe { core::mem::transmute::<Node<'mcx>, Node<'static>>(node) };
@@ -185,8 +243,16 @@ pub fn set_fn_expr<'mcx>(b: &mut Builder<'_, 'mcx>, call: &Call, node: Node<'mcx
     }
 }
 
-pub fn compile_op<'mcx>(b: &mut Builder<'_, 'mcx>, o: &OpExpr<'mcx>, node: Node<'mcx>) -> CompileResult<NodeId> {
-    let funcid = if o.opfuncid != 0 { o.opfuncid } else { b.catalog.opcode(o.opno)? };
+pub fn compile_op<'mcx>(
+    b: &mut Builder<'_, 'mcx>,
+    o: &OpExpr<'mcx>,
+    node: Node<'mcx>,
+) -> CompileResult<NodeId> {
+    let funcid = if o.opfuncid != 0 {
+        o.opfuncid
+    } else {
+        b.catalog.opcode(o.opno)?
+    };
     if o.opretset {
         return Ok(crate::nodes::srf::srf_cell(b, funcid, o.opresulttype));
     }
@@ -200,7 +266,14 @@ pub fn compile_op<'mcx>(b: &mut Builder<'_, 'mcx>, o: &OpExpr<'mcx>, node: Node<
 
 /// Evaluate the arguments of `call` into `args` / `nulls`; `true` when a null reached a strict call.
 #[inline(always)]
-pub fn eval_args(p: &Prog<'_, '_>, st: &mut St<'_>, call: &Call, cx: &mut Cx<'_, '_>, args: &mut [Datum; MAX_ARGS], nulls: &mut [bool; MAX_ARGS]) -> PgResult<bool> {
+pub fn eval_args(
+    p: &Prog<'_, '_>,
+    st: &mut St<'_>,
+    call: &Call,
+    cx: &mut Cx<'_, '_>,
+    args: &mut [Datum; MAX_ARGS],
+    nulls: &mut [bool; MAX_ARGS],
+) -> PgResult<bool> {
     let n = call.nargs as usize;
     let mut any_null = false;
     for i in 0..n {
@@ -212,7 +285,12 @@ pub fn eval_args(p: &Prog<'_, '_>, st: &mut St<'_>, call: &Call, cx: &mut Cx<'_,
     Ok(any_null)
 }
 
-pub fn eval_call(p: &Prog<'_, '_>, st: &mut St<'_>, call: &Call, cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
+pub fn eval_call(
+    p: &Prog<'_, '_>,
+    st: &mut St<'_>,
+    call: &Call,
+    cx: &mut Cx<'_, '_>,
+) -> PgResult<NullableDatum> {
     let mut args = [Datum::null(); MAX_ARGS];
     let mut nulls = [false; MAX_ARGS];
     let any_null = eval_args(p, st, call, cx, &mut args, &mut nulls)?;
@@ -221,14 +299,24 @@ pub fn eval_call(p: &Prog<'_, '_>, st: &mut St<'_>, call: &Call, cx: &mut Cx<'_,
 
 /// Call the bound function over evaluated arguments.
 #[inline]
-pub fn invoke(p: &Prog<'_, '_>, st: &mut St<'_>, call: &Call, cx: &mut Cx<'_, '_>, args: &[Datum; MAX_ARGS], nulls: &[bool; MAX_ARGS], any_null: bool) -> PgResult<NullableDatum> {
+pub fn invoke(
+    p: &Prog<'_, '_>,
+    st: &mut St<'_>,
+    call: &Call,
+    cx: &mut Cx<'_, '_>,
+    args: &[Datum; MAX_ARGS],
+    nulls: &[bool; MAX_ARGS],
+    any_null: bool,
+) -> PgResult<NullableDatum> {
     let n = call.nargs as usize;
     if any_null && call.strict {
         return Ok(NullableDatum::null());
     }
     match call.how {
         How::Island { root } => eval(p, st, root, cx),
-        How::Fmgr(ix) => st.calls[ix as usize].call_site(&args[..n], &nulls[..n]).map(|v| int_result(call.rettype, v)),
+        How::Fmgr(ix) => st.calls[ix as usize]
+            .call_site(&args[..n], &nulls[..n])
+            .map(|v| int_result(call.rettype, v)),
         How::Shim { shim, convs, byref } => {
             let mut a = [Arg::V(0); MAX_ARGS];
             for i in 0..n {
@@ -242,7 +330,11 @@ pub fn invoke(p: &Prog<'_, '_>, st: &mut St<'_>, call: &Call, cx: &mut Cx<'_, '_
             let mut e = ErrSlot::NONE;
             let r = (shim.call)(&mut e, cx.region, call.collation, &[], &a[..n]);
             match r.status {
-                gravity_fn::OK => Ok(NullableDatum::value(if byref { Datum::from_usize(r.val as usize) } else { Datum::from_i64(r.val) })),
+                gravity_fn::OK => Ok(NullableDatum::value(if byref {
+                    Datum::from_usize(r.val as usize)
+                } else {
+                    Datum::from_i64(r.val)
+                })),
                 gravity_fn::NULL => Ok(NullableDatum::null()),
                 gravity_fn::ERROR => Err(e.take().expect("a shim's ERROR carries its error")),
                 _ => Err(no_space()),
@@ -332,7 +424,8 @@ pub fn execute_gate(funcid: Oid) -> PgResult<()> {
         return objectaccess::InvokeFunctionExecuteHook(funcid);
     }
     let userid = miscinit_seams::get_user_id::call();
-    if aclchk_seams::object_aclcheck::call(PROCEDURE_RELATION_ID, funcid, userid, ACL_EXECUTE)? != 0 {
+    if aclchk_seams::object_aclcheck::call(PROCEDURE_RELATION_ID, funcid, userid, ACL_EXECUTE)? != 0
+    {
         return Err(permission_denied("function", funcid)?);
     }
     objectaccess::InvokeFunctionExecuteHook(funcid)
@@ -343,7 +436,9 @@ pub fn execute_gate(funcid: Oid) -> PgResult<()> {
 /// OAT_FUNCTION_EXECUTE hook. Never deferred: the graph admission's per-execution recheck calls it.
 pub fn aggregate_gate(aggfnoid: Oid) -> PgResult<()> {
     let userid = miscinit_seams::get_user_id::call();
-    if aclchk_seams::object_aclcheck::call(PROCEDURE_RELATION_ID, aggfnoid, userid, ACL_EXECUTE)? != 0 {
+    if aclchk_seams::object_aclcheck::call(PROCEDURE_RELATION_ID, aggfnoid, userid, ACL_EXECUTE)?
+        != 0
+    {
         return Err(permission_denied("aggregate", aggfnoid)?);
     }
     objectaccess::InvokeFunctionExecuteHook(aggfnoid)
@@ -355,7 +450,10 @@ fn permission_denied(what: &str, funcid: Oid) -> PgResult<Box<types_error::PgErr
     let cx = gravity_fn::session::root_context("gravity_expr permission_denied"); // alloc: Cold
     let name = lsyscache::get_func_name(cx.mcx(), funcid)?;
     let name = name.as_ref().map(|n| n.as_str()).unwrap_or("(unknown)");
-    let e = Box::new(types_error::PgError::error(format!("permission denied for {what} {name}")).with_sqlstate(types_error::ERRCODE_INSUFFICIENT_PRIVILEGE)); // alloc: Cold
+    let e = Box::new(
+        types_error::PgError::error(format!("permission denied for {what} {name}"))
+            .with_sqlstate(types_error::ERRCODE_INSUFFICIENT_PRIVILEGE),
+    ); // alloc: Cold
     #[allow(dropping_references)]
     drop(name);
     Ok(e)

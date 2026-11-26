@@ -8,7 +8,13 @@ pub static MONTHS: [&str; 12] = [
 ];
 
 pub static DAYS: [&str; 7] = [
-    "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
 ];
 
 #[inline]
@@ -63,7 +69,11 @@ pub fn j2date(jd: i32, year: &mut i32, month: &mut i32, day: &mut i32) {
     let extra = (julian.wrapping_sub(quad.wrapping_mul(146097)))
         .wrapping_mul(4)
         .wrapping_add(3);
-    julian = julian.wrapping_add(60u32.wrapping_add(quad.wrapping_mul(3)).wrapping_add(extra / 146097));
+    julian = julian.wrapping_add(
+        60u32
+            .wrapping_add(quad.wrapping_mul(3))
+            .wrapping_add(extra / 146097),
+    );
     quad = julian / 1461;
     julian = julian.wrapping_sub(quad.wrapping_mul(1461));
     let mut y = (julian.wrapping_mul(4) / 1461) as i32;

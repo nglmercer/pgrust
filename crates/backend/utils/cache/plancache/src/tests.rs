@@ -29,10 +29,10 @@ thread_local! {
     static USAGE_TITLES: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
-fn stub_planner< 'mcx>(
+fn stub_planner<'mcx>(
     mcx: mcx::Mcx<'mcx>,
     parse: &'mcx mut Query<'mcx>,
-    _query_string: & str,
+    _query_string: &str,
     _cursor_options: i32,
     _bound_params: ParamListHandle,
 ) -> PgResult<PlannedStmt<'mcx>> {
@@ -40,7 +40,10 @@ fn stub_planner< 'mcx>(
     let tree = Node::mk(
         mcx,
         ResultPlan {
-            plan: Plan { total_cost: PLANNER_COST.with(Cell::get), ..Plan::default() },
+            plan: Plan {
+                total_cost: PLANNER_COST.with(Cell::get),
+                ..Plan::default()
+            },
             resconstantqual: None,
         },
     )?;
@@ -52,7 +55,13 @@ fn stub_planner< 'mcx>(
     let mut inval_items = types_nodes::list::NodeList::nil();
     inval_items.lappend(
         mcx,
-        Node::mk(mcx, types_nodes::plannodes::PlanInvalItem { cacheId: PROCOID, hashValue: TEST_FUNC_HASH })?,
+        Node::mk(
+            mcx,
+            types_nodes::plannodes::PlanInvalItem {
+                cacheId: PROCOID,
+                hashValue: TEST_FUNC_HASH,
+            },
+        )?,
     )?;
     Ok(PlannedStmt {
         commandType: CmdType::CMD_SELECT,
@@ -70,7 +79,9 @@ fn install() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
         planner_seams::planner::set(stub_planner);
-        postgres_seams::reset_usage::set(|| USAGE_TITLES.with(|t| t.borrow_mut().push("reset".into())));
+        postgres_seams::reset_usage::set(|| {
+            USAGE_TITLES.with(|t| t.borrow_mut().push("reset".into()))
+        });
         postgres_seams::show_usage::set(|title| {
             USAGE_TITLES.with(|t| t.borrow_mut().push(title.to_owned()));
             Ok(())
@@ -131,8 +142,7 @@ fn test_mcx() -> mcx::Mcx<'static> {
 // pushed sentinel just satisfies ActiveSnapshotSet for the test thread.
 fn push_snapshot() {
     let mcx = test_mcx();
-    let snap: snapmgr::Snapshot =
-        Rc::new(SnapshotData::sentinel(mcx, SnapshotType::SNAPSHOT_MVCC));
+    let snap: snapmgr::Snapshot = Rc::new(SnapshotData::sentinel(mcx, SnapshotType::SNAPSHOT_MVCC));
     snapmgr::PushActiveSnapshot(&snap).unwrap();
 }
 
@@ -220,7 +230,11 @@ fn copied_query_tree_lands_in_a_small_context() {
     let qlist = CopyQueryListToSource(h, &[select_query(scratch, false)]).unwrap();
     CompleteCachedPlan(h, qlist, &[], types_portal::CURSOR_OPT_PARALLEL_OK, true).unwrap();
     let t = SourceQueryMcx(h).context().stats_tree();
-    assert!(t.arena_footprint <= 2048, "query context holds {} bytes", t.arena_footprint);
+    assert!(
+        t.arena_footprint <= 2048,
+        "query context holds {} bytes",
+        t.arena_footprint
+    );
     let list = SourceQueryList(h);
     assert_eq!(list.len(), 1);
     assert_eq!(list[0].commandType, CmdType::CMD_SELECT);
@@ -301,7 +315,10 @@ fn query_with_onconflict_sublink_rel<'m>(mcx: mcx::Mcx<'m>) -> Query<'m> {
     .unwrap();
     let oc = Node::mk(
         mcx,
-        OnConflictExpr { onConflictWhere: Some(sl), ..OnConflictExpr::default() },
+        OnConflictExpr {
+            onConflictWhere: Some(sl),
+            ..OnConflictExpr::default()
+        },
     )
     .unwrap();
     let mut q = select_query(mcx, true);
@@ -367,7 +384,11 @@ fn func_inval_invalidates_generic_plan_and_replans() {
     // A non-matching hash on PROCOID must not invalidate.
     inval::invalidate::CallSyscacheCallbacks(PROCOID, TEST_FUNC_HASH ^ 1).unwrap();
     let p2 = GetCachedPlan(h, ParamListHandle::NULL, None, QueryEnvHandle::NULL).unwrap();
-    assert_eq!(PLANNER_CALLS.with(Cell::get), 1, "warm hit: no re-plan on miss");
+    assert_eq!(
+        PLANNER_CALLS.with(Cell::get),
+        1,
+        "warm hit: no re-plan on miss"
+    );
     ReleaseCachedPlan(p2);
 
     // Matching PROCOID inval: source stays valid, generic plan is invalidated.
@@ -375,7 +396,11 @@ fn func_inval_invalidates_generic_plan_and_replans() {
     assert!(CachedPlanIsValid(h), "source querytree stays valid");
 
     let p3 = GetCachedPlan(h, ParamListHandle::NULL, None, QueryEnvHandle::NULL).unwrap();
-    assert_eq!(PLANNER_CALLS.with(Cell::get), 2, "generic plan re-planned after inval");
+    assert_eq!(
+        PLANNER_CALLS.with(Cell::get),
+        2,
+        "generic plan re-planned after inval"
+    );
     let stmts = CachedPlanStmtList(p3);
     assert_eq!(stmts.len(), 1);
     ReleaseCachedPlan(p3);
@@ -502,7 +527,11 @@ fn post_rewrite_hook_error_leaves_source_invalid() {
     PlanCacheSysCallback(Datum::from_oid(InvalidOid), NAMESPACEOID, 0);
     let err = GetCachedPlan(h, ParamListHandle::NULL, None, QueryEnvHandle::NULL)
         .expect_err("the hook's error must reach the caller");
-    assert!(err.message().contains("post-rewrite refusal"), "{:?}", err.message());
+    assert!(
+        err.message().contains("post-rewrite refusal"),
+        "{:?}",
+        err.message()
+    );
     assert!(!CachedPlanIsValid(h));
     DropCachedPlan(h);
 }
@@ -557,7 +586,10 @@ fn stub_post_rewrite_fails(
     _query_list: &mut PgVec<'static, Query<'static>>,
     _arg: i32,
 ) -> PgResult<()> {
-    Err(ereport(ERROR).errmsg("post-rewrite refusal").into_error().into())
+    Err(ereport(ERROR)
+        .errmsg("post-rewrite refusal")
+        .into_error()
+        .into())
 }
 
 fn stub_parse_analyze_fixedparams<'a, 'mcx>(
@@ -645,7 +677,12 @@ fn revalidation_reports_parse_analysis_statistics() {
     assert!(CachedPlanIsValid(h));
     assert_eq!(
         USAGE_TITLES.with(|t| t.borrow().clone()),
-        ["reset", "PARSE ANALYSIS STATISTICS", "reset", "REWRITER STATISTICS"]
+        [
+            "reset",
+            "PARSE ANALYSIS STATISTICS",
+            "reset",
+            "REWRITER STATISTICS"
+        ]
     );
     ReleaseCachedPlan(p2);
     DropCachedPlan(h);
@@ -800,7 +837,11 @@ fn exit_reclaim_releases_registry_slabs() {
     ReleaseAllCachedPlansAtExit(0, 0);
     with_cache(|pc| {
         assert!(pc.torn_down);
-        assert_eq!(pc.sources.capacity(), 0, "sources slab kept after exit reclaim");
+        assert_eq!(
+            pc.sources.capacity(),
+            0,
+            "sources slab kept after exit reclaim"
+        );
         assert_eq!(pc.plans.capacity(), 0, "plans slab kept after exit reclaim");
         assert_eq!(pc.saved_plan_list.capacity(), 0);
         assert_eq!(pc.source_free.capacity(), 0);
@@ -812,7 +853,6 @@ fn exit_reclaim_releases_registry_slabs() {
     }
     with_cache(|pc| pc.torn_down = false);
 }
-
 
 // Regression (bug_797bd58f): RevalidateCachedQuery `.take()`s the source's
 // search_path before the fallible SearchPathMatchesCurrentEnvironment probe.
@@ -845,10 +885,14 @@ fn revalidate_restores_search_path_when_environment_probe_errors() {
     let p = GetCachedPlan(h, ParamListHandle::NULL, None, QueryEnvHandle::NULL).unwrap();
     ReleaseCachedPlan(p);
 
-    let (valid_before, has_path_before, requires_reval) =
-        with_source(h, |s| (s.is_valid, s.search_path.is_some(), s.requires_reval));
+    let (valid_before, has_path_before, requires_reval) = with_source(h, |s| {
+        (s.is_valid, s.search_path.is_some(), s.requires_reval)
+    });
     assert!(valid_before, "source should be valid before the fault");
-    assert!(has_path_before, "revalidatable source should hold a search_path");
+    assert!(
+        has_path_before,
+        "revalidatable source should hold a search_path"
+    );
     assert!(requires_reval, "SELECT source must require revalidation");
 
     // Repoint the environment at a fresh, syntactically-invalid search path and
@@ -858,7 +902,10 @@ fn revalidate_restores_search_path_when_environment_probe_errors() {
 
     // The environment probe now errors; RevalidateCachedQuery must propagate it.
     let res = RevalidateCachedQuery(h, QueryEnvHandle::NULL, true);
-    assert!(res.is_err(), "faulted environment probe should propagate an error");
+    assert!(
+        res.is_err(),
+        "faulted environment probe should propagate an error"
+    );
 
     // ...and critically, must have restored the source's search_path first, and
     // left is_valid unchanged, so the cache entry is not corrupted.
@@ -902,7 +949,11 @@ fn replan_under_pin_defers_then_reclaims_old_query_arena() {
     // instead of freeing under p1 (pre-fix it silently leaked here).
     let p2 = GetCachedPlan(h, ParamListHandle::NULL, None, QueryEnvHandle::NULL).unwrap();
     assert_ne!(p1, p2);
-    assert_eq!(pending(h), 1, "displaced arena parks as pending under the pin");
+    assert_eq!(
+        pending(h),
+        1,
+        "displaced arena parks as pending under the pin"
+    );
 
     // Releasing the new plan first must NOT drain: p1 (older generation) can
     // still reference the displaced arena.
@@ -912,7 +963,11 @@ fn replan_under_pin_defers_then_reclaims_old_query_arena() {
     // The pin's release is the drain site: no live plan of the source has a
     // generation at-or-below the entry's barrier anymore.
     ReleaseCachedPlan(p1);
-    assert_eq!(pending(h), 0, "last old-generation release reclaims the arena");
+    assert_eq!(
+        pending(h),
+        0,
+        "last old-generation release reclaims the arena"
+    );
 
     DropCachedPlan(h);
 }
@@ -929,7 +984,11 @@ fn replan_without_pin_reclaims_old_query_arena_eagerly() {
     ReleaseCachedPlan(p1);
     PlanCacheSysCallback(Datum::from_oid(InvalidOid), NAMESPACEOID, 0);
     let p2 = GetCachedPlan(h, ParamListHandle::NULL, None, QueryEnvHandle::NULL).unwrap();
-    assert_eq!(pending(h), 0, "no pin: the old arena frees at the replan tail");
+    assert_eq!(
+        pending(h),
+        0,
+        "no pin: the old arena frees at the replan tail"
+    );
     ReleaseCachedPlan(p2);
     DropCachedPlan(h);
 }
@@ -1025,7 +1084,9 @@ fn make_role_source(rls: bool, role_plan: bool) -> CachedPlanSourceHandle {
 
 fn generic_plan_valid(h: CachedPlanSourceHandle) -> bool {
     with_cache(|pc| {
-        let gplan = source_mut(pc, h).gplan.expect("saved source keeps its generic plan");
+        let gplan = source_mut(pc, h)
+            .gplan
+            .expect("saved source keeps its generic plan");
         plan_mut(pc, gplan).is_valid
     })
 }
@@ -1051,7 +1112,10 @@ fn role_callback_invalidates_only_role_dependent_plans() {
         // (0 here, never run), so any nonzero hash is some other database
         PlanCacheRoleCallback(no_arg, DATABASEOID, 0x5EED);
         for h in [rls, role, plain] {
-            assert!(CachedPlanIsValid(h) && generic_plan_valid(h), "cacheid {cacheid}");
+            assert!(
+                CachedPlanIsValid(h) && generic_plan_valid(h),
+                "cacheid {cacheid}"
+            );
         }
 
         PlanCacheRoleCallback(no_arg, cacheid, 0);
@@ -1066,7 +1130,10 @@ fn role_callback_invalidates_only_role_dependent_plans() {
         for h in [rls, role, plain] {
             let plan = GetCachedPlan(h, ParamListHandle::NULL, None, QueryEnvHandle::NULL).unwrap();
             ReleaseCachedPlan(plan);
-            assert!(CachedPlanIsValid(h) && generic_plan_valid(h), "cacheid {cacheid}");
+            assert!(
+                CachedPlanIsValid(h) && generic_plan_valid(h),
+                "cacheid {cacheid}"
+            );
             DropCachedPlan(h);
         }
     }
@@ -1123,7 +1190,10 @@ fn retained_coerce_to_domain_is_not_a_query_dependency() {
     let mut out = PgVec::new_in(mcx);
     let mut items = PgVec::new_in(mcx);
     record_expr_tree_deps(cd, &mut out, &mut items).unwrap();
-    assert!(items.is_empty(), "CoerceToDomain must not add a TYPEOID invalItem");
+    assert!(
+        items.is_empty(),
+        "CoerceToDomain must not add a TYPEOID invalItem"
+    );
     assert!(out.is_empty());
 }
 
@@ -1140,14 +1210,22 @@ fn saved_list_and_plan_pins_track_drops_in_any_order() {
         for (i, h) in pc.saved_plan_list.clone().into_iter().enumerate() {
             assert_eq!(source_mut(pc, h).saved_pos, i);
         }
-        assert!(source_mut(pc, hs[3]).dead, "a pinned source is tombstoned, not freed");
+        assert!(
+            source_mut(pc, hs[3]).dead,
+            "a pinned source is tombstoned, not freed"
+        );
     });
     PlanCacheRelCallback(Datum::from_oid(InvalidOid), TEST_RELID);
     assert!(!CachedPlanIsValid(hs[1]));
     assert!(!CachedPlanIsValid(hs[2]));
     ReleaseCachedPlan(pinned);
     let (idx, _) = decode(hs[3].0);
-    with_cache(|pc| assert!(pc.sources[idx].is_none(), "last release frees the tombstone"));
+    with_cache(|pc| {
+        assert!(
+            pc.sources[idx].is_none(),
+            "last release frees the tombstone"
+        )
+    });
     DropCachedPlan(hs[1]);
     DropCachedPlan(hs[2]);
     with_cache(|pc| assert!(pc.saved_plan_list.is_empty()));

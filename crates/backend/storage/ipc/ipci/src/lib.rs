@@ -19,11 +19,17 @@ pgsync::process_global! {
 
 /// `shmem_startup_hook = hook` in a library's `_PG_init`.
 pub fn register_shmem_startup_hook(hook: ShmemStartupHook) {
-    SHMEM_STARTUP_HOOKS.lock().unwrap_or_else(|p| p.into_inner()).push(hook);
+    SHMEM_STARTUP_HOOKS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .push(hook);
 }
 
 fn run_shmem_startup_hooks() -> PgResult<()> {
-    let hooks = SHMEM_STARTUP_HOOKS.lock().unwrap_or_else(|p| p.into_inner()).clone();
+    let hooks = SHMEM_STARTUP_HOOKS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
     hooks.iter().try_for_each(|hook| hook())
 }
 
@@ -86,7 +92,10 @@ pub fn CalculateShmemSize(cfg: &ProcGlobalConfig) -> PgResult<(usize, i32)> {
     size = shmem::add_size(size, dsm_registry::DSMRegistryShmemSize())?;
     size = shmem::add_size(size, bufmgr::BufferManagerShmemSize()?)?;
     size = shmem::add_size(size, lock::LockManagerShmemSize(cfg.max_prepared_xacts)?)?;
-    size = shmem::add_size(size, predicate::PredicateLockShmemSize(cfg.max_prepared_xacts)?)?;
+    size = shmem::add_size(
+        size,
+        predicate::PredicateLockShmemSize(cfg.max_prepared_xacts)?,
+    )?;
     size = shmem::add_size(size, lmgr_proc::ProcGlobalShmemSize(cfg)?)?;
     size = shmem::add_size(size, xlogprefetcher::XLogPrefetchShmemSize())?;
     size = shmem::add_size(size, varsup::VarsupShmemSize())?;
@@ -99,11 +108,11 @@ pub fn CalculateShmemSize(cfg: &ProcGlobalConfig) -> PgResult<(usize, i32)> {
     size = shmem::add_size(size, bgworker::BackgroundWorkerShmemSize()?)?;
     size = shmem::add_size(size, multixact::MultiXactShmemSize())?;
     size = shmem::add_size(size, lwlock::LWLockShmemSize()?)?;
+    size = shmem::add_size(size, procarray::ProcArrayShmemSize(cfg.max_prepared_xacts)?)?;
     size = shmem::add_size(
         size,
-        procarray::ProcArrayShmemSize(cfg.max_prepared_xacts)?,
+        backend_status_seams::backend_status_shmem_size::call()?,
     )?;
-    size = shmem::add_size(size, backend_status_seams::backend_status_shmem_size::call()?)?;
     size = shmem::add_size(size, sinval::SharedInvalShmemSize()?)?;
     size = shmem::add_size(
         size,
@@ -149,7 +158,12 @@ pub fn CreateSharedMemoryAndSemaphores(fastpath_lock_groups_per_backend: i32) ->
 
     // C reports this from PGSharedMemoryCreate; thread-shared state never
     // mmaps with MAP_HUGETLB, so huge pages are always off (never "unknown").
-    guc::SetConfigOption("huge_pages_status", Some("off"), PGC_INTERNAL, PGC_S_DYNAMIC_DEFAULT)?;
+    guc::SetConfigOption(
+        "huge_pages_status",
+        Some("off"),
+        PGC_INTERNAL,
+        PGC_S_DYNAMIC_DEFAULT,
+    )?;
 
     // ipci.c:236 InitShmemAllocation over the segment header
     // PGSharedMemoryCreate sized (totalsize = size, sysv_shmem.c:855): seeds
@@ -205,7 +219,10 @@ pub fn CreateOrAttachShmemStructs(cfg: &ProcGlobalConfig) -> PgResult<()> {
     // structures are lmgr_proc statics, the ShmemIndex rows are C's.
     shmem::ShmemInitStruct("Proc Header", lmgr_proc::C_SIZEOF_PROC_HDR)?;
     shmem::ShmemInitStruct("PGPROC structures", lmgr_proc::PGProcShmemSize(cfg)?)?;
-    shmem::ShmemInitStruct("Fast-Path Lock Array", lmgr_proc::FastPathLockShmemSize(cfg)?)?;
+    shmem::ShmemInitStruct(
+        "Fast-Path Lock Array",
+        lmgr_proc::FastPathLockShmemSize(cfg)?,
+    )?;
     shmem::ShmemInitStruct("ProcStructLock spinlock", lmgr_proc::C_SIZEOF_SLOCK_T)?;
     procarray::ProcArrayShmemInit();
     backend_status_seams::backend_status_shmem_init::call()?;

@@ -289,10 +289,26 @@ fn ultostr_and_zeropad() {
 #[test]
 fn uint_subr_errors_carry_numutils_c_locations() {
     for (err, line, func) in [
-        (uint32in_subr("x", false, "oid", None).unwrap_err(), 918, "uint32in_subr"),
-        (uint32in_subr("99999999999", false, "oid", None).unwrap_err(), 963, "uint32in_subr"),
-        (uint64in_subr("x", false, "xid8", None).unwrap_err(), 1004, "uint64in_subr"),
-        (uint64in_subr("99999999999999999999999", false, "xid8", None).unwrap_err(), 1010, "uint64in_subr"),
+        (
+            uint32in_subr("x", false, "oid", None).unwrap_err(),
+            918,
+            "uint32in_subr",
+        ),
+        (
+            uint32in_subr("99999999999", false, "oid", None).unwrap_err(),
+            963,
+            "uint32in_subr",
+        ),
+        (
+            uint64in_subr("x", false, "xid8", None).unwrap_err(),
+            1004,
+            "uint64in_subr",
+        ),
+        (
+            uint64in_subr("99999999999999999999999", false, "xid8", None).unwrap_err(),
+            1010,
+            "uint64in_subr",
+        ),
     ] {
         let loc = err.location().expect("C location");
         assert_eq!(loc.filename.as_deref(), Some("numutils.c"));

@@ -64,9 +64,15 @@ fn tsvector_update_trigger(fcinfo: &mut Fcinfo, config_column: bool) -> PgResult
         return Err(internal_err("must be fired BEFORE event"));
     }
     let (rettuple_nn, mut update_needed) = if TRIGGER_FIRED_BY_INSERT(td.tg_event) {
-        (td.tg_trigtuple.expect("INSERT row trigger has a tuple"), true)
+        (
+            td.tg_trigtuple.expect("INSERT row trigger has a tuple"),
+            true,
+        )
     } else if TRIGGER_FIRED_BY_UPDATE(td.tg_event) {
-        (td.tg_newtuple.expect("UPDATE row trigger has a new tuple"), false)
+        (
+            td.tg_newtuple.expect("UPDATE row trigger has a new tuple"),
+            false,
+        )
     } else {
         return Err(internal_err("must be fired for INSERT or UPDATE"));
     };
@@ -88,7 +94,10 @@ fn tsvector_update_trigger(fcinfo: &mut Fcinfo, config_column: bool) -> PgResult
     if tsvector_attr_num == ::spi::SPI_ERROR_NOATTRIBUTE {
         return Err(col_err(
             ERRCODE_UNDEFINED_COLUMN,
-            format!("tsvector column \"{}\" does not exist", trigger.tgargs[0].as_str()),
+            format!(
+                "tsvector column \"{}\" does not exist",
+                trigger.tgargs[0].as_str()
+            ),
         ));
     }
     if !::coerce::IsBinaryCoercible(
@@ -97,7 +106,10 @@ fn tsvector_update_trigger(fcinfo: &mut Fcinfo, config_column: bool) -> PgResult
     )? {
         return Err(col_err(
             ERRCODE_DATATYPE_MISMATCH,
-            format!("column \"{}\" is not of tsvector type", trigger.tgargs[0].as_str()),
+            format!(
+                "column \"{}\" is not of tsvector type",
+                trigger.tgargs[0].as_str()
+            ),
         ));
     }
 
@@ -118,7 +130,10 @@ fn tsvector_update_trigger(fcinfo: &mut Fcinfo, config_column: bool) -> PgResult
         )? {
             return Err(col_err(
                 ERRCODE_DATATYPE_MISMATCH,
-                format!("column \"{}\" is not of regconfig type", trigger.tgargs[1].as_str()),
+                format!(
+                    "column \"{}\" is not of regconfig type",
+                    trigger.tgargs[1].as_str()
+                ),
             ));
         }
         let (d, isnull) = ::spi::SPI_getbinval(rettuple, tupdesc, config_attr_num);

@@ -25,7 +25,9 @@ fn call_expected_desc<'a>(fcinfo: &mut Fcinfo) -> Option<&'a TupleDescData<'a>> 
 
 fn arg_name(fcinfo: &Fcinfo, i: usize) -> String {
     // SAFETY: catalog arg i of these strict fns is a non-null name.
-    let nd = NameData { data: *unsafe { fcinfo.arg_name(i) } };
+    let nd = NameData {
+        data: *unsafe { fcinfo.arg_name(i) },
+    };
     String::from_utf8_lossy(nd.name_str()).into_owned()
 }
 
@@ -52,7 +54,9 @@ pub fn fc_pg_create_physical_replication_slot(
     if resolved.class != funcapi::TypeFuncClass::Composite {
         return Err(not_row_type());
     }
-    let tupdesc = resolved.result_tuple_desc.expect("composite result has tupdesc");
+    let tupdesc = resolved
+        .result_tuple_desc
+        .expect("composite result has tupdesc");
 
     slot::CheckSlotPermissions()?;
     slot::CheckSlotRequirements()?;
@@ -96,7 +100,9 @@ pub fn fc_pg_create_logical_replication_slot(
     if resolved.class != funcapi::TypeFuncClass::Composite {
         return Err(not_row_type());
     }
-    let tupdesc = resolved.result_tuple_desc.expect("composite result has tupdesc");
+    let tupdesc = resolved
+        .result_tuple_desc
+        .expect("composite result has tupdesc");
 
     slot::CheckSlotPermissions()?;
     logical::CheckLogicalDecodingRequirements()?;
@@ -168,8 +174,13 @@ pub fn fc_pg_get_replication_slots(
                 continue;
             }
 
-            let (mut data, active_pid, inactive_since) =
-                s.with_mutex(|| (unsafe { s.data.get() }, unsafe { s.active_pid.get() }, unsafe { s.inactive_since.get() }));
+            let (mut data, active_pid, inactive_since) = s.with_mutex(|| {
+                (
+                    unsafe { s.data.get() },
+                    unsafe { s.active_pid.get() },
+                    unsafe { s.inactive_since.get() },
+                )
+            });
 
             let mut values = [Datum::from_usize(0); PG_GET_REPLICATION_SLOTS_COLS];
             let mut nulls = [false; PG_GET_REPLICATION_SLOTS_COLS];
@@ -185,7 +196,14 @@ pub fn fc_pg_get_replication_slots(
             }
             i += 1;
 
-            values[i] = text_datum(mcx, if data.database == InvalidOid { "physical" } else { "logical" })?;
+            values[i] = text_datum(
+                mcx,
+                if data.database == InvalidOid {
+                    "physical"
+                } else {
+                    "logical"
+                },
+            )?;
             i += 1;
 
             if data.database == InvalidOid {
@@ -249,8 +267,12 @@ pub fn fc_pg_get_replication_slots(
                 WALAvailability::Removed => {
                     let mut lost = true;
                     if data.restart_lsn != 0 {
-                        let (pid, restart_lsn) =
-                            s.with_mutex(|| (unsafe { s.active_pid.get() }, unsafe { s.data.get() }.restart_lsn));
+                        let (pid, restart_lsn) = s.with_mutex(|| {
+                            (
+                                unsafe { s.active_pid.get() },
+                                unsafe { s.data.get() }.restart_lsn,
+                            )
+                        });
                         data.restart_lsn = restart_lsn;
                         if pid != 0 {
                             values[i] = text_datum(mcx, "unreserved")?;
@@ -278,7 +300,8 @@ pub fn fc_pg_get_replication_slots(
                 let fail_lsn = fail_seg * segsize as u64;
                 // WR L4b: the spool bytes the slot holds count against the same limit.
                 let spool = transam_xlog::spool_bytes_from(data.restart_lsn);
-                values[i] = Datum::from_i64(fail_lsn.wrapping_sub(currlsn).wrapping_sub(spool) as i64);
+                values[i] =
+                    Datum::from_i64(fail_lsn.wrapping_sub(currlsn).wrapping_sub(spool) as i64);
             }
             i += 1;
 
@@ -376,7 +399,9 @@ pub fn fc_pg_replication_slot_advance(
     if resolved.class != funcapi::TypeFuncClass::Composite {
         return Err(not_row_type());
     }
-    let tupdesc = resolved.result_tuple_desc.expect("composite result has tupdesc");
+    let tupdesc = resolved
+        .result_tuple_desc
+        .expect("composite result has tupdesc");
 
     moveto = if !transam_xlog::RecoveryInProgress() {
         moveto.min(transam_xlog::write::GetFlushRecPtr(None))
@@ -389,14 +414,20 @@ pub fn fc_pg_replication_slot_advance(
     if unsafe { slot::MyReplicationSlot().unwrap().data.get() }.restart_lsn == 0 {
         ereport(ERROR)
             .errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE)
-            .errmsg(format!("replication slot \"{slotname}\" cannot be advanced"))
+            .errmsg(format!(
+                "replication slot \"{slotname}\" cannot be advanced"
+            ))
             .errdetail("This slot has never previously reserved WAL, or it has been invalidated.")
             .finish(loc("pg_replication_slot_advance"))?;
         unreachable!("ereport(ERROR) returns Err");
     }
 
     let d = unsafe { slot::MyReplicationSlot().unwrap().data.get() };
-    let minlsn = if d.database != InvalidOid { d.confirmed_flush } else { d.restart_lsn };
+    let minlsn = if d.database != InvalidOid {
+        d.confirmed_flush
+    } else {
+        d.restart_lsn
+    };
     if moveto < minlsn {
         let (mh, ml) = lsn_pair(moveto);
         let (nh, nl) = lsn_pair(minlsn);
@@ -453,7 +484,9 @@ fn fc_copy_replication_slot(
     if resolved.class != funcapi::TypeFuncClass::Composite {
         return Err(not_row_type());
     }
-    let tupdesc = resolved.result_tuple_desc.expect("composite result has tupdesc");
+    let tupdesc = resolved
+        .result_tuple_desc
+        .expect("composite result has tupdesc");
 
     slot::CheckSlotPermissions()?;
     if logical_slot {
@@ -466,7 +499,10 @@ fn fc_copy_replication_slot(
         &src_name,
         &dst_name,
         logical_slot,
-        crate::CopySlotOverrides { temporary, plugin: plugin.as_deref() },
+        crate::CopySlotOverrides {
+            temporary,
+            plugin: plugin.as_deref(),
+        },
     );
     if let Err(e) = copied {
         // As with create_logical: an ephemeral (logical) destination slot
@@ -561,8 +597,18 @@ pub fn fc_pg_sync_replication_slots(
 use ::types_fmgr::builtin_strict as b;
 
 pub const SLOTFUNCS_BUILTINS: &[FmgrBuiltin] = &[
-    b(3779, "pg_create_physical_replication_slot", 3, fc_pg_create_physical_replication_slot),
-    b(3780, "pg_drop_replication_slot", 1, fc_pg_drop_replication_slot),
+    b(
+        3779,
+        "pg_create_physical_replication_slot",
+        3,
+        fc_pg_create_physical_replication_slot,
+    ),
+    b(
+        3780,
+        "pg_drop_replication_slot",
+        1,
+        fc_pg_drop_replication_slot,
+    ),
     FmgrBuiltin {
         foid: 3781,
         name: "pg_get_replication_slots",
@@ -571,12 +617,52 @@ pub const SLOTFUNCS_BUILTINS: &[FmgrBuiltin] = &[
         retset: true,
         func: fc_pg_get_replication_slots,
     },
-    b(3786, "pg_create_logical_replication_slot", 5, fc_pg_create_logical_replication_slot),
-    b(3878, "pg_replication_slot_advance", 2, fc_pg_replication_slot_advance),
-    b(4220, "pg_copy_physical_replication_slot", 3, fc_pg_copy_physical_replication_slot_a),
-    b(4221, "pg_copy_physical_replication_slot", 2, fc_pg_copy_physical_replication_slot_b),
-    b(4222, "pg_copy_logical_replication_slot", 4, fc_pg_copy_logical_replication_slot_a),
-    b(4223, "pg_copy_logical_replication_slot", 3, fc_pg_copy_logical_replication_slot_b),
-    b(4224, "pg_copy_logical_replication_slot", 2, fc_pg_copy_logical_replication_slot_c),
-    b(6344, "pg_sync_replication_slots", 0, fc_pg_sync_replication_slots),
+    b(
+        3786,
+        "pg_create_logical_replication_slot",
+        5,
+        fc_pg_create_logical_replication_slot,
+    ),
+    b(
+        3878,
+        "pg_replication_slot_advance",
+        2,
+        fc_pg_replication_slot_advance,
+    ),
+    b(
+        4220,
+        "pg_copy_physical_replication_slot",
+        3,
+        fc_pg_copy_physical_replication_slot_a,
+    ),
+    b(
+        4221,
+        "pg_copy_physical_replication_slot",
+        2,
+        fc_pg_copy_physical_replication_slot_b,
+    ),
+    b(
+        4222,
+        "pg_copy_logical_replication_slot",
+        4,
+        fc_pg_copy_logical_replication_slot_a,
+    ),
+    b(
+        4223,
+        "pg_copy_logical_replication_slot",
+        3,
+        fc_pg_copy_logical_replication_slot_b,
+    ),
+    b(
+        4224,
+        "pg_copy_logical_replication_slot",
+        2,
+        fc_pg_copy_logical_replication_slot_c,
+    ),
+    b(
+        6344,
+        "pg_sync_replication_slots",
+        0,
+        fc_pg_sync_replication_slots,
+    ),
 ];

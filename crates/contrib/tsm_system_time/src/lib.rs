@@ -97,7 +97,11 @@ pub fn sample_scan_get_sample_size(
         _ => 1000.0,
     };
 
-    let npages = if spc_random_page_cost > 0.0 { millis / spc_random_page_cost } else { millis };
+    let npages = if spc_random_page_cost > 0.0 {
+        millis / spc_random_page_cost
+    } else {
+        millis
+    };
     let npages = clamp_row_est((baserel_pages as f64).min(npages));
 
     let ntuples = if baserel_tuples > 0.0 && baserel_pages > 0 {
@@ -194,11 +198,17 @@ fn lookup(function: &str) -> Option<PGFunction> {
 
 dfmgr::builtin_library_seams!();
 
-mcx::forget_safe_struct!(
-    SystemTimeSampler {
-        seed, millis, start_time_ns, lt, doneblocks, lb, nblocks, firstblock, step,
-    },
-);
+mcx::forget_safe_struct!(SystemTimeSampler {
+    seed,
+    millis,
+    start_time_ns,
+    lt,
+    doneblocks,
+    lb,
+    nblocks,
+    firstblock,
+    step,
+},);
 
 #[cfg(test)]
 mod tests;
